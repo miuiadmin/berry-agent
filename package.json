@@ -14,7 +14,8 @@
     "agent",
     "cli",
     "tui",
-    "berry-agent"
+    "berry-agent",
+    "berry-agent-plugin"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
