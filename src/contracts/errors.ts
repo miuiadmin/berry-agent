@@ -61,6 +61,7 @@ export const ERROR_CODE_PREFIXES = [
   'SKILLS_',
   'PLUGIN_',
   'HOST_',
+  'PERSIST_',
 ] as const;
 
 /**
