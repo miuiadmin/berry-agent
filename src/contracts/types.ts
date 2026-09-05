@@ -108,3 +108,20 @@ export function parseEventSource(source: string): ParsedEventSource {
  */
 export type TurnEndReason =
   'completed' | 'aborted' | 'blocked' | 'error' | 'max-tokens' | 'interrupted' | (string & {});
+
+/**
+ * 会话血缘 origin 闭集（05 §5.1）：'conversation'（普通对话）/ 'delegation'
+ * （委派子会话）/ 'import'（外部导入）/ 'fork'（显式 fork）。无插件域——
+ * 会话直归 agent（05 §0 会话归属模型）。
+ */
+export type SessionOrigin = 'conversation' | 'delegation' | 'import' | 'fork';
+
+/** 血缘三元组（fork 动作的分层返回外层，05 §5.2；不返回幻影 id） */
+export interface SessionLineage {
+  /** 源会话 id（根会话 = undefined） */
+  readonly parentId: string | undefined;
+  /** 种子前缀长度（首条新 append 事件恰落此位，05 §5.2） */
+  readonly seedLength: number;
+  /** 血缘形态 */
+  readonly origin: SessionOrigin;
+}
