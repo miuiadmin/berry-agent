@@ -1,0 +1,18 @@
+node_modules/
+dist/
+out/
+coverage/
+*.db
+*.db-wal
+*.db-shm
+.env
+.DS_Store
+.pi/
+
+# 内部设计文档——知识域永不入公开史（承 berry 同律：gitignore 保护行入库存档，
+# 本地私有追加不提交；禁 git add -f 强加）
+设计文档/
+
+# 治理文档本地自持（AGENTS.md 真身 + CLAUDE.md symlink 指向它）——不入公开库
+AGENTS.md
+CLAUDE.md

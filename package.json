@@ -1,0 +1,44 @@
+{
+  "name": "berry-agent",
+  "version": "0.1.0-alpha.1",
+  "description": "berry-agent — 单一、可扩展的个人 Agent：对话与编码即本体，一切能力以插件装载",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "berry-agent": "./dist/host/main.js"
+  },
+  "engines": {
+    "node": ">=24.0"
+  },
+  "keywords": [
+    "agent",
+    "cli",
+    "tui",
+    "berry-agent"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint:topology": "node tools/check-topology.mjs",
+    "format": "prettier --write \"src/**/*.ts\" \"tools/**/*.mjs\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tools/**/*.mjs\"",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-tui": "0.84.4",
+    "better-sqlite3": "^13.0.3",
+    "ignore": "^7",
+    "jiti": "^2",
+    "typebox": "1.3.25",
+    "yaml": "^2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.4.1",
+    "prettier": "^3.5.0",
+    "tsx": "^4.23.13",
+    "typescript": "^6",
+    "vitest": "^4.1.11"
+  }
+}

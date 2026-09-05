@@ -1,0 +1,15 @@
+{
+  // 发布构建配置（07 篇 §8.3 思路照搬）：extends 主 tsconfig——typecheck
+  // （tsc --noEmit）仍走主配置（测试文件类型覆盖不丢）；仅 build 链
+  // （npm run build）改用本配置，产出零测试/声明/映射产物的干净 dist/：
+  //   - exclude 覆盖父值（extends 数组不合并），故新增 src/**/*.test.ts
+  //     （测试不入发布物）；
+  //   - declaration/sourceMap 关：包只作 CLI 装机物（bin 单入口、无 exports 面），
+  //     .d.ts/.js.map 是死重。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "sourceMap": false
+  },
+  "exclude": ["src/**/*.test.ts"]
+}
