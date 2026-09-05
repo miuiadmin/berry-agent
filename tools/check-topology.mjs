@@ -74,7 +74,7 @@ const MODULE_EDGES = {
 };
 
 /** 在场模块集（占位清单语义：边表其余键 = 显式占位、不判死边；落码逐批迁移进来） */
-const PRESENT_MODULES = new Set(['contracts']);
+const PRESENT_MODULES = new Set(['contracts', 'context']);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
 const NODE_BUILTIN = /^node:/;
@@ -139,8 +139,12 @@ for (const file of collectSourceFiles(SRC)) {
         );
         continue;
       }
-      // 公开面收敛：目标须命中四名之一（'../mod' 或 '../mod/index.ts' 等价公开面）
-      const face = parts.slice(2).join('/');
+      // 公开面收敛：目标须命中四名之一（'../mod' 或 '../mod/index' 等价公开面；
+      // 说明符写编译产物后缀 .js——归一化到 .ts 后比对）
+      const face = parts
+        .slice(2)
+        .join('/')
+        .replace(/\.(js|mjs|cjs)$/, '.ts');
       if (face && !PUBLIC_FACES.has(face)) {
         violations.push(`${relative(process.cwd(), file)}: 深挖 ${target} 实现面（${face}）——只准走公开面四名`);
       }
