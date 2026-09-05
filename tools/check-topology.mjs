@@ -90,8 +90,9 @@ const MODULE_EXTERNALS = {
   channels: ['@earendil-works/pi-tui'],
   persist: ['better-sqlite3'],
   // typebox 主包 + value 子路径（07 篇栈纪律：schema 层——工具参数面；宿主件
-  // 直用合法，插件侧一律走虚拟键三转发——与 llm 的 pi-ai 同款分账执法）
-  tools: ['typebox', 'typebox/value'],
+  // 直用合法，插件侧一律走虚拟键三转发——与 llm 的 pi-ai 同款分账执法）；
+  // ignore 包（07 篇 §120：gitignore 语义匹配——检索族遍历消费者之一）
+  tools: ['typebox', 'typebox/value', 'ignore'],
 };
 
 /** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面四名） */

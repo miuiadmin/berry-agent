@@ -19,3 +19,5 @@ export { parseApplyPatch, applyUpdateLines, addLinesToContent } from './apply-pa
 export type { PatchOperation, PatchLine } from './apply-patch.js';
 export { createFsTools, canonicalize, serializeWrites, assertTargetStable } from './fs.js';
 export type { FsTools, FsToolsOptions } from './fs.js';
+export { createSearchTools, globToRegExp } from './search.js';
+export type { SearchTools, SearchToolsOptions } from './search.js';
