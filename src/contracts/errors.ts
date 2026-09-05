@@ -63,6 +63,7 @@ export const ERROR_CODE_PREFIXES = [
   'HOST_',
   'PERSIST_',
   'API_',
+  'AGENT_',
 ] as const;
 
 /**
@@ -124,6 +125,21 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     code: 'API_CAPABILITY_MISSING',
     module: 'host',
     description: '（预留）宿主能力面缺席清单所需能力——可选件构建差能力分叉日启用，结构化 message 载缺席能力名清单',
+  },
+  {
+    code: 'AGENT_CONTINUE_INVALID',
+    module: 'agent',
+    description: 'continueRun 末角色校验红：末消息经 convertToLlm 转换后非 user/toolResult（04 篇 §2 入口两式）',
+  },
+  {
+    code: 'AGENT_ROLE_EXISTS',
+    module: 'agent',
+    description: '自定义消息角色撞名：标准角色名或既有在册自定义角色（03 篇 §2.7 消息面拒绝式）',
+  },
+  {
+    code: 'AGENT_ROLE_INVALID',
+    module: 'agent',
+    description: '自定义消息角色名违域名前缀两段式纪律（恰含一个 /、两段均小写字母数字连字符）',
   },
 ];
 

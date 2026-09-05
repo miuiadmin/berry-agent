@@ -3,6 +3,42 @@
   "enforcement": "pre-ignition",
   "exports": [
     {
+      "symbol": "AgentMessage",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "消息模型全集：标准三角色 ∪ 自定义角色（loop 与驱动侧的共同消息面）",
+      "kind": "type",
+      "sig": "0b3b57587ae5c3a0"
+    },
+    {
+      "symbol": "AgentTool",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具执行体（loop 工具批消费的最小形状——完整 defineTool 形在 tools 件）",
+      "kind": "interface",
+      "sig": "fa16ee71b6195fb4"
+    },
+    {
+      "symbol": "AgentToolCall",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具批执行输入项（assistant 内联 toolCall 块的直取形）",
+      "kind": "type",
+      "sig": "91cccd472455ecea"
+    },
+    {
+      "symbol": "AgentToolResult",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具执行结果（终值——错误也走 isError 数据面不走异常面）",
+      "kind": "interface",
+      "sig": "7603c6264bb7cc8a"
+    },
+    {
       "symbol": "ApiBlock",
       "module": "berry-agent",
       "tier": "stable",
@@ -66,13 +102,22 @@
       "sig": "5fa92f9db6979ac1"
     },
     {
+      "symbol": "CustomMessage",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "自定义角色消息（content 载荷形状由角色定义自裁——toLlm 映射的输入）",
+      "kind": "interface",
+      "sig": "06dea5b0a8b35e29"
+    },
+    {
       "symbol": "ERROR_CODE_PREFIXES",
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
       "desc": "错误码前缀族明列——文档性常量，供注册面校验与 CI 目录生成； 'HOST_' 系装配根码族",
       "kind": "const",
-      "sig": "83c70d1458247c13"
+      "sig": "4186c0e07cbac5dd"
     },
     {
       "symbol": "EVENT_CATEGORIES",
@@ -182,6 +227,24 @@
       "sig": "b8b13927589a2c17"
     },
     {
+      "symbol": "MessageRoleDefinition",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "角色定义：toLlm 映射（进模型上下文的降写）+ render 呈现（用户可见面）",
+      "kind": "interface",
+      "sig": "aad86c9e7450aaef"
+    },
+    {
+      "symbol": "MessageRoleRender",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "呈现意图（render 映射的输出半边；hidden = 瞬态注入不进用户可见流）",
+      "kind": "interface",
+      "sig": "cb1837728fc1b34f"
+    },
+    {
       "symbol": "ModelInfo",
       "module": "berry-agent",
       "tier": "stable",
@@ -198,6 +261,15 @@
       "desc": "parseEventSource 结果：归一化种类 + 原值 + 投影位判别",
       "kind": "interface",
       "sig": "b28cda611bb20b4e"
+    },
+    {
+      "symbol": "STANDARD_MESSAGE_ROLES",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "标准角色名闭集（convertToLlm 透传的标准半边；自定义角色撞此集任何一名即拒）",
+      "kind": "const",
+      "sig": "734176dabc67a1c8"
     },
     {
       "symbol": "SessionEvent",
@@ -299,6 +371,15 @@
       "sig": "1889ece095f0a5cf"
     },
     {
+      "symbol": "ToolExecutionMode",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具执行模式：sequential = 串行（缺省）；parallel = 并行",
+      "kind": "type",
+      "sig": "2dc54d34fc1407a8"
+    },
+    {
       "symbol": "ToolResultMessage",
       "module": "berry-agent",
       "tier": "stable",
@@ -306,6 +387,15 @@
       "desc": "工具结果消息（与 assistant 内 toolCall 按 toolCallId 配对）",
       "kind": "interface",
       "sig": "3b2525c357f955e9"
+    },
+    {
+      "symbol": "ToolUpdateCallback",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具执行进度回调（tool_execution_update 事件的载荷源；promise 结算后的迟到进度被丢弃）",
+      "kind": "type",
+      "sig": "1740ef09091e6da2"
     },
     {
       "symbol": "TurnEndReason",
@@ -371,6 +461,15 @@
       "sig": "5f44704420997a76"
     },
     {
+      "symbol": "getMessageRoleDefinition",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "查询角色定义（标准角色与未注册角色返回 undefined）",
+      "kind": "function",
+      "sig": "c1e61b6b589b7a21"
+    },
+    {
       "symbol": "isKnownErrorCode",
       "module": "berry-agent",
       "tier": "stable",
@@ -387,6 +486,15 @@
       "desc": "判别事件类型是否已注册（session append 词汇检查的判据源）",
       "kind": "function",
       "sig": "451f9b8d58b10ea7"
+    },
+    {
+      "symbol": "isStandardMessage",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "标准消息窄化守卫（正向判窄化——自定义消息判别用 !isStandardMessage）",
+      "kind": "function",
+      "sig": "cd998bd878463796"
     },
     {
       "symbol": "isValidApiVersion",
@@ -416,6 +524,15 @@
       "sig": "d38e2103b2d09b37"
     },
     {
+      "symbol": "listMessageRoleNames",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "在册自定义角色名枚举（诊断/目录面）",
+      "kind": "function",
+      "sig": "384ed3de7b398207"
+    },
+    {
       "symbol": "parseEventSource",
       "module": "berry-agent",
       "tier": "stable",
@@ -441,6 +558,15 @@
       "desc": "注册事件类型（插件扩展唯一入口；宿主件自管类型已列核心表）",
       "kind": "function",
       "sig": "67494a9eacf7b606"
+    },
+    {
+      "symbol": "registerMessageRole",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "注册自定义消息角色（ctx.agent.registerMessageRole 的本体——单入口）",
+      "kind": "function",
+      "sig": "3fbb7c68b0fe8765"
     },
     {
       "symbol": "anthropicMessagesApi",

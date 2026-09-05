@@ -23,3 +23,5 @@ export { compareApiVersions, isValidApiVersion } from './api.js';
 export * from './events.js';
 export * from './types.js';
 export * from './llm.js';
+export * from './messages.js';
+export * from './tools.js';
