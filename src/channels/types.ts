@@ -1,0 +1,119 @@
+/**
+ * channels 件类型契约（L4 宿主固定件——02 篇席 10；机制真源 07 篇 §4.1/§4.3、
+ * 03 篇 §2.2 命令面、04 篇 §4 队列、04 篇 §9 审批归属）。
+ *
+ * 批 10a 落通道核（多会话信封分流 + 投影拉取注入 + 命令面 + ui 原语分发 +
+ * 提问队列——通道无关逻辑，零 pi-tui import；pi-tui 接线归呈现批）。
+ * 单向 DAG：channels → contracts, context, agent（02 §4.1——投影类型经装配侧
+ * 泛型钉入，不 import session）。
+ */
+
+import type { AgentEvent } from '../agent/index.js';
+
+/**
+ * 多会话信封（07 §4.1 channels 纵切批定形）：AgentEvent 不带会话归属是刻意的
+ * ——loop 是单 run 视角无多会话概念；归属信封的包装者 = conversation 驱动侧
+ * （把 per-run sink 汇入 channels 分发器时附加），channels 消费分流。
+ */
+export interface SessionEnvelope {
+  readonly sessionId: string;
+  readonly event: AgentEvent;
+}
+
+/** notify 通知档（07 §4.3 签名定稿；'success' = 任务完成语义档） */
+export type NotifyLevel = 'info' | 'success' | 'warn' | 'error';
+
+/** 阻塞原语公共选项（07 §4.3 撤销面：abort 按取消收场取保守值） */
+export interface UiAskOptions {
+  /** 可选中止信号——abort 时 confirm→false / select·input→''（保守值收场） */
+  readonly signal?: AbortSignal;
+}
+
+/** select 单选项（07 §4.3 签名定稿形） */
+export interface UiSelectChoice {
+  readonly value: string;
+  readonly label: string;
+}
+
+/** input 原语选项 */
+export interface UiInputOptions extends UiAskOptions {
+  readonly placeholder?: string;
+}
+
+/**
+ * 通道能力声明（07 §4.3 通道降级规则的判定面）：不支持的原语按
+ * 「notify 化」降级（select→input→notify、setWidget→notify）——插件不感知
+ * 通道能力差异，降级判定与编舞在核。
+ */
+export interface UiCapabilities {
+  /** 一次性通知（一切通道的最后降级目标——接口上仍声明，装配健全性由核校验） */
+  readonly notify: boolean;
+  readonly confirm: boolean;
+  readonly select: boolean;
+  readonly input: boolean;
+  readonly setStatus: boolean;
+  readonly setWidget: boolean;
+}
+
+/**
+ * 通道后端接口（通道核的呈现消费面）。TUI 实装批接线 pi-tui、webui 件同面
+ * 接入；核经此面驱动一切呈现——阻塞原语多后端并发竞速（04 §9 跨入口竞速
+ * 先答先得），败腿经 signal 撤销收场（07 §4.3 撤销面同链）。
+ */
+export interface UiBackend<TProjection> {
+  /** 后端身份（'tui' / 'webui'——日志与调试面，非能力位） */
+  readonly id: string;
+  readonly capabilities: UiCapabilities;
+  /** 观众探针：本后端自报有观众（TUI 恒真 / webui 报在线连接数 > 0——07 §4.3） */
+  hasAudience(): boolean;
+  /** 一次性通知（level 档通道不识别时向后端自身归一 info） */
+  notify(message: string, opts?: { level?: NotifyLevel }): void;
+  /** 是/否确认（仅 capable 后端被调——缺席面降级判定在核） */
+  confirm?(message: string, opts?: UiAskOptions): Promise<boolean>;
+  /** 单选（Enter 选定 / Esc 取消收 ''——TUI 原生实装语义） */
+  select?(message: string, choices: readonly UiSelectChoice[], opts?: UiAskOptions): Promise<string>;
+  /** 自由文本输入 */
+  input?(message: string, opts?: UiInputOptions): Promise<string>;
+  /** 状态行更新（last-writer-wins——多写者自然覆盖） */
+  setStatus?(sessionId: string, status: string): void;
+  /** 自定义渲染槽呈现（会话级单槽值由核维护——见 UiCore.setWidget） */
+  setWidget?(sessionId: string, node: unknown | null): void;
+  /** 活体信封呈现（focused 位由核路由——聚焦全渲染/非聚焦摘要行，形态归后端） */
+  onEnvelope?(env: SessionEnvelope, focused: boolean): void;
+  /** 重画呈现（焦点切换/初始——载荷 = 投影快照 + 该会话当前 widget 槽值） */
+  onRepaint?(sessionId: string, projection: readonly TProjection[], widget: { node: unknown } | null): void;
+}
+
+/** 命令参数（03 §2.2 签名定形：raw 原文引号原样 / argv 引号感知词切分） */
+export interface CommandArgs {
+  /** 命令名后的输入原文（引号形态原样保留） */
+  readonly raw: string;
+  /** 引号感知切分的词数组（单引号保字面、双引号保内部空格、裸词按空白切） */
+  readonly argv: readonly string[];
+}
+
+/** TUI 命令 handler 形（03 §2.2：void/Promise 双形） */
+export type CommandHandler = (args: CommandArgs) => void | Promise<void>;
+
+/** 命令注册条目（/help 与补全面消费——description 可选） */
+export interface CommandSpec {
+  readonly name: string;
+  readonly handler: CommandHandler;
+  readonly description?: string;
+}
+
+/** 提问队列项 kind（07 §4.3 提问队列：阻塞原语与审批 ask 统一入队） */
+export type AskKind = 'confirm' | 'select' | 'input' | 'approval';
+
+/**
+ * 通道核装配选项。投影拉取经注入回调（host 装配侧钉 session 面——channels
+ * 不依赖 session 是 02 §4.1 边表的刻意设计，投影类型 TProjection 由装配钉入）。
+ */
+export interface ChannelsOptions<TProjection> {
+  /**
+   * 投影拉取注入（焦点切换清屏重画的数据源——07 §4.1 通道契约）。
+   * 缺席时 focus 仍可切（焦点态生效）、repaint 以空投影收场——装配错误
+   * 呈现缺真源是核可观察态，不静默假装有历史。
+   */
+  readonly fetchProjection?: (sessionId: string) => Promise<readonly TProjection[]>;
+}

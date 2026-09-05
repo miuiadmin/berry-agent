@@ -141,6 +141,12 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     module: 'agent',
     description: '自定义消息角色名违域名前缀两段式纪律（恰含一个 /、两段均小写字母数字连字符）',
   },
+  {
+    code: 'CHANNEL_COMMAND_INVALID',
+    module: 'channels',
+    description:
+      '命令名词法违例拒注册：主段连字符式 + 可选冒号子段（03 篇 §2.2 签名定形——撞名后写胜出不拒、词法违例拒）',
+  },
 ];
 
 /** 注册表本体（code → 目录条目）；模块加载时灌入核心码，插件码经 registerErrorCodes 入 */

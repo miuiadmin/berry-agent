@@ -84,6 +84,7 @@ const PRESENT_MODULES = new Set([
   'tools',
   'safety',
   'compaction',
+  'channels',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
