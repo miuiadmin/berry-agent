@@ -41,8 +41,9 @@ import { ObservedFiles, requireObservedForEdit, resolveWriteIntent, statVersion 
 /** fs 工具族选项（装配层注入，全部可换——测试面钉临时目录的标准位） */
 export interface FsToolsOptions {
   /**
-   * 可写根 provider（fence 数据源；返回绝对路径列表）。safety 件落成后由
-   * 其推导（与沙箱 profile 同源）；缺省 = workspace 根 + 系统临时目录。
+   * 可写根 provider（fence 数据源；返回绝对路径列表）。safety 件已落码——
+   * 装配层应注入 safety.createRootsProvider 产物（与沙箱 profile 同源；host
+   * 装配批接线）；缺省 = workspace 根 + 系统临时目录（过渡缺省，不随档位）。
    */
   writableRoots?: () => string[];
   /** 工作区锚点（相对路径 resolve 基准；缺省 canonical 工作区根〔context 单源〕） */
@@ -230,7 +231,7 @@ function headUtf8(buf: Buffer, maxBytes: number): string {
  */
 export function createFsTools(opts: FsToolsOptions = {}): FsTools {
   const workspace = opts.workspace ?? (() => canonicalWorkspaceRoot());
-  const writableRoots = opts.writableRoots ?? (() => [workspace(), tmpdir()]); // 过渡缺省；safety 件落成换其推导
+  const writableRoots = opts.writableRoots ?? (() => [workspace(), tmpdir()]); // 过渡缺省（不随档位）；host 装配批换 safety.createRootsProvider
   const maxReadBytes = opts.maxReadBytes ?? 256 * 1024;
   const maxImageBytes = opts.maxImageBytes ?? 5 * 1024 * 1024;
   const observed = new ObservedFiles();
