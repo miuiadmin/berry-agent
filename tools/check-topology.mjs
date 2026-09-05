@@ -74,7 +74,7 @@ const MODULE_EDGES = {
 };
 
 /** 在场模块集（占位清单语义：边表其余键 = 显式占位、不判死边；落码逐批迁移进来） */
-const PRESENT_MODULES = new Set(['contracts', 'context', 'session', 'persist', 'llm', 'agent']);
+const PRESENT_MODULES = new Set(['contracts', 'context', 'session', 'persist', 'llm', 'agent', 'tools']);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
 const NODE_BUILTIN = /^node:/;
@@ -89,6 +89,9 @@ const MODULE_EXTERNALS = {
   ],
   channels: ['@earendil-works/pi-tui'],
   persist: ['better-sqlite3'],
+  // typebox 主包 + value 子路径（07 篇栈纪律：schema 层——工具参数面；宿主件
+  // 直用合法，插件侧一律走虚拟键三转发——与 llm 的 pi-ai 同款分账执法）
+  tools: ['typebox', 'typebox/value'],
 };
 
 /** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面四名） */

@@ -173,6 +173,51 @@
       "sig": "25a4746162e827d9"
     },
     {
+      "symbol": "ExecuteInput",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "执行段 waterfall 载荷（around-dispatch：T = 执行闭包，监听者包装后经 next 传播）",
+      "kind": "type",
+      "sig": "88e0e02b4f8d31ab"
+    },
+    {
+      "symbol": "GateAction",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "守门段决策词汇（03 §2.4——拦截族 handler 控制输出同一套）",
+      "kind": "type",
+      "sig": "5c63915b3c56e64e"
+    },
+    {
+      "symbol": "GateDecisionRecord",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "gate/decision durable 落账记录（05 §1.1 词汇表 gate/decision 行的 data 形状）",
+      "kind": "interface",
+      "sig": "7710fcdd9c92bd13"
+    },
+    {
+      "symbol": "GateDecisionSink",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "gate/decision 落账 sink（装配根接 session.append；tools 不依赖 session——DAG 单向）",
+      "kind": "type",
+      "sig": "161b0853f89f1bd4"
+    },
+    {
+      "symbol": "GateInput",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "守门段 waterfall 载荷（04 §7 段 2）",
+      "kind": "interface",
+      "sig": "a832f3354cd32f66"
+    },
+    {
       "symbol": "HostFace",
       "module": "berry-agent",
       "tier": "stable",
@@ -263,6 +308,15 @@
       "sig": "b28cda611bb20b4e"
     },
     {
+      "symbol": "PostExecuteInput",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "后处理段 waterfall 载荷（可就地改写 result——裁剪/spill/isError 改写）",
+      "kind": "interface",
+      "sig": "52f7bc117a9828b8"
+    },
+    {
       "symbol": "STANDARD_MESSAGE_ROLES",
       "module": "berry-agent",
       "tier": "stable",
@@ -335,6 +389,47 @@
       "sig": "fc681ead08fc910d"
     },
     {
+      "symbol": "TOOLS_CHANGE_EVENT",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "kind": "const",
+      "sig": "02c841113fa48cc5"
+    },
+    {
+      "symbol": "TOOL_EVENT_NAMES",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "tools 件经 ctx 事件面消费的词汇全集（装配根注册清单单源）",
+      "kind": "const",
+      "sig": "07a204e8d1a235a3"
+    },
+    {
+      "symbol": "TOOL_EXECUTE_EVENT",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "kind": "const",
+      "sig": "34a35c3a08e3d246"
+    },
+    {
+      "symbol": "TOOL_POST_EXECUTE_EVENT",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "kind": "const",
+      "sig": "ab9a73ce37834fa5"
+    },
+    {
+      "symbol": "TOOL_PRE_EXECUTE_EVENT",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "kind": "const",
+      "sig": "10a7f9d4dba3297e"
+    },
+    {
       "symbol": "TextContent",
       "module": "berry-agent",
       "tier": "stable",
@@ -371,6 +466,33 @@
       "sig": "1889ece095f0a5cf"
     },
     {
+      "symbol": "ToolContext",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具执行语境（管道构造后传给 ToolDefinition.execute 的第 2 参）",
+      "kind": "interface",
+      "sig": "d8b47296f2607e66"
+    },
+    {
+      "symbol": "ToolDefinition",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "注册表内工具定义（03 §2.3 defineTool 形——插件注册动词 ctx.tools.register 的入参形状）",
+      "kind": "interface",
+      "sig": "b8f4716757c79f28"
+    },
+    {
+      "symbol": "ToolEffect",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具效果面（03 §2.3）：缺省 read；write 触发审批对（审批编舞归 safety 件）",
+      "kind": "type",
+      "sig": "0d0001e711109c11"
+    },
+    {
       "symbol": "ToolExecutionMode",
       "module": "berry-agent",
       "tier": "stable",
@@ -378,6 +500,15 @@
       "desc": "工具执行模式：sequential = 串行（缺省）；parallel = 并行",
       "kind": "type",
       "sig": "2dc54d34fc1407a8"
+    },
+    {
+      "symbol": "ToolPipelineExecutor",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "三段管道执行器（注册表 toAgentTool 的执行真身；抛 BaseError 由 loop 包装 isError）",
+      "kind": "type",
+      "sig": "17426ce31cb7fb6c"
     },
     {
       "symbol": "ToolResultMessage",
