@@ -18,6 +18,7 @@ registerEventType({
   type: 'test/occlusion',
   category: 'surface',
   owner: 'session.test',
+  tier: 'stable',
   description: '测试用遮蔽指令载体',
 });
 
@@ -98,6 +99,7 @@ describe('append 七步流水线', () => {
       type: 'test/ignorable-word',
       category: 'log-only',
       owner: 'session.test',
+      tier: 'stable',
       description: 'ignorable 信封测试',
     });
     const { log, clockValue } = makeLog();

@@ -11,7 +11,10 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.ts'],
+    // 工具件测试（check-api 十查红绿证等——spawn 全闸 + 纯函数单元锁）点名收
+    // 进 node 轨：include 显式列举，不开 tools/**/*.test.mjs 通配（否定条目/
+    // 宽通配杀 coverage 面——承 berry 基建大扫教训，逐件点名扩）
+    include: ['src/**/*.test.ts', 'tools/check-api.test.mjs'],
     environment: 'node',
     setupFiles: ['tools/vitest-setup.mjs'],
     // per-test 兜底时限（承 berry 壁钟教训：重载全栈用例并行下 5s 可超）；

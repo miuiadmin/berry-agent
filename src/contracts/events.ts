@@ -12,6 +12,7 @@
  *  - structure：日志骨架标记（turn 边界/种子边界）——不进模型历史，
  *    但是 fold 的判定输入（「不进模型历史」与「fold 不读」是两回事）。
  */
+import type { ApiTier } from './api.js';
 import { BaseError } from './errors.js';
 
 /** 事件类别四分法闭集（类别列口径与 05 §3.1 投影执法对齐） */
@@ -29,6 +30,12 @@ export interface EventTypeMeta {
    * （05 §1.1 表注）：CI 校验抛出/写入点一致的依据。
    */
   owner: string;
+  /**
+   * API 稳定性 tier（必填——零隐式 API 载体：目录宿主符号三级标签之一，
+   * TS 编译期即红；03 篇 §8.3 标级载体分职。核心 16 词全 stable——
+   * 会话事件词汇是已收口契约面）。
+   */
+  tier: ApiTier;
   /** 中文语义描述（生成目录用） */
   description: string;
   /** true = 读侧可以不认识此类型（向前兼容）；缺省 = 必须认识（核心词全部不 ignorable） */
@@ -40,25 +47,35 @@ export interface EventTypeMeta {
  * gate/decision 归 tools、llm/usage 归 llm、llm/retry 注册走 session
  * 核心词汇（llm 模块不知道驱动存在）、plugin/uninstalled 宿主写点 host、
  * approval/* 与 sandbox/mode 归 safety 域、todo/write 归 conversation）。
+ * tier 全 stable（核心词汇 = 已收口契约面，03 §8.3 零隐式载体）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
-  { type: 'turn/start', category: 'structure', owner: 'session', description: '一轮（用户输入 → 停止）开始' },
+  {
+    type: 'turn/start',
+    category: 'structure',
+    owner: 'session',
+    tier: 'stable',
+    description: '一轮（用户输入 → 停止）开始',
+  },
   {
     type: 'turn/end',
     category: 'structure',
     owner: 'session',
+    tier: 'stable',
     description: '一轮结束；reason = completed/aborted/blocked/error/max-tokens/interrupted（可扩展）',
   },
   {
     type: 'user/message',
     category: 'surface',
     owner: 'session',
+    tier: 'stable',
     description: '用户输入（string 或 text/image 块）；source 归因词汇闭集见 types.ts',
   },
   {
     type: 'assistant/message',
     category: 'surface',
     owner: 'session',
+    tier: 'stable',
     description:
       '组装完成后的消息级事件；toolCall 块不内联 content（由 tool/call 唯一承载）；errorMessage 腿独立 2KiB 小帽',
   },
@@ -66,67 +83,78 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     type: 'tool/call',
     category: 'surface',
     owner: 'session',
+    tier: 'stable',
     description: '工具调用（arguments 存原始未解析字符串——审计保真）',
   },
-  { type: 'tool/result', category: 'surface', owner: 'session', description: '一调用一结果' },
+  { type: 'tool/result', category: 'surface', owner: 'session', tier: 'stable', description: '一调用一结果' },
   {
     type: 'todo/write',
     category: 'surface',
     owner: 'conversation',
+    tier: 'stable',
     description: '轮内清单全量快照（last-write-wins）；fold = 日志倒扫最后一条 user/message 之后的最后一条本事件',
   },
   {
     type: 'request/header',
     category: 'snapshot',
     owner: 'session',
+    tier: 'stable',
     description: '完整请求信封快照；reason = initial/resume/change，重建请求取最后一条为基准',
   },
   {
     type: 'session/end-seed',
     category: 'structure',
     owner: 'session',
+    tier: 'stable',
     description: 'fork 种子边界标记（data 为空对象，边界即事件自身 seq）',
   },
   {
     type: 'approval/asked',
     category: 'log-only',
     owner: 'safety',
+    tier: 'stable',
     description: '审批提问（决策对完整内容；turn 内闭合可回放）',
   },
   {
     type: 'approval/decided',
     category: 'log-only',
     owner: 'safety',
+    tier: 'stable',
     description: '审批决策（决策对完整内容；turn 内闭合可回放）',
   },
   {
     type: 'gate/decision',
     category: 'log-only',
     owner: 'tools',
+    tier: 'stable',
     description: '守门段决策（toolCallId/decision(allow|block|mutate)/reason）——「守门不可绕」不变式的断言对象',
   },
   {
     type: 'sandbox/mode',
     category: 'log-only',
     owner: 'safety',
+    tier: 'stable',
     description: '会话级沙箱状态 = fold(events)，append 即切换、重放即恢复（无独立配置存储）',
   },
   {
     type: 'llm/usage',
     category: 'log-only',
     owner: 'llm',
+    tier: 'stable',
     description: 'complete 单发补全通道的计量事实（token 原始值入账，货币折算在投影查询做）',
   },
   {
     type: 'llm/retry',
     category: 'log-only',
     owner: 'session',
+    tier: 'stable',
     description: 'turn 级 auto-retry 的 durable 事实（attempt/phase scheduled|aborted|exhausted；成功不落）',
   },
   {
     type: 'plugin/uninstalled',
     category: 'log-only',
     owner: 'host',
+    tier: 'stable',
     description: '卸载四段成功尾落账（id/source/dataAction/affected?；核心词身份拒装载面注册）',
   },
 ];

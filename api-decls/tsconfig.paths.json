@@ -1,0 +1,12 @@
+{
+  "//": "插件侧 tsconfig paths 模板（API 治理公开面）——拷进插件 tsconfig 的 compilerOptions.paths；相对段按插件 tsconfig 所在目录调整（示例假插件与宿主包同级安装）；typebox 三键经插件自身 dependencies 解析（类型面同 npm 包，运行时仍走加载器注入防双实例），三行映射是等价兜底非必需；berry-agent/sqlite 键行随 SqliteFace 落码批补（届时见 COMPATIBILITY.md 版本注记）。",
+  "compilerOptions": {
+    "paths": {
+      "berry-agent": ["../node_modules/berry-agent/dist/api/berry-agent.d.ts"],
+      "berry-agent/llm": ["../node_modules/berry-agent/dist/api/berry-agent-llm.d.ts"],
+      "typebox": ["../node_modules/berry-agent/dist/api/typebox.d.ts"],
+      "typebox/value": ["../node_modules/berry-agent/dist/api/typebox-value.d.ts"],
+      "typebox/compile": ["../node_modules/berry-agent/dist/api/typebox-compile.d.ts"]
+    }
+  }
+}

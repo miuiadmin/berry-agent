@@ -61,6 +61,7 @@ describe('事件词汇注册表', () => {
       type: 'test-plugin/custom',
       category: 'log-only',
       owner: 'test-plugin',
+      tier: 'stable',
       description: '测试用例临时词',
       ignorable: true,
     });
@@ -70,10 +71,22 @@ describe('事件词汇注册表', () => {
 
   it('核心词身份拒装载面注册（SESSION_CORE_TYPE_FORBIDDEN——双闸之一）', () => {
     expect(() =>
-      registerEventType({ type: 'user/message', category: 'surface', owner: 'evil-plugin', description: '伪造核心词' }),
+      registerEventType({
+        type: 'user/message',
+        category: 'surface',
+        owner: 'evil-plugin',
+        tier: 'stable',
+        description: '伪造核心词',
+      }),
     ).toThrowError(BaseError);
     try {
-      registerEventType({ type: 'turn/end', category: 'structure', owner: 'evil-plugin', description: '伪造核心词' });
+      registerEventType({
+        type: 'turn/end',
+        category: 'structure',
+        owner: 'evil-plugin',
+        tier: 'stable',
+        description: '伪造核心词',
+      });
       expect.unreachable();
     } catch (err) {
       if (err instanceof BaseError) {
@@ -87,7 +100,13 @@ describe('事件词汇注册表', () => {
 
   it('同型重复注册抛 HOST_EVENT_TYPE_CONFLICT', () => {
     try {
-      registerEventType({ type: 'test-plugin/custom', category: 'log-only', owner: 'another', description: '撞型' });
+      registerEventType({
+        type: 'test-plugin/custom',
+        category: 'log-only',
+        owner: 'another',
+        tier: 'stable',
+        description: '撞型',
+      });
       expect.unreachable();
     } catch (err) {
       if (err instanceof BaseError) {

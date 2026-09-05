@@ -62,6 +62,7 @@ export const ERROR_CODE_PREFIXES = [
   'PLUGIN_',
   'HOST_',
   'PERSIST_',
+  'API_',
 ] as const;
 
 /**
@@ -103,6 +104,26 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     code: 'PLUGIN_SHAPE_INVALID',
     module: 'host',
     description: '插件入口形状无效：entry 缺席且无声明载荷时 main default export 缺失/不可解析（03 篇入口解析序③）',
+  },
+  {
+    code: 'API_VERSION_MISMATCH',
+    module: 'host',
+    description: '装载门版本不符拒载：宿主 API 版本低于清单 min，或点火后清单缺 api 块（03 篇 §8.4）',
+  },
+  {
+    code: 'API_EXPERIMENTAL_UNDECLARED',
+    module: 'host',
+    description: '插件消费实验档（experimental）API 符号但清单 api 块未声明该键（03 篇 §8.4）',
+  },
+  {
+    code: 'API_VERSION_MALFORMED',
+    module: 'host',
+    description: 'api 块版本串坏形（非 x.y 整数点分两段；03 篇 §8.4 坏形防御）',
+  },
+  {
+    code: 'API_CAPABILITY_MISSING',
+    module: 'host',
+    description: '（预留）宿主能力面缺席清单所需能力——可选件构建差能力分叉日启用，结构化 message 载缺席能力名清单',
   },
 ];
 

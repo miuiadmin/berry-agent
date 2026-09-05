@@ -22,6 +22,7 @@ registerEventType({
   type: 'persist.test/note',
   category: 'surface',
   owner: 'persist.test',
+  tier: 'stable',
   description: '测试用 surface 类别事件',
 });
 

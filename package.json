@@ -1,6 +1,7 @@
 {
   "name": "berry-agent",
   "version": "0.1.0-alpha.1",
+  "apiVersion": "1.0",
   "description": "berry-agent — 单一、可扩展的个人 Agent：对话与编码即本体，一切能力以插件装载",
   "type": "module",
   "license": "MIT",
@@ -20,10 +21,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint:topology": "node tools/check-topology.mjs",
+    "lint:topology": "node tools/check-topology.mjs && node tools/check-api.mjs",
     "format": "prettier --write \"src/**/*.ts\" \"tools/**/*.mjs\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tools/**/*.mjs\"",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.4",

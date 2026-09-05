@@ -1,0 +1,635 @@
+{
+  "apiVersion": "1.0",
+  "enforcement": "pre-ignition",
+  "exports": [
+    {
+      "symbol": "ApiBlock",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "清单 api 块形状",
+      "kind": "interface",
+      "sig": "9908c12f10a2b293"
+    },
+    {
+      "symbol": "ApiTier",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "API 稳定性 tier 词汇",
+      "kind": "type",
+      "sig": "eae60cd3d5ce7dce"
+    },
+    {
+      "symbol": "AssistantMessage",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "助手消息（流式组装终值；stopReason=error/aborted 时错误即数据，见 AssistantStream）",
+      "kind": "interface",
+      "sig": "d13b04c0d40f7c7b"
+    },
+    {
+      "symbol": "AssistantStream",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "流式响应：异步迭代事件 + 最终消息取值口",
+      "kind": "interface",
+      "sig": "df158ffbf377e6e6"
+    },
+    {
+      "symbol": "AssistantStreamEvent",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "流式事件（pi-ai AssistantMessageEvent 同构 12 型）",
+      "kind": "type",
+      "sig": "d168e4b908f91e2a"
+    },
+    {
+      "symbol": "BaseError",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "全仓单一错误基类",
+      "kind": "class",
+      "sig": "f4be1eb8a66b83c4"
+    },
+    {
+      "symbol": "CORE_EVENT_TYPE_NAMES",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "核心词类型名清单（核心词保护判据——registerEventType 拒收）",
+      "kind": "const",
+      "sig": "5fa92f9db6979ac1"
+    },
+    {
+      "symbol": "ERROR_CODE_PREFIXES",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "错误码前缀族明列——文档性常量，供注册面校验与 CI 目录生成； 'HOST_' 系装配根码族",
+      "kind": "const",
+      "sig": "83c70d1458247c13"
+    },
+    {
+      "symbol": "EVENT_CATEGORIES",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "事件类别四分法闭集（类别列口径与 05 §3.1 投影执法对齐）",
+      "kind": "const",
+      "sig": "97f9d7c412f51c23"
+    },
+    {
+      "symbol": "ErrorCodeInfo",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "错误码目录条目（可枚举目录 = 注册表值形态）",
+      "kind": "interface",
+      "sig": "7d4ca3f2847a79c9"
+    },
+    {
+      "symbol": "EventCategory",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "kind": "type",
+      "sig": "aba693736dd87995"
+    },
+    {
+      "symbol": "EventSource",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "user/message 的 source 归因词汇闭集（05 §3.1 表全列）：五字面量 ∪ 两前缀模板串",
+      "kind": "type",
+      "sig": "316a47bff8e55e25"
+    },
+    {
+      "symbol": "EventSourceKind",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "source 归一化种类（前缀型归并到 kind；字面量一一对应）",
+      "kind": "type",
+      "sig": "39a4dd9b0a528293"
+    },
+    {
+      "symbol": "EventTypeMeta",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "事件类型目录条目（注册表值形态）",
+      "kind": "interface",
+      "sig": "25a4746162e827d9"
+    },
+    {
+      "symbol": "HostFace",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "宿主自省面——插件问宿主，而非探测猜",
+      "kind": "interface",
+      "sig": "aea7ba3946df29ee"
+    },
+    {
+      "symbol": "HostFaceInput",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "HostFace 的纯数据输入（装配根物化用）：capabilities/experimentalKeys 清单派生源 = surface.json capabilities[] 与键表 tier=experimental 子集",
+      "kind": "interface",
+      "sig": "b8ca034cce360edd"
+    },
+    {
+      "symbol": "ImageContent",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "图片块（多模态附件；base64 数据）",
+      "kind": "interface",
+      "sig": "7a11d114bfc3b8bd"
+    },
+    {
+      "symbol": "LlmContext",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "单次 LLM 请求上下文（StreamFn 第一参数；04 §3.1）",
+      "kind": "interface",
+      "sig": "ee023bbf51ec4750"
+    },
+    {
+      "symbol": "LlmTool",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "LLM 工具描述（parameters 为 JSON Schema——typebox 产物即此形状）",
+      "kind": "interface",
+      "sig": "c26c21fc2c90ac69"
+    },
+    {
+      "symbol": "Message",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "LLM 边界标准三角色（convertToLlm 透传的标准半边）",
+      "kind": "type",
+      "sig": "b8b13927589a2c17"
+    },
+    {
+      "symbol": "ModelInfo",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "模型目录只读投影（listModels()/getModel() 返回形）：pi-ai Model 的应用友好子集——枚举/展示/能力判别所需字段直通，传输与 provider 配置面（baseUrl/ headers/samplingParams/compat）不披露",
+      "kind": "interface",
+      "sig": "e1f6c5401361d632"
+    },
+    {
+      "symbol": "ParsedEventSource",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "parseEventSource 结果：归一化种类 + 原值 + 投影位判别",
+      "kind": "interface",
+      "sig": "b28cda611bb20b4e"
+    },
+    {
+      "symbol": "SessionEvent",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话事件信封：日志唯一条目形态（append-only，写入即冻结）",
+      "kind": "interface",
+      "sig": "2eb92c60b818ae07"
+    },
+    {
+      "symbol": "SessionLineage",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "血缘三元组（fork 动作的分层返回外层，05 §5.2；不返回幻影 id）",
+      "kind": "interface",
+      "sig": "e7c0cd6e20659aaa"
+    },
+    {
+      "symbol": "SessionOrigin",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话血缘 origin 闭集（05 §5.1）：'conversation'（普通对话）/ 'delegation' （委派子会话）/ 'import'（外部导入）/ 'fork'（显式 fork）",
+      "kind": "type",
+      "sig": "cbff50ec65929736"
+    },
+    {
+      "symbol": "StopReason",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "LLM 调用终态（pi-ai 同构七值）",
+      "kind": "type",
+      "sig": "e198e323e6a12900"
+    },
+    {
+      "symbol": "StreamFn",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "模型层注入签名（llm 模块整体替换位——agent 与 llm 两模块的唯一会合点，故落在 contracts）",
+      "kind": "type",
+      "sig": "9324dbd30ac1667d"
+    },
+    {
+      "symbol": "StreamFnOptions",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "StreamFn 每次调用的选项（model 为模型 id 字符串——解析归 llm 模块，loop 不持模型对象）",
+      "kind": "interface",
+      "sig": "1a4290af791ae0d7"
+    },
+    {
+      "symbol": "SurfaceOp",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "表面遮蔽指令（改历史的唯一合法形态——追加 replace 指令事件遮蔽旧区间，原文保留可审计）",
+      "kind": "interface",
+      "sig": "fc681ead08fc910d"
+    },
+    {
+      "symbol": "TextContent",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "文本块（user/assistant/toolResult 通用）",
+      "kind": "interface",
+      "sig": "dbf3e677b4573564"
+    },
+    {
+      "symbol": "ThinkingContent",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "思考块（仅 assistant；供应商推理内容回放）",
+      "kind": "interface",
+      "sig": "0f2ec9a6666cc2cf"
+    },
+    {
+      "symbol": "ThinkingLevel",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "思考档位（pi-ai 同构七值；xhigh/max 仅部分模型家族支持——会话态非 run 态，04 §5）",
+      "kind": "type",
+      "sig": "f38b086347a97505"
+    },
+    {
+      "symbol": "ToolCallBlock",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具调用块（仅 assistant 内联；arguments 已是解析后的对象）",
+      "kind": "interface",
+      "sig": "1889ece095f0a5cf"
+    },
+    {
+      "symbol": "ToolResultMessage",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具结果消息（与 assistant 内 toolCall 按 toolCallId 配对）",
+      "kind": "interface",
+      "sig": "3b2525c357f955e9"
+    },
+    {
+      "symbol": "TurnEndReason",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "turn/end 的 reason 闭集（05 §1.1 表：completed / aborted / blocked / error / max-tokens / interrupted，可扩展）",
+      "kind": "type",
+      "sig": "7806806ab5b8cd06"
+    },
+    {
+      "symbol": "Usage",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "一次 LLM 调用的 token 用量（pi-ai 同构）：cacheRead/cacheWrite 独立拆桶， cacheWrite1h（仅 Anthropic 上报拆分）与 reasoning（已含于 output，供应商不报则缺省）为可选子集",
+      "kind": "interface",
+      "sig": "67231de2db7ee993"
+    },
+    {
+      "symbol": "UsageBuckets",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "计量四桶形：input/output/ cacheRead/cacheWrite 四桶必落（供应商恒报），cacheWrite1h/reasoning 上报才落； totalTokens（派生）与 cost（折算）**不入账**——token 原始值入账、货币折算在投影查询做（价格表更新不回改历史）",
+      "kind": "interface",
+      "sig": "fd4f8ec355c72f7a"
+    },
+    {
+      "symbol": "UserMessage",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "用户消息（content 允许纯文本或图文块数组）",
+      "kind": "interface",
+      "sig": "26b883055a752fd5"
+    },
+    {
+      "symbol": "compareApiVersions",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "apiVersion 比较：MAJOR.MINOR 逐段数值比较——禁字符串比较（\"1.10\" > \"1.9\"）",
+      "kind": "function",
+      "sig": "57a9ec6695ced147"
+    },
+    {
+      "symbol": "getErrorCodeInfo",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "错误码目录条目查询（未注册返回 undefined）",
+      "kind": "function",
+      "sig": "afa96860b326b4dd"
+    },
+    {
+      "symbol": "getEventTypeMeta",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "事件类型目录条目查询（未注册返回 undefined；类别/归属消费面用）",
+      "kind": "function",
+      "sig": "5f44704420997a76"
+    },
+    {
+      "symbol": "isKnownErrorCode",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "判别错误码是否已注册（catch 面 code 分派前的目录查询）",
+      "kind": "function",
+      "sig": "19b15f61e3332e94"
+    },
+    {
+      "symbol": "isKnownEventType",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "判别事件类型是否已注册（session append 词汇检查的判据源）",
+      "kind": "function",
+      "sig": "451f9b8d58b10ea7"
+    },
+    {
+      "symbol": "isValidApiVersion",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "断言 apiVersion 格式合法（清单校验面用——错误归 PLUGIN_INVALID 语境由调用方包，本函数只做纯格式判定的复用体）",
+      "kind": "function",
+      "sig": "1e5d019d447f8711"
+    },
+    {
+      "symbol": "listErrorCodes",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "全量目录枚举（生成目录 / CI 校验用）",
+      "kind": "function",
+      "sig": "96d19b61a903825c"
+    },
+    {
+      "symbol": "listEventTypes",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "全量目录枚举（生成目录 / CI 校验用）",
+      "kind": "function",
+      "sig": "d38e2103b2d09b37"
+    },
+    {
+      "symbol": "parseEventSource",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "解析 source 归因字符串（闭集执法的读侧判据，05 §3.1）： - 已知前缀的未知后缀（如 'plugin:未来插件'）按前缀行语义展开； - 未知字面量（旧日志向前兼容）按 user 同视； - append 侧新值必须先扩闭集（类型 + 本函数）——写入纪律归 session 落码批",
+      "kind": "function",
+      "sig": "5a4f58922cd93033"
+    },
+    {
+      "symbol": "registerErrorCodes",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "注册错误码（宿主件落码批与插件装载面的统一入口）",
+      "kind": "function",
+      "sig": "c1e097430aba2857"
+    },
+    {
+      "symbol": "registerEventType",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "注册事件类型（插件扩展唯一入口；宿主件自管类型已列核心表）",
+      "kind": "function",
+      "sig": "67494a9eacf7b606"
+    },
+    {
+      "symbol": "anthropicMessagesApi",
+      "module": "berry-agent/llm",
+      "tier": "stable",
+      "since": "1.0",
+      "sig": "60b7613c7ea6b9f5"
+    },
+    {
+      "symbol": "createProvider",
+      "module": "berry-agent/llm",
+      "tier": "stable",
+      "since": "1.0",
+      "sig": "5cadc02791ab4d6c"
+    },
+    {
+      "symbol": "hasApi",
+      "module": "berry-agent/llm",
+      "tier": "stable",
+      "since": "1.0",
+      "sig": "8e121625fd0160ed"
+    },
+    {
+      "symbol": "lazyApi",
+      "module": "berry-agent/llm",
+      "tier": "stable",
+      "since": "1.0",
+      "sig": "9d3b33568822fbc4"
+    },
+    {
+      "symbol": "approval/asked",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "审批提问（决策对完整内容；turn 内闭合可回放）"
+    },
+    {
+      "symbol": "approval/decided",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "审批决策（决策对完整内容；turn 内闭合可回放）"
+    },
+    {
+      "symbol": "assistant/message",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "组装完成后的消息级事件；toolCall 块不内联 content（由 tool/call 唯一承载）；errorMessage 腿独立 2KiB 小帽"
+    },
+    {
+      "symbol": "gate/decision",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "守门段决策（toolCallId/decision(allow|block|mutate)/reason）——「守门不可绕」不变式的断言对象"
+    },
+    {
+      "symbol": "llm/retry",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "turn 级 auto-retry 的 durable 事实（attempt/phase scheduled|aborted|exhausted；成功不落）"
+    },
+    {
+      "symbol": "llm/usage",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "complete 单发补全通道的计量事实（token 原始值入账，货币折算在投影查询做）"
+    },
+    {
+      "symbol": "plugin/uninstalled",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "卸载四段成功尾落账（id/source/dataAction/affected?；核心词身份拒装载面注册）"
+    },
+    {
+      "symbol": "request/header",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "完整请求信封快照；reason = initial/resume/change，重建请求取最后一条为基准"
+    },
+    {
+      "symbol": "sandbox/mode",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话级沙箱状态 = fold(events)，append 即切换、重放即恢复（无独立配置存储）"
+    },
+    {
+      "symbol": "session/end-seed",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "fork 种子边界标记（data 为空对象，边界即事件自身 seq）"
+    },
+    {
+      "symbol": "todo/write",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "轮内清单全量快照（last-write-wins）；fold = 日志倒扫最后一条 user/message 之后的最后一条本事件"
+    },
+    {
+      "symbol": "tool/call",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具调用（arguments 存原始未解析字符串——审计保真）"
+    },
+    {
+      "symbol": "tool/result",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "一调用一结果"
+    },
+    {
+      "symbol": "turn/end",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "一轮结束；reason = completed/aborted/blocked/error/max-tokens/interrupted（可扩展）"
+    },
+    {
+      "symbol": "turn/start",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "一轮（用户输入 → 停止）开始"
+    },
+    {
+      "symbol": "user/message",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "用户输入（string 或 text/image 块）；source 归因词汇闭集见 types.ts"
+    },
+    {
+      "symbol": "Static",
+      "module": "typebox",
+      "tier": "stable",
+      "since": "1.0",
+      "forwarded": true,
+      "sig": "forwarded"
+    },
+    {
+      "symbol": "TSchema",
+      "module": "typebox",
+      "tier": "stable",
+      "since": "1.0",
+      "forwarded": true,
+      "sig": "forwarded"
+    },
+    {
+      "symbol": "Type",
+      "module": "typebox",
+      "tier": "stable",
+      "since": "1.0",
+      "forwarded": true,
+      "sig": "forwarded"
+    },
+    {
+      "symbol": "Code",
+      "module": "typebox/compile",
+      "tier": "stable",
+      "since": "1.0",
+      "forwarded": true,
+      "sig": "forwarded"
+    },
+    {
+      "symbol": "Compile",
+      "module": "typebox/compile",
+      "tier": "stable",
+      "since": "1.0",
+      "forwarded": true,
+      "sig": "forwarded"
+    },
+    {
+      "symbol": "Value",
+      "module": "typebox/value",
+      "tier": "stable",
+      "since": "1.0",
+      "forwarded": true,
+      "sig": "forwarded"
+    }
+  ],
+  "capabilities": []
+}
