@@ -74,12 +74,19 @@ const MODULE_EDGES = {
 };
 
 /** 在场模块集（占位清单语义：边表其余键 = 显式占位、不判死边；落码逐批迁移进来） */
-const PRESENT_MODULES = new Set(['contracts', 'context', 'session', 'persist']);
+const PRESENT_MODULES = new Set(['contracts', 'context', 'session', 'persist', 'llm']);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
 const NODE_BUILTIN = /^node:/;
 const MODULE_EXTERNALS = {
-  llm: ['@earendil-works/pi-ai'],
+  // pi-ai 裸导入仅 llm（07 篇栈纪律）：主包 + 两子路径（内置 provider 全家桶 /
+  // Anthropic-first lazy api——主包出口不含 providers/* 与 api/*，package.json
+  // exports 子路径即官方形态）
+  llm: [
+    '@earendil-works/pi-ai',
+    '@earendil-works/pi-ai/providers/all',
+    '@earendil-works/pi-ai/api/anthropic-messages.lazy',
+  ],
   channels: ['@earendil-works/pi-tui'],
   persist: ['better-sqlite3'],
 };
