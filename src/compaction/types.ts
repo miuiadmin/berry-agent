@@ -1,0 +1,108 @@
+/**
+ * compaction 类型面（05 §2.1 长会话压缩——契约先行；机制承 berry 同名模块，
+ * 码面新写）。
+ *
+ * 本文件持本模块全部对外类型与缺省配置：
+ *  - SummaryChannel：complete 单发通道的结构注入面（host 装配经 llm provide，
+ *    本模块零 llm import——拓扑边仅 contracts + session 的关键）；
+ *  - CompactionConfig：阈值/区间/冷却/摘要参数全量（05 §2.1 摘要参数段定值）；
+ *  - SegmentPlan：区间规划产物（policy.planSegment 输出——五步骨架的区间输入）；
+ *  - CompactionService：服务面三入口（阈值触发 / 溢出应急 / 排空收口）。
+ */
+import type { ProjectedMessage, SessionLog } from '../session/index.js';
+
+/**
+ * 摘要通道（complete 单发——04 篇 §3.7）：结构注入而非模块依赖，host 装配
+ * 时经 llm provide 接线。请求带 maxChars（摘要预算——字符制）；计量（llm/usage）
+ * 由通道真身照章入账，本模块不经手。
+ */
+export interface SummaryChannel {
+  /** 单发补全：prompt 进、text 出（失败抛错——五步骨架落 end-failed 闭段） */
+  complete(request: { prompt: string; maxChars: number }): Promise<{ text: string }>;
+}
+
+/** 压缩配置（05 §2.1 各参数段单源；全字段可经 host 覆盖） */
+export interface CompactionConfig {
+  /** 阈值比例：真 token 计量（缺席时估算）达窗口此比例触发（缺省 0.5） */
+  readonly thresholdRatio: number;
+  /** tail 保留投影消息条数（缺省 6——最近交互原文保留） */
+  readonly tailKeep: number;
+  /** 冷却：两次压缩最小间隔毫秒（缺省 10 分钟——防连续触发抖动） */
+  readonly cooldownMs: number;
+  /** 摘要目标压缩率（缺省 0.2——目标长度 = 被遮蔽字符数 × 此率） */
+  readonly summaryRatio: number;
+  /** 摘要长度下限字符（缺省 2000） */
+  readonly summaryMinChars: number;
+  /** 摘要长度上限字符（缺省 12000） */
+  readonly summaryMaxChars: number;
+  /** 兜底窗口 token 数：真 contextUsage 缺席时的换算分母（缺省 200_000） */
+  readonly fallbackWindowTokens: number;
+}
+
+/** 缺省配置（05 §2.1「摘要参数」+「防抖三件」+「阈值」段定值——首版实测后调） */
+export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
+  thresholdRatio: 0.5,
+  tailKeep: 6,
+  cooldownMs: 600_000,
+  summaryRatio: 0.2,
+  summaryMinChars: 2000,
+  summaryMaxChars: 12000,
+  fallbackWindowTokens: 200_000,
+};
+
+/**
+ * 阈值判据快照（compaction/start 的 basis 三件——仅阈值路落账，05 §2.1）。
+ * 溢出应急路无判阈过程，不落。
+ */
+export interface ThresholdBasis {
+  /** 判据来源：真 token 计量（usage）或投影字符估算（estimate——chars/4） */
+  readonly basis: 'usage' | 'estimate';
+  /** 参与比较的 token 估算值（usage 路 = 真 input 值） */
+  readonly estTokens: number;
+  /** 实际生效的窗口大小（真 contextWindow 或 fallbackWindowTokens） */
+  readonly effectiveWindow: number;
+}
+
+/** 区间规划产物（policy.planSegment 输出；start/end 为事件 seq 闭区间） */
+export interface SegmentPlan {
+  /** 遮蔽区间起始 seq（含）——对齐 turn 边界（head 保首个完整 turn / 紧接上次遮蔽终点） */
+  readonly start: number;
+  /** 遮蔽区间结束 seq（含）——不越最近完整 turn 边界、不侵入 tail */
+  readonly end: number;
+  /** 区间内投影消息条数（审计面——compaction/surface 载荷） */
+  readonly occludedMessages: number;
+  /** 区间内投影字符量（与 fold.chars 同尺：逐消息 JSON 长度和——审计面） */
+  readonly occludedChars: number;
+  /** 区间内投影消息本体（摘要提示词的素材——纯内存，不入账） */
+  readonly occluded: readonly ProjectedMessage[];
+}
+
+/** 溢出兜底出口三值（05 §2.3——门三道归驱动执法，服务面只如实报结果） */
+export type OverflowOutcome = 'compacted' | 'nothing' | 'failed';
+
+/** run 结算计量事实（handleRunSettled 入参——主 loop 的真 token 笔） */
+export interface RunUsageFact {
+  /** 本轮请求的 input token 真值（provider 报数） */
+  readonly input: number;
+  /** 模型上下文窗口（缺省用 fallbackWindowTokens） */
+  readonly contextWindow?: number;
+}
+
+/** 压缩服务面（三入口——阈值触发 fire-and-forget / 溢出应急可等待 / 排空收口） */
+export interface CompactionService {
+  /**
+   * 阈值触发面（05 §2.1 触发两段式段 1）：run 结算钩子里判阈（真 token 主判、
+   * 投影字符数兜底），超过则排队压缩。异步执行与下一 turn 不竞速——本方法
+   * 同步返回（fire-and-forget；失败面在内部收口不外抛）。
+   */
+  handleRunSettled(input: { log: SessionLog; usage?: RunUsageFact }): void;
+  /**
+   * 溢出应急面（05 §2.3——恒提供，agent 缺席同）：不等冷却、不等 onRunSettled；
+   * 与阈值路共享全局串行队列（在飞互斥；排空语义=先排完已排队压缩再执行）。
+   * 返回三值：compacted=已缩量（含排队期间他路已压——归因不问路）/
+   * nothing=区间不足无可压 / failed=摘要通道失败（已落 end-failed 闭段）。
+   */
+  compactForOverflow(log: SessionLog): Promise<OverflowOutcome>;
+  /** 排空收口面：等此刻前已入队/在飞的一切压缩完成（快照语义；进程收口用） */
+  drain(): Promise<void>;
+}

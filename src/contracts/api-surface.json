@@ -749,6 +749,27 @@
       "desc": "组装完成后的消息级事件；toolCall 块不内联 content（由 tool/call 唯一承载）；errorMessage 腿独立 2KiB 小帽"
     },
     {
+      "symbol": "compaction/end",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "压缩收尾标记（reason=completed/failed；failed=摘要通道失败即时闭段防孤 start 悬挂）"
+    },
+    {
+      "symbol": "compaction/start",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "压缩意图与判据快照（reason=threshold/overflow + willRetry + basis?；05 §2.1 五步之一）"
+    },
+    {
+      "symbol": "compaction/surface",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "遮蔽指令事件（信封 surfaceOp 载体本尊；data=summarySeq/规模审计；经 appendWithSurfaceOp 正门）"
+    },
+    {
       "symbol": "gate/decision",
       "module": "session-events",
       "tier": "stable",

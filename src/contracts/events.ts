@@ -1,5 +1,6 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型首批清单——16 核心词全列）。
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——19 核心词全列，
+ * compaction 三词 2026-09-06 纵切批增补）。
  *
  * 双入口纪律：核心词汇本表静态声明（含类别/归属/语义），插件扩展经
  * registerEventType 显式注册；session append 词汇检查（未注册类型抛
@@ -43,11 +44,12 @@ export interface EventTypeMeta {
 }
 
 /**
- * 核心事件类型 16 词（05 §1.1 表格逐条转录；owner 归属按表注：
+ * 核心事件类型 19 词（05 §1.1 表格逐条转录；owner 归属按表注：
  * gate/decision 归 tools、llm/usage 归 llm、llm/retry 注册走 session
  * 核心词汇（llm 模块不知道驱动存在）、plugin/uninstalled 宿主写点 host、
  * approval/* 与 sandbox/mode 归 safety 域、todo/write 归 conversation）。
  * tier 全 stable（核心词汇 = 已收口契约面，03 §8.3 零隐式载体）。
+ * 核心词计数 16→19：compaction/start|surface|end 随 compaction 纵切批入表。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -156,6 +158,27 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     owner: 'host',
     tier: 'stable',
     description: '卸载四段成功尾落账（id/source/dataAction/affected?；核心词身份拒装载面注册）',
+  },
+  {
+    type: 'compaction/start',
+    category: 'log-only',
+    owner: 'compaction',
+    tier: 'stable',
+    description: '压缩意图与判据快照（reason=threshold/overflow + willRetry + basis?；05 §2.1 五步之一）',
+  },
+  {
+    type: 'compaction/surface',
+    category: 'log-only',
+    owner: 'compaction',
+    tier: 'stable',
+    description: '遮蔽指令事件（信封 surfaceOp 载体本尊；data=summarySeq/规模审计；经 appendWithSurfaceOp 正门）',
+  },
+  {
+    type: 'compaction/end',
+    category: 'log-only',
+    owner: 'compaction',
+    tier: 'stable',
+    description: '压缩收尾标记（reason=completed/failed；failed=摘要通道失败即时闭段防孤 start 悬挂）',
   },
 ];
 

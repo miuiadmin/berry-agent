@@ -11,7 +11,7 @@ import {
 } from './index.js';
 
 describe('事件词汇注册表', () => {
-  it('核心 16 词全注册（05 篇 §1.1 表格全列——逐词点名）', () => {
+  it('核心 19 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补）', () => {
     const expected = [
       'turn/start',
       'turn/end',
@@ -29,6 +29,9 @@ describe('事件词汇注册表', () => {
       'llm/usage',
       'llm/retry',
       'plugin/uninstalled',
+      'compaction/start',
+      'compaction/surface',
+      'compaction/end',
     ];
     expect([...CORE_EVENT_TYPE_NAMES].sort()).toEqual([...expected].sort());
     for (const type of expected) expect(isKnownEventType(type)).toBe(true);
