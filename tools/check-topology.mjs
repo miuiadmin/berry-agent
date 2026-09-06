@@ -143,6 +143,13 @@ const PRESENT_MODULES = new Set([
   // IssueSchedulerFace/IssueStoreStateFace/IssueWorktreeFace 词面独立律——
   // compat.test 互证〕；headless 会话面 IssueSessionFace 装配批实装）
   'issue',
+  // 批 17a-2 起在场（core:mcp 纯逻辑腿——stdio 行帧 JSON-RPC 手写最小桥
+  // 〔03 §10.1 六条款〕：行帧卫生双防线/一服务器一桥〔握手-分页-调用-关停〕
+  // /注册面爆炸防线〔≤20 原生复合名、>20 目录三动作〕/apply 异步发现零阻塞
+  // +scope 回卷，deps {contracts, context}；spawn/注册/作用域全经窄面注入
+  // 〔McpSpawnFace 等——compat.test 真 SpawnPipeline 互证〕；装载态集成归
+  // 批 12 装载面后装配批）
+  'mcp',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
