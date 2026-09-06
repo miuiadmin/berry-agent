@@ -3,9 +3,11 @@
  *
  * 本行装在 tools_pre_execute 守门段首位，承担三件事：
  * 1. **carve-out 判定**（04 §8 2026-09-06 定形）：fs 写路径在根内但命中
- *    carve-out 例外（.git / .env 族）→ block **硬拒**——denial marker 回执、
- *    无升权出路（不存在「升到哪档能写 .git」，任何档含 danger 恒不可写——
- *    底线不交模型裁决。与 berry 分叉：berry 把命中做成升权审批面不承）；
+ *    carve-out 例外（.git / .env 族 + 数据目录族）→ block **硬拒**——denial
+ *    marker 回执、无升权出路（不存在「升到哪档能写 .git」，任何档含 danger
+ *    恒不可写——底线不交模型裁决。与 berry 分叉：berry 把命中做成升权审批面
+ *    不承）；数据目录条（04 §7 宿主状态根）无条件恒追加、不可经 entries=[]
+ *    关闭（恒 = 平台底线，不交装配裁量——2026-09-06 遗漏审计批补钉）；
  * 2. **write-effect 审批对**（03 §2.3「write 触发审批对」）：effect='write'
  *    的工具调用走审批 ask（粘性短路在 ApprovalService 内）——allowlist 命中
  *    免问（advisory：只影响问不问，fence/执行段照走）；
@@ -55,8 +57,17 @@ export interface SafetyGateOptions {
   readonly workspace: string;
   /** 当前生效档位取值器（三级解析产物；每次预检取最新——会话 override 即时生效） */
   readonly mode: () => SandboxMode;
-  /** carve-out 例外条目（缺省内置 .git/.env 条目；传 [] 显式关闭） */
+  /** carve-out 例外条目（缺省内置 .git/.env 条目；传 [] 显式关闭——只关例示面，数据目录条恒在） */
   readonly entries?: readonly CarveOutEntry[];
+  /**
+   * 数据目录恒排除位（04 §7/§8 遗漏审计批补钉——2026-09-06）：宿主状态根
+   * （~/.berry-agent/ 或 env 覆盖位），任何档含 danger 恒不可写（danger 档
+   * 根 = 路径分隔符全盘，数据目录恒在根内——防「写 enabled.yaml 自授开关」
+   * 的 04 §13 信任锚绕过）。路径单源 persist.resolveDataDir()，host 装配批
+   * （批 12）接线注入；safety 不 import persist（DAG 边表），故必填注入而非
+   * 自取——漏接 = typecheck 红，fail-loud 不留静默洞。不可经 entries=[] 关闭。
+   */
+  readonly dataDir: string;
   /**
    * 跨会话 allowlist（04 §9 粘性第 3 款——advisory 免问面）：命中即跳过写
    * 审批直接放行本行。只影响「问不问」：fence/根推导/执行段照走，carve-out
@@ -99,7 +110,14 @@ function extractWritePaths(toolName: string, args: Record<string, unknown>): str
  */
 export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptions): () => void {
   const workspace = canonicalPath(opts.workspace);
-  const carveTable = buildCarveOutTable(workspace, opts.entries ?? DEFAULT_CARVE_OUT_ENTRIES);
+  // 数据目录恒排除条（04 §7）：无条件追加于用户 entries 之后——entries=[] 关
+  // 闭的是 .git/.env 例示面，本条不随装配裁量关闭（恒 = 平台底线）。pattern
+  // 为绝对路径（resolveDataDir 产物），buildCarveOutTable 内展开即其自身
+  const entries: readonly CarveOutEntry[] = [
+    ...(opts.entries ?? DEFAULT_CARVE_OUT_ENTRIES),
+    { pattern: opts.dataDir, effect: 'deny', note: '数据目录（04 §7——宿主状态根，任何档含 danger 恒不可写）' },
+  ];
+  const carveTable = buildCarveOutTable(workspace, entries);
   const approval = opts.approval;
 
   const handler = async (input: GateInput, next: (value: GateInput) => Promise<GateInput>): Promise<GateInput> => {

@@ -60,6 +60,8 @@ function makeRig(opts?: {
   mode?: SandboxMode;
   entries?: readonly CarveOutEntry[];
   allowlist?: readonly AllowlistEntry[];
+  /** 数据目录恒排除位覆写（缺省 tmp 下固定假路径——不与 workspace 交叠，隔离「根内遮罩」与「fence 根外」两面） */
+  dataDir?: string;
   beforeInstall?: () => void;
 }) {
   const dispatch = new EventDispatch();
@@ -79,6 +81,9 @@ function makeRig(opts?: {
     approval,
     workspace: ws,
     mode: () => mode,
+    // 数据目录恒排除位（04 §7/§8 遗漏审计批补钉）：缺省假路径在 tmp 下且不
+    // 存在——canonical 化走「最近存在祖先」回退，与写侧同律无需真实建目录
+    dataDir: opts?.dataDir ?? join(tmpdir(), 'berry-gate-datadir'),
     ...(opts?.entries !== undefined ? { entries: opts.entries } : {}),
     ...(opts?.allowlist !== undefined ? { allowlist: opts.allowlist } : {}),
   });
@@ -161,6 +166,34 @@ describe('carve-out 硬拒', () => {
     const result = await rig.run(WRITE, { path: join(ws, '.git', 'hooks', 'pre-commit') });
     expect(result.blocked).toBe(true);
     expect(rig.asks).toHaveLength(0);
+  });
+
+  /* ---- 数据目录恒排除（04 §7/§8 遗漏审计批补钉——修前必红三锁） ---- */
+
+  it('数据目录族恒不可写：danger 档写 enabled.yaml → carve-out 硬拒不问（04 §13 信任锚不可自授）', async () => {
+    const rig = makeRig({ mode: 'danger' });
+    // danger 档根 = 路径分隔符全盘——数据目录恒在根内，防线只有 carve-out 一道
+    const result = await rig.run(WRITE, { path: join(tmpdir(), 'berry-gate-datadir', 'enabled.yaml') });
+    expect(result.blocked).toBe(true);
+    expect(result.reached).toBe(false); // 短路——链下游不到达
+    expect(rig.asks).toHaveLength(0); // 硬拒不产生审批交互
+    expect(result.reason).toContain('数据目录');
+    expect(result.reason).toContain('恒不可写');
+  });
+
+  it('数据目录条不可关：entries=[]（显式关 .git/.env 例示面）仍拒（恒 = 平台底线不交装配裁量）', async () => {
+    const rig = makeRig({ mode: 'danger', entries: [] });
+    const result = await rig.run(WRITE, { path: join(tmpdir(), 'berry-gate-datadir', 'credentials', 'secret.key') });
+    expect(result.blocked).toBe(true);
+    expect(rig.asks).toHaveLength(0);
+  });
+
+  it('workspace-write 档数据目录在根内（workspace 含数据目录）→ 照样遮罩硬拒（不依赖 danger 形）', async () => {
+    const rig = makeRig({ dataDir: join(ws, 'host-data') });
+    const result = await rig.run(WRITE, { path: 'host-data/enabled.yaml' });
+    expect(result.blocked).toBe(true);
+    expect(rig.asks).toHaveLength(0);
+    expect(result.reason).toContain('数据目录');
   });
 });
 
