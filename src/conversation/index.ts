@@ -7,7 +7,13 @@
  * 归 11d，open 域工具与审批三件归 11e，ctx.agent / 多会话 / 披露段注入归
  * 11f；批 12 host 装配根消费。
  */
-export type { ConversationDriverOptions, ReseededTimeline, RetryPolicyConfig, SubmitOptions } from './types.js';
+export type {
+  ConversationDriverOptions,
+  ExecToolService,
+  ReseededTimeline,
+  RetryPolicyConfig,
+  SubmitOptions,
+} from './types.js';
 export { DEFAULT_RETRY_POLICY } from './types.js';
 export { reseedTimeline } from './reseed.js';
 export { ConversationDriver } from './driver.js';
@@ -22,3 +28,8 @@ export {
   renderTodoTable,
   todoSnapshotMessage,
 } from './todo.js';
+// 审批三件 + open 域装配（11e：fresh 作用域审批 wiring + fs/检索/bash/todo 组装面）
+export type { SessionApprovalOptions, SessionApprovalWiring } from './approval-wiring.js';
+export { wireSessionApproval } from './approval-wiring.js';
+export type { OpenToolsOptions, OpenToolsAssembly } from './open-tools.js';
+export { assembleOpenTools } from './open-tools.js';

@@ -23,6 +23,7 @@ import type {
   Message,
   StreamFn,
   ThinkingLevel,
+  ToolDefinition,
 } from '../contracts/index.js';
 
 /**
@@ -111,6 +112,14 @@ export interface ConversationDriverOptions {
   readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
 
   /**
+   * 审批挂起收口面（04 §9 审批对条款 + 04 §3 终态=结算边界）：runTurns 结算
+   * 时调用——未决 ask 统一落 unavailable（通道没了问也无从答）。装配根接
+   * wireSessionApproval 产物 settlePending（11e 装配面）；缺席 = 无收口面
+   * （无审批装配的纯对话形态）。
+   */
+  readonly settleApprovals?: () => void;
+
+  /**
    * 后台唤醒批的工具面供应商（04 §4「合批收窄工具面」）：唤醒触发的 run
    * 工具面 = 本供应面产出（goal 续跑/tick 编排的窄面经装配根供入——批 12
    * 接线）；**缺席 = 后台 run 零工具**（纯对话——「防后台 run 自由动用全部
@@ -169,3 +178,15 @@ export const MAX_CONSECUTIVE_WAKES = 3;
 
 /** 重播种产物：重建的 timeline 活数组种子（标准消息——自定义角色是每请求瞬态注入，不进重播种） */
 export type ReseededTimeline = Message[];
+
+/**
+ * exec 服务面（02 §4.1 #16 core:exec 插件经 scope.provide('exec', …) 供给的
+ * 结构契约——04 §8 bash 工具件的宿主）：spawn 管道 + bash 工具件。结构 typing
+ * 而非 import（conversation 边表不可达 exec——服务面契约单源在此，exec 件
+ * 落码时按本形实现 provide）。装配层 scope.tryGet('exec') 诚实缺席消费：
+ * exec 禁用 = bash 工具静默缺席（coding 降级，对话本体仍通）。
+ */
+export interface ExecToolService {
+  /** bash 工具件（04 §8 参数面：command/timeoutMs/cwd/sandbox_permissions/justification 成对必填） */
+  readonly bashTool: ToolDefinition;
+}

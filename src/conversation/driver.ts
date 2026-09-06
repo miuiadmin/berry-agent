@@ -333,6 +333,9 @@ export class ConversationDriver {
       return result;
     } finally {
       if (this.activeController === controller) this.activeController = undefined;
+      // run 终态 = 结算边界（04 §3）：审批对收口（04 §9 turn 界闭合——未决
+      // ask 统一 unavailable；run 打断的在身 ask 已由 signal 链先收 cancel）
+      this.options.settleApprovals?.();
     }
   }
 
