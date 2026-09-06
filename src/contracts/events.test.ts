@@ -132,6 +132,13 @@ describe('source 归因闭集判别（05 §3.1）', () => {
       raw: 'subagent-settled',
       treatedAsUser: true,
     });
+    // background 委派审批挂起通知：UserMessage 注入位（04 §10——与 subagent-settled
+    // 同通道同型），投影同视用户话语；纯信息位（应答权钉死用户）
+    expect(parseEventSource('subagent-approval-pending')).toEqual({
+      kind: 'subagent-approval-pending',
+      raw: 'subagent-approval-pending',
+      treatedAsUser: true,
+    });
     // compaction 是摘要载体：不以用户话语位展开
     expect(parseEventSource('compaction')).toEqual({ kind: 'compaction', raw: 'compaction', treatedAsUser: false });
   });

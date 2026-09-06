@@ -49,11 +49,13 @@ export type EventSource =
   | `channel:${string}` // 真用户输入经具名通道（webui 提交、CLI 管道喂入等）——投影同视 user
   | 'schedule' // 挂钟调度触发（scheduler 插件注入的到点输入）
   | 'subagent-settled' // 委派子会话结算回流
+  | 'subagent-approval-pending' // background 委派子会话审批挂起通知（04 §10——UserMessage 注入位，纯信息位应答权钉死用户；2026-09-06 技术调研消化批增补、遗漏审计批回填）
   | 'compaction' // 压缩摘要载体（§2.1）
   | `plugin:${string}`; // 插件注入的受控输入（经受理制写面）——投影不视为用户话语
 
 /** source 归一化种类（前缀型归并到 kind；字面量一一对应） */
-export type EventSourceKind = 'user' | 'channel' | 'schedule' | 'subagent-settled' | 'compaction' | 'plugin';
+export type EventSourceKind =
+  'user' | 'channel' | 'schedule' | 'subagent-settled' | 'subagent-approval-pending' | 'compaction' | 'plugin';
 
 /** parseEventSource 结果：归一化种类 + 原值 + 投影位判别 */
 export interface ParsedEventSource {
@@ -75,6 +77,7 @@ const LITERAL_SOURCE_KINDS: Readonly<Record<string, EventSourceKind>> = {
   user: 'user',
   schedule: 'schedule',
   'subagent-settled': 'subagent-settled',
+  'subagent-approval-pending': 'subagent-approval-pending',
   compaction: 'compaction',
 };
 
@@ -93,8 +96,14 @@ export function parseEventSource(source: string): ParsedEventSource {
   }
   const literal = LITERAL_SOURCE_KINDS[source];
   if (literal) {
-    // compaction 是摘要载体：不是人说的——投影位与 plugin 同判 false
-    const treatedAsUser = literal === 'user' || literal === 'schedule' || literal === 'subagent-settled';
+    // compaction 是摘要载体：不是人说的——投影位与 plugin 同判 false；
+    // subagent-approval-pending 与 subagent-settled 同通道同型（04 §10
+    // UserMessage 注入位）——投影同视用户话语
+    const treatedAsUser =
+      literal === 'user' ||
+      literal === 'schedule' ||
+      literal === 'subagent-settled' ||
+      literal === 'subagent-approval-pending';
     return { kind: literal, raw: source, treatedAsUser };
   }
   // 未知字面量：旧日志向前兼容——按 user 同视（读侧宽容，append 侧严进）
