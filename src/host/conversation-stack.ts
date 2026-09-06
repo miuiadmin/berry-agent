@@ -40,6 +40,7 @@ import {
   SessionManager,
 } from '../conversation/index.js';
 import type { DriverFactory, SubmitOptions, SubmitResult } from '../conversation/index.js';
+import type { UserMessage } from '../contracts/index.js';
 import {
   classifyError,
   createLlmRuntime,
@@ -100,7 +101,11 @@ export interface ConversationStack {
   projectionOf(sessionId: string): Promise<readonly AgentMessage[]>;
   driverOf(sessionId: string): ConversationDriver | undefined;
   /** 提交入口（fire-and-forget 形——回执经信封回流；无该会话驱动时 undefined） */
-  submitText(sessionId: string, text: string, options?: SubmitOptions): Promise<SubmitResult> | undefined;
+  submitText(
+    sessionId: string,
+    text: string,
+    options?: SubmitOptions & { source?: UserMessage['source'] },
+  ): Promise<SubmitResult> | undefined;
   /** 协作中止（在飞 run 的打断柄） */
   interrupt(sessionId: string): void;
   /** 启动会话策略（07 §5：cwd 归一根取最新会话——有则续接无则新建） */
