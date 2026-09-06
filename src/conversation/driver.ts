@@ -8,8 +8,9 @@
  * 批 11d 纵切面：三通道路由正式收口（inject 停摆落账不唤醒 / busy steer
  * 合批 / 唤醒预算批消费位记账）+ 取消模型（dismantled 停摆旗标 + per-run
  * 控制器——abort()）+ resume 冷启动续接（构造折叠 + 重播种 + header resume）。
- * open 域工具与审批三件归 11e；ctx.agent 服务、多会话与披露段注入归 11f；
- * host 装配根接线归批 12。
+ * 批 11e 纵切面：open 域工具与审批三件装配（assembleOpenTools 消费）。
+ * 批 11f 纵切面：环境披露段注入（04 §11）+ onRunSettled 终态回调（ctx.agent
+ * 服务订阅面）+ 子代理审批挂起通知注入面（04 §10）；host 装配根接线归批 12。
  *
  * 重试编舞（04 §3.3 六条）：
  *  ① 遮蔽 + 落账一次 append——surfaceOp 随 llm/retry(phase=scheduled) 信封；
@@ -46,6 +47,7 @@ import type { ConversationDriverOptions, InjectedReceipt, SubmitOptions, WakeRef
 import { DEFAULT_RETRY_POLICY, MAX_CONSECUTIVE_WAKES } from './types.js';
 import { reseedTimeline } from './reseed.js';
 import { todoSnapshotMessage } from './todo.js';
+import { notifyRunSettled } from './agent-service.js';
 
 /**
  * submit 的返回面：run 结算（RunResult 终态三值）或通道收执两形——
@@ -106,14 +108,8 @@ export class ConversationDriver {
   }
 
   /**
-   * 用户输入入口（04 §4 三通道路由单源——发送方只声明 backgroundWake，
-   * 通道按接收时的驱动/会话状态裁定）：
-   *  - dismantled 停摆 → **inject**：只落 durable user/message 不唤醒（随下次
-   *    启动 timeline 重播种带入——队列内存态崩即丢，durable 落账是唯一诚实承载）；
-   *  - busy → **steer**：入待发队列（唤醒位随条目透传）+ 搭在飞 run 结算；
-   *  - idle → **followUp**：搁浅件合批消费 + 新输入作种子起跑。
-   * 唤醒预算（04 §4 maxConsecutiveWakes=3 批消费位记账）：超帽唤醒件拒收
-   * （receipt + warn，不静默）；前台输入起跑即复位计数。
+   * 用户输入入口（04 §4——三通道路由细节单源在 routeMessage；本入口只
+   * 组装 user 消息：source 缺省 'user'、backgroundWake 随选项透传）。
    */
   submit(
     content: UserMessage['content'],
@@ -125,22 +121,31 @@ export class ConversationDriver {
       timestamp: Date.now(),
       ...(options?.source !== undefined ? { source: options.source } : { source: 'user' }),
     };
+    return this.routeMessage(message, options?.backgroundWake);
+  }
+
+  /**
+   * 三通道路由单源（submit 与子代理审批挂起通知共用——04 §4）：
+   *  - dismantled 停摆 → **inject**：只落 durable user/message 不唤醒（随下次
+   *    启动 timeline 重播种带入——队列内存态崩即丢，durable 落账是唯一诚实承载）；
+   *  - busy → **steer**：入待发队列（唤醒位随条目透传）+ 搭在飞 run 结算；
+   *  - idle → **followUp**：搁浅件合批消费 + 新输入作种子起跑。
+   * 唤醒预算（04 §4 maxConsecutiveWakes=3 批消费位记账）：超帽唤醒件拒收
+   * （receipt + warn，不静默）；前台输入起跑即复位计数。
+   */
+  private routeMessage(message: UserMessage, backgroundWake: boolean | undefined): Promise<SubmitResult> {
     // inject 通道：停摆期只落账（durable 写点单归接线器——不绕过直写 session）
     if (this.dismantledValue) {
       return Promise.resolve({ status: 'injected', seq: this.wiring.appendInjectedUser(message) });
     }
     if (this.currentRun !== undefined) {
       // busy：入列（steer 顶注——唤醒位随条目透传，消费位合批/预算执法）+ 搭车
-      this.queue.enqueue(
-        message,
-        'steer',
-        options?.backgroundWake !== undefined ? { backgroundWake: options.backgroundWake } : undefined,
-      );
+      this.queue.enqueue(message, 'steer', backgroundWake !== undefined ? { backgroundWake } : undefined);
       return this.currentRun;
     }
     // idle：搁浅件消费（超帽唤醒件在 consumeBatch 内拒收过滤）+ 新输入
     const consumed = this.consumeBatch();
-    const newWake = options?.backgroundWake === true;
+    const newWake = backgroundWake === true;
     if (newWake && this.wakeStreak >= MAX_CONSECUTIVE_WAKES) {
       // 新唤醒件拒收：无搁浅余件 → 拒收回执；有搁浅前台件 → 照常起前台 run
       this.warnWakeRefused();
@@ -152,6 +157,45 @@ export class ConversationDriver {
     }
     const seeds = [...consumed.items.map((item) => item.message), message];
     return this.kick(seeds, newWake || consumed.wakeTriggered);
+  }
+
+  /**
+   * 子代理审批挂起通知（04 §10 审批挂起通知——11f 注入面；子代理机器是
+   * 调用方，one-shot 形态不注入由调用方裁量）：background 子代理触发审批对
+   * 时向父会话注入一条 UserMessage（source='subagent-approval-pending'，
+   * 载荷 = job 名 + 工具名/理由）。三通道与 submit 同型：父 run 在飞走
+   * steer、不在飞走 followUp 起跑。
+   *
+   * 恰一条幂等（04 §10 边界②）：同一审批请求恰注入一次——dedupeKey =
+   * `subagent-approval:<approvalId>`，durable 日志已有同键通知即零动作
+   * （返回原落账 seq）；「被答或 Job 终态后不追加撤回」由调用方遵守
+   * （结算通知随后自愈）。纯信息位（边界①）：通知文案不携带任何应答面，
+   * 应答权钉死用户。
+   */
+  notifySubagentApprovalPending(input: {
+    approvalId: string;
+    jobName: string;
+    toolName: string;
+    reason?: string;
+  }): Promise<SubmitResult> {
+    const dedupeKey = `subagent-approval:${input.approvalId}`;
+    // 幂等扫描：durable 可见事件里已有同键通知 → 零动作（'injected' = 已在
+    // 日志，非新落——回执语义与 inject 通道同形）
+    for (const event of this.session.events()) {
+      if (event.type !== 'user/message') continue;
+      if ((event.data as { dedupeKey?: string }).dedupeKey === dedupeKey) {
+        return Promise.resolve({ status: 'injected', seq: event.seq });
+      }
+    }
+    const reason = input.reason !== undefined ? `——${input.reason}` : '';
+    const message: UserMessage = {
+      role: 'user',
+      content: `子代理「${input.jobName}」等待审批：${input.toolName}${reason}（通知仅信息位——审批应答权在用户，请勿代答/代批）`,
+      timestamp: Date.now(),
+      source: 'subagent-approval-pending',
+      dedupeKey,
+    };
+    return this.routeMessage(message, undefined);
   }
 
   /**
@@ -189,10 +233,12 @@ export class ConversationDriver {
   /**
    * 请求组装最后关口：信封快照（边界制）在此落账——快照取原始 systemPrompt
    * （04 §11 快照序钉死：先快照后注入，瞬态注入体不入快照不落日志）。
-   * todo 回看注入（05 §1.1 跨 turn 每轮当前全表）：context_transform 瀑布
-   * 尾注一条 UserMessage——瞬态层（不进 timeline 活数组不落 durable，llmContext
-   * 每请求新建零累积）；空表不注入；fold 单源 = durable 日志可见事件（遮蔽
-   * 感知），冷启动 resume 首请求同覆盖。
+   * 环境披露段（04 §11 装配注入条款）：五件文本块追加于 systemPrompt 尾
+   * ——瞬态层（每请求重算、不落日志、随请求即弃；缺席/返回 null = 无披露）。
+   * todo 回看注入（05 §1.1 跨 turn 每轮当前全表）：UserMessage 追加于消息
+   * 尾——瞬态层（不进 timeline 活数组不落 durable，llmContext 每请求新建
+   * 零累积）；空表不注入；fold 单源 = durable 日志可见事件（遮蔽感知），
+   * 冷启动 resume 首请求同覆盖。
    */
   private readonly onTransformContext = async (context: LlmContext): Promise<LlmContext> => {
     const config = this.activeConfig;
@@ -206,11 +252,23 @@ export class ConversationDriver {
         toolSchemas: context.tools ?? [],
       });
     }
+    // 披露段注入位：装配注入的单文本块 → systemPrompt 尾（04 §11——快照已
+    // 在上拍落账取原始值，此处改写不影响 durable 面）
+    const disclosure = this.options.environmentDisclosure?.() ?? null;
+    let transformed: LlmContext = context;
+    if (disclosure !== null) {
+      transformed = {
+        ...transformed,
+        systemPrompt:
+          context.systemPrompt !== undefined && context.systemPrompt !== ''
+            ? `${context.systemPrompt}\n\n${disclosure}`
+            : disclosure,
+      };
+    }
     // todo 快照注入位：null = 空表跳过（从未建表/用户已重置——不打扰上下文）
     const snapshot = todoSnapshotMessage(this.session.events(), Date.now());
-    // 11f 披露段注入位：environmentDisclosure 在此追加（瞬态层——不入快照不落日志）
-    if (snapshot === null) return context;
-    return { ...context, messages: [...context.messages, snapshot] };
+    if (snapshot === null) return transformed;
+    return { ...transformed, messages: [...transformed.messages, snapshot] };
   };
 
   /**
@@ -264,6 +322,8 @@ export class ConversationDriver {
     const retry = this.options.retry ?? DEFAULT_RETRY_POLICY;
     let transientAttempt = 0;
     let overflowAttempt = 0;
+    /** 终态结算值（finally 面的消费位——onRunSettled 订阅回调载荷） */
+    let settled: RunResult | undefined;
     try {
       // 入口重播种：对齐投影（上次失败收场可能已遮蔽尾部——镜像先重建再起跑）
       this.context.messages = this.reseededTimeline();
@@ -330,12 +390,18 @@ export class ConversationDriver {
         if (drained.length === 0) break;
         result = await this.enterRun(drained, controller.signal);
       }
+      settled = result;
       return result;
     } finally {
       if (this.activeController === controller) this.activeController = undefined;
       // run 终态 = 结算边界（04 §3）：审批对收口（04 §9 turn 界闭合——未决
       // ask 统一 unavailable；run 打断的在身 ask 已由 signal 链先收 cancel）
       this.options.settleApprovals?.();
+      // onRunSettled 终态回调（ctx.agent 服务订阅面——03 §2.2；非总线词汇，
+      // 与审批收口同界；异常/上抛路径无终态即零回调）
+      if (settled !== undefined) {
+        notifyRunSettled(this.options.scope, { result: settled, sessionId: this.session.sessionId });
+      }
     }
   }
 

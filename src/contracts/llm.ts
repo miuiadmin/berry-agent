@@ -113,6 +113,12 @@ export interface UserMessage {
   timestamp: number;
   /** 输入归因（缺省视为 'user'；投影带出、durable 原样落账） */
   source?: import('./types.js').EventSource;
+  /**
+   * 幂等去重键（05 §1.1 user/message 行：调用方自选、可选字段——serve 面
+   * 幂等 admit 语义真源 05 §3.5；UI 侧不带零影响）。子代理审批挂起通知等
+   * 「恰一条」机器注入以本键承载去重判据（04 §10）。
+   */
+  dedupeKey?: string;
 }
 
 /** 助手消息（流式组装终值；stopReason=error/aborted 时错误即数据，见 AssistantStream） */

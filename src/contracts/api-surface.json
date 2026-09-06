@@ -589,7 +589,7 @@
       "since": "1.0",
       "desc": "用户消息（content 允许纯文本或图文块数组）",
       "kind": "interface",
-      "sig": "26b883055a752fd5"
+      "sig": "7a913ca8b7c56d48"
     },
     {
       "symbol": "compareApiVersions",

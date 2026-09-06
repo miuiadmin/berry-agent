@@ -27,6 +27,7 @@ import { SessionLog } from '../session/index.js';
 import type { AgentEvent } from '../agent/index.js';
 import { ConversationDriver } from './driver.js';
 import type { ConversationDriverOptions } from './types.js';
+import { provideAgentService } from './agent-service.js';
 import { createTodoTool } from './todo.js';
 
 /* ---------------- 测试构造件 ---------------- */
@@ -766,5 +767,136 @@ describe('ConversationDriver todo 快照注入', () => {
     const tail = seen[2]!.messages[seen[2]!.messages.length - 1];
     expect(tail).toMatchObject({ role: 'user', content: '第二问' });
     expect((tail as { content?: unknown }).content ?? '').not.toContain('当前任务清单');
+  });
+});
+
+/* ---------------- 11f 纵切：披露段注入 / 审批挂起通知 / onRunSettled ---------------- */
+
+describe('ConversationDriver 环境披露段注入（04 §11）', () => {
+  it('披露段拼 systemPrompt 尾（两 \n 分隔）；header 快照钉死原始值（披露永不入账）', async () => {
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({})],
+      environmentDisclosure: () => '【环境披露】工作区块',
+    });
+    await driver.submit('问');
+    // 请求上下文：原始值 + 披露段两换行拼接（瞬态层——每请求重算）
+    expect(seen[0]!.systemPrompt).toBe('sys\n\n【环境披露】工作区块');
+    // 快照序钉死：request/header 落的是装配面原始 systemPrompt
+    expect((dataOf(driver, 'request/header')[0] as { systemPrompt: string }).systemPrompt).toBe('sys');
+  });
+
+  it('无原始 systemPrompt：披露段独立成体（无前导换行）', async () => {
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({})],
+      systemPrompt: undefined,
+      environmentDisclosure: () => '只有披露',
+    });
+    await driver.submit('问');
+    expect(seen[0]!.systemPrompt).toBe('只有披露');
+  });
+
+  it('披露段返回 null = 零拼接（systemPrompt 维持原始值）', async () => {
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({})],
+      environmentDisclosure: () => null,
+    });
+    await driver.submit('问');
+    expect(seen[0]!.systemPrompt).toBe('sys');
+  });
+});
+
+describe('ConversationDriver 子代理审批挂起通知（04 §10）', () => {
+  it('idle：followUp 起跑——通知消息进 timeline 与 durable（source + dedupeKey 原样落账）', async () => {
+    const { driver, seen } = makeDriver({ scripts: [assistant({})] });
+    const receipt = await driver.notifySubagentApprovalPending({
+      approvalId: 'ap1',
+      jobName: '检索任务',
+      toolName: 'bash',
+    });
+    expect(receipt.status).toBe('completed'); // 通知即种子——run 起跑收答
+    // durable：恰一条通知 user/message，source 归因 + 幂等键随行
+    const users = dataOf(driver, 'user/message');
+    expect(users).toHaveLength(1);
+    expect(users[0]).toMatchObject({ source: 'subagent-approval-pending', dedupeKey: 'subagent-approval:ap1' });
+    expect((users[0] as { content: string }).content).toContain('检索任务');
+    expect((users[0] as { content: string }).content).toContain('bash');
+    expect((users[0] as { content: string }).content).toContain('请勿代答'); // 纯信息位文案
+    // 通知进了模型请求上下文（timeline 种子）
+    const seeded = seen[0]!.messages as Array<{ role: string; content: unknown }>;
+    expect(seeded.some((m) => m.role === 'user' && String(m.content).includes('检索任务'))).toBe(true);
+  });
+
+  it('busy：steer 通道——在飞 run 搭车消费（同 run 续跑，通知不丢）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '一答' }] }), assistant({})],
+      gates: [gate],
+    });
+    const first = driver.submit('一问');
+    const notified = driver.notifySubagentApprovalPending({ approvalId: 'ap2', jobName: '任务', toolName: 'write' });
+    expect(notified).toBe(first); // busy → 同一 run 收执
+    release();
+    expect((await first).status).toBe('completed');
+    expect(dataOf(driver, 'user/message')).toHaveLength(2); // 种子 + 通知
+    const secondMessages = seen[1]!.messages as Array<{ role: string; content: unknown }>;
+    expect(secondMessages.some((m) => m.role === 'user' && String(m.content).includes('任务'))).toBe(true);
+  });
+
+  it('恰一条幂等：同 approvalId 二投 → injected 回执复用原 seq、零新落账；异 id 新通知', async () => {
+    const { driver } = makeDriver({ scripts: [assistant({}), assistant({})] });
+    await driver.notifySubagentApprovalPending({ approvalId: 'ap3', jobName: '甲', toolName: 'bash' });
+    const seqBefore = driver.session.events().filter((e) => e.type === 'user/message').length;
+    const dup = await driver.notifySubagentApprovalPending({ approvalId: 'ap3', jobName: '甲', toolName: 'bash' });
+    expect(dup).toMatchObject({ status: 'injected' }); // 已在日志——幂等零动作
+    expect(driver.session.events().filter((e) => e.type === 'user/message')).toHaveLength(seqBefore);
+    // 不同审批 = 不同键 → 新通知照常注入
+    const fresh = await driver.notifySubagentApprovalPending({ approvalId: 'ap4', jobName: '乙', toolName: 'bash' });
+    expect(fresh.status).toBe('completed');
+    expect(driver.session.events().filter((e) => e.type === 'user/message')).toHaveLength(seqBefore + 1);
+  });
+
+  it('dismantled：inject 通道——只落 durable 不起 run（dedupeKey 随行可幂等）', async () => {
+    const { driver } = makeDriver({ scripts: [assistant({})] });
+    driver.dismantle();
+    const receipt = await driver.notifySubagentApprovalPending({ approvalId: 'ap5', jobName: '丙', toolName: 'read' });
+    expect(receipt).toMatchObject({ status: 'injected' });
+    expect(types(driver)).toEqual(['user/message']);
+    const dup = await driver.notifySubagentApprovalPending({ approvalId: 'ap5', jobName: '丙', toolName: 'read' });
+    expect(dup).toMatchObject({ status: 'injected' });
+    expect(types(driver)).toEqual(['user/message']); // 幂等：不叠第二条
+  });
+});
+
+describe('ConversationDriver run 终态回调（ctx.agent onRunSettled）', () => {
+  it('每次 run 结算恰一回调：{result, sessionId} 信封；连续两 run 两回调', async () => {
+    const scope = Scope.createRoot();
+    const events: Array<{ result: string; sessionId: string }> = [];
+    const agent = provideAgentService(scope);
+    agent.onRunSettled((event) => void events.push({ result: event.result.status, sessionId: event.sessionId }));
+    const { driver } = makeDriver({
+      scope,
+      scripts: [assistant({}), assistant({ stopReason: 'error', errorMessage: 'x' })],
+    });
+    await driver.submit('一问');
+    expect(events).toEqual([{ result: 'completed', sessionId: 's-driver' }]);
+    await driver.submit('二问');
+    expect(events.map((e) => e.result)).toEqual(['completed', 'failed']);
+  });
+
+  it('订阅者异常隔离：单订阅者故障不反噬 run 结算与回执', async () => {
+    const scope = Scope.createRoot();
+    const service = provideAgentService(scope);
+    const recorded: string[] = [];
+    service.onRunSettled(() => {
+      throw new Error('订阅者故障');
+    });
+    service.onRunSettled((event) => void recorded.push(event.result.status));
+    const { driver } = makeDriver({ scope, scripts: [assistant({})] });
+    const result = await driver.submit('问');
+    expect(result.status).toBe('completed');
+    expect(recorded).toEqual(['completed']);
   });
 });

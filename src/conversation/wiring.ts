@@ -103,6 +103,7 @@ export class DurableWiring {
     const event = this.session.append('user/message', {
       content: message.content,
       ...(message.source !== undefined ? { source: message.source } : {}),
+      ...(message.dedupeKey !== undefined ? { dedupeKey: message.dedupeKey } : {}),
     });
     return event.seq;
   }
@@ -192,6 +193,7 @@ export class DurableWiring {
       this.session.append('user/message', {
         content: user.content,
         ...(user.source !== undefined ? { source: user.source } : {}),
+        ...(user.dedupeKey !== undefined ? { dedupeKey: user.dedupeKey } : {}),
       });
       return;
     }

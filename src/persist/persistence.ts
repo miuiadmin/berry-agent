@@ -264,6 +264,16 @@ export class Persistence {
     return this.store.listSessions(options);
   }
 
+  /**
+   * 会话内全文检索透传（05 §9 首发口径：查询面限定 session_id——跨会话检索
+   * 非首发面）。**flush 先行归调用方编排**（write-behind 在飞事件不进 FTS
+   * 索引，检索前须屏障）；命中返回 seq 升序列表（limit 缺省 50）。
+   */
+  searchSessionFts(sessionId: string, pattern: string, limit?: number): number[] {
+    this.ensureOpen();
+    return this.store.searchSessionFts(sessionId, pattern, limit);
+  }
+
   /** 关库退出序：flush（失败即抛——调用方转非零退出，05 §6.3#6）→ checkpoint → close */
   async close(): Promise<void> {
     if (this.closed) return;

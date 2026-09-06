@@ -12,7 +12,6 @@
  */
 import type { AgentEventSink, AgentLoopConfig } from '../agent/index.js';
 import type { EventDispatch, Scope } from '../context/index.js';
-import type { Store } from '../persist/index.js';
 import type { SessionLog } from '../session/index.js';
 import type {
   AgentTool,
@@ -60,8 +59,6 @@ export interface ConversationDriverOptions {
   readonly scope: Scope;
   /** 事件总线（safety ApprovalService waterfall 挂点——审批 ask/answer 事件面） */
   readonly dispatch: EventDispatch;
-  /** 多会话物理面（列表 / resume / fork 编排与 FTS 搜索；缺席 = 单会话形态降级） */
-  readonly store?: Store;
 
   // —— 装配注入面（跨边件——host 装配根闭包注入，04 §11 先例同族）——
 
