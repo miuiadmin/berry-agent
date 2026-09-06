@@ -111,6 +111,20 @@ export interface ConversationDriverOptions {
   readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
 
   /**
+   * 后台唤醒批的工具面供应商（04 §4「合批收窄工具面」）：唤醒触发的 run
+   * 工具面 = 本供应面产出（goal 续跑/tick 编排的窄面经装配根供入——批 12
+   * 接线）；**缺席 = 后台 run 零工具**（纯对话——「防后台 run 自由动用全部
+   * 工具」的最保守兑现；前台 run 不经本面恒取全量 tools）。
+   */
+  readonly backgroundTools?: () => AgentTool[];
+
+  /**
+   * 警示面（唤醒预算拒收等运行时护栏 warn 的落点）：缺省 stderr 直写
+   * （护栏不静默）；装配根接 logger。
+   */
+  readonly warn?: (message: string) => void;
+
+  /**
    * 活体事件外部汇（04 §2 onEvent 的转发腿）：驱动把活体 AgentEvent 双腿
    * 转发——durable 接线腿（同步序即落账序）+ 本腿（channels 信封包装归批 12
    * 装配）。缺席 = 零外部转发（纯落账形态）。
@@ -132,6 +146,26 @@ export interface SubmitOptions {
    */
   readonly backgroundWake?: boolean;
 }
+
+/**
+ * inject 通道投递收执（04 §4 inject 行：dismantled 停摆期投递只追加会话
+ * 日志/投影、不触发任何模型调用——「随下次启动带入」的 durable 承载）。
+ */
+export interface InjectedReceipt {
+  status: 'injected';
+  /** durable user/message 落账 seq（下次启动 timeline 重播种自然带入） */
+  readonly seq: number;
+}
+
+/** 唤醒预算拒收（04 §4：连续后台唤醒超帽即拒绝再唤醒并落 warn） */
+export interface WakeRefusedReceipt {
+  status: 'wake-refused';
+  /** 拒因（闭集当前仅 wake-budget 一值） */
+  readonly reason: 'wake-budget';
+}
+
+/** 唤醒预算帽（04 §4 定值：连续后台唤醒计数上限——批消费位记账） */
+export const MAX_CONSECUTIVE_WAKES = 3;
 
 /** 重播种产物：重建的 timeline 活数组种子（标准消息——自定义角色是每请求瞬态注入，不进重播种） */
 export type ReseededTimeline = Message[];

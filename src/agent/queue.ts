@@ -24,6 +24,11 @@ export interface PendingItem {
   channel: DeliverChannel;
   /** Unix 毫秒时间戳（入列时刻） */
   enqueuedAt: number;
+  /**
+   * 后台唤醒标记（04 §4：发送方声明的 backgroundWake 位随条目入列——
+   * 消费侧（驱动）据此合批与记唤醒预算；队列只承载不判定）。
+   */
+  backgroundWake?: boolean;
 }
 
 /** enqueue 回执：accepted=false 时 dropped 载被拒/被丢项（回执面可见，不静默） */
@@ -88,10 +93,16 @@ export class PendingMessageQueue {
   /**
    * 入列（溢出按策略执法、回执不静默）。
    * @param message 待发消息 @param channel 通道判定结果（驱动侧已裁）
+   * @param options.backgroundWake 后台唤醒标记位（随条目透传——消费侧合批/预算面）
    * @returns 回执：accepted=true 正常入列；false 时 dropped 载被丢/被拒项
    */
-  enqueue(message: AgentMessage, channel: DeliverChannel): EnqueueReceipt {
-    const item: PendingItem = { message, channel, enqueuedAt: Date.now() };
+  enqueue(message: AgentMessage, channel: DeliverChannel, options?: { backgroundWake?: boolean }): EnqueueReceipt {
+    const item: PendingItem = {
+      message,
+      channel,
+      enqueuedAt: Date.now(),
+      ...(options?.backgroundWake !== undefined ? { backgroundWake: options.backgroundWake } : {}),
+    };
     if (this.items.length < this.capacityValue) {
       this.items.push(item);
       return { accepted: true };

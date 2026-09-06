@@ -49,6 +49,20 @@ describe('PendingMessageQueue 取件策略轴', () => {
     expect(item!.channel).toBe('steer');
     expect(typeof item!.enqueuedAt).toBe('number');
   });
+
+  it('backgroundWake 位随条目入列/取件透传（三通道标记——04 §4 唤醒合批与预算的载体）', () => {
+    const q = new PendingMessageQueue();
+    q.enqueue(msg(1), 'steer', { backgroundWake: true });
+    q.enqueue(msg(2), 'steer');
+    const [wake, plain] = [q.drain()[0]!, q.drain()[0]!];
+    expect(wake.backgroundWake).toBe(true);
+    expect(plain.backgroundWake).toBeUndefined();
+    // 被丢/被拒回执项同载位（丢弃面不丢标记）
+    const bounded = new PendingMessageQueue({ capacity: 1, overflowPolicy: 'bounded' });
+    bounded.enqueue(msg(3), 'steer');
+    const receipt = bounded.enqueue(msg(4), 'steer', { backgroundWake: true });
+    expect(receipt.dropped?.backgroundWake).toBe(true);
+  });
 });
 
 describe('PendingMessageQueue 容量溢出策略轴', () => {

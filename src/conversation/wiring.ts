@@ -94,6 +94,20 @@ export class DurableWiring {
   }
 
   /**
+   * inject 通道直落账（04 §4 inject 行 / berry 停摆语义：只追加会话日志/
+   * 投影、不触发任何模型调用——「随下次启动带入」的 durable 承载）。durable
+   * 写点单归本件（驱动不绕过接线器直写 session）。
+   * @returns 落账 seq（inject 收执面）
+   */
+  appendInjectedUser(message: UserMessage): number {
+    const event = this.session.append('user/message', {
+      content: message.content,
+      ...(message.source !== undefined ? { source: message.source } : {}),
+    });
+    return event.seq;
+  }
+
+  /**
    * 请求信封快照（边界制——transformContext 关口调用，请求发出前落账）。
    * initial / resume / change 三边界各落一条；稳态不落。
    */

@@ -1,6 +1,7 @@
 /**
- * ConversationDriver 测试 — 11c 纵切全景（durable 接线 / runTurns 重试 /
- * 溢出兜底 / 队列通道）。
+ * ConversationDriver 测试 — 11c/11d 纵切全景（durable 接线 / runTurns 重试 /
+ * 溢出兜底 / 队列通道 / 三通道路由与取消模型 / 唤醒预算与工具面收窄 /
+ * resume 冷启动续接）。
  *
  * 纪律：mock 只停 streamFn 注入位（scripted 终值序列 + 门控挂起）——金样
  * seam 同族；session/wiring/reseed/queue/loop 全走真实现（组合根口径）。
@@ -198,8 +199,8 @@ describe('ConversationDriver durable 接线', () => {
       tools: [makeTool('probe')],
     });
     const result = await driver.submit('长输出');
-    expect(result.status).toBe('failed');
-    expect(result.stopReason).toBe('length');
+    // run 终态判别收窄（11d 起 SubmitResult 含通道收执两形——toMatchObject 免收窄）
+    expect(result).toMatchObject({ status: 'failed', stopReason: 'length' });
     expect(types(driver)).toEqual([
       'user/message',
       'turn/start',
@@ -472,5 +473,219 @@ describe('ConversationDriver 待发队列通道', () => {
     const lastMessages = seen[1]!.messages as Array<{ role: string; content: unknown }>;
     const userTexts = lastMessages.filter((m) => m.role === 'user').map((m) => m.content);
     expect(userTexts).toEqual(['一问', '搁浅件', '新输入']);
+  });
+});
+
+/* ---------------- 三通道路由与取消模型（11d：inject / 唤醒预算 / 工具面收窄 / resume） ---------------- */
+
+describe('ConversationDriver 三通道与取消模型', () => {
+  it('inject 通道：dismantle 后 submit 只落 durable user/message（零 turn/header）+ injected 收执', async () => {
+    const warns: string[] = [];
+    const { driver } = makeDriver({ scripts: [assistant({})], warn: (m) => warns.push(m) });
+    driver.dismantle();
+    expect(driver.dismantled).toBe(true);
+    const receipt = await driver.submit('停摆期投递');
+    expect(receipt).toEqual({ status: 'injected', seq: expect.any(Number) });
+    expect(driver.running).toBe(false);
+    // durable 只落 user/message——零 turn/start、零 request/header（不触发任何模型调用）
+    expect(types(driver)).toEqual(['user/message']);
+    expect((dataOf(driver, 'user/message')[0] as { content: string }).content).toBe('停摆期投递');
+    expect(warns).toHaveLength(0); // inject 非拒收
+  });
+
+  it('dismantle 打断在飞：协作流收 aborted + 队列清空 + 此后投递转 inject', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver } = makeDriver({
+      // 协作中止面：流 honor signal（生产 llm 层行为）——门控与中止竞速
+      streamFn: (_context, _options, signal): AssistantStream => {
+        const final = assistant({ stopReason: 'aborted' });
+        return {
+          async *[Symbol.asyncIterator](): AsyncIterator<AssistantStreamEvent> {
+            const aborted = new Promise<void>((resolve) => {
+              if (signal?.aborted) resolve();
+              else signal?.addEventListener('abort', () => resolve(), { once: true });
+            });
+            await Promise.race([gate, aborted]);
+            yield { type: 'start', partial: final };
+            yield { type: 'error', reason: 'aborted', error: final };
+          },
+          result: async () => final,
+        };
+      },
+    });
+    const first = driver.submit('在飞问');
+    driver.submit('忙碌中件'); // busy → 入列（dismantle 时被清——内存态不承诺）
+    driver.dismantle(); // 置位 + abort + 清队列
+    const result = await first;
+    expect(result).toMatchObject({ status: 'aborted' });
+    // 被清件不落账（只有种子）；turn 收 aborted
+    expect(types(driver).filter((t) => t === 'user/message')).toHaveLength(1);
+    expect(dataOf(driver, 'turn/end')).toEqual([{ reason: 'aborted' }]);
+    // 此后一切投递转 inject
+    const receipt = await driver.submit('停摆期投递');
+    expect(receipt).toEqual({ status: 'injected', seq: expect.any(Number) });
+    const userTexts = dataOf(driver, 'user/message').map((d) => (d as { content: string }).content);
+    expect(userTexts).toEqual(['在飞问', '停摆期投递']);
+    void release; // 门永不放（中止腿独赢——防悬挂 promise）
+  });
+
+  it('backgroundWake idle 起跑：工具面收窄（backgroundTools 供应商）+ header 快照载窄面', async () => {
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({})],
+      tools: [makeTool('full')],
+      backgroundTools: () => [makeTool('narrow')],
+    });
+    const result = await driver.submit('后台唤醒', { backgroundWake: true });
+    expect(result.status).toBe('completed');
+    expect(seen[0]!.tools?.map((t) => t.name)).toEqual(['narrow']);
+    expect(dataOf(driver, 'request/header')[0]).toMatchObject({ toolSchemas: [{ name: 'narrow' }], reason: 'initial' });
+  });
+
+  it('backgroundTools 缺席 = 后台 run 零工具（最保守）', async () => {
+    const { driver, seen } = makeDriver({ scripts: [assistant({})], tools: [makeTool('full')] });
+    await driver.submit('后台唤醒', { backgroundWake: true });
+    expect(seen[0]!.tools).toEqual([]);
+    expect(dataOf(driver, 'request/header')[0]).toMatchObject({ toolSchemas: [] });
+  });
+
+  it('唤醒预算达帽：3 连唤醒后第 4 次唤醒 submit 拒收回执 + warn + 零新 durable 事件', async () => {
+    const warns: string[] = [];
+    const { driver } = makeDriver({
+      scripts: [assistant({}), assistant({}), assistant({})],
+      warn: (m) => warns.push(m),
+    });
+    for (let i = 0; i < 3; i += 1) {
+      expect((await driver.submit(`唤醒${i}`, { backgroundWake: true })).status).toBe('completed');
+    }
+    const before = types(driver).length;
+    const receipt = await driver.submit('唤醒3', { backgroundWake: true });
+    expect(receipt).toEqual({ status: 'wake-refused', reason: 'wake-budget' });
+    expect(warns).toHaveLength(1);
+    expect(types(driver).length).toBe(before); // 拒收零落账
+    expect(driver.running).toBe(false);
+  });
+
+  it('前台输入复位预算：3 连唤醒后前台 run 归零 → 唤醒重新受理', async () => {
+    const { driver } = makeDriver({
+      scripts: [assistant({}), assistant({}), assistant({}), assistant({}), assistant({}), assistant({})],
+      warn: () => {
+        throw new Error('复位后不应拒收');
+      },
+    });
+    await driver.submit('唤醒1', { backgroundWake: true });
+    await driver.submit('唤醒2', { backgroundWake: true });
+    await driver.submit('唤醒3', { backgroundWake: true });
+    expect((await driver.submit('前台')).status).toBe('completed'); // 复位点
+    expect((await driver.submit('唤醒4', { backgroundWake: true })).status).toBe('completed');
+    expect((await driver.submit('唤醒5', { backgroundWake: true })).status).toBe('completed');
+  });
+
+  it('busy 唤醒合批：busy 期 wake×2+前台×1 → followUp 一次消费全量（同请求 + 窄面 + 整批计 1）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver, seen } = makeDriver({
+      // 脚本 0：gated 首 turn；1：合批续跑 turn；2/3：复位验证用两次唤醒探针
+      scripts: [assistant({}), assistant({}), assistant({}), assistant({})],
+      gates: [gate],
+      tools: [makeTool('full')],
+      backgroundTools: () => [makeTool('narrow')],
+    });
+    const first = driver.submit('前台一问');
+    driver.submit('唤醒A', { backgroundWake: true }); // busy → 入列
+    driver.submit('唤醒B', { backgroundWake: true }); // busy → 入列
+    driver.submit('前台二问'); // busy → 入列（合批不辨——首件唤醒位触发取全量）
+    release();
+    expect((await first).status).toBe('completed');
+    // 合批：三件全进第二请求（followUp 通道一次消费）
+    const second = seen[1]!;
+    const userTexts = (second.messages as Array<{ role: string; content: unknown }>)
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content);
+    expect(userTexts).toEqual(['前台一问', '唤醒A', '唤醒B', '前台二问']);
+    expect(second.tools?.map((t) => t.name)).toEqual(['narrow']);
+    // 整批计 1（合批 5 唤醒 = 1 run 计 1 的兑现锁）：本 run 后 streak=1，
+    // 其后两次唤醒到 3、第 4 次才拒——若按件计 3 则唤醒 A 后立刻达帽拒收
+    await driver.submit('唤醒C', { backgroundWake: true });
+    await driver.submit('唤醒D', { backgroundWake: true });
+    const receipt = await driver.submit('唤醒E', { backgroundWake: true });
+    expect(receipt).toEqual({ status: 'wake-refused', reason: 'wake-budget' });
+  });
+
+  it('消费位拒收：达帽后 busy 入列的唤醒件在 followUp 消费被滤（warn + 不起空续跑）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const warns: string[] = [];
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({}), assistant({}), assistant({})],
+      gates: [undefined, undefined, gate],
+      warn: (m) => warns.push(m),
+    });
+    await driver.submit('唤醒1', { backgroundWake: true });
+    await driver.submit('唤醒2', { backgroundWake: true });
+    const third = driver.submit('唤醒3', { backgroundWake: true }); // gated → 消费后 streak=3
+    driver.submit('忙碌唤醒', { backgroundWake: true }); // busy 入列（预算在消费位执法）
+    release();
+    expect((await third).status).toBe('completed');
+    expect(seen).toHaveLength(3); // 无第四请求（空消费防御——不起无新消息的 LLM 调用）
+    expect(warns).toHaveLength(1);
+    expect(types(driver).filter((t) => t === 'turn/start')).toHaveLength(3);
+    expect(types(driver).filter((t) => t === 'user/message')).toHaveLength(3); // 被滤件不落账
+  });
+
+  it('resume 冷启动：同 session 新驱动 submit → header(resume) + timeline 含前史', async () => {
+    const session = new SessionLog({ sessionId: 's-resume' });
+    const run1 = makeDriver({ session, scripts: [assistant({})] });
+    await run1.driver.submit('旧问');
+    const run2 = makeDriver({ session, scripts: [assistant({})] });
+    const result = await run2.driver.submit('新问');
+    expect(result.status).toBe('completed');
+    // header 边界制：冷启动（日志已有 header）首请求落 resume 形——不重落 initial
+    const reasons = session
+      .events()
+      .filter((event) => event.type === 'request/header')
+      .map((event) => (event.data as { reason: string }).reason);
+    expect(reasons).toEqual(['initial', 'resume']);
+    // timeline 续接：新请求上下文含前史 user
+    const userTexts = (run2.seen[0]!.messages as Array<{ role: string; content: unknown }>)
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content);
+    expect(userTexts).toEqual(['旧问', '新问']);
+  });
+
+  it('open durable turn 冷启动合并：种子 turn 不重开、首 turn/end 闭合并承载', async () => {
+    // 模拟进程崩溃于 turn 中（durable 落有未闭 turn/start——恢复合成 recoverClosers
+    // 归 host 侧；本测只锁驱动行为：续接不重开 turn、旧 turn 合并承载新轮）
+    const session = new SessionLog({ sessionId: 's-open-turn' });
+    session.append('user/message', { content: '崩溃前问' });
+    session.append('turn/start', {});
+    session.append('request/header', {
+      config: { model: 'test/model' },
+      systemPrompt: 'sys',
+      toolSchemas: [],
+      reason: 'initial',
+    });
+    session.append('assistant/message', {
+      content: [],
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+      stopReason: 'stop',
+    });
+    const { driver } = makeDriver({ session, scripts: [assistant({})] });
+    const result = await driver.submit('续问');
+    expect(result.status).toBe('completed');
+    // turn/start 不重开（种子那枚合并承载）；turn/end 一枚闭收
+    expect(types(driver).filter((t) => t === 'turn/start')).toHaveLength(1);
+    expect(dataOf(driver, 'turn/end')).toEqual([{ reason: 'completed' }]);
+    const reasons = session
+      .events()
+      .filter((event) => event.type === 'request/header')
+      .map((event) => (event.data as { reason: string }).reason);
+    expect(reasons).toEqual(['initial', 'resume']);
   });
 });
