@@ -182,15 +182,25 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
     },
     writeCrashLog: (error) => {
       if (memory || dataDir === null) return; // memory 形无真库归属地——跳过
-      try {
-        mkdirSync(dataDir, { recursive: true });
-        appendFileSync(join(dataDir, 'crash.log'), `[${new Date().toISOString()}] ${describe(error)}\n`);
-      } catch {
-        // 取证写失败不再抛（崩溃路径唯一允许的静默——进程将退，再抛无消费方）
-      }
+      appendCrashLog(dataDir, error);
     },
   };
   return runtime;
+}
+
+/**
+ * 崩溃取证直写（数据目录 crash.log 同步追加一行）。
+ *
+ * 独立于运行时导出——main 装配位在运行时尚未组装的前置窗口（解析/开库
+ * 阶段）也能取证；写失败静默（崩溃路径唯一允许——进程将退再抛无消费方）。
+ */
+export function appendCrashLog(dataDir: string, error: unknown): void {
+  try {
+    mkdirSync(dataDir, { recursive: true });
+    appendFileSync(join(dataDir, 'crash.log'), `[${new Date().toISOString()}] ${describe(error)}\n`);
+  } catch {
+    // 同上——崩溃路径唯一允许的静默
+  }
 }
 
 /** 数据目录缺省解析（persist 三级梯子真源——BERRY_AGENT_DATA_DIR > ~/.berry-agent） */

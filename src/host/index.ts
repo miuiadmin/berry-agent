@@ -5,9 +5,10 @@
  * 表 #10：装配序 + CLI 入口 + 插件装载器 + 生命周期工具族落位本域）。
  * 本笔（12a）只落契约面三件：PLUGIN_ 码族补落（codes）+ 插件清单/启用行
  * 拒绝式校验（manifest）+ CLI 解析面（cli——手写 argv 解析器，执法律五条）。
- * 后续笔：12b 装配序实装（11 模块组装 + dataDir 接线 + 单活跃机 + 退出序 +
- * environmentDisclosure 五件）→ 12c CLI 分派面 → 12d 装载器 jiti 实装
- * （import 门禁/库句柄门禁码名届时补落 codes）→ 12e TUI 入口装配。
+ * 后续笔：12b 装配序实装（运行时生命周期 + dataDir 接线 + 单活跃机 +
+ * environmentDisclosure 五件）→ 12c CLI 分派面（dispatch/signals/main
+ * bin）→ 12d 装载器 jiti 实装（import 门禁/库句柄门禁码名届时补落
+ * codes）→ 12e TUI 入口装配。
  *
  * 单向 DAG：host → 全宿主模块（边表已预登记 24 deps；本笔实际触达
  * contracts 单边——契约笔不解包重件）。
@@ -42,5 +43,10 @@ export { acquireActiveMarker, ACTIVE_MARKER_BASENAME } from './single-instance.j
 export type { ActiveMarkerRecord, ActiveMarkerLease, AcquireOptions } from './single-instance.js';
 export { renderEnvironmentDisclosure, collectPlatform, collectDate } from './disclosure.js';
 export type { DisclosureInputs } from './disclosure.js';
-export { createHostRuntime } from './runtime.js';
+export { createHostRuntime, appendCrashLog } from './runtime.js';
 export type { HostRuntime, HostRuntimeOptions, HostCloser, ExitSequenceBudget } from './runtime.js';
+// 批 12c CLI 分派面（退出码三态 + 非 TTY 卫兵 + help/version 短路）与进程编舞
+export { dispatchCli, HELP_TEXT } from './dispatch.js';
+export type { CommandHandlers, DispatchEnv } from './dispatch.js';
+export { installSignalChoreography, installCrashChoreography } from './signals.js';
+export type { SignalChoreographyOptions, CrashChoreographyOptions } from './signals.js';
