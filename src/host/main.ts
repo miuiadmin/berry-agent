@@ -27,6 +27,7 @@ import type { CommandHandlers } from './dispatch.js';
 import { appendCrashLog } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { installCrashChoreography, installSignalChoreography } from './signals.js';
+import { DAEMON_CHILD_ENV, runDaemonServe, runServeStatus, runServeStop, spawnDaemonServe } from './serve-daemon.js';
 import { runServeEntry } from './serve-entry.js';
 import { runTuiEntry } from './tui-entry.js';
 
@@ -45,7 +46,20 @@ function readVersion(): string {
   return pkg.version ?? '0.0.0-unknown';
 }
 
-/** 执行器族（12c 空起——逐批充实；12e TUI 主入口 / 13c serve stdio 宿主已接线，余命令诚实退 1） */
+/** serve 分派三态：daemon child（env 标记）→ spawner（--daemon）→ stdio 前台 */
+function dispatchServe(flags: Parameters<NonNullable<CommandHandlers['serve']>>[0]): Promise<number> {
+  if (process.env[DAEMON_CHILD_ENV] === '1') {
+    // child 形态：HTTP 面常驻主体（spawner 已 detached + stderr 重定向 log）
+    return runDaemonServe({ flags, onRuntime: attachRuntime });
+  }
+  if (flags.daemon) {
+    // spawner 形态：spawn 自镜像后即退（起活确认窗内报结果；child 独立生命周期）
+    return spawnDaemonServe({ flags });
+  }
+  return runServeEntry({ flags, onRuntime: attachRuntime });
+}
+
+/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop 已接线，余命令诚实退 1） */
 const handlers: CommandHandlers = {
   tui: (flags) =>
     runTuiEntry({
@@ -53,11 +67,9 @@ const handlers: CommandHandlers = {
       version: readVersion(), // OSC title 基线真值（批 12 挂账兑现）
       onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
     }),
-  serve: (flags) =>
-    runServeEntry({
-      flags,
-      onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体（serve status/stop 随 13e daemon 形落码）
-    }),
+  serve: (flags) => dispatchServe(flags),
+  serveStatus: () => runServeStatus({ dataDir: resolveDataDir() }),
+  serveStop: () => runServeStop({ dataDir: resolveDataDir() }),
 };
 
 /** 主序：编舞装配 → 分派 → 终局 */

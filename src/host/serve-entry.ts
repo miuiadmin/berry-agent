@@ -194,10 +194,12 @@ export function createServeBridge(
  * runtime.shutdown → closer）/ 传输面坏死 / 过载断连；返回进程退出码。
  */
 export async function runServeEntry(options: ServeEntryOptions): Promise<number> {
-  // —— daemon 诚实拒（07 §5：--daemon 必开 HTTP 面——core:sdk 件 13e 承载；
-  // 收下不启 HTTP 即静默吞，非诚实实现。占标记前拒——不留半开场）——
+  // —— daemon 防御拒（13e-3 起 daemon 编舞归 main 分派层 → serve-daemon 件：
+  // spawner spawn 自镜像 + HTTP 面常驻。本入口只承载 stdio 前台形态——直调
+  // 传 daemon:true = 绕过分派层的编程误用，诚实拒不静默降级。占标记前拒——
+  // 不留半开场）——
   if (options.flags.daemon) {
-    stderr.write('--daemon 需 HTTP 面（core:sdk 件承载，批 13e）——当前仅前台 stdio 传输\n');
+    stderr.write('--daemon 归 main 分派层（serve-daemon 编舞件）——serve-entry 只承载 stdio 前台形态\n');
     return 1;
   }
 

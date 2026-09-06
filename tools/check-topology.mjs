@@ -57,6 +57,9 @@ const MODULE_EDGES = {
     'goal',
     'obs',
     'webui',
+    // 批 13e-3 起消费（daemon 编舞件 serve-daemon 经 sdk 公开面消费
+    // createSdkHttpFace/三防线判定器——02 §4.1 host 行「全部」的落码同步笔）
+    'sdk',
   ],
   skills: ['contracts', 'context'],
   memory: ['contracts', 'context', 'session', 'persist'],

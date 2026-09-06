@@ -66,6 +66,10 @@ export interface ServeFlags {
   /** 脱离控制终端后台守护（必开 HTTP 面——core:sdk 件承载） */
   readonly daemon: boolean;
   readonly noDelta: boolean;
+  /** daemon 形 sdk HTTP 面 TCP 侧可选端口（缺省不开——Unix sock 即缺省接入点） */
+  readonly sdkPort?: number;
+  /** daemon 形 sdk HTTP 面 TCP 侧可选绑定地址（非回环值必配 BERRY_AGENT_SDK_TOKEN） */
+  readonly sdkHost?: string;
 }
 
 /** dump-config 旗标（--port 收下不起监听——:memory: 同构纪律在装配层） */
@@ -271,6 +275,10 @@ const SERVE_SCHEMAS: readonly FlagSchema[] = [
   DEBUG_FLAG,
   { name: 'daemon', kind: 'boolean' },
   { name: 'no-delta', kind: 'boolean' },
+  // daemon 形专属（07 §5 落码定名批）：TCP 侧可选两旗标——前台 stdio 形无
+  // HTTP 面，传入即用法错（parseServe 互斥执法——防「收下不起」静默吞）
+  { name: 'sdk-port', kind: 'value', positiveInt: { upTo: 65535 } },
+  { name: 'sdk-host', kind: 'value' },
 ];
 
 const DUMP_SCHEMAS: readonly FlagSchema[] = [PORT_FLAG, NO_PLUGINS_FLAG, DEBUG_FLAG];
@@ -335,9 +343,20 @@ function parseRun(rest: readonly string[]): CliParseResult {
 function parseServe(rest: readonly string[]): CliParseResult {
   const scan = scanFlags(rest, SERVE_SCHEMAS);
   if (scan.error) return usageFail(scan.error);
-  const arity = expectArity(scan.literals, 0, 0, 'berry-agent serve [--daemon] [--port <n>]');
+  const arity = expectArity(
+    scan.literals,
+    0,
+    0,
+    'berry-agent serve [--daemon] [--port <n>] [--sdk-port <n>] [--sdk-host <host>]',
+  );
   if ('exitCode' in arity) return arity;
+  // daemon 形专属旗标互斥执法（执法⑤同族）：--sdk-port/--sdk-host 是 daemon 形
+  // sdk HTTP 面 TCP 侧可选（07 §5 落码定名批）——前台 stdio 形传入即用法错
+  if (!scan.booleans.has('daemon') && (scan.values.has('sdk-port') || scan.values.has('sdk-host'))) {
+    return usageFail('--sdk-port/--sdk-host 为 --daemon 形态专属（前台 stdio 形无 HTTP 面）');
+  }
   const port = scan.values.get('port');
+  const sdkPort = scan.values.get('sdk-port');
   const command: CliCommand = {
     kind: 'serve',
     flags: {
@@ -345,6 +364,8 @@ function parseServe(rest: readonly string[]): CliParseResult {
       debug: scan.booleans.has('debug'),
       daemon: scan.booleans.has('daemon'),
       noDelta: scan.booleans.has('no-delta'),
+      sdkPort: sdkPort === undefined ? undefined : Number(sdkPort),
+      sdkHost: scan.values.get('sdk-host'),
     },
   };
   return finish(scan, command);

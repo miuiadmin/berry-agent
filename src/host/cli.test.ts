@@ -281,10 +281,39 @@ describe('serve 族 + 管理动词', () => {
     const r = parseCli(['serve', '--daemon', '--port', '9000', '--no-delta']);
     expect(r.ok).toBe(true);
     if (r.ok && r.command.kind === 'serve') {
-      expect(r.command.flags).toEqual({ port: 9000, debug: false, daemon: true, noDelta: true });
+      expect(r.command.flags).toEqual({
+        port: 9000,
+        debug: false,
+        daemon: true,
+        noDelta: true,
+        sdkPort: undefined,
+        sdkHost: undefined,
+      });
     } else {
       expect.unreachable('serve 解析应成功');
     }
+  });
+
+  it('daemon 形 sdk TCP 两旗标（--sdk-port/--sdk-host——07 §5 落码定名批）', () => {
+    const r = parseCli(['serve', '--daemon', '--sdk-port', '8080', '--sdk-host', '127.0.0.1']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'serve') {
+      expect(r.command.flags.sdkPort).toBe(8080);
+      expect(r.command.flags.sdkHost).toBe('127.0.0.1');
+    } else {
+      expect.unreachable('serve daemon 解析应成功');
+    }
+  });
+
+  it('--sdk-port/--sdk-host 为 daemon 形专属：前台 stdio 形传即退 2（防静默吞）', () => {
+    expectUsage(['serve', '--sdk-port', '8080'], '--daemon 形态专属');
+    expectUsage(['serve', '--sdk-host', '127.0.0.1'], '--daemon 形态专属');
+  });
+
+  it('--sdk-port 值域：非正整数/超 65535 退 2（执法③）', () => {
+    expectUsage(['serve', '--daemon', '--sdk-port', '0'], '1–65535');
+    expectUsage(['serve', '--daemon', '--sdk-port', '70000'], '1–65535');
+    expectUsage(['serve', '--daemon', '--sdk-port', 'abc'], '1–65535');
   });
 
   it('serve status / serve stop 管理动词（零旗标零参）', () => {

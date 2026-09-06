@@ -121,7 +121,7 @@ async function closeExpect0(rig: WireRig, entry: Promise<number>): Promise<void>
 /* ---------------- 测试面 ---------------- */
 
 describe('runServeEntry 装配序与旗标', () => {
-  it('--daemon 诚实拒：退 1 不组装运行时（HTTP 面归 13e——不静默吞）', async () => {
+  it('--daemon 防御拒：退 1 不组装运行时（daemon 编舞归 main 分派层 13e-3）', async () => {
     const faux = fauxProvider({ provider: 'faux-daemon', models: [{ id: 'm1' }] });
     const dataDir = mkdtempSync(join(tmpdir(), 'serve-data-'));
     dirs.push(dataDir);
