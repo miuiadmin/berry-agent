@@ -90,6 +90,15 @@ export interface UsageBuckets {
  */
 export type StopReason = 'pending' | 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | 'deferred';
 
+/**
+ * 错误四桶（04 §3.5 表）。词汇归 contracts 单源（批 11b 契约先行）：唯一实现
+ * 在 llm（classifyError 纯函数表），conversation（runTurns 重试循环与溢出
+ * 兜底）经装配注入消费同形——两侧零词汇漂移（04 §3.5 消费通路条款）。
+ * transient/non-retryable/quota 是消费动作桶（每桶一个动作无歧义态），
+ * overflow 只分类不消费（动作挂溢出兜底纵切 04 §3.4）。
+ */
+export type ErrorBucket = 'transient' | 'non-retryable' | 'quota' | 'overflow';
+
 /* ---------------- 三角色消息 ---------------- */
 
 /**

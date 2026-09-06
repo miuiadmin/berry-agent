@@ -85,6 +85,8 @@ const PRESENT_MODULES = new Set([
   'safety',
   'compaction',
   'channels',
+  // 批 11b 起在场（契约先行起面——11c-11f 纵切逐批充实）
+  'conversation',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */

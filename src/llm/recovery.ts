@@ -20,7 +20,10 @@ import type {
   RetryCallbacks as PiRetryCallbacks,
   RetryPolicy as PiRetryPolicy,
 } from '@earendil-works/pi-ai';
-import type { AssistantMessage } from '../contracts/index.js';
+import type { AssistantMessage, ErrorBucket } from '../contracts/index.js';
+// ErrorBucket 词汇归 contracts 单源（批 11b——conversation 注入消费同形）；
+// 此处 re-export 维持 llm 公开面不变，实现（四桶判定）仍单源于本文件
+export type { ErrorBucket };
 
 /** 重试策略（指数退避 baseDelayMs * 2^(attempt-1)；pi-ai 同构透传） */
 export type RetryPolicy = PiRetryPolicy;
@@ -56,11 +59,12 @@ export function isRetryableAssistantError(message: AssistantMessage): boolean {
 }
 
 /**
- * 错误四桶（04 §3.5 表）：transient/non-retryable/quota 是消费动作桶（每桶
- * 一个动作无歧义态），overflow 只分类不消费（动作挂溢出兜底纵切）。
+ * 错误四桶（04 §3.5 表）——词汇定义已归 contracts/llm.ts（ErrorBucket），
+ * 此处 re-export 维持 llm 公开面不变：
+ * transient/non-retryable/quota 是消费动作桶（每桶一个动作无歧义态），
+ * overflow 只分类不消费（动作挂溢出兜底纵切）。
  * 驱动 runTurns 重试循环只消费 'transient'。
  */
-export type ErrorBucket = 'transient' | 'non-retryable' | 'quota' | 'overflow';
 
 /**
  * 配额耗尽文案子集（pi-ai retry.ts NON_RETRYABLE 正则的配额族词表——

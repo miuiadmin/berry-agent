@@ -24,4 +24,5 @@ export * from './events.js';
 export * from './types.js';
 export * from './llm.js';
 export * from './messages.js';
+export * from './approval.js';
 export * from './tools.js';
