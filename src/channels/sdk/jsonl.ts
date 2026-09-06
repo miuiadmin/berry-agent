@@ -175,6 +175,12 @@ function validateFrame(shape: Record<string, unknown>, kind: string, rawLine: st
         throw new SdkDecodeError('outcome 必填且须为 applied/superseded 两值闭集', rawLine);
       }
       break;
+    case 'ask':
+      // 审批外推帧恰三必填标量（reason/toolName/suggestedEntry 可选呈现位不校验）
+      requireString(shape, 'sessionId', rawLine);
+      requireString(shape, 'approvalId', rawLine);
+      requireString(shape, 'summary', rawLine);
+      break;
     case 'sessions':
       break;
     case 'error':

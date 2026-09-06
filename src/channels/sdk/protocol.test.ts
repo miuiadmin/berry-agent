@@ -7,7 +7,13 @@
  * 定形，此后不漂移）。
  */
 import { describe, expect, it } from 'vitest';
-import { SDK_FRAME_KINDS, SDK_PROTOCOL_VERSION, SDK_REQUEST_VERBS, type SdkEventFrame } from './protocol.js';
+import {
+  SDK_FRAME_KINDS,
+  SDK_PROTOCOL_VERSION,
+  SDK_REQUEST_VERBS,
+  type SdkAskFrame,
+  type SdkEventFrame,
+} from './protocol.js';
 import { getErrorCodeInfo } from '../../contracts/index.js';
 
 describe('SDK 协议词汇闭集（03 §10.6）', () => {
@@ -22,7 +28,7 @@ describe('SDK 协议词汇闭集（03 §10.6）', () => {
     }
   });
 
-  it('线帧 kind 闭集恰九件（活体事件帧 + 线控四件 + 应答三件 + 错误帧）', () => {
+  it('线帧 kind 闭集恰十件（活体事件帧 + 线控四件 + 应答三件 + 错误帧 + ask 审批外推帧）', () => {
     expect([...SDK_FRAME_KINDS]).toEqual([
       'event',
       'hello',
@@ -33,6 +39,7 @@ describe('SDK 协议词汇闭集（03 §10.6）', () => {
       'entries',
       'sessions',
       'decide-result',
+      'ask',
     ]);
   });
 
@@ -52,6 +59,17 @@ describe('信封定形（03 §10.6「{seq, sessionId, event} 形随落码批定�
     };
     // 载荷键恰 {seq, sessionId, event}——多一字段（信封漂移）即红
     expect(Object.keys(frame).sort()).toEqual(['event', 'kind', 'seq', 'sessionId']);
+  });
+
+  it('ask 审批外推帧必填恰 {sessionId, approvalId, summary} + 判别字段 kind（13b-1 定形锁）', () => {
+    const frame: SdkAskFrame = {
+      kind: 'ask',
+      sessionId: 's-1',
+      approvalId: 'a-1',
+      summary: '写文件 /tmp/x',
+    };
+    // 最小形恰四键——reason/toolName/suggestedEntry 均可选位；多必填即信封漂移红
+    expect(Object.keys(frame).sort()).toEqual(['approvalId', 'kind', 'sessionId', 'summary']);
   });
 });
 

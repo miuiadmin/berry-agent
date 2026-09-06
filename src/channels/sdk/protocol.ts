@@ -48,10 +48,23 @@ export type SdkHeartbeatStage =
  * 词汇）；message_update 线形剥累积快照只留 delta（① delta 缺省开，改造位在
  * 通道核外推腿、不改活体层事件形状——05 §3.5 第三腿），`--no-delta` 退订降
  * 流量档（07 §5）。
+ *
+ * **双轨律（批 13b 落码定形——立题批可抄清单 #2「delta 仅直播、Ended 可重放」
+ * 同源）**：直播段 = 本帧族（AgentEvent 直出/改造形）；重放段 = durable 平铺
+ * 投影（{@link SdkDurableEntry}，queryEntries 同源读面）——两段词汇按构造零
+ * 重叠（durable 词 ≠ 活体十型），衔接 = 先重放（至订阅时高水位）后全量吐直播
+ * 缓冲，无跨段去重面。掉帧语义：纯活体帧（message_update delta/工具进度）
+ * 丢失无害——重放兜底在 durable 面（05 §3.5「累积错无立足点」）。
  */
 export interface SdkEventFrame {
   kind: 'event';
-  /** per-session 单调 seq（05 §1.1 seq = 写入时 log.length；含未落库在飞事件的内存序） */
+  /**
+   * per-session 单调 seq——**durable 水位语义**（批 13b 落码定形）：值 = 外推
+   * 时刻会话内存日志长度（05 §1.1 seq = 写入时 log.length；含未落库在飞事件
+   * 的内存序）。弱单调（纯活体帧间可同号）；durable 锚定帧（message_end 等——
+   * durable 落账腿先于外部汇腿同步分发）恒 > 订阅重放尾。崩溃对账消费位：
+   * 调用方记已收最大 seq，重连携 after 比对高水位（05 §3.5 尾截断侦测）。
+   */
   seq: number;
   sessionId: string;
   event: AgentEvent;
@@ -135,12 +148,31 @@ export interface SdkErrorFrame {
   retryAfterMs?: number;
 }
 
+/**
+ * durable 事件线面平铺投影形（重放/getEntries 载荷——批 13b 落码定形）。
+ * 05 §1.1 durable 事件信封的线面投影：{type, seq, time, data} 平铺直出
+ * （queryEntries 同源读面——05 §3.5 第一腿「服务端实现即 queryEvents 同源
+ * 读面，无第二查询机制」）；type 词汇 = durable 十五型（线面透传不二校验——
+ * 词汇注册表单源在 session 侧）。双轨律见 {@link SdkEventFrame} 文注——
+ * 本形只走重放/对账段，永不走直播段。
+ */
+export interface SdkDurableEntry {
+  /** durable 事件类型（05 §1.1 词汇——`user/message` 式） */
+  type: string;
+  /** per-session 单调 seq（= 写入时 log.length——重放游标/对账锚） */
+  seq: number;
+  /** Unix 毫秒时间戳 */
+  time: number;
+  /** 事件载荷（frozen 投影——预算刀裁后形） */
+  data: unknown;
+}
+
 /** getEntries 应答帧——断线对账读面（服务端实现即 queryEvents 同源读面，05 §3.5 第一腿） */
 export interface SdkEntriesFrame {
   kind: 'entries';
   sessionId: string;
-  /** (since, 高水位] 窗口内事件（重放源 = 库 + 会话内存尾块——含未落库在飞） */
-  entries: Array<{ seq: number; event: AgentEvent }>;
+  /** (since, 高水位] 窗口内 durable 事件（重放源 = 会话内存日志——含未落库在飞，装配桥接） */
+  entries: SdkDurableEntry[];
   /** 分页续读游标（05 §3.4——缺席 = 已跟尽） */
   nextCursor?: string;
 }
@@ -169,6 +201,29 @@ export interface SdkDecideResultFrame {
   outcome: 'applied' | 'superseded';
 }
 
+/**
+ * 审批 ask 外推帧（03 §10.6 审批外推第三腿：「serve/SDK 面审批 = ask 外推
+ * （线事件）+ decide 请求应答——汇入 10.4 跨入口审批同一 pending Promise
+ * 竞速」）。审批是挂起态非活体流——独立帧族（不入 SDK_FRAME_KINDS 的 event
+ * 位、不占 seq、不进 durable）；重连补推：hello 订阅受理后未决 ask 全量重推
+ * （decide 的应答面才不断线）。approvalId 由 SDK 后端指派（contracts
+ * ApprovalAskRequest.approvalId 缺席时补一——挂起身份短形，多连接防串答）。
+ */
+export interface SdkAskFrame {
+  kind: 'ask';
+  sessionId: string;
+  /** 挂起审批身份（decide 请求以此应答——同词同源） */
+  approvalId: string;
+  /** 目标动作摘要（人可读一行） */
+  summary: string;
+  /** 请求方/理由（可选呈现） */
+  reason?: string;
+  /** 发起审批的工具名（可选呈现） */
+  toolName?: string;
+  /** 「始终允许」草案条目（always 应答的 allowlist 回写目标——缺席 = always 视同 approve） */
+  suggestedEntry?: string;
+}
+
 /** 服务端 → 调用方线帧全族（判别字段 `kind`；闭集见 {@link SDK_FRAME_KINDS}） */
 export type SdkWireFrame =
   | SdkEventFrame
@@ -179,9 +234,14 @@ export type SdkWireFrame =
   | SdkErrorFrame
   | SdkEntriesFrame
   | SdkSessionsFrame
-  | SdkDecideResultFrame;
+  | SdkDecideResultFrame
+  | SdkAskFrame;
 
-/** 线帧 kind 闭集（活体事件帧 + 线控四件〔hello/heartbeat/ack/replay-end〕+ 请求应答三件 + 错误帧） */
+/**
+ * 线帧 kind 闭集（十：活体事件帧 + 线控四件〔hello/heartbeat/ack/replay-end〕+
+ * 请求应答三件〔entries/sessions/decide-result〕+ 错误帧 + ask 审批外推帧——
+ * ask 独立于 event 位，审批挂起态非活体流，见 {@link SdkAskFrame} 文注）。
+ */
 export const SDK_FRAME_KINDS = [
   'event',
   'hello',
@@ -192,6 +252,7 @@ export const SDK_FRAME_KINDS = [
   'entries',
   'sessions',
   'decide-result',
+  'ask',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -209,6 +270,12 @@ export interface SdkHelloRequest {
   sessionId?: string;
   /** 订阅游标：重放窗口 = (after, 订阅时高水位]；合法性见 ./cursor.ts */
   after?: number;
+  /**
+   * 退订 message_update delta（`--no-delta` 线面承载位——07 §5 serve 细则：
+   * 降流量档；durable 定稿事件不受影响——只剥直播 delta 流）。受理后本连接
+   * 不再外推 message_update 帧（Ended 帧/重放面照常）。
+   */
+  noDelta?: boolean;
 }
 
 /**

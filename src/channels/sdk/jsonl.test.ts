@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeWireLine, encodeWireLine, isSdkFrame, isSdkRequest, SdkDecodeError, splitWireLines } from './jsonl.js';
 import type { SdkRequest, SdkWireFrame } from './protocol.js';
 
-/** 全帧型样本（九 kind 各一——往返测试的穷举面） */
+/** 全帧型样本（十 kind 各一——往返测试的穷举面） */
 const FRAME_SAMPLES: SdkWireFrame[] = [
   { kind: 'event', seq: 3, sessionId: 's1', event: { type: 'agent_start' } },
   { kind: 'hello', protocolVersion: 1, sessionId: 's1', highWaterSeq: 4 },
@@ -24,9 +24,15 @@ const FRAME_SAMPLES: SdkWireFrame[] = [
   },
   { kind: 'replay-end', sessionId: 's1', lastReplayedSeq: 3 },
   { kind: 'error', code: 'SDK_CURSOR_INVALID', message: '游标非法', willRetry: false },
-  { kind: 'entries', sessionId: 's1', entries: [{ seq: 2, event: { type: 'turn_start', turn: 1 } }] },
+  // entries 载荷 = durable 平铺投影形（双轨律——重放段词汇，type 为 durable 词）
+  {
+    kind: 'entries',
+    sessionId: 's1',
+    entries: [{ type: 'turn/start', seq: 2, time: 1690000000000, data: { turn: 1 } }],
+  },
   { kind: 'sessions', sessions: [{ id: 's1', title: null, lastActivityAt: 1690000000000 }] },
   { kind: 'decide-result', approvalId: 'a-1', outcome: 'applied' },
+  { kind: 'ask', sessionId: 's1', approvalId: 'a-1', summary: '写文件 /tmp/x', toolName: 'write' },
 ];
 
 /** 全请求型样本（六动词各一） */
@@ -114,6 +120,7 @@ describe('fail-loud 解码（坏行不产半帧）', () => {
     expect(() => decodeWireLine('{"kind":"ack","sessionId":"s","messageId":"m"}')).toThrow(/duplicate/);
     expect(() => decodeWireLine('{"kind":"error","code":"X"}')).toThrow(/message/);
     expect(() => decodeWireLine('{"kind":"event","seq":1,"sessionId":"s"}')).toThrow(/event/);
+    expect(() => decodeWireLine('{"kind":"ask","sessionId":"s","approvalId":"a"}')).toThrow(/summary/);
   });
 
   it('非对象（标量 JSON）报因', () => {
