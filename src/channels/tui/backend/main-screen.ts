@@ -206,12 +206,22 @@ export class MainScreen {
     this.cursorRow = row;
   }
 
-  /** 固定区差分重画 + 光标归位固定区末行行首（呈现不变式） */
+  /** 固定区差分重画 + 光标落位（编辑光标外显的物理位） */
   private redrawFixed(): void {
     if (this.fixedGrid !== null) {
       const baseRow = this.rows - this.fixedGrid.rows;
       this.io.write(renderFixedRegionDiff(this.prevFixed, this.fixedGrid, baseRow));
       this.prevFixed = this.fixedGrid;
+      // 光标声明位落位（EditorView 编辑位经 setCursor 声明）——绝对 CUP 且
+      // 行账同步（gotoRow 相对定位数学依赖 cursorRow 真值）；无声明回退
+      // 屏底行首（呈现不变式原样）
+      const declared = this.fixedGrid.cursor;
+      if (declared !== null) {
+        const row = Math.min(baseRow + declared.row, this.rows - 1); // 越界声明防御钳屏底
+        this.io.write(cup(row, declared.col));
+        this.cursorRow = row;
+        return;
+      }
     }
     this.io.write(cup(this.rows - 1, 0));
     this.cursorRow = this.rows - 1;

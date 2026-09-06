@@ -153,6 +153,40 @@ describe('MainScreen 流式槽与固定区', () => {
     expect(io.bytes).toContain('\x1b[1;7r');
     expect(io.bytes).toContain('\x1b[9;1H'); // 三行固定区首行（0 基行 8）全量重画
   });
+
+  it('setFixed 光标声明：声明位落 cup + 行账同步（后续相对定位不漂移）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    screen.present([userBlock('问')]); // durable 末 = 行 1
+    // 三行固定区（钉行 7..9）、光标声明在固定区首行行内（0 基行 7、列 3）——编辑器形态
+    const grid = new CellGrid(COLS, 3);
+    grid.writeText(0, 0, '› 输入中');
+    grid.setCursor(0, 3);
+    io.bytes = '';
+    screen.setFixed(grid);
+    // 尾帧落声明位 cup(7,3)（非屏底不变式位——编辑光标外显）
+    expect(io.bytes.endsWith('\x1b[8;4H')).toBe(true);
+    // 行账同步：后续 present 归 durable 末（行 1）应 CUU 6（若账留屏底行 9 则误发 CUU 8）
+    io.bytes = '';
+    screen.present([userBlock('问'), userBlock('答')]);
+    expect(io.bytes.startsWith('\x1b[6A')).toBe(true);
+    expect(io.bytes).toContain('\r> 答\n');
+  });
+
+  it('setFixed 无光标声明：回退屏底归位（呈现不变式原样）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    screen.setFixed(fixedGrid('状态A|输入')); // 无 setCursor
+    expect(io.bytes.endsWith('\x1b[10;1H')).toBe(true);
+    // clearCursor 显式撤声明同回退（末次声明为准）
+    const grid = fixedGrid('状态B|输入');
+    grid.setCursor(0, 2);
+    grid.clearCursor();
+    io.bytes = '';
+    screen.setFixed(grid);
+    expect(io.bytes.endsWith('\x1b[10;1H')).toBe(true);
+  });
 });
 
 describe('MainScreen 滚动与重建', () => {

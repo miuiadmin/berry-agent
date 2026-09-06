@@ -51,6 +51,11 @@ export class OverlayStack {
     return this.entries.length;
   }
 
+  /** 在场浮层只读快照（栈底→栈顶——装配层量高遍历/测试观测面） */
+  get contents(): readonly OverlayContent[] {
+    return this.entries.map((entry) => entry.content);
+  }
+
   /** 开层：压栈 + 返回句柄（幂等关闭归句柄） */
   open(content: OverlayContent, anchor: OverlayAnchor): OverlayHandle {
     const entry: OverlayEntry = { content, anchor, closed: false };

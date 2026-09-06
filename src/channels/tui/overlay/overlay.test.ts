@@ -96,6 +96,20 @@ describe('OverlayStack', () => {
     expect(readRow(grid, 2, 20)).toBe('main-tree'); // 非浮层区不受扰
   });
 
+  it('contents 观测面：栈底→栈顶只读快照，开关联动（装配量高遍历消费）', () => {
+    const stack = new OverlayStack();
+    expect(stack.contents).toEqual([]);
+    const a = textLayer('a');
+    const b = textLayer('b');
+    const handleA = stack.open(a, () => ({ row: 0, col: 0, width: 1, height: 1 }));
+    stack.open(b, () => ({ row: 0, col: 0, width: 1, height: 1 }));
+    expect(stack.contents).toEqual([a, b]); // 栈底先、栈顶后
+    handleA.close();
+    expect(stack.contents).toEqual([b]); // 关联动
+    handleA.close(); // 幂等关不重复移除
+    expect(stack.contents).toEqual([b]);
+  });
+
   it('模态独占：栈非空恒返 true 且事件达栈顶；栈空返 false', () => {
     const stack = new OverlayStack();
     expect(stack.routeEvent(key('x'))).toBe(false); // 空栈归常态路由
