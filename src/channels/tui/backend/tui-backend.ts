@@ -20,10 +20,13 @@
  * - **渲染合并**：调度注入后 op 队列合并（连续 present 留末次、transient
  *   到达序保持、固定区脏位重建一帧一次）+ fps 帽 60 + tick 100ms 自重排
  *   驱动状态行转轮；**无注入调度 = 同步直出**（测试语义——合并与自驱 tick
- *   关闭，10e-1 同步断言原样成立；生产装配须注入宿主调度）。
+ *   关闭，10e-1 同步断言原样成立；生产装配须注入宿主调度）；
+ * - **件 7 终端外显**（本纵切）：OscDisplay 自持件——起屏基线 title、
+ *   onEnvelope 按会话净计数忙态（OSC 9;4 + 1s 保活）、onRepaint title 点缀
+ *   会话短 id、stop/硬退复原两写点。
  *
  * 批内边界：setWidget 不支撑（报 false）；主屏滚动帽实测定值挂装配批 12
- * 实机；件 7 OSC 外显与件 8 副屏（AltScreenHost 与本件共享 io）不在本纵切。
+ * 实机；件 8 副屏（AltScreenHost 与本件共享 io）不在本纵切。
  */
 import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage, type Usage } from '../../../contracts/index.js';
@@ -40,7 +43,8 @@ import type {
 } from '../../types.js';
 import { CellGrid, InputDecoder, ProcessTerminalIO, type TerminalIO } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
-import { LiveTranscript, type SummaryLine, type TranscriptBlock } from './transcript.js';
+import { LiveTranscript, shortIdOf, type SummaryLine, type TranscriptBlock } from './transcript.js';
+import { OscDisplay } from './osc.js';
 import { StatusLine } from '../status/status-line.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
@@ -80,6 +84,8 @@ export interface TuiBackendOptions {
   readonly fpsCap?: number;
   /** 编辑器最大可视行（装配按终端高 30% 注入；缺省 8） */
   readonly maxVisibleLines?: number;
+  /** 宿主版本（件 7——title 基线 `berry-agent <版本>`；缺席或空串 = 无版本缀裸名。真值归批 12 host 装配传 HostFace.version） */
+  readonly version?: string;
 }
 
 /** 主屏形进屏模式串：粘贴开 + kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
@@ -214,6 +220,20 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   private pendingUsage: Usage | null = null;
   private usageTotal: UsageAccumulation = ZERO_USAGE;
 
+  /* ---- 呈现面件 7 态（终端外显） ---- */
+  /** title 基线（`berry-agent` 或 `berry-agent <版本>`——起屏与复原落点） */
+  private readonly titleBaseline: string;
+  private readonly osc: OscDisplay;
+  /**
+   * 各会话在飞净计数（agent_start +1 / agent_end -1——按信封 sessionId 归
+   * 账，clamp ≥ 0；归零删条目防会话退出残键）。聚焦位不参账：run 跨切焦时
+   * start/end 恒落同一会话账——按事件时刻聚焦位分两路会跨路不对称（末路
+   * end 被 clamp 吞致忙态永残留，07 件 7 判据勘正）。
+   */
+  private readonly inFlightBySession = new Map<string, number>();
+  /** 进度态上次写出（忙闲迁移门——同态静默，周期重发归保活自持） */
+  private progressBusy = false;
+
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
     this.sessionId = options.sessionId ?? 'main';
@@ -227,6 +247,14 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     this.now = options.now ?? Date.now;
     this.minFrameMs = 1000 / (options.fpsCap ?? DEFAULT_FPS_CAP);
     this.escapeWindowMs = options.escapeWindowMs ?? DEFAULT_ESCAPE_WINDOW_MS;
+    // 件 7：title 基线（version 注入缺席 = 裸名）；外显件复用本件调度注入
+    // （schedule 缺席 = 保活缺位——同步测试语义，与渲染合并同构）
+    this.titleBaseline = options.version ? `berry-agent ${options.version}` : 'berry-agent'; // 空串同缺席归裸名（无尾随空格脏基线）
+    this.osc = new OscDisplay(io, {
+      baseline: this.titleBaseline,
+      schedule: this.scheduleFn ?? undefined,
+      cancel: this.cancelFn,
+    });
     this.decoder = new InputDecoder({ now: this.now, escapeWindowMs: this.escapeWindowMs });
     this.editor = new Editor({
       onSubmit: (text) => this.handleSubmit(text),
@@ -250,6 +278,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     this.priorRaw = this.io.isRaw();
     this.io.write(ENTER_MAIN);
     this.armExitRestore();
+    this.osc.setTitle(this.titleBaseline); // 件 7：起屏基线 title（OSC 0——值缓存首写）
     this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     // 显式放流（共享 io 换防接缝——副屏 Engine 复用同 io 场景；首启 no-op）
@@ -260,7 +289,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     if (this.scheduleFn !== null) this.armTick();
   }
 
-  /** 对称出屏：模式串反序 + 输入卸订 + 定时器全收 + raw 复原（终退不可复用） */
+  /** 对称出屏：模式串反序 + 输入卸订 + 定时器全收 + 外显复原 + raw 复原（终退不可复用） */
   stop(): void {
     if (!this.running) return;
     this.running = false;
@@ -272,6 +301,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     this.cancelTimer('frame');
     this.cancelTimer('tick');
     this.cancelTimer('escape');
+    this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
     this.disarmExitRestore?.();
     this.io.pause();
     this.io.setRawMode(this.priorRaw);
@@ -299,11 +329,12 @@ export class TuiBackend implements UiBackend<AgentMessage> {
       this.enqueuePresent();
     }
     this.requestRender();
+    this.trackProgress(env); // 件 7：按会话净计数（终端级注意力——任一会话在飞即忙）
     if (focused) this.applyFocusedEvent(env.event);
   }
 
   /** 重画呈现：投影重建行集 + 清屏全量重写（widget 槽值不支撑——忽略） */
-  onRepaint(_sessionId: string, projection: readonly AgentMessage[], _widget: { node: unknown } | null): void {
+  onRepaint(sessionId: string, projection: readonly AgentMessage[], _widget: { node: unknown } | null): void {
     // 权威全量重建——排队旧帧作废（repaint 是新真相，合并无意义）
     this.pendingOps = [];
     this.needFixed = false;
@@ -311,6 +342,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     this.resetUsage(); // 件 6：清行并归零（切焦清账重计——尾注射界）
     this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
     this.refreshTodo(); // 件 4：刷新三时点之一
+    this.osc.setTitle(`${this.titleBaseline} · ${shortIdOf(sessionId)}`); // 件 7：title 点缀会话短 id
     this.screen.repaint(this.transcript.snapshot);
     this.renderFixed();
   }
@@ -673,6 +705,40 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   }
 
   /**
+   * 件 7 进度态按会话净计数（任一会话在飞即忙——终端标签页注意力模型）：
+   * agent_start +1 / agent_end -1，均按信封 sessionId 归账、clamp ≥ 0（进程
+   * 内事件无错过窗——clamp 只防重复 end 不穿底；归零删条目）。聚焦位不参
+   * 账（07 件 7 判据勘正——事件时刻聚焦位分两路在切焦场景与主句背离）。
+   * 忙闲迁移才写 progress 序列（同态静默——周期重发归 osc 保活自持）。
+   * stop 后静默短路（终退不再写字节）。
+   */
+  private trackProgress(env: SessionEnvelope): void {
+    if (!this.running) return; // 停后残事件防御——与 requestRender 同闸
+    const { event } = env;
+    if (event.type === 'agent_start') {
+      this.inFlightBySession.set(env.sessionId, (this.inFlightBySession.get(env.sessionId) ?? 0) + 1);
+    } else if (event.type === 'agent_end') {
+      // clamp ≥ 0：净计数不越零（重复 end 不累积负账）；归零删条目
+      const next = Math.max(0, (this.inFlightBySession.get(env.sessionId) ?? 0) - 1);
+      if (next > 0) this.inFlightBySession.set(env.sessionId, next);
+      else this.inFlightBySession.delete(env.sessionId);
+    } else {
+      return; // run 启停族之外零扰动
+    }
+    let busy = false;
+    for (const count of this.inFlightBySession.values()) {
+      if (count > 0) {
+        busy = true;
+        break;
+      }
+    }
+    if (busy !== this.progressBusy) {
+      this.progressBusy = busy;
+      this.osc.setProgress(busy);
+    }
+  }
+
+  /**
    * 固定区 v2 重建（自上而下段序）：overlay 段（各层量高叠放 + 锚定注册表
    * 行账）→ todo 面板（件 4——todoFor 缺席/空表即零行）→ input-ask 提示行
    * → 补全弹层 → 编辑器（动态量高；聚焦态 = 无 overlay 占焦）→ 工具进度
@@ -743,6 +809,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
       try {
         this.io.write(LEAVE_MAIN);
         this.io.setRawMode(false);
+        this.osc.restore(); // 件 7：硬退复原两写点（title 基线 + 进度清零——与 stop 同收口）
       } catch {
         // 复位尽力而为——退出路径不允许二次异常
       }

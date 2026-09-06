@@ -5,7 +5,10 @@
  * （聚焦流式两段 / 非聚焦摘要行）、状态面消费（转轮/工具名/启停）、
  * notify 档位符号、setStatus、tick 推帧、onRepaint 投影重建、resize 自订阅；
  * 交互纵切（10e-2）：自持输入管线与路由四层、提交路由（命令柄/应答优先）、
- * 补全弹层三源、阻塞四件浮层面板、渲染合并与 tick 自驱（手动时钟 rig）。
+ * 补全弹层三源、阻塞四件浮层面板、渲染合并与 tick 自驱（手动时钟 rig）；
+ * 呈现面件 7（终端外显）：起屏基线 title、按会话净计数忙态（OSC 9;4）、
+ * clamp 防穿底、切焦跨路回归锁、onRepaint 点缀短 id、stop 复原两写点、
+ * 保活周期重发。
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryTerminalIO } from '../../engine/index.js';
@@ -18,6 +21,12 @@ import type { AgentMessage } from '../../../contracts/index.js';
 const COLS = 80;
 const ROWS = 10;
 const SESSION = 'sess-aaaaaaaaaa';
+
+/** OSC 9;4 两序列（件 7 断言锚——字节形真源在 osc.ts 直测） */
+const PROGRESS_ACTIVE = '\x1b]9;4;3\x07';
+const PROGRESS_CLEAR = '\x1b]9;4;0\x07';
+/** OSC 0 title 序列包装 */
+const oscTitle = (t: string): string => `\x1b]0;${t}\x07`;
 
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
 
@@ -784,5 +793,102 @@ describe('TuiBackend usage 状态行（件 6）', () => {
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
     expect(io.bytes).not.toContain('✓ 用量 150');
+  });
+});
+
+/* ================= 呈现面件 7（终端外显 OSC） ================= */
+
+describe('TuiBackend 终端外显（件 7）', () => {
+  it('起屏基线 title：version 缺席 = 裸名 / 注入 = berry-agent <版本> / 空串同缺席', () => {
+    const bare = makeBackend();
+    expect(bare.io.frames).toContain(oscTitle('berry-agent'));
+    const versioned = makeBackend({ version: '1.2.3' });
+    expect(versioned.io.frames).toContain(oscTitle('berry-agent 1.2.3'));
+    // 空串边角回归锁（修复前必红）：`berry-agent ` 尾随空格脏基线
+    const empty = makeBackend({ version: '' });
+    expect(empty.io.frames).toContain(oscTitle('berry-agent'));
+    expect(empty.io.frames).not.toContain(oscTitle('berry-agent '));
+  });
+
+  it('按会话净计数忙态：任一会话在飞即忙——并存不清零（终端标签页注意力模型）', () => {
+    const { io, backend } = makeBackend();
+    const env = (sessionId: string, event: AgentEvent, focused: boolean): void => {
+      backend.onEnvelope({ sessionId, event }, focused);
+    };
+    env('sess-a', { type: 'agent_start' }, true); // 会话 A 起（聚焦位）——忙
+    expect(io.bytes).toContain(PROGRESS_ACTIVE);
+    io.bytes = '';
+    env('sess-b', { type: 'agent_start' }, false); // 会话 B 起（非聚焦位）——仍忙零迁移写出
+    expect(io.bytes).not.toContain(PROGRESS_ACTIVE);
+    io.bytes = '';
+    env('sess-a', { type: 'agent_end', status: 'completed' }, false); // A 落——B 仍在飞
+    expect(io.bytes).not.toContain(PROGRESS_CLEAR);
+    io.bytes = '';
+    env('sess-b', { type: 'agent_end', status: 'completed' }, true); // 末路落——清零
+    expect(io.bytes).toContain(PROGRESS_CLEAR);
+  });
+
+  it('切焦跨路回归锁：聚焦起 + 非聚焦收（run 跨切焦）——归闲 + 保活停针', () => {
+    const rig = makeInteractive();
+    // 会话 s1 聚焦时起 run（事件时刻 focused=true）
+    rig.backend.onEnvelope({ sessionId: 's1', event: { type: 'agent_start' } }, true);
+    rig.pump();
+    expect(rig.io.bytes).toContain(PROGRESS_ACTIVE); // 起——忙
+    // 用户切焦会话 s2（repaint 不清在飞账——在飞事实与焦点正交）
+    rig.backend.onRepaint('s2', [], null);
+    // s1 的 run 在非聚焦位收尾（事件时刻 focused=false——按事件时刻聚焦位分两路时
+    // end 减非聚焦路被 clamp 吞、聚焦路残 1 永忙；按 sessionId 归账恒落同一会话账）
+    rig.io.bytes = '';
+    rig.backend.onEnvelope({ sessionId: 's1', event: { type: 'agent_end', status: 'completed' } }, false);
+    rig.pump();
+    expect(rig.io.bytes).toContain(PROGRESS_CLEAR); // 实际无会话在飞——归闲（修复前必红：永忙零写出）
+    rig.io.bytes = '';
+    const activeCount = (): number => rig.io.frames.filter((f) => f === PROGRESS_ACTIVE).length;
+    const sealed = activeCount(); // 归闲时刻封账（修复前永续——advance 后账目增长）
+    rig.clock.advance(3000); // 保活停针——归闲后零重发（状态行转轮是件 3 聚焦路面——非聚焦 end 不收其转，转轮字节与本锚无关）
+    expect(activeCount()).toBe(sealed);
+  });
+
+  it('重复 end 不穿底（clamp ≥ 0——净计数不越零，再 start 即忙）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' }, true);
+    emit(backend, { type: 'agent_end', status: 'completed' }, true);
+    emit(backend, { type: 'agent_end', status: 'completed' }, true); // 重复 end ×2
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' }, true); // clamp 下 0→1 即忙（无 clamp 则 -1 不忙）
+    expect(io.bytes).toContain(PROGRESS_ACTIVE);
+  });
+
+  it('onRepaint：title 点缀会话短 id（基线 · 短id）', () => {
+    const { io, backend } = makeBackend();
+    io.bytes = '';
+    backend.onRepaint(SESSION, [], null);
+    expect(io.bytes).toContain(oscTitle('berry-agent · sess-aaa'));
+  });
+
+  it('stop：复原两写点（title 复原基线 + 进度清零）', () => {
+    const { io, backend } = makeBackend({ version: '0.9.0' });
+    emit(backend, { type: 'agent_start' }, true); // 忙态在飞
+    backend.onRepaint(SESSION, [], null); // title 已点缀短 id
+    io.bytes = '';
+    backend.stop();
+    expect(io.bytes).toContain(oscTitle('berry-agent 0.9.0')); // 写点一：title 复原基线
+    expect(io.bytes).toContain(PROGRESS_CLEAR); // 写点二：进度清零
+  });
+
+  it('忙态保活：注入调度下 1000ms 周期重发 + stop 停针后零重发', () => {
+    const rig = makeInteractive();
+    rig.backend.onEnvelope({ sessionId: 's1', event: { type: 'agent_start' } }, true);
+    rig.pump();
+    const activeCount = (): number => rig.io.frames.filter((f) => f === PROGRESS_ACTIVE).length;
+    const before = activeCount(); // 首写在账（frames 累积不随 bytes 重置清零）
+    expect(before).toBe(1);
+    rig.clock.advance(3000); // 三个保活窗——恰三次重发（单链不叠针）
+    expect(activeCount() - before).toBe(3);
+    rig.backend.stop(); // 复原两写点 + 保活停针（cancelTimer 名册语义）
+    rig.io.bytes = '';
+    rig.clock.advance(3000); // 停针后零重发
+    expect(rig.io.bytes).toBe('');
+    expect(activeCount() - before).toBe(3); // 停针封账——无新 ACTIVE
   });
 });
