@@ -134,3 +134,22 @@ export interface SessionLineage {
   /** 血缘形态 */
   readonly origin: SessionOrigin;
 }
+
+/**
+ * 重试进行态只读小面（04 §3.3 注记 seam——批 13a 落码位）：conversation 驱动
+ * 重试循环的只读探针，SDK 线协议心跳载荷是该 seam 的**唯一线面出口**
+ * （03 §10.6 线协议②：`retry <attempt>/<next>` 不可从事件流推导——活体层
+ * 「重试续入零新事件型」维持不破；非事件型、不进 durable）。
+ *
+ * 归位 contracts：producer（conversation）与 consumer（channels SDK 通道
+ * 后端）边表互不可达（02 §4.1），结构共享零 import 边——ApprovalAskRequest
+ * 归位同款先例（批 11b）。
+ */
+export interface RetryProbe {
+  /** 当前重试序（1 起——attempt 计数生命周期 = 单次 runTurns 调用） */
+  readonly attempt: number;
+  /** 名额上限（RetryPolicy.maxRetries 面——transient/overflow 各自分账） */
+  readonly maxAttempts: number;
+  /** 下次续入时间戳（epoch ms）；null = 不在退避等待（重试已续入/取消/耗尽） */
+  readonly nextAt: number | null;
+}

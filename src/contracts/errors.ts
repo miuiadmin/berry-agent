@@ -64,6 +64,7 @@ export const ERROR_CODE_PREFIXES = [
   'PERSIST_',
   'API_',
   'AGENT_',
+  'SDK_',
 ] as const;
 
 /**
@@ -146,6 +147,31 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     module: 'channels',
     description:
       '命令名词法违例拒注册：主段连字符式 + 可选冒号子段（03 篇 §2.2 签名定形——撞名后写胜出不拒、词法违例拒）',
+  },
+  {
+    code: 'SDK_PROTOCOL_MISMATCH',
+    module: 'sdk',
+    description: '线协议版本握手拒连：双方 protocolVersion 不匹配 fail-loud（03 篇 §10.6 线协议⑤）',
+  },
+  {
+    code: 'SDK_SESSION_BUSY',
+    module: 'sdk',
+    description: '会话受理竞态拒收档：并发 prompt 路由不可行态专用（03 篇 §10.6 请求面——驱动侧单源路由缺省吞并发）',
+  },
+  {
+    code: 'SDK_MESSAGE_CONFLICT',
+    module: 'sdk',
+    description: '幂等 admit 异内容：同 messageId 异内容拒收（03 篇 §10.6 线协议④——同 ID 同内容幂等重收执不重跑）',
+  },
+  {
+    code: 'SDK_OVERLOADED',
+    module: 'sdk',
+    description: '线面出站过载：有界队列溢出拒收、可重试（03 篇 §10.6 线协议⑦——载荷携 retryAfter）',
+  },
+  {
+    code: 'SDK_CURSOR_INVALID',
+    module: 'sdk',
+    description: '线面游标非法形：after 越高水位 / 崩溃截尾后旧游标作废（05 篇 §3.5——调用方从头或 getEntries 重对账）',
   },
 ];
 

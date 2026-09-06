@@ -364,6 +364,52 @@ describe('ConversationDriver turn 级 auto-retry', () => {
     expect(types(driver).filter((t) => t === 'assistant/message')).toHaveLength(1);
   });
 
+  it('重试探针 seam（04 §3.3 只读小面——SDK 心跳载荷唯一线面出口，批 13a）', async () => {
+    // —— 闲态：无 run 即无探针 ——
+    const idleDriver = makeDriver({ scripts: [] }).driver;
+    expect(idleDriver.retryState).toBeNull();
+
+    // —— 窗开：退避等待期可观测 attempt/maxAttempts/nextAt；run 收口即蒸发 ——
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }),
+        assistant({ content: [{ type: 'text', text: '好了' }] }),
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 60_000 }, // 长窗保证观测点落在退避期内
+    });
+    const before = Date.now();
+    const pending = driver.submit('q');
+    await vi.waitFor(() => {
+      expect(driver.retryState).not.toBeNull();
+    });
+    const probe = driver.retryState!;
+    // 单形断言（contracts RetryProbe）：attempt 计数 + 名额上限 + 下次续入时刻
+    // 落抖动窗内（backoff.jitteredBackoff：attempt 1 延迟 ∈ [base·0.5, base)）
+    expect(probe.attempt).toBe(1);
+    expect(probe.maxAttempts).toBe(2);
+    expect(probe.nextAt).toBeGreaterThanOrEqual(before + 30_000); // 抖动下界
+    expect(probe.nextAt).toBeLessThan(before + 60_000); // 上开区间（恒 < 满额）
+    driver.abort();
+    const result = await pending;
+    expect(result.status).toBe('failed');
+    // aborted break 路探针不悬空——finally 防御位收口
+    expect(driver.retryState).toBeNull();
+
+    // —— 窗关：短窗续入成功后探针蒸发（375 行窗关清 + finally 兜底） ——
+    const { driver: quickDriver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }),
+        assistant({ content: [{ type: 'text', text: '好了' }] }),
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+    });
+    const quick = await quickDriver.submit('q');
+    expect(quick.status).toBe('completed');
+    expect(quickDriver.retryState).toBeNull();
+  });
+
   it('overflow 兜底成功：遮蔽(reason=overflow) → compacted → 重播种续入 → completed', async () => {
     const compactionCalls: number[] = [];
     const { driver } = makeDriver({

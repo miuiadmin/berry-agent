@@ -37,6 +37,7 @@ import type {
   AssistantMessage,
   LlmContext,
   Message,
+  RetryProbe,
   UserMessage,
 } from '../contracts/index.js';
 import { isStandardMessage } from '../contracts/index.js';
@@ -83,6 +84,11 @@ export class ConversationDriver {
   private readonly fullTools: AgentTool[] | undefined;
   /** 警示面（缺省 stderr——护栏不静默） */
   private readonly warnFace: (message: string) => void;
+  /**
+   * 重试进行态探针（04 §3.3 注记 seam——批 13a）：退避等待窗内非空、其余
+   * 时点 null；只读外推面 = retryState getter（SDK 心跳载荷唯一线面出口）。
+   */
+  private retryProbeValue: RetryProbe | undefined;
 
   constructor(options: ConversationDriverOptions) {
     this.options = options;
@@ -224,6 +230,16 @@ export class ConversationDriver {
     return this.currentRun !== undefined;
   }
 
+  /**
+   * 重试进行态只读小面（04 §3.3 注记 seam——批 13a）：退避等待窗内非空、
+   * 其余时点 null。SDK 线协议心跳载荷是该探针的唯一线面出口（03 §10.6 ②）
+   * ——非事件型、不进 durable；装配侧经结构共享消费（RetryProbe 归位
+   * contracts，零 import 边）。
+   */
+  get retryState(): RetryProbe | null {
+    return this.retryProbeValue ?? null;
+  }
+
   /** 活体事件双腿：durable 接线腿（同步序即落账序）+ 外部汇腿（channels 信封包装归批 12） */
   private readonly onLiveEvent = (event: AgentEvent): void => {
     this.wiring.onEvent(event);
@@ -339,6 +355,12 @@ export class ConversationDriver {
               const delayMs = retryDelay(retry, transientAttempt);
               this.occludeFailedTail('transient', transientAttempt, retry.maxRetries, delayMs);
               this.context.messages = this.reseededTimeline();
+              // 重试探针窗开（04 §3.3 seam——退避等待期可见；心跳载荷唯一线面出口）
+              this.retryProbeValue = {
+                attempt: transientAttempt,
+                maxAttempts: retry.maxRetries,
+                nextAt: Date.now() + delayMs,
+              };
               if (!(await abortableSleep(delayMs, controller.signal))) {
                 // 退避中被取消：phase=aborted 落账；run 终态保持已结算的 failed
                 this.session.append('llm/retry', {
@@ -349,6 +371,8 @@ export class ConversationDriver {
                 });
                 break;
               }
+              // 窗关：续入即新流（活体层零新事件型——用户看到重跑，探针蒸发）
+              this.retryProbeValue = undefined;
               result = await this.enterRun([], controller.signal);
               continue;
             }
@@ -394,6 +418,8 @@ export class ConversationDriver {
       return result;
     } finally {
       if (this.activeController === controller) this.activeController = undefined;
+      // 探针随 run 收口蒸发（防御位——aborted/exhausted 各 break 路不悬空）
+      this.retryProbeValue = undefined;
       // run 终态 = 结算边界（04 §3）：审批对收口（04 §9 turn 界闭合——未决
       // ask 统一 unavailable；run 打断的在身 ask 已由 signal 链先收 cancel）
       this.options.settleApprovals?.();
