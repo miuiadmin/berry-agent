@@ -24,6 +24,11 @@ function fakeService(rows: JobRow[] = []): SchedulerService & { added: unknown[]
       }
       return byName.get(req.name) ?? row;
     },
+    // builtin 正门与 addJob 同核（/tick 面不触——占位满足接口形）
+    addBuiltinJob(req) {
+      added.push(req);
+      return makeRow(req.name);
+    },
     listJobs: () => rows,
     getJob: (name) => byName.get(name),
     removeJob: vi.fn(),

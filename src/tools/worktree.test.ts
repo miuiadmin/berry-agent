@@ -127,6 +127,18 @@ describe('会话授予面（补钉①）', () => {
     expect(a.path).not.toBe('');
     expect(service.grantedRoots('anyone')).toEqual([]);
   });
+
+  it('grant 显式补授（编排路径——create 后拿到 sessionId 才授予）', async () => {
+    const a = await service.create({ name: 'wt-grant' });
+    expect(service.grantedRoots('headless-1')).toEqual([]);
+    await service.grant({ sessionId: 'headless-1', path: a.path });
+    await service.grant({ sessionId: 'headless-1', path: a.path }); // 幂等
+    expect(service.grantedRoots('headless-1')).toEqual([a.path]);
+    // create 携 sessionId 与 grant 双入口同记账面
+    const b = await service.create({ name: 'wt-grant2', sessionId: 'headless-1' });
+    expect(service.grantedRoots('headless-1').sort()).toEqual([a.path, b.path].sort());
+    expect(service.releaseSession('headless-1')).toHaveLength(2);
+  });
 });
 
 describe('树级写互斥（补钉③——serializeTreeWrites 双向握手）', () => {

@@ -113,6 +113,12 @@ export interface WorktreeService {
   clean(req: { name: string; force?: boolean }): Promise<{ name: string; path: string }>;
   /** 两点间补丁（交付面——草稿评论贴补丁的数据源；`base...HEAD` 三点形） */
   diffPatch(req: { name: string; baseRef: string }): Promise<string>;
+  /**
+   * 显式授予（编排路径——create 时会话尚不存在、startHeadless 后补授的位：
+   * issue 件先建 worktree 再起 headless 会话，拿到 sessionId 才能授予）。
+   * canonical 化后记入该会话授予集（幂等）。
+   */
+  grant(req: { sessionId: string; path: string }): Promise<void>;
   /** 会话授予集读（fence 组合装配面消费——writableRoots provider 并入） */
   grantedRoots(sessionId: string): string[];
   /** 会话授予回收（会话关闭 / Job 终态；返回被释放的路径集） */
@@ -314,6 +320,17 @@ export function createWorktreeService(opts: WorktreeServiceOptions): WorktreeSer
       assertNameValid(req.name);
       const path = derivedPath(req.name);
       return runGit(['-C', path, 'diff', `${req.baseRef}...HEAD`]);
+    },
+
+    async grant(req) {
+      // canonical 化后记入（与 fence 比对同基；幂等——Set 语义）
+      const canonical = await canonicalize(req.path);
+      let set = grants.get(req.sessionId);
+      if (set === undefined) {
+        set = new Set();
+        grants.set(req.sessionId, set);
+      }
+      set.add(canonical);
     },
 
     grantedRoots(sessionId) {

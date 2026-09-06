@@ -225,6 +225,12 @@ function fromDb(row: JobsDbRow): JobRow {
 export interface SchedulerService {
   /** add：全守卫（名词法/名冲突/schedule 词法/payload/cwd 存在）→ 建行 */
   addJob(req: AddJobRequest): JobRow;
+  /**
+   * builtin 行建行（04 §12 归属列 builtin 标记的正门——core: 件挂钟行专用：
+   * goal 走第五槽 attachGoalJobsFace、issue 走本门直建 'issue-poll' 行；
+   * 守卫与 addJob 共核 insertRow 同律）。
+   */
+  addBuiltinJob(req: AddJobRequest): JobRow;
   /** list：全行（名序） */
   listJobs(): JobRow[];
   /** 名寻径（缺席 undefined——/tick 用法面自判 NOT_FOUND 文案） */
@@ -312,6 +318,9 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
   const service: SchedulerService = {
     addJob(req) {
       return insertRow(req, false);
+    },
+    addBuiltinJob(req) {
+      return insertRow(req, true);
     },
     listJobs() {
       return dao.list();

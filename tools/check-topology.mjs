@@ -57,6 +57,9 @@ const MODULE_EDGES = {
     'goal',
     'obs',
     'webui',
+    // 2026-09-06 issue 模式件立题批入册 26→27（02 §4.1 #27 席——host 行
+    // 「全部」的落码同步笔；批 16 起消费）
+    'issue',
     // 批 13e-3 起消费（daemon 编舞件 serve-daemon 经 sdk 公开面消费
     // createSdkHttpFace/三防线判定器——02 §4.1 host 行「全部」的落码同步笔）
     'sdk',
@@ -75,6 +78,7 @@ const MODULE_EDGES = {
   obs: ['contracts', 'persist'],
   webui: ['contracts', 'channels'],
   sdk: ['contracts', 'channels'],
+  issue: ['contracts', 'context'],
 };
 
 /** 在场模块集（占位清单语义：边表其余键 = 显式占位、不判死边；落码逐批迁移进来） */
@@ -132,6 +136,13 @@ const PRESENT_MODULES = new Set([
   //先例同 subagent session/agent 占位〕；装配位 = safety 行之后的
   // tools_pre_execute 监听 + TUI /rewind 命令注册〔挂批 12〕
   'checkpoint',
+  // 批 16 起在场（core:issue 纯逻辑腿——无人值守 issue→PR 编排件〔03
+  // §10.7〕：GitHub 源后端/过滤归一/轮询水位/webhook 验签路由/issue_get/
+  // enqueue 四闸+runOne 编舞+orphanScan，deps {contracts, context}〔context
+  // 占位——装载态接线随装配批消费〕；兄弟件全经窄面注入〔IssueJobsFace/
+  // IssueSchedulerFace/IssueStoreStateFace/IssueWorktreeFace 词面独立律——
+  // compat.test 互证〕；headless 会话面 IssueSessionFace 装配批实装）
+  'issue',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -177,6 +188,9 @@ const MODULE_EXTERNALS = {
   // checkpoint 的 ignore（walk 域 gitignore 语义匹配——发现层遍历三副本
   // 同判；15d 落码批起用）
   checkpoint: ['ignore'],
+  // issue 的 typebox（issue_get 只读工具参数面——schema 层宿主件直用同律；
+  // 16c 落码批起用）
+  issue: ['typebox'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
   // 一律走虚拟键三转发；批 12d 落码起用）
