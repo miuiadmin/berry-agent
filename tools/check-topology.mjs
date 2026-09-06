@@ -108,6 +108,9 @@ const MODULE_EXTERNALS = {
   // 直用合法，插件侧一律走虚拟键三转发——与 llm 的 pi-ai 同款分账执法）；
   // ignore 包（07 篇 §120：gitignore 语义匹配——检索族遍历消费者之一）
   tools: ['typebox', 'typebox/value', 'ignore'],
+  // conversation 的 todo 工具件参数面（07 篇 schema 层同律——宿主件直用；
+  // 11e 落码批起用）
+  conversation: ['typebox'],
 };
 
 /** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面四名） */

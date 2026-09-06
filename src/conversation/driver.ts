@@ -45,6 +45,7 @@ import { DurableWiring } from './wiring.js';
 import type { ConversationDriverOptions, InjectedReceipt, SubmitOptions, WakeRefusedReceipt } from './types.js';
 import { DEFAULT_RETRY_POLICY, MAX_CONSECUTIVE_WAKES } from './types.js';
 import { reseedTimeline } from './reseed.js';
+import { todoSnapshotMessage } from './todo.js';
 
 /**
  * submit 的返回面：run 结算（RunResult 终态三值）或通道收执两形——
@@ -185,7 +186,14 @@ export class ConversationDriver {
     if (this.options.onEvent !== undefined) void this.options.onEvent(event);
   };
 
-  /** 请求组装最后关口：信封快照（边界制）在此落账——快照取原始 systemPrompt（04 §11 快照序钉死） */
+  /**
+   * 请求组装最后关口：信封快照（边界制）在此落账——快照取原始 systemPrompt
+   * （04 §11 快照序钉死：先快照后注入，瞬态注入体不入快照不落日志）。
+   * todo 回看注入（05 §1.1 跨 turn 每轮当前全表）：context_transform 瀑布
+   * 尾注一条 UserMessage——瞬态层（不进 timeline 活数组不落 durable，llmContext
+   * 每请求新建零累积）；空表不注入；fold 单源 = durable 日志可见事件（遮蔽
+   * 感知），冷启动 resume 首请求同覆盖。
+   */
   private readonly onTransformContext = async (context: LlmContext): Promise<LlmContext> => {
     const config = this.activeConfig;
     if (config !== undefined) {
@@ -198,8 +206,11 @@ export class ConversationDriver {
         toolSchemas: context.tools ?? [],
       });
     }
+    // todo 快照注入位：null = 空表跳过（从未建表/用户已重置——不打扰上下文）
+    const snapshot = todoSnapshotMessage(this.session.events(), Date.now());
     // 11f 披露段注入位：environmentDisclosure 在此追加（瞬态层——不入快照不落日志）
-    return context;
+    if (snapshot === null) return context;
+    return { ...context, messages: [...context.messages, snapshot] };
   };
 
   /**

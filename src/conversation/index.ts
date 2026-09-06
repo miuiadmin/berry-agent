@@ -12,3 +12,13 @@ export { DEFAULT_RETRY_POLICY } from './types.js';
 export { reseedTimeline } from './reseed.js';
 export { ConversationDriver } from './driver.js';
 export type { SubmitResult } from './driver.js';
+// todo 机器（11e：fold 推导 + conversation/todo 角色 + 快照注入 + 工具件）
+export type { TodoItemData } from './todo.js';
+export {
+  TODO_ROLE,
+  createTodoTool,
+  ensureTodoRole,
+  foldTodoTable,
+  renderTodoTable,
+  todoSnapshotMessage,
+} from './todo.js';

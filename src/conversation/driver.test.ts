@@ -27,6 +27,7 @@ import { SessionLog } from '../session/index.js';
 import type { AgentEvent } from '../agent/index.js';
 import { ConversationDriver } from './driver.js';
 import type { ConversationDriverOptions } from './types.js';
+import { createTodoTool } from './todo.js';
 
 /* ---------------- 测试构造件 ---------------- */
 
@@ -687,5 +688,83 @@ describe('ConversationDriver 三通道与取消模型', () => {
       .filter((event) => event.type === 'request/header')
       .map((event) => (event.data as { reason: string }).reason);
     expect(reasons).toEqual(['initial', 'resume']);
+  });
+});
+
+/* ---------------- todo 快照注入（05 §1.1 跨 turn 回看） ---------------- */
+
+describe('ConversationDriver todo 快照注入', () => {
+  /**
+   * 注入生效窗（fold 推导规则的直接推论）：durable 写序 = 种子 user/message
+   * 先于 request/header，故「用户出手即重置」⇒ 任一 run 的首请求恒零注入；
+   * 模型轮内经 todo 工具写表后，同 run 后续请求每轮尾注回看（跨轮持续，
+   * CC 式）。最小装配 = 真 createTodoTool + append 闭包直写 durable——
+   * 11e-2 装配面的复刻，驱动面零特设。
+   */
+  function makeTodoAgentTool(session: SessionLog): AgentTool {
+    const def = createTodoTool((data) => session.append('todo/write', data));
+    return {
+      name: def.name,
+      description: def.description,
+      parameters: def.parameters,
+      execute: (toolCallId, args) => def.execute(args, { toolCallId }),
+    };
+  }
+
+  function todoCall(): AssistantMessage {
+    return assistant({
+      stopReason: 'toolUse',
+      content: [
+        {
+          type: 'toolCall',
+          id: 't-todo',
+          name: 'todo',
+          arguments: { items: [{ status: 'in-progress', content: '任务甲', activeForm: '正在任务甲' }] },
+        },
+      ],
+    });
+  }
+
+  it('轮内写表 → 同 run 后续请求尾注清单 UserMessage（瞬态：不落 durable）', async () => {
+    const session = new SessionLog({ sessionId: 's-todo' });
+    const { driver, seen } = makeDriver({
+      session,
+      tools: [makeTodoAgentTool(session)],
+      scripts: [todoCall(), assistant({ content: [{ type: 'text', text: '收' }] })],
+    });
+    const result = await driver.submit('问');
+    expect(result.status).toBe('completed');
+    // 首请求零注入（种子出手即重置——fold 倒扫先遇种子 user/message）
+    expect(seen[0]!.messages[seen[0]!.messages.length - 1]).toMatchObject({ role: 'user', content: '问' });
+    // 第二请求尾注清单（轮内 todo/write 在种子之后——fold 命中注入）
+    const tail = seen[1]!.messages[seen[1]!.messages.length - 1];
+    expect(tail).toMatchObject({ role: 'user' });
+    expect((tail as { content?: unknown }).content).toContain('当前任务清单');
+    expect((tail as { content?: unknown }).content).toContain('正在任务甲');
+    // 瞬态纪律：durable 唯一 user/message = 种子本体；清单恰一笔 todo/write
+    expect(types(driver).filter((type) => type === 'user/message')).toHaveLength(1);
+    expect(dataOf(driver, 'todo/write')).toHaveLength(1);
+  });
+
+  it('无 todo/write → 零注入（上下文尾即种子，不打扰）', async () => {
+    const { driver, seen } = makeDriver({ scripts: [assistant({})] });
+    await driver.submit('问');
+    expect(seen[0]!.messages).toHaveLength(1); // 请求时点流未产——仅种子 user
+    expect(seen[0]!.messages[0]).toMatchObject({ role: 'user', content: '问' });
+  });
+
+  it('重置语义：run 内建表后用户再度出手 → 新 run 首请求零注入（推导承载 run 重置）', async () => {
+    const session = new SessionLog({ sessionId: 's-todo-reset' });
+    const { driver, seen } = makeDriver({
+      session,
+      tools: [makeTodoAgentTool(session)],
+      scripts: [todoCall(), assistant({ content: [{ type: 'text', text: '收' }] }), assistant({})],
+    });
+    await driver.submit('第一问'); // run1：轮内建表（第二请求注入）
+    const result = await driver.submit('第二问'); // run2：新种子出手 → 重置
+    expect(result.status).toBe('completed');
+    const tail = seen[2]!.messages[seen[2]!.messages.length - 1];
+    expect(tail).toMatchObject({ role: 'user', content: '第二问' });
+    expect((tail as { content?: unknown }).content ?? '').not.toContain('当前任务清单');
   });
 });
