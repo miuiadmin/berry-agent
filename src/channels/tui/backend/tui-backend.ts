@@ -52,6 +52,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     confirm: false, // overlay 族呈现归批 10e-2
     select: false,
     input: false,
+    approval: false, // 审批面板呈现归批 10e-2 交互纵切
     setStatus: true,
     setWidget: false,
   });

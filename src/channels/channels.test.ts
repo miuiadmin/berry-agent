@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createChannels } from './service.js';
-import type { SessionEnvelope, UiBackend, UiCapabilities } from './types.js';
+import type { ApprovalAskAnswer, SessionEnvelope, UiBackend, UiCapabilities } from './types.js';
 import type { AgentEvent } from '../agent/index.js';
 
 /** 单次阻塞问询的手控柄（resolve/reject + 该次收到的 signal） */
@@ -27,12 +27,14 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}) {
     input: true,
     setStatus: true,
     setWidget: true,
+    approval: true,
     ...capsOverride,
   };
   const notified: { message: string; level?: string }[] = [];
   const confirmAsks: AskHandle<boolean>[] = [];
   const selectAsks: AskHandle<string>[] = [];
   const inputAsks: AskHandle<string>[] = [];
+  const approvalAsks: AskHandle<ApprovalAskAnswer>[] = [];
   const statusSet: { sessionId: string; status: string }[] = [];
   const widgets: { sessionId: string; node: unknown }[] = [];
   const envelopes: { env: SessionEnvelope; focused: boolean }[] = [];
@@ -55,6 +57,8 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}) {
     confirm: (message, opts) => deferredPush(confirmAsks, message, opts?.signal),
     select: (message, _choices, opts) => deferredPush(selectAsks, message, opts?.signal),
     input: (message, opts) => deferredPush(inputAsks, message, opts?.signal),
+    askApproval: (request, opts) =>
+      deferredPush(approvalAsks, request.summary, opts?.signal) as Promise<ApprovalAskAnswer>,
     setStatus: (sessionId, status) => statusSet.push({ sessionId, status }),
     setWidget: (sessionId, node) => widgets.push({ sessionId, node }),
     onEnvelope: (env, focused) => envelopes.push({ env, focused }),
@@ -70,6 +74,7 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}) {
     confirmAsks,
     selectAsks,
     inputAsks,
+    approvalAsks,
     statusSet,
     widgets,
     envelopes,
@@ -348,5 +353,106 @@ describe('非阻塞原语', () => {
     expect(s.hasAudience()).toBe(true);
     b2.setAudience(false);
     expect(s.hasAudience()).toBe(false);
+  });
+});
+
+describe('审批 ask（askApproval——07 §4.3 提问队列条款，批 10e-2 契约先行）', () => {
+  /** 最小审批载荷（呈现侧形——safety ApprovalRequest 经装配映射） */
+  function req(summary: string, suggestedEntry?: string) {
+    return suggestedEntry === undefined ? { summary } : { summary, suggestedEntry };
+  }
+
+  it('与阻塞三件同队同收口律：FIFO 排队、队首才呈现、应答后继顶上', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+
+    const pA = s.askApproval('s1', req('写文件'));
+    const pC = s.confirm('s1', '顺手确认？');
+    expect(s.pendingAsks('s1')).toEqual(['approval', 'confirm']);
+    expect(b.approvalAsks.length).toBe(1); // 审批是队首——confirm 排队
+    expect(b.confirmAsks.length).toBe(0);
+
+    b.approvalAsks[0]?.resolve('approve');
+    expect(await pA).toBe('approve');
+    expect(b.confirmAsks.length).toBe(1); // confirm 顶上
+    b.confirmAsks[0]?.resolve(true);
+    expect(await pC).toBe(true);
+    expect(s.pendingAsks('s1')).toEqual([]);
+  });
+
+  it('四值直通（approve/reject/cancel/always——always 带草案才直通）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    const answers: ApprovalAskAnswer[] = [];
+    for (const value of ['approve', 'reject', 'cancel', 'always'] as const) {
+      const p = s.askApproval('s1', req('Q', '/tmp/x.txt')); // 带草案——always 不防御收口
+      b.approvalAsks.at(-1)?.resolve(value);
+      answers.push(await p);
+    }
+    expect(answers).toEqual(['approve', 'reject', 'cancel', 'always']);
+  });
+
+  it('always + 草案 → onApprovalAlways 回写回调以草案条目调用（04 §9 ③ 通道侧接法）', async () => {
+    const written: string[] = [];
+    const s = createChannels({ onApprovalAlways: (entry) => written.push(entry) });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+
+    const p = s.askApproval('s1', req('写文件', '/tmp/target.txt'));
+    b.approvalAsks[0]?.resolve('always');
+    expect(await p).toBe('always');
+    expect(written).toEqual(['/tmp/target.txt']);
+  });
+
+  it('无草案 always 防御收口视同 approve（零草案零副作用——回写不触发）', async () => {
+    const written: string[] = [];
+    const s = createChannels({ onApprovalAlways: (entry) => written.push(entry) });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+
+    const p = s.askApproval('s1', req('无草案动作'));
+    b.approvalAsks[0]?.resolve('always');
+    expect(await p).toBe('approve');
+    expect(written).toEqual([]);
+  });
+
+  it('会话收口与外部 signal abort → cancel（非 unavailable；run 信号透传 ask 链对齐）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+
+    const p1 = s.askApproval('s1', req('一'));
+    s.unregisterSession('s1');
+    expect(await p1).toBe('cancel');
+
+    const ac = new AbortController();
+    const p2 = s.askApproval('s2', req('二'), { signal: ac.signal });
+    ac.abort();
+    expect(await p2).toBe('cancel');
+  });
+
+  it('降级到底（零 capable 后端）：notify 呈现摘要 + cancel（无人可答 fail-closed）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('web', { approval: false });
+    s.addBackend(b.backend);
+    expect(await s.askApproval('s1', req('危险写'))).toBe('cancel');
+    expect(b.approvalAsks).toEqual([]);
+    expect(b.notified.map((n) => n.message)).toEqual(['危险写']);
+  });
+
+  it('capabilities.approval=false 的后端不吃 askApproval（能力门与阻塞三件同律）', async () => {
+    const s = createChannels();
+    const b1 = fakeBackend('web', { approval: false });
+    const b2 = fakeBackend('tui');
+    s.addBackend(b1.backend);
+    s.addBackend(b2.backend);
+
+    const p = s.askApproval('s1', req('写文件'));
+    expect(b1.approvalAsks.length).toBe(0);
+    expect(b2.approvalAsks.length).toBe(1);
+    b2.approvalAsks[0]?.resolve('reject');
+    expect(await p).toBe('reject');
   });
 });

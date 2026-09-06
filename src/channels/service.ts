@@ -11,6 +11,8 @@
  */
 
 import type {
+  ApprovalAskAnswer,
+  ApprovalAskRequest,
   AskKind,
   ChannelsOptions,
   CommandHandler,
@@ -54,6 +56,8 @@ export interface ChannelsService<TProjection> {
   confirm(sessionId: string, message: string, opts?: UiAskOptions): Promise<boolean>;
   select(sessionId: string, message: string, choices: readonly UiSelectChoice[], opts?: UiAskOptions): Promise<string>;
   input(sessionId: string, message: string, opts?: UiInputOptions): Promise<string>;
+  /** 审批 ask（07 §4.3 提问队列条款——与阻塞三件同队；safety 侧经装配桥接） */
+  askApproval(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer>;
   setStatus(sessionId: string, status: string): void;
   setWidget(sessionId: string, node: unknown | null): void;
   hasAudience(): boolean;
@@ -74,7 +78,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
   const backendsForCore = () => backends as readonly UiBackend<never>[];
 
   const askQueue = new AskQueue();
-  const uiCore = new UiCore(backendsForCore, askQueue);
+  const uiCore = new UiCore(backendsForCore, askQueue, opts.onApprovalAlways);
   const commands = new CommandRegistry();
   const registry = new SessionChannels<TProjection>(opts.fetchProjection, (sessionId, projection) => {
     // repaint 扇出：带上该会话当前 widget 槽值（07 §4.3 单槽重放）
@@ -124,6 +128,9 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     },
     input(sessionId, message, askOpts) {
       return uiCore.input(sessionId, message, askOpts);
+    },
+    askApproval(sessionId, request, askOpts) {
+      return uiCore.askApproval(sessionId, request, askOpts);
     },
     setStatus(sessionId, status) {
       uiCore.setStatus(sessionId, status);

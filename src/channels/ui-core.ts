@@ -16,7 +16,16 @@
  * 是后端自身义务（移除前 settle 或经 signal abort）——装配级事件，核不代管。
  */
 
-import type { AskKind, NotifyLevel, UiAskOptions, UiBackend, UiInputOptions, UiSelectChoice } from './types.js';
+import type {
+  ApprovalAskAnswer,
+  ApprovalAskRequest,
+  AskKind,
+  NotifyLevel,
+  UiAskOptions,
+  UiBackend,
+  UiInputOptions,
+  UiSelectChoice,
+} from './types.js';
 import { AskQueue } from './ask-queue.js';
 
 /** ask 编舞的呈现体：收到内部 signal（败腿/撤销传播位），返回该问询的答案 */
@@ -25,12 +34,19 @@ type AskPresenter<T> = (signal: AbortSignal) => Promise<T>;
 export class UiCore {
   private readonly backendsGetter: () => readonly UiBackend<never>[];
   private readonly askQueue: AskQueue;
+  /** 审批 always 的 allowlist 回写注入（07 §4.3 提问队列条款——装配接线） */
+  private readonly onApprovalAlways: ((entry: string) => void) | undefined;
   /** widget 会话级单槽（07 §4.3——per-session 恰一槽，后写胜前写） */
   private readonly widgets = new Map<string, { node: unknown }>();
 
-  constructor(backendsGetter: () => readonly UiBackend<never>[], askQueue: AskQueue) {
+  constructor(
+    backendsGetter: () => readonly UiBackend<never>[],
+    askQueue: AskQueue,
+    onApprovalAlways?: (entry: string) => void,
+  ) {
     this.backendsGetter = backendsGetter;
     this.askQueue = askQueue;
+    this.onApprovalAlways = onApprovalAlways;
   }
 
   private backends(): readonly UiBackend<never>[] {
@@ -38,8 +54,15 @@ export class UiCore {
   }
 
   /** 能力过滤：声明且实现俱在才 capable（防后端声明能力而缺实现——防御位） */
-  private capable<K extends 'confirm' | 'select' | 'input' | 'setStatus' | 'setWidget'>(cap: K): UiBackend<never>[] {
-    return this.backends().filter((b) => b.capabilities[cap] === true && typeof b[cap] === 'function');
+  private capable<K extends 'confirm' | 'select' | 'input' | 'approval' | 'setStatus' | 'setWidget'>(
+    cap: K,
+  ): UiBackend<never>[] {
+    // 能力键与方法名同名惯例的唯一例外：approval 位的方法面叫 askApproval
+    //（与服务面同名——UiBackend 上 confirm/select/input 三件方法名即能力名）
+    const method = cap === 'approval' ? 'askApproval' : cap;
+    return this.backends().filter(
+      (b) => b.capabilities[cap] === true && typeof (b as unknown as Record<string, unknown>)[method] === 'function',
+    );
   }
 
   // ---- 非阻塞三件（纯活体层——07 §4.3 语义纪律：不落日志不入队） ----
@@ -149,6 +172,42 @@ export class UiCore {
         return Promise.resolve('');
       },
     );
+  }
+
+  /**
+   * 审批 ask（07 §4.3 提问队列条款——与阻塞三件同队同收口律）：
+   * 多后端竞速先答先得（跨入口单漏斗——decide durable 单漏斗在
+   * ApprovalService 不变）；收口对齐 04 §9 run 信号透传 ask 链——
+   * 会话关闭 / run 打断 / 降级到底 → `'cancel'`（非 unavailable）；
+   * `always` + 草案 → onApprovalAlways 回写；无草案 always 防御收口
+   * 视同 approve（零草案零副作用）。
+   */
+  askApproval(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer> {
+    return this.ask(
+      sessionId,
+      'approval',
+      opts?.signal,
+      () => 'cancel',
+      (signal) => {
+        const direct = this.capable('approval');
+        if (direct.length > 0) {
+          return Promise.race(direct.map((b) => b.askApproval!(request, { signal }))).then((answer) =>
+            this.settleApprovalAlways(answer, request),
+          );
+        }
+        // notify 化到底：呈现摘要后 cancel 收场（无人可答 fail-closed）
+        this.notify(request.summary);
+        return Promise.resolve('cancel');
+      },
+    );
+  }
+
+  /** always 收口路：带草案回写 allowlist 注入面；无草案防御视同 approve */
+  private settleApprovalAlways(answer: ApprovalAskAnswer, request: ApprovalAskRequest): ApprovalAskAnswer {
+    if (answer !== 'always') return answer;
+    if (request.suggestedEntry === undefined) return 'approve'; // 零草案零副作用（04 §9 ③）
+    this.onApprovalAlways?.(request.suggestedEntry);
+    return 'always';
   }
 
   // ---- 收口 ----

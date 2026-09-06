@@ -38,6 +38,47 @@ export interface UiSelectChoice {
   readonly label: string;
 }
 
+/**
+ * 审批 ask 应答闭集（07 §4.3 提问队列条款——审批入队契约）：approve/reject/
+ * cancel/always。收口对齐 04 §9 run 信号透传 ask 链——会话关闭 / run 打断
+ * 收口 → `'cancel'`（非 unavailable）；`always` + 草案的 allowlist 回写经
+ * 装配注入回调（onApprovalAlways）。
+ */
+export type ApprovalAskAnswer = 'approve' | 'reject' | 'cancel' | 'always';
+
+/**
+ * 审批 ask 呈现载荷（07 §4.3——通道侧形）：channels 与 safety 边表互无边
+ * （02 §4.1），safety 侧 ApprovalRequest 经装配根映射注入本形；`suggestedEntry`
+ * = 「始终允许」草案条目（04 §9 ③ allowlist 回写目标；无草案 = always 选项
+ * 语义上不呈现、防御收口视同 approve）。
+ */
+export interface ApprovalAskRequest {
+  /** 目标动作摘要（人可读一行——面板标题） */
+  readonly summary: string;
+  /** 请求方/理由（有则呈现说明段） */
+  readonly reason?: string;
+  /** 发起审批的工具名（有则呈现） */
+  readonly toolName?: string;
+  /** 挂起身份短形（多驱动单输入框下防串答） */
+  readonly approvalId?: string;
+  /** 「始终允许」草案条目（allowlist 回写目标；缺席 = always 防御收口视同 approve） */
+  readonly suggestedEntry?: string;
+}
+
+/**
+ * todo 条目（07 §4.1 呈现面件 4——todoFor 注入载荷）：items 全量快照真源 =
+ * 05 §1.1 todo/write 事件载荷，本形是呈现投影（装配从 todo 状态映射注入；
+ * webui SPA 同源折叠产物）。
+ */
+export interface TodoItem {
+  /** 四态（呈现记号：☐ 待办 / ◐ 进行中 / ☑ 已完成·暗淡 / ⊙ 缓办·暗淡） */
+  readonly status: 'pending' | 'in-progress' | 'completed' | 'deferred';
+  /** 条目内容 */
+  readonly content: string;
+  /** 进行文案（进行中态优先于 content 呈现——CC 式 activeForm 语义） */
+  readonly activeForm?: string;
+}
+
 /** input 原语选项 */
 export interface UiInputOptions extends UiAskOptions {
   readonly placeholder?: string;
@@ -54,6 +95,8 @@ export interface UiCapabilities {
   readonly confirm: boolean;
   readonly select: boolean;
   readonly input: boolean;
+  /** 审批 ask（07 §4.3 提问队列条款——阻塞原语与审批统一入队的第四原语位） */
+  readonly approval: boolean;
   readonly setStatus: boolean;
   readonly setWidget: boolean;
 }
@@ -77,6 +120,8 @@ export interface UiBackend<TProjection> {
   select?(message: string, choices: readonly UiSelectChoice[], opts?: UiAskOptions): Promise<string>;
   /** 自由文本输入 */
   input?(message: string, opts?: UiInputOptions): Promise<string>;
+  /** 审批 ask（仅 capable 后端被调——呈现形态归后端：TUI 主屏浮层是队首呈现之一） */
+  askApproval?(request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer>;
   /** 状态行更新（last-writer-wins——多写者自然覆盖） */
   setStatus?(sessionId: string, status: string): void;
   /** 自定义渲染槽呈现（会话级单槽值由核维护——见 UiCore.setWidget） */
@@ -119,4 +164,11 @@ export interface ChannelsOptions<TProjection> {
    * 呈现缺真源是核可观察态，不静默假装有历史。
    */
   readonly fetchProjection?: (sessionId: string) => Promise<readonly TProjection[]>;
+  /**
+   * 审批 always 的 allowlist 回写注入（07 §4.3 提问队列条款 / 04 §9 ③ 既有
+   * 条款的通道侧接法）：用户答 `always` 且载荷带 suggestedEntry 草案 → 本
+   * 回调落跨会话 allowlist 条目（用户显式按键后机器只执行写入——装配接
+   * safety 侧写入面）。无草案 always 不触发（零草案零副作用）。
+   */
+  readonly onApprovalAlways?: (entry: string) => void;
 }
