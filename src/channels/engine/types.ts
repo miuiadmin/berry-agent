@@ -56,11 +56,12 @@ export interface CursorState {
 }
 
 /**
- * 终端 IO 注入面（六动词：写出 / 几何 / raw 模式 / 流暂停复起 / 输入订阅 /
- * resize 订阅）。
+ * 终端 IO 注入面（七动词：写出 / 几何 / raw 模式 / 流暂停复起 / 输入订阅 /
+ * resize 订阅 / raw 真值查询）。
  *
- * 真终端适配（批 10c ProcessTerminalIO）与内存实现（MemoryTerminalIO）同面
- * 接入；引擎六件只认本接口、永不直触 process.stdout / stdin。
+ * 真终端适配（ProcessTerminalIO）与内存实现（MemoryTerminalIO）同面
+ * 接入；引擎六件只认本接口、永不直触 process.stdout / stdin。isRaw 供
+ * 挂起交出面复原先验态（start 前记录、suspend/dispose 还原）。
  */
 export interface TerminalIO {
   /** 写出 ANSI 字节（同步写出——帧缓冲的最终出口） */
@@ -69,6 +70,8 @@ export interface TerminalIO {
   size(): { columns: number; rows: number };
   /** raw 模式开关（真终端适配负责复原先验态；内存实现纯记账） */
   setRawMode(enable: boolean): void;
+  /** 当前 raw 真值（挂起交出面复原先验态的记录依据） */
+  isRaw(): boolean;
   /** 流暂停 / 复起（挂起交出面用——为 $EDITOR 类子交互进程预留） */
   pause(): void;
   resume(): void;
@@ -77,6 +80,9 @@ export interface TerminalIO {
   /** 订阅几何变更（引擎侧弃旧换新重绘） */
   onResize(listener: () => void): () => void;
 }
+
+/** 键盘协议轨（DA1 哨兵探测落定：kitty 应答先到 = kitty 轨 / 否则 legacy） */
+export type KeyboardProtocol = 'kitty' | 'legacy';
 
 /** 组件落位区域（行 / 列 / 宽 / 高——屏幕坐标系） */
 export interface Region {

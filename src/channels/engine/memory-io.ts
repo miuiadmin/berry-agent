@@ -18,6 +18,8 @@ export class MemoryTerminalIO implements TerminalIO {
   public rows: number;
   /** setRawMode 调用史（true = 开 / false = 关，序即调用序） */
   public readonly rawModeHistory: boolean[] = [];
+  /** 当前 raw 真值（isRaw 查询面——末次 setRawMode 结果） */
+  public raw = false;
   /** pause / resume 调用计数（挂起交出面断言用） */
   public pauseCount = 0;
   public resumeCount = 0;
@@ -42,6 +44,11 @@ export class MemoryTerminalIO implements TerminalIO {
 
   setRawMode(enable: boolean): void {
     this.rawModeHistory.push(enable);
+    this.raw = enable;
+  }
+
+  isRaw(): boolean {
+    return this.raw;
   }
 
   pause(): void {
