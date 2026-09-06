@@ -12,8 +12,9 @@ import { deriveMessages } from './derive.js';
 import { recoverClosers } from './recover.js';
 import { SessionLog, type SessionLogOptions } from './session.js';
 
-// 测试用遮蔽载体类型（插件扩展正门注册——遮蔽指令的事件类型由写者自选，
-// validateSurfaceOp 不检查载体身份，检查的是指令语义本身）
+// 测试用遮蔽载体类型（插件扩展正门注册——通用形遮蔽指令的事件类型由写者自选；
+// 例外：载体 llm/retry 走 retry 形分支（05 §2.4）——validateSurfaceOp 在该
+// 载体上分流三判据，见下方 retry 形分支测试段）
 registerEventType({
   type: 'test/occlusion',
   category: 'surface',
@@ -323,6 +324,156 @@ describe('appendWithSurfaceOp 遮蔽正门', () => {
     // 连续切点：新区间起点 2 恰为上次遮蔽终点 1 的后继——起点对齐规则放行
     expect(() => log.appendWithSurfaceOp('test/occlusion', {}, { op: 'replace', start: 2, end: 2 }, [2])).not.toThrow();
     expect(log.projection()).toEqual([]);
+  });
+});
+
+describe('appendWithSurfaceOp retry 形分支（05 §2.4 retry 区间合法规约）', () => {
+  /**
+   * 造「完整轮 + 失败 turn 尾巴」日志：完整轮 seq0..6；失败 turn =
+   * turn/start@7 → assistant(error)@8 → 未配对 tool/call 尸体@9 →
+   * turn/end(error)@10（追加时点高水位 = 10）。
+   */
+  function appendFailedTurnTail(log: SessionLog): void {
+    appendDialogue(log); // seq0..6 完整轮
+    log.append('turn/start', {}); // seq7
+    log.append('assistant/message', {
+      content: [{ type: 'text', text: '半截' }],
+      stopReason: 'error',
+      errorMessage: 'network reset',
+    }); // seq8 尸体起点
+    log.append('tool/call', { toolCallId: 'c9', name: 'bash', arguments: '{}' }); // seq9 流中断尸体（无 result）
+    log.append('turn/end', { reason: 'error' }); // seq10
+  }
+
+  it('正路径：llm/retry(scheduled) 区间 [错误assistant, 高水位] 过闸 + 投影摘除 + 两路对账', () => {
+    const { log } = makeLog();
+    appendFailedTurnTail(log);
+    const retryData = { attempt: 1, maxAttempts: 3, delayMs: 1000, phase: 'scheduled' as const, reason: 'transient' };
+    const instr = log.appendWithSurfaceOp('llm/retry', retryData, { op: 'replace', start: 8, end: 10 }, [8, 9, 10]);
+    expect(instr.seq).toBe(11); // 载体自身落区间外（高水位 10 之后）
+    expect(instr.surfaceOp).toEqual({ op: 'replace', start: 8, end: 10 });
+    // 投影：错误 assistant 与尸体 call 全摘，完整轮四消息保真（turn/start 本身不产消息）
+    const messages = log.projection();
+    expect(messages.map((m) => m.type)).toEqual(['user', 'assistant', 'toolResult', 'assistant']);
+    // 增量 vs 全量对账（retry 形与通用形同一套摘除机器——occludedSeqs 区间通用）
+    expect(log.projection()).toEqual(deriveMessages(log.events()));
+  });
+
+  it('红锁：相位限定——llm/retry(exhausted) 携 surfaceOp 拒（唯一合法相位 scheduled）', () => {
+    const { log } = makeLog();
+    appendFailedTurnTail(log);
+    expectCode(
+      () =>
+        log.appendWithSurfaceOp(
+          'llm/retry',
+          { attempt: 3, maxAttempts: 3, delayMs: 0, phase: 'exhausted' },
+          { op: 'replace', start: 8, end: 10 },
+          [8, 9, 10],
+        ),
+      'SESSION_SURFACE_OP_INVALID',
+    );
+  });
+
+  it('红锁：载体分流——通用载体不得走 retry 形（首条非 turn/start 照旧拒）', () => {
+    const { log } = makeLog();
+    appendFailedTurnTail(log);
+    expectCode(
+      () => log.appendWithSurfaceOp('test/occlusion', {}, { op: 'replace', start: 8, end: 10 }, [8, 9, 10]),
+      'SESSION_SURFACE_OP_INVALID',
+    );
+  });
+
+  it('红锁：载体分流——llm/retry 不得走通用形（turn 对齐区间也拒，起点必须是错误 assistant）', () => {
+    const { log } = makeLog();
+    appendFailedTurnTail(log);
+    // [7,10] 首条 turn/start——通用形会放行；retry 形起点判据换轨后必拒
+    expectCode(
+      () =>
+        log.appendWithSurfaceOp(
+          'llm/retry',
+          { attempt: 1, maxAttempts: 3, delayMs: 1000, phase: 'scheduled' },
+          { op: 'replace', start: 7, end: 10 },
+          [7, 8, 9, 10],
+        ),
+      'SESSION_SURFACE_OP_INVALID',
+    );
+  });
+
+  it('红锁：尾=高水位——区间尾低于追加时点末条 seq 拒（残余未盖尽）', () => {
+    const { log } = makeLog();
+    appendFailedTurnTail(log);
+    expectCode(
+      () =>
+        log.appendWithSurfaceOp(
+          'llm/retry',
+          { attempt: 1, maxAttempts: 3, delayMs: 1000, phase: 'scheduled' },
+          { op: 'replace', start: 8, end: 9 },
+          [8, 9],
+        ),
+      'SESSION_SURFACE_OP_INVALID',
+    );
+  });
+
+  it('红锁：未结算 turn 不可遮——区间不含 turn/end 拒', () => {
+    const { log } = makeLog();
+    appendDialogue(log); // seq0..6
+    log.append('turn/start', {}); // seq7
+    log.append('assistant/message', {
+      content: [{ type: 'text', text: '炸了' }],
+      stopReason: 'error',
+      errorMessage: 'boom',
+    }); // seq8
+    log.append('tool/call', { toolCallId: 'c9', name: 'bash', arguments: '{}' }); // seq9（高水位，无 turn/end）
+    expectCode(
+      () =>
+        log.appendWithSurfaceOp(
+          'llm/retry',
+          { attempt: 1, maxAttempts: 3, delayMs: 1000, phase: 'scheduled' },
+          { op: 'replace', start: 8, end: 9 },
+          [8, 9],
+        ),
+      'SESSION_SURFACE_OP_INVALID',
+    );
+  });
+
+  it('红锁：起点切配对——区间内 result 的配对 call 在区间外拒（result 侧照旧执法）', () => {
+    const { log } = makeLog();
+    appendDialogue(log); // seq0..6
+    log.append('turn/start', {}); // seq7
+    log.append('assistant/message', { content: [{ type: 'text', text: '用工具' }], stopReason: 'toolUse' }); // seq8
+    log.append('tool/call', { toolCallId: 'c8', name: 'read', arguments: '{}' }); // seq9（配对 call 在错误 assistant 之前）
+    log.append('assistant/message', {
+      content: [{ type: 'text', text: '随炸' }],
+      stopReason: 'error',
+      errorMessage: 'boom',
+    }); // seq10
+    log.append('tool/result', { toolCallId: 'c8', content: '迟到结果' }); // seq11（result 落错误 assistant 之后——畸形但机械可造）
+    log.append('turn/end', { reason: 'error' }); // seq12
+    expectCode(
+      () =>
+        log.appendWithSurfaceOp(
+          'llm/retry',
+          { attempt: 1, maxAttempts: 3, delayMs: 1000, phase: 'scheduled' },
+          { op: 'replace', start: 10, end: 12 },
+          [10, 11, 12],
+        ),
+      'SESSION_SURFACE_OP_INVALID',
+    );
+  });
+
+  it('红锁：共用前置照常执法——retry 形溯源不完整同样拒', () => {
+    const { log } = makeLog();
+    appendFailedTurnTail(log);
+    expectCode(
+      () =>
+        log.appendWithSurfaceOp(
+          'llm/retry',
+          { attempt: 1, maxAttempts: 3, delayMs: 1000, phase: 'scheduled' },
+          { op: 'replace', start: 8, end: 10 },
+          [8, 9], // 缺 10
+        ),
+      'SESSION_SURFACE_OP_INVALID',
+    );
   });
 });
 

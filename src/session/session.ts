@@ -138,14 +138,18 @@ export class SessionLog {
   }
 
   /**
-   * 装载面改投影历史的唯一正门（05 §2.1 appendWithSurfaceOp）：与 compaction
-   * 内部同一校验同一码（SESSION_SURFACE_OP_INVALID）——不是绕道口。边缘纪律
-   * 五条中四条在本方法执法（成对写序由调用方编排——compaction 五步骨架）：
+   * 装载面改投影历史的唯一正门（05 §2.1 appendWithSurfaceOp / §2.4 retry 形）：
+   * 与 compaction 内部同一校验同一码（SESSION_SURFACE_OP_INVALID）——不是绕道口。
+   * 两形在载体上分流（05 §2.4 retry 区间合法规约）：载体 = `llm/retry` 走
+   * retry 形分支（三判据换轨——起点=错误 assistant / call 尸体豁免 /
+   * 尾=高水位+含 turn/end）；其余载体走通用形。共用前置四条两形同执法
+   * （成对写序由调用方编排——compaction 五步骨架）：
    *  - 区间合法 + 溯源完整（sourceEventSeqs 覆盖区间全部 seq 且只引用更早 seq）；
-   *  - 不遮进行中 turn（tool 配对完整性表检查——区间内每个 call 的配对 result
-   *    也在区间内、反之亦然；无对可切、放行）；
    *  - 不遮带 surfaceOp 的事件（防嵌套遮蔽）；
    *  - 同一位置不二次遮蔽（与既有遮蔽区间不相交）；
+   * 通用形另执法两条：
+   *  - 不遮进行中 turn（tool 配对完整性表检查——区间内每个 call 的配对 result
+   *    也在区间内、反之亦然；无对可切、放行）；
    *  - 区间起点对齐 turn 边界（start = 0 / 首条为 turn/start / 紧接上次遮蔽终点）。
    */
   appendWithSurfaceOp(
@@ -154,7 +158,7 @@ export class SessionLog {
     surfaceOp: SurfaceOp,
     sourceEventSeqs?: readonly number[],
   ): SessionEvent {
-    this.validateSurfaceOp(surfaceOp, sourceEventSeqs);
+    this.validateSurfaceOp(type, data, surfaceOp, sourceEventSeqs);
     const event = this.append(type, data, { surfaceOp, sourceEventSeqs });
     // 增量遮蔽摘除（chars 减法腿）——指令事件自身在区间外（半开区间语义，
     // 「遮蔽者不可被自己遮蔽」由不遮带 surfaceOp 事件条保证）
@@ -162,8 +166,18 @@ export class SessionLog {
     return event;
   }
 
-  /** 遮蔽指令校验（边缘纪律执法——appendWithSurfaceOp 与 compaction 内部共用） */
-  private validateSurfaceOp(op: SurfaceOp, sourceEventSeqs: readonly number[] | undefined): void {
+  /**
+   * 遮蔽指令校验（边缘纪律执法——appendWithSurfaceOp 与 compaction 内部共用）。
+   * 两形分流（05 §2.4）：载体 `llm/retry` 走 retry 形（三判据换轨，通用形
+   * 的起点对齐与 call 侧配对两判据对其豁免）；其余载体走通用形。共用前置
+   * 四条（区间合法 / 溯源完整 / 防嵌套 / 不二次遮蔽）在分流前同执法。
+   */
+  private validateSurfaceOp(
+    type: string,
+    data: unknown,
+    op: SurfaceOp,
+    sourceEventSeqs: readonly number[] | undefined,
+  ): void {
     if (!(
       Number.isInteger(op.start) &&
       Number.isInteger(op.end) &&
@@ -207,9 +221,8 @@ export class SessionLog {
         throw new BaseError('SESSION_SURFACE_OP_INVALID', `seq ${seq} 自身携带 surfaceOp（遮蔽者不可被遮蔽——防嵌套）`);
       }
     }
-    // tool 配对完整性（不遮进行中 turn——切点永不落在配对中间）：按 toolCallId
-    // 建 call/result 全日志位置表，区间内每个 call 的配对 result 必在区间内、
-    // 区间内每个 result 的配对 call 必在区间内
+    // tool 配对位置表（两形的配对执法共用）：按 toolCallId 建 call/result
+    // 全日志位置表
     const callAt = new Map<string, number>();
     const resultAt = new Map<string, number>();
     for (let i = 0; i < this.log.length; i++) {
@@ -220,6 +233,65 @@ export class SessionLog {
       else if (this.log[i]!.type === 'tool/result') resultAt.set(id, i);
     }
     const inRange = (seq: number) => seq >= op.start && seq <= op.end;
+
+    // —— retry 形分支（05 §2.4 retry 区间合法规约：载体限定 llm/retry，三判据换轨）——
+    if (type === 'llm/retry') {
+      // 相位限定：surfaceOp 只许 phase=scheduled 携带（aborted/exhausted 是
+      // 事后事实事件，不携遮蔽指令）
+      const phase = (data as { phase?: unknown } | null)?.phase;
+      if (phase !== 'scheduled') {
+        throw new BaseError(
+          'SESSION_SURFACE_OP_INVALID',
+          `llm/retry 携带 surfaceOp 须 phase=scheduled（当前 ${String(phase)}）`,
+        );
+      }
+      // 起点判据：区间首条为 stopReason=error 的 assistant/message——失败 turn
+      // 的尸体起点不是 turn 边界（通用形起点对齐对本形豁免）
+      const first = this.log[op.start]!;
+      const firstData = first.data as { stopReason?: unknown } | null;
+      if (first.type !== 'assistant/message' || firstData?.stopReason !== 'error') {
+        throw new BaseError(
+          'SESSION_SURFACE_OP_INVALID',
+          `retry 遮蔽区间起点须为 stopReason=error 的 assistant/message（seq ${op.start} 是 ${first.type}）`,
+        );
+      }
+      // 尾=高水位：区间尾为追加时点日志末条 seq——盖住失败 turn 一切残余
+      // （伴生尸体与垫底的 turn/end、零笔 llm/usage）
+      if (op.end !== this.log.length - 1) {
+        throw new BaseError(
+          'SESSION_SURFACE_OP_INVALID',
+          `retry 遮蔽区间尾须为日志高水位 ${this.log.length - 1}（当前 ${op.end}）`,
+        );
+      }
+      // 区间含 turn/end：未结算 turn 不可遮（turn 已收形是重试判定的前置）
+      let settled = false;
+      for (let seq = op.start; seq <= op.end; seq++) {
+        if (this.log[seq]!.type === 'turn/end') {
+          settled = true;
+          break;
+        }
+      }
+      if (!settled) {
+        throw new BaseError('SESSION_SURFACE_OP_INVALID', 'retry 遮蔽区间内未含 turn/end（未结算 turn 不可遮）');
+      }
+      // 配对执法（单向）：result 侧照旧——区间内 result 的配对 call 不得在
+      // 区间外（起点不得切在配对中间）；call 侧豁免——区间内未配对 tool/call
+      // 是流中断尸体，恰是要盖住的对象
+      for (const [id, resultSeq] of resultAt) {
+        const callSeq = callAt.get(id);
+        if (inRange(resultSeq) && callSeq !== undefined && !inRange(callSeq)) {
+          throw new BaseError(
+            'SESSION_SURFACE_OP_INVALID',
+            `tool 配对被切断：result@${resultSeq}（${id}）的 call@${callSeq} 在区间外`,
+          );
+        }
+      }
+      return;
+    }
+
+    // —— 通用形：tool 配对完整性（不遮进行中 turn——切点永不落在配对中间）——
+    // 区间内每个 call 的配对 result 必在区间内、区间内每个 result 的配对
+    // call 必在区间内
     for (const [id, callSeq] of callAt) {
       const resultSeq = resultAt.get(id);
       if (inRange(callSeq) && resultSeq !== undefined && !inRange(resultSeq)) {
