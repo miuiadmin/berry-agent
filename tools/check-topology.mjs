@@ -17,7 +17,7 @@
  * 用例证据只计产码 import。
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /** 模块边表（25 席；02 篇 §4.1 依赖列全量转录——L3/L4 对 contracts 共边不省略） */
 const MODULE_EDGES = {
@@ -151,12 +151,22 @@ for (const file of collectSourceFiles(SRC)) {
 
   for (const spec of importSpecifiers(text)) {
     if (spec.startsWith('.')) {
-      // 相对导入：解析目标模块——'./x' 同模块；'../<mod>/...' 跨模块走边表
-      const parts = spec.split('/');
-      if (parts[0] === '.') continue;
-      const target = parts[1];
-      if (!target) continue; // '../x' 指向 src 顶层散文件——按同上违规路径，少见形态
-      if (target === mod) continue; // '../contracts/...' 从 contracts 子目录回本模块
+      // 相对导入：解析目标真路径判模块归属（首段目录 = 模块）。
+      // 件内子目录跳变（如 channels/tui → channels/engine 聚合面）真路径
+      // 仍在同模块内——放行（件内子目录不受席执法）；跨模块才走边表。
+      // 说明符写编译产物后缀 .js——归一化到 .ts 再解析。
+      const targetPath = resolve(dirname(file), spec.replace(/\.js$/, '.ts'));
+      const relToSrc = relative(SRC, targetPath);
+      if (relToSrc.startsWith('..') || isAbsolute(relToSrc)) {
+        violations.push(`${relative(process.cwd(), file)}: 相对导入 ${spec} 跳出 src`);
+        continue;
+      }
+      const target = relToSrc.split(sep)[0];
+      if (!target) {
+        violations.push(`${relative(process.cwd(), file)}: 相对导入 ${spec} 指向 src 顶层散文件`);
+        continue;
+      }
+      if (target === mod) continue; // 同模块件内（含平级子目录跳变）——自由
       if (!allowed.includes(target)) {
         violations.push(
           `${relative(process.cwd(), file)}: 跨模块导入 ${target} 未在边表（${mod} 允许：${allowed.join(', ') || '无'}）`,
@@ -164,11 +174,8 @@ for (const file of collectSourceFiles(SRC)) {
         continue;
       }
       // 公开面收敛：目标须命中四名之一（'../mod' 或 '../mod/index' 等价公开面；
-      // 说明符写编译产物后缀 .js——归一化到 .ts 后比对）
-      const face = parts
-        .slice(2)
-        .join('/')
-        .replace(/\.(js|mjs|cjs)$/, '.ts');
+      // 真路径已归一到 .ts——比对模块内相对面名）
+      const face = relToSrc.split(sep).slice(1).join('/');
       if (face && !PUBLIC_FACES.has(face)) {
         violations.push(`${relative(process.cwd(), file)}: 深挖 ${target} 实现面（${face}）——只准走公开面四名`);
       }
