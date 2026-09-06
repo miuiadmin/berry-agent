@@ -8,7 +8,7 @@
  */
 import './codes.js';
 
-export { Scope } from './scope.js';
+export { Scope, SCOPE_EFFECT_CAPACITY } from './scope.js';
 export type { Disposer } from './scope.js';
 export { EventDispatch } from './events.js';
 export type { NotifyListener, WaterfallListener, ListenerErrorReporter } from './events.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
-import { Scope } from './scope.js';
+import { Scope, SCOPE_EFFECT_CAPACITY } from './scope.js';
 
 describe('effect LIFO 回卷', () => {
   it('登记逆序回卷（后登记的先回卷）', async () => {
@@ -131,6 +131,54 @@ describe('stale 护栏', () => {
     await scope.dispose();
     // 迟到 disposer 已单独执行收口（「必然被清算」承诺保持），不在回卷序里重复
     expect(ran).toEqual(['raced']);
+  });
+});
+
+describe('effect 总注册帽（SCOPE_EFFECT_CAPACITY——03 §3.4 可用性防线）', () => {
+  it('第 10^4 件可登记，第 10^4+1 件拒（拒在 register 回调执行前——副作用不发生）', () => {
+    const scope = Scope.createRoot();
+    let ran = 0;
+    for (let i = 0; i < SCOPE_EFFECT_CAPACITY; i++) {
+      scope.effect(() => () => ran++);
+    }
+    // 超帽受理：register 回调不执行（side effect 零发生），disposer 不入序
+    let registerCalled = false;
+    try {
+      scope.effect(() => {
+        registerCalled = true;
+        return () => ran++;
+      });
+      expect.unreachable();
+    } catch (err) {
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('SCOPE_EFFECT_CAPACITY');
+        expect(registerCalled).toBe(false); // 拒在回调执行前
+        expect(ran).toBe(0); // 尚未回卷——零 disposer 执行
+        return;
+      }
+    }
+    expect.unreachable();
+  });
+
+  it('帽满不破既有清算义务：既有 10^4 件回卷照常', async () => {
+    const scope = Scope.createRoot();
+    let disposed = 0;
+    for (let i = 0; i < SCOPE_EFFECT_CAPACITY; i++) {
+      scope.effect(() => () => disposed++);
+    }
+    expect(() => scope.effect(() => () => disposed++)).toThrowError(BaseError);
+    await scope.dispose();
+    expect(disposed).toBe(SCOPE_EFFECT_CAPACITY); // 帽拒不缩水已登记面
+  });
+
+  it('fork 面独立同律：子作用域各有自有帽（父满不碍子登记）', () => {
+    const parent = Scope.createRoot();
+    for (let i = 0; i < SCOPE_EFFECT_CAPACITY; i++) {
+      parent.effect(() => () => undefined);
+    }
+    const child = parent.fork();
+    expect(() => child.effect(() => () => undefined)).not.toThrow(); // 子自有计数从零起
+    expect(() => parent.effect(() => () => undefined)).toThrowError(BaseError); // 父仍满
   });
 });
 

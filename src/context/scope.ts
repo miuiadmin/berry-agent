@@ -9,11 +9,21 @@
  *    未卷子。fork 不是拷贝：provide 面继承（子见父服务）、effect 面独立。
  *  - **stale 护栏**：作用域已回卷后完成的异步腿经 stale 判定收口——迟到的
  *    disposer 不再执行（回卷已过）、迟到的服务注册拒绝（SCOPE_STALE）。
+ *  - **总注册帽**：effect 自有登记达 10^4 拒新登记（SCOPE_EFFECT_CAPACITY——
+ *    03 §3.4 可用性防线，真源即执法位点）。
  */
 import { BaseError } from '../contracts/index.js';
 
 /** disposer 形态：同步或异步清理函数（effect 登记的回卷腿）。返回 void——TS 的 void 返回豁免天然吸收 async 腿（Promise 返回值可赋 void 返回位） */
 export type Disposer = () => void;
+
+/**
+ * effect 总注册帽（03 §3.4：10^4——可用性防线，失控登记不拖垮回卷序）。
+ * 真源即执法位点：自有 disposers 长度即计数，无第二计数位（包装层形否决——
+ * 帽下帽双重记账〔03 §3.4 遗漏审计批钉位〕）；fork 面独立同律（子作用域
+ * 各有自有帽，级联回卷总量不受限）。导出供测试与文档引用。
+ */
+export const SCOPE_EFFECT_CAPACITY = 10_000;
 
 /**
  * 作用域：服务注册面（provide/get）+ 可逆注册面（effect）+ fork 树。
@@ -105,6 +115,13 @@ export class Scope {
    */
   effect(register: () => Disposer): void {
     if (this.disposed) throw new BaseError('SCOPE_STALE', '迟到登记拒：作用域已回卷（disposer 补跑只会撕裂状态）');
+    // 总注册帽（03 §3.4 钉 10^4）：拒在 register 回调执行前——超帽受理连副作用都不发生
+    if (this.disposers.length >= SCOPE_EFFECT_CAPACITY) {
+      throw new BaseError(
+        'SCOPE_EFFECT_CAPACITY',
+        `effect 总注册帽（${SCOPE_EFFECT_CAPACITY}）已满——本作用域登记数已达上限（失控登记防线，宿主/插件同帽一视）`,
+      );
+    }
     const disposer = register();
     // register 返回后仍可能已并发回卷——回卷序已定格的 disposer 直接执行收口，
     // 不入序（防撕裂：单独跑一次再丢弃，副作用「必然被清算」承诺保持）
