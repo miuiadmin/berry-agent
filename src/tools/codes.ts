@@ -91,4 +91,15 @@ registerErrorCodes([
     module: 'tools',
     description: 'apply_patch 补丁格式解析失败或 update 定位失败（context 行锚不在场即拒）',
   },
+  // ---- FS_ 族 worktree 三码（04 §7 worktree 条——批 16 worktree 工具族）----
+  {
+    code: 'FS_WORKTREE_EXISTS',
+    module: 'tools',
+    description: 'worktree/同名分支已存在拒建（名字即分支名——双域撞名同码）',
+  },
+  {
+    code: 'FS_WORKTREE_DIRTY',
+    module: 'tools',
+    description: 'worktree 有未提交变更拒拆（防误清宁拒勿删——force 形显式覆盖）',
+  },
 ]);

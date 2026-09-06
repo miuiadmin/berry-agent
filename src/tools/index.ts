@@ -17,7 +17,9 @@ export { ObservedFiles, statVersion, resolveWriteIntent, requireObservedForEdit 
 export type { ObservedState, WriteIntent } from './observed.js';
 export { parseApplyPatch, applyUpdateLines, addLinesToContent } from './apply-patch.js';
 export type { PatchOperation, PatchLine } from './apply-patch.js';
-export { createFsTools, canonicalize, serializeWrites, assertTargetStable } from './fs.js';
+export { createFsTools, canonicalize, serializeWrites, serializeTreeWrites, assertTargetStable } from './fs.js';
 export type { FsTools, FsToolsOptions } from './fs.js';
 export { createSearchTools, globToRegExp } from './search.js';
 export type { SearchTools, SearchToolsOptions } from './search.js';
+export { createWorktreeService, createWorktreeTools, GIT_METADATA_COMMANDS } from './worktree.js';
+export type { WorktreeService, WorktreeServiceOptions, WorktreeEntry, WorktreeCreated } from './worktree.js';

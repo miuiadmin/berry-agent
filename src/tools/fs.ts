@@ -153,8 +153,20 @@ export async function serializeWrites<T>(paths: readonly string[], op: () => Pro
   const placeholder: Promise<void> = new Promise<void>((resolve) => {
     release = resolve;
   });
-  // 同步原子段：先捕获前驱再安装占位——两步之间零 await，并发者不可能插入
-  const priors = paths.map((p) => writeChains.get(p) ?? Promise.resolve());
+  // 同步原子段：先捕获前驱再安装占位——两步之间零 await，并发者不可能插入。
+  // 前驱两源（树级互斥〔04 §7 worktree 条补钉③〕）：① 自身键在飞写；
+  // ② **树级在飞占位**——键为本次路径的祖先目录（worktree create/clean 经
+  // serializeTreeWrites 以树根入链）：树操作在飞时，其域内文件写等待树操作。
+  // 键域分隔符边界判据（isUnderPath）保证文件键之间永不误配：一键是另一键
+  // 的祖先目录前缀时，两者不可能同时是普通文件路径（物理上矛盾）。
+  const priors: Promise<void>[] = [];
+  for (const p of paths) {
+    const own = writeChains.get(p);
+    if (own !== undefined) priors.push(own);
+    for (const [key, ph] of writeChains) {
+      if (key !== p && isUnderPath(p, key)) priors.push(ph);
+    }
+  }
   for (const p of paths) writeChains.set(p, placeholder);
   try {
     await Promise.all(priors);
@@ -165,6 +177,40 @@ export async function serializeWrites<T>(paths: readonly string[], op: () => Pro
     for (const p of paths) {
       if (writeChains.get(p) === placeholder) writeChains.delete(p);
     }
+  }
+}
+
+/** child 是否落在 ancestor 目录域内（分隔符边界——`/a/bc` 不算 `/a/b` 下） */
+function isUnderPath(child: string, ancestor: string): boolean {
+  const prefix = ancestor.endsWith(sep) ? ancestor : ancestor + sep;
+  return child.startsWith(prefix);
+}
+
+/**
+ * 树级写互斥（04 §7 worktree 条补钉③——create/clean 以 worktree 根 canonical
+ * 路径入链的执法体）。与 serializeWrites 的差异在**前缀域**：等待集 = 所有链键
+ * 落在 root 下（含 root 自身）的在途写；阻塞集 = 在飞期间任何链键落在 root 下
+ * 的文件级 serializeWrites（其前驱扫描会看到 root 占位——isUnderPath 祖先向）
+ * 及并发的其他树级操作（同键竞争）。扫描与安装同一同步原子段（零 await）——
+ * JS 单线程保证两向握手无交错窗口。树根占位值等价自清同 serializeWrites。
+ */
+export async function serializeTreeWrites<T>(root: string, op: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const placeholder: Promise<void> = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // 同步原子段：等待集（root 自身 + root 下全部在飞文件写）+ 安装占位
+  const priors: Promise<void>[] = [];
+  for (const [key, ph] of writeChains) {
+    if (key === root || isUnderPath(key, root)) priors.push(ph);
+  }
+  writeChains.set(root, placeholder);
+  try {
+    await Promise.all(priors);
+    return await op();
+  } finally {
+    release();
+    if (writeChains.get(root) === placeholder) writeChains.delete(root);
   }
 }
 
