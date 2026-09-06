@@ -67,6 +67,8 @@ export const ERROR_CODE_PREFIXES = [
   'SDK_',
   'SCHEDULER_',
   'GOAL_',
+  'SUBAGENT_',
+  'JOB_',
 ] as const;
 
 /**

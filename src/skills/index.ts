@@ -39,6 +39,18 @@ export type { FilterSkillBodyOptions, FindSkillSectionResult, SkillSection } fro
 export { createDirProvider, createStandardLayers, resolveFactorySkillsDir, scanSkillsDir } from './discovery.js';
 export type { DirProviderOptions, StandardLayersOptions } from './discovery.js';
 
+// 声明式子代理解析层（06 §11.6——解析层住本件、机器住 core:subagent）
+export { collectAgentDefs, createAgentLayerProvider, createStandardAgentLayers, parseAgentDef } from './agents.js';
+export type {
+  AgentDefError,
+  AgentDefsCollection,
+  AgentDefsProvider,
+  AgentLayerOptions,
+  AgentLayerScan,
+  ParsedAgentDef,
+  StandardAgentLayersOptions,
+} from './agents.js';
+
 // 注册表
 export { createSkillsRegistry } from './registry.js';
 export type { SkillsRegistry, SkillsRegistryOptions } from './registry.js';

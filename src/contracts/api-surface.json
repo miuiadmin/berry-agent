@@ -135,7 +135,7 @@
       "since": "1.0",
       "desc": "错误码前缀族明列——文档性常量，供注册面校验与 CI 目录生成； 'HOST_' 系装配根码族",
       "kind": "const",
-      "sig": "57c7d2309c98495c"
+      "sig": "310f6f28accf4a92"
     },
     {
       "symbol": "EVENT_CATEGORIES",
@@ -272,6 +272,51 @@
       "sig": "7a11d114bfc3b8bd"
     },
     {
+      "symbol": "JobEntry",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "Job 注册表条目（进程内状态——04 §10 终态不镜像落库明文豁免）",
+      "kind": "interface",
+      "sig": "f1b29b0a115091e6"
+    },
+    {
+      "symbol": "JobKind",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "Job 种类闭集（04 §10——kind 现设三值；registerKind 显式登记后方可使用）",
+      "kind": "type",
+      "sig": "7aec7f929d0d9e59"
+    },
+    {
+      "symbol": "JobSettledEvent",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "job_settled 活体事件载荷（04 §10——总线词，内存直推不落库）",
+      "kind": "interface",
+      "sig": "bfcf18fa39640d72"
+    },
+    {
+      "symbol": "JobStatus",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "Job 状态机（04 §10：running →（可选 stopping）→ 唯一终态；first-wins）",
+      "kind": "type",
+      "sig": "10b3211f13ac4450"
+    },
+    {
+      "symbol": "JobTerminal",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "Job 终态载荷（settle 时落——first-wins 封口后的不可变值）",
+      "kind": "interface",
+      "sig": "8b37d3953546febf"
+    },
+    {
       "symbol": "LlmContext",
       "module": "berry-agent",
       "tier": "stable",
@@ -362,6 +407,15 @@
       "sig": "734176dabc67a1c8"
     },
     {
+      "symbol": "SUBAGENT_DEPTH_MAX",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "委派深度帽（04 §10 委派边界③）：根会话委派 = 深度 1；子代理再委派逐层 +1；超帽 3 拒（SUBAGENT_DEPTH_EXCEEDED——防自嵌套爆栈）",
+      "kind": "const",
+      "sig": "a5691a655c07cc26"
+    },
+    {
       "symbol": "SessionEvent",
       "module": "berry-agent",
       "tier": "stable",
@@ -414,6 +468,60 @@
       "desc": "StreamFn 每次调用的选项（model 为模型 id 字符串——解析归 llm 模块，loop 不持模型对象）",
       "kind": "interface",
       "sig": "1a4290af791ae0d7"
+    },
+    {
+      "symbol": "SubagentCapabilities",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "SubagentProvider 能力协商面（04 §10——五布尔）：注册方声明，消费方（委派机器/呈现面）据以决定可用形态（如 background=false 的 provider 不受理后台收场）",
+      "kind": "interface",
+      "sig": "c615a984583d9a8d"
+    },
+    {
+      "symbol": "SubagentDef",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "声明式子代理解析产物（06 §11.6 agents/*.md 纯数据 def）",
+      "kind": "interface",
+      "sig": "3971c91244b3f315"
+    },
+    {
+      "symbol": "SubagentProvider",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "SubagentProvider 契约（04 §10——subagent 件提供，core:）：能力协商 + 单一委派动词",
+      "kind": "interface",
+      "sig": "409292bc3b8e5940"
+    },
+    {
+      "symbol": "SubagentRequest",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "委派请求（04 §10：请求含 prompt、工具白名单、模型覆盖——其余为机器注入位，模型侧工具 schema 不暴露）",
+      "kind": "interface",
+      "sig": "a724232fce16ee36"
+    },
+    {
+      "symbol": "SubagentResult",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "委派结算（04 §10：子代理是黑盒——结果不重试，立即结算给父）",
+      "kind": "interface",
+      "sig": "697c569c80d49c40"
+    },
+    {
+      "symbol": "SubagentStopReason",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "子代理收场原因闭集（StopReason 子集——委派语境三值；'killed' 承 Job 终态词）",
+      "kind": "type",
+      "sig": "eab7cefb3aa6ae97"
     },
     {
       "symbol": "SurfaceOp",

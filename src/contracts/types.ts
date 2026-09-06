@@ -5,6 +5,7 @@
  * 此处逐字段转录；LLM 消息/流/角色与工具/插件/子代理/Job 类型随对应模块
  * 落码批按 pi-ai 实形定义（contract-first：纵切批内先契约后实现）。
  */
+import type { Usage } from './llm.js';
 
 /**
  * 表面遮蔽指令（改历史的唯一合法形态——追加 replace 指令事件遮蔽旧区间，
@@ -152,4 +153,157 @@ export interface RetryProbe {
   readonly maxAttempts: number;
   /** 下次续入时间戳（epoch ms）；null = 不在退避等待（重试已续入/取消/耗尽） */
   readonly nextAt: number | null;
+}
+
+/* ---------------- 子代理与 Job 注册表（04 §10——批 15c 契约先行） ---------------- */
+
+/**
+ * 委派深度帽（04 §10 委派边界③）：根会话委派 = 深度 1；子代理再委派逐层 +1；
+ * 超帽 3 拒（SUBAGENT_DEPTH_EXCEEDED——防自嵌套爆栈）。
+ */
+export const SUBAGENT_DEPTH_MAX = 3;
+
+/**
+ * SubagentProvider 能力协商面（04 §10——五布尔）：注册方声明，消费方
+ * （委派机器/呈现面）据以决定可用形态（如 background=false 的 provider
+ * 不受理后台收场）。in-process 真工厂五项恒真（独立装配全套）。
+ */
+export interface SubagentCapabilities {
+  /** 子代理有自己的工具面（非纯文本模型） */
+  readonly tools: boolean;
+  /** 支持流式过程可见（父可观察中间输出） */
+  readonly streaming: boolean;
+  /** 支持协作取消（stop → stopping → killed） */
+  readonly cancel: boolean;
+  /** 支持后台收场（Job 注册表托管；one-shot-only provider 恒 false） */
+  readonly background: boolean;
+  /** 支持结构化输出（SubagentResult.structured 面） */
+  readonly structuredOutput: boolean;
+}
+
+/**
+ * 委派请求（04 §10：请求含 prompt、工具白名单、模型覆盖——其余为机器
+ * 注入位，模型侧工具 schema 不暴露）。
+ */
+export interface SubagentRequest {
+  /** 委派目标提示（子代理的唯一任务输入） */
+  readonly prompt: string;
+  /** 工具白名单（与 def 的 tools 交集执法——子代理可用面 ⊆ 交集） */
+  readonly tools?: readonly string[];
+  /** 模型覆盖（缺省回落宿主模型） */
+  readonly model?: string;
+  /** 子代理系统提示（声明式子代理正文直传；通用 agent 工具不设） */
+  readonly systemPrompt?: string;
+  /** 诊断名（Job 名与通知文案的显示位；缺省机器派生） */
+  readonly name?: string;
+  /** 机器注入位——父会话 id（background 结算通知路由） */
+  readonly parentSessionId?: string;
+  /** 机器注入位——收场形态（one-shot 缺省 / background 托管） */
+  readonly background?: boolean;
+  /** 机器注入位——委派深度（根 = 1；超帽拒——模型不可直设） */
+  readonly depth?: number;
+  /**
+   * 机器注入位——审批挂起通知闭包（in-process 子栈审批闸的父路由）：
+   * background 形注入（one-shot 不注入——挂着等待即知情）；实现方执法
+   * 恰一条幂等（driver dedupeKey 面）。
+   */
+  readonly notifyApproval?: (info: { approvalId: string; toolName: string; reason?: string }) => Promise<unknown>;
+  /**
+   * 机器注入位——协作停止观察面（background 形注入）：JobHandle.stop()
+   * 置 stopping 后本闭包变真；in-process 工厂据此桥子栈中止（abort 子 run）。
+   * 只读观察非信号——轮询/桥接形态由工厂自选。
+   */
+  readonly stopRequested?: () => boolean;
+}
+
+/**
+ * 委派结算（04 §10：子代理是黑盒——结果不重试，立即结算给父）。
+ */
+export interface SubagentResult {
+  /** 最终输出（黑盒面——父只见结果不见内部过程） */
+  readonly output: string;
+  /** 结构化输出（capabilities.structuredOutput 时有效） */
+  readonly structured?: unknown;
+  /** 降级上报（≤4096 截断——哪些工具被拒、以何降级路径完成；禁伪装执法位） */
+  readonly diagnostic?: string;
+  /** 用量（子栈计量上报；缺席 = 未计量） */
+  readonly usage?: Usage;
+  /** 收场原因（error 形 = 结果即错误数据——重试是父的策略不是子代理机制） */
+  readonly stopReason: SubagentStopReason;
+}
+
+/** 子代理收场原因闭集（StopReason 子集——委派语境三值；'killed' 承 Job 终态词） */
+export type SubagentStopReason = 'stop' | 'error' | 'aborted';
+
+/**
+ * SubagentProvider 契约（04 §10——subagent 件提供，core:）：能力协商 +
+ * 单一委派动词。in-process provider 是真工厂——每子代理独立装配全套
+ * （自己的 loop/scope/工具面/凭证），运行期无「我是谁派来的」识别。
+ */
+export interface SubagentProvider {
+  readonly capabilities: SubagentCapabilities;
+  run(request: SubagentRequest): Promise<SubagentResult>;
+}
+
+/** Job 种类闭集（04 §10——kind 现设三值；registerKind 显式登记后方可使用） */
+export type JobKind = 'subagent' | 'process' | 'issue';
+
+/** Job 状态机（04 §10：running →（可选 stopping）→ 唯一终态；first-wins） */
+export type JobStatus = 'running' | 'stopping' | 'completed' | 'killed' | 'failed';
+
+/** Job 终态载荷（settle 时落——first-wins 封口后的不可变值） */
+export interface JobTerminal {
+  /** 终态（三值闭集——completed/killed/failed） */
+  readonly status: Extract<JobStatus, 'completed' | 'killed' | 'failed'>;
+  /** 终态落定时刻（epoch ms） */
+  readonly at: number;
+  /** 终态说明（人读——killed 的归因/failed 的错误摘要等） */
+  readonly detail?: string;
+}
+
+/** Job 注册表条目（进程内状态——04 §10 终态不镜像落库明文豁免） */
+export interface JobEntry {
+  /** 唯一 id（注册表自铸 `job-<n>` 序列） */
+  readonly id: string;
+  /** 显示名（子代理诊断名/进程命令行等） */
+  readonly name: string;
+  /** 种类（registerKind 登记词汇） */
+  readonly kind: JobKind;
+  /** 归属围栏（会话关闭按 owner 收口其在飞 Job 落 killed） */
+  readonly owner: string;
+  /** 当前状态（终态后不可变——first-wins） */
+  readonly status: JobStatus;
+  /** 起跑时刻（epoch ms） */
+  readonly startedAt: number;
+  /** 终态载荷（未终态 = undefined） */
+  readonly terminal?: JobTerminal;
+}
+
+/** job_settled 活体事件载荷（04 §10——总线词，内存直推不落库） */
+export interface JobSettledEvent {
+  /** 终态条目快照（含 id/kind/owner/terminal） */
+  readonly entry: JobEntry;
+}
+
+/**
+ * 声明式子代理解析产物（06 §11.6 agents/*.md 纯数据 def）。
+ * 归 contracts（02 §4.1 席 1 契约家）：解析层住 core:skills、机器住
+ * core:subagent——两侧共享形状只可经契约面（skills→subagent 无边，
+ * DAG 禁穿）；subagent 收纯数据 def 零 yaml（yaml 裸导入白名单不扩）。
+ */
+export interface SubagentDef {
+  /** 身份键（frontmatter name 缺省回落文件基名；提供时须与基名一致） */
+  readonly name: string;
+  /** 描述（必填——披露段清单行 = 模型选择依据） */
+  readonly description: string;
+  /** 工具白名单（可选 include 名单——与派生面交集执法） */
+  readonly tools?: readonly string[];
+  /** 前置要求（04 §10 预检闸声明位——与 tools 白名单正交不混读） */
+  readonly requires?: readonly string[];
+  /** 模型覆盖（子代理启动参数直传工厂——不进能力协商面） */
+  readonly model?: string;
+  /** 正文即系统提示（frontmatter 闭合 --- 之后全文） */
+  readonly systemPrompt: string;
+  /** 来源文件绝对路径（诊断/溯源面） */
+  readonly filePath: string;
 }
