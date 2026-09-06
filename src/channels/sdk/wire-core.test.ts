@@ -485,4 +485,54 @@ describe('close 生命周期间隙', () => {
     expect(h.frames).toEqual([]);
     expect(h.attempted).toHaveLength(0); // 无因收口：直写重申也不发
   });
+
+  it('isClosed 观测面：缺省 false、close 后 true（HTTP 传输位 503 先决）', () => {
+    const h = createHarness();
+    expect(h.core.isClosed).toBe(false);
+    h.core.close();
+    expect(h.core.isClosed).toBe(true);
+  });
+});
+
+describe('unsubscribe 订阅退订（批 13e-2 HTTP 传输位——流撤即退）', () => {
+  it('退订后：pushEvent 剥、心跳不拍、isSubscribed false；admit 账不动', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    h.frames.length = 0;
+    expect(h.core.isSubscribed('s1')).toBe(true);
+    h.core.unsubscribe('s1');
+    expect(h.core.isSubscribed('s1')).toBe(false);
+    h.core.pushEvent('s1', { type: 'agent_start' }); // 无订阅即弃
+    h.clock.now += 10_000;
+    h.core.heartbeatTick(); // 无 live 订阅不拍
+    expect(h.frames).toEqual([]);
+    // admit 连接级账不随退订清：同 messageId 重发仍 duplicate 快速档
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm1', content: '问', sessionId: 's1' });
+    h.frames.length = 0;
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm1', content: '问', sessionId: 's1' });
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'ack', duplicate: true });
+  });
+
+  it('退订幂等；同会话再 hello 即重挂新订阅态（直播恢复）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1', after: -1 });
+    h.core.unsubscribe('s1');
+    h.core.unsubscribe('s1'); // 幂等
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1', after: -1 }); // 重挂
+    expect(h.core.isSubscribed('s1')).toBe(true);
+    h.frames.length = 0;
+    h.core.pushEvent('s1', { type: 'agent_start' });
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'event', sessionId: 's1' });
+  });
+
+  it('退订不触发 onSubscribed（受理钩只在挂订阅位发）', () => {
+    const h = createHarness();
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    h.calls.subscribed.length = 0;
+    h.core.unsubscribe('s1');
+    expect(h.calls.subscribed).toEqual([]);
+  });
 });

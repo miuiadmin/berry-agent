@@ -131,7 +131,7 @@ export type EnqueueStatus = 'sent' | 'queued' | 'dropped' | 'overload';
  * message_update delta 与 tool_execution_update 进度帧——丢帧无害，durable
  * 定稿/锚定帧兜底（双轨律掉帧语义）。其余 event 帧与全部线控/回执帧不可丢。
  */
-function isDroppableFrame(frame: SdkWireFrame): boolean {
+export function isDroppableFrame(frame: SdkWireFrame): boolean {
   return (
     frame.kind === 'event' && (frame.event.type === 'message_update' || frame.event.type === 'tool_execution_update')
   );
@@ -484,6 +484,15 @@ export class SdkWireCore {
     return this.subs.get(sessionId)?.phase === 'live';
   }
 
+  /**
+   * 退订（批 13e-2 HTTP 传输位：SSE 流全撤即退——ask fail-closed 判据与真
+   * 观众同步；未决 ask 不动〔重连 hello 即重推〕，admit 账不动〔连接级〕）。
+   * 退订后同会话再 hello/prompt 即重挂新订阅态。
+   */
+  unsubscribe(sessionId: string): void {
+    this.subs.delete(sessionId);
+  }
+
   /** 活跃订阅数（后端 hasAudience 探针——零订阅即无观众） */
   get subscriptionCount(): number {
     let count = 0;
@@ -577,6 +586,11 @@ export class SdkWireCore {
   }
 
   private closedReason: string | undefined;
+
+  /** 闭合观测面（13e HTTP 传输位：闭合面新请求直接 503——不留半开档） */
+  get isClosed(): boolean {
+    return this.closed;
+  }
 
   /** 宿主 writable 时冲刷在队帧（背压恢复腿） */
   drain(): number {

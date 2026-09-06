@@ -183,6 +183,22 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     module: 'sdk',
     description: '线面游标非法形：after 越高水位 / 崩溃截尾后旧游标作废（05 篇 §3.5——调用方从头或 getEntries 重对账）',
   },
+  {
+    code: 'SDK_DECODE',
+    module: 'sdk',
+    description:
+      'HTTP 体解码/深校验拒（03 §10.6 批 13e-2 定形⑤——stdio 形坏行 warn 跳过不杀连接，HTTP 形 400 携错误帧）',
+  },
+  {
+    code: 'SDK_UNAUTHORIZED',
+    module: 'sdk',
+    description: 'HTTP 面鉴权失败：token 配置在场而凭证缺席/不符（03 §10.6 批 13e-2 定形⑤——Bearer 形携 token）',
+  },
+  {
+    code: 'SDK_FORBIDDEN',
+    module: 'sdk',
+    description: 'HTTP 面 Host/Origin 防线拒（03 §10.6 批 13e-2 定形⑤——回环钉死三防线 10.4 同律）',
+  },
 ];
 
 /** 注册表本体（code → 目录条目）；模块加载时灌入核心码，插件码经 registerErrorCodes 入 */
