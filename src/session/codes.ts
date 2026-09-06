@@ -26,7 +26,7 @@ registerErrorCodes([
     module: 'session',
     description: '导入文件格式不认识（自描述格式版本/导出器标识缺或未知）',
   },
-  // 05 §5.1 洪水闸：会话增生限流（首版 100/分钟）——码名【待裁决】暂用此名（contracts 注册表统一定名后回写）
+  // 05 §5.1 洪水闸：会话增生限流（首版 100/分钟）——码名已裁（2026-09-05 拍板题 15：沿用此名，改名收益不抵扫引成本）
   {
     code: 'SESSION_SPAWN_RATE_LIMIT',
     module: 'session',
