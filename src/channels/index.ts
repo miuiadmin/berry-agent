@@ -27,3 +27,7 @@ export { UiCore } from './ui-core.js';
 export { SessionChannels } from './registry.js';
 export { createChannels } from './service.js';
 export type { ChannelsService } from './service.js';
+// TUI 后端实装（批 10e 呈现纵切——host 装配批 12 addBackend 消费；件内
+// 组件族〔engine/tui〕仍走各自聚合面，本面只进后端装配物）
+export type { TuiBackendOptions } from './tui/index.js';
+export { TuiBackend } from './tui/index.js';

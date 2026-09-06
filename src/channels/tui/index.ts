@@ -39,3 +39,5 @@ export type { MarkdownBlock } from './markdown/blocks.js';
 export { parseMarkdown } from './markdown/blocks.js';
 export { MarkdownDoc } from './markdown/markdown.js';
 export { StatusLine } from './status/status-line.js';
+export type { TuiBackendOptions } from './backend/tui-backend.js';
+export { TuiBackend } from './backend/tui-backend.js';
