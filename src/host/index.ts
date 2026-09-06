@@ -37,3 +37,10 @@ export type {
   PluginsCommand,
   SessionsCommand,
 } from './cli.js';
+// 批 12b 装配序生命周期（单活跃机 + 开库 + 退出序六步编舞 + 披露段组装）
+export { acquireActiveMarker, ACTIVE_MARKER_BASENAME } from './single-instance.js';
+export type { ActiveMarkerRecord, ActiveMarkerLease, AcquireOptions } from './single-instance.js';
+export { renderEnvironmentDisclosure, collectPlatform, collectDate } from './disclosure.js';
+export type { DisclosureInputs } from './disclosure.js';
+export { createHostRuntime } from './runtime.js';
+export type { HostRuntime, HostRuntimeOptions, HostCloser, ExitSequenceBudget } from './runtime.js';
