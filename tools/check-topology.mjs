@@ -97,6 +97,10 @@ const PRESENT_MODULES = new Set([
   // deps {contracts, context, safety, tools}；装载态 scope.provide('exec') 归
   // 批 12 装载面后装配批）
   'exec',
+  // 批 14b 起在场（core:skills 纯逻辑腿——SKILL.md 装载/发现六位序列/注册表/
+  // 渐进披露/skill_manage，deps {contracts, context}；装载态集成（标准层装配 +
+  // skills_change 桥）归批 12 装载面后装配批，出厂技能件内容挂 07 出厂清单定名批）
+  'skills',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -126,6 +130,10 @@ const MODULE_EXTERNALS = {
   web: ['typebox'],
   // exec 的 bash 工具参数面（07 篇 schema 层同律；14a 落码批起用）
   exec: ['typebox'],
+  // skills 的 yaml（SKILL.md frontmatter 解析物化双用——07 篇 §2 钉定）/ignore
+  // （gitignore 语义匹配——发现层遍历消费者，07 篇 §120 多消费者）/typebox
+  // （skill_manage 参数面——schema 层宿主件直用同律；14b 落码批起用）
+  skills: ['yaml', 'ignore', 'typebox'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
   // 一律走虚拟键三转发；批 12d 落码起用）

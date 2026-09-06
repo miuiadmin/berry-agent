@@ -133,6 +133,19 @@ describe('遍历语义', () => {
     expect(text).not.toContain('sub/deep/file.txt'); // 含斜杠 = 锚定剪
   });
 
+  it('根层前导 / 锚定形只剪根层——深层同名不被剪（前导 / 透传保留回归锁）', async () => {
+    const { root } = rig;
+    await mkdir(join(root, 'top'), { recursive: true });
+    await mkdir(join(root, 'other/top'), { recursive: true });
+    await writeFile(join(root, '.gitignore'), '/top/\n');
+    await writeFile(join(root, 'top/x.txt'), 'x');
+    await writeFile(join(root, 'other/top/y.txt'), 'x');
+    const res = await rig.find.execute({ pattern: '**/*' }, { toolCallId: 'test' });
+    const text = (res.content[0] as { text: string }).text;
+    expect(text).not.toContain('top/x.txt'); // 根层锚定剪
+    expect(text).toContain('other/top/y.txt'); // 深层同名目录不被剪——曾因剥前导 / 透传被降级成任意层匹配
+  });
+
   it('`!` 否定：忽略 *.log 但保留 keep.log', async () => {
     const { root } = rig;
     await writeFile(join(root, '.gitignore'), '*.log\n!keep.log\n');

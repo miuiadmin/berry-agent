@@ -108,7 +108,7 @@ export function globToRegExp(pattern: string): RegExp {
  * `secret/`）= 所在目录子树**任意深度** basename 匹配——前缀化须插 `**`＋`/` 才
  * 能同时匹配本层（sub/build）与深层（sub/x/build）；直接拼前缀会造出锚定路
  * 径，深层漏配——被忽略目录里的文件仍入检索面。根 .gitignore（prefix 空）
- * 不受影响——模式原样已天然任意深度。
+ * basename 形原样透传天然任意深度；前导 / 锚定形保留前导 /（锚定根层）。
  */
 function prefixIgnorePattern(line: string, prefix: string): string | null {
   const trimmed = line.trim();
@@ -126,7 +126,13 @@ function prefixIgnorePattern(line: string, prefix: string): string | null {
   // 前导 / = 显式锚定标记（先记下再去掉；锚定形相对本目录精确匹配）
   const rooted = pattern.startsWith('/');
   if (rooted) pattern = pattern.slice(1);
-  if (!prefix) return negated ? `!${pattern}` : pattern;
+  if (!prefix) {
+    // 根 .gitignore 锚定形保留前导 /（git 语义：前导分隔符 = 锚定本层——剥掉
+    // 透传会把锚定降级成任意层匹配，根层同名深层被误剪；技能发现/快照遍历
+    // 同笔同判同修——2026-09-07 批 14b 回归锁在「根层锚定只剪本层」例）
+    const passed = rooted ? `/${pattern}` : pattern;
+    return negated ? `!${passed}` : passed;
+  }
   const body = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
   const anchored = rooted || body.includes('/');
   const prefixed = anchored ? `${prefix}${pattern}` : `${prefix}**/${pattern}`;
