@@ -109,6 +109,20 @@ export interface UiBackend<TProjection> {
   onEnvelope?(env: SessionEnvelope, focused: boolean): void;
   /** 重画呈现（焦点切换/初始——载荷 = 投影快照 + 该会话当前 widget 槽值） */
   onRepaint?(sessionId: string, projection: readonly TProjection[], widget: { node: unknown } | null): void;
+  /**
+   * 收起副屏（07 §4.1 件 8「ask 强制收起（注意力优先级 ask > 回看）：通道
+   * ask 入口先收副屏再入提问队列」条款的可选能力面——批 10f-4）。在场即
+   * 实现 = 后端自报有副屏可收（TUI = 1049 备屏退出 + 主屏复起）；核 ask
+   * 入口扇出本钩。缺席 = 无副屏可收零义务（非 TUI 后端不受影响）。
+   */
+  collapseAltScreen?(): void;
+  /**
+   * 开副屏回看器（07 §4.1 件 8 /history 命令的呈现面——命令注册在通道核按
+   * ChannelsOptions.history 注入在场判）。载荷 = 全量 durable 正文投影
+   * （history() 拉取）；呈现形态归后端（TUI = 1049 副屏整屏回看，同一渲染
+   * 管线零第二渲染器）。缺席 = 不支持整屏回看的后端。
+   */
+  openHistory?(sessionId: string, messages: readonly TProjection[]): void;
 }
 
 /** 命令参数（03 §2.2 签名定形：raw 原文引号原样 / argv 引号感知词切分） */
@@ -150,4 +164,12 @@ export interface ChannelsOptions<TProjection> {
    * safety 侧写入面）。无草案 always 不触发（零草案零副作用）。
    */
   readonly onApprovalAlways?: (entry: string) => void;
+  /**
+   * 历史正文拉取注入（07 §4.1 件 8 /history——批 10f-4 接线位）：与
+   * fetchProjection 同层同形（通道核只消费注入回调不依赖 session——边表
+   * 执法的刻意设计；真源接线归批 12 host 装配）。在场 = 通道核注册
+   * /history 命令（真源 = 聚焦会话 → 拉全量 durable 正文投影 → 扇出后端
+   * openHistory）；缺席 = 不注册不虚报（件 8 条款注册面律）。
+   */
+  readonly history?: (sessionId: string) => Promise<readonly TProjection[]>;
 }

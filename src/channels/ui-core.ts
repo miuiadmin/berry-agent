@@ -230,6 +230,8 @@ export class UiCore {
 
   /**
    * ask 统一编排：入队 → 队首呈现（多后端竞速先答先得）→ 落定出队。
+   * 入口先收副屏（07 §4.1 件 8 条款：注意力优先级 ask > 回看——ask 到来时
+   * 在场副屏先收起再入提问队列；能力缺席〔无副屏后端〕零义务跳过）。
    * 三条收口路（全部 once）：首答（含降级解析值）/ 呈现异常（保守值——
    * fail-closed）/ 外部 signal abort 或队列取消（保守值）。
    */
@@ -240,6 +242,8 @@ export class UiCore {
     conservative: () => T,
     present: AskPresenter<T>,
   ): Promise<T> {
+    // ask 强制收起（件 8 条款——批 10f-4）：扇出可选钩，先于入队
+    for (const b of this.backends()) b.collapseAltScreen?.();
     let resolve!: (value: T) => void;
     const promise = new Promise<T>((r) => {
       resolve = r;

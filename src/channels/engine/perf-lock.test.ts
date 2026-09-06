@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Engine } from './engine.js';
 import { MemoryTerminalIO } from './memory-io.js';
 import { TuiBackend } from '../tui/index.js';
+import { LiveTranscript, TRANSCRIPT_BLOCK_CAP } from '../tui/backend/transcript.js';
 import type { Renderable } from './types.js';
 
 /**
@@ -167,5 +168,28 @@ describe('性能回归锁：冷启首帧 / 按键回显 / resize 重排（真钟
     } finally {
       engine.dispose();
     }
+  });
+});
+
+/**
+ * 块帽全量档回归锁（批 10f-4 帽参数化同笔——帽相关注记补笔）：
+ * 块帽 = 内存上限语义（07 §4.1 屏幕模型双形态——主屏帽内最近段交原生
+ * scrollback），四指标 wall-time 面不覆盖块帽（批 10f-3 建锁注记原文）。
+ * 参数化后主屏缺省帽 500 不动（主屏调用面零变化）；件 8 回看器全量档
+ * （blockCap = Infinity）取全量 durable 正文——本锁保证全量档块数不被截
+ * （回看器数据范围条款：「回看器取全量 durable 正文、repaint 按投影取主屏
+ * 滚动帽内最近段——恒一致的是管线非范围」）。
+ */
+describe('性能回归锁：transcript 块帽全量档（件 8 回看器数据范围——确定性）', () => {
+  it('帽 Infinity 全量档：超主屏帽的投影块数不被截（blockCount 全量）', () => {
+    const t = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY });
+    const messages = Array.from({ length: TRANSCRIPT_BLOCK_CAP + 100 }, (_, i) => ({
+      role: 'user' as const,
+      content: `回看消息 ${i}`,
+      timestamp: i,
+    }));
+    t.loadProjection(messages);
+    expect(t.blockCount).toBe(TRANSCRIPT_BLOCK_CAP + 100); // 全量——主屏帽不作用于回看档
+    expect(t.snapshot[t.blockCount - 1]).toMatchObject({ kind: 'user', text: `回看消息 ${TRANSCRIPT_BLOCK_CAP + 99}` }); // 末条在场
   });
 });

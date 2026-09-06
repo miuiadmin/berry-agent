@@ -18,8 +18,9 @@ interface AskHandle<T> {
   readonly reject: (reason?: unknown) => void;
 }
 
-/** 可编程假后端：记录一切调用；阻塞应答 deferred 手控；abort 自动保守值收场 */
-function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}) {
+/** 可编程假后端：记录一切调用；阻塞应答 deferred 手控；abort 自动保守值收场。
+ * withAlt = 带件 8 副屏两可选钩（收起 / 开回看——缺席即无副屏后端的零义务形） */
+function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, withAlt = false) {
   const capabilities: UiCapabilities = {
     notify: true,
     confirm: true,
@@ -39,6 +40,8 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}) {
   const widgets: { sessionId: string; node: unknown }[] = [];
   const envelopes: { env: SessionEnvelope; focused: boolean }[] = [];
   const repaints: { sessionId: string; projection: readonly unknown[]; widget: { node: unknown } | null }[] = [];
+  const collapses: number[] = [];
+  const historyOpens: { sessionId: string; messages: readonly unknown[] }[] = [];
   let audience = true;
 
   function deferredPush<T>(asks: AskHandle<T>[], message: string, signal: AbortSignal | undefined): Promise<T> {
@@ -63,6 +66,13 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}) {
     setWidget: (sessionId, node) => widgets.push({ sessionId, node }),
     onEnvelope: (env, focused) => envelopes.push({ env, focused }),
     onRepaint: (sessionId, projection, widget) => repaints.push({ sessionId, projection, widget }),
+    // 件 8 副屏两可选钩（在场即能力——withAlt 才挂，缺席形零义务）
+    ...(withAlt
+      ? {
+          collapseAltScreen: () => collapses.push(collapses.length),
+          openHistory: (sessionId: string, messages: readonly never[]) => historyOpens.push({ sessionId, messages }),
+        }
+      : {}),
   };
   return {
     backend,
@@ -79,6 +89,8 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}) {
     widgets,
     envelopes,
     repaints,
+    collapses,
+    historyOpens,
   };
 }
 
@@ -454,5 +466,74 @@ describe('审批 ask（askApproval——07 §4.3 提问队列条款，批 10e-2 
     expect(b2.approvalAsks.length).toBe(1);
     b2.approvalAsks[0]?.resolve('reject');
     expect(await p).toBe('reject');
+  });
+});
+
+describe('/history 命令面（07 §4.1 件 8——批 10f-4：在场即注册、缺席不注册不虚报）', () => {
+  it('history() 在场：/history 注册 + 分发拉全量投影扇出 openHistory（聚焦会话为真源）', async () => {
+    const projection = [{ role: 'user' }, { role: 'assistant' }];
+    const fetched: string[] = [];
+    const s = createChannels({
+      history: async (sessionId) => {
+        fetched.push(sessionId);
+        return projection;
+      },
+    });
+    const b1 = fakeBackend('tui', {}, true); // 带副屏两钩
+    const b2 = fakeBackend('web'); // 无副屏钩——缺席零义务
+    s.addBackend(b1.backend);
+    s.addBackend(b2.backend);
+    s.registerSession('a');
+    await s.focus('a');
+
+    expect(s.listCommands().map((c) => c.name)).toContain('history'); // 在场即注册
+    expect(await s.dispatchCommand('/history')).toBe(true);
+    expect(fetched).toEqual(['a']); // 聚焦会话为真源
+    expect(b1.historyOpens).toEqual([{ sessionId: 'a', messages: projection }]); // 扇出带钩后端
+  });
+
+  it('history() 缺席：不注册不虚报（/history 不在命令面，分发返 false）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(s.listCommands().map((c) => c.name)).not.toContain('history');
+    expect(await s.dispatchCommand('/history')).toBe(false);
+    expect(b.historyOpens).toEqual([]);
+  });
+
+  it('焦点空悬：分发即返（无回看对象——不拉取不虚报不报错）', async () => {
+    const s = createChannels({ history: async () => [{ role: 'user' }] });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(await s.dispatchCommand('/history')).toBe(true); // 命令在场被消费
+    expect(b.historyOpens).toEqual([]); // 无聚焦会话——零扇出
+  });
+});
+
+describe('ask 强制收副屏（07 §4.1 件 8——注意力优先级 ask > 回看）', () => {
+  it('ask 入口先收副屏再入提问队列：阻塞四件扇出 collapseAltScreen', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+
+    const p = s.confirm('s1', '做吗？');
+    expect(b.collapses.length).toBe(1); // 入队前已收副屏
+    expect(b.confirmAsks.length).toBe(1); // 收副屏不入障——队首照常呈现
+    b.confirmAsks[0]?.resolve(true);
+    expect(await p).toBe(true);
+
+    void s.select('s1', '选', [{ value: 'x', label: 'X' }]);
+    void s.input('s1', '问');
+    void s.askApproval('s1', { summary: '写' });
+    expect(b.collapses.length).toBe(4); // 阻塞四件每入口各收（幂等归后端）
+  });
+
+  it('无副屏钩后端零义务：ask 流程不受影响', async () => {
+    const s = createChannels();
+    const b = fakeBackend('web'); // 缺席形——无 collapseAltScreen
+    s.addBackend(b.backend);
+    const p = s.confirm('s1', '做吗？');
+    b.confirmAsks[0]?.resolve(true);
+    expect(await p).toBe(true);
   });
 });

@@ -7,7 +7,16 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage } from '../../../contracts/index.js';
-import { LiveTranscript, shortIdOf, TRANSCRIPT_BLOCK_CAP, type SummaryLine } from './transcript.js';
+import { MarkdownDoc } from '../markdown/markdown.js';
+import {
+  LiveTranscript,
+  renderBlockLines,
+  renderBlockStyledLines,
+  shortIdOf,
+  TRANSCRIPT_BLOCK_CAP,
+  type SummaryLine,
+} from './transcript.js';
+import { styledLineToAnsi } from './ansi-rows.js';
 
 /* ---------------- 消息工厂 ---------------- */
 
@@ -193,5 +202,113 @@ describe('LiveTranscript 投影重建与帽', () => {
     t.loadProjection(messages);
     expect(t.blockCount).toBe(TRANSCRIPT_BLOCK_CAP);
     expect(t.snapshot[0]).toEqual({ kind: 'user', text: '消息 5' }); // 前 5 条卸载
+  });
+
+  it('帽参数化（批 10f-4）：自定义帽截段——保留帽内最近段', () => {
+    const t = new LiveTranscript({ blockCap: 3 });
+    const messages = [userMsg('一'), userMsg('二'), userMsg('三'), userMsg('四'), userMsg('五')];
+    t.loadProjection(messages);
+    expect(t.blockCount).toBe(3);
+    expect(t.snapshot.map((b) => (b.kind === 'user' ? b.text : b.kind))).toEqual(['三', '四', '五']); // 帽 3 内最近段
+  });
+
+  it('帽参数化：全量档 Infinity 不截（件 8 回看器数据范围——全量 durable 正文）', () => {
+    const t = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY });
+    const messages: AgentMessage[] = [];
+    for (let i = 0; i < TRANSCRIPT_BLOCK_CAP + 5; i++) messages.push(userMsg(`消息 ${i}`));
+    t.loadProjection(messages);
+    expect(t.blockCount).toBe(TRANSCRIPT_BLOCK_CAP + 5); // 全量——块数不被截
+    expect(t.snapshot[0]).toEqual({ kind: 'user', text: '消息 0' }); // 首条仍在场
+  });
+
+  it('帽参数化：缺省不传 = 主屏帽 500（主屏调用面零变化）', () => {
+    const t = new LiveTranscript();
+    const messages: AgentMessage[] = [];
+    for (let i = 0; i < TRANSCRIPT_BLOCK_CAP + 1; i++) messages.push(userMsg(`m${i}`));
+    t.loadProjection(messages);
+    expect(t.blockCount).toBe(TRANSCRIPT_BLOCK_CAP);
+  });
+});
+
+/* ---------------- 渲染行提取（批 10f-4——管线单源 renderBlockLines） ---------------- */
+
+describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共用同一管线）', () => {
+  it('user 块："> " 前缀首行 + 折行续挂两空格缩进', () => {
+    const lines = renderBlockLines({ kind: 'user', text: '帮我看下' }, 20); // 宽裕单行
+    expect(lines).toEqual(['> 帮我看下']);
+  });
+
+  it('user 块折行：超宽文本续行缩进对齐（宽算术单源 wrapText）', () => {
+    const lines = renderBlockLines({ kind: 'user', text: 'abcdefghij' }, 6); // 内容宽帽 6-2=4——'abcd' + 'efgh' + 'ij' 三行
+    expect(lines).toEqual(['> abcd', '  efgh', '  ij']);
+  });
+
+  it('tool-call / tool-result 块：单行 dim 样式', () => {
+    const toolCall = renderBlockLines({ kind: 'tool-call', name: 'read', brief: '(path)' }, 40);
+    expect(toolCall).toHaveLength(1);
+    expect(toolCall[0]).toBe('\x1b[2m ⚙ read(path)\x1b[0m');
+    const toolResult = renderBlockLines({ kind: 'tool-result', brief: '命中' }, 40);
+    expect(toolResult[0]).toBe('\x1b[2m ↳ 命中\x1b[0m');
+  });
+
+  it('markdown 块：经 CellGrid 渲染（H1 bold 行）', () => {
+    const lines = renderBlockLines({ kind: 'markdown', doc: MarkdownDoc.of('# 标题') }, 20);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain('\x1b[1m标题\x1b[0m'); // H1 bold
+  });
+
+  it('streaming 块：空文本零行、有文本按宽折行（纯文本直推不走网格）', () => {
+    expect(renderBlockLines({ kind: 'streaming', text: '' }, 20)).toEqual([]);
+    const lines = renderBlockLines({ kind: 'streaming', text: 'abcdefgh' }, 4);
+    expect(lines).toEqual(['abcd', 'efgh']);
+  });
+});
+
+/* ---------------- 带样式行提取（批 10f-4——件 8 回看器数据源同管线） ---------------- */
+
+describe('renderBlockStyledLines 带样式行（零第二渲染器——与主屏直写同管线）', () => {
+  it('user 块：行集同行集、零样式段（裸文本）', () => {
+    const styled = renderBlockStyledLines({ kind: 'user', text: '帮我看下' }, 20);
+    expect(styled).toEqual([{ plain: '> 帮我看下', runs: [] }]);
+  });
+
+  it('tool-call / tool-result 块：整行 dim 单段（plain 无转义零样式混入）', () => {
+    const toolCall = renderBlockStyledLines({ kind: 'tool-call', name: 'read', brief: '(path)' }, 40);
+    expect(toolCall).toEqual([
+      { plain: ' ⚙ read(path)', runs: [{ start: 0, end: ' ⚙ read(path)'.length, style: { dim: true } }] },
+    ]);
+    const toolResult = renderBlockStyledLines({ kind: 'tool-result', brief: '命中' }, 40);
+    expect(toolResult[0]!.plain).toBe(' ↳ 命中');
+    expect(toolResult[0]!.runs).toEqual([{ start: 0, end: ' ↳ 命中'.length, style: { dim: true } }]);
+  });
+
+  it('markdown 块：样式段提取（H1 bold 段在、无样式段不在）+ 空行保空行', () => {
+    const doc = MarkdownDoc.of('# 标题\n\n正文');
+    const styled = renderBlockStyledLines({ kind: 'markdown', doc }, 20);
+    expect(styled.length).toBeGreaterThanOrEqual(3);
+    // H1 行：bold 段恰覆「标题」二字的 plain 子串（前后缀裸文本）
+    const h1 = styled[0]!;
+    expect(h1.plain).toContain('标题');
+    const boldRun = h1.runs.find((r) => r.style.bold === true);
+    expect(boldRun).toBeDefined();
+    expect(h1.plain.slice(boldRun!.start, boldRun!.end)).toBe('标题');
+    // markdown 无内容行保空行（主屏空行直写形字节不变——回看器同形）
+    expect(styled.some((line) => line.plain === '' && line.runs.length === 0)).toBe(true);
+  });
+
+  it('字节恒等锁：renderBlockLines ≡ styled 形经 styledLineToAnsi（零第二渲染器）', () => {
+    const blocks: Parameters<typeof renderBlockStyledLines>[0][] = [
+      { kind: 'user', text: '你好世界'.repeat(8) }, // 折行
+      { kind: 'markdown', doc: MarkdownDoc.of('# 标题\n\n- 甲\n- 乙\n\n`code` 与 **粗**') },
+      { kind: 'tool-call', name: 'grep', brief: '(pattern, path)' },
+      { kind: 'tool-result', brief: '首行结果' },
+      { kind: 'streaming', text: '流式快照' },
+    ];
+    for (const block of blocks) {
+      const styled = renderBlockStyledLines(block, 24);
+      const ansi = renderBlockLines(block, 24);
+      expect(styled.map(styledLineToAnsi)).toEqual(ansi); // 两形同管线字节恒等
+      for (const line of styled) expect(line.plain).not.toMatch(/\x1b/); // plain 零转义（搜索面纯净）
+    }
   });
 });

@@ -1,14 +1,17 @@
 /**
  * 浮层基建单测：OverlayStack（栈序覆盖 / 模态独占 / 句柄幂等）+
  * SelectPanel / ConfirmPanel（保守值 / 单次语义 / 高亮循环 / 铺底遮蔽）+
- * AltScreenHost（副屏编舞字节序互证：1049 进出对称 + 主屏复起全帧重画 +
- * 共享 io 放流接缝回归锁）。
+ * AltScreenHost（副屏编舞序互证：1049 进出对称 + 主屏挂起 / 复起交出面调用
+ * 序 + 共享 io 放流接缝回归锁）。
+ *
+ * 批 10f-4 主屏绑收窄：primary 改 AltScreenPrimary 窄介面假件（主屏字节面
+ * 归 tui-backend 直测——本件只锁编舞调用序与副屏字节序）。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { CellGrid, Engine } from '../../engine/index.js';
+import { CellGrid } from '../../engine/index.js';
 import { MemoryTerminalIO } from '../../engine/memory-io.js';
-import type { InputEvent, Renderable } from '../../engine/types.js';
-import { AltScreenHost } from './alt-screen.js';
+import type { InputEvent } from '../../engine/types.js';
+import { AltScreenHost, type AltScreenPrimary } from './alt-screen.js';
 import { OverlayStack, type OverlayContent } from './overlay.js';
 import { ConfirmPanel, SELECT_CANCELLED, SelectPanel } from './select-confirm.js';
 
@@ -70,16 +73,6 @@ class FakeClock {
     }
     this.t = target;
   }
-}
-
-/** 静态文本根（主树替身） */
-function staticRoot(text: string): Renderable {
-  return {
-    measure: () => 1,
-    render: (buffer, region) => {
-      buffer.writeText(region.row, region.col, text);
-    },
-  };
 }
 
 /* ---------------- OverlayStack ---------------- */
@@ -281,28 +274,47 @@ describe('ConfirmPanel', () => {
 /* ---------------- AltScreenHost ---------------- */
 
 describe('AltScreenHost 副屏编舞', () => {
-  const ENTER_INLINE = '\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
-  const LEAVE_INLINE = '\x1b[<u\x1b[?2004l\x1b[?25h';
-  const ENTER_ALT = '\x1b[?1049h' + ENTER_INLINE;
-  const LEAVE_ALT = LEAVE_INLINE + '\x1b[?1049l';
+  const ENTER_ALT = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
+  const LEAVE_ALT = '\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1049l';
 
-  /** 装配：共享 MemoryTerminalIO 的主屏 + 副屏宿主（各持假钟） */
+  /**
+   * 主屏假件（AltScreenPrimary 窄介面替身——批 10f-4）：记录编舞调用序
+   * （callsAtFrames 锚各调用时点的已写帧数——与副屏字节序互证）+ 承担主屏
+   * 侧停流 / 放流账（生产 TuiBackend.suspendMain / resumeMain 同形——放流
+   * 接缝回归锁的账源）。主屏字节面（出屏串 / 全帧重画）归 tui-backend 直测。
+   */
+  class FakePrimary implements AltScreenPrimary {
+    readonly calls: string[] = [];
+    readonly callsAtFrames: number[] = [];
+    state: 'idle' | 'running' | 'suspended' | 'disposed' = 'idle';
+    constructor(private readonly io: MemoryTerminalIO) {}
+    get lifecycle(): 'idle' | 'running' | 'suspended' | 'disposed' {
+      return this.state;
+    }
+    suspendMain(): void {
+      this.calls.push('suspendMain');
+      this.callsAtFrames.push(this.io.frames.length);
+      this.state = 'suspended';
+      this.io.pause(); // 主屏侧停流（共享 io 换防——Engine suspend 同形）
+    }
+    resumeMain(): void {
+      this.calls.push('resumeMain');
+      this.callsAtFrames.push(this.io.frames.length);
+      this.state = 'running';
+      this.io.resume(); // 主屏侧放流（复起半场——共享 io 换防接缝）
+    }
+  }
+
+  /** 装配：共享 MemoryTerminalIO 的主屏假件 + 副屏宿主（副屏持假钟） */
   function rig() {
     const io = new MemoryTerminalIO(40, 6);
-    const mainClock = new FakeClock();
+    const primary = new FakePrimary(io);
+    primary.state = 'running'; // 主屏在场的替身初态
     const altClock = new FakeClock();
-    const primary = new Engine({
-      io,
-      now: mainClock.now,
-      schedule: mainClock.schedule,
-      cancelSchedule: mainClock.cancel,
-    });
-    primary.start(staticRoot('primary-frame'));
-    mainClock.advance(0); // 主屏首帧出
     const host = new AltScreenHost(primary, io, {
       engineOptions: { now: altClock.now, schedule: altClock.schedule, cancelSchedule: altClock.cancel },
     });
-    return { io, primary, host, mainClock, altClock };
+    return { io, primary, host, altClock };
   }
 
   /** 副屏内容：写文 + 事件收集 */
@@ -310,70 +322,69 @@ describe('AltScreenHost 副屏编舞', () => {
     return textLayer(text);
   }
 
-  it('open 编舞字节序：主屏挂起 → 副屏 1049 进 + 副屏首帧', () => {
-    const { io, host, altClock } = rig();
-    io.reset(); // 主屏首帧断言后清账——聚焦编舞序
+  it('open 编舞序：主屏挂起在前（零写出时点）→ 副屏 1049 进 + 副屏首帧', () => {
+    const { io, primary, host, altClock } = rig();
     host.open(altContent('alt-frame'));
     altClock.advance(0);
-    expect(io.frames[0]).toBe(LEAVE_INLINE); // 主屏挂起（inline 出屏串）
-    expect(io.frames[1]).toBe(ENTER_ALT); // 副屏进（1049h + 公共尾）
-    expect(io.frames[2]).toContain('alt-frame'); // 副屏首帧
+    expect(primary.calls).toEqual(['suspendMain']); // 主屏挂起恰一次
+    expect(primary.callsAtFrames[0]).toBe(0); // 挂起先于副屏任何字节（帧账 0 时点调）
+    expect(io.frames[0]).toBe(ENTER_ALT); // 副屏进屏是首帧（1049h + 公共尾）
+    expect(io.frames[1]).toContain('alt-frame'); // 副屏首帧
   });
 
-  it('close 编舞字节序：副屏出 → 主屏复起 + 全帧重画（不走 repaint）', () => {
-    const { io, host, mainClock, altClock } = rig();
+  it('close 编舞序：副屏出在前 → 主屏复起（对称反序）', () => {
+    const { io, primary, host, altClock } = rig();
     const handle = host.open(altContent('alt-frame'));
     expect(handle).not.toBeNull();
     altClock.advance(0);
     io.reset(); // 副屏首帧断言后清账——聚焦收屏序
     handle!.close();
-    mainClock.advance(20); // 复起帧在帧率帽点（距上帧 ≥1/60s）——推进过帽
     expect(io.frames[0]).toBe(LEAVE_ALT); // 副屏出（公共头 + 1049l）
-    expect(io.frames[1]).toBe(ENTER_INLINE); // 主屏复起（inline 进屏串）
-    expect(io.frames[2]).toContain('primary-frame'); // 主屏全帧重画（forceFull）
+    expect(primary.calls).toEqual(['suspendMain', 'resumeMain']); // 复起恰一次
+    expect(primary.callsAtFrames[1]).toBe(1); // 复起在副屏出屏帧之后（帧账 1 时点调——序锁）
+    expect(primary.state).toBe('running');
   });
 
   it('open 拒绝位：主屏非 running 返 null；已开再开返 null', () => {
     const io = new MemoryTerminalIO(40, 6);
-    const primary = new Engine({ io }); // 未 start——非 running
+    const primary = new FakePrimary(io); // state = idle——非 running
     const host = new AltScreenHost(primary, io);
     expect(host.open(altContent('x'))).toBeNull();
-    primary.start(staticRoot('p'));
+    primary.state = 'running';
     const handle = host.open(altContent('a'));
     expect(handle).not.toBeNull();
     expect(host.open(altContent('b'))).toBeNull(); // 无嵌套备屏
     handle!.close();
   });
 
-  it('输入路由切换：副屏在场输入达副屏内容（主树不经手）', () => {
+  it('输入路由切换：副屏在场输入达副屏内容（主屏假件不经手）', () => {
     const { io, host } = rig();
     const content = altContent('alt');
     host.open(content);
-    io.emitInput('a'); // 共享 io 字节流——仅副屏在听
+    io.emitInput('a'); // 共享 io 字节流——仅副屏在听（主屏挂起已卸监听）
     expect(content.events.map((e) => (e.kind === 'key' ? e.key : e.kind))).toContain('text');
   });
 
-  it('共享 io 放流接缝：主屏挂起 pause 后副屏 start 显式 resume（回归锁）', () => {
+  it('共享 io 放流接缝：主屏挂起 pause → 副屏 start 显式 resume；副屏 dispose pause → 主屏复起 resume（回归锁·进出两半场）', () => {
     const { io, host } = rig();
-    const pausedAt = io.pauseCount; // 主屏挂起将 +1
+    const pausedAt = io.pauseCount;
     const before = io.resumeCount;
-    host.open(altContent('x'));
+    const handle = host.open(altContent('x'));
+    expect(handle).not.toBeNull();
     expect(io.pauseCount).toBe(pausedAt + 1); // 主屏挂起已 pause
     expect(io.resumeCount).toBe(before + 1); // 副屏 start 显式放流
+    const pausedAt2 = io.pauseCount;
+    const before2 = io.resumeCount;
+    handle!.close();
+    expect(io.pauseCount).toBe(pausedAt2 + 1); // 副屏 dispose 已 pause
+    expect(io.resumeCount).toBe(before2 + 1); // 主屏复起放流（对称半场）
   });
 
-  it('onReturn 钩在出副屏后调一次（主屏 resume 之后）', () => {
+  it('onReturn 钩在出副屏后调一次（主屏 resumeMain 之后）', () => {
     const io = new MemoryTerminalIO(40, 6);
-    const mainClock = new FakeClock();
+    const primary = new FakePrimary(io);
+    primary.state = 'running';
     const altClock = new FakeClock();
-    const primary = new Engine({
-      io,
-      now: mainClock.now,
-      schedule: mainClock.schedule,
-      cancelSchedule: mainClock.cancel,
-    });
-    primary.start(staticRoot('p'));
-    mainClock.advance(0);
     const onReturn = vi.fn();
     const host = new AltScreenHost(primary, io, {
       onReturn,
@@ -383,6 +394,7 @@ describe('AltScreenHost 副屏编舞', () => {
     expect(onReturn).not.toHaveBeenCalled(); // 副屏在场不调
     handle!.close();
     expect(onReturn).toHaveBeenCalledTimes(1); // 出副屏调一次
+    expect(primary.calls).toEqual(['suspendMain', 'resumeMain']); // resumeMain 先于钩（编舞序）
     handle!.close(); // 句柄幂等——不再调
     expect(onReturn).toHaveBeenCalledTimes(1);
   });

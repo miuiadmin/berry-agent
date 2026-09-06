@@ -27,9 +27,23 @@
  * - **阻塞原语撤销面**（批 10f-3）：ask 四路 signal abort 收口时曾在屏者
  *   正文流落 ⏹ 撤销说明行（07 §4.3 语义纪律「曾在屏者由通道上撤销说明行」
  *   ——保守值收口之外的可感知收场；迟到 abort 不误写）。
+ * - **主屏挂起面**（批 10f-4）：suspendMain / resumeMain 自持挂起交出面
+ *   （AltScreenPrimary 窄介面实装——件 8 副屏编舞消费）。挂起 = 出屏串 +
+ *   卸监听 + 停流 + raw 复先验 + 渲染请求安全 no-op + 定时器全收（件 7 osc
+ *   保活不停——终端级外显非主屏内容）；停屏期瞬时行入缓冲、durable 事件照
+ *   常归约行集模型（账不丢）。复起 = 进屏串 + 重装 + 放流 + **全帧重画不走
+ *   （通道）repaint**（主屏既有权威全量重建路 + 瞬时行缓冲补吐——repaint 按
+ *   投影重建不含停屏期瞬时行，07 件 8 条款 + 2026-09-07 勘正笔）。
+ * - **副屏装配面**（批 10f-4 特性腿）：AltScreenHost 自持（共享本件 io——
+ *   副屏 Engine 重装输入与主屏换防）+ openHistory / collapseAltScreen
+ *   （UiBackend 可选能力面两钩的实装——/history 命令到达即挂起主屏进 1049
+ *   副屏 HistoryViewer；ask 到达先收副屏，件 8 注意力优先级条款）。副屏
+ *   Engine 的调度半场与主屏同源注入（假钟直通；无注入调度 = 同步直出——
+ *   首帧确定性与 lone-ESC 即决同测试语义）。
  *
  * 批内边界：setWidget 不支撑（报 false）；主屏滚动帽实测定值挂装配批 12
- * 实机；件 8 副屏（AltScreenHost 与本件共享 io）不在本纵切。
+ * 实机；件 8 副屏内容件已随批 10f-4 特性腿落（history-viewer.ts——本件只
+ * 装配不复刻呈现）；鼠标滚轮 / 选区 OSC 52 随鼠标批。
  */
 import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage, type Usage } from '../../../contracts/index.js';
@@ -55,6 +69,8 @@ import { sessionColor } from '../theme.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
 import { Editor } from '../editor/editor.js';
 import { OverlayStack, type OverlayAnchor, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
+import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
+import { HistoryViewer } from '../history/history-viewer.js';
 import { ConfirmPanel, SelectPanel } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
 import { CombinedAutocompleteProvider, type AutocompleteSources } from '../autocomplete/autocomplete.js';
@@ -158,7 +174,7 @@ function formatTokenCount(n: number): string {
  * TUI 后端：单终端 inline 主屏 + 自持输入管线。构造后须 start()（模式串 +
  * 清屏 + 滚动区确立）再接核事件；stop() 对称出屏（模式串反序 + raw 复原）。
  */
-export class TuiBackend implements UiBackend<AgentMessage> {
+export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   readonly id = 'tui';
   readonly capabilities = Object.freeze({
     notify: true,
@@ -198,8 +214,22 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   private unsubInput: (() => void) | null = null;
   private unsubResize: (() => void) | null = null;
   private running = false;
+  /** 起动过位（lifecycle 的 idle / disposed 分权——一次性事实，start 幂等位之外） */
+  private startedOnce = false;
   private priorRaw = false;
   private disarmExitRestore: (() => void) | null = null;
+
+  /* ---- 主屏挂起态（批 10f-4——AltScreenPrimary 交出面） ---- */
+  /** 挂起位（suspendMain 置位：渲染请求安全 no-op 闸 + 输入已卸订） */
+  private suspendedMain = false;
+  /** 停屏期到达的瞬时行缓冲（notify / 件 9 摘要行 / 撤销说明行——复起补显射界，2026-09-07 勘正笔） */
+  private suspendedTransients: string[] = [];
+
+  /* ---- 副屏装配态（批 10f-4 特性腿——件 8 /history） ---- */
+  /** 副屏宿主（构造晚于 io 赋值——类字段初始化序：宿主构造须见 io 实值） */
+  private readonly altHost: AltScreenHost;
+  /** 在场副屏句柄（null = 无副屏；/history 开、q/Esc/Ctrl+D/ask 收四路共闭） */
+  private historyHandle: OverlayHandle | null = null;
 
   /* ---- 渲染合并态（schedule 注入后活——否则同步直出） ---- */
   private readonly scheduleFn: ((fn: () => void, ms: number) => unknown) | null;
@@ -267,6 +297,23 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     this.popup = new AutocompletePopup(new CombinedAutocompleteProvider(options.autocomplete ?? {}), this.editor.model);
     this.stack.onChange = () => this.touchFixed();
     this.screen = new MainScreen(io, { fixedHeight: 4 }); // 初始高：编辑器 3 + 状态行 1（动态更新经 setFixed）
+    // 副屏宿主（构造放 constructor 尾——io 与注入面已赋值；引擎选项与主屏同源：
+    // 假钟 / 帧帽 / lone-ESC 窗直通，调度无注入时给同步直出包装——副屏首帧
+    // 确定性与 lone-ESC 即决同主屏测试语义）
+    this.altHost = new AltScreenHost(this, io, {
+      engineOptions: {
+        now: this.now,
+        fpsCap: options.fpsCap,
+        escapeWindowMs: this.escapeWindowMs,
+        schedule:
+          this.scheduleFn ??
+          ((fn: () => void) => {
+            fn();
+            return null;
+          }),
+        cancelSchedule: this.scheduleFn !== null ? this.cancelFn : () => {},
+      },
+    });
   }
 
   /** TUI 恒有观众（07 §4.3 观众探针定值） */
@@ -274,10 +321,18 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     return true;
   }
 
+  /** 生命周期判定位（AltScreenPrimary 窄介面面：idle 未启 / running 持屏 / suspended 挂起 / disposed 终退） */
+  get lifecycle(): 'idle' | 'running' | 'suspended' | 'disposed' {
+    if (!this.startedOnce) return 'idle';
+    if (!this.running) return 'disposed';
+    return this.suspendedMain ? 'suspended' : 'running';
+  }
+
   /** 启动：主屏形模式串 + raw + 输入订阅 + 清屏滚动区 + 固定区首画 */
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.startedOnce = true; // 一次性事实（stop 后 disposed——start 不再可回）
     this.priorRaw = this.io.isRaw();
     this.io.write(ENTER_MAIN);
     this.armExitRestore();
@@ -295,8 +350,11 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   /** 对称出屏：模式串反序 + 输入卸订 + 定时器全收 + 外显复原 + raw 复原（终退不可复用） */
   stop(): void {
     if (!this.running) return;
+    this.closeHistory(); // 防御位：在场副屏先收（装配纪律先收再退——泄漏则副屏 Engine 残活）
     this.running = false;
-    this.io.write(LEAVE_MAIN);
+    // 挂起期主屏已出屏（suspendMain 已写出屏串）——重写会污染在场副屏；
+    // 装配纪律恒「先收副屏再退出」，本闸是防御位非编舞路
+    if (!this.suspendedMain) this.io.write(LEAVE_MAIN);
     this.unsubInput?.();
     this.unsubInput = null;
     this.unsubResize?.();
@@ -307,7 +365,114 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
     this.disarmExitRestore?.();
     this.io.pause();
-    this.io.setRawMode(this.priorRaw);
+    if (!this.suspendedMain) this.io.setRawMode(this.priorRaw); // 挂起期 raw 已复先验——不二次复原
+  }
+
+  /**
+   * 主屏挂起（AltScreenPrimary 交出半场——批 10f-4；07 §4.1 件 8「主屏挂起 /
+   * 复起交出面（UiBackend 实装件自持）」条款）：
+   * 出屏模式串 + 卸输入监听 + 在途转义一窗全丢 + 停流 + raw 复先验（Engine
+   * suspend 三件套同形——共享 io 换防，副屏随后 start 重装重放流）；渲染请求
+   * 安全 no-op（requestRender / flush 挂起闸——停屏期零写出）；帧合并 / tick /
+   * lone-ESC 窗定时器全收（防后台空转）；硬退复原钩解除（挂起期副屏自担其屏
+   * 的退出复原）。
+   *
+   * 件 7 osc 保活不停（批内裁）：外显态（title / 忙态 OSC 9;4）属终端级非
+   * 主屏 cell 内容——停屏期终端标签页注意力语义照常（onEnvelope 照常归账），
+   * OSC 序列不落 cell 网格不扰动副屏画面。
+   *
+   * 停屏期账不丢：durable 事件照常归约行集模型（复起全帧重画携带——树已含
+   * 停屏期全部事件）；瞬时行（notify / 件 9 摘要行 / 撤销说明行）入
+   * suspendedTransients 缓冲——复起补显射界含瞬时行（树按字面不含不入树的
+   * 瞬时行，2026-09-07 遗漏审计批补笔）。
+   */
+  suspendMain(): void {
+    if (!this.running || this.suspendedMain) return; // 幂等 + 无挂起对象防御
+    this.suspendedMain = true;
+    this.io.write(LEAVE_MAIN); // 出屏模式串（与 start 进屏严格对称反序——单源常量）
+    this.unsubInput?.();
+    this.unsubInput = null;
+    this.decoder.discardPending(); // 在途转义 / 粘贴 / 预编辑一窗全丢（Engine 换防同形）
+    this.io.pause();
+    this.io.setRawMode(this.priorRaw); // raw 复先验（副屏随后自设 raw）
+    this.cancelTimer('frame'); // 在飞帧收口（挂起期零写出的调度半边）
+    this.cancelTimer('tick'); // 状态行转轮停摆（防后台空转——复起重摆）
+    this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）
+    this.disarmExitRestore?.(); // 出屏解除硬退复原钩（挂起期副屏自担）
+  }
+
+  /**
+   * 主屏复起（AltScreenPrimary 交出半场的对称复位）：进屏模式串 + 硬退钩
+   * 重武装 + raw 重设 + 输入重装 + 显式放流（已被 pause 的流再挂监听不自动回
+   * flowing——Engine resume 同形）+ **全帧重画不走（通道）repaint**：主屏既有
+   * 权威全量重建路（几何真值重取 + 清屏 + 行集全量重写）+ 瞬时行缓冲补吐。
+   *
+   * 不走（通道）repaint 的行为锁：通道 repaint 按投影重建行集，投影不含停屏
+   * 期直写主屏的瞬时行——全帧重画以行集 + 瞬时缓冲为真相，瞬时行在场即补显
+   * （07 件 8「repaint 清树会抹掉停屏期入树的瞬时行」+ 2026-09-07 勘正笔）。
+   * 停屏期 resize 由几何真值重取吸收（挂起期 handleResize 安全 no-op——此刻
+   * 写出会污染在场副屏）。
+   */
+  resumeMain(): void {
+    if (!this.running || !this.suspendedMain) return; // 幂等 + 非挂起态防御
+    this.suspendedMain = false;
+    this.io.write(ENTER_MAIN); // 进屏模式串（与出屏对称）
+    this.armExitRestore(); // 复进屏重武装（arm 幂等——先解除旧钩再挂）
+    this.io.setRawMode(true);
+    this.unsubInput = this.io.onInput(this.handleInput);
+    this.io.resume(); // 显式放流（副屏 dispose 已 pause——共享 io 换防接缝）
+    // 排队旧帧作废 + 固定区脏位重建（全帧重画是新真相——挂起期积压 op 合并无意义）
+    this.pendingOps = [];
+    this.needFixed = false;
+    // 全帧重画：几何真值重取（吸收停屏期 resize）+ 清屏 + 行集全量重写（含停屏期 durable 事件）
+    this.screen.handleResize(this.transcript.snapshot);
+    // 瞬时行缓冲补吐（复起补显射界含停屏期瞬时行——2026-09-07 勘正笔）
+    const transients = this.suspendedTransients;
+    this.suspendedTransients = [];
+    if (transients.length > 0) this.screen.appendTransient(transients);
+    this.renderFixed();
+    if (this.scheduleFn !== null) this.armTick(); // 状态行转轮复摆
+  }
+
+  /* ---------------- 副屏装配面（批 10f-4 特性腿——件 8 /history） ---------------- */
+
+  /**
+   * 开副屏回看器（UiBackend 可选能力面实装——通道核 /history 命令到达扇出）：
+   * 挂起主屏 → 1049 副屏 HistoryViewer（同一渲染管线全量档——件 8 数据源
+   * 条款）。已在副屏 no-op（无嵌套备屏）；主屏不在 running 态 open 被拒
+   * （句柄 null——保持无副屏态）。Ctrl+C / Ctrl+D 副屏键面经 viewer 装配柄
+   * 透传本件两柄（与主屏同键面）。
+   */
+  openHistory(sessionId: string, messages: readonly AgentMessage[]): void {
+    if (this.historyHandle !== null) return;
+    const handle = this.altHost.open(
+      new HistoryViewer({
+        sessionId,
+        messages,
+        columns: this.io.size().columns,
+        onExit: () => this.closeHistory(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    this.historyHandle = handle; // null = 主屏未 running 被拒——如实保持无副屏
+  }
+
+  /**
+   * 收副屏（UiBackend 可选能力面实装——UiCore ask 入口扇出「先收副屏再入
+   * 提问队列」，07 §4.1 件 8 注意力优先级 ask > 回看条款；viewer 退出键
+   * 同路收口）。幂等：无副屏 no-op。
+   */
+  collapseAltScreen(): void {
+    this.closeHistory();
+  }
+
+  /** 副屏统一收口：句柄 close（AltScreenHost 编舞：出副屏 + 主屏复起全帧重画） */
+  private closeHistory(): void {
+    const handle = this.historyHandle;
+    if (handle === null) return;
+    this.historyHandle = null; // 先置空防重入（viewer onExit 与 ask 收起竞发）
+    handle.close(); // 幂等（句柄 closed 位自守）
   }
 
   /** 一次性通知：正文瞬时行直写（级别符号前缀——不进行集） */
@@ -319,9 +484,14 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   /**
    * 瞬时说明行入正文流（notify 与 ask 撤销说明行共用路——07 §4.3「曾在屏
    * 者由通道上撤销说明行」）：op 入合并队列 + 渲染请求（同步直出模式立即
-   * 落地；注入调度随帧合并——transient 到达序保持）。
+   * 落地；注入调度随帧合并——transient 到达序保持）。挂起期入缓冲账不丢
+   * （复起补显射界含瞬时行——批 10f-4）。
    */
   private appendTransientLine(line: string): void {
+    if (this.suspendedMain) {
+      this.suspendedTransients.push(line); // 停屏期瞬时行缓冲（不入 op 队列——复起不走合并直补吐）
+      return;
+    }
     this.pendingOps.push({ kind: 'transient', lines: [line] });
     this.requestRender();
   }
@@ -336,7 +506,8 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   onEnvelope(env: SessionEnvelope, focused: boolean): void {
     const summary = this.transcript.applyEvent(env, focused);
     if (summary !== null) {
-      this.pendingOps.push({ kind: 'transient', lines: [summaryToAnsi(summary)] });
+      // 摘要行统一走 appendTransientLine（挂起期入缓冲不丢——批 10f-4 改道）
+      this.appendTransientLine(summaryToAnsi(summary));
     } else {
       this.enqueuePresent();
     }
@@ -347,14 +518,16 @@ export class TuiBackend implements UiBackend<AgentMessage> {
 
   /** 重画呈现：投影重建行集 + 清屏全量重写（widget 槽值不支撑——忽略） */
   onRepaint(sessionId: string, projection: readonly AgentMessage[], _widget: { node: unknown } | null): void {
-    // 权威全量重建——排队旧帧作废（repaint 是新真相，合并无意义）
-    this.pendingOps = [];
-    this.needFixed = false;
+    // 模型半场照常（repaint 是新真相——挂起期也不丢投影：复起全帧重画携带）
     this.transcript.loadProjection(projection);
     this.resetUsage(); // 件 6：清行并归零（切焦清账重计——尾注射界）
     this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
     this.refreshTodo(); // 件 4：刷新三时点之一
-    this.osc.setTitle(`${this.titleBaseline} · ${shortIdOf(sessionId)}`); // 件 7：title 点缀会话短 id
+    this.osc.setTitle(`${this.titleBaseline} · ${shortIdOf(sessionId)}`); // 件 7：title 点缀会话短 id（终端级外显——挂起期照常，批 10f-4 裁）
+    // 权威全量重建——排队旧帧作废（repaint 是新真相，合并无意义）
+    this.pendingOps = [];
+    this.needFixed = false;
+    if (this.suspendedMain) return; // 挂起闸：屏上零写出（复起全帧重画携带新投影）
     this.screen.repaint(this.transcript.snapshot);
     this.renderFixed();
   }
@@ -373,6 +546,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
 
   /** resize 编舞：几何重取 + 主屏全量重画 + 固定区按新几何重建（权威重建不走队列） */
   handleResize(): void {
+    if (this.suspendedMain) return; // 挂起闸：停屏期零写出（此刻写出污染在场副屏）——几何真值由复起全帧重画重取吸收
     this.pendingOps = [];
     this.needFixed = false;
     this.screen.handleResize(this.transcript.snapshot);
@@ -604,7 +778,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
 
   /** 渲染请求（合并位）：同步直出立即 flush；注入调度则 fps 帽下排帧 */
   private requestRender(): void {
-    if (!this.running) return;
+    if (!this.running || this.suspendedMain) return; // 挂起闸：渲染请求安全 no-op（停屏期零写出）
     if (this.scheduleFn === null) {
       this.flush();
       return;
@@ -620,7 +794,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
 
   /** 帧落地：op 队列按到达序执行 + 固定区脏位一帧一次重建 */
   private flush(): void {
-    if (!this.running) return;
+    if (!this.running || this.suspendedMain) return; // 挂起闸（防御位——suspendMain 已收在飞帧回调）
     this.lastFlushAt = this.now();
     const ops = this.pendingOps;
     this.pendingOps = [];

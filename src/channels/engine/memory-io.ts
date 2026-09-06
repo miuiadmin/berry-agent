@@ -71,12 +71,17 @@ export class MemoryTerminalIO implements TerminalIO {
 
   /** 测试注入：驱动全部输入监听器（模拟终端字节流到达——同步派发） */
   emitInput(data: string): void {
-    for (const listener of this.inputListeners) listener(data);
+    // 快照后派发：派发中增删监听器不外溢到本批（同步退出/复起场景——副屏
+    // Engine 在派发中退订并复起主屏监听，新订阅者不吃同批字节；与真终端流
+    // 「已派发块不重投」语义一致——批 10f-4 回看器 q 退出路回归锁在
+    // tui-backend.test.ts /history 副屏装配组）
+    for (const listener of [...this.inputListeners]) listener(data);
   }
 
   /** 测试注入：驱动全部 resize 监听器（几何已由测试侧先行改定） */
   emitResize(): void {
-    for (const listener of this.resizeListeners) listener();
+    // 快照后派发（与 emitInput 同律——派发中增删不外溢）
+    for (const listener of [...this.resizeListeners]) listener();
   }
 
   /** 清输出账（长测试分段断言用——监听器几何保留） */

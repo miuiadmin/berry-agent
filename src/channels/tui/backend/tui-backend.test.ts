@@ -17,6 +17,8 @@ import { MemoryTerminalIO } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { buildSgr } from './ansi-rows.js';
 import { sessionColor } from '../theme.js';
+import { AltScreenHost } from '../overlay/alt-screen.js';
+import type { OverlayContent } from '../overlay/overlay.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage } from '../../../contracts/index.js';
 
@@ -991,5 +993,266 @@ describe('TuiBackend 终端外显（件 7）', () => {
     rig.clock.advance(3000); // 停针后零重发
     expect(rig.io.bytes).toBe('');
     expect(activeCount() - before).toBe(3); // 停针封账——无新 ACTIVE
+  });
+});
+
+/* ================= 主屏挂起面（批 10f-4——AltScreenPrimary 交出面） ================= */
+
+/** 主屏形出 / 进屏模式串（tui-backend 单源常量的字节真源——对称反序互证锚） */
+const MAIN_LEAVE = '\x1b[<u\x1b[?2004l';
+const MAIN_ENTER = '\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
+/** 副屏 Engine 进出屏字节（集成测试序锚） */
+const ALT_ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
+const ALT_LEAVE = '\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1049l';
+
+/** 副屏内容替身（集成测试——写文 + 事件终局吞掉） */
+function altLayer(text: string): OverlayContent {
+  return {
+    measure: () => 1,
+    render: (buffer, region) => {
+      buffer.writeText(region.row, region.col, text);
+    },
+    handleEvent: () => true,
+  };
+}
+
+describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4）', () => {
+  it('suspendMain 编舞：出屏串 + 停流 + raw 复先验 + 卸输入监听 + lifecycle 迁移', () => {
+    const { io, backend } = makeBackend();
+    expect(backend.lifecycle).toBe('running');
+    io.reset();
+    backend.suspendMain();
+    expect(io.frames[0]).toBe(MAIN_LEAVE); // 出屏模式串（与 start 进屏对称反序）
+    expect(io.pauseCount).toBe(1); // 停流（共享 io 换防——副屏随后 start 放流）
+    expect(io.raw).toBe(false); // raw 复先验（MemoryTerminalIO 起始 false）
+    expect(backend.lifecycle).toBe('suspended');
+    io.reset();
+    io.emitInput('x'); // 输入已卸订——编辑器不经手（无 echo 字节）
+    expect(io.bytes).toBe('');
+  });
+
+  it('挂起期零写出（同步直出档）：durable 事件 / notify / setStatus / resize 全 no-op', () => {
+    const { io, backend } = makeBackend();
+    backend.suspendMain();
+    io.reset();
+    emit(backend, { type: 'message_end', message: { role: 'user', content: '停屏期正文', timestamp: 1 } }); // durable 事件
+    backend.notify('停屏期通知'); // 瞬时行路
+    backend.setStatus(SESSION, '停屏期状态'); // 固定区脏位路
+    io.emitResize(); // resize 编舞路
+    expect(io.bytes).toBe(''); // 渲染请求安全 no-op——停屏期零写出（07 件 8 条款）
+  });
+
+  it('挂起期零写出（注入调度档）：帧合并 / tick 定时器全收——推进时钟零写出', () => {
+    const rig = makeInteractive();
+    rig.backend.suspendMain();
+    rig.io.bytes = '';
+    emit(rig.backend, { type: 'message_end', message: { role: 'user', content: '停屏期', timestamp: 1 } });
+    rig.clock.advance(5000); // tick 窗 ×50——定时器已收，零帧零写出
+    expect(rig.io.bytes).toBe('');
+  });
+
+  it('挂起期件 7 外显照常（批内裁：终端级不停）——忙态 OSC 写出而摘要行入缓冲不写出', () => {
+    const { io, backend } = makeBackend();
+    backend.suspendMain();
+    io.reset();
+    emit(backend, { type: 'agent_start' }, false); // 非聚焦：trackProgress 忙迁移 + 件 9 摘要行
+    expect(io.bytes).toContain(PROGRESS_ACTIVE); // OSC 9;4 外显照常（终端级非主屏 cell 内容）
+    expect(io.bytes).not.toContain('⧗'); // 摘要行入缓冲不写出（cell 零写出）
+    expect(io.bytes).not.toContain('后台工作中');
+  });
+
+  it('resumeMain：全帧重画不走（通道）repaint + 瞬时行缓冲补吐（补显射界含停屏期瞬时行）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'message_end', message: { role: 'user', content: '停屏前正文', timestamp: 1 } });
+    backend.suspendMain();
+    emit(backend, { type: 'message_end', message: { role: 'user', content: '停屏期正文', timestamp: 2 } }); // durable 停屏期归账
+    backend.notify('停屏期通知'); // 瞬时行入缓冲
+    emit(backend, { type: 'agent_end', status: 'completed' }, false); // 件 9 摘要行入缓冲
+    io.reset();
+    backend.resumeMain();
+    expect(io.frames[0]).toBe(MAIN_ENTER); // 进屏模式串（复起起手）
+    expect(io.bytes).toContain('\x1b[2J\x1b[H'); // 清屏——全帧重画（主屏既有权威全量重建路）
+    expect(io.bytes).toContain('> 停屏前正文'); // 行集全量重写
+    expect(io.bytes).toContain('> 停屏期正文'); // 停屏期 durable 事件在场（树已含停屏期全部事件）
+    expect(io.bytes).toContain('· 停屏期通知'); // 瞬时行补吐（不走 repaint 的行为锁——投影不含瞬时行）
+    expect(io.bytes).toContain('✓ sess-aaa'); // 件 9 摘要行补吐在场
+    expect(io.bytes.indexOf('> 停屏期正文')).toBeLessThan(io.bytes.indexOf('· 停屏期通知')); // 补吐序：全帧在前、瞬时行在后
+    // 复起回常态：后续事件恢复直写
+    io.bytes = '';
+    emit(backend, { type: 'message_end', message: { role: 'user', content: '复起后正文', timestamp: 3 } });
+    expect(io.bytes).toContain('> 复起后正文');
+  });
+
+  it('lifecycle 全程迁移 + 挂起 / 复起幂等', () => {
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io);
+    expect(backend.lifecycle).toBe('idle');
+    backend.start();
+    expect(backend.lifecycle).toBe('running');
+    backend.suspendMain();
+    backend.suspendMain(); // 幂等——二次 no-op（不重复写出屏串）
+    expect(backend.lifecycle).toBe('suspended');
+    backend.resumeMain();
+    backend.resumeMain(); // 幂等——二次 no-op
+    expect(backend.lifecycle).toBe('running');
+    backend.stop();
+    expect(backend.lifecycle).toBe('disposed');
+  });
+
+  it('AltScreenHost 集成：TuiBackend 作 primary——进出副屏端到端编舞 + 停屏期零写出 + 复起补显', () => {
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const clock = new ManualClock();
+    const backend = new TuiBackend(io, {
+      schedule: clock.schedule,
+      cancelSchedule: clock.cancel,
+      now: clock.now,
+      fpsCap: 1e6,
+      sessionId: 's1',
+    });
+    backend.start();
+    io.reset(); // start 编舞字节不计入
+    const host = new AltScreenHost(backend, io, {
+      engineOptions: { now: clock.now, schedule: clock.schedule, cancelSchedule: clock.cancel },
+    });
+    const handle = host.open(altLayer('alt-frame'));
+    expect(handle).not.toBeNull();
+    expect(backend.lifecycle).toBe('suspended');
+    clock.advance(0); // 副屏首帧落地
+    // 进序：主屏出屏串（suspendMain）→ 副屏 1049 进（alt Engine start）
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.frames[2]).toContain('alt-frame');
+    // 停屏期主屏零写出（瞬时行入缓冲）
+    io.reset();
+    backend.notify('停屏期通知');
+    clock.advance(100);
+    expect(io.bytes).toBe('');
+    handle!.close();
+    // 出序：副屏出（dispose）→ 主屏进屏串 + 全帧重画 + 瞬时行补吐（resumeMain 同步直出）
+    expect(io.frames[0]).toBe(ALT_LEAVE);
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    expect(io.bytes).toContain('· 停屏期通知');
+    expect(backend.lifecycle).toBe('running');
+    expect(host.isOpen).toBe(false);
+  });
+});
+
+/* ================= /history 副屏装配面（批 10f-4 特性腿——件 8） ================= */
+
+describe('TuiBackend /history 副屏装配（openHistory / collapseAltScreen——件 8 特性腿）', () => {
+  /** 同步直出档装配（无注入调度——副屏 Engine 同步包装：首帧确定、lone-ESC 即决） */
+  function historyRig(options: Partial<TuiBackendOptions> = {}) {
+    const calls: RigCalls = { submitted: [], interrupted: [], quit: 0, dispatched: [] };
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      onInterrupt: (sessionId) => calls.interrupted.push(sessionId),
+      onQuit: () => {
+        calls.quit += 1;
+      },
+      ...options,
+    });
+    io.reset(); // start 编舞字节不计入
+    return { io, backend, calls };
+  }
+
+  it('openHistory 编舞：主屏出屏 → 副屏 1049 进 → 回看器首帧（同一渲染管线正文在场）', () => {
+    const { io, backend } = historyRig();
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE); // 进序：主屏挂起出屏串在前
+    expect(io.frames[1]).toBe(ALT_ENTER); // 副屏 Engine 进屏
+    // 回看器头行：档名前缀 + 会话短 id（id 携会话区分色 SGR——两段分立断言）
+    expect(io.bytes).toContain('↩ 历史回看 · ');
+    expect(io.bytes).toContain('sess-aaa');
+    expect(io.bytes).toContain('> 回看正文'); // durable 正文经同一渲染管线（零第二渲染器）
+  });
+
+  it('q 退出：io 字节流端到端——副屏出 + 主屏复起（全帧重画不走 repaint）', () => {
+    const { io, backend } = historyRig();
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]);
+    io.reset();
+    io.emitInput('q'); // kitty 轨纯键打字走 text 事件 → 让位判据（无搜索框）→ 退出
+    expect(io.frames[0]).toBe(ALT_LEAVE); // 出序：副屏 dispose 在前
+    expect(io.frames[1]).toBe(MAIN_ENTER); // 主屏复起进屏串
+    expect(io.bytes).toContain('\x1b[2J\x1b[H'); // 全帧重画（清屏 + 光标归位）
+    // 主屏行集不含副屏正文——回看内容不渗主屏（两屏行集分立的结构性证据）
+    expect(io.bytes).not.toContain('回看正文');
+    expect(backend.lifecycle).toBe('running');
+  });
+
+  it('collapseAltScreen（ask 收副屏路）：出副屏 + 复起；幂等二次 no-op', () => {
+    const { io, backend } = historyRig();
+    backend.openHistory(SESSION, []);
+    io.reset();
+    backend.collapseAltScreen();
+    expect(io.frames[0]).toBe(ALT_LEAVE);
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    expect(backend.lifecycle).toBe('running');
+    io.reset();
+    backend.collapseAltScreen(); // 幂等——无副屏 no-op
+    expect(io.bytes).toBe('');
+  });
+
+  it('副屏键面 Ctrl+C：打断在飞 run（装配柄透传携带会话位）', () => {
+    const { io, backend, calls } = historyRig();
+    backend.openHistory(SESSION, []);
+    io.reset();
+    io.emitInput('\x03'); // ctrl+c
+    expect(calls.interrupted).toEqual([SESSION]);
+    expect(backend.lifecycle).toBe('suspended'); // 打断不退副屏（与主屏同键面：只打断）
+  });
+
+  it('副屏键面 Ctrl+D：先收副屏（复起）再转退出柄', () => {
+    const { io, backend, calls } = historyRig();
+    backend.openHistory(SESSION, []);
+    io.reset();
+    io.emitInput('\x04'); // ctrl+d
+    expect(calls.quit).toBe(1);
+    expect(backend.lifecycle).toBe('running'); // 先收副屏——退出柄到达时主屏已复起
+    expect(io.frames[0]).toBe(ALT_LEAVE);
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+  });
+
+  it('已在副屏再 openHistory no-op（无嵌套备屏）；主屏未启 open 被拒保持无副屏', () => {
+    const { io, backend } = historyRig();
+    backend.openHistory(SESSION, []);
+    const frames = io.frames.length;
+    backend.openHistory(SESSION, []); // 已在副屏——no-op
+    expect(io.frames.length).toBe(frames);
+    io.reset();
+    // 未启后端：idle 态 open 被拒（AltScreenHost 拒绝位——句柄 null 如实保持）
+    const io2 = new MemoryTerminalIO(COLS, ROWS);
+    const backend2 = new TuiBackend(io2);
+    backend2.openHistory(SESSION, []);
+    expect(backend2.lifecycle).toBe('idle');
+    expect(io2.bytes).toBe('');
+  });
+
+  it('stop 防御位：在场副屏先收再退（副屏 Engine 不残活）', () => {
+    const { io, backend } = historyRig();
+    backend.openHistory(SESSION, []);
+    io.reset();
+    backend.stop();
+    expect(io.frames[0]).toBe(ALT_LEAVE); // 防御收副屏在前
+    expect(io.bytes).toContain(MAIN_ENTER);
+    expect(io.bytes).toContain(MAIN_LEAVE); // 终退出屏串照常
+    expect(backend.lifecycle).toBe('disposed');
+  });
+
+  it('注入调度档：假钟直通副屏 Engine（帧随窗落地——保活 / 帧帽同源注入）', () => {
+    const rig = makeInteractive();
+    rig.pump(); // 主屏就绪帧落地（起账基线）
+    rig.io.reset();
+    rig.backend.openHistory('s1', [{ role: 'user', content: '回看正文', timestamp: 1 }]);
+    rig.pump(); // 副屏首帧随窗落地
+    expect(rig.io.frames[0]).toBe(MAIN_LEAVE);
+    expect(rig.io.frames[1]).toBe(ALT_ENTER);
+    expect(rig.io.bytes).toContain('↩ 历史回看 · ');
+    expect(rig.io.bytes).toContain('> 回看正文');
+    rig.io.reset();
+    rig.io.emitInput('q');
+    rig.pump();
+    expect(rig.io.frames[0]).toBe(ALT_LEAVE);
+    expect(rig.backend.lifecycle).toBe('running');
   });
 });

@@ -15,17 +15,28 @@
  * - **非聚焦摘要行**（呈现面件 9）：瞬时追加行——agent_start ⧗ / agent_end
  *   按终态 ✓/✖/⏹ 各追加一行、不进行集（不占帽、repaint 不重建），行首段 =
  *   档位符号 + 会话短 id、失败与中止显式分档不伪装成功。
+ * - **渲染行提取单源**（批 10f-4）：renderBlockStyledLines 块 → 带样式行集
+ *   （管线本体）——主屏 MainScreen 直写（renderBlockLines 的 ANSI 序列化形）
+ *   与件 8 回看器 cell 写出（StyledLine 直消费）共用同一管线（07 件 8「数据源
+ *   = 复用主屏同一渲染管线——同输入同行集、零第二渲染器」条款）；恒一致的
+ *   是管线非范围（主屏按帽 / 回看器全量——帽经 LiveTranscriptOptions 参数化）。
  */
 import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage } from '../../../contracts/index.js';
-import { truncateToWidth } from '../../engine/index.js';
+import { CellGrid, truncateToWidth, wrapText } from '../../engine/index.js';
+import { gridRowToStyled, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import type { SessionEnvelope } from '../../types.js';
+
+export type { StyleRun, StyledLine } from './ansi-rows.js';
 
 /**
  * 主屏滚动帽定值（07 §4.1「屏幕模型双形态」：帽值随主屏实装批实测定值回填、
  * 规范不预写数字。批 10f-3 性能回归锁建锁：四指标 wall-time 面不覆盖块帽
  * 〔内存上限语义〕——v1 维持保守值 500 块，实机校准注记留批 12 host 装配）。
+ * 批 10f-4 参数化：本值降级为缺省帽（主屏调用面零变化）；回看器全量档经
+ * LiveTranscriptOptions.blockCap 传 Number.POSITIVE_INFINITY（全量 durable
+ * 正文不被截——perf-lock 全量档回归锁）。
  */
 export const TRANSCRIPT_BLOCK_CAP = 500;
 
@@ -55,6 +66,58 @@ export function shortIdOf(sessionId: string): string {
   return sessionId.slice(0, 8);
 }
 
+/** dim 样式（简行块的整行样式——SGR 2；呈现侧带样式形同值） */
+const DIM_STYLE: Readonly<{ dim: true }> = Object.freeze({ dim: true });
+
+/**
+ * 块 → 带样式行集（管线单源本体——批 10f-4 件 8 提取）。
+ *
+ * 主屏 MainScreen 直写（经 renderBlockLines 的 ANSI 序列化形）与件 8 回看器
+ * cell 写出（StyledLine 直消费）共用本函数：同输入同行集、零第二渲染器
+ * （07 件 8 数据源条款）；markdown 块经 CellGrid 渲染（gridRowToStyled 提段）、
+ * user 块折行续挂对齐（宽算术单源走 wrapText）、简行块整行 dim、streaming
+ * 纯文本零样式、markdown 无内容行保空行（主屏空行直写形字节不变）。
+ */
+export function renderBlockStyledLines(block: TranscriptBlock, columns: number): StyledLine[] {
+  switch (block.kind) {
+    case 'markdown': {
+      const grid = new CellGrid(columns, block.doc.measure(columns));
+      block.doc.render(grid, { row: 0, col: 0, width: columns, height: grid.rows });
+      const lines: StyledLine[] = [];
+      for (let r = 0; r < grid.rows; r++) {
+        lines.push(gridRowToStyled(grid, r) ?? { plain: '', runs: [] }); // 无内容行保空行
+      }
+      return lines;
+    }
+    case 'user': {
+      // '> ' 前缀 + 折行续挂对齐（首行前缀、续行两空格缩进）
+      const lines = wrapText(block.text, columns - 2);
+      return lines.map((line, i) => ({ plain: (i === 0 ? '> ' : '  ') + line, runs: [] }));
+    }
+    case 'tool-call':
+      return [dimStyledLine(` ⚙ ${block.name}${block.brief}`)];
+    case 'tool-result':
+      return [dimStyledLine(` ↳ ${block.brief}`)];
+    case 'streaming':
+      // 流式槽纯文本直推（性能：不走网格不走样式）；空文本零行
+      return block.text === '' ? [] : wrapText(block.text, columns).map((text) => ({ plain: text, runs: [] }));
+  }
+}
+
+/** 简行块的带样式形（整行 dim——与 ANSI 形 dim() 字节同源） */
+function dimStyledLine(text: string): StyledLine {
+  return { plain: text, runs: [{ start: 0, end: text.length, style: DIM_STYLE }] };
+}
+
+/**
+ * 块 → 行序列化（渲染管线单源——批 10f-4 提取为可复用函数；主屏直写消费形）。
+ * 带样式行本体经 styledLineToAnsi 导出 ANSI 串——与回看器 cell 写出形零第二
+ * 渲染器（renderBlockStyledLines 注）。
+ */
+export function renderBlockLines(block: TranscriptBlock, columns: number): string[] {
+  return renderBlockStyledLines(block, columns).map(styledLineToAnsi);
+}
+
 /** 消息文本块拼接（user/assistant/toolResult 通用；自定义角色与无文本块返 ''） */
 function textOf(message: AgentMessage): string {
   // isStandardMessage 守卫先行——CustomMessage role: string 非字面判别位，
@@ -79,14 +142,29 @@ function argsBrief(args: Record<string, unknown>): string {
   return keys.length > 0 ? `(${keys.join(', ')})` : '';
 }
 
+/** 行集选项（批 10f-4 帽参数化——主屏缺省帽之外的自定义档） */
+export interface LiveTranscriptOptions {
+  /**
+   * 块帽（缺省 TRANSCRIPT_BLOCK_CAP = 500 主屏帽——主屏调用面零变化）。
+   * 件 8 回看器全量档传 Number.POSITIVE_INFINITY（全量 durable 正文不截）。
+   */
+  readonly blockCap?: number;
+}
+
 /**
  * 直播路行集（单聚焦会话一账——非聚焦会话不建账，摘要行直返）。
  * 纯状态件：无 IO、无时钟——applyEvent 同步归约，呈现编舞归 MainScreen。
  */
 export class LiveTranscript {
+  /** 块帽（构造定着——主屏 500 / 回看器全量 Infinity） */
+  private readonly blockCap: number;
   private blocks: TranscriptBlock[] = [];
   /** 流式槽在场位（true = 末块是 streaming——message_start/message_end 配对守卫） */
   private slotOpen = false;
+
+  constructor(options: LiveTranscriptOptions = {}) {
+    this.blockCap = options.blockCap ?? TRANSCRIPT_BLOCK_CAP;
+  }
 
   /** 行集快照（只读——呈现侧消费） */
   get snapshot(): readonly TranscriptBlock[] {
@@ -195,10 +273,10 @@ export class LiveTranscript {
       }
     }
   }
-  /** 帽卸载：超帽从头卸（保留帽内最近段——滚出视口交 scrollback 后内存上限语义） */
+  /** 帽卸载：超帽从头卸（保留帽内最近段——滚出视口交 scrollback 后内存上限语义；全量档 Infinity 恒不触发） */
   private trimToCap(): void {
-    if (this.blocks.length > TRANSCRIPT_BLOCK_CAP) {
-      this.blocks = this.blocks.slice(this.blocks.length - TRANSCRIPT_BLOCK_CAP);
+    if (this.blocks.length > this.blockCap) {
+      this.blocks = this.blocks.slice(this.blocks.length - this.blockCap);
     }
   }
 }

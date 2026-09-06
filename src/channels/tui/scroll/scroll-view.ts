@@ -11,7 +11,7 @@
  * - 滚动条渐隐计时随组件批定形（07 挂账）——v1 溢出期间常显。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region, Renderable } from '../../engine/index.js';
-import { buildVisualLineMap, type VisualSegment } from '../editor/visual-lines.js';
+import { buildVisualLineMap, findVisualLineAt, type VisualSegment } from '../editor/visual-lines.js';
 
 /** 滚动条 thumb 样式（dim——存在感弱于正文） */
 const SCROLLBAR_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
@@ -103,6 +103,19 @@ export class ScrollView implements Renderable {
     this.applyOffset(Number.MAX_SAFE_INTEGER);
   }
 
+  /**
+   * 滚到逻辑行定位处（件 8 回看器搜索跳转消费）：定位处所在视觉行对齐视口顶
+   * （col 缺省 = 行首）；两遍折叠同 render 判溢出（溢出档折宽与呈现一致——
+   * 跳转落点不因滚动条让列错行）。显式滚动路——破随（applyOffset 同律）。
+   */
+  scrollToLine(line: number, col = 0): void {
+    let map = this.visualMap(this.lastWidth, false);
+    if (map.length > this.viewportHeight) map = this.visualMap(this.lastWidth, true);
+    // 定位处所在视觉行（col 落段判定——与 findVisualLineAt 同规则的本体内联）
+    const vi = findVisualLineAt(map, line, col);
+    this.applyOffset(vi);
+  }
+
   /** 视口首行（夹取后的观测值） */
   get scrollOffset(): number {
     return this.offset;
@@ -134,21 +147,28 @@ export class ScrollView implements Renderable {
     let map = this.visualMap(region.width, false);
     const reservesBar = map.length > region.height;
     if (reservesBar) map = this.visualMap(region.width, true);
+    // follow 物化：尾随态贴真尾后再夹取（防御 setLines 时几何缺省值的贴尾失真
+    // ——批 10f-4 回看器开屏场景：构造期 clampNow 用缺省页高，首帧真几何才对齐）
+    if (this.follow) this.offset = Number.MAX_SAFE_INTEGER;
     this.clampOffset(map, region.height);
-    // 正文（视口内视觉行——UTF-16 切片直写，宽字素由缓冲铺续格）
-    const lines = this.lines;
+    // 正文（视口内视觉行——切片写出经 writeSlice 单点，子类覆写带样式）
     const end = Math.min(map.length, this.offset + region.height);
     for (let vi = this.offset; vi < end; vi++) {
       const seg = map[vi]!;
-      const line = lines[seg.line] ?? '';
-      buffer.writeText(
-        region.row + (vi - this.offset),
-        region.col,
-        line.slice(seg.startCol, seg.startCol + seg.length),
-      );
+      this.writeSlice(buffer, region, vi - this.offset, seg);
     }
     // 滚动条（溢出才显——右列 thumb 段按比例）
     if (reservesBar) this.drawScrollbar(buffer, region, map.length);
+  }
+
+  /**
+   * 视口切片写出（批 10f-4 件 8 回看器接缝）：基类裸文本直写；子类覆写按
+   * 带样式行渲染（样式段 + 匹配高亮）——折叠与偏移算术恒归本件，样式呈现
+   * 归子类（零第二滚动引擎）。
+   */
+  protected writeSlice(buffer: CellBuffer, region: Region, displayRow: number, seg: VisualSegment): void {
+    const line = this.lines[seg.line] ?? '';
+    buffer.writeText(region.row + displayRow, region.col, line.slice(seg.startCol, seg.startCol + seg.length));
   }
 
   /* ---------------- 输入事件 ---------------- */

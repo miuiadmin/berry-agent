@@ -203,3 +203,33 @@ describe('ScrollView 滚动条（按需显隐）', () => {
     expect(readRow(grid, 1, 21)).toBe('中'.repeat(5));
   });
 });
+
+describe('ScrollView scrollToLine（批 10f-4——回看器搜索跳转消费）', () => {
+  it('逻辑行对齐视口顶（单视觉行场景）', () => {
+    const view = new ScrollView({ maxHeight: 10 });
+    view.setLines(linesOf(30));
+    view.render(new CellGrid(20, 10), { row: 0, col: 0, width: 20, height: 10 }); // offset=20、页高回写
+    view.scrollToLine(3);
+    expect(view.scrollOffset).toBe(3); // 逻辑行 3 即视觉行 3 → 对齐视口顶
+    expect(view.isFollowing).toBe(false); // 显式滚动路——破随
+  });
+
+  it('折行 col 判段：定位处所在视觉行（溢出档折宽与呈现一致——滚动条让列）', () => {
+    const view = new ScrollView({ maxHeight: 10 });
+    const lines = ['a'.repeat(25), ...linesOf(29)]; // 首行折 3 视觉行（溢出档折宽 9）
+    view.setLines(lines);
+    view.render(new CellGrid(10, 10), { row: 0, col: 0, width: 10, height: 10 });
+    view.scrollToLine(0, 10); // col 10 落第二折段 [9,18)
+    expect(view.scrollOffset).toBe(1);
+    view.scrollToLine(1); // 逻辑行 1 起于视觉行 3
+    expect(view.scrollOffset).toBe(3);
+  });
+
+  it('内容不溢出归零（maxOffset 0）', () => {
+    const view = new ScrollView();
+    view.setLines(['a', 'b', 'c']);
+    view.render(new CellGrid(10, 10), { row: 0, col: 0, width: 10, height: 10 });
+    view.scrollToLine(2);
+    expect(view.scrollOffset).toBe(0);
+  });
+});

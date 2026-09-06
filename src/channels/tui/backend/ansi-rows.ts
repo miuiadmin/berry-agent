@@ -3,16 +3,46 @@
  *
  * 主屏物理形态：DECSTBM 滚动区承载正文（区底写满自动滚——滚出视口整行交
  * 终端原生 scrollback），固定区（输入框 + 状态行）钉屏底区外、绝对位可知。
- * 本件提供三组原语：
+ * 本件提供四组原语：
  * - 网格行 → ANSI 序列化（cell 样式 + 字素——与 diff 件行写出同语义：续格
  *   跳过、语义空格字面、行尾不填充）；
+ * - 网格行 → 带样式行（StyleRun 段族——批 10f-4 件 8 回看器 cell 写出形的
+ *   数据源；带样式行 → ANSI 序列化同件在位，主屏直写与回看器零第二渲染器）；
  * - 定位序列（绝对 CUP / 相对 CUU·CUD / CR / EL）与光标保存恢复；
  * - 行级差分（固定区重画——变行重写、未变行零写出，行粒度复用 cellEquals）。
  */
-import { cellEquals, type CellGrid } from '../../engine/index.js';
+import { cellEquals, EMPTY_STYLE, styleEquals, type CellGrid, type CellStyle } from '../../engine/index.js';
 
 /** ESC 前缀 */
 const ESC = '\x1b';
+
+/**
+ * 样式段（批 10f-4 件 8 回看器——带样式行的呈现词汇）：逻辑行内同样式连续
+ * 区间，端点 = plain 文本的 UTF-16 下标（start 含 / end 不含）。段间空隙 =
+ * 裸文本（无样式），段升序不交叠由构造方（gridRowToStyled / 各块序列化）保证。
+ */
+export interface StyleRun {
+  readonly start: number;
+  readonly end: number;
+  readonly style: CellStyle;
+}
+
+/**
+ * 带样式行：plain 纯文本供折叠宽算术 / 搜索消费（零转义零样式混入）；
+ * runs 供 cell 网格呈现消费。主屏 ANSI 直写形（gridRowToAnsi / 简行 dim）
+ * 与件 8 回看器 cell 写出形共用同一数据源——零第二渲染器（07 件 8 数据源
+ * 条款的结构位）。
+ */
+export interface StyledLine {
+  readonly plain: string;
+  readonly runs: readonly StyleRun[];
+}
+
+/** 缺省样式判据：styleEquals 对 EMPTY_STYLE 单源（CellStyle 增字段自动同步——
+ * 勿手工罗列字段判缺省，10f-4 核验轮勘正） */
+function isDefaultStyle(style: CellStyle): boolean {
+  return styleEquals(style, EMPTY_STYLE);
+}
 /** SGR 全复位 */
 export const SGR_RESET = `${ESC}[0m`;
 /** EL 0：自光标至行尾 */
@@ -96,6 +126,83 @@ export function gridRowToAnsi(grid: CellGrid, row: number): string {
     out += cell.grapheme;
   }
   if (currentSgr !== '') out += SGR_RESET; // 行尾归零——不染后续写出
+  return out;
+}
+
+/**
+ * 网格行 → 带样式行（批 10f-4 件 8——回看器 cell 写出形的数据源）。
+ * 行走序与 gridRowToAnsi 同构（末列内容界 + 续格跳过 + 空洞空格），相邻同样式
+ * 格合并为单段；缺省样式段不产段（与空隙同形——序列化零冗余的基础）。
+ * 无内容行返回 null（调用方按需补空行——与 gridRowToAnsi 空串约定同构）。
+ */
+export function gridRowToStyled(grid: CellGrid, row: number): StyledLine | null {
+  // 内容末列 = 最右非空格格（续格属首格字素占位、算内容延伸）
+  let last = -1;
+  for (let col = grid.columns - 1; col >= 0; col--) {
+    if (!cellEquals(grid.getCell(row, col), null)) {
+      last = col;
+      break;
+    }
+  }
+  if (last < 0) return null;
+  let plain = '';
+  const runs: StyleRun[] = [];
+  for (let col = 0; col <= last; col++) {
+    const cell = grid.getCell(row, col);
+    if (cell !== null && cell.width === 0) continue; // 续格跳过（首格已携整字素）
+    const grapheme = cell === null ? ' ' : cell.grapheme; // 语义空格（行中内容洞）
+    const style = cell === null ? EMPTY_STYLE : cell.style;
+    const start = plain.length;
+    plain += grapheme; // 全字素入 plain（缺省样式字素是空隙文本——不丢字）
+    if (isDefaultStyle(style)) continue; // 缺省段不产段（gap 即裸文本）
+    // 同样式紧邻续段合并（段端点连续才并——中间有缺省格即断开）
+    const prev = runs[runs.length - 1];
+    if (prev !== undefined && styleEquals(prev.style, style) && prev.end === start) {
+      runs[runs.length - 1] = { start: prev.start, end: start + grapheme.length, style };
+    } else {
+      runs.push({ start, end: start + grapheme.length, style });
+    }
+  }
+  return { plain, runs };
+}
+
+/**
+ * 带样式行 → ANSI 串（主屏直写形——与 gridRowToAnsi 同语义的行序列化：
+ * 样式变化点复位再设、同样式零冗余、行尾归零不染后续写出）。
+ * renderBlockLines 经本函数从带样式行导出 ANSI 形——两形零第二渲染器。
+ */
+export function styledLineToAnsi(line: StyledLine): string {
+  const { plain, runs } = line;
+  if (runs.length === 0) return plain;
+  let out = '';
+  let currentSgr = '';
+  let pos = 0;
+  for (const run of runs) {
+    if (run.start > pos) {
+      // 段前空隙：在身样式先归零再写裸文本
+      if (currentSgr !== '') {
+        out += SGR_RESET;
+        currentSgr = '';
+      }
+      out += plain.slice(pos, run.start);
+    }
+    const sgr = buildSgr(run.style);
+    if (sgr !== currentSgr) {
+      out += (currentSgr !== '' ? SGR_RESET : '') + sgr;
+      currentSgr = sgr;
+    }
+    out += plain.slice(run.start, run.end);
+    pos = run.end;
+  }
+  if (pos < plain.length) {
+    // 段尾空隙：归零后写裸文本
+    if (currentSgr !== '') {
+      out += SGR_RESET;
+      currentSgr = '';
+    }
+    out += plain.slice(pos);
+  }
+  if (currentSgr !== '') out += SGR_RESET;
   return out;
 }
 

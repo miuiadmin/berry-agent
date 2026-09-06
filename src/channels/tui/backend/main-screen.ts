@@ -8,7 +8,9 @@
  * - **固定区钉屏底**（区外行不被滚动卷入、绝对位可知）：输入框 + 状态行，
  *   行级差分重画（变行整行重写、未变行零写出——擦除只走 EL 禁空格填充）；
  * - **正文块直写**：块 → 行序列化 → 追加写（追加不回改——直播路「消息事件
- *   唯一渲染源」的物理形）；流式槽原位换装是视口内唯一差分。
+ *   唯一渲染源」的物理形）；流式槽原位换装是视口内唯一差分。序列化单源走
+ *   renderBlockLines（批 10f-4 提取——件 8 回看器全量档复用同一渲染管线，
+ *   零第二渲染器）。
  *
  * 编舞状态模型：**绝对行跟踪**。件内维护光标绝对行 cursorRow 与 durable
  * 末行 durableEndRow（= 下一条追加的落笔行 = 流式槽首行），每次写行经
@@ -20,21 +22,9 @@
  * 终端无删行机制；固定区高度变化时光标账按区底钳制（内容可能被固定区
  * 覆盖——装配宜随高度变化触发 repaint 重建）。
  */
-import { CellGrid, wrapText, type TerminalIO } from '../../engine/index.js';
-import {
-  CLEAR_SCREEN,
-  CR,
-  cud,
-  cuu,
-  EL_TO_EOL,
-  gridRowToAnsi,
-  LF,
-  renderFixedRegionDiff,
-  setScrollRegion,
-  SGR_RESET,
-  cup,
-} from './ansi-rows.js';
-import type { TranscriptBlock } from './transcript.js';
+import { CellGrid, type TerminalIO } from '../../engine/index.js';
+import { CLEAR_SCREEN, CR, cud, cuu, EL_TO_EOL, LF, renderFixedRegionDiff, setScrollRegion, cup } from './ansi-rows.js';
+import { renderBlockLines, type TranscriptBlock } from './transcript.js';
 
 /** 主屏选项 */
 export interface MainScreenOptions {
@@ -227,43 +217,13 @@ export class MainScreen {
     this.cursorRow = this.rows - 1;
   }
 
-  /** 块 → 行序列化直写（markdown 块经 CellGrid 渲染；简行块直接拼） */
+  /** 块 → 行序列化直写（序列化单源 renderBlockLines——件 8 回看器复用同一管线，批 10f-4） */
   private writeBlockLines(block: TranscriptBlock): void {
-    switch (block.kind) {
-      case 'markdown': {
-        const grid = new CellGrid(this.columns, block.doc.measure(this.columns));
-        block.doc.render(grid, { row: 0, col: 0, width: this.columns, height: grid.rows });
-        for (let r = 0; r < grid.rows; r++) this.writeLine(gridRowToAnsi(grid, r));
-        return;
-      }
-      case 'user': {
-        // '> ' 前缀 + 折行续挂对齐（宽算术单源走 wrapText）
-        const lines = wrapText(block.text, this.columns - 2);
-        lines.forEach((line, i) => {
-          this.writeLine((i === 0 ? '> ' : '  ') + line);
-        });
-        return;
-      }
-      case 'tool-call':
-        this.writeLine(dim(` ⚙ ${block.name}${block.brief}`));
-        return;
-      case 'tool-result':
-        this.writeLine(dim(` ↳ ${block.brief}`));
-        return;
-      case 'streaming':
-        // B 段只写 durable 块——streaming 永在槽位（C 段消费）；分支仅为穷尽
-        for (const line of this.renderSlotLines(block)) this.writeLine(line);
-        return;
-    }
+    for (const line of renderBlockLines(block, this.columns)) this.writeLine(line);
   }
 
-  /** 流式槽行（纯文本直推——性能：不走网格不走样式） */
+  /** 流式槽行（纯文本直推——性能：不走网格不走样式；序列化同源 renderBlockLines） */
   private renderSlotLines(slot: { readonly kind: 'streaming'; readonly text: string }): string[] {
-    return slot.text === '' ? [] : wrapText(slot.text, this.columns);
+    return renderBlockLines(slot, this.columns);
   }
-}
-
-/** dim 包裹（简行块的样式捷径——SGR 2 复位归零） */
-function dim(text: string): string {
-  return `\x1b[2m${text}${SGR_RESET}`;
 }

@@ -86,6 +86,23 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     for (const b of backends) b.onRepaint?.(sessionId, projection, widget);
   });
 
+  // 件 8 /history 注册面（07 §4.1 条款：history() 注入在场即注册、缺席不注册
+  // 不虚报——真源 = 聚焦会话 → 拉全量 durable 正文投影 → 扇出后端 openHistory；
+  // 生产数据源接线归批 12 host 装配）
+  if (opts.history !== undefined) {
+    const fetchHistory = opts.history;
+    commands.register(
+      'history',
+      async () => {
+        const sessionId = registry.focusedId;
+        if (sessionId === null) return; // 焦点空悬——无回看对象（静默返回不虚报）
+        const messages = await fetchHistory(sessionId);
+        for (const b of backends) b.openHistory?.(sessionId, messages);
+      },
+      '全屏回看会话历史',
+    );
+  }
+
   return {
     commands,
     addBackend(backend) {
