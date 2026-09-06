@@ -8,6 +8,7 @@
  * 刻意不 import 对端：conversation 边表不可达 exec，契约单源在对端）归
  * 批 12 装载面后装配批。
  */
+import type { Readable, Writable } from 'node:stream';
 
 /** 输出保尾预算（04 §11：stdout/stderr 合计 60KiB 截尾保后半——尾部才有失败现场） */
 export const OUTPUT_TAIL_BYTES = 60 * 1024;
@@ -93,6 +94,54 @@ export interface ProcessRegistry {
   list(): readonly ProcessEntry[];
 }
 
+/* ------------------------------------------------------------------ */
+/* 长存活双工子进程（三桥 stdio 面——MCP/LSP 桥的消费原语；04 §11 三桥   */
+/* 挂点表「stdio 子进程 = spawn 管道 + 登记簿同册」的承载腿）            */
+/* ------------------------------------------------------------------ */
+
+/** 长存活交互 spawn 请求（run 跑完即结算；本面是协议桥的双工长存活形） */
+export interface InteractiveSpawnRequest {
+  /** 完整 argv（含可执行） */
+  readonly argv: readonly string[];
+  /** 工作目录（缺省进程 cwd） */
+  readonly cwd?: string;
+  /** env 白名单策略（缺省 DEFAULT_ENV_ALLOW、零继承宿主其余变量——同 run） */
+  readonly env?: EnvPolicy;
+  /** 登记簿归属（桥名如 `mcp:<server>` / `lsp:<server>`——「谁开的」审计面；必填） */
+  readonly owner: string;
+}
+
+/** 长存活子进程退出信息（close 语义一次结算） */
+export interface InteractiveExit {
+  /** 退出码（null = 被杀——无有意义退出码） */
+  readonly code: number | null;
+  /** spawn 阶段失败（进程从未存在——ENOENT/EACCES；缺席 = 进程跑过后退出/被杀） */
+  readonly spawnError?: Error;
+}
+
+/**
+ * 长存活子进程句柄（协议桥消费面：stdin 写协议帧 / stdout 读协议帧 /
+ * stderr 转 logger debug / onExit 收 crash 检测 / kill 兜底树杀）。
+ * 超时与协议化关停归桥侧编舞（两钟接力、shutdown→exit 告别序）——本面只给
+ * 原语；桥侧 kill() 即进程组树杀。
+ */
+export interface InteractiveChild {
+  /** 子进程 pid（spawn error 前无 pid——本面不抛 spawn 失败，经 onExit 送达） */
+  readonly pid: number | undefined;
+  /** 完整 argv 回显（登记/诊断面） */
+  readonly argv: readonly string[];
+  /** 标准输入（协议帧写出面——桥侧独占写） */
+  readonly stdin: Writable;
+  /** 标准输出（协议帧读入面——桥侧独占读） */
+  readonly stdout: Readable;
+  /** 标准错误（日志面——桥侧转发 debug） */
+  readonly stderr: Readable;
+  /** 退出回调注册（一次性事件；已退出时注册即回调——迟到订阅不丢事件） */
+  onExit(callback: (info: InteractiveExit) => void): void;
+  /** 进程组树杀（SIGKILL 直杀同 run 管道；已退出 no-op——幂等） */
+  kill(): void;
+}
+
 /** 孤儿清扫依赖面（判活/命令行读取/树杀——注入桩可测） */
 export interface SweepDeps {
   /** pid 判活（posix 惯例 kill(pid, 0)） */
@@ -107,6 +156,8 @@ export interface SweepDeps {
 export interface SpawnPipeline {
   /** 唯一入口：spawn → 登记 → 三源竞速结算 → 保尾产出（04 §11 编排序全腿） */
   run(request: SpawnRequest): Promise<ExecResult>;
+  /** 长存活双工子进程（三桥 stdio 桥——同册登记、同律 env 白名单与进程组） */
+  spawnInteractive(request: InteractiveSpawnRequest): InteractiveChild;
   /** 子进程登记簿（宿主启动期孤儿清扫消费） */
   readonly registry: ProcessRegistry;
 }

@@ -199,5 +199,132 @@ describe('createSpawnPipeline spawn 管道', () => {
   });
 });
 
+describe('spawnInteractive 长存活双工子进程（三桥 stdio 面）', () => {
+  it('双工往返——stdin 写入、stdout 逐行回显（echo 服务器形）', { timeout: 10_000 }, async () => {
+    const pipeline = createSpawnPipeline();
+    const child = pipeline.spawnInteractive({
+      argv: [execPath, '-e', "process.stdin.on('data', d => process.stdout.write('echo:' + d));"],
+      owner: 'test:interactive',
+    });
+    const received = new Promise<string>((resolve) => {
+      let buf = '';
+      child.stdout.on('data', (chunk: Buffer) => {
+        buf += chunk.toString('utf8');
+        if (buf.includes('echo:ping\n')) resolve(buf);
+      });
+    });
+    child.stdin.write('ping\n');
+    await expect(received).resolves.toContain('echo:ping');
+    child.kill();
+  });
+
+  it('登记簿同册——spawn 入册 / 退出出册 / owner 归属可见', { timeout: 10_000 }, async () => {
+    const pipeline = createSpawnPipeline();
+    const child = pipeline.spawnInteractive({ argv: [execPath, '-e', SPIN], owner: 'mcp:demo' });
+    expect(child.pid).toBeDefined();
+    await until(() => pipeline.registry.list().length === 1, 2_000);
+    expect(pipeline.registry.list()[0]).toMatchObject({ owner: 'mcp:demo', pid: child.pid });
+    const exited = new Promise<void>((resolve) => child.onExit(() => resolve()));
+    child.kill();
+    await exited;
+    await until(() => pipeline.registry.list().length === 0, 2_000);
+  });
+
+  it('onExit 一次结算 + 迟到订阅即回调（close 语义：code 归位）', { timeout: 10_000 }, async () => {
+    const pipeline = createSpawnPipeline();
+    const child = pipeline.spawnInteractive({
+      argv: [execPath, '-e', 'process.exit(7)'],
+      owner: 'test:exit-code',
+    });
+    const first = await new Promise<{ code: number | null; spawnError?: Error }>((resolve) =>
+      child.onExit((info) => resolve(info)),
+    );
+    expect(first.code).toBe(7);
+    expect(first.spawnError).toBeUndefined();
+    // 迟到订阅不丢事件——已退出注册即回调，且不再二次触发
+    let lateCalls = 0;
+    const late = await new Promise<{ code: number | null }>((resolve) =>
+      child.onExit((info) => {
+        lateCalls += 1;
+        resolve(info);
+      }),
+    );
+    expect(late.code).toBe(7);
+    expect(lateCalls).toBe(1);
+  });
+
+  it('失败二分前者——可执行不存在经 onExit spawnError 位送达（不抛）', { timeout: 10_000 }, async () => {
+    const pipeline = createSpawnPipeline();
+    const child = pipeline.spawnInteractive({
+      argv: ['/nonexistent/binary-definitely-not-here', '--flag'],
+      owner: 'test:spawn-error',
+    });
+    const info = await new Promise<{ code: number | null; spawnError?: Error }>((resolve) =>
+      child.onExit((i) => resolve(i)),
+    );
+    expect(info.code).toBeNull();
+    expect(info.spawnError).toBeInstanceOf(Error);
+  });
+
+  it('kill 树杀——孙进程随组死（组锚证）', { timeout: 10_000 }, async () => {
+    const pipeline = createSpawnPipeline();
+    // child 启 grandchild（孙进程），孙进程自报 pid 后空转
+    const child = pipeline.spawnInteractive({
+      argv: [
+        execPath,
+        '-e',
+        `const { spawn } = require('node:child_process');
+         const g = spawn(process.execPath, ['-e', ${JSON.stringify(SPIN)}], { stdio: 'ignore' });
+         process.stdout.write(String(g.pid));
+         setInterval(() => {}, 1000);`,
+      ],
+      owner: 'test:tree',
+    });
+    const grandchildPid = parseInt(
+      await new Promise<string>((resolve) => {
+        let buf = '';
+        child.stdout.on('data', (chunk: Buffer) => {
+          buf += chunk.toString('utf8');
+          const m = buf.match(/\d+/);
+          if (m) resolve(m[0]);
+        });
+      }),
+      10,
+    );
+    expect(Number.isFinite(grandchildPid)).toBe(true);
+    child.kill();
+    await new Promise<void>((resolve) => child.onExit(() => resolve()));
+    // 孙进程必须死——杀的是组不是单进程
+    await until(() => !isPidAlive(grandchildPid), 2_000);
+  });
+
+  it('env 白名单同律——长存活面零继承宿主其余变量', { timeout: 10_000 }, async () => {
+    const pipeline = createSpawnPipeline({
+      hostEnv: { ...process.env, BERRY_TEST_SECRET_SENTINEL: 'leak-me' },
+    });
+    const child = pipeline.spawnInteractive({
+      argv: [execPath, '-e', 'process.stdout.write(JSON.stringify(Object.keys(process.env)))'],
+      owner: 'test:env',
+    });
+    const keys = JSON.parse(
+      await new Promise<string>((resolve) => {
+        let buf = '';
+        child.stdout.on('data', (chunk: Buffer) => {
+          buf += chunk.toString('utf8');
+          try {
+            JSON.parse(buf);
+            resolve(buf);
+          } catch {
+            // 未收全——续攒
+          }
+        });
+      }),
+    ) as string[];
+    expect(keys).not.toContain('BERRY_TEST_SECRET_SENTINEL');
+    expect(keys).toContain('PATH');
+    child.kill();
+  });
+});
+
 /** SpawnPipeline 类型锚（防公共面漂移的编译期断言） */
 export type _PipelineShape = SpawnPipeline;

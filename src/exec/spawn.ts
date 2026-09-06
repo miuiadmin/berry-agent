@@ -20,7 +20,15 @@ import type { Logger } from '../context/index.js';
 import { buildChildEnv } from './env.js';
 import { createProcessRegistry, type RegistryOptions } from './registry.js';
 import { OutputTail } from './tail.js';
-import type { ExecResult, ExecOutcome, SpawnPipeline, SpawnRequest } from './types.js';
+import type {
+  ExecResult,
+  ExecOutcome,
+  InteractiveChild,
+  InteractiveExit,
+  InteractiveSpawnRequest,
+  SpawnPipeline,
+  SpawnRequest,
+} from './types.js';
 
 /** 管道构造依赖（全可注入——测试零真终端/真时钟依赖） */
 export interface SpawnPipelineOptions extends RegistryOptions {
@@ -50,6 +58,76 @@ export function createSpawnPipeline(options: SpawnPipelineOptions = {}): SpawnPi
   return {
     registry,
     run: (request) => runSpawn(request, deps),
+    spawnInteractive: (request) => spawnInteractiveChild(request, deps),
+  };
+}
+
+/**
+ * 长存活双工子进程真身（三桥 stdio 桥——MCP/LSP 的 spawn 面）。
+ *
+ * 与 run 的分野：run 跑完即结算（三源竞速 + 保尾产出）；本面桥侧独占
+ * stdin/stdout 双工（协议帧往返）、进程退出经 onExit 一次送达（close 语义
+ * ——stdio 全闭；spawn 'error'〔进程从未存在〕折 spawnError 位送达，失败
+ * 二分信息不丢）。同律不变项：detached 独立进程组（树杀组锚）、env 白名单
+ * deny-by-default、登记簿同册（spawn 入册 / close 出册——幂等闸防 error 与
+ * close 双计双删）。
+ */
+function spawnInteractiveChild(request: InteractiveSpawnRequest, deps: RunDeps): InteractiveChild {
+  const argv0 = request.argv[0];
+  if (argv0 === undefined || argv0 === '') {
+    throw new BaseError('EXEC_SPAWN_FAILED', 'argv 为空——无可执行（spawn 阶段失败前置防御）');
+  }
+  const child = spawn(argv0, request.argv.slice(1), {
+    cwd: request.cwd,
+    // 独立进程组（posix）——树杀的组锚；win32 语义为 CREATE_NEW_PROCESS_GROUP
+    detached: true,
+    // 三桥双工面：stdin 必须管道（协议帧写出）；run 管道的 'ignore' 缺省不适用
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: buildChildEnv(request.env, deps.hostEnv),
+  });
+  if (child.pid !== undefined) {
+    deps.registry.add({
+      pid: child.pid,
+      argv: request.argv,
+      owner: request.owner,
+      hostPid: deps.hostPid,
+      startedAt: deps.now(),
+    });
+  }
+
+  // 退出一次结算（error/close 竞速同封——先到者送达，迟到源 no-op）
+  let exited = false;
+  let lastInfo: InteractiveExit | undefined;
+  const exitCallbacks: ((info: InteractiveExit) => void)[] = [];
+  const finish = (info: InteractiveExit): void => {
+    if (exited) return;
+    exited = true;
+    lastInfo = info;
+    if (child.pid !== undefined) deps.registry.remove(child.pid);
+    for (const cb of [...exitCallbacks]) cb(info);
+  };
+  // 失败二分前者：error 事件 = spawn 阶段失败（进程从未存在——ENOENT/EACCES）；
+  // 结算后的迟到 error（stdio EPIPE 类）不改写已封事实
+  child.on('error', (error) => finish({ code: null, spawnError: error }));
+  // close（非 exit）——stdio 全闭才是协议桥的终点事件
+  child.on('close', (code) => finish({ code }));
+
+  return {
+    pid: child.pid,
+    argv: request.argv,
+    // stdio 三管道位已定形——此处恒非 null（类型面收窄）
+    stdin: child.stdin as NonNullable<typeof child.stdin>,
+    stdout: child.stdout as NonNullable<typeof child.stdout>,
+    stderr: child.stderr as NonNullable<typeof child.stderr>,
+    onExit(callback) {
+      // 已退出：即回调（迟到订阅不丢事件）；未退：入队
+      if (exited) callback(lastInfo as InteractiveExit);
+      else exitCallbacks.push(callback);
+    },
+    kill() {
+      // 幂等（已退出 no-op）；树杀组锚 = pid（子未成组长降杀本体——killProcessTree 内处理）
+      if (!exited && child.pid !== undefined) killProcessTree(child.pid, deps.logger);
+    },
   };
 }
 
