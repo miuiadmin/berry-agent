@@ -14,9 +14,9 @@
  *   丢弃）；提交路由：input-ask 应答优先 → '/' 起手命令柄（false 落
  *   onSubmit 兜底——03 §2.2 驱动侧语义归 conversation）→ onSubmit；
  * - **固定区 v2 动态布局**（自上而下）：overlay 段（锚定注册表 = 本件
- *   renderFixed 行账——开层锚定闭包读注册表）→ todo 面板（件 4）/ 工具
- *   进度面板（件 5）〔后续批接入，本批零行〕→ input-ask 提示行 → 补全
- *   弹层 → 编辑器（动态量高 + 光标声明——setFixed 声明位落 cup）→ 状态行；
+ *   renderFixed 行账——开层锚定闭包读注册表）→ todo 面板（件 4）→
+ *   input-ask 提示行 → 补全弹层 → 编辑器（动态量高 + 光标声明——setFixed
+ *   声明位落 cup）→ 工具进度面板（件 5——与状态行分职互补相邻）→ 状态行；
  * - **渲染合并**：调度注入后 op 队列合并（连续 present 留末次、transient
  *   到达序保持、固定区脏位重建一帧一次）+ fps 帽 60 + tick 100ms 自重排
  *   驱动状态行转轮；**无注入调度 = 同步直出**（测试语义——合并与自驱 tick
@@ -26,12 +26,13 @@
  * 实机；件 7 OSC 外显与件 8 副屏（AltScreenHost 与本件共享 io）不在本纵切。
  */
 import type { AgentEvent } from '../../../agent/index.js';
-import type { AgentMessage } from '../../../contracts/index.js';
+import { isStandardMessage, type AgentMessage, type Usage } from '../../../contracts/index.js';
 import type {
   ApprovalAskAnswer,
   ApprovalAskRequest,
   NotifyLevel,
   SessionEnvelope,
+  TodoItem,
   UiAskOptions,
   UiBackend,
   UiInputOptions,
@@ -41,6 +42,8 @@ import { CellGrid, InputDecoder, ProcessTerminalIO, type TerminalIO } from '../.
 import { MainScreen } from './main-screen.js';
 import { LiveTranscript, type SummaryLine, type TranscriptBlock } from './transcript.js';
 import { StatusLine } from '../status/status-line.js';
+import { TodoPanel } from '../panels/todo-panel.js';
+import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
 import { sessionColor } from '../theme.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
 import { Editor } from '../editor/editor.js';
@@ -63,6 +66,8 @@ export interface TuiBackendOptions {
   readonly dispatchCommand?: (input: string) => Promise<boolean>;
   /** 补全三源注入（命令名源注入查询函数接 CommandRegistry.list()；@ 文件段源归装配批） */
   readonly autocomplete?: AutocompleteSources;
+  /** todo 面板数据源（件 4——装配接 deps 同名面；注入缺席 = 面板缺席零变化） */
+  readonly todoFor?: (sessionId: string) => readonly TodoItem[] | null | undefined;
   /** 调度注入（启用渲染合并 + fps 帽 + tick 自驱——缺省同步直出测试语义） */
   readonly schedule?: (fn: () => void, ms: number) => unknown;
   /** 取消调度注入（与 schedule 配对——stop 时收在飞帧/tick/ESC 窗） */
@@ -106,6 +111,38 @@ type PendingOp =
 interface InputAsk {
   readonly message: string;
   readonly resolve: (text: string) => void;
+}
+
+/**
+ * run 级用量累计（件 6——agent_start/repaint 归零、turn_end 累加、agent_end
+ * 落行；观测面供装配/宿主侧二次消费，`/usage` 全量面板分职不互替）。
+ */
+export interface UsageAccumulation {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly totalTokens: number;
+  /** 累计货币额（cost 在场才累——spec 条款） */
+  readonly cost: number;
+  /** 币种（首见 cost.currency 定着） */
+  readonly currency: string | null;
+}
+
+/** 零账（归零基线） */
+const ZERO_USAGE: UsageAccumulation = Object.freeze({
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: 0,
+  currency: null,
+});
+
+/** token 数千位分组（1,234,567——usage 行「格式化」定形） */
+function formatTokenCount(n: number): string {
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 /**
@@ -169,6 +206,14 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   /** input-ask 在飞体（null = 常态——提交落 onSubmit） */
   private inputAsk: InputAsk | null = null;
 
+  /* ---- 呈现面件 4/5/6 态 ---- */
+  private readonly todoFor: ((sessionId: string) => readonly TodoItem[] | null | undefined) | undefined;
+  private readonly todoPanel = new TodoPanel();
+  private readonly toolPanel = new ToolProgressPanel();
+  /** 当前 turn 的 assistant 消息用量暂存（turn_end 累加——件 6 等价性条款） */
+  private pendingUsage: Usage | null = null;
+  private usageTotal: UsageAccumulation = ZERO_USAGE;
+
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
     this.sessionId = options.sessionId ?? 'main';
@@ -176,6 +221,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.dispatchCommand = options.dispatchCommand;
+    this.todoFor = options.todoFor;
     this.scheduleFn = options.schedule ?? null;
     this.cancelFn = options.cancelSchedule ?? ((h) => clearTimeout(h as NodeJS.Timeout));
     this.now = options.now ?? Date.now;
@@ -253,7 +299,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
       this.enqueuePresent();
     }
     this.requestRender();
-    if (focused) this.applyStatusEvent(env.event);
+    if (focused) this.applyFocusedEvent(env.event);
   }
 
   /** 重画呈现：投影重建行集 + 清屏全量重写（widget 槽值不支撑——忽略） */
@@ -262,6 +308,9 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     this.pendingOps = [];
     this.needFixed = false;
     this.transcript.loadProjection(projection);
+    this.resetUsage(); // 件 6：清行并归零（切焦清账重计——尾注射界）
+    this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
+    this.refreshTodo(); // 件 4：刷新三时点之一
     this.screen.repaint(this.transcript.snapshot);
     this.renderFixed();
   }
@@ -271,6 +320,11 @@ export class TuiBackend implements UiBackend<AgentMessage> {
     if (!this.statusLine.isBusy) return;
     this.statusLine.tick();
     this.touchFixed();
+  }
+
+  /** run 级用量累计观测面（件 6——装配/宿主侧二次消费） */
+  get usageView(): UsageAccumulation {
+    return { ...this.usageTotal };
   }
 
   /** resize 编舞：几何重取 + 主屏全量重画 + 固定区按新几何重建（权威重建不走队列） */
@@ -537,47 +591,105 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   /* ---------------- 内部：状态面与固定区 ---------------- */
 
   /**
-   * 聚焦事件的状态面消费：run 启停驱动忙态、工具执行锚点轮换工具名。
-   * （执行层事件正文零渲染——07 §4.1 直播路渲染单源的刻意分立。）
+   * 聚焦事件的固定区消费面：run 启停驱动忙态与 usage 累计（件 6）、工具
+   * 执行驱动状态行工具名与进度面板（件 3/5）、tool_execution_end/agent_end
+   * 驱动 todo 刷新（件 4）。（执行层事件正文零渲染——07 §4.1 直播路渲染
+   * 单源的刻意分立。）
    */
-  private applyStatusEvent(event: AgentEvent): void {
+  private applyFocusedEvent(event: AgentEvent): void {
     switch (event.type) {
       case 'agent_start':
         this.statusLine.start();
+        this.resetUsage(); // 件 6：归零清行（上一 run 尾注不跨 run）
+        this.toolPanel.clear(); // 件 5：瞬时面清板
         this.touchFixed();
         break;
       case 'agent_end':
         this.statusLine.stop();
+        // 件 6：落行（与 setStatus 同载体 last-writer-wins）
+        this.statusLine.setStatus(`✓ 用量 ${formatTokenCount(this.usageTotal.totalTokens)}`);
+        this.toolPanel.clear();
+        this.refreshTodo(); // 件 4：刷新三时点之三
         this.touchFixed();
         break;
       case 'tool_execution_start':
         this.statusLine.setTool(event.name);
+        this.toolPanel.begin(event.toolCallId, event.name); // 件 5：建档不建行
         this.touchFixed();
         break;
       case 'tool_execution_end':
         this.statusLine.setTool(null);
+        this.toolPanel.end(event.toolCallId); // 件 5：end 即摘行
+        this.refreshTodo(); // 件 4：刷新三时点之二（写后即显）
         this.touchFixed();
         break;
+      case 'tool_execution_update':
+        this.toolPanel.applyUpdate(event.toolCallId, event.update); // 件 5：首 update 建行
+        this.touchFixed();
+        break;
+      case 'message_end':
+        // 件 6 数据源：assistant 消息终值暂存（累加时点 turn_end——一 turn 恰
+        // 一 assistant 消息，两时点等价；spec 条款按本仓轻载荷形取 message_end 面）
+        if (isStandardMessage(event.message) && event.message.role === 'assistant') {
+          this.pendingUsage = event.message.usage;
+        }
+        break; // 正文换装已走直播路——固定区零扰动
+      case 'turn_end':
+        this.accumulateUsage(); // 件 6：累加时点（非呈现时点）
+        break;
       default:
-        break; // 消息族/turn 族不触状态面（StatusLine 自持忙态文案）
+        break; // 消息族其余/turn 族其余不触固定区
     }
+  }
+
+  /** usage 归零清行（agent_start / repaint——件 6 清账重计条款） */
+  private resetUsage(): void {
+    this.pendingUsage = null;
+    this.usageTotal = ZERO_USAGE;
+    this.statusLine.setStatus('');
+  }
+
+  /** turn_end 累加（暂存的 assistant 用量并入 run 级账本；cost 在场累货币额） */
+  private accumulateUsage(): void {
+    const pending = this.pendingUsage;
+    if (pending === null) return;
+    this.pendingUsage = null;
+    const prev = this.usageTotal;
+    this.usageTotal = {
+      input: prev.input + pending.input,
+      output: prev.output + pending.output,
+      cacheRead: prev.cacheRead + pending.cacheRead,
+      cacheWrite: prev.cacheWrite + pending.cacheWrite,
+      totalTokens: prev.totalTokens + pending.totalTokens,
+      cost: prev.cost + (pending.cost?.total ?? 0),
+      currency: prev.currency ?? pending.cost?.currency ?? null,
+    };
+  }
+
+  /** todo 面板刷新（todoFor 注入缺席 = 面板缺席零变化——件 4 条款） */
+  private refreshTodo(): void {
+    if (this.todoFor === undefined) return;
+    this.todoPanel.update(this.todoFor(this.sessionId));
   }
 
   /**
    * 固定区 v2 重建（自上而下段序）：overlay 段（各层量高叠放 + 锚定注册表
-   * 行账）→〔件 4 todo / 件 5 工具进度——后续批接入位〕→ input-ask 提示行
-   * → 补全弹层 → 编辑器（动态量高；聚焦态 = 无 overlay 占焦）→ 状态行。
-   * 编辑光标经 EditorView setCursor 声明 → MainScreen.setFixed 声明位落 cup。
+   * 行账）→ todo 面板（件 4——todoFor 缺席/空表即零行）→ input-ask 提示行
+   * → 补全弹层 → 编辑器（动态量高；聚焦态 = 无 overlay 占焦）→ 工具进度
+   * 面板（件 5——与状态行分职互补相邻）→ 状态行。编辑光标经 EditorView
+   * setCursor 声明 → MainScreen.setFixed 声明位落 cup。
    */
   private renderFixed(): void {
     const columns = this.io.size().columns;
     const contents = this.stack.contents;
     const overlayHeights = contents.map((c) => c.measure(columns));
     const overlayHeight = overlayHeights.reduce((sum, h) => sum + h, 0);
+    const todoHeight = this.todoPanel.measure(columns);
     const askHeight = this.inputAsk !== null ? 1 : 0;
     const popupHeight = this.popup.visible ? this.popup.measure(columns) : 0;
     const editorHeight = this.editor.measure(columns);
-    const total = overlayHeight + askHeight + popupHeight + editorHeight + 1;
+    const toolHeight = this.toolPanel.measure(columns);
+    const total = overlayHeight + todoHeight + askHeight + popupHeight + editorHeight + toolHeight + 1;
     const grid = new CellGrid(columns, total);
     let row = 0;
 
@@ -588,24 +700,35 @@ export class TuiBackend implements UiBackend<AgentMessage> {
       contents[i]!.render(grid, { row, col: 0, width: columns, height });
       row += height;
     }
-    // （件 4 todo 面板 / 件 5 工具进度面板——呈现面批接入位，本批零行）
 
-    // 段四：input-ask 提示行（应答期编辑器转应答车的引导位）
+    // 段二：todo 面板（件 4——输入框上方紧凑面板；清板即零行）
+    if (todoHeight > 0) {
+      this.todoPanel.render(grid, { row, col: 0, width: columns, height: todoHeight });
+      row += todoHeight;
+    }
+
+    // 段三：input-ask 提示行（应答期编辑器转应答车的引导位）
     if (this.inputAsk !== null) {
       grid.writeText(row, 0, `? ${this.inputAsk.message}`, { dim: true });
       row += 1;
     }
 
-    // 段五：补全弹层（可见才占位——非模态浮层）
+    // 段四：补全弹层（可见才占位——非模态浮层）
     if (this.popup.visible) {
       this.popup.render(grid, { row, col: 0, width: columns, height: popupHeight });
       row += popupHeight;
     }
 
-    // 段六：编辑器（overlay 占焦期非聚焦——边框普通态 + 不抢光标声明）
+    // 段五：编辑器（overlay 占焦期非聚焦——边框普通态 + 不抢光标声明）
     this.editor.setFocused(this.stack.size === 0);
     this.editor.render(grid, { row, col: 0, width: columns, height: editorHeight });
     row += editorHeight;
+
+    // 段六：工具进度面板（件 5——正在流 partial 的工具各占一行；清板即零行）
+    if (toolHeight > 0) {
+      this.toolPanel.render(grid, { row, col: 0, width: columns, height: toolHeight });
+      row += toolHeight;
+    }
 
     // 段七：状态行（固定区末行）
     this.statusLine.render(grid, { row, col: 0, width: columns, height: 1 });

@@ -31,9 +31,12 @@ function assistantMsg(text: string): AgentMessage {
   };
 }
 
-function makeBackend(): { io: MemoryTerminalIO; backend: TuiBackend } {
+function makeBackend(options: Partial<TuiBackendOptions> = {}): {
+  io: MemoryTerminalIO;
+  backend: TuiBackend;
+} {
   const io = new MemoryTerminalIO(COLS, ROWS);
-  const backend = new TuiBackend(io);
+  const backend = new TuiBackend(io, options);
   backend.start();
   return { io, backend };
 }
@@ -598,5 +601,188 @@ describe('TuiBackend 渲染合并与 tick 自驱', () => {
     rig.io.bytes = '';
     rig.clock.advance(300); // stop 后定时器全收
     expect(rig.io.bytes).toBe('');
+  });
+});
+
+/* ================= 呈现面件 4/5/6（todo 面板 / 工具进度 / usage 状态行） ================= */
+
+/** 定制 usage 的 assistant 消息（件 6 累加数据源） */
+function usageMsg(totalTokens: number): AgentMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text: '答' }],
+    usage: { input: totalTokens - 50, output: 50, cacheRead: 0, cacheWrite: 0, totalTokens },
+    stopReason: 'stop',
+    timestamp: 1,
+  };
+}
+
+describe('TuiBackend todo 面板（件 4）', () => {
+  it('todoFor 注入：tool_execution_end 写后即显 + agent_end 刷新 + 空表清板', () => {
+    let todos: { status: 'pending' | 'in-progress' | 'completed'; content: string; activeForm?: string }[] = [
+      { status: 'pending', content: '写规范' },
+      { status: 'in-progress', content: '码实现', activeForm: '正在码实现' },
+    ];
+    const { io, backend } = makeBackend({ todoFor: () => todos });
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    io.bytes = '';
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    expect(io.bytes).toContain('☐ 写规范'); // 写后即显（刷新三时点之二）
+    expect(io.bytes).toContain('◐ 正在码实现'); // activeForm 优先
+    todos = [{ status: 'completed', content: '写规范' }]; // 快照推进（工具跑完 todo 完成）
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('☑ 写规范'); // 刷新三时点之三——拉到新快照（行级差分写变行）
+    expect(io.bytes).not.toContain('\x1b[1;6r'); // 固定区高未变——零滚动区重设
+  });
+
+  it('空表清板（null 与 [] 同义——面板退场）', () => {
+    let todos: { status: 'pending'; content: string }[] | null = [{ status: 'pending', content: '任务' }];
+    const { io, backend } = makeBackend({ todoFor: () => todos });
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('☐ 任务');
+    todos = [];
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('\x1b[1;6r'); // 固定区高回缩——滚动区重设在场
+    expect(io.bytes).not.toContain('☐ 任务');
+  });
+
+  it('todoFor 注入缺席 = 面板缺席零变化', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    expect(io.bytes).not.toContain('☐');
+  });
+});
+
+describe('TuiBackend 工具进度面板（件 5）', () => {
+  it('update 建行（宽容解码）/ 原位换行 / end 摘行 / agent_end 清板', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    io.bytes = '';
+    emit(backend, { type: 'tool_execution_update', toolCallId: 't1', update: '扫描中' });
+    expect(io.bytes).toContain('▸ grep · 扫描中'); // 首个 update 建行
+    io.bytes = '';
+    emit(backend, {
+      type: 'tool_execution_update',
+      toolCallId: 't1',
+      update: { content: [{ type: 'text', text: '头部\n\n命中 3 处\n' }] },
+    });
+    expect(io.bytes).toContain('▸ grep · 命中 3 处'); // 倒扫末条非空行
+    io.bytes = '';
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    expect(io.bytes).not.toContain('▸ grep'); // end 即摘行
+
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't2', name: 'read', arguments: {} });
+    emit(backend, { type: 'tool_execution_update', toolCallId: 't2', update: '读着' });
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).not.toContain('▸ read'); // agent_end 清板（瞬时面）
+  });
+
+  it('start 只建档不建行（面板零扰动）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    io.bytes = '';
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    expect(io.bytes).not.toContain('▸ grep'); // 建档无行——工具名只进状态行
+    expect(io.bytes).toContain('⚙ grep …');
+  });
+});
+
+describe('TuiBackend usage 状态行（件 6）', () => {
+  it('message_end 暂存 → turn_end 累加 → agent_end 落「✓ 用量 N」', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(150) });
+    io.bytes = '';
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    expect(io.bytes).not.toContain('用量'); // turn_end 是累加时点非呈现时点
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('✓ 用量 150');
+  });
+
+  it('多轮累加 + 千位分组', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(1_500) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    emit(backend, { type: 'message_end', message: usageMsg(2_500) });
+    emit(backend, { type: 'turn_end', turn: 2, stopReason: 'stop' });
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('✓ 用量 4,000');
+  });
+
+  it('agent_start 归零清行（上一 run 尾注不跨 run）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(150) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('✓ 用量 150');
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' });
+    expect(io.bytes).not.toContain('用量'); // 清行（忙态呈现转轮——尾注退场）
+    emit(backend, { type: 'message_end', message: usageMsg(10) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('✓ 用量 10'); // 归零重计（非 160）
+  });
+
+  it('repaint 清行并归零（切焦清账重计——件 6 尾注射界）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(150) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    backend.onRepaint(SESSION, [], null);
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).not.toContain('✓ 用量 150');
+    expect(io.bytes).toContain('✓ 用量 0'); // 清账重计（零轮 run 亦如实呈现）
+  });
+
+  it('cost 在场并累货币额（usageView 观测面）', () => {
+    const { backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, {
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: '答' }],
+        usage: {
+          input: 50,
+          output: 50,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 100,
+          cost: { total: 0.03, currency: 'USD' },
+        },
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    expect(backend.usageView).toEqual({
+      input: 50,
+      output: 50,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 100,
+      cost: 0.03,
+      currency: 'USD',
+    });
+  });
+
+  it('非聚焦事件不驱动 usage 累计（尾注只属聚焦会话）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'message_end', message: usageMsg(150) }, false);
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' }, false);
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).not.toContain('✓ 用量 150');
   });
 });
