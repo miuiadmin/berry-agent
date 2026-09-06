@@ -6,6 +6,8 @@
  * notify 档位符号、setStatus、tick 推帧、onRepaint 投影重建、resize 自订阅；
  * 交互纵切（10e-2）：自持输入管线与路由四层、提交路由（命令柄/应答优先）、
  * 补全弹层三源、阻塞四件浮层面板、渲染合并与 tick 自驱（手动时钟 rig）；
+ * ask 撤销说明行（批 10f-3——07 §4.3 撤销面：abort 后 ⏹ 行在场 + 迟到
+ * abort 不误写四路各一例）；
  * 呈现面件 7（终端外显）：起屏基线 title、按会话净计数忙态（OSC 9;4）、
  * clamp 防穿底、切焦跨路回归锁、onRepaint 点缀短 id、stop 复原两写点、
  * 保活周期重发。
@@ -556,6 +558,105 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     pump();
     await expect(p).resolves.toBe(true);
     expect(io.bytes).toContain('\x1b[36m│'); // 层关复聚焦
+  });
+});
+
+describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 ⏹ 行 + 迟到 abort 不误写）', () => {
+  it('confirm：abort → false + 撤销说明行；面板已 done 后迟到 abort 不误写', async () => {
+    const { io, backend, pump } = makeInteractive();
+    // 路一：外部 abort 传播到时层仍在屏——说明行入正文流
+    const ac1 = new AbortController();
+    const p1 = backend.confirm('一？', { signal: ac1.signal });
+    pump();
+    ac1.abort();
+    await expect(p1).resolves.toBe(false); // 保守值
+    pump();
+    expect(io.bytes).toContain('\r⏹ 已取消确认\n'); // 撤销说明行（瞬时行形态）
+
+    // 路二：Enter 应答收场（面板 done）后 abort 迟到——零说明行
+    const ac2 = new AbortController();
+    const p2 = backend.confirm('二？', { signal: ac2.signal });
+    pump();
+    io.emitInput('\r');
+    pump();
+    await expect(p2).resolves.toBe(true);
+    io.bytes = '';
+    ac2.abort();
+    pump();
+    expect(io.bytes).not.toContain('⏹'); // 不误写
+  });
+
+  it('select：abort → 空串 + 撤销说明行；已选定后迟到 abort 不误写', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const choices = [{ value: 'a', label: '甲' }];
+    const ac1 = new AbortController();
+    const p1 = backend.select('选', choices, { signal: ac1.signal });
+    pump();
+    ac1.abort();
+    await expect(p1).resolves.toBe('');
+    pump();
+    expect(io.bytes).toContain('\r⏹ 已取消选择\n');
+
+    const ac2 = new AbortController();
+    const p2 = backend.select('再选', choices, { signal: ac2.signal });
+    pump();
+    io.emitInput('\r');
+    pump();
+    await expect(p2).resolves.toBe('a');
+    io.bytes = '';
+    ac2.abort();
+    pump();
+    expect(io.bytes).not.toContain('⏹');
+  });
+
+  it('approval：abort → cancel + 撤销说明行（文案区分于阻塞三件）；已答后迟到 abort 不误写', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const ac1 = new AbortController();
+    const p1 = backend.askApproval({ summary: '写' }, { signal: ac1.signal });
+    pump();
+    ac1.abort();
+    await expect(p1).resolves.toBe('cancel'); // 审批项保守值（收口三则同源条款）
+    pump();
+    expect(io.bytes).toContain('\r⏹ 已取消审批\n'); // 「审批」文案与提问/确认/选择分立
+
+    const ac2 = new AbortController();
+    const p2 = backend.askApproval({ summary: '二' }, { signal: ac2.signal });
+    pump();
+    io.emitInput('\r');
+    pump();
+    await expect(p2).resolves.toBe('approve');
+    io.bytes = '';
+    ac2.abort();
+    pump();
+    expect(io.bytes).not.toContain('⏹');
+  });
+
+  it('input：abort → 空串 + 撤销说明行；inputAsk 已换（应答收场）后迟到 abort 不误写', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const ac1 = new AbortController();
+    const p1 = backend.input('名字？', { signal: ac1.signal });
+    pump();
+    expect(io.bytes).toContain('? 名字？'); // 提示行曾在屏
+    io.emitInput('草稿');
+    pump();
+    io.bytes = ''; // 应答期帧不计入撤销断言
+    ac1.abort();
+    await expect(p1).resolves.toBe('');
+    pump();
+    expect(io.bytes).toContain('\r⏹ 已取消提问\n');
+    expect(io.bytes).not.toContain('? 名字？'); // 提示行已撤
+
+    // inputAsk 已换（新 ask 顶上）后旧 signal abort——不误写、不打扰新 ask
+    const ac2 = new AbortController();
+    const p2 = backend.input('补充？', { signal: ac2.signal });
+    pump();
+    io.emitInput('答\r'); // 应答收场（inputAsk → null）
+    pump();
+    await expect(p2).resolves.toBe('答');
+    io.bytes = '';
+    ac2.abort();
+    pump();
+    expect(io.bytes).not.toContain('⏹');
   });
 });
 

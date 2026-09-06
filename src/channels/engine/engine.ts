@@ -31,7 +31,7 @@ import { InputDecoder } from './input.js';
 import { ProcessTerminalIO } from './process-io.js';
 import type { InputEvent, KeyboardProtocol, Region, Renderable, TerminalIO } from './types.js';
 
-/** 缺省帧率帽（帧间隔下限 = 1000/60——码面缺省随性能回归锁校准回填） */
+/** 缺省帧率帽（帧间隔下限 = 1000/60——批 10f-3 性能回归锁建锁校准：v1 定值 60 维持〔perf-lock.test.ts 四指标锁内过〕，实机校准后收紧留批 12 host 装配） */
 const DEFAULT_FPS_CAP = 60;
 /** 缺省 lone-ESC 判定窗（ms——承 berry 实证值升为行为预算） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
@@ -104,7 +104,7 @@ export interface EngineOptions {
   io?: TerminalIO;
   /** 屏幕形态（缺省 inline 主屏——alt-screen 为副屏回看器形态） */
   screen?: ScreenForm;
-  /** 帧率帽 fps（帧间隔下限 = 1000/fps——码面缺省随性能回归锁校准回填） */
+  /** 帧率帽 fps（帧间隔下限 = 1000/fps——缺省 60：性能回归锁校准定值，见 DEFAULT_FPS_CAP 注） */
   fpsCap?: number;
   /** lone-ESC 判定窗（ms；缺省 30） */
   escapeWindowMs?: number;

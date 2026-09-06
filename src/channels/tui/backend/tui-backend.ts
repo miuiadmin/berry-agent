@@ -23,7 +23,10 @@
  *   关闭，10e-1 同步断言原样成立；生产装配须注入宿主调度）；
  * - **件 7 终端外显**（本纵切）：OscDisplay 自持件——起屏基线 title、
  *   onEnvelope 按会话净计数忙态（OSC 9;4 + 1s 保活）、onRepaint title 点缀
- *   会话短 id、stop/硬退复原两写点。
+ *   会话短 id、stop/硬退复原两写点；
+ * - **阻塞原语撤销面**（批 10f-3）：ask 四路 signal abort 收口时曾在屏者
+ *   正文流落 ⏹ 撤销说明行（07 §4.3 语义纪律「曾在屏者由通道上撤销说明行」
+ *   ——保守值收口之外的可感知收场；迟到 abort 不误写）。
  *
  * 批内边界：setWidget 不支撑（报 false）；主屏滚动帽实测定值挂装配批 12
  * 实机；件 8 副屏（AltScreenHost 与本件共享 io）不在本纵切。
@@ -93,7 +96,7 @@ const ENTER_MAIN = '\x1b[?2004h' + '\x1b[>1u' + '\x1b[?u' + '\x1b[c';
 /** 出屏模式串（与进屏严格对称反序——单源常量） */
 const LEAVE_MAIN = '\x1b[<u' + '\x1b[?2004l';
 
-/** 渲染合并帧率帽缺省（对齐 Engine DEFAULT_FPS_CAP） */
+/** 渲染合并帧率帽缺省（对齐 Engine DEFAULT_FPS_CAP——批 10f-3 性能回归锁校准定值 60，实机校准后收紧留批 12） */
 const DEFAULT_FPS_CAP = 60;
 /** lone-ESC 判定窗缺省（对齐 Engine DEFAULT_ESCAPE_WINDOW_MS） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
@@ -310,7 +313,16 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   /** 一次性通知：正文瞬时行直写（级别符号前缀——不进行集） */
   notify(message: string, opts?: { level?: NotifyLevel }): void {
     const symbol = NOTIFY_SYMBOLS[opts?.level ?? 'info'];
-    this.pendingOps.push({ kind: 'transient', lines: [`${symbol} ${message}`] });
+    this.appendTransientLine(`${symbol} ${message}`);
+  }
+
+  /**
+   * 瞬时说明行入正文流（notify 与 ask 撤销说明行共用路——07 §4.3「曾在屏
+   * 者由通道上撤销说明行」）：op 入合并队列 + 渲染请求（同步直出模式立即
+   * 落地；注入调度随帧合并——transient 到达序保持）。
+   */
+  private appendTransientLine(line: string): void {
+    this.pendingOps.push({ kind: 'transient', lines: [line] });
     this.requestRender();
   }
 
@@ -369,11 +381,11 @@ export class TuiBackend implements UiBackend<AgentMessage> {
 
   /* ---------------- 阻塞四件（浮层面板呈现——07 §4.3） ---------------- */
 
-  /** 是/否确认：ConfirmPanel 浮层（Enter → true / Esc → false；signal abort 保守值 + 关层） */
+  /** 是/否确认：ConfirmPanel 浮层（Enter → true / Esc → false；signal abort 保守值 + 关层 + 撤销说明行） */
   confirm(message: string, opts?: UiAskOptions): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       const panel = new ConfirmPanel({ message });
-      const handle = this.openAskLayer(panel, () => resolve(false), opts?.signal);
+      const handle = this.openAskLayer(panel, () => resolve(false), opts?.signal, '⏹ 已取消确认');
       panel.onFinish = (confirmed) => {
         handle.close();
         resolve(confirmed);
@@ -388,7 +400,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
         title: message,
         options: choices.map((c) => ({ value: c.value, label: c.label })),
       });
-      const handle = this.openAskLayer(panel, () => resolve(''), opts?.signal);
+      const handle = this.openAskLayer(panel, () => resolve(''), opts?.signal, '⏹ 已取消选择');
       panel.onFinish = (value) => {
         handle.close();
         resolve(value);
@@ -398,7 +410,8 @@ export class TuiBackend implements UiBackend<AgentMessage> {
 
   /**
    * 自由文本：input-ask 形——提示行入固定区 + 编辑器转应答车（提交即应答，
-   * 弹层抑制）；signal abort → '' 保守值 + 残稿清框。
+   * 弹层抑制）；signal abort → '' 保守值 + 残稿清框 + 撤销说明行（07 §4.3
+   * 撤销面——提示行曾在固定区在屏，abort 收口正文流落 ⏹ 行）。
    */
   input(message: string, opts?: UiInputOptions): Promise<string> {
     return new Promise<string>((resolve) => {
@@ -409,8 +422,9 @@ export class TuiBackend implements UiBackend<AgentMessage> {
       opts?.signal?.addEventListener(
         'abort',
         () => {
-          if (this.inputAsk !== ask) return; // 已应答收场——迟到 abort no-op
+          if (this.inputAsk !== ask) return; // 已应答收场——迟到 abort no-op（无说明行）
           this.inputAsk = null;
+          this.appendTransientLine('⏹ 已取消提问');
           this.editor.setText('');
           this.popup.refresh();
           resolve('');
@@ -425,7 +439,9 @@ export class TuiBackend implements UiBackend<AgentMessage> {
   /**
    * 审批：SelectPanel 浮层四值（批准/拒绝/总是批准/取消——Esc 面板保守值 ''
    * 映射 cancel，与 07 §4.3 收口律对齐）；always 草案经 hint 段呈现（回写
-   * 归通道核 settleApprovalAlways——本件只呈现与回值）。
+   * 归通道核 settleApprovalAlways——本件只呈现与回值）。signal abort 收口
+   * 'cancel' 保守值 + 撤销说明行（文案「审批」区分于 input/confirm/select
+   * 三件——07 §4.3 撤销面）。
    */
   askApproval(request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer> {
     return new Promise<ApprovalAskAnswer>((resolve) => {
@@ -439,7 +455,7 @@ export class TuiBackend implements UiBackend<AgentMessage> {
           { value: 'cancel', label: '取消' },
         ],
       });
-      const handle = this.openAskLayer(panel, () => resolve('cancel'), opts?.signal);
+      const handle = this.openAskLayer(panel, () => resolve('cancel'), opts?.signal, '⏹ 已取消审批');
       panel.onFinish = (value) => {
         handle.close();
         // 值集即 ApprovalAskAnswer 四值（面板 Esc 收 '' → cancel 映射）
@@ -533,12 +549,28 @@ export class TuiBackend implements UiBackend<AgentMessage> {
 
   /* ---------------- 内部：ask 浮层 ---------------- */
 
-  /** 开 ask 浮层：锚定注册表锚 + signal abort 保守值收口 + 重绘请求 */
-  private openAskLayer(content: OverlayContent, abort: () => void, signal: AbortSignal | undefined): OverlayHandle {
+  /**
+   * 开 ask 浮层：锚定注册表锚 + signal abort 保守值收口 + 撤销说明行 + 重绘
+   * 请求。
+   *
+   * 「曾在屏者」判据（07 §4.3 语义纪律撤销面——confirm / select / askApproval
+   * 三路共用本层，统一处理）：abort 传播到后端呈现时层仍未关（在 overlay 栈
+   * 中）= 曾在屏 → 撤销说明行入正文流；面板已 done（onFinish 先关层）后迟
+   * 到的 abort 是 no-op，不误写。说明行只标撤销收场本身——保守值收口（与提
+   * 问队列收口三则「保守值同撤销面」同源条款：审批项收 'cancel'、阻塞件各
+   * 收保守值）由 promise 回值承载，行文不重复。
+   */
+  private openAskLayer(
+    content: OverlayContent,
+    abort: () => void,
+    signal: AbortSignal | undefined,
+    cancelLine: string,
+  ): OverlayHandle {
     const handle = this.stack.open(content, this.anchorFor(content));
     signal?.addEventListener(
       'abort',
       () => {
+        if (!handle.closed) this.appendTransientLine(cancelLine); // 曾在屏才写——面板 done 后迟到 abort 不误写
         handle.close();
         abort(); // 面板 done 锁下迟到 abort 是 no-op（已应答）
         this.touchFixed();
