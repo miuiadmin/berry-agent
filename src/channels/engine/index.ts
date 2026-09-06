@@ -28,7 +28,7 @@ export type {
 } from './types.js';
 export { ansiColor } from './types.js';
 export { MemoryTerminalIO } from './memory-io.js';
-export { graphemeWidth, splitGraphemes, stringWidth, truncateToWidth, wrapText } from './width.js';
+export { graphemeWidth, splitGraphemes, truncateToWidth, wrapText } from './width.js';
 export { CellGrid, cellEquals, EMPTY_STYLE, styleEquals } from './cell.js';
 export { renderFrameDiff } from './diff.js';
 export type { InputDecoderOptions } from './input.js';

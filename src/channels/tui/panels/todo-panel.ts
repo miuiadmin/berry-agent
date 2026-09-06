@@ -7,8 +7,8 @@
  * - 条目四态记号：☐ 待办 / ◐ 进行中（activeForm 优先于 content——CC 式
  *   文案）/ ☑ 已完成·暗淡 / ⊙ 缓办·暗淡；
  * - 帽 6 条 + 溢出行「+ N 更多」（暗淡）；
- * - 刷新时机归装配（TuiBackend——repaint / tool_execution_end / agent_end
- *   三时点），件内零时钟零事件面。
+ * - 刷新时机归装配（TuiBackend 三时点 repaint / tool_execution_end /
+ *   agent_end——批 10e-2 已接线），件内零时钟零事件面。
  */
 import { truncateToWidth, type CellBuffer, type Region, type Renderable } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';

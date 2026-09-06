@@ -3,7 +3,8 @@
  * 03 篇 §2.2 命令面、04 篇 §4 队列、04 篇 §9 审批归属）。
  *
  * 批 10a 落通道核（多会话信封分流 + 投影拉取注入 + 命令面 + ui 原语分发 +
- * 提问队列——通道无关逻辑，零 pi-tui import；pi-tui 接线归呈现批）。
+ * 提问队列——通道无关逻辑，零渲染依赖〔2026-09-06 改裁弃 pi-tui 后天然
+ * 满足——TUI 实装已落件内自研栈，批 10e〕）。
  * 单向 DAG：channels → contracts, context, agent（02 §4.1——投影类型经装配侧
  * 泛型钉入，不 import session）。
  */
@@ -80,8 +81,8 @@ export interface UiCapabilities {
 }
 
 /**
- * 通道后端接口（通道核的呈现消费面）。TUI 实装批接线 pi-tui、webui 件同面
- * 接入；核经此面驱动一切呈现——阻塞原语多后端并发竞速（04 §9 跨入口竞速
+ * 通道后端接口（通道核的呈现消费面）。TUI 实装 = 件内自研 TuiBackend（批
+ * 10e 已落）、webui 件同面接入；核经此面驱动一切呈现——阻塞原语多后端并发竞速（04 §9 跨入口竞速
  * 先答先得），败腿经 signal 撤销收场（07 §4.3 撤销面同链）。
  */
 export interface UiBackend<TProjection> {
