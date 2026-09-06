@@ -125,6 +125,28 @@ describe('第 1 段：守门（waterfall + fail-closed）', () => {
     expect(decisions).toEqual([{ toolCallId: 'call-1', decision: 'mutate', reason: 'ok' }]);
   });
 
+  it('守门载荷透传 sessionId（04 §7 批 15d 补注——checkpoint 按会话判 per-run）', async () => {
+    const { dispatch, executor } = makeRig();
+    let seen: string | undefined;
+    dispatch.onWaterfall<GateInput>('tools_pre_execute', (input, next) => {
+      seen = input.sessionId;
+      return next(input);
+    });
+    await executor(makeTool(), 'call-1', { n: 1 }, undefined, undefined, 'sess-42');
+    expect(seen).toBe('sess-42');
+  });
+
+  it('无会话调用不带 sessionId 字段（缺省形态——守门面 undefined 判据）', async () => {
+    const { dispatch, executor } = makeRig();
+    let seen: string | undefined;
+    dispatch.onWaterfall<GateInput>('tools_pre_execute', (input, next) => {
+      seen = input.sessionId;
+      return next(input);
+    });
+    await executor(makeTool(), 'call-1', { n: 1 });
+    expect(seen).toBeUndefined();
+  });
+
   it('守门监听器抛错 → fail-closed：TOOL_GATE_FAILED + 决策落账 block（审计链不断头）', async () => {
     const { dispatch, executor, decisions } = makeRig();
     dispatch.onWaterfall<GateInput>('tools_pre_execute', async () => {

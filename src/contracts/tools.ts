@@ -124,6 +124,12 @@ export interface GateInput {
   args: Record<string, unknown>;
   /** 调用 id */
   toolCallId: string;
+  /**
+   * 会话键（管道签名本有——工具按会话键分派时透传进守门面；04 §7 批 15d
+   * 补注。消费先例 = core:checkpoint pre-mutation 捕获按会话判 per-run；
+   * 无会话场景〔测试/系统调用〕缺省不带）
+   */
+  sessionId?: string;
   /** 中止信号（守门面构造审批 ask 载荷时携带） */
   signal?: AbortSignal;
   /** 参数已被改写旗（改参的守门者维护；落账 decision=mutate 的判据） */

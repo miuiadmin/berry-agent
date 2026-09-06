@@ -125,6 +125,13 @@ const PRESENT_MODULES = new Set([
   // host 装配批〕；声明式 def 解析层住 skills〔agents.ts——06 §11.6〕，
   // onSettled→goal 折叠腿经组合根闭包零边落地）
   'subagent',
+  // 批 15d 起在场（core:checkpoint 纯逻辑腿——pre-mutation 守门捕获/
+  // blob 内容寻址仓/manifest 裁剪帽+/rewind 两段事务，deps {contracts,
+  // context, tools, persist}〔context/tools 声明未用——gate 监听器挂载与
+  // 管道 sessionId 透传归 host 装配批消费，persist 单边 resolveDataDir 已用；
+  //先例同 subagent session/agent 占位〕；装配位 = safety 行之后的
+  // tools_pre_execute 监听 + TUI /rewind 命令注册〔挂批 12〕
+  'checkpoint',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -167,6 +174,9 @@ const MODULE_EXTERNALS = {
   // subagent 的 typebox（agent / agent_<name> 委派工具参数面——schema 层
   // 宿主件直用同律；15c 落码批起用）
   subagent: ['typebox'],
+  // checkpoint 的 ignore（walk 域 gitignore 语义匹配——发现层遍历三副本
+  // 同判；15d 落码批起用）
+  checkpoint: ['ignore'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
   // 一律走虚拟键三转发；批 12d 落码起用）

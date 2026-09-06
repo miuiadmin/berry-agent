@@ -124,12 +124,14 @@ export function createToolPipeline(dispatch: EventDispatch, opts: ToolPipelineOp
     }
 
     /* ---- 第一段：守门（fail-closed；block 短路不进执行段） ---- */
+    // sessionId 透传进守门载荷（04 §7 批 15d 补注——checkpoint 按会话判 per-run）
     const gateInput: GateInput = {
       tool: def,
       args,
       toolCallId,
       mutated: false,
       ...(signal !== undefined ? { signal } : {}),
+      ...(sessionId !== undefined ? { sessionId } : {}),
     };
     let gated: GateInput;
     try {
