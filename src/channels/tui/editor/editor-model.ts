@@ -172,6 +172,24 @@ export class EditorModel {
     }
   }
 
+  /**
+   * 整 token 代换（补全弹层唯一写路径）：指定行 [start,end) 段整段替换、
+   * 光标落代换尾。独立 undo 步（不与前后输入合并）、退出历史浏览、清预编辑
+   * 与水平粘滞链。
+   */
+  replaceToken(line: number, start: number, end: number, replacement: string): void {
+    this.exitHistoryBrowsing();
+    this.pushUndo();
+    this.preedit = null;
+    this.preferredVisualCol = null;
+    this.lastAction = null;
+    const text = this.state.lines[line] ?? '';
+    this.state.lines[line] = text.slice(0, start) + replacement + text.slice(end);
+    this.state.cursorLine = line;
+    this.state.cursorCol = start + replacement.length;
+    this.notify();
+  }
+
   /* ---------------- 删除族（字素算术 + 行合并） ---------------- */
 
   /** 退格：删光标前一字素；行首与前行合并（换行删除语义） */

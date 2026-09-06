@@ -16,3 +16,20 @@ export type { EditorState } from './editor/editor-model.js';
 export { EditorModel } from './editor/editor-model.js';
 export type { VisualSegment } from './editor/visual-lines.js';
 export { EditorView } from './editor/editor-view.js';
+export type { ScrollViewOptions } from './scroll/scroll-view.js';
+export { ScrollView } from './scroll/scroll-view.js';
+export type { OverlayAnchor, OverlayContent, OverlayHandle } from './overlay/overlay.js';
+export { OverlayStack } from './overlay/overlay.js';
+export type { ConfirmPanelOptions, SelectOption, SelectPanelOptions } from './overlay/select-confirm.js';
+export { ConfirmPanel, SELECT_CANCELLED, SelectPanel } from './overlay/select-confirm.js';
+export type { AltScreenOptions } from './overlay/alt-screen.js';
+export { AltScreenHost } from './overlay/alt-screen.js';
+export type {
+  AutocompleteContext,
+  AutocompleteItem,
+  AutocompleteProvider,
+  AutocompleteResult,
+} from './autocomplete/provider.js';
+export type { AutocompleteSources } from './autocomplete/autocomplete.js';
+export { CombinedAutocompleteProvider } from './autocomplete/autocomplete.js';
+export { AutocompletePopup } from './autocomplete/popup.js';

@@ -230,6 +230,10 @@ export class Engine {
     this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     this.unsubResize = this.io.onResize(this.handleResize);
+    // 显式放流：已被显式 pause 的流（如副屏 Engine 复用主屏挂起后共享的 io）
+    // 再挂监听不会自动回 flowing——须放流才有数据事件；首启场景对已
+    // flowing 流为 no-op（Node 流语义），与 resume 六步的放流位对齐
+    this.io.resume();
     this.state = 'running';
     this.forceFull = true;
     this.requestRender();
