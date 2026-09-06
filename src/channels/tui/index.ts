@@ -32,6 +32,8 @@ export type {
 } from './autocomplete/provider.js';
 export type { AutocompleteSources } from './autocomplete/autocomplete.js';
 export { CombinedAutocompleteProvider } from './autocomplete/autocomplete.js';
+export type { FileMentionSourceOptions } from './autocomplete/file-mentions.js';
+export { FileMentionSource } from './autocomplete/file-mentions.js';
 export { AutocompletePopup } from './autocomplete/popup.js';
 export type { InlineSpan } from './markdown/inline.js';
 export { parseInline } from './markdown/inline.js';
