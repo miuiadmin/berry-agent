@@ -1,0 +1,26 @@
+{
+  "name": "berry-agent-sdk",
+  "version": "0.1.0-alpha.1",
+  "apiVersion": "1.0",
+  "description": "berry-agent 类型化 SDK 客户端——spawn serve stdio / 直连 HTTP 两传输适配，事件类型面自仓单源",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miuiadmin/berry-agent.git",
+    "directory": "packages/berry-agent-sdk"
+  },
+  "engines": {
+    "node": ">=24.0"
+  },
+  "main": "./dist/packages/berry-agent-sdk/src/index.js",
+  "types": "./dist/packages/berry-agent-sdk/src/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}

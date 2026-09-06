@@ -27,12 +27,13 @@
     "berry-agent-plugin"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p packages/berry-agent-sdk/tsconfig.test.json",
     "test": "vitest run",
     "lint:topology": "node tools/check-topology.mjs && node tools/check-api.mjs",
-    "format": "prettier --write \"src/**/*.ts\" \"tools/**/*.mjs\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tools/**/*.mjs\"",
-    "build": "tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs"
+    "format": "prettier --write \"src/**/*.ts\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\"",
+    "build": "tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs",
+    "build:sdk": "tsc -p packages/berry-agent-sdk/tsconfig.json"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.4",
