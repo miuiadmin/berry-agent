@@ -11,9 +11,12 @@
 import type { AgentEvent } from '../agent/index.js';
 
 /**
- * 多会话信封（07 §4.1 channels 纵切批定形）：AgentEvent 不带会话归属是刻意的
- * ——loop 是单 run 视角无多会话概念；归属信封的包装者 = conversation 驱动侧
- * （把 per-run sink 汇入 channels 分发器时附加），channels 消费分流。
+ * 多会话信封（07 §4.1 channels 纵切批定形三则②）：AgentEvent 不带会话归属
+ * 是刻意的——loop 是单 run 视角无多会话概念；归属信封的包装位 = host 装配
+ * 的 per-run sink 包装器（conversation 侧 sink 签名零 channels 感知、纯
+ * AgentEvent 回调注册面，host 汇入 channels 分发器时附加信封——装配根是
+ * 唯一允许 import 全部宿主模块的横切层，2026-09-06 冷读裁决 C-1），channels
+ * 消费分流。
  */
 export interface SessionEnvelope {
   readonly sessionId: string;

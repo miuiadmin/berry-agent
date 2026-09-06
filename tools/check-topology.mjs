@@ -98,7 +98,9 @@ const MODULE_EXTERNALS = {
     '@earendil-works/pi-ai/providers/all',
     '@earendil-works/pi-ai/api/anthropic-messages.lazy',
   ],
-  channels: ['@earendil-works/pi-tui'],
+  // get-east-asian-width 裸导入仅 channels（07 篇 §2.1 精确锁）：自研 TUI 引擎
+  // width 件的 EAW 分类数据面（2026-09-06 TUI 栈改裁换防——pi-tui 出列、此包入替）
+  channels: ['get-east-asian-width'],
   persist: ['better-sqlite3'],
   // typebox 主包 + value 子路径（07 篇栈纪律：schema 层——工具参数面；宿主件
   // 直用合法，插件侧一律走虚拟键三转发——与 llm 的 pi-ai 同款分账执法）；
