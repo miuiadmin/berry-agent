@@ -71,6 +71,7 @@ const MODULE_EDGES = {
   goal: ['contracts', 'context', 'persist', 'session'],
   obs: ['contracts', 'persist'],
   webui: ['contracts', 'channels'],
+  sdk: ['contracts', 'channels'],
 };
 
 /** 在场模块集（占位清单语义：边表其余键 = 显式占位、不判死边；落码逐批迁移进来） */
@@ -101,6 +102,10 @@ const PRESENT_MODULES = new Set([
   // 渐进披露/skill_manage，deps {contracts, context}；装载态集成（标准层装配 +
   // skills_change 桥）归批 12 装载面后装配批，出厂技能件内容挂 07 出厂清单定名批）
   'skills',
+  // 批 13e 起在场（core:sdk 件——HTTP+SSE 传输与 MCP 包装承载位〔02 §4.1
+  // #26 席：L4、deps contracts+channels 与 webui 同构〕；13e-1 起域 = 端点
+  // 词面/开面配置/三防线判定器，传输实装 13e-2、daemon 13e-3；MCP 包装 13f）
+  'sdk',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -116,7 +121,10 @@ const MODULE_EXTERNALS = {
   ],
   // get-east-asian-width 裸导入仅 channels（07 篇 §2.1 精确锁）：自研 TUI 引擎
   // width 件的 EAW 分类数据面（2026-09-06 TUI 栈改裁换防——pi-tui 出列、此包入替）
-  channels: ['get-east-asian-width'],
+  // get-east-asian-width = TUI width 件 EAW 分类；typebox 主包 + value 子路径
+  // = sdk 线协议请求面深校验 schema 件（03 §10.6「每动词 typebox schema 校验
+  // 后消费」——批 13e 接入；schema 层宿主件直用同律）
+  channels: ['get-east-asian-width', 'typebox', 'typebox/value'],
   persist: ['better-sqlite3'],
   // typebox 主包 + value 子路径（07 篇栈纪律：schema 层——工具参数面；宿主件
   // 直用合法，插件侧一律走虚拟键三转发——与 llm 的 pi-ai 同款分账执法）；

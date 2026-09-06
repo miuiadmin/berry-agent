@@ -7,13 +7,15 @@
  * gh-28405 实锤）——本编码器序列化后统一转义为 \u2028/\u2029 转义形（结构字符不
  * 可能是这两位，全串替换零误伤）；解码侧 JSON.parse 原生还原，无需特判。
  *
- * 校验深度（契约面纪律）：本层只做判别字段 + 必填标量的结构性校验（fail-loud
- * 宁拒勿吞）；逐动词深校验（typebox schema 面）随 HTTP 腿落码批接入（03 §10.6
- * 请求面动词族条「每动词 typebox schema 校验后消费——webui 微路由同纪律」），
- * 深校验词面挂账批 13e。
+ * 校验深度（契约面纪律）：本层做判别字段 + 必填标量的结构性校验（fail-loud
+ * 宁拒勿吞）；逐动词深校验（typebox schema 面——03 §10.6 请求面动词族条
+ * 「每动词 typebox schema 校验后消费——webui 微路由同纪律」）在 ./schema.ts
+ * 单源、decodeWireLine 尾段接入（批 13e 兑现 13a 挂账）——HTTP 体校验位
+ * （core:sdk 件）经 channels 公开面同源消费，零第二套。
  */
 import type { SdkRequest, SdkWireFrame } from './protocol.js';
 import { SDK_FRAME_KINDS, SDK_REQUEST_VERBS } from './protocol.js';
+import { validateSdkRequest } from './schema.js';
 
 /** 行终止符两位（编码转义对象——显式转义写法防字面量在编辑/传输中丢失） */
 const LS = '\u2028';
@@ -206,7 +208,11 @@ export function decodeWireLine(line: string): SdkWireFrame | SdkRequest {
   const shape = parsed as Record<string, unknown>;
   if (which === 'request') {
     validateRequest(shape, shape.verb as string, rawLine);
-    return parsed as SdkRequest;
+    // 深校验（批 13e 接入——./schema.ts 单源）：结构层过后逐字段 typebox 校验
+    //（未知字段拒收/选填语义——HTTP 体校验位同源同件）
+    const deep = validateSdkRequest(parsed);
+    if (!deep.ok) throw new SdkDecodeError(deep.reason, rawLine);
+    return deep.value;
   }
   validateFrame(shape, shape.kind as string, rawLine);
   return parsed as SdkWireFrame;
