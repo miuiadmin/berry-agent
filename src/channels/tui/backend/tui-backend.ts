@@ -617,7 +617,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 'cancel' 保守值 + 撤销说明行（文案「审批」区分于 input/confirm/select
    * 三件——07 §4.3 撤销面）。
    */
-  askApproval(request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer> {
+  askApproval(_sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer> {
+    // _sessionId：会话归属位随批 13b-3 后端面签名携带——TUI 呈现不消费（单屏
+    // 焦点态无会话路由需求），SDK 通道后端以此路由 ask 帧
     return new Promise<ApprovalAskAnswer>((resolve) => {
       const title = request.toolName !== undefined ? `⚙ ${request.toolName}：${request.summary}` : request.summary;
       const panel = new SelectPanel({

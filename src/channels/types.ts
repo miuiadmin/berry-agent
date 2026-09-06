@@ -99,8 +99,13 @@ export interface UiBackend<TProjection> {
   select?(message: string, choices: readonly UiSelectChoice[], opts?: UiAskOptions): Promise<string>;
   /** 自由文本输入 */
   input?(message: string, opts?: UiInputOptions): Promise<string>;
-  /** 审批 ask（仅 capable 后端被调——呈现形态归后端：TUI 主屏浮层是队首呈现之一） */
-  askApproval?(request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer>;
+  /**
+   * 审批 ask（仅 capable 后端被调——呈现形态归后端：TUI 主屏浮层是队首呈现之一）。
+   * sessionId 首参 = 会话归属承载位（批 13b-3 随 SDK 通道后端定形——ask 帧信封
+   * 必携会话归属；核心面 07 §4.3 `askApproval(sessionId, request)` 本含会话位，
+   * 后端面同携）。
+   */
+  askApproval?(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer>;
   /** 状态行更新（last-writer-wins——多写者自然覆盖） */
   setStatus?(sessionId: string, status: string): void;
   /** 自定义渲染槽呈现（会话级单槽值由核维护——见 UiCore.setWidget） */

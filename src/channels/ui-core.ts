@@ -191,7 +191,7 @@ export class UiCore {
       (signal) => {
         const direct = this.capable('approval');
         if (direct.length > 0) {
-          return Promise.race(direct.map((b) => b.askApproval!(request, { signal }))).then((answer) =>
+          return Promise.race(direct.map((b) => b.askApproval!(sessionId, request, { signal }))).then((answer) =>
             this.settleApprovalAlways(answer, request),
           );
         }

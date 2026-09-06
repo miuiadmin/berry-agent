@@ -497,7 +497,7 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
 
   it('approval：四值映射 + esc → cancel + 工具名标题与草案 hint 在场', async () => {
     const { io, backend, clock, pump } = makeInteractive();
-    const p1 = backend.askApproval({ summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    const p1 = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
     pump();
     expect(io.bytes).toContain('⚙ write：写文件'); // 工具名标题
     expect(io.bytes).toContain('/tmp/x'); // always 草案 hint 段
@@ -505,7 +505,7 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     pump();
     await expect(p1).resolves.toBe('approve');
 
-    const p2 = backend.askApproval({ summary: '二' });
+    const p2 = backend.askApproval('s1', { summary: '二' });
     pump();
     io.emitInput('\x1b[B\x1b[B'); // ↓↓ = 总是批准
     pump();
@@ -513,7 +513,7 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     pump();
     await expect(p2).resolves.toBe('always');
 
-    const p3 = backend.askApproval({ summary: '三' });
+    const p3 = backend.askApproval('s1', { summary: '三' });
     pump();
     io.emitInput('\x1b');
     escapePump(clock);
@@ -614,7 +614,7 @@ describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 
   it('approval：abort → cancel + 撤销说明行（文案区分于阻塞三件）；已答后迟到 abort 不误写', async () => {
     const { io, backend, pump } = makeInteractive();
     const ac1 = new AbortController();
-    const p1 = backend.askApproval({ summary: '写' }, { signal: ac1.signal });
+    const p1 = backend.askApproval('s1', { summary: '写' }, { signal: ac1.signal });
     pump();
     ac1.abort();
     await expect(p1).resolves.toBe('cancel'); // 审批项保守值（收口三则同源条款）
@@ -622,7 +622,7 @@ describe('TuiBackend ask 撤销说明行（07 §4.3 撤销面——曾在屏者 
     expect(io.bytes).toContain('\r⏹ 已取消审批\n'); // 「审批」文案与提问/确认/选择分立
 
     const ac2 = new AbortController();
-    const p2 = backend.askApproval({ summary: '二' }, { signal: ac2.signal });
+    const p2 = backend.askApproval('s1', { summary: '二' }, { signal: ac2.signal });
     pump();
     io.emitInput('\r');
     pump();

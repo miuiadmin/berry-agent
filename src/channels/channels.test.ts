@@ -60,7 +60,7 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     confirm: (message, opts) => deferredPush(confirmAsks, message, opts?.signal),
     select: (message, _choices, opts) => deferredPush(selectAsks, message, opts?.signal),
     input: (message, opts) => deferredPush(inputAsks, message, opts?.signal),
-    askApproval: (request, opts) =>
+    askApproval: (_sessionId, request, opts) =>
       deferredPush(approvalAsks, request.summary, opts?.signal) as Promise<ApprovalAskAnswer>,
     setStatus: (sessionId, status) => statusSet.push({ sessionId, status }),
     setWidget: (sessionId, node) => widgets.push({ sessionId, node }),

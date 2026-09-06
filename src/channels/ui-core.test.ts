@@ -62,7 +62,7 @@ function fakeBackend(id: string, capsOverride?: Partial<UiCapabilities>) {
       inputAsks.push({ message, signal: opts?.signal, ...d });
       return d.promise;
     },
-    askApproval: (request, opts) => {
+    askApproval: (_sessionId, request, opts) => {
       const d = deferred<ApprovalAskAnswer>();
       approvalAsks.push({ message: request.summary, signal: opts?.signal, ...d });
       return d.promise;

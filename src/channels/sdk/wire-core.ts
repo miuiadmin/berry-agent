@@ -463,6 +463,27 @@ export class SdkWireCore {
     this.emit({ kind: 'event', seq: this.deps.highWaterOf(sessionId) ?? 0, sessionId, event }, sessionId);
   }
 
+  /**
+   * 非事件帧外推（批 13b-3 后端消费位——ask 审批外推帧的入口）：独立帧族
+   * 不占 seq 不进 durable（03 §10.6 第三腿），直接过出站单点（背压/静默账
+   * 与事件帧同律）。订阅判据由调用方先决（后端 fail-closed 位）。
+   */
+  pushFrame(frame: SdkWireFrame, sessionId?: string): void {
+    this.emit(frame, sessionId);
+  }
+
+  /** 订阅观测面（后端 fail-closed 判据——ask 帧去向位） */
+  isSubscribed(sessionId: string): boolean {
+    return this.subs.get(sessionId)?.phase === 'live';
+  }
+
+  /** 活跃订阅数（后端 hasAudience 探针——零订阅即无观众） */
+  get subscriptionCount(): number {
+    let count = 0;
+    for (const sub of this.subs.values()) if (sub.phase === 'live') count++;
+    return count;
+  }
+
   /** 心跳账推导（事件流 → runState/stage——非事件型 probe 走 tick 时查面） */
   private trackHeartbeat(sub: SubState, event: AgentEvent): void {
     switch (event.type) {

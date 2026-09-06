@@ -16,3 +16,4 @@ export * from './jsonl.js';
 export * from './admit.js';
 export * from './cursor.js';
 export * from './wire-core.js';
+export * from './backend.js';
