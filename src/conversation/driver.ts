@@ -284,7 +284,10 @@ export class ConversationDriver {
       };
     }
     // todo 快照注入位：null = 空表跳过（从未建表/用户已重置——不打扰上下文）
-    const snapshot = todoSnapshotMessage(this.session.events(), Date.now());
+    // goal 段升格（03 §10.5）：goalScopeFor 供锚 → fold 边界升格 goal 生命周期
+    // 段（user/message 不重置、跨续跑轮存活）；缺席 = run-scoped 现行为
+    const goalScope = this.options.goalScopeFor?.(this.session.sessionId) ?? undefined;
+    const snapshot = todoSnapshotMessage(this.session.events(), Date.now(), goalScope);
     if (snapshot === null) return transformed;
     return { ...transformed, messages: [...transformed.messages, snapshot] };
   };

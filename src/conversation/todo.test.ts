@@ -135,6 +135,67 @@ describe('foldTodoTable', () => {
   });
 });
 
+/* ---------------- goal 段升格（03 §10.5 计划态跨轮——scope 在场） ---------------- */
+
+describe('foldTodoTable goal 段升格', () => {
+  const SCOPE = { goalId: 'g-1', activatedSeq: 2 };
+
+  it('续跑轮 user/message 不再重置表（升格语义核心）；assistant 轮同前', () => {
+    const events = [
+      ev('todo/write', { items: [item({ content: '锚前旧表' })] }),
+      ev('user/message', {}), // seq 1（越锚）
+      ev('user/message', {}), // seq 2 = 激活锚（此锚起新段）
+      ev('todo/write', { items: TWO_ITEMS }),
+      ev('user/message', { content: '用户出手——run-scoped 会重置，goal 段不重置' }),
+      ev('assistant/message', { stopReason: 'stop' }),
+    ];
+    expect(foldTodoTable(events, SCOPE)).toEqual(TWO_ITEMS);
+    expect(foldTodoTable(events)).toEqual([]); // 无 scope 退化 run-scoped 现行为
+  });
+
+  it('锚前历史不成表（越激活锚即出段）', () => {
+    const events = [
+      ev('todo/write', { items: TWO_ITEMS }),
+      ev('user/message', {}),
+      ev('user/message', {}), // seq 2 = 激活锚——锚前表不可见
+    ];
+    expect(foldTodoTable(events, SCOPE)).toEqual([]);
+    expect(foldTodoTable(events, { goalId: 'g-1', activatedSeq: 0 })).toEqual(TWO_ITEMS); // 锚 0 = 全程段
+  });
+
+  it('goal 段载荷扩展字段剥离（核心四字段投影——与 goal 件读侧分立）', () => {
+    const events = [
+      ev('todo/write', {
+        items: [
+          {
+            status: 'deferred',
+            content: '带扩展',
+            resumeWhen: 'after@+5m',
+            role: 'user',
+            followUp: 'x',
+            gate: { kind: 'files', paths: ['a'] },
+          },
+        ],
+      }),
+    ];
+    expect(foldTodoTable(events, { goalId: 'g-1', activatedSeq: 0 })).toEqual([
+      { status: 'deferred', content: '带扩展' },
+    ]);
+  });
+
+  it('todoSnapshotMessage 透传 scope：goal 段空表锚外同返 null、段内表照注入', () => {
+    const anchored = [
+      ev('user/message', {}),
+      ev('user/message', {}), // seq 1 = 激活锚
+      ev('todo/write', { items: TWO_ITEMS }),
+    ];
+    const message = todoSnapshotMessage(anchored, 1000, { goalId: 'g-1', activatedSeq: 1 });
+    expect(message?.role).toBe('user');
+    expect(message?.content).toContain('[pending] 甲');
+    expect(todoSnapshotMessage(anchored, 1000, { goalId: 'g-1', activatedSeq: 3 })).toBeNull(); // 锚后无表
+  });
+});
+
 /* ---------------- 快照渲染与注入体 ---------------- */
 
 describe('renderTodoTable / todoSnapshotMessage', () => {

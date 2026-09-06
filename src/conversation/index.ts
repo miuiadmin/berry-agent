@@ -18,8 +18,9 @@ export { DEFAULT_RETRY_POLICY } from './types.js';
 export { reseedTimeline } from './reseed.js';
 export { ConversationDriver } from './driver.js';
 export type { SubmitResult } from './driver.js';
-// todo 机器（11e：fold 推导 + conversation/todo 角色 + 快照注入 + 工具件）
-export type { TodoItemData } from './todo.js';
+// todo 机器（11e：fold 推导 + conversation/todo 角色 + 快照注入 + 工具件；
+// 15b：goal 段升格窄面 TodoGoalScope——组合根 goalScopeFor 闭包注入位）
+export type { TodoItemData, TodoGoalScope } from './todo.js';
 export {
   TODO_ROLE,
   createTodoTool,

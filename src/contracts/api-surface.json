@@ -135,7 +135,7 @@
       "since": "1.0",
       "desc": "错误码前缀族明列——文档性常量，供注册面校验与 CI 目录生成； 'HOST_' 系装配根码族",
       "kind": "const",
-      "sig": "17a6c5b7ec3ccca7"
+      "sig": "57c7d2309c98495c"
     },
     {
       "symbol": "EVENT_CATEGORIES",

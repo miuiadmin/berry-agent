@@ -125,6 +125,14 @@ export interface ConversationDriverOptions {
   readonly backgroundTools?: () => AgentTool[];
 
   /**
+   * goal 段窄面供应商（03 §10.5 chat↔goal 数据通道）：todo fold 边界升格
+   * 「goal 生命周期段」的判据面——装配根注入 goal 件 `goalScopeFor` 闭包
+   * （词面独立零 import、结构兼容编译期即验）；**缺席 = fold 退化 run-scoped
+   * 现行为**（goal 未装载/无 active goal 同形）。15b 落码批起用。
+   */
+  readonly goalScopeFor?: (sessionId: string) => { goalId: string; activatedSeq: number } | undefined;
+
+  /**
    * 警示面（唤醒预算拒收等运行时护栏 warn 的落点）：缺省 stderr 直写
    * （护栏不静默）；装配根接 logger。
    */

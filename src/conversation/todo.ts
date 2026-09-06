@@ -89,16 +89,37 @@ export function ensureTodoRole(): void {
  *  - 先遇可见 `user/message` → 空表（用户出手即重置——重置语义由推导承载）；
  *  - 扫到头 → 空表（从未建表）。
  * assistant 消息与工具事件不参与判据（清单跨 assistant 轮持续——CC 语义）。
+ *
+ * goal 段升格（03 §10.5 计划态跨轮条）：scope 在场（goal active——组合根
+ * `goalScopeFor(sessionId)` 闭包注入）时 fold 边界从「用户输入段」升格
+ * 「goal 生命周期段」——倒扫只取激活锚 `activatedSeq` 之后的最后一条
+ * `todo/write`，**续跑轮 user/message 不再重置表**（计划状态结构性跨轮
+ * 存活）；goal 段载荷扩展字段（resumeWhen/role/taskClass/followUp/gate 等）
+ * 由 validateTodoItems 剥离（本 fold 只投影核心四字段——扩展语义归 goal 件
+ * fold 读侧，词面独立零 import）。
  */
-export function foldTodoTable(events: readonly SessionEvent[]): TodoItemData[] {
+export function foldTodoTable(events: readonly SessionEvent[], scope?: TodoGoalScope): TodoItemData[] {
   const occluded = occludedSeqs(events);
   for (let seq = events.length - 1; seq >= 0; seq -= 1) {
     if (occluded.has(seq)) continue;
     const event = events[seq]!;
-    if (event.type === 'user/message') return [];
+    // goal 段边界：越激活锚即出段（锚前历史不成表——goal 生命周期段语义；
+    // 下标即 seq——「seq = 写入时 log.length」不变式下单源）
+    if (scope !== undefined && seq < scope.activatedSeq) return [];
     if (event.type === 'todo/write') return validateTodoItems((event.data as { items?: unknown }).items);
+    // goal 段内 user/message 不重置（跨轮存活）；无 scope 保持 run-scoped 重置
+    if (scope === undefined && event.type === 'user/message') return [];
   }
   return [];
+}
+
+/**
+ * goal 段窄面（词面独立于 goal 件 GoalScope——组合根闭包注入，结构兼容即
+ * 编译期验；缺省 undefined = fold 退化 run-scoped 现行为）。
+ */
+export interface TodoGoalScope {
+  readonly goalId: string;
+  readonly activatedSeq: number;
 }
 
 /** 四态中文计数（回执与渲染表头共用词面） */
@@ -131,9 +152,14 @@ export function renderTodoTable(items: readonly TodoItemData[]): string {
  * 构建跨 turn 注入快照消息：空表返回 null（不注入——从未建表/已重置语义下
  * 不打扰上下文）；非空走角色的 toLlm 转写（ensureTodoRole 自足——快照构建
  * 不依赖驱动侧先行注册）。timestamp 取请求时点（注入体的时间面）。
+ * scope 在场 = goal 段 fold（升格语义见 foldTodoTable 头注）。
  */
-export function todoSnapshotMessage(events: readonly SessionEvent[], timestamp: number): UserMessage | null {
-  const items = foldTodoTable(events);
+export function todoSnapshotMessage(
+  events: readonly SessionEvent[],
+  timestamp: number,
+  scope?: TodoGoalScope,
+): UserMessage | null {
+  const items = foldTodoTable(events, scope);
   if (items.length === 0) return null;
   ensureTodoRole();
   const converted = TODO_ROLE_DEFINITION.toLlm?.({ role: TODO_ROLE, content: items, timestamp });
