@@ -11,7 +11,7 @@ import {
 } from './index.js';
 
 describe('事件词汇注册表', () => {
-  it('核心 19 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补）', () => {
+  it('核心 20 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填）', () => {
     const expected = [
       'turn/start',
       'turn/end',
@@ -26,6 +26,7 @@ describe('事件词汇注册表', () => {
       'approval/decided',
       'gate/decision',
       'sandbox/mode',
+      'session/thinking-level',
       'llm/usage',
       'llm/retry',
       'plugin/uninstalled',

@@ -819,6 +819,13 @@
       "desc": "fork 种子边界标记（data 为空对象，边界即事件自身 seq）"
     },
     {
+      "symbol": "session/thinking-level",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话级思考档位 = fold(events)，append 即切换、重放即恢复（与 sandbox/mode 同形态；04 §5「thinkingLevel 是会话态不是 run 态」的 durable 落账词；写入者 = conversation 件档位切换面）"
+    },
+    {
       "symbol": "todo/write",
       "module": "session-events",
       "tier": "stable",

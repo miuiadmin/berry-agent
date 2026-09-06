@@ -1,6 +1,7 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——19 核心词全列，
- * compaction 三词 2026-09-06 纵切批增补）。
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——20 核心词全列，
+ * compaction 三词 2026-09-06 纵切批增补、session/thinking-level 同日遗漏
+ * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕）。
  *
  * 双入口纪律：核心词汇本表静态声明（含类别/归属/语义），插件扩展经
  * registerEventType 显式注册；session append 词汇检查（未注册类型抛
@@ -44,12 +45,16 @@ export interface EventTypeMeta {
 }
 
 /**
- * 核心事件类型 19 词（05 §1.1 表格逐条转录；owner 归属按表注：
+ * 核心事件类型 20 词（05 §1.1 表格逐条转录；owner 归属按表注：
  * gate/decision 归 tools、llm/usage 归 llm、llm/retry 注册走 session
  * 核心词汇（llm 模块不知道驱动存在）、plugin/uninstalled 宿主写点 host、
- * approval/* 与 sandbox/mode 归 safety 域、todo/write 归 conversation）。
+ * approval/* 与 sandbox/mode 归 safety 域、todo/write 与
+ * session/thinking-level 归 conversation〔05 行 66：写入者 = conversation
+ * 件档位切换面——agent 件零存储感知、不写本词〕）。
  * tier 全 stable（核心词汇 = 已收口契约面，03 §8.3 零隐式载体）。
- * 核心词计数 16→19：compaction/start|surface|end 随 compaction 纵切批入表。
+ * 核心词计数 16→19：compaction/start|surface|end 随 compaction 纵切批入表；
+ * 19→20：session/thinking-level 随遗漏审计批回填（05 §1.1 行 66 agent 纵切
+ * 批已定名，注册表漏登——批 11 conversation 写入将撞词汇闸，先回填止血）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -137,6 +142,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     owner: 'safety',
     tier: 'stable',
     description: '会话级沙箱状态 = fold(events)，append 即切换、重放即恢复（无独立配置存储）',
+  },
+  {
+    type: 'session/thinking-level',
+    category: 'log-only',
+    owner: 'conversation',
+    tier: 'stable',
+    description:
+      '会话级思考档位 = fold(events)，append 即切换、重放即恢复（与 sandbox/mode 同形态；04 §5「thinkingLevel 是会话态不是 run 态」的 durable 落账词；写入者 = conversation 件档位切换面）',
   },
   {
     type: 'llm/usage',
