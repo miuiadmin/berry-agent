@@ -6,9 +6,11 @@
  * `PLUGIN_SHAPE_INVALID` 与 `API_` 族四码已随 contracts 首批/API 治理批在册，
  * 本处不重复注册。
  *
- * 遗留挂账：import 门禁越界拒载码（03 §3.3 字面量腿 + 兜底腿）与库句柄门禁码
- * （02 §5.3「禁直开宿主 SQLite」执法位）码名未定名——随装载器实装笔（批 12d）
- * 定名补落，本文件届时扩列。
+ * 批 12d 补落挂账两码：import 门禁越界拒载（03 §3.3 定名
+ * `PLUGIN_IMPORT_FORBIDDEN`——字面量腿 throw 形执法 + fsCache 关；动态构造
+ * 逃逸残差随沙箱立题，详 03 §3.3 批 12d 勘正段）与库句柄门禁（03 §4.3 定名
+ * `PLUGIN_DB_HANDLE_FORBIDDEN`——宿主主库句柄结构性不外露；执法位 =
+ * `berry-agent/sqlite` 虚拟键受局面 SqliteFace，face 件随其落码批消费本码）。
  */
 import { registerErrorCodes, type ErrorCodeInfo } from '../contracts/index.js';
 
@@ -68,6 +70,18 @@ export const HOST_PLUGIN_ERROR_CODES: readonly ErrorCodeInfo[] = [
     code: 'PLUGIN_HOOK_UNKNOWN',
     module: 'host',
     description: 'hookName 不在钩子主表即拒订阅：fail-closed，未知钩子不静默吞（03 篇 §2.4/§2.7）',
+  },
+  {
+    code: 'PLUGIN_IMPORT_FORBIDDEN',
+    module: 'host',
+    description:
+      'import 门禁越界拒载：依赖图说明符不在三道白名单（虚拟键/node: 内建/插件目录树内——03 §3.3；字面量腿 transform 钩子 throw 形执法〔error 通道不抛已实证〕+ jiti fsCache 关；门禁定位 = 架构边界非反恶意沙箱，动态构造逃逸残差随沙箱立题）',
+  },
+  {
+    code: 'PLUGIN_DB_HANDLE_FORBIDDEN',
+    module: 'host',
+    description:
+      '库句柄门禁：违例触达宿主主库句柄（主库句柄结构性不外露——03 §4.3；执法位 = berry-agent/sqlite 受局面 SqliteFace，随 face 件落码批消费）',
   },
 ];
 

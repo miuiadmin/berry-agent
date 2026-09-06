@@ -3,12 +3,13 @@
  *
  * host 是唯一可 import 全部宿主模块的横切装配层（02 §4.1 host 席；07 §1.1
  * 表 #10：装配序 + CLI 入口 + 插件装载器 + 生命周期工具族落位本域）。
- * 本笔（12a）只落契约面三件：PLUGIN_ 码族补落（codes）+ 插件清单/启用行
- * 拒绝式校验（manifest）+ CLI 解析面（cli——手写 argv 解析器，执法律五条）。
- * 后续笔：12b 装配序实装（运行时生命周期 + dataDir 接线 + 单活跃机 +
- * environmentDisclosure 五件）→ 12c CLI 分派面（dispatch/signals/main
- * bin）→ 12d 装载器 jiti 实装（import 门禁/库句柄门禁码名届时补落
- * codes）→ 12e TUI 入口装配。
+ * 本笔序：12a 契约面三件（PLUGIN_ 码族补落〔codes〕+ 插件清单/启用行拒绝式
+ * 校验〔manifest〕+ CLI 解析面〔cli——手写 argv 解析器，执法律五条〕）→
+ * 12b 装配序实装（运行时生命周期 + dataDir 接线 + 单活跃机 +
+ * environmentDisclosure）→ 12c CLI 分派面（dispatch/signals/main bin）→
+ * 12d 装载器 jiti 实装（import 门禁字面量腿〔03 §3.3 批 12d 勘正〕+ 虚拟
+ * 面直注防双实例 + Kahn 轮次 + 失败三档 + boot-failures 记账；库句柄门禁
+ * 码名已补落 codes——执法位随 SqliteFace 件消费）→ 12e TUI 入口装配。
  *
  * 单向 DAG：host → 全宿主模块（边表已预登记 24 deps；本笔实际触达
  * contracts 单边——契约笔不解包重件）。
@@ -50,3 +51,21 @@ export { dispatchCli, HELP_TEXT } from './dispatch.js';
 export type { CommandHandlers, DispatchEnv } from './dispatch.js';
 export { installSignalChoreography, installCrashChoreography } from './signals.js';
 export type { SignalChoreographyOptions, CrashChoreographyOptions } from './signals.js';
+// 批 12d 装载器 jiti 实装（import 门禁字面量腿 + 虚拟面直注 + Kahn 轮次 + 失败三档）
+export { VIRTUAL_KEYS, checkImportSpecifier, extractImportSpecifiers, createGateTransform } from './import-gate.js';
+export type { ImportGateContext, GateTransformOptions } from './import-gate.js';
+export { loadPlugins, CorePluginBootError } from './loader.js';
+export type {
+  CorePluginReference,
+  DiskPluginSpec,
+  CorePluginSpec,
+  LoaderPlanRow,
+  ServiceBag,
+  LoadPluginJitiOptions,
+  LoadPluginsOptions,
+  ActivatedPlugin,
+  FailedPlugin,
+  LoadReport,
+} from './loader.js';
+export { readBootFailures, recordBootFailure, clearBootFailure } from './boot-failures.js';
+export type { BootFailureEntry, BootFailureDoc, BootFailuresFs } from './boot-failures.js';

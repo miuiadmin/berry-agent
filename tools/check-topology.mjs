@@ -90,6 +90,9 @@ const PRESENT_MODULES = new Set([
   // 批 12a 起在场（host 装配根契约笔——本笔实际触达 contracts 单边，
   // 24 deps 全边预登记兑现随 12b-12e 逐笔落码）
   'host',
+  // 批 14c 起在场（core:web 纯逻辑腿——deps 单边 contracts；装载态集成
+  // 归批 12 装载面后装配批）
+  'web',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -114,6 +117,13 @@ const MODULE_EXTERNALS = {
   // conversation 的 todo 工具件参数面（07 篇 schema 层同律——宿主件直用；
   // 11e 落码批起用）
   conversation: ['typebox'],
+  // web 的 fetch 工具参数面（07 篇 schema 层同律——core: 官方件同仓宿主侧
+  // 直用；14c 落码批起用）
+  web: ['typebox'],
+  // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
+  // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
+  // 一律走虚拟键三转发；批 12d 落码起用）
+  host: ['jiti', 'typebox/value'],
 };
 
 /** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面四名） */
