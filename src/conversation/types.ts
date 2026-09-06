@@ -10,11 +10,12 @@
  * channels / host——一切跨边依赖经 host 装配根闭包注入回调面（04 §11
  * environmentDisclosure 先例同族），缺席语义在各字段位定义保守行为。
  */
-import type { AgentLoopConfig } from '../agent/index.js';
+import type { AgentEventSink, AgentLoopConfig } from '../agent/index.js';
 import type { EventDispatch, Scope } from '../context/index.js';
 import type { Store } from '../persist/index.js';
 import type { SessionLog } from '../session/index.js';
 import type {
+  AgentTool,
   ApprovalAskAnswer,
   ApprovalAskRequest,
   AssistantMessage,
@@ -82,6 +83,12 @@ export interface ConversationDriverOptions {
    */
   readonly systemPrompt?: string;
   /**
+   * 本会话可用工具集（04 §2 AgentContext.tools 的组装面）：标准工具经装配
+   * 根供入；open 域工具族与审批守门钩（beforeToolCall）归 11e。缺席 = 纯
+   * 对话 run（loop 缺省空工具集）。
+   */
+  readonly tools?: readonly AgentTool[];
+  /**
    * 错误分桶器（04 §3.5 消费通路条款）：llm classifyError 单源实现注入；
    * 缺席 = 一切错误按 non-retryable 保守收场（装配残缺不放大重试面）。
    */
@@ -102,6 +109,13 @@ export interface ConversationDriverOptions {
    * 同构经装配注入；缺席 = 无应答者 fail-closed（审批不可静默通过）。
    */
   readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+
+  /**
+   * 活体事件外部汇（04 §2 onEvent 的转发腿）：驱动把活体 AgentEvent 双腿
+   * 转发——durable 接线腿（同步序即落账序）+ 本腿（channels 信封包装归批 12
+   * 装配）。缺席 = 零外部转发（纯落账形态）。
+   */
+  readonly onEvent?: AgentEventSink;
 
   /** turn 级 auto-retry 策略（缺省 DEFAULT_RETRY_POLICY） */
   readonly retry?: RetryPolicyConfig;
