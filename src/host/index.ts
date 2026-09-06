@@ -72,3 +72,5 @@ export type { BootFailureEntry, BootFailureDoc, BootFailuresFs } from './boot-fa
 // 批 12e TUI 入口装配（对话栈组合根——五层一次成型 + 启动会话策略）
 export { createConversationStack } from './conversation-stack.js';
 export type { ConversationStackOptions, ConversationStack, StartupSession } from './conversation-stack.js';
+export { runTuiEntry } from './tui-entry.js';
+export type { TuiEntryOptions } from './tui-entry.js';

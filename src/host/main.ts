@@ -27,6 +27,7 @@ import type { CommandHandlers } from './dispatch.js';
 import { appendCrashLog } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { installCrashChoreography, installSignalChoreography } from './signals.js';
+import { runTuiEntry } from './tui-entry.js';
 
 /** 在飞运行时柄（组装后挂入——信号/崩溃编舞切运行时本体；前置窗口 null） */
 let activeRuntime: HostRuntime | null = null;
@@ -43,8 +44,15 @@ function readVersion(): string {
   return pkg.version ?? '0.0.0-unknown';
 }
 
-/** 执行器族（12c 全空——逐批充实，见件头注记） */
-const handlers: CommandHandlers = {};
+/** 执行器族（12c 空起——逐批充实；12e TUI 主入口已接线，余命令诚实退 1） */
+const handlers: CommandHandlers = {
+  tui: (flags) =>
+    runTuiEntry({
+      flags,
+      version: readVersion(), // OSC title 基线真值（批 12 挂账兑现）
+      onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
+    }),
+};
 
 /** 主序：编舞装配 → 分派 → 终局 */
 async function main(): Promise<number> {

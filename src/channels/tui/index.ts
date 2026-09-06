@@ -10,3 +10,8 @@
  */
 export type { TuiBackendOptions } from './backend/tui-backend.js';
 export { TuiBackend } from './backend/tui-backend.js';
+// 补全源族（批 12e host 装配消费——@ 文件段源与注入面类型；组件族余者仍件内）
+export { FileMentionSource } from './autocomplete/file-mentions.js';
+export type { FileMentionSourceOptions } from './autocomplete/file-mentions.js';
+export type { AutocompleteSources } from './autocomplete/autocomplete.js';
+export type { AutocompleteItem } from './autocomplete/provider.js';

@@ -1,0 +1,160 @@
+/**
+ * host/tui-entry — TUI 主入口装配（批 12e；07 §5 无参启动 = TUI 主入口）。
+ *
+ * 装配序（channels/service.ts 头注真源）：createHostRuntime（占标记→开库→
+ * 披露段）→ logger 装配（BERRY_AGENT_LOG_LEVEL 解析 + --debug 提级〔env 已设
+ * 时让位〕）→ createConversationStack → openStartupSession（07 §5 启动会话
+ * 策略：cwd 归一根取最新续接、无则新建）→ TuiBackend 组装（提交/打断/退出/
+ * 命令分发/todo 回看/补全三源/version 基线/生产定时器）→ addBackend → start
+ * → registerSession → focus 首画 → 主循环 await 退出 → runtime.shutdown 六步
+ * 退出序（closer 内含 backend.stop 出屏复原）。
+ *
+ * 退出码：0 = ctrl+d 空框优雅退出；1 = 运行时组装失败（单活跃机拒入/开库
+ * 失败——干净退出不写 crash.log，非崩溃）或运行期异常（先 writeCrashLog 再退）。
+ * 信号路径独立：SIGINT①/SIGTERM → onGraceful → runtime.shutdown → exit(0)
+ * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
+ *
+ * 挂账（批 12f 装载面）：--no-plugins/--port 旗标的装载/webui 开面消费。
+ */
+import { createLogger, LogLevelState } from '../context/index.js';
+import { FileMentionSource, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
+import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
+import { foldTodoTable } from '../conversation/index.js';
+import type { Provider } from '../llm/index.js';
+import type { SandboxMode } from '../safety/index.js';
+
+import type { TuiFlags } from './cli.js';
+import { createConversationStack } from './conversation-stack.js';
+import { createHostRuntime } from './runtime.js';
+import type { HostRuntime } from './runtime.js';
+
+/** TUI 入口选项（main 分派接线 + 测试注入面） */
+export interface TuiEntryOptions {
+  readonly flags: TuiFlags;
+  /** 终端适配器（缺省 ProcessTerminalIO——process stdin/stdout 直连） */
+  readonly io?: TerminalIO;
+  /** 启动会话策略锚点（缺省 process.cwd()） */
+  readonly cwd?: string;
+  /** 版本串（OSC title 基线——批 12 真值挂账兑现位；缺席 = 裸名基线） */
+  readonly version?: string;
+  /** 数据目录（HostRuntimeOptions 透传；缺省 resolveDataDir() 三级梯子） */
+  readonly dataDir?: string;
+  /** :memory: 同构形态（诊断测试） */
+  readonly memory?: boolean;
+  /** 初始 provider 集（测试注入 faux provider） */
+  readonly providers?: readonly Provider[];
+  /** 模型标识（组合根透传；缺省 BERRY_AGENT_MODEL 覆盖律） */
+  readonly model?: string;
+  /** 沙箱档位取值器（透传组合根；缺省 workspace-write） */
+  readonly sandboxMode?: () => SandboxMode;
+  /** env 面（缺省 process.env；测试隔离 BERRY_AGENT_MODEL） */
+  readonly env?: Record<string, string | undefined>;
+  /** 已组运行时（测试注入；缺省现场组装） */
+  readonly runtime?: HostRuntime;
+  /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
+  readonly onRuntime?: (runtime: HostRuntime) => void;
+}
+
+/**
+ * TUI 主入口。阻塞至用户退出（ctrl+d 空框）或异常；返回进程退出码。
+ */
+export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
+  // —— 运行时组装（单活跃机 + 开库 fail-loud——干净退出档，非崩溃取证档）——
+  let runtime: HostRuntime;
+  try {
+    runtime =
+      options.runtime ??
+      createHostRuntime({
+        ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+        ...(options.memory === true ? { memory: true } : {}),
+      });
+  } catch (err) {
+    process.stderr.write(`启动失败：${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+  options.onRuntime?.(runtime);
+
+  // —— logger 装配：env 解析（无效条目 stderr 警告后跳过）+ --debug 提级让位律 ——
+  const env = options.env ?? process.env;
+  const logState = LogLevelState.fromEnv(env.BERRY_AGENT_LOG_LEVEL);
+  if (options.flags.debug && env.BERRY_AGENT_LOG_LEVEL === undefined) logState.setGlobalLevel('debug');
+  const logger = createLogger('host', logState);
+
+  let exitCode = 0;
+  try {
+    const stack = createConversationStack({
+      runtime,
+      ...(options.providers !== undefined ? { providers: options.providers } : {}),
+      ...(options.model !== undefined ? { model: options.model } : {}),
+      ...(options.env !== undefined ? { env: options.env } : {}),
+      ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+      warn: (message) => logger.warn(message),
+    });
+    // 启动会话策略（07 §5）：无参启动按 cwd 取最新会话——有则续接无则新建
+    const session = stack.openStartupSession(options.cwd ?? process.cwd());
+
+    const io = options.io ?? new ProcessTerminalIO();
+    let quitResolve: () => void = () => {};
+    const quitDone = new Promise<void>((resolve) => {
+      quitResolve = resolve;
+    });
+
+    // 补全命令源：通道核命令表 → '/' 前缀条目（@ 文件段源锚工作区根）
+    const mentions = new FileMentionSource({ basePath: session.workspaceRoot });
+    const rows = io.size().rows;
+    const backend = new TuiBackend(io, {
+      sessionId: session.sessionId,
+      onSubmit: (sessionId, text) => {
+        void stack.submitText(sessionId, text); // fire-and-forget——回执经信封回流
+      },
+      onInterrupt: (sessionId) => stack.interrupt(sessionId),
+      onQuit: () => quitResolve(),
+      dispatchCommand: (input) => stack.channels.dispatchCommand(input),
+      todoFor: (sessionId) => {
+        const driver = stack.driverOf(sessionId);
+        return driver === undefined ? null : foldTodoTable(driver.session.events());
+      },
+      autocomplete: {
+        commands: (query) => commandItems(stack.channels.listCommands(), query),
+        mentions: (query) => mentions.get(query),
+      },
+      // 装配实测定值（07 §4.1）：编辑器可视行 = 终端高 30%（下钳 3）
+      maxVisibleLines: Math.max(3, Math.floor(rows * 0.3)),
+      ...(options.version !== undefined ? { version: options.version } : {}),
+      // 生产定时器注入（保活/帧帽真定时——缺省同步直出仅测试语义）
+      schedule: (fn, ms) => setTimeout(fn, ms),
+      cancelSchedule: (handle) => clearTimeout(handle as NodeJS.Timeout),
+    });
+
+    // 出屏复原进退出序 closer——quit 路径与信号路径（onGraceful→shutdown）同享
+    runtime.registerCloser({ label: 'tui-backend', fn: () => backend.stop() });
+
+    stack.channels.addBackend(backend);
+    backend.start();
+    stack.channels.registerSession(session.sessionId);
+    await stack.channels.focus(session.sessionId); // 启动投影首画（含 resume 历史回读）
+
+    await quitDone; // 主循环——输入事件驱动，直至 ctrl+d 空框退出
+  } catch (err) {
+    runtime.writeCrashLog(err); // 崩溃取证先行（memory 形跳过——件内语义）
+    process.stderr.write(`TUI 运行失败：${err instanceof Error ? err.message : String(err)}\n`);
+    exitCode = 1;
+  } finally {
+    await runtime.shutdown(); // 幂等六步：abort → closer（backend.stop 出屏）→ flush → …
+  }
+  return exitCode;
+}
+
+/** 命令表 → 补全条目（'/' 前缀过滤——query 已去斜杠，AutocompleteSources 契约） */
+function commandItems(
+  specs: readonly { name: string; description?: string }[],
+  query: string,
+): readonly AutocompleteItem[] {
+  return specs
+    .filter((spec) => spec.name.startsWith(query))
+    .map((spec) => ({
+      label: `/${spec.name}`,
+      ...(spec.description !== undefined ? { detail: spec.description } : {}),
+      replacement: `/${spec.name}`,
+    }));
+}

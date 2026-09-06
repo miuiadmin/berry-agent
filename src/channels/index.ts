@@ -37,6 +37,12 @@ export type { ChannelsService } from './service.js';
 // 后端装配物）
 export type { TuiBackendOptions } from './tui/index.js';
 export { TuiBackend } from './tui/index.js';
+// 真终端适配器 + 补全源族（批 12e host 装配消费——engine/·tui/ 组件族非公开
+// 面纪律的件外出口位：「本面随真实件外消费扩」先例；余组件仍件内消费）
+export { ProcessTerminalIO } from './engine/index.js';
+export type { TerminalIO } from './engine/index.js';
+export { FileMentionSource } from './tui/index.js';
+export type { FileMentionSourceOptions, AutocompleteSources, AutocompleteItem } from './tui/index.js';
 // SDK 线协议（批 13a 契约先行——03 §10.6 件身份条：协议核心代码位与 channels
 // 通道核同体，SDK 通道后端 = UiBackend 第三后端；本面出协议词汇/信封 + NDJSON
 // 编解码 + admit/游标纯逻辑四件。后端实装（事件外推/请求受理/出站队列）随批
