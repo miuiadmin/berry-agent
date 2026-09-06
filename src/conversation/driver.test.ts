@@ -164,6 +164,20 @@ describe('ConversationDriver durable 接线', () => {
     expect(projection.map((m) => m.type)).toEqual(['user', 'assistant']);
   });
 
+  it('dedupeKey 透传落账：submit 选项带则 user/message data 携、不带则缺席（05 §3.5 幂等 admit 传位）', async () => {
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '答一' }] }),
+        assistant({ content: [{ type: 'text', text: '答二' }] }),
+      ],
+    });
+    await driver.submit('问一', { dedupeKey: 'msg-42' });
+    await driver.submit('问二');
+    const userData = dataOf(driver, 'user/message');
+    expect(userData[0]).toMatchObject({ dedupeKey: 'msg-42' });
+    expect(userData[1]).not.toHaveProperty('dedupeKey');
+  });
+
   it('工具批：一 durable turn 内 assistant/toolCall/toolResult/二 assistant（turn_end=toolUse 不闭）', async () => {
     const { driver, seen } = makeDriver({
       scripts: [

@@ -151,6 +151,13 @@ export interface SubmitOptions {
    * maxConsecutiveWakes 唤醒预算（防自激励环）；缺省 false = 前台输入。
    */
   readonly backgroundWake?: boolean;
+  /**
+   * 幂等 admit 去重键（05 §3.5 第二腿——两词一字段两面）：调用方自选、
+   * 随 user/message 落 durable data.dedupeKey。serve/SDK 线面受理时以
+   * messageId 透传（受理即落账）；UI 侧不带零影响（data 审计字段不进
+   * 模型上下文——05 §3.1）。缺省不带。
+   */
+  readonly dedupeKey?: string;
 }
 
 /**

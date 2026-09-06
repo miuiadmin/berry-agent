@@ -98,6 +98,11 @@ export interface SdkWireOptions {
   queueCap?: number;
   /** SDK_OVERLOADED 载荷 retryAfterMs */
   overloadRetryAfterMs?: number;
+  /**
+   * 连接级缺省 noDelta 初值（07 §5 --no-delta：serve 收旗标为宿主侧立场
+   * 缺省——连接级 hello 显式携值胜出、缺席承本缺省）
+   */
+  initialConnectionNoDelta?: boolean;
 }
 
 /** 订阅相位（同步读面下 attaching/replaying 在单事务内瞬过——13e 异步腿扩用） */
@@ -213,7 +218,7 @@ export class SdkWireCore {
   private readonly heartbeatIntervalMs: number;
   private readonly overloadRetryAfterMs: number;
   /** 连接级缺省 noDelta（连接级 hello 落定；prompt 自动订阅继承） */
-  private connectionNoDelta = false;
+  private connectionNoDelta: boolean;
   private closed = false;
 
   constructor(
@@ -223,6 +228,7 @@ export class SdkWireCore {
     this.now = options.now ?? Date.now;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 5_000;
     this.overloadRetryAfterMs = options.overloadRetryAfterMs ?? 1_000;
+    this.connectionNoDelta = options.initialConnectionNoDelta ?? false;
     this.queue = new SdkOutboundQueue(deps.sink, options.queueCap ?? 512);
   }
 
@@ -283,9 +289,10 @@ export class SdkWireCore {
       this.closedReason = 'SDK_PROTOCOL_MISMATCH';
       return;
     }
-    // 连接级握手（无会话订阅）：落定连接缺省 noDelta，首个 ack 落定缺省会话
+    // 连接级握手（无会话订阅）：落定连接缺省 noDelta——显式携值胜出、缺席承
+    // 构造初值（07 §5 --no-delta 宿主立场缺省；选项缺席时初值 false 语义不变）
     if (sessionId === undefined) {
-      this.connectionNoDelta = noDelta ?? false;
+      this.connectionNoDelta = noDelta ?? this.connectionNoDelta;
       this.emit({ kind: 'hello', protocolVersion: SDK_PROTOCOL_VERSION, sessionId: '', highWaterSeq: 0 });
       return;
     }

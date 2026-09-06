@@ -115,7 +115,8 @@ export class ConversationDriver {
 
   /**
    * 用户输入入口（04 §4——三通道路由细节单源在 routeMessage；本入口只
-   * 组装 user 消息：source 缺省 'user'、backgroundWake 随选项透传）。
+   * 组装 user 消息：source 缺省 'user'、backgroundWake 随选项透传；
+   * dedupeKey 同随选项透传 data.dedupeKey——幂等 admit 落账位 05 §3.5）。
    */
   submit(
     content: UserMessage['content'],
@@ -126,6 +127,7 @@ export class ConversationDriver {
       content,
       timestamp: Date.now(),
       ...(options?.source !== undefined ? { source: options.source } : { source: 'user' }),
+      ...(options?.dedupeKey !== undefined ? { dedupeKey: options.dedupeKey } : {}),
     };
     return this.routeMessage(message, options?.backgroundWake);
   }

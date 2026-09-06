@@ -274,6 +274,19 @@ describe('prompt 腿（④ admit 三档 + 自动订阅 + 会话受理门）', ()
     h.core.pushEvent('s1', { type: 'message_end', message: partialMsg() });
     expect(h.frames.filter((f) => f.kind === 'event')).toHaveLength(1); // 定稿锚定帧不受 noDelta 影响
   });
+
+  it('initialConnectionNoDelta 宿主立场缺省（07 §5 --no-delta）：hello 缺席承缺省、显式 false 胜出', () => {
+    // 旗标缺省 true：会话级 hello 不携 noDelta → 承连接缺省，message_update 剥
+    const h = createHarness({ initialConnectionNoDelta: true });
+    seedS1(h);
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, sessionId: 's1' });
+    h.core.pushEvent('s1', { type: 'message_update', role: 'assistant', partial: partialMsg() });
+    expect(h.frames.filter((f) => f.kind === 'event')).toEqual([]);
+    // 调用方显式 noDelta: false 胜出（连接级再握手）——增量恢复
+    h.core.handleRequest({ verb: 'hello', protocolVersion: 1, noDelta: false, sessionId: 's1' });
+    h.core.pushEvent('s1', { type: 'message_update', role: 'assistant', partial: partialMsg() });
+    expect(h.frames.filter((f) => f.kind === 'event')).toHaveLength(1);
+  });
 });
 
 describe('interrupt / decide / getEntries / sessions 四动词', () => {
