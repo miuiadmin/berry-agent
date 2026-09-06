@@ -88,6 +88,16 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     description: '核心事件词身份拒绝装载面注册/伪造（双闸判据同源，05 篇 §1.1）',
   },
   {
+    code: 'SESSION_NOT_FOUND',
+    module: 'session',
+    description: '线/接口面命中不存在的会话（批 13b 随 SDK 请求面受理注册——webui 404 同语义）',
+  },
+  {
+    code: 'SESSION_CLOSED',
+    module: 'session',
+    description: '线/接口面向已闭会话新发拒收（回放读面不受限——批 13b 随 SDK 请求面受理注册）',
+  },
+  {
     code: 'HOST_DATA_DIR_BUSY',
     module: 'host',
     description: '单活跃机拒启：同数据目录活跃标记在场且 pid 活（fail-loud 不降级）',
