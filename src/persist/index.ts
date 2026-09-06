@@ -31,6 +31,9 @@ export {
   ephemeralSecretKey,
 } from './secret-box.js';
 export { openStore, Store } from './store.js';
+// 同实例句柄窄面的类型出口（批 15a——core: 插件 DAO 接线位）：better-sqlite3
+// 裸导入仍只准 persist（native 隔离律），消费侧经此类型导入取得 Database 形。
+export type { Database as SqliteDatabase } from 'better-sqlite3';
 export type {
   EventWrite,
   IncidentEntry,

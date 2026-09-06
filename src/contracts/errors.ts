@@ -65,6 +65,7 @@ export const ERROR_CODE_PREFIXES = [
   'API_',
   'AGENT_',
   'SDK_',
+  'SCHEDULER_',
 ] as const;
 
 /**

@@ -336,6 +336,20 @@ export class Store implements WriteTarget {
     return s;
   }
 
+  /**
+   * 同实例 better-sqlite3 句柄窄面（core: 插件 DAO 接线位——批 15a 起生效；
+   * 03 §3.2 `berry-agent/sqlite` SqliteFace 同源同律：宿主 core: 件建自有表走
+   * 同一实例、better-sqlite3 裸导入仍只准 persist——消费侧以类型导入取得
+   * `SqliteDatabase` 形、零运行时依赖）。
+   *
+   * 调用方纪律：只建自有表族/只读写自有表——主库七表（schema.ts CANONICAL_DDL）
+   * 的读写恒走 Store 方法面，本面不为绕开写链门禁而开。
+   */
+  sqlite(): Database.Database {
+    this.ensureOpen();
+    return this.db;
+  }
+
   /** 关库守卫（调用序 bug——编程错误面，非注册码语义） */
   private ensureOpen(): void {
     if (this.closed) throw new Error('persist Store 已关闭（close 后不得再读写——调用序 bug）');

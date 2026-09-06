@@ -106,6 +106,11 @@ const PRESENT_MODULES = new Set([
   // #26 席：L4、deps contracts+channels 与 webui 同构〕；13e-1 起域 = 端点
   // 词面/开面配置/三防线判定器，传输实装 13e-2、daemon 13e-3；MCP 包装 13f）
   'sdk',
+  // 批 15a 起在场（core:scheduler 纯逻辑腿——jobs 表/进程内挂钟/抢占/
+  // DiscoveryGates/cron 可选后端//tick 处理器，deps {contracts, context,
+  // persist}；装载态集成〔ctx.schedule、channels /tick 注册、--tick CLI、
+  // GateFacts 宿主收集〕归批 12 装载面后装配批）
+  'scheduler',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
