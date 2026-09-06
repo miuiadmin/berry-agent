@@ -33,3 +33,9 @@ export type {
 export type { AutocompleteSources } from './autocomplete/autocomplete.js';
 export { CombinedAutocompleteProvider } from './autocomplete/autocomplete.js';
 export { AutocompletePopup } from './autocomplete/popup.js';
+export type { InlineSpan } from './markdown/inline.js';
+export { parseInline } from './markdown/inline.js';
+export type { MarkdownBlock } from './markdown/blocks.js';
+export { parseMarkdown } from './markdown/blocks.js';
+export { MarkdownDoc } from './markdown/markdown.js';
+export { StatusLine } from './status/status-line.js';
