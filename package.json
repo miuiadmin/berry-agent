@@ -5,6 +5,14 @@
   "description": "berry-agent — 单一、可扩展的个人 Agent：对话与编码即本体，一切能力以插件装载",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miuiadmin/berry-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/miuiadmin/berry-agent/issues"
+  },
+  "homepage": "https://github.com/miuiadmin/berry-agent#readme",
   "bin": {
     "berry-agent": "./dist/host/main.js"
   },
