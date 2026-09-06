@@ -755,6 +755,55 @@
       "sig": "9d3b33568822fbc4"
     },
     {
+      "symbol": "api",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "API 治理块（minApiVersion/targetApiVersion/experimental）"
+    },
+    {
+      "symbol": "config",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "配置形状（typebox JSON Schema）；启用行值同判据校验"
+    },
+    {
+      "symbol": "entry",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "入口文件（相对包根）；缺席走入口解析序三步"
+    },
+    {
+      "symbol": "grants",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "授权申请面；单维 writableRoots 字符串数组"
+    },
+    {
+      "symbol": "id",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "插件 id；缺省取 package.json name，不合字符集须显式声明（无隐式映射变换）"
+    },
+    {
+      "symbol": "label",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "展示名；缺省取 id"
+    },
+    {
+      "symbol": "skills",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "技能目录清单；非空即在场的唯一声明载荷（纯声明包零码装载）"
+    },
+    {
       "symbol": "approval/asked",
       "module": "session-events",
       "tier": "stable",

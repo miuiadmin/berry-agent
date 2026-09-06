@@ -17,8 +17,8 @@
  * - 构建链拷入 `dist/api/surface.json`（§8.9 快照双位随包位——插件开发者随包
  *   参考物，运行时不读〔装载门 §8.4 / ctx.host §8.5 直读 contracts 单源〕）。
  *
- * 六真相源与各自提取法（规范 §8.2「抽取器落码形态」，现状三域有码、三域空集
- * 随对应落码批激活）：
+ * 六真相源与各自提取法（规范 §8.2「抽取器落码形态」，现状四域有码、两域
+ * 空集随对应落码批激活）：
  * 1. 虚拟键真身——`berry-agent` 键 = contracts 公开根（index.ts）全部导出符号
  *    （值 + 类型）：**token 扫描器**逐符号提取（经典 createScanner 令牌流走
  *    顶层 export 语句，格式无关、注释/字符串天然安全——本仓 typescript 6 无
@@ -33,8 +33,8 @@
  * 3+4. 钩子与事件词汇（码面同载体 contracts/events.ts 单源防双记）：
  *    会话事件目录 = jiti listEventTypes() 收割（tier 从注册表 meta.tier 必填
  *    字段、desc 从 description 首句——零隐式 API 的目录载体兑现）。
- * 5. 插件清单 schema——未落码（真相源⑤空集）；清单键目录随清单 schema 落码
- *    批接入（MANIFEST_API_KEYS 域）。
+ * 5. 插件清单 schema——真源 = host/manifest.ts MANIFEST_KEY_CATALOG 目录
+ *    （批 12a 接入 manifest-keys 域；校验闭集同源派生）。
  * 6. 装机账本词表——未落码（真相源⑥空集）；随装机账本落码批接入。
  *
  * tier 载体分职（§8.3）：键级读 VIRTUAL_API_KEYS tier 列；目录宿主符号读注册表
@@ -1623,8 +1623,21 @@ export async function extractSurface() {
     });
   }
 
-  // —— #5：插件清单键目录——真相源⑤未落码（清单 schema 落码批接入 MANIFEST_
-  // API_KEYS 域，同律 desc = note 首句）——
+  // —— #5：插件清单键目录（真相源⑤——清单 schema 落码批〔批 12a host 契约笔〕
+  // 接入；真源 = host/manifest.ts MANIFEST_KEY_CATALOG 单源目录，校验闭集同源
+  // 派生——键表增删两路同笔共变；desc 同律滤词首句；目录域不挂 sig〔同
+  // session-events 词表域〕）——
+  const manifestMod = await imp('../src/host/manifest.ts');
+  for (const k of manifestMod.MANIFEST_KEY_CATALOG) {
+    const desc = firstPublicSentence(k.desc);
+    exports.push({
+      symbol: k.key,
+      module: 'manifest-keys',
+      tier: k.tier,
+      since: '1.0',
+      ...(desc !== undefined ? { desc } : {}),
+    });
+  }
   // —— #6：装机账本词表——真相源⑥未落码（装机账本落码批接入 data-keys 域）——
   // —— #7：DEP 注册簿 join——批 3 落地 src/contracts/deprecations.ts 后接入
   //（命中 module::symbol 坐标即改标 deprecated 并挂载荷；注册簿指向面清单缺席
