@@ -17,6 +17,10 @@ coverage/
 # 永不入公开史；禁 git add -f 强加）
 参考源码/
 
+# 研究源码——外部待研究仓库整目录本地自持（与 参考源码/ 的已消化参考集分立；
+# 承 berry 同律：gitignore 保护行入库存档，永不入公开史；禁 git add -f 强加）
+研究源码/
+
 # 治理文档本地自持（AGENTS.md 真身 + CLAUDE.md symlink 指向它）——不入公开库
 AGENTS.md
 CLAUDE.md
