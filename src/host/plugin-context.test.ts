@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
+import { getErrorCodeInfo } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { CommandRegistry } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
 import type { PluginContextHandle } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
+// 错误码册注册腿（「import 发生才注册」——门关码注册断言的前置副作用）
+import './codes.js';
 
 /** 宿主自省面测试替身（materializeHostFace 形——纯数据即可） */
 const HOST_FACE = {
@@ -20,6 +23,7 @@ function assemble(overrides?: {
   pluginId?: string;
   rateLimit?: { windowMs: number; max: number };
   hookTimeoutMs?: number;
+  opens?: readonly string[];
 }): {
   handle: PluginContextHandle;
   dispatch: EventDispatch;
@@ -42,6 +46,7 @@ function assemble(overrides?: {
     hostFace: HOST_FACE,
     ...(overrides?.rateLimit ? { rateLimit: overrides.rateLimit } : {}),
     ...(overrides?.hookTimeoutMs ? { hookTimeoutMs: overrides.hookTimeoutMs } : {}),
+    ...(overrides?.opens !== undefined ? { opens: overrides.opens } : {}),
   });
   return { handle, dispatch, scope, promptSections };
 }
@@ -508,5 +513,71 @@ describe('ctx.provide（03 §2.2 表行——Kahn 解锁动词）', () => {
   it('受局面缺位响亮（CONTEXT_SERVICE_MISSING——装配缺陷不静默）', () => {
     const { handle } = assemble(); // assemble 不接 provide 位 = 缺席态
     expectCode(() => handle.ctx.provide('any-svc', 1), 'CONTEXT_SERVICE_MISSING');
+  });
+});
+
+describe('高危面门检挂载（03 §4.6 批 U2——handle 门检面）', () => {
+  it('授予集物化：opens 注入 → grantedOpens 精确集合；缺席 → 空集（全默认关）', () => {
+    const { handle } = assemble({ opens: ['channels.ui-backend', 'sdk.register-route'] });
+    expect(handle.grantedOpens.size).toBe(2);
+    expect(handle.grantedOpens.has('channels.ui-backend')).toBe(true);
+    expect(handle.grantedOpens.has('sdk.register-route')).toBe(true);
+    const bare = assemble();
+    expect(bare.handle.grantedOpens.size).toBe(0);
+  });
+
+  it('assertDoor 授予位含此名即过（不抛）', () => {
+    const { handle } = assemble({ opens: ['sdk.register-route'] });
+    expect(() => handle.assertDoor('sdk.register-route')).not.toThrow();
+  });
+
+  it('assertDoor 高危面未授予 → PLUGIN_CAPABILITY_DOOR_CLOSED（message 指路 opens 写法 + 点名插件）', () => {
+    const { handle } = assemble({ opens: ['sdk.register-route'] });
+    try {
+      handle.assertDoor('channels.ui-backend');
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(BaseError);
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('PLUGIN_CAPABILITY_DOOR_CLOSED');
+        expect(err.message).toContain('channels.ui-backend');
+        expect(err.message).toContain('opens');
+        expect(err.message).toContain('acme-widgets');
+      }
+    }
+  });
+
+  it('assertDoor 非高危面名同码分流拒（not-a-door 装配缺陷面——message 含名单指路）', () => {
+    const { handle } = assemble({ opens: ['channels.ui-backend'] });
+    try {
+      handle.assertDoor('channels.render');
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(BaseError);
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('PLUGIN_CAPABILITY_DOOR_CLOSED');
+        expect(err.message).toContain('不在高危面名单');
+      }
+    }
+  });
+
+  it('门检面不进 ctx 插件面（结构性——开门是宿主裁决面，插件探测不到门检存在）', () => {
+    const { handle } = assemble({ opens: ['sdk.register-route'] });
+    const ctx = handle.ctx as unknown as Record<string, unknown>;
+    expect('grantedOpens' in ctx).toBe(false);
+    expect('assertDoor' in ctx).toBe(false);
+    expect('opens' in ctx).toBe(false);
+  });
+
+  it('关窗后门检照常（宿主裁决面不吃装载窗律——回调窗内换装场景〔U3〕可判）', () => {
+    const { handle } = assemble({ opens: ['sdk.register-route'] });
+    handle.closeWindow();
+    expect(() => handle.assertDoor('sdk.register-route')).not.toThrow();
+    expectCode(() => handle.assertDoor('channels.ui-backend'), 'PLUGIN_CAPABILITY_DOOR_CLOSED');
+  });
+
+  it('门关码已注册错误码册（import 发生才注册——host 域 PLUGIN_ 族）', () => {
+    expect(getErrorCodeInfo('PLUGIN_CAPABILITY_DOOR_CLOSED')?.module).toBe('host');
+    expect(getErrorCodeInfo('PLUGIN_CAPABILITY_DOOR_CLOSED')?.description).toBeTruthy();
   });
 });

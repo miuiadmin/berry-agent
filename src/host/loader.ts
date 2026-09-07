@@ -100,8 +100,13 @@ export interface LoadPluginJitiOptions {
 export interface LoadPluginsOptions<TCtx = unknown> {
   readonly plan: readonly LoaderPlanRow[];
   readonly services: ServiceBag;
-  /** 逐插件 ctx 构造（apply 第一参——注册动词族面随装配批充实） */
-  readonly createContext: (pluginId: string) => TCtx;
+  /**
+   * 逐插件 ctx 构造（apply 第一参——注册动词族面随装配批充实）。第二参 =
+   * 高危面开门授予集（03 §4.6 批 U2——**磁盘行 opens 透传**，core: 行结构性
+   * 缺席 = undefined；装配侧据此构造 handle 门检面）。缺省可忽略（不消费
+   * 开门制的调用方照旧只取第一参）。
+   */
+  readonly createContext: (pluginId: string, opens?: readonly string[]) => TCtx;
   /**
    * jiti 虚拟面注入（防双实例直注）。缺省 = 宿主四键 lazy 直注：
    * berry-agent 主键（contracts 公开面）+ typebox 三键；berry-agent/llm 与
@@ -261,7 +266,8 @@ async function loadRow<TCtx>(
 ): Promise<void> {
   const { options, applyBudgetMs } = state;
   try {
-    const ctx = options.createContext(row.id);
+    // 开门授予集只随磁盘行透传（core: 行无 opens 位——读侧已拒，结构性保证）
+    const ctx = options.createContext(row.id, row.kind === 'disk' ? row.opens : undefined);
     const config = row.kind === 'core' ? (row.config !== undefined ? row.config : row.reference.config) : row.config;
 
     if (row.kind === 'core') {

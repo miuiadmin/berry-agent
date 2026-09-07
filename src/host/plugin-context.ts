@@ -27,6 +27,8 @@
  * 归 tools 域——宿主发射位接线随装配批）。
  */
 import { BaseError, registerEventType, registerMessageRole } from '../contracts/index.js';
+// internal 桶机制符号深导（门检裁决核——03 §4.6；开门是宿主裁决面非插件 API）
+import { adjudicateCapabilityDoor } from '../contracts/api.js';
 import type { EventTypeMeta, HostFace, MessageRoleDefinition, ToolDefinition } from '../contracts/index.js';
 import type { LlmRuntime } from '../llm/index.js';
 import type { CommandHandler } from '../channels/index.js';
@@ -180,6 +182,13 @@ export interface PluginContextOptions {
   readonly hookTimeoutMs?: number;
   /** 钩子超时上报（缺省 stderr 直写） */
   readonly onHookTimeout?: HookTimeoutReporter;
+  /**
+   * 高危面开门授予集（03 §4.6 批 U2——启用清单行 opens 经计划行透传至此；
+   * 值域已过 parseEnabledRows 行校验，此处零复验）。缺席 = 空集 = 全默认关。
+   * **只进 handle 门检面不进 ctx**——开门是宿主裁决面，插件结构性不可见
+   * （不获授予的插件探测不到门检存在，恰是默认关语义）。
+   */
+  readonly opens?: readonly string[];
 }
 
 /** 命令注册表受局面（CommandRegistry 的结构面——测试替身免建全量） */
@@ -198,6 +207,21 @@ export interface PluginContextHandle {
    * 窗内注册动词合法（§2.4 主表注记钩子豁免条款）；深度计数支持嵌套回调。
    */
   enterHostCallback(): () => void;
+  /**
+   * 本插件开门授予集读面（03 §4.6——宿主注入位消费：U3 界面后端换装缝/U5
+   * 路由受理面判「该插件被用户开了哪些门」）。只读集合语义。
+   */
+  readonly grantedOpens: ReadonlySet<string>;
+  /**
+   * 高危面门检（03 §4.6 fail-loud）：裁决核 contracts adjudicateCapabilityDoor
+   * （两序判：非高危面 → not-a-door 装配缺陷面；高危面未授予 → door-closed
+   * 默认关正当拒绝面），verdict 失败即抛 `PLUGIN_CAPABILITY_DOOR_CLOSED`
+   * （同码分流——message 底稿即 verdict.message）。**宿主注入位专用**——
+   * 吃不吃装载窗律？不吃：门检是宿主裁决面非插件注册动词（回调窗内换装
+   * 场景〔U3 钩子内重装界面〕照常可判）。throw 位消费面 = 换装缝/路由
+   * 受理面（随批 U3/U5 落地接线——本笔挂载面先行）。
+   */
+  assertDoor(capability: string): void;
 }
 
 /** 缺省钩子超时上报（stderr 直写——装配根接 logger 前的先有鸡缺省） */
@@ -223,6 +247,21 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
 
   // 频率护栏滑动窗（§3.4：单插件注册/事件动作 1000 次/1000ms——数组剪枝）
   const recentActions: number[] = [];
+
+  // 开门授予集物化（03 §4.6 批 U2——只进 handle 门检面，不进 ctx 插件面）
+  const grantedOpens: ReadonlySet<string> = new Set(options.opens ?? []);
+
+  /**
+   * 高危面门检（§4.6 fail-loud）：裁决核拒绝即抛门关码（同码分流——
+   * door-closed/not-a-door 两档共用 PLUGIN_CAPABILITY_DOOR_CLOSED，message
+   * 底稿 = verdict.message 原文）。
+   */
+  const assertDoor = (capability: string): void => {
+    const verdict = adjudicateCapabilityDoor(grantedOpens, capability);
+    if (!verdict.ok) {
+      throw new BaseError('PLUGIN_CAPABILITY_DOOR_CLOSED', `${verdict.message}（插件 ${pluginId}）`);
+    }
+  };
 
   /** 记一次动作：窗内已满即拒（fail-loud 先于受理——超限受理连动作都不发生） */
   const countAction = (): void => {
@@ -446,5 +485,7 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         hostCallbackDepth--;
       };
     },
+    grantedOpens,
+    assertDoor,
   };
 }

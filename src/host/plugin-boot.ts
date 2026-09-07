@@ -193,7 +193,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     get: (name) => options.scope.tryGet(name),
     provide: (name, value) => options.scope.provide(name, value),
   };
-  const createContext = (pluginId: string) => {
+  const createContext = (pluginId: string, opens?: readonly string[]) => {
     const fork = options.scope.fork();
     pluginScopes.push(fork);
     const handle = createPluginContext({
@@ -206,6 +206,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       promptSections,
       provide: services.provide, // ctx.provide 委派共享根（§2.2 表行——跨插件可见）
       hostFace,
+      // 高危面开门授予集（03 §4.6 批 U2——磁盘行 opens 经 loader 透传至此）
+      ...(opens !== undefined ? { opens } : {}),
       onHookTimeout: (id, hookName, err) =>
         warn(`插件 ${id} 钩子 ${hookName} 超时：${err instanceof Error ? err.message : String(err)}`),
     });

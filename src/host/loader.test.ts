@@ -604,3 +604,29 @@ describe('optionalInject 软依赖缺席 warn（03 §1.3——诚实降级不拒
     expect(report.activated.map((a) => a.id)).toEqual(['plug-soft']);
   });
 });
+
+describe('createContext 开门授予集透传（03 §4.6 批 U2）', () => {
+  it('磁盘行 opens 二参直达；core: 行/无 opens 磁盘行 = undefined', async () => {
+    const seen: Array<{ id: string; opens: readonly string[] | undefined }> = [];
+    const doorPkg = { name: 'plug-door', version: '1.0.0', berryAgent: { skills: ['door-skill'] } };
+    const withOpens = diskRow('plug-door', makePluginDir({ 'package.json': JSON.stringify(doorPkg) }), doorPkg, {
+      opens: ['sdk.register-route'],
+    });
+    const plainPkg = { name: 'plug-plain', version: '1.0.0', berryAgent: { skills: ['plain-skill'] } };
+    const withoutOpens = diskRow('plug-plain', makePluginDir({ 'package.json': JSON.stringify(plainPkg) }), plainPkg);
+    const report = await loadPlugins(
+      rigOptions([withOpens, coreRow('core:demo', async () => undefined), withoutOpens], {
+        createContext: (id, opens) => {
+          seen.push({ id, opens });
+          return {};
+        },
+      }),
+    );
+    expect(report.failed).toEqual([]);
+    expect(seen).toEqual([
+      { id: 'plug-door', opens: ['sdk.register-route'] }, // 磁盘行 opens 直达注入位
+      { id: 'core:demo', opens: undefined }, // core: 行结构性无授予位
+      { id: 'plug-plain', opens: undefined }, // 磁盘行缺席 opens = 全默认关
+    ]);
+  });
+});

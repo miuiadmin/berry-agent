@@ -257,6 +257,22 @@ describe('装机账本读侧（03 §5.4——warn 降级与 installPath 解析�
     expect(boot.report.activated.map((a) => a.id).sort()).toEqual(['acme-abs', 'acme-rel']);
   });
 
+  it('磁盘行 opens 全链绿灯（批 U2：parse 行校验 → spec 透传 → ctx 装配不破坏装载）', async () => {
+    const fs = memoryFs({
+      '/data/enabled.yaml': enabledYaml('  - id: acme-door\n    opens: [sdk.register-route, channels.ui-backend]\n'),
+      '/data/plugins/ledger.json': JSON.stringify({ 'acme-door': { installPath: 'plugins/node_modules/acme-door' } }),
+      '/data/plugins/node_modules/acme-door/package.json': JSON.stringify({
+        name: 'acme-door',
+        version: '1.0.0',
+        berryAgent: { skills: ['door-skill'] },
+      }),
+    });
+    const boot = await bootPlugins(rigBoot('/data', { fs }).options);
+    expect(boot.report.failed).toEqual([]);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['acme-door']);
+    expect(boot.report.activated[0]!.skills).toEqual(['door-skill']);
+  });
+
   it('目录不可读 = 行级隔离（无 package.json 点名）', async () => {
     const fs = memoryFs({
       '/data/enabled.yaml': enabledYaml('  - id: acme\n'),
