@@ -150,6 +150,15 @@ const PRESENT_MODULES = new Set([
   // 〔McpSpawnFace 等——compat.test 真 SpawnPipeline 互证〕；装载态集成归
   // 批 12 装载面后装配批）
   'mcp',
+  // 批 17a-3 起在场（core:lsp 纯逻辑腿——Content-Length 帧手写 + 惰性
+  // per-(server, rootUri) 实例 + 诊断回流〔03 §10.2 六条款〕：帧资源卫生
+  // 双帽〔攒头 16KiB/攒正文 16MiB 声明即拒〕/扩展名路由声明序首/惰性握手
+  // 窗 scope 活查/3 连败熔断复位走 /reload/Full 全文同步盘真相/诊断
+  // version 对齐/write-edit 后 post 注入 contained 铁律/queryDiagnostics
+  // goal seam fail-closed，deps {contracts, context}；spawn/注册/作用域/
+  // 事件/盘读全经窄面注入〔LspSpawnFace 等——compat.test 真 SpawnPipeline
+  // + 真 fs 互证〕；装载态集成归批 12 装载面后装配批）
+  'lsp',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -198,6 +207,9 @@ const MODULE_EXTERNALS = {
   // issue 的 typebox（issue_get 只读工具参数面——schema 层宿主件直用同律；
   // 16c 落码批起用）
   issue: ['typebox'],
+  // lsp 的 typebox（diagnostics/symbols/definitions/references 静态四件
+  // 参数面——schema 层宿主件直用同律；17a-3 落码批起用）
+  lsp: ['typebox'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
   // 一律走虚拟键三转发；批 12d 落码起用）
