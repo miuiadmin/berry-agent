@@ -222,6 +222,23 @@ export interface FtsMaintenanceFace {
   rebuildFts(): FtsRebuildReport;
 }
 
+/* ---------------- 晋升候选与简报差分常量（批 18c-7——06 §9.1/§6） ---------------- */
+
+/** 晋升候选 kind 集（§9.1——「反复命中才值得固化」的三 kind；preference/fact 等不点名） */
+export const MEMORY_PROMOTION_KINDS: readonly MemoryKind[] = ['failure', 'insight', 'convention'];
+
+/** 晋升候选行数帽（§9.1「取 top 3」——起草值随实测调） */
+export const MEMORY_PROMOTION_TOP_N = 3;
+
+/** 晋升候选判据：evidence_count 下限（≥2 = 反复命中；起草值随实测调） */
+export const MEMORY_PROMOTION_EVIDENCE_MIN = 2;
+
+/** 晋升候选判据：usage_count 下限（cite 是比 recall/search 流水更强的效用信号——单次即够格） */
+export const MEMORY_PROMOTION_USAGE_MIN = 1;
+
+/** 简报差分纪元表容量帽（per-session epochs Map LRU——§6 差分纪律；被逐纪元下一请求懒派生） */
+export const MEMORY_DIFF_EPOCHS_LRU = 256;
+
 /* ---------------- 数据形 ---------------- */
 
 /** 溯源引用（铁律 5——谁在什么时候基于哪几条事件记了什么） */
@@ -432,4 +449,32 @@ export interface MemoryAccessLogResult {
   readonly aggregates: readonly MemoryAccessAggregate[];
   /** 流水面（ts 降序、行帽内） */
   readonly flow: readonly MemoryAccessFlowRow[];
+}
+
+/* ---------------- 简报差分面（批 18c-7——06 §6 差分纪律） ---------------- */
+
+/** 差分三态（ASCII——'+' 新入 / '~' 内容变更 / '-' 退场；'~' 无在位写路径预置） */
+export type MemoryDiffOp = '+' | '~' | '-';
+
+/** 差分条目（durable 载荷行——id 为**短 id**：注入派生只呈现短面，被引用经 cite 前缀归责计数） */
+export interface MemoryDiffEntry {
+  readonly op: MemoryDiffOp;
+  /** 短 id（8 hex——注入行 [m:] 标记同源） */
+  readonly id: string;
+  readonly kind: MemoryKind;
+  readonly summary: string;
+}
+
+/** memory/diff durable 事件载荷（全量差分 last-wins + 落账时权威面指纹） */
+export interface MemoryDiffData {
+  readonly entries: readonly MemoryDiffEntry[];
+  /** 事件落账时权威面指纹（sha256 前 16 hex——重放 last-wins 指纹匹配判据） */
+  readonly fingerprint: string;
+}
+
+/** 简报权威面三元组（基线/指纹/差分共用的比较面——quoted 呈现层注记不进面） */
+export interface BriefFaceEntry {
+  readonly id: string;
+  readonly kind: MemoryKind;
+  readonly summary: string;
 }

@@ -146,6 +146,24 @@ export interface MemoryDao {
   overview(ownerKeys?: readonly string[]): MemoryReadOverview;
   /** 访问日志双面查询（聚合 top-N + 流水） */
   accessLog(query?: MemoryAccessLogQuery): MemoryAccessLogResult;
+
+  /* —— 效用回写面（批 18c-7——06 §6 cite 引用闭环） —— */
+
+  /**
+   * 短 id 归责（substr 定长前缀比对——不做可见性过滤，身份解析非读面）：
+   * 返回前缀命中全集，归责三态由消费侧判——零命中 = 未知引用忽略、
+   * 多命中 = 歧义全部忽略、恰一命中 = 唯一归属。
+   */
+  resolveShortId(shortId: string): readonly string[];
+  /**
+   * 效用回写批量（单事务四写一体：usage_count+1、last_used_at=now、
+   * ttl_days 非 NULL 行 expires_at 同点重算〔被引用即续命——复活唯 restore，
+   * 续期只作用活体〕、access 行 op='cite' 带会话键）。`status='expired'`
+   * 已物化行**整行跳过含流水**（对终态行续期 = 静默复活漏洞）；dismissed
+   * 行照计（cite 是审计事实）。返回实记条数（聚合不变式
+   * usage_count ≡ cite 行数的物理承载）。
+   */
+  markUsed(ids: readonly string[], sessionId?: string | null): number;
 }
 
 /* ---------------- 行映射（蛇 ↔ 驼峰单源） ---------------- */
@@ -339,6 +357,16 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   const stmtInsertAccess = db.prepare(
     `INSERT INTO memory_access (id, memory_id, op, session_id, ts) VALUES (?, ?, ?, ?, ?)`,
   );
+  // 效用回写（批 18c-7——cite 四写一体）：expired 已物化行整行跳过（WHERE 拒改），
+  // 续期仅 ttl_days 非 NULL 行重算 now + ttl_days × 天毫秒（NULL 永久行钟不动——
+  // CASE 保 expires_at 原值；天毫秒经参数绑定——MEMORY_DAY_MS 单源不落 SQL 字面量）
+  const stmtMarkUsed = db.prepare(
+    `UPDATE memories SET usage_count = usage_count + 1, last_used_at = ?,
+                         expires_at = CASE WHEN ttl_days IS NOT NULL THEN ? + ttl_days * ? ELSE expires_at END
+     WHERE id = ? AND status != 'expired'`,
+  );
+  // 短 id 归责（substr 定长前缀比对——与 accessLog 前缀过滤同法，免 LIKE 通配转义面）
+  const stmtResolvePrefix = db.prepare(`SELECT id FROM memories WHERE substr(id, 1, 8) = ?`);
   // 健康面计数（/memory 管理面同源——按状态逐状态取数；全库不分 owner 假精度）
   const stmtHealthStatuses = db.prepare(`SELECT status, count(*) AS n FROM memories GROUP BY status`);
   const stmtHealthFrozen = db.prepare(`SELECT count(*) AS n FROM memories WHERE frozen = 1`);
@@ -735,8 +763,22 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     return reload(id);
   });
 
-  /* ---------------- 检索与读面实装 ---------------- */
+  /** markUsed：效用回写批量（批 18c-7——单事务四写一体；流水与聚合同事务） */
+  const markUsedTx = db.transaction((ids: readonly string[], sessionId: string | null): number => {
+    const now = deps.now();
+    let applied = 0;
+    for (const id of ids) {
+      const info = stmtMarkUsed.run(now, now, MEMORY_DAY_MS, id);
+      // expired 已物化行 changes=0 整行跳过（含流水——终态行不计数不续期）
+      if (info.changes > 0) {
+        applied += 1;
+        stmtInsertAccess.run(newId(), id, 'cite', sessionId, now);
+      }
+    }
+    return applied;
+  });
 
+  /* ---------------- 检索与读面实装 ---------------- */
   /** listVisible 本体（方法面与 overview 共用——TTL 谓词单源） */
   function listVisibleImpl(ownerKeys: readonly string[] | undefined): MemoryRow[] {
     const now = deps.now();
@@ -918,6 +960,12 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     },
     accessLog(query) {
       return accessLogImpl(query);
+    },
+    resolveShortId(shortId) {
+      return (stmtResolvePrefix.all(shortId) as { id: string }[]).map((r) => r.id);
+    },
+    markUsed(ids, sessionId) {
+      return markUsedTx(ids, sessionId ?? null);
     },
   };
 }

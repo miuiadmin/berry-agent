@@ -3,7 +3,8 @@
  * 30 天强排除活动锚/kind 优先/效用降序/top-N 与字符双限额/truncated/剔除
  * 可见/引述降权〕+ 按需检索全档〔query 资格/kind 优先重排/top-k/水位旋钮/
  * 消毒剔除/流水 op='recall' 分账与聚合同〕+ 读出消毒统一函数 + 引用标记
- * 格式单源）。真库全环（检索腿经 FTS——直改真身后 rebuildFts 重建投影）。
+ * 格式单源 + 批 18c-7 晋升候选尾行〔判据矩阵/正文双面去重/top-N 钳制/
+ * 尾行两形〕）。真库全环（检索腿经 FTS——直改真身后 rebuildFts 重建投影）。
  *
  * FTS 注意：trigram 短语整体匹配——query 必须是条目文本的**连续子串**；
  * bm25 rank 序不作跨 doc 假设（doclen 敏感）——序断言只锁 kind rank 边界。
@@ -22,6 +23,7 @@ import {
   MEMORY_RECALL_QUERY_MAX_CHARS,
   MEMORY_RECALL_TOP_K,
 } from './types.js';
+import type { MemoryCandidate } from './types.js';
 import { createMemoryDao, type MemoryDao } from './dao.js';
 import { MEMORY_MIGRATIONS } from './migration.js';
 import { MEMORY_CITE_RE, briefBaseline, buildCoreBrief, recallForQuery, renderCoreBrief, shortIdOf } from './inject.js';
@@ -282,6 +284,105 @@ describe('常驻简报（06 §6 路 1）', () => {
     seed(dao, { kind: 'fact', summary: 'entry' });
     buildCoreBrief({ dao, now: () => nowMs });
     expect(dao.accessLog().flow).toEqual([]);
+  });
+});
+
+describe('晋升候选尾行（批 18c-7——06 §9.1 候选点名）', () => {
+  /** 撑满竞争面（top N 条 preference——rank 0 填满正文，后续条目挤出入候选池） */
+  function fillCompetitive(dao: MemoryDao): void {
+    for (let i = 0; i < MEMORY_BRIEF_TOP_N; i += 1) {
+      seed(dao, { kind: 'preference', summary: `pref ${WORDS[i]} ${i}` });
+    }
+  }
+
+  /** 双摄入造 evidence=2（精确合并腿——「反复命中」自然造法） */
+  function seedTwice(dao: MemoryDao, overrides: Partial<MemoryCandidate> = {}): string {
+    const base: MemoryCandidate = {
+      ownerKey: 'global',
+      kind: 'fact',
+      summary: 'lesson body summary',
+      content: 'lesson body',
+      confidence: 0.8,
+      sourceRefs: [{ sessionId: 's1', seq: 1 }],
+    };
+    const { id } = dao.ingest({ ...base, ...overrides });
+    dao.ingest({ ...base, ...overrides }); // 第二次摄入 → 精确合并 evidence=2
+    return id;
+  }
+
+  it('基本形：竞争面挤出的反复命中教训 → 点名段（指路句 + 候选行 + 纪律句）；候选行不占竞争限额', () => {
+    const dao = setup();
+    fillCompetitive(dao);
+    const failureId = seedTwice(dao, { kind: 'failure', summary: 'pnpm lockfile drift lesson' });
+    const baseline = briefBaseline(dao, nowMs, ['global']);
+    expect(baseline.competitive).toHaveLength(MEMORY_BRIEF_TOP_N); // 正文满员
+    expect(baseline.truncated).toBe(true);
+    expect(baseline.candidates.map((e) => e.id)).toEqual([failureId]); // 挤出者点名
+    const text = renderCoreBrief(baseline);
+    expect(text).toContain('以下条目被反复命中');
+    expect(text).toContain(`- [m:${shortIdOf(failureId)}] pnpm lockfile drift lesson`); // 正文行同款格式
+    expect(text).toContain('不写模型癖性自述'); // 通用化纪律句在场
+    // 渲染层追加：点名段在截断注记之后（不占 top-N/字符竞争限额）
+    expect(text.indexOf('以下条目被反复命中')).toBeGreaterThan(text.indexOf('（已按限额截断'));
+  });
+
+  it('正文双面去重：已在竞争流/frozen 流的条目不重复列候选（面内同 id 双行 = 指纹面污染）', () => {
+    const dao = setup();
+    // 唯一条目（在竞争流正文内）——evidence 2 也不重复列
+    const inBodyId = seedTwice(dao, { kind: 'failure', summary: 'in body failure' });
+    let baseline = briefBaseline(dao, nowMs, ['global']);
+    expect(baseline.competitive.map((e) => e.id)).toContain(inBodyId);
+    expect(baseline.candidates).toEqual([]);
+    expect(renderCoreBrief(baseline)).not.toContain('以下条目被反复命中'); // 零候选不点名
+
+    // frozen 流同律（时间胶囊不搬家——§9.1 第 1 项 frozen 排除）
+    const dao2 = setup();
+    const frozenId = seedTwice(dao2, { kind: 'failure', summary: 'frozen failure' });
+    dao2.freeze(frozenId);
+    baseline = briefBaseline(dao2, nowMs, ['global']);
+    expect(baseline.frozen.map((e) => e.id)).toEqual([frozenId]);
+    expect(baseline.candidates).toEqual([]);
+  });
+
+  it('判据矩阵：kind 不在集 / evidence 1 且 usage 0 → 不列候选（候选 ⊆ 简报资格集之内的再过滤）', () => {
+    const dao = setup();
+    fillCompetitive(dao);
+    // kind 不在晋升集：preference 两次摄入（evidence 2）仍不点名
+    seedTwice(dao, { kind: 'preference', summary: 'victor extra pref' });
+    // 判据不足：failure 单次摄入（evidence 1、usage 0）
+    seed(dao, { kind: 'failure', summary: 'weak single failure' });
+    const baseline = briefBaseline(dao, nowMs, ['global']);
+    expect(baseline.candidates).toEqual([]);
+    const text = renderCoreBrief(baseline);
+    expect(text).toContain('反复用到的教训与约定'); // 零候选 → 泛指路原句
+    expect(text).not.toContain('以下条目被反复命中');
+  });
+
+  it('usage ≥ 1 单独够格（cite 是比流水更强的效用信号——单次引用即「反复命中」档）', () => {
+    const dao = setup();
+    fillCompetitive(dao);
+    const id = seed(dao, { kind: 'failure', summary: 'cited once failure' }); // evidence 1
+    sql('UPDATE memories SET usage_count = 1, last_used_at = ? WHERE id = ?', nowMs, id);
+    expect(briefBaseline(dao, nowMs, ['global']).candidates.map((e) => e.id)).toEqual([id]);
+  });
+
+  it('top 3 效用综合分降序钳制（第 4 名不列——§9.1「取 top 3」）', () => {
+    const dao = setup();
+    fillCompetitive(dao);
+    // 四条 failure 反复命中、confidence 递减——效用分降序取前三
+    const ids = [
+      seedTwice(dao, { kind: 'failure', summary: 'victor lesson one', confidence: 0.9 }),
+      seedTwice(dao, { kind: 'failure', summary: 'whiskey lesson two', confidence: 0.8 }),
+      seedTwice(dao, { kind: 'failure', summary: 'xray lesson three', confidence: 0.7 }),
+      seedTwice(dao, { kind: 'failure', summary: 'yankee lesson four', confidence: 0.6 }),
+    ];
+    const baseline = briefBaseline(dao, nowMs, ['global']);
+    expect(baseline.candidates.map((e) => e.id)).toEqual(ids.slice(0, 3)); // 降序前三、第四不列
+  });
+
+  it('空面简报零尾行（面空 = 无候选可点——指路句不单独成段，空串语义维持）', () => {
+    const dao = setup();
+    expect(buildCoreBrief({ dao, now: () => nowMs })).toBe('');
   });
 });
 

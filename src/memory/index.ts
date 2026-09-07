@@ -12,8 +12,11 @@
  * 整理拍（absorb/decay/sweepExpired 物理承载 + 护栏四件）+ polluted 会话
  * 资格（判据通配 + 状态机 + 两路入口挂检）；18c-6 域 = 跨会话检索
  * （session_fts 消费件——激活期对账策略位 ensureFtsIndex + snippet 切窗
- * + memory_search 联合检索扩面 [历史会话] 行）；晋升桥/简报差分/引用回写
- * 随 18c-7..8 逐笔扩本面。
+ * + memory_search 联合检索扩面 [历史会话] 行）；18c-7 域 = 晋升桥候选
+ * 点名（简报尾行两形 + BriefBaseline.candidates 权威流）+ 效用进化
+ * （cite 引用回写件 cite.ts + dao markUsed/resolveShortId）+ 简报差分
+ * （memory/diff durable 词汇 + 纪元 tracker epochs LRU + 懒派生自愈）；
+ * 持有面导入导出与 skill_manage 三动作随 18c-8 扩本面。
  * 迁移 export-only（host 装配根机械聚合入
  * 宿主单链——05 §6.4）；错误码注册（codes.ts）随本面引入生效。
  */
@@ -55,6 +58,11 @@ export {
   MEMORY_POLLUTION_DEFAULT_PATTERNS,
   MEMORY_SNIPPET_BEFORE,
   MEMORY_SNIPPET_AFTER,
+  MEMORY_PROMOTION_KINDS,
+  MEMORY_PROMOTION_TOP_N,
+  MEMORY_PROMOTION_EVIDENCE_MIN,
+  MEMORY_PROMOTION_USAGE_MIN,
+  MEMORY_DIFF_EPOCHS_LRU,
   REVIEW_KINDS,
   llmTextOf,
 } from './types.js';
@@ -87,6 +95,10 @@ export type {
   FtsAuditReport,
   FtsRebuildReport,
   FtsMaintenanceFace,
+  MemoryDiffOp,
+  MemoryDiffEntry,
+  MemoryDiffData,
+  BriefFaceEntry,
 } from './types.js';
 export { MEMORY_MIGRATIONS } from './migration.js';
 export { scanForSecrets, sanitizeEntryForReadout } from './scan.js';
@@ -130,3 +142,15 @@ export { sliceReviewWindow, createMemoryCycle } from './cycle.js';
 export type { FetchEventsFn, MemoryCycleDeps, CycleFireResult, MemoryCycle } from './cycle.js';
 export { snippetOf, ensureFtsIndex } from './fts.js';
 export type { EnsureFtsDeps, FtsEnsureReport } from './fts.js';
+export { parseCitations, createCiteRecorder } from './cite.js';
+export type { CiteRecorderDeps, CiteRecorder } from './cite.js';
+export {
+  MEMORY_DIFF_EVENT_TYPE,
+  MEMORY_DIFF_EVENT_META,
+  faceOf,
+  fingerprintOf,
+  diffFace,
+  renderDiffInjection,
+  createDiffTracker,
+} from './diff.js';
+export type { DiffAppendEvent, DiffFetchEvents, MemoryDiffDeps, MemoryDiffTracker } from './diff.js';
