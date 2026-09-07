@@ -170,6 +170,16 @@ const PRESENT_MODULES = new Set([
   // WebSocket 互证〕；logger 窄面注入〔本件无 context 边〕；装载态集成归
   // 批 12 装载面后装配批）
   'browser',
+  // 批 18a 起在场（core:webui 服务端核心——Web 通道〔03 §10.4〕：微路由
+  // 五撮〔node:http 手写〕+ SSE 信封三族〔帧合成钉死/30s ping/90s 写侧
+  // 看门狗/连接帽 16 超帽 503〕+ 跨入口审批〔pending registry decide 只
+  // resolve 绝不写 durable + 行回卷丢弃性清槽〕+ 回环三防线 + token 件
+  // 本体保证，deps {contracts, channels}〔channels 真边消费 UiBackend/
+  // TodoItem/SessionEnvelope——claim 桥即 UiBackend 第四实装〕；会话族/
+  // 投影读/补全族全经窄面注入〔WebuiSessionsFace 等——词面独立律结构兼容
+  // host 装配桥真身，compat 互证归 host 装配批〕；SPA 客户端腿与 host
+  // `--port` 接线随后批）
+  'webui',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -205,6 +215,9 @@ const MODULE_EXTERNALS = {
   // goal 的 todo 工具参数面（goal 段扩语义 schema——07 篇 schema 层宿主件
   // 直用同律；15b 落码批起用）
   goal: ['typebox'],
+  // webui 的 typebox 主包 + value 子路径（微路由「JSON 均 typebox 校验后
+  // 消费」——03 §10.4 批 18a 落码；schema 层宿主件直用同律）
+  webui: ['typebox', 'typebox/value'],
   // skills 的 yaml（SKILL.md frontmatter 解析物化双用——07 篇 §2 钉定）/ignore
   // （gitignore 语义匹配——发现层遍历消费者，07 篇 §120 多消费者）/typebox
   // （skill_manage 参数面——schema 层宿主件直用同律；14b 落码批起用）
