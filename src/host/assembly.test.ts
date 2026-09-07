@@ -11,12 +11,14 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
 import { assembleHostStack, readTriggerOpensLive } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
 import type { SkillsRegistry } from '../skills/index.js';
+import { fauxProvider } from '../llm/index.js';
 
 /** 临时数据目录族（统一清） */
 const dirs: string[] = [];
@@ -29,6 +31,17 @@ function tmpDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   dirs.push(dir);
   return dir;
+}
+
+/** faux 终态文本消息速记（pi-ai 面形状——结构同构缺元数据字段收口在此） */
+function fauxText(text: string): PiAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    stopReason: 'stop',
+    timestamp: 1,
+  } as unknown as PiAssistantMessage;
 }
 
 describe('allowlist 装配期载入（批 12f-4——04 §9 定形块读侧律）', () => {
@@ -93,6 +106,90 @@ describe('assembleHostStack 成功档', () => {
       expect(assembly.dispatch).toBeDefined();
       expect(assembly.scope).toBeDefined();
       expect(assembly.logger).toBeDefined();
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('subagent 装载 e2e（批 19c-1）：boot agent 工具经会话执行 → in-process 真工厂 one-shot + 子会话 durable 行', async () => {
+    const dir = tmpDir('host-asm-sub-');
+    const ws = tmpDir('host-asm-sub-ws-');
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-asm/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 工具装载腿：`agent` 在 boot 全局层（createAgentTool——effect read）
+      const agentDef = assembly.boot.tools.definitions().find((definition) => definition.name === 'agent');
+      expect(agentDef).toBeDefined();
+
+      // 父会话 + 直接执行（def 形 execute(args, toolCtx)——sessionId 即
+      // 执行时会话语境，sessionContext 解析真源（assembly 织入位））
+      const parent = assembly.stack.openStartupSession(ws);
+      faux.setResponses([() => fauxText('侦察完毕')]);
+      const result = await agentDef!.execute(
+        { prompt: '去侦察' },
+        { toolCallId: 'c-e2e', sessionId: parent.sessionId },
+      );
+      expect(result.isError).not.toBe(true);
+      const text = JSON.stringify(result.content);
+      expect(text).toContain('侦察完毕'); // one-shot 输出映射（尾扫 assistant text）
+
+      // 子会话 durable 行（origin delegation——真工厂全栈落库）
+      await assembly.runtime.persistence.flush();
+      const child = assembly.stack.manager.list({}).find((row) => row.origin === 'delegation');
+      expect(child).toBeDefined();
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('subagent background 结算通知 e2e（批 19c-1）：fire-and-forget → 通知桥 submitText → 父 durable 落 user/message source=subagent-settled', async () => {
+    const dir = tmpDir('host-asm-subbg-');
+    const ws = tmpDir('host-asm-subbg-ws-');
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-asm/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const agentDef = assembly.boot.tools.definitions().find((definition) => definition.name === 'agent');
+      if (agentDef === undefined) throw new Error('agent 工具不在 boot 面');
+      const parent = assembly.stack.openStartupSession(ws);
+      // 两响：子代理 one-shot + 父结算唤醒 turn（submitText backgroundWake 起跑）
+      faux.setResponses([() => fauxText('后台活干完'), () => fauxText('收到结算')]);
+      const result = await agentDef.execute(
+        { prompt: '后台去', background: true },
+        { toolCallId: 'c-bg', sessionId: parent.sessionId },
+      );
+      expect(result.isError).not.toBe(true); // Job 身份回执（fire-and-forget）
+
+      // 轮询父 durable：结算通知经 submitText 落 user/message（source 标记位）
+      const parentLog = assembly.stack.manager.driverOf(parent.sessionId)!.session;
+      const deadline = Date.now() + 5_000;
+      let settled = false;
+      while (Date.now() < deadline) {
+        settled = parentLog
+          .events()
+          .some(
+            (event) =>
+              event.type === 'user/message' && (event.data as { source?: string }).source === 'subagent-settled',
+          );
+        if (settled) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(settled).toBe(true); // 通知桥真落（assembly 织入——批 19c-1 兑现）
     } finally {
       await assembly.runtime.shutdown();
     }

@@ -233,6 +233,16 @@ export class ConversationDriver {
   }
 
   /**
+   * 全量工具名快照（批 19c-1——子代理派生面的父面枚举读面：委派预检判据
+   * （全父面）+ 派生面交集的基准源。整形式 = 构造快照（含后续 shape 整形
+   * 后的面——子会话作祖父时以其实际面为基准）；纯对话形 undefined =
+   * 不可枚举（白名单透传——fail-closed 全列）。只读快照不暴露工具体。
+   */
+  get toolNames(): readonly string[] | undefined {
+    return this.fullTools !== undefined ? this.fullTools.map((tool) => tool.name) : undefined;
+  }
+
+  /**
    * 重试进行态只读小面（04 §3.3 注记 seam——批 13a）：退避等待窗内非空、
    * 其余时点 null。SDK 线协议心跳载荷是该探针的唯一线面出口（03 §10.6 ②）
    * ——非事件型、不进 durable；装配侧经结构共享消费（RetryProbe 归位

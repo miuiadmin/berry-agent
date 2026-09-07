@@ -106,10 +106,15 @@ describe('assembleOpenTools 组装面', () => {
     expect(pre.isRegistered('tools_pre_execute')).toBe(true); // 词已达（共享登记）
   });
 
-  it('同 dispatch 重复装配 → 装配哨兵撞名 fail-loud（检测面不因共享词幂等丢失）', () => {
+  it('同 dispatch 多会话装配 → 幂等合法（批 19c-1 语义修正）：哨兵词跳过不炸、两会话工具面各自独立', () => {
     const dispatch = new EventDispatch();
-    makeAssembly({ dispatch });
-    expect(() => makeAssembly({ dispatch })).toThrow(); // 二次装配撞 conversation/open-tools-mounted
+    const first = makeAssembly({ dispatch, sessionId: 's-a' });
+    // 二次装配合法形：in-process 子代理真工厂首例（同栈父子两会话各装配一次）。
+    // 旧「二次装配 fail-loud」前提随多会话装配废止——同会话重复装配检测归
+    // SessionManager records 幂等守卫（sessions.test 哨兵词另锁）
+    const second = makeAssembly({ dispatch, sessionId: 's-b' });
+    expect(first.assembly.tools.length).toBe(second.assembly.tools.length); // 两会话各自完整工具面
+    expect(dispatch.isRegistered('conversation/open-tools-mounted')).toBe(true); // 哨兵词恰一册
   });
 });
 

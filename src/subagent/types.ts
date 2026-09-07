@@ -76,10 +76,12 @@ export interface SubagentNotifyFace {
    * 审批挂起通知（04 §10）：background 子代理触发审批对时同时注入
    * source='subagent-approval-pending'——恰一条幂等由实现方执法（driver
    * dedupeKey 面）；one-shot 不注入（service 不装 notifyApproval 闭包）。
-   * 回执形态不限（Promise<unknown>——桥 driver 同名方法返
-   * Promise<SubmitResult> 可直赋，与 notifySettled 同律）。
+   * parentSessionId = 通知路由键（批 19c-1 补——桥按此寻父驱动）。回执
+   * 形态不限（Promise<unknown>——桥 driver 同名方法返 Promise<SubmitResult>
+   * 可直赋，与 notifySettled 同律）。
    */
   notifyApprovalPending(input: {
+    parentSessionId: string;
     jobName: string;
     approvalId: string;
     toolName: string;

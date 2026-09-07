@@ -91,13 +91,14 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
 
   // ① 工具族事件词接线（contracts TOOL_EVENT_NAMES 装配消费面）。一词两册
   // 幂等跳过（03 §2.4 装配序律——装载批预注册主表镜像在前，已注册词共享
-  // 登记非撞名覆盖；未注册词自举注册保单测独立装配）；重复装配检测改经
-  // 装配哨兵（永不 emit 的域名前缀占位词——同 dispatch 二次装配即撞哨兵
-  // fail-loud，检测面不因共享词幂等而丢失）
-  opts.dispatch.registerEventNames([
-    'conversation/open-tools-mounted',
-    ...TOOL_EVENT_NAMES.filter((name) => !opts.dispatch.isRegistered(name)),
-  ]);
+  // 登记非撞名覆盖；未注册词自举注册保单测独立装配）。装配哨兵词同走幂等
+  // 跳过（批 19c-1 修正：「同 dispatch 二次装配 = bug」前提随多会话装配废止
+  // ——in-process 子代理真工厂首例〔同栈父子两会话各装配一次〕；「同一会话
+  // 重复装配」检测由 SessionManager records 幂等守卫承担——open 幂等回
+  // 活体驱动不二造）
+  opts.dispatch.registerEventNames(
+    ['conversation/open-tools-mounted', ...TOOL_EVENT_NAMES].filter((name) => !opts.dispatch.isRegistered(name)),
+  );
 
   // ② 审批三件前两件（服务 + answerer + 审批对 durable 落账）
   const approvalWiring = wireSessionApproval({
@@ -109,9 +110,12 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     ...(opts.persistAllowlist !== undefined ? { persistAllowlist: opts.persistAllowlist } : {}),
   });
 
-  // ③ 守门安装（先装本行——waterfall 注册序即执行序，本行最先执法）
+  // ③ 守门安装（先装本行——waterfall 注册序即执行序，本行最先执法；
+  // sessionId 归属位 = 会话归属过滤——他会话〔in-process 子代理等〕的工具
+  // 调用本行让棒，防止同栈多会话装配时同一 toolCall 被多行各问一次审批）
   const uninstallGate = installSafetyGate(opts.dispatch, {
     approval: approvalWiring.approval,
+    sessionId: opts.sessionId,
     workspace: workspaceRoot,
     mode: opts.mode,
     dataDir: opts.dataDir,

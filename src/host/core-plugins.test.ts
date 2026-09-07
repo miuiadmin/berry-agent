@@ -392,7 +392,13 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(boot.promptSections.materialize()).not.toContain('<!-- memory:core -->'); // 零简报段
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory 四件）', () => {
-    expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual(['exec', 'web', 'skills', 'memory']);
+  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent 五件）', () => {
+    expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual([
+      'exec',
+      'web',
+      'skills',
+      'memory',
+      'subagent',
+    ]);
   });
 });

@@ -55,18 +55,19 @@ describe('plugins list——同构装载态清单（三分区）', () => {
     expect(text).toContain('装机账本无此 id'); // 失败行诊断信息透出
   });
 
-  it('缺省装载形：空目录 = core 内置态全装（批 19a/19b-1/19b-2——exec/web/skills/memory 入册，清单缺席）', async () => {
+  it('缺省装载形：空目录 = core 内置态全装（批 19a—19c-1——exec/web/skills/memory/subagent 入册，清单缺席）', async () => {
     const dir = tmpDir('plug-list-empty-');
     const io = capture();
     const code = await runPluginsEntry({ sub: 'list' }, { version: 'x', dataDir: dir, ...io });
     expect(code).toBe(0);
     const text = io.out.join('\n');
-    // core 注册表非空（exec/web/skills/memory 入册）——装载态集成回归锁（件数随逐纵切笔增长）
-    expect(text).toContain('启用（4）：');
+    // core 注册表非空（exec/web/skills/memory/subagent 入册）——装载态集成回归锁（件数随逐纵切笔增长）
+    expect(text).toContain('启用（5）：');
     expect(text).toContain('core:exec');
     expect(text).toContain('core:web');
     expect(text).toContain('core:skills');
     expect(text).toContain('core:memory');
+    expect(text).toContain('core:subagent');
     expect(text).toContain('失败（0）：');
     expect(text).toContain('禁用（0）：');
   });

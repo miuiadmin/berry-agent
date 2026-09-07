@@ -267,6 +267,7 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
             ? {
                 notifyApproval: (info) =>
                   options.notify!.notifyApprovalPending({
+                    parentSessionId: input.parentSessionId,
                     jobName,
                     approvalId: info.approvalId,
                     toolName: info.toolName,

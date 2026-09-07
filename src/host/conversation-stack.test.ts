@@ -153,6 +153,42 @@ describe('createConversationStack 装配序', () => {
     await rt.shutdown();
   });
 
+  it('per-session 装配覆盖（批 19c-1——in-process 子代理装载位）：shapeTools 整形 + systemPrompt 覆盖全环落信封快照', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+
+    // 覆盖形会话：整形 = 恒弃 bash（子代理派生面律）+ 自定系统提示词
+    const child = stack.manager.create({
+      workspaceRoot: ws,
+      origin: 'delegation',
+      systemPrompt: '你是子代理，专注探索',
+      shapeTools: (tools) => tools.filter((tool) => tool.name !== 'bash' && tool.name !== 'grep'),
+    });
+    // 整形后实面快照（孙代委派的基准面）
+    expect(child.driver.toolNames).toEqual(['read', 'write', 'edit', 'ls', 'find', 'todo']);
+
+    faux.setResponses([() => messageOf('stop')]);
+    const receipt = await stack.submitText(child.sessionId, '探索去');
+    expect(receipt).toMatchObject({ status: 'completed' });
+
+    // 信封快照（边界制）承载两位：systemPrompt 原始值（快照先于注入）+
+    // toolSchemas = 整形后实面（裸栈 = fs 四 + 检索两 + todo，无 bash）
+    const header = child.driver.session.events().find((event) => event.type === 'request/header') as
+      { data: { systemPrompt: string; toolSchemas: Array<{ name: string }> } } | undefined;
+    expect(header).toBeDefined();
+    expect(header!.data.systemPrompt).toBe('你是子代理，专注探索');
+    expect(header!.data.toolSchemas.map((schema) => schema.name)).toEqual([
+      'read',
+      'write',
+      'edit',
+      'ls',
+      'find',
+      'todo',
+    ]);
+    await rt.shutdown();
+  });
+
   it('启动会话策略：同 cwd 重启取最新续接（resumed=true）+ 回库投影', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'stack-data-'));
     dirs.push(dir);

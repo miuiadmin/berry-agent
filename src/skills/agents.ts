@@ -219,8 +219,12 @@ export function createAgentLayerProvider(options: AgentLayerOptions): AgentDefsP
 export interface StandardAgentLayersOptions {
   /** 工作目录（project 层根锚——缺省 process.cwd()） */
   readonly cwd?: string;
-  /** 数据目录（user 层根——`~/.berry-agent` 对外值位由调用方注入） */
-  readonly dataDir: string;
+  /**
+   * 数据目录（user 层 `<dataDir>/agents`）。可选（批 19c-1 装载态）：缺席 =
+   * 跳过 user 层（:memory: 诊断形态 dataDir null 无用户子代理面——其余层
+   * 照常构造，镜像 skills discovery 同律）。
+   */
+  readonly dataDir?: string;
   /** home 目录注入（跨库层——缺省 os.homedir()） */
   readonly homeDir?: string;
   /** project 层信任锚（缺省 true——DiscoveryGates 面由装配侧持有） */
@@ -247,8 +251,10 @@ export function createStandardAgentLayers(options: StandardAgentLayersOptions): 
       trusted: options.trustedProject ?? true,
       seenRealPaths: seen,
     }),
-    // 位 2：user `<dataDir>/agents`（无需信任）
-    createAgentLayerProvider({ id: 'user', roots: [join(options.dataDir, 'agents')], seenRealPaths: seen }),
+    // 位 2：user `<dataDir>/agents`（无需信任——dataDir 缺席跳位，:memory: 形）
+    ...(options.dataDir !== undefined
+      ? [createAgentLayerProvider({ id: 'user', roots: [join(options.dataDir, 'agents')], seenRealPaths: seen })]
+      : []),
     // 位 3：跨库 `~/.agents/agents` 与 `~/.claude/agents`（生态复用——CC 形可装载）
     createAgentLayerProvider({
       id: 'cross-repo',

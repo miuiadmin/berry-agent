@@ -150,13 +150,17 @@ function outcomeToDecision(outcome: ApprovalOutcome, alwaysWritten: boolean): Ap
 
 /**
  * 组装审批服务。每次 ask 独立 approvalId（randomUUID）——审批对以此为关联
- * 键落日志。构造时注册 approval/answer 事件词汇（EventDispatch 词汇门禁——
- * 撞名 fail-loud：同 dispatch 重复组装是装配 bug 不静默）。
+ * 键落日志。构造时注册 approval/answer 事件词汇（幂等跳过——批 19c-1 修正：
+ * 「同 dispatch 重复组装是装配 bug」前提随多会话同栈装配废止〔in-process
+ * 子代理真工厂首例——每会话各装配一份审批服务共享词汇〕；归属路由恰一键
+ * 在 answerer 侧隔离他会话 ask，词汇层不承担装配检测）。
  */
 export function createApprovalService(dispatch: EventDispatch, opts: ApprovalServiceOptions = {}): ApprovalService {
   const policy = opts.policy ?? 'ask';
   const sink: ApprovalDecisionSink = opts.sink ?? { asked: () => {}, decided: () => {} };
-  dispatch.registerEventNames([APPROVAL_ANSWER_EVENT]);
+  if (!dispatch.isRegistered(APPROVAL_ANSWER_EVENT)) {
+    dispatch.registerEventNames([APPROVAL_ANSWER_EVENT]);
+  }
   /** 会话粘性表（粘性第 1/2 款内存面——随服务生命周期即会话生命周期） */
   const stickyGrants = new Map<string, StickyGrant>(); // 键 = target
 

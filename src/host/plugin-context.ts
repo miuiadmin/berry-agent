@@ -454,8 +454,10 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         // agent_ 前缀保留字闸（03 §2.7 行 254——拒绝式同码）：named provider
         // 派生工具名专属段（04 §10 程序化注册槽），插件先占 agent_xxx 位即
         // 反锁后续 named provider 注册（拒绝服务窗）——保留字在注册面执法、
-        // 执法位写死注册侧（本动词；机器侧放行 host 物化腿的派生工具注册）
-        if (def.name.startsWith(AGENT_TOOL_PREFIX)) {
+        // 执法位写死注册侧（本动词；机器侧放行 host 物化腿的派生工具注册——
+        // 豁免位 = core:subagent 件：声明式/程序化子代理 agent_<name> 静态
+        // 工具经本动词物化，批 19c-1 注释条款兑现）
+        if (def.name.startsWith(AGENT_TOOL_PREFIX) && pluginId !== 'core:subagent') {
           throw new BaseError(
             'TOOL_NAME_CONFLICT',
             `工具名「${def.name}」携 ${AGENT_TOOL_PREFIX} 前缀——保留字段（named provider 派生工具名专属段，03 §2.7/04 §10），请改名注册`,

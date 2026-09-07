@@ -11,15 +11,50 @@ import { Type } from 'typebox';
 import type { ProgrammaticProviderEntry, SubagentService } from './service.js';
 import { AGENT_TOOL_NAME, AGENT_TOOL_PREFIX, type SubagentDef } from './types.js';
 
-/** 委派工具的会话语境（per-session 闭包——工具面创建位携带） */
+/**
+ * 委派工具的会话语境。两种装载形（批 19c-1 定形）：
+ *  - per-session 装配形（测试/程序化直用）：parentSessionId/depth/
+ *    availableTools 闭包静态绑定；
+ *  - boot 全局层形（core:subagent 注册）：工具跨会话重放，per-session 位
+ *    延后到调用时点——sessionContext 由 toolCtx.sessionId 解析（委派深度
+ *    记录 + 父面枚举），在场时胜出、静态位退兜底。
+ */
 export interface DelegationToolDeps {
   readonly service: SubagentService;
-  /** 父会话 id（Job owner + 通知路由） */
-  readonly parentSessionId: string;
+  /** 父会话 id（Job owner + 通知路由；boot 全局层形可缺席——执行时解析） */
+  readonly parentSessionId?: string;
   /** 委派深度（根会话工具 = 1 缺省；子栈工具 = 父深度 + 1——机器注入） */
   readonly depth?: number;
   /** 父会话工具面读面（派生面基准 + 预检判据；缺省不可枚举） */
   readonly availableTools?: () => readonly string[];
+  /**
+   * 执行时会话语境解析（boot 全局层形）：sessionId（toolCtx 面）→ 该会话
+   * 的委派深度 + 全量工具名快照。在场时胜出（静态闭包位退兜底）——组合根
+   * 闭包（装配侧持有深度记录表与驱动登记）。
+   */
+  readonly sessionContext?: (sessionId: string) => {
+    readonly depth: number;
+    readonly availableTools?: readonly string[];
+  };
+}
+
+/**
+ * 执行时语境解析（两装载形合流单源）：parentSessionId = 执行会话（boot 形）
+ * ?? 静态闭包位；深度/工具面 = sessionContext 产物 ?? 静态位。两源俱缺席 =
+ * 语境不可路由（诚实拒——isError 回执不伪装起跑）。
+ */
+function resolveToolContext(deps: DelegationToolDeps, toolCtx: { sessionId?: string } | undefined) {
+  const sessionId = toolCtx?.sessionId;
+  const fromSession = sessionId !== undefined ? deps.sessionContext?.(sessionId) : undefined;
+  const parentSessionId = sessionId ?? deps.parentSessionId;
+  const depth = fromSession?.depth ?? deps.depth ?? 1;
+  const availableTools =
+    fromSession?.availableTools ?? (deps.availableTools !== undefined ? deps.availableTools() : undefined);
+  return {
+    ...(parentSessionId !== undefined ? { parentSessionId } : {}),
+    depth,
+    ...(availableTools !== undefined ? { availableTools } : {}),
+  };
 }
 
 /** 委派回执渲染（one-shot 结果 / background Job 身份——模型面统一文案） */
@@ -62,15 +97,25 @@ export function createAgentTool(deps: DelegationToolDeps): ToolDefinition {
       background: Type.Optional(Type.Boolean({ description: '后台收场（缺省 false = 父同步等结果）' })),
       name: Type.Optional(Type.String({ description: '诊断名（Job 名与通知文案显示位）' })),
     }),
-    async execute(args) {
+    async execute(args, toolCtx) {
+      // 执行时语境解析（两装载形合流——boot 形 toolCtx.sessionId 胜出）
+      const ctx = resolveToolContext(deps, toolCtx);
+      if (ctx.parentSessionId === undefined) {
+        return {
+          content: [
+            { type: 'text', text: 'SUBAGENT_CONTEXT_MISSING：委派语境不可路由（无父会话 id——工具须经会话驱动执行）' },
+          ],
+          isError: true,
+        };
+      }
       try {
         const outcome = await deps.service.run({
           prompt: String(args.prompt ?? ''),
           ...(args.background === true ? { background: true } : {}),
           ...(typeof args.name === 'string' && args.name !== '' ? { name: args.name } : {}),
-          parentSessionId: deps.parentSessionId,
-          depth: deps.depth ?? 1,
-          ...(deps.availableTools !== undefined ? { availableTools: deps.availableTools() } : {}),
+          parentSessionId: ctx.parentSessionId,
+          depth: ctx.depth,
+          ...(ctx.availableTools !== undefined ? { availableTools: ctx.availableTools } : {}),
         });
         return renderOutcome(outcome);
       } catch (err) {
@@ -103,7 +148,17 @@ export function createDeclarativeAgentTool(
       prompt: Type.String({ description: '委派目标提示' }),
       background: Type.Optional(Type.Boolean({ description: '后台收场（缺省 false = 父同步等结果）' })),
     }),
-    async execute(args) {
+    async execute(args, toolCtx) {
+      // 执行时语境解析（两装载形合流——boot 形 toolCtx.sessionId 胜出）
+      const ctx = resolveToolContext(deps, toolCtx);
+      if (ctx.parentSessionId === undefined) {
+        return {
+          content: [
+            { type: 'text', text: 'SUBAGENT_CONTEXT_MISSING：委派语境不可路由（无父会话 id——工具须经会话驱动执行）' },
+          ],
+          isError: true,
+        };
+      }
       try {
         const outcome = await deps.service.run({
           providerName: def.name,
@@ -114,9 +169,9 @@ export function createDeclarativeAgentTool(
           ...(def.model !== undefined ? { model: def.model } : {}),
           systemPrompt: def.systemPrompt,
           name: def.name,
-          parentSessionId: deps.parentSessionId,
-          depth: deps.depth ?? 1,
-          ...(deps.availableTools !== undefined ? { availableTools: deps.availableTools() } : {}),
+          parentSessionId: ctx.parentSessionId,
+          depth: ctx.depth,
+          ...(ctx.availableTools !== undefined ? { availableTools: ctx.availableTools } : {}),
         });
         return renderOutcome(outcome);
       } catch (err) {

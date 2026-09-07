@@ -7,7 +7,6 @@
  */
 import { describe, it, expect } from 'vitest';
 import { EventDispatch } from '../context/index.js';
-import { BaseError } from '../contracts/index.js';
 import {
   APPROVAL_ANSWER_EVENT,
   bridgeApprovalSignal,
@@ -185,10 +184,13 @@ describe('粘性短路（ask 之前，无审批对）', () => {
 /* ---------------- 词汇执法 + 信号桥接 ---------------- */
 
 describe('词汇执法与信号桥接', () => {
-  it('同分派器重复组装 → EVENT_DUPLICATE fail-loud（单例装配纪律）', () => {
+  it('同分派器重复组装 → 词汇幂等跳过合法（批 19c-1 语义修正）：多会话各装配一份共享词汇', () => {
     const dispatch = new EventDispatch();
     createApprovalService(dispatch);
-    expect(() => createApprovalService(dispatch)).toThrow(BaseError);
+    // in-process 子代理真工厂首例：同栈父子两会话各装配一份审批服务，词汇
+    // 层不承担装配检测（归属路由恰一键在 answerer 侧隔离他会话 ask）
+    expect(() => createApprovalService(dispatch)).not.toThrow();
+    expect(dispatch.isRegistered('approval/answer')).toBe(true); // 恰一册
   });
 
   it('bridgeApprovalSignal：已 abort 的信号同步触发；后 abort 中继同 reason；摘除后不再中继', () => {

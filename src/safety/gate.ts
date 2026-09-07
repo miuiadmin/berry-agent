@@ -53,6 +53,15 @@ export const DEFAULT_CARVE_OUT_ENTRIES: readonly CarveOutEntry[] = [
 export interface SafetyGateOptions {
   /** 审批服务（fs 写审批与升权审批共用，summary 区分） */
   readonly approval: ApprovalService;
+  /**
+   * 本行执法归属会话（批 19c-1 会话归属过滤）：守门行是 per-session 装配
+   * （assembleOpenTools 每会话各装一行，经共享 dispatch 全局订阅本词）——
+   * 归属位在场时，他会话的工具调用本行让棒（调 next 交棒，不执法不产生
+   * 审批交互）。缺省缺席 = 不过滤（单会话测试形 / 无会话语境——判据缺席
+   * 不歧视）。in-process 子代理真工厂首例：同栈父子两会话并存，无本位则
+   * 同一 write toolCall 被父子两行各问一次（双审批对缺陷——19c-1 修复）。
+   */
+  readonly sessionId?: string;
   /** 工作区根（会话不可变 cwd；相对路径锚点） */
   readonly workspace: string;
   /** 当前生效档位取值器（三级解析产物；每次预检取最新——会话 override 即时生效） */
@@ -121,6 +130,12 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
   const approval = opts.approval;
 
   const handler = async (input: GateInput, next: (value: GateInput) => Promise<GateInput>): Promise<GateInput> => {
+    // 会话归属过滤（批 19c-1）：归属位与调用位双在场且相异 = 他会话的工具
+    // 调用——本行让棒（不执法不产生审批交互，交棒给归属行）。双缺席任一 =
+    // 无会话判据语境（单会话测试形 / 无会话管道调用），不过滤保持旧行为。
+    if (opts.sessionId !== undefined && input.sessionId !== undefined && input.sessionId !== opts.sessionId) {
+      return next(input);
+    }
     const mode = opts.mode();
     const tool: ToolDefinition = input.tool;
     // read-only 档：fence 拒全量写（空根）——本行跳过，不产生审批交互（问了

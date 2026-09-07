@@ -97,7 +97,7 @@ describe('SubagentNotifyFace ↔ driver 适配器（结构 fake 承接）', () =
     expect(submits[0]!).toMatchObject({ source: 'subagent-settled', backgroundWake: true });
     expect(submits[0]!.content).toContain('桥接员');
     expect(submits[0]!.content).toContain('后台产物');
-    expect(approvals).toEqual([{ jobName: '桥接员', approvalId: 'ap-9', toolName: 'write' }]);
+    expect(approvals).toEqual([{ parentSessionId: 's1', jobName: '桥接员', approvalId: 'ap-9', toolName: 'write' }]);
   });
 });
 

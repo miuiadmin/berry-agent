@@ -149,6 +149,13 @@ function dataOf(driver: ConversationDriver, type: string): unknown[] {
 /* ---------------- durable 接线（正路径族） ---------------- */
 
 describe('ConversationDriver durable 接线', () => {
+  it('toolNames 快照（批 19c-1——子代理派生面父面枚举读面）：在场 = 整形后实名快照；纯对话形 undefined', () => {
+    const withTools = makeDriver({ tools: [makeTool('read'), makeTool('bash'), makeTool('todo')] });
+    expect(withTools.driver.toolNames).toEqual(['read', 'bash', 'todo']); // 构造快照（后续 shape 整形后的面）
+    const bare = makeDriver({});
+    expect(bare.driver.toolNames).toBeUndefined(); // 纯对话形不可枚举（白名单透传 fail-closed 全列）
+  });
+
   it('一问一答：durable 序 = user/message → turn/start → request/header(initial) → assistant/message → turn/end(completed)', async () => {
     const { driver } = makeDriver({ scripts: [assistant({ content: [{ type: 'text', text: '答' }] })] });
     const result = await driver.submit('问');

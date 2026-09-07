@@ -57,7 +57,7 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     expect(doc.database).toBe(':memory:'); // 同构诊断形注记——主库零落盘
     expect(doc.model.length).toBeGreaterThan(0); // 栈内模型缺省解析产物
     expect(doc.flags).toEqual({ noPlugins: false, port: null }); // --port 收下不起监听（缺席如实注记 null）
-    // 批 19a 起 core 注册表非空（exec/web/skills/memory 入册——19b-2 第四件）
+    // 批 19a 起 core 注册表非空（exec/web/skills/memory/subagent 入册——19c-1 第五件）
     // ——清单缺席 = 全 core 内置态：activated 见 core 行（装载态集成回归锁
     //——件数随逐纵切笔增长）。:memory: 座上 sqlite() 在场 → memory 件照装
     //（同构诊断形走真装载面——禁侧门律）
@@ -66,10 +66,11 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
       'core:web',
       'core:skills',
       'core:memory',
+      'core:subagent',
     ]);
     expect(doc.plugins.failed).toEqual([]);
     expect(doc.plugins.skipped).toEqual([]);
-    expect(doc.counts).toEqual({ total: 4, enabled: 4, failed: 0 });
+    expect(doc.counts).toEqual({ total: 5, enabled: 5, failed: 0 });
     // 同构纪律副作用边界：不占标记 + 无 .db 落盘
     expect(existsSync(join(dir, ACTIVE_MARKER_BASENAME))).toBe(false);
     expect(readdirSync(dir).filter((name) => name.endsWith('.db'))).toEqual([]);
@@ -92,13 +93,14 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     if (failedRow === undefined) throw new Error('failed 行缺席');
     expect(failedRow.id).toBe('user-demo');
     expect(failedRow.message).toContain('装机账本无此 id'); // 账本读侧真达（读真盘 ledger.json 缺席）
-    // core 注册表非空（批 19a/19b-1/19b-2——exec/web/skills/memory 入册）与
+    // core 注册表非空（批 19a—19c-1——exec/web/skills/memory/subagent 入册）与
     // 用户行分立：core 照装、坏用户行照 fail
     expect((doc.plugins.activated as { id?: string }[]).map((row) => row.id)).toEqual([
       'core:exec',
       'core:web',
       'core:skills',
       'core:memory',
+      'core:subagent',
     ]);
     expect(doc.counts.failed).toBe(1);
   });

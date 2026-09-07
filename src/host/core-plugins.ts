@@ -54,6 +54,9 @@ import type {
   MemoryLlmFace,
   SessionFtsSearchFace,
 } from '../memory/index.js';
+import { collectAgentDefs, createStandardAgentLayers } from '../skills/index.js';
+import { createAgentTool, materializeDeclarativeSubagents } from '../subagent/index.js';
+import type { DelegationToolDeps, SubagentService } from '../subagent/index.js';
 
 import type { PluginContext } from './plugin-context.js';
 import type { CorePluginReference } from './loader.js';
@@ -145,6 +148,21 @@ export interface CorePluginHostDeps {
   readonly llm?: () => MemoryLlmFace;
   /** 命令输出面（memory-export/import 结算文本投递——缺席即静默，命令仍注册） */
   readonly notify?: (message: string) => void;
+  /**
+   * 子代理委派服务（批 19c-1——assembly 根建 createSubagentService 并接线
+   * in-process 真工厂后传入）。缺席 = subagent 件整体零装载（诚实缺席律
+   * ——测试替身形无委派面，对话本体仍通）。
+   */
+  readonly subagents?: SubagentService;
+  /**
+   * 委派工具执行时会话语境解析（boot 全局层形真源）：sessionId → 委派深度
+   * （登记表）+ 全量工具名快照（driverOf().toolNames）。缺席 = 工具静态
+   * 闭包位兜底、两源俱缺席诚实拒（tool.ts resolveToolContext 律）。
+   */
+  readonly subagentSessionContext?: (sessionId: string) => {
+    readonly depth: number;
+    readonly availableTools?: readonly string[];
+  };
 }
 
 /**
@@ -348,12 +366,63 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
+ * core:subagent（批 19c-1）——委派面装载态兑现：通用 `agent` 工具（boot
+ * 全局层散装注册——执行时会话语境解析，toolCtx.sessionId → 深度/父面
+ * 枚举）+ 声明式子代理腿（agents 层发现 [skills/agents.ts 解析层镜像律]
+ * → materializeDeclarativeSubagents 物化 named provider + `agent_<name>`
+ * 静态工具——前缀保留字闸豁免 core:subagent 域，plugin-context 注记条款）。
+ *
+ * in-process 真工厂本体在 assembly 根（subagent-factory.ts——真工厂需
+ * ConversationStack 真身，件内不可达）；本 apply 只消费 service 面 +
+ * sessionContext 解析闭包（deps 两新位）。缺席 = 件整体零装载。
+ */
+function makeSubagentPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'subagent',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      const service = deps.subagents;
+      if (service === undefined) return; // 缺席零装载（诚实缺席律——assembly 未接线形）
+
+      const warn = (message: string) => console.error(message);
+      // 工具 deps：boot 全局层形只携 sessionContext（执行时解析——静态位
+      // 全缺席；两源俱缺席时 resolveToolContext 诚实拒）
+      const toolDeps: DelegationToolDeps = {
+        service,
+        ...(deps.subagentSessionContext !== undefined ? { sessionContext: deps.subagentSessionContext } : {}),
+      };
+      const disposeAgent = context.tools.register(createAgentTool(toolDeps));
+
+      // 声明式腿：标准层发现（project/user/跨库——dataDir null 跳 user 层，
+      // 同 skills 律）→ 坏文件诊断 warn（不炸装配——skills 纪律镜像）→
+      // def 物化（named provider 注册 + 静态工具族）
+      const layers = createStandardAgentLayers({
+        ...(deps.cwd !== undefined ? { cwd: deps.cwd } : {}),
+        ...(deps.dataDir !== null ? { dataDir: deps.dataDir } : {}),
+        ...(deps.homeDir !== undefined ? { homeDir: deps.homeDir } : {}),
+      });
+      const collection = await collectAgentDefs(layers);
+      for (const diagnostic of collection.diagnostics) {
+        warn(`[subagent] ${diagnostic.type}：${diagnostic.message}（${diagnostic.path}）`);
+      }
+      const materialized = materializeDeclarativeSubagents(collection.defs, service, toolDeps);
+      const disposeDeclarative = materialized.tools.map((tool) => context.tools.register(tool));
+
+      return () => {
+        for (const dispose of disposeDeclarative.reverse()) dispose();
+        disposeAgent();
+      };
+    },
+  };
+}
+
+/**
  * core: 官方件注册表工厂（assembly.ts 缺省注入源——`options.corePlugins ??
  * createCorePlugins(deps)`；测试注入面/诊断命令经 options 覆盖）。
  * deps 聚落律（07 §7.4 #1）：宿主真身需求逐笔入 CorePluginHostDeps
- * （dataDir 首位——批 19b-1；memory 数据面六位——批 19b-2；store/exec
- * 管道跨件复用等后续件随批扩展）。
+ * （dataDir 首位——批 19b-1；memory 数据面六位——批 19b-2；subagent
+ * 委派面两位——批 19c-1；store/exec 管道跨件复用等后续件随批扩展）。
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
-  return [execPlugin, webPlugin, makeSkillsPlugin(deps), makeMemoryPlugin(deps)];
+  return [execPlugin, webPlugin, makeSkillsPlugin(deps), makeMemoryPlugin(deps), makeSubagentPlugin(deps)];
 }

@@ -21,7 +21,7 @@
  * 装配注入族归 host 装配根闭包，本件不持 LLM 边界任何依赖）。
  */
 import type { EventDispatch } from '../context/index.js';
-import type { SessionOrigin } from '../contracts/index.js';
+import type { AgentTool, ApprovalAskAnswer, ApprovalAskRequest, SessionOrigin } from '../contracts/index.js';
 import type { Persistence, SessionRow } from '../persist/index.js';
 import { forkPrefix, isSeededPrefix, recoverClosers } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
@@ -55,6 +55,23 @@ export type DriverFactory = (input: {
    * session 模型通道；open/resume 不携带——resume 回落栈缺省，C 批 C-3）。
    */
   readonly model?: string;
+  /**
+   * 本会话系统提示覆盖（批 19c-1——in-process 子代理 per-session 通道）。
+   * 纯内存载体同 model 律：不进 durable、open/resume 不携带；缺省 =
+   * 装配根系统提示基线（per-session 位胜出）。
+   */
+  readonly systemPrompt?: string;
+  /**
+   * 会话工具面整形钩子（批 19c-1——子代理派生面白名单执法位）：装配产物
+   * 在进驱动前经此整形（语义归调用方——本件与栈只透传不立法；子代理形 =
+   * fs 四自持 + bash 结构性排除 + 白名单过滤余面，04 §10）。
+   */
+  readonly shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
+  /**
+   * 审批呈现路由覆盖（批 19c-1——委派边界①审批升父面）：缺省 = 本会话
+   * 通道队列；在场时胜出（子代理形 = 父会话队列 + 挂起通知注入）。
+   */
+  readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
 }) => ConversationDriver;
 
 /** 已开会话回执（create/open 共形） */
@@ -120,15 +137,25 @@ export class SessionManager {
     return this.persistence.listSessions(options);
   }
 
-  /** 新开会话（origin 缺省普通对话；model 为本会话模型覆盖——内存载体） */
-  create(init: { origin?: SessionOrigin; workspaceRoot?: string; title?: string; model?: string } = {}): OpenedSession {
+  /** 新开会话（origin 缺省普通对话；model/systemPrompt/shapeTools/askApproval 为本会话装配覆盖——纯内存载体，批 19c-1 子代理通道同 model 律） */
+  create(
+    init: {
+      origin?: SessionOrigin;
+      workspaceRoot?: string;
+      title?: string;
+      model?: string;
+      systemPrompt?: string;
+      shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
+      askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+    } = {},
+  ): OpenedSession {
     const origin = init.origin ?? 'conversation';
     const log = this.persistence.createSession({
       origin,
       ...(init.workspaceRoot !== undefined ? { workspaceRoot: init.workspaceRoot } : {}),
       ...(init.title !== undefined ? { title: init.title } : {}),
     });
-    return this.adopt(log, origin, false, init.model);
+    return this.adopt(log, origin, false, init);
   }
 
   /**
@@ -244,9 +271,27 @@ export class SessionManager {
     this.records.clear();
   }
 
-  /** 登记 + 驱动构造 + 入册（create/open/fork 共尾；model 仅 create 腿携带） */
-  private adopt(log: SessionLog, origin: SessionOrigin, resumed: boolean, model?: string): OpenedSession {
-    const driver = this.createDriver({ session: log, origin, resumed, ...(model !== undefined ? { model } : {}) });
+  /** 登记 + 驱动构造 + 入册（create/open/fork 共尾；装配覆盖位仅 create 腿携带——resume 不回放） */
+  private adopt(
+    log: SessionLog,
+    origin: SessionOrigin,
+    resumed: boolean,
+    overrides: {
+      model?: string;
+      systemPrompt?: string;
+      shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
+      askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+    } = {},
+  ): OpenedSession {
+    const driver = this.createDriver({
+      session: log,
+      origin,
+      resumed,
+      ...(overrides.model !== undefined ? { model: overrides.model } : {}),
+      ...(overrides.systemPrompt !== undefined ? { systemPrompt: overrides.systemPrompt } : {}),
+      ...(overrides.shapeTools !== undefined ? { shapeTools: overrides.shapeTools } : {}),
+      ...(overrides.askApproval !== undefined ? { askApproval: overrides.askApproval } : {}),
+    });
     this.records.set(log.sessionId, { driver, origin });
     return { sessionId: log.sessionId, driver, origin };
   }

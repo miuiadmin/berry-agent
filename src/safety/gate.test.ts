@@ -314,3 +314,111 @@ describe('整名 write-effect 工具', () => {
     expect(rig.asks[0]!.summary).toBe('deploy 写动作');
   });
 });
+
+describe('会话归属过滤（批 19c-1——同栈多会话装配）', () => {
+  /** 双行装配：同 dispatch 父子两会话各装一行守门（归属位各织各的） */
+  function makeDualRig() {
+    const dispatch = new EventDispatch();
+    dispatch.registerEventNames(TOOL_EVENT_NAMES);
+    const asksBy: Record<string, ApprovalRequest[]> = { parent: [], child: [] };
+    const install = (owner: 'parent' | 'child', sessionId: string) =>
+      installSafetyGate(dispatch, {
+        approval: {
+          policyMode: 'ask',
+          ask: async (req) => {
+            asksBy[owner]!.push(req);
+            return { outcome: 'allowed-once', source: 'user' };
+          },
+        },
+        sessionId,
+        workspace: ws,
+        mode: () => 'workspace-write',
+        dataDir: join(tmpdir(), 'berry-gate-datadir'),
+      });
+    install('parent', 's-parent');
+    install('child', 's-child');
+    const run = async (sessionId: string | undefined) => {
+      const input: GateInput = {
+        tool: WRITE,
+        args: { path: 'a.txt', content: 'x' },
+        toolCallId: 'call-1',
+        mutated: false,
+        ...(sessionId !== undefined ? { sessionId } : {}),
+      };
+      return dispatch.waterfall<GateInput>(TOOL_EVENT_NAMES[0]!, input);
+    };
+    return { run, asksBy };
+  }
+
+  it('子的 write 只走子行：父行让棒——恰一问且问在归属行（双审批对缺陷回归锁）', async () => {
+    const rig = makeDualRig();
+    const out = await rig.run('s-child');
+    expect(out.outcome).toBeUndefined(); // 放行（无拦截）
+    expect(rig.asksBy.child).toHaveLength(1);
+    expect(rig.asksBy.parent).toHaveLength(0); // 父行让棒不执法不问
+  });
+
+  it('归属互斥对称：父的 write 只走父行', async () => {
+    const rig = makeDualRig();
+    await rig.run('s-parent');
+    expect(rig.asksBy.parent).toHaveLength(1);
+    expect(rig.asksBy.child).toHaveLength(0);
+  });
+
+  it('调用位无会话键 = 判据缺席不过滤（旧行为保持——两行各执法）', async () => {
+    const rig = makeDualRig();
+    await rig.run(undefined);
+    expect(rig.asksBy.parent).toHaveLength(1);
+    expect(rig.asksBy.child).toHaveLength(1); // 无会话语境不歧视——单会话测试形兼容
+  });
+
+  it('归属行 block 短路整链（异会话行让棒在前不吞拦截）', async () => {
+    const dispatch = new EventDispatch();
+    dispatch.registerEventNames(TOOL_EVENT_NAMES);
+    let parentAsked = 0;
+    installSafetyGate(dispatch, {
+      // 父行恒拒——验证子的调用不被父行拦截（让棒语义），父自己的调用被拦
+      approval: {
+        policyMode: 'ask',
+        ask: async () => {
+          parentAsked += 1;
+          return { outcome: 'rejected', source: 'user' };
+        },
+      },
+      sessionId: 's-parent',
+      workspace: ws,
+      mode: () => 'workspace-write',
+      dataDir: join(tmpdir(), 'berry-gate-datadir'),
+    });
+    let childAsked = 0;
+    installSafetyGate(dispatch, {
+      approval: {
+        policyMode: 'ask',
+        ask: async () => {
+          childAsked += 1;
+          return { outcome: 'allowed-once', source: 'user' };
+        },
+      },
+      sessionId: 's-child',
+      workspace: ws,
+      mode: () => 'workspace-write',
+      dataDir: join(tmpdir(), 'berry-gate-datadir'),
+    });
+    const call = (sessionId: string) =>
+      dispatch.waterfall<GateInput>(TOOL_EVENT_NAMES[0]!, {
+        tool: WRITE,
+        args: { path: 'a.txt', content: 'x' },
+        toolCallId: 'c',
+        mutated: false,
+        sessionId,
+      });
+    const childOut = await call('s-child');
+    expect(childOut.outcome).toBeUndefined(); // 子调用放行（父行让棒不拦）
+    expect(childAsked).toBe(1);
+    expect(parentAsked).toBe(0);
+    const parentOut = await call('s-parent');
+    expect(parentOut.outcome?.action).toBe('block'); // 父调用被归属行拦截
+    expect(parentAsked).toBe(1);
+    expect(childAsked).toBe(1); // 子行对父调用让棒
+  });
+});

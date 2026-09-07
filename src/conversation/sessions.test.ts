@@ -129,6 +129,44 @@ describe('SessionManager create 与登记', () => {
     manager.open(overridden.sessionId);
     expect(seen).toEqual(['override/model', undefined, undefined]);
   });
+
+  it('create init.systemPrompt/shapeTools 透传 DriverFactory（批 19c-1 per-session 装配覆盖通道——in-process 子代理工厂装载位）', () => {
+    // 整形探针面（名位唯一消费面——结构替身）
+    const probe = [
+      { name: 'read' },
+      { name: 'bash' },
+      { name: 'todo' },
+    ] as unknown as import('../contracts/index.js').AgentTool[];
+    const seen: Array<{ systemPrompt: string | undefined; shaped: string[] | undefined }> = [];
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: (input) => {
+        seen.push({
+          systemPrompt: input.systemPrompt,
+          shaped: input.shapeTools?.(probe)?.map((tool) => tool.name),
+        });
+        return new ConversationDriver({
+          session: input.session,
+          scope: Scope.createRoot(),
+          dispatch,
+          streamFn: async () => {
+            throw new Error('本测试面不驱动 run（纯编排断言）');
+          },
+          convertToLlm: passthrough,
+          model: 'test/model',
+        });
+      },
+    });
+    // bash 恒弃整形（子代理派生面律）——形状可见性经透传闭包验证
+    manager.create({ systemPrompt: '你是子代理', shapeTools: (tools) => tools.filter((tool) => tool.name !== 'bash') });
+    manager.create({}); // 缺席双 undefined（不覆盖 = 栈缺省位）
+    expect(seen).toEqual([
+      { systemPrompt: '你是子代理', shaped: ['read', 'todo'] },
+      { systemPrompt: undefined, shaped: undefined },
+    ]);
+  });
 });
 
 /* ---------------- open（resume） ---------------- */

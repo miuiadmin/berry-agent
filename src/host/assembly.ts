@@ -28,7 +28,12 @@ import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
 import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
-import { createJobRegistry, createSubagentService, provideJobsService } from '../subagent/index.js';
+import {
+  DEFAULT_SUBAGENT_PROVIDER,
+  createJobRegistry,
+  createSubagentService,
+  provideJobsService,
+} from '../subagent/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
@@ -41,6 +46,7 @@ import type { PluginBootHandle } from './plugin-boot.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
+import { createDelegationSessionTracker, createInProcessSubagentProvider } from './subagent-factory.js';
 import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactory } from './triggers.js';
 
 /** 装配选项（TUI 入口与诊断命令共用面——runtime 子面透传 createHostRuntime） */
@@ -198,13 +204,51 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
 
     // —— 子代理委派机器（D 批 D-2——第十二动词宿主侧真源）：kind 'subagent'
     // 构造自登（与 trigger 同表分立——词汇注册表纪律）；程序化注册面
-    // （ctx.agent.registerSubagentProvider 受局面）两闸执法在件内。run 消费
-    // 腿（in-process 真工厂 + 通知面/结算钩子桥）挂账装载态集成批——本批
-    // 只接注册面（词法身份面 + 分域归因执法完整；notify 缺席档件内自 warn）
+    // （ctx.agent.registerSubagentProvider 受局面）两闸执法在件内。通知面
+    // 桥（批 19c-1 兑现——结算走 submitText source='subagent-settled'
+    // backgroundWave 后台唤醒族〔唤醒预算防「父派子→子结算→父再派」自激励
+    // 环〕；审批挂起走父驱动 notifySubagentApprovalPending 恰一条幂等面）；
+    // 结算钩子 onSettled（goal foldDelegation 喂入 seam）挂 19c-3+ goal 笔
     const subagents = createSubagentService({
       registry: jobs,
+      notify: {
+        notifySettled: ({ parentSessionId, content }) => {
+          const run = stack.submitText(parentSessionId, content, {
+            source: 'subagent-settled',
+            backgroundWake: true,
+          });
+          if (run === undefined) {
+            logger.warn(`子代理结算通知无处投递（父会话 ${parentSessionId} 无活体驱动）——注册表条目仍终态`);
+            return Promise.resolve();
+          }
+          return run;
+        },
+        notifyApprovalPending: ({ parentSessionId, jobName, approvalId, toolName, reason }) => {
+          const driver = stack.driverOf(parentSessionId);
+          if (driver === undefined) {
+            logger.warn(
+              `子代理审批挂起通知无处投递（父会话 ${parentSessionId} 无活体驱动；Job ${jobName}）——审批仍挂起待答`,
+            );
+            return Promise.resolve();
+          }
+          return driver.notifySubagentApprovalPending({
+            jobName,
+            approvalId,
+            toolName,
+            ...(reason !== undefined ? { reason } : {}),
+          });
+        },
+      },
       warn: (message) => logger.warn(message),
     });
+    // in-process 真工厂注册（批 19c-1 兑现）：委派深度登记表（boot 全局层
+    // 工具执行时语境真源）+ DEFAULT_SUBAGENT_PROVIDER 位接线（声明式 def
+    // bound provider late-binding 同位解析）
+    const delegationSessions = createDelegationSessionTracker();
+    subagents.registerProvider(
+      DEFAULT_SUBAGENT_PROVIDER,
+      createInProcessSubagentProvider({ stack, tracker: delegationSessions, warn: (message) => logger.warn(message) }),
+    );
 
     // —— memory 件 LLM seam 适配器（批 19b-2——词面独立律：memory 席 DAG 无
     // llm 边，LlmService→MemoryLlmFace 的适配归装配根）。UserMessage.timestamp
@@ -255,6 +299,15 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             // sessionId 位 = 稳定字面占位（呈现侧路由后端自决——TUI/webui 均
             // 广播；语义面 = 归因 'memory'）
             notify: (message) => stack.channels.notify('memory', message),
+            // 子代理委派面两位（批 19c-1）：service 真身 + boot 全局层工具
+            // 执行时语境解析闭包（深度登记表 ?? 根 1；父面枚举 = 活体驱动
+            // toolNames 快照——纯对话形 undefined 不可枚举）
+            subagents,
+            subagentSessionContext: (sessionId) => {
+              const depth = delegationSessions.depthOf(sessionId) ?? 1;
+              const toolNames = stack.driverOf(sessionId)?.toolNames;
+              return { depth, ...(toolNames !== undefined ? { availableTools: toolNames } : {}) };
+            },
           }),
         warn: (message) => logger.warn(message),
       });

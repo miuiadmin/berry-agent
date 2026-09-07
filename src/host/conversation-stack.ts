@@ -175,12 +175,17 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   });
 
   // ⑤ SessionManager：DriverFactory 装配注入族全接线（model = per-fresh-session
-  // 覆盖 ?? 栈缺省——create init.model 透传位，触发器 starter 载体，C 批 C-3）
-  const createDriver: DriverFactory = ({ session, model: sessionModel }) => {
+  // 覆盖 ?? 栈缺省——create init.model 透传位，触发器 starter 载体，C 批 C-3；
+  // systemPrompt/shapeTools/askApproval = 批 19c-1 per-session 装配覆盖通道——
+  // in-process 子代理工厂消费位：系统提示覆盖、派生面白名单整形、审批升父面）
+  const createDriver: DriverFactory = ({ session, model: sessionModel, systemPrompt, shapeTools, askApproval }) => {
     const sessionId = session.sessionId;
-    // 审批桥：driver 与 open 域工具共用同一 per-session ask 面（07 §4.3 提问队列）
-    const askApproval = (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) =>
-      channels.askApproval(sessionId, request, opts);
+    // 审批桥：driver 与 open 域工具共用同一 per-session ask 面（07 §4.3 提问队列）；
+    // 工厂注入覆盖在场时胜出（委派边界①——子会话审批落父会话呈现面，04 §10）
+    const askFace =
+      askApproval ??
+      ((request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) =>
+        channels.askApproval(sessionId, request, opts));
     let tools: readonly AgentTool[] | undefined;
     let settleApprovals: (() => void) | undefined;
     if (options.runtime.dataDir !== null) {
@@ -192,13 +197,15 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         mode: sandboxMode,
         dataDir: options.runtime.dataDir,
         workspace: workspaceAnchor,
-        askApproval,
+        askApproval: askFace,
         ...(options.allowlist !== undefined ? { allowlist: options.allowlist } : {}),
         ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
         ...(options.bootTools !== undefined ? { extraTools: options.bootTools } : {}),
       });
       options.runtime.registerDisposer(assembly.dispose); // LIFO 拆解进运行时退出序
-      tools = assembly.tools;
+      // 整形钩子（批 19c-1）：装配产物进驱动前整形（语义归调用方——子代理
+      // 派生面执法；fullTools 快照即整形后面——孙代委派以子实面为基准）
+      tools = shapeTools !== undefined ? [...shapeTools(assembly.tools)] : assembly.tools;
       settleApprovals = assembly.settlePending;
     } // memory 形：工具整面缺席——纯对话 run（件头注降级语义）
     const driver = new ConversationDriver({
@@ -211,12 +218,15 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       model: sessionModel ?? model,
       ...(tools !== undefined ? { tools } : {}),
       ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
-      ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
+      // per-session 覆盖 ?? 栈基线（open/resume 不携带——回落基线同 model 律）
+      ...((systemPrompt ?? options.systemPrompt) !== undefined
+        ? { systemPrompt: systemPrompt ?? options.systemPrompt }
+        : {}),
       ...(options.pluginSections !== undefined ? { pluginSections: options.pluginSections } : {}),
       classifyError,
       compactForOverflow: (log: SessionLog) => compaction.compactForOverflow(log),
       environmentDisclosure: options.runtime.disclosure,
-      askApproval,
+      askApproval: askFace,
       ...(settleApprovals !== undefined ? { settleApprovals } : {}),
       warn,
       onEvent: (event) => channels.emit({ sessionId, event }),
