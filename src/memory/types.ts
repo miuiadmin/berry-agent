@@ -478,3 +478,66 @@ export interface BriefFaceEntry {
   readonly kind: MemoryKind;
   readonly summary: string;
 }
+
+/* ---------------- 持有面收口与导入导出（批 18c-8——06 §3 落码定形注） ---------------- */
+
+/**
+ * 访问日志滚动窗口天数（06 §3 访问日志条「留存 = 滚动窗口（起草 90 天）」单源）：
+ * 流水是可丢弃审计面——窗口清扫只删 memory_access 行，聚合列
+ * usage_count/last_used_at 不随清扫回退。
+ */
+export const MEMORY_ACCESS_WINDOW_DAYS = 90;
+
+/** 导出文件 magic 串（对外声明值位——品牌词例外律；持久互操作标识第一天定死） */
+export const MEMORY_EXPORT_MAGIC = 'berry-agent-memory';
+
+/** 导出格式版本（formatVersion 非 version——版本链语境下 version 会被读成数据版本） */
+export const MEMORY_EXPORT_FORMAT_VERSION = 1;
+
+/**
+ * 导出文件首行 header meta（06 §3 导入导出条）。ownerScope = 'all' 或单
+ * owner 键（命令 owner 省略 = 全 owner——header 记实际范围）；ownerRoots =
+ * owner 键 → 原始根路径对照（project 键为根路径哈希不可逆——跨机承接链必需，
+ * 注入位 = 命令 deps 装配闭包）。
+ */
+export interface MemoryExportHeader {
+  readonly format: typeof MEMORY_EXPORT_MAGIC;
+  readonly formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION;
+  /** Unix 毫秒 */
+  readonly exportedAt: number;
+  readonly ownerScope: string;
+  readonly ownerRoots: Record<string, string>;
+}
+
+/**
+ * JSONL 数据行（蛇列名单源——与 DDL 列名同源的持久互操作词面；值形取
+ * 解析形：source_refs 为数组非 JSON 字符串、frozen 为布尔非 0/1）。
+ * 全状态现行值（active/dismissed/expired 三值）按 id 升序确定性排列。
+ */
+export interface MemoryExportRow {
+  readonly id: string;
+  readonly owner_key: string;
+  readonly kind: MemoryKind;
+  readonly summary: string;
+  readonly content: string;
+  readonly confidence: number;
+  readonly evidence_count: number;
+  readonly status: MemoryStatus;
+  readonly superseded_by: string | null;
+  readonly source_refs: readonly MemorySourceRef[];
+  readonly created_at: number;
+  readonly updated_at: number;
+  readonly usage_count: number;
+  readonly last_used_at: number | null;
+  readonly frozen: boolean;
+  readonly ttl_days: number | null;
+  readonly expires_at: number | null;
+}
+
+/** 导入行级四账（恢复式运维动词尽力而为 + 回执如实分账——坏形行不弃批） */
+export interface MemoryImportOutcome {
+  readonly inserted: number;
+  readonly skippedExisting: number;
+  readonly rejectedSecret: number;
+  readonly rejectedMalformed: number;
+}

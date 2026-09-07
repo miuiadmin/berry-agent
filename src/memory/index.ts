@@ -16,7 +16,9 @@
  * 点名（简报尾行两形 + BriefBaseline.candidates 权威流）+ 效用进化
  * （cite 引用回写件 cite.ts + dao markUsed/resolveShortId）+ 简报差分
  * （memory/diff durable 词汇 + 纪元 tracker epochs LRU + 懒派生自愈）；
- * 持有面导入导出与 skill_manage 三动作随 18c-8 扩本面。
+ * 18c-8 域 = 持有面收口（sweep 双清同拍——TTL 物化 + 访问日志 90 天窗口清扫）
+ * + 导入导出件（port.ts JSONL 序列化/解析 + command.ts 两命令处理器；
+ * provenance 写入面与 skill_manage 三动作经对账钉死已随 14b 落）。
  * 迁移 export-only（host 装配根机械聚合入
  * 宿主单链——05 §6.4）；错误码注册（codes.ts）随本面引入生效。
  */
@@ -63,6 +65,9 @@ export {
   MEMORY_PROMOTION_EVIDENCE_MIN,
   MEMORY_PROMOTION_USAGE_MIN,
   MEMORY_DIFF_EPOCHS_LRU,
+  MEMORY_ACCESS_WINDOW_DAYS,
+  MEMORY_EXPORT_MAGIC,
+  MEMORY_EXPORT_FORMAT_VERSION,
   REVIEW_KINDS,
   llmTextOf,
 } from './types.js';
@@ -99,6 +104,9 @@ export type {
   MemoryDiffEntry,
   MemoryDiffData,
   BriefFaceEntry,
+  MemoryExportHeader,
+  MemoryExportRow,
+  MemoryImportOutcome,
 } from './types.js';
 export { MEMORY_MIGRATIONS } from './migration.js';
 export { scanForSecrets, sanitizeEntryForReadout } from './scan.js';
@@ -154,3 +162,15 @@ export {
   createDiffTracker,
 } from './diff.js';
 export type { DiffAppendEvent, DiffFetchEvents, MemoryDiffDeps, MemoryDiffTracker } from './diff.js';
+export {
+  isWithinRoots,
+  exportRowOf,
+  serializeMemoryExport,
+  parseMemoryImportHeader,
+  parseMemoryImportRow,
+  runMemoryImport,
+  buildMemoryExport,
+} from './port.js';
+export type { MemoryPortDaoFace } from './port.js';
+export { MEMORY_EXPORT_USAGE, MEMORY_IMPORT_USAGE, runMemoryExportCommand, runMemoryImportCommand } from './command.js';
+export type { MemoryExportCommandDeps, MemoryImportCommandDeps } from './command.js';

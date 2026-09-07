@@ -235,7 +235,7 @@ describe('DAO decay（降权物化——06 §5 落码定形注）', () => {
   });
 });
 
-describe('DAO sweepExpired（TTL 物化——纯状态变更）', () => {
+describe('DAO sweepExpired（双清同拍单事务——TTL 物化 + 访问日志窗口清扫）', () => {
   it('过期行物化 status=expired + superseded_by=ttl；不动 updated_at 不追加版本；幂等', () => {
     const dao = openDao();
     const id = seed(dao, { ttlDays: 7 });
@@ -244,13 +244,13 @@ describe('DAO sweepExpired（TTL 物化——纯状态变更）', () => {
     expect(dao.get(id)!.status).toBe('active'); // 未物化
     const versionsBefore = dao.versions(id).length;
     const updatedAtBefore = dao.get(id)!.updatedAt;
-    expect(dao.sweepExpired()).toBe(1);
+    expect(dao.sweepExpired().expired).toBe(1);
     const row = dao.get(id)!;
     expect(row.status).toBe('expired');
     expect(row.supersededBy).toBe('ttl');
     expect(row.updatedAt).toBe(updatedAtBefore); // 不动
     expect(dao.versions(id)).toHaveLength(versionsBefore); // 不追加
-    expect(dao.sweepExpired()).toBe(0); // 幂等
+    expect(dao.sweepExpired().expired).toBe(0); // 幂等
   });
 
   it('frozen 过期行免物化（冻结免 TTL 全档）', () => {
@@ -258,9 +258,25 @@ describe('DAO sweepExpired（TTL 物化——纯状态变更）', () => {
     const id = seed(dao, { ttlDays: 7 });
     dao.freeze(id);
     nowMs += 8 * DAY;
-    expect(dao.sweepExpired()).toBe(0);
+    expect(dao.sweepExpired().expired).toBe(0);
     expect(dao.get(id)!.status).toBe('active');
     expect(dao.listVisible()).toHaveLength(1); // frozen 谓词腿仍可见
+  });
+
+  it('访问日志 90 天滚动窗口同拍清扫：老流水删、新流水留、聚合列不回退', () => {
+    const dao = openDao();
+    const oldId = seed(dao, { summary: 'old cited lesson', content: 'old cited lesson body' });
+    const newId = seed(dao, { summary: 'new cited lesson', content: 'new cited lesson body' });
+    dao.markUsed([oldId, newId], 's1'); // 两行 cite 流水 ts = nowMs
+    // 制造老流水：oldId 流水行回拨 91 天（窗口外一刻——ts <= now - 90d 即删）
+    sql('UPDATE memory_access SET ts = ? WHERE memory_id = ?', nowMs - 91 * DAY, oldId);
+    expect(dao.accessLog().flow).toHaveLength(2); // 前置——双行在场
+    const swept = dao.sweepExpired();
+    expect(swept).toEqual({ expired: 0, accessPruned: 1 }); // 双清同拍——TTL 面零行 + 流水面一行
+    const flow = dao.accessLog().flow;
+    expect(flow).toHaveLength(1);
+    expect(flow[0]).toMatchObject({ memoryId: newId }); // 新流水留
+    expect(dao.get(oldId)!.usageCount).toBe(1); // 聚合列不随清扫回退（流水是可丢弃审计面）
   });
 });
 

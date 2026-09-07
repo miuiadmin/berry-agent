@@ -27,6 +27,7 @@ import {
   MEMORY_ACCESS_AGGREGATE_TOP_N,
   MEMORY_ACCESS_LOG_DEFAULT_LIMIT,
   MEMORY_ACCESS_LOG_MAX_LIMIT,
+  MEMORY_ACCESS_WINDOW_DAYS,
   MEMORY_CONTENT_MAX_CHARS,
   MEMORY_DAY_MS,
   MEMORY_KINDS,
@@ -36,6 +37,7 @@ import {
   MEMORY_SKILL_NAME_MAX,
   MEMORY_SKILL_NAME_RE,
   MEMORY_SOURCE_REFS_CAP,
+  MEMORY_STATUSES,
   MEMORY_SUMMARY_MAX_CHARS,
   type IngestOutcome,
   type MemoryAccessAggregate,
@@ -43,6 +45,7 @@ import {
   type MemoryAccessLogQuery,
   type MemoryAccessLogResult,
   type MemoryCandidate,
+  type MemoryExportRow,
   type MemoryKind,
   type MemoryReadOverview,
   type MemoryRow,
@@ -132,11 +135,13 @@ export interface MemoryDao {
    */
   decay(id: string, factor: number): MemoryRow;
   /**
-   * TTL 物化（周期路 fire 首步——06 §3 读面谓词的写侧对偶）：active 且非
-   * frozen 且 expires_at ≤ now 的行 → status='expired'、superseded_by='ttl'。
-   * 纯状态变更——不动 updated_at 不追加版本。返回物化行数。
+   * TTL 物化 + 访问日志窗口清扫（批 18c-8 双清同拍单事务——06 §3 定形注）：
+   * ① active 且非 frozen 且 expires_at ≤ now 的行 → status='expired'、
+   * superseded_by='ttl'（纯状态变更——不动 updated_at 不追加版本）；
+   * ② memory_access ts ≤ now - 90d 流水行删除（聚合列不随清扫回退——
+   * 流水是可丢弃审计面）。返回双计数 { expired, accessPruned }。
    */
-  sweepExpired(): number;
+  sweepExpired(): { expired: number; accessPruned: number };
 
   /* —— 检索与读面 —— */
 
@@ -164,6 +169,25 @@ export interface MemoryDao {
    * usage_count ≡ cite 行数的物理承载）。
    */
   markUsed(ids: readonly string[], sessionId?: string | null): number;
+
+  /* —— 导入导出面（批 18c-8——06 §3 文件导入导出条 + 落码定形注） —— */
+
+  /**
+   * 导出取数：全状态现行值（active/dismissed/expired 三值——恢复式备份
+   * 语义，读面 TTL 谓词不适用于导出面）含 TTL 不可见行，按 id 升序确定性
+   * 排列（可 diff）；ownerKey 限定 = 单键导出。
+   */
+  listForExport(ownerKey?: string): MemoryRow[];
+  /**
+   * 导入直插（状态面第二写点——内容面插入/合并路径唯一不变）：单事务三写
+   * = memories 全列直插（id/owner_key/状态列原值含 dismissed/expired/frozen）
+   * + FTS 投影 + 版本链首版 cause='insert'（「插入即落首版无链空窗」对导入
+   * 位同罩——快照内容面取导入行原值，版本行 id/created_at 用本库 now〔本库
+   * 时间线不自外来钟〕）。id 已在库 → 整行跳过返回 false（恢复式幂等零合并
+   * 零覆写）。行形校验归 port.parseMemoryImportRow（词法判定单点）；写前
+   * secret 扫描在此单点执法（导入面即写入面——没有绕过扫描的写入方）。
+   */
+  importInsert(row: MemoryExportRow): boolean;
 }
 
 /* ---------------- 行映射（蛇 ↔ 驼峰单源） ---------------- */
@@ -349,6 +373,8 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     `UPDATE memories SET status = 'expired', superseded_by = 'ttl'
      WHERE status = 'active' AND frozen = 0 AND expires_at IS NOT NULL AND expires_at <= ?`,
   );
+  // 访问日志窗口清扫（批 18c-8——与 TTL 物化同拍同事务；窗口下界整行删，聚合列不回退）
+  const stmtSweepAccess = db.prepare(`DELETE FROM memory_access WHERE ts <= ?`);
   const stmtGetVersion = db.prepare(
     `SELECT id, memory_id, revision, owner_key, kind, summary, content, confidence,
             evidence_count, cause, created_at
@@ -371,6 +397,20 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   const stmtHealthStatuses = db.prepare(`SELECT status, count(*) AS n FROM memories GROUP BY status`);
   const stmtHealthFrozen = db.prepare(`SELECT count(*) AS n FROM memories WHERE frozen = 1`);
   const stmtHealthTotal = db.prepare(`SELECT count(*) AS n FROM memories`);
+
+  /* ---------------- 导入导出语句（18c-8——listForExport/importInsert） ---------------- */
+
+  // 导出取数（全状态含终态行 + TTL 不可见行——恢复式备份语义；id 升序确定性排列〔可 diff〕）
+  const stmtListForExportAll = db.prepare(`SELECT ${MEMORY_COLUMNS} FROM memories ORDER BY id`);
+  const stmtListForExportOwner = db.prepare(`SELECT ${MEMORY_COLUMNS} FROM memories WHERE owner_key = ? ORDER BY id`);
+  // 导入直插（全列 INSERT——id/owner_key/状态列原值；stmtInsertMemory 硬编码
+  // 'active'/NULL 不可复用，导入是状态面第二写点故独立语句）
+  const stmtImportInsert = db.prepare(
+    `INSERT INTO memories (id, owner_key, kind, summary, content, confidence, evidence_count,
+                           status, superseded_by, source_refs, created_at, updated_at,
+                           usage_count, last_used_at, frozen, ttl_days, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
 
   /** 坏形拒（MEMORY_ENTRY_INVALID——闭集/形状/越界判据全清单） */
   function validate(candidate: MemoryCandidate): void {
@@ -778,6 +818,83 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     return applied;
   });
 
+  /** sweep 双清同拍单事务（批 18c-8——TTL 物化 + 访问日志窗口清扫，06 §3「同节拍同拍」兑现） */
+  const sweepTx = db.transaction((now: number): { expired: number; accessPruned: number } => {
+    const expired = stmtSweepExpired.run(now).changes;
+    // 窗口下界 = now - 90d（天毫秒经参数绑定——MEMORY_ACCESS_WINDOW_DAYS 单源不落 SQL 字面量）
+    const accessPruned = stmtSweepAccess.run(now - MEMORY_ACCESS_WINDOW_DAYS * MEMORY_DAY_MS).changes;
+    return { expired, accessPruned };
+  });
+
+  /**
+   * 导入直插事务体（批 18c-8——状态面第二写点）：secret 扫描单点执法 →
+   * 幂等判定（id 已在整行跳过）→ 三写一体（全列直插 + FTS 投影 + 首版快照）。
+   * 行形校验归 port.parseMemoryImportRow（词法判定单点）——本事务只兜
+   * 闭集/区间防线（直调误用不破库）。
+   */
+  const importInsertTx = db.transaction((row: MemoryExportRow): boolean => {
+    // —— 写前 secret 扫描（入库单点执法——导入面即写入面；诊断不回写疑似密钥本体）
+    const summaryHits = scanForSecrets(row.summary);
+    const contentHits = scanForSecrets(row.content);
+    if (summaryHits.length > 0 || contentHits.length > 0) {
+      const patterns = [...summaryHits, ...contentHits].map((h) => h.pattern).join(', ');
+      warn(`[memory] 导入行写前 secret 扫描命中拒写：pattern=${patterns}（id：${row.id}）——疑似密钥本体不入诊断`);
+      throw new BaseError('MEMORY_SECRET_DETECTED', `导入行写前 secret 扫描命中拒写（pattern：${patterns}）`);
+    }
+    // —— 域不变量兜底（闭集/owner 形/区间——词法全清单在 port；此处防直调坏形破库）
+    const problems: string[] = [];
+    if (!MEMORY_KINDS.includes(row.kind)) problems.push(`kind 非七值闭集：${String(row.kind)}`);
+    if (!MEMORY_STATUSES.includes(row.status)) problems.push(`status 非三值闭集：${String(row.status)}`);
+    if (row.owner_key !== 'global' && !OWNER_KEY_RE.test(row.owner_key)) {
+      problems.push(`owner_key 形违例：${row.owner_key}`);
+    }
+    if (row.summary.trim() === '' || row.content.trim() === '') problems.push('summary/content 空');
+    if (!Number.isFinite(row.confidence) || row.confidence < 0 || row.confidence > 1) {
+      problems.push(`confidence 越界 [0,1]：${row.confidence}`);
+    }
+    if (problems.length > 0) {
+      throw new BaseError('MEMORY_ENTRY_INVALID', `导入行坏形拒：${problems.join('；')}`);
+    }
+    // —— 幂等判定：id 已在库整行跳过（恢复式语义——零合并零覆写）
+    if (stmtGet.get(row.id) !== undefined) return false;
+    // —— 三写一体（同事务：主表全列直插 + FTS external-content 投影 + 版本链首版）
+    const info = stmtImportInsert.run(
+      row.id,
+      row.owner_key,
+      row.kind,
+      row.summary,
+      row.content,
+      row.confidence,
+      row.evidence_count,
+      row.status,
+      row.superseded_by,
+      JSON.stringify(row.source_refs),
+      row.created_at,
+      row.updated_at,
+      row.usage_count,
+      row.last_used_at,
+      row.frozen ? 1 : 0,
+      row.ttl_days,
+      row.expires_at,
+    );
+    stmtInsertFts.run(Number(info.lastInsertRowid), row.summary, row.content);
+    appendVersion(
+      row.id,
+      {
+        ownerKey: row.owner_key,
+        kind: row.kind,
+        summary: row.summary,
+        content: row.content,
+        confidence: row.confidence,
+        evidenceCount: row.evidence_count,
+      },
+      // 快照内容面取导入行原值；版本行 id/created_at 用本库 now——本库时间线不自外来钟
+      'insert',
+      deps.now(),
+    );
+    return true;
+  });
+
   /* ---------------- 检索与读面实装 ---------------- */
   /** listVisible 本体（方法面与 overview 共用——TTL 谓词单源） */
   function listVisibleImpl(ownerKeys: readonly string[] | undefined): MemoryRow[] {
@@ -937,8 +1054,8 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       return decayTx(id, factor);
     },
     sweepExpired() {
-      // 单语句原子（纯状态变更——不动 updated_at 不追加版本）
-      return stmtSweepExpired.run(deps.now()).changes;
+      // 双清同拍单事务（TTL 物化 + 访问日志窗口清扫——纯状态变更不动 updated_at 不追加版本）
+      return sweepTx(deps.now());
     },
     restore(id, revision) {
       return restoreTx(id, revision);
@@ -966,6 +1083,16 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     },
     markUsed(ids, sessionId) {
       return markUsedTx(ids, sessionId ?? null);
+    },
+    listForExport(ownerKey) {
+      const rows =
+        ownerKey === undefined
+          ? (stmtListForExportAll.all() as MemoryDbRow[])
+          : (stmtListForExportOwner.all(ownerKey) as MemoryDbRow[]);
+      return rows.map(mapRow);
+    },
+    importInsert(row) {
+      return importInsertTx(row);
     },
   };
 }

@@ -164,8 +164,9 @@ export function createMemoryCycle(deps: MemoryCycleDeps): MemoryCycle {
       }
       inFlight.add(sessionId);
       try {
-        // —— fire 首步：sweepExpired 同步物化（TTL 清扫恒执行——polluted 也不例外）
-        const sweptExpired = deps.dao.sweepExpired();
+        // —— fire 首步：sweepExpired 同步物化（TTL 清扫 + 访问日志窗口清扫同拍
+        //    单事务——polluted 也不例外；周期报告面取 .expired 计数）
+        const sweptExpired = deps.dao.sweepExpired().expired;
 
         // —— 资格检查（§4.1 两路入口同一检查——polluted 跳过 review；遗忘走
         //    consolidation 淘汰批：polluted 会话集随轮注入）

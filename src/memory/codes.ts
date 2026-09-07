@@ -42,4 +42,16 @@ registerErrorCodes([
     module: 'memory',
     description: 'restore 带 revision 而版本缺席——无链条目带版本拒、revision 越界同码（带版本 ⊃ 状态复活）',
   },
+  {
+    code: 'MEMORY_EXPORT_ROOT_DENIED',
+    module: 'memory',
+    description:
+      '导出落盘路径越界可写根拒（批 18c-8）——/memory-export 命令 handler 内显式 isInsideRoot 判定（守门管道对插件内文件写不可见、memory 件无 safety 拓扑边；同律先例 SKILLS_WRITE_ROOT_DENIED / FS_OUTSIDE_WRITABLE_ROOTS——越界拒、边界分隔符守卫同款）',
+  },
+  {
+    code: 'MEMORY_IMPORT_FORMAT_INVALID',
+    module: 'memory',
+    description:
+      '导入文件首行 header 坏形整文件拒（批 18c-8）——magic 串 berry-agent-memory 不符或 formatVersion ≠ 1；行级坏形不入此码（行级宽容分账 rejectedMalformed——恢复式运维动词不弃批）',
+  },
 ]);
