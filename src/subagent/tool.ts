@@ -8,7 +8,7 @@
  */
 import { BaseError, type ToolDefinition } from '../contracts/index.js';
 import { Type } from 'typebox';
-import type { SubagentService } from './service.js';
+import type { ProgrammaticProviderEntry, SubagentService } from './service.js';
 import { AGENT_TOOL_NAME, type SubagentDef } from './types.js';
 
 /** 委派工具的会话语境（per-session 闭包——工具面创建位携带） */
@@ -88,9 +88,13 @@ export function createAgentTool(deps: DelegationToolDeps): ToolDefinition {
  * 声明式子代理静态工具 `agent_<name>`（闭包绑定 def——工具面 = 装配期
  * 物化，06 §11.6 模型面静态多工具律）。description = 文件 description
  * （披露段清单行 = 模型选择依据）；def 字段（tools/requires/model/
- * systemPrompt）全部闭包绑定——模型只出 prompt。
+ * systemPrompt）全部闭包绑定——模型只出 prompt。def 形 = 声明式与程序化
+ * 两腿共享（filePath 位非工具构造消费——Omit 宽形两腿同构，D 批 D-2）。
  */
-export function createDeclarativeAgentTool(def: SubagentDef, deps: DelegationToolDeps): ToolDefinition {
+export function createDeclarativeAgentTool(
+  def: Omit<SubagentDef, 'filePath'>,
+  deps: DelegationToolDeps,
+): ToolDefinition {
   return {
     name: `agent_${def.name}`,
     description: def.description,
@@ -123,4 +127,18 @@ export function createDeclarativeAgentTool(def: SubagentDef, deps: DelegationToo
       }
     },
   };
+}
+
+/**
+ * 程序化注册位物化（04 §10 程序化注册槽——「注册即派生静态工具」的机器层
+ * 兑现）：在册条目逐个派生 `agent_<name>` 工具（与声明式同形同律——
+ * createDeclarativeAgentTool 单源）。消费腿 = 会话工具面组装位（快照
+ * programmaticProviders 后逐条物化）；driver 工具面合流挂账装载态集成批
+ * （D 批 D-2 只落机器与读面）。
+ */
+export function createProgrammaticTools(
+  entries: readonly ProgrammaticProviderEntry[],
+  deps: DelegationToolDeps,
+): readonly ToolDefinition[] {
+  return entries.map((entry) => createDeclarativeAgentTool(entry.def, deps));
 }

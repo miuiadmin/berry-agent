@@ -17,9 +17,11 @@ import { DEFAULT_SUBAGENT_PROVIDER, IN_PROCESS_CAPABILITIES, type SubagentDef } 
  * def → named provider（late-binding def-defaults 包装）：路由到本 def 的
  * 委派请求缺省字段由此合流（模型侧经静态工具携带、程序侧直呼 service.run
  * 两条道同折）；真身始终 'in-process' 基 provider——独立装配全套的
- * 黑盒契约不因声明式形态而二轨。
+ * 黑盒契约不因声明式形态而二轨。def 形两腿共享（声明式 SubagentDef /
+ * 程序化 ProgrammaticSubagentDef——filePath 位非本桥消费，Omit 宽形；
+ * D 批 D-2 程序化腿复用同桥）。
  */
-export function defBoundProvider(def: SubagentDef, service: SubagentService): SubagentProvider {
+export function defBoundProvider(def: Omit<SubagentDef, 'filePath'>, service: SubagentService): SubagentProvider {
   return {
     capabilities: IN_PROCESS_CAPABILITIES,
     async run(request) {

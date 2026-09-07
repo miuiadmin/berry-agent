@@ -9,15 +9,26 @@
  * （组合根桥父会话审批面）；② 档位快照 = in-process 工厂自带（host
  * 装配位——本件不立法）；③ 深度帽 + bash 排除 = 本件（深度拒 +
  * 派生面结构性剔除五名）。
+ *
+ * 注册面两腿（04 §10）：声明式腿 registerProvider（core:skills 解析层
+ * 物化调用——词法在解析层执法）；程序化腿 registerProgrammatic（03 §2.2
+ * 第十二动词 ctx.agent.registerSubagentProvider 受局面——D 批 D-2）。
+ * 两腿同一 providers 册（run 路由单源）：**按注册者 id 分域存名**（owner
+ * 维度——归因与防冒名载体，name 镜像裸词无域前缀）；撞名比对经派生
+ * 工具名 `agent_<name>`（前缀单射——同名即同派生名）：跨层〔撞声明式
+ * first-wins 全序既有位〕与跨插件同名统一经此拒。
  */
 import {
   BaseError,
   SUBAGENT_DEPTH_MAX,
+  type ProgrammaticSubagentDef,
   type SubagentProvider,
   type SubagentRequest,
   type SubagentResult,
 } from '../contracts/index.js';
+import type { Disposer } from '../context/index.js';
 import type { JobRegistry } from './registry.js';
+import { defBoundProvider } from './declarative.js';
 import { subagentSettledContent } from './notify.js';
 import { deriveToolSurface, findPrecheckGaps, intersectToolWhitelist } from './surface.js';
 import {
@@ -30,6 +41,47 @@ import {
 
 /** diagnostic 上报帽（04 §10——≤4096 截断；契约面截断执法位在机器） */
 const DIAGNOSTIC_MAX = 4096;
+
+/** 子代理名词法帽（06 §11.2 name ≤64——与技能词法同源同值） */
+const PROVIDER_NAME_MAX = 64;
+
+/**
+ * 子代理名词法违例清单（空 = 合法）。裸词四查：字符集/长度/首尾连字符/
+ * 连续连字符——与 skills validateSkillName 同形本地复刻（02 §4.1 无
+ * subagent→skills 边，词法真源 06:386 frontmatter name 行，不经 import 共享）。
+ */
+function validateProviderName(name: string): string[] {
+  const violations: string[] = [];
+  if (name.length > PROVIDER_NAME_MAX) {
+    violations.push(`超 ${PROVIDER_NAME_MAX} 字符（现 ${name.length}）`);
+  }
+  if (!/^[a-z0-9-]+$/.test(name)) {
+    violations.push('含非法字符（只许小写字母/数字/连字符）');
+  }
+  if (name.startsWith('-') || name.endsWith('-')) {
+    violations.push('首尾不得为连字符');
+  }
+  if (name.includes('--')) {
+    violations.push('不得含连续连字符');
+  }
+  return violations;
+}
+
+/** 注册条目（分域存名载体：owner 归因面 + def 物化读面——04 §10） */
+interface ProviderEntry {
+  readonly provider: SubagentProvider;
+  /** 注册者（程序化腿 = 插件 id；声明式腿 = 层位标签——归因与防冒名） */
+  readonly owner: string;
+  /** 程序化注册 def（物化读面载荷——声明式腿缺席此位） */
+  readonly def?: ProgrammaticSubagentDef;
+}
+
+/** 程序化注册条目（物化读面——会话工具面组装时快照派生工具清单） */
+export interface ProgrammaticProviderEntry {
+  readonly def: ProgrammaticSubagentDef;
+  /** 注册者插件 id（core: 含前缀原形） */
+  readonly owner: string;
+}
 
 /** SubagentService 构造选项 */
 export interface SubagentServiceOptions {
@@ -45,8 +97,17 @@ export interface SubagentServiceOptions {
 
 /** 委派机器公开面 */
 export interface SubagentService {
-  /** 注册 named provider（撞名拒 SUBAGENT_PROVIDER_EXISTS——静态绑定面） */
+  /** 注册 named provider（声明式腿——撞名拒 SUBAGENT_PROVIDER_EXISTS，静态绑定面） */
   registerProvider(name: string, provider: SubagentProvider): void;
+  /**
+   * 程序化 named provider 注册（03 §2.2 第十二动词受局面——拒绝式两闸，
+   * 执法序撞名前置格式：撞名经派生工具名 agent_<name> 比对 SUBAGENT_PROVIDER_EXISTS
+   * → 裸词词法 SUBAGENT_NAME_INVALID；D 批 D-2）。
+   * @returns 注销器（只摘本人条目——重注后旧注销器不误摘接任者）
+   */
+  registerProgrammatic(owner: string, def: ProgrammaticSubagentDef): Disposer;
+  /** 程序化注册读面（注册序——物化消费：会话工具面组装时派生 agent_<name> 静态工具） */
+  programmaticProviders(): readonly ProgrammaticProviderEntry[];
   /** provider 在册读面（声明式层 late-binding 消费位） */
   getProvider(name: string): SubagentProvider | undefined;
   /** 在册 provider 名单（诊断面） */
@@ -89,18 +150,59 @@ function terminalOf(result: SubagentResult): { status: 'completed' | 'killed' | 
  */
 export function createSubagentService(options: SubagentServiceOptions): SubagentService {
   const warn = options.warn ?? ((message: string) => console.warn(message));
-  const providers = new Map<string, SubagentProvider>();
+  const providers = new Map<string, ProviderEntry>();
   options.registry.registerKind('subagent');
 
-  return {
+  const service: SubagentService = {
     registerProvider(name, provider) {
+      // 声明式腿（core:skills 物化调用）：词法在解析层执法（agents.ts——
+      // name 是注册键不宽容），此处只管词法身份面撞名
       if (providers.has(name)) {
-        throw new BaseError('SUBAGENT_PROVIDER_EXISTS', `named provider「${name}」已注册——撞名拒（静态绑定面）`);
+        throw new BaseError(
+          'SUBAGENT_PROVIDER_EXISTS',
+          `named provider「${name}」已注册（注册方 ${providers.get(name)?.owner}）——撞名拒（静态绑定面）`,
+        );
       }
-      providers.set(name, provider);
+      providers.set(name, { provider, owner: 'declarative' });
+    },
+    registerProgrammatic(owner, def) {
+      // ── 闸一 撞名（前置格式闸——在册名必已合法，「名字被占用」更指向根因；
+      // AGENT_ROLE/TRIGGER 同序）：比对经派生工具名 agent_<name>（前缀单射，
+      // 同名即同派生名）——撞声明式 first-wins 全序既有位或兄弟插件程序化
+      // 注册位统一经此拒；在册方 owner 入 message（分域存名的归因兑现）
+      const existing = providers.get(def.name);
+      if (existing !== undefined) {
+        throw new BaseError(
+          'SUBAGENT_PROVIDER_EXISTS',
+          `named provider「${def.name}」已注册（注册方 ${existing.owner}）——派生工具 agent_${def.name} 重影即契约面漂移，拒绝式（04 §10 程序化注册槽）`,
+        );
+      }
+      // ── 闸二 裸词词法（06 §11.6 声明式 name 同形——词法真源 06 §11.2）
+      const violations = validateProviderName(def.name);
+      if (violations.length > 0) {
+        throw new BaseError(
+          'SUBAGENT_NAME_INVALID',
+          `子代理名「${def.name}」非裸词：${violations.join('；')}（镜像 06 §11.6 声明式 name 同形——04 §10 程序化注册槽）`,
+        );
+      }
+      const entry: ProviderEntry = { provider: defBoundProvider(def, service), owner, def };
+      providers.set(def.name, entry);
+      // 注销器只摘本人条目（三律②——防过期时序误摘接任者）；卸载回卷即
+      // 释放名（同名重注册无残留占用）；在飞委派闭包持有 provider 引用
+      // 跑完自灭（黑盒结果不重试律兼容——不撤运行中的委派只撤注册位）
+      return () => {
+        if (providers.get(def.name) === entry) providers.delete(def.name);
+      };
+    },
+    programmaticProviders() {
+      const entries: ProgrammaticProviderEntry[] = [];
+      for (const entry of providers.values()) {
+        if (entry.def !== undefined) entries.push({ def: entry.def, owner: entry.owner });
+      }
+      return entries;
     },
     getProvider(name) {
-      return providers.get(name);
+      return providers.get(name)?.provider;
     },
     providerNames() {
       return [...providers.keys()];
@@ -115,7 +217,7 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
       }
       // ── 静态绑定路由：provider 缺席拒（模型不可见动态选择器） ──
       const providerName = input.providerName ?? DEFAULT_SUBAGENT_PROVIDER;
-      const provider = providers.get(providerName);
+      const provider = providers.get(providerName)?.provider;
       if (provider === undefined) {
         throw new BaseError(
           'SUBAGENT_PROVIDER_UNKNOWN',
@@ -211,4 +313,5 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
       }
     },
   };
+  return service;
 }

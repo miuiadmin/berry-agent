@@ -27,7 +27,7 @@ import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogg
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
 import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
-import { createJobRegistry, provideJobsService } from '../subagent/index.js';
+import { createJobRegistry, createSubagentService, provideJobsService } from '../subagent/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
 import type { ConversationStack } from './conversation-stack.js';
@@ -169,6 +169,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       }),
     });
 
+    // —— 子代理委派机器（D 批 D-2——第十二动词宿主侧真源）：kind 'subagent'
+    // 构造自登（与 trigger 同表分立——词汇注册表纪律）；程序化注册面
+    // （ctx.agent.registerSubagentProvider 受局面）两闸执法在件内。run 消费
+    // 腿（in-process 真工厂 + 通知面/结算钩子桥）挂账装载态集成批——本批
+    // 只接注册面（词法身份面 + 分域归因执法完整；notify 缺席档件内自 warn）
+    const subagents = createSubagentService({
+      registry: jobs,
+      warn: (message) => logger.warn(message),
+    });
+
     // —— 插件装载：启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——
     // 干净退出不写 crash.log）；余装载失败走行级隔离不入本档 ——
     let boot: PluginBootHandle;
@@ -180,6 +190,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         commands: stack.channels.commands,
         llm: stack.llmRuntime,
         triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
+        subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
         noPlugins: options.noPlugins === true,
         version: options.version,
         ...(options.corePlugins !== undefined ? { corePlugins: options.corePlugins } : {}),

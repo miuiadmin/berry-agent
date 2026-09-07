@@ -4,9 +4,16 @@
  * 结算序/审批挂起注入（one-shot 不注入）/协作停止观察/terminalOf 三映射。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { BaseError, type SubagentProvider, type SubagentRequest, type SubagentResult } from '../contracts/index.js';
+import {
+  BaseError,
+  type ProgrammaticSubagentDef,
+  type SubagentProvider,
+  type SubagentRequest,
+  type SubagentResult,
+} from '../contracts/index.js';
 import { createJobRegistry, type JobHandle, type JobRegistry } from './registry.js';
 import { createSubagentService, type SubagentService } from './service.js';
+import { createProgrammaticTools } from './tool.js';
 import type { SubagentNotifyFace } from './types.js';
 
 /** 断言 async 抛指定码（返错误供 message 断言） */
@@ -389,5 +396,121 @@ describe('background 收场编舞', () => {
       expect(registry.get(outcome.jobId)?.terminal?.status).toBe('completed');
     });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('结算钩子异常'));
+  });
+});
+
+/* ---------------- 程序化注册面（D 批 D-2——04 §10 程序化注册槽） ---------------- */
+
+/** 程序化 def 构造辅助（镜像 frontmatter 形） */
+function defOf(name: string, overrides: Partial<ProgrammaticSubagentDef> = {}): ProgrammaticSubagentDef {
+  return {
+    name,
+    description: `${name} 测试子代理`,
+    systemPrompt: `你是 ${name}`,
+    ...overrides,
+  };
+}
+
+/** 断言同步抛指定码（返回错误供 message 断言） */
+function expectSyncCode(fn: () => unknown, code: string): BaseError {
+  try {
+    fn();
+    expect.unreachable(`应抛 ${code}`);
+  } catch (err) {
+    expect(err).toBeInstanceOf(BaseError);
+    expect((err as BaseError).code).toBe(code);
+    return err as BaseError;
+  }
+}
+
+describe('程序化 named provider 注册面（registerProgrammatic——04 §10 程序化注册槽）', () => {
+  it('合法注册：落册入路由 + 读面按注册序；注销即释放名（再注不残留占用）', () => {
+    const { service } = assemble();
+    const off = service.registerProgrammatic('acme', defOf('daily'));
+    expect(service.providerNames()).toContain('daily');
+    expect(service.programmaticProviders()).toEqual([{ def: defOf('daily'), owner: 'acme' }]);
+    off();
+    expect(service.providerNames()).not.toContain('daily');
+    expect(service.programmaticProviders()).toEqual([]);
+    expect(() => service.registerProgrammatic('other', defOf('daily'))).not.toThrow(); // 名可再注
+  });
+
+  it('撞名拒（闸一）：兄弟插件同名 SUBAGENT_PROVIDER_EXISTS——message 携在册方 owner（分域归因）+ 派生名比对载体', () => {
+    const { service } = assemble();
+    service.registerProgrammatic('acme', defOf('daily'));
+    const err = expectSyncCode(() => service.registerProgrammatic('rival', defOf('daily')), 'SUBAGENT_PROVIDER_EXISTS');
+    expect(err.message).toContain('acme'); // 在册方 owner 入 message——分域存名的归因兑现
+    expect(err.message).toContain('agent_daily'); // 比对经派生工具名（前缀单射）
+  });
+
+  it('跨层撞名两向：程序化撞声明式既有位 / 声明式撞程序化既有位（动态 mount 场景）统一同码拒', () => {
+    // 向一：声明式先在册（core:skills 物化位），程序化后到
+    const a = assemble();
+    a.service.registerProvider('daily', {
+      capabilities: FULL_CAPS,
+      run: async () => ({ output: '', stopReason: 'stop' }),
+    });
+    expectSyncCode(() => a.service.registerProgrammatic('acme', defOf('daily')), 'SUBAGENT_PROVIDER_EXISTS');
+    // 向二：程序化先在册，声明式装载撞已注册程序化位——装载面拒载的注册面根源（04 §10）
+    const b = assemble();
+    b.service.registerProgrammatic('acme', defOf('daily'));
+    expectSyncCode(
+      () =>
+        b.service.registerProvider('daily', {
+          capabilities: FULL_CAPS,
+          run: async () => ({ output: '', stopReason: 'stop' }),
+        }),
+      'SUBAGENT_PROVIDER_EXISTS',
+    );
+  });
+
+  it('裸词词法拒（闸二）：字符集/首尾连字符/连续连字符/超长各红 SUBAGENT_NAME_INVALID 且零记账', () => {
+    const { service } = assemble();
+    const bad = ['acme/daily', 'Acme', 'daily!', '-daily', 'daily-', 'da--ily', 'a'.repeat(65)];
+    for (const name of bad) {
+      expectSyncCode(() => service.registerProgrammatic('acme', defOf(name)), 'SUBAGENT_NAME_INVALID');
+    }
+    expect(service.providerNames()).toEqual(['in-process']); // 全拒零记账（在册名必已合法——撞名前置格式的结构性根基）
+  });
+
+  it('注销器三律②：双调幂等 + 旧注销器不误摘接任者', () => {
+    const { service } = assemble();
+    const offA = service.registerProgrammatic('acme', defOf('daily'));
+    offA();
+    offA(); // 幂等
+    expect(service.providerNames()).not.toContain('daily');
+    void service.registerProgrammatic('rival', defOf('daily')); // 重注接任
+    offA(); // 旧注销器不摘接任者（过期时序守卫）
+    expect(service.providerNames()).toContain('daily');
+  });
+
+  it('run 路由 + def 合流：程序化名经 late-binding 桥路由 in-process 基厂——请求缺席字段由 def 兜底、显式值胜出', async () => {
+    const { service, provider } = assemble({ auto: { output: '完成', stopReason: 'stop' } });
+    service.registerProgrammatic('acme', defOf('daily', { model: 'm/x' }));
+    await service.run({ providerName: 'daily', prompt: '跑', parentSessionId: 's1', depth: 1 });
+    expect(provider.requests[0]).toMatchObject({ systemPrompt: '你是 daily', model: 'm/x', name: 'daily' });
+    // 请求显式值胜出（late-binding 合流幂等律——与声明式腿同折）
+    await service.run({
+      providerName: 'daily',
+      prompt: '再跑',
+      parentSessionId: 's1',
+      depth: 1,
+      model: 'm/y',
+      systemPrompt: '覆盖',
+    });
+    expect(provider.requests[1]).toMatchObject({ model: 'm/y', systemPrompt: '覆盖' });
+  });
+
+  it('物化：createProgrammaticTools 逐条派生 agent_<name> 静态工具（与声明式同形——注册即派生的机器层兑现）', async () => {
+    const { service, provider } = assemble({ auto: { output: '完成', stopReason: 'stop' } });
+    service.registerProgrammatic('acme', defOf('daily'));
+    service.registerProgrammatic('core:issue', defOf('scan'));
+    const tools = createProgrammaticTools(service.programmaticProviders(), { service, parentSessionId: 's1' });
+    expect(tools.map((tool) => tool.name)).toEqual(['agent_daily', 'agent_scan']); // 注册序
+    expect(tools[0]!.description).toBe('daily 测试子代理');
+    // execute 走委派链：路由到 def 名 + def 缺省合流
+    const result = await tools[0]!.execute({ prompt: '跑' }, { toolCallId: 'test' });
+    expect(result.isError).toBeUndefined(); // one-shot 完成回执（renderOutcome 形）
+    expect(provider.requests.at(-1)).toMatchObject({ name: 'daily', systemPrompt: '你是 daily' });
   });
 });

@@ -54,7 +54,12 @@ import type { DiskPluginSpec } from './loader.js';
 import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js';
 import type { EnabledRow } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
-import type { CommandRegistryLike, PluginContextHandle, TriggerRegistryLike } from './plugin-context.js';
+import type {
+  CommandRegistryLike,
+  PluginContextHandle,
+  SubagentRegistryLike,
+  TriggerRegistryLike,
+} from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
 import type { HostRuntime } from './runtime.js';
 
@@ -98,6 +103,11 @@ export interface PluginBootOptions {
    * 入口创建注入。缺席 = ctx.triggers.register 抛 CONTEXT_SERVICE_MISSING）
    */
   readonly triggers?: TriggerRegistryLike;
+  /**
+   * 子代理注册面（受局面注入——D 批 D-2 接线：SubagentService 程序化腿。
+   * 缺席 = ctx.agent.registerSubagentProvider 抛 CONTEXT_SERVICE_MISSING）
+   */
+  readonly subagents?: SubagentRegistryLike;
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
@@ -213,6 +223,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       hostFace,
       // 触发器注册表受局面透传（C 批 C-2——缺席时 ctx.triggers.register 响亮缺位）
       ...(options.triggers !== undefined ? { triggers: options.triggers } : {}),
+      // 子代理注册面受局面透传（D 批 D-2——缺席时 ctx.agent.registerSubagentProvider 响亮缺位）
+      ...(options.subagents !== undefined ? { subagents: options.subagents } : {}),
       // 高危面开门授予集（03 §4.6 批 U2——磁盘行 opens 经 loader 透传至此）
       ...(opens !== undefined ? { opens } : {}),
       onHookTimeout: (id, hookName, err) =>

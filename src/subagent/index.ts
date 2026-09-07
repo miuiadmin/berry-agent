@@ -5,6 +5,8 @@
  * exec/issue 同表消费件（registerKind 'process'/'issue'）、组合根（通知面
  * 与结算钩子桥接）。in-process 真工厂本体归 host 装配批——本件提供机器
  * 与 late-binding 接缝（15a/15b 先例：装载态挂账、批内机器先行）。
+ * 程序化注册面（registerProgrammatic——03 §2.2 第十二动词受局面，D 批
+ * D-2）：注册表机器与执法序在本件，ctx 动词包装在 host/plugin-context。
  */
 import './codes.js';
 
@@ -31,9 +33,9 @@ export { deriveToolSurface, findPrecheckGaps, intersectToolWhitelist } from './s
 export { subagentSettledContent } from './notify.js';
 
 export { createSubagentService } from './service.js';
-export type { SubagentService, SubagentServiceOptions } from './service.js';
+export type { ProgrammaticProviderEntry, SubagentService, SubagentServiceOptions } from './service.js';
 
-export { createAgentTool, createDeclarativeAgentTool } from './tool.js';
+export { createAgentTool, createDeclarativeAgentTool, createProgrammaticTools } from './tool.js';
 export type { DelegationToolDeps } from './tool.js';
 
 export { defBoundProvider, materializeDeclarativeSubagents } from './declarative.js';

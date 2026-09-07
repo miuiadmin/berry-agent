@@ -4,7 +4,9 @@
  * 一件三面：
  *  - **ctx 九路注册动词 + 三动词 + provide**（§2.2/§3.1）：tools.register（拒绝式）/ channels.
  *    registerCommand（后写胜出）/ llm.registerProvider（后写胜出 upsert）/ events.
- *    registerSessionEventType（拒绝式·不可逆）/ agent.registerMessageRole（拒绝式）/ prompts.
+ *    registerSessionEventType（拒绝式·不可逆）/ agent.registerMessageRole（拒绝式）/
+ *    agent.registerSubagentProvider（拒绝式——第十二动词，D 批 D-2：执法序与
+ *    owner 分域在 SubagentService）/ prompts.
  *    registerSection（拒绝式——本件 prompt-sections）/ triggers.register（拒绝式
  *    ·门检三闸——本件 triggers，C 批 C-2）/ ctx.on（fail-closed）/ ctx.emit +
  *    ctx.get·tryGet·effect + ctx.provide（§2.2 表行——委派共享根作用域，Kahn 解锁动词）
@@ -30,7 +32,13 @@
 import { BaseError, registerEventType, registerMessageRole } from '../contracts/index.js';
 // internal 桶机制符号深导（门检裁决核——03 §4.6；开门是宿主裁决面非插件 API）
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
-import type { EventTypeMeta, HostFace, MessageRoleDefinition, ToolDefinition } from '../contracts/index.js';
+import type {
+  EventTypeMeta,
+  HostFace,
+  MessageRoleDefinition,
+  ProgrammaticSubagentDef,
+  ToolDefinition,
+} from '../contracts/index.js';
 import type { LlmRuntime } from '../llm/index.js';
 import type { CommandHandler } from '../channels/index.js';
 import type { ToolRegistry } from '../tools/index.js';
@@ -142,7 +150,11 @@ export interface PluginContext {
   /** durable 事件词汇注册（拒绝式且**不可逆**——进程生命周期词汇，无 disposer） */
   readonly events: { registerSessionEventType(meta: EventTypeMeta): void };
   /** 自定义消息角色注册（拒绝式） */
-  readonly agent: { registerMessageRole(role: string, definition: MessageRoleDefinition): () => void };
+  readonly agent: {
+    registerMessageRole(role: string, definition: MessageRoleDefinition): () => void;
+    /** 程序化 named provider 注册（拒绝式——撞名/词法两闸执法在 SubagentService，D 批 D-2） */
+    registerSubagentProvider(def: ProgrammaticSubagentDef): Disposer;
+  };
   /** 系统提示词段注册（拒绝式——slot 域前缀两段式执法在 PromptSectionRegistry） */
   readonly prompts: { registerSection(slot: string, builder: PromptSectionBuilder): Disposer };
   /** 触发器注册（拒绝式——门检/撞名/格式三闸执法在 TriggerRegistry，C 批 C-2） */
@@ -175,6 +187,8 @@ export interface PluginContextOptions {
   readonly promptSections?: PromptSectionRegistry;
   /** 触发器注册表（缺席同上——starter 真身随 C-3 装配批注入） */
   readonly triggers?: TriggerRegistryLike;
+  /** 子代理注册面（缺席同上——SubagentService 程序化腿，D 批 D-2 装配批注入） */
+  readonly subagents?: SubagentRegistryLike;
   /**
    * provide 委派位（共享根作用域——本件只过窗/频率闸，撞名与 stale 执法归
    * Scope.provide）。缺席 = ctx.provide 抛 CONTEXT_SERVICE_MISSING（装配缺陷响亮）。
@@ -205,6 +219,11 @@ export interface CommandRegistryLike {
 /** 触发器注册表受局面（TriggerRegistry 的结构面——测试替身免建全量） */
 export interface TriggerRegistryLike {
   register(pluginId: string, def: TriggerDef): Disposer;
+}
+
+/** 子代理注册面受局面（SubagentService 程序化腿的结构面——测试替身免建全量） */
+export interface SubagentRegistryLike {
+  registerProgrammatic(owner: string, def: ProgrammaticSubagentDef): Disposer;
 }
 
 /** ctx 装配产物（装载器消费：ctx 交 apply、闭包柄归装载序） */
@@ -465,6 +484,16 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         assertWindow('ctx.agent.registerMessageRole');
         countAction();
         return registerMessageRole(role, definition);
+      },
+      registerSubagentProvider(def: ProgrammaticSubagentDef): Disposer {
+        assertWindow('ctx.agent.registerSubagentProvider');
+        countAction();
+        // 第十二动词（03 §2.2 行 109——注册者 id 即 owner 分域键，本插件
+        // 身份由 ctx 闭包携带不假手插件自报——防冒名）
+        return required(options.subagents, 'subagents', 'ctx.agent.registerSubagentProvider').registerProgrammatic(
+          pluginId,
+          def,
+        );
       },
     },
     prompts: {

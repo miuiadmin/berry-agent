@@ -4,6 +4,7 @@ import { getErrorCodeInfo } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { CommandRegistry } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
+import { createJobRegistry, createSubagentService } from '../subagent/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
 import type { PluginContextHandle } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
@@ -31,6 +32,7 @@ function assemble(overrides?: {
   scope: Scope;
   promptSections: PromptSectionRegistry;
   triggers: TriggerRegistry;
+  subagents: ReturnType<typeof createSubagentService>;
 } {
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
@@ -42,6 +44,8 @@ function assemble(overrides?: {
     getOpens: () => new Set(['triggers.start-run']),
     makeStarter: () => () => undefined,
   });
+  // 子代理注册面真源（两闸执法在 service.test 域——此处只验委派与归因）
+  const subagents = createSubagentService({ registry: createJobRegistry() });
   const handle = createPluginContext({
     pluginId: overrides?.pluginId ?? 'acme-widgets',
     scope,
@@ -51,12 +55,13 @@ function assemble(overrides?: {
     llm: { registerProvider: () => () => undefined },
     promptSections,
     triggers,
+    subagents,
     hostFace: HOST_FACE,
     ...(overrides?.rateLimit ? { rateLimit: overrides.rateLimit } : {}),
     ...(overrides?.hookTimeoutMs ? { hookTimeoutMs: overrides.hookTimeoutMs } : {}),
     ...(overrides?.opens !== undefined ? { opens: overrides.opens } : {}),
   });
-  return { handle, dispatch, scope, promptSections, triggers };
+  return { handle, dispatch, scope, promptSections, triggers, subagents };
 }
 
 /** BaseError 码断言辅助（错码即契约——修 bug 必带回归锁的判据面） */
@@ -379,6 +384,10 @@ describe('注册动词委派真源', () => {
       () => handle.ctx.triggers.register({ name: 'acme-bare/t', description: '', fire: () => undefined }),
       'CONTEXT_SERVICE_MISSING',
     );
+    expectCode(
+      () => handle.ctx.agent.registerSubagentProvider({ name: 'd', description: '', systemPrompt: '' }),
+      'CONTEXT_SERVICE_MISSING',
+    );
   });
 
   it('agent.registerMessageRole → contracts 真源（AGENT_ROLE_EXISTS 透传 + disposer 摘除释放名）', () => {
@@ -477,6 +486,53 @@ describe('触发器注册面（ctx.triggers——03 §2.2 行 108 第十一动�
     const restore = handle.enterHostCallback();
     expect(() =>
       handle.ctx.triggers.register({ name: 'acme-widgets/y', description: '', fire: () => undefined }),
+    ).not.toThrow();
+    restore();
+  });
+});
+
+describe('子代理注册面（ctx.agent.registerSubagentProvider——03 §2.2 行 109 第十二动词，D 批 D-2）', () => {
+  it('委派真源：owner = pluginId 闭包注入（防冒名——插件不可自报他人 id）+ 注销器透传摘册', () => {
+    const { handle, subagents } = assemble();
+    const off = handle.ctx.agent.registerSubagentProvider({
+      name: 'daily',
+      description: '日结',
+      systemPrompt: '你是日结员',
+    });
+    expect(subagents.programmaticProviders()).toEqual([
+      { def: { name: 'daily', description: '日结', systemPrompt: '你是日结员' }, owner: 'acme-widgets' },
+    ]);
+    off();
+    expect(subagents.programmaticProviders()).toEqual([]);
+    // 摘除后名可再注（卸载回卷即释放名）
+    expect(() =>
+      handle.ctx.agent.registerSubagentProvider({ name: 'daily', description: '日结', systemPrompt: '你是日结员' }),
+    ).not.toThrow();
+  });
+
+  it('两闸透传（执法在 SubagentService 真源）：撞名 SUBAGENT_PROVIDER_EXISTS / 词法 SUBAGENT_NAME_INVALID', () => {
+    const { handle } = assemble();
+    handle.ctx.agent.registerSubagentProvider({ name: 'daily', description: '', systemPrompt: '' });
+    expectCode(
+      () => handle.ctx.agent.registerSubagentProvider({ name: 'daily', description: '', systemPrompt: '' }),
+      'SUBAGENT_PROVIDER_EXISTS',
+    );
+    expectCode(
+      () => handle.ctx.agent.registerSubagentProvider({ name: 'Acme/Daily', description: '', systemPrompt: '' }),
+      'SUBAGENT_NAME_INVALID',
+    );
+  });
+
+  it('装载窗关后注册拒（PLUGIN_WINDOW_CLOSED——第十二动词同窗律）；回调窗内合法', () => {
+    const { handle } = assemble();
+    handle.closeWindow();
+    expectCode(
+      () => handle.ctx.agent.registerSubagentProvider({ name: 'x', description: '', systemPrompt: '' }),
+      'PLUGIN_WINDOW_CLOSED',
+    );
+    const restore = handle.enterHostCallback();
+    expect(() =>
+      handle.ctx.agent.registerSubagentProvider({ name: 'y', description: '', systemPrompt: '' }),
     ).not.toThrow();
     restore();
   });
