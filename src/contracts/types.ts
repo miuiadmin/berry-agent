@@ -245,8 +245,12 @@ export interface SubagentProvider {
   run(request: SubagentRequest): Promise<SubagentResult>;
 }
 
-/** Job 种类闭集（04 §10——kind 现设三值；registerKind 显式登记后方可使用） */
-export type JobKind = 'subagent' | 'process' | 'issue';
+/**
+ * Job 种类闭集（04 §10——kind 现设四值；registerKind 显式登记后方可使用）。
+ * `'trigger'` = 触发器 starter 的缺省托管 kind（jobKind 缺省即隐式进此 kind；
+ * host 装配期自登 + 缺省并行帽 4——2026-09-07 触发器面 C 批落码定形）。
+ */
+export type JobKind = 'subagent' | 'process' | 'issue' | 'trigger';
 
 /** Job 状态机（04 §10：running →（可选 stopping）→ 唯一终态；first-wins） */
 export type JobStatus = 'running' | 'stopping' | 'completed' | 'killed' | 'failed';

@@ -69,6 +69,7 @@ export const ERROR_CODE_PREFIXES = [
   'GOAL_',
   'SUBAGENT_',
   'JOB_',
+  'TRIGGER_',
 ] as const;
 
 /**

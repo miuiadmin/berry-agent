@@ -16,13 +16,18 @@ describe('USER_GRANTABLE_CAPABILITIES 单源派生', () => {
     );
   });
 
-  it('v1 首批两枚在册（channels.ui-backend + sdk.register-route——定名回执锁）', () => {
+  it('v1 首批三枚在册（channels.ui-backend + sdk.register-route + triggers.start-run——定名回执锁）', () => {
     expect(USER_GRANTABLE_CAPABILITIES).toContain('channels.ui-backend');
     expect(USER_GRANTABLE_CAPABILITIES).toContain('sdk.register-route');
+    // 触发器面 C 批补第三枚（03 §4.6 两枚→三枚落码兑现）——承载方 host 装配根形
+    expect(USER_GRANTABLE_CAPABILITIES).toContain('triggers.start-run');
   });
 
-  it('目录条目名与提供方同域（件域.能力两段式前段 = providedBy 件域）', () => {
+  it('目录条目名与提供方同域（core:/席位形件域前缀 = providedBy 件域；host 装配根形豁免）', () => {
     for (const entry of CAPABILITIES) {
+      // host 装配根承载的宿主侧能力面：件域名系能力面域非模块席
+      // （triggers.start-run 由 host 承载——03 §8.2 C 批落码定形第三形）
+      if (entry.providedBy === 'host') continue;
       const domain = entry.providedBy.startsWith('core:') ? entry.providedBy.slice('core:'.length) : entry.providedBy;
       expect(entry.name.startsWith(`${domain}.`)).toBe(true);
     }

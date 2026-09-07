@@ -101,9 +101,11 @@ interface CapabilityEntry {
   /** 能力名：`件域.能力` 两段式（§8.5 名空间——字符集与事件词汇同纪律） */
   readonly name: string;
   /**
-   * 提供方（能力位所属域的承载方）：core: 官方件引用形（`core:sdk`）或宿主
-   * 固定件席位名（`channels`）——与 name 前段（件域）同源，两类形皆指域内
-   * 单一承载方，非泛标签。
+   * 提供方（能力位所属域的承载方）：core: 官方件引用形（`core:sdk`）、宿主
+   * 固定件席位名（`channels`）或宿主装配根（`host`）——前两类与 name 前段
+   * （件域）同源；`host` 形系组合根承载的宿主侧能力面，件域名系能力面域
+   * 非模块席（`triggers.start-run` 由 host 承载——03 §8.2 2026-09-07 触发器
+   * 面 C 批落码定形）。三类形皆指域内单一承载方，非泛标签。
    */
   readonly providedBy: string;
   /**
@@ -122,6 +124,10 @@ interface CapabilityEntry {
  *   重述所指高权面；承载方 = channels 宿主固定件〔自研 TUI 引擎席位〕）；
  * - `sdk.register-route`：注册网页路由（sdk HTTP 面路由扩展位——03 §10.6；
  *   承载方 = core:sdk 件）。
+ * 触发器面 C 批补第三枚（2026-09-07——P1 拍板批 v1 名单两枚→三枚的落码兑现）：
+ * - `triggers.start-run`：触发器起会（非人触发起无头会话——03 §2.2
+ *   ctx.triggers.register；承载方 = host 装配根〔注册表/starter 编舞住
+ *   host 侧触发器件，零新席——03 §8.2 providedBy 第三形〕）。
  * 后续高危面经三路准入扩枚举同律入册（§4.6）；构建差能力随真实构建分叉日
  * 启用 `API_CAPABILITY_MISSING`（预留码，本批无 thrower）。
  */
@@ -134,6 +140,11 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   {
     name: 'sdk.register-route',
     providedBy: 'core:sdk',
+    userGrantable: true,
+  },
+  {
+    name: 'triggers.start-run',
+    providedBy: 'host',
     userGrantable: true,
   },
 ];

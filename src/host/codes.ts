@@ -1,5 +1,7 @@
 /**
- * host 域错误码补落——`PLUGIN_` 族装载面码（02 §5.3 前缀族明列；语义真源 03 篇）。
+ * host 域错误码补落——`PLUGIN_` 族装载面码（02 §5.3 前缀族明列；语义真源 03 篇）
+ * + `TRIGGER_` 族两码（2026-09-07 触发器面 C 批补入——module 段 host 落码定形，
+ * 语义真源 03 §2.2/§2.7 触发器行）。
  *
  * 注册纪律：import 发生才注册（与 tools/llm/session 的 codes.ts 同款）；
  * 同码重复注册由 contracts 注册表 fail-loud 执法（HOST_ERROR_CODE_CONFLICT）。
@@ -94,6 +96,18 @@ export const HOST_PLUGIN_ERROR_CODES: readonly ErrorCodeInfo[] = [
     module: 'host',
     description:
       '高危面默认关拒：插件未获用户开门授予即触达高危面注册/换装（03 §4.6 用户主权开门制——授予位唯一正门 = 启用清单行 opens；裁决核 = contracts adjudicateCapabilityDoor，throw 位随界面后端换装缝/路由受理面落码批接线）',
+  },
+  {
+    code: 'TRIGGER_NAME_EXISTS',
+    module: 'host',
+    description:
+      '触发器撞名拒：name 撞既有在册触发器（含 issue 件 core: 域）——词法身份面拒绝式，审计归因面重影即歧义（03 §2.7；2026-09-07 触发器面 C 批锚定，执法随 C-2 注册面接线）',
+  },
+  {
+    code: 'TRIGGER_NAME_INVALID',
+    module: 'host',
+    description:
+      '触发器名词法违例拒：name 非域名两段式或域前缀 ≠ 本插件 id（core: 件去前缀取 name 段——防跨插件冒名，03 §2.7 registerSection 行同法；2026-09-07 触发器面 C 批锚定，执法随 C-2 注册面接线）',
   },
 ];
 

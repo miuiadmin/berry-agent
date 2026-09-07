@@ -135,7 +135,7 @@
       "since": "1.0",
       "desc": "错误码前缀族明列——文档性常量，供注册面校验与 CI 目录生成； 'HOST_' 系装配根码族",
       "kind": "const",
-      "sig": "310f6f28accf4a92"
+      "sig": "c44f8a165005f196"
     },
     {
       "symbol": "EVENT_CATEGORIES",
@@ -285,9 +285,9 @@
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "Job 种类闭集（04 §10——kind 现设三值；registerKind 显式登记后方可使用）",
+      "desc": "Job 种类闭集（04 §10——kind 现设四值；registerKind 显式登记后方可使用）",
       "kind": "type",
-      "sig": "7aec7f929d0d9e59"
+      "sig": "70e3a22f6a466552"
     },
     {
       "symbol": "JobSettledEvent",
@@ -1109,6 +1109,11 @@
     {
       "name": "sdk.register-route",
       "providedBy": "core:sdk",
+      "userGrantable": true
+    },
+    {
+      "name": "triggers.start-run",
+      "providedBy": "host",
       "userGrantable": true
     }
   ]
