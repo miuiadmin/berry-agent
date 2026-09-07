@@ -13,8 +13,6 @@
  * 失败——干净退出不写 crash.log，非崩溃）或运行期异常（先 writeCrashLog 再退）。
  * 信号路径独立：SIGINT①/SIGTERM → onGraceful → runtime.shutdown → exit(0)
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
- *
- * 挂账（批 12f 装载面）：--port webui 开面消费（12f-2c）。
  */
 import { BaseError } from '../contracts/index.js';
 import { createLogger, EventDispatch, LogLevelState, Scope } from '../context/index.js';
@@ -29,6 +27,7 @@ import { createConversationStack } from './conversation-stack.js';
 import { bootPlugins } from './plugin-boot.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
+import { openWebuiFace } from './webui-bridge.js';
 
 /** TUI 入口选项（main 分派接线 + 测试注入面） */
 export interface TuiEntryOptions {
@@ -55,6 +54,8 @@ export interface TuiEntryOptions {
   readonly runtime?: HostRuntime;
   /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
+  /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
+  readonly onWebuiOpen?: (info: { host: string; port: number; token: string }) => void;
 }
 
 /**
@@ -127,6 +128,19 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       throw err; // 余异常照外层崩溃取证档
     }
     Object.assign(pluginCounts, boot.counts); // 披露匣回写（disclosure 后续请求即见）
+
+    // —— --port webui 一次性开面（批 12f-2c；03 §10.4 host 接线）：装载后
+    // 开面（插件注册面先就位）、TUI 挂接前关网络面（closer 注册序先于
+    // tui-backend——drain 时网络先关再出屏）；backend 挂接与 TuiBackend
+    // 并存扇出——
+    if (options.flags.port !== undefined) {
+      await openWebuiFace({
+        stack,
+        runtime,
+        port: options.flags.port,
+        ...(options.onWebuiOpen !== undefined ? { onOpen: options.onWebuiOpen } : {}),
+      });
+    }
 
     // 启动会话策略（07 §5）：无参启动按 cwd 取最新会话——有则续接无则新建
     const session = stack.openStartupSession(options.cwd ?? process.cwd());
