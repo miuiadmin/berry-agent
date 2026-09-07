@@ -51,6 +51,7 @@ export type {
   ModelRow,
   FtsAuditResult,
   FtsRebuildResult,
+  FtsGlobalHit,
   OpenStoreOptions,
 } from './store.js';
 export { WriteBehind } from './write-behind.js';

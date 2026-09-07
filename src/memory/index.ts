@@ -10,8 +10,10 @@
  * 注入——读出消毒统一罩工具读面与注入面、流水 op='recall' 分账）；
  * 18c-5 域 = 周期路（review 编排 + 审阅窗转录 + JSON 三试）+ consolidation
  * 整理拍（absorb/decay/sweepExpired 物理承载 + 护栏四件）+ polluted 会话
- * 资格（判据通配 + 状态机 + 两路入口挂检）；
- * 跨会话检索/晋升桥/简报差分/引用回写随 18c-6..8 逐笔扩本面。
+ * 资格（判据通配 + 状态机 + 两路入口挂检）；18c-6 域 = 跨会话检索
+ * （session_fts 消费件——激活期对账策略位 ensureFtsIndex + snippet 切窗
+ * + memory_search 联合检索扩面 [历史会话] 行）；晋升桥/简报差分/引用回写
+ * 随 18c-7..8 逐笔扩本面。
  * 迁移 export-only（host 装配根机械聚合入
  * 宿主单链——05 §6.4）；错误码注册（codes.ts）随本面引入生效。
  */
@@ -51,6 +53,8 @@ export {
   MEMORY_CONSOLIDATION_ANCHOR_MS,
   MEMORY_DECAY_FACTOR,
   MEMORY_POLLUTION_DEFAULT_PATTERNS,
+  MEMORY_SNIPPET_BEFORE,
+  MEMORY_SNIPPET_AFTER,
   REVIEW_KINDS,
   llmTextOf,
 } from './types.js';
@@ -78,6 +82,11 @@ export type {
   ReviewKind,
   SessionEligibility,
   MemoryLlmFace,
+  SessionFtsHit,
+  SessionFtsSearchFace,
+  FtsAuditReport,
+  FtsRebuildReport,
+  FtsMaintenanceFace,
 } from './types.js';
 export { MEMORY_MIGRATIONS } from './migration.js';
 export { scanForSecrets, sanitizeEntryForReadout } from './scan.js';
@@ -119,3 +128,5 @@ export { createConsolidator } from './consolidate.js';
 export type { ConsolidateDeps, ConsolidateRunResult, Consolidator } from './consolidate.js';
 export { sliceReviewWindow, createMemoryCycle } from './cycle.js';
 export type { FetchEventsFn, MemoryCycleDeps, CycleFireResult, MemoryCycle } from './cycle.js';
+export { snippetOf, ensureFtsIndex } from './fts.js';
+export type { EnsureFtsDeps, FtsEnsureReport } from './fts.js';

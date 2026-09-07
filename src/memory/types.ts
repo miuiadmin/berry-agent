@@ -174,6 +174,54 @@ export function llmTextOf(content: string | readonly { type: string; text?: stri
     .join('\n');
 }
 
+/* ---------------- 跨会话检索面（批 18c-6——06 §10 落码定形注五则） ---------------- */
+
+/** snippet 切窗：命中位前取字符数（06 §10 定形注②——前窗短后窗长） */
+export const MEMORY_SNIPPET_BEFORE = 16;
+
+/** snippet 切窗：命中位后取字符数（含命中词本身） */
+export const MEMORY_SNIPPET_AFTER = 48;
+
+/**
+ * session_fts 跨会话命中行（05 §9 追记①——查询面限定解除变体的返回形；
+ * body = 索引投影原文，snippet 由消费侧切窗）。
+ */
+export interface SessionFtsHit {
+  readonly sessionId: string;
+  readonly seq: number;
+  readonly body: string;
+}
+
+/**
+ * 跨会话检索 seam（词面独立律——结构兼容 persist Store 公开面
+ * searchFtsGlobal：host 装配批直传 Store 真身，compat 互证见 fts.test）。
+ */
+export interface SessionFtsSearchFace {
+  searchFtsGlobal(pattern: string, limit?: number): readonly SessionFtsHit[];
+}
+
+/** FTS 抽样审计结果（结构兼容 persist FtsAuditResult——05 §9 对账第三档） */
+export interface FtsAuditReport {
+  readonly checked: number;
+  readonly mismatches: readonly { sessionId: string; expected: number; actual: number }[];
+}
+
+/** FTS 全量重建结果（结构兼容 persist FtsRebuildResult——派生物重建即修复） */
+export interface FtsRebuildReport {
+  readonly sessions: number;
+  readonly events: number;
+}
+
+/**
+ * session_fts 维护 seam（词面独立律——结构兼容 persist Store 公开面
+ * auditFts/rebuildFts 两法：策略位在 memory〔激活期对账触发 + 缺口即重建〕，
+ * 物理原语住 persist〔05 §9 追记②维护归属映射〕）。
+ */
+export interface FtsMaintenanceFace {
+  auditFts(sampleCount?: number): FtsAuditReport;
+  rebuildFts(): FtsRebuildReport;
+}
+
 /* ---------------- 数据形 ---------------- */
 
 /** 溯源引用（铁律 5——谁在什么时候基于哪几条事件记了什么） */

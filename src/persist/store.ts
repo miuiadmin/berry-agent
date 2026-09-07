@@ -132,6 +132,13 @@ export interface FtsRebuildResult {
   readonly events: number;
 }
 
+/** 跨会话 FTS 命中行（05 §9 追记①——查询面限定解除：无 session 过滤；body 为索引投影原文，消费侧自切 snippet） */
+export interface FtsGlobalHit {
+  readonly sessionId: string;
+  readonly seq: number;
+  readonly body: string;
+}
+
 /** openStore 选项 */
 export interface OpenStoreOptions {
   /** 库文件路径（':memory:' = 内存库——诊断形态；缺省 :memory:——host 装配根才落梯子） */
@@ -676,6 +683,17 @@ export class Store implements WriteTarget {
       `SELECT seq FROM session_fts WHERE session_fts MATCH ? AND session_id = ? ORDER BY seq LIMIT ?`,
     ).all(literal, sessionId, limit) as { seq: number }[];
     return rows.map((row) => row.seq);
+  }
+
+  /** 跨会话全文检索（05 §9 追记①——查询面限定解除、索引面同源同索引；bm25 序；
+   *  返回命中行原文供消费侧切 snippet；消毒同会话内变体（字符串字面量引号双写）） */
+  searchFtsGlobal(pattern: string, limit = 50): FtsGlobalHit[] {
+    this.ensureOpen();
+    const literal = `"${pattern.replace(/"/g, '""')}"`;
+    return this.stmt(
+      `SELECT session_id AS sessionId, seq, body FROM session_fts
+       WHERE session_fts MATCH ? ORDER BY rank LIMIT ?`,
+    ).all(literal, limit) as FtsGlobalHit[];
   }
 
   /** 全量重建（派生物不修不补——重建即修复；CLI 手动命令与审计缺口共用腿） */

@@ -417,6 +417,31 @@ describe('session_fts 对账三档（05 §9）', () => {
     expect(store.searchSessionFts('s-san', 'OR b AND')).toEqual([1]);
     expect(store.searchSessionFts('s-san', '"quotes')).toEqual([]);
   });
+
+  it('searchFtsGlobal（05 §9 追记①——查询面限定解除）：跨会话命中 + 引号消毒 + <3 字符空 + 删除会话行随删', () => {
+    const store = open({ dbPath: join(dir, 'global.db') });
+    store.writeEvents(writesFor('s-a', makeEvents('shared-token alpha')));
+    store.writeEvents(writesFor('s-b', makeEvents('shared-token beta')));
+    store.writeEvents(writesFor('s-c', makeEvents('unrelated text')));
+    // 跨会话：两会话各一行命中（无 session 过滤）——返回 sessionId+seq+body 三位
+    const hits = store.searchFtsGlobal('shared-token');
+    expect(hits).toHaveLength(2);
+    expect(new Set(hits.map((h) => h.sessionId))).toEqual(new Set(['s-a', 's-b']));
+    for (const hit of hits) {
+      expect(hit.seq).toBeGreaterThan(0);
+      expect(hit.body).toContain('shared-token');
+    }
+    // 消毒：语法字符按子串匹配（与会话内变体同款）
+    expect(store.searchFtsGlobal('"shared')).toEqual([]);
+    expect(store.searchFtsGlobal('a OR b')).toHaveLength(0); // 无该子串
+    // trigram 下界：<3 字符无从匹配返回空
+    expect(store.searchFtsGlobal('sh')).toEqual([]);
+    // 删除会话 → fts 行随删（对账第二档在跨会话面同样成立）
+    store.deleteSession('s-a');
+    expect(store.searchFtsGlobal('shared-token').map((h) => h.sessionId)).toEqual(['s-b']);
+    // 行帽：limit 钳制命中数
+    expect(store.searchFtsGlobal('shared-token', 1)).toHaveLength(1);
+  });
 });
 
 describe('store_state 面（05 §6.2 LRU + ttl）', () => {
