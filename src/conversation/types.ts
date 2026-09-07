@@ -24,6 +24,7 @@ import type {
   ThinkingLevel,
   ToolDefinition,
 } from '../contracts/index.js';
+import type { ApprovalRequest, ApprovalOutcome, SandboxMode, SandboxService } from '../safety/index.js';
 
 /**
  * turn 级 auto-retry 策略（04 §3.3 条 6）：conversation 自持声明——值配置
@@ -192,13 +193,33 @@ export const MAX_CONSECUTIVE_WAKES = 3;
 export type ReseededTimeline = Message[];
 
 /**
+ * exec 会话装配依赖（批 19a 装载态集成定形）：bash 工具件的四个会话级
+ * 取值面/服务面——装载期（assembly 级）不可达，经 openTools 会话装配时
+ * 注入工厂求值。结构 typing（safety 类型经 conversation 边表合法可达）。
+ */
+export interface ExecSessionDeps {
+  /** 工作区根取值器（cwd 缺省腿 + 沙箱策略锚——会话装配位单源） */
+  readonly workspaceRoot: () => string;
+  /** 当前生效沙箱档（三级解析的会话档位腿——执行期每次调用求值） */
+  readonly currentMode: () => SandboxMode;
+  /** 沙箱服务（受限档包装；缺席则受限档 fail-closed 拒裸跑） */
+  readonly sandboxService?: SandboxService;
+  /** 升权审批面（缺席则升权请求 fail-closed 拒——不给「无审批静默放行」） */
+  readonly approval?: { ask(req: ApprovalRequest): Promise<{ outcome: ApprovalOutcome }> };
+  /** 环境源（bash 发现序读面） */
+  readonly env?: NodeJS.ProcessEnv;
+}
+
+/**
  * exec 服务面（02 §4.1 #16 core:exec 插件经 scope.provide('exec', …) 供给的
- * 结构契约——04 §8 bash 工具件的宿主）：spawn 管道 + bash 工具件。结构 typing
- * 而非 import（conversation 边表不可达 exec——服务面契约单源在此，exec 件
- * 落码时按本形实现 provide）。装配层 scope.tryGet('exec') 诚实缺席消费：
- * exec 禁用 = bash 工具静默缺席（coding 降级，对话本体仍通）。
+ * 结构契约——04 §8 bash 工具件的宿主）：spawn 管道装载期自持（进程级单例），
+ * bash 工具件经会话装配期工厂求值（会话级 deps 见 ExecSessionDeps——批 19a
+ * 定形：装载期固定构造会丢会话档位/审批面）。结构 typing 而非 import
+ * （conversation 边表不可达 exec——服务面契约单源在此，exec 件落码时按本形
+ * 实现 provide）。装配层 scope.tryGet('exec') 诚实缺席消费：exec 禁用 =
+ * bash 工具静默缺席（coding 降级，对话本体仍通）。
  */
 export interface ExecToolService {
-  /** bash 工具件（04 §8 参数面：command/timeoutMs/cwd/sandbox_permissions/justification 成对必填） */
-  readonly bashTool: ToolDefinition;
+  /** bash 工具件工厂（04 §8 参数面：command/timeoutMs/cwd/sandbox_permissions/justification 成对必填） */
+  createBashTool(deps: ExecSessionDeps): ToolDefinition;
 }

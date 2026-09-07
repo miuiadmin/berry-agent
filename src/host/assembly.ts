@@ -30,6 +30,7 @@ import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
 import { createJobRegistry, createSubagentService, provideJobsService } from '../subagent/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
+import { CORE_PLUGINS } from './core-plugins.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import type { CorePluginReference } from './loader.js';
@@ -60,7 +61,7 @@ export interface AssembleHostOptions {
   readonly sandboxMode?: () => SandboxMode;
   /** 运行时组装后回调（信号/崩溃编舞切运行时本体——main attachRuntime） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
-  /** core: 官方件注册表（缺省空——15 件装载态集成挂批 12 装载面后装配批逐件入册） */
+  /** core: 官方件注册表（缺省 CORE_PLUGINS 单源——批 19a 起逐纵切笔入册；测试注入面/诊断覆盖经本位） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 警示面（缺省 stderr 直写） */
   readonly warn?: (message: string) => void;
@@ -193,7 +194,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
         noPlugins: options.noPlugins === true,
         version: options.version,
-        ...(options.corePlugins !== undefined ? { corePlugins: options.corePlugins } : {}),
+        // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
+        // 15 件逐纵切笔入册，见 core-plugins.ts）
+        corePlugins: options.corePlugins ?? CORE_PLUGINS,
         warn: (message) => logger.warn(message),
       });
     } catch (err) {

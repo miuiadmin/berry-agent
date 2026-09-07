@@ -55,6 +55,8 @@ export type { SignalChoreographyOptions, CrashChoreographyOptions } from './sign
 export { VIRTUAL_KEYS, checkImportSpecifier, extractImportSpecifiers, createGateTransform } from './import-gate.js';
 export type { ImportGateContext, GateTransformOptions } from './import-gate.js';
 export { loadPlugins, CorePluginBootError } from './loader.js';
+// core: 官方件注册表单源（批 19a——assembly 缺省注入源/测试注入面）
+export { CORE_PLUGINS } from './core-plugins.js';
 export type {
   CorePluginReference,
   DiskPluginSpec,

@@ -26,6 +26,7 @@ import type { SandboxMode } from '../safety/index.js';
 import type { TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
+import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 
@@ -50,6 +51,8 @@ export interface TuiEntryOptions {
   readonly sandboxMode?: () => SandboxMode;
   /** env 面（缺省 process.env；测试隔离 BERRY_AGENT_MODEL） */
   readonly env?: Record<string, string | undefined>;
+  /** core: 官方件注册表（缺省 CORE_PLUGINS 单源——批 19a；测试注入面） */
+  readonly corePlugins?: readonly CorePluginReference[];
   /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
@@ -75,6 +78,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.env !== undefined ? { env: options.env } : {}),
     ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+    ...(options.corePlugins !== undefined ? { corePlugins: options.corePlugins } : {}),
     ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
   });
   if (!assembly.ok) {

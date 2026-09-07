@@ -61,16 +61,16 @@ function toolOf(assembly: ReturnType<typeof assembleOpenTools>, name: string) {
   return tool;
 }
 
-/** exec 服务面假件（结构契约 ExecToolService 的最小实现——组成面专用不执行） */
-function fakeExecService(): { bashTool: ToolDefinition } {
+/** exec 服务面假件（结构契约 ExecToolService 的最小实现——组成面专用不执行；批 19a 工厂形） */
+function fakeExecService(): { createBashTool: (deps: unknown) => ToolDefinition } {
   return {
-    bashTool: {
+    createBashTool: () => ({
       name: 'bash',
       description: '执行 shell 命令',
       parameters: { type: 'object', properties: {} },
       effect: 'write',
       execute: async () => ({ content: [] }),
-    },
+    }),
   };
 }
 

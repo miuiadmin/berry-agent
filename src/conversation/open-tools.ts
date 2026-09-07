@@ -129,16 +129,22 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     writableRoots: createRootsProvider({ workspace: workspaceRoot, mode: opts.mode }),
   });
   const searchTools = createSearchTools({ workspace });
-  // exec 服务面诚实缺席（02 §4.1 #16：tryGet——exec 禁用 = bash 静默缺席）
+  // exec 服务面诚实缺席（02 §4.1 #16：tryGet——exec 禁用 = bash 静默缺席）；
+  // 在场则经会话装配期工厂求值 bash 工具（批 19a 定形：档位/审批/工作区
+  // 会话 deps 注入——装载期固定构造会丢会话面）
   const execService = opts.scope.tryGet<ExecToolService>('exec');
+  const bashTool =
+    execService !== undefined
+      ? execService.createBashTool({
+          workspaceRoot: workspace,
+          currentMode: opts.mode,
+          // 升权审批面绑本会话审批服务（结构窄面 {ask}——ApprovalService 满足）
+          approval: { ask: (req) => approvalWiring.approval.ask(req) },
+        })
+      : undefined;
   const todoTool = createTodoTool((data) => opts.session.append('todo/write', data));
 
-  const definitions = [
-    ...fsTools.tools,
-    ...searchTools.tools,
-    ...(execService !== undefined ? [execService.bashTool] : []),
-    todoTool,
-  ];
+  const definitions = [...fsTools.tools, ...searchTools.tools, ...(bashTool !== undefined ? [bashTool] : []), todoTool];
   // 驱动层注册（{driver: sessionId}——per-session 工具面；批 12 前插件的
   // beforeToolCall 钩子同 dispatch 挂后续守门位）
   const disposers = definitions.map((definition) => registry.register(definition, { driver: opts.sessionId }));

@@ -10,6 +10,7 @@
 export type {
   ConversationDriverOptions,
   ExecToolService,
+  ExecSessionDeps,
   ReseededTimeline,
   RetryPolicyConfig,
   SubmitOptions,
