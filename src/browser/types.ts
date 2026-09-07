@@ -20,6 +20,7 @@
  * 页面态永不跨进程恢复，durable 只落工具事件不落页面态）。
  */
 import { BaseError } from '../contracts/index.js';
+import type { ToolContext } from '../contracts/index.js';
 import type { WebFetchService } from '../web/index.js';
 
 /* ---------------- 常量（缺省值单源——03 §10.3 生命周期与回收条款） ---------------- */
@@ -41,6 +42,18 @@ export const BROWSER_CLOSE_GRACE_MS = 3_000;
 
 /** stderr DevTools 侦听行解析（Chrome 系引擎 --remote-debugging-port=0 唯一出口） */
 export const DEVTOOLS_LISTENING_RE = /DevTools listening on (ws:\/\/\S+)/;
+
+/** 导航预算 ms（Page.navigate 发出 → loadEventFired 等待同罩——慢页面不误杀） */
+export const BROWSER_NAV_TIMEOUT_MS = 30_000;
+
+/** console 环形缓冲帽（Runtime.consoleAPICalled/exceptionThrown 累积——超帽弃最旧） */
+export const BROWSER_CONSOLE_RING_CAP = 200;
+
+/** 截图滚动清理保留数（落数据目录可取阅位——超量弃最旧，图像字节永不进 durable） */
+export const BROWSER_SCREENSHOT_KEEP = 20;
+
+/** 截图子目录名（`${dataDir}/browser/` 下——与 engine/profile 同级） */
+export const BROWSER_SCREENSHOT_DIRNAME = 'screenshots';
 
 /** 引擎 spawn 归属名（登记簿同册——三桥同律） */
 export const BROWSER_ENGINE_OWNER = 'browser:engine';
@@ -160,7 +173,7 @@ export interface BrowserRegisterToolsFace {
     parameters: object;
     timeoutMs?: number;
     effect?: 'read' | 'write';
-    execute: (args: Record<string, unknown>, toolCtx: unknown) => Promise<unknown>;
+    execute: (args: Record<string, unknown>, toolCtx: ToolContext) => Promise<unknown>;
   }): () => void;
 }
 
