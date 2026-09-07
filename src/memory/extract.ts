@@ -16,8 +16,10 @@
  * project 域）。**溯源精确事件位**：sourceRefs = {sessionId, seq}（信封
  * seq——18c-2 工具面 seq:0 会话级位的精确位兑现）。
  *
- * **polluted 资格检查归 18c-5**（§4.1「两路入口同一资格检查」——判据表
- * 与会话状态机随周期路批落码，届时在两路入口统一挂检，本件不预建）。
+ * **polluted 资格检查**（§4.1「两路入口同一资格检查」——批 18c-5 兑现）：
+ * 本件首步（源滤除之前）经 isSessionPolluted seam 检查——polluted 会话跳过
+ * 提取（外部源内容不做记忆源）；seam 缺席恒 eligible（无污染追踪装配的
+ * 装配面——装配根把周期路编排件的 pollution 追踪器接到此位）。
  *
  * **装配位**：本件为纯消费件——host 装配批（批 12 装载面后装配批）把
  * onUserMessage 挂到 durable 事件流消费点；件自身不订阅。
@@ -164,6 +166,12 @@ export function buildCorrectionCandidate(hit: CorrectionHit, sessionId: string, 
 /** 即时路编排件依赖 */
 export interface ImmediateExtractorDeps {
   readonly dao: MemoryDao;
+  /**
+   * 会话资格检查 seam（§4.1 两路入口同一检查——编排件首步、源滤除之前）：
+   * polluted 会话跳过提取。缺省恒 eligible（装配根把周期路编排件的 pollution
+   * 追踪器接到此位——批 18c-5）。
+   */
+  readonly isSessionPolluted?: (sessionId: string) => boolean;
   /** 进程日志（缺省静默——失败 warn 分层归装配面） */
   readonly warn?: (message: string) => void;
 }
@@ -183,6 +191,10 @@ export function createImmediateExtractor(deps: ImmediateExtractorDeps): Immediat
   return {
     onUserMessage(sessionId, seq, data) {
       try {
+        // 资格检查首步（§4.1——源滤除之前；polluted 会话跳过提取）
+        if (deps.isSessionPolluted !== undefined && deps.isSessionPolluted(sessionId)) {
+          return { extracted: false };
+        }
         if (!isEligibleUserSource(data.source)) return { extracted: false };
         const text = userTextOf(data.content);
         if (text === null) return { extracted: false };

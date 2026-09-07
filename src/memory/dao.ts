@@ -99,8 +99,13 @@ export interface MemoryDao {
 
   /* —— 持有面动词（06 §7——工具九件与 /memory 管理面同 DAO 单实现律） —— */
 
-  /** 软删（status=dismissed + superseded_by='user'/'skill:<名>'；纯状态变更；frozen 拒） */
-  forget(id: string, opts?: { promotedToSkill?: string }): MemoryRow;
+  /**
+   * 软删（纯状态变更；frozen 拒；**终态短路**——已 dismissed 行幂等返回现行行
+   * 不覆写 superseded_by，06 §5 触发与护栏第四件配套）。终态来源三消费形：
+   * 'user'（用户口信缺省）/ 'skill:<名>'（晋升搬家）/ 'llm:<keepId>'
+   * （consolidation 执行腿——supersededBy 直取值，批 18c-5 落码定形注）。
+   */
+  forget(id: string, opts?: { promotedToSkill?: string; supersededBy?: string }): MemoryRow;
   /** 复活（缺省 = 状态复活；带 revision = 内容回滚 + cause='rollback' 版本追加；两腿都按 ttl_days 重算续期） */
   restore(id: string, revision?: number): MemoryRow;
   /** 冻结（幂等——恒简报/免 TTL/免覆写/免整理全档开闸） */
@@ -109,6 +114,29 @@ export interface MemoryDao {
   unfreeze(id: string): MemoryRow;
   /** 清/设留存（null = 永久；有效可见行物化重算立即生效、已过期/终态行仅改未来策略不复活；frozen 拒） */
   setTtl(id: string, days: number | null): MemoryRow;
+
+  /* —— 整理面四法（批 18c-5——06 §5 落码定形注；consolidation 执行腿物理承载） —— */
+
+  /**
+   * 显式合并物理动作（consolidation 执行腿）：keep 条 evidence += drop 全数、
+   * confidence 取 max、source_refs 并集（帽 50）、updated_at 刷新（证据合并即
+   * 摄入面）、keep 版本链 cause='merge' 追加；drop 同事务终态
+   * forget('llm:<keepId>')。自指/frozen 任一侧/非在册行拒。FTS 零触达
+   * （summary/content 不变——external-content 只同步文本面变更）。
+   */
+  absorb(keepId: string, dropId: string): MemoryRow;
+  /**
+   * 降权物化：confidence × factor，**不刷 updated_at**（降权不是新证据——防
+   * 反复 decay 把条目「洗新」出老化候选集）；版本链追加 cause='decay'。
+   * factor ∈ (0,1]；frozen/非在册拒。
+   */
+  decay(id: string, factor: number): MemoryRow;
+  /**
+   * TTL 物化（周期路 fire 首步——06 §3 读面谓词的写侧对偶）：active 且非
+   * frozen 且 expires_at ≤ now 的行 → status='expired'、superseded_by='ttl'。
+   * 纯状态变更——不动 updated_at 不追加版本。返回物化行数。
+   */
+  sweepExpired(): number;
 
   /* —— 检索与读面 —— */
 
@@ -288,6 +316,21 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   const stmtUnfreeze = db.prepare(`UPDATE memories SET frozen = 0, expires_at = ? WHERE id = ?`);
   const stmtSetTtl = db.prepare(`UPDATE memories SET ttl_days = ?, expires_at = ? WHERE id = ?`);
   const stmtSetTtlPolicy = db.prepare(`UPDATE memories SET ttl_days = ? WHERE id = ?`);
+
+  /* ---------------- 整理面语句（18c-5——absorb/decay/sweepExpired） ---------------- */
+
+  // absorb 物理形（与三分支吸收合并同族但 evidence 全数过继——非 +1 象征位）
+  const stmtAbsorbFull = db.prepare(
+    `UPDATE memories SET confidence = ?, evidence_count = ?, source_refs = ?, updated_at = ?
+     WHERE id = ?`,
+  );
+  // decay 物化（只动 confidence——不刷 updated_at，防洗新出老化候选集）
+  const stmtDecay = db.prepare(`UPDATE memories SET confidence = ? WHERE id = ?`);
+  // TTL 物化（纯状态变更——frozen 免、不动 updated_at 不追加版本）
+  const stmtSweepExpired = db.prepare(
+    `UPDATE memories SET status = 'expired', superseded_by = 'ttl'
+     WHERE status = 'active' AND frozen = 0 AND expires_at IS NOT NULL AND expires_at <= ?`,
+  );
   const stmtGetVersion = db.prepare(
     `SELECT id, memory_id, revision, owner_key, kind, summary, content, confidence,
             evidence_count, cause, created_at
@@ -519,15 +562,101 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
 
   /* ---------------- 持有面动词事务体（18c-2——同 ingest 单事务纪律） ---------------- */
 
-  /** forget：软删纯状态变更（不动 updated_at、不追加版本——§3 纪律）；搬家腿词法前置校验 */
-  const forgetTx = db.transaction((id: string, promotedToSkill: string | undefined): MemoryRow => {
+  /**
+   * forget：软删纯状态变更（不动 updated_at、不追加版本——§3 纪律）。
+   * 检查序 = missing → frozen 拒 → **dismissed 终态短路**（幂等返回现行行，
+   * 不覆写 superseded_by——用户终审 'user'/'skill:<名>' 不被后到 'llm:<id>'
+   * 腿覆盖；06 §5 触发与护栏第四件配套，批 18c-5 兑现）。
+   * 终态来源优先级：supersededBy 直取值（'llm:<keepId>' 消费形）> promotedToSkill
+   * 搬家腿（词法前置校验）> 'user' 缺省。
+   */
+  const forgetTx = db.transaction(
+    (id: string, promotedToSkill: string | undefined, supersededBy: string | undefined): MemoryRow => {
+      const row = mustGet(id);
+      if (row.frozen) {
+        throw new BaseError('MEMORY_FROZEN', `条目已冻结（forget 撞 frozen 拒——解冻-再忘唯一路径）：${id}`);
+      }
+      if (row.status === 'dismissed') return row; // 终态短路——先到终审定格
+      const origin =
+        supersededBy !== undefined
+          ? supersededBy
+          : promotedToSkill === undefined
+            ? 'user'
+            : `skill:${validSkillName(promotedToSkill)}`;
+      stmtDismissUser.run(origin, id);
+      return reload(id);
+    },
+  );
+
+  /** absorb：显式合并物理动作（consolidation 执行腿——单事务：过继 + 版本 + drop 终态） */
+  const absorbTx = db.transaction((keepId: string, dropId: string): MemoryRow => {
+    if (keepId === dropId) {
+      throw new BaseError('MEMORY_ENTRY_INVALID', `absorb 自指拒（keep 与 drop 同 id）：${keepId}`);
+    }
+    const keep = mustGet(keepId);
+    const drop = mustGet(dropId);
+    // frozen 免整理全档（任一侧）；整理面只作用在册行
+    if (keep.frozen || drop.frozen) {
+      throw new BaseError('MEMORY_FROZEN', `absorb 撞冻结拒（frozen 免整理）：keep=${keepId} drop=${dropId}`);
+    }
+    if (keep.status !== 'active' || drop.status !== 'active') {
+      throw new BaseError(
+        'MEMORY_ENTRY_INVALID',
+        `absorb 只作用在册行：keep=${keepId}(${keep.status}) drop=${dropId}(${drop.status})`,
+      );
+    }
+    const now = deps.now();
+    // 过继四件：evidence 全数（非 +1 象征位）/ confidence max / refs 并集（帽内——血缘继承）/ updated_at 刷新
+    const mergedRefs = unionSourceRefs(keep.sourceRefs, drop.sourceRefs);
+    const mergedConfidence = Math.max(keep.confidence, drop.confidence);
+    const mergedEvidence = keep.evidenceCount + drop.evidenceCount;
+    stmtAbsorbFull.run(mergedConfidence, mergedEvidence, JSON.stringify(mergedRefs), now, keepId);
+    appendVersion(
+      keepId,
+      {
+        ownerKey: keep.ownerKey,
+        kind: keep.kind,
+        summary: keep.summary,
+        content: keep.content,
+        confidence: mergedConfidence,
+        evidenceCount: mergedEvidence,
+      },
+      'merge',
+      now,
+    );
+    // drop 终态（同事务内联——active 前置检查已等价 forget 终态短路的检查面）
+    stmtDismissUser.run(`llm:${keepId}`, dropId);
+    return reload(keepId);
+  });
+
+  /** decay：降权物化（confidence × factor + 版本 cause='decay'——不刷 updated_at） */
+  const decayTx = db.transaction((id: string, factor: number): MemoryRow => {
+    if (!Number.isFinite(factor) || factor <= 0 || factor > 1) {
+      throw new BaseError('MEMORY_ENTRY_INVALID', `decay factor 形违例（(0,1] 区间）：${factor}`);
+    }
+    const now = deps.now();
     const row = mustGet(id);
     if (row.frozen) {
-      throw new BaseError('MEMORY_FROZEN', `条目已冻结（forget 撞 frozen 拒——解冻-再忘唯一路径）：${id}`);
+      throw new BaseError('MEMORY_FROZEN', `条目已冻结（frozen 免整理——decay 拒）：${id}`);
     }
-    // 终态来源：用户口信 'user' / 晋升搬家 'skill:<名>'（§3 闭集第五值，循 'llm:<id>' 先例）
-    const supersededBy = promotedToSkill === undefined ? 'user' : `skill:${validSkillName(promotedToSkill)}`;
-    stmtDismissUser.run(supersededBy, id);
+    if (row.status !== 'active') {
+      throw new BaseError('MEMORY_ENTRY_INVALID', `decay 只作用在册行（${row.status}）：${id}`);
+    }
+    const next = row.confidence * factor;
+    stmtDecay.run(next, id);
+    appendVersion(
+      id,
+      {
+        ownerKey: row.ownerKey,
+        kind: row.kind,
+        summary: row.summary,
+        content: row.content,
+        confidence: next,
+        evidenceCount: row.evidenceCount,
+      },
+      'decay',
+      now,
+    );
     return reload(id);
   });
 
@@ -757,7 +886,17 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       stmtRebuildFts.run();
     },
     forget(id, opts) {
-      return forgetTx(id, opts?.promotedToSkill);
+      return forgetTx(id, opts?.promotedToSkill, opts?.supersededBy);
+    },
+    absorb(keepId, dropId) {
+      return absorbTx(keepId, dropId);
+    },
+    decay(id, factor) {
+      return decayTx(id, factor);
+    },
+    sweepExpired() {
+      // 单语句原子（纯状态变更——不动 updated_at 不追加版本）
+      return stmtSweepExpired.run(deps.now()).changes;
     },
     restore(id, revision) {
       return restoreTx(id, revision);

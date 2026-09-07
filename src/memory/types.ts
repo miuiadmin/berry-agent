@@ -100,6 +100,80 @@ export const MEMORY_RECALL_POOL_FACTOR = 4;
 /** 检索注入自定义角色名（04 运行时骨架自定义角色机制——装配面包装 hidden/toLlm，件内只出常量与文本） */
 export const MEMORY_RECALL_ROLE = 'memory/recall';
 
+/* 周期路/整理面常量（批 18c-5——06 §4/§5/§4.1 起草值） */
+
+/** 周期路触发阈值：turn/end 计数（两阈值任一达标即触发后台 review） */
+export const MEMORY_REVIEW_TURN_THRESHOLD = 10;
+
+/** 周期路触发阈值：tool/call 计数 */
+export const MEMORY_REVIEW_TOOL_CALL_THRESHOLD = 15;
+
+/** 周期路审阅窗：最近 N 个 turn（fetchEvents 切片窗——窗内转录喂 LLM） */
+export const MEMORY_REVIEW_WINDOW_TURNS = 10;
+
+/** 周期路候选置信度缺省（弱于即时路纠正 0.7——review 是推断性提取） */
+export const MEMORY_REVIEW_CONFIDENCE = 0.6;
+
+/** consolidation 老化阈值天数（updated_at 超此入候选集） */
+export const MEMORY_CONSOLIDATION_STALE_DAYS = 90;
+
+/** owner 容量上限（TTL 可见行数超此 → 低分盈余入候选；**永不因满拒写**） */
+export const MEMORY_OWNER_CAPACITY = 500;
+
+/** consolidation 拍间最小间隔毫秒（anchor 护栏——防抖） */
+export const MEMORY_CONSOLIDATION_ANCHOR_MS = 5 * 60_000;
+
+/** decay 降权因子（confidence × factor——起草值随实测调） */
+export const MEMORY_DECAY_FACTOR = 0.7;
+
+/**
+ * polluted 判据缺省表（'*' 通配——06 §4.1 落码定形注起草值）：
+ * 'fetch'/'mcp' 精确名 + '*__*' = MCP 复合键全族（`server__tool`——服务器键
+ * 无下划线，'__' 子串即复合键指纹）。
+ */
+export const MEMORY_POLLUTION_DEFAULT_PATTERNS: readonly string[] = ['fetch', 'mcp', '*__*'];
+
+/* ---------------- 周期路/整理面类型（批 18c-5） ---------------- */
+
+/**
+ * review 五类候选 kind 闭集（06 §4 周期路——LLM 提取面）：correction 为
+ * 即时路专有（确定性触发词）、profile 为用户画像面专有，均不在此列。
+ */
+export type ReviewKind = 'preference' | 'fact' | 'convention' | 'failure' | 'insight';
+
+/** review kind 五值闭集单源（TypeBox schema 构建消费） */
+export const REVIEW_KINDS: readonly ReviewKind[] = ['preference', 'fact', 'convention', 'failure', 'insight'];
+
+/**
+ * 会话资格态两值闭集（06 §4.1——eligible 入检 | polluted 跳过提取/审阅；
+ * v1 = 进程内存态，重启回退 eligible——落码定形注）。
+ */
+export type SessionEligibility = 'eligible' | 'polluted';
+
+/**
+ * LLM 服务窄面（批 18c-5 词面独立律——memory 席 DAG 无 llm 边，LLM 能力
+ * 经 deps 注入；结构兼容 host LlmService.complete/canAfford 子集——complete
+ * 只用 systemPrompt/messages/priority 三参位，结果只用 message.content 文本
+ * 面；canAfford 走 'background' 道查预算闸门。同 loop 只认 StreamFn 签名先例）。
+ */
+export interface MemoryLlmFace {
+  complete(req: {
+    systemPrompt?: string;
+    messages: readonly { role: 'user'; content: string }[];
+    priority?: 'background' | 'foreground';
+  }): Promise<{ message: { content: string | readonly { type: string; text?: string }[] } }>;
+  canAfford(priority: 'background' | 'foreground'): boolean;
+}
+
+/** LLM 回复文本面提取（string 直取；块数组拼 text 块——结构兼容双形） */
+export function llmTextOf(content: string | readonly { type: string; text?: string }[]): string {
+  if (typeof content === 'string') return content;
+  return content
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('\n');
+}
+
 /* ---------------- 数据形 ---------------- */
 
 /** 溯源引用（铁律 5——谁在什么时候基于哪几条事件记了什么） */
