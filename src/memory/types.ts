@@ -74,6 +74,32 @@ export const MEMORY_RECENT_LIMIT = 5;
 /** 天 → 毫秒换算单源（ttl_days / expires_at 重算共用） */
 export const MEMORY_DAY_MS = 86_400_000;
 
+/* 注入面常量（批 18c-4——06 §6 两路；起草值随实测调） */
+
+/** 常驻简报段固定标记（memory/core 具名段的包裹锚——prompt 侧锚点） */
+export const MEMORY_BRIEF_MARKER = '<!-- memory:core -->';
+
+/** 常驻简报字符限额（约值——只约竞争面，frozen 免限额恒全收） */
+export const MEMORY_BRIEF_CHAR_LIMIT = 2000;
+
+/** 常驻简报竞争面行数帽（top N——「取 top N」的 N 值起草档） */
+export const MEMORY_BRIEF_TOP_N = 20;
+
+/** 未用强排除阈值天数（§5 效用维度——30 天管常驻面；frozen 免） */
+export const MEMORY_BRIEF_STALE_DAYS = 30;
+
+/** 按需检索 query 帽（当轮 user 消息作为检索 query 的资格条件——超长不入检） */
+export const MEMORY_RECALL_QUERY_MAX_CHARS = 200;
+
+/** 按需检索注入条数（top-k 缺省 3） */
+export const MEMORY_RECALL_TOP_K = 3;
+
+/** 按需检索 kind 优先重排候选池倍数（一次取款覆盖 kind 重排的候选面——起草值） */
+export const MEMORY_RECALL_POOL_FACTOR = 4;
+
+/** 检索注入自定义角色名（04 运行时骨架自定义角色机制——装配面包装 hidden/toLlm，件内只出常量与文本） */
+export const MEMORY_RECALL_ROLE = 'memory/recall';
+
 /* ---------------- 数据形 ---------------- */
 
 /** 溯源引用（铁律 5——谁在什么时候基于哪几条事件记了什么） */
@@ -213,6 +239,13 @@ export interface MemorySearchOptions {
   readonly kind?: MemoryKind;
   /** 行帽（缺省 10、硬帽 50） */
   readonly limit?: number;
+  /**
+   * 命中流水落账 op（缺省 'search'；按需检索注入路注入 'recall'——06 §6 三写点
+   * 单 DAO 实现律：两路共用同一检索原语，只在流水面分账）。
+   */
+  readonly accessOp?: 'search' | 'recall';
+  /** 流水会话归位（缺省 null——工具上下文无会话键；检索注入路带当轮会话键） */
+  readonly accessSessionId?: string | null;
 }
 
 /** 健康面计数（memory_read 与 /memory 管理面共源——按状态逐状态取数，全库不分 owner 假精度） */
@@ -255,7 +288,7 @@ export interface MemoryAccessFlowRow {
   readonly id: string;
   readonly memoryId: string;
   readonly op: MemoryAccessOp;
-  /** search 行恒 NULL（工具上下文无会话键——v6 迁移注） */
+  /** 会话归位（search 工具行恒 NULL——工具上下文无会话键；recall 检索注入行带当轮会话键〔18c-4〕） */
   readonly sessionId: string | null;
   /** Unix 毫秒 */
   readonly ts: number;

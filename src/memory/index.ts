@@ -6,7 +6,9 @@
  * 合并三分支纯函数 + 效用综合分；18c-2 域 = 持有面动词 + 检索/访问面 +
  * 工具面九件（createMemoryTools）；18c-3 域 = 提取即时路（纠正检测纯函数 +
  * fire-and-forget 编排件——机器源滤除 + owner 恒 global + 精确事件位溯源）；
- * 注入两路/周期路/跨会话检索/晋升桥/简报差分随 18c-4..8 逐笔扩本面。
+ * 18c-4 域 = 注入两路（常驻简报 memory/core builder + 按需检索 recall 瞬态
+ * 注入——读出消毒统一罩工具读面与注入面、流水 op='recall' 分账）；
+ * 周期路/跨会话检索/晋升桥/简报差分/引用回写随 18c-5..8 逐笔扩本面。
  * 迁移 export-only（host 装配根机械聚合入
  * 宿主单链——05 §6.4）；错误码注册（codes.ts）随本面引入生效。
  */
@@ -29,6 +31,14 @@ export {
   MEMORY_SKILL_NAME_MAX,
   MEMORY_RECENT_LIMIT,
   MEMORY_DAY_MS,
+  MEMORY_BRIEF_MARKER,
+  MEMORY_BRIEF_CHAR_LIMIT,
+  MEMORY_BRIEF_TOP_N,
+  MEMORY_BRIEF_STALE_DAYS,
+  MEMORY_RECALL_QUERY_MAX_CHARS,
+  MEMORY_RECALL_TOP_K,
+  MEMORY_RECALL_POOL_FACTOR,
+  MEMORY_RECALL_ROLE,
 } from './types.js';
 export type {
   MemoryKind,
@@ -53,8 +63,8 @@ export type {
   MemoryAccessLogResult,
 } from './types.js';
 export { MEMORY_MIGRATIONS } from './migration.js';
-export { scanForSecrets } from './scan.js';
-export type { SecretScanHit } from './scan.js';
+export { scanForSecrets, sanitizeEntryForReadout } from './scan.js';
+export type { SecretScanHit, ReadoutVerdict } from './scan.js';
 export {
   tokenizeForMerge,
   normalizeForMerge,
@@ -82,3 +92,5 @@ export type {
   ImmediateExtractorDeps,
   ImmediateExtractor,
 } from './extract.js';
+export { MEMORY_CITE_RE, shortIdOf, briefBaseline, renderCoreBrief, buildCoreBrief, recallForQuery } from './inject.js';
+export type { BriefEntry, BriefBaseline, CoreBriefDeps, RecallHit, RecallInjection, RecallDeps } from './inject.js';

@@ -112,7 +112,7 @@ export interface MemoryDao {
 
   /* —— 检索与读面 —— */
 
-  /** FTS 检索（记忆库腿——跨会话 union 归 18c-6；命中落 memory_access(op='search') 流水） */
+  /** FTS 检索（记忆库腿——跨会话 union 归 18c-6；命中落 memory_access 流水：缺省 op='search'，按需检索注入路注入 op='recall' + 会话键） */
   search(query: string, opts?: MemorySearchOptions): MemorySearchHit[];
   /** memory_read 无 id 腿整面（简报取数基础版 + 最近变更 + 健康面） */
   overview(ownerKeys?: readonly string[]): MemoryReadOverview;
@@ -652,11 +652,14 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     );
     const hits = stmt.all(...params, limit) as MemorySearchHit[];
     if (hits.length > 0) {
-      // 命中流水落账（06 §7——op='search'、session_id 恒 NULL〔工具上下文无会话键〕；
-      // 读模型的计量写面，非领域状态变更）
+      // 命中流水落账（06 §7——缺省 op='search'/session_id NULL〔工具上下文无会话键〕；
+      // 按需检索注入路注入 op='recall' + 当轮会话键〔06 §6 三写点单 DAO 实现律〕；
+      // 读模型的计量写面，非领域状态变更——聚合只随 cite，流水面不动聚合）
+      const op = opts?.accessOp ?? 'search';
+      const sessionId = opts?.accessSessionId ?? null;
       const logTx = db.transaction((rows: readonly MemorySearchHit[]): void => {
         const ts = deps.now();
-        for (const hit of rows) stmtInsertAccess.run(newId(), hit.id, 'search', null, ts);
+        for (const hit of rows) stmtInsertAccess.run(newId(), hit.id, op, sessionId, ts);
       });
       logTx(hits);
     }

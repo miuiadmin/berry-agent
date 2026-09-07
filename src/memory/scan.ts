@@ -12,7 +12,8 @@
  * 模式清单 = 保守常量（06 §8.1 起草值随实测调）：全部取**带特征前缀**的
  * 高置信形态，不收裸十六进制/裸 base64 通用形——git commit SHA（40 hex）、
  * 摘要哈希等常见长十六进制串零误报（保守清单的立清单由）。读出消毒
- * （§8.2 注入前拦截）随 18c-4 注入笔复用本扫描器。
+ * （§8.2 注入前拦截——批 18c-4）复用本扫描器 + 指令样注入检测，
+ * 统一罩住工具读面与注入面。
  */
 
 /** 扫描命中（pattern 名即诊断面——不携带命中文本本体） */
@@ -52,4 +53,62 @@ export function scanForSecrets(text: string): SecretScanHit[] {
     if (re.test(text)) hits.push({ pattern });
   }
   return hits;
+}
+
+/* ---------------- 读出消毒（06 §8.2——批 18c-4） ---------------- */
+
+/**
+ * 指令样注入检测模式（保守清单——起草值随实测调）：只收**针对 AI 的高危
+ * 注入句式**（忽略既有指令 / 无视上文 / 角色劫持 / 索要系统提示词——中英
+ * 双语）；「必须用 pnpm」一类正常偏好/约定记忆不收（误杀正常知识比漏检
+ * 更伤记忆库）。命中不剔除——框架降权为「引述」呈现（§8.2 字面）。
+ */
+const INJECTION_PATTERNS: readonly RegExp[] = [
+  // 忽略既有指令族（中文）
+  /忽略(之前|以上|上述|前面|上面)(的)?(所有|全部)?(指令|指示|提示|规则)/,
+  /无视(以上|上述|之前|前面|上面)(的)?(任何)?(指令|指示|提示|内容|规则)/,
+  /不再遵守(任何|以上|上述)?(指令|指示|规则|约束)/,
+  // 忽略既有指令族（英文——小写归一子串语义以 /i 达成）
+  /ignore (all )?(previous|prior|above|earlier|preceding) (instructions?|prompts?|rules?|directions?)/i,
+  /disregard (all )?(previous|prior|above|earlier|preceding)/i,
+  /forget (all )?(previous|prior) (instructions?|prompts?|rules?)/i,
+  // 角色劫持族（「你现在是」——记忆内容不该给模型换角色）
+  /(你|您)现在(是|扮演)/,
+  /从现在开始(你|您)(是|扮演|要)/,
+  /you are now (a|an|the) /i,
+  /act as if you (are|were)/i,
+  // 索要系统提示词族（套话面——记忆内容不该反向打探宿主配置）
+  /reveal (your|the) (system prompt|system instructions|hidden instructions)/i,
+  /(显示|泄露|输出|告诉我)(你的)?(系统提示词|系统指令|隐藏指令)/,
+];
+
+/** 读出消毒判定（§8.2 统一读出消毒函数——同时罩住工具读面与注入面） */
+export interface ReadoutVerdict {
+  /** secret 命中：注入面整条剔除（frozen 剔除可见计数）/ 工具面遮蔽原文 */
+  readonly blocked: boolean;
+  /** secret 命中 pattern 名单（说面不说值——诊断纪律同 §8.1） */
+  readonly patterns: readonly string[];
+  /** 指令样命中：保留但框架降权为「引述」呈现 */
+  readonly quoted: boolean;
+}
+
+/**
+ * 条目读出消毒（06 §8.2——注入前对记忆块跑同一扫描器 + 注入模式检测）：
+ * summary 与 content（在场时）各自入检，任一面 secret 命中 → blocked；
+ * 任一面指令样命中 → quoted。历史入库（扫描器清单升级前入库）的敏感串
+ * 在读出面拦截——写前扫描（§8.1）拒得了新写，拦不住存量。
+ */
+export function sanitizeEntryForReadout(entry: {
+  readonly summary: string;
+  readonly content?: string;
+}): ReadoutVerdict {
+  const hits = [
+    ...scanForSecrets(entry.summary),
+    ...(entry.content !== undefined ? scanForSecrets(entry.content) : []),
+  ];
+  const patterns = [...new Set(hits.map((h) => h.pattern))];
+  const quoted = INJECTION_PATTERNS.some(
+    (re) => re.test(entry.summary) || (entry.content !== undefined && re.test(entry.content)),
+  );
+  return { blocked: patterns.length > 0, patterns, quoted };
 }
