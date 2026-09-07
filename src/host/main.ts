@@ -53,13 +53,13 @@ function readVersion(): string {
 function dispatchServe(flags: Parameters<NonNullable<CommandHandlers['serve']>>[0]): Promise<number> {
   if (process.env[DAEMON_CHILD_ENV] === '1') {
     // child 形态：HTTP 面常驻主体（spawner 已 detached + stderr 重定向 log）
-    return runDaemonServe({ flags, onRuntime: attachRuntime });
+    return runDaemonServe({ flags, version: readVersion(), onRuntime: attachRuntime });
   }
   if (flags.daemon) {
     // spawner 形态：spawn 自镜像后即退（起活确认窗内报结果；child 独立生命周期）
     return spawnDaemonServe({ flags });
   }
-  return runServeEntry({ flags, onRuntime: attachRuntime });
+  return runServeEntry({ flags, version: readVersion(), onRuntime: attachRuntime });
 }
 
 /** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins 已接线，余命令诚实退 1） */

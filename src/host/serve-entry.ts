@@ -2,13 +2,15 @@
  * host/serve-entry — serve 常驻宿主装配（批 13c；07 §5 serve 子命令 =
  * stdio JSONL 传输的缺省形态）。
  *
- * 装配序（承 tui-entry 模板）：--daemon 诚实拒（HTTP 面归 core:sdk 件 13e，
- * 不可静默吞）→ createHostRuntime（单活跃机占标记 → 开库 → 披露段）→
- * logger 装配（--debug 让位律）→ createConversationStack → 装配桥（把
- * ConversationStack 映射成 SdkWireDeps——05 §3.5 serve 外推三腿的桥接位）
- * → createSdkBackend → channels.addBackend（信封回流经 conversation-stack
- * onEvent → emit 自动馈送——桥零订阅代码）→ stdio 传输环 + 心跳定时 →
- * EOF/信号/过载三路收场。
+ * 装配序（批 19a-3 迁 assembly 公共段——与 TUI 同一合成代码路径）：--daemon
+ * 诚实拒（HTTP 面归 core:sdk 件 13e，不可静默吞）→ assembleHostStack
+ * （运行时→logger→共享根→conversation 栈→**插件装载**〔批 19a 起 core
+ * 注册表 + enabled.yaml 读侧真跑——serve 无人值守主通道装载面与 TUI 同构，
+ * :memory: 同构纪律的码面单源〕→ jobs/triggers/subagents 宿主侧服务面）→
+ * 装配桥（把 ConversationStack 映射成 SdkWireDeps——05 §3.5 serve 外推三腿
+ * 的桥接位）→ createSdkBackend → channels.addBackend（信封回流经
+ * conversation-stack onEvent → emit 自动馈送——桥零订阅代码）→ stdio 传输环
+ * + 心跳定时 → EOF/信号/过载三路收场。
  *
  * 传输环（03 §10.6 件身份条：stdio JSONL 归宿主 serve）：入站
  * splitWireLines 分帧 → decodeWireLine → core.handleRequest（坏行 warn 跳过
@@ -35,7 +37,6 @@ import type { Writable } from 'node:stream';
 import { Readable } from 'node:stream';
 import { stdin, stdout, stderr } from 'node:process';
 
-import { createLogger, LogLevelState } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { createSdkBackend, decodeWireLine, encodeWireLine, isSdkRequest, splitWireLines } from '../channels/index.js';
@@ -50,11 +51,11 @@ import type {
 } from '../channels/index.js';
 import type { SessionEvent } from '../contracts/index.js';
 
+import { assembleHostStack } from './assembly.js';
+import type { AssemblySuccess } from './assembly.js';
 import type { ServeFlags } from './cli.js';
 import type { ConversationStack } from './conversation-stack.js';
-import { createConversationStack } from './conversation-stack.js';
 import type { HostRuntime } from './runtime.js';
-import { createHostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiOpenInfo } from './webui-bridge.js';
 
@@ -83,8 +84,8 @@ export interface ServeEntryOptions {
   readonly sandboxMode?: () => SandboxMode;
   /** env 面（缺省 process.env；测试隔离 BERRY_AGENT_MODEL） */
   readonly env?: Record<string, string | undefined>;
-  /** 已组运行时（测试注入；缺省现场组装） */
-  readonly runtime?: HostRuntime;
+  /** 版本串（HostFace 物化位——批 19a-3 与 TUI 同源；缺席 = 裸 0.0.0-unknown） */
+  readonly version?: string;
   /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** 心跳节拍毫秒（线核静默判据与装配层定时共用——测试提速注入位；缺省 5000） */
@@ -208,38 +209,33 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
     return 1;
   }
 
-  // —— 运行时组装（单活跃机 + 开库 fail-loud——干净退出档，非崩溃取证档）——
-  let runtime: HostRuntime;
-  try {
-    runtime =
-      options.runtime ??
-      createHostRuntime({
-        ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
-        ...(options.memory === true ? { memory: true } : {}),
-      });
-  } catch (err) {
-    stderr.write(`启动失败：${err instanceof Error ? err.message : String(err)}\n`);
-    return 1;
+  // —— 装配公共段（批 19a-3 迁 assembly 件——与 TUI 同一合成代码路径：
+  // 运行时→logger→共享根→栈→**插件装载**〔core 注册表 + enabled.yaml 真跑〕；
+  // 单活跃机/开库/清单损坏失败档归一 {ok:false}——干净退出不写 crash.log）——
+  const assembly = await assembleHostStack({
+    runtime: {
+      ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+      ...(options.memory === true ? { memory: true } : {}),
+    },
+    noPlugins: false,
+    debug: options.flags.debug,
+    version: options.version ?? '0.0.0-unknown',
+    ...(options.providers !== undefined ? { providers: options.providers } : {}),
+    ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.env !== undefined ? { env: options.env } : {}),
+    ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+    ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
+  });
+  if (!assembly.ok) {
+    // 两档呈报：crashed = 意外异常（crash.log 已在装配件内写）；干净退出档
+    // = 启动失败（单活跃机/开库/启用清单损坏——消息自带前缀）
+    stderr.write(`${assembly.crashed ? `serve 运行失败：${assembly.message}` : assembly.message}\n`);
+    return assembly.exitCode;
   }
-  options.onRuntime?.(runtime);
-
-  // —— logger 装配：env 解析 + --debug 提级让位律（tui-entry 同款）——
-  const env = options.env ?? process.env;
-  const logState = LogLevelState.fromEnv(env.BERRY_AGENT_LOG_LEVEL);
-  if (options.flags.debug && env.BERRY_AGENT_LOG_LEVEL === undefined) logState.setGlobalLevel('debug');
-  const logger = createLogger('host', logState);
+  const { runtime, stack, logger }: AssemblySuccess = assembly;
 
   let exitCode = 0;
   try {
-    const stack = createConversationStack({
-      runtime,
-      ...(options.providers !== undefined ? { providers: options.providers } : {}),
-      ...(options.model !== undefined ? { model: options.model } : {}),
-      ...(options.env !== undefined ? { env: options.env } : {}),
-      ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
-      warn: (message) => logger.warn(message),
-    });
-
     // —— --port 统一 HTTP 面 TCP 人面（18a-3' 三入口咬合；03 §10.4 host
     // 接线）：stdio 线与 TCP 面并存双活——面承载 SPA + /api/* + /v1/* 三族
     // （bridge 同走 createServeBridge 零第二套映射）；披露两行走 stderr

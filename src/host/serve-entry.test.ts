@@ -10,7 +10,7 @@
  *
  * 断言只对线面帧与行为（禁断言 AI 生成文本——事件类型与结构位为准）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -175,6 +175,48 @@ describe('runServeEntry 装配序与旗标', () => {
   it('EOF 收线：空连接直退 0（优雅档——不留悬挂）', async () => {
     const { rig, entry } = rigServe();
     await closeExpect0(rig, entry);
+  });
+
+  it('装载面活（批 19a-3 迁 assembly 公共段）：坏形清单 fail-loud 退 1——serve 无人值守主通道读侧与 TUI 同构', async () => {
+    const faux = fauxProvider({ provider: 'faux-plug', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'serve-data-'));
+    dirs.push(dataDir);
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins: [ Oops'); // 启用清单损坏 = 用户可自修配置错
+    const rig = new WireRig();
+    const entry = runServeEntry({
+      flags: { debug: false, daemon: false, noDelta: false },
+      io: rig,
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-plug/m1',
+      env: {},
+    });
+    await expect(entry).resolves.toBe(1);
+    expect(rig.frames).toEqual([]); // 拒在传输环装配前（迁移前直调栈不读清单——本例即装载真跑回归锁）
+  });
+
+  it('装载面活：core:exec disabled 合法行 → 起得来 + prompt 全环通（core 注册表 overlay 读侧真跑、对话本体不杀）', async () => {
+    const faux = fauxProvider({ provider: 'faux-plug2', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf(), () => messageOf()]);
+    const dataDir = mkdtempSync(join(tmpdir(), 'serve-data-'));
+    dirs.push(dataDir);
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins:\n  - id: core:exec\n    disabled: true\n');
+    const rig = new WireRig();
+    const entry = runServeEntry({
+      flags: { debug: false, daemon: false, noDelta: false },
+      io: rig,
+      dataDir,
+      cwd: mkdtempSync(join(tmpdir(), 'serve-ws-')),
+      providers: [faux.provider],
+      model: 'faux-plug2/m1',
+      env: {},
+    });
+    try {
+      rig.send({ verb: 'prompt', messageId: 'plug-ok', content: '问' });
+      await rig.until(() => rig.frames.some((f) => f.kind === 'event' && f.event.type === 'agent_end')); // 对话本体仍通
+    } finally {
+      await closeExpect0(rig, entry);
+    }
   });
 });
 

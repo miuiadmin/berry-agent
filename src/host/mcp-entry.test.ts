@@ -9,7 +9,7 @@
  * 续接轮事件面续长 / EOF 优雅退 0。断言只对协议面与事件类型位（禁断言
  * AI 生成文本）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -62,6 +62,8 @@ class JsonRpcRig {
   readonly output = new PassThrough();
   private seq = 0;
   private buf = '';
+  /** 出站行计数（零帧断言面——拒启档拒在 face 装配前） */
+  outbound = 0;
   private readonly waiters = new Map<number, (r: RpcResponse) => void>();
 
   constructor() {
@@ -72,6 +74,7 @@ class JsonRpcRig {
       this.buf = lines.pop() ?? '';
       for (const line of lines) {
         if (line.length === 0) continue;
+        this.outbound += 1;
         const resp = JSON.parse(line) as RpcResponse;
         const waiter = resp.id !== null ? this.waiters.get(resp.id) : undefined;
         if (waiter !== undefined) {
@@ -209,5 +212,23 @@ describe('runMcpEntry 装配全环（异步档：受理即回执 + 轮询读面�
 
     rig.end();
     await expect(entry).resolves.toBe(0);
+  });
+
+  it('装载面活（批 19a-3 迁 assembly 公共段）：坏形清单 fail-loud 退 1——零帧出站拒在 face 装配前', async () => {
+    const faux = fauxProvider({ provider: 'faux-mcp2', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'mcp-data-'));
+    dirs.push(dataDir);
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins: [ Oops'); // 启用清单损坏 = 用户可自修配置错
+    const rig = new JsonRpcRig();
+    const entry = runMcpEntry({
+      io: { input: rig.input, output: rig.output },
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-mcp2/m1',
+      env: {},
+      version: 'v-test',
+    });
+    await expect(entry).resolves.toBe(1); // 干净退出档（不写 crash.log）
+    expect(rig.outbound).toBe(0); // 拒在传输面装配前（迁移前直调栈不读清单——本例即装载真跑回归锁）
   });
 });

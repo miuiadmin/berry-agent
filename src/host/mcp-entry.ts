@@ -1,7 +1,8 @@
 /**
  * host/mcp-entry — `berry-agent mcp` 入口（07 §5 命令族·MCP server 包装形态）。
  *
- * 组合根形态承 serve-entry 同族：运行时组装 → conversation 栈 → 装配桥
+ * 组合根形态承 serve-entry 同族：装配公共段（批 19a-3 迁 assembly 件——
+ * 运行时→logger→共享根→栈→**插件装载**，与 TUI 同一合成代码路径）→ 装配桥
  * （createServeBridge——三形态共用）→ runMcpFace（src/sdk/mcp 件承载：
  * 行帧 JSON-RPC 反向位 + 工具面收窄两件 `berry-agent`/`berry-agent-reply`）
  * → 后端注册（信封回流自动馈送）→ 终局走六步退出序。
@@ -16,13 +17,11 @@ import { stdin, stdout, stderr } from 'node:process';
 
 import { runMcpFace } from '../sdk/index.js';
 import type { SandboxMode } from '../safety/index.js';
-import { createLogger, LogLevelState } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
 
-import { createConversationStack } from './conversation-stack.js';
-import type { ConversationStack } from './conversation-stack.js';
+import { assembleHostStack } from './assembly.js';
+import type { AssemblySuccess } from './assembly.js';
 import { createServeBridge } from './serve-entry.js';
-import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 
 /** mcp 入口选项（main 分派接线 + 测试注入面——承 ServeEntryOptions 同族，零旗标） */
@@ -43,8 +42,6 @@ export interface McpEntryOptions {
   readonly sandboxMode?: () => SandboxMode;
   /** env 面（缺省 process.env；测试隔离） */
   readonly env?: Record<string, string | undefined>;
-  /** 已组运行时（测试注入；缺省现场组装） */
-  readonly runtime?: HostRuntime;
   /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** serverInfo 版本真值（缺省 0.0.0-unknown——main 接线传 readVersion()） */
@@ -57,37 +54,30 @@ export interface McpEntryOptions {
  * 返回进程退出码。
  */
 export async function runMcpEntry(options: McpEntryOptions): Promise<number> {
-  // —— 运行时组装（单活跃机 + 开库 fail-loud——serve-entry 同款）——
-  let runtime: HostRuntime;
-  try {
-    runtime =
-      options.runtime ??
-      createHostRuntime({
-        ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
-        ...(options.memory === true ? { memory: true } : {}),
-      });
-  } catch (err) {
-    stderr.write(`启动失败：${err instanceof Error ? err.message : String(err)}\n`);
-    return 1;
+  // —— 装配公共段（批 19a-3 迁 assembly 件——与 TUI 同一合成代码路径；
+  // debug 恒 false：零旗标律〔07 §5〕，日志级只走 env）——
+  const assembly = await assembleHostStack({
+    runtime: {
+      ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+      ...(options.memory === true ? { memory: true } : {}),
+    },
+    noPlugins: false,
+    debug: false,
+    version: options.version ?? '0.0.0-unknown',
+    ...(options.providers !== undefined ? { providers: options.providers } : {}),
+    ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.env !== undefined ? { env: options.env } : {}),
+    ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+    ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
+  });
+  if (!assembly.ok) {
+    stderr.write(`${assembly.crashed ? `mcp 运行失败：${assembly.message}` : assembly.message}\n`);
+    return assembly.exitCode;
   }
-  options.onRuntime?.(runtime);
-
-  // 诊断日志走 stderr（stdout 是协议线——MCP 面不落日志噪音）
-  const env = options.env ?? process.env;
-  const logState = LogLevelState.fromEnv(env.BERRY_AGENT_LOG_LEVEL);
-  const logger = createLogger('host', logState);
+  const { runtime, stack, logger }: AssemblySuccess = assembly;
 
   let exitCode = 0;
   try {
-    const stack: ConversationStack = createConversationStack({
-      runtime,
-      ...(options.providers !== undefined ? { providers: options.providers } : {}),
-      ...(options.model !== undefined ? { model: options.model } : {}),
-      ...(options.env !== undefined ? { env: options.env } : {}),
-      ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
-      warn: (message) => logger.warn(message),
-    });
-
     const bridge = createServeBridge(stack, runtime, { cwd: options.cwd ?? process.cwd() });
     const face = runMcpFace({
       io: options.io ?? { input: stdin, output: stdout },

@@ -54,9 +54,9 @@ import type { SandboxMode } from '../safety/index.js';
 import { WEBUI_DEFAULT_HOST } from '../webui/index.js';
 
 import { createServeBridge } from './serve-entry.js';
-import { createConversationStack } from './conversation-stack.js';
+import { assembleHostStack } from './assembly.js';
+import type { AssemblySuccess } from './assembly.js';
 import type { HostRuntime } from './runtime.js';
-import { createHostRuntime } from './runtime.js';
 import { mountWebuiOnFace } from './webui-bridge.js';
 import type { WebuiFaceMount } from './webui-bridge.js';
 
@@ -302,7 +302,8 @@ export interface DaemonServeOptions {
   readonly providers?: readonly Provider[];
   readonly model?: string;
   readonly sandboxMode?: () => SandboxMode;
-  readonly runtime?: HostRuntime;
+  /** 版本串（HostFace 物化位——批 19a-3 与 TUI 同源；缺席 = 裸 0.0.0-unknown） */
+  readonly version?: string;
   readonly heartbeatIntervalMs?: number;
   /** 运行时组装后回调（main attachRuntime——信号编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
@@ -339,9 +340,11 @@ function daemonListenConfig(
  * daemon child 主体：HTTP 面常驻（stdio 环零装配——daemon 与 stdio 传输互斥）。
  *
  * 装配序：开面判定（judgeListenConfig——非回环 × 无 token 退 2，fail-closed
- * 不豁免）→ runtime 组装（单活跃机占标记在先——撞在场 daemon 即
- * HOST_DATA_DIR_BUSY 退 1）→ face（sock 缺省 + TCP 可选）→ 写 pid 登记 →
- * token 披露（自动生成档唯一披露位 = stderr → daemon.log）→ 常驻 await。
+ * 不豁免）→ 装配公共段（批 19a-3 迁 assembly 件：运行时〔单活跃机占标记在先
+ * ——撞在场 daemon 即 HOST_DATA_DIR_BUSY〕→ 共享根 → 栈 → **插件装载**〔core
+ * 注册表 + enabled.yaml 真跑——无人值守主通道装载面与 TUI 同构〕）→ face
+ * （sock 缺省 + TCP 可选）→ 写 pid 登记 → token 披露（自动生成档唯一披露位 =
+ * stderr → daemon.log）→ 常驻 await。
  * 退出序：runtime closer（face.stop + 清 pid）——SIGTERM 经 main 信号编舞
  * → runtime.shutdown 六步触发（closer drain 序 = 注册序——webui-server 先
  * 注册先摘挂，再停面）；测试直调注入 runtime.shutdown 同径。
@@ -360,23 +363,23 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     return 2;
   }
 
-  // —— 运行时组装（单活跃机 + 开库 fail-loud；撞在场 daemon = BUSY 退 1）——
-  let runtime: HostRuntime;
-  try {
-    runtime = options.runtime ?? createHostRuntime({ dataDir });
-  } catch (err) {
-    writeErr(`启动失败：${err instanceof Error ? err.message : String(err)}`);
-    return 1;
-  }
-  options.onRuntime?.(runtime);
-
-  const stack = createConversationStack({
-    runtime,
+  // —— 装配公共段（与 TUI 同一合成代码路径——装载面随批 19a 活化）——
+  const assembly = await assembleHostStack({
+    runtime: { dataDir },
+    noPlugins: false,
+    debug: false, // 零旗标面：daemon 日志级只走 env（BERRY_AGENT_LOG_LEVEL）
+    version: options.version ?? '0.0.0-unknown',
     ...(options.providers !== undefined ? { providers: options.providers } : {}),
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.env !== undefined ? { env: options.env } : {}),
     ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+    ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
   });
+  if (!assembly.ok) {
+    writeErr(`${assembly.crashed ? `daemon 运行失败：${assembly.message}` : assembly.message}`);
+    return assembly.exitCode;
+  }
+  const { runtime, stack }: AssemblySuccess = assembly;
 
   const faceFactory = options.faceFactory ?? createSdkHttpFace;
   const bridge = createServeBridge(stack, runtime, { cwd: options.cwd ?? process.cwd() });

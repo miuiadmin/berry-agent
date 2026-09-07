@@ -12,7 +12,7 @@
  * 真 spawn 真进程集成不在此（vitest 无 dist/tsx 直跑运行态）——实机联调归
  * 批 13e-3 落地后手动验证（诚实注记：spawn 编舞的进程边界由注入面覆盖）。
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +32,7 @@ import {
   writeDaemonPid,
   type DaemonChildHandle,
   type DaemonFs,
+  type DaemonServeOptions,
 } from './serve-daemon.js';
 
 /** 内存假 fs（测试自持文件宇宙——真 fs 零触） */
@@ -384,6 +385,31 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     });
     expect(code).toBe(2);
     expect(lines[0]).toContain('BERRY_AGENT_SDK_TOKEN');
+  });
+
+  it('装载面活（批 19a-3 迁 assembly 公共段）：坏形清单 fail-loud 退 1——拒在 face 起前', async () => {
+    const faux = fauxProvider({ provider: 'faux-daemon2', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-data-'));
+    dirs.push(dataDir);
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins: [ Oops'); // 启用清单损坏 = 用户可自修配置错
+    const lines: string[] = [];
+    let faceStarted = false;
+    const code = await runDaemonServe({
+      flags: { noDelta: false },
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-daemon2/m1',
+      env: {},
+      writeErr: (l) => lines.push(l),
+      // face 工厂换哨兵：装载拒启档 face 不应被建（迁移前直调栈不读清单——本例即装载真跑回归锁）
+      faceFactory: (() => {
+        faceStarted = true;
+        throw new Error('face 不应装配');
+      }) as unknown as NonNullable<DaemonServeOptions['faceFactory']>,
+    });
+    expect(code).toBe(1); // 干净退出档（不写 crash.log）
+    expect(faceStarted).toBe(false);
+    expect(lines[0]).toContain('启动失败'); // 装配失败档归一文案
   });
 
   it('全环：face 起 → pid 登记 + token 披露 → shutdown 优雅停清足迹退 0', async () => {
