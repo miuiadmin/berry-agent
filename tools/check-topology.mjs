@@ -159,6 +159,17 @@ const PRESENT_MODULES = new Set([
   // 事件/盘读全经窄面注入〔LspSpawnFace 等——compat.test 真 SpawnPipeline
   // + 真 fs 互证〕；装载态集成归批 12 装载面后装配批）
   'lsp',
+  // 批 17b 起在场（core:browser 纯逻辑腿——CDP 手写最小桥 + 引擎发现序 +
+  // 工具面十件〔03 §10.3〕：引擎发现四步〔显式覆盖 fail-loud/知名位+PATH/
+  // 数据目录专用引擎/诚实缺席不自动下载〕/惰性首用 spawn〔--headless=new +
+  // --remote-debugging-port=0 stderr 侦听行发现〕/browser 级单连接 flat
+  // session 事件分流/per-session BrowserContext 隔离/两级 300s 闲置回收/
+  // navigate 经 web 卫生单源第三消费位，deps {contracts, web}〔persist 席
+  // 边 v1 留白——账本/截图走数据目录文件面〕；spawn/ws/注册/作用域全经窄面
+  // 注入〔BrowserSpawnFace 等——compat.test 真 SpawnPipeline + 真全局
+  // WebSocket 互证〕；logger 窄面注入〔本件无 context 边〕；装载态集成归
+  // 批 12 装载面后装配批）
+  'browser',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -210,6 +221,9 @@ const MODULE_EXTERNALS = {
   // lsp 的 typebox（diagnostics/symbols/definitions/references 静态四件
   // 参数面——schema 层宿主件直用同律；17a-3 落码批起用）
   lsp: ['typebox'],
+  // browser 的 typebox（十工具参数面——schema 层宿主件直用同律；17b-3
+  // 工具面批起用）
+  browser: ['typebox'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
   // 一律走虚拟键三转发；批 12d 落码起用）
