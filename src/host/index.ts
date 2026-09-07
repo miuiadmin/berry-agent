@@ -96,3 +96,11 @@ export type { PluginBootOptions, PluginBootHandle, PluginBootCounts, PluginBootF
 // 批 12f-2c webui 一次性开面装配桥（--port 旗标消费 + 三窄面映射 + token 披露）
 export { openWebuiFace } from './webui-bridge.js';
 export type { WebuiBridgeOptions, WebuiBridgeHandle, WebuiOpenInfo } from './webui-bridge.js';
+// 批 12f-3 装配序公共段（:memory: 同构纪律防侧门件——TUI 与诊断命令唯一装配序真源）
+export { assembleHostStack } from './assembly.js';
+export type { AssembleHostOptions, AssemblySuccess, AssemblyFailure } from './assembly.js';
+// 批 12f-3 dump-config / plugins 子命令族（同构诊断命令 + 装载态清单 + 纯只读体检骨架）
+export { runDumpConfigEntry } from './dump-config.js';
+export type { DumpConfigEntryOptions } from './dump-config.js';
+export { runPluginsEntry } from './plugins-cmd.js';
+export type { PluginsEntryOptions } from './plugins-cmd.js';

@@ -41,9 +41,13 @@ export interface ExitSequenceBudget {
 
 /** 运行时选项（12c 分派层/12e TUI 装配的消费面） */
 export interface HostRuntimeOptions {
-  /** 数据目录（缺省 resolveDataDir() 三级梯子） */
+  /** 数据目录（缺省 resolveDataDir() 三级梯子；memory 形下显式传入 = 同构诊断形——见 memory 行） */
   readonly dataDir?: string;
-  /** :memory: 同构形态（dump-config 类——不开真库不占标记） */
+  /** :memory: 同构形态（dump-config 类——不开真库不占标记）。显式携 dataDir
+   *  = 同构诊断形（07 §5 dump-config 纪律：真数据目录读侧〔enabled.yaml/
+   * 装机账本〕+ 主库 :memory: 零落盘 + 不占活跃标记；数据目录侧目录创建类
+   * 动作被容忍为同构纪律固有代价）；未携 = 纯诊断测试形（无真库归属地——
+   * enabled.yaml 同缺席语义） */
   readonly memory?: boolean;
   /** Persistence 旋钮透传（warn/clock/write-behind 调参；dbPath/dataDir 由本件裁定） */
   readonly persistence?: Omit<PersistenceOptions, 'dbPath' | 'dataDir'>;
@@ -59,7 +63,7 @@ export interface HostRuntimeOptions {
 export interface HostRuntime {
   /** :memory: 形态位（诊断命令豁免面判定用） */
   readonly memory: boolean;
-  /** 实际数据目录（memory 形 = null——无真库归属地） */
+  /** 实际数据目录（纯 memory 诊断形 = null 无真库归属地；同构诊断形 = 真值——读侧真盘/主库仍零落盘） */
   readonly dataDir: string | null;
   readonly persistence: Persistence;
   /** 在飞 run 打断信号（SIGINT① → abort；run 消费接线随 conversation 组装笔） */
@@ -87,7 +91,9 @@ export interface HostRuntime {
  */
 export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime {
   const memory = options.memory === true;
-  const dataDir = memory ? null : (options.dataDir ?? defaultDataDir());
+  // memory 形 dataDir 两态：显式传入 = 同构诊断形（真数据目录读侧 + 主库
+  // :memory: + 不占标记——07 §5 dump-config 纪律）；未传 = 纯诊断测试形
+  const dataDir = memory ? (options.dataDir ?? null) : (options.dataDir ?? defaultDataDir());
   if (dataDir === null && !memory) throw new Error('不变式破坏：非 memory 形必有数据目录');
 
   // 启动序①：单活跃机占标记（memory 形豁免——不开真库不动标记）

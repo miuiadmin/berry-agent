@@ -1,21 +1,22 @@
 /**
  * host/tui-entry — TUI 主入口装配（批 12e；07 §5 无参启动 = TUI 主入口）。
  *
- * 装配序（channels/service.ts 头注真源）：createHostRuntime（占标记→开库→
- * 披露段）→ logger 装配（BERRY_AGENT_LOG_LEVEL 解析 + --debug 提级〔env 已设
- * 时让位〕）→ createConversationStack → openStartupSession（07 §5 启动会话
- * 策略：cwd 归一根取最新续接、无则新建）→ TuiBackend 组装（提交/打断/退出/
- * 命令分发/todo 回看/补全三源/version 基线/生产定时器）→ addBackend → start
- * → registerSession → focus 首画 → 主循环 await 退出 → runtime.shutdown 六步
- * 退出序（closer 内含 backend.stop 出屏复原）。
+ * 装配序（channels/service.ts 头注真源；公共段批 12f-3 抽 assembly.ts——与
+ * dump-config/plugins list 诊断命令同一合成代码路径）：assembleHostStack
+ * （运行时→logger→根作用域/总线→conversation 栈→插件装载，:memory: 同构
+ * 纪律防侧门件）→ [本件 TUI 段] --port webui 开面（装载后/挂接前）→
+ * openStartupSession（07 §5 启动会话策略：cwd 归一根取最新续接、无则新建）
+ * → TuiBackend 组装（提交/打断/退出/命令分发/todo 回看/补全三源/version
+ * 基线/生产定时器）→ addBackend → start → registerSession → focus 首画 →
+ * 主循环 await 退出 → runtime.shutdown 六步退出序（closer 内含 backend.stop
+ * 出屏复原）。
  *
  * 退出码：0 = ctrl+d 空框优雅退出；1 = 运行时组装失败（单活跃机拒入/开库
- * 失败——干净退出不写 crash.log，非崩溃）或运行期异常（先 writeCrashLog 再退）。
+ * 失败——干净退出不写 crash.log，非崩溃）、启用清单损坏（同干净退出档）或
+ * 运行期异常（先 writeCrashLog 再退）。
  * 信号路径独立：SIGINT①/SIGTERM → onGraceful → runtime.shutdown → exit(0)
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
  */
-import { BaseError } from '../contracts/index.js';
-import { createLogger, EventDispatch, LogLevelState, Scope } from '../context/index.js';
 import { FileMentionSource, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { foldTodoTable } from '../conversation/index.js';
@@ -23,9 +24,8 @@ import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
 
 import type { TuiFlags } from './cli.js';
-import { createConversationStack } from './conversation-stack.js';
-import { bootPlugins } from './plugin-boot.js';
-import { createHostRuntime } from './runtime.js';
+import { assembleHostStack } from './assembly.js';
+import type { AssemblySuccess } from './assembly.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 
@@ -50,8 +50,6 @@ export interface TuiEntryOptions {
   readonly sandboxMode?: () => SandboxMode;
   /** env 面（缺省 process.env；测试隔离 BERRY_AGENT_MODEL） */
   readonly env?: Record<string, string | undefined>;
-  /** 已组运行时（测试注入；缺省现场组装） */
-  readonly runtime?: HostRuntime;
   /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
@@ -62,73 +60,33 @@ export interface TuiEntryOptions {
  * TUI 主入口。阻塞至用户退出（ctrl+d 空框）或异常；返回进程退出码。
  */
 export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
-  // —— 装载披露计数匣（pluginsProvider 先于运行时组装接线——披露段每请求重算读匣）——
-  const pluginCounts = { total: 0, enabled: 0, failed: 0 };
-  // —— 运行时组装（单活跃机 + 开库 fail-loud——干净退出档，非崩溃取证档）——
-  let runtime: HostRuntime;
-  try {
-    runtime =
-      options.runtime ??
-      createHostRuntime({
-        ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
-        ...(options.memory === true ? { memory: true } : {}),
-        pluginsProvider: () => ({ ...pluginCounts }),
-      });
-  } catch (err) {
-    process.stderr.write(`启动失败：${err instanceof Error ? err.message : String(err)}\n`);
-    return 1;
+  // —— 装配序公共段（12f-3 抽件）：与 dump-config/plugins list 诊断命令同一
+  // 合成代码路径（07 §5 :memory: 同构纪律——防侧门件 assembly.ts 唯一真源）；
+  // TUI 形 = 真数据目录 + 真库（memory 组合形归诊断命令）——
+  const assembly = await assembleHostStack({
+    runtime: {
+      ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+      ...(options.memory === true ? { memory: true } : {}),
+    },
+    noPlugins: options.flags.noPlugins === true,
+    debug: options.flags.debug === true,
+    version: options.version ?? '0.0.0',
+    ...(options.providers !== undefined ? { providers: options.providers } : {}),
+    ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.env !== undefined ? { env: options.env } : {}),
+    ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+    ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
+  });
+  if (!assembly.ok) {
+    // 两档呈报：crashed = 意外异常（crash.log 已在装配件内写——memory 形跳过）；
+    // 干净退出档 = 启动失败（单活跃机/开库/启用清单损坏——不写 crash.log）
+    process.stderr.write(`${assembly.crashed ? `TUI 运行失败：${assembly.message}` : assembly.message}\n`);
+    return assembly.exitCode;
   }
-  options.onRuntime?.(runtime);
-
-  // —— logger 装配：env 解析（无效条目 stderr 警告后跳过）+ --debug 提级让位律 ——
-  const env = options.env ?? process.env;
-  const logState = LogLevelState.fromEnv(env.BERRY_AGENT_LOG_LEVEL);
-  if (options.flags.debug && env.BERRY_AGENT_LOG_LEVEL === undefined) logState.setGlobalLevel('debug');
-  const logger = createLogger('host', logState);
+  const { runtime, stack }: AssemblySuccess = assembly;
 
   let exitCode = 0;
   try {
-    // 共享根作用域与事件总线：对话栈与插件装载同根同源（服务面跨插件可见 +
-    // 钩子词汇/生命周期事件一册两用——12e 预留注入位兑现）
-    const scope = Scope.createRoot();
-    const dispatch = new EventDispatch();
-    const stack = createConversationStack({
-      runtime,
-      scope,
-      dispatch,
-      ...(options.providers !== undefined ? { providers: options.providers } : {}),
-      ...(options.model !== undefined ? { model: options.model } : {}),
-      ...(options.env !== undefined ? { env: options.env } : {}),
-      ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
-      warn: (message) => logger.warn(message),
-    });
-
-    // —— 插件装载（批 12f-2b）：enabled.yaml 读侧 + core: 注册表 + 装载管线接线 ——
-    // core: 注册表随各 core 件装配批入册（当前空注册表 = 空装载零负担）
-    // 启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——干净退出不写
-    // crash.log，与崩溃取证档分道）；余装载失败走行级隔离不入本档
-    let boot;
-    try {
-      boot = await bootPlugins({
-        runtime,
-        scope,
-        dispatch,
-        commands: stack.channels.commands,
-        llm: stack.llmRuntime,
-        noPlugins: options.flags.noPlugins === true,
-        version: options.version ?? '0.0.0',
-        warn: (message) => logger.warn(message),
-      });
-    } catch (err) {
-      if (err instanceof BaseError && err.code === 'PLUGIN_ROW_INVALID') {
-        // 启用清单损坏 = 用户可自修配置错——干净退出档（不写 crash.log；message 已含修复指引）
-        process.stderr.write(`启动失败：${err.message}\n`);
-        return 1; // 经外层 finally → runtime.shutdown（幂等六步照走）
-      }
-      throw err; // 余异常照外层崩溃取证档
-    }
-    Object.assign(pluginCounts, boot.counts); // 披露匣回写（disclosure 后续请求即见）
-
     // —— --port webui 一次性开面（批 12f-2c；03 §10.4 host 接线）：装载后
     // 开面（插件注册面先就位）、TUI 挂接前关网络面（closer 注册序先于
     // tui-backend——drain 时网络先关再出屏）；backend 挂接与 TuiBackend

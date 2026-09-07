@@ -5,7 +5,7 @@
  * 纪律：mock 只停在模型层，本组无模型调用）。单活跃机真路径、:memory: 同构、
  * shutdown 全序、closer 超时强杀逐路覆盖。
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -67,6 +67,22 @@ describe('createHostRuntime 启动序', () => {
     // 会话主库零落盘：createSession 全链真跑（内存库真装配非桩）
     const log = rt.persistence.createSession({ origin: 'conversation', workspaceRoot: '/w' });
     expect(log).toBeDefined();
+    await rt.shutdown();
+  });
+
+  it(':memory: 同构诊断形（memory + 显式 dataDir——07 §5 dump-config 纪律）：真数据目录读侧保留 + 主库零落盘 + 不占标记', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-runtime-memdir-'));
+    dirs.push(dir);
+    const rt = createHostRuntime({ memory: true, dataDir: dir });
+    expect(rt.memory).toBe(true);
+    expect(rt.dataDir).toBe(dir); // 真数据目录保留（enabled.yaml/装机账本读侧归属地）
+    expect(existsSync(join(dir, ACTIVE_MARKER_BASENAME))).toBe(false); // 不占活跃标记
+    // 主库零落盘：真开内存会话 + flush 后数据目录无 .db 文件（目录创建类动作被容忍）
+    const log = rt.persistence.createSession({ origin: 'conversation', workspaceRoot: '/w' });
+    await rt.persistence.flush();
+    expect(log).toBeDefined();
+    const dbFiles = readdirSync(dir).filter((name) => name.endsWith('.db'));
+    expect(dbFiles).toEqual([]);
     await rt.shutdown();
   });
 });

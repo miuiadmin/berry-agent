@@ -104,8 +104,8 @@ function rigDir(prefix: string): string {
   return d;
 }
 
-/** 入口速记（faux provider 预脚本 + 假终端） */
-async function rigEntry(dataDir: string, cwd: string, runtime = createHostRuntime({ dataDir })) {
+/** 入口速记（faux provider 预脚本 + 假终端；dataDir 注入——装配段在入口内自装） */
+async function rigEntry(dataDir: string, cwd: string) {
   const faux = fauxProvider({ provider: 'faux-entry', models: [{ id: 'm1' }] });
   faux.setResponses([() => messageOf(), () => messageOf(), () => messageOf()]); // 多轮余量
   const io = new FakeTerminalIO();
@@ -115,13 +115,13 @@ async function rigEntry(dataDir: string, cwd: string, runtime = createHostRuntim
     io,
     cwd,
     version: 'test',
-    runtime,
+    dataDir, // 真装配面（12f-3 起 runtime 注入面已除——装配序公共段唯一真源）
     providers,
     model: 'faux-entry/m1', // faux-only 运行时必须点名模型（缺省解析 anthropic 档必失败）
     env: {},
   });
   await io.ready(); // 输入管线挂接（backend.start 已过）
-  return { entry, io, faux, runtime };
+  return { entry, io, faux };
 }
 
 describe('runTuiEntry 装配序', () => {

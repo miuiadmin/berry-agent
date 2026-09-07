@@ -31,6 +31,8 @@ import { DAEMON_CHILD_ENV, runDaemonServe, runServeStatus, runServeStop, spawnDa
 import { runServeEntry } from './serve-entry.js';
 import { runMcpEntry } from './mcp-entry.js';
 import { runTuiEntry } from './tui-entry.js';
+import { runDumpConfigEntry } from './dump-config.js';
+import { runPluginsEntry } from './plugins-cmd.js';
 
 /** 在飞运行时柄（组装后挂入——信号/崩溃编舞切运行时本体；前置窗口 null） */
 let activeRuntime: HostRuntime | null = null;
@@ -60,7 +62,7 @@ function dispatchServe(flags: Parameters<NonNullable<CommandHandlers['serve']>>[
   return runServeEntry({ flags, onRuntime: attachRuntime });
 }
 
-/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装已接线，余命令诚实退 1） */
+/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins 已接线，余命令诚实退 1） */
 const handlers: CommandHandlers = {
   tui: (flags) =>
     runTuiEntry({
@@ -76,6 +78,19 @@ const handlers: CommandHandlers = {
     runMcpEntry({
       version: readVersion(),
       onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
+    }),
+  // dump-config :memory: 同构诊断（12f-3——07 §5 禁侧门纪律，assembly 公共段）
+  dumpConfig: (flags) =>
+    runDumpConfigEntry({
+      flags,
+      version: readVersion(),
+      onRuntime: attachRuntime,
+    }),
+  // plugins 子命令族 CLI 面（12f-3——list 同构装配 / check 纯只读骨架 / 写侧六动词诚实退 1）
+  plugins: (sub) =>
+    runPluginsEntry(sub, {
+      version: readVersion(),
+      onRuntime: attachRuntime,
     }),
 };
 
