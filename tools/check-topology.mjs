@@ -7,7 +7,7 @@
  *   1. 相对导入跨模块必须走边表白名单——同模块内相对导入自由；
  *   2. 裸导入按模块分账白名单（node:* 全局；包依赖只准进指定模块——
  *      native 隔离律：better-sqlite3 只准 persist）；
- *   3. 跨模块导入只准走公开面（index/types/events/contract 四名）——
+ *   3. 跨模块导入只准走公开面（index/types/events 三名）——
  *      深挖实现面即红（深挖面册机制随存量深挖出现再立）；
  *   4. 边表键集 ⊆ 在场模块 ∪ 显式占位清单（02 §4.3 #4）——未在场模块的
  *      边不判死边；在场模块的「声明未用」死边暂不执法（单模块期无意义，
@@ -243,8 +243,11 @@ const MODULE_EXTERNALS = {
   host: ['jiti', 'typebox/value'],
 };
 
-/** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面四名） */
-const PUBLIC_FACES = new Set(['index.ts', 'types.ts', 'events.ts', 'contract.ts']);
+/** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面三名——2026-09-07
+ * 理念成文批名册收敛：contract 除名〔全仓零使用〕，与本行旧注「四名」及
+ * 旧假引「02 §4.3 #2 契约面四名」同笔勘正——02 原文彼时只列两名，门禁
+ * 不得引注不存在的口径；三名 = index/types/events 与代码实况对齐） */
+const PUBLIC_FACES = new Set(['index.ts', 'types.ts', 'events.ts']);
 
 const SRC = join(process.cwd(), 'src');
 const violations = [];
@@ -308,11 +311,11 @@ for (const file of collectSourceFiles(SRC)) {
         );
         continue;
       }
-      // 公开面收敛：目标须命中四名之一（'../mod' 或 '../mod/index' 等价公开面；
+      // 公开面收敛：目标须命中三名之一（'../mod' 或 '../mod/index' 等价公开面；
       // 真路径已归一到 .ts——比对模块内相对面名）
       const face = relToSrc.split(sep).slice(1).join('/');
       if (face && !PUBLIC_FACES.has(face)) {
-        violations.push(`${relative(process.cwd(), file)}: 深挖 ${target} 实现面（${face}）——只准走公开面四名`);
+        violations.push(`${relative(process.cwd(), file)}: 深挖 ${target} 实现面（${face}）——只准走公开面三名`);
       }
     } else {
       // 裸导入：node:* 全局；包依赖按模块分账
