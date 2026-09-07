@@ -1,9 +1,18 @@
 /**
- * webui/server 传输面集成测试（批 18a-1）。
+ * webui/server 传输面集成测试（批 18a-1；批 18a-2' 改形迁移——承载位改
+ * 注册 sdk 路由扩展位）。
  *
  * 全环真监听（127.0.0.1 实配 TCP；port 0 由内核指派）——fetch / node:http
- * 真请求；注入面全桩（mock 只停在注入位）。锁八面——
- * ①三防线执法序（Host 403 / Origin 403·无 Origin 放行·同源过）
+ * 真请求；注入面全桩（mock 只停在注入位）。装配形 = **面注册器直注互证**：
+ * createSdkHttpFace 起真面 + mountWebui({...deps, register: face.register})
+ * ——WebuiRouteDescriptor → SdkRouteDescriptor 方向性结构兼容（03 §10.4
+ * 改形注⑤词面独立律）经真请求链双向互证（tests 不计边表账）。
+ *
+ * 改形断言面收窄注记（面级接管位）：三防线 403/鉴权 401 应答改面级 plain
+ * text（原 JSON error 形）——Host/Origin 例只断状态码；in-handler 错误
+ * （not_found/closed/too_large/overloaded/no_spa/bad_request）仍 JSON 形
+ * 断言不变。锁八面——
+ * ①三防线执法序（Host 403 / Origin 403·无 Origin 放行·同源过——面级先行）
  * ②鉴权门（无凭证/错 token 401 / Bearer 过 / auth cookie 桥 Set-Cookie 属性
  * 与 cookie 形复用）
  * ③微路由五撮（探活/会话族含 closed·missing 分账/补全族缺席诚实空）
@@ -13,7 +22,7 @@
  * ⑥跨入口审批全环（ask → approvals 清单 → decide applied → 再 decide
  * superseded → 清单出清；abort 撤销清槽；未知 id superseded）
  * ⑦连接帽 503 / 静态面（index/内容型/SPA fallback/穿越拒/未装配 404）
- * ⑧stop 丢弃性结算（未决 ask 不 resolve——行回卷语义）
+ * ⑧收场丢弃性结算（未决 ask 不 resolve——行回卷语义；监听关停归面）
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
@@ -22,10 +31,19 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { createSdkHttpFace, type SdkHttpFaceHandle } from '../sdk/http.js';
+import type { SdkHttpBridge } from '../sdk/types.js';
 import type { AgentMessage } from '../contracts/index.js';
 import type { SessionEnvelope } from '../channels/index.js';
-import type { WebuiDeps, WebuiEnvelope, WebuiHandle, WebuiSessionState, WebuiSubmitInput } from './index.js';
-import { createWebuiServer } from './server.js';
+import type {
+  WebuiDeps,
+  WebuiEnvelope,
+  WebuiMountHandle,
+  WebuiMountOptions,
+  WebuiSessionState,
+  WebuiSubmitInput,
+} from './index.js';
+import { mountWebui } from './server.js';
 
 /* ---------------- 注入面桩（装配桥最小同构） ---------------- */
 
@@ -84,6 +102,20 @@ function makeDeps(opts?: { readonly withoutTodo?: boolean; readonly withoutCompl
       if (state === 'missing') states.delete(id);
       else states.set(id, state);
     },
+  };
+}
+
+/** sdk 面桥桩最小同构（webui 全族走扩展路由不触核——八面惰性桩） */
+function makeBridge(): SdkHttpBridge {
+  return {
+    submitPrompt: () => ({ sessionId: 's' }),
+    lookupDedupeKey: () => undefined,
+    interruptSession: () => {},
+    queryEntries: () => ({ entries: [] }),
+    listSessions: () => [],
+    highWaterOf: () => undefined,
+    sessionStateOf: () => 'missing',
+    retryProbeOf: () => null,
   };
 }
 
@@ -182,21 +214,42 @@ function rawRequest(
 }
 
 describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => {
-  let handle: WebuiHandle;
+  let face: SdkHttpFaceHandle | undefined;
+  let webui: WebuiMountHandle | undefined;
   let stub: DepsStub;
   let port: number;
+  let token: string;
   let dir: string | undefined;
+
+  /** 单装配（面注册器直注——结构兼容互证位） */
+  const rig = async (
+    deps: WebuiDeps,
+    mount?: WebuiMountOptions,
+  ): Promise<{ face: SdkHttpFaceHandle; webui: WebuiMountHandle; port: number; token: string }> => {
+    const f = createSdkHttpFace({ config: { tcp: { host: '127.0.0.1', port: 0 } }, bridge: makeBridge() });
+    // face.register（SdkRouteRegistrar）直注 WebuiMountDeps.register——
+    // 方向性结构兼容（WebuiRouteDescriptor 可赋值 SdkRouteDescriptor）
+    const w = mountWebui({ ...deps, register: f.register }, mount);
+    const info = await f.start();
+    return { face: f, webui: w, port: info.tcp[0]!.port, token: f.token };
+  };
 
   const boot = async (opts?: {
     readonly extraDeps?: Pick<WebuiDeps, 'staticDir'>;
-    readonly server?: Parameters<typeof createWebuiServer>[1];
+    readonly mount?: WebuiMountOptions;
     readonly stubOpts?: Parameters<typeof makeDeps>[0];
   }): Promise<void> => {
+    // 重启面（静态面在场例）：先收口旧面——监听不泄漏
+    if (face !== undefined) {
+      webui?.detach();
+      await face.stop();
+    }
     stub = makeDeps(opts?.stubOpts);
-    // port 0 恒注（内核指派——免默认 7860 与平行 server 撞址）
-    handle = createWebuiServer({ ...stub.deps, ...opts?.extraDeps }, opts?.server ?? { config: { port: 0 } });
-    const info = await handle.start();
-    port = info.port;
+    const r = await rig({ ...stub.deps, ...opts?.extraDeps }, opts?.mount);
+    face = r.face;
+    webui = r.webui;
+    port = r.port;
+    token = r.token;
   };
 
   beforeEach(async () => {
@@ -204,7 +257,10 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   });
 
   afterEach(async () => {
-    await handle.stop();
+    webui?.detach();
+    await face?.stop();
+    face = undefined;
+    webui = undefined;
     if (dir !== undefined) {
       await rm(dir, { recursive: true, force: true });
       dir = undefined;
@@ -214,13 +270,13 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   /** 公共头（Bearer 鉴权形） */
   const authHeaders = (extra: Record<string, string> = {}): Record<string, string> => ({
     'content-type': 'application/json',
-    authorization: `Bearer ${handle.token}`,
+    authorization: `Bearer ${token}`,
     ...extra,
   });
 
   /** 能力位解包腿（capabilities 自报真后直用——消费面与核同律；focused 位
    * webui 实装忽略、测试恒传 false 走核标准形） */
-  const pushEnvelope = (env: SessionEnvelope): void => handle.backend.onEnvelope!(env, false);
+  const pushEnvelope = (env: SessionEnvelope): void => webui!.backend.onEnvelope!(env, false);
 
   const get = async (
     path: string,
@@ -245,7 +301,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     return { status: res.status, json: text === '' ? null : (JSON.parse(text) as unknown) };
   };
 
-  /* ---- ① 三防线 ---- */
+  /* ---- ① 三防线（面级先行——403 应答为面级 plain text，断状态码） ---- */
 
   it('探活开面：GET /api/health 无鉴权 200 只回 ok', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/api/health`);
@@ -253,10 +309,9 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     expect(await res.json()).toEqual({ ok: true });
   });
 
-  it('Host 防线：非回环 Host 403（DNS rebinding 面）', async () => {
+  it('Host 防线：非回环 Host 403（DNS rebinding 面——面级 plain text 应答）', async () => {
     const r = await rawRequest(port, '/api/health', { host: 'evil.example.com' });
     expect(r.status).toBe(403);
-    expect(JSON.parse(r.body)).toMatchObject({ error: 'forbidden' });
   });
 
   it('Origin 硬防线：异源 403 / 无 Origin 放行 / 同源过', async () => {
@@ -291,7 +346,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     const res = await fetch(`http://127.0.0.1:${port}/api/auth`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: handle.token }),
+      body: JSON.stringify({ token }),
     });
     expect(res.status).toBe(204);
     const cookie = res.headers.get('set-cookie') ?? '';
@@ -302,7 +357,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     // cookie 形复用（EventSource 无头位——桥的存在性证明）
     const viaCookie = await rawRequest(port, '/api/sessions', {
       host: '127.0.0.1',
-      cookie: `webui_token=${handle.token}`,
+      cookie: `webui_token=${token}`,
     });
     expect(viaCookie.status).toBe(200);
   });
@@ -341,17 +396,17 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     const withFace = await get('/api/sessions/s-1/todo');
     expect(withFace.status).toBe(200);
     expect((withFace.json as { items: unknown[] }).items).toEqual([{ status: 'in-progress', content: '跑测' }]);
-    // 缺席面：重建一无 todoOf 的服务端
-    const bare = createWebuiServer(makeDeps({ withoutTodo: true }).deps, { config: { port: 0 } });
-    const info = await bare.start();
+    // 缺席面：重建一无 todoOf 的装配
+    const bare = await rig(makeDeps({ withoutTodo: true }).deps);
     try {
-      const res = await fetch(`http://127.0.0.1:${info.port}/api/sessions/s-1/todo`, {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/todo`, {
         headers: { authorization: `Bearer ${bare.token}` },
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ items: null });
     } finally {
-      await bare.stop();
+      bare.webui.detach();
+      await bare.face.stop();
     }
   });
 
@@ -401,26 +456,34 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     const files = await get('/api/workspace/files?q=src');
     expect(files.status).toBe(200);
     expect(files.json).toEqual({ items: ['a/src.ts'] });
-    const bare = createWebuiServer(makeDeps({ withoutCompletion: true }).deps, { config: { port: 0 } });
-    const info = await bare.start();
+    const bare = await rig(makeDeps({ withoutCompletion: true }).deps);
     try {
-      const res = await fetch(`http://127.0.0.1:${info.port}/api/workspace/symbols?q=x`, {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/workspace/symbols?q=x`, {
         headers: { authorization: `Bearer ${bare.token}` },
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ items: [] });
     } finally {
-      await bare.stop();
+      bare.webui.detach();
+      await bare.face.stop();
     }
+  });
+
+  it('/api 兜底：未知 API 路径过鉴权门后 404 JSON（防 SPA fallback 吞程序面错路）', async () => {
+    const unknown = await get('/api/who-knows');
+    expect(unknown.status).toBe(404);
+    expect(unknown.json).toMatchObject({ error: 'not_found' });
+    // 鉴权先行语义维持：无凭证 401（先过门再 404）
+    const anon = await fetch(`http://127.0.0.1:${port}/api/who-knows`);
+    expect(anon.status).toBe(401);
   });
 
   /* ---- ④ 体限幅 ---- */
 
   it('POST 体超帽 413 且应答不早于收完（拿到应答即证排空后回——无 RST 连坐）', async () => {
-    const bare = createWebuiServer(stub.deps, { config: { port: 0 }, bodyLimitBytes: 32 });
-    const info = await bare.start();
+    const bare = await rig(stub.deps, { bodyLimitBytes: 32 });
     try {
-      const res = await fetch(`http://127.0.0.1:${info.port}/api/sessions/s-1/submit`, {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/submit`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -431,14 +494,15 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       expect(res.status).toBe(413);
       expect(await res.json()).toMatchObject({ error: 'too_large' });
     } finally {
-      await bare.stop();
+      bare.webui.detach();
+      await bare.face.stop();
     }
   });
 
   /* ---- ⑤ SSE 信封分档与路由 ---- */
 
   it('SSE 分档：update 走 display 族 / 终结型走 session 族（帧序保持）', async () => {
-    const reader = await openSse(port, 's-1', handle.token);
+    const reader = await openSse(port, 's-1', token);
     try {
       pushEnvelope({ sessionId: 's-1', event: { type: 'message_start', role: 'assistant' } });
       pushEnvelope({
@@ -467,14 +531,14 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   });
 
   it('status 定向：只达订阅会话的流；notify 广播：全流皆达', async () => {
-    const r1 = await openSse(port, 's-1', handle.token);
-    const r2 = await openSse(port, 's-closed', handle.token);
+    const r1 = await openSse(port, 's-1', token);
+    const r2 = await openSse(port, 's-closed', token);
     try {
-      handle.backend.setStatus!('s-1', '跑测中');
+      webui!.backend.setStatus!('s-1', '跑测中');
       const f1 = await r1.next();
       expect(f1).toEqual({ kind: 'status', sessionId: 's-1', payload: { status: '跑测中' } });
       await expectSilence(r2);
-      handle.backend.notify('你好', { level: 'info' });
+      webui!.backend.notify('你好', { level: 'info' });
       expect(await r1.next()).toMatchObject({ kind: 'notify' });
       expect(await r2.next()).toMatchObject({ kind: 'notify', payload: { message: '你好', level: 'info' } });
     } finally {
@@ -484,21 +548,21 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   });
 
   it('未订阅会话零扇出（pushToSession 空索引短路——无观众不炸）', async () => {
-    handle.backend.setStatus!('s-1', '无人看');
+    webui!.backend.setStatus!('s-1', '无人看');
     pushEnvelope({
       sessionId: 's-1',
       event: { type: 'message_start', role: 'assistant' },
     });
-    handle.backend.notify('无人听');
-    expect(handle.backend.hasAudience()).toBe(false);
+    webui!.backend.notify('无人听');
+    expect(webui!.backend.hasAudience()).toBe(false);
   });
 
   /* ---- ⑥ 跨入口审批全环 ---- */
 
   it('审批全环：ask 镜像 → 清单 → decide applied → ask 落值 → 再 decide superseded → 清单出清', async () => {
-    const reader = await openSse(port, 's-1', handle.token);
+    const reader = await openSse(port, 's-1', token);
     try {
-      const asked = handle.backend.askApproval!('s-1', { summary: '装插件 X', reason: '外部源' });
+      const asked = webui!.backend.askApproval!('s-1', { summary: '装插件 X', reason: '外部源' });
       // asked 镜像走 session 族（零新词汇——payload 复用 durable approval/asked 形）
       const mirror = await reader.next();
       expect(mirror?.kind).toBe('session');
@@ -533,10 +597,10 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   });
 
   it('审批撤销：signal abort → ask 落 cancel + 清单出清；已决后迟到 abort 是 no-op', async () => {
-    const reader = await openSse(port, 's-1', handle.token);
+    const reader = await openSse(port, 's-1', token);
     try {
       const controller = new AbortController();
-      const asked = handle.backend.askApproval!('s-1', { summary: '装 Y' }, { signal: controller.signal });
+      const asked = webui!.backend.askApproval!('s-1', { summary: '装 Y' }, { signal: controller.signal });
       const mirror = (await reader.next()) as { payload: { approvalId: string } };
       expect(mirror.payload.approvalId).toMatch(/^webui-\d+$/);
       controller.abort();
@@ -544,7 +608,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       const afterAbort = await get('/api/approvals');
       expect((afterAbort.json as { approvals: unknown[] }).approvals).toEqual([]);
       // 已决后迟到 abort：ask 已落值不再改判
-      const asked2 = handle.backend.askApproval!('s-1', { summary: '装 Z' });
+      const asked2 = webui!.backend.askApproval!('s-1', { summary: '装 Z' });
       const mirror2 = (await reader.next()) as { payload: { approvalId: string } };
       await post(`/api/approvals/${mirror2.payload.approvalId}/decide`, { answer: 'reject' });
       await expect(asked2).resolves.toBe('reject');
@@ -567,18 +631,18 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   /* ---- ⑦ 连接帽与静态面 ---- */
 
   it('SSE 连接帽：超帽新连接 503 overloaded', async () => {
-    const bare = createWebuiServer(stub.deps, { config: { port: 0 }, maxConnections: 1 });
-    const info = await bare.start();
+    const bare = await rig(stub.deps, { maxConnections: 1 });
     try {
-      const r1 = await openSse(info.port, 's-1', bare.token);
-      const res = await fetch(`http://127.0.0.1:${info.port}/api/sessions/s-1/events`, {
+      const r1 = await openSse(bare.port, 's-1', bare.token);
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/events`, {
         headers: { authorization: `Bearer ${bare.token}` },
       });
       expect(res.status).toBe(503);
       expect(await res.json()).toMatchObject({ error: 'overloaded' });
       r1.abort();
     } finally {
-      await bare.stop();
+      bare.webui.detach();
+      await bare.face.stop();
     }
   });
 
@@ -608,12 +672,14 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     expect(escape.status).toBe(403);
   });
 
-  /* ---- ⑧ stop 丢弃性结算 ---- */
+  /* ---- ⑧ 收场丢弃性结算 ---- */
 
-  it('stop：未决 ask 不 resolve（行回卷丢弃性）+ 监听归零', async () => {
-    const asked = handle.backend.askApproval!('s-1', { summary: '悬而未决' });
-    const reader = await openSse(port, 's-1', handle.token);
-    await handle.stop();
+  it('收场：未决 ask 不 resolve（行回卷丢弃性）+ 监听归零（面收口）', async () => {
+    const asked = webui!.backend.askApproval!('s-1', { summary: '悬而未决' });
+    const reader = await openSse(port, 's-1', token);
+    webui!.detach();
+    await face!.stop();
+    face = undefined; // afterEach 不再二次 stop（幂等亦无害，示洁）
     const settled = await Promise.race([
       asked.then(() => true),
       new Promise<false>((resolve) => setTimeout(() => resolve(false), 150)),

@@ -1,34 +1,43 @@
 /**
- * webui/server — Web 通道服务端核心（03 §10.4；批 18a-1 传输实装）。
+ * webui/server — Web 通道路由实装（03 §10.4 批 18a-2' 改形；批 18a-1 传输
+ * 实装 → 承载位改注册）。
  *
- * 组装三位（createWebuiServer 产物——WebuiHandle）：
- * - **backend**：UiBackend 第四实装（claim 桥——通道核 addBackend 注册后
- *   与 TUI/SDK 同竞速）。能力面：notify/setStatus/approval 三位（信封三族
- *   对应）；confirm/select/input/setWidget 缺席（微路由 v1 无应答端点——
- *   降级判定归核）。审批腿**进程作用域语义**（与 SDK 腿「连接作用域无订阅
- *   即 cancel」分立——03 §10.4 批 18a 落码定形注④）：开面在场即持应答
- *   能力、不采无连接即时 cancel（否则 TUI 呈现中的审批被抢答 cancel 废掉）；
- *   败腿/撤销经 signal abort 清槽（abort 恒后于竞速落定——UiCore finish
- *   内序，不构成抢答）。
- * - **微路由五撮**：node:http 手写（零新增依赖条款）——探活鉴权/会话族/
- *   活体流/审批族/补全族；JSON 均 typebox 校验后消费。
- * - **SSE**：信封三族帧合成钉死（每帧 data: 载荷恒整体单次 JSON.stringify
- *   单行）；连接即当下（v1 无重放游标——正确性层 = 客户端 onopen 恒重拉
- *   投影）；30s 注释行 ping + 写侧 90s 看门狗（读侧判死不可实施）；全局
- *   连接帽 16 超帽 503；背压期纯活体帧 shedding（session/notify/status
- *   镜像帧不弃）。
+ * **承载位改注册（18a-2'——03 §10.4 改形注记 + §10.6 路由扩展位段）**：
+ * 件零自持 node:http 监听——mountWebui(deps) 把五撮 13 端点 + SPA fallback
+ * 逐条注册进注入的注册器（sdk 面注册器结构兼容）。归面级的四块（原自持
+ * 已删）：三防线（Host 白名单/Origin 硬防线——面级先行适用于一切路由，仅
+ * TCP）/ token 鉴权执法（token-or-cookie 档 Bearer ∪ cookie 双通道、恒时
+ * 比对——面 token 唯一验换位 ctx.verifyToken）/ POST 体帽与排空纪律
+ * （ctx.readBody——超帽 413 永不早于体收完）/ SSE 单流基建（帧形/ping/
+ * 看门狗/shedding——ctx.openSse 注入件侧可丢判据）。
  *
- * 三防线执法序（每请求先过再路由）：① Host 白名单 → ② Origin 硬防线 →
- * ③ 鉴权（Bearer / cookie 桥双形——除 health/auth/静态面三位开面）。
- * POST 族字节帽 256KiB 超帽 413 且**应答永不早于请求体收完**（防连接池
- * RST 连坐——排空后应答）。
+ * 件内维持位（§10.4 改形注②-⑦语义全保）：
+ * - **backend**：UiBackend 第四实装（claim 桥）。审批腿**进程作用域语义**
+ *   （定形注④——与 SDK 腿「连接作用域无订阅即 cancel」分立）：开面在场即
+ *   持应答能力、不采无连接即时 cancel；败腿/撤销经 signal abort 清槽
+ *   （abort 恒后于竞速落定——UiCore finish 内序，不构成抢答）。
+ * - **SSE 信封三族**：分档判据注②（终结型两型 + asked 镜像 → session 族，
+ *   其余活体 → display 族）；连接即当下（v1 无重放游标——正确性层 = 客户端
+ *   onopen 恒重拉投影）；全局连接帽 16 件侧自记账（面级 openStreams 不暴露
+ *   计数）超帽 503；背压 shedding 判据 = display 的 update 两型（session/
+ *   notify/status 镜像帧不弃）。
+ * - **微路由语义**：会话存在性分账（missing submit/events 404 not_found /
+ *   closed submit 404 closed；messages/todo 不受闭态拦；closed events 放行
+ *   空流）；cookie 桥注③（体 {token} 经面级 verifyToken 验换 → Set-Cookie
+ *   HttpOnly SameSite=Strict——EventSource 无头位，浏览器侧唯一凭证通道）；
+ *   SPA 静态位注⑦（路径穿越防线 + 未知深路径 fallback index.html；缺席
+ *   API-only 404 no_spa）；JSON 均 typebox 校验后消费。
+ * - **decide 只 resolve pending resolver**（绝不直接写 durable——decided
+ *   durable 写唯一保留在 ask() 汇流点；unknown/已决 → superseded 幂等回执）。
+ *
+ * 收场语义：detach() = 全路由摘除 + 全流收口 + 审批清槽（**丢弃性结算——
+ * 不 resolve**：未决条目不凭空造值抢答；败腿 promise 悬挂由核 finish/队列
+ * 收口吸收）——行回卷语义与原 stop() 同律；监听关停归面（宿主 face.stop）。
  */
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { join, resolve, sep } from 'node:path';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 
@@ -37,18 +46,17 @@ import type { NotifyLevel, SessionEnvelope, UiBackend } from '../channels/index.
 import {
   WEBUI_BODY_LIMIT_BYTES,
   WEBUI_COOKIE_NAME,
-  WEBUI_DEFAULT_HOST,
-  WEBUI_DEFAULT_PORT,
+  WEBUI_ENDPOINTS,
   WEBUI_MAX_CONNECTIONS,
-  WEBUI_SSE_PING_INTERVAL_MS,
-  WEBUI_SSE_WRITE_TIMEOUT_MS,
   type WebuiApprovalEntry,
-  type WebuiDeps,
   type WebuiEnvelope,
-  type WebuiHandle,
-  type WebuiServerOptions,
+  type WebuiMountDeps,
+  type WebuiMountHandle,
+  type WebuiMountOptions,
+  type WebuiRouteAuth,
+  type WebuiRouteDescriptor,
+  type WebuiRouteSseStream,
 } from './types.js';
-import { generateToken, judgeHostHeader, judgeListenConfig, originAllowed } from './security.js';
 
 /* ---------------- typebox 校验（03 §10.4「JSON 均 typebox 校验后消费」） ---------------- */
 
@@ -90,7 +98,7 @@ function validate<T>(
   return { ok: true, value: value as T };
 }
 
-/* ---------------- 应答与请求体 ---------------- */
+/* ---------------- 应答与解析 ---------------- */
 
 /** JSON 应答（content-type 单源） */
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -104,29 +112,6 @@ function sendError(res: ServerResponse, status: number, error: string, message?:
   sendJson(res, status, { error, ...(message !== undefined ? { message } : {}) });
 }
 
-/** 请求体超限标记（readBody 抛出位——413 映射用） */
-class BodyTooLarge extends Error {}
-
-/**
- * 读请求体（限幅护栏——超帽 413 且**应答永不早于请求体收完**：超限后继续
- * 排空残余再抛，防连接池 RST 连坐——03 §10.4 POST 族字节帽条款）。
- */
-async function readBody(req: IncomingMessage, limitBytes: number): Promise<string> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  let over = false;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > limitBytes) {
-      over = true;
-      continue; // 排空——不早断（413 应答等收完）
-    }
-    chunks.push(chunk as Buffer);
-  }
-  if (over) throw new BodyTooLarge(`请求体超限（> ${limitBytes} 字节）`);
-  return Buffer.concat(chunks).toString('utf8');
-}
-
 /** 解析 JSON 体（坏形 → 可行动报因） */
 function parseJson(raw: string): { ok: true; value: unknown } | { ok: false; reason: string } {
   try {
@@ -136,14 +121,10 @@ function parseJson(raw: string): { ok: true; value: unknown } | { ok: false; rea
   }
 }
 
-/** token 恒时比对（摘要恒长化——timingSafeEqual 前置条件） */
-function tokenMatches(actual: string, presented: string): boolean {
-  const a = createHash('sha256').update(actual).digest();
-  const b = createHash('sha256').update(presented).digest();
-  return timingSafeEqual(a, b);
+/** query 解析（ctx 窄面无 query 位——handler 侧自 req.url 取；基座仅为相对形合法） */
+function queryOf(req: IncomingMessage): URLSearchParams {
+  return new URL(req.url ?? '/', 'http://webui.internal').searchParams;
 }
-
-/* ---------------- SSE 单流（写侧自治：ping + 看门狗 + 背压 shedding） ---------------- */
 
 /** 判信封是否纯活体可丢（背压 shedding 面——display 族的 update 两型；session
  *  镜像/notify/status 不弃） */
@@ -151,102 +132,6 @@ function isDroppableEnvelope(env: WebuiEnvelope): boolean {
   return (
     env.kind === 'display' && (env.payload.type === 'message_update' || env.payload.type === 'tool_execution_update')
   );
-}
-
-/**
- * 单 SSE 流（订阅一会话的直播腿 + 全局 notify 广播位）。写侧自治：背压期
- * shedding 纯活体信封，镜像帧不弃；ping 注释行保活，写失败/写超时 90s 即
- * reap（读侧判死不可实施——EventSource GET 后永不上行）。close 幂等（连接
- * close 与宿主 stop 双路）。
- */
-class SseStream {
-  private backedUp = false;
-  private backedUpSince: number | undefined;
-  private ended = false;
-  /** 写侧看门狗判死窗（构造注入——测试确定性） */
-  private readonly writeTimeout: number;
-  private readonly pingTimer: ReturnType<typeof setInterval>;
-
-  constructor(
-    private readonly res: ServerResponse,
-    /** 本流订阅的会话（按会话路由的扇出键） */
-    readonly sessionId: string,
-    /** 流终结一次性回调（退订——注册表注入） */
-    private readonly onEnd: () => void,
-    private readonly now: () => number,
-    pingIntervalMs: number,
-    writeTimeoutMs: number,
-  ) {
-    // SSE 开流即 200（此后错误只能走帧——SSE 状态码位已用尽）。冲头是关键：
-    // 连接即当下、无重放首帧——不 flushHeaders 则客户端 fetch 悬至首个 ping
-    res.writeHead(200, {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no', // 代理禁缓冲（SSE 语义钉死）
-    });
-    res.flushHeaders();
-    res.on('close', () => this.end());
-    res.on('drain', () => {
-      this.backedUp = false;
-      this.backedUpSince = undefined;
-    });
-    this.writeTimeout = writeTimeoutMs;
-    this.pingTimer = setInterval(() => this.pingTick(), pingIntervalMs);
-  }
-
-  /** 信封写入（扇出腿消费——帧合成钉死：整体单次 JSON.stringify 单行） */
-  write(env: WebuiEnvelope): void {
-    if (this.ended) return;
-    if (this.backedUp && isDroppableEnvelope(env)) return;
-    this.send(`data: ${JSON.stringify(env)}\n\n`);
-  }
-
-  /** 宿主收场腿（stop() 全流收口——幂等；终结后毁连接助 server.close 归零） */
-  close(): void {
-    this.end();
-    this.res.destroy();
-  }
-
-  private pingTick(): void {
-    if (this.ended) return;
-    // 写侧看门狗：背压持续超窗即判死 reap（ping 写不动的流已不可救）
-    if (this.backedUp && this.backedUpSince !== undefined && this.now() - this.backedUpSince > this.writeTimeout) {
-      this.end();
-      this.res.destroy();
-      return;
-    }
-    if (!this.send(': ping\n\n')) this.markBackpressure();
-  }
-
-  /** 写一行块；写异常即 reap（同步写失败 = 流已坏死） */
-  private send(chunk: string): boolean {
-    if (this.ended) return false;
-    try {
-      const ok = this.res.write(chunk);
-      if (!ok) this.markBackpressure();
-      return ok;
-    } catch {
-      this.end();
-      this.res.destroy();
-      return false;
-    }
-  }
-
-  private markBackpressure(): void {
-    if (!this.backedUp) {
-      this.backedUp = true;
-      this.backedUpSince = this.now();
-    }
-  }
-
-  /** 终结（幂等）：停 ping → onEnd 一次性（连接 close / 看门狗 / 宿主 stop 三路共用） */
-  private end(): void {
-    if (this.ended) return;
-    this.ended = true;
-    clearInterval(this.pingTimer);
-    this.onEnd();
-  }
 }
 
 /* ---------------- 审批 pending registry（件内进程内存态） ---------------- */
@@ -261,6 +146,12 @@ interface PendingApproval {
   /** 已决标记（先答先得后迟到 decide/abort 皆 no-op） */
   settled: boolean;
   readonly resolve: (answer: ApprovalAskAnswer) => void;
+}
+
+/** 件侧活体流账项（全局帽计数 + 按会话扇出索引的成员——流本体是面级 openSse 产物） */
+interface WebuiStreamEntry {
+  readonly stream: WebuiRouteSseStream;
+  readonly sessionId: string;
 }
 
 /* ---------------- 静态面 ---------------- */
@@ -282,54 +173,46 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
 };
 
 /**
- * 造 Web 通道服务端（backend + 微路由 + SSE 三位一体）。
+ * 造 webui 路由件并注册进注入的注册器（承载位改注册——零自持监听）。
  *
- * @param deps 装配根闭包注入窄面（会话族/投影读/补全族/静态目录——词面独立律）
- * @param options 开面配置与时钟节拍帽参（测试确定性注入位）
+ * @param deps 装配根闭包注入窄面 + 路由注册器（sdk 面注册器结构兼容直传）
+ * @param options 件侧帽参（SSE 连接帽 / POST 体帽——测试确定性注入位）
  */
-export function createWebuiServer(deps: WebuiDeps, options: WebuiServerOptions = {}): WebuiHandle {
-  const config = options.config ?? {};
-  const now = options.now ?? Date.now;
-  const pingIntervalMs = options.pingIntervalMs ?? WEBUI_SSE_PING_INTERVAL_MS;
-  const writeTimeoutMs = options.writeTimeoutMs ?? WEBUI_SSE_WRITE_TIMEOUT_MS;
+export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}): WebuiMountHandle {
   const maxConnections = options.maxConnections ?? WEBUI_MAX_CONNECTIONS;
   const bodyLimitBytes = options.bodyLimitBytes ?? WEBUI_BODY_LIMIT_BYTES;
-  const warn = options.warn ?? (() => {});
-  const token = config.token ?? generateToken();
-  const bindHost = config.host ?? WEBUI_DEFAULT_HOST;
+  const warn = options.warn ?? ((): void => {});
 
   /** 活体流注册表（全局帽计数 + 按会话扇出索引） */
-  const streams = new Set<SseStream>();
-  const bySession = new Map<string, Set<SseStream>>();
+  const streams = new Set<WebuiStreamEntry>();
+  const bySession = new Map<string, Set<WebuiStreamEntry>>();
   /** 未决审批账（approvalId → 账项——decide 幂等判据 + 清单投影） */
   const pending = new Map<string, PendingApproval>();
   /** 后端内 ask 计数（调用方未指派 approvalId 时生成 `webui-N`） */
   let askSeq = 0;
-  /** 服务端内 submit 计数（SPA 未携 messageId 时生成 `webui-N`——无幂等） */
+  /** 件内 submit 计数（SPA 未携 messageId 时生成 `webui-N`——无幂等） */
   let submitSeq = 0;
-  /** 实效监听端口（start 后回填——Origin 同源判据用；port 0 形实配值） */
-  let listenPort = config.port ?? WEBUI_DEFAULT_PORT;
-  let stopping = false;
 
-  /** 流退订（终结回调——双索引摘除） */
-  const deregister = (stream: SseStream): void => {
-    streams.delete(stream);
-    const set = bySession.get(stream.sessionId);
+  /** 流退订（终结回调——双索引摘除；挂点位 = res close〔连接 close/看门狗/
+   *  面收场三路共用的真连接终结信号〕，与面级流账自摘并存不冲突） */
+  const deregister = (entry: WebuiStreamEntry): void => {
+    streams.delete(entry);
+    const set = bySession.get(entry.sessionId);
     if (set === undefined) return;
-    set.delete(stream);
-    if (set.size === 0) bySession.delete(stream.sessionId);
+    set.delete(entry);
+    if (set.size === 0) bySession.delete(entry.sessionId);
   };
 
   /** 会话路由扇出（display/session/status 三族——按订阅索引） */
   const pushToSession = (sessionId: string, env: WebuiEnvelope): void => {
     const set = bySession.get(sessionId);
     if (set === undefined) return;
-    for (const stream of set) stream.write(env);
+    for (const entry of set) entry.stream.write(env);
   };
 
   /** notify 广播（非阻塞原语不分会话呈现位——全流扇出） */
   const broadcast = (env: WebuiEnvelope): void => {
-    for (const stream of streams) stream.write(env);
+    for (const entry of streams) entry.stream.write(env);
   };
 
   /* ---- UiBackend 第四实装（claim 桥——通道核 addBackend 注册） ---- */
@@ -423,34 +306,16 @@ export function createWebuiServer(deps: WebuiDeps, options: WebuiServerOptions =
     return 'applied';
   };
 
-  /* ---- 鉴权（Bearer / cookie 桥双形） ---- */
+  /* ---- 静态面（SPA 壳——open/static-shell 三位之一；缺席 = API-only 形） ---- */
 
-  const authorized = (req: IncomingMessage): boolean => {
-    const header = req.headers.authorization;
-    if (typeof header === 'string' && header.startsWith('Bearer ')) {
-      if (tokenMatches(token, header.slice('Bearer '.length))) return true;
-    }
-    const cookie = req.headers.cookie;
-    if (typeof cookie === 'string') {
-      for (const part of cookie.split(';')) {
-        const trimmed = part.trim();
-        if (trimmed.startsWith(`${WEBUI_COOKIE_NAME}=`)) {
-          if (tokenMatches(token, trimmed.slice(WEBUI_COOKIE_NAME.length + 1))) return true;
-        }
-      }
-    }
-    return false;
-  };
-
-  /* ---- 静态面（SPA 壳——无鉴权三位之一；缺席 = API-only 形） ---- */
-
-  async function serveStatic(res: ServerResponse, pathname: string): Promise<void> {
+  async function serveStatic(res: ServerResponse, wildcard: string): Promise<void> {
     if (deps.staticDir === undefined) {
       sendError(res, 404, 'no_spa', 'SPA 静态面未装配（API-only 形态）');
       return;
     }
     const root = resolve(deps.staticDir);
-    let rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).slice(1);
+    // wildcard 无前导斜杠（面级匹配器以段拼回）——根路径空串归 index.html
+    let rel = wildcard === '' ? 'index.html' : decodeURIComponent(wildcard);
     let target = resolve(join(root, rel));
     // 路径穿越防线：归一后须仍在根内（.. 段与编码形出根即拒）
     if (target !== root && !target.startsWith(root + sep)) {
@@ -479,232 +344,263 @@ export function createWebuiServer(deps: WebuiDeps, options: WebuiServerOptions =
       .pipe(res);
   }
 
-  /* ---- 微路由主入口 ---- */
+  /* ---- 路由族注册（五撮 13 端点 + /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
 
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // 三防线②：Host 白名单（先于一切路由——DNS rebinding 防线）
-    const hostVerdict = judgeHostHeader(req.headers.host, bindHost);
-    if (!hostVerdict.ok) {
-      sendError(res, 403, 'forbidden', hostVerdict.reason);
-      return;
-    }
-    // 三防线③：Origin 硬防线（带且非同源三形拒；无 Origin 放行）
-    const origin = req.headers.origin;
-    if (!originAllowed(typeof origin === 'string' ? origin : undefined, bindHost, listenPort)) {
-      sendError(res, 403, 'forbidden', `Origin 防线拒：${String(origin)}`);
-      return;
-    }
+  /** API 族鉴权档（Bearer ∪ cookie 双通道——cookie 名单源） */
+  const tokenOrCookie: WebuiRouteAuth = { mode: 'token-or-cookie', cookie: WEBUI_COOKIE_NAME };
+  /** 摘除 fn 账（detach 全路由摘除用） */
+  const detachers: Array<() => void> = [];
+  /** 注册速记（loopbackOnly 全族恒真——07 E1 恒回环可达） */
+  const add = (descriptor: WebuiRouteDescriptor): void => {
+    detachers.push(deps.register({ loopbackOnly: true, ...descriptor }));
+  };
 
-    const method = req.method ?? 'GET';
-    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-    const segments = url.pathname.split('/').filter((s) => s !== '');
-    const query = url.searchParams;
+  // —— 探活（open/liveness——只回 ok 零敏感面）——
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.health,
+    auth: { mode: 'open', purpose: 'liveness' },
+    handler: (_req, res) => sendJson(res, 200, { ok: true }),
+  });
 
-    // ---- 探活（无鉴权——只回 ok 零敏感面） ----
-    if (segments.length === 2 && segments[0] === 'api' && segments[1] === 'health') {
-      if (method !== 'GET') return sendError(res, 405, 'method_not_allowed');
-      return sendJson(res, 200, { ok: true });
-    }
-
-    // ---- auth cookie 桥（无鉴权三位之二——本位即鉴权） ----
-    if (segments.length === 2 && segments[0] === 'api' && segments[1] === 'auth') {
-      if (method !== 'POST') return sendError(res, 405, 'method_not_allowed');
-      let raw: string;
-      try {
-        raw = await readBody(req, bodyLimitBytes);
-      } catch (err) {
-        return err instanceof BodyTooLarge
-          ? sendError(res, 413, 'too_large', err.message)
-          : sendError(res, 400, 'bad_request');
-      }
-      const parsed = parseJson(raw);
+  // —— auth cookie 桥（open/auth-exchange——本位即鉴权：体 token 经面级
+  //    verifyToken 验换，落定 Set-Cookie；cookie 值 = 验换通过的那枚 token）——
+  add({
+    method: 'POST',
+    path: WEBUI_ENDPOINTS.auth,
+    auth: { mode: 'open', purpose: 'auth-exchange' },
+    bodyLimitBytes,
+    handler: async (req, res, ctx) => {
+      const body = await ctx.readBody(req);
+      if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
+      const parsed = parseJson(body.body);
       if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
-      const body = validate<{ token: string }>(AuthSchema, parsed.value, 'auth 体');
-      if (!body.ok) return sendError(res, 400, 'bad_request', body.reason);
-      if (!tokenMatches(token, body.value.token)) return sendError(res, 401, 'unauthorized', 'token 不符');
+      const auth = validate<{ token: string }>(AuthSchema, parsed.value, 'auth 体');
+      if (!auth.ok) return sendError(res, 400, 'bad_request', auth.reason);
+      if (!ctx.verifyToken(auth.value.token)) return sendError(res, 401, 'unauthorized', 'token 不符');
       // cookie 桥落定（HttpOnly + SameSite=Strict——EventSource 不能携头，本桥
-      // 是浏览器侧唯一凭证通道；Path=/ 覆盖全 API 面）
+      // 是浏览器侧唯一凭证通道；Path=/ 覆盖全 API 面；token-or-cookie 档由面
+      // 级用同一 token 验 cookie——闭环成立）
       res.writeHead(204, {
-        'set-cookie': `${WEBUI_COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/`,
+        'set-cookie': `${WEBUI_COOKIE_NAME}=${auth.value.token}; HttpOnly; SameSite=Strict; Path=/`,
       });
       res.end();
-      return;
-    }
+    },
+  });
 
-    // ---- API 族（鉴权门——除 health/auth 外一切 /api/* 必凭证） ----
-    if (segments[0] === 'api') {
-      if (!authorized(req)) return sendError(res, 401, 'unauthorized', '缺凭证（Bearer 或 cookie）');
+  // —— 会话族根：GET 清单 / POST 开新 ——
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.sessions,
+    auth: tokenOrCookie,
+    handler: (_req, res) => sendJson(res, 200, { sessions: deps.sessions.listSessions() }),
+  });
+  add({
+    method: 'POST',
+    path: WEBUI_ENDPOINTS.sessions,
+    auth: tokenOrCookie,
+    handler: (_req, res) => sendJson(res, 200, { sessionId: deps.sessions.createSession() }),
+  });
 
-      // 会话族根：GET 清单 / POST 开新
-      if (segments.length === 2 && segments[1] === 'sessions') {
-        if (method === 'GET') {
-          return sendJson(res, 200, { sessions: deps.sessions.listSessions() });
-        }
-        if (method === 'POST') {
-          return sendJson(res, 200, { sessionId: deps.sessions.createSession() });
-        }
-        return sendError(res, 405, 'method_not_allowed');
+  // —— 会话族子路由（存在性分账注⑥：messages/todo 不受闭态拦；events 前
+  //    missing 拒、closed 放行空流；submit/interrupt 受闭态拦）——
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.sessionMessages,
+    auth: tokenOrCookie,
+    handler: async (_req, res, ctx) => {
+      // 近史投影兜底可拉（closed 会话同样可拉——只读腿）
+      const messages = await deps.read.fetchMessages(ctx.params.id!);
+      sendJson(res, 200, { messages });
+    },
+  });
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.sessionTodo,
+    auth: tokenOrCookie,
+    handler: (_req, res, ctx) => {
+      const items = deps.read.todoOf?.(ctx.params.id!);
+      sendJson(res, 200, { items: items ?? null }); // null = 无数据源（诚实不虚报）
+    },
+  });
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.sessionEvents,
+    auth: tokenOrCookie,
+    handler: (_req, res, ctx) => {
+      const sessionId = ctx.params.id!;
+      if (deps.sessions.sessionStateOf(sessionId) === 'missing') {
+        sendError(res, 404, 'not_found', '会话缺席');
+        return;
       }
-
-      // 会话族子路由：/api/sessions/:id/<verb>（长度守卫已判 ≥4——索引非空断言承
-      // noUncheckedIndexedAccess，先例同 safety/browser 件族）
-      if (segments.length === 4 && segments[1] === 'sessions') {
-        const sessionId = segments[2]!;
-        const verb = segments[3]!;
-        const state = deps.sessions.sessionStateOf(sessionId);
-        // 会话存在性分账：missing/closed 均 404（error 词分立——已闭只读兜底）
-        if (verb === 'messages') {
-          if (method !== 'GET') return sendError(res, 405, 'method_not_allowed');
-          // 近史投影兜底可拉（closed 会话同样可拉——messages/todo 不受闭态拦）
-          const messages = await deps.read.fetchMessages(sessionId);
-          return sendJson(res, 200, { messages });
-        }
-        if (verb === 'todo') {
-          if (method !== 'GET') return sendError(res, 405, 'method_not_allowed');
-          const items = deps.read.todoOf?.(sessionId);
-          return sendJson(res, 200, { items: items ?? null }); // null = 无数据源（诚实不虚报）
-        }
-        if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
-        if (verb === 'events') {
-          if (method !== 'GET') return sendError(res, 405, 'method_not_allowed');
-          // closed 会话放行（空流形——近史走 messages 兜底，流恒静默无假帧）
-          if (streams.size >= maxConnections) {
-            return sendError(res, 503, 'overloaded', `SSE 连接帽（${maxConnections}）已满`);
-          }
-          const stream = new SseStream(res, sessionId, () => deregister(stream), now, pingIntervalMs, writeTimeoutMs);
-          streams.add(stream);
-          const set = bySession.get(sessionId) ?? new Set<SseStream>();
-          set.add(stream);
-          bySession.set(sessionId, set);
-          return; // 长连接——生命周期归流自治（close/看门狗/宿主 stop 三路）
-        }
-        if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
-        if (verb === 'submit') {
-          if (method !== 'POST') return sendError(res, 405, 'method_not_allowed');
-          let raw: string;
-          try {
-            raw = await readBody(req, bodyLimitBytes);
-          } catch (err) {
-            return err instanceof BodyTooLarge
-              ? sendError(res, 413, 'too_large', err.message)
-              : sendError(res, 400, 'bad_request');
-          }
-          const parsed = parseJson(raw);
-          if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
-          const body = validate<{ text: string; messageId?: string }>(SubmitSchema, parsed.value, 'submit 体');
-          if (!body.ok) return sendError(res, 400, 'bad_request', body.reason);
-          const outcome = deps.sessions.submitPrompt({
-            sessionId,
-            content: body.value.text,
-            messageId: body.value.messageId ?? `webui-${++submitSeq}`,
-          });
-          return sendJson(res, 200, { sessionId: outcome.sessionId });
-        }
-        if (verb === 'interrupt') {
-          if (method !== 'POST') return sendError(res, 405, 'method_not_allowed');
-          deps.sessions.interruptSession(sessionId);
-          res.writeHead(204).end();
-          return;
-        }
-        return sendError(res, 404, 'not_found', `未知会话子路由：${verb}`);
+      // closed 会话放行（空流形——近史走 messages 兜底，流恒静默无假帧）
+      if (streams.size >= maxConnections) {
+        sendError(res, 503, 'overloaded', `SSE 连接帽（${maxConnections}）已满`);
+        return;
       }
+      // 面级开流（帧形/ping/看门狗面单源；shedding 判据 = display 的 update
+      // 两型可丢——unknown 域收敛转型 = 本面流载荷恒 WebuiEnvelope 的件内不变式）
+      const stream = ctx.openSse(res, {
+        droppable: (data): boolean => isDroppableEnvelope(data as WebuiEnvelope),
+      });
+      const entry: WebuiStreamEntry = { stream, sessionId };
+      streams.add(entry);
+      const set = bySession.get(sessionId) ?? new Set<WebuiStreamEntry>();
+      set.add(entry);
+      bySession.set(sessionId, set);
+      // 件侧销账位 = res close（连接 close/面级看门狗 destroy/宿主收场三路
+      // 共用的真连接终结信号——与面级流账自摘并存）
+      res.on('close', () => deregister(entry));
+    },
+  });
+  add({
+    method: 'POST',
+    path: WEBUI_ENDPOINTS.sessionSubmit,
+    auth: tokenOrCookie,
+    bodyLimitBytes,
+    handler: async (req, res, ctx) => {
+      const sessionId = ctx.params.id!;
+      const state = deps.sessions.sessionStateOf(sessionId);
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
+      const body = await ctx.readBody(req);
+      if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
+      const parsed = parseJson(body.body);
+      if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
+      const submit = validate<{ text: string; messageId?: string }>(SubmitSchema, parsed.value, 'submit 体');
+      if (!submit.ok) return sendError(res, 400, 'bad_request', submit.reason);
+      const outcome = deps.sessions.submitPrompt({
+        sessionId,
+        content: submit.value.text,
+        messageId: submit.value.messageId ?? `webui-${++submitSeq}`,
+      });
+      sendJson(res, 200, { sessionId: outcome.sessionId });
+    },
+  });
+  add({
+    method: 'POST',
+    path: WEBUI_ENDPOINTS.sessionInterrupt,
+    auth: tokenOrCookie,
+    handler: (_req, res, ctx) => {
+      const sessionId = ctx.params.id!;
+      const state = deps.sessions.sessionStateOf(sessionId);
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
+      deps.sessions.interruptSession(sessionId);
+      res.writeHead(204).end();
+    },
+  });
 
-      // 审批族
-      if (segments.length === 2 && segments[1] === 'approvals') {
-        if (method === 'GET') {
-          const filter = query.get('sessionId');
-          const list: WebuiApprovalEntry[] = [];
-          for (const [approvalId, entry] of pending) {
-            if (entry.settled || (filter !== null && entry.sessionId !== filter)) continue;
-            list.push({
-              approvalId,
-              sessionId: entry.sessionId,
-              summary: entry.summary,
-              ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
-              ...(entry.toolName !== undefined ? { toolName: entry.toolName } : {}),
-              ...(entry.suggestedEntry !== undefined ? { suggestedEntry: entry.suggestedEntry } : {}),
-            });
-          }
-          return sendJson(res, 200, { approvals: list });
-        }
-        return sendError(res, 405, 'method_not_allowed');
+  // —— 审批族 ——
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.approvals,
+    auth: tokenOrCookie,
+    handler: (req, res) => {
+      const filter = queryOf(req).get('sessionId');
+      const list: WebuiApprovalEntry[] = [];
+      for (const [approvalId, entry] of pending) {
+        if (entry.settled || (filter !== null && entry.sessionId !== filter)) continue;
+        list.push({
+          approvalId,
+          sessionId: entry.sessionId,
+          summary: entry.summary,
+          ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
+          ...(entry.toolName !== undefined ? { toolName: entry.toolName } : {}),
+          ...(entry.suggestedEntry !== undefined ? { suggestedEntry: entry.suggestedEntry } : {}),
+        });
       }
-      if (segments.length === 4 && segments[1] === 'approvals' && segments[3] === 'decide') {
-        if (method !== 'POST') return sendError(res, 405, 'method_not_allowed');
-        let raw: string;
-        try {
-          raw = await readBody(req, bodyLimitBytes);
-        } catch (err) {
-          return err instanceof BodyTooLarge
-            ? sendError(res, 413, 'too_large', err.message)
-            : sendError(res, 400, 'bad_request');
-        }
-        const parsed = parseJson(raw);
-        if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
-        const body = validate<{ answer: ApprovalAskAnswer; note?: string }>(DecideSchema, parsed.value, 'decide 体');
-        if (!body.ok) return sendError(res, 400, 'bad_request', body.reason);
-        // 只 resolve pending resolver（绝不直接写 durable——decided durable 写
-        // 唯一保留在 ask() 汇流点；后到/未知 = superseded 幂等回执）
-        const outcome = decideApproval(segments[2]!, body.value.answer);
-        return sendJson(res, 200, { outcome });
-      }
+      sendJson(res, 200, { approvals: list });
+    },
+  });
+  add({
+    method: 'POST',
+    path: WEBUI_ENDPOINTS.approvalsDecide,
+    auth: tokenOrCookie,
+    bodyLimitBytes,
+    handler: async (req, res, ctx) => {
+      const body = await ctx.readBody(req);
+      if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
+      const parsed = parseJson(body.body);
+      if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
+      const decide = validate<{ answer: ApprovalAskAnswer; note?: string }>(DecideSchema, parsed.value, 'decide 体');
+      if (!decide.ok) return sendError(res, 400, 'bad_request', decide.reason);
+      // 只 resolve pending resolver（绝不直接写 durable——decided durable 写
+      // 唯一保留在 ask() 汇流点；后到/未知 = superseded 幂等回执）
+      const outcome = decideApproval(ctx.params.approvalId!, decide.value.answer);
+      sendJson(res, 200, { outcome });
+    },
+  });
 
-      // 补全族（两段——注入面缺席诚实空）
-      if (segments.length === 3 && segments[1] === 'workspace') {
-        if (method !== 'GET') return sendError(res, 405, 'method_not_allowed');
-        const q = query.get('q') ?? '';
-        if (segments[2] === 'files') return sendJson(res, 200, { items: deps.completion?.workspaceFiles?.(q) ?? [] });
-        if (segments[2] === 'symbols')
-          return sendJson(res, 200, { items: deps.completion?.workspaceSymbols?.(q) ?? [] });
-        return sendError(res, 404, 'not_found', `未知补全子路由：${segments[2]}`);
-      }
+  // —— 补全族（两段——注入面缺席诚实空）——
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.workspaceFiles,
+    auth: tokenOrCookie,
+    handler: (req, res) => {
+      const q = queryOf(req).get('q') ?? '';
+      sendJson(res, 200, { items: deps.completion?.workspaceFiles?.(q) ?? [] });
+    },
+  });
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.workspaceSymbols,
+    auth: tokenOrCookie,
+    handler: (req, res) => {
+      const q = queryOf(req).get('q') ?? '';
+      sendJson(res, 200, { items: deps.completion?.workspaceSymbols?.(q) ?? [] });
+    },
+  });
 
-      return sendError(res, 404, 'not_found', `未知 API 路由：${url.pathname}`);
-    }
+  // —— /api 兜底（鉴权先行语义维持：未知 /api 路径过鉴权门后 404——防 SPA
+  //    fallback 吞程序面打错路径；GET/POST 双形，其余 method 落面级 404）——
+  add({
+    method: 'GET',
+    path: '/api/*',
+    auth: tokenOrCookie,
+    handler: (_req, res) => sendError(res, 404, 'not_found', '未知 API 路由'),
+  });
+  add({
+    method: 'POST',
+    path: '/api/*',
+    auth: tokenOrCookie,
+    handler: (_req, res) => sendError(res, 404, 'not_found', '未知 API 路由'),
+  });
 
-    // ---- 静态面（无鉴权三位之三——SPA 壳先于鉴权必须可载，壳无 API 即惰性） ----
-    if (method !== 'GET' && method !== 'HEAD') return sendError(res, 405, 'method_not_allowed');
-    return serveStatic(res, url.pathname);
-  }
-
-  const server: Server = createServer((req, res) => {
-    void handle(req, res).catch((err: unknown) => {
-      warn(`webui 请求处理异常：${req.method} ${req.url}——${err instanceof Error ? err.message : String(err)}`);
-      if (!res.writableEnded) sendError(res, 500, 'internal');
-    });
+  // —— SPA 静态面（open/static-shell——壳先于鉴权必须可载，壳无 API 即惰性；
+  //    GET/HEAD 双形；注册序在 /api/* 之后 = /api 射界先由兜底圈占）——
+  add({
+    method: 'GET',
+    path: '*',
+    auth: { mode: 'open', purpose: 'static-shell' },
+    handler: (_req, res, ctx) => {
+      void serveStatic(res, ctx.wildcard ?? '').catch((err: unknown) => {
+        warn(`webui 静态面处理异常：${err instanceof Error ? err.message : String(err)}`);
+        if (!res.writableEnded) sendError(res, 500, 'internal');
+      });
+    },
+  });
+  add({
+    method: 'HEAD',
+    path: '*',
+    auth: { mode: 'open', purpose: 'static-shell' },
+    handler: (_req, res, ctx) => {
+      void serveStatic(res, ctx.wildcard ?? '').catch((err: unknown) => {
+        warn(`webui 静态面处理异常：${err instanceof Error ? err.message : String(err)}`);
+        if (!res.writableEnded) sendError(res, 500, 'internal');
+      });
+    },
   });
 
   return {
     backend,
-    token,
-    start: async () => {
-      // 三防线①：启动断言（非回环绑定必配凭证——fail-closed 拒启律预埋）
-      const verdict = judgeListenConfig(config);
-      if (!verdict.ok) throw new Error(verdict.reason);
-      const port = config.port ?? WEBUI_DEFAULT_PORT;
-      await new Promise<void>((resolve, reject) => {
-        const onError = (err: Error): void => reject(err);
-        server.once('error', onError);
-        server.listen(port, bindHost, () => {
-          server.off('error', onError);
-          resolve();
-        });
-      });
-      listenPort = (server.address() as AddressInfo).port;
-      return { host: bindHost, port: listenPort };
-    },
-    stop: async () => {
-      if (stopping) return;
-      stopping = true;
-      // 收场序：全流收口（停 ping + 毁连接）→ 审批清槽（**丢弃性结算——不
-      // resolve**：未决条目不凭空造值抢答；败腿 promise 悬挂由核 finish/
-      // 队列收口吸收）→ 关监听
-      for (const stream of [...streams]) stream.close();
+    detach: () => {
+      // 收场序：全路由摘除 → 全流收口（面级流随 res 终结）→ 审批清槽
+      // （**丢弃性结算——不 resolve**：未决条目不凭空造值抢答；败腿 promise
+      // 悬挂由核 finish/队列收口吸收——行回卷语义）
+      for (const detach of detachers.splice(0)) detach();
+      for (const entry of [...streams]) entry.stream.close();
       pending.clear();
-      // closeAllConnections 兜底（keep-alive idle 连接不阻退出——SSE 已毁，
-      // 其余在飞请求随进程收场）
-      (server as { closeAllConnections?: () => void }).closeAllConnections?.();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };
 }

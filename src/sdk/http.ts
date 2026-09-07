@@ -268,6 +268,10 @@ class SseStream implements SdkRouteSseStream {
       connection: 'keep-alive',
       'x-accel-buffering': 'no', // 代理禁缓冲（SSE 语义钉死）
     });
+    // 头即发（flushHeaders——writeHead 只记账，头缓到首写才发；零首帧静默流
+    // 〔webui events 连接即当下、无 hello 帧〕头会挂到 30s ping。18a-2' 揭出
+    // 的真缺陷，回归锁 routes.test「静默流」例）
+    res.flushHeaders();
     res.on('close', () => this.end());
     res.on('drain', () => {
       this.backedUp = false;
@@ -372,8 +376,8 @@ interface ListenerSecurity {
   readonly loopback: boolean;
   /** tcp：Host 白名单判据（绑定地址） */
   readonly bindHost?: string;
-  /** tcp：Origin 同源判据（监听端口） */
-  readonly listenPort?: number;
+  /** tcp：Origin 同源判据（监听端口；port 0 内核指派后由 start() 回填实绑口——可变位） */
+  listenPort?: number;
 }
 
 /** 单次 listen（sock 路径形）——error 上抛、listening 回调即就绪 */
@@ -961,11 +965,11 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
       for (const { server, security } of tcpServers) {
         await listenOnTcp(server, security.bindHost!, security.listenPort!);
         const addr = server.address();
-        tcpInfo.push(
-          typeof addr === 'object' && addr !== null
-            ? { host: security.bindHost!, port: addr.port }
-            : { host: security.bindHost!, port: security.listenPort! },
-        );
+        const actualPort = typeof addr === 'object' && addr !== null ? addr.port : security.listenPort!;
+        // 实绑口回填（port 0 内核指派后配置口 0 作废——Origin 同源判据用真口；
+        // 18a-2' webui 迁移揭出的 18a-1' 真缺陷，回归锁 routes.test「实绑口」例）
+        security.listenPort = actualPort;
+        tcpInfo.push({ host: security.bindHost!, port: actualPort });
       }
       // 心跳装配驱动（线核零自驱时钟——13b 纪律；drain 无位：活体相位 sink 恒收）
       heartbeatTimer = setInterval(() => core.heartbeatTick(), heartbeatIntervalMs);

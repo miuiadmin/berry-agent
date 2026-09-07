@@ -208,8 +208,9 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
       // API-only 形：测试态无 dist/webui 静态面——/ 与未知路径 404（诚实缺席）
       const root = await apiFetch(port, token, '/');
       expect(root.status).toBe(404);
-      // stop 幂等收口（rt.shutdown 经 closer 已含 stop——二次直调幂等）
-      await face.webui.stop();
+      // stop 幂等收口（rt.shutdown 经 closer 已含 stop——二次直调幂等；改形后
+      // 收口 = webui detach + 面 stop 两段，handle.stop 统一封装）
+      await face.stop();
       const gone = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
         headers: { authorization: `Bearer ${token}` },
       }).catch(() => undefined);

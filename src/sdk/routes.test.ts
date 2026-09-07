@@ -349,6 +349,17 @@ describe('sdk/http 路由扩展位（18a-1）', () => {
     expect(hits).toHaveLength(0); // 防线拒于 handler 前
   });
 
+  it('Origin 同源判定用实绑口（port 0 内核指派后回填——配置口 0 不入判据）', async () => {
+    // 18a-2' webui 迁移揭出的 18a-1' 真缺陷回归锁：listenPort 曾恒为配置口
+    // （port 0 形态同源 Origin 恒 403）；修前必红——实绑口回填后同源过
+    const res = await rawRequest({ port: port() }, 'GET', '/api/echo/x', {
+      host: '127.0.0.1',
+      origin: `http://127.0.0.1:${port()}`,
+    });
+    expect(res.status).toBe(200);
+    expect(hits).toHaveLength(1); // 同源过防线达 handler
+  });
+
   /* ---------------- ⑥ helper 三件 + isClosed ---------------- */
 
   it('ctx.readBody：per-route 帽超限 413 且应答不早于体收完（排空纪律——无 RST 连坐）', async () => {
@@ -429,6 +440,24 @@ describe('sdk/http 路由扩展位（18a-1）', () => {
     await face.stop();
     const { done } = await reader.read();
     expect(done).toBe(true);
+    controller.abort();
+    detach();
+  });
+
+  it('ctx.openSse 零首帧静默流：头即达不挂起（flushHeaders——webui events 静默流消费位）', async () => {
+    // 18a-2' webui 迁移揭出的 18a-1' 真缺陷回归锁：writeHead 后头缓到首写
+    // 才发（/v1/events 有 hello 首帧掩蔽；静默流头挂到 30s ping）；修前必红
+    const detach = face.register({
+      method: 'GET',
+      path: '/api/silent-stream',
+      auth: { mode: 'open', purpose: 'static-shell' },
+      handler: (_req, res, ctx) => {
+        ctx.openSse(res); // 开流零写——头必须独立于首帧达客户端
+      },
+    });
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${port()}/api/silent-stream`, { signal: controller.signal });
+    expect(res.status).toBe(200); // fetch 头到位 = flushHeaders 兑现
     controller.abort();
     detach();
   });

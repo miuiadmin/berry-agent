@@ -1,14 +1,22 @@
 /**
  * host/webui-bridge — `--port` webui 一次性开面装配桥（批 12f-2c；03 §10.4
  * host 接线义务：`--port <n>` 开面 + token 一次性披露 + 生命周期收口）。
+ * 批 18a-2' 改形适配：webui 件零自持监听——本桥起 sdk HTTP 面承路由
+ * （mountWebui 注册 face.register——面注册器直注）。
+ *
+ * **过渡期桥自持面（18a-3' 归一挂账）**：本桥为 webui 单开的面属过渡形——
+ * daemon 常驻面归一（webui 路由注册进 daemon face + 三入口咬合）在 18a-3'
+ * 兑现；届时本桥收编。过渡期本面同时活 /v1 SDK 六端点（bridge 走
+ * createServeBridge 同 daemon——零第二套映射）与 webui 路由族。
  *
  * 职责（装配桥五面）：conversation 栈五动词 → WebuiDeps 三窄面映射（词面
- * 独立律的装配侧互证——18a 通报「compat 互证归 host 装配批」本批兑现）+
- * staticDir 探测（dist/webui 共生形；缺席诚实 API-only 不虚报）+ token
- * 一次性披露（stderr 缺省——监听 ⇒ 鉴权恒在场，令牌只此一次显示）+
- * handle.backend 通道挂接（UiBackend 第四实装 claim 桥——由调用方
- * addBackend，本桥只开面）+ stop 进运行时退出序 closer（注册序在
- * plugin-unload 之后、tui-backend 之前——网络面先关再出屏）。
+ * 独立律的装配侧互证——18a 通报「compat 互证归 host 装配批」批 12f-2c 已
+ * 兑现，改形后经 face.register 直注维持）+ staticDir 探测（dist/webui 共生
+ * 形；缺席诚实 API-only 不虚报）+ token 一次性披露（stderr 缺省——监听 ⇒
+ * 鉴权恒在场，令牌只此一次显示；token 生成归面）+ handle.backend 通道挂接
+ * （UiBackend 第四实装 claim 桥——由调用方 addBackend，本桥只开面）+ stop
+ * 进运行时退出序 closer（注册序在 plugin-unload 之后、tui-backend 之前——
+ * 网络面先关再出屏）。
  *
  * 桥映射注记：createSession 走 manager.create 零 I/O（行随首事件落库——
  * 浏览器会话无 cwd 锚，workspaceRoot 缺省全局态）；sessionStateOf 三档
@@ -22,10 +30,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { foldTodoTable } from '../conversation/index.js';
-import { createWebuiServer } from '../webui/index.js';
-import type { WebuiDeps, WebuiHandle } from '../webui/index.js';
+import { createSdkHttpFace } from '../sdk/index.js';
+import type { SdkHttpFaceHandle } from '../sdk/index.js';
+import { WEBUI_DEFAULT_HOST, WEBUI_DEFAULT_PORT, mountWebui } from '../webui/index.js';
+import type { WebuiDeps, WebuiMountHandle } from '../webui/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
+import { createServeBridge } from './serve-entry.js';
 import type { HostRuntime } from './runtime.js';
 
 /** 开面选项（TUI 入口注入面——port 即 `--port` 旗标值） */
@@ -34,7 +45,7 @@ export interface WebuiBridgeOptions {
   readonly stack: ConversationStack;
   /** 宿主运行时（退出序 closer 注册位） */
   readonly runtime: HostRuntime;
-  /** 监听端口（缺省 7860 恒回环——WebuiListenConfig 缺省形） */
+  /** 监听端口（缺省 7860 恒回环——WEBUI_DEFAULT_PORT） */
   readonly port?: number;
   /** 静态面目录覆盖（测试注入；缺省探测 dist/webui——缺席 API-only） */
   readonly staticDir?: string;
@@ -49,12 +60,16 @@ export interface WebuiOpenInfo {
   readonly token: string;
 }
 
-/** 装配桥产物（webui 服务端本体 + 桥真身——compat 互证面） */
+/** 装配桥产物（面 + webui mount 本体 + 桥真身——compat 互证面） */
 export interface WebuiBridgeHandle {
-  /** 服务端本体（backend/token/start/stop） */
-  readonly webui: WebuiHandle;
-  /** 桥真身（三窄面——18a compat.test 结构互证的消费位） */
+  /** webui mount 本体（backend/detach——零监听零 start/stop） */
+  readonly webui: WebuiMountHandle;
+  /** 承载面（sdk HTTP 面——token/start/stop 生命周期与 /v1 过渡端点） */
+  readonly face: SdkHttpFaceHandle;
+  /** 桥真身（三窄面——compat 互证的消费位） */
   readonly deps: WebuiDeps;
+  /** 收口（幂等）：webui detach + 面 stop——closer 与测试直调共用 */
+  stop(): Promise<void>;
 }
 
 /**
@@ -66,19 +81,31 @@ export async function openWebuiFace(
   options: WebuiBridgeOptions & { readonly onOpen?: (info: WebuiOpenInfo) => void },
 ): Promise<WebuiBridgeHandle> {
   const deps = bridgeDeps(options.stack, options.staticDir);
-  const webui = createWebuiServer(deps, { ...(options.port !== undefined ? { config: { port: options.port } } : {}) });
-  const bound = await webui.start();
+  // 过渡形：为 webui 单开 sdk 面（bridge 同 daemon——createServeBridge 零第二
+  // 套映射；/v1 端点随之而活，18a-3' 归一时收编）
+  const face = createSdkHttpFace({
+    config: { tcp: { host: WEBUI_DEFAULT_HOST, port: options.port ?? WEBUI_DEFAULT_PORT } },
+    bridge: createServeBridge(options.stack, options.runtime, { cwd: process.cwd() }),
+  });
+  // 面注册器直注（WebuiRouteDescriptor → SdkRouteDescriptor 方向性结构兼容）
+  const webui = mountWebui({ ...deps, register: face.register });
+  const info = await face.start();
+  const { host, port } = info.tcp[0]!;
+  const stop = async (): Promise<void> => {
+    webui.detach(); // 幂等（全路由摘除 + 全流收口 + 审批清槽丢弃性）
+    await face.stop(); // 幂等（全流收口 + 关监听）
+  };
   const disclose = options.disclose ?? ((line) => process.stderr.write(`${line}\n`));
-  disclose(`Web 界面已开面：http://${bound.host}:${bound.port}/`);
-  disclose(`访问令牌（仅此一次显示）：${webui.token}`);
-  options.onOpen?.({ host: bound.host, port: bound.port, token: webui.token });
-  options.runtime.registerCloser({ label: 'webui-server', fn: () => webui.stop() });
-  return { webui, deps };
+  disclose(`Web 界面已开面：http://${host}:${port}/`);
+  disclose(`访问令牌（仅此一次显示）：${face.token}`);
+  options.onOpen?.({ host, port, token: face.token });
+  options.runtime.registerCloser({ label: 'webui-server', fn: () => stop() });
+  return { webui, face, deps, stop };
 }
 
 /**
  * 桥真身：conversation 栈五动词 → WebuiDeps 三窄面（词面独立律——本侧
- * 只做映射不造新词；结构兼容由 18a compat.test 与本件 e2e 双向互证）。
+ * 只做映射不造新词；结构兼容由 face.register 直注与 e2e 双向互证）。
  */
 function bridgeDeps(stack: ConversationStack, staticDirOverride?: string): WebuiDeps {
   return {
