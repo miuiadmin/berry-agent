@@ -54,7 +54,7 @@ import type { DiskPluginSpec } from './loader.js';
 import { parseEnabledRows, parseManifest } from './manifest.js';
 import type { EnabledRow } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
-import type { CommandRegistryLike, PluginContextHandle } from './plugin-context.js';
+import type { CommandRegistryLike, PluginContextHandle, TriggerRegistryLike } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
 import type { HostRuntime } from './runtime.js';
 
@@ -93,6 +93,11 @@ export interface PluginBootOptions {
   readonly commands: CommandRegistryLike;
   /** llm 运行时（provider 注册面——对话栈出口防双实例） */
   readonly llm: Pick<LlmRuntime, 'registerProvider'>;
+  /**
+   * 触发器注册表（受局面注入——C 批 C-2 接线；starter 真身随 C-3 装配批由
+   * 入口创建注入。缺席 = ctx.triggers.register 抛 CONTEXT_SERVICE_MISSING）
+   */
+  readonly triggers?: TriggerRegistryLike;
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
@@ -206,6 +211,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       promptSections,
       provide: services.provide, // ctx.provide 委派共享根（§2.2 表行——跨插件可见）
       hostFace,
+      // 触发器注册表受局面透传（C 批 C-2——缺席时 ctx.triggers.register 响亮缺位）
+      ...(options.triggers !== undefined ? { triggers: options.triggers } : {}),
       // 高危面开门授予集（03 §4.6 批 U2——磁盘行 opens 经 loader 透传至此）
       ...(opens !== undefined ? { opens } : {}),
       onHookTimeout: (id, hookName, err) =>

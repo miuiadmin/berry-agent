@@ -7,6 +7,7 @@ import { createToolRegistry } from '../tools/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
 import type { PluginContextHandle } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
+import { TriggerRegistry } from './triggers.js';
 // 错误码册注册腿（「import 发生才注册」——门关码注册断言的前置副作用）
 import './codes.js';
 
@@ -29,12 +30,18 @@ function assemble(overrides?: {
   dispatch: EventDispatch;
   scope: Scope;
   promptSections: PromptSectionRegistry;
+  triggers: TriggerRegistry;
 } {
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
   // 钩子词汇预注册（装配批 12f-2b 的职责在此以主表全量模拟）
   dispatch.registerEventNames(PLUGIN_HOOK_VOCABULARY.map((h) => h.name));
   const promptSections = new PromptSectionRegistry();
+  // 触发器注册表真源（全开门——门检三态在 triggers.test 域；starter 替身空转）
+  const triggers = new TriggerRegistry({
+    getOpens: () => new Set(['triggers.start-run']),
+    makeStarter: () => () => undefined,
+  });
   const handle = createPluginContext({
     pluginId: overrides?.pluginId ?? 'acme-widgets',
     scope,
@@ -43,12 +50,13 @@ function assemble(overrides?: {
     commands: new CommandRegistry(),
     llm: { registerProvider: () => () => undefined },
     promptSections,
+    triggers,
     hostFace: HOST_FACE,
     ...(overrides?.rateLimit ? { rateLimit: overrides.rateLimit } : {}),
     ...(overrides?.hookTimeoutMs ? { hookTimeoutMs: overrides.hookTimeoutMs } : {}),
     ...(overrides?.opens !== undefined ? { opens: overrides.opens } : {}),
   });
-  return { handle, dispatch, scope, promptSections };
+  return { handle, dispatch, scope, promptSections, triggers };
 }
 
 /** BaseError 码断言辅助（错码即契约——修 bug 必带回归锁的判据面） */
@@ -367,6 +375,10 @@ describe('注册动词委派真源', () => {
     expectCode(() => handle.ctx.channels.registerCommand('c', () => undefined), 'CONTEXT_SERVICE_MISSING');
     expectCode(() => handle.ctx.llm.registerProvider({ id: 'p' } as never), 'CONTEXT_SERVICE_MISSING');
     expectCode(() => handle.ctx.prompts.registerSection('acme-bare/s', () => ''), 'CONTEXT_SERVICE_MISSING');
+    expectCode(
+      () => handle.ctx.triggers.register({ name: 'acme-bare/t', description: '', fire: () => undefined }),
+      'CONTEXT_SERVICE_MISSING',
+    );
   });
 
   it('agent.registerMessageRole → contracts 真源（AGENT_ROLE_EXISTS 透传 + disposer 摘除释放名）', () => {
@@ -434,6 +446,39 @@ describe('提示词段注册表（prompt-sections——03 §2.5/§2.7）', () =>
     const { handle } = assemble({ pluginId: 'core:foo' });
     expect(() => handle.ctx.prompts.registerSection('foo/bar', () => '')).not.toThrow();
     expectCode(() => handle.ctx.prompts.registerSection('core:foo/bar', () => ''), 'PLUGIN_PROMPT_SLOT_INVALID');
+  });
+});
+
+describe('触发器注册面（ctx.triggers——03 §2.2 行 108 第十一动词，C 批 C-2）', () => {
+  it('triggers.register 委派真源（pluginId 注入 + 注销器透传摘册）', () => {
+    const { handle, triggers } = assemble();
+    const off = handle.ctx.triggers.register({
+      name: 'acme-widgets/daily',
+      description: '日结',
+      fire: () => undefined,
+    });
+    expect(triggers.list()).toEqual([{ name: 'acme-widgets/daily', owner: 'acme-widgets', description: '日结' }]);
+    off();
+    expect(triggers.list()).toEqual([]);
+  });
+
+  it('装载窗关后注册拒（PLUGIN_WINDOW_CLOSED——第十一动词同窗律）', () => {
+    const { handle } = assemble();
+    handle.closeWindow();
+    expectCode(
+      () => handle.ctx.triggers.register({ name: 'acme-widgets/x', description: '', fire: () => undefined }),
+      'PLUGIN_WINDOW_CLOSED',
+    );
+  });
+
+  it('回调窗内注册合法（§2.4 钩子豁免条款同律）', () => {
+    const { handle } = assemble();
+    handle.closeWindow();
+    const restore = handle.enterHostCallback();
+    expect(() =>
+      handle.ctx.triggers.register({ name: 'acme-widgets/y', description: '', fire: () => undefined }),
+    ).not.toThrow();
+    restore();
   });
 });
 

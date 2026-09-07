@@ -2,10 +2,11 @@
  * host/plugin-context — 插件上下文装配件（03 §2.1/§2.2/§2.4/§3.1/§3.4/§8.5；批 12f-2a）。
  *
  * 一件三面：
- *  - **ctx 八路注册动词 + 三动词 + provide**（§2.2/§3.1）：tools.register（拒绝式）/ channels.
+ *  - **ctx 九路注册动词 + 三动词 + provide**（§2.2/§3.1）：tools.register（拒绝式）/ channels.
  *    registerCommand（后写胜出）/ llm.registerProvider（后写胜出 upsert）/ events.
  *    registerSessionEventType（拒绝式·不可逆）/ agent.registerMessageRole（拒绝式）/ prompts.
- *    registerSection（拒绝式——本件 prompt-sections）/ ctx.on（fail-closed）/ ctx.emit +
+ *    registerSection（拒绝式——本件 prompt-sections）/ triggers.register（拒绝式
+ *    ·门检三闸——本件 triggers，C 批 C-2）/ ctx.on（fail-closed）/ ctx.emit +
  *    ctx.get·tryGet·effect + ctx.provide（§2.2 表行——委派共享根作用域，Kahn 解锁动词）
  *    ——逐动词冲突律真源 03 §2.7（本件只执法窗口与频率，撞名执法归各真源注册表）。
  *  - **装载窗口律**（§2.1）：注册动词只在 apply 执行期间合法；窗口外抛
@@ -35,6 +36,7 @@ import type { CommandHandler } from '../channels/index.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { Disposer, EventDispatch, Scope, WaterfallListener } from '../context/index.js';
 import type { PromptSectionBuilder, PromptSectionRegistry } from './prompt-sections.js';
+import type { TriggerDef } from './triggers.js';
 
 /** 钩子分派模式（03 §2.4——模式是钩子公开契约的一部分） */
 export type HookMode = 'emit' | 'waterfall' | 'serial' | 'parallel';
@@ -109,7 +111,7 @@ const HOOK_MODES: ReadonlyMap<string, HookMode> = new Map(PLUGIN_HOOK_VOCABULARY
 export type PluginHookHandler = (data: unknown, next: (value: unknown) => Promise<unknown>) => unknown;
 
 /**
- * 插件 ctx 面（apply 第一参——03 §2.2 八路注册动词 + §3.1 三动词 + §8.5 host 自省）。
+ * 插件 ctx 面（apply 第一参——03 §2.2 十一路注册动词 + §3.1 三动词 + §8.5 host 自省）。
  * 读面（get/tryGet/host）免窗；注册动词受窗口律 + 频率护栏双闸。
  */
 export interface PluginContext {
@@ -143,6 +145,8 @@ export interface PluginContext {
   readonly agent: { registerMessageRole(role: string, definition: MessageRoleDefinition): () => void };
   /** 系统提示词段注册（拒绝式——slot 域前缀两段式执法在 PromptSectionRegistry） */
   readonly prompts: { registerSection(slot: string, builder: PromptSectionBuilder): Disposer };
+  /** 触发器注册（拒绝式——门检/撞名/格式三闸执法在 TriggerRegistry，C 批 C-2） */
+  readonly triggers: { register(def: TriggerDef): Disposer };
   /** 宿主自省面（§8.5——装配根一次物化、fork 级联共享；附本插件 id） */
   readonly host: HostFace & { readonly pluginId: string };
 }
@@ -169,6 +173,8 @@ export interface PluginContextOptions {
   readonly llm?: Pick<LlmRuntime, 'registerProvider'>;
   /** 提示词段注册表（缺席同上） */
   readonly promptSections?: PromptSectionRegistry;
+  /** 触发器注册表（缺席同上——starter 真身随 C-3 装配批注入） */
+  readonly triggers?: TriggerRegistryLike;
   /**
    * provide 委派位（共享根作用域——本件只过窗/频率闸，撞名与 stale 执法归
    * Scope.provide）。缺席 = ctx.provide 抛 CONTEXT_SERVICE_MISSING（装配缺陷响亮）。
@@ -194,6 +200,11 @@ export interface PluginContextOptions {
 /** 命令注册表受局面（CommandRegistry 的结构面——测试替身免建全量） */
 export interface CommandRegistryLike {
   register(name: string, handler: CommandHandler, description?: string): Disposer;
+}
+
+/** 触发器注册表受局面（TriggerRegistry 的结构面——测试替身免建全量） */
+export interface TriggerRegistryLike {
+  register(pluginId: string, def: TriggerDef): Disposer;
 }
 
 /** ctx 装配产物（装载器消费：ctx 交 apply、闭包柄归装载序） */
@@ -465,6 +476,13 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
           pluginId,
           builder,
         );
+      },
+    },
+    triggers: {
+      register(def: TriggerDef): Disposer {
+        assertWindow('ctx.triggers.register');
+        countAction();
+        return required(options.triggers, 'triggers', 'ctx.triggers.register').register(pluginId, def);
       },
     },
     host: { ...hostFace, pluginId },
