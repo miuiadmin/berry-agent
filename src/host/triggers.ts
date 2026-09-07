@@ -1,8 +1,9 @@
 /**
  * host/triggers — 触发器注册面（03 §2.2 行 108 ctx.triggers.register 第十一动词
- * + §2.7 触发器行冲突律 + §4.6 开门制；2026-09-07 触发器面 C 批 C-2 注册面笔）。
+ * + §2.7 触发器行冲突律 + §4.6 开门制；2026-09-07 触发器面 C 批 C-2 注册面笔
+ * + C-3 starter 笔）。
  *
- * 一件两面：
+ * 一件三面：
  *  - **注册表本体**（单实例随装配根创建；插件经 ctx.triggers.register 间接消费
  *    ——窗口/频率护栏在 ctx 面执法，本件只管三闸与 starter 交接）：
  *    闸一 门检（`triggers.start-run` 高危面默认关——03 §4.6；core: 官方件直开
@@ -17,16 +18,28 @@
  *    ——防跨插件冒名，registerSection 同法）。
  *  - **starter 一次性交接**：注册成功即回调 `def.fire(starter)` 注入起会闭包
  *    （03 §2.2 行 108 定形注记——重装载经重注册重新注入，旧 starter 因 fire
- *    复检悬空失效不悬空越权）。starter 真身（起无头会话 + run + Job 托管）
- *    随 C-3 装配批经 `makeStarter` 注入；本件只持签名不持实现。
+ *    复检悬空失效不悬空越权）。
+ *  - **starter 真身工厂**（createTriggerStarterFactory——装配根注入窄依赖面
+ *    造 `(pluginId, name) => starter`）：fire 复检（活体开门收回）→ Job 受理
+ *    **先于**起会（「fire 受理先过帽再起会话」——帽满 JOB_LIMIT_REACHED /
+ *    显式 jobKind 未登记 JOB_KIND_UNKNOWN，不起会不留孤儿）→ 起无头会话
+ *    （origin 'trigger' + source `plugin:<id>` 归因 + per-fresh-session 模型
+ *    载体）→ 回执三终态映射 Job 终态（completed→completed / aborted→killed /
+ *    failed→failed；injected/wake-refused = run 未起落 failed）。**starter
+ *    永不 throw**——插件事件源回调内执行，throw 即进程级风险；拒与失败一律
+ *    warn 可观测 + Job 终态收口（无人值守鲁棒性）。
  *
  * 挂账注记：capability/used 逐次审计随 U3 落码批接线（audit_events 载体缺席；
- * v1 归因面经事件流 source=`plugin:<id>` 已闭集可查——03 §2.2 行 108 定形注记）。
+ * v1 归因面经事件流 source=`plugin:<id>` 已闭集可查——03 §2.2 行 108 定形注记）；
+ * JobHandle.stop→interrupt 桥接随 Job 消费面批（stop 置 stopping 后的协作中止
+ * 路由）；插件卸载 closeOwner(pluginId) 收口其在飞 Job 随 Job 消费面批。
  */
 import { BaseError } from '../contracts/index.js';
 // internal 桶机制符号深导（门检裁决核——03 §4.6；开门是宿主裁决面非插件 API）
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
-import type { JobKind } from '../contracts/index.js';
+import type { EventSource, JobKind } from '../contracts/index.js';
+import type { OpenedSession, SessionManager, SubmitOptions, SubmitResult } from '../conversation/index.js';
+import type { JobHandle, JobRegistry } from '../subagent/index.js';
 import type { Disposer } from '../context/index.js';
 
 /** 起会参数（starter 单参——03 §2.2 行 108 starter(spec) 签名定形） */
@@ -144,4 +157,125 @@ export class TriggerRegistry {
   list(): readonly TriggerEntry[] {
     return [...this.triggers.values()];
   }
+}
+
+/* ---------------- starter 真身（C-3 装配批——起无头会话 + Job 托管编舞） ---------------- */
+
+/** trigger kind 缺省并行帽（03 §2.2 行 108 定形注记——host 装配期自登 kind + 帽 4） */
+export const TRIGGER_JOB_PARALLEL_LIMIT = 4;
+
+/** 对话栈结构面（starter 消费的窄面——测试替身免建全栈） */
+export interface TriggerStackFace {
+  readonly manager: Pick<SessionManager, 'create'>;
+  /** 提交入口（fire-and-forget 形——回执经信封回流；无该会话驱动时 undefined） */
+  submitText(
+    sessionId: string,
+    text: string,
+    options?: SubmitOptions & { source?: EventSource },
+  ): Promise<SubmitResult> | undefined;
+}
+
+/** starter 编舞依赖面（装配根注入——结构窄面 + 活体读取源，纯逻辑可测） */
+export interface TriggerStarterDeps {
+  /** 对话栈消费窄面（起会 + 提交） */
+  readonly stack: TriggerStackFace;
+  /** Job 注册面（帽与词汇执法在 JobRegistry——受理先于起会） */
+  readonly jobs: Pick<JobRegistry, 'register'>;
+  /** 开门授予集活体读取源（fire 复检——与注册闸同源，/reload 撤位即拒） */
+  readonly getOpens: (pluginId: string) => ReadonlySet<string>;
+  /** 工作区根读取（起会 workspaceRoot 选取键——cwd 归一根） */
+  readonly workspaceRoot: () => string;
+  /** warn 面（拒与失败的可观测位——starter 永不 throw） */
+  readonly warn: (message: string) => void;
+}
+
+/**
+ * starter 真身工厂（装配根消费——TriggerRegistry makeStarter 位注入）。
+ *
+ * 编舞序（受理先行的对称收口——任何一步失败都让 Job 落终态，不留 running
+ * 悬空条目）：fire 复检（core: 豁免，拒 = warn + return）→ spec 轻校验 →
+ * Job 受理（先过帽再起会）→ 起会（origin 'trigger'）→ 提交（source
+ * `plugin:<id>`）→ 回执三终态映射 Job 终态。回执腿 fire-and-forget：starter
+ * 同步返回，run 终态经 JobSettledEvent 活体通知可观测。
+ */
+export function createTriggerStarterFactory(
+  deps: TriggerStarterDeps,
+): (pluginId: string, name: string) => TriggerStarter {
+  return (pluginId, name) => (spec) => {
+    // —— fire 复检（03 §4.6 开门可收回）：与注册闸同源活体判——/reload 撤位后
+    // 旧 starter 现判现拒；core: 官方件直开豁免（同注册闸判据）
+    if (!pluginId.startsWith('core:')) {
+      const verdict = adjudicateCapabilityDoor(deps.getOpens(pluginId), 'triggers.start-run');
+      if (!verdict.ok) {
+        deps.warn(`触发器 ${name} 起会被拒：${verdict.message}（插件 ${pluginId}——fire 复检，开门可收回）`);
+        return;
+      }
+    }
+    // —— spec 轻校验（插件代码运行期传参防御——TS 形状之外的运行时防线）
+    if (typeof spec.prompt !== 'string' || spec.prompt.length === 0) {
+      deps.warn(`触发器 ${name} 起会参数坏形：prompt 缺席或空（插件 ${pluginId}）`);
+      return;
+    }
+    // —— Job 受理先于起会（「fire 受理先过帽再起会话」：帽满 JOB_LIMIT_REACHED /
+    // 显式 jobKind 未登记 JOB_KIND_UNKNOWN 都不造孤儿会话）。owner = 插件 id
+    // 围栏键（插件卸载 closeOwner 桥接挂账 Job 消费面批）
+    const title = spec.title ?? `${name} ${new Date().toISOString()}`;
+    let job: JobHandle;
+    try {
+      job = deps.jobs.register({ kind: spec.jobKind ?? 'trigger', name: title, owner: pluginId });
+    } catch (err) {
+      deps.warn(
+        `触发器 ${name} Job 受理失败（插件 ${pluginId}）：${err instanceof BaseError ? `[${err.code}] ${err.message}` : String(err)}`,
+      );
+      return;
+    }
+    // —— 起无头会话（origin 'trigger'；model 纯内存 per-fresh-session 载体）
+    let opened: OpenedSession;
+    try {
+      opened = deps.stack.manager.create({
+        origin: 'trigger',
+        workspaceRoot: deps.workspaceRoot(),
+        title,
+        ...(spec.model !== undefined ? { model: spec.model } : {}),
+      });
+    } catch (err) {
+      const detail = `起会失败：${err instanceof Error ? err.message : String(err)}`;
+      job.settle({ status: 'failed', detail });
+      deps.warn(`触发器 ${name} 起会失败（插件 ${pluginId}）：${detail}`);
+      return;
+    }
+    // —— 提交首条输入（source=`plugin:<id>` 归因——05 §3.1 受控注入位）
+    const submitted = deps.stack.submitText(opened.sessionId, spec.prompt, { source: `plugin:${pluginId}` });
+    if (submitted === undefined) {
+      job.settle({ status: 'failed', detail: 'run 未起——会话驱动缺席' });
+      deps.warn(`触发器 ${name} 提交失败：会话驱动缺席（插件 ${pluginId}）`);
+      return;
+    }
+    // —— 回执 → Job 终态映射（aborted→killed 承 Job 终态词——SubagentStopReason
+    // 同映射；injected/wake-refused 两收执 = run 未起，落 failed 交代去向）
+    void submitted.then(
+      (result) => {
+        if (result.status === 'completed') {
+          job.settle({ status: 'completed' });
+        } else if (result.status === 'aborted') {
+          job.settle({ status: 'killed', detail: 'run 被中止' });
+        } else if (result.status === 'failed') {
+          job.settle({
+            status: 'failed',
+            ...(result.errorMessage !== undefined ? { detail: result.errorMessage } : {}),
+          });
+        } else if (result.status === 'injected') {
+          job.settle({
+            status: 'failed',
+            detail: `run 未起——输入落 inject 通道（durable seq ${result.seq}，随下次启动带入）`,
+          });
+        } else {
+          job.settle({ status: 'failed', detail: 'run 未起——连续后台唤醒超帽拒收（wake-refused）' });
+        }
+      },
+      (err) => {
+        job.settle({ status: 'failed', detail: `run 异常：${err instanceof Error ? err.message : String(err)}` });
+      },
+    );
+  };
 }

@@ -49,6 +49,12 @@ export type DriverFactory = (input: {
   readonly session: SessionLog;
   readonly origin: SessionOrigin;
   readonly resumed: boolean;
+  /**
+   * 本会话模型覆盖（create init.model 透传；缺省 undefined = 走装配根缺省
+   * 模型解析）。纯内存载体——不进 durable 行（触发器 starter 的 per-fresh-
+   * session 模型通道；open/resume 不携带——resume 回落栈缺省，C 批 C-3）。
+   */
+  readonly model?: string;
 }) => ConversationDriver;
 
 /** 已开会话回执（create/open 共形） */
@@ -114,15 +120,15 @@ export class SessionManager {
     return this.persistence.listSessions(options);
   }
 
-  /** 新开会话（origin 缺省普通对话） */
-  create(init: { origin?: SessionOrigin; workspaceRoot?: string; title?: string } = {}): OpenedSession {
+  /** 新开会话（origin 缺省普通对话；model 为本会话模型覆盖——内存载体） */
+  create(init: { origin?: SessionOrigin; workspaceRoot?: string; title?: string; model?: string } = {}): OpenedSession {
     const origin = init.origin ?? 'conversation';
     const log = this.persistence.createSession({
       origin,
       ...(init.workspaceRoot !== undefined ? { workspaceRoot: init.workspaceRoot } : {}),
       ...(init.title !== undefined ? { title: init.title } : {}),
     });
-    return this.adopt(log, origin, false);
+    return this.adopt(log, origin, false, init.model);
   }
 
   /**
@@ -238,9 +244,9 @@ export class SessionManager {
     this.records.clear();
   }
 
-  /** 登记 + 驱动构造 + 入册（create/open/fork 共尾） */
-  private adopt(log: SessionLog, origin: SessionOrigin, resumed: boolean): OpenedSession {
-    const driver = this.createDriver({ session: log, origin, resumed });
+  /** 登记 + 驱动构造 + 入册（create/open/fork 共尾；model 仅 create 腿携带） */
+  private adopt(log: SessionLog, origin: SessionOrigin, resumed: boolean, model?: string): OpenedSession {
+    const driver = this.createDriver({ session: log, origin, resumed, ...(model !== undefined ? { model } : {}) });
     this.records.set(log.sessionId, { driver, origin });
     return { sessionId: log.sessionId, driver, origin };
   }

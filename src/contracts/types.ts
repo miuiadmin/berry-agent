@@ -121,10 +121,12 @@ export type TurnEndReason =
 
 /**
  * 会话血缘 origin 闭集（05 §5.1）：'conversation'（普通对话）/ 'delegation'
- * （委派子会话）/ 'import'（外部导入）/ 'fork'（显式 fork）。无插件域——
- * 会话直归 agent（05 §0 会话归属模型）。
+ * （委派子会话）/ 'import'（外部导入）/ 'fork'（显式 fork）/ 'trigger'（触发器
+ * starter 起的无头会话——首 turn 非人触，2026-09-07 触发器面 C 批落码扩词；
+ * 05 §9 sessions.origin 与 03 §2.4 session_start 载荷三处闭集同笔）。无插件
+ * 域——会话直归 agent（05 §0 会话归属模型）。
  */
-export type SessionOrigin = 'conversation' | 'delegation' | 'import' | 'fork';
+export type SessionOrigin = 'conversation' | 'delegation' | 'import' | 'fork' | 'trigger';
 
 /** 血缘三元组（fork 动作的分层返回外层，05 §5.2；不返回幻影 id） */
 export interface SessionLineage {

@@ -19,20 +19,26 @@
  *  - 意外异常 = 崩溃取证档（crash.log 已在收口前写入——memory 形内建跳过；
  *    crashed: true 供调用方区分文案前缀，不再重复取证）。
  */
+import { readFileSync } from 'node:fs';
+import { parse as parseYaml } from 'yaml';
+
 import { BaseError } from '../contracts/index.js';
-import { EventDispatch, LogLevelState, Scope, createLogger } from '../context/index.js';
+import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
 import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
+import { createJobRegistry, provideJobsService } from '../subagent/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import type { CorePluginReference } from './loader.js';
+import { enabledYamlPath, parseEnabledRows } from './manifest.js';
 import type { PluginBootHandle } from './plugin-boot.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
+import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactory } from './triggers.js';
 
 /** 装配选项（TUI 入口与诊断命令共用面——runtime 子面透传 createHostRuntime） */
 export interface AssembleHostOptions {
@@ -139,6 +145,30 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       warn: (message) => logger.warn(message),
     });
 
+    // —— Job 注册表 + 触发器注册表（C 批 C-3——第十一动词宿主侧真源）：
+    // job_settled 总线词先注册（活体事件发射前置——04 §10 内存直推不落库，
+    // 幂等跳过已注册词）→ Job 注册表（trigger kind 自登 + 缺省并行帽 4）→
+    // 服务面 provide（插件 tryGet('jobs') 消费）→ 触发器注册表（starter 真身
+    // 工厂注入——活体开门读取源：/reload 撤位后 fire 复检现判现拒）——
+    const jobs = createJobRegistry({
+      parallelLimits: { trigger: TRIGGER_JOB_PARALLEL_LIMIT },
+      emit: (event) => dispatch.emit('job_settled', event),
+      warn: (message) => logger.warn(message),
+    });
+    jobs.registerKind('trigger');
+    provideJobsService(scope, jobs);
+    const readOpens = (pluginId: string) => readTriggerOpensLive(dataDir, pluginId);
+    const triggers = new TriggerRegistry({
+      getOpens: readOpens,
+      makeStarter: createTriggerStarterFactory({
+        stack,
+        jobs,
+        getOpens: readOpens,
+        workspaceRoot: () => canonicalWorkspaceRoot(),
+        warn: (message) => logger.warn(message),
+      }),
+    });
+
     // —— 插件装载：启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——
     // 干净退出不写 crash.log）；余装载失败走行级隔离不入本档 ——
     let boot: PluginBootHandle;
@@ -149,6 +179,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         dispatch,
         commands: stack.channels.commands,
         llm: stack.llmRuntime,
+        triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
         noPlugins: options.noPlugins === true,
         version: options.version,
         ...(options.corePlugins !== undefined ? { corePlugins: options.corePlugins } : {}),
@@ -180,4 +211,34 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       crashed: true,
     };
   }
+}
+
+/**
+ * 触发器开门授予集活体读取（F10 定形——注册闸与 fire 复检共用源）：每次
+ * 现读 enabled.yaml 现解析，/reload 撤位后下一次判即拒。
+ *
+ * **fail-closed 全失败档一律空集**（文件缺席/不可读/坏 yaml/行校验败/行被
+ * 禁用/id 未装载）——与 boot 读侧 fail-loud（PLUGIN_ROW_INVALID 拒启）分立
+ * 两律：boot 拦的是启动期配置错；此处拦的是运行期判面，**宁拒不误放**
+ * （memory 形 dataDir null 亦空集——core: 官方件直开豁免不经本面）。
+ */
+export function readTriggerOpensLive(dataDir: string | null, pluginId: string): ReadonlySet<string> {
+  if (dataDir === null) return new Set<string>();
+  let text: string;
+  try {
+    text = readFileSync(enabledYamlPath(dataDir), 'utf8');
+  } catch {
+    return new Set<string>(); // 缺席/不可读 = 全默认关
+  }
+  let doc: unknown;
+  try {
+    doc = parseYaml(text);
+  } catch {
+    return new Set<string>(); // 坏 yaml 宁拒不误放（启动期已 fail-loud——此处防御运行期二次写坏）
+  }
+  const result = parseEnabledRows(doc);
+  if (!result.ok) return new Set<string>();
+  const row = result.rows.find((r) => r.id === pluginId);
+  if (row === undefined || row.disabled === true) return new Set<string>();
+  return new Set<string>(row.opens ?? []);
 }

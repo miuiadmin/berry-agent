@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
-import { assembleHostStack } from './assembly.js';
+import { assembleHostStack, readTriggerOpensLive } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
 
@@ -160,5 +160,48 @@ describe('失败三档归一（不抛——呈报面归调用方）', () => {
     }
     // crash.log 跳过语义跟 memory 位走（诊断形 dataDir 在场也不写——writeCrashLog 首判 memory）
     expect(existsSync(join(dir, 'crash.log'))).toBe(false);
+  });
+});
+
+describe('触发器开门活体读取（readTriggerOpensLive——C 批 C-3：注册闸与 fire 复检共用源）', () => {
+  it('null dataDir → 空集（memory 形全默认关——core: 豁免不经本面）', () => {
+    expect(readTriggerOpensLive(null, 'acme')).toEqual(new Set());
+  });
+
+  it('文件缺席 → 空集（全 core: 内置态 = 生态插件全默认关）', () => {
+    const dir = tmpDir('host-asm-tol-miss-');
+    expect(readTriggerOpensLive(dir, 'acme')).toEqual(new Set());
+  });
+
+  it('行在场且开 → 授予集现读现判（/reload 撤位语义的数据源）', () => {
+    const dir = tmpDir('host-asm-tol-open-');
+    writeFileSync(
+      join(dir, 'enabled.yaml'),
+      'plugins:\n  - id: acme\n    opens:\n      - triggers.start-run\n      - channels.ui-backend\n',
+    );
+    expect(readTriggerOpensLive(dir, 'acme')).toEqual(new Set(['triggers.start-run', 'channels.ui-backend']));
+    // 同文件他插件不受门
+    expect(readTriggerOpensLive(dir, 'other')).toEqual(new Set());
+  });
+
+  it('行被禁用 → 空集（disabled 即收回——toggle 翻转位）', () => {
+    const dir = tmpDir('host-asm-tol-dis-');
+    writeFileSync(
+      join(dir, 'enabled.yaml'),
+      'plugins:\n  - id: acme\n    disabled: true\n    opens:\n      - triggers.start-run\n',
+    );
+    expect(readTriggerOpensLive(dir, 'acme')).toEqual(new Set());
+  });
+
+  it('坏 yaml → 空集（宁拒不误放——与 boot 侧 fail-loud 拒启分立两律的运行期档）', () => {
+    const dir = tmpDir('host-asm-tol-bad-');
+    writeFileSync(join(dir, 'enabled.yaml'), '{ Oops');
+    expect(readTriggerOpensLive(dir, 'acme')).toEqual(new Set());
+  });
+
+  it('行校验败（坏行形）→ 空集（fail-closed 不误放）', () => {
+    const dir = tmpDir('host-asm-tol-row-');
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: acme\n    opens: [not-a-grantable]\n');
+    expect(readTriggerOpensLive(dir, 'acme')).toEqual(new Set());
   });
 });

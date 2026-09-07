@@ -51,7 +51,7 @@ import { clearBootFailure, recordBootFailure } from './boot-failures.js';
 import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
 import { loadPlugins } from './loader.js';
 import type { DiskPluginSpec } from './loader.js';
-import { parseEnabledRows, parseManifest } from './manifest.js';
+import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js';
 import type { EnabledRow } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
 import type { CommandRegistryLike, PluginContextHandle, TriggerRegistryLike } from './plugin-context.js';
@@ -280,7 +280,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
  */
 function readEnabledRows(dataDir: string | null, fs: PluginBootFs): readonly EnabledRow[] {
   if (dataDir === null) return [];
-  const path = join(dataDir, 'enabled.yaml');
+  const path = enabledYamlPath(dataDir);
   const text = fs.read(path);
   if (text === null) return []; // 缺席 = 全 core: 内置态
   let doc: unknown;

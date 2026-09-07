@@ -99,6 +99,36 @@ describe('SessionManager create 与登记', () => {
     makeManager(dispatch);
     expect(() => makeManager(dispatch)).toThrow(); // 二次装配撞 conversation/session-manager-mounted
   });
+
+  it('create init.model 透传 DriverFactory（缺席 undefined；open/resume 不携带——触发器 starter per-fresh-session 载体，C 批 C-3）', async () => {
+    const seen: Array<string | undefined> = [];
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: (input) => {
+        seen.push(input.model);
+        return new ConversationDriver({
+          session: input.session,
+          scope: Scope.createRoot(),
+          dispatch,
+          streamFn: async () => {
+            throw new Error('本测试面不驱动 run（纯编排断言）');
+          },
+          convertToLlm: passthrough,
+          model: input.model ?? 'test/model',
+        });
+      },
+    });
+    const overridden = manager.create({ model: 'override/model' });
+    manager.create({}); // 缺席 = undefined（栈缺省回落的判据位）
+    // 零持久化承诺：resume 前落首事件（行随首事件落库）
+    overridden.driver.session.append('turn/start', {});
+    await persistence.flush();
+    manager.dispose(); // 清登记走 open/resume 腿——resume 不携带模型
+    manager.open(overridden.sessionId);
+    expect(seen).toEqual(['override/model', undefined, undefined]);
+  });
 });
 
 /* ---------------- open（resume） ---------------- */

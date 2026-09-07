@@ -42,7 +42,7 @@ CREATE INDEX idx_events_type ON events(type);
 CREATE TABLE sessions (
   id             TEXT    PRIMARY KEY,
   title          TEXT,                            -- 标题（缺省 NULL；会话列表呈现面消费）
-  origin         TEXT    NOT NULL,                -- 'conversation' | 'delegation' | 'import' | 'fork'
+  origin         TEXT    NOT NULL,                -- 'conversation' | 'delegation' | 'import' | 'fork' | 'trigger'
   parent_id      TEXT,                            -- 血缘父会话（根会话 NULL）
   seed_length    INTEGER NOT NULL DEFAULT 0,      -- 种子前缀长度（fork/导入切片）
   workspace_root TEXT,                            -- 工作区根（按 cwd 取最新会话的选取键）

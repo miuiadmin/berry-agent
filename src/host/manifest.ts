@@ -9,6 +9,8 @@
  * 复用件：清单 api 块形状与版本串判据单源在 contracts（ApiBlock /
  * isValidApiVersion——§8.4 装载门同判据，不散拷）。
  */
+import { join } from 'node:path';
+
 import type { ApiBlock } from '../contracts/index.js';
 import { isValidApiVersion } from '../contracts/index.js';
 // internal 桶机制符号深导（opens 授予位值域单源——02 §4.3 #2 深挖面册纪律）
@@ -299,6 +301,14 @@ function versionPairLt(a: string, b: string): boolean {
 }
 
 /* ---------------- 启用清单行（enabled.yaml——03 §5.3 单层 overlay） ---------------- */
+
+/**
+ * 启用清单文件路径（数据目录下单文件——boot 读侧与 fire 复检活体读侧共用
+ * 单源；C 批 C-3：plugin-boot 与 triggers 活体开门读取都经本函数取路径）。
+ */
+export function enabledYamlPath(dataDir: string): string {
+  return join(dataDir, 'enabled.yaml');
+}
 
 /**
  * 启用行（03 §5.3 行 schema 定形 + 批 U1 增位）：`{ id, config?, disabled?,

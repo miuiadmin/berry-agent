@@ -170,8 +170,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     history: (sessionId) => Promise.resolve(projectionOf(sessionId)),
   });
 
-  // ⑤ SessionManager：DriverFactory 装配注入族全接线
-  const createDriver: DriverFactory = ({ session }) => {
+  // ⑤ SessionManager：DriverFactory 装配注入族全接线（model = per-fresh-session
+  // 覆盖 ?? 栈缺省——create init.model 透传位，触发器 starter 载体，C 批 C-3）
+  const createDriver: DriverFactory = ({ session, model: sessionModel }) => {
     const sessionId = session.sessionId;
     // 审批桥：driver 与 open 域工具共用同一 per-session ask 面（07 §4.3 提问队列）
     const askApproval = (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) =>
@@ -202,7 +203,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       streamFn,
       convertToLlm: (message: AgentMessage) =>
         isStandardMessage(message) ? message : (getMessageRoleDefinition(message.role)?.toLlm?.(message) ?? null),
-      model,
+      model: sessionModel ?? model,
       ...(tools !== undefined ? { tools } : {}),
       ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
       ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
