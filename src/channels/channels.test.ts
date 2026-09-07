@@ -6,6 +6,7 @@
  * 不破）；阻塞应答经 deferred 手控，模拟真实后端「signal abort 收保守值」。
  */
 import { describe, expect, it } from 'vitest';
+import { BaseError } from '../contracts/index.js';
 import { createChannels } from './service.js';
 import type { ApprovalAskAnswer, SessionEnvelope, UiBackend, UiCapabilities } from './types.js';
 import type { AgentEvent } from '../agent/index.js';
@@ -535,5 +536,79 @@ describe('ask 强制收副屏（07 §4.1 件 8——注意力优先级 ask > 回
     const p = s.confirm('s1', '做吗？');
     b.confirmAsks[0]?.resolve(true);
     expect(await p).toBe(true);
+  });
+});
+
+describe('插件域后端注册面（03 §2.7 后端 id 分域律——U3 批 U3-3）', () => {
+  it('插件域注册即入全量扇出：notify 恒扇出 + 信封路由达插件后端', () => {
+    const s = createChannels();
+    const host = fakeBackend('tui');
+    const plugin = fakeBackend('webui');
+    s.addBackend(host.backend);
+    s.registerPluginBackend(plugin.backend);
+    expect(s.listPluginBackendIds()).toEqual(['webui']);
+
+    s.registerSession('a');
+    s.emit(env('a', { type: 'agent_start' }));
+    expect(plugin.envelopes.length).toBe(1); // 双域合流扇出
+    s.notify('a', '插件后端在场');
+    expect(plugin.notified.map((n) => n.message)).toContain('插件后端在场');
+  });
+
+  it('同 id 后写胜出（upsert 原位顶替）：旧实例不再收扇出、清单不增位', () => {
+    const s = createChannels();
+    const first = fakeBackend('webui');
+    const second = fakeBackend('webui');
+    s.registerPluginBackend(first.backend);
+    s.registerPluginBackend(second.backend);
+    expect(s.listPluginBackendIds()).toEqual(['webui']); // 一位不增
+
+    s.registerSession('a');
+    s.emit(env('a', { type: 'agent_start' }));
+    expect(first.envelopes.length).toBe(0); // 顶替后旧实例出局
+    expect(second.envelopes.length).toBe(1); // 后写者胜出
+  });
+
+  it('撞宿主域 id 拒 CHANNEL_BACKEND_RESERVED（分域律——宿主后端结构性不可顶替）', () => {
+    const s = createChannels();
+    s.addBackend(fakeBackend('tui').backend);
+    expect(() => s.registerPluginBackend(fakeBackend('tui').backend)).toThrowError(BaseError);
+    try {
+      s.registerPluginBackend(fakeBackend('tui').backend);
+      expect.unreachable();
+    } catch (err) {
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('CHANNEL_BACKEND_RESERVED');
+        expect(err.message).toContain('tui');
+        return;
+      }
+      expect.unreachable();
+    }
+  });
+
+  it('disposer 三律②：摘除生效 + 同 id 顶替后旧 disposer 无操作', () => {
+    const s = createChannels();
+    const first = fakeBackend('webui');
+    const second = fakeBackend('webui');
+    const disposeFirst = s.registerPluginBackend(first.backend);
+    disposeFirst();
+    expect(s.listPluginBackendIds()).toEqual([]); // 摘除生效
+
+    const disposeAgain = s.registerPluginBackend(first.backend);
+    const disposeSecond = s.registerPluginBackend(second.backend); // 顶替 first
+    disposeAgain(); // 旧 disposer——身份闸无操作（first 已不在册）
+    expect(s.listPluginBackendIds()).toEqual(['webui']);
+    disposeSecond();
+    expect(s.listPluginBackendIds()).toEqual([]);
+  });
+
+  it('宿主域 removeBackend 不动插件域（分域分立——插件摘除只经 disposer）', () => {
+    const s = createChannels();
+    s.addBackend(fakeBackend('tui').backend);
+    s.registerPluginBackend(fakeBackend('webui').backend);
+    s.removeBackend('webui'); // 宿主域无此 id——零效果
+    expect(s.listPluginBackendIds()).toEqual(['webui']);
+    s.removeBackend('tui'); // 摘宿主后端不牵连插件域
+    expect(s.listPluginBackendIds()).toEqual(['webui']);
   });
 });
