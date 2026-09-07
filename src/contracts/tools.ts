@@ -9,9 +9,6 @@
 
 import type { ImageContent, TextContent, ToolCallBlock, Usage } from './llm.js';
 
-/** 工具执行模式：sequential = 串行（缺省）；parallel = 并行。批内任一工具 sequential 即整批串行 */
-export type ToolExecutionMode = 'sequential' | 'parallel';
-
 /** 工具执行结果（终值——错误也走 isError 数据面不走异常面） */
 export interface AgentToolResult {
   /** 结果内容（与 ToolResultMessage.content 同形；空结果传空数组） */
@@ -45,8 +42,13 @@ export interface AgentTool {
   label?: string;
   /** JSON Schema 参数描述（typebox 产物或等价 JSON Schema 对象） */
   parameters: object;
-  /** 执行模式（缺省 sequential；批内任一 sequential 即整批串行） */
-  executionMode?: ToolExecutionMode;
+  /**
+   * 效果面（03 §2.3 一位两用——批调度与审批共此单键，不另设同义键）：
+   * ① 调度语义（tools-batch 批消费序执法——04 §2 尾句）：read（含缺省）批内
+   *   可并行调度、write 批边界串行（写前清空在飞只读）；
+   * ② 审批语义：write 触发审批对（守门段校验，审批编舞归 safety 件）。
+   */
+  effect?: ToolEffect;
   /** 参数预处理钩子（执行前最后一改参数的机会；返回改后参数） */
   prepareArguments?: (
     arguments_: Record<string, unknown>,
@@ -73,7 +75,7 @@ export type AgentToolCall = ToolCallBlock;
 /* 都是跨件消费方，契约面不得住 tools 实现件（DAG 只允许 tools 反向被依赖） */
 /* ------------------------------------------------------------------ */
 
-/** 工具效果面（03 §2.3）：缺省 read；write 触发审批对（审批编舞归 safety 件） */
+/** 工具效果面（03 §2.3 一位两用）：缺省 read；write 兼任批调度屏障（批边界串行）与审批对触发（审批编舞归 safety 件） */
 export type ToolEffect = 'read' | 'write';
 
 /** 工具执行语境（管道构造后传给 ToolDefinition.execute 的第 2 参） */
@@ -102,8 +104,14 @@ export interface ToolDefinition {
   parameters: object;
   /** 单次执行预算毫秒（正数；缺省走管道 60s——04 §7 执行段） */
   timeoutMs?: number;
-  /** 效果面（缺省 read；write 触发审批对——03 §2.3） */
+  /** 效果面（一位两用——调度语义 + 审批触发；缺省 read。03 §2.3） */
   effect?: ToolEffect;
+  /**
+   * 幂等位（03 §2.3）：缺省 true；false = 禁静默重试——副作用型工具重放即
+   * 重复执行，重试决策须回模型或上抛不静默。框架侧重放机制（04 §2 call_id
+   * 幂等决策）落码前本位先锚定（词先锚定同律）。
+   */
+  repeatable?: boolean;
   /** 执行体：一切失败编码为 isError 结果（数据面）；抛错由管道/loop 包装兜底 */
   execute: (args: Record<string, unknown>, toolCtx: ToolContext) => Promise<AgentToolResult>;
 }

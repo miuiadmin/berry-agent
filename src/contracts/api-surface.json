@@ -18,7 +18,7 @@
       "since": "1.0",
       "desc": "工具执行体（loop 工具批消费的最小形状——完整 defineTool 形在 tools 件）",
       "kind": "interface",
-      "sig": "fa16ee71b6195fb4"
+      "sig": "4b1c41d587597499"
     },
     {
       "symbol": "AgentToolCall",
@@ -625,25 +625,16 @@
       "since": "1.0",
       "desc": "注册表内工具定义（03 §2.3 defineTool 形——插件注册动词 ctx.tools.register 的入参形状）",
       "kind": "interface",
-      "sig": "b8f4716757c79f28"
+      "sig": "457f25ba60dafc7f"
     },
     {
       "symbol": "ToolEffect",
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "工具效果面（03 §2.3）：缺省 read；write 触发审批对（审批编舞归 safety 件）",
+      "desc": "工具效果面（03 §2.3 一位两用）：缺省 read；write 兼任批调度屏障（批边界串行）与审批对触发（审批编舞归 safety 件）",
       "kind": "type",
       "sig": "0d0001e711109c11"
-    },
-    {
-      "symbol": "ToolExecutionMode",
-      "module": "berry-agent",
-      "tier": "stable",
-      "since": "1.0",
-      "desc": "工具执行模式：sequential = 串行（缺省）；parallel = 并行",
-      "kind": "type",
-      "sig": "2dc54d34fc1407a8"
     },
     {
       "symbol": "ToolPipelineExecutor",

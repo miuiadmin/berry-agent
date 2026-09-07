@@ -10,7 +10,7 @@ import { EventDispatch } from '../context/index.js';
 import { BaseError, TOOL_EVENT_NAMES, TOOLS_CHANGE_EVENT } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 import { createToolPipeline } from './pipeline.js';
-import { createToolRegistry, scanToolDescription, TOOL_TIMEOUT_FLOOR_MS } from './registry.js';
+import { createToolRegistry, scanToolDescription, toAgentTool, TOOL_TIMEOUT_FLOOR_MS } from './registry.js';
 
 /* ---------------- 测试构造件 ---------------- */
 
@@ -76,6 +76,23 @@ describe('两层解析（listFor / agentToolsFor）', () => {
     expect(stored.timeoutMs).toBe(TOOL_TIMEOUT_FLOOR_MS);
     expect(original.timeoutMs).toBe(5); // 原对象未被改动
     expect(original.effect).toBeUndefined();
+  });
+
+  it('repeatable 缺省归一 true；显式 false 保留（幂等位锚定——03 §2.3）', () => {
+    const { registry } = makeRig();
+    registry.register(makeDef({ name: 'dflt' }));
+    registry.register(makeDef({ name: 'one-shot', repeatable: false }));
+    const defs = registry.listFor('any');
+    expect(defs.find((d) => d.name === 'dflt')!.repeatable).toBe(true);
+    expect(defs.find((d) => d.name === 'one-shot')!.repeatable).toBe(false);
+  });
+
+  it('toAgentTool 透传 effect（write 屏障键到达 loop 消费面）', () => {
+    const executor = vi.fn(async () => ({ content: [] }));
+    const readTool = toAgentTool(makeDef({ name: 'r' }), executor);
+    const writeTool = toAgentTool(makeDef({ name: 'w', effect: 'write' }), executor);
+    expect(readTool.effect).toBeUndefined(); // read 是缺省——undefined 与 'read' 段归类同效
+    expect(writeTool.effect).toBe('write');
   });
 
   it('agentToolsFor 未接管道 → CONTEXT_SERVICE_MISSING 响亮失败（装配缺陷不静默）', () => {

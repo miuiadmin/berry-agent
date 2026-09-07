@@ -3,9 +3,11 @@
  *
  * 本件是 loop 零 try/catch 形态铁律的配套执法位：插件工具 execute 可抛错，
  * 包装在此（错误 → isError 结果数据面），loop 骨架只见结果不见异常。
- * 批语义三条：①任一工具 sequential 即整批串行（全 parallel 才并行）；
+ * 批语义四条：①读写批调度（03 §2.3 尾注——effect 一位两用）：read（含缺省）
+ * 段内并发、write 批边界串行（写前清空在飞只读——段序天然执法：write 前的
+ * read 段已 Promise.all 排干、write 后的 read 段待其结算才起跑）；
  * ②beforeToolCall block → immediate isError 结果；③terminate 批内一致裁决
- * （批内全 terminate 才 terminate——单件否决不放大）。abort 余量配对（落批
+ * （批内全 terminate 才 terminate——单件否决不放大）；④abort 余量配对（落批
  * 中间时未执行 calls 逐个配对 isError toolResult，防下一轮孤儿 toolUse）。
  */
 
@@ -104,7 +106,12 @@ async function executeOne(
 }
 
 /**
- * 执行一批工具调用（串行判定 + abort 余量配对 + 批内一致 terminate）。
+ * 执行一批工具调用（读写批调度 + abort 余量配对 + 批内一致 terminate）。
+ *
+ * 调度（03 §2.3 尾注——effect 一位两用的消费执法）：按原序切段——连续 read
+ * 调用成一段（段内并发 Promise.all）、write 调用独立成段（单件串行屏障：
+ * 写前清空在飞只读、写后 read 待其结算）。工具不在场（lookup 失败）视同
+ * read 入段——executeOne 自会回配置漂移 isError，不影响调度归类。
  *
  * @param config loop 配置 @param context 运行上下文 @param calls assistant 批内全部调用
  * @param emit 活体事件发射器
@@ -115,32 +122,43 @@ export async function executeToolBatch(
   calls: AgentToolCall[],
   emit: EmitFn,
 ): Promise<ToolBatchOutcome> {
-  // 任一工具 sequential（或缺省）即整批串行——全 parallel 才并行
-  const parallel = calls.every((call) => {
-    const tool = context.tools?.find((t) => t.name === call.name);
-    return tool?.executionMode === 'parallel';
-  });
   const outcome: ToolBatchOutcome = { results: [], terminate: false };
-  if (parallel) {
-    const settled = await Promise.all(
-      calls.map((call) => executeOne(config, context, lookup(context, call), call, emit)),
-    );
-    outcome.results = settled.map((s) => s.message);
-    outcome.terminate = settled.length > 0 && settled.every((s) => s.terminate); // 空批不终止
-  } else {
-    let allTerminate = true;
-    for (const call of calls) {
-      // 串行腿逐件查中止：落批中间时余量配对 isError（原因注明打断——无孤儿 toolUse）
-      if (config.signal?.aborted) {
+  let allTerminate = true;
+  let index = 0;
+  while (index < calls.length) {
+    // 段前中止检查：已中止 → 余量全部配对 isError 收口（无孤儿 toolUse；配对腿不参与 terminate 表决——与旧串行路径同律）
+    if (config.signal?.aborted) {
+      for (const call of calls.slice(index)) {
         outcome.results.push(buildResult(call, '工具批已被打断（run 中止——余量配对收口）', true));
-        continue;
       }
-      const settled = await executeOne(config, context, lookup(context, call), call, emit);
-      outcome.results.push(settled.message);
-      allTerminate = allTerminate && settled.terminate;
+      outcome.terminate = calls.length > 0 && allTerminate;
+      return outcome;
     }
-    outcome.terminate = calls.length > 0 && allTerminate;
+    // 连续 read 段（effect 缺省 read——含工具不在场腿）
+    const segment: AgentToolCall[] = [];
+    while (index < calls.length && lookup(context, calls[index]!)?.effect !== 'write') {
+      segment.push(calls[index]!);
+      index++;
+    }
+    if (segment.length > 0) {
+      // read 段内并发（03 §2.3「批内可并行调度」）；结果按 calls 原序落位（Promise.all 保序）
+      const settled = await Promise.all(
+        segment.map((call) => executeOne(config, context, lookup(context, call), call, emit)),
+      );
+      for (const item of settled) {
+        outcome.results.push(item.message);
+        allTerminate = allTerminate && item.terminate;
+      }
+      continue;
+    }
+    // write 腿：单件串行屏障（写前清空在飞只读——前 read 段已排干；写后 read 段待本腿结算）
+    const writeCall = calls[index]!;
+    index++;
+    const settled = await executeOne(config, context, lookup(context, writeCall), writeCall, emit);
+    outcome.results.push(settled.message);
+    allTerminate = allTerminate && settled.terminate;
   }
+  outcome.terminate = calls.length > 0 && allTerminate; // 空批不终止
   return outcome;
 }
 

@@ -133,14 +133,16 @@ export function toAgentTool(def: ToolDefinition, executor: ToolPipelineExecutor,
     name: def.name,
     description: def.description,
     parameters: def.parameters,
+    // 调度语义位透传（一位两用——批消费序按 effect 分段：read 段并发、write 屏障）
+    effect: def.effect,
     execute: (toolCallId, args, signal, onUpdate) => executor(def, toolCallId, args, signal, onUpdate, sessionId),
   };
 }
 
 /**
  * 组装工具注册表（装配根调用一次；tools_change 经注入的 dispatch 发射）。
- * 注册面归一：effect 缺省 'read'（03 §2.3 契约缺省）；timeoutMs 正数过小
- * 钳至下限（存归一副本——对调用方原对象零改动）。
+ * 注册面归一：effect 缺省 'read'、repeatable 缺省 true（03 §2.3 契约缺省）；
+ * timeoutMs 正数过小钳至下限（存归一副本——对调用方原对象零改动）。
  */
 export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOptions = {}): ToolRegistry {
   const executor = opts.pipeline;
@@ -252,10 +254,11 @@ export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOp
           `注册表两层合计达总量帽 ${totalLimit}（当前 ${totalSize()}）——超限拒新注册：${def.name}`,
         );
       }
-      // 归一副本：effect 缺省 read（03 §2.3 契约缺省）；timeoutMs 钳下限
+      // 归一副本：effect 缺省 read、repeatable 缺省 true（03 §2.3 契约缺省）；timeoutMs 钳下限
       const normalized: ToolDefinition = {
         ...def,
         effect: def.effect ?? 'read',
+        repeatable: def.repeatable ?? true,
         ...(def.timeoutMs !== undefined ? { timeoutMs: Math.max(def.timeoutMs, TOOL_TIMEOUT_FLOOR_MS) } : {}),
       };
       if (driver === undefined) {
