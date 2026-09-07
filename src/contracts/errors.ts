@@ -164,6 +164,12 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
       '命令名词法违例拒注册：主段连字符式 + 可选冒号子段（03 篇 §2.2 签名定形——撞名后写胜出不拒、词法违例拒）',
   },
   {
+    code: 'CHANNEL_BACKEND_RESERVED',
+    module: 'channels',
+    description:
+      '插件注册界面后端 id 撞宿主域拒——后端 id 分域律执法（03 篇 §2.7：宿主后端宿主装配独占、插件结构性不可顶替；07 篇 §4 宿主后端恒在场条款执法承载）',
+  },
+  {
     code: 'SDK_PROTOCOL_MISMATCH',
     module: 'sdk',
     description: '线协议版本握手拒连：双方 protocolVersion 不匹配 fail-loud（03 篇 §10.6 线协议⑤）',

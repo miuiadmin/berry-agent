@@ -5,6 +5,12 @@
  * 消息基础件（第五批）。工具/插件/子代理/Job 类型随对应模块落码批进本面。
  */
 export * from './errors.js';
+// AgentEvent 活体事件族 + UI 通道后端契约族（2026-09-08 U3 落码批归位——
+// 插件侧类型可达路径定形：虚拟主键 `berry-agent` 面只达 contracts，registerUiBackend
+// 的 backend 形〔UiBackend<never>〕与 onEnvelope 活体流词汇经此两件可达；
+// agent/channels 两侧公开面 re-export 维持不变〔批 11b ApprovalAsk 同款先例〕）
+export * from './agent-events.js';
+export * from './ui.js';
 /**
  * api.ts 分桶收面（03 篇 §8.3 internal 行 + §8.4 公开根分桶——API 治理批 2）：
  * api.ts 顶层导出分两桶，本处只转出**可见桶**六名（四型 + 两纯函数——插件作者

@@ -1,7 +1,10 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——20 核心词全列，
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——22 核心词全列，
  * compaction 三词 2026-09-06 纵切批增补、session/thinking-level 同日遗漏
- * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕）。
+ * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
+ * capability/used 2026-09-08 U3 落码批入册〔05 行 70-71 开门制两审计词——
+ * 载体 = 进程级 durable 审计流（05 §9 audit_events，非会话 append 面），
+ * 入册即得核心词身份双闸（U3-0 台账 R-2）〕）。
  *
  * 双入口纪律：核心词汇本表静态声明（含类别/归属/语义），插件扩展经
  * registerEventType 显式注册；session append 词汇检查（未注册类型抛
@@ -54,7 +57,10 @@ export interface EventTypeMeta {
  * tier 全 stable（核心词汇 = 已收口契约面，03 §8.3 零隐式载体）。
  * 核心词计数 16→19：compaction/start|surface|end 随 compaction 纵切批入表；
  * 19→20：session/thinking-level 随遗漏审计批回填（05 §1.1 行 66 agent 纵切
- * 批已定名，注册表漏登——批 11 conversation 写入将撞词汇闸，先回填止血）。
+ * 批已定名，注册表漏登——批 11 conversation 写入将撞词汇闸，先回填止血）；
+ * 20→22：plugin/opens·capability/used 随 U3 落码批入册（05 §1.1 行 70-71
+ * 开门制两审计词——载体 = 进程级 audit_events 审计流〔05 §9〕非会话流，
+ * 入册值 = 核心词身份双闸 + 目录单一真源；写入面随 U3-2 persist 笔落码）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -171,6 +177,22 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     owner: 'host',
     tier: 'stable',
     description: '卸载四段成功尾落账（id/source/dataAction/affected?；核心词身份拒装载面注册）',
+  },
+  {
+    type: 'plugin/opens',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '高危面开门授予面切换事实（boot 装载序对每插件 grantedOpens 与审计流尾最近一条本词 diff——有变才落幂等记账；撤位落 opens:[] 空数组形收口；载体 = 进程级 durable 审计流 audit_events〔05 §9〕非会话流，fold = 审计流尾条 = 该插件当前有效授予面）',
+  },
+  {
+    type: 'capability/used',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '高危面开门后的每次换装/注册使用事实（宿主门检接线位在门检通过、注册动词受理成功后落；载体 = 进程级 durable 审计流 audit_events〔05 §9〕；v1 射程 = channels.ui-backend + triggers.start-run 逐次 fire（triggerName 归因腿），sdk.register-route 随 U5）',
   },
   {
     type: 'compaction/start',

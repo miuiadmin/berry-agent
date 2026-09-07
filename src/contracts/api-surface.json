@@ -3,6 +3,24 @@
   "enforcement": "pre-ignition",
   "exports": [
     {
+      "symbol": "AgentEvent",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "AgentEvent 10 型联合",
+      "kind": "type",
+      "sig": "b6401b6a1a32d74e"
+    },
+    {
+      "symbol": "AgentEventSink",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "事件汇（消费面：TUI/SPA 活体呈现、金样录制器等；void/Promise 双形兼容）",
+      "kind": "type",
+      "sig": "c0da353134972f25"
+    },
+    {
       "symbol": "AgentMessage",
       "module": "berry-agent",
       "tier": "stable",
@@ -127,6 +145,15 @@
       "desc": "自定义角色消息（content 载荷形状由角色定义自裁——toLlm 映射的输入）",
       "kind": "interface",
       "sig": "06dea5b0a8b35e29"
+    },
+    {
+      "symbol": "DeliverChannel",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "三通道词表：steer = busy 注入合批 / followUp = idle 起跑 / inject = dismantled 停摆后注入",
+      "kind": "type",
+      "sig": "7c3e59e7b20a120a"
     },
     {
       "symbol": "ERROR_CODE_PREFIXES",
@@ -371,6 +398,15 @@
       "sig": "e1f6c5401361d632"
     },
     {
+      "symbol": "NotifyLevel",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "notify 通知档（07 §4.3 签名定稿；'success' = 任务完成语义档）",
+      "kind": "type",
+      "sig": "44c03899f663f946"
+    },
+    {
       "symbol": "ParsedEventSource",
       "module": "berry-agent",
       "tier": "stable",
@@ -407,6 +443,15 @@
       "sig": "7830b4efa0d9724a"
     },
     {
+      "symbol": "RunStatus",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "run 终态恰三值",
+      "kind": "type",
+      "sig": "1143b08931044782"
+    },
+    {
       "symbol": "STANDARD_MESSAGE_ROLES",
       "module": "berry-agent",
       "tier": "stable",
@@ -423,6 +468,15 @@
       "desc": "委派深度帽（04 §10 委派边界③）：根会话委派 = 深度 1；子代理再委派逐层 +1；超帽 3 拒（SUBAGENT_DEPTH_EXCEEDED——防自嵌套爆栈）",
       "kind": "const",
       "sig": "a5691a655c07cc26"
+    },
+    {
+      "symbol": "SessionEnvelope",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "多会话信封（07 §4.1 channels 纵切批定形三则②）：AgentEvent 不带会话归属是刻意的——loop 是单 run 视角无多会话概念；归属信封的包装位 = host 装配的 per-run sink 包装器（conversation 侧 sink 签名零 channels 感知、纯 AgentEvent 回调注册面，host 汇入 channels 分发器时附加信封——装配根是唯一允许 import 全部宿主模块的横切层，2026-09-06 冷读裁决 C-1），channels 消费分流",
+      "kind": "interface",
+      "sig": "d2bddb7a08fb0c43"
     },
     {
       "symbol": "SessionEvent",
@@ -680,6 +734,51 @@
       "desc": "turn/end 的 reason 闭集（05 §1.1 表：completed / aborted / blocked / error / max-tokens / interrupted，可扩展）",
       "kind": "type",
       "sig": "7806806ab5b8cd06"
+    },
+    {
+      "symbol": "UiAskOptions",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "阻塞原语公共选项（07 §4.3 撤销面：abort 按取消收场取保守值）",
+      "kind": "interface",
+      "sig": "aa90463450f5562c"
+    },
+    {
+      "symbol": "UiBackend",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "通道后端接口（通道核的呈现消费面）",
+      "kind": "interface",
+      "sig": "03de56d3cb8b2305"
+    },
+    {
+      "symbol": "UiCapabilities",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "通道能力声明（07 §4.3 通道降级规则的判定面）：不支持的原语按「notify 化」降级（select→input→notify、setWidget→notify）——插件不感知通道能力差异，降级判定与编舞在核",
+      "kind": "interface",
+      "sig": "5d6db677578502ba"
+    },
+    {
+      "symbol": "UiInputOptions",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "input 原语选项",
+      "kind": "interface",
+      "sig": "6a236cb87ddeac7b"
+    },
+    {
+      "symbol": "UiSelectChoice",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "select 单选项（07 §4.3 签名定稿形）",
+      "kind": "interface",
+      "sig": "b0b22829e52dcdd2"
     },
     {
       "symbol": "Usage",
@@ -942,6 +1041,13 @@
       "desc": "组装完成后的消息级事件；toolCall 块不内联 content（由 tool/call 唯一承载）；errorMessage 腿独立 2KiB 小帽"
     },
     {
+      "symbol": "capability/used",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "高危面开门后的每次换装/注册使用事实（宿主门检接线位在门检通过、注册动词受理成功后落；载体 = 进程级 durable 审计流 audit_events〔05 §9〕；v1 射程 = channels.ui-backend + triggers.start-run 逐次 fire（triggerName 归因腿），sdk.register-route 随 U5）"
+    },
+    {
       "symbol": "compaction/end",
       "module": "session-events",
       "tier": "stable",
@@ -982,6 +1088,13 @@
       "tier": "stable",
       "since": "1.0",
       "desc": "complete 单发补全通道的计量事实（token 原始值入账，货币折算在投影查询做）"
+    },
+    {
+      "symbol": "plugin/opens",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "高危面开门授予面切换事实（boot 装载序对每插件 grantedOpens 与审计流尾最近一条本词 diff——有变才落幂等记账；撤位落 opens:[] 空数组形收口；载体 = 进程级 durable 审计流 audit_events〔05 §9〕非会话流，fold = 审计流尾条 = 该插件当前有效授予面）"
     },
     {
       "symbol": "plugin/uninstalled",

@@ -11,7 +11,7 @@ import {
 } from './index.js';
 
 describe('事件词汇注册表', () => {
-  it('核心 20 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填）', () => {
+  it('核心 22 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填、plugin/opens·capability/used 2026-09-08 U3 落码批入册〔开门制两审计词——载体 = 进程级 audit_events 审计流非会话流，入册值 = 核心词身份双闸〕）', () => {
     const expected = [
       'turn/start',
       'turn/end',
@@ -30,6 +30,8 @@ describe('事件词汇注册表', () => {
       'llm/usage',
       'llm/retry',
       'plugin/uninstalled',
+      'plugin/opens',
+      'capability/used',
       'compaction/start',
       'compaction/surface',
       'compaction/end',
@@ -52,6 +54,13 @@ describe('事件词汇注册表', () => {
     expect(getEventTypeMeta('llm/retry')?.owner).toBe('session');
     expect(getEventTypeMeta('plugin/uninstalled')?.owner).toBe('host');
     expect(getEventTypeMeta('todo/write')?.owner).toBe('conversation');
+    // 开门制两审计词：写入者 = host 装配根（boot 装载序 / 门检接线位——
+    // U3-0 台账；audit 流单写者律，插件面零写入位）
+    expect(getEventTypeMeta('plugin/opens')?.owner).toBe('host');
+    expect(getEventTypeMeta('capability/used')?.owner).toBe('host');
+    // 两审计词类别锚：log-only（永不进模型历史——审计流词汇）
+    expect(getEventTypeMeta('plugin/opens')?.category).toBe('log-only');
+    expect(getEventTypeMeta('capability/used')?.category).toBe('log-only');
   });
 
   it('核心词全部不 ignorable（读侧必须认识）', () => {
