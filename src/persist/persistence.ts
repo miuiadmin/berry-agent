@@ -34,6 +34,14 @@ export interface PersistenceOptions {
   readonly migrations?: readonly MigrationSpec[];
   /** 告警面（透传 Store/WriteBehind：权限修复/毒丸/撕裂尾） */
   readonly warn?: (message: string) => void;
+  /**
+   * durable 事件活体镜像观察者（03 §146 `session/event` 钩子的发射位——
+   * host 装配根注入 dispatch.emit 桥；载荷 `{sessionId, event}`）。
+   * 每条 append（含合成补形）写入内存日志后回调；种子前缀不重放（历史上
+   * 首写时已发过）。观察者异常隔离不影响提交（发射侧 try/catch 兜底 +
+   * dispatch.emit 监听器互隔离双保险）。
+   */
+  readonly onDurableEvent?: (payload: { sessionId: string; event: SessionEvent }) => void;
   /** 时间注入（缺省 Date.now——测试假钟） */
   readonly clock?: () => number;
   /** 凭证密钥注入（测试位） */
@@ -84,14 +92,22 @@ export class Persistence {
   readonly store: Store;
   readonly writeBehind: WriteBehind;
   private readonly warn: (message: string) => void;
+  /** durable 事件活体镜像（缺省零回调——纯库形态/测试面） */
+  private readonly onDurableEvent: (payload: { sessionId: string; event: SessionEvent }) => void;
   /** 已打开会话的登记快照（onAppend 闭包捕获用——首登身份，与 sessions 行首登同源） */
   private readonly registrations = new Map<string, SessionRegistration>();
   private closed = false;
 
-  private constructor(store: Store, writeBehind: WriteBehind, warn: (message: string) => void) {
+  private constructor(
+    store: Store,
+    writeBehind: WriteBehind,
+    warn: (message: string) => void,
+    onDurableEvent: (payload: { sessionId: string; event: SessionEvent }) => void,
+  ) {
     this.store = store;
     this.writeBehind = writeBehind;
     this.warn = warn;
+    this.onDurableEvent = onDurableEvent;
   }
 
   /**
@@ -114,7 +130,7 @@ export class Persistence {
       clock: options.clock,
       ...options.writeBehind,
     });
-    return new Persistence(store, writeBehind, warn);
+    return new Persistence(store, writeBehind, warn, options.onDurableEvent ?? (() => undefined));
   }
 
   private ensureOpen(): void {
@@ -225,6 +241,14 @@ export class Persistence {
           : undefined,
       onAppend: (event) => {
         writeBehind.enqueue({ sessionId, event, registration });
+        // 活体镜像（03 §146——写入后即发；观察者异常隔离不影响提交，append
+        // 热路径零 I/O 律不破坏：观察者是内存分派桥非 I/O 面）
+        try {
+          this.onDurableEvent({ sessionId, event });
+        } catch {
+          // 镜像观察者故障不波及会话流（双保险腿——dispatch 桥自身另有
+          // 监听器互隔离）
+        }
       },
       warn: this.warn,
     });

@@ -26,6 +26,7 @@ import { BaseError } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
+import type { MemoryLlmFace } from '../memory/index.js';
 import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
 import { createJobRegistry, createSubagentService, provideJobsService } from '../subagent/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
@@ -93,6 +94,11 @@ export interface AssemblySuccess {
 export async function assembleHostStack(options: AssembleHostOptions): Promise<AssemblySuccess | AssemblyFailure> {
   // —— 装载披露计数匣（pluginsProvider 先于运行时组装接线——披露段每请求重算读匣）——
   const pluginCounts = { total: 0, enabled: 0, failed: 0 };
+  // —— 共享根作用域与事件总线（提前位——批 19b-2：session/event 活体镜像桥
+  // 须在运行时组装期注入 Persistence.onDurableEvent，作用域/总线先于运行时建；
+  // 对话栈与插件装载仍同根同源）——
+  const scope = Scope.createRoot();
+  const dispatch = new EventDispatch();
   let runtime: HostRuntime | undefined;
   try {
     // —— 运行时组装（单活跃机 + 开库 fail-loud——干净退出档，非崩溃取证档）——
@@ -100,6 +106,18 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtime = createHostRuntime({
         ...options.runtime,
         pluginsProvider: () => ({ ...pluginCounts }),
+        // session/event 活体镜像桥（03 §146——批 19b-2）：durable append →
+        // dispatch.emit。isRegistered 守卫 = 纯诊断形（noPlugins）词汇未注册
+        // 零发射（41 词表在 bootPlugins 预注册——不装载即不注册）；观察者
+        // 异常隔离双保险（Persistence 发射侧 try/catch + dispatch 监听器互
+        // 隔离）。onDurableEvent 属装配根专属位——调用方旋钮透传不含此键
+        persistence: {
+          ...options.runtime.persistence,
+          onDurableEvent: (payload) => {
+            if (!dispatch.isRegistered('session/event')) return;
+            void dispatch.emit('session/event', payload);
+          },
+        },
       });
     } catch (err) {
       return {
@@ -123,9 +141,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     const dataDir = runtime.dataDir;
     const allowlistLoad = dataDir !== null ? readAllowlist(dataDir, { warn: (m) => logger.warn(m) }) : null;
 
-    // —— 共享根作用域与事件总线：对话栈与插件装载同根同源 ——
-    const scope = Scope.createRoot();
-    const dispatch = new EventDispatch();
+    // —— 共享根作用域与事件总线已前移运行时组装之前（批 19b-2 活体镜像桥位）——
     // 装载柄前置声明（批 19a 消费腿闭包晚绑定：stack 先建、boot 后跑，会话
     // 首开/请求组装时闭包经此引用取已定型产物——boot.tools 全局层定义重放
     // 与 promptSections 物化两条消费腿同法）
@@ -190,6 +206,22 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       warn: (message) => logger.warn(message),
     });
 
+    // —— memory 件 LLM seam 适配器（批 19b-2——词面独立律：memory 席 DAG 无
+    // llm 边，LlmService→MemoryLlmFace 的适配归装配根）。UserMessage.timestamp
+    // 必填位适配器补（契约无时钟缺省）；priority 缺省 'background'（周期路属
+    // 后台道——04 §5 预算闸门执法位）；result 结构超集直返（AssistantMessage
+    // ⊇ {content}，文本面提取 llmTextOf 在件内）——
+    const runtimeNow = runtime; // let 联合型收窄入 const（闭包捕获用——直接捕 runtime 联合型不进闭包）
+    const memoryLlm: MemoryLlmFace = {
+      complete: (req) =>
+        stack.llm.complete({
+          ...(req.systemPrompt !== undefined ? { systemPrompt: req.systemPrompt } : {}),
+          messages: req.messages.map((m) => ({ role: 'user' as const, content: m.content, timestamp: Date.now() })),
+          priority: req.priority ?? 'background',
+        }),
+      canAfford: (priority) => stack.llm.canAfford(priority),
+    };
+
     // —— 插件装载：启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——
     // 干净退出不写 crash.log）；余装载失败走行级隔离不入本档 ——
     try {
@@ -206,7 +238,24 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
         // 工厂形升级批 19b-1：dataDir 等宿主真身经 CorePluginHostDeps 入件；
         // 15 件逐纵切笔入册，见 core-plugins.ts）
-        corePlugins: options.corePlugins ?? createCorePlugins({ dataDir: runtime.dataDir }),
+        corePlugins:
+          options.corePlugins ??
+          createCorePlugins({
+            dataDir: runtime.dataDir,
+            // memory 件数据面（批 19b-2——sqlite 主闸恒接线；fts 双 seam 同
+            // Store 直传——词面独立律 compat 面，对拍测试互证）
+            sqlite: () => runtimeNow.persistence.store.sqlite(),
+            // 活体日志优先（write-behind 在飞事件不落盘——driver 在场时读
+            // 内存面零缺口）；驱动已收口的外部会话兜底落盘读
+            fetchEvents: (sessionId) =>
+              stack.driverOf(sessionId)?.session.events() ?? runtimeNow.persistence.loadSession(sessionId).log.events(),
+            ftsSearch: runtime.persistence.store,
+            ftsMaintenance: runtime.persistence.store,
+            llm: () => memoryLlm,
+            // sessionId 位 = 稳定字面占位（呈现侧路由后端自决——TUI/webui 均
+            // 广播；语义面 = 归因 'memory'）
+            notify: (message) => stack.channels.notify('memory', message),
+          }),
         warn: (message) => logger.warn(message),
       });
     } catch (err) {

@@ -20,6 +20,9 @@ import { join } from 'node:path';
 
 import { MEMORY_DB_PATH, Persistence, resolveDataDir } from '../persist/index.js';
 import type { PersistenceOptions } from '../persist/index.js';
+// core: 表族迁移声明（05 §6.4 机械聚合——声明来自插件、执行在宿主；host 行
+// 拓扑边在册）。19c 各笔追加 GOAL/SCHEDULER 迁移时按版本升序插队前列。
+import { MEMORY_MIGRATIONS } from '../memory/index.js';
 
 import { collectDate, collectPlatform, renderEnvironmentDisclosure } from './disclosure.js';
 import { acquireActiveMarker } from './single-instance.js';
@@ -108,6 +111,9 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
     persistence = Persistence.open({
       ...(options.persistence ?? {}),
       ...(memory ? { dbPath: MEMORY_DB_PATH } : { dataDir: dataDir as string }),
+      // 迁移链机械聚合（05 §6.4）：core: 插件表族声明并入宿主单链——调用方
+      // 迁移在前（版本须全链严格递增——19c 追加件插队时同律校验）
+      migrations: [...(options.persistence?.migrations ?? []), ...MEMORY_MIGRATIONS],
     });
   } catch (err) {
     lease?.release();

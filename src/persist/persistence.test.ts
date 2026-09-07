@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
+import type { SessionEvent } from '../contracts/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import { Persistence } from './persistence.js';
 
@@ -200,5 +201,52 @@ describe('透传面', () => {
     expect(p.listSessions({ workspaceRoot: '/ws/x' }).map((r) => r.id)).not.toContain(bare.sessionId);
     expect(p.updateSessionTitle(inWs.sessionId, '起名了')).toBe(true);
     expect(p.listSessions({ workspaceRoot: '/ws/x' })[0]!.title).toBe('起名了');
+  });
+});
+
+describe('durable 事件活体镜像（onDurableEvent——03 §146 发射位，批 19b-2）', () => {
+  /** 开镜像面助手 */
+  function openMirror(onDurableEvent: (payload: { sessionId: string; event: SessionEvent }) => void): Persistence {
+    const p = Persistence.open({
+      dbPath: join(dir, 'mirror.db'),
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      onDurableEvent,
+    });
+    ps.push(p);
+    return p;
+  }
+
+  it('append 即发：载荷 {sessionId, event} 与事件流同序同形', () => {
+    const seen: Array<{ sessionId: string; event: SessionEvent }> = [];
+    const p = openMirror((payload) => seen.push(payload));
+    const log = p.createSession({ origin: 'conversation' });
+    oneTurn(log, 'hello');
+    expect(seen.map((s) => s.event.type)).toEqual(['turn/start', 'user/message']);
+    expect(seen[0]!.sessionId).toBe(log.sessionId);
+    expect(seen[0]!.event.seq).toBe(0); // 内存日志形态原样（非落库投影）
+  });
+
+  it('种子不重放：loadSession 重建前缀零发射，续写才发', async () => {
+    const seen: string[] = [];
+    const p = openMirror((payload) => seen.push(payload.event.type));
+    const origin = p.createSession({ origin: 'conversation' });
+    oneTurn(origin, 'seed');
+    await p.flush();
+    seen.length = 0; // 清首写期发射——下述只看装载/续写行为
+    const loaded = p.loadSession(origin.sessionId); // 种子重建（attachSession 直填）零发射
+    expect(seen).toEqual([]);
+    loaded.log.append('turn/end', {}); // 续写走 onAppend → 发射
+    expect(seen).toEqual(['turn/end']);
+  });
+
+  it('观察者异常隔离：抛错不影响 append 与落库（发射侧 try/catch 双保险腿）', async () => {
+    const p = openMirror(() => {
+      throw new Error('boom');
+    });
+    const log = p.createSession({ origin: 'conversation' });
+    expect(() => oneTurn(log, 'x')).not.toThrow(); // append 照常（提交不受观察者故障波及）
+    await p.flush();
+    expect(p.store.loadEvents(log.sessionId)).toHaveLength(2); // 写队列未受波及
   });
 });

@@ -17,6 +17,10 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { EventDispatch, Scope } from '../context/index.js';
+import type { SessionEvent } from '../contracts/index.js';
+import { MEMORY_MIGRATIONS } from '../memory/index.js';
+import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
+import { MEMORY_DB_PATH, Persistence } from '../persist/index.js';
 import { SessionLog } from '../session/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
@@ -56,36 +60,57 @@ function stubRuntime(dataDir: string | null): HostRuntime {
   return stub as unknown as HostRuntime; // closers 等私有位不在公开类型——结构替身
 }
 
+/** memory 件 deps 注入面（批 19b-2——sqlite 主闸 + 三 seam + 命令输出） */
+interface MemoryDepsForTest {
+  sqlite?: () => ReturnType<Persistence['store']['sqlite']>;
+  fetchEvents?: (sessionId: string) => readonly SessionEvent[];
+  llm?: () => MemoryLlmFace;
+  notify?: (message: string) => void;
+}
+
 /** 真装载速记（createCorePlugins 工厂单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言。cwd/homeDir 注入隔离面——skills 跨库层不扫真实 HOME） */
 async function bootCore(
   dataDir: string | null,
   fs: PluginBootFs = memoryFs(),
   anchors: { cwd?: string; homeDir?: string } = {},
+  memoryDeps: MemoryDepsForTest = {},
 ): Promise<{
   scope: Scope;
   dispatch: EventDispatch;
   warnings: string[];
+  commands: string[];
   boot: Awaited<ReturnType<typeof bootPlugins>>;
 }> {
   const warnings: string[] = [];
+  const commands: string[] = [];
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
   const boot = await bootPlugins({
     runtime: stubRuntime(dataDir),
     scope,
     dispatch,
-    commands: { register: () => () => undefined },
+    commands: {
+      // 命令注册捕获桩（memory-export/import 注册面断言用——通道行为面归 channels 域）
+      register: (name: string) => {
+        commands.push(name);
+        return () => undefined;
+      },
+    },
     llm: { registerProvider: () => () => undefined },
     corePlugins: createCorePlugins({
       dataDir,
       ...(anchors.cwd !== undefined ? { cwd: anchors.cwd } : {}),
       ...(anchors.homeDir !== undefined ? { homeDir: anchors.homeDir } : {}),
+      ...(memoryDeps.sqlite !== undefined ? { sqlite: memoryDeps.sqlite } : {}),
+      ...(memoryDeps.fetchEvents !== undefined ? { fetchEvents: memoryDeps.fetchEvents } : {}),
+      ...(memoryDeps.llm !== undefined ? { llm: memoryDeps.llm } : {}),
+      ...(memoryDeps.notify !== undefined ? { notify: memoryDeps.notify } : {}),
     }),
     version: '9.9.9-test',
     warn: (message) => warnings.push(message),
     fs,
   });
-  return { scope, dispatch, warnings, boot };
+  return { scope, dispatch, warnings, commands, boot };
 }
 
 /** 恒答审批呈现面（write 类工具守门放行桩——审批装配测试同款，应答 = 'approve' 字面） */
@@ -249,7 +274,125 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(registry!.providerIds()).toEqual(['project', 'cross-repo', 'factory']);
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills 三件）', () => {
-    expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual(['exec', 'web', 'skills']);
+  it('memory 件装载全环（批 19b-2）：真 :memory: 座 → 服务面/九工具/简报段/三消费腿/命令注册', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-mem2-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-mem2-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-mem2-home-'));
+    dirs.push(dataDir, workspace, home);
+    // 真 :memory: 座 + 聚合迁移链（宿主库同构——DAO 建表走 MEMORY_MIGRATIONS）
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    const notified: string[] = [];
+    const { scope, dispatch, boot, commands } = await bootCore(
+      dataDir,
+      memoryFs(),
+      { cwd: workspace, homeDir: home },
+      {
+        sqlite: () => persistence.store.sqlite(),
+        fetchEvents: () => [],
+        llm: () => ({
+          // 周期路 LLM 桩（due→fire 拍点需 agent 服务——替身形无 run 终态，恒不触发）
+          complete: async () => ({ message: { content: '' } }),
+          canAfford: () => false,
+        }),
+        notify: (message) => notified.push(message),
+      },
+    );
+
+    // 服务面：'memory' 在场（dao + cycle 双柄——llm+fetchEvents 双在场 = 周期腿在）
+    const memoryService = scope.tryGet<{ dao: MemoryDao; cycle: MemoryCycle | null }>('memory');
+    expect(memoryService).toBeDefined();
+    expect(memoryService!.cycle).not.toBeNull();
+
+    // 九工具注册（boot 全局层——bootTools 重放消费腿同 fetch 形）
+    const names = boot.tools.definitions().map((d) => d.name);
+    for (const tool of [
+      'memory_write',
+      'memory_forget',
+      'memory_restore',
+      'memory_read',
+      'memory_search',
+      'memory_freeze',
+      'memory_unfreeze',
+      'memory_ttl',
+      'memory_access_log',
+    ]) {
+      expect(names).toContain(tool);
+    }
+
+    // 简报段物化挂接位（条目在库后断言——空库渲染空串属件内拍板「空段跳过」，
+    // 见下方 ingest 后断言）
+
+    // 命令注册两件（经 ctx.channels.registerCommand——桩捕获名单）
+    expect(commands).toContain('memory-export');
+    expect(commands).toContain('memory-import');
+
+    // —— 三消费腿（dispatch 直发——发射位物理腿在 Persistence 桥，assembly 域测）——
+    // ① 引用记录腿先行落一行（cite 归责要唯一短 id 命中）
+    const ingested = memoryService!.dao.ingest({
+      ownerKey: 'global',
+      kind: 'convention',
+      summary: '构建走 vitest',
+      content: '构建走 npm test（vitest run）',
+      confidence: 0.8,
+      sourceRefs: [{ sessionId: 's-mem', seq: 0 }],
+    });
+    expect(ingested.action).toBe('inserted');
+    // 简报段物化（条目在库 = 标记 + 摘要行——06 §6 路 1 常驻；空库渲染空串
+    // 属件内拍板「空段跳过」，故断言置 ingest 后）
+    expect(boot.promptSections.materialize()).toContain('<!-- memory:core -->');
+    expect(boot.promptSections.materialize()).toContain('构建走 vitest');
+    const cited = memoryService!.dao.listVisible()[0]!;
+
+    // ② 引用记录腿（先于提取腿发——库内单行 = 短 id 前缀唯一无歧义；同毫秒
+    // 双 uuidv7 共享 8-hex 时间戳前缀会触发「歧义全部忽略」归责三态）：
+    // assistant/message 携 [m:短id] → usageCount 回写
+    await dispatch.emit('session/event', {
+      sessionId: 's-mem',
+      event: {
+        type: 'assistant/message',
+        seq: 2,
+        ts: 2,
+        data: { content: [{ type: 'text', text: `测试命令引用见 [m:${cited.id.slice(0, 8)}]` }] },
+      },
+    });
+    expect(memoryService!.dao.get(cited.id)!.usageCount).toBe(1);
+
+    // ③ 即时提取腿：纠正触发词 → dao 落行（纯函数提取零 LLM）
+    await dispatch.emit('session/event', {
+      sessionId: 's-mem',
+      event: {
+        type: 'user/message',
+        seq: 1,
+        ts: 1,
+        data: { content: '不对，构建命令是 npm test，下次记住', source: 'user' },
+      },
+    });
+    expect(memoryService!.dao.listVisible().length).toBe(2); // 纠正提取行入册
+
+    // ④ 周期计数腿：10× turn/end（缺省阈值）→ due 含会话
+    for (let i = 0; i < 10; i++) {
+      await dispatch.emit('session/event', {
+        sessionId: 's-mem',
+        event: { type: 'turn/end', seq: 3 + i, ts: 3 + i, data: {} },
+      });
+    }
+    expect(memoryService!.cycle!.dueSessions()).toContain('s-mem');
+
+    await persistence.close();
+  });
+
+  it('memory 主闸（sqlite 缺席）：件零装载——服务面缺席 + 零工具注册 + 计数不变', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-gate-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-gate-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-gate-home-'));
+    dirs.push(dataDir, workspace, home);
+    const { scope, boot } = await bootCore(dataDir, memoryFs(), { cwd: workspace, homeDir: home }); // 无 memoryDeps = sqlite 缺席
+    expect(scope.tryGet('memory')).toBeUndefined(); // 诚实缺席律
+    expect(boot.tools.definitions().map((d) => d.name)).not.toContain('memory_write'); // 零工具
+    expect(boot.promptSections.materialize()).not.toContain('<!-- memory:core -->'); // 零简报段
+  });
+
+  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory 四件）', () => {
+    expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual(['exec', 'web', 'skills', 'memory']);
   });
 });

@@ -16,11 +16,15 @@
  * 会话级 deps（档位/审批/工作区）经服务面工厂形求值：装载期固定构造会
  * 丢会话面（批 19a 定形——ExecToolService 契约见 conversation/types.ts）。
  */
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
-import type { ExecToolService } from '../conversation/index.js';
+import type { SessionEvent } from '../contracts/index.js';
+import { getEventTypeMeta } from '../contracts/index.js';
+import type { AgentService, ExecToolService } from '../conversation/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { createBashTool, createSpawnPipeline } from '../exec/index.js';
+import type { SqliteDatabase } from '../persist/index.js';
 import { createSandboxService } from '../safety/index.js';
 import { createFetchTool, createInFlightGate, createWebFetchService, DEFAULT_WEB_LIMITS } from '../web/index.js';
 import type { InFlightGate } from '../web/index.js';
@@ -30,6 +34,26 @@ import {
   createStandardLayers,
   renderAvailableSkills,
 } from '../skills/index.js';
+import {
+  buildCoreBrief,
+  createCiteRecorder,
+  createImmediateExtractor,
+  createMemoryCycle,
+  createMemoryDao,
+  createMemoryTools,
+  ensureFtsIndex,
+  MEMORY_DIFF_EVENT_META,
+  MEMORY_EXPORT_USAGE,
+  MEMORY_IMPORT_USAGE,
+  runMemoryExportCommand,
+  runMemoryImportCommand,
+} from '../memory/index.js';
+import type {
+  ExtractableUserMessage,
+  FtsMaintenanceFace,
+  MemoryLlmFace,
+  SessionFtsSearchFace,
+} from '../memory/index.js';
 
 import type { PluginContext } from './plugin-context.js';
 import type { CorePluginReference } from './loader.js';
@@ -99,6 +123,28 @@ export interface CorePluginHostDeps {
   readonly cwd?: string;
   /** 家目录（缺省 os.homedir——skills 跨库层锚；测试注入隔离形防扫真实 HOME） */
   readonly homeDir?: string;
+  /**
+   * SQLite 座工厂（批 19b-2——memory 件主闸：宿主库同库同事务面，生产装配
+   * 恒接线 persistence.store.sqlite()）。缺席 = memory 件整体零装载（诚实
+   * 缺席律——测试替身形/:memory: 诊断形无库座即无记忆面，对话本体仍通）。
+   */
+  readonly sqlite?: () => SqliteDatabase;
+  /**
+   * durable 事件读 seam（周期路 review 窗取源——活体日志优先、落盘读兜底；
+   * 装配序见 assembly.ts）。缺席 = memory 周期腿整体缺席（即时提取仍通）。
+   */
+  readonly fetchEvents?: (sessionId: string) => readonly SessionEvent[];
+  /** 跨会话检索 seam（memory 工具族联合检索腿——缺席退化纯记忆库检索） */
+  readonly ftsSearch?: SessionFtsSearchFace;
+  /** FTS 维护 seam（激活期对账 ensureFtsIndex——缺席跳过对账） */
+  readonly ftsMaintenance?: FtsMaintenanceFace;
+  /**
+   * LLM 服务窄面工厂（周期路 review——词面独立律：memory 席 DAG 无 llm 边，
+   * 适配器归装配根。缺席 = 周期腿整体缺席（与 fetchEvents 同闸）。
+   */
+  readonly llm?: () => MemoryLlmFace;
+  /** 命令输出面（memory-export/import 结算文本投递——缺席即静默，命令仍注册） */
+  readonly notify?: (message: string) => void;
 }
 
 /**
@@ -161,11 +207,153 @@ function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
+ * core:memory（批 19b-2）——06 篇记忆面全环装载：DAO（宿主库同库——05 §6.4
+ * 迁移链已由 runtime 机械聚合）+ 九工具散装注册（boot 全局层）+ 'memory/core'
+ * 常驻简报段（每请求物化）+ session/event 三消费腿（即时提取/引用记录/周期
+ * 计数——03 §146 活体镜像的汇入点，发射位在 Persistence.onDurableEvent 桥）+
+ * run 终态 due→fire（06 §5 计数挂件拍点 = 会话空闲即审）+ 激活期 FTS 对账 +
+ * memory/diff 词汇注册（不可逆装配面）+ memory-export/import 两命令 +
+ * 'memory' 服务面供给。
+ *
+ * 路 2（recallForQuery 按需检索）1.0 缺省关（06 §6 拍板——minScore 水位旋钮
+ * 不设位即不启用）；diff 注入腿（context_transform 族）与 appendEvent
+ * 'sessions' 服务同挂账后续批——本批只注册 memory/diff 词汇（注册先于任何
+ * 潜在发射，装配面作用域化）。
+ *
+ * 降级梯：sqlite 缺席 = 件整体零装载（主闸）；llm/fetchEvents 缺席 = 周期腿
+ * 缺席（即时提取仍通）；ftsSearch/ftsMaintenance/notify 各自缺席各腿静默降级。
+ */
+function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'memory',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      const db = deps.sqlite?.();
+      if (db === undefined) return; // 主闸——库座缺席零装载（诚实缺席律）
+
+      const warn = (message: string) => console.error(message);
+      const now = () => Date.now();
+      // owner 并集（06 §3/§6）：global + project:<canonical 根 sha256 前 16 hex>。
+      // 哈希公式属装配侧约定（spec 只钉根语义未钉公式——同根同键跨会话稳定
+      // 即要求；dao 侧 regex 容 8-64 hex）
+      const workspaceRoot = () => canonicalWorkspaceRoot(deps.cwd);
+      const projectKey = `project:${createHash('sha256').update(workspaceRoot()).digest('hex').slice(0, 16)}`;
+      const ownerKeys = ['global', projectKey] as const;
+
+      const dao = createMemoryDao({ db, now, warn });
+
+      // 激活期 FTS 对账（06 §10——抽样缺缝全量重建；维护 seam 缺席跳过）
+      if (deps.ftsMaintenance !== undefined) {
+        ensureFtsIndex({ face: deps.ftsMaintenance, warn });
+      }
+
+      // 工具面九件（boot 全局层散装注册——bootTools 会话装配重放消费腿）
+      const memoryToolDefs = createMemoryTools({
+        dao,
+        ownerKeys,
+        ...(deps.ftsSearch !== undefined ? { sessionFts: deps.ftsSearch } : {}),
+      });
+      const disposeMemoryTools = memoryToolDefs.map((def) => context.tools.register(def));
+
+      // 周期路在场判（llm + fetchEvents 双在场才建——缺一即周期腿整体缺席）
+      const cycle =
+        deps.llm !== undefined && deps.fetchEvents !== undefined
+          ? createMemoryCycle({ dao, llm: deps.llm(), fetchEvents: deps.fetchEvents, warn })
+          : undefined;
+      // 即时提取（isSessionPolluted 与周期路共享同源追踪器——周期腿缺席时
+      // 无污染判定源，提取不滤 = 保守多提取，不丢纠正信号）
+      const extractor = createImmediateExtractor({
+        dao,
+        ...(cycle !== undefined ? { isSessionPolluted: (id) => cycle.pollution.isPolluted(id) } : {}),
+        warn,
+      });
+      const cite = createCiteRecorder({ dao, warn });
+
+      // session/event 三消费腿（03 §146——user/message→即时提取；assistant/
+      // message→引用记录（件内自滤）；全事件→周期计数（件内自滤 turn/end +
+      // tool/call）。surfaceOp 遮蔽指令不进消费面（surface 事件滤除）。
+      // 观察者异常隔离双保险：dispatch.emit 监听器互隔离 + 发射侧 try/catch）
+      const disposeHook = context.on('session/event', (data) => {
+        const { sessionId, event } = data as { sessionId: string; event: SessionEvent };
+        if (event.surfaceOp !== undefined) return;
+        if (event.type === 'user/message') {
+          extractor.onUserMessage(sessionId, event.seq, event.data as ExtractableUserMessage);
+        }
+        cite.onEvent(sessionId, event.type, event.data);
+        cycle?.onDurableEvent(sessionId, event);
+      });
+
+      // run 终态 due→fire（06 §5——会话空闲即审拍点；只 fire 本会话：他会话
+      // 各在其自身 settle 拍点 fire。inFlight 单飞锁 + fire 永不抛归件内）
+      const agent = context.tryGet<AgentService>('agent');
+      const disposeSettle = agent?.onRunSettled((event) => {
+        if (cycle !== undefined && cycle.dueSessions().includes(event.sessionId)) {
+          void cycle.fire(event.sessionId);
+        }
+      });
+
+      // 常驻简报段（每请求物化——06 §6 路 1；重建时点求值见 inject.ts 注记）
+      const disposeBrief = context.prompts.registerSection('memory/core', () =>
+        buildCoreBrief({ dao, now, ownerKeys }),
+      );
+
+      // memory/diff 词汇注册（不可逆装配面——发射位挂账后续批，注册先行）。
+      // 注册表进程级单例（contracts/events 模块态）：同进程多次装配（测试多例
+      // /热重启形）同 owner 已在场 = 幂等跳过；异 owner 在场则注册动词保持
+      // 响亮冲突（HOST_EVENT_TYPE_CONFLICT 拒收语义不软化）
+      if (getEventTypeMeta(MEMORY_DIFF_EVENT_META.type)?.owner !== MEMORY_DIFF_EVENT_META.owner) {
+        context.events.registerSessionEventType(MEMORY_DIFF_EVENT_META);
+      }
+
+      // 命令两件（结算文本 = 人读面，经 notify 投递；BaseError 面已在命令内
+      // 折文本，非 BaseError 兜底折呈不炸通道）
+      const runCommand = async (run: () => Promise<string>) => {
+        try {
+          deps.notify?.(await run());
+        } catch (err) {
+          deps.notify?.(err instanceof Error ? err.message : String(err));
+        }
+      };
+      const disposeExport = context.channels.registerCommand(
+        'memory-export',
+        (args) =>
+          runCommand(() =>
+            runMemoryExportCommand(args.argv, {
+              dao,
+              writableRoots: () => (deps.dataDir !== null ? [deps.dataDir, workspaceRoot()] : [workspaceRoot()]),
+              ownerRoots: () => ({ [projectKey]: workspaceRoot() }),
+              now,
+            }),
+          ),
+        MEMORY_EXPORT_USAGE,
+      );
+      const disposeImport = context.channels.registerCommand(
+        'memory-import',
+        (args) => runCommand(() => runMemoryImportCommand(args.argv, { dao })),
+        MEMORY_IMPORT_USAGE,
+      );
+
+      context.provide('memory', { dao, cycle: cycle ?? null });
+
+      return () => {
+        disposeSettle?.();
+        disposeHook();
+        disposeImport();
+        disposeExport();
+        disposeBrief();
+        for (const dispose of disposeMemoryTools.reverse()) dispose();
+      };
+    },
+  };
+}
+
+/**
  * core: 官方件注册表工厂（assembly.ts 缺省注入源——`options.corePlugins ??
  * createCorePlugins(deps)`；测试注入面/诊断命令经 options 覆盖）。
  * deps 聚落律（07 §7.4 #1）：宿主真身需求逐笔入 CorePluginHostDeps
- * （dataDir 首位——批 19b-1；store/exec 管道跨件复用等后续件随批扩展）。
+ * （dataDir 首位——批 19b-1；memory 数据面六位——批 19b-2；store/exec
+ * 管道跨件复用等后续件随批扩展）。
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
-  return [execPlugin, webPlugin, makeSkillsPlugin(deps)];
+  return [execPlugin, webPlugin, makeSkillsPlugin(deps), makeMemoryPlugin(deps)];
 }

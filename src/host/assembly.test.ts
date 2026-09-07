@@ -123,6 +123,47 @@ describe('assembleHostStack 成功档', () => {
       await assembly.runtime.shutdown();
     }
   });
+
+  it('session/event 活体镜像桥（批 19b-2）：durable append → dispatch 发射（载荷镜像）', async () => {
+    const dir = tmpDir('host-asm-sevent-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const received: Array<{ sessionId: string; event: { type: string } }> = [];
+      assembly.dispatch.on('session/event', (data) => {
+        received.push(data as { sessionId: string; event: { type: string } });
+      });
+      const log = assembly.runtime.persistence.createSession({ origin: 'conversation' });
+      log.append('user/message', { content: '桥验证', source: 'user' });
+      expect(received).toHaveLength(1);
+      expect(received[0]!.sessionId).toBe(log.sessionId);
+      expect(received[0]!.event.type).toBe('user/message');
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('session/event 桥守卫：noPlugins 形（词汇未注册）append 不炸——零发射', async () => {
+    const dir = tmpDir('host-asm-sevg-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const log = assembly.runtime.persistence.createSession({ origin: 'conversation' });
+      expect(() => log.append('user/message', { content: 'x', source: 'user' })).not.toThrow(); // isRegistered 守卫
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
 });
 
 describe('失败三档归一（不抛——呈报面归调用方）', () => {
