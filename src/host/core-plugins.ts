@@ -17,12 +17,26 @@
  * 丢会话面（批 19a 定形——ExecToolService 契约见 conversation/types.ts）。
  */
 import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
+import * as fsp from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { GateInput, SessionEvent, ToolDefinition } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ExecToolService } from '../conversation/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
+import type { SpawnPipeline } from '../exec/index.js';
+import { createMcpService, normalizeMcpConfig } from '../mcp/index.js';
+import type { McpConfig } from '../mcp/index.js';
+import { createLspService } from '../lsp/index.js';
+import type { LspConfig, LspService } from '../lsp/index.js';
+import {
+  createBrowserService,
+  defaultDownloadFace,
+  defaultWsFace,
+  installBrowserEngine,
+  normalizeBrowserConfig,
+} from '../browser/index.js';
 import {
   createCapture,
   createCheckpointGate,
@@ -51,7 +65,7 @@ import {
 } from '../scheduler/index.js';
 import type { GateFacts, GoalJobsFace, JobRow, SchedulerEngine, SchedulerService } from '../scheduler/index.js';
 import { createFetchTool, createInFlightGate, createWebFetchService, DEFAULT_WEB_LIMITS } from '../web/index.js';
-import type { InFlightGate } from '../web/index.js';
+import type { InFlightGate, WebFetchService } from '../web/index.js';
 import {
   createSkillManageTool,
   createSkillsRegistry,
@@ -91,6 +105,11 @@ import type { CorePluginReference } from './loader.js';
  * 静默缺席，对话本体仍通）。bash 工具件经 openTools 既有消费位拾取
  * （scope.tryGet 诚实缺席律），不走 ctx.tools.register 散装注册（双路
  * 会撞名——装载面单路执法）。
+ *
+ * 'exec-pipeline' 第二供给位（批 19d）：SpawnPipeline 真身——三桥（mcp/
+ * browser/lsp）子进程「spawn 管道 + 登记簿同册」的单源（04 §11 spawn
+ * 管道注释明文「三桥共用」）。exec 件禁用 = 管道缺席 = 三桥 spawn 主闸
+ * 缺席零装载（诚实缺席——单册单源不旁路自建）。
  */
 const execPlugin: CorePluginReference = {
   name: 'exec',
@@ -101,6 +120,7 @@ const execPlugin: CorePluginReference = {
     // （macOS seatbelt / Linux bwrap——safety 单源）
     const pipeline = createSpawnPipeline();
     const sandboxService = createSandboxService();
+    context.provide('exec-pipeline', pipeline);
     const service: ExecToolService = {
       // 会话装配期工厂：进程级单例闭包自持 + 会话级 deps（档位/审批/工作
       // 区）由消费位注入求值——结构契约单源在 conversation/types.ts；
@@ -225,6 +245,12 @@ export interface CorePluginHostDeps {
    * 缺席 = /rewind 诚实拒（无焦点会话上下文），gate 不受影响。
    */
   readonly focusSessionId?: () => string | undefined;
+  /**
+   * 宿主版本（批 19d——mcp 件 initialize 握手 clientInfo.version 披露，
+   * 「装配批对齐 package.json」兑现位：装配根 options.version 单源）。
+   * 缺席 = mcp 桥内缺省 '0.1.0'。
+   */
+  readonly version?: string;
 }
 
 /**
@@ -581,10 +607,11 @@ export interface GoalFace {
  * （tryGet scheduler 面——注册表序 scheduler 先装载即挂即用；倒置序对称
  * 腿在 scheduler 件内）+ 'goal' 服务面供给（todoFactory + service）。
  *
- * gates v1 接线形：workspaceRoot 真值 + exec/lsp seam 缺席 fail-closed
- * （files 源真 statSync 件内缺省）；todo 换装 commandGateAllowed 恒 false
- * （needsWrite 申报+人面批准链路未建——拒申报即拒评测双拦位）+ hasLsp 恒
- * false（lsp 件 19d 入册后接线真诊断面）。
+ * gates v1 接线形：workspaceRoot 真值 + exec seam 缺席 fail-closed（files
+ * 源真 statSync 件内缺省）+ lsp seam 接线真诊断面（批 19d 回补——query-
+ * Diagnostics 窄面，lsp 件缺席即缺席 fail-closed）；todo 换装 command-
+ * GateAllowed 恒 false（needsWrite 申报+人面批准链路未建——拒申报即拒
+ * 评测双拦位）+ hasLsp 同源 lsp 在场否。
  *
  * 挂账 run 入口批（驱动循环编舞三件同笔——件已装载仅缺驱动侧接线，预算
  * 刹停腿 inert 至入口批）：prepareNextTurn 轮间沉淀（complete 单发
@@ -605,13 +632,22 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
 
       const warn = (message: string) => console.error(message);
       const now = () => new Date().toISOString();
+      // lsp 诊断查询窄面（批 19d hasLsp 回补——注册表序 lsp 必居本件前，
+      // tryGet 序内前件；lsp 件缺席/disabled = GateLspSeam 缺席 = diagnostics
+      // gate 申报即拒 fail-closed〔03 §10.5〕，todoFactory hasLsp 同源）
+      const lsp = context.tryGet<LspService>('lsp');
       const service = createGoalService({
         db,
         now,
         warn,
         session: sessionFace,
-        // 判据门 v1 接线形：files 源真 stat；exec/lsp 缺席 = 该源评测恒 fail
-        gates: { workspaceRoot: canonicalWorkspaceRoot(deps.cwd) },
+        // 判据门 v1 接线形：files 源真 stat；exec 缺席 = 该源评测恒 fail；
+        // lsp seam 接线真诊断面（queryDiagnostics——词面独立律适配在装配
+        // 侧收口，goal 席 DAG 无 lsp 边）
+        gates: {
+          workspaceRoot: canonicalWorkspaceRoot(deps.cwd),
+          ...(lsp !== undefined ? { lsp: { queryDiagnostics: (files: string[]) => lsp.queryDiagnostics(files) } } : {}),
+        },
       });
 
       // goal_update：boot 全局层 + 执行时会话解析包装（deps.getSessionId 是
@@ -648,7 +684,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
           createGoalTodoTool({
             ...todoDeps,
             commandGateAllowed: false, // v1 接线形——needsWrite 批准链路挂账
-            hasLsp: false, // lsp 件 19d 入册后接线真诊断面
+            hasLsp: lsp !== undefined, // 批 19d 回补——真诊断面在场否（申报面 fail-closed 判据）
           }),
       } satisfies GoalFace);
 
@@ -736,13 +772,198 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
+ * 插件件作用域 → 三桥 ScopeFace 适配（批 19d 共用 helper）：ctx 不暴露
+ * 件作用域本体（effect 是唯一回卷正门），isDisposed 真源 = 回卷翻旗
+ * disposer 自持闭包。回卷序：本 disposer 最先注册（LIFO 末位执行）——
+ * 各桥 service 经本面登记的 shutdown effect 先收口、翻旗殿后。
+ * 结构兼容 McpScopeFace/LspScopeFace/BrowserScopeFace（三面同构）。
+ */
+function scopeFaceOf(context: PluginContext): {
+  effect(register: () => () => void): unknown;
+  readonly isDisposed: boolean;
+} {
+  let disposed = false;
+  context.effect(() => () => {
+    disposed = true;
+  });
+  return {
+    effect: (register) => context.effect(register),
+    get isDisposed() {
+      return disposed;
+    },
+  };
+}
+
+/**
+ * /browser 命令 usage（人面文案位——产品名合法域）。
+ */
+const BROWSER_CMD_USAGE =
+  '/browser install——下载 Chromium for Testing 引擎到数据目录（发现序③；约 150MB，下载域白名单钉 Chromium for Testing 官方两域，摘要账本 TOFU 锚定）';
+
+/**
+ * core:mcp（批 19d）——03 §10.1 装载态兑现：服务编排（装配后异步发现零
+ * 阻塞——config 缺省 servers 空 = 行惰性无害零 spawn）+ 工具面全局合计
+ * 定形态（≤20 原生注册 / >20 目录降级——重铺归 service 内部）+ 回卷绑
+ * 件作用域（LIFO = stdin.end 协议化告别 → 宽限 → 树杀，service 自登记）。
+ *
+ * spawn 主闸 = 'exec-pipeline'（exec 件供给——04 §11「spawn 管道 + 登记
+ * 簿同册」单源；exec 禁用 = 本件零装载诚实缺席）。config 线 = apply 第二
+ * 参（enabled.yaml core:mcp 行 config 整值替换；坏形 normalizeMcpConfig
+ * 响亮拒 MCP_CONFIG_INVALID → 行级装载失败，/reload 时刻可修）。
+ * 'mcp' 服务面供给（liveServers 观测面）。
+ */
+function makeMcpPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'mcp',
+    async apply(ctx, config) {
+      const context = ctx as PluginContext;
+      const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
+      if (pipeline === undefined) return; // 主闸——exec 管道缺席零装载（诚实缺席律）
+
+      const servers: McpConfig = normalizeMcpConfig((config as { servers?: unknown } | undefined)?.servers);
+      const service = createMcpService({
+        spawn: pipeline,
+        registry: { register: (def) => context.tools.register(def as ToolDefinition) },
+        scope: scopeFaceOf(context),
+        notify: (message) => deps.notify?.('mcp', message),
+        ...(deps.version !== undefined ? { clientVersion: deps.version } : {}),
+      });
+      service.apply(servers); // 零阻塞——发现后台跑（fire-and-forget 收口归 service 内部）
+      context.provide('mcp', service);
+    },
+  };
+}
+
+/**
+ * core:browser（批 19d）——03 §10.3 装载态兑现：编排件（惰性首用——apply
+ * 零 spawn 零连接，扫掠链 unref 不阻退出）+ 工具面十件 + /browser install
+ * 命令（下载原语不进模型工具面——人面显式命令；装载零网络，fetch 只在
+ * 命令调用时发生）。
+ *
+ * 主闸三位 = 'exec-pipeline'（引擎 spawn 同册）+ 'web-fetch'（navigate 卫生
+ * 单源——SSRF 红线与在飞门同一实例，web 件缺席 = 红线缺席 = 本件不装
+ * fail-closed）+ dataDir 真值（纯 :memory: 诊断形零装载——引擎目录/截图
+ * 落点/安装账本皆无归属地）。config 坏形 normalizeBrowserConfig 响亮拒
+ * BROWSER_CONFIG_INVALID → 行级装载失败。
+ */
+function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'browser',
+    async apply(ctx, config) {
+      const context = ctx as PluginContext;
+      const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
+      const web = context.tryGet<WebFetchService>('web-fetch');
+      const dataDir = deps.dataDir;
+      if (pipeline === undefined || web === undefined || dataDir === null) return; // 主闸三位
+
+      const browserConfig = normalizeBrowserConfig(config);
+      const service = createBrowserService({
+        spawn: pipeline,
+        ws: defaultWsFace(),
+        fs: fsp, // BrowserFsFace 结构兼容 node:fs/promises 子面（compat 互证）
+        readEnv: (name) => process.env[name],
+        platform: process.platform,
+        homeDir: deps.homeDir ?? homedir(),
+        dataDir,
+        config: browserConfig,
+        web,
+        notify: (message) => deps.notify?.('browser', message),
+        register: { register: (def) => context.tools.register(def as ToolDefinition) },
+        scope: scopeFaceOf(context),
+      });
+      service.apply(); // 云端占位通知 + 工具面注册 + 扫掠链起——零 spawn
+
+      // /browser install（下载原语——域白名单/TOFU 账本执法归 install 件；
+      // 结果与错误均折人读文本经 notify 归因 'browser' 投递）
+      context.channels.registerCommand(
+        'browser',
+        async (args) => {
+          if (args.argv[0] !== 'install') {
+            deps.notify?.('browser', `未知动词——${BROWSER_CMD_USAGE}`);
+            return;
+          }
+          try {
+            const result = await installBrowserEngine({
+              fs: fsp,
+              download: defaultDownloadFace(),
+              platform: process.platform,
+              arch: process.arch,
+              dataDir,
+            });
+            deps.notify?.('browser', `已安装 Chromium for Testing ${result.version}：${result.executablePath}`);
+          } catch (err) {
+            deps.notify?.('browser', err instanceof Error ? err.message : String(err));
+          }
+        },
+        BROWSER_CMD_USAGE,
+      );
+
+      context.provide('browser', service);
+    },
+  };
+}
+
+/**
+ * core:lsp（批 19d）——03 §10.2 装载态兑现：静态四件先注册（注册不依赖
+ * 服务器在线——与 MCP「装配后异步发现」的结构性差异）+ 惰性 per-(server,
+ * rootUri) 实例 + 诊断注入器挂线（service 内部经 events 窄面挂
+ * tools_post_execute waterfall——本侧适配面把 ctx.on 路由给它：词主表
+ * mode=waterfall 自动走 onWaterfall 腿 + 5s 钩子钟；注入器内层竞速钟
+ * 3500ms 硬帽先触即收，两道预算线谁先触谁执法，checkpoint 同论证）。
+ *
+ * 主闸 = 'exec-pipeline'（spawn 同册）。config 线 = apply 第二参
+ * （{servers, diagnostics_timeout_ms} 整值替换；坏形无装载期归一器——
+ * LSP_CONFIG_INVALID 未立码，坏服务器配置走运行期降级语义〔连接失败计
+ * 熔断 + notify warn，03 §10.2 既有条款〕，归一器挂账随真实需求裁）。
+ * rootUri 锚 = canonical 工作区根（canonicalWorkspaceRoot——rootPath 位）
+ * 。'lsp' 服务面供给（goal 件 gates 消费 queryDiagnostics 窄面）。
+ */
+function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'lsp',
+    async apply(ctx, config) {
+      const context = ctx as PluginContext;
+      const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
+      if (pipeline === undefined) return; // 主闸——exec 管道缺席零装载（诚实缺席律）
+
+      const raw = config as { servers?: unknown; diagnostics_timeout_ms?: unknown } | undefined;
+      const service = createLspService({
+        spawn: pipeline,
+        registry: { register: (def) => context.tools.register(def) },
+        scope: scopeFaceOf(context),
+        events: {
+          onWaterfall: (name, listener) =>
+            context.on(name, (value, next) => listener(value as never, (v) => next(v) as Promise<never>)),
+        },
+        fs: fsp, // LspFsFace 结构兼容 node:fs/promises 子面（readFile/realpath）
+        rootPath: canonicalWorkspaceRoot(deps.cwd),
+        notify: (message) => deps.notify?.('lsp', message),
+      });
+      service.apply({
+        servers: (raw?.servers as LspConfig | undefined) ?? {},
+        ...(raw?.diagnostics_timeout_ms !== undefined
+          ? { diagnostics_timeout_ms: raw.diagnostics_timeout_ms as number }
+          : {}),
+      });
+      context.provide('lsp', service);
+    },
+  };
+}
+
+/**
  * core: 官方件注册表工厂（assembly.ts 缺省注入源——`options.corePlugins ??
  * createCorePlugins(deps)`；测试注入面/诊断命令经 options 覆盖）。
  * deps 聚落律（07 §7.4 #1）：宿主真身需求逐笔入 CorePluginHostDeps
  * （dataDir 首位——批 19b-1；memory 数据面六位——批 19b-2；subagent
  * 委派面两位——批 19c-1；调度闸事实位——批 19c-2；goal 会话读面——批
- * 19c-3；checkpoint 语境/fork 两 seam + 焦点会话位——批 19c-4；
- * store/exec 管道跨件复用等后续件随批扩展）。
+ * 19c-3；checkpoint 语境/fork 两 seam + 焦点会话位——批 19c-4；宿主
+ * 版本位——批 19d）。
+ *
+ * 注册表序 = tryGet 前件序（core 行对象直调按序 apply，序内后件可见前件
+ * provide 面）：exec/web 双首件（三桥 spawn/卫生消费源）→ …… → 三桥
+ * （批 19d——mcp/browser/lsp 依次）→ goal（gates lsp seam 消费 lsp
+ * provide 面——必居其后）→ checkpoint。02 §4.1 core 表序是件册清单非
+ * 装载序——装载序按依赖闭包排（批 19d 注记）。
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
   return [
@@ -752,6 +973,9 @@ export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePlugin
     makeMemoryPlugin(deps),
     makeSubagentPlugin(deps),
     makeSchedulerPlugin(deps),
+    makeMcpPlugin(deps),
+    makeBrowserPlugin(deps),
+    makeLspPlugin(deps),
     makeGoalPlugin(deps),
     makeCheckpointPlugin(deps),
   ];

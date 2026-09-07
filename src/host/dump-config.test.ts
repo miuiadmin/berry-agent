@@ -57,12 +57,14 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     expect(doc.database).toBe(':memory:'); // 同构诊断形注记——主库零落盘
     expect(doc.model.length).toBeGreaterThan(0); // 栈内模型缺省解析产物
     expect(doc.flags).toEqual({ noPlugins: false, port: null }); // --port 收下不起监听（缺席如实注记 null）
-    // 批 19a 起 core 注册表非空（exec/web/skills/memory/subagent/scheduler/goal/
-    // checkpoint 入册——19c-4 第八件）——清单缺席 = 全 core 内置态：activated
-    // 见 core 行（装载态集成回归锁——件数随逐纵切笔增长）。:memory: 座上
-    // sqlite() 在场 → memory/scheduler/goal 件照装；dataDir 真值 + 两 seam
-    // 恒接线 → checkpoint 件同装（同构诊断形走真装载面——禁侧门律；
-    // 引擎构造不自启——诊断进程不起钟零定时器残留）
+    // 批 19a 起 core 注册表非空（exec/web/skills/memory/subagent/scheduler/mcp/
+    // browser/lsp/goal/checkpoint 入册——19d 第十一件）——清单缺席 = 全 core
+    // 内置态：activated 见 core 行（装载态集成回归锁——件数随逐纵切笔增长）。
+    // :memory: 座上 sqlite() 在场 → memory/scheduler/goal 件照装；dataDir 真值
+    // + 两 seam 恒接线 → checkpoint 件同装；exec 管道 + web-fetch + dataDir
+    // 三主闸齐备 → 三桥（mcp/browser/lsp）照装（零 config 惰性形——零 spawn）
+    // （同构诊断形走真装载面——禁侧门律；引擎构造不自启——诊断进程不起钟
+    // 零定时器残留）
     expect((doc.plugins.activated as { id?: string }[]).map((row) => row.id)).toEqual([
       'core:exec',
       'core:web',
@@ -70,12 +72,15 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
       'core:memory',
       'core:subagent',
       'core:scheduler',
+      'core:mcp',
+      'core:browser',
+      'core:lsp',
       'core:goal',
       'core:checkpoint',
     ]);
     expect(doc.plugins.failed).toEqual([]);
     expect(doc.plugins.skipped).toEqual([]);
-    expect(doc.counts).toEqual({ total: 8, enabled: 8, failed: 0 });
+    expect(doc.counts).toEqual({ total: 11, enabled: 11, failed: 0 });
     // 同构纪律副作用边界：不占标记 + 无 .db 落盘
     expect(existsSync(join(dir, ACTIVE_MARKER_BASENAME))).toBe(false);
     expect(readdirSync(dir).filter((name) => name.endsWith('.db'))).toEqual([]);
@@ -98,8 +103,8 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     if (failedRow === undefined) throw new Error('failed 行缺席');
     expect(failedRow.id).toBe('user-demo');
     expect(failedRow.message).toContain('装机账本无此 id'); // 账本读侧真达（读真盘 ledger.json 缺席）
-    // core 注册表非空（批 19a—19c-4——exec/web/skills/memory/subagent/
-    // scheduler/goal/checkpoint 入册）与
+    // core 注册表非空（批 19a—19d——exec/web/skills/memory/subagent/scheduler/
+    // mcp/browser/lsp/goal/checkpoint 入册）与
     // 用户行分立：core 照装、坏用户行照 fail
     expect((doc.plugins.activated as { id?: string }[]).map((row) => row.id)).toEqual([
       'core:exec',
@@ -108,6 +113,9 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
       'core:memory',
       'core:subagent',
       'core:scheduler',
+      'core:mcp',
+      'core:browser',
+      'core:lsp',
       'core:goal',
       'core:checkpoint',
     ]);

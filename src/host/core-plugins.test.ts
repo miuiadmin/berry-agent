@@ -238,7 +238,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       extraTools: () => boot.tools.definitions(),
     });
     expect(assembly.tools.map((tool) => tool.name)).toContain('fetch');
-    expect(assembly.tools).toHaveLength(10); // fs 四 + 检索两 + bash + todo + fetch + skill_manage
+    expect(assembly.tools).toHaveLength(24); // fs 四 + 检索两 + bash + todo + fetch + skill_manage + lsp 静态四 + browser 十（批 19d 三桥入册）
     assembly.dispose();
   });
 
@@ -763,7 +763,177 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(notified[notified.length - 1]!).toContain('无焦点会话');
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent/scheduler/goal/checkpoint 八件）', () => {
+  it('三桥零 config 惰性装载全环（批 19d）：三服务面 + LSP 静态四件 + browser 十件 + /browser 命令 + 零 spawn 零网络', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-bridges-'));
+    dirs.push(dataDir);
+    const { scope, boot, commands } = await bootCore(dataDir);
+
+    // 三服务面 provide（mcp 观测面 / browser 编排件 / lsp 诊断面）
+    expect(scope.tryGet('mcp')).toBeDefined();
+    expect(scope.tryGet('browser')).toBeDefined();
+    expect(scope.tryGet('lsp')).toBeDefined();
+
+    // LSP 静态四件（注册不依赖服务器在线——与 MCP「装配后异步发现」的结构性差异）
+    const names = boot.tools.definitions().map((d) => d.name);
+    for (const tool of ['diagnostics', 'symbols', 'definitions', 'references']) {
+      expect(names).toContain(tool);
+    }
+    // browser 工具面十件（惰性首用——apply 零 spawn 零连接即注册）
+    for (const tool of ['navigate', 'snapshot', 'click', 'type', 'press', 'screenshot']) {
+      expect(names).toContain(tool);
+    }
+    // /browser 命令注册（下载原语不进模型工具面——人面显式命令）
+    expect(commands).toContain('browser');
+
+    // 惰性执法全环：零 config = 零子进程（mcp servers 空 + lsp servers 空 +
+    // browser 零引擎发现）——装载期间无真 spawn/真网络（测试零网络纪律）
+    expect(boot.counts).toEqual({ total: 11, enabled: 11, failed: 0 });
+  });
+
+  it('exec 禁用 = 三桥连坐零装载（spawn 单源不自建——04 §11）：三服务面缺席 + LSP 静态四件不注册 + /browser 不注册', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-broff-'));
+    dirs.push(dataDir);
+    const { scope, boot, commands } = await bootCore(
+      dataDir,
+      memoryFs({ [join(dataDir, 'enabled.yaml')]: 'plugins:\n  - id: core:exec\n    disabled: true\n' }),
+    );
+    // 三桥主闸 = 'exec-pipeline' 供给缺席——诚实缺席律（单册单源不旁路自建）
+    expect(scope.tryGet('mcp')).toBeUndefined();
+    expect(scope.tryGet('browser')).toBeUndefined();
+    expect(scope.tryGet('lsp')).toBeUndefined();
+    const names = boot.tools.definitions().map((d) => d.name);
+    expect(names).not.toContain('diagnostics'); // LSP 静态四件连坐
+    expect(names).not.toContain('navigate'); // browser 十件连坐
+    expect(commands).not.toContain('browser');
+    // 其余件不连坐（counts 口径 = activated 数：三桥 apply 早退无操作仍计
+    // activated——诚实缺席在服务面/工具面，不在行计；exec 1 行 skipped）
+    expect(boot.counts).toEqual({ total: 11, enabled: 10, failed: 0 });
+  });
+
+  it('browser 主闸 dataDir 位：纯 :memory: 形零装载（mcp/lsp 不连坐——两桥无 dataDir 闸）', async () => {
+    const { scope, boot } = await bootCore(null);
+    expect(scope.tryGet('browser')).toBeUndefined(); // 引擎目录/截图落点/安装账本皆无归属地
+    expect(boot.tools.definitions().map((d) => d.name)).not.toContain('navigate');
+    expect(scope.tryGet('mcp')).toBeDefined(); // mcp/lsp 只闸 exec 管道——不连坐
+    expect(scope.tryGet('lsp')).toBeDefined();
+    expect(boot.tools.definitions().map((d) => d.name)).toContain('diagnostics');
+  });
+
+  it('MCP 坏形 config（core:mcp 行 servers 非对象）→ core 行 fail-loud 拒启（MCP_CONFIG_INVALID）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-mcpcfg-'));
+    dirs.push(dataDir);
+    // enabled.yaml core:mcp 行 config 整值替换——servers 坏形（字符串）
+    const fs = memoryFs({
+      [join(dataDir, 'enabled.yaml')]: 'plugins:\n  - id: core:mcp\n    config:\n      servers: oops\n',
+    });
+    const err = await bootCore(dataDir, fs).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BaseError);
+    // invokeApply 三态包装律：apply 抛错归一 PLUGIN_APPLY_FAILED（cause 保真
+    // MCP_CONFIG_INVALID）；core 行 fail-loud 再包 CorePluginBootError（报文含件 id）
+    expect((err as BaseError).code).toBe('PLUGIN_APPLY_FAILED');
+    expect((err as BaseError).message).toContain('core:mcp'); // core 行 fail-loud 拒启（已活行 LIFO 回卷不留半装配）
+    expect((err as BaseError).message).toContain('config.servers 须为对象'); // 归一器响亮拒文本透出
+    const cause = (err as BaseError).cause;
+    expect(cause).toBeInstanceOf(BaseError);
+    // cause 链双层：CorePluginBootError.cause = invokeApply 包装层（同码
+    // PLUGIN_APPLY_FAILED），其 cause = 归一器真因 MCP_CONFIG_INVALID
+    expect((cause as BaseError).code).toBe('PLUGIN_APPLY_FAILED');
+    const rootCause = (cause as BaseError).cause;
+    expect(rootCause).toBeInstanceOf(BaseError);
+    expect((rootCause as BaseError).code).toBe('MCP_CONFIG_INVALID'); // 坏形真因可溯
+  });
+
+  it('goal hasLsp 回补（批 19d）：lsp 序内前件在场 → diagnostics 判据门申报过闸；core:lsp 禁用 → 申报即拒（fail-closed）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-lspgoal-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-lg' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-lg' ? session.events() : []),
+      length: (sid) => (sid === 's-lg' ? session.events().length : 0),
+    };
+
+    // 形 A：全 core 装载（lsp 序内前件在场）——diagnostics 门申报过闸 + durable 承载
+    const booted = await bootCore(dataDir, memoryFs(), {}, { sqlite: () => persistence.store.sqlite(), goalSession });
+    const face = booted.scope.tryGet<GoalFace>('goal')!;
+    expect(face).toBeDefined();
+    const row = await face.service.activate({
+      sessionId: 's-lg',
+      objective: 'hasLsp 回补回归锁',
+      schedule: 'every:60s',
+    });
+    const todo = face.todoFactory({
+      append: (data) => session.append('todo/write', data),
+      getScope: () => ({ goalId: row.id, activatedSeq: 0 }),
+    });
+    // diagnostics 门在场 = 申报过闸（hasLsp true——lsp provide 面真接线）
+    await todo.execute(
+      {
+        items: [{ status: 'in-progress', content: '诊断门条目', gate: { kind: 'diagnostics', files: ['src/a.ts'] } }],
+      },
+      { toolCallId: 'c-lg-todo' },
+    );
+    expect(JSON.stringify(session.events().find((event) => event.type === 'todo/write')?.data)).toContain('诊断门条目');
+
+    // 形 B：core:lsp 禁用（exec 在场 = mcp 照装）——hasLsp false = 申报即拒
+    const sessionB = new SessionLog({ sessionId: 's-lg2' });
+    const bootedB = await bootCore(
+      dataDir,
+      memoryFs({ [join(dataDir, 'enabled.yaml')]: 'plugins:\n  - id: core:lsp\n    disabled: true\n' }),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        goalSession: {
+          events: (sid) => (sid === 's-lg2' ? sessionB.events() : []),
+          length: (sid) => (sid === 's-lg2' ? sessionB.events().length : 0),
+        },
+      },
+    );
+    expect(bootedB.scope.tryGet('lsp')).toBeUndefined(); // 禁用行生效
+    expect(bootedB.scope.tryGet('mcp')).toBeDefined(); // exec 在场 = mcp 不连坐
+    const faceB = bootedB.scope.tryGet<GoalFace>('goal')!;
+    const todoB = faceB.todoFactory({
+      append: (data) => sessionB.append('todo/write', data),
+      getScope: () => ({ goalId: 'g-any', activatedSeq: 0 }),
+    });
+    const rejected = await todoB
+      .execute(
+        {
+          items: [{ status: 'in-progress', content: '诊断门条目', gate: { kind: 'diagnostics', files: ['src/a.ts'] } }],
+        },
+        { toolCallId: 'c-lg-todo2' },
+      )
+      .catch((e: unknown) => e);
+    expect(rejected).toBeInstanceOf(BaseError);
+    expect((rejected as BaseError).code).toBe('GOAL_TODO_SCOPE');
+    expect((rejected as BaseError).message).toContain('lsp 诊断查询面缺席'); // fail-closed 非静默跳过
+    await persistence.close();
+  });
+
+  it('/browser 未知动词：usage 拒（人面文案含指引非静默）——install 动词不真调（零网络）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-brcmd-'));
+    dirs.push(dataDir);
+    const notified: string[] = [];
+    const { commands, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        notify: (source, message) => {
+          if (source === 'browser') notified.push(message);
+        },
+      },
+    );
+    expect(commands).toContain('browser');
+    const browserCmd = commandSpecs.find((spec) => spec.name === 'browser')!;
+    await browserCmd.handler({ raw: 'foo', argv: ['foo'] });
+    expect(notified[notified.length - 1]!).toContain('/browser install'); // usage 指引
+  });
+
+  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent/scheduler/mcp/browser/lsp/goal/checkpoint 十一件）', () => {
     expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual([
       'exec',
       'web',
@@ -771,6 +941,9 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       'memory',
       'subagent',
       'scheduler',
+      'mcp',
+      'browser',
+      'lsp',
       'goal',
       'checkpoint',
     ]);

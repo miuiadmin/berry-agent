@@ -344,6 +344,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               fork: (sourceSessionId, options) => stack.manager.fork(sourceSessionId, options),
             } satisfies RewindForkFace,
             focusSessionId: () => stack.channels.focusedId ?? undefined,
+            // 宿主版本（批 19d——mcp 件 initialize 握手 clientInfo.version
+            // 披露「对齐 package.json」单源位：装配选项 version 同源）
+            version: options.version,
           }),
         warn: (message) => logger.warn(message),
       });
