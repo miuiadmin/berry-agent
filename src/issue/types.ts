@@ -38,6 +38,12 @@ export const ISSUE_RECEIPT_PATCH_CHARS = 60_000;
 /** issue_get 工具上下文帽字节（外部文本进上下文的总闸——出口治理④字段瘦身同律） */
 export const ISSUE_CONTEXT_CAP_BYTES = 64 * 1024;
 
+/** webhook 端点路径（POST——`/webhooks/*` 入站外部投递路由族首径；03 §10.7 批 18a-4' 落码定形） */
+export const ISSUE_WEBHOOK_ENDPOINT = '/webhooks/issue';
+
+/** webhook 请求体帽（per-route bodyLimitBytes 位——GitHub issue 载荷 64KiB 级 + 元数据余量） */
+export const ISSUE_WEBHOOK_BODY_LIMIT_BYTES = 256 * 1024;
+
 /* ---------------- 配置面（mount config 键——用户可配域） ---------------- */
 
 /** 运行档位（03 §10.7 裁决④⑤：两档可配、缺省草稿先行——fail-closed 缺省律） */

@@ -15,6 +15,8 @@ export {
   ISSUE_PER_ISSUE_MESSAGES_DEFAULT,
   ISSUE_RECEIPT_PATCH_CHARS,
   ISSUE_CONTEXT_CAP_BYTES,
+  ISSUE_WEBHOOK_ENDPOINT,
+  ISSUE_WEBHOOK_BODY_LIMIT_BYTES,
   ISSUE_WORKTREE_NAME_RE,
   issueDedupeKey,
 } from './types.js';
@@ -40,6 +42,16 @@ export { createIssuePoller, watermarkKey } from './poll.js';
 export type { PollReport, IssuePollerDeps } from './poll.js';
 export { computeSignature, signatureMatches, parseWebhookPayload, handleWebhookRequest } from './webhook.js';
 export type { WebhookPayload, WebhookReceipt, IssueWebhookDeps } from './webhook.js';
+export { mountIssueWebhook, WEBHOOK_EVENT_HEADER, WEBHOOK_SIGNATURE_HEADER } from './mount.js';
+export type {
+  IssueWebhookMountFace,
+  IssueWebhookMountOptions,
+  IssueWebhookMount,
+  IssueWebhookRouteDescriptor,
+  IssueWebhookRouteContext,
+  IssueWebhookRouteHandler,
+  IssueWebhookBodyResult,
+} from './mount.js';
 export { createIssueTools } from './tools.js';
 export type { IssueToolsDeps } from './tools.js';
 export { createIssueService } from './service.js';
