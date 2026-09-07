@@ -50,7 +50,7 @@ import {
   resolveDefaultModelSpec,
 } from '../llm/index.js';
 import type { LlmRuntime, LlmService, Provider } from '../llm/index.js';
-import type { SandboxMode } from '../safety/index.js';
+import type { AllowlistDraft, AllowlistEntry, SandboxMode } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
 
@@ -71,10 +71,16 @@ export interface ConversationStackOptions {
   readonly dispatch?: EventDispatch;
   /** 沙箱档位取值器（缺省 workspace-write——04 §7 缺省档） */
   readonly sandboxMode?: () => SandboxMode;
+  /** 工作区锚取值器（缺省 canonicalWorkspaceRoot——git 根回退字面 cwd；批 12f-4 注入面与 sandboxMode 同形态，e2e 隔离位） */
+  readonly workspace?: () => string;
   /** 系统提示词基线（04 §11：披露段由驱动在 transformContext 关口另行追加） */
   readonly systemPrompt?: string;
   /** 思考档位（会话态） */
   readonly thinkingLevel?: ThinkingLevel;
+  /** 跨会话 allowlist 条目（04 §9 粘性第 3 款 advisory 免问面；装配层读 allowlist.json 载入——缺省功能关闭） */
+  readonly allowlist?: readonly AllowlistEntry[];
+  /** 「始终允许」条目写入回调（04 §9 粘性段定形③——装配层接 allowlist-store 文件写；缺省 always 面关闭） */
+  readonly persistAllowlist?: (draft: AllowlistDraft) => void;
   /** 警示面（缺省 stderr——驱动护栏与压缩 warn 的落点） */
   readonly warn?: (message: string) => void;
 }
@@ -124,7 +130,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const dispatch = options.dispatch ?? new EventDispatch();
   const model = options.model ?? resolveDefaultModelSpec(options.env ?? process.env);
   const sandboxMode = options.sandboxMode ?? (() => 'workspace-write' as SandboxMode);
-  const workspaceAnchor = () => canonicalWorkspaceRoot();
+  const workspaceAnchor = options.workspace ?? (() => canonicalWorkspaceRoot());
 
   // ① ctx.agent 服务面先于一切驱动起跑（onRunSettled 订阅供给前提）
   const agentService = provideAgentService(scope);
@@ -182,6 +188,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         dataDir: options.runtime.dataDir,
         workspace: workspaceAnchor,
         askApproval,
+        ...(options.allowlist !== undefined ? { allowlist: options.allowlist } : {}),
+        ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
       });
       options.runtime.registerDisposer(assembly.dispose); // LIFO 拆解进运行时退出序
       tools = assembly.tools;

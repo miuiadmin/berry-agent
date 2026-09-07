@@ -30,6 +30,46 @@ function tmpDir(prefix: string): string {
   return dir;
 }
 
+describe('allowlist 装配期载入（批 12f-4——04 §9 定形块读侧律）', () => {
+  it('好形 allowlist.json：装配照常成功（advisory 免问面在场不拦装配序）', async () => {
+    const dir = tmpDir('host-asm-al-ok-');
+    writeFileSync(join(dir, 'allowlist.json'), JSON.stringify({ entries: [{ tool: 'write', pattern: '/w/a.md' }] }));
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) await assembly.runtime.shutdown();
+  });
+
+  it('文件级坏形：warn 降级视同空清单——装配仍成功（与 enabled.yaml 拒启律分立的回归锁）', async () => {
+    const dir = tmpDir('host-asm-al-bad-');
+    writeFileSync(join(dir, 'allowlist.json'), '{ Oops'); // JSON 坏形
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    // advisory 面坏形降级方向 = 更严（多问）不是拒启（fail-closed 同向）——拒启律是 enabled.yaml 专属
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) await assembly.runtime.shutdown();
+  });
+
+  it('纯 memory 形（dataDir null）：allowlist 双缺不炸——装配照常', async () => {
+    const assembly = await assembleHostStack({
+      runtime: { memory: true },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) await assembly.runtime.shutdown();
+  });
+});
+
 describe('assembleHostStack 成功档', () => {
   it('六柄一匣 + corePlugins 透传面（enabled.yaml 缺席 = core 内置态全装）', async () => {
     const dir = tmpDir('host-asm-ok-');

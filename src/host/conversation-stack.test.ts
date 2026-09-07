@@ -5,16 +5,17 @@
  * （mock 只停在模型层）。钉死：启动会话策略（新建/按 cwd 续接）/ 投影拉取
  * （活体优先 + 回库装载）/ 信封回流 / memory 形工具缺席降级 / 退出序接线。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
-import type { AgentMessage } from '../contracts/index.js';
+import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { fauxProvider } from '../llm/index.js';
 
+import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
 import { createConversationStack } from './conversation-stack.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
@@ -33,6 +34,17 @@ function messageOf(stopReason: 'stop' | 'error' | 'aborted'): PiAssistantMessage
     stopReason,
     timestamp: 1,
   } as unknown as PiAssistantMessage; // contracts 形状同构缺 pi-ai 元数据字段——faux 脚本面收口在此
+}
+
+/** 工具调用 assistant 消息（faux 响应脚本用——批 12f-4 e2e；driver 同构收口） */
+function toolCallOf(id: string, name: string, args: Record<string, unknown>): PiAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'toolCall', id, name, arguments: args }],
+    usage: NO_USAGE,
+    stopReason: 'toolUse',
+    timestamp: 1,
+  } as unknown as PiAssistantMessage;
 }
 
 /** 信封记录后端（UiBackend 最小实现——通道核消费面全收账） */
@@ -218,5 +230,114 @@ describe('llmRuntime 出口（批 12f-2b——插件 provider 注册面防双实
     // 出口 = ② 层同一 runtime（防双实例：装载批经本出口注册 provider 不另建）
     expect(typeof stack.llmRuntime.registerProvider).toBe('function');
     expect(stack.llm.listModels().some((m) => m.id === 'faux-stack/m1')).toBe(true);
+  });
+});
+
+/* ---------------- 批 12f-4：审批 always 回写与 allowlist 免问接线 e2e ---------------- */
+
+/** 审批应答后端（askApproval 能力位——记录请求 + 恒答配置值） */
+class ApprovalBackend implements UiBackend<AgentMessage> {
+  readonly id = 'approver';
+  readonly capabilities = {
+    notify: true,
+    confirm: false,
+    select: false,
+    input: false,
+    approval: true,
+    setStatus: true,
+    setWidget: false,
+  };
+  readonly requests: ApprovalAskRequest[] = [];
+  constructor(private readonly answer: ApprovalAskAnswer) {}
+  hasAudience(): boolean {
+    return true;
+  }
+  notify(): void {
+    // 本组不断言 notify 载荷
+  }
+  onEnvelope(): void {
+    // 信封面非本组断言对象
+  }
+  onRepaint(): void {
+    // 重画面非本组断言对象
+  }
+  async askApproval(_sessionId: string, request: ApprovalAskRequest): Promise<ApprovalAskAnswer> {
+    this.requests.push(request);
+    return this.answer;
+  }
+}
+
+/** 会话事件 data 按类型取列（断言简写——与 open-tools 域同款） */
+function dataOf(driverSession: { events(): ReadonlyArray<{ type: string; data: unknown }> }, type: string): unknown[] {
+  return driverSession
+    .events()
+    .filter((event) => event.type === type)
+    .map((event) => event.data);
+}
+
+describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘性第 3 款全链接线）', () => {
+  it('write 审批 always：结构草案经 persistAllowlist → appendAllowlistEntry 真落 allowlist.json', async () => {
+    const { dir, rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    // 与 assembly.ts 同接法（闭包 dataDir 接 store 文件写——此处手动复刻锁透传链）
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      workspace: () => ws, // 工具写目标锚定隔离工作区（不落真 cwd）
+      persistAllowlist: (draft) => void appendAllowlistEntry(dir, draft),
+    });
+    const backend = new ApprovalBackend('always');
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+
+    faux.setResponses([() => toolCallOf('t-w1', 'write', { path: 'n1.txt', content: 'hi' }), () => messageOf('stop')]);
+    const receipt = await stack.submitText(session.sessionId, '写入');
+    expect(receipt).toMatchObject({ status: 'completed' }); // 工具批后二轮收口
+
+    // 审批对真经 channels → 后端（问过 + always 答复 + 工具真执行）
+    expect(backend.requests).toHaveLength(1);
+    expect(readFileSync(join(ws, 'n1.txt'), 'utf8')).toBe('hi');
+    const decided = dataOf(session.driver.session, 'approval/decided');
+    expect(decided[0]).toMatchObject({ decision: 'always' }); // decided 落 always（非降级 approve）
+
+    // 写侧律全链：approval 服务结构草案（fs 单目标 = 精确 canonical 路径）→ 文件
+    const load = readAllowlist(dir);
+    expect(load.healthy).toBe(true);
+    expect(load.entries).toHaveLength(1);
+    expect(load.entries[0]!.tool).toBe('write');
+    expect(load.entries[0]!.pattern.endsWith('n1.txt')).toBe(true); // canonical 绝对路径（realpath 平台差异不锁全串）
+    await rt.shutdown();
+  });
+
+  it('allowlist 条目透传：免问放行（零审批交互 + 工具照常执行）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      workspace: () => ws,
+      // 条目 = 工作区前缀（fs 族 all-or-nothing——write 落 ws 内即命中）
+      allowlist: [{ tool: 'write', pattern: ws }],
+    });
+    // 若被问则恒答 approve（免问失效时本测断言零请求即红——不静默放水）
+    const backend = new ApprovalBackend('approve');
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+
+    faux.setResponses([() => toolCallOf('t-w2', 'write', { path: 'n2.txt', content: 'yo' }), () => messageOf('stop')]);
+    const receipt = await stack.submitText(session.sessionId, '免问写');
+    expect(receipt).toMatchObject({ status: 'completed' });
+
+    // 免问：条目命中不问（advisory 面只影响问不问——执行照走）
+    expect(backend.requests).toHaveLength(0);
+    expect(dataOf(session.driver.session, 'approval/asked')).toHaveLength(0);
+    expect(readFileSync(join(ws, 'n2.txt'), 'utf8')).toBe('yo');
+    await rt.shutdown();
   });
 });

@@ -23,8 +23,9 @@ import { BaseError } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
-import type { SandboxMode } from '../safety/index.js';
+import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
 
+import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import type { CorePluginReference } from './loader.js';
@@ -108,6 +109,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     if (options.debug && env.BERRY_AGENT_LOG_LEVEL === undefined) logState.setGlobalLevel('debug');
     const logger = createLogger('host', logState);
 
+    // —— 跨会话 allowlist 装配期载入（04 §9 粘性第 3 款定形块读侧律——
+    // dataDir 在场即真读〔含同构诊断形：报告真实装载会走到的路〕；纯 memory
+    // 形 dataDir null 双缺〔无归属地〕。坏形 warn 降级 + 回写拒在 store 内执法）——
+    const dataDir = runtime.dataDir;
+    const allowlistLoad = dataDir !== null ? readAllowlist(dataDir, { warn: (m) => logger.warn(m) }) : null;
+
     // —— 共享根作用域与事件总线：对话栈与插件装载同根同源 ——
     const scope = Scope.createRoot();
     const dispatch = new EventDispatch();
@@ -119,6 +126,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+      // 审批 always 回写透传（04 §9 定形块写侧律——闭包 dataDir 接 store
+      // 文件写；坏形期拒写在 store 内执法，healthy 载入才接线）
+      ...(allowlistLoad !== null
+        ? {
+            allowlist: allowlistLoad.entries,
+            ...(dataDir !== null && allowlistLoad.healthy
+              ? { persistAllowlist: (draft: AllowlistDraft) => void appendAllowlistEntry(dataDir, draft) }
+              : {}),
+          }
+        : {}),
       warn: (message) => logger.warn(message),
     });
 
