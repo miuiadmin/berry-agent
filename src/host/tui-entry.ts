@@ -51,7 +51,7 @@ export interface TuiEntryOptions {
   readonly sandboxMode?: () => SandboxMode;
   /** env 面（缺省 process.env；测试隔离 BERRY_AGENT_MODEL） */
   readonly env?: Record<string, string | undefined>;
-  /** core: 官方件注册表（缺省 CORE_PLUGINS 单源——批 19a；测试注入面） */
+  /** core: 官方件注册表（缺省 createCorePlugins 单源——批 19a/19b-1 工厂形；测试注入面） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;

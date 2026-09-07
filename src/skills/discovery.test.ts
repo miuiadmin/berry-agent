@@ -187,6 +187,17 @@ describe('createStandardLayers 六位层序', () => {
     for (const layer of layers) names.push(...(await layer.scan()).skills.map((s) => s.name));
     expect(names.filter((n) => n === 'same')).toHaveLength(1); // 插件层与出厂层同根去重
   });
+
+  it('dataDir 缺席跳过 user 层（批 19b-1 :memory: 装载形——余四位照常构造）', async () => {
+    const home = await tmpRoot('home-nouser');
+    const factory = await tmpRoot('factory-nouser');
+    const layers = createStandardLayers({
+      cwd: await tmpRoot('ws-nouser'),
+      homeDir: home,
+      factoryDir: factory,
+    });
+    expect(layers.map((l) => l.id)).toEqual(['project', 'cross-repo', 'factory']);
+  });
 });
 
 describe('resolveFactorySkillsDir 出厂目录定位', () => {

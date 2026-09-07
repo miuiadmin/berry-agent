@@ -256,8 +256,12 @@ export function resolveFactorySkillsDir(moduleUrl: string = import.meta.url): st
 export interface StandardLayersOptions {
   /** 工作目录（缺省 process.cwd——project 层锚 canonical 工作区根） */
   readonly cwd?: string;
-  /** 数据目录（user 层 `<dataDir>/skills`——BERRY_AGENT_DATA_DIR 语义由装配解析注入） */
-  readonly dataDir: string;
+  /**
+   * 数据目录（user 层 `<dataDir>/skills`——BERRY_AGENT_DATA_DIR 语义由装配解析
+   * 注入）。可选（批 19b-1 装载态）：缺席 = 跳过 user 层（:memory: 诊断形态
+   * dataDir null 无用户技能面——其余五位层照常构造）。
+   */
+  readonly dataDir?: string;
   /** 家目录（跨库层两位目录锚；缺省 os.homedir） */
   readonly homeDir?: string;
   /** 插件声明载荷层（03 §6.1 berryAgent.skills——host 装载器 mount 即注册） */
@@ -288,8 +292,11 @@ export function createStandardLayers(options: StandardLayersOptions): SkillsProv
       trusted: options.trustedProject ?? true,
       ...shared,
     }),
-    // 位 2：user `<dataDir>/skills`（无需信任）
-    createDirProvider({ id: 'user', roots: [join(options.dataDir, 'skills')], ...shared }),
+    // 位 2：user `<dataDir>/skills`（无需信任）——缺席跳过（:memory: 形无
+    // 用户技能面，不造空根目录）
+    ...(options.dataDir !== undefined
+      ? [createDirProvider({ id: 'user', roots: [join(options.dataDir, 'skills')], ...shared })]
+      : []),
     // 位 3：跨库 `~/.agents/skills` 与 `~/.claude/skills`（agentskills.io 生态复用）
     createDirProvider({
       id: 'cross-repo',

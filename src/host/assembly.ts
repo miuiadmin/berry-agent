@@ -28,9 +28,10 @@ import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
 import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
 import { createJobRegistry, createSubagentService, provideJobsService } from '../subagent/index.js';
+import type { SkillsRegistry } from '../skills/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
-import { CORE_PLUGINS } from './core-plugins.js';
+import { createCorePlugins } from './core-plugins.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import type { CorePluginReference } from './loader.js';
@@ -203,8 +204,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         noPlugins: options.noPlugins === true,
         version: options.version,
         // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
+        // 工厂形升级批 19b-1：dataDir 等宿主真身经 CorePluginHostDeps 入件；
         // 15 件逐纵切笔入册，见 core-plugins.ts）
-        corePlugins: options.corePlugins ?? CORE_PLUGINS,
+        corePlugins: options.corePlugins ?? createCorePlugins({ dataDir: runtime.dataDir }),
         warn: (message) => logger.warn(message),
       });
     } catch (err) {
@@ -220,6 +222,23 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       throw err; // 余异常走下方崩溃取证档
     }
     Object.assign(pluginCounts, boot.counts); // 披露匣回写（disclosure 后续请求即见）
+
+    // —— skills_change 事件桥（批 19b-1——03 §3.4 通知面汇流点）：registry
+    // refresh 快照变化 → 全局词 skills_change 发射（41 钩子词已在 bootPlugins
+    // 预注册——dispatch.emit 直用）。桥落宿主侧不落件内：ctx.emit 域名律强制
+    // `core:skills/` 前缀——全局词对插件结构性不可达（域名律防插件伪造全局
+    // 事件，官方件同受束——宿主侧 dispatch 才是正口）。core:skills 禁用档
+    // tryGet 诚实缺席——零桥零事件（缺席即未装载语义）——
+    {
+      const registry = scope.tryGet('skills') as SkillsRegistry | undefined;
+      if (registry !== undefined) {
+        const off = registry.onChange(() => {
+          // 载荷 = 现行 provider id 清单（06 §11.3——消费面 = 渐进披露清单重物化）
+          void dispatch.emit('skills_change', { providers: registry.providerIds() });
+        });
+        runtime.registerCloser({ label: 'skills-change-bridge', fn: () => Promise.resolve(off()) });
+      }
+    }
 
     return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts };
   } catch (err) {

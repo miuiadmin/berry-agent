@@ -16,6 +16,7 @@ import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
 import { assembleHostStack, readTriggerOpensLive } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
+import type { SkillsRegistry } from '../skills/index.js';
 
 /** 临时数据目录族（统一清） */
 const dirs: string[] = [];
@@ -92,6 +93,32 @@ describe('assembleHostStack 成功档', () => {
       expect(assembly.dispatch).toBeDefined();
       expect(assembly.scope).toBeDefined();
       expect(assembly.logger).toBeDefined();
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('skills_change 事件桥（批 19b-1）：registry refresh → dispatch skills_change 发射（载荷 = provider 清单）', async () => {
+    const dir = tmpDir('host-asm-skchg-');
+    // 缺省 createCorePlugins 真跑形（exec/web/skills 三件——桥只在 skills 服务在场时挂）
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const registry = assembly.scope.tryGet<SkillsRegistry>('skills');
+      expect(registry).toBeDefined(); // core:skills 装载（真跑形回归锁）
+      const received: Array<{ providers?: readonly string[] }> = [];
+      assembly.dispatch.on('skills_change', (data) => {
+        received.push(data as { providers?: readonly string[] });
+      });
+      await registry!.refresh(); // runRefresh 尾无条件通知——桥即刻发射
+      expect(received).toHaveLength(1);
+      expect(received[0]!.providers).toContain('project'); // 载荷 = 现行 provider id 清单（06 §11.3）
+      expect(received[0]!.providers).toContain('factory');
     } finally {
       await assembly.runtime.shutdown();
     }

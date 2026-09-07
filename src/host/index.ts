@@ -55,8 +55,10 @@ export type { SignalChoreographyOptions, CrashChoreographyOptions } from './sign
 export { VIRTUAL_KEYS, checkImportSpecifier, extractImportSpecifiers, createGateTransform } from './import-gate.js';
 export type { ImportGateContext, GateTransformOptions } from './import-gate.js';
 export { loadPlugins, CorePluginBootError } from './loader.js';
-// core: 官方件注册表单源（批 19a——assembly 缺省注入源/测试注入面）
-export { CORE_PLUGINS } from './core-plugins.js';
+// core: 官方件注册表单源（批 19a 起——assembly 缺省注入源/测试注入面；批
+// 19b-1 工厂形升级：宿主真身〔dataDir 等〕经 CorePluginHostDeps 入件）
+export { createCorePlugins } from './core-plugins.js';
+export type { CorePluginHostDeps } from './core-plugins.js';
 export type {
   CorePluginReference,
   DiskPluginSpec,
