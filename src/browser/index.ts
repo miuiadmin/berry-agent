@@ -3,7 +3,8 @@
  * browser 桥件章：CDP 手写最小桥 + 引擎发现序 + 工具面十件）。
  *
  * 批 17b-3 工具面+编排腿：页面上下文 + 工具面十件 + 编排（惰性引擎/会话
- * 路由/两级闲置回收）。/browser install 下载件（17b-4）随后批接入本面。
+ * 路由/两级闲置回收）。批 17b-4 install 件：/browser install 下载原语
+ * （CfT 元数据 + 流式下载 + 手写 unzip + 摘要账本 TOFU 锚定）已入本面。
  */
 import './codes.js';
 
@@ -46,3 +47,15 @@ export { buildBrowserTools } from './tools.js';
 export type { BrowserToolPageSource } from './tools.js';
 export { createBrowserService } from './service.js';
 export type { BrowserService, BrowserServiceDeps } from './service.js';
+export {
+  BROWSER_METADATA_URL,
+  BROWSER_DOWNLOAD_HOSTS,
+  BROWSER_ENGINE_DIRNAME,
+  BROWSER_LEDGER_NAME,
+  BROWSER_ZIP_MAX_BYTES,
+  platformArtifact,
+  defaultDownloadFace,
+  unzipTo,
+  installBrowserEngine,
+} from './install.js';
+export type { BrowserDownloadFace, BrowserInstallDeps, BrowserInstallResult, BrowserEngineLedger } from './install.js';

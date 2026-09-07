@@ -163,6 +163,8 @@ export interface BrowserFsFace {
   readdir(path: string): Promise<readonly string[]>;
   stat(path: string): Promise<{ isFile(): boolean }>;
   unlink(path: string): Promise<void>;
+  /** 属位改写（install 件可执行位——窄面可选，生产适配传入） */
+  chmod?(path: string, mode: number): Promise<void>;
 }
 
 /** 工具注册窄面（结构兼容 tools ToolRegistry.register 子面——撤工具经注销器） */
