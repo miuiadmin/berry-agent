@@ -19,8 +19,8 @@ export const GOAL_USAGE = [
 /** 命令装配依赖 */
 export interface GoalCommandDeps {
   service: GoalService;
-  /** goal 段计划态 fold 面（open 项计数渲染——service.goalScopeFor 取锚） */
-  eventsFor: (sessionId: string) => SessionEvent[];
+  /** goal 段计划态 fold 面（open 项计数渲染——service.goalScopeFor 取锚；readonly = GoalSessionFace.events 同形直传） */
+  eventsFor: (sessionId: string) => readonly SessionEvent[];
 }
 
 /** /goal 处理器（argv → 人读文本；守卫错折文本） */

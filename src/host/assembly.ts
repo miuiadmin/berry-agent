@@ -38,6 +38,7 @@ import type { SkillsRegistry } from '../skills/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
 import { createCorePlugins } from './core-plugins.js';
+import type { GoalFace } from './core-plugins.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import type { CorePluginReference } from './loader.js';
@@ -175,6 +176,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               : {}),
           }
         : {}),
+      // goal 段升格锚（批 19c-3——03 §10.5 组合根闭包）：lazy 共享根取面
+      // （stack 先建 boot 后跑——goal 件未装载 = undefined，fold 退化
+      // run-scoped 现行为；goalScopeFor 调用面 = 驱动每请求 fold）
+      goalScopeFor: (sessionId) => scope.tryGet<GoalFace>('goal')?.service.goalScopeFor(sessionId),
       warn: (message) => logger.warn(message),
     });
 
@@ -307,6 +312,18 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               const depth = delegationSessions.depthOf(sessionId) ?? 1;
               const toolNames = stack.driverOf(sessionId)?.toolNames;
               return { depth, ...(toolNames !== undefined ? { availableTools: toolNames } : {}) };
+            },
+            // goal 会话日志读面（批 19c-3——goal 件主闸二）：活体日志优先
+            // （driver 在场读内存面），驱动已收口的外部会话兜底落盘读；
+            // 长度经 events() 视图取长（O(1)——内部数组直视图非拷贝）
+            goalSession: {
+              events: (sessionId) =>
+                stack.driverOf(sessionId)?.session.events() ??
+                runtimeNow.persistence.loadSession(sessionId).log.events(),
+              length: (sessionId) => {
+                const log = stack.driverOf(sessionId)?.session ?? runtimeNow.persistence.loadSession(sessionId).log;
+                return log.events().length;
+              },
             },
           }),
         warn: (message) => logger.warn(message),

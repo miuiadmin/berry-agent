@@ -19,11 +19,19 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
-import type { SessionEvent } from '../contracts/index.js';
+import type { SessionEvent, ToolDefinition } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ExecToolService } from '../conversation/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { createBashTool, createSpawnPipeline, buildChildEnv } from '../exec/index.js';
+import {
+  createGoalService,
+  createGoalTodoTool,
+  createGoalUpdateTool,
+  runGoalCommand,
+  GOAL_USAGE,
+} from '../goal/index.js';
+import type { GoalService, GoalSessionFace, GoalTodoItem } from '../goal/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createSandboxService } from '../safety/index.js';
 import {
@@ -183,6 +191,12 @@ export interface CorePluginHostDeps {
    * 根接线挂账 run 入口批（宿主三面未齐）。
    */
   readonly schedulerGateFacts?: (row: JobRow) => GateFacts;
+  /**
+   * goal 会话日志读面（批 19c-3——GoalSessionFace：goal 段 fold 重放面 +
+   * 激活锚长度单源「位置类数值取宿主单源长度面」）。缺席 = goal 件整体零
+   * 装载（主闸二——同 sqlite 律；/goal 命令 eventsFor 面同源派生）。
+   */
+  readonly goalSession?: GoalSessionFace;
 }
 
 /**
@@ -496,8 +510,124 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
 
       context.provide('scheduler', { service, goalJobs, engine } satisfies SchedulerFace);
 
+      // 迟到序对称腿（04 §12 第五槽双序合法）：goal 件先装载（注册表序倒置
+      // 或本件单件复活）时此处补接线；先行腿在 goal 件 apply 内 tryGet 本面。
+      // 附着者回卷律——本腿 attach 则本腿 detach（goal 件先行腿自理对称）
+      let attachedGoal: GoalService | undefined;
+      const goalEarly = context.tryGet<GoalFace>('goal');
+      if (goalEarly !== undefined) {
+        await goalEarly.service.attachGoalJobsFace(goalJobs);
+        attachedGoal = goalEarly.service;
+      }
+
       return () => {
+        attachedGoal?.detachGoalJobsFace();
         disposeTick();
+      };
+    },
+  };
+}
+
+/**
+ * 'goal' 服务面（批 19c-3——conversation-stack 换装消费位 + 宿主入口面）。
+ * todoFactory = per-session 扩展 todo 工具构造（03 §10.5 换装律——append/
+ * getScope 会话闭包由调用方注入，件内补段约束执法三判据）；service =
+ * GoalService 全环（goalScopeFor 锚 = chat↔goal 数据通道零服务面例外位
+ * ——组合根经本面取锚，driver fold 升格与 /goal show 渲染共用）。宿主入口
+ * 消费 recordTurn/wake 编舞挂账 run 入口批。
+ */
+export interface GoalFace {
+  readonly service: GoalService;
+  /** per-session 扩展 todo 工具构造（换装产物同名 'todo'——模型面无感） */
+  readonly todoFactory: (deps: {
+    readonly append: (data: { items: GoalTodoItem[] }) => void;
+    readonly getScope: () => { goalId: string; activatedSeq: number } | null;
+  }) => ToolDefinition;
+}
+
+/**
+ * core:goal（批 19c-3）——03 §10.5 计划态机器装载态兑现：GoalService 全环
+ * （goals 表族 v3 已由宿主聚合）+ goal_update 终态申报工具（boot 全局层
+ * ——执行时会话解析包装：toolCtx.sessionId 先落可变格再入件，多会话共享
+ * 一 def）+ /goal 命令（输出经 notify 归因 'goal'）+ 挂钟迟到注入先行腿
+ * （tryGet scheduler 面——注册表序 scheduler 先装载即挂即用；倒置序对称
+ * 腿在 scheduler 件内）+ 'goal' 服务面供给（todoFactory + service）。
+ *
+ * gates v1 接线形：workspaceRoot 真值 + exec/lsp seam 缺席 fail-closed
+ * （files 源真 statSync 件内缺省）；todo 换装 commandGateAllowed 恒 false
+ * （needsWrite 申报+人面批准链路未建——拒申报即拒评测双拦位）+ hasLsp 恒
+ * false（lsp 件 19d 入册后接线真诊断面）。
+ *
+ * 挂账 run 入口批（驱动循环编舞三件同笔——件已装载仅缺驱动侧接线，预算
+ * 刹停腿 inert 至入口批）：prepareNextTurn 轮间沉淀（complete 单发
+ * objective 摘要）、agent_pre_step 预算复验发射位（agent 域 waterfall 词
+ * 无发射者）、recordTurn 前台记账挂点。
+ *
+ * 主闸双位 = sqlite seam + goalSession face（同 memory 律）：任一缺席 = 件
+ * 整体零装载（诚实缺席律）。
+ */
+function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'goal',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      const db = deps.sqlite?.();
+      const sessionFace = deps.goalSession;
+      if (db === undefined || sessionFace === undefined) return; // 主闸双位
+
+      const warn = (message: string) => console.error(message);
+      const now = () => new Date().toISOString();
+      const service = createGoalService({
+        db,
+        now,
+        warn,
+        session: sessionFace,
+        // 判据门 v1 接线形：files 源真 stat；exec/lsp 缺席 = 该源评测恒 fail
+        gates: { workspaceRoot: canonicalWorkspaceRoot(deps.cwd) },
+      });
+
+      // goal_update：boot 全局层 + 执行时会话解析包装（deps.getSessionId 是
+      // 工厂期闭包——包装在 execute 前以 toolCtx.sessionId 落格）
+      let currentSessionId = '';
+      const updateDef = createGoalUpdateTool({ service, getSessionId: () => currentSessionId });
+      const goalUpdate: ToolDefinition = {
+        ...updateDef,
+        execute: (args, toolCtx) => {
+          if (toolCtx.sessionId !== undefined) currentSessionId = toolCtx.sessionId;
+          return updateDef.execute(args, toolCtx);
+        },
+      };
+      const disposeUpdate = context.tools.register(goalUpdate);
+
+      // /goal 命令（argv → 人读文本——守卫错已折文本不抛；eventsFor 与
+      // service.session 同源读面；输出面经 notify 归因 'goal'）
+      const disposeGoal = context.channels.registerCommand(
+        'goal',
+        async (args) => {
+          const text = await runGoalCommand(args.argv, { service, eventsFor: (sid) => sessionFace.events(sid) });
+          deps.notify?.('goal', text);
+        },
+        GOAL_USAGE,
+      );
+
+      // 挂钟迟到注入先行腿（scheduler 先装载 = 即挂即用；disposer 对称回卷）
+      const sched = context.tryGet<SchedulerFace>('scheduler');
+      if (sched !== undefined) await service.attachGoalJobsFace(sched.goalJobs);
+
+      context.provide('goal', {
+        service,
+        todoFactory: (todoDeps) =>
+          createGoalTodoTool({
+            ...todoDeps,
+            commandGateAllowed: false, // v1 接线形——needsWrite 批准链路挂账
+            hasLsp: false, // lsp 件 19d 入册后接线真诊断面
+          }),
+      } satisfies GoalFace);
+
+      return () => {
+        if (sched !== undefined) service.detachGoalJobsFace();
+        disposeGoal();
+        disposeUpdate();
       };
     },
   };
@@ -508,8 +638,8 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * createCorePlugins(deps)`；测试注入面/诊断命令经 options 覆盖）。
  * deps 聚落律（07 §7.4 #1）：宿主真身需求逐笔入 CorePluginHostDeps
  * （dataDir 首位——批 19b-1；memory 数据面六位——批 19b-2；subagent
- * 委派面两位——批 19c-1；调度闸事实位——批 19c-2；store/exec 管道跨件
- * 复用等后续件随批扩展）。
+ * 委派面两位——批 19c-1；调度闸事实位——批 19c-2；goal 会话读面——批
+ * 19c-3；store/exec 管道跨件复用等后续件随批扩展）。
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
   return [
@@ -519,5 +649,6 @@ export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePlugin
     makeMemoryPlugin(deps),
     makeSubagentPlugin(deps),
     makeSchedulerPlugin(deps),
+    makeGoalPlugin(deps),
   ];
 }

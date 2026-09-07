@@ -17,8 +17,11 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { EventDispatch, Scope } from '../context/index.js';
+import { BaseError } from '../contracts/index.js';
 import type { SessionEvent } from '../contracts/index.js';
 import type { CommandHandler } from '../channels/index.js';
+import { GOAL_MIGRATION } from '../goal/index.js';
+import type { GoalSessionFace } from '../goal/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
 import { MEMORY_DB_PATH, Persistence } from '../persist/index.js';
@@ -26,7 +29,7 @@ import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
 import { SessionLog } from '../session/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
-import type { SchedulerFace } from './core-plugins.js';
+import type { GoalFace, SchedulerFace } from './core-plugins.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { PluginBootFs } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
@@ -63,12 +66,13 @@ function stubRuntime(dataDir: string | null): HostRuntime {
   return stub as unknown as HostRuntime; // closers 等私有位不在公开类型——结构替身
 }
 
-/** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位） */
+/** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler/goal 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位，goal 增会话读面主闸二） */
 interface DepsForTest {
   sqlite?: () => ReturnType<Persistence['store']['sqlite']>;
   fetchEvents?: (sessionId: string) => readonly SessionEvent[];
   llm?: () => MemoryLlmFace;
   notify?: (source: string, message: string) => void;
+  goalSession?: GoalSessionFace;
 }
 
 /** 真装载速记（createCorePlugins 工厂单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言。cwd/homeDir 注入隔离面——skills 跨库层不扫真实 HOME） */
@@ -112,6 +116,7 @@ async function bootCore(
       ...(coreDeps.fetchEvents !== undefined ? { fetchEvents: coreDeps.fetchEvents } : {}),
       ...(coreDeps.llm !== undefined ? { llm: coreDeps.llm } : {}),
       ...(coreDeps.notify !== undefined ? { notify: coreDeps.notify } : {}),
+      ...(coreDeps.goalSession !== undefined ? { goalSession: coreDeps.goalSession } : {}),
     }),
     version: '9.9.9-test',
     warn: (message) => warnings.push(message),
@@ -484,7 +489,125 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(commands).not.toContain('tick');
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent/scheduler 六件）', () => {
+  it('goal 件装载全环（批 19c-3）：主闸双位在场 → 服务面 + goal_update + /goal 注册 + 挂钟委派真行 + todoFactory 换装 + 完成否决律', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal-'));
+    dirs.push(dataDir);
+    // 迁移链 = 宿主聚合同构（v2 scheduler + v3 goal + v4-6 memory 全在链，
+    // runtime.ts 聚合形镜像）
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const notified: string[] = [];
+    // goalSession 面：内存 SessionLog 单会话真身（events 视图 + 长度真值）
+    const session = new SessionLog({ sessionId: 's-goal' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal' ? session.events() : []),
+      length: (sid) => (sid === 's-goal' ? session.events().length : 0),
+    };
+    const { scope, boot, commands, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        goalSession,
+        notify: (source, message) => {
+          if (source === 'goal') notified.push(message); // 归因位可辨（notify 双参化回归锁）
+        },
+      },
+    );
+
+    // 服务面：'goal' 在场（service 全环 + todoFactory 换装工厂）
+    const face = scope.tryGet<GoalFace>('goal');
+    expect(face).toBeDefined();
+    // goal_update 在 boot 全局层（执行时会话解析包装 def）+ /goal 命令注册
+    expect(boot.tools.definitions().map((d) => d.name)).toContain('goal_update');
+    expect(commands).toContain('goal');
+
+    // 挂钟委派真行（迟到注入先行腿——注册表序 scheduler 先装载即挂即用）：
+    // activate → jobs 表 goal-<id> builtin 建行即启
+    const row = await face!.service.activate({
+      sessionId: 's-goal',
+      objective: '测试目标——装载全环',
+      schedule: 'every:60s',
+    });
+    const schedFace = scope.tryGet<SchedulerFace>('scheduler')!;
+    expect(schedFace.service.getJob(`goal-${row.id}`)?.builtin).toBe(true);
+    expect(schedFace.service.getJob(`goal-${row.id}`)?.enabled).toBe(true); // 建行即启
+
+    // goalScopeFor 锚：active goal 会话取 {goalId, activatedSeq}（锚 = 激活时
+    // 会话日志长度——空会话 0）
+    expect(face!.service.goalScopeFor('s-goal')).toEqual({ goalId: row.id, activatedSeq: 0 });
+
+    // todoFactory 换装产物：同名 'todo' + 段内扩展字段过闸 + durable 同词承载
+    const todo = face!.todoFactory({
+      append: (data) => session.append('todo/write', data),
+      getScope: () => ({ goalId: row.id, activatedSeq: 0 }),
+    });
+    expect(todo.name).toBe('todo');
+    await todo.execute(
+      { items: [{ status: 'in-progress', content: '推进装载批', resume_when: 'after@+5m' }] },
+      { toolCallId: 'c-goal-todo' },
+    );
+    const todoWrite = session.events().find((event) => event.type === 'todo/write');
+    expect(JSON.stringify(todoWrite?.data)).toContain('推进装载批');
+
+    // 完成否决律（03 §10.5 open 项 = 一切非 completed，deferred 含内）：
+    // goal_update 经 toolCtx.sessionId 解析会话 → activeFor → 机器否决
+    const updateDef = boot.tools.definitions().find((d) => d.name === 'goal_update')!;
+    const veto = await updateDef
+      .execute({ status: 'completed', evidence: '自报完成' }, { toolCallId: 'c-goal-upd', sessionId: 's-goal' })
+      .catch((err: unknown) => err);
+    expect(veto).toBeInstanceOf(BaseError);
+    expect((veto as BaseError).code).toBe('GOAL_TRANSITION_INVALID');
+
+    // 清表后真完成（全绿：空 open 项 + 无 gate 声明）→ 终态同笔停摆 + 锚失活
+    await todo.execute(
+      { items: [{ status: 'completed', content: '推进装载批', no_follow_up: true }] },
+      { toolCallId: 'c-goal-todo2' },
+    );
+    const done = await updateDef.execute(
+      { status: 'completed', evidence: '全绿完成' },
+      { toolCallId: 'c-goal-upd2', sessionId: 's-goal' },
+    );
+    expect(JSON.stringify(done)).toContain('已完成');
+    expect(schedFace.service.getJob(`goal-${row.id}`)?.enabled).toBe(false); // 终态停摆
+    expect(face!.service.goalScopeFor('s-goal')).toBeUndefined(); // 锚失活
+
+    // /goal handler 真调：list → 输出面归因 goal 的结算文本
+    const goalCmd = commandSpecs.find((spec) => spec.name === 'goal');
+    if (goalCmd === undefined) throw new Error('/goal 命令不在捕获面');
+    await goalCmd.handler({ raw: '', argv: ['list'] });
+    expect(notified[notified.length - 1]!).toContain('共 1 个 goal');
+    await persistence.close();
+  });
+
+  it('goal 主闸二缺席（goalSession 缺席）：件零装载——服务面缺席 + 零工具 + /goal 不注册（scheduler 不连坐）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-ggate-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    // sqlite 在场、goalSession 缺席——主闸二独立执法（goalSession 是会话
+    // 读面缺席即无 fold 重放源，件整体不装）
+    const { scope, boot, commands } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+      },
+    );
+    expect(scope.tryGet('goal')).toBeUndefined();
+    expect(boot.tools.definitions().map((d) => d.name)).not.toContain('goal_update');
+    expect(commands).not.toContain('goal');
+    expect(scope.tryGet('scheduler')).toBeDefined(); // 主闸二不连坐主闸一
+    await persistence.close();
+  });
+
+  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent/scheduler/goal 七件）', () => {
     expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual([
       'exec',
       'web',
@@ -492,6 +615,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       'memory',
       'subagent',
       'scheduler',
+      'goal',
     ]);
   });
 });

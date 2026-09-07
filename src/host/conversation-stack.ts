@@ -55,6 +55,7 @@ import { deriveMessages } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
 
 import type { HostRuntime } from './runtime.js';
+import type { GoalFace } from './core-plugins.js';
 
 /** 组合根选项（TUI 入口与测试的注入面） */
 export interface ConversationStackOptions {
@@ -81,6 +82,14 @@ export interface ConversationStackOptions {
   readonly pluginSections?: () => string;
   /** 思考档位（会话态） */
   readonly thinkingLevel?: ThinkingLevel;
+  /**
+   * goal 段升格锚（批 19c-3——03 §10.5 chat↔goal 数据通道组合根闭包注入）：
+   * 返 {goalId, activatedSeq} = 该会话 goal active，todo fold 边界升格
+   * goal 生命周期段；缺席/返 undefined = fold 退化 run-scoped 现行为。
+   * 双消费位：驱动 fold 升格（goalScopeFor seam）+ goal 件 todo 换装
+   * getScope 判据面。
+   */
+  readonly goalScopeFor?: (sessionId: string) => { goalId: string; activatedSeq: number } | undefined;
   /** 跨会话 allowlist 条目（04 §9 粘性第 3 款 advisory 免问面；装配层读 allowlist.json 载入——缺省功能关闭） */
   readonly allowlist?: readonly AllowlistEntry[];
   /** 「始终允许」条目写入回调（04 §9 粘性段定形③——装配层接 allowlist-store 文件写；缺省 always 面关闭） */
@@ -189,6 +198,17 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     let tools: readonly AgentTool[] | undefined;
     let settleApprovals: (() => void) | undefined;
     if (options.runtime.dataDir !== null) {
+      // goal 段换装（批 19c-3——03 §10.5）：goal 件在场 + 锚注入在位 →
+      // per-session 扩展 todo 工具替换内置件（openTools todoTool 注入位——
+      // 词面独立律 conversation 域零 goal 知识；未装载/锚缺席 = 内置件）
+      const goalFace = scope.tryGet<GoalFace>('goal');
+      const goalTodo =
+        goalFace !== undefined && options.goalScopeFor !== undefined
+          ? goalFace.todoFactory({
+              append: (data) => session.append('todo/write', data),
+              getScope: () => options.goalScopeFor?.(sessionId) ?? null,
+            })
+          : undefined;
       const assembly = assembleOpenTools({
         sessionId,
         dispatch,
@@ -201,6 +221,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         ...(options.allowlist !== undefined ? { allowlist: options.allowlist } : {}),
         ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
         ...(options.bootTools !== undefined ? { extraTools: options.bootTools } : {}),
+        ...(goalTodo !== undefined ? { todoTool: goalTodo } : {}),
       });
       options.runtime.registerDisposer(assembly.dispose); // LIFO 拆解进运行时退出序
       // 整形钩子（批 19c-1）：装配产物进驱动前整形（语义归调用方——子代理
@@ -223,6 +244,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         ? { systemPrompt: systemPrompt ?? options.systemPrompt }
         : {}),
       ...(options.pluginSections !== undefined ? { pluginSections: options.pluginSections } : {}),
+      // goal 段升格锚穿线（批 19c-3——驱动 fold 升格消费位 driver.ts）
+      ...(options.goalScopeFor !== undefined ? { goalScopeFor: options.goalScopeFor } : {}),
       classifyError,
       compactForOverflow: (log: SessionLog) => compaction.compactForOverflow(log),
       environmentDisclosure: options.runtime.disclosure,

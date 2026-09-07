@@ -70,15 +70,17 @@ describe('createHostRuntime 启动序', () => {
     await rt.shutdown();
   });
 
-  it('迁移链机械聚合（05 §6.4——批 19c-2 回归锁）：core: 表族并入宿主单链真应用', async () => {
+  it('迁移链机械聚合（05 §6.4——批 19c-2/19c-3 回归锁）：core: 表族并入宿主单链真应用', async () => {
     const { rt } = rig();
-    // jobs 表（SCHEDULER_MIGRATION v2——本批聚合）与 memory 表族（v4-6——19b-2
-    // 先例）都在主库 schema 在场：插件建表经宿主单链执行的结构证据
+    // jobs 表（scheduler v2）、goals 表族（goal v3——本批聚合）与 memory 表族
+    // （v4-6——19b-2 先例）都在主库 schema 在场：插件建表经宿主单链执行的结构证据
     const db = rt.persistence.store.sqlite();
     const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(
       (row) => row.name,
     );
     expect(tables).toContain('jobs');
+    expect(tables).toContain('goals');
+    expect(tables).toContain('goal_wakes');
     expect(tables.some((name) => name.startsWith('memory_'))).toBe(true);
     await rt.shutdown();
   });

@@ -65,6 +65,13 @@ export interface OpenToolsOptions {
   readonly entries?: readonly CarveOutEntry[];
   /** 装载工具定义取值器（批 19a 消费腿：boot 全局层定义经会话装配重放注册——走本管道守门/审批与驱动层同律；每会话装配时调用一次） */
   readonly extraTools?: () => readonly ToolDefinition[];
+  /**
+   * todo 工具换装注入位（03 §10.5 goal 换装律）：goal 件在场时装配根以
+   * goal 件扩展产物替换本域内置 createTodoTool（同名 'todo'——模型面无感
+   * 换装，durable todo/write 同词承载扩展字段）。缺省内置件。词面独立律：
+   * 本域零 goal 知识——纯结构注入 seam（per-session 闭包由调用方构造）。
+   */
+  readonly todoTool?: ToolDefinition;
 }
 
 /** open 域装配产物 */
@@ -148,7 +155,8 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
           approval: { ask: (req) => approvalWiring.approval.ask(req) },
         })
       : undefined;
-  const todoTool = createTodoTool((data) => opts.session.append('todo/write', data));
+  // todo 工具：goal 换装注入位胜出（03 §10.5），缺省本域内置件
+  const todoTool = opts.todoTool ?? createTodoTool((data) => opts.session.append('todo/write', data));
 
   const definitions = [
     ...fsTools.tools,
