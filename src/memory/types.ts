@@ -49,6 +49,31 @@ export const MEMORY_SUMMARY_MAX_CHARS = 2_000;
 /** content 硬帽（注入用全文——与 summary 同律起草值） */
 export const MEMORY_CONTENT_MAX_CHARS = 64_000;
 
+/* 持有面/检索面常量（批 18c-2——06 §7 工具九件；起草值随实测调） */
+
+/** 检索行帽缺省 / 硬帽（memory_search） */
+export const MEMORY_SEARCH_DEFAULT_LIMIT = 10;
+export const MEMORY_SEARCH_MAX_LIMIT = 50;
+
+/** 访问日志流水面行帽缺省 / 硬帽（memory_access_log） */
+export const MEMORY_ACCESS_LOG_DEFAULT_LIMIT = 50;
+export const MEMORY_ACCESS_LOG_MAX_LIMIT = 200;
+
+/** 访问聚合面 top-N（「top-N 被用条目」——06 §7 access_log 行） */
+export const MEMORY_ACCESS_AGGREGATE_TOP_N = 20;
+
+/** 晋升搬家技能名词法（06 §7 forget 行 promotedToSkill——与技能侧 name 校验同源的纯字面量档） */
+export const MEMORY_SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** 晋升搬家技能名帽（≤64） */
+export const MEMORY_SKILL_NAME_MAX = 64;
+
+/** memory_read 最近变更腿行数（updated_at DESC） */
+export const MEMORY_RECENT_LIMIT = 5;
+
+/** 天 → 毫秒换算单源（ttl_days / expires_at 重算共用） */
+export const MEMORY_DAY_MS = 86_400_000;
+
 /* ---------------- 数据形 ---------------- */
 
 /** 溯源引用（铁律 5——谁在什么时候基于哪几条事件记了什么） */
@@ -73,6 +98,12 @@ export interface MemoryCandidate {
   readonly confidence: number;
   /** 溯源到事件（候选至少携带其产生来源；坏形拒） */
   readonly sourceRefs: readonly MemorySourceRef[];
+  /**
+   * 留存策略天数（可选——标记即算 expires_at，06 §7 memory_write 扩参）。
+   * 落码定形注：仅在独立插入腿（inserted / 极性新胜）生效；合并吸收腿不动
+   * 既有条目的持有策略（既有条目策略保持——receipt 面 action 可见合并结局）。
+   */
+  readonly ttlDays?: number | null;
 }
 
 /** memories 表行（列全量驼峰形——DAO 读面统一映射） */
@@ -158,4 +189,92 @@ export interface IngestOutcome {
   readonly action: IngestAction;
   readonly id: string;
   readonly supersededId?: string;
+}
+
+/* ---------------- 持有面动词与检索面（批 18c-2——06 §6/§7 工具九件的数据面） ---------------- */
+
+/** 访问操作三值闭集（06 §6 三写点：recall 注入 / search 检索 / cite 引用回写） */
+export type MemoryAccessOp = 'recall' | 'search' | 'cite';
+
+/** 检索命中行（memory_fts FTS5——18c-2 域 = 记忆库腿；跨会话 union 腿归 18c-6） */
+export interface MemorySearchHit {
+  readonly id: string;
+  readonly ownerKey: string;
+  readonly kind: MemoryKind;
+  readonly summary: string;
+  /** FTS bm25 rank 原值（负值——越小越相关；结果已按此升序） */
+  readonly score: number;
+}
+
+/** 检索选项（owner 解析归装配面——模型不感知哈希键） */
+export interface MemorySearchOptions {
+  /** owner 并集过滤（缺省 = 全库） */
+  readonly ownerKeys?: readonly string[];
+  readonly kind?: MemoryKind;
+  /** 行帽（缺省 10、硬帽 50） */
+  readonly limit?: number;
+}
+
+/** 健康面计数（memory_read 与 /memory 管理面共源——按状态逐状态取数，全库不分 owner 假精度） */
+export interface MemoryHealthCounts {
+  readonly active: number;
+  readonly dismissed: number;
+  readonly expired: number;
+  readonly frozen: number;
+  readonly total: number;
+}
+
+/** memory_read 无 id 腿的整面返回（常驻简报取数基础版 + 最近变更 + 健康面） */
+export interface MemoryReadOverview {
+  /**
+   * 常驻简报面：frozen 恒驻在前、其余按效用综合分降序（§5 一把尺）。
+   * 18c-2 = 取数基础版；§6 权威简报 builder（消毒/限额/指纹/差分）随 18c-4。
+   */
+  readonly core: readonly MemoryRow[];
+  /** 最近变更（updated_at DESC top 5） */
+  readonly recent: readonly MemoryRow[];
+  readonly health: MemoryHealthCounts;
+}
+
+/** 访问日志查询面（聚合 + 流水双面——06 §7 memory_access_log） */
+export interface MemoryAccessLogQuery {
+  /** 条目 id 或 id 前缀（缺省 = 全库） */
+  readonly memoryIdPrefix?: string;
+  /** 时间窗下界（epoch 毫秒，含） */
+  readonly from?: number;
+  /** 时间窗上界（epoch 毫秒，含） */
+  readonly to?: number;
+  /** op 过滤（缺省 = 三值全量） */
+  readonly op?: MemoryAccessOp;
+  /** 流水面行帽（缺省 50、硬帽 200） */
+  readonly limit?: number;
+}
+
+/** 访问流水行（memory_access 表行——蛇 ↔ 驼峰映射面） */
+export interface MemoryAccessFlowRow {
+  readonly id: string;
+  readonly memoryId: string;
+  readonly op: MemoryAccessOp;
+  /** search 行恒 NULL（工具上下文无会话键——v6 迁移注） */
+  readonly sessionId: string | null;
+  /** Unix 毫秒 */
+  readonly ts: number;
+}
+
+/** 访问聚合行（条目 × 三 op 计数——「top-N 被用条目」面） */
+export interface MemoryAccessAggregate {
+  readonly memoryId: string;
+  readonly summary: string;
+  readonly recall: number;
+  readonly search: number;
+  readonly cite: number;
+  readonly total: number;
+}
+
+/** 访问日志双面返回 */
+export interface MemoryAccessLogResult {
+  /** 聚合面（total 降序 top 20——同查询窗内） */
+  readonly aggregates: readonly MemoryAccessAggregate[];
+  /** 流水面（ts 降序、行帽内） */
+  readonly flow: readonly MemoryAccessFlowRow[];
 }

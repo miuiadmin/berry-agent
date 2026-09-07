@@ -21,17 +21,33 @@
 import { randomBytes } from 'node:crypto';
 import { BaseError } from '../contracts/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
-import { decideMerge, unionSourceRefs } from './merge.js';
+import { decideMerge, unionSourceRefs, utilityScore } from './merge.js';
 import { scanForSecrets } from './scan.js';
 import {
+  MEMORY_ACCESS_AGGREGATE_TOP_N,
+  MEMORY_ACCESS_LOG_DEFAULT_LIMIT,
+  MEMORY_ACCESS_LOG_MAX_LIMIT,
   MEMORY_CONTENT_MAX_CHARS,
+  MEMORY_DAY_MS,
   MEMORY_KINDS,
+  MEMORY_RECENT_LIMIT,
+  MEMORY_SEARCH_DEFAULT_LIMIT,
+  MEMORY_SEARCH_MAX_LIMIT,
+  MEMORY_SKILL_NAME_MAX,
+  MEMORY_SKILL_NAME_RE,
   MEMORY_SOURCE_REFS_CAP,
   MEMORY_SUMMARY_MAX_CHARS,
   type IngestOutcome,
+  type MemoryAccessAggregate,
+  type MemoryAccessFlowRow,
+  type MemoryAccessLogQuery,
+  type MemoryAccessLogResult,
   type MemoryCandidate,
   type MemoryKind,
+  type MemoryReadOverview,
   type MemoryRow,
+  type MemorySearchHit,
+  type MemorySearchOptions,
   type MemorySourceRef,
   type MemoryStatus,
   type MemoryVersionRow,
@@ -68,7 +84,7 @@ export interface MemoryDaoDeps {
   readonly newId?: () => string;
 }
 
-/** memory DAO 公开面（18c-1 域 = 入库单点 + 读面；工具面九件/持有面动词随后批同 DAO 扩） */
+/** memory DAO 公开面（18c-1 域 = 入库单点 + 读面；18c-2 域 = 持有面动词 + 检索/访问面；周期路/晋升桥随后续批扩） */
 export interface MemoryDao {
   /** 入库单点（校验 → 写前扫描 → 三分支合并/插入——单事务） */
   ingest(candidate: MemoryCandidate): IngestOutcome;
@@ -80,6 +96,28 @@ export interface MemoryDao {
   versions(memoryId: string): MemoryVersionRow[];
   /** FTS 全量重建（投影卫生面——可丢弃可重建纪律） */
   rebuildFts(): void;
+
+  /* —— 持有面动词（06 §7——工具九件与 /memory 管理面同 DAO 单实现律） —— */
+
+  /** 软删（status=dismissed + superseded_by='user'/'skill:<名>'；纯状态变更；frozen 拒） */
+  forget(id: string, opts?: { promotedToSkill?: string }): MemoryRow;
+  /** 复活（缺省 = 状态复活；带 revision = 内容回滚 + cause='rollback' 版本追加；两腿都按 ttl_days 重算续期） */
+  restore(id: string, revision?: number): MemoryRow;
+  /** 冻结（幂等——恒简报/免 TTL/免覆写/免整理全档开闸） */
+  freeze(id: string): MemoryRow;
+  /** 解冻（幂等——按 ttl_days 重算钟） */
+  unfreeze(id: string): MemoryRow;
+  /** 清/设留存（null = 永久；有效可见行物化重算立即生效、已过期/终态行仅改未来策略不复活；frozen 拒） */
+  setTtl(id: string, days: number | null): MemoryRow;
+
+  /* —— 检索与读面 —— */
+
+  /** FTS 检索（记忆库腿——跨会话 union 归 18c-6；命中落 memory_access(op='search') 流水） */
+  search(query: string, opts?: MemorySearchOptions): MemorySearchHit[];
+  /** memory_read 无 id 腿整面（简报取数基础版 + 最近变更 + 健康面） */
+  overview(ownerKeys?: readonly string[]): MemoryReadOverview;
+  /** 访问日志双面查询（聚合 top-N + 流水） */
+  accessLog(query?: MemoryAccessLogQuery): MemoryAccessLogResult;
 }
 
 /* ---------------- 行映射（蛇 ↔ 驼峰单源） ---------------- */
@@ -199,8 +237,9 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   );
   const stmtInsertMemory = db.prepare(
     `INSERT INTO memories (id, owner_key, kind, summary, content, confidence, evidence_count,
-                           status, superseded_by, source_refs, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?)`,
+                           status, superseded_by, source_refs, created_at, updated_at,
+                           ttl_days, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?)`,
   );
   const stmtInsertFts = db.prepare(`INSERT INTO memory_fts (rowid, summary, content) VALUES (?, ?, ?)`);
   const stmtMergeAbsorb = db.prepare(
@@ -226,6 +265,42 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   );
   const stmtRebuildFts = db.prepare(`INSERT INTO memory_fts (memory_fts) VALUES ('rebuild')`);
 
+  /* ---------------- 持有面动词与访问面语句（18c-2） ---------------- */
+
+  const stmtGetRowid = db.prepare(`SELECT rowid AS rid FROM memories WHERE id = ?`);
+  // external-content 删除（携**旧值**——FTS5 投影同步的删除语义面，内容回滚前清旧投影）
+  const stmtFtsDelete = db.prepare(
+    `INSERT INTO memory_fts (memory_fts, rowid, summary, content) VALUES ('delete', ?, ?, ?)`,
+  );
+  const stmtDismissUser = db.prepare(`UPDATE memories SET status = 'dismissed', superseded_by = ? WHERE id = ?`);
+  // 状态复活（纯状态变更——不动 updated_at 不追加版本，同极性新胜旧条纪律）
+  const stmtRevive = db.prepare(
+    `UPDATE memories SET status = 'active', superseded_by = NULL, expires_at = ? WHERE id = ?`,
+  );
+  // 内容回滚 + 复活一体（六列回写 + 状态面 + 续期 + updated_at——内容面变更腿）
+  const stmtRollback = db.prepare(
+    `UPDATE memories SET owner_key = ?, kind = ?, summary = ?, content = ?, confidence = ?,
+                         evidence_count = ?, status = 'active', superseded_by = NULL,
+                         expires_at = ?, updated_at = ?
+     WHERE id = ?`,
+  );
+  const stmtFreeze = db.prepare(`UPDATE memories SET frozen = 1 WHERE id = ?`);
+  const stmtUnfreeze = db.prepare(`UPDATE memories SET frozen = 0, expires_at = ? WHERE id = ?`);
+  const stmtSetTtl = db.prepare(`UPDATE memories SET ttl_days = ?, expires_at = ? WHERE id = ?`);
+  const stmtSetTtlPolicy = db.prepare(`UPDATE memories SET ttl_days = ? WHERE id = ?`);
+  const stmtGetVersion = db.prepare(
+    `SELECT id, memory_id, revision, owner_key, kind, summary, content, confidence,
+            evidence_count, cause, created_at
+     FROM memory_versions WHERE memory_id = ? AND revision = ?`,
+  );
+  const stmtInsertAccess = db.prepare(
+    `INSERT INTO memory_access (id, memory_id, op, session_id, ts) VALUES (?, ?, ?, ?, ?)`,
+  );
+  // 健康面计数（/memory 管理面同源——按状态逐状态取数；全库不分 owner 假精度）
+  const stmtHealthStatuses = db.prepare(`SELECT status, count(*) AS n FROM memories GROUP BY status`);
+  const stmtHealthFrozen = db.prepare(`SELECT count(*) AS n FROM memories WHERE frozen = 1`);
+  const stmtHealthTotal = db.prepare(`SELECT count(*) AS n FROM memories`);
+
   /** 坏形拒（MEMORY_ENTRY_INVALID——闭集/形状/越界判据全清单） */
   function validate(candidate: MemoryCandidate): void {
     const problems: string[] = [];
@@ -246,9 +321,46 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
         break;
       }
     }
+    // ttl_days 形（18c-2 扩——正整数或 null/缺席；标记即算 expires_at）
+    if (
+      candidate.ttlDays !== undefined &&
+      candidate.ttlDays !== null &&
+      (!Number.isInteger(candidate.ttlDays) || candidate.ttlDays < 1)
+    ) {
+      problems.push(`ttl_days 形违例（正整数或 null）：${candidate.ttlDays}`);
+    }
     if (problems.length > 0) {
       throw new BaseError('MEMORY_ENTRY_INVALID', `记忆候选坏形拒：${problems.join('；')}`);
     }
+  }
+
+  /** 作用行守卫（MEMORY_NOT_FOUND——GOAL_NOT_FOUND 同构；工具动词与 /memory 管理面共用） */
+  function mustGet(id: string): MemoryRow {
+    const row = stmtGet.get(id) as MemoryDbRow | undefined;
+    if (!row) throw new BaseError('MEMORY_NOT_FOUND', `记忆条目缺席：${id}`);
+    return mapRow(row);
+  }
+
+  /** 晋升搬家技能名校验（^[a-z0-9]+(-[a-z0-9]+)*$ 且 ≤64——与技能侧 name 校验同源的纯字面量档） */
+  function validSkillName(name: string): string {
+    if (name.length > MEMORY_SKILL_NAME_MAX || !MEMORY_SKILL_NAME_RE.test(name)) {
+      throw new BaseError(
+        'MEMORY_ENTRY_INVALID',
+        `promotedToSkill 技能名词法违例（^[a-z0-9]+(?:-[a-z0-9]+)*$ 且 ≤${MEMORY_SKILL_NAME_MAX}）：${name}`,
+      );
+    }
+    return name;
+  }
+
+  /** 行帽钳制（1..max；非有限数走缺省） */
+  function clampLimit(value: number | undefined, fallback: number, max: number): number {
+    const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback;
+    return Math.min(Math.max(n, 1), max);
+  }
+
+  /** 按 id 重取现行行（事务尾读——回执统一取变更后状态） */
+  function reload(id: string): MemoryRow {
+    return mapRow(stmtGet.get(id) as MemoryDbRow);
   }
 
   /** 版本链拍照（append-only——快照六列取**变更后**的现行值；单事务内由调用方保证） */
@@ -262,7 +374,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       confidence: number;
       evidenceCount: number;
     },
-    cause: 'insert' | 'merge',
+    cause: MemoryVersionRow['cause'],
     now: number,
   ): void {
     const revision = (stmtNextRevision.get(memoryId) as { next: number }).next;
@@ -289,6 +401,9 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     now: number,
   ): string {
     const id = newId();
+    // ttl 标记即算（06 §7 memory_write 扩参——仅独立插入腿生效，合并腿不动既有策略）
+    const ttlDays = candidate.ttlDays ?? null;
+    const expiresAt = ttlDays !== null ? now + ttlDays * MEMORY_DAY_MS : null;
     const info = stmtInsertMemory.run(
       id,
       candidate.ownerKey,
@@ -300,6 +415,8 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       JSON.stringify(sourceRefs),
       now,
       now,
+      ttlDays,
+      expiresAt,
     );
     // FTS external-content 同步：新行进投影（真身 rowid 即 lastInsertRowid）
     stmtInsertFts.run(Number(info.lastInsertRowid), candidate.summary, candidate.content);
@@ -400,6 +517,224 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     return { action: 'inserted', id };
   });
 
+  /* ---------------- 持有面动词事务体（18c-2——同 ingest 单事务纪律） ---------------- */
+
+  /** forget：软删纯状态变更（不动 updated_at、不追加版本——§3 纪律）；搬家腿词法前置校验 */
+  const forgetTx = db.transaction((id: string, promotedToSkill: string | undefined): MemoryRow => {
+    const row = mustGet(id);
+    if (row.frozen) {
+      throw new BaseError('MEMORY_FROZEN', `条目已冻结（forget 撞 frozen 拒——解冻-再忘唯一路径）：${id}`);
+    }
+    // 终态来源：用户口信 'user' / 晋升搬家 'skill:<名>'（§3 闭集第五值，循 'llm:<id>' 先例）
+    const supersededBy = promotedToSkill === undefined ? 'user' : `skill:${validSkillName(promotedToSkill)}`;
+    stmtDismissUser.run(supersededBy, id);
+    return reload(id);
+  });
+
+  /** restore：带版本 ⊃ 状态复活——两腿都按 ttl_days 重算续期；回滚腿 FTS 投影同步 + rollback 版本追加 */
+  const restoreTx = db.transaction((id: string, revision: number | undefined): MemoryRow => {
+    const now = deps.now();
+    const row = mustGet(id);
+    const expiresAt = row.ttlDays !== null ? now + row.ttlDays * MEMORY_DAY_MS : null;
+    if (revision === undefined) {
+      // 状态复活腿：现行内容不变——纯状态变更（复活唯 restore 的「复活」语义落位）
+      stmtRevive.run(expiresAt, id);
+      return reload(id);
+    }
+    // 内容回滚腿撞 frozen 免覆写（纯状态复活腿不动内容面——frozen 行无此拒）
+    if (row.frozen) {
+      throw new BaseError('MEMORY_FROZEN', `条目已冻结（restore 带 revision 内容回滚撞 frozen 免覆写）：${id}`);
+    }
+    const v = stmtGetVersion.get(id, revision) as VersionDbRow | undefined;
+    if (!v) {
+      // 无链条目带版本拒 / revision 越界——同码（版本缺席是统一执法面）
+      throw new BaseError('MEMORY_REVISION_NOT_FOUND', `版本缺席：${id}#revision=${revision}`);
+    }
+    const rid = (stmtGetRowid.get(id) as { rid: number }).rid;
+    // FTS external-content 同步：删旧投影（携旧值）→ 六列回写 → 插新投影
+    stmtFtsDelete.run(rid, row.summary, row.content);
+    stmtRollback.run(v.owner_key, v.kind, v.summary, v.content, v.confidence, v.evidence_count, expiresAt, now, id);
+    stmtInsertFts.run(rid, v.summary, v.content);
+    appendVersion(
+      id,
+      {
+        ownerKey: v.owner_key,
+        kind: v.kind as MemoryKind,
+        summary: v.summary,
+        content: v.content,
+        confidence: v.confidence,
+        evidenceCount: v.evidence_count,
+      },
+      'rollback',
+      now,
+    );
+    return reload(id);
+  });
+
+  /** freeze：幂等（重复冻结无害）；纯持有面不动 updated_at（不污染老化锚） */
+  const freezeTx = db.transaction((id: string): MemoryRow => {
+    mustGet(id);
+    stmtFreeze.run(id);
+    return reload(id);
+  });
+
+  /** unfreeze：幂等；解冻即按 ttl_days 重算钟（冻结期不计时——重算非续算） */
+  const unfreezeTx = db.transaction((id: string): MemoryRow => {
+    const now = deps.now();
+    const row = mustGet(id);
+    const expiresAt = row.ttlDays !== null ? now + row.ttlDays * MEMORY_DAY_MS : null;
+    stmtUnfreeze.run(expiresAt, id);
+    return reload(id);
+  });
+
+  /** setTtl：有效可见行物化重算立即生效；已过期/终态行仅改未来策略（复活唯 restore） */
+  const setTtlTx = db.transaction((id: string, days: number | null): MemoryRow => {
+    const now = deps.now();
+    if (days !== null && (!Number.isInteger(days) || days < 1)) {
+      throw new BaseError('MEMORY_ENTRY_INVALID', `ttl days 形违例（正整数或 null）：${days}`);
+    }
+    const row = mustGet(id);
+    if (row.frozen) {
+      throw new BaseError('MEMORY_FROZEN', `条目已冻结（frozen 免 TTL——setTtl 拒；解冻-再设唯一路径）：${id}`);
+    }
+    if (row.status === 'active' && (row.expiresAt === null || row.expiresAt > now)) {
+      stmtSetTtl.run(days, days === null ? null : now + days * MEMORY_DAY_MS, id);
+    } else {
+      // 终态/已过期行：expires_at 不动（读面谓词不因改策略复活），策略面供 restore/unfreeze 重算消费
+      stmtSetTtlPolicy.run(days, id);
+    }
+    return reload(id);
+  });
+
+  /* ---------------- 检索与读面实装 ---------------- */
+
+  /** listVisible 本体（方法面与 overview 共用——TTL 谓词单源） */
+  function listVisibleImpl(ownerKeys: readonly string[] | undefined): MemoryRow[] {
+    const now = deps.now();
+    if (!ownerKeys || ownerKeys.length === 0) {
+      return (stmtListAll.all(now) as MemoryDbRow[]).map(mapRow);
+    }
+    // owner 并集读（单语句按需 prepare——owner 键组合开放、缓存无意义）
+    const placeholders = ownerKeys.map(() => '?').join(', ');
+    const stmt = db.prepare(
+      `SELECT ${MEMORY_COLUMNS} FROM memories
+       WHERE status = 'active' AND (frozen = 1 OR expires_at IS NULL OR expires_at > ?)
+         AND owner_key IN (${placeholders})
+       ORDER BY updated_at DESC`,
+    );
+    return (stmt.all(now, ...ownerKeys) as MemoryDbRow[]).map(mapRow);
+  }
+
+  /** FTS 检索（记忆库腿——trigram 短语包裹防 MATCH 语法面；命中流水同事务落账） */
+  function searchImpl(query: string, opts: MemorySearchOptions | undefined): MemorySearchHit[] {
+    // 短语包裹：剥用户侧引号后整体成 phrase——防 FTS5 MATCH 语法注入（NEAR/AND 等运算符不生效）
+    const sanitized = query.replaceAll('"', ' ').trim();
+    if (sanitized === '') return [];
+    const now = deps.now();
+    const limit = clampLimit(opts?.limit, MEMORY_SEARCH_DEFAULT_LIMIT, MEMORY_SEARCH_MAX_LIMIT);
+    const conds = [`m.status = 'active'`, `(m.frozen = 1 OR m.expires_at IS NULL OR m.expires_at > ?)`];
+    const params: unknown[] = [`"${sanitized}"`, now];
+    if (opts?.kind !== undefined) {
+      conds.push(`m.kind = ?`);
+      params.push(opts.kind);
+    }
+    if (opts?.ownerKeys && opts.ownerKeys.length > 0) {
+      conds.push(`m.owner_key IN (${opts.ownerKeys.map(() => '?').join(', ')})`);
+      params.push(...opts.ownerKeys);
+    }
+    const stmt = db.prepare(
+      `SELECT m.id AS id, m.owner_key AS ownerKey, m.kind AS kind, m.summary AS summary,
+              memory_fts.rank AS score
+       FROM memory_fts JOIN memories m ON m.rowid = memory_fts.rowid
+       WHERE memory_fts MATCH ? AND ${conds.join(' AND ')}
+       ORDER BY memory_fts.rank
+       LIMIT ?`,
+    );
+    const hits = stmt.all(...params, limit) as MemorySearchHit[];
+    if (hits.length > 0) {
+      // 命中流水落账（06 §7——op='search'、session_id 恒 NULL〔工具上下文无会话键〕；
+      // 读模型的计量写面，非领域状态变更）
+      const logTx = db.transaction((rows: readonly MemorySearchHit[]): void => {
+        const ts = deps.now();
+        for (const hit of rows) stmtInsertAccess.run(newId(), hit.id, 'search', null, ts);
+      });
+      logTx(hits);
+    }
+    return hits;
+  }
+
+  /** memory_read 无 id 腿整面（frozen 恒驻在前 + 效用综合分降序——§5 一把尺；§6 权威 builder 随 18c-4） */
+  function overviewImpl(ownerKeys: readonly string[] | undefined): MemoryReadOverview {
+    const visible = listVisibleImpl(ownerKeys);
+    const frozenFirst = visible.filter((r) => r.frozen);
+    const scored = visible
+      .filter((r) => !r.frozen)
+      .map((row) => ({ row, score: utilityScore(row) }))
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.row);
+    const counts = stmtHealthStatuses.all() as { status: string; n: number }[];
+    const byStatus = new Map(counts.map((c) => [c.status, c.n]));
+    return {
+      core: [...frozenFirst, ...scored],
+      recent: visible.slice(0, MEMORY_RECENT_LIMIT), // listVisibleImpl 已按 updated_at DESC
+      health: {
+        active: byStatus.get('active') ?? 0,
+        dismissed: byStatus.get('dismissed') ?? 0,
+        expired: byStatus.get('expired') ?? 0,
+        frozen: (stmtHealthFrozen.get() as { n: number }).n,
+        total: (stmtHealthTotal.get() as { n: number }).n,
+      },
+    };
+  }
+
+  /** 访问日志双面查询（聚合 top-N + 流水——前缀/时间窗/op 过滤共用同一套 WHERE） */
+  function accessLogImpl(query: MemoryAccessLogQuery | undefined): MemoryAccessLogResult {
+    const q = query ?? {};
+    const conds: string[] = [];
+    const params: unknown[] = [];
+    if (q.memoryIdPrefix !== undefined && q.memoryIdPrefix !== '') {
+      // 前缀精确比对（substr 定长截取——免 LIKE 通配转义面）
+      conds.push('substr(a.memory_id, 1, ?) = ?');
+      params.push(q.memoryIdPrefix.length, q.memoryIdPrefix);
+    }
+    if (typeof q.from === 'number') {
+      conds.push('a.ts >= ?');
+      params.push(q.from);
+    }
+    if (typeof q.to === 'number') {
+      conds.push('a.ts <= ?');
+      params.push(q.to);
+    }
+    if (q.op !== undefined) {
+      conds.push('a.op = ?');
+      params.push(q.op);
+    }
+    const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+    const limit = clampLimit(q.limit, MEMORY_ACCESS_LOG_DEFAULT_LIMIT, MEMORY_ACCESS_LOG_MAX_LIMIT);
+    const flow = db
+      .prepare(
+        `SELECT a.id AS id, a.memory_id AS memoryId, a.op AS op, a.session_id AS sessionId, a.ts AS ts
+         FROM memory_access a ${where}
+         ORDER BY a.ts DESC LIMIT ?`,
+      )
+      .all(...params, limit) as MemoryAccessFlowRow[];
+    const aggregates = db
+      .prepare(
+        `SELECT a.memory_id AS memoryId, m.summary AS summary,
+                SUM(CASE WHEN a.op = 'recall' THEN 1 ELSE 0 END) AS recall,
+                SUM(CASE WHEN a.op = 'search' THEN 1 ELSE 0 END) AS search,
+                SUM(CASE WHEN a.op = 'cite' THEN 1 ELSE 0 END) AS cite,
+                count(*) AS total
+         FROM memory_access a JOIN memories m ON m.id = a.memory_id
+         ${where}
+         GROUP BY a.memory_id
+         ORDER BY total DESC
+         LIMIT ${MEMORY_ACCESS_AGGREGATE_TOP_N}`,
+      )
+      .all(...params) as MemoryAccessAggregate[];
+    return { aggregates, flow };
+  }
+
   return {
     ingest(candidate) {
       validate(candidate); // 坏形拒在事务外（不入库不改库——纯请求面校验）
@@ -410,25 +745,37 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       return row ? mapRow(row) : undefined;
     },
     listVisible(ownerKeys) {
-      const now = deps.now();
-      if (!ownerKeys || ownerKeys.length === 0) {
-        return (stmtListAll.all(now) as MemoryDbRow[]).map(mapRow);
-      }
-      // owner 并集读（单语句按需 prepare——owner 键组合开放、缓存无意义）
-      const placeholders = ownerKeys.map(() => '?').join(', ');
-      const stmt = db.prepare(
-        `SELECT ${MEMORY_COLUMNS} FROM memories
-         WHERE status = 'active' AND (frozen = 1 OR expires_at IS NULL OR expires_at > ?)
-           AND owner_key IN (${placeholders})
-         ORDER BY updated_at DESC`,
-      );
-      return (stmt.all(now, ...ownerKeys) as MemoryDbRow[]).map(mapRow);
+      return listVisibleImpl(ownerKeys);
     },
     versions(memoryId) {
       return (stmtVersions.all(memoryId) as VersionDbRow[]).map(mapVersionRow);
     },
     rebuildFts() {
       stmtRebuildFts.run();
+    },
+    forget(id, opts) {
+      return forgetTx(id, opts?.promotedToSkill);
+    },
+    restore(id, revision) {
+      return restoreTx(id, revision);
+    },
+    freeze(id) {
+      return freezeTx(id);
+    },
+    unfreeze(id) {
+      return unfreezeTx(id);
+    },
+    setTtl(id, days) {
+      return setTtlTx(id, days);
+    },
+    search(query, opts) {
+      return searchImpl(query, opts);
+    },
+    overview(ownerKeys) {
+      return overviewImpl(ownerKeys);
+    },
+    accessLog(query) {
+      return accessLogImpl(query);
     },
   };
 }
