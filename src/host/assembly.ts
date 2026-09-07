@@ -296,9 +296,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             ftsSearch: runtime.persistence.store,
             ftsMaintenance: runtime.persistence.store,
             llm: () => memoryLlm,
-            // sessionId 位 = 稳定字面占位（呈现侧路由后端自决——TUI/webui 均
-            // 广播；语义面 = 归因 'memory'）
-            notify: (message) => stack.channels.notify('memory', message),
+            // 命令输出面（source = 归因字面——调用件自报：memory-export/import
+            // 归因 'memory'、/tick 归因 'tick'；sessionId 位呈现侧路由后端自决）
+            notify: (source, message) => stack.channels.notify(source, message),
             // 子代理委派面两位（批 19c-1）：service 真身 + boot 全局层工具
             // 执行时语境解析闭包（深度登记表 ?? 根 1；父面枚举 = 活体驱动
             // toolNames 快照——纯对话形 undefined 不可枚举）

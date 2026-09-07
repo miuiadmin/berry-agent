@@ -23,9 +23,17 @@ import type { SessionEvent } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ExecToolService } from '../conversation/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
-import { createBashTool, createSpawnPipeline } from '../exec/index.js';
+import { createBashTool, createSpawnPipeline, buildChildEnv } from '../exec/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createSandboxService } from '../safety/index.js';
+import {
+  createProcessRunnerFactory,
+  createSchedulerEngine,
+  createSchedulerService,
+  runTickCommand,
+  TICK_USAGE,
+} from '../scheduler/index.js';
+import type { GateFacts, GoalJobsFace, JobRow, SchedulerEngine, SchedulerService } from '../scheduler/index.js';
 import { createFetchTool, createInFlightGate, createWebFetchService, DEFAULT_WEB_LIMITS } from '../web/index.js';
 import type { InFlightGate } from '../web/index.js';
 import {
@@ -146,8 +154,12 @@ export interface CorePluginHostDeps {
    * 适配器归装配根。缺席 = 周期腿整体缺席（与 fetchEvents 同闸）。
    */
   readonly llm?: () => MemoryLlmFace;
-  /** 命令输出面（memory-export/import 结算文本投递——缺席即静默，命令仍注册） */
-  readonly notify?: (message: string) => void;
+  /**
+   * 命令输出面（core 件命令结算文本投递——memory-export/import 与 /tick 共用；
+   * source = 归因字面〔命令域〕——呈现侧路由后端自决，语义面 = 可辨识命令
+   * 来源。缺席即静默，命令仍注册）。
+   */
+  readonly notify?: (source: string, message: string) => void;
   /**
    * 子代理委派服务（批 19c-1——assembly 根建 createSubagentService 并接线
    * in-process 真工厂后传入）。缺席 = subagent 件整体零装载（诚实缺席律
@@ -163,6 +175,14 @@ export interface CorePluginHostDeps {
     readonly depth: number;
     readonly availableTools?: readonly string[];
   };
+  /**
+   * 调度闸事实收集器（批 19c-2——04 §12 DiscoveryGates 装配位）：engine 到点
+   * fire 前逐行求值（agentBusy/lastUserMessageAt/canAfford 从宿主面收集——
+   * 在飞 run 查询/最近用户消息/当日后台预算三源）。缺席 = 引擎空事实全门
+   * 放行（fail-open 属实——gates 头注：打扰礼仪与预算面非安全边界）。装配
+   * 根接线挂账 run 入口批（宿主三面未齐）。
+   */
+  readonly schedulerGateFacts?: (row: JobRow) => GateFacts;
 }
 
 /**
@@ -323,13 +343,13 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         context.events.registerSessionEventType(MEMORY_DIFF_EVENT_META);
       }
 
-      // 命令两件（结算文本 = 人读面，经 notify 投递；BaseError 面已在命令内
-      // 折文本，非 BaseError 兜底折呈不炸通道）
+      // 命令两件（结算文本 = 人读面，经 notify 归因 'memory' 投递；BaseError
+      // 面已在命令内折文本，非 BaseError 兜底折呈不炸通道）
       const runCommand = async (run: () => Promise<string>) => {
         try {
-          deps.notify?.(await run());
+          deps.notify?.('memory', await run());
         } catch (err) {
-          deps.notify?.(err instanceof Error ? err.message : String(err));
+          deps.notify?.('memory', err instanceof Error ? err.message : String(err));
         }
       };
       const disposeExport = context.channels.registerCommand(
@@ -417,12 +437,87 @@ function makeSubagentPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
+ * 'scheduler' 服务面（批 19c-2——goal 件迟到注入与宿主入口的消费位）。
+ * goal 件吃 goalJobs 窄面（词面独立零 import——GoalJobsFace 契约真源在
+ * scheduler 域，goal 侧自有词面 + 结构兼容互证归 19c-3）；宿主入口吃
+ * engine（起钟/停钟编舞）；issue 件吃 service.addBuiltinJob/removeJob
+ * （装配闭包适配 IssueSchedulerFace 归 19e）。
+ */
+export interface SchedulerFace {
+  readonly service: SchedulerService;
+  readonly goalJobs: GoalJobsFace;
+  readonly engine: SchedulerEngine;
+}
+
+/**
+ * core:scheduler（批 19c-2）——04 §12 调度条装载态兑现：jobs 表六动词服务面
+ * （/tick 与 CLI 对等单源）+ GoalJobsFace 第五槽 + 进程内挂钟引擎 + /tick
+ * 命令注册（输出经 deps.notify 归因 'tick'）。
+ *
+ * 引擎**构造不自启**：启钟/停钟编舞（含重启补推进拍点）归宿主入口——TUI/
+ * serve 长驻形起钟、诊断形/测试装载不起钟（未起跑的引擎全惰性：poke/排轮
+ * 均守 running 位；manual fireNow 直通不依赖钟——run 入口批接线）。挂账
+ * run 入口批同笔：GateFacts 宿主三源收集接线、cron 乙案后端 CLI 旗标编舞、
+ * 真 bin 出厂（runner spawn 缺省 PATH 解析——bin 缺席诚实归 spawn_failed）。
+ *
+ * 主闸 = sqlite seam（同 memory 律）：缺席 = 件整体零装载（诚实缺席律）。
+ */
+function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'scheduler',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      const db = deps.sqlite?.();
+      if (db === undefined) return; // 主闸——库座缺席零装载（诚实缺席律）
+
+      const warn = (message: string) => console.error(message);
+      const now = () => new Date().toISOString();
+      const { service, dao, goalJobs } = createSchedulerService({ db, now, warn });
+      const engine = createSchedulerEngine({
+        dao,
+        // 真 bin spawn 接线：子进程 env 走 exec 白名单基座（deny-by-default
+        // 同律——PATH/locale 最小集，零宿主环境继承）
+        runner: createProcessRunnerFactory({ env: buildChildEnv() }),
+        now,
+        warn,
+        ...(deps.schedulerGateFacts !== undefined ? { gateFacts: deps.schedulerGateFacts } : {}),
+      });
+
+      // /tick 命令（argv → 人读文本——runTickCommand 错误已折文本不抛；
+      // 输出面经 notify 归因 'tick'，缺席静默命令仍注册）
+      const disposeTick = context.channels.registerCommand(
+        'tick',
+        async (args) => {
+          const text = await runTickCommand(args.argv, { service, engine });
+          deps.notify?.('tick', text);
+        },
+        TICK_USAGE,
+      );
+
+      context.provide('scheduler', { service, goalJobs, engine } satisfies SchedulerFace);
+
+      return () => {
+        disposeTick();
+      };
+    },
+  };
+}
+
+/**
  * core: 官方件注册表工厂（assembly.ts 缺省注入源——`options.corePlugins ??
  * createCorePlugins(deps)`；测试注入面/诊断命令经 options 覆盖）。
  * deps 聚落律（07 §7.4 #1）：宿主真身需求逐笔入 CorePluginHostDeps
  * （dataDir 首位——批 19b-1；memory 数据面六位——批 19b-2；subagent
- * 委派面两位——批 19c-1；store/exec 管道跨件复用等后续件随批扩展）。
+ * 委派面两位——批 19c-1；调度闸事实位——批 19c-2；store/exec 管道跨件
+ * 复用等后续件随批扩展）。
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
-  return [execPlugin, webPlugin, makeSkillsPlugin(deps), makeMemoryPlugin(deps), makeSubagentPlugin(deps)];
+  return [
+    execPlugin,
+    webPlugin,
+    makeSkillsPlugin(deps),
+    makeMemoryPlugin(deps),
+    makeSubagentPlugin(deps),
+    makeSchedulerPlugin(deps),
+  ];
 }

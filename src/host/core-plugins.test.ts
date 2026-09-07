@@ -18,12 +18,15 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { EventDispatch, Scope } from '../context/index.js';
 import type { SessionEvent } from '../contracts/index.js';
+import type { CommandHandler } from '../channels/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
 import { MEMORY_DB_PATH, Persistence } from '../persist/index.js';
+import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
 import { SessionLog } from '../session/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
+import type { SchedulerFace } from './core-plugins.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { PluginBootFs } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
@@ -60,12 +63,12 @@ function stubRuntime(dataDir: string | null): HostRuntime {
   return stub as unknown as HostRuntime; // closers 等私有位不在公开类型——结构替身
 }
 
-/** memory 件 deps 注入面（批 19b-2——sqlite 主闸 + 三 seam + 命令输出） */
-interface MemoryDepsForTest {
+/** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位） */
+interface DepsForTest {
   sqlite?: () => ReturnType<Persistence['store']['sqlite']>;
   fetchEvents?: (sessionId: string) => readonly SessionEvent[];
   llm?: () => MemoryLlmFace;
-  notify?: (message: string) => void;
+  notify?: (source: string, message: string) => void;
 }
 
 /** 真装载速记（createCorePlugins 工厂单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言。cwd/homeDir 注入隔离面——skills 跨库层不扫真实 HOME） */
@@ -73,16 +76,18 @@ async function bootCore(
   dataDir: string | null,
   fs: PluginBootFs = memoryFs(),
   anchors: { cwd?: string; homeDir?: string } = {},
-  memoryDeps: MemoryDepsForTest = {},
+  coreDeps: DepsForTest = {},
 ): Promise<{
   scope: Scope;
   dispatch: EventDispatch;
   warnings: string[];
   commands: string[];
+  commandSpecs: { name: string; handler: CommandHandler }[];
   boot: Awaited<ReturnType<typeof bootPlugins>>;
 }> {
   const warnings: string[] = [];
   const commands: string[] = [];
+  const commandSpecs: { name: string; handler: CommandHandler }[] = [];
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
   const boot = await bootPlugins({
@@ -90,9 +95,11 @@ async function bootCore(
     scope,
     dispatch,
     commands: {
-      // 命令注册捕获桩（memory-export/import 注册面断言用——通道行为面归 channels 域）
-      register: (name: string) => {
+      // 命令注册捕获桩（memory-export/import 与 /tick 注册面断言 + handler
+      // 真调用用——通道行为面归 channels 域）
+      register: (name: string, handler: CommandHandler) => {
         commands.push(name);
+        commandSpecs.push({ name, handler });
         return () => undefined;
       },
     },
@@ -101,16 +108,16 @@ async function bootCore(
       dataDir,
       ...(anchors.cwd !== undefined ? { cwd: anchors.cwd } : {}),
       ...(anchors.homeDir !== undefined ? { homeDir: anchors.homeDir } : {}),
-      ...(memoryDeps.sqlite !== undefined ? { sqlite: memoryDeps.sqlite } : {}),
-      ...(memoryDeps.fetchEvents !== undefined ? { fetchEvents: memoryDeps.fetchEvents } : {}),
-      ...(memoryDeps.llm !== undefined ? { llm: memoryDeps.llm } : {}),
-      ...(memoryDeps.notify !== undefined ? { notify: memoryDeps.notify } : {}),
+      ...(coreDeps.sqlite !== undefined ? { sqlite: coreDeps.sqlite } : {}),
+      ...(coreDeps.fetchEvents !== undefined ? { fetchEvents: coreDeps.fetchEvents } : {}),
+      ...(coreDeps.llm !== undefined ? { llm: coreDeps.llm } : {}),
+      ...(coreDeps.notify !== undefined ? { notify: coreDeps.notify } : {}),
     }),
     version: '9.9.9-test',
     warn: (message) => warnings.push(message),
     fs,
   });
-  return { scope, dispatch, warnings, commands, boot };
+  return { scope, dispatch, warnings, commands, commandSpecs, boot };
 }
 
 /** 恒答审批呈现面（write 类工具守门放行桩——审批装配测试同款，应答 = 'approve' 字面） */
@@ -294,7 +301,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
           complete: async () => ({ message: { content: '' } }),
           canAfford: () => false,
         }),
-        notify: (message) => notified.push(message),
+        notify: (_source, message) => notified.push(message),
       },
     );
 
@@ -392,13 +399,99 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(boot.promptSections.materialize()).not.toContain('<!-- memory:core -->'); // 零简报段
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent 五件）', () => {
+  it('scheduler 件装载全环（批 19c-2）：sqlite 在场 → 服务面三柄 + /tick 注册 + goalJobs 第五槽委派真行', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-sched-'));
+    dirs.push(dataDir);
+    // 真 :memory: 座 + 聚合迁移链（宿主库同构——jobs 表建行走 SCHEDULER_MIGRATION）
+    // 迁移链 = 宿主聚合同构（sqlite seam 共用主闸——memory 件随 scheduler 同装载，
+    // 两族表全在链：scheduler v2 + memory v4-6，runtime.ts 聚合形镜像）
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const { scope, commands } = await bootCore(dataDir, memoryFs(), {}, { sqlite: () => persistence.store.sqlite() });
+
+    // 服务面三柄（service 六动词 + goalJobs 第五槽 + engine 起停编舞位）
+    const face = scope.tryGet<SchedulerFace>('scheduler');
+    expect(face).toBeDefined();
+    expect(typeof face!.service.addJob).toBe('function');
+    expect(typeof face!.goalJobs.register).toBe('function');
+    expect(typeof face!.engine.start).toBe('function');
+    expect(face!.engine.inFlightCount).toBe(0); // 构造不自启——装载态零在飞（起钟编舞归宿主入口）
+
+    // goalJobs 委派真行：register → goal-<goalId> builtin 行落 jobs 表
+    const registered = await face!.goalJobs.register({
+      goalId: 'g1',
+      sessionId: 's-g',
+      schedule: 'every:60s',
+      promptSnapshot: '推进目标 g1',
+    });
+    expect(registered.ok).toBe(true);
+    const goalRow = face!.service.getJob('goal-g1');
+    expect(goalRow?.builtin).toBe(true);
+    expect(goalRow?.enabled).toBe(true); // goal 挂钟行建行即启（区别于 add 缺省停用）
+
+    // /tick 命令注册（桩捕获名单）
+    expect(commands).toContain('tick');
+    await persistence.close();
+  });
+
+  it('/tick handler 真调（批 19c-2）：add → 行在场（缺省停用）+ list → 输出面归因 tick 的结算文本', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-tick-'));
+    dirs.push(dataDir);
+    // 迁移链 = 宿主聚合同构（sqlite seam 共用主闸——memory 件随 scheduler 同装载，
+    // 两族表全在链：scheduler v2 + memory v4-6，runtime.ts 聚合形镜像）
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const notified: string[] = [];
+    const { scope, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        notify: (source, message) => {
+          if (source === 'tick') notified.push(message); // 归因位可辨（notify 双参化的装载面回归锁）
+        },
+      },
+    );
+    const tick = commandSpecs.find((spec) => spec.name === 'tick');
+    if (tick === undefined) throw new Error('/tick 命令不在捕获面');
+
+    // add：全守卫真走（schedule 词法 + prompt 非空）→ 建行缺省停用（存在 ≠ 启用）
+    await tick.handler({ raw: '', argv: ['add', 'demo', 'every:120s', '构建巡查'] });
+    expect(notified[notified.length - 1]!).toContain('demo');
+    const face = scope.tryGet<SchedulerFace>('scheduler')!;
+    expect(face.service.getJob('demo')?.enabled).toBe(false);
+
+    // list：行名进渲染文本
+    await tick.handler({ raw: '', argv: ['list'] });
+    expect(notified[notified.length - 1]!).toContain('demo');
+
+    // 守卫执法透传：坏 schedule 串折文本不抛（runTickCommand 错误面）
+    await tick.handler({ raw: '', argv: ['add', 'bad', 'not-a-schedule', 'x'] });
+    expect(notified[notified.length - 1]!).toContain('✗');
+    await persistence.close();
+  });
+
+  it('scheduler 主闸（sqlite 缺席）：件零装载——服务面缺席 + /tick 不注册', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-sgate-'));
+    dirs.push(dataDir);
+    const { scope, commands } = await bootCore(dataDir); // 无 coreDeps = sqlite 缺席
+    expect(scope.tryGet('scheduler')).toBeUndefined(); // 诚实缺席律
+    expect(commands).not.toContain('tick');
+  });
+
+  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent/scheduler 六件）', () => {
     expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual([
       'exec',
       'web',
       'skills',
       'memory',
       'subagent',
+      'scheduler',
     ]);
   });
 });
