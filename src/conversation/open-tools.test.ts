@@ -97,6 +97,20 @@ describe('assembleOpenTools 组装面', () => {
     expect(assembly.tools.map((tool) => tool.name)).toContain('bash');
     expect(assembly.tools).toHaveLength(8);
   });
+
+  it('一词两册装配序（03 §2.4）：boot 预注册工具词在先——自举注册幂等跳过不炸', () => {
+    const pre = new EventDispatch();
+    pre.registerEventNames(['tools_pre_execute', 'tools_execute', 'tools_post_execute', 'tools_change']); // 装载批主表镜像预注册（共享 4 词）
+    const { assembly } = makeAssembly({ dispatch: pre }); // 后到面自举——跳过已注册词
+    expect(assembly.tools.length).toBeGreaterThan(0); // 装配照常完成
+    expect(pre.isRegistered('tools_pre_execute')).toBe(true); // 词已达（共享登记）
+  });
+
+  it('同 dispatch 重复装配 → 装配哨兵撞名 fail-loud（检测面不因共享词幂等丢失）', () => {
+    const dispatch = new EventDispatch();
+    makeAssembly({ dispatch });
+    expect(() => makeAssembly({ dispatch })).toThrow(); // 二次装配撞 conversation/open-tools-mounted
+  });
 });
 
 /* ---------------- 真三段管道执法 ---------------- */

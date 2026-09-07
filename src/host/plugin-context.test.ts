@@ -459,3 +459,54 @@ describe('ctx.effect 与服务目录', () => {
     }
   });
 });
+
+describe('ctx.provide（03 §2.2 表行——Kahn 解锁动词）', () => {
+  /** 装配带 provide 委派位（目标 = 独立记录面——委派真达的判据） */
+  const assembleWithProvide = () => {
+    const provided: Array<[string, unknown]> = [];
+    const base = assemble();
+    const handle = createPluginContext({
+      pluginId: 'acme-widgets',
+      scope: base.scope,
+      dispatch: base.dispatch,
+      hostFace: HOST_FACE,
+      provide: (name, service) => provided.push([name, service]),
+    });
+    return { ...base, handle, provided };
+  };
+
+  it('窗内委派真达共享根（name/service 透传 + 无返回值）', () => {
+    const { handle, provided } = assembleWithProvide();
+    handle.ctx.provide('acme-svc', { answer: 42 });
+    expect(provided).toEqual([['acme-svc', { answer: 42 }]]);
+  });
+
+  it('关窗后拒（PLUGIN_WINDOW_CLOSED——注册动词族窗口律随行）', () => {
+    const { handle, provided } = assembleWithProvide();
+    handle.closeWindow();
+    expectCode(() => handle.ctx.provide('late-svc', 1), 'PLUGIN_WINDOW_CLOSED');
+    expect(provided).toEqual([]); // 拒于受理前——委派不发生
+  });
+
+  it('计频率护栏动作数（与注册动词同池——超限拒）', () => {
+    const scope = Scope.createRoot();
+    const dispatch = new EventDispatch();
+    const handle = createPluginContext({
+      pluginId: 'acme-widgets',
+      scope,
+      dispatch,
+      hostFace: HOST_FACE,
+      provide: () => undefined,
+      rateLimit: { windowMs: 1000, max: 3 },
+    });
+    handle.ctx.provide('a', 1);
+    handle.ctx.provide('b', 2);
+    handle.ctx.provide('c', 3);
+    expectCode(() => handle.ctx.provide('d', 4), 'PLUGIN_RATE_LIMITED');
+  });
+
+  it('受局面缺位响亮（CONTEXT_SERVICE_MISSING——装配缺陷不静默）', () => {
+    const { handle } = assemble(); // assemble 不接 provide 位 = 缺席态
+    expectCode(() => handle.ctx.provide('any-svc', 1), 'CONTEXT_SERVICE_MISSING');
+  });
+});

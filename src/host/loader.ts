@@ -108,6 +108,14 @@ export interface LoadPluginsOptions<TCtx = unknown> {
   readonly disposerBudgetMs?: number;
   /** 档②记账接线位（boot-failures 件；缺席 = 不记账） */
   readonly onBootFailure?: (id: string, version: string) => void;
+  /**
+   * 逐插件行收口回调（finally 语义——成功/失败/零码行皆达）。
+   * 装载窗口关窗接线位（03 §2.1）：apply 收口即关窗，此后该插件注册动词仅
+   * 回调窗内合法——装配批（12f-2b）以 ctx 面件 handle 表消费本回调。
+   */
+  readonly onApplySettled?: (pluginId: string) => void;
+  /** 软依赖缺席 warn 落点（03 §1.3「缺席仅记 warn」；缺席 = 不记） */
+  readonly warn?: (message: string) => void;
   /** jiti 工厂注入位（测试替身；缺省 = 真门禁真虚拟面 jiti） */
   readonly jitiFactory?: (pluginDir: string, opts: LoadPluginJitiOptions) => Jiti;
 }
@@ -245,44 +253,67 @@ async function loadRow<TCtx>(
   },
 ): Promise<void> {
   const { options, applyBudgetMs } = state;
-  const ctx = options.createContext(row.id);
-  const config = row.kind === 'core' ? (row.config !== undefined ? row.config : row.reference.config) : row.config;
+  try {
+    const ctx = options.createContext(row.id);
+    const config = row.kind === 'core' ? (row.config !== undefined ? row.config : row.reference.config) : row.config;
 
-  if (row.kind === 'core') {
-    // §1.4 直调轨：零 jiti 零门禁；其余契约（时钟/回卷）与磁盘插件同轨
-    await invokeApply(row.id, row.reference.apply, ctx, config, applyBudgetMs, state.disposeStack);
-    state.activated.push({ id: row.id, skills: [...(row.reference.skills ?? [])] });
-    return;
-  }
+    if (row.kind === 'core') {
+      // §1.4 直调轨：零 jiti 零门禁；其余契约（时钟/回卷）与磁盘插件同轨
+      warnMissingOptional(row.id, row.reference.optionalInject, state);
+      await invokeApply(row.id, row.reference.apply, ctx, config, applyBudgetMs, state.disposeStack);
+      state.activated.push({ id: row.id, skills: [...(row.reference.skills ?? [])] });
+      return;
+    }
 
-  // 磁盘轨：行 config 先过清单形状（§1.2——值校验归装载器）
-  validateRowConfig(row, config);
+    // 磁盘轨：行 config 先过清单形状（§1.2——值校验归装载器）
+    validateRowConfig(row, config);
 
-  // 纯声明包（entryPlan 三态之一）：零码装载——技能清单随行激活
-  if (row.manifest.entryPlan.kind === 'declared-payload') {
+    // 纯声明包（entryPlan 三态之一）：零码装载——技能清单随行激活
+    if (row.manifest.entryPlan.kind === 'declared-payload') {
+      state.activated.push({ id: row.id, skills: [...(row.manifest.skills ?? [])] });
+      return;
+    }
+
+    const module = await loadDiskModule(row, state.options.jitiFactory, state.virtualFaces);
+    const apply = module.default;
+    if (typeof apply !== 'function') {
+      throw new BaseError('PLUGIN_SHAPE_INVALID', `入口 default export 缺席或非函数（插件 ${row.id}）`);
+    }
+    // 模块内 inject 执法（装载位——两段式的执法腿）：硬依赖缺席拒启
+    const missing = (module.inject ?? []).filter((name) => options.services.get(name) === undefined);
+    if (missing.length > 0) {
+      throw new BaseError('PLUGIN_INJECT_UNRESOLVED', `硬依赖服务不可达（模块声明）：${missing.join('、')}`);
+    }
+    warnMissingOptional(row.id, module.optionalInject, state);
+    await invokeApply(
+      row.id,
+      apply as (ctx: unknown, config?: unknown) => Promise<void | (() => void)>,
+      ctx,
+      config,
+      applyBudgetMs,
+      state.disposeStack,
+    );
     state.activated.push({ id: row.id, skills: [...(row.manifest.skills ?? [])] });
-    return;
+  } finally {
+    // 行收口即关窗（finally 语义——成功/失败/零码行皆达；03 §2.1 装载窗口）
+    options.onApplySettled?.(row.id);
   }
+}
 
-  const module = await loadDiskModule(row, state.options.jitiFactory, state.virtualFaces);
-  const apply = module.default;
-  if (typeof apply !== 'function') {
-    throw new BaseError('PLUGIN_SHAPE_INVALID', `入口 default export 缺席或非函数（插件 ${row.id}）`);
-  }
-  // 模块内 inject 执法（装载位——两段式的执法腿）：硬依赖缺席拒启
-  const missing = (module.inject ?? []).filter((name) => options.services.get(name) === undefined);
+/**
+ * 软依赖缺席 warn（03 §1.3「缺席仅记 warn、注入值 undefined」——诚实降级
+ * 不拒启）。逐名点名：present 名不记、全 present 不记、warn 落点缺席不记。
+ */
+function warnMissingOptional(
+  pluginId: string,
+  names: readonly string[] | undefined,
+  state: { options: LoadPluginsOptions<unknown> },
+): void {
+  if (names === undefined || names.length === 0 || state.options.warn === undefined) return;
+  const missing = names.filter((name) => state.options.services.get(name) === undefined);
   if (missing.length > 0) {
-    throw new BaseError('PLUGIN_INJECT_UNRESOLVED', `硬依赖服务不可达（模块声明）：${missing.join('、')}`);
+    state.options.warn(`插件 ${pluginId} 软依赖缺席（注入值 undefined——诚实降级）：${missing.join('、')}`);
   }
-  await invokeApply(
-    row.id,
-    apply as (ctx: unknown, config?: unknown) => Promise<void | (() => void)>,
-    ctx,
-    config,
-    applyBudgetMs,
-    state.disposeStack,
-  );
-  state.activated.push({ id: row.id, skills: [...(row.manifest.skills ?? [])] });
 }
 
 /** 磁盘模块装载（jiti 轨——入口解析三态的文件级落点） */

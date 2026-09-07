@@ -100,8 +100,13 @@ export class SessionManager {
     this.persistence = options.persistence;
     this.dispatch = options.dispatch;
     this.createDriver = options.createDriver;
-    // 钩子词汇接线（撞名 fail-loud：同 dispatch 重复建管理器是装配 bug）
-    this.dispatch.registerEventNames(SESSION_HOOK_NAMES);
+    // 钩子词汇接线（一词两册幂等跳过——03 §2.4 装配序律：装载批预注册主表
+    // 镜像在前，session_before_fork 已注册即共享登记；未注册自举保独立装配）；
+    // 重复建管理器检测改经装配哨兵（永不 emit 的占位词——二次装配撞哨兵红）
+    this.dispatch.registerEventNames([
+      'conversation/session-manager-mounted',
+      ...SESSION_HOOK_NAMES.filter((name) => !this.dispatch.isRegistered(name)),
+    ]);
   }
 
   /** 会话列表（「按 cwd 取最新」选取面透传） */

@@ -14,9 +14,10 @@
  * 信号路径独立：SIGINT①/SIGTERM → onGraceful → runtime.shutdown → exit(0)
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
  *
- * 挂账（批 12f 装载面）：--no-plugins/--port 旗标的装载/webui 开面消费。
+ * 挂账（批 12f 装载面）：--port webui 开面消费（12f-2c）。
  */
-import { createLogger, LogLevelState } from '../context/index.js';
+import { BaseError } from '../contracts/index.js';
+import { createLogger, EventDispatch, LogLevelState, Scope } from '../context/index.js';
 import { FileMentionSource, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { foldTodoTable } from '../conversation/index.js';
@@ -25,6 +26,7 @@ import type { SandboxMode } from '../safety/index.js';
 
 import type { TuiFlags } from './cli.js';
 import { createConversationStack } from './conversation-stack.js';
+import { bootPlugins } from './plugin-boot.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 
@@ -59,6 +61,8 @@ export interface TuiEntryOptions {
  * TUI 主入口。阻塞至用户退出（ctrl+d 空框）或异常；返回进程退出码。
  */
 export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
+  // —— 装载披露计数匣（pluginsProvider 先于运行时组装接线——披露段每请求重算读匣）——
+  const pluginCounts = { total: 0, enabled: 0, failed: 0 };
   // —— 运行时组装（单活跃机 + 开库 fail-loud——干净退出档，非崩溃取证档）——
   let runtime: HostRuntime;
   try {
@@ -67,6 +71,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       createHostRuntime({
         ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
         ...(options.memory === true ? { memory: true } : {}),
+        pluginsProvider: () => ({ ...pluginCounts }),
       });
   } catch (err) {
     process.stderr.write(`启动失败：${err instanceof Error ? err.message : String(err)}\n`);
@@ -82,14 +87,47 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
   let exitCode = 0;
   try {
+    // 共享根作用域与事件总线：对话栈与插件装载同根同源（服务面跨插件可见 +
+    // 钩子词汇/生命周期事件一册两用——12e 预留注入位兑现）
+    const scope = Scope.createRoot();
+    const dispatch = new EventDispatch();
     const stack = createConversationStack({
       runtime,
+      scope,
+      dispatch,
       ...(options.providers !== undefined ? { providers: options.providers } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
       warn: (message) => logger.warn(message),
     });
+
+    // —— 插件装载（批 12f-2b）：enabled.yaml 读侧 + core: 注册表 + 装载管线接线 ——
+    // core: 注册表随各 core 件装配批入册（当前空注册表 = 空装载零负担）
+    // 启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——干净退出不写
+    // crash.log，与崩溃取证档分道）；余装载失败走行级隔离不入本档
+    let boot;
+    try {
+      boot = await bootPlugins({
+        runtime,
+        scope,
+        dispatch,
+        commands: stack.channels.commands,
+        llm: stack.llmRuntime,
+        noPlugins: options.flags.noPlugins === true,
+        version: options.version ?? '0.0.0',
+        warn: (message) => logger.warn(message),
+      });
+    } catch (err) {
+      if (err instanceof BaseError && err.code === 'PLUGIN_ROW_INVALID') {
+        // 启用清单损坏 = 用户可自修配置错——干净退出档（不写 crash.log；message 已含修复指引）
+        process.stderr.write(`启动失败：${err.message}\n`);
+        return 1; // 经外层 finally → runtime.shutdown（幂等六步照走）
+      }
+      throw err; // 余异常照外层崩溃取证档
+    }
+    Object.assign(pluginCounts, boot.counts); // 披露匣回写（disclosure 后续请求即见）
+
     // 启动会话策略（07 §5）：无参启动按 cwd 取最新会话——有则续接无则新建
     const session = stack.openStartupSession(options.cwd ?? process.cwd());
 

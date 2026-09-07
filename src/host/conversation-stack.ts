@@ -49,7 +49,7 @@ import {
   InFlightTracker,
   resolveDefaultModelSpec,
 } from '../llm/index.js';
-import type { LlmService, Provider } from '../llm/index.js';
+import type { LlmRuntime, LlmService, Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
@@ -94,6 +94,8 @@ export interface ConversationStack {
   readonly manager: SessionManager;
   readonly channels: ChannelsService<AgentMessage>;
   readonly llm: LlmService;
+  /** llm 运行时出口（provider 注册面——与 llm 服务同源同实例，防双实例；插件装载批接线位） */
+  readonly llmRuntime: LlmRuntime;
   readonly scope: Scope;
   readonly dispatch: EventDispatch;
   readonly model: string;
@@ -233,6 +235,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     manager,
     channels,
     llm,
+    llmRuntime,
     scope,
     dispatch,
     model,

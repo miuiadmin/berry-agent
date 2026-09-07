@@ -524,3 +524,83 @@ describe('loadPlugins jitiFactory 注入位（测试替身 seam）', () => {
     expect(options.services.get('fakeLoaded')).toBe(true);
   });
 });
+
+describe('onApplySettled 行收口回调（finally 语义——关窗接线位）', () => {
+  it('成功/失败/零码行皆达（三态全覆盖）', async () => {
+    const settled: string[] = [];
+    const ok = coreRow('core:ok', async () => undefined);
+    const fail: CorePluginSpec = {
+      kind: 'core',
+      id: 'core:fail',
+      reference: {
+        name: 'fail',
+        apply: async () => {
+          throw new Error('boom');
+        },
+      },
+    };
+    // 失败 core: 行会 fail-loud 抛——单独装载验「失败也达」
+    await expect(loadPlugins(rigOptions([fail], { onApplySettled: (id) => settled.push(id) }))).rejects.toThrow();
+    expect(settled).toEqual(['core:fail']);
+    // disabled 行不走装载步——不回调（收口 = apply 收口语义）
+    const report = await loadPlugins(
+      rigOptions(
+        [
+          ok,
+          { kind: 'core', id: 'core:off', disabled: true, reference: { name: 'off', apply: async () => undefined } },
+        ],
+        {
+          onApplySettled: (id) => settled.push(id),
+        },
+      ),
+    );
+    expect(report.activated.map((a) => a.id)).toEqual(['core:ok']);
+    expect(settled).toEqual(['core:fail', 'core:ok']);
+  });
+
+  it('纯声明包零码行也收口（declared-payload 态）', async () => {
+    const dir = makePluginDir({
+      'package.json': JSON.stringify({ name: 'declared-pkg', version: '1.0.0', berryAgent: { skills: ['sk'] } }),
+    });
+    const row = diskRow('declared-pkg', dir, {
+      name: 'declared-pkg',
+      version: '1.0.0',
+      berryAgent: { skills: ['sk'] },
+    });
+    const settled: string[] = [];
+    const report = await loadPlugins(rigOptions([row], { onApplySettled: (id) => settled.push(id) }));
+    expect(report.activated.map((a) => a.id)).toEqual(['declared-pkg']);
+    expect(settled).toEqual(['declared-pkg']);
+  });
+});
+
+describe('optionalInject 软依赖缺席 warn（03 §1.3——诚实降级不拒启）', () => {
+  it('core: 引用形缺席名逐名点名 warn；present 名不记', async () => {
+    const warnings: string[] = [];
+    const services = makeServices();
+    services.map.set('present-svc', 1);
+    const row = coreRow('core:soft', async () => undefined, {
+      optionalInject: ['present-svc', 'absent-svc'],
+    });
+    const report = await loadPlugins(rigOptions([row], { services, warn: (m) => warnings.push(m) }));
+    expect(report.activated.map((a) => a.id)).toEqual(['core:soft']); // 不拒启
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('absent-svc');
+    expect(warnings[0]).not.toContain('present-svc');
+    expect(warnings[0]).toContain('core:soft'); // 归因插件 id
+  });
+
+  it('磁盘轨模块导出 optionalInject 同律；warn 落点缺席时不记', async () => {
+    const row = diskRow(
+      'plug-soft',
+      makePluginDir({
+        'package.json': JSON.stringify({ name: 'plug-soft', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+        'entry.js': 'export const optionalInject = ["ghost-svc"];\nexport default async () => undefined;\n',
+      }),
+      { name: 'plug-soft', version: '1.0.0', berryAgent: { entry: 'entry.js' } },
+    );
+    const report = await loadPlugins(rigOptions([row])); // 无 warn 落点——静默合法
+    expect(report.failed).toEqual([]);
+    expect(report.activated.map((a) => a.id)).toEqual(['plug-soft']);
+  });
+});

@@ -89,3 +89,7 @@ export type {
   HookTimeoutReporter,
   CommandRegistryLike,
 } from './plugin-context.js';
+// 批 12f-2b 插件装载装配序（enabled.yaml 读侧两律 + core overlay + 装机账本
+// installPath 解析 + --no-plugins 短路 + 生命周期事件批量补发 + closer 回卷）
+export { bootPlugins } from './plugin-boot.js';
+export type { PluginBootOptions, PluginBootHandle, PluginBootCounts, PluginBootFs } from './plugin-boot.js';

@@ -210,3 +210,13 @@ describe('createConversationStack 装配序', () => {
     await rt.shutdown();
   });
 });
+
+describe('llmRuntime 出口（批 12f-2b——插件 provider 注册面防双实例）', () => {
+  it('出口在场且与 llm 服务同源（faux 注入经同一 runtime 可见于 listModels）', () => {
+    const { rt } = rigRuntime(true);
+    const { stack } = rigStack(rt);
+    // 出口 = ② 层同一 runtime（防双实例：装载批经本出口注册 provider 不另建）
+    expect(typeof stack.llmRuntime.registerProvider).toBe('function');
+    expect(stack.llm.listModels().some((m) => m.id === 'faux-stack/m1')).toBe(true);
+  });
+});

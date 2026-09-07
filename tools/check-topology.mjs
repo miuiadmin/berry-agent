@@ -243,8 +243,9 @@ const MODULE_EXTERNALS = {
   browser: ['typebox'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
-  // 一律走虚拟键三转发；批 12d 落码起用）
-  host: ['jiti', 'typebox/value'],
+  // 一律走虚拟键三转发；批 12d 落码起用）；yaml = 启用清单 enabled.yaml 读侧
+  // 解析（03 §5.3；批 12f-2b 装配批起用）
+  host: ['jiti', 'typebox/value', 'yaml'],
 };
 
 /** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面三名——2026-09-07
@@ -252,6 +253,15 @@ const MODULE_EXTERNALS = {
  * 旧假引「02 §4.3 #2 契约面四名」同笔勘正——02 原文彼时只列两名，门禁
  * 不得引注不存在的口径；三名 = index/types/events 与代码实况对齐） */
 const PUBLIC_FACES = new Set(['index.ts', 'types.ts', 'events.ts']);
+
+/** 深挖面册（02 §4.3 #2 例外清单——逐条例外非通例，新条目注明来源批与
+ * sanctioned 依据）。首条（2026-09-07 host 批 12f-2b）：contracts/api.ts
+ * 的 internal 桶机制符号（API 治理批 2 分桶——materializeHostFace 等；
+ * contracts/index.ts 头注明文「内核消费全深导 contracts/api.js」）内核侧
+ * 消费深导 sanctioned——规范侧例外句同批落 02 §4.3 #2。面册外深挖仍即红。 */
+const DEEP_FACES = {
+  contracts: ['api.ts'],
+};
 
 const SRC = join(process.cwd(), 'src');
 const violations = [];
@@ -317,10 +327,12 @@ for (const file of collectSourceFiles(SRC)) {
         continue;
       }
       // 公开面收敛：目标须命中三名之一（'../mod' 或 '../mod/index' 等价公开面；
-      // 真路径已归一到 .ts——比对模块内相对面名）
+      // 真路径已归一到 .ts——比对模块内相对面名）；深挖面册例外（DEEP_FACES）
       const face = relToSrc.split(sep).slice(1).join('/');
-      if (face && !PUBLIC_FACES.has(face)) {
-        violations.push(`${relative(process.cwd(), file)}: 深挖 ${target} 实现面（${face}）——只准走公开面三名`);
+      if (face && !PUBLIC_FACES.has(face) && !(DEEP_FACES[target] ?? []).includes(face)) {
+        violations.push(
+          `${relative(process.cwd(), file)}: 深挖 ${target} 实现面（${face}）——只准走公开面三名（面册例外见 DEEP_FACES）`,
+        );
       }
     } else {
       // 裸导入：node:* 全局；包依赖按模块分账

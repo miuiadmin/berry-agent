@@ -1,0 +1,503 @@
+/**
+ * host/plugin-boot — 插件装载装配序（03 §5.3/§5.4/§5.7/§2.4 生命周期组；批 12f-2b）。
+ *
+ * 职责链（11 步序——读侧三源 → 合成 → 装载 → 收口）：
+ *  ① enabled.yaml 读侧（§5.3）：缺席 = 全 core: 内置态（首启零文件零负担）；
+ *     损坏 = **fail-loud 拒启给修复指引**（yaml 解析错/行校验败 → PLUGIN_ROW_INVALID
+ *     抛——与装机账本 warn 降级分立两律）；memory 形无数据目录同缺席语义。
+ *  ② core: 内置全启 + 用户行覆盖（§5.3）：core 注册表成员全进计划；用户行
+ *     core: 同名行字段级后写胜出（config/disabled——config 整值替换非合并）。
+ *  ③ 装机账本读侧（§5.4）：损坏 = warn 点名 + 空账本降级（不 brick）；
+ *     条目 `installPath` 解析磁盘行装机目录（绝对直用/相对 join 数据目录）。
+ *  ④ 磁盘行合成（§5.4 boot 读侧消费）：package.json 过清单校验
+ *     （parseManifest official:false）成装载计划行；账本缺席/目录不可读/
+ *     清单坏形 = 行级隔离降级（§5.7 档②——失败面 + boot-failures 记账）。
+ *  ⑤ 钩子词汇预注册（§2.4 主表 41 词镜像——已注册词过滤幂等；与 open 域
+ *     工具词集无交叠，共存安全）。
+ *  ⑥ ServiceBag 接共享根作用域（§2.2 provide 表行——跨插件可见面；get 走
+ *     tryGet——Kahn 轮次可用性判定）。
+ *  ⑦ 逐插件 ctx 装配（12f-2a 件）：per-plugin fork（effect 回卷隔离）+
+ *     createPluginContext；onApplySettled → closeWindow（行收口即关窗）。
+ *  ⑧ loadPlugins 接线：onBootFailure → recordBootFailure 记账、activated →
+ *     clearBootFailure 清名（横幅只报仍坏行）；memory 形诊断面整跳。
+ *  ⑨ closer 'plugin-unload'：report.unload()（apply disposer LIFO）后 fork
+ *     作用域逆序 dispose（ctx.effect 回卷）——注册序在 conversation 栈之后 =
+ *     插件卸载晚于对话栈拆解（drain 序即注册序）。
+ *  ⑩ --no-plugins 短路（07 §六/§5.7）：装载面整跳——core: 与用户行都不装，
+ *     空报告/零计数/不注册 closer/不发生命周期事件；注册表仍交空形（消费面稳定）。
+ *  ⑪ 生命周期事件（§2.4 生命周期组）：装载收口**批量补发**（report 迭代发
+ *     plugin/activated·failed·skipped + composition/reloaded 三清单载荷）——
+ *     逐行时点发射位装载器未开（挂账 /reload 批）；合成失败行并入 failed 面。
+ *
+ * 挂账注记：boot 级工具注册表无 pipeline（driver 工具面合流腿随 agent 批）；
+ * promptSections 消费腿（systemPrompt 装配位）随 conversation 装配批接线。
+ */
+import { readFileSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
+
+import { BaseError } from '../contracts/index.js';
+import type { HostFace } from '../contracts/index.js';
+// internal 桶机制符号深导（02 §4.3 #2 深挖面册首条——API 治理批 2 分桶：
+// 机制符号非插件 API 不进公开根，内核消费全深导 contracts/api.js）
+import { materializeHostFace } from '../contracts/api.js';
+import { EventDispatch } from '../context/index.js';
+import type { Scope } from '../context/index.js';
+import { createToolRegistry } from '../tools/index.js';
+import type { ToolRegistry } from '../tools/index.js';
+import type { LlmRuntime } from '../llm/index.js';
+
+import { clearBootFailure, recordBootFailure } from './boot-failures.js';
+import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
+import { loadPlugins } from './loader.js';
+import type { DiskPluginSpec } from './loader.js';
+import { parseEnabledRows, parseManifest } from './manifest.js';
+import type { EnabledRow } from './manifest.js';
+import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
+import type { CommandRegistryLike, PluginContextHandle } from './plugin-context.js';
+import { PromptSectionRegistry } from './prompt-sections.js';
+import type { HostRuntime } from './runtime.js';
+
+/**
+ * fs 注入面（enabled.yaml/装机账本/package.json/boot-failures 四读侧 + 记账
+ * 写侧统一注入——测试注内存 Map；缺省真盘）。
+ */
+export interface PluginBootFs {
+  /** 读文本（缺席 = null——ENOENT 同义） */
+  readonly read: (path: string) => string | null;
+  readonly write: (path: string, text: string) => void;
+}
+
+/** 缺省真盘实现（读失败一律 null——文件缺席语义） */
+function defaultFs(): PluginBootFs {
+  return {
+    read: (path) => {
+      try {
+        return readFileSync(path, 'utf8');
+      } catch {
+        return null;
+      }
+    },
+    write: (path, text) => writeFileSync(path, text),
+  };
+}
+
+/** 装配选项（TUI/serve 入口逐项注入——全部走公开面类型） */
+export interface PluginBootOptions {
+  readonly runtime: HostRuntime;
+  /** 共享根作用域（与对话栈同根——服务面跨插件可见，§2.2 provide 表行） */
+  readonly scope: Scope;
+  /** 事件总线（与对话栈同源——钩子词汇预注册 + 生命周期组发射） */
+  readonly dispatch: EventDispatch;
+  /** 命令注册表（受局面注入——缺省通道核 commands） */
+  readonly commands: CommandRegistryLike;
+  /** llm 运行时（provider 注册面——对话栈出口防双实例） */
+  readonly llm: Pick<LlmRuntime, 'registerProvider'>;
+  /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
+  readonly corePlugins?: readonly CorePluginReference[];
+  /** 安全模式（--no-plugins——装载面整跳，07 §六） */
+  readonly noPlugins?: boolean;
+  /** 宿主版本（HostFace 物化位——main.readVersion 产物） */
+  readonly version: string;
+  /** API 面版本（缺省 '1.0'——package.json apiVersion 同步维护） */
+  readonly apiVersion?: string;
+  /** 警示面（缺省 stderr 直写） */
+  readonly warn?: (message: string) => void;
+  /** fs 注入（缺省真盘） */
+  readonly fs?: PluginBootFs;
+}
+
+/** 披露段计数（pluginsProvider 接线位——runtime 装配时持有可变匣） */
+export interface PluginBootCounts {
+  readonly total: number;
+  readonly enabled: number;
+  readonly failed: number;
+}
+
+/** 装载装配产物（TUI 入口消费面） */
+export interface PluginBootHandle {
+  /** 装载报告（合成失败行已并入 failed 面；unload 含 fork 逆序 dispose） */
+  readonly report: LoadReport;
+  /** 披露段计数（counts 口径见 bootPlugins 注释） */
+  readonly counts: PluginBootCounts;
+  /** boot 级工具注册表（注册语义全执法；消费腿挂账 driver 工具面合流） */
+  readonly tools: ToolRegistry;
+  /** 提示词段注册表（消费腿挂账 systemPrompt 装配位） */
+  readonly promptSections: PromptSectionRegistry;
+}
+
+/**
+ * 插件装载主入口（async——装载管线内含 jiti ESM 求值）。
+ *
+ * counts 口径：total = 计划行数 + 合成失败行数；enabled = report.activated
+ * 行数；failed = 合成失败 + report.failed 行数（skipped 行不入三数——禁用
+ * 非失败非启用，披露段不虚报）。
+ */
+export async function bootPlugins(options: PluginBootOptions): Promise<PluginBootHandle> {
+  const warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
+  const fs = options.fs ?? defaultFs();
+  // boot 级注册表：两消费面（ctx 注册动词 + TUI 披露）同实例
+  const tools = createToolRegistry(options.dispatch);
+  const promptSections = new PromptSectionRegistry();
+  const hostFace: HostFace = materializeHostFace({
+    version: options.version,
+    apiVersion: options.apiVersion ?? '1.0',
+    capabilities: [],
+    experimentalKeys: [],
+  });
+
+  // ⑩ 安全模式短路：装载面整跳；注册表仍交空形（消费面形态统一）
+  if (options.noPlugins === true) {
+    const emptyReport: LoadReport = {
+      activated: [],
+      failed: [],
+      skipped: [],
+      unload: async () => ({ disposed: [], failed: [] }),
+    };
+    return { report: emptyReport, counts: { total: 0, enabled: 0, failed: 0 }, tools, promptSections };
+  }
+
+  // ⑤ 钩子词汇预注册（03 §2.4 主表镜像——一词两册装配序律：预注册在前，
+  // 各装配面〔open-tools/sessions〕自举注册幂等跳过已注册词；已注册词过滤幂等）
+  const hookWords = PLUGIN_HOOK_VOCABULARY.map((h) => h.name).filter((name) => !options.dispatch.isRegistered(name));
+  options.dispatch.registerEventNames(hookWords);
+
+  // ① enabled.yaml 读侧（损坏 fail-loud——两律分立在件头注释）
+  const rows = readEnabledRows(options.runtime.dataDir, fs);
+
+  // ③ 装机账本读侧（损坏 warn 降级——与启用清单 fail-loud 分立）
+  const ledger = readLedger(options.runtime.dataDir, fs, warn);
+
+  // ②④ 计划合成（core 内置全启 + overlay + 磁盘行账本解析）
+  const { plan, synthesisFailures } = synthesizePlan({
+    rows,
+    corePlugins: options.corePlugins ?? [],
+    dataDir: options.runtime.dataDir,
+    ledger,
+    fs,
+  });
+
+  // ⑧ 记账路径（memory 形无数据目录——诊断面整跳）
+  const bookkeepingPath = options.runtime.dataDir === null ? null : join(options.runtime.dataDir, 'boot-failures.json');
+  const bookkeepingFs = toBootFailuresFs(fs);
+  // 合成失败行：档②语义记账（装载未达——warn 横幅与 boot-failures 皆见）
+  for (const failure of synthesisFailures) {
+    warn(`插件装载失败（${failure.id}）：[${failure.code}] ${failure.message}`);
+    if (bookkeepingPath !== null) recordBootFailure(bookkeepingPath, failure.id, '', bookkeepingFs);
+  }
+
+  // ⑥⑦ ctx 装配族：ServiceBag 接共享根 + 逐插件 fork + 行收口关窗
+  const handles = new Map<string, PluginContextHandle>();
+  const pluginScopes: Scope[] = []; // 激活序入栈——closer 逆序 dispose
+  const services: ServiceBag = {
+    get: (name) => options.scope.tryGet(name),
+    provide: (name, value) => options.scope.provide(name, value),
+  };
+  const createContext = (pluginId: string) => {
+    const fork = options.scope.fork();
+    pluginScopes.push(fork);
+    const handle = createPluginContext({
+      pluginId,
+      scope: fork,
+      dispatch: options.dispatch,
+      tools,
+      commands: options.commands,
+      llm: options.llm,
+      promptSections,
+      provide: services.provide, // ctx.provide 委派共享根（§2.2 表行——跨插件可见）
+      hostFace,
+      onHookTimeout: (id, hookName, err) =>
+        warn(`插件 ${id} 钩子 ${hookName} 超时：${err instanceof Error ? err.message : String(err)}`),
+    });
+    handles.set(pluginId, handle);
+    return handle.ctx;
+  };
+
+  const loaded = await loadPlugins({
+    plan,
+    services,
+    createContext,
+    warn,
+    onApplySettled: (pluginId) => handles.get(pluginId)?.closeWindow(), // 行收口即关窗（finally 语义）
+    ...(bookkeepingPath === null
+      ? {}
+      : {
+          onBootFailure: (id: string, version: string) =>
+            recordBootFailure(bookkeepingPath, id, version, bookkeepingFs),
+        }),
+  });
+  // 装载成功行清名（横幅只报仍坏行——报捷即抹账）
+  if (bookkeepingPath !== null) {
+    for (const a of loaded.activated) clearBootFailure(bookkeepingPath, a.id, bookkeepingFs);
+  }
+
+  // ⑪ 生命周期事件批量补发（合成失败行并入 failed 面——收口一致真相）
+  const failedAll: readonly FailedPlugin[] = [...synthesisFailures, ...loaded.failed];
+  for (const a of loaded.activated) await options.dispatch.emit('plugin/activated', { id: a.id });
+  for (const f of failedAll) await options.dispatch.emit('plugin/failed', { id: f.id, code: f.code });
+  for (const s of loaded.skipped) await options.dispatch.emit('plugin/skipped', { id: s.id, reason: s.reason });
+  await options.dispatch.emit('composition/reloaded', {
+    activated: loaded.activated.map((a) => a.id),
+    failed: failedAll.map((f) => f.id),
+    skipped: loaded.skipped.map((s) => s.id),
+  });
+
+  // ⑨ closer：apply disposer LIFO 后 fork 逆序 dispose（drain 序 = 注册序）
+  options.runtime.registerCloser({
+    label: 'plugin-unload',
+    fn: async () => {
+      await loaded.unload();
+      for (const fork of pluginScopes.reverse()) await fork.dispose(); // ctx.effect 回卷
+    },
+  });
+
+  // failed 面合并后交付（单真相——消费方不见两源）
+  const report: LoadReport = { ...loaded, failed: failedAll };
+  return {
+    report,
+    counts: {
+      total: plan.length + synthesisFailures.length,
+      enabled: loaded.activated.length,
+      failed: failedAll.length,
+    },
+    tools,
+    promptSections,
+  };
+}
+
+/**
+ * enabled.yaml 读侧（§5.3）。缺席 = 全 core: 内置态（含 memory 形——无数据
+ * 目录同缺席语义）；损坏 = fail-loud 拒启给修复指引（删除文件即回内置态）。
+ */
+function readEnabledRows(dataDir: string | null, fs: PluginBootFs): readonly EnabledRow[] {
+  if (dataDir === null) return [];
+  const path = join(dataDir, 'enabled.yaml');
+  const text = fs.read(path);
+  if (text === null) return []; // 缺席 = 全 core: 内置态
+  let doc: unknown;
+  try {
+    doc = parseYaml(text);
+  } catch (err) {
+    throw new BaseError(
+      'PLUGIN_ROW_INVALID',
+      `启用清单损坏（${path}）：${err instanceof Error ? err.message : String(err)}——修复或删除该文件后重启（删除即回全 core: 内置态；03 §5.3 损坏 fail-loud）`,
+      { cause: err },
+    );
+  }
+  const result = parseEnabledRows(doc);
+  if (!result.ok) {
+    throw new BaseError(
+      'PLUGIN_ROW_INVALID',
+      `启用清单校验失败（${path}）：${result.message}——修复指引：顶层 { plugins: [{ id, config?, disabled? }] }；删除文件即回全 core: 内置态`,
+    );
+  }
+  return result.rows;
+}
+
+/** 装机账本条目（读侧最小面——只消费 installPath；完整条目形归 §5.4 install 批） */
+interface LedgerEntryLike {
+  readonly installPath?: unknown;
+}
+
+/**
+ * 装机账本读侧（§5.4 尾：损坏 = warn 点名 + 空账本降级——账本是装机面非
+ * 真相源，残缺不拦启动）。容器形宽容两式：条目数组形〔示例形——条目自带
+ * id 字段〕/ id 键映射形；写侧定形归 install 批。
+ */
+function readLedger(
+  dataDir: string | null,
+  fs: PluginBootFs,
+  warn: (message: string) => void,
+): Readonly<Record<string, LedgerEntryLike>> {
+  if (dataDir === null) return {};
+  const path = join(dataDir, 'plugins', 'ledger.json');
+  const text = fs.read(path);
+  if (text === null) return {};
+  const degrade = (reason: string): Readonly<Record<string, LedgerEntryLike>> => {
+    warn(`装机账本损坏（${path}）：${reason}——空账本降级（03 §5.4：warn 不 brick 装机面）`);
+    return {};
+  };
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text);
+  } catch (err) {
+    return degrade(`坏 JSON（${err instanceof Error ? err.message : String(err)}）`);
+  }
+  const out: Record<string, LedgerEntryLike> = {};
+  if (Array.isArray(doc)) {
+    for (const entry of doc) {
+      if (typeof entry !== 'object' || entry === null || typeof (entry as { id?: unknown }).id !== 'string') {
+        return degrade('数组条目形含非带 id 对象');
+      }
+      out[(entry as { id: string }).id] = entry as LedgerEntryLike;
+    }
+    return out;
+  }
+  if (typeof doc === 'object' && doc !== null) {
+    for (const [id, entry] of Object.entries(doc as Record<string, unknown>)) {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+        return degrade(`条目 ${id} 非对象`);
+      }
+      out[id] = entry as LedgerEntryLike;
+    }
+    return out;
+  }
+  return degrade('顶层非数组/对象');
+}
+
+/** 计划合成产物（plan 交装载管线；synthesisFailures = 档②行——装载未达） */
+interface PlanSynthesis {
+  readonly plan: readonly LoaderPlanRow[];
+  readonly synthesisFailures: readonly FailedPlugin[];
+}
+
+/**
+ * 计划合成（§5.3 合成纪律）：core 注册表全进计划（内置全启不占用户行）；
+ * 用户行 core: 同名行字段级后写胜出；用户磁盘行走账本解析。core: 行无注册
+ * 表成员 = 合成失败（引用了未编入件——版本不符提示）。
+ */
+function synthesizePlan(input: {
+  readonly rows: readonly EnabledRow[];
+  readonly corePlugins: readonly CorePluginReference[];
+  readonly dataDir: string | null;
+  readonly ledger: Readonly<Record<string, LedgerEntryLike>>;
+  readonly fs: PluginBootFs;
+}): PlanSynthesis {
+  const plan: LoaderPlanRow[] = [];
+  const synthesisFailures: FailedPlugin[] = [];
+  const coreByName = new Map<string, CorePluginReference>();
+  for (const ref of input.corePlugins) coreByName.set(`core:${ref.name}`, ref);
+  const overlaid = new Set<string>(); // 用户行已覆盖的 core: 行 id
+
+  // core: 内置全启（注册序即计划序）+ 用户行字段级 overlay
+  for (const [id, ref] of coreByName) {
+    const overlay = input.rows.find((row) => row.id === id);
+    if (overlay === undefined) {
+      plan.push({ kind: 'core', id, reference: ref });
+      continue;
+    }
+    overlaid.add(id);
+    // 字段级后写胜出（§5.3）：用户行省略的字段沿用内置值；config 整值替换非合并
+    plan.push({
+      kind: 'core',
+      id,
+      reference: ref,
+      ...(overlay.config !== undefined ? { config: overlay.config } : {}),
+      ...(overlay.disabled !== undefined ? { disabled: overlay.disabled } : {}),
+    });
+  }
+
+  // 用户行：core: 未注册名拒；磁盘行走账本解析
+  for (const row of input.rows) {
+    if (overlaid.has(row.id)) continue; // 已并入 core overlay 腿
+    if (row.id.startsWith('core:')) {
+      synthesisFailures.push({
+        id: row.id,
+        code: 'PLUGIN_LOAD_FAILED',
+        message: `官方件 ${row.id} 不在本构建 core: 注册表（版本不符或该件未编入）——移除该行或核对件名`,
+      });
+      continue;
+    }
+    const resolved = resolveDiskRow(row, input.dataDir, input.ledger, input.fs);
+    if ('failure' in resolved) synthesisFailures.push(resolved.failure);
+    else plan.push(resolved.spec);
+  }
+  return { plan, synthesisFailures };
+}
+
+/** 磁盘行解析产物（两态——成功入计划/失败进档②面） */
+type DiskResolution = { readonly spec: DiskPluginSpec } | { readonly failure: FailedPlugin };
+
+/**
+ * 磁盘行账本解析（§5.4 boot 读侧消费）：installPath（绝对直用/相对 join
+ * 数据目录）→ 装机目录 package.json 过清单校验（official:false）。三失败态
+ * （账本缺席/目录不可读/清单坏形）皆行级隔离降级——码沿用 PLUGIN_LOAD_
+ * FAILED/PLUGIN_SHAPE_INVALID 分流，新码语义挂账生命周期批。
+ */
+function resolveDiskRow(
+  row: EnabledRow,
+  dataDir: string | null,
+  ledger: Readonly<Record<string, LedgerEntryLike>>,
+  fs: PluginBootFs,
+): DiskResolution {
+  if (dataDir === null) {
+    return {
+      failure: {
+        id: row.id,
+        code: 'PLUGIN_LOAD_FAILED',
+        message: 'memory 形无装机账本——用户磁盘行不可解析（:memory: 诊断同构只装 core:）',
+      },
+    };
+  }
+  const entry = ledger[row.id];
+  if (entry === undefined) {
+    return {
+      failure: {
+        id: row.id,
+        code: 'PLUGIN_LOAD_FAILED',
+        message: '装机账本无此 id（03 §5.4）——先 install 再启用，或从启用清单移除该行',
+      },
+    };
+  }
+  const rawPath = entry.installPath;
+  if (typeof rawPath !== 'string' || rawPath.length === 0) {
+    return {
+      failure: {
+        id: row.id,
+        code: 'PLUGIN_LOAD_FAILED',
+        message: '装机账本条目缺归一路径 installPath（03 §5.4）——账本坏形，重装修机可重建',
+      },
+    };
+  }
+  // 解析序：绝对直用（local 源表示）；相对 join 数据目录（npm/git 源表示）
+  const pluginDir = isAbsolute(rawPath) ? rawPath : join(dataDir, rawPath);
+  const pkgText = fs.read(join(pluginDir, 'package.json'));
+  if (pkgText === null) {
+    return {
+      failure: {
+        id: row.id,
+        code: 'PLUGIN_LOAD_FAILED',
+        message: `装机目录不可读（${pluginDir} 无 package.json）——重装可修复`,
+      },
+    };
+  }
+  let pkg: unknown;
+  try {
+    pkg = JSON.parse(pkgText);
+  } catch (err) {
+    return {
+      failure: {
+        id: row.id,
+        code: 'PLUGIN_LOAD_FAILED',
+        message: `装机目录 package.json 坏 JSON（${pluginDir}）：${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
+  const manifestResult = parseManifest(pkg); // 用户插件缺省 official:false
+  if (!manifestResult.ok) {
+    return {
+      failure: {
+        id: row.id,
+        code: 'PLUGIN_SHAPE_INVALID',
+        message: `清单校验失败（${pluginDir}）：${manifestResult.message}`,
+      },
+    };
+  }
+  const spec: DiskPluginSpec = {
+    kind: 'disk',
+    id: row.id,
+    manifest: manifestResult.manifest,
+    pluginDir,
+    ...(row.config !== undefined ? { config: row.config } : {}),
+    ...(row.disabled !== undefined ? { disabled: row.disabled } : {}),
+  };
+  return { spec };
+}
+
+/** fs 面适配（PluginBootFs → BootFailuresFs——同构双方法直转） */
+function toBootFailuresFs(fs: PluginBootFs): {
+  read: (path: string) => string | null;
+  write: (path: string, text: string) => void;
+} {
+  return { read: fs.read, write: fs.write };
+}

@@ -87,9 +87,15 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
   const workspace = opts.workspace ?? (() => canonicalWorkspaceRoot());
   const workspaceRoot = workspace();
 
-  // ① 工具族事件词接线（contracts TOOL_EVENT_NAMES 装配消费面——撞名
-  // fail-loud：同 dispatch 重复装配是装配 bug 不静默）
-  opts.dispatch.registerEventNames(TOOL_EVENT_NAMES);
+  // ① 工具族事件词接线（contracts TOOL_EVENT_NAMES 装配消费面）。一词两册
+  // 幂等跳过（03 §2.4 装配序律——装载批预注册主表镜像在前，已注册词共享
+  // 登记非撞名覆盖；未注册词自举注册保单测独立装配）；重复装配检测改经
+  // 装配哨兵（永不 emit 的域名前缀占位词——同 dispatch 二次装配即撞哨兵
+  // fail-loud，检测面不因共享词幂等而丢失）
+  opts.dispatch.registerEventNames([
+    'conversation/open-tools-mounted',
+    ...TOOL_EVENT_NAMES.filter((name) => !opts.dispatch.isRegistered(name)),
+  ]);
 
   // ② 审批三件前两件（服务 + answerer + 审批对 durable 落账）
   const approvalWiring = wireSessionApproval({

@@ -94,10 +94,10 @@ describe('SessionManager create 与登记', () => {
     expect(row?.lastSeq).toBe(0);
   });
 
-  it('同 dispatch 重复建管理器 → 钩子词汇撞名 fail-loud（装配 bug 不静默）', () => {
+  it('同 dispatch 重复建管理器 → 装配哨兵撞名 fail-loud（装配 bug 不静默——03 §2.4）', () => {
     const dispatch = new EventDispatch();
     makeManager(dispatch);
-    expect(() => makeManager(dispatch)).toThrow();
+    expect(() => makeManager(dispatch)).toThrow(); // 二次装配撞 conversation/session-manager-mounted
   });
 });
 

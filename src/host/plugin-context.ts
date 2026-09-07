@@ -2,11 +2,12 @@
  * host/plugin-context — 插件上下文装配件（03 §2.1/§2.2/§2.4/§3.1/§3.4/§8.5；批 12f-2a）。
  *
  * 一件三面：
- *  - **ctx 八路注册动词 + 三动词**（§2.2/§3.1）：tools.register（拒绝式）/ channels.
+ *  - **ctx 八路注册动词 + 三动词 + provide**（§2.2/§3.1）：tools.register（拒绝式）/ channels.
  *    registerCommand（后写胜出）/ llm.registerProvider（后写胜出 upsert）/ events.
  *    registerSessionEventType（拒绝式·不可逆）/ agent.registerMessageRole（拒绝式）/ prompts.
  *    registerSection（拒绝式——本件 prompt-sections）/ ctx.on（fail-closed）/ ctx.emit +
- *    ctx.get·tryGet·effect——逐动词冲突律真源 03 §2.7（本件只执法窗口与频率，撞名执法归各真源注册表）。
+ *    ctx.get·tryGet·effect + ctx.provide（§2.2 表行——委派共享根作用域，Kahn 解锁动词）
+ *    ——逐动词冲突律真源 03 §2.7（本件只执法窗口与频率，撞名执法归各真源注册表）。
  *  - **装载窗口律**（§2.1）：注册动词只在 apply 执行期间合法；窗口外抛
  *    `PLUGIN_WINDOW_CLOSED`。唯一例外 = 宿主回调上下文内（钩子 handler/工具执行期
  *    ——§2.4 主表注记「钩子内注册面变更同注册即生效」的钩子豁免条款），判定形 =
@@ -114,6 +115,14 @@ export interface PluginContext {
   get<T>(name: string): T;
   /** 可选消费（诚实缺席档——缺席返回 undefined） */
   tryGet<T>(name: string): T | undefined;
+  /**
+   * 服务目录注册（§3.1/§2.2 表行——装载器 Kahn 轮次的解锁动词：apply 期间落
+   * 新服务、后续轮次自然解锁依赖方）。委派目标 = 共享根作用域（跨插件可见
+   * 面——同批插件互见才可排装载序，04 §6 fork 语义）；撞名 = 撞名闸前置
+   * （CONTEXT_SERVICE_DUPLICATE，§2.7 尾注）。无 un-provide——进程级单册
+   * （§2.2 尾注明文例外；服务撤回面挂账 /reload 批）。
+   */
+  provide(name: string, service: unknown): void;
   /** 可逆注册（LIFO 回卷——计频率护栏动作数；§3.1 三动词消费面，不吃窗口闸） */
   effect(register: () => Disposer): void;
   /** 钩子订阅（fail-closed：词不在主表拒；按 mode 路由 on/onWaterfall；handler 包 5s 钟） */
@@ -158,6 +167,11 @@ export interface PluginContextOptions {
   readonly llm?: Pick<LlmRuntime, 'registerProvider'>;
   /** 提示词段注册表（缺席同上） */
   readonly promptSections?: PromptSectionRegistry;
+  /**
+   * provide 委派位（共享根作用域——本件只过窗/频率闸，撞名与 stale 执法归
+   * Scope.provide）。缺席 = ctx.provide 抛 CONTEXT_SERVICE_MISSING（装配缺陷响亮）。
+   */
+  readonly provide?: (name: string, service: unknown) => void;
   /** 宿主自省面（materializeHostFace 产物——fork 共享） */
   readonly hostFace: HostFace;
   /** 频率护栏参数（缺省 {windowMs: 1000, max: 1000}——§3.4 钉值；测试面可调小） */
@@ -299,6 +313,12 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     },
     tryGet<T>(name: string): T | undefined {
       return scope.tryGet<T>(name);
+    },
+    provide(name: string, service: unknown): void {
+      // 注册动词族：吃窗口闸 + 计频率数；真实落库委派共享根（撞名/stale 归 Scope 执法）
+      assertWindow('ctx.provide');
+      countAction();
+      required(options.provide, 'provide', 'ctx.provide')(name, service);
     },
     effect(register: () => Disposer): void {
       countAction();
