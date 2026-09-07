@@ -11,6 +11,8 @@
  */
 import type { ApiBlock } from '../contracts/index.js';
 import { isValidApiVersion } from '../contracts/index.js';
+// internal 桶机制符号深导（opens 授予位值域单源——02 §4.3 #2 深挖面册纪律）
+import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 
 /* ---------------- 清单形状（package.json `berryAgent` 字段） ---------------- */
 
@@ -299,8 +301,8 @@ function versionPairLt(a: string, b: string): boolean {
 /* ---------------- 启用清单行（enabled.yaml——03 §5.3 单层 overlay） ---------------- */
 
 /**
- * 启用行（03 §5.3 行 schema 定形）：`{ id, config?, disabled? }`——无作用域键、
- * 无 pkg 引用形、无系统/用户分区（单层）。
+ * 启用行（03 §5.3 行 schema 定形 + 批 U1 增位）：`{ id, config?, disabled?,
+ * opens? }`——无作用域键、无 pkg 引用形、无系统/用户分区（单层）。
  */
 export interface EnabledRow {
   readonly id: string;
@@ -308,6 +310,12 @@ export interface EnabledRow {
   readonly config?: unknown;
   /** 禁用旗标（toggle 翻转位——行在场但禁用即不装载、注册面零开） */
   readonly disabled?: boolean;
+  /**
+   * 高危面开门授予位（03 §4.6 批 U1 增位）：值域 = USER_GRANTABLE_CAPABILITIES
+   * 名单单源（行校验拒绝式执法）；缺席 = 全默认关；撤位 + 重装载即收回。
+   * 「用户授予」载体的第一形态——grants 三方交集授予维的执法数据源。
+   */
+  readonly opens?: readonly string[];
 }
 
 /** 启用清单文档顶层形状（本契约笔钉位裁量：`{ plugins: [行...] }`——03 §5.3 钉行 schema、顶层容器形未明文，此处定形随装载器批冷读核对） */
@@ -325,16 +333,17 @@ export interface EnabledRowsInvalid {
 export type EnabledRowsResult = { readonly ok: true; readonly rows: readonly EnabledRow[] } | EnabledRowsInvalid;
 
 /** 行 schema 已知键闭集 */
-const ROW_KEYS = new Set(['id', 'config', 'disabled']);
+const ROW_KEYS = new Set(['id', 'config', 'disabled', 'opens']);
 
 /**
  * 校验启用清单行集（纯函数——输入 = yaml.load 产物，载体解析在装配层）。
  *
- * 逐行拒绝式：未知键 / id 缺席或坏形 / disabled 非布尔 / config 非对象即拒，
- * message 点名行序与插件 id。**同 id 多行即拒**（§5.3「单行 per id——行 schema
- * 无多行载体」；uninstall 段①防线同判据）。用户行 id 不校验 core: 保留——
- * 用户行覆盖 core: 同名行是合法形态（字段级后写胜出），core: 行自身不进用户
- * 文件（内置全启）；覆盖合法性由装配层合成时裁决。
+ * 逐行拒绝式：未知键 / id 缺席或坏形 / disabled 非布尔 / config 非对象 /
+ * opens 坏形或值域外 / core: 行带 opens 即拒，message 点名行序与插件 id。
+ * **同 id 多行即拒**（§5.3「单行 per id——行 schema 无多行载体」；uninstall
+ * 段①防线同判据）。用户行 id 不校验 core: 保留——用户行覆盖 core: 同名行
+ * 是合法形态（字段级后写胜出），core: 行自身不进用户文件（内置全启）；
+ * 覆盖合法性由装配层合成时裁决。
  */
 export function parseEnabledRows(doc: unknown): EnabledRowsResult {
   if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) {
@@ -342,19 +351,19 @@ export function parseEnabledRows(doc: unknown): EnabledRowsResult {
   }
   const plugins = (doc as Record<string, unknown>)['plugins'];
   if (!Array.isArray(plugins)) {
-    return rowFail('启用清单 plugins 须为数组（行 schema：{ id, config?, disabled? }）');
+    return rowFail('启用清单 plugins 须为数组（行 schema：{ id, config?, disabled?, opens? }）');
   }
   const rows: EnabledRow[] = [];
   const seen = new Set<string>();
   for (let i = 0; i < plugins.length; i++) {
     const row = plugins[i];
     if (typeof row !== 'object' || row === null || Array.isArray(row)) {
-      return rowFail(`第 ${i + 1} 行须为对象（行 schema：{ id, config?, disabled? }）`);
+      return rowFail(`第 ${i + 1} 行须为对象（行 schema：{ id, config?, disabled?, opens? }）`);
     }
     const record = row as Record<string, unknown>;
     for (const key of Object.keys(record)) {
       if (!ROW_KEYS.has(key)) {
-        return rowFail(`第 ${i + 1} 行未知键 "${key}"——已知键闭集：id/config/disabled`);
+        return rowFail(`第 ${i + 1} 行未知键 "${key}"——已知键闭集：id/config/disabled/opens`);
       }
     }
     if (typeof record['id'] !== 'string' || record['id'].length === 0) {
@@ -378,10 +387,31 @@ export function parseEnabledRows(doc: unknown): EnabledRowsResult {
     ) {
       return rowFail(`插件 ${id} 行 config 须为对象（整值替换非合并）`);
     }
+    // opens 三查（03 §4.6/§5.3 批 U1 增位——拒绝式不留静默通道）
+    let opens: readonly string[] | undefined;
+    if (record['opens'] !== undefined) {
+      if (!Array.isArray(record['opens']) || record['opens'].some((o) => typeof o !== 'string' || o.length === 0)) {
+        return rowFail(`插件 ${id} 行 opens 须为非空字符串数组（高危面开门授予位——03 §4.6）`);
+      }
+      const values = record['opens'] as readonly string[];
+      const illegal = values.find((o) => !USER_GRANTABLE_CAPABILITIES.includes(o));
+      if (illegal !== undefined) {
+        return rowFail(
+          `插件 ${id} 行 opens 含非法能力位 "${illegal}"——值域 = 高危面名单单源（现役：${USER_GRANTABLE_CAPABILITIES.join('、')}；常规能力位不走开门制）`,
+        );
+      }
+      if (id.startsWith('core:')) {
+        return rowFail(
+          `官方件 ${id} 行不设 opens——core: 件高危面窄面注入走宿主装配裁决，不走用户开门位（03 §4.6 治理判据：开门不可被静默继承）`,
+        );
+      }
+      opens = values;
+    }
     rows.push({
       id,
       config: record['config'],
       disabled: record['disabled'] === undefined ? undefined : (record['disabled'] as boolean),
+      ...(opens !== undefined ? { opens } : {}),
     });
   }
   return { ok: true, rows };

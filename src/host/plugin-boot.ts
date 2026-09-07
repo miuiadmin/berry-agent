@@ -288,7 +288,7 @@ function readEnabledRows(dataDir: string | null, fs: PluginBootFs): readonly Ena
   if (!result.ok) {
     throw new BaseError(
       'PLUGIN_ROW_INVALID',
-      `启用清单校验失败（${path}）：${result.message}——修复指引：顶层 { plugins: [{ id, config?, disabled? }] }；删除文件即回全 core: 内置态`,
+      `启用清单校验失败（${path}）：${result.message}——修复指引：顶层 { plugins: [{ id, config?, disabled?, opens? }] }；删除文件即回全 core: 内置态`,
     );
   }
   return result.rows;
@@ -490,6 +490,8 @@ function resolveDiskRow(
     pluginDir,
     ...(row.config !== undefined ? { config: row.config } : {}),
     ...(row.disabled !== undefined ? { disabled: row.disabled } : {}),
+    // 开门授予位透传（批 U2 读侧——值域已过 parseEnabledRows 行校验，此处零复验）
+    ...(row.opens !== undefined ? { opens: row.opens } : {}),
   };
   return { spec };
 }

@@ -61,6 +61,13 @@ export interface DiskPluginSpec extends PlanRowBase {
   /** 装机树内插件目录（entry 解析基 + 门禁树根） */
   readonly pluginDir: string;
   /**
+   * 高危面开门授予位（03 §4.6 批 U2 读侧透传——启用行 opens 直通，值域已过
+   * 行校验）：消费位 = 装载步构造 ctx 时的开门授予集（grantedOpens）。**只在
+   * 磁盘插件计划行**——core: 行读侧已拒 opens（官方件窄面注入不走开门位），
+   * PlanRowBase 不设此位即结构性保证。
+   */
+  readonly opens?: readonly string[];
+  /**
    * inject 预收割位（可选）：磁盘插件的 inject 声明在入口模块（装载期才可
    * 求值）——排序位用此预收割面（install 期收割缓存，§5.4 同族）；缺席视
    * 零 inject 排序，模块内 inject 的真实执法在装载步（两段式：排序位尽力、

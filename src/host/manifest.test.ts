@@ -6,6 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
+// internal 桶机制符号深导（opens 值域单源闭环锁——与宿主读侧同判据）
+import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { checkPluginId, parseEnabledRows, parseManifest, MANIFEST_KEY_CATALOG } from './manifest.js';
 
 /** 合法最小包速记（每用例局部变异——不共享可变引用） */
@@ -287,5 +289,60 @@ describe('parseEnabledRows 行校验', () => {
   it('空行集合法（用户文件可空——core: 全启不进用户文件）', () => {
     const r = parseEnabledRows({ plugins: [] });
     expect(r.ok).toBe(true);
+  });
+});
+
+describe('parseEnabledRows opens 授予位（03 §4.6 批 U2 读侧）', () => {
+  it('合法值过且透传（单枚/双枚；缺席 = 键不在场 = 全默认关）', () => {
+    const r = parseEnabledRows({
+      plugins: [
+        { id: 'demo', opens: ['sdk.register-route'] },
+        { id: 'other', opens: ['channels.ui-backend', 'sdk.register-route'] },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.rows[0]!.opens).toEqual(['sdk.register-route']);
+      expect(r.rows[1]!.opens).toEqual(['channels.ui-backend', 'sdk.register-route']);
+    }
+    const absent = parseEnabledRows({ plugins: [{ id: 'bare' }] });
+    expect(absent.ok).toBe(true);
+    if (absent.ok) expect('opens' in absent.rows[0]!).toBe(false);
+  });
+
+  it('坏形状拒（非数组 / 元素非字符串 / 空串元素）', () => {
+    expect(parseEnabledRows({ plugins: [{ id: 'demo', opens: 'channels.ui-backend' }] }).ok).toBe(false);
+    expect(parseEnabledRows({ plugins: [{ id: 'demo', opens: [1] }] }).ok).toBe(false);
+    expect(parseEnabledRows({ plugins: [{ id: 'demo', opens: [''] }] }).ok).toBe(false);
+  });
+
+  it('值域外拒——message 点名非法值并指路现役名单（单源值域闭环）', () => {
+    const r = parseEnabledRows({ plugins: [{ id: 'demo', opens: ['channels.render'] }] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe('PLUGIN_ROW_INVALID');
+      expect(r.message).toContain('channels.render');
+      for (const name of USER_GRANTABLE_CAPABILITIES) expect(r.message).toContain(name);
+    }
+  });
+
+  it('core: 行带 opens 拒——官方件窄面注入不走用户开门位（不可静默继承）', () => {
+    const r = parseEnabledRows({ plugins: [{ id: 'core:sdk', opens: ['sdk.register-route'] }] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe('PLUGIN_ROW_INVALID');
+      expect(r.message).toContain('core:sdk');
+      expect(r.message).toContain('opens');
+    }
+  });
+
+  it('值域 = USER_GRANTABLE_CAPABILITIES 单源消费（目录扩枚举校验面自动共变）', () => {
+    // 每个现役高危面名都应可过；一个集合外专名都应拒——两向锁单源闭环
+    const all = parseEnabledRows({ plugins: [{ id: 'demo', opens: [...USER_GRANTABLE_CAPABILITIES] }] });
+    expect(all.ok).toBe(true);
+    const beyond = parseEnabledRows({
+      plugins: [{ id: 'demo', opens: [...USER_GRANTABLE_CAPABILITIES, 'made.up-door'] }],
+    });
+    expect(beyond.ok).toBe(false);
   });
 });
