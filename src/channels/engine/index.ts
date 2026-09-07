@@ -7,7 +7,7 @@
  * 适配。组件层归批 10d、TUI 实装装配归批 10e——本面随批扩。
  *
  * 件内消费（channels 件内 TUI 实装侧）经本面导入；件外（其他模块）只准走
- * channels 公开面四名（02 §4.3 契约面执法——engine/ 非公开面）。
+ * channels 公开面三名（02 §4.3 契约面执法——engine/ 非公开面）。
  */
 export type {
   AnsiColor,

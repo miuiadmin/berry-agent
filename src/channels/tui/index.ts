@@ -4,7 +4,7 @@
  * 唯一件外消费方 = channels 公开面（index.ts 再出 TuiBackend 供批 12 host
  * 装配消费）；组件族（theme/layout/text/editor/scroll/overlay/autocomplete/
  * markdown/status/panels）件内消费走 sibling 直连（TuiBackend 实装侧），不
- * 预聚合。件外（其他模块）只准走 channels 公开面四名（02 §4.3 契约面执法
+ * 预聚合。件外（其他模块）只准走 channels 公开面三名（02 §4.3 契约面执法
  * ——tui/ 同 engine/ 一样是非公开面，api 快照不进本面）。本面随真实件外
  * 消费扩。
  */
