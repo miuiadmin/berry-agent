@@ -1,22 +1,27 @@
 /**
- * host/webui-bridge — `--port` webui 一次性开面装配桥（批 12f-2c；03 §10.4
- * host 接线义务：`--port <n>` 开面 + token 一次性披露 + 生命周期收口）。
- * 批 18a-2' 改形适配：webui 件零自持监听——本桥起 sdk HTTP 面承路由
- * （mountWebui 注册 face.register——面注册器直注）。
+ * host/webui-bridge — `--port` webui 统一 HTTP 面装配桥（批 12f-2c 落、
+ * 18a-3' 三入口咬合归一定形；03 §10.4 host 接线义务：`--port <n>` 开面 +
+ * token 一次性披露 + 生命周期收口）。18a-2' 起件零自持监听——路由经 sdk
+ * HTTP 面承載（mountWebui 注册 face.register——面注册器直注）。
  *
- * **过渡期桥自持面（18a-3' 归一挂账）**：本桥为 webui 单开的面属过渡形——
- * daemon 常驻面归一（webui 路由注册进 daemon face + 三入口咬合）在 18a-3'
- * 兑现；届时本桥收编。过渡期本面同时活 /v1 SDK 六端点（bridge 走
- * createServeBridge 同 daemon——零第二套映射）与 webui 路由族。
+ * **三入口两段形（18a-3' 兑现——12f-2c 期「过渡期桥自持面」挂账注销）**：
+ * - mountWebuiOnFace：**共用挂载段**——桥真身映射 + 路由注册进任意 sdk 面 +
+ *   channels backend 挂接（信封扇出与审批腿接线——12f-2c 期注记「addBackend
+ *   归调用方」而调用方缺席 = TUI 形真缺陷〔SSE 死流〕，本段收编修前必红
+ *   例锁死）+ detach 摘挂（幂等——closer 归调用方接线）；
+ * - openWebuiFace：**前台自持面开面**（TUI / serve 前台 `--port` 形）——
+ *   自起统一 HTTP 面 TCP 人面（恒回环；SPA + /api/* + /v1/* 三族同面；
+ *   bridge 走 createServeBridge 零第二套映射）+ 披露两行 + closer 整体
+ *   收口；daemon 常驻面 `--port` 侧不起本面——serve-daemon 件内组态人面
+ *   监听后走共用挂载段（面归 daemon 单源）。
  *
  * 职责（装配桥五面）：conversation 栈五动词 → WebuiDeps 三窄面映射（词面
- * 独立律的装配侧互证——18a 通报「compat 互证归 host 装配批」批 12f-2c 已
- * 兑现，改形后经 face.register 直注维持）+ staticDir 探测（dist/webui 共生
- * 形；缺席诚实 API-only 不虚报）+ token 一次性披露（stderr 缺省——监听 ⇒
- * 鉴权恒在场，令牌只此一次显示；token 生成归面）+ handle.backend 通道挂接
- * （UiBackend 第四实装 claim 桥——由调用方 addBackend，本桥只开面）+ stop
- * 进运行时退出序 closer（注册序在 plugin-unload 之后、tui-backend 之前——
- * 网络面先关再出屏）。
+ * 独立律的装配侧互证——compat 互证 18a-3' 两方向例锁死，见测试件）+
+ * staticDir 探测（dist/webui 共生形；缺席诚实 API-only 不虚报）+ token
+ * 一次性披露（stderr 缺省——「监听 ⇒ 鉴权」面本体保证恒在场，令牌只此
+ * 一次显示；token 生成归面）+ backend 通道挂接（UiBackend 第四实装 claim
+ * 桥——共用挂载段接线）+ stop 进运行时退出序 closer（注册序在
+ * plugin-unload 之后、tui-backend 之前——网络面先关再出屏）。
  *
  * 桥映射注记：createSession 走 manager.create 零 I/O（行随首事件落库——
  * 浏览器会话无 cwd 锚，workspaceRoot 缺省全局态）；sessionStateOf 三档
@@ -73,26 +78,32 @@ export interface WebuiBridgeHandle {
 }
 
 /**
- * webui 一次性开面（async——监听绑定）。开面即披露（token 只此一次）+
- * stop 挂退出序；handle.backend 的 addBackend 归调用方（与 TuiBackend
- * 并存扇出——多 backend 信封路由按 sessionId 各投各）。
+ * 前台自持面开面（async——监听绑定；TUI / serve 前台 `--port` 形）。
+ * 开面即披露（token 只此一次）+ stop 挂退出序；开面失败（如端口占用
+ * EADDRINUSE）时先摘挂载再抛——不留半挂 backend。
  */
 export async function openWebuiFace(
   options: WebuiBridgeOptions & { readonly onOpen?: (info: WebuiOpenInfo) => void },
 ): Promise<WebuiBridgeHandle> {
-  const deps = bridgeDeps(options.stack, options.staticDir);
-  // 过渡形：为 webui 单开 sdk 面（bridge 同 daemon——createServeBridge 零第二
-  // 套映射；/v1 端点随之而活，18a-3' 归一时收编）
   const face = createSdkHttpFace({
     config: { tcp: { host: WEBUI_DEFAULT_HOST, port: options.port ?? WEBUI_DEFAULT_PORT } },
     bridge: createServeBridge(options.stack, options.runtime, { cwd: process.cwd() }),
   });
-  // 面注册器直注（WebuiRouteDescriptor → SdkRouteDescriptor 方向性结构兼容）
-  const webui = mountWebui({ ...deps, register: face.register });
-  const info = await face.start();
+  const mount = mountWebuiOnFace({
+    stack: options.stack,
+    face,
+    ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
+  });
+  let info: Awaited<ReturnType<SdkHttpFaceHandle['start']>>;
+  try {
+    info = await face.start();
+  } catch (err) {
+    mount.detach(); // 监听未成——backend 与路由不留半挂
+    throw err;
+  }
   const { host, port } = info.tcp[0]!;
   const stop = async (): Promise<void> => {
-    webui.detach(); // 幂等（全路由摘除 + 全流收口 + 审批清槽丢弃性）
+    mount.detach(); // 幂等（backend 摘除 + 全路由摘除 + 全流收口 + 审批清槽丢弃性）
     await face.stop(); // 幂等（全流收口 + 关监听）
   };
   const disclose = options.disclose ?? ((line) => process.stderr.write(`${line}\n`));
@@ -100,7 +111,54 @@ export async function openWebuiFace(
   disclose(`访问令牌（仅此一次显示）：${face.token}`);
   options.onOpen?.({ host, port, token: face.token });
   options.runtime.registerCloser({ label: 'webui-server', fn: () => stop() });
-  return { webui, face, deps, stop };
+  return { webui: mount.webui, face, deps: mount.deps, stop };
+}
+
+/** 面挂载选项（共用挂载段——daemon 常驻面走本段，不起前台自持面） */
+export interface WebuiFaceMountOptions {
+  /** 对话栈（桥真身五动词源 + channels backend 挂接位） */
+  readonly stack: ConversationStack;
+  /** 承载面（sdk HTTP 面——路由经 face.register 直注；daemon 形即 daemon face） */
+  readonly face: SdkHttpFaceHandle;
+  /** 静态面目录覆盖（测试注入；缺省探测 dist/webui——缺席 API-only） */
+  readonly staticDir?: string;
+}
+
+/** 面挂载产物（共用挂载段——closer 接线归调用方） */
+export interface WebuiFaceMount {
+  /** webui mount 本体（backend/detach——零监听零 start/stop） */
+  readonly webui: WebuiMountHandle;
+  /** 桥真身（三窄面——compat 互证的消费位） */
+  readonly deps: WebuiDeps;
+  /** 摘挂（幂等）：channels 摘 backend + webui detach（全路由摘除+流收口+审批清槽） */
+  detach(): void;
+}
+
+/**
+ * 共用挂载段（18a-3' 三入口咬合真源）：桥真身映射 + webui 路由族注册进
+ * 承载面 + channels backend 挂接。TUI/serve 前台经 openWebuiFace 间接受益；
+ * daemon 常驻面直调本段（面归 daemon 单源，零第二套映射）。挂载即活——
+ * 信封扇出（SSE display/session 族）与审批腿（claim 桥）由 backend 挂接
+ * 接线；closer 注册与 token 披露归调用方按入口形各自编排。
+ */
+export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount {
+  const deps = bridgeDeps(options.stack, options.staticDir);
+  // 面注册器直注（WebuiRouteDescriptor → SdkRouteDescriptor 方向性结构兼容）
+  const webui = mountWebui({ ...deps, register: options.face.register });
+  // 通道挂接（UiBackend 第四实装 claim 桥）——12f-2c 期注记「addBackend 归
+  // 调用方」而 TUI 调用方缺席 = SSE 死流真缺陷，本段收编（修前必红例锁死）
+  options.stack.channels.addBackend(webui.backend);
+  let detached = false;
+  return {
+    webui,
+    deps,
+    detach: () => {
+      if (detached) return;
+      detached = true;
+      options.stack.channels.removeBackend(webui.backend.id); // 未注册位 no-op（件内幂等）
+      webui.detach();
+    },
+  };
 }
 
 /**

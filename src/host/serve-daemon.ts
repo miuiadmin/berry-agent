@@ -12,7 +12,9 @@
  *   载体先例 BERRY_AGENT_SDK_TOKEN 同族），防 spawn 递归。
  * - **daemon child**（`runDaemonServe`）：组装 runtime + conversation 栈 +
  *   serve 装配桥 → createSdkHttpFace（sock = 数据目录 serve/daemon.sock
- *   缺省接入点；TCP 侧 --sdk-port/--sdk-host 可选）→ 写 pid 登记 → token
+ *   缺省接入点；TCP 侧 --sdk-port/--sdk-host 可选 SDK 面 + `--port` 人面
+ *   〔18a-3' 三入口咬合——TCP 侧多监听并存，webui 路由经共用挂载段注册进
+ *   本面，daemon 人面 = serve HTTP 面 TCP 侧〕）→ 写 pid 登记 → token
  *   披露一行进 stderr（= daemon.log——自动生成档唯一披露位）→ 常驻至优雅停
  *   （SIGTERM → main 信号编舞 → runtime 六步退出序 → 本件 closer：face.stop
  *   + 清 pid 登记）。崩溃恢复语义与前台同一条（durable 投影——04 §1 P4），
@@ -45,14 +47,18 @@ import {
   type SdkHttpFaceHandle,
   type SdkHttpListenConfig,
   type SdkListenInfo,
+  type SdkTcpListenSpec,
 } from '../sdk/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
+import { WEBUI_DEFAULT_HOST } from '../webui/index.js';
 
 import { createServeBridge } from './serve-entry.js';
 import { createConversationStack } from './conversation-stack.js';
 import type { HostRuntime } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
+import { mountWebuiOnFace } from './webui-bridge.js';
+import type { WebuiFaceMount } from './webui-bridge.js';
 
 /* ---------------- 足迹词面（02 数据域表 serve/ 行） ---------------- */
 
@@ -278,9 +284,18 @@ export async function runServeStop(options: ServeStopOptions): Promise<number> {
 
 /* ---------------- daemon child 主体 ---------------- */
 
+/** daemon 旗标面（child 与 spawner 共用形——`--port` 人面 + SDK 面两族独立可选） */
+export interface DaemonServeFlags {
+  /** 统一 HTTP 面 TCP 人面端口（18a-3'——恒回环绑定） */
+  readonly port?: number;
+  readonly sdkPort?: number;
+  readonly sdkHost?: string;
+  readonly noDelta: boolean;
+}
+
 /** daemon child 选项（main 分派接线 + 测试注入面——承 ServeEntryOptions 同族） */
 export interface DaemonServeOptions {
-  readonly flags: { readonly sdkPort?: number; readonly sdkHost?: string; readonly noDelta: boolean };
+  readonly flags: DaemonServeFlags;
   readonly dataDir?: string;
   readonly env?: Record<string, string | undefined>;
   readonly cwd?: string;
@@ -298,6 +313,29 @@ export interface DaemonServeOptions {
 }
 
 /**
+ * daemon 开面配置（child 实配与 spawner 预拦同参真源——judgeListenConfig
+ * 双侧执法）。TCP 侧多监听并存（18a-3'）：人面 spec 恒推首位（`--port` 恒
+ * 回环绑定——远程暴露走 --sdk-host 显式载体；SDK 面独立可选）。归一前提：
+ * 判定与实配都按「数组首位 = 人面」约定消费 info.tcp[0]。
+ */
+function daemonListenConfig(
+  paths: DaemonPaths,
+  flags: DaemonServeFlags,
+  env: Record<string, string | undefined>,
+): SdkHttpListenConfig {
+  const tcpSpecs: SdkTcpListenSpec[] = [];
+  if (flags.port !== undefined) tcpSpecs.push({ host: WEBUI_DEFAULT_HOST, port: flags.port });
+  if (flags.sdkPort !== undefined || flags.sdkHost !== undefined) {
+    tcpSpecs.push({ host: flags.sdkHost ?? '127.0.0.1', port: flags.sdkPort ?? 0 });
+  }
+  return {
+    socketPath: paths.sockPath,
+    ...(tcpSpecs.length > 0 ? { tcp: tcpSpecs } : {}),
+    ...(env.BERRY_AGENT_SDK_TOKEN !== undefined ? { token: env.BERRY_AGENT_SDK_TOKEN } : {}),
+  };
+}
+
+/**
  * daemon child 主体：HTTP 面常驻（stdio 环零装配——daemon 与 stdio 传输互斥）。
  *
  * 装配序：开面判定（judgeListenConfig——非回环 × 无 token 退 2，fail-closed
@@ -305,7 +343,8 @@ export interface DaemonServeOptions {
  * HOST_DATA_DIR_BUSY 退 1）→ face（sock 缺省 + TCP 可选）→ 写 pid 登记 →
  * token 披露（自动生成档唯一披露位 = stderr → daemon.log）→ 常驻 await。
  * 退出序：runtime closer（face.stop + 清 pid）——SIGTERM 经 main 信号编舞
- * → runtime.shutdown 六步 LIFO 触发；测试直调注入 runtime.shutdown 同径。
+ * → runtime.shutdown 六步触发（closer drain 序 = 注册序——webui-server 先
+ * 注册先摘挂，再停面）；测试直调注入 runtime.shutdown 同径。
  */
 export async function runDaemonServe(options: DaemonServeOptions): Promise<number> {
   const env = options.env ?? process.env;
@@ -314,14 +353,7 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   const paths = daemonPaths(dataDir);
 
   // —— 开面判定（三防线①——非回环绑定必配凭证，违例 daemon 形退 2）——
-  const sdkHost = options.flags.sdkHost;
-  const config: SdkHttpListenConfig = {
-    socketPath: paths.sockPath,
-    ...(options.flags.sdkPort !== undefined || sdkHost !== undefined
-      ? { tcp: { host: sdkHost ?? '127.0.0.1', port: options.flags.sdkPort ?? 0 } }
-      : {}),
-    ...(env.BERRY_AGENT_SDK_TOKEN !== undefined ? { token: env.BERRY_AGENT_SDK_TOKEN } : {}),
-  };
+  const config = daemonListenConfig(paths, options.flags, env);
   const judged = judgeListenConfig(config);
   if (!judged.ok) {
     writeErr(`拒启：${judged.reason}`);
@@ -374,19 +406,40 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   // 起活三足：pid 登记（spawner 确认源）+ token 披露 + 信封回流
   writeDaemonPid(paths, { pid: process.pid, startedAt: Date.now() });
   stack.channels.addBackend(face.backend); // 信封回流自动馈送（conversation-stack onEvent → emit）
+  // —— --port 人面挂载（18a-3' 三入口咬合；04 §1 daemon 人面 = serve HTTP
+  // 面 TCP 侧）：webui 路由族经共用挂载段注册进本面（面归 daemon 单源——
+  // 零第二套映射）；backend 挂接后信封扇出与审批腿（claim 桥）随活——
+  let webuiMount: WebuiFaceMount | undefined;
+  if (options.flags.port !== undefined) {
+    webuiMount = mountWebuiOnFace({ stack, face });
+  }
   // 披露行（18a-1' 多监听扩形适配：TCP 侧数组 join——多监听并存全披露；sock 恒在场，缺席位 'off' 兜底）
   const tcpPart = info.tcp.length > 0 ? ` tcp=${info.tcp.map((spec) => `${spec.host}:${spec.port}`).join(',')}` : '';
   writeErr(`daemon 就绪：sock=${info.socketPath ?? 'off'}${tcpPart}（SDK 协议版本头 x-sdk-protocol: 1）`);
   if (env.BERRY_AGENT_SDK_TOKEN === undefined) {
     writeErr(`daemon token（自动生成——本地调用方接入凭证，已进本日志不再复现）：Bearer ${face.token}`);
   }
+  // 人面披露两行（18a-3' 差异面⑤——daemon 披露通道 = daemon.log 即 stderr
+  // 重定向；人面监听位 = tcp 数组首位〔构建序人面先推——port 0 内核指派后
+  // 实口见 info〕）；同面单 token——面 token 覆盖 /v1 与 webui 人面，不再复述值
+  if (webuiMount !== undefined) {
+    const face0 = info.tcp[0]!;
+    writeErr(`Web 界面已开面：http://${face0.host}:${face0.port}/`);
+    writeErr('访问令牌即 daemon token（同面单 token——见 daemon token 披露行）');
+  }
 
-  // 常驻至优雅停：closer（face.stop + 清 pid）挂 runtime 六步退出序 LIFO
+  // 常驻至优雅停：closer（face.stop + 清 pid）挂 runtime 六步退出序——drain
+  // 序 = 注册序：webui-server 先注册（先摘 backend/路由/流，再停面——避免停面
+  // 后信封扇出仍写入已关流）
   let resolveExit!: (code: number) => void;
   const exited = new Promise<number>((resolve) => {
     resolveExit = resolve;
   });
   let settled = false;
+  runtime.registerCloser({
+    label: 'webui-server',
+    fn: () => webuiMount?.detach(), // 幂等（未挂载形 = no-op）
+  });
   runtime.registerCloser({
     label: 'sdk-http-face',
     fn: async () => {
@@ -405,11 +458,8 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
 /** spawner 选项（注入面：spawn/探活/时钟/等待/平台） */
 export interface SpawnDaemonOptions {
   /** daemon 恒真（分派层保证——类型放宽 boolean 便 ServeFlags 直传） */
-  readonly flags: {
+  readonly flags: DaemonServeFlags & {
     readonly daemon: boolean;
-    readonly noDelta: boolean;
-    readonly sdkPort?: number;
-    readonly sdkHost?: string;
     readonly debug: boolean;
   };
   readonly dataDir?: string;
@@ -463,16 +513,9 @@ export async function spawnDaemonServe(options: SpawnDaemonOptions): Promise<num
   const paths = daemonPaths(dataDir);
   const env = options.env ?? process.env;
 
-  // 开面判定预拦（child 侧 judgeListenConfig 同参兜底——fail-closed 双侧）
-  const sdkHost = options.flags.sdkHost;
-  const judgeConfig: SdkHttpListenConfig = {
-    socketPath: paths.sockPath,
-    ...(options.flags.sdkPort !== undefined || sdkHost !== undefined
-      ? { tcp: { host: sdkHost ?? '127.0.0.1', port: options.flags.sdkPort ?? 0 } }
-      : {}),
-    ...(env.BERRY_AGENT_SDK_TOKEN !== undefined ? { token: env.BERRY_AGENT_SDK_TOKEN } : {}),
-  };
-  const judged = judgeListenConfig(judgeConfig);
+  // 开面判定预拦（child 侧 judgeListenConfig 同参兜底——fail-closed 双侧；
+  // daemonListenConfig 真源共用——人面 + SDK 面多监听同参）
+  const judged = judgeListenConfig(daemonListenConfig(paths, options.flags, env));
   if (!judged.ok) {
     writeErr(`拒启：${judged.reason}`);
     return 2;
@@ -483,8 +526,9 @@ export async function spawnDaemonServe(options: SpawnDaemonOptions): Promise<num
     self.mainPath,
     'serve',
     '--daemon',
+    ...(options.flags.port !== undefined ? ['--port', String(options.flags.port)] : []),
     ...(options.flags.sdkPort !== undefined ? ['--sdk-port', String(options.flags.sdkPort)] : []),
-    ...(sdkHost !== undefined ? ['--sdk-host', sdkHost] : []),
+    ...(options.flags.sdkHost !== undefined ? ['--sdk-host', options.flags.sdkHost] : []),
     ...(options.flags.noDelta ? ['--no-delta'] : []),
     ...(options.flags.debug ? ['--debug'] : []),
   ];

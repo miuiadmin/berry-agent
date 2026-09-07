@@ -18,7 +18,8 @@
  * 传输面坏死收场退 1。
  *
  * 旗标：--no-delta 作连接缺省 noDelta（07 §5——hello 显式携值胜出）；
- * --port 收下不起监听（dump-config 同构纪律——HTTP 面随 13e）；--debug
+ * --port 开统一 HTTP 面 TCP 人面（18a-3' 三入口咬合——stdio 线与 TCP 面
+ * 并存双活；dump-config 同构诊断命令忽略该旗标不起监听维持）；--debug
  * logger 提级（env 已设时让位）。
  *
  * 退出码（07 §5 三态）：0 = EOF/信号优雅收场；1 = 组装失败 / 传输面坏死 /
@@ -54,6 +55,8 @@ import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import type { HostRuntime } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
+import { openWebuiFace } from './webui-bridge.js';
+import type { WebuiOpenInfo } from './webui-bridge.js';
 
 /** stdio 注入面（缺省 process stdin/stdout——测试以 PassThrough 驱动全环） */
 export interface ServeIo {
@@ -86,6 +89,8 @@ export interface ServeEntryOptions {
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** 心跳节拍毫秒（线核静默判据与装配层定时共用——测试提速注入位；缺省 5000） */
   readonly heartbeatIntervalMs?: number;
+  /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
+  readonly onWebuiOpen?: (info: WebuiOpenInfo) => void;
 }
 
 /**
@@ -235,7 +240,22 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
       warn: (message) => logger.warn(message),
     });
 
-    const io = options.io ?? { input: stdin, output: stdout }; // --port 收下不起监听（dump-config 同构——HTTP 面 13e）
+    // —— --port 统一 HTTP 面 TCP 人面（18a-3' 三入口咬合；03 §10.4 host
+    // 接线）：stdio 线与 TCP 面并存双活——面承载 SPA + /api/* + /v1/* 三族
+    // （bridge 同走 createServeBridge 零第二套映射）；披露两行走 stderr
+    // （serve 前台披露通道）；closer 挂运行时退出序——EOF/信号/过载三路
+    // 收场同享面收口（LIFO 在 serve-backend 之前注册 = drain 晚于 stdio 线
+    // 收口——网络面先关）——
+    if (options.flags.port !== undefined) {
+      await openWebuiFace({
+        stack,
+        runtime,
+        port: options.flags.port,
+        ...(options.onWebuiOpen !== undefined ? { onOpen: options.onWebuiOpen } : {}),
+      });
+    }
+
+    const io = options.io ?? { input: stdin, output: stdout };
     const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 5_000;
 
     // —— 传输环状态（收场单次性由 settled 门保证）——

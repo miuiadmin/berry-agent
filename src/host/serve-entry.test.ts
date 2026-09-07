@@ -92,7 +92,11 @@ afterAll(() => {
 });
 
 /** serve 速记（faux provider 预脚本 + PassThrough 传输对；cwd 锚临时目录） */
-function rigServe(flags: Partial<ServeFlags> = {}, heartbeatIntervalMs?: number) {
+function rigServe(
+  flags: Partial<ServeFlags> = {},
+  heartbeatIntervalMs?: number,
+  onWebuiOpen?: (info: { port: number; token: string }) => void,
+) {
   const faux = fauxProvider({ provider: 'faux-serve', models: [{ id: 'm1' }] });
   faux.setResponses([() => messageOf(), () => messageOf(), () => messageOf(), () => messageOf()]); // 多轮余量
   const dataDir = mkdtempSync(join(tmpdir(), 'serve-data-'));
@@ -108,6 +112,7 @@ function rigServe(flags: Partial<ServeFlags> = {}, heartbeatIntervalMs?: number)
     model: 'faux-serve/m1', // faux-only 运行时必须点名模型（缺省解析 anthropic 档必失败）
     env: {},
     ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
+    ...(onWebuiOpen !== undefined ? { onWebuiOpen } : {}),
   });
   return { rig, entry, faux };
 }
@@ -136,6 +141,35 @@ describe('runServeEntry 装配序与旗标', () => {
     });
     await expect(entry).resolves.toBe(1);
     expect(rig.frames).toEqual([]); // 零帧出站——拒在传输环装配前
+  });
+
+  it("--port TCP 人面并存（18a-3'）：stdio 线与 /api + /v1 同面双活，EOF 收场面关", async () => {
+    let opened: { port: number; token: string } | undefined;
+    const { rig, entry } = rigServe({ port: 0 }, undefined, (info) => {
+      opened = info;
+    });
+    try {
+      await rig.until(() => opened !== undefined); // 面起（onOpen 回执）
+      // webui 探活位（open/liveness）无凭证可达
+      const health = await fetch(`http://127.0.0.1:${opened!.port}/api/health`);
+      expect(health.status).toBe(200);
+      // /v1 族同面单 token（Bearer + 协议版本头）
+      const sessions = await fetch(`http://127.0.0.1:${opened!.port}/v1/sessions`, {
+        headers: { authorization: `Bearer ${opened!.token}`, 'x-sdk-protocol': '1' },
+      });
+      expect(sessions.status).toBe(200);
+      // 无凭证拒——「监听 ⇒ 鉴权」面本体保证
+      const anon = await fetch(`http://127.0.0.1:${opened!.port}/v1/sessions`);
+      expect(anon.status).toBe(401);
+      // stdio 线同活：prompt 请求走线面（新会话受理回执）
+      rig.send({ verb: 'prompt', messageId: 'dual-1', content: '并存' });
+      await rig.until(() => rig.frames.some((f) => f.kind === 'ack'));
+    } finally {
+      await closeExpect0(rig, entry); // EOF 优雅退 0——closer 同拍收面
+    }
+    // 收场后面关（监听已收——连接拒绝）
+    const gone = await fetch(`http://127.0.0.1:${opened!.port}/api/health`).catch(() => undefined);
+    expect(gone).toBeUndefined();
   });
 
   it('EOF 收线：空连接直退 0（优雅档——不留悬挂）', async () => {

@@ -93,9 +93,16 @@ export type {
 // installPath 解析 + --no-plugins 短路 + 生命周期事件批量补发 + closer 回卷）
 export { bootPlugins } from './plugin-boot.js';
 export type { PluginBootOptions, PluginBootHandle, PluginBootCounts, PluginBootFs } from './plugin-boot.js';
-// 批 12f-2c webui 一次性开面装配桥（--port 旗标消费 + 三窄面映射 + token 披露）
-export { openWebuiFace } from './webui-bridge.js';
-export type { WebuiBridgeOptions, WebuiBridgeHandle, WebuiOpenInfo } from './webui-bridge.js';
+// 批 12f-2c webui 开面装配桥 + 批 18a-3' 三入口咬合共用挂载段（--port 旗标
+// 消费 + 三窄面映射 + token 披露 + daemon face 挂载位）
+export { openWebuiFace, mountWebuiOnFace } from './webui-bridge.js';
+export type {
+  WebuiBridgeOptions,
+  WebuiBridgeHandle,
+  WebuiOpenInfo,
+  WebuiFaceMountOptions,
+  WebuiFaceMount,
+} from './webui-bridge.js';
 // 批 12f-3 装配序公共段（:memory: 同构纪律防侧门件——TUI 与诊断命令唯一装配序真源）
 export { assembleHostStack } from './assembly.js';
 export type { AssembleHostOptions, AssemblySuccess, AssemblyFailure } from './assembly.js';

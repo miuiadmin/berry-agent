@@ -2,9 +2,11 @@
  * host/serve-daemon 编舞测试（批 13e-3）。
  *
  * 三动词分测——status/stop 全注入（假 fs/时钟/探活/信号——编舞纯逻辑零真
- * 进程）；spawner 注入假 spawn 面（argv/env/CHILD 标记收账，不触真 fs）；
- * daemon child 主体走真件集成（真 runtime 真库 tmpdir + 真 createSdkHttpFace
- * + faux provider——承 serve-entry.test 同款组合根形态；face 本体 22 例单测
+ * 进程）；spawner 注入假 spawn 面（argv/env/CHILD 标记收账，不触真 fs；
+ * `--port` 人面旗标透传 18a-3' 例锁）；daemon child 主体走真件集成（真
+ * runtime 真库 tmpdir + 真 createSdkHttpFace + faux provider——承
+ * serve-entry.test 同款组合根形态；`--port` 人面全环〔webui 路由同面 +
+ * 同面单 token〕18a-3' 例锁；face 本体 22 例单测
  * 在 sdk/http.test，此处锁编舞接线：pid 登记/token 披露/优雅停清足迹）。
  *
  * 真 spawn 真进程集成不在此（vitest 无 dist/tsx 直跑运行态）——实机联调归
@@ -281,6 +283,33 @@ describe('spawnDaemonServe（spawner 编舞——注入面）', () => {
     expect(spawns[0]!.opts.logPath).toBe(paths.logPath); // stderr 重定向位
   });
 
+  it("`--port` 透传（18a-3'）：人面旗标 argv 先于 SDK 面族——child 侧同参组态", async () => {
+    const fs = memFs();
+    const paths = daemonPaths('/data');
+    const spawns: Array<{ args: string[] }> = [];
+    let clock = 0;
+    const code = await spawnDaemonServe({
+      flags: { daemon: true, port: 7860, noDelta: false, debug: false },
+      dataDir: '/data',
+      env: baseEnv,
+      self: { execPath: 'node-bin', mainPath: 'main.js' },
+      spawnFn: (_cmd, args) => {
+        spawns.push({ args: [...args] });
+        writeDaemonPid(paths, { pid: 999, startedAt: 0 }, fs);
+        return fakeChild(777);
+      },
+      isAlive: () => true,
+      fs,
+      now: () => clock,
+      sleep: async () => {
+        clock += 100;
+      },
+      writeErr: () => {},
+    });
+    expect(code).toBe(0);
+    expect(spawns[0]!.args).toEqual(['main.js', 'serve', '--daemon', '--port', '7860']);
+  });
+
   it('child 秒死：转发退出码 + daemon.log 尾行转述', async () => {
     const paths = daemonPaths('/data');
     const fs = memFs({ [paths.logPath]: '行一\n启动失败：数据目录已有活跃进程\n行三\n' });
@@ -394,5 +423,58 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     await expect(done).resolves.toBe(0);
     expect(existsSync(paths.pidPath)).toBe(false); // 足迹自清
     expect(existsSync(paths.sockPath)).toBe(false); // face sockOwned 自清
+  });
+
+  it("`--port` 人面全环（18a-3'）：TCP 侧人面 + webui 路由同面 + 同面单 token，停后足迹清", async () => {
+    const faux = fauxProvider({ provider: 'faux-daemon-port', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-port-data-'));
+    dirs.push(dataDir);
+    const paths = daemonPaths(dataDir);
+    const lines: string[] = [];
+    let runtimeShutdown: (() => Promise<void>) | undefined;
+
+    const done = runDaemonServe({
+      flags: { noDelta: false, port: 0 }, // 人面实口内核指派——披露行见实值
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-daemon-port/m1',
+      env: {},
+      heartbeatIntervalMs: 60,
+      onRuntime: (runtime) => {
+        runtimeShutdown = () => runtime.shutdown();
+      },
+      writeErr: (l) => lines.push(l),
+    });
+
+    try {
+      // 就绪等待：人面披露行达（webui 开面 = mount 后写）
+      let webuiLine: string | undefined;
+      for (let i = 0; i < 200 && webuiLine === undefined; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        webuiLine = lines.find((l) => l.startsWith('Web 界面已开面：http://'));
+      }
+      expect(webuiLine, `披露行：${lines.join(' / ')}`).toBeDefined();
+      const port = Number(webuiLine!.match(/http:\/\/[^:]+:(\d+)\//)![1]);
+      // token 行（自动生成档披露——同面单 token 的值源）
+      const tokenLine = lines.find((l) => l.startsWith('daemon token'));
+      expect(tokenLine).toBeDefined();
+      const token = tokenLine!.match(/Bearer (\S+)/)![1]!;
+      // 人面双族：webui 探活位（open/liveness 无凭证）+ /v1 同面单 token
+      const health = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(health.status).toBe(200);
+      const sessions = await fetch(`http://127.0.0.1:${port}/v1/sessions`, {
+        headers: { authorization: `Bearer ${token}`, 'x-sdk-protocol': '1' },
+      });
+      expect(sessions.status).toBe(200);
+      const anon = await fetch(`http://127.0.0.1:${port}/v1/sessions`);
+      expect(anon.status).toBe(401); // 「监听 ⇒ 鉴权」
+      // 披露不复述 token 值（同面单 token——见 token 行即可，人面行无值）
+      expect(lines.some((l) => l.startsWith('访问令牌即 daemon token'))).toBe(true);
+    } finally {
+      await runtimeShutdown!();
+    }
+    await expect(done).resolves.toBe(0);
+    expect(existsSync(paths.pidPath)).toBe(false);
+    expect(existsSync(paths.sockPath)).toBe(false);
   });
 });

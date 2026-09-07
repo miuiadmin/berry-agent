@@ -14,11 +14,14 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
+import { createSdkHttpFace } from '../sdk/index.js';
+import type { WebuiRouteDescriptor, WebuiRouteRegistrar } from '../webui/index.js';
 
 import { createConversationStack } from './conversation-stack.js';
+import { createServeBridge } from './serve-entry.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
-import { openWebuiFace } from './webui-bridge.js';
+import { mountWebuiOnFace, openWebuiFace } from './webui-bridge.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -87,6 +90,104 @@ async function apiFetch(
   });
   const text = await res.text();
   return { status: res.status, body: text === '' ? null : (JSON.parse(text) as unknown) };
+}
+
+/** SSE 帧形（kind + payload 投影——判帧只看这两位；message_end 的 role 嵌 message 内） */
+interface SseFrame {
+  readonly kind: string;
+  readonly payload?: { readonly type?: string; readonly role?: string; readonly message?: { readonly role?: string } };
+}
+
+/** SSE 后台泵读取腿（Bearer 开流；next 顺序取帧——ping 注释行天然跳过；abort 收线） */
+async function openSse(
+  port: number,
+  sessionId: string,
+  token: string,
+): Promise<{ next(): Promise<SseFrame | undefined>; abort(): void }> {
+  const controller = new AbortController();
+  const res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/events`, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: controller.signal,
+  });
+  expect(res.status).toBe(200);
+  expect(res.headers.get('content-type')).toContain('text/event-stream');
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  const queue: SseFrame[] = [];
+  let wake: (() => void) | undefined;
+  let buffer = '';
+  let done = false;
+  // 唤醒一次性（取走即清）：同 chunk 帧簇内若对每帧都调已 resolve 的
+  // poll，僵尸 poll 会再 shift 一帧塞进死 promise——帧被逐个吞光（假超时）
+  const nudge = (): void => {
+    const w = wake;
+    wake = undefined;
+    w?.();
+  };
+  void (async (): Promise<void> => {
+    try {
+      for (;;) {
+        const { value, done: finished } = await reader.read();
+        if (finished) break;
+        buffer += decoder.decode(value, { stream: true });
+        for (;;) {
+          const idx = buffer.indexOf('\n\n');
+          if (idx === -1) break;
+          const block = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const dataLine = block.split('\n').find((line) => line.startsWith('data: '));
+          if (dataLine === undefined) continue; // ping 注释行
+          queue.push(JSON.parse(dataLine.slice(6)) as SseFrame);
+          nudge();
+        }
+      }
+    } catch {
+      // abort 收线——泵终止
+    }
+    done = true;
+    nudge();
+  })();
+  return {
+    // 单挂起消费者语义：超时先撤 wake 再 resolve——迟到的帧留在队内不被
+    // 「已超时无人观察」的 pending 消费吞掉
+    next: (timeoutMs = 500) =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          wake = undefined;
+          resolve(undefined);
+        }, timeoutMs);
+        const poll = () => {
+          if (queue.length > 0) {
+            clearTimeout(timer);
+            wake = undefined;
+            resolve(queue.shift());
+            return;
+          }
+          if (done) {
+            clearTimeout(timer);
+            resolve(undefined);
+            return;
+          }
+          wake = poll;
+        };
+        poll();
+      }),
+    abort: () => controller.abort(),
+  };
+}
+
+/** 取帧至谓词真（有界——单消费者逐帧判，超时归 next 内部不吞帧） */
+async function untilFrame(
+  sse: { next(timeoutMs?: number): Promise<SseFrame | undefined> },
+  predicate: (frame: SseFrame) => boolean,
+  budgetMs = 2000,
+): Promise<SseFrame> {
+  const start = Date.now();
+  for (;;) {
+    if (Date.now() - start > budgetMs) throw new Error('SSE 取帧超时（信封未达）');
+    const frame = await sse.next();
+    if (frame !== undefined && predicate(frame)) return frame;
+  }
 }
 
 /* ---------------- 桥单元（三窄面映射真身） ---------------- */
@@ -241,6 +342,125 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
       });
       expect(res.status).toBe(200);
       expect(await res.text()).toContain('<title>spa</title>');
+    } finally {
+      await rt.shutdown();
+    }
+  });
+});
+
+/* ---------------- 三入口咬合（18a-3'）——共用挂载段 + 信封扇出 + compat 互证 ---------------- */
+
+describe("18a-3' 三入口咬合：共用挂载段", () => {
+  it('开面即挂 backend：submitPrompt 后 SSE 流收到信封（12f-2c 期挂接缺位 = SSE 死流真缺陷的回归锁）', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-fanout-data-') });
+    const { faux, stack } = rigStack(rt);
+    let opened: { port: number; token: string } | undefined;
+    await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      disclose: () => undefined, // 测试态 stderr 静默（token 只进 onOpen 收账）
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    let sse: { next(timeoutMs?: number): Promise<SseFrame | undefined>; abort(): void } | undefined;
+    try {
+      const sessionId = stack.manager.create().sessionId; // 真开驱动（SSE 存在性先决）
+      // SSE 开流在提交前——首帧不漏（连接即当下）
+      sse = await openSse(opened!.port, sessionId, opened!.token);
+      faux.setResponses([() => messageOf()]);
+      stack.submitText(sessionId, '扇出接线'); // 桥真身同式（fire-and-forget——回执经信封回流）
+      // 信封全链：driver 事件 → conversation-stack onEvent → channels emit →
+      // webui backend 扇出 → SSE data 帧（user 侧活体 = display 族 message_start）
+      const user = await untilFrame(
+        sse,
+        (f) => f.kind === 'display' && f.payload?.type === 'message_start' && f.payload?.role === 'user',
+      );
+      expect(user).toBeDefined();
+      expect(user).toBeDefined();
+      // 终结型换装 session 族（18a 定形注②：message_end 落 durable 镜像——
+      // assistant 终结位在 payload.message.role）
+      const settled = await untilFrame(
+        sse,
+        (f) => f.kind === 'session' && f.payload?.type === 'message_end' && f.payload?.message?.role === 'assistant',
+      );
+      expect(settled).toBeDefined();
+    } finally {
+      sse?.abort();
+      await rt.shutdown(); // closer 内含 stop（detach + 面 stop）
+    }
+  });
+
+  it('compat 互证归本批：描述符方向〔webui 形经注入位 routes 承载〕+ 注册器方向〔face.register 可作 WebuiRouteRegistrar〕真 TCP 全环', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-compat-data-') });
+    const { stack } = rigStack(rt);
+    try {
+      // 描述符方向（协变位）：WebuiRouteDescriptor 值形可作面侧描述符消费——
+      // 经 18a-1' 注入位（options.routes 构造期注册）承载（typecheck 门禁执法）
+      const injected: WebuiRouteDescriptor = {
+        method: 'GET',
+        path: '/api/compat-injected',
+        auth: { mode: 'open', purpose: 'liveness' },
+        loopbackOnly: true,
+        handler: (_req, res) => {
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ via: 'injected' }));
+        },
+      };
+      const face = createSdkHttpFace({
+        config: { tcp: { host: '127.0.0.1', port: 0 } },
+        bridge: createServeBridge(stack, rt, { cwd: process.cwd() }),
+        routes: [injected],
+      });
+      // 注册器方向（逆变位）：sdk 面注册器可作 WebuiRouteRegistrar 消费——
+      // mountWebui 同款晚绑（词面独立律的结构性两方向全锁）
+      const asWebuiRegistrar: WebuiRouteRegistrar = face.register;
+      asWebuiRegistrar({
+        method: 'GET',
+        path: '/api/compat-late',
+        auth: { mode: 'open', purpose: 'liveness' },
+        loopbackOnly: true,
+        handler: (_req, res) => {
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ via: 'late' }));
+        },
+      });
+      const info = await face.start();
+      const { port } = info.tcp[0]!;
+      // 两方向真 TCP 全环（open/liveness 位无凭证可达）
+      const a = await fetch(`http://127.0.0.1:${port}/api/compat-injected`);
+      expect(a.status).toBe(200);
+      expect(await a.json()).toEqual({ via: 'injected' });
+      const b = await fetch(`http://127.0.0.1:${port}/api/compat-late`);
+      expect(b.status).toBe(200);
+      expect(await b.json()).toEqual({ via: 'late' });
+      await face.stop();
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('mountWebuiOnFace 直挂 daemon 形 face：/api 族随挂即活 + detach 摘路由幂等（面仍在听）', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-mount-data-') });
+    const { stack } = rigStack(rt);
+    try {
+      const face = createSdkHttpFace({
+        config: { tcp: { host: '127.0.0.1', port: 0 } },
+        bridge: createServeBridge(stack, rt, { cwd: process.cwd() }),
+      });
+      const mount = mountWebuiOnFace({ stack, face });
+      const info = await face.start();
+      const { port } = info.tcp[0]!;
+      // 挂载即活：webui 探活位（open/liveness）无凭证可达
+      const before = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(before.status).toBe(200);
+      // detach = backend 摘除 + 全路由摘除——面仍在听（daemon 收口序：先摘挂再停面）
+      mount.detach();
+      mount.detach(); // 幂等二次 no-op
+      const after = await fetch(`http://127.0.0.1:${port}/api/health`);
+      expect(after.status).toBe(404);
+      await face.stop();
     } finally {
       await rt.shutdown();
     }

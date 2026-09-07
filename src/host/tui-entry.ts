@@ -87,16 +87,22 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
   let exitCode = 0;
   try {
-    // —— --port webui 一次性开面（批 12f-2c；03 §10.4 host 接线）：装载后
-    // 开面（插件注册面先就位）、TUI 挂接前关网络面（closer 注册序先于
-    // tui-backend——drain 时网络先关再出屏）；backend 挂接与 TuiBackend
-    // 并存扇出——
+    // —— --port webui 统一 HTTP 面开面（批 12f-2c 落、18a-3' 三入口咬合；
+    // 03 §10.4 host 接线）：装载后开面（插件注册面先就位）、TUI 挂接前开
+    // 网络面（closer 注册序先于 tui-backend——drain 时网络面先收口再出屏）；
+    // backend 挂接在桥共用挂载段内完成（与 TuiBackend 并存扇出——多 backend
+    // 信封路由按 sessionId 各投各）；横幅在 TUI 起屏后补发（开面时 backends
+    // 尚空 notify 扇出无人接帧——见下方 focus 后发）——
+    let webuiOpen: { host: string; port: number; token: string } | undefined;
     if (options.flags.port !== undefined) {
       await openWebuiFace({
         stack,
         runtime,
         port: options.flags.port,
-        ...(options.onWebuiOpen !== undefined ? { onOpen: options.onWebuiOpen } : {}),
+        onOpen: (info) => {
+          webuiOpen = info;
+          options.onWebuiOpen?.(info);
+        },
       });
     }
 
@@ -143,6 +149,18 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     backend.start();
     stack.channels.registerSession(session.sessionId);
     await stack.channels.focus(session.sessionId); // 启动投影首画（含 resume 历史回读）
+
+    // webui 开面横幅（18a-3'）：TuiBackend 起屏后经 channels.notify 扇出——
+    // notify 恒扇出（webui backend 同帧收到，浏览器通知位随活）；横幅走屏
+    // 留痕面只带 URL，token 不入屏（令牌仅 stderr 一次性——屏流可回滚/截屏，
+    // 非披露通道）
+    if (webuiOpen !== undefined) {
+      stack.channels.notify(
+        session.sessionId,
+        `Web 界面已开面：http://${webuiOpen.host}:${webuiOpen.port}/（访问令牌见启动 stderr——仅此一次显示）`,
+        { level: 'info' },
+      );
+    }
 
     await quitDone; // 主循环——输入事件驱动，直至 ctrl+d 空框退出
   } catch (err) {

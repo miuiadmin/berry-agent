@@ -3,7 +3,8 @@
  * 注入 TerminalIO——mock 只停在模型层）。
  *
  * 钉死：空框直退 0 / 提交流转全链（输入字节 → 编辑器 → 提交 → 驱动 → faux
- * 模型）/ 同 cwd 重启续接（resume 投影首画回读历史）/ 运行时组装失败退 1。
+ * 模型）/ 同 cwd 重启续接（resume 投影首画回读历史）/ 运行时组装失败退 1 /
+ * `--port` webui 咬合（横幅走屏留痕面只带 URL、token 不入屏、退出收场面）。
  * 输入驱动走真 InputDecoder（'\r' 提交、'\x04' ctrl+d 空框退出）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -175,5 +176,42 @@ describe('runTuiEntry 装配序', () => {
     });
     expect(code).toBe(1);
     await rt.shutdown();
+  });
+
+  it("`--port` webui 咬合（18a-3'）：横幅走屏留痕面只带 URL，token 不入屏，ctrl+d 收场面", async () => {
+    const faux = fauxProvider({ provider: 'faux-port', models: [{ id: 'm1' }] });
+    const io = new FakeTerminalIO();
+    let opened: { host: string; port: number; token: string } | undefined;
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false, port: 0 },
+      io,
+      cwd: rigDir('entry-ws4-'),
+      version: 'test',
+      dataDir: rigDir('entry-data-'),
+      providers: [faux.provider],
+      model: 'faux-port/m1',
+      env: {},
+      onWebuiOpen: (info) => {
+        opened = info;
+      },
+    });
+    await io.ready();
+    await until(() => opened !== undefined); // 面起（onOpen 回执）
+    try {
+      // 横幅经 channels.notify 扇出上屏：URL 在场、token 不在（屏流可回滚——
+      // 非披露通道；令牌仅 stderr 一次性）
+      await until(() => io.output.includes('Web 界面已开面'));
+      expect(io.output).toContain(`http://127.0.0.1:${opened!.port}/`);
+      expect(io.output).not.toContain(opened!.token);
+      // webui 探活位（open/liveness）无凭证可达——TUI 与 webui 双 backend 并存
+      const health = await fetch(`http://127.0.0.1:${opened!.port}/api/health`);
+      expect(health.status).toBe(200);
+    } finally {
+      io.send('\x04');
+    }
+    expect(await entry).toBe(0);
+    // 退出即收面（closer 序：webui-server 在 tui-backend 之前——先网络后出屏）
+    const gone = await fetch(`http://127.0.0.1:${opened!.port}/api/health`).catch(() => undefined);
+    expect(gone).toBeUndefined();
   });
 });
