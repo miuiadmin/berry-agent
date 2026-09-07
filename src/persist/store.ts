@@ -253,8 +253,11 @@ function databaseIsEmpty(db: Database.Database): boolean {
  * ① busy_timeout 5000（跨进程短锁等待面）→ ② journal_mode=WAL 幂等探测
  * （换模被并发连接占住时 SQLITE_BUSY——同步退避重试 5 轮）→ ③ synchronous=FULL
  * （批落事务的落盘语义是「flush 返回 = 已持久」）。
+ *
+ * 件内导出（非公开面）：aux.ts 开派生库复用同一卫生拍——主库与派生库
+ * 连接治理单源（批 18b openAuxDatabase 消费位）。
  */
-function prepareWal(db: Database.Database, warn: (message: string) => void): void {
+export function prepareWal(db: Database.Database, warn: (message: string) => void): void {
   db.pragma('busy_timeout = 5000');
   for (let attempt = 0; ; attempt++) {
     try {

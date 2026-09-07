@@ -181,6 +181,14 @@ const PRESENT_MODULES = new Set([
   // 已落〔client 树自持 protocol 视界零服务端导入〕，host `--port` 接线
   // 归 host 装配批）
   'webui',
+  // 批 18b 起在场（core:obs 纯逻辑腿——观测面〔03 §10.8〕：rollup 自管库
+  // 〔经 persist aux 面 openAuxDatabase 开库——主库零 schema 残迹、可禁用
+  // = 文件不在场〕+ 两粒度三表一视图 + 水位−1h 重叠窗幂等摄取〔脏桶
+  // DELETE+INSERT 整体重算〕+ 闭日物化 + 告警「只通知不执法」〔hasAudience
+  // 前置不耗冷却〕+ obs_query 只读工具，deps {contracts, persist}；三窄面
+  // 〔events/notify/audience〕词面独立律结构兼容宿主真身——装配批直传；
+  // 装载态集成归批 12 装载面后装配批）
+  'obs',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
@@ -241,6 +249,9 @@ const MODULE_EXTERNALS = {
   // browser 的 typebox（十工具参数面——schema 层宿主件直用同律；17b-3
   // 工具面批起用）
   browser: ['typebox'],
+  // obs 的 typebox（obs_query 只读工具参数面——schema 层宿主件直用同律；
+  // 18b 落码批起用）
+  obs: ['typebox'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
   // 一律走虚拟键三转发；批 12d 落码起用）；yaml = 启用清单 enabled.yaml 读侧

@@ -31,6 +31,10 @@ export {
   ephemeralSecretKey,
 } from './secret-box.js';
 export { openStore, Store } from './store.js';
+// 派生库开库面（批 18b——03 §10.8 obs 自管库文件的执法位：物理卫生三拍
+// 单源复用，schema 主权归调用方）
+export { openAuxDatabase } from './aux.js';
+export type { OpenAuxDatabaseOptions } from './aux.js';
 // 同实例句柄窄面的类型出口（批 15a——core: 插件 DAO 接线位）：better-sqlite3
 // 裸导入仍只准 persist（native 隔离律），消费侧经此类型导入取得 Database 形。
 export type { Database as SqliteDatabase } from 'better-sqlite3';
