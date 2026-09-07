@@ -374,9 +374,9 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   // 起活三足：pid 登记（spawner 确认源）+ token 披露 + 信封回流
   writeDaemonPid(paths, { pid: process.pid, startedAt: Date.now() });
   stack.channels.addBackend(face.backend); // 信封回流自动馈送（conversation-stack onEvent → emit）
-  writeErr(
-    `daemon 就绪：sock=${info.socketPath}${info.tcp !== undefined ? ` tcp=${info.tcp.host}:${info.tcp.port}` : ''}（SDK 协议版本头 x-sdk-protocol: 1）`,
-  );
+  // 披露行（18a-1' 多监听扩形适配：TCP 侧数组 join——多监听并存全披露；sock 恒在场，缺席位 'off' 兜底）
+  const tcpPart = info.tcp.length > 0 ? ` tcp=${info.tcp.map((spec) => `${spec.host}:${spec.port}`).join(',')}` : '';
+  writeErr(`daemon 就绪：sock=${info.socketPath ?? 'off'}${tcpPart}（SDK 协议版本头 x-sdk-protocol: 1）`);
   if (env.BERRY_AGENT_SDK_TOKEN === undefined) {
     writeErr(`daemon token（自动生成——本地调用方接入凭证，已进本日志不再复现）：Bearer ${face.token}`);
   }

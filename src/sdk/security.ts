@@ -12,7 +12,7 @@
  * - Origin 硬防线（10.4③）：带 Origin 且非同源三形 = 403；**无 Origin 头
  *   放行**（防线判浏览器跨源，不判非浏览器客户端——SDK 调用方恒无 Origin）。
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import type { SdkHttpListenConfig } from './types.js';
 
@@ -92,17 +92,33 @@ export function generateToken(): string {
 }
 
 /**
+ * token 常时验换（18a-1'——03 §10.6 路由扩展位 helper `verifyToken` 执法位）：
+ * sha256 摘要恒长 + timingSafeEqual——任意长度输入先归一到 32 字节摘要再比对，
+ * 码位长度泄露面封死（`/v1/*` Bearer 判由此自字符串直比升常时比对——有意
+ * 行为增强注记，同条款）。
+ */
+export function verifyTokenConstantTime(actual: string, expected: string): boolean {
+  const a = createHash('sha256').update(actual).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
+/**
  * 启动断言（三防线①——差异面③ fail-closed 拒启律不豁免）：非回环 TCP 绑定
  * 必配预置凭证；违例即拒启（daemon 形退 2——07 §5 定名注）。收整个开面配置
- * 形（socketPath 无关判定——只审 TCP 侧与凭证位）。
+ * 形（socketPath 无关判定——只审 TCP 侧与凭证位）。TCP 侧单形/数组归一逐项
+ * 判（18a-1' 多监听并存——一票非回环无凭证即整面拒启）。
  */
 export function judgeListenConfig(config: SdkHttpListenConfig): { ok: true } | { ok: false; reason: string } {
   if (config.tcp === undefined) return { ok: true };
-  if (!isLoopbackHost(config.tcp.host) && (config.token === undefined || config.token === '')) {
-    return {
-      ok: false,
-      reason: `非回环绑定（${config.tcp.host}）必配鉴权凭证 BERRY_AGENT_SDK_TOKEN——fail-closed 拒启（03 §10.6 差异面③）`,
-    };
+  const specs = Array.isArray(config.tcp) ? config.tcp : [config.tcp];
+  for (const spec of specs) {
+    if (!isLoopbackHost(spec.host) && (config.token === undefined || config.token === '')) {
+      return {
+        ok: false,
+        reason: `非回环绑定（${spec.host}）必配鉴权凭证 BERRY_AGENT_SDK_TOKEN——fail-closed 拒启（03 §10.6 差异面③）`,
+      };
+    }
   }
   return { ok: true };
 }

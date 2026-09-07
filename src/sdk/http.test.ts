@@ -199,7 +199,7 @@ describe('sdk/http 传输面（一核多流）', () => {
     body: unknown,
     headers: Record<string, string> = {},
   ): Promise<{ status: number; json: unknown }> => {
-    const res = await fetch(`http://127.0.0.1:${info.tcp!.port}${path}`, {
+    const res = await fetch(`http://127.0.0.1:${info.tcp[0]!.port}${path}`, {
       method: 'POST',
       headers: baseHeaders(headers),
       body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -288,19 +288,19 @@ describe('sdk/http 传输面（一核多流）', () => {
   });
 
   it('sessions → 200 sessions 帧', async () => {
-    const res = await fetch(`http://127.0.0.1:${info.tcp!.port}/v1/sessions`, { headers: baseHeaders() });
+    const res = await fetch(`http://127.0.0.1:${info.tcp[0]!.port}/v1/sessions`, { headers: baseHeaders() });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ kind: 'sessions', sessions: [] });
   });
 
   it('路由不识别 → 404 纯文本', async () => {
-    const res = await fetch(`http://127.0.0.1:${info.tcp!.port}/v1/none`, { headers: baseHeaders() });
+    const res = await fetch(`http://127.0.0.1:${info.tcp[0]!.port}/v1/none`, { headers: baseHeaders() });
     expect(res.status).toBe(404);
   });
 
   it('SSE 全语义：hello → 重放 → replay-end → 直播 pushEvent', async () => {
     stub.setSession('s-1', 'open', [entry(0), entry(1)]);
-    const sse = await openSse(info.tcp!.port, '?sessionId=s-1&after=-1', baseHeaders());
+    const sse = await openSse(info.tcp[0]!.port, '?sessionId=s-1&after=-1', baseHeaders());
     expect(await sse.next()).toMatchObject({ kind: 'hello', sessionId: 's-1', highWaterSeq: 2 });
     const replay = await sse.next();
     expect(replay).toMatchObject({ kind: 'entries', sessionId: 's-1' });
@@ -315,7 +315,7 @@ describe('sdk/http 传输面（一核多流）', () => {
 
   it('SSE noDelta=true 剥 message_update 直播（定稿帧照达）', async () => {
     stub.setSession('s-1', 'open');
-    const sse = await openSse(info.tcp!.port, '?sessionId=s-1&noDelta=true', baseHeaders());
+    const sse = await openSse(info.tcp[0]!.port, '?sessionId=s-1&noDelta=true', baseHeaders());
     await sse.nextOf('replay-end');
     const partial = { role: 'test/partial', content: '', timestamp: 0 };
     face.core.pushEvent('s-1', { type: 'message_update', role: 'assistant', partial });
@@ -327,20 +327,20 @@ describe('sdk/http 传输面（一核多流）', () => {
   });
 
   it('SSE sessionId 缺席 → 400（诚实拒——流未开）', async () => {
-    const res = await fetch(`http://127.0.0.1:${info.tcp!.port}/v1/events`, { headers: baseHeaders() });
+    const res = await fetch(`http://127.0.0.1:${info.tcp[0]!.port}/v1/events`, { headers: baseHeaders() });
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: 'SDK_DECODE' });
   });
 
   it('SSE 未知会话 → 200 开流 + 流内 error 帧 + 流尽', async () => {
-    const sse = await openSse(info.tcp!.port, '?sessionId=nope', baseHeaders());
+    const sse = await openSse(info.tcp[0]!.port, '?sessionId=nope', baseHeaders());
     expect(await sse.next()).toMatchObject({ kind: 'error', code: 'SESSION_NOT_FOUND' });
     expect(await sse.next()).toBeUndefined(); // 流收线
   });
 
   it('流撤即退订：abort → 核订阅随撤（订阅生命周期与真观众同步）', async () => {
     stub.setSession('s-1', 'open');
-    const sse = await openSse(info.tcp!.port, '?sessionId=s-1', baseHeaders());
+    const sse = await openSse(info.tcp[0]!.port, '?sessionId=s-1', baseHeaders());
     await sse.nextOf('replay-end');
     expect(face.core.isSubscribed('s-1')).toBe(true);
     sse.abort();
@@ -359,7 +359,7 @@ describe('sdk/http 传输面（一核多流）', () => {
 
   it('prompt 时 SSE 在场则订阅保留', async () => {
     stub.setSession('s-1', 'open');
-    const sse = await openSse(info.tcp!.port, '?sessionId=s-1', baseHeaders());
+    const sse = await openSse(info.tcp[0]!.port, '?sessionId=s-1', baseHeaders());
     await sse.nextOf('replay-end');
     await post('/v1/prompt', { messageId: 'm-1', content: '问', sessionId: 's-1' });
     expect(face.core.isSubscribed('s-1')).toBe(true);
@@ -368,7 +368,7 @@ describe('sdk/http 传输面（一核多流）', () => {
 
   it('心跳静默填充：idle 超阈即 heartbeat 帧达流', async () => {
     stub.setSession('s-1', 'open');
-    const sse = await openSse(info.tcp!.port, '?sessionId=s-1', baseHeaders());
+    const sse = await openSse(info.tcp[0]!.port, '?sessionId=s-1', baseHeaders());
     await sse.nextOf('replay-end');
     const beat = await sse.nextOf('heartbeat'); // heartbeatIntervalMs=60——2s 窗内必达
     expect(beat).toMatchObject({ kind: 'heartbeat', sessionId: 's-1', runState: 'idle' });
@@ -376,13 +376,13 @@ describe('sdk/http 传输面（一核多流）', () => {
   });
 
   it('TCP 三防线：非回环 Host → 403；跨源 Origin → 403（10.4 同律）', async () => {
-    const host = await rawRequest({ port: info.tcp!.port }, '/v1/sessions', {
+    const host = await rawRequest({ port: info.tcp[0]!.port }, '/v1/sessions', {
       ...baseHeaders(),
       Host: 'evil.example.com:80',
     });
     expect(host.status).toBe(403);
     expect(JSON.parse(host.body)).toMatchObject({ code: 'SDK_FORBIDDEN' });
-    const origin = await rawRequest({ port: info.tcp!.port }, '/v1/sessions', {
+    const origin = await rawRequest({ port: info.tcp[0]!.port }, '/v1/sessions', {
       ...baseHeaders(),
       Origin: 'http://evil.example.com',
     });
@@ -423,7 +423,7 @@ describe('sdk/http 体限幅注入位', () => {
     });
     const info = await face.start();
     try {
-      const res = await fetch(`http://127.0.0.1:${info.tcp!.port}/v1/prompt`, {
+      const res = await fetch(`http://127.0.0.1:${info.tcp[0]!.port}/v1/prompt`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
