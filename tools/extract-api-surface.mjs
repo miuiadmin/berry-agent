@@ -1320,6 +1320,9 @@ export const INTERNAL_API_EXPORTS = new Set([
   'VIRTUAL_API_KEYS',
   'SERVICE_CATALOG',
   'CAPABILITIES',
+  'USER_GRANTABLE_CAPABILITIES',
+  'adjudicateCapabilityDoor',
+  'CapabilityDoorVerdict',
   'API_ENFORCEMENT_IGNITED',
   'adjudicateApiGate',
   'ApiGateResult',
@@ -1643,10 +1646,13 @@ export async function extractSurface() {
   //（命中 module::symbol 坐标即改标 deprecated 并挂载荷；注册簿指向面清单缺席
   // 的坐标 = 登记漂移，抽取期即炸不待查 3）——
 
-  // —— 能力面（顶层 capabilities[]——§8.5 ctx.host 派生源；现空集起算集）——
-  const capabilities = CAPABILITIES.map((c) => ({ name: c.name, providedBy: c.providedBy })).sort((a, b) =>
-    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-  );
+  // —— 能力面（顶层 capabilities[]——§8.5 ctx.host 派生源；批 U2 起含
+  // userGrantable 开门制标注，§8.2 行形状同笔——投影与声明位两形共变）——
+  const capabilities = CAPABILITIES.map((c) => ({
+    name: c.name,
+    providedBy: c.providedBy,
+    ...(c.userGrantable ? { userGrantable: true } : {}),
+  })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
   // —— 点火位盖章（§8.4 点火可见性）：enforcement 纪元章从
   // API_ENFORCEMENT_IGNITED 单源派生：点火翻转日即面快照 diff（PR 裁决标签闸

@@ -1109,5 +1109,16 @@
       "sig": "forwarded"
     }
   ],
-  "capabilities": []
+  "capabilities": [
+    {
+      "name": "channels.ui-backend",
+      "providedBy": "channels",
+      "userGrantable": true
+    },
+    {
+      "name": "sdk.register-route",
+      "providedBy": "core:sdk",
+      "userGrantable": true
+    }
+  ]
 }

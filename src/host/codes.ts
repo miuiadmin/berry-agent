@@ -89,6 +89,12 @@ export const HOST_PLUGIN_ERROR_CODES: readonly ErrorCodeInfo[] = [
     description:
       '库句柄门禁：违例触达宿主主库句柄（主库句柄结构性不外露——03 §4.3；执法位 = berry-agent/sqlite 受局面 SqliteFace，随 face 件落码批消费）',
   },
+  {
+    code: 'PLUGIN_CAPABILITY_DOOR_CLOSED',
+    module: 'host',
+    description:
+      '高危面默认关拒：插件未获用户开门授予即触达高危面注册/换装（03 §4.6 用户主权开门制——授予位唯一正门 = 启用清单行 opens；裁决核 = contracts adjudicateCapabilityDoor，throw 位随界面后端换装缝/路由受理面落码批接线）',
+  },
 ];
 
 registerErrorCodes(HOST_PLUGIN_ERROR_CODES);

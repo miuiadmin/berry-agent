@@ -7,7 +7,8 @@
  *   loader 注入表、抽取器、check-api 三面共取此单源）
  * - `SERVICE_CATALOG`：ctx 服务面目录（首条真实 ctx 服务落码批增条——现空集）
  * - `CAPABILITIES`：能力面目录（surface.json 顶层 capabilities[] 的声明位，
- *   §8.5 ctx.host.capabilities 派生源；起算集 = core: 可卸件能力面——现空集）
+ *   §8.5 ctx.host.capabilities 派生源；起算集 = core: 可卸件能力面——批 U2
+ *   首登 v1 高危面两枚并携 `userGrantable` 开门制标注）
  *
  * 加协商层纯函数（§8.4 装载门四出口 + 版本比较语义）与 ctx.host 自省面类型
  * （§8.5——HostFace 插件侧形态 / HostFaceInput 装配侧纯数据输入）。
@@ -99,17 +100,99 @@ export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [];
 interface CapabilityEntry {
   /** 能力名：`件域.能力` 两段式（§8.5 名空间——字符集与事件词汇同纪律） */
   readonly name: string;
-  /** 提供方（core: 官方插件引用形——能力是件的语义单位非符号投影） */
+  /**
+   * 提供方（能力位所属域的承载方）：core: 官方件引用形（`core:sdk`）或宿主
+   * 固定件席位名（`channels`）——与 name 前段（件域）同源，两类形皆指域内
+   * 单一承载方，非泛标签。
+   */
   readonly providedBy: string;
+  /**
+   * 高危面开门制标注（§4.6 批 U1 定形）：`true` = 该能力位系用户可开高权面
+   * ——默认关，唯一开门径 = 启用清单 `opens` 授予位显式授权（值域单源即本
+   * 标注派生面 USER_GRANTABLE_CAPABILITIES）。缺省无此键 = 常规能力位。
+   */
+  readonly userGrantable?: true;
 }
 
 /**
  * 能力面目录：core: 可卸件能力起算集（§8.5——ctx.host.capabilities 读此层）。
  * 语义 = **本构建面**（编译进包即有——启用清单是否挂载属运行时态，两问不混）。
- * 现空集——首个 core: 插件落码批起登记；构建差能力随真实构建分叉日启用
- * `API_CAPABILITY_MISSING`（预留码，本批无 thrower）。
+ * 批 U2 首登 v1 首批高危面两枚（§4.6——`userGrantable` 开门制标注单源）：
+ * - `channels.ui-backend`：替换界面后端（UiBackend 实装换装——02 §2 表 #6
+ *   重述所指高权面；承载方 = channels 宿主固定件〔自研 TUI 引擎席位〕）；
+ * - `sdk.register-route`：注册网页路由（sdk HTTP 面路由扩展位——03 §10.6；
+ *   承载方 = core:sdk 件）。
+ * 后续高危面经三路准入扩枚举同律入册（§4.6）；构建差能力随真实构建分叉日
+ * 启用 `API_CAPABILITY_MISSING`（预留码，本批无 thrower）。
  */
-export const CAPABILITIES: readonly CapabilityEntry[] = [];
+export const CAPABILITIES: readonly CapabilityEntry[] = [
+  {
+    name: 'channels.ui-backend',
+    providedBy: 'channels',
+    userGrantable: true,
+  },
+  {
+    name: 'sdk.register-route',
+    providedBy: 'core:sdk',
+    userGrantable: true,
+  },
+];
+
+/**
+ * 高危面开门名单单源（§4.6 登记单源的派生面）：CAPABILITIES 中 `userGrantable`
+ * 标注位的能力名清单。启用清单 `opens` 授予位的**值域即此名单**（行校验拒绝
+ * 式消费——host/manifest）；门检裁决（adjudicateCapabilityDoor）同源判「是否
+ * 高危面」。派生不另持单源——目录增删高危面，本面与校验/门检三面共变。
+ */
+export const USER_GRANTABLE_CAPABILITIES: readonly string[] = CAPABILITIES.filter((c) => c.userGrantable === true).map(
+  (c) => c.name,
+);
+
+/**
+ * 门检裁决结果（§4.6 开门语义的裁决面形态——纯数据，fail-loud 抛掷归宿主
+ * 注入位：装载器/换装缝按 kind 包 `PLUGIN_CAPABILITY_DOOR_CLOSED`）。
+ */
+export type CapabilityDoorVerdict =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      /**
+       * not-a-door = 能力名不在高危面名单（非高危面或不存在——宿主侧误用面，
+       * 装配缺陷级）；door-closed = 系高危面但该插件未获用户开门授予（§4.6
+       * 默认关的正当拒绝面——插件侧可期事件，message 指路授予位写法）。
+       */
+      readonly kind: 'not-a-door' | 'door-closed';
+      /** 人读裁决信息（throw 时的 message 底稿） */
+      readonly message: string;
+    };
+
+/**
+ * 高危面门检裁决（§4.6——用户主权开门制的执法判定核；纯函数零副作用）。
+ *
+ * 判定两序：①能力名 ∈ USER_GRANTABLE_CAPABILITIES（不是高危面即 not-a-door
+ * ——常规能力位不走开门制，宿主侧把非门面接进门检系装配缺陷）；②该插件的
+ * 开门授予集是否含此名（缺席 = 默认关 door-closed）。开门授予集 = 启用清单
+ * 行 `opens` 位（读侧行校验已保证值域合法——本函数对集外值不再复验，信任
+ * 前置校验）。**调用方 = 宿主注入位**（界面后端换装缝/路由受理面随批 U3/U5
+ * 落地接线）；插件代码结构性不可达本函数（开门是宿主裁决面非插件 API）。
+ */
+export function adjudicateCapabilityDoor(opened: ReadonlySet<string>, capability: string): CapabilityDoorVerdict {
+  if (!USER_GRANTABLE_CAPABILITIES.includes(capability)) {
+    return {
+      ok: false,
+      kind: 'not-a-door',
+      message: `能力位 ${capability} 不在高危面名单（现役：${USER_GRANTABLE_CAPABILITIES.join('、')}）——常规能力位不走开门制，宿主注入位接错面或能力名拼错`,
+    };
+  }
+  if (!opened.has(capability)) {
+    return {
+      ok: false,
+      kind: 'door-closed',
+      message: `高危面 ${capability} 默认关（用户主权开门制 03 §4.6）——本插件未获开门授予；开法：启用清单 enabled.yaml 该插件行加 opens: ["${capability}"] 后重装载，撤位即收回`,
+    };
+  }
+  return { ok: true };
+}
 
 /* ---------------- 版本比较与装载门（§8.4） ---------------- */
 
