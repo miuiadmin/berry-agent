@@ -19,10 +19,18 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
-import type { SessionEvent, ToolDefinition } from '../contracts/index.js';
+import type { GateInput, SessionEvent, ToolDefinition } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ExecToolService } from '../conversation/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
+import {
+  createCapture,
+  createCheckpointGate,
+  openCheckpointStore,
+  runRewindCommand,
+  REWIND_USAGE,
+} from '../checkpoint/index.js';
+import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
 import { createBashTool, createSpawnPipeline, buildChildEnv } from '../exec/index.js';
 import {
   createGoalService,
@@ -197,6 +205,26 @@ export interface CorePluginHostDeps {
    * 装载（主闸二——同 sqlite 律；/goal 命令 eventsFor 面同源派生）。
    */
   readonly goalSession?: GoalSessionFace;
+  /**
+   * checkpoint 会话语境读面（批 19c-4——05 §5.3 词面独立 seam：
+   * contextOf(sessionId) → {末闭合边界, 工作区锚}——gate per-run 判据与
+   * manifest 锚的唯一真源）。缺席 = checkpoint 件整体零装载（主闸二——
+   * 同 dataDir 律）。
+   */
+  readonly checkpointSession?: SessionContextFace;
+  /**
+   * checkpoint fork 面（批 19c-4——05 §5.3 词面独立 seam：restore 三步序
+   * 第③腿，SessionManager.fork 判别子集形可直赋）。缺席 = checkpoint 件
+   * 整体零装载（主闸三——半装载的 gate 会拍快照但 /rewind 无法恢复 = 伪
+   * 承诺，整体不装）。
+   */
+  readonly checkpointFork?: RewindForkFace;
+  /**
+   * 焦点会话取值器（批 19c-4——/rewind 发起会话真源：命令分派时点
+   * channels.focusedId；list 按其工作区锚列点、保底快照归属同源）。
+   * 缺席 = /rewind 诚实拒（无焦点会话上下文），gate 不受影响。
+   */
+  readonly focusSessionId?: () => string | undefined;
 }
 
 /**
@@ -634,12 +662,87 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
+ * core:checkpoint——工作区快照/回退件（批 19c-4 装载态入册，05 §5.3）：
+ * 守门监听（插件钩子正门 ctx.on('tools_pre_execute') waterfall——03 §2.4
+ * 不私开管道接缝）+ /rewind 命令（两段事务用户呈现面——argv → 人读文本，
+ * /goal 同族；发起会话 = 焦点会话）。
+ *
+ * 装配序注记（装载态实况 vs 15d 落码时假设）：safety 守门行自 19a 起 per-
+ * session 于 open-tools 装配位注册（会话 open 晚于 boot），本行装载期注册
+ * 必居其前——waterfall 注册序即执行序。序差无害：safety 拦截/让棒后的
+ * 已拍快照 = 状态未变仍有效（gate.ts 头注容忍条款对本形适用；被拦 run 的
+ * 白拍由 per-workspace 保留帽 10 收敛）。钩子消费点 5s 钟与本件 10 万文件
+ * walk 帽是两道各自真实的预算线——谁先触谁执法（超时按管线失败 fail-closed
+ * 传播，03 §3.4）。
+ *
+ * 主闸三位 = dataDir + checkpointSession + checkpointFork（任一缺席 = 件
+ * 整体零装载诚实缺席律——纯 :memory: 诊断形/测试替身形快照特性整体缺席，
+ * 对话本体仍通）。gate 单实例跨会话共享游标（per-session Map——「同一
+ * dispatch 生命周期内复用一个实例」）。
+ *
+ * adopt 切前台编舞挂账 run 入口批（restore 回执的新会话 id 先经命令输出面
+ * 呈报——焦点切换是 channels/host 的事，本件零越界；05 §5.3 命令面条款）。
+ */
+function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'checkpoint',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      const dataDir = deps.dataDir;
+      const sessionFace = deps.checkpointSession;
+      const forkFace = deps.checkpointFork;
+      if (dataDir === null || sessionFace === undefined || forkFace === undefined) return; // 主闸三位
+
+      const warn = (message: string) => console.error(message);
+      const store = openCheckpointStore(dataDir);
+      const capture = createCapture(store);
+
+      // 守门监听（effect:'write' + 会话边界推进判据——per-run 一 manifest；
+      // 类型适配在边界收口：PluginHookHandler unknown 面与 GateInput 收窄一处）
+      const gate = createCheckpointGate({ capture, session: sessionFace, warn });
+      const offGate = context.on('tools_pre_execute', (value, next) =>
+        gate(value as GateInput, (v) => next(v) as Promise<GateInput>),
+      );
+
+      // /rewind 命令（守卫错已折文本不抛；发起会话 = 焦点会话〔channels.
+      // focusedId〕缺席诚实拒；保底快照归属发起会话〔invokingSessionId——
+      // 15d deps 既有位装配侧接线〕；输出面经 notify 归因 'checkpoint'）
+      const disposeRewind = context.channels.registerCommand(
+        'rewind',
+        async (args) => {
+          const sessionId = deps.focusSessionId?.();
+          if (sessionId === undefined || sessionId === '') {
+            deps.notify?.('checkpoint', `当前无焦点会话——/rewind 需在会话上下文执行。\n${REWIND_USAGE}`);
+            return;
+          }
+          const text = await runRewindCommand(args.argv, {
+            store,
+            session: sessionFace,
+            fork: forkFace,
+            sessionId,
+            invokingSessionId: sessionId,
+          });
+          deps.notify?.('checkpoint', text);
+        },
+        REWIND_USAGE,
+      );
+
+      return () => {
+        disposeRewind();
+        offGate();
+      };
+    },
+  };
+}
+
+/**
  * core: 官方件注册表工厂（assembly.ts 缺省注入源——`options.corePlugins ??
  * createCorePlugins(deps)`；测试注入面/诊断命令经 options 覆盖）。
  * deps 聚落律（07 §7.4 #1）：宿主真身需求逐笔入 CorePluginHostDeps
  * （dataDir 首位——批 19b-1；memory 数据面六位——批 19b-2；subagent
  * 委派面两位——批 19c-1；调度闸事实位——批 19c-2；goal 会话读面——批
- * 19c-3；store/exec 管道跨件复用等后续件随批扩展）。
+ * 19c-3；checkpoint 语境/fork 两 seam + 焦点会话位——批 19c-4；
+ * store/exec 管道跨件复用等后续件随批扩展）。
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
   return [
@@ -650,5 +753,6 @@ export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePlugin
     makeSubagentPlugin(deps),
     makeSchedulerPlugin(deps),
     makeGoalPlugin(deps),
+    makeCheckpointPlugin(deps),
   ];
 }

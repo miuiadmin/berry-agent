@@ -16,9 +16,13 @@
  * CHECKPOINT_CAPTURE_FAILED）不调 next 短路——拍不了就放行变异 = 伪承诺。
  * 监听器自身不抛（抛 = TOOL_GATE_FAILED 会混淆码面——本件有专属码）。
  *
- * 装配位：safety 守门行占首位，本行挂其后（safety block 在先 = 不触发幻拍；
- * 下游 block 后已拍的快照无害——状态未变仍有效）。host 装配根接线：
- * dispatch.onWaterfall(TOOL_PRE_EXECUTE_EVENT, createCheckpointGate(deps))。
+ * 装配位（批 19c-4 装载态注记）：safety 守门行自装载态集成（19a）起
+ * per-session 于 open-tools 装配位注册（会话 open 晚于 boot），本行经插件
+ * 钩子正门装载期注册必居其前——waterfall 注册序即执行序。序差无害：safety
+ * 拦截后的已拍快照 = 状态未变仍有效（下方容忍条款对本形同样适用）；被拦
+ * run 的白拍由 per-workspace 保留帽收敛。接线真身 host/core-plugins.ts
+ * makeCheckpointPlugin：dispatch 经 ctx.on 包装（钩子消费点 5s 钟——与本
+ * 件 10 万 walk 帽两道各自真实的预算线，谁先触谁执法）。
  */
 import type { GateInput } from '../contracts/index.js';
 import type { CaptureFn } from './capture.js';

@@ -11,15 +11,17 @@
  * 纪律：mock 只停在装载 fs 注入位（内存 Map——读侧零真盘）；装载管线/
  * spawn 管道/bash 工具/守门/审批/技能扫描全走真实现。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { EventDispatch, Scope } from '../context/index.js';
 import { BaseError } from '../contracts/index.js';
-import type { SessionEvent } from '../contracts/index.js';
+import type { GateInput, SessionEvent } from '../contracts/index.js';
 import type { CommandHandler } from '../channels/index.js';
+import { openCheckpointStore } from '../checkpoint/index.js';
+import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
 import type { GoalSessionFace } from '../goal/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
@@ -66,13 +68,16 @@ function stubRuntime(dataDir: string | null): HostRuntime {
   return stub as unknown as HostRuntime; // closers 等私有位不在公开类型——结构替身
 }
 
-/** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler/goal 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位，goal 增会话读面主闸二） */
+/** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler/goal 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位，goal 增会话读面主闸二；checkpoint 增语境/fork 两 seam + 焦点会话位——批 19c-4） */
 interface DepsForTest {
   sqlite?: () => ReturnType<Persistence['store']['sqlite']>;
   fetchEvents?: (sessionId: string) => readonly SessionEvent[];
   llm?: () => MemoryLlmFace;
   notify?: (source: string, message: string) => void;
   goalSession?: GoalSessionFace;
+  checkpointSession?: SessionContextFace;
+  checkpointFork?: RewindForkFace;
+  focusSessionId?: () => string | undefined;
 }
 
 /** 真装载速记（createCorePlugins 工厂单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言。cwd/homeDir 注入隔离面——skills 跨库层不扫真实 HOME） */
@@ -117,6 +122,9 @@ async function bootCore(
       ...(coreDeps.llm !== undefined ? { llm: coreDeps.llm } : {}),
       ...(coreDeps.notify !== undefined ? { notify: coreDeps.notify } : {}),
       ...(coreDeps.goalSession !== undefined ? { goalSession: coreDeps.goalSession } : {}),
+      ...(coreDeps.checkpointSession !== undefined ? { checkpointSession: coreDeps.checkpointSession } : {}),
+      ...(coreDeps.checkpointFork !== undefined ? { checkpointFork: coreDeps.checkpointFork } : {}),
+      ...(coreDeps.focusSessionId !== undefined ? { focusSessionId: coreDeps.focusSessionId } : {}),
     }),
     version: '9.9.9-test',
     warn: (message) => warnings.push(message),
@@ -607,7 +615,155 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     await persistence.close();
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent/scheduler/goal 七件）', () => {
+  it('checkpoint 件装载全环：gate 捕获（per-run 一 manifest）→ /rewind list/preview/restore 三动词真调（fork 面 + 焦点会话 + 保底拍）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-cpgate-'));
+    dirs.push(dataDir);
+    // 独立工作区（capture 真 walk/真哈希/真落仓——restore 真恢复）
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-ws-'));
+    dirs.push(workspace);
+    writeFileSync(join(workspace, 'a.txt'), 'v1');
+
+    const notified: string[] = [];
+    // 语境面：可变边界格（closure 内推进——模拟 turn 闭合）+ 工作区锚
+    let boundary = 3;
+    const checkpointSession: SessionContextFace = {
+      contextOf: (sid) => (sid === 's-rew' ? { lastClosedBoundary: boundary, workspaceRoot: workspace } : undefined),
+    };
+    // fork 面：调用记录桩（restore 第③腿——回执 forked 会话 id）
+    const forkCalls: { source: string; upToSeq: number }[] = [];
+    const checkpointFork: RewindForkFace = {
+      fork: async (source, options) => {
+        forkCalls.push({ source, upToSeq: options.upToSeq });
+        return { status: 'forked', sessionId: 'fork-1' };
+      },
+    };
+    const { dispatch, commands, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        checkpointSession,
+        checkpointFork,
+        focusSessionId: () => 's-rew',
+        notify: (source, message) => {
+          if (source === 'checkpoint') notified.push(message); // 归因位可辨
+        },
+      },
+    );
+    expect(commands).toContain('rewind');
+
+    // gate 真捕获：write 效果 + 会话可解 + 边界推进 → manifest 落仓（真 walk/哈希/blob）
+    const fireGate = (effect: 'read' | 'write', sessionId?: string) =>
+      dispatch.waterfall<GateInput>('tools_pre_execute', {
+        tool: { name: 'probe', effect } as GateInput['tool'],
+        args: {},
+        toolCallId: `c-${effect}`,
+        mutated: false,
+        ...(sessionId !== undefined ? { sessionId } : {}),
+      });
+    await fireGate('write', 's-rew');
+    const store = openCheckpointStore(dataDir);
+    let manifests = await store.listManifests();
+    expect(manifests).toHaveLength(1);
+    expect(manifests[0]!.trigger).toBe('mutation');
+    expect(manifests[0]!.boundarySeq).toBe(3);
+    expect(manifests[0]!.workspaceRoot).toBe(workspace);
+    expect(manifests[0]!.files.map((f) => f.path)).toContain('a.txt');
+
+    // per-run 判据：同边界再写不重拍；read 效果不拍；他会话/无会话不拍
+    await fireGate('write', 's-rew');
+    await fireGate('read', 's-rew');
+    await fireGate('write', 's-other');
+    await fireGate('write');
+    expect(await store.listManifests()).toHaveLength(1);
+
+    // 新 run（turn 闭合边界推进）+ 文件已变异 → 新拍
+    boundary = 6;
+    writeFileSync(join(workspace, 'a.txt'), 'v2');
+    await fireGate('write', 's-rew');
+    manifests = await store.listManifests();
+    expect(manifests).toHaveLength(2);
+    const first = manifests.find((m) => m.boundarySeq === 3)!;
+
+    // /rewind handler 真调：list 按焦点会话工作区锚列点
+    const rewindCmd = commandSpecs.find((spec) => spec.name === 'rewind');
+    if (rewindCmd === undefined) throw new Error('/rewind 命令不在捕获面');
+    await rewindCmd.handler({ raw: 'list', argv: ['list'] });
+    expect(notified[notified.length - 1]!).toContain('本工作区共 2 个回退点');
+
+    // preview：零改动对账（当前 v2 vs 快照 v1 → 恢复 1）
+    await rewindCmd.handler({ raw: `preview ${first.id}`, argv: ['preview', first.id] });
+    expect(notified[notified.length - 1]!).toContain('预演对账（零改动）：恢复 1');
+
+    // restore：保底拍 + 文件真恢复 v1 + fork 面（upToSeq = 回退点 seq）
+    await rewindCmd.handler({ raw: `restore ${first.id}`, argv: ['restore', first.id] });
+    const restoreText = notified[notified.length - 1]!;
+    expect(restoreText).toContain('已回退至');
+    expect(restoreText).toContain('已 fork 新会话 fork-1');
+    expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('v1');
+    expect(forkCalls).toEqual([{ source: 's-rew', upToSeq: 3 }]);
+    // 保底拍在场（trigger 'pre-rewind'——rewind 自身可回退）+ 计 3 份
+    const after = await store.listManifests();
+    expect(after.some((m) => m.trigger === 'pre-rewind')).toBe(true);
+    expect(after).toHaveLength(3);
+  });
+
+  it('checkpoint 主闸三位：dataDir null 或任一 seam 缺席 = 件零装载（/rewind 不注册 + gate 零捕获）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-cpoff-'));
+    dirs.push(dataDir);
+    const sessionFace: SessionContextFace = { contextOf: () => undefined };
+    const forkFace: RewindForkFace = { fork: async () => ({ status: 'vetoed', reason: '桩' }) };
+    // 主闸一（dataDir null——纯 :memory: 诊断形，两 seam 在场仍不装）
+    const bootedNull = await bootCore(
+      null,
+      memoryFs(),
+      {},
+      { checkpointSession: sessionFace, checkpointFork: forkFace },
+    );
+    expect(bootedNull.commands).not.toContain('rewind');
+    // 主闸二/三（seam 缺席——dataDir 在场仍不装）
+    const bootedSeamless = await bootCore(dataDir, memoryFs(), {});
+    expect(bootedSeamless.commands).not.toContain('rewind');
+    // gate 零捕获：write 瀑布直通无 manifest（仓目录未建零副作用）
+    const out = await bootedSeamless.dispatch.waterfall<GateInput>('tools_pre_execute', {
+      tool: { name: 'probe', effect: 'write' } as GateInput['tool'],
+      args: {},
+      toolCallId: 'c-off',
+      mutated: false,
+      sessionId: 's-any',
+    });
+    expect(out.outcome).toBeUndefined(); // 放行直通（无本件行）
+    expect(await openCheckpointStore(dataDir).listManifests()).toHaveLength(0);
+  });
+
+  it('/rewind 无焦点会话：focusSessionId 缺席 = 诚实拒（输出面含指引非静默）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-cpfocus-'));
+    dirs.push(dataDir);
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-wsf-'));
+    dirs.push(workspace);
+    const notified: string[] = [];
+    const checkpointSession: SessionContextFace = {
+      contextOf: () => ({ lastClosedBoundary: 1, workspaceRoot: workspace }),
+    };
+    const { commands, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        checkpointSession,
+        checkpointFork: { fork: async () => ({ status: 'vetoed', reason: '桩' }) },
+        notify: (source, message) => {
+          if (source === 'checkpoint') notified.push(message);
+        },
+      },
+    );
+    expect(commands).toContain('rewind'); // gate/命令照装——焦点位缺席只拒本动词
+    const rewindCmd = commandSpecs.find((spec) => spec.name === 'rewind')!;
+    await rewindCmd.handler({ raw: 'list', argv: ['list'] });
+    expect(notified[notified.length - 1]!).toContain('无焦点会话');
+  });
+
+  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent/scheduler/goal/checkpoint 八件）', () => {
     expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual([
       'exec',
       'web',
@@ -616,6 +772,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       'subagent',
       'scheduler',
       'goal',
+      'checkpoint',
     ]);
   });
 });

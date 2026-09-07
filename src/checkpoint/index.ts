@@ -1,9 +1,12 @@
 /**
  * checkpoint 模块公开面（05 §5.3 批 15d——工作区快照/回退件）。
  *
- * 消费面：gate 监听器（host 装配根挂 tools_pre_execute waterfall，位于
- * safety 守门行之后）+ /rewind 命令（TUI 命令注册挂批 12）。codes.js 的
- * import 副作用 = 错误码注册纪律（import 发生才注册）。
+ * 消费面（批 19c-4 装载态入册兑现）：gate 监听器（core:checkpoint 件经
+ * 插件钩子正门 ctx.on('tools_pre_execute') 挂 waterfall——装载期注册先于
+ * per-session safety 行，序差无害注记见 core-plugins.ts 装配序注记）+
+ * /rewind 命令（ctx.channels.registerCommand——发起会话 = 焦点会话；
+ * adopt 切前台编舞挂账 run 入口批）。codes.js 的 import 副作用 = 错误码
+ * 注册纪律（import 发生才注册）。
  */
 import './codes.js';
 

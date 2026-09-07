@@ -27,6 +27,7 @@ import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogg
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
+import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
 import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
 import {
   DEFAULT_SUBAGENT_PROVIDER,
@@ -325,6 +326,24 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                 return log.events().length;
               },
             },
+            // checkpoint 两 seam + 焦点会话位（批 19c-4——05 §5.3 词面独立律）：
+            // 语境面 contextOf 活体日志优先（lastClosedBoundary 单源）+ 行
+            // workspaceRoot 锚经公开列表面反查（sessions.fork 同法——不为内部
+            // 取值开新读口）；fork 面 = SessionManager.fork 直赋（05 §5.0 判别
+            // 子集形；箭头包装保 this 绑定）；焦点会话 = channels.focusedId
+            // （/rewind 发起会话真源）
+            checkpointSession: {
+              contextOf: (sessionId) => {
+                const row = runtimeNow.persistence.listSessions().find((r) => r.id === sessionId);
+                if (row === undefined) return undefined;
+                const log = stack.driverOf(sessionId)?.session ?? runtimeNow.persistence.loadSession(sessionId).log;
+                return { lastClosedBoundary: log.lastClosedBoundary(), workspaceRoot: row.workspaceRoot ?? '' };
+              },
+            } satisfies SessionContextFace,
+            checkpointFork: {
+              fork: (sourceSessionId, options) => stack.manager.fork(sourceSessionId, options),
+            } satisfies RewindForkFace,
+            focusSessionId: () => stack.channels.focusedId ?? undefined,
           }),
         warn: (message) => logger.warn(message),
       });
