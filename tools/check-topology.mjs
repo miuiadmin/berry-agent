@@ -189,6 +189,17 @@ const PRESENT_MODULES = new Set([
   // 〔events/notify/audience〕词面独立律结构兼容宿主真身——装配批直传；
   // 装载态集成归批 12 装载面后装配批）
   'obs',
+  // 批 18c 起在场（core:memory 使用进化机制〔06 篇〕：表族三迁移槽占
+  // v4/v5/v6〔memories+FT5 external-content trigram 投影/效用两列/持有面
+  // 三列+版本链+访问日志〕+ 入库单点 DAO〔写前 secret 扫描拒写 +
+  // MEMORY_ENTRY_INVALID 坏形拒——四写点汇入 ingest 同一入口〕+ 合并三分支
+  // 纯函数〔exact→polarity→fuzzy 判序；Jaccard 交并比 0.74 钉死/极性四对
+  // 词边界/新胜旧条纯状态变更不追加版本、旧胜对称吸收——落码定形注〕+
+  // 效用综合分，deps {contracts, context, session, persist}〔context/session
+  // 占位——提取即时路〔18c-3〕与跨会话检索〔18c-6〕落码批消费；persist
+  // 真边消费 SqliteDatabase/MigrationSpec〕；工具面九件/周期路/晋升桥/
+  // 持有面动词随 18c-2..8 逐笔扩；迁移 export-only——host 装配根机械聚合）
+  'memory',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
