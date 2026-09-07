@@ -125,6 +125,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // —— 共享根作用域与事件总线：对话栈与插件装载同根同源 ——
     const scope = Scope.createRoot();
     const dispatch = new EventDispatch();
+    // 装载柄前置声明（批 19a 消费腿闭包晚绑定：stack 先建、boot 后跑，会话
+    // 首开/请求组装时闭包经此引用取已定型产物——boot.tools 全局层定义重放
+    // 与 promptSections 物化两条消费腿同法）
+    let boot: PluginBootHandle | undefined;
     const stack = createConversationStack({
       runtime,
       scope,
@@ -133,6 +137,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+      // 装载工具定义重放取值器（会话装配时点 boot 已定型——noPlugins/装载
+      // 失败形 boot.tools 为空注册表，取值器返回 [] 零打扰）
+      bootTools: () => boot?.tools.definitions() ?? [],
+      // 插件提示词段物化取值器（每请求组装时重取——03 §2.5 注册即生效面）
+      pluginSections: () => boot?.promptSections.materialize() ?? '',
       // 审批 always 回写透传（04 §9 定形块写侧律——闭包 dataDir 接 store
       // 文件写；坏形期拒写在 store 内执法，healthy 载入才接线）
       ...(allowlistLoad !== null
@@ -182,7 +191,6 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
 
     // —— 插件装载：启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——
     // 干净退出不写 crash.log）；余装载失败走行级隔离不入本档 ——
-    let boot: PluginBootHandle;
     try {
       boot = await bootPlugins({
         runtime,

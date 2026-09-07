@@ -865,6 +865,49 @@ describe('ConversationDriver 环境披露段注入（04 §11）', () => {
   });
 });
 
+/* ---------------- 19a 消费腿：插件提示词段注入（03 §2.5 注册即生效面） ---------------- */
+
+describe('ConversationDriver 插件提示词段注入（批 19a 消费腿）', () => {
+  it('双段在场：sections 先于披露段（官方内容段先于环境尾注）；快照钉死原始值', async () => {
+    // 回归锁：披露段拼接曾基于 context.systemPrompt 丢 sections——本例锁累积序
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({})],
+      pluginSections: () => '【插件段】skills 清单',
+      environmentDisclosure: () => '【环境披露】工作区块',
+    });
+    await driver.submit('问');
+    expect(seen[0]!.systemPrompt).toBe('sys\n\n【插件段】skills 清单\n\n【环境披露】工作区块');
+    // 快照序钉死：request/header 落装配面原始 systemPrompt（瞬态段不入账）
+    expect((dataOf(driver, 'request/header')[0] as { systemPrompt: string }).systemPrompt).toBe('sys');
+  });
+
+  it('每请求重取（注册即生效面）：两次调用取值器各见各的段——段集动态不冻结', async () => {
+    let current = '段一';
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({}), assistant({})],
+      pluginSections: () => current,
+    });
+    await driver.submit('一问');
+    current = '段二'; // 模拟运行期新注册（boot.promptSections 物化随注册面增长）
+    await driver.submit('二问');
+    expect(seen[0]!.systemPrompt).toBe('sys\n\n段一');
+    expect(seen[1]!.systemPrompt).toBe('sys\n\n段二');
+  });
+
+  it('空串 = 零拼接（与披露段同判空律）；无原始 systemPrompt 时段独立成体', async () => {
+    const { driver, seen } = makeDriver({ scripts: [assistant({})], pluginSections: () => '' });
+    await driver.submit('问');
+    expect(seen[0]!.systemPrompt).toBe('sys'); // 空段跳过
+    const { driver: bare, seen: bareSeen } = makeDriver({
+      scripts: [assistant({})],
+      systemPrompt: undefined,
+      pluginSections: () => '只有段',
+    });
+    await bare.submit('问');
+    expect(bareSeen[0]!.systemPrompt).toBe('只有段'); // 无前导换行
+  });
+});
+
 describe('ConversationDriver 子代理审批挂起通知（04 §10）', () => {
   it('idle：followUp 起跑——通知消息进 timeline 与 durable（source + dedupeKey 原样落账）', async () => {
     const { driver, seen } = makeDriver({ scripts: [assistant({})] });

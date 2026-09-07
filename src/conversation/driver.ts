@@ -270,16 +270,29 @@ export class ConversationDriver {
         toolSchemas: context.tools ?? [],
       });
     }
-    // 披露段注入位：装配注入的单文本块 → systemPrompt 尾（04 §11——快照已
-    // 在上拍落账取原始值，此处改写不影响 durable 面）
-    const disclosure = this.options.environmentDisclosure?.() ?? null;
+    // 插件提示词段注入位（批 19a 消费腿——03 §2.5 注册即生效面）：每请求
+    // 重取物化（段集动态）；拼于披露段之前（官方内容段先于环境尾注）；
+    // 空串/缺席 = 零段跳过（与披露段同判空律）
+    const sections = this.options.pluginSections !== undefined ? this.options.pluginSections() : '';
     let transformed: LlmContext = context;
-    if (disclosure !== null) {
+    if (sections !== '') {
       transformed = {
         ...transformed,
         systemPrompt:
           context.systemPrompt !== undefined && context.systemPrompt !== ''
-            ? `${context.systemPrompt}\n\n${disclosure}`
+            ? `${context.systemPrompt}\n\n${sections}`
+            : sections,
+      };
+    }
+    // 披露段注入位：装配注入的单文本块 → systemPrompt 尾（04 §11——快照已
+    // 在上拍落账取原始值，此处改写不影响 durable 面）
+    const disclosure = this.options.environmentDisclosure?.() ?? null;
+    if (disclosure !== null) {
+      transformed = {
+        ...transformed,
+        systemPrompt:
+          transformed.systemPrompt !== undefined && transformed.systemPrompt !== ''
+            ? `${transformed.systemPrompt}\n\n${disclosure}`
             : disclosure,
       };
     }

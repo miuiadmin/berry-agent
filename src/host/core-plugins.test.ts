@@ -52,15 +52,20 @@ function stubRuntime(dataDir: string | null): HostRuntime {
   return stub as unknown as HostRuntime; // closers 等私有位不在公开类型——结构替身
 }
 
-/** 真装载速记（CORE_PLUGINS 单源注入——缺省路径的等价形） */
+/** 真装载速记（CORE_PLUGINS 单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言） */
 async function bootCore(
   dataDir: string,
   fs: PluginBootFs = memoryFs(),
-): Promise<{ scope: Scope; dispatch: EventDispatch; warnings: string[] }> {
+): Promise<{
+  scope: Scope;
+  dispatch: EventDispatch;
+  warnings: string[];
+  boot: Awaited<ReturnType<typeof bootPlugins>>;
+}> {
   const warnings: string[] = [];
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
-  await bootPlugins({
+  const boot = await bootPlugins({
     runtime: stubRuntime(dataDir),
     scope,
     dispatch,
@@ -71,7 +76,7 @@ async function bootCore(
     warn: (message) => warnings.push(message),
     fs,
   });
-  return { scope, dispatch, warnings };
+  return { scope, dispatch, warnings, boot };
 }
 
 /** 恒答审批呈现面（write 类工具守门放行桩——审批装配测试同款，应答 = 'approve' 字面） */
@@ -146,7 +151,41 @@ describe('CORE_PLUGINS 注册表单源（批 19a）', () => {
     assembly.dispose();
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec 一件）', () => {
-    expect(CORE_PLUGINS.map((ref) => ref.name)).toEqual(['exec']);
+  it('web 件装载全环：工具走 bootTools 消费腿重放 + web-fetch/web-gate 服务面同 gate 实例', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-web-'));
+    dirs.push(dataDir, dataDir);
+    const { scope, dispatch, boot } = await bootCore(dataDir);
+
+    // 服务面：fetch 服务与 gate 单例双供给（03 §10.3 browser 共享位）
+    const service = scope.tryGet<{ fetch(url: string): Promise<unknown> }>('web-fetch');
+    const gate = scope.tryGet<{ readonly capacity: number }>('web-gate');
+    expect(service).toBeDefined();
+    expect(gate?.capacity).toBe(4); // DEFAULT_WEB_LIMITS.maxConcurrent 单源
+
+    // 工具消费腿：boot 全局层定义快照含 fetch（effect 'read'）
+    const defs = boot.tools.definitions();
+    expect(defs.map((d) => d.name)).toContain('fetch');
+
+    // openTools 会话装配重放（extraTools 取值器——与装载定义同一实例面）
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-web-ws-'));
+    dirs.push(workspace);
+    const session = new SessionLog({ sessionId: 's-web' });
+    const assembly = assembleOpenTools({
+      sessionId: 's-web',
+      dispatch,
+      session,
+      scope,
+      mode: () => 'workspace-write',
+      dataDir,
+      workspace: () => workspace,
+      extraTools: () => boot.tools.definitions(),
+    });
+    expect(assembly.tools.map((tool) => tool.name)).toContain('fetch');
+    expect(assembly.tools).toHaveLength(9); // fs 四 + 检索两 + bash + todo + fetch
+    assembly.dispose();
+  });
+
+  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web 两件）', () => {
+    expect(CORE_PLUGINS.map((ref) => ref.name)).toEqual(['exec', 'web']);
   });
 });

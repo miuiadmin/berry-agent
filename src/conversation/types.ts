@@ -82,6 +82,13 @@ export interface ConversationDriverOptions {
    */
   readonly systemPrompt?: string;
   /**
+   * 插件提示词段物化取值器（批 19a 消费腿——03 §2.5）：每请求组装时调用
+   * 重取（注册即生效面），物化文本拼于 systemPrompt 尾、环境披露段之前
+   * （官方内容段先于环境尾注）；与披露段同属瞬态层不落快照。空串/缺席 =
+   * 零段不打扰。
+   */
+  readonly pluginSections?: () => string;
+  /**
    * 本会话可用工具集（04 §2 AgentContext.tools 的组装面）：标准工具经装配
    * 根供入；open 域工具族与审批守门钩（beforeToolCall）归 11e。缺席 = 纯
    * 对话 run（loop 缺省空工具集）。

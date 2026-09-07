@@ -26,7 +26,7 @@
 import { canonicalWorkspaceRoot, EventDispatch, Scope } from '../context/index.js';
 import { createChannels } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
-import type { AgentMessage, AgentTool, ApprovalAskRequest, ThinkingLevel } from '../contracts/index.js';
+import type { AgentMessage, AgentTool, ApprovalAskRequest, ThinkingLevel, ToolDefinition } from '../contracts/index.js';
 import { getMessageRoleDefinition, isStandardMessage } from '../contracts/index.js';
 import { createCompactionService } from '../compaction/index.js';
 import type { CompactionService } from '../compaction/index.js';
@@ -75,6 +75,10 @@ export interface ConversationStackOptions {
   readonly workspace?: () => string;
   /** 系统提示词基线（04 §11：披露段由驱动在 transformContext 关口另行追加） */
   readonly systemPrompt?: string;
+  /** 装载工具定义取值器（批 19a 消费腿：boot 全局层定义快照——每会话装配时调用；闭包晚绑定：装配根 stack 先建、boot 后跑，会话首开时 boot 已定型） */
+  readonly bootTools?: () => readonly ToolDefinition[];
+  /** 插件提示词段物化取值器（批 19a 消费腿：PromptSectionRegistry.materialize 的闭包——每请求组装时重取，注册即生效面；空串 = 零段） */
+  readonly pluginSections?: () => string;
   /** 思考档位（会话态） */
   readonly thinkingLevel?: ThinkingLevel;
   /** 跨会话 allowlist 条目（04 §9 粘性第 3 款 advisory 免问面；装配层读 allowlist.json 载入——缺省功能关闭） */
@@ -191,6 +195,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         askApproval,
         ...(options.allowlist !== undefined ? { allowlist: options.allowlist } : {}),
         ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
+        ...(options.bootTools !== undefined ? { extraTools: options.bootTools } : {}),
       });
       options.runtime.registerDisposer(assembly.dispose); // LIFO 拆解进运行时退出序
       tools = assembly.tools;
@@ -207,6 +212,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       ...(tools !== undefined ? { tools } : {}),
       ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
       ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
+      ...(options.pluginSections !== undefined ? { pluginSections: options.pluginSections } : {}),
       classifyError,
       compactForOverflow: (log: SessionLog) => compaction.compactForOverflow(log),
       environmentDisclosure: options.runtime.disclosure,

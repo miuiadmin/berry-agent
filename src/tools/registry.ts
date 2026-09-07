@@ -117,6 +117,8 @@ export interface ToolRegistry {
   register(def: ToolDefinition, opts?: { driver?: string }): Disposer;
   /** 按会话解析工具面：全局层 ∪ 驱动层[sessionId]（保注册序） */
   listFor(sessionId: string): ToolDefinition[];
+  /** 全局层定义快照（只读副本——装载工具消费腿重放位；批 19a） */
+  definitions(): readonly ToolDefinition[];
   /** loop 直消费面：listFor 包装成 AgentTool（execute 接三段管道；无管道响亮失败） */
   agentToolsFor(sessionId: string): AgentTool[];
   /** 两层合计件数（诊断/帽执法读数） */
@@ -207,6 +209,10 @@ export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOp
 
   const registry: ToolRegistry = {
     executor,
+    definitions() {
+      // 全局层只读副本（快照与注册表解耦——后续注册不进旧快照）
+      return [...globalLayer.values()];
+    },
     register(def, registerOpts) {
       // ① 描述注入扫描（03 §2.8——任何来源同一防线，官方件同受管）
       const injectionHit = scanToolDescription(def.description);

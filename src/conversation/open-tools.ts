@@ -21,7 +21,7 @@
  */
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import type { EventDispatch, Scope } from '../context/index.js';
-import type { AgentTool } from '../contracts/index.js';
+import type { AgentTool, ToolDefinition } from '../contracts/index.js';
 import { TOOL_EVENT_NAMES } from '../contracts/index.js';
 import type { SessionLog } from '../session/index.js';
 import { createRootsProvider, installSafetyGate } from '../safety/index.js';
@@ -63,6 +63,8 @@ export interface OpenToolsOptions {
   readonly allowlist?: readonly AllowlistEntry[];
   /** carve-out 例外条目（缺省内置 .git/.env 条目；传 [] 显式关闭例示面——数据目录条恒在） */
   readonly entries?: readonly CarveOutEntry[];
+  /** 装载工具定义取值器（批 19a 消费腿：boot 全局层定义经会话装配重放注册——走本管道守门/审批与驱动层同律；每会话装配时调用一次） */
+  readonly extraTools?: () => readonly ToolDefinition[];
 }
 
 /** open 域装配产物 */
@@ -144,7 +146,15 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
       : undefined;
   const todoTool = createTodoTool((data) => opts.session.append('todo/write', data));
 
-  const definitions = [...fsTools.tools, ...searchTools.tools, ...(bashTool !== undefined ? [bashTool] : []), todoTool];
+  const definitions = [
+    ...fsTools.tools,
+    ...searchTools.tools,
+    ...(bashTool !== undefined ? [bashTool] : []),
+    todoTool,
+    // 装载工具重放（批 19a 消费腿：boot 全局层定义经驱动层注册走真三段
+    // 管道——04 §7 插件工具同管线执法；每会话重放一次，快照在装配时点取）
+    ...(opts.extraTools !== undefined ? [...opts.extraTools()] : []),
+  ];
   // 驱动层注册（{driver: sessionId}——per-session 工具面；批 12 前插件的
   // beforeToolCall 钩子同 dispatch 挂后续守门位）
   const disposers = definitions.map((definition) => registry.register(definition, { driver: opts.sessionId }));
