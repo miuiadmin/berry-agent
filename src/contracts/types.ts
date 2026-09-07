@@ -313,3 +313,38 @@ export interface SubagentDef {
   /** 来源文件绝对路径（诊断/溯源面） */
   readonly filePath: string;
 }
+
+/**
+ * 程序化 named provider 注册 def（03 §2.2 第十二动词 ctx.agent.registerSubagentProvider
+ * 单参——04 §10 程序化注册槽段机制真源）。**镜像 frontmatter 形** = SubagentDef 减
+ * 来源文件位（程序化注册无文件载体——filePath 是声明式腿专属归因面）；注册即派生
+ * 静态工具 `agent_<name>`（物化机器住 core:subagent）。形状归 contracts 同 SubagentDef
+ * （消费方 = subagent 注册机器 + host ctx 面——经契约面共享，不私造双形）。
+ */
+export interface ProgrammaticSubagentDef {
+  /** 身份键（裸词——06 §11.6 声明式 name 同形：小写字母/数字/连字符，词法真源 06 §11.2） */
+  readonly name: string;
+  /** 描述（必填——披露段清单行 = 模型选择依据） */
+  readonly description: string;
+  /** 工具白名单（可选 include 名单——与派生面交集执法） */
+  readonly tools?: readonly string[];
+  /** 前置要求（04 §10 预检闸声明位——与 tools 白名单正交不混读） */
+  readonly requires?: readonly string[];
+  /** 模型覆盖（子代理启动参数直传工厂——不进能力协商面） */
+  readonly model?: string;
+  /** 子代理系统提示（程序化腿无文件载体——正文直传） */
+  readonly systemPrompt: string;
+}
+
+/**
+ * 形状同构锁：ProgrammaticSubagentDef ≡ Omit<SubagentDef, 'filePath'>（双向可赋）。
+ * 声明式 def 增删字段时此处编译红——「镜像形」由类型系统执法而非注释自觉
+ * （漂移窗口零化）。
+ */
+type ProgrammaticDefMirrorsSubagentDef =
+  ProgrammaticSubagentDef extends Omit<SubagentDef, 'filePath'>
+    ? Omit<SubagentDef, 'filePath'> extends ProgrammaticSubagentDef
+      ? true
+      : never
+    : never;
+void (true satisfies ProgrammaticDefMirrorsSubagentDef);

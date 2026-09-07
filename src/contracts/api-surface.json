@@ -389,6 +389,15 @@
       "sig": "52f7bc117a9828b8"
     },
     {
+      "symbol": "ProgrammaticSubagentDef",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "程序化 named provider 注册 def（03 §2.2 第十二动词 ctx.agent.registerSubagentProvider 单参——04 §10 程序化注册槽段机制真源）",
+      "kind": "interface",
+      "sig": "0565bdd00e913f73"
+    },
+    {
       "symbol": "RetryProbe",
       "module": "berry-agent",
       "tier": "stable",

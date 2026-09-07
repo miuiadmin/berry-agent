@@ -6,8 +6,9 @@
  * SUBAGENT_PRECHECK_FAILED 管 spawn 前预检闸（fail-ask 不降级瞎跑）；
  * SUBAGENT_PROVIDER_UNKNOWN 管静态绑定路由；JOB_KIND_UNKNOWN 管 kind
  * 词汇登记（词汇注册表纪律）；JOB_LIMIT_REACHED 管 Job 并行帽（形随
- * issue 件落码批定值）。本文件由模块公开面 index.ts 引入（注册纪律：
- * import 发生才注册）。
+ * issue 件落码批定值）；SUBAGENT_NAME_INVALID 管程序化注册槽 name 裸词
+ * 词法（D 批——03 §2.7 行 262「本批新码」）。本文件由模块公开面 index.ts
+ * 引入（注册纪律：import 发生才注册）。
  */
 import { registerErrorCodes } from '../contracts/index.js';
 
@@ -44,5 +45,11 @@ registerErrorCodes([
     module: 'subagent',
     description:
       'Job 并行帽拒——同刻在飞 Job 数达按 kind 分帽上限（缺省无帽；缺省值随 issue 件落码批定——04 §10 issue 立题批钉位）',
+  },
+  {
+    code: 'SUBAGENT_NAME_INVALID',
+    module: 'subagent',
+    description:
+      '程序化注册槽 name 词法违例拒——非裸词（06 §11.6 声明式 name 同形、词法承 §11.2「小写连字符与数字」——词法真源 06:386）；执法序同 AGENT_ROLE 注记：撞名闸前置格式闸（03 §2.7 行 262；2026-09-07 冷读闸 blocker 修复批拍板案 a 改形——原「非域名两段式」弃）',
   },
 ]);
