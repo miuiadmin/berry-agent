@@ -27,13 +27,14 @@
     "berry-agent-plugin"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc -p packages/berry-agent-sdk/tsconfig.test.json",
+    "typecheck": "tsc --noEmit && tsc -p packages/berry-agent-sdk/tsconfig.test.json && tsc -p tsconfig.webui-client.json",
     "test": "vitest run",
     "lint:topology": "node tools/check-topology.mjs && node tools/check-api.mjs",
-    "format": "prettier --write \"src/**/*.ts\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\"",
-    "build": "tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs",
-    "build:sdk": "tsc -p packages/berry-agent-sdk/tsconfig.json"
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\" \"vite.config.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\" \"vite.config.ts\"",
+    "build": "npm run build:webui && tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs",
+    "build:sdk": "tsc -p packages/berry-agent-sdk/tsconfig.json",
+    "build:webui": "vite build"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.4",
@@ -45,12 +46,22 @@
     "yaml": "^2"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/react": "^16.3.3",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.4.1",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
     "@xterm/headless": "^6.0.0",
+    "jsdom": "^30.0.1",
     "prettier": "^3.5.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.23.13",
     "typescript": "^6",
+    "vite": "^8.2.2",
     "vitest": "^4.1.11"
   }
 }

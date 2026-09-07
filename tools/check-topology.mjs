@@ -177,8 +177,9 @@ const PRESENT_MODULES = new Set([
   // 本体保证，deps {contracts, channels}〔channels 真边消费 UiBackend/
   // TodoItem/SessionEnvelope——claim 桥即 UiBackend 第四实装〕；会话族/
   // 投影读/补全族全经窄面注入〔WebuiSessionsFace 等——词面独立律结构兼容
-  // host 装配桥真身，compat 互证归 host 装配批〕；SPA 客户端腿与 host
-  // `--port` 接线随后批）
+  // host 装配桥真身，compat 互证归 host 装配批〕；SPA 客户端腿批 18a-2
+  // 已落〔client 树自持 protocol 视界零服务端导入〕，host `--port` 接线
+  // 归 host 装配批）
   'webui',
 ]);
 
@@ -216,8 +217,11 @@ const MODULE_EXTERNALS = {
   // 直用同律；15b 落码批起用）
   goal: ['typebox'],
   // webui 的 typebox 主包 + value 子路径（微路由「JSON 均 typebox 校验后
-  // 消费」——03 §10.4 批 18a 落码；schema 层宿主件直用同律）
-  webui: ['typebox', 'typebox/value'],
+  // 消费」——03 §10.4 批 18a 落码；schema 层宿主件直用同律）+ react 族四键
+  // （批 18a-2 SPA 客户端腿——07 §4.2 栈钉定 React + Vite + Tailwind；
+  // react/react-dom/react-dom/client/react-markdown，vite/tailwind 是构建
+  // 期工具不入 src 产码账）
+  webui: ['typebox', 'typebox/value', 'react', 'react-dom', 'react-dom/client', 'react-markdown'],
   // skills 的 yaml（SKILL.md frontmatter 解析物化双用——07 篇 §2 钉定）/ignore
   // （gitignore 语义匹配——发现层遍历消费者，07 篇 §120 多消费者）/typebox
   // （skill_manage 参数面——schema 层宿主件直用同律；14b 落码批起用）
@@ -252,13 +256,14 @@ const PUBLIC_FACES = new Set(['index.ts', 'types.ts', 'events.ts']);
 const SRC = join(process.cwd(), 'src');
 const violations = [];
 
-/** 递归收集 src 下产码 .ts（*.test.ts 豁免两账分离） */
+/** 递归收集 src 下产码 .ts/.tsx（*.test.* 豁免两账分离——批 18a-2 起 .tsx
+ *  入账：SPA 客户端树） */
 function collectSourceFiles(dir) {
   const out = [];
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) out.push(...collectSourceFiles(full));
-    else if (name.endsWith('.ts') && !name.endsWith('.test.ts')) out.push(full);
+    else if ((name.endsWith('.ts') || name.endsWith('.tsx')) && !name.includes('.test.')) out.push(full);
   }
   return out;
 }

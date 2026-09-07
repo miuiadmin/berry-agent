@@ -21,5 +21,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src"]
+  // SPA 客户端树出局（批 18a-2）：DOM lib/JSX 面归 tsconfig.webui-client.json
+  // 第三腿——服务端码永不见 DOM 全局、客户端码永不见 node:* 类型。
+  "include": ["src"],
+  "exclude": ["src/webui/client"]
 }

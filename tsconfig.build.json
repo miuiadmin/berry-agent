@@ -11,5 +11,8 @@
     "declaration": false,
     "sourceMap": false
   },
-  "exclude": ["src/**/*.test.ts"]
+  // exclude 覆盖父值不合并（extends 语义）：本列表 = 父 exclude 重列 + 新增
+  // 位——*.test.tsx（client 轨测试）与 src/webui/client（SPA 树——vite 独立
+  // 产物链 build:webui，tsc 发布物不含）
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/webui/client"]
 }

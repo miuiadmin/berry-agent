@@ -1,0 +1,19 @@
+{
+  // SPA 客户端类型面（批 18a-2）：DOM lib + JSX 独立成配——服务端码永不
+  // 见 DOM 全局（主 tsconfig 纪律），客户端码永不见 node:* 类型（types 清空）。
+  // typecheck 第三腿（npm run typecheck 链尾）；构建归 vite（tsconfig.build
+  // 不含本树）。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    // types 覆盖父值清 node——只收 vite/client（*.css 侧效果导入等 vite 资源
+    // 模块声明；浏览器侧类型面零 node:*）
+    "types": ["vite/client"],
+    "noEmit": true
+  },
+  // exclude 覆盖父值（extends 不合并语义）：父 exclude 恰含本树，不显式清空
+  // 则 include 与 exclude 相消——TS18003 零输入。
+  "exclude": [],
+  "include": ["src/webui/client"]
+}
