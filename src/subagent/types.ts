@@ -11,6 +11,14 @@ import type { SubagentRequest, SubagentResult } from '../contracts/index.js';
 /** 通用委派工具名（04 §10 委派面静态绑定——缺省路由 'in-process'） */
 export const AGENT_TOOL_NAME = 'agent';
 
+/**
+ * named provider 派生工具名前缀（**保留字段**——03 §2.7 行 254）：`agent_<name>`
+ * 段专属 named provider 派生工具，插件经 ctx.tools.register 携此前缀即拒
+ * TOOL_NAME_CONFLICT（保留字在注册面执法——先占位即反锁后续 named provider
+ * 注册；执法位在 host ctx.tools.register 包装道，机器侧放行 host 物化腿）。
+ */
+export const AGENT_TOOL_PREFIX = 'agent_';
+
 /** 缺省委派路由（通用 agent 工具的 providerName 缺省值） */
 export const DEFAULT_SUBAGENT_PROVIDER = 'in-process';
 

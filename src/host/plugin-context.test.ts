@@ -337,6 +337,30 @@ describe('注册动词委派真源', () => {
     expectCode(() => handle.ctx.tools.register(def), 'TOOL_NAME_CONFLICT');
   });
 
+  it('tools.register agent_ 前缀保留字闸（03 §2.7 行 254——TOOL_NAME_CONFLICT 同码；边界词放行）', () => {
+    const { handle } = assemble();
+    const make = (name: string) => ({
+      name,
+      description: '探针',
+      parameters: { type: 'object' as const },
+      execute: async () => ({ content: [] }),
+    });
+    try {
+      handle.ctx.tools.register(make('agent_daily'));
+      expect.unreachable();
+    } catch (err) {
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('TOOL_NAME_CONFLICT');
+        expect(err.message).toContain('保留'); // 保留字段拒绝语义（区别于撞名档）
+        return;
+      }
+      throw err;
+    }
+    // 边界：无下划线的 'agent' 与非头位前缀不属保留段——放行
+    expect(() => handle.ctx.tools.register(make('agent'))).not.toThrow();
+    expect(() => handle.ctx.tools.register(make('my_agent_tool'))).not.toThrow();
+  });
+
   it('channels.registerCommand → CommandRegistry（后写胜出——disposer 不误摘接任者）', async () => {
     const registry = new CommandRegistry();
     const { handle, dispatch } = assemble();

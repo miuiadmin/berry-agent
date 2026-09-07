@@ -9,7 +9,7 @@
 import { BaseError, type ToolDefinition } from '../contracts/index.js';
 import { Type } from 'typebox';
 import type { ProgrammaticProviderEntry, SubagentService } from './service.js';
-import { AGENT_TOOL_NAME, type SubagentDef } from './types.js';
+import { AGENT_TOOL_NAME, AGENT_TOOL_PREFIX, type SubagentDef } from './types.js';
 
 /** 委派工具的会话语境（per-session 闭包——工具面创建位携带） */
 export interface DelegationToolDeps {
@@ -96,7 +96,7 @@ export function createDeclarativeAgentTool(
   deps: DelegationToolDeps,
 ): ToolDefinition {
   return {
-    name: `agent_${def.name}`,
+    name: `${AGENT_TOOL_PREFIX}${def.name}`,
     description: def.description,
     effect: 'read',
     parameters: Type.Object({

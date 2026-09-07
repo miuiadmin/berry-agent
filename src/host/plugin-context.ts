@@ -41,6 +41,7 @@ import type {
 } from '../contracts/index.js';
 import type { LlmRuntime } from '../llm/index.js';
 import type { CommandHandler } from '../channels/index.js';
+import { AGENT_TOOL_PREFIX } from '../subagent/types.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { Disposer, EventDispatch, Scope, WaterfallListener } from '../context/index.js';
 import type { PromptSectionBuilder, PromptSectionRegistry } from './prompt-sections.js';
@@ -449,7 +450,18 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
       register(def: ToolDefinition, opts?: { driver?: string }): Disposer {
         assertWindow('ctx.tools.register');
         countAction();
-        return required(options.tools, 'tools', 'ctx.tools.register').register(def, opts);
+        const registry = required(options.tools, 'tools', 'ctx.tools.register');
+        // agent_ 前缀保留字闸（03 §2.7 行 254——拒绝式同码）：named provider
+        // 派生工具名专属段（04 §10 程序化注册槽），插件先占 agent_xxx 位即
+        // 反锁后续 named provider 注册（拒绝服务窗）——保留字在注册面执法、
+        // 执法位写死注册侧（本动词；机器侧放行 host 物化腿的派生工具注册）
+        if (def.name.startsWith(AGENT_TOOL_PREFIX)) {
+          throw new BaseError(
+            'TOOL_NAME_CONFLICT',
+            `工具名「${def.name}」携 ${AGENT_TOOL_PREFIX} 前缀——保留字段（named provider 派生工具名专属段，03 §2.7/04 §10），请改名注册`,
+          );
+        }
+        return registry.register(def, opts);
       },
     },
     channels: {
