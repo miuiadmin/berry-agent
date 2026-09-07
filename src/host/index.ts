@@ -74,3 +74,18 @@ export { createConversationStack } from './conversation-stack.js';
 export type { ConversationStackOptions, ConversationStack, StartupSession } from './conversation-stack.js';
 export { runTuiEntry } from './tui-entry.js';
 export type { TuiEntryOptions } from './tui-entry.js';
+// 批 12f-2a ctx 面件（提示词段注册表 + 插件上下文装配件——窗口律/频率护栏/钩子路由）
+export { PromptSectionRegistry } from './prompt-sections.js';
+export type { PromptSectionBuilder, PromptSectionEntry } from './prompt-sections.js';
+export { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
+export type {
+  PluginContext,
+  PluginContextHandle,
+  PluginContextOptions,
+  PluginHookSpec,
+  PluginHookHandler,
+  HookMode,
+  ProviderInput,
+  HookTimeoutReporter,
+  CommandRegistryLike,
+} from './plugin-context.js';

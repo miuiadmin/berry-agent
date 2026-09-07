@@ -72,6 +72,12 @@ export const HOST_PLUGIN_ERROR_CODES: readonly ErrorCodeInfo[] = [
     description: 'hookName 不在钩子主表即拒订阅：fail-closed，未知钩子不静默吞（03 篇 §2.4/§2.7）',
   },
   {
+    code: 'PLUGIN_WINDOW_CLOSED',
+    module: 'host',
+    description:
+      '装载窗口外调用注册动词拒（03 篇 §2.1——唯一例外：宿主回调上下文内〔钩子 handler/工具执行期〕合法，装载器以回调窗重入计数开合）',
+  },
+  {
     code: 'PLUGIN_IMPORT_FORBIDDEN',
     module: 'host',
     description:

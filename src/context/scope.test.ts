@@ -224,4 +224,17 @@ describe('provide/get 服务注册面', () => {
     expect(scope.get('void-svc')).toBeUndefined();
     expect(scope.tryGet('void-svc')).toBeUndefined(); // has 真——undefined 是值不是缺席
   });
+
+  it('serviceNames 沿 fork 链枚举可见服务（子遮蔽父同名两现——就近位次即遮蔽序）', () => {
+    const parent = Scope.createRoot();
+    parent.provide('alpha', 1);
+    parent.provide('beta', 2);
+    const child = parent.fork();
+    child.provide('beta', '遮蔽值');
+    child.provide('gamma', 3);
+    // 03 §3.1「服务目录运行时可枚举」——ctx.get 缺席报错附现行名单的底座
+    expect(child.serviceNames()).toEqual(['beta', 'gamma', 'alpha', 'beta']);
+    expect(parent.serviceNames()).toEqual(['alpha', 'beta']);
+    expect(Scope.createRoot().serviceNames()).toEqual([]);
+  });
 });

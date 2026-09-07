@@ -109,6 +109,21 @@ export class Scope {
   }
 
   /**
+   * 沿 fork 链枚举可见服务名（自身 + 全部祖先，就近在前）。
+   * 03 §3.1「服务目录运行时可枚举」的机制腿——ctx.get 缺席报错附现行名单，
+   * 点名错误当场响亮可诊。子遮蔽父同名时两现（就近位次即遮蔽序——诚实枚举）。
+   */
+  serviceNames(): string[] {
+    const names: string[] = [];
+    let scope: Scope | undefined = this;
+    while (scope) {
+      names.push(...scope.services.keys());
+      scope = scope.parent;
+    }
+    return names;
+  }
+
+  /**
    * 登记可逆副作用：register 立即执行、其返回的 disposer 进 LIFO 回卷序。
    * 迟到登记（已回卷）拒 SCOPE_STALE——迟到的 disposer 不再执行（回卷已过，
    * 补跑只会撕裂状态）。

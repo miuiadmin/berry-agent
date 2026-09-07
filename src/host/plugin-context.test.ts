@@ -1,0 +1,461 @@
+import { describe, expect, it, vi } from 'vitest';
+import { BaseError } from '../contracts/index.js';
+import { EventDispatch, Scope } from '../context/index.js';
+import { CommandRegistry } from '../channels/index.js';
+import { createToolRegistry } from '../tools/index.js';
+import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
+import type { PluginContextHandle } from './plugin-context.js';
+import { PromptSectionRegistry } from './prompt-sections.js';
+
+/** 宿主自省面测试替身（materializeHostFace 形——纯数据即可） */
+const HOST_FACE = {
+  version: '0.1.0-alpha.1',
+  apiVersion: '1.0',
+  capabilities: { has: () => false, list: () => [] as string[] },
+  experimental: { enabled: () => false },
+} as const;
+
+/** 测试装配（真源注册表 + 可调小护栏参数——mock 只停在时钟面） */
+function assemble(overrides?: {
+  pluginId?: string;
+  rateLimit?: { windowMs: number; max: number };
+  hookTimeoutMs?: number;
+}): {
+  handle: PluginContextHandle;
+  dispatch: EventDispatch;
+  scope: Scope;
+  promptSections: PromptSectionRegistry;
+} {
+  const scope = Scope.createRoot();
+  const dispatch = new EventDispatch();
+  // 钩子词汇预注册（装配批 12f-2b 的职责在此以主表全量模拟）
+  dispatch.registerEventNames(PLUGIN_HOOK_VOCABULARY.map((h) => h.name));
+  const promptSections = new PromptSectionRegistry();
+  const handle = createPluginContext({
+    pluginId: overrides?.pluginId ?? 'acme-widgets',
+    scope,
+    dispatch,
+    tools: createToolRegistry(dispatch),
+    commands: new CommandRegistry(),
+    llm: { registerProvider: () => () => undefined },
+    promptSections,
+    hostFace: HOST_FACE,
+    ...(overrides?.rateLimit ? { rateLimit: overrides.rateLimit } : {}),
+    ...(overrides?.hookTimeoutMs ? { hookTimeoutMs: overrides.hookTimeoutMs } : {}),
+  });
+  return { handle, dispatch, scope, promptSections };
+}
+
+/** BaseError 码断言辅助（错码即契约——修 bug 必带回归锁的判据面） */
+function expectCode(fn: () => unknown, code: string): void {
+  try {
+    fn();
+    expect.unreachable();
+  } catch (err) {
+    if (err instanceof BaseError) {
+      expect(err.code).toBe(code);
+      return;
+    }
+    throw err;
+  }
+}
+
+describe('钩子主表镜像（03 §2.4）', () => {
+  it('41 词全量（七层 35 + 生命周期组 6）且无重词', () => {
+    expect(PLUGIN_HOOK_VOCABULARY.length).toBe(41);
+    const names = PLUGIN_HOOK_VOCABULARY.map((h) => h.name);
+    expect(new Set(names).size).toBe(41);
+  });
+
+  it('模式分布：waterfall 15 / serial 3 / parallel 1 / emit 22', () => {
+    const count = (mode: string) => PLUGIN_HOOK_VOCABULARY.filter((h) => h.mode === mode).length;
+    expect(count('waterfall')).toBe(15);
+    expect(count('serial')).toBe(3);
+    expect(count('parallel')).toBe(1);
+    expect(count('emit')).toBe(22);
+  });
+});
+
+describe('装载窗口律（03 §2.1）', () => {
+  it('构造即窗开——apply 期注册动词合法', () => {
+    const { handle } = assemble();
+    const dispose = handle.ctx.tools.register({
+      name: 'acme_probe',
+      description: '窗口内注册合法',
+      parameters: { type: 'object' as const },
+      execute: async () => ({ content: [] }),
+    });
+    expect(typeof dispose).toBe('function');
+    dispose();
+  });
+
+  it('关窗后注册动词族七路全拒（PLUGIN_WINDOW_CLOSED）', () => {
+    const { handle } = assemble();
+    handle.closeWindow();
+    const ctx = handle.ctx;
+    expectCode(
+      () =>
+        ctx.tools.register({
+          name: 'x-one',
+          description: '',
+          parameters: { type: 'object' as const },
+          execute: async () => ({ content: [] }),
+        }),
+      'PLUGIN_WINDOW_CLOSED',
+    );
+    expectCode(() => ctx.channels.registerCommand('x-two', () => undefined), 'PLUGIN_WINDOW_CLOSED');
+    expectCode(() => ctx.llm.registerProvider({ id: 'x' } as never), 'PLUGIN_WINDOW_CLOSED');
+    expectCode(
+      () =>
+        ctx.events.registerSessionEventType({
+          type: 'x/three',
+          category: 'log-only',
+          owner: 'x',
+          tier: 'stable',
+          description: '',
+        }),
+      'PLUGIN_WINDOW_CLOSED',
+    );
+    expectCode(() => ctx.agent.registerMessageRole('x/four', {}), 'PLUGIN_WINDOW_CLOSED');
+    expectCode(() => ctx.prompts.registerSection('x/five', () => ''), 'PLUGIN_WINDOW_CLOSED');
+    expectCode(() => ctx.on('session_start', () => undefined), 'PLUGIN_WINDOW_CLOSED');
+  });
+
+  it('回调窗内注册合法（钩子 handler 执行期——窗口延伸条款，§2.4 第 3 条）', () => {
+    const { handle } = assemble();
+    handle.closeWindow();
+    const restore = handle.enterHostCallback();
+    try {
+      handle.ctx.prompts.registerSection('acme-widgets/callback-leg', () => '回调窗内注册');
+    } finally {
+      restore();
+    }
+  });
+
+  it('嵌套回调窗（深度计数——内外层各自恢复）', () => {
+    const { handle } = assemble();
+    handle.closeWindow();
+    const outer = handle.enterHostCallback();
+    const inner = handle.enterHostCallback();
+    inner();
+    // 内层已恢复但外层仍在——注册仍合法
+    handle.ctx.channels.registerCommand('acme-nested', () => undefined);
+    outer();
+    expectCode(() => handle.ctx.channels.registerCommand('acme-after', () => undefined), 'PLUGIN_WINDOW_CLOSED');
+  });
+
+  it('回调窗恢复闭包幂等（异常路径双调防御不减穿零）', () => {
+    const { handle } = assemble();
+    handle.closeWindow();
+    const restore = handle.enterHostCallback();
+    restore();
+    restore(); // 幂等
+    expectCode(() => handle.ctx.channels.registerCommand('x-after-restore', () => undefined), 'PLUGIN_WINDOW_CLOSED');
+  });
+
+  it('读面免窗：关窗后 get/tryGet/host 照常', () => {
+    const { handle, scope } = assemble();
+    scope.provide('svc-a', 42);
+    handle.closeWindow();
+    expect(handle.ctx.get<number>('svc-a')).toBe(42);
+    expect(handle.ctx.tryGet('svc-b')).toBeUndefined();
+    expect(handle.ctx.host.pluginId).toBe('acme-widgets');
+    expect(handle.ctx.host.apiVersion).toBe('1.0');
+    expect(handle.ctx.host.version).toBe('0.1.0-alpha.1');
+  });
+});
+
+describe('频率护栏（03 §3.4——滑动窗）', () => {
+  it('窗内第 max 次过、第 max+1 次拒（PLUGIN_RATE_LIMITED）', () => {
+    const { handle } = assemble({ rateLimit: { windowMs: 1000, max: 3 } });
+    const ctx = handle.ctx;
+    ctx.channels.registerCommand('acme-a', () => undefined);
+    ctx.channels.registerCommand('acme-b', () => undefined);
+    ctx.channels.registerCommand('acme-c', () => undefined); // 第 3 次 = max 次过
+    expectCode(() => ctx.channels.registerCommand('acme-d', () => undefined), 'PLUGIN_RATE_LIMITED');
+  });
+
+  it('注册动词与 on/emit/effect 同池计数', () => {
+    const { handle } = assemble({ rateLimit: { windowMs: 1000, max: 4 } });
+    const ctx = handle.ctx;
+    ctx.channels.registerCommand('acme-a', () => undefined); // 1
+    expect(typeof ctx.on('session_start', () => undefined)).toBe('function'); // 2
+    ctx.effect(() => () => undefined); // 3
+    void ctx.emit('acme-widgets/first'); // 4 = max 次过
+    expectCode(() => ctx.channels.registerCommand('acme-b', () => undefined), 'PLUGIN_RATE_LIMITED');
+  });
+
+  it('滑动窗滑出后重新可计（窗内旧动作剪枝）', () => {
+    vi.useFakeTimers();
+    try {
+      const { handle } = assemble({ rateLimit: { windowMs: 50, max: 1 } });
+      handle.ctx.channels.registerCommand('acme-a', () => undefined);
+      expectCode(() => handle.ctx.channels.registerCommand('acme-b', () => undefined), 'PLUGIN_RATE_LIMITED');
+      vi.advanceTimersByTime(60); // 滑出窗口
+      expect(() => handle.ctx.channels.registerCommand('acme-c', () => undefined)).not.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('钩子订阅路由（03 §2.4）', () => {
+  it('未知钩子 fail-closed（PLUGIN_HOOK_UNKNOWN）', () => {
+    const { handle } = assemble();
+    expectCode(() => handle.ctx.on('no_such_hook', () => undefined), 'PLUGIN_HOOK_UNKNOWN');
+  });
+
+  it('emit 词挂通知面、waterfall 词挂管线面（路由判据 = 主表 mode）', async () => {
+    const { handle, dispatch } = assemble();
+    const seen: string[] = [];
+    handle.ctx.on('session_start', () => {
+      seen.push('emit-leg');
+    });
+    handle.ctx.on('context_transform', (messages, next) => {
+      seen.push('waterfall-leg');
+      return next(messages);
+    });
+    await dispatch.emit('session_start', {});
+    expect(seen).toEqual(['emit-leg']);
+    const out = await dispatch.waterfall('context_transform', ['m1']);
+    expect(out).toEqual(['m1']);
+    expect(seen).toEqual(['emit-leg', 'waterfall-leg']);
+  });
+
+  it('退订闭包生效（on 返回值即退订柄）', async () => {
+    const { handle, dispatch } = assemble();
+    let fired = 0;
+    const off = handle.ctx.on('session_start', () => {
+      fired++;
+    });
+    off();
+    await dispatch.emit('session_start', {});
+    expect(fired).toBe(0);
+  });
+
+  it('notify 腿真异常抛回 dispatch 隔离上报（吞并档只收超时腿）', async () => {
+    const reported: unknown[] = [];
+    const dispatch = new EventDispatch({ onListenerError: (_name, err) => reported.push(err) });
+    dispatch.registerEventNames(['session/event']);
+    const handle = createPluginContext({
+      pluginId: 'acme-inner',
+      scope: Scope.createRoot(),
+      dispatch,
+      hostFace: HOST_FACE,
+    });
+    handle.ctx.on('session/event', () => {
+      throw new Error('真异常');
+    });
+    await dispatch.emit('session/event', {});
+    expect(reported.length).toBe(1);
+    expect((reported[0] as Error).message).toBe('真异常');
+  });
+
+  it('钩子消费点时钟：notify 腿超时上报后吞并收口不悬挂', async () => {
+    const dispatch = new EventDispatch();
+    dispatch.registerEventNames(['session_start']);
+    const timeouts: string[] = [];
+    const handle = createPluginContext({
+      pluginId: 'acme-slow',
+      scope: Scope.createRoot(),
+      dispatch,
+      hookTimeoutMs: 20,
+      onHookTimeout: (pluginId, hookName) => timeouts.push(`${pluginId}:${hookName}`),
+      hostFace: HOST_FACE,
+    });
+    handle.ctx.on('session_start', () => new Promise(() => undefined)); // 挂死 handler
+    // emit 收口不悬挂（20ms 钟到点放行——超时腿吞并）
+    await dispatch.emit('session_start', {});
+    expect(timeouts).toEqual(['acme-slow:session_start']);
+  });
+
+  it('钩子 handler 执行期回调窗开（handler 内注册合法——窗口延伸）', async () => {
+    const { handle, dispatch } = assemble();
+    handle.ctx.on('session_start', () => {
+      // wrapper 已开回调窗——handler 内注册动词合法
+      handle.ctx.channels.registerCommand('acme-in-handler', () => undefined);
+    });
+    handle.closeWindow(); // 订阅在窗内完成，此后仅回调窗内可注册
+    await dispatch.emit('session_start', {});
+    // handler 毕恢复——窗再度关死
+    expectCode(() => handle.ctx.channels.registerCommand('acme-after', () => undefined), 'PLUGIN_WINDOW_CLOSED');
+  });
+});
+
+describe('ctx.emit 域名律（03 §2.2 尾注）', () => {
+  it('自域词首发射自动注册、可再发', async () => {
+    const { handle, dispatch } = assemble();
+    await handle.ctx.emit('acme-widgets/ping', { n: 1 });
+    expect(dispatch.isRegistered('acme-widgets/ping')).toBe(true);
+    await handle.ctx.emit('acme-widgets/ping', { n: 2 }); // 二发不撞 EVENT_DUPLICATE
+  });
+
+  it('非本域词拒（EVENT_NOT_REGISTERED——域名前缀纪律执法）', () => {
+    const { handle } = assemble();
+    expectCode(() => void handle.ctx.emit('other-plugin/ping'), 'EVENT_NOT_REGISTERED');
+    expectCode(() => void handle.ctx.emit('裸词'), 'EVENT_NOT_REGISTERED');
+  });
+
+  it('自域词广播真达监听者（首发自动注册后宿主侧可挂听）', async () => {
+    const { handle, dispatch } = assemble();
+    await handle.ctx.emit('acme-widgets/ping', { n: 1 }); // 首发自动注册词
+    const got: unknown[] = [];
+    dispatch.on('acme-widgets/ping', (data) => got.push(data));
+    await handle.ctx.emit('acme-widgets/ping', { n: 7 });
+    expect(got).toEqual([{ n: 7 }]);
+  });
+});
+
+describe('注册动词委派真源', () => {
+  it('tools.register → ToolRegistry（撞名执法在真源——TOOL_NAME_CONFLICT 透传）', () => {
+    const { handle } = assemble();
+    const def = {
+      name: 'acme_probe',
+      description: '探针',
+      parameters: { type: 'object' as const },
+      execute: async () => ({ content: [] }),
+    };
+    handle.ctx.tools.register(def);
+    expectCode(() => handle.ctx.tools.register(def), 'TOOL_NAME_CONFLICT');
+  });
+
+  it('channels.registerCommand → CommandRegistry（后写胜出——disposer 不误摘接任者）', async () => {
+    const registry = new CommandRegistry();
+    const { handle, dispatch } = assemble();
+    const inner = createPluginContext({
+      pluginId: 'acme-cmd',
+      scope: Scope.createRoot(),
+      dispatch,
+      commands: registry,
+      hostFace: HOST_FACE,
+    });
+    const calls: string[] = [];
+    inner.ctx.channels.registerCommand('acme-do', () => {
+      calls.push('v1');
+    });
+    const offV1 = inner.ctx.channels.registerCommand('acme-do', () => {
+      calls.push('v2');
+    }); // 后写胜出
+    offV1(); // 注销现任 v2
+    await registry.dispatch('/acme-do');
+    expect(calls).toEqual([]); // v2 已注、v1 被覆盖不复活（§2.7 三律③）
+    handle.closeWindow();
+  });
+
+  it('受局面缺位响亮（CONTEXT_SERVICE_MISSING——装配缺陷不静默）', () => {
+    const handle = createPluginContext({
+      pluginId: 'acme-bare',
+      scope: Scope.createRoot(),
+      dispatch: new EventDispatch(),
+      hostFace: HOST_FACE,
+    });
+    expectCode(
+      () =>
+        handle.ctx.tools.register({
+          name: 't',
+          description: '',
+          parameters: { type: 'object' as const },
+          execute: async () => ({ content: [] }),
+        }),
+      'CONTEXT_SERVICE_MISSING',
+    );
+    expectCode(() => handle.ctx.channels.registerCommand('c', () => undefined), 'CONTEXT_SERVICE_MISSING');
+    expectCode(() => handle.ctx.llm.registerProvider({ id: 'p' } as never), 'CONTEXT_SERVICE_MISSING');
+    expectCode(() => handle.ctx.prompts.registerSection('acme-bare/s', () => ''), 'CONTEXT_SERVICE_MISSING');
+  });
+
+  it('agent.registerMessageRole → contracts 真源（AGENT_ROLE_EXISTS 透传 + disposer 摘除释放名）', () => {
+    const { handle } = assemble();
+    const off = handle.ctx.agent.registerMessageRole('acme-widgets/recall', { render: { intent: 'inline' } });
+    expectCode(() => handle.ctx.agent.registerMessageRole('acme-widgets/recall', {}), 'AGENT_ROLE_EXISTS');
+    off();
+    // 摘除后可重注册（卸载回卷即释放名）
+    expect(() => handle.ctx.agent.registerMessageRole('acme-widgets/recall', {})).not.toThrow();
+  });
+
+  it('events.registerSessionEventType → contracts 真源（不可逆——void 返回 + 撞名透传）', () => {
+    const { handle } = assemble();
+    const meta = {
+      type: 'acme-widgets/custom-thing',
+      category: 'log-only' as const,
+      owner: 'acme-widgets',
+      tier: 'stable' as const,
+      description: '测试词',
+    };
+    const out = handle.ctx.events.registerSessionEventType(meta);
+    expect(out).toBeUndefined(); // 无 disposer——词汇注册进程生命周期（§2.2 明文例外）
+    expectCode(
+      () => handle.ctx.events.registerSessionEventType({ ...meta, description: '' }),
+      'HOST_EVENT_TYPE_CONFLICT',
+    );
+  });
+
+  it('prompts.registerSection 返回注销器（注销后位可再注）', () => {
+    const { handle, promptSections } = assemble();
+    const off = handle.ctx.prompts.registerSection('acme-widgets/hints', () => '一');
+    off();
+    expect(promptSections.materialize()).toBe('');
+    expect(() => handle.ctx.prompts.registerSection('acme-widgets/hints', () => '二')).not.toThrow();
+  });
+});
+
+describe('提示词段注册表（prompt-sections——03 §2.5/§2.7）', () => {
+  it('合法注册 + slot 字典序物化（与装载序解耦）', () => {
+    const { handle, promptSections } = assemble();
+    handle.ctx.prompts.registerSection('acme-widgets/zeta', () => 'Z');
+    handle.ctx.prompts.registerSection('acme-widgets/alpha', () => 'A');
+    expect(promptSections.materialize()).toBe('A\n\nZ');
+    expect(promptSections.slotList()).toEqual(['acme-widgets/alpha', 'acme-widgets/zeta']);
+  });
+
+  it('slot 非域前缀两段式拒（PLUGIN_PROMPT_SLOT_INVALID 四档）', () => {
+    const { handle } = assemble();
+    expectCode(() => handle.ctx.prompts.registerSection('裸段', () => ''), 'PLUGIN_PROMPT_SLOT_INVALID'); // 无 /
+    expectCode(() => handle.ctx.prompts.registerSection('other-domain/seg', () => ''), 'PLUGIN_PROMPT_SLOT_INVALID'); // 域前缀 ≠ 插件 id
+    expectCode(() => handle.ctx.prompts.registerSection('acme-widgets/a/b', () => ''), 'PLUGIN_PROMPT_SLOT_INVALID'); // 双 /
+    expectCode(() => handle.ctx.prompts.registerSection('acme-widgets/', () => ''), 'PLUGIN_PROMPT_SLOT_INVALID'); // 段名空
+  });
+
+  it('同 slot 撞位拒（PLUGIN_PROMPT_SECTION_CONFLICT）', () => {
+    const { handle } = assemble();
+    handle.ctx.prompts.registerSection('acme-widgets/hints', () => '一');
+    expectCode(
+      () => handle.ctx.prompts.registerSection('acme-widgets/hints', () => '二'),
+      'PLUGIN_PROMPT_SECTION_CONFLICT',
+    );
+  });
+
+  it('core: 件域前缀去前缀比对（core:foo ↔ foo/段）', () => {
+    const { handle } = assemble({ pluginId: 'core:foo' });
+    expect(() => handle.ctx.prompts.registerSection('foo/bar', () => '')).not.toThrow();
+    expectCode(() => handle.ctx.prompts.registerSection('core:foo/bar', () => ''), 'PLUGIN_PROMPT_SLOT_INVALID');
+  });
+});
+
+describe('ctx.effect 与服务目录', () => {
+  it('effect 计频率数 + LIFO 回卷经插件作用域', async () => {
+    const { handle, scope } = assemble();
+    const order: string[] = [];
+    handle.ctx.effect(() => () => order.push('one'));
+    handle.ctx.effect(() => () => order.push('two'));
+    await scope.dispose();
+    expect(order).toEqual(['two', 'one']);
+  });
+
+  it('get 缺席报错附现行服务目录名单（message 含名单 + 插件归因）', () => {
+    const { handle, scope } = assemble();
+    scope.provide('known-svc', 1);
+    try {
+      handle.ctx.get('typo-name');
+      expect.unreachable();
+    } catch (err) {
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('CONTEXT_SERVICE_MISSING');
+        expect(err.message).toContain('known-svc'); // 目录名单在场——点名错误当场可诊
+        expect(err.message).toContain('acme-widgets'); // 归因插件 id
+        return;
+      }
+      throw err;
+    }
+  });
+});
