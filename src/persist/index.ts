@@ -31,6 +31,11 @@ export {
   ephemeralSecretKey,
 } from './secret-box.js';
 export { openStore, Store } from './store.js';
+// 进程级 durable 审计流（05 §9 audit_events——U3 落码批 U3-2）：迁移项声明
+// export-only（宿主装配根 HOST_MIGRATION_TAIL 机械聚合——同 credentials v7
+// 形）；写入面经库句柄构造，单写者 = 宿主固定件（boot 幂等 diff/高危面记账）
+export { AUDIT_MIGRATION, createAuditFace } from './audit.js';
+export type { AuditFace, AuditEventRow } from './audit.js';
 // 派生库开库面（批 18b——03 §10.8 obs 自管库文件的执法位：物理卫生三拍
 // 单源复用，schema 主权归调用方）
 export { openAuxDatabase } from './aux.js';
