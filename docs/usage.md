@@ -1,0 +1,163 @@
+# 使用指南
+
+本文自包含覆盖 berry-agent 的安装、入口命令族、TUI 操作与环境变量。架构背景见[架构总览](./architecture.md)。
+
+> 状态：`0.1.0-alpha`。命令族中标注「尚未装配」的动词会诚实报错退出（解析与旗标面已就绪，执行面随后续版本接入）——不含糊、不静默。
+
+## 安装
+
+要求 Node.js ≥ 24。
+
+```bash
+npm install -g berry-agent
+```
+
+或从源码：
+
+```bash
+git clone https://github.com/miuiadmin/berry-agent.git
+cd berry-agent
+npm install
+npm run build
+node dist/host/main.js --help
+```
+
+首次启动自动创建数据目录 `~/.berry-agent/`（可用 `BERRY_AGENT_DATA_DIR` 重定位）。
+
+## 模型配置
+
+缺省模型 `anthropic/claude-sonnet-5`（pi-ai 直连；凭证按 provider 生态变量供给）。
+
+```bash
+export ANTHROPIC_API_KEY=sk-...   # 凭证按 provider 生态变量供给
+export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 provider/model
+```
+
+## 入口命令族
+
+```
+berry-agent [命令] [旗标]
+```
+
+| 命令 | 作用 |
+| --- | --- |
+| （无参） | TUI 主入口：直进对话 |
+| `run "<message>"` | 单次执行：一轮对话 → stdout 输出结果 |
+| `serve` | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词） |
+| `mcp` | MCP server 包装形态 |
+| `dump-config` | 打印实际生效装配（诊断） |
+| `plugins <sub>` | 插件生命周期：`list` 在场；`install/uninstall/mount/unmount/toggle/update/check` 中 `check` 只读、写侧六动词尚未装配 |
+| `sessions <sub>` | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex` |
+| `upgrade` | 升级维护动词（尚未装配） |
+
+退出码三态：**0** 成功（含诚实空——空清单/零命中非失败）/ **1** 执行失败 / **2** 环境态误用（用法错、TUI 在非交互环境）。
+
+### TUI（无参启动）
+
+无参启动按当前目录取最新会话——有则续接、无则新建。
+
+| 键 | 作用 |
+| --- | --- |
+| `Enter` | 提交输入 |
+| `Ctrl+C` | 打断模型运行中回合 / 撤销审批提问 |
+| `Ctrl+D` | 空框退出 |
+| `@` | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形） |
+| `/` | 命令补全（注册命令表） |
+
+TUI 内建命令（随插件装载动态扩展）：`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理）、`/tick`（定时任务手动推进）、`/browser install`（浏览器引擎安装）、`/memory-export` `/memory-import`（记忆导入导出）等。
+
+### run 单次执行
+
+```bash
+berry-agent run "解释这段代码的作用"
+berry-agent run --continue "继续刚才的话题"          # 取当前目录最新会话续接
+berry-agent run --session <id> "继续指定会话"         # 按 id 续接
+berry-agent run --fork "从这里分叉另起一路"           # 边界快照分叉后续跑
+berry-agent run --ephemeral "一次性问题，零落盘"       # 零落盘单发
+berry-agent run --read-only "只读分析这个仓库"         # 只读沙箱单发
+```
+
+run 旗标族：
+
+| 旗标 | 作用 |
+| --- | --- |
+| `--output-format <text\|json\|stream>` | 输出三档（缺省 text） |
+| `--output-last-message <file>` | 末条 assistant 文本原子写文件 |
+| `--ephemeral` | 零落盘单发（与续接族/`--tick`/`--background` 互斥） |
+| `--max-turns <n>` | turn 数帽（到帽收场如实标 truncated） |
+| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥） |
+| `--read-only` | read-only 沙箱单发 |
+| `--tick <名>` | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥） |
+| `--background` | 后台道预算记账入口 |
+| `--no-delta` | 线面退订流式增量 |
+
+`--output-schema` 尚未实现：显式传入即用法错退 2（不静默忽略）。
+
+裸 `--` 之后的 argv 全字面（正当以 `--` 起头的消息内容保真送达）；未识别 `--` 词一律用法错退 2——防旗标语义静默并进消息正文送模型。
+
+### sessions 会话管理
+
+```bash
+berry-agent sessions list              # 清单：id/标题/时间/血缘（updated 倒序，帽 100）
+berry-agent sessions resume <id>       # 按 id 续接后进 TUI（与无参 TUI 的按目录取最新互补）
+berry-agent sessions fork <id>         # 边界快照分叉（种子事件随种子走）
+berry-agent sessions search "关键词"    # 跨会话全文检索（bm25 序，输出 id/标题/#seq/切窗摘录）
+berry-agent sessions reindex           # 全文索引全量重建（派生物不修不补——重建即修复）
+```
+
+读腿（list/search/reindex）零装配直开库——不开运行时、不占单活跃机标记；`fork` 与 `run --fork` 同机（钩子保真）；`resume` 在非交互环境退 2 并指引改 `run --session`。
+
+### serve 常驻宿主与自动化通道
+
+```bash
+berry-agent serve                    # stdio JSONL 线协议（SDK spawn 形态）
+berry-agent serve --daemon           # 后台守护（sock + 可选 TCP 面预置 token）
+berry-agent serve --port 7860        # HTTP+SSE 面（/v1/* 程序调用族）
+berry-agent serve status             # 守护态查询（只读豁免——不占单活跃机）
+berry-agent serve stop               # 停守护
+```
+
+配套生态：
+
+- **npm SDK**：`npm install berry-agent-sdk`——类型化客户端，spawn stdio / 直连 HTTP 两传输；
+- **MCP 包装**：`berry-agent mcp` 以 MCP server 形态暴露 `berry-agent` / `berry-agent-reply` 两工具，供任意 MCP 客户端接入；
+- **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。
+
+### plugins 插件管理
+
+```bash
+berry-agent plugins list             # 三分区清单：core: 内置 / 磁盘装机 / 装载失败
+berry-agent plugins check            # 装机面体检（只读）
+```
+
+写侧六动词（`install`/`uninstall`/`mount`/`unmount`/`toggle`/`update`）解析与旗标面已就绪、执行面尚未装配。当前启用面由数据目录 `enabled.yaml` 直接管理（见[运维手册](./operations.md#启用清单-enabledyaml)）；`--no-plugins` 安全模式跳过全部插件装载（core: 与用户插件都不装）——坏插件锁死启动时的自救位。
+
+## 环境变量
+
+前缀一律 `BERRY_AGENT_*`：
+
+| 变量 | 作用 | 缺省 |
+| --- | --- | --- |
+| `BERRY_AGENT_MODEL` | 覆盖缺省模型 | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR` | 数据目录 | `~/.berry-agent` |
+| `BERRY_AGENT_DB_PATH` | 库文件路径（独立梯子——重定向库文件而不动数据目录） | `<数据目录>/sessions.db` |
+| `BERRY_AGENT_LOG_LEVEL` | 日志级别：error / warn / info / debug / silent | `info` |
+| `BERRY_AGENT_BASH_PATH` | bash 工具可执行路径（缺失 fail-loud） | PATH 发现序 |
+| `BERRY_AGENT_FD_PATH` | `@` 文件补全的 fd 可执行路径（缺失退化内置遍历） | PATH 发现序 |
+| `BERRY_AGENT_BROWSER_PATH` | 浏览器引擎可执行路径 | 引擎发现序 |
+| `BERRY_AGENT_BIN` | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源） | 进程自身路径推导 |
+| `BERRY_AGENT_CRON` | cron 可选后端开关/载体 | 进程内挂钟 |
+
+## 遥测立场
+
+**默认不发任何网络包**——无使用统计、无崩溃上报、无版本检查。出厂网络面 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开面 / 插件装机与更新 / upgrade 维护动词），此外零。若未来加任何回传，将按四段式公告（Why / How / What / How to disable）披露且默认值反转视为破坏性变更。
+
+## 技能与记忆
+
+- **技能**：SKILL.md 双层结构（frontmatter + 正文），六位发现层（项目 `.agents/skills/` > 用户 `~/.berry-agent/skills/` > 跨库 `~/.agents/skills`、`~/.claude/skills` > 插件 > 出厂）；对话中渐进披露，`skill_manage` 工具可创建/修补；
+- **记忆**：跨会话持久条目（偏好、约定、教训），常驻简报 + 按需检索两路注入；`/memory-export` `/memory-import` 明文迁移。
+
+## 下一步
+
+- [插件开发指南](./plugin-development.md)——写第一个插件；
+- [运维手册](./operations.md)——数据目录、备份、故障排查。

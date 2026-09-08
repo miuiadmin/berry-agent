@@ -3,7 +3,68 @@
 单一、可扩展的个人 Agent——对话与编码即本体，一切能力以**插件**装载。
 TypeScript + SQLite + [pi-ai](https://github.com/earendil-works/pi-ai)。
 
-> 状态：`0.1.0-alpha`，开发中——规范先行、契约优先，代码随批次纵切落地。
+> 状态：`0.1.0-alpha`，开发中——契约先行、逐批纵切落地；官方插件 15 件已随包出厂。
+
+核心理念：**基座强在接口，能力长在插件**——扩展点/钩子/事件/服务面做满做稳，任何能力（shell 执行、技能、浏览器、定时任务、记忆、Web 界面……）都以插件装载表达；官方件与社区件走同一装载面，第一方无私有车道。
+
+## 安装
+
+要求 Node.js ≥ 24。
+
+```bash
+npm install -g berry-agent
+```
+
+## 快速开始
+
+```bash
+berry-agent                    # TUI：直进对话（按当前目录续接最新会话）
+berry-agent run "一句话单发"     # 单次执行 → stdout
+berry-agent sessions list      # 会话管理：list / resume / fork / search / reindex
+berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
+```
+
+首启自动创建 `~/.berry-agent/`。模型缺省 `anthropic/claude-sonnet-5`，凭证按 provider 生态变量供给（如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` 可覆盖。
+
+完整命令族、旗标与 TUI 键位见[使用指南](./docs/usage.md)。
+
+## 官方插件 15 件（默认启用，可禁用）
+
+`core:exec`（shell 执行）· `core:skills`（技能）· `core:web`（网络取数）· `core:scheduler`（定时任务）· `core:goal`（目标续跑）· `core:subagent`（子代理）· `core:checkpoint`（边界快照/rewind）· `core:memory`（记忆）· `core:mcp`（MCP 客户端）· `core:lsp`（LSP 客户端）· `core:browser`（浏览器）· `core:webui`（Web 界面）· `core:sdk`（自动化通道）· `core:obs`（观测）· `core:issue`（issue 模式）
+
+## 自动化通道
+
+- **npm SDK**：`npm install berry-agent-sdk`——类型化客户端（spawn stdio / 直连 HTTP 两传输）；
+- **MCP**：`berry-agent mcp` 以 MCP server 形态暴露两工具，任意 MCP 客户端可接入；
+- **守护**：`serve --daemon` + `serve status` / `serve stop`。
+
+## 环境变量
+
+前缀一律 `BERRY_AGENT_*`：
+
+| 变量 | 作用 | 缺省 |
+| --- | --- | --- |
+| `BERRY_AGENT_MODEL` | 覆盖缺省模型 | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR` | 数据目录 | `~/.berry-agent` |
+| `BERRY_AGENT_DB_PATH` | 库文件路径（独立梯子） | `<数据目录>/sessions.db` |
+| `BERRY_AGENT_LOG_LEVEL` | error / warn / info / debug / silent | `info` |
+| `BERRY_AGENT_BASH_PATH` | bash 可执行路径 | PATH 发现序 |
+| `BERRY_AGENT_FD_PATH` | `@` 补全的 fd 路径 | PATH 发现序 |
+| `BERRY_AGENT_BROWSER_PATH` | 浏览器引擎路径 | 引擎发现序 |
+
+## 遥测
+
+**默认不发任何网络包**——无使用统计、无崩溃上报、无版本检查。出厂网络面 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开面 / 插件装机与更新 / upgrade 维护动词），此外零。详见[运维手册](./docs/operations.md#遥测立场)。
+
+## 文档
+
+| 册 | 内容 |
+| --- | --- |
+| [架构总览](./docs/architecture.md) | 分层、模块拓扑、运行时骨架、安全模型 |
+| [使用指南](./docs/usage.md) | 安装、命令族、TUI、环境变量 |
+| [插件开发指南](./docs/plugin-development.md) | manifest、ctx 能力面、扩展点、发布 |
+| [开发指南](./docs/development.md) | 门禁、拓扑律、测试纪律、贡献流程 |
+| [运维手册](./docs/operations.md) | 数据目录、备份恢复、故障排查 |
 
 ## 开发
 
@@ -13,20 +74,10 @@ npm run typecheck       # 门禁一：tsc --noEmit
 npm test                # 门禁二：vitest run
 npm run lint:topology   # 门禁三：模块 DAG 边表 + API 治理面门禁
 npm run format:check    # 门禁四：prettier 检查
-npm run build           # tsc 直出 dist/
+npm run build           # 构建链（webui → tsc → API 声明快照）
 ```
 
-四门禁提交前全绿。
-
-## 环境变量
-
-| 变量 | 作用 | 缺省 |
-| --- | --- | --- |
-| `BERRY_AGENT_MODEL` | 覆盖缺省模型 | — |
-| `BERRY_AGENT_DATA_DIR` | 覆盖数据目录 | `~/.berry-agent` |
-| `BERRY_AGENT_LOG_LEVEL` | 日志级别（error / warn / info / debug / silent） | `info` |
-
-其余 env 前缀一律 `BERRY_AGENT_*`。
+四门禁提交前全绿。贡献流程见[开发指南](./docs/development.md)与 [CONTRIBUTING](./CONTRIBUTING.md)。
 
 ## License
 
