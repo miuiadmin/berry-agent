@@ -84,6 +84,7 @@ import {
   createCiteRecorder,
   createDiffTracker,
   createImmediateExtractor,
+  createLastAssistantTextCache,
   createMemoryCycle,
   createMemoryDao,
   createMemoryTools,
@@ -554,17 +555,24 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         deps.llm !== undefined && deps.fetchEvents !== undefined
           ? createMemoryCycle({ dao, llm: deps.llm(), fetchEvents: deps.fetchEvents, warn })
           : undefined;
+      // per-session 最近 assistant 文本回看缓存（§4 即时路第二动作——2026-09-08
+      // 消化批；同一 session/event 消费点内喂入零新事件通道，LRU 帽族同 §6 epochs）
+      const lastAssistant = createLastAssistantTextCache();
       // 即时提取（isSessionPolluted 与周期路共享同源追踪器——周期腿缺席时
       // 无污染判定源，提取不滤 = 保守多提取，不丢纠正信号）
       const extractor = createImmediateExtractor({
         dao,
         ...(cycle !== undefined ? { isSessionPolluted: (id) => cycle.pollution.isPolluted(id) } : {}),
+        // 回看位（§4 即时路第二动作——2026-09-08 消化批）：同会话紧邻前一条
+        // assistant 文本（负效用回写消费；喂入腿在下方 session/event 消费点内）
+        lastAssistantText: lastAssistant.get,
         warn,
       });
       const cite = createCiteRecorder({ dao, warn });
 
       // session/event 三消费腿（03 §146——user/message→即时提取；assistant/
-      // message→引用记录（件内自滤）；全事件→周期计数（件内自滤 turn/end +
+      // message→引用记录（件内自滤）+ 回看缓存喂入（§4 第二动作——空文本面
+      // 同覆写，「紧邻前一条」语义忠实）；全事件→周期计数（件内自滤 turn/end +
       // tool/call）。surfaceOp 遮蔽指令不进消费面（surface 事件滤除）。
       // 观察者异常隔离双保险：dispatch.emit 监听器互隔离 + 发射侧 try/catch）
       const disposeHook = context.on('session/event', (data) => {
@@ -572,6 +580,8 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         if (event.surfaceOp !== undefined) return;
         if (event.type === 'user/message') {
           extractor.onUserMessage(sessionId, event.seq, event.data as ExtractableUserMessage);
+        } else if (event.type === 'assistant/message') {
+          lastAssistant.observe(sessionId, event.data);
         }
         cite.onEvent(sessionId, event.type, event.data);
         cycle?.onDurableEvent(sessionId, event);

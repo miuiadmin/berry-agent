@@ -87,11 +87,11 @@ function ftsHits(query: string): number {
   ).n;
 }
 
-describe('迁移链（三槽顺跑）', () => {
-  it('user_version=6、表族四件在场', () => {
+describe('迁移链（四槽顺跑）', () => {
+  it('user_version=9、表族四件在场（v9 表重建后 memory_access 仍在名册）', () => {
     openDao();
     const db = store!.sqlite();
-    expect(db.pragma('user_version', { simple: true })).toBe(6);
+    expect(db.pragma('user_version', { simple: true })).toBe(9);
     const names = new Set(
       (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(
         (r) => r.name,

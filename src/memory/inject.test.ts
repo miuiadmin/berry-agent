@@ -295,7 +295,7 @@ describe('晋升候选尾行（批 18c-7——06 §9.1 候选点名）', () => {
     }
   }
 
-  /** 双摄入造 evidence=2（精确合并腿——「反复命中」自然造法） */
+  /** 双摄入造 evidence=2 + 证据来源会话多样数=2（精确合并腿 + 跨会话维——「反复命中」自然造法） */
   function seedTwice(dao: MemoryDao, overrides: Partial<MemoryCandidate> = {}): string {
     const base: MemoryCandidate = {
       ownerKey: 'global',
@@ -306,7 +306,8 @@ describe('晋升候选尾行（批 18c-7——06 §9.1 候选点名）', () => {
       sourceRefs: [{ sessionId: 's1', seq: 1 }],
     };
     const { id } = dao.ingest({ ...base, ...overrides });
-    dao.ingest({ ...base, ...overrides }); // 第二次摄入 → 精确合并 evidence=2
+    // 第二次摄入换会话键 → 精确合并 evidence=2 且 source_refs 并集跨两会话（六维判据双档齐备）
+    dao.ingest({ ...base, ...overrides, sourceRefs: [{ sessionId: 's2', seq: 1 }] });
     return id;
   }
 
@@ -361,7 +362,15 @@ describe('晋升候选尾行（批 18c-7——06 §9.1 候选点名）', () => {
   it('usage ≥ 1 单独够格（cite 是比流水更强的效用信号——单次引用即「反复命中」档）', () => {
     const dao = setup();
     fillCompetitive(dao);
-    const id = seed(dao, { kind: 'failure', summary: 'cited once failure' }); // evidence 1
+    // 单次摄入（evidence 1）但溯源跨两会话：六维下唯有 usage 支能放行——判别力保留
+    const id = seed(dao, {
+      kind: 'failure',
+      summary: 'cited once failure',
+      sourceRefs: [
+        { sessionId: 's1', seq: 1 },
+        { sessionId: 's2', seq: 1 },
+      ],
+    });
     sql('UPDATE memories SET usage_count = 1, last_used_at = ? WHERE id = ?', nowMs, id);
     expect(briefBaseline(dao, nowMs, ['global']).candidates.map((e) => e.id)).toEqual([id]);
   });

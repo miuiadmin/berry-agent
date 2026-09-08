@@ -29,6 +29,7 @@
  * 边的 18c-6 跨会话检索消费位仍占位）。
  */
 import { parseEventSource } from '../contracts/index.js';
+import { recordCorrectedCites } from './cite.js';
 import type { MemoryDao } from './dao.js';
 import { MEMORY_CONTENT_MAX_CHARS, MEMORY_SUMMARY_MAX_CHARS, type MemoryCandidate } from './types.js';
 
@@ -169,9 +170,18 @@ export interface ImmediateExtractorDeps {
   /**
    * 会话资格检查 seam（§4.1 两路入口同一检查——编排件首步、源滤除之前）：
    * polluted 会话跳过提取。缺省恒 eligible（装配根把周期路编排件的 pollution
-   * 追踪器接到此位——批 18c-5）。
+   * 追踪器接到此位——批 18c-5）。**负效用回写同受此闸**（2026-09-08 消化批
+   * 冷读闸裁定——派生面从严：提取与负效用回写是从会话内容派生信号的写点，
+   * 污染可注入；cite 正账是记录面无闸，不对称系有意分立）。
    */
   readonly isSessionPolluted?: (sessionId: string) => boolean;
+  /**
+   * 回看位 seam（§4 即时路第二动作——2026-09-08 消化批）：同会话**紧邻前一条**
+   * assistant/message 的文本面（装配面 per-session 最近 assistant 文本缓存——
+   * LRU 帽族同 §6 epochs）。纠正命中后回看其引用标记记负效用；缺席 = 负效用
+   * 回写腿缺席（降级——correction 提取本体不受影响）。
+   */
+  readonly lastAssistantText?: (sessionId: string) => string | null;
   /** 进程日志（缺省静默——失败 warn 分层归装配面） */
   readonly warn?: (message: string) => void;
 }
@@ -185,13 +195,19 @@ export interface ImmediateExtractor {
   onUserMessage(sessionId: string, seq: number, data: ExtractableUserMessage): { extracted: boolean };
 }
 
-/** 即时路编排件工厂：源滤除 → 文本提取 → 触发词检测 → 候选组装 → ingest 单点 */
+/**
+ * 即时路编排件工厂：资格首步 → 源滤除 → 文本提取 → 触发词检测 →（命中即记
+ * 负效用回看 +）候选组装 → ingest 单点。第二动作（负效用回写）与候选 ingest
+ * **失败路径分立**：回写件自持 try/catch（cite.ts recordCorrectedCites 尽力而
+ * 为），候选走 §5 合并被拒（secret 扫描等）不连带负效用落账。
+ */
 export function createImmediateExtractor(deps: ImmediateExtractorDeps): ImmediateExtractor {
   const warn = deps.warn ?? (() => {});
   return {
     onUserMessage(sessionId, seq, data) {
       try {
-        // 资格检查首步（§4.1——源滤除之前；polluted 会话跳过提取）
+        // 资格检查首步（§4.1——源滤除之前；polluted 会话两动作同跳：提取与
+        // 负效用回写均为派生面，污染可注入——派生面从严）
         if (deps.isSessionPolluted !== undefined && deps.isSessionPolluted(sessionId)) {
           return { extracted: false };
         }
@@ -200,11 +216,18 @@ export function createImmediateExtractor(deps: ImmediateExtractorDeps): Immediat
         if (text === null) return { extracted: false };
         const hit = detectCorrectionHit(text);
         if (hit === null) return { extracted: false };
+        // —— 第二动作：纠正负效用回看（§4——触发位 = 纠正**命中**即记；回看
+        // 紧邻前一条 assistant 文本全复用 §6 解析面；件内自持 try/catch，
+        // 候选 ingest 被拒不连带）——
+        const previousAssistantText = deps.lastAssistantText?.(sessionId) ?? null;
+        if (previousAssistantText !== null && previousAssistantText !== '') {
+          recordCorrectedCites(deps.dao, sessionId, previousAssistantText, warn);
+        }
         deps.dao.ingest(buildCorrectionCandidate(hit, sessionId, seq));
         return { extracted: true };
       } catch (error) {
         // 尽力而为（06 §4——提取失败不重试不反噬；写前扫描拒写〔secret 命中〕
-        // 等被拒候选在此吞——进程日志是唯一观测面）
+        // 等被拒候选在此吞——进程日志是唯一观测面；负效用已在前位独立落账）
         warn(`memory 即时路提取失败（尽力而为跳过）：${error instanceof Error ? error.message : String(error)}`);
         return { extracted: false };
       }

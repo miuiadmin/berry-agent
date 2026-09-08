@@ -64,7 +64,9 @@ export {
   MEMORY_PROMOTION_TOP_N,
   MEMORY_PROMOTION_EVIDENCE_MIN,
   MEMORY_PROMOTION_USAGE_MIN,
+  MEMORY_PROMOTION_DISTINCT_SESSIONS_MIN,
   MEMORY_DIFF_EPOCHS_LRU,
+  MEMORY_LAST_ASSISTANT_TEXT_LRU,
   MEMORY_ACCESS_WINDOW_DAYS,
   MEMORY_EXPORT_MAGIC,
   MEMORY_EXPORT_FORMAT_VERSION,
@@ -159,8 +161,14 @@ export { sliceReviewWindow, createMemoryCycle } from './cycle.js';
 export type { FetchEventsFn, MemoryCycleDeps, CycleFireResult, MemoryCycle } from './cycle.js';
 export { snippetOf, ensureFtsIndex } from './fts.js';
 export type { EnsureFtsDeps, FtsEnsureReport } from './fts.js';
-export { parseCitations, createCiteRecorder } from './cite.js';
-export type { CiteRecorderDeps, CiteRecorder } from './cite.js';
+export {
+  parseCitations,
+  createCiteRecorder,
+  recordCorrectedCites,
+  createLastAssistantTextCache,
+  assistantTextOf,
+} from './cite.js';
+export type { CiteRecorderDeps, CiteRecorder, CorrectedCitesDaoFace } from './cite.js';
 export {
   MEMORY_DIFF_EVENT_TYPE,
   MEMORY_DIFF_EVENT_META,

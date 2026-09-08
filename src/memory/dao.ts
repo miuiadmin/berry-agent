@@ -169,6 +169,17 @@ export interface MemoryDao {
    * usage_count ≡ cite 行数的物理承载）。
    */
   markUsed(ids: readonly string[], sessionId?: string | null): number;
+  /**
+   * 纠正负效用回写批量（2026-09-08 消化批——06 §3「纠正负效用回写」条，markUsed
+   * 同族计量面写点）：单事务两写一体 = corrected_count+1 + access 行 op=
+   * 'corrected-cite' 带**纠正发生会话**键。守卫与 markUsed 分立处：①**不保活**
+   * ——不动 usage_count/last_used_at/expires_at（无续期语义，「被纠正」不是使用）；
+   * ③**终态行照记**——无 `status != 'expired'` 过滤（负效用无续期复活面，
+   * 流水是审计事实不因终态蒸发；restore 后 corrected_count 延续）。缺席 id
+   * 零命中跳过；同事件同条目一次的守卫④在调用侧解析面（同消息同短 id 去重）。
+   * 返回实记条数（corrected_count ≡ corrected-cite 行数的物理承载）。
+   */
+  markCorrected(ids: readonly string[], sessionId?: string | null): number;
 
   /* —— 导入导出面（批 18c-8——06 §3 文件导入导出条 + 落码定形注） —— */
 
@@ -207,6 +218,7 @@ interface MemoryDbRow {
   updated_at: number;
   usage_count: number;
   last_used_at: number | null;
+  corrected_count: number;
   frozen: number;
   ttl_days: number | null;
   expires_at: number | null;
@@ -215,7 +227,7 @@ interface MemoryDbRow {
 /** memories 查列清单（单源——get/listVisible/目标扫描共用） */
 const MEMORY_COLUMNS = `id, owner_key, kind, summary, content, confidence, evidence_count, status,
                         superseded_by, source_refs, created_at, updated_at, usage_count,
-                        last_used_at, frozen, ttl_days, expires_at`;
+                        last_used_at, corrected_count, frozen, ttl_days, expires_at`;
 
 /** source_refs 解析（坏形 JSON 按 [] 兜底——读面不炸、写面才执法） */
 function parseSourceRefs(raw: string): MemorySourceRef[] {
@@ -244,6 +256,7 @@ function mapRow(row: MemoryDbRow): MemoryRow {
     updatedAt: row.updated_at,
     usageCount: row.usage_count,
     lastUsedAt: row.last_used_at,
+    correctedCount: row.corrected_count,
     frozen: row.frozen === 1,
     ttlDays: row.ttl_days,
     expiresAt: row.expires_at,
@@ -393,6 +406,10 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   );
   // 短 id 归责（substr 定长前缀比对——与 accessLog 前缀过滤同法，免 LIKE 通配转义面）
   const stmtResolvePrefix = db.prepare(`SELECT id FROM memories WHERE substr(id, 1, 8) = ?`);
+  // 纠正负效用回写（2026-09-08 消化批——§3 守卫①③）：**只动 corrected_count**——
+  // 不保活（usage/last_used/expires 全不动）；**无状态过滤**（终态行照记——
+  // 对照 markUsed 的 expired 跳过：那是防续期复活，负效用无此面）
+  const stmtMarkCorrected = db.prepare(`UPDATE memories SET corrected_count = corrected_count + 1 WHERE id = ?`);
   // 健康面计数（/memory 管理面同源——按状态逐状态取数；全库不分 owner 假精度）
   const stmtHealthStatuses = db.prepare(`SELECT status, count(*) AS n FROM memories GROUP BY status`);
   const stmtHealthFrozen = db.prepare(`SELECT count(*) AS n FROM memories WHERE frozen = 1`);
@@ -404,12 +421,13 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   const stmtListForExportAll = db.prepare(`SELECT ${MEMORY_COLUMNS} FROM memories ORDER BY id`);
   const stmtListForExportOwner = db.prepare(`SELECT ${MEMORY_COLUMNS} FROM memories WHERE owner_key = ? ORDER BY id`);
   // 导入直插（全列 INSERT——id/owner_key/状态列原值；stmtInsertMemory 硬编码
-  // 'active'/NULL 不可复用，导入是状态面第二写点故独立语句）
+  // 'active'/NULL 不可复用，导入是状态面第二写点故独立语句）；corrected_count
+  // 为容错位（旧 17 列文件缺席按 DEFAULT 0 收——port 解析面单点判定）
   const stmtImportInsert = db.prepare(
     `INSERT INTO memories (id, owner_key, kind, summary, content, confidence, evidence_count,
                            status, superseded_by, source_refs, created_at, updated_at,
-                           usage_count, last_used_at, frozen, ttl_days, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                           usage_count, last_used_at, corrected_count, frozen, ttl_days, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   /** 坏形拒（MEMORY_ENTRY_INVALID——闭集/形状/越界判据全清单） */
@@ -818,6 +836,24 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     return applied;
   });
 
+  /**
+   * markCorrected：纠正负效用回写批量（2026-09-08 消化批——单事务两写一体：
+   * corrected_count+1 + op='corrected-cite' 流水）。无状态过滤（终态照记——
+   * 守卫③）、零保活面（守卫①——语句本体即防线）；缺席 id changes=0 跳过。
+   */
+  const markCorrectedTx = db.transaction((ids: readonly string[], sessionId: string | null): number => {
+    const now = deps.now();
+    let applied = 0;
+    for (const id of ids) {
+      const info = stmtMarkCorrected.run(id);
+      if (info.changes > 0) {
+        applied += 1;
+        stmtInsertAccess.run(newId(), id, 'corrected-cite', sessionId, now);
+      }
+    }
+    return applied;
+  });
+
   /** sweep 双清同拍单事务（批 18c-8——TTL 物化 + 访问日志窗口清扫，06 §3「同节拍同拍」兑现） */
   const sweepTx = db.transaction((now: number): { expired: number; accessPruned: number } => {
     const expired = stmtSweepExpired.run(now).changes;
@@ -873,6 +909,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       row.updated_at,
       row.usage_count,
       row.last_used_at,
+      row.corrected_count ?? 0,
       row.frozen ? 1 : 0,
       row.ttl_days,
       row.expires_at,
@@ -1083,6 +1120,9 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     },
     markUsed(ids, sessionId) {
       return markUsedTx(ids, sessionId ?? null);
+    },
+    markCorrected(ids, sessionId) {
+      return markCorrectedTx(ids, sessionId ?? null);
     },
     listForExport(ownerKey) {
       const rows =

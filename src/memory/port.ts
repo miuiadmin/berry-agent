@@ -65,6 +65,7 @@ export function exportRowOf(row: MemoryRow): MemoryExportRow {
     updated_at: row.updatedAt,
     usage_count: row.usageCount,
     last_used_at: row.lastUsedAt,
+    corrected_count: row.correctedCount,
     frozen: row.frozen,
     ttl_days: row.ttlDays,
     expires_at: row.expiresAt,
@@ -141,7 +142,8 @@ function isNonNegInt(v: unknown): boolean {
 }
 
 /**
- * 数据行解析（词法判定全清单——17 列在场 + 类型 + 闭集 + 区间）。
+ * 数据行解析（词法判定全清单——18 列在场〔corrected_count 为**容错位**：旧 17 列
+ * 文件缺席按 DEFAULT 0 收、不折坏形；在场须非负整数〕+ 类型 + 闭集 + 区间）。
  * 行级坏形抛 MEMORY_ENTRY_INVALID（与 ingest 坏形同码——runMemoryImport
  * 折 rejectedMalformed 分账）。
  */
@@ -214,6 +216,12 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
   const lastUsed = o['last_used_at'];
   if (lastUsed !== null && !isNonNegInt(lastUsed))
     problems.push(`last_used_at 坏形（非负整数或 null）：${String(lastUsed)}`);
+  // corrected_count 容错位（2026-09-08 消化批——冷读闸 major 销账）：缺席 = 旧
+  // 17 列文件按 DEFAULT 0 收（缺席不折坏形）；在场须非负整数
+  const corrected = o['corrected_count'];
+  if (corrected !== undefined && corrected !== null && !isNonNegInt(corrected)) {
+    problems.push(`corrected_count 坏形（非负整数）：${String(corrected)}`);
+  }
   const frozen = o['frozen'];
   if (typeof frozen !== 'boolean') problems.push(`frozen 坏形（布尔）：${String(frozen)}`);
   const ttlDays = o['ttl_days'];
@@ -240,6 +248,7 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
     updated_at: o['updated_at'] as number,
     usage_count: usage as number,
     last_used_at: (lastUsed as number | null) ?? null,
+    ...(isNonNegInt(corrected) ? { corrected_count: corrected as number } : {}),
     frozen: frozen as boolean,
     ttl_days: (ttlDays as number | null) ?? null,
     expires_at: (expiresAt as number | null) ?? null,

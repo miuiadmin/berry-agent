@@ -236,8 +236,19 @@ export const MEMORY_PROMOTION_EVIDENCE_MIN = 2;
 /** 晋升候选判据：usage_count 下限（cite 是比 recall/search 流水更强的效用信号——单次即够格） */
 export const MEMORY_PROMOTION_USAGE_MIN = 1;
 
+/**
+ * 晋升候选判据：证据来源会话多样数下限（§9.1 跨会话维——2026-09-08 消化批；
+ * source_refs 溯源面纯派生零新账）。命名循冷读闸观察注：**证据来源**会话多样数，
+ * 非 cite 使用命中面——单会话重复命中多为同一任务重试，跨会话独立复现才是
+ * 可迁移策略（disjoint 泛化的个人化最小形态）。
+ */
+export const MEMORY_PROMOTION_DISTINCT_SESSIONS_MIN = 2;
+
 /** 简报差分纪元表容量帽（per-session epochs Map LRU——§6 差分纪律；被逐纪元下一请求懒派生） */
 export const MEMORY_DIFF_EPOCHS_LRU = 256;
+
+/** 回看缓存容量帽（per-session 最近 assistant 文本 Map LRU——§4 即时路第二动作；帽族同 §6 epochs 256） */
+export const MEMORY_LAST_ASSISTANT_TEXT_LRU = 256;
 
 /* ---------------- 数据形 ---------------- */
 
@@ -289,6 +300,11 @@ export interface MemoryRow {
   readonly updatedAt: number;
   readonly usageCount: number;
   readonly lastUsedAt: number | null;
+  /**
+   * 被纠正负效用次数（§3 corrected-cite 投影——cite 正账对冲的负账，
+   * ≡ corrected-cite 行数；2026-09-08 消化批，存量库经 v9 迁移补列）。
+   */
+  readonly correctedCount: number;
   /** 冻结位（恒简报/免 TTL/免合并覆写/免整理——0/1） */
   readonly frozen: boolean;
   /** 留存策略天数（NULL = 永久缺省） */
@@ -358,8 +374,11 @@ export interface IngestOutcome {
 
 /* ---------------- 持有面动词与检索面（批 18c-2——06 §6/§7 工具九件的数据面） ---------------- */
 
-/** 访问操作三值闭集（06 §6 三写点：recall 注入 / search 检索 / cite 引用回写） */
-export type MemoryAccessOp = 'recall' | 'search' | 'cite';
+/**
+ * 访问操作四值闭集（06 §6 四写点：recall 注入 / search 检索 / cite 引用回写 /
+ * corrected-cite 纠正负效用回写〔§4 即时路——2026-09-08 消化批〕）
+ */
+export type MemoryAccessOp = 'recall' | 'search' | 'cite' | 'corrected-cite';
 
 /** 检索命中行（memory_fts FTS5——18c-2 域 = 记忆库腿；跨会话 union 腿归 18c-6） */
 export interface MemorySearchHit {
@@ -416,7 +435,7 @@ export interface MemoryAccessLogQuery {
   readonly from?: number;
   /** 时间窗上界（epoch 毫秒，含） */
   readonly to?: number;
-  /** op 过滤（缺省 = 三值全量） */
+  /** op 过滤（缺省 = 四值全量） */
   readonly op?: MemoryAccessOp;
   /** 流水面行帽（缺省 50、硬帽 200） */
   readonly limit?: number;
@@ -529,6 +548,11 @@ export interface MemoryExportRow {
   readonly updated_at: number;
   readonly usage_count: number;
   readonly last_used_at: number | null;
+  /**
+   * 被纠正负效用次数（**容错位**——2026-09-08 消化批入列 17 → 18 列；导出恒写，
+   * 导入缺席按 DEFAULT 0 收〔旧 17 列文件〕、在场须非负整数）。
+   */
+  readonly corrected_count?: number;
   readonly frozen: boolean;
   readonly ttl_days: number | null;
   readonly expires_at: number | null;

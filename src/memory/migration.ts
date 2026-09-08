@@ -1,7 +1,9 @@
 /**
- * memory 表族迁移（三槽——06 §3 表族三迁移槽；05 §6.4「号随注册序顺延」：
- * 批 15a scheduler 占 v2、批 15b goal 占 v3 后本件顺占 v4/v5/v6。obs 自管库
- * 〔批 18b〕不入主库迁移链、无占号）。
+ * memory 表族迁移（四槽——06 §3 表族迁移槽；05 §6.4「号随注册序顺延」：
+ * 批 15a scheduler 占 v2、批 15b goal 占 v3 后本件顺占 v4/v5/v6；v9 为
+ * 2026-09-08 消化批补槽〔统一链当前 head=8 下为 v9——scheduler v2 / goal v3 /
+ * memory v4-6 / credentials v7 / audit v8 之后；在飞 lane 先占则随注册序顺延，
+ * 机制内容不变〕）。
  *
  * 槽次序恒定（06 §3 拍板——表族主迁移 → 效用两列 → 持有面三列 + 两新表）：
  *   v4 memory-family   —— memories 主表 + memory_fts 全文检索投影；
@@ -9,7 +11,9 @@
  *                          DEFAULT 0 / NULL 自然回填——行为零变）；
  *   v6 memory-holding —— frozen / ttl_days / expires_at 持有面三列（存量行
  *                          0 / NULL / NULL 回填——无 TTL，行为零变）+
- *                          memory_versions 版本链 + memory_access 访问日志。
+ *                          memory_versions 版本链 + memory_access 访问日志；
+ *   v9 memory-corrected —— corrected_count 补列 + memory_access 表重建
+ *                          （op CHECK 扩四词——2026-09-08 消化批）。
  *
  * DDL 真源 = 06 §3（列级以彼为准绳）；memories 主表 v4 起建即含 CHECK 闭集
  * （kind 七值 / status 三值——physical 层防线，与 02 §5.3 MEMORY_ENTRY_INVALID
@@ -95,9 +99,41 @@ const MEMORY_HOLDING_MIGRATION: MigrationSpec = {
   `,
 };
 
-/** 表族三迁移槽（host 装配根机械聚合入宿主单链——05 §6.4；export-only 本面） */
+/**
+ * v9：纠正负效用回写两动作（2026-09-08 消化批——06 §3「纠正负效用回写」条；
+ * 2026-09-09 冷读闸 blocker 销账的物理承载）。**迁移 sql 单事务执行**——搬数据
+ * 与改名原子（openStore 每 spec 一步 db.exec in transaction）。
+ * ① memories 补列 corrected_count（ALTER 存量行 DEFAULT 0 自然回填——行为零变；
+ *   正典 DDL 已折列，新库经本链同列幂等）；
+ * ② memory_access **表重建**——v6 建表实文 op 列带三词 CHECK（物理加固面），
+ *   SQLite ALTER 不及 CHECK 约束，第四词 'corrected-cite' 不经表重建在一切
+ *   已建库上被 CHECK 拒；重建 = 建新表（同 DDL 唯 CHECK 扩四词）搬数据改名 +
+ *   重建 idx_access_memory_ts（DROP 随表殁，须随建）。
+ */
+const MEMORY_CORRECTED_MIGRATION: MigrationSpec = {
+  version: 9,
+  name: 'memory-corrected',
+  sql: `
+    ALTER TABLE memories ADD COLUMN corrected_count INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE memory_access_v9 (
+      id              TEXT PRIMARY KEY,      -- uuid v7
+      memory_id       TEXT NOT NULL,
+      op              TEXT NOT NULL CHECK (op IN ('recall', 'search', 'cite', 'corrected-cite')),
+      session_id      TEXT,                  -- search 行恒 NULL（工具上下文无会话键）；cite/corrected-cite 行带发生会话键
+      ts              INTEGER NOT NULL       -- Unix 毫秒
+    ) STRICT;
+    INSERT INTO memory_access_v9 (id, memory_id, op, session_id, ts)
+      SELECT id, memory_id, op, session_id, ts FROM memory_access;
+    DROP TABLE memory_access;
+    ALTER TABLE memory_access_v9 RENAME TO memory_access;
+    CREATE INDEX idx_access_memory_ts ON memory_access (memory_id, ts);
+  `,
+};
+
+/** 表族四迁移槽（host 装配根机械聚合入宿主单链——05 §6.4；export-only 本面） */
 export const MEMORY_MIGRATIONS: readonly MigrationSpec[] = [
   MEMORY_FAMILY_MIGRATION,
   MEMORY_UTILITY_MIGRATION,
   MEMORY_HOLDING_MIGRATION,
+  MEMORY_CORRECTED_MIGRATION,
 ];

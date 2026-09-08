@@ -166,12 +166,23 @@ export function decideMerge(
 }
 
 /**
- * 效用综合分（06 §5 定稿式——§6 简报排序降序与 consolidation 溢出选取升序
- * 共用同一把尺）：`confidence × ln(evidence+1) × (1 + ln(usage+1))`。
- * usage 0 = ×1 基线（新条目不被惩罚）；证据与引用独立计功。
+ * 效用综合分（06 §5 定稿式〔2026-09-08 消化批修订——净用形〕——§6 简报排序
+ * 降序与 consolidation 溢出选取升序共用同一把尺）：`confidence × ln(evidence+1)
+ * × (1 + ln(净用+1))`。**usage 位取净用** = `max(usage_count − corrected_count, 0)`
+ * ——被用户纠正过的引用从效用功勋中扣除（cite 是模型自评面信号、用户纠正是
+ * 外部正确性信号，两账对冲防自我强化偏置）。净用 0 = ×1 基线（新条目不被
+ * 惩罚；净用扣尽即回基线、**不为负**——单次纠正不把条目打入负分区，证据维
+ * 仍独立计功）。correctedCount 缺席按 0（旧调用面零变）。
  */
-export function utilityScore(row: { confidence: number; evidenceCount: number; usageCount: number }): number {
-  return row.confidence * Math.log(row.evidenceCount + 1) * (1 + Math.log(row.usageCount + 1));
+export function utilityScore(row: {
+  confidence: number;
+  evidenceCount: number;
+  usageCount: number;
+  /** 被纠正负效用次数（§3 corrected-cite 投影——缺席 = 0） */
+  correctedCount?: number;
+}): number {
+  const netUsage = Math.max(row.usageCount - (row.correctedCount ?? 0), 0);
+  return row.confidence * Math.log(row.evidenceCount + 1) * (1 + Math.log(netUsage + 1));
 }
 
 /* ---------------- 溯源并集（血缘继承——条目消亡，溯源不死） ---------------- */

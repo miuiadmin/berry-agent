@@ -57,6 +57,7 @@ import {
   MEMORY_BRIEF_STALE_DAYS,
   MEMORY_BRIEF_TOP_N,
   MEMORY_DAY_MS,
+  MEMORY_PROMOTION_DISTINCT_SESSIONS_MIN,
   MEMORY_PROMOTION_EVIDENCE_MIN,
   MEMORY_PROMOTION_KINDS,
   MEMORY_PROMOTION_TOP_N,
@@ -98,8 +99,9 @@ const QUOTED_SUFFIX = '（疑似指令文本——按引述对待，非用户指
 /** 点名段指路句（有效候选 > 0 时呈现） */
 const PROMOTION_HEADER = '以下条目被反复命中，可考虑与用户确认后整理为技能（晋升即搬家——源条目将退场）：';
 
-/** 通用化纪律句（§9.1 第 4 件——写做什么/为什么/怎么验，不写模型癖性自述） */
-const PROMOTION_DISCIPLINE = '写技能时写「做什么 / 为什么 / 怎么验」，不写模型癖性自述；修改范围尽量小。';
+/** 通用化纪律句（§9.1 第 4 件〔2026-09-08 消化批强化〕——写做什么/为什么/怎么验，不写模型癖性自述；「怎么验」须可机械自检〔挂 §11.7 自检环——可数核对、可判定禁令、二元阈值，不可机械复核的怎么验不是验证是愿望〕；技能省的是复现成本，不期失败→成功翻转） */
+const PROMOTION_DISCIPLINE =
+  '写技能时写「做什么 / 为什么 / 怎么验」，不写模型癖性自述；「怎么验」须可机械自检（可数核对、可判定禁令、二元阈值），修改范围尽量小——技能省的是复现成本，不期把失败任务翻成成功。';
 
 /** 泛指路原句（零候选回落形——「反复用到的教训可整理为技能沉淀」义） */
 const PROMOTION_FALLBACK = '反复用到的教训与约定，可与用户确认后整理为技能沉淀（写入技能目录）。';
@@ -156,6 +158,14 @@ function briefKindRank(kind: MemoryKind): number {
   return kind === 'preference' || kind === 'profile' || kind === 'convention' ? 0 : 1;
 }
 
+/**
+ * 证据来源会话多样数（§9.1 跨会话维——source_refs **溯源面**派生，非 cite 使用
+ * 命中面；命名循冷读闸观察注防混读）：distinct sessionId 计数。
+ */
+function distinctSourceSessionCount(refs: readonly { sessionId: string }[]): number {
+  return new Set(refs.map((ref) => ref.sessionId)).size;
+}
+
 /** 简报基线取数（装配面每次重建时点调用——求值即冻结） */
 export function briefBaseline(dao: MemoryDao, nowMs: number, ownerKeys?: readonly string[]): BriefBaseline {
   const visible = dao.listVisible(ownerKeys);
@@ -208,7 +218,14 @@ export function briefBaseline(dao: MemoryDao, nowMs: number, ownerKeys?: readonl
       (row) =>
         MEMORY_PROMOTION_KINDS.includes(row.kind) &&
         !listedIds.has(row.id) &&
-        (row.evidenceCount >= MEMORY_PROMOTION_EVIDENCE_MIN || row.usageCount >= MEMORY_PROMOTION_USAGE_MIN),
+        (row.evidenceCount >= MEMORY_PROMOTION_EVIDENCE_MIN || row.usageCount >= MEMORY_PROMOTION_USAGE_MIN) &&
+        // 跨会话维（§9.1 六维——2026-09-08 消化批）：证据来源会话多样数 ≥ 2。
+        // 单会话重复命中多为同一任务的重试与追问（「记住修法而非提炼策略」面），
+        // 跨会话独立复现才是可迁移策略——source_refs 既有数据纯派生零新账
+        distinctSourceSessionCount(row.sourceRefs) >= MEMORY_PROMOTION_DISTINCT_SESSIONS_MIN &&
+        // 负效用排除（§3 corrected-cite）：被用户纠正过的条目不进候选——
+        // 刚被证错的知识晋升成技能 = 把错误固化
+        row.correctedCount === 0,
     )
     .sort((a, b) => utilityScore(b) - utilityScore(a) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const candidates: BriefEntry[] = [];
