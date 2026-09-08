@@ -83,6 +83,12 @@ export interface IssueService {
   pollOnce(): Promise<PollReport>;
   /** webhook 处理（验签→路由→enqueue——secret 缺席响亮拒） */
   handleWebhook(req: { event: string; signatureHeader: string; rawBody: string }): Promise<WebhookReceipt>;
+  /**
+   * 入队口公开位（批 19e 装载——webhook 挂点装配共享：宿主经
+   * mountIssueWebhook 组 IssueWebhookDeps 时取本动词，与件内
+   * handleWebhook 同一幂等面——双触发源收敛不变）
+   */
+  enqueue(issue: IssueRef): IssueEnqueueResult;
   /** 孤儿扫描（名形匹配减在飞——标注面，清理归人审/装配侧） */
   orphanScan(): Promise<readonly OrphanWorktree[]>;
 }
@@ -306,6 +312,10 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
 
     pollOnce() {
       return poller.pollOnce();
+    },
+
+    enqueue(issue) {
+      return enqueue(issue);
     },
 
     async handleWebhook(req) {

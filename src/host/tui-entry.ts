@@ -29,6 +29,7 @@ import type { AssemblySuccess } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
+import type { WebuiMountKit } from './webui-bridge.js';
 
 /** TUI 入口选项（main 分派接线 + 测试注入面） */
 export interface TuiEntryOptions {
@@ -87,7 +88,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     process.stderr.write(`${assembly.crashed ? `TUI 运行失败：${assembly.message}` : assembly.message}\n`);
     return assembly.exitCode;
   }
-  const { runtime, stack }: AssemblySuccess = assembly;
+  const { runtime, stack, scope }: AssemblySuccess = assembly;
 
   let exitCode = 0;
   try {
@@ -96,18 +97,30 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 网络面（closer 注册序先于 tui-backend——drain 时网络面先收口再出屏）；
     // backend 挂接在桥共用挂载段内完成（与 TuiBackend 并存扇出——多 backend
     // 信封路由按 sessionId 各投各）；横幅在 TUI 起屏后补发（开面时 backends
-    // 尚空 notify 扇出无人接帧——见下方 focus 后发）——
+    // 尚空 notify 扇出无人接帧——见下方 focus 后发）。批 19e 件在场执法：
+    // sdk 件缺席 = 面本体件禁用语义族——warn 一行不开面（TUI 屏本体不受
+    // 累）；webui 件缺席 = 面开而 /api/* 404（mountKit 缺席形——openWebuiFace
+    // 内分档披露，横幅同步分档）——
     let webuiOpen: { host: string; port: number; token: string } | undefined;
+    let webuiMounted = false;
     if (options.flags.port !== undefined) {
-      await openWebuiFace({
-        stack,
-        runtime,
-        port: options.flags.port,
-        onOpen: (info) => {
-          webuiOpen = info;
-          options.onWebuiOpen?.(info);
-        },
-      });
+      const sdkKit = scope.tryGet<{ readonly createFace: unknown }>('sdk-http-face');
+      if (sdkKit === undefined) {
+        process.stderr.write('warn：core:sdk 件未装载——--port 人面不开（07 §5 daemon 拒启同族；TUI 屏不受累）\n');
+      } else {
+        const mountKit = scope.tryGet<WebuiMountKit>('webui-face-mount');
+        webuiMounted = mountKit !== undefined;
+        await openWebuiFace({
+          stack,
+          runtime,
+          port: options.flags.port,
+          ...(mountKit !== undefined ? { mountKit } : {}),
+          onOpen: (info) => {
+            webuiOpen = info;
+            options.onWebuiOpen?.(info);
+          },
+        });
+      }
     }
 
     // 启动会话策略（07 §5）：无参启动按 cwd 取最新会话——有则续接无则新建
@@ -157,11 +170,18 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // webui 开面横幅（18a-3'）：TuiBackend 起屏后经 channels.notify 扇出——
     // notify 恒扇出（webui backend 同帧收到，浏览器通知位随活）；横幅走屏
     // 留痕面只带 URL，token 不入屏（令牌仅 stderr 一次性——屏流可回滚/截屏，
-    // 非披露通道）
-    if (webuiOpen !== undefined) {
+    // 非披露通道）；批 19e 分档：webui 件缺席形面仍开（SDK 面）——横幅诚实
+    // 报 HTTP 面形不虚报 Web 界面
+    if (webuiOpen !== undefined && webuiMounted) {
       stack.channels.notify(
         session.sessionId,
         `Web 界面已开面：http://${webuiOpen.host}:${webuiOpen.port}/（访问令牌见启动 stderr——仅此一次显示）`,
+        { level: 'info' },
+      );
+    } else if (webuiOpen !== undefined) {
+      stack.channels.notify(
+        session.sessionId,
+        `HTTP 面已开面：http://${webuiOpen.host}:${webuiOpen.port}/（webui 件未装载——/v1/* 程序调用面在场，/api/* 404）`,
         { level: 'info' },
       );
     }

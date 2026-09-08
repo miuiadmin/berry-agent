@@ -15,6 +15,11 @@
  *   收口；daemon 常驻面 `--port` 侧不起本面——serve-daemon 件内组态人面
  *   监听后走共用挂载段（面归 daemon 单源）。
  *
+ * 批 19e 件在场分档：openWebuiFace 挂载改经 mountKit（core:webui 件
+ * provide 'webui-face-mount' 的 kit——入口装配根 tryGet 后注入）；kit
+ * 缺席 = 件禁用/零装载——面仍开（/v1/* 程序调用族在场）而 /api/* 与
+ * SPA 404，披露分档诚实不虚报（sdk/webui 两件禁用语义族——03 §10.4）。
+ *
  * 职责（装配桥五面）：conversation 栈五动词 → WebuiDeps 三窄面映射（词面
  * 独立律的装配侧互证——compat 互证 18a-3' 两方向例锁死，见测试件）+
  * staticDir 探测（dist/webui 共生形；缺席诚实 API-only 不虚报）+ token
@@ -56,6 +61,22 @@ export interface WebuiBridgeOptions {
   readonly staticDir?: string;
   /** 开面披露行（缺省 stderr——token 一次性显示面） */
   readonly disclose?: (line: string) => void;
+  /**
+   * webui 挂载 kit（批 19e——core:webui 件在场性消费位：scope tryGet
+   * 'webui-face-mount' 产物）。在场 = 件装载（路由挂载走件 kit）；
+   * 缺席 = 件禁用/零装载——面仍开（/v1/* 在场）而 /api/* 与 SPA 404，
+   * 披露分档诚实不虚报（两件禁用语义族——03 §10.4/07 §4.2）。
+   */
+  readonly mountKit?: WebuiMountKit;
+}
+
+/**
+ * webui 挂载 kit 形（core:webui 件 provide 'webui-face-mount' 的结构——
+ * 与 CorePluginHostDeps.webuiFaceMount 同签名，装配闭包真身 =
+ * mountWebuiOnFace；返回挂载产物全量——webui/deps 供 compat 互证面消费）。
+ */
+export interface WebuiMountKit {
+  mountOnFace(face: SdkHttpFaceHandle, options?: { staticDir?: string }): WebuiFaceMount;
 }
 
 /** 开面回执（onWebuiOpen 结构化披露位——测试与 main 编舞消费） */
@@ -67,13 +88,13 @@ export interface WebuiOpenInfo {
 
 /** 装配桥产物（面 + webui mount 本体 + 桥真身——compat 互证面） */
 export interface WebuiBridgeHandle {
-  /** webui mount 本体（backend/detach——零监听零 start/stop） */
-  readonly webui: WebuiMountHandle;
+  /** webui mount 本体（backend/detach——零监听零 start/stop；件缺席 = 面开而无挂载，undefined 诚实） */
+  readonly webui: WebuiMountHandle | undefined;
   /** 承载面（sdk HTTP 面——token/start/stop 生命周期与 /v1 过渡端点） */
   readonly face: SdkHttpFaceHandle;
-  /** 桥真身（三窄面——compat 互证的消费位） */
-  readonly deps: WebuiDeps;
-  /** 收口（幂等）：webui detach + 面 stop——closer 与测试直调共用 */
+  /** 桥真身（三窄面——compat 互证的消费位；件缺席形 undefined） */
+  readonly deps: WebuiDeps | undefined;
+  /** 收口（幂等）：webui detach（在场时）+ 面 stop——closer 与测试直调共用 */
   stop(): Promise<void>;
 }
 
@@ -89,29 +110,39 @@ export async function openWebuiFace(
     config: { tcp: { host: WEBUI_DEFAULT_HOST, port: options.port ?? WEBUI_DEFAULT_PORT } },
     bridge: createServeBridge(options.stack, options.runtime, { cwd: process.cwd() }),
   });
-  const mount = mountWebuiOnFace({
-    stack: options.stack,
-    face,
-    ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
-  });
+  // 件在场分档（批 19e）：kit 在场 → 挂载走件 kit（真身 = 共用挂载段）；
+  // 缺席 → 面开而无 webui 路由（/api/* 404——件禁用语义族，诚实披露）
+  const mount =
+    options.mountKit !== undefined
+      ? options.mountKit.mountOnFace(
+          face,
+          options.staticDir !== undefined ? { staticDir: options.staticDir } : undefined,
+        )
+      : undefined;
   let info: Awaited<ReturnType<SdkHttpFaceHandle['start']>>;
   try {
     info = await face.start();
   } catch (err) {
-    mount.detach(); // 监听未成——backend 与路由不留半挂
+    mount?.detach(); // 监听未成——backend 与路由不留半挂
     throw err;
   }
   const { host, port } = info.tcp[0]!;
   const stop = async (): Promise<void> => {
-    mount.detach(); // 幂等（backend 摘除 + 全路由摘除 + 全流收口 + 审批清槽丢弃性）
+    mount?.detach(); // 幂等（backend 摘除 + 全路由摘除 + 全流收口 + 审批清槽丢弃性）
     await face.stop(); // 幂等（全流收口 + 关监听）
   };
   const disclose = options.disclose ?? ((line) => process.stderr.write(`${line}\n`));
-  disclose(`Web 界面已开面：http://${host}:${port}/`);
+  if (mount !== undefined) {
+    disclose(`Web 界面已开面：http://${host}:${port}/`);
+  } else {
+    disclose(
+      `HTTP 面已开面（webui 件未装载——Web 界面与 /api/* 缺席，/v1/* 程序调用面仍在场）：http://${host}:${port}/`,
+    );
+  }
   disclose(`访问令牌（仅此一次显示）：${face.token}`);
   options.onOpen?.({ host, port, token: face.token });
   options.runtime.registerCloser({ label: 'webui-server', fn: () => stop() });
-  return { webui: mount.webui, face, deps: mount.deps, stop };
+  return { webui: mount?.webui, face, deps: mount?.deps, stop };
 }
 
 /** 面挂载选项（共用挂载段——daemon 常驻面走本段，不起前台自持面） */

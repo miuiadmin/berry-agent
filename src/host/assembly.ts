@@ -50,6 +50,12 @@ import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
 import { createDelegationSessionTracker, createInProcessSubagentProvider } from './subagent-factory.js';
 import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactory } from './triggers.js';
+// 批 19e HTTP 面族接线：sdk 面工厂（件承载真身）+ issue 并行帽常量 +
+// webui 挂载闭包（assembly→webui-bridge→serve-entry→assembly 系声明式
+// 函数引用环——顶层零副作用，boot 后才调值，ESM live binding 安全）
+import { createSdkHttpFace } from '../sdk/index.js';
+import { ISSUE_PARALLEL_LIMIT_DEFAULT } from '../issue/index.js';
+import { mountWebuiOnFace } from './webui-bridge.js';
 
 /** 装配选项（TUI 入口与诊断命令共用面——runtime 子面透传 createHostRuntime） */
 export interface AssembleHostOptions {
@@ -190,7 +196,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 服务面 provide（插件 tryGet('jobs') 消费）→ 触发器注册表（starter 真身
     // 工厂注入——活体开门读取源：/reload 撤位后 fire 复检现判现拒）——
     const jobs = createJobRegistry({
-      parallelLimits: { trigger: TRIGGER_JOB_PARALLEL_LIMIT },
+      parallelLimits: { trigger: TRIGGER_JOB_PARALLEL_LIMIT, issue: ISSUE_PARALLEL_LIMIT_DEFAULT },
       emit: (event) => dispatch.emit('job_settled', event),
       warn: (message) => logger.warn(message),
     });
@@ -347,6 +353,45 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             // 宿主版本（批 19d——mcp 件 initialize 握手 clientInfo.version
             // 披露「对齐 package.json」单源位：装配选项 version 同源）
             version: options.version,
+            // —— HTTP 面族十位（批 19e——sdk/webui/obs/issue 件装载态接线）——
+            // sdk 面工厂真身（core:sdk 件承载位：daemon/serve/TUI 开面消费
+            // 件在场 kit；stdio 不依赖件装载态——F16）
+            sdkFaceFactory: createSdkHttpFace,
+            // webui 挂载闭包（core:webui 件 kit——面级 handle + 可选
+            // staticDir；开面晚于装载的晚绑形，件 apply 期只透传闭包）
+            webuiFaceMount: (face, mountOptions) =>
+              mountWebuiOnFace({
+                stack,
+                face,
+                ...(mountOptions?.staticDir !== undefined ? { staticDir: mountOptions.staticDir } : {}),
+              }),
+            // obs 三 seam：事件源 = Store 真身直传（结构兼容 ObsEventsFace——
+            // 05 §3.4 宿主面消费位）；notify 走 channels 会话作用域（归因
+            // 'obs'——呈现侧路由后端自决）；audience = channels 观众探针
+            obsEvents: runtimeNow.persistence.store,
+            obsNotify: {
+              notify: (message, opts) => stack.channels.notify('obs', message, opts),
+            },
+            obsAudience: { hasAudience: () => stack.channels.hasAudience() },
+            // issue 五位：state = store_state 三法真身直传（不自建账本——
+            // 宪章二）；budget = 04 §5 日池判适配（background 档——停靠不
+            // 落终态语义归件内）；token/secret = env 双词面（凭证盒未立前
+            // env 载体先行——03 §10.7 触发面 19e 装载定形注）；session
+            // seam 挂账缺席（起会改道 ctx.triggers.register 随 issue 件
+            // 扩展批）→ issue 件零装载诚实缺席
+            issueState: runtimeNow.persistence.store,
+            issueBudget: {
+              canAffordIssue: () =>
+                stack.llm.canAfford('background')
+                  ? { ok: true }
+                  : { ok: false, reason: '当日后台预算池尽（04 §5 停靠待唤醒——不落终态）' },
+            },
+            ...(env.BERRY_AGENT_GITHUB_TOKEN !== undefined && env.BERRY_AGENT_GITHUB_TOKEN !== ''
+              ? { issueGithubToken: env.BERRY_AGENT_GITHUB_TOKEN }
+              : {}),
+            ...(env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== undefined && env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== ''
+              ? { issueWebhookSecret: env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET }
+              : {}),
           }),
         warn: (message) => logger.warn(message),
       });

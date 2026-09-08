@@ -5,7 +5,9 @@
  * browser/lsp/checkpoint/scheduler/goal/obs/webui/sdk/issue）——v1 全量
  * 带上默认启用，经同一插件装载面（第一方禁私有车道：对象直调 apply 零
  * jiti 零 import 门禁，03 §1.4 官方引用形）。本件逐件入册（批 19a 起，
- * 每纵切笔入册一批——入册齐 15 件时本注记销账）。
+ * 每纵切笔入册一批——**批 19e 齐 15 件，此销账注记兑现**：exec/web/
+ * skills/memory/subagent/scheduler〔19a/19b/19c-1/2〕→ goal/checkpoint
+ * 〔19c-3/4〕→ mcp/browser/lsp〔19d〕→ sdk/webui/obs/issue〔19e〕）。
  *
  * **apply 壳归宿主侧**（与磁盘件「件自持入口文件」分道）：件保持纯库
  * 不 import host（DAG 单向不破——host 是装配根有权 import 各件公开面），
@@ -22,6 +24,7 @@ import * as fsp from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { GateInput, SessionEvent, ToolDefinition } from '../contracts/index.js';
+import { BaseError } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ExecToolService } from '../conversation/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
@@ -93,11 +96,27 @@ import type {
   SessionFtsSearchFace,
 } from '../memory/index.js';
 import { collectAgentDefs, createStandardAgentLayers } from '../skills/index.js';
-import { createAgentTool, materializeDeclarativeSubagents } from '../subagent/index.js';
+import { createAgentTool, materializeDeclarativeSubagents, JOBS_SERVICE_NAME } from '../subagent/index.js';
 import type { DelegationToolDeps, SubagentService } from '../subagent/index.js';
+// 批 19e HTTP 面族四件（sdk/webui/issue/obs——core 15 件齐册）
+import { createSdkHttpFace } from '../sdk/index.js';
+import type { SdkHttpFaceHandle } from '../sdk/index.js';
+import { createObsQueryTool, createObsService } from '../obs/index.js';
+import type { ObsAlertRule, ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
+import { createGithubBackend, createIssueService, mountIssueWebhook, normalizeIssueConfig } from '../issue/index.js';
+import type {
+  IssueBudgetFace,
+  IssueJobsFace,
+  IssueSchedulerFace,
+  IssueSessionFace,
+  IssueStoreStateFace,
+  IssueWebhookMountFace,
+} from '../issue/index.js';
+import { createWorktreeService } from '../tools/index.js';
 
 import type { PluginContext } from './plugin-context.js';
 import type { CorePluginReference } from './loader.js';
+import type { WebuiFaceMount } from './webui-bridge.js';
 
 /**
  * core:exec——spawn 管道装载期自持（进程级单例：登记簿/孤儿清扫随管道
@@ -251,6 +270,56 @@ export interface CorePluginHostDeps {
    * 缺席 = mcp 桥内缺省 '0.1.0'。
    */
   readonly version?: string;
+  /**
+   * SDK HTTP 面工厂（批 19e——core:sdk 件主闸：HTTP 传输适配 + MCP 包装
+   * 的件承载真身。stdio JSONL 不依赖件装载态〔F16〕归宿主 serve 子命令）。
+   * 缺席 = sdk 件零装载——daemon 形态必开面由此拒启退 2（07 §5），TUI/
+   * serve 的 --port 开面消费件在场性（kit 缺席 = /v1/* 仍可开）。
+   */
+  readonly sdkFaceFactory?: typeof createSdkHttpFace;
+  /**
+   * webui 挂载 kit（批 19e——core:webui 件主闸：路由挂载闭包（面级
+   * handle + 可选 staticDir → 挂载产物窄面）。件零自持监听（全库唯一
+   * 监听族住 core:sdk 面）。缺席 = webui 件零装载 = /api/* 404 而面
+   * 仍在（两件禁用语义族——03 §10.4/07 §4.2）。
+   */
+  readonly webuiFaceMount?: (face: SdkHttpFaceHandle, options?: { staticDir?: string }) => WebuiFaceMount;
+  /**
+   * obs 事件读面（批 19e——obs 件主闸二：durable 事件流摄取源 =
+   * Store.queryEvents 真身直传〔结构兼容 ObsEventsFace——05 §3.4 宿主面
+   * 消费位〕）。缺席 = obs 件零装载（主闸一 = dataDir）。
+   */
+  readonly obsEvents?: ObsEventsFace;
+  /** obs 告警通知面（缺席 = 告警腿静默降级——非主闸，摄取/查询面仍通） */
+  readonly obsNotify?: ObsNotifyFace;
+  /** obs 观众探针（缺席 = 恒无观众——告警评估跳过且不耗冷却，07 §4.3 原句语义） */
+  readonly obsAudience?: ObsAudienceFace;
+  /**
+   * issue headless 起会面（批 19e——issue 件主闸三：IssueSessionFace
+   * 装配位真身）。缺席 = issue 件零装载（挂账：起会接线改道
+   * ctx.triggers.register 随 issue 件扩展批——03 §10.7 运行条）。
+   */
+  readonly issueSession?: IssueSessionFace;
+  /**
+   * issue 轮询水位读写面（批 19e——store_state 受理制键值面：Store 三法
+   * 〔getStoreState/setStoreState/deleteStoreState〕同名同形真身直传可赋
+   * IssueStoreStateFace——不自建账本〔宪章二〕）。
+   */
+  readonly issueState?: IssueStoreStateFace;
+  /** issue 全局预算窄面（批 19e——04 §5 日池判适配：canAfford('background')） */
+  readonly issueBudget?: IssueBudgetFace;
+  /**
+   * GitHub token（env `BERRY_AGENT_GITHUB_TOKEN`——凭证盒未立前 env 载体
+   * 先行，03 §10.7 触发面 19e 装载定形注）。缺席 = issue 件零装载（后端
+   * 契约 token 必填——公开仓亦然，诚实缺席非故障）。
+   */
+  readonly issueGithubToken?: string;
+  /**
+   * webhook HMAC secret（env `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`——同上注）。
+   * 缺席/空 = webhook 面未开启（挂路由守卫 400 形——空密钥 HMAC 确定性
+   * 可伪造，禁值守卫）。
+   */
+  readonly issueWebhookSecret?: string;
 }
 
 /**
@@ -732,6 +801,10 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const warn = (message: string) => console.error(message);
       const store = openCheckpointStore(dataDir);
       const capture = createCapture(store);
+      // 装载态可见性面（批 19e——issue 件 capabilities 预检 'checkpoint'
+      // 探测位：在场判据纯 provide，无消费面扩展——store 即本件真身服务的
+      // 最小可见面）
+      context.provide('checkpoint', { store });
 
       // 守门监听（effect:'write' + 会话边界推进判据——per-run 一 manifest；
       // 类型适配在边界收口：PluginHookHandler unknown 面与 GateInput 收窄一处）
@@ -766,6 +839,213 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
       return () => {
         disposeRewind();
         offGate();
+      };
+    },
+  };
+}
+
+/**
+ * core:sdk（批 19e——03 §10.6 件身份 = 对外被调用面插件承载位）：HTTP
+ * 传输适配 + MCP server 包装的件承载真身供给。协议核与 channels 通道核
+ * 同体（件承载的是传输/包装层）；stdio JSONL 归宿主 serve 子命令不依赖
+ * 件装载态（F16——零行为耦合）。
+ *
+ * 主闸 = sdkFaceFactory seam（装配根注入 createSdkHttpFace——缺席 = 件
+ * 零装载：测试替身形/诊断形）。件只 provide 'sdk-http-face' kit（面工厂
+ * 单源供给位）；开面/监听/披露编舞归宿主入口（07 §5：daemon 形态必开
+ * HTTP 面，件被禁用时 daemon 拒启退 2 由入口执法——「装载在场 ≠ 开面
+ * 监听」消歧律同 webui）。
+ */
+function makeSdkPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'sdk',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      const createFace = deps.sdkFaceFactory;
+      if (createFace === undefined) return; // 主闸——面工厂 seam 缺席零装载
+      context.provide('sdk-http-face', { createFace });
+    },
+  };
+}
+
+/**
+ * core:webui（批 19e——03 §10.4 + 07 §4.2 两件禁用语义族兑现）：Web 通
+ * 道路由族的挂载 kit 供给。件零自持 node:http 监听（全库唯一监听族住
+ * core:sdk 面）——「装载在场 ⇒ 面开时路由已注册（惰性零监听）；件禁用
+ * ⇒ /api/* 404 而面仍在（/v1/* 在场）；面未开 ⇒ 全然无监听」。
+ *
+ * 主闸 = webuiFaceMount seam（装配根闭包 = mountWebuiOnFace 同签名）。
+ * kit 晚绑：面开面晚于装载（入口在 assembleHostStack 之后开面），件
+ * apply 期只 provide kit 不触面——webui claim 桥晚绑同款先例。
+ */
+function makeWebuiPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'webui',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      const mountOnFace = deps.webuiFaceMount;
+      if (mountOnFace === undefined) return; // 主闸——挂载闭包 seam 缺席零装载
+      context.provide('webui-face-mount', { mountOnFace });
+    },
+  };
+}
+
+/**
+ * alerts 单条归一（批 19e——03 §10.8 坏规则降级律：告警只通知不执法，
+ * 坏条 warn 跳过不整件失败——与 mcp/browser 的 config 坏形响亮拒行级
+ * 失败分立两律，彼系能力/安全承载面）。
+ */
+function normalizeObsAlerts(raw: unknown, warn: (message: string) => void): ObsAlertRule[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    warn('[obs] config.alerts 须为数组——告警面按空装载（坏形降级律，摄取/查询面不受累）');
+    return [];
+  }
+  const rules: ObsAlertRule[] = [];
+  raw.forEach((item, index) => {
+    const candidate = item as { kind?: unknown; thresholdTokens?: unknown; cooldownMs?: unknown };
+    const kindOk = candidate?.kind === 'token_spend_hourly';
+    const threshold = candidate?.thresholdTokens;
+    const thresholdOk = typeof threshold === 'number' && Number.isFinite(threshold) && threshold > 0;
+    const cooldown = candidate?.cooldownMs;
+    const cooldownOk =
+      cooldown === undefined || (typeof cooldown === 'number' && Number.isFinite(cooldown) && cooldown >= 0);
+    if (kindOk && thresholdOk && cooldownOk) {
+      rules.push({
+        kind: 'token_spend_hourly',
+        thresholdTokens: threshold,
+        ...(cooldown !== undefined ? { cooldownMs: cooldown } : {}),
+      });
+    } else {
+      warn(`[obs] config.alerts[${index}] 坏形跳过（kind/thresholdTokens/cooldownMs 形不符——03 §10.8 坏规则降级律）`);
+    }
+  });
+  return rules;
+}
+
+/**
+ * core:obs（批 19e——03 §10.8 观测面装载态）：rollup 自管库 + obs_query
+ * 只读工具 + 告警（只通知不执法）。主闸 = dataDir + obsEvents seam 双位
+ * （库座/事件源缺席零装载——诚实缺席律）。
+ *
+ * 自管库路径 `<dataDir>/data/obs/rollup.db`（父目录代建/WAL/0600 归
+ * rollup 开库链——OBS_DB_OPEN_FAILED 构造即抛由装载面行级降级跳件，其
+ * 余 core 件不受累）。装载即首拍 refresh（连接即当下——水位−1h 重叠窗
+ * 幂等，不等挂钟首拍）；notify/audience seam 缺席 = 告警腿静默降级非主
+ * 闸（摄取/查询面仍通）。
+ */
+function makeObsPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'obs',
+    async apply(ctx, config) {
+      const context = ctx as PluginContext;
+      const dataDir = deps.dataDir;
+      const events = deps.obsEvents;
+      if (dataDir === null || events === undefined) return; // 主闸双位
+
+      const warn = (message: string) => console.error(message);
+      const alerts = normalizeObsAlerts((config as { alerts?: unknown } | undefined)?.alerts, warn);
+      const service = createObsService({
+        dbPath: join(dataDir, 'data', 'obs', 'rollup.db'),
+        events,
+        notify: deps.obsNotify ?? { notify: () => undefined },
+        audience: deps.obsAudience ?? { hasAudience: () => false },
+        ...(alerts.length > 0 ? { alerts } : {}),
+        warn,
+      });
+      service.refresh(); // 首拍即摄取
+      const disposeTool = context.tools.register(createObsQueryTool(service));
+      context.provide('obs', service);
+      return () => {
+        disposeTool();
+        service.dispose();
+      };
+    },
+  };
+}
+
+/**
+ * core:issue（批 19e——03 §10.7 无人值守编排件装载态）：件是既有件的
+ * 组合消费方——scheduler 挂钟（tryGet 'scheduler'）+ Job 注册表（tryGet
+ * 'jobs'——assembly provideJobsService 共享根，JobRegistry 真身结构可赋
+ * IssueJobsFace）+ goal/exec/checkpoint capabilities（apply 期 tryGet 探
+ * 测注入——预检语义在入队不在装载）+ store_state 水位（deps 直传真身）
+ * + worktree 工具族（件内真身构造——canonical 工作区根锚）+ env 凭证双
+ * 词面（token/webhook secret——凭证盒未立前 env 载体先行）。
+ *
+ * 主闸链（任一缺席 = 件零装载——诚实缺席律）：config 在场（缺省无编排
+ * 面）→ GitHub token → session seam（挂账：起会接线改道 ctx.triggers.
+ * register 随 issue 件扩展批）→ scheduler/jobs 前件 → state/budget
+ * seam。config 在场但坏形 = 响亮拒 ISSUE_CONFIG_INVALID 行级装载失败
+ * （/reload 时刻可修——mcp/browser 同律）。
+ */
+function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'issue',
+    async apply(ctx, config) {
+      const context = ctx as PluginContext;
+      if (config === undefined || config === null) return; // 主闸一——缺省无编排面零装载
+      const token = deps.issueGithubToken;
+      if (token === undefined || token === '') return; // 主闸二——数据源凭证缺席零装载
+      const session = deps.issueSession;
+      if (session === undefined) return; // 主闸三——起会面未接线零装载（挂账注）
+      const sched = context.tryGet<SchedulerFace>('scheduler');
+      const jobs = context.tryGet<IssueJobsFace>(JOBS_SERVICE_NAME);
+      const state = deps.issueState;
+      const budget = deps.issueBudget;
+      if (sched === undefined || jobs === undefined || state === undefined || budget === undefined) {
+        return; // 主闸四——前件/装配 seam 缺席零装载
+      }
+
+      const normalized = normalizeIssueConfig(config);
+      if (!normalized.ok) {
+        // 显式配置坏形响亮拒（行级装载失败——与主闸缺席的静默零装载分立两档）
+        throw new BaseError('ISSUE_CONFIG_INVALID', `[ISSUE_CONFIG_INVALID] ${normalized.message}`);
+      }
+
+      const warn = (message: string) => console.error(message);
+      // scheduler 适配（IssueSchedulerFace ← SchedulerService：builtin 行登记
+      // + enabled 显式——轮询是件的主通道非用户手动任务，pi-tick
+      // default-disabled 缺省不适用本行）
+      const schedulerFace: IssueSchedulerFace = {
+        registerPollJob: (req) => sched.service.addBuiltinJob({ ...req, builtin: true, enabled: true }),
+        removePollJob: (name) => void sched.service.removeJob(name),
+      };
+      // capabilities 探测（goal/exec/checkpoint 三名——注册表序保前件先装；
+      // 探测缺席不阻装载：入队期预检拒 fail-ask 回执缺口〔03 §10.7 批 16 定形〕）
+      const capabilities = [
+        context.tryGet('goal') !== undefined ? 'goal' : undefined,
+        context.tryGet('exec') !== undefined ? 'exec' : undefined,
+        context.tryGet('checkpoint') !== undefined ? 'checkpoint' : undefined,
+      ].filter((name): name is string => name !== undefined);
+      const webhookSecret = deps.issueWebhookSecret ?? '';
+      const service = createIssueService({
+        config: normalized.config,
+        backend: createGithubBackend({ token }),
+        jobs,
+        scheduler: schedulerFace,
+        state,
+        worktree: createWorktreeService({ repoRoot: canonicalWorkspaceRoot(deps.cwd) }),
+        session,
+        budget,
+        capabilities,
+        ...(webhookSecret !== '' ? { webhookSecret } : {}),
+        warn,
+      });
+      service.start();
+      context.provide('issue', service);
+      // webhook 挂点 kit（18a-4' mountIssueWebhook 的宿主消费位——serve/
+      // daemon 开面后 tryGet 本面挂路由；secret 缺席 = kit 仍在而守卫 400
+      // 形：面开而未启用，与「面未开 ⇒ 通道不在场」分立）
+      context.provide('issue-webhook-mount', {
+        mount: (face: IssueWebhookMountFace) =>
+          mountIssueWebhook(
+            { secret: webhookSecret, config: normalized.config, enqueue: (issue) => service.enqueue(issue) },
+            face,
+          ),
+      });
+      return () => {
+        service.stop();
       };
     },
   };
@@ -957,13 +1237,18 @@ function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * （dataDir 首位——批 19b-1；memory 数据面六位——批 19b-2；subagent
  * 委派面两位——批 19c-1；调度闸事实位——批 19c-2；goal 会话读面——批
  * 19c-3；checkpoint 语境/fork 两 seam + 焦点会话位——批 19c-4；宿主
- * 版本位——批 19d）。
+ * 版本位——批 19d；HTTP 面族十位〔sdk 面工厂/webui 挂载 kit/obs 三
+ * seam/issue 五位〕——批 19e）。
  *
  * 注册表序 = tryGet 前件序（core 行对象直调按序 apply，序内后件可见前件
  * provide 面）：exec/web 双首件（三桥 spawn/卫生消费源）→ …… → 三桥
  * （批 19d——mcp/browser/lsp 依次）→ goal（gates lsp seam 消费 lsp
- * provide 面——必居其后）→ checkpoint。02 §4.1 core 表序是件册清单非
- * 装载序——装载序按依赖闭包排（批 19d 注记）。
+ * provide 面——必居其后）→ checkpoint → sdk/webui（面族两件——kit
+ * 供给零件间依赖）→ obs（数据面自足）→ issue 居末（组合消费方：tryGet
+ * scheduler/jobs 前件 + goal/exec/checkpoint capabilities 探测——必居
+ * 四前件之后）。02 §4.1 core 表序是件册清单非装载序——装载序按依赖闭
+ * 包排（批 19d 注记）。批 19e 起 15 件齐册——批 19a 头注「入册齐 15 件
+ * 时本注记销账」兑现。
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
   return [
@@ -978,5 +1263,9 @@ export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePlugin
     makeLspPlugin(deps),
     makeGoalPlugin(deps),
     makeCheckpointPlugin(deps),
+    makeSdkPlugin(deps),
+    makeWebuiPlugin(deps),
+    makeObsPlugin(deps),
+    makeIssuePlugin(deps),
   ];
 }

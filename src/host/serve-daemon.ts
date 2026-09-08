@@ -11,10 +11,12 @@
  *   经 env `BERRY_AGENT_SERVE_DAEMON_CHILD=1` 标记（不入 CLI 词面——env 双
  *   载体先例 BERRY_AGENT_SDK_TOKEN 同族），防 spawn 递归。
  * - **daemon child**（`runDaemonServe`）：组装 runtime + conversation 栈 +
- *   serve 装配桥 → createSdkHttpFace（sock = 数据目录 serve/daemon.sock
+ *   serve 装配桥 → core:sdk 件 kit createFace（批 19e 装载晚绑——件禁用
+ *   ⇒ kit 缺席 ⇒ 拒启退 2，07 §5；sock = 数据目录 serve/daemon.sock
  *   缺省接入点；TCP 侧 --sdk-port/--sdk-host 可选 SDK 面 + `--port` 人面
- *   〔18a-3' 三入口咬合——TCP 侧多监听并存，webui 路由经共用挂载段注册进
- *   本面，daemon 人面 = serve HTTP 面 TCP 侧〕）→ 写 pid 登记 → token
+ *   〔18a-3' 三入口咬合——TCP 侧多监听并存，webui 路由经 core:webui 件 kit
+ *   挂进本面（件禁用 = warn 不挂——/api/* 404 面仍在），daemon 人面 =
+ *   serve HTTP 面 TCP 侧〕）→ 写 pid 登记 → token
  *   披露一行进 stderr（= daemon.log——自动生成档唯一披露位）→ 常驻至优雅停
  *   （SIGTERM → main 信号编舞 → runtime 六步退出序 → 本件 closer：face.stop
  *   + 清 pid 登记）。崩溃恢复语义与前台同一条（durable 投影——04 §1 P4），
@@ -56,9 +58,25 @@ import { WEBUI_DEFAULT_HOST } from '../webui/index.js';
 import { createServeBridge } from './serve-entry.js';
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
+import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
-import { mountWebuiOnFace } from './webui-bridge.js';
-import type { WebuiFaceMount } from './webui-bridge.js';
+import type { WebuiMountKit } from './webui-bridge.js';
+
+/**
+ * sdk 面 kit 形（core:sdk 件 provide 'sdk-http-face' 的结构——批 19e
+ * 装载晚绑：daemon 经 scope.tryGet 消费件在场性，apply 期只 provide 不触面）。
+ */
+interface SdkFaceKit {
+  readonly createFace: typeof createSdkHttpFace;
+}
+
+/**
+ * issue webhook 挂载 kit 形（core:issue 件 provide 'issue-webhook-mount'
+ * 的结构——mount = 路由挂进面；dispose = 摘路由幂等）。
+ */
+interface IssueWebhookMountKit {
+  mount(face: SdkHttpFaceHandle): { dispose(): void };
+}
 
 /* ---------------- 足迹词面（02 数据域表 serve/ 行） ---------------- */
 
@@ -307,8 +325,10 @@ export interface DaemonServeOptions {
   readonly heartbeatIntervalMs?: number;
   /** 运行时组装后回调（main attachRuntime——信号编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
-  /** face 工厂注入位（测试换假 face——产码缺省 createSdkHttpFace） */
+  /** face 工厂注入位（测试换假 face——产码缺省 core:sdk 件 kit 的 createFace） */
   readonly faceFactory?: typeof createSdkHttpFace;
+  /** core: 官方件注册表注入位（批 19e——测试禁件拒启例用；透传 assembly 单源） */
+  readonly corePlugins?: readonly CorePluginReference[];
   /** stderr 披露面（缺省 process.stderr；测试收行） */
   readonly writeErr?: (line: string) => void;
 }
@@ -374,14 +394,24 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     ...(options.env !== undefined ? { env: options.env } : {}),
     ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
     ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
+    ...(options.corePlugins !== undefined ? { corePlugins: options.corePlugins } : {}),
   });
   if (!assembly.ok) {
     writeErr(`${assembly.crashed ? `daemon 运行失败：${assembly.message}` : assembly.message}`);
     return assembly.exitCode;
   }
-  const { runtime, stack }: AssemblySuccess = assembly;
+  const { runtime, stack, scope }: AssemblySuccess = assembly;
 
-  const faceFactory = options.faceFactory ?? createSdkHttpFace;
+  // —— sdk 件在场性执法（批 19e——07 §5 daemon 拒启律）：daemon 接入面本体
+  // = sdk HTTP 面，core:sdk 件禁用/零装载 ⇒ kit 缺席 ⇒ 拒启退 2（与开面
+  // 判定拒启同码族——配置档干净退出不写 crash.log，enabled.yaml 可修）——
+  const sdkKit = scope.tryGet<SdkFaceKit>('sdk-http-face');
+  if (sdkKit === undefined) {
+    writeErr('拒启：core:sdk 件未装载（daemon 接入面本体缺席——enabled.yaml 禁用即拒启，07 §5）');
+    await runtime.shutdown().catch(() => {});
+    return 2;
+  }
+  const faceFactory = options.faceFactory ?? sdkKit.createFace;
   const bridge = createServeBridge(stack, runtime, { cwd: options.cwd ?? process.cwd() });
   // sock 目录先建（三足迹目录 serve/——face 监听与 pid 登记共同前置；
   // 修前 face.start 先跑而目录由 writeDaemonPid 后建——listen 对缺目录
@@ -410,12 +440,24 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   writeDaemonPid(paths, { pid: process.pid, startedAt: Date.now() });
   stack.channels.addBackend(face.backend); // 信封回流自动馈送（conversation-stack onEvent → emit）
   // —— --port 人面挂载（18a-3' 三入口咬合；04 §1 daemon 人面 = serve HTTP
-  // 面 TCP 侧）：webui 路由族经共用挂载段注册进本面（面归 daemon 单源——
-  // 零第二套映射）；backend 挂接后信封扇出与审批腿（claim 桥）随活——
-  let webuiMount: WebuiFaceMount | undefined;
+  // 面 TCP 侧）：webui 路由族经 core:webui 件 kit 挂进本面（批 19e 装载晚
+  // 绑——件 apply 期只 provide，开面后 mountOnFace；面归 daemon 单源零第
+  // 二套映射）；kit 缺席 = 件禁用语义族——warn 一行不挂（/api/* 404 面
+  // 仍在，/v1/* 程序调用族不受累）——
+  let webuiMount: { detach(): void } | undefined;
   if (options.flags.port !== undefined) {
-    webuiMount = mountWebuiOnFace({ stack, face });
+    const webuiKit = scope.tryGet<WebuiMountKit>('webui-face-mount');
+    if (webuiKit !== undefined) {
+      webuiMount = webuiKit.mountOnFace(face);
+    } else {
+      writeErr('warn：core:webui 件未装载——人面 Web 界面与 /api/* 缺席（/v1/* 仍在场）');
+    }
   }
+  // —— issue webhook 挂载（批 19e——core:issue 件 kit 晚绑）：件装载且
+  // 装配面在场时 mount 将 webhook 路由族挂进本面；kit 缺席 = 件零装载
+  // （主闸链缺席静默——daemon 形同律，不 warn）——
+  const issueMountKit = scope.tryGet<IssueWebhookMountKit>('issue-webhook-mount');
+  const issueWebhook = issueMountKit !== undefined ? issueMountKit.mount(face) : undefined;
   // 披露行（18a-1' 多监听扩形适配：TCP 侧数组 join——多监听并存全披露；sock 恒在场，缺席位 'off' 兜底）
   const tcpPart = info.tcp.length > 0 ? ` tcp=${info.tcp.map((spec) => `${spec.host}:${spec.port}`).join(',')}` : '';
   writeErr(`daemon 就绪：sock=${info.socketPath ?? 'off'}${tcpPart}（SDK 协议版本头 x-sdk-protocol: 1）`);
@@ -424,11 +466,17 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   }
   // 人面披露两行（18a-3' 差异面⑤——daemon 披露通道 = daemon.log 即 stderr
   // 重定向；人面监听位 = tcp 数组首位〔构建序人面先推——port 0 内核指派后
-  // 实口见 info〕）；同面单 token——面 token 覆盖 /v1 与 webui 人面，不再复述值
+  // 实口见 info〕）；同面单 token——面 token 覆盖 /v1 与 webui 人面，不再复述值；
+  // 分档（批 19e）：kit 缺席形诚实报 SDK 面形不虚报 Web 界面
   if (webuiMount !== undefined) {
     const face0 = info.tcp[0]!;
     writeErr(`Web 界面已开面：http://${face0.host}:${face0.port}/`);
     writeErr('访问令牌即 daemon token（同面单 token——见 daemon token 披露行）');
+  } else if (options.flags.port !== undefined) {
+    const face0 = info.tcp[0]!;
+    writeErr(
+      `HTTP 人面已开面（webui 件未装载）：http://${face0.host}:${face0.port}/（/v1/* 程序调用面在场，/api/* 404）`,
+    );
   }
 
   // 常驻至优雅停：closer（face.stop + 清 pid）挂 runtime 六步退出序——drain
@@ -443,6 +491,13 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     label: 'webui-server',
     fn: () => webuiMount?.detach(), // 幂等（未挂载形 = no-op）
   });
+  if (issueWebhook !== undefined) {
+    runtime.registerCloser({
+      // webhook 路由摘除先于面停（注册序）——面 stop 后路由已无消费面
+      label: 'issue-webhook',
+      fn: () => issueWebhook.dispose(),
+    });
+  }
   runtime.registerCloser({
     label: 'sdk-http-face',
     fn: async () => {

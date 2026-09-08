@@ -79,6 +79,10 @@ class ObsServiceImpl implements ObsService {
           this.warn(`[obs] 自驱 refresh 失败（下一拍重试）：${err instanceof Error ? err.message : String(err)}`);
         }
       }, refreshMs);
+      // unref：观测挂钟不锚进程生命周期（诊断形装载本件后进程可自然退
+      // ——dump-config/plugins-list :memory: 同构纪律；长驻形不受影响，
+      // 收口恒走 dispose 注销）
+      (this.timer as unknown as { unref?: () => void }).unref?.();
     }
   }
 

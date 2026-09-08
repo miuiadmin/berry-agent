@@ -57,7 +57,7 @@ import type { ServeFlags } from './cli.js';
 import type { ConversationStack } from './conversation-stack.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
-import type { WebuiOpenInfo } from './webui-bridge.js';
+import type { WebuiMountKit, WebuiOpenInfo } from './webui-bridge.js';
 
 /** stdio 注入面（缺省 process stdin/stdout——测试以 PassThrough 驱动全环） */
 export interface ServeIo {
@@ -232,7 +232,7 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
     stderr.write(`${assembly.crashed ? `serve 运行失败：${assembly.message}` : assembly.message}\n`);
     return assembly.exitCode;
   }
-  const { runtime, stack, logger }: AssemblySuccess = assembly;
+  const { runtime, stack, logger, scope }: AssemblySuccess = assembly;
 
   let exitCode = 0;
   try {
@@ -241,14 +241,24 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
     // （bridge 同走 createServeBridge 零第二套映射）；披露两行走 stderr
     // （serve 前台披露通道）；closer 挂运行时退出序——EOF/信号/过载三路
     // 收场同享面收口（LIFO 在 serve-backend 之前注册 = drain 晚于 stdio 线
-    // 收口——网络面先关）——
+    // 收口——网络面先关）。批 19e 件在场执法：sdk 件缺席 = 面本体件禁用
+    // 语义族——warn 一行不开面（daemon 形拒启退 2 同族，前台形降级——
+    // stdio 传输本体不受累）；webui 件缺席 = 面开而 /api/* 404（mountKit
+    // 缺席形——openWebuiFace 内分档披露）——
     if (options.flags.port !== undefined) {
-      await openWebuiFace({
-        stack,
-        runtime,
-        port: options.flags.port,
-        ...(options.onWebuiOpen !== undefined ? { onOpen: options.onWebuiOpen } : {}),
-      });
+      const sdkKit = scope.tryGet<{ readonly createFace: unknown }>('sdk-http-face');
+      if (sdkKit === undefined) {
+        stderr.write('warn：core:sdk 件未装载——--port 人面不开（07 §5 daemon 拒启同族；stdio 传输不受累）\n');
+      } else {
+        const mountKit = scope.tryGet<WebuiMountKit>('webui-face-mount');
+        await openWebuiFace({
+          stack,
+          runtime,
+          port: options.flags.port,
+          ...(mountKit !== undefined ? { mountKit } : {}),
+          ...(options.onWebuiOpen !== undefined ? { onOpen: options.onWebuiOpen } : {}),
+        });
+      }
     }
 
     const io = options.io ?? { input: stdin, output: stdout };

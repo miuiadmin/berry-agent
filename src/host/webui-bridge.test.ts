@@ -18,10 +18,12 @@ import { createSdkHttpFace } from '../sdk/index.js';
 import type { WebuiRouteDescriptor, WebuiRouteRegistrar } from '../webui/index.js';
 
 import { createConversationStack } from './conversation-stack.js';
+import type { ConversationStack } from './conversation-stack.js';
 import { createServeBridge } from './serve-entry.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { mountWebuiOnFace, openWebuiFace } from './webui-bridge.js';
+import type { WebuiMountKit } from './webui-bridge.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -61,6 +63,17 @@ function rigStack(rt: HostRuntime) {
     env: {},
   });
   return { faux, stack };
+}
+
+/**
+ * 装配根同构 webui kit（批 19e——openWebuiFace 挂载改走 kit 分档；测试
+ * 自组真身闭包 = assembly webuiFaceMount 同构，件在场形全覆盖）
+ */
+function mountKitOf(stack: ConversationStack): WebuiMountKit {
+  return {
+    mountOnFace: (face, opts) =>
+      mountWebuiOnFace({ stack, face, ...(opts?.staticDir !== undefined ? { staticDir: opts.staticDir } : {}) }),
+  };
 }
 
 /** 微任务推进（write-behind 落账等待） */
@@ -201,27 +214,28 @@ describe('openWebuiFace 桥单元', () => {
       stack,
       runtime: rt,
       port: 0, // 实配端口
+      mountKit: mountKitOf(stack),
       disclose: (line) => disclosed.push(line),
     });
     try {
       // createSession：真开驱动（零 I/O——行随首事件落库）
-      const id = face.deps.sessions.createSession();
+      const id = face.deps!.sessions.createSession();
       expect(stack.manager.isOpen(id)).toBe(true);
       // 三档：open（内存册）→ missing（未知 id）
-      expect(face.deps.sessions.sessionStateOf(id)).toBe('open');
-      expect(face.deps.sessions.sessionStateOf('不存在')).toBe('missing');
+      expect(face.deps!.sessions.sessionStateOf(id)).toBe('open');
+      expect(face.deps!.sessions.sessionStateOf('不存在')).toBe('missing');
       // listSessions：新建未落库不在持久册（零 I/O 承诺）——驱动落一事件后可见
-      expect(face.deps.sessions.listSessions().some((s) => s.id === id)).toBe(false);
+      expect(face.deps!.sessions.listSessions().some((s) => s.id === id)).toBe(false);
       stack.driverOf(id)!.session.append('turn/start', {});
       await rt.persistence.flush();
-      const row = face.deps.sessions.listSessions().find((s) => s.id === id);
+      const row = face.deps!.sessions.listSessions().find((s) => s.id === id);
       expect(row).toBeDefined();
       expect(row!.title).toBeNull(); // 无标题 null（不造占位串）
       expect(row!.lastActivityAt).toBeGreaterThan(0);
       // closed 档：拆解后持久册仍见（已闭只读兜底判据；dispose 幂等——rt.shutdown
       // 的 manager closer 再跑无害）
       stack.manager.dispose();
-      expect(face.deps.sessions.sessionStateOf(id)).toBe('closed');
+      expect(face.deps!.sessions.sessionStateOf(id)).toBe('closed');
     } finally {
       await rt.shutdown(); // closer 内含 webui stop
     }
@@ -233,25 +247,31 @@ describe('openWebuiFace 桥单元', () => {
   it('submitPrompt 全链 + fetchMessages 投影 + todoOf 两态', async () => {
     const rt = createHostRuntime({ dataDir: rigDir('webui-bridge-data-') });
     const { faux, stack } = rigStack(rt);
-    const face = await openWebuiFace({ stack, runtime: rt, port: 0, disclose: () => undefined });
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined,
+    });
     try {
-      const id = face.deps.sessions.createSession();
+      const id = face.deps!.sessions.createSession();
       faux.setResponses([() => messageOf()]);
       // submitPrompt：fire-and-forget 受理（回执经信封——投影轮询达终态）
-      const outcome = face.deps.sessions.submitPrompt({ sessionId: id, content: '你好', messageId: 'm-1' });
+      const outcome = face.deps!.sessions.submitPrompt({ sessionId: id, content: '你好', messageId: 'm-1' });
       expect(outcome).toEqual({ sessionId: id });
-      const projection = await face.deps.read.fetchMessages(id);
+      const projection = await face.deps!.read.fetchMessages(id);
       // 中途投影已含 user 消息；应答终态轮询投影（faux 全链毫秒级，有界）
       expect(projection.some((m) => m.role === 'user' && m.content === '你好')).toBe(true);
-      await until(async () => (await face.deps.read.fetchMessages(id)).some((m) => m.role === 'assistant'));
-      const settled = await face.deps.read.fetchMessages(id);
+      await until(async () => (await face.deps!.read.fetchMessages(id)).some((m) => m.role === 'assistant'));
+      const settled = await face.deps!.read.fetchMessages(id);
       expect(settled.some((m) => m.role === 'assistant')).toBe(true); // 全链达 faux 模型
       // todoOf：无 todo 事件 = 空表（fold 空事件得 []）；无驱动 = undefined
-      expect(face.deps.read.todoOf?.(id)).toEqual([]);
-      expect(face.deps.read.todoOf?.('不存在')).toBeUndefined();
+      expect(face.deps!.read.todoOf?.(id)).toEqual([]);
+      expect(face.deps!.read.todoOf?.('不存在')).toBeUndefined();
       // interrupt 幂等（未知 id 静默）
-      face.deps.sessions.interruptSession(id);
-      face.deps.sessions.interruptSession('不存在');
+      face.deps!.sessions.interruptSession(id);
+      face.deps!.sessions.interruptSession('不存在');
     } finally {
       await rt.shutdown();
     }
@@ -269,6 +289,7 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
       stack,
       runtime: rt,
       port: 0,
+      mountKit: mountKitOf(stack),
       onOpen: (info) => {
         opened = info;
       },
@@ -332,6 +353,7 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
       runtime: rt,
       port: 0,
       staticDir,
+      mountKit: mountKitOf(stack),
       onOpen: (info) => {
         opened = info;
       },
@@ -342,6 +364,43 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
       });
       expect(res.status).toBe(200);
       expect(await res.text()).toContain('<title>spa</title>');
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('mountKit 缺席（webui 件禁用形——批 19e 分档）：面开 /api/* 404 而 /v1/* 在场 + 披露诚实不虚报', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-bare-data-') });
+    const { stack } = rigStack(rt);
+    const disclosed: string[] = [];
+    let opened: { port: number; token: string } | undefined;
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      disclose: (line) => disclosed.push(line),
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    try {
+      expect(face.webui).toBeUndefined(); // 件缺席 = 无挂载产物（handle 诚实 undefined）
+      expect(face.deps).toBeUndefined();
+      // /api/* 全族 404（webui 路由未挂——件禁用语义族）
+      const api = await fetch(`http://127.0.0.1:${opened!.port}/api/sessions`, {
+        headers: { authorization: `Bearer ${opened!.token}` },
+      });
+      expect(api.status).toBe(404);
+      // /v1/* 程序调用族在场（sdk 面本体——面开而 webui 路由缺席；协议版本头
+      // 恒要求——x-sdk-protocol: 1，缺席即 400 属面本体行为）
+      const sdk = await fetch(`http://127.0.0.1:${opened!.port}/v1/sessions`, {
+        headers: { authorization: `Bearer ${opened!.token}`, 'x-sdk-protocol': '1' },
+      });
+      expect(sdk.status).toBe(200);
+      // 披露分档：诚实报 SDK 面形（不虚报 Web 界面）+ token 行照旧
+      expect(disclosed.some((l) => l.includes('webui 件未装载'))).toBe(true);
+      expect(disclosed.some((l) => l.includes('Web 界面已开面'))).toBe(false);
+      expect(disclosed.some((l) => l.includes('仅此一次显示'))).toBe(true);
     } finally {
       await rt.shutdown();
     }
@@ -359,6 +418,7 @@ describe("18a-3' 三入口咬合：共用挂载段", () => {
       stack,
       runtime: rt,
       port: 0,
+      mountKit: mountKitOf(stack),
       disclose: () => undefined, // 测试态 stderr 静默（token 只进 onOpen 收账）
       onOpen: (info) => {
         opened = info;

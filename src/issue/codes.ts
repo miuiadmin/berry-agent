@@ -29,4 +29,11 @@ registerErrorCodes([
     module: 'issue',
     description: '同 dedupeKey（repo#issue）在飞互斥撞锁（03 §10.7 入队条——进程内语义，双触发源竞速护栏）',
   },
+  {
+    // 批 19e 装载批补（03 §10.7 错误码族同笔 + 02 §5.3 随册）——装载期
+    // mount config 坏形响亮拒（行级装载失败 /reload 可修，MCP_CONFIG_INVALID 同律）
+    code: 'ISSUE_CONFIG_INVALID',
+    module: 'issue',
+    description: 'mount config 坏形（repos 缺席/非数组/glob 坏形等 normalizeIssueConfig 拒形——装载期响亮拒行级失败）',
+  },
 ]);

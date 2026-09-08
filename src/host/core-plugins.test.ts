@@ -11,7 +11,7 @@
  * 纪律：mock 只停在装载 fs 注入位（内存 Map——读侧零真盘）；装载管线/
  * spawn 管道/bash 工具/守门/审批/技能扫描全走真实现。
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -24,14 +24,20 @@ import { openCheckpointStore } from '../checkpoint/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
 import type { GoalSessionFace } from '../goal/index.js';
+import type { IssueBudgetFace, IssueSessionFace, IssueStoreStateFace } from '../issue/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
+import type { ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
 import { MEMORY_DB_PATH, Persistence } from '../persist/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
+import { createSdkHttpFace } from '../sdk/index.js';
+import type { SdkHttpFaceHandle } from '../sdk/index.js';
 import { SessionLog } from '../session/index.js';
+import { createJobRegistry, provideJobsService } from '../subagent/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
 import type { GoalFace, SchedulerFace } from './core-plugins.js';
+import type { WebuiFaceMount } from './webui-bridge.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { PluginBootFs } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
@@ -68,7 +74,7 @@ function stubRuntime(dataDir: string | null): HostRuntime {
   return stub as unknown as HostRuntime; // closers 等私有位不在公开类型——结构替身
 }
 
-/** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler/goal 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位，goal 增会话读面主闸二；checkpoint 增语境/fork 两 seam + 焦点会话位——批 19c-4） */
+/** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler/goal 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位，goal 增会话读面主闸二；checkpoint 增语境/fork 两 seam + 焦点会话位——批 19c-4；19e 增 HTTP 面族十位——sdk/webui/obs/issue 四件） */
 interface DepsForTest {
   sqlite?: () => ReturnType<Persistence['store']['sqlite']>;
   fetchEvents?: (sessionId: string) => readonly SessionEvent[];
@@ -78,6 +84,16 @@ interface DepsForTest {
   checkpointSession?: SessionContextFace;
   checkpointFork?: RewindForkFace;
   focusSessionId?: () => string | undefined;
+  sdkFaceFactory?: typeof createSdkHttpFace;
+  webuiFaceMount?: (face: SdkHttpFaceHandle, options?: { staticDir?: string }) => WebuiFaceMount;
+  obsEvents?: ObsEventsFace;
+  obsNotify?: ObsNotifyFace;
+  obsAudience?: ObsAudienceFace;
+  issueSession?: IssueSessionFace;
+  issueState?: IssueStoreStateFace;
+  issueBudget?: IssueBudgetFace;
+  issueGithubToken?: string;
+  issueWebhookSecret?: string;
 }
 
 /** 真装载速记（createCorePlugins 工厂单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言。cwd/homeDir 注入隔离面——skills 跨库层不扫真实 HOME） */
@@ -99,6 +115,11 @@ async function bootCore(
   const commandSpecs: { name: string; handler: CommandHandler }[] = [];
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
+  // issue 件前件（批 19e）：真 Job 注册表 provide（assembly 同构——件
+  // tryGet 'jobs' 消费；emit 总线腿测试态省略）
+  if (coreDeps.issueSession !== undefined) {
+    provideJobsService(scope, createJobRegistry({ warn: () => undefined }));
+  }
   const boot = await bootPlugins({
     runtime: stubRuntime(dataDir),
     scope,
@@ -125,6 +146,16 @@ async function bootCore(
       ...(coreDeps.checkpointSession !== undefined ? { checkpointSession: coreDeps.checkpointSession } : {}),
       ...(coreDeps.checkpointFork !== undefined ? { checkpointFork: coreDeps.checkpointFork } : {}),
       ...(coreDeps.focusSessionId !== undefined ? { focusSessionId: coreDeps.focusSessionId } : {}),
+      ...(coreDeps.sdkFaceFactory !== undefined ? { sdkFaceFactory: coreDeps.sdkFaceFactory } : {}),
+      ...(coreDeps.webuiFaceMount !== undefined ? { webuiFaceMount: coreDeps.webuiFaceMount } : {}),
+      ...(coreDeps.obsEvents !== undefined ? { obsEvents: coreDeps.obsEvents } : {}),
+      ...(coreDeps.obsNotify !== undefined ? { obsNotify: coreDeps.obsNotify } : {}),
+      ...(coreDeps.obsAudience !== undefined ? { obsAudience: coreDeps.obsAudience } : {}),
+      ...(coreDeps.issueSession !== undefined ? { issueSession: coreDeps.issueSession } : {}),
+      ...(coreDeps.issueState !== undefined ? { issueState: coreDeps.issueState } : {}),
+      ...(coreDeps.issueBudget !== undefined ? { issueBudget: coreDeps.issueBudget } : {}),
+      ...(coreDeps.issueGithubToken !== undefined ? { issueGithubToken: coreDeps.issueGithubToken } : {}),
+      ...(coreDeps.issueWebhookSecret !== undefined ? { issueWebhookSecret: coreDeps.issueWebhookSecret } : {}),
     }),
     version: '9.9.9-test',
     warn: (message) => warnings.push(message),
@@ -786,8 +817,10 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(commands).toContain('browser');
 
     // 惰性执法全环：零 config = 零子进程（mcp servers 空 + lsp servers 空 +
-    // browser 零引擎发现）——装载期间无真 spawn/真网络（测试零网络纪律）
-    expect(boot.counts).toEqual({ total: 11, enabled: 11, failed: 0 });
+    // browser 零引擎发现）——装载期间无真 spawn/真网络（测试零网络纪律）；
+    // counts 口径 = activated 数：19e 四件（sdk/webui/obs/issue）在零 seam
+    // 测试形下主闸早退仍计 activated——15 件齐册全计
+    expect(boot.counts).toEqual({ total: 15, enabled: 15, failed: 0 });
   });
 
   it('exec 禁用 = 三桥连坐零装载（spawn 单源不自建——04 §11）：三服务面缺席 + LSP 静态四件不注册 + /browser 不注册', async () => {
@@ -807,7 +840,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(commands).not.toContain('browser');
     // 其余件不连坐（counts 口径 = activated 数：三桥 apply 早退无操作仍计
     // activated——诚实缺席在服务面/工具面，不在行计；exec 1 行 skipped）
-    expect(boot.counts).toEqual({ total: 11, enabled: 10, failed: 0 });
+    expect(boot.counts).toEqual({ total: 15, enabled: 14, failed: 0 });
   });
 
   it('browser 主闸 dataDir 位：纯 :memory: 形零装载（mcp/lsp 不连坐——两桥无 dataDir 闸）', async () => {
@@ -933,7 +966,128 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(notified[notified.length - 1]!).toContain('/browser install'); // usage 指引
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——本批 exec/web/skills/memory/subagent/scheduler/mcp/browser/lsp/goal/checkpoint 十一件）', () => {
+  it('sdk/webui 两件 kit 供给（批 19e）：seam 在场 → 双 kit provide 透传真身；缺席 → 零装载（诚实缺席律）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-kit-'));
+    dirs.push(dataDir);
+    let mountCalls = 0;
+    const fakeMount: WebuiFaceMount = {
+      webui: {} as unknown as WebuiFaceMount['webui'], // kit 供给例不真挂载——结构占位
+      deps: {} as unknown as WebuiFaceMount['deps'],
+      detach: () => undefined,
+    };
+    const { scope } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sdkFaceFactory: createSdkHttpFace,
+        webuiFaceMount: () => {
+          mountCalls += 1;
+          return fakeMount;
+        },
+      },
+    );
+    // 双 kit provide：sdk 面工厂同引用透传（装配闭包直传——零第二套包装）
+    const sdkKit = scope.tryGet<{ createFace: typeof createSdkHttpFace }>('sdk-http-face');
+    expect(sdkKit).toBeDefined();
+    expect(sdkKit!.createFace).toBe(createSdkHttpFace);
+    expect(scope.tryGet('webui-face-mount')).toBeDefined();
+    expect(mountCalls).toBe(0); // kit 晚绑——apply 期零触面（装载 ≠ 开面）
+
+    // seam 缺席形：两件零装载——kit 缺席 = daemon 拒启/前台不开面的执法源
+    const bare = await bootCore(dataDir);
+    expect(bare.scope.tryGet('sdk-http-face')).toBeUndefined();
+    expect(bare.scope.tryGet('webui-face-mount')).toBeUndefined();
+  });
+
+  it('obs 件装载全环（批 19e）：双主闸在场 → 服务面 + obs_query 工具 + 首拍摄取 + rollup.db 落盘 + 坏条告警降级不炸件', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-obs-'));
+    dirs.push(dataDir);
+    let queryCount = 0;
+    const events: ObsEventsFace = {
+      queryEvents: () => {
+        queryCount += 1;
+        return { events: [], nextCursor: null };
+      },
+    };
+    // enabled.yaml core:obs 行 config：一好一坏两条告警——坏条降级律（03 §10.8：
+    // warn 跳过该条、不整件失败——与 mcp/browser 坏形响亮拒分立两律）
+    const { scope, boot } = await bootCore(
+      dataDir,
+      memoryFs({
+        [join(dataDir, 'enabled.yaml')]:
+          'plugins:\n  - id: core:obs\n    config:\n      alerts:\n        - kind: token_spend_hourly\n          thresholdTokens: 1000\n        - kind: bad_kind\n          thresholdTokens: -1\n',
+      }),
+      {},
+      { obsEvents: events },
+    );
+    expect(scope.tryGet('obs')).toBeDefined(); // 坏条未炸件——摄取/查询面照装
+    expect(boot.tools.definitions().map((d) => d.name)).toContain('obs_query');
+    expect(queryCount).toBeGreaterThan(0); // 装载即首拍 refresh（连接即当下——不等挂钟）
+    expect(existsSync(join(dataDir, 'data', 'obs', 'rollup.db'))).toBe(true); // 自管库落盘（03 §10.8 容忍条款——data/obs/ 子目录）
+    expect(boot.counts).toEqual({ total: 15, enabled: 15, failed: 0 });
+
+    // 主闸缺席形：dataDir null（:memory: 诊断形）→ 零装载
+    const bare = await bootCore(null, memoryFs(), {}, { obsEvents: events });
+    expect(bare.scope.tryGet('obs')).toBeUndefined();
+  });
+
+  it('issue 件双形（批 19e）：session seam 缺席主闸三早退零装载；全环形 = 服务面 + webhook kit（config 经 enabled.yaml 注入 + 真前件链）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-issue-'));
+    dirs.push(dataDir);
+    // 真 :memory: 座 + 聚合迁移链（scheduler 件装载 → tryGet 'scheduler' 前件在场）
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session: IssueSessionFace = {
+      startHeadless: async () => ({
+        sessionId: 's-issue-1',
+        outcome: Promise.resolve({ status: 'completed', messagesUsed: 1, summary: 'ok' }),
+      }),
+    };
+    const state: IssueStoreStateFace = {
+      getStoreState: () => undefined,
+      setStoreState: () => undefined,
+      deleteStoreState: () => false,
+    };
+    const budget: IssueBudgetFace = { canAffordIssue: () => ({ ok: true }) };
+    const issueYaml = 'plugins:\n  - id: core:issue\n    config:\n      repos:\n        - owner/repo\n';
+
+    // 形 A：session seam 缺席（挂账形——assembly 不传 issueSession）→ 主闸三早退
+    const bare = await bootCore(
+      dataDir,
+      memoryFs({ [join(dataDir, 'enabled.yaml')]: issueYaml }),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        issueGithubToken: 'gh-token',
+        issueState: state,
+        issueBudget: budget,
+      },
+    );
+    expect(bare.scope.tryGet('issue')).toBeUndefined();
+    expect(bare.scope.tryGet('issue-webhook-mount')).toBeUndefined();
+    expect(bare.boot.counts).toEqual({ total: 15, enabled: 15, failed: 0 }); // 早退仍计 activated（counts 口径）
+
+    // 形 B：全环（config + token + session seam + scheduler 件〔sqlite〕+ jobs〔bootCore 内建〕）
+    const full = await bootCore(
+      dataDir,
+      memoryFs({ [join(dataDir, 'enabled.yaml')]: issueYaml }),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        issueGithubToken: 'gh-token',
+        issueState: state,
+        issueBudget: budget,
+        issueSession: session,
+      },
+    );
+    expect(full.scope.tryGet('issue')).toBeDefined(); // 服务面（含 enqueue 公开位——19e）
+    expect(full.scope.tryGet('issue-webhook-mount')).toBeDefined(); // webhook 挂点 kit（daemon 消费位）
+  });
+
+  it('注册表单源形：件名清单（逐纵切笔入册——批 19a—19e：exec/web/skills/memory/subagent/scheduler/mcp/browser/lsp/goal/checkpoint/sdk/webui/obs/issue 十五件齐册）', () => {
     expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual([
       'exec',
       'web',
@@ -946,6 +1100,10 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       'lsp',
       'goal',
       'checkpoint',
+      'sdk',
+      'webui',
+      'obs',
+      'issue',
     ]);
   });
 });

@@ -20,6 +20,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { fauxProvider } from '../llm/index.js';
 
+import { createCorePlugins } from './core-plugins.js';
 import {
   DAEMON_CHILD_ENV,
   clearDaemonFootprints,
@@ -410,6 +411,31 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     expect(code).toBe(1); // 干净退出档（不写 crash.log）
     expect(faceStarted).toBe(false);
     expect(lines[0]).toContain('启动失败'); // 装配失败档归一文案
+  });
+
+  it('sdk 件缺席拒启（批 19e——07 §5 daemon 拒启律）：kit 缺席 → 退 2 + face 不建 + 运行时收口', async () => {
+    const faux = fauxProvider({ provider: 'faux-daemon3', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-data-'));
+    dirs.push(dataDir);
+    const lines: string[] = [];
+    let faceStarted = false;
+    const code = await runDaemonServe({
+      flags: { noDelta: false },
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-daemon3/m1',
+      env: {},
+      writeErr: (l) => lines.push(l),
+      // 注册表覆盖：15 件减 core:sdk（enabled.yaml 禁用形同构——kit 缺席执法面）
+      corePlugins: createCorePlugins({ dataDir }).filter((ref) => ref.name !== 'sdk'),
+      faceFactory: (() => {
+        faceStarted = true;
+        throw new Error('face 不应装配');
+      }) as unknown as NonNullable<DaemonServeOptions['faceFactory']>,
+    });
+    expect(code).toBe(2); // 与开面判定拒启同码族（配置档干净退出）
+    expect(faceStarted).toBe(false);
+    expect(lines.some((l) => l.includes('core:sdk 件未装载'))).toBe(true);
   });
 
   it('全环：face 起 → pid 登记 + token 披露 → shutdown 优雅停清足迹退 0', async () => {
