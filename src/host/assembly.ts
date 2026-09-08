@@ -38,6 +38,7 @@ import {
 } from '../subagent/index.js';
 import { createDirProvider } from '../skills/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
+import { createSsrfGuardedFetch } from '../web/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
 import { createCorePlugins } from './core-plugins.js';
@@ -304,9 +305,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // （createJobRegistry 同形先例——纯内存装载代内生命周期），三消费位共
     // 用同表：plugin-boot fork 绑定（ctx.secrets.registerOAuthFlow 注册面）+
     // core:credentials 人面动词（/credentials oauth 解析腿）+ 刷新链巡检面。
-    // fetch = globalThis.fetch 真身（credentials 件无 web 边——loop 只认
-    // StreamFn 同律；宿主侧外联插件声明端点，SSRF 守卫挂账安全批评审）
+    // SSRF 守卫 fetch（2026-09-09 守卫批——挂账收口）：web 卫生单源包裹真身
+    // fetch（协议白名单 + 字面/DNS 私网拒 + redirect 钉 manual 不跟随）——
+    // credentials 件无 web 边（loop 只认 StreamFn 同律），守卫属宿主裁决权
+    // 装配位注入；人面发起腿与刷新链腿共用同守卫实例
     const oauthFlows = createOAuthFlowRegistry();
+    const oauthFetch = createSsrfGuardedFetch(fetch);
     // in-process 真工厂注册（批 19c-1 兑现）：委派深度登记表（boot 全局层
     // 工具执行时语境真源）+ DEFAULT_SUBAGENT_PROVIDER 位接线（声明式 def
     // bound provider late-binding 同位解析）
@@ -517,11 +521,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             credentialsStore: runtimeNow.persistence.store,
             credentialsOnChanged: (payload) => audit.append('credentials/changed', { ...payload }),
             // —— oauth 流受局面（c-6——03 §10.9 oauth 案）：注册表同真身 +
-            // globalThis.fetch 真身（SSRF 守卫挂账安全批评审）+ 刷新链 60s
-            // 自驱缺省 + 单败 warn 走宿主 logger
+            // SSRF 守卫包裹 fetch（web 卫生单源——上方 oauthFetch 单源）+
+            // 刷新链 60s 自驱缺省 + 单败 warn 走宿主 logger
             credentialsOAuth: {
               registry: oauthFlows,
-              fetchFn: fetch,
+              fetchFn: oauthFetch,
               warn: (message) => logger.warn(message),
             },
             // —— scheduler 编舞接线三位（批 20c——19c-2 挂账销账）——

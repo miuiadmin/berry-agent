@@ -25,5 +25,6 @@ export type {
 } from './types.js';
 export { createInFlightGate } from './gate.js';
 export { WEB_PROTOCOLS, defaultDnsResolver, parseWebUrl, isPrivateHostLiteral, assertPublicHost } from './hygiene.js';
+export { createSsrfGuardedFetch } from './ssrf-guard.js';
 export { createWebFetchService, DEFAULT_WEB_LIMITS } from './service.js';
 export { createFetchTool } from './tool.js';
