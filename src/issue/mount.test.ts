@@ -290,3 +290,24 @@ describe('issue webhook 挂点（18a-4）', () => {
     });
   });
 });
+
+describe('配置归一 maxDeliveriesPerDay（04 §13——mandate maxPerDay 原料）', () => {
+  it('缺省 10；好值透传', () => {
+    expect(normalizeIssueConfig({ repos: ['o/r'] })).toMatchObject({
+      ok: true,
+      config: { maxDeliveriesPerDay: 10 },
+    });
+    expect(normalizeIssueConfig({ repos: ['o/r'], maxDeliveriesPerDay: 500 })).toMatchObject({
+      ok: true,
+      config: { maxDeliveriesPerDay: 500 },
+    });
+  });
+
+  it('空帽即坏形（0/负数/小数/越上界均拒——彻底关停走 HALT 或撤 consent）', () => {
+    for (const bad of [0, -3, 2.5, 100_001, '10']) {
+      const r = normalizeIssueConfig({ repos: ['o/r'], maxDeliveriesPerDay: bad });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toContain('HALT');
+    }
+  });
+});

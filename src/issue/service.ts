@@ -14,8 +14,10 @@
  * grant（拿到 sessionId 才能授予——create 时会话不存在的补授位）→ await
  * outcome → 交付映射（04 §10 issue 消费注）：
  * - draft+completed → 评论贴分支+补丁（60k 帽）→ settle completed；
- * - auto+completed → 评论说明 + settle failed「需人审：不可逆外部写闸缺席」
- *   （03 §10.7 交付条——危险闸缺席一律阻塞转人审，v1 push/PR 面未落）；
+ * - auto+completed → 危险闸交付腿（04 §13——deliver = 闸包裹的 push/PR
+ *   执行）：push 分支 → 开 PR → 回执贴 PR 链接 → settle completed；闸拒
+ *   （DANGER_ 族）= 评论转人审 + 指路修复动作 + settle failed 需人审；
+ *   闸缺席（装配未注入 face）= 03 §10.7 原语义保持——阻塞转人审；
  * - failed → 评论贴原因 → settle failed；
  * - needs-human → 评论转人审 → settle failed（需人审）；
  * - paused → **不 settle 不 clean 不释授予**——worktree/授予/在飞记账全
@@ -32,6 +34,7 @@ import { handleWebhookRequest, type WebhookReceipt } from './webhook.js';
 import type {
   IssueBudgetFace,
   IssueConfig,
+  IssueDangerFace,
   IssueEnqueueResult,
   IssueJobsFace,
   IssueRef,
@@ -44,6 +47,24 @@ import { ISSUE_POLL_JOB_NAME, ISSUE_RECEIPT_PATCH_CHARS, ISSUE_WORKTREE_NAME_RE,
 
 /** capabilities 预检名单（03 §10.7 ③入队定值——三名缺席任一拒） */
 const REQUIRED_CAPABILITIES: readonly string[] = ['goal', 'exec', 'checkpoint'];
+
+/**
+ * 危险闸拒码 → 回执指路（04 §13 消费面按码分流呈现——approve / 重签 /
+ * 删 HALT / 次日或提帽重签四路）。未知码兜底呈现状态命令。
+ */
+const DANGER_REMEDIES: Readonly<Record<string, string>> = {
+  DANGER_CONSENT_ABSENT: 'consent 缺席——TUI 运行 /danger approve 签发授权后重跑',
+  DANGER_CONSENT_INVALID: 'consent 过期或配置漂移——重跑 /danger approve 重签',
+  DANGER_HALTED: 'HALT 哨兵在场——删除数据目录下 HALT 文件即恢复',
+  DANGER_TARGET_DENIED: '目标不在危险闸值域——检查件配置 repos 后重签 consent',
+  DANGER_CAP_EXCEEDED: '当日交付帽已达——UTC 次日自动恢复，或提帽后重签 consent',
+  DANGER_LEDGER_CORRUPT: '危险闸审计账本链损坏——人工检修（截断/重建是人工决策）',
+};
+
+/** 拒码指路取值（未知码兜底——不静默） */
+function dangerRemedy(code: string): string {
+  return DANGER_REMEDIES[code] ?? '运行 /danger status 检查危险闸状态';
+}
 
 /** builtin 轮询行的 prompt 占位（RunnerFactory 对该行名程序化分派 pollOnce 零 token——行 prompt 不入模型面） */
 const POLL_PROMPT_PLACEHOLDER =
@@ -61,6 +82,11 @@ export interface IssueServiceDeps {
   readonly budget: IssueBudgetFace;
   /** 在场能力名清单（装配根注入——capabilities 预检源） */
   readonly capabilities: readonly string[];
+  /**
+   * 危险闸窄面（04 §13——auto 档交付腿；装配位组合注入）。缺席 = auto 档
+   * 阻塞转人审原语义保持（memory 诊断形 dataDir null 零闸——fail-closed）。
+   */
+  readonly danger?: IssueDangerFace;
   /** webhook secret（缺席 = webhook 面关闭——handleWebhook 响亮拒） */
   readonly webhookSecret?: string;
   /** warn 日志面（缺省 no-op——测试静默） */
@@ -209,15 +235,83 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
             detail: `draft：分支 ${created.branch}（${outcome.messagesUsed} 条消息）`,
           });
         } else {
-          // auto 档：危险闸缺席——一律阻塞转人审（03 §10.7 交付条；v1 push/PR 面未落）
-          await postReceipt(
-            issue,
-            [
-              `🤖 issue run 完成（auto 档）但不可逆外部写闸缺席——阻塞转人审：分支 \`${created.branch}\` 已就绪（本地未 push），请人工确认后交付。`,
-              outcome.summary,
-            ].join('\n'),
-          );
-          handle.settle({ status: 'failed', detail: '需人审：不可逆外部写闸缺席（auto 档成果已备，push/PR 需人工）' });
+          // auto 档：危险闸交付腿（04 §13——deliver = 闸包裹的 push/PR 执行闭包）。
+          // 闸缺席（装配未注入 face）= 03 §10.7 原语义保持：阻塞转人审。
+          if (deps.danger === undefined) {
+            await postReceipt(
+              issue,
+              [
+                `🤖 issue run 完成（auto 档）但不可逆外部写闸缺席——阻塞转人审：分支 \`${created.branch}\` 已就绪（本地未 push），请人工确认后交付。`,
+                outcome.summary,
+              ].join('\n'),
+            );
+            handle.settle({
+              status: 'failed',
+              detail: '需人审：不可逆外部写闸缺席（auto 档成果已备，push/PR 需人工）',
+            });
+            return;
+          }
+          // 交付序：先 push 分支（PR 依赖远端分支在场）→ 再开 PR → 回执贴链接。
+          // pushed 位供拒/败回执如实陈述分支状态（已推远端 vs 本地未推）。
+          let pushed = false;
+          try {
+            await deps.danger.deliver({
+              kind: 'push',
+              repo: issue.repo,
+              branch: created.branch,
+              worktreePath: created.path,
+            });
+            pushed = true;
+            const pr = await deps.danger.deliver({
+              kind: 'create-pr',
+              repo: issue.repo,
+              branch: created.branch,
+              base: deps.config.baseBranch,
+              title: issue.title,
+              body: [outcome.summary, '', `Closes #${issue.number}`, '', `Source issue: ${issue.htmlUrl}`].join('\n'),
+              worktreePath: created.path,
+            });
+            const prRef = pr.prUrl !== undefined && pr.prUrl !== '' ? pr.prUrl : `#${pr.prNumber ?? '?'}`;
+            await postReceipt(
+              issue,
+              [
+                `🤖 issue run 完成（auto 档——危险闸放行交付）：PR ${prRef} 已开（分支 \`${created.branch}\`）。`,
+                outcome.summary,
+              ].join('\n'),
+            );
+            handle.settle({
+              status: 'completed',
+              detail: `auto：PR ${prRef}（分支 ${created.branch}，${outcome.messagesUsed} 条消息）`,
+            });
+          } catch (err) {
+            // 两路分账：DANGER_ 族 = 闸拒（零外联——execute 未被调用）转人审 +
+            // 指路修复；其余 = 过闸外部写失败（allow-failed 已记账）留分支重试。
+            const branchState = pushed
+              ? `分支 \`${created.branch}\` 已推远端（PR 未开成——可人工补开）`
+              : `分支 \`${created.branch}\` 已就绪（本地未推）`;
+            if (err instanceof BaseError && err.code.startsWith('DANGER_')) {
+              const remedy = dangerRemedy(err.code);
+              await postReceipt(
+                issue,
+                [
+                  `🤖 issue run 需人审（危险闸拒 ${err.code}）——${branchState}。`,
+                  `修复指路：${remedy}`,
+                  `原始判据：${err.message}`,
+                  outcome.summary,
+                ].join('\n'),
+              );
+              handle.settle({ status: 'failed', detail: `需人审：危险闸拒（${err.code}）——${remedy}` });
+            } else {
+              const detail = err instanceof Error ? err.message : String(err);
+              await postReceipt(
+                issue,
+                [`🤖 issue run 交付失败（外部写未成）：${detail}——${branchState}，可重试。`, outcome.summary].join(
+                  '\n',
+                ),
+              );
+              handle.settle({ status: 'failed', detail: `交付失败：${detail}` });
+            }
+          }
         }
       } else if (outcome.status === 'failed') {
         await postReceipt(issue, `🤖 issue run 失败：${outcome.reason}（分支 \`${created.branch}\` 留存供排查）`);

@@ -15,12 +15,20 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ephemeralSecretKey, openStore } from '../persist/index.js';
+import type { DangerApproveResult, DangerGateStatus } from '../safety/danger.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/migration.js';
 import { createSchedulerService } from '../scheduler/service.js';
 import { createJobRegistry } from '../subagent/index.js';
 import { createWorktreeService } from '../tools/index.js';
 import { watermarkKey } from './poll.js';
-import type { IssueJobsFace, IssueSchedulerFace, IssueStoreStateFace, IssueWorktreeFace } from './types.js';
+import type {
+  IssueDangerFace,
+  IssueDangerStatusFace,
+  IssueJobsFace,
+  IssueSchedulerFace,
+  IssueStoreStateFace,
+  IssueWorktreeFace,
+} from './types.js';
 
 let dir: string;
 let repo: string;
@@ -118,5 +126,28 @@ describe('真 SchedulerService ↔ IssueSchedulerFace（闭包适配）', () => 
     face.removePollJob('issue-poll');
     expect(service.getJob('issue-poll')).toBeUndefined();
     expect(() => face.removePollJob('issue-poll')).not.toThrow(); // 二次摘（无行 no-op）
+  });
+});
+
+describe('危险闸真身 ↔ IssueDangerFace（04 §13 词面独立律——类型级互证）', () => {
+  it('DangerGateStatus 结构可赋 IssueDangerStatusFace；approve 结果形兼容窄面回执', () => {
+    // status 产物直接结构赋值——consent/halt/cap/ledger 四块字段面全兼容
+    const statusCompat = (s: DangerGateStatus): IssueDangerStatusFace => s;
+    // approve 结果形：DangerApproveResult（多携 mandateHash/approvedAt）兼容窄面回执
+    const approveCompat = (r: DangerApproveResult): { ok: true; expiresAt: number } | { ok: false; message: string } =>
+      r;
+    // 装配位组合形：deliver 回执 {prNumber?, prUrl?}——PR 真身字段映射窄面
+    const deliverCompat = (pr: { number: number; htmlUrl: string }): Promise<{ prNumber?: number; prUrl?: string }> =>
+      Promise.resolve({ prNumber: pr.number, prUrl: pr.htmlUrl });
+    // 窄面闭包可由真身三动词直组（core-plugins 装配位形态的签名面证）
+    const makeApproveResult = (ttlDays?: number): DangerApproveResult =>
+      ({ ok: true, mandateHash: 'h', approvedAt: 1, expiresAt: (ttlDays ?? 30) * 86_400_000 }) as DangerApproveResult;
+    const face: Pick<IssueDangerFace, 'approve' | 'status'> = {
+      approve: async (ttlDays?: number) => approveCompat(makeApproveResult(ttlDays)),
+      status: async () => statusCompat({} as DangerGateStatus),
+    };
+    void deliverCompat;
+    void face;
+    expect(true).toBe(true); // 类型级断言——编译期即验（typecheck 门禁承载）
   });
 });

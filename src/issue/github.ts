@@ -23,6 +23,12 @@ export interface GithubBackendOptions {
   readonly apiBase?: string;
 }
 
+/** PR 归一形（createPullRequest 产物——危险闸 create-pr 执行腿的回执面） */
+export interface GithubPullRequestRef {
+  readonly number: number;
+  readonly htmlUrl: string;
+}
+
 /** 源后端窄面（poll/webhook/tools/service 四消费方——service 组装注入） */
 export interface GithubBackend {
   /** 列仓 issues（state=open；since 增量窗；单页帽 100） */
@@ -31,6 +37,14 @@ export interface GithubBackend {
   listComments(req: { repo: string; number: number }): Promise<IssueCommentRef[]>;
   /** issue 评论投递（回执面——draft 贴补丁/终态回执；折码律同 list*） */
   postComment(req: { repo: string; number: number; body: string }): Promise<{ id: number }>;
+  /** 开 PR（04 §13 create-pr 执行腿——REST `POST /repos/:o/:r/pulls`，postComment 同形 fetch-only 扩法） */
+  createPullRequest(req: {
+    repo: string;
+    title: string;
+    body: string;
+    head: string;
+    base: string;
+  }): Promise<GithubPullRequestRef>;
 }
 
 /** repo 串词法（`owner/name`——防注入：两段、字符域限字母数字连字符下划线点） */
@@ -160,6 +174,20 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
         body: { body: req.body },
       });
       return { id: typeof created.id === 'number' ? created.id : 0 };
+    },
+
+    async createPullRequest(req) {
+      assertRepoValid(req.repo);
+      // POST 开 PR（201/200——非 2xx 已在 requestJson 折码；422「PR 已在/无
+      // 差异」折 ISSUE_SOURCE_UNREACHABLE 族携状态码——与 postComment 同形
+      // 不特判，调用方按错误面分流）
+      const row = await requestJson<{ number?: unknown; html_url?: unknown }>(`/repos/${req.repo}/pulls`, {
+        body: { title: req.title, body: req.body, head: req.head, base: req.base },
+      });
+      return {
+        number: typeof row.number === 'number' ? row.number : 0,
+        htmlUrl: typeof row.html_url === 'string' ? row.html_url : '',
+      };
     },
   };
 }

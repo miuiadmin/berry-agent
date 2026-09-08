@@ -16,6 +16,7 @@ const CONFIG: IssueConfig = {
   repos: ['o/r'],
   perIssueBudgetMessages: 10,
   baseBranch: 'main',
+  maxDeliveriesPerDay: 10,
 };
 
 /** issues 事件原始载荷 */

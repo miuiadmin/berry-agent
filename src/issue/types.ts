@@ -53,6 +53,11 @@ export const ISSUE_GITHUB_TOKEN_NAME = 'github-token';
  * `BERRY_AGENT_ISSUE_WEBHOOK_SECRET` 过渡载体回落） */
 export const ISSUE_WEBHOOK_SECRET_NAME = 'issue-webhook-secret';
 
+/** 交付日成功帽缺省（04 §13——mandate maxPerDay 原料；正整数律在
+ * normalizeIssueConfig 执法：0/负数/坏形 = 空帽即坏形拒，彻底关停走 HALT
+ * 哨兵或撤 consent 不走空帽） */
+export const ISSUE_MAX_DELIVERIES_PER_DAY_DEFAULT = 10;
+
 /* ---------------- 配置面（mount config 键——用户可配域） ---------------- */
 
 /** 运行档位（03 §10.7 裁决④⑤：两档可配、缺省草稿先行——fail-closed 缺省律） */
@@ -78,6 +83,8 @@ export interface IssueConfig {
   readonly perIssueBudgetMessages: number;
   /** 补丁基线分支（diffPatch base——缺省 'main'） */
   readonly baseBranch: string;
+  /** 交付日成功帽（04 §13 mandate maxPerDay 原料——缺省 10，正整数律） */
+  readonly maxDeliveriesPerDay: number;
 }
 
 /* ---------------- 数据面（GitHub 归一形——轮询/webhook 共用） ---------------- */
@@ -197,6 +204,58 @@ export interface IssueSessionFace {
     /** 件注册的只读工具面（issue_get 等——随会话装载） */
     readonly tools: readonly ToolDefinition[];
   }): Promise<IssueSessionStartResult>;
+}
+
+/* ---------------- 危险闸窄面（04 §13 装配窄面注入——词面独立律） ---------------- */
+
+/**
+ * 危险闸窄面（04 §13：auto 档交付腿的预授权执法面）。词面独立律——issue 不
+ * import safety（零 DAG 边），本面结构兼容 createDangerGate 产物的装配位
+ * 组合子集（compat 互证归测试）；GoalJobsFace 同句式。deliver = 闸包裹的
+ * 执行腿（装配位组合「闸判定 + push/create-pr 执行」为单一闭包——消费件只
+ * 见窄面不见裸腿，走正门 = 免组装闸序，绕闸 = 刻意行为而非疏忽可达）。
+ * 闸拒 = BaseError 携 `DANGER_` 族码上抛（零外联）；过闸外部写失败 = 原错误
+ * 直传（allow-failed 已记账）。
+ */
+export interface IssueDangerFace {
+  /** 交付腿：push（推分支至 origin）/ create-pr（REST 开 PR——依赖 push 先成） */
+  deliver(req: {
+    readonly kind: 'push' | 'create-pr';
+    readonly repo: string;
+    readonly branch: string;
+    /** push 腿 spawn cwd（worktree canonical 路径） */
+    readonly worktreePath: string;
+    /** create-pr：PR 标题 */
+    readonly title?: string;
+    /** create-pr：PR 正文 */
+    readonly body?: string;
+    /** create-pr：基线分支 */
+    readonly base?: string;
+  }): Promise<{ readonly prNumber?: number; readonly prUrl?: string }>;
+  /** consent 签发（人面唯写——/danger approve 承载；绑活体 mandate 哈希） */
+  approve(ttlDays?: number): Promise<{ ok: true; expiresAt: number } | { ok: false; message: string }>;
+  /** 运维单命令呈现源（/danger status 承载） */
+  status(): Promise<IssueDangerStatusFace>;
+}
+
+/** 危险闸状态呈现面（/danger status 五呈：mandate/consent/HALT/帽/账本） */
+export interface IssueDangerStatusFace {
+  readonly consumer: string;
+  readonly mandateHash: string;
+  readonly mandate: {
+    readonly actions: readonly string[];
+    readonly targets: readonly string[];
+    readonly maxPerDay: number;
+  };
+  readonly consent: {
+    readonly state: 'absent' | 'valid' | 'expired' | 'drifted';
+    readonly approvedAt?: string;
+    readonly expiresAt?: string;
+  };
+  readonly halt: { readonly tripped: boolean; readonly firstFiredAt?: string };
+  /** 当日帽用量（UTC 日）；链坏 = null（不可派生——拒面恒在） */
+  readonly cap: { readonly used: number | null; readonly max: number; readonly day: string };
+  readonly ledger: { readonly healthy: boolean; readonly total: number };
 }
 
 /* ---------------- 入队结果（回执可见面——不静默丢） ---------------- */

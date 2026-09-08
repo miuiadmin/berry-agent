@@ -72,7 +72,7 @@ export interface SafetyGateOptions {
    * 数据目录恒排除位（04 §7/§8 遗漏审计批补钉——2026-09-06）：宿主状态根
    * （~/.berry-agent/ 或 env 覆盖位），任何档含 danger 恒不可写（danger 档
    * 根 = 路径分隔符全盘，数据目录恒在根内——防「写 enabled.yaml 自授开关」
-   * 的 04 §13 信任锚绕过）。路径单源 persist.resolveDataDir()，host 装配批
+   * 的 04 §14 信任锚绕过）。路径单源 persist.resolveDataDir()，host 装配批
    * （批 12）接线注入；safety 不 import persist（DAG 边表），故必填注入而非
    * 自取——漏接 = typecheck 红，fail-loud 不留静默洞。不可经 entries=[] 关闭。
    */

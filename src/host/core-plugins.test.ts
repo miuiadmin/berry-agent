@@ -1526,6 +1526,73 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(full.scope.tryGet('issue-webhook-mount')).toBeDefined(); // webhook 挂点 kit（daemon 消费位）
   });
 
+  it('issue 件危险闸人面（04 §13）：dataDir 在场 → /danger 注册 + approve/status 两动词真跑（consent 落 dataDir）+ 未知动词指路', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-danger-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session: IssueSessionFace = {
+      startHeadless: async () => ({
+        sessionId: 's-danger-1',
+        outcome: Promise.resolve({ status: 'completed', messagesUsed: 1, summary: 'ok' }),
+      }),
+    };
+    const state: IssueStoreStateFace = {
+      getStoreState: () => undefined,
+      setStoreState: () => undefined,
+      deleteStoreState: () => false,
+    };
+    const budget: IssueBudgetFace = { canAffordIssue: () => ({ ok: true }) };
+    const notifyLog: { source: string; message: string }[] = [];
+    const issueYaml =
+      'plugins:\n  - id: core:issue\n    config:\n      repos:\n        - owner/repo\n      mode: auto\n      maxDeliveriesPerDay: 3\n';
+    const booted = await bootCore(
+      dataDir,
+      memoryFs({ [join(dataDir, 'enabled.yaml')]: issueYaml }),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        issueGithubToken: 'gh-token',
+        issueState: state,
+        issueBudget: budget,
+        issueSession: session,
+        notify: (source, message) => notifyLog.push({ source, message }),
+      },
+    );
+    // /danger 注册在场（危险闸人面——dataDir 在场即组机制件）
+    expect(booted.commands).toContain('danger');
+    const dangerCmd = booted.commandSpecs.find((c) => c.name === 'danger');
+    expect(dangerCmd).toBeDefined();
+
+    // approve 7：consent 签发——notify 投递 + 文件落 dataDir（consumer 'core:issue'）
+    await dangerCmd!.handler({ raw: '/danger approve 7', argv: ['approve', '7'] });
+    expect(notifyLog.at(-1)!.source).toBe('issue');
+    expect(notifyLog.at(-1)!.message).toContain('已签发');
+    const consentFile = JSON.parse(readFileSync(join(dataDir, 'danger-consent.json'), 'utf8')) as {
+      consumers: Record<string, { mandateHash: string; expiresAt: number }>;
+    };
+    expect(Object.keys(consentFile.consumers)).toEqual(['core:issue']);
+    expect(consentFile.consumers['core:issue']!.mandateHash).toMatch(/^[0-9a-f]{64}$/);
+
+    // status：五呈文案（mandate 值域 + consent 有效 + 账本健康）
+    await dangerCmd!.handler({ raw: '/danger status', argv: ['status'] });
+    const statusText = notifyLog.at(-1)!.message;
+    expect(statusText).toContain('危险闸状态');
+    expect(statusText).toContain('owner/repo');
+    expect(statusText).toContain('有效');
+    expect(statusText).toContain('账本：0 笔');
+
+    // 坏 ttlDays 与未知动词：指路文案不炸
+    await dangerCmd!.handler({ raw: '/danger approve 0', argv: ['approve', '0'] });
+    expect(notifyLog.at(-1)!.message).toContain('1..3650');
+    await dangerCmd!.handler({ raw: '/danger nuke', argv: ['nuke'] });
+    expect(notifyLog.at(-1)!.message).toContain('未知动词');
+
+    // dispose 收口：件卸载后命令摘除（disposer 进 apply 返回值——bootCore 桩不验，此处结构已证）
+  });
+
   it('注册表单源形：件名清单（逐纵切笔入册——批 19a—19e 十五件 + c-3 credentials 增席：exec/web/skills/memory/subagent/scheduler/mcp/browser/lsp/goal/checkpoint/sdk/webui/obs/issue/credentials 十六件齐册）', () => {
     expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual([
       'exec',

@@ -10,7 +10,11 @@
  * 是装配期数据、非运行时故障域）。
  */
 import type { IssueConfig, IssueRef } from './types.js';
-import { ISSUE_DEFAULT_SCHEDULE, ISSUE_PER_ISSUE_MESSAGES_DEFAULT } from './types.js';
+import {
+  ISSUE_DEFAULT_SCHEDULE,
+  ISSUE_MAX_DELIVERIES_PER_DAY_DEFAULT,
+  ISSUE_PER_ISSUE_MESSAGES_DEFAULT,
+} from './types.js';
 
 /** repo 串词法（精确形 `owner/name`——与 github.ts REPO_RE 同形，此处独立持有：filter 不依赖取数层） */
 const EXACT_REPO_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -111,6 +115,20 @@ export function normalizeIssueConfig(raw: unknown): { ok: true; config: IssueCon
     baseBranch = obj.baseBranch;
   }
 
+  // maxDeliveriesPerDay：缺省 10（04 §13 mandate maxPerDay 原料）；正整数律
+  // ——空帽即坏形（0/负数/坏形拒；彻底关停走 HALT 哨兵或撤 consent，不走空帽）
+  let maxDeliveriesPerDay = ISSUE_MAX_DELIVERIES_PER_DAY_DEFAULT;
+  if (obj.maxDeliveriesPerDay !== undefined) {
+    const n = obj.maxDeliveriesPerDay;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 100_000) {
+      return {
+        ok: false,
+        message: `issue 配置 maxDeliveriesPerDay 须 1..100000 正整数（得 ${JSON.stringify(n)}）——彻底关停走 HALT 哨兵或撤 consent，不走空帽`,
+      };
+    }
+    maxDeliveriesPerDay = n;
+  }
+
   return {
     ok: true,
     config: {
@@ -121,6 +139,7 @@ export function normalizeIssueConfig(raw: unknown): { ok: true; config: IssueCon
       assignees: assignees.value,
       perIssueBudgetMessages,
       baseBranch,
+      maxDeliveriesPerDay,
     },
   };
 }

@@ -170,7 +170,7 @@ describe('carve-out 硬拒', () => {
 
   /* ---- 数据目录恒排除（04 §7/§8 遗漏审计批补钉——修前必红三锁） ---- */
 
-  it('数据目录族恒不可写：danger 档写 enabled.yaml → carve-out 硬拒不问（04 §13 信任锚不可自授）', async () => {
+  it('数据目录族恒不可写：danger 档写 enabled.yaml → carve-out 硬拒不问（04 §14 信任锚不可自授）', async () => {
     const rig = makeRig({ mode: 'danger' });
     // danger 档根 = 路径分隔符全盘——数据目录恒在根内，防线只有 carve-out 一道
     const result = await rig.run(WRITE, { path: join(tmpdir(), 'berry-gate-datadir', 'enabled.yaml') });

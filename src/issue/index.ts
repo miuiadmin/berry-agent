@@ -19,6 +19,7 @@ export {
   ISSUE_WEBHOOK_BODY_LIMIT_BYTES,
   ISSUE_GITHUB_TOKEN_NAME,
   ISSUE_WEBHOOK_SECRET_NAME,
+  ISSUE_MAX_DELIVERIES_PER_DAY_DEFAULT,
   ISSUE_WORKTREE_NAME_RE,
   issueDedupeKey,
 } from './types.js';
@@ -36,9 +37,11 @@ export type {
   IssueSessionStartResult,
   IssueRunOutcome,
   IssueEnqueueResult,
+  IssueDangerFace,
+  IssueDangerStatusFace,
 } from './types.js';
 export { createGithubBackend, assertRepoValid } from './github.js';
-export type { GithubBackend, GithubBackendOptions } from './github.js';
+export type { GithubBackend, GithubBackendOptions, GithubPullRequestRef } from './github.js';
 export { normalizeIssueConfig, issueMatchesFilter, repoMatchesGlob, exactRepos } from './filter.js';
 export { createIssuePoller, watermarkKey } from './poll.js';
 export type { PollReport, IssuePollerDeps } from './poll.js';

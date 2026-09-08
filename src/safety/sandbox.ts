@@ -161,7 +161,7 @@ export function createSandboxService(opts: SandboxServiceOptions = {}): SandboxS
    * - 读侧（04 §7）：未显式携带 denyReadFiles 且装配持有 dataDir 时，以敏
    *   感件集单源补位。显式携带（含空数组）恒胜出——测试/宿主覆盖位不与
    *   单源打架。
-   * - 写侧（04 §7/§13「模型不可自授」的 bash 腿）：dataDir 在场即无条件
+   * - 写侧（04 §7/§14「模型不可自授」的 bash 腿）：dataDir 在场即无条件
    *   并入 denyWritePaths——danger 档 allow-default 下 `> ~/.berry-agent/
    *   allowlist.json` 自授面此前敞门，本条封死；恒 = 平台底线不交装配
    *   裁量，调用方携带值与 enrich 取并集去重。

@@ -11,6 +11,7 @@ import { createIssueService } from './service.js';
 import type {
   IssueBudgetFace,
   IssueConfig,
+  IssueDangerFace,
   IssueJobsFace,
   IssueRunOutcome,
   IssueSchedulerFace,
@@ -138,9 +139,10 @@ function fakeBudget(ok = true, reason?: string): IssueBudgetFace {
   return { canAffordIssue: () => ({ ok, reason }) };
 }
 
-/** backend 假件（评论投递记录；listIssues 供 issue_get 面） */
+/** backend 假件（评论/PR 投递记录；listIssues 供 issue_get 面；createPullRequest 供危险闸交付腿） */
 function fakeBackend(postFail?: boolean) {
   const comments: { repo: string; number: number; body: string }[] = [];
+  const prs: { repo: string; title: string; body: string; head: string; base: string }[] = [];
   const backend: GithubBackend = {
     listIssues: async () => [],
     listComments: async () => [],
@@ -149,9 +151,20 @@ function fakeBackend(postFail?: boolean) {
       comments.push(req);
       return { id: comments.length };
     },
+    createPullRequest: async (req) => {
+      prs.push(req);
+      const n = prs.length;
+      return { number: 800 + n, htmlUrl: `https://github.com/${req.repo}/pull/${800 + n}` };
+    },
   };
-  return { backend, comments };
+  return { backend, comments, prs };
 }
+
+/** 内联 backend 假件的 createPullRequest 缺省桩（入队/起跑面测试不触交付腿） */
+const prStub = async (): Promise<{ number: number; htmlUrl: string }> => ({
+  number: 1,
+  htmlUrl: 'https://github.com/o/r/pull/1',
+});
 
 /** 测试基线 issue */
 const ISSUE = {
@@ -166,7 +179,7 @@ const ISSUE = {
   htmlUrl: 'https://github.com/o/r/issues/7',
 };
 
-/** 组装（覆写位——mode/outcome/预算/行为） */
+/** 组装（覆写位——mode/outcome/预算/行为/危险闸） */
 function makeService(over?: {
   mode?: 'draft' | 'auto';
   outcome?: IssueRunOutcome;
@@ -175,6 +188,7 @@ function makeService(over?: {
   worktreeBehavior?: { existsFirst?: number; dirtyOnClean?: boolean };
   postFail?: boolean;
   webhookSecret?: string;
+  danger?: IssueDangerFace;
 }) {
   const fj = fakeJobs();
   const fsched = fakeScheduler();
@@ -189,6 +203,7 @@ function makeService(over?: {
     repos: ['o/r'],
     perIssueBudgetMessages: 25,
     baseBranch: 'main',
+    maxDeliveriesPerDay: 10,
   };
   const svc = createIssueService({
     config,
@@ -200,6 +215,7 @@ function makeService(over?: {
     session: fsess.session,
     budget: fbud,
     capabilities: ['goal', 'exec', 'checkpoint'],
+    ...(over?.danger !== undefined ? { danger: over.danger } : {}),
     webhookSecret: over?.webhookSecret,
   });
   return { svc, config, fj, fsched, fstate, fwd, fsess, fbud, fback };
@@ -212,6 +228,7 @@ describe('入队纪律（同步四闸）', () => {
       listIssues: async () => [ISSUE],
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
+      createPullRequest: prStub,
     };
     const svc = createIssueService({
       config: f.config,
@@ -237,6 +254,7 @@ describe('入队纪律（同步四闸）', () => {
       listIssues: async () => [ISSUE, { ...ISSUE, number: 8, state: 'closed' }],
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
+      createPullRequest: prStub,
     };
     const svc = createIssueService({
       config: f.config,
@@ -282,6 +300,7 @@ describe('runOne 编舞（draft 档 happy path）', () => {
         f.fback.comments.push(req);
         return { id: 1 };
       },
+      createPullRequest: prStub,
     };
     const svc = createIssueService({
       config: f.config,
@@ -331,6 +350,7 @@ describe('runOne 编舞（其余结局）', () => {
         f.fback.comments.push(req);
         return { id: 1 };
       },
+      createPullRequest: prStub,
     };
     const svc = createIssueService({
       config: f.config,
@@ -355,7 +375,6 @@ describe('runOne 编舞（其余结局）', () => {
     expect(f.fback.comments[0]!.body).toContain('阻塞转人审');
     expect(f.fj.settled[0]!.terminal.detail).not.toContain('push 已执行'); // 不 push——词面自证
   });
-
   it('failed 结局 → 评论贴原因 + settle failed + clean', async () => {
     const { f } = await runWithOutcome({ status: 'failed', messagesUsed: 3, reason: '每 issue 预算帽耗尽' });
     await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
@@ -405,6 +424,7 @@ describe('runOne 编舞（其余结局）', () => {
       postComment: async () => {
         throw new BaseError('ISSUE_SOURCE_UNREACHABLE', '[ISSUE_SOURCE_UNREACHABLE] down');
       },
+      createPullRequest: prStub,
     };
     const svc = createIssueService({
       config: f.config,
@@ -435,6 +455,7 @@ describe('编舞异常兜底', () => {
       listIssues: async () => [ISSUE],
       listComments: async () => [],
       postComment: async () => ({ id: 1 }),
+      createPullRequest: prStub,
     };
     const svc = createIssueService({
       config: f.config,
@@ -507,5 +528,97 @@ describe('orphanScan / start / stop', () => {
     await expect(
       f.svc.handleWebhook({ event: 'issues', signatureHeader: 'sha256=x', rawBody: '{}' }),
     ).rejects.toMatchObject({ code: 'ISSUE_WEBHOOK_INVALID' });
+  });
+});
+
+describe('auto 档危险闸交付腿（04 §13——闸在场三径）', () => {
+  /**
+   * 通路快捷：auto 档 + 注入 danger 假件 → 直接 enqueue（公开口）→ 等终态。
+   * deliverCalls 记录两腿调用序（push 先于 create-pr——PR 依赖远端分支在场）。
+   */
+  async function runWithDanger(
+    danger: IssueDangerFace,
+    outcome: IssueRunOutcome = { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+  ) {
+    const f = makeService({ outcome, mode: 'auto', danger });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    return f;
+  }
+
+  /** danger 假件（两腿行为可注——记录调用面） */
+  function fakeDanger(behavior?: { pushFail?: Error; prFail?: Error; denyCode?: string }) {
+    const deliverCalls: {
+      kind: 'push' | 'create-pr';
+      repo: string;
+      branch: string;
+      base?: string;
+      title?: string;
+      body?: string;
+    }[] = [];
+    const face: IssueDangerFace = {
+      deliver: async (req) => {
+        deliverCalls.push(req);
+        if (req.kind === 'push') {
+          if (behavior?.denyCode !== undefined)
+            throw new BaseError(behavior.denyCode, `[${behavior.denyCode}] 测试注入拒`);
+          if (behavior?.pushFail !== undefined) throw behavior.pushFail;
+          return {};
+        }
+        if (behavior?.prFail !== undefined) throw behavior.prFail;
+        return { prNumber: 42, prUrl: 'https://github.com/o/r/pull/42' };
+      },
+      approve: async () => ({ ok: true, expiresAt: 1 }),
+      status: async () => {
+        throw new Error('status 不在编舞路径——不应触达');
+      },
+    };
+    return { face, deliverCalls };
+  }
+
+  it('成功径：push → create-pr 序 + PR 链接回执 + settle completed', async () => {
+    const fd = fakeDanger();
+    const f = await runWithDanger(fd.face);
+    expect(fd.deliverCalls.map((c) => c.kind)).toEqual(['push', 'create-pr']); // 序律
+    expect(fd.deliverCalls[1]).toMatchObject({ repo: 'o/r', base: 'main', title: 'bug found' }); // config 原料面
+    expect(fd.deliverCalls[1]!.body).toContain('Closes #7'); // PR 正文闭环位
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'completed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('https://github.com/o/r/pull/42');
+    expect(f.fback.comments[0]!.body).toContain('危险闸放行交付');
+    expect(f.fback.prs).toHaveLength(0); // 交付走 danger 腿——backend.createPullRequest 不直触（装配位组合律）
+  });
+
+  it('闸拒径：DANGER_CONSENT_ABSENT → 转人审回执（指路 + 分支状态如实）+ settle failed', async () => {
+    const fd = fakeDanger({ denyCode: 'DANGER_CONSENT_ABSENT' });
+    const f = await runWithDanger(fd.face);
+    expect(fd.deliverCalls).toHaveLength(1); // push 即拒——create-pr 零触达
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('DANGER_CONSENT_ABSENT');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('/danger approve'); // 指路表
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('需人审');
+    expect(body).toContain('本地未推'); // pushed=false 如实陈述
+    expect(body).toContain('分支 `issue-7`');
+  });
+
+  it('非拒失败径：push 过闸但 git 失败 → allow-failed 语义（失败留分支可重试 + settle failed）', async () => {
+    const fd = fakeDanger({ pushFail: new Error('git push 失败：网络断') });
+    const f = await runWithDanger(fd.face);
+    expect(fd.deliverCalls).toHaveLength(1); // push 败——create-pr 不触
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('交付失败');
+    expect(f.fback.comments[0]!.body).toContain('git push 失败：网络断');
+    expect(f.fback.comments[0]!.body).toContain('可重试');
+    expect(f.fback.comments[0]!.body).toContain('本地未推');
+  });
+
+  it('半成径：push 成 create-pr 败 → 回执「已推远端可人工补开」如实陈述', async () => {
+    const fd = fakeDanger({ prFail: new Error('422 PR 已在') });
+    const f = await runWithDanger(fd.face);
+    expect(fd.deliverCalls.map((c) => c.kind)).toEqual(['push', 'create-pr']);
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('已推远端'); // pushed=true 如实陈述
+    expect(body).toContain('可人工补开');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('交付失败');
   });
 });

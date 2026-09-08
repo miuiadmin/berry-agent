@@ -20,6 +20,7 @@
  * 会话级 deps（档位/审批/工作区）经服务面工厂形求值：装载期固定构造会
  * 丢会话面（批 19a 定形——ExecToolService 契约见 conversation/types.ts）。
  */
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import * as fsp from 'node:fs/promises';
@@ -60,7 +61,7 @@ import {
 } from '../goal/index.js';
 import type { GoalService, GoalSessionFace, GoalTodoItem } from '../goal/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
-import { createSandboxService } from '../safety/index.js';
+import { createDangerGate, createSandboxService, DANGER_V1_ACTIONS } from '../safety/index.js';
 import {
   createOsCronRegistrar,
   createProcessRunnerFactory,
@@ -121,6 +122,8 @@ import type { ObsAlertRule, ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from
 import { createGithubBackend, createIssueService, mountIssueWebhook, normalizeIssueConfig } from '../issue/index.js';
 import type {
   IssueBudgetFace,
+  IssueDangerFace,
+  IssueDangerStatusFace,
   IssueJobsFace,
   IssueSchedulerFace,
   IssueSessionFace,
@@ -1236,6 +1239,74 @@ function makeObsPlugin(deps: CorePluginHostDeps): CorePluginReference {
   };
 }
 
+/* ---------------- 危险闸装配位三件（04 §13——/danger 呈现与 push 执行腿） ---------------- */
+
+/** /danger 用法文案（命令注册面 description——两动词一闸面） */
+const DANGER_CMD_USAGE =
+  '用法：/danger approve [ttlDays]（缺省 30 天）签发危险闸 consent；/danger status 查看闸状态五呈';
+
+/**
+ * push 执行腿（04 §13 create/push 执行面——宿主 spawn 真身）。token 经
+ * `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` env 注入
+ * `http.https://github.com/.extraheader`（`AUTHORIZATION: basic base64(
+ * x-access-token:token)`）——明文只进子进程环境，argv/日志恒不见值（凭据
+ * 纪律：值永不呈现）。URL 锚钉 https://github.com/——不污染其他远域。
+ */
+function dangerPushBranch(req: { token: string; worktreePath: string; branch: string }): Promise<void> {
+  const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${req.token}`).toString('base64')}`;
+  return new Promise((resolve, reject) => {
+    execFile(
+      'git',
+      ['push', 'origin', req.branch],
+      {
+        cwd: req.worktreePath,
+        env: {
+          ...process.env,
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+          GIT_CONFIG_VALUE_0: header,
+        },
+      },
+      (err, _stdout, stderr) => {
+        if (err !== null) {
+          const tail = stderr.length > 500 ? `…${stderr.slice(-500)}` : stderr;
+          reject(new Error(`git push 失败（分支 ${req.branch}）：${tail}`));
+          return;
+        }
+        resolve();
+      },
+    );
+  });
+}
+
+/** /danger status 五呈中文文案（cap.used null = 链坏不可派生——如实呈现） */
+function renderDangerStatus(s: IssueDangerStatusFace): string {
+  const consentText =
+    s.consent.state === 'valid'
+      ? `有效（到期 ${new Date(s.consent.expiresAt ?? 0).toISOString()}）`
+      : s.consent.state === 'absent'
+        ? '缺席（须 /danger approve 签发）'
+        : s.consent.state === 'expired'
+          ? '已过期（重跑 /danger approve 重签）'
+          : '配置漂移（mandate 变过——重跑 /danger approve 重签）';
+  const haltText = s.halt.tripped
+    ? `在场（kill switch 拉闸——首触发 ${s.halt.firstFiredAt ?? '未知时间'}，删 HALT 文件恢复）`
+    : '不在场';
+  const capText =
+    s.cap.used === null
+      ? '不可派生（账本链坏）'
+      : `当日 ${s.cap.used}/${s.cap.max}（UTC ${s.cap.day}——allow-succeeded 计数）`;
+  return [
+    `危险闸状态（consumer ${s.consumer}）：`,
+    `- mandate 哈希：${s.mandateHash}`,
+    `- 值域：actions [${s.mandate.actions.join(', ')}] × targets [${s.mandate.targets.join(', ')}] × 日帽 ${s.mandate.maxPerDay}`,
+    `- consent：${consentText}`,
+    `- HALT：${haltText}`,
+    `- 日帽：${capText}`,
+    `- 账本：${s.ledger.total} 笔（链${s.ledger.healthy ? '健康' : '损坏——DANGER_LEDGER_CORRUPT 拒续写'}）`,
+  ].join('\n');
+}
+
 /**
  * core:issue（批 19e——03 §10.7 无人值守编排件装载态）：件是既有件的
  * 组合消费方——scheduler 挂钟（tryGet 'scheduler'）+ Job 注册表（tryGet
@@ -1291,9 +1362,91 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
         context.tryGet('checkpoint') !== undefined ? 'checkpoint' : undefined,
       ].filter((name): name is string => name !== undefined);
       const webhookSecret = deps.issueWebhookSecret ?? '';
+      // 后端单真身（服务取数面与危险闸 create-pr 执行腿共用——同 token 同折叠律）
+      const backend = createGithubBackend({ token });
+      // 危险闸（04 §13——auto 档交付腿的预授权执法）：dataDir 在场即组机制件
+      // （memory 诊断形 null 零闸——service auto 档维持「闸缺席转人审」原语
+      // 义，fail-closed）。mandate 原料全部来自 normalize 后的用户配置层
+      // （repos 原样 + maxDeliveriesPerDay）——装配期冻结只读注入，闸侧取
+      // 规范化哈希作 consent 绑定面。
+      const dangerDataDir = deps.dataDir;
+      let danger: IssueDangerFace | undefined;
+      let disposeDangerCmd: (() => void) | undefined;
+      if (dangerDataDir !== null) {
+        const gate = createDangerGate({
+          consumerId: 'core:issue',
+          mandate: {
+            actions: DANGER_V1_ACTIONS,
+            targets: normalized.config.repos,
+            maxPerDay: normalized.config.maxDeliveriesPerDay,
+          },
+          dataDir: dangerDataDir,
+          warn,
+        });
+        // deliver = 闸包裹的执行腿（SSRF 批装配位包裹同款先例——消费件只见
+        // 窄面不见裸腿）：push = 宿主 spawn git push（token 经 GIT_CONFIG_*
+        // env 注入，argv/日志恒不见值）；create-pr = backend.createPullRequest
+        // （REST POST /repos/:o/:r/pulls——postComment 同形 fetch-only 扩法）。
+        const dangerFace: IssueDangerFace = {
+          async deliver(req) {
+            if (req.kind === 'push') {
+              await gate.runGuarded({ action: 'push', target: req.repo, detail: `branch=${req.branch}` }, () =>
+                dangerPushBranch({ token, worktreePath: req.worktreePath, branch: req.branch }),
+              );
+              return {};
+            }
+            const pr = await gate.runGuarded(
+              { action: 'create-pr', target: req.repo, detail: `head=${req.branch}→${req.base ?? 'main'}` },
+              () =>
+                backend.createPullRequest({
+                  repo: req.repo,
+                  title: req.title ?? req.branch,
+                  body: req.body ?? '',
+                  head: req.branch,
+                  base: req.base ?? 'main',
+                }),
+            );
+            return { prNumber: pr.number, prUrl: pr.htmlUrl };
+          },
+          approve: (ttlDays) => gate.approve(ttlDays),
+          status: () => gate.status(),
+        };
+        danger = dangerFace;
+        // /danger 人面动词（04 §13：机制宿主有、人面动词件承载——/credentials
+        // 同款先例。approve = consent 唯写面；status = 运维五呈单命令面）
+        disposeDangerCmd = context.channels.registerCommand(
+          'danger',
+          async (args) => {
+            const verb = args.argv[0];
+            if (verb === 'approve') {
+              let ttlDays: number | undefined;
+              if (args.argv.length > 1) {
+                const n = Number(args.argv[1]);
+                if (!Number.isInteger(n) || n < 1 || n > 3650) {
+                  deps.notify?.('issue', `/danger approve ttlDays 须 1..3650 正整数（得 ${args.argv[1]}）`);
+                  return;
+                }
+                ttlDays = n;
+              }
+              const result = await dangerFace.approve(ttlDays);
+              deps.notify?.(
+                'issue',
+                result.ok
+                  ? `危险闸 consent 已签发（${new Date(result.expiresAt).toISOString()} 到期——绑当前 mandate 哈希，配置漂移即失效）`
+                  : `危险闸 consent 签发失败：${result.message}`,
+              );
+            } else if (verb === 'status') {
+              deps.notify?.('issue', renderDangerStatus(await dangerFace.status()));
+            } else {
+              deps.notify?.('issue', `未知动词——${DANGER_CMD_USAGE}`);
+            }
+          },
+          DANGER_CMD_USAGE,
+        );
+      }
       const service = createIssueService({
         config: normalized.config,
-        backend: createGithubBackend({ token }),
+        backend,
         jobs,
         scheduler: schedulerFace,
         state,
@@ -1301,6 +1454,7 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
         session,
         budget,
         capabilities,
+        ...(danger !== undefined ? { danger } : {}),
         ...(webhookSecret !== '' ? { webhookSecret } : {}),
         warn,
       });
@@ -1318,6 +1472,7 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
       });
       return () => {
         service.stop();
+        disposeDangerCmd?.();
       };
     },
   };

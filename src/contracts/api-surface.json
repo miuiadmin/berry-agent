@@ -180,7 +180,7 @@
       "since": "1.0",
       "desc": "错误码前缀族明列——文档性常量，供注册面校验与 CI 目录生成； 'HOST_' 系装配根码族",
       "kind": "const",
-      "sig": "d951b0811b8a85cb"
+      "sig": "91967caa713fad16"
     },
     {
       "symbol": "EVENT_CATEGORIES",

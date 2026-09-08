@@ -123,6 +123,39 @@ describe('postComment（回执投递）', () => {
   });
 });
 
+describe('createPullRequest（04 §13 create-pr 执行腿）', () => {
+  it('POST /repos/:o/:r/pulls 五字段形 + 201 回 number/htmlUrl', async () => {
+    const ff = fakeFetch({
+      '/repos/o/r/pulls': json({ number: 42, html_url: 'https://github.com/o/r/pull/42' }, 201),
+    });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    const pr = await backend.createPullRequest({ repo: 'o/r', title: 't', body: 'b', head: 'issue-7', base: 'main' });
+    expect(pr).toEqual({ number: 42, htmlUrl: 'https://github.com/o/r/pull/42' });
+    const call = ff.calls[0]!;
+    expect(call.path).toBe('/repos/o/r/pulls');
+    expect(call.init?.method).toBe('POST');
+    expect(JSON.parse(call.init?.body as string)).toEqual({ title: 't', body: 'b', head: 'issue-7', base: 'main' });
+  });
+
+  it('422 不特判折 ISSUE_SOURCE_UNREACHABLE 族携状态码（与 postComment 同形）', async () => {
+    const ff = fakeFetch({ '/repos/o/r/pulls': json({ message: 'A pull request already exists' }, 422) });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    const err = await backend
+      .createPullRequest({ repo: 'o/r', title: 't', body: 'b', head: 'x', base: 'main' })
+      .catch((e) => e);
+    expect(err.code).toBe('ISSUE_SOURCE_UNREACHABLE');
+    expect(err.message).toContain('422');
+  });
+
+  it('repo 坏形守卫同 list 族（TOOL_INVALID_ARGS）', async () => {
+    const ff = fakeFetch({});
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    await expect(
+      backend.createPullRequest({ repo: 'bad', title: 't', body: 'b', head: 'x', base: 'main' }),
+    ).rejects.toMatchObject({ code: 'TOOL_INVALID_ARGS' });
+  });
+});
+
 describe('折码（限额/不可达）', () => {
   it('403 → ISSUE_SOURCE_RATE_LIMITED，retryAfter 取 x-ratelimit-reset', async () => {
     const reset = Math.floor(Date.now() / 1000) + 120;
