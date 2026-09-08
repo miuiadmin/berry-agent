@@ -3,6 +3,10 @@
  * 升权 allowed-once）。真 bash 腿走系统 bash（PATH 在场——CI/dev 机恒真）；
  * 沙箱分类腿用 stub SandboxService（node 脚本伪 runner 打签名——不依赖平台
  * 真沙箱后端）。
+ *
+ * 2026-09-08 P0① 后：三档一律 confine（04 §8 定形②）——danger 测试腿经
+ * identity 沙箱（包装恒等 argv）保持「无后端依赖直跑」的测试形态；真
+ * danger 档 profile 形的参数面测试在 safety/sandbox.test.ts。
  */
 import { describe, expect, it } from 'vitest';
 import { execPath } from 'node:process';
@@ -21,12 +25,30 @@ const textOf = (result: { content: { type: string; text?: string }[] }): string 
   return first !== undefined && first.type === 'text' ? (first.text ?? '') : '';
 };
 
-/** 直跑危险档工具（无沙箱服务依赖——danger 透传腿） */
+/**
+ * identity 沙箱：包装恒等 argv（危险档测试形——三档一律 confine 后 danger
+ * 腿不再裸奔；fail-closed 面由「服务缺席」测试独立覆盖）。
+ */
+function identitySandbox(): SandboxService {
+  return {
+    confine: (argv): ConfinedArgv => ({
+      argv: [...argv],
+      enforcement: 'full',
+      denialSignatures: [],
+      runnerFailureRules: [],
+    }),
+    registerBackend: () => () => {},
+    listBackends: () => [],
+  };
+}
+
+/** 直跑危险档工具（identity 沙箱——零后端依赖的测试直跑形） */
 function dangerTool(pipeline: SpawnPipeline, env?: NodeJS.ProcessEnv) {
   return createBashTool({
     pipeline,
     workspaceRoot: () => process.cwd(),
     currentMode: () => 'danger',
+    sandboxService: identitySandbox(),
     ...(env !== undefined ? { env } : {}),
   });
 }
@@ -141,6 +163,7 @@ describe('createBashTool 工具面', () => {
       pipeline: createSpawnPipeline(),
       workspaceRoot: () => '/tmp',
       currentMode: () => 'danger',
+      sandboxService: identitySandbox(),
     }).execute({ command: 'pwd' }, CTX);
     // macOS /tmp → /private/tmp 符号链解析
     expect(textOf(result)).toMatch(/\/(private\/)?tmp/);
@@ -204,14 +227,24 @@ describe('createBashTool 沙箱消费三分类（stub 后端）', () => {
     expect(textOf(result)).not.toContain('[sandbox:');
   });
 
-  it('受限档 + 沙箱服务缺席 → fail-closed 拒裸跑', async () => {
-    const result = await createBashTool({
+  it('任一档 + 沙箱服务缺席 → fail-closed 拒裸跑（danger 不豁免——04 §8 定形②）', async () => {
+    // 受限档缺席：fail-closed 拒
+    const confinedResult = await createBashTool({
       pipeline: createSpawnPipeline(),
       workspaceRoot: () => process.cwd(),
       currentMode: () => 'workspace-write',
     }).execute({ command: 'echo hi' }, CTX);
-    expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain('SANDBOX_UNAVAILABLE');
+    expect(confinedResult.isError).toBe(true);
+    expect(textOf(confinedResult)).toContain('SANDBOX_UNAVAILABLE');
+    // danger 档缺席：同样 fail-closed 拒（换档不是绕后端的路）
+    const dangerResult = await createBashTool({
+      pipeline: createSpawnPipeline(),
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'danger',
+    }).execute({ command: 'echo hi' }, CTX);
+    expect(dangerResult.isError).toBe(true);
+    expect(textOf(dangerResult)).toContain('SANDBOX_UNAVAILABLE');
+    expect(textOf(dangerResult)).toContain('danger');
   });
 });
 
@@ -228,6 +261,7 @@ describe('createBashTool 升权面（allowed-once 语义）', () => {
       pipeline: createSpawnPipeline(),
       workspaceRoot: () => process.cwd(),
       currentMode: () => 'read-only',
+      sandboxService: identitySandbox(),
       approval: {
         ask: async (req) => {
           asked.push(req);

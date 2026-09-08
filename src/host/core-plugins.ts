@@ -163,31 +163,40 @@ import type { WebuiFaceMount } from './webui-bridge.js';
  * 引用形展开器（plugin-boot 席位接线——与 ctx.secrets 席位门同一双条件；
  * 03 §10.9 注入腿）——MCP/LSP server config env 的 `@credentials:<name>`
  * 在 spawn 时刻单点展开。
+ *
+ * 工厂形（批 19b-1 deps 聚落律同款）：沙箱服务持 dataDir——敏感件读集
+ * 单源注入（04 §7 读侧 carve-out 的 profile 腿，2026-09-08 P0①）。
+ * dataDir null（:memory: 诊断形）= 无敏感集（confine 零读 deny 行）。
  */
-const execPlugin: CorePluginReference = {
-  name: 'exec',
-  async apply(ctx) {
-    const context = ctx as PluginContext;
-    // 管道/沙箱服务进程级单例：spawn 登记簿与后端链探测缓存（probe 有
-    // spawn 开销——单例缓存一次）均无会话态；沙箱后端链缺省平台链
-    // （macOS seatbelt / Linux bwrap——safety 单源）。
-    // 凭证引用形展开器（c-4 注入腿）：plugin-boot 席位在场时供入共享根
-    // （先于 loadPlugins 全程——装载序无关拾取）；缺席 = undefined = 引用形
-    // fail-loud（CREDENTIALS_NOT_FOUND——拒以字面值注入，席位缺席律）
-    const pipeline = createSpawnPipeline({
-      resolveEnvRef: context.tryGet<(name: string) => string>('credentials-env-ref'),
-    });
-    const sandboxService = createSandboxService();
-    context.provide('exec-pipeline', pipeline);
-    const service: ExecToolService = {
-      // 会话装配期工厂：进程级单例闭包自持 + 会话级 deps（档位/审批/工作
-      // 区）由消费位注入求值——结构契约单源在 conversation/types.ts；
-      // deps.sandboxService 显式在场时胜出（测试/宿主覆盖位——展开序在后）
-      createBashTool: (deps) => createBashTool({ pipeline, sandboxService, ...deps }),
-    };
-    context.provide('exec', service);
-  },
-};
+function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'exec',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      // 管道/沙箱服务进程级单例：spawn 登记簿与后端链探测缓存（probe 有
+      // spawn 开销——单例缓存一次）均无会话态；沙箱后端链缺省平台链
+      // （macOS seatbelt / Linux bwrap——safety 单源）。
+      // 凭证引用形展开器（c-4 注入腿）：plugin-boot 席位在场时供入共享根
+      // （先于 loadPlugins 全程——装载序无关拾取）；缺席 = undefined = 引用形
+      // fail-loud（CREDENTIALS_NOT_FOUND——拒以字面值注入，席位缺席律）
+      const pipeline = createSpawnPipeline({
+        resolveEnvRef: context.tryGet<(name: string) => string>('credentials-env-ref'),
+      });
+      const sandboxService = createSandboxService({
+        // dataDir null = 诊断形无敏感集（skills 工厂同款条件展开形）
+        ...(deps.dataDir !== null ? { dataDir: deps.dataDir } : {}),
+      });
+      context.provide('exec-pipeline', pipeline);
+      const service: ExecToolService = {
+        // 会话装配期工厂：进程级单例闭包自持 + 会话级 deps（档位/审批/工作
+        // 区）由消费位注入求值——结构契约单源在 conversation/types.ts；
+        // deps.sandboxService 显式在场时胜出（测试/宿主覆盖位——展开序在后）
+        createBashTool: (deps2) => createBashTool({ pipeline, sandboxService, ...deps2 }),
+      };
+      context.provide('exec', service);
+    },
+  };
+}
 
 /**
  * core:web——fetch 工具（effect 'read'，经 ctx.tools.register 散装注册走
@@ -1623,7 +1632,7 @@ function makeCredentialsPlugin(deps: CorePluginHostDeps): CorePluginReference {
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
   return [
-    execPlugin,
+    makeExecPlugin(deps),
     webPlugin,
     makeSkillsPlugin(deps),
     makeMemoryPlugin(deps),

@@ -97,7 +97,7 @@ export interface BashToolDeps {
   readonly workspaceRoot: () => string;
   /** 当前生效沙箱档（三级解析的会话档位腿——运行时取值面） */
   readonly currentMode: () => SandboxMode;
-  /** 沙箱服务（受限档包装；缺席则受限档 fail-closed 拒裸跑） */
+  /** 沙箱服务（三档一律包装——04 §8 定形②；缺席恒 fail-closed 拒裸跑） */
   readonly sandboxService?: SandboxService;
   /** 升权审批面（缺席则升权请求 fail-closed 拒——不给「无审批静默放行」） */
   readonly approval?: { ask(req: ApprovalRequest): Promise<{ outcome: ApprovalOutcome }> };
@@ -195,29 +195,28 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
           mode = valid.target;
         }
 
-        // ---- argv 组装：danger 透传 / 受限档 confine（fail-closed 拒裸跑） ----
+        // ---- argv 组装：三档一律 confine（04 §8 定形②「任何档一律」——
+        // 2026-09-08 P0①；danger 形 = 最小读 deny profile，后端件分支定形；
+        // 沙箱缺席恒 fail-closed 拒裸跑——换档不是绕后端的路） ----
         // -lc login shell：profile 级工具链（nvm 等）在场——承 berry getShellArgs 语义
         const rawArgv = [bash, '-lc', command];
-        let confined: ConfinedArgv | undefined;
-        if (mode !== 'danger') {
-          if (deps.sandboxService === undefined) {
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: `[SANDBOX_UNAVAILABLE] 沙箱服务缺席，拒绝以 ${mode} 档裸跑（不静默无沙箱执行）`,
-                },
-              ],
-              isError: true,
-            };
-          }
-          confined = deps.sandboxService.confine(rawArgv, {
-            mode,
-            workspaceRoot: deps.workspaceRoot(),
-          });
+        if (deps.sandboxService === undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `[SANDBOX_UNAVAILABLE] 沙箱服务缺席，拒绝以 ${mode} 档裸跑（不静默无沙箱执行）`,
+              },
+            ],
+            isError: true,
+          };
         }
+        const confined: ConfinedArgv = deps.sandboxService.confine(rawArgv, {
+          mode,
+          workspaceRoot: deps.workspaceRoot(),
+        });
         const result = await deps.pipeline.run({
-          argv: confined ? confined.argv : rawArgv,
+          argv: confined.argv,
           cwd,
           timeoutMs,
           ...(toolCtx.signal !== undefined ? { signal: toolCtx.signal } : {}),
@@ -236,14 +235,14 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
         }
         // runner 自身失败（runner 没跑起来——区别于策略拒绝生效）：EXEC_SPAWN_FAILED
         // 分类（spawn 阶段失败同族：进程虽 spawn 了但沙箱 runner 未成活）
-        if (confined !== undefined && result.exitCode !== 0) {
+        if (result.exitCode !== 0) {
           const lower = result.stderr.toLowerCase();
           const fatal = confined.runnerFailureRules.some((rule) =>
             rule.fatalSignatures.some((sig) => lower.includes(sig.toLowerCase())),
           );
           if (fatal) {
             return errorWithTail(
-              `[EXEC_SPAWN_FAILED] 沙箱 runner 未跑起来（后端故障非策略拒绝）——安装对应沙箱后端或换 danger 档`,
+              `[EXEC_SPAWN_FAILED] 沙箱 runner 未跑起来（后端故障非策略拒绝）——安装对应沙箱后端`,
               result,
             );
           }

@@ -23,16 +23,39 @@ export function seatbeltReadOnlyProfile(): string {
 }
 
 /**
+ * 敏感件读 deny 行（04 §7 读侧 carve-out + 2026-09-08 P0① 实机核验定形）：
+ * `(deny file-read* (literal "<canonical 路径>"))` 逐件一行。要点：
+ * - 末位追加——SBPL last-match-wins，末位 deny 压过此前一切 allow；
+ * - literal 必须是符号链解析后的真实路径（/tmp 拼写字面 miss /private/tmp
+ *   实体——denyReadFiles 数据源 sensitiveReadFiles 已 canonical 派生）；
+ * - 单行 deny 结构性覆盖硬链攻击链：link() 对源路径即触发 file-read* 判定
+ *   ——「链时即拦」，无需独立 link 算子（实机核验：ln 直接 Operation not
+ *   permitted）。
+ */
+function seatbeltDenyLines(policy: SandboxPolicy): string[] {
+  return (policy.denyReadFiles ?? []).map((p) => `(deny file-read* (literal ${sbplString(p)}))`);
+}
+
+/**
  * 按策略生成 SBPL profile（纯函数）。两档统一消费 resolvePolicyRoots——缺省
  * 按档位推导（read-only 空根 = 纯拒写、workspace-write 工作区根族），显式
  * writableRoots 覆盖在两档同等生效（字段契约本义：e1 式宿主只读档携刚需根
  * 即走此路——berry 真机冒烟实证原 mode 分支吃不到显式根的教训照搬防御）。
+ *
+ * danger 档形（04 §8 定形②「任何档一律」）：(version 1) + (allow default)
+ * + 读 deny 行——无拒写、无逐根 allow；danger 同过最小读 deny profile。
  */
 export function seatbeltProfile(policy: SandboxPolicy): string {
+  const denies = seatbeltDenyLines(policy);
+  if (policy.mode === 'danger') {
+    return ['(version 1)', '(allow default)', ...denies].join('\n');
+  }
   const allows = resolvePolicyRoots(policy)
     .map((root) => `(allow file-write* (subpath ${sbplString(root)}))`)
     .join('\n');
-  return allows ? `${seatbeltReadOnlyProfile()}\n${allows}` : seatbeltReadOnlyProfile();
+  return allows
+    ? [seatbeltReadOnlyProfile(), allows, ...denies].join('\n')
+    : [seatbeltReadOnlyProfile(), ...denies].join('\n');
 }
 
 /**

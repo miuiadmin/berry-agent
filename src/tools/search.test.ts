@@ -6,7 +6,8 @@
  * （globToRegExp）零 fs 直测。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { BaseError } from '../contracts/index.js';
@@ -19,8 +20,10 @@ async function expectCode(p: Promise<unknown>, code: string): Promise<void> {
   await expect(p).rejects.toMatchObject({ code });
 }
 
-/** rig：临时工作区 + 两件工具（opts 可覆写 maxResults/maxScanBytes） */
-function makeRig(opts: { maxResults?: number; maxScanBytes?: number } = {}) {
+/** rig：临时工作区 + 两件工具（opts 可覆写 maxResults/maxScanBytes/敏感读集） */
+function makeRig(
+  opts: { maxResults?: number; maxScanBytes?: number; protectedReadFiles?: () => readonly string[] } = {},
+) {
   const root = join(tmpdir(), `berry-search-test-${process.pid}-${Math.random().toString(36).slice(2)}`);
   const { tools } = createSearchTools({ workspace: () => root, ...opts });
   return {
@@ -317,5 +320,125 @@ describe('grep 工具', () => {
 
   it('搜索目标不存在 → FS_NOT_FOUND', async () => {
     await expectCode(rig.grep.execute({ pattern: 'x', path: 'nope' }, { toolCallId: 'test' }), 'FS_NOT_FOUND');
+  });
+});
+
+/* ---------------- 读侧 carve-out（04 §7 定形③——2026-09-08 P0①） ---------------- */
+
+describe('读侧 carve-out（grep 扫描脸硬拒 / find 路径枚举面不拦）', () => {
+  /**
+   * 敏感集 rig：root 取 canonical（realpath 化——macOS /var → /private/var：
+   * provider 条目与遍历产出路径必须落在同一 canonical 域），data/secret.key
+   * 为保护件（真实 dataDir 形态——敏感件就在遍历子树内，不剪枝）。
+   */
+  function protRig(): {
+    root: string;
+    protSecret: string;
+    find: ToolDefinition;
+    grep: ToolDefinition;
+  } {
+    const root = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'berry-search-prot-')));
+    const protSecret = join(root, 'data', 'secret.key');
+    const { tools } = createSearchTools({ workspace: () => root, protectedReadFiles: () => [protSecret] });
+    return { root, protSecret, find: tools[0]!, grep: tools[1]! };
+  }
+
+  it('grep 单文件点名敏感件 → FS_READ_PROTECTED（open 前路径判——canonicalize 后比对）', async () => {
+    const { root, protSecret, grep } = protRig();
+    try {
+      await mkdir(join(root, 'data'), { recursive: true });
+      await writeFile(protSecret, 'k3y-material\n');
+      await expectCode(grep.execute({ pattern: 'k3y', path: protSecret }, { toolCallId: 'test' }), 'FS_READ_PROTECTED');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('grep 单文件符号链别名同拒（canonicalize 剥链解析后命中）', async () => {
+    const { root, protSecret, grep } = protRig();
+    try {
+      await mkdir(join(root, 'data'), { recursive: true });
+      await writeFile(protSecret, 'k3y-material\n');
+      await symlink(protSecret, join(root, 'alias.txt'));
+      await expectCode(
+        grep.execute({ pattern: 'k3y', path: 'alias.txt' }, { toolCallId: 'test' }),
+        'FS_READ_PROTECTED',
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('grep 单文件硬链别名同拒（open 后 inode 判——统一 open 形 fstat 兜底）', async () => {
+    const { root, protSecret, grep } = protRig();
+    try {
+      await mkdir(join(root, 'data'), { recursive: true });
+      await writeFile(protSecret, 'k3y-material\n');
+      await link(protSecret, join(root, 'hardlink.txt'));
+      await expectCode(
+        grep.execute({ pattern: 'k3y', path: 'hardlink.txt' }, { toolCallId: 'test' }),
+        'FS_READ_PROTECTED',
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('grep 目录遍历命中敏感件 → 整调用硬拒（pattern 无关——pre-open 判先于内容扫描）', async () => {
+    const { root, protSecret, grep } = protRig();
+    try {
+      await mkdir(join(root, 'data'), { recursive: true });
+      await mkdir(join(root, 'src'), { recursive: true });
+      await writeFile(join(root, 'src/a.ts'), 'const alpha = 1;\n');
+      await writeFile(protSecret, 'k3y-material\n');
+      // pattern 与敏感件内容无交集也拒——判据是路径不是内容
+      await expectCode(grep.execute({ pattern: 'nomatch' }, { toolCallId: 'test' }), 'FS_READ_PROTECTED');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('grep 遍历根经符号链别名入参同拒（根 canonicalize 一次——别名根不废两腿执法）', async () => {
+    const { root, protSecret, grep } = protRig();
+    // 根别名：alias → root（规范定形③「遍历根 canonicalize 一次」的执法面——
+    // 路径判经 canonical 根命中；即便 miss 也有 inode 判兜底，别名根无绕行）
+    const alias = join(realpathSync(tmpdir()), `berry-search-alias-${process.pid}`);
+    await symlink(root, alias);
+    try {
+      await mkdir(join(root, 'data'), { recursive: true });
+      await writeFile(protSecret, 'k3y-material\n');
+      await expectCode(grep.execute({ pattern: 'x', path: alias }, { toolCallId: 'test' }), 'FS_READ_PROTECTED');
+    } finally {
+      await rm(alias, { force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('glob 排除在扫描面外的敏感件不触发（**/*.ts 照常——dataDir 在 workspace 内不挂整调用）', async () => {
+    const { root, protSecret, grep } = protRig();
+    try {
+      await mkdir(join(root, 'data'), { recursive: true });
+      await mkdir(join(root, 'src'), { recursive: true });
+      await writeFile(join(root, 'src/a.ts'), 'const alpha = 1;\n');
+      await writeFile(protSecret, 'k3y-material\n');
+      const res = await grep.execute({ pattern: 'alpha', glob: '**/*.ts' }, { toolCallId: 'test' });
+      const text = (res.content[0] as { text: string }).text;
+      expect(text).toContain('src/a.ts'); // 扫描脸语义：不扫不拒——glob 排除的不触发整调用硬拒
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('find 路径枚举面不拦（pattern 覆盖敏感路径照常返回——不构成内容读取）', async () => {
+    const { root, protSecret, find } = protRig();
+    try {
+      await mkdir(join(root, 'data'), { recursive: true });
+      await writeFile(protSecret, 'k3y-material\n');
+      const res = await find.execute({ pattern: '**/*' }, { toolCallId: 'test' });
+      const text = (res.content[0] as { text: string }).text;
+      expect(text).toContain('data/secret.key'); // 路径可见、内容不可读（04 §7 定形③枚举面条款）
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

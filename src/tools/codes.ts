@@ -91,6 +91,11 @@ registerErrorCodes([
     module: 'tools',
     description: 'apply_patch 补丁格式解析失败或 update 定位失败（context 行锚不在场即拒）',
   },
+  {
+    code: 'FS_READ_PROTECTED',
+    module: 'tools',
+    description: '读目标命中敏感件保护面硬拒（04 §7 读侧 carve-out）——密钥与免问面恒不可读，fail-closed 无审批出路',
+  },
   // ---- FS_ 族 worktree 三码（04 §7 worktree 条——批 16 worktree 工具族）----
   {
     code: 'FS_WORKTREE_EXISTS',

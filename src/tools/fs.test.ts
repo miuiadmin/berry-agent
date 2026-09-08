@@ -7,7 +7,7 @@
  * （管道编舞另测于 pipeline.test——此处聚焦 fs 语义）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BaseError } from '../contracts/index.js';
@@ -272,6 +272,95 @@ describe('ls（目录列举——不登记观察）', () => {
 
   it('目录不存在 → FS_NOT_FOUND', async () => {
     await expectCode(exec('ls', { path: 'nope-dir' }), 'FS_NOT_FOUND');
+  });
+});
+
+/* ---------------- 读侧 carve-out（04 §7——2026-09-08 P0①） ---------------- */
+
+describe('读侧 carve-out（敏感件恒不可读——路径判 + inode 判两腿）', () => {
+  /**
+   * 敏感集 rig：protDir（root 外——真实 dataDir 形态）两件 + root/vault 一件
+   * （edit 面测试位：须在可写根内才能过 fence，暴露 fence 后的读侧判）。
+   * provider 条目必须 canonical（macOS /var → /private/var 符号链——比对是
+   * canonical 等值判）。
+   */
+  async function protectedRig(): Promise<{ protSecret: string; vaultSecret: string; protDir: string }> {
+    const protDir = await realpath(await mkdtemp(join(outside, 'prot-')));
+    await mkdir(join(root, 'vault'));
+    const vaultDir = await realpath(join(root, 'vault'));
+    const protSecret = join(protDir, 'secret.key');
+    const vaultSecret = join(vaultDir, 'secret.key');
+    rig = createFsTools({
+      workspace: () => root,
+      writableRoots: () => [root],
+      protectedReadFiles: () => [protSecret, join(protDir, 'allowlist.json'), vaultSecret],
+    });
+    return { protSecret, vaultSecret, protDir };
+  }
+
+  it('read 敏感文本件 → FS_READ_PROTECTED 且无观察残留（拒读不构成「看过」）', async () => {
+    const { protSecret } = await protectedRig();
+    await writeFile(protSecret, 'k3y-material', 'utf8');
+    await expectCode(exec('read', { path: protSecret }), 'FS_READ_PROTECTED');
+    expect(rig.observed.get(protSecret)).toBeUndefined();
+  });
+
+  it('敏感件缺席同拒（deny 先于存在性检查——不暴露存在性差异、不登记 absent）', async () => {
+    const { protSecret } = await protectedRig(); // 未写件 = 缺席
+    await expectCode(exec('read', { path: protSecret }), 'FS_READ_PROTECTED');
+    expect(rig.observed.get(protSecret)).toBeUndefined(); // 无 absent 观察（与 FS_NOT_FOUND 分账）
+  });
+
+  it('符号链别名同拒（canonical 路径判——剥链解析后比对）', async () => {
+    const { protSecret } = await protectedRig();
+    await writeFile(protSecret, 'k3y-material', 'utf8');
+    await symlink(protSecret, join(root, 'alias.txt'));
+    await expectCode(exec('read', { path: 'alias.txt' }), 'FS_READ_PROTECTED');
+  });
+
+  it('硬链别名同拒（open 后 inode 判——canonical 路径不同而 inode 相同）', async () => {
+    const { protSecret } = await protectedRig();
+    await writeFile(protSecret, 'k3y-material', 'utf8');
+    await link(protSecret, join(root, 'hardlink.txt'));
+    await expectCode(exec('read', { path: 'hardlink.txt' }), 'FS_READ_PROTECTED');
+  });
+
+  it('硬链别名改图片扩展名同拒（image 分支同判——改扩展名不改判据）', async () => {
+    const { protSecret } = await protectedRig();
+    await writeFile(protSecret, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    await link(protSecret, join(root, 'stolen.png'));
+    await expectCode(exec('read', { path: 'stolen.png' }), 'FS_READ_PROTECTED');
+  });
+
+  it('edit Update File 隐式读敏感件 → 拒（拒在未读检查前——fence/路径判先于内容读）', async () => {
+    const { vaultSecret } = await protectedRig();
+    await writeFile(vaultSecret, 'k3y-material', 'utf8');
+    const patch = [
+      '*** Begin Patch',
+      `*** Update File: ${vaultSecret}`,
+      '-k3y-material',
+      '+pwned',
+      '*** End Patch',
+    ].join('\n');
+    await expectCode(exec('edit', { patch }), 'FS_READ_PROTECTED');
+  });
+
+  it('edit Add File 造敏感件路径 → 拒；根外敏感目标 fence 先拒（时序锁：fence 先于路径判）', async () => {
+    const { protSecret, vaultSecret } = await protectedRig();
+    // 根内 vault/secret.key 缺席：Add File 到该路径 = 读侧路径判拒（非 create 合法面）
+    const addPatch = ['*** Begin Patch', `*** Add File: ${vaultSecret}`, '+forged', '*** End Patch'].join('\n');
+    await expectCode(exec('edit', { patch: addPatch }), 'FS_READ_PROTECTED');
+    // 根外敏感路径：fence（FS_OUTSIDE_WRITABLE_ROOTS）先于读侧判——两层防线执法序
+    const outPatch = ['*** Begin Patch', `*** Add File: ${protSecret}`, '+forged', '*** End Patch'].join('\n');
+    await expectCode(exec('edit', { patch: outPatch }), 'FS_OUTSIDE_WRITABLE_ROOTS');
+  });
+
+  it('同目录非敏感件照常读写（保护面精确到 basename，不殃及邻件）', async () => {
+    const { protDir } = await protectedRig();
+    await writeFile(join(protDir, 'secret.key'), 'k3y', 'utf8');
+    await writeFile(join(protDir, 'notes.txt'), 'fine', 'utf8');
+    const result = await exec('read', { path: join(protDir, 'notes.txt') });
+    expect(firstText(result)).toBe('fine');
   });
 });
 

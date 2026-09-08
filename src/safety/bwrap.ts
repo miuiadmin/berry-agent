@@ -34,18 +34,56 @@ function bwrapBaseArgs(): string[] {
 }
 
 /**
+ * 敏感件读 deny 遮蔽参数（04 §7 读侧 carve-out + 2026-09-08 P0① 定形）：
+ * `--ro-bind-try /dev/null <canonical 路径>` 逐件一对。要点：
+ * - SRC 恒在场（/dev/null 必在）、DEST 由 bwrap 自建（不必预先存在）；
+ *   `-try` 形 = DEST 缺席跳过不报错（保护面不含「目录不存在即失败」语义）；
+ * - 后位遮蔽：mount 点后建遮蔽前挂载——必须排在全部既有 bind 之后（末位
+ *   追加），否则被后续 bind 整树覆盖（顺序即正确性，与 base 的 tmpfs 前置
+ *   同一律）；
+ * - 遮蔽形下硬链攻击链结构性失败：link() 跨 mount 点对只读遮蔽源操作不可
+ *   达（内核 errno 多形不钉死——实机核验定形）。
+ */
+function bwrapDenyArgs(policy: SandboxPolicy): string[] {
+  const args: string[] = [];
+  for (const p of policy.denyReadFiles ?? []) args.push('--ro-bind-try', '/dev/null', p);
+  return args;
+}
+
+/**
  * 按策略生成 bwrap 参数前缀（纯函数）。两档统一消费 resolvePolicyRoots——
  * 缺省按档位推导（read-only 空根 = 无 rw bind、workspace-write 工作区根族），
  * 显式 writableRoots 覆盖在两档同等生效（与 seatbeltProfile 同律）。不变式：
  * /tmp 恒 tmpfs 由 base 前缀承接；根恰为 /tmp 时跳过重复挂载；/tmp 子路径
- * 根在 tmpfs 之上 bind 露出（见 base 前缀注记）。
+ * 根在 tmpfs 之上 bind 露出（见 base 前缀注记）。读 deny 遮蔽行末位追加
+ * （后位遮蔽——见 bwrapDenyArgs 注记）。
+ *
+ * danger 档形（04 §8 定形②「任何档一律」）：`--bind / /` 全盘真读写 +
+ * /dev /proc + 遮蔽行——跳过 tmpfs /tmp 与 --ro-bind /（danger 不走只读基
+ * 座）；--unshare-pid / --die-with-parent 卫生旗恒保留（/proc 同 uid 进程
+ * 面结构性不可见——c-4 泄漏面③同判收口）。
  */
 export function bwrapArgs(policy: SandboxPolicy): string[] {
+  if (policy.mode === 'danger') {
+    return [
+      '--bind',
+      '/',
+      '/',
+      '--dev',
+      '/dev',
+      '--proc',
+      '/proc',
+      '--unshare-pid',
+      '--die-with-parent',
+      ...bwrapDenyArgs(policy),
+    ];
+  }
   const args = [...bwrapBaseArgs()];
   for (const root of resolvePolicyRoots(policy)) {
     // 可写根与 fs fence 同源；/tmp 已由 base tmpfs 覆盖，其余根真实 bind
     if (root !== '/tmp') args.push('--bind', root, root);
   }
+  args.push(...bwrapDenyArgs(policy));
   return args;
 }
 

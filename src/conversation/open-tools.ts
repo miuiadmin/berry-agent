@@ -24,7 +24,7 @@ import type { EventDispatch, Scope } from '../context/index.js';
 import type { AgentTool, ToolDefinition } from '../contracts/index.js';
 import { TOOL_EVENT_NAMES } from '../contracts/index.js';
 import type { SessionLog } from '../session/index.js';
-import { createRootsProvider, installSafetyGate } from '../safety/index.js';
+import { createRootsProvider, installSafetyGate, sensitiveReadFiles } from '../safety/index.js';
 import type {
   AllowlistDraft,
   AllowlistEntry,
@@ -136,12 +136,18 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
   });
   const registry = createToolRegistry(opts.dispatch, { pipeline });
 
-  // ⑤ 工具族装配（fs fence 数据源与守门行同档位单源——createRootsProvider）
+  // ⑤ 工具族装配（fs fence 数据源与守门行同档位单源——createRootsProvider；
+  // fs/search 两族读侧 carve-out 同注入位——sensitiveReadFiles 单源派生，与
+  // 沙箱 profile 读 deny 行同数据〔2026-09-08 P0① 两腿同源〕）
   const fsTools = createFsTools({
     workspace,
     writableRoots: createRootsProvider({ workspace: workspaceRoot, mode: opts.mode }),
+    protectedReadFiles: () => sensitiveReadFiles(opts.dataDir),
   });
-  const searchTools = createSearchTools({ workspace });
+  const searchTools = createSearchTools({
+    workspace,
+    protectedReadFiles: () => sensitiveReadFiles(opts.dataDir),
+  });
   // exec 服务面诚实缺席（02 §4.1 #16：tryGet——exec 禁用 = bash 静默缺席）；
   // 在场则经会话装配期工厂求值 bash 工具（批 19a 定形：档位/审批/工作区
   // 会话 deps 注入——装载期固定构造会丢会话面）

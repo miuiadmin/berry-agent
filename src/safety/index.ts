@@ -13,6 +13,7 @@ import './codes.js';
 
 export * from './types.js';
 export * from './roots.js';
+export * from './sensitive.js';
 export * from './allowlist.js';
 export * from './approval.js';
 export * from './sandbox.js';

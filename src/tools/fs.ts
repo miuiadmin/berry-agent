@@ -29,7 +29,7 @@
  */
 import { basename, dirname, extname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { open, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { Type } from 'typebox';
 import { BaseError } from '../contracts/index.js';
 import type { AgentToolResult, ToolDefinition } from '../contracts/index.js';
@@ -37,6 +37,7 @@ import { canonicalWorkspaceRoot } from '../context/index.js';
 import { addLinesToContent, applyUpdateLines, parseApplyPatch } from './apply-patch.js';
 import type { PatchOperation } from './apply-patch.js';
 import { ObservedFiles, requireObservedForEdit, resolveWriteIntent, statVersion } from './observed.js';
+import { assertInodeNotProtected, rejectProtectedReadPath, type ProtectedReadFiles } from './protected-read.js';
 
 /** fs 工具族选项（装配层注入，全部可换——测试面钉临时目录的标准位） */
 export interface FsToolsOptions {
@@ -53,6 +54,13 @@ export interface FsToolsOptions {
   /** read 图片分支上限字节（缺省 5 MiB；超限 isError 拒绝不截断——base64
    * 截断 = 损坏图片无意义，fail-loud 指路压缩后重读） */
   maxImageBytes?: number;
+  /**
+   * 敏感件读保护集 provider（04 §7 读侧 carve-out——2026-09-08 P0①）：read
+   * 与 edit 隐式读的路径判 + open 后 inode 判数据源。缺省空集 = no-op（测试
+   * 形）；装配层注入 safety.sensitiveReadFiles(dataDir) 产物（tools 不
+   * import safety——DAG，与 writableRoots 同注入形）。
+   */
+  protectedReadFiles?: ProtectedReadFiles;
 }
 
 /**
@@ -280,10 +288,29 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
   const writableRoots = opts.writableRoots ?? (() => [workspace(), tmpdir()]); // 过渡缺省（不随档位）；host 装配批换 safety.createRootsProvider
   const maxReadBytes = opts.maxReadBytes ?? 256 * 1024;
   const maxImageBytes = opts.maxImageBytes ?? 5 * 1024 * 1024;
+  const protectedReadFiles: ProtectedReadFiles = opts.protectedReadFiles ?? (() => []);
   const observed = new ObservedFiles();
 
   /** 用户给出路径 → 绝对路径（相对路径锚 workspace；isAbsolute 直 resolve） */
   const resolveTarget = (p: string): string => (isAbsolute(p) ? resolvePath(p) : resolvePath(workspace(), p));
+
+  /**
+   * 读侧 open-handle 守卫读（04 §7 定形④——2026-09-08 P0①）：open 一次解析
+   * 路径，fstat 钉住「真正打开的那个 inode」过 inode 判后从句柄读全量——
+   * 一判收口硬链别名（canonical 路径不同而 inode 相同）与 TOCTOU 换靶
+   * （canonicalize 与 open 之间路径组件被换）两攻击面。read 显式读与 edit
+   * 阶段一隐式内容读同律过此门。
+   */
+  const readGuarded = async (abs: string): Promise<Buffer> => {
+    const fh = await open(abs, 'r');
+    try {
+      const fst = await fh.stat();
+      await assertInodeNotProtected(abs, fst, protectedReadFiles);
+      return await fh.readFile();
+    } finally {
+      await fh.close();
+    }
+  };
 
   /**
    * 写路径 fence：canonical 化后必须在某可写根内（根同样 canonical 化后
@@ -313,6 +340,11 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
     }),
     execute: async (args) => {
       const abs = resolveTarget(args.path as string);
+      // 读侧 carve-out 路径判（04 §7——2026-09-08 P0①）：deny 先于存在性检查
+      // （缺席同拒同文案——不暴露敏感件存在性差异），且不登记观察（拒读不构
+      // 成「看过」）。canonical 化即剥符号链别名（读 /alias→secret.key 同拒）
+      const canonical = await canonicalize(abs);
+      rejectProtectedReadPath(canonical, protectedReadFiles);
       const version = await currentVersion(abs);
       if (version === undefined) {
         // 不在 = 错误 + 登记 absent 观察（调用失败但观察语义成立：模型看过「这里没有文件」）
@@ -323,7 +355,8 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
       // 截断护栏——图片自有界（管道输出护栏「只钳文本」同口径）
       const imageMime = IMAGE_MIME_BY_EXT[extname(abs).toLowerCase()];
       if (imageMime !== undefined) {
-        const raw = await readFile(abs); // Buffer 原样（二进制面）
+        // open-handle 守卫读：改扩展名不改判据（inode 判与内容无关——04 §7）
+        const raw = await readGuarded(abs);
         if (raw.byteLength > maxImageBytes) {
           // 超限 = 可预期输入问题：isError 结果面拒绝（模型可自纠——压缩/裁剪
           // 后重读或放弃）；不 throw 不截断（base64 截断 = 损坏图片无意义）
@@ -347,8 +380,9 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
           details: { path: abs, bytes: raw.byteLength, mimeType: imageMime, image: true },
         };
       }
-      // 文本分支：字节原样读入 → 严格 UTF-8 解码（lossy 即拒——绝不 mojibake）
-      const raw = await readFile(abs);
+      // 文本分支：字节原样读入（open-handle 守卫——同过 inode 判）→ 严格
+      // UTF-8 解码（lossy 即拒——绝不 mojibake）
+      const raw = await readGuarded(abs);
       const text = decodeUtf8Strict(raw);
       // 截断护栏：保头 maxBytes 字节（UTF-8 安全截点）+ 非静默注记
       const truncated = Buffer.byteLength(text, 'utf8') > maxReadBytes;
@@ -423,6 +457,11 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
       for (const op of ops) {
         const abs = resolveTarget(op.path);
         const canonical = await assertWritable(abs);
+        // 读侧 carve-out 路径判（04 §7 定形⑤——2026-09-08 P0①）：edit 的隐式
+        // 内容读（update 前置读）同过保护面；fence/canonicalize 先于内容读，
+        // 路径判紧随 fence——三 op 全拒（update 隐式读 / add 造敏感件 / delete
+        // 篡改敏感件同面，敏感件归 persist 自管不归 fs 工具族）
+        rejectProtectedReadPath(canonical, protectedReadFiles);
         targets.set(canonical, { op, abs });
       }
       // 两阶段全段入链：阶段一的读-CAS-算内容与阶段二的顺序落盘在同一互
@@ -437,9 +476,11 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
             // 编辑守卫：必须已读（present）且指纹一致；内容在阶段一就算好
             //（定位失败前置暴露——不留到半途落盘才发现）
             requireObservedForEdit(observed.get(abs), currentRef);
-            // 前置读同 read 口径严格 UTF-8：非 UTF-8 一律拒改（防转码回写
-            // 毁档）；改写通道 = read 后 write 全文替换（按 UTF-8 落盘）
-            const raw = await readFile(canonical);
+            // 前置读同 read 口径严格 UTF-8 + open-handle 守卫（04 §7 定形④⑤
+            //——隐式读同过 inode 判：防补丁路径硬链/换靶读到敏感件）；非
+            // UTF-8 一律拒改（防转码回写毁档）；改写通道 = read 后 write 全文
+            // 替换（按 UTF-8 落盘）
+            const raw = await readGuarded(canonical);
             const text = decodeUtf8Strict(raw);
             planned.push({ op, abs, canonical, content: applyUpdateLines(abs, text, op.lines) });
           } else if (op.kind === 'add') {

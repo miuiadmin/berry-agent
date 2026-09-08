@@ -17,15 +17,9 @@
  */
 
 import { BaseError } from '../contracts/index.js';
-import type {
-  AllowlistDraft,
-  ApprovalOutcome,
-  ApprovalRequest,
-  ConfinedSandboxMode,
-  SandboxBackend,
-  SandboxMode,
-} from './types.js';
+import type { AllowlistDraft, ApprovalOutcome, ApprovalRequest, SandboxBackend, SandboxMode } from './types.js';
 import { deriveWritableRoots } from './roots.js';
+import { sensitiveReadFiles } from './sensitive.js';
 // 平台链引用（函数体内才调用，无顶层互调——与后端文件的双向引用安全）
 import { createSeatbeltBackend } from './seatbelt.js';
 import { createBwrapBackend } from './bwrap.js';
@@ -34,14 +28,24 @@ import { createBwrapBackend } from './bwrap.js';
 /* 策略与结果类型                                                       */
 /* ------------------------------------------------------------------ */
 
-/** 沙箱策略（逐调用携带；danger 不进 confine——调用方直接透传） */
+/**
+ * 沙箱策略（逐调用携带）。三档一律进 confine（04 §8 定形②「任何档一律」
+ * 字面执法——2026-09-08 P0①）：danger 档同过最小读 deny profile（受限两
+ * 档额外叠拒写与根允许），无「不进沙箱」的档位。
+ */
 export interface SandboxPolicy {
-  /** 请求档位（受限两档之一；越档走升权审批产物） */
-  readonly mode: ConfinedSandboxMode;
+  /** 请求档位（三档全词汇；danger 形 = 最小读 deny——后端件分支定形） */
+  readonly mode: SandboxMode;
   /** 工作区根（canonical 绝对路径；可写根推导锚点） */
   readonly workspaceRoot: string;
   /** 可写根显式覆盖（缺省 deriveWritableRoots(workspaceRoot, mode)——与 fs fence 同源） */
   readonly writableRoots?: readonly string[];
+  /**
+   * 读 deny 集显式覆盖（canonical 绝对路径；缺省由服务侧 dataDir 派生
+   * enrich——调用方零敏感集知识。空数组 = 显式无读 deny；与 undefined
+   * 「未携带」语义分立）。
+   */
+  readonly denyReadFiles?: readonly string[];
 }
 
 /**
@@ -111,7 +115,7 @@ export function resolveEffectiveMode(
 
 /** 沙箱服务面（消费方：bash 工具件 / host 装配） */
 export interface SandboxService {
-  /** 纯包装：受限档策略下把消费方 argv 变为受限 argv（消费方自行 spawn） */
+  /** 纯包装：三档一律（04 §8 定形②）把消费方 argv 变为受限 argv（消费方自行 spawn） */
   confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv;
   /** 注册沙箱后端（后端可替换面；返回注销器，幂等） */
   registerBackend(backend: SandboxBackend): () => void;
@@ -123,6 +127,12 @@ export interface SandboxService {
 export interface SandboxServiceOptions {
   /** 初始后端链（缺省 createDefaultBackends() 平台链；传 [] 显式空链 = 测试用） */
   readonly backends?: readonly SandboxBackend[];
+  /**
+   * 数据目录（敏感件读集派生源——04 §7 读侧 carve-out）。缺省 null = 无敏
+   * 感集（诊断形 :memory:：confine 零读 deny 行）。与 gate.dataDir 同注入
+   * 律（safety 不 import persist——DAG 边表，装配层必填真 dataDir）。
+   */
+  readonly dataDir?: string | null;
 }
 
 /**
@@ -139,6 +149,16 @@ export function createSandboxService(opts: SandboxServiceOptions = {}): SandboxS
   /** probe 结果缓存（backend.id → 布尔；注销即清除） */
   const probeCache = new Map<string, boolean>();
 
+  /**
+   * 策略读 deny enrich：未显式携带 denyReadFiles 且装配持有 dataDir 时，
+   * 以敏感件集单源补位（04 §7 读侧 carve-out 的 profile 腿数据源）。显式
+   * 携带（含空数组）恒胜出——测试/宿主覆盖位不与单源打架。
+   */
+  const enrichPolicy = (policy: SandboxPolicy): SandboxPolicy =>
+    policy.denyReadFiles === undefined && opts.dataDir != null
+      ? { ...policy, denyReadFiles: sensitiveReadFiles(opts.dataDir) }
+      : policy;
+
   /** 单个后端的可用性判定（无 probe = 视为可用；结果缓存一次） */
   const isAvailable = (backend: SandboxBackend): boolean => {
     if (!backend.probe) return true;
@@ -152,10 +172,11 @@ export function createSandboxService(opts: SandboxServiceOptions = {}): SandboxS
   const service: SandboxService = {
     confine(argv, policy) {
       if (chain.length === 0) {
-        // fail-closed：没有后端就拒绝执行，绝不静默裸跑（04 §8）
+        // fail-closed：没有后端就拒绝执行，绝不静默裸跑（04 §8——任何档一律，
+        // danger 不豁免：换档不是绕后端的路）
         throw new BaseError(
           'SANDBOX_UNAVAILABLE',
-          `无可用沙箱后端，拒绝以 ${policy.mode} 档裸跑（后端链为空；可安装沙箱后端或换 danger 档）`,
+          `无可用沙箱后端，拒绝裸跑（后端链为空；${policy.mode} 档一律经沙箱——可安装沙箱后端）`,
         );
       }
       // 单候选直接用；多候选按 probe 仲裁
@@ -167,7 +188,7 @@ export function createSandboxService(opts: SandboxServiceOptions = {}): SandboxS
         );
       }
       return {
-        argv: backend.wrap(argv, policy),
+        argv: backend.wrap(argv, enrichPolicy(policy)),
         enforcement: backend.enforcement,
         denialSignatures: backend.denialSignatures,
         runnerFailureRules: backend.runnerFailureRules,

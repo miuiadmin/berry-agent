@@ -187,6 +187,35 @@ describe('assembleOpenTools 真管道执法', () => {
     expect((dataOf(made.session, 'gate/decision')[0] as { reason: string }).reason).toContain('carve-out');
   });
 
+  it('读侧 carve-out 装配 e2e：read 点名 dataDir/secret.key → FS_READ_PROTECTED（敏感集注入回归锁——漏注入即红）', async () => {
+    const made = makeAssembly();
+    writeFileSync(join(made.dataDir, 'secret.key'), 'k3y-material', 'utf8');
+    await expect(
+      toolOf(made.assembly, 'read').execute('c-sec', { path: join(made.dataDir, 'secret.key') }),
+    ).rejects.toMatchObject({ code: 'FS_READ_PROTECTED' });
+    // 读脸硬拒无审批交互（04 §7——fail-closed 无审批出路）
+    expect(dataOf(made.session, 'approval/asked')).toHaveLength(0);
+  });
+
+  it('读侧 carve-out 装配 e2e：grep 单文件点名 secret.key 同拒（检索脸同源注入）', async () => {
+    const made = makeAssembly();
+    writeFileSync(join(made.dataDir, 'secret.key'), 'k3y-material', 'utf8');
+    await expect(
+      toolOf(made.assembly, 'grep').execute('c-gsec', {
+        pattern: 'k3y',
+        path: join(made.dataDir, 'secret.key'),
+      }),
+    ).rejects.toMatchObject({ code: 'FS_READ_PROTECTED' });
+  });
+
+  it('邻件不殃及：dataDir 内非敏感件 read 照常（保护面精确到 basename）', async () => {
+    const made = makeAssembly();
+    writeFileSync(join(made.dataDir, 'notes.txt'), 'fine', 'utf8');
+    const result = await toolOf(made.assembly, 'read').execute('c-note', { path: join(made.dataDir, 'notes.txt') });
+    expect(result.isError).toBeUndefined();
+    expect((result.content[0] as { text: string }).text).toBe('fine');
+  });
+
   it('read-only 档 write：守门行跳过（不产审批交互），fence 执法拒', async () => {
     const made = makeAssembly({ mode: () => 'read-only', askApproval: answer('approve') });
     await expect(

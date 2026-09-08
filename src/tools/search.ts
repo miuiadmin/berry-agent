@@ -29,6 +29,8 @@ import { Type } from 'typebox';
 import { BaseError } from '../contracts/index.js';
 import type { AgentToolResult, ToolDefinition } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
+import { canonicalize } from './fs.js';
+import { assertInodeNotProtected, rejectProtectedReadPath, type ProtectedReadFiles } from './protected-read.js';
 
 /** 检索族选项（装配层注入；与 FsToolsOptions 同风格——测试面钉锚的标准位） */
 export interface SearchToolsOptions {
@@ -36,8 +38,15 @@ export interface SearchToolsOptions {
   workspace?: () => string;
   /** 单文件扫描截断上限字节（缺省 256 KiB，与 read 的 maxReadBytes 同口径；超限只扫前段） */
   maxScanBytes?: number;
-  /** 输出条数上限（缺省 200——find 的路径条数 / grep 的命中文件数或行数；达限早停） */
+  /** 输出条目上限（缺省 200——find 的路径条数 / grep 的命中文件数或行数；达限早停） */
   maxResults?: number;
+  /**
+   * 敏感件读保护集 provider（04 §7 读侧 carve-out——2026-09-08 P0①）：grep
+   * 的 open 前路径判 + open 后 inode 判数据源（find 不拦——路径枚举面）。
+   * 缺省空集 = no-op；装配层注入 safety.sensitiveReadFiles(dataDir) 产物
+   * （tools 不 import safety——DAG，与 fs 族同注入形）。
+   */
+  protectedReadFiles?: ProtectedReadFiles;
 }
 
 /** 检索族产物：find + grep 两件工具定义 */
@@ -231,21 +240,24 @@ function utf8SafeEnd(buf: Buffer, end: number): number {
 }
 
 /**
- * 读文件前段用于扫描：超 maxBytes 的大文件不整读（防超大文件占内存——file
- * handle 只取前段）；解码严格 UTF-8（fatal——lossy 即标记 nonUtf8，由调用方
- * 跳过该文件；绝不产 U+FFFD 乱码进命中行）。
+ * 读文件前段用于扫描（04 §7 定形④统一形——2026-09-08 P0①）：单 open + 句柄
+ * fstat（guard 挂入）+ 按大小分支读，消除 stat 与 read 两路间的 TOCTOU。
+ * 超大文件不整读（只取前段防占内存）；解码严格 UTF-8（fatal——lossy 即标记
+ * nonUtf8，由调用方跳过该文件；绝不产 U+FFFD 乱码进命中行）。
  */
 async function readCappedStrict(
   abs: string,
   maxBytes: number,
+  protectedReadFiles: ProtectedReadFiles,
 ): Promise<{ text: string; truncated: boolean; nonUtf8: boolean }> {
-  const st = await stat(abs);
-  if (st.size <= maxBytes) {
-    const raw = await readFile(abs);
-    return decodeStrict(raw, false);
-  }
   const fh = await open(abs, 'r');
   try {
+    // open 后 inode 判：硬链别名 + TOCTOU 换靶同判收口（与 read 工具同一判据）
+    const fst = await fh.stat();
+    await assertInodeNotProtected(abs, fst, protectedReadFiles);
+    if (fst.size <= maxBytes) {
+      return decodeStrict(await fh.readFile(), false);
+    }
     const buf = Buffer.alloc(maxBytes);
     await fh.read(buf, 0, maxBytes, 0);
     // 截点回退 UTF-8 安全边界后再解码——截断不误报非 UTF-8
@@ -271,8 +283,9 @@ async function scanFile(
   abs: string,
   re: RegExp,
   maxScanBytes: number,
+  protectedReadFiles: ProtectedReadFiles,
 ): Promise<{ lines: Array<{ no: number; text: string }>; truncated: boolean; binary: boolean; nonUtf8: boolean }> {
-  const { text, truncated, nonUtf8 } = await readCappedStrict(abs, maxScanBytes);
+  const { text, truncated, nonUtf8 } = await readCappedStrict(abs, maxScanBytes, protectedReadFiles);
   if (nonUtf8) return { lines: [], truncated: false, binary: false, nonUtf8: true };
   // 二进制探测：前 8 KiB 含 NUL 字节视为二进制（NUL 是合法 UTF-8——与编码探测独立）
   if (text.substring(0, 8192).includes('\0')) {
@@ -300,6 +313,7 @@ export function createSearchTools(opts: SearchToolsOptions = {}): SearchTools {
   const workspace = opts.workspace ?? (() => canonicalWorkspaceRoot());
   const maxScanBytes = opts.maxScanBytes ?? 256 * 1024;
   const maxResults = opts.maxResults ?? 200;
+  const protectedReadFiles: ProtectedReadFiles = opts.protectedReadFiles ?? (() => []);
 
   /** 用户给出的路径 → 绝对路径（相对路径锚 workspace；与 fs.ts 同语义） */
   const resolveTarget = (p: string): string => (isAbsolute(p) ? resolvePath(p) : resolvePath(workspace(), p));
@@ -394,7 +408,7 @@ export function createSearchTools(opts: SearchToolsOptions = {}): SearchTools {
       /** 单文件扫描 + 计数入账（达限返回 true 供早停） */
       const consumeFile = async (rel: string, abs: string): Promise<boolean> => {
         scanned++;
-        const result = await scanFile(abs, re, maxScanBytes);
+        const result = await scanFile(abs, re, maxScanBytes, protectedReadFiles);
         if (result.nonUtf8) {
           skippedNonUtf8++;
           return false;
@@ -418,7 +432,12 @@ export function createSearchTools(opts: SearchToolsOptions = {}): SearchTools {
       };
 
       // 目标形态分派：单文件显式指定 = 用户意图（不做 ignore/glob 过滤）；
-      // 目录 = 遍历 + glob 过滤 + gitignore 剪枝
+      // 目录 = 遍历 + glob 过滤 + gitignore 剪枝。读侧 carve-out（04 §7 定形
+      // ③——2026-09-08 P0①）：单文件 open 前路径判（canonical 剥符号链别
+      // 名）；目录遍历命中敏感件 = **整调用硬拒**（不剪枝数据目录——剪枝即
+      // 向模型泄露「这里有什么不能扫」的存在性测绘面）。walkFiles 不跟随符
+      // 号链 → 遍历根的 canonical 前缀是唯一别名面（根 canonicalize 一次即
+      // 钉死；产出路径逐件过路径判，open 后另有 inode 判兜底）
       const st = await stat(target).catch((err: NodeJS.ErrnoException) => {
         if (err.code === 'ENOENT') {
           throw new BaseError('FS_NOT_FOUND', `[FS_NOT_FOUND] 搜索目标不存在：${target}`);
@@ -429,10 +448,21 @@ export function createSearchTools(opts: SearchToolsOptions = {}): SearchTools {
         // 显示路径：workspace 内相对形；workspace 外退绝对路径（用户可见形）。
         // 单文件 content 模式命中行也可能达限（超长文件）——返回值同样驱动截断注记
         const rel = toPosix(relative(workspace(), target)) || toPosix(target);
+        rejectProtectedReadPath(await canonicalize(target), protectedReadFiles);
         truncated = await consumeFile(rel, target);
       } else if (st.isDirectory()) {
-        for await (const file of walkFiles(target)) {
+        // 遍历根 canonicalize 一次钉死别名面（规范定形③原文——如 macOS
+        // /var → /private/var：别名根下逐件路径判会全 miss 只剩 inode 兜底）；
+        // walkFiles 不跟随符号链 → 根前缀是子树内唯一符号链面，此后产出路径
+        // 恒 canonical
+        for await (const file of walkFiles(await canonicalize(target))) {
           if (globRe !== undefined && !globRe.test(file.rel)) continue;
+          // 扫描脸执法（04 §7 定形③）：过了 glob 过滤、即将被 open 扫描的
+          // 文件逐件 pre-open 路径比对——命中整调用硬拒；glob 排除在扫描面
+          // 外的文件不触发（扫描脸语义——不扫不拒）。数据目录不剪枝（剪枝
+          // 即向模型泄露存在性测绘面）；walkFiles 不跟随符号链 → 根的
+          // canonical 前缀是唯一别名面（根 canonicalize 一次即钉死）
+          rejectProtectedReadPath(file.abs, protectedReadFiles);
           if (await consumeFile(file.rel, file.abs)) {
             truncated = true; // 达限早停 + 截断注记（结果内注明非静默——04 §7 护栏条款）
             break;

@@ -26,6 +26,7 @@ import {
   requestEscalation,
 } from './index.js';
 import { createBwrapBackend } from './bwrap.js';
+import { sensitiveReadFiles, type SandboxPolicy } from './index.js';
 
 /** bwrap 基座参数字面量（测试侧期望形——tmpfs 恒第一条：顺序即正确性） */
 const BWRAP_BASE = [
@@ -333,5 +334,99 @@ describe('bwrap 参数面', () => {
       'ls',
       '/',
     ]);
+  });
+});
+
+/* ---------------- 读 deny 与 danger 档形（2026-09-08 P0①） ---------------- */
+
+describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②）', () => {
+  const DENY = ['/data/secret.key', '/data/allowlist.json'];
+  const DENY_LINES = DENY.map((p) => `(deny file-read* (literal "${p}"))`);
+
+  it('seatbelt：读 deny 行末位追加（last-match-wins 压过此前全部 allow）', () => {
+    const lines = seatbeltProfile({
+      mode: 'workspace-write',
+      workspaceRoot: '/ws',
+      writableRoots: ['/ws'],
+      denyReadFiles: DENY,
+    }).split('\n');
+    expect(lines.slice(-2)).toEqual(DENY_LINES);
+  });
+
+  it('seatbelt danger 形：最小读 deny profile——无拒写无逐根 allow、读 deny 仍在（任何档一律）', () => {
+    const profile = seatbeltProfile({ mode: 'danger', workspaceRoot: '/ws', denyReadFiles: DENY });
+    expect(profile.split('\n')).toEqual(['(version 1)', '(allow default)', ...DENY_LINES]);
+    expect(profile).not.toContain('deny file-write*');
+    expect(profile).not.toContain('subpath');
+  });
+
+  it('bwrap：遮蔽行末位追加 --ro-bind-try /dev/null <path>（后位遮蔽——mount 点后建压前挂载）', () => {
+    expect(
+      bwrapArgs({ mode: 'workspace-write', workspaceRoot: '/ws', writableRoots: ['/ws'], denyReadFiles: DENY }),
+    ).toEqual([
+      ...BWRAP_BASE,
+      '--bind',
+      '/ws',
+      '/ws',
+      '--ro-bind-try',
+      '/dev/null',
+      '/data/secret.key',
+      '--ro-bind-try',
+      '/dev/null',
+      '/data/allowlist.json',
+    ]);
+  });
+
+  it('bwrap danger 形：--bind / / 全盘读写 + 卫生旗恒在（--proc/--unshare-pid = /proc 同 uid 进程面结构性不可见）+ 遮蔽末位；无 tmpfs/ro-bind 基座', () => {
+    expect(bwrapArgs({ mode: 'danger', workspaceRoot: '/ws', denyReadFiles: DENY })).toEqual([
+      '--bind',
+      '/',
+      '/',
+      '--dev',
+      '/dev',
+      '--proc',
+      '/proc',
+      '--unshare-pid',
+      '--die-with-parent',
+      '--ro-bind-try',
+      '/dev/null',
+      '/data/secret.key',
+      '--ro-bind-try',
+      '/dev/null',
+      '/data/allowlist.json',
+    ]);
+  });
+
+  it('confine enrich：未携带 denyReadFiles 且持有 dataDir → 敏感集单源补位；显式携带（含空数组）恒胜出', () => {
+    const seen: SandboxPolicy[] = [];
+    const recorder: SandboxBackend = {
+      id: 'recorder',
+      enforcement: 'full',
+      denialSignatures: [],
+      runnerFailureRules: [],
+      wrap: (argv, policy) => {
+        seen.push(policy);
+        return [...argv];
+      },
+    };
+    const service = createSandboxService({ backends: [recorder], dataDir: '/data' });
+    service.confine(['ls'], { mode: 'danger', workspaceRoot: '/ws' });
+    expect(seen[0]!.denyReadFiles).toEqual(sensitiveReadFiles('/data')); // 单源派生注入
+    service.confine(['ls'], { mode: 'danger', workspaceRoot: '/ws', denyReadFiles: [] });
+    expect(seen[1]!.denyReadFiles).toEqual([]); // 显式空数组 = 显式无读 deny
+    const bare = createSandboxService({ backends: [recorder] }); // 无 dataDir（诊断形）
+    bare.confine(['ls'], { mode: 'read-only', workspaceRoot: '/ws' });
+    expect(seen[2]!.denyReadFiles).toBeUndefined(); // 不虚构补位
+  });
+
+  it('SANDBOX_UNAVAILABLE 文案不引导换 danger 档（换档不是绕后端的路——三档一律）', () => {
+    const service = createSandboxService({ backends: [] });
+    try {
+      service.confine(['ls'], { mode: 'danger', workspaceRoot: '/' });
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toMatchObject({ code: 'SANDBOX_UNAVAILABLE' });
+      expect((err as Error).message).not.toContain('换 danger 档');
+    }
   });
 });
