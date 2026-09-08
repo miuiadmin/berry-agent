@@ -11,7 +11,7 @@ import {
 } from './index.js';
 
 describe('事件词汇注册表', () => {
-  it('核心 22 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填、plugin/opens·capability/used 2026-09-08 U3 落码批入册〔开门制两审计词——载体 = 进程级 audit_events 审计流非会话流，入册值 = 核心词身份双闸〕）', () => {
+  it('核心 23 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填、plugin/opens·capability/used 2026-09-08 U3 落码批入册〔开门制两审计词——载体 = 进程级 audit_events 审计流非会话流，入册值 = 核心词身份双闸〕、compaction/fallback 2026-09-09 U4 落码批入册〔回落三律第 3 律审计词〕）', () => {
     const expected = [
       'turn/start',
       'turn/end',
@@ -35,6 +35,7 @@ describe('事件词汇注册表', () => {
       'compaction/start',
       'compaction/surface',
       'compaction/end',
+      'compaction/fallback',
     ];
     expect([...CORE_EVENT_TYPE_NAMES].sort()).toEqual([...expected].sort());
     for (const type of expected) expect(isKnownEventType(type)).toBe(true);

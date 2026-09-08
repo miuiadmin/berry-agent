@@ -14,9 +14,11 @@ export {
   buildSummaryPrompt,
   evaluateThreshold,
   inCooldown,
+  planFromRange,
   planSegment,
   previousSummaryText,
   summaryBudgetFor,
+  validateAdjustedRange,
 } from './policy.js';
 export { createCompactionService } from './service.js';
 export type { CompactionServiceOptions } from './service.js';

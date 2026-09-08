@@ -106,10 +106,36 @@ export function planSegment(input: {
   const effectiveEnd = carrierAbove !== undefined ? Math.min(end, carrierAbove.seq - 1) : end;
   if (start > effectiveEnd) return null;
   // 区间内投影消息与字符量（字符尺与 fold.chars 同源：逐消息 JSON 长度和）
-  const occluded = messages.filter((m) => m.seq >= start && m.seq <= effectiveEnd);
-  if (occluded.length < 1) return null; // 防御：区间内无投影消息（纯骨架区间不值得压）
+  const result = planFromRange(start, effectiveEnd, messages);
+  if (result.occludedMessages < 1) return null; // 防御：区间内无投影消息（纯骨架区间不值得压）
+  return result;
+}
+
+/**
+ * 区间 → SegmentPlan（素材三件宿主重算单源——planSegment 尾部与 U4 调整途
+ * 共用：调整案的 occluded/occludedMessages/occludedChars 恒宿主按区间从投影
+ * 重算，不信载荷〔区间主权 = 唯一采用面〕）。区间内投影消息可空——调用方
+ * 自查（planSegment 视为 null、调整途视为非法调整）。
+ */
+export function planFromRange(start: number, end: number, messages: readonly ProjectedMessage[]): SegmentPlan {
+  const occluded = messages.filter((m) => m.seq >= start && m.seq <= end);
   const occludedChars = occluded.reduce((sum, m) => sum + JSON.stringify(m).length, 0);
-  return { start, end: effectiveEnd, occludedMessages: occluded.length, occludedChars, occluded };
+  return { start, end, occludedMessages: occluded.length, occludedChars, occluded };
+}
+
+/* ---------------- 调整值校验（U4 调整途——05 §2.1 槽位化第 3 层） ---------------- */
+
+/**
+ * 调整值校验器（「调整值过宿主同一规划校验器」的码面单源）：调整案区间须
+ * 落在宿主原案区间内——宿主原案已过规划全律（turn 边界/tail 界/起点对齐/避
+ * 载体），子区间天然合法；扩界不合法（扩 tail/扩进载体区属越权——界桩移动是
+ * 配置槽射程〔tailKeep 等〕非调整途）。
+ */
+export function validateAdjustedRange(
+  adjusted: { start: number; end: number },
+  host: { start: number; end: number },
+): boolean {
+  return adjusted.start >= host.start && adjusted.end <= host.end && adjusted.start <= adjusted.end;
 }
 
 /* ---------------- 摘要预算（字符制——05 §2.1「摘要参数」） ---------------- */

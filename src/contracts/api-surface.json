@@ -1138,7 +1138,14 @@
       "module": "session-events",
       "tier": "stable",
       "since": "1.0",
-      "desc": "压缩收尾标记（reason=completed/failed；failed=摘要通道失败即时闭段防孤 start 悬挂）"
+      "desc": "压缩收尾标记（reason=completed/failed/vetoed/aborted；failed=摘要通道失败即时闭段防孤 start 悬挂；vetoed=钩子否决收形〔U4——start 后即 end 无摘要无遮蔽〕；aborted=§4 恢复协议合成形非 live 写入位）"
+    },
+    {
+      "symbol": "compaction/fallback",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "接管/算法槽失败回落事实（05 §2.1 回落三律第 3 律——回落非静默换算法；source=plugin:<id>、stage=throw|timeout|rejected〔抛错/超预算/产物被拒——空文本同宿主通道失败律〕、error? 截断、circuit?=true 末次记三振停用〔进程级，复位走重启〕；U4 调整途非法调整同 stage=rejected 记账）"
     },
     {
       "symbol": "compaction/start",

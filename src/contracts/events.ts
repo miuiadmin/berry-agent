@@ -1,6 +1,7 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——22 核心词全列，
- * compaction 三词 2026-09-06 纵切批增补、session/thinking-level 同日遗漏
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——23 核心词全列，
+ * compaction 三词 2026-09-06 纵切批增补、compaction/fallback 2026-09-09
+ * U4 落码批入册、session/thinking-level 同日遗漏
  * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
  * capability/used 2026-09-08 U3 落码批入册〔05 行 70-71 开门制两审计词——
  * 载体 = 进程级 durable 审计流（05 §9 audit_events，非会话 append 面），
@@ -48,7 +49,7 @@ export interface EventTypeMeta {
 }
 
 /**
- * 核心事件类型 20 词（05 §1.1 表格逐条转录；owner 归属按表注：
+ * 核心事件类型 23 词（05 §1.1 表格逐条转录；owner 归属按表注：
  * gate/decision 归 tools、llm/usage 归 llm、llm/retry 注册走 session
  * 核心词汇（llm 模块不知道驱动存在）、plugin/uninstalled 宿主写点 host、
  * approval/* 与 sandbox/mode 归 safety 域、todo/write 与
@@ -60,7 +61,9 @@ export interface EventTypeMeta {
  * 批已定名，注册表漏登——批 11 conversation 写入将撞词汇闸，先回填止血）；
  * 20→22：plugin/opens·capability/used 随 U3 落码批入册（05 §1.1 行 70-71
  * 开门制两审计词——载体 = 进程级 audit_events 审计流〔05 §9〕非会话流，
- * 入册值 = 核心词身份双闸 + 目录单一真源；写入面随 U3-2 persist 笔落码）。
+ * 入册值 = 核心词身份双闸 + 目录单一真源；写入面随 U3-2 persist 笔落码）；
+ * 22→23：compaction/fallback 随 U4 落码批入册（05 §1.1 行 77 回落三律第 3
+ * 律审计词——2026-09-07 双轴二轮评估批已定词形、随 U4 落码批注册兑现）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -213,7 +216,16 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     category: 'log-only',
     owner: 'compaction',
     tier: 'stable',
-    description: '压缩收尾标记（reason=completed/failed；failed=摘要通道失败即时闭段防孤 start 悬挂）',
+    description:
+      '压缩收尾标记（reason=completed/failed/vetoed/aborted；failed=摘要通道失败即时闭段防孤 start 悬挂；vetoed=钩子否决收形〔U4——start 后即 end 无摘要无遮蔽〕；aborted=§4 恢复协议合成形非 live 写入位）',
+  },
+  {
+    type: 'compaction/fallback',
+    category: 'log-only',
+    owner: 'compaction',
+    tier: 'stable',
+    description:
+      '接管/算法槽失败回落事实（05 §2.1 回落三律第 3 律——回落非静默换算法；source=plugin:<id>、stage=throw|timeout|rejected〔抛错/超预算/产物被拒——空文本同宿主通道失败律〕、error? 截断、circuit?=true 末次记三振停用〔进程级，复位走重启〕；U4 调整途非法调整同 stage=rejected 记账）',
   },
 ];
 

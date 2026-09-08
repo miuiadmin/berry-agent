@@ -67,6 +67,17 @@ export interface SessionBeforeCompactInput {
   takeover?: { pluginId?: string; summarize: SummarizerFn };
 }
 
+/**
+ * 派发 seam 返回形（U4 接管缝——service 的 onBeforeCompact 出口）：value =
+ * 值链终值（veto/takeover/plan 位照位制）；lastAdjustedBy = 最后改写 plan 的
+ * 监听者 pluginId（装配层逐跳记录——非法调整的 fallback 记账归因面；全程
+ * 无调整则缺席）。
+ */
+export interface BeforeCompactResult {
+  readonly value: SessionBeforeCompactInput;
+  readonly lastAdjustedBy?: string;
+}
+
 /** 压缩配置（05 §2.1 各参数段单源；全字段可经 host 覆盖） */
 export interface CompactionConfig {
   /** 阈值比例：真 token 计量（缺席时估算）达窗口此比例触发（缺省 0.5） */

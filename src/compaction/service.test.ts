@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { SessionLog } from '../session/index.js';
 import { createCompactionService, type CompactionServiceOptions } from './service.js';
-import type { SummaryChannel } from './types.js';
+import { DEFAULT_COMPACTION_CONFIG, type SummaryChannel } from './types.js';
 import { SUMMARY_PREFIX } from './policy.js';
 
 /* ---------------- 测试构造件 ---------------- */
@@ -333,5 +333,423 @@ describe('drain', () => {
     expect(log.eventsOfType('compaction/end')).toHaveLength(0); // fire-and-forget——此刻未必完成
     await rig.service.drain();
     expect(log.eventsOfType('compaction/end')).toHaveLength(1);
+  });
+});
+
+/* ---------------- U4 接管缝（session_before_compact 位制四途） ---------------- */
+
+describe('U4 接管缝', () => {
+  /** 放行形 seam（不改值不置位——值原样透传） */
+  const passthrough = async (input: Parameters<NonNullable<CompactionServiceOptions['onBeforeCompact']>>[0]) => ({
+    value: input,
+  });
+
+  it('放行：宿主路照常，start.summarizer 归因 host', async () => {
+    const rig = makeRig(['宿主摘要'], { onBeforeCompact: passthrough });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'host' });
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed' });
+    expect(rig.calls).toHaveLength(1); // 宿主通道被调
+  });
+
+  it('调整途（合法缩区间）：生效区间 = 调整案，素材三件宿主重算', async () => {
+    const rig = makeRig(['调整后摘要'], {
+      onBeforeCompact: async (input) => ({
+        // 宿主原案 [4,12]（sixTurnLog 常规夹具）——缩到 [8,12]（子区间合法）
+        value: { ...input, plan: { ...input.plan, start: 8 } },
+        lastAdjustedBy: 'tuner',
+      }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    const surface = log.eventsOfType('compaction/surface')[0]!;
+    expect(surface.surfaceOp).toMatchObject({ start: 8, end: 12 });
+    // 素材重算：区间 [8,12] 内消息 seq 10,11 → 2 条（不信载荷三件）
+    expect(surface.data).toMatchObject({ occludedMessages: 2 });
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed', occludedMessages: 2 });
+  });
+
+  it('调整途（非法越界）：fallback 记账 stage=rejected + 归因最后调整者，宿主原案续跑', async () => {
+    const rig = makeRig(['原案摘要'], {
+      onBeforeCompact: async (input) => ({
+        value: { ...input, plan: { ...input.plan, start: 1 } }, // 越界（< 宿主原案 start 4——扩进 head 任务锚）
+        lastAdjustedBy: 'bad-tuner',
+      }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    const fallback = log.eventsOfType('compaction/fallback')[0]!;
+    expect(fallback.data).toMatchObject({ source: 'plugin:bad-tuner', stage: 'rejected' });
+    // 宿主原案续跑
+    expect(log.eventsOfType('compaction/surface')[0]!.surfaceOp).toMatchObject({ start: 4, end: 12 });
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed' });
+  });
+
+  it('veto：落 start{willRetry:true} + end{vetoed} 对；无摘要无遮蔽；冷却锚不动（重触发再问）', async () => {
+    const rig = makeRig([], {
+      onBeforeCompact: async (input) => ({ value: { ...input, veto: { reason: '任务进行中不宜压' } } }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    const starts = log.eventsOfType('compaction/start');
+    const ends = log.eventsOfType('compaction/end');
+    expect(starts).toHaveLength(1);
+    expect(ends).toHaveLength(1);
+    expect(starts[0]!.data).toMatchObject({ reason: 'threshold', willRetry: true });
+    expect((starts[0]!.data as Record<string, unknown>)['summarizer']).toBeUndefined(); // 无生效者不落归因位
+    expect(ends[0]!.data).toMatchObject({ reason: 'vetoed' });
+    expect(log.eventsOfType('user/message')).toHaveLength(6); // 无摘要落账
+    expect(log.eventsOfType('compaction/surface')).toHaveLength(0); // 无遮蔽
+    expect(rig.calls).toHaveLength(0); // 通道零调用
+    // 冷却锚未推进：再触发即再问（第二次 veto 再落一对）
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/end')).toHaveLength(2);
+    expect(log.eventsOfType('compaction/end')[1]!.data).toMatchObject({ reason: 'vetoed' });
+  });
+
+  it('位间裁决：veto + takeover 同置 → veto 先检胜出（算法零调用）', async () => {
+    const takeoverCalls: number[] = [];
+    const rig = makeRig([], {
+      onBeforeCompact: async (input) => ({
+        value: {
+          ...input,
+          veto: { reason: '否决优先' },
+          takeover: {
+            summarize: async () => {
+              takeoverCalls.push(1);
+              return { text: '不应执行' };
+            },
+          },
+        },
+      }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'vetoed' });
+    expect(takeoverCalls).toHaveLength(0);
+    expect(rig.calls).toHaveLength(0);
+  });
+
+  it('takeover 成功：start.summarizer 归因 plugin:<id>；宿主通道零调用；输入五件齐（plan=宿主原案）', async () => {
+    const inputs: unknown[] = [];
+    const rig = makeRig(['不应被调'], {
+      onBeforeCompact: async (input) => ({
+        value: {
+          ...input,
+          takeover: {
+            pluginId: 'smart-summarizer',
+            summarize: async (fnInput) => {
+              inputs.push(fnInput);
+              return { text: '插件产出的摘要' };
+            },
+          },
+        },
+      }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(rig.calls).toHaveLength(0); // 通道零调用
+    expect(log.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'plugin:smart-summarizer' });
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed' });
+    const received = inputs[0] as {
+      sessionId: string;
+      occluded: unknown[];
+      previousSummary: unknown;
+      maxChars: number;
+      plan: { start: number; end: number };
+    };
+    expect(received.sessionId).toBe('s-1');
+    expect(received.occluded).toHaveLength(4); // 与 plan.occluded 同源（宿主原案 [4,12] 内 4 条）
+    expect(received.previousSummary).toBeUndefined(); // 首压无前次
+    expect(received.maxChars).toBeGreaterThan(0); // 宿主 policy 单源同口径
+    expect(received.plan).toMatchObject({ start: 4, end: 12 });
+    // 摘要载体 = 插件产物
+    expect(log.eventsOfType('user/message').at(-1)!.data).toMatchObject({ source: 'compaction' });
+  });
+
+  it('takeover 输入 = 管线终值 plan（先行监听者的有效调整随值链传入）', async () => {
+    const received: number[] = [];
+    const rig = makeRig([], {
+      onBeforeCompact: async (input) => ({
+        value: {
+          ...input,
+          plan: { ...input.plan, start: 8 }, // 先调整
+          takeover: {
+            pluginId: 'taker',
+            summarize: async (fnInput) => {
+              received.push(fnInput.plan.start, fnInput.plan.end);
+              return { text: '接管摘要' };
+            },
+          },
+        },
+      }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(received).toEqual([8, 12]); // 接管输入携带调整后区间
+  });
+});
+
+/* ---------------- U4 回落三律 + 三振熔断 ---------------- */
+
+describe('U4 回落三律 + 三振熔断', () => {
+  /** 接管失败 seam 工厂：takeover fn 行为可编程 */
+  function takeoverRig(
+    fn: () => Promise<{ text: string }>,
+    scripts: (string | Error | Promise<void>)[] = ['回落摘要'],
+  ) {
+    let dispatchCount = 0;
+    const rig = makeRig(scripts, {
+      onBeforeCompact: async (input) => {
+        dispatchCount += 1;
+        return {
+          value: {
+            ...input,
+            takeover: { pluginId: 'flaky', summarize: fn },
+          },
+        };
+      },
+    });
+    return { rig, dispatches: () => dispatchCount };
+  }
+
+  it('回落律 1（抛错）：fallback{stage=throw} + 当轮回落宿主完成 + start 归因 host', async () => {
+    const { rig } = takeoverRig(async () => {
+      throw new Error('插件算法崩溃');
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/fallback')[0]!.data).toMatchObject({
+      source: 'plugin:flaky',
+      stage: 'throw',
+    });
+    expect(log.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'host' }); // 回落后记 host
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed' }); // 回落不失败
+    expect(rig.calls).toHaveLength(1); // 直达宿主（不串联）
+  });
+
+  it('回落律 1（超预算）：fallback{stage=timeout} + 回落（60s 预算参数化注入短值）', async () => {
+    const calls: { prompt: string; maxChars: number }[] = [];
+    const channel: SummaryChannel = {
+      complete: async (req) => {
+        calls.push({ ...req });
+        return { text: '超时回落摘要' };
+      },
+    };
+    const service = createCompactionService({
+      channel,
+      now: () => 1_000,
+      config: { cooldownMs: 0 },
+      algoTimeoutMs: 20,
+      onBeforeCompact: async (input) => ({
+        value: { ...input, takeover: { pluginId: 'slow', summarize: () => new Promise(() => {}) } }, // 永不 settle 的算法
+      }),
+    });
+    const log = sixTurnLog();
+    service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await service.drain();
+    expect(log.eventsOfType('compaction/fallback')[0]!.data).toMatchObject({ source: 'plugin:slow', stage: 'timeout' });
+    expect(calls).toHaveLength(1);
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed' });
+    // 原 takeover promise 永挂——产物弃用不采信（回落摘要已生效）
+    expect(log.eventsOfType('user/message').at(-1)!.data).toMatchObject({ source: 'compaction' });
+  });
+
+  it('回落律 1（空文本产物）：fallback{stage=rejected}（同宿主通道失败律）+ 回落', async () => {
+    const { rig } = takeoverRig(async () => ({ text: '   ' }), ['空文本回落摘要']);
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/fallback')[0]!.data).toMatchObject({
+      source: 'plugin:flaky',
+      stage: 'rejected',
+    });
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed' });
+  });
+
+  it('回落失败（插件败 + 宿主通道也败）：fallback 记插件败 + end failed（终局恒宿主通道失败）', async () => {
+    const { rig } = takeoverRig(async () => {
+      throw new Error('插件先败');
+    }, [new Error('宿主通道也败')]);
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/fallback')[0]!.data).toMatchObject({ stage: 'throw' });
+    expect(log.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'host' });
+    expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'failed' });
+    expect(rig.warns.join('\n')).toContain('COMPACTION_FAILED');
+  });
+
+  it('三振：同 pluginId 连续 3 次失败——第 3 次 fallback 记 circuit:true；此后 takeover 位被忽略（不再记 fallback、走宿主）', async () => {
+    const { rig, dispatches } = takeoverRig(async () => {
+      throw new Error('恒败');
+    }, ['回落1', '回落2', '回落3', '回落4']);
+    // 三振表是服务实例级（跨会话合并计数）——四会话各触发一次
+    const all: SessionLog[] = [];
+    for (let i = 0; i < 4; i++) {
+      const log = sixTurnLog(`s-strike-${i}`);
+      all.push(log);
+      rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+      await rig.service.drain();
+    }
+    const fbEvents = all.flatMap((log) => log.eventsOfType('compaction/fallback'));
+    expect(fbEvents).toHaveLength(3); // 第 4 轮熔断忽略——不再记
+    expect(fbEvents[2]!.data).toMatchObject({ circuit: true }); // 末次记三振停用标记
+    expect((fbEvents[0]!.data as Record<string, unknown>)['circuit']).toBeUndefined();
+    // 第 4 轮：takeover 被忽略 → 宿主直跑 + 可观测 warn；钩子本身不停派（熔断的是算法接管资格）
+    expect(all[3]!.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'host' });
+    expect(rig.warns.join('\n')).toContain('COMPACTION_CIRCUIT_IGNORE');
+    expect(dispatches()).toBe(4);
+  });
+
+  it('三振复位：失败 2 次后成功 1 次 → 计数清零，再失败不熔断（第 4 轮仍执行 takeover）', async () => {
+    const behavior: Array<() => Promise<{ text: string }>> = [
+      async () => {
+        throw new Error('败1');
+      },
+      async () => {
+        throw new Error('败2');
+      },
+      async () => ({ text: '成功复位' }),
+      async () => {
+        throw new Error('败3-重计第1次');
+      },
+    ];
+    let idx = 0;
+    const { rig } = takeoverRig(() => behavior[Math.min(idx++, behavior.length - 1)]!(), ['回落1', '回落2', '回落3']);
+    const all: SessionLog[] = [];
+    for (let i = 0; i < 4; i++) {
+      const log = sixTurnLog(`s-reset-${i}`);
+      all.push(log);
+      rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+      await rig.service.drain();
+    }
+    // 第 3 轮成功（插件直成——通道零消费那轮）+ 第 4 轮仍执行 takeover（未熔断）
+    const fbEvents = all.flatMap((log) => log.eventsOfType('compaction/fallback'));
+    expect(fbEvents).toHaveLength(3); // 败1/败2/败3 各一条——无 circuit
+    for (const fb of fbEvents) {
+      expect((fb.data as Record<string, unknown>)['circuit']).toBeUndefined(); // 复位后重计——三振未达
+    }
+    expect(all[2]!.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'plugin:flaky' });
+    expect(all[3]!.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'host' }); // 败3 回落
+    expect(all[3]!.eventsOfType('compaction/fallback')).toHaveLength(1); // 第 4 轮 takeover 仍被执行（非熔断忽略）
+  });
+});
+
+/* ---------------- U4 provider 槽 + 配置槽 ---------------- */
+
+describe('U4 provider 槽 + 配置槽', () => {
+  it('provider 常设注册：阈值路算法换装（start 归因 plugin:<id>、通道零调用）；溢出 路不受槽（恒宿主）', async () => {
+    const providerCalls: number[] = [];
+    const rig = makeRig(['溢出路摘要'], {
+      getProvider: () => ({
+        pluginId: 'pro',
+        fn: async () => {
+          providerCalls.push(1);
+          return { text: 'provider 摘要' };
+        },
+      }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(providerCalls).toHaveLength(1);
+    expect(log.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'plugin:pro' });
+    expect(rig.calls).toHaveLength(0); // 阈值路未走宿主通道
+    // 溢出 路：槽不可及（恒宿主缺省算法）
+    const overflowLog = sixTurnLog('s-of');
+    const outcome = await rig.service.compactForOverflow(overflowLog);
+    expect(outcome).toBe('compacted');
+    expect(providerCalls).toHaveLength(1); // provider 未再被调
+    expect(overflowLog.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'host' });
+    expect(rig.calls).toHaveLength(1); // 宿主通道被调
+  });
+
+  it('生效序：takeover（逐次声明）> provider 槽（常设注册）> 宿主通道', async () => {
+    const providerCalls: number[] = [];
+    const rig = makeRig(['不应被调'], {
+      getProvider: () => ({
+        pluginId: 'pro',
+        fn: async () => {
+          providerCalls.push(1);
+          return { text: 'provider 摘要' };
+        },
+      }),
+      onBeforeCompact: async (input) => ({
+        value: { ...input, takeover: { pluginId: 'taker', summarize: async () => ({ text: '接管摘要' }) } },
+      }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'plugin:taker' });
+    expect(providerCalls).toHaveLength(0); // takeover 在场 provider 不被问
+    expect(rig.calls).toHaveLength(0);
+  });
+
+  it('熔断重选（降层重选义——不连坐）：takeover 者熔断后 provider 槽顶上', async () => {
+    // 先让 taker 三振（三会话——恒败 + 恒置 takeover 位）
+    const providerCalls: number[] = [];
+    const rig = makeRig(['回落1', '回落2', '回落3'], {
+      getProvider: () => ({
+        pluginId: 'pro',
+        fn: async () => {
+          providerCalls.push(1);
+          return { text: 'provider 顶上摘要' };
+        },
+      }),
+      onBeforeCompact: async (input) => ({
+        value: {
+          ...input,
+          takeover: {
+            pluginId: 'taker',
+            summarize: async () => {
+              throw new Error('恒败');
+            },
+          },
+        },
+      }),
+    });
+    const trippedLogs: SessionLog[] = [];
+    for (let i = 0; i < 3; i++) {
+      const log = sixTurnLog(`s-trip-${i}`);
+      trippedLogs.push(log);
+      rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+      await rig.service.drain();
+    }
+    // 第 4 轮：taker 已熔断——takeover 忽略（warn）+ provider 顶上（A 熔断不连坐 B）
+    const log4 = sixTurnLog('s-trip-4');
+    rig.service.handleRunSettled({ log: log4, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log4.eventsOfType('compaction/start')[0]!.data).toMatchObject({ summarizer: 'plugin:pro' });
+    expect(providerCalls).toHaveLength(1);
+    expect(rig.warns.join('\n')).toContain('COMPACTION_CIRCUIT_IGNORE');
+    expect(log4.eventsOfType('compaction/fallback')).toHaveLength(0); // 熔断忽略非失败回落——不记
+  });
+
+  it('配置槽晚绑定：getConfig 现取生效（判阈用当下值）', async () => {
+    let ratio = 0.99; // 起初不触发（100k/200k = 0.5 < 0.99）
+    const rig = makeRig(['晚绑定摘要'], {
+      getConfig: () => ({ ...DEFAULT_COMPACTION_CONFIG, cooldownMs: 0, thresholdRatio: ratio }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.events()).toHaveLength(24); // 未触发——零事件
+    ratio = 0.1; // mount 后覆盖 settle——同会话下次判阈用新值
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/end')).toHaveLength(1); // 触发并完成
+    expect(log.eventsOfType('compaction/start')[0]!.data).toMatchObject({ basis: 'usage' });
   });
 });
