@@ -87,7 +87,13 @@ export interface DumpConfigFlags {
 /** plugins 子命令族（03 §5.8 三面同源动词族；参数面最小钉位——config 传面随装载器批） */
 export type PluginsCommand =
   | { readonly sub: 'list' }
-  | { readonly sub: 'install'; readonly source: 'npm' | 'git' | 'local'; readonly ref: string }
+  | {
+      /** ref 单参自含源前缀（07 §5——与账本 ref 字段同词法单源：npm:<pkg>[@<ver>] | git:<url>[#<ref>] | local:<abs>） */
+      readonly sub: 'install';
+      readonly ref: string;
+      /** --min-release-age 逐次覆盖 env 静置窗（03 §5.4；0 = 显式关窗） */
+      readonly minReleaseAge?: number;
+    }
   | {
       readonly sub: 'uninstall';
       readonly id: string;
@@ -142,6 +148,8 @@ interface FlagSchema {
   readonly values?: readonly string[];
   /** 正整数域（1 起；上界由 upTo 给） */
   readonly positiveInt?: { readonly upTo: number };
+  /** 非负整数域（0 起——min-release-age 0 = 显式关窗形专用） */
+  readonly nonNegativeInt?: { readonly upTo: number };
 }
 
 /** 一次扫描的产物 */
@@ -223,6 +231,18 @@ function scanFlags(argv: readonly string[], schemas: readonly FlagSchema[]): Sca
           };
         }
       }
+      if (schema.nonNegativeInt) {
+        const n = Number(next);
+        if (!Number.isInteger(n) || n < 0 || n > schema.nonNegativeInt.upTo) {
+          return {
+            booleans,
+            values,
+            literals,
+            overreach,
+            error: `--${name} 须为 0–${schema.nonNegativeInt.upTo} 的整数（收到：${next}）`,
+          };
+        }
+      }
       values.set(name, next);
       i++;
       continue;
@@ -294,6 +314,11 @@ const DUMP_SCHEMAS: readonly FlagSchema[] = [PORT_FLAG, NO_PLUGINS_FLAG, DEBUG_F
 const UNINSTALL_SCHEMAS: readonly FlagSchema[] = [
   { name: 'confirm', kind: 'boolean' },
   { name: 'data', kind: 'value', values: ['keep', 'purge'] },
+];
+
+/** install 旗标族（07 §5——--min-release-age 逐次覆盖 env 静置窗；0 = 显式关窗故走非负整数域） */
+const INSTALL_SCHEMAS: readonly FlagSchema[] = [
+  { name: 'min-release-age', kind: 'value', nonNegativeInt: { upTo: 10_000_000 } },
 ];
 
 /* ---------------- 命令解析器 ---------------- */
@@ -408,15 +433,21 @@ function parsePlugins(rest: readonly string[]): CliParseResult {
       return finish(scan, { kind: 'plugins', sub: { sub: head } });
     }
     case 'install': {
-      const scan = scanFlags(tail, []);
+      const scan = scanFlags(tail, INSTALL_SCHEMAS);
       if (scan.error) return usageFail(scan.error);
-      const args = expectArity(scan.literals, 2, 2, 'berry-agent plugins install <npm|git|local> <ref>');
+      const args = expectArity(scan.literals, 1, 1, 'berry-agent plugins install <ref> [--min-release-age <分钟>]');
       if ('exitCode' in args) return args;
-      const source = args[0] as string;
-      if (source !== 'npm' && source !== 'git' && source !== 'local') {
-        return usageFail(`install 源值域外：${source}（合法值：npm|git|local）`);
-      }
-      return finish(scan, { kind: 'plugins', sub: { sub: 'install', source, ref: args[1] as string } });
+      const ageRaw = scan.values.get('min-release-age');
+      // 非负整数域已由 scanFlags 执法——此处仅 Number 化（CLI > env > 缺省三级缺一）
+      const minReleaseAge = ageRaw === undefined ? undefined : Number(ageRaw);
+      return finish(scan, {
+        kind: 'plugins',
+        sub: {
+          sub: 'install',
+          ref: args[0] as string,
+          ...(minReleaseAge !== undefined ? { minReleaseAge } : {}),
+        },
+      });
     }
     case 'uninstall': {
       const scan = scanFlags(tail, UNINSTALL_SCHEMAS);

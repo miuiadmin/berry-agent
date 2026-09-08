@@ -13,6 +13,10 @@
  * 逃逸残差随沙箱立题，详 03 §3.3 批 12d 勘正段）与库句柄门禁（03 §4.3 定名
  * `PLUGIN_DB_HANDLE_FORBIDDEN`——宿主主库句柄结构性不外露；执法位 =
  * `berry-agent/sqlite` 虚拟键受局面 SqliteFace，face 件随其落码批消费本码）。
+ *
+ * 2026-09-09 装机面落码批（成熟度缺口 #10）补两码：`PLUGIN_INSTALL_FAILED`
+ * （三源执行器统一失败档）与 `PLUGIN_UNINSTALL_REFUSED`（清算防线拒绝档）
+ * ——02 §5.3 PLUGIN_ 族同笔入册。
  */
 import { registerErrorCodes, type ErrorCodeInfo } from '../contracts/index.js';
 
@@ -96,6 +100,18 @@ export const HOST_PLUGIN_ERROR_CODES: readonly ErrorCodeInfo[] = [
     module: 'host',
     description:
       '高危面默认关拒：插件未获用户开门授予即触达高危面注册/换装（03 §4.6 用户主权开门制——授予位唯一正门 = 启用清单行 opens；裁决核 = contracts adjudicateCapabilityDoor，throw 位随界面后端换装缝/路由受理面落码批接线）',
+  },
+  {
+    code: 'PLUGIN_INSTALL_FAILED',
+    module: 'host',
+    description:
+      '装机执行失败：三源执行器 spawn 非零/收割抛错/ref 与 env 坏形统一档（03 §5.4——成熟度缺口 #10 装机面落码批；失败回滚不留半装机残影）',
+  },
+  {
+    code: 'PLUGIN_UNINSTALL_REFUSED',
+    module: 'host',
+    description:
+      '卸载清算防线拒绝档：删除目标逸出装机子树/插件数据子目录（assertInsideInstallSubtree/assertInsidePluginData——03 §5.5 段②③），或坏账本拒写防覆盖',
   },
   {
     code: 'TRIGGER_NAME_EXISTS',

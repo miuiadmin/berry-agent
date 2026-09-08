@@ -1,11 +1,13 @@
 /**
  * host/plugins-cmd 子命令族测试——list 同构装载 / check 纯只读骨架 / 写侧
- * 六动词诚实退 1（07 §5 命令族语义；批 12f-3 分账如实）。
+ * 六动词真链 e2e（07 §5 命令族语义；成熟度缺口 #10 装机面落码批写真身）。
  *
  * list 走 assembly 公共段（memory 同构诊断形——与 dump-config 同一合成代码
- * 路径）；check 零装配直读装机账本；写侧动词解析面已就绪执行面诚实缺席。
+ * 路径）；check 零装配直读装机账本；写侧动词走 local fixture 真链——install
+ * 真收割 → mount/toggle/unmount 行编辑 → uninstall 双相（inspect/execute），
+ * spawn 注假件零真网络、Persistence 真开 tmp 数据目录。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -123,19 +125,98 @@ describe('plugins check——纯只读零装配骨架（07 §5「数据面纯只
   });
 });
 
-describe('plugins 写侧六动词——诚实退 1（执行面随后续批）', () => {
-  it.each([
-    { sub: 'install', source: 'npm', ref: 'some-pkg' } as const,
-    { sub: 'uninstall', id: 'user-x', confirm: false } as const,
-    { sub: 'mount', id: 'user-x' } as const,
-    { sub: 'unmount', id: 'user-x' } as const,
-    { sub: 'toggle', id: 'user-x' } as const,
-    { sub: 'update', id: 'user-x' } as const,
-  ])('$sub：退 1 + stderr 尚未装配（解析面已就绪不静默）', async (command) => {
+describe('plugins 写侧六动词——local fixture 真链 e2e（装机面落码批 #10）', () => {
+  /** local fixture 插件（default-export 入口 + events 导出——install 收割真跑） */
+  function localFixturePlugin(name: string): string {
+    const dir = join(tmpdir(), `berry-cmd-fixture-${name}-${process.pid}`);
+    dirs.push(dir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'package.json'),
+      `${JSON.stringify({ name, version: '1.0.0', main: 'index.js', berryAgent: {} }, null, 2)}\n`,
+    );
+    writeFileSync(
+      join(dir, 'index.js'),
+      `export const events = ['demo/event-a'];\nexport default function apply() {}\n`,
+    );
+    return dir;
+  }
+
+  it('全链：install 真收割 → mount → toggle → unmount → uninstall inspect → execute', async () => {
+    const dir = tmpDir('plug-write-chain-');
     const io = capture();
-    const code = await runPluginsEntry(command, { version: 'x', ...io });
-    expect(code).toBe(1);
-    expect(io.err.join('\n')).toContain('尚未装配');
-    expect(io.err.join('\n')).toContain(`plugins ${command.sub}`); // 子动词点名
+    const opts = { version: 'x', dataDir: dir, ...io };
+    const fixture = localFixturePlugin('chain-pkg');
+
+    // install：local 直引真收割 + 落账
+    expect(await runPluginsEntry({ sub: 'install', ref: `local:${fixture}` }, opts)).toBe(0);
+    expect(io.out.join('\n')).toContain('已装机：chain-pkg');
+    const ledger = JSON.parse(readFileSync(join(dir, 'plugins', 'ledger.json'), 'utf8')) as { id: string }[];
+    expect(ledger.map((e) => e.id)).toEqual(['chain-pkg']);
+
+    // mount：装机在场过前置查 → 启用行落盘
+    expect(await runPluginsEntry({ sub: 'mount', id: 'chain-pkg' }, opts)).toBe(0);
+    expect(readFileSync(join(dir, 'enabled.yaml'), 'utf8')).toContain('chain-pkg');
+
+    // toggle：翻禁用 → 再翻回
+    expect(await runPluginsEntry({ sub: 'toggle', id: 'chain-pkg' }, opts)).toBe(0);
+    expect(readFileSync(join(dir, 'enabled.yaml'), 'utf8')).toContain('disabled: true');
+    expect(await runPluginsEntry({ sub: 'toggle', id: 'chain-pkg' }, opts)).toBe(0);
+    expect(readFileSync(join(dir, 'enabled.yaml'), 'utf8')).not.toContain('disabled');
+
+    // unmount：删行保装机
+    expect(await runPluginsEntry({ sub: 'unmount', id: 'chain-pkg' }, opts)).toBe(0);
+    expect(readFileSync(join(dir, 'enabled.yaml'), 'utf8')).not.toContain('chain-pkg');
+    expect(JSON.parse(readFileSync(join(dir, 'plugins', 'ledger.json'), 'utf8')) as unknown[]).toHaveLength(1);
+
+    // uninstall 无 --confirm = inspect 只读报告（exit 0）
+    io.out.length = 0;
+    expect(await runPluginsEntry({ sub: 'uninstall', id: 'chain-pkg', confirm: false }, opts)).toBe(0);
+    expect(io.out.join('\n')).toContain('卸载预检');
+    expect(JSON.parse(readFileSync(join(dir, 'plugins', 'ledger.json'), 'utf8')) as unknown[]).toHaveLength(1); // 只读
+
+    // uninstall --confirm = execute 四段清算
+    io.out.length = 0;
+    expect(await runPluginsEntry({ sub: 'uninstall', id: 'chain-pkg', confirm: true }, opts)).toBe(0);
+    expect(io.out.join('\n')).toContain('已卸载');
+    expect(JSON.parse(readFileSync(join(dir, 'plugins', 'ledger.json'), 'utf8')) as unknown[]).toHaveLength(0);
+    // local 直引：用户 fixture 目录不删
+    expect(existsSync(join(fixture, 'index.js'))).toBe(true);
   });
+
+  it('--data 单独在场（无 --confirm）即拒退 1——execute 载荷不静默猜', async () => {
+    const dir = tmpDir('plug-write-data-alone-');
+    const io = capture();
+    const code = await runPluginsEntry(
+      { sub: 'uninstall', id: 'x', confirm: false, dataAction: 'purge' },
+      { version: 'x', dataDir: dir, ...io },
+    );
+    expect(code).toBe(1);
+    expect(io.err.join('\n')).toContain('--confirm 同场');
+  });
+
+  it('mount 前置两查：坏 id 词法拒；未装机 id 拒（防 brick 下次 boot 读侧）', async () => {
+    const dir = tmpDir('plug-write-mount-gate-');
+    const io = capture();
+    const opts = { version: 'x', dataDir: dir, ...io };
+    const bad = (await runPluginsEntry({ sub: 'mount', id: 'Bad_Id' }, opts)) as number;
+    expect(bad).toBe(1);
+    expect(io.err.join('\n')).toContain('词法违例');
+    io.err.length = 0;
+    expect(await runPluginsEntry({ sub: 'mount', id: 'not-installed' }, opts)).toBe(1);
+    expect(io.err.join('\n')).toContain('未装机');
+    expect(existsSync(join(dir, 'enabled.yaml'))).toBe(false); // 拒路径零落盘
+  });
+
+  it('install ref 坏形（无源前缀）退 1 呈词法指路；update 查无退 1', async () => {
+    const dir = tmpDir('plug-write-badref-');
+    const io = capture();
+    const opts = { version: 'x', dataDir: dir, ...io };
+    expect(await runPluginsEntry({ sub: 'install', ref: 'bare-pkg' }, opts)).toBe(1);
+    expect(io.err.join('\n')).toContain('源前缀');
+    io.err.length = 0;
+    expect(await runPluginsEntry({ sub: 'update', id: 'ghost' }, opts)).toBe(1);
+    expect(io.err.join('\n')).toContain('未装机');
+  });
+  // npm 执行器失败档/argv 族由 plugin-install.test.ts 假 spawn 覆盖（零真网络纪律）
 });

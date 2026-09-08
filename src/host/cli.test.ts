@@ -380,17 +380,26 @@ describe('plugins 子命令族', () => {
     expect(expectCommand(['plugins', 'check'])).toMatchObject({ kind: 'plugins', sub: { sub: 'check' } });
   });
 
-  it('install <source> <ref> 三源值域', () => {
-    expect(expectCommand(['plugins', 'install', 'npm', '@scope/pkg'])).toMatchObject({
+  it('install <ref> 单参自含前缀（与账本 ref 同词法）+ --min-release-age 旗标', () => {
+    expect(expectCommand(['plugins', 'install', 'npm:@scope/pkg@1.2.0'])).toMatchObject({
       kind: 'plugins',
-      sub: { sub: 'install', source: 'npm', ref: '@scope/pkg' },
+      sub: { sub: 'install', ref: 'npm:@scope/pkg@1.2.0' },
     });
-    expect(expectCommand(['plugins', 'install', 'git', 'https://example/x.git'])).toMatchObject({
+    expect(expectCommand(['plugins', 'install', 'git:https://example/x.git#v1'])).toMatchObject({
       kind: 'plugins',
-      sub: { sub: 'install', source: 'git' },
+      sub: { sub: 'install', ref: 'git:https://example/x.git#v1' },
     });
-    expectUsage(['plugins', 'install', 'httpd', 'x'], '值域外');
-    expectUsage(['plugins', 'install', 'npm'], '位置参数数目不符');
+    // 旗标三级顶：值合法 / 0 显式关窗合法（nonNegativeInt 域）
+    expect(expectCommand(['plugins', 'install', 'local:/tmp/p', '--min-release-age', '5'])).toMatchObject({
+      sub: { sub: 'install', ref: 'local:/tmp/p', minReleaseAge: 5 },
+    });
+    expect(expectCommand(['plugins', 'install', 'local:/tmp/p', '--min-release-age', '0'])).toMatchObject({
+      sub: { sub: 'install', minReleaseAge: 0 },
+    });
+    expectUsage(['plugins', 'install', 'local:/tmp/p', '--min-release-age', '-3'], '的整数');
+    expectUsage(['plugins', 'install', 'local:/tmp/p', '--min-release-age', 'x'], '的整数');
+    expectUsage(['plugins', 'install'], '位置参数数目不符');
+    expectUsage(['plugins', 'install', 'httpd', 'x'], '位置参数数目不符'); // 单参形——双位置参即用法错
   });
 
   it('uninstall <id> [--confirm] [--data keep|purge]', () => {

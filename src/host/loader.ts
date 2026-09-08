@@ -395,8 +395,11 @@ async function loadDiskModule(
  * typebox 三键 = 宿主进程同一份（插件经虚拟键拿到的 Type/Value/Compile 与
  * 宿主共用模块实例——Kind 符号失配结构性不可能）；berry-agent 主键 =
  * contracts 公开面。/llm·/sqlite 键随其 face 件落码批接入。
+ *
+ * export（装机面落码批 #10——install 收割腿与装载器同源共用：虚拟面单源，
+ * 不散拷）。
  */
-async function loadDefaultVirtualFaces(): Promise<Record<string, unknown>> {
+export async function loadDefaultVirtualFaces(): Promise<Record<string, unknown>> {
   const [contracts, typebox, typeboxValue, typeboxCompile] = await Promise.all([
     import('../contracts/index.js'),
     import('typebox'),
@@ -489,8 +492,12 @@ function validateRowConfig(row: DiskPluginSpec, config: unknown): void {
   }
 }
 
-/** 包主入口解析（default-export 态：package.json main；缺省 index.js） */
-function resolvePkgMain(pluginDir: string): string {
+/**
+ * 包主入口解析（default-export 态：package.json main；缺省 index.js）。
+ * export（装机面落码批 #10——install 收割腿与装载器同源共用：入口解析序
+ * 单源，不散拷）。
+ */
+export function resolvePkgMain(pluginDir: string): string {
   try {
     const pkg = JSON.parse(readFileSync(join(pluginDir, 'package.json'), 'utf8')) as { main?: string };
     return pkg.main !== undefined && pkg.main.length > 0 ? pkg.main : 'index.js';
