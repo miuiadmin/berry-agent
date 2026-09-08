@@ -12,9 +12,12 @@
  *    同判据（前置在此 = 错误信息可携带服务面上下文；下游仍兜底）。
  *
  * 完整 ctx.sessions 面（只读四件 + 受理制写两腿 + 三闸）归后续批——本件只落
- * appendEvent 最小面（memory/diff 唯一 durable 出口的承载位）。
+ * appendEvent 最小面（memory/diff 唯一 durable 出口的承载位）+ surfaceOp
+ * 信封参数腿（03 §4.5 修缝批 2026-09-08：受控注入原语可选信封位——改道
+ * appendWithSurfaceOp 正门，插件自定义压缩类操作的唯一合法投影写径）。
  */
 import { BaseError, CORE_EVENT_TYPE_NAMES, isKnownEventType } from '../contracts/index.js';
+import type { SurfaceOp } from '../contracts/index.js';
 import type { SessionLog } from '../session/index.js';
 
 /**
@@ -33,8 +36,15 @@ export interface SessionsFace {
    * 按会话取 appendEvent 活引用：过二道闸后委派 SessionLog.append（同步
    * 落账）。无活体驱动 → undefined（消费方降级）；返回闭包同样**调用时点**
    * 执法（取引用与调用的两时点间驱动可能已闭——闸与 append 都在调用拍执行）。
+   *
+   * surfaceOp 信封参数腿（03 §4.5，2026-09-08 修缝批）：携带 surfaceOp 时
+   * 过闸后改道 appendWithSurfaceOp 正门——边缘纪律五条 + SESSION_SURFACE_
+   * OP_INVALID 同门同码（受理面不设第二校验面）；sourceEventSeqs 按溯源
+   * 完整性律须全列区间 seq（正门校验执法）。
    */
-  appendEventFor(sessionId: string): ((type: string, data: unknown) => unknown) | undefined;
+  appendEventFor(
+    sessionId: string,
+  ): ((type: string, data: unknown, surfaceOp?: SurfaceOp, sourceEventSeqs?: readonly number[]) => unknown) | undefined;
 }
 
 /** 建 sessions 服务面（装配根：`scope.provide('sessions', createSessionsFace({ driverOf }))`） */
@@ -43,7 +53,7 @@ export function createSessionsFace(options: { readonly driverOf: SessionsDriverO
     appendEventFor(sessionId) {
       const log = options.driverOf(sessionId)?.session;
       if (log === undefined) return undefined; // 无活体驱动——诚实缺席（不造回库替身）
-      return (type, data) => {
+      return (type, data, surfaceOp, sourceEventSeqs) => {
         // 闸一：核心事件词伪造拒写（核心词写入权属宿主——双入口纪律的受理侧）
         if (CORE_EVENT_TYPE_NAMES.includes(type)) {
           throw new BaseError(
@@ -57,6 +67,13 @@ export function createSessionsFace(options: { readonly driverOf: SessionsDriverO
             'SESSION_UNKNOWN_EVENT_TYPE',
             `事件词 ${type} 未在词汇注册表（sessions.appendEventFor 前置闸——下游 SessionLog.append 同判据兜底）`,
           );
+        }
+        // surfaceOp 信封参数腿（03 §4.5）：携带信封即改道 appendWithSurfaceOp
+        // 正门——一切改投影历史的唯一正门（05 §2.1）。边缘纪律五条与
+        // SESSION_SURFACE_OP_INVALID 由正门单点执法（受理面零第二校验面）；
+        // 二道闸对两路同前置（核心词携信封同拦——词面收窄注记的执法位）。
+        if (surfaceOp !== undefined) {
+          return log.appendWithSurfaceOp(type, data, surfaceOp, sourceEventSeqs);
         }
         return log.append(type, data);
       };
