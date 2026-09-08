@@ -146,9 +146,11 @@ describe('执法④ help/version 越位短路（执法位在未识别旗标闸�
 
 describe('执法⑤ 互斥组违例退 2', () => {
   it('--ephemeral × 续接族 + --tick + --background', () => {
-    for (const extra of [['--session', 's1'], ['--continue'], ['--fork'], ['--tick'], ['--background']] as const) {
+    for (const extra of [['--session', 's1'], ['--continue'], ['--fork'], ['--background']] as const) {
       expectUsage(['run', 'hi', '--ephemeral', ...extra], '互斥');
     }
+    // --tick 取值形先过 tick×message 互斥闸——ephemeral 冲突例须用零位置参数形
+    expectUsage(['run', '--ephemeral', '--tick', 'myjob'], '互斥');
   });
 
   it('--session / --continue / --fork 三者互斥', () => {
@@ -214,7 +216,7 @@ describe('run 命令族', () => {
         noPlugins: true,
         debug: true,
         readOnly: true,
-        tick: false,
+        tick: undefined,
         background: false,
         outputFormat: 'json',
         noDelta: true,
@@ -268,11 +270,25 @@ describe('run 命令族', () => {
     expectUsage(['run', 'hi', '--output-schema', 'out.json'], '尚未实现');
   });
 
-  it('--tick/--background/--ephemeral 布尔旗标收面', () => {
-    const r = parseCli(['run', 'hi', '--tick']);
+  it('--tick <名> 取值形收面（批 20a——15a runner argv 契约跟齐）', () => {
+    const r = parseCli(['run', '--read-only', '--tick', 'myjob']);
     expect(r.ok).toBe(true);
-    if (r.ok && r.command.kind === 'run') expect(r.command.flags.tick).toBe(true);
-    else expect.unreachable('tick 解析应成功');
+    if (r.ok && r.command.kind === 'run') {
+      expect(r.command.flags.tick).toBe('myjob');
+      expect(r.command.flags.readOnly).toBe(true);
+      expect(r.command.message).toBe(''); // tick 形 message 置空串——提示词在 jobs 行内
+    } else {
+      expect.unreachable('tick 取值形解析应成功');
+    }
+  });
+
+  it('--tick 与 message 位置参数互斥退 2（到点形态提示词在行内不在 argv）', () => {
+    expectUsage(['run', '--tick', 'myjob', 'hi'], '互斥');
+    expectUsage(['run', 'hi', '--tick', 'myjob'], '互斥');
+  });
+
+  it('--tick 缺值 = 取值旗标占位缺失退 2', () => {
+    expectUsage(['run', 'hi', '--tick'], '须带值');
   });
 });
 

@@ -37,8 +37,8 @@ export interface RunFlags {
   readonly debug: boolean;
   /** --read-only：sandboxMode read-only 单发 */
   readonly readOnly: boolean;
-  /** --tick：系统 cron 到点触发载体 */
-  readonly tick: boolean;
+  /** --tick <名>：到点触发载体（读 jobs 行自跑 prompt——与 message 位置参数互斥） */
+  readonly tick?: string;
   /** --background：后台道预算记账入口 */
   readonly background: boolean;
   /** --output-format：流式三档（text 缺省） */
@@ -256,7 +256,8 @@ const RUN_SCHEMAS: readonly FlagSchema[] = [
   NO_PLUGINS_FLAG,
   DEBUG_FLAG,
   { name: 'read-only', kind: 'boolean' },
-  { name: 'tick', kind: 'boolean' },
+  // --tick <名>：取值形（批 20a——15a runner argv 先行定形 cli 侧跟齐；07 §5 同笔定名）
+  { name: 'tick', kind: 'value' },
   { name: 'background', kind: 'boolean' },
   { name: 'output-format', kind: 'value', values: ['text', 'json', 'stream'] },
   { name: 'no-delta', kind: 'boolean' },
@@ -298,13 +299,24 @@ function parseRun(rest: readonly string[]): CliParseResult {
   if (scan.booleans.has('output-schema')) {
     return usageFail('--output-schema 尚未实现——显式传入即用法错（不静默忽略；实现随 SDK 通道批落地后翻转本闸）');
   }
-  const msg = expectArity(scan.literals, 1, 1, 'berry-agent run "<message>"');
+  // --tick <名> 取值形（批 20a）：与 message 位置参数互斥——到点形态提示词在行内不在
+  // argv（07 §5 定名）；arity 随形态分档（--tick 在场零位置参数、缺席恰一）
+  const tickName = scan.values.get('tick');
+  if (tickName !== undefined && scan.literals.length > 0) {
+    return usageFail('--tick 与 message 位置参数互斥（到点形态提示词在 jobs 行内不在 argv）');
+  }
+  const msg =
+    tickName !== undefined ? ([] as string[]) : expectArity(scan.literals, 1, 1, 'berry-agent run "<message>"');
   if ('exitCode' in msg) return msg;
   const has = (b: string) => scan.booleans.has(b);
   // 互斥组执法（执法⑤）：--ephemeral × 续接族 + --tick/--background（续接族里 --session/--fork 是取值旗标——判在场看 values）
   if (has('ephemeral')) {
     const clash =
-      scan.values.has('session') || has('continue') || scan.values.has('fork') || has('tick') || has('background');
+      scan.values.has('session') ||
+      has('continue') ||
+      scan.values.has('fork') ||
+      tickName !== undefined ||
+      has('background');
     if (clash) {
       return usageFail(
         '--ephemeral 与 --session/--continue/--fork/--tick/--background 互斥（零落盘会话不进续接/定时/后台复用）',
@@ -324,7 +336,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
     noPlugins: has('no-plugins'),
     debug: has('debug'),
     readOnly: has('read-only'),
-    tick: has('tick'),
+    tick: tickName,
     background: has('background'),
     outputFormat: scan.values.get('output-format') as RunFlags['outputFormat'],
     noDelta: has('no-delta'),
@@ -335,7 +347,9 @@ function parseRun(rest: readonly string[]): CliParseResult {
     continueLatest: has('continue'),
     fork: scan.values.has('fork') ? { id: scan.values.get('fork') || undefined } : undefined,
   };
-  const command: CliCommand = { kind: 'run', message: msg[0] as string, flags };
+  // tick 形 message 置空串（CliCommand 契约 string 必填保持——run-entry 按
+  // flags.tick 判到点形态，不消费 message 位；非 tick 形 arity 已保恰一非空）
+  const command: CliCommand = { kind: 'run', message: msg[0] ?? '', flags };
   return finish(scan, command);
 }
 
