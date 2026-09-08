@@ -21,6 +21,10 @@ describe('USER_GRANTABLE_CAPABILITIES 单源派生', () => {
     expect(USER_GRANTABLE_CAPABILITIES).toContain('sdk.register-route');
     // 触发器面 C 批补第三枚（03 §4.6 两枚→三枚落码兑现）——承载方 host 装配根形
     expect(USER_GRANTABLE_CAPABILITIES).toContain('triggers.start-run');
+    // 凭证代管件 c 批补第四枚（跨域读凭证——core:credentials 件 judged 面）
+    expect(USER_GRANTABLE_CAPABILITIES).toContain('credentials.read-cross');
+    // 环境感知件 e-2 观测腿补第五枚（跨树观测——host 装配根形同第三枚）
+    expect(USER_GRANTABLE_CAPABILITIES).toContain('sessions.observe-cross');
   });
 
   it('目录条目名与提供方同域（core:/席位形件域前缀 = providedBy 件域；host 装配根形豁免）', () => {

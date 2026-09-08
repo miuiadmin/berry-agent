@@ -1298,6 +1298,11 @@
       "userGrantable": true
     },
     {
+      "name": "sessions.observe-cross",
+      "providedBy": "host",
+      "userGrantable": true
+    },
+    {
       "name": "triggers.start-run",
       "providedBy": "host",
       "userGrantable": true

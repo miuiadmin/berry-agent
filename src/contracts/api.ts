@@ -141,6 +141,14 @@ interface CapabilityEntry {
  * - `credentials.read-cross`：跨域读凭证（ctx.secrets.get 越自域
  *   namespace 读——03 §2.2 第十面/§10.9 读腿；承载方 = core:credentials
  *   件〔judged 面——默认关、开门后逐次 capability/used 审计〕）。
+ * 环境感知件 e-2 观测腿批入册第五枚（2026-09-08——§4.6 v1 首批名单
+ * 四枚→五枚；立题档题 6 拍板「动词族一枚高危面统摄」——拉取与订阅两
+ * 形态一枚统摄）：
+ * - `sessions.observe-cross`：跨树观测（obs 会话维工具族跨树目标读/
+ *   全会话维枚举——03 §10.8 可见性分轴观测轴；树内 self/tree 两档零
+ *   开门。承载方 = host 装配根〔per-session 工具族闭包装配位 +
+ *   订阅作用域执法住宿主侧——03 §8.2 providedBy 第三形同 triggers.
+ *   start-run；obs 件提供 SessionView 纯派生读面非承载方〕）。
  * 后续高危面经三路准入扩枚举同律入册（§4.6）；构建差能力随真实构建分叉日
  * 启用 `API_CAPABILITY_MISSING`（预留码，本批无 thrower）。
  */
@@ -163,6 +171,11 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   {
     name: 'credentials.read-cross',
     providedBy: 'core:credentials',
+    userGrantable: true,
+  },
+  {
+    name: 'sessions.observe-cross',
+    providedBy: 'host',
     userGrantable: true,
   },
 ];
