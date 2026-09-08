@@ -2,8 +2,10 @@
  * host/plugin-context — 插件上下文装配件（03 §2.1/§2.2/§2.4/§3.1/§3.4/§8.5；批 12f-2a）。
  *
  * 一件三面：
- *  - **ctx 九路注册动词 + 三动词 + provide**（§2.2/§3.1）：tools.register（拒绝式）/ channels.
- *    registerCommand（后写胜出）/ llm.registerProvider（后写胜出 upsert）/ events.
+ *  - **ctx 十路注册动词 + 三动词 + provide**（§2.2/§3.1）：tools.register（拒绝式）/ channels.
+ *    registerCommand（后写胜出）/ channels.registerUiBackend（拒绝式·门检前置
+ *    ——第十三动词，U3 批 U3-4：channels.ui-backend 开门制先于撞名律，分域
+ *    执法在 ChannelsService）/ llm.registerProvider（后写胜出 upsert）/ events.
  *    registerSessionEventType（拒绝式·不可逆）/ agent.registerMessageRole（拒绝式）/
  *    agent.registerSubagentProvider（拒绝式——第十二动词，D 批 D-2：执法序与
  *    owner 分域在 SubagentService）/ prompts.
@@ -38,6 +40,7 @@ import type {
   MessageRoleDefinition,
   ProgrammaticSubagentDef,
   ToolDefinition,
+  UiBackend,
 } from '../contracts/index.js';
 import type { LlmRuntime } from '../llm/index.js';
 import type { CommandHandler } from '../channels/index.js';
@@ -144,8 +147,19 @@ export interface PluginContext {
   emit(name: string, data?: unknown): Promise<void>;
   /** 工具面注册（拒绝式撞名执法在 ToolRegistry——本面只过窗/频率闸） */
   readonly tools: { register(def: ToolDefinition, opts?: { driver?: string }): Disposer };
-  /** 命令面注册（后写胜出——执法在 CommandRegistry） */
-  readonly channels: { registerCommand(name: string, handler: CommandHandler, description?: string): Disposer };
+  /** 命令面注册（后写胜出——执法在 CommandRegistry）+ 界面后端注册（门检前置） */
+  readonly channels: {
+    registerCommand(name: string, handler: CommandHandler, description?: string): Disposer;
+    /**
+     * 界面后端注册（第十三动词——U3 批 U3-4）：执法序 = 窗/频率 → 门检
+     * （channels.ui-backend 高危面开门制〔03 §4.6〕**前置先于撞名律**——未开门
+     * 插件连分域名单都探测不到，默认关语义的门检面兑现）→ 受局面委派（撞名/
+     * 分域执法在 ChannelsService〔§2.7〕）→ capability/used 审计落账（05
+     * §1.1）。插件实装形 = UiBackend<never>（投影泛型宿主钉入——插件后端走
+     * 信封驱动呈现不参与投影重画）。
+     */
+    registerUiBackend(backend: UiBackend<never>): Disposer;
+  };
   /** 模型层 provider 注册（后写胜出 upsert——执法在 LlmRuntime） */
   readonly llm: { registerProvider(provider: ProviderInput): () => void };
   /** durable 事件词汇注册（拒绝式且**不可逆**——进程生命周期词汇，无 disposer） */
@@ -191,6 +205,19 @@ export interface PluginContextOptions {
   /** 子代理注册面（缺席同上——SubagentService 程序化腿，D 批 D-2 装配批注入） */
   readonly subagents?: SubagentRegistryLike;
   /**
+   * 界面后端注册面受局面（缺席同上——ChannelsService 插件域腿，U3 批 U3-4
+   * 装配批注入）。注：受局面缺席与门检的先后 = 门检在前（03 §2.7 执法序）——
+   * 未开门插件先吃门关码，探测不到受局面在否。
+   */
+  readonly uiBackends?: UiBackendRegistryLike;
+  /**
+   * 进程级审计流写入位（05 §9 audit_events——U3 批）：高危面动词受理成功后
+   * 落 capability/used {pluginId, capability}（05 §1.1 载荷形）。真身 = 装配根
+   * 注入 AuditFace（U3-5 接线）；缺席 = 不落账不阻拦（:memory: 诊断形/测试
+   * 替身零成本缺席——诚实缺席律）。
+   */
+  readonly auditSink?: AuditSink;
+  /**
    * provide 委派位（共享根作用域——本件只过窗/频率闸，撞名与 stale 执法归
    * Scope.provide）。缺席 = ctx.provide 抛 CONTEXT_SERVICE_MISSING（装配缺陷响亮）。
    */
@@ -225,6 +252,23 @@ export interface TriggerRegistryLike {
 /** 子代理注册面受局面（SubagentService 程序化腿的结构面——测试替身免建全量） */
 export interface SubagentRegistryLike {
   registerProgrammatic(owner: string, def: ProgrammaticSubagentDef): Disposer;
+}
+
+/**
+ * 界面后端注册面受局面（ChannelsService 插件域腿的结构面——U3 批 U3-4；
+ * 撞名/分域执法在 ChannelsService 真源，本面只承载委派签名）。
+ */
+export interface UiBackendRegistryLike {
+  registerPluginBackend(backend: UiBackend<never>): Disposer;
+}
+
+/**
+ * 审计流写入位结构面（AuditFace.append 子集——U3 批）：高危面动词的
+ * capability/used 落账消费位。窄面注入（宿主可传 AuditFace 真身——结构
+ * 兼容；测试替身收数组即可）。
+ */
+export interface AuditSink {
+  append(type: string, data: Record<string, unknown>): void;
 }
 
 /** ctx 装配产物（装载器消费：ctx 交 apply、闭包柄归装载序） */
@@ -263,8 +307,9 @@ export interface PluginContextHandle {
    * 默认关正当拒绝面），verdict 失败即抛 `PLUGIN_CAPABILITY_DOOR_CLOSED`
    * （同码分流——message 底稿即 verdict.message）。**宿主注入位专用**——
    * 吃不吃装载窗律？不吃：门检是宿主裁决面非插件注册动词（回调窗内换装
-   * 场景〔U3 钩子内重装界面〕照常可判）。throw 位消费面 = 换装缝/路由
-   * 受理面（随批 U3/U5 落地接线——本笔挂载面先行）。
+   * 场景〔U3 钩子内重装界面〕照常可判）。throw 位消费面 = 换装缝
+   * （ctx.channels.registerUiBackend 第十三动词——U3 批 U3-4 已接线）/路由
+   * 受理面（U5）。
    */
   assertDoor(capability: string): void;
 }
@@ -489,6 +534,23 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
           handler,
           description,
         );
+      },
+      registerUiBackend(backend: UiBackend<never>): Disposer {
+        assertWindow('ctx.channels.registerUiBackend');
+        countAction();
+        // 门检前置（03 §2.7 第十三动词执法序）：channels.ui-backend 高危面
+        // 开门制先于撞名律——未开门插件连 ChannelsService 都不可达，探测不到
+        // 宿主/插件两域名单（§4.6 默认关语义）
+        assertDoor('channels.ui-backend');
+        const disposer = required(
+          options.uiBackends,
+          'uiBackends',
+          'ctx.channels.registerUiBackend',
+        ).registerPluginBackend(backend);
+        // capability/used 落账（05 §1.1）：门检通过 + 受理成功后落（拒笔不
+        // 记使用——没发生的使用不是使用）；sink 缺席 = 诊断形不落账不阻拦
+        options.auditSink?.append('capability/used', { pluginId, capability: 'channels.ui-backend' });
+        return disposer;
       },
     },
     llm: {

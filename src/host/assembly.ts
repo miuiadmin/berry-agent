@@ -317,6 +317,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         llm: stack.llmRuntime,
         triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
         subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
+        // 界面后端注册面受局面（U3 批 U3-4——ctx.channels.registerUiBackend
+        // 委派 ChannelsService 插件域腿；门检 channels.ui-backend 前置在动词内）
+        uiBackends: stack.channels,
         // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
         // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
         // plugin-boot——两审计 seam 缺省 no-op 挂账 U3-2 audit_events 载体批；

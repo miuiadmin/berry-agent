@@ -60,10 +60,12 @@ import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js'
 import type { EnabledRow } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
 import type {
+  AuditSink,
   CommandRegistryLike,
   PluginContextHandle,
   SubagentRegistryLike,
   TriggerRegistryLike,
+  UiBackendRegistryLike,
 } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
 import type { HostRuntime } from './runtime.js';
@@ -121,6 +123,18 @@ export interface PluginBootOptions {
    * 缺席 = ctx.agent.registerSubagentProvider 抛 CONTEXT_SERVICE_MISSING）
    */
   readonly subagents?: SubagentRegistryLike;
+  /**
+   * 界面后端注册面受局面（U3 批 U3-4——ChannelsService 插件域腿）：ctx.
+   * channels.registerUiBackend 的委派目标（门检 channels.ui-backend 前置在
+   * 动词内执法）。缺席 = 该动词响亮 CONTEXT_SERVICE_MISSING。
+   */
+  readonly uiBackends?: UiBackendRegistryLike;
+  /**
+   * 进程级审计流写入位（U3 批——05 §9 audit_events 载体）：高危面动词
+   * capability/used 落账消费。真身 = 装配根构造的 AuditFace（U3-5 接线）；
+   * 缺席 = 落账腿静默缺席不阻拦（诊断形）。
+   */
+  readonly auditSink?: AuditSink;
   /**
    * 插件凭证面装配位（c-3——03 §2.2 第十面/§10.9 读腿）：store 在场且
    * core:credentials 件席在场（计划行未禁用）时，装载序逐插件 fork 绑定
@@ -276,6 +290,10 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       ...(options.triggers !== undefined ? { triggers: options.triggers } : {}),
       // 子代理注册面受局面透传（D 批 D-2——缺席时 ctx.agent.registerSubagentProvider 响亮缺位）
       ...(options.subagents !== undefined ? { subagents: options.subagents } : {}),
+      // 界面后端注册面受局面透传（U3 批 U3-4——缺席时 ctx.channels.registerUiBackend 响亮缺位）
+      ...(options.uiBackends !== undefined ? { uiBackends: options.uiBackends } : {}),
+      // 审计流写入位透传（U3 批——capability/used 落账；AuditFace 真身 U3-5 装配接线）
+      ...(options.auditSink !== undefined ? { auditSink: options.auditSink } : {}),
       // 高危面开门授予集（03 §4.6 批 U2——磁盘行 opens 经 loader 透传至此）
       ...(opens !== undefined ? { opens } : {}),
       onHookTimeout: (id, hookName, err) =>

@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
+import type { UiBackend } from '../contracts/index.js';
 import { getErrorCodeInfo } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
-import { CommandRegistry } from '../channels/index.js';
+import { CommandRegistry, createChannels } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import { createJobRegistry, createSubagentService } from '../subagent/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
-import type { PluginContextHandle } from './plugin-context.js';
+import type { AuditSink, PluginContextHandle } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
 import { TriggerRegistry } from './triggers.js';
 // 错误码册注册腿（「import 发生才注册」——门关码注册断言的前置副作用）
@@ -26,6 +27,7 @@ function assemble(overrides?: {
   rateLimit?: { windowMs: number; max: number };
   hookTimeoutMs?: number;
   opens?: readonly string[];
+  auditSink?: AuditSink;
 }): {
   handle: PluginContextHandle;
   dispatch: EventDispatch;
@@ -33,6 +35,7 @@ function assemble(overrides?: {
   promptSections: PromptSectionRegistry;
   triggers: TriggerRegistry;
   subagents: ReturnType<typeof createSubagentService>;
+  channels: ReturnType<typeof createChannels>;
 } {
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
@@ -46,12 +49,16 @@ function assemble(overrides?: {
   });
   // 子代理注册面真源（两闸执法在 service.test 域——此处只验委派与归因）
   const subagents = createSubagentService({ registry: createJobRegistry() });
+  // 通道核真源（U3 批 U3-4——插件域腿 registerPluginBackend 委派目标；
+  // 撞名/分域执法在 channels.test 域，此处只验门检/窗口/委派/落账）
+  const channels = createChannels();
   const handle = createPluginContext({
     pluginId: overrides?.pluginId ?? 'acme-widgets',
     scope,
     dispatch,
     tools: createToolRegistry(dispatch),
     commands: new CommandRegistry(),
+    uiBackends: channels,
     llm: { registerProvider: () => () => undefined },
     promptSections,
     triggers,
@@ -60,8 +67,9 @@ function assemble(overrides?: {
     ...(overrides?.rateLimit ? { rateLimit: overrides.rateLimit } : {}),
     ...(overrides?.hookTimeoutMs ? { hookTimeoutMs: overrides.hookTimeoutMs } : {}),
     ...(overrides?.opens !== undefined ? { opens: overrides.opens } : {}),
+    ...(overrides?.auditSink !== undefined ? { auditSink: overrides.auditSink } : {}),
   });
-  return { handle, dispatch, scope, promptSections, triggers, subagents };
+  return { handle, dispatch, scope, promptSections, triggers, subagents, channels };
 }
 
 /** BaseError 码断言辅助（错码即契约——修 bug 必带回归锁的判据面） */
@@ -573,6 +581,90 @@ describe('子代理注册面（ctx.agent.registerSubagentProvider——03 §2.2 
       handle.ctx.agent.registerSubagentProvider({ name: 'y', description: '', systemPrompt: '' }),
     ).not.toThrow();
     restore();
+  });
+});
+
+/** 界面后端最小实装形（UiBackend<never>——能力全关、原语缺席的最小后端替身） */
+function makeBackend(id: string): UiBackend<never> {
+  return {
+    id,
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: () => undefined,
+  };
+}
+
+describe('界面后端注册面（ctx.channels.registerUiBackend——03 §2.2 行 110 第十三动词，U3 批 U3-4）', () => {
+  it('门检前置：未开门拒 PLUGIN_CAPABILITY_DOOR_CLOSED——连受局面都不可达（默认关语义）', () => {
+    const { handle, channels } = assemble();
+    expectCode(() => handle.ctx.channels.registerUiBackend(makeBackend('alt')), 'PLUGIN_CAPABILITY_DOOR_CLOSED');
+    expect(channels.listPluginBackendIds()).toEqual([]);
+  });
+
+  it('开门后委派真源：插件域在册 + 注销器透传摘册 + capability/used 审计落账', () => {
+    const events: { type: string; data: Record<string, unknown> }[] = [];
+    const { handle, channels } = assemble({
+      opens: ['channels.ui-backend'],
+      auditSink: { append: (type, data) => events.push({ type, data }) },
+    });
+    const off = handle.ctx.channels.registerUiBackend(makeBackend('alt'));
+    expect(channels.listPluginBackendIds()).toEqual(['alt']);
+    // 落账形 = 05 §1.1 载荷（pluginId 归因 + capability 面）
+    expect(events).toEqual([
+      { type: 'capability/used', data: { pluginId: 'acme-widgets', capability: 'channels.ui-backend' } },
+    ]);
+    off();
+    expect(channels.listPluginBackendIds()).toEqual([]);
+  });
+
+  it('门关时审计词不落（落账只在门检通过+受理成功后——拒笔不记使用）', () => {
+    const events: { type: string; data: Record<string, unknown> }[] = [];
+    const { handle } = assemble({ auditSink: { append: (type, data) => events.push({ type, data }) } });
+    expectCode(() => handle.ctx.channels.registerUiBackend(makeBackend('alt')), 'PLUGIN_CAPABILITY_DOOR_CLOSED');
+    expect(events).toEqual([]);
+  });
+
+  it('执法序：门检先于受局面缺位（开门+受局面缺席 → CONTEXT_SERVICE_MISSING；未开门同配 → 门关码）', () => {
+    // 直接构造（不走 assemble——后者恒接真源）：开门下受局面缺席响亮缺位
+    const handle = createPluginContext({
+      pluginId: 'p',
+      scope: Scope.createRoot(),
+      dispatch: new EventDispatch(),
+      hostFace: HOST_FACE,
+      opens: ['channels.ui-backend'],
+    });
+    expectCode(() => handle.ctx.channels.registerUiBackend(makeBackend('alt')), 'CONTEXT_SERVICE_MISSING');
+    // 对照：同配未开门先吃门关码——门检在受局面之前（03 §2.7 执法序）
+    const handle2 = createPluginContext({
+      pluginId: 'p',
+      scope: Scope.createRoot(),
+      dispatch: new EventDispatch(),
+      hostFace: HOST_FACE,
+    });
+    expectCode(() => handle2.ctx.channels.registerUiBackend(makeBackend('alt')), 'PLUGIN_CAPABILITY_DOOR_CLOSED');
+  });
+
+  it('装载窗关后注册拒（PLUGIN_WINDOW_CLOSED——第十三动词同窗律）；回调窗内合法', () => {
+    const { handle } = assemble({ opens: ['channels.ui-backend'] });
+    handle.closeWindow();
+    expectCode(() => handle.ctx.channels.registerUiBackend(makeBackend('alt')), 'PLUGIN_WINDOW_CLOSED');
+    const restore = handle.enterHostCallback();
+    expect(() => handle.ctx.channels.registerUiBackend(makeBackend('alt2'))).not.toThrow();
+    restore();
+  });
+
+  it('sink 缺席不阻拦（:memory: 诊断形零成本缺席——受理照常）', () => {
+    const { handle, channels } = assemble({ opens: ['channels.ui-backend'] });
+    expect(() => handle.ctx.channels.registerUiBackend(makeBackend('alt'))).not.toThrow();
+    expect(channels.listPluginBackendIds()).toEqual(['alt']);
   });
 });
 
