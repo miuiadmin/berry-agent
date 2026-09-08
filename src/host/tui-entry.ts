@@ -26,6 +26,7 @@ import type { SandboxMode } from '../safety/index.js';
 import type { TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
+import { startSchedulerClock } from './core-plugins.js';
 import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
@@ -92,6 +93,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
   let exitCode = 0;
   try {
+    // —— scheduler 挂钟起钟（批 20c——长驻形编舞）：件在场即起（重启补推进
+    // + 排首轮轮询），停钟挂 closer（engine 真身定时器非 unref——不挂停钟
+    // 会把进程拖活到 60s belt 定时器）；件缺席 = no-op（件禁用语义族）——
+    startSchedulerClock(scope, runtime);
+
     // —— --port webui 统一 HTTP 面开面（批 12f-2c 落、18a-3' 三入口咬合；
     // 03 §10.4 host 接线）：装载后开面（插件注册面先就位）、TUI 挂接前开
     // 网络面（closer 注册序先于 tui-backend——drain 时网络面先收口再出屏）；

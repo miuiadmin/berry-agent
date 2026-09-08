@@ -263,6 +263,14 @@ export class SessionManager {
     return this.records.get(sessionId)?.driver;
   }
 
+  /** 任一已开驱动在飞（宿主 busy 判据读面——scheduler GateFacts agentBusy 源，批 20c） */
+  anyRunning(): boolean {
+    for (const { driver } of this.records.values()) {
+      if (driver.running) return true;
+    }
+    return false;
+  }
+
   /** 全量拆解（进程收尾序）：逐驱动 dismantle（打断在飞 run）+ 清登记 */
   dispose(): void {
     for (const { driver } of this.records.values()) {

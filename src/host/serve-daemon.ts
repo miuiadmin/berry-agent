@@ -58,6 +58,7 @@ import { WEBUI_DEFAULT_HOST } from '../webui/index.js';
 import { createServeBridge } from './serve-entry.js';
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
+import { startSchedulerClock } from './core-plugins.js';
 import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
 import type { WebuiMountKit } from './webui-bridge.js';
@@ -412,6 +413,10 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     return 2;
   }
   const faceFactory = options.faceFactory ?? sdkKit.createFace;
+  // —— scheduler 挂钟起钟（批 20c——长驻形编舞；daemon = 宿主停机期不断
+  // 保的形态，挂钟常驻尤其正业）：置位在 sdk 拒启检查后——拒启形不起钟；
+  // 件在场即起 + 停钟挂 closer（同 TUI/serve 律）——
+  startSchedulerClock(scope, runtime);
   const bridge = createServeBridge(stack, runtime, { cwd: options.cwd ?? process.cwd() });
   // sock 目录先建（三足迹目录 serve/——face 监听与 pid 登记共同前置；
   // 修前 face.start 先跑而目录由 writeDaemonPid 后建——listen 对缺目录

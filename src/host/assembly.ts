@@ -22,7 +22,8 @@
 import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 
-import { BaseError } from '../contracts/index.js';
+import { BaseError, parseEventSource } from '../contracts/index.js';
+import type { SessionEvent } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
@@ -160,6 +161,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 首开/请求组装时闭包经此引用取已定型产物——boot.tools 全局层定义重放
     // 与 promptSections 物化两条消费腿同法）
     let boot: PluginBootHandle | undefined;
+    // 最近真用户消息时刻（批 20c——scheduler GateFacts lastUserMessageAt 宿主
+    // 源）：boot 后 session/event 监听器更新（user/channel 真人输入才计——
+    // schedule/subagent-settled/compaction/plugin 注入不计数）；null = 无近期
+    // 消息（recent_user_msg 门放行）
+    let lastUserMessageAt: string | null = null;
     const stack = createConversationStack({
       runtime,
       scope,
@@ -392,6 +398,25 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             ...(env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== undefined && env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== ''
               ? { issueWebhookSecret: env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET }
               : {}),
+            // —— scheduler 编舞接线三位（批 20c——19c-2 挂账销账）——
+            // GateFacts 宿主三源收集闭包：行启停位 + 宿主在飞（anyRunning）+
+            // 最近真用户消息（boot 后监听器维护）+ 行上次触发（JobRow 自带
+            // lastFireAt 列）+ 当日后台预算（04 §5 canAfford）
+            schedulerGateFacts: (row) => ({
+              enabled: row.enabled,
+              agentBusy: stack.manager.anyRunning(),
+              lastUserMessageAt,
+              lastFireAt: row.lastFireAt,
+              canAfford: stack.llm.canAfford('background'),
+            }),
+            // 真 bin 出厂（BERRY_AGENT_BIN env 载体——缺席 'berry-agent'
+            // PATH 名解析归件内缺省）
+            ...(env.BERRY_AGENT_BIN !== undefined && env.BERRY_AGENT_BIN !== ''
+              ? { schedulerBinCommand: env.BERRY_AGENT_BIN }
+              : {}),
+            // cron 乙案开启位（BERRY_AGENT_CRON=1 显式置值 = 人面授权链的
+            // env 形——授权凭据即显式置值本身）
+            ...(env.BERRY_AGENT_CRON === '1' ? { schedulerCronEnabled: true } : {}),
           }),
         warn: (message) => logger.warn(message),
       });
@@ -424,6 +449,25 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         });
         runtime.registerCloser({ label: 'skills-change-bridge', fn: () => Promise.resolve(off()) });
       }
+    }
+
+    // —— session/event 用户消息追踪（批 20c——GateFacts lastUserMessageAt 宿主
+    // 源维护）：真用户输入（user/channel:*）才更新最近时刻——schedule（挂钟
+    // 触发的 user/message 非人语）/subagent-settled/compaction/plugin 注入不
+    // 计数（不打扰礼仪门只认真人）。词汇在 bootPlugins 注册（41 词表）——
+    // noPlugins 纯诊断形不注册即不挂（此时 scheduler 件亦未装载无消费面）；
+    // dispatch.on 词未注册 fail-loud，故 isRegistered 守卫前置（同 session/
+    // event 桥律）。监听器随 dispatch 进程级生命周期——不设卸载 closer ——
+    if (dispatch.isRegistered('session/event')) {
+      dispatch.on('session/event', (payload) => {
+        const { event } = payload as { sessionId: string; event: SessionEvent };
+        if (event.type !== 'user/message') return;
+        // source 归因解析（闭集读侧判据）：user/channel = 真人输入；余类注入不计
+        const parsed = parseEventSource(String((event.data as { source?: unknown }).source ?? 'user'));
+        if (parsed.kind !== 'user' && parsed.kind !== 'channel') return;
+        // event.time = ms epoch（05 §1.1）→ ISO UTC（GateFacts 时基同构）
+        lastUserMessageAt = new Date(event.time).toISOString();
+      });
     }
 
     return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts };

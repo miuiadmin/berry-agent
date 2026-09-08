@@ -54,6 +54,7 @@ import type { SessionEvent } from '../contracts/index.js';
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import type { ServeFlags } from './cli.js';
+import { startSchedulerClock } from './core-plugins.js';
 import type { ConversationStack } from './conversation-stack.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
@@ -236,6 +237,11 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
 
   let exitCode = 0;
   try {
+    // —— scheduler 挂钟起钟（批 20c——长驻形编舞）：stdio 前台长驻同 TUI 律
+    // （件在场即起 + 停钟挂 closer——engine 真身定时器非 unref 不挂会拖活
+    // 进程；件缺席 no-op）——
+    startSchedulerClock(scope, runtime);
+
     // —— --port 统一 HTTP 面 TCP 人面（18a-3' 三入口咬合；03 §10.4 host
     // 接线）：stdio 线与 TCP 面并存双活——面承载 SPA + /api/* + /v1/* 三族
     // （bridge 同走 createServeBridge 零第二套映射）；披露两行走 stderr

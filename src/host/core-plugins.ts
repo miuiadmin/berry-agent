@@ -60,6 +60,7 @@ import type { GoalService, GoalSessionFace, GoalTodoItem } from '../goal/index.j
 import type { SqliteDatabase } from '../persist/index.js';
 import { createSandboxService } from '../safety/index.js';
 import {
+  createOsCronRegistrar,
   createProcessRunnerFactory,
   createSchedulerEngine,
   createSchedulerService,
@@ -234,10 +235,29 @@ export interface CorePluginHostDeps {
    * 调度闸事实收集器（批 19c-2——04 §12 DiscoveryGates 装配位）：engine 到点
    * fire 前逐行求值（agentBusy/lastUserMessageAt/canAfford 从宿主面收集——
    * 在飞 run 查询/最近用户消息/当日后台预算三源）。缺席 = 引擎空事实全门
-   * 放行（fail-open 属实——gates 头注：打扰礼仪与预算面非安全边界）。装配
-   * 根接线挂账 run 入口批（宿主三面未齐）。
+   * 放行（fail-open 属实——gates 头注：打扰礼仪与预算面非安全边界）。
+   * 批 20c 装配根接线兑现（宿主三面齐——assembly 侧闭包单源）。
    */
   readonly schedulerGateFacts?: (row: JobRow) => GateFacts;
+  /**
+   * run 子进程可执行（批 20c 真 bin 出厂——runner spawn 与 cron 行命令段
+   * 共用单源；装配根解析 env BERRY_AGENT_BIN 注入，缺席 'berry-agent'
+   * PATH 名解析——bin 缺席诚实归 spawn_failed 结局）。
+   */
+  readonly schedulerBinCommand?: string;
+  /**
+   * cron 乙案开启位（批 20c——04 §12 已裁乙案「用户显式开启的增强面」）：
+   * true = 装配 OS cron 注册器（service 启停/删行同步 OS 注册态 + 装载期
+   * 既有启用行对账回填）；缺席/false = 纯进程内挂钟（缺省形态）。env 载体
+   * BERRY_AGENT_CRON=1（显式置值即人面授权链的 env 形——写系统 crontab
+   * 的授权凭据，装配根解析注入本位）。
+   */
+  readonly schedulerCronEnabled?: boolean;
+  /**
+   * crontab 执行器注入（批 20c 测试接缝——缺省 spawnSync 真身；测试注假件
+   * 零真系统写。生产装配根不置位）。
+   */
+  readonly schedulerCronExec?: (args: string[], input?: string) => { stdout: string; stderr: string; code: number };
   /**
    * goal 会话日志读面（批 19c-3——GoalSessionFace：goal 段 fold 重放面 +
    * 激活锚长度单源「位置类数值取宿主单源长度面」）。缺席 = goal 件整体零
@@ -592,10 +612,15 @@ export interface SchedulerFace {
  * 命令注册（输出经 deps.notify 归因 'tick'）。
  *
  * 引擎**构造不自启**：启钟/停钟编舞（含重启补推进拍点）归宿主入口——TUI/
- * serve 长驻形起钟、诊断形/测试装载不起钟（未起跑的引擎全惰性：poke/排轮
- * 均守 running 位；manual fireNow 直通不依赖钟——run 入口批接线）。挂账
- * run 入口批同笔：GateFacts 宿主三源收集接线、cron 乙案后端 CLI 旗标编舞、
- * 真 bin 出厂（runner spawn 缺省 PATH 解析——bin 缺席诚实归 spawn_failed）。
+ * serve 长驻形经 startSchedulerClock 起钟、诊断形/测试装载不起钟（未起跑的
+ * 引擎全惰性：poke/排轮均守 running 位；manual fireNow 直通不依赖钟）。
+ *
+ * 批 20c 编舞接线三笔兑现（19c-2 挂账销账）：① GateFacts 宿主三源收集
+ * （deps.schedulerGateFacts——装配根闭包单源）② 真 bin 出厂（deps.
+ * schedulerBinCommand——runner spawn 与 cron 行命令段单源；缺席
+ * 'berry-agent' PATH 名解析，bin 缺席诚实归 spawn_failed）③ cron 乙案开启位
+ * （deps.schedulerCronEnabled——true 时装配 OS cron 注册器 + 装载期既有启用
+ * 行对账回填〔per-row try/catch——once 形/不可表达形不炸装载〕）。
  *
  * 主闸 = sqlite seam（同 memory 律）：缺席 = 件整体零装载（诚实缺席律）。
  */
@@ -609,16 +634,52 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
 
       const warn = (message: string) => console.error(message);
       const now = () => new Date().toISOString();
-      const { service, dao, goalJobs } = createSchedulerService({ db, now, warn });
+      // 真 bin 单源（批 20c）：runner spawn 命令与 cron 行命令段共用——装配根
+      // 解析 env BERRY_AGENT_BIN 注入；缺席 'berry-agent' PATH 名解析
+      const binCommand = deps.schedulerBinCommand ?? 'berry-agent';
+      // cron 乙案开启位（批 20c）：env BERRY_AGENT_CRON=1 显式置值即人面授权链
+      // 的 env 形（写系统 crontab 的授权凭据）——authorize 恒 true 的凭据在
+      // 装配根的 env 判定本身，此处不再二次盘问；缺席 = 纯进程内挂钟。
+      // execCrontab 注入位 = 测试接缝（缺省 spawnSync 真身——测试注假件零真
+      // 系统写）
+      const cron =
+        deps.schedulerCronEnabled === true
+          ? createOsCronRegistrar({
+              command: binCommand,
+              authorize: () => true,
+              ...(deps.schedulerCronExec !== undefined ? { execCrontab: deps.schedulerCronExec } : {}),
+            })
+          : undefined;
+      const { service, dao, goalJobs } = createSchedulerService({
+        db,
+        now,
+        warn,
+        ...(cron !== undefined ? { cronRegistrar: cron } : {}),
+      });
       const engine = createSchedulerEngine({
         dao,
         // 真 bin spawn 接线：子进程 env 走 exec 白名单基座（deny-by-default
         // 同律——PATH/locale 最小集，零宿主环境继承）
-        runner: createProcessRunnerFactory({ env: buildChildEnv() }),
+        runner: createProcessRunnerFactory({ env: buildChildEnv(), command: binCommand }),
         now,
         warn,
         ...(deps.schedulerGateFacts !== undefined ? { gateFacts: deps.schedulerGateFacts } : {}),
       });
+
+      // cron 对账回填（批 20c）：装载期既有启用行逐行补注册 OS 面——addJob/
+      // addBuiltinJob 的 insertRow 不挂 OS（开启 env 前已 enabled 的行不在
+      // crontab），开面即对账；per-row try/catch warn——once 形/不可表达形/
+      // win32 不炸装载（进程内挂钟仍辖该行）
+      if (cron !== undefined) {
+        for (const row of service.listJobs()) {
+          if (!row.enabled) continue;
+          try {
+            cron.register(row);
+          } catch (error) {
+            warn(`scheduler cron 对账跳过「${row.name}」：${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
 
       // /tick 命令（argv → 人读文本——runTickCommand 错误已折文本不抛；
       // 输出面经 notify 归因 'tick'，缺席静默命令仍注册）
@@ -649,6 +710,32 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
       };
     },
   };
+}
+
+/**
+ * 宿主入口钟表编舞面（批 20c——引擎构造不自启的消费位）：长驻形入口
+ * （TUI/serve/daemon）装载后调本函数起钟，停钟挂运行时 closer（drain 序 =
+ * 注册序）。**必须挂 closer**：engine 定时器走真身 setTimeout 非 unref——
+ * 不停钟会把进程拖活到 60s belt 定时器（shutdown 返回后进程不退）。
+ * 诊断形（dump-config/run/测试装载）不调即不起钟（全惰性）。
+ *
+ * @param scope 装配产物共享根（tryGet 'scheduler'——件缺席/禁用时 no-op：
+ * 起钟属长驻编舞非正确性前提，诚实零动作）
+ * @param runtime 运行时（registerCloser 挂停钟腿）
+ * @returns 是否起钟（件在场且已 start——测试观察面；件缺席 false）
+ */
+export function startSchedulerClock(
+  scope: { tryGet<T>(name: string): T | undefined },
+  runtime: { registerCloser: (closer: { label: string; fn: () => void }) => void },
+): boolean {
+  const face = scope.tryGet<SchedulerFace>('scheduler');
+  if (face === undefined) return false; // 件缺席/禁用——no-op（长驻编舞非正确性前提）
+  face.engine.start(); // 重启补推进（missed 静默 advance）+ 排首轮轮询
+  runtime.registerCloser({
+    label: 'scheduler-engine',
+    fn: () => face.engine.stop(), // 只摘轮询定时器（在飞自然收场——engine 头注）
+  });
+  return true;
 }
 
 /**
