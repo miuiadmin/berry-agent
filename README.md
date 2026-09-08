@@ -3,7 +3,7 @@
 单一、可扩展的个人 Agent——对话与编码即本体，一切能力以**插件**装载。
 TypeScript + SQLite + [pi-ai](https://github.com/earendil-works/pi-ai)。
 
-> 状态：`0.1.0-alpha`，开发中——契约先行、逐批纵切落地；官方插件 15 件已随包出厂。
+> 状态：`0.1.0-alpha`，开发中——契约先行、逐批纵切落地；官方插件 16 件已随包出厂。
 
 核心理念：**基座强在接口，能力长在插件**——扩展点/钩子/事件/服务面做满做稳，任何能力（shell 执行、技能、浏览器、定时任务、记忆、Web 界面……）都以插件装载表达；官方件与社区件走同一装载面，第一方无私有车道。
 
@@ -28,16 +28,17 @@ npm install -g berry-agent
 berry-agent                    # TUI：直进对话（按当前目录续接最新会话）
 berry-agent run "一句话单发"     # 单次执行 → stdout
 berry-agent sessions list      # 会话管理：list / resume / fork / search / reindex
+berry-agent credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授权流）
 berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
 ```
 
 首启自动创建 `~/.berry-agent/`。模型缺省 `anthropic/claude-sonnet-5`，凭证按 provider 生态变量供给（如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` 可覆盖。
 
-完整命令族、旗标与 TUI 键位见[使用指南](./docs/usage.md)。
+完整命令族、旗标、环境变量与 TUI 键位见[使用指南](./docs/usage.md)。
 
-## 官方插件 15 件（默认启用，可禁用）
+## 官方插件 16 件（默认启用，可禁用）
 
-`core:exec`（shell 执行）· `core:skills`（技能）· `core:web`（网络取数）· `core:scheduler`（定时任务）· `core:goal`（目标续跑）· `core:subagent`（子代理）· `core:checkpoint`（边界快照/rewind）· `core:memory`（记忆）· `core:mcp`（MCP 客户端）· `core:lsp`（LSP 客户端）· `core:browser`（浏览器）· `core:webui`（Web 界面）· `core:sdk`（自动化通道）· `core:obs`（观测）· `core:issue`（issue 模式）
+`core:exec`（shell 执行）· `core:skills`（技能）· `core:web`（网络取数）· `core:scheduler`（定时任务）· `core:goal`（目标续跑）· `core:subagent`（子代理）· `core:checkpoint`（边界快照/rewind）· `core:memory`（记忆）· `core:mcp`（MCP 客户端）· `core:lsp`（LSP 客户端）· `core:browser`（浏览器）· `core:webui`（Web 界面）· `core:sdk`（自动化通道）· `core:obs`（观测）· `core:issue`（issue 模式）· `core:credentials`（凭证代管）
 
 ## 自动化通道
 
@@ -49,15 +50,15 @@ berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用�
 
 前缀一律 `BERRY_AGENT_*`：
 
-| 变量 | 作用 | 缺省 |
-| --- | --- | --- |
-| `BERRY_AGENT_MODEL` | 覆盖缺省模型 | `anthropic/claude-sonnet-5` |
-| `BERRY_AGENT_DATA_DIR` | 数据目录 | `~/.berry-agent` |
-| `BERRY_AGENT_DB_PATH` | 库文件路径（独立梯子） | `<数据目录>/sessions.db` |
-| `BERRY_AGENT_LOG_LEVEL` | error / warn / info / debug / silent | `info` |
-| `BERRY_AGENT_BASH_PATH` | bash 可执行路径 | PATH 发现序 |
-| `BERRY_AGENT_FD_PATH` | `@` 补全的 fd 路径 | PATH 发现序 |
-| `BERRY_AGENT_BROWSER_PATH` | 浏览器引擎路径 | 引擎发现序 |
+| 变量                       | 作用                                 | 缺省                        |
+| -------------------------- | ------------------------------------ | --------------------------- |
+| `BERRY_AGENT_MODEL`        | 覆盖缺省模型                         | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR`     | 数据目录                             | `~/.berry-agent`            |
+| `BERRY_AGENT_DB_PATH`      | 库文件路径（独立梯子）               | `<数据目录>/sessions.db`    |
+| `BERRY_AGENT_LOG_LEVEL`    | error / warn / info / debug / silent | `info`                      |
+| `BERRY_AGENT_BASH_PATH`    | bash 可执行路径                      | PATH 发现序                 |
+| `BERRY_AGENT_FD_PATH`      | `@` 补全的 fd 路径                   | PATH 发现序                 |
+| `BERRY_AGENT_BROWSER_PATH` | 浏览器引擎路径                       | 引擎发现序                  |
 
 ## 遥测
 
@@ -65,13 +66,13 @@ berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用�
 
 ## 文档
 
-| 册 | 内容 |
-| --- | --- |
-| [架构总览](./docs/architecture.md) | 分层、模块拓扑、运行时骨架、安全模型 |
-| [使用指南](./docs/usage.md) | 安装、命令族、TUI、环境变量 |
-| [插件开发指南](./docs/plugin-development.md) | manifest、ctx 能力面、扩展点、发布 |
-| [开发指南](./docs/development.md) | 门禁、拓扑律、测试纪律、贡献流程 |
-| [运维手册](./docs/operations.md) | 数据目录、备份恢复、故障排查 |
+| 册                                           | 内容                                 |
+| -------------------------------------------- | ------------------------------------ |
+| [架构总览](./docs/architecture.md)           | 分层、模块拓扑、运行时骨架、安全模型 |
+| [使用指南](./docs/usage.md)                  | 安装、命令族、TUI、环境变量          |
+| [插件开发指南](./docs/plugin-development.md) | manifest、ctx 能力面、扩展点、发布   |
+| [开发指南](./docs/development.md)            | 门禁、拓扑律、测试纪律、贡献流程     |
+| [运维手册](./docs/operations.md)             | 数据目录、备份恢复、故障排查         |
 
 ## 开发
 

@@ -6,18 +6,18 @@
 
 缺省 `~/.berry-agent/`，`BERRY_AGENT_DATA_DIR` 可整体重定位：
 
-| 路径 | 内容 | 说明 |
-| --- | --- | --- |
-| `sessions.db` | 主库（SQLite） | 会话/事件/FTS/记忆/定时任务/目标全在这一个文件；0600 权限自检修复。`BERRY_AGENT_DB_PATH` 三级梯子可独立重定向（重定向库文件不动数据目录其余件） |
-| `secret.key` | 加密钥 | 凭证加密钥——**与主库同备份或都不备**（钥失配即旧凭证不可解） |
-| `active.json` | 单活跃机标记 | `{ pid, startedAt }`；启动即写，pid 死自动接管 |
-| `enabled.yaml` | 启用清单 | 插件启用面（见[下文](#启用清单-enabledyaml)） |
-| `plugins/ledger.json` | 装机账本 | 装了什么（与 enabled.yaml「要什么」两账两名对仗） |
-| `plugins/<id>/` | 装机树 | 磁盘插件包体 |
-| `skills/` | 用户技能层 | SKILL.md 目录（六位发现层第二位） |
-| `allowlist.json` | 审批 always 清单 | 审批选 always 的工具+参数指纹持久回写（用户资产，非配置） |
-| `data/obs/rollup.db` | 观测自管库 | core:obs 派生观测数据（可删——重建即恢复） |
-| `crash.log` | 崩溃取证 | 崩溃路径先写一行再退；排障第一站 |
+| 路径                  | 内容             | 说明                                                                                                                                            |
+| --------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessions.db`         | 主库（SQLite）   | 会话/事件/FTS/记忆/定时任务/目标全在这一个文件；0600 权限自检修复。`BERRY_AGENT_DB_PATH` 三级梯子可独立重定向（重定向库文件不动数据目录其余件） |
+| `secret.key`          | 加密钥           | 凭证加密钥——**与主库同备份或都不备**（钥失配即旧凭证不可解）                                                                                    |
+| `active.json`         | 单活跃机标记     | `{ pid, startedAt }`；启动即写，pid 死自动接管                                                                                                  |
+| `enabled.yaml`        | 启用清单         | 插件启用面（见[下文](#启用清单-enabledyaml)）                                                                                                   |
+| `plugins/ledger.json` | 装机账本         | 装了什么（与 enabled.yaml「要什么」两账两名对仗）                                                                                               |
+| `plugins/<id>/`       | 装机树           | 磁盘插件包体                                                                                                                                    |
+| `skills/`             | 用户技能层       | SKILL.md 目录（六位发现层第二位）                                                                                                               |
+| `allowlist.json`      | 审批 always 清单 | 审批选 always 的工具+参数指纹持久回写（用户资产，非配置）                                                                                       |
+| `data/obs/rollup.db`  | 观测自管库       | core:obs 派生观测数据（可删——重建即恢复）                                                                                                       |
+| `crash.log`           | 崩溃取证         | 崩溃路径先写一行再退；排障第一站                                                                                                                |
 
 ## 备份与恢复
 
@@ -40,19 +40,19 @@ tar czf berry-agent-backup.tar.gz -C ~ .berry-agent
 ```yaml
 plugins:
   - id: my-plugin
-    config: { ... }      # 可选，按插件 manifest config 判据校验
-    disabled: true       # 可选，行级禁用
-    opens: [...]         # 可选，高危面开门授予集（默认全关）
+    config: { ... } # 可选，按插件 manifest config 判据校验
+    disabled: true # 可选，行级禁用
+    opens: [...] # 可选，高危面开门授予集（默认全关）
 ```
 
-- **缺席 = 全 core: 内置态**：首启零文件零负担，官方 15 件默认全启；
+- **缺席 = 全 core: 内置态**：首启零文件零负担，官方 16 件默认全启；
 - **损坏 = fail-loud 拒启**：报错附修复指引；删除该文件即回全内置态；
 - 用户行与 `core:` 同名行字段级后写胜出（可禁用单个官方件或覆盖其 config）。
 
 ## 常驻宿主管理
 
 ```bash
-berry-agent serve --daemon     # 后台守护（sock + 可选 TCP 面预置 token）
+berry-agent serve --daemon     # 后台守护（unix sock 缺省接入点；--port / --sdk-port 开 TCP 面）
 berry-agent serve status       # 态查询（只读豁免——不占单活跃机）
 berry-agent serve stop         # 停守护
 ```

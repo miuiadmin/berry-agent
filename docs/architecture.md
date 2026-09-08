@@ -10,44 +10,45 @@
 
 ## 分层：宿主固定件 + core: 官方插件
 
-全仓 27 个模块，单向 DAG（`npm run lint:topology` 执法——相对导入只走边表白名单，边表双向校验）。
+全仓 29 个模块（28 席进 DAG + bridge 留档不进），单向 DAG（`npm run lint:topology` 执法——相对导入只走边表白名单，边表双向校验）。
 
 ### 宿主固定件 12（卸掉任一件，首启「问→做→守→存」循环断）
 
-| 模块 | 职责 |
-| --- | --- |
-| `contracts` | 全仓共享契约与词汇（事件词汇、错误基类 `BaseError`）——零依赖 |
-| `context` | 作用域容器（服务目录、effect 回卷、fork 级联） |
-| `session` | 会话域（SessionManager：创建/open/fork/检索） |
-| `agent` | 模型对话域（loop 只认 StreamFn 签名——不 import llm） |
-| `llm` | 模型运行时（provider 注册表、pi-ai 直连、faux 测试 provider） |
-| `persist` | 持久化（SQLite 单库、迁移框架、durable 事件、FTS 检索；better-sqlite3 只准出现在此） |
-| `tools` | 工具注册表与工具调用域 |
-| `safety` | 安全判据面（沙箱档位、审批 ask/decide、allowlist） |
-| `compaction` | 上下文压缩（摘要折叠） |
-| `channels` | 呈现通道核（信封路由、backend 注册、TUI 引擎全套件族） |
-| `conversation` | 对话组合域（ConversationDriver、三通道路由、todo 机器） |
-| `host` | 装配根（CLI 解析/分派、运行时组装、插件装载、五个入口） |
+| 模块           | 职责                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------ |
+| `contracts`    | 全仓共享契约与词汇（事件词汇、错误基类 `BaseError`）——零依赖                         |
+| `context`      | 作用域容器（服务目录、effect 回卷、fork 级联）                                       |
+| `session`      | 会话域（SessionManager：创建/open/fork/检索）                                        |
+| `agent`        | 模型对话域（loop 只认 StreamFn 签名——不 import llm）                                 |
+| `llm`          | 模型运行时（provider 注册表、pi-ai 直连、faux 测试 provider）                        |
+| `persist`      | 持久化（SQLite 单库、迁移框架、durable 事件、FTS 检索；better-sqlite3 只准出现在此） |
+| `tools`        | 工具注册表与工具调用域                                                               |
+| `safety`       | 安全判据面（沙箱档位、审批 ask/decide、allowlist）                                   |
+| `compaction`   | 上下文压缩（摘要折叠）                                                               |
+| `channels`     | 呈现通道核（信封路由、backend 注册、TUI 引擎全套件族）                               |
+| `conversation` | 对话组合域（ConversationDriver、三通道路由、todo 机器）                              |
+| `host`         | 装配根（CLI 解析/分派、运行时组装、插件装载、五个入口）                              |
 
-### core: 官方插件 15（随包出厂、默认启用可禁用；id 以 `core:` 前缀，经同一插件装载面装配——第一方无私有车道）
+### core: 官方插件 16（随包出厂、默认启用可禁用；id 以 `core:` 前缀，经同一插件装载面装配——第一方无私有车道）
 
-| 插件 | 能力 |
-| --- | --- |
-| `core:exec` | shell 执行工具族（bash 工具、进程树杀、输出截尾、env 白名单） |
-| `core:skills` | 技能装载（SKILL.md 双层结构、六位发现层、渐进披露、skill_manage） |
-| `core:web` | 网络取数（fetch 工具 + ctx.fetch + SSRF 五卫生件） |
-| `core:scheduler` | 定时任务（jobs 表、抢占、`/tick`、cron 可选后端） |
-| `core:goal` | 目标续跑（goals 表族、计划态 fold、wake 双帽、预算双轨） |
-| `core:subagent` | 子代理（Job 注册表、provider 面、声明式物化） |
-| `core:checkpoint` | 边界快照（pre-mutation 拍摄、blob 仓、`/rewind`） |
-| `core:memory` | 记忆（表族、合并/极性、注入两路、周期提取、导入导出） |
-| `core:mcp` | MCP 客户端桥（stdio JSON-RPC 手写最小桥） |
-| `core:lsp` | LSP 客户端桥（Content-Length 帧、惰性实例、诊断回流） |
-| `core:browser` | 浏览器（CDP 手写桥、引擎发现、十工具、/browser install） |
-| `core:webui` | Web 界面（SPA + `/api/*`，经 SDK HTTP 面路由扩展位挂载） |
-| `core:sdk` | 自动化通道（HTTP+SSE `/v1/*` 传输、daemon 编舞、路由扩展位） |
-| `core:obs` | 观测（rollup 表族、`obs_query`、告警通知；自管库） |
-| `core:issue` | issue 模式（GitHub 轮询 + webhook、worktree 隔离、交付映射） |
+| 插件               | 能力                                                                                                            |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `core:exec`        | shell 执行工具族（bash 工具、进程树杀、输出截尾、env 白名单）                                                   |
+| `core:skills`      | 技能装载（SKILL.md 双层结构、六位发现层、渐进披露、skill_manage）                                               |
+| `core:web`         | 网络取数（fetch 工具 + ctx.fetch + SSRF 五卫生件）                                                              |
+| `core:scheduler`   | 定时任务（jobs 表、抢占、`/tick`、cron 可选后端）                                                               |
+| `core:goal`        | 目标续跑（goals 表族、计划态 fold、wake 双帽、预算双轨）                                                        |
+| `core:subagent`    | 子代理（Job 注册表、provider 面、声明式物化）                                                                   |
+| `core:checkpoint`  | 边界快照（pre-mutation 拍摄、blob 仓、`/rewind`）                                                               |
+| `core:memory`      | 记忆（表族、合并/极性、注入两路、周期提取、导入导出）                                                           |
+| `core:mcp`         | MCP 客户端桥（stdio JSON-RPC 手写最小桥）                                                                       |
+| `core:lsp`         | LSP 客户端桥（Content-Length 帧、惰性实例、诊断回流）                                                           |
+| `core:browser`     | 浏览器（CDP 手写桥、引擎发现、十工具、/browser install）                                                        |
+| `core:webui`       | Web 界面（SPA + `/api/*`，经 SDK HTTP 面路由扩展位挂载）                                                        |
+| `core:sdk`         | 自动化通道（HTTP+SSE `/v1/*` 传输、daemon 编舞、路由扩展位）                                                    |
+| `core:obs`         | 观测（rollup 表族、`obs_query`、告警通知；自管库）                                                              |
+| `core:issue`       | issue 模式（GitHub 轮询 + webhook、worktree 隔离、交付映射）                                                    |
+| `core:credentials` | 凭证代管（加密存储、`ctx.secrets` 受理制开面、`@credentials:` env 注入、oauth 流与刷新链、`/credentials` 人面） |
 
 ## 运行时骨架
 

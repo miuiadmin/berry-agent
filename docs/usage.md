@@ -45,7 +45,7 @@ npm rm -g berry-agent        # 程序（源码形态删除 clone 目录即可）
 rm -rf ~/.berry-agent/       # 数据目录——含记忆/会话历史/插件装机物，删除不可恢复
 ```
 
-数据目录不会随程序卸载删除——如需保留记忆，删除前请先在 TUI 内执行 `/memory-export` 导出。交互式卸载（带确认与指引）可用卸载脚本：
+数据目录不会随程序卸载删除——内含记忆/会话历史/凭证盒（加密存储 + `secret.key` 加密钥，两者同在才可解密）/插件装机物；如需保留记忆，删除前请先在 TUI 内执行 `/memory-export` 导出。交互式卸载（带确认与指引）可用卸载脚本：
 
 ```bash
 curl -fsSL -o uninstall.sh https://raw.githubusercontent.com/miuiadmin/berry-agent/main/scripts/uninstall.sh
@@ -155,14 +155,15 @@ berry-agent sessions reindex           # 全文索引全量重建（派生物不
 ### credentials 凭证管理
 
 ```bash
-berry-agent credentials add ANTHROPIC_API_KEY sk-ant-...          # 录入（upsert 整行；缺省 host 域）
-berry-agent credentials add GITHUB_TOKEN ghp_... --namespace plugin:my-plugin   # 指定插件域
-berry-agent credentials list                                      # 全域列示——域/名/来源/更新时间
-berry-agent credentials rm ANTHROPIC_API_KEY                      # 撤销（删除唯一路径）
+berry-agent credentials add github-token ghp_...                        # 录入 host 域（core:issue 件消费——同名即生效）
+berry-agent credentials add api-key secret... --namespace plugin:my-plugin   # 录入插件域（插件经 ctx.secrets 读自域）
+berry-agent credentials list                                            # 全域列示——域/名/来源/更新时间
+berry-agent credentials rm github-token                                 # 撤销（删除唯一路径）
 ```
 
 - **值永不呈现**：录入回执与列示只含域/名/来源与时间——值只进加密存储（shell 历史里的 argv 仍属本机明文，敏感值建议改用 TUI `/credentials`）；
-- 域形两态：`host`（宿主自用——模型 API key 等，缺省）与 `plugin:<id>`（插件域）；插件经 `ctx.secrets` 只读自己的域，跨域读需显式开门；
+- 域形两态：`host`（宿主域——core: 出厂件消费，如 issue 件的 `github-token` / `issue-webhook-secret` 两名；缺省）与 `plugin:<id>`（插件域）；插件经 `ctx.secrets` 只读自己的域，跨域读需用户显式开门；
+- **模型 API key 不入凭证盒**（v1）：模型凭证按 provider 生态变量供给（如 `ANTHROPIC_API_KEY`）——把模型 key `add` 进凭证盒不会生效；
 - **静态凭证人面唯写** = 本命令族；oauth 授权流（device-code）仅在 TUI `/credentials oauth`——CLI 不设此动词；
 - 零装配直开库（sessions 读腿同形）——不起运行时即用；退出码 0/1（用法错归解析层退 2）。
 
