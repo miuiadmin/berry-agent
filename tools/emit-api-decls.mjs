@@ -22,7 +22,7 @@
  *   路径可解析 + 内容对账两道齐过才放行。sqlite 键对账源随 persist 批增列。
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJiti } from 'jiti';
 import { ensureDeclarations } from './extract-api-surface.mjs';
@@ -112,3 +112,39 @@ for (const src of FACE_SOURCES) {
   reconciled += runtimeKeys.length;
 }
 console.log(`emit-api-decls：键集双向对账 ${FACE_SOURCES.length} 件全过（declare ${reconciled} 键 ⇄ Face 运行时键）`);
+
+// —— 步 5：发布物卫生断言（07 篇 §8.3 契约 3 三禁的 build 侧回归锁）——
+// dist 全树扫：*.test.* 与 *.js.map 必不在；.d.ts 惟 API 治理随包位三根在场
+// （dist/api、dist/contracts、dist/llm/provider-face.d.ts——03 篇 §8.9）。
+// 2026-09-08 发布面收口批逮到 tsconfig.api.json 把 *.test.d.ts 发进 dist 后
+// 补此锁——测试/映射件随包泄漏在此当场红，不等发布机器 pack 验收兜底。
+/** 递归收集目录树全文件路径 */
+function walkFiles(dir) {
+  const out = [];
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, ent.name);
+    if (ent.isDirectory()) out.push(...walkFiles(p));
+    else out.push(p);
+  }
+  return out;
+}
+const distFiles = walkFiles(join(REPO_ROOT, 'dist'));
+const rel = (p) => relative(REPO_ROOT, p);
+const banned = distFiles.filter(
+  (p) => /\.(test|spec)\.(js|ts|tsx)$/.test(p) || p.endsWith('.test.d.ts') || p.endsWith('.js.map'),
+);
+const strayDecls = distFiles.filter(
+  (p) =>
+    p.endsWith('.d.ts') &&
+    !p.startsWith(join(REPO_ROOT, 'dist', 'api') + sep) &&
+    !p.startsWith(join(REPO_ROOT, 'dist', 'contracts') + sep) &&
+    p !== join(REPO_ROOT, 'dist', 'llm', 'provider-face.d.ts'),
+);
+if (banned.length > 0 || strayDecls.length > 0) {
+  console.error(
+    `emit-api-decls：发布物卫生断言红——禁面件 ${banned.map(rel).join(', ') || '无'} / ` +
+      `越位声明 ${strayDecls.map(rel).join(', ') || '无'}（tsconfig 排除位或发射配置漂移，先修再发包）`,
+  );
+  process.exit(1);
+}
+console.log(`emit-api-decls：发布物卫生断言过（${distFiles.length} 件——测试/映射零、声明三根内）`);

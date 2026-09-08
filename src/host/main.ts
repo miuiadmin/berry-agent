@@ -15,7 +15,7 @@
  * 被 import（测试/程序化装配）不触发副作用。tsc 直出保留首行 shebang，
  * bin 执行位由 npm pack 装配。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { argv, exit as processExit, stderr, stdin, stdout } from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -137,8 +137,25 @@ async function main(): Promise<number> {
   });
 }
 
-// 自动执行卫兵：仅主模块直跑（进程入口）才走主序——被 import 零副作用
-const isMain = argv[1] !== undefined && import.meta.url === pathToFileURL(argv[1]).href;
+// 自动执行卫兵：仅主模块直跑（进程入口）才走主序——被 import 零副作用。
+// argv[1] 先 realpath 归一：入口模块 node 侧恒走真实路径解析，而 argv[1] 是
+// 调用面字面量——npm bin 符号链接或路径含符号链接环节（/tmp → /private/tmp、
+// nvm/volta shim 目录）两侧错配即静默 no-op 退 0（2026-09-08 发布面收口批
+// 安装冒烟逮到——真实装机路径含符号链接即坏，发布阻塞件）
+/**
+ * 主模块判定（bin 直跑卫兵）——argv[1] realpath 归一后对模块 URL 全等比对。
+ * @param argv1 进程 argv[1]（调用面字面量——可能是符号链接或含链接环节的路径）
+ * @param moduleUrl 本模块 import.meta.url（node 入口解析恒为真实路径）
+ */
+export function isMainModule(argv1: string | undefined, moduleUrl: string): boolean {
+  if (argv1 === undefined) return false;
+  try {
+    return pathToFileURL(realpathSync(argv1)).href === moduleUrl;
+  } catch {
+    return false; // argv[1] 已不可解析（极端竞态）——按非主模块退
+  }
+}
+const isMain = isMainModule(argv[1], import.meta.url);
 if (isMain) {
   void main()
     .then((code) => processExit(code))

@@ -16,6 +16,14 @@
   "bin": {
     "berry-agent": "./dist/host/main.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=24.0"
   },
@@ -32,7 +40,7 @@
     "lint:topology": "node tools/check-topology.mjs && node tools/check-api.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\" \"vite.config.ts\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\" \"vite.config.ts\"",
-    "build": "npm run build:webui && tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs",
+    "build": "npm run build:webui && tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs && node tools/build-meta.mjs",
     "build:sdk": "tsc -p packages/berry-agent-sdk/tsconfig.json",
     "build:webui": "vite build"
   },

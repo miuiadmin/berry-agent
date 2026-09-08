@@ -14,5 +14,9 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/contracts/**/*.ts", "src/llm/provider-face.ts"]
+  "include": ["src/contracts/**/*.ts", "src/llm/provider-face.ts"],
+  // exclude 覆盖父值不合并（extends 语义）：本列表 = 父 exclude 重列 + 新增位
+  // ——src/**/*.test.ts（测试不入声明发射——include 的 **/*.ts 会卷入测试件，
+  // 2026-09-08 发布面收口批逮到 dist/contracts/*.test.d.ts 随包泄漏后补排）
+  "exclude": ["src/webui/client", "src/**/*.test.ts"]
 }
