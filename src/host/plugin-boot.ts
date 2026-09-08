@@ -52,6 +52,9 @@ import type { LlmRuntime } from '../llm/index.js';
 import { createEnvRefResolver, createSecretsFace } from '../credentials/index.js';
 import type { SecretsFaceOptions } from '../credentials/index.js';
 import type { OAuthFlowRegistry } from '../credentials/index.js';
+// 跨会话操控受理器（e4-3——sessions-control fork 绑定；host→conversation 边在册）
+import { bindControlForPlugin, SESSIONS_CONTROL_SERVICE } from '../conversation/index.js';
+import type { SessionsControlFace } from '../conversation/index.js';
 // 审计流面类型（U3 批 U3-5——audit_events 载体真身；host→persist 边在册）
 import type { AuditFace } from '../persist/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
@@ -91,6 +94,13 @@ export interface PluginBootFs {
  * 结构性不出装载器（插件消费面只见 fork 绑定真身）。
  */
 const SECRETS_SEAT_MARKER = { seat: 'secrets' } as const;
+
+/**
+ * 'sessions-control' 席位可满足标记（e4-3）：与 SECRETS_SEAT_MARKER 同构——
+ * 受理器真身是 fork 级逐插件绑定（caller 闭包铸归因），共享根结构性无此名，
+ * 标记位使 inject: ['sessions-control'] 声明可解。
+ */
+const SESSIONS_CONTROL_SEAT_MARKER = { seat: 'sessions-control' } as const;
 
 /** 缺省真盘实现（读失败一律 null——文件缺席语义） */
 function defaultFs(): PluginBootFs {
@@ -173,6 +183,14 @@ export interface PluginBootOptions {
      */
     readonly oauthRegistry?: OAuthFlowRegistry;
   };
+  /**
+   * 跨会话操控受理器真身（e4-3——03 §2.2 第十一面 sessions-control 服务
+   * 面）：在场时装载序逐插件 fork 绑定（bindControlForPlugin 铸 caller
+   * {kind:'plugin', pluginId} 闭包——归因单源，传入面无 caller 位）。缺席 =
+   * ctx.get("sessions-control") 响亮 CONTEXT_SERVICE_MISSING（诚实缺席律：
+   * 测试替身形/:memory: 诊断形）。
+   */
+  readonly sessionsControl?: SessionsControlFace;
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
@@ -284,13 +302,19 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   if (secretsWiring !== undefined && secretsSeatActive) {
     options.scope.provide('credentials-env-ref', createEnvRefResolver(secretsWiring.store));
   }
+  // 操控受理器席位判（e4-3——host 内建机制非 core 件，无件席门：在场即绑）
+  const controlSeatActive = options.sessionsControl !== undefined;
   const services: ServiceBag = {
     get: (name) =>
       // 'secrets' 是 fork 级逐插件绑定面（本插件独见——createContext 落真身
       // 绑定），共享根结构性无此名。Kahn 可满足判以标记位应答：声明
       // inject: ['secrets'] 的磁盘行合法可解（服务自装载前即在场）。
       // 标记不外泄——ServiceBag 装载器私有，插件消费面走 fork 绑定真身。
-      name === 'secrets' && secretsSeatActive ? SECRETS_SEAT_MARKER : options.scope.tryGet(name),
+      name === 'secrets' && secretsSeatActive
+        ? SECRETS_SEAT_MARKER
+        : name === SESSIONS_CONTROL_SERVICE && controlSeatActive
+          ? SESSIONS_CONTROL_SEAT_MARKER
+          : options.scope.tryGet(name),
     provide: (name, value) => options.scope.provide(name, value),
   };
   const createContext = (pluginId: string, opens?: readonly string[]) => {
@@ -348,6 +372,12 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
             : {}),
         }),
       );
+    }
+    // sessions-control 面绑定（e4-3——03 §2.2 第十一面）：fork 级提供 =
+    // 本插件独见（caller 归因闭包铸造防冒名——传入面无 caller 位，覆写
+    // 单源）。缺席 = ctx.get 响亮 CONTEXT_SERVICE_MISSING（诚实缺席律）
+    if (controlSeatActive) {
+      fork.provide(SESSIONS_CONTROL_SERVICE, bindControlForPlugin(pluginId, options.sessionsControl));
     }
     handles.set(pluginId, handle);
     return handle.ctx;

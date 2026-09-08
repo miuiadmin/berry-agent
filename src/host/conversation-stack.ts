@@ -34,13 +34,22 @@ import type { CompactionService } from '../compaction/index.js';
 import {
   assembleOpenTools,
   ConversationDriver,
+  createSessionsControl,
+  createControlTools,
+  CONTROL_CROSS_CAPABILITY,
   DEFAULT_RETRY_POLICY,
   ensureTodoRole,
   provideAgentService,
   reseedTimeline,
   SessionManager,
 } from '../conversation/index.js';
-import type { DriverFactory, SubmitOptions, SubmitResult } from '../conversation/index.js';
+import type {
+  ControlUsedRecord,
+  DriverFactory,
+  SubmitOptions,
+  SubmitResult,
+  SessionsControlFace,
+} from '../conversation/index.js';
 import type { UserMessage } from '../contracts/index.js';
 import {
   classifyError,
@@ -113,6 +122,18 @@ export interface ConversationStackOptions {
     readonly getOpens: () => ReadonlySet<string>;
     readonly onCapabilityUsed?: (record: SessionObserveUsedRecord) => void;
   };
+  /**
+   * 跨会话操控门检接线（e-4 操控腿——03 §4.6 第六枚 sessions.control-cross
+   * 双面同门）：getOpens = 开门授予集取值器（v1 装配根注空集——结构性默认
+   * 关，授予面呈拍随 e-4 收官报告与 e-5 题 9 一起呈）；onCapabilityUsed =
+   * 开门后逐次审计 seam（05 §1.1——装配根接 audit 单写者位；缺席 = 零审计）。
+   * 受理器真身经 ConversationStack.sessionsControl 读面外露（plugin-boot fork
+   * 绑定位消费——与工具族同一实例，双面同源）。
+   */
+  readonly controlCross?: {
+    readonly getOpens: () => ReadonlySet<string>;
+    readonly onCapabilityUsed?: (record: ControlUsedRecord) => void;
+  };
   /** 警示面（缺省 stderr——驱动护栏与压缩 warn 的落点） */
   readonly warn?: (message: string) => void;
 }
@@ -143,6 +164,12 @@ export interface ConversationStack {
    * 栈内 per-session 闭包（不经本面）。
    */
   readonly sessionView: SessionView;
+  /**
+   * 跨会话操控受理器真身（e-4 操控腿——双面同源单源位）：栈内工具族闭包
+   * 直接引用（不经本面）；本读面外露给装配根 → plugin-boot 逐插件 fork
+   * 绑定（sessions-control 服务面，caller 闭包铸造防冒名）。
+   */
+  readonly sessionsControl: SessionsControlFace;
   /** 投影拉取（焦点重画与 /history 同源——驱动活体优先，未开回库装载） */
   projectionOf(sessionId: string): Promise<readonly AgentMessage[]>;
   driverOf(sessionId: string): ConversationDriver | undefined;
@@ -287,12 +314,22 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           doorStates: () => {
             const opens = options.observeCross?.getOpens() ?? new Set<string>();
             const verdict = adjudicateCapabilityDoor(opens, OBSERVE_CROSS_CAPABILITY);
+            const controlVerdict = adjudicateCapabilityDoor(
+              options.controlCross?.getOpens() ?? new Set<string>(),
+              CONTROL_CROSS_CAPABILITY,
+            );
             return [
               {
                 capability: OBSERVE_CROSS_CAPABILITY,
                 open: verdict.ok,
                 ...(verdict.ok ? {} : { reason: verdict.message }),
                 scope: '跨树会话枚举与读取（session_list/session_read/session_trace 跨树目标）',
+              },
+              {
+                capability: CONTROL_CROSS_CAPABILITY,
+                open: controlVerdict.ok,
+                ...(controlVerdict.ok ? {} : { reason: controlVerdict.message }),
+                scope: '跨会话操控三动词（session_send/session_interrupt/session_withdraw——全域同门无树内豁免）',
               },
             ];
           },
@@ -309,8 +346,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         askApproval: askFace,
         ...(options.allowlist !== undefined ? { allowlist: options.allowlist } : {}),
         ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
-        // 会话维工具族并入扩展位（bootTools 同位——模型可见清单恒在律）
-        extraTools: () => [...(options.bootTools?.() ?? []), ...sessionTools],
+        // 会话维工具族并入扩展位（bootTools 同位——模型可见清单恒在律）；
+        // 操控三件同位并入（e-4——恒挂载，门检在受理器内执法）
+        extraTools: () => [
+          ...(options.bootTools?.() ?? []),
+          ...sessionTools,
+          ...createControlTools({ callerSessionId: sessionId, control: sessionsControl }),
+        ],
         ...(goalTodo !== undefined ? { todoTool: goalTodo } : {}),
         sensitiveValues, // 出口消毒值基腿（栈级单闭包——多会话装配共享，live 读）
       });
@@ -350,6 +392,17 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   };
   const manager = new SessionManager({ persistence: options.runtime.persistence, dispatch, createDriver });
 
+  // 操控受理器（e-4——03 §2.2 第十一面双面同源单源实现位）：栈级单例——
+  // 工具族（模型道 per-session 闭包）与 plugin-boot fork 绑定（插件道）消费
+  // 同一实例。门检/审计经 controlCross seam（v1 装配根注空集 = 结构性默认关）
+  const sessionsControl = createSessionsControl({
+    manager,
+    getOpens: () => options.controlCross?.getOpens() ?? new Set<string>(),
+    ...(options.controlCross?.onCapabilityUsed !== undefined
+      ? { onCapabilityUsed: options.controlCross.onCapabilityUsed }
+      : {}),
+  });
+
   // 阈值触发器：run 终态 → 该会话日志入阈值判定（fire-and-forget）。判阈双源
   // 的真 token 主判在此供笔（lastUsageFactOf——日志末条 assistant 计量）；零计量
   // 不携带 → 服务侧回落投影字符估算（estimate 兜底档）
@@ -381,6 +434,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     dispatch,
     model,
     sessionView,
+    sessionsControl,
     projectionOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
     submitText(sessionId, text, submitOptions) {

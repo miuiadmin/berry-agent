@@ -166,7 +166,8 @@ describe('createConversationStack 装配序', () => {
       systemPrompt: '你是子代理，专注探索',
       shapeTools: (tools) => tools.filter((tool) => tool.name !== 'bash' && tool.name !== 'grep'),
     });
-    // 整形后实面快照（孙代委派的基准面；会话维四件恒挂载——e2-4 与 fs/检索/todo 并列）
+    // 整形后实面快照（孙代委派的基准面；会话维四件 + 操控三件恒挂载——
+    // e2-4/e4-3 与 fs/检索/todo 并列）
     expect(child.driver.toolNames).toEqual([
       'read',
       'write',
@@ -178,6 +179,9 @@ describe('createConversationStack 装配序', () => {
       'session_read',
       'session_trace',
       'session_status',
+      'session_send',
+      'session_interrupt',
+      'session_withdraw',
     ]);
 
     faux.setResponses([() => messageOf('stop')]);
@@ -185,7 +189,8 @@ describe('createConversationStack 装配序', () => {
     expect(receipt).toMatchObject({ status: 'completed' });
 
     // 信封快照（边界制）承载两位：systemPrompt 原始值（快照先于注入）+
-    // toolSchemas = 整形后实面（裸栈 = fs 四 + 检索两 + todo + 会话维四件，无 bash）
+    // toolSchemas = 整形后实面（裸栈 = fs 四 + 检索两 + todo + 会话维四件 +
+    // 操控三件，无 bash）
     const header = child.driver.session.events().find((event) => event.type === 'request/header') as
       { data: { systemPrompt: string; toolSchemas: Array<{ name: string }> } } | undefined;
     expect(header).toBeDefined();
@@ -201,6 +206,9 @@ describe('createConversationStack 装配序', () => {
       'session_read',
       'session_trace',
       'session_status',
+      'session_send',
+      'session_interrupt',
+      'session_withdraw',
     ]);
     await rt.shutdown();
   });
@@ -546,5 +554,77 @@ describe('会话维观测装配（e2-4 观测腿接线）', () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.error).toBe(true); // 门拒 = 工具错面（run 不中断）
     expect(JSON.stringify(results[0]!.content)).toContain('SESSION_OBSERVE_DENIED');
+  });
+});
+
+/* ---------------- 跨会话操控装配（e4-3——受理器栈级单例 + 工具族 + controlCross seam） ---------------- */
+
+describe('跨会话操控装配（e4-3 操控腿接线）', () => {
+  it('工具族恒挂载：durable 会话 toolNames 含操控三件（与 obs 四件并列 extraTools 位）', () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    const names = stack.driverOf(session.sessionId)!.toolNames!;
+    for (const tool of ['session_send', 'session_interrupt', 'session_withdraw']) {
+      expect(names).toContain(tool);
+    }
+  });
+
+  it('sessionsControl 读面外露：三动词在场（assembly → plugin-boot fork 绑定消费位）', () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const verbs: readonly (keyof typeof stack.sessionsControl)[] = ['send', 'interrupt', 'withdraw'];
+    for (const verb of verbs) {
+      expect(typeof stack.sessionsControl[verb]).toBe('function');
+    }
+  });
+
+  it('操控门 v1 结构性闭门：session_send 跨会话 → [SESSION_CONTROL_DENIED] 错面（run 不中断）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    // write-effect 审批对整名免问（本测焦点在操控门非审批链——allowlist 整名
+    // 条目合法放行面；操控门是受理器内第二道执法，两道门各自独立）
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      workspace: () => ws,
+      allowlist: [{ tool: 'session_send', pattern: ws }],
+    });
+    const a = stack.openStartupSession(ws);
+    const b = stack.openStartupSession(ws); // 目标（同树/跨树同门——操控轴无树内豁免）
+    faux.setResponses([
+      () => toolCallOf('t1', 'session_send', { sessionId: b.sessionId, text: 'hi' }),
+      () => messageOf('stop'),
+    ]);
+    const receipt = await stack.submitText(a.sessionId, '派活');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    const results = stack
+      .driverOf(a.sessionId)!
+      .session.events()
+      .filter((event) => event.type === 'tool/result')
+      .map((event) => event.data as { content: unknown; error?: true });
+    expect(results).toHaveLength(1);
+    expect(results[0]!.error).toBe(true); // 门拒 = 工具错面（guard 折 BaseError）
+    expect(JSON.stringify(results[0]!.content)).toContain('SESSION_CONTROL_DENIED');
+    await rt.shutdown();
+  });
+
+  it('e-3 门态快照含操控门行：session_status 呈 sessions.control-cross=closed（doorStates 扩行生效）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    faux.setResponses([() => toolCallOf('t1', 'session_status', {}), () => messageOf('stop')]);
+    const receipt = await stack.submitText(session.sessionId, '自省');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    const text = JSON.stringify(
+      stack
+        .driverOf(session.sessionId)!
+        .session.events()
+        .find((event) => event.type === 'tool/result')!.data,
+    );
+    expect(text).toContain('sessions.control-cross=closed'); // 操控门行在场（v1 空集恒闭）
   });
 });

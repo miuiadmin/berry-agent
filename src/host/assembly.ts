@@ -213,6 +213,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         getOpens: () => new Set<string>(),
         onCapabilityUsed: (record) => void audit.append('capability/used', { ...record }),
       },
+      // 跨会话操控门检接线（e4-3——03 §4.6 第六枚 sessions.control-cross）：
+      // getOpens = v1 空集（结构性默认关——操控开门授予面随收官报告呈拍）；
+      // onCapabilityUsed = 门开后逐次审计（05 §1.1 ControlUsedRecord——
+      // 动词名 + 目标会话 id + 双道归因键原形透传）
+      controlCross: {
+        getOpens: () => new Set<string>(),
+        onCapabilityUsed: (record) => void audit.append('capability/used', { ...record }),
+      },
       warn: (message) => logger.warn(message),
     });
 
@@ -364,6 +372,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         // 会话血缘判定面（e2-4——ctx.events.subscribeSessionLifecycle tree 档
         // 过滤受局面）：真身 = 会话维视图 isSameTree（05 §9 parent_id 链单源）
         sessionLineage: { isSameTree: (a, b) => stack.sessionView.isSameTree(a, b) },
+        // 跨会话操控受理器真身（e4-3——ctx.get("sessions-control") fork 绑定
+        // 位）：plugin-boot 逐插件 bindControlForPlugin 铸 caller 闭包（插件
+        // 道归因 plugin:<id>——传入面无 caller 位，伪造结构性不存在）
+        sessionsControl: stack.sessionsControl,
         // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
         // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
         // plugin-boot；oauthRegistry = c-6 流注册表真身——fork 绑定成

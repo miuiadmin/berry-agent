@@ -916,3 +916,90 @@ describe('registerUiBackend 全链 e2e（U3 批 U3-6——opens→门检→注�
     expect(opensOf(face, 'acme-hijack')).toEqual(['channels.ui-backend']);
   });
 });
+
+describe('sessions-control 面装配（e4-3——03 §2.2 第十一面 fork 级绑定）', () => {
+  /** 受理器替身（caller 录——归因断言位；assembly 真源 = conversation-stack 栈级单例） */
+  function recordingControl() {
+    const callers: unknown[] = [];
+    return {
+      callers,
+      send: async (input: { caller: unknown }) => {
+        callers.push(input.caller);
+        return { status: 'delivered', messageId: 'msg-1' } as const;
+      },
+      interrupt: async (input: { caller: unknown }) => {
+        callers.push(input.caller);
+        return { status: 'interrupted', targetSessionId: 's-x' } as const;
+      },
+      withdraw: async (input: { caller: unknown }) => {
+        callers.push(input.caller);
+        return { status: 'delivered', messageId: 'msg-1' } as const;
+      },
+    };
+  }
+
+  it('在场绑定：探针 fork 见绑定版，caller 闭包 {kind:"plugin"} 归因单源', async () => {
+    const control = recordingControl();
+    const seen: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        const face = (ctx as { get: (n: string) => unknown }).get('sessions-control') as {
+          send(input: { targetSessionId: string; text: string }): Promise<unknown>;
+        };
+        seen.push(face);
+        await face.send({ targetSessionId: 's-x', text: 'hi' }); // 插件道调用无 caller 位
+      },
+    };
+    const { options, scope } = rigBoot('/data', {
+      corePlugins: [probe],
+      fs: memoryFs(),
+      sessionsControl: control as never,
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
+    expect(seen).toHaveLength(1); // 消费面真达（fork 绑定版非标记位）
+    // caller 闭包铸造：插件道归因 plugin:<装载 id>——传入面无 caller 位
+    expect(control.callers).toEqual([{ kind: 'plugin', pluginId: 'core:probe' }]);
+    expect(scope.tryGet('sessions-control')).toBeUndefined(); // 共享根无此名（fork 独见）
+  });
+
+  it('Kahn 可满足标记：inject: ["sessions-control"] 声明合法可解', async () => {
+    const control = recordingControl();
+    const seen: unknown[] = [];
+    const consumer: CorePluginReference = {
+      name: 'consumer',
+      inject: ['sessions-control'], // 声明硬依赖——标记位应答使其可装载
+      apply: async (ctx) => {
+        seen.push((ctx as { tryGet: (n: string) => unknown }).tryGet('sessions-control'));
+      },
+    };
+    const { options } = rigBoot('/data', {
+      corePlugins: [consumer],
+      fs: memoryFs(),
+      sessionsControl: control as never,
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:consumer']);
+    expect(typeof (seen[0] as { send: unknown }).send).toBe('function'); // 消费面真达
+  });
+
+  it('缺席 = ctx.get 响亮 CONTEXT_SERVICE_MISSING（诚实缺席律）', async () => {
+    const errs: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        try {
+          (ctx as { get: (n: string) => unknown }).get('sessions-control');
+        } catch (err) {
+          errs.push(err);
+        }
+      },
+    };
+    const { options } = rigBoot('/data', { corePlugins: [probe], fs: memoryFs() });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
+    expect(errs).toHaveLength(1);
+    expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
+  });
+});

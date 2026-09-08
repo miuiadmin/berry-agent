@@ -38,11 +38,16 @@ export type {
 } from './control.js';
 export {
   A2A_ROUND_LIMIT_DEFAULT,
+  bindControlForPlugin,
   CONTROL_CROSS_CAPABILITY,
   controlSourceOf,
   createSessionsControl,
   SESSIONS_CONTROL_SERVICE,
 } from './control.js';
+export type { PluginControlFace } from './control.js';
+// 跨会话操控工具族（e-4 操控腿——宿主内建固定三件薄包装，恒挂载）
+export type { ControlToolsDeps } from './control-tools.js';
+export { createControlTools } from './control-tools.js';
 // todo 机器（11e：fold 推导 + conversation/todo 角色 + 快照注入 + 工具件；
 // 15b：goal 段升格窄面 TodoGoalScope——组合根 goalScopeFor 闭包注入位）
 export type { TodoItemData, TodoGoalScope } from './todo.js';

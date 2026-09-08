@@ -266,6 +266,28 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
   };
 }
 
+/**
+ * 插件道消费面（窄形——无 caller 位：归因闭包铸造防冒名单源，c-3 secrets
+ * fork 绑定同构）：ctx.get("sessions-control") 拿到的是本面。
+ */
+export interface PluginControlFace {
+  send(input: Omit<SessionSendInput, 'caller'>): Promise<ControlSendReceipt>;
+  interrupt(input: Omit<SessionInterruptInput, 'caller'>): Promise<ControlInterruptReceipt>;
+  withdraw(input: Omit<SessionWithdrawInput, 'caller'>): Promise<ControlWithdrawReceipt>;
+}
+
+/**
+ * 逐插件绑定（plugin-boot fork 落位调用）：caller = {kind:'plugin', pluginId}
+ * 闭包铸造——插件传入面无 caller 位（传入即被覆写，伪造结构性不存在）。
+ */
+export function bindControlForPlugin(pluginId: string, face: SessionsControlFace): PluginControlFace {
+  return {
+    send: (input) => face.send({ ...input, caller: { kind: 'plugin', pluginId } }),
+    interrupt: (input) => face.interrupt({ ...input, caller: { kind: 'plugin', pluginId } }),
+    withdraw: (input) => face.withdraw({ ...input, caller: { kind: 'plugin', pluginId } }),
+  };
+}
+
 /** 目标 durable 日志最近 turn/start 事件 seq（expectedTurnId 对拍单源——尾扫；无 turn 返 undefined） */
 function lastTurnStartSeq(driver: ConversationDriver): number | undefined {
   const events = driver.session.events();

@@ -20,8 +20,8 @@ import { Persistence } from '../persist/persistence.js';
 import { ConversationDriver } from './driver.js';
 import type { DriverFactory } from './sessions.js';
 import { SessionManager } from './sessions.js';
-import { createSessionsControl } from './control.js';
-import type { ControlUsedRecord } from './control.js';
+import { createSessionsControl, bindControlForPlugin } from './control.js';
+import type { ControlUsedRecord, PluginControlFace, SessionsControlFace } from './control.js';
 
 /* ---------------- 测试台 ---------------- */
 
@@ -131,6 +131,55 @@ function lastTurnStart(driver: ConversationDriver): number | undefined {
   }
   return undefined;
 }
+
+/* ---------------- 插件道 fork 绑定（caller 闭包铸造） ---------------- */
+
+describe('插件道 fork 绑定——bindControlForPlugin（caller 覆写防冒名）', () => {
+  /** 受理器替身（全动词入参录——caller 断言位） */
+  function recordingFace(): { face: SessionsControlFace; received: Array<{ verb: string; caller: unknown }> } {
+    const received: Array<{ verb: string; caller: unknown }> = [];
+    return {
+      received,
+      face: {
+        async send(input) {
+          received.push({ verb: 'send', caller: input.caller });
+          return { status: 'delivered', messageId: 'msg-1' };
+        },
+        async interrupt(input) {
+          received.push({ verb: 'interrupt', caller: input.caller });
+          return { status: 'interrupted', targetSessionId: input.targetSessionId };
+        },
+        async withdraw(input) {
+          received.push({ verb: 'withdraw', caller: input.caller });
+          return { status: 'delivered', messageId: input.messageId };
+        },
+      },
+    };
+  }
+
+  it('三动词 caller 恒 {kind:"plugin", pluginId} 闭包值——插件道归因单源', async () => {
+    const rec = recordingFace();
+    const bound: PluginControlFace = bindControlForPlugin('demo', rec.face);
+    await bound.send({ targetSessionId: 's-b', text: 'hi' });
+    await bound.interrupt({ targetSessionId: 's-b' });
+    await bound.withdraw({ targetSessionId: 's-b', messageId: 'msg-1' });
+    expect(rec.received).toEqual([
+      { verb: 'send', caller: { kind: 'plugin', pluginId: 'demo' } },
+      { verb: 'interrupt', caller: { kind: 'plugin', pluginId: 'demo' } },
+      { verb: 'withdraw', caller: { kind: 'plugin', pluginId: 'demo' } },
+    ]);
+  });
+
+  it('PluginControlFace 类型面无 caller 位（传入即被覆写——伪造结构性不存在）', async () => {
+    const rec = recordingFace();
+    const bound = bindControlForPlugin('real', rec.face) as unknown as {
+      send(input: Record<string, unknown>): Promise<unknown>;
+    };
+    // 恶意插件运行时强塞 caller（类型面之外）——覆写律：闭包值恒胜
+    await bound.send({ caller: 'session:victim', targetSessionId: 's-b', text: 'hi' });
+    expect(rec.received[0]!.caller).toEqual({ kind: 'plugin', pluginId: 'real' });
+  });
+});
 
 /* ---------------- 受理序与拒码族 ---------------- */
 
