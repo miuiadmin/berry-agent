@@ -20,7 +20,14 @@
  * 注册——注册器挂 effect 栈的回卷语义归装配面）。
  */
 import { createHash } from 'node:crypto';
-import type { EventTypeMeta } from '../contracts/index.js';
+import {
+  getMessageRoleDefinition,
+  registerMessageRole,
+  type CustomMessage,
+  type EventTypeMeta,
+  type MessageRoleDefinition,
+  type UserMessage,
+} from '../contracts/index.js';
 import type { BriefBaseline } from './inject.js';
 import { shortIdOf } from './inject.js';
 import type { BriefFaceEntry, MemoryDiffData, MemoryDiffEntry } from './types.js';
@@ -120,6 +127,53 @@ export function renderDiffInjection(entries: readonly MemoryDiffEntry[]): string
   const lines = [DIFF_FRAME];
   for (const e of entries) lines.push(`${e.op} [m:${e.id}] [${e.kind}] ${e.summary}`);
   return lines.join('\n');
+}
+
+/* ---------------- 差分注入角色（06 §319——memory/diff 自定义角色） ---------------- */
+
+/** 差分注入角色名（与事件词同串——消息角色/事件类型两注册表分立互不撞） */
+export const MEMORY_DIFF_ROLE = 'memory/diff';
+
+/**
+ * 角色定义（模块级单例——身份同一性判据，todo.ts 同范式）：toLlm 转带为一条
+ * UserMessage（text 已含防注入框架句式——renderDiffInjection 产出即成品）；
+ * render hidden（瞬态注入不进时间线）。
+ */
+const DIFF_ROLE_DEFINITION: MessageRoleDefinition = {
+  toLlm: (message: CustomMessage) => {
+    if (typeof message.content !== 'string') return null;
+    return { role: 'user', content: message.content, timestamp: message.timestamp };
+  },
+  render: { intent: 'hidden', label: '记忆差分' },
+};
+
+/**
+ * 注册差分注入角色（幂等 + 身份守卫——ensureTodoRole 同律）：装配面多次装配
+ * 常态；在册定义另有其身 → 域名窃据 fail-loud。
+ */
+export function ensureDiffRole(): void {
+  const existing = getMessageRoleDefinition(MEMORY_DIFF_ROLE);
+  if (existing !== undefined) {
+    if (existing !== DIFF_ROLE_DEFINITION) {
+      throw new Error(`消息角色 ${MEMORY_DIFF_ROLE} 已被其他定义占用（memory 域名窃据——差分注入拒绝分叉转写）`);
+    }
+    return;
+  }
+  registerMessageRole(MEMORY_DIFF_ROLE, DIFF_ROLE_DEFINITION);
+}
+
+/**
+ * 构建差分注入消息（LLM 形——context_transform 载荷消息批已是 LLM 形）：
+ * 经角色 toLlm 转写（ensureDiffRole 自足）。timestamp 取请求时点。
+ */
+export function diffInjectionMessage(text: string, timestamp: number): UserMessage | null {
+  ensureDiffRole();
+  const converted = DIFF_ROLE_DEFINITION.toLlm?.({ role: MEMORY_DIFF_ROLE, content: text, timestamp });
+  // 定义体在本模块单源——string content 必产单条 user；运行时窄化防御仅挡未来改动
+  if (converted === undefined || converted === null || Array.isArray(converted) || converted.role !== 'user') {
+    return null;
+  }
+  return converted;
 }
 
 /* ---------------- 纪元 tracker ---------------- */

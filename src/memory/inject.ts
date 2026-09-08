@@ -42,6 +42,13 @@
  */
 import { utilityScore } from './merge.js';
 import { sanitizeEntryForReadout } from './scan.js';
+import {
+  getMessageRoleDefinition,
+  registerMessageRole,
+  type CustomMessage,
+  type MessageRoleDefinition,
+  type UserMessage,
+} from '../contracts/index.js';
 import type { MemoryDao } from './dao.js';
 import type { MemoryKind } from './types.js';
 import {
@@ -56,6 +63,7 @@ import {
   MEMORY_PROMOTION_USAGE_MIN,
   MEMORY_RECALL_POOL_FACTOR,
   MEMORY_RECALL_QUERY_MAX_CHARS,
+  MEMORY_RECALL_ROLE,
   MEMORY_RECALL_TOP_K,
   MEMORY_SEARCH_MAX_LIMIT,
 } from './types.js';
@@ -281,6 +289,52 @@ export function buildCoreBrief(deps: CoreBriefDeps): string {
 }
 
 /* ---------------- 路 2：按需检索 ---------------- */
+
+// MEMORY_RECALL_ROLE 单源在 types.js（本段只挂角色定义与注册面）
+
+/**
+ * 角色定义（模块级单例——身份同一性判据，todo.ts 同范式）：toLlm 转带为一条
+ * UserMessage（text 已含防注入框架句式与引用指令——recallForQuery 产出即成品）；
+ * render hidden（瞬态注入不进时间线——UI 投影不走此角色）。
+ */
+const RECALL_ROLE_DEFINITION: MessageRoleDefinition = {
+  toLlm: (message: CustomMessage) => {
+    if (typeof message.content !== 'string') return null;
+    return { role: 'user', content: message.content, timestamp: message.timestamp };
+  },
+  render: { intent: 'hidden', label: '记忆检索' },
+};
+
+/**
+ * 注册检索注入角色（幂等 + 身份守卫——todo.ts ensureTodoRole 同律）：进程级
+ * 注册表 + 装配面多次装配（测试多例/热重启形）⇒ 多次调用常态。在册定义恰为
+ * 本模块单例 → 幂等通过；另有其身 → 域名被窃据 fail-loud。
+ */
+export function ensureRecallRole(): void {
+  const existing = getMessageRoleDefinition(MEMORY_RECALL_ROLE);
+  if (existing !== undefined) {
+    if (existing !== RECALL_ROLE_DEFINITION) {
+      throw new Error(`消息角色 ${MEMORY_RECALL_ROLE} 已被其他定义占用（memory 域名窃据——检索注入拒绝分叉转写）`);
+    }
+    return;
+  }
+  registerMessageRole(MEMORY_RECALL_ROLE, RECALL_ROLE_DEFINITION);
+}
+
+/**
+ * 构建检索注入消息（LLM 形——context_transform 载荷消息批已是 LLM 形）：
+ * 经角色 toLlm 转写（ensureRecallRole 自足——构建不依赖装配面先行注册）。
+ * timestamp 取请求时点（注入体的时间面）。
+ */
+export function recallInjectionMessage(text: string, timestamp: number): UserMessage | null {
+  ensureRecallRole();
+  const converted = RECALL_ROLE_DEFINITION.toLlm?.({ role: MEMORY_RECALL_ROLE, content: text, timestamp });
+  // 定义体在本模块单源——string content 必产单条 user；运行时窄化防御仅挡未来改动
+  if (converted === undefined || converted === null || Array.isArray(converted) || converted.role !== 'user') {
+    return null;
+  }
+  return converted;
+}
 
 /** 检索注入命中（元数据面——装配面/测试面消费；text 才是 toLlm 面） */
 export interface RecallHit {

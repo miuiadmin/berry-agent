@@ -138,7 +138,16 @@ export type {
   ImmediateExtractorDeps,
   ImmediateExtractor,
 } from './extract.js';
-export { MEMORY_CITE_RE, shortIdOf, briefBaseline, renderCoreBrief, buildCoreBrief, recallForQuery } from './inject.js';
+export {
+  MEMORY_CITE_RE,
+  shortIdOf,
+  briefBaseline,
+  renderCoreBrief,
+  buildCoreBrief,
+  recallForQuery,
+  ensureRecallRole,
+  recallInjectionMessage,
+} from './inject.js';
 export type { BriefEntry, BriefBaseline, CoreBriefDeps, RecallHit, RecallInjection, RecallDeps } from './inject.js';
 export { matchesToolPattern, isPollutingToolName, createPollutionTracker } from './pollution.js';
 export type { PollutionTracker, PollutionTrackerDeps } from './pollution.js';
@@ -155,10 +164,13 @@ export type { CiteRecorderDeps, CiteRecorder } from './cite.js';
 export {
   MEMORY_DIFF_EVENT_TYPE,
   MEMORY_DIFF_EVENT_META,
+  MEMORY_DIFF_ROLE,
   faceOf,
   fingerprintOf,
   diffFace,
   renderDiffInjection,
+  ensureDiffRole,
+  diffInjectionMessage,
   createDiffTracker,
 } from './diff.js';
 export type { DiffAppendEvent, DiffFetchEvents, MemoryDiffDeps, MemoryDiffTracker } from './diff.js';

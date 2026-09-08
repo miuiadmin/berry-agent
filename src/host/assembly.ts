@@ -41,6 +41,7 @@ import type { SkillsRegistry } from '../skills/index.js';
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
 import { createCorePlugins } from './core-plugins.js';
 import type { GoalFace } from './core-plugins.js';
+import { createSessionsFace } from './sessions-face.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import type { CorePluginReference } from './loader.js';
@@ -204,6 +205,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       goalScopeFor: (sessionId) => scope.tryGet<GoalFace>('goal')?.service.goalScopeFor(sessionId),
       warn: (message) => logger.warn(message),
     });
+
+    // —— 'sessions' 服务面（03 §4.4 appendEvent 最小面——批 19 销账笔）：活引用
+    // driverOf（调用时点解析——/new 热切换安全）；无活体驱动 = undefined 降级
+    // （消费方 core:memory 差分落账腿捕获降级——mirror 不锁步）；二道闸（核心
+    // 词拒写 + 未注册词拒写）闭包内执法。boot 前位——memory 件 apply 时
+    // tryGet('sessions') 已在场；完整只读四件 + 受理制写两腿归后续批
+    scope.provide('sessions', createSessionsFace({ driverOf: (sessionId) => stack.driverOf(sessionId) }));
 
     // —— Job 注册表 + 触发器注册表（C 批 C-3——第十一动词宿主侧真源）：
     // job_settled 总线词先注册（活体事件发射前置——04 §10 内存直推不落库，

@@ -196,6 +196,27 @@ export interface WakeRefusedReceipt {
 /** 唤醒预算帽（04 §4 定值：连续后台唤醒计数上限——批消费位记账） */
 export const MAX_CONSECUTIVE_WAKES = 3;
 
+/**
+ * context_transform 钩子事件词（03 §2.4 主表 message 层行——mode waterfall）。
+ * LLM 请求组装最后关口：驱动发射、插件经 ctx.on 挂管线监听器（不调 next 即
+ * 短路——管线语义）。词汇注册双源幂等：bootPlugins 预注册 41 词在前，驱动
+ * 构造器自举在后（已注册词跳过——一词两册不撞名，open-tools 同律）。
+ */
+export const CONTEXT_TRANSFORM_EVENT = 'context_transform';
+
+/**
+ * context_transform 瀑布载荷（03 §2.4 签名「双参 `(messages, sessionId)`」＝
+ * 对象载荷承载）。messages 为**可变数组就地改写**（GateInput 同律）：载荷对象
+ * 整链固定、handler 就地 push 注入消息即全链可见；注入体须已转写为 LLM 形
+ * Message[]（convertToLlm 先于 transformContext——组装序）。
+ */
+export interface ContextTransformInput {
+  /** 目标会话（注入面绑会话的判据位） */
+  readonly sessionId: string;
+  /** LLM 形消息批（handler 就地追加——注入序：memory/diff → memory/recall → todo 恒最后） */
+  readonly messages: Message[];
+}
+
 /** 重播种产物：重建的 timeline 活数组种子（标准消息——自定义角色是每请求瞬态注入，不进重播种） */
 export type ReseededTimeline = Message[];
 

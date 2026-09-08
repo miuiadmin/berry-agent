@@ -27,6 +27,8 @@ import { SessionLog } from '../session/index.js';
 import type { AgentEvent } from '../agent/index.js';
 import { ConversationDriver } from './driver.js';
 import type { ConversationDriverOptions } from './types.js';
+import { CONTEXT_TRANSFORM_EVENT } from './types.js';
+import type { ContextTransformInput } from './types.js';
 import { provideAgentService } from './agent-service.js';
 import { createTodoTool } from './todo.js';
 
@@ -834,6 +836,116 @@ describe('ConversationDriver todo 快照注入', () => {
     const tail = seen[2]!.messages[seen[2]!.messages.length - 1];
     expect(tail).toMatchObject({ role: 'user', content: '第二问' });
     expect((tail as { content?: unknown }).content ?? '').not.toContain('当前任务清单');
+  });
+});
+
+/* ---------------- context_transform 瀑布派发（批 19 销账笔——03 §2.4 最后关口） ---------------- */
+
+describe('ConversationDriver context_transform 瀑布派发', () => {
+  it('词汇自举注册（一词两册幂等）：裸总线构造后词在场；同总线二次构造不撞名', () => {
+    const dispatch = new EventDispatch();
+    expect(dispatch.isRegistered(CONTEXT_TRANSFORM_EVENT)).toBe(false); // 裸总线零词
+    makeDriver({ dispatch, scripts: [assistant({})] });
+    expect(dispatch.isRegistered(CONTEXT_TRANSFORM_EVENT)).toBe(true); // 驱动自举补位
+    // bootPlugins 预注册在前 + 驱动自举在后 = 已注册词跳过（不抛 EVENT_DUPLICATE）
+    expect(
+      () =>
+        new ConversationDriver({
+          session: new SessionLog({ sessionId: 's-ct-twice' }),
+          scope: Scope.createRoot(),
+          dispatch, // 同总线二次自举
+          streamFn: scriptedStreamFn([assistant({})]),
+          convertToLlm: passthrough,
+          model: 'test/model',
+        }),
+    ).not.toThrow();
+  });
+
+  it('零监听器直通：无 handler 管线原值原样（no-op 安全）', async () => {
+    const { driver, seen } = makeDriver({ scripts: [assistant({})] });
+    await driver.submit('问');
+    expect(seen[0]!.messages).toHaveLength(1); // 仅种子 user——瀑布零打扰
+    expect(seen[0]!.messages[0]).toMatchObject({ role: 'user', content: '问' });
+  });
+
+  it('handler 就地 push 注入进请求尾（载荷 {sessionId, messages}——LLM 形可变数组就地改写）', async () => {
+    const dispatch = new EventDispatch();
+    const seenPayloads: ContextTransformInput[] = [];
+    const { driver, seen } = makeDriver({ dispatch, scripts: [assistant({})] });
+    dispatch.onWaterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, async (payload, next) => {
+      seenPayloads.push(payload);
+      payload.messages.push({ role: 'user', content: '差分注入体', timestamp: 1 });
+      return next(payload);
+    });
+    await driver.submit('问');
+    expect(seenPayloads).toHaveLength(1);
+    expect(seenPayloads[0]!.sessionId).toBe('s-driver'); // 载荷会话键
+    // 注入体到达 LLM 请求尾；瞬态纪律——durable 唯一 user/message = 种子
+    expect(seen[0]!.messages).toHaveLength(2);
+    expect(seen[0]!.messages[1]).toMatchObject({ role: 'user', content: '差分注入体' });
+    expect(types(driver).filter((type) => type === 'user/message')).toHaveLength(1);
+  });
+
+  it('注入序：瀑布注入先于 todo 快照（todo 恒最后——05 §1.1）', async () => {
+    const session = new SessionLog({ sessionId: 's-ct-order' });
+    const dispatch = new EventDispatch();
+    const todoDef = createTodoTool((data) => session.append('todo/write', data));
+    const todoTool: AgentTool = {
+      name: todoDef.name,
+      description: todoDef.description,
+      parameters: todoDef.parameters,
+      execute: (toolCallId, args) => todoDef.execute(args, { toolCallId }),
+    };
+    const { driver, seen } = makeDriver({
+      session,
+      dispatch,
+      tools: [todoTool],
+      scripts: [
+        assistant({
+          stopReason: 'toolUse',
+          content: [
+            {
+              type: 'toolCall',
+              id: 't-ct-todo',
+              name: 'todo',
+              arguments: { items: [{ status: 'in-progress', content: '任务甲' }] },
+            },
+          ],
+        }),
+        assistant({}),
+      ],
+    });
+    dispatch.onWaterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, (payload, next) => {
+      payload.messages.push({ role: 'user', content: '瀑布注入', timestamp: 1 });
+      return next(payload);
+    });
+    await driver.submit('问');
+    // 第二请求（toolCall 轮已建表）：序 = [种子, assistant, toolResult, 瀑布注入, todo 快照]
+    const messages = seen[1]!.messages;
+    expect(messages).toHaveLength(5);
+    expect(messages[3]).toMatchObject({ role: 'user', content: '瀑布注入' });
+    expect((messages[4] as { content?: unknown }).content).toContain('当前任务清单');
+  });
+
+  it('管线失败上抛：submit 拒绝携变换前原批（03 §2.4 审计保输入——LLM 请求未发出）', async () => {
+    const dispatch = new EventDispatch();
+    const { driver, seen } = makeDriver({ dispatch, scripts: [assistant({})] });
+    dispatch.onWaterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, async () => {
+      throw new Error('handler 炸');
+    });
+    let caught: unknown;
+    try {
+      await driver.submit('问');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe('handler 炸'); // 管线失败语义沿链传播（驱动不加吞）
+    // 审计保输入：错误对象携带变换前原批（驱动侧 catch 唯一加写的字段）
+    const original = (caught as { originalMessages?: unknown }).originalMessages;
+    expect(Array.isArray(original)).toBe(true);
+    expect((original as { role: string }[]).at(-1)).toMatchObject({ role: 'user', content: '问' });
+    expect(seen).toHaveLength(0); // LLM 请求未发出（组装关口失败先于 streamFn）
   });
 });
 

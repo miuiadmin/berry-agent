@@ -8,6 +8,7 @@
  * 注入/审批挂起通知归 11f；批 12 host 装配根消费。
  */
 export type {
+  ContextTransformInput,
   ConversationDriverOptions,
   ExecToolService,
   ExecSessionDeps,
@@ -15,7 +16,7 @@ export type {
   RetryPolicyConfig,
   SubmitOptions,
 } from './types.js';
-export { DEFAULT_RETRY_POLICY } from './types.js';
+export { CONTEXT_TRANSFORM_EVENT, DEFAULT_RETRY_POLICY } from './types.js';
 export { reseedTimeline } from './reseed.js';
 export { ConversationDriver } from './driver.js';
 export type { SubmitResult } from './driver.js';

@@ -44,8 +44,14 @@ import { isStandardMessage } from '../contracts/index.js';
 import type { SessionLog } from '../session/index.js';
 import { abortableSleep, retryDelay } from './backoff.js';
 import { DurableWiring } from './wiring.js';
-import type { ConversationDriverOptions, InjectedReceipt, SubmitOptions, WakeRefusedReceipt } from './types.js';
-import { DEFAULT_RETRY_POLICY, MAX_CONSECUTIVE_WAKES } from './types.js';
+import type {
+  ContextTransformInput,
+  ConversationDriverOptions,
+  InjectedReceipt,
+  SubmitOptions,
+  WakeRefusedReceipt,
+} from './types.js';
+import { CONTEXT_TRANSFORM_EVENT, DEFAULT_RETRY_POLICY, MAX_CONSECUTIVE_WAKES } from './types.js';
 import { reseedTimeline } from './reseed.js';
 import { todoSnapshotMessage } from './todo.js';
 import { notifyRunSettled } from './agent-service.js';
@@ -93,6 +99,12 @@ export class ConversationDriver {
   constructor(options: ConversationDriverOptions) {
     this.options = options;
     this.session = options.session;
+    // context_transform 词汇自举注册（一词两册幂等——open-tools 同律）：独立
+    // stack（无 bootPlugins）的驱动也要能发射；bootPlugins 预注册 41 词在前，
+    // 已注册词跳过不撞名（EVENT_DUPLICATE 防御）
+    if (!options.dispatch.isRegistered(CONTEXT_TRANSFORM_EVENT)) {
+      options.dispatch.registerEventNames([CONTEXT_TRANSFORM_EVENT]);
+    }
     this.wiring = new DurableWiring(this.session);
     this.fullTools = options.tools !== undefined ? [...options.tools] : undefined;
     this.warnFace = options.warn ?? ((message) => console.error(message));
@@ -305,6 +317,24 @@ export class ConversationDriver {
             ? `${transformed.systemPrompt}\n\n${disclosure}`
             : disclosure,
       };
+    }
+    // context_transform 瀑布派发（03 §2.4——LLM 请求组装最后关口的插件管线）：
+    // 载荷消息批取拷贝（handler 就地改写不外溢变换前引用）；失败上抛携带
+    // 变换前原批（审计保输入——管线失败语义沿链传播，驱动不加吞）。todo 快照
+    // 注入位在瀑布之后恒最后（05 §1.1「todo 走瀑布最后」——注入序 diff →
+    // recall → todo）
+    const preTransformMessages = transformed.messages;
+    try {
+      const payload: ContextTransformInput = {
+        sessionId: this.session.sessionId,
+        messages: [...preTransformMessages],
+      };
+      const out = await this.options.dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, payload);
+      transformed = { ...transformed, messages: out.messages };
+    } catch (err) {
+      throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
+        originalMessages: [...preTransformMessages],
+      });
     }
     // todo 快照注入位：null = 空表跳过（从未建表/用户已重置——不打扰上下文）
     // goal 段升格（03 §10.5）：goalScopeFor 供锚 → fold 边界升格 goal 生命周期

@@ -28,7 +28,7 @@ import { join } from 'node:path';
 import type { GateInput, SessionEvent, ToolDefinition } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
-import type { AgentService, ExecToolService } from '../conversation/index.js';
+import type { AgentService, ContextTransformInput, ExecToolService } from '../conversation/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import type { SpawnPipeline } from '../exec/index.js';
 import { createMcpService, normalizeMcpConfig } from '../mcp/index.js';
@@ -79,25 +79,36 @@ import {
   renderAvailableSkills,
 } from '../skills/index.js';
 import {
+  briefBaseline,
   buildCoreBrief,
   createCiteRecorder,
+  createDiffTracker,
   createImmediateExtractor,
   createMemoryCycle,
   createMemoryDao,
   createMemoryTools,
+  diffInjectionMessage,
+  ensureDiffRole,
   ensureFtsIndex,
+  ensureRecallRole,
+  faceOf,
   MEMORY_DIFF_EVENT_META,
   MEMORY_EXPORT_USAGE,
   MEMORY_IMPORT_USAGE,
+  recallForQuery,
+  recallInjectionMessage,
   runMemoryExportCommand,
   runMemoryImportCommand,
 } from '../memory/index.js';
 import type {
   ExtractableUserMessage,
   FtsMaintenanceFace,
+  MemoryDiffData,
+  MemoryDiffEntry,
   MemoryLlmFace,
   SessionFtsSearchFace,
 } from '../memory/index.js';
+import type { SessionsFace } from './sessions-face.js';
 import { collectAgentDefs, createStandardAgentLayers } from '../skills/index.js';
 import { createAgentTool, materializeDeclarativeSubagents, JOBS_SERVICE_NAME } from '../subagent/index.js';
 import type { DelegationToolDeps, SubagentService } from '../subagent/index.js';
@@ -455,6 +466,32 @@ function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
+ * 当轮 query 取数（06 §294——recall 注入腿消费位）：durable 日志尾扫最后一条
+ * user/message 的 string content（非 string 形〔parts 数组〕不作 query——宁缺
+ * 毋滥）。从 durable 日志取而非 LLM batch 尾扫：diff handler 先注入的 user 形
+ * 消息会污染 batch 尾扫判据（注入序依赖）。fetchEvents 缺席/读失败/扫到头 →
+ * null（零 query 即零注入）。
+ */
+function lastUserQueryText(
+  fetchEvents: ((sessionId: string) => readonly SessionEvent[]) | undefined,
+  sessionId: string,
+): string | null {
+  if (fetchEvents === undefined) return null;
+  try {
+    const events = fetchEvents(sessionId);
+    for (let i = events.length - 1; i >= 0; i--) {
+      const event = events[i]!;
+      if (event.type !== 'user/message') continue;
+      const content = (event.data as { content?: unknown } | null)?.content;
+      return typeof content === 'string' ? content : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
  * core:memory（批 19b-2）——06 篇记忆面全环装载：DAO（宿主库同库——05 §6.4
  * 迁移链已由 runtime 机械聚合）+ 九工具散装注册（boot 全局层）+ 'memory/core'
  * 常驻简报段（每请求物化）+ session/event 三消费腿（即时提取/引用记录/周期
@@ -463,13 +500,14 @@ function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * memory/diff 词汇注册（不可逆装配面）+ memory-export/import 两命令 +
  * 'memory' 服务面供给。
  *
- * 路 2（recallForQuery 按需检索）1.0 缺省关（06 §6 拍板——minScore 水位旋钮
- * 不设位即不启用）；diff 注入腿（context_transform 族）与 appendEvent
- * 'sessions' 服务同挂账后续批——本批只注册 memory/diff 词汇（注册先于任何
- * 潜在发射，装配面作用域化）。
+ * 路 2（recallForQuery 按需检索）已接线（批 19 销账笔——06 §6 路 2 消费腿：
+ * minScore 水位旋钮缺省不设位〔拍板维持〕——检索路本身在场）；diff 发射位
+ * （sessions.appendEventFor 绑会话闭包）与 diff/recall 两注入腿
+ * （context_transform 瀑布——06 §328 注入序 diff 先 recall 后）同批收口。
  *
  * 降级梯：sqlite 缺席 = 件整体零装载（主闸）；llm/fetchEvents 缺席 = 周期腿
- * 缺席（即时提取仍通）；ftsSearch/ftsMaintenance/notify 各自缺席各腿静默降级。
+ * 缺席（即时提取仍通）；ftsSearch/ftsMaintenance/notify 各自缺席各腿静默降级；
+ * sessions 服务缺席 = 差分降级只渲染不落账（mirror 不锁步）。
  */
 function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
@@ -545,13 +583,87 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         buildCoreBrief({ dao, now, ownerKeys }),
       );
 
-      // memory/diff 词汇注册（不可逆装配面——发射位挂账后续批，注册先行）。
+      // memory/diff 词汇注册（不可逆装配面——06 §329 装载面作用域化注册）。
       // 注册表进程级单例（contracts/events 模块态）：同进程多次装配（测试多例
       // /热重启形）同 owner 已在场 = 幂等跳过；异 owner 在场则注册动词保持
       // 响亮冲突（HOST_EVENT_TYPE_CONFLICT 拒收语义不软化）
       if (getEventTypeMeta(MEMORY_DIFF_EVENT_META.type)?.owner !== MEMORY_DIFF_EVENT_META.owner) {
         context.events.registerSessionEventType(MEMORY_DIFF_EVENT_META);
       }
+
+      // —— memory/diff 发射位 + 两注入腿（批 19 销账笔——06 §6 三件收口）——
+      // sessions 服务活引用（03 §4.4 appendEvent 最小面；tryGet 诚实缺席：
+      // 服务缺席 = 差分降级只渲染不落账——mirror 不锁步）。基线纪元采 sync 懒立
+      // （件内自述语义零变）：纪元首请求即事实上的重建时点边界——boot//reload/
+      // /new 三态自然覆盖（新进程/新装配/新会话首请求重立基线），显式
+      // materialize 挂点不接（PromptSectionRegistry 每请求重跑 builder——挂其
+      // 内即每请求重立纪元，差分恒零）
+      const sessions = context.tryGet<SessionsFace>('sessions');
+      // 绑会话发射位：DiffAppendEvent seam 无 sessionId 参（词面独立律），
+      // handler 调用时点置 appendSession + try/finally 清位（waterfall 串行 +
+      // JS 单线程零竞态）；会话无活体驱动 → 抛错让 diff.ts commit() 捕获降级
+      // （appendEventFor 的 undefined 语义——本拍不落账不锁步，非致命）
+      let appendSession: string | undefined;
+      const diffTracker = createDiffTracker({
+        face: () => faceOf(briefBaseline(dao, now(), ownerKeys)),
+        ...(sessions !== undefined
+          ? {
+              appendEvent: (type: string, data: MemoryDiffData) => {
+                const append = sessions.appendEventFor(appendSession!);
+                if (append === undefined) {
+                  throw new Error(`会话 ${appendSession} 无活体驱动——差分落账本拍降级`);
+                }
+                append(type, data);
+              },
+            }
+          : {}),
+        ...(deps.fetchEvents !== undefined ? { fetchEvents: deps.fetchEvents } : {}),
+        warn,
+      });
+      // 注入角色两枚（幂等注册——进程级角色注册表多次装配常态）
+      ensureDiffRole();
+      ensureRecallRole();
+      // 注入序（06 §328）：diff handler 注册先于 recall——权威修正先于查询提示
+      // 进请求尾；todo 恒最后（驱动侧瀑布后追加——05 §1.1）。两腿体内 try/catch
+      // 全包 warn 放行（铁律 3——注入失败不影响会话主路径）；每 handler 每请求
+      // 至多一条（零差分/零命中 = 零注入不打扰请求面）
+      const disposeDiffInject = context.on('context_transform', (data, next) => {
+        const payload = data as ContextTransformInput;
+        try {
+          appendSession = payload.sessionId;
+          let entries: readonly MemoryDiffEntry[];
+          try {
+            entries = diffTracker.sync(payload.sessionId);
+          } finally {
+            appendSession = undefined;
+          }
+          const text = diffTracker.renderInjection(entries);
+          if (text !== null) {
+            const message = diffInjectionMessage(text, Date.now());
+            if (message !== null) payload.messages.push(message);
+          }
+        } catch (err) {
+          warn(`[memory] 差分注入腿尽力而为止步：${err instanceof Error ? err.message : String(err)}`);
+        }
+        return next(payload);
+      });
+      const disposeRecallInject = context.on('context_transform', (data, next) => {
+        const payload = data as ContextTransformInput;
+        try {
+          const query = lastUserQueryText(deps.fetchEvents, payload.sessionId);
+          if (query !== null) {
+            // minScore 不设位 = 水位旋钮缺省关（06 §6 拍板——检索路本身在场）
+            const injection = recallForQuery({ dao, ownerKeys, sessionId: payload.sessionId }, query);
+            if (injection !== null) {
+              const message = recallInjectionMessage(injection.text, Date.now());
+              if (message !== null) payload.messages.push(message);
+            }
+          }
+        } catch (err) {
+          warn(`[memory] 检索注入腿尽力而为止步：${err instanceof Error ? err.message : String(err)}`);
+        }
+        return next(payload);
+      });
 
       // 命令两件（结算文本 = 人读面，经 notify 归因 'memory' 投递；BaseError
       // 面已在命令内折文本，非 BaseError 兜底折呈不炸通道）
@@ -584,6 +696,8 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
       context.provide('memory', { dao, cycle: cycle ?? null });
 
       return () => {
+        disposeRecallInject();
+        disposeDiffInject();
         disposeSettle?.();
         disposeHook();
         disposeImport();
