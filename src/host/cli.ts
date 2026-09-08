@@ -622,7 +622,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     }
     default:
       return usageFail(
-        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/sessions/upgrade；无参 = TUI 主入口）`,
+        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/sessions/credentials/upgrade；无参 = TUI 主入口）`,
       );
   }
 }

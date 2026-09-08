@@ -48,6 +48,11 @@ describe('执法① 未识别 -- 词全入口用法错退 2', () => {
 
   it('未知子命令退 2（非旗标首词不入 TUI）', () => {
     expectUsage(['frobnicate'], '未知子命令');
+    // 回归锁：指路「合法集」词面必须与 parseCli 分派 switch 全覆盖同步（c-5 加
+    // credentials 分派时漏改本提示词面——用户敲错命令会被指去一个不含该命令的
+    // 合法集；断言修复前必红）
+    const r = parseCli(['frobnicate']);
+    expect(!r.ok && r.message).toContain('credentials');
   });
 });
 

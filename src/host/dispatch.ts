@@ -86,7 +86,7 @@ export const HELP_TEXT = `berry-agent — 单一可扩展的个人 Agent
 常用旗标：
   --help / --version / --debug / --port <n> / --no-plugins
   run 限定：--output-format <text|json|stream>  --output-last-message <file>  --ephemeral
-            --max-turns <n>  --session <id>  --continue  --fork [id]  --read-only  --tick  --background
+            --max-turns <n>  --session <id>  --continue  --fork [id]  --read-only  --tick <名>  --background
 
 裸 -- 之后的 argv 全字面；未识别 -- 词一律用法错退 2。`;
 
