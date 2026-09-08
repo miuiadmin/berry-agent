@@ -9,11 +9,18 @@ TypeScript + SQLite + [pi-ai](https://github.com/earendil-works/pi-ai)。
 
 ## 安装
 
-要求 Node.js ≥ 24。
+要求 Node.js ≥ 24。两路任选：
 
 ```bash
+# 路一：安装脚本（两段式——先落盘再执行；不要用管道直灌，断流会让 shell 执行半截脚本）
+curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent/main/scripts/install.sh
+sh install.sh
+
+# 路二：npm
 npm install -g berry-agent
 ```
+
+从源码构建见[使用指南](./docs/usage.md#安装)；卸载见[使用指南](./docs/usage.md#卸载)。
 
 ## 快速开始
 

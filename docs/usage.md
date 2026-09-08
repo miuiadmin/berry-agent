@@ -6,13 +6,25 @@
 
 ## 安装
 
-要求 Node.js ≥ 24。
+要求 Node.js ≥ 24。三路任选。
+
+**路一：安装脚本（推荐新用户）**——两段式，先落盘再执行：
+
+```bash
+curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent/main/scripts/install.sh
+sh install.sh
+```
+
+> 不要写成 `curl … | sh` 管道直灌：连接中段断裂时 shell 会执行半截脚本。
+> 脚本依次做：Node ≥ 24 检查 → `npm install -g berry-agent` → `berry-agent --version` 验证 → 欢迎横幅；失败时给出排查建议（权限 / 网络）。
+
+**路二：npm 直接安装**：
 
 ```bash
 npm install -g berry-agent
 ```
 
-或从源码：
+**路三：源码构建**：
 
 ```bash
 git clone https://github.com/miuiadmin/berry-agent.git
@@ -23,6 +35,22 @@ node dist/host/main.js --help
 ```
 
 首次启动自动创建数据目录 `~/.berry-agent/`（可用 `BERRY_AGENT_DATA_DIR` 重定位）。
+
+## 卸载
+
+程序与数据分账卸载：
+
+```bash
+npm rm -g berry-agent        # 程序（源码形态删除 clone 目录即可）
+rm -rf ~/.berry-agent/       # 数据目录——含记忆/会话历史/插件装机物，删除不可恢复
+```
+
+数据目录不会随程序卸载删除——如需保留记忆，删除前请先在 TUI 内执行 `/memory-export` 导出。交互式卸载（带确认与指引）可用卸载脚本：
+
+```bash
+curl -fsSL -o uninstall.sh https://raw.githubusercontent.com/miuiadmin/berry-agent/main/scripts/uninstall.sh
+sh uninstall.sh
+```
 
 ## 模型配置
 

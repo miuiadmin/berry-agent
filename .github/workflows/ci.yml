@@ -38,6 +38,28 @@ jobs:
           fi
           exit $fail
 
+  # 安装脚本锁——脚本语法机器锁 + 公开面文案禁管道直灌
+  # （真跑安装随首发节奏接入：包未发布前 npm install -g 必失败，先锁形不锁跑）
+  install-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: 安装脚本锁（POSIX 语法 + 文案禁管道直灌）
+        run: |
+          set -eu
+          # 语法锁：两脚本须过 POSIX sh 语法检查（shebang 承诺 /bin/sh——按最严方言验）
+          sh -n scripts/install.sh
+          sh -n scripts/uninstall.sh
+          # 文案锁：公开文档面安装指引禁「curl … | sh」管道直灌形——
+          # 两段式纪律（连接中段断裂会让 shell 执行半截脚本）。
+          # 正则必含 http：只咬真实直灌命令（带 URL），不咬「不要写成
+          # curl … | sh」一类警示提及
+          if grep -REn 'curl[^|]*http[^|]*\|[[:space:]]*(ba)?sh' README.md docs/; then
+            echo '::error::公开文档面出现「curl … | sh」管道直灌安装形——须为两段式（先落盘再执行）'
+            exit 1
+          fi
+          echo '安装脚本锁绿：语法过 + 零管道直灌'
+
   typecheck:
     runs-on: ubuntu-latest
     steps:
