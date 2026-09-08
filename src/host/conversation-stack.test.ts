@@ -506,6 +506,30 @@ describe('会话维观测装配（e2-4 观测腿接线）', () => {
     expect(results[0]!.error).toBeUndefined(); // 树内 self 白给——零门检零错误面
   });
 
+  it('e-3 环境自感三段：session_status 呈现整形后工具清单 + 观测门态（v1 恒闭）+ 负面能力声明', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    faux.setResponses([() => toolCallOf('t1', 'session_status', {}), () => messageOf('stop')]);
+    const receipt = await stack.submitText(session.sessionId, '自省');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    const text = JSON.stringify(
+      stack
+        .driverOf(session.sessionId)!
+        .session.events()
+        .find((event) => event.type === 'tool/result')!.data,
+    );
+    // 工具清单段：整形后有效可见集（sessionTools 自身在列——lazy 读装配后 tools 变量）
+    expect(text).toContain('tools(');
+    expect(text).toContain('session_status');
+    // 门态快照段：观测门 v1 结构性闭门（getOpens 空集）——reason 与执行时拒绝 message 同源
+    expect(text).toContain('capability-doors');
+    expect(text).toContain('sessions.observe-cross=closed');
+    // 负面能力声明段：闭门面「不要承诺」负向清单（hermes 防幻觉形）
+    expect(text).toContain('negative-capabilities');
+    expect(text).toContain('不要承诺');
+  });
+
   it('跨树默认关（v1 结构性空集）：session_read 跨树目标 → [SESSION_OBSERVE_DENIED] 错面', async () => {
     const { rt } = rigRuntime();
     const { faux, stack } = rigStack(rt);

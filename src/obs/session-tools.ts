@@ -1,7 +1,7 @@
 /**
- * obs — 会话维工具族（03 §10.8 会话维扩展——e-2 观测腿；宿主固定工具族
- * 四件 `session_list` / `session_read` / `session_trace` / `session_status`，
- * `session_` 前缀保留字〔03 §2.7〕的宿主侧落位）。
+ * obs — 会话维工具族（03 §10.8 会话维扩展——e-2 观测腿 + e-3 环境自感；
+ * 宿主固定工具族四件 `session_list` / `session_read` / `session_trace` /
+ * `session_status`，`session_` 前缀保留字〔03 §2.7〕的宿主侧落位）。
  *
  * **可见性分轴执法**（03 §10.8——观测轴）：
  *  - 树内（self 同 id / parent_id 链同根——SessionView.isSameTree 单源）
@@ -17,6 +17,12 @@
  * 判断隔壁会话在做什么优先直接向当事会话发消息，档案查询归本工具族；
  * 提示词层面带出不立条款）：写进 session_read/session_trace description。
  *
+ * **e-3 环境自感**（普查候选 E——03 §10.8 session_status 条并入注）：
+ * session_status 扩工具清单（整形后有效可见集）/ 能力门态快照（闭门
+ * 附诊断 reason——与执行时拒绝 message 同源）/ 负面能力声明文案
+ * （hermes「你没有 X——不要承诺」防幻觉负向清单）三段；数据经 env
+ * 窄面注入（装配现场事实非 durable 派生——与 SessionView 分立）。
+ *
  * 恒挂载律（03 §2.2 第十一面同款）：工具族模型可见清单恒在，不随门开合
  * 动态挂载——门检在 execute 内执法。per-session 闭包由装配位构造
  * （callerSessionId 注入——todoTool 换装 seam 同构先例）。
@@ -24,7 +30,7 @@
 import { BaseError, type AgentToolResult, type ToolDefinition } from '../contracts/index.js';
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
 import { Type } from 'typebox';
-import type { SessionSummaryRow, SessionView } from './types.js';
+import type { SessionDoorStateEntry, SessionEnvFace, SessionSummaryRow, SessionView } from './types.js';
 
 /** 观测轴高危面名（03 §4.6 v1 首批第五枚——拉取/订阅两形态一枚统摄） */
 export const OBSERVE_CROSS_CAPABILITY = 'sessions.observe-cross';
@@ -50,6 +56,11 @@ export interface SessionToolsDeps {
   readonly getOpens: () => ReadonlySet<string>;
   /** capability/used 审计 seam（05 §1.1——装配位接线，缺席 = 零审计） */
   readonly onCapabilityUsed?: (record: SessionObserveUsedRecord) => void;
+  /**
+   * 环境自感面（e-3——session_status 工具清单/门态快照/负面声明的数据源；
+   * 装配根注入。缺席 = 基础坐标档诚实降级：相关段整体不呈现，不虚构）。
+   */
+  readonly env?: SessionEnvFace;
 }
 
 /** createSessionTools 工厂（装载位/测试唯一入口）——四件定义数组 */
@@ -162,8 +173,10 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
     {
       name: 'session_status',
       description:
-        '查询自身坐标（「我是谁在哪」）：本会话 id、血缘 origin 与父会话、工作区根、' +
-        '在飞粗状态、近次模型。零参数——目标恒为本会话（树内 self 档，零开门）。',
+        '查询自身坐标与环境自感（「我是谁在哪、有什么、没有什么」）：本会话 id、血缘 origin 与父会话、' +
+        '工作区根、在飞粗状态、近次模型，以及可用工具清单（整形后有效可见集）、能力门态快照（高危面开/闭与' +
+        '闭门理由）、负面能力声明（未开门面/无工作区等「不要承诺」负向清单——防幻觉）。' +
+        '零参数——目标恒为本会话（树内 self 档，零开门）。',
       parameters: Type.Object({}, { additionalProperties: false }),
       effect: 'read',
       execute: async (): Promise<AgentToolResult> =>
@@ -177,10 +190,47 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
             `live=${status.live}`,
             `model=${status.model ?? '（未发起请求）'}`,
           ];
+          // e-3 环境自感三段（env 缺席 = 基础坐标档——段整体不呈现，诚实降级不虚构）
+          if (deps.env !== undefined) {
+            const listing = deps.env.listTools();
+            lines.push(`tools(${listing.length})=${listing.map((entry) => entry.name).join(', ')}`);
+            const doors = deps.env.doorStates();
+            lines.push('capability-doors:');
+            for (const door of doors) {
+              lines.push(doorLine(door));
+            }
+            const negatives = negativeLines(doors, status.workspaceRoot);
+            lines.push('negative-capabilities:', ...negatives);
+          }
           return { content: [{ type: 'text', text: lines.join('\n') }] };
         }),
     },
   ];
+}
+
+/** 门态行（能力自省快照——闭门附诊断 reason：与执行时拒绝 message 同源，先查后用） */
+function doorLine(door: SessionDoorStateEntry): string {
+  const state = door.open ? 'open' : 'closed';
+  if (door.open) return `  ${door.capability}=${state}（${door.scope}）`;
+  return `  ${door.capability}=${state}（${door.reason ?? '未开门'}）——${door.scope}`;
+}
+
+/**
+ * 负面能力声明文案（hermes「你没有 X——不要承诺」防幻觉负向清单；
+ * 普查候选 E D4 缺缝③）。v1 两锚：闭门面（对应操作将被拒）+ 无工作区
+ * （文件工具结构性不可用）。全开 + 有工作区 = 显式「无缺失」收口行
+ * （负向清单的价值在显式闭合——「查过且无」不等于「没查」）。
+ */
+function negativeLines(doors: readonly SessionDoorStateEntry[], workspaceRoot: string | undefined): string[] {
+  const lines: string[] = [];
+  for (const door of doors) {
+    if (!door.open) lines.push(`  - ${door.capability} 未开门——${door.scope}将被拒，不要承诺对应操作`);
+  }
+  if (workspaceRoot === undefined) {
+    lines.push('  - 本会话无工作区根——文件读写工具不可用，不要承诺文件操作');
+  }
+  if (lines.length === 0) lines.push('  （无——当前能力面无缺失声明）');
+  return lines;
 }
 
 /** 清单行文本（列对齐——模型消费面） */

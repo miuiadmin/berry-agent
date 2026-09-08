@@ -57,8 +57,9 @@ import type { SessionLog } from '../session/index.js';
 
 import type { HostRuntime } from './runtime.js';
 import type { GoalFace } from './core-plugins.js';
-import { createSessionTools, createSessionView } from '../obs/index.js';
+import { createSessionTools, createSessionView, OBSERVE_CROSS_CAPABILITY } from '../obs/index.js';
 import type { SessionObserveUsedRecord, SessionView } from '../obs/index.js';
+import { adjudicateCapabilityDoor } from '../contracts/api.js';
 
 /** 组合根选项（TUI 入口与测试的注入面） */
 export interface ConversationStackOptions {
@@ -276,6 +277,26 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         ...(options.observeCross?.onCapabilityUsed !== undefined
           ? { onCapabilityUsed: options.observeCross.onCapabilityUsed }
           : {}),
+        // e-3 环境自感窄面（03 §10.8 session_status 并入注）：工具清单 =
+        // 本会话整形后面（shapeTools 白名单后的可见面——子代理派生面自省
+        // 即其子实面，04 §10「孙代委派以子实面为基准」同律；lazy 读，execute
+        // 时点装配已完成）；门态 = 观测门经同一门检裁决（reason 与执行时拒
+        // 绝 message 同源——先查后用）；操控门随 e-4 落位同 getter 扩
+        env: {
+          listTools: () => (tools ?? []).map((entry) => ({ name: entry.name })),
+          doorStates: () => {
+            const opens = options.observeCross?.getOpens() ?? new Set<string>();
+            const verdict = adjudicateCapabilityDoor(opens, OBSERVE_CROSS_CAPABILITY);
+            return [
+              {
+                capability: OBSERVE_CROSS_CAPABILITY,
+                open: verdict.ok,
+                ...(verdict.ok ? {} : { reason: verdict.message }),
+                scope: '跨树会话枚举与读取（session_list/session_read/session_trace 跨树目标）',
+              },
+            ];
+          },
+        },
       });
       const assembly = assembleOpenTools({
         sessionId,

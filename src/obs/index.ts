@@ -43,4 +43,7 @@ export type {
   SessionSelfStatus,
   SessionView,
   SessionViewDeps,
+  SessionToolListingEntry,
+  SessionDoorStateEntry,
+  SessionEnvFace,
 } from './types.js';

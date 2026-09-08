@@ -8,9 +8,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { ToolDefinition } from '../contracts/index.js';
+import { adjudicateCapabilityDoor } from '../contracts/api.js';
 import { createSessionTools, OBSERVE_CROSS_CAPABILITY } from './session-tools.js';
 import type { SessionObserveUsedRecord, SessionToolsDeps } from './session-tools.js';
-import type { SessionSummaryRow, SessionView } from './types.js';
+import type { SessionEnvFace, SessionSummaryRow, SessionView } from './types.js';
 
 /** 假 view（数据面固定——树判定受控：'in' 树内 / 其余跨树） */
 function fakeView(opts?: { inTree?: readonly string[] }): SessionView {
@@ -75,17 +76,19 @@ function fakeView(opts?: { inTree?: readonly string[] }): SessionView {
   };
 }
 
-/** 工具集速构（opens 与审计收集器可注入） */
+/** 工具集速构（opens 与审计收集器可注入；env = e-3 环境自感面） */
 function toolsFor(opts?: {
   opens?: readonly string[];
   inTree?: readonly string[];
   used?: SessionObserveUsedRecord[];
+  env?: SessionEnvFace;
 }): readonly ToolDefinition[] {
   const deps: SessionToolsDeps = {
     view: fakeView(opts),
     callerSessionId: 'caller',
     getOpens: () => new Set(opts?.opens ?? []),
     ...(opts?.used !== undefined ? { onCapabilityUsed: (record) => opts.used!.push(record) } : {}),
+    ...(opts?.env !== undefined ? { env: opts.env } : {}),
   };
   return createSessionTools(deps);
 }
@@ -201,5 +204,78 @@ describe('session_status 自身坐标', () => {
     expect(text).toContain('workspaceRoot=/w');
     expect(result.isError).toBeUndefined();
     expect(used).toHaveLength(0);
+  });
+});
+
+describe('session_status 环境自感（e-3——工具清单/门态快照/负面声明）', () => {
+  /** env 注入速构（工具清单/门态受控——门态经同一门检函数从 opens 派生） */
+  const envFor = (opts?: { opens?: readonly string[]; toolNames?: readonly string[] }): SessionEnvFace => ({
+    listTools: () => (opts?.toolNames ?? ['bash', 'fs_read', 'session_status']).map((name) => ({ name })),
+    doorStates: () => {
+      const verdict = adjudicateCapabilityDoor(new Set(opts?.opens ?? []), OBSERVE_CROSS_CAPABILITY);
+      return [
+        {
+          capability: OBSERVE_CROSS_CAPABILITY,
+          open: verdict.ok,
+          ...(verdict.ok ? {} : { reason: verdict.message }),
+          scope: '跨树会话枚举与读取（session_list/session_read/session_trace 跨树目标）',
+        },
+      ];
+    },
+  });
+
+  it('工具清单段：整形后有效可见集 name 全列 + 计数', async () => {
+    const defs = toolsFor({ env: envFor({ toolNames: ['bash', 'todo', 'session_status'] }) });
+    const result = await tool(defs, 'session_status').execute({}, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('tools(3)=bash, todo, session_status');
+  });
+
+  it('门闭形：closed + 诊断 reason（与执行时拒绝 message 同源）+ 负面声明句', async () => {
+    const defs = toolsFor({ env: envFor() });
+    const result = await tool(defs, 'session_status').execute({}, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('capability-doors:');
+    expect(text).toContain(`${OBSERVE_CROSS_CAPABILITY}=closed`);
+    // 诊断 reason 同源锁：与 session_read 跨树拒的 message 底稿一致（先查后用）
+    expect(text).toContain('高危面 sessions.observe-cross 默认关');
+    expect(text).toContain('negative-capabilities:');
+    expect(text).toContain(`- ${OBSERVE_CROSS_CAPABILITY} 未开门——跨树会话枚举与读取`);
+    expect(text).toContain('不要承诺对应操作');
+  });
+
+  it('门开形：open 门态 + 无该门负面行（有工作区时负面段显式「无缺失」收口）', async () => {
+    const defs = toolsFor({ opens: [OBSERVE_CROSS_CAPABILITY], env: envFor({ opens: [OBSERVE_CROSS_CAPABILITY] }) });
+    const result = await tool(defs, 'session_status').execute({}, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain(`${OBSERVE_CROSS_CAPABILITY}=open`);
+    expect(text).not.toContain('未开门——');
+    expect(text).toContain('（无——当前能力面无缺失声明）');
+  });
+
+  it('无工作区负面行（防幻觉负向清单第二锚）', async () => {
+    const view = fakeView();
+    const defs = createSessionTools({
+      view: {
+        ...view,
+        selfStatus: (sessionId) => ({ ...view.selfStatus(sessionId), workspaceRoot: undefined }),
+      },
+      callerSessionId: 'caller',
+      getOpens: () => new Set([OBSERVE_CROSS_CAPABILITY]),
+      env: envFor({ opens: [OBSERVE_CROSS_CAPABILITY] }),
+    });
+    const result = await tool(defs, 'session_status').execute({}, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('workspaceRoot=（无工作区）');
+    expect(text).toContain('- 本会话无工作区根——文件读写工具不可用，不要承诺文件操作');
+  });
+
+  it('env 缺席 = 基础坐标档诚实降级：三段整体不呈现', async () => {
+    const defs = toolsFor();
+    const result = await tool(defs, 'session_status').execute({}, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).not.toContain('tools(');
+    expect(text).not.toContain('capability-doors:');
+    expect(text).not.toContain('negative-capabilities:');
   });
 });

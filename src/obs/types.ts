@@ -240,6 +240,45 @@ export interface SessionSelfStatus {
 }
 
 /**
+ * 工具清单行（e-3 工具面自省——模型侧「我现在有哪些工具」；普查候选 E
+ * D3 缺缝①的只读查询面）。name 单列 v1：描述已在工具 schema 面向模型，
+ * 本查询的价值 = 确认**整形后有效可见集**（子代理派生面白名单后）。
+ */
+export interface SessionToolListingEntry {
+  readonly name: string;
+}
+
+/**
+ * 能力门态行（e-3 能力自省快照 + 诊断 reason——普查候选 E / letta system/init
+ * 握手快照对位）。open 状态面 + 闭门 reason（门检 verdict message 同源——
+ * 查询面预演拒绝理由，openclaw 诊断 reason 代数对位）+ scope（该门统摄的
+ * 模型面语义描述——负面能力声明文案的锚）。
+ */
+export interface SessionDoorStateEntry {
+  /** 高危面名（03 §4.6——USER_GRANTABLE_CAPABILITIES 值域） */
+  readonly capability: string;
+  /** 门态（按调用方开门集裁决） */
+  readonly open: boolean;
+  /** 闭门诊断 reason（缺席 = 装配侧未供——呈现退「未开门」） */
+  readonly reason?: string;
+  /** 该门统摄的模型面语义描述（负面声明文案锚——如「跨树会话枚举与读取」） */
+  readonly scope: string;
+}
+
+/**
+ * session_status 环境自感面（e-3——工具面/能力自省只读 + 负面能力声明文案
+ * 的数据源；装配根 per-session 注入，缺席 = 基础坐标档诚实降级不虚构）。
+ * 与 SessionView 分立：会话坐标/血缘是 durable 派生（视图服务），工具清单/
+ * 门态是装配现场事实（非 durable——经此窄面注入保持 obs 件零装配知识）。
+ */
+export interface SessionEnvFace {
+  /** 可用工具清单（整形后面快照——本会话模型可见有效集） */
+  readonly listTools: () => readonly SessionToolListingEntry[];
+  /** 能力门态快照（模型道可达的门面——v1 观测门一枚，操控门随 e-4 扩） */
+  readonly doorStates: () => readonly SessionDoorStateEntry[];
+}
+
+/**
  * 会话维视图服务（03 §10.8 会话维扩展——纯派生读面，零自管库零状态：
  * 一切数据经 deps 三窄面注入，尾条推导 + 树判定单源）。dispose 无义——
  * 无资源可释（与 rollup ObsService 分立，装载归装配批）。
