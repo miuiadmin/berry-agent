@@ -7,7 +7,7 @@
  * （意外异常 crashed:true + crash.log 按 memory 位跳过——诊断形 dataDir
  * 在场仍跳过）。真盘真库（临时目录）+ 真装载管线（core 件 in-process）。
  */
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -17,7 +17,10 @@ import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
 import { assembleHostStack, readTriggerOpensLive } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
+import { readAllowlist } from './allowlist-store.js';
 import type { SkillsRegistry } from '../skills/index.js';
+import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+import type { UiBackend } from '../channels/index.js';
 import { fauxProvider } from '../llm/index.js';
 
 /** 临时数据目录族（统一清） */
@@ -40,6 +43,20 @@ function fauxText(text: string): PiAssistantMessage {
     content: [{ type: 'text', text }],
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
     stopReason: 'stop',
+    timestamp: 1,
+  } as unknown as PiAssistantMessage;
+}
+
+/** 零用量形状（faux 消息统一 usage 位） */
+const NO_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+
+/** faux 工具调用消息速记（审批链 e2e 驱动面——R-1 回归锁用） */
+function toolCallOf(id: string, name: string, args: Record<string, unknown>): PiAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'toolCall', id, name, arguments: args }],
+    usage: NO_USAGE,
+    stopReason: 'toolUse',
     timestamp: 1,
   } as unknown as PiAssistantMessage;
 }
@@ -368,5 +385,98 @@ describe('触发器开门活体读取（readTriggerOpensLive——C 批 C-3：�
     const dir = tmpDir('host-asm-tol-row-');
     writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: acme\n    opens: [not-a-grantable]\n');
     expect(readTriggerOpensLive(dir, 'acme')).toEqual(new Set());
+  });
+});
+
+/* ---------------- R-1：serve/daemon 形 always 回写同律（U3 批——回归锁） ---------------- */
+
+/**
+ * 审批应答后端（serve 面呈现同构——serve-daemon.ts addBackend 同法；恒答
+ * 配置值 + 收请求账）。capabilities 与 12f-4 栈级例同形（approval 位开）。
+ */
+class R1ApprovalBackend implements UiBackend<AgentMessage> {
+  readonly id = 'r1-approver';
+  readonly capabilities = {
+    notify: true,
+    confirm: false,
+    select: false,
+    input: false,
+    approval: true,
+    setStatus: true,
+    setWidget: false,
+  };
+  readonly requests: ApprovalAskRequest[] = [];
+  constructor(private readonly answer: ApprovalAskAnswer) {}
+  hasAudience(): boolean {
+    return true;
+  }
+  notify(): void {
+    // 非本组断言面
+  }
+  onEnvelope(): void {
+    // 非本组断言面
+  }
+  onRepaint(): void {
+    // 非本组断言面
+  }
+  async askApproval(_sessionId: string, request: ApprovalAskRequest): Promise<ApprovalAskAnswer> {
+    this.requests.push(request);
+    return this.answer;
+  }
+}
+
+describe('serve/daemon 形 always 回写同律（R-1——U3-0 台账记账项收口锁）', () => {
+  it('装配真接 persistAllowlist：always 应答真落 allowlist.json + decided=always（不降级 approve）', async () => {
+    const dir = tmpDir('host-asm-r1-');
+    const ws = tmpDir('host-asm-r1-ws-');
+    const faux = fauxProvider({ provider: 'faux-r1', models: [{ id: 'm1' }] });
+    // serve-daemon.ts 同调用形（runtime: {dataDir} 直传——批 19a-3 迁 assembly
+    // 公共段后 serve/daemon/mcp 与 TUI 同一合成代码路径；R-1 记账时缺口在
+    // serve/daemon 各自装配不传 persistAllowlist，公共段统一后本例锁两形态
+    // 同律——always 应答在 serve 形下同真落 allowlist.json、decided 不降级）
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-r1/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // serve 面呈现同构接入（SDK face 后端位——审批 ask 经 channels 路由到本后端）
+      const backend = new R1ApprovalBackend('always');
+      assembly.stack.channels.addBackend(backend);
+      const session = assembly.stack.openStartupSession(ws);
+
+      // fs write 工具经 faux 工具调用驱动（绝对路径锚 tmp 工作区——不落真
+      // cwd；写效应过审批门带 suggestedEntry 草案）
+      faux.setResponses([
+        () => toolCallOf('t-r1', 'write', { path: join(ws, 'r1.txt'), content: 'hi' }),
+        () => fauxText('写好了'),
+      ]);
+      const receipt = await assembly.stack.submitText(session.sessionId, '写入');
+      expect(receipt).toMatchObject({ status: 'completed' });
+
+      // 问过 + always 答复真执行（审批呈现链经 channels 到后端）
+      expect(backend.requests).toHaveLength(1);
+      expect(readFileSync(join(ws, 'r1.txt'), 'utf8')).toBe('hi');
+
+      // R-1 两断言面：① decided 落账 'always'（persistAllowlist 在场才有的
+      // 分流值——缺席则防御降级 'approve'）② 结构草案真落 allowlist.json
+      // （写侧唯一正门全链——装配闭包 dataDir 接 store 文件写）
+      const decided = session.driver.session
+        .events()
+        .filter((event) => event.type === 'approval/decided')
+        .map((event) => event.data);
+      expect(decided[0]).toMatchObject({ decision: 'always' });
+      const load = readAllowlist(dir);
+      expect(load.healthy).toBe(true);
+      expect(load.entries).toHaveLength(1);
+      expect(load.entries[0]!.tool).toBe('write');
+      expect(load.entries[0]!.pattern.endsWith('r1.txt')).toBe(true); // canonical 绝对路径（realpath 平台差异不锁全串）
+    } finally {
+      await assembly.runtime.shutdown();
+    }
   });
 });
