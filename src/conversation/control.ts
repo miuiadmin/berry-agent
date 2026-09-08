@@ -25,7 +25,10 @@
  * 插件服务道 `plugin:<插件id>`（既有前缀复用）；**调用方传入面无 source
  * 参数位**——伪造结构性不存在。
  */
-import type { UserMessage } from '../contracts/index.js';
+import { BaseError, type UserMessage } from '../contracts/index.js';
+import { adjudicateCapabilityDoor } from '../contracts/api.js';
+import type { ConversationDriver } from './driver.js';
+import type { SessionManager } from './sessions.js';
 
 /** 操控轴高危面名（03 §4.6 v1 首批第六枚——操控全域无树内豁免，两轴分立） */
 export const CONTROL_CROSS_CAPABILITY = 'sessions.control-cross';
@@ -122,4 +125,152 @@ export interface SessionsControlFace {
  */
 export function controlSourceOf(caller: ControlCaller): UserMessage['source'] {
   return caller.kind === 'session' ? `session:${caller.sessionId}` : `plugin:${caller.pluginId}`;
+}
+
+/** capability/used 审计记录（操控轴载荷——05 §1.1 e-4 定形：归因键含动词名与目标会话 id） */
+export interface ControlUsedRecord {
+  readonly capability: typeof CONTROL_CROSS_CAPABILITY;
+  /** 动词名（send/interrupt/withdraw） */
+  readonly verb: 'send' | 'interrupt' | 'withdraw';
+  readonly targetSessionId: string;
+  /** 送话会话 id（模型工具道归因——缺席即插件服务道） */
+  readonly callerSessionId?: string;
+  /** 插件 id（插件服务道归因——缺席即模型工具道） */
+  readonly pluginId?: string;
+}
+
+/** createSessionsControl 依赖注入面（装配根构造受理器——宿主内建与 ctx.get 共用同件） */
+export interface SessionsControlDeps {
+  /** 多会话管理器（幽灵守卫 exists / 活体解析 driverOf / auto-open 投递腿） */
+  readonly manager: SessionManager;
+  /** 启用清单 opens 取值器（操控门检输入——全域同门无树内豁免；只读集契约） */
+  readonly getOpens: () => ReadonlySet<string>;
+  /** capability/used 审计 seam（05 §1.1——装配位接线，缺席 = 零审计） */
+  readonly onCapabilityUsed?: (record: ControlUsedRecord) => void;
+  /** a2a 回合护栏帽（缺省 A2A_ROUND_LIMIT_DEFAULT=5——装配可覆盖） */
+  readonly roundLimit?: number;
+}
+
+/**
+ * 操控受理器工厂（双面同源的单源实现位——03 §2.2 第十一面 e-4 落码）：
+ * 宿主内建工具族（模型道）与 `ctx.get("sessions-control")`（插件道）都调
+ * 本件返回的 SessionsControlFace，动词语义/执法序单源在此。
+ *
+ * 受理序（send）：幽灵守卫 → 操控门检（全域）→ a2a 链深帽 →
+ * expectedTurnId 对拍 → 投递（auto-open：目标未 open 即 resume 打开——
+ * 发送方不应被要求先手动打开目标）→ capability/used 审计；
+ * interrupt/withdraw：幽灵守卫 → 门检 → 动词位（interrupt 不 auto-open——
+ * 打断休眠会话无在飞可打；withdraw 不 auto-open——队列是内存态，休眠无队）。
+ */
+export function createSessionsControl(deps: SessionsControlDeps): SessionsControlFace {
+  const roundLimit = deps.roundLimit ?? A2A_ROUND_LIMIT_DEFAULT;
+  /** 撤回关联键铸造位（栈级自增——受理器栈内唯一，跨会话可对账） */
+  let messageSeq = 0;
+
+  /** 幽灵守卫（三动词共同前置①——目标 id 无对应行，进程内 ∪ durable） */
+  const guardTarget = (verb: string, targetSessionId: string): void => {
+    if (!deps.manager.exists(targetSessionId)) {
+      throw new BaseError(
+        'SESSION_TARGET_NOT_FOUND',
+        `操控动词 ${verb} 的目标会话 ${targetSessionId} 不存在（进程内与 durable 均无对应行）`,
+      );
+    }
+  };
+
+  /** 操控门检（三动词共同前置②——全域同门无树内豁免，03 §2.2 第十一面门制句） */
+  const enforceDoor = (verb: string, targetSessionId: string): void => {
+    const verdict = adjudicateCapabilityDoor(deps.getOpens(), CONTROL_CROSS_CAPABILITY);
+    if (!verdict.ok) {
+      throw new BaseError(
+        'SESSION_CONTROL_DENIED',
+        `${verdict.message}（动词 ${verb}，目标会话 ${targetSessionId}——操控轴无树内豁免）`,
+      );
+    }
+  };
+
+  /** capability/used 逐次审计（门开后行使即记——拒路径未获许可不记） */
+  const audit = (verb: ControlUsedRecord['verb'], input: { targetSessionId: string }, caller: ControlCaller): void => {
+    deps.onCapabilityUsed?.({
+      capability: CONTROL_CROSS_CAPABILITY,
+      verb,
+      targetSessionId: input.targetSessionId,
+      ...(caller.kind === 'session' ? { callerSessionId: caller.sessionId } : { pluginId: caller.pluginId }),
+    });
+  };
+
+  return {
+    async send(input) {
+      // 空文本拒收（契约位——空文本是调用方 bug，非业务拒不造码）
+      if (input.text.trim() === '') {
+        throw new Error('send 拒收空文本（调用方 bug——注入文本非空是调用方契约）');
+      }
+      guardTarget('send', input.targetSessionId);
+      enforceDoor('send', input.targetSessionId);
+      // —— a2a 链深帽（03 §2.2 第十一面回合护栏）：送话方深度+1 超帽拒。
+      // 插件服务道起跳链深 1（插件直唤即第一跳）；送话会话未 open 按 0——
+      // 与「崩溃重启归零」同语义（内存位不承诺跨进程精确保留，护栏目的已达）
+      const callerDepth =
+        input.caller.kind === 'session' ? (deps.manager.driverOf(input.caller.sessionId)?.a2aDepth ?? 0) : 0;
+      const newDepth = callerDepth + 1;
+      if (newDepth > roundLimit) {
+        throw new BaseError(
+          'SESSION_ROUND_LIMIT',
+          `跨会话 send 链深 ${newDepth} 超回合护栏帽 ${roundLimit}（a2a 互搏环——人面输入重置链深）`,
+        );
+      }
+      // —— auto-open 投递腿：目标未 open 即 resume 打开（幂等 open——单焦点
+      // 不造第二附着）；expectedTurnId 对拍用活体 durable 日志尾扫（单源）
+      const driver = deps.manager.driverOf(input.targetSessionId) ?? deps.manager.open(input.targetSessionId).driver;
+      if (input.expectedTurnId !== undefined && input.expectedTurnId !== lastTurnStartSeq(driver)) {
+        throw new BaseError(
+          'SESSION_TURN_STALE',
+          `目标会话 ${input.targetSessionId} 的 turn 已翻页（期望最近 turn/start seq=${input.expectedTurnId}，实际 ${String(lastTurnStartSeq(driver))}——说完话世界已变）`,
+        );
+      }
+      const messageId = `msg-${(messageSeq += 1)}`;
+      const message: UserMessage = {
+        role: 'user',
+        content: input.text,
+        timestamp: Date.now(),
+        source: controlSourceOf(input.caller),
+      };
+      const receipt = driver.deliverControl(message, messageId, newDepth);
+      audit('send', input, input.caller);
+      return receipt;
+    },
+
+    async interrupt(input) {
+      guardTarget('interrupt', input.targetSessionId);
+      enforceDoor('interrupt', input.targetSessionId);
+      // 打断无对象响亮拒不静默 no-op（03 §2.2 第十一面 interrupt）——目标未
+      // open 必无在飞 run（休眠会话无 run），缺席 driver 同判
+      const driver = deps.manager.driverOf(input.targetSessionId);
+      if (driver === undefined || !driver.running) {
+        throw new BaseError('SESSION_INACTIVE', `目标会话 ${input.targetSessionId} 无在飞 run 可打断（休眠或已停摆）`);
+      }
+      driver.abort();
+      audit('interrupt', input, input.caller);
+      return { status: 'interrupted', targetSessionId: input.targetSessionId };
+    },
+
+    async withdraw(input) {
+      guardTarget('withdraw', input.targetSessionId);
+      enforceDoor('withdraw', input.targetSessionId);
+      // 队列是内存态：目标未 open / 已停摆清队 → 不在队恒真（'delivered'
+      // 诚实呈报——不虚构撤回成功）
+      const driver = deps.manager.driverOf(input.targetSessionId);
+      const withdrawn = driver?.withdrawQueued(input.messageId) ?? false;
+      audit('withdraw', input, input.caller);
+      return { status: withdrawn ? 'withdrawn' : 'delivered', messageId: input.messageId };
+    },
+  };
+}
+
+/** 目标 durable 日志最近 turn/start 事件 seq（expectedTurnId 对拍单源——尾扫；无 turn 返 undefined） */
+function lastTurnStartSeq(driver: ConversationDriver): number | undefined {
+  const events = driver.session.events();
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    if (events[i]!.type === 'turn/start') return events[i]!.seq;
+  }
+  return undefined;
 }

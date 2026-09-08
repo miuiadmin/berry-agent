@@ -20,6 +20,7 @@ import type {
   StreamFnOptions,
   TextContent,
   ToolCallBlock,
+  UserMessage,
 } from '../contracts/index.js';
 import { isStandardMessage } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
@@ -1178,5 +1179,99 @@ describe('ConversationDriver session/lifecycle 活体广播', () => {
       { sessionId: 's-driver', phase: 'run-started' },
       { sessionId: 's-driver', phase: 'run-settled' }, // status 缺席——无 RunResult 不编造
     ]);
+  });
+});
+
+/* ---------------- e-4 操控腿驱动面（03 §2.2 第十一面） ---------------- */
+
+describe('ConversationDriver 跨会话操控驱动面（e-4——deliverControl/链深位/source 专属受理）', () => {
+  /** 操控注入消息构造（source 由受理面铸——测试直取铸形） */
+  const controlMessage = (source: UserMessage['source']): UserMessage => ({
+    role: 'user',
+    content: '跨会话指令',
+    timestamp: 0,
+    source,
+  });
+
+  it('submit 对 session: 前缀 source fail-loud 拒（provenance 盖章单源——05 §3.1：前缀专属受理面铸，结构性防伪造）', async () => {
+    const { driver } = makeDriver({});
+    expect(() => driver.submit('问', { source: 'session:s-other' })).toThrowError(/session: 前缀/);
+    // 既有合法面不受影响：channel: 前缀与字面量照常受理
+    const ok = makeDriver({ scripts: [assistant({})] });
+    await ok.driver.submit('问', { source: 'channel:webui' });
+    expect(dataOf(ok.driver, 'user/message')[0]).toMatchObject({ source: 'channel:webui' });
+  });
+
+  it('a2a 链深更新律：人面输入归 0 / plugin: 源归 1 / deliverControl 专径递推（03 §2.2 回合护栏计数位）', () => {
+    // 停摆形：零 run 零脚本——深度位更新在 routeMessage/deliverControl 入口，
+    // inject 腿照置位（停摆落账的 session: 注入恢复后续跑，链深应保留）
+    const { driver } = makeDriver({});
+    driver.dismantle();
+    // 专径递推：depthHint 直写（受理面算好传入）
+    driver.deliverControl(controlMessage('session:s-caller'), 'msg-1', 3);
+    expect(driver.a2aDepth).toBe(3);
+    // 插件道注入（plugin: 源经 routeMessage）归 1
+    void driver.submit('插件注入', { source: 'plugin:core:memory' });
+    expect(driver.a2aDepth).toBe(1);
+    // 专径再递推
+    driver.deliverControl(controlMessage('session:s-caller'), 'msg-2', 2);
+    expect(driver.a2aDepth).toBe(2);
+    // 人面输入（treatedAsUser 源）归 0——用户在场即重置链深
+    void driver.submit('人面输入');
+    expect(driver.a2aDepth).toBe(0);
+  });
+
+  it('deliverControl 停摆腿：inject 落账携 seq、不唤醒（durable 承载——随下次启动带入）', () => {
+    const { driver } = makeDriver({});
+    driver.dismantle();
+    const receipt = driver.deliverControl(controlMessage('session:s-caller'), 'msg-1', 1);
+    expect(receipt).toEqual({ status: 'delivered', messageId: 'msg-1', seq: 0 });
+    // durable 落账在场（source 盖章形）且零 run（停摆不唤醒）
+    expect(dataOf(driver, 'user/message')).toEqual([{ content: '跨会话指令', source: 'session:s-caller' }]);
+    expect(driver.running).toBe(false);
+  });
+
+  it('deliverControl busy 腿：steer 入列即席回执 queued（不搭车 run 结算）+ 撤回读面闭环', async () => {
+    // gate 挂住第一次流调用 → run 在飞窗口
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver } = makeDriver({ scripts: [assistant({}), assistant({})], gates: [gate] });
+    const runPromise = driver.submit('首问');
+    await vi.waitFor(() => expect(driver.running).toBe(true));
+    const receipt = driver.deliverControl(controlMessage('session:s-caller'), 'msg-9', 1);
+    // 即席 queued 回执（submit busy 腿搭车 currentRun——deliverControl 不搭）
+    expect(receipt).toEqual({ status: 'queued', messageId: 'msg-9' });
+    // 在队可撤回（withdraw 读面闭环——true 撤到 / 再撤 false 已出队）
+    expect(driver.withdrawQueued('msg-9')).toBe(true);
+    expect(driver.withdrawQueued('msg-9')).toBe(false);
+    release();
+    const result = await runPromise;
+    expect(result.status).toBe('completed');
+    // 撤回件未进 durable（user/message 只有首问——submit 缺省 source='user' 落账）
+    expect(dataOf(driver, 'user/message')).toEqual([{ content: '首问', source: 'user' }]);
+  });
+
+  it('deliverControl idle 腿：搁浅件合批 + 新件起跑 fire-and-forget（回执即时返、run 异常走 warn 不静默）', async () => {
+    const { driver } = makeDriver({ scripts: [assistant({})] });
+    const receipt = driver.deliverControl(controlMessage('session:s-caller'), 'msg-1', 1);
+    expect(receipt).toEqual({ status: 'delivered', messageId: 'msg-1' });
+    // fire-and-forget 起跑：回执先返，run 在后台结算（waitFor 收口防泄漏）
+    await vi.waitFor(() => expect(driver.running).toBe(false));
+    // durable 形：操控注入作种子起跑（user/message → turn/start → …）
+    expect(types(driver)).toEqual(['user/message', 'turn/start', 'request/header', 'assistant/message', 'turn/end']);
+    expect(dataOf(driver, 'user/message')).toEqual([{ content: '跨会话指令', source: 'session:s-caller' }]);
+  });
+
+  it('deliverControl idle 腿起跑异常走 warn 面不静默（无人 await 的 promise 不吞错）', async () => {
+    const warnings: string[] = [];
+    const { driver } = makeDriver({
+      scripts: [], // 脚本耗尽 → 起跑即抛
+      warn: (message) => warnings.push(message),
+    });
+    const receipt = driver.deliverControl(controlMessage('plugin:core:x'), 'msg-1', 1);
+    expect(receipt.status).toBe('delivered');
+    await vi.waitFor(() => expect(warnings.join('\n')).toContain('操控投递起跑异常'));
   });
 });

@@ -155,6 +155,15 @@ export class Persistence {
   }
 
   /**
+   * 会话行在场判定（e-4 操控轴幽灵守卫的判据位——loadSession 的零副作用
+   * 读面：只查行不 attach、不合成 closer、不建驱动）。
+   */
+  hasSession(sessionId: string): boolean {
+    this.ensureOpen();
+    return this.store.getSessionRow(sessionId) !== undefined;
+  }
+
+  /**
    * 装载既有会话（恢复重放面）：events 全量读（撕裂尾 heal 在 Store）→
    * 种子前缀重建 SessionLog → onAppend 接写队列续写。
    * closer 合成（孤儿 tool/未闭合 turn 等，§4）归调用方——在返回的 log 上

@@ -40,10 +40,11 @@ import type {
   RetryProbe,
   UserMessage,
 } from '../contracts/index.js';
-import { isStandardMessage } from '../contracts/index.js';
+import { isStandardMessage, parseEventSource } from '../contracts/index.js';
 import type { SessionLog } from '../session/index.js';
 import { abortableSleep, retryDelay } from './backoff.js';
 import { DurableWiring } from './wiring.js';
+import type { ControlSendReceipt } from './control.js';
 import type {
   ContextTransformInput,
   ConversationDriverOptions,
@@ -92,6 +93,14 @@ export class ConversationDriver {
   private dismantledValue = false;
   /** 连续后台唤醒计数（04 §4 唤醒预算——批消费位记账；前台 kick 复位） */
   private wakeStreak = 0;
+  /**
+   * a2a 链深内存位（03 §2.2 第十一面回合护栏——e-4 落码裁决：选计数位不选
+   * 血缘回溯，O(1) 受理面单点递推同效）。更新律：人面输入（treatedAsUser
+   * 源经 routeMessage）归 0、plugin: 源归 1、跨会话 send 经 deliverControl
+   * 专径携 depthHint 递推（送话方深度+1）；崩溃重启归零（环物理断链——
+   * 护栏目的已达，不承诺跨进程精确保留）。
+   */
+  private a2aDepthValue = 0;
   /** 全量工具面快照（工具面切换的还原基准——backgroundTools 的对照面） */
   private readonly fullTools: AgentTool[] | undefined;
   /** 警示面（缺省 stderr——护栏不静默） */
@@ -145,6 +154,14 @@ export class ConversationDriver {
     content: UserMessage['content'],
     options?: SubmitOptions & { source?: UserMessage['source'] },
   ): Promise<SubmitResult> {
+    // session: 前缀 fail-loud 拒（e-4 provenance 盖章单源——05 §3.1）：跨会话
+    // 操控注入的 source 只能由操控受理面铸（controlSourceOf——control.ts），
+    // 本入口不铸——前缀专属受理面铸，结构性杜绝绕受理面伪造送话身份
+    if (options?.source !== undefined && parseEventSource(options.source).kind === 'session') {
+      throw new Error(
+        `submit 不受理 session: 前缀 source（跨会话操控注入走操控受理面——绕受理面伪造送话身份属调用方 bug）`,
+      );
+    }
     const message: UserMessage = {
       role: 'user',
       content,
@@ -165,6 +182,13 @@ export class ConversationDriver {
    * （receipt + warn，不静默）；前台输入起跑即复位计数。
    */
   private routeMessage(message: UserMessage, backgroundWake: boolean | undefined): Promise<SubmitResult> {
+    // a2a 链深更新律（03 §2.2 第十一面回合护栏——e-4）：人面输入归 0（用户
+    // 在场即重置链深）、plugin: 源归 1（插件直唤即第一跳）；session: 源到不了
+    // 这里（submit 已拒 + deliverControl 专径另走）——compaction 等其余非用户
+    // 源不触碰（不是链上事件）
+    const parsedSource = parseEventSource(message.source ?? 'user');
+    if (parsedSource.treatedAsUser) this.a2aDepthValue = 0;
+    else if (parsedSource.kind === 'plugin') this.a2aDepthValue = 1;
     // inject 通道：停摆期只落账（durable 写点单归接线器——不绕过直写 session）
     if (this.dismantledValue) {
       return Promise.resolve({ status: 'injected', seq: this.wiring.appendInjectedUser(message) });
@@ -188,6 +212,58 @@ export class ConversationDriver {
     }
     const seeds = [...consumed.items.map((item) => item.message), message];
     return this.kick(seeds, newWake || consumed.wakeTriggered);
+  }
+
+  /**
+   * 跨会话操控投递入口（03 §2.2 第十一面 send——e-4 落码裁决：不复用
+   * submit，因 busy 腿 submit 搭车在飞 run 结算，而跨会话调用方要**即席
+   * 回执**不等目标 run 终态）。三通道与 routeMessage 同型判定：
+   *  - 停摆 → inject：durable 落账（回执携 seq）；
+   *  - busy → steer 入列：接 EnqueueReceipt 翻译（drop-oldest 被丢旧件呈报
+   *    droppedMessageId——被丢件有撤回关联键才填，普通件无名不虚构）；
+   *  - idle → followUp 起跑：搁浅件合批 + 新件作种子，fire-and-forget（run
+   *    异常走 warn 面不静默——跨会话调用方已拿到回执，无人 await 这个
+   *    promise）。**不置 backgroundWake**（e-4 落码裁决：a2a 委托是明确
+   *    意图的协作非自激励环——链深帽才是语义护栏；不置位保目标全量工具面）。
+   *
+   * @param depthHint a2a 链深递推值（受理面已算：送话方深度+1 / 插件道 1）——
+   * 本入口单点记账（受理序已过链深帽执法）。
+   */
+  deliverControl(message: UserMessage, messageId: string, depthHint: number): ControlSendReceipt {
+    this.a2aDepthValue = depthHint;
+    // inject 通道：停摆期只落账（「随下次启动带入」的 durable 承载）
+    if (this.dismantledValue) {
+      return { status: 'delivered', messageId, seq: this.wiring.appendInjectedUser(message) };
+    }
+    if (this.currentRun !== undefined) {
+      // busy：steer 入列（撤回关联键随条目透传）+ 溢出回执翻译
+      const receipt = this.queue.enqueue(message, 'steer', { id: messageId });
+      if (!receipt.accepted) return { status: 'dropped', reason: 'queue-full' };
+      return receipt.dropped?.id !== undefined
+        ? { status: 'queued', messageId, droppedMessageId: receipt.dropped.id }
+        : { status: 'queued', messageId };
+    }
+    // idle：搁浅件合批 + 新件作种子起跑（fire-and-forget）
+    const consumed = this.consumeBatch();
+    const seeds = [...consumed.items.map((item) => item.message), message];
+    void this.kick(seeds, consumed.wakeTriggered).catch((error: unknown) => {
+      this.warnFace(`操控投递起跑异常（会话 ${this.session.sessionId}）：${String(error)}`);
+    });
+    return { status: 'delivered', messageId };
+  }
+
+  /**
+   * 在队撤回读面（03 §2.2 第十一面 withdraw）：按撤回关联键移除在队件。
+   * @returns true = 撤到（'withdrawn'）；false = 已出队/从未在队（'delivered'
+   * 语义诚实呈报——停摆清队后同 false）。
+   */
+  withdrawQueued(messageId: string): boolean {
+    return this.queue.withdraw(messageId) !== undefined;
+  }
+
+  /** a2a 链深读面（受理面送话方深度解析——03 §2.2 第十一面回合护栏） */
+  get a2aDepth(): number {
+    return this.a2aDepthValue;
   }
 
   /**

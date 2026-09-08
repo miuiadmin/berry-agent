@@ -28,8 +28,10 @@ export type {
   ControlCaller,
   ControlInterruptReceipt,
   ControlSendReceipt,
+  ControlUsedRecord,
   ControlWithdrawReceipt,
   SessionInterruptInput,
+  SessionsControlDeps,
   SessionsControlFace,
   SessionSendInput,
   SessionWithdrawInput,
@@ -38,6 +40,7 @@ export {
   A2A_ROUND_LIMIT_DEFAULT,
   CONTROL_CROSS_CAPABILITY,
   controlSourceOf,
+  createSessionsControl,
   SESSIONS_CONTROL_SERVICE,
 } from './control.js';
 // todo 机器（11e：fold 推导 + conversation/todo 角色 + 快照注入 + 工具件；

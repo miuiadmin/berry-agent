@@ -29,6 +29,12 @@ export interface PendingItem {
    * 消费侧（驱动）据此合批与记唤醒预算；队列只承载不判定）。
    */
   backgroundWake?: boolean;
+  /**
+   * 撤回关联键（e-4 操控腿 withdraw——03 §2.2 第十一面）：铸造位单归操控
+   * 受理器（栈级自增序列），随 enqueue 入列透传；队列只承载不铸造。
+   * 普通件（submit/steer）无此位——withdraw 只对操控件有意义。
+   */
+  id?: string;
 }
 
 /** enqueue 回执：accepted=false 时 dropped 载被拒/被丢项（回执面可见，不静默） */
@@ -94,14 +100,20 @@ export class PendingMessageQueue {
    * 入列（溢出按策略执法、回执不静默）。
    * @param message 待发消息 @param channel 通道判定结果（驱动侧已裁）
    * @param options.backgroundWake 后台唤醒标记位（随条目透传——消费侧合批/预算面）
+   * @param options.id 撤回关联键（随条目透传——withdraw 消费面；e-4）
    * @returns 回执：accepted=true 正常入列；false 时 dropped 载被丢/被拒项
    */
-  enqueue(message: AgentMessage, channel: DeliverChannel, options?: { backgroundWake?: boolean }): EnqueueReceipt {
+  enqueue(
+    message: AgentMessage,
+    channel: DeliverChannel,
+    options?: { backgroundWake?: boolean; id?: string },
+  ): EnqueueReceipt {
     const item: PendingItem = {
       message,
       channel,
       enqueuedAt: Date.now(),
       ...(options?.backgroundWake !== undefined ? { backgroundWake: options.backgroundWake } : {}),
+      ...(options?.id !== undefined ? { id: options.id } : {}),
     };
     if (this.items.length < this.capacityValue) {
       this.items.push(item);
@@ -132,5 +144,16 @@ export class PendingMessageQueue {
   /** 清空（run 收场/会话拆解用；返回被清条目供回执） */
   clear(): PendingItem[] {
     return this.items.splice(0, this.items.length);
+  }
+
+  /**
+   * 在队撤回（e-4 withdraw——03 §2.2 第十一面）：按撤回关联键移除在队件。
+   * @returns 命中返回被移除条目；不在队（已出队被消费/从未入列/已被溢出
+   * 丢弃）返回 undefined——调用方以「已投递」语义诚实呈报。
+   */
+  withdraw(id: string): PendingItem | undefined {
+    const index = this.items.findIndex((item) => item.id === id);
+    if (index === -1) return undefined;
+    return this.items.splice(index, 1)[0]!;
   }
 }

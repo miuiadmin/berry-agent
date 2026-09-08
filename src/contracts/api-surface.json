@@ -1325,6 +1325,11 @@
       "userGrantable": true
     },
     {
+      "name": "sessions.control-cross",
+      "providedBy": "host",
+      "userGrantable": true
+    },
+    {
       "name": "sessions.observe-cross",
       "providedBy": "host",
       "userGrantable": true

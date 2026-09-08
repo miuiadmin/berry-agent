@@ -103,3 +103,33 @@ describe('PendingMessageQueue 容量溢出策略轴', () => {
     expect(q.size).toBe(0);
   });
 });
+
+describe('PendingMessageQueue 撤回关联键与在队撤回（e-4 withdraw——03 §2.2 第十一面）', () => {
+  it('id 位随 enqueue 入列透传、取件随条目带出', () => {
+    const q = new PendingMessageQueue();
+    q.enqueue(msg(1), ch, { id: 'msg-1' });
+    q.enqueue(msg(2), ch); // 普通件无 id 位
+    q.mode = 'all';
+    const [first, second] = q.drain();
+    expect(first?.id).toBe('msg-1');
+    expect(second?.id).toBeUndefined();
+  });
+
+  it('withdraw 命中移除在队件（保序余件）、不在队返 undefined', () => {
+    const q = new PendingMessageQueue();
+    q.enqueue(msg(1), ch, { id: 'msg-1' });
+    q.enqueue(msg(2), ch, { id: 'msg-2' });
+    q.enqueue(msg(3), ch, { id: 'msg-3' });
+    const removed = q.withdraw('msg-2');
+    expect(removed?.id).toBe('msg-2');
+    expect(removed?.message.content).toBe('m2');
+    expect(q.size).toBe(2);
+    // 命中件是队中段——余件 FIFO 序不变
+    q.mode = 'all';
+    const drained = q.drain();
+    expect(drained.map((i) => i.message.content)).toEqual(['m1', 'm3']);
+    // 不在队（已出队被消费/从未入列/已被溢出丢弃）→ undefined（诚实缺席）
+    expect(q.withdraw('msg-2')).toBeUndefined();
+    expect(q.withdraw('never-enqueued')).toBeUndefined();
+  });
+});

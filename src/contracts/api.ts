@@ -178,6 +178,13 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
     providedBy: 'host',
     userGrantable: true,
   },
+  {
+    // 操控轴高危面（03 §4.6 v1 首批第六枚——e-4 落码批入册）：跨会话
+    // send/interrupt/withdraw 全域同门无树内豁免（03 §2.2 第十一面门制句）
+    name: 'sessions.control-cross',
+    providedBy: 'host',
+    userGrantable: true,
+  },
 ];
 
 /**

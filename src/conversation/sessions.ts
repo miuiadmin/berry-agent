@@ -258,6 +258,16 @@ export class SessionManager {
     return this.records.has(sessionId);
   }
 
+  /**
+   * 目标会话在场判定（进程内在管 ∪ durable 行——e-4 操控轴幽灵守卫判据位，
+   * 03 §2.2 第十一面：三动词共同前置「目标 id 无对应行拒
+   * SESSION_TARGET_NOT_FOUND」）。零副作用：不 attach、不合成 closer、
+   * 不构造驱动。
+   */
+  exists(sessionId: string): boolean {
+    return this.records.has(sessionId) || this.persistence.hasSession(sessionId);
+  }
+
   /** 已开驱动读取（缺席 undefined——焦点编排归调用方） */
   driverOf(sessionId: string): ConversationDriver | undefined {
     return this.records.get(sessionId)?.driver;
