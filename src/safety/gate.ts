@@ -170,8 +170,9 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     /* ---- ② allowlist 免问（粘性第 3 款；advisory——只影响问不问） ---- */
     if (opts.allowlist !== undefined && opts.allowlist.length > 0) {
       // fs 族判定收窄到写意图族（writePaths 全量 all-or-nothing）；其余 write-effect
-      // 工具走整名族（工具名整匹配）。免问仍可审计——gate/decision reason 的
-      // allowlist:<序> 标注随 host 装配批接线（当前管道放行统一 reason=ok）
+      // 工具走整名族（工具名整匹配）。命中审计（04 §9 批 12f-4）：放行来源标注
+      // allowlist:<条目序> 落 GateInput——管道 recordGate 承接进 gate/decision
+      // 的 reason 位（免问放行仍可审计——不产生 approval 事件对，来源在此标注）
       const hit = matchAllowlist(
         opts.allowlist,
         isFsFamily
@@ -183,7 +184,10 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
           : { tool: tool.name },
         Date.now(),
       );
-      if (hit !== undefined) return next(input);
+      if (hit !== undefined) {
+        input.allowReason = `allowlist:${hit.index}`;
+        return next(input);
+      }
     }
 
     /* ---- ③ write-effect 审批对（03 §2.3；粘性短路在 ApprovalService 内） ---- */

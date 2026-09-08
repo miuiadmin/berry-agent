@@ -287,7 +287,7 @@
       "since": "1.0",
       "desc": "守门段 waterfall 载荷（04 §7 段 2）",
       "kind": "interface",
-      "sig": "182b8934b97b3da7"
+      "sig": "d96227e8fdbcc3c9"
     },
     {
       "symbol": "HostFace",

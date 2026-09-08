@@ -107,7 +107,7 @@ function makeRig(opts?: {
     const out = await dispatch.waterfall<GateInput>(TOOL_EVENT_NAMES[0]!, input);
     // block 形才带 reason——先收窄再取（allow 形无该字段）
     const reason = out.outcome !== undefined && out.outcome.action === 'block' ? out.outcome.reason : '';
-    return { blocked: out.outcome?.action === 'block', reason, reached };
+    return { blocked: out.outcome?.action === 'block', reason, reached, allowReason: out.allowReason };
   };
 
   return {
@@ -299,6 +299,27 @@ describe('allowlist 免问', () => {
     const rig2 = makeRig({ allowlist: [{ tool: 'deploy', pattern: '' }] });
     await rig2.run(WRITE, { path: 'src/a.ts' });
     expect(rig2.asks).toHaveLength(1);
+  });
+
+  it('命中审计标注（04 §9 批 12f-4）：allowReason = allowlist:<条目序>——首条命中 0、第二条命中 1', async () => {
+    // 首条工具名不匹配（跳过），第二条命中——序号是条目在清单中的位置非命中次数
+    const rig = makeRig({
+      allowlist: [
+        { tool: 'deploy', pattern: '' },
+        { tool: 'write', pattern: 'src' },
+      ],
+    });
+    const hit = await rig.run(WRITE, { path: 'src/a.ts' });
+    expect(hit.blocked).toBe(false);
+    expect(hit.allowReason).toBe('allowlist:1');
+  });
+
+  it('未命中路径不置标注（allowReason 缺省 undefined——审批放行是普通放行非免问面）', async () => {
+    const rig = makeRig();
+    const result = await rig.run(WRITE, { path: 'src/a.ts' });
+    expect(result.blocked).toBe(false);
+    expect(rig.asks).toHaveLength(1); // 走了审批对
+    expect(result.allowReason).toBeUndefined();
   });
 });
 

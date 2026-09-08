@@ -9,8 +9,9 @@
  *     两出口共享同一 InFlightTracker（04 §3.6 同源计数）；
  *  ③ compaction 服务——SummaryChannel 适配 LlmService（maxChars 预算入
  *     prompt 指令、输出防御性截断）+ 阈值触发器经 onRunSettled 接线
- *     （05 §2 装配挂账兑现；usage 真值笔仍挂账——RunSettledEvent 不携计量，
- *     缺省估算档收口）；
+ *     （05 §2 装配挂账 + 判阈双源真值笔全兑现——run 终态从日志末条
+ *     assistant 计量供笔〔lastUsageFactOf，末条不回溯〕，真 token 主判、
+ *     缺真值回落投影字符估算）；
  *  ④ channels 通道核——fetchProjection/history 同源投影注入（07 §4.1 边表
  *     执法：核零 session 依赖，数据源在此闭包注入）；
  *  ⑤ SessionManager——DriverFactory 注入：open 域工具一次成型（assembleOpenTools
@@ -94,6 +95,11 @@ export interface ConversationStackOptions {
   readonly allowlist?: readonly AllowlistEntry[];
   /** 「始终允许」条目写入回调（04 §9 粘性段定形③——装配层接 allowlist-store 文件写；缺省 always 面关闭） */
   readonly persistAllowlist?: (draft: AllowlistDraft) => void;
+  /**
+   * compaction 服务注入位（缺省内部组装真身——SummaryChannel 适配 + 缺省配置；
+   * 测试注入计量替身观察阈值触发入参，未来装配覆盖位与 providers/model 同形）
+   */
+  readonly compaction?: CompactionService;
   /** 警示面（缺省 stderr——驱动护栏与压缩 warn 的落点） */
   readonly warn?: (message: string) => void;
 }
@@ -158,24 +164,27 @@ export function createConversationStack(options: ConversationStackOptions): Conv
 
   // ③ compaction：SummaryChannel 适配（maxChars 由 prompt 指令承载——complete
   // 单发面无 maxTokens 参数；输出防御性截断兜底）。阈值触发器接线：run 终态
-  // 订阅 → handleRunSettled（usage 真值笔挂账——现缺省估算档）。
-  const compaction: CompactionService = createCompactionService({
-    channel: {
-      complete: async ({ prompt, maxChars }) => {
-        const result = await llm.complete({
-          messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
-          priority: 'foreground',
-        });
-        // 文本块拼接 + 预算截断（防御位——prompt 指令是主预算通道）
-        const text = result.message.content
-          .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-          .map((block) => block.text)
-          .join('');
-        return { text: text.length > maxChars ? text.slice(0, maxChars) : text };
+  // 订阅 → handleRunSettled（真 token 笔从日志末条 assistant 计量供笔——见
+  // lastUsageFactOf；注入位在则为测试替身/装配覆盖）。
+  const compaction: CompactionService =
+    options.compaction ??
+    createCompactionService({
+      channel: {
+        complete: async ({ prompt, maxChars }) => {
+          const result = await llm.complete({
+            messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
+            priority: 'foreground',
+          });
+          // 文本块拼接 + 预算截断（防御位——prompt 指令是主预算通道）
+          const text = result.message.content
+            .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+            .map((block) => block.text)
+            .join('');
+          return { text: text.length > maxChars ? text.slice(0, maxChars) : text };
+        },
       },
-    },
-    warn,
-  });
+      warn,
+    });
 
   // ④ channels 通道核（投影源在⑤驱动登记之后才被调用——闭包前向引用安全）
   const channels = createChannels<AgentMessage>({
@@ -259,10 +268,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   };
   const manager = new SessionManager({ persistence: options.runtime.persistence, dispatch, createDriver });
 
-  // 阈值触发器：run 终态 → 该会话日志入阈值判定（fire-and-forget；缺 usage 走估算）
+  // 阈值触发器：run 终态 → 该会话日志入阈值判定（fire-and-forget）。判阈双源
+  // 的真 token 主判在此供笔（lastUsageFactOf——日志末条 assistant 计量）；零计量
+  // 不携带 → 服务侧回落投影字符估算（estimate 兜底档）
   agentService.onRunSettled((event) => {
     const driver = manager.driverOf(event.sessionId);
-    if (driver !== undefined) compaction.handleRunSettled({ log: driver.session });
+    if (driver !== undefined) compaction.handleRunSettled({ log: driver.session, ...lastUsageFactOf(driver.session) });
   });
 
   /** 投影拉取：驱动活体优先（内存最新鲜），未开回库装载（双事实源纪律同律） */
@@ -316,4 +327,36 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       return { ...created, resumed: false, workspaceRoot };
     },
   };
+}
+
+/**
+ * 末次真计量笔（05 §2.1 判阈双源「真 token 主判」的供笔侧）：取日志**末条**
+ * assistant/message 事件的计量快照（provider 报数随落账原样在场——05 §1.1）。
+ *
+ * 取值律：
+ * - 只看末条不回溯——上一轮的 input 是上一形态的真值、不是本轮的，回溯即拿
+ *   旧值冒充新真值（真值可用时不猜，真值缺席就明说缺席）；
+ * - 零值/坏形（中止早退、脚本零报形）= 无真值：返回不携带，调用方回落投影
+ *   字符估算（chars/4——estimate 兜底档语义在此保底而非在服务侧猜测）；
+ * - contextWindow 不供（栈面只有模型 id 无目录查询）——分母归服务侧
+ *   fallbackWindowTokens 缺省，与估算档同分母。
+ */
+export function lastUsageFactOf(log: SessionLog): { usage?: { input: number } } {
+  const events = log.events();
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]!;
+    if (event.type !== 'assistant/message') continue;
+    const data = event.data as { usage?: unknown } | null;
+    const usage = typeof data === 'object' && data !== null ? data.usage : undefined;
+    if (
+      typeof usage === 'object' &&
+      usage !== null &&
+      typeof (usage as { input?: unknown }).input === 'number' &&
+      (usage as { input: number }).input > 0
+    ) {
+      return { usage: { input: (usage as { input: number }).input } };
+    }
+    return {}; // 末条已见而无可信计量——无真值不猜（不回溯）
+  }
+  return {}; // 无 assistant 事件（空 run/纯消费防御路径）
 }

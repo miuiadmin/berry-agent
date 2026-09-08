@@ -150,8 +150,9 @@ export function createToolPipeline(dispatch: EventDispatch, opts: ToolPipelineOp
       recordGate({ toolCallId, decision: 'block', reason: gated.outcome.reason });
       throw new BaseError('TOOL_BLOCKED', codedMessage('TOOL_BLOCKED', gated.outcome.reason));
     }
-    // 放行/改参：mutated 旗由改参的守门者维护，汇总进 durable 决策
-    recordGate({ toolCallId, decision: gated.mutated ? 'mutate' : 'allow', reason: 'ok' });
+    // 放行/改参：mutated 旗由改参的守门者维护，汇总进 durable 决策；allowReason
+    // = 放行来源标注（allowlist 免问命中置 allowlist:<条目序>——04 §9 命中审计）
+    recordGate({ toolCallId, decision: gated.mutated ? 'mutate' : 'allow', reason: gated.allowReason ?? 'ok' });
 
     /* ---- 第二段：执行（around-dispatch；链尾缺省实现 = 超时预算 + execute） ---- */
     // 载荷 = 执行闭包：监听者包装闭包经 next 传播（超时预算/重试/指标类包装位）

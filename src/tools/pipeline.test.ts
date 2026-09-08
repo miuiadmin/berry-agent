@@ -125,6 +125,16 @@ describe('第 1 段：守门（waterfall + fail-closed）', () => {
     expect(decisions).toEqual([{ toolCallId: 'call-1', decision: 'mutate', reason: 'ok' }]);
   });
 
+  it('放行来源标注（04 §9 命中审计）：守门者置 allowReason → gate/decision reason 承接（缺省仍 ok）', async () => {
+    const { dispatch, executor, decisions } = makeRig();
+    dispatch.onWaterfall<GateInput>('tools_pre_execute', (input, next) => {
+      input.allowReason = 'allowlist:0'; // 免问面命中的守门者置（safety gate 同形）
+      return next(input);
+    });
+    await executor(makeTool(), 'call-1', { n: 1 });
+    expect(decisions).toEqual([{ toolCallId: 'call-1', decision: 'allow', reason: 'allowlist:0' }]);
+  });
+
   it('守门载荷透传 sessionId（04 §7 批 15d 补注——checkpoint 按会话判 per-run）', async () => {
     const { dispatch, executor } = makeRig();
     let seen: string | undefined;

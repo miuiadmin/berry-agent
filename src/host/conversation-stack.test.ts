@@ -14,9 +14,10 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { fauxProvider } from '../llm/index.js';
+import type { SessionLog } from '../session/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
-import { createConversationStack } from './conversation-stack.js';
+import { createConversationStack, lastUsageFactOf } from './conversation-stack.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 
@@ -374,6 +375,74 @@ describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘�
     expect(backend.requests).toHaveLength(0);
     expect(dataOf(session.driver.session, 'approval/asked')).toHaveLength(0);
     expect(readFileSync(join(ws, 'n2.txt'), 'utf8')).toBe('yo');
+    // 命中审计（04 §9 批 12f-4）：放行行 reason 位落 allowlist:<条目序>——
+    // 免问放行仍可审计（「谁放的行」= 哪条既有授权放的行）
+    const gateDecisions = dataOf(session.driver.session, 'gate/decision');
+    expect(
+      gateDecisions.some(
+        (d) =>
+          (d as { decision: string; reason: string }).decision === 'allow' &&
+          (d as { decision: string; reason: string }).reason === 'allowlist:0',
+      ),
+    ).toBe(true);
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- 阈值触发 usage 真值笔（05 §2.1 判阈双源——真 token 主判） ---------------- */
+
+describe('阈值触发 usage 真值笔', () => {
+  /** 合成日志（lastUsageFactOf 消费面只有 events()/sessionId 两成员——单元替身） */
+  function logOf(events: unknown[]): SessionLog {
+    return { sessionId: 's-unit', events: () => events } as unknown as SessionLog;
+  }
+
+  /** 合成 assistant/message 事件（携指定 input 计量） */
+  function assistantEvent(input: number): { type: string; data: unknown } {
+    return { type: 'assistant/message', data: { usage: { input, output: 1 } } };
+  }
+
+  it('lastUsageFactOf 取值律：末条真值原样入笔；零计量/坏形/缺席不携带且不回溯', () => {
+    // 末条真计量：原样入笔（provider 报数随落账在场——05 §1.1）
+    expect(lastUsageFactOf(logOf([{ type: 'user/message', data: {} }, assistantEvent(500)])).usage).toEqual({
+      input: 500,
+    });
+    // 末条零计量 + 前条真值：不回溯（上一轮 input 是上一形态的真值——旧值不冒充本轮）
+    expect(lastUsageFactOf(logOf([assistantEvent(500), assistantEvent(0)])).usage).toBeUndefined();
+    // 末条坏形（usage 缺席）：无真值不猜
+    expect(lastUsageFactOf(logOf([{ type: 'assistant/message', data: {} }])).usage).toBeUndefined();
+    // 全程无 assistant 事件（空 run 防御路径）
+    expect(lastUsageFactOf(logOf([{ type: 'user/message', data: {} }])).usage).toBeUndefined();
+  });
+
+  it('全链：run 终态 handleRunSettled 收到日志末条 assistant 真计量（faux 实算值正数）', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const settled: Array<{ usage?: { input: number }; logSessionId: string }> = [];
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      // 计量服务替身（测试注入面）：只记录阈值触发的入参形状
+      compaction: {
+        handleRunSettled: (input) => {
+          settled.push({ usage: input.usage, logSessionId: input.log.sessionId });
+        },
+        compactForOverflow: async () => 'nothing' as const,
+        drain: async () => undefined,
+      },
+    });
+    const session = stack.openStartupSession();
+    faux.setResponses([() => messageOf('stop')]); // faux 恒实算 usage（覆写脚本值）——真值来自 provider 报数
+    const receipt = await stack.submitText(session.sessionId, '真计量');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    expect(settled).toHaveLength(1);
+    expect(settled[0]!.logSessionId).toBe(session.sessionId);
+    // 真 token 笔在场（faux chars/4 估算报数——值不锁具体数只锁真值形状；无
+    // contextWindow——fallback 分母归服务侧，与估算档同分母）
+    expect(typeof settled[0]!.usage?.input).toBe('number');
+    expect(settled[0]!.usage!.input).toBeGreaterThan(0);
     await rt.shutdown();
   });
 });

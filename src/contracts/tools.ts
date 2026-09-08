@@ -142,6 +142,13 @@ export interface GateInput {
   signal?: AbortSignal;
   /** 参数已被改写旗（改参的守门者维护；落账 decision=mutate 的判据） */
   mutated: boolean;
+  /**
+   * 放行来源标注（04 §9 批 12f-4 命中审计条款）：免问面（跨会话 allowlist）
+   * 命中的守门者置 `allowlist:<条目序>`，管道落 gate/decision 时承接进 reason
+   * 位（放行仍可审计——「谁放的行」指哪条既有授权放的行）；缺省 undefined =
+   * 普通放行，落账 reason 'ok'
+   */
+  allowReason?: string;
   /** 拦截决策（block 者置；缺省 undefined = 放行沿链） */
   outcome?: GateAction;
 }
