@@ -16,6 +16,8 @@ import './codes.js';
 export { createObsService } from './service.js';
 export { createObsQueryTool } from './tool.js';
 export { createSessionView } from './session-view.js';
+export { createSessionTools, OBSERVE_CROSS_CAPABILITY } from './session-tools.js';
+export type { SessionToolsDeps, SessionObserveUsedRecord } from './session-tools.js';
 export { OBS_SCHEMA_VERSION } from './db.js';
 export { aggregateHours, hourBucketMs, dayBucketMs, bucketClosed, HOUR_MS, DAY_MS } from './rollup.js';
 export type {
