@@ -138,6 +138,24 @@
       "sig": "5fa92f9db6979ac1"
     },
     {
+      "symbol": "CREDENTIALS_ENV_REF_PREFIX",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "引用形 sigil 前缀（含冒号——`@credentials:`；名 = 前缀后的非空余段）",
+      "kind": "const",
+      "sig": "ab1169de837d8d9b"
+    },
+    {
+      "symbol": "CredentialEnvRef",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "引用形解析结果（三态：非引用形 / 引用形携名 / 前缀命中而坏形）",
+      "kind": "type",
+      "sig": "14f5e2963d9cb7ed"
+    },
+    {
       "symbol": "CustomMessage",
       "module": "berry-agent",
       "tier": "stable",
@@ -905,6 +923,15 @@
       "desc": "在册自定义角色名枚举（诊断/目录面）",
       "kind": "function",
       "sig": "384ed3de7b398207"
+    },
+    {
+      "symbol": "parseCredentialEnvRef",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "解析 env 值是否为凭证引用形",
+      "kind": "function",
+      "sig": "1449baeea9679cc6"
     },
     {
       "symbol": "parseEventSource",

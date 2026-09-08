@@ -169,6 +169,34 @@ describe('createSpawnPipeline spawn 管道', () => {
     expect(keys).toContain('PATH');
   });
 
+  it('注入腿真子进程往返——引用形 spawn 时刻展开，明文直达子进程 env', async () => {
+    // 03 §10.9 注入腿（c-4）：set 值 @credentials:<name> 在 buildChildEnv
+    // 单点展开（run 入口执法位），/usr/bin/env 回显子进程实收环境——明文
+    // 在场、引用形原文缺席（模型可见面结构性不见值的进程侧印证）
+    const pipeline = createSpawnPipeline({
+      resolveEnvRef: (name) => (name === 'tok' ? 'sk-plain-in-child-env' : 'nope'),
+    });
+    const result = await pipeline.run({
+      argv: ['/usr/bin/env'],
+      env: { set: { BERRY_AGENT_INJECT_PROBE: '@credentials:tok' } },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('sk-plain-in-child-env');
+    expect(result.stdout).not.toContain('@credentials:');
+  });
+
+  it('注入腿席位缺席 fail-loud——引用形无展开器拒以字面注入', async () => {
+    // 展开面缺席（core:credentials 未装载/禁用）：CREDENTIALS_NOT_FOUND
+    // 先于 spawn——子进程永不收字面引用形
+    const pipeline = createSpawnPipeline();
+    await expect(
+      pipeline.run({
+        argv: ['/usr/bin/env'],
+        env: { set: { PROBE: '@credentials:tok' } },
+      }),
+    ).rejects.toMatchObject({ code: 'CREDENTIALS_NOT_FOUND' });
+  });
+
   it('登记簿生命周期——结算后出册（在册快照恒空）', { timeout: 10_000 }, async () => {
     const pipeline = createSpawnPipeline();
     expect(pipeline.registry.list()).toHaveLength(0);

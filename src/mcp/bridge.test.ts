@@ -148,6 +148,33 @@ describe('connectMcpServer 连接编舞', () => {
     await bridge.close();
   });
 
+  it('注入腿 verbatim 透传锁——config env 引用形原文直达 spawn 面（桥不展开）', async () => {
+    // 03 §10.9 注入腿（c-4）：@credentials:<name> 引用形在配置/桥/registry
+    // 任何一环恒保持原文——展开唯一执法点 = exec buildChildEnv spawn 时刻。
+    // 假 spawn 抓 request.env.set：值必须仍是引用形（若此层展开即违单点律）
+    const child = new FakeChild();
+    scriptHandshake(child, []);
+    const seenRequests: Array<{ env?: { set?: Record<string, string> } }> = [];
+    const spawn: McpSpawnFace = {
+      spawnInteractive: (request) => {
+        seenRequests.push(request);
+        return child;
+      },
+    };
+    const bridge = await connectMcpServer(
+      'demo',
+      { ...BASE_CONFIG, env: { GITHUB_TOKEN: '@credentials:github-token', LANG: 'C' } },
+      { spawn },
+    );
+    expect(bridge.tools).toEqual([]);
+    expect(seenRequests).toHaveLength(1);
+    expect(seenRequests[0]?.env?.set).toEqual({
+      GITHUB_TOKEN: '@credentials:github-token', // 引用形原文——桥面零展开
+      LANG: 'C', // 普通值原样同车
+    });
+    await bridge.close();
+  });
+
   it('spawn 失败（spawnError 位）→ MCP_CONNECT_FAILED', async () => {
     const { spawn, child } = makeFakeSpawn();
     const pending = connectMcpServer('demo', BASE_CONFIG, { spawn });

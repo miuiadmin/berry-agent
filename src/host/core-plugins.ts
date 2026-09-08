@@ -132,6 +132,11 @@ import type { WebuiFaceMount } from './webui-bridge.js';
  * browser/lsp）子进程「spawn 管道 + 登记簿同册」的单源（04 §11 spawn
  * 管道注释明文「三桥共用」）。exec 件禁用 = 管道缺席 = 三桥 spawn 主闸
  * 缺席零装载（诚实缺席——单册单源不旁路自建）。
+ *
+ * c-4 注入腿拾取：apply 期经共享根 tryGet('credentials-env-ref') 取凭证
+ * 引用形展开器（plugin-boot 席位接线——与 ctx.secrets 席位门同一双条件；
+ * 03 §10.9 注入腿）——MCP/LSP server config env 的 `@credentials:<name>`
+ * 在 spawn 时刻单点展开。
  */
 const execPlugin: CorePluginReference = {
   name: 'exec',
@@ -139,8 +144,13 @@ const execPlugin: CorePluginReference = {
     const context = ctx as PluginContext;
     // 管道/沙箱服务进程级单例：spawn 登记簿与后端链探测缓存（probe 有
     // spawn 开销——单例缓存一次）均无会话态；沙箱后端链缺省平台链
-    // （macOS seatbelt / Linux bwrap——safety 单源）
-    const pipeline = createSpawnPipeline();
+    // （macOS seatbelt / Linux bwrap——safety 单源）。
+    // 凭证引用形展开器（c-4 注入腿）：plugin-boot 席位在场时供入共享根
+    // （先于 loadPlugins 全程——装载序无关拾取）；缺席 = undefined = 引用形
+    // fail-loud（CREDENTIALS_NOT_FOUND——拒以字面值注入，席位缺席律）
+    const pipeline = createSpawnPipeline({
+      resolveEnvRef: context.tryGet<(name: string) => string>('credentials-env-ref'),
+    });
     const sandboxService = createSandboxService();
     context.provide('exec-pipeline', pipeline);
     const service: ExecToolService = {

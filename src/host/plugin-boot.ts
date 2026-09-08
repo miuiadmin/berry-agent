@@ -48,7 +48,7 @@ import type { Scope } from '../context/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { LlmRuntime } from '../llm/index.js';
-import { createSecretsFace } from '../credentials/index.js';
+import { createEnvRefResolver, createSecretsFace } from '../credentials/index.js';
 import type { SecretsFaceOptions } from '../credentials/index.js';
 
 import { clearBootFailure, recordBootFailure } from './boot-failures.js';
@@ -232,6 +232,15 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   const secretsWiring = options.secrets;
   const secretsSeatActive =
     secretsWiring !== undefined && plan.some((row) => row.id === 'core:credentials' && !row.disabled);
+  // 注入腿席位接线（c-4——03 §10.9 注入腿）：与 ctx.secrets 席位门**同一双
+  // 条件**（secrets 注入在场 × plan 行 core:credentials 未禁）⇒ 共享根供
+  // 'credentials-env-ref' 展开器——exec 件 apply 期拾取进 spawn 管道（本
+  // provide 先于 loadPlugins 全程，装载序无关）。缺席 ⇒ 服务缺席 ⇒ env
+  // 引用形 fail-loud（exec 侧拒以字面值注入——单一名册语义：件在 = 凭证
+  // 代管全腿在场，件去 = 全腿缺席，无半开态）
+  if (secretsWiring !== undefined && secretsSeatActive) {
+    options.scope.provide('credentials-env-ref', createEnvRefResolver(secretsWiring.store));
+  }
   const services: ServiceBag = {
     get: (name) =>
       // 'secrets' 是 fork 级逐插件绑定面（本插件独见——createContext 落真身

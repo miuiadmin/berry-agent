@@ -563,6 +563,82 @@ describe('secrets 面装配（c-3——03 §2.2 第十面 fork 级绑定 + 席�
   });
 });
 
+describe('注入腿席位接线（c-4——03 §10.9 注入腿：credentials-env-ref 共享根服务）', () => {
+  /** 内存凭证窄面替身（c-3 块同形——assembly 真源 = persistence.store 凭证投影） */
+  function memorySecretsStore() {
+    const rows = new Map<string, { apiKey: string; meta?: unknown }>();
+    return {
+      rows,
+      getCredential: (ns: string, provider: string) => rows.get(`${ns} ${provider}`),
+      setCredential: (ns: string, provider: string, entry: { apiKey: string; meta?: unknown }) =>
+        void rows.set(`${ns} ${provider}`, entry),
+    };
+  }
+
+  it('席位在场 + 注入在场：共享根供展开器，exec 件 fork 拾取可展开 host 域', async () => {
+    const store = memorySecretsStore();
+    store.setCredential('host', 'github-token', { apiKey: 'sk-host' }); // host 域行——注入腿单域
+    store.setCredential('plugin:other', 'github-token', { apiKey: 'sk-plugin' }); // 同名插件域行——隔离判据
+    const seen: unknown[] = [];
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    // exec 件拾取形同真身（core-plugins.ts apply 期 context.tryGet）
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        seen.push((ctx as { tryGet: (n: string) => unknown }).tryGet('credentials-env-ref'));
+      },
+    };
+    const { options, scope } = rigBoot('/data', {
+      corePlugins: [credentials, probe],
+      fs: memoryFs(),
+      secrets: { store },
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:credentials', 'core:probe']);
+    // fork 拾取真达：展开 host 域行、插件域同名行不可见
+    const resolve = seen[0] as (name: string) => string;
+    expect(resolve('github-token')).toBe('sk-host');
+    expect(scope.tryGet('credentials-env-ref')).toBe(resolve); // 共享根直证（fork 透传同引用）
+  });
+
+  it('禁用 core:credentials → 展开器缺席（席位门同 ctx.secrets——单一名册语义）', async () => {
+    const seen: unknown[] = [];
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        seen.push((ctx as { tryGet: (n: string) => unknown }).tryGet('credentials-env-ref'));
+      },
+    };
+    const fs = memoryFs({
+      '/data/enabled.yaml': enabledYaml('  - id: core:credentials\n    disabled: true\n'),
+    });
+    const { options, scope } = rigBoot('/data', {
+      corePlugins: [credentials, probe],
+      fs,
+      secrets: { store: memorySecretsStore() }, // 注入在场但席位禁用
+    });
+    await bootPlugins(options);
+    expect(seen).toEqual([undefined]); // fork 透传共享根——服务不在场
+    expect(scope.tryGet('credentials-env-ref')).toBeUndefined();
+  });
+
+  it('secrets 注入缺席 → 展开器缺席（门判另一半——fail-loud 归 exec 侧执法）', async () => {
+    const seen: unknown[] = [];
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        seen.push((ctx as { tryGet: (n: string) => unknown }).tryGet('credentials-env-ref'));
+      },
+    };
+    const { options, scope } = rigBoot('/data', { corePlugins: [credentials, probe], fs: memoryFs() }); // 无 secrets 注入
+    await bootPlugins(options);
+    expect(seen).toEqual([undefined]);
+    expect(scope.tryGet('credentials-env-ref')).toBeUndefined();
+  });
+});
+
 describe('closer plugin-unload（§5.7 档③ + effect 回卷）', () => {
   it('apply disposer LIFO + fork 作用域逆序 dispose（ctx.effect 回卷）', async () => {
     const order: string[] = [];

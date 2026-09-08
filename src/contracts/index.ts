@@ -28,6 +28,9 @@ export type { ApiTier, ApiBlock, HostFace, HostFaceInput } from './api.js';
 export { compareApiVersions, isValidApiVersion } from './api.js';
 export * from './events.js';
 export * from './types.js';
+// 凭证 env 引用形词面单源（03 §10.9 注入腿——c-4）：exec 执法位与 credentials
+// resolver 两方消费，放公开根使两方零新 DAG 边（三名律——跨模块走公开面）
+export * from './env-ref.js';
 export * from './llm.js';
 export * from './messages.js';
 export * from './approval.js';

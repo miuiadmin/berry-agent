@@ -6,7 +6,8 @@
  * 守卫）；一码管 namespace 隔离与跨域门检（NAMESPACE_DENIED——同码分流：
  * 未开门越域拒 / namespace 坏形拒，两档共用 message 底稿指路开门位写法）；
  * 一码管受理窗外写拒（WRITE_WINDOW_CLOSED——宿主回调窗执法，12f-2a
- * PLUGIN_WINDOW_CLOSED 唯一例外位的凭证面同律）。
+ * PLUGIN_WINDOW_CLOSED 唯一例外位的凭证面同律）；一码管注入腿引用形坏形
+ * （ENV_REF_INVALID——c-4：前缀命中而名空，exec env.ts 抛出）。
  *
  * oauth 流内码（用户拒授/轮询态坏等）随 c-6 落码批扩族。密钥物理面既有码
  * PERSIST_SECRET_UNREADABLE（05 §9）复用不重立。
@@ -32,5 +33,11 @@ registerErrorCodes([
     module: 'credentials',
     description:
       '受理窗外写拒——ctx.secrets.set 只在宿主回调窗内可达（用户发起 oauth 授权流 → 宿主回调插件 handler → 窗内写；03 §10.9 写入面复合案）',
+  },
+  {
+    code: 'CREDENTIALS_ENV_REF_INVALID',
+    module: 'credentials',
+    description:
+      'env 引用形坏形（c-4 注入腿）——set 值前缀 @credentials: 命中而名空，响亮拒字面注入；词面单源 contracts/env-ref.ts',
   },
 ]);

@@ -3,9 +3,9 @@
  *
  * c-2 存储腿产物：契约词面件（types）+ 表扩容迁移（migration）。c-3 读腿
  * 产物：错误码族（codes）+ 插件凭证面工厂（secrets——ctx.get("secrets")
- * 消费面，host 装配序逐插件 fork provide 绑定版）。注入腿 env 白名单/
- * 人面命令/oauth 流随 c-4..c-6 落码批逐笔扩公开面（03 §10.9 件章为机制
- * 真源）。
+ * 消费面，host 装配序逐插件 fork provide 绑定版）。c-4 注入腿产物：env
+ * 引用形展开器工厂（env-ref——host 域，exec spawn 管道单点消费）。人面
+ * 命令/oauth 流随 c-5..c-6 落码批逐笔扩公开面（03 §10.9 件章为机制真源）。
  */
 import './codes.js';
 
@@ -27,3 +27,6 @@ export {
   type CapabilityUsedPayload,
   type CredentialChangedPayload,
 } from './secrets.js';
+// 注入腿（c-4——03 §10.9）：env 引用形展开器工厂（host 域）——plugin-boot
+// 席位接线消费（共享根服务 'credentials-env-ref' → exec spawn 管道拾取）
+export { createEnvRefResolver, type EnvRefResolver } from './env-ref.js';

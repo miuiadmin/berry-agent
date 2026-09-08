@@ -34,6 +34,13 @@ import type {
 export interface SpawnPipelineOptions extends RegistryOptions {
   /** 宿主环境拷贝源（env 白名单消费；缺省 process.env） */
   readonly hostEnv?: NodeJS.ProcessEnv;
+  /**
+   * 凭证引用形展开器（03 §10.9 注入腿——c-4）：set 面值 `@credentials:<name>`
+   * 在 spawn 时刻经本器展开为明文（唯一执法点 = buildChildEnv；真身 =
+   * credentials 件 createEnvRefResolver）。缺席 = 引用形 fail-loud 拒
+   * （席位缺席律——core:credentials 未装载/禁用）。
+   */
+  readonly resolveEnvRef?: (name: string) => string;
 }
 
 /** run() 内部依赖束（工厂闭包传形——不进公共面） */
@@ -43,6 +50,7 @@ interface RunDeps {
   readonly hostEnv: NodeJS.ProcessEnv;
   readonly hostPid: number;
   readonly registry: ReturnType<typeof createProcessRegistry>;
+  readonly resolveEnvRef: ((name: string) => string) | undefined;
 }
 
 /**
@@ -54,7 +62,14 @@ export function createSpawnPipeline(options: SpawnPipelineOptions = {}): SpawnPi
   const hostEnv = options.hostEnv ?? process.env;
   const hostPid = options.hostPid ?? process.pid;
   const registry = createProcessRegistry(options);
-  const deps: RunDeps = { logger, now, hostEnv, hostPid, registry };
+  const deps: RunDeps = {
+    logger,
+    now,
+    hostEnv,
+    hostPid,
+    registry,
+    resolveEnvRef: options.resolveEnvRef,
+  };
   return {
     registry,
     run: (request) => runSpawn(request, deps),
@@ -83,7 +98,8 @@ function spawnInteractiveChild(request: InteractiveSpawnRequest, deps: RunDeps):
     detached: true,
     // 三桥双工面：stdin 必须管道（协议帧写出）；run 管道的 'ignore' 缺省不适用
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: buildChildEnv(request.env, deps.hostEnv),
+    // 引用形展开唯一执法点（注入腿 c-4——两入口同点汇入）
+    env: buildChildEnv(request.env, deps.hostEnv, deps.resolveEnvRef),
   });
   if (child.pid !== undefined) {
     deps.registry.add({
@@ -156,7 +172,8 @@ async function runSpawn(request: SpawnRequest, deps: RunDeps): Promise<ExecResul
     detached: true,
     // 04 §8 无 stdin：bash 工具面不喂输入；后续桥件自定 stdio 时不走本管道缺省
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: buildChildEnv(request.env, deps.hostEnv),
+    // 引用形展开唯一执法点（注入腿 c-4——两入口同点汇入）
+    env: buildChildEnv(request.env, deps.hostEnv, deps.resolveEnvRef),
   });
   if (child.pid !== undefined) {
     deps.registry.add({

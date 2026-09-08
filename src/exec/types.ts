@@ -43,7 +43,11 @@ export interface EnvPolicy {
   readonly allow?: readonly string[];
   /** deny 覆盖——deny 命中 allow/set 任一面即抛 EXEC_ENV_FORBIDDEN（拒静默继承） */
   readonly deny?: readonly string[];
-  /** 显式注入（内部调用方——桥接进程协议变量等；仍受 deny 封死） */
+  /**
+   * 显式注入（内部调用方——桥接进程协议变量等；仍受 deny 封死）。值可为
+   * 凭证引用形 `@credentials:<name>`（03 §10.9 注入腿——宿主 spawn 时刻单点
+   * 展开，明文只进子进程环境；消费面 v1 = MCP/LSP server config env）
+   */
   readonly set?: Readonly<Record<string, string>>;
 }
 
