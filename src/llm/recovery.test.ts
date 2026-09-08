@@ -6,7 +6,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { AssistantMessage } from '../contracts/index.js';
-import { classifyError, isContextOverflow, isRecoverableLength, retryAssistantCall } from './recovery.js';
+import {
+  classifyError,
+  diagnoseProviderFailure,
+  isContextOverflow,
+  isRecoverableLength,
+  retryAssistantCall,
+} from './recovery.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -159,5 +165,47 @@ describe('retryAssistantCall（有界重试零件语义）', () => {
     );
     expect(calls).toBe(1);
     expect(final.stopReason).toBe('error');
+  });
+});
+
+describe('diagnoseProviderFailure（07 §5 provider 产品级文案律——两形态判据）', () => {
+  it('unconfigured：errorCode 判位（run settle 只透文案时退 [CODE] 前缀判位兜底）', () => {
+    const byCode = diagnoseProviderFailure(
+      { errorMessage: '模型解析失败：无此 provider', errorCode: 'LLM_MODEL_NOT_FOUND' },
+      'acme/ultra-1',
+    );
+    expect(byCode?.kind).toBe('unconfigured');
+    expect(byCode?.hint).toContain('acme/ultra-1'); // 点名模型标识（可行动）
+    expect(byCode?.hint).toContain('BERRY_AGENT_MODEL'); // 配置途径
+
+    const byText = diagnoseProviderFailure(
+      { errorMessage: '[LLM_MODEL_SPEC_INVALID] 模型解析失败：标识不合法' },
+      'acme/ultra-1',
+    );
+    expect(byText?.kind).toBe('unconfigured'); // 文案 [CODE] 前缀兜底判位
+  });
+
+  it('auth：文案正则族（401/403/invalid api key）→ 点名 provider + 凭证途径', () => {
+    const r1 = diagnoseProviderFailure({ errorMessage: 'Request failed with status 401 Unauthorized' }, 'acme/ultra-1');
+    expect(r1?.kind).toBe('auth');
+    expect(r1?.hint).toContain('acme'); // provider 名（斜杠前段）
+    expect(r1?.hint).toContain('ANTHROPIC_API_KEY'); // env 凭证途径指路
+
+    const r2 = diagnoseProviderFailure({ errorMessage: 'invalid x-api-key provided' }, 'acme/ultra-1');
+    expect(r2?.kind).toBe('auth');
+  });
+
+  it('上游原文降附注：超 200 字符截断（原文只在附注不占主位）', () => {
+    const long = `${'x'.repeat(300)} 401`;
+    const r = diagnoseProviderFailure({ errorMessage: long }, 'acme/ultra-1');
+    expect(r?.kind).toBe('auth');
+    expect(r!.hint.length).toBeLessThan(400); // 300 字符原文被截到 ≤200 附注 + 文案主体
+    expect(r!.hint.endsWith('…')).toBe(true);
+  });
+
+  it('非两形态回 undefined（transient/quota/未知——原文直出不套本面）', () => {
+    expect(diagnoseProviderFailure({ errorMessage: 'rate limit exceeded' }, 'acme/ultra-1')).toBeUndefined();
+    expect(diagnoseProviderFailure({ errorMessage: 'insufficient_quota: billing' }, 'acme/ultra-1')).toBeUndefined();
+    expect(diagnoseProviderFailure({}, 'acme/ultra-1')).toBeUndefined(); // 空文案不判 auth
   });
 });

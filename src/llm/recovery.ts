@@ -109,6 +109,84 @@ export function classifyError(message: AssistantMessage): ErrorBucket {
   return 'non-retryable';
 }
 
+/* ---------------- provider 失败形态识别（07 §5 provider 产品级文案律） ---------------- */
+
+/**
+ * provider 失败形态识别产物（07 §5——headless 单发（run 入口）无 UI 可看，
+ * 两类「配置错」失败必须给产品级可行动文案而非裸报文：点名 provider +
+ * 配置/凭证途径 + 上游原文降附注截断；其余失败原文直出不套本面）。
+ */
+export interface ProviderFailureDiagnostic {
+  /** unconfigured = provider/模型未配置或目录缺席；auth = 鉴权失败 */
+  readonly kind: 'unconfigured' | 'auth';
+  /** 产品级可行动文案（已含上游原文截断附注——调用方直写 stderr） */
+  readonly hint: string;
+}
+
+/**
+ * 鉴权失败文案族（401/403/invalid api key 族——provider 报文人间千姿，
+ * 正则面兜大类；provider 真错误码归一挂 provider 钩子纵切落码前，文案
+ * 正则是唯一现实判位——与错误桶表 quota 族判据同境况）。
+ */
+const AUTH_TEXT_PATTERN =
+  /(\b401\b|\b403\b|invalid[^\n]{0,40}api.?key|incorrect api key|api key not (?:valid|found)|unauthorized|authentication|permission denied)/i;
+
+/** 上游报文附注截断帽（与 RunOutcome.error 同幅——≤200 字符人读够用） */
+const UPSTREAM_NOTE_CAP = 200;
+
+/** 模型标识 → provider 名（'provider/model-id' 前段；无斜杠回退原串） */
+function providerNameOf(modelSpec: string): string {
+  const slash = modelSpec.indexOf('/');
+  return slash > 0 ? modelSpec.slice(0, slash) : modelSpec;
+}
+
+/** 上游报文附注（超帽截断加省略号——原文降附注律） */
+function upstreamNote(text: string): string {
+  return text.length > UPSTREAM_NOTE_CAP ? `${text.slice(0, UPSTREAM_NOTE_CAP)}…` : text;
+}
+
+/**
+ * provider 失败形态识别（07 §5——与错误桶表同源居本模块；纯函数零 IO）。
+ * 判据两形态：
+ * - unconfigured：宿主合成码 LLM_MODEL_NOT_FOUND / LLM_MODEL_SPEC_INVALID
+ *   （stream-fn resolveModel 失败——provider 未注册或目录无此模型；errorCode
+ *   与 `[CODE]` 文案前缀双在位，任一判位命中即识——run settle 只透传
+ *   errorMessage 时文案判位兜底）；
+ * - auth：错误文案正则。
+ * 非两形态回 undefined——调用方原文直出（transient/quota 族已有桶语义，
+ * 不在本面越俎）。
+ */
+export function diagnoseProviderFailure(
+  failure: { readonly errorMessage?: string; readonly errorCode?: string },
+  modelSpec: string,
+): ProviderFailureDiagnostic | undefined {
+  const text = failure.errorMessage ?? '';
+  if (
+    failure.errorCode === 'LLM_MODEL_NOT_FOUND' ||
+    failure.errorCode === 'LLM_MODEL_SPEC_INVALID' ||
+    text.includes('[LLM_MODEL_NOT_FOUND]') ||
+    text.includes('[LLM_MODEL_SPEC_INVALID]')
+  ) {
+    return {
+      kind: 'unconfigured',
+      hint:
+        `模型不可用：${modelSpec}——provider 未注册或目录中无此模型。` +
+        `检查模型标识拼写（形如 provider/model-id）；更换缺省模型设 BERRY_AGENT_MODEL 环境变量。` +
+        `上游报文：${upstreamNote(text)}`,
+    };
+  }
+  if (text !== '' && AUTH_TEXT_PATTERN.test(text)) {
+    return {
+      kind: 'auth',
+      hint:
+        `provider 鉴权失败（${providerNameOf(modelSpec)}）：请配置该 provider 的 API 凭证——` +
+        `对应环境变量（如 ANTHROPIC_API_KEY / OPENAI_API_KEY）或数据目录凭证表。` +
+        `上游报文：${upstreamNote(text)}`,
+    };
+  }
+  return undefined;
+}
+
 /**
  * 单次 assistant 产出的有界重试（04 §3.7 complete 单发的轻量重试零件；
  * pi 原用途挂 compaction 摘要旁路）。abort 归一为 aborted 消息、非可重试

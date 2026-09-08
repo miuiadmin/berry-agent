@@ -31,6 +31,7 @@ import { DAEMON_CHILD_ENV, runDaemonServe, runServeStatus, runServeStop, spawnDa
 import { runServeEntry } from './serve-entry.js';
 import { runMcpEntry } from './mcp-entry.js';
 import { runTuiEntry } from './tui-entry.js';
+import { runRunEntry } from './run-entry.js';
 import { runDumpConfigEntry } from './dump-config.js';
 import { runPluginsEntry } from './plugins-cmd.js';
 
@@ -62,7 +63,7 @@ function dispatchServe(flags: Parameters<NonNullable<CommandHandlers['serve']>>[
   return runServeEntry({ flags, version: readVersion(), onRuntime: attachRuntime });
 }
 
-/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins 已接线，余命令诚实退 1） */
+/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins / 20b run 已接线，sessions/upgrade 诚实退 1） */
 const handlers: CommandHandlers = {
   tui: (flags) =>
     runTuiEntry({
@@ -71,6 +72,15 @@ const handlers: CommandHandlers = {
       onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
     }),
   serve: (flags) => dispatchServe(flags),
+  // run 单次执行（20b 接线——07 §5 run 旗标族全量消费位；tick 形 message 为
+  // 空串占位——提示词在 jobs 行内，由 run-entry 经行读取）
+  run: (message, flags) =>
+    runRunEntry({
+      message,
+      flags,
+      version: readVersion(),
+      onRuntime: attachRuntime, // 信号/崩溃编舞切运行时本体
+    }),
   serveStatus: () => runServeStatus({ dataDir: resolveDataDir() }),
   serveStop: () => runServeStop({ dataDir: resolveDataDir() }),
   // MCP server 包装形态（13f 接线——零旗标面；serverInfo 版本真值同 tui 路径）

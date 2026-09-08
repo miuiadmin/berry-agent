@@ -21,11 +21,13 @@ export { createStreamFn, type StreamFnDefaults } from './stream-fn.js';
 export { InFlightTracker, DEFAULT_MAX_INFLIGHT_PER_PROVIDER, type InFlightSlot } from './inflight.js';
 export {
   classifyError,
+  diagnoseProviderFailure,
   isContextOverflow,
   isRecoverableLength,
   isRetryableAssistantError,
   retryAssistantCall,
   type ErrorBucket,
+  type ProviderFailureDiagnostic,
   type RetryPolicy,
   type RetryCallbacks,
 } from './recovery.js';
