@@ -285,8 +285,9 @@ const MODULE_EXTERNALS = {
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
   // 一律走虚拟键三转发；批 12d 落码起用）；yaml = 启用清单 enabled.yaml 读侧
-  // 解析（03 §5.3；批 12f-2b 装配批起用）
-  host: ['jiti', 'typebox/value', 'yaml'],
+  // 解析（03 §5.3；批 12f-2b 装配批起用）；typebox 主包 = 插件生命周期模型
+  // 工具族参数面（03 §5.6 八件——task #89 笔三起用，obs/memory 同律）
+  host: ['jiti', 'typebox', 'typebox/value', 'yaml'],
 };
 
 /** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面三名——2026-09-07

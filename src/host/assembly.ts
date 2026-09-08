@@ -56,6 +56,7 @@ import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
 import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from './plugin-reload.js';
 import type { PluginReloader } from './plugin-reload.js';
 import { PLUGINS_CMD_USAGE, runPluginsCommand } from './plugins-command.js';
+import { createDefaultSpawnRunner, createPluginLifecycleTools } from './plugin-tools.js';
 import { createPluginStoreFs } from './plugin-store.js';
 import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
@@ -201,6 +202,37 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // schedule/subagent-settled/compaction/plugin 注入不计数）；null = 无近期
     // 消息（recent_user_msg 门放行）
     let lastUserMessageAt: string | null = null;
+    // —— 插件生命周期模型工具族（03 §5.6——task #89 笔三）：宿主固定八件
+    // 恒挂载，boot 全局层并入（effect:'write' 五件经守门管道审批对自动执法）；
+    // report 取值器 = 换代闭包（boot 后定型、/reload 后即新代投影）；审计
+    // sink 与 TUI 命令面同一包装（进程内单写者 audit face——落账失败 warn
+    // 不阻塞主流程，行编辑已生效不回滚）；spawn = execFile 真身（npm/git 装
+    // 机走进程外——07 §5 用户显式动作族不进 exec 沙箱体系，与 CLI 同面）；
+    // events_query 两窄面 = 同实例 persistence（flushFirst + queryEvents）；
+    // db = store.sqlite()（卸载预检域面查询——宿主固定件正当消费）。纯
+    // memory 形 dataDir null 时 conversation-stack 不消费 bootTools——本族
+    // 自然缺席（memory 形工具整面缺席同律）。persistence 先收 const——下方
+    // 闭包取值（let runtime 的流窄化不进闭包）
+    const persistence = runtime.persistence;
+    const pluginLifecycleTools = createPluginLifecycleTools({
+      dataDir,
+      fs: createPluginStoreFs(),
+      auditSink: (type, payload) => {
+        try {
+          audit.append(type, payload);
+        } catch (err) {
+          logger.warn(
+            `生命周期审计落账失败（${type}）：${err instanceof Error ? err.message : String(err)}——主流程不受影响`,
+          );
+        }
+      },
+      spawn: createDefaultSpawnRunner(),
+      env,
+      report: () => boot?.report,
+      flush: () => persistence.flush(),
+      queryEvents: (filter) => persistence.store.queryEvents(filter),
+      db: persistence.store.sqlite(),
+    });
     const stack = createConversationStack({
       runtime,
       scope,
@@ -210,8 +242,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
       // 装载工具定义重放取值器（会话装配时点 boot 已定型——noPlugins/装载
-      // 失败形 boot.tools 为空注册表，取值器返回 [] 零打扰）
-      bootTools: () => boot?.tools.definitions() ?? [],
+      // 失败形 boot.tools 为空注册表，取值器返回 [] 零打扰）；插件生命周期
+      // 模型工具族八件恒并入宿主全局面（03 §5.6——先于插件注册面，插件侧
+      // 撞名即装载失败 fail-loud）
+      bootTools: () => [...(boot?.tools.definitions() ?? []), ...pluginLifecycleTools],
       // 插件提示词段物化取值器（每请求组装时重取——03 §2.5 注册即生效面）
       pluginSections: () => boot?.promptSections.materialize() ?? '',
       // 审批 always 回写透传（04 §9 定形块写侧律——闭包 dataDir 接 store

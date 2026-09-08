@@ -710,3 +710,113 @@ describe('/plugins TUI 命令面 e2e（03 §5.2 mount 族成功尾自动链 /rel
     }
   });
 });
+
+/* ---------------- 模型面八件工具族 e2e（03 §5.6——task #89 笔三） ---------------- */
+
+describe('模型面八件工具族 e2e（03 §5.6——恒挂载 + 写类审批对 + 不自动链 reload）', () => {
+  /** §5.6 八件名全表（面结构序锁归单元面——此处锁装配入位） */
+  const EIGHT_TOOLS = [
+    'plugins_list',
+    'events_query',
+    'plugin_uninstall_inspect',
+    'plugin_install',
+    'plugin_mount',
+    'plugin_unmount',
+    'plugin_toggle',
+    'plugin_update',
+  ];
+
+  it('八件恒挂载入 driver 工具面 + plugins_list 经模型调用真渲染（装配接线全链）', async () => {
+    const dir = tmpDir('host-asm-ptools-');
+    const ws = tmpDir('host-asm-ptools-ws-');
+    const faux = fauxProvider({ provider: 'faux-pt', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-pt/m1',
+      corePlugins: [],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 恒挂载：八件并入 durable 会话工具清单（boot 全局层——与 extraTools 位并列）
+      const session = assembly.stack.openStartupSession(ws);
+      const names = session.driver.toolNames ?? [];
+      for (const name of EIGHT_TOOLS) expect(names, name).toContain(name);
+      // 经模型调用驱动只读件（装配接线真链：真 report 取值器 + 真行/账本面）
+      faux.setResponses([() => toolCallOf('t-pt1', 'plugins_list', {}), () => fauxText('清单到手')]);
+      const receipt = await assembly.stack.submitText(session.sessionId, '列插件');
+      expect(receipt).toMatchObject({ status: 'completed' });
+      const toolText = JSON.stringify(
+        session.driver.session
+          .events()
+          .filter(
+            (event) =>
+              event.type === 'tool/result' && (event.data as Record<string, unknown>)['toolCallId'] === 't-pt1',
+          )
+          .map((event) => (event.data as Record<string, unknown>)['content']),
+      );
+      expect(toolText).toContain('mounted（0）'); // 空装载态真实渲染（corePlugins: []）
+      expect(toolText).toContain('installed-unmounted（0）'); // 装机分区真读账本
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('plugin_toggle 写类审批对全链：问过恰一次 → approve 真执行 → 行落盘 + 审计 + 不自动链', async () => {
+    const dir = tmpDir('host-asm-ptools-w-');
+    const ws = tmpDir('host-asm-ptools-w-ws-');
+    const faux = fauxProvider({ provider: 'faux-ptw', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-ptw/m1',
+      corePlugins: [],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 审批呈现链接入（R1ApprovalBackend 同形——恒答 'approve' 单发，无 allowlist 副作用）
+      const backend = new R1ApprovalBackend('approve');
+      assembly.stack.channels.addBackend(backend);
+      const session = assembly.stack.openStartupSession(ws);
+      // core: 行不在场首翻 = 写 disabled 行（03 §5.2 第三态——与 TUI e2e 同律；
+      // id 取全文件唯一 'core:ptw'——audit 库走 env 钉根梯子同文件共库〔675 行
+      // 注记同案〕，TUI e2e 的 core:demo1 词已在库，按 id 定域即独占）
+      faux.setResponses([() => toolCallOf('t-pt2', 'plugin_toggle', { id: 'core:ptw' }), () => fauxText('切换完成')]);
+      const receipt = await assembly.stack.submitText(session.sessionId, '停用演示件');
+      expect(receipt).toMatchObject({ status: 'completed' });
+      // 审批对（§5.6 钉死成对——effect write 单键自动执法）：问过恰一次、归因工具名正确
+      expect(backend.requests).toHaveLength(1);
+      expect(backend.requests[0]!.toolName).toBe('plugin_toggle');
+      // 行真落盘（enabled.yaml disabled 行）
+      expect(readFileSync(join(dir, 'enabled.yaml'), 'utf8')).toContain('core:ptw');
+      // 审计恰一笔（按 id 定域——同文件早先测试共库账过滤）
+      const auditRows = [...createAuditFace(assembly.runtime.persistence.store.sqlite()).listRecent()]
+        .filter((r) => r.type === 'plugin/toggled' && r.data['id'] === 'core:ptw')
+        .map((r) => r.data);
+      expect(auditRows).toEqual([{ id: 'core:ptw', disabled: true }]);
+      // 回执词面：终态 + /reload 指路（模型面）——且无 TUI 面「已自动链」词
+      const toolText = JSON.stringify(
+        session.driver.session
+          .events()
+          .filter(
+            (event) =>
+              event.type === 'tool/result' && (event.data as Record<string, unknown>)['toolCallId'] === 't-pt2',
+          )
+          .map((event) => (event.data as Record<string, unknown>)['content']),
+      );
+      expect(toolText).toContain('已切换：core:ptw');
+      expect(toolText).toContain('/reload');
+      expect(toolText).not.toContain('已自动链');
+      // §5.2 模型面不自动链 reload（三面分立主断言——与 TUI 面成功尾自动链对偶）
+      expect(await assembly.reloader.hasPending()).toBe(false);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
