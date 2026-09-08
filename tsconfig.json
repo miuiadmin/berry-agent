@@ -14,7 +14,8 @@
     "declaration": true,
     "sourceMap": true,
     "outDir": "dist",
-    "rootDir": "src",
+    // rootDir 归 tsconfig.build.json（emit 专属关注；本配置 noEmit 用——
+    // include 含 tools/golden-record.ts 后主配置持 rootDir 会 TS6059）
     "paths": {
       "berry-agent": ["./src/contracts/index.ts"]
     },
@@ -23,6 +24,9 @@
   },
   // SPA 客户端树出局（批 18a-2）：DOM lib/JSX 面归 tsconfig.webui-client.json
   // 第三腿——服务端码永不见 DOM 全局、客户端码永不见 node:* 类型。
-  "include": ["src"],
+  // tools/golden-record.ts 点名入列（金样录制器——§7.4 #4：import src/llm
+  // 真 StreamFn 路径，类型检查不缺席；发布物侧由 tsconfig.build.json
+  // exclude 点名出局——rootDir 仍 src）。
+  "include": ["src", "tools/golden-record.ts"],
   "exclude": ["src/webui/client"]
 }

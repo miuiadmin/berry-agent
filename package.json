@@ -43,6 +43,7 @@
     "build": "npm run build:webui && tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs && node tools/build-meta.mjs",
     "build:sdk": "tsc -p packages/berry-agent-sdk/tsconfig.json",
     "build:webui": "vite build",
+    "golden:record": "tsx tools/golden-record.ts",
     "release": "node tools/release.mjs"
   },
   "dependencies": {

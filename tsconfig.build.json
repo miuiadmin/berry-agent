@@ -9,10 +9,12 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "declaration": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "rootDir": "src"
   },
   // exclude 覆盖父值不合并（extends 语义）：本列表 = 父 exclude 重列 + 新增
-  // 位——*.test.tsx（client 轨测试）与 src/webui/client（SPA 树——vite 独立
-  // 产物链 build:webui，tsc 发布物不含）
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/webui/client"]
+  // 位——*.test.tsx（client 轨测试）、src/webui/client（SPA 树——vite 独立
+  // 产物链 build:webui，tsc 发布物不含）与 tools/golden-record.ts（金样
+  // 录制器——父 include 点名入列换类型检查，发布物侧在此出局）
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/webui/client", "tools/golden-record.ts"]
 }
