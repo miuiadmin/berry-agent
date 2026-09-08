@@ -57,6 +57,8 @@ import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactor
 import { createSdkHttpFace } from '../sdk/index.js';
 import { ISSUE_GITHUB_TOKEN_NAME, ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_WEBHOOK_SECRET_NAME } from '../issue/index.js';
 import { HOST_NAMESPACE, createOAuthFlowRegistry } from '../credentials/index.js';
+// 进程级 durable 审计流面（05 §9 audit_events——U3 批 U3-5 载体真接线）
+import { createAuditFace } from '../persist/index.js';
 import { mountWebuiOnFace } from './webui-bridge.js';
 
 /** 装配选项（TUI 入口与诊断命令共用面——runtime 子面透传 createHostRuntime） */
@@ -157,6 +159,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     const dataDir = runtime.dataDir;
     const allowlistLoad = dataDir !== null ? readAllowlist(dataDir, { warn: (m) => logger.warn(m) }) : null;
 
+    // —— 进程级 durable 审计流载体（05 §9 audit_events——U3 批 U3-5 真接线）：
+    // 单写者 = 本装配根（boot plugin/opens 幂等 diff + 触发器/凭证/人面三
+    // 受理 seam + 高危面动词 auditSink——插件面零写入位）；:memory: 诊断形
+    // 同构接线（载体即内存库——durable 性诚实于载体）
+    const audit = createAuditFace(runtime.persistence.store.connection);
+
     // —— 共享根作用域与事件总线已前移运行时组装之前（批 19b-2 活体镜像桥位）——
     // 装载柄前置声明（批 19a 消费腿闭包晚绑定：stack 先建、boot 后跑，会话
     // 首开/请求组装时闭包经此引用取已定型产物——boot.tools 全局层定义重放
@@ -218,6 +226,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         getOpens: readOpens,
         workspaceRoot: () => canonicalWorkspaceRoot(),
         warn: (message) => logger.warn(message),
+        // capability/used 逐次落账（triggers.start-run 腿——C 批挂账 U3-5 兑现；
+        // core: 豁免门检照记——豁免免的是门不是账）
+        onCapabilityUsed: (pluginId, triggerName) =>
+          audit.append('capability/used', { pluginId, capability: 'triggers.start-run', triggerName }),
       }),
     });
 
@@ -322,9 +334,18 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         uiBackends: stack.channels,
         // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
         // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
-        // plugin-boot——两审计 seam 缺省 no-op 挂账 U3-2 audit_events 载体批；
-        // oauthRegistry = c-6 流注册表真身——fork 绑定成 registerOAuthFlow 面）
-        secrets: { store: runtimeNow.persistence.store, oauthRegistry: oauthFlows },
+        // plugin-boot；oauthRegistry = c-6 流注册表真身——fork 绑定成
+        // registerOAuthFlow 面；两审计 seam 真接线（c-3 挂账 U3-5 兑现——
+        // 05 §1.1）：越域读命中 → capability/used〔seam 载荷原形——含
+        // namespace/name 归因键〕、oauth 流写/轮换 → credentials/changed）
+        secrets: {
+          store: runtimeNow.persistence.store,
+          oauthRegistry: oauthFlows,
+          onCapabilityUsed: (payload) => audit.append('capability/used', { ...payload }),
+          onCredentialChanged: (payload) => audit.append('credentials/changed', { ...payload }),
+        },
+        // 进程级审计流面（U3 批 U3-5——auditSink 透传 + boot plugin/opens 幂等 diff）
+        audit,
         noPlugins: options.noPlugins === true,
         version: options.version,
         // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
@@ -426,9 +447,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             ...(issueSecret !== undefined && issueSecret !== '' ? { issueWebhookSecret: issueSecret } : {}),
             // —— credentials 人面命令两 seam（c-5——03 §10.9 写入面）——
             // store = persist 真身直传（CredentialsCommandStore 四法投影，
-            // 词面独立律 compat 面）；审计 seam 缺省不置（no-op——挂账 U3-2
-            // audit_events 载体批接线真发射位）
+            // 词面独立律 compat 面）；审计 seam 真接线（c-5 挂账 U3-5 兑现——
+            // 人面 add/rm 成功即落 credentials/changed，值恒不入载荷）
             credentialsStore: runtimeNow.persistence.store,
+            credentialsOnChanged: (payload) => audit.append('credentials/changed', { ...payload }),
             // —— oauth 流受局面（c-6——03 §10.9 oauth 案）：注册表同真身 +
             // globalThis.fetch 真身（SSRF 守卫挂账安全批评审）+ 刷新链 60s
             // 自驱缺省 + 单败 warn 走宿主 logger

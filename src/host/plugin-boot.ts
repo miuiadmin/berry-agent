@@ -51,6 +51,8 @@ import type { LlmRuntime } from '../llm/index.js';
 import { createEnvRefResolver, createSecretsFace } from '../credentials/index.js';
 import type { SecretsFaceOptions } from '../credentials/index.js';
 import type { OAuthFlowRegistry } from '../credentials/index.js';
+// 审计流面类型（U3 批 U3-5——audit_events 载体真身；host→persist 边在册）
+import type { AuditFace } from '../persist/index.js';
 
 import { clearBootFailure, recordBootFailure } from './boot-failures.js';
 import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
@@ -60,7 +62,6 @@ import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js'
 import type { EnabledRow } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
 import type {
-  AuditSink,
   CommandRegistryLike,
   PluginContextHandle,
   SubagentRegistryLike,
@@ -130,11 +131,13 @@ export interface PluginBootOptions {
    */
   readonly uiBackends?: UiBackendRegistryLike;
   /**
-   * 进程级审计流写入位（U3 批——05 §9 audit_events 载体）：高危面动词
-   * capability/used 落账消费。真身 = 装配根构造的 AuditFace（U3-5 接线）；
-   * 缺席 = 落账腿静默缺席不阻拦（诊断形）。
+   * 进程级审计流面（U3 批 U3-5——05 §9 audit_events 载体真身，persist
+   * AuditFace）：装载序两用——① 逐插件 auditSink 透传（append 窄面结构
+   * 兼容——高危面动词 capability/used 落账）；② boot 序 plugin/opens 幂等
+   * diff（读写两用）。单写者 = 宿主装配根（audit 流单写者律）。缺席 = 两腿
+   * 静默缺席不阻拦（:memory: 诊断形/测试替身——诚实缺席律）。
    */
-  readonly auditSink?: AuditSink;
+  readonly audit?: AuditFace;
   /**
    * 插件凭证面装配位（c-3——03 §2.2 第十面/§10.9 读腿）：store 在场且
    * core:credentials 件席在场（计划行未禁用）时，装载序逐插件 fork 绑定
@@ -292,8 +295,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       ...(options.subagents !== undefined ? { subagents: options.subagents } : {}),
       // 界面后端注册面受局面透传（U3 批 U3-4——缺席时 ctx.channels.registerUiBackend 响亮缺位）
       ...(options.uiBackends !== undefined ? { uiBackends: options.uiBackends } : {}),
-      // 审计流写入位透传（U3 批——capability/used 落账；AuditFace 真身 U3-5 装配接线）
-      ...(options.auditSink !== undefined ? { auditSink: options.auditSink } : {}),
+      // 审计流写入位透传（U3 批 U3-5——AuditFace append 窄面结构兼容 auditSink）
+      ...(options.audit !== undefined ? { auditSink: options.audit } : {}),
       // 高危面开门授予集（03 §4.6 批 U2——磁盘行 opens 经 loader 透传至此）
       ...(opens !== undefined ? { opens } : {}),
       onHookTimeout: (id, hookName, err) =>
@@ -348,6 +351,16 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     for (const a of loaded.activated) clearBootFailure(bookkeepingPath, a.id, bookkeepingFs);
   }
 
+  // —— plugin/opens 幂等落（05 §1.1 开门/关门审计腿——U3 批 U3-5）：boot
+  // 装载序以计划面磁盘行授予面 diff 审计流尾条，有变才落（撤位空数组形收
+  // 口——开门/关门全链可对账）；audit 面缺席 = 诊断形不落账（诚实缺席律）
+  if (options.audit !== undefined) {
+    recordPluginOpensDiff(
+      options.audit,
+      plan.flatMap((row) => (row.kind === 'disk' ? [{ id: row.id, opens: row.opens ?? [] }] : [])),
+    );
+  }
+
   // ⑪ 生命周期事件批量补发（合成失败行并入 failed 面——收口一致真相）
   const failedAll: readonly FailedPlugin[] = [...synthesisFailures, ...loaded.failed];
   for (const a of loaded.activated) await options.dispatch.emit('plugin/activated', { id: a.id });
@@ -380,6 +393,55 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     tools,
     promptSections,
   };
+}
+
+/**
+ * boot 序 plugin/opens 幂等落（05 §1.1 开门/关门审计腿——U3 批 U3-5）：
+ * 以计划面磁盘行 opens 为当前授予面，与审计流尾最近一条本词（per 插件——
+ * fold = 尾条 = 该插件当前有效授予面）diff，**有变才落**（幂等不重复记账）；
+ * 曾记账而今不在计划面（行删除/换装新 id）= 撤位，落 `opens: []` 空数组形
+ * 收口。core: 行结构性无 opens（03 §5.3），不进本账。单写者 = 装配根装载
+ * 序（audit 流单写者律——插件面零写入位）。
+ *
+ * 集合语义比对（排序后逐位）——enabled.yaml 行序漂移不触发假记账。空面
+ * 首记不落：无记录 ≡ 空面（fold 语义一致），`[]` 笔恒为撤位收口形而非首记
+ * 基线（零授予零事实——不为从未开门的插件造基线噪声）。历史尾条只扫近期窗
+ * （listRecent 帽 100）：审计流里本词只增不删且每变才落，稳态下在册插件数
+ * << 帽；超帽的极端态 = 最旧撤位事实滑出窗口（收口笔不重放，尾条语义不受
+ * 损——非 durable 损失面）。
+ * @param audit 审计流面（读写两用——尾读建 per 插件最新态，diff 后落账）
+ * @param rows 计划面磁盘行（含禁用行——授予面真源是 enabled.yaml 行本身）
+ */
+export function recordPluginOpensDiff(
+  audit: AuditFace,
+  rows: readonly { id: string; opens: readonly string[] }[],
+): void {
+  // 尾读 → per 插件最新授予面（listRecent id 降序——首见即最新）
+  const latest = new Map<string, readonly string[]>();
+  for (const row of audit.listRecent()) {
+    if (row.type !== 'plugin/opens') continue;
+    const pluginId = row.data['pluginId'];
+    const opens = row.data['opens'];
+    // 词形防御（值域已过 parseEnabledRows 行校验——此处只防库被手编）
+    if (typeof pluginId !== 'string' || !Array.isArray(opens)) continue;
+    if (!latest.has(pluginId)) {
+      latest.set(pluginId, opens.filter((o): o is string => typeof o === 'string').sort());
+    }
+  }
+  // 有变才落：当前面（去重排序——尾条形稳定）vs 尾条
+  const current = new Map(rows.map((r) => [r.id, [...new Set(r.opens)].sort()]));
+  for (const [pluginId, opens] of current) {
+    const prev = latest.get(pluginId) ?? [];
+    if (prev.length !== opens.length || opens.some((o, i) => prev[i] !== o)) {
+      audit.append('plugin/opens', { pluginId, opens });
+    }
+  }
+  // 撤位收口：曾记账而今不在计划面，且尾条非空（已空则幂等不再落）
+  for (const [pluginId, prev] of latest) {
+    if (!current.has(pluginId) && prev.length > 0) {
+      audit.append('plugin/opens', { pluginId, opens: [] });
+    }
+  }
 }
 
 /**

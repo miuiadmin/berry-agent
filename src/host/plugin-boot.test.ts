@@ -13,10 +13,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
+import { AUDIT_MIGRATION, createAuditFace, openStore } from '../persist/index.js';
+import type { AuditFace, Store } from '../persist/index.js';
 
 import { readBootFailures } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
-import { bootPlugins } from './plugin-boot.js';
+import { bootPlugins, recordPluginOpensDiff } from './plugin-boot.js';
 import type { PluginBootFs, PluginBootOptions } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
 
@@ -667,5 +669,88 @@ describe('closer plugin-unload（§5.7 档③ + effect 回卷）', () => {
     // 幂等：二调直返（loadPlugins.unload 幂等 + Scope.dispose 幂等）
     await runtime.closers[0]!.fn();
     expect(order).toHaveLength(4);
+  });
+});
+
+describe('plugin/opens 幂等落（recordPluginOpensDiff——05 §1.1 boot 装载序 diff，U3 批 U3-5）', () => {
+  // 真库真面（audit_events 表由 AUDIT_MIGRATION 建就——读写往返零 mock）
+  const stores: Store[] = [];
+  afterAll(() => {
+    for (const s of stores) s.close();
+  });
+  function openFace(): AuditFace {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-agent-opens-diff-'));
+    dirs.push(dir);
+    const store = openStore({ dataDir: join(dir, 'data'), migrations: [AUDIT_MIGRATION] });
+    stores.push(store);
+    return createAuditFace(store.connection);
+  }
+  /** 某插件最新授予面（listRecent id 降序——首见即尾条） */
+  const opensOf = (face: AuditFace, pluginId: string): readonly unknown[] => {
+    const hit = face.listRecent().find((r) => r.data['pluginId'] === pluginId);
+    return hit ? (hit.data['opens'] as readonly unknown[]) : [];
+  };
+  const rowsOf = (rows: readonly { id: string; opens?: readonly string[] }[]) =>
+    rows.map((r) => ({ id: r.id, opens: r.opens ?? [] }));
+
+  it('首落：有 opens 行落实际面；空面不首记（无记录 ≡ 空面——[] 笔恒为撤位收口形）', () => {
+    const face = openFace();
+    recordPluginOpensDiff(face, rowsOf([{ id: 'acme', opens: ['channels.ui-backend'] }, { id: 'beta' }]));
+    const recent = face.listRecent();
+    expect(recent).toHaveLength(1); // beta 空面零事实——不为从未开门的插件造基线噪声
+    expect(opensOf(face, 'acme')).toEqual(['channels.ui-backend']);
+    expect(recent.some((r) => r.data['pluginId'] === 'beta')).toBe(false);
+  });
+
+  it('幂等：同面再 diff 零新笔（有变才落——不重复记账）', () => {
+    const face = openFace();
+    const rows = rowsOf([{ id: 'acme', opens: ['channels.ui-backend', 'triggers.start-run'] }]);
+    recordPluginOpensDiff(face, rows);
+    recordPluginOpensDiff(face, rows); // 同面重放
+    expect(face.listRecent()).toHaveLength(1);
+  });
+
+  it('有变才落（增量）：单行变更只落该行；行序漂移 + 排序漂移零假记账', () => {
+    const face = openFace();
+    recordPluginOpensDiff(
+      face,
+      rowsOf([
+        { id: 'acme', opens: ['channels.ui-backend'] },
+        { id: 'beta', opens: [] },
+      ]),
+    );
+    // 首轮只记 acme（beta 空面不首记）
+    expect(face.listRecent()).toHaveLength(1);
+    // 增量：acme 关门（→ [] 撤位形）、beta 开门（无记录 ≡ 空面 → 有变）；
+    // 行序对调——集合语义不受行序影响
+    recordPluginOpensDiff(
+      face,
+      rowsOf([
+        { id: 'beta', opens: ['triggers.start-run'] },
+        { id: 'acme', opens: [] },
+      ]),
+    );
+    expect(face.listRecent()).toHaveLength(3); // 1 首记 + 2 变更笔
+    expect(opensOf(face, 'acme')).toEqual([]);
+    expect(opensOf(face, 'beta')).toEqual(['triggers.start-run']);
+    // 再同面重放（排序后的稳态形）——零新笔
+    recordPluginOpensDiff(
+      face,
+      rowsOf([
+        { id: 'acme', opens: [] },
+        { id: 'beta', opens: ['triggers.start-run'] },
+      ]),
+    );
+    expect(face.listRecent()).toHaveLength(3);
+  });
+
+  it('撤位收口：曾记账行从计划面消失 → 空数组形；已空再 diff 幂等不重放', () => {
+    const face = openFace();
+    recordPluginOpensDiff(face, rowsOf([{ id: 'acme', opens: ['channels.ui-backend'] }]));
+    recordPluginOpensDiff(face, []); // 计划面空（行删除/换装新 id）
+    expect(opensOf(face, 'acme')).toEqual([]);
+    expect(face.listRecent()).toHaveLength(2);
+    recordPluginOpensDiff(face, []); // 已空——撤位笔不重放
+    expect(face.listRecent()).toHaveLength(2);
   });
 });

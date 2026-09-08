@@ -187,6 +187,13 @@ export interface TriggerStarterDeps {
   readonly workspaceRoot: () => string;
   /** warn 面（拒与失败的可观测位——starter 永不 throw） */
   readonly warn: (message: string) => void;
+  /**
+   * capability/used 落账位（05 §1.1 触发器腿——U3 批 U3-5 接线）：run 真起
+   * 后逐次回调（复检拒/受理失败/起会失败/提交失败不记——没发生的使用不是
+   * 使用）；core: 豁免门检但照记（豁免免的是门不是账——§4.6 冷读闸判据）。
+   * 缺席 = 诊断形不落账。
+   */
+  readonly onCapabilityUsed?: (pluginId: string, triggerName: string) => void;
 }
 
 /**
@@ -251,6 +258,9 @@ export function createTriggerStarterFactory(
       deps.warn(`触发器 ${name} 提交失败：会话驱动缺席（插件 ${pluginId}）`);
       return;
     }
+    // —— capability/used 逐次落账（05 §1.1——triggers.start-run 腿，C 批挂账
+    // U3-5 兑现）：run 真起才算使用；core: 豁免门检照记（豁免免的是门不是账）
+    deps.onCapabilityUsed?.(pluginId, name);
     // —— 回执 → Job 终态映射（aborted→killed 承 Job 终态词——SubagentStopReason
     // 同映射；injected/wake-refused 两收执 = run 未起，落 failed 交代去向）
     void submitted.then(

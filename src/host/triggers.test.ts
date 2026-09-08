@@ -179,11 +179,13 @@ function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
   return { stack, creates, submits, resolvers };
 }
 
-/** starter 测试台：真 Job 注册表（帽执法真件）+ 假栈 + 可变开门集 + warn/settled 记录仪 */
+/** starter 测试台：真 Job 注册表（帽执法真件）+ 假栈 + 可变开门集 + warn/settled/审计记录仪 */
 function assembleStarter(initialOpens?: readonly string[]) {
   const opens = new Set(initialOpens ?? []);
   const warns: string[] = [];
   const settled: JobSettledEvent[] = [];
+  // capability/used 落账记录仪（U3 批 U3-5——assembly 侧接 audit.append，此处收形）
+  const used: Array<{ pluginId: string; triggerName: string }> = [];
   const order: string[] = []; // 受理先于起会的编舞序证据面
   const jobs = createJobRegistry({
     parallelLimits: { trigger: TRIGGER_JOB_PARALLEL_LIMIT },
@@ -213,8 +215,9 @@ function assembleStarter(initialOpens?: readonly string[]) {
     getOpens: () => opens,
     workspaceRoot: () => '/ws',
     warn: (message) => warns.push(message),
+    onCapabilityUsed: (pluginId, triggerName) => used.push({ pluginId, triggerName }),
   });
-  return { opens, warns, settled, order, jobs, fake, makeStarter };
+  return { opens, warns, settled, order, jobs, fake, makeStarter, used };
 }
 
 /** 微任务排空（回执 .then → settle → emit 链走完） */
@@ -333,5 +336,28 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
     expect(t.warns.join('\n')).toContain('prompt');
     expect(t.fake.creates).toEqual([]);
     expect(t.jobs.list()).toEqual([]);
+  });
+
+  it('capability/used 逐次落账（U3 批 U3-5）：run 真起后记 (pluginId, triggerName)', () => {
+    const t = assembleStarter(['triggers.start-run']);
+    t.makeStarter('acme', 'acme/daily')({ prompt: '跑日报' });
+    expect(t.used).toEqual([{ pluginId: 'acme', triggerName: 'acme/daily' }]);
+  });
+
+  it('复检拒/受理拒不落账——没发生的使用不是使用', () => {
+    // 门关（fire 复检拒）：零受理零起会零落账
+    const closed = assembleStarter([]);
+    closed.makeStarter('acme', 'acme/daily')({ prompt: '跑日报' });
+    expect(closed.used).toEqual([]);
+    // prompt 坏形（受理前拒）：同零落账
+    const bad = assembleStarter(['triggers.start-run']);
+    bad.makeStarter('acme', 'acme/daily')({ prompt: '' });
+    expect(bad.used).toEqual([]);
+  });
+
+  it('core: 豁免门检照记（豁免免的是门不是账——§4.6 冷读闸判据）', () => {
+    const t = assembleStarter([]); // 门关——core: 仍豁免直开
+    t.makeStarter('core:issue', 'core:issue/board')({ prompt: '跑' });
+    expect(t.used).toEqual([{ pluginId: 'core:issue', triggerName: 'core:issue/board' }]);
   });
 });

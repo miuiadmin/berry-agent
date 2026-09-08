@@ -18,10 +18,11 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { release as osRelease } from 'node:os';
 import { join } from 'node:path';
 
-import { MEMORY_DB_PATH, Persistence, resolveDataDir } from '../persist/index.js';
+import { AUDIT_MIGRATION, MEMORY_DB_PATH, Persistence, resolveDataDir } from '../persist/index.js';
 import type { PersistenceOptions } from '../persist/index.js';
 // core: 表族迁移声明（05 §6.4 机械聚合——声明来自插件、执行在宿主；host 行
-// 拓扑边在册）。版本升序：scheduler v2 → goal v3 → memory v4-6。
+// 拓扑边在册）。版本升序：scheduler v2 → goal v3 → memory v4-6 → credentials
+// v7；v8 = 进程级审计流（宿主域表——persist export-only 声明，非 core: 表族）。
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
@@ -33,9 +34,10 @@ import { acquireActiveMarker } from './single-instance.js';
 import type { ActiveMarkerLease } from './single-instance.js';
 
 /**
- * 宿主迁移链尾（core: 插件表族声明——05 §6.4 机械聚合单源）。sessions-cmd
- * 读侧/维护动词开库同源复用：开库门禁按链 head 校验 user_version（降级
- * 运行拒开），读侧动词若带短链开真库会被同库拒——链必须与运行时全同。
+ * 宿主迁移链尾（core: 插件表族声明 + 审计流表——05 §6.4 机械聚合单源）。
+ * sessions-cmd 读侧/维护动词开库同源复用：开库门禁按链 head 校验
+ * user_version（降级运行拒开），读侧动词若带短链开真库会被同库拒——链必须
+ * 与运行时全同。
  */
 export const HOST_MIGRATION_TAIL: readonly MigrationSpec[] = [
   SCHEDULER_MIGRATION,
@@ -44,6 +46,9 @@ export const HOST_MIGRATION_TAIL: readonly MigrationSpec[] = [
   // 2026-09-08 c-2 存储腿聚合（credentials 表 namespace 扩容 v7——03 §10.9；
   // 声明在 core:credentials 件、执行在宿主——05 §6.4 机械聚合单源）
   CREDENTIALS_MIGRATION,
+  // 2026-09-08 U3 落码批 U3-5 聚合（audit_events 进程级 durable 审计流 v8
+  // ——05 §9；宿主域表单写者 = 装配根，persist export-only 声明同形）
+  AUDIT_MIGRATION,
 ];
 
 /** closer 项（收口动作 + 标签——drain 超时强杀的 warn 载荷） */
