@@ -63,6 +63,9 @@ const MODULE_EDGES = {
     // 批 13e-3 起消费（daemon 编舞件 serve-daemon 经 sdk 公开面消费
     // createSdkHttpFace/三防线判定器——02 §4.1 host 行「全部」的落码同步笔）
     'sdk',
+    // c-2 存储腿起消费（迁移机械聚合——HOST_MIGRATION_TAIL 拼
+    // CREDENTIALS_MIGRATION；02 §4.1 host 行「全部」的落码同步笔）
+    'credentials',
   ],
   skills: ['contracts', 'context'],
   memory: ['contracts', 'context', 'session', 'persist'],
@@ -79,6 +82,11 @@ const MODULE_EDGES = {
   webui: ['contracts', 'channels'],
   sdk: ['contracts', 'channels'],
   issue: ['contracts', 'context'],
+  // 2026-09-08 c-1 凭证代管件规范先行批入册 27→28（02 §4.1 #28 席）；c-2
+  // 存储腿起在场（契约词面件 + 表扩容迁移 v7——deps {contracts, persist}
+  // 〔persist 真边消费 MigrationSpec；图示对 contracts 共边按图例省略〕；
+  // 读腿 ctx.secrets/注入腿/人面/oauth 随 c-3..c-6 逐笔扩）
+  credentials: ['contracts', 'persist'],
 };
 
 /** 在场模块集（占位清单语义：边表其余键 = 显式占位、不判死边；落码逐批迁移进来） */
@@ -200,6 +208,14 @@ const PRESENT_MODULES = new Set([
   // 真边消费 SqliteDatabase/MigrationSpec〕；工具面九件/周期路/晋升桥/
   // 持有面动词随 18c-2..8 逐笔扩；迁移 export-only——host 装配根机械聚合）
   'memory',
+  // c-2 存储腿起在场（core:credentials 凭证代管面〔03 §10.9〕：契约词面件
+  // 〔namespace 值域 'host' | 'plugin:<id>' + meta 键约定 source/expired——
+  // 词面单源〕+ credentials 表扩容迁移 v7〔namespace 归属列 + 复合主键
+  // (namespace, provider) + 既有行回填 'host'〕，deps {contracts, persist}；
+  // 读腿 ctx.secrets〔受理制 + credentials.read-cross 高危面第四枚〕/注入腿
+  // env 白名单/人面命令/oauth 授权流随 c-3..c-6 逐笔扩；迁移 export-only——
+  // host 装配根机械聚合进 HOST_MIGRATION_TAIL）
+  'credentials',
 ]);
 
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */

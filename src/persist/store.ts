@@ -105,6 +105,8 @@ export interface StoreStateEntry {
 
 /** credentials 读形态（api_key 已解密——持有面在内存，勿外泄日志） */
 export interface CredentialEntry {
+  /** 归属域（'host' | 'plugin:<id>'——值域词面单源在 core:credentials 件，物理层不执法） */
+  readonly namespace: string;
   readonly provider: string;
   readonly apiKey: string;
   readonly meta: unknown;
@@ -808,17 +810,20 @@ export class Store implements WriteTarget {
     this.stmt(`DELETE FROM store_state WHERE expires_at IS NOT NULL AND expires_at <= ?`).run(this.clock());
   }
 
-  // ── credentials 面（密文盒消费——api_key 列只存密文）───────────────────────
+  // ── credentials 面（密文盒消费——api_key 列只存密文；namespace 归属维
+  //    2026-09-08 c-2 扩容——03 §10.9/05 §9；'host' 宿主域 = 模型 key 与
+  //    静态人面凭证，'plugin:<id>' 插件域经 c-3 读腿受理位写入）────────────
 
-  /** 凭证写（加密 upsert；meta 须纯 JSON） */
-  setCredential(provider: string, entry: { apiKey: string; meta?: unknown }): void {
+  /** 凭证写（加密 upsert；meta 须纯 JSON；namespace 归属域显式传） */
+  setCredential(namespace: string, provider: string, entry: { apiKey: string; meta?: unknown }): void {
     this.ensureOpen();
     const meta = entry.meta !== undefined ? snapshotJsonValue(entry.meta, 'credentials.meta') : null;
     this.stmt(
-      `INSERT INTO credentials (provider, api_key, meta, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(provider) DO UPDATE SET api_key = excluded.api_key, meta = excluded.meta,
+      `INSERT INTO credentials (namespace, provider, api_key, meta, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(namespace, provider) DO UPDATE SET api_key = excluded.api_key, meta = excluded.meta,
          updated_at = excluded.updated_at`,
     ).run(
+      namespace,
       provider,
       encryptSecret(this.secretKey, entry.apiKey),
       meta === null ? null : JSON.stringify(meta),
@@ -827,13 +832,15 @@ export class Store implements WriteTarget {
   }
 
   /** 凭证读（解密——密钥丢失/不匹配 fail-loud PERSIST_SECRET_UNREADABLE） */
-  getCredential(provider: string): CredentialEntry | undefined {
+  getCredential(namespace: string, provider: string): CredentialEntry | undefined {
     this.ensureOpen();
-    const row = this.stmt(`SELECT provider, api_key, meta, updated_at FROM credentials WHERE provider = ?`).get(
-      provider,
-    ) as RawCredentialRow | undefined;
+    const row = this.stmt(
+      `SELECT namespace, provider, api_key, meta, updated_at FROM credentials
+       WHERE namespace = ? AND provider = ?`,
+    ).get(namespace, provider) as RawCredentialRow | undefined;
     if (!row) return undefined;
     return {
+      namespace: row.namespace,
       provider: row.provider,
       apiKey: decryptSecret(this.secretKey, row.api_key),
       meta: row.meta === null ? undefined : JSON.parse(row.meta),
@@ -841,21 +848,25 @@ export class Store implements WriteTarget {
     };
   }
 
-  /** 凭证删 */
-  deleteCredential(provider: string): boolean {
-    this.ensureOpen();
-    return this.stmt(`DELETE FROM credentials WHERE provider = ?`).run(provider).changes > 0;
-  }
-
-  /** 凭证清单（不回 api_key——枚举面零密文零明文） */
-  listCredentialProviders(): { provider: string; updatedAt: number }[] {
+  /** 凭证删（撤销唯一路径 = 人面 rm / 插件 revoke——保留律的对面） */
+  deleteCredential(namespace: string, provider: string): boolean {
     this.ensureOpen();
     return (
-      this.stmt(`SELECT provider, updated_at FROM credentials ORDER BY provider`).all() as {
+      this.stmt(`DELETE FROM credentials WHERE namespace = ? AND provider = ?`).run(namespace, provider).changes > 0
+    );
+  }
+
+  /** 凭证清单（不回 api_key——枚举面零密文零明文；全域列示：人面命令恒可
+   *  列示/撤销一切域——03 §10.9，namespace 分权不进治理面） */
+  listCredentialProviders(): { namespace: string; provider: string; updatedAt: number }[] {
+    this.ensureOpen();
+    return (
+      this.stmt(`SELECT namespace, provider, updated_at FROM credentials ORDER BY namespace, provider`).all() as {
+        namespace: string;
         provider: string;
         updated_at: number;
       }[]
-    ).map((row) => ({ provider: row.provider, updatedAt: row.updated_at }));
+    ).map((row) => ({ namespace: row.namespace, provider: row.provider, updatedAt: row.updated_at }));
   }
 
   // ── model_catalog 面 ────────────────────────────────────────────────────────
@@ -952,6 +963,7 @@ interface RawStoreStateRow {
 }
 
 interface RawCredentialRow {
+  namespace: string;
   provider: string;
   api_key: string;
   meta: string | null;

@@ -25,6 +25,7 @@ import type { PersistenceOptions } from '../persist/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
+import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
 import type { MigrationSpec } from '../persist/index.js';
 
 import { collectDate, collectPlatform, renderEnvironmentDisclosure } from './disclosure.js';
@@ -40,6 +41,9 @@ export const HOST_MIGRATION_TAIL: readonly MigrationSpec[] = [
   SCHEDULER_MIGRATION,
   GOAL_MIGRATION,
   ...MEMORY_MIGRATIONS,
+  // 2026-09-08 c-2 存储腿聚合（credentials 表 namespace 扩容 v7——03 §10.9；
+  // 声明在 core:credentials 件、执行在宿主——05 §6.4 机械聚合单源）
+  CREDENTIALS_MIGRATION,
 ];
 
 /** closer 项（收口动作 + 标签——drain 超时强杀的 warn 载荷） */

@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BaseError, registerEventType, type SessionEvent } from '../contracts/index.js';
+import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
 import { SessionLog } from '../session/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import type { MigrationSpec } from './migrations.js';
@@ -487,27 +488,60 @@ describe('store_state 面（05 §6.2 LRU + ttl）', () => {
 describe('credentials 与 model_catalog 面', () => {
   it('凭证加密往返 + 密文列不明文 + 清单零密文 + 密钥不匹配 fail-loud', () => {
     const path = join(dir, 'cred.db');
-    const store = open({ dbPath: path, clock: () => 1_000 });
-    store.setCredential('anthropic', { apiKey: 'sk-secret-value', meta: { region: 'us' } });
-    const got = store.getCredential('anthropic');
+    // 迁移链带 CREDENTIALS_MIGRATION（v7 namespace 扩容——c-2 存储腿）：
+    // 双键 (namespace, provider) 物理形由迁移建立，基线 v1 是单键旧形
+    const store = open({ dbPath: path, clock: () => 1_000, migrations: [CREDENTIALS_MIGRATION] });
+    store.setCredential('host', 'anthropic', { apiKey: 'sk-secret-value', meta: { region: 'us' } });
+    const got = store.getCredential('host', 'anthropic');
+    expect(got?.namespace).toBe('host');
     expect(got?.apiKey).toBe('sk-secret-value');
     expect(got?.meta).toEqual({ region: 'us' });
-    // 物理列只存密文（v1: 前缀）——明文永不落盘
-    const raw = store.connection.prepare(`SELECT api_key FROM credentials WHERE provider = 'anthropic'`).get() as {
-      api_key: string;
-    };
+    // 物理列只存密文（v1: 前缀）+ namespace 归属列在场——明文永不落盘
+    const raw = store.connection
+      .prepare(`SELECT namespace, api_key FROM credentials WHERE provider = 'anthropic'`)
+      .get() as { namespace: string; api_key: string };
+    expect(raw.namespace).toBe('host');
     expect(raw.api_key.startsWith('v1:')).toBe(true);
     expect(raw.api_key).not.toContain('sk-secret-value');
-    // 换密钥重开：解密失败 fail-loud（重录即恢复）
+    // 换密钥重开：解密失败 fail-loud（重录即恢复）；链必须与运行时全同
+    // （不带链的短链开真库会被同库降级拒开——HOST_MIGRATION_TAIL 同源律）
     store.close();
-    const reopened = openStore({ dbPath: path, dataDir: join(dir, 'data2'), secretKey: ephemeralSecretKey() });
+    const reopened = openStore({
+      dbPath: path,
+      dataDir: join(dir, 'data2'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [CREDENTIALS_MIGRATION],
+    });
     stores.push(reopened);
-    expectCode(() => reopened.getCredential('anthropic'), 'PERSIST_SECRET_UNREADABLE');
-    reopened.setCredential('anthropic', { apiKey: 'sk-new' });
-    expect(reopened.getCredential('anthropic')?.apiKey).toBe('sk-new');
-    // 清单不回 api_key
-    expect(reopened.listCredentialProviders()).toEqual([{ provider: 'anthropic', updatedAt: expect.any(Number) }]);
-    expect(reopened.deleteCredential('ghost')).toBe(false);
+    expectCode(() => reopened.getCredential('host', 'anthropic'), 'PERSIST_SECRET_UNREADABLE');
+    reopened.setCredential('host', 'anthropic', { apiKey: 'sk-new' });
+    expect(reopened.getCredential('host', 'anthropic')?.apiKey).toBe('sk-new');
+    // 清单不回 api_key（namespace+provider 双键全域列示）
+    expect(reopened.listCredentialProviders()).toEqual([
+      { namespace: 'host', provider: 'anthropic', updatedAt: expect.any(Number) },
+    ]);
+    expect(reopened.deleteCredential('host', 'ghost')).toBe(false);
+  });
+
+  it('namespace 域分立——同名 provider 两域共存互不覆写，删改只动本域', () => {
+    const store = open({ dbPath: join(dir, 'ns.db'), clock: () => 2_000, migrations: [CREDENTIALS_MIGRATION] });
+    store.setCredential('host', 'gh', { apiKey: 'host-token' });
+    store.setCredential('plugin:demo', 'gh', { apiKey: 'plugin-token' });
+    // 同名 provider 两行独立——读各归各域（物理行数即证）
+    expect(store.getCredential('host', 'gh')?.apiKey).toBe('host-token');
+    expect(store.getCredential('plugin:demo', 'gh')?.apiKey).toBe('plugin-token');
+    expect((store.connection.prepare(`SELECT count(*) AS n FROM credentials`).get() as { n: number }).n).toBe(2);
+    // 覆写只动本域（plugin 域重录不动 host 域行）
+    store.setCredential('plugin:demo', 'gh', { apiKey: 'plugin-token-2' });
+    expect(store.getCredential('plugin:demo', 'gh')?.apiKey).toBe('plugin-token-2');
+    expect(store.getCredential('host', 'gh')?.apiKey).toBe('host-token');
+    expect(store.deleteCredential('plugin:demo', 'gh')).toBe(true);
+    expect(store.getCredential('plugin:demo', 'gh')).toBeUndefined();
+    expect(store.getCredential('host', 'gh')?.apiKey).toBe('host-token');
+    // 全域清单按 (namespace, provider) 序——人面命令恒可列示/撤销一切域（03 §10.9）
+    expect(store.listCredentialProviders()).toEqual([
+      { namespace: 'host', provider: 'gh', updatedAt: expect.any(Number) },
+    ]);
   });
 
   it('模型目录 CRUD', () => {
