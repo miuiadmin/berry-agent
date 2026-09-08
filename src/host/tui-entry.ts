@@ -5,7 +5,8 @@
  * dump-config/plugins list 诊断命令同一合成代码路径）：assembleHostStack
  * （运行时→logger→根作用域/总线→conversation 栈→插件装载，:memory: 同构
  * 纪律防侧门件）→ [本件 TUI 段] --port webui 开面（装载后/挂接前）→
- * openStartupSession（07 §5 启动会话策略：cwd 归一根取最新续接、无则新建）
+ * openStartupSession（07 §5 启动会话策略：cwd 归一根取最新续接、无则新建；
+ * resumeSessionId 在场 = 按 id 续接——sessions resume <id> 的 CLI 载体〔批 20d〕）
  * → TuiBackend 组装（提交/打断/退出/命令分发/todo 回看/补全三源/version
  * 基线/生产定时器）→ addBackend → start → registerSession → focus 首画 →
  * 主循环 await 退出 → runtime.shutdown 六步退出序（closer 内含 backend.stop
@@ -19,6 +20,7 @@
  */
 import { FileMentionSource, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
+import { canonicalWorkspaceRoot } from '../context/index.js';
 import { foldTodoTable } from '../conversation/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
@@ -31,6 +33,7 @@ import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
+import type { StartupSession } from './conversation-stack.js';
 
 /** TUI 入口选项（main 分派接线 + 测试注入面） */
 export interface TuiEntryOptions {
@@ -55,6 +58,9 @@ export interface TuiEntryOptions {
   readonly env?: Record<string, string | undefined>;
   /** core: 官方件注册表（缺省 createCorePlugins 单源——批 19a/19b-1 工厂形；测试注入面） */
   readonly corePlugins?: readonly CorePluginReference[];
+  /** 指定续接会话 id（sessions resume <id> 的 CLI 载体——在场即按 id 续接，
+   * 取代「按 cwd 取最新」缺省策略；07 §5 两选取键互补条） */
+  readonly resumeSessionId?: string;
   /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
@@ -129,8 +135,32 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     }
 
-    // 启动会话策略（07 §5）：无参启动按 cwd 取最新会话——有则续接无则新建
-    const session = stack.openStartupSession(options.cwd ?? process.cwd());
+    // 启动会话策略（07 §5）：无参启动按 cwd 取最新会话——有则续接无则新建；
+    // resumeSessionId 在场（sessions resume <id> 的 CLI 载体）= 按 id 续接
+    // （与「按 cwd 取最新」互补）——id 缺席干净退 1（打错 id 不造新会话、不
+    // 写 crash.log；finally 仍走 shutdown 六步收口，此点尚未起 TUI 屏）
+    let session: StartupSession;
+    if (options.resumeSessionId !== undefined) {
+      let opened;
+      try {
+        opened = stack.manager.open(options.resumeSessionId);
+      } catch {
+        process.stderr.write(
+          `sessions resume 失败：会话不存在（${options.resumeSessionId}）——用 sessions list 查在册 id\n`,
+        );
+        return 1;
+      }
+      // @ 文件补全锚 = 会话自身工作区根（行面现读；缺席回退启动 cwd）
+      const row = runtime.persistence.store.getSessionRow(options.resumeSessionId);
+      session = {
+        sessionId: opened.sessionId,
+        driver: opened.driver,
+        resumed: true,
+        workspaceRoot: canonicalWorkspaceRoot(row?.workspaceRoot ?? options.cwd ?? process.cwd()),
+      };
+    } else {
+      session = stack.openStartupSession(options.cwd ?? process.cwd());
+    }
 
     const io = options.io ?? new ProcessTerminalIO();
     let quitResolve: () => void = () => {};

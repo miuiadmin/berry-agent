@@ -25,10 +25,22 @@ import type { PersistenceOptions } from '../persist/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
+import type { MigrationSpec } from '../persist/index.js';
 
 import { collectDate, collectPlatform, renderEnvironmentDisclosure } from './disclosure.js';
 import { acquireActiveMarker } from './single-instance.js';
 import type { ActiveMarkerLease } from './single-instance.js';
+
+/**
+ * 宿主迁移链尾（core: 插件表族声明——05 §6.4 机械聚合单源）。sessions-cmd
+ * 读侧/维护动词开库同源复用：开库门禁按链 head 校验 user_version（降级
+ * 运行拒开），读侧动词若带短链开真库会被同库拒——链必须与运行时全同。
+ */
+export const HOST_MIGRATION_TAIL: readonly MigrationSpec[] = [
+  SCHEDULER_MIGRATION,
+  GOAL_MIGRATION,
+  ...MEMORY_MIGRATIONS,
+];
 
 /** closer 项（收口动作 + 标签——drain 超时强杀的 warn 载荷） */
 export interface HostCloser {
@@ -116,12 +128,7 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
       // 迁移链机械聚合（05 §6.4）：core: 插件表族声明并入宿主单链——调用方
       // 迁移在前、追加件按版本升序插队（scheduler v2 → goal v3 先于 memory
       // v4-6；调用方版本须全链严格递增——19c 追加件同律校验）
-      migrations: [
-        ...(options.persistence?.migrations ?? []),
-        SCHEDULER_MIGRATION,
-        GOAL_MIGRATION,
-        ...MEMORY_MIGRATIONS,
-      ],
+      migrations: [...(options.persistence?.migrations ?? []), ...HOST_MIGRATION_TAIL],
     });
   } catch (err) {
     lease?.release();

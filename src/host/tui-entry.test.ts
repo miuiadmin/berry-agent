@@ -14,10 +14,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import type { TerminalIO } from '../channels/index.js';
+import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
+import { Persistence } from '../persist/index.js';
 
-import { createHostRuntime } from './runtime.js';
+import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
 import { runTuiEntry } from './tui-entry.js';
 
 /* ---------------- 测试基建 ---------------- */
@@ -161,6 +163,70 @@ describe('runTuiEntry 装配序', () => {
     await until(() => second.io.output.includes('重启后见')); // resume 历史回读（投影重画）
     second.io.send('\x04');
     expect(await second.entry).toBe(0);
+  });
+
+  it('resumeSessionId 按 id 续接（批 20d——与按 cwd 取最新互补：异 cwd 亦达 + 打错 id 不造新会话）', async () => {
+    const dataDir = rigDir('entry-rid-data-');
+    const ws = rigDir('entry-rid-ws-');
+
+    // 首启：一轮对话落库后退出
+    const first = await rigEntry(dataDir, ws);
+    first.io.send('指定 id 探针\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+
+    // 在册 id 反查（库面——该 cwd 唯一会话。装配面库文件走缺省梯子，dataDir
+    // 不重定位库文件〔路径梯子律〕——探针同走梯子即同库；workspaceRoot 过滤
+    // 精确定位本测试会话，免疫同文件共享库噪声）
+    const probe = Persistence.open({ migrations: HOST_MIGRATION_TAIL });
+    const [row] = probe.store.listSessions({ workspaceRoot: canonicalWorkspaceRoot(ws) });
+    await probe.close();
+    expect(row).toBeDefined();
+    const id = row!.id;
+
+    // 二启：异 cwd（该 cwd 无会话——按 cwd 取最新应新建）+ 指定 id 续接：
+    // 投影首画仍回读历史（id 选取键胜 cwd 选取键——07 §5 两键互补律）
+    const faux = fauxProvider({ provider: 'faux-rid', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf(), () => messageOf()]);
+    const io2 = new FakeTerminalIO();
+    const second = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io: io2,
+      cwd: rigDir('entry-rid-ws2-'), // 异 cwd——无会话
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-rid/m1',
+      env: {},
+      resumeSessionId: id,
+    });
+    await io2.ready();
+    await until(() => io2.output.includes('指定 id 探针')); // resume 历史回读（按 id 达）
+    io2.send('\x04');
+    expect(await second).toBe(0);
+
+    // 打错 id：干净退 1（不造新会话——按该次启动唯一 cwd 作用域精确判：打错
+    // id 若落入 cwd 取最新新建路径，会以该 cwd 锚建新会话，作用域计数即非零）
+    const ws3 = rigDir('entry-rid-ws3-');
+    const io3 = new FakeTerminalIO();
+    const third = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io: io3,
+      cwd: ws3,
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-rid/m1',
+      env: {},
+      resumeSessionId: 'no-such-id',
+    });
+    expect(await third).toBe(1);
+    const after = Persistence.open({ migrations: HOST_MIGRATION_TAIL });
+    const stray = after.store.listSessions({ workspaceRoot: canonicalWorkspaceRoot(ws3) });
+    await after.close();
+    expect(stray).toHaveLength(0);
   });
 
   it('运行时组装失败退 1（数据目录被占——干净退出档不写 crash.log）', async () => {

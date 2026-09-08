@@ -34,6 +34,7 @@ import { runTuiEntry } from './tui-entry.js';
 import { runRunEntry } from './run-entry.js';
 import { runDumpConfigEntry } from './dump-config.js';
 import { runPluginsEntry } from './plugins-cmd.js';
+import { runSessionsEntry } from './sessions-cmd.js';
 
 /** 在飞运行时柄（组装后挂入——信号/崩溃编舞切运行时本体；前置窗口 null） */
 let activeRuntime: HostRuntime | null = null;
@@ -63,7 +64,7 @@ function dispatchServe(flags: Parameters<NonNullable<CommandHandlers['serve']>>[
   return runServeEntry({ flags, version: readVersion(), onRuntime: attachRuntime });
 }
 
-/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins / 20b run 已接线，sessions/upgrade 诚实退 1） */
+/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins / 20b run / 20d sessions 已接线，upgrade 诚实退 1） */
 const handlers: CommandHandlers = {
   tui: (flags) =>
     runTuiEntry({
@@ -101,6 +102,13 @@ const handlers: CommandHandlers = {
     runPluginsEntry(sub, {
       version: readVersion(),
       onRuntime: attachRuntime,
+    }),
+  // sessions 子命令族 CLI 面（20d——list/search/reindex 读腿零装配、resume 进
+  // TUI〔resumeSessionId 载体〕、fork 全装配同 run --fork 机；07 §5 定名）
+  sessions: (sub) =>
+    runSessionsEntry(sub, {
+      version: readVersion(),
+      onRuntime: attachRuntime, // fork/resume 装配路径——信号/崩溃编舞切运行时本体
     }),
 };
 
