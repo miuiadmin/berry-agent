@@ -18,6 +18,7 @@ import { assembleHostStack, readTriggerOpensLive } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
 import { readAllowlist } from './allowlist-store.js';
+import { createAuditFace } from '../persist/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import type { UiBackend } from '../channels/index.js';
@@ -622,5 +623,90 @@ describe('/reload 热重载 e2e（03 §5.7——手编漂移换代全链）', ()
       await assembly.runtime.shutdown();
     }
     expect(disposed).toEqual(['demo1']); // shutdown 走直路径收口初代
+  });
+});
+
+/* ---------------- /plugins TUI 命令面 e2e（03 §5.8——命令注册 + 自动链 + 审计落账） ---------------- */
+
+describe('/plugins TUI 命令面 e2e（03 §5.2 mount 族成功尾自动链 /reload 全链）', () => {
+  /** notify 捕获后端（/reload e2e 同形——capabilities.notify 位 + hasAudience 恒真） */
+  const captureBackend = (notified: string[]): UiBackend<never> => ({
+    id: 'plugins-probe',
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: (_message, opts) => void notified.push(`${opts?.level ?? 'info'}|${_message}`),
+  });
+
+  it('dispatch /plugins toggle → 行编辑 + 审计恰一笔 + 自动链换代 + list 读面即新代', async () => {
+    const dir = tmpDir('host-asm-plugcmd-');
+    const disposed: string[] = [];
+    const mk = (name: string): CorePluginReference => ({
+      name,
+      apply: async () => () => void disposed.push(name),
+    });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [mk('demo1')],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      // 命令在册 + toggle 真链（core: 行不在场首翻 = 写 disabled 行——03 §5.2 第三态）
+      expect(await assembly.stack.channels.dispatchCommand('/plugins toggle core:demo1')).toBe(true);
+      expect(notified.some((t) => t.includes('已切换：core:demo1'))).toBe(true); // 回执经 notify 归因 'plugins'
+      expect(notified.some((t) => t.includes('已自动链 /reload'))).toBe(true);
+      // 成功尾自动链：busy=false → idle 直入编舞（await settle 收链）
+      await assembly.reloader.settle();
+      expect(assembly.pluginCounts).toEqual({ total: 1, enabled: 0, failed: 0 }); // 新代：行在 + disabled → skipped
+      expect(disposed).toEqual(['demo1']); // 旧代（初代 demo1）已回卷
+      // 审计恰一笔：toggle 词（boot diff 对 disabled 行「一致零落」——不叠词）。
+      // 断言按 id 定域——runtime 开库 dbPath 走 env 梯子（BERRY_AGENT_DATA_DIR
+      // per-file 钉扎），同文件早先测试的装载 diff 词共库在场（plug-sk 等）。
+      const auditRows = [...createAuditFace(assembly.runtime.persistence.store.sqlite()).listRecent()]
+        .filter((r) => r.type.startsWith('plugin/') && r.data['id'] === 'core:demo1')
+        .map((r) => ({ type: r.type, data: r.data }));
+      expect(auditRows).toEqual([{ type: 'plugin/toggled', data: { id: 'core:demo1', disabled: true } }]);
+      // list 读面即新代（换代取值器闭包——/reload 后即新代投影）
+      expect(await assembly.stack.channels.dispatchCommand('/plugins list')).toBe(true);
+      expect(notified.some((t) => t.includes('禁用（1）：') && t.includes('core:demo1'))).toBe(true);
+    } finally {
+      await assembly.runtime.shutdown(); // 一次性 closer 收口第二代（行 disabled → 未装载零回卷）
+    }
+    expect(disposed).toEqual(['demo1']); // 第二代 skipped 无 disposer——收口零新回卷
+  });
+
+  it('mount 未装机用户 id → 拒回执零链（前置两查在 TUI 面同律执法）', async () => {
+    const dir = tmpDir('host-asm-plugcmd-reject-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      expect(await assembly.stack.channels.dispatchCommand('/plugins mount user-ghost')).toBe(true);
+      expect(notified.some((t) => t.includes('未装机'))).toBe(true);
+      expect(notified.some((t) => t.includes('已自动链'))).toBe(false); // 拒路径零链
+      expect(await assembly.reloader.hasPending()).toBe(false);
+      expect(assembly.pluginCounts).toEqual({ total: 0, enabled: 0, failed: 0 }); // 装载态原封
+    } finally {
+      await assembly.runtime.shutdown();
+    }
   });
 });

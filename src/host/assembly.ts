@@ -55,6 +55,8 @@ import type { PluginBootHandle, PluginUnloadReceipt } from './plugin-boot.js';
 import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
 import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from './plugin-reload.js';
 import type { PluginReloader } from './plugin-reload.js';
+import { PLUGINS_CMD_USAGE, runPluginsCommand } from './plugins-command.js';
+import { createPluginStoreFs } from './plugin-store.js';
 import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
 import { createIssueSessionFactory } from './issue-session.js';
@@ -732,6 +734,36 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       'reload',
       async () => reloader.request(),
       '重载插件装载态（会话运行中自动排队，run 收场后执行）',
+    );
+
+    // —— /plugins TUI 命令面（03 §5.8 三面同源之 TUI 面——task #88 笔二）：
+    // 宿主级命令直注册（与 /reload 同位——非插件自带命令，不随换代卸除）；
+    // 纯逻辑件单源（plugins-command.ts——argv 解析/前置两查/回执文本），
+    // 装配面只接线四 seam：行编辑 fs、进程内 audit face（落账失败 warn 不
+    // 阻塞——行编辑已生效）、成功尾自动链 reloader（03 §5.2）、内存装载
+    // 报告取值器（list 读面——换代取值器闭包，/reload 后即新代投影）。
+    // 回执经 notify 归因 'plugins'（与 'reload'/'tick'/'credentials' 同律）。
+    stack.channels.commands.register(
+      'plugins',
+      async (args) => {
+        const outcome = runPluginsCommand(args.argv, {
+          dataDir,
+          fs: createPluginStoreFs(),
+          auditSink: (type, payload) => {
+            try {
+              audit.append(type, payload);
+            } catch (err) {
+              logger.warn(
+                `生命周期审计落账失败（${type}）：${err instanceof Error ? err.message : String(err)}——主流程不受影响（行编辑已生效）`,
+              );
+            }
+          },
+          requestReload: () => void reloader.request(),
+          report: () => boot?.report,
+        });
+        void stack.channels.notify('plugins', outcome.text);
+      },
+      PLUGINS_CMD_USAGE,
     );
 
     return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts, reloader };
