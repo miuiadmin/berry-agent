@@ -447,6 +447,15 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       options.audit,
       plan.flatMap((row) => (row.kind === 'disk' ? [{ id: row.id, opens: row.opens ?? [] }] : [])),
     );
+    // —— 生命周期五词 boot diff 补播（05 §1.1 生命周期归因面行——audit 落账
+    // 批写点②）：手编 enabled.yaml 漂移检测——「用户手改文件」与「用户按
+    // 命令」同链可审计；对审计流尾最近态 diff、有变才落（幂等同律）。本账
+    // 含 core: 行（mount/unmount/toggle 对 core: 是合法 overlay 动作——与
+    // opens diff 排除 core: 分立）
+    recordPluginLifecycleDiff(
+      options.audit,
+      plan.map((row) => ({ id: row.id, disabled: row.disabled === true })),
+    );
   }
 
   // ⑪ 生命周期事件批量补发（合成失败行并入 failed 面——收口一致真相）
@@ -534,6 +543,69 @@ export function recordPluginOpensDiff(
   for (const [pluginId, prev] of latest) {
     if (!current.has(pluginId) && prev.length > 0) {
       audit.append('plugin/opens', { pluginId, opens: [] });
+    }
+  }
+}
+
+/**
+ * 生命周期五词 boot diff 补播（05 §1.1 生命周期归因面行——audit 落账批
+ * 写点②）：对计划面全行（含 core: 行）以审计流尾最近态 diff，有变才落。
+ *
+ * 「用户手改 enabled.yaml」与「用户按 CLI 命令」同链可审计——CLI 人面
+ * 成功尾已落账（写点①），本补播只兜文件面漂移（手编/外部工具改行）；
+ * 与 plugin/opens diff 同幂等律：稳态零落，重启不重放。
+ *
+ * 态域三值：enabled / disabled / absent——
+ *  - 审计尾态 fold：listRecent（id 降序）per id 三词（mounted/unmounted/
+ *    toggled）首见即最新：mounted→enabled、unmounted→absent、toggled→
+ *    disabled 位判别（true|false 双态——审计词形独立于行形）；
+ *  - 计划面现态：行在场按 disabled === true 判、行缺席 = absent；
+ *  - **core: 基线态**：无记录的 id——core: 前缀按 enabled 算（内置全启，
+ *    防首启全 core: 件落 mounted 噪声——与 opens diff「不为从未开门的
+ *    插件造基线噪声」同哲学）；非 core 按未上场算。
+ *
+ * diff 五形（动作序列还原）：
+ *  absent→enabled 落 mounted；absent→disabled 落 mounted + toggled{true}
+ *  （手编一步到位 = 命令两步的序列等价）；enabled↔disabled 落 toggled
+ *  双态；在场→absent 落 unmounted；一致零落。core: 件计划面缺席（宿主
+ *  侧官件裁撤——结构性恒在计划面，缺席非用户动作）不落账防噪声。
+ * @param audit 审计流面（读写两用——尾读建 per id 最近态，diff 后落账）
+ * @param rows 计划面全行（含 core: 行——本账与 opens diff 排除 core: 分立）
+ */
+export function recordPluginLifecycleDiff(audit: AuditFace, rows: readonly { id: string; disabled: boolean }[]): void {
+  // 尾读 → per id 三词最近态（首见即最新；坏形条目无视——同 opens diff 词形防御律）
+  const latest = new Map<string, 'enabled' | 'disabled' | 'absent'>();
+  for (const row of audit.listRecent()) {
+    if (row.type !== 'plugin/mounted' && row.type !== 'plugin/unmounted' && row.type !== 'plugin/toggled') {
+      continue;
+    }
+    const id = row.data['id'];
+    if (typeof id !== 'string' || latest.has(id)) continue;
+    if (row.type === 'plugin/unmounted') latest.set(id, 'absent');
+    else if (row.type === 'plugin/mounted') latest.set(id, 'enabled');
+    else {
+      const disabled = row.data['disabled'];
+      if (disabled !== true && disabled !== false) continue; // 坏形跳过（不建态）
+      latest.set(id, disabled ? 'disabled' : 'enabled');
+    }
+  }
+  // 计划面现态 + diff 落账（循环域 = 计划面 ∪ 尾态 id 集——两侧单边差都覆盖）
+  const planState = new Map(rows.map((r) => [r.id, r.disabled ? ('disabled' as const) : ('enabled' as const)]));
+  for (const id of new Set([...planState.keys(), ...latest.keys()])) {
+    const auditState = latest.get(id) ?? (id.startsWith('core:') ? 'enabled' : 'absent');
+    const current = planState.get(id);
+    if (current === undefined) {
+      if (!id.startsWith('core:') && auditState !== 'absent') {
+        audit.append('plugin/unmounted', { id });
+      }
+      continue;
+    }
+    if (auditState === current) continue; // 一致零落（幂等）
+    if (auditState === 'absent') {
+      audit.append('plugin/mounted', { id });
+      if (current === 'disabled') audit.append('plugin/toggled', { id, disabled: true });
+    } else {
+      audit.append('plugin/toggled', { id, disabled: current === 'disabled' });
     }
   }
 }

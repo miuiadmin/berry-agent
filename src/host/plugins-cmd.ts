@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
 
-import { Persistence, resolveDataDir } from '../persist/index.js';
+import { Persistence, createAuditFace, resolveDataDir } from '../persist/index.js';
 
 import type { PluginsCommand } from './cli.js';
 import { assembleHostStack } from './assembly.js';
@@ -38,6 +38,7 @@ import type { InstallExecutorDeps } from './plugin-install.js';
 import { executeUninstall, inspectUninstall } from './plugin-uninstall.js';
 import type { UninstallDataAction, UninstallDeps } from './plugin-uninstall.js';
 import { mountRow, readLedger, toggleRow, unmountRow, createPluginStoreFs } from './plugin-store.js';
+import type { LifecycleAuditSink } from './plugin-store.js';
 import type { HostRuntime } from './runtime.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
 
@@ -140,14 +141,63 @@ function runCheck(options: PluginsEntryOptions): number {
 
 /* ---------------- 写侧六动词（装机面落码批 #10 真身） ---------------- */
 
+/**
+ * 生命周期归因账真身（05 §1.1 生命周期归因面行——audit 落账批）：惰性开库
+ * sink——动词成功尾首调才开 Persistence（只读路径 list/check 与失败路径零
+ * 开库零负担）；Persistence.close 是 async，故配对 close 由调用层 finally
+ * await（库件回调是同步面——close 责任在 CLI 编排层）。落账失败 warn 不
+ * 阻塞主流程（行编辑已生效不回滚——与 llm/usage append 异常 warn 同哲学）。
+ */
+function lifecycleAuditOf(
+  options: PluginsEntryOptions,
+  writeErr: (text: string) => void,
+): { readonly sink: LifecycleAuditSink; readonly close: () => Promise<void> } {
+  let persistence: Persistence | undefined;
+  return {
+    sink: (type, data) => {
+      try {
+        if (persistence === undefined) {
+          // dbPath 显式随 dataDir（Persistence 的 dbPath/dataDir 分立解析——
+          // 缺省 dbPath 走 env 梯子不随 dataDir 选项；CLI 语义 = --data-dir
+          // 指到哪库就在哪〔三级梯子第二级本意〕）
+          persistence = Persistence.open({
+            ...(options.dataDir !== undefined
+              ? { dataDir: options.dataDir, dbPath: join(options.dataDir, 'sessions.db') }
+              : {}),
+            migrations: HOST_MIGRATION_TAIL,
+            warn: (message) => writeErr(`warn：${message}`),
+          });
+        }
+        createAuditFace(persistence.store.sqlite()).append(type, data);
+      } catch (err) {
+        writeErr(
+          `warn：生命周期审计落账失败（${type}）：${err instanceof Error ? err.message : String(err)}——主流程不受影响（行编辑已生效）`,
+        );
+      }
+    },
+    close: async () => {
+      if (persistence !== undefined) {
+        const closing = persistence;
+        persistence = undefined;
+        await closing.close();
+      }
+    },
+  };
+}
+
 /** 装机执行器 deps 构造（CLI 面——真盘真 spawn；env 缺省 process.env） */
-function installDepsOf(options: PluginsEntryOptions, minReleaseAge?: number): InstallExecutorDeps {
+function installDepsOf(
+  options: PluginsEntryOptions,
+  minReleaseAge: number | undefined,
+  onLifecycleAudit?: LifecycleAuditSink,
+): InstallExecutorDeps {
   return {
     dataDir: options.dataDir ?? resolveDataDir(),
     fs: createPluginStoreFs(),
     spawn: createDefaultSpawnRunner(),
     env: options.env ?? process.env,
     ...(minReleaseAge !== undefined ? { minReleaseAgeOverride: minReleaseAge } : {}),
+    ...(onLifecycleAudit !== undefined ? { onLifecycleAudit } : {}),
   };
 }
 
@@ -159,26 +209,36 @@ async function runInstall(
 ): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
-  const outcome = await installPlugin(installDepsOf(options, minReleaseAge), ref);
-  if (!outcome.ok) {
-    writeErr(outcome.message);
-    return 1;
+  const audit = lifecycleAuditOf(options, writeErr);
+  try {
+    const outcome = await installPlugin(installDepsOf(options, minReleaseAge, audit.sink), ref);
+    if (!outcome.ok) {
+      writeErr(outcome.message);
+      return 1;
+    }
+    writeOut(outcome.text);
+    return 0;
+  } finally {
+    await audit.close();
   }
-  writeOut(outcome.text);
-  return 0;
 }
 
 /** update <id>：按源分派（§5.4——npm 重装/git 重克隆/local no-op） */
 async function runUpdate(id: string, options: PluginsEntryOptions): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
-  const outcome = await updatePlugin(installDepsOf(options), id);
-  if (!outcome.ok) {
-    writeErr(outcome.message);
-    return 1;
+  const audit = lifecycleAuditOf(options, writeErr);
+  try {
+    const outcome = await updatePlugin(installDepsOf(options, undefined, audit.sink), id);
+    if (!outcome.ok) {
+      writeErr(outcome.message);
+      return 1;
+    }
+    writeOut(outcome.text);
+    return 0;
+  } finally {
+    await audit.close();
   }
-  writeOut(outcome.text);
-  return 0;
 }
 
 /**
@@ -199,8 +259,14 @@ async function runUninstall(
     return 1;
   }
   const dataDir = options.dataDir ?? resolveDataDir();
+  // dbPath 显式随 dataDir（同 lifecycleAuditOf——Persistence 的 dbPath/dataDir
+  // 分立解析，缺省 dbPath 走 env 梯子不随 dataDir 选项；CLI 语义 = --data-dir
+  // 指到哪库就在哪。装机面落码批遗留真 bug——审计落账批写测试抓获，修前
+  // 库恒开 env 梯子位、--data-dir 旗标形同虚设）
   const persistence = Persistence.open({
-    ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+    ...(options.dataDir !== undefined
+      ? { dataDir: options.dataDir, dbPath: join(options.dataDir, 'sessions.db') }
+      : {}),
     migrations: HOST_MIGRATION_TAIL,
     warn: (message) => writeErr(`warn：${message}`),
   });
@@ -224,9 +290,14 @@ async function runUninstall(
  * mount/unmount/toggle <id>：enabled.yaml 行编辑（§5.3/§5.2——下次启动装载
  * 生效）。mount 前置两查：id 词法（enabled 行 id 空间——core: 前缀或用户
  * 词法）+ 装机在场（core: id 豁免查账——内置态天然在场；用户 id 未装机拒，
- * 防写死行 brick 下次 boot 读侧）。
+ * 防写死行 brick 下次 boot 读侧）。成功尾落生命周期归因账（unmount 幂等
+ * 跳过腿由库件零调用——无变更不造账）。
  */
-function runRowVerb(verb: 'mount' | 'unmount' | 'toggle', id: string, options: PluginsEntryOptions): number {
+async function runRowVerb(
+  verb: 'mount' | 'unmount' | 'toggle',
+  id: string,
+  options: PluginsEntryOptions,
+): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const dataDir = options.dataDir ?? resolveDataDir();
@@ -248,22 +319,27 @@ function runRowVerb(verb: 'mount' | 'unmount' | 'toggle', id: string, options: P
       }
     }
   }
-  const result =
-    verb === 'mount'
-      ? mountRow(dataDir, id, undefined, fs)
-      : verb === 'unmount'
-        ? unmountRow(dataDir, id, fs)
-        : toggleRow(dataDir, id, fs);
-  if (!result.ok) {
-    writeErr(result.message);
-    return 1;
+  const audit = lifecycleAuditOf(options, writeErr);
+  try {
+    const result =
+      verb === 'mount'
+        ? mountRow(dataDir, id, undefined, fs, audit.sink)
+        : verb === 'unmount'
+          ? unmountRow(dataDir, id, fs, audit.sink)
+          : toggleRow(dataDir, id, fs, audit.sink);
+    if (!result.ok) {
+      writeErr(result.message);
+      return 1;
+    }
+    writeOut(
+      verb === 'mount'
+        ? `已挂载：${id}——下次启动装载生效（CLI 短命进程不装配装载器；改行时点生效归 TUI /reload，03 §5.2）`
+        : verb === 'unmount'
+          ? `已卸下：${id}（装机保留）——下次启动生效（03 §5.3）`
+          : `已切换：${id} 禁用态翻转——下次启动生效（03 §5.2 三态语义）`,
+    );
+    return 0;
+  } finally {
+    await audit.close();
   }
-  writeOut(
-    verb === 'mount'
-      ? `已挂载：${id}——下次启动装载生效（CLI 短命进程不装配装载器；改行时点生效归 TUI /reload，03 §5.2）`
-      : verb === 'unmount'
-        ? `已卸下：${id}（装机保留）——下次启动生效（03 §5.3）`
-        : `已切换：${id} 禁用态翻转——下次启动生效（03 §5.2 三态语义）`,
-  );
-  return 0;
 }

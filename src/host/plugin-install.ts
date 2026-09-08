@@ -46,7 +46,7 @@ import {
   resolveInstallPath,
   upsertLedgerEntry,
 } from './plugin-store.js';
-import type { PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
+import type { LifecycleAuditSink, PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
 import { parseManifest } from './manifest.js';
 import type { PluginManifest } from './manifest.js';
 import { createGateTransform } from './import-gate.js';
@@ -169,6 +169,13 @@ export interface InstallExecutorDeps {
   readonly tmpRoot?: string;
   /** jiti 工厂注入位（收割腿测试替身；缺省真 jiti） */
   readonly jitiFactory?: (pluginDir: string, pluginId: string) => ReturnType<typeof createJiti>;
+  /**
+   * 生命周期归因账 sink（05 §1.1 生命周期归因面行）：install 成功尾落
+   * plugin/installed、update 成功尾落 plugin/updated（npm 重装腿经
+   * replacingId 进 installPlugin 前必剥——错词防护）；缺席 = 零落账
+   * （库件单机可用，CLI 面注入真身）。
+   */
+  readonly onLifecycleAudit?: LifecycleAuditSink;
 }
 
 /** install 结果（ok = 落账条目；拒 = message 呈现 CLI 退 1） */
@@ -259,6 +266,15 @@ export async function installPlugin(
     declaredEvents,
   };
   upsertLedgerEntry(deps.dataDir, entry, deps.fs);
+  // 生命周期归因账（05 §1.1）：装机成功事实落 audit_events——词形
+  // {id, source, version}；version 位缺席不落键（git/local 源清单可能无
+  // 版本位）。replacingId 场景（update npm 重装腿）已在调用侧剥 sink，
+  // 到达此处的恒为首次装机
+  deps.onLifecycleAudit?.('plugin/installed', {
+    id: manifest.id,
+    source: parsed.parsed.source,
+    ...(entry.version !== undefined ? { version: entry.version } : {}),
+  });
   return {
     ok: true,
     entry,
@@ -522,10 +538,22 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
   if (parsed.parsed.source === 'npm') {
     // 重装：旧装机物先清（spec 无版本 = 拉最新满足窗龄；upsert 后见胜出）。
     // 换装豁免位传被替换 id——旧条目恰是替换目标不构成撞名（缺此豁免则
-    // installPlugin 撞名检查恒拒自家重装腿）
+    // installPlugin 撞名检查恒拒自家重装腿）。sink 剥离后再传——防
+    // installPlugin 成功尾落错词 installed（本腿语义是 updated）
+    const { onLifecycleAudit, ...rest } = deps;
     const installPath = installPathForNpm(parsed.parsed.pkg);
-    deps.fs.rm(resolveInstallPath(deps.dataDir, installPath), { recursive: true, force: true });
-    return installPlugin(deps, current.ref, { replacingId: id });
+    rest.fs.rm(resolveInstallPath(rest.dataDir, installPath), { recursive: true, force: true });
+    const outcome = await installPlugin(rest, current.ref, { replacingId: id });
+    if (outcome.ok && onLifecycleAudit !== undefined) {
+      // 换装成功事实（05 §1.1）：from 缺席容许（旧账本无版本位）；npm 腿
+      // version 恒在（lock 收割），to 缺席不设防（兜底与 git 腿同形）
+      onLifecycleAudit('plugin/updated', {
+        id,
+        ...(current.version !== undefined ? { from: current.version } : {}),
+        ...(outcome.entry.version !== undefined ? { to: outcome.entry.version } : {}),
+      });
+    }
+    return outcome;
   }
   // git 重克隆（runGitInstall 目标在场先 rm——幂等腿复用）
   let product: InstallProduct;
@@ -566,6 +594,16 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     declaredEvents,
   };
   upsertLedgerEntry(deps.dataDir, entry, deps.fs);
+  // 换装成功事实（05 §1.1）：git 溢词形 {id, from?, to}——但 git 源
+  // entry.version 继承旧账恒不变（变更实质在 commit 位），落 version 会造
+  // 「版本换血」误读；from/to 落 commit 值（git 源的版本标识即 commit——
+  // 03 §5.4 精确锁定语义；npm 腿同键落 semver，源别可回 installed 词
+  // source 位对拍）。旧 commit 缺席（早期账本）from 不落
+  deps.onLifecycleAudit?.('plugin/updated', {
+    id,
+    ...(current.commit !== undefined ? { from: current.commit } : {}),
+    ...(product.commit !== undefined ? { to: product.commit } : {}),
+  });
   return {
     ok: true,
     entry,

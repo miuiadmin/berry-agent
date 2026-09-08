@@ -231,6 +231,19 @@ export function removeLedgerEntry(dataDir: string, id: string, fs: PluginStoreFs
 export type RowEditResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 /**
+ * 生命周期归因账 sink（05 §1.1 生命周期归因面行——audit 落账批）：库件
+ * （本件 + plugin-install）成功尾回调；真身 = CLI 面构造（惰性开
+ * Persistence + createAuditFace 落 audit_events——库件零 db 依赖，词形
+ * 映射在库件单源〔动作语义与终态数据在手〕）。落账失败由 sink 自吞
+ * （warn 不阻塞主流程——行编辑已生效不回滚，与 llm/usage append 异常
+ * warn 同哲学）。
+ */
+export type LifecycleAuditSink = (
+  type: 'plugin/installed' | 'plugin/mounted' | 'plugin/unmounted' | 'plugin/toggled' | 'plugin/updated',
+  data: Record<string, unknown>,
+) => void;
+
+/**
  * 读启用行集（缺席 = 空集——§5.3 缺席语义；损坏 = fail-loud result 面：
  * CLI 呈现修复指引退 1，boot 装载序同判据拒启——两律分立但判据单源）。
  */
@@ -262,8 +275,16 @@ export function readEnabledRowsForEdit(
 /**
  * mount：append 启用行（§5.3——行不在场才合法；撞名拒由编舞层前置查账，
  * 本面保底双检）。core: id 合法（overlay 用户行——覆盖内置默认态的主用例）。
+ * 成功尾落 plugin/mounted（生命周期归因账——本账含 core: 行：mount 对
+ * core: 行是 overlay 合法动作，与 opens diff 排除 core: 分立）。
  */
-export function mountRow(dataDir: string, id: string, config: unknown, fs: PluginStoreFs): RowEditResult {
+export function mountRow(
+  dataDir: string,
+  id: string,
+  config: unknown,
+  fs: PluginStoreFs,
+  onLifecycleAudit?: LifecycleAuditSink,
+): RowEditResult {
   const read = readEnabledRowsForEdit(dataDir, fs);
   if (!read.ok) return read;
   if (read.rows.some((row) => row.id === id)) {
@@ -271,15 +292,22 @@ export function mountRow(dataDir: string, id: string, config: unknown, fs: Plugi
   }
   const row: EnabledRow = { id, ...(config !== undefined ? { config } : {}) };
   writeEnabledRows(dataDir, [...read.rows, row], fs);
+  onLifecycleAudit?.('plugin/mounted', { id });
   return { ok: true };
 }
 
 /**
  * unmount：删启用行保装机（§5.3）。行不在场：core: id = 内置态不可删（指路
  * toggle——unmount 语义是移出启用面，core: 内置全启无行可删）；用户 id =
- * 幂等跳过（已不在启用面）。
+ * 幂等跳过（已不在启用面）。幂等跳过不落账（无变更不造账——与 update
+ * local no-op 同律）；真删行成功尾落 plugin/unmounted。
  */
-export function unmountRow(dataDir: string, id: string, fs: PluginStoreFs): RowEditResult {
+export function unmountRow(
+  dataDir: string,
+  id: string,
+  fs: PluginStoreFs,
+  onLifecycleAudit?: LifecycleAuditSink,
+): RowEditResult {
   const read = readEnabledRowsForEdit(dataDir, fs);
   if (!read.ok) return read;
   if (!read.rows.some((row) => row.id === id)) {
@@ -293,33 +321,46 @@ export function unmountRow(dataDir: string, id: string, fs: PluginStoreFs): RowE
     read.rows.filter((row) => row.id !== id),
     fs,
   );
+  onLifecycleAudit?.('plugin/unmounted', { id });
   return { ok: true };
 }
 
 /**
  * toggle：翻禁用旗标（§5.2 第三态）。行在场翻 disabled（absent ↔ true——
  * 无 false 态：行缺 disabled 键即启用）；行不在场写 `{id, disabled: true}`
- * 行（disable 内置 core: 件的主路径；用户插件同形）。
+ * 行（disable 内置 core: 件的主路径；用户插件同形）。成功尾落
+ * plugin/toggled {id, disabled 终态}——审计词形双态 true|false 独立于
+ * enabled.yaml 行形（行内无 false 键，翻回启用需 false 位表达）。
  */
-export function toggleRow(dataDir: string, id: string, fs: PluginStoreFs): RowEditResult {
+export function toggleRow(
+  dataDir: string,
+  id: string,
+  fs: PluginStoreFs,
+  onLifecycleAudit?: LifecycleAuditSink,
+): RowEditResult {
   const read = readEnabledRowsForEdit(dataDir, fs);
   if (!read.ok) return read;
   const rows = [...read.rows];
   const index = rows.findIndex((row) => row.id === id);
+  let disabled: boolean;
   if (index === -1) {
     rows.push({ id, disabled: true });
+    disabled = true;
   } else {
     const current = rows[index]!;
     if (current.disabled === true) {
       // 已禁用 → 回启用（行保场、旗标撤——config/opens 等字段原样保留）
       const { disabled: _drop, ...rest } = current;
       rows[index] = rest;
+      disabled = false;
     } else {
       // 启用中 → 禁用（字段原样保留，只翻旗标）
       rows[index] = { ...current, disabled: true };
+      disabled = true;
     }
   }
   writeEnabledRows(dataDir, rows, fs);
+  onLifecycleAudit?.('plugin/toggled', { id, disabled });
   return { ok: true };
 }
 

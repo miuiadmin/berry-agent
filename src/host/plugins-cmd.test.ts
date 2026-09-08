@@ -14,6 +14,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { runPluginsEntry } from './plugins-cmd.js';
 import type { CorePluginReference } from './loader.js';
+import { HOST_MIGRATION_TAIL } from './runtime.js';
+import { Persistence, createAuditFace } from '../persist/index.js';
 
 /** 临时数据目录族（统一清） */
 const dirs: string[] = [];
@@ -219,4 +221,95 @@ describe('plugins 写侧六动词——local fixture 真链 e2e（装机面落�
     expect(io.err.join('\n')).toContain('未装机');
   });
   // npm 执行器失败档/argv 族由 plugin-install.test.ts 假 spawn 覆盖（零真网络纪律）
+});
+
+describe('生命周期归因账 CLI 真库落账（audit 落账批——lifecycleAuditOf 惰性开库真身）', () => {
+  /** local fixture 速记（本 describe 独立命名空间防撞前 describe 账本） */
+  function auditFixture(name: string): string {
+    const dir = join(tmpdir(), `berry-cmd-audit-${name}-${process.pid}`);
+    dirs.push(dir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'package.json'),
+      `${JSON.stringify({ name, version: '1.0.0', main: 'index.js', berryAgent: {} }, null, 2)}\n`,
+    );
+    writeFileSync(
+      join(dir, 'index.js'),
+      `export const events = ['demo/event-a'];\nexport default function apply() {}\n`,
+    );
+    return dir;
+  }
+
+  /** 读侧：CLI 同款开库形态取 audit_events 全词形（升序 = 执行序） */
+  async function auditCallsOf(dir: string): Promise<Array<{ type: string; data: Record<string, unknown> }>> {
+    const persistence = Persistence.open({
+      dataDir: dir,
+      dbPath: join(dir, 'sessions.db'), // 显式随 dataDir（CLI 语义同形）
+      migrations: HOST_MIGRATION_TAIL,
+      warn: () => undefined,
+    });
+    try {
+      const face = createAuditFace(persistence.store.sqlite());
+      return [...face.listRecent()].reverse().map((r) => ({ type: r.type, data: r.data }));
+    } finally {
+      await persistence.close();
+    }
+  }
+
+  it('四动词全链真库五笔（词序 = 执行序）：installed → mounted → toggled 双态 → unmounted', async () => {
+    const dir = tmpDir('plug-audit-chain-');
+    const io = capture();
+    const opts = { version: 'x', dataDir: dir, ...io };
+    const fixture = auditFixture('audit-chain-pkg');
+    expect(await runPluginsEntry({ sub: 'install', ref: `local:${fixture}` }, opts)).toBe(0);
+    expect(await runPluginsEntry({ sub: 'mount', id: 'audit-chain-pkg' }, opts)).toBe(0);
+    expect(await runPluginsEntry({ sub: 'toggle', id: 'audit-chain-pkg' }, opts)).toBe(0);
+    expect(await runPluginsEntry({ sub: 'toggle', id: 'audit-chain-pkg' }, opts)).toBe(0);
+    expect(await runPluginsEntry({ sub: 'unmount', id: 'audit-chain-pkg' }, opts)).toBe(0);
+    expect(await auditCallsOf(dir)).toEqual([
+      { type: 'plugin/installed', data: { id: 'audit-chain-pkg', source: 'local', version: '1.0.0' } },
+      { type: 'plugin/mounted', data: { id: 'audit-chain-pkg' } },
+      { type: 'plugin/toggled', data: { id: 'audit-chain-pkg', disabled: true } },
+      { type: 'plugin/toggled', data: { id: 'audit-chain-pkg', disabled: false } },
+      { type: 'plugin/unmounted', data: { id: 'audit-chain-pkg' } },
+    ]);
+  });
+
+  it('update local no-op 零新笔（源直引无变更不造账）', async () => {
+    const dir = tmpDir('plug-audit-noop-');
+    const io = capture();
+    const opts = { version: 'x', dataDir: dir, ...io };
+    const fixture = auditFixture('audit-noop-pkg');
+    expect(await runPluginsEntry({ sub: 'install', ref: `local:${fixture}` }, opts)).toBe(0);
+    expect(await runPluginsEntry({ sub: 'update', id: 'audit-noop-pkg' }, opts)).toBe(0);
+    const calls = await auditCallsOf(dir);
+    expect(calls).toHaveLength(1); // 只有 installed 一笔
+    expect(calls[0]!.type).toBe('plugin/installed');
+  });
+
+  it('失败/只读路径零开库：mount 前置拒与 check 后 sessions.db 缺席（惰性开库——sink 未调即未开）', async () => {
+    const dir = tmpDir('plug-audit-lazy-');
+    const io = capture();
+    const opts = { version: 'x', dataDir: dir, ...io };
+    expect(await runPluginsEntry({ sub: 'mount', id: 'not-installed' }, opts)).toBe(1);
+    expect(await runPluginsEntry({ sub: 'check' }, opts)).toBe(0);
+    expect(existsSync(join(dir, 'sessions.db'))).toBe(false); // 零动词成功 = 零开库
+  });
+
+  it('库随 --data-dir：动词与 uninstall execute 的库都开在 dataDir 下（dbPath 显式映射回归锁——修前库恒开 env 梯子位）', async () => {
+    const dir = tmpDir('plug-audit-dbpath-');
+    const io = capture();
+    const opts = { version: 'x', dataDir: dir, ...io };
+    const fixture = auditFixture('audit-dbpath-pkg');
+    expect(await runPluginsEntry({ sub: 'install', ref: `local:${fixture}` }, opts)).toBe(0);
+    expect(existsSync(join(dir, 'sessions.db'))).toBe(true); // 动词成功即开库——且在 dataDir 下
+    expect(await runPluginsEntry({ sub: 'mount', id: 'audit-dbpath-pkg' }, opts)).toBe(0);
+    // uninstall execute（第四段落 plugin/uninstalled——audit_events 载体，
+    // 装机面落码批已先行；CLI 人面无会话恒此载体，与五词同面并列成族）
+    expect(await runPluginsEntry({ sub: 'uninstall', id: 'audit-dbpath-pkg', confirm: true }, opts)).toBe(0);
+    expect(existsSync(join(dir, 'sessions.db'))).toBe(true);
+    // 库内 audit 面三笔在场（installed + mounted + uninstalled）——读侧同 dbPath 断言往返
+    const calls = await auditCallsOf(dir);
+    expect(calls.map((c) => c.type)).toEqual(['plugin/installed', 'plugin/mounted', 'plugin/uninstalled']);
+  });
 });

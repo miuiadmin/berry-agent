@@ -1,5 +1,5 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——23 核心词全列，
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——28 核心词全列，
  * compaction 三词 2026-09-06 纵切批增补、compaction/fallback 2026-09-09
  * U4 落码批入册、session/thinking-level 同日遗漏
  * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
@@ -63,7 +63,13 @@ export interface EventTypeMeta {
  * 开门制两审计词——载体 = 进程级 audit_events 审计流〔05 §9〕非会话流，
  * 入册值 = 核心词身份双闸 + 目录单一真源；写入面随 U3-2 persist 笔落码）；
  * 22→23：compaction/fallback 随 U4 落码批入册（05 §1.1 行 77 回落三律第 3
- * 律审计词——2026-09-07 双轴二轮评估批已定词形、随 U4 落码批注册兑现）。
+ * 律审计词——2026-09-07 双轴二轮评估批已定词形、随 U4 落码批注册兑现）；
+ * 23→28：plugin/installed·mounted·unmounted·toggled·updated 随生命周期
+ * 五词 audit 落账批入册（05 §1.1 生命周期归因面行——uninstall 词已随装机
+ * 面落码批先行落 audit_events 载体〔CLI 人面无会话场景唯一可达 durable
+ * 载体〕，本五词与之同载体并列成族——六词同面；词形单源本表：
+ * installed {id,source,version} / mounted·unmounted {id} /
+ * toggled {id,disabled 双态} / updated {id,from?,to}）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -196,6 +202,46 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '高危面开门后的每次换装/注册使用事实（宿主门检接线位在门检通过、注册动词受理成功后落；载体 = 进程级 durable 审计流 audit_events〔05 §9〕；v1 射程 = channels.ui-backend + triggers.start-run 逐次 fire（triggerName 归因腿）+ credentials.read-cross 逐次越域读（core: 直开豁免照记——豁免免的是门不是账，c-3），sdk.register-route 随 U5）',
+  },
+  {
+    type: 'plugin/installed',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '生命周期归因面——装机成功事实（id/source/version；写点 = CLI 人面 install 成功尾；载体 = 进程级 durable 审计流 audit_events〔05 §9〕非会话流，05 §1.1 生命周期归因面行）',
+  },
+  {
+    type: 'plugin/mounted',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '生命周期归因面——挂载事实（id；写点两路 = CLI 人面 mount 成功尾 + boot 装载序手编 enabled.yaml 漂移 diff 补播；载体 = audit_events；core: 内置基线态不造首记噪声——diff 基线 core: 前缀按启用算）',
+  },
+  {
+    type: 'plugin/unmounted',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '生命周期归因面——卸下事实（id；装机保留行移除；写点两路同 mounted；载体 = audit_events——与 plugin/uninstalled 同面（装机面落码批已先行，CLI 人面无会话恒此载体）；卸下/卸载两动词分立——卸下保留装机、卸载清算资产）',
+  },
+  {
+    type: 'plugin/toggled',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '生命周期归因面——禁用态翻转事实（id/disabled 双态 true|false——审计词形独立于 enabled.yaml 行形〔行内 absent 即启用、无 false 键〕，翻回启用需 false 位表达；写点两路 = CLI toggle 成功尾 + boot diff 补播；载体 = audit_events）',
+  },
+  {
+    type: 'plugin/updated',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '生命周期归因面——换装成功事实（id/from?/to——from 缺席 = 旧账本无版本位；local 源 no-op 不落〔无变更不造账〕；写点 = CLI 人面 update 成功尾；载体 = audit_events）',
   },
   {
     type: 'compaction/start',

@@ -25,7 +25,7 @@ import {
 } from './plugin-install.js';
 import type { InstallExecutorDeps, SpawnRunner } from './plugin-install.js';
 import { createPluginStoreFs, ledgerPath, readLedger } from './plugin-store.js';
-import type { PluginLedgerEntry } from './plugin-store.js';
+import type { LifecycleAuditSink, PluginLedgerEntry } from './plugin-store.js';
 
 /** 测试根 tmp（每文件钉数据目录纪律——BERRY_AGENT_DATA_DIR 之外的自管 tmp） */
 const testRoot = mkdtempSync(join(tmpdir(), 'berry-install-test-'));
@@ -342,5 +342,87 @@ describe('update 分派（§5.4 按源）', () => {
     const after = entriesOf(dataDir).filter((e) => e.id === 'upd-pkg');
     expect(after).toHaveLength(1); // upsert 后见胜出非追加
     expect(after[0]!.version).toBe('2.0.0');
+  });
+});
+
+describe('生命周期归因账落词（05 §1.1 audit 落账批——install/updated 两词）', () => {
+  /** sink 收集器（词形断言面） */
+  function collector(): {
+    readonly calls: Array<{ readonly type: string; readonly data: Record<string, unknown> }>;
+    readonly sink: LifecycleAuditSink;
+  } {
+    const calls: Array<{ type: string; data: Record<string, unknown> }> = [];
+    return { calls, sink: (type, data) => void calls.push({ type, data }) };
+  }
+
+  /** local fixture 速记（本 describe 专用目录隔离） */
+  function localFixture(name: string): string {
+    const dir = join(testRoot, `fixture-audit-${name}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), pluginPkgJson({ name: `audit-${name}-pkg`, version: '3.1.4' }));
+    writeFileSync(join(dir, 'index.js'), INDEX_WITH_EVENTS);
+    return dir;
+  }
+  const noopSpawn: SpawnRunner = { run: () => Promise.reject(new Error('local 源不 spawn')) };
+
+  it('install 成功尾落 plugin/installed {id, source, version}', async () => {
+    const src = localFixture('install');
+    const rec = collector();
+    const outcome = await installPlugin(
+      depsOf(dataDirOf('data-audit-install'), noopSpawn, { onLifecycleAudit: rec.sink }),
+      `local:${src}`,
+    );
+    expect(outcome.ok).toBe(true);
+    expect(rec.calls).toEqual([
+      { type: 'plugin/installed', data: { id: 'audit-install-pkg', source: 'local', version: '3.1.4' } },
+    ]);
+  });
+
+  it('install 失败零调（npm spawn 败 = 无变更不造账）', async () => {
+    const failing: SpawnRunner = { run: () => Promise.reject(new Error('command failed')) };
+    const rec = collector();
+    const outcome = await installPlugin(
+      depsOf(dataDirOf('data-audit-fail'), failing, { onLifecycleAudit: rec.sink }),
+      'npm:ghost-pkg',
+    );
+    expect(outcome.ok).toBe(false);
+    expect(rec.calls).toEqual([]);
+  });
+
+  it('update npm 重装腿：只落 plugin/updated {id, from, to} 不落 installed（npm 腿剥 sink 防错词——回归锁：缺剥即先落 installed 错词）', async () => {
+    const dataDir = dataDirOf('data-audit-update');
+    const rec1 = npmFakeSpawn(dataDir, { lockVersion: '1.0.0', pkgJson: pluginPkgJson({ name: 'audit-upd-pkg' }) });
+    const installCalls = collector();
+    await installPlugin(depsOf(dataDir, rec1.spawn, { onLifecycleAudit: installCalls.sink }), 'npm:audit-upd-pkg');
+    expect(installCalls.calls).toHaveLength(1); // 首装 installed
+    const rec2 = npmFakeSpawn(dataDir, {
+      lockVersion: '2.0.0',
+      pkgJson: pluginPkgJson({ name: 'audit-upd-pkg', version: '2.0.0' }),
+    });
+    const updateCalls = collector();
+    const updated = await updatePlugin(
+      depsOf(dataDir, rec2.spawn, { onLifecycleAudit: updateCalls.sink }),
+      'audit-upd-pkg',
+    );
+    expect(updated.ok).toBe(true);
+    expect(updateCalls.calls).toEqual([
+      { type: 'plugin/updated', data: { id: 'audit-upd-pkg', from: '1.0.0', to: '2.0.0' } },
+    ]);
+  });
+
+  it('update local no-op 零调（源直引无变更不造账）', async () => {
+    const src = localFixture('noop');
+    const dataDir = dataDirOf('data-audit-noop');
+    await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
+    const rec = collector();
+    const noop = await updatePlugin(depsOf(dataDir, noopSpawn, { onLifecycleAudit: rec.sink }), 'audit-noop-pkg');
+    expect(noop.ok).toBe(true);
+    expect(rec.calls).toEqual([]);
+  });
+
+  it('sink 缺席 = 零落账零异常（库件单机可用）', async () => {
+    const src = localFixture('absent');
+    const outcome = await installPlugin(depsOf(dataDirOf('data-audit-absent'), noopSpawn), `local:${src}`);
+    expect(outcome.ok).toBe(true);
   });
 });

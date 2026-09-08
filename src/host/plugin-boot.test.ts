@@ -20,7 +20,7 @@ import type { AuditFace, Store } from '../persist/index.js';
 
 import { readBootFailures } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
-import { bootPlugins, recordPluginOpensDiff } from './plugin-boot.js';
+import { bootPlugins, recordPluginLifecycleDiff, recordPluginOpensDiff } from './plugin-boot.js';
 import type { PluginBootFs, PluginBootOptions } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
 import { createCompactionSlots } from '../compaction/index.js';
@@ -790,6 +790,96 @@ describe('plugin/opens 幂等落（recordPluginOpensDiff——05 §1.1 boot 装�
     expect(face.listRecent()).toHaveLength(2);
     recordPluginOpensDiff(face, []); // 已空——撤位笔不重放
     expect(face.listRecent()).toHaveLength(2);
+  });
+});
+
+describe('生命周期五词 boot diff 补播（recordPluginLifecycleDiff——05 §1.1 生命周期归因面行，audit 落账批写点②）', () => {
+  // 真库真面（audit_events 表由 AUDIT_MIGRATION 建就——读写往返零 mock）
+  const stores: Store[] = [];
+  afterAll(() => {
+    for (const s of stores) s.close();
+  });
+  function openFace(): AuditFace {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-agent-lifecycle-diff-'));
+    dirs.push(dir);
+    const store = openStore({ dataDir: join(dir, 'data'), migrations: [AUDIT_MIGRATION] });
+    stores.push(store);
+    return createAuditFace(store.connection);
+  }
+  /** 计划面行速记（disabled 缺省 false——plan 行 disabled === true 的读法同形） */
+  const rowsOf = (rows: readonly { id: string; disabled?: boolean }[]) =>
+    rows.map((r) => ({ id: r.id, disabled: r.disabled === true }));
+  /** 全部已落词形（type + data 投影——词形断言面） */
+  const callsOf = (face: AuditFace): Array<{ type: string; data: Record<string, unknown> }> =>
+    [...face.listRecent()].reverse().map((r) => ({ type: r.type, data: r.data }));
+
+  it('首启零基线噪声：core: 行 enabled 零落（内置基线态）；非 core absent→enabled 落 mounted', () => {
+    const face = openFace();
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'core:webui' }, { id: 'acme' }]));
+    expect(callsOf(face)).toEqual([{ type: 'plugin/mounted', data: { id: 'acme' } }]);
+  });
+
+  it('absent→disabled 手编一步到位 = mounted + toggled{true}（命令两步的序列等价）', () => {
+    const face = openFace();
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme', disabled: true }]));
+    expect(callsOf(face)).toEqual([
+      { type: 'plugin/mounted', data: { id: 'acme' } },
+      { type: 'plugin/toggled', data: { id: 'acme', disabled: true } },
+    ]);
+  });
+
+  it('enabled↔disabled 双向 + 幂等：同态重放零新笔', () => {
+    const face = openFace();
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme' }])); // mounted
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme', disabled: true }])); // toggled true
+    expect(callsOf(face)).toEqual([
+      { type: 'plugin/mounted', data: { id: 'acme' } },
+      { type: 'plugin/toggled', data: { id: 'acme', disabled: true } },
+    ]);
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme', disabled: true }])); // 重放——零新笔
+    expect(face.listRecent()).toHaveLength(2);
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme' }])); // toggled false（翻回启用）
+    const calls = callsOf(face);
+    expect(calls[2]).toEqual({ type: 'plugin/toggled', data: { id: 'acme', disabled: false } });
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme' }])); // 重放——零新笔
+    expect(face.listRecent()).toHaveLength(3);
+  });
+
+  it('core: 手编漂移落账：基线 enabled → 手编 disabled 落 toggled{true}（core: 在本账内——与 opens diff 排除 core: 分立）', () => {
+    const face = openFace();
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'core:webui', disabled: true }]));
+    expect(callsOf(face)).toEqual([{ type: 'plugin/toggled', data: { id: 'core:webui', disabled: true } }]);
+  });
+
+  it('在场→absent 落 unmounted（用户插件行删）；core: 计划面缺席不落（宿主侧裁撤非用户动作，防噪声）', () => {
+    const face = openFace();
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme' }])); // mounted
+    recordPluginLifecycleDiff(face, []); // 行删（unmount 的手编等价）
+    const calls = callsOf(face);
+    expect(calls[1]).toEqual({ type: 'plugin/unmounted', data: { id: 'acme' } });
+    recordPluginLifecycleDiff(face, []); // 重放——零新笔
+    expect(face.listRecent()).toHaveLength(2);
+    // core: 曾落 toggled 后从计划面消失（官件裁撤病理态）——不落 unmounted
+    const face2 = openFace();
+    recordPluginLifecycleDiff(face2, rowsOf([{ id: 'core:webui', disabled: true }]));
+    recordPluginLifecycleDiff(face2, []);
+    expect(face2.listRecent()).toHaveLength(1); // 只有 toggled 一笔
+  });
+
+  it('尾态 fold 三词首见即最新：旧 toggled 被新 mounted 盖过、坏形条目跳过', () => {
+    const face = openFace();
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme', disabled: true }])); // mounted + toggled{true}
+    expect(face.listRecent()).toHaveLength(2);
+    // 人面动词写点①再落一笔 mounted（CLI mount 命令）——尾态翻 enabled
+    face.append('plugin/mounted', { id: 'acme' });
+    // boot diff 以 enabled 行对账——尾态（首见 mounted 盖旧 toggled）与计划面
+    // 一致：零新笔（长度只多出 append 那笔）
+    recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme' }]));
+    expect(face.listRecent()).toHaveLength(3);
+    // 坏形条目（id 非字符串——库被手编）跳过不建态不抛；尾态回退到更旧的有效条目
+    face.append('plugin/toggled', { noId: true });
+    expect(() => recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme' }]))).not.toThrow();
+    expect(face.listRecent()).toHaveLength(4); // 坏形笔本身在库，diff 零新笔
   });
 });
 

@@ -30,7 +30,7 @@ import {
   upsertLedgerEntry,
   writeLedger,
 } from './plugin-store.js';
-import type { PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
+import type { LifecycleAuditSink, PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
 
 /** 内存 fs（文件树 Map 形——目录隐含于路径前缀，size 按字节量合计） */
 function memFs(initial: Record<string, string> = {}): PluginStoreFs {
@@ -208,6 +208,65 @@ describe('enabled.yaml 行编辑', () => {
     expect(readEnabledRowsForEdit('/data', badYaml).ok).toBe(false);
     const badRow = memFs({ '/data/enabled.yaml': 'plugins:\n  - id: x\n    bogus: 1\n' });
     expect(readEnabledRowsForEdit('/data', badRow).ok).toBe(false);
+  });
+});
+
+describe('生命周期归因账落词（05 §1.1 audit 落账批——成功尾 sink 三动词）', () => {
+  /** sink 收集器（词形断言面——type + data 全录） */
+  function collector(): {
+    readonly calls: Array<{ readonly type: string; readonly data: Record<string, unknown> }>;
+    readonly sink: LifecycleAuditSink;
+  } {
+    const calls: Array<{ type: string; data: Record<string, unknown> }> = [];
+    return { calls, sink: (type, data) => void calls.push({ type, data }) };
+  }
+
+  it('mount 成功尾落 plugin/mounted {id}（core: overlay 行同落——本账含 core:）；撞名拒零调', () => {
+    const fs = memFs();
+    const ok = collector();
+    expect(mountRow('/data', 'user-x', undefined, fs, ok.sink).ok).toBe(true);
+    expect(ok.calls).toEqual([{ type: 'plugin/mounted', data: { id: 'user-x' } }]);
+    // 撞名拒 = 无变更不造账
+    const dup = collector();
+    expect(mountRow('/data', 'user-x', undefined, fs, dup.sink).ok).toBe(false);
+    expect(dup.calls).toEqual([]);
+    // core: overlay 同落（与 opens diff 排除 core: 分立）
+    const core = collector();
+    expect(mountRow('/data', 'core:webui', undefined, fs, core.sink).ok).toBe(true);
+    expect(core.calls).toEqual([{ type: 'plugin/mounted', data: { id: 'core:webui' } }]);
+  });
+
+  it('unmount 真删行落 plugin/unmounted {id}；幂等跳过与 core: 拒零调（无变更不造账）', () => {
+    const fs = memFs({ '/data/enabled.yaml': 'plugins:\n  - id: user-x\n' });
+    const hit = collector();
+    expect(unmountRow('/data', 'user-x', fs, hit.sink).ok).toBe(true);
+    expect(hit.calls).toEqual([{ type: 'plugin/unmounted', data: { id: 'user-x' } }]);
+    const idem = collector();
+    expect(unmountRow('/data', 'user-x', fs, idem.sink).ok).toBe(true); // 幂等（已不在启用面）
+    expect(idem.calls).toEqual([]);
+    const core = collector();
+    expect(unmountRow('/data', 'core:webui', fs, core.sink).ok).toBe(false); // 内置态不可删
+    expect(core.calls).toEqual([]);
+  });
+
+  it('toggle 落 plugin/toggled {id, disabled 终态双态}——三景：不在场 true / 禁用→false / 启用→true', () => {
+    const fs = memFs();
+    const first = collector();
+    expect(toggleRow('/data', 'core:webui', fs, first.sink).ok).toBe(true);
+    expect(first.calls).toEqual([{ type: 'plugin/toggled', data: { id: 'core:webui', disabled: true } }]);
+    const second = collector();
+    expect(toggleRow('/data', 'core:webui', fs, second.sink).ok).toBe(true); // 翻回启用
+    expect(second.calls).toEqual([{ type: 'plugin/toggled', data: { id: 'core:webui', disabled: false } }]);
+    const third = collector();
+    expect(toggleRow('/data', 'core:webui', fs, third.sink).ok).toBe(true); // 再禁用
+    expect(third.calls).toEqual([{ type: 'plugin/toggled', data: { id: 'core:webui', disabled: true } }]);
+  });
+
+  it('sink 缺席 = 零落账零异常（库件单机可用——CLI 面注入真身）', () => {
+    const fs = memFs();
+    expect(mountRow('/data', 'user-x', undefined, fs).ok).toBe(true);
+    expect(toggleRow('/data', 'user-x', fs).ok).toBe(true);
+    expect(unmountRow('/data', 'user-x', fs).ok).toBe(true);
   });
 });
 

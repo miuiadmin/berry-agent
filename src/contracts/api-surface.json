@@ -1207,6 +1207,20 @@
       "desc": "complete 单发补全通道的计量事实（token 原始值入账，货币折算在投影查询做）"
     },
     {
+      "symbol": "plugin/installed",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "生命周期归因面——装机成功事实（id/source/version；写点 = CLI 人面 install 成功尾；载体 = 进程级 durable 审计流 audit_events〔05 §9〕非会话流，05 §1.1 生命周期归因面行）"
+    },
+    {
+      "symbol": "plugin/mounted",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "生命周期归因面——挂载事实（id；写点两路 = CLI 人面 mount 成功尾 + boot 装载序手编 enabled.yaml 漂移 diff 补播；载体 = audit_events；core: 内置基线态不造首记噪声——diff 基线 core: 前缀按启用算）"
+    },
+    {
       "symbol": "plugin/opens",
       "module": "session-events",
       "tier": "stable",
@@ -1214,11 +1228,32 @@
       "desc": "高危面开门授予面切换事实（boot 装载序对每插件 grantedOpens 与审计流尾最近一条本词 diff——有变才落幂等记账；撤位落 opens:[] 空数组形收口；载体 = 进程级 durable 审计流 audit_events〔05 §9〕非会话流，fold = 审计流尾条 = 该插件当前有效授予面）"
     },
     {
+      "symbol": "plugin/toggled",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "生命周期归因面——禁用态翻转事实（id/disabled 双态 true|false——审计词形独立于 enabled.yaml 行形〔行内 absent 即启用、无 false 键〕，翻回启用需 false 位表达；写点两路 = CLI toggle 成功尾 + boot diff 补播；载体 = audit_events）"
+    },
+    {
       "symbol": "plugin/uninstalled",
       "module": "session-events",
       "tier": "stable",
       "since": "1.0",
       "desc": "卸载四段成功尾落账（id/source/dataAction/affected?；核心词身份拒装载面注册）"
+    },
+    {
+      "symbol": "plugin/unmounted",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "生命周期归因面——卸下事实（id；装机保留行移除；写点两路同 mounted；载体 = audit_events——与 plugin/uninstalled 同面（装机面落码批已先行，CLI 人面无会话恒此载体）；卸下/卸载两动词分立——卸下保留装机、卸载清算资产）"
+    },
+    {
+      "symbol": "plugin/updated",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "生命周期归因面——换装成功事实（id/from?/to——from 缺席 = 旧账本无版本位；local 源 no-op 不落〔无变更不造账〕；写点 = CLI 人面 update 成功尾；载体 = audit_events）"
     },
     {
       "symbol": "request/header",
