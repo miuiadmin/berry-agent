@@ -18,6 +18,7 @@
  */
 import type {
   CliParseResult,
+  CredentialsSub,
   DumpConfigFlags,
   PluginsCommand,
   RunFlags,
@@ -46,6 +47,8 @@ export interface CommandHandlers {
   readonly plugins?: (sub: PluginsCommand) => Promise<number>;
   /** 会话管理命令族（conversation/持久面装配批接线） */
   readonly sessions?: (sub: SessionsCommand) => Promise<number>;
+  /** 凭证人面命令族（03 §10.9——c-5 接线：零装配直开库） */
+  readonly credentials?: (sub: CredentialsSub) => Promise<number>;
   /** 升级维护动词（§8.5 发布契约批接线） */
   readonly upgrade?: () => Promise<number>;
 }
@@ -77,6 +80,7 @@ export const HELP_TEXT = `berry-agent — 单一可扩展的个人 Agent
   dump-config             打印实际生效装配
   plugins <sub>           插件生命周期（list/install/uninstall/mount/unmount/toggle/update/check）
   sessions <sub>          会话管理（list/resume <id>/fork <id>/search <query>/reindex）
+  credentials <sub>       凭证人面管理（add <name> <value>/list/rm <name>；--namespace <ns> 指定域）
   upgrade                 升级维护动词
 
 常用旗标：
@@ -147,6 +151,8 @@ export async function dispatchCli(
         return requireHandler(handlers.plugins, 'plugins')(command.sub);
       case 'sessions':
         return requireHandler(handlers.sessions, 'sessions')(command.sub);
+      case 'credentials':
+        return requireHandler(handlers.credentials, 'credentials')(command.sub);
       case 'upgrade':
         return requireHandler(handlers.upgrade, 'upgrade')();
     }

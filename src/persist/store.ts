@@ -857,16 +857,24 @@ export class Store implements WriteTarget {
   }
 
   /** 凭证清单（不回 api_key——枚举面零密文零明文；全域列示：人面命令恒可
-   *  列示/撤销一切域——03 §10.9，namespace 分权不进治理面） */
-  listCredentialProviders(): { namespace: string; provider: string; updatedAt: number }[] {
+   *  列示/撤销一切域——03 §10.9，namespace 分权不进治理面。meta 随行回
+   *  〔parsed JSON——c-5 人面 list 来源列 / expired 呈现位消费；写侧
+   *  snapshotJsonValue 保证纯 JSON 可解析〕） */
+  listCredentialProviders(): { namespace: string; provider: string; meta: unknown; updatedAt: number }[] {
     this.ensureOpen();
     return (
-      this.stmt(`SELECT namespace, provider, updated_at FROM credentials ORDER BY namespace, provider`).all() as {
+      this.stmt(`SELECT namespace, provider, meta, updated_at FROM credentials ORDER BY namespace, provider`).all() as {
         namespace: string;
         provider: string;
+        meta: string | null;
         updated_at: number;
       }[]
-    ).map((row) => ({ namespace: row.namespace, provider: row.provider, updatedAt: row.updated_at }));
+    ).map((row) => ({
+      namespace: row.namespace,
+      provider: row.provider,
+      meta: row.meta === null ? undefined : JSON.parse(row.meta),
+      updatedAt: row.updated_at,
+    }));
   }
 
   // ── model_catalog 面 ────────────────────────────────────────────────────────

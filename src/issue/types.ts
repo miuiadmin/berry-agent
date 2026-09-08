@@ -44,6 +44,15 @@ export const ISSUE_WEBHOOK_ENDPOINT = '/webhooks/issue';
 /** webhook 请求体帽（per-route bodyLimitBytes 位——GitHub issue 载荷 64KiB 级 + 元数据余量） */
 export const ISSUE_WEBHOOK_BODY_LIMIT_BYTES = 256 * 1024;
 
+/** GitHub token 凭证名（host 域——03 §10.9「env 与库优先级」c-5 迁移：凭证库
+ * 优先、env `BERRY_AGENT_GITHUB_TOKEN` 过渡载体回落——/credentials add
+ * github-token <token> 录入即生效） */
+export const ISSUE_GITHUB_TOKEN_NAME = 'github-token';
+
+/** webhook HMAC secret 凭证名（host 域——同上律：库优先、env
+ * `BERRY_AGENT_ISSUE_WEBHOOK_SECRET` 过渡载体回落） */
+export const ISSUE_WEBHOOK_SECRET_NAME = 'issue-webhook-secret';
+
 /* ---------------- 配置面（mount config 键——用户可配域） ---------------- */
 
 /** 运行档位（03 §10.7 裁决④⑤：两档可配、缺省草稿先行——fail-closed 缺省律） */

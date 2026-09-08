@@ -451,3 +451,35 @@ describe('sessions 子命令族', () => {
     expectUsage(['sessions'], '须带子命令');
   });
 });
+
+describe('credentials 子命令族（c-5——03 §10.9 人面命令 CLI 面）', () => {
+  it('add 全形（含 --namespace）/list/rm 解析成功', () => {
+    expect(expectCommand(['credentials', 'add', 'anthropic', 'sk-x'])).toMatchObject({
+      kind: 'credentials',
+      sub: { sub: 'add', name: 'anthropic', value: 'sk-x' },
+    });
+    expect(expectCommand(['credentials', 'add', 'deploy', 'v-1', '--namespace', 'plugin:demo'])).toMatchObject({
+      kind: 'credentials',
+      sub: { sub: 'add', name: 'deploy', value: 'v-1', namespace: 'plugin:demo' },
+    });
+    expect(expectCommand(['credentials', 'list'])).toMatchObject({ kind: 'credentials', sub: { sub: 'list' } });
+    expect(expectCommand(['credentials', 'rm', 'ghost', '--namespace', 'plugin:demo'])).toMatchObject({
+      kind: 'credentials',
+      sub: { sub: 'rm', name: 'ghost', namespace: 'plugin:demo' },
+    });
+  });
+
+  it('缺子命令/未知动词/arity 错/未识别旗标退 2（解析律——值域执法归命令件不在此层）', () => {
+    expectUsage(['credentials'], '须带子命令');
+    expectUsage(['credentials', '--namespace', 'host'], '须带子命令');
+    expectUsage(['credentials', 'bogus'], '未知 credentials 子命令');
+    expectUsage(['credentials', 'add', 'only-name'], '位置参数数目不符');
+    expectUsage(['credentials', 'rm'], '位置参数数目不符');
+    expectUsage(['credentials', 'list', 'extra'], '位置参数数目不符');
+    expectUsage(['credentials', 'add', 'n', 'v', '--team', 'x'], '未识别旗标');
+    // 坏形 namespace 在解析层放行（'team' 是合法词面）——执法在命令件（同码分流）
+    expect(expectCommand(['credentials', 'add', 'n', 'v', '--namespace', 'team'])).toMatchObject({
+      sub: { namespace: 'team' },
+    });
+  });
+});

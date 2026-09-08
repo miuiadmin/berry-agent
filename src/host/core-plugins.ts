@@ -116,6 +116,9 @@ import type {
   IssueWebhookMountFace,
 } from '../issue/index.js';
 import { createWorktreeService } from '../tools/index.js';
+// c 批 credentials 件（c-3 席占位入册 / c-5 人面命令注册——03 §10.9）
+import { CREDENTIALS_USAGE, parseCredentialsArgv, runCredentialsCommand } from '../credentials/index.js';
+import type { CredentialChangedPayload, CredentialsCommandStore } from '../credentials/index.js';
 
 import type { PluginContext } from './plugin-context.js';
 import type { CorePluginReference } from './loader.js';
@@ -352,6 +355,18 @@ export interface CorePluginHostDeps {
    * 可伪造，禁值守卫）。
    */
   readonly issueWebhookSecret?: string;
+  /**
+   * 凭证存储窄面（c-5——03 §10.9 写入面：/credentials add|list|rm 人面
+   * 命令读写真源。词面独立律：CredentialsCommandStore 结构兼容 persist
+   * Store 凭证方法子集四法，assembly 直传 persistence.store）。缺席 = 件
+   * 人面命令零注册（空闲占席维持——装载计数与禁用位语义不受影响）。
+   */
+  readonly credentialsStore?: CredentialsCommandStore;
+  /**
+   * credentials/changed 审计 seam（c-5——人面 add/rm 发射位；05 §1.1 载荷
+   * 值域单源。缺省 no-op——audit_events 载体挂账 U3-2 真发射位接线）。
+   */
+  readonly credentialsOnChanged?: (payload: CredentialChangedPayload) => void;
 }
 
 /**
@@ -1334,18 +1349,47 @@ function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * 三分他处——存储链 c-2 迁移聚合（runtime HOST_MIGRATION_TAIL）；读写
  * 执法件 secrets.ts（host 装配序 plugin-boot createContext 逐插件 fork
  * 绑定——非本 apply 职责：服务面绑定携插件身份，宿主装配位是唯一正口）；
- * 人面命令/oauth 流随 c-5/c-6 入本 apply。
+ * 人面命令（c-5——本 apply 注册 /credentials add|list|rm，纯逻辑底座
+ * commands.ts 单源）；oauth 流随 c-6 入本 apply。
  *
- * 本 apply 空闲占席，承载两位：装载计数（披露面「件在场」）+ 禁用位语义
+ * 本 apply 承载两位：装载计数（披露面「件在场」）+ 禁用位语义
  * （enabled.yaml 禁 core:credentials ⇒ 计划行 disabled ⇒ plugin-boot 侧
  * secrets 面整体缺席——诚实缺席律，判据在装配位不在件内）。
  */
-const credentialsPlugin: CorePluginReference = {
-  name: 'credentials',
-  async apply() {
-    // 空闲占席（件头注）——c-5 人面命令/c-6 oauth 流随批充实
-  },
-};
+function makeCredentialsPlugin(deps: CorePluginHostDeps): CorePluginReference {
+  return {
+    name: 'credentials',
+    async apply(ctx) {
+      const context = ctx as PluginContext;
+      const store = deps.credentialsStore;
+      if (store === undefined) return; // 主闸——存储 seam 缺席 = 人面命令零注册（空闲占席维持）
+
+      // 命令结算文本 = 人读面，经 notify 归因 'credentials' 投递（memory 件
+      // runCommand 同形）；非 BaseError 兜底折呈不炸通道
+      const runCommand = (run: () => string) => {
+        try {
+          deps.notify?.('credentials', run());
+        } catch (err) {
+          deps.notify?.('credentials', err instanceof Error ? err.message : String(err));
+        }
+      };
+      const dispose = context.channels.registerCommand(
+        'credentials',
+        (args) =>
+          runCommand(() => {
+            const parsed = parseCredentialsArgv(args.argv);
+            if (!parsed.ok) return parsed.message;
+            return runCredentialsCommand(parsed.sub, {
+              store,
+              ...(deps.credentialsOnChanged !== undefined ? { onCredentialChanged: deps.credentialsOnChanged } : {}),
+            }).text;
+          }),
+        CREDENTIALS_USAGE,
+      );
+      return dispose;
+    },
+  };
+}
 
 /**
  * core: 官方件注册表工厂（assembly.ts 缺省注入源——`options.corePlugins ??
@@ -1385,6 +1429,6 @@ export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePlugin
     makeWebuiPlugin(deps),
     makeObsPlugin(deps),
     makeIssuePlugin(deps),
-    credentialsPlugin,
+    makeCredentialsPlugin(deps),
   ];
 }

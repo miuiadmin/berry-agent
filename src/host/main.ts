@@ -35,6 +35,7 @@ import { runRunEntry } from './run-entry.js';
 import { runDumpConfigEntry } from './dump-config.js';
 import { runPluginsEntry } from './plugins-cmd.js';
 import { runSessionsEntry } from './sessions-cmd.js';
+import { runCredentialsEntry } from './credentials-cmd.js';
 
 /** 在飞运行时柄（组装后挂入——信号/崩溃编舞切运行时本体；前置窗口 null） */
 let activeRuntime: HostRuntime | null = null;
@@ -110,6 +111,9 @@ const handlers: CommandHandlers = {
       version: readVersion(),
       onRuntime: attachRuntime, // fork/resume 装配路径——信号/崩溃编舞切运行时本体
     }),
+  // credentials 子命令族 CLI 面（c-5——03 §10.9 人面命令：零装配直开库，
+  // 动词语义单源 credentials/commands 与 TUI /credentials 同底座）
+  credentials: (sub) => runCredentialsEntry(sub, {}),
 };
 
 /** 主序：编舞装配 → 分派 → 终局 */

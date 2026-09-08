@@ -55,7 +55,8 @@ import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactor
 // webui 挂载闭包（assembly→webui-bridge→serve-entry→assembly 系声明式
 // 函数引用环——顶层零副作用，boot 后才调值，ESM live binding 安全）
 import { createSdkHttpFace } from '../sdk/index.js';
-import { ISSUE_PARALLEL_LIMIT_DEFAULT } from '../issue/index.js';
+import { ISSUE_GITHUB_TOKEN_NAME, ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_WEBHOOK_SECRET_NAME } from '../issue/index.js';
+import { HOST_NAMESPACE } from '../credentials/index.js';
 import { mountWebuiOnFace } from './webui-bridge.js';
 
 /** 装配选项（TUI 入口与诊断命令共用面——runtime 子面透传 createHostRuntime） */
@@ -284,6 +285,19 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       canAfford: (priority) => stack.llm.canAfford(priority),
     };
 
+    // —— issue 凭证迁移（c-5——03 §10.9「env 与库优先级」兑现）：插件凭证
+    // 库优先（host 域两名 github-token / issue-webhook-secret——/credentials
+    // add 录入即生效，词面收编入盒）、env 过渡载体回落（既有装机不破——
+    // BERRY_AGENT_GITHUB_TOKEN / BERRY_AGENT_ISSUE_WEBHOOK_SECRET 19e 词面
+    // 维持）；密钥腐坏 PERSIST_SECRET_UNREADABLE fail-loud 既有律维持（store
+    // 读抛即装配失败档——不静默降级 env）
+    const issueToken =
+      runtimeNow.persistence.store.getCredential(HOST_NAMESPACE, ISSUE_GITHUB_TOKEN_NAME)?.apiKey ??
+      (env.BERRY_AGENT_GITHUB_TOKEN !== '' ? env.BERRY_AGENT_GITHUB_TOKEN : undefined);
+    const issueSecret =
+      runtimeNow.persistence.store.getCredential(HOST_NAMESPACE, ISSUE_WEBHOOK_SECRET_NAME)?.apiKey ??
+      (env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== '' ? env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET : undefined);
+
     // —— 插件装载：启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——
     // 干净退出不写 crash.log）；余装载失败走行级隔离不入本档 ——
     try {
@@ -385,10 +399,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             obsAudience: { hasAudience: () => stack.channels.hasAudience() },
             // issue 五位：state = store_state 三法真身直传（不自建账本——
             // 宪章二）；budget = 04 §5 日池判适配（background 档——停靠不
-            // 落终态语义归件内）；token/secret = env 双词面（凭证盒未立前
-            // env 载体先行——03 §10.7 触发面 19e 装载定形注）；session
-            // seam 挂账缺席（起会改道 ctx.triggers.register 随 issue 件
-            // 扩展批）→ issue 件零装载诚实缺席
+            // 落终态语义归件内）；token/secret = 凭证库优先 env 回落（c-5
+            // 迁移——03 §10.9 优先级律，上方闭包单源；session seam 挂账缺席
+            // （起会改道 ctx.triggers.register 随 issue 件扩展批）→ issue 件
+            // 零装载诚实缺席
             issueState: runtimeNow.persistence.store,
             issueBudget: {
               canAffordIssue: () =>
@@ -396,12 +410,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                   ? { ok: true }
                   : { ok: false, reason: '当日后台预算池尽（04 §5 停靠待唤醒——不落终态）' },
             },
-            ...(env.BERRY_AGENT_GITHUB_TOKEN !== undefined && env.BERRY_AGENT_GITHUB_TOKEN !== ''
-              ? { issueGithubToken: env.BERRY_AGENT_GITHUB_TOKEN }
-              : {}),
-            ...(env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== undefined && env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== ''
-              ? { issueWebhookSecret: env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET }
-              : {}),
+            ...(issueToken !== undefined && issueToken !== '' ? { issueGithubToken: issueToken } : {}),
+            ...(issueSecret !== undefined && issueSecret !== '' ? { issueWebhookSecret: issueSecret } : {}),
+            // —— credentials 人面命令两 seam（c-5——03 §10.9 写入面）——
+            // store = persist 真身直传（CredentialsCommandStore 四法投影，
+            // 词面独立律 compat 面）；审计 seam 缺省不置（no-op——挂账 U3-2
+            // audit_events 载体批接线真发射位）
+            credentialsStore: runtimeNow.persistence.store,
             // —— scheduler 编舞接线三位（批 20c——19c-2 挂账销账）——
             // GateFacts 宿主三源收集闭包：行启停位 + 宿主在飞（anyRunning）+
             // 最近真用户消息（boot 后监听器维护）+ 行上次触发（JobRow 自带

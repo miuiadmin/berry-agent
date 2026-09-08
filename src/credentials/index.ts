@@ -30,3 +30,15 @@ export {
 // 注入腿（c-4——03 §10.9）：env 引用形展开器工厂（host 域）——plugin-boot
 // 席位接线消费（共享根服务 'credentials-env-ref' → exec spawn 管道拾取）
 export { createEnvRefResolver, type EnvRefResolver } from './env-ref.js';
+// 人面命令（c-5——03 §10.9 写入面复合案）：双面共享纯逻辑底座（TUI
+// /credentials 与 CLI credentials 子命令族同源——动词语义/值域执法/结算
+// 文本单源；host 侧 core-plugins 注册 + credentials-cmd CLI 入口两消费位）
+export {
+  CREDENTIALS_USAGE,
+  parseCredentialsArgv,
+  runCredentialsCommand,
+  type CredentialsCommandStore,
+  type CredentialsCommandDeps,
+  type CredentialsSub,
+  type CredentialsCommandResult,
+} from './commands.js';

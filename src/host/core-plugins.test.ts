@@ -22,6 +22,8 @@ import type { GateInput, SessionEvent } from '../contracts/index.js';
 import type { CommandHandler } from '../channels/index.js';
 import { openCheckpointStore } from '../checkpoint/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
+import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
+import type { CredentialChangedPayload, CredentialsCommandStore } from '../credentials/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
 import type { GoalSessionFace } from '../goal/index.js';
 import type { IssueBudgetFace, IssueSessionFace, IssueStoreStateFace } from '../issue/index.js';
@@ -94,6 +96,8 @@ interface DepsForTest {
   issueBudget?: IssueBudgetFace;
   issueGithubToken?: string;
   issueWebhookSecret?: string;
+  credentialsStore?: CredentialsCommandStore;
+  credentialsOnChanged?: (payload: CredentialChangedPayload) => void;
 }
 
 /** 真装载速记（createCorePlugins 工厂单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言。cwd/homeDir 注入隔离面——skills 跨库层不扫真实 HOME） */
@@ -156,6 +160,8 @@ async function bootCore(
       ...(coreDeps.issueBudget !== undefined ? { issueBudget: coreDeps.issueBudget } : {}),
       ...(coreDeps.issueGithubToken !== undefined ? { issueGithubToken: coreDeps.issueGithubToken } : {}),
       ...(coreDeps.issueWebhookSecret !== undefined ? { issueWebhookSecret: coreDeps.issueWebhookSecret } : {}),
+      ...(coreDeps.credentialsStore !== undefined ? { credentialsStore: coreDeps.credentialsStore } : {}),
+      ...(coreDeps.credentialsOnChanged !== undefined ? { credentialsOnChanged: coreDeps.credentialsOnChanged } : {}),
     }),
     version: '9.9.9-test',
     warn: (message) => warnings.push(message),
@@ -517,6 +523,58 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     // 守卫执法透传：坏 schedule 串折文本不抛（runTickCommand 错误面）
     await tick.handler({ raw: '', argv: ['add', 'bad', 'not-a-schedule', 'x'] });
     expect(notified[notified.length - 1]!).toContain('✗');
+    await persistence.close();
+  });
+
+  it('credentials 件装载全环（c-5）：store 注入 → /credentials 注册 + handler 真调 add/rm/用法错 → 归因 credentials + 值不入文本；store 缺席 → 零注册（主闸）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-cred-'));
+    dirs.push(dataDir);
+    // 真库（credentials v7 表在场——:memory: 形自动 ephemeral 密钥）
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: [CREDENTIALS_MIGRATION] });
+    const notified: string[] = [];
+    const changed: CredentialChangedPayload[] = [];
+    const { commands, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        credentialsStore: persistence.store,
+        credentialsOnChanged: (payload) => changed.push(payload),
+        notify: (source, message) => {
+          if (source === 'credentials') notified.push(message); // 归因位可辨
+        },
+      },
+    );
+    expect(commands).toContain('credentials');
+    const cred = commandSpecs.find((spec) => spec.name === 'credentials');
+    if (cred === undefined) throw new Error('/credentials 命令不在捕获面');
+
+    // add 全环：真写库 + 结算文本归因投递 + 值不入文本（铁律）+ 审计载荷
+    await cred.handler({ raw: '', argv: ['add', 'anthropic', 'sk-tui-secret-77e'] });
+    expect(notified[notified.length - 1]).toContain('host/anthropic');
+    expect(notified.join('\n')).not.toContain('sk-tui-secret-77e');
+    expect(persistence.store.getCredential('host', 'anthropic')?.apiKey).toBe('sk-tui-secret-77e');
+    expect(changed).toEqual([{ namespace: 'host', name: 'anthropic', action: 'add', origin: 'human' }]);
+
+    // rm 命中 + 审计 remove
+    await cred.handler({ raw: '', argv: ['rm', 'anthropic'] });
+    expect(notified[notified.length - 1]).toContain('已撤销凭证 host/anthropic');
+    expect(changed[changed.length - 1]).toEqual({
+      namespace: 'host',
+      name: 'anthropic',
+      action: 'remove',
+      origin: 'human',
+    });
+
+    // 用法错与执行错折文本（命令面是用户面——守卫错不炸通道）
+    await cred.handler({ raw: '', argv: ['bogus'] });
+    expect(notified[notified.length - 1]).toContain('未知子命令');
+    await cred.handler({ raw: '', argv: ['rm', 'ghost'] });
+    expect(notified[notified.length - 1]).toContain('CREDENTIALS_NOT_FOUND');
+
+    // 主闸：store seam 缺席 = 零注册（空闲占席——装载计数/禁用位语义不受影响）
+    const bare = await bootCore(dataDir, memoryFs());
+    expect(bare.commands).not.toContain('credentials');
     await persistence.close();
   });
 

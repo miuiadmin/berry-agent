@@ -18,6 +18,11 @@
  * 恰一个（多余位置参数不 join——静默拼接是另一种「语义并进正文」）；无参
  * TUI 入口不收位置参数；`--port` 值域 = 正整数 ≤ 65535（端口物理域）。
  */
+import type { CredentialsSub } from '../credentials/index.js';
+// 子命令形单源再导出（credentials/commands.ts 立形——CLI 解析与命令语义共用；
+// dispatch/dispatch 表与 CredentialsCommand 族从此处取型，与 SessionsCommand 同位）
+export type { CredentialsSub };
+
 /* ---------------- 命令形（tagged union——分派层的消费契约） ---------------- */
 
 /** 全局收的三旗标（--port/--no-plugins 按入口分见各命令 flags；--debug 全入口收） */
@@ -114,6 +119,8 @@ export type CliCommand =
   | { readonly kind: 'dump-config'; readonly flags: DumpConfigFlags }
   | { readonly kind: 'plugins'; readonly sub: PluginsCommand }
   | { readonly kind: 'sessions'; readonly sub: SessionsCommand }
+  /** credentials 子命令族（03 §10.9 人面命令 CLI 对等——sub 形单源 credentials/commands.ts：解析〔cli〕与语义〔件〕共用同一 tagged union） */
+  | { readonly kind: 'credentials'; readonly sub: CredentialsSub }
   | { readonly kind: 'upgrade' }
   /** --help 短路（overreach = 首个越位词原文——分派层打帮助退 0） */
   | { readonly kind: 'help'; readonly overreach?: string }
@@ -477,6 +484,56 @@ function parseSessions(rest: readonly string[]): CliParseResult {
   });
 }
 
+/** credentials 子命令族解析（03 §10.9 人面命令 CLI 面——c-5；namespace 值域执法归命令件单源，本层只执法解析律） */
+const NAMESPACE_FLAG: FlagSchema = { name: 'namespace', kind: 'value' };
+
+function parseCredentials(rest: readonly string[]): CliParseResult {
+  const [head, ...tail] = rest as string[];
+  if (head === undefined || head.startsWith('--')) {
+    return usageFail('credentials 须带子命令（add/list/rm）');
+  }
+  const namespaceOf = (scan: ScanOutcome): string | undefined =>
+    scan.values.has('namespace') ? scan.values.get('namespace') : undefined;
+  switch (head) {
+    case 'list': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      const arity = expectArity(scan.literals, 0, 0, 'berry-agent credentials list');
+      if ('exitCode' in arity) return arity;
+      return finish(scan, { kind: 'credentials', sub: { sub: 'list' } });
+    }
+    case 'add': {
+      const scan = scanFlags(tail, [NAMESPACE_FLAG]);
+      if (scan.error) return usageFail(scan.error);
+      const args = expectArity(scan.literals, 2, 2, 'berry-agent credentials add <name> <value> [--namespace <ns>]');
+      if ('exitCode' in args) return args;
+      const ns = namespaceOf(scan);
+      return finish(scan, {
+        kind: 'credentials',
+        sub: {
+          sub: 'add',
+          name: args[0] as string,
+          value: args[1] as string,
+          ...(ns !== undefined ? { namespace: ns } : {}),
+        },
+      });
+    }
+    case 'rm': {
+      const scan = scanFlags(tail, [NAMESPACE_FLAG]);
+      if (scan.error) return usageFail(scan.error);
+      const args = expectArity(scan.literals, 1, 1, 'berry-agent credentials rm <name> [--namespace <ns>]');
+      if ('exitCode' in args) return args;
+      const ns = namespaceOf(scan);
+      return finish(scan, {
+        kind: 'credentials',
+        sub: { sub: 'rm', name: args[0] as string, ...(ns !== undefined ? { namespace: ns } : {}) },
+      });
+    }
+    default:
+      return usageFail(`未知 credentials 子命令：${head}（合法：add/list/rm）`);
+  }
+}
+
 /** 收尾统一口：help/version 越位短路（执法④——在一切解析错误之后） */
 function finish(scan: ScanOutcome, command: CliCommand): CliParseResult {
   if (scan.overreach === '--help') return { ok: true, command: { kind: 'help', overreach: scan.overreach } };
@@ -554,6 +611,8 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       return parsePlugins(rest);
     case 'sessions':
       return parseSessions(rest);
+    case 'credentials':
+      return parseCredentials(rest);
     case 'upgrade': {
       const scan = scanFlags(rest, [DEBUG_FLAG]);
       if (scan.error) return usageFail(scan.error);

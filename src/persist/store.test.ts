@@ -514,11 +514,12 @@ describe('credentials 与 model_catalog 面', () => {
     });
     stores.push(reopened);
     expectCode(() => reopened.getCredential('host', 'anthropic'), 'PERSIST_SECRET_UNREADABLE');
-    reopened.setCredential('host', 'anthropic', { apiKey: 'sk-new' });
+    reopened.setCredential('host', 'anthropic', { apiKey: 'sk-new', meta: { source: 'manual' } });
     expect(reopened.getCredential('host', 'anthropic')?.apiKey).toBe('sk-new');
-    // 清单不回 api_key（namespace+provider 双键全域列示）
+    // 清单不回 api_key（namespace+provider 双键全域列示）+ meta 随行回 parsed
+    // JSON（c-5 人面 list 来源列消费——零密文零明文律不破）
     expect(reopened.listCredentialProviders()).toEqual([
-      { namespace: 'host', provider: 'anthropic', updatedAt: expect.any(Number) },
+      { namespace: 'host', provider: 'anthropic', meta: { source: 'manual' }, updatedAt: expect.any(Number) },
     ]);
     expect(reopened.deleteCredential('host', 'ghost')).toBe(false);
   });
