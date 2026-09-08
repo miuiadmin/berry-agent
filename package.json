@@ -42,7 +42,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,html}\" \"packages/berry-agent-sdk/**/*.ts\" \"tools/**/*.mjs\" \"vite.config.ts\"",
     "build": "npm run build:webui && tsc -p tsconfig.build.json && node tools/emit-api-decls.mjs && node tools/build-meta.mjs",
     "build:sdk": "tsc -p packages/berry-agent-sdk/tsconfig.json",
-    "build:webui": "vite build"
+    "build:webui": "vite build",
+    "release": "node tools/release.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.4",
