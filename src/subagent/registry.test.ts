@@ -1,7 +1,7 @@
 /**
  * JobRegistry 测试——状态机全集（04 §10）：registerKind 词汇闸/first-wins
- * 结算/done 永不 reject/stop 协作幂等/closeOwner 归属围栏/并行帽/终态帽
- * 256 FIFO/emit 活体通知。
+ * 结算/done 永不 reject/stop 协作幂等/onStop 协作中止路由（Job 消费面批）/
+ * closeOwner 归属围栏/并行帽/终态帽 256 FIFO/emit 活体通知。
  */
 import { describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
@@ -87,6 +87,67 @@ describe('JobRegistry 状态机', () => {
     handle.settle({ status: 'killed' });
     handle.stop(); // 已终态零动作
     expect(handle.entry.status).toBe('killed');
+  });
+});
+
+describe('JobRegistry onStop 协作中止路由（Job 消费面批——04 §10 定形）', () => {
+  it('stop 置 stopping 后触发 onStop（协作中止路由）；重复 stop/终态后不重复触发', () => {
+    const registry = createJobRegistry();
+    registry.registerKind('subagent');
+    const routed: string[] = [];
+    const handle = registry.register({
+      kind: 'subagent',
+      name: 'x',
+      owner: 's1',
+      onStop: () => routed.push('route'),
+    });
+    handle.stop();
+    expect(handle.entry.status).toBe('stopping');
+    expect(routed).toEqual(['route']); // 置 stopping 与路由同一拍
+    handle.stop(); // 幂等——stopping 态不再路由
+    expect(routed).toEqual(['route']);
+    handle.settle({ status: 'killed' });
+    handle.stop(); // 已终态零动作
+    expect(routed).toEqual(['route']);
+  });
+
+  it('onStop 抛错 warn 隔离不反卷状态机（stopping 已落继续收口）', () => {
+    const warns: string[] = [];
+    const registry = createJobRegistry({ warn: (message) => warns.push(message) });
+    registry.registerKind('subagent');
+    const handle = registry.register({
+      kind: 'subagent',
+      name: 'x',
+      owner: 's1',
+      onStop: () => {
+        throw new Error('路由失联');
+      },
+    });
+    expect(() => handle.stop()).not.toThrow();
+    expect(handle.entry.status).toBe('stopping'); // 停止语义不因路由失联而废
+    expect(warns.join('\n')).toContain('协作中止路由抛错');
+    expect(handle.settle({ status: 'completed' })).toBe(true); // 结算权仍归 runner
+  });
+
+  it('closeOwner 两拍序：先协作停止（onStop 路由 + stopping）再兜底 killed', async () => {
+    const events: string[] = [];
+    const registry = createJobRegistry();
+    registry.registerKind('trigger');
+    const handle = registry.register({
+      kind: 'trigger',
+      name: 'daily',
+      owner: 'acme',
+      // 路由拍时点条目态快照——两拍序证据面（路由时 killing 终态未落；
+      // 闭包晚绑——closeOwner 调用时 handle 已赋值）
+      onStop: () => events.push(`onStop@${handle.entry.status}`),
+    });
+    const closed = await registry.closeOwner('acme');
+    expect(closed).toHaveLength(1);
+    // 两拍证据：路由拍条目 = stopping（兜底 killed 未落）；收口后条目 = killed
+    expect(events).toEqual(['onStop@stopping']);
+    expect(handle.entry).toMatchObject({ status: 'killed' });
+    expect(handle.entry.terminal?.detail).toContain('归属围栏收口');
+    await expect(handle.done).resolves.toMatchObject({ status: 'killed' });
   });
 });
 

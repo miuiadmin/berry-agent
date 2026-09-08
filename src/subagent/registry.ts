@@ -61,7 +61,13 @@ export interface JobRegistry {
   /** 种类是否已登记（装配断言/诊断面） */
   hasKind(kind: JobKind): boolean;
   /** 注册在飞 Job（并行帽按 kind 计在飞数；owner 围栏由收口面执法） */
-  register(input: { kind: JobKind; name: string; owner: string }): JobHandle;
+  register(input: {
+    kind: JobKind;
+    name: string;
+    owner: string;
+    /** 协作中止路由（04 §10 定形：stop 置 stopping 后调用——路由到该 Job 托管 run 的中止真源；异常 warn 隔离） */
+    onStop?: () => void;
+  }): JobHandle;
   /** 按 owner 收口在飞 Job（会话关闭——打断/杀并落 killed；返回收口条目） */
   closeOwner(owner: string): Promise<readonly JobEntry[]>;
   /** 条目总览（在飞 + 保留终态，注册序；终态帽 256 FIFO） */
@@ -76,6 +82,8 @@ export interface JobRegistry {
 interface LiveJob {
   entry: JobEntry;
   resolveDone: (terminal: JobTerminal) => void;
+  /** 协作中止路由位（register 受纳——stop 置 stopping 后调用） */
+  onStop?: () => void;
 }
 
 /**
@@ -117,6 +125,24 @@ export function createJobRegistry(options: JobRegistryOptions = {}): JobRegistry
     return true;
   };
 
+  /**
+   * 协作停止内部单点（stop 与 closeOwner 共用）：置 stopping + 路由 onStop。
+   * 路由异常 warn 隔离不反卷状态机（04 §10 定形——中止路由失联不废停止语义）。
+   */
+  const stopInternal = (job: LiveJob): void => {
+    if (job.entry.status !== 'running') return; // 已终态/stopping 零动作（幂等）
+    job.entry = { ...job.entry, status: 'stopping' };
+    if (job.onStop !== undefined) {
+      try {
+        job.onStop();
+      } catch (err) {
+        warn(
+          `Job ${job.entry.id} 协作中止路由抛错（已置 stopping 继续收口）：${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  };
+
   return {
     registerKind(kind) {
       kinds.add(kind);
@@ -153,7 +179,7 @@ export function createJobRegistry(options: JobRegistryOptions = {}): JobRegistry
       const done = new Promise<JobTerminal>((resolve) => {
         resolveDone = resolve;
       });
-      const job: LiveJob = { entry, resolveDone };
+      const job: LiveJob = { entry, resolveDone, ...(input.onStop !== undefined ? { onStop: input.onStop } : {}) };
       live.set(id, job);
       return {
         get entry() {
@@ -161,11 +187,9 @@ export function createJobRegistry(options: JobRegistryOptions = {}): JobRegistry
         },
         done,
         stop() {
-          // 协作停止请求：仅 running 态置 stopping（结算权归 runner——stop
+          // 协作停止请求：置 stopping + 协作中止路由（结算权归 runner——stop
           // 不直接终态）；已终态/stopping 零动作（幂等）
-          if (job.entry.status === 'running') {
-            job.entry = { ...job.entry, status: 'stopping' };
-          }
+          stopInternal(job);
         },
         settle(terminal) {
           return finalize(job, terminal);
@@ -175,8 +199,11 @@ export function createJobRegistry(options: JobRegistryOptions = {}): JobRegistry
     async closeOwner(owner) {
       const owned = [...live.values()].filter((job) => job.entry.owner === owner);
       for (const job of owned) {
-        // 归属收口：打断/杀并落 killed（detail 载归因——会话关闭收口）
-        finalize(job, { status: 'killed', detail: `会话 ${owner} 关闭——归属围栏收口` });
+        // 归属收口两拍（04 §10 定形）：先协作停止（置 stopping + onStop 路由
+        // ——「打断」的机构位：run 侧中止回执晚到因 first-wins 静默弃属预期），
+        // 再兜底 finalize killed（Job 条目立即终态不悬空；detail 载归因）
+        stopInternal(job);
+        finalize(job, { status: 'killed', detail: `归属围栏收口（owner ${owner}）` });
       }
       return owned.map((job) => job.entry);
     },

@@ -337,6 +337,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         llm: stack.llmRuntime,
         triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
         subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
+        // Job 归属围栏收口腿（Job 消费面批桥二——04 §10 定形）：卸载 closer 序
+        // 对 activated 逐插件 closeOwner（owner = 插件 id 的收口执法位）
+        jobs,
         // 界面后端注册面受局面（U3 批 U3-4——ctx.channels.registerUiBackend
         // 委派 ChannelsService 插件域腿；门检 channels.ui-backend 前置在动词内）
         uiBackends: stack.channels,

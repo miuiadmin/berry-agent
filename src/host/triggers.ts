@@ -31,8 +31,10 @@
  *
  * 挂账注记：capability/used 逐次审计随 U3 落码批接线（audit_events 载体缺席；
  * v1 归因面经事件流 source=`plugin:<id>` 已闭集可查——03 §2.2 行 108 定形注记）；
- * JobHandle.stop→interrupt 桥接随 Job 消费面批（stop 置 stopping 后的协作中止
- * 路由）；插件卸载 closeOwner(pluginId) 收口其在飞 Job 随 Job 消费面批。
+ * JobHandle.stop→interrupt 桥接与插件卸载 closeOwner(pluginId) 收口已在飞
+ * Job 均随 Job 消费面批兑现（04 §10 定形：onStop 协作中止路由 + 卸载接线位
+ * = plugin-unload closer——本文件两桥腿 = starter 注册 onStop 路由到起会
+ * 驱动 abort；closeOwner 接线在 plugin-boot 装配件）。
  */
 import { BaseError } from '../contracts/index.js';
 // internal 桶机制符号深导（门检裁决核——03 §4.6；开门是宿主裁决面非插件 API）
@@ -225,11 +227,24 @@ export function createTriggerStarterFactory(
     }
     // —— Job 受理先于起会（「fire 受理先过帽再起会话」：帽满 JOB_LIMIT_REACHED /
     // 显式 jobKind 未登记 JOB_KIND_UNKNOWN 都不造孤儿会话）。owner = 插件 id
-    // 围栏键（插件卸载 closeOwner 桥接挂账 Job 消费面批）
+    // 围栏键（插件卸载 closeOwner(pluginId) 收口——Job 消费面批接线
+    // plugin-unload closer）。onStop 协作中止路由（Job 消费面批两桥之一）：
+    // stop/closeOwner 置 stopping 后路由到起会驱动的 abort——run 协作中止
+    // （aborted 回执 settle killed 与收口兜底 first-wins 竞速，先落者胜）；
+    // opened 闭包晚绑（受理先于起会——路由时 opened 必已赋值，防御判空
+    // 覆盖 create 抛错后的悬空路由形）
     const title = spec.title ?? `${name} ${new Date().toISOString()}`;
+    let opened: OpenedSession | undefined;
     let job: JobHandle;
     try {
-      job = deps.jobs.register({ kind: spec.jobKind ?? 'trigger', name: title, owner: pluginId });
+      job = deps.jobs.register({
+        kind: spec.jobKind ?? 'trigger',
+        name: title,
+        owner: pluginId,
+        onStop: () => {
+          opened?.driver.abort();
+        },
+      });
     } catch (err) {
       deps.warn(
         `触发器 ${name} Job 受理失败（插件 ${pluginId}）：${err instanceof BaseError ? `[${err.code}] ${err.message}` : String(err)}`,
@@ -237,7 +252,6 @@ export function createTriggerStarterFactory(
       return;
     }
     // —— 起无头会话（origin 'trigger'；model 纯内存 per-fresh-session 载体）
-    let opened: OpenedSession;
     try {
       opened = deps.stack.manager.create({
         origin: 'trigger',

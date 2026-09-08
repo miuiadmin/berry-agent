@@ -672,6 +672,40 @@ describe('closer plugin-unload（§5.7 档③ + effect 回卷）', () => {
     await runtime.closers[0]!.fn();
     expect(order).toHaveLength(4);
   });
+
+  it('Job 归属围栏收口腿（Job 消费面批桥二）：disposer 回卷后对 activated 逐插件 closeOwner；受局面缺席 = 诚实缺位不炸', async () => {
+    const events: string[] = [];
+    const first: CorePluginReference = { name: 'first', apply: async () => () => events.push('first-disposer') };
+    const second: CorePluginReference = { name: 'second', apply: async () => () => events.push('second-disposer') };
+    const closedOwners: string[] = [];
+    const runtime = stubRuntime('/data');
+    const { options } = rigBoot('/data', {
+      runtime,
+      corePlugins: [first, second],
+      fs: memoryFs(),
+      jobs: {
+        closeOwner: async (owner) => {
+          closedOwners.push(owner);
+          return [];
+        },
+      },
+    });
+    await bootPlugins(options);
+    await runtime.closers[0]!.fn();
+    // 内序：插件侧事件源先停（disposer 回卷），归属围栏收口后置（owner = 插件
+    // id——activated 注册序）；jobs 缺席形（受局面诚实缺位）下方自证
+    expect(events).toEqual(['second-disposer', 'first-disposer']);
+    expect(closedOwners).toEqual(['core:first', 'core:second']);
+    // jobs 受局面缺席：同一 closer 照常收口（disposer/effect 回卷不依赖收口腿）
+    const bare = stubRuntime('/data');
+    const { options: bareOptions } = rigBoot('/data', {
+      runtime: bare,
+      corePlugins: [first],
+      fs: memoryFs(),
+    });
+    await bootPlugins(bareOptions);
+    await expect(bare.closers[0]!.fn()).resolves.toBeUndefined();
+  });
 });
 
 describe('plugin/opens 幂等落（recordPluginOpensDiff——05 §1.1 boot 装载序 diff，U3 批 U3-5）', () => {

@@ -24,7 +24,8 @@
  *     clearBootFailure 清名（横幅只报仍坏行）；memory 形诊断面整跳。
  *  ⑨ closer 'plugin-unload'：report.unload()（apply disposer LIFO）后 fork
  *     作用域逆序 dispose（ctx.effect 回卷）——注册序在 conversation 栈之后 =
- *     插件卸载晚于对话栈拆解（drain 序即注册序）。
+ *     插件卸载晚于对话栈拆解（drain 序即注册序）；Job 归属围栏收口腿（Job
+ *     消费面批桥二）夹在两序间——activated 逐插件 closeOwner（04 §10 定形）。
  *  ⑩ --no-plugins 短路（07 §六/§5.7）：装载面整跳——core: 与用户行都不装，
  *     空报告/零计数/不注册 closer/不发生命周期事件；注册表仍交空形（消费面稳定）。
  *  ⑪ 生命周期事件（§2.4 生命周期组）：装载收口**批量补发**（report 迭代发
@@ -53,6 +54,8 @@ import type { SecretsFaceOptions } from '../credentials/index.js';
 import type { OAuthFlowRegistry } from '../credentials/index.js';
 // 审计流面类型（U3 批 U3-5——audit_events 载体真身；host→persist 边在册）
 import type { AuditFace } from '../persist/index.js';
+// Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
+import type { JobRegistry } from '../subagent/index.js';
 
 import { clearBootFailure, recordBootFailure } from './boot-failures.js';
 import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
@@ -138,6 +141,13 @@ export interface PluginBootOptions {
    * 静默缺席不阻拦（:memory: 诊断形/测试替身——诚实缺席律）。
    */
   readonly audit?: AuditFace;
+  /**
+   * Job 收口面（受局面注入——Job 消费面批桥二：04 §10 归属围栏 owner =
+   * 插件 id 的卸载收口腿）。卸载 closer 序对 activated 逐插件 closeOwner
+   * （先协作中止路由再兜底 killed——run 不留孤儿烧钱）。缺席 = 诚实缺位
+   * 不收口（测试替身形/:memory: 诊断形——Job 注册表本进程内语义）。
+   */
+  readonly jobs?: Pick<JobRegistry, 'closeOwner'>;
   /**
    * 插件凭证面装配位（c-3——03 §2.2 第十面/§10.9 读腿）：store 在场且
    * core:credentials 件席在场（计划行未禁用）时，装载序逐插件 fork 绑定
@@ -372,11 +382,17 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     skipped: loaded.skipped.map((s) => s.id),
   });
 
-  // ⑨ closer：apply disposer LIFO 后 fork 逆序 dispose（drain 序 = 注册序）
+  // ⑨ closer：apply disposer LIFO 后 fork 逆序 dispose（drain 序 = 注册序）；
+  //    Job 归属围栏收口腿（Job 消费面批桥二）在 disposer 回卷后对 activated
+  //    逐插件 closeOwner——插件侧事件源先停（不再新 fire），余在飞 Job 两拍
+  //    收口（协作中止路由 + 兜底 killed——04 §10 定形）
   options.runtime.registerCloser({
     label: 'plugin-unload',
     fn: async () => {
       await loaded.unload();
+      if (options.jobs !== undefined) {
+        for (const a of loaded.activated) await options.jobs.closeOwner(a.id);
+      }
       for (const fork of pluginScopes.reverse()) await fork.dispose(); // ctx.effect 回卷
     },
   });

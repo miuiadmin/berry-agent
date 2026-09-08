@@ -11,6 +11,7 @@ import { BaseError } from '../contracts/index.js';
 import type { JobSettledEvent, SessionOrigin } from '../contracts/index.js';
 import type { ConversationDriver, SubmitOptions, SubmitResult } from '../conversation/index.js';
 import { createJobRegistry } from '../subagent/index.js';
+import type { JobHandle } from '../subagent/index.js';
 import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactory } from './triggers.js';
 import type { TriggerDef, TriggerStackFace, TriggerStarter } from './triggers.js';
 // 错误码册注册腿（「import 发生才注册」——TRIGGER_ 两码断言的前置副作用）
@@ -153,19 +154,28 @@ interface FakeCreateInit {
 
 /**
  * 假栈（TriggerStackFace 替身）：create/submit 入参全记录；submit 回执 Promise
- * 由测试手动结算（终态映射逐档驱动）；submitUndefined 档模拟驱动缺席。
+ * 由测试手动结算（终态映射逐档驱动）；submitUndefined 档模拟驱动缺席。每会话
+ * 配一枚假驱动（abort 计数——stop→interrupt 桥的到达证据面）。
  */
 function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
   const creates: FakeCreateInit[] = [];
   const submits: Array<{ sessionId: string; text: string; source?: string }> = [];
   const resolvers: Array<(result: SubmitResult) => void> = [];
+  /** 逐会话假驱动（abort 计数——与 creates 序对应） */
+  const drivers: Array<{ abortCount: number }> = [];
   const stack: TriggerStackFace = {
     manager: {
       create(init: FakeCreateInit = {}) {
         creates.push(init);
+        const driver = { abortCount: 0 };
+        drivers.push(driver);
         return {
           sessionId: `s-${creates.length}`,
-          driver: null as unknown as ConversationDriver,
+          driver: {
+            abort: () => {
+              driver.abortCount += 1;
+            },
+          } as unknown as ConversationDriver,
           origin: init.origin ?? 'conversation',
         };
       },
@@ -176,7 +186,7 @@ function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
       return new Promise<SubmitResult>((resolve) => resolvers.push(resolve));
     },
   };
-  return { stack, creates, submits, resolvers };
+  return { stack, creates, submits, resolvers, drivers };
 }
 
 /** starter 测试台：真 Job 注册表（帽执法真件）+ 假栈 + 可变开门集 + warn/settled/审计记录仪 */
@@ -187,6 +197,8 @@ function assembleStarter(initialOpens?: readonly string[]) {
   // capability/used 落账记录仪（U3 批 U3-5——assembly 侧接 audit.append，此处收形）
   const used: Array<{ pluginId: string; triggerName: string }> = [];
   const order: string[] = []; // 受理先于起会的编舞序证据面
+  /** starter 注册的 Job 句柄（透传捕获——stop→interrupt 桥测试的调用柄） */
+  const handles: JobHandle[] = [];
   const jobs = createJobRegistry({
     parallelLimits: { trigger: TRIGGER_JOB_PARALLEL_LIMIT },
     emit: (event) => {
@@ -209,7 +221,9 @@ function assembleStarter(initialOpens?: readonly string[]) {
     jobs: {
       register: (input) => {
         order.push('job');
-        return jobs.register(input);
+        const handle = jobs.register(input);
+        handles.push(handle);
+        return handle;
       },
     },
     getOpens: () => opens,
@@ -217,7 +231,7 @@ function assembleStarter(initialOpens?: readonly string[]) {
     warn: (message) => warns.push(message),
     onCapabilityUsed: (pluginId, triggerName) => used.push({ pluginId, triggerName }),
   });
-  return { opens, warns, settled, order, jobs, fake, makeStarter, used };
+  return { opens, warns, settled, order, jobs, handles, fake, makeStarter, used };
 }
 
 /** 微任务排空（回执 .then → settle → emit 链走完） */
@@ -359,5 +373,30 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
     const t = assembleStarter([]); // 门关——core: 仍豁免直开
     t.makeStarter('core:issue', 'core:issue/board')({ prompt: '跑' });
     expect(t.used).toEqual([{ pluginId: 'core:issue', triggerName: 'core:issue/board' }]);
+  });
+
+  it('桥一 stop→interrupt：JobHandle.stop 置 stopping 即路由起会驱动 abort（run 协作中止）', () => {
+    const t = assembleStarter(['triggers.start-run']);
+    t.makeStarter('acme', 'acme/daily')({ prompt: '跑' });
+    expect(t.handles).toHaveLength(1);
+    expect(t.fake.drivers[0]!.abortCount).toBe(0); // 起会后未中止
+    t.handles[0]!.stop();
+    expect(t.handles[0]!.entry.status).toBe('stopping');
+    expect(t.fake.drivers[0]!.abortCount).toBe(1); // 协作中止路由到达驱动
+  });
+
+  it('桥二 插件卸载收口：closeOwner(pluginId) 两拍——驱动 abort 路由 + Job 兜底 killed；回执晚到 first-wins 静默弃（warn 可观测）', async () => {
+    const t = assembleStarter(['triggers.start-run']);
+    t.makeStarter('acme', 'acme/daily')({ prompt: '跑' });
+    await t.jobs.closeOwner('acme'); // 插件卸载收口（owner = 插件 id 围栏键）
+    expect(t.fake.drivers[0]!.abortCount).toBe(1); // 「打断」拍：协作中止路由到达
+    expect(t.handles[0]!.entry).toMatchObject({ status: 'killed' }); // 「杀并落 killed」拍
+    // run 侧 aborted 回执晚到：first-wins 静默弃——warn 可观测属预期
+    t.fake.resolvers[0]!({ status: 'aborted' });
+    await flush();
+    expect(t.settled).toHaveLength(1); // 唯一 emit = 收口那次（回执结算被弃）
+    expect(t.settled[0]!.entry.terminal?.detail).toContain('归属围栏收口');
+    expect(t.warns.join('\n')).toContain('静默弃');
+    expect(t.jobs.running()).toHaveLength(0); // 无孤儿在飞
   });
 });
