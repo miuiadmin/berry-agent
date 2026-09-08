@@ -3,12 +3,17 @@
  *
  * 本件是 loop 零 try/catch 形态铁律的配套执法位：插件工具 execute 可抛错，
  * 包装在此（错误 → isError 结果数据面），loop 骨架只见结果不见异常。
- * 批语义四条：①读写批调度（03 §2.3 尾注——effect 一位两用）：read（含缺省）
- * 段内并发、write 批边界串行（写前清空在飞只读——段序天然执法：write 前的
- * read 段已 Promise.all 排干、write 后的 read 段待其结算才起跑）；
- * ②beforeToolCall block → immediate isError 结果；③terminate 批内一致裁决
- * （批内全 terminate 才 terminate——单件否决不放大）；④abort 余量配对（落批
- * 中间时未执行 calls 逐个配对 isError toolResult，防下一轮孤儿 toolUse）。
+ * 批语义六条：①单响应护栏两闸（04 §2——消费序前插 limiter，零改 loop
+ * 骨架）：call_id 幂等（同 id 重放不重执行——批内/跨轮/重试续入三域同律，
+ * 账本挂 context）+ 批调用数上限（超帽丢尾配对 isError + 计数暴露）；
+ * ②读写批调度（03 §2.3 尾注——effect 一位两用）：read（含缺省）段内并发、
+ * write 批边界串行（写前清空在飞只读——段序天然执法：write 前的 read 段已
+ * Promise.all 排干、write 后的 read 段待其结算才起跑）；③beforeToolCall
+ * block → immediate isError 结果；④terminate 批内一致裁决（批内全
+ * terminate 才 terminate——单件否决不放大；回执腿/中止配对腿/丢尾腿非执行
+ * 腿不否决——空真通过与批内任何真实执行腿的 false 一票即续跑，纯非执行
+ * 批恒 terminate 停跑——重放循环卡死的兜底）；⑤abort 余量配对（落批中
+ * 间时未执行 calls 逐个配对 isError toolResult，防下一轮孤儿 toolUse）。
  */
 
 import { BaseError, redactSensitiveText } from '../contracts/index.js';
@@ -16,11 +21,16 @@ import type { TextContent, ToolResultMessage } from '../contracts/index.js';
 import type { AgentTool, AgentToolCall, AgentToolResult, ToolUpdateCallback } from '../contracts/index.js';
 import type { AgentContext, AgentLoopConfig, EmitFn } from './types.js';
 
-/** 批执行结算：结果消息（与 calls 恒配对——含 block/isError/中止配对腿）+ 批内一致 terminate */
+/** 单响应工具批调用数上限缺省值（04 §2 闸②——帽常量可配置：AgentLoopConfig.maxToolCallsPerResponse） */
+export const DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE = 32;
+
+/** 批执行结算：结果消息（与 calls 恒配对——含 block/isError/中止配对/回执/丢尾腿）+ 批内一致 terminate */
 export interface ToolBatchOutcome {
   results: ToolResultMessage[];
-  /** 批内全 terminate 才 true（04 §2 批内一致裁决） */
+  /** 批内全 terminate 才 true（04 §2 批内一致裁决；非执行腿〔回执/中止配对/丢尾〕不否决——空真通过：纯非执行批恒 true 停跑〔重放循环兜底〕、批内任一真实执行腿 false 即续跑） */
   terminate: boolean;
+  /** 闸②丢尾计数（04 §2——被超帽丢弃的条数，非静默暴露；被丢 legs 已在 results 内逐条 isError 配对） */
+  droppedCount: number;
 }
 
 /**
@@ -115,7 +125,14 @@ async function executeOne(
 }
 
 /**
- * 执行一批工具调用（读写批调度 + abort 余量配对 + 批内一致 terminate）。
+ * 执行一批工具调用（单响应护栏两闸 + 读写批调度 + abort 余量配对 + 批内一致 terminate）。
+ *
+ * 护栏两闸（04 §2，消费序前插——零改 loop 骨架）：闸②批调用数上限——超帽
+ * 丢尾（被丢 calls 逐个 isError 配对 + 计数暴露；丢尾腿不进账本——未执行
+ * 条目无「既有结果」，模型重发该 id 时按新调用执行）；闸①call_id 幂等——
+ * 账本（context.toolResultLedger，driver 终身单实例）与批内首现双命中均走
+ * 回执腿（直接回既有结果，不重执行、不发执行活体事件、不参与 terminate
+ * 表决——strix wait→check 轮询防回归锁）。
  *
  * 调度（03 §2.3 尾注——effect 一位两用的消费执法）：按原序切段——连续 read
  * 调用成一段（段内并发 Promise.all）、write 调用独立成段（单件串行屏障：
@@ -131,7 +148,21 @@ export async function executeToolBatch(
   calls: AgentToolCall[],
   emit: EmitFn,
 ): Promise<ToolBatchOutcome> {
-  const outcome: ToolBatchOutcome = { results: [], terminate: false };
+  // 闸②批调用数上限：单响应批超帽丢尾（缺省 32；负值归 0——0 即拒全批）
+  const cap = Math.max(0, config.maxToolCallsPerResponse ?? DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE);
+  const droppedCount = Math.max(0, calls.length - cap);
+  const outcome: ToolBatchOutcome = { results: [], terminate: false, droppedCount };
+  // 三分类预演（保序——结果按 calls 原序落位）：dropped = 超帽丢尾（不进调度
+  // 不进账本）；replay = 账本命中或批内首现之后的同 id 重现（回执腿）；
+  // dispatch = 首达执行腿
+  const ledger = (context.toolResultLedger ??= new Map<string, ToolResultMessage>()); // 闸①首达建账
+  const seenInBatch = new Set<string>();
+  const kinds: Array<'dropped' | 'replay' | 'dispatch'> = calls.map((call, i) => {
+    if (i >= cap) return 'dropped';
+    if (ledger.has(call.id) || seenInBatch.has(call.id)) return 'replay';
+    seenInBatch.add(call.id);
+    return 'dispatch';
+  });
   let allTerminate = true;
   let index = 0;
   while (index < calls.length) {
@@ -143,9 +174,23 @@ export async function executeToolBatch(
       outcome.terminate = calls.length > 0 && allTerminate;
       return outcome;
     }
-    // 连续 read 段（effect 缺省 read——含工具不在场腿）
+    // 非执行腿排干（保序内联，切段）：回执腿 = 账本既有结果直接回执（拷贝重铸
+    // 配对键——同 id 多块 toolUse 各得一条）；丢尾腿 = 超帽 isError 配对
+    while (index < calls.length && kinds[index] !== 'dispatch') {
+      const call = calls[index]!;
+      if (kinds[index] === 'replay') {
+        outcome.results.push(replayOf(call, ledger.get(call.id)!));
+      } else {
+        outcome.results.push(
+          buildResult(call, `单响应工具批超上限 ${cap} 条——丢尾收口（本条未执行；请减少单次响应内的工具调用量）`, true),
+        );
+      }
+      index++;
+    }
+    if (index >= calls.length) break; // 排干到尾（余量全是非执行腿——收尾）
+    // 连续 read 段（effect 缺省 read——含工具不在场腿；非执行腿切段）
     const segment: AgentToolCall[] = [];
-    while (index < calls.length && lookup(context, calls[index]!)?.effect !== 'write') {
+    while (index < calls.length && kinds[index] === 'dispatch' && lookup(context, calls[index]!)?.effect !== 'write') {
       segment.push(calls[index]!);
       index++;
     }
@@ -154,8 +199,10 @@ export async function executeToolBatch(
       const settled = await Promise.all(
         segment.map((call) => executeOne(config, context, lookup(context, call), call, emit)),
       );
-      for (const item of settled) {
+      for (let i = 0; i < settled.length; i++) {
+        const item = settled[i]!;
         outcome.results.push(item.message);
+        ledger.set(segment[i]!.id, item.message); // 执行后入账（后续重放回执；段内 id 已去重）
         allTerminate = allTerminate && item.terminate;
       }
       continue;
@@ -165,10 +212,24 @@ export async function executeToolBatch(
     index++;
     const settled = await executeOne(config, context, lookup(context, writeCall), writeCall, emit);
     outcome.results.push(settled.message);
+    ledger.set(writeCall.id, settled.message); // 执行后入账（后续重放回执）
     allTerminate = allTerminate && settled.terminate;
   }
-  outcome.terminate = calls.length > 0 && allTerminate; // 空批不终止
+  // 空批不终止；回执腿/丢尾腿不否决（空真通过与中止配对腿同律）——纯非执行
+  // 批（全回执/全丢尾）恒 terminate：停跑正是重放循环卡死的兜底（strix 病理
+  // 下继续跑 = 模型每轮空转重放烧 token；批内只要有一条真实执行腿投 false
+  // 即续跑）
+  outcome.terminate = calls.length > 0 && allTerminate;
   return outcome;
+}
+
+/**
+ * 回执腿组装（04 §2 闸①）：既有结果的回执拷贝——内容/错误位与原结果一致，
+ * 配对键与工具名重铸为本次 call（回执也是配对——防孤儿 toolUse 同律）。
+ * @param call 本次重放的调用块 @param cached 账本内既有结果消息
+ */
+function replayOf(call: AgentToolCall, cached: ToolResultMessage): ToolResultMessage {
+  return { ...cached, toolCallId: call.id, toolName: call.name, timestamp: Date.now() };
 }
 
 /** 按名查工具（批内 lookup 单源） */

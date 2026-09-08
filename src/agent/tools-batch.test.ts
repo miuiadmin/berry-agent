@@ -175,3 +175,93 @@ describe('错误腿出口消毒（错误即结果 ⑤ 与正常结果同一出�
     expect(text.text).not.toContain('sk-blockme123456');
   });
 });
+
+/* ---------------- 单响应工具批护栏（04 §2——闸①call_id 幂等 + 闸②批调用帽） ---------------- */
+
+describe('单响应工具批护栏（消费序前插 limiter——零改 loop 骨架）', () => {
+  it('闸②缺省帽 32：34 条 → 前 32 执行、末 2 逐条 isError 配对（原因注明超限）+ droppedCount 暴露', async () => {
+    const started: string[] = [];
+    const { config, context, emit } = rig([gatedTool('echo', started, undefined)]);
+    const calls = Array.from({ length: 34 }, (_, i) => callOf(`c${i + 1}`, 'echo'));
+    const outcome = await executeToolBatch(config, context, calls, emit);
+    expect(started).toHaveLength(32); // 丢尾不执行
+    expect(outcome.results).toHaveLength(34); // 配对完整——被丢 calls 不悬空（防孤儿 toolUse）
+    expect(outcome.droppedCount).toBe(2); // 丢弃计数暴露（非静默）
+    expect(outcome.results[32]).toMatchObject({ toolCallId: 'c33', isError: true });
+    expect(outcome.results[33]).toMatchObject({ toolCallId: 'c34', isError: true });
+    const tailText = outcome.results[32]!.content[0] as { type: 'text'; text: string };
+    expect(tailText.text).toContain('超'); // 原因注明超限
+    expect(outcome.results[0]).toMatchObject({ toolCallId: 'c1', isError: false });
+    expect(outcome.results[31]).toMatchObject({ toolCallId: 'c32', isError: false });
+  });
+
+  it('闸②可配置：maxToolCallsPerResponse=2 时 3 条 → 2 执行 1 丢尾', async () => {
+    const started: string[] = [];
+    const { context, emit } = rig([gatedTool('echo', started, undefined)]);
+    const config = {
+      model: 'test/model',
+      maxToolCallsPerResponse: 2,
+    } as unknown as AgentLoopConfig; // 外层收口断言（单元面只需 model + 帽位子集）
+    const outcome = await executeToolBatch(
+      config,
+      context,
+      [callOf('c1', 'echo'), callOf('c2', 'echo'), callOf('c3', 'echo')],
+      emit,
+    );
+    expect(started).toEqual(['echo', 'echo']);
+    expect(outcome.droppedCount).toBe(1);
+    expect(outcome.results[2]).toMatchObject({ toolCallId: 'c3', isError: true });
+  });
+
+  it('闸①批内同 id 重现：第二条不重执行——直接回执既有结果（单条 tool_execution_start）', async () => {
+    const started: string[] = [];
+    const { config, context, emit, events } = rig([gatedTool('echo', started, undefined)]);
+    const outcome = await executeToolBatch(config, context, [callOf('x', 'echo'), callOf('x', 'echo')], emit);
+    expect(started).toEqual(['echo']); // 只执行一次
+    expect(outcome.results).toHaveLength(2); // 同 id 两块 toolUse 各得一条配对
+    expect(outcome.results[0]).toMatchObject({ isError: false });
+    expect(outcome.results[1]).toMatchObject({ isError: false });
+    const first = outcome.results[0]!.content[0] as { type: 'text'; text: string };
+    const second = outcome.results[1]!.content[0] as { type: 'text'; text: string };
+    expect(second.text).toBe(first.text); // 回执既有结果（内容一致）
+    expect(events.filter((e) => e.type === 'tool_execution_start')).toHaveLength(1); // 回执腿不发执行活体事件
+  });
+
+  it('闸①跨轮同 id：同 context 第二批重发已执行 id → 不重执行（strix wait→check 轮询防回归锁）', async () => {
+    const started: string[] = [];
+    const { config, context, emit } = rig([gatedTool('check', started, undefined)]);
+    await executeToolBatch(config, context, [callOf('x', 'check')], emit);
+    const outcome2 = await executeToolBatch(config, context, [callOf('x', 'check')], emit);
+    expect(started).toEqual(['check']); // 跨轮同律——重放不重执行
+    expect(outcome2.results[0]).toMatchObject({ isError: false });
+    expect(outcome2.droppedCount).toBe(0);
+  });
+
+  it('闸①丢尾腿不进账本：被超帽丢弃的 id 重发时按新调用执行（非回执超限错误）', async () => {
+    const started: string[] = [];
+    const { context, emit } = rig([gatedTool('echo', started, undefined)]);
+    const config = { model: 'test/model', maxToolCallsPerResponse: 1 } as unknown as AgentLoopConfig;
+    await executeToolBatch(config, context, [callOf('a', 'echo'), callOf('b', 'echo')], emit);
+    expect(started).toEqual(['echo']); // b 被丢尾（isError 配对但未执行）
+    const outcome2 = await executeToolBatch(config, context, [callOf('b', 'echo')], emit);
+    expect(started).toEqual(['echo', 'echo']); // b 未进账本——重发按新调用执行
+    expect(outcome2.results[0]).toMatchObject({ isError: false });
+  });
+
+  it('闸①回执腿不否决 terminate：纯回执批空真通过恒 terminate（重放循环卡死的停跑兜底——strix 病理）', async () => {
+    const started: string[] = [];
+    const { config, context, emit } = rig([gatedTool('poll', started, undefined)]);
+    // 首批：真实执行腿 terminate:false → 一票续跑律（terminate false）
+    const first = await executeToolBatch(config, context, [callOf('x', 'poll')], emit);
+    expect(first.terminate).toBe(false); // 真实执行腿投了 false
+    // 纯回执批：非执行腿不否决——空真通过与零执行中止批同律，恒 terminate
+    //（不停跑则模型每轮空转重放烧 token——正是要兜的病理）
+    const replayed = await executeToolBatch(config, context, [callOf('x', 'poll')], emit);
+    expect(replayed.terminate).toBe(true); // 纯回执批停跑
+    expect(replayed.results[0]).toMatchObject({ isError: false });
+    // 混合批：一条真实执行腿 false 一票即续跑（回执腿不放大也不否决）
+    const mixed = await executeToolBatch(config, context, [callOf('x', 'poll'), callOf('y', 'poll')], emit);
+    expect(mixed.terminate).toBe(false); // y 真实执行投 false
+    expect(started).toEqual(['poll', 'poll']); // y 执行了（x 回执不重执行）
+  });
+});

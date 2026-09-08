@@ -7,7 +7,14 @@
  */
 
 import type { AgentMessage } from '../contracts/index.js';
-import type { AssistantMessage, LlmContext, Message, StreamFn, ThinkingLevel } from '../contracts/index.js';
+import type {
+  AssistantMessage,
+  LlmContext,
+  Message,
+  StreamFn,
+  ThinkingLevel,
+  ToolResultMessage,
+} from '../contracts/index.js';
 import type { AgentTool, AgentToolCall, AgentToolResult, ToolUpdateCallback } from '../contracts/index.js';
 import type { AgentEvent, AgentEventSink } from './events.js';
 
@@ -19,6 +26,15 @@ export interface AgentContext {
   messages: AgentMessage[];
   /** 本 run 可用工具集（缺省空——纯对话 run） */
   tools?: AgentTool[];
+  /**
+   * 闸①幂等账本（04 §2 call_id 幂等决策）：call_id → 既有结果消息。挂
+   * context（driver 终身单实例持有）→ 批内 + 跨轮 + 重试续入三域同律共享
+   * （重试续入 = 新 startRun 同 context——已执行条目直接回执既有结果）。
+   * 只持既有结果消息的引用（消息本就活在 messages 数组——零复制零逐出）；
+   * 超帽丢尾腿与中止配对腿不进账本（未执行条目无「既有结果」可回执）。
+   * 懒初始化（executeToolBatch 首达建账）。
+   */
+  toolResultLedger?: Map<string, ToolResultMessage>;
 }
 
 /** beforeToolCall 决策（守门行安装点）：block = 不执行直接回错误结果；terminate 记账批内一致裁决 */
@@ -88,6 +104,13 @@ export interface AgentLoopConfig {
   onEvent?: AgentEventSink;
   /** 中止信号（透传 streamFn 与工具 execute——协作面） */
   signal?: AbortSignal;
+  /**
+   * 单响应工具批调用数上限（04 §2 闸②）：单次模型响应的工具批超帽即丢尾
+   * ——被丢 calls 逐个配对 isError toolResult（原因注明超限）+ 丢弃计数暴露
+   * （ToolBatchOutcome.droppedCount，非静默）。缺省
+   * DEFAULT_MAX_TOOL_CALLS_PER_RESPONSE（32）；负值按 0 处理（0 = 拒全批）。
+   */
+  maxToolCallsPerResponse?: number;
 }
 
 /** run 结算（终态恰三值——Job 结算、审批对收口、预算记账截断的锚） */

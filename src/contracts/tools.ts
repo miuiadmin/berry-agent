@@ -109,7 +109,8 @@ export interface ToolDefinition {
   /**
    * 幂等位（03 §2.3）：缺省 true；false = 禁静默重试——副作用型工具重放即
    * 重复执行，重试决策须回模型或上抛不静默。框架侧重放机制（04 §2 call_id
-   * 幂等决策）落码前本位先锚定（词先锚定同律）。
+   * 幂等决策）已落码（agent 件 tools-batch 消费序 limiter——回执腿不重执行，
+   * 2026-09-09）；本位词面与其相容（重放回执既不构成「静默重试」）。
    */
   repeatable?: boolean;
   /** 执行体：一切失败编码为 isError 结果（数据面）；抛错由管道/loop 包装兜底 */
