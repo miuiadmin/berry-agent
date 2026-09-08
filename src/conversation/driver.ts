@@ -48,10 +48,16 @@ import type {
   ContextTransformInput,
   ConversationDriverOptions,
   InjectedReceipt,
+  SessionLifecycleEvent,
   SubmitOptions,
   WakeRefusedReceipt,
 } from './types.js';
-import { CONTEXT_TRANSFORM_EVENT, DEFAULT_RETRY_POLICY, MAX_CONSECUTIVE_WAKES } from './types.js';
+import {
+  CONTEXT_TRANSFORM_EVENT,
+  DEFAULT_RETRY_POLICY,
+  MAX_CONSECUTIVE_WAKES,
+  SESSION_LIFECYCLE_EVENT,
+} from './types.js';
 import { reseedTimeline } from './reseed.js';
 import { todoSnapshotMessage } from './todo.js';
 import { notifyRunSettled } from './agent-service.js';
@@ -104,6 +110,11 @@ export class ConversationDriver {
     // 已注册词跳过不撞名（EVENT_DUPLICATE 防御）
     if (!options.dispatch.isRegistered(CONTEXT_TRANSFORM_EVENT)) {
       options.dispatch.registerEventNames([CONTEXT_TRANSFORM_EVENT]);
+    }
+    // session/lifecycle 词汇自举注册（04 §6 e-2——同上幂等双源）：装配根
+    // boot 前预注册（插件装载期订阅可达）在前，此处兜底独立 stack 形
+    if (!options.dispatch.isRegistered(SESSION_LIFECYCLE_EVENT)) {
+      options.dispatch.registerEventNames([SESSION_LIFECYCLE_EVENT]);
     }
     this.wiring = new DurableWiring(this.session);
     this.fullTools = options.tools !== undefined ? [...options.tools] : undefined;
@@ -370,6 +381,13 @@ export class ConversationDriver {
     if (wakeTriggered) this.wakeStreak += 1;
     else this.wakeStreak = 0;
     this.applyToolFace(wakeTriggered);
+    // session/lifecycle 起拍广播（04 §6 e-2——fire-and-forget：活体投影不阻塞
+    // run 起跑；监听异常经 dispatch 隔离上报不回传）
+    void this.options.dispatch.emit(SESSION_LIFECYCLE_EVENT, {
+      sessionId: this.session.sessionId,
+      phase: 'run-started',
+      ...(wakeTriggered ? { wake: true } : {}),
+    } satisfies SessionLifecycleEvent);
     const inner = this.runTurns(seeds);
     const settled: Promise<RunResult> = inner.then(
       (result) => {
@@ -486,6 +504,14 @@ export class ConversationDriver {
       if (settled !== undefined) {
         notifyRunSettled(this.options.scope, { result: settled, sessionId: this.session.sessionId });
       }
+      // session/lifecycle 终态拍广播（04 §6 e-2——finally 面恒发：崩溃路径也
+      // 收口〔只报 phase 不虚构终值〕；与 onRunSettled 同界但语义分立——彼系
+      // ctx.agent 订阅面携 RunResult 本体、此系活体投影零结果引用）
+      void this.options.dispatch.emit(SESSION_LIFECYCLE_EVENT, {
+        sessionId: this.session.sessionId,
+        phase: 'run-settled',
+        ...(settled !== undefined ? { status: settled.status } : {}),
+      } satisfies SessionLifecycleEvent);
     }
   }
 

@@ -45,6 +45,7 @@ import type { GoalFace } from './core-plugins.js';
 import { createSessionsFace } from './sessions-face.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
+import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import type { CorePluginReference } from './loader.js';
 import { enabledYamlPath, parseEnabledRows } from './manifest.js';
 import type { PluginBootHandle } from './plugin-boot.js';
@@ -204,6 +205,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // （stack 先建 boot 后跑——goal 件未装载 = undefined，fold 退化
       // run-scoped 现行为；goalScopeFor 调用面 = 驱动每请求 fold）
       goalScopeFor: (sessionId) => scope.tryGet<GoalFace>('goal')?.service.goalScopeFor(sessionId),
+      // 跨树观测门检接线（e2-4——03 §4.6 第五枚 sessions.observe-cross 工具
+      // 腿）：getOpens = v1 空集（会话→插件归因未立——结构性默认关，授予面
+      // 接线挂账 e-4 provenance 落地时呈拍）；onCapabilityUsed = 开门后逐次
+      // 审计（05 §1.1 键 = 动词名 + 目标会话 id——工具腿载荷原形透传）
+      observeCross: {
+        getOpens: () => new Set<string>(),
+        onCapabilityUsed: (record) => void audit.append('capability/used', { ...record }),
+      },
       warn: (message) => logger.warn(message),
     });
 
@@ -327,6 +336,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtimeNow.persistence.store.getCredential(HOST_NAMESPACE, ISSUE_WEBHOOK_SECRET_NAME)?.apiKey ??
       (env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== '' ? env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET : undefined);
 
+    // —— session/lifecycle 活体词预注册（e2-4——04 §6 会话活体广播）：插件
+    // 装载期订阅（ctx.events.subscribeSessionLifecycle）先于首会话起跑——驱动
+    // 构造器自举够不着 boot 时点，装配根预注册兜底（job_settled 同律；驱动
+    // 自举幂等跳过已注册词，独立装配形双源不撞）
+    if (!dispatch.isRegistered(SESSION_LIFECYCLE_EVENT)) {
+      dispatch.registerEventNames([SESSION_LIFECYCLE_EVENT]);
+    }
+
     // —— 插件装载：启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——
     // 干净退出不写 crash.log）；余装载失败走行级隔离不入本档 ——
     try {
@@ -344,6 +361,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         // 界面后端注册面受局面（U3 批 U3-4——ctx.channels.registerUiBackend
         // 委派 ChannelsService 插件域腿；门检 channels.ui-backend 前置在动词内）
         uiBackends: stack.channels,
+        // 会话血缘判定面（e2-4——ctx.events.subscribeSessionLifecycle tree 档
+        // 过滤受局面）：真身 = 会话维视图 isSameTree（05 §9 parent_id 链单源）
+        sessionLineage: { isSameTree: (a, b) => stack.sessionView.isSameTree(a, b) },
         // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
         // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
         // plugin-boot；oauthRegistry = c-6 流注册表真身——fork 绑定成

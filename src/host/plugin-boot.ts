@@ -134,6 +134,13 @@ export interface PluginBootOptions {
    */
   readonly uiBackends?: UiBackendRegistryLike;
   /**
+   * 会话血缘判定面（e2-4——04 §6 订阅 tree 档过滤受局面）：真身 = 装配根
+   * 注入 SessionView.isSameTree（05 §9 parent_id 链单源）。在场时透传
+   * createPluginContext 的 sessionLineage 位；缺席 = tree 档订阅响亮
+   * CONTEXT_SERVICE_MISSING（self/all 档不消费本面——诚实缺席律）。
+   */
+  readonly sessionLineage?: { isSameTree(a: string, b: string): boolean };
+  /**
    * 进程级审计流面（U3 批 U3-5——05 §9 audit_events 载体真身，persist
    * AuditFace）：装载序两用——① 逐插件 auditSink 透传（append 窄面结构
    * 兼容——高危面动词 capability/used 落账）；② boot 序 plugin/opens 幂等
@@ -305,6 +312,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       ...(options.subagents !== undefined ? { subagents: options.subagents } : {}),
       // 界面后端注册面受局面透传（U3 批 U3-4——缺席时 ctx.channels.registerUiBackend 响亮缺位）
       ...(options.uiBackends !== undefined ? { uiBackends: options.uiBackends } : {}),
+      // 会话血缘判定面透传（e2-4——缺席时 ctx.events.subscribeSessionLifecycle
+      // tree 档响亮缺位；self/all 档不消费）
+      ...(options.sessionLineage !== undefined ? { sessionLineage: options.sessionLineage } : {}),
       // 审计流写入位透传（U3 批 U3-5——AuditFace append 窄面结构兼容 auditSink）
       ...(options.audit !== undefined ? { auditSink: options.audit } : {}),
       // 高危面开门授予集（03 §4.6 批 U2——磁盘行 opens 经 loader 透传至此）

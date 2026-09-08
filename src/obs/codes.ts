@@ -34,4 +34,10 @@ registerErrorCodes([
     description:
       '跨树观测未开门拒（03 §4.6 v1 首批第五枚 sessions.observe-cross 门检执法——obs 会话维工具族跨树目标/全会话枚举；树内 self/tree 两档零开门〔03 §10.8 可见性分轴——观测轴树内白给〕；CREDENTIALS_NAMESPACE_DENIED 同构先例）',
   },
+  {
+    code: 'SESSION_OBSERVE_SCOPE_INVALID',
+    module: 'obs',
+    description:
+      '活体订阅作用域坏形拒（04 §6 e-2——ctx.events.subscribeSessionLifecycle 的 scope self/tree 档缺 sessionId 锚、或 scope 非三值词面；fail-loud 拒不静默降档——静默升 all 档等价于绕门）',
+  },
 ]);

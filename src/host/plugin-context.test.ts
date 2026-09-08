@@ -6,6 +6,7 @@ import { EventDispatch, Scope } from '../context/index.js';
 import { CommandRegistry, createChannels } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import { createJobRegistry, createSubagentService } from '../subagent/index.js';
+import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
 import type { AuditSink, PluginContextHandle } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
@@ -28,6 +29,7 @@ function assemble(overrides?: {
   hookTimeoutMs?: number;
   opens?: readonly string[];
   auditSink?: AuditSink;
+  sessionLineage?: { isSameTree(a: string, b: string): boolean };
 }): {
   handle: PluginContextHandle;
   dispatch: EventDispatch;
@@ -68,6 +70,7 @@ function assemble(overrides?: {
     ...(overrides?.hookTimeoutMs ? { hookTimeoutMs: overrides.hookTimeoutMs } : {}),
     ...(overrides?.opens !== undefined ? { opens: overrides.opens } : {}),
     ...(overrides?.auditSink !== undefined ? { auditSink: overrides.auditSink } : {}),
+    ...(overrides?.sessionLineage !== undefined ? { sessionLineage: overrides.sessionLineage } : {}),
   });
   return { handle, dispatch, scope, promptSections, triggers, subagents, channels };
 }
@@ -810,5 +813,150 @@ describe('高危面门检挂载（03 §4.6 批 U2——handle 门检面）', () 
   it('门关码已注册错误码册（import 发生才注册——host 域 PLUGIN_ 族）', () => {
     expect(getErrorCodeInfo('PLUGIN_CAPABILITY_DOOR_CLOSED')?.module).toBe('host');
     expect(getErrorCodeInfo('PLUGIN_CAPABILITY_DOOR_CLOSED')?.description).toBeTruthy();
+  });
+});
+
+/* ---------------- 会话活体订阅（04 §6 e-2 观测腿订阅动词） ---------------- */
+
+describe('会话活体订阅（ctx.events.subscribeSessionLifecycle——04 §6 e-2）', () => {
+  /** 本组装配：session/lifecycle 词预注册（装配根预注册位的测试模拟——驱动
+   * 自举双源在 driver.test 域；词汇注册纪律：dispatch.on 未注册词 fail-loud） */
+  function assembleSub(overrides?: Parameters<typeof assemble>[0]) {
+    const assembled = assemble(overrides);
+    if (!assembled.dispatch.isRegistered(SESSION_LIFECYCLE_EVENT)) {
+      assembled.dispatch.registerEventNames([SESSION_LIFECYCLE_EVENT]);
+    }
+    return assembled;
+  }
+
+  it('self 档：锚会话事件透投、他会话滤除（树内白给——零开门零审计）', async () => {
+    const events: unknown[] = [];
+    const { handle, dispatch } = assembleSub();
+    handle.ctx.events.subscribeSessionLifecycle((event) => void events.push(event), {
+      scope: 'self',
+      sessionId: 'anchor-1',
+    });
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'anchor-1', phase: 'run-started' });
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'other-9', phase: 'run-started' });
+    expect(events).toEqual([{ sessionId: 'anchor-1', phase: 'run-started' }]);
+  });
+
+  it('tree 档：isSameTree 判真透投、判假滤除（血缘受局面消费；同 id 特例含于链上溯）', async () => {
+    const events: unknown[] = [];
+    const { handle, dispatch } = assembleSub({
+      sessionLineage: { isSameTree: (a, b) => a.startsWith('t-') && b.startsWith('t-') },
+    });
+    handle.ctx.events.subscribeSessionLifecycle((event) => void events.push(event), {
+      scope: 'tree',
+      sessionId: 't-anchor',
+    });
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 't-anchor', phase: 'run-settled' });
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 't-child', phase: 'run-started' });
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'other-9', phase: 'run-started' });
+    expect(events).toEqual([
+      { sessionId: 't-anchor', phase: 'run-settled' },
+      { sessionId: 't-child', phase: 'run-started' },
+    ]);
+  });
+
+  it('tree 档受局面缺席响亮拒（CONTEXT_SERVICE_MISSING——装配缺陷非插件错）', () => {
+    const { handle } = assembleSub();
+    expectCode(
+      () => handle.ctx.events.subscribeSessionLifecycle(() => undefined, { scope: 'tree', sessionId: 'x' }),
+      'CONTEXT_SERVICE_MISSING',
+    );
+  });
+
+  it('all 档门检：默认关拒 PLUGIN_CAPABILITY_DOOR_CLOSED；开门受理 + 全会话透投', async () => {
+    const events: unknown[] = [];
+    const denied = assembleSub();
+    expectCode(
+      () => denied.handle.ctx.events.subscribeSessionLifecycle(() => undefined),
+      'PLUGIN_CAPABILITY_DOOR_CLOSED',
+    );
+    const granted = assembleSub({ opens: ['sessions.observe-cross'] });
+    granted.handle.ctx.events.subscribeSessionLifecycle((event) => void events.push(event));
+    await granted.dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'any-1', phase: 'run-started' });
+    await granted.dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'any-2', phase: 'run-settled' });
+    expect(events).toHaveLength(2);
+  });
+
+  it('all 档审计恰一笔（受理成功时——逐事件不追加：推送非使用动作）', async () => {
+    const audit: { type: string; data: Record<string, unknown> }[] = [];
+    const { handle, dispatch } = assembleSub({
+      opens: ['sessions.observe-cross'],
+      auditSink: { append: (type, data) => audit.push({ type, data }) },
+    });
+    handle.ctx.events.subscribeSessionLifecycle(() => undefined);
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 's', phase: 'run-started' });
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 's', phase: 'run-settled' });
+    expect(audit).toEqual([
+      {
+        type: 'capability/used',
+        data: {
+          pluginId: 'acme-widgets',
+          capability: 'sessions.observe-cross',
+          verb: 'subscribeSessionLifecycle',
+          scope: 'all',
+        },
+      },
+    ]);
+  });
+
+  it('门关拒笔不落账（拒不记使用——registerUiBackend 同律）', () => {
+    const audit: { type: string; data: Record<string, unknown> }[] = [];
+    const { handle } = assembleSub({ auditSink: { append: (type, data) => audit.push({ type, data }) } });
+    expectCode(() => handle.ctx.events.subscribeSessionLifecycle(() => undefined), 'PLUGIN_CAPABILITY_DOOR_CLOSED');
+    expect(audit).toEqual([]);
+  });
+
+  it('坏形拒 SESSION_OBSERVE_SCOPE_INVALID：非三值词面 / self·tree 缺锚（不静默升降档）', () => {
+    const { handle } = assembleSub();
+    expectCode(
+      () => handle.ctx.events.subscribeSessionLifecycle(() => undefined, { scope: 'global' as never }),
+      'SESSION_OBSERVE_SCOPE_INVALID',
+    );
+    expectCode(
+      () => handle.ctx.events.subscribeSessionLifecycle(() => undefined, { scope: 'self' }),
+      'SESSION_OBSERVE_SCOPE_INVALID',
+    );
+    expectCode(
+      () => handle.ctx.events.subscribeSessionLifecycle(() => undefined, { scope: 'tree' }),
+      'SESSION_OBSERVE_SCOPE_INVALID',
+    );
+    expectCode(
+      () => handle.ctx.events.subscribeSessionLifecycle(() => undefined, { scope: 'self', sessionId: '' }),
+      'SESSION_OBSERVE_SCOPE_INVALID',
+    );
+  });
+
+  it('回卷律：返回退订器即撤；插件作用域 dispose 撤订（effect 挂载——unload 撤订）', async () => {
+    const events: unknown[] = [];
+    const { handle, dispatch, scope } = assembleSub();
+    const off = handle.ctx.events.subscribeSessionLifecycle((event) => void events.push(event), {
+      scope: 'self',
+      sessionId: 'a',
+    });
+    // 第二订阅不持返回器（回卷腿走作用域 dispose——effect 挂载位的正身验证）
+    handle.ctx.events.subscribeSessionLifecycle((event) => void events.push(event), {
+      scope: 'self',
+      sessionId: 'b',
+    });
+    off();
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'a', phase: 'run-started' });
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'b', phase: 'run-started' });
+    expect(events).toEqual([{ sessionId: 'b', phase: 'run-started' }]); // a 已显式退订
+    await scope.dispose(); // effect 回卷——b 随插件作用域撤订
+    await dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'b', phase: 'run-settled' });
+    expect(events).toHaveLength(1);
+  });
+
+  it('装载窗关后拒（PLUGIN_WINDOW_CLOSED——订阅动词同窗律）', () => {
+    const { handle } = assembleSub();
+    handle.closeWindow();
+    expectCode(
+      () => handle.ctx.events.subscribeSessionLifecycle(() => undefined, { scope: 'self', sessionId: 'x' }),
+      'PLUGIN_WINDOW_CLOSED',
+    );
   });
 });

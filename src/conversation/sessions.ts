@@ -271,6 +271,15 @@ export class SessionManager {
     return false;
   }
 
+  /**
+   * 已开会话清单投影（e-2 观测腿——宿主 SessionView deps.liveSessions 消费位；
+   * 结构兼容 obs ObsLiveSessionsFace）。只含进程内在管（durable 未开不在场——
+   * 会话维清单语义 = 进程内活体会话，历史会话归持久层 list）。
+   */
+  listActive(): readonly { sessionId: string; origin: SessionOrigin }[] {
+    return [...this.records.entries()].map(([sessionId, { origin }]) => ({ sessionId, origin }));
+  }
+
   /** 全量拆解（进程收尾序）：逐驱动 dismantle（打断在飞 run）+ 清登记 */
   dispose(): void {
     for (const { driver } of this.records.values()) {

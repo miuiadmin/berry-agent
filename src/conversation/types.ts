@@ -20,6 +20,7 @@ import type {
   AssistantMessage,
   ErrorBucket,
   Message,
+  RunStatus,
   StreamFn,
   ThinkingLevel,
   ToolDefinition,
@@ -215,6 +216,28 @@ export interface ContextTransformInput {
   readonly sessionId: string;
   /** LLM 形消息批（handler 就地追加——注入序：memory/diff → memory/recall → todo 恒最后） */
   readonly messages: Message[];
+}
+
+/**
+ * session/lifecycle 活体事件词（04 §6 在飞状态活体词——e-2 观测腿）。
+ * run 起/终态广播：驱动 kick 起拍 + runTurns finally 终态拍两发、宿主包装层
+ * 按订阅作用域（self|tree|all）过滤派发。**活体不落日志**（dispatch 内存
+ * 直推——job_settled 同律；durable 真源 = 事件流尾条推导〔03 §10.8〕——推送
+ * 是推导的投影非第二真相源）。词汇注册双源幂等：装配根预注册（插件装载期
+ * 订阅可达——boot 先于首会话起跑）在前、驱动构造器自举在后（已注册词跳过
+ * ——CONTEXT_TRANSFORM_EVENT 同律）。
+ */
+export const SESSION_LIFECYCLE_EVENT = 'session/lifecycle';
+
+/** session/lifecycle 载荷（run 起/终态两拍） */
+export interface SessionLifecycleEvent {
+  readonly sessionId: string;
+  /** run-started = kick 起跑；run-settled = runTurns 收口（含崩溃路径） */
+  readonly phase: 'run-started' | 'run-settled';
+  /** run-started 携带：唤醒起跑（后台道——04 §4 合批面） */
+  readonly wake?: true;
+  /** run-settled 携带：终态三值；崩溃路径（无 RunResult 收场）缺席——只报收口不虚构终值 */
+  readonly status?: RunStatus;
 }
 
 /** 重播种产物：重建的 timeline 活数组种子（标准消息——自定义角色是每请求瞬态注入，不进重播种） */

@@ -14,9 +14,10 @@ export type {
   ExecSessionDeps,
   ReseededTimeline,
   RetryPolicyConfig,
+  SessionLifecycleEvent,
   SubmitOptions,
 } from './types.js';
-export { CONTEXT_TRANSFORM_EVENT, DEFAULT_RETRY_POLICY } from './types.js';
+export { CONTEXT_TRANSFORM_EVENT, DEFAULT_RETRY_POLICY, SESSION_LIFECYCLE_EVENT } from './types.js';
 export { reseedTimeline } from './reseed.js';
 export { ConversationDriver } from './driver.js';
 export type { SubmitResult } from './driver.js';

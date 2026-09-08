@@ -27,8 +27,8 @@ import { SessionLog } from '../session/index.js';
 import type { AgentEvent } from '../agent/index.js';
 import { ConversationDriver } from './driver.js';
 import type { ConversationDriverOptions } from './types.js';
-import { CONTEXT_TRANSFORM_EVENT } from './types.js';
-import type { ContextTransformInput } from './types.js';
+import { CONTEXT_TRANSFORM_EVENT, SESSION_LIFECYCLE_EVENT } from './types.js';
+import type { ContextTransformInput, SessionLifecycleEvent } from './types.js';
 import { provideAgentService } from './agent-service.js';
 import { createTodoTool } from './todo.js';
 
@@ -1120,5 +1120,63 @@ describe('ConversationDriver run 终态回调（ctx.agent onRunSettled）', () =
     const result = await driver.submit('问');
     expect(result.status).toBe('completed');
     expect(recorded).toEqual(['completed']);
+  });
+});
+
+/* ---------------- session/lifecycle 活体广播（04 §6 e-2 观测腿） ---------------- */
+
+describe('ConversationDriver session/lifecycle 活体广播', () => {
+  it('构造器自举注册词汇（幂等）：同总线二次构造不撞 EVENT_DUPLICATE', () => {
+    const dispatch = new EventDispatch();
+    makeDriver({ dispatch, scripts: [] });
+    makeDriver({ dispatch, scripts: [] }); // 幂等跳过已注册词——独立装配形双源
+    expect(dispatch.isRegistered(SESSION_LIFECYCLE_EVENT)).toBe(true);
+  });
+
+  it('一 run 两拍：run-started（无 wake 位）→ run-settled（status=completed）', async () => {
+    const dispatch = new EventDispatch();
+    const { driver } = makeDriver({
+      dispatch,
+      scripts: [assistant({ content: [{ type: 'text', text: '答' }] })],
+    });
+    const events: SessionLifecycleEvent[] = [];
+    dispatch.on(SESSION_LIFECYCLE_EVENT, (event) => void events.push(event as SessionLifecycleEvent));
+    await driver.submit('问');
+    expect(events).toEqual([
+      { sessionId: 's-driver', phase: 'run-started' },
+      { sessionId: 's-driver', phase: 'run-settled', status: 'completed' },
+    ]);
+  });
+
+  it('唤醒起跑携 wake 位：backgroundWave 提交的 run-started 带 wake:true', async () => {
+    const dispatch = new EventDispatch();
+    const { driver } = makeDriver({
+      dispatch,
+      scripts: [assistant({ content: [{ type: 'text', text: '答' }] })],
+    });
+    const events: SessionLifecycleEvent[] = [];
+    dispatch.on(SESSION_LIFECYCLE_EVENT, (event) => void events.push(event as SessionLifecycleEvent));
+    await driver.submit('唤醒', { backgroundWake: true });
+    expect(events[0]).toEqual({ sessionId: 's-driver', phase: 'run-started', wake: true });
+    expect(events[1]).toMatchObject({ phase: 'run-settled', status: 'completed' });
+  });
+
+  it('崩溃路径收口：StreamFn 违约抛出 = run-settled 无 status（只报收口不虚构终值）', async () => {
+    const dispatch = new EventDispatch();
+    const { driver } = makeDriver({
+      dispatch,
+      // 违「StreamFn 永不抛」契约的注入——loop 零 try/catch 直传 runTurns，
+      // settled 停留 undefined（finally 面的崩溃档）
+      streamFn: () => {
+        throw new Error('崩溃注入');
+      },
+    });
+    const events: SessionLifecycleEvent[] = [];
+    dispatch.on(SESSION_LIFECYCLE_EVENT, (event) => void events.push(event as SessionLifecycleEvent));
+    await expect(driver.submit('问')).rejects.toThrow('崩溃注入');
+    expect(events).toEqual([
+      { sessionId: 's-driver', phase: 'run-started' },
+      { sessionId: 's-driver', phase: 'run-settled' }, // status 缺席——无 RunResult 不编造
+    ]);
   });
 });

@@ -57,6 +57,8 @@ import type { SessionLog } from '../session/index.js';
 
 import type { HostRuntime } from './runtime.js';
 import type { GoalFace } from './core-plugins.js';
+import { createSessionTools, createSessionView } from '../obs/index.js';
+import type { SessionObserveUsedRecord, SessionView } from '../obs/index.js';
 
 /** 组合根选项（TUI 入口与测试的注入面） */
 export interface ConversationStackOptions {
@@ -100,6 +102,16 @@ export interface ConversationStackOptions {
    * 测试注入计量替身观察阈值触发入参，未来装配覆盖位与 providers/model 同形）
    */
   readonly compaction?: CompactionService;
+  /**
+   * 跨树观测门检接线（e-2 观测腿——03 §4.6 第五枚 sessions.observe-cross 工具
+   * 腿宿主注入位）：getOpens = 开门授予集取值器（v1 装配根注空集——会话→插件
+   * 归因未立，授予面接线挂账 e-4 provenance 落地时呈拍）；onCapabilityUsed =
+   * 开门后逐次审计 seam（05 §1.1——装配根接 audit 单写者位；缺席 = 零审计）。
+   */
+  readonly observeCross?: {
+    readonly getOpens: () => ReadonlySet<string>;
+    readonly onCapabilityUsed?: (record: SessionObserveUsedRecord) => void;
+  };
   /** 警示面（缺省 stderr——驱动护栏与压缩 warn 的落点） */
   readonly warn?: (message: string) => void;
 }
@@ -124,6 +136,12 @@ export interface ConversationStack {
   readonly scope: Scope;
   readonly dispatch: EventDispatch;
   readonly model: string;
+  /**
+   * 会话维视图（e-2 观测腿——SessionView 纯派生读面）：装配根消费位 =
+   * 插件订阅 tree 档过滤（sessionLineage 注入 plugin-boot）。工具族装配在
+   * 栈内 per-session 闭包（不经本面）。
+   */
+  readonly sessionView: SessionView;
   /** 投影拉取（焦点重画与 /history 同源——驱动活体优先，未开回库装载） */
   projectionOf(sessionId: string): Promise<readonly AgentMessage[]>;
   driverOf(sessionId: string): ConversationDriver | undefined;
@@ -192,6 +210,18 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     history: (sessionId) => Promise.resolve(projectionOf(sessionId)),
   });
 
+  // ④½ 会话维视图（e-2 观测腿——SessionView 纯派生读面）：数据三窄面全结构
+  // 兼容直传（store.queryEvents/getSessionRow + manager.listActive 投影——前向
+  // 闭包同 channels 律，首会话起跑时 manager 必已建）；消费位两会话工具族
+  // （durable 形 per-session 闭包）+ 装配根 sessionLineage（订阅 tree 档过滤）
+  const sessionStore = options.runtime.persistence.store;
+  const sessionView = createSessionView({
+    events: sessionStore,
+    sessions: sessionStore,
+    liveSessions: { listActive: () => manager.listActive() },
+    workspaceRoot: workspaceAnchor,
+  });
+
   // ④' 出口治理③ 值基腿活值 provider（04 §7 执行段 2026-09-08 落码定形⑤）：
   // credentials 库 live 读——管道链尾消毒步每次调用现取（工具执行期间新入库
   // 凭证同受覆盖）。单行解密失败跳过不连坐（其余行照常参与——行级隔离）；
@@ -236,6 +266,17 @@ export function createConversationStack(options: ConversationStackOptions): Conv
               getScope: () => options.goalScopeFor?.(sessionId) ?? null,
             })
           : undefined;
+      // 会话维工具族（e-2 观测腿——03 §10.8 恒挂载四件；per-session 闭包
+      // callerSessionId 注入〔todoTool 换装 seam 同构〕；跨树门检输入经
+      // observeCross seam——v1 空集 = 结构性默认关〔归因接线挂账 e-4〕）
+      const sessionTools = createSessionTools({
+        view: sessionView,
+        callerSessionId: sessionId,
+        getOpens: () => options.observeCross?.getOpens() ?? new Set<string>(),
+        ...(options.observeCross?.onCapabilityUsed !== undefined
+          ? { onCapabilityUsed: options.observeCross.onCapabilityUsed }
+          : {}),
+      });
       const assembly = assembleOpenTools({
         sessionId,
         dispatch,
@@ -247,7 +288,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         askApproval: askFace,
         ...(options.allowlist !== undefined ? { allowlist: options.allowlist } : {}),
         ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
-        ...(options.bootTools !== undefined ? { extraTools: options.bootTools } : {}),
+        // 会话维工具族并入扩展位（bootTools 同位——模型可见清单恒在律）
+        extraTools: () => [...(options.bootTools?.() ?? []), ...sessionTools],
         ...(goalTodo !== undefined ? { todoTool: goalTodo } : {}),
         sensitiveValues, // 出口消毒值基腿（栈级单闭包——多会话装配共享，live 读）
       });
@@ -317,6 +359,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     scope,
     dispatch,
     model,
+    sessionView,
     projectionOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
     submitText(sessionId, text, submitOptions) {

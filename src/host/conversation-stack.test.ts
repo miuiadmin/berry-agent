@@ -166,15 +166,26 @@ describe('createConversationStack 装配序', () => {
       systemPrompt: '你是子代理，专注探索',
       shapeTools: (tools) => tools.filter((tool) => tool.name !== 'bash' && tool.name !== 'grep'),
     });
-    // 整形后实面快照（孙代委派的基准面）
-    expect(child.driver.toolNames).toEqual(['read', 'write', 'edit', 'ls', 'find', 'todo']);
+    // 整形后实面快照（孙代委派的基准面；会话维四件恒挂载——e2-4 与 fs/检索/todo 并列）
+    expect(child.driver.toolNames).toEqual([
+      'read',
+      'write',
+      'edit',
+      'ls',
+      'find',
+      'todo',
+      'session_list',
+      'session_read',
+      'session_trace',
+      'session_status',
+    ]);
 
     faux.setResponses([() => messageOf('stop')]);
     const receipt = await stack.submitText(child.sessionId, '探索去');
     expect(receipt).toMatchObject({ status: 'completed' });
 
     // 信封快照（边界制）承载两位：systemPrompt 原始值（快照先于注入）+
-    // toolSchemas = 整形后实面（裸栈 = fs 四 + 检索两 + todo，无 bash）
+    // toolSchemas = 整形后实面（裸栈 = fs 四 + 检索两 + todo + 会话维四件，无 bash）
     const header = child.driver.session.events().find((event) => event.type === 'request/header') as
       { data: { systemPrompt: string; toolSchemas: Array<{ name: string }> } } | undefined;
     expect(header).toBeDefined();
@@ -186,6 +197,10 @@ describe('createConversationStack 装配序', () => {
       'ls',
       'find',
       'todo',
+      'session_list',
+      'session_read',
+      'session_trace',
+      'session_status',
     ]);
     await rt.shutdown();
   });
@@ -444,5 +459,68 @@ describe('阈值触发 usage 真值笔', () => {
     expect(typeof settled[0]!.usage?.input).toBe('number');
     expect(settled[0]!.usage!.input).toBeGreaterThan(0);
     await rt.shutdown();
+  });
+});
+
+/* ---------------- 会话维观测装配（e2-4——sessionView + 工具族 + observeCross seam） ---------------- */
+
+describe('会话维观测装配（e2-4 观测腿接线）', () => {
+  it('sessionView 面在场：进程内在管投影 + isSameTree 同树判真跨树判假', () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    expect(stack.sessionView.listSessions()).toEqual([]); // 首启前空
+    const a = stack.openStartupSession(rigWorkspace());
+    const b = stack.openStartupSession(rigWorkspace()); // 同进程异树
+    const ids = stack.sessionView
+      .listSessions()
+      .map((row) => row.id)
+      .sort();
+    expect(ids).toEqual([a.sessionId, b.sessionId].sort());
+    expect(stack.sessionView.isSameTree(a.sessionId, a.sessionId)).toBe(true); // 同 id 特例
+    expect(stack.sessionView.isSameTree(a.sessionId, b.sessionId)).toBe(false); // 异根两树
+  });
+
+  it('工具族恒挂载：durable 会话 toolNames 含四件（与 bootTools 并列 extraTools 位）', () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    const names = stack.driverOf(session.sessionId)!.toolNames!;
+    for (const tool of ['session_list', 'session_read', 'session_trace', 'session_status']) {
+      expect(names).toContain(tool);
+    }
+  });
+
+  it('self 观测白给：faux 工具批 session_status（无参 = 自身坐标）正常收口非错面', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    faux.setResponses([() => toolCallOf('t1', 'session_status', {}), () => messageOf('stop')]);
+    const receipt = await stack.submitText(session.sessionId, '我在哪');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    const results = stack
+      .driverOf(session.sessionId)!
+      .session.events()
+      .filter((event) => event.type === 'tool/result')
+      .map((event) => event.data as { error?: true });
+    expect(results).toHaveLength(1);
+    expect(results[0]!.error).toBeUndefined(); // 树内 self 白给——零门检零错误面
+  });
+
+  it('跨树默认关（v1 结构性空集）：session_read 跨树目标 → [SESSION_OBSERVE_DENIED] 错面', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const a = stack.openStartupSession(rigWorkspace());
+    const b = stack.openStartupSession(rigWorkspace()); // 异树目标
+    faux.setResponses([() => toolCallOf('t1', 'session_read', { sessionId: b.sessionId }), () => messageOf('stop')]);
+    const receipt = await stack.submitText(a.sessionId, '看别的会话');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    const results = stack
+      .driverOf(a.sessionId)!
+      .session.events()
+      .filter((event) => event.type === 'tool/result')
+      .map((event) => event.data as { content: unknown; error?: true });
+    expect(results).toHaveLength(1);
+    expect(results[0]!.error).toBe(true); // 门拒 = 工具错面（run 不中断）
+    expect(JSON.stringify(results[0]!.content)).toContain('SESSION_OBSERVE_DENIED');
   });
 });

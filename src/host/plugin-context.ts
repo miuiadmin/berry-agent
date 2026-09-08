@@ -47,6 +47,8 @@ import type { CommandHandler } from '../channels/index.js';
 import { AGENT_TOOL_PREFIX } from '../subagent/types.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { Disposer, EventDispatch, Scope, WaterfallListener } from '../context/index.js';
+import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
+import type { SessionLifecycleEvent } from '../conversation/index.js';
 import type { PromptSectionBuilder, PromptSectionRegistry } from './prompt-sections.js';
 import type { TriggerDef } from './triggers.js';
 
@@ -163,7 +165,22 @@ export interface PluginContext {
   /** 模型层 provider 注册（后写胜出 upsert——执法在 LlmRuntime） */
   readonly llm: { registerProvider(provider: ProviderInput): () => void };
   /** durable 事件词汇注册（拒绝式且**不可逆**——进程生命周期词汇，无 disposer） */
-  readonly events: { registerSessionEventType(meta: EventTypeMeta): void };
+  readonly events: {
+    registerSessionEventType(meta: EventTypeMeta): void;
+    /**
+     * 跨会话活体订阅（04 §6 e-2——session/lifecycle run 起/终态广播，作用域
+     * 三档）：self/tree 档零开门（锚 sessionId 必填——self = 锚会话自身、
+     * tree = 锚会话血缘树〔parent_id 链同根〕）；all 档走高危面
+     * sessions.observe-cross 门检（拉取/订阅一枚统摄——防「查询走门、订阅
+     * 白给」旁路）+ 受理成功落 capability/used 审计一次。回卷律：装载窗注册
+     * 即挂 scope effect（LIFO——unload 自动撤订）。**活体不落日志**（durable
+     * 真源 = 事件流尾条推导 03 §10.8——本订阅是推导的投影消费面）。
+     */
+    subscribeSessionLifecycle(
+      handler: (event: SessionLifecycleEvent) => void,
+      opts?: { scope?: 'self' | 'tree' | 'all'; sessionId?: string },
+    ): Disposer;
+  };
   /** 自定义消息角色注册（拒绝式） */
   readonly agent: {
     registerMessageRole(role: string, definition: MessageRoleDefinition): () => void;
@@ -217,6 +234,12 @@ export interface PluginContextOptions {
    * 替身零成本缺席——诚实缺席律）。
    */
   readonly auditSink?: AuditSink;
+  /**
+   * 会话血缘判定面（e-2 观测腿——04 §6 订阅 tree 档过滤消费；真身 = 装配根
+   * 注入 SessionView.isSameTree〔05 §9 parent_id 链单源〕）。缺席 = tree 档
+   * 订阅抛 CONTEXT_SERVICE_MISSING（装配缺陷响亮——self/all 档不消费本面）。
+   */
+  readonly sessionLineage?: { isSameTree(a: string, b: string): boolean };
   /**
    * provide 委派位（共享根作用域——本件只过窗/频率闸，撞名与 stale 执法归
    * Scope.provide）。缺席 = ctx.provide 抛 CONTEXT_SERVICE_MISSING（装配缺陷响亮）。
@@ -567,6 +590,71 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         // 不可逆动词：词汇注册进程生命周期（dispatch 同生命周期——open-tools 批已裁）；
         // 返回 void 无 disposer 是§2.2「每个注册动词返回 disposer 或记入 ctx.effect」的明文例外
         registerEventType(meta);
+      },
+      subscribeSessionLifecycle(
+        handler: (event: SessionLifecycleEvent) => void,
+        opts?: { scope?: 'self' | 'tree' | 'all'; sessionId?: string },
+      ): Disposer {
+        assertWindow('ctx.events.subscribeSessionLifecycle');
+        countAction();
+        // 局部名避开外层 scope（Scope 根实例）——观测作用域词面
+        const observeScope = opts?.scope ?? 'all'; // 插件无「本会话」——缺省档唯一无锚形 all
+        // 作用域坏形 fail-loud（04 §6 e-2 定形）：非三值词面 / self·tree 档锚
+        // 缺席——静默升 all 档等价绕门、静默降 self 档等价丢事件，两向都拒
+        if (observeScope !== 'self' && observeScope !== 'tree' && observeScope !== 'all') {
+          throw new BaseError(
+            'SESSION_OBSERVE_SCOPE_INVALID',
+            `订阅作用域「${String(observeScope)}」非三值词面 self|tree|all（插件 ${pluginId}——04 §6 作用域参数闭集）`,
+          );
+        }
+        const anchorId = observeScope === 'all' ? undefined : opts?.sessionId;
+        if (observeScope !== 'all' && (anchorId === undefined || anchorId === '')) {
+          throw new BaseError(
+            'SESSION_OBSERVE_SCOPE_INVALID',
+            `订阅作用域 ${observeScope} 需 sessionId 锚（插件 ${pluginId}——self 档 = 锚会话自身、tree 档 = 锚会话血缘树；缺锚不可过滤）`,
+          );
+        }
+        // all 档门检 + 审计（sessions.observe-cross 高危面——拉取/订阅一枚统摄；
+        // 审计一次于受理成功〔registerUiBackend 同形〕非逐事件——推送非使用动作）
+        if (observeScope === 'all') {
+          assertDoor('sessions.observe-cross');
+          options.auditSink?.append('capability/used', {
+            pluginId,
+            capability: 'sessions.observe-cross',
+            verb: 'subscribeSessionLifecycle',
+            scope: 'all',
+          });
+        }
+        // tree 档过滤消费血缘判定面（装配根 SessionView.isSameTree 单源）
+        const lineage =
+          observeScope === 'tree'
+            ? required(options.sessionLineage, 'sessionLineage', 'ctx.events.subscribeSessionLifecycle')
+            : undefined;
+        const unsubscribe = dispatch.on(SESSION_LIFECYCLE_EVENT, (event) => {
+          const lifecycle = event as SessionLifecycleEvent;
+          if (observeScope === 'all') {
+            handler(lifecycle);
+            return;
+          }
+          // self 档：同 id 判定；tree 档：同 id 特例天然含于 isSameTree（链上溯）。
+          // anchorId 守卫 = 类型收窄位（受理时已验非空——此处恒真，不重复执法）
+          if (lifecycle.sessionId === anchorId) {
+            handler(lifecycle);
+            return;
+          }
+          if (
+            observeScope === 'tree' &&
+            anchorId !== undefined &&
+            lineage !== undefined && // 类型收窄位（tree 档受理时 lineage 必经 required——恒真）
+            lineage.isSameTree(lifecycle.sessionId, anchorId)
+          ) {
+            handler(lifecycle);
+          }
+        });
+        // 订阅回卷律（04 §6——unload 撤订）：LIFO effect 挂插件作用域（effect
+        // 形参 = 注册函数返退订闭包；重复退订幂等——splice indexOf 二跑 no-op）
+        scope.effect(() => unsubscribe);
+        return unsubscribe;
       },
     },
     agent: {

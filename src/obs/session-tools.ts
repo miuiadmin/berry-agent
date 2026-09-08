@@ -46,8 +46,8 @@ export interface SessionToolsDeps {
   readonly view: SessionView;
   /** 调用方会话 id（可见性分轴锚——per-session 闭包） */
   readonly callerSessionId: string;
-  /** 启用清单 opens 取值器（宿主装配根注入——高危面门检输入） */
-  readonly getOpens: () => Set<string>;
+  /** 启用清单 opens 取值器（宿主装配根注入——高危面门检输入；只读集契约） */
+  readonly getOpens: () => ReadonlySet<string>;
   /** capability/used 审计 seam（05 §1.1——装配位接线，缺席 = 零审计） */
   readonly onCapabilityUsed?: (record: SessionObserveUsedRecord) => void;
 }
