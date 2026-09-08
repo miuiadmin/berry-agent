@@ -52,6 +52,7 @@ import type { PluginBootHandle } from './plugin-boot.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
+import { createIssueSessionFactory } from './issue-session.js';
 import { createDelegationSessionTracker, createInProcessSubagentProvider } from './subagent-factory.js';
 import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactory } from './triggers.js';
 // 批 19e HTTP 面族接线：sdk 面工厂（件承载真身）+ issue 并行帽常量 +
@@ -344,6 +345,20 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtimeNow.persistence.store.getCredential(HOST_NAMESPACE, ISSUE_WEBHOOK_SECRET_NAME)?.apiKey ??
       (env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== '' ? env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET : undefined);
 
+    // —— issue headless 会话真工厂（成熟度缺口 #5——04 §5 停靠/唤醒腿的
+    // 生产承载；subagent-factory 同族 in-process 形）：canAfford 窄面注入
+    // background 档日池判（词面独立律——工厂不自持预算知识）；warn 走宿主
+    // logger。closer 注册序即 drain 序（注册序串行）：conversation-manager
+    // closer 先拆全部驱动（在飞 run 协作中止 → runRound 自然收口 failed
+    // 『run 被外部中止』），本 closer 后到——停靠项 resolve paused（retain
+    // 语义：worktree/授予全保留归 orphanScan 重入），dismantle 幂等双跑无害
+    const issueSessionFactory = createIssueSessionFactory({
+      stack,
+      canAfford: () => stack.llm.canAfford('background'),
+      warn: (message) => logger.warn(message),
+    });
+    runtime.registerCloser({ label: 'issue-session-face', fn: () => Promise.resolve(issueSessionFactory.dispose()) });
+
     // —— session/lifecycle 活体词预注册（e2-4——04 §6 会话活体广播）：插件
     // 装载期订阅（ctx.events.subscribeSessionLifecycle）先于首会话起跑——驱动
     // 构造器自举够不着 boot 时点，装配根预注册兜底（job_settled 同律；驱动
@@ -482,9 +497,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             // issue 五位：state = store_state 三法真身直传（不自建账本——
             // 宪章二）；budget = 04 §5 日池判适配（background 档——停靠不
             // 落终态语义归件内）；token/secret = 凭证库优先 env 回落（c-5
-            // 迁移——03 §10.9 优先级律，上方闭包单源；session seam 挂账缺席
-            // （起会改道 ctx.triggers.register 随 issue 件扩展批）→ issue 件
-            // 零装载诚实缺席
+            // 迁移——03 §10.9 优先级律，上方闭包单源）；session = headless
+            // 会话真工厂（成熟度缺口 #5——主闸三起会面接线，生产面件装载
+            // 解锁）
             issueState: runtimeNow.persistence.store,
             issueBudget: {
               canAffordIssue: () =>
@@ -492,6 +507,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                   ? { ok: true }
                   : { ok: false, reason: '当日后台预算池尽（04 §5 停靠待唤醒——不落终态）' },
             },
+            issueSession: issueSessionFactory,
             ...(issueToken !== undefined && issueToken !== '' ? { issueGithubToken: issueToken } : {}),
             ...(issueSecret !== undefined && issueSecret !== '' ? { issueWebhookSecret: issueSecret } : {}),
             // —— credentials 人面命令两 seam（c-5——03 §10.9 写入面）——

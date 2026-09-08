@@ -134,7 +134,7 @@ describe('事件词汇注册表', () => {
 });
 
 describe('source 归因闭集判别（05 §3.1）', () => {
-  it('五字面量各归其位', () => {
+  it('六字面量各归其位', () => {
     expect(parseEventSource('user')).toEqual({ kind: 'user', raw: 'user', treatedAsUser: true });
     expect(parseEventSource('schedule')).toEqual({ kind: 'schedule', raw: 'schedule', treatedAsUser: true });
     expect(parseEventSource('subagent-settled')).toEqual({
@@ -147,6 +147,14 @@ describe('source 归因闭集判别（05 §3.1）', () => {
     expect(parseEventSource('subagent-approval-pending')).toEqual({
       kind: 'subagent-approval-pending',
       raw: 'subagent-approval-pending',
+      treatedAsUser: true,
+    });
+    // 预算扩展唤醒（04 §5 第六字面量——2026-09-06 技术调研消化批增补、代码侧
+    // 漏落随成熟度缺口 #5 唤醒接线批补齐）：与 schedule 同形（机器注入的
+    // 起跑输入位）——投影同视用户话语
+    expect(parseEventSource('budget-extended')).toEqual({
+      kind: 'budget-extended',
+      raw: 'budget-extended',
       treatedAsUser: true,
     });
     // compaction 是摘要载体：不以用户话语位展开

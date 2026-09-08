@@ -302,8 +302,17 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // ⑤ SessionManager：DriverFactory 装配注入族全接线（model = per-fresh-session
   // 覆盖 ?? 栈缺省——create init.model 透传位，触发器 starter 载体，C 批 C-3；
   // systemPrompt/shapeTools/askApproval = 批 19c-1 per-session 装配覆盖通道——
-  // in-process 子代理工厂消费位：系统提示覆盖、派生面白名单整形、审批升父面）
-  const createDriver: DriverFactory = ({ session, model: sessionModel, systemPrompt, shapeTools, askApproval }) => {
+  // in-process 子代理工厂消费位：系统提示覆盖、派生面白名单整形、审批升父面；
+  // extraTools = 会话维追加工具面（成熟度缺口 #5——issue 起会腿消费位：件注册
+  // 的只读工具面经 open 域管道注册位并入，真三段管道零旁路）
+  const createDriver: DriverFactory = ({
+    session,
+    model: sessionModel,
+    systemPrompt,
+    shapeTools,
+    askApproval,
+    extraTools,
+  }) => {
     const sessionId = session.sessionId;
     // 审批桥：driver 与 open 域工具共用同一 per-session ask 面（07 §4.3 提问队列）；
     // 工厂注入覆盖在场时胜出（委派边界①——子会话审批落父会话呈现面，04 §10）
@@ -378,9 +387,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         ...(options.allowlist !== undefined ? { allowlist: options.allowlist } : {}),
         ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
         // 会话维工具族并入扩展位（bootTools 同位——模型可见清单恒在律）；
-        // 操控三件同位并入（e-4——恒挂载，门检在受理器内执法）
+        // 操控三件同位并入（e-4——恒挂载，门检在受理器内执法）；
+        // extraTools 会话维追加位（缺口 #5——issue 工具面经管道注册并入，
+        // boot 全局层之后、会话族之前：宿主全局面 → 本会话编排面 → 观测族）
         extraTools: () => [
           ...(options.bootTools?.() ?? []),
+          ...(extraTools?.() ?? []),
           ...sessionTools,
           ...createControlTools({ callerSessionId: sessionId, control: sessionsControl }),
         ],

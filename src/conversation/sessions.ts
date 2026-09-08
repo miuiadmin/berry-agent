@@ -21,7 +21,13 @@
  * 装配注入族归 host 装配根闭包，本件不持 LLM 边界任何依赖）。
  */
 import type { EventDispatch } from '../context/index.js';
-import type { AgentTool, ApprovalAskAnswer, ApprovalAskRequest, SessionOrigin } from '../contracts/index.js';
+import type {
+  AgentTool,
+  ApprovalAskAnswer,
+  ApprovalAskRequest,
+  SessionOrigin,
+  ToolDefinition,
+} from '../contracts/index.js';
 import type { Persistence, SessionRow } from '../persist/index.js';
 import { forkPrefix, isSeededPrefix, recoverClosers } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
@@ -72,6 +78,15 @@ export type DriverFactory = (input: {
    * 通道队列；在场时胜出（子代理形 = 父会话队列 + 挂起通知注入）。
    */
   readonly askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+  /**
+   * 会话维追加工具面（成熟度缺口 #5——issue 起会腿消费位）：ToolDefinition
+   * 清单经会话装配并入 open 域管道注册位（真三段管道——守门/审计/消毒与
+   * 驱动层同律，零旁路）。纯内存载体同 model 律：不进 durable 行、open/resume
+   * 不携带；缺省 = 无追加。与 shapeTools 分立两通道：shapeTools 整形**既有**
+   * 面、extraTools 追加**新**面（追加位经管道注册非直拼 AgentTool——插件
+   * 工具定义无执行器自装路径）。
+   */
+  readonly extraTools?: () => readonly ToolDefinition[];
 }) => ConversationDriver;
 
 /** 已开会话回执（create/open 共形） */
@@ -137,7 +152,7 @@ export class SessionManager {
     return this.persistence.listSessions(options);
   }
 
-  /** 新开会话（origin 缺省普通对话；model/systemPrompt/shapeTools/askApproval 为本会话装配覆盖——纯内存载体，批 19c-1 子代理通道同 model 律） */
+  /** 新开会话（origin 缺省普通对话；model/systemPrompt/shapeTools/askApproval/extraTools 为本会话装配覆盖——纯内存载体，批 19c-1 子代理通道同 model 律） */
   create(
     init: {
       origin?: SessionOrigin;
@@ -147,6 +162,7 @@ export class SessionManager {
       systemPrompt?: string;
       shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
       askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+      extraTools?: () => readonly ToolDefinition[];
     } = {},
   ): OpenedSession {
     const origin = init.origin ?? 'conversation';
@@ -308,6 +324,7 @@ export class SessionManager {
       systemPrompt?: string;
       shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
       askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
+      extraTools?: () => readonly ToolDefinition[];
     } = {},
   ): OpenedSession {
     const driver = this.createDriver({
@@ -318,6 +335,7 @@ export class SessionManager {
       ...(overrides.systemPrompt !== undefined ? { systemPrompt: overrides.systemPrompt } : {}),
       ...(overrides.shapeTools !== undefined ? { shapeTools: overrides.shapeTools } : {}),
       ...(overrides.askApproval !== undefined ? { askApproval: overrides.askApproval } : {}),
+      ...(overrides.extraTools !== undefined ? { extraTools: overrides.extraTools } : {}),
     });
     this.records.set(log.sessionId, { driver, origin });
     return { sessionId: log.sessionId, driver, origin };

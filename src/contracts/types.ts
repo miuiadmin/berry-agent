@@ -42,7 +42,7 @@ export interface SessionEvent<T = unknown> {
 
 /**
  * user/message 的 source 归因词汇闭集（05 §3.1 表全列）：
- * 五字面量 ∪ 两前缀模板串。TS 模板字面量类型即闭集执法——已知前缀的
+ * 六字面量 ∪ 三前缀模板串。TS 模板字面量类型即闭集执法——已知前缀的
  * 任意后缀（`plugin:未来插件`）类型合法，语义按前缀行展开。
  */
 export type EventSource =
@@ -51,6 +51,7 @@ export type EventSource =
   | 'schedule' // 挂钟调度触发（scheduler 插件注入的到点输入）
   | 'subagent-settled' // 委派子会话结算回流
   | 'subagent-approval-pending' // background 委派子会话审批挂起通知（04 §10——UserMessage 注入位，纯信息位应答权钉死用户；2026-09-06 技术调研消化批增补、遗漏审计批回填）
+  | 'budget-extended' // 预算扩展唤醒（04 §5 预算预警三档——日池恢复/提额后机器代落的 durable 唤醒输入，起跑/续跑全部停靠 run；与 schedule 同形：机器注入的输入位，投影同视用户话语。05 §3.1 第六字面量〔2026-09-06 技术调研消化批增补——代码侧漏落随成熟度缺口 #5 唤醒接线批补齐〕）
   | 'compaction' // 压缩摘要载体（§2.1）
   | `plugin:${string}` // 插件注入的受控输入（经受理制写面）——投影不视为用户话语
   | `session:${string}`; // 跨会话操控注入（03 §2.2 第十一面 send）——模型工具道发起时宿主受理面按调用方身份盖章、前缀自描述送话会话 id（审计免查表）；投影不视为用户话语〔plugin 同律——插件服务道发起归 plugin: 既有前缀，调用方身份单源〕；2026-09-08 e-4 落码批（05 §3.1 前缀模板三行——e-1 规范先行批增行兑现）
@@ -62,6 +63,7 @@ export type EventSourceKind =
   | 'schedule'
   | 'subagent-settled'
   | 'subagent-approval-pending'
+  | 'budget-extended'
   | 'compaction'
   | 'plugin'
   | 'session';
@@ -81,12 +83,13 @@ export interface ParsedEventSource {
   treatedAsUser: boolean;
 }
 
-/** 字面量五值 → 归一化种类映射（前缀型经 startsWith 归并） */
+/** 字面量六值 → 归一化种类映射（前缀型经 startsWith 归并） */
 const LITERAL_SOURCE_KINDS: Readonly<Record<string, EventSourceKind>> = {
   user: 'user',
   schedule: 'schedule',
   'subagent-settled': 'subagent-settled',
   'subagent-approval-pending': 'subagent-approval-pending',
+  'budget-extended': 'budget-extended',
   compaction: 'compaction',
 };
 
@@ -112,12 +115,14 @@ export function parseEventSource(source: string): ParsedEventSource {
   if (literal) {
     // compaction 是摘要载体：不是人说的——投影位与 plugin 同判 false；
     // subagent-approval-pending 与 subagent-settled 同通道同型（04 §10
-    // UserMessage 注入位）——投影同视用户话语
+    // UserMessage 注入位）——投影同视用户话语；budget-extended 与 schedule
+    // 同形（机器注入的起跑输入位，05 §3.1 第六字面量）——投影同视用户话语
     const treatedAsUser =
       literal === 'user' ||
       literal === 'schedule' ||
       literal === 'subagent-settled' ||
-      literal === 'subagent-approval-pending';
+      literal === 'subagent-approval-pending' ||
+      literal === 'budget-extended';
     return { kind: literal, raw: source, treatedAsUser };
   }
   // 未知字面量：旧日志向前兼容——按 user 同视（读侧宽容，append 侧严进）

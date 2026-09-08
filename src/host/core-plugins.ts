@@ -1246,9 +1246,9 @@ function makeObsPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * 词面（token/webhook secret——凭证盒未立前 env 载体先行）。
  *
  * 主闸链（任一缺席 = 件零装载——诚实缺席律）：config 在场（缺省无编排
- * 面）→ GitHub token → session seam（挂账：起会接线改道 ctx.triggers.
- * register 随 issue 件扩展批）→ scheduler/jobs 前件 → state/budget
- * seam。config 在场但坏形 = 响亮拒 ISSUE_CONFIG_INVALID 行级装载失败
+ * 面）→ GitHub token → session seam（成熟度缺口 #5——headless 会话真工厂
+ * createIssueSessionFactory 装配根已接线）→ scheduler/jobs 前件 → state/
+ * budget seam。config 在场但坏形 = 响亮拒 ISSUE_CONFIG_INVALID 行级装载失败
  * （/reload 时刻可修——mcp/browser 同律）。
  */
 function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
@@ -1260,7 +1260,7 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
       const token = deps.issueGithubToken;
       if (token === undefined || token === '') return; // 主闸二——数据源凭证缺席零装载
       const session = deps.issueSession;
-      if (session === undefined) return; // 主闸三——起会面未接线零装载（挂账注）
+      if (session === undefined) return; // 主闸三——起会面未接线零装载（装配根常在——缺席即诊断形）
       const sched = context.tryGet<SchedulerFace>('scheduler');
       const jobs = context.tryGet<IssueJobsFace>(JOBS_SERVICE_NAME);
       const state = deps.issueState;

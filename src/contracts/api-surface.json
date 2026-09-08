@@ -222,9 +222,9 @@
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "user/message 的 source 归因词汇闭集（05 §3.1 表全列）：五字面量 ∪ 两前缀模板串",
+      "desc": "user/message 的 source 归因词汇闭集（05 §3.1 表全列）：六字面量 ∪ 三前缀模板串",
       "kind": "type",
-      "sig": "8c1e4b9ef8eb8a0c"
+      "sig": "4b762ab725c557f8"
     },
     {
       "symbol": "EventSourceKind",
@@ -233,7 +233,7 @@
       "since": "1.0",
       "desc": "source 归一化种类（前缀型归并到 kind；字面量一一对应）",
       "kind": "type",
-      "sig": "df885a6a5c5c4d6a"
+      "sig": "8cfb9fde8b34bf8d"
     },
     {
       "symbol": "EventTypeMeta",
