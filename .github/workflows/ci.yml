@@ -1,0 +1,83 @@
+# CI 门禁（首笔 = 四门禁 + 公开仓配套面在场锁）
+#
+# - 四门禁：typecheck / test / lint:topology / format:check——与提交前本地
+#   门禁同源同令，逐门禁分立 job（并行跑 + 单门禁失败独立可见）；
+# - 配套面在场锁：SECURITY.md / CODEOWNERS / 中文问题模板三件被误删或清空
+#   时，第一道推流即红（零依赖纯文件检查，最快出结果）；
+# - `npm audit --omit=dev` / release 演习 job / 双 OS 矩阵随首发节奏接入，
+#   本档只保基线门禁。
+#
+# 平台注记：单 OS（ubuntu-latest）起步。测试面平台分支均自适应（sandbox
+# 默认链按平台断言、PTY 用例按 python3 可用性探测跳过），Linux 上全绿路径
+# 已核；macOS 腿随双 OS 矩阵接入。
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  # 公开仓配套面在场锁——不装依赖，纯文件检查
+  repo-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: 配套面在场锁（缺席或空即红）
+        run: |
+          set -eu
+          fail=0
+          for f in SECURITY.md .github/CODEOWNERS .github/ISSUE_TEMPLATE/bug-report.md; do
+            if [ ! -s "$f" ]; then
+              echo "::error file=$f::配套面文件缺席或为空：$f"
+              fail=1
+            fi
+          done
+          if [ "$fail" -eq 0 ]; then
+            echo "配套面三件齐（SECURITY.md / CODEOWNERS / 中文问题模板）"
+          fi
+          exit $fail
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:topology
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
