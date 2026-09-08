@@ -18,7 +18,7 @@
 
 import { BaseError } from '../contracts/index.js';
 import type { AllowlistDraft, ApprovalOutcome, ApprovalRequest, SandboxBackend, SandboxMode } from './types.js';
-import { deriveWritableRoots } from './roots.js';
+import { canonicalPath, deriveWritableRoots } from './roots.js';
 import { sensitiveReadFiles } from './sensitive.js';
 // 平台链引用（函数体内才调用，无顶层互调——与后端文件的双向引用安全）
 import { createSeatbeltBackend } from './seatbelt.js';
@@ -46,6 +46,13 @@ export interface SandboxPolicy {
    * 「未携带」语义分立）。
    */
   readonly denyReadFiles?: readonly string[];
+  /**
+   * 写 deny 集显式覆盖（canonical 绝对路径——04 §252 腿二：bash 非白名单
+   * 形的 workspace `.git` 写遮蔽等）。服务侧 dataDir 在场时**恒并入**数据
+   * 目录条（04 §7「任何档恒不可写」的 bash 腿——与读侧「未携带才补位」
+   * 不同：写侧是平台底线不可关，调用方携带值与 enrich 取并集去重）。
+   */
+  readonly denyWritePaths?: readonly string[];
 }
 
 /**
@@ -150,14 +157,29 @@ export function createSandboxService(opts: SandboxServiceOptions = {}): SandboxS
   const probeCache = new Map<string, boolean>();
 
   /**
-   * 策略读 deny enrich：未显式携带 denyReadFiles 且装配持有 dataDir 时，
-   * 以敏感件集单源补位（04 §7 读侧 carve-out 的 profile 腿数据源）。显式
-   * 携带（含空数组）恒胜出——测试/宿主覆盖位不与单源打架。
+   * 策略 enrich：读 deny 单源补位 + 数据目录写 deny 恒并入。
+   * - 读侧（04 §7）：未显式携带 denyReadFiles 且装配持有 dataDir 时，以敏
+   *   感件集单源补位。显式携带（含空数组）恒胜出——测试/宿主覆盖位不与
+   *   单源打架。
+   * - 写侧（04 §7/§13「模型不可自授」的 bash 腿）：dataDir 在场即无条件
+   *   并入 denyWritePaths——danger 档 allow-default 下 `> ~/.berry-agent/
+   *   allowlist.json` 自授面此前敞门，本条封死；恒 = 平台底线不交装配
+   *   裁量，调用方携带值与 enrich 取并集去重。
    */
-  const enrichPolicy = (policy: SandboxPolicy): SandboxPolicy =>
-    policy.denyReadFiles === undefined && opts.dataDir != null
-      ? { ...policy, denyReadFiles: sensitiveReadFiles(opts.dataDir) }
-      : policy;
+  const enrichPolicy = (policy: SandboxPolicy): SandboxPolicy => {
+    let enriched = policy;
+    if (enriched.denyReadFiles === undefined && opts.dataDir != null) {
+      enriched = { ...enriched, denyReadFiles: sensitiveReadFiles(opts.dataDir) };
+    }
+    if (opts.dataDir != null) {
+      const dataDirCanonical = canonicalPath(opts.dataDir);
+      const existing = enriched.denyWritePaths ?? [];
+      if (!existing.includes(dataDirCanonical)) {
+        enriched = { ...enriched, denyWritePaths: [...existing, dataDirCanonical] };
+      }
+    }
+    return enriched;
+  };
 
   /** 单个后端的可用性判定（无 probe = 视为可用；结果缓存一次） */
   const isAvailable = (backend: SandboxBackend): boolean => {

@@ -430,3 +430,108 @@ describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②�
     }
   });
 });
+
+/* ---------------- 写 deny 与 dataDir enrich（04 §252 腿二——成熟度缺口 #9） ---------------- */
+
+describe('写 deny / dataDir enrich（04 §252 腿二 + 04 §7 数据目录写腿）', () => {
+  const WS_GIT = '/ws/.git';
+
+  it('seatbelt：写 deny 行末位追加——压过 workspace-write 逐根 allow（last-match-wins）', () => {
+    const lines = seatbeltProfile({
+      mode: 'workspace-write',
+      workspaceRoot: '/ws',
+      writableRoots: ['/ws'],
+      denyWritePaths: [WS_GIT],
+    }).split('\n');
+    expect(lines.slice(-1)).toEqual([`(deny file-write* (subpath "${WS_GIT}"))`]);
+    // 读 deny 行与写 deny 行同在：写行恒最末
+    const both = seatbeltProfile({
+      mode: 'workspace-write',
+      workspaceRoot: '/ws',
+      writableRoots: ['/ws'],
+      denyReadFiles: ['/data/secret.key'],
+      denyWritePaths: [WS_GIT],
+    }).split('\n');
+    expect(both.slice(-2)).toEqual([
+      '(deny file-read* (literal "/data/secret.key"))',
+      `(deny file-write* (subpath "${WS_GIT}"))`,
+    ]);
+  });
+
+  it('seatbelt danger 形：写 deny 行同样末位（底线不交档位——allow default 之后）', () => {
+    expect(seatbeltProfile({ mode: 'danger', workspaceRoot: '/ws', denyWritePaths: [WS_GIT] }).split('\n')).toEqual([
+      '(version 1)',
+      '(allow default)',
+      `(deny file-write* (subpath "${WS_GIT}"))`,
+    ]);
+  });
+
+  it('bwrap：写 deny 遮蔽行末位追加 --ro-bind-try <path> <path>（后位遮蔽既有 bind）', () => {
+    expect(
+      bwrapArgs({ mode: 'workspace-write', workspaceRoot: '/ws', writableRoots: ['/ws'], denyWritePaths: [WS_GIT] }),
+    ).toEqual([...BWRAP_BASE, '--bind', '/ws', '/ws', '--ro-bind-try', WS_GIT, WS_GIT]);
+    // 读遮蔽与写遮蔽同在：写行恒最末
+    expect(
+      bwrapArgs({
+        mode: 'workspace-write',
+        workspaceRoot: '/ws',
+        writableRoots: ['/ws'],
+        denyReadFiles: ['/data/secret.key'],
+        denyWritePaths: [WS_GIT],
+      }),
+    ).toEqual([
+      ...BWRAP_BASE,
+      '--bind',
+      '/ws',
+      '/ws',
+      '--ro-bind-try',
+      '/dev/null',
+      '/data/secret.key',
+      '--ro-bind-try',
+      WS_GIT,
+      WS_GIT,
+    ]);
+  });
+
+  it('bwrap danger 形：--bind / / 后写遮蔽同律（danger 不豁免）', () => {
+    expect(bwrapArgs({ mode: 'danger', workspaceRoot: '/ws', denyWritePaths: [WS_GIT] })).toEqual([
+      '--bind',
+      '/',
+      '/',
+      '--dev',
+      '/dev',
+      '--proc',
+      '/proc',
+      '--unshare-pid',
+      '--die-with-parent',
+      '--ro-bind-try',
+      WS_GIT,
+      WS_GIT,
+    ]);
+  });
+
+  it('confine enrich：dataDir 写 deny 恒并入（不可关——danger 档 allow-default 下自授面封死）；携带值取并集去重', () => {
+    const seen: SandboxPolicy[] = [];
+    const recorder: SandboxBackend = {
+      id: 'recorder-w',
+      enforcement: 'full',
+      denialSignatures: [],
+      runnerFailureRules: [],
+      wrap: (argv, policy) => {
+        seen.push(policy);
+        return [...argv];
+      },
+    };
+    const service = createSandboxService({ backends: [recorder], dataDir: '/data' });
+    // 未携带 → 单条注入（canonical 化）
+    service.confine(['ls'], { mode: 'danger', workspaceRoot: '/ws' });
+    expect(seen[0]!.denyWritePaths).toEqual(['/data']); // /data 不存在——canonical 回退原样
+    // 调用方携带 → 并集去重（不覆盖、不重复）
+    service.confine(['ls'], { mode: 'danger', workspaceRoot: '/ws', denyWritePaths: ['/data', '/ws/.git'] });
+    expect(seen[1]!.denyWritePaths).toEqual(['/data', '/ws/.git']);
+    // 无 dataDir（诊断形）→ 不虚构注入
+    const bare = createSandboxService({ backends: [recorder] });
+    bare.confine(['ls'], { mode: 'read-only', workspaceRoot: '/ws' });
+    expect(seen[2]!.denyWritePaths).toBeUndefined();
+  });
+});

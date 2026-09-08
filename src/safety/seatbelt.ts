@@ -37,6 +37,17 @@ function seatbeltDenyLines(policy: SandboxPolicy): string[] {
 }
 
 /**
+ * 写 deny 行（04 §252 腿二——成熟度缺口 #9）：`(deny file-write* (subpath
+ * "<canonical 路径>"))` 逐件一行，恒末位追加（SBPL last-match-wins——压过
+ * 此前一切 allow，含 workspace-write 档的逐根 allow 与 danger 档的
+ * allow default；subpath 覆盖整树）。read-only 档与全局 `(deny file-write*)`
+ * 并存冗余无害——三档统一形。
+ */
+function seatbeltDenyWriteLines(policy: SandboxPolicy): string[] {
+  return (policy.denyWritePaths ?? []).map((p) => `(deny file-write* (subpath ${sbplString(p)}))`);
+}
+
+/**
  * 按策略生成 SBPL profile（纯函数）。两档统一消费 resolvePolicyRoots——缺省
  * 按档位推导（read-only 空根 = 纯拒写、workspace-write 工作区根族），显式
  * writableRoots 覆盖在两档同等生效（字段契约本义：e1 式宿主只读档携刚需根
@@ -44,18 +55,20 @@ function seatbeltDenyLines(policy: SandboxPolicy): string[] {
  *
  * danger 档形（04 §8 定形②「任何档一律」）：(version 1) + (allow default)
  * + 读 deny 行——无拒写、无逐根 allow；danger 同过最小读 deny profile。
+ * 写 deny 行两档同律恒末位（含 danger——04 §252 底线不交档位）。
  */
 export function seatbeltProfile(policy: SandboxPolicy): string {
   const denies = seatbeltDenyLines(policy);
+  const writeDenies = seatbeltDenyWriteLines(policy);
   if (policy.mode === 'danger') {
-    return ['(version 1)', '(allow default)', ...denies].join('\n');
+    return ['(version 1)', '(allow default)', ...denies, ...writeDenies].join('\n');
   }
   const allows = resolvePolicyRoots(policy)
     .map((root) => `(allow file-write* (subpath ${sbplString(root)}))`)
     .join('\n');
   return allows
-    ? [seatbeltReadOnlyProfile(), allows, ...denies].join('\n')
-    : [seatbeltReadOnlyProfile(), ...denies].join('\n');
+    ? [seatbeltReadOnlyProfile(), allows, ...denies, ...writeDenies].join('\n')
+    : [seatbeltReadOnlyProfile(), ...denies, ...writeDenies].join('\n');
 }
 
 /**

@@ -32,4 +32,10 @@ registerErrorCodes([
     module: 'exec',
     description: '后台化命令截获拒——尾部单 & 或命令位 nohup/disown（04 §8「无后台化」：模型不能脱管留后台进程）',
   },
+  {
+    code: 'EXEC_GIT_REDIRECT_DENIED',
+    module: 'exec',
+    description:
+      'bash 重定向目标落在 .git 版本史内——carve-out 路径级直写硬拒（04 §252 桥条款腿一）：任何档无升权出路、白名单不豁免；git 元数据操作走命令白名单形（成熟度缺口 #9 落码批）',
+  },
 ]);

@@ -51,6 +51,20 @@ function bwrapDenyArgs(policy: SandboxPolicy): string[] {
 }
 
 /**
+ * 写 deny 遮蔽参数（04 §252 腿二——成熟度缺口 #9）：`--ro-bind-try <path>
+ * <path>` 逐件一对——把宿主该路径**只读**挂载遮蔽沙箱内同名路径（写即
+ * read-only file system 拒）。与读 deny 同律末位追加（后位遮蔽——排在全部
+ * 既有 bind 之后）；`-try` 形 DEST 缺席跳过（.git 未建的会话新建可写——
+ * 已文档化边界：新建仓非篡改既有版本史）。danger 档 `--bind / /` 后追加
+ * 同律（底线不交档位）。
+ */
+function bwrapDenyWriteArgs(policy: SandboxPolicy): string[] {
+  const args: string[] = [];
+  for (const p of policy.denyWritePaths ?? []) args.push('--ro-bind-try', p, p);
+  return args;
+}
+
+/**
  * 按策略生成 bwrap 参数前缀（纯函数）。两档统一消费 resolvePolicyRoots——
  * 缺省按档位推导（read-only 空根 = 无 rw bind、workspace-write 工作区根族），
  * 显式 writableRoots 覆盖在两档同等生效（与 seatbeltProfile 同律）。不变式：
@@ -76,6 +90,7 @@ export function bwrapArgs(policy: SandboxPolicy): string[] {
       '--unshare-pid',
       '--die-with-parent',
       ...bwrapDenyArgs(policy),
+      ...bwrapDenyWriteArgs(policy),
     ];
   }
   const args = [...bwrapBaseArgs()];
@@ -83,7 +98,7 @@ export function bwrapArgs(policy: SandboxPolicy): string[] {
     // 可写根与 fs fence 同源；/tmp 已由 base tmpfs 覆盖，其余根真实 bind
     if (root !== '/tmp') args.push('--bind', root, root);
   }
-  args.push(...bwrapDenyArgs(policy));
+  args.push(...bwrapDenyArgs(policy), ...bwrapDenyWriteArgs(policy));
   return args;
 }
 

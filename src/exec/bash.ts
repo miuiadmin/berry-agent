@@ -16,14 +16,24 @@ import { delimiter, join } from 'node:path';
 import { BaseError, type AgentToolResult, type ToolDefinition } from '../contracts/index.js';
 import { Type } from 'typebox';
 import {
+  canonicalPath,
+  deriveWritableRoots,
   escalationHintMarker,
   requestEscalation,
   sandboxDenialMarker,
   validateEscalationArgs,
 } from '../safety/index.js';
-import type { ApprovalOutcome, ApprovalRequest, ConfinedArgv, SandboxMode, SandboxService } from '../safety/index.js';
+import type {
+  ApprovalOutcome,
+  ApprovalRequest,
+  ConfinedArgv,
+  SandboxMode,
+  SandboxPolicy,
+  SandboxService,
+} from '../safety/index.js';
 import { BASH_TIMEOUT_DEFAULT_MS, BASH_TIMEOUT_MAX_MS } from './types.js';
 import type { ExecResult, SpawnPipeline } from './types.js';
+import { findGitRedirectViolations, isGitMetadataExempt, worktreeGitDir } from './git-guard.js';
 
 /**
  * bash 发现序（04 §8）：BERRY_AGENT_BASH_PATH > 系统 PATH 逐目录 X_OK 扫描。
@@ -150,6 +160,20 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
         assertNoBackgroundCommand(command);
         const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : BASH_TIMEOUT_DEFAULT_MS;
         const cwd = typeof args.cwd === 'string' ? args.cwd : deps.workspaceRoot();
+
+        // ---- 腿一（04 §252）：.git 重定向目标扫描——硬拒前置（升权审批前，
+        // 不空耗审批对；任何档无升权出路、白名单不豁免——carve-out 路径级
+        // 直写恒不可写） ----
+        const gitViolations = findGitRedirectViolations(command, cwd);
+        if (gitViolations.length > 0) {
+          throw new BaseError(
+            'EXEC_GIT_REDIRECT_DENIED',
+            `bash 重定向目标落在 .git 版本史内（${gitViolations.join('、')}）——carve-out 平台底线：` +
+              '任何档恒不可写、无升权出路（04 §252）；git 元数据操作请走 git 命令白名单形' +
+              '（add/commit/branch 等直陈命令，不带命令替换/子壳）',
+          );
+        }
+
         const bash = resolveBash();
 
         // ---- 三级解析本调用腿（04 §8）：工具参数携带升权 → 校验 → 审批 ----
@@ -211,10 +235,25 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
             isError: true,
           };
         }
-        const confined: ConfinedArgv = deps.sandboxService.confine(rawArgv, {
-          mode,
-          workspaceRoot: deps.workspaceRoot(),
-        });
+        // ---- 腿二（04 §252）：静态洁净白名单分类 + 策略组装 ----
+        // 非豁免形恒携 workspace .git 写 deny（任何档含 danger——底线不交档位；
+        // 运行时兜底关 tee/python/sed -i/dd/变量间接等全部非重定向向量）；
+        // 豁免形不携 deny，且 worktree 锚定时补 backing gitdir 可写根（修
+        // worktree 会话 git 命令沙箱断链——backing 在 worktree 根外、缺省
+        // 推导不可达；仅 workspace-write 档追加：danger 已全盘、read-only
+        // 空根不授予——豁免是 carve-out 面非写权授予）。
+        const wsRoot = deps.workspaceRoot();
+        const gitExempt = isGitMetadataExempt(command);
+        // worktree 授予腿：豁免形 + worktree 锚定 + workspace-write 档 →
+        // backing gitdir 入可写根（danger 已全盘不追加、read-only 空根不授予
+        // ——豁免是 carve-out 面非写权授予）
+        const backing = gitExempt && mode === 'workspace-write' ? worktreeGitDir(wsRoot) : undefined;
+        const policy: SandboxPolicy = !gitExempt
+          ? { mode, workspaceRoot: wsRoot, denyWritePaths: [canonicalPath(join(wsRoot, '.git'))] }
+          : backing !== undefined
+            ? { mode, workspaceRoot: wsRoot, writableRoots: [...deriveWritableRoots(wsRoot, mode), backing] }
+            : { mode, workspaceRoot: wsRoot };
+        const confined: ConfinedArgv = deps.sandboxService.confine(rawArgv, policy);
         const result = await deps.pipeline.run({
           argv: confined.argv,
           cwd,

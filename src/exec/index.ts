@@ -41,6 +41,16 @@ export type { SpawnPipelineOptions } from './spawn.js';
 export { assertNoBackgroundCommand, createBashTool, discoverBash } from './bash.js';
 export type { BashToolDeps } from './bash.js';
 
+// bash 侧 .git 拦截面（04 §252 桥条款两腿——成熟度缺口 #9 落码批）
+export {
+  findGitRedirectViolations,
+  isGitMetadataExempt,
+  pathHasGitComponent,
+  scanRedirectionTargets,
+  worktreeGitDir,
+} from './git-guard.js';
+export type { RedirectTarget } from './git-guard.js';
+
 // environment 披露段 git 摘要
 export { gitSummary } from './environment.js';
 export type { GitSummary } from './environment.js';

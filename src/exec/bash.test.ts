@@ -8,12 +8,18 @@
  * identity 沙箱（包装恒等 argv）保持「无后端依赖直跑」的测试形态；真
  * danger 档 profile 形的参数面测试在 safety/sandbox.test.ts。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterAll } from 'vitest';
 import { execPath } from 'node:process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ToolContext } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
-import type { ConfinedArgv, SandboxMode, SandboxService } from '../safety/index.js';
+import { canonicalPath } from '../safety/index.js';
+import type { ConfinedArgv, SandboxMode, SandboxPolicy, SandboxService } from '../safety/index.js';
 import { assertNoBackgroundCommand, createBashTool, discoverBash } from './bash.js';
+import { createProcessRegistry } from './registry.js';
+import { worktreeGitDir } from './git-guard.js';
 import { createSpawnPipeline } from './spawn.js';
 import type { SpawnPipeline } from './types.js';
 
@@ -313,4 +319,211 @@ describe('createBashTool 升权面（allowed-once 语义）', () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('SANDBOX_ESCALATION_INVALID');
   });
+});
+
+describe('createBashTool .git 拦截面（04 §252 两腿——成熟度缺口 #9）', () => {
+  /** 计数管道：断言零 spawn（硬拒前置——不应到达执行层） */
+  function countingPipeline(): { pipeline: SpawnPipeline; runs: () => number } {
+    let count = 0;
+    return {
+      runs: () => count,
+      pipeline: {
+        run: async () => {
+          count += 1;
+          return {
+            outcome: 'exit' as const,
+            exitCode: 0,
+            stdout: '',
+            stderr: '',
+            bytes: 0,
+            truncated: false,
+            durationMs: 0,
+          };
+        },
+        spawnInteractive: () => {
+          throw new Error('countingPipeline: spawnInteractive 不可达（本面只测 run 计数）');
+        },
+        registry: createProcessRegistry(),
+      },
+    };
+  }
+
+  /** 录制型沙箱：capture confine 策略（Leg B 策略面断言） */
+  function recordingSandbox(): { svc: SandboxService; policies: SandboxPolicy[] } {
+    const policies: SandboxPolicy[] = [];
+    const svc: SandboxService = {
+      confine: (argv, policy): ConfinedArgv => {
+        policies.push(policy);
+        return {
+          argv: [...argv],
+          enforcement: 'full',
+          denialSignatures: [],
+          runnerFailureRules: [],
+        };
+      },
+      registerBackend: () => () => {},
+      listBackends: () => [],
+    };
+    return { svc, policies };
+  }
+
+  it('腿一硬拒：echo x > .git/config → EXEC_GIT_REDIRECT_DENIED 数据面 + 零 spawn', async () => {
+    const { pipeline, runs } = countingPipeline();
+    const result = await dangerTool(pipeline).execute({ command: 'echo x > .git/config' }, CTX);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('[EXEC_GIT_REDIRECT_DENIED] ');
+    expect(textOf(result)).toContain('.git/config');
+    expect(runs()).toBe(0);
+  });
+
+  it.each([
+    ['cd .git && echo x > config', 'cd 漂移形'],
+    ['echo x >> .git/hooks/pre-commit', '追加形'],
+    ['echo x > sub/.git/HEAD', '子目录形'],
+    ["echo x > .g'it'/config", '引号拼接对抗形'],
+    ['cmd &> .git/all.log', '&> 双流形'],
+  ])('腿一硬拒矩阵：%s（%s）', async (command) => {
+    const { pipeline, runs } = countingPipeline();
+    const result = await dangerTool(pipeline).execute({ command }, CTX);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('EXEC_GIT_REDIRECT_DENIED');
+    expect(runs()).toBe(0);
+  });
+
+  it('腿一升权前拒：携带升权参数也不空耗审批对（approval.ask 零调用）', async () => {
+    const { pipeline, runs } = countingPipeline();
+    let asked = 0;
+    const result = await createBashTool({
+      pipeline,
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'read-only',
+      sandboxService: identitySandbox(),
+      approval: {
+        ask: async () => {
+          asked += 1;
+          return { outcome: 'allowed-once' as const };
+        },
+      },
+    }).execute({ command: 'echo x > .git/config', sandbox_permissions: 'danger', justification: '想写版本史' }, CTX);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('EXEC_GIT_REDIRECT_DENIED');
+    expect(asked).toBe(0);
+    expect(runs()).toBe(0);
+  });
+
+  it('邻形不误伤：.gitignore/.github 写照常进沙箱执行', { timeout: 15_000 }, async () => {
+    const result = await dangerTool(createSpawnPipeline()).execute(
+      { command: 'echo x > /tmp/berry-gg-adjacent-test && echo ok' },
+      CTX,
+    );
+    expect(result.isError).toBeUndefined();
+    expect(textOf(result)).toContain('ok');
+  });
+
+  it('腿二：非豁免形（echo）→ 策略恒携 workspace .git 写 deny（danger 档同律）', async () => {
+    const { pipeline, runs } = countingPipeline();
+    const { svc, policies } = recordingSandbox();
+    await createBashTool({
+      pipeline,
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'danger',
+      sandboxService: svc,
+    }).execute({ command: 'echo hi' }, CTX);
+    expect(runs()).toBe(1);
+    expect(policies[0]?.denyWritePaths).toEqual([canonicalPath(join(process.cwd(), '.git'))]);
+  });
+
+  it('腿二：非豁免危险形（rm -rf .git）→ deny 同携（运行时兜底关非重定向向量）', async () => {
+    const { svc, policies } = recordingSandbox();
+    const { pipeline, runs } = countingPipeline();
+    await createBashTool({
+      pipeline,
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'workspace-write',
+      sandboxService: svc,
+    }).execute({ command: 'rm -rf .git' }, CTX);
+    expect(runs()).toBe(1);
+    expect(policies[0]?.denyWritePaths).toEqual([canonicalPath(join(process.cwd(), '.git'))]);
+  });
+
+  it('腿二：静态洁净白名单形（git status）→ 策略不携 .git deny', async () => {
+    const { svc, policies } = recordingSandbox();
+    const { pipeline, runs } = countingPipeline();
+    await createBashTool({
+      pipeline,
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'workspace-write',
+      sandboxService: svc,
+    }).execute({ command: 'git status' }, CTX);
+    expect(runs()).toBe(1);
+    expect(policies[0]?.denyWritePaths).toBeUndefined();
+    expect(policies[0]?.writableRoots).toBeUndefined(); // 主仓形无 backing 授予
+  });
+
+  it('腿二：展开形（git commit -m "$(cat f)"）失豁免 → deny 携带（诚实回执面）', async () => {
+    const { svc, policies } = recordingSandbox();
+    const { pipeline, runs } = countingPipeline();
+    await createBashTool({
+      pipeline,
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'workspace-write',
+      sandboxService: svc,
+    }).execute({ command: 'git commit -m "$(cat f)"' }, CTX);
+    expect(runs()).toBe(1);
+    expect(policies[0]?.denyWritePaths).toEqual([canonicalPath(join(process.cwd(), '.git'))]);
+  });
+
+  it('腿二 worktree 授予：豁免形 + worktree 锚定 → common git dir 入可写根', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'bash-wt-repo-'));
+    wtDirs.push(repo);
+    const backing = join(repo, '.git', 'worktrees', 'wt');
+    mkdirSync(backing, { recursive: true });
+    const wt = mkdtempSync(join(tmpdir(), 'bash-wt-ws-'));
+    wtDirs.push(wt);
+    writeFileSync(join(wt, '.git'), `gitdir: ${backing}\n`);
+
+    const { svc, policies } = recordingSandbox();
+    const { pipeline, runs } = countingPipeline();
+    await createBashTool({
+      pipeline,
+      workspaceRoot: () => wt,
+      currentMode: () => 'workspace-write',
+      sandboxService: svc,
+    }).execute({ command: 'git add . && git commit -m x' }, CTX);
+    expect(runs()).toBe(1);
+    expect(policies[0]?.denyWritePaths).toBeUndefined();
+    expect(policies[0]?.writableRoots).toBeDefined();
+    // common git dir（主仓 .git——对象库/refs/backing 共享落点）在可写根内（修 worktree git 沙箱断链）
+    expect(policies[0]?.writableRoots).toContain(worktreeGitDir(wt));
+  });
+
+  it('腿二档位律：豁免形 danger 不追加 backing（全盘已可达）/ read-only 不授予（空根保持）', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'bash-wt-repo2-'));
+    wtDirs.push(repo);
+    const backing = join(repo, '.git', 'worktrees', 'wt');
+    mkdirSync(backing, { recursive: true });
+    const wt = mkdtempSync(join(tmpdir(), 'bash-wt-ws2-'));
+    wtDirs.push(wt);
+    writeFileSync(join(wt, '.git'), `gitdir: ${backing}\n`);
+
+    for (const mode of ['danger', 'read-only'] as const) {
+      const { svc, policies } = recordingSandbox();
+      const { pipeline, runs } = countingPipeline();
+      await createBashTool({
+        pipeline,
+        workspaceRoot: () => wt,
+        currentMode: () => mode,
+        sandboxService: svc,
+      }).execute({ command: 'git status' }, CTX);
+      expect(runs()).toBe(1);
+      expect(policies[0]?.denyWritePaths).toBeUndefined();
+      expect(policies[0]?.writableRoots).toBeUndefined();
+    }
+  });
+});
+
+/** worktree 授予腿测试的临时目录族 */
+const wtDirs: string[] = [];
+afterAll(() => {
+  for (const d of wtDirs) rmSync(d, { recursive: true, force: true });
 });
