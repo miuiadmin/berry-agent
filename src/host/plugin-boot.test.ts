@@ -12,7 +12,9 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
+import type { UiBackend } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
+import { createChannels } from '../channels/index.js';
 import { AUDIT_MIGRATION, createAuditFace, openStore } from '../persist/index.js';
 import type { AuditFace, Store } from '../persist/index.js';
 
@@ -752,5 +754,131 @@ describe('plugin/opens 幂等落（recordPluginOpensDiff——05 §1.1 boot 装�
     expect(face.listRecent()).toHaveLength(2);
     recordPluginOpensDiff(face, []); // 已空——撤位笔不重放
     expect(face.listRecent()).toHaveLength(2);
+  });
+});
+
+/* ---------------- U3-6 收官 e2e：registerUiBackend 全链（U3-0 底稿 #7） ---------------- */
+
+describe('registerUiBackend 全链 e2e（U3 批 U3-6——opens→门检→注册→审计词三链绿 + 门关红 + 分域红）', () => {
+  // 真库真面（audit_events 表由 AUDIT_MIGRATION 建就）+ 真 channels 服务 +
+  // 真盘真 jiti 磁盘插件（三链跨 loader/plugin-context/channels/persist 四件）
+  const stores: Store[] = [];
+  afterAll(() => {
+    for (const s of stores) s.close();
+  });
+  function openFace(): AuditFace {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-agent-u3-e2e-'));
+    dirs.push(dir);
+    const store = openStore({ dataDir: join(dir, 'data'), migrations: [AUDIT_MIGRATION] });
+    stores.push(store);
+    return createAuditFace(store.connection);
+  }
+  /** 某插件最新授予面（listRecent id 降序——首见即尾条） */
+  const opensOf = (face: AuditFace, pluginId: string): readonly unknown[] => {
+    const hit = face.listRecent().find((r) => r.data['pluginId'] === pluginId && r.type === 'plugin/opens');
+    return hit ? (hit.data['opens'] as readonly unknown[]) : [];
+  };
+
+  /** 磁盘插件铺设（真盘真 jiti——entry 体由用例注入） */
+  const layDiskPlugin = (dataDir: string, id: string, opensLine: string, entryBody: readonly string[]): void => {
+    const pluginDir = join(dataDir, 'plugins', 'node_modules', id);
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({ name: id, version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+    );
+    writeFileSync(
+      join(pluginDir, 'entry.js'),
+      ['export const inject = [];', 'export default async (ctx) => {', ...entryBody, '};'].join('\n'),
+    );
+    writeFileSync(join(dataDir, 'enabled.yaml'), enabledYaml(`  - id: ${id}\n${opensLine}`));
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({ [id]: { installPath: `plugins/node_modules/${id}` } }),
+    );
+  };
+
+  /** 插件后端 entry 体（JS 字面——UiBackend 最小形：id/capabilities/hasAudience/notify） */
+  const backendBody = (id: string): readonly string[] => [
+    '  ctx.channels.registerUiBackend({',
+    `    id: '${id}',`,
+    '    capabilities: { notify: true, confirm: false, select: false, input: false, approval: false, setStatus: false, setWidget: false },',
+    '    hasAudience: () => true,',
+    '    notify: () => {},',
+    '  });',
+  ];
+
+  /** 宿主域后端（分域红前置——真 channels addBackend 同 assembly 形） */
+  const hostBackendOf = (id: string): UiBackend<never> => ({
+    id,
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: () => undefined,
+  });
+
+  it('三链绿：opens 授予 → 门检过 → 插件域注册 → capability/used 落审计流（+ plugin/opens 装载序落账）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-agent-u3-ok-'));
+    dirs.push(dataDir);
+    layDiskPlugin(dataDir, 'acme-ui', '    opens: [channels.ui-backend]\n', backendBody('acme-panel'));
+    const channels = createChannels();
+    const face = openFace();
+    const { options } = rigBoot(dataDir, { uiBackends: channels, audit: face });
+    const boot = await bootPlugins(options);
+    // 链一：opens 行解析 + 装载零失败
+    expect(boot.report.failed).toEqual([]);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['acme-ui']);
+    // 链二：插件域注册面（分域后端集合——宿主域零染指）
+    expect(channels.listPluginBackendIds()).toEqual(['acme-panel']);
+    // 链三：capability/used 审计词（受理成功才记——拒笔不记使用）
+    const used = face.listRecent().find((r) => r.type === 'capability/used');
+    expect(used?.data).toMatchObject({ pluginId: 'acme-ui', capability: 'channels.ui-backend' });
+    // 附证：plugin/opens 装载序幂等落（U3-5 diff 在真 boot 织入——行即真源）
+    expect(opensOf(face, 'acme-ui')).toEqual(['channels.ui-backend']);
+  });
+
+  it('门关红：opens 缺位 → DOOR_CLOSED 拒 → 行级隔离 + 零 capability/used（没发生的使用不是使用）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-agent-u3-door-'));
+    dirs.push(dataDir);
+    layDiskPlugin(dataDir, 'acme-closed', '', backendBody('acme-panel')); // 无 opens 行——默认关
+    const channels = createChannels();
+    const face = openFace();
+    const { options } = rigBoot(dataDir, { uiBackends: channels, audit: face });
+    const boot = await bootPlugins(options);
+    // 行级隔离：动词拒 → PLUGIN_APPLY_FAILED 包裹（内层 DOOR_CLOSED 指路 opens）
+    expect(boot.report.activated).toEqual([]);
+    expect(boot.report.failed).toHaveLength(1);
+    expect(boot.report.failed[0]!.code).toBe('PLUGIN_APPLY_FAILED');
+    expect(boot.report.failed[0]!.message).toContain('opens');
+    // 零注册 + 零使用账（拒笔不记）
+    expect(channels.listPluginBackendIds()).toEqual([]);
+    expect(face.listRecent().some((r) => r.type === 'capability/used')).toBe(false);
+  });
+
+  it('分域红：宿主域 id 顶替拒（{id:"tui"} → CHANNEL_BACKEND_RESERVED——07 §4 宿主后端恒在场）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-agent-u3-dom-'));
+    dirs.push(dataDir);
+    // 门开但撞宿主域 id——执法序门检过后即撞分域律（开门不隐含顶替权）
+    layDiskPlugin(dataDir, 'acme-hijack', '    opens: [channels.ui-backend]\n', backendBody('tui'));
+    const channels = createChannels();
+    channels.addBackend(hostBackendOf('tui')); // 宿主域后端在场（assembly TUI 同位）
+    const face = openFace();
+    const { options } = rigBoot(dataDir, { uiBackends: channels, audit: face });
+    const boot = await bootPlugins(options);
+    expect(boot.report.failed).toHaveLength(1);
+    expect(boot.report.failed[0]!.code).toBe('PLUGIN_APPLY_FAILED');
+    expect(boot.report.failed[0]!.message).toContain('宿主域'); // 分域律指路（换 id 注册）
+    // 插件域零注册；宿主域后端原位（顶替拒的对称面）
+    expect(channels.listPluginBackendIds()).toEqual([]);
+    expect(face.listRecent().some((r) => r.type === 'capability/used')).toBe(false); // 受理败不记使用
+    // 授予面照落（plugin/opens 真源是行本身——装载成败不抹授予事实）
+    expect(opensOf(face, 'acme-hijack')).toEqual(['channels.ui-backend']);
   });
 });
