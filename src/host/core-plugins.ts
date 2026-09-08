@@ -414,11 +414,10 @@ export interface CorePluginHostDeps {
  * 06 §11.3 渐进披露的「披露清单」半边；激活半边 = 模型显式读 SKILL.md
  * 归 agent 工具面）。
  *
- * 磁盘件技能目录载荷层（06 §11.4 位 4）挂账磁盘件装载面充实批——core 行
- * 先装（synthesizePlan core 行先入 plan）时磁盘件 manifest.skills 尚未
- * 激活，本 apply 构造 pluginLayers 空缺；补注册于出厂层之后有 06 §11.3
- * 优先序微差（插件层应压出厂层——挂账笔以 unregisterProvider + 位 4
- * 重插兑现，注记在案）。
+ * 磁盘件技能目录载荷层（06 §11.4 位 4）不在此 apply——装载序结构性晚到
+ * （synthesizePlan core 行先入 plan，磁盘件 manifest.skills 此刻未激活），
+ * 补注册编舞（摘 factory → 位 4 逐插件插入 → factory 重挂保序）落 assembly
+ * boot 后段（2026-09-08 批 19 skills 销账笔兑现——06 §11.3 插件层压出厂层）。
  *
  * skills_change 事件桥不在此（ctx.emit 域名律强制 `core:skills/` 前缀
  * ——全局词结构性不可达）：桥落 assembly boot 后段（宿主侧
@@ -429,8 +428,8 @@ function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
     name: 'skills',
     async apply(ctx) {
       const context = ctx as PluginContext;
-      // 标准六位层（project/user/跨库/出厂——pluginLayers 空缺见上注；
-      // dataDir null 跳过 user 层；cwd/homeDir 缺省真跑形）
+      // 标准六位层（project/user/跨库/出厂——插件层装载收口后于 assembly 补
+      // 注册见上注；dataDir null 跳过 user 层；cwd/homeDir 缺省真跑形）
       const registry = createSkillsRegistry();
       const layers = createStandardLayers({
         ...(deps.cwd !== undefined ? { cwd: deps.cwd } : {}),

@@ -274,7 +274,7 @@ describe('装机账本读侧（03 §5.4——warn 降级与 installPath 解析�
     const boot = await bootPlugins(rigBoot('/data', { fs }).options);
     expect(boot.report.failed).toEqual([]);
     expect(boot.report.activated.map((a) => a.id)).toEqual(['acme-door']);
-    expect(boot.report.activated[0]!.skills).toEqual(['door-skill']);
+    expect(boot.report.activated[0]!.skillDirs).toEqual([join('/data/plugins/node_modules/acme-door', 'door-skill')]);
   });
 
   it('目录不可读 = 行级隔离（无 package.json 点名）', async () => {

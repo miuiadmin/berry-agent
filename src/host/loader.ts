@@ -22,7 +22,8 @@
  * conversation/TUI 装配批定形）。
  */
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createJiti } from 'jiti';
 import type { Jiti, TransformOptions, TransformResult } from 'jiti';
 import { Value } from 'typebox/value';
@@ -132,11 +133,20 @@ export interface LoadPluginsOptions<TCtx = unknown> {
   readonly jitiFactory?: (pluginDir: string, opts: LoadPluginJitiOptions) => Jiti;
 }
 
-/** 激活行（skills 随行——纯声明包的零码激活产物） */
+/**
+ * 激活行（skillDirs 随行——mount 即注册的装载侧收集面，03 §6.1）：声明是
+ * 相对包根的目录路径（磁盘行 manifest / core 行 reference 同形），装载位在此
+ * 解析为绝对路径——磁盘行基 = pluginDir（装机树内插件目录）、core 行基 =
+ * 宿主包根（本模块上推两级——与 skills 件 resolveFactorySkillsDir 同法双
+ * 形态同构）。消费位 = 装配根补注册编舞（06 §11.4 位 4）。
+ */
 export interface ActivatedPlugin {
   readonly id: string;
-  readonly skills: readonly string[];
+  readonly skillDirs: readonly string[];
 }
+
+/** core: 行声明基（宿主包根——src/host 与 dist/host 双形态上推两级皆包根） */
+const hostPackageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** 失败行（码身份 + 报文——启动横幅/boot-failures 的载荷） */
 export interface FailedPlugin {
@@ -274,16 +284,25 @@ async function loadRow<TCtx>(
       // §1.4 直调轨：零 jiti 零门禁；其余契约（时钟/回卷）与磁盘插件同轨
       warnMissingOptional(row.id, row.reference.optionalInject, state);
       await invokeApply(row.id, row.reference.apply, ctx, config, applyBudgetMs, state.disposeStack);
-      state.activated.push({ id: row.id, skills: [...(row.reference.skills ?? [])] });
+      // core 行声明基 = 宿主包根（06 §11.6 位 6 注记：core: 件出厂内容经位 4
+      // 声明即达——官方件技能/agents 从属资源与磁盘件同形同律）
+      state.activated.push({
+        id: row.id,
+        skillDirs: (row.reference.skills ?? []).map((dir) => resolve(hostPackageRoot, dir)),
+      });
       return;
     }
 
     // 磁盘轨：行 config 先过清单形状（§1.2——值校验归装载器）
     validateRowConfig(row, config);
 
-    // 纯声明包（entryPlan 三态之一）：零码装载——技能清单随行激活
+    // 纯声明包（entryPlan 三态之一）：零码装载——技能清单随行激活（相对
+    // pluginDir 解析；agents-only 声明形 skills 缺席 = 空清单）
     if (row.manifest.entryPlan.kind === 'declared-payload') {
-      state.activated.push({ id: row.id, skills: [...(row.manifest.skills ?? [])] });
+      state.activated.push({
+        id: row.id,
+        skillDirs: (row.manifest.skills ?? []).map((dir) => resolve(row.pluginDir, dir)),
+      });
       return;
     }
 
@@ -306,7 +325,10 @@ async function loadRow<TCtx>(
       applyBudgetMs,
       state.disposeStack,
     );
-    state.activated.push({ id: row.id, skills: [...(row.manifest.skills ?? [])] });
+    state.activated.push({
+      id: row.id,
+      skillDirs: (row.manifest.skills ?? []).map((dir) => resolve(row.pluginDir, dir)),
+    });
   } finally {
     // 行收口即关窗（finally 语义——成功/失败/零码行皆达；03 §2.1 装载窗口）
     options.onApplySettled?.(row.id);

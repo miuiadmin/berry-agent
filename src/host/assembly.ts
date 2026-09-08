@@ -36,6 +36,7 @@ import {
   createSubagentService,
   provideJobsService,
 } from '../subagent/index.js';
+import { createDirProvider } from '../skills/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
@@ -520,6 +521,45 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           void dispatch.emit('skills_change', { providers: registry.providerIds() });
         });
         runtime.registerCloser({ label: 'skills-change-bridge', fn: () => Promise.resolve(off()) });
+      }
+    }
+
+    // —— 磁盘件技能目录载荷层补注册（批 19 skills 销账——06 §11.4 位 4 / 03
+    // §6.1「mount 即注册」）：core:skills 先装（synthesizePlan core 行先入
+    // plan）时磁盘件 manifest.skills 尚未激活——件内 apply 构造 pluginLayers
+    // 结构性空缺，装载收口后于此补注册。序位执法（06 §11.3 注册序即优先序
+    // ——插件层压出厂层）：摘 factory → 位 4 逐插件插入 → factory 原实例重挂
+    // 末位。core:skills 禁用档 tryGet 诚实缺席 → 零补注册（缺席即未装载语义，
+    // 声明载荷随之不激活——与上桥同律）。refresh 落新快照（披露段每请求物化
+    // 即生效）+ 上桥发射 skills_change（providers 变化可观测）。per-provider
+    // 独立 realpath 去重集：与标准层目录交集仅病态形（装机树 vs 工作区/家/
+    // 出厂根构造性不相交），重叠时 first-wins + collision 诊断兜底。
+    {
+      const registry = scope.tryGet('skills') as SkillsRegistry | undefined;
+      if (registry !== undefined) {
+        const pluginRows = boot.report.activated.filter((row) => row.skillDirs.length > 0);
+        if (pluginRows.length > 0) {
+          const factory = registry.getProvider('factory');
+          registry.unregisterProvider('factory'); // 位 4 让位（原实例重挂见下）
+          const layerIds: string[] = [];
+          for (const row of pluginRows) {
+            const id = `plugin:${row.id}`; // plugin: 前缀 = 与标准层 id 结构性不撞
+            registry.registerProvider(createDirProvider({ id, roots: [...row.skillDirs] }));
+            layerIds.push(id);
+          }
+          if (factory !== undefined) registry.registerProvider(factory); // 出厂层重挂末位（序保真）
+          await registry.refresh();
+          // 卸载对称（03 §6.2 技能层摘除）：整体 unload 收口时摘全部插件层并
+          // 重扫（closer 序在 plugin-unload 后——插件 disposer 先回卷；单插件
+          // 摘除随 /reload 人面动词批，装载语境 v1 只有整体 unload）
+          runtime.registerCloser({
+            label: 'skills-plugin-layers',
+            fn: async () => {
+              for (const id of layerIds) registry.unregisterProvider(id);
+              await registry.refresh();
+            },
+          });
+        }
       }
     }
 

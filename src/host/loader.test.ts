@@ -9,7 +9,7 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
@@ -92,7 +92,10 @@ describe('loadPlugins core: 直调轨（§1.4——零 jiti 零门禁）', () =>
       { config: { a: 1 }, skills: ['core-skill'] },
     );
     const report = await loadPlugins(rigOptions([row]));
-    expect(report.activated).toEqual([{ id: 'core:demo', skills: ['core-skill'] }]);
+    expect(report.activated.map((a) => a.id)).toEqual(['core:demo']);
+    // core 行 skillDirs 解析形归专用 describe（基 = 宿主包根上推两级）
+    expect(report.activated[0]!.skillDirs).toHaveLength(1);
+    expect(isAbsolute(report.activated[0]!.skillDirs[0]!)).toBe(true);
     expect(seen[1]).toEqual({ a: 1 }); // config 缺省取引用形宿主侧默认
     expect(report.failed).toEqual([]);
     await report.unload();
@@ -307,7 +310,10 @@ export default async function apply(ctx) { ctx.provide('depFs', dep); }
         }),
       ]),
     );
-    expect(report.activated).toEqual([{ id: 'plug-skills', skills: ['s-one', 's-two'] }]);
+    expect(report.activated).toEqual([
+      // 磁盘行 skillDirs 相对 pluginDir 解析（批 19 skills——03 §6.1 相对包根声明）
+      { id: 'plug-skills', skillDirs: [resolve(dir, 's-one'), resolve(dir, 's-two')] },
+    ]);
     expect(report.failed).toEqual([]);
   });
 
@@ -628,5 +634,59 @@ describe('createContext 开门授予集透传（03 §4.6 批 U2）', () => {
       { id: 'core:demo', opens: undefined }, // core: 行结构性无授予位
       { id: 'plug-plain', opens: undefined }, // 磁盘行缺席 opens = 全默认关
     ]);
+  });
+});
+
+describe('ActivatedPlugin skillDirs 装载位解析（批 19 skills——03 §6.1 相对包根声明 → 绝对路径）', () => {
+  it('磁盘两态同律：纯声明包与 entry 形都相对 pluginDir 解析（./ 前缀归一、多清单保序）', async () => {
+    const declared = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'p-decl',
+        version: '1.0.0',
+        berryAgent: { skills: ['./skills', 'extras'] },
+      }),
+    });
+    const coded = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'p-code',
+        version: '1.0.0',
+        berryAgent: { entry: 'entry.js', skills: ['./skills'] },
+      }),
+      'entry.js': 'export default async () => undefined;\n',
+    });
+    const report = await loadPlugins(
+      rigOptions([
+        diskRow('p-decl', declared, {
+          name: 'p-decl',
+          version: '1.0.0',
+          berryAgent: { skills: ['./skills', 'extras'] },
+        }),
+        diskRow('p-code', coded, {
+          name: 'p-code',
+          version: '1.0.0',
+          berryAgent: { entry: 'entry.js', skills: ['./skills'] },
+        }),
+      ]),
+    );
+    expect(report.failed).toEqual([]);
+    expect(report.activated).toEqual([
+      // './skills' 与裸段名同归一（resolve 语义）；清单序即注册面序
+      { id: 'p-decl', skillDirs: [resolve(declared, 'skills'), resolve(declared, 'extras')] },
+      { id: 'p-code', skillDirs: [resolve(coded, 'skills')] },
+    ]);
+  });
+
+  it('core 行基 = 宿主包根（loader 件上推两级）绝对解析；无声明 = 空清单', async () => {
+    const report = await loadPlugins(
+      rigOptions([
+        coreRow('core:a', async () => undefined, { skills: ['./skills'] }),
+        coreRow('core:b', async () => undefined),
+      ]),
+    );
+    expect(report.activated[0]!.skillDirs).toHaveLength(1);
+    const dir = report.activated[0]!.skillDirs[0]!;
+    expect(isAbsolute(dir)).toBe(true); // 相对声明已在装载位解析
+    expect(basename(dir)).toBe('skills'); // './skills' 归一（非粘字符串）
+    expect(report.activated[1]!.skillDirs).toEqual([]); // 无声明零清单
   });
 });

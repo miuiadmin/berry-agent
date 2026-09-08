@@ -7,7 +7,7 @@
  * （意外异常 crashed:true + crash.log 按 memory 位跳过——诊断形 dataDir
  * 在场仍跳过）。真盘真库（临时目录）+ 真装载管线（core 件 in-process）。
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -235,6 +235,57 @@ describe('assembleHostStack 成功档', () => {
       expect(received[0]!.providers).toContain('factory');
     } finally {
       await assembly.runtime.shutdown();
+    }
+  });
+
+  it('磁盘件技能载荷层补注册（批 19 skills 销账——06 §11.4 位 4）：位序压出厂层 + 快照入册 + 卸载摘除对称', async () => {
+    const dir = tmpDir('host-asm-skill4-');
+    // 装机树磁盘件：清单声明 skills 目录（相对包根）+ 一件真 SKILL.md
+    const plugDir = join(dir, 'plugins', 'plug-sk');
+    mkdirSync(join(plugDir, 'skills', 'demo-skill'), { recursive: true });
+    writeFileSync(
+      join(plugDir, 'package.json'),
+      JSON.stringify({ name: 'plug-sk', version: '1.0.0', berryAgent: { skills: ['./skills'] } }),
+    );
+    writeFileSync(
+      join(plugDir, 'skills', 'demo-skill', 'SKILL.md'),
+      '---\nname: demo-skill\ndescription: 装载面测试技能\n---\n\n用法正文。\n',
+    );
+    // 装机账本（id 键映射形）+ 启用清单行
+    writeFileSync(
+      join(dir, 'plugins', 'ledger.json'),
+      JSON.stringify({ 'plug-sk': { installPath: 'plugins/plug-sk' } }),
+    );
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: plug-sk\n');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const registry = assembly.scope.tryGet<SkillsRegistry>('skills');
+      expect(registry).toBeDefined();
+      // 磁盘件真激活（零码装载 declared-payload 态——skillDirs 随行）
+      expect(assembly.boot.report.activated.map((a) => a.id)).toContain('plug-sk');
+      expect(assembly.boot.report.activated.find((a) => a.id === 'plug-sk')!.skillDirs).toEqual([
+        join(plugDir, 'skills'),
+      ]);
+      // 位序执法：project > user > cross-repo > 插件层 > factory（06 §11.3 注册序
+      // 即优先序——插件层压出厂层，摘 factory 重挂编舞的落点证据）
+      const ids = registry!.providerIds();
+      expect(ids.indexOf('plugin:plug-sk')).toBeGreaterThan(ids.indexOf('cross-repo'));
+      expect(ids.indexOf('plugin:plug-sk')).toBeLessThan(ids.indexOf('factory'));
+      // 快照入册：补注册 refresh 已落（渐进披露面即见插件技能）
+      expect(registry!.list().map((s) => s.name)).toContain('demo-skill');
+      // 卸载对称（03 §6.2 技能层摘除）：收口后插件层出局 + 快照重扫出局
+      await assembly.runtime.shutdown();
+      expect(registry!.providerIds()).not.toContain('plugin:plug-sk');
+      expect(registry!.providerIds()).toContain('factory'); // 标准层不受卸载连坐
+      expect(registry!.list().map((s) => s.name)).not.toContain('demo-skill');
+    } finally {
+      await assembly.runtime.shutdown(); // 幂等（六步照走）
     }
   });
 
