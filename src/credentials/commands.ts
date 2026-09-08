@@ -24,11 +24,12 @@ import { BaseError } from '../contracts/index.js';
 import { HOST_NAMESPACE, isPluginNamespace, type CredentialMeta } from './types.js';
 import type { CredentialChangedPayload } from './secrets.js';
 
-/** 用法文案（TUI 命令 description 位与用法错指路共用单源） */
+/** 用法文案（TUI 命令 description 位与用法错指路共用单源；oauth 动词 TUI 面承载——CLI 零装配无注册表不载） */
 export const CREDENTIALS_USAGE = [
   '用法：/credentials add <name> <value> [--namespace <ns>] —— 录入静态凭证（缺省 host 域；值含空格用引号包裹）',
   '　　　/credentials list —— 全域列示（namespace/名/来源/更新时间——永不呈值）',
   '　　　/credentials rm <name> [--namespace <ns>] —— 撤销凭证（删除唯一路径）',
+  '　　　/credentials oauth <pluginId> [<name>] —— 发起插件 oauth 授权流（device-code；域随流主人）',
 ].join('\n');
 
 /**
@@ -60,12 +61,15 @@ export interface CredentialsCommandDeps {
 
 /**
  * 子命令形（TUI parseCredentialsArgv 产物 = CLI cli.ts 解析产物——两面同
- * 一 tagged union，动词语义单源在 runCredentialsCommand）。
+ * 一 tagged union，动词语义单源在 runCredentialsCommand）。oauth 动词是
+ * TUI 运行时承载（需流注册表 + fetch）——CLI 解析律不产此形（未知子命令
+ * 拒），执行腿在 core-plugins（runCredentialsCommand 内为不可达退化档）。
  */
 export type CredentialsSub =
   | { readonly sub: 'add'; readonly name: string; readonly value: string; readonly namespace?: string }
   | { readonly sub: 'list' }
-  | { readonly sub: 'rm'; readonly name: string; readonly namespace?: string };
+  | { readonly sub: 'rm'; readonly name: string; readonly namespace?: string }
+  | { readonly sub: 'oauth'; readonly pluginId: string; readonly name?: string };
 
 /** 命令结算（ok 位供 CLI 退出码分档〔0/1〕；TUI 面只消费 text） */
 export interface CredentialsCommandResult {
@@ -127,7 +131,27 @@ export function parseCredentialsArgv(
       sub: { sub: 'rm', name: literals[0] as string, ...(namespace !== undefined ? { namespace } : {}) },
     };
   }
-  return { ok: false, message: `未知子命令：${verb}（合法：add/list/rm）。\n${CREDENTIALS_USAGE}` };
+  if (verb === 'oauth') {
+    if (namespace !== undefined) {
+      // 域随流主人（token 落插件自域）——oauth 不收 --namespace
+      return { ok: false, message: `oauth 不收 --namespace（域随流主人——token 落插件自域）。\n${CREDENTIALS_USAGE}` };
+    }
+    if (literals.length < 1 || literals.length > 2) {
+      return {
+        ok: false,
+        message: `oauth 须带 <pluginId> [<name>]（name 可省 = 该插件唯一流）。\n${CREDENTIALS_USAGE}`,
+      };
+    }
+    return {
+      ok: true,
+      sub: {
+        sub: 'oauth',
+        pluginId: literals[0] as string,
+        ...(literals.length === 2 ? { name: literals[1] as string } : {}),
+      },
+    };
+  }
+  return { ok: false, message: `未知子命令：${verb}（合法：add/list/rm/oauth）。\n${CREDENTIALS_USAGE}` };
 }
 
 /**
@@ -142,6 +166,13 @@ export function runCredentialsCommand(sub: CredentialsSub, deps: CredentialsComm
         return runList(deps);
       case 'rm':
         return runRm(sub.name, sub.namespace, deps);
+      case 'oauth':
+        // 不可达退化档（CLI 解析律不产此形、TUI 面在 core-plugins 执行腿
+        // 分流先取）——直入仍诚实回执不炸
+        return {
+          ok: false,
+          text: 'oauth 动词是运行时承载（需流注册表 + fetch）——TUI 内用 /credentials oauth；CLI 面不可用。',
+        };
     }
   } catch (err) {
     // 守卫错折文本（命令面是用户面——BaseError 码与人读原因直呈；密钥腐坏

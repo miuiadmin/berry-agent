@@ -5,7 +5,7 @@
  * `provide('secrets', …本工厂产物…)`，插件经 `ctx.get("secrets")` 取自域
  * 绑定版（服务闭包携带 pluginId——插件面永不自报身份，防冒名）。
  *
- * 两动词执法全景：
+ * 三动词执法全景：
  *  - `get(name)`：自域读——物理键恒 `(plugin:<本插件 id>, name)`，越域名
  *    恒解析为本域（不存在路径式逃逸：name 是 provider 作用名、非 namespace
  *    载体）；缺席拒 `CREDENTIALS_NOT_FOUND`。
@@ -20,6 +20,11 @@
  *    写成功落 `credentials/changed` 审计 seam（action 'rotate'/origin
  *    'oauth-flow'——05 §1.1 值域单源：oauth 首写与刷新轮换均计 rotate；
  *    人面 add/remove 的 'add'/'remove'·'human' 随 c-5）。
+ *  - `registerOAuthFlow(spec)`（c-6 第十面第三动词）：装载窗内注册 oauth
+ *    流（窗外拒 PLUGIN_WINDOW_CLOSED——12f-2a 装载窗执法码；回调窗内
+ *    动态注册不开放：流注册是装载期声明，注册面无运行时增量）。注册只入
+ *    host-owned 注册表，不触存储——授权写入发生在流被用户发起时的回调窗
+ *    handler 内（set 动词）。
  *
  * in-process TCB 诚实成文（§10.9）：get 返回明文值给插件码面（它要外联
  * 必然持有值）；本腿防的是磁盘/env 明文落盘与跨插件串读，不防同进程内存
@@ -34,6 +39,7 @@ import { BaseError } from '../contracts/index.js';
 // API；DEEP_FACES 面册 sanctioned 位，triggers.ts 同律消费）
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
 import { pluginNamespace, isPluginNamespace, type CredentialMeta } from './types.js';
+import type { OAuthFlowRegistry, OAuthFlowSpec } from './oauth.js';
 
 /**
  * 凭证存储窄面（词面独立律——结构兼容 persist Store 凭证方法子集：
@@ -52,14 +58,25 @@ const READ_CROSS_CAPABILITY = 'credentials.read-cross';
 
 /** capability/used 审计 seam 载荷（audit_events 落码挂账 U3-2——发射位后接） */
 export interface CapabilityUsedPayload {
-  /** 使用方插件 id（core: 含前缀原形） */
   readonly pluginId: string;
   /** 高危面名（本件恒 'credentials.read-cross'） */
   readonly capability: string;
-  /** 越域读命中的目标 namespace */
   readonly namespace: string;
-  /** 越域读命中的凭证名 */
   readonly name: string;
+}
+
+/**
+ * oauth 流注册面受局面（c-6）：注册表由 assembly 创建（host-owned），
+ * 开窗器/装载窗判定由 plugin-boot 绑本插件 handle 真源（enterHostCallback
+ * /装载窗位）——三源合流即完整受局面。
+ */
+export interface OAuthFaceWiring {
+  /** 流注册表（assembly 单真身——plugin-boot 与人面动词共用） */
+  readonly registry: OAuthFlowRegistry;
+  /** 宿主回调窗开窗器（返回幂等恢复函数——invoke 包裹位消费） */
+  readonly openWriteWindow: () => () => void;
+  /** 装载窗判定（apply 期 true——registerOAuthFlow 窗执法判据） */
+  readonly inLoadWindow: () => boolean;
 }
 
 /** credentials/changed 审计 seam 载荷（05 §1.1 立词——值恒不入载荷） */
@@ -77,7 +94,7 @@ export interface CredentialChangedPayload {
   readonly origin: string;
 }
 
-/** 插件凭证面（ctx.get("secrets") 的取用形态——get/set 两动词，§2.2 第十面） */
+/** 插件凭证面（ctx.get("secrets") 的取用形态——get/set/registerOAuthFlow 三动词，§2.2 第十面） */
 export interface SecretsService {
   /**
    * 凭证读（返回明文值）。缺省自域；显式 `namespace` = 越域读（走高危面
@@ -91,6 +108,13 @@ export interface SecretsService {
    * {source:'oauth'} 等 CredentialMeta 键约定）。
    */
   set(name: string, value: string, meta?: CredentialMeta): void;
+  /**
+   * 注册 oauth 流（c-6——装载窗内合法，窗外拒 PLUGIN_WINDOW_CLOSED）。
+   * spec.def.name 即凭证行名（token 落自域 plugin:<id>/name）；handler 在
+   * 用户发起流时的宿主回调窗内执行（窗内本面 set 可达——受理窗机制的
+   * 消费位）。受局面缺席（注册表未装配）拒 CONTEXT_SERVICE_MISSING。
+   */
+  registerOAuthFlow(spec: OAuthFlowSpec): void;
 }
 
 /** 工厂构造选项（host 装配位注入——本件零宿主依赖，纯逻辑可测） */
@@ -114,6 +138,11 @@ export interface SecretsFaceOptions {
   readonly onCapabilityUsed?: (payload: CapabilityUsedPayload) => void;
   /** credentials/changed 审计 seam（set 写成功后调用；缺省 no-op——U3-2 挂账） */
   readonly onCredentialChanged?: (payload: CredentialChangedPayload) => void;
+  /**
+   * oauth 流注册面受局面（c-6——缺席 = registerOAuthFlow 响亮缺位拒；
+   * 生产装配恒在场：registry 由 assembly 供、窗两源由 plugin-boot 绑）。
+   */
+  readonly oauth?: OAuthFaceWiring;
 }
 
 /**
@@ -180,6 +209,31 @@ export function createSecretsFace(options: SecretsFaceOptions): SecretsService {
       // credentials/changed 审计 seam（值恒不入载荷——05 §1.1 立词条款；action/
       // origin 值域同源：oauth 首写与刷新轮换均计 rotate，流内写 = 'oauth-flow'）
       options.onCredentialChanged?.({ namespace: selfNamespace, name, action: 'rotate', origin: 'oauth-flow' });
+    },
+
+    registerOAuthFlow(spec: OAuthFlowSpec): void {
+      const wiring = options.oauth;
+      // 受局面缺位执法（装配缺陷响亮——plugin-context required() 同判据同码；
+      // 词面归 context 域，BaseError 携码不校验归属，本件 DAG 无 context 边
+      // 故字面直用，漂移由全链测试互证）
+      if (wiring === undefined) {
+        throw new BaseError(
+          'CONTEXT_SERVICE_MISSING',
+          `注册动词 ctx.secrets.registerOAuthFlow 的受局面 oauth（流注册表）缺席（插件 ${pluginId}——装配根未接线；装配缺陷 fail-loud）`,
+        );
+      }
+      // 装载窗执法（12f-2a 窗执法码 PLUGIN_WINDOW_CLOSED——词面归 host 域，
+      // 同上字面直用；本面严于通律：回调窗内动态注册不开放——流注册是装载
+      // 期声明，注册面无运行时增量）
+      if (!wiring.inLoadWindow()) {
+        throw new BaseError(
+          'PLUGIN_WINDOW_CLOSED',
+          `注册动词 ctx.secrets.registerOAuthFlow 在装载窗口外被拒（插件 ${pluginId}——流注册只在 apply 执行期间合法，03 §10.9 oauth 案）`,
+        );
+      }
+      // 入 host-owned 注册表（(pluginId, name) 分键——同插件同名后写胜出，
+      // 跨插件结构性不撞；openWriteWindow 绑本插件 handle——invoke 时开窗）
+      wiring.registry.register(pluginId, spec, wiring.openWriteWindow);
     },
   };
 }

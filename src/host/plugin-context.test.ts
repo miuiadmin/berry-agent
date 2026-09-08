@@ -171,6 +171,20 @@ describe('装载窗口律（03 §2.1）', () => {
     expectCode(() => handle.ctx.channels.registerCommand('x-after-restore', () => undefined), 'PLUGIN_WINDOW_CLOSED');
   });
 
+  it('inLoadWindow 镜像窗位（c-6——宿主面专用 getter：构造即 true，关窗 false，回调窗不回落装载位）', () => {
+    const { handle } = assemble();
+    expect(handle.inLoadWindow).toBe(true); // apply 期（plugin-boot 绑 registerOAuthFlow 窗判据）
+    handle.closeWindow();
+    expect(handle.inLoadWindow).toBe(false);
+    const restore = handle.enterHostCallback(); // 回调窗开的是注册动词族——装载位不回落
+    try {
+      expect(handle.inLoadWindow).toBe(false); // 流注册严于通律：回调窗内不可 registerOAuthFlow
+    } finally {
+      restore();
+    }
+    expect(handle.inLoadWindow).toBe(false);
+  });
+
   it('读面免窗：关窗后 get/tryGet/host 照常', () => {
     const { handle, scope } = assemble();
     scope.provide('svc-a', 42);

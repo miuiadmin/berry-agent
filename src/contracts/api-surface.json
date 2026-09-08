@@ -1052,7 +1052,7 @@
       "tier": "stable",
       "since": "1.0",
       "desc": "插件凭证受理制读写面（ctx.get(\"secrets\") 消费——get 缺省自域、越域读走高危面开门 credentials.read-cross；set 恒自域且只在宿主回调窗内可达）",
-      "sig": "48728f0bafaeff83"
+      "sig": "29cc2437a806c7ba"
     },
     {
       "symbol": "secrets.get",
@@ -1061,6 +1061,14 @@
       "since": "1.0",
       "desc": "凭证读（返回明文值）",
       "sig": "2b8d84decf8708a4"
+    },
+    {
+      "symbol": "secrets.registerOAuthFlow",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "注册 oauth 流（c-6——装载窗内合法，窗外拒 PLUGIN_WINDOW_CLOSED）",
+      "sig": "1a5030573333c3f5"
     },
     {
       "symbol": "secrets.set",

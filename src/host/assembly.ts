@@ -56,7 +56,7 @@ import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactor
 // 函数引用环——顶层零副作用，boot 后才调值，ESM live binding 安全）
 import { createSdkHttpFace } from '../sdk/index.js';
 import { ISSUE_GITHUB_TOKEN_NAME, ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_WEBHOOK_SECRET_NAME } from '../issue/index.js';
-import { HOST_NAMESPACE } from '../credentials/index.js';
+import { HOST_NAMESPACE, createOAuthFlowRegistry } from '../credentials/index.js';
 import { mountWebuiOnFace } from './webui-bridge.js';
 
 /** 装配选项（TUI 入口与诊断命令共用面——runtime 子面透传 createHostRuntime） */
@@ -260,6 +260,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       },
       warn: (message) => logger.warn(message),
     });
+
+    // —— oauth 流注册表（c-6——03 §10.9 oauth 案）：host-owned 单真身
+    // （createJobRegistry 同形先例——纯内存装载代内生命周期），三消费位共
+    // 用同表：plugin-boot fork 绑定（ctx.secrets.registerOAuthFlow 注册面）+
+    // core:credentials 人面动词（/credentials oauth 解析腿）+ 刷新链巡检面。
+    // fetch = globalThis.fetch 真身（credentials 件无 web 边——loop 只认
+    // StreamFn 同律；宿主侧外联插件声明端点，SSRF 守卫挂账安全批评审）
+    const oauthFlows = createOAuthFlowRegistry();
     // in-process 真工厂注册（批 19c-1 兑现）：委派深度登记表（boot 全局层
     // 工具执行时语境真源）+ DEFAULT_SUBAGENT_PROVIDER 位接线（声明式 def
     // bound provider late-binding 同位解析）
@@ -311,8 +319,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
         // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
         // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
-        // plugin-boot——两审计 seam 缺省 no-op 挂账 U3-2 audit_events 载体批）
-        secrets: { store: runtimeNow.persistence.store },
+        // plugin-boot——两审计 seam 缺省 no-op 挂账 U3-2 audit_events 载体批；
+        // oauthRegistry = c-6 流注册表真身——fork 绑定成 registerOAuthFlow 面）
+        secrets: { store: runtimeNow.persistence.store, oauthRegistry: oauthFlows },
         noPlugins: options.noPlugins === true,
         version: options.version,
         // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
@@ -417,6 +426,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             // 词面独立律 compat 面）；审计 seam 缺省不置（no-op——挂账 U3-2
             // audit_events 载体批接线真发射位）
             credentialsStore: runtimeNow.persistence.store,
+            // —— oauth 流受局面（c-6——03 §10.9 oauth 案）：注册表同真身 +
+            // globalThis.fetch 真身（SSRF 守卫挂账安全批评审）+ 刷新链 60s
+            // 自驱缺省 + 单败 warn 走宿主 logger
+            credentialsOAuth: {
+              registry: oauthFlows,
+              fetchFn: fetch,
+              warn: (message) => logger.warn(message),
+            },
             // —— scheduler 编舞接线三位（批 20c——19c-2 挂账销账）——
             // GateFacts 宿主三源收集闭包：行启停位 + 宿主在飞（anyRunning）+
             // 最近真用户消息（boot 后监听器维护）+ 行上次触发（JobRow 自带

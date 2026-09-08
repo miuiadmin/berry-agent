@@ -16,6 +16,9 @@
  *  - set 受理窗 fail-closed（缺省/显式 false 均拒 CREDENTIALS_WRITE_WINDOW_CLOSED）；
  *  - 窗内写恒自域（物理行落 plugin:<本插件> 域）+ changed 审计载荷；
  *  - meta 整列换（非合并）；
+ *  - registerOAuthFlow 三态（c-6）：受局面缺席拒 CONTEXT_SERVICE_MISSING /
+ *    装载窗外拒 PLUGIN_WINDOW_CLOSED / 窗内入 host 注册表（键恒闭包
+ *    pluginId——调用方无从冒名他插件域）；
  *  - compat 互证：persist Store 结构可赋值 CredentialsStoreFace（词面独立律）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -25,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
 import { CREDENTIALS_MIGRATION } from './migration.js';
+import { createOAuthFlowRegistry, type OAuthFlowSpec } from './oauth.js';
 import {
   createSecretsFace,
   type CapabilityUsedPayload,
@@ -259,6 +263,51 @@ describe('set 受理窗执法（恒自域写）', () => {
     const { face } = rigFace({ store, inWriteWindow: () => true });
     face.set('token', 'sk-roundtrip');
     expect(face.get('token')).toBe('sk-roundtrip');
+  });
+});
+
+describe('registerOAuthFlow 三态（c-6 第十面第三动词——装载窗执法）', () => {
+  /** 测试流声明（形断言用真词面端点——零真网络：本面不触 fetch） */
+  const SPEC: OAuthFlowSpec = {
+    def: {
+      name: 'github',
+      deviceAuthUrl: 'https://github.example/login/device/code',
+      tokenUrl: 'https://github.example/login/oauth/access_token',
+      clientId: 'client-abc',
+    },
+    handler: async () => undefined,
+  };
+
+  it('受局面缺席（装配根未接线）拒 CONTEXT_SERVICE_MISSING——fail-loud 装配缺陷', () => {
+    const { face } = rigFace({ store: openTestStore() }); // 无 oauth wiring（受局面缺席——执法序第一位）
+    const err = expectCode(() => face.registerOAuthFlow(SPEC), 'CONTEXT_SERVICE_MISSING');
+    expect(err.message).toContain('流注册表');
+  });
+
+  it('装载窗外拒 PLUGIN_WINDOW_CLOSED + 注册表零污染（未入表）', () => {
+    const registry = createOAuthFlowRegistry();
+    const { face } = rigFace({
+      store: openTestStore(),
+      oauth: { registry, openWriteWindow: () => () => undefined, inLoadWindow: () => false },
+    });
+    const err = expectCode(() => face.registerOAuthFlow(SPEC), 'PLUGIN_WINDOW_CLOSED');
+    expect(err.message).toContain('装载窗口外');
+    expect(registry.list()).toHaveLength(0); // 拒后无残留
+  });
+
+  it('装载窗内入 host 注册表：键恒闭包 pluginId（调用方无从冒名他插件域）', () => {
+    const registry = createOAuthFlowRegistry();
+    const { face } = rigFace({
+      store: openTestStore(),
+      oauth: { registry, openWriteWindow: () => () => undefined, inLoadWindow: () => true },
+    });
+    face.registerOAuthFlow(SPEC); // spec 无 pluginId 位——键由 face 闭包注入
+    const flows = registry.list();
+    expect(flows).toHaveLength(1);
+    expect(flows[0]?.pluginId).toBe('demo'); // 防冒名：物理键 = 面持有者域
+    expect(flows[0]?.def.name).toBe('github');
+    expect(registry.get('demo', 'github')?.def.clientId).toBe('client-abc');
+    expect(registry.get('other', 'github')).toBeUndefined(); // 他插件域无此流
   });
 });
 

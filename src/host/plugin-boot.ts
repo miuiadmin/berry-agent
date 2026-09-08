@@ -50,6 +50,7 @@ import type { ToolRegistry } from '../tools/index.js';
 import type { LlmRuntime } from '../llm/index.js';
 import { createEnvRefResolver, createSecretsFace } from '../credentials/index.js';
 import type { SecretsFaceOptions } from '../credentials/index.js';
+import type { OAuthFlowRegistry } from '../credentials/index.js';
 
 import { clearBootFailure, recordBootFailure } from './boot-failures.js';
 import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
@@ -129,7 +130,15 @@ export interface PluginBootOptions {
    * 缺席 = secrets 面整体不提供（ctx.get 响亮 CONTEXT_SERVICE_MISSING——
    * 诚实缺席律：测试替身形/:memory: 诊断形）。
    */
-  readonly secrets?: Pick<SecretsFaceOptions, 'store' | 'onCapabilityUsed' | 'onCredentialChanged'>;
+  readonly secrets?: Pick<SecretsFaceOptions, 'store' | 'onCapabilityUsed' | 'onCredentialChanged'> & {
+    /**
+     * oauth 流注册表（c-6——03 §10.9 oauth 案）：assembly 单真身（与人面
+     * 动词/刷新链共用同表）。在场且 secrets 席在场时，装载序逐插件 fork 绑
+     * 完整 oauth 受局面（开窗器/装载窗判定绑本插件 handle 真源——
+     * enterHostCallback/inLoadWindow）。缺席 = registerOAuthFlow 响亮缺位拒。
+     */
+    readonly oauthRegistry?: OAuthFlowRegistry;
+  };
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
@@ -276,13 +285,26 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     // 根单槽容不下逐插件身份绑定——fork 遮蔽合法）。getOpens/inWriteWindow
     // 晚绑 handle 真源（装载代内授予面快照 / 回调窗深度计数）
     if (secretsSeatActive) {
+      // oauth 受局面合流（c-6）：注册表来自 assembly（共享单真身），窗两源
+      // 绑本插件 handle（enterHostCallback 开窗器 + inLoadWindow 装载窗判定）
+      // ——registerOAuthFlow 的装载窗执法与 invoke 的回调窗包裹由此成完整形
+      const { oauthRegistry, ...restWiring } = secretsWiring;
       fork.provide(
         'secrets',
         createSecretsFace({
-          ...secretsWiring,
+          ...restWiring,
           pluginId,
           getOpens: () => handle.grantedOpens,
           inWriteWindow: () => handle.inHostCallback,
+          ...(oauthRegistry !== undefined
+            ? {
+                oauth: {
+                  registry: oauthRegistry,
+                  openWriteWindow: () => handle.enterHostCallback(),
+                  inLoadWindow: () => handle.inLoadWindow,
+                },
+              }
+            : {}),
         }),
       );
     }

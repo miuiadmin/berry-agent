@@ -117,8 +117,20 @@ import type {
 } from '../issue/index.js';
 import { createWorktreeService } from '../tools/index.js';
 // c 批 credentials 件（c-3 席占位入册 / c-5 人面命令注册——03 §10.9）
-import { CREDENTIALS_USAGE, parseCredentialsArgv, runCredentialsCommand } from '../credentials/index.js';
-import type { CredentialChangedPayload, CredentialsCommandStore } from '../credentials/index.js';
+import {
+  CREDENTIALS_USAGE,
+  parseCredentialsArgv,
+  runCredentialsCommand,
+  runDeviceCodeFlow,
+  resolveOAuthFlow,
+  createRefreshChain,
+} from '../credentials/index.js';
+import type {
+  CredentialChangedPayload,
+  CredentialsCommandStore,
+  OAuthFetchLike,
+  OAuthFlowRegistry,
+} from '../credentials/index.js';
 
 import type { PluginContext } from './plugin-context.js';
 import type { CorePluginReference } from './loader.js';
@@ -367,6 +379,20 @@ export interface CorePluginHostDeps {
    * 值域单源。缺省 no-op——audit_events 载体挂账 U3-2 真发射位接线）。
    */
   readonly credentialsOnChanged?: (payload: CredentialChangedPayload) => void;
+  /**
+   * oauth 流受局面（c-6——03 §10.9 oauth 案）：流注册表（assembly 单真身，
+   * 与 plugin-boot fork 绑定共用）+ fetch 注入（生产 = globalThis.fetch——
+   * credentials 件无 web 边，SSRF 守卫挂账安全批注记）+ 刷新链节奏（缺省
+   * 60s 自驱；0 = 不自驱——测试手动 tick）+ 单败 warn 去向（缺省丢弃——
+   * 三振 notify 告警腿恒在场）。缺席 = oauth 动词不启用 + 刷新链不起
+   * （/credentials 命令三动词不受影响）。
+   */
+  readonly credentialsOAuth?: {
+    readonly registry: OAuthFlowRegistry;
+    readonly fetchFn: OAuthFetchLike;
+    readonly intervalMs?: number;
+    readonly warn?: (message: string) => void;
+  };
 }
 
 /**
@@ -1363,6 +1389,44 @@ function makeCredentialsPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const context = ctx as PluginContext;
       const store = deps.credentialsStore;
       if (store === undefined) return; // 主闸——存储 seam 缺席 = 人面命令零注册（空闲占席维持）
+      const oauth = deps.credentialsOAuth;
+
+      // oauth 动词执行腿（c-6——03 §10.9 oauth 案）：流解析 → invoke（宿主
+      // 回调窗包裹——窗内插件 ctx.secrets.set 写自域）→ 完成回执。token 只在
+      // io 返回值内存过手（宿主不落值、回执永不呈值——模型可见性铁律同源）
+      const runOAuth = async (pluginId: string, name: string | undefined): Promise<void> => {
+        if (oauth === undefined) {
+          deps.notify?.('credentials', 'oauth 流面未装配（运行时承载——CLI/零装配面不可用；TUI 面须流注册表在场）。');
+          return;
+        }
+        const resolved = resolveOAuthFlow(oauth.registry, pluginId, name);
+        if (resolved.flow === undefined) {
+          deps.notify?.('credentials', resolved.message);
+          return;
+        }
+        const flow = resolved.flow;
+        try {
+          await flow.invoke({
+            runDeviceCode: () =>
+              runDeviceCodeFlow(flow.def, {
+                fetchFn: oauth.fetchFn,
+                present: (text) => deps.notify?.('credentials', text), // 用户呈现面（user_code/验证页）
+                now: () => Date.now(),
+                sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+              }),
+          });
+          deps.notify?.(
+            'credentials',
+            `oauth 授权流完成——凭证由插件 ${pluginId} 写入自域（plugin:${pluginId}/${flow.def.name}）；/credentials list 查看。`,
+          );
+        } catch (err) {
+          // 守卫错折文本不炸通道（命令面是用户面——DENIED/EXPIRED/FLOW_FAILED 码直呈）
+          deps.notify?.(
+            'credentials',
+            err instanceof BaseError ? `${err.code}：${err.message}` : err instanceof Error ? err.message : String(err),
+          );
+        }
+      };
 
       // 命令结算文本 = 人读面，经 notify 归因 'credentials' 投递（memory 件
       // runCommand 同形）；非 BaseError 兜底折呈不炸通道
@@ -1375,18 +1439,50 @@ function makeCredentialsPlugin(deps: CorePluginHostDeps): CorePluginReference {
       };
       const dispose = context.channels.registerCommand(
         'credentials',
-        (args) =>
-          runCommand(() => {
-            const parsed = parseCredentialsArgv(args.argv);
-            if (!parsed.ok) return parsed.message;
-            return runCredentialsCommand(parsed.sub, {
-              store,
-              ...(deps.credentialsOnChanged !== undefined ? { onCredentialChanged: deps.credentialsOnChanged } : {}),
-            }).text;
-          }),
+        async (args) => {
+          const parsed = parseCredentialsArgv(args.argv);
+          if (!parsed.ok) {
+            deps.notify?.('credentials', parsed.message);
+            return;
+          }
+          // oauth 动词先行分流（异步执行腿——dance 轮询分钟级长 await，命令
+          // 分派无超时面合法承载）
+          if (parsed.sub.sub === 'oauth') {
+            await runOAuth(parsed.sub.pluginId, parsed.sub.name);
+            return;
+          }
+          runCommand(
+            () =>
+              runCredentialsCommand(parsed.sub, {
+                store,
+                ...(deps.credentialsOnChanged !== undefined ? { onCredentialChanged: deps.credentialsOnChanged } : {}),
+              }).text,
+          );
+        },
         CREDENTIALS_USAGE,
       );
-      return dispose;
+
+      // 刷新链（c-6）：受局面在场即起（件内自持挂钟 intervalMs 缺省 60s；
+      // 0 = 不自驱——测试手动 tick；dispose 位停钟——装载代内生命周期）
+      let chainStop: (() => void) | undefined;
+      if (oauth !== undefined) {
+        const chain = createRefreshChain({
+          store,
+          registry: oauth.registry,
+          fetchFn: oauth.fetchFn,
+          now: () => Date.now(),
+          notify: (message) => deps.notify?.('credentials', message), // 三振告警（用户面）
+          warn: (message) => oauth.warn?.(message), // 单败 warn（日志面——缺省丢弃，三振腿恒在场）
+          ...(deps.credentialsOnChanged !== undefined ? { onCredentialChanged: deps.credentialsOnChanged } : {}),
+        });
+        const intervalMs = oauth.intervalMs ?? 60_000;
+        if (intervalMs > 0) chain.start(intervalMs);
+        chainStop = () => chain.stop();
+      }
+      return () => {
+        chainStop?.();
+        dispose();
+      };
     },
   };
 }

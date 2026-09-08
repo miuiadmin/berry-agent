@@ -251,6 +251,13 @@ export interface PluginContextHandle {
    */
   readonly inHostCallback: boolean;
   /**
+   * 装载窗判定只读面（true = 装载窗未关——apply 期）。credentials 件
+   * registerOAuthFlow 装载窗执法的装配源（03 §10.9 oauth 案——c-6 落码批
+   * 接线；流注册只在 apply 期合法，回调窗内动态注册不开放）。宿主面专用
+   * 不进 ctx——同 inHostCallback 窗律执法面语义。
+   */
+  readonly inLoadWindow: boolean;
+  /**
    * 高危面门检（03 §4.6 fail-loud）：裁决核 contracts adjudicateCapabilityDoor
    * （两序判：非高危面 → not-a-door 装配缺陷面；高危面未授予 → door-closed
    * 默认关正当拒绝面），verdict 失败即抛 `PLUGIN_CAPABILITY_DOOR_CLOSED`
@@ -557,6 +564,10 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     // 回调窗判定只读面（深度 > 0 = 窗内——嵌套取「在窗内」语义）
     get inHostCallback(): boolean {
       return hostCallbackDepth > 0;
+    },
+    // 装载窗判定只读面（closeWindow 前 = apply 期 true）
+    get inLoadWindow(): boolean {
+      return windowOpen;
     },
     assertDoor,
   };

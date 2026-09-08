@@ -202,6 +202,27 @@ describe('parseCredentialsArgv（TUI 面解析律）', () => {
     expect(parseCredentialsArgv(['list'])).toEqual({ ok: true, sub: { sub: 'list' } });
   });
 
+  it('oauth 形（c-6）：成功两形（缺省名/指名）+ 失败形（--namespace 拒 / arity）', () => {
+    // 成功形一：pluginId 单参（name 缺省 = 该插件唯一流自动选中）
+    expect(parseCredentialsArgv(['oauth', 'demo'])).toEqual({ ok: true, sub: { sub: 'oauth', pluginId: 'demo' } });
+    // 成功形二：pluginId + name 指名
+    expect(parseCredentialsArgv(['oauth', 'demo', 'github'])).toEqual({
+      ok: true,
+      sub: { sub: 'oauth', pluginId: 'demo', name: 'github' },
+    });
+    // 失败形：--namespace 拒（域随流主人——token 落插件自域）+ arity 0/3
+    const cases: readonly [readonly string[], string][] = [
+      [['oauth', 'demo', '--namespace', 'host'], 'oauth 不收 --namespace'],
+      [['oauth'], 'oauth 须带 <pluginId>'],
+      [['oauth', 'a', 'b', 'c'], 'oauth 须带 <pluginId>'],
+    ];
+    for (const [argv, keyword] of cases) {
+      const parsed = parseCredentialsArgv(argv);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.message).toContain(keyword);
+    }
+  });
+
   it('失败形：缺子命令 / 未知动词 / arity 错 / --namespace 无值', () => {
     const cases: readonly [readonly string[], string][] = [
       [[], '缺子命令'],

@@ -22,8 +22,13 @@ import type { GateInput, SessionEvent } from '../contracts/index.js';
 import type { CommandHandler } from '../channels/index.js';
 import { openCheckpointStore } from '../checkpoint/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
-import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
-import type { CredentialChangedPayload, CredentialsCommandStore } from '../credentials/index.js';
+import { CREDENTIALS_MIGRATION, createOAuthFlowRegistry } from '../credentials/index.js';
+import type {
+  CredentialChangedPayload,
+  CredentialsCommandStore,
+  OAuthFetchLike,
+  OAuthFlowRegistry,
+} from '../credentials/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
 import type { GoalSessionFace } from '../goal/index.js';
 import type { IssueBudgetFace, IssueSessionFace, IssueStoreStateFace } from '../issue/index.js';
@@ -98,6 +103,13 @@ interface DepsForTest {
   issueWebhookSecret?: string;
   credentialsStore?: CredentialsCommandStore;
   credentialsOnChanged?: (payload: CredentialChangedPayload) => void;
+  /** oauth 流受局面（c-6）：CorePluginHostDeps.credentialsOAuth 同形——intervalMs 0 = 刷新链不自驱 */
+  credentialsOAuth?: {
+    registry: OAuthFlowRegistry;
+    fetchFn: OAuthFetchLike;
+    intervalMs?: number;
+    warn?: (message: string) => void;
+  };
 }
 
 /** 真装载速记（createCorePlugins 工厂单源注入——缺省路径的等价形；boot 柄暴露供消费腿断言。cwd/homeDir 注入隔离面——skills 跨库层不扫真实 HOME） */
@@ -162,6 +174,7 @@ async function bootCore(
       ...(coreDeps.issueWebhookSecret !== undefined ? { issueWebhookSecret: coreDeps.issueWebhookSecret } : {}),
       ...(coreDeps.credentialsStore !== undefined ? { credentialsStore: coreDeps.credentialsStore } : {}),
       ...(coreDeps.credentialsOnChanged !== undefined ? { credentialsOnChanged: coreDeps.credentialsOnChanged } : {}),
+      ...(coreDeps.credentialsOAuth !== undefined ? { credentialsOAuth: coreDeps.credentialsOAuth } : {}),
     }),
     version: '9.9.9-test',
     warn: (message) => warnings.push(message),
@@ -575,6 +588,126 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     // 主闸：store seam 缺席 = 零注册（空闲占席——装载计数/禁用位语义不受影响）
     const bare = await bootCore(dataDir, memoryFs());
     expect(bare.commands).not.toContain('credentials');
+    await persistence.close();
+  });
+
+  it('credentials oauth 全环（c-6）：人面动词 → 流解析 → invoke 宿主回调窗 → device-code 舞步（假 fetch）→ 插件窗内写自域 + present 含 user_code + 值不入文本 + 完成回执；未装配 → 诚实文本', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-oauth-'));
+    dirs.push(dataDir);
+    // 真库（:memory: 形自动 ephemeral 密钥）+ 流注册表真身（与 bootCore 注入
+    // 同一实例——assembly 单真身等价形）
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: [CREDENTIALS_MIGRATION] });
+    const registry = createOAuthFlowRegistry();
+    const notified: string[] = [];
+    // 脚本化 fetch：发起 → pending（interval 0 = sleep 0 即返）→ 成功
+    const script = [
+      {
+        json: {
+          device_code: 'dev-77',
+          user_code: 'WDJB-MJHT',
+          verification_uri: 'https://github.example/device',
+          expires_in: 600,
+          interval: 0,
+        },
+      },
+      { json: { error: 'authorization_pending' }, ok: false, status: 400 },
+      { json: { access_token: 'gho dance-secret-a1', refresh_token: 'ghr dance-refresh-b2', expires_in: 3600 } },
+    ];
+    let scriptIndex = 0;
+    const fetchFn = (async (_url: string) => {
+      const s = script[scriptIndex++]!;
+      return { ok: s.ok ?? true, status: s.status ?? 200, text: async () => JSON.stringify(s.json) };
+    }) as OAuthFetchLike;
+
+    // 开窗器替身：invoke 期间旗标开（宿主回调窗语义——handler 体内断言用）
+    let inWindow = false;
+    let seenInHandler = false;
+    // 预注册流（形式 (b)：手工入册共享 registry + handler 直写 store 模拟窗内
+    // ctx.secrets.set——face→窗集成归 secrets.test；bootCore 无 secrets 装配）
+    registry.register(
+      'demo',
+      {
+        def: {
+          name: 'github',
+          deviceAuthUrl: 'https://github.example/login/device/code',
+          tokenUrl: 'https://github.example/login/oauth/access_token',
+          clientId: 'client-abc',
+        },
+        handler: async (io) => {
+          seenInHandler = inWindow; // handler 体内 = 宿主回调窗内
+          const grant = await io.runDeviceCode();
+          // 窗内写自域（token 经 io 返回值内存过手——主行 + 独立加密刷新行，
+          // meta 永不持值铁律）
+          persistence.store.setCredential('plugin:demo', 'github', {
+            apiKey: grant.accessToken,
+            meta: { source: 'oauth', refreshName: 'github.refresh', expiresAt: grant.expiresAt },
+          });
+          if (grant.refreshToken !== undefined) {
+            persistence.store.setCredential('plugin:demo', 'github.refresh', {
+              apiKey: grant.refreshToken,
+              meta: { source: 'oauth' },
+            });
+          }
+        },
+      },
+      () => ((inWindow = true), () => (inWindow = false)),
+    );
+
+    const { commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        credentialsStore: persistence.store,
+        credentialsOAuth: { registry, fetchFn, intervalMs: 0 }, // 0 = 刷新链不自驱（行为面归 refresh.test）
+        notify: (source, message) => {
+          if (source === 'credentials') notified.push(message);
+        },
+      },
+    );
+    const cred = commandSpecs.find((spec) => spec.name === 'credentials');
+    if (cred === undefined) throw new Error('/credentials 命令不在捕获面');
+
+    // 缺省名解析（demo 单流自动选中）→ dance 全环 → 完成回执
+    await cred.handler({ raw: '', argv: ['oauth', 'demo'] });
+    const joined = notified.join('\n');
+    expect(joined).toContain('WDJB-MJHT'); // present 用户码直达
+    expect(joined).toContain('https://github.example/device');
+    expect(joined).toContain('oauth 授权流完成');
+    expect(joined).toContain('plugin:demo/github'); // 回执指路（名不是值）
+    expect(joined).not.toContain('gho dance-secret-a1'); // 值不入文本（铁律）
+    expect(joined).not.toContain('ghr dance-refresh-b2');
+    expect(seenInHandler).toBe(true); // handler 体内窗开
+    expect(inWindow).toBe(false); // 收口即合窗
+    // 落行断言：主行 + 刷新行分立（meta 永不持值——refreshName 是名不是值）
+    const main = persistence.store.getCredential('plugin:demo', 'github');
+    expect(main?.apiKey).toBe('gho dance-secret-a1');
+    expect((main?.meta as { source: string; refreshName: string }).refreshName).toBe('github.refresh');
+    expect(persistence.store.getCredential('plugin:demo', 'github.refresh')?.apiKey).toBe('ghr dance-refresh-b2');
+
+    // 指名未命中 → 指路在册流
+    await cred.handler({ raw: '', argv: ['oauth', 'demo', 'gitlab'] });
+    expect(notified[notified.length - 1]).toContain('不在插件 demo 名下');
+
+    // 受局面缺席（store 在、oauth 槽不在）→ 诚实文本不炸
+    const noOauthNotified: string[] = [];
+    const noOauthDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-oauth2-'));
+    dirs.push(noOauthDir);
+    const noOauth = await bootCore(
+      noOauthDir,
+      memoryFs(),
+      {},
+      {
+        credentialsStore: persistence.store,
+        notify: (source, message) => {
+          if (source === 'credentials') noOauthNotified.push(message);
+        },
+      },
+    );
+    const credBare = noOauth.commandSpecs.find((spec) => spec.name === 'credentials');
+    if (credBare === undefined) throw new Error('/credentials 命令不在捕获面（noOauth）');
+    await credBare.handler({ raw: '', argv: ['oauth', 'demo'] });
+    expect(noOauthNotified[noOauthNotified.length - 1]).toContain('oauth 流面未装配');
     await persistence.close();
   });
 
