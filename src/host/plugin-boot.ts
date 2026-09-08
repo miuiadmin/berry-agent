@@ -113,8 +113,8 @@ const SESSIONS_CONTROL_SEAT_MARKER = { seat: 'sessions-control' } as const;
  */
 const COMPACTION_SEAT_MARKER = { seat: 'compaction' } as const;
 
-/** 缺省真盘实现（读失败一律 null——文件缺席语义） */
-function defaultFs(): PluginBootFs {
+/** 缺省真盘实现（读失败一律 null——文件缺席语义）；导出 = /reload 预检装配位复用（单源） */
+export function defaultFs(): PluginBootFs {
   return {
     read: (path) => {
       try {
@@ -216,6 +216,13 @@ export interface PluginBootOptions {
   readonly corePlugins?: readonly CorePluginReference[];
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
   readonly noPlugins?: boolean;
+  /**
+   * 卸载换代槽（/reload 批——03 §5.7 热重载换代执法位）：在场时本代卸载
+   * 序不走 runtime closers 直注册，改写槽内 current（装配根一次性注册读
+   * 槽 closer——shutdown 恒跑**最新代**回卷，reload 换代不累积重复
+   * closer）。缺席 = 维持直注册现状（单次 boot 形——CLI/测试/诊断）。
+   */
+  readonly unloadRef?: { current: (() => Promise<PluginUnloadReceipt>) | null };
   /** 宿主版本（HostFace 物化位——main.readVersion 产物） */
   readonly version: string;
   /** API 面版本（缺省 '1.0'——package.json apiVersion 同步维护） */
@@ -225,6 +232,15 @@ export interface PluginBootOptions {
   /** fs 注入（缺省真盘） */
   readonly fs?: PluginBootFs;
 }
+
+/**
+ * 卸载回执形（LoadReport.unload 产物直通——disposed/failed 清单；/reload
+ * 档③聚合报告数据源。failed 带 error 未知形——呈现层自截取 id 呈报）。
+ */
+export type PluginUnloadReceipt = {
+  readonly disposed: readonly string[];
+  readonly failed: readonly { id: string; error: unknown }[];
+};
 
 /** 披露段计数（pluginsProvider 接线位——runtime 装配时持有可变匣） */
 export interface PluginBootCounts {
@@ -472,17 +488,23 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // ⑨ closer：apply disposer LIFO 后 fork 逆序 dispose（drain 序 = 注册序）；
   //    Job 归属围栏收口腿（Job 消费面批桥二）在 disposer 回卷后对 activated
   //    逐插件 closeOwner——插件侧事件源先停（不再新 fire），余在飞 Job 两拍
-  //    收口（协作中止路由 + 兜底 killed——04 §10 定形）
-  options.runtime.registerCloser({
-    label: 'plugin-unload',
-    fn: async () => {
-      await loaded.unload();
-      if (options.jobs !== undefined) {
-        for (const a of loaded.activated) await options.jobs.closeOwner(a.id);
-      }
-      for (const fork of pluginScopes.reverse()) await fork.dispose(); // ctx.effect 回卷
-    },
-  });
+  //    收口（协作中止路由 + 兜底 killed——04 §10 定形）。
+  //    换代槽双形态（/reload 批）：unloadRef 在场改写槽（shutdown 恒跑最新代，
+  //    reload 换代不累积重复 closer）；缺席维持直注册（单次 boot 形）。
+  const unloadAll = async (): Promise<PluginUnloadReceipt> => {
+    const receipt = await loaded.unload();
+    if (options.jobs !== undefined) {
+      for (const a of loaded.activated) await options.jobs.closeOwner(a.id);
+    }
+    for (const fork of pluginScopes.reverse()) await fork.dispose(); // ctx.effect 回卷
+    return receipt; // 回卷回执（/reload 档③聚合报告数据源——换代槽消费）
+  };
+  if (options.unloadRef !== undefined) {
+    options.unloadRef.current = unloadAll;
+  } else {
+    // 直注册形回执丢弃（HostCloser 契约 void 形——单次 boot 无消费面）
+    options.runtime.registerCloser({ label: 'plugin-unload', fn: async () => void (await unloadAll()) });
+  }
 
   // failed 面合并后交付（单真相——消费方不见两源）
   const report: LoadReport = { ...loaded, failed: failedAll };
@@ -613,8 +635,12 @@ export function recordPluginLifecycleDiff(audit: AuditFace, rows: readonly { id:
 /**
  * enabled.yaml 读侧（§5.3）。缺席 = 全 core: 内置态（含 memory 形——无数据
  * 目录同缺席语义）；损坏 = fail-loud 拒启给修复指引（删除文件即回内置态）。
+ *
+ * 导出消费位 = /reload 预检（03 §5.7 档①——plugin-reload preflight 真源）：
+ * 同一函数先于回卷跑一遍，校验失败即拒换——预检与装载读侧恒一致（单源，
+ * 结构性不存在「预检过装载拒」的第二判据）。
  */
-function readEnabledRows(dataDir: string | null, fs: PluginBootFs): readonly EnabledRow[] {
+export function readEnabledRows(dataDir: string | null, fs: PluginBootFs): readonly EnabledRow[] {
   if (dataDir === null) return [];
   const path = enabledYamlPath(dataDir);
   const text = fs.read(path);

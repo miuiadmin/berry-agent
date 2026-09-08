@@ -531,3 +531,96 @@ describe('serve/daemon 形 always 回写同律（R-1——U3-0 台账记账项�
     }
   });
 });
+
+/* ---------------- /reload 热重载 e2e（03 §5.7——换代槽 + runBoot 闭包 + 回执扇出） ---------------- */
+
+describe('/reload 热重载 e2e（03 §5.7——手编漂移换代全链）', () => {
+  /** notify 捕获后端（UiBackend 最小形——capabilities.notify 位 + hasAudience 恒真） */
+  const captureBackend = (notified: string[]): UiBackend<never> => ({
+    id: 'reload-probe',
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: (_message, opts) => void notified.push(`${opts?.level ?? 'info'}|${_message}`),
+  });
+
+  it('手编 enabled.yaml 漂移 → request → 换代装载（boot 句柄/披露匣/旧代回卷/回执扇出）', async () => {
+    const dir = tmpDir('host-asm-reload-');
+    const disposed: string[] = [];
+    const mk = (name: string): CorePluginReference => ({
+      name,
+      apply: async () => () => void disposed.push(name), // disposer 记账——回卷断言位
+    });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [mk('demo1'), mk('demo2')],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 初代：enabled.yaml 缺席 = core 内置态两件齐装
+      expect(assembly.boot.report.activated.map((a) => a.id)).toEqual(['core:demo1', 'core:demo2']);
+      expect(assembly.reloader.hasPending()).toBe(false); // 编舞器在场——idle 初态
+      // 手编漂移：禁用 demo2（CLI toggle 的手编等价）
+      writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: core:demo2\n    disabled: true\n');
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      assembly.reloader.request();
+      await assembly.reloader.settle();
+      // 换代观察面（boot 闭包变量是新代——assembly.boot 属性是初代值快照，
+      // 换入真源走闭包取值器；此处以披露匣/回卷/回执三面间接证新代）：
+      // 披露匣（pluginCounts 可变对象同址回写——total 含 skipped 行）
+      expect(assembly.pluginCounts).toEqual({ total: 2, enabled: 1, failed: 0 });
+      // 旧代**全量**回卷（LIFO：demo2 先 demo1 后——换代 = 整代回卷再整代装载，
+      // 非增量换行）；新代 demo1 在装未跑
+      expect(disposed).toEqual(['demo2', 'demo1']);
+      // 回执经 channels notify 扇出（归因 'reload'——启用计数 = 新代读面）
+      expect(notified.filter((t) => t.includes('插件已重载：启用 1/2'))).toHaveLength(1); // 恰一轮
+    } finally {
+      await assembly.runtime.shutdown(); // 一次性 closer 读槽——shutdown 跑最新代（demo1）
+    }
+    // shutdown 收口第二代 demo1——且旧代 demo2 不重跑（换代槽核心价值：closer
+    // 不累积，直注册形下 shutdown 会重跑整个旧代 ['demo2','demo1','demo2','demo1']）
+    expect(disposed).toEqual(['demo2', 'demo1', 'demo1']);
+  });
+
+  it('档①拒换：坏形清单 → 旧装载态原封 + 拒换回执（回卷零调用）', async () => {
+    const dir = tmpDir('host-asm-reload-bad-');
+    const disposed: string[] = [];
+    const mk = (name: string): CorePluginReference => ({
+      name,
+      apply: async () => () => void disposed.push(name),
+    });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [mk('demo1')],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 手编坏形：yaml 解析失败（preflight 抛——boot 读侧同一函数单源）
+      writeFileSync(join(dir, 'enabled.yaml'), 'plugins: [ Oops');
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      assembly.reloader.request();
+      await assembly.reloader.settle();
+      expect(notified.some((t) => t.includes('重载已拒'))).toBe(true);
+      expect(disposed).toEqual([]); // 旧装载态原封——回卷零调用
+      expect(assembly.boot.report.activated.map((a) => a.id)).toEqual(['core:demo1']); // 初代仍在位
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+    expect(disposed).toEqual(['demo1']); // shutdown 走直路径收口初代
+  });
+});

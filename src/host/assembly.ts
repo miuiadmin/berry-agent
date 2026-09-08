@@ -47,10 +47,14 @@ import { createSessionsFace } from './sessions-face.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
+import type { AgentService } from '../conversation/index.js';
+import { AGENT_SERVICE_NAME } from '../conversation/index.js';
 import type { CorePluginReference } from './loader.js';
 import { enabledYamlPath, parseEnabledRows } from './manifest.js';
-import type { PluginBootHandle } from './plugin-boot.js';
-import { bootPlugins } from './plugin-boot.js';
+import type { PluginBootHandle, PluginUnloadReceipt } from './plugin-boot.js';
+import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
+import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from './plugin-reload.js';
+import type { PluginReloader } from './plugin-reload.js';
 import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
 import { createIssueSessionFactory } from './issue-session.js';
@@ -111,6 +115,11 @@ export interface AssemblySuccess {
   readonly boot: PluginBootHandle;
   /** 披露匣（boot.counts 已回写——运行时披露段每请求重算即见） */
   readonly pluginCounts: { total: number; enabled: number; failed: number };
+  /**
+   * /reload 编舞器（03 §5.7——busy 排队/失败三档/reloadChain 串行）：TUI
+   * 命令面已在本装配根注册（'reload' 词）；本柄外露 = 测试与入口层直驱。
+   */
+  readonly reloader: PluginReloader;
 }
 
 /** 宿主装配序主入口（async——装载管线内含 jiti ESM 求值） */
@@ -173,8 +182,18 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // —— 共享根作用域与事件总线已前移运行时组装之前（批 19b-2 活体镜像桥位）——
     // 装载柄前置声明（批 19a 消费腿闭包晚绑定：stack 先建、boot 后跑，会话
     // 首开/请求组装时闭包经此引用取已定型产物——boot.tools 全局层定义重放
-    // 与 promptSections 物化两条消费腿同法）
+    // 与 promptSections 物化两条消费腿同法）；/reload 换代 = 重新赋值本变量
+    // （取值器每请求重取——热重载换入面结构性预埋，03 §5.7）
     let boot: PluginBootHandle | undefined;
+    // 卸载换代槽（/reload 批——03 §5.7）：bootPlugins 每代改写槽内 current，
+    // 下方一次性 closer 读槽——shutdown 恒跑最新代回卷，reload 换代不累积
+    // 重复 closer（closer 数组无摘除面，间接层替代）
+    const pluginUnloadRef: { current: (() => Promise<PluginUnloadReceipt>) | null } = {
+      current: null,
+    };
+    // boot 重跑闭包（try 内定型——全部 seam 真身闭包捕获；/reload reapply 与
+    // 首次 boot 同一函数 = 同一装载面，无第二装配序）
+    let runBoot: ((noPluginsFlag: boolean) => Promise<PluginBootHandle>) | undefined;
     // 最近真用户消息时刻（批 20c——scheduler GateFacts lastUserMessageAt 宿主
     // 源）：boot 后 session/event 监听器更新（user/channel 真人输入才计——
     // schedule/subagent-settled/compaction/plugin 注入不计数）；null = 无近期
@@ -374,182 +393,201 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // —— 插件装载：启用清单损坏 fail-loud 属启动失败档（用户可自修配置错——
     // 干净退出不写 crash.log）；余装载失败走行级隔离不入本档 ——
     try {
-      boot = await bootPlugins({
-        runtime,
-        scope,
-        dispatch,
-        commands: stack.channels.commands,
-        llm: stack.llmRuntime,
-        triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
-        subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
-        // Job 归属围栏收口腿（Job 消费面批桥二——04 §10 定形）：卸载 closer 序
-        // 对 activated 逐插件 closeOwner（owner = 插件 id 的收口执法位）
-        jobs,
-        // 界面后端注册面受局面（U3 批 U3-4——ctx.channels.registerUiBackend
-        // 委派 ChannelsService 插件域腿；门检 channels.ui-backend 前置在动词内）
-        uiBackends: stack.channels,
-        // 会话血缘判定面（e2-4——ctx.events.subscribeSessionLifecycle tree 档
-        // 过滤受局面）：真身 = 会话维视图 isSameTree（05 §9 parent_id 链单源）
-        sessionLineage: { isSameTree: (a, b) => stack.sessionView.isSameTree(a, b) },
-        // 跨会话操控受理器真身（e4-3——ctx.get("sessions-control") fork 绑定
-        // 位）：plugin-boot 逐插件 bindControlForPlugin 铸 caller 闭包（插件
-        // 道归因 plugin:<id>——传入面无 caller 位，伪造结构性不存在）
-        sessionsControl: stack.sessionsControl,
-        // 压缩席位容器（U4-3——ctx.get("compaction") fork 绑定位）：真身 =
-        // conversation-stack 装配的 createCompactionSlots 单真身（服务三 seam
-        // 中 getConfig/getProvider 两容器位已在 stack 内接线；此处逐插件
-        // bindForPlugin 绑窗真源 + fork.effect 卸载回收兜底）
-        compaction: stack.compactionSlots,
-        // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
-        // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
-        // plugin-boot；oauthRegistry = c-6 流注册表真身——fork 绑定成
-        // registerOAuthFlow 面；两审计 seam 真接线（c-3 挂账 U3-5 兑现——
-        // 05 §1.1）：越域读命中 → capability/used〔seam 载荷原形——含
-        // namespace/name 归因键〕、oauth 流写/轮换 → credentials/changed）
-        secrets: {
-          store: runtimeNow.persistence.store,
-          oauthRegistry: oauthFlows,
-          onCapabilityUsed: (payload) => audit.append('capability/used', { ...payload }),
-          onCredentialChanged: (payload) => audit.append('credentials/changed', { ...payload }),
+      // 卸载换代槽的一次性 closer（注册序位 = 原 plugin-boot 直注册位：
+      // conversation 栈之后 = 插件卸载晚于对话栈拆解；fn 读槽恒跑最新代）
+      runtime.registerCloser({
+        label: 'plugin-unload',
+        fn: async () => {
+          await pluginUnloadRef.current?.();
         },
-        // 进程级审计流面（U3 批 U3-5——auditSink 透传 + boot plugin/opens 幂等 diff）
-        audit,
-        noPlugins: options.noPlugins === true,
-        version: options.version,
-        // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
-        // 工厂形升级批 19b-1：dataDir 等宿主真身经 CorePluginHostDeps 入件；
-        // 15 件逐纵切笔入册，见 core-plugins.ts）
-        corePlugins:
-          options.corePlugins ??
-          createCorePlugins({
-            dataDir: runtime.dataDir,
-            // memory 件数据面（批 19b-2——sqlite 主闸恒接线；fts 双 seam 同
-            // Store 直传——词面独立律 compat 面，对拍测试互证）
-            sqlite: () => runtimeNow.persistence.store.sqlite(),
-            // 活体日志优先（write-behind 在飞事件不落盘——driver 在场时读
-            // 内存面零缺口）；驱动已收口的外部会话兜底落盘读
-            fetchEvents: (sessionId) =>
-              stack.driverOf(sessionId)?.session.events() ?? runtimeNow.persistence.loadSession(sessionId).log.events(),
-            ftsSearch: runtime.persistence.store,
-            ftsMaintenance: runtime.persistence.store,
-            llm: () => memoryLlm,
-            // 命令输出面（source = 归因字面——调用件自报：memory-export/import
-            // 归因 'memory'、/tick 归因 'tick'；sessionId 位呈现侧路由后端自决）
-            notify: (source, message) => stack.channels.notify(source, message),
-            // 子代理委派面两位（批 19c-1）：service 真身 + boot 全局层工具
-            // 执行时语境解析闭包（深度登记表 ?? 根 1；父面枚举 = 活体驱动
-            // toolNames 快照——纯对话形 undefined 不可枚举）
-            subagents,
-            subagentSessionContext: (sessionId) => {
-              const depth = delegationSessions.depthOf(sessionId) ?? 1;
-              const toolNames = stack.driverOf(sessionId)?.toolNames;
-              return { depth, ...(toolNames !== undefined ? { availableTools: toolNames } : {}) };
-            },
-            // goal 会话日志读面（批 19c-3——goal 件主闸二）：活体日志优先
-            // （driver 在场读内存面），驱动已收口的外部会话兜底落盘读；
-            // 长度经 events() 视图取长（O(1)——内部数组直视图非拷贝）
-            goalSession: {
-              events: (sessionId) =>
+      });
+      // boot 重跑闭包定型（seam 真身全闭包捕获——/reload reapply 与首次
+      // boot 同一函数同一装配面）；noPlugins 经参传入：救援环律（07 §5
+      // 「/reload 读盘不受旗标影响」）——reload 恒以 false 形调用（旗标
+      // 只管启动期短路，人面显式 reload 即显式装载请求）。rt = narrowed
+      // 承接（let runtime 在闭包内失窄化——直线位 const 固化）
+      const rt = runtime;
+      runBoot = (noPluginsFlag) =>
+        bootPlugins({
+          runtime: rt,
+          scope,
+          dispatch,
+          commands: stack.channels.commands,
+          llm: stack.llmRuntime,
+          triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
+          subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
+          // Job 归属围栏收口腿（Job 消费面批桥二——04 §10 定形）：卸载 closer 序
+          // 对 activated 逐插件 closeOwner（owner = 插件 id 的收口执法位）
+          jobs,
+          // 界面后端注册面受局面（U3 批 U3-4——ctx.channels.registerUiBackend
+          // 委派 ChannelsService 插件域腿；门检 channels.ui-backend 前置在动词内）
+          uiBackends: stack.channels,
+          // 会话血缘判定面（e2-4——ctx.events.subscribeSessionLifecycle tree 档
+          // 过滤受局面）：真身 = 会话维视图 isSameTree（05 §9 parent_id 链单源）
+          sessionLineage: { isSameTree: (a, b) => stack.sessionView.isSameTree(a, b) },
+          // 跨会话操控受理器真身（e4-3——ctx.get("sessions-control") fork 绑定
+          // 位）：plugin-boot 逐插件 bindControlForPlugin 铸 caller 闭包（插件
+          // 道归因 plugin:<id>——传入面无 caller 位，伪造结构性不存在）
+          sessionsControl: stack.sessionsControl,
+          // 压缩席位容器（U4-3——ctx.get("compaction") fork 绑定位）：真身 =
+          // conversation-stack 装配的 createCompactionSlots 单真身（服务三 seam
+          // 中 getConfig/getProvider 两容器位已在 stack 内接线；此处逐插件
+          // bindForPlugin 绑窗真源 + fork.effect 卸载回收兜底）
+          compaction: stack.compactionSlots,
+          // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
+          // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
+          // plugin-boot；oauthRegistry = c-6 流注册表真身——fork 绑定成
+          // registerOAuthFlow 面；两审计 seam 真接线（c-3 挂账 U3-5 兑现——
+          // 05 §1.1）：越域读命中 → capability/used〔seam 载荷原形——含
+          // namespace/name 归因键〕、oauth 流写/轮换 → credentials/changed）
+          secrets: {
+            store: runtimeNow.persistence.store,
+            oauthRegistry: oauthFlows,
+            onCapabilityUsed: (payload) => audit.append('capability/used', { ...payload }),
+            onCredentialChanged: (payload) => audit.append('credentials/changed', { ...payload }),
+          },
+          // 进程级审计流面（U3 批 U3-5——auditSink 透传 + boot plugin/opens 幂等 diff）
+          audit,
+          noPlugins: noPluginsFlag,
+          // 卸载换代槽（03 §5.7——本代卸载序改写槽，上方一次性 closer 读槽）
+          unloadRef: pluginUnloadRef,
+          version: options.version,
+          // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
+          // 工厂形升级批 19b-1：dataDir 等宿主真身经 CorePluginHostDeps 入件；
+          // 15 件逐纵切笔入册，见 core-plugins.ts）
+          corePlugins:
+            options.corePlugins ??
+            createCorePlugins({
+              dataDir: rt.dataDir,
+              // memory 件数据面（批 19b-2——sqlite 主闸恒接线；fts 双 seam 同
+              // Store 直传——词面独立律 compat 面，对拍测试互证）
+              sqlite: () => runtimeNow.persistence.store.sqlite(),
+              // 活体日志优先（write-behind 在飞事件不落盘——driver 在场时读
+              // 内存面零缺口）；驱动已收口的外部会话兜底落盘读
+              fetchEvents: (sessionId) =>
                 stack.driverOf(sessionId)?.session.events() ??
                 runtimeNow.persistence.loadSession(sessionId).log.events(),
-              length: (sessionId) => {
-                const log = stack.driverOf(sessionId)?.session ?? runtimeNow.persistence.loadSession(sessionId).log;
-                return log.events().length;
+              ftsSearch: rt.persistence.store,
+              ftsMaintenance: rt.persistence.store,
+              llm: () => memoryLlm,
+              // 命令输出面（source = 归因字面——调用件自报：memory-export/import
+              // 归因 'memory'、/tick 归因 'tick'；sessionId 位呈现侧路由后端自决）
+              notify: (source, message) => stack.channels.notify(source, message),
+              // 子代理委派面两位（批 19c-1）：service 真身 + boot 全局层工具
+              // 执行时语境解析闭包（深度登记表 ?? 根 1；父面枚举 = 活体驱动
+              // toolNames 快照——纯对话形 undefined 不可枚举）
+              subagents,
+              subagentSessionContext: (sessionId) => {
+                const depth = delegationSessions.depthOf(sessionId) ?? 1;
+                const toolNames = stack.driverOf(sessionId)?.toolNames;
+                return { depth, ...(toolNames !== undefined ? { availableTools: toolNames } : {}) };
               },
-            },
-            // checkpoint 两 seam + 焦点会话位（批 19c-4——05 §5.3 词面独立律）：
-            // 语境面 contextOf 活体日志优先（lastClosedBoundary 单源）+ 行
-            // workspaceRoot 锚经公开列表面反查（sessions.fork 同法——不为内部
-            // 取值开新读口）；fork 面 = SessionManager.fork 直赋（05 §5.0 判别
-            // 子集形；箭头包装保 this 绑定）；焦点会话 = channels.focusedId
-            // （/rewind 发起会话真源）
-            checkpointSession: {
-              contextOf: (sessionId) => {
-                const row = runtimeNow.persistence.listSessions().find((r) => r.id === sessionId);
-                if (row === undefined) return undefined;
-                const log = stack.driverOf(sessionId)?.session ?? runtimeNow.persistence.loadSession(sessionId).log;
-                return { lastClosedBoundary: log.lastClosedBoundary(), workspaceRoot: row.workspaceRoot ?? '' };
+              // goal 会话日志读面（批 19c-3——goal 件主闸二）：活体日志优先
+              // （driver 在场读内存面），驱动已收口的外部会话兜底落盘读；
+              // 长度经 events() 视图取长（O(1)——内部数组直视图非拷贝）
+              goalSession: {
+                events: (sessionId) =>
+                  stack.driverOf(sessionId)?.session.events() ??
+                  runtimeNow.persistence.loadSession(sessionId).log.events(),
+                length: (sessionId) => {
+                  const log = stack.driverOf(sessionId)?.session ?? runtimeNow.persistence.loadSession(sessionId).log;
+                  return log.events().length;
+                },
               },
-            } satisfies SessionContextFace,
-            checkpointFork: {
-              fork: (sourceSessionId, options) => stack.manager.fork(sourceSessionId, options),
-            } satisfies RewindForkFace,
-            focusSessionId: () => stack.channels.focusedId ?? undefined,
-            // 宿主版本（批 19d——mcp 件 initialize 握手 clientInfo.version
-            // 披露「对齐 package.json」单源位：装配选项 version 同源）
-            version: options.version,
-            // —— HTTP 面族十位（批 19e——sdk/webui/obs/issue 件装载态接线）——
-            // sdk 面工厂真身（core:sdk 件承载位：daemon/serve/TUI 开面消费
-            // 件在场 kit；stdio 不依赖件装载态——F16）
-            sdkFaceFactory: createSdkHttpFace,
-            // webui 挂载闭包（core:webui 件 kit——面级 handle + 可选
-            // staticDir；开面晚于装载的晚绑形，件 apply 期只透传闭包）
-            webuiFaceMount: (face, mountOptions) =>
-              mountWebuiOnFace({
-                stack,
-                face,
-                ...(mountOptions?.staticDir !== undefined ? { staticDir: mountOptions.staticDir } : {}),
+              // checkpoint 两 seam + 焦点会话位（批 19c-4——05 §5.3 词面独立律）：
+              // 语境面 contextOf 活体日志优先（lastClosedBoundary 单源）+ 行
+              // workspaceRoot 锚经公开列表面反查（sessions.fork 同法——不为内部
+              // 取值开新读口）；fork 面 = SessionManager.fork 直赋（05 §5.0 判别
+              // 子集形；箭头包装保 this 绑定）；焦点会话 = channels.focusedId
+              // （/rewind 发起会话真源）
+              checkpointSession: {
+                contextOf: (sessionId) => {
+                  const row = runtimeNow.persistence.listSessions().find((r) => r.id === sessionId);
+                  if (row === undefined) return undefined;
+                  const log = stack.driverOf(sessionId)?.session ?? runtimeNow.persistence.loadSession(sessionId).log;
+                  return { lastClosedBoundary: log.lastClosedBoundary(), workspaceRoot: row.workspaceRoot ?? '' };
+                },
+              } satisfies SessionContextFace,
+              checkpointFork: {
+                fork: (sourceSessionId, options) => stack.manager.fork(sourceSessionId, options),
+              } satisfies RewindForkFace,
+              focusSessionId: () => stack.channels.focusedId ?? undefined,
+              // 宿主版本（批 19d——mcp 件 initialize 握手 clientInfo.version
+              // 披露「对齐 package.json」单源位：装配选项 version 同源）
+              version: options.version,
+              // —— HTTP 面族十位（批 19e——sdk/webui/obs/issue 件装载态接线）——
+              // sdk 面工厂真身（core:sdk 件承载位：daemon/serve/TUI 开面消费
+              // 件在场 kit；stdio 不依赖件装载态——F16）
+              sdkFaceFactory: createSdkHttpFace,
+              // webui 挂载闭包（core:webui 件 kit——面级 handle + 可选
+              // staticDir；开面晚于装载的晚绑形，件 apply 期只透传闭包）
+              webuiFaceMount: (face, mountOptions) =>
+                mountWebuiOnFace({
+                  stack,
+                  face,
+                  ...(mountOptions?.staticDir !== undefined ? { staticDir: mountOptions.staticDir } : {}),
+                }),
+              // obs 三 seam：事件源 = Store 真身直传（结构兼容 ObsEventsFace——
+              // 05 §3.4 宿主面消费位）；notify 走 channels 会话作用域（归因
+              // 'obs'——呈现侧路由后端自决）；audience = channels 观众探针
+              obsEvents: runtimeNow.persistence.store,
+              obsNotify: {
+                notify: (message, opts) => stack.channels.notify('obs', message, opts),
+              },
+              obsAudience: { hasAudience: () => stack.channels.hasAudience() },
+              // issue 五位：state = store_state 三法真身直传（不自建账本——
+              // 宪章二）；budget = 04 §5 日池判适配（background 档——停靠不
+              // 落终态语义归件内）；token/secret = 凭证库优先 env 回落（c-5
+              // 迁移——03 §10.9 优先级律，上方闭包单源）；session = headless
+              // 会话真工厂（成熟度缺口 #5——主闸三起会面接线，生产面件装载
+              // 解锁）
+              issueState: runtimeNow.persistence.store,
+              issueBudget: {
+                canAffordIssue: () =>
+                  stack.llm.canAfford('background')
+                    ? { ok: true }
+                    : { ok: false, reason: '当日后台预算池尽（04 §5 停靠待唤醒——不落终态）' },
+              },
+              issueSession: issueSessionFactory,
+              ...(issueToken !== undefined && issueToken !== '' ? { issueGithubToken: issueToken } : {}),
+              ...(issueSecret !== undefined && issueSecret !== '' ? { issueWebhookSecret: issueSecret } : {}),
+              // —— credentials 人面命令两 seam（c-5——03 §10.9 写入面）——
+              // store = persist 真身直传（CredentialsCommandStore 四法投影，
+              // 词面独立律 compat 面）；审计 seam 真接线（c-5 挂账 U3-5 兑现——
+              // 人面 add/rm 成功即落 credentials/changed，值恒不入载荷）
+              credentialsStore: runtimeNow.persistence.store,
+              credentialsOnChanged: (payload) => audit.append('credentials/changed', { ...payload }),
+              // —— oauth 流受局面（c-6——03 §10.9 oauth 案）：注册表同真身 +
+              // SSRF 守卫包裹 fetch（web 卫生单源——上方 oauthFetch 单源）+
+              // 刷新链 60s 自驱缺省 + 单败 warn 走宿主 logger
+              credentialsOAuth: {
+                registry: oauthFlows,
+                fetchFn: oauthFetch,
+                warn: (message) => logger.warn(message),
+              },
+              // —— scheduler 编舞接线三位（批 20c——19c-2 挂账销账）——
+              // GateFacts 宿主三源收集闭包：行启停位 + 宿主在飞（anyRunning）+
+              // 最近真用户消息（boot 后监听器维护）+ 行上次触发（JobRow 自带
+              // lastFireAt 列）+ 当日后台预算（04 §5 canAfford）
+              schedulerGateFacts: (row) => ({
+                enabled: row.enabled,
+                agentBusy: stack.manager.anyRunning(),
+                lastUserMessageAt,
+                lastFireAt: row.lastFireAt,
+                canAfford: stack.llm.canAfford('background'),
               }),
-            // obs 三 seam：事件源 = Store 真身直传（结构兼容 ObsEventsFace——
-            // 05 §3.4 宿主面消费位）；notify 走 channels 会话作用域（归因
-            // 'obs'——呈现侧路由后端自决）；audience = channels 观众探针
-            obsEvents: runtimeNow.persistence.store,
-            obsNotify: {
-              notify: (message, opts) => stack.channels.notify('obs', message, opts),
-            },
-            obsAudience: { hasAudience: () => stack.channels.hasAudience() },
-            // issue 五位：state = store_state 三法真身直传（不自建账本——
-            // 宪章二）；budget = 04 §5 日池判适配（background 档——停靠不
-            // 落终态语义归件内）；token/secret = 凭证库优先 env 回落（c-5
-            // 迁移——03 §10.9 优先级律，上方闭包单源）；session = headless
-            // 会话真工厂（成熟度缺口 #5——主闸三起会面接线，生产面件装载
-            // 解锁）
-            issueState: runtimeNow.persistence.store,
-            issueBudget: {
-              canAffordIssue: () =>
-                stack.llm.canAfford('background')
-                  ? { ok: true }
-                  : { ok: false, reason: '当日后台预算池尽（04 §5 停靠待唤醒——不落终态）' },
-            },
-            issueSession: issueSessionFactory,
-            ...(issueToken !== undefined && issueToken !== '' ? { issueGithubToken: issueToken } : {}),
-            ...(issueSecret !== undefined && issueSecret !== '' ? { issueWebhookSecret: issueSecret } : {}),
-            // —— credentials 人面命令两 seam（c-5——03 §10.9 写入面）——
-            // store = persist 真身直传（CredentialsCommandStore 四法投影，
-            // 词面独立律 compat 面）；审计 seam 真接线（c-5 挂账 U3-5 兑现——
-            // 人面 add/rm 成功即落 credentials/changed，值恒不入载荷）
-            credentialsStore: runtimeNow.persistence.store,
-            credentialsOnChanged: (payload) => audit.append('credentials/changed', { ...payload }),
-            // —— oauth 流受局面（c-6——03 §10.9 oauth 案）：注册表同真身 +
-            // SSRF 守卫包裹 fetch（web 卫生单源——上方 oauthFetch 单源）+
-            // 刷新链 60s 自驱缺省 + 单败 warn 走宿主 logger
-            credentialsOAuth: {
-              registry: oauthFlows,
-              fetchFn: oauthFetch,
-              warn: (message) => logger.warn(message),
-            },
-            // —— scheduler 编舞接线三位（批 20c——19c-2 挂账销账）——
-            // GateFacts 宿主三源收集闭包：行启停位 + 宿主在飞（anyRunning）+
-            // 最近真用户消息（boot 后监听器维护）+ 行上次触发（JobRow 自带
-            // lastFireAt 列）+ 当日后台预算（04 §5 canAfford）
-            schedulerGateFacts: (row) => ({
-              enabled: row.enabled,
-              agentBusy: stack.manager.anyRunning(),
-              lastUserMessageAt,
-              lastFireAt: row.lastFireAt,
-              canAfford: stack.llm.canAfford('background'),
+              // 真 bin 出厂（BERRY_AGENT_BIN env 载体——缺席 'berry-agent'
+              // PATH 名解析归件内缺省）
+              ...(env.BERRY_AGENT_BIN !== undefined && env.BERRY_AGENT_BIN !== ''
+                ? { schedulerBinCommand: env.BERRY_AGENT_BIN }
+                : {}),
+              // cron 乙案开启位（BERRY_AGENT_CRON=1 显式置值 = 人面授权链的
+              // env 形——授权凭据即显式置值本身）
+              ...(env.BERRY_AGENT_CRON === '1' ? { schedulerCronEnabled: true } : {}),
             }),
-            // 真 bin 出厂（BERRY_AGENT_BIN env 载体——缺席 'berry-agent'
-            // PATH 名解析归件内缺省）
-            ...(env.BERRY_AGENT_BIN !== undefined && env.BERRY_AGENT_BIN !== ''
-              ? { schedulerBinCommand: env.BERRY_AGENT_BIN }
-              : {}),
-            // cron 乙案开启位（BERRY_AGENT_CRON=1 显式置值 = 人面授权链的
-            // env 形——授权凭据即显式置值本身）
-            ...(env.BERRY_AGENT_CRON === '1' ? { schedulerCronEnabled: true } : {}),
-          }),
-        warn: (message) => logger.warn(message),
-      });
+          warn: (message) => logger.warn(message),
+        });
+      boot = await runBoot(options.noPlugins === true);
     } catch (err) {
       await runtime.shutdown(); // 已建资源先收口（幂等六步照走）
       if (err instanceof BaseError && err.code === 'PLUGIN_ROW_INVALID') {
@@ -564,61 +602,68 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     }
     Object.assign(pluginCounts, boot.counts); // 披露匣回写（disclosure 后续请求即见）
 
-    // —— skills_change 事件桥（批 19b-1——03 §3.4 通知面汇流点）：registry
+    // —— skills 桥 + 插件技能层重同步编舞（批 19 skills 销账 + /reload 批抽
+    // 可重跑）：首次 boot 后与每轮 /reload 换入后同函数调用——桥挂接（ WeakSet
+    // 防同 registry 重挂）+ 旧代 plugin: 层清场 + 新代层补注册。core:skills
+    // 禁用档 tryGet 诚实缺席 → 零桥零层（缺席即未装载语义）。
+    //
+    // skills_change 事件桥（批 19b-1——03 §3.4 通知面汇流点）：registry
     // refresh 快照变化 → 全局词 skills_change 发射（41 钩子词已在 bootPlugins
     // 预注册——dispatch.emit 直用）。桥落宿主侧不落件内：ctx.emit 域名律强制
     // `core:skills/` 前缀——全局词对插件结构性不可达（域名律防插件伪造全局
-    // 事件，官方件同受束——宿主侧 dispatch 才是正口）。core:skills 禁用档
-    // tryGet 诚实缺席——零桥零事件（缺席即未装载语义）——
-    {
-      const registry = scope.tryGet('skills') as SkillsRegistry | undefined;
-      if (registry !== undefined) {
-        const off = registry.onChange(() => {
-          // 载荷 = 现行 provider id 清单（06 §11.3——消费面 = 渐进披露清单重物化）
-          void dispatch.emit('skills_change', { providers: registry.providerIds() });
-        });
-        runtime.registerCloser({ label: 'skills-change-bridge', fn: () => Promise.resolve(off()) });
-      }
-    }
-
-    // —— 磁盘件技能目录载荷层补注册（批 19 skills 销账——06 §11.4 位 4 / 03
+    // 事件，官方件同受束——宿主侧 dispatch 才是正口）。
+    //
+    // 磁盘件技能目录载荷层补注册（批 19 skills 销账——06 §11.4 位 4 / 03
     // §6.1「mount 即注册」）：core:skills 先装（synthesizePlan core 行先入
     // plan）时磁盘件 manifest.skills 尚未激活——件内 apply 构造 pluginLayers
     // 结构性空缺，装载收口后于此补注册。序位执法（06 §11.3 注册序即优先序
     // ——插件层压出厂层）：摘 factory → 位 4 逐插件插入 → factory 原实例重挂
-    // 末位。core:skills 禁用档 tryGet 诚实缺席 → 零补注册（缺席即未装载语义，
-    // 声明载荷随之不激活——与上桥同律）。refresh 落新快照（披露段每请求物化
-    // 即生效）+ 上桥发射 skills_change（providers 变化可观测）。per-provider
+    // 末位。/reload 换代对称（03 §6.2 技能层摘除）：旧代 plugin: 前缀层先全
+    // 摘再插新代（首跑零层清场幂等）。refresh 落新快照（披露段每请求物化
+    // 即生效）+ 桥发射 skills_change（providers 变化可观测）。per-provider
     // 独立 realpath 去重集：与标准层目录交集仅病态形（装机树 vs 工作区/家/
     // 出厂根构造性不相交），重叠时 first-wins + collision 诊断兜底。
-    {
+    const wiredSkillRegistries = new WeakSet<object>();
+    const resyncPluginSkillLayers = async (handle: PluginBootHandle): Promise<void> => {
       const registry = scope.tryGet('skills') as SkillsRegistry | undefined;
-      if (registry !== undefined) {
-        const pluginRows = boot.report.activated.filter((row) => row.skillDirs.length > 0);
-        if (pluginRows.length > 0) {
-          const factory = registry.getProvider('factory');
-          registry.unregisterProvider('factory'); // 位 4 让位（原实例重挂见下）
-          const layerIds: string[] = [];
-          for (const row of pluginRows) {
-            const id = `plugin:${row.id}`; // plugin: 前缀 = 与标准层 id 结构性不撞
-            registry.registerProvider(createDirProvider({ id, roots: [...row.skillDirs] }));
-            layerIds.push(id);
-          }
-          if (factory !== undefined) registry.registerProvider(factory); // 出厂层重挂末位（序保真）
-          await registry.refresh();
-          // 卸载对称（03 §6.2 技能层摘除）：整体 unload 收口时摘全部插件层并
-          // 重扫（closer 序在 plugin-unload 后——插件 disposer 先回卷；单插件
-          // 摘除随 /reload 人面动词批，装载语境 v1 只有整体 unload）
-          runtime.registerCloser({
-            label: 'skills-plugin-layers',
-            fn: async () => {
-              for (const id of layerIds) registry.unregisterProvider(id);
-              await registry.refresh();
-            },
-          });
-        }
+      if (registry === undefined) return;
+      if (!wiredSkillRegistries.has(registry)) {
+        wiredSkillRegistries.add(registry);
+        registry.onChange(() => {
+          // 载荷 = 现行 provider id 清单（06 §11.3——消费面 = 渐进披露清单重物化）
+          void dispatch.emit('skills_change', { providers: registry.providerIds() });
+        });
       }
-    }
+      // 旧代层清场（plugin: 前缀全摘——reload 换代对称；首跑零层幂等）
+      for (const id of registry.providerIds()) {
+        if (id.startsWith('plugin:')) registry.unregisterProvider(id);
+      }
+      const pluginRows = handle.report.activated.filter((row) => row.skillDirs.length > 0);
+      if (pluginRows.length > 0) {
+        const factory = registry.getProvider('factory');
+        registry.unregisterProvider('factory'); // 位 4 让位（原实例重挂见下）
+        for (const row of pluginRows) {
+          // plugin: 前缀 = 与标准层 id 结构性不撞
+          registry.registerProvider(createDirProvider({ id: `plugin:${row.id}`, roots: [...row.skillDirs] }));
+        }
+        if (factory !== undefined) registry.registerProvider(factory); // 出厂层重挂末位（序保真）
+      }
+      await registry.refresh();
+    };
+    // 卸载对称 closer（一次性注册晚绑 tryGet——换代自适；序在 plugin-unload
+    // 后 = 插件 disposer 先回卷；core:skills 禁用档 fn 内缺席零操作）
+    runtime.registerCloser({
+      label: 'skills-plugin-layers',
+      fn: async () => {
+        const registry = scope.tryGet('skills') as SkillsRegistry | undefined;
+        if (registry === undefined) return;
+        for (const id of registry.providerIds()) {
+          if (id.startsWith('plugin:')) registry.unregisterProvider(id);
+        }
+        await registry.refresh();
+      },
+    });
+    await resyncPluginSkillLayers(boot);
 
     // —— session/event 用户消息追踪（批 20c——GateFacts lastUserMessageAt 宿主
     // 源维护）：真用户输入（user/channel:*）才更新最近时刻——schedule（挂钟
@@ -639,7 +684,57 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       });
     }
 
-    return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts };
+    // —— /reload 编舞接线（03 §5.7——本批）：busy 判据 = manager 级任一 run
+    // 在飞（anyRunning 读面）；run 收场 = ctx.agent onRunSettled 订阅（多会话
+    // 信封位在回调外——reloader 只消费「settled 边界到了」事实）；回执走
+    // channels.notify（归因 'reload'——与 'tick'/'credentials' 同律）。
+    // reapply = runBoot(false) + 换代写回（boot 变量/pluginCounts 披露匣/
+    // skills 层重同步——闭包晚绑取值器下一请求即见新代）；救援环律在
+    // runBoot 参位已注（旗标只管启动期）。
+    const reloadReport = (text: string): void => {
+      void stack.channels.notify('reload', text);
+    };
+    const reloader = createPluginReloader({
+      // 档①预检：与装载读侧同一函数（单源——预检过装载必过清单面）
+      preflight: () => void readEnabledRows(dataDir, defaultFs()),
+      // 回卷旧代：换代槽当前代（noPlugins 首启形槽空 = no-op）；对象面经
+      // rollbackFromReport 适配（failed → id 清单——error 细节走 boot-failures）
+      rollback: async () => {
+        const unload = pluginUnloadRef.current;
+        if (unload === null) return emptyRollbackReceipt();
+        return rollbackFromReport(await unload());
+      },
+      // 换入新代：runBoot + 三处换代写回（boot 定位/披露匣/skills 层）
+      reapply: async () => {
+        const handle = await runBoot!(false);
+        boot = handle;
+        Object.assign(pluginCounts, handle.counts);
+        await resyncPluginSkillLayers(handle);
+        return {
+          total: handle.counts.total,
+          enabled: handle.counts.enabled,
+          failed: handle.counts.failed,
+          failedIds: handle.report.failed.map((f) => f.id),
+        };
+      },
+      isBusy: () => stack.manager.anyRunning(),
+      onRunSettled: (handler) => {
+        const agentService = scope.tryGet<AgentService>(AGENT_SERVICE_NAME);
+        if (agentService === undefined) return () => undefined; // 结构性不可达（栈内先建）——防御位
+        return agentService.onRunSettled(() => handler());
+      },
+      report: reloadReport,
+      warn: (message) => logger.warn(message),
+    });
+    // TUI 命令面注册（03 §5.7 词面权威；fire-and-forget——回执走 notify，
+    // handler 不 await 编舞〔busy 期排队等 run 收场，await 会卡输入流〕）
+    stack.channels.commands.register(
+      'reload',
+      async () => reloader.request(),
+      '重载插件装载态（会话运行中自动排队，run 收场后执行）',
+    );
+
+    return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts, reloader };
   } catch (err) {
     // 意外异常 = 崩溃取证档：crash.log 先写（memory 形内建跳过）→ 资源收口 → 归一失败档
     runtime?.writeCrashLog(err);

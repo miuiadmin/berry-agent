@@ -21,7 +21,7 @@ import type { AuditFace, Store } from '../persist/index.js';
 import { readBootFailures } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
 import { bootPlugins, recordPluginLifecycleDiff, recordPluginOpensDiff } from './plugin-boot.js';
-import type { PluginBootFs, PluginBootOptions } from './plugin-boot.js';
+import type { PluginBootFs, PluginBootOptions, PluginUnloadReceipt } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
 import { createCompactionSlots } from '../compaction/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from '../compaction/types.js';
@@ -1093,6 +1093,51 @@ describe('sessions-control 面装配（e4-3——03 §2.2 第十一面 fork 级�
     expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
     expect(errs).toHaveLength(1);
     expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
+  });
+});
+
+describe('卸载换代槽（/reload 批——03 §5.7 换代执法位）', () => {
+  it('unloadRef 在场：closer 不直注册（closers 空）+ 槽写入 + 调槽跑完整卸载序', async () => {
+    const disposed: string[] = [];
+    const ref: CorePluginReference = { name: 'demo', apply: async () => () => void disposed.push('demo') };
+    const runtime = stubRuntime('/data');
+    const unloadRef: { current: (() => Promise<PluginUnloadReceipt>) | null } = { current: null };
+    const { options } = rigBoot('/data', { runtime, corePlugins: [ref], fs: memoryFs(), unloadRef });
+    const boot = await bootPlugins(options);
+    expect(runtime.closers).toEqual([]); // 直注册形态让位——槽承载
+    expect(unloadRef.current).not.toBeNull();
+    const receipt = await unloadRef.current!();
+    expect(disposed).toEqual(['demo']); // 完整卸载序（disposer 回卷）
+    expect(receipt.disposed).toEqual(['core:demo']); // 回执形（/reload 档③数据源）
+    expect(receipt.failed).toEqual([]);
+    expect(boot.counts.enabled).toBe(1);
+  });
+
+  it('boot 两代（热重载模拟）：第二袋改写槽——调槽只跑最新代回卷（旧代不重跑）', async () => {
+    const disposed: string[] = [];
+    const mk = (name: string): CorePluginReference => ({
+      name,
+      apply: async () => () => void disposed.push(name),
+    });
+    const runtime = stubRuntime('/data');
+    const unloadRef: { current: (() => Promise<PluginUnloadReceipt>) | null } = { current: null };
+    // 第一代：two 插件
+    await bootPlugins(
+      rigBoot('/data', { runtime, corePlugins: [mk('g1-a'), mk('g1-b')], fs: memoryFs(), unloadRef }).options,
+    );
+    // 第二代（盘面已漂移形）：单插件——bootPlugins 重跑即换代写槽
+    await bootPlugins(rigBoot('/data', { runtime, corePlugins: [mk('g2-a')], fs: memoryFs(), unloadRef }).options);
+    await unloadRef.current!();
+    // 只回卷第二代（g1 代 disposer 不重复跑——第一代在换代时已由调用方 rollback 收口）
+    expect(disposed).toEqual(['g2-a']);
+  });
+
+  it('unloadRef 缺席 = 维持直注册现状（单次 boot 形——CLI/测试/诊断）', async () => {
+    const ref: CorePluginReference = { name: 'demo', apply: async () => undefined };
+    const runtime = stubRuntime('/data');
+    const { options } = rigBoot('/data', { runtime, corePlugins: [ref], fs: memoryFs() });
+    await bootPlugins(options);
+    expect(runtime.closers.map((c) => c.label)).toEqual(['plugin-unload']); // 直注册在场
   });
 });
 
