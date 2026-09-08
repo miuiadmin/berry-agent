@@ -258,3 +258,35 @@ describe('assembleOpenTools 拆解', () => {
     expect(dataOf(made.session, 'approval/decided')).toHaveLength(0);
   });
 });
+
+/* ---------------- 出口消毒（出口治理③） ---------------- */
+
+describe('assembleOpenTools 出口消毒', () => {
+  it('read 工具回读含 env dump 的文件：值基腿经装配透传执法——结果进 durable 前已消毒（server 回显单源锁）', async () => {
+    const secret = 'sk-e2e-live-abcdef90';
+    const made = makeAssembly({ sensitiveValues: () => [secret] });
+    writeFileSync(
+      join(made.workspace, 'env-dump.txt'),
+      `GITHUB_TOKEN=ghp_abcdef123456\nlive=${secret}\nnormal=ok\n`,
+      'utf8',
+    );
+    const result = await toolOf(made.assembly, 'read').execute('c-read-sec', { path: 'env-dump.txt' });
+    const text = result.content[0] as { type: string; text: string };
+    expect(text.type).toBe('text');
+    // 两腿合流：模式腿收具名形（GITHUB_TOKEN=），值基腿收裸形（live=）
+    expect(text.text).toContain('GITHUB_TOKEN=[REDACTED:secret]');
+    expect(text.text).toContain('live=[REDACTED:credential]');
+    expect(text.text).not.toContain('ghp_abcdef123456');
+    expect(text.text).not.toContain(secret);
+    expect(text.text).toContain('normal=ok'); // 非敏感行零误伤
+  });
+
+  it('provider 缺席（缺省装配）：模式腿恒在场——具名形仍消毒', async () => {
+    const made = makeAssembly();
+    writeFileSync(join(made.workspace, 'env2.txt'), 'GITHUB_TOKEN=ghp_abcdef123456\n', 'utf8');
+    const result = await toolOf(made.assembly, 'read').execute('c-read-sec2', { path: 'env2.txt' });
+    const text = result.content[0] as { type: string; text: string };
+    expect(text.text).toContain('GITHUB_TOKEN=[REDACTED:secret]');
+    expect(text.text).not.toContain('ghp_abcdef123456');
+  });
+});

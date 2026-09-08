@@ -133,3 +133,45 @@ describe('读写批调度（effect 一位两用——03 §2.3 尾注）', () => 
     expect(outcome.results[1]).toMatchObject({ toolName: 'real', isError: false });
   });
 });
+
+/* ---------------- 错误腿出口消毒（出口治理③ 定形③） ---------------- */
+
+describe('错误腿出口消毒（错误即结果 ⑤ 与正常结果同一出口语义——纯模式腿）', () => {
+  it('execute 抛错携秘密（stderr env dump 形）→ 包装位同过模式消毒', async () => {
+    const boom = {
+      name: 'boom',
+      description: '测试工具',
+      parameters: { type: 'object' },
+      execute: async () => {
+        throw new Error('命令失败：GITHUB_TOKEN=ghp_abcdef123456 未授权');
+      },
+    };
+    const { config, context, emit } = rig([boom]);
+    const outcome = await executeToolBatch(config, context, [callOf('c1', 'boom')], emit);
+    expect(outcome.results[0]).toMatchObject({ isError: true });
+    const text = outcome.results[0]!.content[0] as { type: 'text'; text: string };
+    expect(text.text).toContain('GITHUB_TOKEN=[REDACTED:secret]');
+    expect(text.text).not.toContain('ghp_abcdef123456');
+  });
+
+  it('beforeToolCall block 拒因携秘密 → buildResult 扼点同过模式消毒', async () => {
+    const tool = {
+      name: 't',
+      description: '测试工具',
+      parameters: { type: 'object' },
+      execute: async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }),
+    };
+    const { context, emit } = rig([tool]);
+    const config = {
+      model: 'test/model',
+      beforeToolCall: async () => ({ block: '危险参数：api_key=sk-blockme123456' }),
+      // 外层收口断言（as unknown as）：单元面只需 model + beforeToolCall 子集——
+      // streamFn/convertToLlm 缺席是本测试构造件的常态（rig 同族单向收口形）
+    } as unknown as AgentLoopConfig;
+    const outcome = await executeToolBatch(config, context, [callOf('c1', 't')], emit);
+    expect(outcome.results[0]).toMatchObject({ isError: true });
+    const text = outcome.results[0]!.content[0] as { type: 'text'; text: string };
+    expect(text.text).toContain('api_key=[REDACTED:secret]');
+    expect(text.text).not.toContain('sk-blockme123456');
+  });
+});

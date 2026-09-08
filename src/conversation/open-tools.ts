@@ -72,6 +72,13 @@ export interface OpenToolsOptions {
    * 本域零 goal 知识——纯结构注入 seam（per-session 闭包由调用方构造）。
    */
   readonly todoTool?: ToolDefinition;
+  /**
+   * 已知秘密活值 provider（出口治理③ 值基腿——04 §7 执行段 2026-09-08 落码
+   * 定形）：装配根接 credentials 库 live 读闭包注入管道链尾消毒。缺省缺席
+   * = 纯模式执法（降级诚实）。词面独立律：本域零 credentials 知识——纯
+   * 结构注入 seam（闭包由调用方构造）。
+   */
+  readonly sensitiveValues?: () => readonly string[];
 }
 
 /** open 域装配产物 */
@@ -130,9 +137,11 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     ...(opts.entries !== undefined ? { entries: opts.entries } : {}),
   });
 
-  // ④ 管道 + 注册表（gate/decision durable 落账——守门不可绕不变式的载体）
+  // ④ 管道 + 注册表（gate/decision durable 落账——守门不可绕不变式的载体；
+  // sensitiveValues 透传 = 出口治理③ 值基腿接线，管道链尾消毒步消费）
   const pipeline = createToolPipeline(opts.dispatch, {
     onGateDecision: (record) => opts.session.append('gate/decision', record),
+    ...(opts.sensitiveValues !== undefined ? { sensitiveValues: opts.sensitiveValues } : {}),
   });
   const registry = createToolRegistry(opts.dispatch, { pipeline });
 

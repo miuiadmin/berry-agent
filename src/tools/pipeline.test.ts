@@ -267,3 +267,69 @@ describe('第 3 段：后处理 + 输出护栏（固定链尾）', () => {
     expect((result.content[0] as TextContent).text).toBe('ok');
   });
 });
+
+describe('出口消毒（出口治理③——护栏之前一步）', () => {
+  it('模式腿恒在场：provider 缺席时敏感键名赋值形仍消毒', async () => {
+    const { executor } = makeRig();
+    const tool = makeTool({
+      execute: async () => ({ content: [{ type: 'text', text: 'GITHUB_TOKEN=ghp_abcdef1234 ok' }] }),
+    });
+    const result = await executor(tool, 'call-redact-1', { n: 1 });
+    expect((result.content[0] as TextContent).text).toBe('GITHUB_TOKEN=[REDACTED:secret] ok');
+  });
+
+  it('值基腿注入：活值出现即整段置换（provider live 读）', async () => {
+    let live = 'sk-live-first12345';
+    const { executor } = makeRig({ sensitiveValues: () => [live] });
+    const tool = makeTool({
+      execute: async () => ({ content: [{ type: 'text', text: 'err at sk-live-first12345' }] }),
+    });
+    expect(((await executor(tool, 'call-r2', { n: 1 })).content[0] as TextContent).text).toBe(
+      'err at [REDACTED:credential]',
+    );
+    // live 语义：provider 值变更后下一次调用用新值（工具执行期间轮换的凭证同覆盖）
+    live = 'sk-live-second6789';
+    const tool2 = makeTool({ execute: async () => ({ content: [{ type: 'text', text: 'x sk-live-second6789' }] }) });
+    expect(((await executor(tool2, 'call-r3', { n: 1 })).content[0] as TextContent).text).toBe(
+      'x [REDACTED:credential]',
+    );
+  });
+
+  it('details 字符串叶同消毒（敏感键携裸值——对象键判定腿）', async () => {
+    const { executor } = makeRig();
+    const tool = makeTool({
+      execute: async () => ({ content: [{ type: 'text', text: 'done' }], details: { apiKey: 'sk-bare-98765432' } }),
+    });
+    const result = await executor(tool, 'call-r4', { n: 1 });
+    expect(result.details).toMatchObject({ apiKey: '[REDACTED:secret]' });
+  });
+
+  it('provider 故障降级纯模式腿：结果不炸 + 模式消毒仍执法', async () => {
+    const { executor } = makeRig({
+      sensitiveValues: () => {
+        throw new Error('store boom');
+      },
+    });
+    const tool = makeTool({
+      execute: async () => ({ content: [{ type: 'text', text: 'GITHUB_TOKEN=ghp_abcdef1234' }] }),
+    });
+    const result = await executor(tool, 'call-r5', { n: 1 });
+    expect((result.content[0] as TextContent).text).toBe('GITHUB_TOKEN=[REDACTED:secret]');
+  });
+
+  it('消毒先于截断：spill 外溢文件同持消毒产物（防旁路）', async () => {
+    const secret = 'sk-spill-abcdefgh';
+    const { executor } = makeRig({ outputGuardBytes: 16, sensitiveValues: () => [secret] });
+    const big = `${secret} ${'x'.repeat(200)}`;
+    const tool = makeTool({ execute: async () => ({ content: [{ type: 'text', text: big }] }) });
+    const result = await executor(tool, 'call-spill-redact', { n: 1 });
+    const text = (result.content[0] as TextContent).text;
+    expect(text).not.toContain(secret);
+    const spillMatch = text.match(/外溢至 (\S+\.txt)/);
+    expect(spillMatch).not.toBeNull();
+    const { readFile } = await import('node:fs/promises');
+    const spilled = await readFile(spillMatch![1]!, 'utf8');
+    expect(spilled).not.toContain(secret);
+    expect(spilled).toContain('[REDACTED:credential]');
+  });
+});

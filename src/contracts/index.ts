@@ -31,6 +31,9 @@ export * from './types.js';
 // 凭证 env 引用形词面单源（03 §10.9 注入腿——c-4）：exec 执法位与 credentials
 // resolver 两方消费，放公开根使两方零新 DAG 边（三名律——跨模块走公开面）
 export * from './env-ref.js';
+// 出口治理③ 凭据消毒纯函数族（04 §7 执行段 2026-09-08 落码定形）：tools 管道
+// 链尾（模式+值基两腿）与 agent 错误包装位（纯模式腿）两方消费，同律零新边
+export * from './redact.js';
 export * from './llm.js';
 export * from './messages.js';
 export * from './approval.js';

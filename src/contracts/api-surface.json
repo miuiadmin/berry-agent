@@ -943,6 +943,33 @@
       "sig": "5a4f58922cd93033"
     },
     {
+      "symbol": "redactKnownSecretValues",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "值基腿：已知秘密活值整段置换（split/join 字面替换——值含正则元字符安全）",
+      "kind": "function",
+      "sig": "a26333e4b3dc8d73"
+    },
+    {
+      "symbol": "redactSensitiveText",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "模式腿：出口文本消毒（04 §7 出口治理③模式集三段——纯函数、幂等、恒在场）",
+      "kind": "function",
+      "sig": "32fece1948948df2"
+    },
+    {
+      "symbol": "redactToolResultExit",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具结果出口消毒（管道链尾调用——04 §7 定形①：护栏之前一步）",
+      "kind": "function",
+      "sig": "000236cf5f259e23"
+    },
+    {
       "symbol": "registerErrorCodes",
       "module": "berry-agent",
       "tier": "stable",

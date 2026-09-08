@@ -192,6 +192,24 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     history: (sessionId) => Promise.resolve(projectionOf(sessionId)),
   });
 
+  // ④' 出口治理③ 值基腿活值 provider（04 §7 执行段 2026-09-08 落码定形⑤）：
+  // credentials 库 live 读——管道链尾消毒步每次调用现取（工具执行期间新入库
+  // 凭证同受覆盖）。单行解密失败跳过不连坐（其余行照常参与——行级隔离）；
+  // 库整体故障抛给管道侧 catch 降级纯模式腿（降级诚实）。长度 ≥8 过滤在
+  // redactKnownSecretValues 内执法（短值误伤普通文本的灾难面控制）。
+  const sensitiveValues = (): string[] => {
+    const values: string[] = [];
+    for (const row of options.runtime.persistence.store.listCredentialProviders()) {
+      try {
+        const entry = options.runtime.persistence.store.getCredential(row.namespace, row.provider);
+        if (entry !== undefined && entry.apiKey.length > 0) values.push(entry.apiKey);
+      } catch {
+        /* 单行坏（解密不匹配等）跳过——消毒面按行降级，不炸 provider */
+      }
+    }
+    return values;
+  };
+
   // ⑤ SessionManager：DriverFactory 装配注入族全接线（model = per-fresh-session
   // 覆盖 ?? 栈缺省——create init.model 透传位，触发器 starter 载体，C 批 C-3；
   // systemPrompt/shapeTools/askApproval = 批 19c-1 per-session 装配覆盖通道——
@@ -231,6 +249,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
         ...(options.bootTools !== undefined ? { extraTools: options.bootTools } : {}),
         ...(goalTodo !== undefined ? { todoTool: goalTodo } : {}),
+        sensitiveValues, // 出口消毒值基腿（栈级单闭包——多会话装配共享，live 读）
       });
       options.runtime.registerDisposer(assembly.dispose); // LIFO 拆解进运行时退出序
       // 整形钩子（批 19c-1）：装配产物进驱动前整形（语义归调用方——子代理

@@ -11,7 +11,7 @@
  * 中间时未执行 calls 逐个配对 isError toolResult，防下一轮孤儿 toolUse）。
  */
 
-import { BaseError } from '../contracts/index.js';
+import { BaseError, redactSensitiveText } from '../contracts/index.js';
 import type { TextContent, ToolResultMessage } from '../contracts/index.js';
 import type { AgentTool, AgentToolCall, AgentToolResult, ToolUpdateCallback } from '../contracts/index.js';
 import type { AgentContext, AgentLoopConfig, EmitFn } from './types.js';
@@ -26,6 +26,10 @@ export interface ToolBatchOutcome {
 /**
  * 组装一条工具结果消息（block/错误/中止配对/正常四腿共用的组装面）。
  *
+ * 出口治理③ 定形③（04 §7）：错误/拒绝腿文本在此单一扼点同过模式消毒
+ * （正常腿由管道链尾消毒——本位幂等不重复）。agent 侧无活值 provider
+ * （值基腿只在管道），纯模式腿覆盖具名形。
+ *
  * @param call 配对的 toolCall 块 @param content 文本腿 @param isError 错误标记
  * @param details 结构化明细（可选）
  */
@@ -34,7 +38,7 @@ function buildResult(call: AgentToolCall, content: string, isError: boolean, det
     role: 'toolResult',
     toolCallId: call.id,
     toolName: call.name,
-    content: [{ type: 'text', text: content } satisfies TextContent],
+    content: [{ type: 'text', text: redactSensitiveText(content) } satisfies TextContent],
     isError,
     timestamp: Date.now(),
     ...(details !== undefined ? { details } : {}),
@@ -80,9 +84,14 @@ async function executeOne(
       ? await config.toolExecution(tool, call.id, args, config.signal, onUpdate)
       : await tool.execute(call.id, args, config.signal, onUpdate);
   } catch (err) {
-    // 插件工具抛错包装位（loop 零 try/catch 的配套——错误转数据面）
+    // 插件工具抛错包装位（loop 零 try/catch 的配套——错误转数据面）；错误
+    // 文本可能携出工具内部秘密（stderr env dump / 含 token 的 URL 报错）——
+    // 同过模式消毒（出口治理③ 定形③：与 buildResult 同一出口语义）
     const text = err instanceof BaseError ? `${err.code}: ${err.message}` : String(err);
-    result = { content: [{ type: 'text', text: `工具 ${call.name} 执行异常：${text}` }], isError: true };
+    result = {
+      content: [{ type: 'text', text: redactSensitiveText(`工具 ${call.name} 执行异常：${text}`) }],
+      isError: true,
+    };
   } finally {
     accepting = false;
   }

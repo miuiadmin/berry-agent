@@ -27,6 +27,7 @@ import { Value } from 'typebox/value';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { BaseError } from '../contracts/index.js';
+import { redactToolResultExit } from '../contracts/index.js';
 import { TOOL_EXECUTE_EVENT, TOOL_POST_EXECUTE_EVENT, TOOL_PRE_EXECUTE_EVENT } from '../contracts/index.js';
 import type {
   AgentToolResult,
@@ -47,6 +48,12 @@ export interface ToolPipelineOptions {
   defaultTimeoutMs?: number;
   /** 输出护栏字节帽（缺省 64KiB；测试面可注小值验证截断路径） */
   outputGuardBytes?: number;
+  /**
+   * 已知秘密活值 provider（出口治理③ 值基腿——04 §7 执行段 2026-09-08 落码
+   * 定形）：装配侧 credentials 库 live 读闭包（每次调用现取——工具执行期间
+   * 新入库的凭证同受覆盖）。缺省空 = 纯模式执法（降级诚实）。
+   */
+  sensitiveValues?: () => readonly string[];
 }
 
 /** 组装 `[CODE] message` 形态的错误文本（码随 message 进入工具结果——02 §5.3 #4） */
@@ -109,6 +116,7 @@ export function createToolPipeline(dispatch: EventDispatch, opts: ToolPipelineOp
   const defaultTimeoutMs = opts.defaultTimeoutMs ?? 60_000;
   const guardBytes = opts.outputGuardBytes ?? OUTPUT_GUARD_BYTES;
   const recordGate: GateDecisionSink = opts.onGateDecision ?? (() => {});
+  const sensitiveValues = opts.sensitiveValues ?? (() => []);
 
   return async function runToolPipeline(def, toolCallId, args, signal, onUpdate, sessionId) {
     /* ---- 前置步：参数 schema 校验（typebox Value；不合法不进守门） ---- */
@@ -189,9 +197,19 @@ export function createToolPipeline(dispatch: EventDispatch, opts: ToolPipelineOp
     const wrapped = await dispatch.waterfall<ExecuteInput>(TOOL_EXECUTE_EVENT, timedExecute);
     const result = await wrapped();
 
-    /* ---- 第三段：后处理（可就地改写 result）+ 固定链尾输出护栏 ---- */
+    /* ---- 第三段：后处理（可就地改写 result）+ 出口消毒 + 固定链尾输出护栏 ---- */
     const postInput: PostExecuteInput = { tool: def, args: gated.args, toolCallId, result };
     const posted = await dispatch.waterfall<PostExecuteInput>(TOOL_POST_EXECUTE_EVENT, postInput);
+    // 出口治理③ 凭据消毒（04 §7 定形①：护栏之前一步——消毒先于截断，截断边界
+    // 不劈秘密对；spill 外溢文件同持消毒产物）。provider 故障只降级值基腿
+    // （模式腿恒在场——消毒是出口护栏非执法门，库坏不该炸掉正常结果）。
+    let secretValues: readonly string[] = [];
+    try {
+      secretValues = sensitiveValues();
+    } catch {
+      /* provider 读取故障 → 空值表 = 纯模式执法（降级诚实） */
+    }
+    redactToolResultExit(posted.result, secretValues);
     await applyOutputGuard(posted.result, toolCallId, guardBytes);
     return posted.result;
   };
