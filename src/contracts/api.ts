@@ -88,11 +88,19 @@ interface ServiceCatalogEntry {
 }
 
 /**
- * ctx 服务面目录：现空集——首条真实 ctx 具名服务落码批增条（drift 闸守快照，
- * 目录本身是声明面——声明即 API）。抽取器 services 块循环本表（空即零次），
- * 接口切片机制已就位、首条目落码即活。
+ * ctx 服务面目录：首条真实 ctx 具名服务随 c-3 落码批入册（drift 闸守快照，
+ * 目录本身是声明面——声明即 API）。抽取器 services 块循环本表，接口切片
+ * 机制已就位、每条目落码即活。
  */
-export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [];
+export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
+  {
+    name: 'secrets',
+    module: 'credentials',
+    faceInterface: 'SecretsService',
+    note: '插件凭证受理制读写面（ctx.get("secrets") 消费——get 缺省自域、越域读走高危面开门 credentials.read-cross；set 恒自域且只在宿主回调窗内可达）',
+    tier: 'stable',
+  },
+];
 
 /* ---------------- 真相源 #3：能力面目录（§8.5 capabilities 派生源） ---------------- */
 
@@ -128,6 +136,11 @@ interface CapabilityEntry {
  * - `triggers.start-run`：触发器起会（非人触发起无头会话——03 §2.2
  *   ctx.triggers.register；承载方 = host 装配根〔注册表/starter 编舞住
  *   host 侧触发器件，零新席——03 §8.2 providedBy 第三形〕）。
+ * 凭证代管件 c-1 规范先行批入册第四枚（2026-09-08——§4.6 v1 首批名单
+ * 三枚→四枚；c-3 读腿落码批代码侧兑现）：
+ * - `credentials.read-cross`：跨域读凭证（ctx.secrets.get 越自域
+ *   namespace 读——03 §2.2 第十面/§10.9 读腿；承载方 = core:credentials
+ *   件〔judged 面——默认关、开门后逐次 capability/used 审计〕）。
  * 后续高危面经三路准入扩枚举同律入册（§4.6）；构建差能力随真实构建分叉日
  * 启用 `API_CAPABILITY_MISSING`（预留码，本批无 thrower）。
  */
@@ -145,6 +158,11 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   {
     name: 'triggers.start-run',
     providedBy: 'host',
+    userGrantable: true,
+  },
+  {
+    name: 'credentials.read-cross',
+    providedBy: 'core:credentials',
     userGrantable: true,
   },
 ];

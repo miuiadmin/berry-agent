@@ -1,13 +1,15 @@
 /**
  * host/core-plugins — core: 官方件注册表单源（批 19a 装载态集成）。
  *
- * 15 件权威清单 = 02 篇 §4.1 core: 行（skills/memory/subagent/exec/mcp/web/
- * browser/lsp/checkpoint/scheduler/goal/obs/webui/sdk/issue）——v1 全量
+ * 16 件权威清单 = 02 篇 §4.1 core: 行（skills/memory/subagent/exec/mcp/
+ * web/browser/lsp/checkpoint/scheduler/goal/obs/webui/sdk/issue +
+ * credentials〔c-3 增席 #16——02 §4.1 #28 席〕）——v1 全量
  * 带上默认启用，经同一插件装载面（第一方禁私有车道：对象直调 apply 零
  * jiti 零 import 门禁，03 §1.4 官方引用形）。本件逐件入册（批 19a 起，
- * 每纵切笔入册一批——**批 19e 齐 15 件，此销账注记兑现**：exec/web/
+ * 每纵切笔入册一批——**批 19e 齐 15 件**，此销账注记兑现：exec/web/
  * skills/memory/subagent/scheduler〔19a/19b/19c-1/2〕→ goal/checkpoint
- * 〔19c-3/4〕→ mcp/browser/lsp〔19d〕→ sdk/webui/obs/issue〔19e〕）。
+ * 〔19c-3/4〕→ mcp/browser/lsp〔19d〕→ sdk/webui/obs/issue〔19e〕→
+ * credentials〔c-3 件席占位〕）。
  *
  * **apply 壳归宿主侧**（与磁盘件「件自持入口文件」分道）：件保持纯库
  * 不 import host（DAG 单向不破——host 是装配根有权 import 各件公开面），
@@ -1318,6 +1320,24 @@ function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
+ * core:credentials（c-3——03 §10.9 件席）：件身份 = 判据面独立件，执法面
+ * 三分他处——存储链 c-2 迁移聚合（runtime HOST_MIGRATION_TAIL）；读写
+ * 执法件 secrets.ts（host 装配序 plugin-boot createContext 逐插件 fork
+ * 绑定——非本 apply 职责：服务面绑定携插件身份，宿主装配位是唯一正口）；
+ * 人面命令/oauth 流随 c-5/c-6 入本 apply。
+ *
+ * 本 apply 空闲占席，承载两位：装载计数（披露面「件在场」）+ 禁用位语义
+ * （enabled.yaml 禁 core:credentials ⇒ 计划行 disabled ⇒ plugin-boot 侧
+ * secrets 面整体缺席——诚实缺席律，判据在装配位不在件内）。
+ */
+const credentialsPlugin: CorePluginReference = {
+  name: 'credentials',
+  async apply() {
+    // 空闲占席（件头注）——c-5 人面命令/c-6 oauth 流随批充实
+  },
+};
+
+/**
  * core: 官方件注册表工厂（assembly.ts 缺省注入源——`options.corePlugins ??
  * createCorePlugins(deps)`；测试注入面/诊断命令经 options 覆盖）。
  * deps 聚落律（07 §7.4 #1）：宿主真身需求逐笔入 CorePluginHostDeps
@@ -1335,7 +1355,8 @@ function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * scheduler/jobs 前件 + goal/exec/checkpoint capabilities 探测——必居
  * 四前件之后）。02 §4.1 core 表序是件册清单非装载序——装载序按依赖闭
  * 包排（批 19d 注记）。批 19e 起 15 件齐册——批 19a 头注「入册齐 15 件
- * 时本注记销账」兑现。
+ * 时本注记销账」兑现；c-3 增席 #16 credentials（件席占位——secrets 面
+ * 绑定在 plugin-boot 装配位，与注册表序无依赖关系，居末）。
  */
 export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePluginReference[] {
   return [
@@ -1354,5 +1375,6 @@ export function createCorePlugins(deps: CorePluginHostDeps): readonly CorePlugin
     makeWebuiPlugin(deps),
     makeObsPlugin(deps),
     makeIssuePlugin(deps),
+    credentialsPlugin,
   ];
 }

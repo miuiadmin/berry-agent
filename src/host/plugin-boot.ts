@@ -15,9 +15,11 @@
  *  ⑤ 钩子词汇预注册（§2.4 主表 41 词镜像——已注册词过滤幂等；与 open 域
  *     工具词集无交叠，共存安全）。
  *  ⑥ ServiceBag 接共享根作用域（§2.2 provide 表行——跨插件可见面；get 走
- *     tryGet——Kahn 轮次可用性判定）。
+ *     tryGet——Kahn 轮次可用性判定；'secrets' fork 级席位以标记位应答，c-3）。
  *  ⑦ 逐插件 ctx 装配（12f-2a 件）：per-plugin fork（effect 回卷隔离）+
- *     createPluginContext；onApplySettled → closeWindow（行收口即关窗）。
+ *     createPluginContext + secrets 面自域绑定（c-3——03 §2.2 第十面，
+ *     core:credentials 席在场且 store 注入时 fork.provide）；
+ *     onApplySettled → closeWindow（行收口即关窗）。
  *  ⑧ loadPlugins 接线：onBootFailure → recordBootFailure 记账、activated →
  *     clearBootFailure 清名（横幅只报仍坏行）；memory 形诊断面整跳。
  *  ⑨ closer 'plugin-unload'：report.unload()（apply disposer LIFO）后 fork
@@ -46,6 +48,8 @@ import type { Scope } from '../context/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { LlmRuntime } from '../llm/index.js';
+import { createSecretsFace } from '../credentials/index.js';
+import type { SecretsFaceOptions } from '../credentials/index.js';
 
 import { clearBootFailure, recordBootFailure } from './boot-failures.js';
 import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
@@ -72,6 +76,14 @@ export interface PluginBootFs {
   readonly read: (path: string) => string | null;
   readonly write: (path: string, text: string) => void;
 }
+
+/**
+ * 'secrets' 席位可满足标记（c-3）：ServiceBag Kahn 可满足判专用占位——
+ * secrets 真身是 fork 级逐插件绑定（createContext 落绑定），共享根结构性
+ * 无此名，标记位使 inject: ['secrets'] 声明可解。恒真值非 undefined 即可，
+ * 结构性不出装载器（插件消费面只见 fork 绑定真身）。
+ */
+const SECRETS_SEAT_MARKER = { seat: 'secrets' } as const;
 
 /** 缺省真盘实现（读失败一律 null——文件缺席语义） */
 function defaultFs(): PluginBootFs {
@@ -108,6 +120,16 @@ export interface PluginBootOptions {
    * 缺席 = ctx.agent.registerSubagentProvider 抛 CONTEXT_SERVICE_MISSING）
    */
   readonly subagents?: SubagentRegistryLike;
+  /**
+   * 插件凭证面装配位（c-3——03 §2.2 第十面/§10.9 读腿）：store 在场且
+   * core:credentials 件席在场（计划行未禁用）时，装载序逐插件 fork 绑定
+   * 'secrets' 自域版（ctx.get("secrets") 消费面——服务闭包携 pluginId 防
+   * 冒名）。开门集/受理窗由本件接线 handle 真源（grantedOpens/
+   * inHostCallback）；两审计 seam 缺省 no-op（audit_events 载体挂账 U3-2）。
+   * 缺席 = secrets 面整体不提供（ctx.get 响亮 CONTEXT_SERVICE_MISSING——
+   * 诚实缺席律：测试替身形/:memory: 诊断形）。
+   */
+  readonly secrets?: Pick<SecretsFaceOptions, 'store' | 'onCapabilityUsed' | 'onCredentialChanged'>;
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
@@ -204,8 +226,19 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // ⑥⑦ ctx 装配族：ServiceBag 接共享根 + 逐插件 fork + 行收口关窗
   const handles = new Map<string, PluginContextHandle>();
   const pluginScopes: Scope[] = []; // 激活序入栈——closer 逆序 dispose
+  // core:credentials 件席在场判（c-3——03 §10.9 禁用语义：enabled.yaml 禁
+  // core:credentials ⇒ plan 行 disabled ⇒ secrets 面整体缺席诚实缺席律；
+  // plan 含禁用行〔loadPlugins 前置过滤〕，判 !row.disabled）
+  const secretsWiring = options.secrets;
+  const secretsSeatActive =
+    secretsWiring !== undefined && plan.some((row) => row.id === 'core:credentials' && !row.disabled);
   const services: ServiceBag = {
-    get: (name) => options.scope.tryGet(name),
+    get: (name) =>
+      // 'secrets' 是 fork 级逐插件绑定面（本插件独见——createContext 落真身
+      // 绑定），共享根结构性无此名。Kahn 可满足判以标记位应答：声明
+      // inject: ['secrets'] 的磁盘行合法可解（服务自装载前即在场）。
+      // 标记不外泄——ServiceBag 装载器私有，插件消费面走 fork 绑定真身。
+      name === 'secrets' && secretsSeatActive ? SECRETS_SEAT_MARKER : options.scope.tryGet(name),
     provide: (name, value) => options.scope.provide(name, value),
   };
   const createContext = (pluginId: string, opens?: readonly string[]) => {
@@ -230,6 +263,20 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       onHookTimeout: (id, hookName, err) =>
         warn(`插件 ${id} 钩子 ${hookName} 超时：${err instanceof Error ? err.message : String(err)}`),
     });
+    // secrets 面绑定（c-3——03 §2.2 第十面）：fork 级提供 = 本插件独见（共享
+    // 根单槽容不下逐插件身份绑定——fork 遮蔽合法）。getOpens/inWriteWindow
+    // 晚绑 handle 真源（装载代内授予面快照 / 回调窗深度计数）
+    if (secretsSeatActive) {
+      fork.provide(
+        'secrets',
+        createSecretsFace({
+          ...secretsWiring,
+          pluginId,
+          getOpens: () => handle.grantedOpens,
+          inWriteWindow: () => handle.inHostCallback,
+        }),
+      );
+    }
     handles.set(pluginId, handle);
     return handle.ctx;
   };

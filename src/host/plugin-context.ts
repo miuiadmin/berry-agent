@@ -244,6 +244,13 @@ export interface PluginContextHandle {
    */
   readonly grantedOpens: ReadonlySet<string>;
   /**
+   * 宿主回调窗判定只读面（true = 当前处于回调窗内——钩子 handler/工具执行期；
+   * 嵌套回调取「深度 > 0」语义）。credentials 件 set 受理窗执法的装配源
+   * （03 §10.9 写入面复合案：受理窗 = 宿主回调窗——c-3 落码批接线）。宿主
+   * 面专用不进 ctx——插件窗态自查无正当消费位（窗律是执法面非插件 API）。
+   */
+  readonly inHostCallback: boolean;
+  /**
    * 高危面门检（03 §4.6 fail-loud）：裁决核 contracts adjudicateCapabilityDoor
    * （两序判：非高危面 → not-a-door 装配缺陷面；高危面未授予 → door-closed
    * 默认关正当拒绝面），verdict 失败即抛 `PLUGIN_CAPABILITY_DOOR_CLOSED`
@@ -547,6 +554,10 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
       };
     },
     grantedOpens,
+    // 回调窗判定只读面（深度 > 0 = 窗内——嵌套取「在窗内」语义）
+    get inHostCallback(): boolean {
+      return hostCallbackDepth > 0;
+    },
     assertDoor,
   };
 }

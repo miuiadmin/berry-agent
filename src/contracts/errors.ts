@@ -70,6 +70,7 @@ export const ERROR_CODE_PREFIXES = [
   'SUBAGENT_',
   'JOB_',
   'TRIGGER_',
+  'CREDENTIALS_',
 ] as const;
 
 /**

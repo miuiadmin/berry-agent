@@ -437,6 +437,132 @@ describe('生命周期事件（§2.4 生命周期组——收口批量补发）'
   });
 });
 
+describe('secrets 面装配（c-3——03 §2.2 第十面 fork 级绑定 + 席位门）', () => {
+  /** 内存凭证窄面替身（assembly 真源 = persistence.store 凭证投影——面形同构） */
+  function memorySecretsStore() {
+    const rows = new Map<string, { apiKey: string; meta?: unknown }>();
+    return {
+      rows,
+      getCredential: (ns: string, provider: string) => rows.get(`${ns} ${provider}`),
+      setCredential: (ns: string, provider: string, entry: { apiKey: string; meta?: unknown }) =>
+        void rows.set(`${ns} ${provider}`, entry),
+    };
+  }
+
+  it('席位在场 + 注入在场：探针 fork 见自域绑定版（pluginId 附身防冒名）', async () => {
+    const store = memorySecretsStore();
+    store.setCredential('plugin:core:probe', 'k', { apiKey: 'v-self' }); // core ref id 含前缀
+    store.setCredential('plugin:other', 'k', { apiKey: 'v-other' }); // 同名他域行——隔离律判据
+    const seen: unknown[] = [];
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        seen.push((ctx as { tryGet: (n: string) => unknown }).tryGet('secrets'));
+      },
+    };
+    const { options, scope } = rigBoot('/data', {
+      corePlugins: [credentials, probe],
+      fs: memoryFs(),
+      secrets: { store },
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:credentials', 'core:probe']);
+    const face = seen[0] as { get(name: string): string };
+    expect(face.get('k')).toBe('v-self'); // 自域绑定：probe 见 plugin:probe 域行
+    expect(scope.tryGet('secrets')).toBeUndefined(); // 共享根无此名——fork 级独见（标记不外泄）
+  });
+
+  it('Kahn 可满足标记：inject: ["secrets"] 声明合法可解（fork 真身消费面）', async () => {
+    const store = memorySecretsStore();
+    const seen: unknown[] = [];
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    const consumer: CorePluginReference = {
+      name: 'consumer',
+      inject: ['secrets'], // 声明硬依赖——标记位应答使其可装载
+      apply: async (ctx) => {
+        seen.push((ctx as { get: (n: string) => unknown }).get('secrets'));
+      },
+    };
+    const { options } = rigBoot('/data', {
+      corePlugins: [credentials, consumer],
+      fs: memoryFs(),
+      secrets: { store },
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:credentials', 'core:consumer']);
+    expect(typeof (seen[0] as { get(name: string): string }).get).toBe('function'); // 消费面真达
+  });
+
+  it('enabled.yaml 禁 core:credentials 行 → secrets 面整体缺席（诚实缺席律）', async () => {
+    const seen: unknown[] = [];
+    const credentials: CorePluginReference = {
+      name: 'credentials',
+      apply: async () => {
+        throw new Error('不应执行');
+      },
+    };
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        seen.push((ctx as { tryGet: (n: string) => unknown }).tryGet('secrets'));
+      },
+    };
+    const fs = memoryFs({
+      '/data/enabled.yaml': enabledYaml('  - id: core:credentials\n    disabled: true\n'),
+    });
+    const { options } = rigBoot('/data', {
+      corePlugins: [credentials, probe],
+      fs,
+      secrets: { store: memorySecretsStore() }, // 注入在场但席位禁用——门判不满足
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
+    expect(boot.report.skipped.map((s) => s.id)).toEqual(['core:credentials']);
+    expect(seen).toEqual([undefined]); // 探针 fork 无 secrets——缺席诚实
+  });
+
+  it('secrets 注入缺席 → 面不提供（core:credentials 席照常装载——门判另一半）', async () => {
+    const seen: unknown[] = [];
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        seen.push((ctx as { tryGet: (n: string) => unknown }).tryGet('secrets'));
+      },
+    };
+    const { options } = rigBoot('/data', { corePlugins: [credentials, probe], fs: memoryFs() }); // 无 secrets 注入
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:credentials', 'core:probe']);
+    expect(seen).toEqual([undefined]);
+  });
+
+  it('写窗执法装配真源：set 在装载窗外拒（inWriteWindow = handle.inHostCallback）', async () => {
+    const store = memorySecretsStore();
+    const errs: string[] = [];
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        const face = (ctx as { tryGet: (n: string) => unknown }).tryGet('secrets') as {
+          set(name: string, value: string): void;
+        };
+        try {
+          face.set('k', 'v');
+        } catch (err) {
+          errs.push(err instanceof BaseError ? err.code : String(err));
+        }
+      },
+    };
+    await bootPlugins(
+      rigBoot('/data', { corePlugins: [credentials, probe], fs: memoryFs(), secrets: { store } }).options,
+    );
+    // 装载窗（apply）非宿主回调窗——写面 fail-closed 拒
+    expect(errs).toEqual(['CREDENTIALS_WRITE_WINDOW_CLOSED']);
+    expect(store.rows.size).toBe(0);
+  });
+});
+
 describe('closer plugin-unload（§5.7 档③ + effect 回卷）', () => {
   it('apply disposer LIFO + fork 作用域逆序 dispose（ctx.effect 回卷）', async () => {
     const order: string[] = [];

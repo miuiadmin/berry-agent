@@ -819,8 +819,8 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     // 惰性执法全环：零 config = 零子进程（mcp servers 空 + lsp servers 空 +
     // browser 零引擎发现）——装载期间无真 spawn/真网络（测试零网络纪律）；
     // counts 口径 = activated 数：19e 四件（sdk/webui/obs/issue）在零 seam
-    // 测试形下主闸早退仍计 activated——15 件齐册全计
-    expect(boot.counts).toEqual({ total: 15, enabled: 15, failed: 0 });
+    // 测试形下主闸早退仍计 activated——16 件齐册全计（c-3 credentials 增席）
+    expect(boot.counts).toEqual({ total: 16, enabled: 16, failed: 0 });
   });
 
   it('exec 禁用 = 三桥连坐零装载（spawn 单源不自建——04 §11）：三服务面缺席 + LSP 静态四件不注册 + /browser 不注册', async () => {
@@ -840,7 +840,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(commands).not.toContain('browser');
     // 其余件不连坐（counts 口径 = activated 数：三桥 apply 早退无操作仍计
     // activated——诚实缺席在服务面/工具面，不在行计；exec 1 行 skipped）
-    expect(boot.counts).toEqual({ total: 15, enabled: 14, failed: 0 });
+    expect(boot.counts).toEqual({ total: 16, enabled: 15, failed: 0 });
   });
 
   it('browser 主闸 dataDir 位：纯 :memory: 形零装载（mcp/lsp 不连坐——两桥无 dataDir 闸）', async () => {
@@ -1025,7 +1025,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(boot.tools.definitions().map((d) => d.name)).toContain('obs_query');
     expect(queryCount).toBeGreaterThan(0); // 装载即首拍 refresh（连接即当下——不等挂钟）
     expect(existsSync(join(dataDir, 'data', 'obs', 'rollup.db'))).toBe(true); // 自管库落盘（03 §10.8 容忍条款——data/obs/ 子目录）
-    expect(boot.counts).toEqual({ total: 15, enabled: 15, failed: 0 });
+    expect(boot.counts).toEqual({ total: 16, enabled: 16, failed: 0 });
 
     // 主闸缺席形：dataDir null（:memory: 诊断形）→ 零装载
     const bare = await bootCore(null, memoryFs(), {}, { obsEvents: events });
@@ -1068,7 +1068,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     );
     expect(bare.scope.tryGet('issue')).toBeUndefined();
     expect(bare.scope.tryGet('issue-webhook-mount')).toBeUndefined();
-    expect(bare.boot.counts).toEqual({ total: 15, enabled: 15, failed: 0 }); // 早退仍计 activated（counts 口径）
+    expect(bare.boot.counts).toEqual({ total: 16, enabled: 16, failed: 0 }); // 早退仍计 activated（counts 口径）
 
     // 形 B：全环（config + token + session seam + scheduler 件〔sqlite〕+ jobs〔bootCore 内建〕）
     const full = await bootCore(
@@ -1087,7 +1087,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(full.scope.tryGet('issue-webhook-mount')).toBeDefined(); // webhook 挂点 kit（daemon 消费位）
   });
 
-  it('注册表单源形：件名清单（逐纵切笔入册——批 19a—19e：exec/web/skills/memory/subagent/scheduler/mcp/browser/lsp/goal/checkpoint/sdk/webui/obs/issue 十五件齐册）', () => {
+  it('注册表单源形：件名清单（逐纵切笔入册——批 19a—19e 十五件 + c-3 credentials 增席：exec/web/skills/memory/subagent/scheduler/mcp/browser/lsp/goal/checkpoint/sdk/webui/obs/issue/credentials 十六件齐册）', () => {
     expect(createCorePlugins({ dataDir: null }).map((ref) => ref.name)).toEqual([
       'exec',
       'web',
@@ -1104,6 +1104,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       'webui',
       'obs',
       'issue',
+      'credentials',
     ]);
   });
 });

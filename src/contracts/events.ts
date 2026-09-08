@@ -192,7 +192,7 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     owner: 'host',
     tier: 'stable',
     description:
-      '高危面开门后的每次换装/注册使用事实（宿主门检接线位在门检通过、注册动词受理成功后落；载体 = 进程级 durable 审计流 audit_events〔05 §9〕；v1 射程 = channels.ui-backend + triggers.start-run 逐次 fire（triggerName 归因腿），sdk.register-route 随 U5）',
+      '高危面开门后的每次换装/注册使用事实（宿主门检接线位在门检通过、注册动词受理成功后落；载体 = 进程级 durable 审计流 audit_events〔05 §9〕；v1 射程 = channels.ui-backend + triggers.start-run 逐次 fire（triggerName 归因腿）+ credentials.read-cross 逐次越域读（core: 直开豁免照记——豁免免的是门不是账，c-3），sdk.register-route 随 U5）',
   },
   {
     type: 'compaction/start',

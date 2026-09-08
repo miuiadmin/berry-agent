@@ -162,7 +162,7 @@
       "since": "1.0",
       "desc": "错误码前缀族明列——文档性常量，供注册面校验与 CI 目录生成； 'HOST_' 系装配根码族",
       "kind": "const",
-      "sig": "c44f8a165005f196"
+      "sig": "d951b0811b8a85cb"
     },
     {
       "symbol": "EVENT_CATEGORIES",
@@ -1020,6 +1020,30 @@
       "desc": "技能目录清单；非空即在场的唯一声明载荷（纯声明包零码装载）"
     },
     {
+      "symbol": "secrets",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "插件凭证受理制读写面（ctx.get(\"secrets\") 消费——get 缺省自域、越域读走高危面开门 credentials.read-cross；set 恒自域且只在宿主回调窗内可达）",
+      "sig": "48728f0bafaeff83"
+    },
+    {
+      "symbol": "secrets.get",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "凭证读（返回明文值）",
+      "sig": "2b8d84decf8708a4"
+    },
+    {
+      "symbol": "secrets.set",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "凭证写（恒自域——无跨域写面）",
+      "sig": "a145f2df1e101ef9"
+    },
+    {
       "symbol": "approval/asked",
       "module": "session-events",
       "tier": "stable",
@@ -1045,7 +1069,7 @@
       "module": "session-events",
       "tier": "stable",
       "since": "1.0",
-      "desc": "高危面开门后的每次换装/注册使用事实（宿主门检接线位在门检通过、注册动词受理成功后落；载体 = 进程级 durable 审计流 audit_events〔05 §9〕；v1 射程 = channels.ui-backend + triggers.start-run 逐次 fire（triggerName 归因腿），sdk.register-route 随 U5）"
+      "desc": "高危面开门后的每次换装/注册使用事实（宿主门检接线位在门检通过、注册动词受理成功后落；载体 = 进程级 durable 审计流 audit_events〔05 §9〕；v1 射程 = channels.ui-backend + triggers.start-run 逐次 fire（triggerName 归因腿）+ credentials.read-cross 逐次越域读（core: 直开豁免照记——豁免免的是门不是账，c-3），sdk.register-route 随 U5）"
     },
     {
       "symbol": "compaction/end",
@@ -1226,6 +1250,11 @@
     {
       "name": "channels.ui-backend",
       "providedBy": "channels",
+      "userGrantable": true
+    },
+    {
+      "name": "credentials.read-cross",
+      "providedBy": "core:credentials",
       "userGrantable": true
     },
     {

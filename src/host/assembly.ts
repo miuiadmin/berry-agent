@@ -295,6 +295,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         llm: stack.llmRuntime,
         triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
         subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
+        // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
+        // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
+        // plugin-boot——两审计 seam 缺省 no-op 挂账 U3-2 audit_events 载体批）
+        secrets: { store: runtimeNow.persistence.store },
         noPlugins: options.noPlugins === true,
         version: options.version,
         // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
