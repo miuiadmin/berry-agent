@@ -147,7 +147,7 @@ describe('插件道 fork 绑定——bindControlForPlugin（caller 覆写防冒�
         },
         async interrupt(input) {
           received.push({ verb: 'interrupt', caller: input.caller });
-          return { status: 'interrupted', targetSessionId: input.targetSessionId };
+          return { status: 'interrupted', targetSessionId: input.targetSessionId, stillQueued: [], queuedCount: 0 };
         },
         async withdraw(input) {
           received.push({ verb: 'withdraw', caller: input.caller });
@@ -438,7 +438,12 @@ describe('操控受理器——interrupt 守卫与 capability/used 审计', () =
         caller: { kind: 'session', sessionId: caller.sessionId },
         targetSessionId: busyTarget.sessionId,
       }),
-    ).resolves.toEqual({ status: 'interrupted', targetSessionId: busyTarget.sessionId });
+    ).resolves.toMatchObject({
+      status: 'interrupted',
+      targetSessionId: busyTarget.sessionId,
+      stillQueued: [],
+      queuedCount: 0,
+    });
     h.releaseAll();
     await run;
     // idle 目标：无在飞可打 → 响亮拒不静默 no-op
@@ -502,5 +507,168 @@ describe('操控受理器——interrupt 守卫与 capability/used 审计', () =
       },
       { capability: 'sessions.control-cross', verb: 'interrupt', targetSessionId: target.sessionId, pluginId: 'demo' },
     ]);
+  });
+});
+
+/* ---------------- e-5 收口：still_queued 后果清单 + send 幂等窗 ---------------- */
+describe('操控受理器——e-5 收口（still_queued 后果清单与 send 幂等位）', () => {
+  it('interrupt 回执清单+计数：操控件入清单（可 withdraw）、普通 steer 件只计数不入清单', async () => {
+    const h = makeHarness();
+    h.opens.add('sessions.control-cross');
+    const caller = h.manager.create();
+    const target = h.manager.create();
+    // 目标起一个挂 gate 的 run（busy——steer 入列腿）
+    const run = h.manager.driverOf(target.sessionId)!.submit('长任务');
+    await vi.waitFor(() => expect(h.manager.driverOf(target.sessionId)!.running).toBe(true));
+    const callerInput = {
+      caller: { kind: 'session', sessionId: caller.sessionId } as const,
+      targetSessionId: target.sessionId,
+    };
+    // 操控件 ×2（有撤回关联键）+ 普通人面 submit ×1（busy → steer 入列，无键）
+    const first = await h.control.send({ ...callerInput, text: '操控件一' });
+    const second = await h.control.send({ ...callerInput, text: '操控件二' });
+    if (first.status !== 'queued' || second.status !== 'queued') {
+      throw new Error(`busy 腿应 queued：${first.status}/${second.status}`);
+    }
+    // busy 腿 submit 搭在飞 run 结算（Promise 挂到 run 完成）——入列即席，
+    // 这里只入队不等结算
+    void h.manager.driverOf(target.sessionId)!.submit('普通件');
+    // 打断：回执 stillQueued = 操控件 id 清单、queuedCount = 在队总数（含普通件）
+    const receipt = await h.control.interrupt(callerInput);
+    expect(receipt.status).toBe('interrupted');
+    expect(receipt.stillQueued).toEqual([first.messageId, second.messageId]);
+    expect(receipt.queuedCount).toBe(3);
+    // 清单兑现：仍可对在队操控件 withdraw（打断不清队——对称闭环跨动词成立）
+    await expect(h.control.withdraw({ ...callerInput, messageId: first.messageId })).resolves.toMatchObject({
+      status: 'withdrawn',
+    });
+    h.releaseAll();
+    await run;
+  });
+
+  it('send 幂等位：同键重试返原回执（零新注入零新审计）——命中前置不受世界变化影响', async () => {
+    const h = makeHarness();
+    h.opens.add('sessions.control-cross');
+    const caller = h.manager.create();
+    const target = h.manager.create();
+    const input = {
+      caller: { kind: 'session', sessionId: caller.sessionId } as const,
+      targetSessionId: target.sessionId,
+      text: '只此一条',
+      dedupeKey: 'retry-1',
+    };
+    const first = await h.control.send(input);
+    h.releaseAll();
+    await vi.waitFor(() => expect(h.manager.driverOf(target.sessionId)!.running).toBe(false));
+    const durableCount = () =>
+      h.manager
+        .driverOf(target.sessionId)!
+        .session.events()
+        .filter((e) => e.type === 'user/message').length;
+    const afterFirst = durableCount();
+    const usedAfterFirst = h.used.length;
+    // 重试同键：返原回执（原 messageId）——idle 腿已成 delivered，幂等不因目标
+    // 转 idle 而吃新路径（命中前置）
+    const retry = await h.control.send(input);
+    expect(retry).toEqual(first);
+    expect(durableCount()).toBe(afterFirst); // 零新注入
+    expect(h.used).toHaveLength(usedAfterFirst); // 零新审计（回执重放非新受理）
+  });
+
+  it('幂等键按调用方身份分域：session 道与 plugin 道同键不互撞（各成功各入窗）', async () => {
+    const h = makeHarness();
+    h.opens.add('sessions.control-cross');
+    const target = h.manager.create();
+    const run = h.manager.driverOf(target.sessionId)!.submit('长任务');
+    await vi.waitFor(() => expect(h.manager.driverOf(target.sessionId)!.running).toBe(true));
+    const sessionCaller = { kind: 'session', sessionId: h.manager.create().sessionId } as const;
+    const bySession = await h.control.send({
+      caller: sessionCaller,
+      targetSessionId: target.sessionId,
+      text: '会话道',
+      dedupeKey: 'k',
+    });
+    const byPlugin = await h.control.send({
+      caller: { kind: 'plugin', pluginId: 'demo' },
+      targetSessionId: target.sessionId,
+      text: '插件道',
+      dedupeKey: 'k',
+    });
+    if (bySession.status !== 'queued' || byPlugin.status !== 'queued') {
+      throw new Error(`busy 腿应 queued：${bySession.status}/${byPlugin.status}`);
+    }
+    // 插件道同键不被会话道窗吞——独立入列（busy 腿两件在队）
+    expect(byPlugin.messageId).not.toBe(bySession.messageId);
+    // 会话道重试仍命中自己的原回执
+    await expect(
+      h.control.send({ caller: sessionCaller, targetSessionId: target.sessionId, text: '会话道', dedupeKey: 'k' }),
+    ).resolves.toEqual(bySession);
+    h.releaseAll();
+    await run;
+  });
+
+  it('拒路径不入窗：同键 send 被拒后重试重新走受理序（世界已变可成功）', async () => {
+    const h = makeHarness();
+    h.opens.add('sessions.control-cross');
+    const caller = h.manager.create();
+    const target = h.manager.create();
+    const input = {
+      caller: { kind: 'session', sessionId: caller.sessionId } as const,
+      targetSessionId: target.sessionId,
+      text: '乐观并发首投',
+      dedupeKey: 'stale-1',
+      expectedTurnId: 999, // 必不匹配（空会话 durable 无 turn/start → 恒 STALE）
+    };
+    await expect(h.control.send(input)).rejects.toMatchObject({ code: 'SESSION_TURN_STALE' });
+    expect(h.used).toHaveLength(0); // 拒路径零审计
+    // 同键重试（去掉乐观位）——拒未入窗，重新受理成功
+    const retried = await h.control.send({ ...input, expectedTurnId: undefined });
+    expect(retried.status).toBe('delivered');
+    h.releaseAll();
+  });
+
+  it('幂等窗帽 100 逐最旧：第 101 键入窗逐出首键，首键重试即新受理', async () => {
+    const h = makeHarness();
+    h.opens.add('sessions.control-cross');
+    const caller = h.manager.create();
+    const target = h.manager.create();
+    const callerOf = { kind: 'session', sessionId: caller.sessionId } as const;
+    // 首键（idle 腿 delivered 入窗——随后目标 run 挂 gate 转 busy）
+    const first = await h.control.send({
+      caller: callerOf,
+      targetSessionId: target.sessionId,
+      text: '首键',
+      dedupeKey: 'k-0',
+    });
+    if (first.status !== 'delivered') throw new Error(`首键应 delivered：${first.status}`);
+    await vi.waitFor(() => expect(h.manager.driverOf(target.sessionId)!.running).toBe(true));
+    // 余 100 键（busy 腿 queued 入窗——窗满逐最旧：k-0 被逐出）
+    for (let i = 1; i <= 100; i += 1) {
+      const receipt = await h.control.send({
+        caller: callerOf,
+        targetSessionId: target.sessionId,
+        text: `t${i}`,
+        dedupeKey: `k-${i}`,
+      });
+      expect(receipt.status).toBe('queued');
+    }
+    // 末键在窗内（重试幂等命中）；首键已被逐出（重试 = 新受理新 messageId）
+    const last = await h.control.send({
+      caller: callerOf,
+      targetSessionId: target.sessionId,
+      text: 't100',
+      dedupeKey: 'k-100',
+    });
+    const firstAgain = await h.control.send({
+      caller: callerOf,
+      targetSessionId: target.sessionId,
+      text: '首键',
+      dedupeKey: 'k-0',
+    });
+    if (last.status !== 'queued' || firstAgain.status !== 'queued') {
+      throw new Error(`末键/逐出键重试应 queued：${last.status}/${firstAgain.status}`);
+    }
+    expect(firstAgain.messageId).not.toBe(first.messageId);
+    h.releaseAll();
   });
 });

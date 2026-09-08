@@ -28,7 +28,12 @@ function recordingControl(opts?: { sendError?: Error }): {
       },
       async interrupt(input) {
         calls.push({ verb: 'interrupt', input });
-        return { status: 'interrupted', targetSessionId: (input as { targetSessionId: string }).targetSessionId };
+        return {
+          status: 'interrupted',
+          targetSessionId: (input as { targetSessionId: string }).targetSessionId,
+          stillQueued: [],
+          queuedCount: 0,
+        };
       },
       async withdraw(input) {
         calls.push({ verb: 'withdraw', input });
@@ -100,7 +105,12 @@ describe('操控工具族——三件在场与薄包装', () => {
     const defs = toolsFor(rec.face, 's-a');
     const interruptResult = await tool(defs, 'session_interrupt').execute(...arg({ sessionId: 's-b' }));
     expect(interruptResult).toEqual({
-      content: [{ type: 'text', text: JSON.stringify({ status: 'interrupted', targetSessionId: 's-b' }) }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ status: 'interrupted', targetSessionId: 's-b', stillQueued: [], queuedCount: 0 }),
+        },
+      ],
     });
     const withdrawResult = await tool(defs, 'session_withdraw').execute(
       ...arg({ sessionId: 's-b', messageId: 'msg-1' }),

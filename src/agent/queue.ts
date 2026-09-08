@@ -147,6 +147,15 @@ export class PendingMessageQueue {
   }
 
   /**
+   * 在队快照（e-5 操控收口——interrupt 回执 still_queued 数据源）：只读呈报
+   * 不取件不 mutate（与 drain/clear 分立——快照零副作用）。返回浅拷贝数组，
+   * 调用方改写不影响队内真身。
+   */
+  snapshot(): readonly PendingItem[] {
+    return [...this.items];
+  }
+
+  /**
    * 在队撤回（e-4 withdraw——03 §2.2 第十一面）：按撤回关联键移除在队件。
    * @returns 命中返回被移除条目；不在队（已出队被消费/从未入列/已被溢出
    * 丢弃）返回 undefined——调用方以「已投递」语义诚实呈报。

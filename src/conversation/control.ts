@@ -1,6 +1,6 @@
 /**
  * conversation — 跨会话操控面（03 §2.2 第十一面 `sessions-control`——e-1
- * 规范先行批立面、2026-09-08 e-4 落码批兑现）。
+ * 规范先行批立面、2026-09-08 e-4 落码批兑现、2026-09-09 e-5 收口批定形）。
  *
  * **双面同源**（题 7 拍板）：模型走宿主内建固定工具族（`session_send` /
  * `session_interrupt` / `session_withdraw`——恒挂载不随门开合动态挂载），
@@ -13,12 +13,14 @@
  *    单源：idle→followUp 起跑 / busy→steer 合批 / 停摆→inject 带入），
  *    回执 = 入列回执（被丢/被拒项呈报不静默）；`expectedTurnId?` 乐观
  *    并发位（翻页拒 `SESSION_TURN_STALE`）；a2a 链深超帽拒
- *    `SESSION_ROUND_LIMIT`。
+ *    `SESSION_ROUND_LIMIT`；`dedupeKey?` 幂等位（e-5 定案——同键重复
+ *    send 返原回执不重复注入，键域按调用方身份分域）。
  *  - `interrupt`：打断目标在飞 run（turn 终态 interrupted）；无在飞拒
- *    `SESSION_INACTIVE`（响亮拒不静默 no-op）。e-4 基础档回执；
- *    still-queued 后果清单词形随 e-5 定形（03 §2.2 同句）。
- *  - `withdraw`：在队撤回对称闭环（已出队 no-op 诚实回执；题 9 缺省案
- *    随 e-5 呈拍）。
+ *    `SESSION_INACTIVE`（响亮拒不静默 no-op）。回执含 still_queued 后果
+ *    清单（e-5 定形：在队操控件 id 清单 + 在队总数计数——打断只打断当前
+ *    run，在队 steer 件保留在队、下次 followUp 作种子续跑）。
+ *  - `withdraw`：在队撤回对称闭环（题 9 缺省案 e-5 呈拍确认维持：已出队
+ *    'delivered' no-op 诚实回执，不虚构撤回成功）。
  *
  * **provenance 盖章单源**（05 §3.1）：注入的 user/message `source` 由本
  * 受理面按调用方身份（ControlCaller）铸——模型工具道 `session:<送话会话id>`、
@@ -38,6 +40,13 @@ export const SESSIONS_CONTROL_SERVICE = 'sessions-control';
 
 /** a2a 回合护栏帽缺省（03 §2.2 第十一面题 8 呈拍定案：缺省 5 对齐 openclaw；装配可覆盖） */
 export const A2A_ROUND_LIMIT_DEFAULT = 5;
+
+/**
+ * send 幂等近期窗帽（e-5 定案——与队列帽同数 100：同键重复 send 返原回执
+ * 的查重窗容量；超帽逐最旧〔Map 插入序〕。内存位不承诺跨进程——与队列/
+ * a2a 深度位同语义）。
+ */
+export const SEND_DEDUPE_WINDOW_CAPACITY = 100;
 
 /**
  * 调用方身份（provenance 盖章单源的输入面）：受理面据此铸 source 前缀——
@@ -64,12 +73,21 @@ export type ControlSendReceipt =
   | { readonly status: 'dropped'; readonly reason: 'queue-full' };
 
 /**
- * interrupt 回执（e-4 基础档）：打断已受理。still-queued 后果清单（在飞腿
- * 与排队件去向逐项呈报——claude-sdk 先例）词形随 e-5 定形注回写。
+ * interrupt 回执（e-5 收口定形——03 §2.2 第十一面 interrupt 后果清单）：
+ * 打断只打断当前 run，在队 steer 件**保留在队**（下次 followUp 作种子续跑）
+ * ——回执逐项呈报去向，调用方据此决定是否 withdraw 余件：
+ *  - `stillQueued`：在队**操控件** messageId 清单（有撤回关联键的件——可逐件
+ *    withdraw；普通 steer 件〔目标会话自己的用户输入〕无撤回键不入清单）；
+ *  - `queuedCount`：在队总数（含普通件——跨会话调用方对普通件无撤回键，
+ *    计数告知「目标还有 N 件在队」即可，不虚构普通件名）。
  */
 export interface ControlInterruptReceipt {
   readonly status: 'interrupted';
   readonly targetSessionId: string;
+  /** 在队操控件 messageId 清单（可 withdraw 撤回） */
+  readonly stillQueued: readonly string[];
+  /** 在队总数（含普通 steer 件——计数呈报） */
+  readonly queuedCount: number;
 }
 
 /**
@@ -92,6 +110,14 @@ export interface SessionSendInput {
    * 事件 seq（单源 durable——session_read/session_trace 尾窗可见）。
    */
   readonly expectedTurnId?: number;
+  /**
+   * 幂等键（e-5 定案——loopx client_ingress_id 先例）：同键重复 send 返
+   * 原回执不重复注入。键域按调用方身份分域（`session:`/`plugin:` 前缀各自
+   * 键空间——跨调用方同键不互撞）；仅成功回执入窗、拒路径不入（重试须重新
+   * 走受理序——世界可能已变）；近期窗内存位不承诺跨进程。无键不去重（缺省
+   * 无幂等——键是调用方显式契约）。
+   */
+  readonly dedupeKey?: string;
 }
 
 /** interrupt 入参 */
@@ -166,6 +192,14 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
   const roundLimit = deps.roundLimit ?? A2A_ROUND_LIMIT_DEFAULT;
   /** 撤回关联键铸造位（栈级自增——受理器栈内唯一，跨会话可对账） */
   let messageSeq = 0;
+  /**
+   * send 幂等近期窗（e-5 定案）：分域键 = `<caller 前缀>|<dedupeKey>` →
+   * 原回执。仅成功回执入窗（拒路径不入——重试须重新走受理序）；命中前置
+   * 返原回执（零新注入零新审计——回执重放非新受理）。超帽逐最旧（Map
+   * 插入序）。内存位：崩溃重启即丢（与队列/a2a 深度位同语义——幂等承诺
+   * 不跨进程）。
+   */
+  const dedupeWindow = new Map<string, ControlSendReceipt>();
 
   /** 幽灵守卫（三动词共同前置①——目标 id 无对应行，进程内 ∪ durable） */
   const guardTarget = (verb: string, targetSessionId: string): void => {
@@ -198,11 +232,32 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
     });
   };
 
+  /**
+   * send 幂等窗入位（仅成功回执——e-5 定案）：分域键铸造 + 超帽逐最旧。
+   * 命中查询在 send 入口前置（见 send 体）。
+   */
+  const rememberSend = (dedupeKey: string, caller: ControlCaller, receipt: ControlSendReceipt): void => {
+    const key = `${controlSourceOf(caller)}|${dedupeKey}`;
+    if (dedupeWindow.size >= SEND_DEDUPE_WINDOW_CAPACITY) {
+      // 逐最旧（Map 迭代序 = 插入序——首个键即最旧）
+      dedupeWindow.delete(dedupeWindow.keys().next().value!);
+    }
+    dedupeWindow.set(key, receipt);
+  };
+
   return {
     async send(input) {
       // 空文本拒收（契约位——空文本是调用方 bug，非业务拒不造码）
       if (input.text.trim() === '') {
         throw new Error('send 拒收空文本（调用方 bug——注入文本非空是调用方契约）');
+      }
+      // —— 幂等命中前置（e-5 定案）：同键重复 send 返原回执不重复注入。
+      // 前置于幽灵/门检——首次受理已成功，重试就该幂等返原果（重试时世界
+      // 变化不该让已成功的逻辑发送吃新拒码）；命中 = 回执重放非新受理，
+      // 零新注入零新审计
+      if (input.dedupeKey !== undefined) {
+        const prior = dedupeWindow.get(`${controlSourceOf(input.caller)}|${input.dedupeKey}`);
+        if (prior !== undefined) return prior;
       }
       guardTarget('send', input.targetSessionId);
       enforceDoor('send', input.targetSessionId);
@@ -235,6 +290,8 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
         source: controlSourceOf(input.caller),
       };
       const receipt = driver.deliverControl(message, messageId, newDepth);
+      // 幂等窗入位（仅成功回执——三态都是「受理完成」面；拒路径已在上方 throw 不至此）
+      if (input.dedupeKey !== undefined) rememberSend(input.dedupeKey, input.caller, receipt);
       audit('send', input, input.caller);
       return receipt;
     },
@@ -249,8 +306,17 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
         throw new BaseError('SESSION_INACTIVE', `目标会话 ${input.targetSessionId} 无在飞 run 可打断（休眠或已停摆）`);
       }
       driver.abort();
+      // —— still_queued 后果清单（e-5 定形）：打断只打断当前 run，在队件
+      // 保留在队（aborted 不续跑——下次 followUp 作种子续跑）。打断后取快照
+      // 呈报去向：操控件 id 清单（可 withdraw）+ 在队总数（含普通件计数）
+      const queued = driver.queuedItems();
       audit('interrupt', input, input.caller);
-      return { status: 'interrupted', targetSessionId: input.targetSessionId };
+      return {
+        status: 'interrupted',
+        targetSessionId: input.targetSessionId,
+        stillQueued: queued.flatMap((item) => (item.id !== undefined ? [item.id] : [])),
+        queuedCount: queued.length,
+      };
     },
 
     async withdraw(input) {

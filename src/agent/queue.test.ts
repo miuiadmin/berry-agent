@@ -133,3 +133,24 @@ describe('PendingMessageQueue 撤回关联键与在队撤回（e-4 withdraw—�
     expect(q.withdraw('never-enqueued')).toBeUndefined();
   });
 });
+
+describe('PendingMessageQueue 在队快照（e-5——interrupt 回执 still_queued 数据源）', () => {
+  it('snapshot 只读呈报：返回浅拷贝、改写不影响队内真身、后续取件不改已取快照', () => {
+    const q = new PendingMessageQueue();
+    q.enqueue(msg(1), ch, { id: 'msg-1' });
+    q.enqueue(msg(2), ch); // 普通件（无撤回关联键——只计数不入清单）
+    const snap = q.snapshot();
+    expect(snap.map((i) => i.message.content)).toEqual(['m1', 'm2']);
+    expect(snap).toHaveLength(q.size);
+    // 浅拷贝：调用方改写数组不影响队内真身（pop 掉拷贝的末元素、队仍两件）
+    (snap as unknown as { pop: () => void }).pop();
+    expect(q.size).toBe(2);
+    // 快照零副作用：取件后队空（all 合批全取），新取快照为空、
+    // 此前已取快照仍是当时值（快照是快照非活引用）
+    q.mode = 'all';
+    q.drain();
+    expect(q.size).toBe(0);
+    expect(q.snapshot()).toEqual([]);
+    expect(snap.map((i) => i.message.content)).toEqual(['m1']);
+  });
+});

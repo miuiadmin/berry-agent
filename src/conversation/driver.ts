@@ -267,6 +267,15 @@ export class ConversationDriver {
   }
 
   /**
+   * 在队快照透传（e-5 操控收口——interrupt 回执 still_queued 数据源）：
+   * 打断只打断当前 run，在队 steer 件保留在队（下次 followUp 作种子续跑）
+   * ——受理面据此铸「打断后队列余量」呈报。只读零副作用。
+   */
+  queuedItems(): readonly PendingItem[] {
+    return this.queue.snapshot();
+  }
+
+  /**
    * 子代理审批挂起通知（04 §10 审批挂起通知——11f 注入面；子代理机器是
    * 调用方，one-shot 形态不注入由调用方裁量）：background 子代理触发审批对
    * 时向父会话注入一条 UserMessage（source='subagent-approval-pending'，

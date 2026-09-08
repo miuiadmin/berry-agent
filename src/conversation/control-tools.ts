@@ -54,13 +54,17 @@ export function createControlTools(deps: ControlToolsDeps): readonly ToolDefinit
         'queued（目标忙已入列——可经 session_withdraw 撤回）、dropped（拒收）。' +
         '需高危面 sessions.control-cross 开门（全域同门——同树目标同样要开门）。' +
         'a2a 链深帽缺省 5（连续代理互搏拒 SESSION_ROUND_LIMIT——目标会话收到人面输入即重置）；' +
-        'expectedTurnId 可选乐观并发位（= 目标最近 turn/start 事件 seq——不匹配拒 SESSION_TURN_STALE）。',
+        'expectedTurnId 可选乐观并发位（= 目标最近 turn/start 事件 seq——不匹配拒 SESSION_TURN_STALE）；' +
+        'dedupeKey 可选幂等位（重试场景携稳定键——同键重复发送返原回执不重复注入）。',
       parameters: Type.Object(
         {
           sessionId: Type.String({ description: '目标会话 id' }),
           text: Type.String({ description: '注入文本（非空）' }),
           expectedTurnId: Type.Optional(
             Type.Number({ description: '乐观并发位：目标 durable 日志最近 turn/start 事件 seq（可选）' }),
+          ),
+          dedupeKey: Type.Optional(
+            Type.String({ description: '幂等键（可选——同键重复 send 返原回执不重复注入；须调用方自铸唯一）' }),
           ),
         },
         { additionalProperties: false },
@@ -73,6 +77,7 @@ export function createControlTools(deps: ControlToolsDeps): readonly ToolDefinit
             targetSessionId: args.sessionId as string,
             text: args.text as string,
             ...(args.expectedTurnId !== undefined ? { expectedTurnId: args.expectedTurnId as number } : {}),
+            ...(args.dedupeKey !== undefined ? { dedupeKey: args.dedupeKey as string } : {}),
           });
           return receiptText(receipt);
         }),
@@ -82,6 +87,8 @@ export function createControlTools(deps: ControlToolsDeps): readonly ToolDefinit
       description:
         '打断目标会话的在飞 run（协作中止——目标 turn 以 interrupted 收口）。' +
         '目标无在飞 run 拒 SESSION_INACTIVE（响亮拒不静默 no-op）。' +
+        '回执含 stillQueued（打断后在队操控件 id 清单——可逐件 session_withdraw 撤回）' +
+        '与 queuedCount（在队总数——在队件保留在队、下次续跑作种子，打断不清队）。' +
         '需高危面 sessions.control-cross 开门（全域同门）。',
       parameters: Type.Object(
         { sessionId: Type.String({ description: '目标会话 id' }) },
@@ -100,7 +107,7 @@ export function createControlTools(deps: ControlToolsDeps): readonly ToolDefinit
     {
       name: 'session_withdraw',
       description:
-        '撤回本会话先前经 session_send 排入目标队列的消息（对_closed 不对称闭环）。' +
+        '撤回本会话先前经 session_send 排入目标队列的消息（在队撤回对称闭环）。' +
         'messageId 取 session_send 回执。回执两态：withdrawn（在队已移除）、' +
         'delivered（已出队/从未在队——诚实呈报不虚构撤回成功）。' +
         '需高危面 sessions.control-cross 开门（全域同门）。',
