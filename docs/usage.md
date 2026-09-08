@@ -2,7 +2,7 @@
 
 本文自包含覆盖 berry-agent 的安装、入口命令族、TUI 操作与环境变量。架构背景见[架构总览](./architecture.md)。
 
-> 状态：`0.1.0-alpha`。命令族中标注「尚未装配」的动词会诚实报错退出（解析与旗标面已就绪，执行面随后续版本接入）——不含糊、不静默。
+> 状态：`0.1.0-alpha`。命令族中标注「尚未装配」的动词会诚实报错退出（解析与旗标面已就绪，执行面随后续版本接入）——不含糊、不静默。包尚未在 npm 首发：安装路一/路二待首发后可用，路三源码构建即时可用。
 
 ## 安装
 
@@ -67,32 +67,49 @@ export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 pr
 berry-agent [命令] [旗标]
 ```
 
-| 命令 | 作用 |
-| --- | --- |
-| （无参） | TUI 主入口：直进对话 |
-| `run "<message>"` | 单次执行：一轮对话 → stdout 输出结果 |
-| `serve` | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词） |
-| `mcp` | MCP server 包装形态 |
-| `dump-config` | 打印实际生效装配（诊断） |
-| `plugins <sub>` | 插件生命周期：`list` 在场；`install/uninstall/mount/unmount/toggle/update/check` 中 `check` 只读、写侧六动词尚未装配 |
-| `sessions <sub>` | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex` |
-| `upgrade` | 升级维护动词（尚未装配） |
+| 命令                | 作用                                                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| （无参）            | TUI 主入口：直进对话                                                                                                    |
+| `run "<message>"`   | 单次执行：一轮对话 → stdout 输出结果                                                                                    |
+| `serve`             | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词）                                                    |
+| `mcp`               | MCP server 包装形态                                                                                                     |
+| `dump-config`       | 打印实际生效装配（诊断）                                                                                                |
+| `plugins <sub>`     | 插件生命周期：`list` 在场；`install/uninstall/mount/unmount/toggle/update/check` 中 `check` 只读、写侧六动词尚未装配    |
+| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex`                                           |
+| `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`） |
+| `upgrade`           | 升级维护动词（尚未装配）                                                                                                |
 
 退出码三态：**0** 成功（含诚实空——空清单/零命中非失败）/ **1** 执行失败 / **2** 环境态误用（用法错、TUI 在非交互环境）。
 
+通用旗标：`--help` / `--version` / `--debug`（日志提级）全入口收；`--port <n>` TUI / run / serve / dump-config 收（dump-config 忽略不起监听）；`--no-plugins` 安全模式不入自动化入口 serve / mcp。
+
+### 快捷别名（可选）
+
+官方命令名固定为 `berry-agent`。想要更短的敲法，在 shell 配置里自行设别名——个人配置，不随包安装、不影响升级：
+
+```bash
+echo "alias berry='berry-agent'" >> ~/.zshrc     # bash 用 ~/.bashrc；重开终端生效
+```
+
+npm 全局安装之前的源码形态，可先指向仓库构建产物：
+
+```bash
+alias berry='node /path/to/berry-agent/dist/host/main.js'
+```
+
 ### TUI（无参启动）
 
-无参启动按当前目录取最新会话——有则续接、无则新建。
+无参启动按当前目录取最新会话——有则续接、无则新建。入口旗标：`--port <n>`（开统一 HTTP 面——Web 界面与程序调用族同面）、`--no-plugins`（安全模式）、`--debug`。
 
-| 键 | 作用 |
-| --- | --- |
-| `Enter` | 提交输入 |
-| `Ctrl+C` | 打断模型运行中回合 / 撤销审批提问 |
-| `Ctrl+D` | 空框退出 |
-| `@` | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形） |
-| `/` | 命令补全（注册命令表） |
+| 键       | 作用                                                  |
+| -------- | ----------------------------------------------------- |
+| `Enter`  | 提交输入                                              |
+| `Ctrl+C` | 打断模型运行中回合 / 撤销审批提问                     |
+| `Ctrl+D` | 空框退出                                              |
+| `@`      | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形） |
+| `/`      | 命令补全（注册命令表）                                |
 
-TUI 内建命令（随插件装载动态扩展）：`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理）、`/tick`（定时任务手动推进）、`/browser install`（浏览器引擎安装）、`/memory-export` `/memory-import`（记忆导入导出）等。
+TUI 内建命令（随插件装载动态扩展）：`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理）、`/tick`（定时任务手动推进）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory-export` `/memory-import`（记忆导入导出）等。
 
 ### run 单次执行
 
@@ -107,17 +124,17 @@ berry-agent run --read-only "只读分析这个仓库"         # 只读沙箱单
 
 run 旗标族：
 
-| 旗标 | 作用 |
-| --- | --- |
-| `--output-format <text\|json\|stream>` | 输出三档（缺省 text） |
-| `--output-last-message <file>` | 末条 assistant 文本原子写文件 |
-| `--ephemeral` | 零落盘单发（与续接族/`--tick`/`--background` 互斥） |
-| `--max-turns <n>` | turn 数帽（到帽收场如实标 truncated） |
-| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥） |
-| `--read-only` | read-only 沙箱单发 |
-| `--tick <名>` | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥） |
-| `--background` | 后台道预算记账入口 |
-| `--no-delta` | 线面退订流式增量 |
+| 旗标                                            | 作用                                                                  |
+| ----------------------------------------------- | --------------------------------------------------------------------- |
+| `--output-format <text\|json\|stream>`          | 输出三档（缺省 text）                                                 |
+| `--output-last-message <file>`                  | 末条 assistant 文本原子写文件                                         |
+| `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background` 互斥）                   |
+| `--max-turns <n>`                               | turn 数帽（到帽收场如实标 truncated）                                 |
+| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）                                                  |
+| `--read-only`                                   | read-only 沙箱单发                                                    |
+| `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥） |
+| `--background`                                  | 后台道预算记账入口                                                    |
+| `--no-delta`                                    | 线面退订流式增量                                                      |
 
 `--output-schema` 尚未实现：显式传入即用法错退 2（不静默忽略）。
 
@@ -135,15 +152,33 @@ berry-agent sessions reindex           # 全文索引全量重建（派生物不
 
 读腿（list/search/reindex）零装配直开库——不开运行时、不占单活跃机标记；`fork` 与 `run --fork` 同机（钩子保真）；`resume` 在非交互环境退 2 并指引改 `run --session`。
 
+### credentials 凭证管理
+
+```bash
+berry-agent credentials add ANTHROPIC_API_KEY sk-ant-...          # 录入（upsert 整行；缺省 host 域）
+berry-agent credentials add GITHUB_TOKEN ghp_... --namespace plugin:my-plugin   # 指定插件域
+berry-agent credentials list                                      # 全域列示——域/名/来源/更新时间
+berry-agent credentials rm ANTHROPIC_API_KEY                      # 撤销（删除唯一路径）
+```
+
+- **值永不呈现**：录入回执与列示只含域/名/来源与时间——值只进加密存储（shell 历史里的 argv 仍属本机明文，敏感值建议改用 TUI `/credentials`）；
+- 域形两态：`host`（宿主自用——模型 API key 等，缺省）与 `plugin:<id>`（插件域）；插件经 `ctx.secrets` 只读自己的域，跨域读需显式开门；
+- **静态凭证人面唯写** = 本命令族；oauth 授权流（device-code）仅在 TUI `/credentials oauth`——CLI 不设此动词；
+- 零装配直开库（sessions 读腿同形）——不起运行时即用；退出码 0/1（用法错归解析层退 2）。
+
 ### serve 常驻宿主与自动化通道
 
 ```bash
-berry-agent serve                    # stdio JSONL 线协议（SDK spawn 形态）
-berry-agent serve --daemon           # 后台守护（sock + 可选 TCP 面预置 token）
-berry-agent serve --port 7860        # HTTP+SSE 面（/v1/* 程序调用族）
+berry-agent serve                    # 前台 stdio JSONL 线协议（SDK spawn 形态）
+berry-agent serve --daemon           # 后台守护（unix sock 为缺省接入点）
+berry-agent serve --daemon --port 7860        # 守护 + 统一 HTTP 面 TCP 侧开面
+berry-agent serve --daemon --sdk-port 7870    # sdk 线协议面 TCP 侧（daemon 专属；前台形传入即退 2）
+berry-agent serve --no-delta         # 线面退订流式增量（run/serve 共收）
 berry-agent serve status             # 守护态查询（只读豁免——不占单活跃机）
 berry-agent serve stop               # 停守护
 ```
+
+`--sdk-host`（daemon 专属）指定线协议面绑定地址——**非回环值必配 `BERRY_AGENT_SDK_TOKEN`**（见环境变量表）。
 
 配套生态：
 
@@ -164,17 +199,21 @@ berry-agent plugins check            # 装机面体检（只读）
 
 前缀一律 `BERRY_AGENT_*`：
 
-| 变量 | 作用 | 缺省 |
-| --- | --- | --- |
-| `BERRY_AGENT_MODEL` | 覆盖缺省模型 | `anthropic/claude-sonnet-5` |
-| `BERRY_AGENT_DATA_DIR` | 数据目录 | `~/.berry-agent` |
-| `BERRY_AGENT_DB_PATH` | 库文件路径（独立梯子——重定向库文件而不动数据目录） | `<数据目录>/sessions.db` |
-| `BERRY_AGENT_LOG_LEVEL` | 日志级别：error / warn / info / debug / silent | `info` |
-| `BERRY_AGENT_BASH_PATH` | bash 工具可执行路径（缺失 fail-loud） | PATH 发现序 |
-| `BERRY_AGENT_FD_PATH` | `@` 文件补全的 fd 可执行路径（缺失退化内置遍历） | PATH 发现序 |
-| `BERRY_AGENT_BROWSER_PATH` | 浏览器引擎可执行路径 | 引擎发现序 |
-| `BERRY_AGENT_BIN` | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源） | 进程自身路径推导 |
-| `BERRY_AGENT_CRON` | cron 可选后端开关/载体 | 进程内挂钟 |
+| 变量                               | 作用                                                                  | 缺省                        |
+| ---------------------------------- | --------------------------------------------------------------------- | --------------------------- |
+| `BERRY_AGENT_MODEL`                | 覆盖缺省模型                                                          | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR`             | 数据目录                                                              | `~/.berry-agent`            |
+| `BERRY_AGENT_DB_PATH`              | 库文件路径（独立梯子——重定向库文件而不动数据目录）                    | `<数据目录>/sessions.db`    |
+| `BERRY_AGENT_LOG_LEVEL`            | 日志级别：error / warn / info / debug / silent                        | `info`                      |
+| `BERRY_AGENT_BASH_PATH`            | bash 工具可执行路径（缺失 fail-loud）                                 | PATH 发现序                 |
+| `BERRY_AGENT_FD_PATH`              | `@` 文件补全的 fd 可执行路径（缺失退化内置遍历）                      | PATH 发现序                 |
+| `BERRY_AGENT_BROWSER_PATH`         | 浏览器引擎可执行路径                                                  | 引擎发现序                  |
+| `BERRY_AGENT_BIN`                  | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                 | 进程自身路径推导            |
+| `BERRY_AGENT_CRON`                 | cron 可选后端开关/载体                                                | 进程内挂钟                  |
+| `BERRY_AGENT_GIT_PATH`             | worktree 工具 git 可执行路径                                          | PATH 发现序                 |
+| `BERRY_AGENT_SDK_TOKEN`            | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配） | 缺省不开 TCP 侧             |
+| `BERRY_AGENT_GITHUB_TOKEN`         | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）    | 缺席                        |
+| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET` | core:issue 件 webhook 签名密钥（同回落律）                            | 缺席                        |
 
 ## 遥测立场
 
