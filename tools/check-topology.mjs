@@ -288,7 +288,11 @@ const DEEP_FACES = {
   contracts: ['api.ts'],
 };
 
-const SRC = join(process.cwd(), 'src');
+/** 被检仓根——env 根缝 CHECK_TOPOLOGY_ROOT 供守护炮自测注入夹具根（07 篇
+ * §7.4 #10：净树 exit 0 + 已知违规夹具 exit 1，与门禁同一进程形态）；
+ * 缺省 = 当前工作目录（门禁原形态不变） */
+const ROOT = process.env.CHECK_TOPOLOGY_ROOT ?? process.cwd();
+const SRC = join(ROOT, 'src');
 const violations = [];
 
 /** 递归收集 src 下产码 .ts/.tsx（*.test.* 豁免两账分离——批 18a-2 起 .tsx
@@ -320,7 +324,7 @@ function importSpecifiers(text) {
 for (const file of collectSourceFiles(SRC)) {
   const mod = moduleOf(file);
   if (!mod || !PRESENT_MODULES.has(mod)) {
-    violations.push(`${relative(process.cwd(), file)}: 不属于任何在场模块（src 顶层散文件）`);
+    violations.push(`${relative(ROOT, file)}: 不属于任何在场模块（src 顶层散文件）`);
     continue;
   }
   const allowed = MODULE_EDGES[mod] ?? [];
@@ -336,18 +340,18 @@ for (const file of collectSourceFiles(SRC)) {
       const targetPath = resolve(dirname(file), spec.replace(/\.js$/, '.ts'));
       const relToSrc = relative(SRC, targetPath);
       if (relToSrc.startsWith('..') || isAbsolute(relToSrc)) {
-        violations.push(`${relative(process.cwd(), file)}: 相对导入 ${spec} 跳出 src`);
+        violations.push(`${relative(ROOT, file)}: 相对导入 ${spec} 跳出 src`);
         continue;
       }
       const target = relToSrc.split(sep)[0];
       if (!target) {
-        violations.push(`${relative(process.cwd(), file)}: 相对导入 ${spec} 指向 src 顶层散文件`);
+        violations.push(`${relative(ROOT, file)}: 相对导入 ${spec} 指向 src 顶层散文件`);
         continue;
       }
       if (target === mod) continue; // 同模块件内（含平级子目录跳变）——自由
       if (!allowed.includes(target)) {
         violations.push(
-          `${relative(process.cwd(), file)}: 跨模块导入 ${target} 未在边表（${mod} 允许：${allowed.join(', ') || '无'}）`,
+          `${relative(ROOT, file)}: 跨模块导入 ${target} 未在边表（${mod} 允许：${allowed.join(', ') || '无'}）`,
         );
         continue;
       }
@@ -356,7 +360,7 @@ for (const file of collectSourceFiles(SRC)) {
       const face = relToSrc.split(sep).slice(1).join('/');
       if (face && !PUBLIC_FACES.has(face) && !(DEEP_FACES[target] ?? []).includes(face)) {
         violations.push(
-          `${relative(process.cwd(), file)}: 深挖 ${target} 实现面（${face}）——只准走公开面三名（面册例外见 DEEP_FACES）`,
+          `${relative(ROOT, file)}: 深挖 ${target} 实现面（${face}）——只准走公开面三名（面册例外见 DEEP_FACES）`,
         );
       }
     } else {
@@ -364,7 +368,7 @@ for (const file of collectSourceFiles(SRC)) {
       if (NODE_BUILTIN.test(spec)) continue;
       if (!externals.includes(spec)) {
         violations.push(
-          `${relative(process.cwd(), file)}: 裸导入 '${spec}' 不在 ${mod} 模块白名单（node:* 全局 + ${externals.join(', ') || '无'}）`,
+          `${relative(ROOT, file)}: 裸导入 '${spec}' 不在 ${mod} 模块白名单（node:* 全局 + ${externals.join(', ') || '无'}）`,
         );
       }
     }

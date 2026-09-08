@@ -27,6 +27,7 @@ export default defineConfig({
             'src/**/*.test.ts',
             'packages/berry-agent-sdk/src/**/*.test.ts',
             'tools/check-api.test.mjs',
+            'tools/check-topology.test.mjs',
             'tools/release.test.mjs',
           ],
           environment: 'node',
