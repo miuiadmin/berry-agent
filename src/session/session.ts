@@ -310,16 +310,20 @@ export class SessionLog {
         );
       }
     }
-    // 区间起点对齐 turn 边界：start = 0 / 区间首条为 turn/start / 紧接上次遮蔽
-    // 终点（连续压缩切点——判据是既存遮蔽区间终点恰为 start-1，全日志扫描；
-    // prev 事件自身携带 surfaceOp 的旧判据是死码：被遮蔽节点永不带遮蔽）
+    // 区间起点对齐 turn 单元边界：start = 0 / 首条为 turn/start（合成形）/
+    // start-1 为 turn/end（真实 driver 形——提交先落 user/message 后起 turn，
+    // 紧随闭合 turn 的切点即次 turn 单元首位；U4-3 装配批集成勘正——原两形
+    // 在真实日志形下永假致阈值路不可落账）/ 紧接上次遮蔽终点（连续压缩切点
+    // ——判据是既存遮蔽区间终点恰为 start-1，全日志扫描；prev 事件自身携带
+    // surfaceOp 的旧判据是死码：被遮蔽节点永不带遮蔽）
     if (op.start !== 0) {
       const first = this.log[op.start]!;
+      const afterTurnEnd = this.log[op.start - 1]?.type === 'turn/end';
       const afterOcclusion = this.log.some((event) => event.surfaceOp?.end === op.start - 1);
-      if (first.type !== 'turn/start' && !afterOcclusion) {
+      if (first.type !== 'turn/start' && !afterTurnEnd && !afterOcclusion) {
         throw new BaseError(
           'SESSION_SURFACE_OP_INVALID',
-          `区间起点 ${op.start} 未对齐 turn 边界（首条 ${first.type}；须 start=0 / turn/start / 紧接上次遮蔽终点）`,
+          `区间起点 ${op.start} 未对齐 turn 边界（首条 ${first.type}；须 start=0 / turn/start / 紧随 turn/end / 紧接上次遮蔽终点）`,
         );
       }
     }

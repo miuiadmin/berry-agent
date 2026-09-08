@@ -7,6 +7,9 @@ import { CommandRegistry, createChannels } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import { createJobRegistry, createSubagentService } from '../subagent/index.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
+// 归因两律机制件（U4-3——session_before_compact 接管缝测试的种箱位）
+import { BEFORE_COMPACT_ATTRIB } from '../compaction/index.js';
+import type { BeforeCompactAttribution } from '../compaction/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
 import type { AuditSink, PluginContextHandle } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
@@ -960,3 +963,86 @@ describe('会话活体订阅（ctx.events.subscribeSessionLifecycle——04 §6 
     );
   });
 });
+
+describe('session_before_compact 归因两律（U4-3——05 §2.1 接管缝）', () => {
+  /**
+   * 归因 rig：单 dispatch 双插件 ctx（词汇预注册同源——两监听挂同管线，
+   * 注册序 [first, second] = 值链上游/下游）。
+   */
+  function assembleTwo() {
+    const dispatch = new EventDispatch();
+    dispatch.registerEventNames(PLUGIN_HOOK_VOCABULARY.map((h) => h.name));
+    const make = (pluginId: string) =>
+      createPluginContext({ pluginId, scope: Scope.createRoot(), dispatch, hostFace: HOST_FACE });
+    return { first: make('p-first'), second: make('p-second'), dispatch };
+  }
+
+  /** 种箱 + 派发 + 读末位（conversation-stack dispatchBeforeCompact 同构） */
+  async function dispatchSeeded(dispatch: EventDispatch, value: Record<string, unknown>) {
+    const box: BeforeCompactAttribution = {};
+    const seeded = Object.assign({}, value, { [BEFORE_COMPACT_ATTRIB]: box });
+    const out = await dispatch.waterfall('session_before_compact', seeded);
+    return { out, lastAdjustedBy: box.lastAdjustedBy };
+  }
+
+  it('值链改写记名末位胜：两插件先后改 plan——箱记下游者；放行者不记名', async () => {
+    const { first, second, dispatch } = assembleTwo();
+    first.ctx.on('session_before_compact', (value, next) => next({ ...(value as object), plan: { start: 2 } }));
+    second.ctx.on('session_before_compact', (value, next) => next(value)); // 原值透传
+    const { out, lastAdjustedBy } = await dispatchSeeded(dispatch, { sessionId: 's', plan: { start: 1 } });
+    expect((out as unknown as { plan: { start: number } }).plan.start).toBe(2);
+    expect(lastAdjustedBy).toBe('p-first'); // 透传者不记名——只有改写者记
+  });
+
+  it('末位改写者胜：两插件皆改写——箱记下游（末位 = 最后改写者）', async () => {
+    const { first, second, dispatch } = assembleTwo();
+    first.ctx.on('session_before_compact', (value, next) => next({ ...(value as object), plan: { start: 2 } }));
+    second.ctx.on('session_before_compact', (value, next) => next({ ...(value as object), plan: { start: 3 } }));
+    const { out, lastAdjustedBy } = await dispatchSeeded(dispatch, { sessionId: 's', plan: { start: 1 } });
+    expect((out as unknown as { plan: { start: number } }).plan.start).toBe(3);
+    expect(lastAdjustedBy).toBe('p-second');
+  });
+
+  it('接管位铸造：自填 pluginId 被覆写为本插件；下游透传不夺上游接管归因', async () => {
+    const { first, second, dispatch } = assembleTwo();
+    const summarize = async () => ({ text: '接管摘要' });
+    first.ctx.on('session_before_compact', (value, next) =>
+      next({ ...(value as object), takeover: { pluginId: 'p-forged', summarize } }),
+    );
+    second.ctx.on('session_before_compact', (value, next) => next(value)); // 透传——归因不夺
+    const { out } = await dispatchSeeded(dispatch, { sessionId: 's', plan: { start: 1 } });
+    expect((out as unknown as { takeover: { pluginId: string } }).takeover.pluginId).toBe('p-first'); // 铸造覆写
+  });
+
+  it('短路形同律：未委托直接返回——返回值即管线终值，同律记名铸造', async () => {
+    const { first, second, dispatch } = assembleTwo();
+    const summarize = async () => ({ text: '短路摘要' });
+    first.ctx.on('session_before_compact', (value) => ({
+      ...(value as object),
+      plan: { start: 9 },
+      takeover: { pluginId: 'p-forged', summarize },
+    }));
+    let downstreamRan = false;
+    second.ctx.on('session_before_compact', (value) => {
+      downstreamRan = true;
+      return next0(value);
+    });
+    const { out, lastAdjustedBy } = await dispatchSeeded(dispatch, { sessionId: 's', plan: { start: 1 } });
+    expect(downstreamRan).toBe(false); // 短路——后段不执行
+    expect((out as unknown as { plan: { start: number } }).plan.start).toBe(9);
+    expect((out as unknown as { takeover: { pluginId: string } }).takeover.pluginId).toBe('p-first');
+    expect(lastAdjustedBy).toBe('p-first');
+  });
+
+  it('非接管缝 waterfall 零接触：通用钩子值无箱——改写不记名不铸造（结构判据 = 箱在场）', async () => {
+    const { handle, dispatch } = assemble();
+    handle.ctx.on('context_transform', (value, next) => next([...(value as string[]), 'acme']));
+    const out = await dispatch.waterfall('context_transform', ['m1']);
+    expect(out).toEqual(['m1', 'acme']); // 通用管线行为不变
+  });
+});
+
+/** 短路例第二监听者的直通占位（形态满足——不会被执行） */
+function next0(value: unknown): Promise<unknown> {
+  return Promise.resolve(value);
+}

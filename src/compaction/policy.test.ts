@@ -151,6 +151,34 @@ describe('planSegment', () => {
     expect(plan).not.toBeNull();
     expect(plan!.end).toBe(boundary);
   });
+
+  it('真实 driver 形（user/message 前置于 turn/start——提交先落消息后起 turn）→ 首遮蔽起点落在 turn/end 后一位即 turn 单元首位，可规划（U4-3 集成勘正回归锁——原「该位须是 turn/start」在真实日志形下永假，阈值路生产从未可规划）', () => {
+    const log = makeLog();
+    for (let i = 1; i <= 6; i++) {
+      log.append('user/message', { content: `任务指令 ${i}`, source: 'user' });
+      log.append('turn/start', {});
+      log.append('assistant/message', { content: [{ type: 'text', text: `答:${i}` }] });
+      log.append('turn/end', { reason: 'completed' });
+    }
+    // 0 基：turn k = user(4k-4) / turn/start(4k-3) / assistant(4k-2) / turn/end(4k-1)
+    // 首遮蔽 start = 首 turn/end(3) + 1 = 4（turn2 的 user 位——turn 单元首位）
+    // tailKeep 6 → tailAnchor = messages[6] = turn4 user(12) → end = 11
+    const plan = planSegment({ events: log.events(), messages: log.projection(), tailKeep: 6 });
+    expect(plan).toMatchObject({ start: 4, end: 11, occludedMessages: 4 });
+    // 遮蔽后的续接规划：start 紧接上次遮蔽终点（11+1=12，turn4 user 位）同形可规划
+    const summary = log.append('user/message', { content: `${SUMMARY_PREFIX} 首摘要`, source: 'compaction' });
+    const seqs: number[] = [];
+    for (let seq = plan!.start; seq <= plan!.end; seq++) seqs.push(seq);
+    seqs.push(summary.seq);
+    log.appendWithSurfaceOp(
+      'compaction/surface',
+      { summarySeq: summary.seq, occludedMessages: plan!.occludedMessages, occludedChars: plan!.occludedChars },
+      { op: 'replace', start: plan!.start, end: plan!.end },
+      seqs,
+    );
+    const next = planSegment({ events: log.events(), messages: log.projection(), tailKeep: 4 });
+    expect(next).toMatchObject({ start: 12, end: 17 });
+  });
 });
 
 /* ---------------- 摘要预算（字符制） ---------------- */

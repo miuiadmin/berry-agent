@@ -34,6 +34,8 @@
 import { BaseError, registerEventType, registerMessageRole } from '../contracts/index.js';
 // internal 桶机制符号深导（门检裁决核——03 §4.6；开门是宿主裁决面非插件 API）
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
+// 接管缝归因铸造两律（U4-3——compaction 公开面机制件；host→compaction 边在册）
+import { forgeBeforeCompactIdentity, markBeforeCompactRewrite } from '../compaction/index.js';
 import type {
   EventTypeMeta,
   HostFace,
@@ -491,11 +493,36 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
       }
       if (mode === 'waterfall') {
         // waterfall 腿：真 next 委托链（不调即短路——管线语义）；超时按管线失败
-        // 传播（宿主发射位决定处置），另经 onHookTimeout 上报观测面
-        const wrapped = ((value: unknown, next: (v: unknown) => Promise<unknown>) =>
-          withCallbackWindow(() =>
-            raceTimeout(Promise.resolve(handler(value, next)), hookName),
-          )) as WaterfallListener<unknown>;
+        // 传播（宿主发射位决定处置），另经 onHookTimeout 上报观测面。
+        // U4-3 归因铸造位（03 §2.4 session_before_compact 行/05 §2.1）：值链
+        // 改写者记名（mark——末位改写者归因，非接管缝值零接触）+ takeover
+        // .pluginId 铸造覆写（forge——插件自填被覆写，冒名结构性不存在）。
+        // 两律只对携带归因箱的值生效（宿主派发包装层种子），通用 waterfall
+        // 钩子结构性不受影响。
+        const wrapped = ((value: unknown, next: (v: unknown) => Promise<unknown>) => {
+          let delegated = false; // 委托标记：产物归因在入口侧完成，出口侧不重复记名（下游改写归下游）
+          // 归因两律的单监听者应用位（U4-3）：改写值（引用变）→ 记名；接管位
+          // 引用换 → 铸造覆写（原引用透传不覆写——防下游误夺上游接管归因）
+          const attributed = (produced: unknown): unknown => {
+            if (produced !== value) markBeforeCompactRewrite(produced, pluginId);
+            return forgeBeforeCompactIdentity(produced, value, pluginId);
+          };
+          return withCallbackWindow(() =>
+            raceTimeout(
+              Promise.resolve(
+                handler(value, (nextValue: unknown) => {
+                  delegated = true;
+                  return next(attributed(nextValue));
+                }),
+              ).then((result) => {
+                if (delegated) return result;
+                // 短路形：未委托即返回——返回值即管线终值，同律记名铸造
+                return attributed(result);
+              }),
+              hookName,
+            ),
+          );
+        }) as WaterfallListener<unknown>;
         return dispatch.onWaterfall(hookName, wrapped);
       }
       // emit/serial/parallel 共用通知型监听面（dispatch.on）——next 为直通占位

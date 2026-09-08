@@ -314,6 +314,35 @@ describe('appendWithSurfaceOp 遮蔽正门', () => {
     );
   });
 
+  it('真实 driver 形：切点紧随 turn/end（start-1=turn/end，首条为次 turn 的 user/message）放行——U4-3 集成勘正回归锁', () => {
+    const { log } = makeLog();
+    // 真实 driver 形两轮：user/message 前置于 turn/start（提交先落消息后起 turn）
+    for (let i = 1; i <= 2; i++) {
+      log.append('user/message', { content: `任务 ${i}` }); // turn i 的 user
+      log.append('turn/start', {});
+      log.append('assistant/message', { content: [{ type: 'text', text: `答 ${i}` }], stopReason: 'end' });
+      log.append('turn/end', { reason: 'completed' });
+    }
+    // 遮蔽完整次 turn 单元 [4..7]：start=4 首条 user/message、start-1=3=turn/end——放行
+    log.appendWithSurfaceOp('test/occlusion', {}, { op: 'replace', start: 4, end: 7 }, [4, 5, 6, 7]);
+    expect(log.projection().length).toBe(2); // 仅首轮 user/assistant 留存投影
+  });
+
+  it('红锁：真实 driver 形切点切在 turn 中间（start-1=turn/start、首条 assistant）仍拒——user 消息不得与其 turn 拆散遮蔽', () => {
+    const { log } = makeLog();
+    for (let i = 1; i <= 2; i++) {
+      log.append('user/message', { content: `任务 ${i}` });
+      log.append('turn/start', {});
+      log.append('assistant/message', { content: [{ type: 'text', text: `答 ${i}` }], stopReason: 'end' });
+      log.append('turn/end', { reason: 'completed' });
+    }
+    // start=6 首条 assistant、start-1=5=turn/start（非 turn/end）——把 user(4) 留在区间外拆散其 turn，拒
+    expectCode(
+      () => log.appendWithSurfaceOp('test/occlusion', {}, { op: 'replace', start: 6, end: 7 }, [6, 7]),
+      'SESSION_SURFACE_OP_INVALID',
+    );
+  });
+
   it('正路径：紧接上次遮蔽终点的切点合法（连续压缩形态）', () => {
     const { log } = makeLog();
     log.append('user/message', { content: 'a' }); // seq0

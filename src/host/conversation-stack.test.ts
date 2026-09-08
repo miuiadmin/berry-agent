@@ -12,12 +12,15 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
+import { Scope } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { SessionLog } from '../session/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
 import { createConversationStack, lastUsageFactOf } from './conversation-stack.js';
+import { createPluginContext } from './plugin-context.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 
@@ -554,6 +557,109 @@ describe('会话维观测装配（e2-4 观测腿接线）', () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.error).toBe(true); // 门拒 = 工具错面（run 不中断）
     expect(JSON.stringify(results[0]!.content)).toContain('SESSION_OBSERVE_DENIED');
+  });
+});
+
+/* ---------------- 压缩槽位装配（U4-3——席位容器 + 接管缝 e2e） ---------------- */
+
+describe('压缩槽位装配（U4-3 装配批）', () => {
+  /** 触发形配置：阈值近零（任何真计量即触发）+ 冷却零 + tail 2（2 轮即可压） */
+  const FIRE_CONFIG = { thresholdRatio: 0.000001, cooldownMs: 0, tailKeep: 2 } as const;
+
+  it('provider 席 e2e：slots 占席注册 → 阈值压缩走插件算法（start.summarizer=plugin:<id>）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    // 插件道占席（装载窗真源恒开——plugin-boot fork 绑定的直构等价形）
+    const face = stack.compactionSlots.bindForPlugin({ pluginId: 'acme-sum', inLoadWindow: () => true });
+    face.setConfig(FIRE_CONFIG);
+    face.registerSummarizer(async () => ({ text: '插件算法产物' }));
+    const session = stack.openStartupSession(rigWorkspace());
+    const log = stack.driverOf(session.sessionId)!.session;
+    for (let i = 1; i <= 3; i++) {
+      faux.setResponses([() => messageOf('stop')]);
+      await stack.submitText(session.sessionId, `第${i}轮任务`);
+    }
+    await rt.shutdown(); // closer 序含 compaction-drain——排空后才断言
+    const start = log.eventsOfType('compaction/start').at(-1);
+    expect(start?.data).toMatchObject({ reason: 'threshold', summarizer: 'plugin:acme-sum' });
+    const summary = log
+      .events()
+      .find((event) => event.type === 'user/message' && (event.data as { source?: string }).source === 'compaction');
+    expect((summary?.data as { content: string }).content).toContain('插件算法产物');
+  });
+
+  it('接管缝 e2e：插件 ctx.on 短路接管 → takeover.pluginId 铸造覆写（自填被覆）+ 接管算法执行', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    stack.dispatch.registerEventNames(['session_before_compact']);
+    // 插件道订阅接管缝（plugin-context 包装层真身——铸造/记名两律全程在场）
+    const handle = createPluginContext({
+      pluginId: 'acme-take',
+      scope: Scope.createRoot(),
+      dispatch: stack.dispatch,
+      hostFace: materializeHostFace({
+        version: '0.1.0-alpha.1',
+        apiVersion: '1.0',
+        capabilities: [],
+        experimentalKeys: [],
+      }),
+    });
+    handle.ctx.on('session_before_compact', (value) => ({
+      ...(value as object),
+      takeover: { pluginId: 'p-forged', summarize: async () => ({ text: '接管算法产物' }) },
+    }));
+    const face = stack.compactionSlots.bindForPlugin({ pluginId: 'acme-take', inLoadWindow: () => true });
+    face.setConfig(FIRE_CONFIG);
+    const session = stack.openStartupSession(rigWorkspace());
+    const log = stack.driverOf(session.sessionId)!.session;
+    for (let i = 1; i <= 3; i++) {
+      faux.setResponses([() => messageOf('stop')]);
+      await stack.submitText(session.sessionId, `第${i}轮任务`);
+    }
+    await rt.shutdown();
+    // 铸造律：自填 p-forged 被覆写为本插件 id（冒名结构性不存在）
+    const start = log.eventsOfType('compaction/start').at(-1);
+    expect(start?.data).toMatchObject({ reason: 'threshold', summarizer: 'plugin:acme-take' });
+    const summary = log
+      .events()
+      .find((event) => event.type === 'user/message' && (event.data as { source?: string }).source === 'compaction');
+    expect((summary?.data as { content: string }).content).toContain('接管算法产物');
+  });
+
+  it('否决位 e2e：veto 短路 → start+end(vetoed) 对可查（无声取消不可观测律）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    stack.dispatch.registerEventNames(['session_before_compact']);
+    const handle = createPluginContext({
+      pluginId: 'acme-veto',
+      scope: Scope.createRoot(),
+      dispatch: stack.dispatch,
+      hostFace: materializeHostFace({
+        version: '0.1.0-alpha.1',
+        apiVersion: '1.0',
+        capabilities: [],
+        experimentalKeys: [],
+      }),
+    });
+    handle.ctx.on('session_before_compact', (value) => ({ ...(value as object), veto: { reason: '夜间窗口' } }));
+    stack.compactionSlots.bindForPlugin({ pluginId: 'acme-veto', inLoadWindow: () => true }).setConfig(FIRE_CONFIG);
+    const session = stack.openStartupSession(rigWorkspace());
+    const log = stack.driverOf(session.sessionId)!.session;
+    for (let i = 1; i <= 3; i++) {
+      faux.setResponses([() => messageOf('stop')]);
+      await stack.submitText(session.sessionId, `第${i}轮任务`);
+    }
+    await rt.shutdown();
+    const start = log.eventsOfType('compaction/start').at(-1);
+    const end = log.eventsOfType('compaction/end').at(-1);
+    expect(start?.data).toMatchObject({ reason: 'threshold' });
+    expect(end?.data).toMatchObject({ reason: 'vetoed' });
+    // 否决收场：无摘要事件（遮蔽不发生）
+    expect(
+      log
+        .events()
+        .some((event) => event.type === 'user/message' && (event.data as { source?: string }).source === 'compaction'),
+    ).toBe(false);
   });
 });
 

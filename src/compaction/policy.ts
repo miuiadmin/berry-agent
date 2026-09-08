@@ -86,17 +86,24 @@ export function planSegment(input: {
   let start: number;
   if (lastOcclusionEnd >= 0) {
     start = lastOcclusionEnd + 1;
-    // 起点撞载体（连续压缩紧邻前指令事件的形态）→ 进到下一个 turn/start 对齐位
-    // （正门对齐律第二形）；无 turn 骨架支撑时诚实跳过
+    // 起点撞载体（连续压缩紧邻前指令事件的形态）→ 跳过载体链即止（载体是
+    // 结构指令事件非 turn 体；其后首位即 turn 单元首位——真实 driver 形为随
+    // turn 的 user/message。原「进到下一个 turn/start 对齐位」在真实形会把
+    // user/message 留在区间外拆散其 turn——U4-3 装配批集成勘正）
     if (events[start]?.surfaceOp) {
-      const next = events.findIndex((e, i) => i >= start && e.type === 'turn/start' && !e.surfaceOp);
-      if (next < 0 || next > end) return null;
+      let next = start;
+      while (next < events.length && events[next]!.surfaceOp) next++;
+      if (next >= events.length || next > end) return null;
       start = next;
     }
   } else {
     if (firstTurnEnd < 0) return null; // 防御（boundary ≥ 0 已保证存在——死码注明不删）
+    // 起点对齐 turn 单元边界（05 §2.1 边缘纪律 5）：首 turn/end 后一位即次
+    // turn 单元首位——真实 driver 形该位是随 turn 的 user/message〔提交先落
+    // 消息后起 turn〕、合成形是 turn/start，两者皆完整 turn 单元首位。原
+    // 「该位置须是 turn/start」系合成形状的过强表述，真实日志形下永假（阈值
+    // 路生产从未可规划——U4-3 装配批 e2e 抓获勘正）
     start = firstTurnEnd + 1;
-    if (events[start]?.type !== 'turn/start') return null; // 骨架不规则——诚实跳过
   }
   if (start > end) return null; // 中段空（tail 窗已压到头/仅单闭合 turn）
   // 防嵌套律的规划面推论：区间须整段避开一切 surfaceOp 载体（载体永不可被遮——

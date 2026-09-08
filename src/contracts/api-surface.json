@@ -1074,6 +1074,30 @@
       "desc": "技能目录清单；非空即在场的唯一声明载荷（纯声明包零码装载）"
     },
     {
+      "symbol": "compaction",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "压缩策略面（ctx.get(\"compaction\") 消费——setConfig 数值槽/registerSummarizer 摘要 provider 槽两动词装载窗 only 严于通律、单席位先到占；provider 只作用阈值路，溢出兜底恒宿主缺省算法）",
+      "sig": "e0485d01d7f92816"
+    },
+    {
+      "symbol": "compaction.registerSummarizer",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "摘要 provider 槽（常设算法位——签名 05 §2.1 SummarizerFn；只作用阈值路，溢出兜底恒宿主缺省算法）",
+      "sig": "68a4d02f81b932c5"
+    },
+    {
+      "symbol": "compaction.setConfig",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "数值配置槽（Partial<CompactionConfig> 合并——字段射程 = 全七字段，两路同生效：数值是宿主机制参数非策略算法）",
+      "sig": "eaed545e9db39e4a"
+    },
+    {
       "symbol": "secrets",
       "module": "services",
       "tier": "stable",

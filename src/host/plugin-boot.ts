@@ -18,7 +18,8 @@
  *     tryGet——Kahn 轮次可用性判定；'secrets' fork 级席位以标记位应答，c-3）。
  *  ⑦ 逐插件 ctx 装配（12f-2a 件）：per-plugin fork（effect 回卷隔离）+
  *     createPluginContext + secrets 面自域绑定（c-3——03 §2.2 第十面，
- *     core:credentials 席在场且 store 注入时 fork.provide）；
+ *     core:credentials 席在场且 store 注入时 fork.provide）+ sessions-
+ *     control（e4-3）/compaction（U4-3）两席位 fork 绑定；
  *     onApplySettled → closeWindow（行收口即关窗）。
  *  ⑧ loadPlugins 接线：onBootFailure → recordBootFailure 记账、activated →
  *     clearBootFailure 清名（横幅只报仍坏行）；memory 形诊断面整跳。
@@ -55,6 +56,8 @@ import type { OAuthFlowRegistry } from '../credentials/index.js';
 // 跨会话操控受理器（e4-3——sessions-control fork 绑定；host→conversation 边在册）
 import { bindControlForPlugin, SESSIONS_CONTROL_SERVICE } from '../conversation/index.js';
 import type { SessionsControlFace } from '../conversation/index.js';
+// 压缩席位容器（U4-3——compaction fork 绑定；host→compaction 边在册）
+import type { CompactionSlotsHandle } from '../compaction/index.js';
 // 审计流面类型（U3 批 U3-5——audit_events 载体真身；host→persist 边在册）
 import type { AuditFace } from '../persist/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
@@ -101,6 +104,14 @@ const SECRETS_SEAT_MARKER = { seat: 'secrets' } as const;
  * 标记位使 inject: ['sessions-control'] 声明可解。
  */
 const SESSIONS_CONTROL_SEAT_MARKER = { seat: 'sessions-control' } as const;
+
+/**
+ * 'compaction' 席位可满足标记（U4-3——03 §2.2 第十二面）：与 SECRETS_SEAT_
+ * MARKER 同构——压缩策略面真身是 fork 级逐插件绑定（席位执法/窗口真源绑本
+ * 插件 handle），共享根结构性无此名，标记位使 inject: ['compaction'] 声明
+ * 可解。
+ */
+const COMPACTION_SEAT_MARKER = { seat: 'compaction' } as const;
 
 /** 缺省真盘实现（读失败一律 null——文件缺席语义） */
 function defaultFs(): PluginBootFs {
@@ -191,6 +202,16 @@ export interface PluginBootOptions {
    * 测试替身形/:memory: 诊断形）。
    */
   readonly sessionsControl?: SessionsControlFace;
+  /**
+   * 压缩席位容器（U4-3——03 §2.2 第十二面 compaction 服务面）：真身 =
+   * conversation-stack 装配的 createCompactionSlots 单真身（stack.
+   * compactionSlots）。在场时装载序逐插件 fork 绑定 bindForPlugin 产物
+   * （ctx.get("compaction") 消费——两动词装载窗 only 严于通律，窗真源绑本
+   * 插件 handle.inLoadWindow）；fork.effect 兜底卸载回收（动词 disposer 是
+   * 手动面——双保险）。缺席 = ctx.get 响亮 CONTEXT_SERVICE_MISSING（诚实
+   * 缺席律：测试替身形/:memory: 诊断形）。
+   */
+  readonly compaction?: CompactionSlotsHandle;
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
@@ -304,6 +325,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   }
   // 操控受理器席位判（e4-3——host 内建机制非 core 件，无件席门：在场即绑）
   const controlSeatActive = options.sessionsControl !== undefined;
+  // 压缩席位容器判（U4-3——host 内建机制非 core 件，无件席门：在场即绑）
+  const compactionSeatActive = options.compaction !== undefined;
   const services: ServiceBag = {
     get: (name) =>
       // 'secrets' 是 fork 级逐插件绑定面（本插件独见——createContext 落真身
@@ -314,7 +337,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
         ? SECRETS_SEAT_MARKER
         : name === SESSIONS_CONTROL_SERVICE && controlSeatActive
           ? SESSIONS_CONTROL_SEAT_MARKER
-          : options.scope.tryGet(name),
+          : name === 'compaction' && compactionSeatActive
+            ? COMPACTION_SEAT_MARKER
+            : options.scope.tryGet(name),
     provide: (name, value) => options.scope.provide(name, value),
   };
   const createContext = (pluginId: string, opens?: readonly string[]) => {
@@ -378,6 +403,19 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     // 单源）。缺席 = ctx.get 响亮 CONTEXT_SERVICE_MISSING（诚实缺席律）
     if (controlSeatActive) {
       fork.provide(SESSIONS_CONTROL_SERVICE, bindControlForPlugin(pluginId, options.sessionsControl));
+    }
+    // compaction 面绑定（U4-3——03 §2.2 第十二面）：fork 级提供 = 本插件
+    // 独见（席位执法在 slots 容器——两动词装载窗 only 严于通律，窗真源绑
+    // 本插件 handle.inLoadWindow 晚绑真源）；fork.effect 兜底卸载回收
+    // （动词 disposer 是手动面——双保险；effect 回卷随 fork dispose 序，
+    // 晚于插件 apply disposer 的 LIFO 回卷）
+    if (compactionSeatActive) {
+      fork.provide(
+        'compaction',
+        options.compaction.bindForPlugin({ pluginId, inLoadWindow: () => handle.inLoadWindow }),
+      );
+      const slots = options.compaction;
+      fork.effect(() => () => slots.releaseFor(pluginId));
     }
     handles.set(pluginId, handle);
     return handle.ctx;

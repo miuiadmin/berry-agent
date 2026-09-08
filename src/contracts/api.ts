@@ -100,6 +100,13 @@ export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     note: '插件凭证受理制读写面（ctx.get("secrets") 消费——get 缺省自域、越域读走高危面开门 credentials.read-cross；set 恒自域且只在宿主回调窗内可达）',
     tier: 'stable',
   },
+  {
+    name: 'compaction',
+    module: 'compaction',
+    faceInterface: 'CompactionPluginFace',
+    note: '压缩策略面（ctx.get("compaction") 消费——setConfig 数值槽/registerSummarizer 摘要 provider 槽两动词装载窗 only 严于通律、单席位先到占；provider 只作用阈值路，溢出兜底恒宿主缺省算法）',
+    tier: 'stable',
+  },
 ];
 
 /* ---------------- 真相源 #3：能力面目录（§8.5 capabilities 派生源） ---------------- */

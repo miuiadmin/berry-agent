@@ -29,8 +29,14 @@ import { createChannels } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
 import type { AgentMessage, AgentTool, ApprovalAskRequest, ThinkingLevel, ToolDefinition } from '../contracts/index.js';
 import { getMessageRoleDefinition, isStandardMessage } from '../contracts/index.js';
-import { createCompactionService } from '../compaction/index.js';
-import type { CompactionService } from '../compaction/index.js';
+import { createCompactionService, createCompactionSlots, BEFORE_COMPACT_ATTRIB } from '../compaction/index.js';
+import type {
+  BeforeCompactAttribution,
+  BeforeCompactResult,
+  CompactionService,
+  CompactionSlotsHandle,
+  SessionBeforeCompactInput,
+} from '../compaction/index.js';
 import {
   assembleOpenTools,
   ConversationDriver,
@@ -170,6 +176,13 @@ export interface ConversationStack {
    * 绑定（sessions-control 服务面，caller 闭包铸造防冒名）。
    */
   readonly sessionsControl: SessionsControlFace;
+  /**
+   * 压缩席位容器（U4-3——03 §2.2 第十二面 ctx.get("compaction") 消费面的
+   * 服务真源）：plugin-boot fork 绑定位消费（bindForPlugin 逐插件面 + 卸载
+   * 回收 releaseFor）；容器与服务面三 seam 同源（getConfig/getProvider/
+   * onBeforeCompact 在栈内接线）。
+   */
+  readonly compactionSlots: CompactionSlotsHandle;
   /** 投影拉取（焦点重画与 /history 同源——驱动活体优先，未开回库装载） */
   projectionOf(sessionId: string): Promise<readonly AgentMessage[]>;
   driverOf(sessionId: string): ConversationDriver | undefined;
@@ -212,6 +225,21 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 单发面无 maxTokens 参数；输出防御性截断兜底）。阈值触发器接线：run 终态
   // 订阅 → handleRunSettled（真 token 笔从日志末条 assistant 计量供笔——见
   // lastUsageFactOf；注入位在则为测试替身/装配覆盖）。
+  // U4-3 三 seam 容器位：席位容器（getConfig/getProvider 晚绑定——plugin-boot
+  // fork 绑定装载面）+ 接管缝派发包装（waterfall + 归因箱种子/读末位）。
+  // 注：options.compaction 注入覆盖时席位容器仍外露（绑定面照常可达）——注入
+  // 替身不走 seam，容器位对其无效果（测试覆盖语义）。
+  const compactionSlots = createCompactionSlots();
+  const dispatchBeforeCompact = async (input: SessionBeforeCompactInput): Promise<BeforeCompactResult> => {
+    // 零监听器直通（boot 未跑/词未注册形——waterfall 面词缺席即拒，守卫免炸）
+    if (!dispatch.isRegistered('session_before_compact')) return { value: input };
+    // 归因箱种子：symbol 键随值链 spread 传播（改写必新建对象律）——plugin-context
+    // 钩子包装层逐跳记名（mark）/铸造（forge），出口读末位改写者
+    const box: BeforeCompactAttribution = {};
+    const seeded = Object.assign({}, input, { [BEFORE_COMPACT_ATTRIB]: box });
+    const value = await dispatch.waterfall<SessionBeforeCompactInput>('session_before_compact', seeded);
+    return box.lastAdjustedBy === undefined ? { value } : { value, lastAdjustedBy: box.lastAdjustedBy };
+  };
   const compaction: CompactionService =
     options.compaction ??
     createCompactionService({
@@ -229,6 +257,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           return { text: text.length > maxChars ? text.slice(0, maxChars) : text };
         },
       },
+      getConfig: compactionSlots.getConfig,
+      getProvider: compactionSlots.getProvider,
+      onBeforeCompact: dispatchBeforeCompact,
       warn,
     });
 
@@ -435,6 +466,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     model,
     sessionView,
     sessionsControl,
+    compactionSlots,
     projectionOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
     submitText(sessionId, text, submitOptions) {

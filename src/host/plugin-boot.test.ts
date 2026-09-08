@@ -23,6 +23,8 @@ import type { CorePluginReference } from './loader.js';
 import { bootPlugins, recordPluginOpensDiff } from './plugin-boot.js';
 import type { PluginBootFs, PluginBootOptions } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
+import { createCompactionSlots } from '../compaction/index.js';
+import { DEFAULT_COMPACTION_CONFIG } from '../compaction/types.js';
 
 /** 临时目录族（统一清） */
 const dirs: string[] = [];
@@ -991,6 +993,71 @@ describe('sessions-control 面装配（e4-3——03 §2.2 第十一面 fork 级�
       apply: async (ctx) => {
         try {
           (ctx as { get: (n: string) => unknown }).get('sessions-control');
+        } catch (err) {
+          errs.push(err);
+        }
+      },
+    };
+    const { options } = rigBoot('/data', { corePlugins: [probe], fs: memoryFs() });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
+    expect(errs).toHaveLength(1);
+    expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
+  });
+});
+
+describe('compaction 面装配（U4-3——03 §2.2 ctx 面册 compaction 席 fork 级绑定）', () => {
+  it('在场绑定：探针 fork 见席位面，setConfig 真达容器（共享根无此名——fork 独见）', async () => {
+    const slots = createCompactionSlots();
+    const seen: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        const face = (ctx as { get: (n: string) => unknown }).get('compaction') as {
+          setConfig(input: { tailKeep: number }): () => void;
+        };
+        seen.push(face);
+        face.setConfig({ tailKeep: 4 });
+      },
+    };
+    const { options, scope } = rigBoot('/data', { corePlugins: [probe], fs: memoryFs(), compaction: slots });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
+    expect(seen).toHaveLength(1); // 消费面真达（fork 绑定版非标记位）
+    expect(slots.getConfig().tailKeep).toBe(4); // 席位容器真见（零漂移）
+    expect(scope.tryGet('compaction')).toBeUndefined(); // 共享根无此名（fork 独见）
+  });
+
+  it('卸载回收：runtime closer plugin-unload 回卷 fork effect 摘席回落基线（双保险兜底——动词 disposer 之外）', async () => {
+    const slots = createCompactionSlots();
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        const face = (ctx as { get: (n: string) => unknown }).get('compaction') as {
+          setConfig(input: { tailKeep: number }): () => void;
+        };
+        face.setConfig({ tailKeep: 4 });
+      },
+    };
+    const { options } = rigBoot('/data', { corePlugins: [probe], fs: memoryFs(), compaction: slots });
+    await bootPlugins(options);
+    expect(slots.getConfig().tailKeep).toBe(4);
+    // fork.effect 回卷真源位 = runtime closer 'plugin-unload'（report.unload 只回
+    // 卷 apply disposer——动词手动面；fork 逆序 dispose 挂 closer，rt.shutdown 同道）
+    const closers = (options.runtime as unknown as { closers: Array<{ label: string; fn: () => Promise<void> }> })
+      .closers;
+    const unload = closers.find((c) => c.label === 'plugin-unload');
+    await unload!.fn();
+    expect(slots.getConfig().tailKeep).toBe(DEFAULT_COMPACTION_CONFIG.tailKeep); // 摘席回落基线
+  });
+
+  it('缺席 = ctx.get 响亮 CONTEXT_SERVICE_MISSING（诚实缺席律）', async () => {
+    const errs: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        try {
+          (ctx as { get: (n: string) => unknown }).get('compaction');
         } catch (err) {
           errs.push(err);
         }

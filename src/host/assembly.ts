@@ -376,6 +376,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         // 位）：plugin-boot 逐插件 bindControlForPlugin 铸 caller 闭包（插件
         // 道归因 plugin:<id>——传入面无 caller 位，伪造结构性不存在）
         sessionsControl: stack.sessionsControl,
+        // 压缩席位容器（U4-3——ctx.get("compaction") fork 绑定位）：真身 =
+        // conversation-stack 装配的 createCompactionSlots 单真身（服务三 seam
+        // 中 getConfig/getProvider 两容器位已在 stack 内接线；此处逐插件
+        // bindForPlugin 绑窗真源 + fork.effect 卸载回收兜底）
+        compaction: stack.compactionSlots,
         // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
         // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
         // plugin-boot；oauthRegistry = c-6 流注册表真身——fork 绑定成
