@@ -21,6 +21,52 @@ export interface SummaryChannel {
   complete(request: { prompt: string; maxChars: number }): Promise<{ text: string }>;
 }
 
+/** SummarizerFn 输入（05 §2.1 U4 provider 槽——素材给足、输出只要文本） */
+export interface SummarizerInput {
+  /** 目标会话（归因与诊断面） */
+  readonly sessionId: string;
+  /** 遮蔽区间消息本体（与 plan.occluded 同源——素材便捷入口，算法最常用件） */
+  readonly occluded: readonly ProjectedMessage[];
+  /** 上次压缩的摘要文本（无前次则 undefined——续摘素材） */
+  readonly previousSummary: string | undefined;
+  /** 摘要预算字符上限（宿主 policy 单源——与宿主通道同一预算口径） */
+  readonly maxChars: number;
+  /** 区间规划全形（SegmentPlan——宿主 policy 单源，provider 槽只换算法不换区间策略） */
+  readonly plan: SegmentPlan;
+}
+
+/**
+ * 摘要算法位（05 §2.1 U4——签名定名 SummarizerFn）：provider 槽常设注册与
+ * takeover 逐次声明共用此签名（两路失败按 pluginId 同账三振）。空文本产物
+ * 同宿主通道失败律（fiveStep 既有——计入三振）。
+ */
+export type SummarizerFn = (input: SummarizerInput) => Promise<{ text: string }>;
+
+/**
+ * session_before_compact 钩子载荷（05 §2.1 U4 接管缝——waterfall 值链）。
+ * 位制四途（宿主只认位——置位后不调 next〔短路〕或置位照常 next 等价，
+ * session_before_fork veto 位同律）；宿主检查序 = veto 先检 → takeover 次之
+ * → 两位皆空时终值 plan 生效（先行监听者的有效调整随值链传入）。
+ */
+export interface SessionBeforeCompactInput {
+  /** 目标会话 */
+  readonly sessionId: string;
+  /** 触发路径（U4 溢出应急路不派发——恒宿主缺省算法） */
+  readonly reason: 'threshold';
+  /** 宿主规划器产出的区间（SegmentPlan 全形——调整途改写此位后 next） */
+  plan: SegmentPlan;
+  /** 触发判据快照（阈值路必在——evaluateThreshold 产物） */
+  readonly basis?: ThresholdBasis;
+  /** 否决位（意见位无三振——落 start{willRetry:true} + end{vetoed} 对） */
+  veto?: { reason: string };
+  /**
+   * 接管位（携 summarize——当次压缩算法由该函数执行；60s 后台任务段预算）。
+   * pluginId 由宿主钩子包装层强制覆写（e-4 caller 闭包同律——插件自填被
+   * 覆写，冒名结构性不存在）。
+   */
+  takeover?: { pluginId?: string; summarize: SummarizerFn };
+}
+
 /** 压缩配置（05 §2.1 各参数段单源；全字段可经 host 覆盖） */
 export interface CompactionConfig {
   /** 阈值比例：真 token 计量（缺席时估算）达窗口此比例触发（缺省 0.5） */
