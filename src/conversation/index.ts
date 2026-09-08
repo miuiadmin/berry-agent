@@ -21,6 +21,25 @@ export { CONTEXT_TRANSFORM_EVENT, DEFAULT_RETRY_POLICY, SESSION_LIFECYCLE_EVENT 
 export { reseedTimeline } from './reseed.js';
 export { ConversationDriver } from './driver.js';
 export type { SubmitResult } from './driver.js';
+// 操控面码注册（02 §5.3 SESSION_ 族操控五码——e-4 落码批；import 发生才注册）
+import './codes.js';
+// 跨会话操控面（03 §2.2 第十一面 sessions-control——e-4 落码批：契约 + 受理器）
+export type {
+  ControlCaller,
+  ControlInterruptReceipt,
+  ControlSendReceipt,
+  ControlWithdrawReceipt,
+  SessionInterruptInput,
+  SessionsControlFace,
+  SessionSendInput,
+  SessionWithdrawInput,
+} from './control.js';
+export {
+  A2A_ROUND_LIMIT_DEFAULT,
+  CONTROL_CROSS_CAPABILITY,
+  controlSourceOf,
+  SESSIONS_CONTROL_SERVICE,
+} from './control.js';
 // todo 机器（11e：fold 推导 + conversation/todo 角色 + 快照注入 + 工具件；
 // 15b：goal 段升格窄面 TodoGoalScope——组合根 goalScopeFor 闭包注入位）
 export type { TodoItemData, TodoGoalScope } from './todo.js';

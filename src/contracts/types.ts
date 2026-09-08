@@ -52,11 +52,19 @@ export type EventSource =
   | 'subagent-settled' // 委派子会话结算回流
   | 'subagent-approval-pending' // background 委派子会话审批挂起通知（04 §10——UserMessage 注入位，纯信息位应答权钉死用户；2026-09-06 技术调研消化批增补、遗漏审计批回填）
   | 'compaction' // 压缩摘要载体（§2.1）
-  | `plugin:${string}`; // 插件注入的受控输入（经受理制写面）——投影不视为用户话语
+  | `plugin:${string}` // 插件注入的受控输入（经受理制写面）——投影不视为用户话语
+  | `session:${string}`; // 跨会话操控注入（03 §2.2 第十一面 send）——模型工具道发起时宿主受理面按调用方身份盖章、前缀自描述送话会话 id（审计免查表）；投影不视为用户话语〔plugin 同律——插件服务道发起归 plugin: 既有前缀，调用方身份单源〕；2026-09-08 e-4 落码批（05 §3.1 前缀模板三行——e-1 规范先行批增行兑现）
 
 /** source 归一化种类（前缀型归并到 kind；字面量一一对应） */
 export type EventSourceKind =
-  'user' | 'channel' | 'schedule' | 'subagent-settled' | 'subagent-approval-pending' | 'compaction' | 'plugin';
+  | 'user'
+  | 'channel'
+  | 'schedule'
+  | 'subagent-settled'
+  | 'subagent-approval-pending'
+  | 'compaction'
+  | 'plugin'
+  | 'session';
 
 /** parseEventSource 结果：归一化种类 + 原值 + 投影位判别 */
 export interface ParsedEventSource {
@@ -67,8 +75,8 @@ export interface ParsedEventSource {
   /**
    * 投影是否以用户话语位展开（05 §3.1「投影同视 user」判据）：
    * user/channel/schedule/subagent-settled = true（都是输入位，仅审计可辨入口）；
-   * compaction/plugin = false（摘要载体与受控注入不视为用户话语——渲染与
-   * 记忆提取归因区分显示）。
+   * compaction/plugin/session = false（摘要载体、受控注入与跨会话操控注入
+   * 不视为用户话语——渲染与记忆提取归因区分显示）。
    */
   treatedAsUser: boolean;
 }
@@ -94,6 +102,11 @@ export function parseEventSource(source: string): ParsedEventSource {
   }
   if (source.startsWith('plugin:')) {
     return { kind: 'plugin', raw: source, treatedAsUser: false };
+  }
+  if (source.startsWith('session:')) {
+    // 跨会话操控注入（模型工具道——前缀自描述送话会话 id）：agent 互搏注入
+    // 非用户话语，投影位与 plugin 同判 false（05 §3.1 session: 行）
+    return { kind: 'session', raw: source, treatedAsUser: false };
   }
   const literal = LITERAL_SOURCE_KINDS[source];
   if (literal) {

@@ -167,6 +167,18 @@ describe('source 归因闭集判别（05 §3.1）', () => {
     expect(parseEventSource('plugin:future-plugin').kind).toBe('plugin');
   });
 
+  it('session: 前缀任意后缀按跨会话操控行展开——投影不视为用户话语（05 §3.1 e-4）', () => {
+    // 前缀自描述送话会话 id（审计免查表）
+    const parsed = parseEventSource('session:s-abc123');
+    expect(parsed.kind).toBe('session');
+    expect(parsed.raw).toBe('session:s-abc123');
+    expect(parsed.treatedAsUser).toBe(false);
+    // 已知前缀的未知后缀（未来会话 id 形）同样合法
+    expect(parseEventSource('session:future-id').kind).toBe('session');
+    // 与 plugin: 同判 false（agent 互搏注入非用户话语）；与 user 字面量对拍
+    expect(parseEventSource('user').treatedAsUser).toBe(true);
+  });
+
   it('未知字面量按 user 同视（旧日志向前兼容——读侧宽容）', () => {
     const parsed = parseEventSource('legacy-unknown-value');
     expect(parsed).toEqual({ kind: 'user', raw: 'legacy-unknown-value', treatedAsUser: true });
