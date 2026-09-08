@@ -84,13 +84,17 @@ docs/                   公开文档面（本五册）
 - 禁止 mock 中间层后断言高层模块（假信心）；
 - 禁止断言 AI 生成的具体文本内容；
 - **修 bug 必带回归锁**（修复前必红）；
-- 测试零真网络——网络面用注入 fetchImpl/假面。
+- 测试零真网络——网络面用注入 fetchImpl/假面；
+- **失真源登记**：环境与 mock 面的已知非误报源/失真源登记在案（本节下册 + 件级条目记相关测试文件头注）——「这个红是环境的不是代码的」「这个绿是 mock 造的」两类知识须可查，新增失真源随发现随登记。
 
-### 已知测试基建事实
+### 已知测试基建事实（失真源登记册——一行一源：现象 + 根因 + 判别法）
 
 - vitest setup 每测试文件钉 `BERRY_AGENT_DATA_DIR` 到临时根：同文件内所有无显式 `dbPath` 的开库**共享同一库文件**（跨文件隔离、文件内共享）——全局断言（无 workspace 过滤的 list/search）必须显式 `dbPath` 隔离或按 workspaceRoot 作用域化；
 - `Persistence.open({ dataDir })` **不重定位库文件**——库文件路径走 `resolveDatabasePath()` 三级梯子（`BERRY_AGENT_DB_PATH` > `<数据目录>/sessions.db` > `~/.berry-agent/sessions.db`），`dataDir` 只锚定 secret.key 等数据目录内文件；
-- vitest 吞 console——调试走 `appendFileSync` 到 `/tmp`。
+- vitest 吞 console——调试走 `appendFileSync` 到 `/tmp`（判别法：测试内 console.log 静默 ≠ 未执行）；
+- faux provider **恒实算 usage** 覆写脚本值——usage 断言按实算结果写，不按脚本注入值写；
+- exec spawn 截尾测试满载偶发 flake（单跑恒绿）——观察项：全量跑红时先单跑复核再定位；
+- macOS 开发机是 BSD grep/sed（不支持 GNU 的 `\|` 交替等）——仓内脚本与手工排查用 `grep -E`/`perl -pi -e`，勿照搬 GNU 语法。
 
 ## API 治理面
 

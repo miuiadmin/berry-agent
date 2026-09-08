@@ -18,7 +18,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { EventDispatch, Scope } from '../context/index.js';
 import { BaseError } from '../contracts/index.js';
-import type { GateInput, SessionEvent } from '../contracts/index.js';
+import type { GateInput, SessionEvent, UserMessage } from '../contracts/index.js';
 import type { CommandHandler } from '../channels/index.js';
 import { openCheckpointStore } from '../checkpoint/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
@@ -549,6 +549,58 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
 
     // 两腿零失败（warn 面无 '[memory]' 止步行）
     expect(warnings.filter((w) => w.includes('[memory]'))).toHaveLength(0);
+    await persistence.close();
+  });
+
+  it('用户主权零干涉反向测试（P2 收口批）：两腿在场尽力注入——种子用户消息 byte-identical + durable 用户输入零篡改', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-sov-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-sov-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-sov-home-'));
+    dirs.push(dataDir, workspace, home);
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    // durable 侧真 SessionLog：宿主位预置一条用户输入（注入腿只读不写的受护对象）
+    const log = new SessionLog({ sessionId: 's-sov' });
+    log.append('user/message', { content: '用户原话一字不改' });
+    const durableBefore = JSON.stringify(log.events());
+    const { scope, dispatch } = await bootCore(
+      dataDir,
+      memoryFs(),
+      { cwd: workspace, homeDir: home },
+      {
+        sqlite: () => persistence.store.sqlite(),
+        // durable 读脸：尾扫面供 recall query（与真实装配同形）
+        fetchEvents: (sid) =>
+          sid === 's-sov' ? [{ type: 'user/message', seq: 0, time: 0, data: { content: 'npm test' } }] : [],
+        llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
+        sessionsFace: createSessionsFace({ driverOf: (sid) => (sid === 's-sov' ? { session: log } : undefined) }),
+      },
+    );
+    const dao = scope.tryGet<{ dao: MemoryDao }>('memory')!.dao;
+    dao.ingest({
+      ownerKey: 'global',
+      kind: 'fact',
+      summary: 'build runs npm test vitest',
+      content: 'build runs npm test (vitest run)',
+      confidence: 0.8,
+      sourceRefs: [{ sessionId: 's-sov', seq: 0 }],
+    });
+
+    // 尽力注入形态：种子用户消息在批内 + recall 命中注入追加批尾（显式 UserMessage 注解锁 role 字面量）
+    const seed: UserMessage = { role: 'user', content: 'npm test', timestamp: 1 };
+    const out = await dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
+      sessionId: 's-sov',
+      messages: [seed],
+    });
+    // ① 注入确实发生（recall 追加在批尾——「尽力注入」前提成立，反向断言才有载荷）
+    expect(out.messages).toHaveLength(2);
+    expect(out.messages[1]!.content).toContain('以下来自历史记忆');
+    // ② 种子用户消息原条目零触碰（对象同一 + 字段不变——注入只追加不改写既有条目）
+    expect(out.messages[0]).toBe(seed);
+    expect(out.messages[0]).toMatchObject({ role: 'user', content: 'npm test' });
+    // ③ durable 用户输入零篡改：事件序列字节不变（无新词、无改写——瞬态纪律的件级反向锁）
+    expect(JSON.stringify(log.events())).toBe(durableBefore);
+    expect(log.events()).toHaveLength(1);
+    expect((log.events()[0]!.data as { content: string }).content).toBe('用户原话一字不改');
     await persistence.close();
   });
 
