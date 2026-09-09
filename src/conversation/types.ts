@@ -103,6 +103,19 @@ export interface ConversationDriverOptions {
    */
   readonly resolveToolOwner?: (name: string) => string | undefined;
   /**
+   * lane 帽闸（04 §4 宿主级 run 并发帽——channels 消息语义批 m-2 seam
+   * 注入形，resolveToolOwner 同形先例；结构契约单源在此，host 侧
+   * createRunLaneGate 产物零 import 同构）：followUp 起跑前取位、run 终态
+   * 释放（释放器由取位载回）；**steer/inject 腿不经闸**（busy 腿搭车在飞
+   * run、停摆腿落账不跑——闸只拦「新 run 诞生」形）。**排队不计在飞**：
+   * 取位成功后才置 currentRun——排队期 busy 判据 / interrupt 回执 / 后续
+   * 消息路由皆读已起跑形（同会话排队期新消息以独立 run 再排队，帽下串行
+   * 不合批）。缺席 = 无帽渐进增强（测试/嵌装零破口——含回执 promise 引用
+   * 恒等与「受理即已落账」同步段：在场且帽内有位时走 tryAcquire 同步直通
+   * 同样零微任务边界）。
+   */
+  readonly acquireRunSlot?: RunSlotGate;
+  /**
    * 错误分桶器（04 §3.5 消费通路条款）：llm classifyError 单源实现注入；
    * 缺席 = 一切错误按 non-retryable 保守收场（装配残缺不放大重试面）。
    */
@@ -249,6 +262,21 @@ export interface SessionLifecycleEvent {
 
 /** 重播种产物：重建的 timeline 活数组种子（标准消息——自定义角色是每请求瞬态注入，不进重播种） */
 export type ReseededTimeline = Message[];
+
+/**
+ * run 并发闸结构契约（04 §4 lane 帽——acquireRunSlot 注入形）：双取位面
+ * 分工「同步直通 / 异步排队」。不变量：等位队列非空 ⟺ 帽满（释放即 FIFO
+ * 补位）——tryAcquire 成功时必无排队者，公平性不破。
+ */
+export interface RunSlotGate {
+  /**
+   * 同步试位：帽内有空位即取并返释放器；帽满返 undefined（不排队）。
+   * 在位直通零微任务边界——「受理即已落账」投影一致性的同步段保持。
+   */
+  tryAcquire(): (() => void) | undefined;
+  /** 异步取位：帽满排宿主级 FIFO 等位（排队非拒收——背压不拒服务） */
+  acquire(): Promise<() => void>;
+}
 
 /**
  * exec 会话装配依赖（批 19a 装载态集成定形）：bash 工具件的四个会话级

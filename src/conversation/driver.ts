@@ -461,12 +461,54 @@ export class ConversationDriver {
   };
 
   /**
-   * 入口统一 kickoff（含唤醒预算记账与工具面定形）：登记在飞 promise、结算链
-   * 第一拍清位（调用方 await 的就是清理后的 promise——resolved 后 running 必已
-   * 归 false，无观察窗口）。streak 记账（04 §4 批消费位）：唤醒起跑 +1、前台
-   * 起跑归零（用户在场即复位预算）；工具面随之定形——唤醒 run 收窄、前台全量。
+   * 入口统一 kickoff（04 §4——lane 帽两段形，channels 消息语义批 m-2）：
+   * ① **排队段（不计在飞）**——acquireRunSlot 在场先取位，帽满则挂起等位
+   *   （宿主级 FIFO，闸件在 host/conversation-stack）；submit 回执 promise
+   *   含排队等待（语义 = 起跑延迟，run 结算回执形不变）；排队期
+   *   currentRun 未置位——busy 判据 / interrupt 回执 / 后续消息路由皆读
+   *   已起跑形（冷读闸 M1 裁决「排队不计在飞」的执法位）。取位器缺席 =
+   *   无帽渐进增强（直通零破口）。
+   * ② **起跑段（launch）**——取位成功后进入：streak 记账 / 工具面定形 /
+   *   lifecycle 起拍广播 / currentRun 咬合；run 终态（launch promise 结算）
+   *   后 finally 释放位——「run 终态释放位」（04 §4）。
+   * steer/inject 腿不经本闸：busy 腿入列搭车（routeMessage 直入 queue）、
+   * 停摆腿 durable 落账（routeMessage 直落 inject）——两腿不产生新 run。
    */
   private kick(seeds: readonly AgentMessage[], wakeTriggered: boolean): Promise<RunResult> {
+    const gate = this.options.acquireRunSlot;
+    // 缺席直通：零包装零排队（既有「busy 回执 === 在飞 run promise」引用恒等
+    // 与「受理即已落账」同步段不破——渐进增强零破口含同步段）
+    if (gate === undefined) return this.launch(seeds, wakeTriggered);
+    // 在场同步试位：帽内有位直通（tryAcquire 零微任务边界——受理回执时种子
+    // 落账已完成，投影一致性同缺席形）；终态释放挂 settled 两路（run 回执
+    // promise 引用不变——busy 恒等同律保持）
+    const fast = gate.tryAcquire();
+    if (fast !== undefined) {
+      const settled = this.launch(seeds, wakeTriggered);
+      void settled.then(fast, fast);
+      return settled;
+    }
+    // 排队段（不计在飞）：帽满挂起等位（宿主级 FIFO）；取位 promise 结算后
+    // 才进起跑段——排队期 currentRun 未置位（冷读闸 M1 裁决执法位）
+    return (async () => {
+      const release = await gate.acquire();
+      try {
+        return await this.launch(seeds, wakeTriggered);
+      } finally {
+        // run 终态释放位（幂等保护在闸件——release() 双调安全）
+        release();
+      }
+    })();
+  }
+
+  /**
+   * 起跑段（lane 取位后——原 kickoff 体）：streak 记账（04 §4 批消费位：
+   * 唤醒起跑 +1、前台起跑归零——用户在场即复位预算）；工具面随之定形——
+   * 唤醒 run 收窄、前台全量；登记在飞 promise、结算链第一拍清位（调用方
+   * await 的就是清理后的 promise——resolved 后 running 必已归 false，无
+   * 观察窗口）。
+   */
+  private launch(seeds: readonly AgentMessage[], wakeTriggered: boolean): Promise<RunResult> {
     if (wakeTriggered) this.wakeStreak += 1;
     else this.wakeStreak = 0;
     this.applyToolFace(wakeTriggered);

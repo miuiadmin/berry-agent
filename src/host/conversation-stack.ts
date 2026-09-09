@@ -86,6 +86,12 @@ export interface ConversationStackOptions {
   readonly model?: string;
   /** env 面（缺省 process.env；测试注入隔离 BERRY_AGENT_MODEL） */
   readonly env?: Record<string, string | undefined>;
+  /**
+   * lane 帽容量显式覆盖位（04 §4 宿主级 run 并发帽——channels 消息语义批
+   * m-2）：优先于 env `BERRY_AGENT_MAX_CONCURRENT_RUNS` 与缺省 16（测试/
+   * 装配覆盖用——与 model 覆盖序同形）。
+   */
+  readonly maxConcurrentRuns?: number;
   /** 根作用域（缺省新建——插件装载层共用时注入） */
   readonly scope?: Scope;
   /** 事件总线（缺省新建） */
@@ -210,6 +216,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const scope = options.scope ?? Scope.createRoot();
   const dispatch = options.dispatch ?? new EventDispatch();
   const model = options.model ?? resolveDefaultModelSpec(options.env ?? process.env);
+  // lane 帽（04 §4 宿主级 run 并发帽——channels 消息语义批 m-2）：全宿主
+  // 单例信号量，driver 装配位 seam 注入（acquireRunSlot——kick 同步试位/
+  // 排队段两面消费；steer/inject 腿不经闸）。容量解析序：显式覆盖位 > env > 缺省 16。
+  const runLane = createRunLaneGate(resolveRunLaneCapacity(options.maxConcurrentRuns, options.env ?? process.env));
   const sandboxMode = options.sandboxMode ?? (() => 'workspace-write' as SandboxMode);
   const workspaceAnchor = options.workspace ?? (() => canonicalWorkspaceRoot());
 
@@ -428,6 +438,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       ...(tools !== undefined ? { tools } : {}),
       // tool/call 载荷 owner 位取数（T9 案一批 t-1——memory 形 undefined 不带）
       ...(resolveToolOwner !== undefined ? { resolveToolOwner } : {}),
+      // lane 帽取位器（04 §4——channels 消息语义批 m-2）：followUp 起跑前
+      // 取位、run 终态释放；排队不计在飞（冷读闸 M1 裁决）。栈级单 gate
+      // 全会话共享——「宿主级」并发数的真源。
+      acquireRunSlot: runLane,
       ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
       // per-session 覆盖 ?? 栈基线（open/resume 不携带——回落基线同 model 律）
       ...((systemPrompt ?? options.systemPrompt) !== undefined
@@ -555,4 +569,102 @@ export function lastUsageFactOf(log: SessionLog): { usage?: { input: number } } 
     return {}; // 末条已见而无可信计量——无真值不猜（不回溯）
   }
   return {}; // 无 assistant 事件（空 run/纯消费防御路径）
+}
+
+/**
+ * lane 帽缺省容量（04 §4——码面缺省参数非契约常数，观测证据可再裁；
+ * 对齐常见 LLM 供应商并发档量级）。
+ */
+export const DEFAULT_RUN_LANE_CAPACITY = 16;
+
+/**
+ * lane 帽容量解析（04 §4 宿主级 run 并发帽——channels 消息语义批 m-2）：
+ * 解析序 = 显式覆盖位 > env `BERRY_AGENT_MAX_CONCURRENT_RUNS` > 缺省 16。
+ * 非正整数 fail-loud 拒（RangeError）——空帽/坏帽是死配置（queue capacity
+ * 同律）。
+ */
+export function resolveRunLaneCapacity(override: number | undefined, env: Record<string, string | undefined>): number {
+  const raw = override ?? env['BERRY_AGENT_MAX_CONCURRENT_RUNS'];
+  if (raw === undefined) return DEFAULT_RUN_LANE_CAPACITY;
+  const value = typeof raw === 'number' ? raw : Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new RangeError(
+      `lane 帽容量须为正整数，收到 ${String(raw)}——空帽/坏帽是死配置（BERRY_AGENT_MAX_CONCURRENT_RUNS / maxConcurrentRuns）`,
+    );
+  }
+  return value;
+}
+
+/** 宿主级 run 并发闸（04 §4 lane 帽）：计数信号量 + FIFO 等位队列 */
+export interface RunLaneGate {
+  /**
+   * 同步试位（04 §4——受理即落账的同步段保持）：帽内有空位即取并返释放器；
+   * 帽满返 undefined。不变量：等位队列非空 ⟺ 帽满（释放即 FIFO 补位）——
+   * 试位成功时必无排队者，公平性不破。
+   */
+  tryAcquire(): (() => void) | undefined;
+  /** 取位（帽内有空位即 resolve 释放器；帽满挂起排 FIFO——背压不拒服务） */
+  acquire(): Promise<() => void>;
+  /** 在飞计数（诊断/测试面） */
+  readonly inFlight: number;
+  /** 排队计数（诊断/测试面——logger 观测位，v1 不立事件词） */
+  readonly queued: number;
+}
+
+/**
+ * 造宿主级 run 并发闸（04 §4——排队非拒收：帽满排队 FIFO、释放依序续跑；
+ * openclaw CommandLane 先例的宿主级对位）。lane 队列是内存态：退出 drain
+ * 不等待排队件（与 PendingMessageQueue 崩溃即丢同语义——04 §1）。释放器
+ * 幂等（双调安全——driver kick 的 finally 腿防御）。
+ */
+export function createRunLaneGate(capacity: number): RunLaneGate {
+  if (!Number.isInteger(capacity) || capacity < 1) {
+    throw new RangeError(`lane 帽容量须为正整数，收到 ${capacity}——空帽是死配置`);
+  }
+  let inFlight = 0;
+  /** FIFO 等位队列（帽满时的挂起取位——resolve 载释放器） */
+  const waiting: Array<(release: () => void) => void> = [];
+
+  /** 释放在飞位；有等位者则依 FIFO 直接移交（等位者即刻在飞——无缝续跑） */
+  const releaseSlot = (): void => {
+    inFlight -= 1;
+    const next = waiting.shift();
+    if (next === undefined) return;
+    inFlight += 1;
+    next(makeRelease());
+  };
+
+  /** 造幂等释放器（每次取位独立一枚——双调只是无操作，不双扣在飞位） */
+  const makeRelease = (): (() => void) => {
+    let used = false;
+    return () => {
+      if (used) return;
+      used = true;
+      releaseSlot();
+    };
+  };
+
+  return {
+    tryAcquire(): (() => void) | undefined {
+      if (inFlight >= capacity) return undefined;
+      inFlight += 1;
+      return makeRelease();
+    },
+    acquire(): Promise<() => void> {
+      return new Promise((resolve) => {
+        if (inFlight < capacity) {
+          inFlight += 1;
+          resolve(makeRelease());
+          return;
+        }
+        waiting.push(resolve);
+      });
+    },
+    get inFlight(): number {
+      return inFlight;
+    },
+    get queued(): number {
+      return waiting.length;
+    },
+  };
 }

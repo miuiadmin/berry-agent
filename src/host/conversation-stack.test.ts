@@ -19,7 +19,13 @@ import { fauxProvider } from '../llm/index.js';
 import type { SessionLog } from '../session/index.js';
 
 import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
-import { createConversationStack, lastUsageFactOf } from './conversation-stack.js';
+import {
+  createConversationStack,
+  createRunLaneGate,
+  DEFAULT_RUN_LANE_CAPACITY,
+  lastUsageFactOf,
+  resolveRunLaneCapacity,
+} from './conversation-stack.js';
 import { createPluginContext } from './plugin-context.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
@@ -829,6 +835,125 @@ describe('doors 段开门换态 e2e（开门制扩展批——observeCross/contr
         .at(-1)!.data,
     );
     expect(status).toContain('sessions.control-cross=open');
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- lane 帽闸件（04 §4 宿主级 run 并发帽——channels 消息语义批 m-2） ---------------- */
+
+describe('lane 帽闸件（04 §4——m-2）', () => {
+  it('tryAcquire 同步试位：帽内有位即取（零微任务边界——受理即落账同步段）、帽满/有人等位时 undefined（不插队）', () => {
+    const gate = createRunLaneGate(1);
+    const fast = gate.tryAcquire();
+    expect(typeof fast).toBe('function');
+    expect(gate.inFlight).toBe(1); // 同步置位——无 await
+    expect(gate.tryAcquire()).toBeUndefined(); // 帽满返 undefined
+    void gate.acquire(); // 排队者
+    expect(gate.queued).toBe(1);
+    expect(gate.tryAcquire()).toBeUndefined(); // 不变量：等位队列非空 ⟺ 帽满——试位不得插队
+    fast!();
+    expect(gate.inFlight).toBe(1); // 释放即 FIFO 移交——排队者即刻在飞
+    expect(gate.queued).toBe(0);
+  });
+
+  it('帽内直取：inFlight 计数、释放归零', async () => {
+    const gate = createRunLaneGate(2);
+    const release1 = await gate.acquire();
+    const release2 = await gate.acquire();
+    expect(gate.inFlight).toBe(2);
+    expect(gate.queued).toBe(0);
+    release1();
+    expect(gate.inFlight).toBe(1);
+    release2();
+    expect(gate.inFlight).toBe(0);
+  });
+
+  it('帽满 FIFO 排队：释放依序无缝移交（等位者即刻在飞）', async () => {
+    const gate = createRunLaneGate(1);
+    const release1 = await gate.acquire();
+    const order: number[] = [];
+    const pending2 = gate.acquire();
+    const pending3 = gate.acquire();
+    expect(gate.queued).toBe(2); // 帽满——两取位挂起排 FIFO
+    void pending2.then((release) => {
+      order.push(2);
+      release(); // 拿到位即释放——移交下一位
+    });
+    void pending3.then((release) => {
+      order.push(3);
+      release();
+    });
+    release1(); // 触发移交链：1 释放 → 2 即刻在飞 → 2 释放 → 3 即刻在飞
+    await vi.waitFor(() => expect(order).toEqual([2, 3]));
+    expect(gate.inFlight).toBe(0);
+    expect(gate.queued).toBe(0);
+  });
+
+  it('释放器幂等：双调不双扣在飞位（排队者不被重复移交）', async () => {
+    const gate = createRunLaneGate(2);
+    const release1 = await gate.acquire();
+    await gate.acquire(); // 占满帽 2
+    const queued = gate.acquire(); // 排队等位
+    release1();
+    release1(); // 双调——不得双扣/再移交
+    expect(gate.inFlight).toBe(2); // 释放一位 → 排队者补位 → 仍满；双调无效果
+    const releaseQueued = await queued;
+    releaseQueued();
+    releaseQueued(); // 幂等同律
+    expect(gate.inFlight).toBe(1); // 恰扣一位
+  });
+
+  it('容量校验 fail-loud：非正整数 RangeError（空帽是死配置）', () => {
+    expect(() => createRunLaneGate(0)).toThrow(RangeError);
+    expect(() => createRunLaneGate(-1)).toThrow(RangeError);
+    expect(() => createRunLaneGate(1.5)).toThrow(RangeError);
+  });
+
+  it('resolveRunLaneCapacity 解析序：显式覆盖 > env > 缺省 16；坏值 fail-loud', () => {
+    expect(DEFAULT_RUN_LANE_CAPACITY).toBe(16);
+    expect(resolveRunLaneCapacity(undefined, {})).toBe(16); // 缺省档
+    expect(resolveRunLaneCapacity(undefined, { BERRY_AGENT_MAX_CONCURRENT_RUNS: '4' })).toBe(4); // env 覆盖
+    expect(resolveRunLaneCapacity(8, { BERRY_AGENT_MAX_CONCURRENT_RUNS: '4' })).toBe(8); // 显式覆盖位优先
+    expect(() => resolveRunLaneCapacity(undefined, { BERRY_AGENT_MAX_CONCURRENT_RUNS: '0' })).toThrow(RangeError);
+    expect(() => resolveRunLaneCapacity(undefined, { BERRY_AGENT_MAX_CONCURRENT_RUNS: 'abc' })).toThrow(RangeError);
+  });
+
+  it('装配级 lane 帽（maxConcurrentRuns 透传）：多会话并发首 run 在飞次 run 排队、终态后无缝续跑', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {}, // BERRY_AGENT_* 隔离——测试面自持
+      maxConcurrentRuns: 1, // 显式覆盖位——装配透传（env 形随 m-3 收口锁笔 e2e）
+    });
+    const ws = rigWorkspace();
+    const sessionA = stack.manager.create({ workspaceRoot: ws, origin: 'delegation' });
+    const sessionB = stack.manager.create({ workspaceRoot: ws, origin: 'delegation' });
+    // 首响应挂起（异步工厂制造在飞窗口）；次响应立即终值
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    faux.setResponses([
+      async () => {
+        await gate;
+        return messageOf('stop');
+      },
+      () => messageOf('stop'),
+    ]);
+    const runA = stack.submitText(sessionA.sessionId, 'a问');
+    const runB = stack.submitText(sessionB.sessionId, 'b问');
+    // a 在飞（请求已发出）、b 排队——run 未诞生：零 LLM 调用零 durable 起跑事件
+    await vi.waitFor(() => expect(faux.state.callCount).toBe(1));
+    expect(sessionA.driver.session.events().some((event) => event.type === 'turn/start')).toBe(true);
+    expect(sessionB.driver.session.events().some((event) => event.type === 'turn/start')).toBe(false);
+    openGate(); // a 终态 → 释放位 → FIFO 无缝移交 b
+    await expect(runA).resolves.toMatchObject({ status: 'completed' });
+    await expect(runB).resolves.toMatchObject({ status: 'completed' });
+    await vi.waitFor(() => expect(faux.state.callCount).toBe(2)); // b 续跑后请求才发出
+    expect(sessionB.driver.session.events().some((event) => event.type === 'turn/start')).toBe(true);
     await rt.shutdown();
   });
 });

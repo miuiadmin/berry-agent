@@ -1313,3 +1313,149 @@ describe('ConversationDriver 跨会话操控驱动面（e-4——deliverControl/
     await vi.waitFor(() => expect(warnings.join('\n')).toContain('操控投递起跑异常'));
   });
 });
+
+/* ---------------- lane 帽 seam（04 §4 宿主级 run 并发帽——channels 消息语义批 m-2） ---------------- */
+
+/**
+ * 测试闸（seam 时序控制面——真闸件单测归 host/conversation-stack）：手动形
+ * （manual=true）tryAcquire 恒 undefined、acquire 全挂起直到 flush 依序放行
+ * ——排队窗口控制；自动形同步放行 + 计数（取位/释放恰一次断言面）。
+ */
+function testRunGate(manual = false) {
+  const waiting: Array<(release: () => void) => void> = [];
+  let acquired = 0;
+  let released = 0;
+  const countedRelease = (): void => {
+    released += 1;
+  };
+  return {
+    tryAcquire(): (() => void) | undefined {
+      if (manual) return undefined; // 手动形恒满——强制走排队段
+      acquired += 1;
+      return countedRelease;
+    },
+    acquire: (): Promise<() => void> => {
+      acquired += 1;
+      return new Promise((resolve) => {
+        if (manual) waiting.push(resolve);
+        else resolve(countedRelease);
+      });
+    },
+    /** 放行一条排队取位（手动形专用——真闸件在释放位无缝移交，此处手动续放） */
+    flush() {
+      const next = waiting.shift();
+      if (next !== undefined) next(countedRelease);
+    },
+    get acquired(): number {
+      return acquired;
+    },
+    get released(): number {
+      return released;
+    },
+    get queued(): number {
+      return waiting.length;
+    },
+  };
+}
+
+describe('ConversationDriver lane 帽 seam（04 §4——m-2）', () => {
+  it('同步试位直通：起跑取位、run 终态释放各恰一次（零排队路径）', async () => {
+    const gate = testRunGate();
+    const { driver } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '答' }] })],
+      acquireRunSlot: gate,
+    });
+    const result = await driver.submit('go');
+    expect(result.status).toBe('completed');
+    expect(gate.acquired).toBe(1); // tryAcquire 成功——同步直通恰一次
+    expect(gate.released).toBe(1); // 终态释放恰一次（settled 两路挂——completed 路）
+  });
+
+  it('受理即已落账（同步段保持）：试位直通形 submit 调用同步返回时种子已进 durable 事件流', () => {
+    const gate = testRunGate();
+    const { driver } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '答' }] })],
+      acquireRunSlot: gate, // seam 在场——试位直通不得引入微任务边界
+    });
+    void driver.submit('go'); // 不 await——锁同步段落账（webui submitPrompt fire-and-forget 投影一致性回归锁）
+    expect(driver.session.events().some((event) => event.type === 'user/message')).toBe(true);
+  });
+
+  it('seam 缺席 = 无帽直通（渐进增强零破口——既有行为回归锁）', async () => {
+    const { driver } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '答' }] })],
+    });
+    const result = await driver.submit('go');
+    expect(result.status).toBe('completed'); // 无 acquireRunSlot 场景不排队不起异常
+  });
+
+  it('排队不计在飞三性：running=false / 后续消息独立 run 不合批 / 排队件不经 PendingMessageQueue（withdraw 不可达）', async () => {
+    const gate = testRunGate(true); // 手动形——取位挂起制造排队窗口
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '二答' }] }),
+      ],
+      acquireRunSlot: gate,
+    });
+    const first = driver.submit('一');
+    const second = driver.submit('二'); // 排队期 currentRun 未置 → 判 idle 独立起跑（再排队）
+    // 性一：排队不计在飞（busy 判据读已起跑形——interrupt 回执同判据源）
+    expect(driver.running).toBe(false);
+    expect(gate.queued).toBe(2); // 两 run 各自排队（同会话排队期新消息不合批）
+    // 性三：排队件不经 PendingMessageQueue——撤回键无门（e-4 withdraw 射程仍限在队件）
+    expect(driver.queuedItems()).toHaveLength(0);
+    gate.flush(); // 放 run 一
+    const firstResult = await first;
+    expect(firstResult.status).toBe('completed');
+    gate.flush(); // 放 run 二（真闸件在 run 一释放位无缝移交——手动形手动续放）
+    const secondResult = await second;
+    expect(secondResult.status).toBe('completed');
+    // 性二：独立 run 不合批——run 一种子只含「一」（seen[0] 单条 user）
+    expect(seen).toHaveLength(2);
+    expect(seen[0]!.messages.filter((m) => m.role === 'user')).toHaveLength(1);
+    expect(seen[1]!.messages.filter((m) => m.role === 'user')).toHaveLength(2); // run 二含 durable 历史的「一」+ 自己的「二」
+    // 两 run 各自起跑：durable 双份 turn/start
+    const starts = driver.session.events().filter((event) => event.type === 'turn/start');
+    expect(starts).toHaveLength(2);
+    expect(gate.released).toBe(2); // 两 run 终态各释放一次
+  });
+
+  it('steer 腿不经闸：busy 期入列零新取位（闸只拦「新 run 诞生」形）', async () => {
+    const gate = testRunGate();
+    let openGate!: () => void;
+    const gatePromise = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '答' }] }),
+        assistant({ content: [{ type: 'text', text: '答二' }] }),
+      ],
+      gates: [gatePromise, undefined], // 第一次 LLM 调用挂起——制造 busy 窗口
+      acquireRunSlot: gate,
+    });
+    const first = driver.submit('一');
+    await vi.waitFor(() => expect(seen).toHaveLength(1)); // run 一已起跑且 LLM 调用在飞
+    // busy：'二' 入列 steer——搭车在飞 run，不产生新 acquire
+    const second = driver.submit('二');
+    expect(gate.acquired).toBe(1); // 零新取位
+    expect(driver.running).toBe(true); // 对照——已起跑形 busy 判据成立
+    expect(driver.queuedItems()).toHaveLength(1); // steer 件在 PendingMessageQueue
+    openGate();
+    await first; // run 一 turn 边界消费 steer 件 → 第二次 LLM 调用 → 终态
+    await second; // busy 腿回执 = 在飞 run 同一 promise
+    expect(gate.acquired).toBe(1); // 全程恰一次取位
+    expect(gate.released).toBe(1);
+    expect(seen).toHaveLength(2); // 同一 run 内两次调用（steer 消费证据）
+  });
+
+  it('inject 腿不经闸：停摆期投递只落账零取位', async () => {
+    const gate = testRunGate();
+    const { driver } = makeDriver({ acquireRunSlot: gate });
+    driver.dismantle();
+    const receipt = await driver.submit('停摆后');
+    expect(receipt).toMatchObject({ status: 'injected' }); // durable 落账随下次启动带入
+    expect(gate.acquired).toBe(0); // 落账不跑——零取位
+  });
+});
