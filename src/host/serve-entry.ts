@@ -59,6 +59,7 @@ import type { ConversationStack } from './conversation-stack.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit, WebuiOpenInfo } from './webui-bridge.js';
+import type { PluginRouteRegistry } from '../sdk/index.js';
 
 /** stdio 注入面（缺省 process stdin/stdout——测试以 PassThrough 驱动全环） */
 export interface ServeIo {
@@ -252,7 +253,9 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
     // stdio 传输本体不受累）；webui 件缺席 = 面开而 /api/* 404（mountKit
     // 缺席形——openWebuiFace 内分档披露）——
     if (options.flags.port !== undefined) {
-      const sdkKit = scope.tryGet<{ readonly createFace: unknown }>('sdk-http-face');
+      const sdkKit = scope.tryGet<{ readonly createFace: unknown; readonly pluginRoutes?: PluginRouteRegistry }>(
+        'sdk-http-face',
+      );
       if (sdkKit === undefined) {
         stderr.write('warn：core:sdk 件未装载——--port 人面不开（07 §5 daemon 拒启同族；stdio 传输不受累）\n');
       } else {
@@ -262,6 +265,8 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
           runtime,
           port: options.flags.port,
           ...(mountKit !== undefined ? { mountKit } : {}),
+          // U5-2：插件道路由受理器经 core:sdk kit 透传（snapshot/attachFace）
+          ...(sdkKit.pluginRoutes !== undefined ? { pluginRoutes: sdkKit.pluginRoutes } : {}),
           ...(options.onWebuiOpen !== undefined ? { onOpen: options.onWebuiOpen } : {}),
         });
       }

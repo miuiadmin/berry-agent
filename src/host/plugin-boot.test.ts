@@ -37,6 +37,8 @@ import type { PluginBootFs, PluginBootOptions, PluginUnloadReceipt } from './plu
 import type { HostRuntime } from './runtime.js';
 import { createCompactionSlots } from '../compaction/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from '../compaction/types.js';
+import { createPluginRouteRegistry } from '../sdk/index.js';
+import type { PluginRouteDescriptor, SdkRoutesPluginFace } from '../sdk/index.js';
 
 /** 临时目录族（统一清） */
 const dirs: string[] = [];
@@ -1213,6 +1215,97 @@ describe('compaction 面装配（U4-3——03 §2.2 ctx 面册 compaction 席 fo
     const { options } = rigBoot('/data', { corePlugins: [probe], fs: memoryFs() });
     const boot = await bootPlugins(options);
     expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
+    expect(errs).toHaveLength(1);
+    expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
+  });
+});
+
+describe('sdk-routes 面装配（U5-2——03 §2.2 ctx 面册 sdk-routes 席 fork 级绑定 + core:sdk 件席双条件）', () => {
+  /** 最小合法受理 descriptor（受理面纯函数已单测——此处只证装配线真达） */
+  const route = (): PluginRouteDescriptor => ({ method: 'GET', path: '/ping', auth: 'token', handler: () => {} });
+  /** core:sdk 件席占位引用（席位双条件第二腿——件在场且未禁用） */
+  const sdkRef: CorePluginReference = { name: 'sdk', apply: async () => undefined };
+
+  it('在场绑定：探针 fork 见受理面，register 真达受理器（core: 豁免门检——opens 空集仍过）', async () => {
+    const registry = createPluginRouteRegistry();
+    const seen: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        const face = (ctx as { get: (n: string) => unknown }).get('sdk-routes') as SdkRoutesPluginFace;
+        seen.push(face);
+        face.register(route());
+      },
+    };
+    const { options, scope } = rigBoot('/data', {
+      corePlugins: [probe, sdkRef],
+      fs: memoryFs(),
+      sdkRoutes: registry,
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id).sort()).toEqual(['core:probe', 'core:sdk']);
+    expect(seen).toHaveLength(1); // 消费面真达（fork 绑定版非标记位）
+    expect(registry.snapshot().map((d) => d.path)).toEqual(['/plugins/core%3Aprobe/ping']); // 豁免免的是门不是账
+    expect(scope.tryGet('sdk-routes')).toBeUndefined(); // 共享根无此名（fork 独见）
+  });
+
+  it('卸载回收：runtime closer plugin-unload 回卷 fork effect → releaseFor 摘账（/reload 换代双保险兜底）', async () => {
+    const registry = createPluginRouteRegistry();
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        const face = (ctx as { get: (n: string) => unknown }).get('sdk-routes') as SdkRoutesPluginFace;
+        face.register(route());
+      },
+    };
+    const { options } = rigBoot('/data', { corePlugins: [probe, sdkRef], fs: memoryFs(), sdkRoutes: registry });
+    await bootPlugins(options);
+    expect(registry.snapshot()).toHaveLength(1);
+    // fork.effect 回卷真源位 = runtime closer 'plugin-unload'（动词 disposer 之外的兜底腿）
+    const closers = (options.runtime as unknown as { closers: Array<{ label: string; fn: () => Promise<void> }> })
+      .closers;
+    const unload = closers.find((c) => c.label === 'plugin-unload');
+    await unload!.fn();
+    expect(registry.snapshot()).toHaveLength(0); // releaseFor 摘账——旧路由不残留
+  });
+
+  it('core:sdk 件禁用 = 席位双条件不满足 → ctx.get 响亮 CONTEXT_SERVICE_MISSING（受理面缺席律）', async () => {
+    const errs: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        try {
+          (ctx as { get: (n: string) => unknown }).get('sdk-routes');
+        } catch (err) {
+          errs.push(err);
+        }
+      },
+    };
+    // 件在场但启用行禁用（席位第二腿假——即使受理器已注入）
+    const fs = memoryFs({ '/data/enabled.yaml': enabledYaml('  - id: core:sdk\n    disabled: true\n') });
+    const registry = createPluginRouteRegistry();
+    const { options } = rigBoot('/data', { corePlugins: [probe, sdkRef], fs, sdkRoutes: registry });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']); // core:sdk skipped
+    expect(errs).toHaveLength(1);
+    expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
+  });
+
+  it('受理器缺席（装配根未接线）同响 CONTEXT_SERVICE_MISSING——诚实缺席律同形', async () => {
+    const errs: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        try {
+          (ctx as { get: (n: string) => unknown }).get('sdk-routes');
+        } catch (err) {
+          errs.push(err);
+        }
+      },
+    };
+    // 受理器未注入（sdkRoutes 缺席）——core:sdk 件在场也不影响缺席形
+    const { options } = rigBoot('/data', { corePlugins: [probe, sdkRef], fs: memoryFs() });
+    await bootPlugins(options);
     expect(errs).toHaveLength(1);
     expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
   });

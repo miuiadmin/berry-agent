@@ -33,6 +33,7 @@ import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
+import type { PluginRouteRegistry } from '../sdk/index.js';
 import type { StartupSession } from './conversation-stack.js';
 
 /** TUI 入口选项（main 分派接线 + 测试注入面） */
@@ -116,7 +117,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     let webuiOpen: { host: string; port: number; token: string } | undefined;
     let webuiMounted = false;
     if (options.flags.port !== undefined) {
-      const sdkKit = scope.tryGet<{ readonly createFace: unknown }>('sdk-http-face');
+      const sdkKit = scope.tryGet<{ readonly createFace: unknown; readonly pluginRoutes?: PluginRouteRegistry }>(
+        'sdk-http-face',
+      );
       if (sdkKit === undefined) {
         process.stderr.write('warn：core:sdk 件未装载——--port 人面不开（07 §5 daemon 拒启同族；TUI 屏不受累）\n');
       } else {
@@ -127,6 +130,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           runtime,
           port: options.flags.port,
           ...(mountKit !== undefined ? { mountKit } : {}),
+          // U5-2：插件道路由受理器经 core:sdk kit 透传（snapshot/attachFace）
+          ...(sdkKit.pluginRoutes !== undefined ? { pluginRoutes: sdkKit.pluginRoutes } : {}),
           onOpen: (info) => {
             webuiOpen = info;
             options.onWebuiOpen?.(info);

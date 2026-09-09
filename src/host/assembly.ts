@@ -67,6 +67,7 @@ import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactor
 // webui 挂载闭包（assembly→webui-bridge→serve-entry→assembly 系声明式
 // 函数引用环——顶层零副作用，boot 后才调值，ESM live binding 安全）
 import { createSdkHttpFace } from '../sdk/index.js';
+import { createPluginRouteRegistry } from '../sdk/index.js';
 import { ISSUE_GITHUB_TOKEN_NAME, ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_WEBHOOK_SECRET_NAME } from '../issue/index.js';
 import { HOST_NAMESPACE, createOAuthFlowRegistry } from '../credentials/index.js';
 // 进程级 durable 审计流面（05 §9 audit_events——U3 批 U3-5 载体真接线）
@@ -187,6 +188,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // ——双点单写点同源）；:memory: 诊断形同构接线（载体即内存库——durable
     // 性诚实于载体，audit 同律）
     const loadHistory = createLoadHistoryFace(runtime.persistence.store.connection);
+
+    // —— 插件道路由受理器（U5-2——03 §2.2 第十三面/§10.6 时序缝定形）：
+    // host-owned 单真身（受理与挂载两时点解耦的账）；受理恰一笔审计落
+    // capability/used（05 §1.1——method+path 全路径归因键，拒路径零审计）。
+    // 消费两路：bootPlugins fork 绑定（装载序受理入账）+ 三入口开面
+    // snapshot replay / attachFace 晚注册（kit 经 core:sdk 件透传——见
+    // CorePluginHostDeps.sdkPluginRoutes）；:memory: 诊断形同构接线
+    const pluginRoutes = createPluginRouteRegistry({
+      onCapabilityUsed: (record) => audit.append('capability/used', { ...record }),
+    });
 
     // —— 共享根作用域与事件总线已前移运行时组装之前（批 19b-2 活体镜像桥位）——
     // 装载柄前置声明（批 19a 消费腿闭包晚绑定：stack 先建、boot 后跑，会话
@@ -476,6 +487,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 中 getConfig/getProvider 两容器位已在 stack 内接线；此处逐插件
           // bindForPlugin 绑窗真源 + fork.effect 卸载回收兜底）
           compaction: stack.compactionSlots,
+          // 插件道路由受理器（U5-2——fork 绑定位：窗/门真源绑本插件 handle +
+          // fork.effect 卸载回收兜底；席位判 core:sdk 行在场在 plugin-boot）
+          sdkRoutes: pluginRoutes,
           // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
           // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
           // plugin-boot；oauthRegistry = c-6 流注册表真身——fork 绑定成
@@ -563,6 +577,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // sdk 面工厂真身（core:sdk 件承载位：daemon/serve/TUI 开面消费
               // 件在场 kit；stdio 不依赖件装载态——F16）
               sdkFaceFactory: createSdkHttpFace,
+              // 插件道路由受理器（U5-2——kit 透传位：三入口经 core:sdk 件
+              // kit 'sdk-http-face' 消费 snapshot/attachFace；件禁用 ⇒ kit
+              // 缺席 ⇒ daemon 拒启/TUI·前台 warn 不开面 ⇒ 受理账无人 replay
+              // ——「sdk 禁 ⇒ 面亡 ⇒ 路由全灭」语义族闭环）
+              sdkPluginRoutes: pluginRoutes,
               // webui 挂载闭包（core:webui 件 kit——面级 handle + 可选
               // staticDir；开面晚于装载的晚绑形，件 apply 期只透传闭包）
               webuiFaceMount: (face, mountOptions) =>

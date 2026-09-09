@@ -58,6 +58,8 @@ import { bindControlForPlugin, SESSIONS_CONTROL_SERVICE } from '../conversation/
 import type { SessionsControlFace } from '../conversation/index.js';
 // 压缩席位容器（U4-3——compaction fork 绑定；host→compaction 边在册）
 import type { CompactionSlotsHandle } from '../compaction/index.js';
+import { SDK_ROUTES_SERVICE } from '../sdk/index.js';
+import type { PluginRouteRegistry } from '../sdk/index.js';
 // 审计流面 + 装载史世代面类型（U3 批 U3-5 / 装载史批 h-3——05 §9 两宿主域表
 // 载体真身；host→persist 边在册）
 import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
@@ -114,6 +116,14 @@ const SESSIONS_CONTROL_SEAT_MARKER = { seat: 'sessions-control' } as const;
  * 可解。
  */
 const COMPACTION_SEAT_MARKER = { seat: 'compaction' } as const;
+
+/**
+ * 'sdk-routes' 席位可满足标记（U5-2——03 §2.2 第十三面）：与 SECRETS_SEAT_
+ * MARKER 同构——路由受理面真身是 fork 级逐插件绑定（受理裁决/窗/门真源绑本
+ * 插件 handle），共享根结构性无此名，标记位使 inject: ['sdk-routes'] 声明
+ * 可解。
+ */
+const SDK_ROUTES_SEAT_MARKER = { seat: 'sdk-routes' } as const;
 
 /** 缺省真盘实现（读失败一律 null——文件缺席语义）；导出 = /reload 预检装配位复用（单源） */
 export function defaultFs(): PluginBootFs {
@@ -246,6 +256,18 @@ export interface PluginBootOptions {
    * 缺席律：测试替身形/:memory: 诊断形）。
    */
   readonly compaction?: CompactionSlotsHandle;
+  /**
+   * 插件道路由受理器真身（U5-2——03 §2.2 第十三面 sdk-routes 服务面）：
+   * 真身 = assembly 单真身 createPluginRouteRegistry（受理与挂载两时点
+   * 解耦的 host-owned 账——三入口开面 snapshot replay / 面开后 attachFace
+   * 晚注册）。在场且 core:sdk 件席在场（计划行未禁用——core:sdk 禁用 ⇒
+   * 面亡 ⇒ 插件道路由全灭的既有语义族）时，装载序逐插件 fork 绑定
+   * bindForPlugin 产物（窗/门真源绑本插件 handle——inLoadWindow/
+   * grantedOpens）；fork.effect 兜底卸载回收（releaseFor——compaction
+   * 同律双保险）。缺席 = ctx.get("sdk-routes") 响亮 CONTEXT_SERVICE_MISSING
+   * （诚实缺席律：测试替身形/:memory: 诊断形）。
+   */
+  readonly sdkRoutes?: PluginRouteRegistry;
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
@@ -391,6 +413,11 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   const controlSeatActive = options.sessionsControl !== undefined;
   // 压缩席位容器判（U4-3——host 内建机制非 core 件，无件席门：在场即绑）
   const compactionSeatActive = options.compaction !== undefined;
+  // 插件道路由受理器席位判（U5-2——03 §10.6 core:sdk 禁用降级：件禁用 ⇒
+  // sdk HTTP 面整体缺席 ⇒ 插件道路由随之全灭。判 plan 行 core:sdk 未禁用
+  // ——secrets 席同构双条件〔受理器在场 × 件席在场〕）
+  const sdkRoutesSeatActive =
+    options.sdkRoutes !== undefined && plan.some((row) => row.id === 'core:sdk' && !row.disabled);
   const services: ServiceBag = {
     get: (name) =>
       // 'secrets' 是 fork 级逐插件绑定面（本插件独见——createContext 落真身
@@ -403,7 +430,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
           ? SESSIONS_CONTROL_SEAT_MARKER
           : name === 'compaction' && compactionSeatActive
             ? COMPACTION_SEAT_MARKER
-            : options.scope.tryGet(name),
+            : name === SDK_ROUTES_SERVICE && sdkRoutesSeatActive
+              ? SDK_ROUTES_SEAT_MARKER
+              : options.scope.tryGet(name),
     provide: (name, value) => options.scope.provide(name, value),
   };
   // per-plugin 工具名账（装载史批 h-3——05 §9 世代行 tools 列真值源）：本
@@ -488,6 +517,23 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       );
       const slots = options.compaction;
       fork.effect(() => () => slots.releaseFor(pluginId));
+    }
+    // sdk-routes 面绑定（U5-2——03 §2.2 第十三面）：fork 级提供 = 本插件
+    // 独见（受理序窗/门真源绑本插件 handle——inLoadWindow/grantedOpens
+    // 晚绑真源；/reload 换代重跑本函数 = 新 handle 新授予面，门复检自然成
+    // ——撤授予位后旧路由经下方 effect 回收不残留）；fork.effect 兜底卸载
+    // 回收（register 摘除 fn 是手动面——双保险，compaction 同律）
+    if (sdkRoutesSeatActive) {
+      const registry = options.sdkRoutes!;
+      fork.provide(
+        SDK_ROUTES_SERVICE,
+        registry.bindForPlugin({
+          pluginId,
+          getOpens: () => handle.grantedOpens,
+          inLoadWindow: () => handle.inLoadWindow,
+        }),
+      );
+      fork.effect(() => () => registry.releaseFor(pluginId));
     }
     handles.set(pluginId, handle);
     return handle.ctx;

@@ -46,6 +46,7 @@ import { resolveDataDir } from '../persist/index.js';
 import {
   createSdkHttpFace,
   judgeListenConfig,
+  type PluginRouteRegistry,
   type SdkHttpFaceHandle,
   type SdkHttpListenConfig,
   type SdkListenInfo,
@@ -66,9 +67,11 @@ import type { WebuiMountKit } from './webui-bridge.js';
 /**
  * sdk 面 kit 形（core:sdk 件 provide 'sdk-http-face' 的结构——批 19e
  * 装载晚绑：daemon 经 scope.tryGet 消费件在场性，apply 期只 provide 不触面）。
+ * U5-2 增 pluginRoutes 位（插件道路由受理器——三入口开面消费位）。
  */
 interface SdkFaceKit {
   readonly createFace: typeof createSdkHttpFace;
+  readonly pluginRoutes?: PluginRouteRegistry;
 }
 
 /**
@@ -425,6 +428,9 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   const face: SdkHttpFaceHandle = faceFactory({
     config,
     bridge,
+    // U5-2 构造期 replay：装载序已受理的插件道路由快照注入 routes 位
+    // （受理与挂载两时点解耦——03 §10.6 时序缝定形；kit 缺位 = 测试替身形零路由）
+    ...(sdkKit.pluginRoutes !== undefined ? { routes: sdkKit.pluginRoutes.snapshot() } : {}),
     coreOptions: {
       ...(options.heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs: options.heartbeatIntervalMs } : {}),
       // --no-delta 宿主立场缺省（07 §5——与 stdio 形 serve-entry 同款传位）
@@ -443,6 +449,9 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
 
   // 起活三足：pid 登记（spawner 确认源）+ token 披露 + 信封回流
   writeDaemonPid(paths, { pid: process.pid, startedAt: Date.now() });
+  // U5-2 晚注册路挂接：此后受理（/reload 换代重注册）走 face.register——
+  // 构造期已注入 snapshot，此处不重放（双注册 throw 防线）
+  sdkKit.pluginRoutes?.attachFace(face);
   stack.channels.addBackend(face.backend); // 信封回流自动馈送（conversation-stack onEvent → emit）
   // —— --port 人面挂载（18a-3' 三入口咬合；04 §1 daemon 人面 = serve HTTP
   // 面 TCP 侧）：webui 路由族经 core:webui 件 kit 挂进本面（批 19e 装载晚
@@ -508,6 +517,7 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     fn: async () => {
       if (settled) return;
       settled = true;
+      sdkKit.pluginRoutes?.detachFace(); // U5-2 收口对称：受理账回 pending 态
       await face.stop();
       clearDaemonFootprints(paths); // 优雅停自清（猝死残留归 stop 幂等清扫）
       resolveExit(0);

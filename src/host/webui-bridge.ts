@@ -48,6 +48,7 @@ import type { WebuiDeps, WebuiMountHandle } from '../webui/index.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createServeBridge } from './serve-entry.js';
 import type { HostRuntime } from './runtime.js';
+import type { PluginRouteRegistry } from '../sdk/index.js';
 
 /** 开面选项（TUI 入口注入面——port 即 `--port` 旗标值） */
 export interface WebuiBridgeOptions {
@@ -68,6 +69,13 @@ export interface WebuiBridgeOptions {
    * 披露分档诚实不虚报（两件禁用语义族——03 §10.4/07 §4.2）。
    */
   readonly mountKit?: WebuiMountKit;
+  /**
+   * 插件道路由受理器（U5-2——core:sdk 件 kit 透传位）：开面时 snapshot
+   * 注入 routes 位（构造期 replay）+ start 后 attachFace（面开后受理走
+   * face.register 晚注册位——/reload 换代重注册路）；stop 收口对称
+   * detachFace。缺席 = 测试替身/诊断形（零插件道路由）。
+   */
+  readonly pluginRoutes?: PluginRouteRegistry;
 }
 
 /**
@@ -109,6 +117,9 @@ export async function openWebuiFace(
   const face = createSdkHttpFace({
     config: { tcp: { host: WEBUI_DEFAULT_HOST, port: options.port ?? WEBUI_DEFAULT_PORT } },
     bridge: createServeBridge(options.stack, options.runtime, { cwd: process.cwd() }),
+    // U5-2 构造期 replay：装载序已受理的插件道路由快照注入 routes 位
+    // （受理与挂载两时点解耦——03 §10.6 时序缝定形）
+    ...(options.pluginRoutes !== undefined ? { routes: options.pluginRoutes.snapshot() } : {}),
   });
   // 件在场分档（批 19e）：kit 在场 → 挂载走件 kit（真身 = 共用挂载段）；
   // 缺席 → 面开而无 webui 路由（/api/* 404——件禁用语义族，诚实披露）
@@ -127,8 +138,12 @@ export async function openWebuiFace(
     throw err;
   }
   const { host, port } = info.tcp[0]!;
+  // U5-2 晚注册路挂接：此后受理（/reload 换代重注册）走 face.register——
+  // 构造期已注入 snapshot，此处不重放（双注册 throw 防线）
+  options.pluginRoutes?.attachFace(face);
   const stop = async (): Promise<void> => {
     mount?.detach(); // 幂等（backend 摘除 + 全路由摘除 + 全流收口 + 审批清槽丢弃性）
+    options.pluginRoutes?.detachFace(); // 受理账回 pending 态（活面解挂——收口对称）
     await face.stop(); // 幂等（全流收口 + 关监听）
   };
   const disclose = options.disclose ?? ((line) => process.stderr.write(`${line}\n`));

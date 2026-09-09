@@ -116,7 +116,7 @@ import { createAgentTool, materializeDeclarativeSubagents, JOBS_SERVICE_NAME } f
 import type { DelegationToolDeps, SubagentService } from '../subagent/index.js';
 // 批 19e HTTP 面族四件（sdk/webui/issue/obs——core 15 件齐册）
 import { createSdkHttpFace } from '../sdk/index.js';
-import type { SdkHttpFaceHandle } from '../sdk/index.js';
+import type { PluginRouteRegistry, SdkHttpFaceHandle } from '../sdk/index.js';
 import { createObsQueryTool, createObsService } from '../obs/index.js';
 import type { ObsAlertRule, ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
 import { createGithubBackend, createIssueService, mountIssueWebhook, normalizeIssueConfig } from '../issue/index.js';
@@ -348,6 +348,15 @@ export interface CorePluginHostDeps {
    * serve 的 --port 开面消费件在场性（kit 缺席 = /v1/* 仍可开）。
    */
   readonly sdkFaceFactory?: typeof createSdkHttpFace;
+  /**
+   * 插件道路由受理器（U5-2——core:sdk 件 kit 透传位）：assembly 单真身
+   * createPluginRouteRegistry 经本位进 'sdk-http-face' kit——三入口开面
+   * 消费 snapshot（构造期 replay）/ attachFace（面开后受理晚注册位）。
+   * 缺席 = 测试替身形（kit 不含该位——受理账无人 replay，装配根不接
+   * 插件道路由的形）。fork 绑定真源在 bootPlugins options.sdkRoutes
+   * （此处只透传面开面消费位——两腿同真身）。
+   */
+  readonly sdkPluginRoutes?: PluginRouteRegistry;
   /**
    * webui 挂载 kit（批 19e——core:webui 件主闸：路由挂载闭包（面级
    * handle + 可选 staticDir → 挂载产物窄面）。件零自持监听（全库唯一
@@ -1138,7 +1147,13 @@ function makeSdkPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const context = ctx as PluginContext;
       const createFace = deps.sdkFaceFactory;
       if (createFace === undefined) return; // 主闸——面工厂 seam 缺席零装载
-      context.provide('sdk-http-face', { createFace });
+      // U5-2：受理器随 kit 透传（三入口开面消费位——snapshot/attachFace；
+      // fork 绑定真源在 bootPlugins，两腿同真身）。缺席形 = 测试替身（kit
+      // 不含该位——开面方 optional 链消费）
+      context.provide('sdk-http-face', {
+        createFace,
+        ...(deps.sdkPluginRoutes !== undefined ? { pluginRoutes: deps.sdkPluginRoutes } : {}),
+      });
     },
   };
 }
