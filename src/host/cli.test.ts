@@ -497,3 +497,29 @@ describe('credentials 子命令族（c-5——03 §10.9 人面命令 CLI 面）'
     });
   });
 });
+
+describe('doors 子命令族（g-2——03 §4.6 / 07 §5 定名：CLI 面 list 只读、写动词解析受理执行层语义拒）', () => {
+  it('list/open/close 解析成功（open/close 为合法解析形——语义拒退 1 归执行层）', () => {
+    expect(expectCommand(['doors', 'list'])).toMatchObject({ kind: 'doors', sub: { sub: 'list' } });
+    expect(expectCommand(['doors', 'open', 'sessions.observe-cross'])).toMatchObject({
+      kind: 'doors',
+      sub: { sub: 'open', door: 'sessions.observe-cross' },
+    });
+    expect(expectCommand(['doors', 'close', 'sessions.control-cross'])).toMatchObject({
+      kind: 'doors',
+      sub: { sub: 'close', door: 'sessions.control-cross' },
+    });
+  });
+
+  it('缺子命令/未知动词/arity 错退 2（值域执法归段编辑腿单源——解析层值域外照常放行）', () => {
+    expectUsage(['doors'], '须带子命令');
+    expectUsage(['doors', 'bogus'], '未知 doors 子命令');
+    expectUsage(['doors', 'open'], '位置参数数目不符');
+    expectUsage(['doors', 'list', 'extra'], '位置参数数目不符');
+    expectUsage(['doors', 'open', 'a', 'b'], '位置参数数目不符');
+    // 值域外能力位在解析层放行（词面合法）——执法在 plugin-store 段编辑腿
+    expect(expectCommand(['doors', 'open', 'channels.ui-backend'])).toMatchObject({
+      sub: { door: 'channels.ui-backend' },
+    });
+  });
+});

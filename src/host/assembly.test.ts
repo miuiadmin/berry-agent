@@ -805,7 +805,95 @@ describe('/plugins TUI 命令面 e2e（03 §5.2 mount 族成功尾自动链 /rel
   });
 });
 
-/* ---------------- 模型面八件工具族 e2e（03 §5.6——task #89 笔三） ---------------- */
+/* ---------------- /doors TUI 命令面 e2e（03 §4.6 doors 段编辑腿——g-2） ---------------- */
+
+describe('/doors TUI 命令面 e2e（注册 + 段写回 + doors/updated origin tui-cmd + 门即时生效）', () => {
+  /** notify 捕获后端（/plugins e2e 同形） */
+  const captureBackend = (notified: string[]): UiBackend<never> => ({
+    id: 'doors-probe',
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: (_message, opts) => void notified.push(`${opts?.level ?? 'info'}|${_message}`),
+  });
+
+  it('dispatch /doors open → 段写回 + 审计恰一笔 origin tui-cmd + 门即时生效（活体源现读现判）', async () => {
+    const dir = tmpDir('host-asm-doorscmd-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      // 开门前：门关（活体源空集——首启无 doors 段）
+      expect(readDoorsSegmentLive(dir).has('sessions.control-cross')).toBe(false);
+      // 开门：写回段 + 回执归因 'doors'
+      expect(await assembly.stack.channels.dispatchCommand('/doors open sessions.control-cross')).toBe(true);
+      expect(notified.some((t) => t.includes('已开门：sessions.control-cross'))).toBe(true);
+      expect(notified.some((t) => t.includes('门检即时生效'))).toBe(true);
+      // 文件真相 + 门即时生效（g-1 活体源——写回即下一次判变）
+      expect(readDoorsSegmentLive(dir)).toEqual(new Set(['sessions.control-cross']));
+      // 审计恰一笔：doors/updated origin 'tui-cmd'（boot 首启空面首记不落——
+      // 空面零笔在先，open 即流内首笔）
+      const auditRows = [...createAuditFace(assembly.runtime.persistence.store.sqlite()).listRecent()]
+        .filter((r) => r.type === 'doors/updated')
+        .map((r) => ({ type: r.type, data: r.data }));
+      expect(auditRows).toEqual([
+        { type: 'doors/updated', data: { doors: ['sessions.control-cross'], origin: 'tui-cmd' } },
+      ]);
+      // list 读面同源呈现新态（六枚清单 + doors 段行）
+      expect(await assembly.stack.channels.dispatchCommand('/doors list')).toBe(true);
+      expect(notified.some((t) => t.includes('sessions.control-cross=open（doors 段——进程级）'))).toBe(true);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('值域拒 + 用法错：拒路径零审计零写回（回执仍经 notify 归因 doors）', async () => {
+    const dir = tmpDir('host-asm-doorscmd-reject-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      // boot 落笔后快照（共库定域断言——同文件先前用例的 doors/updated 笔
+      // 在场〔含本 rig boot 对前用例开门面的 boot-diff 收口笔，recordDoorsDiff
+      // 正确行为〕；拒路径断言只锁「两次拒后无新笔」，不依赖库绝对内容）
+      const auditFace = createAuditFace(assembly.runtime.persistence.store.sqlite());
+      const before = [...auditFace.listRecent()].filter((r) => r.type === 'doors/updated').map((r) => r.data);
+      // 值域外（插件道高危面不进 doors 段）
+      expect(await assembly.stack.channels.dispatchCommand('/doors open channels.ui-backend')).toBe(true);
+      expect(notified.some((t) => t.includes('值域'))).toBe(true);
+      // 用法错（缺 <capability>）
+      expect(await assembly.stack.channels.dispatchCommand('/doors open')).toBe(true);
+      expect(notified.some((t) => t.includes('须带 <capability>'))).toBe(true);
+      // 拒路径零新审计零写回：快照不变 + 段仍空集（首启文件可无 enabled.yaml）
+      const after = [...auditFace.listRecent()].filter((r) => r.type === 'doors/updated').map((r) => r.data);
+      expect(after).toEqual(before);
+      expect(readDoorsSegmentLive(dir).size).toBe(0);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
 
 describe('模型面八件工具族 e2e（03 §5.6——恒挂载 + 写类审批对 + 不自动链 reload）', () => {
   /** §5.6 八件名全表（面结构序锁归单元面——此处锁装配入位） */

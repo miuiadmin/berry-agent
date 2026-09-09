@@ -22,6 +22,9 @@ import type { CredentialsSub } from '../credentials/index.js';
 // 子命令形单源再导出（credentials/commands.ts 立形——CLI 解析与命令语义共用；
 // dispatch/dispatch 表与 CredentialsCommand 族从此处取型，与 SessionsCommand 同位）
 export type { CredentialsSub };
+import type { DoorsSub } from './doors-cmd.js';
+// 同上单源再导出（doors-cmd.ts 立形——CLI 解析与 TUI argv 解析/命令语义共用）
+export type { DoorsSub };
 
 /* ---------------- 命令形（tagged union——分派层的消费契约） ---------------- */
 
@@ -127,6 +130,8 @@ export type CliCommand =
   | { readonly kind: 'sessions'; readonly sub: SessionsCommand }
   /** credentials 子命令族（03 §10.9 人面命令 CLI 对等——sub 形单源 credentials/commands.ts：解析〔cli〕与语义〔件〕共用同一 tagged union） */
   | { readonly kind: 'credentials'; readonly sub: CredentialsSub }
+  /** doors 子命令族（03 §4.6 / 07 §5 定名——sub 形单源 host/doors-cmd.ts：解析〔cli〕与语义〔件〕共用同一 tagged union；open/close 为合法解析形、CLI 执行层语义拒退 1） */
+  | { readonly kind: 'doors'; readonly sub: DoorsSub }
   | { readonly kind: 'upgrade' }
   /** --help 短路（overreach = 首个越位词原文——分派层打帮助退 0） */
   | { readonly kind: 'help'; readonly overreach?: string }
@@ -565,6 +570,38 @@ function parseCredentials(rest: readonly string[]): CliParseResult {
   }
 }
 
+/**
+ * doors 子命令族解析（03 §4.6 / 07 §5 定名——CLI 面；g-2）：list 受理、
+ * open/close 受理为合法解析形（语义拒退 1 归执行层 runDoorsEntry——用法错
+ * 与语义拒两档分立）；值域执法归段编辑腿单源（plugin-store），本层只执法
+ * 解析律。
+ */
+function parseDoors(rest: readonly string[]): CliParseResult {
+  const [head, ...tail] = rest as string[];
+  if (head === undefined || head.startsWith('--')) {
+    return usageFail('doors 须带子命令（list/open/close——open/close 写动词 TUI /doors 专属，CLI 只读 list）');
+  }
+  switch (head) {
+    case 'list': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      const arity = expectArity(scan.literals, 0, 0, 'berry-agent doors list');
+      if ('exitCode' in arity) return arity;
+      return finish(scan, { kind: 'doors', sub: { sub: 'list' } });
+    }
+    case 'open':
+    case 'close': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      const args = expectArity(scan.literals, 1, 1, `berry-agent doors ${head} <capability>`);
+      if ('exitCode' in args) return args;
+      return finish(scan, { kind: 'doors', sub: { sub: head, door: args[0] as string } });
+    }
+    default:
+      return usageFail(`未知 doors 子命令：${head}（合法：list/open/close）`);
+  }
+}
+
 /** 收尾统一口：help/version 越位短路（执法④——在一切解析错误之后） */
 function finish(scan: ScanOutcome, command: CliCommand): CliParseResult {
   if (scan.overreach === '--help') return { ok: true, command: { kind: 'help', overreach: scan.overreach } };
@@ -644,6 +681,8 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       return parseSessions(rest);
     case 'credentials':
       return parseCredentials(rest);
+    case 'doors':
+      return parseDoors(rest);
     case 'upgrade': {
       const scan = scanFlags(rest, [DEBUG_FLAG]);
       if (scan.error) return usageFail(scan.error);
@@ -653,7 +692,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     }
     default:
       return usageFail(
-        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/sessions/credentials/upgrade；无参 = TUI 主入口）`,
+        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/sessions/credentials/doors/upgrade；无参 = TUI 主入口）`,
       );
   }
 }

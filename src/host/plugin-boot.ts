@@ -709,7 +709,8 @@ export function recordPluginOpensDiff(
  * （尾条非空 → 现空）落 `doors: []` 空数组形收口；空面首记不落（无记录 ≡
  * 空面——不为从未开门的进程造基线噪声）。载荷 = 全量清单快照 + 编辑道归因
  * 键 origin（boot 序恒 'boot-diff'——'tui-cmd' 位 /doors 人面命令执行尾，
- * g-2 落位）。单写者 = 装配根装载序（audit 流单写者律）。
+ * 落位于 assembly doors 注册块包装内、g-2 已收口）。单写者 = 装配根装载
+ * 序（audit 流单写者律）。
  *
  * 尾读走 lastOf（单键 fold——doors 段进程级单键，无 per 插件多键面）。
  * @param audit 审计流面（读写两用——尾读建现值，diff 后落账）

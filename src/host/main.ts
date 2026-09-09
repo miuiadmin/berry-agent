@@ -36,6 +36,7 @@ import { runDumpConfigEntry } from './dump-config.js';
 import { runPluginsEntry } from './plugins-cmd.js';
 import { runSessionsEntry } from './sessions-cmd.js';
 import { runCredentialsEntry } from './credentials-cmd.js';
+import { runDoorsEntry } from './doors-cmd.js';
 
 /** 在飞运行时柄（组装后挂入——信号/崩溃编舞切运行时本体；前置窗口 null） */
 let activeRuntime: HostRuntime | null = null;
@@ -65,7 +66,7 @@ function dispatchServe(flags: Parameters<NonNullable<CommandHandlers['serve']>>[
   return runServeEntry({ flags, version: readVersion(), onRuntime: attachRuntime });
 }
 
-/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins / 20b run / 20d sessions 已接线，upgrade 诚实退 1） */
+/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins / 20b run / 20d sessions / g-2 doors 已接线，upgrade 诚实退 1） */
 const handlers: CommandHandlers = {
   tui: (flags) =>
     runTuiEntry({
@@ -114,6 +115,9 @@ const handlers: CommandHandlers = {
   // credentials 子命令族 CLI 面（c-5——03 §10.9 人面命令：零装配直开库，
   // 动词语义单源 credentials/commands 与 TUI /credentials 同底座）
   credentials: (sub) => runCredentialsEntry(sub, {}),
+  // doors 子命令族 CLI 面（g-2——03 §4.6 / 07 §5 定名：list 只读零装配零库
+  // 纯文件读；open/close 合法解析形、执行层语义拒退 1——写动词 TUI /doors 专属）
+  doors: (sub) => runDoorsEntry(sub, {}),
 };
 
 /** 主序：编舞装配 → 分派 → 终局 */

@@ -28,6 +28,7 @@ import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { BaseError } from '../contracts/index.js';
+import { DOORS_SEGMENT_V1_DOMAIN } from '../contracts/api.js';
 import { canonicalPath } from '../safety/index.js';
 import { enabledYamlPath, parseEnabledRows } from './manifest.js';
 import type { EnabledRow } from './manifest.js';
@@ -405,6 +406,57 @@ function writeEnabledRows(
     ...(doors !== undefined ? { doors: [...doors] } : {}),
   };
   atomicWrite(fs, enabledYamlPath(dataDir), stringifyYaml(doc));
+}
+
+/* ---------------- doors 段编辑（03 §4.6 段编辑腿——g-2） ---------------- */
+
+/**
+ * doors/updated 落账 sink（段编辑腿成功真变更尾恰一次——载荷 = 去重排序后
+ * 全量快照，与 recordDoorsDiff 审计形同形；origin 由装配位盖章〔TUI 位
+ * 'tui-cmd'〕；CLI 面无此腿零落账）。落账失败由包装方自吞 warn（段编辑已
+ * 生效不回滚——LifecycleAuditSink 同哲学）。
+ */
+export type DoorsAuditSink = (doors: readonly string[]) => void;
+
+/**
+ * doors 段编辑（03 §4.6 /doors 人面命令 = enabled.yaml 的编辑腿——g-2 落码）：
+ * open/close **只动段不动行**（行集原样携带——与行编辑腿全文件形状往返保真律
+ * 对偶方向）；值域执法 door ∈ DOORS_SEGMENT_V1_DOMAIN（射程即值域——六枚
+ * 全宽将致三读分叉，拒绝式单源同 manifest 段校验）。
+ *
+ * 幂等律：open 已开 / close 未开 = no-op 成功**不写文件不落账**（无变更不
+ * 造账——与 mount 幂等跳过、update local no-op 同律）；段缺席时 close 天然
+ * 幂等（现集空不含任何位）、open 造段（`doors: [<位>]`——用户开门动作即段
+ * 在场事实）；close 到空集写回**显式空段** `doors: []`（保真 + boot diff
+ * `doors: []` 收口形的文件侧真相——03 §4.6「撤位 doors:[] 收口」）。
+ * 写回形 = 去重排序稳态形（手编任意序在首编辑后归一——审计快照排序形一致）。
+ */
+export function editDoorsSegment(
+  dataDir: string,
+  action: { readonly verb: 'open' | 'close'; readonly door: string },
+  fs: PluginStoreFs,
+  onDoorsUpdated?: DoorsAuditSink,
+): RowEditResult {
+  // 值域执法（DOORS_SEGMENT_V1_DOMAIN 单源——与 manifest 段校验同源两执法位）
+  if (!DOORS_SEGMENT_V1_DOMAIN.includes(action.door)) {
+    return {
+      ok: false,
+      message: `doors 段值域外能力位 "${action.door}"——值域 v1 = 两门枚举（现役：${DOORS_SEGMENT_V1_DOMAIN.join('、')}；§8.2 六枚高危面名单系上界，行 opens 位承载插件道四枚）`,
+    };
+  }
+  const read = readEnabledRowsForEdit(dataDir, fs);
+  if (!read.ok) return read;
+  const current = new Set(read.doors ?? []); // 段缺席 = 空集（§5.3 缺席语义）
+  const contains = current.has(action.door);
+  if (action.verb === 'open' ? contains : !contains) {
+    return { ok: true }; // 幂等 no-op——不写文件不落账（无变更不造账）
+  }
+  if (action.verb === 'open') current.add(action.door);
+  else current.delete(action.door);
+  const doors = [...current].sort(); // 去重排序稳态形（Set 天然去重）
+  writeEnabledRows(dataDir, read.rows, doors, fs);
+  onDoorsUpdated?.(doors);
+  return { ok: true };
 }
 
 /* ---------------- installPath 推导（§5.4 归一路径载体——写侧执法） ---------------- */

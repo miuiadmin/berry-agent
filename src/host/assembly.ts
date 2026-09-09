@@ -56,6 +56,7 @@ import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
 import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from './plugin-reload.js';
 import type { PluginReloader } from './plugin-reload.js';
 import { PLUGINS_CMD_USAGE, runPluginsCommand } from './plugins-command.js';
+import { DOORS_USAGE, parseDoorsArgv, runDoorsCommand } from './doors-cmd.js';
 import { createDefaultSpawnRunner, createPluginLifecycleTools } from './plugin-tools.js';
 import { createPluginStoreFs } from './plugin-store.js';
 import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
@@ -844,6 +845,41 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         void stack.channels.notify('plugins', outcome.text);
       },
       PLUGINS_CMD_USAGE,
+    );
+
+    // —— /doors TUI 命令面（03 §4.6 doors 段编辑腿的人面动词——g-2；07 §5
+    // 定名：写动词 TUI 专属，CLI 面只读 list）：宿主级直注册（与 /reload、
+    // /plugins 同位——机制宿主有，不随插件换代卸除）；纯逻辑件单源
+    // （doors-cmd.ts——argv 解析/段编辑/回执文本）。写动词成功真变更尾落
+    // doors/updated（origin 'tui-cmd'——recordDoorsDiff boot 序 'boot-diff'
+    // 位的编辑道姊妹位；落账失败 warn 不阻塞——段编辑已生效）；不自动链
+    // /reload（与 /plugins 成功尾自动链分立——g-1 门检输入 = 活体源，写回
+    // 即门即时生效，reload 只刷新装载面快照/审计基线，回执已两时点诚实
+    // 陈述）。回执经 notify 归因 'doors'（与 'plugins' 同律）。
+    stack.channels.commands.register(
+      'doors',
+      async (args) => {
+        const parsed = parseDoorsArgv(args.argv);
+        if (!parsed.ok) {
+          void stack.channels.notify('doors', parsed.message);
+          return;
+        }
+        const outcome = runDoorsCommand(parsed.sub, {
+          dataDir,
+          fs: createPluginStoreFs(),
+          onDoorsUpdated: (doors) => {
+            try {
+              audit.append('doors/updated', { doors: [...doors], origin: 'tui-cmd' });
+            } catch (err) {
+              logger.warn(
+                `doors 审计落账失败：${err instanceof Error ? err.message : String(err)}——主流程不受影响（段编辑已生效）`,
+              );
+            }
+          },
+        });
+        void stack.channels.notify('doors', outcome.text);
+      },
+      DOORS_USAGE,
     );
 
     return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts, reloader };

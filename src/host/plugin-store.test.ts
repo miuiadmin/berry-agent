@@ -17,6 +17,7 @@ import { BaseError } from '../contracts/index.js';
 import {
   assertInsideInstallSubtree,
   assertInsidePluginData,
+  editDoorsSegment,
   installPathForGit,
   installPathForLocal,
   installPathForNpm,
@@ -261,6 +262,83 @@ describe('doors 段往返保真（03 §5.3 行编辑与段编辑全文件形状�
   it('坏 doors 段读侧拒（行编辑腿 fail-loud——段坏形不静默过）', () => {
     const fs = memFs({ '/data/enabled.yaml': 'plugins: []\ndoors:\n  - channels.ui-backend\n' });
     expect(mountRow('/data', 'user-y', undefined, fs).ok).toBe(false); // 值域外拒——edit 读侧同判据
+  });
+});
+
+describe('editDoorsSegment 段编辑腿（03 §4.6 /doors 人面命令的编辑通道——g-2）', () => {
+  /** 段缺席首启形 + 行在场（往返保真的段编辑方向：只动段不动行） */
+  const SEEDED = 'plugins:\n  - id: user-x\n    config:\n      k: v\n';
+
+  it('open 造段 + 行原样携带（只动段不动行——config 等字段保形）', () => {
+    const fs = memFs({ '/data/enabled.yaml': SEEDED });
+    expect(editDoorsSegment('/data', { verb: 'open', door: 'sessions.observe-cross' }, fs).ok).toBe(true);
+    const read = readEnabledRowsForEdit('/data', fs);
+    expect(read.ok && read.doors).toEqual(['sessions.observe-cross']); // 段缺席 → 造段
+    expect(read.ok && read.rows[0]).toMatchObject({ id: 'user-x', config: { k: 'v' } }); // 行字段保形
+  });
+
+  it('值域拒：DOORS_SEGMENT_V1_DOMAIN 外（含插件道四枚高危面）拒绝式', () => {
+    const fs = memFs({ '/data/enabled.yaml': SEEDED });
+    for (const door of [
+      'channels.ui-backend',
+      'sdk.register-route',
+      'triggers.start-run',
+      'credentials.read-cross',
+      'bogus',
+    ]) {
+      const result = editDoorsSegment('/data', { verb: 'open', door }, fs);
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.message).toContain('值域');
+    }
+    expect(fs.read('/data/enabled.yaml')).toBe(SEEDED); // 拒路径文件原封
+  });
+
+  it('幂等两向：open 已开 / close 未开（含段缺席）= no-op 不写不落账', () => {
+    const fs = memFs({ '/data/enabled.yaml': 'plugins: []\ndoors:\n  - sessions.observe-cross\n' });
+    let sinkCalls = 0;
+    // close 未开位（control-cross 不在段）
+    expect(editDoorsSegment('/data', { verb: 'close', door: 'sessions.control-cross' }, fs, () => sinkCalls++).ok).toBe(
+      true,
+    );
+    // open 已开位（observe-cross 在段）
+    expect(editDoorsSegment('/data', { verb: 'open', door: 'sessions.observe-cross' }, fs, () => sinkCalls++).ok).toBe(
+      true,
+    );
+    expect(sinkCalls).toBe(0);
+    expect(fs.read('/data/enabled.yaml')).toContain('sessions.observe-cross'); // 文件原封
+    // 段缺席 + close = 天然幂等（现集空不含任何位），不造段
+    const fs2 = memFs({ '/data/enabled.yaml': SEEDED });
+    expect(editDoorsSegment('/data', { verb: 'close', door: 'sessions.observe-cross' }, fs2).ok).toBe(true);
+    expect(fs2.read('/data/enabled.yaml')).toBe(SEEDED);
+  });
+
+  it('close 收口 = 显式空段 doors: []（03 §4.6 撤位收口形）+ 成功尾 sink 排序快照', () => {
+    const fs = memFs({ '/data/enabled.yaml': 'plugins: []\ndoors:\n  - sessions.observe-cross\n' });
+    const seen: (readonly string[])[] = [];
+    expect(
+      editDoorsSegment('/data', { verb: 'close', door: 'sessions.observe-cross' }, fs, (d) => void seen.push(d)).ok,
+    ).toBe(true);
+    expect(seen).toEqual([[]]);
+    expect(fs.read('/data/enabled.yaml')).toContain('doors: []');
+  });
+
+  it('写回排序稳态形：手编逆序段在首编辑后归一（与审计快照排序形一致）', () => {
+    const fs = memFs({
+      // 手编逆序（control 在前、observe 在后——字母序相反）
+      '/data/enabled.yaml': 'plugins: []\ndoors:\n  - sessions.control-cross\n  - sessions.observe-cross\n',
+    });
+    const seen: (readonly string[])[] = [];
+    const result = editDoorsSegment('/data', { verb: 'close', door: 'sessions.observe-cross' }, fs, (d) => {
+      seen.push(d);
+    });
+    expect(result.ok).toBe(true);
+    expect(seen).toEqual([['sessions.control-cross']]); // 剩余集排序形（单元素平凡序——两枚 case 见 doors-cmd.test）
+    const read = readEnabledRowsForEdit('/data', fs);
+    expect(read.ok && read.doors).toEqual(['sessions.control-cross']);
+    // 两枚齐在场编辑（open 造第三位无第三枚——改 close 后再 open 回补，验双枚排序）
+    expect(editDoorsSegment('/data', { verb: 'open', door: 'sessions.observe-cross' }, fs).ok).toBe(true);
+    const read2 = readEnabledRowsForEdit('/data', fs);
+    expect(read2.ok && read2.doors).toEqual(['sessions.control-cross', 'sessions.observe-cross']); // 字母序稳态
   });
 });
 
