@@ -625,7 +625,11 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         // 工具名账包壳（装载史批 h-3——05 §9 世代行 tools 列真值源）：注册
         // 成功才入账（前置闸全过 + 真源 register 返回即成功）；disposer 包装
         // 出账（代内撤注不留残影——世代行 tools = 收口时点在册集）
-        const inner = registry.register(def, opts);
+        // owner 归因铸造（03 §2.3 尾注——T9 案一批 R1）：无条件覆写为注册者
+        // pluginId（fork 闭包单源）——插件自报 owner 值恒不达注册表（冒名
+        // 结构性不存在；覆写无条件非「缺省补齐」）；agent_ 派生族经本动词
+        // 注册（core:subagent 域物化）自然铸得 'core:subagent'，无需另立位
+        const inner = registry.register({ ...def, owner: pluginId }, opts);
         options.toolLedger?.add(pluginId, def.name);
         return () => {
           inner();

@@ -183,8 +183,14 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     ...(opts.extraTools !== undefined ? [...opts.extraTools()] : []),
   ];
   // 驱动层注册（{driver: sessionId}——per-session 工具面；批 12 前插件的
-  // beforeToolCall 钩子同 dispatch 挂后续守门位）
-  const disposers = definitions.map((definition) => registry.register(definition, { driver: opts.sessionId }));
+  // beforeToolCall 钩子同 dispatch 挂后续守门位）；owner 缺省盖章
+  // 'core:host'（03 §2.3 尾注族谱——T9 案一批 t-1）：本注册点是宿主装配
+  // 工具的唯一入口，未带 owner 的定义即宿主直构件（fs/search/bash/todo +
+  // obs/control extraTools 族）；extraTools 重放腿携带的插件定义已被受理壳
+  // 铸得插件 id owner——`??` 缺省式不覆盖，插件归因原样存活到会话层
+  const disposers = definitions.map((definition) =>
+    registry.register({ ...definition, owner: definition.owner ?? 'core:host' }, { driver: opts.sessionId }),
+  );
 
   return {
     tools: registry.agentToolsFor(opts.sessionId),

@@ -50,6 +50,20 @@ export interface RequestEnvelope {
 }
 
 /**
+ * 工具归因取值器（T9 案一批 t-1——05 §1.1 tool/call 载荷 owner 位「写时带出」
+ * 的取数 seam）：name → 注册面铸造的 owner。DurableWiring 不持注册表（驱动
+ * 私有件），装配根从会话注册表（listFor——两层并集）构造闭包注入；live 查询
+ * 形天然覆盖装配后动态注册（named provider 程序化注册/装载窗注册）。缺席 =
+ * 独立 stack 测试形等（载荷不带 owner——渐进增强零破口）。
+ */
+export type ResolveToolOwner = (name: string) => string | undefined;
+
+/** DurableWiring 构造面（resolveToolOwner 可缺席——见 ResolveToolOwner 注） */
+export interface DurableWiringOptions {
+  readonly resolveToolOwner?: ResolveToolOwner;
+}
+
+/**
  * durable 接线器（驱动私有件——活体事件翻译 + 请求信封快照 + 锚 seq 记账）。
  *
  * 构造时从既有日志初始化三态（turn 开合 / header 在否 / 冷启动续接位）——
@@ -67,9 +81,12 @@ export class DurableWiring {
   private lastEnvelopeKey: string | undefined;
   /** 最后一条 assistant/message 的 seq（runTurns 遮蔽区间的起点锚） */
   private lastAssistantSeqValue: number | undefined;
+  /** 工具归因取值器（tool/call 载荷 owner 位——缺席 = 载荷不带 owner） */
+  private readonly resolveToolOwner: ResolveToolOwner | undefined;
 
-  constructor(session: SessionLog) {
+  constructor(session: SessionLog, options: DurableWiringOptions = {}) {
     this.session = session;
+    this.resolveToolOwner = options.resolveToolOwner;
     let depth = 0;
     let header = false;
     for (const event of session.events()) {
@@ -209,13 +226,19 @@ export class DurableWiring {
         ...(assistant.errorMessage !== undefined ? { errorMessage: assistant.errorMessage } : {}),
       });
       this.lastAssistantSeqValue = event.seq;
-      // 工具调用分立落账：arguments 回写原始串（审计保真——读侧解析失败兜底 {}）
+      // 工具调用分立落账：arguments 回写原始串（审计保真——读侧解析失败兜底 {}）；
+      // owner 归因位写时带出（05 §1.1——T9 案一批 R2 案 A：调用流直读「这次
+      // 调用是谁的」读侧零 join）。可选带出形（dedupeKey 同律）：resolver
+      // 缺席或未命中（装配残缺——模型调用的名必然在当次请求面内，未命中即
+      // 装配缺陷）不带 owner，不虚构归因
       for (const block of assistant.content) {
         if (block.type !== 'toolCall') continue;
+        const owner = this.resolveToolOwner?.(block.name);
         this.session.append('tool/call', {
           toolCallId: block.id,
           name: block.name,
           arguments: JSON.stringify(block.arguments),
+          ...(owner !== undefined ? { owner } : {}),
         });
       }
       return;

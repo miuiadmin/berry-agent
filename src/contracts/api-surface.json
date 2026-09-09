@@ -706,7 +706,7 @@
       "since": "1.0",
       "desc": "注册表内工具定义（03 §2.3 defineTool 形——插件注册动词 ctx.tools.register 的入参形状）",
       "kind": "interface",
-      "sig": "457f25ba60dafc7f"
+      "sig": "8346342f4e61a8a7"
     },
     {
       "symbol": "ToolEffect",

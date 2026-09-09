@@ -113,6 +113,17 @@ export interface ToolDefinition {
    * 2026-09-09）；本位词面与其相容（重放回执既不构成「静默重试」）。
    */
   repeatable?: boolean;
+  /**
+   * 归因铸造位（03 §2.3 尾注——T9 案一批 R1 定形）：**注册面铸造、插件不可
+   * 自报**——ctx.tools.register 受理壳（fork 级闭包携 pluginId）无条件覆写
+   * 为注册者 pluginId，defineTool 输入形状无 owner 参数位（传入自报值恒不达
+   * 注册表——冒名结构性不存在）。值域 = 插件 id 裸词（官方件含 core: 前缀
+   * 形）+ 保留位 'core:host'（不经插件注册面的宿主装配工具——open 域
+   * fs/bash/todo 族 + 模型面八件 plugin_* + obs/control extraTools 族；缺省
+   * 盖章单点在 open-tools 注册处）。消费位 = tool/call 事件载荷 owner 位
+   * （05 §1.1 写时带出——读侧零 join）；读侧勿当件 id join 装机账本。
+   */
+  owner?: string;
   /** 执行体：一切失败编码为 isError 结果（数据面）；抛错由管道/loop 包装兜底 */
   execute: (args: Record<string, unknown>, toolCtx: ToolContext) => Promise<AgentToolResult>;
 }

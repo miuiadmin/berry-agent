@@ -149,6 +149,10 @@ describe('assembleHostStack 成功档', () => {
       // 工具装载腿：`agent` 在 boot 全局层（createAgentTool——effect read）
       const agentDef = assembly.boot.tools.definitions().find((definition) => definition.name === 'agent');
       expect(agentDef).toBeDefined();
+      // owner 归因（T9 案一批 t-1——03 §2.3 尾注族谱）：agent 工具经
+      // ctx.tools.register 注册（core:subagent 域物化）——受理壳覆写自然铸得
+      // 'core:subagent'，无需另立铸造位（冷读闸 M2 实质消解的回归锁）
+      expect(agentDef!.owner).toBe('core:subagent');
 
       // 父会话 + 直接执行（def 形 execute(args, toolCtx)——sessionId 即
       // 执行时会话语境，sessionContext 解析真源（assembly 织入位））

@@ -125,7 +125,11 @@ export class ConversationDriver {
     if (!options.dispatch.isRegistered(SESSION_LIFECYCLE_EVENT)) {
       options.dispatch.registerEventNames([SESSION_LIFECYCLE_EVENT]);
     }
-    this.wiring = new DurableWiring(this.session);
+    // resolveToolOwner 透传（tool/call 载荷 owner 位取数 seam——T9 案一批 t-1）；
+    // 缺席 = 载荷不带 owner（wiring 侧可选带出形）
+    this.wiring = new DurableWiring(this.session, {
+      ...(options.resolveToolOwner !== undefined ? { resolveToolOwner: options.resolveToolOwner } : {}),
+    });
     this.fullTools = options.tools !== undefined ? [...options.tools] : undefined;
     this.warnFace = options.warn ?? ((message) => console.error(message));
     this.context = {

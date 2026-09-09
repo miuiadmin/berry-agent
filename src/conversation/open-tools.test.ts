@@ -98,6 +98,36 @@ describe('assembleOpenTools 组装面', () => {
     expect(assembly.tools).toHaveLength(8);
   });
 
+  it('owner 缺省盖章（T9 案一批 t-1）：宿主直构件盖 core:host、extraTools 携 owner 的重放定义原样保留', () => {
+    // 宿主直构件（fs/search/todo 族——open-tools 注册单点 `?? 'core:host'`）
+    const { assembly } = makeAssembly();
+    const owners = new Map(assembly.registry.listFor('s-open').map((def) => [def.name, def.owner]));
+    expect(owners.get('read')).toBe('core:host'); // open 域 fs 族
+    expect(owners.get('grep')).toBe('core:host'); // 检索族
+    expect(owners.get('todo')).toBe('core:host'); // 内置 todo 件
+    // extraTools 重放腿：boot 全局层定义已被受理壳铸得插件 id——缺省式不覆盖
+    const { assembly: replay } = makeAssembly({
+      extraTools: () => [
+        {
+          name: 'plugin_echo',
+          description: '插件重放工具（受理壳已铸 owner 形）',
+          parameters: { type: 'object' as const },
+          execute: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+          owner: 'demo:plug',
+        },
+        {
+          name: 'host_extra',
+          description: '宿主 extraTools 直构件（未铸 owner 形）',
+          parameters: { type: 'object' as const },
+          execute: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+        },
+      ],
+    });
+    const replayOwners = new Map(replay.registry.listFor('s-open').map((def) => [def.name, def.owner]));
+    expect(replayOwners.get('plugin_echo')).toBe('demo:plug'); // 插件归因存活
+    expect(replayOwners.get('host_extra')).toBe('core:host'); // 宿主件缺省盖章
+  });
+
   it('一词两册装配序（03 §2.4）：boot 预注册工具词在先——自举注册幂等跳过不炸', () => {
     const pre = new EventDispatch();
     pre.registerEventNames(['tools_pre_execute', 'tools_execute', 'tools_post_execute', 'tools_change']); // 装载批主表镜像预注册（共享 4 词）

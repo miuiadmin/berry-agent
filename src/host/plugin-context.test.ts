@@ -43,6 +43,7 @@ function assemble(overrides?: {
   triggers: TriggerRegistry;
   subagents: ReturnType<typeof createSubagentService>;
   channels: ReturnType<typeof createChannels>;
+  tools: ReturnType<typeof createToolRegistry>;
 } {
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
@@ -59,11 +60,13 @@ function assemble(overrides?: {
   // 通道核真源（U3 批 U3-4——插件域腿 registerPluginBackend 委派目标；
   // 撞名/分域执法在 channels.test 域，此处只验门检/窗口/委派/落账）
   const channels = createChannels();
+  // 工具注册表真源（受理壳铸造例的 owner 断言面——listFor 读已铸定义）
+  const tools = createToolRegistry(dispatch);
   const handle = createPluginContext({
     pluginId: overrides?.pluginId ?? 'acme-widgets',
     scope,
     dispatch,
-    tools: createToolRegistry(dispatch),
+    tools,
     commands: new CommandRegistry(),
     uiBackends: channels,
     llm: { registerProvider: () => () => undefined },
@@ -79,7 +82,7 @@ function assemble(overrides?: {
     ...(overrides?.sessionLineage !== undefined ? { sessionLineage: overrides.sessionLineage } : {}),
     ...(overrides?.toolLedger !== undefined ? { toolLedger: overrides.toolLedger } : {}),
   });
-  return { handle, dispatch, scope, promptSections, triggers, subagents, channels };
+  return { handle, dispatch, scope, promptSections, triggers, subagents, channels, tools };
 }
 
 /** BaseError 码断言辅助（错码即契约——修 bug 必带回归锁的判据面） */
@@ -435,6 +438,34 @@ describe('注册动词委派真源', () => {
     });
     expect(typeof dispose).toBe('function');
     expect(() => dispose()).not.toThrow();
+  });
+
+  it('tools.register owner 归因铸造（T9 案一批 R1——受理壳无条件覆写：自报值恒不达注册表）', () => {
+    const { handle, tools } = assemble({ pluginId: 'demo:plug' });
+    handle.ctx.tools.register({
+      name: 'probe_a',
+      description: '正常注册（无自报）',
+      parameters: { type: 'object' as const },
+      execute: async () => ({ content: [] }),
+    });
+    // 自报 owner（冒名尝试——'core:host' 保留位为最强冒名面）：覆写律的判据位
+    // （类型面上 ToolDefinition.owner 是契约铸造位、传值合法——运行时恒覆写）
+    handle.ctx.tools.register({
+      name: 'probe_b',
+      description: '自报归因（应被无条件覆写）',
+      parameters: { type: 'object' as const },
+      execute: async () => ({ content: [] }),
+      owner: 'core:host',
+    });
+    const owners = new Map(
+      tools
+        .listFor('any-session')
+        .filter((d) => d.name.startsWith('probe_'))
+        .map((d) => [d.name, d.owner]),
+    );
+    // 两形同铸注册者 pluginId——覆写无条件非缺省补齐（冒名结构性不存在）
+    expect(owners.get('probe_a')).toBe('demo:plug');
+    expect(owners.get('probe_b')).toBe('demo:plug'); // 自报 'core:host' 恒不达注册表
   });
 
   it('channels.registerCommand → CommandRegistry（后写胜出——disposer 不误摘接任者）', async () => {

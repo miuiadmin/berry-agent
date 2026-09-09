@@ -96,6 +96,13 @@ export interface ConversationDriverOptions {
    */
   readonly tools?: readonly AgentTool[];
   /**
+   * 工具归因取值器（T9 案一批 t-1——05 §1.1 tool/call 载荷 owner 位取数
+   * seam）：name → 注册面铸造的 owner；装配根从会话注册表（listFor 两层
+   * 并集）构造闭包注入，live 查询形覆盖装配后动态注册。缺席 = tool/call
+   * 载荷不带 owner（独立 stack 测试形/纯对话 run——渐进增强零破口）。
+   */
+  readonly resolveToolOwner?: (name: string) => string | undefined;
+  /**
    * 错误分桶器（04 §3.5 消费通路条款）：llm classifyError 单源实现注入；
    * 缺席 = 一切错误按 non-retryable 保守收场（装配残缺不放大重试面）。
    */

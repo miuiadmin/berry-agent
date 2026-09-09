@@ -208,7 +208,7 @@ describe('ConversationDriver durable 接线', () => {
       'assistant/message',
       'turn/end',
     ]);
-    // tool/call 分立落账（arguments 回写串）
+    // tool/call 分立落账（arguments 回写串；无 resolver 形不带 owner——05 §1.1 可选带出）
     expect(dataOf(driver, 'tool/call')).toEqual([{ toolCallId: 't1', name: 'probe', arguments: '{}' }]);
     // 工具面进 header 快照
     const headers = dataOf(driver, 'request/header') as Array<{ toolSchemas: Array<{ name: string }> }>;
@@ -217,6 +217,44 @@ describe('ConversationDriver durable 接线', () => {
     expect(seen).toHaveLength(2);
     expect(types(driver).filter((t) => t === 'request/header')).toHaveLength(1);
     expect(dataOf(driver, 'turn/end')).toEqual([{ reason: 'completed' }]);
+  });
+
+  it('tool/call 载荷 owner 位（T9 案一批 t-1——05 §1.1 写时带出可选形）：resolver 命中带出 / 未命中不带 / 缺席不带', async () => {
+    // 命中形：resolver 返回插件 id → 载荷携 owner（读侧零 join 的归因直读）
+    const hit = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'toolUse', content: [call('t1', 'probe')] }),
+        assistant({ content: [{ type: 'text', text: '收' }] }),
+      ],
+      tools: [makeTool('probe')],
+      resolveToolOwner: (name) => (name === 'probe' ? 'demo:plug' : undefined),
+    });
+    await hit.driver.submit('跑工具');
+    expect(dataOf(hit.driver, 'tool/call')).toEqual([
+      { toolCallId: 't1', name: 'probe', arguments: '{}', owner: 'demo:plug' },
+    ]);
+    // 未命中形：模型调用的名不在 resolver 面（装配缺陷兜底）——不带 owner、
+    // 不虚构归因
+    const miss = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'toolUse', content: [call('t2', 'probe')] }),
+        assistant({ content: [{ type: 'text', text: '收' }] }),
+      ],
+      tools: [makeTool('probe')],
+      resolveToolOwner: () => undefined,
+    });
+    await miss.driver.submit('跑工具');
+    expect(dataOf(miss.driver, 'tool/call')).toEqual([{ toolCallId: 't2', name: 'probe', arguments: '{}' }]);
+    // 缺席形：独立 stack 测试形（无 resolver 注入）——载荷零 owner 渐进增强
+    const absent = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'toolUse', content: [call('t3', 'probe')] }),
+        assistant({ content: [{ type: 'text', text: '收' }] }),
+      ],
+      tools: [makeTool('probe')],
+    });
+    await absent.driver.submit('跑工具');
+    expect(dataOf(absent.driver, 'tool/call')).toEqual([{ toolCallId: 't3', name: 'probe', arguments: '{}' }]);
   });
 
   it('length 路径：合成配对 toolResult 落 turn 内 + turn/end(max-tokens) 安全网 + failed 零 llm/retry', async () => {

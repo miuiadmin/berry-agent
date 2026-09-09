@@ -325,6 +325,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         channels.askApproval(sessionId, request, opts));
     let tools: readonly AgentTool[] | undefined;
     let settleApprovals: (() => void) | undefined;
+    // 工具归因取值器（T9 案一批 t-1——tool/call 载荷 owner 位）：assembly
+    // 在场时从会话注册表构造（listFor 两层并集 live 查询——覆盖装配后动态
+    // 注册）；memory 形（无工具面）保持 undefined——纯对话 run 无 tool/call
+    let resolveToolOwner: ((name: string) => string | undefined) | undefined;
     if (options.runtime.dataDir !== null) {
       // goal 段换装（批 19c-3——03 §10.5）：goal 件在场 + 锚注入在位 →
       // per-session 扩展 todo 工具替换内置件（openTools todoTool 注入位——
@@ -407,6 +411,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // 整形钩子（批 19c-1）：装配产物进驱动前整形（语义归调用方——子代理
       // 派生面执法；fullTools 快照即整形后面——孙代委派以子实面为基准）
       tools = shapeTools !== undefined ? [...shapeTools(assembly.tools)] : assembly.tools;
+      // owner 取数闭包：装配产物 registry 即会话注册表——宿主直构件已盖
+      // 'core:host'、extraTools 重放的插件定义携插件 id owner，listFor 全量
+      // 可查（live 形——named provider 程序化注册等后续注册天然覆盖）
+      resolveToolOwner = (name) => assembly.registry.listFor(sessionId).find((def) => def.name === name)?.owner;
       settleApprovals = assembly.settlePending;
     } // memory 形：工具整面缺席——纯对话 run（件头注降级语义）
     const driver = new ConversationDriver({
@@ -418,6 +426,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         isStandardMessage(message) ? message : (getMessageRoleDefinition(message.role)?.toLlm?.(message) ?? null),
       model: sessionModel ?? model,
       ...(tools !== undefined ? { tools } : {}),
+      // tool/call 载荷 owner 位取数（T9 案一批 t-1——memory 形 undefined 不带）
+      ...(resolveToolOwner !== undefined ? { resolveToolOwner } : {}),
       ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
       // per-session 覆盖 ?? 栈基线（open/resume 不携带——回落基线同 model 律）
       ...((systemPrompt ?? options.systemPrompt) !== undefined
