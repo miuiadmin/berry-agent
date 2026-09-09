@@ -132,10 +132,17 @@ export interface SdkRouteContext {
 /** 扩展路由 handler（三参定形——03 §10.6 路由描述符条款） */
 export type SdkRouteHandler = (req: IncomingMessage, res: ServerResponse, ctx: SdkRouteContext) => void | Promise<void>;
 
+/**
+ * 扩展路由 HTTP 方法词面（七值闭集——method+path 双键匹配的 method 侧；
+ * U5-1 起独立立名：插件道描述符子集形（plugin-routes.ts）同词面复用，
+ * 七值单源不再内联两处）。
+ */
+export type SdkRouteMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
+
 /** 路由描述符（03 §10.6——path 段式 `:param` + 至多一枚 catch-all 通配尾 `*`） */
 export interface SdkRouteDescriptor {
   /** HTTP 方法（method+path 双键匹配） */
-  readonly method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
+  readonly method: SdkRouteMethod;
   /** 段式路径：`/api/sessions/:id/submit` 形；`*` 单独成 path = 吞一切（SPA fallback）；`/*` 尾 = 吞余段 */
   readonly path: string;
   /** 鉴权档（四值——SdkRouteAuth） */

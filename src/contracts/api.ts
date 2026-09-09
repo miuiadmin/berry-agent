@@ -107,6 +107,13 @@ export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     note: '压缩策略面（ctx.get("compaction") 消费——setConfig 数值槽/registerSummarizer 摘要 provider 槽两动词装载窗 only 严于通律、单席位先到占；provider 只作用阈值路，溢出兜底恒宿主缺省算法）',
     tier: 'stable',
   },
+  {
+    name: 'sdk-routes',
+    module: 'sdk',
+    faceInterface: 'SdkRoutesPluginFace',
+    note: '路由受理面（ctx.get("sdk-routes") 消费——register 受理制注册 sdk HTTP 面插件道路由：前缀 /plugins/<id>/ 恒受理面施加 + 收窄四件〔鉴权子集/loopbackOnly 恒 true/体帽 1MiB 缺席即帽值/数帽 16〕+ 门检 sdk.register-route 前置 + 装载窗 only；裁决纯函数 sdk/plugin-routes.ts）',
+    tier: 'stable',
+  },
 ];
 
 /* ---------------- 真相源 #3：能力面目录（§8.5 capabilities 派生源） ---------------- */

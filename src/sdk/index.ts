@@ -18,3 +18,4 @@ export * from './types.js';
 export * from './security.js';
 export * from './http.js';
 export * from './mcp.js';
+export * from './plugin-routes.js';

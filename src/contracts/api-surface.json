@@ -1098,6 +1098,22 @@
       "sig": "eaed545e9db39e4a"
     },
     {
+      "symbol": "sdk-routes",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "路由受理面（ctx.get(\"sdk-routes\") 消费——register 受理制注册 sdk HTTP 面插件道路由：前缀 /plugins/<id>/ 恒受理面施加 + 收窄四件〔鉴权子集/loopbackOnly 恒 true/体帽 1MiB 缺席即帽值/数帽 16〕+ 门检 sdk.register-route 前置 + 装载窗 only；裁决纯函数 sdk/plugin-routes.ts）",
+      "sig": "4250a3173111eeb0"
+    },
+    {
+      "symbol": "sdk-routes.register",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "受理制注册（返摘除 fn——/reload 换代门复检的回收腿；数帽分帐随摘除递减）",
+      "sig": "e660058e2f2a6e62"
+    },
+    {
       "symbol": "secrets",
       "module": "services",
       "tier": "stable",

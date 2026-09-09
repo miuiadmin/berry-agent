@@ -212,6 +212,30 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     module: 'sdk',
     description: 'HTTP 面 Host/Origin 防线拒（03 §10.6 批 13e-2 定形⑤——回环钉死三防线 10.4 同律）',
   },
+  {
+    code: 'SDK_ROUTE_PATH_RESERVED',
+    module: 'sdk',
+    description:
+      '插件道路由 path 撞保留前缀闭集（/v1/·/plugins/）或越域坏形拒——前缀拼合单源执法的防御性回弹层（03 §10.6 U5 定形注：执法位本在 core: 道注册器，插件道经前缀施加律结构性框死于 /plugins/<id>/ 之下）',
+  },
+  {
+    code: 'SDK_ROUTE_AUTH_FORBIDDEN',
+    module: 'sdk',
+    description:
+      '插件道申报不可用鉴权档拒——self 与 open{purpose:auth-exchange} 两逃生档不对插件道开放（03 §10.6 U5 收窄四件①）',
+  },
+  {
+    code: 'SDK_ROUTE_BODY_LIMIT',
+    module: 'sdk',
+    description:
+      '插件道路由 bodyLimitBytes 超钳帽拒——须正整数且 ≤1MiB 可小不可大、缺席即 1MiB 受理面填值（03 §10.6 U5 收窄四件③：防面级缺省 10MiB 静默穿透）',
+  },
+  {
+    code: 'SDK_ROUTE_LIMIT_REACHED',
+    module: 'sdk',
+    description:
+      '插件道路由数帽 16 per-plugin 达帽拒——受理面计数、摘除 fn 释放后可再注册（03 §10.6 U5 收窄四件④；门检/窗外/查重三拒复用既有码零新立）',
+  },
 ];
 
 /** 注册表本体（code → 目录条目）；模块加载时灌入核心码，插件码经 registerErrorCodes 入 */
