@@ -2,7 +2,7 @@
 
 本文自包含覆盖 berry-agent 的安装、入口命令族、TUI 操作与环境变量。架构背景见[架构总览](./architecture.md)。
 
-> 状态：`0.1.0-alpha`。命令族中标注「尚未装配」的动词会诚实报错退出（解析与旗标面已就绪，执行面随后续版本接入）——不含糊、不静默。包尚未在 npm 首发：安装路一/路二待首发后可用，路三源码构建即时可用。
+> 状态：`0.1.0-alpha.1`。命令族中标注「尚未装配」的动词会诚实报错退出（解析与旗标面已就绪，执行面随后续版本接入）——不含糊、不静默。包尚未在 npm 首发：安装路一/路二待首发后可用，路三源码构建即时可用。
 
 ## 安装
 
@@ -74,7 +74,7 @@ berry-agent [命令] [旗标]
 | `serve`             | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词）                                                                                                                      |
 | `mcp`               | MCP server 包装形态                                                                                                                                                                       |
 | `dump-config`       | 打印实际生效装配（诊断）                                                                                                                                                                  |
-| `plugins <sub>`     | 插件生命周期七动词全在场：`list` / `check` 只读，`install` / `uninstall` / `mount` / `unmount` / `toggle` / `update` 写侧（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏） |
+| `plugins <sub>`     | 插件生命周期八动词全在场：`list` / `check` 只读，`install` / `uninstall` / `mount` / `unmount` / `toggle` / `update` 写侧（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏） |
 | `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex`                                                                                                             |
 | `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`）                                                                   |
 | `upgrade`           | 升级维护动词（尚未装配）                                                                                                                                                                  |
@@ -202,21 +202,22 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 
 前缀一律 `BERRY_AGENT_*`：
 
-| 变量                               | 作用                                                                  | 缺省                        |
-| ---------------------------------- | --------------------------------------------------------------------- | --------------------------- |
-| `BERRY_AGENT_MODEL`                | 覆盖缺省模型                                                          | `anthropic/claude-sonnet-5` |
-| `BERRY_AGENT_DATA_DIR`             | 数据目录                                                              | `~/.berry-agent`            |
-| `BERRY_AGENT_DB_PATH`              | 库文件路径（独立梯子——重定向库文件而不动数据目录）                    | `<数据目录>/sessions.db`    |
-| `BERRY_AGENT_LOG_LEVEL`            | 日志级别：error / warn / info / debug / silent                        | `info`                      |
-| `BERRY_AGENT_BASH_PATH`            | bash 工具可执行路径（缺失 fail-loud）                                 | PATH 发现序                 |
-| `BERRY_AGENT_FD_PATH`              | `@` 文件补全的 fd 可执行路径（缺失退化内置遍历）                      | PATH 发现序                 |
-| `BERRY_AGENT_BROWSER_PATH`         | 浏览器引擎可执行路径                                                  | 引擎发现序                  |
-| `BERRY_AGENT_BIN`                  | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                 | 进程自身路径推导            |
-| `BERRY_AGENT_CRON`                 | cron 可选后端开关/载体                                                | 进程内挂钟                  |
-| `BERRY_AGENT_GIT_PATH`             | worktree 工具 git 可执行路径                                          | PATH 发现序                 |
-| `BERRY_AGENT_SDK_TOKEN`            | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配） | 缺省不开 TCP 侧             |
-| `BERRY_AGENT_GITHUB_TOKEN`         | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）    | 缺席                        |
-| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET` | core:issue 件 webhook 签名密钥（同回落律）                            | 缺席                        |
+| 变量                                 | 作用                                                                        | 缺省                        |
+| ------------------------------------ | --------------------------------------------------------------------------- | --------------------------- |
+| `BERRY_AGENT_MODEL`                  | 覆盖缺省模型                                                                | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR`               | 数据目录                                                                    | `~/.berry-agent`            |
+| `BERRY_AGENT_DB_PATH`                | 库文件路径（独立梯子——重定向库文件而不动数据目录）                          | `<数据目录>/sessions.db`    |
+| `BERRY_AGENT_LOG_LEVEL`              | 日志级别：error / warn / info / debug / silent                              | `info`                      |
+| `BERRY_AGENT_BASH_PATH`              | bash 工具可执行路径（缺失 fail-loud）                                       | PATH 发现序                 |
+| `BERRY_AGENT_FD_PATH`                | `@` 文件补全的 fd 可执行路径（保留位——fd 批未触，当前仅内置遍历，设置无效） | —                           |
+| `BERRY_AGENT_BROWSER_PATH`           | 浏览器引擎可执行路径                                                        | 引擎发现序                  |
+| `BERRY_AGENT_BIN`                    | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                       | 进程自身路径推导            |
+| `BERRY_AGENT_CRON`                   | cron 可选后端开关/载体                                                      | 进程内挂钟                  |
+| `BERRY_AGENT_GIT_PATH`               | worktree 工具 git 可执行路径                                                | PATH 发现序                 |
+| `BERRY_AGENT_SDK_TOKEN`              | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）       | 缺省不开 TCP 侧             |
+| `BERRY_AGENT_GITHUB_TOKEN`           | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）          | 缺席                        |
+| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`   | core:issue 件 webhook 签名密钥（同回落律）                                  | 缺席                        |
+| `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE` | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                | 1440                        |
 
 ## 遥测立场
 

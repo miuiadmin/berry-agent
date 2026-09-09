@@ -3,7 +3,7 @@
 单一、可扩展的个人 Agent——对话与编码即本体，一切能力以**插件**装载。
 TypeScript + SQLite + [pi-ai](https://github.com/earendil-works/pi-ai)。
 
-> 状态：`0.1.0-alpha`，开发中——契约先行、逐批纵切落地；官方插件 16 件已随包出厂。
+> 状态：`0.1.0-alpha.1`，开发中——契约先行、逐批纵切落地；官方插件 16 件已随包出厂。包尚未在 npm 首发——下方两路安装待首发后可用，源码构建即时可用（见[使用指南](./docs/usage.md#安装)）。
 
 核心理念：**基座强在接口，能力长在插件**——扩展点/钩子/事件/服务面做满做稳，任何能力（shell 执行、技能、浏览器、定时任务、记忆、Web 界面……）都以插件装载表达；官方件与社区件走同一装载面，第一方无私有车道。
 
@@ -28,6 +28,7 @@ npm install -g berry-agent
 berry-agent                    # TUI：直进对话（按当前目录续接最新会话）
 berry-agent run "一句话单发"     # 单次执行 → stdout
 berry-agent sessions list      # 会话管理：list / resume / fork / search / reindex
+berry-agent plugins list       # 插件装机管理：list / check / install / uninstall / mount / unmount / toggle / update
 berry-agent credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授权流）
 berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
 ```
@@ -50,15 +51,16 @@ berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用�
 
 前缀一律 `BERRY_AGENT_*`：
 
-| 变量                       | 作用                                 | 缺省                        |
-| -------------------------- | ------------------------------------ | --------------------------- |
-| `BERRY_AGENT_MODEL`        | 覆盖缺省模型                         | `anthropic/claude-sonnet-5` |
-| `BERRY_AGENT_DATA_DIR`     | 数据目录                             | `~/.berry-agent`            |
-| `BERRY_AGENT_DB_PATH`      | 库文件路径（独立梯子）               | `<数据目录>/sessions.db`    |
-| `BERRY_AGENT_LOG_LEVEL`    | error / warn / info / debug / silent | `info`                      |
-| `BERRY_AGENT_BASH_PATH`    | bash 可执行路径                      | PATH 发现序                 |
-| `BERRY_AGENT_FD_PATH`      | `@` 补全的 fd 路径                   | PATH 发现序                 |
-| `BERRY_AGENT_BROWSER_PATH` | 浏览器引擎路径                       | 引擎发现序                  |
+| 变量                                 | 作用                                                    | 缺省                        |
+| ------------------------------------ | ------------------------------------------------------- | --------------------------- |
+| `BERRY_AGENT_MODEL`                  | 覆盖缺省模型                                            | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR`               | 数据目录                                                | `~/.berry-agent`            |
+| `BERRY_AGENT_DB_PATH`                | 库文件路径（独立梯子）                                  | `<数据目录>/sessions.db`    |
+| `BERRY_AGENT_LOG_LEVEL`              | error / warn / info / debug / silent                    | `info`                      |
+| `BERRY_AGENT_BASH_PATH`              | bash 可执行路径                                         | PATH 发现序                 |
+| `BERRY_AGENT_FD_PATH`                | `@` 补全的 fd 路径（保留位——fd 批未触，当前仅内置遍历） | —                           |
+| `BERRY_AGENT_BROWSER_PATH`           | 浏览器引擎路径                                          | 引擎发现序                  |
+| `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE` | 插件装机供应链护栏：npm 源最小发布龄分钟数（0 = 关窗）  | 1440                        |
 
 ## 遥测
 

@@ -512,7 +512,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           version: options.version,
           // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
           // 工厂形升级批 19b-1：dataDir 等宿主真身经 CorePluginHostDeps 入件；
-          // 15 件逐纵切笔入册，见 core-plugins.ts）
+          // 16 件逐纵切笔入册，见 core-plugins.ts）
           corePlugins:
             options.corePlugins ??
             createCorePlugins({

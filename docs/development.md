@@ -31,7 +31,7 @@ npm run build:sdk       # SDK 包独立构建（packages/berry-agent-sdk）
 
 ## 模块拓扑（DAG 律）
 
-全仓 27 席模块单向 DAG，边表真源在 `tools/check-topology.mjs`（`MODULE_EDGES`）。执法面：
+全仓 28 席模块单向 DAG，边表真源在 `tools/check-topology.mjs`（`MODULE_EDGES`）。执法面：
 
 - 相对导入只走边表白名单——未声明边红、声明未用死边红（**双向执法**）；
 - 裸导入白名单**两账分离**（产码账 / 测试账——测试需求不给产码白名单续命）；
@@ -56,8 +56,8 @@ src/
   channels/     呈现通道核（信封路由 + TUI 引擎件族全套）
   conversation/ 对话组合域（driver、三通道路由、todo）
   host/         装配根（CLI、运行时、插件装载、五入口）
-  <15 个 core: 插件域>  exec skills web scheduler goal subagent checkpoint
-                        memory mcp lsp browser webui sdk obs issue
+  <16 个 core: 插件域>  exec skills web scheduler goal subagent checkpoint
+                        memory mcp lsp browser webui sdk obs issue credentials
 packages/
   berry-agent-sdk/      类型化 SDK 客户端包（stdio/HTTP 两传输）
 tools/                  门禁检查器族（check-topology / check-api / emit-api-decls）
