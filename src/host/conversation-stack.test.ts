@@ -956,4 +956,39 @@ describe('lane 帽闸件（04 §4——m-2）', () => {
     expect(sessionB.driver.session.events().some((event) => event.type === 'turn/start')).toBe(true);
     await rt.shutdown();
   });
+
+  it('装配级 env 形 lane 帽（BERRY_AGENT_MAX_CONCURRENT_RUNS 注入实战——07 §7 行 4 登记位）', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: { BERRY_AGENT_MAX_CONCURRENT_RUNS: '1' }, // env 覆盖位——装配真穿进容量解析
+    });
+    const ws = rigWorkspace();
+    const sessionA = stack.manager.create({ workspaceRoot: ws, origin: 'delegation' });
+    const sessionB = stack.manager.create({ workspaceRoot: ws, origin: 'delegation' });
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    faux.setResponses([
+      async () => {
+        await gate;
+        return messageOf('stop');
+      },
+      () => messageOf('stop'),
+    ]);
+    const runA = stack.submitText(sessionA.sessionId, 'a问');
+    const runB = stack.submitText(sessionB.sessionId, 'b问');
+    // 帽 1 经 env 生效：a 在飞、b 排队（run 未诞生——零 durable 起跑事件）
+    await vi.waitFor(() => expect(faux.state.callCount).toBe(1));
+    expect(sessionB.driver.session.events().some((event) => event.type === 'turn/start')).toBe(false);
+    openGate();
+    await expect(runA).resolves.toMatchObject({ status: 'completed' });
+    await expect(runB).resolves.toMatchObject({ status: 'completed' });
+    await vi.waitFor(() => expect(faux.state.callCount).toBe(2));
+    await rt.shutdown();
+  });
 });
