@@ -196,7 +196,7 @@ berry-agent plugins install <包名>   # 装机（npm 源供应链护栏：钉�
 berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 / 加 = 执行；--data keep|purge 缺省 keep）
 ```
 
-写侧六动词（`install`/`uninstall`/`mount`/`unmount`/`toggle`/`update`）解析与旗标面已就绪、执行面尚未装配。当前启用面由数据目录 `enabled.yaml` 直接管理（见[运维手册](./operations.md#启用清单-enabledyaml)）；`--no-plugins` 安全模式跳过全部插件装载（core: 与用户插件都不装）——坏插件锁死启动时的自救位。
+写侧六动词执行面全在场：装机动词（`install`/`update`）走 npm 钉版安装（供应链护栏），行级动词（`mount`/`unmount`/`toggle`）编辑 `enabled.yaml` 启用行，`uninstall` 走双相清算（四段幂等 + 审计落账）。`enabled.yaml` 仍是启用面的底层真源（手编与命令同链可审计——boot 装载序 diff 补播）；`--no-plugins` 安全模式跳过全部插件装载（core: 与用户插件都不装）——坏插件锁死启动时的自救位。
 
 ## 环境变量
 
