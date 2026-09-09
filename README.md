@@ -30,6 +30,7 @@ berry-agent run "一句话单发"     # 单次执行 → stdout
 berry-agent sessions list      # 会话管理：list / resume / fork / search / reindex
 berry-agent plugins list       # 插件装机管理：list / check / install / uninstall / mount / unmount / toggle / update
 berry-agent credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授权流）
+berry-agent doors list         # 开门制门态只读（开/关走 TUI /doors open|close）
 berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
 ```
 

@@ -78,6 +78,8 @@ export default async function apply(ctx, config) {
   effect: 'write',                     // 'read'（缺省）| 'write'——调度语义 + 审批触发
   repeatable: false,                   // 缺省 true；false = 禁静默重试（副作用型）
   timeoutMs: 30_000,                   // 缺省走管道 60s
+  // owner：无需传——宿主注册受理壳无条件覆写为注册者 pluginId（自报值恒不达
+  // 注册表，冒名结构性不存在）；归因随 tool/call 审计载荷写时带出
   async execute(args, toolCtx) {
     // 一切失败编码为 isError 结果返回（数据面）；抛错由管道兜底包装
     return { isError: false, content: [{ type: 'text', text: 'ok' }] };
@@ -150,7 +152,7 @@ plugins:
   - id: my-plugin # 必填
     config: { ... } # 可选——按 manifest config 判据校验（整值替换非合并）
     disabled: true # 可选——行级禁用
-    opens: [...] # 可选——高危面开门授予集（默认全关）
+    opens: [...] # 可选——高危面开门授予集（默认全关；进程级开门另走顶层 doors 段 / TUI /doors open——两源任一含即门开）
 ```
 
 用户行与 `core:` 同名行字段级后写胜出（可覆盖官方件 config 或禁用单件）。
