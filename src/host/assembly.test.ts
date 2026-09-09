@@ -15,9 +15,12 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 
 import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
 import { assembleHostStack, readTriggerOpensLive } from './assembly.js';
+import type { AssemblySuccess } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
 import { readAllowlist } from './allowlist-store.js';
+import { openWebuiFace } from './webui-bridge.js';
+import type { PluginRouteRegistry } from '../sdk/index.js';
 import { createAuditFace } from '../persist/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
@@ -815,6 +818,227 @@ describe('模型面八件工具族 e2e（03 §5.6——恒挂载 + 写类审批�
       expect(toolText).not.toContain('已自动链');
       // §5.2 模型面不自动链 reload（三面分立主断言——与 TUI 面成功尾自动链对偶）
       expect(await assembly.reloader.hasPending()).toBe(false);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
+describe('插件道路由装配全栈 e2e（U5-3——受理→开面 replay→fetch 三链绿 + 四红例收口锁）', () => {
+  /**
+   * capability/used 审计行速记（sdk.register-route 域 + pluginId 定域过滤——
+   * 共库账纪律：runtime 显式 dataDir 不改写 dbPath〔v1 有意边界——CLI 侧已
+   * 绕〕，本文件各装配共库账，断言按 pluginId 定域同既有测试律）
+   */
+  const sdkRouteUsedOf = (assembly: AssemblySuccess, pluginId: string): Array<Record<string, unknown>> =>
+    [...createAuditFace(assembly.runtime.persistence.store.sqlite()).listRecent()]
+      .filter(
+        (row) =>
+          row.type === 'capability/used' &&
+          row.data['capability'] === 'sdk.register-route' &&
+          row.data['pluginId'] === pluginId,
+      )
+      .map((row) => row.data);
+
+  /** 磁盘 jiti 生态插件速记（真盘真 jiti——四件套：package.json/entry.js/enabled.yaml/ledger.json） */
+  function diskPlugin(dataDir: string, id: string, options: { opens?: string; body: readonly string[] }): void {
+    const pluginDir = join(dataDir, 'plugins', 'node_modules', id);
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({ name: id, version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+    );
+    writeFileSync(
+      join(pluginDir, 'entry.js'),
+      ['export const inject = [];', 'export default async (ctx) => {', ...options.body, '};'].join('\n'),
+    );
+    writeFileSync(
+      join(dataDir, 'enabled.yaml'),
+      `plugins:\n  - id: ${id}${options.opens !== undefined ? `\n    opens: [${options.opens}]` : ''}\n`,
+    );
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({ [id]: { installPath: `plugins/node_modules/${id}` } }),
+    );
+  }
+
+  /** 注册动词字面（磁盘插件 entry 内嵌——三链绿与红例共用面） */
+  const registerLines = (path: string): readonly string[] => [
+    '  ctx.get("sdk-routes").register({',
+    '    method: "GET",',
+    `    path: ${JSON.stringify(path)},`,
+    '    auth: "token",',
+    '    handler: (_req, res) => { res.writeHead(200); res.end("route-e2e-ok"); },',
+    '  });',
+  ];
+
+  it('三链绿：装载受理（opens 开门）→ 开面 snapshot replay → fetch 打通 + 审计恰一笔（缺省注册表真 kit）', async () => {
+    const dir = tmpDir('host-asm-u5-green-');
+    diskPlugin(dir, 'acme-route', { opens: 'sdk.register-route', body: registerLines('/e2e') });
+    const faux = fauxProvider({ provider: 'faux-u5', models: [{ id: 'm1' }] });
+    // 缺省 corePlugins 注册表——真 core:sdk 件 provide 'sdk-http-face' kit（custom
+    // 替换律下无 kit；BERRY_AGENT_BIN 兜底防件侧自探测——scheduler-clock 同法）
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      providers: [faux.provider],
+      model: 'faux-u5/m1',
+      env: { BERRY_AGENT_BIN: '/usr/bin/true' },
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 链①装载受理：门开（opens 行）→ 受理入账 pending 态（行级零失败）
+      expect(assembly.boot.report.failed).toEqual([]);
+      expect(assembly.boot.report.activated.map((a) => a.id)).toContain('core:sdk');
+      expect(assembly.boot.report.activated.map((a) => a.id)).toContain('acme-route');
+      const kit = assembly.scope.tryGet<{ readonly createFace: unknown; readonly pluginRoutes?: PluginRouteRegistry }>(
+        'sdk-http-face',
+      );
+      expect(kit?.pluginRoutes).toBeDefined(); // 真件 kit 透传位（受理器随 kit 出场）
+      expect(kit!.pluginRoutes!.snapshot().map((d) => d.path)).toContain('/plugins/acme-route/e2e');
+
+      // 链②开面 replay：snapshot 注入构造期 routes 位 + attachFace 晚注册位挂接
+      let opened: { host: string; port: number; token: string } | undefined;
+      const face = await openWebuiFace({
+        stack: assembly.stack,
+        runtime: assembly.runtime,
+        port: 0,
+        pluginRoutes: kit!.pluginRoutes!,
+        disclose: () => {},
+        onOpen: (info) => {
+          opened = info;
+        },
+      });
+      try {
+        // 链③fetch 打通：Bearer 过鉴权 + handler 真应答
+        const res = await fetch(`http://${opened!.host}:${opened!.port}/plugins/acme-route/e2e`, {
+          headers: { authorization: `Bearer ${opened!.token}` },
+        });
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe('route-e2e-ok');
+        // 审计恰一笔：method+path 全路径归因键（受理成功后落，拒路径零审计）
+        expect(sdkRouteUsedOf(assembly, 'acme-route')).toEqual([
+          { pluginId: 'acme-route', capability: 'sdk.register-route', method: 'GET', path: '/plugins/acme-route/e2e' },
+        ]);
+      } finally {
+        await face.stop(); // 幂等（runtime.shutdown closer 'webui-server' 同样会收口）
+      }
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('红例·门关：磁盘插件无 opens 行 → 装载期拒（行级隔离 + 零使用账）', async () => {
+    const dir = tmpDir('host-asm-u5-door-');
+    diskPlugin(dir, 'acme-door', { body: registerLines('/nope') }); // 无 opens = 默认关
+    const sdkRef: CorePluginReference = { name: 'sdk', apply: async () => undefined }; // 席位第二腿
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [sdkRef],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      expect(assembly.boot.report.activated.map((a) => a.id)).toContain('core:sdk'); // 席位在场——拒因是门非缺服务
+      const row = assembly.boot.report.failed.find((f) => f.id === 'acme-door');
+      // apply 期错误归一 PLUGIN_APPLY_FAILED（invokeApply 包装律）——门检码与
+      // 文案在 message 内保真传递（cause 链不进失败行面）
+      expect(row?.code).toBe('PLUGIN_APPLY_FAILED');
+      expect(row?.message).toContain('默认关'); // 门检文案（PLUGIN_CAPABILITY_DOOR_CLOSED 语义）
+      expect(row?.message).toContain('sdk.register-route');
+      expect(sdkRouteUsedOf(assembly, 'acme-door')).toEqual([]); // 拒路径零审计
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('红例·查重：同插件同键双注册 → fail-loud 失败行 + 首笔恰一账（第二笔拒不入账）', async () => {
+    const dir = tmpDir('host-asm-u5-dup-');
+    diskPlugin(dir, 'acme-dup', {
+      opens: 'sdk.register-route',
+      body: [...registerLines('/d'), ...registerLines('/d')], // 同键双注册——第二笔必须拒
+    });
+    const sdkRef: CorePluginReference = { name: 'sdk', apply: async () => undefined };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [sdkRef],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const row = assembly.boot.report.failed.find((f) => f.id === 'acme-dup');
+      expect(row?.code).toBe('PLUGIN_APPLY_FAILED'); // apply 期归一码（查重普通 Error 经 invokeApply 包裹）
+      expect(row?.message).toContain('重复注册');
+      expect(row?.message).toContain('GET /plugins/acme-dup/d');
+      // 首笔受理照记恰一（成功路径审计律——拒的是第二笔非首笔）
+      expect(sdkRouteUsedOf(assembly, 'acme-dup')).toEqual([
+        { pluginId: 'acme-dup', capability: 'sdk.register-route', method: 'GET', path: '/plugins/acme-dup/d' },
+      ]);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('红例·窗外：装载窗收口后 register 拒 PLUGIN_WINDOW_CLOSED（零使用账）', async () => {
+    const dir = tmpDir('host-asm-u5-late-');
+    let held: { register(d: unknown): () => void } | undefined;
+    const holdRef: CorePluginReference = {
+      name: 'hold',
+      apply: async (ctx) => {
+        // 只持面不注册（装载期零动作）——post-boot 调 register 验窗执法
+        held = (ctx as { get: (name: string) => unknown }).get('sdk-routes') as {
+          register(d: unknown): () => void;
+        };
+      },
+    };
+    const sdkRef: CorePluginReference = { name: 'sdk', apply: async () => undefined };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [sdkRef, holdRef],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      expect(assembly.boot.report.failed).toEqual([]); // 装载本身绿（只持面未注册）
+      expect(held).toBeDefined();
+      try {
+        held!.register({ method: 'GET', path: '/late', auth: 'token', handler: () => {} });
+        expect.unreachable('窗外 register 必须拒');
+      } catch (err) {
+        expect((err as { code?: string }).code).toBe('PLUGIN_WINDOW_CLOSED');
+      }
+      expect(sdkRouteUsedOf(assembly, 'core:hold')).toEqual([]); // 拒路径零审计
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('红例·席位缺席：plan 无 core:sdk 行 → fork 绑定不落 → ctx.get 响亮（行级隔离 + 零使用账）', async () => {
+    const dir = tmpDir('host-asm-u5-seat-');
+    diskPlugin(dir, 'acme-lone', { body: registerLines('/orphan') });
+    const demoRef: CorePluginReference = { name: 'demo', apply: async () => undefined }; // 无 sdk 席
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [demoRef],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const row = assembly.boot.report.failed.find((f) => f.id === 'acme-lone');
+      expect(row?.code).toBe('PLUGIN_APPLY_FAILED'); // apply 期归一码（缺席码经 invokeApply 包裹）
+      expect(row?.message).toContain('服务 sdk-routes 缺席'); // CONTEXT_SERVICE_MISSING 文案保真
+      expect(assembly.boot.report.activated.map((a) => a.id)).toContain('core:demo'); // 行级隔离——他行照装
+      expect(sdkRouteUsedOf(assembly, 'acme-lone')).toEqual([]);
     } finally {
       await assembly.runtime.shutdown();
     }
