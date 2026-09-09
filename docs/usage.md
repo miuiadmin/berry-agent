@@ -67,17 +67,17 @@ export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 pr
 berry-agent [命令] [旗标]
 ```
 
-| 命令                | 作用                                                                                                                    |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| （无参）            | TUI 主入口：直进对话                                                                                                    |
-| `run "<message>"`   | 单次执行：一轮对话 → stdout 输出结果                                                                                    |
-| `serve`             | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词）                                                    |
-| `mcp`               | MCP server 包装形态                                                                                                     |
-| `dump-config`       | 打印实际生效装配（诊断）                                                                                                |
-| `plugins <sub>`     | 插件生命周期：`list` 在场；`install/uninstall/mount/unmount/toggle/update/check` 中 `check` 只读、写侧六动词尚未装配    |
-| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex`                                           |
-| `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`） |
-| `upgrade`           | 升级维护动词（尚未装配）                                                                                                |
+| 命令                | 作用                                                                                                                                                                                      |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| （无参）            | TUI 主入口：直进对话                                                                                                                                                                      |
+| `run "<message>"`   | 单次执行：一轮对话 → stdout 输出结果                                                                                                                                                      |
+| `serve`             | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词）                                                                                                                      |
+| `mcp`               | MCP server 包装形态                                                                                                                                                                       |
+| `dump-config`       | 打印实际生效装配（诊断）                                                                                                                                                                  |
+| `plugins <sub>`     | 插件生命周期七动词全在场：`list` / `check` 只读，`install` / `uninstall` / `mount` / `unmount` / `toggle` / `update` 写侧（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏） |
+| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex`                                                                                                             |
+| `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`）                                                                   |
+| `upgrade`           | 升级维护动词（尚未装配）                                                                                                                                                                  |
 
 退出码三态：**0** 成功（含诚实空——空清单/零命中非失败）/ **1** 执行失败 / **2** 环境态误用（用法错、TUI 在非交互环境）。
 
@@ -109,7 +109,7 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | `@`      | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形） |
 | `/`      | 命令补全（注册命令表）                                |
 
-TUI 内建命令（随插件装载动态扩展）：`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理）、`/tick`（定时任务手动推进）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory-export` `/memory-import`（记忆导入导出）等。
+TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件装机管理——list/check/install/uninstall/mount/unmount/toggle/update，写动词成功尾自动链重载）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理）、`/tick`（定时任务手动推进）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory-export` `/memory-import`（记忆导入导出）等。
 
 ### run 单次执行
 
@@ -192,6 +192,8 @@ berry-agent serve stop               # 停守护
 ```bash
 berry-agent plugins list             # 三分区清单：core: 内置 / 磁盘装机 / 装载失败
 berry-agent plugins check            # 装机面体检（只读）
+berry-agent plugins install <包名>   # 装机（npm 源供应链护栏：钉版安装 + --omit=dev + min-release-age）
+berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 / 加 = 执行；--data keep|purge 缺省 keep）
 ```
 
 写侧六动词（`install`/`uninstall`/`mount`/`unmount`/`toggle`/`update`）解析与旗标面已就绪、执行面尚未装配。当前启用面由数据目录 `enabled.yaml` 直接管理（见[运维手册](./operations.md#启用清单-enabledyaml)）；`--no-plugins` 安全模式跳过全部插件装载（core: 与用户插件都不装）——坏插件锁死启动时的自救位。

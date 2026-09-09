@@ -48,22 +48,23 @@ export default async function apply(ctx, config) {
 
 ### ctx 能力面
 
-| 面           | 动词                                                                                 | 语义                                                                                                 |
-| ------------ | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| 服务目录     | `get(name)` / `tryGet(name)` / `provide(name, svc)`                                  | 取服务（缺席 fail-loud 附服务目录名单）/ 诚实缺席档 / 注册（撞名拒；跨插件可见——装载序依赖的事实源） |
-| 作用域       | `effect(register)`                                                                   | 可逆注册（LIFO 回卷；帽 10⁴）                                                                        |
-| 钩子         | `on(hookName, handler)`                                                              | fail-closed（词不在主表拒）；handler 包 5s 钟                                                        |
-| 活体事件     | `emit(name, data?)`                                                                  | 自域词 `${pluginId}/` 起头强制——全局词结构性不可达                                                   |
-| 工具         | `tools.register(def, opts?)`                                                         | 拒绝式撞名执法；返回 Disposer                                                                        |
-| 命令         | `channels.registerCommand(name, handler, description?)`                              | `/命令` 人面；后写胜出                                                                               |
-| 模型         | `llm.registerProvider(provider)`                                                     | provider 注册（后写胜出 upsert）                                                                     |
-| durable 词汇 | `events.registerSessionEventType(meta)`                                              | **不可逆**——进程生命周期词汇，无 disposer                                                            |
-| 消息角色     | `agent.registerMessageRole(role, def)`                                               | 自定义消息角色（拒绝式）                                                                             |
-| 子代理       | `agent.registerSubagentProvider(def)`                                                | 程序化 named provider（撞名/词法两闸）                                                               |
-| 提示词       | `prompts.registerSection(slot, builder)`                                             | 系统提示词段（slot 域前缀两段式执法）                                                                |
-| 触发器       | `triggers.register(def)`                                                             | 事件触发起会（门检/撞名/格式三闸）                                                                   |
-| 凭证         | `secrets.get(name)` / `secrets.set(name, value)` / `secrets.registerOAuthFlow(spec)` | 自域隔离读 / 宿主回调窗内写（受理制）/ oauth 流注册（装载窗 only——详见[凭证节](#凭证ctxsecrets)）    |
-| 自省         | `host`                                                                               | 宿主信息面（版本、装配、本插件 id）                                                                  |
+| 面           | 动词                                                                                 | 语义                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| 服务目录     | `get(name)` / `tryGet(name)` / `provide(name, svc)`                                  | 取服务（缺席 fail-loud 附服务目录名单）/ 诚实缺席档 / 注册（撞名拒；跨插件可见——装载序依赖的事实源）   |
+| 作用域       | `effect(register)`                                                                   | 可逆注册（LIFO 回卷；帽 10⁴）                                                                          |
+| 钩子         | `on(hookName, handler)`                                                              | fail-closed（词不在主表拒）；handler 包 5s 钟                                                          |
+| 活体事件     | `emit(name, data?)`                                                                  | 自域词 `${pluginId}/` 起头强制——全局词结构性不可达                                                     |
+| 工具         | `tools.register(def, opts?)`                                                         | 拒绝式撞名执法；返回 Disposer                                                                          |
+| 命令         | `channels.registerCommand(name, handler, description?)`                              | `/命令` 人面；后写胜出                                                                                 |
+| 模型         | `llm.registerProvider(provider)`                                                     | provider 注册（后写胜出 upsert）                                                                       |
+| durable 词汇 | `events.registerSessionEventType(meta)`                                              | **不可逆**——进程生命周期词汇，无 disposer                                                              |
+| 消息角色     | `agent.registerMessageRole(role, def)`                                               | 自定义消息角色（拒绝式）                                                                               |
+| 子代理       | `agent.registerSubagentProvider(def)`                                                | 程序化 named provider（撞名/词法两闸）                                                                 |
+| 提示词       | `prompts.registerSection(slot, builder)`                                             | 系统提示词段（slot 域前缀两段式执法）                                                                  |
+| 触发器       | `triggers.register(def)`                                                             | 事件触发起会（门检/撞名/格式三闸）                                                                     |
+| 凭证         | `secrets.get(name)` / `secrets.set(name, value)` / `secrets.registerOAuthFlow(spec)` | 自域隔离读 / 宿主回调窗内写（受理制）/ oauth 流注册（装载窗 only——详见[凭证节](#凭证ctxsecrets)）      |
+| UI 后端      | `channels.registerUiBackend(backend)`                                                | 自定义 UI 后端（拒绝式；`channels.ui-backend` 高危面开门制**前置**于撞名律——未开门连撞名检查都不可达） |
+| 自省         | `host`                                                                               | 宿主信息面（版本、装配、本插件 id）                                                                    |
 
 频率护栏：注册类动词 1000 次 / 滑动 1s 窗（越限 `PLUGIN_RATE_LIMITED`）。
 
@@ -96,6 +97,39 @@ export default async function apply(ctx, config) {
 - **env 注入引用形**：`{ GITHUB_TOKEN: '@credentials:github-token' }` 形的 env 值（消费面 v1 = MCP/LSP server config 的 `env`）由宿主在 spawn 时刻展开——明文只进子进程环境，配置面/工具结果/日志恒只见 `@credentials:` 引用形原文。
 
 错误码族：`CREDENTIALS_NOT_FOUND`（名缺席）/ `CREDENTIALS_NAMESPACE_DENIED`（越域未开门）/ `CREDENTIALS_WRITE_WINDOW_CLOSED`（窗外写）/ `CREDENTIALS_ENV_REF_INVALID`（引用形坏形）。
+
+### HTTP 路由（受限开放——`sdk-routes` 服务面）
+
+插件可在宿主 HTTP 面注册**受限路由**（v1 绑定回环地址、不可自选）——先开门后可达：
+
+```yaml
+# enabled.yaml 你的插件行——高危面开门（默认全关）
+- id: my-plugin
+  opens: ['sdk.register-route']
+```
+
+```ts
+// 入口模块：inject 声明（排序位——装载序依赖的事实源）
+export const inject = ['sdk-routes'];
+
+export default async function apply(ctx) {
+  const routes = ctx.get('sdk-routes');
+  const remove = routes.register({
+    method: 'GET',
+    path: '/status/:kind', // suffix——前缀恒由受理面施加
+    auth: 'token', // 鉴权档（见下）
+    bodyLimitBytes: 64 * 1024, // 可选——≤1MiB，缺席即 1MiB
+    handler: async (req, res) => {
+      // Node 原生 http 形（IncomingMessage/ServerResponse + 路由上下文第三参）
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    },
+  });
+  return () => remove(); // 摘除函数进清理面
+}
+```
+
+约束面（受理序逐条执法）：最终路径恒 `/plugins/<你的 id><suffix>`（前缀受理面施加、域外不可达）；每插件路由数帽 16；鉴权档子集 `token` / `token-or-cookie` / `open{purpose}`（purpose ∈ `liveness` / `static-shell`——鉴权逃生档不开放插件道）；尾段 `*` 为域内 catch-all。拒码族 `SDK_ROUTE_PATH_RESERVED` / `SDK_ROUTE_AUTH_FORBIDDEN` / `SDK_ROUTE_BODY_LIMIT` / `SDK_ROUTE_LIMIT_REACHED`；未开门时 `sdk-routes` 服务面结构性缺席（`CONTEXT_SERVICE_MISSING`）。注册只在装载窗内（`/reload` 换代随代回收重放）。
 
 ## import 白名单（插件可 import 什么）
 
@@ -144,7 +178,7 @@ plugins:
 }
 ```
 
-`berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；安装动词（`plugins install`）执行面随后续版本接入，当前经 enabled.yaml + 数据目录 `plugins/` 树手动装载。
+`berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；用户侧装机动词全在场：`berry-agent plugins install <包名>`（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏；`local:<路径>` 形可装本地目录）或 TUI 内 `/plugins install`。装机写入账本与启用行，成功尾提示重载（TUI 面自动链 `/reload`，CLI 面下次启动生效）。
 
 ## 最小完整示例
 
