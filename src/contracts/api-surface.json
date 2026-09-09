@@ -1216,6 +1216,20 @@
       "desc": "守门段决策（toolCallId/decision(allow|block|mutate)/reason）——「守门不可绕」不变式的断言对象"
     },
     {
+      "symbol": "hook/registered",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "钩子监听者受理账（T9 案一批 2026-09-09——context_transform 瀑布等钩子注册全隐身的 durable 归因：「谁在改我的上下文」有账）：载荷 {pluginId, hook}（无 rank——03 §2.4 ctx.on 两参签名恒定、注册序由受理时序承载）；写点 = ctx.on 受理壳成功尾逐笔（waterfall/notify 两腿返回位；含 §2.1 回调窗延伸内的受理；拒路径零审计〔PLUGIN_HOOK_UNKNOWN/PLUGIN_WINDOW_CLOSED——被拒的注册不是行为〕）；/reload 换代新受理新账（受理制非 boot diff——钩子注册无 fold 语义系行为流，每代如实记）；载体 = audit_events"
+    },
+    {
+      "symbol": "kv/written",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "键值写历史（T9 案一批 2026-09-09——store_state LRU+ttl 只有终态、写无历史的 durable 归因）：载荷 {pluginId, key 裸键名, action: set|delete}（值与 ttl/kind 元数据恒不入载荷——credentials/changed 同律；读腿零落账；persist 层 LRU/ttl 治理写零落账〔治理/受理分层〕）；写点 = ctx.sessions store_state 受理面 set/delete 成功尾逐笔——**规范已裁、代码未落**（词先锚定，发射位随受理制写面落码批兑现，compaction/fallback 同律）；载体 = audit_events"
+    },
+    {
       "symbol": "llm/retry",
       "module": "session-events",
       "tier": "stable",

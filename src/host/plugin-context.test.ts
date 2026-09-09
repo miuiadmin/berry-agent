@@ -333,6 +333,33 @@ describe('钩子订阅路由（03 §2.4）', () => {
     // handler 毕恢复——窗再度关死
     expectCode(() => handle.ctx.channels.registerCommand('acme-after', () => undefined), 'PLUGIN_WINDOW_CLOSED');
   });
+
+  it('hook/registered 受理账（T9 案一批 t-2——05 §1.1）：waterfall/notify 两腿成功尾逐笔、载荷无 rank', () => {
+    const events: { type: string; data: Record<string, unknown> }[] = [];
+    const { handle } = assemble({ auditSink: { append: (type, data) => events.push({ type, data }) } });
+    handle.ctx.on('context_transform', (messages, next) => next(messages)); // waterfall 腿
+    handle.ctx.on('session_start', () => undefined); // notify 腿
+    // 落账形 = 05 §1.1 载荷（pluginId 归因 + hook 词；无 rank——03 §2.4 两参
+    // 签名恒定、注册序由受理时序承载）
+    expect(events).toEqual([
+      { type: 'hook/registered', data: { pluginId: 'acme-widgets', hook: 'context_transform' } },
+      { type: 'hook/registered', data: { pluginId: 'acme-widgets', hook: 'session_start' } },
+    ]);
+  });
+
+  it('hook/registered 拒路径零审计（未知钩子/窗外被拒——被拒的注册不是行为）', () => {
+    const events: { type: string; data: Record<string, unknown> }[] = [];
+    const { handle } = assemble({ auditSink: { append: (type, data) => events.push({ type, data }) } });
+    expectCode(() => handle.ctx.on('no_such_hook', () => undefined), 'PLUGIN_HOOK_UNKNOWN');
+    handle.closeWindow();
+    expectCode(() => handle.ctx.on('session_start', () => undefined), 'PLUGIN_WINDOW_CLOSED');
+    expect(events).toEqual([]); // 两拒路径均不落账
+  });
+
+  it('hook/registered auditSink 缺席不炸（诚实缺席律——无审计面时注册语义不变）', () => {
+    const { handle } = assemble(); // 无 auditSink
+    expect(() => handle.ctx.on('session_start', () => undefined)).not.toThrow();
+  });
 });
 
 describe('ctx.emit 域名律（03 §2.2 尾注）', () => {

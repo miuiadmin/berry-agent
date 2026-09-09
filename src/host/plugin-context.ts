@@ -573,6 +573,11 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
             ),
           );
         }) as WaterfallListener<unknown>;
+        // 受理成功尾逐笔落账（T9 案一批 t-2——05 §1.1 hook/registered）：词汇
+        // 闸/窗闸已过、dispatch.onWaterfall 返回即受理成功；「谁在挂瀑布」的
+        // durable 归因（context_transform 全隐身注册就此有账）。拒路径
+        // （上方 throw）零审计——被拒的注册不是行为
+        options.auditSink?.append('hook/registered', { pluginId, hook: hookName });
         return dispatch.onWaterfall(hookName, wrapped);
       }
       // emit/serial/parallel 共用通知型监听面（dispatch.on）——next 为直通占位
@@ -587,6 +592,9 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
             onHookTimeout(pluginId, hookName, err);
           }),
         );
+      // 受理成功尾逐笔落账（T9 案一批 t-2——同 waterfall 腿）：notify 族
+      // （emit/serial/parallel）的受理账与瀑布腿同词同形
+      options.auditSink?.append('hook/registered', { pluginId, hook: hookName });
       return dispatch.on(hookName, wrapped);
     },
     emit(name: string, data?: unknown): Promise<void> {

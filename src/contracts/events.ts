@@ -72,7 +72,13 @@ export interface EventTypeMeta {
  * toggled {id,disabled 双态} / updated {id,from?,to}）；
  * 28→29：doors/updated 随开门制扩展批入册（05 §1.1 行 72——进程级开门位
  * 授予面切换事实：doors 段〔模型道高危面授予载体，03 §4.6 双源并集律第二
- * 源〕的审计腿，boot diff 幂等同 plugin/opens 律；载体 = audit_events）。
+ * 源〕的审计腿，boot diff 幂等同 plugin/opens 律；载体 = audit_events）；
+ * 29→31：hook/registered·kv/written 随 T9 案一批入册（05 §1.1 常规行为
+ * 归因两词——钩子监听者受理账与键值写历史；载体 = audit_events。前者
+ * 载荷 {pluginId, hook} 无 rank 位〔03 §2.4 ctx.on 两参签名恒定、注册序由
+ * 受理时序承载〕；后者载荷 {pluginId, key, action} 值与元数据恒不入、
+ * 发射位随 ctx.sessions 受理制写面批兑现〔规范已裁代码未落——词先锚定，
+ * compaction/fallback 同律〕）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -283,6 +289,22 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '接管/算法槽失败回落事实（05 §2.1 回落三律第 3 律——回落非静默换算法；source=plugin:<id>、stage=throw|timeout|rejected〔抛错/超预算/产物被拒——空文本同宿主通道失败律〕、error? 截断、circuit?=true 末次记三振停用〔进程级，复位走重启〕；U4 调整途非法调整同 stage=rejected 记账）',
+  },
+  {
+    type: 'hook/registered',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '钩子监听者受理账（T9 案一批 2026-09-09——context_transform 瀑布等钩子注册全隐身的 durable 归因：「谁在改我的上下文」有账）：载荷 {pluginId, hook}（无 rank——03 §2.4 ctx.on 两参签名恒定、注册序由受理时序承载）；写点 = ctx.on 受理壳成功尾逐笔（waterfall/notify 两腿返回位；含 §2.1 回调窗延伸内的受理；拒路径零审计〔PLUGIN_HOOK_UNKNOWN/PLUGIN_WINDOW_CLOSED——被拒的注册不是行为〕）；/reload 换代新受理新账（受理制非 boot diff——钩子注册无 fold 语义系行为流，每代如实记）；载体 = audit_events',
+  },
+  {
+    type: 'kv/written',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '键值写历史（T9 案一批 2026-09-09——store_state LRU+ttl 只有终态、写无历史的 durable 归因）：载荷 {pluginId, key 裸键名, action: set|delete}（值与 ttl/kind 元数据恒不入载荷——credentials/changed 同律；读腿零落账；persist 层 LRU/ttl 治理写零落账〔治理/受理分层〕）；写点 = ctx.sessions store_state 受理面 set/delete 成功尾逐笔——**规范已裁、代码未落**（词先锚定，发射位随受理制写面落码批兑现，compaction/fallback 同律）；载体 = audit_events',
   },
 ];
 
