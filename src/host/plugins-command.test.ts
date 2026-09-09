@@ -33,9 +33,16 @@ function fakeReport(
   } as never; // 结构子集（activated/failed/skipped 三面即命令面消费全集）
 }
 
+/** 临时目录登记册：单 exit listener 收口（逐调用注册会累积超 Node 缺省帽 10——
+ * 全量测试实测 11 listener 触发 MaxListenersExceededWarning，2026-09-09 复盘观察项根修） */
+const TMP_DIRS: string[] = [];
+process.on('exit', () => {
+  for (const dir of TMP_DIRS) rmSync(dir, { recursive: true, force: true });
+});
+
 function tmpDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
-  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  TMP_DIRS.push(dir);
   return dir;
 }
 
@@ -241,5 +248,14 @@ describe('失败零副作用（无变更不造账不链）', () => {
     expect(out.ok).toBe(true);
     expect(rig_.audits).toEqual([]); // 幂等跳过腿库件零调用——同 CLI 律
     expect(out.text).toContain('已卸下');
+  });
+});
+
+describe('tmpDir 监听器卫生（回归锁）', () => {
+  it('tmpDir 多次调用不累积 process exit 监听器（单 listener 收集形——修复前每调用 +1 累积至超帽）', () => {
+    const before = process.listenerCount('exit');
+    tmpDir('plug-cmd-leak-');
+    tmpDir('plug-cmd-leak-');
+    expect(process.listenerCount('exit')).toBe(before); // 两次调用零新增
   });
 });
