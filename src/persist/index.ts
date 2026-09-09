@@ -36,6 +36,18 @@ export { openStore, Store } from './store.js';
 // 形）；写入面经库句柄构造，单写者 = 宿主固定件（boot 幂等 diff/高危面记账）
 export { AUDIT_MIGRATION, createAuditFace } from './audit.js';
 export type { AuditFace, AuditEventRow } from './audit.js';
+// 装载史 durable 载体（05 §9 load_generations——装载史批 h-2）：迁移项声明
+// export-only（宿主装配根 HOST_MIGRATION_TAIL 机械聚合——audit v8 同形）；
+// 写点 = 宿主装配根（boot 完成点 + /reload reapply 尾，h-3 接线），CLI 卸载
+// 腿只读消费（uninstall 双回执有源化，h-4 接线）
+export { LOAD_GENERATIONS_MIGRATION, createLoadHistoryFace } from './load-history.js';
+export type {
+  LoadGenerationActivated,
+  LoadGenerationSkipped,
+  LoadGenerationFailed,
+  LoadGenerationSnapshot,
+  LoadHistoryFace,
+} from './load-history.js';
 // 派生库开库面（批 18b——03 §10.8 obs 自管库文件的执法位：物理卫生三拍
 // 单源复用，schema 主权归调用方）
 export { openAuxDatabase } from './aux.js';

@@ -18,11 +18,18 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { release as osRelease } from 'node:os';
 import { join } from 'node:path';
 
-import { AUDIT_MIGRATION, MEMORY_DB_PATH, Persistence, resolveDataDir } from '../persist/index.js';
+import {
+  AUDIT_MIGRATION,
+  LOAD_GENERATIONS_MIGRATION,
+  MEMORY_DB_PATH,
+  Persistence,
+  resolveDataDir,
+} from '../persist/index.js';
 import type { PersistenceOptions } from '../persist/index.js';
 // core: 表族迁移声明（05 §6.4 机械聚合——声明来自插件、执行在宿主；host 行
-// 拓扑边在册）。版本升序：scheduler v2 → goal v3 → memory v4-6 → credentials
-// v7；v8 = 进程级审计流（宿主域表——persist export-only 声明，非 core: 表族）。
+// 拓扑边在册）。版本升序：scheduler v2 → goal v3 → memory v4-6·9 →
+// credentials v7 → audit v8 → load-generations v10（后两号 = 宿主域表——
+// persist export-only 声明，非 core: 表族）。
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
@@ -49,6 +56,10 @@ export const HOST_MIGRATION_TAIL: readonly MigrationSpec[] = [
   // 2026-09-08 U3 落码批 U3-5 聚合（audit_events 进程级 durable 审计流 v8
   // ——05 §9；宿主域表单写者 = 装配根，persist export-only 声明同形）
   AUDIT_MIGRATION,
+  // 2026-09-09 装载史批 h-2 聚合（load_generations 宿主形态镜像落账面 v10
+  // ——05 §9；单写者 = 装配根〔boot 完成点 + /reload reapply 尾，h-3 接线〕，
+  // persist export-only 声明同形）
+  LOAD_GENERATIONS_MIGRATION,
 ];
 
 /** closer 项（收口动作 + 标签——drain 超时强杀的 warn 载荷） */
