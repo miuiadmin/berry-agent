@@ -169,8 +169,14 @@ export interface ControlUsedRecord {
 export interface SessionsControlDeps {
   /** 多会话管理器（幽灵守卫 exists / 活体解析 driverOf / auto-open 投递腿） */
   readonly manager: SessionManager;
-  /** 启用清单 opens 取值器（操控门检输入——全域同门无树内豁免；只读集契约） */
-  readonly getOpens: () => ReadonlySet<string>;
+  /**
+   * 操控门检输入取值器（caller 感知合成——开门制扩展批 2026-09-09，03 §4.6
+   * 双源并集律）：插件道 caller = doors 段 ∪ 该插件行 opens 并集、模型道
+   * caller = doors 段单独（源①无插件 id 锚结构性缺位）。合成位在受理器门检
+   * 位逐次现读现判（撤位即收回——triggers.start-run fire 复检同律）；全域
+   * 同门无树内豁免；只读集契约。
+   */
+  readonly getOpensFor: (caller: ControlCaller) => ReadonlySet<string>;
   /** capability/used 审计 seam（05 §1.1——装配位接线，缺席 = 零审计） */
   readonly onCapabilityUsed?: (record: ControlUsedRecord) => void;
   /** a2a 回合护栏帽（缺省 A2A_ROUND_LIMIT_DEFAULT=5——装配可覆盖） */
@@ -211,9 +217,13 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
     }
   };
 
-  /** 操控门检（三动词共同前置②——全域同门无树内豁免，03 §2.2 第十一面门制句） */
-  const enforceDoor = (verb: string, targetSessionId: string): void => {
-    const verdict = adjudicateCapabilityDoor(deps.getOpens(), CONTROL_CROSS_CAPABILITY);
+  /**
+   * 操控门检（三动词共同前置②——全域同门无树内豁免，03 §2.2 第十一面门制句）。
+   * 门检输入 = caller 感知合成（开门制扩展批——deps.getOpensFor(caller)：
+   * 插件道 doors 段 ∪ 该插件行 opens、模型道 doors 段单独）。
+   */
+  const enforceDoor = (verb: string, targetSessionId: string, caller: ControlCaller): void => {
+    const verdict = adjudicateCapabilityDoor(deps.getOpensFor(caller), CONTROL_CROSS_CAPABILITY);
     if (!verdict.ok) {
       throw new BaseError(
         'SESSION_CONTROL_DENIED',
@@ -260,7 +270,7 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
         if (prior !== undefined) return prior;
       }
       guardTarget('send', input.targetSessionId);
-      enforceDoor('send', input.targetSessionId);
+      enforceDoor('send', input.targetSessionId, input.caller);
       // —— a2a 链深帽（03 §2.2 第十一面回合护栏）：送话方深度+1 超帽拒。
       // 插件服务道起跳链深 1（插件直唤即第一跳）；送话会话未 open 按 0——
       // 与「崩溃重启归零」同语义（内存位不承诺跨进程精确保留，护栏目的已达）
@@ -298,7 +308,7 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
 
     async interrupt(input) {
       guardTarget('interrupt', input.targetSessionId);
-      enforceDoor('interrupt', input.targetSessionId);
+      enforceDoor('interrupt', input.targetSessionId, input.caller);
       // 打断无对象响亮拒不静默 no-op（03 §2.2 第十一面 interrupt）——目标未
       // open 必无在飞 run（休眠会话无 run），缺席 driver 同判
       const driver = deps.manager.driverOf(input.targetSessionId);
@@ -321,7 +331,7 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
 
     async withdraw(input) {
       guardTarget('withdraw', input.targetSessionId);
-      enforceDoor('withdraw', input.targetSessionId);
+      enforceDoor('withdraw', input.targetSessionId, input.caller);
       // 队列是内存态：目标未 open / 已停摆清队 → 不在队恒真（'delivered'
       // 诚实呈报——不虚构撤回成功）
       const driver = deps.manager.driverOf(input.targetSessionId);

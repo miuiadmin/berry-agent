@@ -270,6 +270,15 @@ export interface PluginContextOptions {
    * （不获授予的插件探测不到门检存在，恰是默认关语义）。
    */
   readonly opens?: readonly string[];
+  /**
+   * 进程级 doors 段活体取值器（开门制扩展批 2026-09-09——03 §4.6 双源并集律
+   * 第二源）：observe-cross 专属分立判定位消费（订阅 all 档门检 grantedOpens
+   * ∥ doors 并判——**不并入 grantedOpens 全局面**，防波及共用该集的四枚插件
+   * 道面〔ui-backend/路由受理/secrets/操控绑定〕）。真身 = 装配根活体读
+   * enabled.yaml 顶层 doors 段（受理时点现读现判——撤位即收回）；缺席 =
+   * doors 支路恒空（订阅门检只吃行 opens——诊断形/测试替身）。
+   */
+  readonly crossDoors?: () => ReadonlySet<string>;
 }
 
 /** 命令注册表受局面（CommandRegistry 的结构面——测试替身免建全量） */
@@ -394,6 +403,26 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
    */
   const assertDoor = (capability: string): void => {
     const verdict = adjudicateCapabilityDoor(grantedOpens, capability);
+    if (!verdict.ok) {
+      throw new BaseError('PLUGIN_CAPABILITY_DOOR_CLOSED', `${verdict.message}（插件 ${pluginId}）`);
+    }
+  };
+
+  /**
+   * observe-cross 专属分立判定位（开门制扩展批 2026-09-09——03 §4.6 双源
+   * 并集律）：行 opens（grantedOpens 物化）∥ doors 段活体**并判**——两源任一
+   * 含该门即过。**不并入 grantedOpens 全局面**：grantedOpens 系四枚插件道面
+   * （ui-backend 换装/路由受理/secrets/操控绑定）共用的装载期单集，doors 段
+   * 是运行期活体源——只在此判定位合成局部集喂裁决核（message 单源
+   * adjudicateCapabilityDoor），波及面结构性为零。
+   */
+  const assertObserveCrossDoor = (): void => {
+    const doorsLive = options.crossDoors?.() ?? new Set<string>();
+    const opened =
+      grantedOpens.has('sessions.observe-cross') || doorsLive.has('sessions.observe-cross')
+        ? new Set(['sessions.observe-cross'])
+        : grantedOpens; // 两源皆不含——喂原集，裁决核判 door-closed（message 单源拒词）
+    const verdict = adjudicateCapabilityDoor(opened, 'sessions.observe-cross');
     if (!verdict.ok) {
       throw new BaseError('PLUGIN_CAPABILITY_DOOR_CLOSED', `${verdict.message}（插件 ${pluginId}）`);
     }
@@ -671,9 +700,11 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
           );
         }
         // all 档门检 + 审计（sessions.observe-cross 高危面——拉取/订阅一枚统摄；
-        // 审计一次于受理成功〔registerUiBackend 同形〕非逐事件——推送非使用动作）
+        // 审计一次于受理成功〔registerUiBackend 同形〕非逐事件——推送非使用动作）。
+        // 门检走 observe-cross 专属分立判定位（开门制扩展批——行 opens ∥ doors
+        // 段并判，见 assertObserveCrossDoor 注）
         if (observeScope === 'all') {
-          assertDoor('sessions.observe-cross');
+          assertObserveCrossDoor();
           options.auditSink?.append('capability/used', {
             pluginId,
             capability: 'sessions.observe-cross',

@@ -30,6 +30,7 @@ import type { CorePluginReference } from './loader.js';
 import {
   bootPlugins,
   createPluginToolLedger,
+  recordDoorsDiff,
   recordPluginLifecycleDiff,
   recordPluginOpensDiff,
 } from './plugin-boot.js';
@@ -804,6 +805,64 @@ describe('plugin/opens 幂等落（recordPluginOpensDiff——05 §1.1 boot 装�
     expect(face.listRecent()).toHaveLength(2);
     recordPluginOpensDiff(face, []); // 已空——撤位笔不重放
     expect(face.listRecent()).toHaveLength(2);
+  });
+});
+
+describe('doors/updated 幂等落（recordDoorsDiff——05 §1.1 行 72 进程级开门位 diff，开门制扩展批；幂等同 plugin/opens 律）', () => {
+  // 真库真面（audit_events 表由 AUDIT_MIGRATION 建就——读写往返零 mock）
+  const stores: Store[] = [];
+  afterAll(() => {
+    for (const s of stores) s.close();
+  });
+  function openFace(): AuditFace {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-agent-doors-diff-'));
+    dirs.push(dir);
+    const store = openStore({ dataDir: join(dir, 'data'), migrations: [AUDIT_MIGRATION] });
+    stores.push(store);
+    return createAuditFace(store.connection);
+  }
+  /** 全部已落词形（type + data 投影——词形断言面） */
+  const callsOf = (face: AuditFace): Array<{ type: string; data: Record<string, unknown> }> =>
+    [...face.listRecent()].reverse().map((r) => ({ type: r.type, data: r.data }));
+
+  it('首落：有段落全量快照 {doors, origin: boot-diff}；空面首记不落（无记录 ≡ 空面）', () => {
+    const face = openFace();
+    recordDoorsDiff(face, ['sessions.observe-cross']);
+    expect(callsOf(face)).toEqual([
+      { type: 'doors/updated', data: { doors: ['sessions.observe-cross'], origin: 'boot-diff' } },
+    ]);
+    // 空面首启零基线噪声（首启默认关）
+    const bare = openFace();
+    recordDoorsDiff(bare, []);
+    expect(callsOf(bare)).toEqual([]);
+  });
+
+  it('幂等：同面再 diff 零新笔（有变才落）；排序漂移零假记账', () => {
+    const face = openFace();
+    recordDoorsDiff(face, ['sessions.observe-cross', 'sessions.control-cross']);
+    recordDoorsDiff(face, ['sessions.control-cross', 'sessions.observe-cross']); // 排序漂移
+    expect(face.listRecent()).toHaveLength(1);
+  });
+
+  it('有变才落（增量）：开门落新快照；撤位 → doors:[] 收口形；再空幂等不重放', () => {
+    const face = openFace();
+    recordDoorsDiff(face, ['sessions.observe-cross']);
+    // 开第二门：落新全量快照
+    recordDoorsDiff(face, ['sessions.observe-cross', 'sessions.control-cross']);
+    // 撤位收口：全撤 → 空数组形（撤位即收回的事实账）
+    recordDoorsDiff(face, []);
+    expect(callsOf(face)).toEqual([
+      { type: 'doors/updated', data: { doors: ['sessions.observe-cross'], origin: 'boot-diff' } },
+      {
+        type: 'doors/updated',
+        // 排序后的稳态形（去重排序比对同 plugin/opens——集合语义不受手编序影响）
+        data: { doors: ['sessions.control-cross', 'sessions.observe-cross'], origin: 'boot-diff' },
+      },
+      { type: 'doors/updated', data: { doors: [], origin: 'boot-diff' } },
+    ]);
+    // 已空再 diff——撤位笔不重放
+    recordDoorsDiff(face, []);
+    expect(face.listRecent()).toHaveLength(3);
   });
 });
 

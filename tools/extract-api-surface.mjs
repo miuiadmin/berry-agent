@@ -1321,6 +1321,7 @@ export const INTERNAL_API_EXPORTS = new Set([
   'SERVICE_CATALOG',
   'CAPABILITIES',
   'USER_GRANTABLE_CAPABILITIES',
+  'DOORS_SEGMENT_V1_DOMAIN',
   'adjudicateCapabilityDoor',
   'CapabilityDoorVerdict',
   'API_ENFORCEMENT_IGNITED',

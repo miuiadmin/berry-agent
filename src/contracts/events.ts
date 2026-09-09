@@ -69,7 +69,10 @@ export interface EventTypeMeta {
  * 面落码批先行落 audit_events 载体〔CLI 人面无会话场景唯一可达 durable
  * 载体〕，本五词与之同载体并列成族——六词同面；词形单源本表：
  * installed {id,source,version} / mounted·unmounted {id} /
- * toggled {id,disabled 双态} / updated {id,from?,to}）。
+ * toggled {id,disabled 双态} / updated {id,from?,to}）；
+ * 28→29：doors/updated 随开门制扩展批入册（05 §1.1 行 72——进程级开门位
+ * 授予面切换事实：doors 段〔模型道高危面授予载体，03 §4.6 双源并集律第二
+ * 源〕的审计腿，boot diff 幂等同 plugin/opens 律；载体 = audit_events）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -194,6 +197,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '高危面开门授予面切换事实（boot 装载序对每插件 grantedOpens 与审计流尾最近一条本词 diff——有变才落幂等记账；撤位落 opens:[] 空数组形收口；载体 = 进程级 durable 审计流 audit_events〔05 §9〕非会话流，fold = 审计流尾条 = 该插件当前有效授予面）',
+  },
+  {
+    type: 'doors/updated',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '进程级开门位授予面切换事实（开门制扩展批 2026-09-09——doors 段〔模型道高危面授予载体，03 §4.6 双源并集律第二源〕的审计腿，与 plugin/opens 分立成对：行 opens 授予跟插件 id 走、doors 段授予跟进程走）：boot 装载序以 doors 段现值与审计流尾最近一条本词 diff——有变才落幂等记账（空面首记不落），撤位落 doors:[] 空数组形收口；载荷 {doors 全量清单快照, origin（boot-diff|tui-cmd）}；载体 = audit_events',
   },
   {
     type: 'capability/used',

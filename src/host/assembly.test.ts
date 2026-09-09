@@ -14,7 +14,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
-import { assembleHostStack, readTriggerOpensLive } from './assembly.js';
+import { assembleHostStack, createControlOpensFor, readDoorsSegmentLive, readTriggerOpensLive } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
@@ -440,6 +440,97 @@ describe('触发器开门活体读取（readTriggerOpensLive——C 批 C-3：�
     const dir = tmpDir('host-asm-tol-row-');
     writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: acme\n    opens: [not-a-grantable]\n');
     expect(readTriggerOpensLive(dir, 'acme')).toEqual(new Set());
+  });
+});
+
+describe('doors 段活体读取（readDoorsSegmentLive——开门制扩展批：双源并集律第二源运行期取值面）', () => {
+  it('null dataDir → 空集（memory 形全默认关）', () => {
+    expect(readDoorsSegmentLive(null)).toEqual(new Set());
+  });
+
+  it('文件缺席 → 空集（段缺席 = 该源空集）', () => {
+    const dir = tmpDir('host-asm-dsl-miss-');
+    expect(readDoorsSegmentLive(dir)).toEqual(new Set());
+  });
+
+  it('段在场 → 两门现读现判（/reload 撤位语义的数据源）', () => {
+    const dir = tmpDir('host-asm-dsl-open-');
+    writeFileSync(
+      join(dir, 'enabled.yaml'),
+      'plugins: []\ndoors:\n  - sessions.observe-cross\n  - sessions.control-cross\n',
+    );
+    expect(readDoorsSegmentLive(dir)).toEqual(new Set(['sessions.observe-cross', 'sessions.control-cross']));
+    // 撤位即收回：删段重读回落空集
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins: []\n');
+    expect(readDoorsSegmentLive(dir)).toEqual(new Set());
+  });
+
+  it('坏 yaml / 坏段值域 → 空集（宁拒不误放——运行期档与 boot fail-loud 分立）', () => {
+    const dir = tmpDir('host-asm-dsl-bad-');
+    writeFileSync(join(dir, 'enabled.yaml'), '{ Oops');
+    expect(readDoorsSegmentLive(dir)).toEqual(new Set());
+    // 段值域外（插件道高危面不进门）→ parseEnabledRows 拒 → 空集
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins: []\ndoors:\n  - channels.ui-backend\n');
+    expect(readDoorsSegmentLive(dir)).toEqual(new Set());
+  });
+
+  it('行校验败 → 空集（全文件一损俱损——doors 段不单独豁免）', () => {
+    const dir = tmpDir('host-asm-dsl-row-');
+    writeFileSync(
+      join(dir, 'enabled.yaml'),
+      'plugins:\n  - id: acme\n    opens: [not-a-grantable]\ndoors:\n  - sessions.observe-cross\n',
+    );
+    expect(readDoorsSegmentLive(dir)).toEqual(new Set());
+  });
+});
+
+describe('caller 感知合成取值器（createControlOpensFor——03 §4.6 双源并集律装配单源）', () => {
+  /** 速记：doors 段 + acme 行 opens 各自独立写（两源分立装配面） */
+  function rig(dataDir: string, doors: readonly string[], opens: readonly string[]): void {
+    const doorText = doors.length > 0 ? `doors:\n${doors.map((d) => `  - ${d}\n`).join('')}` : '';
+    const openText = opens.length > 0 ? `    opens:\n${opens.map((o) => `      - ${o}\n`).join('')}` : '';
+    writeFileSync(join(dataDir, 'enabled.yaml'), `plugins:\n  - id: acme\n${openText}${doorText}`);
+  }
+
+  it('插件道 caller = doors 段 ∪ 行 opens 并集（两源任一含门即过）', () => {
+    const dir = tmpDir('host-asm-cof-union-');
+    rig(dir, ['sessions.observe-cross'], ['sessions.control-cross']);
+    const opensFor = createControlOpensFor(dir);
+    const union = opensFor({ kind: 'plugin', pluginId: 'acme' });
+    expect(union.has('sessions.observe-cross')).toBe(true); // doors 段支路
+    expect(union.has('sessions.control-cross')).toBe(true); // 行 opens 支路
+    expect(union).toEqual(new Set(['sessions.observe-cross', 'sessions.control-cross']));
+  });
+
+  it('模型道 caller = doors 段单独（行 opens 无插件 id 锚结构性不进）', () => {
+    const dir = tmpDir('host-asm-cof-model-');
+    rig(dir, [], ['sessions.control-cross']); // 只有行 opens
+    const opensFor = createControlOpensFor(dir);
+    expect(opensFor({ kind: 'session', sessionId: 's-1' })).toEqual(new Set()); // 行 opens 不波及
+    // 段开门后模型道即见
+    rig(dir, ['sessions.control-cross'], []);
+    expect(opensFor({ kind: 'session', sessionId: 's-1' })).toEqual(new Set(['sessions.control-cross']));
+  });
+
+  it('两源皆空 → 两道皆空集（默认关）；他插件行 opens 不进本插件道', () => {
+    const dir = tmpDir('host-asm-cof-empty-');
+    rig(dir, [], []);
+    const opensFor = createControlOpensFor(dir);
+    expect(opensFor({ kind: 'plugin', pluginId: 'acme' })).toEqual(new Set());
+    expect(opensFor({ kind: 'session', sessionId: 's-1' })).toEqual(new Set());
+    // 他插件行（非 acme）不受 acme caller 影响——行 opens 按 pluginId 精确取
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: other\n    opens:\n      - sessions.control-cross\n');
+    expect(opensFor({ kind: 'plugin', pluginId: 'acme' })).toEqual(new Set());
+    expect(opensFor({ kind: 'plugin', pluginId: 'other' })).toEqual(new Set(['sessions.control-cross']));
+  });
+
+  it('撤位即收回：doors 段删除重读空集（/reload 语义——逐次现读现判）', () => {
+    const dir = tmpDir('host-asm-cof-live-');
+    rig(dir, ['sessions.control-cross'], []);
+    const opensFor = createControlOpensFor(dir);
+    expect(opensFor({ kind: 'session', sessionId: 's-1' })).toEqual(new Set(['sessions.control-cross']));
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins: []\n'); // 撤段
+    expect(opensFor({ kind: 'session', sessionId: 's-1' })).toEqual(new Set());
   });
 });
 

@@ -31,6 +31,7 @@ function assemble(overrides?: {
   rateLimit?: { windowMs: number; max: number };
   hookTimeoutMs?: number;
   opens?: readonly string[];
+  crossDoors?: () => ReadonlySet<string>;
   auditSink?: AuditSink;
   sessionLineage?: { isSameTree(a: string, b: string): boolean };
   toolLedger?: PluginToolLedger;
@@ -73,6 +74,7 @@ function assemble(overrides?: {
     ...(overrides?.rateLimit ? { rateLimit: overrides.rateLimit } : {}),
     ...(overrides?.hookTimeoutMs ? { hookTimeoutMs: overrides.hookTimeoutMs } : {}),
     ...(overrides?.opens !== undefined ? { opens: overrides.opens } : {}),
+    ...(overrides?.crossDoors !== undefined ? { crossDoors: overrides.crossDoors } : {}),
     ...(overrides?.auditSink !== undefined ? { auditSink: overrides.auditSink } : {}),
     ...(overrides?.sessionLineage !== undefined ? { sessionLineage: overrides.sessionLineage } : {}),
     ...(overrides?.toolLedger !== undefined ? { toolLedger: overrides.toolLedger } : {}),
@@ -928,6 +930,54 @@ describe('会话活体订阅（ctx.events.subscribeSessionLifecycle——04 §6 
     await granted.dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'any-1', phase: 'run-started' });
     await granted.dispatch.emit(SESSION_LIFECYCLE_EVENT, { sessionId: 'any-2', phase: 'run-settled' });
     expect(events).toHaveLength(2);
+  });
+
+  it('doors 段单独开门即过（双源并集律第二源——行 opens 空不阻）+ 审计同落', () => {
+    const audit: { type: string; data: Record<string, unknown> }[] = [];
+    const { handle } = assembleSub({
+      crossDoors: () => new Set(['sessions.observe-cross']),
+      auditSink: { append: (type, data) => audit.push({ type, data }) },
+    });
+    expect(() => handle.ctx.events.subscribeSessionLifecycle(() => undefined)).not.toThrow();
+    expect(audit).toEqual([
+      {
+        type: 'capability/used',
+        data: {
+          pluginId: 'acme-widgets',
+          capability: 'sessions.observe-cross',
+          verb: 'subscribeSessionLifecycle',
+          scope: 'all',
+        },
+      },
+    ]);
+  });
+
+  it('两源皆不含拒（doors 段在场但无此门——并判非段即全开）', () => {
+    const { handle } = assembleSub({
+      opens: ['sdk.register-route'],
+      crossDoors: () => new Set(['sessions.control-cross']),
+    });
+    expectCode(() => handle.ctx.events.subscribeSessionLifecycle(() => undefined), 'PLUGIN_CAPABILITY_DOOR_CLOSED');
+  });
+
+  it('doors 撤位即收回（活体现读现判——同一装配两次受理两次判）', () => {
+    let live = new Set(['sessions.observe-cross']);
+    const { handle } = assembleSub({ crossDoors: () => live });
+    expect(() => handle.ctx.events.subscribeSessionLifecycle(() => undefined)).not.toThrow();
+    live = new Set<string>(); // /reload 撤位（撤 doors 段行）
+    expectCode(() => handle.ctx.events.subscribeSessionLifecycle(() => undefined), 'PLUGIN_CAPABILITY_DOOR_CLOSED');
+  });
+
+  it('crossDoors 缺席只吃行 opens（旧装配兼容——第二源缺席不凭空开门）', () => {
+    const { handle } = assembleSub({ opens: ['sessions.observe-cross'] });
+    expect(() => handle.ctx.events.subscribeSessionLifecycle(() => undefined)).not.toThrow();
+  });
+
+  it('doors 命中不污染 grantedOpens（分立判定位——局部合成集只喂裁决核）', () => {
+    const { handle } = assembleSub({ crossDoors: () => new Set(['sessions.observe-cross']) });
+    expect(() => handle.ctx.events.subscribeSessionLifecycle(() => undefined)).not.toThrow();
+    expect(handle.grantedOpens.has('sessions.observe-cross')).toBe(false); // 全局面维持装载期物化
+    expect(handle.grantedOpens.size).toBe(0);
   });
 
   it('all 档审计恰一笔（受理成功时——逐事件不追加：推送非使用动作）', async () => {

@@ -50,6 +50,7 @@ import {
   SessionManager,
 } from '../conversation/index.js';
 import type {
+  ControlCaller,
   ControlUsedRecord,
   DriverFactory,
   SubmitOptions,
@@ -120,9 +121,10 @@ export interface ConversationStackOptions {
   readonly compaction?: CompactionService;
   /**
    * 跨树观测门检接线（e-2 观测腿——03 §4.6 第五枚 sessions.observe-cross 工具
-   * 腿宿主注入位）：getOpens = 开门授予集取值器（v1 装配根注空集——会话→插件
-   * 归因未立，授予面接线挂账 e-4 provenance 落地时呈拍）；onCapabilityUsed =
-   * 开门后逐次审计 seam（05 §1.1——装配根接 audit 单写者位；缺席 = 零审计）。
+   * 腿宿主注入位；开门制扩展批 2026-09-09 授予面接线）：getOpens = 模型道
+   * 门检输入 = doors 段单独（装配根接活体读——插件道订阅走 plugin-context
+   * 分立判定位不经本 seam）；onCapabilityUsed = 开门后逐次审计 seam（05 §1.1
+   * ——装配根接 audit 单写者位；缺席 = 零审计）。
    */
   readonly observeCross?: {
     readonly getOpens: () => ReadonlySet<string>;
@@ -130,14 +132,15 @@ export interface ConversationStackOptions {
   };
   /**
    * 跨会话操控门检接线（e-4 操控腿——03 §4.6 第六枚 sessions.control-cross
-   * 双面同门）：getOpens = 开门授予集取值器（v1 装配根注空集——结构性默认
-   * 关，授予面呈拍随 e-4 收官报告与 e-5 题 9 一起呈）；onCapabilityUsed =
-   * 开门后逐次审计 seam（05 §1.1——装配根接 audit 单写者位；缺席 = 零审计）。
-   * 受理器真身经 ConversationStack.sessionsControl 读面外露（plugin-boot fork
-   * 绑定位消费——与工具族同一实例，双面同源）。
+   * 双面同门；开门制扩展批 2026-09-09 授予面接线）：getOpensFor = caller
+   * 感知合成取值器（03 §4.6 双源并集律——插件道 caller = doors 段 ∪ 该插件行
+   * opens、模型道 caller = doors 段单独；受理器门检位逐次现读现判，撤位即
+   * 收回）；onCapabilityUsed = 开门后逐次审计 seam（05 §1.1——装配根接 audit
+   * 单写者位；缺席 = 零审计）。受理器真身经 ConversationStack.sessionsControl
+   * 读面外露（plugin-boot fork 绑定位消费——与工具族同一实例，双面同源）。
    */
   readonly controlCross?: {
-    readonly getOpens: () => ReadonlySet<string>;
+    readonly getOpensFor: (caller: ControlCaller) => ReadonlySet<string>;
     readonly onCapabilityUsed?: (record: ControlUsedRecord) => void;
   };
   /** 警示面（缺省 stderr——驱动护栏与压缩 warn 的落点） */
@@ -347,15 +350,16 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         // e-3 环境自感窄面（03 §10.8 session_status 并入注）：工具清单 =
         // 本会话整形后面（shapeTools 白名单后的可见面——子代理派生面自省
         // 即其子实面，04 §10「孙代委派以子实面为基准」同律；lazy 读，execute
-        // 时点装配已完成）；门态 = 观测门经同一门检裁决（reason 与执行时拒
-        // 绝 message 同源——先查后用）；操控门随 e-4 落位同 getter 扩
+        // 时点装配已完成）；门态 = 与门检同吃 caller 感知合成源（开门制扩展批
+        // ——本会话即模型道 caller：观测门 doors 段单独、操控门 getOpensFor
+        // session caller 形；reason 与执行时拒绝 message 同源——先查后用）
         env: {
           listTools: () => (tools ?? []).map((entry) => ({ name: entry.name })),
           doorStates: () => {
             const opens = options.observeCross?.getOpens() ?? new Set<string>();
             const verdict = adjudicateCapabilityDoor(opens, OBSERVE_CROSS_CAPABILITY);
             const controlVerdict = adjudicateCapabilityDoor(
-              options.controlCross?.getOpens() ?? new Set<string>(),
+              options.controlCross?.getOpensFor({ kind: 'session', sessionId }) ?? new Set<string>(),
               CONTROL_CROSS_CAPABILITY,
             );
             return [
@@ -437,10 +441,11 @@ export function createConversationStack(options: ConversationStackOptions): Conv
 
   // 操控受理器（e-4——03 §2.2 第十一面双面同源单源实现位）：栈级单例——
   // 工具族（模型道 per-session 闭包）与 plugin-boot fork 绑定（插件道）消费
-  // 同一实例。门检/审计经 controlCross seam（v1 装配根注空集 = 结构性默认关）
+  // 同一实例。门检 caller 感知合成 + 审计经 controlCross seam（开门制扩展批
+  // ——装配根接 doors 段 ∪ 行 opens 双源，模型道 doors 段单独）
   const sessionsControl = createSessionsControl({
     manager,
-    getOpens: () => options.controlCross?.getOpens() ?? new Set<string>(),
+    getOpensFor: (caller) => options.controlCross?.getOpensFor(caller) ?? new Set<string>(),
     ...(options.controlCross?.onCapabilityUsed !== undefined
       ? { onCapabilityUsed: options.controlCross.onCapabilityUsed }
       : {}),

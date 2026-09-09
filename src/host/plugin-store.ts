@@ -244,15 +244,22 @@ export type LifecycleAuditSink = (
 ) => void;
 
 /**
- * 读启用行集（缺席 = 空集——§5.3 缺席语义；损坏 = fail-loud result 面：
- * CLI 呈现修复指引退 1，boot 装载序同判据拒启——两律分立但判据单源）。
+ * 读启用行集 + 顶层 doors 段（缺席 = 空集——§5.3 缺席语义；损坏 = fail-loud
+ * result 面：CLI 呈现修复指引退 1，boot 装载序同判据拒启——两律分立但判据
+ * 单源）。doors 段随行集一并读出（开门制扩展批 2026-09-09——行编辑腿全文件
+ * 形状往返保真：写侧必须原样携带 doors 段，静默抹段 = 静默收回用户授予）。
  */
 export function readEnabledRowsForEdit(
   dataDir: string,
   fs: PluginStoreFs,
-): { readonly ok: true; readonly rows: readonly EnabledRow[] } | { readonly ok: false; readonly message: string } {
+):
+  | { readonly ok: true; readonly rows: readonly EnabledRow[]; readonly doors: readonly string[] | undefined }
+  | {
+      readonly ok: false;
+      readonly message: string;
+    } {
   const text = fs.read(enabledYamlPath(dataDir));
-  if (text === null) return { ok: true, rows: [] };
+  if (text === null) return { ok: true, rows: [], doors: undefined };
   let doc: unknown;
   try {
     doc = parseYaml(text);
@@ -266,10 +273,20 @@ export function readEnabledRowsForEdit(
   if (!result.ok) {
     return {
       ok: false,
-      message: `启用清单校验失败：${result.message}——修复指引：顶层 { plugins: [{ id, config?, disabled?, opens? }] }`,
+      message: `启用清单校验失败：${result.message}——修复指引：顶层 { plugins: [{ id, config?, disabled?, opens? }], doors?: [...] }`,
     };
   }
-  return { ok: true, rows: result.rows };
+  return { ok: true, rows: result.rows, doors: parseDoorsPresence(doc) };
+}
+
+/**
+ * doors 段在场性判别（往返保真位——parseEnabledRows 已把缺席归一为 []，本函数
+ * 从原文档辨「段缺席」与「段显式空」：显式 `doors: []` 编辑后仍写回显式空段
+ * （用户手编形状原样保真），段缺席则不凭空造段）。
+ */
+function parseDoorsPresence(doc: unknown): readonly string[] | undefined {
+  const raw = (doc as Record<string, unknown> | null | undefined)?.['doors'];
+  return raw === undefined ? undefined : Array.isArray(raw) ? (raw as readonly string[]) : undefined;
 }
 
 /**
@@ -291,7 +308,7 @@ export function mountRow(
     return { ok: false, message: `插件 ${id} 启用行已在场——mount 拒撞名（改配置 = unmount 后重 mount；03 §5.6）` };
   }
   const row: EnabledRow = { id, ...(config !== undefined ? { config } : {}) };
-  writeEnabledRows(dataDir, [...read.rows, row], fs);
+  writeEnabledRows(dataDir, [...read.rows, row], read.doors, fs);
   onLifecycleAudit?.('plugin/mounted', { id });
   return { ok: true };
 }
@@ -319,6 +336,7 @@ export function unmountRow(
   writeEnabledRows(
     dataDir,
     read.rows.filter((row) => row.id !== id),
+    read.doors,
     fs,
   );
   onLifecycleAudit?.('plugin/unmounted', { id });
@@ -359,13 +377,23 @@ export function toggleRow(
       disabled = true;
     }
   }
-  writeEnabledRows(dataDir, rows, fs);
+  writeEnabledRows(dataDir, rows, read.doors, fs);
   onLifecycleAudit?.('plugin/toggled', { id, disabled });
   return { ok: true };
 }
 
-/** enabled.yaml 原子写（yaml 序列化顶层 { plugins: [...] }——与读侧形状对偶） */
-function writeEnabledRows(dataDir: string, rows: readonly EnabledRow[], fs: PluginStoreFs): void {
+/**
+ * enabled.yaml 原子写（yaml 序列化——与读侧形状对偶）。doors 段原样携带
+ * （开门制扩展批 2026-09-09——03 §5.3 行编辑与段编辑全文件形状往返保真律：
+ * 行编辑腿〔mount/uninstall/toggle〕重写本文件时 doors 段必须保真，静默抹段
+ * = 静默收回用户授予，结构性禁止）；doors 缺席（段不在场）不凭空造段。
+ */
+function writeEnabledRows(
+  dataDir: string,
+  rows: readonly EnabledRow[],
+  doors: readonly string[] | undefined,
+  fs: PluginStoreFs,
+): void {
   const doc = {
     plugins: rows.map((row) => {
       const out: Record<string, unknown> = { id: row.id };
@@ -374,6 +402,7 @@ function writeEnabledRows(dataDir: string, rows: readonly EnabledRow[], fs: Plug
       if (row.opens !== undefined) out['opens'] = [...row.opens];
       return out;
     }),
+    ...(doors !== undefined ? { doors: [...doors] } : {}),
   };
   atomicWrite(fs, enabledYamlPath(dataDir), stringifyYaml(doc));
 }

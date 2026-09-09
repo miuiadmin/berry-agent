@@ -8,7 +8,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
@@ -517,7 +517,7 @@ describe('会话维观测装配（e2-4 观测腿接线）', () => {
     expect(results[0]!.error).toBeUndefined(); // 树内 self 白给——零门检零错误面
   });
 
-  it('e-3 环境自感三段：session_status 呈现整形后工具清单 + 观测门态（v1 恒闭）+ 负面能力声明', async () => {
+  it('e-3 环境自感三段：session_status 呈现整形后工具清单 + 观测门态（默认关）+ 负面能力声明', async () => {
     const { rt } = rigRuntime();
     const { faux, stack } = rigStack(rt);
     const session = stack.openStartupSession(rigWorkspace());
@@ -533,7 +533,7 @@ describe('会话维观测装配（e2-4 观测腿接线）', () => {
     // 工具清单段：整形后有效可见集（sessionTools 自身在列——lazy 读装配后 tools 变量）
     expect(text).toContain('tools(');
     expect(text).toContain('session_status');
-    // 门态快照段：观测门 v1 结构性闭门（getOpens 空集）——reason 与执行时拒绝 message 同源
+    // 门态快照段：rigStack 不接 doors 源 = 空集默认关——reason 与执行时拒绝 message 同源
     expect(text).toContain('capability-doors');
     expect(text).toContain('sessions.observe-cross=closed');
     // 负面能力声明段：闭门面「不要承诺」负向清单（hermes 防幻觉形）
@@ -541,7 +541,7 @@ describe('会话维观测装配（e2-4 观测腿接线）', () => {
     expect(text).toContain('不要承诺');
   });
 
-  it('跨树默认关（v1 结构性空集）：session_read 跨树目标 → [SESSION_OBSERVE_DENIED] 错面', async () => {
+  it('跨树默认关（doors 源缺席空集）：session_read 跨树目标 → [SESSION_OBSERVE_DENIED] 错面', async () => {
     const { rt } = rigRuntime();
     const { faux, stack } = rigStack(rt);
     const a = stack.openStartupSession(rigWorkspace());
@@ -685,7 +685,7 @@ describe('跨会话操控装配（e4-3 操控腿接线）', () => {
     }
   });
 
-  it('操控门 v1 结构性闭门：session_send 跨会话 → [SESSION_CONTROL_DENIED] 错面（run 不中断）', async () => {
+  it('操控门默认关（doors 源缺席空集）：session_send 跨会话 → [SESSION_CONTROL_DENIED] 错面（run 不中断）', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();
     const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
@@ -731,6 +731,104 @@ describe('跨会话操控装配（e4-3 操控腿接线）', () => {
         .session.events()
         .find((event) => event.type === 'tool/result')!.data,
     );
-    expect(text).toContain('sessions.control-cross=closed'); // 操控门行在场（v1 空集恒闭）
+    expect(text).toContain('sessions.control-cross=closed'); // 操控门行在场（doors 源缺席恒闭）
+  });
+});
+
+/* ---------------- doors 段开门换态 e2e（开门制扩展批 g-1——seam 活体两读两判） ---------------- */
+
+describe('doors 段开门换态 e2e（开门制扩展批——observeCross/controlCross seam 活体源）', () => {
+  it('观测门 open 后 session_read 跨树过门；撤位即收回（受理时点现读现判）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    let live = new Set(['sessions.observe-cross']); // doors 段活体（受理时点现读现判）
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      observeCross: { getOpens: () => live },
+    });
+    const a = stack.openStartupSession(ws);
+    const b = stack.openStartupSession(ws); // 跨树目标
+    // 开门态：跨树读正常收口（非错面）+ 门态快照呈 open
+    faux.setResponses([() => toolCallOf('t1', 'session_read', { sessionId: b.sessionId }), () => messageOf('stop')]);
+    const receipt = await stack.submitText(a.sessionId, '看别的会话');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    const readResult = stack
+      .driverOf(a.sessionId)!
+      .session.events()
+      .find((event) => event.type === 'tool/result')!.data as { error?: true };
+    expect(readResult.error).toBeUndefined(); // 过门——SESSION_OBSERVE_DENIED 不再
+    // 撤位即收回：同一装配再读同目标 → 错面复现（活体两读两判）
+    live = new Set<string>();
+    faux.setResponses([() => toolCallOf('t2', 'session_read', { sessionId: b.sessionId }), () => messageOf('stop')]);
+    await stack.submitText(a.sessionId, '再看一次');
+    const denied = stack
+      .driverOf(a.sessionId)!
+      .session.events()
+      .filter((event) => event.type === 'tool/result')
+      .at(-1)!.data as { content: unknown; error?: true };
+    expect(denied.error).toBe(true);
+    expect(JSON.stringify(denied.content)).toContain('SESSION_OBSERVE_DENIED');
+    await rt.shutdown();
+  });
+
+  it('操控门 open 后 send 受理收口；门态快照同吃合成源（模型道视角）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const live = new Set(['sessions.control-cross']); // doors 段活体
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      controlCross: { getOpensFor: () => live },
+    });
+    const a = stack.openStartupSession(ws);
+    const b = stack.openStartupSession(ws); // 目标会话
+    faux.setResponses([() => messageOf('stop')]); // b 的 followUp 轮消费（单响应即收口）
+    // 开门态：sessionsControl 受理器（与工具族同源单例）send 三态受理成功
+    const receipt = await stack.sessionsControl.send({
+      caller: { kind: 'session', sessionId: a.sessionId },
+      targetSessionId: b.sessionId,
+      text: 'hi',
+    });
+    expect(['delivered', 'queued']).toContain(receipt.status);
+    // 等 b 的 followUp 轮收口（防与主线程 setResponses 抢全局 faux 队列）
+    await vi.waitFor(() => {
+      expect(
+        stack
+          .driverOf(b.sessionId)!
+          .session.events()
+          .some((event) => event.type === 'turn/end'),
+      ).toBe(true);
+    });
+    // 撤位即收回：同 caller 再 send → 门拒（受理序门检位前置于一切）
+    live.clear();
+    await expect(
+      stack.sessionsControl.send({
+        caller: { kind: 'session', sessionId: a.sessionId },
+        targetSessionId: b.sessionId,
+        text: 'again',
+      }),
+    ).rejects.toMatchObject({ code: 'SESSION_CONTROL_DENIED' });
+    // 门态快照段同源：模型道视角 doorStates 走 getOpensFor({kind:'session'}) 合成位
+    live.add('sessions.control-cross');
+    faux.setResponses([() => toolCallOf('t1', 'session_status', {}), () => messageOf('stop')]);
+    const run = stack.submitText(a.sessionId, '自省');
+    const settled = await run;
+    expect(settled).toMatchObject({ status: 'completed' });
+    const status = JSON.stringify(
+      stack
+        .driverOf(a.sessionId)!
+        .session.events()
+        .filter((event) => event.type === 'tool/result')
+        .at(-1)!.data,
+    );
+    expect(status).toContain('sessions.control-cross=open');
+    await rt.shutdown();
   });
 });

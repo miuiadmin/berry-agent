@@ -47,7 +47,7 @@ import { createSessionsFace } from './sessions-face.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
-import type { AgentService } from '../conversation/index.js';
+import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
 import type { CorePluginReference } from './loader.js';
 import { enabledYamlPath, parseEnabledRows } from './manifest.js';
@@ -280,19 +280,21 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // run-scoped 现行为；goalScopeFor 调用面 = 驱动每请求 fold）
       goalScopeFor: (sessionId) => scope.tryGet<GoalFace>('goal')?.service.goalScopeFor(sessionId),
       // 跨树观测门检接线（e2-4——03 §4.6 第五枚 sessions.observe-cross 工具
-      // 腿）：getOpens = v1 空集（会话→插件归因未立——结构性默认关，授予面
-      // 接线挂账 e-4 provenance 落地时呈拍）；onCapabilityUsed = 开门后逐次
-      // 审计（05 §1.1 键 = 动词名 + 目标会话 id——工具腿载荷原形透传）
+      // 腿；开门制扩展批 2026-09-09 授予面接线）：模型道门检输入 = doors 段
+      // 单独（活体读——受理时点现读现判，撤位即收回；插件道订阅走 plugin-context
+      // 分立判定位不经本 seam）；onCapabilityUsed = 开门后逐次审计（05 §1.1
+      // 键 = 动词名 + 目标会话 id——工具腿载荷原形透传）
       observeCross: {
-        getOpens: () => new Set<string>(),
+        getOpens: () => readDoorsSegmentLive(dataDir),
         onCapabilityUsed: (record) => void audit.append('capability/used', { ...record }),
       },
-      // 跨会话操控门检接线（e4-3——03 §4.6 第六枚 sessions.control-cross）：
-      // getOpens = v1 空集（结构性默认关——操控开门授予面随收官报告呈拍）；
-      // onCapabilityUsed = 门开后逐次审计（05 §1.1 ControlUsedRecord——
-      // 动词名 + 目标会话 id + 双道归因键原形透传）
+      // 跨会话操控门检接线（e4-3——03 §4.6 第六枚 sessions.control-cross
+      // 双面同门；开门制扩展批 2026-09-09 授予面接线）：getOpensFor = caller
+      // 感知合成（03 §4.6 双源并集律——createControlOpensFor 单源；受理器门检
+      // 位逐次现读现判）；onCapabilityUsed = 门开后逐次审计（05 §1.1
+      // ControlUsedRecord——动词名 + 目标会话 id + 双道归因键原形透传）
       controlCross: {
-        getOpens: () => new Set<string>(),
+        getOpensFor: createControlOpensFor(dataDir),
         onCapabilityUsed: (record) => void audit.append('capability/used', { ...record }),
       },
       warn: (message) => logger.warn(message),
@@ -482,6 +484,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 位）：plugin-boot 逐插件 bindControlForPlugin 铸 caller 闭包（插件
           // 道归因 plugin:<id>——传入面无 caller 位，伪造结构性不存在）
           sessionsControl: stack.sessionsControl,
+          // 进程级 doors 段活体取值器（开门制扩展批 2026-09-09——observe-cross
+          // 专属分立判定位消费：订阅 all 档门检行 opens ∥ doors 并判）
+          crossDoors: () => readDoorsSegmentLive(dataDir),
           // 压缩席位容器（U4-3——ctx.get("compaction") fork 绑定位）：真身 =
           // conversation-stack 装配的 createCompactionSlots 单真身（服务三 seam
           // 中 getConfig/getProvider 两容器位已在 stack 内接线；此处逐插件
@@ -883,4 +888,54 @@ export function readTriggerOpensLive(dataDir: string | null, pluginId: string): 
   const row = result.rows.find((r) => r.id === pluginId);
   if (row === undefined || row.disabled === true) return new Set<string>();
   return new Set<string>(row.opens ?? []);
+}
+
+/**
+ * 进程级 doors 段活体读取（开门制扩展批 2026-09-09——03 §4.6 双源并集律第二
+ * 源的运行期取值面）：每次现读 enabled.yaml 现解析顶层 doors 段，受理时点
+ * 现读现判（撤位即收回——readTriggerOpensLive 同律同位）。消费位两路：模型
+ * 道两工具族门检输入（observeCross seam）+ 操控受理器 caller 感知合成的
+ * doors 支路（controlCross seam 插件道并集项/模型道单独项）。
+ *
+ * **fail-closed 全失败档一律空集**（文件缺席/不可读/坏 yaml/段校验败——与
+ * readTriggerOpensLive 同律：boot 读侧 fail-loud 拦启动期配置错，此处拦运行
+ * 期判面宁拒不误放；memory 形 dataDir null 亦空集）。
+ */
+export function readDoorsSegmentLive(dataDir: string | null): ReadonlySet<string> {
+  if (dataDir === null) return new Set<string>();
+  let text: string;
+  try {
+    text = readFileSync(enabledYamlPath(dataDir), 'utf8');
+  } catch {
+    return new Set<string>(); // 缺席/不可读 = 段缺席 = 该源空集
+  }
+  let doc: unknown;
+  try {
+    doc = parseYaml(text);
+  } catch {
+    return new Set<string>(); // 坏 yaml 宁拒不误放
+  }
+  const result = parseEnabledRows(doc);
+  if (!result.ok) return new Set<string>();
+  return new Set<string>(result.doors);
+}
+
+/** 双源并集（caller 感知合成的插件道支路——纯局部集，不改写两源只读集） */
+function unionOpens(a: ReadonlySet<string>, b: ReadonlySet<string>): ReadonlySet<string> {
+  const out = new Set<string>(a);
+  for (const value of b) out.add(value);
+  return out;
+}
+
+/**
+ * caller 感知合成取值器工厂（开门制扩展批 2026-09-09——03 §4.6 双源并集律的
+ * 装配单源）：插件道 caller = doors 段活体 ∪ 该插件行 opens 活体并集
+ * （readTriggerOpensLive 同源——源①无插件 id 锚的结构性缺位由此补齐）、模型
+ * 道 caller = doors 段单独。逐次现读现判（撤位即收回）。
+ */
+export function createControlOpensFor(dataDir: string | null): (caller: ControlCaller) => ReadonlySet<string> {
+  return (caller) =>
+    caller.kind === 'plugin'
+      ? unionOpens(readDoorsSegmentLive(dataDir), readTriggerOpensLive(dataDir, caller.pluginId))
+      : readDoorsSegmentLive(dataDir);
 }

@@ -107,7 +107,9 @@ function makeHarness() {
   const opens = new Set<string>();
   const control = createSessionsControl({
     manager,
-    getOpens: () => opens,
+    // caller 感知合成测试位（开门制扩展批）：单集直通——两道 caller 同集；
+    // caller 分道合成律归 assembly 侧（getOpensFor 装配真源）测试
+    getOpensFor: () => opens,
     onCapabilityUsed: (record) => used.push(record),
   });
   return {

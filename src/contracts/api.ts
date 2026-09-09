@@ -212,6 +212,15 @@ export const USER_GRANTABLE_CAPABILITIES: readonly string[] = CAPABILITIES.filte
 );
 
 /**
+ * 启用清单顶层 `doors:` 段值域 v1 单源（开门制扩展批 2026-09-09——03 §4.6
+ * 双源并集律第二源的值域面）：观测/操控两门枚举。**射程即值域**——六枚全宽
+ * 将致「清单呈现开、门检实效关」的三读分叉与审计说谎背离（冷读闸 major #1
+ * 收窄）；USER_GRANTABLE_CAPABILITIES 名单系其上界，扩枚随后续模型道高危面
+ * 立题放宽。行校验拒绝式消费（host/manifest——段坏形/值域外 fail-loud 拒）。
+ */
+export const DOORS_SEGMENT_V1_DOMAIN: readonly string[] = ['sessions.observe-cross', 'sessions.control-cross'];
+
+/**
  * 门检裁决结果（§4.6 开门语义的裁决面形态——纯数据，fail-loud 抛掷归宿主
  * 注入位：装载器/换装缝按 kind 包 `PLUGIN_CAPABILITY_DOOR_CLOSED`）。
  */

@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 // internal 桶机制符号深导（opens 值域单源闭环锁——与宿主读侧同判据）
-import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
+import { DOORS_SEGMENT_V1_DOMAIN, USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { checkPluginId, parseEnabledRows, parseManifest, MANIFEST_KEY_CATALOG } from './manifest.js';
 
 /** 合法最小包速记（每用例局部变异——不共享可变引用） */
@@ -344,5 +344,71 @@ describe('parseEnabledRows opens 授予位（03 §4.6 批 U2 读侧）', () => {
       plugins: [{ id: 'demo', opens: [...USER_GRANTABLE_CAPABILITIES, 'made.up-door'] }],
     });
     expect(beyond.ok).toBe(false);
+  });
+});
+
+describe('parseEnabledRows doors 段（03 §4.6 双源并集律第二源——开门制扩展批读侧）', () => {
+  it('合法值过且透传（两门枚举；缺席 = 空数组）', () => {
+    const r = parseEnabledRows({ plugins: [], doors: ['sessions.observe-cross', 'sessions.control-cross'] });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.doors).toEqual(['sessions.observe-cross', 'sessions.control-cross']);
+    }
+    const empty = parseEnabledRows({ plugins: [] });
+    expect(empty.ok).toBe(true);
+    if (empty.ok) expect(empty.doors).toEqual([]);
+    // 显式空段合法（撤位收口形）
+    const explicit = parseEnabledRows({ plugins: [], doors: [] });
+    expect(explicit.ok).toBe(true);
+  });
+
+  it('坏形状拒（非数组 / 元素非字符串 / 空串元素）——PLUGIN_ROW_INVALID 同门', () => {
+    for (const bad of ['sessions.observe-cross', [1], [''], { a: 1 }]) {
+      const r = parseEnabledRows({ plugins: [], doors: bad });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.code).toBe('PLUGIN_ROW_INVALID');
+    }
+  });
+
+  it('值域外拒——两门枚举即值域（射程即值域；四枚插件道高危面不进门）', () => {
+    // 插件道四枚 + 专名都不在 doors 段值域内（模型道射程 = 观测/操控两门）
+    for (const illegal of [
+      'channels.ui-backend',
+      'sdk.register-route',
+      'triggers.start-run',
+      'credentials.read-cross',
+      'made.up-door',
+    ]) {
+      const r = parseEnabledRows({ plugins: [], doors: [illegal] });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.code).toBe('PLUGIN_ROW_INVALID');
+        expect(r.message).toContain(illegal);
+        expect(r.message).toContain('sessions.observe-cross');
+        expect(r.message).toContain('sessions.control-cross');
+      }
+    }
+  });
+
+  it('值域 = DOORS_SEGMENT_V1_DOMAIN 单源消费（§8.2 名单系上界非值域）', () => {
+    const all = parseEnabledRows({ plugins: [], doors: [...DOORS_SEGMENT_V1_DOMAIN] });
+    expect(all.ok).toBe(true);
+    const beyond = parseEnabledRows({ plugins: [], doors: [...DOORS_SEGMENT_V1_DOMAIN, 'channels.ui-backend'] });
+    expect(beyond.ok).toBe(false);
+  });
+
+  it('顶层未知键拒——闭集 plugins/doors（段名手误不静默忽略 = 不静默不授予）', () => {
+    const r = parseEnabledRows({ plugins: [], door: ['sessions.observe-cross'] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe('PLUGIN_ROW_INVALID');
+      expect(r.message).toContain('door');
+      expect(r.message).toContain('plugins/doors');
+    }
+  });
+
+  it('行集校验与 doors 段校验同过同拒（坏行优先报行——先段后行读序无隐序依赖）', () => {
+    const both = parseEnabledRows({ plugins: [{ id: 'demo', opens: ['made.up'] }], doors: ['made.up'] });
+    expect(both.ok).toBe(false);
   });
 });

@@ -247,6 +247,15 @@ export interface PluginBootOptions {
    */
   readonly sessionsControl?: SessionsControlFace;
   /**
+   * 进程级 doors 段活体取值器（开门制扩展批 2026-09-09——03 §4.6 双源并集律
+   * 第二源）：真源 = enabled.yaml 顶层 doors 段现读现解析（assembly 注入；
+   * 受理时点现读现判——撤位即收回，triggers.start-run fire 复检同律）。
+   * 在场时透传 createPluginContext 的 crossDoors 位（observe-cross 专属分立
+   * 判定位消费——订阅 all 档门检 grantedOpens ∥ doors 并判）；缺席 = 插件道
+   * 订阅只吃行 opens（分立判定位 doors 支路恒空——诊断形/测试替身）。
+   */
+  readonly crossDoors?: () => ReadonlySet<string>;
+  /**
    * 压缩席位容器（U4-3——03 §2.2 第十二面 compaction 服务面）：真身 =
    * conversation-stack 装配的 createCompactionSlots 单真身（stack.
    * compactionSlots）。在场时装载序逐插件 fork 绑定 bindForPlugin 产物
@@ -367,8 +376,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   const hookWords = PLUGIN_HOOK_VOCABULARY.map((h) => h.name).filter((name) => !options.dispatch.isRegistered(name));
   options.dispatch.registerEventNames(hookWords);
 
-  // ① enabled.yaml 读侧（损坏 fail-loud——两律分立在件头注释）
-  const rows = readEnabledRows(options.runtime.dataDir, fs);
+  // ① enabled.yaml 读侧（损坏 fail-loud——两律分立在件头注释）；行集 + 顶层
+  // doors 段（开门制扩展批——doors 段经 boot 读侧解析即装载期 fail-loud 执法）
+  const { rows, doors } = readEnabledRows(options.runtime.dataDir, fs);
 
   // ③ 装机账本读侧（损坏 warn 降级——与启用清单 fail-loud 分立）
   const ledger = readLedger(options.runtime.dataDir, fs, warn);
@@ -469,6 +479,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       ...(options.audit !== undefined ? { auditSink: options.audit } : {}),
       // 高危面开门授予集（03 §4.6 批 U2——磁盘行 opens 经 loader 透传至此）
       ...(opens !== undefined ? { opens } : {}),
+      // 进程级 doors 段活体取值器（开门制扩展批——observe-cross 专属分立判定位）
+      ...(options.crossDoors !== undefined ? { crossDoors: options.crossDoors } : {}),
       onHookTimeout: (id, hookName, err) =>
         warn(`插件 ${id} 钩子 ${hookName} 超时：${err instanceof Error ? err.message : String(err)}`),
     });
@@ -565,6 +577,10 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       options.audit,
       plan.flatMap((row) => (row.kind === 'disk' ? [{ id: row.id, opens: row.opens ?? [] }] : [])),
     );
+    // —— doors/updated 幂等落（开门制扩展批 2026-09-09——05 §1.1 行 72 进程级
+    // 开门位授予面切换事实）：boot 装载序以 doors 段现值与审计流尾最近一条本词
+    // diff，有变才落（幂等同 plugin/opens 律；撤位空数组形收口；空面首记不落）
+    recordDoorsDiff(options.audit, doors);
     // —— 生命周期五词 boot diff 补播（05 §1.1 生命周期归因面行——audit 落账
     // 批写点②）：手编 enabled.yaml 漂移检测——「用户手改文件」与「用户按
     // 命令」同链可审计；对审计流尾最近态 diff、有变才落（幂等同律）。本账
@@ -687,6 +703,29 @@ export function recordPluginOpensDiff(
 }
 
 /**
+ * boot 序 doors/updated 幂等落（开门制扩展批 2026-09-09——05 §1.1 行 72）：
+ * 以 enabled.yaml 顶层 doors 段现值为当前开门面，与审计流尾最近一条本词
+ * diff，**有变才落**（幂等不重复记账——recordPluginOpensDiff 同律）；撤位
+ * （尾条非空 → 现空）落 `doors: []` 空数组形收口；空面首记不落（无记录 ≡
+ * 空面——不为从未开门的进程造基线噪声）。载荷 = 全量清单快照 + 编辑道归因
+ * 键 origin（boot 序恒 'boot-diff'——'tui-cmd' 位 /doors 人面命令执行尾，
+ * g-2 落位）。单写者 = 装配根装载序（audit 流单写者律）。
+ *
+ * 尾读走 lastOf（单键 fold——doors 段进程级单键，无 per 插件多键面）。
+ * @param audit 审计流面（读写两用——尾读建现值，diff 后落账）
+ * @param doors boot 读侧 doors 段现值（已过 parseEnabledRows 值域校验）
+ */
+export function recordDoorsDiff(audit: AuditFace, doors: readonly string[]): void {
+  const priorRow = audit.lastOf('doors/updated');
+  const prior = priorRow === undefined ? [] : priorRow.data['doors'];
+  // 词形防御（值域已过 parseEnabledRows 段校验——此处只防库被手编）
+  const prev = Array.isArray(prior) ? [...new Set(prior.filter((d): d is string => typeof d === 'string'))].sort() : [];
+  const current = [...new Set(doors)].sort();
+  if (prev.length === current.length && current.every((d, i) => prev[i] === d)) return; // 有变才落
+  audit.append('doors/updated', { doors: current, origin: 'boot-diff' });
+}
+
+/**
  * 生命周期五词 boot diff 补播（05 §1.1 生命周期归因面行——audit 落账批
  * 写点②）：对计划面全行（含 core: 行）以审计流尾最近态 diff，有变才落。
  *
@@ -753,15 +792,19 @@ export function recordPluginLifecycleDiff(audit: AuditFace, rows: readonly { id:
  * enabled.yaml 读侧（§5.3）。缺席 = 全 core: 内置态（含 memory 形——无数据
  * 目录同缺席语义）；损坏 = fail-loud 拒启给修复指引（删除文件即回内置态）。
  *
- * 导出消费位 = /reload 预检（03 §5.7 档①——plugin-reload preflight 真源）：
- * 同一函数先于回卷跑一遍，校验失败即拒换——预检与装载读侧恒一致（单源，
- * 结构性不存在「预检过装载拒」的第二判据）。
+ * 返回行集 + 顶层 doors 段（开门制扩展批 2026-09-09——模型道高危面授予段；
+ * 缺席 = 空数组）。导出消费位 = /reload 预检（03 §5.7 档①——plugin-reload
+ * preflight 真源）：同一函数先于回卷跑一遍，校验失败即拒换——预检与装载读侧
+ * 恒一致（单源，结构性不存在「预检过装载拒」的第二判据）。
  */
-export function readEnabledRows(dataDir: string | null, fs: PluginBootFs): readonly EnabledRow[] {
-  if (dataDir === null) return [];
+export function readEnabledRows(
+  dataDir: string | null,
+  fs: PluginBootFs,
+): { readonly rows: readonly EnabledRow[]; readonly doors: readonly string[] } {
+  if (dataDir === null) return { rows: [], doors: [] };
   const path = enabledYamlPath(dataDir);
   const text = fs.read(path);
-  if (text === null) return []; // 缺席 = 全 core: 内置态
+  if (text === null) return { rows: [], doors: [] }; // 缺席 = 全 core: 内置态
   let doc: unknown;
   try {
     doc = parseYaml(text);
@@ -776,10 +819,10 @@ export function readEnabledRows(dataDir: string | null, fs: PluginBootFs): reado
   if (!result.ok) {
     throw new BaseError(
       'PLUGIN_ROW_INVALID',
-      `启用清单校验失败（${path}）：${result.message}——修复指引：顶层 { plugins: [{ id, config?, disabled?, opens? }] }；删除文件即回全 core: 内置态`,
+      `启用清单校验失败（${path}）：${result.message}——修复指引：顶层 { plugins: [{ id, config?, disabled?, opens? }], doors?: [...] }；删除文件即回全 core: 内置态`,
     );
   }
-  return result.rows;
+  return { rows: result.rows, doors: result.doors };
 }
 
 /** 装机账本条目（读侧最小面——只消费 installPath；完整条目形归 §5.4 install 批） */

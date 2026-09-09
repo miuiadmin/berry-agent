@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import type { ApiBlock } from '../contracts/index.js';
 import { isValidApiVersion } from '../contracts/index.js';
 // internal 桶机制符号深导（opens 授予位值域单源——02 §4.3 #2 深挖面册纪律）
-import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
+import { DOORS_SEGMENT_V1_DOMAIN, USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 
 /* ---------------- 清单形状（package.json `berryAgent` 字段） ---------------- */
 
@@ -328,9 +328,20 @@ export interface EnabledRow {
   readonly opens?: readonly string[];
 }
 
-/** 启用清单文档顶层形状（本契约笔钉位裁量：`{ plugins: [行...] }`——03 §5.3 钉行 schema、顶层容器形未明文，此处定形随装载器批冷读核对） */
+/**
+ * 启用清单文档顶层形状（本契约笔钉位裁量：`{ plugins: [行...], doors?: [...] }`
+ * ——03 §5.3 钉行 schema、顶层容器形未明文，此处定形随装载器批冷读核对。
+ * `doors` 段系开门制扩展批（2026-09-09）增位——模型道高危面开门授予位，
+ * 03 §4.6 双源并集律第二源）
+ */
 export interface EnabledDoc {
   readonly plugins: readonly EnabledRow[];
+  /**
+   * 进程级开门授予段（顶层——与行内 opens 分立成段：行 opens 授予跟插件 id
+   * 走、doors 段授予跟进程走〔模型道 caller 无插件 id 锚〕）。值域 v1 =
+   * DOORS_SEGMENT_V1_DOMAIN 两门枚举（射程即值域）；缺席 = 空集。
+   */
+  readonly doors?: readonly string[];
 }
 
 /** 行校验失败——码固定 PLUGIN_ROW_INVALID（拒绝式） */
@@ -340,10 +351,14 @@ export interface EnabledRowsInvalid {
   readonly message: string;
 }
 
-export type EnabledRowsResult = { readonly ok: true; readonly rows: readonly EnabledRow[] } | EnabledRowsInvalid;
+export type EnabledRowsResult =
+  { readonly ok: true; readonly rows: readonly EnabledRow[]; readonly doors: readonly string[] } | EnabledRowsInvalid;
 
 /** 行 schema 已知键闭集 */
 const ROW_KEYS = new Set(['id', 'config', 'disabled', 'opens']);
+
+/** 顶层文档已知键闭集（plugins + doors——未知顶层键拒绝式，与行键同律） */
+const DOC_KEYS = new Set(['plugins', 'doors']);
 
 /**
  * 校验启用清单行集（纯函数——输入 = yaml.load 产物，载体解析在装配层）。
@@ -354,14 +369,42 @@ const ROW_KEYS = new Set(['id', 'config', 'disabled', 'opens']);
  * 段①防线同判据）。用户行 id 不校验 core: 保留——用户行覆盖 core: 同名行
  * 是合法形态（字段级后写胜出），core: 行自身不进用户文件（内置全启）；
  * 覆盖合法性由装配层合成时裁决。
+ *
+ * 顶层两查（开门制扩展批 2026-09-09 增）：未知顶层键拒（闭集 plugins/doors
+ * ——无闭集则 `door:` 之类的段名手误将被静默忽略 = 静默不授予，拒绝式不留
+ * 静默通道）；`doors` 段坏形（非数组/空串/值域外）拒——值域 v1 =
+ * DOORS_SEGMENT_V1_DOMAIN 两门枚举（射程即值域，§8.2 名单系上界；六枚全宽
+ * 将致「清单呈现开、门检实效关」三读分叉），PLUGIN_ROW_INVALID 同门。
  */
 export function parseEnabledRows(doc: unknown): EnabledRowsResult {
   if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) {
-    return rowFail('启用清单顶层须为对象 { plugins: [行...] }');
+    return rowFail('启用清单顶层须为对象 { plugins: [行...], doors?: [...] }');
   }
-  const plugins = (doc as Record<string, unknown>)['plugins'];
+  const record = doc as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!DOC_KEYS.has(key)) {
+      return rowFail(`启用清单顶层未知键 "${key}"——已知键闭集：plugins/doors`);
+    }
+  }
+  const plugins = record['plugins'];
   if (!Array.isArray(plugins)) {
     return rowFail('启用清单 plugins 须为数组（行 schema：{ id, config?, disabled?, opens? }）');
+  }
+  // doors 段三查（03 §5.3 开门制扩展批增段——拒绝式不留静默通道）
+  let doors: readonly string[] | undefined;
+  if (record['doors'] !== undefined) {
+    const rawDoors = record['doors'];
+    if (!Array.isArray(rawDoors) || rawDoors.some((d) => typeof d !== 'string' || d.length === 0)) {
+      return rowFail('启用清单顶层 doors 须为非空字符串数组（模型道高危面开门授予段——03 §4.6 双源并集律第二源）');
+    }
+    const values = rawDoors as readonly string[];
+    const illegal = values.find((d) => !DOORS_SEGMENT_V1_DOMAIN.includes(d));
+    if (illegal !== undefined) {
+      return rowFail(
+        `启用清单顶层 doors 含非法能力位 "${illegal}"——值域 v1 = 两门枚举（现役：${DOORS_SEGMENT_V1_DOMAIN.join('、')}；§8.2 高危面名单系上界，扩枚随后续模型道高危面立题放宽）`,
+      );
+    }
+    doors = values;
   }
   const rows: EnabledRow[] = [];
   const seen = new Set<string>();
@@ -424,7 +467,7 @@ export function parseEnabledRows(doc: unknown): EnabledRowsResult {
       ...(opens !== undefined ? { opens } : {}),
     });
   }
-  return { ok: true, rows };
+  return { ok: true, rows, doors: doors ?? [] };
 }
 
 /** 行失败速记 */

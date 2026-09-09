@@ -211,6 +211,59 @@ describe('enabled.yaml 行编辑', () => {
   });
 });
 
+describe('doors 段往返保真（03 §5.3 行编辑与段编辑全文件形状往返保真律——开门制扩展批）', () => {
+  /** 预置带 doors 段的清单（回归锁前置——三动词均须过本形不改写段） */
+  const SEEDED = 'plugins:\n  - id: user-x\ndoors:\n  - sessions.observe-cross\n';
+
+  it('mount 行编辑腿载 doors 段往返（静默抹段 = 静默收回授予，结构性禁止）', () => {
+    const fs = memFs({ '/data/enabled.yaml': SEEDED });
+    expect(mountRow('/data', 'user-y', undefined, fs).ok).toBe(true);
+    const text = fs.read('/data/enabled.yaml') ?? '';
+    expect(text).toContain('doors:');
+    expect(text).toContain('sessions.observe-cross');
+    const read = readEnabledRowsForEdit('/data', fs);
+    expect(read.ok && read.doors).toEqual(['sessions.observe-cross']);
+  });
+
+  it('unmount/toggle 同律往返（删行/翻旗标不动段）', () => {
+    const fs = memFs({ '/data/enabled.yaml': SEEDED });
+    expect(unmountRow('/data', 'user-x', fs).ok).toBe(true);
+    expect(readEnabledRowsForEdit('/data', fs).ok).toEqual(true);
+    let read = readEnabledRowsForEdit('/data', fs);
+    expect(read.ok && read.doors).toEqual(['sessions.observe-cross']);
+    expect(toggleRow('/data', 'user-x', fs).ok).toBe(true);
+    read = readEnabledRowsForEdit('/data', fs);
+    expect(read.ok && read.doors).toEqual(['sessions.observe-cross']);
+  });
+
+  it('双枚段全量往返（两门同开形）', () => {
+    const fs = memFs({
+      '/data/enabled.yaml':
+        'plugins:\n  - id: user-x\ndoors:\n  - sessions.observe-cross\n  - sessions.control-cross\n',
+    });
+    expect(mountRow('/data', 'user-y', undefined, fs).ok).toBe(true);
+    const read = readEnabledRowsForEdit('/data', fs);
+    expect(read.ok && read.doors).toEqual(['sessions.observe-cross', 'sessions.control-cross']);
+  });
+
+  it('显式空段保真（doors: [] 编辑后仍写回显式空段）+ 段缺席不凭空造段', () => {
+    // 显式空段：用户手编形状原样保真
+    const fs = memFs({ '/data/enabled.yaml': 'plugins: []\ndoors: []\n' });
+    expect(mountRow('/data', 'user-y', undefined, fs).ok).toBe(true);
+    expect(fs.read('/data/enabled.yaml')).toContain('doors: []');
+    // 段缺席：不凭空造段
+    const fs2 = memFs({ '/data/enabled.yaml': 'plugins: []\n' });
+    expect(mountRow('/data', 'user-y', undefined, fs2).ok).toBe(true);
+    const read = readEnabledRowsForEdit('/data', fs2);
+    expect(read.ok && read.doors).toBeUndefined();
+  });
+
+  it('坏 doors 段读侧拒（行编辑腿 fail-loud——段坏形不静默过）', () => {
+    const fs = memFs({ '/data/enabled.yaml': 'plugins: []\ndoors:\n  - channels.ui-backend\n' });
+    expect(mountRow('/data', 'user-y', undefined, fs).ok).toBe(false); // 值域外拒——edit 读侧同判据
+  });
+});
+
 describe('生命周期归因账落词（05 §1.1 audit 落账批——成功尾 sink 三动词）', () => {
   /** sink 收集器（词形断言面——type + data 全录） */
   function collector(): {
