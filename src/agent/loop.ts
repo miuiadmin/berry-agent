@@ -77,7 +77,21 @@ async function runLoop(context: AgentContext, config: AgentLoopConfig, emit: Emi
     const assistant = await streamAssistantResponse(config, context, emit);
     stopReason = assistant.stopReason;
     errorMessage = assistant.errorMessage;
-    emit({ type: 'turn_end', turn, stopReason: assistant.stopReason });
+    // 中止竞速败者形重归因：pi-ai 层 response promise 与 abort 信号竞速——败者形 =
+    // stopReason 'error' + errorMessage 系 AbortError 文案（'This operation was aborted'
+    // 等）。signal 已 aborted 即实证善意中止在途（issue watchdog 预算帽 / TUI Esc /
+    // webui stop），重归因 aborted——消费面善意词面（『每 issue 预算帽耗尽』等）全靠
+    // aborted 分支承载。窄判据三合一（缺一不触发）：error + signal.aborted + abort 文案
+    // ——真 error（网络断等）不受泛化误伤。
+    if (
+      stopReason === 'error' &&
+      config.signal?.aborted === true &&
+      errorMessage !== undefined &&
+      /abort/i.test(errorMessage)
+    ) {
+      stopReason = 'aborted';
+    }
+    emit({ type: 'turn_end', turn, stopReason });
     // 终态短路：error/aborted → run 收场（status 映射见函数尾）
     if (assistant.stopReason === 'error' || assistant.stopReason === 'aborted') break;
     // 截断防御：length → 整批配对 isError 后收 failed（残缺批不进下一轮）

@@ -198,6 +198,44 @@ describe('run 终态三值', () => {
     expect(result).toMatchObject({ status: 'aborted', stopReason: 'aborted' });
   });
 
+  it('中止竞速败者形重归因 aborted（error + signal.aborted + abort 文案——真 bug 修前必红）', async () => {
+    // 真缺陷形（issue-session ⑤ flake 根因）：watchdog abort() 后 pi-ai 层 response
+    // promise 与 abort 信号竞速——败者形 = stopReason 'error' + errorMessage 系
+    // AbortError 文案（'This operation was aborted'）。signal 已 aborted 即实证善意
+    // 中止在途（issue watchdog 预算帽 / TUI Esc / webui stop），终态重归因 aborted——
+    // 消费面善意词面（『每 issue 预算帽耗尽』等）全靠 aborted 分支承载。
+    const controller = new AbortController();
+    const { context, config, events } = rig({
+      streamFn: scriptedStreamFn([assistant({ stopReason: 'error', errorMessage: 'This operation was aborted' })]),
+      signal: controller.signal,
+    });
+    controller.abort();
+    const result = await startRun(context, config, [user('q')]);
+    expect(result).toMatchObject({ status: 'aborted', stopReason: 'aborted' });
+    const end = events[events.length - 1]!;
+    expect(end.type === 'agent_end' && end.status).toBe('aborted');
+    expect(end.type === 'agent_end' && end.stopReason).toBe('aborted');
+  });
+
+  it('重归因反向锁：signal 缺席 / signal 在场未中止 / 文案非 abort 三形均不触发（真 error 仍 failed）', async () => {
+    // 三形对照：① signal 缺席（金样回放等无中止面）② signal 在场但未中止 ③ signal
+    // 已中止但 errorMessage 非 abort 文案——任何一形都不满足重归因全条件，按 error
+    // 原映射 failed（重归因是窄判据三合一，不是 error 泛化）。
+    const cases: Array<{ signal?: AbortSignal; message: string }> = [
+      { message: 'This operation was aborted' }, // ① 缺席
+      { signal: new AbortController().signal, message: 'This operation was aborted' }, // ② 未中止
+      { signal: AbortSignal.abort(), message: 'net down' }, // ③ 文案不符
+    ];
+    for (const { signal, message } of cases) {
+      const { context, config } = rig({
+        streamFn: scriptedStreamFn([assistant({ stopReason: 'error', errorMessage: message })]),
+        ...(signal !== undefined ? { signal } : {}),
+      });
+      const result = await startRun(context, config, [user('q')]);
+      expect(result, message).toMatchObject({ status: 'failed', stopReason: 'error', errorMessage: message });
+    }
+  });
+
   it('length → 整批配对 isError 后 failed（残缺批不进下一轮）', async () => {
     const { context, config } = rig({
       streamFn: scriptedStreamFn([
