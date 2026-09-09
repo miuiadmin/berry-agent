@@ -58,8 +58,9 @@ import { bindControlForPlugin, SESSIONS_CONTROL_SERVICE } from '../conversation/
 import type { SessionsControlFace } from '../conversation/index.js';
 // 压缩席位容器（U4-3——compaction fork 绑定；host→compaction 边在册）
 import type { CompactionSlotsHandle } from '../compaction/index.js';
-// 审计流面类型（U3 批 U3-5——audit_events 载体真身；host→persist 边在册）
-import type { AuditFace } from '../persist/index.js';
+// 审计流面 + 装载史世代面类型（U3 批 U3-5 / 装载史批 h-3——05 §9 两宿主域表
+// 载体真身；host→persist 边在册）
+import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
 import type { JobRegistry } from '../subagent/index.js';
 
@@ -73,6 +74,7 @@ import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js
 import type {
   CommandRegistryLike,
   PluginContextHandle,
+  PluginToolLedger,
   SubagentRegistryLike,
   TriggerRegistryLike,
   UiBackendRegistryLike,
@@ -127,6 +129,29 @@ export function defaultFs(): PluginBootFs {
   };
 }
 
+/**
+ * per-plugin 工具名账工厂（装载史批 h-3——05 §9 世代行 activated 成员
+ * tools 列真值源）：bootPlugins 每周期新实例（/reload 换代即新账不串代）。
+ * toolsOf = 收口时点在册集快照（世代行落笔即冻结——历史代不受后续回卷影响）。
+ */
+export function createPluginToolLedger(): PluginToolLedger & { toolsOf(pluginId: string): readonly string[] } {
+  const account = new Map<string, Set<string>>();
+  return {
+    add: (pluginId, toolName) => {
+      let names = account.get(pluginId);
+      if (names === undefined) {
+        names = new Set();
+        account.set(pluginId, names);
+      }
+      names.add(toolName);
+    },
+    remove: (pluginId, toolName) => {
+      account.get(pluginId)?.delete(toolName);
+    },
+    toolsOf: (pluginId) => [...(account.get(pluginId) ?? [])],
+  };
+}
+
 /** 装配选项（TUI/serve 入口逐项注入——全部走公开面类型） */
 export interface PluginBootOptions {
   readonly runtime: HostRuntime;
@@ -169,6 +194,15 @@ export interface PluginBootOptions {
    * 静默缺席不阻拦（:memory: 诊断形/测试替身——诚实缺席律）。
    */
   readonly audit?: AuditFace;
+  /**
+   * 装载史世代面（装载史批 h-3——05 §9 load_generations 写点）：boot 完成
+   * 尾落一行世代快照（三分区全录 + activated 成员携本代 tools 名账）；
+   * /reload reapply 重跑本函数 = 同点覆盖（换代 = 前代 ended_at 回填同刻 +
+   * 新行——boot 与 reload 双点单写点同源）。单写者 = 宿主装配根。缺席 =
+   * 不落行不阻拦（:memory: 诊断形/测试替身——诚实缺席律，audit 同律）；
+   * 装载失败（装载管线抛错）到不了写点 = 不落行不换代（05 §9 边沿定形）。
+   */
+  readonly loadHistory?: LoadHistoryFace;
   /**
    * Job 收口面（受局面注入——Job 消费面批桥二：04 §10 归属围栏 owner =
    * 插件 id 的卸载收口腿）。卸载 closer 序对 activated 逐插件 closeOwner
@@ -289,6 +323,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       skipped: [],
       unload: async () => ({ disposed: [], failed: [] }),
     };
+    // 世代快照照落（05 §9 边沿定形——世代存在且为空：--no-plugins 安全模式
+    // 也是一次真实装载形态）；face 缺席 = 诊断形不落行（诚实缺席律）
+    options.loadHistory?.recordLoadGeneration({ activated: [], skipped: [], failed: [] });
     return { report: emptyReport, counts: { total: 0, enabled: 0, failed: 0 }, tools, promptSections };
   }
 
@@ -358,6 +395,11 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
             : options.scope.tryGet(name),
     provide: (name, value) => options.scope.provide(name, value),
   };
+  // per-plugin 工具名账（装载史批 h-3——05 §9 世代行 tools 列真值源）：本
+  // boot 周期单实例，createContext 逐插件透传（ctx.tools.register 包壳层记
+  // 账——注册成功入账、disposer 出账）；/reload reapply 重跑本函数 = 换代
+  // 即新账，旧代 disposer 回卷只动旧代账（世代行已快照落笔，无害）
+  const toolLedger = createPluginToolLedger();
   const createContext = (pluginId: string, opens?: readonly string[]) => {
     const fork = options.scope.fork();
     pluginScopes.push(fork);
@@ -366,6 +408,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       scope: fork,
       dispatch: options.dispatch,
       tools,
+      // 工具名账透传（h-3——register 包壳层记账；缺席（本面不存在缺位）只
+      // 发生在 createPluginContext 直测形，bootPlugins 恒注）
+      toolLedger,
       commands: options.commands,
       llm: options.llm,
       promptSections,
@@ -508,6 +553,20 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
 
   // failed 面合并后交付（单真相——消费方不见两源）
   const report: LoadReport = { ...loaded, failed: failedAll };
+
+  // —— 世代快照落账（装载史批 h-3——05 §9 写点）：boot 完成点 = 世代生效
+  // 点（/reload reapply 重跑本函数 = 同点双覆盖——boot 与 reload 换代单写
+  // 点同源）；三分区全录、判据恒 activated；tools 名账 = 本代 register
+  // 包壳层收口时点在册集（disposer 出账不留残影）。写失败 fail-loud 拒启
+  // （世代账静默缺失比 boot 失败更糟——与开库失败同档）；装载失败到不了
+  // 本点 = 不落行不换代（05 §9 边沿定形）。face 缺席 = 诊断形不落行
+  if (options.loadHistory !== undefined) {
+    options.loadHistory.recordLoadGeneration({
+      activated: report.activated.map((a) => ({ id: a.id, tools: toolLedger.toolsOf(a.id) })),
+      skipped: report.skipped.map((s) => ({ id: s.id, reason: s.reason })),
+      failed: report.failed.map((f) => ({ id: f.id, code: f.code })),
+    });
+  }
   return {
     report,
     counts: {

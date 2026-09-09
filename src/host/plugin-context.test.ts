@@ -11,7 +11,7 @@ import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import { BEFORE_COMPACT_ATTRIB } from '../compaction/index.js';
 import type { BeforeCompactAttribution } from '../compaction/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
-import type { AuditSink, PluginContextHandle } from './plugin-context.js';
+import type { AuditSink, PluginContextHandle, PluginToolLedger } from './plugin-context.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
 import { TriggerRegistry } from './triggers.js';
 // 错误码册注册腿（「import 发生才注册」——门关码注册断言的前置副作用）
@@ -33,6 +33,7 @@ function assemble(overrides?: {
   opens?: readonly string[];
   auditSink?: AuditSink;
   sessionLineage?: { isSameTree(a: string, b: string): boolean };
+  toolLedger?: PluginToolLedger;
 }): {
   handle: PluginContextHandle;
   dispatch: EventDispatch;
@@ -74,6 +75,7 @@ function assemble(overrides?: {
     ...(overrides?.opens !== undefined ? { opens: overrides.opens } : {}),
     ...(overrides?.auditSink !== undefined ? { auditSink: overrides.auditSink } : {}),
     ...(overrides?.sessionLineage !== undefined ? { sessionLineage: overrides.sessionLineage } : {}),
+    ...(overrides?.toolLedger !== undefined ? { toolLedger: overrides.toolLedger } : {}),
   });
   return { handle, dispatch, scope, promptSections, triggers, subagents, channels };
 }
@@ -387,6 +389,50 @@ describe('注册动词委派真源', () => {
     // 边界：无下划线的 'agent' 与非头位前缀不属保留段——放行
     expect(() => handle.ctx.tools.register(make('agent'))).not.toThrow();
     expect(() => handle.ctx.tools.register(make('my_agent_tool'))).not.toThrow();
+  });
+
+  it('tools.register 工具名账包壳（装载史批 h-3——注册成功入账、disposer 出账；撞名拒不入账）', () => {
+    const added: Array<[string, string]> = [];
+    const removed: Array<[string, string]> = [];
+    const ledger: PluginToolLedger = {
+      add: (pluginId, toolName) => void added.push([pluginId, toolName]),
+      remove: (pluginId, toolName) => void removed.push([pluginId, toolName]),
+    };
+    const { handle } = assemble({ toolLedger: ledger });
+    const dispose = handle.ctx.tools.register({
+      name: 'acme_probe',
+      description: '名账探针',
+      parameters: { type: 'object' as const },
+      execute: async () => ({ content: [] }),
+    });
+    expect(added).toEqual([['acme-widgets', 'acme_probe']]); // 归因键 = 本插件 id
+    expect(removed).toEqual([]); // 注册不触发出账
+    // 撞名拒（真源执法）不入账——包壳只在真源 register 返回后才 add
+    expectCode(
+      () =>
+        handle.ctx.tools.register({
+          name: 'acme_probe',
+          description: '撞名',
+          parameters: { type: 'object' as const },
+          execute: async () => ({ content: [] }),
+        }),
+      'TOOL_NAME_CONFLICT',
+    );
+    expect(added).toHaveLength(1);
+    dispose();
+    expect(removed).toEqual([['acme-widgets', 'acme_probe']]); // 撤注出账不留残影
+  });
+
+  it('tools.register 无账形（toolLedger 缺席）注册语义不变（诚实缺席律）', () => {
+    const { handle } = assemble();
+    const dispose = handle.ctx.tools.register({
+      name: 'acme_probe',
+      description: '无账形',
+      parameters: { type: 'object' as const },
+      execute: async () => ({ content: [] }),
+    });
+    expect(typeof dispose).toBe('function');
+    expect(() => dispose()).not.toThrow();
   });
 
   it('channels.registerCommand → CommandRegistry（后写胜出——disposer 不误摘接任者）', async () => {

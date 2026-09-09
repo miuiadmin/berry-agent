@@ -70,7 +70,7 @@ import { createSdkHttpFace } from '../sdk/index.js';
 import { ISSUE_GITHUB_TOKEN_NAME, ISSUE_PARALLEL_LIMIT_DEFAULT, ISSUE_WEBHOOK_SECRET_NAME } from '../issue/index.js';
 import { HOST_NAMESPACE, createOAuthFlowRegistry } from '../credentials/index.js';
 // 进程级 durable 审计流面（05 §9 audit_events——U3 批 U3-5 载体真接线）
-import { createAuditFace } from '../persist/index.js';
+import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
 import { mountWebuiOnFace } from './webui-bridge.js';
 
 /** 装配选项（TUI 入口与诊断命令共用面——runtime 子面透传 createHostRuntime） */
@@ -181,6 +181,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 受理 seam + 高危面动词 auditSink——插件面零写入位）；:memory: 诊断形
     // 同构接线（载体即内存库——durable 性诚实于载体）
     const audit = createAuditFace(runtime.persistence.store.connection);
+
+    // —— 装载史世代面（05 §9 load_generations——装载史批 h-3 写点接线）：
+    // boot 完成尾落行、/reload reapply 尾换代（写点收在 bootPlugins 完成尾
+    // ——双点单写点同源）；:memory: 诊断形同构接线（载体即内存库——durable
+    // 性诚实于载体，audit 同律）
+    const loadHistory = createLoadHistoryFace(runtime.persistence.store.connection);
 
     // —— 共享根作用域与事件总线已前移运行时组装之前（批 19b-2 活体镜像桥位）——
     // 装载柄前置声明（批 19a 消费腿闭包晚绑定：stack 先建、boot 后跑，会话
@@ -484,6 +490,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           },
           // 进程级审计流面（U3 批 U3-5——auditSink 透传 + boot plugin/opens 幂等 diff）
           audit,
+          // 装载史世代面（装载史批 h-3——boot 完成尾落行 + reapply 尾换代同点）
+          loadHistory,
           noPlugins: noPluginsFlag,
           // 卸载换代槽（03 §5.7——本代卸载序改写槽，上方一次性 closer 读槽）
           unloadRef: pluginUnloadRef,

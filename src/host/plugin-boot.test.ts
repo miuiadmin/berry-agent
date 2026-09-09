@@ -12,15 +12,27 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
+import type { ToolDefinition } from '../contracts/index.js';
 import type { UiBackend } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { createChannels } from '../channels/index.js';
-import { AUDIT_MIGRATION, createAuditFace, openStore } from '../persist/index.js';
-import type { AuditFace, Store } from '../persist/index.js';
+import {
+  AUDIT_MIGRATION,
+  LOAD_GENERATIONS_MIGRATION,
+  createAuditFace,
+  createLoadHistoryFace,
+  openStore,
+} from '../persist/index.js';
+import type { AuditFace, LoadHistoryFace, Store } from '../persist/index.js';
 
 import { readBootFailures } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
-import { bootPlugins, recordPluginLifecycleDiff, recordPluginOpensDiff } from './plugin-boot.js';
+import {
+  bootPlugins,
+  createPluginToolLedger,
+  recordPluginLifecycleDiff,
+  recordPluginOpensDiff,
+} from './plugin-boot.js';
 import type { PluginBootFs, PluginBootOptions, PluginUnloadReceipt } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
 import { createCompactionSlots } from '../compaction/index.js';
@@ -1203,5 +1215,114 @@ describe('compaction 面装配（U4-3——03 §2.2 ctx 面册 compaction 席 fo
     expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
     expect(errs).toHaveLength(1);
     expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
+  });
+});
+
+describe('装载史世代落账（05 §9——装载史批 h-3 写点：boot 完成尾落行 + noPlugins 空行 + 工具名账）', () => {
+  // 真库真面（load_generations 表由 LOAD_GENERATIONS_MIGRATION 建就——audit 真库形同构）
+  const stores: Store[] = [];
+  afterAll(() => {
+    for (const s of stores) s.close();
+  });
+  /** 开真库 + 构造装载史面（假钟可注——同刻律断言用） */
+  function openHistoryFace(clock?: () => number): { store: Store; face: LoadHistoryFace } {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-agent-load-gen-'));
+    dirs.push(dir);
+    const store = openStore({ dataDir: join(dir, 'data'), migrations: [LOAD_GENERATIONS_MIGRATION] });
+    stores.push(store);
+    return { store, face: createLoadHistoryFace(store.connection, clock) };
+  }
+  /** 世代行直读（id 升序全列） */
+  const rowsOf = (store: Store) =>
+    store.connection
+      .prepare('SELECT id, started_at, ended_at, activated, skipped, failed FROM load_generations ORDER BY id')
+      .all() as Array<{
+      id: number;
+      started_at: number;
+      ended_at: number | null;
+      activated: string;
+      skipped: string;
+      failed: string;
+    }>;
+
+  it('boot 完成点落行：三分区全录（activated 携 tools 名账 / skipped reason / failed code 直传）', async () => {
+    const demo: CorePluginReference = {
+      name: 'demo',
+      apply: async (ctx) => {
+        const tools = (ctx as { tools: { register(def: ToolDefinition): () => void } }).tools;
+        tools.register({
+          name: 'demo_tool_a',
+          description: '常驻',
+          parameters: { type: 'object' },
+          execute: async () => ({ content: [] }),
+        });
+        // 代内撤注——disposer 出账不留残影（世代行 tools = 收口时点在册集）
+        tools.register({
+          name: 'demo_tool_b',
+          description: '撤注',
+          parameters: { type: 'object' },
+          execute: async () => ({ content: [] }),
+        })();
+      },
+    };
+    const sleeper: CorePluginReference = { name: 'sleeper', apply: async () => undefined };
+    // sleeper 经 overlay 禁用 → skipped；core:ghost 未注册 → 合成失败行 → failed
+    const fs = memoryFs({
+      '/data/enabled.yaml': enabledYaml('  - id: core:sleeper\n    disabled: true\n  - id: core:ghost\n'),
+    });
+    const { store, face } = openHistoryFace(() => 1_000);
+    const { options } = rigBoot('/data', { corePlugins: [demo, sleeper], loadHistory: face, fs });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:demo']); // 前置：三分区形态成立
+    const rows = rowsOf(store);
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0]!.activated)).toEqual([{ id: 'core:demo', tools: ['demo_tool_a'] }]);
+    expect(JSON.parse(rows[0]!.skipped)).toEqual([{ id: 'core:sleeper', reason: 'disabled（启用行禁用位）' }]);
+    expect(JSON.parse(rows[0]!.failed)).toEqual([{ id: 'core:ghost', code: 'PLUGIN_LOAD_FAILED' }]);
+    expect(rows[0]!.started_at).toBe(1_000); // 完成点挂钟（假钟注入）
+    expect(rows[0]!.ended_at).toBeNull(); // 当代开放窗
+  });
+
+  it('两 boot 周期 = 两世代：前代 ended_at 回填同刻（/reload reapply 重跑同点换代的直证）', async () => {
+    let now = 1_000;
+    const ref: CorePluginReference = { name: 'demo', apply: async () => undefined };
+    const { store, face } = openHistoryFace(() => now);
+    await bootPlugins(rigBoot('/data', { corePlugins: [ref], loadHistory: face, fs: memoryFs() }).options);
+    now = 2_000;
+    await bootPlugins(rigBoot('/data', { corePlugins: [ref], loadHistory: face, fs: memoryFs() }).options);
+    const rows = rowsOf(store);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.ended_at).toBe(rows[1]!.started_at); // 同刻律：回填值 = 新行 started_at
+    expect(rows[0]!.ended_at).toBe(2_000);
+    expect(rows[1]!.ended_at).toBeNull(); // 新代开放窗
+  });
+
+  it('--no-plugins 短路照落空三分区行（世代存在且为空——05 §9 边沿定形）', async () => {
+    const { store, face } = openHistoryFace(() => 1_000);
+    await bootPlugins(rigBoot('/data', { noPlugins: true, loadHistory: face, fs: memoryFs() }).options);
+    const rows = rowsOf(store);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.activated).toBe('[]');
+    expect(rows[0]!.skipped).toBe('[]');
+    expect(rows[0]!.failed).toBe('[]');
+  });
+
+  it('face 缺席 = 零落行不阻拦（诚实缺席律——真库在场不被动用）', async () => {
+    const ref: CorePluginReference = { name: 'demo', apply: async () => undefined };
+    const { store } = openHistoryFace();
+    const boot = await bootPlugins(rigBoot('/data', { corePlugins: [ref], fs: memoryFs() }).options);
+    expect(boot.report.activated).toHaveLength(1);
+    expect(rowsOf(store)).toHaveLength(0);
+  });
+
+  it('createPluginToolLedger：同名重复入账幂等（Set 背书）+ 未知名出账 no-op + 缺席插件空集', () => {
+    const ledger = createPluginToolLedger();
+    ledger.add('p', 't1');
+    ledger.add('p', 't1'); // 重复入账幂等
+    ledger.remove('p', 'never'); // 未知名出账 no-op
+    expect(ledger.toolsOf('p')).toEqual(['t1']);
+    ledger.remove('p', 't1');
+    expect(ledger.toolsOf('p')).toEqual([]);
+    expect(ledger.toolsOf('absent')).toEqual([]);
   });
 });

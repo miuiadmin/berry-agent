@@ -213,6 +213,14 @@ export interface PluginContextOptions {
   readonly dispatch: EventDispatch;
   /** 工具注册表（缺席 = 本面 tools.register 抛 CONTEXT_SERVICE_MISSING——装配缺陷响亮） */
   readonly tools?: ToolRegistry;
+  /**
+   * per-plugin 工具名账（装载史批 h-3——05 §9 世代行 activated 成员 tools
+   * 列真值源）：ctx.tools.register 注册成功后入账、disposer 出账（代内撤注
+   * 不留残影）。boot 周期单实例由装配序注入（bootPlugins 构造——/reload
+   * 换代即新账不串代）。缺席 = 不记账不影响注册语义（测试替身零成本缺席
+   * ——诚实缺席律）。
+   */
+  readonly toolLedger?: PluginToolLedger;
   /** 命令注册表（缺席同上） */
   readonly commands?: CommandRegistryLike;
   /** llm 运行时（缺席同上——只取 registerProvider 一面） */
@@ -294,6 +302,19 @@ export interface UiBackendRegistryLike {
  */
 export interface AuditSink {
   append(type: string, data: Record<string, unknown>): void;
+}
+
+/**
+ * per-plugin 工具名账结构面（装载史批 h-3——05 §9 load_generations 世代行
+ * activated 成员 tools 列真值源）：宿主包壳层记账，与 ToolRegistry 注册
+ * 语义正交（记账缺席不影响注册）。真身工厂 = bootPlugins 的
+ * createPluginToolLedger（boot 每周期新实例——换代即新账）。
+ */
+export interface PluginToolLedger {
+  /** 注册成功入账（同名重复入账幂等——Set 背书） */
+  add(pluginId: string, toolName: string): void;
+  /** disposer 出账（代内撤注不留残影；未知名出账 no-op） */
+  remove(pluginId: string, toolName: string): void;
 }
 
 /** ctx 装配产物（装载器消费：ctx 交 apply、闭包柄归装载序） */
@@ -572,7 +593,15 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
             `工具名「${def.name}」携 ${AGENT_TOOL_PREFIX} 前缀——保留字段（named provider 派生工具名专属段，03 §2.7/04 §10），请改名注册`,
           );
         }
-        return registry.register(def, opts);
+        // 工具名账包壳（装载史批 h-3——05 §9 世代行 tools 列真值源）：注册
+        // 成功才入账（前置闸全过 + 真源 register 返回即成功）；disposer 包装
+        // 出账（代内撤注不留残影——世代行 tools = 收口时点在册集）
+        const inner = registry.register(def, opts);
+        options.toolLedger?.add(pluginId, def.name);
+        return () => {
+          inner();
+          options.toolLedger?.remove(pluginId, def.name);
+        };
       },
     },
     channels: {
