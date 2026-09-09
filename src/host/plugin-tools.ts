@@ -208,16 +208,17 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
     {
       name: 'events_query',
       description:
-        '跨会话 durable 事件查询（审计与回溯面）。每次查询先 flush 持久层（在飞' +
-        '事件落盘后可见——flushFirst 恒 true）。时窗参数用 ISO 8601（如 ' +
-        '2026-09-09T12:00:00Z）；事件行不含会话归属维（跨会话查询如需定域请加 ' +
-        'session_id 过滤）。data 以 JSON 单行摘要呈现（~300 字符截断）。返回' +
-        'nextCursor 时还有更多——原样回传续页。',
+        '跨会话 durable 事件查询（射程 = 会话事件流：turn/llm/compaction 等核心词；' +
+        'plugin/* 生命周期词落 audit 审计流**不在本流**——本工具查不到）。每次查询先 ' +
+        'flush 持久层（在飞事件落盘后可见——flushFirst 恒 true）。时窗参数用 ISO 8601' +
+        '（如 2026-09-09T12:00:00Z）。呈现行不带 session_id——跨会话查询如需定域请加 ' +
+        'session_id 过滤。data 以 JSON 单行摘要呈现（~300 字符截断）。返回 nextCursor ' +
+        '时还有更多——原样回传续页。',
       parameters: Type.Object(
         {
           session_id: Type.Optional(Type.String({ description: '会话 id 过滤维（缺省 = 跨会话全量）' })),
           types: Type.Optional(
-            Type.Array(Type.String(), { description: '事件类型过滤维（如 turn/end、plugin/mounted）' }),
+            Type.Array(Type.String(), { description: '事件类型过滤维（如 turn/end、llm/usage——本流核心词）' }),
           ),
           since: Type.Optional(Type.String({ description: 'ISO 8601 起时窗（含）' })),
           until: Type.Optional(Type.String({ description: 'ISO 8601 止时窗（含）' })),
