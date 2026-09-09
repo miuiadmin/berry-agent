@@ -24,7 +24,7 @@
  */
 import { BaseError } from '../contracts/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
-import { createAuditFace } from '../persist/index.js';
+import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
 
 import {
   assertInsideInstallSubtree,
@@ -54,8 +54,9 @@ export type UninstallDataAction = 'keep' | 'purge';
 
 /**
  * inspect 回执（§5.5 UninstallReport——execute 前全量呈报将删项）。
- * `affectedSessionCounts` v1 诚实缺席（durable 装载史载体未落——载体落成后
- * 自然有源，§5.5 注记条款）。
+ * `affectedSessionCounts` 有源（装载史批 h-4——05 §9 load_generations 世代
+ * 快照时间窗 join 推算；措辞钉死「装载过该插件的会话」——共现语义非「使用
+ * 过」，§5.5 ④ h-1 定形）。
  */
 export interface UninstallReport {
   readonly id: string;
@@ -76,19 +77,24 @@ export interface UninstallReport {
   readonly storeStateKeys: number;
   /** 数据域体量（文件域字节 + SQLite 域表页量 + store_state 域键值字节）；无可测面 = 缺席 */
   readonly dataSizeBytes?: number;
-  /** 装载史载体缺席（诚实值——非虚构计数 0） */
-  readonly affectedSessionCounts: { readonly available: false; readonly reason: string };
+  /** 装载过该插件的会话数（03 §5.5 ④——判据恒 activated ∩ 会话存活窗；0 = 诚实零非虚构） */
+  readonly affectedSessionCounts: { readonly available: true; readonly count: number };
 }
 
 /** inspect/execute 结果：查无/拒 = message 呈现 CLI 退 1 */
 export type UninstallOutcome<T> =
   { readonly ok: true; readonly report: T; readonly text: string } | { readonly ok: false; readonly message: string };
 
-/** affectedSessionCounts 诚实缺席单源（inspect/execute 两回执同文） */
-const AFFECTED_ABSENT: UninstallReport['affectedSessionCounts'] = {
-  available: false,
-  reason: '装载史载体缺席（durable 装载镜像 v1 未落——挂账后续批；本字段不虚构计数 0）',
-};
+/**
+ * 受影响会话计数单源（03 §5.5 ④——装载史批 h-4 有源化）：装载史面时间窗
+ * join 推算「装载过该插件的会话」数（05 §9 load_generations；判据恒
+ * activated ∩ 会话存活窗——共现非「使用过」）。件内构造面（audit 同律——
+ * 调用方已全链开库，load_generations 恒在场）；世代行不随 uninstall 删
+ * ⇒ 对已卸插件回执同源可考（立题档裁决 4）。
+ */
+function affectedOf(deps: UninstallDeps, id: string): UninstallReport['affectedSessionCounts'] {
+  return { available: true, count: createLoadHistoryFace(deps.db).querySessionsWithPlugin(id) };
+}
 
 /** 核心前缀（官方件非装机物——uninstall 吃装机 id） */
 const CORE_PREFIX = 'core:';
@@ -214,7 +220,7 @@ export function inspectUninstall(deps: UninstallDeps, id: string): UninstallOutc
     domainTables,
     storeStateKeys: storeKeys.length,
     ...(dataSizeBytes !== undefined ? { dataSizeBytes } : {}),
-    affectedSessionCounts: AFFECTED_ABSENT,
+    affectedSessionCounts: affectedOf(deps, id),
   };
   return { ok: true, report, text: formatReport(deps, report) };
 }
@@ -243,7 +249,7 @@ function formatReport(deps: UninstallDeps, report: UninstallReport): string {
   lines.push(
     `  数据域：${report.dataSizeBytes !== undefined ? `${report.dataSizeBytes} 字节（文件域 + 域表页量 + 域键值）` : '无可测面（缺席非 0）'}——--data keep（缺省）保留 / purge 清除`,
   );
-  lines.push(`  受影响会话：${report.affectedSessionCounts.reason}`);
+  lines.push(`  受影响会话：装载过该插件的会话 ${report.affectedSessionCounts.count} 个`);
   lines.push('execute 走 --confirm（人面独占）：berry-agent plugins uninstall <id> --confirm [--data purge]');
   return lines.join('\n');
 }
@@ -307,7 +313,7 @@ export function executeUninstall(
       source: entry.source,
       ...(entry.version !== undefined ? { version: entry.version } : {}),
       dataAction,
-      affected: report.affectedSessionCounts, // 诚实缺席形（载体落成后自然有值）
+      affected: report.affectedSessionCounts, // 有源计数形（h-4——世代行时间窗 join 推算）
     });
     return { ok: true, report, text: formatExecuteReceipt(deps, report, entry, pathInfo, dataAction) };
   } catch (err) {
@@ -342,6 +348,8 @@ function formatExecuteReceipt(
       ? `  ③ 数据域：已清除（${report.dataSizeBytes !== undefined ? `${report.dataSizeBytes} 字节` : '无可测面'} + store_state 域键 ${report.storeStateKeys} 个）`
       : `  ③ 数据域：保留（keep 缺省——Docker 卷律；store_state 域键 ${report.storeStateKeys} 个留待 LRU）`,
   );
-  lines.push(`  ④ 痕迹：plugin/uninstalled 已落审计流；受影响会话——${report.affectedSessionCounts.reason}`);
+  lines.push(
+    `  ④ 痕迹：plugin/uninstalled 已落审计流；受影响会话——装载过该插件的会话 ${report.affectedSessionCounts.count} 个`,
+  );
   return lines.join('\n');
 }

@@ -750,15 +750,29 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       },
       // 换入新代：runBoot + 三处换代写回（boot 定位/披露匣/skills 层）
       reapply: async () => {
+        const previous = boot; // 换代前旧代（工具面 diff 基线——03 §2.8 通道真值）
         const handle = await runBoot!(false);
         boot = handle;
         Object.assign(pluginCounts, handle.counts);
         await resyncPluginSkillLayers(handle);
+        // 新代工具面 diff（03 §2.8 定形——/reload 回执呈现新代 activated[].tools
+        // 对前代 diff）：基线 = 旧代 activated 全体工具名并集；新代逐插件取
+        // 差集、非空才呈现（不造噪声）。首启 noPlugins 短路形 previous 为空代
+        // → 基线空集 = 新代工具全量呈新增（诚实形）。模型通道动作时点
+        // addedToolNames 恒诚实空执法不变——真值只经本回执走人面。
+        const previousTools = new Set<string>();
+        if (previous !== undefined) {
+          for (const a of previous.report.activated) for (const t of previous.toolsOf(a.id)) previousTools.add(t);
+        }
+        const addedTools = handle.report.activated
+          .map((a) => ({ pluginId: a.id, tools: handle.toolsOf(a.id).filter((t) => !previousTools.has(t)) }))
+          .filter((entry) => entry.tools.length > 0);
         return {
           total: handle.counts.total,
           enabled: handle.counts.enabled,
           failed: handle.counts.failed,
           failedIds: handle.report.failed.map((f) => f.id),
+          addedTools,
         };
       },
       isBusy: () => stack.manager.anyRunning(),

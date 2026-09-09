@@ -1281,6 +1281,9 @@ describe('装载史世代落账（05 §9——装载史批 h-3 写点：boot 完
     expect(JSON.parse(rows[0]!.failed)).toEqual([{ id: 'core:ghost', code: 'PLUGIN_LOAD_FAILED' }]);
     expect(rows[0]!.started_at).toBe(1_000); // 完成点挂钟（假钟注入）
     expect(rows[0]!.ended_at).toBeNull(); // 当代开放窗
+    // handle 只读面与世代行 tools 同源（h-4——/reload diff 取值源）
+    expect(boot.toolsOf('core:demo')).toEqual(['demo_tool_a']);
+    expect(boot.toolsOf('core:sleeper')).toEqual([]); // skipped 无名账
   });
 
   it('两 boot 周期 = 两世代：前代 ended_at 回填同刻（/reload reapply 重跑同点换代的直证）', async () => {

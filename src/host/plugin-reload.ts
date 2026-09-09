@@ -42,6 +42,15 @@ export interface ReapplyReceipt {
   readonly failed: number;
   /** 行级失败面点名（档②汇总——boot-failures.json 已由 bootPlugins 记账） */
   readonly failedIds: readonly string[];
+  /**
+   * 新代新增工具面（03 §2.8 通道真值——/reload 回执呈现新代 activated[].tools
+   * 对前代 diff，逐插件点名）：模型通道动作时点恒诚实空（addedToolNames 恒
+   * []）执法不变——真值在换代时点由宿主经本回执承载；空 = 无新增不加行。
+   */
+  readonly addedTools: readonly {
+    readonly pluginId: string;
+    readonly tools: readonly string[];
+  }[];
 }
 
 /** 编舞注入面（全部闭包真身——本件零 db/fs/驱动知识，词面独立律） */
@@ -115,6 +124,10 @@ export function createPluginReloader(options: PluginReloadOptions): PluginReload
     try {
       const receipt = await options.reapply();
       const lines = [`插件已重载：启用 ${receipt.enabled}/${receipt.total}`];
+      if (receipt.addedTools.length > 0) {
+        // 新代工具面 diff 呈现（03 §2.8——新增工具名逐插件；无新增不加行不造噪声）
+        lines.push(`新增工具面：${receipt.addedTools.map((a) => `${a.pluginId} → ${a.tools.join('、')}`).join('；')}`);
+      }
       if (receipt.failedIds.length > 0) {
         lines.push(`行级失败（隔离降级，已记 boot-failures）：${receipt.failedIds.join('、')}`);
       }

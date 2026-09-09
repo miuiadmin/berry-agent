@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { Persistence } from '../persist/index.js';
-import { createAuditFace } from '../persist/index.js';
+import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
 
 import { executeUninstall, inspectUninstall } from './plugin-uninstall.js';
 import type { UninstallDeps } from './plugin-uninstall.js';
@@ -151,7 +151,7 @@ function seedFullStage(stage: UninstallStage): void {
 }
 
 describe('inspect（只读零副作用）', () => {
-  it('全字段：引用计数零/域面清单/体量三源合计/装载史诚实缺席', async () => {
+  it('全字段：引用计数零/域面清单/体量三源合计/装载史有源零（无世代）', async () => {
     const stage = UninstallStage.open('inspect-full');
     try {
       seedFullStage(stage);
@@ -168,7 +168,7 @@ describe('inspect（只读零副作用）', () => {
       expect(r.domainTables).toEqual(['demo__t1']);
       expect(r.storeStateKeys).toBe(1);
       expect(r.dataSizeBytes).toBeGreaterThan(0); // 文件域 + 域表页 + 域键值三源
-      expect(r.affectedSessionCounts.available).toBe(false); // 载体缺席诚实值
+      expect(r.affectedSessionCounts).toEqual({ available: true, count: 0 }); // 有源零（h-4——无世代诚实 0 非缺席）
       // 文本面：execute 指路行在场
       expect(outcome.text).toContain('--confirm');
       // 零副作用：各面原样
@@ -234,11 +234,11 @@ describe('execute（四段清算）', () => {
       // ③ keep：data/<id> 留 + store_state 域键留（LRU 域）
       expect(existsSync(join(stage.dataDir, 'data', 'demo'))).toBe(true);
       expect(stage.hasStoreKey('demo__k1')).toBe(true);
-      // ④ 审计：plugin/uninstalled 落账（dataAction keep + 诚实缺席 affected）
+      // ④ 审计：plugin/uninstalled 落账（dataAction keep + 有源 affected 计数形）
       const audited = stage.lastUninstalled();
       expect(audited).toBeDefined();
       expect(audited!.data).toMatchObject({ id: 'demo', source: 'npm', dataAction: 'keep' });
-      expect((audited!.data['affected'] as Record<string, unknown>)['available']).toBe(false);
+      expect(audited!.data['affected']).toEqual({ available: true, count: 0 });
       // 兄弟插件全景未动
       expect(existsSync(join(stage.dataDir, 'plugins', 'node_modules', 'other'))).toBe(true);
     } finally {
@@ -317,6 +317,39 @@ describe('execute（四段清算）', () => {
       }
       // 收口后账本原样（拒删不改真相面）
       expect(stage.ledgerIds()).toContain('evil');
+    } finally {
+      await stage.close();
+    }
+  });
+});
+
+describe('装载史共现计数（03 §5.5 ④——h-4 有源化）', () => {
+  it('世代激活窗 ∩ 会话存活窗 → inspect 有源计数 + 文案；execute 后世代行留（对已卸插件同源可考）', async () => {
+    const stage = UninstallStage.open('affected');
+    try {
+      stage.seedEntry({ id: 'demo' });
+      stage.seedRow('demo');
+      stage.seedInstallDir('demo');
+      // 会话存活窗两形：横跨当下的活窗（相交）+ 早已闭合的历史窗（不相交）
+      const now = Date.now();
+      const insertSession = stage.persistence.store
+        .sqlite()
+        .prepare('INSERT INTO sessions (id, origin, created_at, updated_at, last_seq) VALUES (?, ?, ?, ?, 0)');
+      insertSession.run('sess-live', 'conversation', now - 60_000, now + 60_000);
+      insertSession.run('sess-dead', 'conversation', now - 120_000, now - 90_000);
+      // 当代世代：demo ∈ activated（boot 完成尾同款快照形）
+      createLoadHistoryFace(stage.persistence.store.sqlite()).recordLoadGeneration({
+        activated: [{ id: 'demo', tools: [] }],
+        skipped: [],
+        failed: [],
+      });
+      const outcome = inspectUninstall(stage.deps, 'demo');
+      expect(outcome.ok && outcome.report.affectedSessionCounts).toEqual({ available: true, count: 1 });
+      expect(outcome.ok && outcome.text).toContain('装载过该插件的会话 1 个');
+      // execute 后世代行不随 uninstall 删（立题档裁决 4——已卸插件回执同源可考）
+      const done = executeUninstall(stage.deps, 'demo');
+      expect(done.ok).toBe(true);
+      expect(createLoadHistoryFace(stage.persistence.store.sqlite()).querySessionsWithPlugin('demo')).toBe(1);
     } finally {
       await stage.close();
     }

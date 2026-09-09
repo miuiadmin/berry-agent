@@ -291,6 +291,11 @@ export interface PluginBootHandle {
   readonly counts: PluginBootCounts;
   /** boot 级工具注册表（注册语义全执法；消费腿挂账 driver 工具面合流） */
   readonly tools: ToolRegistry;
+  /**
+   * 本代某插件在册工具名只读面（装载史批 h-4——/reload 回执新代工具面
+   * diff 的取值源；名账口径 = 收口时点在册集，与世代行 tools 列同源）。
+   */
+  readonly toolsOf: (pluginId: string) => readonly string[];
   /** 提示词段注册表（消费腿挂账 systemPrompt 装配位） */
   readonly promptSections: PromptSectionRegistry;
 }
@@ -326,7 +331,13 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     // 世代快照照落（05 §9 边沿定形——世代存在且为空：--no-plugins 安全模式
     // 也是一次真实装载形态）；face 缺席 = 诊断形不落行（诚实缺席律）
     options.loadHistory?.recordLoadGeneration({ activated: [], skipped: [], failed: [] });
-    return { report: emptyReport, counts: { total: 0, enabled: 0, failed: 0 }, tools, promptSections };
+    return {
+      report: emptyReport,
+      counts: { total: 0, enabled: 0, failed: 0 },
+      tools,
+      toolsOf: () => [],
+      promptSections,
+    };
   }
 
   // ⑤ 钩子词汇预注册（03 §2.4 主表镜像——一词两册装配序律：预注册在前，
@@ -575,6 +586,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       failed: failedAll.length,
     },
     tools,
+    toolsOf: toolLedger.toolsOf,
     promptSections,
   };
 }

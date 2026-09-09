@@ -32,7 +32,7 @@ function rig(overrides: Partial<PluginReloadOptions> = {}): {
     },
     reapply: async () => {
       calls.push('reapply');
-      return { total: 3, enabled: 2, failed: 1, failedIds: ['bad-row'] };
+      return { total: 3, enabled: 2, failed: 1, failedIds: ['bad-row'], addedTools: [] };
     },
     isBusy: () => busy,
     onRunSettled: (handler) => {
@@ -217,7 +217,7 @@ describe('链串行（in-flight 链——并发请求不交错）', () => {
       },
       reapply: async () => {
         calls.push('reapply');
-        return { total: 1, enabled: 1, failed: 0, failedIds: [] };
+        return { total: 1, enabled: 1, failed: 0, failedIds: [], addedTools: [] };
       },
     });
     const reloader = createPluginReloader(rig_.options);
@@ -228,6 +228,36 @@ describe('链串行（in-flight 链——并发请求不交错）', () => {
     releaseRollback!();
     await reloader.settle();
     expect(calls).toEqual(['preflight', 'rollback', 'reapply', 'preflight', 'rollback', 'reapply']);
+  });
+});
+
+describe('新代工具面 diff 呈现（03 §2.8 通道真值——装载史批 h-4）', () => {
+  it('addedTools 非空：回执含「新增工具面」行（逐插件点名、多插件分号分隔）', async () => {
+    const rig_ = rig({
+      reapply: async () => ({
+        total: 2,
+        enabled: 2,
+        failed: 0,
+        failedIds: [],
+        addedTools: [
+          { pluginId: 'acme:tools', tools: ['acme_probe', 'acme_scan'] },
+          { pluginId: 'demo:calc', tools: ['demo_calc'] },
+        ],
+      }),
+    });
+    const reloader = createPluginReloader(rig_.options);
+    reloader.request();
+    await reloader.settle();
+    expect(rig_.reports[0]).toContain('新增工具面：acme:tools → acme_probe、acme_scan；demo:calc → demo_calc');
+  });
+
+  it('addedTools 空：不加行不造噪声（模型通道动作时点恒诚实空执法不变）', async () => {
+    const rig_ = rig(); // 默认 reapply 回执 addedTools: []
+    const reloader = createPluginReloader(rig_.options);
+    reloader.request();
+    await reloader.settle();
+    expect(rig_.reports[0]).toContain('插件已重载：启用 2/3');
+    expect(rig_.reports[0]).not.toContain('新增工具面');
   });
 });
 
