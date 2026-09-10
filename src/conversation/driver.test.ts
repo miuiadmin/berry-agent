@@ -1458,4 +1458,91 @@ describe('ConversationDriver lane 帽 seam（04 §4——m-2）', () => {
     expect(receipt).toMatchObject({ status: 'injected' }); // durable 落账随下次启动带入
     expect(gate.acquired).toBe(0); // 落账不跑——零取位
   });
+
+  /* ---- 排队段取位后重验三查（2026-09-10 全面复盘真缺口修复——红先回归锁） ---- */
+
+  it('双放行不并发（单 run 不变量重验）：同会话双排队 run 连续取位时后者转 steer 搭车——不双起跑不覆写 currentRun', async () => {
+    const gate = testRunGate(true); // 手动形——双排队制造等位窗
+    let releaseFirst!: () => void;
+    const holdFirst = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '二答' }] }),
+      ],
+      gates: [holdFirst, undefined], // 第一次 LLM 调用挂起——制造在飞窗口
+      acquireRunSlot: gate,
+    });
+    const first = driver.submit('一');
+    const second = driver.submit('二'); // 排队期 currentRun 未置 → 判 idle 独立再排队
+    expect(gate.queued).toBe(2);
+    gate.flush(); // 放 run 一（取位起跑、currentRun 置位、第一次 LLM 调用在飞）
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    gate.flush(); // 关键：run 一在飞时放 run 二——模拟真闸件 FIFO 连续移交两位
+    // 修复前：run 二取位后无条件 launch——第二次 LLM 调用并发到达（双 run 在飞、
+    // currentRun 被覆写、abort 只达其一）；修复后：重验 currentRun 已置 →
+    // 种子转 steer 入列搭车（04 §4「帽下串行不合批」执法位）。
+    await vi.waitFor(() => expect(driver.queuedItems()).toHaveLength(1)); // 「二」在 PendingMessageQueue
+    expect(seen).toHaveLength(1); // 零并发起跑——run 二未发起自己的 LLM 调用
+    releaseFirst(); // 放第一次 LLM 调用 → run 一 turn 边界消费 steer「二」→ 第二次调用 → 终态
+    const firstResult = await first;
+    const secondResult = await second; // 搭车回执 = 在飞 run 同一终态
+    expect(firstResult.status).toBe('completed');
+    expect(secondResult.status).toBe('completed');
+    expect(seen).toHaveLength(2); // 同一 run 内两次调用（steer 消费证据）
+    expect(
+      seen[1]!.messages.filter((m) => m.role === 'user').map((m) => (m as { content: unknown }).content),
+    ).toContain('二');
+    // 单 run 证据：turn 边界严格配对交替（start/end/start/end——steer 续轮第二
+    // 个 turn 属单 run 内正常形态；修复前双 run 并发时 wiring turnOpen 跨 run
+    // 交错会破坏配对）
+    expect(
+      driver.session
+        .events()
+        .filter((event) => event.type === 'turn/start' || event.type === 'turn/end')
+        .map((event) => event.type),
+    ).toEqual(['turn/start', 'turn/end', 'turn/start', 'turn/end']);
+    expect(gate.released).toBe(2); // run 一终态释放 + run 二转搭车立即还位
+  });
+
+  it('排队期 dismantle：取位后零 LLM 收场——种子转 inject 落账 + aborted 终态回执', async () => {
+    const gate = testRunGate(true);
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '不应跑' }] })],
+      acquireRunSlot: gate,
+    });
+    const pending = driver.submit('排队件');
+    expect(gate.queued).toBe(1);
+    driver.dismantle(); // 排队期停摆（finish/dispose/subagent 终态停摆同律）
+    gate.flush(); // 取位放行——修复前照常起跑烧 LLM；修复后重验停摆零起跑
+    const result = await pending;
+    expect(result.status).toBe('aborted'); // run 未起跑的诚实终态
+    expect(seen).toHaveLength(0); // 零 LLM 调用
+    // 种子转 inject 落账（durable 真相在——随下次启动 timeline 重播种带入）
+    expect(
+      driver.session
+        .events()
+        .some((event) => event.type === 'user/message' && (event.data as { content?: unknown }).content === '排队件'),
+    ).toBe(true);
+    expect(gate.released).toBe(1); // 取到的位已还（零占位泄漏）
+  });
+
+  it('排队期 abort()：无在飞时记忆请求——取位后零 LLM 收场（issue watchdog 预算执法不因排队窗丢失）', async () => {
+    const gate = testRunGate(true);
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '不应跑' }] })],
+      acquireRunSlot: gate,
+    });
+    const pending = driver.submit('排队件');
+    expect(gate.queued).toBe(1);
+    driver.abort(); // 排队期无在飞 run——修复前 no-op（起跑后超额跑完）；修复后记忆请求
+    gate.flush();
+    const result = await pending;
+    expect(result.status).toBe('aborted');
+    expect(seen).toHaveLength(0); // 零 LLM——预算帽/日池执法在排队窗内仍生效
+    // 种子同样转 inject 落账（durable 真相不丢）
+    expect(driver.session.events().some((event) => event.type === 'user/message')).toBe(true);
+  });
 });

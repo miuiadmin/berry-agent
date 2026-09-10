@@ -91,6 +91,19 @@ export class ConversationDriver {
   private activeController: AbortController | undefined;
   /** 停摆旗标（02 §2.3 取消模型——会话级标记非 run 状态机成员；置位后一切投递转 inject） */
   private dismantledValue = false;
+  /**
+   * 排队 kick 计数（等位中的排队段在飞数——abort() 记忆位的射程判据）：
+   * 大于零 = 本会话仍有等位中的 run，此时无在飞 run 的 abort() 请求有明确
+   * 打断对象（排队段），值得记忆到取位结算后消费。
+   */
+  private queuedKickCount = 0;
+  /**
+   * 排队期中止请求记忆位（无在飞 run 时 abort() 置、排队段取位后消费）：
+   * issue watchdog 等「排队期请求打断」的调用方意图不因排队窗丢失——修复前
+   * 排队期 abort() 为 no-op（activeController 尚未出生），run 起跑后预算帽
+   * 执法失效可超额跑完（2026-09-10 全面复盘真缺口修复）。
+   */
+  private abortRequestedValue = false;
   /** 连续后台唤醒计数（04 §4 唤醒预算——批消费位记账；前台 kick 复位） */
   private wakeStreak = 0;
   /**
@@ -334,9 +347,18 @@ export class ConversationDriver {
     return this.dismantledValue;
   }
 
-  /** 协作中止：打断在飞 run（signal 透传流与工具）与退避睡眠（phase=aborted 落账） */
+  /**
+   * 协作中止：打断在飞 run（signal 透传流与工具）与退避睡眠（phase=aborted
+   * 落账）。无在飞 run 时若本会话仍有排队 kick（等位中）则记忆请求——排队段
+   * 取位后消费（零 LLM 收场），issue watchdog 等「排队期请求打断」的调用方
+   * 意图不因排队窗丢失；无排队时 no-op（idle 会话 abort 无对象——现状语义）。
+   */
   abort(): void {
-    this.activeController?.abort();
+    if (this.activeController !== undefined) {
+      this.activeController.abort();
+      return;
+    }
+    if (this.queuedKickCount > 0) this.abortRequestedValue = true;
   }
 
   /** 是否有在飞 runTurns（busy 判据的读面） */
@@ -491,14 +513,73 @@ export class ConversationDriver {
     // 排队段（不计在飞）：帽满挂起等位（宿主级 FIFO）；取位 promise 结算后
     // 才进起跑段——排队期 currentRun 未置位（冷读闸 M1 裁决执法位）
     return (async () => {
-      const release = await gate.acquire();
+      this.queuedKickCount += 1;
       try {
-        return await this.launch(seeds, wakeTriggered);
+        const release = await gate.acquire();
+        // —— 取位后重验三查（2026-09-10 全面复盘真缺口修复）——
+        // 等位期间宿主状态可能已迁移；取位结算不能盲信起跑前快照，重验后再起跑。
+        // ① 停摆/中止重验：排队期 dismantle（finish/dispose/subagent 终态停摆
+        //   同置 dismantledValue）或 abort() 记忆（无在飞时记忆位）则零 LLM
+        //   收场：还位 + 种子转 inject 落账（durable 真相在——「随下次启动
+        //   timeline 重播种带入」与 routeMessage 停摆腿同语义；种子落账序在
+        //   起跑后的 message_end——不起跑则必须转 inject 承载）+ aborted 终态
+        //   回执（run 未起跑的诚实终态）。修复前：dismantle 后已排队 run 取位
+        //   照常起跑烧 LLM——issue 预算帽/日池对排队期 run 完全失效。
+        if (this.dismantledValue || this.abortRequestedValue) {
+          this.abortRequestedValue = false;
+          release();
+          this.persistSeedsAsInjected(seeds);
+          return { status: 'aborted' } satisfies RunResult;
+        }
+        // ② 单 run 不变量重验（04 §4「帽下串行不合批」执法位）：另一排队 run
+        //   已先取位起跑（currentRun 已置——真闸件 FIFO 连续移交两位时后者必
+        //   见前者置位）则本批不起 run：种子转 steer 入列（消费位 = 在飞 run
+        //   取件点/尾声 drained 续跑）+ 搭车在飞 run 回执 + 立即还位（本单元
+        //   不占帽——在飞 run 持自己的位）。修复前：帽≥2 下同会话双 run 并发
+        //   起跑——currentRun 被覆写（abort 只达其一）+ durable turn 边界记账
+        //   腐坏。注：enqueue 与在飞 run 尾声 drained 判定间存在极窄微任务窗
+        //   ——若搭车件错过 drained，作搁浅件自愈（下次 idle 输入 consumeBatch
+        //   带入——与 steer 正常搁浅同形）。
+        if (this.currentRun !== undefined) {
+          for (const seed of seeds) {
+            this.queue.enqueue(
+              seed,
+              'steer',
+              wakeTriggered ? { backgroundWake: true } : undefined, // 批次级折叠位统一透传（唤醒预算宁多记不漏记）
+            );
+          }
+          const ride = this.currentRun;
+          release();
+          return ride;
+        }
+        try {
+          return await this.launch(seeds, wakeTriggered);
+        } finally {
+          // run 终态释放位（幂等保护在闸件——release() 双调安全）
+          release();
+        }
       } finally {
-        // run 终态释放位（幂等保护在闸件——release() 双调安全）
-        release();
+        this.queuedKickCount -= 1;
       }
     })();
+  }
+
+  /**
+   * 排队收场种子的 durable 承载（排队段零 LLM 收场配套——2026-09-10 复盘真
+   * 缺口修复）：逐条转 inject 落账保住 durable 真相。种子调用源单源
+   * routeMessage/deliverControl（全 UserMessage）；非 user 形不可达——防御
+   * 丢弃并 warn 报备（不静默）。
+   */
+  private persistSeedsAsInjected(seeds: readonly AgentMessage[]): void {
+    for (const seed of seeds) {
+      if (isStandardMessage(seed) && seed.role === 'user') {
+        this.wiring.appendInjectedUser(seed);
+      } else {
+        this.warnFace(
+          `排队收场种子非用户消息（role=${String((seed as { role?: unknown }).role)}）——durable 无承载位，丢弃报备`,
+        );
+      }
+    }
   }
 
   /**
