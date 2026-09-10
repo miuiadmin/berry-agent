@@ -77,11 +77,12 @@ berry-agent [命令] [旗标]
 | `plugins <sub>`     | 插件生命周期八动词全在场：`list` / `check` 只读，`install` / `uninstall` / `mount` / `unmount` / `toggle` / `update` 写侧（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏） |
 | `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex`                                                                                                             |
 | `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`）                                                                   |
+| `doors <sub>`       | 开门制门态只读：`list`（开/关编辑走 TUI `/doors open\|close`）                                                                                                                            |
 | `upgrade`           | 升级维护动词（尚未装配）                                                                                                                                                                  |
 
 退出码三态：**0** 成功（含诚实空——空清单/零命中非失败）/ **1** 执行失败 / **2** 环境态误用（用法错、TUI 在非交互环境）。
 
-通用旗标：`--help` / `--version` / `--debug`（日志提级）全入口收；`--port <n>` TUI / run / serve / dump-config 收（dump-config 忽略不起监听）；`--no-plugins` 安全模式不入自动化入口 serve / mcp。
+通用旗标：`--help` / `--version` 全入口收；`--debug`（日志提级）主入口族收（无参 TUI / `run` / `serve` / `dump-config`）——子命令族（plugins/sessions/credentials/doors/mcp）不设此旗标，传入即用法错退 2。`--port <n>` TUI / run / serve / dump-config 收（dump-config 忽略不起监听）；`--no-plugins` 安全模式不入自动化入口 serve / mcp。
 
 ### 快捷别名（可选）
 
@@ -171,6 +172,7 @@ berry-agent doors list   # 高危面门态清单（闭门附同源 reason；授�
 ```
 
 只读面——开/关动词 CLI 不受理（退 1），编辑走 TUI `/doors open <capability>` / `/doors close <capability>`（进程级 doors 段）；插件道开门走启用行 `opens` 位（两源任一含即门开）。
+
 - **模型 API key 不入凭证盒**（v1）：模型凭证按 provider 生态变量供给（如 `ANTHROPIC_API_KEY`）——把模型 key `add` 进凭证盒不会生效；
 - **静态凭证人面唯写** = 本命令族；oauth 授权流（device-code）仅在 TUI `/credentials oauth`——CLI 不设此动词；
 - 零装配直开库（sessions 读腿同形）——不起运行时即用；退出码 0/1（用法错归解析层退 2）。
@@ -210,23 +212,23 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 
 前缀一律 `BERRY_AGENT_*`：
 
-| 变量                                 | 作用                                                                        | 缺省                        |
-| ------------------------------------ | --------------------------------------------------------------------------- | --------------------------- |
-| `BERRY_AGENT_MODEL`                  | 覆盖缺省模型                                                                | `anthropic/claude-sonnet-5` |
-| `BERRY_AGENT_DATA_DIR`               | 数据目录                                                                    | `~/.berry-agent`            |
-| `BERRY_AGENT_DB_PATH`                | 库文件路径（独立梯子——重定向库文件而不动数据目录）                          | `<数据目录>/sessions.db`    |
-| `BERRY_AGENT_LOG_LEVEL`              | 日志级别：error / warn / info / debug / silent                              | `info`                      |
-| `BERRY_AGENT_BASH_PATH`              | bash 工具可执行路径（缺失 fail-loud）                                       | PATH 发现序                 |
-| `BERRY_AGENT_FD_PATH`                | `@` 文件补全的 fd 可执行路径（保留位——fd 批未触，当前仅内置遍历，设置无效） | —                           |
-| `BERRY_AGENT_BROWSER_PATH`           | 浏览器引擎可执行路径                                                        | 引擎发现序                  |
-| `BERRY_AGENT_BIN`                    | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                       | 进程自身路径推导            |
-| `BERRY_AGENT_CRON`                   | cron 可选后端开关/载体                                                      | 进程内挂钟                  |
-| `BERRY_AGENT_GIT_PATH`               | worktree 工具 git 可执行路径                                                | PATH 发现序                 |
-| `BERRY_AGENT_SDK_TOKEN`              | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）       | 缺省不开 TCP 侧             |
-| `BERRY_AGENT_GITHUB_TOKEN`           | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）          | 缺席                        |
-| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`   | core:issue 件 webhook 签名密钥（同回落律）                                  | 缺席                        |
-| `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE` | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                | 1440                        |
-| `BERRY_AGENT_MAX_CONCURRENT_RUNS`    | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸） | 16 |
+| 变量                                 | 作用                                                                               | 缺省                        |
+| ------------------------------------ | ---------------------------------------------------------------------------------- | --------------------------- |
+| `BERRY_AGENT_MODEL`                  | 覆盖缺省模型                                                                       | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR`               | 数据目录                                                                           | `~/.berry-agent`            |
+| `BERRY_AGENT_DB_PATH`                | 库文件路径（独立梯子——重定向库文件而不动数据目录）                                 | `<数据目录>/sessions.db`    |
+| `BERRY_AGENT_LOG_LEVEL`              | 日志级别：error / warn / info / debug / silent                                     | `info`                      |
+| `BERRY_AGENT_BASH_PATH`              | bash 工具可执行路径（缺失 fail-loud）                                              | PATH 发现序                 |
+| `BERRY_AGENT_FD_PATH`                | `@` 文件补全的 fd 可执行路径（保留位——fd 批未触，当前仅内置遍历，设置无效）        | —                           |
+| `BERRY_AGENT_BROWSER_PATH`           | 浏览器引擎可执行路径                                                               | 引擎发现序                  |
+| `BERRY_AGENT_BIN`                    | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                              | 进程自身路径推导            |
+| `BERRY_AGENT_CRON`                   | cron 可选后端开关/载体                                                             | 进程内挂钟                  |
+| `BERRY_AGENT_GIT_PATH`               | worktree 工具 git 可执行路径（保留位——装配侧未接，当前设置无效）                   | PATH 发现序                 |
+| `BERRY_AGENT_SDK_TOKEN`              | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）              | 缺省不开 TCP 侧             |
+| `BERRY_AGENT_GITHUB_TOKEN`           | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）                 | 缺席                        |
+| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`   | core:issue 件 webhook 签名密钥（同回落律）                                         | 缺席                        |
+| `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE` | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                       | 1440                        |
+| `BERRY_AGENT_MAX_CONCURRENT_RUNS`    | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸） | 16                          |
 
 ## 遥测立场
 
@@ -235,7 +237,8 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 ## 技能与记忆
 
 - **技能**：SKILL.md 双层结构（frontmatter + 正文），六位发现层（项目 `.agents/skills/` > 用户 `~/.berry-agent/skills/` > 跨库 `~/.agents/skills`、`~/.claude/skills` > 插件 > 出厂）；对话中渐进披露，`skill_manage` 工具可创建/修补；
-- **记忆**：跨会话持久条目（偏好、约定、教训），常驻简报 + 按需检索两路注入；`/memory-export` `/memory-import` 明文迁移。
+- **记忆**：跨会话持久条目（偏好、约定、教训），常驻简报 + 按需检索两路注入；`/memory-export` `/memory-import` 明文迁移；
+- **环境自省**：模型工具面含 `session_status`——当前会话状态、整形后可见工具清单与高危面门态快照三段（只读，供模型自省工作环境）。
 
 ## 下一步
 

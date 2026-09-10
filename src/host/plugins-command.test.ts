@@ -94,7 +94,7 @@ describe('用法与 list 读面', () => {
             { id: 'core:demo', skillDirs: ['/a/skills', '/b/skills'] },
             { id: 'user-x', skillDirs: [] },
           ],
-          [{ id: 'core:bad', code: 'PLUGIN_BOOT_FAILED', message: 'apply 崩' }],
+          [{ id: 'core:bad', code: 'PLUGIN_APPLY_FAILED', message: 'apply 崩' }],
           [{ id: 'core:off', reason: 'disabled' }],
         ),
     };
@@ -103,7 +103,7 @@ describe('用法与 list 读面', () => {
     expect(out.text).toContain('启用（2）：');
     expect(out.text).toContain('core:demo  技能目录：/a/skills、/b/skills');
     expect(out.text).toContain('失败（1）：');
-    expect(out.text).toContain('core:bad  [PLUGIN_BOOT_FAILED] apply 崩');
+    expect(out.text).toContain('core:bad  [PLUGIN_APPLY_FAILED] apply 崩');
     expect(out.text).toContain('禁用（1）：');
     expect(out.text).toContain('core:off  disabled');
     expect(out.text).not.toContain('user-x  技能目录'); // 空技能目录不带尾注

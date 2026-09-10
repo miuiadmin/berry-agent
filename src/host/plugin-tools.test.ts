@@ -213,7 +213,7 @@ describe('plugins_list 四态（装载真源 = 内存报告；装机真源 = 磁
             { id: 'core:demo', skillDirs: [] },
             { id: 'user-x', skillDirs: [] },
           ],
-          [{ id: 'core:bad', code: 'PLUGIN_BOOT_FAILED', message: 'apply 崩' }],
+          [{ id: 'core:bad', code: 'PLUGIN_APPLY_FAILED', message: 'apply 崩' }],
           [{ id: 'core:off', reason: 'disabled' }],
         ),
     });
@@ -227,7 +227,7 @@ describe('plugins_list 四态（装载真源 = 内存报告；装机真源 = 磁
       expect(text).toContain('mounted-disabled（1）');
       expect(text).toContain('core:off  [core]  disabled');
       expect(text).toContain('failed（1）');
-      expect(text).toContain('core:bad  [core]  [PLUGIN_BOOT_FAILED] apply 崩');
+      expect(text).toContain('core:bad  [core]  [PLUGIN_APPLY_FAILED] apply 崩');
       expect(text).toContain('installed-unmounted（1）');
       expect(text).toContain('user-y  [git]');
     } finally {

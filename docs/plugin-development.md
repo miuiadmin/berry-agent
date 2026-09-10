@@ -98,7 +98,7 @@ export default async function apply(ctx, config) {
 - **oauth 流**：`ctx.secrets.registerOAuthFlow(spec)`（装载窗 only——apply 期间声明注册）声明 device-code 端点；用户在 TUI 执行 `/credentials oauth <你的插件 id>` 发起，token 经流写回你的自域、刷新链由件内自持（三振标过期只通知不删）；
 - **env 注入引用形**：`{ GITHUB_TOKEN: '@credentials:github-token' }` 形的 env 值（消费面 v1 = MCP/LSP server config 的 `env`）由宿主在 spawn 时刻展开——明文只进子进程环境，配置面/工具结果/日志恒只见 `@credentials:` 引用形原文。
 
-错误码族：`CREDENTIALS_NOT_FOUND`（名缺席）/ `CREDENTIALS_NAMESPACE_DENIED`（越域未开门）/ `CREDENTIALS_WRITE_WINDOW_CLOSED`（窗外写）/ `CREDENTIALS_ENV_REF_INVALID`（引用形坏形）。
+错误码族：`CREDENTIALS_NOT_FOUND`（名缺席）/ `CREDENTIALS_NAMESPACE_DENIED`（越域未开门）/ `CREDENTIALS_WRITE_WINDOW_CLOSED`（窗外写）/ `CREDENTIALS_ENV_REF_INVALID`（引用形坏形）/ oauth 流三态 `CREDENTIALS_OAUTH_DENIED`（用户拒绝授权）/ `CREDENTIALS_OAUTH_EXPIRED`（device-code 过期）/ `CREDENTIALS_OAUTH_FLOW_FAILED`（端点传输/流编舞失败）。
 
 ### HTTP 路由（受限开放——`sdk-routes` 服务面）
 
@@ -161,13 +161,13 @@ plugins:
 
 | 码                        | 语义                                       |
 | ------------------------- | ------------------------------------------ |
-| `PLUGIN_MANIFEST_INVALID` | 清单形状/字符集/未知键不合规               |
+| `PLUGIN_SHAPE_INVALID`    | 清单形状/字符集/未知键/install 拒不合规    |
 | `PLUGIN_IMPORT_FORBIDDEN` | import 越出三道白名单                      |
-| `PLUGIN_APPLY_TIMEOUT`    | apply 超 10s 时钟帽                        |
+| `PLUGIN_APPLY_FAILED`     | apply 抛错或超 10s 时钟帽（错误归一）      |
 | `PLUGIN_RATE_LIMITED`     | 注册动词越频率护栏                         |
 | `PLUGIN_WINDOW_CLOSED`    | 装载窗口关窗后注册（宿主回调上下文内例外） |
 | `PLUGIN_CONFIG_INVALID`   | 启用行 config 值不符 manifest 判据         |
-| `PLUGIN_BOOT_FAILED`      | 装载失败（跳过/降级/拒启三档分立处置）     |
+| `PLUGIN_LOAD_FAILED`      | 装载失败（跳过/降级/拒启三档分立处置）     |
 
 错误全仓单基类 `BaseError`（`{ code, message, cause? }`）——catch 一律按 code 分派。
 
