@@ -1,5 +1,5 @@
 /**
- * 滚动视口件（07 §4.1 呈现面件 6）：行集 + 视口窗口化 + 键盘滚动 + 滚动条按需显隐。
+ * 滚动视口件（07 §4.1 引擎节件 6（组件与呈现装配件））：行集 + 视口窗口化 + 键盘滚动 + 滚动条按需显隐。
  *
  * - 内容溢出视口才显滚动条（承 pi-tui `scrollbar:'auto'` 语义）：先按全宽折
  *   视觉行判溢出，溢出则让出一列重折 + 画 thumb（两遍折叠换「按需占列」的
@@ -7,7 +7,8 @@
  * - follow 尾随模式（初始 true——回看器开屏显尾）：内容更替贴尾；上滚破随；
  *   再滚到底复随（判据：偏移到达 maxOffset）；
  * - 键盘滚动 ↑/↓ 单行、PgUp/PgDn 翻页、Home/End 到首尾（press/repeat 动作、
- *   release 归上层）；滚轮随鼠标解码批接入；
+ *   release 归上层）；滚轮 ±3 视觉行（vim mousescroll ver 缺省档——2026-09-11
+ *   鼠标解码批 mu-2 接入，走显式滚动路：破随后即时夹取、复随判据同键盘）；
  * - 滚动条渐隐计时随组件批定形（07 挂账）——v1 溢出期间常显。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region, Renderable } from '../../engine/index.js';
@@ -37,6 +38,9 @@ const SCROLL_ACTIONS: Readonly<
 
 /** 滚动动作类型 */
 type ScrollAction = (typeof SCROLL_ACTIONS)[string];
+
+/** 滚轮单步视觉行数（vim mousescroll ver 缺省档三行——tmux copy-mode 五行不取；07 引擎节件 6 条款码面缺省参数） */
+const WHEEL_LINES = 3;
 
 /** 滚动视口选项 */
 export interface ScrollViewOptions {
@@ -173,8 +177,23 @@ export class ScrollView implements Renderable {
 
   /* ---------------- 输入事件 ---------------- */
 
-  /** 键盘滚动：仅 key 事件（其余归上层）；无修饰才触发 */
+  /** 输入消费：key = 无修饰滚动键位（press/repeat 相）；mouse = 滚轮（其余归上层） */
   handleEvent(event: InputEvent): boolean {
+    if (event.kind === 'mouse') {
+      // 滚轮消费路（mu-2）：wheel 无 release 相（终端不报——press 一相到达）；
+      // 修饰位照常滚动——shift/ctrl+轮在终端侧多已截留改道（水平滚/缩放），
+      // SGR 报文到达即按垂直滚消费。走 scrollBy 显式滚动路（复随判据同键盘）
+      if (event.phase !== 'press') return false;
+      if (event.button === 'wheel-up') {
+        this.scrollBy(-WHEEL_LINES);
+        return true;
+      }
+      if (event.button === 'wheel-down') {
+        this.scrollBy(WHEEL_LINES);
+        return true;
+      }
+      return false; // 非滚轮鼠标相归上层（子类选区路）
+    }
     if (event.kind !== 'key') return false;
     if (event.phase === 'release') return false;
     if (event.ctrl || event.alt || event.shift || event.meta) return false;
@@ -204,6 +223,27 @@ export class ScrollView implements Renderable {
   }
 
   /* ---------------- 内部算术 ---------------- */
+
+  /** 视口几何观测（子类屏幕坐标反查用——render/measure 实测回写值） */
+  protected get viewportGeometry(): { width: number; height: number } {
+    return { width: this.lastWidth, height: this.viewportHeight };
+  }
+
+  /**
+   * 视口内显示行 → 视觉段反查（mu-2 子类接缝：屏幕坐标 → 逻辑位的折叠映射
+   * 半场——与 render 两遍折叠同判溢出同分槽缓存，零第二映射；界外返 null）。
+   */
+  protected segmentAt(displayRow: number): VisualSegment | null {
+    let map = this.visualMap(this.lastWidth, false);
+    if (map.length > this.viewportHeight) map = this.visualMap(this.lastWidth, true);
+    return map[this.offset + displayRow] ?? null;
+  }
+
+  /** 滚动条列命中判（溢出让列时末列——07 件 8「视口外命中零动作」的判据位） */
+  protected hitScrollbar(col: number): boolean {
+    const map = this.visualMap(this.lastWidth, false);
+    return map.length > this.viewportHeight && col === this.lastWidth - 1;
+  }
 
   /** 折叠缓存取（行集引用 + 折宽双键——分槽并存） */
   private visualMap(width: number, reserveBar: boolean): VisualSegment[] {

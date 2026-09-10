@@ -12,6 +12,14 @@
  * - **键盘滚动**（首版键盘先行——滚轮随鼠标批接）：ScrollView 装载
  *   （↑/↓/PgUp/PgDn/Home/End——折叠与偏移算术恒归 ScrollView，样式呈现经
  *   writeSlice 覆写接缝注入，零第二滚动引擎）；
+ * - **鼠标选区 + 滚轮**（2026-09-11 鼠标解码批 mu-2——07 件 8 细则）：线性
+ *   选区（press 左键锚定 → motion 按住拖动扩展 → release 触发复制），锚/焦点
+ *   存逻辑行 + 行内 UTF-16 下标（渲染无关坐标系——滚动/重折/resize 后仍指同
+ *   一正文位）；release 行间拼 LF 经 onCopy 注入柄写出（OSC 52——装配层铸序
+ *   列）；选区帽 64 KiB 按明文 UTF-8 字节数计，超帽拒复制 + 底行提示常显至
+ *   选区清除；视口外命中（头行/底铬/滚动条列）零动作；搜索框在场拖选禁用
+ *   （输入模态优先）；双击词选/越视口自动滚动/滚动条拖拽挂账不预造。滚轮归
+ *   ScrollView wheel 消费路（搜索在场也照常滚——禁的是拖选）；
  * - **搜索三动作**（条款锁能力不锁键位——缺省 Ctrl+Shift+F）：开（搜索框
  *   在场——Editor 单行档复用，IME/粘贴/字素光标白得）/ 跳匹配（Enter 下一、
  *   Shift+Enter 上一、循环；当前匹配反色高亮）/ 关（Esc——高亮清、查询文
@@ -22,7 +30,8 @@
  *   = 打断在飞 run（滤 kitty release）、Ctrl+D = 退出（先收副屏——onExit
  *   先于 onQuit；搜索框有文不退，与主屏空框闸同律）。
  */
-import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
+import type { CellBuffer, CellStyle, InputEvent, MouseEvent, Region } from '../../engine/index.js';
+import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
@@ -46,6 +55,8 @@ export interface HistoryViewerOptions {
   readonly onInterrupt?: (sessionId: string) => void;
   /** 退出进程（Ctrl+D——先收副屏〔onExit 已先调〕再转装配退出柄） */
   readonly onQuit?: () => void;
+  /** OSC 52 复制写出柄（release 选区触发——onExit/onInterrupt 装配柄同形先例；装配层包 buildOsc52Copy 铸序列） */
+  readonly onCopy?: (text: string) => void;
 }
 
 /** 搜索匹配定位（逻辑行 + UTF-16 区间〔start 含 end 不含〕） */
@@ -55,12 +66,22 @@ interface MatchSpan {
   readonly end: number;
 }
 
-/** 当前匹配高亮样式（整段反色——视口内最强存在感） */
+/** 选区定位点（逻辑行 + 行内 UTF-16 下标——渲染无关坐标系：滚动/重折/resize 后仍指同一正文位） */
+interface SelPoint {
+  readonly line: number;
+  readonly col: number;
+}
+
+/** 当前匹配高亮样式（整段反色——视口内最强存在感；选区高亮同载体叠加） */
 const MATCH_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 /** 提示行样式（dim——存在感弱于正文） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 常态底行键面提示 */
-const HINT_TEXT = 'q/esc 返回 · ctrl+shift+f 搜索 · ↑↓/pgup/pgdn/home/end 滚动';
+const HINT_TEXT = 'q/esc 返回 · ctrl+shift+f 搜索 · ↑↓/pgup/pgdn/home/end 滚动 · 拖选复制';
+/** 选区帽（64 KiB——07 件 8 细则码面缺省参数；计量面 = 选中明文 UTF-8 字节数，与 xterm 100,000 解码后上限同基准） */
+const SELECTION_CAP_BYTES = 64 * 1024;
+/** 超帽底行提示（spec 定文——常显至选区清除） */
+const SELECTION_CAP_NOTICE = '选区过大未复制';
 
 /** key 事件窄化（其他事件形归各分路——text/ime/paste） */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -84,6 +105,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
   private readonly onExit: (() => void) | undefined;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
+  private readonly onCopy: ((text: string) => void) | undefined;
 
   /* ---- 搜索态（开/跳/关三动作状态机） ---- */
   private searchOpen = false;
@@ -93,6 +115,12 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
   /** 退出闭锁（同批多事件只退一次——q 与 Esc 竞发的防御位） */
   private exited = false;
 
+  /* ---- 选区态（press 锚定 → motion 扩展 → release 复制——线性选区状态机） ---- */
+  private selAnchor: SelPoint | null = null;
+  private selFocus: SelPoint | null = null;
+  /** 底行提示文案（超帽拒复制——常显至选区清除；null = 常态键面提示） */
+  private selectionNotice: string | null = null;
+
   constructor(options: HistoryViewerOptions) {
     super(); // 无 maxHeight——副屏 root 直收 region 全高
     this.sessionId = options.sessionId;
@@ -100,6 +128,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.onCopy = options.onCopy;
     // 全量档行集：投影 → LiveTranscript（Infinity 帽恒不截）→ 带样式行（管线单源）
     const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY });
     transcript.loadProjection(options.messages);
@@ -156,7 +185,8 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         height: chromeBottom,
       });
     } else {
-      buffer.writeText(region.row + region.height - 1, region.col, HINT_TEXT, HINT_STYLE);
+      // 底行：超帽提示优先（常显至选区清除），否则常态键面提示
+      buffer.writeText(region.row + region.height - 1, region.col, this.selectionNotice ?? HINT_TEXT, HINT_STYLE);
     }
   }
 
@@ -166,6 +196,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
    * q/Esc 不退出）→ 常态退出键（q/Esc）→ 滚动键（ScrollView）。
    */
   handleEvent(event: InputEvent): boolean {
+    if (event.kind === 'mouse') return this.handleMouse(event); // mouse 路（终局消费——模态独占）
     const k = asKey(event);
     if (k !== null && k.phase !== 'release') {
       // Ctrl+C = 打断在飞 run（press/repeat 相动作滤 kitty release——与滚动键/编辑键的相过滤同律）
@@ -226,6 +257,108 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
   /** super.handleEvent 直呼（子类覆写同名面后仍需触达基类滚动路的显式位） */
   private handleEventSuper(event: InputEvent): void {
     super.handleEvent(event);
+  }
+
+  /* ---------------- 鼠标选区（mu-2——07 件 8 细则） ---------------- */
+
+  /**
+   * mouse 事件路（副屏内容件终局消费——未消费 mouse 不穿透，模态独占）：
+   * 滚轮归 ScrollView（搜索在场也照常滚——禁的是拖选）；选区 = 左键 press
+   * 锚定 → motion 扩展 → release 复制（release 后选区高亮保留，下次 press
+   * 清除/重锚）。
+   */
+  private handleMouse(event: MouseEvent): boolean {
+    if (event.button === 'wheel-up' || event.button === 'wheel-down') {
+      this.handleEventSuper(event); // 滚轮消费路（±3 视觉行——显式滚动路）
+      return true;
+    }
+    if (this.searchOpen) return true; // 搜索框在场拖选禁用（输入模态优先）——吞
+    if (event.button !== 'left') return true; // v1 选区只有左键——中/右零动作吞
+    if (event.phase === 'press') {
+      // 新选区起手：旧选区与超帽提示随清（「常显至选区清除」的清除位）
+      this.selectionNotice = null;
+      const hit = this.screenToLogical(event.row, event.col);
+      this.selAnchor = hit; // 视口外起手 = null（无锚——motion/release 零动作）
+      this.selFocus = hit; // 零宽起手（拖动才扩）
+      return true;
+    }
+    if (this.selAnchor === null) return true; // 无锚——motion/release 零动作
+    if (event.phase === 'motion') {
+      const hit = this.screenToLogical(event.row, event.col);
+      if (hit !== null) this.selFocus = hit; // 拖出视口（头行/底铬/滚动条列）保焦点不扩
+      return true;
+    }
+    // release：空选区零动作；超帽拒复制 + 底行提示；在帽行间拼 LF 经注入柄写出
+    const text = this.selectionText();
+    if (text.length === 0) return true;
+    if (Buffer.byteLength(text, 'utf8') > SELECTION_CAP_BYTES) {
+      this.selectionNotice = SELECTION_CAP_NOTICE;
+      return true;
+    }
+    this.onCopy?.(text);
+    return true;
+  }
+
+  /**
+   * 屏幕坐标 → 选区定位点（逻辑行 + 行内 UTF-16 下标）：视口外命中（头行/
+   * 底铬/滚动条列/界外）返 null 零动作；列反查走字素宽累加（与折叠算术同源
+   * ——CJK 双宽对齐，命中字素含半格命中归该字素首）。
+   */
+  private screenToLogical(row: number, col: number): SelPoint | null {
+    const geo = this.viewportGeometry;
+    if (row < 1 || row >= 1 + geo.height) return null; // 头行 / 底铬（拖选仅在搜索不在场——底铬恒提示行 1 行）
+    if (col < 0 || col >= geo.width) return null; // 界外防御位
+    if (this.hitScrollbar(col)) return null; // 滚动条列（溢出让列时末列）零动作
+    const seg = this.segmentAt(row - 1);
+    if (seg === null) return null;
+    const text = this.styledLines[seg.line]?.plain ?? '';
+    let index = seg.startCol;
+    let seen = 0;
+    for (const g of splitGraphemes(text.slice(seg.startCol, seg.startCol + seg.length))) {
+      if (seen + graphemeWidth(g) > col) break; // 命中字素（含双宽字素半格）归该字素首
+      seen += graphemeWidth(g);
+      index += g.length;
+    }
+    return { line: seg.line, col: index };
+  }
+
+  /** 选区规范化（锚/焦点 → 升序两端点；无选区 null） */
+  private selectionBounds(): readonly [SelPoint, SelPoint] | null {
+    if (this.selAnchor === null || this.selFocus === null) return null;
+    const flip =
+      this.selFocus.line < this.selAnchor.line ||
+      (this.selFocus.line === this.selAnchor.line && this.selFocus.col < this.selAnchor.col);
+    return flip ? [this.selFocus, this.selAnchor] : [this.selAnchor, this.selFocus];
+  }
+
+  /** 选区明文（行间拼 LF——release 复制与帽计量的单源；空选区空串） */
+  private selectionText(): string {
+    const bounds = this.selectionBounds();
+    if (bounds === null) return '';
+    const [from, to] = bounds;
+    const parts: string[] = [];
+    for (let line = from.line; line <= to.line; line++) {
+      const plain = this.styledLines[line]?.plain ?? '';
+      const start = line === from.line ? from.col : 0;
+      const end = line === to.line ? to.col : plain.length;
+      parts.push(plain.slice(start, end));
+    }
+    return parts.join('\n');
+  }
+
+  /**
+   * 本逻辑行的选中区间（端点含头不含尾；end = Infinity 表行尾开放——跨行尾
+   * 段；无选区/异行 null）。writeSlice 高亮与 selectionText 共用此规范化。
+   */
+  private selectionSpanFor(line: number): { start: number; end: number } | null {
+    const bounds = this.selectionBounds();
+    if (bounds === null) return null;
+    const [from, to] = bounds;
+    if (line < from.line || line > to.line) return null;
+    return {
+      start: line === from.line ? from.col : 0,
+      end: line === to.line ? to.col : Number.POSITIVE_INFINITY,
+    };
   }
 
   /* ---------------- 搜索三动作 ---------------- */
@@ -295,7 +428,11 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     const match = this.matchIndex >= 0 ? this.matches[this.matchIndex] : undefined;
     const hlStart = match !== undefined && match.line === seg.line ? Math.max(match.start, start) : end;
     const hlEnd = match !== undefined && match.line === seg.line ? Math.min(match.end, end) : start;
-    // 分段边界：切片端点 ∪ 样式段端点 ∪ 高亮端点（升序去重）
+    // 选区段（本切片所在逻辑行的选中区间——与当前匹配同 inverse 载体叠加）
+    const sel = this.selectionSpanFor(seg.line);
+    const selStart = sel !== null ? Math.max(sel.start, start) : end;
+    const selEnd = sel !== null ? Math.min(sel.end, end) : start;
+    // 分段边界：切片端点 ∪ 样式段端点 ∪ 高亮端点 ∪ 选区端点（升序去重）
     const cuts = new Set<number>([start, end]);
     for (const run of styled.runs) {
       if (run.start > start && run.start < end) cuts.add(run.start);
@@ -303,6 +440,8 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     }
     if (hlStart > start && hlStart < end) cuts.add(hlStart);
     if (hlEnd > start && hlEnd < end) cuts.add(hlEnd);
+    if (selStart > start && selStart < end) cuts.add(selStart);
+    if (selEnd > start && selEnd < end) cuts.add(selEnd);
     const bounds = [...cuts].sort((a, b) => a - b);
     const baseCols = prefixDisplayWidth(styled.plain, start);
     for (let i = 0; i + 1 < bounds.length; i++) {
@@ -317,6 +456,10 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         }
       }
       if (from >= hlStart && from < hlEnd) {
+        style = style === undefined ? MATCH_STYLE : { ...style, inverse: true };
+      }
+      if (from >= selStart && from < selEnd) {
+        // 选区高亮（与搜索匹配同 inverse 载体——叠加处同 inverse 幂等）
         style = style === undefined ? MATCH_STYLE : { ...style, inverse: true };
       }
       buffer.writeText(

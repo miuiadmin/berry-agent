@@ -1,8 +1,10 @@
 /**
  * 多行输入件（Editor 件族组装件）：模型 + 视图组合 + 输入事件分发。
  *
- * 事件面（07 §4.1 呈现面件 6 输入件条款 + 批 10c 输入事件四分模型）：
+ * 事件面（07 §4.1 引擎节件 6（组件与呈现装配件） 输入件条款 + 批 10c 输入事件模型）：
  * - handleEvent 四路分发（key / text / ime / paste），返回是否消费；
+ * - mouse 事件零消费直达 false（主屏零鼠标——到达即吞归上层；2026-09-11
+ *   鼠标解码批输入模型扩五分，本件非 mouse 消费方）；
  * - ctrl+c 不消费（返 false 归上层 abort 路——复制语义在无选区模型下无承接）；
  * - 键位表平移 pi keybindings（本仓化差异：undo 双绑 ctrl+- / ctrl+_ ——
  *   kitty 轨 ctrl+- 规范形、legacy 轨 0x1f 解码为 '_'）；
@@ -167,6 +169,8 @@ export class Editor implements Renderable {
         this.jumpPending = null;
         this.model.insertText(event.text);
         return true;
+      case 'mouse':
+        return false; // 主屏零鼠标（07 屏模型注）——到达即吞不消费（副屏选区路不经本件）
     }
   }
 

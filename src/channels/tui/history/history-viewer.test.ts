@@ -8,7 +8,7 @@
  * （Ctrl+C 打断滤 release / Ctrl+D 先收副屏再退 + 空框闸）。
  */
 import { describe, expect, it } from 'vitest';
-import { CellGrid, type CellBuffer, type InputEvent } from '../../engine/index.js';
+import { CellGrid, type CellBuffer, type InputEvent, type MouseEvent } from '../../engine/index.js';
 import { HistoryViewer } from './history-viewer.js';
 import type { AgentMessage } from '../../../contracts/index.js';
 
@@ -76,9 +76,10 @@ function readBody(grid: CellBuffer, row: number): string {
 const COLS = 40;
 const ROWS = 10;
 
-/** 装配：事件副作用经 log 串账（exit / interrupt / quit 三柄时序可断言） */
+/** 装配：事件副作用经 log 串账（exit / interrupt / quit 三柄时序可断言）+ onCopy 捕获（选区复制断言面） */
 function rig(messages: readonly AgentMessage[], rows = ROWS) {
   const log: string[] = [];
+  const copies: string[] = [];
   const viewer = new HistoryViewer({
     sessionId: SESSION,
     messages,
@@ -86,13 +87,14 @@ function rig(messages: readonly AgentMessage[], rows = ROWS) {
     onExit: () => log.push('exit'),
     onInterrupt: (id) => log.push(`interrupt:${id}`),
     onQuit: () => log.push('quit'),
+    onCopy: (text) => copies.push(text),
   });
   const render = (): CellGrid => {
     const grid = new CellGrid(COLS, rows);
     viewer.render(grid, { row: 0, col: 0, width: COLS, height: rows });
     return grid;
   };
-  return { viewer, log, render };
+  return { viewer, log, copies, render };
 }
 
 /** n 条 user 消息（行集 n 行：m0..m(n-1)） */
@@ -304,5 +306,164 @@ describe('回看器副屏键面补丁', () => {
     viewer.handleEvent(key('backspace'));
     viewer.handleEvent(key('d', { ctrl: true })); // 清框后可退
     expect(log).toEqual(['exit', 'quit']);
+  });
+});
+
+/* ---------------- 鼠标选区 + 滚轮（mu-2——07 件 8 细则） ---------------- */
+
+describe('回看器鼠标选区（press 锚定 → motion 扩展 → release 复制）', () => {
+  /** mouse 事件便捷构造（at = 全屏 region 行列——头行 0 / 视口 1..height-2 / 底铬末行） */
+  function mouse(
+    button: 'left' | 'middle' | 'right' | 'wheel-up' | 'wheel-down',
+    at: { row: number; col: number } = { row: 1, col: 0 },
+    phase: 'press' | 'motion' | 'release' = 'press',
+  ): MouseEvent {
+    return {
+      kind: 'mouse',
+      button,
+      phase,
+      col: at.col,
+      row: at.row,
+      ctrl: false,
+      alt: false,
+      shift: false,
+      meta: false,
+    };
+  }
+
+  /** 拖选三连（press → motion → release——多数用例的驱动骨架） */
+  function drag(viewer: HistoryViewer, from: { row: number; col: number }, to: { row: number; col: number }): void {
+    viewer.handleEvent(mouse('left', from, 'press'));
+    viewer.handleEvent(mouse('left', to, 'motion'));
+    viewer.handleEvent(mouse('left', to, 'release'));
+  }
+
+  it('线性选区全链：release 行间拼 LF 复制（中间行全文 · 首尾行按列切）', () => {
+    // 10 行 / 视口 8 高——offset 贴尾 2：屏行 1..8 = 逻辑行 2..9
+    const { viewer, copies, render } = rig(manyUsers(10));
+    render(); // 视口几何回写（screenToLogical 的前提）
+    drag(viewer, { row: 1, col: 2 }, { row: 3, col: 4 });
+    expect(copies).toEqual(['m2\n> m3\n> m4']); // 行 2 从列 2、行 3 全文、行 4 到列 4
+  });
+
+  it('反向拖选规范化（锚在焦点后——升序两端点同一明文）', () => {
+    const { viewer, copies, render } = rig(manyUsers(10));
+    render();
+    drag(viewer, { row: 3, col: 4 }, { row: 1, col: 2 });
+    expect(copies).toEqual(['m2\n> m3\n> m4']);
+  });
+
+  it('CJK 双宽列反查：半格命中归字素首（与折叠算术同源）', () => {
+    const { viewer, copies, render } = rig([userMsg('中文字')]); // 行 '> 中文字'：中 2-3 / 文 4-5 / 字 6-7
+    render();
+    drag(viewer, { row: 1, col: 3 }, { row: 1, col: 6 }); // col3 = 中的右半格 → 逻辑 2；col6 = 字首 → 逻辑 6
+    expect(copies).toEqual(['中文']);
+  });
+
+  it('拖选中滚动坐标不漂：锚存逻辑位，滚后 motion 命中新逻辑行（渲染无关坐标系）', () => {
+    const { viewer, copies, render } = rig(manyUsers(10));
+    render(); // offset 2
+    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'press')); // 锚 = 逻辑行 2 列 0
+    viewer.handleEvent(mouse('wheel-up')); // offset 2-3 → 夹 0（破随）
+    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'motion')); // 同屏位已是逻辑行 0 列 0
+    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'release'));
+    expect(copies).toEqual(['> m0\n> m1\n']); // 行 0 全文 + 行 1 全文 + 行 2 列 0 空
+  });
+
+  it('选区高亮反色：press+motion 后视口内 inverse + release 后保留 + 下次 press 清除', () => {
+    const { viewer, render } = rig(manyUsers(10));
+    render();
+    viewer.handleEvent(mouse('left', { row: 1, col: 2 }, 'press'));
+    viewer.handleEvent(mouse('left', { row: 3, col: 4 }, 'motion'));
+    const grid = render();
+    expect(grid.getCell(1, 2)?.style.inverse).toBe(true); // 行 2 选中段（列 2 起至行尾）
+    expect(grid.getCell(1, 0)?.style.inverse).toBeUndefined(); // 行 2 前缀未选
+    expect(grid.getCell(2, 0)?.style.inverse).toBe(true); // 行 3 全文选中
+    expect(grid.getCell(3, 3)?.style.inverse).toBe(true); // 行 4 选中段（列 0..3）
+    viewer.handleEvent(mouse('left', { row: 3, col: 4 }, 'release'));
+    expect(render().getCell(1, 2)?.style.inverse).toBe(true); // release 后高亮保留
+    viewer.handleEvent(mouse('left', { row: 5, col: 2 }, 'press')); // 新选区起手 = 清除位
+    const grid2 = render();
+    expect(grid2.getCell(1, 2)?.style.inverse).toBeUndefined(); // 旧选区已清
+    expect(grid2.getCell(5, 2)?.style.inverse).toBeUndefined(); // 新锚零宽不高亮
+  });
+
+  it('选区帽 64 KiB：超帽拒复制 + 底行提示常显至选区清除（拖选中滚轮扩选达帽）', () => {
+    // 三条 30000 字符长行（各折 ~770 视觉行）——锚在尾屏、滚到顶再扩焦点，
+    // 中间行全文计入 → 总量 ~87 KiB 越帽（纯视口内拖选受折宽约束达不到帽）
+    const long = (ch: string): AgentMessage => userMsg(ch.repeat(30000));
+    const { viewer, copies, render } = rig([long('x'), long('y'), long('z')]);
+    render(); // ~2310 视觉行贴尾
+    viewer.handleEvent(mouse('left', { row: 1, col: 0 }, 'press')); // 锚 = 行 2 尾段列 ~29718
+    for (let i = 0; i < 800; i++) viewer.handleEvent(mouse('wheel-up')); // 滚到顶
+    viewer.handleEvent(mouse('left', { row: 8, col: 3 }, 'motion')); // 焦点 = 行 0 首段列 ~276
+    viewer.handleEvent(mouse('left', { row: 8, col: 3 }, 'release'));
+    expect(copies).toEqual([]); // 超帽拒复制
+    expect(readRow(render(), ROWS - 1, COLS)).toContain('选区过大未复制'); // 底行提示
+    viewer.handleEvent(mouse('left', { row: 1, col: 2 }, 'press')); // 下次 press = 清除位
+    expect(readRow(render(), ROWS - 1, COLS)).toContain('q/esc 返回'); // 回常态键面提示
+    expect(copies).toEqual([]); // 全程零复制
+  });
+
+  it('搜索框在场拖选禁用（输入模态优先）——滚轮仍照常滚', () => {
+    const { viewer, copies, render } = rig(manyUsers(10));
+    render(); // offset 2
+    viewer.handleEvent(key('f', { ctrl: true, shift: true })); // 开搜索
+    drag(viewer, { row: 1, col: 2 }, { row: 3, col: 4 });
+    expect(copies).toEqual([]); // 禁拖选
+    expect(viewer.handleEvent(mouse('wheel-up'))).toBe(true); // 滚轮仍滚（走 super 消费路）
+    expect(viewer.scrollOffset).toBe(0); // 2-3 夹 0——搜索在场不拦滚动
+  });
+
+  it('视口外命中零动作：头行 / 底铬 / 滚动条列不建锚（后续 motion/release 零复制）', () => {
+    const { viewer, copies, render } = rig(manyUsers(10)); // 溢出档——末列 39 为滚动条
+    render();
+    // 头行（row 0）
+    drag(viewer, { row: 0, col: 2 }, { row: 1, col: 2 });
+    // 底铬（row 9 = 提示行）
+    drag(viewer, { row: 9, col: 2 }, { row: 1, col: 2 });
+    // 滚动条列（col 39）
+    drag(viewer, { row: 1, col: 39 }, { row: 1, col: 2 });
+    expect(copies).toEqual([]);
+  });
+
+  it('中 / 右键零动作吞（v1 选区只有左键——返回 true 模态独占）', () => {
+    const { viewer, copies, render } = rig(manyUsers(10));
+    render();
+    expect(viewer.handleEvent(mouse('middle', { row: 1, col: 2 }))).toBe(true);
+    expect(viewer.handleEvent(mouse('right', { row: 1, col: 2 }))).toBe(true);
+    drag(viewer, { row: 1, col: 2 }, { row: 3, col: 4 }); // 中/右未建锚——左键拖选照常
+    expect(copies).toEqual(['m2\n> m3\n> m4']);
+  });
+
+  it('零宽选区 release 零复制（press 即 release 同点）', () => {
+    const { viewer, copies, render } = rig(manyUsers(10));
+    render();
+    viewer.handleEvent(mouse('left', { row: 1, col: 2 }, 'press'));
+    viewer.handleEvent(mouse('left', { row: 1, col: 2 }, 'release'));
+    expect(copies).toEqual([]);
+  });
+
+  it('motion 拖出视口保焦点不扩（头行/底铬命中不移动焦点——释放按已存焦点）', () => {
+    const { viewer, copies, render } = rig(manyUsers(10));
+    render();
+    viewer.handleEvent(mouse('left', { row: 1, col: 2 }, 'press'));
+    viewer.handleEvent(mouse('left', { row: 3, col: 4 }, 'motion')); // 有效焦点
+    viewer.handleEvent(mouse('left', { row: 0, col: 5 }, 'motion')); // 头行——焦点不动
+    viewer.handleEvent(mouse('left', { row: 9, col: 5 }, 'motion')); // 底铬——焦点不动
+    viewer.handleEvent(mouse('left', { row: 9, col: 5 }, 'release')); // 释放坐标不更新焦点
+    expect(copies).toEqual(['m2\n> m3\n> m4']);
+  });
+
+  it('onCopy 缺席安全（装配可不接——选区路不炸）', () => {
+    const viewer = new HistoryViewer({
+      sessionId: SESSION,
+      messages: manyUsers(10),
+      columns: COLS,
+      onExit: () => {},
+    });
+    const grid = new CellGrid(COLS, ROWS);
+    viewer.render(grid, { row: 0, col: 0, width: COLS, height: ROWS });
+    expect(() => drag(viewer, { row: 1, col: 2 }, { row: 3, col: 4 })).not.toThrow();
   });
 });

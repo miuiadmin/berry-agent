@@ -1,7 +1,7 @@
 /**
- * 输入解码器（07 篇引擎节件 2——kitty/legacy 双轨六态机）。
+ * 输入解码器（07 篇引擎节件 2——kitty/legacy 双轨七态机）。
  *
- * 把终端 stdin 字节流解析成结构化输入事件（key/text/ime/paste 四分——
+ * 把终端 stdin 字节流解析成结构化输入事件（key/text/ime/paste/mouse 五分——
  * 事件模型在 types 件），一台状态机两种轨制同吃：
  * - **legacy 轨**：C0 控制码（Ctrl+字母 = 0x01-0x1a）、CSI/SS3 功能键
  *   （`\x1b[A` 箭头、`\x1b[1;5C` Ctrl+Right、`\x1b[3~` Delete、`\x1b[15~` F5…）、
@@ -20,6 +20,16 @@
  *   带内无标记，诚实不发明启发式。
  * - **bracketed paste**：`\x1b[200~ … \x1b[201~` 整段识别整段交付（内容不逐键
  *   解析——「严格处理」）。
+ * - **SGR 1006 鼠标**（2026-09-11 鼠标解码批）：`CSI < Cb;Cx;Cy M/m` 全形解析
+ *   （M = 按压/按住拖动、m = 释放）；v1 语义面收窄五钮 left/middle/right/
+ *   wheel-up/wheel-down——66/67（水平滚轮）与 128-131（扩展键）线值整序吞；
+ *   线值 8-11 是 alt 系修饰组合（位域 8=alt 叠加），照常拆解还原绝不入吞
+ *   清单；坐标 1 基 → 0 基（模型面单源 0 基）。
+ * - **X10 防御吞 + 运行时降级**：bare `CSI M` 后三字节（X10 形）整吞不产事件
+ *   （坐标字节 0x20+ 落可打印区间——地面态重解会伪造 text/按键）；开了 1006
+ *   的会话里 X10 形到达 ⟺ 终端无 SGR 能力（判据可靠），首达触发
+ *   onMouseLegacy 一次性回调（per-entry 闩），装配层据此 DECRST 关鼠标回
+ *   原生选区。
  * - **lone-ESC 判定窗**：ESC 为 chunk 末字节时挂起等续；窗内
  *   （escapeWindowMs，缺省 30ms）无续字节（settle）→ 判 Esc 键。kitty
  *   disambiguate 轨下 Esc 键以 `CSI 27u` 到达，此窗只剩 legacy 轨兜底职责。
@@ -29,7 +39,7 @@
  * 事件产出形与本仓契约对齐：KeyEvent.phase 必填三值（legacy 恒 press）；
  * ImeEvent.committed（true 提交 / false 预编辑增量——与 berry composing 互反）。
  */
-import type { ImeEvent, InputEvent, KeyEvent, KeyPhase, KeyboardProtocol } from './types.js';
+import type { ImeEvent, InputEvent, KeyEvent, KeyPhase, KeyboardProtocol, MouseButton, MousePhase } from './types.js';
 import { decodeMods, decodePhase, KITTY_PUA_KEYS, LETTER_KEYS, NO_MODS, TILDE_KEYS } from './input-keys.js';
 
 /** 修饰键四元（KeyEvent 字段内联形——无独立 KeyModifiers 类型位） */
@@ -43,6 +53,12 @@ export interface InputDecoderOptions {
   escapeWindowMs?: number;
   /** 协议探测落定回调（kitty 应答先到 / DA1 到达时裁 kitty 或 legacy） */
   onProtocol?: (protocol: KeyboardProtocol) => void;
+  /**
+   * X10 形首达回调（一次性——per-entry 闩；onProtocol 同形先例）：开了
+   * 1006 的会话里 X10 形到达 ⟺ 终端无 SGR 能力（判据可靠），装配层据此
+   * DECRST 关鼠标回原生选区（运行时降级）。
+   */
+  onMouseLegacy?: () => void;
 }
 
 /** 粘贴态防护帽：超帽强制冲刷（恶意/畸形流不锁死解码器——4 MiB） */
@@ -78,12 +94,13 @@ export class InputDecoder {
   /** 事件积压队列（take 排空后换新数组——feed 不回调，避免重入） */
   private queue: InputEvent[] = [];
   /**
-   * 解析态六分：ground 地面 / esc 转义挂起 / csi 参数积攒 / ss3 / paste
+   * 解析态七分：ground 地面 / esc 转义挂起 / csi 参数积攒 / ss3 / paste
    * 粘贴体 / paste-drain 粘贴吸收态（粘贴态被换防丢弃或超帽冲刷后残余粘贴体
    * 不得按地面态解码成伪造命令行事件——空框 enter 开应用、`/exit`+CRLF 触
-   * 退出，吞到真终界 PASTE_END 再回地面）。
+   * 退出，吞到真终界 PASTE_END 再回地面）/ mouse-x10 X10 吞态（bare CSI M
+   * 后三字节整吞——坐标字节落可打印区间，地面态重解会伪造 text 事件）。
    */
-  private mode: 'ground' | 'esc' | 'csi' | 'ss3' | 'paste' | 'paste-drain' = 'ground';
+  private mode: 'ground' | 'esc' | 'csi' | 'ss3' | 'paste' | 'paste-drain' | 'mouse-x10' = 'ground';
   /** CSI 参数积攒缓冲（含私用标记 ?/> 与参数字节） */
   private csiBuf = '';
   /** CSI 超帽毒化旗标：序列已判畸形——吞到终点字节整序丢弃（残段不漏成文本） */
@@ -108,14 +125,20 @@ export class InputDecoder {
   private kittyAnswered = false;
   /** 协议落定已上报旗标（事件只发一次） */
   private protocolReported = false;
+  /** X10 吞态剩余字节数（bare CSI M 后整吞 3 字节；0 = 不在吞态） */
+  private mouseX10Remain = 0;
+  /** X10 首达已上报旗标（onMouseLegacy 只发一次——per-entry 闩） */
+  private mouseLegacyReported = false;
   private readonly now: () => number;
   private readonly escapeWindowMs: number;
   private readonly onProtocol?: (protocol: KeyboardProtocol) => void;
+  private readonly onMouseLegacy?: () => void;
 
   constructor(opts: InputDecoderOptions = {}) {
     this.now = opts.now ?? Date.now;
     this.escapeWindowMs = opts.escapeWindowMs ?? 30;
     this.onProtocol = opts.onProtocol;
+    this.onMouseLegacy = opts.onMouseLegacy;
   }
 
   /** 组字中旗标（焦面查询面——true 时预编辑在途） */
@@ -220,6 +243,15 @@ export class InputDecoder {
           i++;
           continue;
         }
+        case 'mouse-x10': {
+          // X10 形后三字节整吞（防御吞）：坐标字节 0x20+ 落可打印区间——按
+          // 地面态重解会伪造 text/按键；降级（DECRST）后不再有后续 X10 报文，
+          // 吞态必终止
+          i++;
+          this.mouseX10Remain--;
+          if (this.mouseX10Remain <= 0) this.mode = 'ground';
+          continue;
+        }
         case 'paste': {
           // 粘贴体：找包裹尾 PASTE_END——整段交付，体内容不逐键解析。
           // 跨 chunk 终界拼接：上 chunk 尾部的终界真前缀悬置在
@@ -299,7 +331,7 @@ export class InputDecoder {
    *
    * 粘贴态例外：粘贴体半截被弃后残余字节若按地面态重解会伪造命令行事件——
    * 粘贴态/吸收态换防改入吸收态（paste-drain），吞残余到真终界 PASTE_END 再
-   * 回地面；CSI/ESC 半序列无续作义务，仍回地面。
+   * 回地面；CSI/ESC/X10 半序列无续作义务，仍回地面。
    */
   discardPending(): void {
     this.mode = this.mode === 'paste' || this.mode === 'paste-drain' ? 'paste-drain' : 'ground';
@@ -310,6 +342,7 @@ export class InputDecoder {
     this.textRun = '';
     this.escPendingAt = null;
     this.preedit = null;
+    this.mouseX10Remain = 0;
   }
 
   /** 排空事件队列（引擎 emit 的取货口） */
@@ -394,6 +427,23 @@ export class InputDecoder {
       }
       return; // 其余私用应答（CPR 等）吞
     }
+    if (params.startsWith('<')) {
+      // SGR 1006 鼠标报文（私用标记 '<' 引导）——协议面处理，绝不误当按键
+      this.decodeSgrMouse(params.slice(1), final);
+      return;
+    }
+    if (params === '' && final === 'M') {
+      // bare CSI M = X10 形起手（LETTER_KEYS 无 M 键——此形不与功能键冲突）：
+      // 开了 1006 的会话里 X10 形到达 ⟺ 终端无 SGR 能力——首达上报降级信号
+      // （一次性），后三字节转吞态整吞
+      if (!this.mouseLegacyReported) {
+        this.mouseLegacyReported = true;
+        this.onMouseLegacy?.();
+      }
+      this.mode = 'mouse-x10';
+      this.mouseX10Remain = 3;
+      return;
+    }
     if (final === 'u') {
       this.dispatchKittyKey(params);
       return;
@@ -436,6 +486,55 @@ export class InputDecoder {
     }
     const key = TILDE_KEYS[Number(parts[0])];
     if (key) this.emitKey(key, decodeMods(parts[1]), 'press');
+  }
+
+  /**
+   * SGR 1006 鼠标报文派发：`CSI < Cb;Cx;Cy M/m`（M = 按压/按住拖动、m = 释放）。
+   *
+   * - Cb 位域：低两位 = 按钮号（0 左/1 中/2 右；3 无按钮）；4=shift / 8=alt /
+   *   16=ctrl；32=按住 motion；64 帽位 = 轮系（+0 上/+1 下；+2/+3 = 66/67
+   *   水平滚轮左右）；128 位 = 扩展按钮 8-11（线值 128-131）。
+   * - v1 语义面收窄五钮（left/middle/right/wheel-up/wheel-down）：66/67 与
+   *   128-131 线值整序吞不产事件；线值 8-11 是 alt 系修饰组合（8=alt+左键
+   *   等），位域拆解后照常还原，绝不入吞清单。
+   * - 坐标 1 基 → 0 基（types 契约单源 0 基）；wheel 无 release（终端不报，
+   *   滚轮以 press 一相到达）；SGR 位域无 meta 位，meta 恒 false。
+   * - 非法参数（NaN/坐标越 0 基界）fail-closed 整序吞。
+   */
+  private decodeSgrMouse(params: string, final: string): void {
+    if (final !== 'M' && final !== 'm') return; // SGR 鼠标只有 M/m 终点——余吞
+    const fields = params.split(';');
+    const cb = Number(fields[0]);
+    const cx = Number(fields[1]);
+    const cy = Number(fields[2]);
+    if (!Number.isInteger(cb) || !Number.isInteger(cx) || !Number.isInteger(cy)) return;
+    const col = cx - 1;
+    const row = cy - 1;
+    if (col < 0 || row < 0) return;
+    const low = cb & 3;
+    let button: MouseButton;
+    if (cb & 64) {
+      if (low === 0) button = 'wheel-up';
+      else if (low === 1) button = 'wheel-down';
+      else return; // 66/67 水平滚轮——v1 收窄面外，整序吞
+    } else if (cb & 128) {
+      return; // 128-131 扩展按钮 8-11——v1 收窄面外，整序吞
+    } else if (low === 0) button = 'left';
+    else if (low === 1) button = 'middle';
+    else if (low === 2) button = 'right';
+    else return; // 低两位 3 = 无按钮（X10 遗迹/1003 any-motion 形）——不可归因，吞
+    const phase: MousePhase = final === 'm' ? 'release' : cb & 32 ? 'motion' : 'press';
+    this.queue.push({
+      kind: 'mouse',
+      phase,
+      button,
+      col,
+      row,
+      ctrl: (cb & 16) !== 0,
+      alt: (cb & 8) !== 0,
+      shift: (cb & 4) !== 0,
+      meta: false, // SGR 位域无 meta 位——模型面恒 false（types 契约注记）
+    });
   }
 
   /**

@@ -1,5 +1,5 @@
 /**
- * TUI 实装出口面（07 篇 §4.1 呈现面件 6——UiBackend 实装的件外可见位）。
+ * TUI 实装出口面（07 篇 §4.1 引擎节件 6（组件与呈现装配件）——UiBackend 实装的件外可见位）。
  *
  * 唯一件外消费方 = channels 公开面（index.ts 再出 TuiBackend 供批 12 host
  * 装配消费）；组件族（theme/layout/text/editor/scroll/overlay/autocomplete/

@@ -1002,8 +1002,8 @@ describe('TuiBackend 终端外显（件 7）', () => {
 const MAIN_LEAVE = '\x1b[<u\x1b[?2004l';
 const MAIN_ENTER = '\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
 /** 副屏 Engine 进出屏字节（集成测试序锚） */
-const ALT_ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
-const ALT_LEAVE = '\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1049l';
+const ALT_ENTER = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c\x1b[?1002h\x1b[?1006h'; // 鼠标准入尾随（mu-2）
+const ALT_LEAVE = '\x1b[?1006l\x1b[?1002l\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1049l'; // 鼠标关停前置（对称反序）
 
 /** 副屏内容替身（集成测试——写文 + 事件终局吞掉） */
 function altLayer(text: string): OverlayContent {
@@ -1254,5 +1254,39 @@ describe('TuiBackend /history 副屏装配（openHistory / collapseAltScreen—�
     rig.pump();
     expect(rig.io.frames[0]).toBe(ALT_LEAVE);
     expect(rig.backend.lifecycle).toBe('running');
+  });
+});
+
+/* ---------------- /history 鼠标面 e2e（mu-2——选区复制 OSC 52 + X10 降级装配接线证） ---------------- */
+
+describe('TuiBackend /history 鼠标面 e2e（mu-2）', () => {
+  /** SGR 报文便捷铸造（1 基坐标直书——与终端报文同形） */
+  const sgr = (cb: number, col: number, row: number, final: 'M' | 'm' = 'M'): string =>
+    `\x1b[<${cb};${col};${row}${final}`;
+
+  /** 局部 rig（同 historyRig 形——同步直出档：开屏首帧确定） */
+  function histRig() {
+    const { io, backend } = makeBackend({ sessionId: SESSION });
+    io.reset(); // start 编舞字节不计入
+    return { io, backend };
+  }
+
+  it('拖选三连 → io 字节含 OSC 52;c;base64（onCopy → buildOsc52Copy 装配接线）', () => {
+    const { io, backend } = histRig();
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]); // 副屏首帧同步落地
+    io.reset(); // 进屏 / 首帧字节不计入——聚焦复制写出
+    // 屏行 1（0 基）= 正文行 '> 回看正文'：CJK 双宽——列 2 = 回首、列 6 = 正首
+    io.emitInput(sgr(0, 3, 2)); // 左键 press（1 基 col 3/row 2 → 0 基 2/1）
+    io.emitInput(sgr(32, 7, 2)); // 按住拖动（motion）
+    io.emitInput(sgr(0, 7, 2, 'm')); // 释放——触发复制
+    expect(io.bytes).toContain(`\x1b]52;c;${Buffer.from('回看', 'utf8').toString('base64')}\x07`);
+  });
+
+  it('X10 首达降级：io 字节含 DECRST 1006/1002（AltScreenHost 接线——回终端原生选区）', () => {
+    const { io, backend } = histRig();
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]);
+    io.reset();
+    io.emitInput('\x1b[M !"'); // X10 形（开了 1006 的会话里到达 ⟺ 终端无 SGR 能力）
+    expect(io.bytes).toContain('\x1b[?1006l\x1b[?1002l');
   });
 });

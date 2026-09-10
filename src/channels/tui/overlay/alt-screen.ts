@@ -1,5 +1,5 @@
 /**
- * 副屏编舞件（07 §4.1 呈现面件 6 + §4.3 屏幕模型双形态）：AltScreenHost——
+ * 副屏编舞件（07 §4.1 引擎节件 6（组件与呈现装配件） + §4.3 屏幕模型双形态）：AltScreenHost——
  * 备屏 1049 整屏切换的进出编排。
  *
  * 「overlay」专指主屏浮层（OverlayStack）；本件是副屏路——件 8 /history
@@ -15,6 +15,12 @@
  *
  * 输入路由切换：共享 io 同一时刻只有一个在听（主屏 suspendMain 已卸监听、
  * 副屏 start 重装）——副屏 input 事件转发 content.handleEvent（回看器键盘滚动）。
+ *
+ * 鼠标降级接线（2026-09-11 鼠标解码批）：open 组合 onMouseLegacy——X10 形首
+ * 达（开了 1006 的会话里到达 ⟺ 终端无 SGR 能力，判据可靠）即写 DECRST
+ * 1006/1002 关鼠标签听把选区还给终端原生（写序与出屏关序同取先 1006 后
+ * 1002）。降级闩 = per-entry：每次 open 新 Engine 新 decoder——重开重新武装、
+ * 再吃一次首达（非 SGR 终端上重开 /history 的首个鼠标事件死一次为已知代价）。
  *
  * 构造双注 (primary, io)：Engine.io 私有无 getter——装配根同根传两参（io 须与
  * primary 共享同一实例，否则编舞失联）。
@@ -84,7 +90,17 @@ export class AltScreenHost {
     if (this.alt !== null) return null; // 已在副屏——无嵌套备屏
     if (this.primary.lifecycle !== 'running') return null; // 主屏不在场无挂起对象
     this.primary.suspendMain(); // 出主屏（编舞对称的进半场）
-    const alt = new Engine({ ...this.engineOptions, io: this.io, screen: 'alt-screen' });
+    const base = this.engineOptions;
+    const alt = new Engine({
+      ...base,
+      io: this.io,
+      screen: 'alt-screen',
+      // X10 首达降级组合柄：关鼠标签听回终端原生选区 + 链原注入柄（透传面）
+      onMouseLegacy: () => {
+        this.io.write('\x1b[?1006l\x1b[?1002l'); // DECRST（与出屏关序同取——对称律同序）
+        base?.onMouseLegacy?.();
+      },
+    });
     alt.start(content); // 1049 备屏进 + 首帧（start 显式放流——共享 io 接缝）
     this.unsubAltInput = alt.on('input', (event: InputEvent) => {
       content.handleEvent(event); // 副屏内容终局消费（回看器键盘滚动）

@@ -274,8 +274,9 @@ describe('ConfirmPanel', () => {
 /* ---------------- AltScreenHost ---------------- */
 
 describe('AltScreenHost 副屏编舞', () => {
-  const ENTER_ALT = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c';
-  const LEAVE_ALT = '\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1049l';
+  // 副屏模式串含鼠标准入/关停（mu-2：进 1002+1006 追加于公共尾后、出对称先关 1006 再关 1002）
+  const ENTER_ALT = '\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[>1u\x1b[?u\x1b[c\x1b[?1002h\x1b[?1006h';
+  const LEAVE_ALT = '\x1b[?1006l\x1b[?1002l\x1b[<u\x1b[?2004l\x1b[?25h\x1b[?1049l';
 
   /**
    * 主屏假件（AltScreenPrimary 窄介面替身——批 10f-4）：记录编舞调用序
@@ -397,5 +398,60 @@ describe('AltScreenHost 副屏编舞', () => {
     expect(primary.calls).toEqual(['suspendMain', 'resumeMain']); // resumeMain 先于钩（编舞序）
     handle!.close(); // 句柄幂等——不再调
     expect(onReturn).toHaveBeenCalledTimes(1);
+  });
+
+  /* ---------------- 鼠标降级接线（mu-2——X10 首达 DECRST + per-entry 闩） ---------------- */
+
+  describe('AltScreenHost 鼠标降级接线（mu-2：X10 首达关鼠标签听回终端原生选区）', () => {
+    it('X10 首达：写 DECRST 1006/1002（关序同出屏）+ 坐标三字节吞 + 后续键照常达内容', () => {
+      const { io, host, altClock } = rig();
+      const content = altContent('alt');
+      host.open(content);
+      altClock.advance(0); // 副屏首帧落地
+      io.reset(); // 进屏字节不计入——聚焦降级写出
+      io.emitInput('\x1b[M !"k'); // X10 报文（三坐标字节 ' !"'）+ 后续键 k
+      expect(io.bytes).toContain('\x1b[?1006l\x1b[?1002l'); // DECRST（先关 1006 再关 1002）
+      const keys = content.events.filter((ev) => ev.kind === 'key' || ev.kind === 'text');
+      expect(keys).toHaveLength(1); // 坐标三字节已吞——k 照常到达（不被伪造 text/按键）
+    });
+
+    it('per-entry 闩：二次 X10 不再写 DECRST（帧账不动）', () => {
+      const { io, host, altClock } = rig();
+      host.open(altContent('alt'));
+      altClock.advance(0);
+      io.reset();
+      io.emitInput('\x1b[M !"');
+      expect(io.frames).toHaveLength(1); // 恰一笔降级写出
+      io.emitInput('\x1b[M !"'); // 闩后——不再报
+      expect(io.frames).toHaveLength(1);
+    });
+
+    it('SGR 报文不触发降级（判据可靠——只有 X10 形报无 SGR 能力）', () => {
+      const { io, host, altClock } = rig();
+      const content = altContent('alt');
+      host.open(content);
+      altClock.advance(0);
+      io.reset();
+      io.emitInput('\x1b[<0;1;1M'); // SGR 左键按压
+      expect(io.bytes).toBe(''); // 零降级写出
+      expect(content.events.some((ev) => ev.kind === 'mouse')).toBe(true); // mouse 事件照常达内容
+    });
+
+    it('重开副屏重新武装：close 后再 open 再吃一次首达（per-entry 已知代价）', () => {
+      const { io, primary, host, altClock } = rig();
+      const first = host.open(altContent('a'));
+      altClock.advance(0);
+      io.reset();
+      io.emitInput('\x1b[M !"');
+      expect(io.frames).toHaveLength(1);
+      first!.close();
+      expect(primary.state).toBe('running'); // 复起——可再开
+      io.reset();
+      host.open(altContent('b'));
+      altClock.advance(0);
+      io.reset(); // 清二次进屏帧——只看降级
+      io.emitInput('\x1b[M !"');
+      expect(io.frames).toHaveLength(1); // 新 Engine 新 decoder——重新武装再报一次
+    });
   });
 });

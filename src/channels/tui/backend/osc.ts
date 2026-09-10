@@ -7,6 +7,8 @@
  * - **OSC 写出分治**（07 §4.1 件 7 条款）：title 值缓存去重（同值不重写
  *   字节）；progress 态**保活周期重发**——OSC 9;4 在部分终端超时衰减，去重
  *   不适用于 progress 序列、须周期重写维持；
+ * - **OSC 52 选区复制序列构造**（2026-09-11 鼠标解码批——件 8 选区复制）：
+ *   buildOsc52Copy 纯函数（无状态无缓存——写出与否归装配层注入柄）；
  * - 进度态判据（按 sessionId 归账的 agent_start/end 净计数、任一会话 > 0
  *   即忙）在 TuiBackend 侧——本件只承「忙/闲」两态写出与保活自持；
  * - 退出复原两写点：title 复原基线 + 进度清零（restore——TuiBackend 的
@@ -26,6 +28,17 @@ export const OSC_PROGRESS_KEEPALIVE_MS = 1000;
 const PROGRESS_ACTIVE_SEQUENCE = '\x1b]9;4;3\x07';
 /** OSC 9;4 清零序列（state 0） */
 const PROGRESS_CLEAR_SEQUENCE = '\x1b]9;4;0\x07';
+
+/**
+ * OSC 52 选区复制序列（07 §4.1 呈现面件 8 细则——BEL 终界）：
+ * `\x1b]52;c;<base64>\x07`，`c` = 系统剪贴板主位。终端支持不可探测（无标准
+ * 应答——kitty/Alacritty/wezterm/foot 支持、iTerm2 默认禁需用户开、tmux 需
+ * set-clipboard on、xterm 兼容族受 allowWindowOps 门控）——尽力写出无反馈，
+ * 不构成故障面。写出柄归装配层注入（onCopy），本函数只铸字节。
+ */
+export function buildOsc52Copy(text: string): string {
+  return `\x1b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\x07`;
+}
 
 /** 调度注入形（与 TuiBackend schedule 注入同形——(fn, ms) → 句柄） */
 export type OscSchedule = (fn: () => void, ms: number) => unknown;

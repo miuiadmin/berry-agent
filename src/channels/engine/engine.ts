@@ -10,8 +10,11 @@
  * - **生命周期四态闸门**（idle / running / suspended / disposed）：挂起终退后
  *   残听、迟到 resize、迟到渲染请求一律静默吞——竞态不靠时序约定靠闸门。
  * - **双形态模式串**（单源常量、严格对称反序）：inline 主屏形态缺省——驻
- *   primary screen 不进 1049 备屏（正文 append-only 交终端原生 scrollback）；
- *   alt-screen 副屏形态——1049 备屏进出（/history /memory 回看器）。
+ *   primary screen 不进 1049 备屏（正文 append-only 交终端原生 scrollback），
+ *   **零鼠标位**（鼠标签听即劫持滚轮与原生选区——07 屏模型主屏注）；alt-screen
+ *   副屏形态——1049 备屏进出（/history /memory 回看器）+ 鼠标准入（DECSET
+ *   1002 按钮事件跟踪 + 1006 SGR 编码——2026-09-11 鼠标解码批；出屏对称反
+ *   序先关 1006 再关 1002）。
  * - **挂起 / 复起交出面**：挂起三件套（出屏模式串 → 卸输入监听 → 丢在途
  *   转义 → 停流 → raw 复原先验态）；复起六步（进屏模式串 → raw 重设 →
  *   监听重装 → **显式放流**（已被显式 pause 的流再挂监听不会自动回 flowing，
@@ -56,20 +59,29 @@ const LEAVE_COMMON =
   '\x1b[?2004l' + // 粘贴关
   '\x1b[?25h'; // 光标显
 
-/** 形态 → 进屏模式串（1049 备屏进出仅在 alt-screen 形态） */
+/**
+ * 副屏鼠标准入串（2026-09-11 鼠标解码批——07 件 5 鼠标位条款）：1002 按钮事
+ * 件跟踪（拖选需按住 motion）+ 1006 SGR 编码（`CSI <` 报文形），追加于 1049
+ * 与公共尾之后（inline 主屏形态零鼠标位——标签听即劫持滚轮与原生选区）。
+ */
+const ENTER_MOUSE = '\x1b[?1002h\x1b[?1006h';
+/** 副屏鼠标关停串（与准入严格对称反序——先关 1006 再关 1002；两关都写幂等无害） */
+const LEAVE_MOUSE = '\x1b[?1006l\x1b[?1002l';
+
+/** 形态 → 进屏模式串（1049 备屏进出 + 鼠标准入仅在 alt-screen 形态） */
 const ENTER_MODES: Record<ScreenForm, string> = {
   inline: ENTER_COMMON,
-  'alt-screen': '\x1b[?1049h' + ENTER_COMMON, // 备屏进
+  'alt-screen': '\x1b[?1049h' + ENTER_COMMON + ENTER_MOUSE, // 备屏进 + 鼠标准入
 };
 /** 形态 → 出屏模式串（与进屏严格对称反序——单源常量） */
 const LEAVE_MODES: Record<ScreenForm, string> = {
   inline: LEAVE_COMMON,
-  'alt-screen': LEAVE_COMMON + '\x1b[?1049l', // 备屏出（回主屏）
+  'alt-screen': LEAVE_MOUSE + LEAVE_COMMON + '\x1b[?1049l', // 鼠标关停 + 备屏出（回主屏）
 };
 
 /** 引擎事件面（零 durable 事件的运行时侧通道） */
 export interface EngineEventMap {
-  /** 结构化输入事件（key/text/ime/paste 四分——decoder 产出） */
+  /** 结构化输入事件（key/text/ime/paste/mouse 五分——decoder 产出） */
   input: InputEvent;
   /** 几何变更（缓冲已弃旧换新、清屏锤已写——消费方按新几何重排） */
   resize: { columns: number; rows: number };
@@ -114,6 +126,12 @@ export interface EngineOptions {
   schedule?: (fn: () => void, ms: number) => unknown;
   /** 取消调度注入（缺省 clearTimeout） */
   cancelSchedule?: (handle: unknown) => void;
+  /**
+   * X10 鼠标形首达降级回调（透传 decoder——per-entry 闩只发一次；开了 1006
+   * 的会话里 X10 形到达 ⟺ 终端无 SGR 能力，装配层据此 DECRST 关鼠标签听回
+   * 终端原生选区——降级编舞归 AltScreenHost 组合柄）
+   */
+  onMouseLegacy?: () => void;
 }
 
 /** TUI 引擎（构造后 start 进屏；dispose 终退） */
@@ -183,6 +201,7 @@ export class Engine {
         this.protocol = p;
         this.events.emit('keyboardProtocol', p);
       },
+      onMouseLegacy: opts.onMouseLegacy,
     });
     this.decoderEscapeWindowMs = opts.escapeWindowMs ?? DEFAULT_ESCAPE_WINDOW_MS;
   }

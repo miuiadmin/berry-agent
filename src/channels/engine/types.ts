@@ -143,12 +143,15 @@ export interface CellBuffer {
 }
 
 /**
- * 输入事件模型四分（07 引擎节件 1）：key / text / ime / paste。
+ * 输入事件模型五分（07 引擎节件 1——2026-09-11 鼠标解码批四分扩五分）：
+ * key / text / ime / paste / mouse。
  *
- * 事件由输入解码件（批 10c）产出——本件只立模型面。key 事件带
- * press / repeat / release 三型（kitty 轨可达；legacy 轨无事件型区分、恒
- * press）；text 事件粒度 = 同 chunk 内连续可打印游程合并单事件（打字 /
- * 中文提交不撕裂——逐字符派发会每事件触发渲染请求）。
+ * 事件由输入解码件（批 10c；mouse 增补随鼠标解码批 mu-2）产出——本件只立
+ * 模型面。key 事件带 press / repeat / release 三型（kitty 轨可达；legacy 轨
+ * 无事件型区分、恒 press）；text 事件粒度 = 同 chunk 内连续可打印游程合并
+ * 单事件（打字 / 中文提交不撕裂——逐字符派发会每事件触发渲染请求）。
+ * mouse 事件带 press/motion/release 三型 + 按钮语义位 + 修饰键还原 +
+ * 0 基屏幕坐标（SGR 报文 1 基的换算归解码件，模型面单源 0 基）。
  */
 
 /** 键相（press 首按 / repeat 连按 / release 释放——kitty 轨专属区分） */
@@ -188,5 +191,32 @@ export interface PasteEvent {
   readonly text: string;
 }
 
-/** 输入事件四分判别联合 */
-export type InputEvent = KeyEvent | TextInputEvent | ImeEvent | PasteEvent;
+/** mouse 事件相（press 按下 / motion 按住拖动 / release 释放——SGR 报文 M/m 终点区分） */
+export type MousePhase = 'press' | 'motion' | 'release';
+
+/** mouse 按钮语义位（07 引擎节件 4 v1 收窄五钮——其余按钮线值整序吞不产事件） */
+export type MouseButton = 'left' | 'middle' | 'right' | 'wheel-up' | 'wheel-down';
+
+/**
+ * mouse 事件：SGR 1006 解码产物（07 引擎节件 4 鼠标解码批条款）。
+ *
+ * - 坐标 0 基（col 列 / row 行——SGR 报文 1 基的换算归解码件）；
+ * - 修饰键还原（SGR 位域 4=shift / 8=alt / 16=ctrl——线值 8-11 的 alt 系
+ *   组合在此拆解、绝不入吞清单；SGR 无 meta 位，meta 恒 false）；
+ * - motion = 按住拖动（DECSET 1002 button-event tracking——无键 motion 不
+ *   报）；wheel 无 release（终端不报，滚轮以 press 一相到达）。
+ */
+export interface MouseEvent {
+  readonly kind: 'mouse';
+  readonly phase: MousePhase;
+  readonly button: MouseButton;
+  readonly col: number;
+  readonly row: number;
+  readonly ctrl: boolean;
+  readonly alt: boolean;
+  readonly shift: boolean;
+  readonly meta: boolean;
+}
+
+/** 输入事件五分判别联合（mouse 系 2026-09-11 鼠标解码批增补） */
+export type InputEvent = KeyEvent | TextInputEvent | ImeEvent | PasteEvent | MouseEvent;

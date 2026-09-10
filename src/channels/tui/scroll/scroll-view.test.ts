@@ -4,7 +4,7 @@
  * 计入视觉行 / onScroll 通知。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { CellGrid } from '../../engine/index.js';
+import { CellGrid, type InputEvent, type MouseEvent } from '../../engine/index.js';
 import { ScrollView } from './scroll-view.js';
 
 /** 键事件便捷构造 */
@@ -231,5 +231,69 @@ describe('ScrollView scrollToLine（批 10f-4——回看器搜索跳转消费�
     view.render(new CellGrid(10, 10), { row: 0, col: 0, width: 10, height: 10 });
     view.scrollToLine(2);
     expect(view.scrollOffset).toBe(0);
+  });
+});
+
+/* ---------------- 滚轮（mu-2——07 件 6 条款） ---------------- */
+
+describe('ScrollView 滚轮（mu-2：缺省三视觉行 · 显式滚动路 · 复随判据同键盘）', () => {
+  /** mouse 事件便捷构造（滚轮以 press 相为主——终端只报此相） */
+  function mouse(
+    button: 'left' | 'middle' | 'right' | 'wheel-up' | 'wheel-down',
+    phase: 'press' | 'motion' | 'release' = 'press',
+  ): MouseEvent {
+    return { kind: 'mouse', button, phase, col: 0, row: 0, ctrl: false, alt: false, shift: false, meta: false };
+  }
+
+  /** 装配：30 行入 10 高视口（溢出档——offset 贴尾 20） */
+  function wheelRig() {
+    const view = new ScrollView({ maxHeight: 10 });
+    view.setLines(linesOf(30));
+    view.render(new CellGrid(20, 10), { row: 0, col: 0, width: 20, height: 10 });
+    return { view };
+  }
+
+  it('wheel-up 破随上滚三行（WHEEL_LINES=3 缺省档锁）', () => {
+    const { view } = wheelRig();
+    expect(view.scrollOffset).toBe(20); // 开屏贴尾
+    expect(view.handleEvent(mouse('wheel-up'))).toBe(true);
+    expect(view.scrollOffset).toBe(17); // 20-3
+    expect(view.isFollowing).toBe(false); // 显式滚动路——破随
+  });
+
+  it('wheel-down 在底夹取不动 + 到底复随（同 PgDn 到底复随律）', () => {
+    const { view } = wheelRig();
+    expect(view.handleEvent(mouse('wheel-down'))).toBe(true);
+    expect(view.scrollOffset).toBe(20); // 已在底——夹取
+    expect(view.isFollowing).toBe(true); // 夹取落底 = 复随保持
+  });
+
+  it('连滚到顶夹 0（负向夹取——顶后再滚不动）', () => {
+    const { view } = wheelRig();
+    for (let i = 0; i < 8; i++) view.handleEvent(mouse('wheel-up')); // 7 次到顶（20-7*3=-1 夹 0）
+    expect(view.scrollOffset).toBe(0);
+    view.handleEvent(mouse('wheel-up'));
+    expect(view.scrollOffset).toBe(0); // 顶上夹取
+  });
+
+  it('修饰位照常滚动（终端侧多截留改道——报文到达即按垂直滚消费）', () => {
+    const { view } = wheelRig();
+    const shifted: InputEvent = { ...mouse('wheel-up'), shift: true };
+    expect(view.handleEvent(shifted)).toBe(true);
+    expect(view.scrollOffset).toBe(17);
+  });
+
+  it('release/motion 相不消费（返 false——解码器不产此形，防御位）', () => {
+    const { view } = wheelRig();
+    expect(view.handleEvent(mouse('wheel-up', 'release'))).toBe(false);
+    expect(view.handleEvent(mouse('wheel-down', 'motion'))).toBe(false);
+    expect(view.scrollOffset).toBe(20); // 零滚动副作用
+  });
+
+  it('非滚轮 mouse 不消费（返 false 归子类选区路）', () => {
+    const { view } = wheelRig();
+    expect(view.handleEvent(mouse('left'))).toBe(false);
+    expect(view.handleEvent(mouse('left', 'motion'))).toBe(false);
+    expect(view.handleEvent(mouse('right'))).toBe(false);
   });
 });

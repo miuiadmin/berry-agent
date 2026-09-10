@@ -61,7 +61,7 @@ import type {
 import { CellGrid, InputDecoder, ProcessTerminalIO, type TerminalIO } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
 import { LiveTranscript, shortIdOf, type SummaryLine, type TranscriptBlock } from './transcript.js';
-import { OscDisplay } from './osc.js';
+import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { StatusLine } from '../status/status-line.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
@@ -453,6 +453,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onExit: () => this.closeHistory(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
+        // OSC 52 复制写出柄（mu-2）：release 选区行间拼 LF 到达 → 铸序列直写
+        // io（终端支持不可探测——尽力写出无反馈，件 8 细则）
+        onCopy: (text) => this.io.write(buildOsc52Copy(text)),
       }),
     );
     this.historyHandle = handle; // null = 主屏未 running 被拒——如实保持无副屏

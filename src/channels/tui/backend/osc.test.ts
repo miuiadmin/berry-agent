@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryTerminalIO } from '../../engine/index.js';
-import { OscDisplay, OSC_PROGRESS_KEEPALIVE_MS } from './osc.js';
+import { buildOsc52Copy, OscDisplay, OSC_PROGRESS_KEEPALIVE_MS } from './osc.js';
 
 /** OSC 9;4 忙态序列（锚定 pi-tui 字节形） */
 const ACTIVE = '\x1b]9;4;3\x07';
@@ -157,5 +157,18 @@ describe('OscDisplay schedule 注入可控', () => {
     expect(cancelled).toHaveLength(1); // 保活句柄摘除一次
     osc.stopKeepalive(); // 句柄位已 null——再停 no-op
     expect(cancelled).toHaveLength(1);
+  });
+});
+
+/* ---------------- OSC 52 选区复制序列（mu-2——07 件 8 细则） ---------------- */
+
+describe('buildOsc52Copy（选区复制序列构造——尽力写出无反馈）', () => {
+  it('OSC 52;c;base64 + BEL 终界（ASCII 明文）', () => {
+    expect(buildOsc52Copy('hi')).toBe(`\x1b]52;c;${Buffer.from('hi').toString('base64')}\x07`);
+  });
+
+  it('UTF-8 明文按字节 base64（中文 + 换行——选区行间拼 LF 的真实载荷形）', () => {
+    const text = '中文\n第二行';
+    expect(buildOsc52Copy(text)).toBe(`\x1b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\x07`);
   });
 });
