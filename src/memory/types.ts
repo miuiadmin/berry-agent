@@ -2,9 +2,9 @@
  * core:memory 类型面（06 篇 §3/§5——记忆表族 + 合并三分支；批 18c-1）。
  *
  * 单向 DAG（02 §4.1 memory 席 deps = contracts + context + session + persist）：
- * 本批实边 contracts（错误码注册）+ persist（SqliteDatabase / MigrationSpec）；
- * context/session 席占位——owner_key 的 canonical 根接线（context）与
- * session/event 消费（提取/注入两路）随 18c-3/4/5 笔落码。
+ * 四实边已全通（contracts 错误码注册 + persist SqliteDatabase/MigrationSpec +
+ * context canonical 根接线 + session/event 提取注入两路——18c-3/4/5 落码后
+ * 实况；拓扑边表四边在位执法）。
  *
  * 本文件钉死：kind 七值闭集、status 三值闭集、source_refs 溯源形、
  * 候选/行形、三分支裁决结果、入库结局——契约先行的词汇面单源。

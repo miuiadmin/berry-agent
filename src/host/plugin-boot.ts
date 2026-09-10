@@ -33,8 +33,9 @@
  *     plugin/activated·failed·skipped + composition/reloaded 三清单载荷）——
  *     逐行时点发射位装载器未开（挂账 /reload 批）；合成失败行并入 failed 面。
  *
- * 挂账注记：boot 级工具注册表无 pipeline（driver 工具面合流腿随 agent 批）；
- * promptSections 消费腿（systemPrompt 装配位）随 conversation 装配批接线。
+ * 消费腿实况（2026-09-11 勘正——原「挂账」注记所指批次均已飞）：boot 级
+ * 工具注册表经 assembly bootTools 取值器并入会话工具面（conversation-stack）；
+ * promptSections 经 assembly pluginSections 取值器由 driver systemPrompt 装配位消费。
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -320,14 +321,14 @@ export interface PluginBootHandle {
   readonly report: LoadReport;
   /** 披露段计数（counts 口径见 bootPlugins 注释） */
   readonly counts: PluginBootCounts;
-  /** boot 级工具注册表（注册语义全执法；消费腿挂账 driver 工具面合流） */
+  /** boot 级工具注册表（注册语义全执法；消费腿 = assembly bootTools 取值器 → 会话工具面） */
   readonly tools: ToolRegistry;
   /**
    * 本代某插件在册工具名只读面（装载史批 h-4——/reload 回执新代工具面
    * diff 的取值源；名账口径 = 收口时点在册集，与世代行 tools 列同源）。
    */
   readonly toolsOf: (pluginId: string) => readonly string[];
-  /** 提示词段注册表（消费腿挂账 systemPrompt 装配位） */
+  /** 提示词段注册表（消费腿 = assembly pluginSections 取值器 → driver systemPrompt 装配位） */
   readonly promptSections: PromptSectionRegistry;
 }
 

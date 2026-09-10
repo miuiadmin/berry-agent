@@ -19,7 +19,8 @@
  *  - **update <id>**：按源分派（plugin-install updatePlugin）。
  *
  * 写动词生效时点：CLI 短命进程不装配装载器——写侧动作**下次启动装载生效**
- * （「装机零生效」语义的 CLI 面呈现；TUI 侧 /reload 排队编舞挂账 channels）。
+ * （「装机零生效」语义的 CLI 面呈现；TUI 侧 /reload 排队编舞已落——assembly
+ * 编舞器 + 'reload' 命令注册，/reload 批收官）。
  *
  * 退出码：0 成功 / 1 执行失败（结算文本含原因）/ 用法错 2 归解析层。
  */

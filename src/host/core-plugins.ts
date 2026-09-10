@@ -947,7 +947,7 @@ export function startSchedulerClock(
  * getScope 会话闭包由调用方注入，件内补段约束执法三判据）；service =
  * GoalService 全环（goalScopeFor 锚 = chat↔goal 数据通道零服务面例外位
  * ——组合根经本面取锚，driver fold 升格与 /goal show 渲染共用）。宿主入口
- * 消费 recordTurn/wake 编舞挂账 run 入口批。
+ * recordTurn/wake 消费已接线（批 #99 三入口统一——挂点上移驱动层 settled 链）。
  */
 export interface GoalFace {
   readonly service: GoalService;
@@ -1092,8 +1092,9 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * 对话本体仍通）。gate 单实例跨会话共享游标（per-session Map——「同一
  * dispatch 生命周期内复用一个实例」）。
  *
- * adopt 切前台编舞挂账 run 入口批（restore 回执的新会话 id 先经命令输出面
- * 呈报——焦点切换是 channels/host 的事，本件零越界；05 §5.3 命令面条款）。
+ * adopt 切前台编舞 v1 未落（restore 回执的新会话 id 先经命令输出面呈报
+ * ——焦点切换是 channels/host 的事随 TUI adopt 命令立题，本件零越界；
+ * 05 §5.3 命令面条款。原注指向已飞的 run 入口批，2026-09-11 勘正）。
  */
 function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {

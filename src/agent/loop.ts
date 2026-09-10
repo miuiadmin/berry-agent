@@ -131,7 +131,10 @@ async function runLoop(context: AgentContext, config: AgentLoopConfig, emit: Emi
       if (followUps.length === 0) break;
       pushAll(context, followUps, emit, 'followUp');
     }
-    // turn 间准备窗：换 model/thinkingLevel 唯一时机（todo/goal 注入同窗）
+    // turn 间准备窗：换 model/thinkingLevel 唯一时机（todo/goal 注入同窗）。
+    // 实况注记（2026-09-11 定形）：换档只改内存 config 不落 session/thinking-level
+    // durable 事件——该词 v1 词先锚定（05 §1.1 在册、写点随会话档位切换面立题；
+    // 冷启动恢复走栈级静态 options.thinkingLevel）
     const adjustment = await config.prepareNextTurn?.(context);
     if (adjustment) {
       if (adjustment.model !== undefined) config.model = adjustment.model;

@@ -928,7 +928,7 @@ export class Store implements WriteTarget {
     this.db.close();
   }
 
-  /** 原生连接（后续批 core: 插件 DAO 面预留——v1 宿主内无消费者，勿散用） */
+  /** 原生连接（宿主内消费位 = assembly createAuditFace〔audit_events 单写者〕；跨件勿散用——走 Store 方法面） */
   get connection(): Database.Database {
     return this.db;
   }

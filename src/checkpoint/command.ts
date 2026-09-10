@@ -8,8 +8,9 @@
  *   /rewind preview <id>    段一 preview——恢复 N/删除 M/不动 U 零改动对账
  *   /rewind restore <id>    段二 restore——保底拍+文件恢复+fork 三步序
  *
- * TUI 命令注册与 adopt 切前台编舞挂批 12 host 装配批（restore 回执的
- * forkedSessionId 由 host 消费）。
+ * TUI 命令注册已落（批 19c-4 ctx.channels.registerCommand）；adopt 切前台
+ * 编舞 v1 未落——restore 回执的 forkedSessionId 先经输出面呈报，焦点切换随
+ * TUI adopt 命令立题〔2026-09-11 勘正：原注指向已飞的批 12，失锚〕。
  */
 import { BaseError } from '../contracts/index.js';
 import { previewRewind, restoreRewind, type RewindRestoreDeps } from './restore.js';

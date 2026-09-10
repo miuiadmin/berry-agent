@@ -366,7 +366,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           : undefined;
       // 会话维工具族（e-2 观测腿——03 §10.8 恒挂载四件；per-session 闭包
       // callerSessionId 注入〔todoTool 换装 seam 同构〕；跨树门检输入经
-      // observeCross seam——v1 空集 = 结构性默认关〔归因接线挂账 e-4〕）
+      // observeCross seam——装配已接 doors 段活体真源 + capability/used
+      // 审计〔assembly；缺席形 ?? 空集 = 测试/未装配兜底〕）
       const sessionTools = createSessionTools({
         view: sessionView,
         callerSessionId: sessionId,

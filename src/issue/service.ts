@@ -21,7 +21,8 @@
  * - failed → 评论贴原因 → settle failed；
  * - needs-human → 评论转人审 → settle failed（需人审）；
  * - paused → **不 settle 不 clean 不释授予**——worktree/授予/在飞记账全
- *   保留（budget_extended 唤醒接线随装配批挂账）。
+ *   保留（budget_extended 唤醒 watcher 已接线——issue-session 起跑时登记
+ *   全部停靠 run，预算恢复自动唤醒续跑）。
  * 收尾（非 paused）：worktree clean（dirty 保留不强拆——变更可能正是交付
  * 物）、releaseSession。评论投递失败不阻塞 settle 的反面——settle 恒在评论
  * 后落（人可见面优先；网络挂死场景 fetch 层兜底）。
@@ -203,7 +204,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       if (outcome.status === 'paused') {
         retain = true;
         warn(
-          `issue run 停靠（${key}）：全局预算日池尽——worktree ${created.name} 与授予保留，待 budget_extended 唤醒（装配批挂账）`,
+          `issue run 停靠（${key}）：全局预算日池尽——worktree ${created.name} 与授予保留，预算恢复后经 budget_extended 唤醒自动续跑`,
         );
         return;
       }

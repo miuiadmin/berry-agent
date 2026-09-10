@@ -29,10 +29,11 @@
  *    永不 throw**——插件事件源回调内执行，throw 即进程级风险；拒与失败一律
  *    warn 可观测 + Job 终态收口（无人值守鲁棒性）。
  *
- * 挂账注记：capability/used 逐次审计随 U3 落码批接线（audit_events 载体缺席；
- * v1 归因面经事件流 source=`plugin:<id>` 已闭集可查——03 §2.2 行 108 定形注记）；
- * JobHandle.stop→interrupt 桥接与插件卸载 closeOwner(pluginId) 收口已在飞
- * Job 均随 Job 消费面批兑现（04 §10 定形：onStop 协作中止路由 + 卸载接线位
+ * 审计实况（2026-09-11 勘正——原注两处挂账均已飞）：capability/used 逐次
+ * 审计已随 U3 落码批接线（audit_events 载体在场——assembly createAuditFace
+ * 单写者；v1 归因面另经事件流 source=`plugin:<id>` 闭集可查——03 §2.2 行 108
+ * 定形注记）；JobHandle.stop→interrupt 桥接与插件卸载 closeOwner(pluginId)
+ * 收口均已随 Job 消费面批兑现（04 §10 定形：onStop 协作中止路由 + 卸载接线位
  * = plugin-unload closer——本文件两桥腿 = starter 注册 onStop 路由到起会
  * 驱动 abort；closeOwner 接线在 plugin-boot 装配件）。
  */
