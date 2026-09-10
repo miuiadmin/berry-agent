@@ -321,7 +321,9 @@ for (const meta of CORE_EVENT_TYPES) registry.set(meta.type, meta);
  * 两类拒收（均 fail-loud）：
  *  - 核心词身份：SESSION_CORE_TYPE_FORBIDDEN（防装载面伪造宿主词汇——
  *    与 session append 侧词汇检查同判据双闸）；
- *  - 注册冲突：HOST_EVENT_TYPE_CONFLICT（同型两方注册）。
+ *  - 注册冲突：PLUGIN_EVENT_TYPE_CONFLICT（03 §2.7 指派——装载面统一
+ *    插件域码：core 件与用户插件同走 registerSessionEventType 动词，
+ *    撞名按动词域拒收不分调用方身份）。
  */
 export function registerEventType(meta: EventTypeMeta): void {
   if (CORE_EVENT_TYPE_NAMES.includes(meta.type)) {
@@ -333,7 +335,7 @@ export function registerEventType(meta: EventTypeMeta): void {
   const existing = registry.get(meta.type);
   if (existing) {
     throw new BaseError(
-      'HOST_EVENT_TYPE_CONFLICT',
+      'PLUGIN_EVENT_TYPE_CONFLICT',
       `事件类型 ${meta.type} 重复注册：${existing.owner}（彼） vs ${meta.owner}（此）`,
     );
   }

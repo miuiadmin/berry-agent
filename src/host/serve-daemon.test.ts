@@ -388,6 +388,45 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     expect(lines[0]).toContain('BERRY_AGENT_SDK_TOKEN');
   });
 
+  it('env 双载体回落：SDK_HOST 旗标缺席时 env 补位进三防线（07 §5 三名）', async () => {
+    // env BERRY_AGENT_SDK_HOST 非回环 + 无 token → judge 拒启退 2——证明
+    // env 补位经 daemonListenConfig 进 config、同走 judgeListenConfig 执法
+    const lines: string[] = [];
+    const code = await runDaemonServe({
+      flags: { noDelta: false },
+      dataDir: '/nonexistent-but-unused', // judge 先于 runtime——不触
+      env: { BERRY_AGENT_SDK_HOST: '192.168.1.5' },
+      writeErr: (l) => lines.push(l),
+    });
+    expect(code).toBe(2);
+    expect(lines[0]).toContain('BERRY_AGENT_SDK_TOKEN');
+  });
+
+  it('env 双载体回落：SDK_PORT 坏值 fail-loud（lane 帽同律——字串全串判）', async () => {
+    await expect(
+      runDaemonServe({
+        flags: { noDelta: false },
+        dataDir: '/nonexistent-but-unused',
+        env: { BERRY_AGENT_SDK_PORT: '8080x' },
+        writeErr: () => {},
+      }),
+    ).rejects.toThrow(/BERRY_AGENT_SDK_PORT/);
+  });
+
+  it('旗标恒胜出：sdkPort 旗标在场短路 env 坏值（env 位不被消费即不炸）', async () => {
+    // 胜出序负证：env 坏 port 若被读取即 RangeError；旗标在场时不读 env
+    // port → 走 judge 正常路径（借 SDK_HOST 非回环无 token 造退 2 出口）
+    const lines: string[] = [];
+    const code = await runDaemonServe({
+      flags: { noDelta: false, sdkPort: 8080 },
+      dataDir: '/nonexistent-but-unused',
+      env: { BERRY_AGENT_SDK_PORT: '8080x', BERRY_AGENT_SDK_HOST: '192.168.1.5' },
+      writeErr: (l) => lines.push(l),
+    });
+    expect(code).toBe(2);
+    expect(lines[0]).toContain('BERRY_AGENT_SDK_TOKEN');
+  });
+
   it('装载面活（批 19a-3 迁 assembly 公共段）：坏形清单 fail-loud 退 1——拒在 face 起前', async () => {
     const faux = fauxProvider({ provider: 'faux-daemon2', models: [{ id: 'm1' }] });
     const dataDir = mkdtempSync(join(tmpdir(), 'daemon-data-'));

@@ -343,6 +343,19 @@ export interface DaemonServeOptions {
  * 回环绑定——远程暴露走 --sdk-host 显式载体；SDK 面独立可选）。归一前提：
  * 判定与实配都按「数组首位 = 人面」约定消费 info.tcp[0]。
  */
+/**
+ * env 双载体回落位（07 §5：BERRY_AGENT_SDK_PORT/SDK_HOST/SDK_TOKEN 三名——
+ * 旗标缺席时 env 补位，旗标恒胜出）：port 字串全串 /^\d+$/ 判 fail-loud
+ * （lane 帽同律——parseInt 截停会把 '8080x' 类尾随垃圾静默放行成 8080）。
+ */
+function readSdkPortEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^\d+$/.test(raw)) {
+    throw new RangeError(`BERRY_AGENT_SDK_PORT 须为非负整数字串，收到 ${raw}——坏值是死配置（fail-loud 拒启）`);
+  }
+  return Number.parseInt(raw, 10);
+}
+
 function daemonListenConfig(
   paths: DaemonPaths,
   flags: DaemonServeFlags,
@@ -350,8 +363,12 @@ function daemonListenConfig(
 ): SdkHttpListenConfig {
   const tcpSpecs: SdkTcpListenSpec[] = [];
   if (flags.port !== undefined) tcpSpecs.push({ host: WEBUI_DEFAULT_HOST, port: flags.port });
-  if (flags.sdkPort !== undefined || flags.sdkHost !== undefined) {
-    tcpSpecs.push({ host: flags.sdkHost ?? '127.0.0.1', port: flags.sdkPort ?? 0 });
+  // SDK 面旗标 ?? env 双载体回落（07 §5 三名——旗标恒胜出，env 补位同走
+  // 下方 judgeListenConfig 三防线执法）
+  const sdkPort = flags.sdkPort ?? readSdkPortEnv(env.BERRY_AGENT_SDK_PORT);
+  const sdkHost = flags.sdkHost ?? env.BERRY_AGENT_SDK_HOST;
+  if (sdkPort !== undefined || sdkHost !== undefined) {
+    tcpSpecs.push({ host: sdkHost ?? '127.0.0.1', port: sdkPort ?? 0 });
   }
   return {
     socketPath: paths.sockPath,

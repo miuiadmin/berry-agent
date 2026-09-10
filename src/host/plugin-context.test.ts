@@ -570,7 +570,7 @@ describe('注册动词委派真源', () => {
     expect(out).toBeUndefined(); // 无 disposer——词汇注册进程生命周期（§2.2 明文例外）
     expectCode(
       () => handle.ctx.events.registerSessionEventType({ ...meta, description: '' }),
-      'HOST_EVENT_TYPE_CONFLICT',
+      'PLUGIN_EVENT_TYPE_CONFLICT',
     );
   });
 

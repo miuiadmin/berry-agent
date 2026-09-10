@@ -117,7 +117,8 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
   {
     code: 'HOST_EVENT_TYPE_CONFLICT',
     module: 'host',
-    description: '事件类型注册冲突：同型被两方注册（装配期 fail-loud）',
+    description:
+      '事件类型注册冲突：同型被两方注册（保留位——装载面撞名经 registerSessionEventType 动词走 PLUGIN_EVENT_TYPE_CONFLICT〔03 §2.7 指派〕，宿主装配期独立注册路径 v1 缺席；码在册不回收，宿主侧路径出现即启用）',
   },
   {
     code: 'PLUGIN_SHAPE_INVALID',

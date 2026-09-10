@@ -126,7 +126,7 @@ describe('事件词汇注册表', () => {
     }
   });
 
-  it('同型重复注册抛 HOST_EVENT_TYPE_CONFLICT', () => {
+  it('同型重复注册抛 PLUGIN_EVENT_TYPE_CONFLICT（03 §2.7 指派——装载面统一插件域码）', () => {
     try {
       registerEventType({
         type: 'test-plugin/custom',
@@ -138,7 +138,7 @@ describe('事件词汇注册表', () => {
       expect.unreachable();
     } catch (err) {
       if (err instanceof BaseError) {
-        expect(err.code).toBe('HOST_EVENT_TYPE_CONFLICT');
+        expect(err.code).toBe('PLUGIN_EVENT_TYPE_CONFLICT');
         expect(err.message).toContain('test-plugin/custom');
         return;
       }

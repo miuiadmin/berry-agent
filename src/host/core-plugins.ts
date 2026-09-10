@@ -622,7 +622,7 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // memory/diff 词汇注册（不可逆装配面——06 §329 装载面作用域化注册）。
       // 注册表进程级单例（contracts/events 模块态）：同进程多次装配（测试多例
       // /热重启形）同 owner 已在场 = 幂等跳过；异 owner 在场则注册动词保持
-      // 响亮冲突（HOST_EVENT_TYPE_CONFLICT 拒收语义不软化）
+      // 响亮冲突（PLUGIN_EVENT_TYPE_CONFLICT 拒收语义不软化——03 §2.7 指派）
       if (getEventTypeMeta(MEMORY_DIFF_EVENT_META.type)?.owner !== MEMORY_DIFF_EVENT_META.owner) {
         context.events.registerSessionEventType(MEMORY_DIFF_EVENT_META);
       }

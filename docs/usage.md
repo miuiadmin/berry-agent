@@ -233,6 +233,8 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 | `BERRY_AGENT_CRON`                   | cron 可选后端开关/载体                                                             | 进程内挂钟                  |
 | `BERRY_AGENT_GIT_PATH`               | worktree 工具 git 可执行路径（保留位——装配侧未接，当前设置无效）                   | PATH 发现序                 |
 | `BERRY_AGENT_SDK_TOKEN`              | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）              | 缺省不开 TCP 侧             |
+| `BERRY_AGENT_SDK_PORT`               | daemon SDK 面端口 env 补位（`--sdk-port` 旗标缺席时生效；非负整数字串，坏值 fail-loud 拒启） | 旗标缺席即不开          |
+| `BERRY_AGENT_SDK_HOST`               | daemon SDK 面绑定地址 env 补位（`--sdk-host` 旗标缺席时生效；非回环值同样必配 token） | `127.0.0.1`                 |
 | `BERRY_AGENT_GITHUB_TOKEN`           | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）                 | 缺席                        |
 | `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`   | core:issue 件 webhook 签名密钥（同回落律）                                         | 缺席                        |
 | `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE` | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                       | 1440                        |
