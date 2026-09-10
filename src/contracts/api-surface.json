@@ -769,7 +769,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "03de56d3cb8b2305"
+      "sig": "e78468f04fa989fc"
     },
     {
       "symbol": "UiCapabilities",

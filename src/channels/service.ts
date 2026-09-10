@@ -122,6 +122,28 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     );
   }
 
+  // /memory 注册面（06 §7 形态定形注①——memory 注入在场即注册、缺席不注册
+  // 不虚报；同 /history 注册面律）：管理面是全局面无会话归属，扇出后端
+  // openMemory（零参——材料后端自持）；全体 falsy（后端不支持或件缺席）时
+  // notify 降级提示（warn 档——不静默假装已开）；无观众后端时静默返回
+  // （notify 扇出无人接帧——与焦点空悬同族的不虚报位）
+  if (opts.memory !== undefined) {
+    commands.register(
+      'memory',
+      async () => {
+        let opened = false;
+        for (const b of allBackends()) {
+          if (b.openMemory?.() === true) opened = true; // 任一后端已开即成功（先开胜出）
+        }
+        if (!opened) {
+          // notify 非阻塞不分会话呈现位（service.notify 同律——uiCore 直扇出）
+          uiCore.notify('当前通道不支持记忆管理面（或 memory 件未装载）', { level: 'warn' });
+        }
+      },
+      '记忆管理面（冻结/忘掉/恢复/导出）',
+    );
+  }
+
   return {
     commands,
     addBackend(backend) {

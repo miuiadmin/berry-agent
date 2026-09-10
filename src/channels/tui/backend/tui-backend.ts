@@ -71,6 +71,7 @@ import { Editor } from '../editor/editor.js';
 import { OverlayStack, type OverlayAnchor, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer } from '../history/history-viewer.js';
+import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import { ConfirmPanel, SelectPanel } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
 import { CombinedAutocompleteProvider, type AutocompleteSources } from '../autocomplete/autocomplete.js';
@@ -225,11 +226,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 停屏期到达的瞬时行缓冲（notify / 件 9 摘要行 / 撤销说明行——复起补显射界，2026-09-07 勘正笔） */
   private suspendedTransients: string[] = [];
 
-  /* ---- 副屏装配态（批 10f-4 特性腿——件 8 /history） ---- */
+  /* ---- 副屏装配态（批 10f-4 特性腿——件 8 /history；mm 批 /memory 并席） ---- */
   /** 副屏宿主（构造晚于 io 赋值——类字段初始化序：宿主构造须见 io 实值） */
   private readonly altHost: AltScreenHost;
-  /** 在场副屏句柄（null = 无副屏；/history 开、q/Esc/Ctrl+D/ask 收四路共闭） */
-  private historyHandle: OverlayHandle | null = null;
+  /** 在场副屏句柄（单值承载 /history 与 /memory 两件——无嵌套备屏律；开、q/Esc/Ctrl+D/ask 收四路共闭） */
+  private altHandle: OverlayHandle | null = null;
+  /**
+   * 记忆管理面材料位（mm 批——后置注入）：构造期不可达（memory 件的 dao
+   * 生命周期在插件 apply 内、且 channels 不可 import memory——边表），装配
+   * 根 boot 完成后经 setMemoryScreen 注入真身；null = 材料缺席（openMemory
+   * 返 false——/memory 命令核侧 notify 降级提示）。
+   */
+  private memoryScreen: MemoryViewerDataDeps | null = null;
 
   /* ---- 渲染合并态（schedule 注入后活——否则同步直出） ---- */
   private readonly scheduleFn: ((fn: () => void, ms: number) => unknown) | null;
@@ -350,7 +358,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 对称出屏：模式串反序 + 输入卸订 + 定时器全收 + 外显复原 + raw 复原（终退不可复用） */
   stop(): void {
     if (!this.running) return;
-    this.closeHistory(); // 防御位：在场副屏先收（装配纪律先收再退——泄漏则副屏 Engine 残活）
+    this.closeAlt(); // 防御位：在场副屏先收（装配纪律先收再退——泄漏则副屏 Engine 残活）
     this.running = false;
     // 挂起期主屏已出屏（suspendMain 已写出屏串）——重写会污染在场副屏；
     // 装配纪律恒「先收副屏再退出」，本闸是防御位非编舞路
@@ -434,7 +442,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.scheduleFn !== null) this.armTick(); // 状态行转轮复摆
   }
 
-  /* ---------------- 副屏装配面（批 10f-4 特性腿——件 8 /history） ---------------- */
+  /* ---------------- 副屏装配面（批 10f-4 特性腿——件 8 /history；mm 批 /memory 并席） ---------------- */
 
   /**
    * 开副屏回看器（UiBackend 可选能力面实装——通道核 /history 命令到达扇出）：
@@ -444,13 +452,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 透传本件两柄（与主屏同键面）。
    */
   openHistory(sessionId: string, messages: readonly AgentMessage[]): void {
-    if (this.historyHandle !== null) return;
+    if (this.altHandle !== null) return;
     const handle = this.altHost.open(
       new HistoryViewer({
         sessionId,
         messages,
         columns: this.io.size().columns,
-        onExit: () => this.closeHistory(),
+        onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
         // OSC 52 复制写出柄（mu-2）：release 选区行间拼 LF 到达 → 铸序列直写
@@ -458,23 +466,53 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onCopy: (text) => this.io.write(buildOsc52Copy(text)),
       }),
     );
-    this.historyHandle = handle; // null = 主屏未 running 被拒——如实保持无副屏
+    this.altHandle = handle; // null = 主屏未 running 被拒——如实保持无副屏
+  }
+
+  /**
+   * 记忆管理面材料注入（mm 批——后置 init 位）：装配根 boot 完成后从
+   * core:memory 服务面取材料注入（ownerKeys/DAO 窄面/消毒函数/导出闭包——
+   * 真身经装配传真）。null = 撤材料（件卸载形——后续 openMemory 返 false）。
+   */
+  setMemoryScreen(deps: MemoryViewerDataDeps | null): void {
+    this.memoryScreen = deps;
+  }
+
+  /**
+   * 开副屏记忆管理面（UiBackend 可选能力面实装——通道核 /memory 命令到达
+   * 扇出；06 §7 形态定形注）：材料缺席或已在副屏返 false（核侧 notify 降级
+   * 提示）；退出三柄本件自持（打断 = 当前交互会话位——与提交柄同锚）。
+   */
+  openMemory(): boolean {
+    if (this.memoryScreen === null || this.altHandle !== null) return false;
+    const deps = this.memoryScreen;
+    const handle = this.altHost.open(
+      new MemoryViewer({
+        ...deps,
+        onExit: () => this.closeAlt(),
+        onInterrupt: () => this.onInterrupt?.(this.sessionId), // 零参形——装配闭包已知目标会话
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false; // 主屏未 running 被拒——如实报 false
+    this.altHandle = handle;
+    return true;
   }
 
   /**
    * 收副屏（UiBackend 可选能力面实装——UiCore ask 入口扇出「先收副屏再入
    * 提问队列」，07 §4.1 件 8 注意力优先级 ask > 回看条款；viewer 退出键
-   * 同路收口）。幂等：无副屏 no-op。
+   * 同路收口；/history 与 /memory 两件共口——在场者谁收谁）。幂等：无副屏 no-op。
    */
   collapseAltScreen(): void {
-    this.closeHistory();
+    this.closeAlt();
   }
 
   /** 副屏统一收口：句柄 close（AltScreenHost 编舞：出副屏 + 主屏复起全帧重画） */
-  private closeHistory(): void {
-    const handle = this.historyHandle;
+  private closeAlt(): void {
+    const handle = this.altHandle;
     if (handle === null) return;
-    this.historyHandle = null; // 先置空防重入（viewer onExit 与 ask 收起竞发）
+    this.altHandle = null; // 先置空防重入（viewer onExit 与 ask 收起竞发）
     handle.close(); // 幂等（句柄 closed 位自守）
   }
 

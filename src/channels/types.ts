@@ -88,4 +88,13 @@ export interface ChannelsOptions<TProjection> {
    * openHistory）；缺席 = 不注册不虚报（件 8 条款注册面律）。
    */
   readonly history?: (sessionId: string) => Promise<readonly TProjection[]>;
+  /**
+   * 记忆管理面注册位（06 §7 `/memory`——mm 批）：与 history 同层同律的
+   * 注入在场判（在场 = 通道核注册 /memory 命令；缺席 = 不注册不虚报）。
+   * true 形非回调——管理面数据不经通道核流转（后端装配自持材料，openMemory
+   * 零参形），通道核只做命令受理与扇出；扇出 falsy（后端不支持或缺材料）
+   * 时 notify 降级提示。装配真值 = 座位在位（persistence 在场 ⇒ memory 件
+   * 将装载；件缺席由降级提示诚实兜底）。
+   */
+  readonly memory?: true;
 }

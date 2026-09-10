@@ -19,6 +19,7 @@ import { buildSgr } from './ansi-rows.js';
 import { sessionColor } from '../theme.js';
 import { AltScreenHost } from '../overlay/alt-screen.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import type { MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage } from '../../../contracts/index.js';
 
@@ -1288,5 +1289,103 @@ describe('TuiBackend /history 鼠标面 e2e（mu-2）', () => {
     io.reset();
     io.emitInput('\x1b[M !"'); // X10 形（开了 1006 的会话里到达 ⟺ 终端无 SGR 能力）
     expect(io.bytes).toContain('\x1b[?1006l\x1b[?1002l');
+  });
+});
+
+/* ================= /memory 副屏装配面（mm 批——06 §7 /memory 轻管理面） ================= */
+
+describe('TuiBackend /memory 副屏装配（setMemoryScreen / openMemory——mm 批）', () => {
+  /** 最小数据材料（构造期三源取数可用的假 DAO——动词零参形窄化合法） */
+  function memoryDeps(): MemoryViewerDataDeps {
+    const rows = [
+      {
+        id: 'maaaaaaa',
+        ownerKey: 'global',
+        kind: 'pref',
+        summary: '摘要甲',
+        content: '',
+        status: 'active' as const,
+        supersededBy: null,
+        updatedAt: 0,
+        frozen: false,
+      },
+    ];
+    return {
+      ownerKeys: ['global'],
+      dao: {
+        listVisible: () => rows,
+        listForExport: () => rows,
+        overview: () => ({ health: { active: 1, dismissed: 0, expired: 0, frozen: 0, total: 1 } }),
+        forget: () => rows[0]!,
+        restore: () => rows[0]!,
+        freeze: () => rows[0]!,
+        unfreeze: () => rows[0]!,
+      },
+      sanitize: () => ({ blocked: false, patterns: [], quoted: false }),
+      exportCommand: () => Promise.resolve('已导出'),
+    };
+  }
+
+  /** 同步直出档装配（historyRig 同形） */
+  function memoryRig() {
+    const calls: RigCalls = { submitted: [], interrupted: [], quit: 0, dispatched: [] };
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      onInterrupt: (sessionId) => calls.interrupted.push(sessionId),
+      onQuit: () => {
+        calls.quit += 1;
+      },
+    });
+    io.reset(); // start 编舞字节不计入
+    return { io, backend, calls };
+  }
+
+  it('openMemory 编舞：材料注入后真开——主屏出屏 → 副屏进 → 管理面首帧（三分区在场）', () => {
+    const { io, backend } = memoryRig();
+    backend.setMemoryScreen(memoryDeps());
+    expect(backend.openMemory()).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE); // 进序：主屏挂起出屏串在前
+    expect(io.frames[1]).toBe(ALT_ENTER); // 副屏 Engine 进屏
+    expect(io.bytes).toContain('❄ 记忆管理 · global'); // 头行 owner 短显
+    expect(io.bytes).toContain('── 活体（1）'); // 三分区首帧
+  });
+
+  it('材料缺席（件未装载形）/ null 撤材料：openMemory 返 false 不进副屏', () => {
+    const { io, backend } = memoryRig();
+    expect(backend.openMemory()).toBe(false); // 未注入材料
+    expect(backend.lifecycle).toBe('running');
+    expect(io.bytes).toBe('');
+    backend.setMemoryScreen(memoryDeps());
+    backend.setMemoryScreen(null); // 撤材料（件卸载形）
+    expect(backend.openMemory()).toBe(false);
+    expect(io.bytes).toBe('');
+  });
+
+  it('副屏互斥：openHistory 在场 openMemory 返 false；收副屏后可开（单值备屏律）', () => {
+    const { io, backend } = memoryRig();
+    backend.setMemoryScreen(memoryDeps());
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]);
+    io.reset();
+    expect(backend.openMemory()).toBe(false); // 已在副屏——无嵌套备屏
+    expect(io.bytes).toBe('');
+    backend.collapseAltScreen();
+    expect(backend.openMemory()).toBe(true); // 收后可开
+    expect(io.bytes).toContain('❄ 记忆管理 · global');
+  });
+
+  it('副屏键面：Ctrl+C 携当前交互会话位（零参形装配闭包）；q 退出复起主屏', () => {
+    const { io, backend, calls } = memoryRig();
+    backend.setMemoryScreen(memoryDeps());
+    backend.openMemory();
+    io.reset();
+    io.emitInput('\x03'); // ctrl+c——打断不退副屏
+    expect(calls.interrupted).toEqual([SESSION]);
+    expect(backend.lifecycle).toBe('suspended');
+    io.emitInput('q'); // 退出管理面
+    expect(io.frames[0]).toBe(ALT_LEAVE);
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    expect(backend.lifecycle).toBe('running');
+    expect(io.bytes).not.toContain('记忆管理'); // 两屏行集分立——管理面不渗主屏
   });
 });

@@ -22,6 +22,7 @@ import { FileMentionSource, ProcessTerminalIO, TuiBackend } from '../channels/in
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { foldTodoTable } from '../conversation/index.js';
+import { sanitizeEntryForReadout, type MemoryDao } from '../memory/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
 
@@ -202,6 +203,26 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
     // 出屏复原进退出序 closer——quit 路径与信号路径（onGraceful→shutdown）同享
     runtime.registerCloser({ label: 'tui-backend', fn: () => backend.stop() });
+
+    // —— /memory 管理面材料注入（mm 批——06 §7 形态定形注）：boot 已完成
+    //（assembleHostStack 内插件装载），core:memory 服务面在场（库座在位且件
+    // 装载）→ 后置注入 TuiBackend 后置位：ownerKeys/runExport 经服务面传真
+    // 身（导出闭包 = /memory 命令注册同一形），消毒函数直取 §8.2 统一函数
+    // 本尊（「同一函数」由装配保证——channels 侧窄面结构兼容 MemoryDao）。
+    // 件缺席 = 不注入（openMemory 返 false——/memory 命令核侧 notify 降级）
+    const memoryFace = scope.tryGet<{
+      readonly dao: MemoryDao;
+      readonly ownerKeys: readonly string[];
+      readonly runExport: (argv: readonly string[]) => Promise<string>;
+    }>('memory');
+    if (memoryFace !== undefined) {
+      backend.setMemoryScreen({
+        ownerKeys: memoryFace.ownerKeys,
+        dao: memoryFace.dao,
+        sanitize: sanitizeEntryForReadout,
+        exportCommand: memoryFace.runExport,
+      });
+    }
 
     stack.channels.addBackend(backend);
     backend.start();

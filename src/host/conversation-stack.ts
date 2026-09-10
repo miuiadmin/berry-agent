@@ -301,6 +301,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const channels = createChannels<AgentMessage>({
     fetchProjection: (sessionId) => Promise.resolve(projectionOf(sessionId)),
     history: (sessionId) => Promise.resolve(projectionOf(sessionId)),
+    // /memory 注册位（06 §7——mm 批）：库座在位即注册（persistence 在场 ⇒
+    // memory 件将装载；件缺席形由命令 handler 的 notify 降级提示诚实兜底）
+    memory: true,
   });
 
   // ④½ 会话维视图（e-2 观测腿——SessionView 纯派生读面）：数据三窄面全结构

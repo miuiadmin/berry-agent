@@ -729,7 +729,21 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         MEMORY_IMPORT_USAGE,
       );
 
-      context.provide('memory', { dao, cycle: cycle ?? null });
+      // 服务面：dao/cycle（既有消费面）+ 管理面材料位（mm 批——装配根 boot 后
+      // 经 TuiBackend.setMemoryScreen 后置注入 /memory 副屏：ownerKeys 呈现过滤
+      // 面 + runExport = /memory-export 处理器同一装配闭包〔真身同一函数〕）
+      context.provide('memory', {
+        dao,
+        cycle: cycle ?? null,
+        ownerKeys,
+        runExport: (argv: readonly string[]) =>
+          runMemoryExportCommand(argv, {
+            dao,
+            writableRoots: () => (deps.dataDir !== null ? [deps.dataDir, workspaceRoot()] : [workspaceRoot()]),
+            ownerRoots: () => ({ [projectKey]: workspaceRoot() }),
+            now,
+          }),
+      });
 
       return () => {
         disposeRecallInject();

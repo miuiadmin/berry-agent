@@ -20,7 +20,8 @@ interface AskHandle<T> {
 }
 
 /** 可编程假后端：记录一切调用；阻塞应答 deferred 手控；abort 自动保守值收场。
- * withAlt = 带件 8 副屏两可选钩（收起 / 开回看——缺席即无副屏后端的零义务形） */
+ * withAlt = 带件 8 副屏可选钩（收起 / 开回看 / 开记忆管理面——缺席即无副屏
+ * 后端的零义务形）；openMemory 返值经 setMemoryOpen 编程（缺省 false） */
 function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, withAlt = false) {
   const capabilities: UiCapabilities = {
     notify: true,
@@ -43,6 +44,8 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
   const repaints: { sessionId: string; projection: readonly unknown[]; widget: { node: unknown } | null }[] = [];
   const collapses: number[] = [];
   const historyOpens: { sessionId: string; messages: readonly unknown[] }[] = [];
+  const memoryOpens: number[] = [];
+  let memoryOpenReturn = false;
   let audience = true;
 
   function deferredPush<T>(asks: AskHandle<T>[], message: string, signal: AbortSignal | undefined): Promise<T> {
@@ -67,11 +70,15 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     setWidget: (sessionId, node) => widgets.push({ sessionId, node }),
     onEnvelope: (env, focused) => envelopes.push({ env, focused }),
     onRepaint: (sessionId, projection, widget) => repaints.push({ sessionId, projection, widget }),
-    // 件 8 副屏两可选钩（在场即能力——withAlt 才挂，缺席形零义务）
+    // 件 8 副屏可选钩 + mm 批 openMemory（在场即能力——withAlt 才挂，缺席形零义务）
     ...(withAlt
       ? {
           collapseAltScreen: () => collapses.push(collapses.length),
           openHistory: (sessionId: string, messages: readonly never[]) => historyOpens.push({ sessionId, messages }),
+          openMemory: () => {
+            memoryOpens.push(memoryOpens.length);
+            return memoryOpenReturn;
+          },
         }
       : {}),
   };
@@ -80,6 +87,10 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     capabilities,
     setAudience(v: boolean) {
       audience = v;
+    },
+    /** openMemory 返值编程（缺省 false——降级提示路的诚实位） */
+    setMemoryOpen(v: boolean) {
+      memoryOpenReturn = v;
     },
     notified,
     confirmAsks,
@@ -92,6 +103,7 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     repaints,
     collapses,
     historyOpens,
+    memoryOpens,
   };
 }
 
@@ -508,6 +520,49 @@ describe('/history 命令面（07 §4.1 件 8——批 10f-4：在场即注册�
     s.addBackend(b.backend);
     expect(await s.dispatchCommand('/history')).toBe(true); // 命令在场被消费
     expect(b.historyOpens).toEqual([]); // 无聚焦会话——零扇出
+  });
+});
+
+describe('/memory 命令面（06 §7 形态定形注①——在场即注册、缺席不注册；扇出 falsy 降级 notify）', () => {
+  it('memory 位在场：/memory 注册 + 分发扇出 openMemory（返 true 即成功、零 notify）', async () => {
+    const s = createChannels({ memory: true });
+    const b1 = fakeBackend('tui', {}, true); // 带副屏钩——openMemory 返 true
+    b1.setMemoryOpen(true);
+    const b2 = fakeBackend('web'); // 无副屏钩——缺席零义务
+    s.addBackend(b1.backend);
+    s.addBackend(b2.backend);
+    expect(s.listCommands().map((c) => c.name)).toContain('memory'); // 在场即注册
+    expect(await s.dispatchCommand('/memory')).toBe(true);
+    expect(b1.memoryOpens).toHaveLength(1); // 扇出带钩后端
+    expect(b1.notified).toEqual([]); // 已开不降级
+  });
+
+  it('全体 falsy（后端返 false——件缺席/不支持形）：notify warn 降级提示（不静默假装已开）', async () => {
+    const s = createChannels({ memory: true });
+    const b = fakeBackend('tui', {}, true); // 有钩但返 false（材料缺席形）
+    s.addBackend(b.backend);
+    expect(await s.dispatchCommand('/memory')).toBe(true); // 命令在场被消费
+    expect(b.memoryOpens).toHaveLength(1); // 扇出照走——返值诚实
+    expect(b.notified).toEqual([{ message: '当前通道不支持记忆管理面（或 memory 件未装载）', level: 'warn' }]);
+  });
+
+  it('无 openMemory 钩后端（如 web）：同为 falsy 位——notify 降级', async () => {
+    const s = createChannels({ memory: true });
+    const b = fakeBackend('web'); // 无副屏钩
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/memory');
+    expect(b.notified).toHaveLength(1);
+    expect(b.notified[0]?.level).toBe('warn');
+  });
+
+  it('memory 位缺席：不注册不虚报（/memory 不在命令面，分发返 false）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(s.listCommands().map((c) => c.name)).not.toContain('memory');
+    expect(await s.dispatchCommand('/memory')).toBe(false);
+    expect(b.memoryOpens).toEqual([]);
+    expect(b.notified).toEqual([]);
   });
 });
 

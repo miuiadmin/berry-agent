@@ -114,4 +114,13 @@ export interface UiBackend<TProjection> {
    * 管线零第二渲染器）。缺席 = 不支持整屏回看的后端。
    */
   openHistory?(sessionId: string, messages: readonly TProjection[]): void;
+  /**
+   * 开副屏记忆管理面（06 §7 `/memory` 命令的呈现面——命令注册在通道核按
+   * ChannelsOptions.memory 注入在场判；mm 批）。零参形——材料归后端装配
+   * 自持（数据不经通道核流转：TuiBackend 经后置 setMemoryScreen 注入位持
+   * 有 DAO 窄面/消毒函数/导出闭包，与 openHistory 的载荷经核流转分立）。
+   * 返 boolean：true = 已开（支持且有材料）；false = 不支持或缺材料——核
+   * 据此走 notify 降级提示（不静默）。缺席 = 不支持管理面的后端。
+   */
+  openMemory?(): boolean;
 }
