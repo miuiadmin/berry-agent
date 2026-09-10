@@ -11,6 +11,9 @@
  * 批 11e 纵切面：open 域工具与审批三件装配（assembleOpenTools 消费）。
  * 批 11f 纵切面：环境披露段注入（04 §11）+ onRunSettled 终态回调（ctx.agent
  * 服务订阅面）+ 子代理审批挂起通知注入面（04 §10）；host 装配根接线归批 12。
+ * 批 v 纵切面（2026-09-11 运行时断言批）：「模型可见即已记录」请求关口总拍
+ * （05 §1.2 对拍断言）——onTransformContext 入口 timeline 活数组 vs 日志独立
+ * 重建恒开对拍，红 = 驱动 bug fail-loud（暗通道/翻译失真两类病灶）。
  *
  * 重试编舞（04 §3.3 六条）：
  *  ① 遮蔽 + 落账一次 append——surfaceOp 随 llm/retry(phase=scheduled) 信封；
@@ -63,6 +66,7 @@ import {
   SESSION_LIFECYCLE_EVENT,
 } from './types.js';
 import { reseedTimeline } from './reseed.js';
+import { assertModelVisibleTimeline, degradationMask } from './model-visible.js';
 import { todoSnapshotMessage } from './todo.js';
 import { notifyRunSettled } from './agent-service.js';
 
@@ -431,6 +435,11 @@ export class ConversationDriver {
    * 冷启动 resume 首请求同覆盖。
    */
   private readonly onTransformContext = async (context: LlmContext): Promise<LlmContext> => {
+    // 请求关口总拍（05 §1.2——「模型可见即已记录」收口对拍）：本入口是每次
+    // LLM 请求组装的唯一关口（stream.ts 组装序 convertToLlm → 此处），先对拍
+    // 持久层再注入瞬态层——下方各注入段（插件段/披露段/瀑布尾注）注入于对拍
+    // 之后，属规范既定豁免面不进 v1 射程
+    this.assertTimelineReconstructable();
     const config = this.activeConfig;
     if (config !== undefined) {
       this.wiring.noteRequest({
@@ -941,6 +950,22 @@ export class ConversationDriver {
   private reseededTimeline(): Message[] {
     const events = this.session.events();
     return reseedTimeline(this.session.projection(), (seq) => events[seq]?.time ?? 0);
+  }
+
+  /**
+   * 请求关口总拍（05 §1.2 对拍断言——恒开无开关）：timeline 活数组（loop
+   * 「入列↔emit」同步对偶维护的投影镜像缓存）vs 事件日志独立重建（投影 →
+   * reseedTimeline——与冷启动 resume / 重试重播种完全同路，两侧不共享中间
+   * 状态）。红 = 驱动 bug fail-loud：模型可见消息未经 durable 落账即入列
+   * （暗通道——含自定义角色零写点位）或落账翻译腿失真。比较 O(n) 与请求
+   * 序列化同阶（convertToLlm 全量转写已是每请求 O(n)）——恒开零边际成本；
+   * 降级掩码从投影原始形判（预算刀截断豁免位——重建形已丢标记，见件注）。
+   */
+  private assertTimelineReconstructable(): void {
+    const events = this.session.events();
+    const projection = this.session.projection();
+    const expected = reseedTimeline(projection, (seq) => events[seq]?.time ?? 0);
+    assertModelVisibleTimeline(this.context.messages, expected, degradationMask(projection));
   }
 }
 

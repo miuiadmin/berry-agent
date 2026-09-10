@@ -49,9 +49,10 @@ const ZERO_USAGE: Usage = {
 /**
  * usage 归一（unknown → Usage 必填形）：数值字段 finite 才取，任一主字段
  * 缺损即整笔退零用量（半拼凑的 usage 比零用量更有害——计量面要么完整
- * 要么明示没有）。
+ * 要么明示没有）。导出面：模型可见总拍（model-visible.ts）两侧同归一复用
+ * ——对拍等价判据以本归一为准（undefined ≡ 零用量兜底），单一归一源。
  */
-function normalizeUsage(usage: unknown): Usage {
+export function normalizeUsage(usage: unknown): Usage {
   if (usage === null || typeof usage !== 'object') return ZERO_USAGE;
   const u = usage as Record<string, unknown>;
   const num = (key: string): number | undefined => {
