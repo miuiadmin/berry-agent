@@ -171,6 +171,15 @@ export interface ConversationDriverOptions {
   readonly goalDeposit?: () => string | null;
 
   /**
+   * 预算预警取值器（04 §5 软着陆层——遗漏审计批 H）：每请求组装时取用，
+   * 非空文本以瞬态 UserMessage 注入消息尾（注入序：reminders → 预算预警 →
+   * goal 沉淀 → todo 恒最后）——不落 durable 不进快照（与披露段/todo 回看
+   * 同律）。文案铸造与档位判定归装配位闭包（root/subagent 分族）；本层只管
+   * 注入位与序。缺席/返回 null = 零注入（前台会话无池可警同形）。
+   */
+  readonly budgetAdvisory?: () => string | null;
+
+  /**
    * run 结算钩（04 §5 记账腿——批 #99 三入口统一）：launch settled 链内
    * 嵌（run 回执 promise 引用恒等不破）；settle 时窗扫 durable 事件计数
    * 前台 assistant/message（04 §176 记账单位 = 消息非 run）。双计防线：

@@ -25,6 +25,7 @@ import {
   DEFAULT_RUN_LANE_CAPACITY,
   lastUsageFactOf,
   resolveRunLaneCapacity,
+  type ConversationStackOptions,
 } from './conversation-stack.js';
 import { createPluginContext } from './plugin-context.js';
 import { createHostRuntime } from './runtime.js';
@@ -107,13 +108,14 @@ function rigWorkspace(): string {
 }
 
 /** faux provider + 栈组装速记 */
-function rigStack(rt: HostRuntime) {
+function rigStack(rt: HostRuntime, overrides: Partial<ConversationStackOptions> = {}) {
   const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
   const stack = createConversationStack({
     runtime: rt,
     providers: [faux.provider],
     model: 'faux-stack/m1',
     env: {}, // BERRY_AGENT_MODEL 隔离——测试面自持模型
+    ...overrides,
   });
   return { faux, stack };
 }
@@ -835,6 +837,45 @@ describe('doors 段开门换态 e2e（开门制扩展批——observeCross/contr
         .at(-1)!.data,
     );
     expect(status).toContain('sessions.control-cross=open');
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- 预算预警装配穿线（04 §5 软着陆层——遗漏审计批 H） ---------------- */
+
+describe('预算预警装配穿线（批 H——budgetAdvisory stack 级注入位）', () => {
+  it('供入 → 驱动请求尾注入（sessionId 落格绑定 + 瞬态零落账）；返回 null 零注入', async () => {
+    const { rt } = rigRuntime();
+    const seenMessages: Array<Array<{ role: string; content: unknown }>> = [];
+    let supply: string | null = '[预算提示 NOTICE] 当日后台预算已用约 70%。';
+    const { faux, stack } = rigStack(rt, {
+      budgetAdvisory: () => supply,
+    });
+    const session = stack.openStartupSession(rigWorkspace());
+    faux.setResponses([
+      (ctx) => {
+        seenMessages.push(ctx.messages as Array<{ role: string; content: unknown }>);
+        return messageOf('stop');
+      },
+    ]);
+    const receipt = await stack.submitText(session.sessionId, '问');
+    expect(receipt).toMatchObject({ status: 'completed' });
+    const tail = seenMessages[0]![seenMessages[0]!.length - 1]!;
+    expect(tail.role).toBe('user');
+    expect(tail.content).toContain('[预算提示 NOTICE]'); // 供入文案进请求尾
+    // 瞬态纪律：durable 会话流零预警词（不打 user/message 事件）
+    const durable = JSON.stringify(stack.driverOf(session.sessionId)!.session.events());
+    expect(durable).not.toContain('预算提示');
+    supply = null; // 次请求零注入（前台会话/未达档位形）
+    faux.setResponses([
+      (ctx) => {
+        seenMessages.push(ctx.messages as Array<{ role: string; content: unknown }>);
+        return messageOf('stop');
+      },
+    ]);
+    await stack.submitText(session.sessionId, '再问');
+    const tail2 = seenMessages[1]![seenMessages[1]!.length - 1]!;
+    expect(tail2.content).not.toContain('预算提示'); // 零注入回合请求尾为 durable 消息
     await rt.shutdown();
   });
 });

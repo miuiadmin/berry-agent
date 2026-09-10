@@ -107,6 +107,14 @@ export interface InProcessSubagentProviderOptions {
   /** 委派深度登记表（sessionContext 解析真源——装配根自持） */
   readonly tracker: DelegationSessionTracker;
   readonly warn: (message: string) => void;
+  /**
+   * 总预算 reserve 线越线判定（04 §5——非交互子代理 90% 线强停，留余量给
+   * 主循环写终态：子代理先耗尽则父终态写不出，实证失败模式）：真身 = 装配根
+   * 闭包 llm.backgroundUsage().ratio ≥ SUBAGENT_RESERVE_THRESHOLD；执法位 =
+   * 起跑前（已越线不起跑直接回执）+ 在飞期轮询（越线协作中止）。缺省 =
+   * 不执法（测试替身/lib 形——预警软着陆层另走 driver 注入位与本腿分立）。
+   */
+  readonly reserveBreached?: () => boolean;
 }
 
 /**
@@ -118,6 +126,15 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
   return {
     capabilities: IN_PROCESS_CAPABILITIES,
     async run(request: SubagentRequest): Promise<SubagentResult> {
+      // reserve 线起跑前执法（04 §5——总预算 90% 已越线则不起跑）：诚实回执
+      // aborted + diagnostic，不建会话不耗预算——余量留给主循环写终态
+      if (options.reserveBreached?.() === true) {
+        return {
+          output: '',
+          stopReason: 'aborted',
+          diagnostic: '后台预算已达 90% reserve 线——子代理不起跑，余量留给主循环写终态（04 §5）',
+        };
+      }
       // service 已在 request.tools 位算好 effectiveTools（availableTools 在场
       // = 派生面∩白名单交集；缺席 = 透传白名单）——整形器以之为准
       const whitelist = request.tools;
@@ -157,12 +174,23 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
       const driver = child.driver;
       tracker.record(child.sessionId, request.depth ?? 1);
       // 协作停止桥（只 background 形注入——one-shot 父同步等无停止位）：
-      // JobHandle 置 stopping → 轮询观察 → abort 子 run
+      // JobHandle 置 stopping → 轮询观察 → abort 子 run；reserve 线观察
+      // （04 §5——非交互子代理 90% 线强停）同轮合流：越线 → abort + 记因
+      //（回执 diagnostic 归因预算而非泛 aborted）
+      let reserveStopped = false;
+      const observeStop = request.stopRequested;
+      const observeReserve = options.reserveBreached;
       let timer: ReturnType<typeof setInterval> | undefined;
-      if (request.stopRequested !== undefined) {
-        const observe = request.stopRequested;
+      if (observeStop !== undefined || observeReserve !== undefined) {
         timer = setInterval(() => {
-          if (observe()) driver.abort();
+          if (observeStop !== undefined && observeStop()) {
+            driver.abort();
+            return;
+          }
+          if (observeReserve !== undefined && observeReserve()) {
+            reserveStopped = true;
+            driver.abort();
+          }
         }, 500);
         timer.unref();
       }
@@ -182,6 +210,9 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
         return {
           output,
           stopReason: stopReasonOf(outcome.status),
+          ...(reserveStopped && outcome.status === 'aborted'
+            ? { diagnostic: '后台预算达 90% reserve 线——子代理强停，余量留给主循环写终态（04 §5）' }
+            : {}),
           ...(outcome.status === 'failed' && outcome.errorMessage !== undefined
             ? { diagnostic: outcome.errorMessage }
             : {}),

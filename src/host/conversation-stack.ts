@@ -124,6 +124,14 @@ export interface ConversationStackOptions {
    */
   readonly goalDeposit?: (sessionId: string) => string | null;
   /**
+   * 预算预警取值器（04 §5 软着陆层——遗漏审计批 H）：root/subagent 分族
+   * 文案铸造归装配根（origin 判据 + llm 后台池投影——host/budget-advisory
+   * 纯函数族）；驱动每请求组装时经 onTransformContext 取用注入瞬态层。
+   * per-session 位在穿线时 sessionId 落格绑定（goalDeposit 同形）。
+   * 缺席/返回 null = 零注入（前台会话无池可警同形）。
+   */
+  readonly budgetAdvisory?: (sessionId: string) => string | null;
+  /**
    * run 结算回执钩（批 #99——goal 前台记账腿三入口统一）：驱动 launch settled
    * 链内嵌发射（assistant/message 窗扫计数 + userInitiated 归因——04 §176
    * 记账单位），组合根闭包接 recordTurn；钩内异常驱动侧自防炸（warn 不炸收场）。
@@ -466,6 +474,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       ...(options.goalScopeFor !== undefined ? { goalScopeFor: options.goalScopeFor } : {}),
       // goal 轮间沉淀 + 记账回执穿线（批 #99——sessionId 位在此落格绑定）
       ...(options.goalDeposit !== undefined ? { goalDeposit: () => options.goalDeposit!(sessionId) } : {}),
+      // 预算预警穿线（批 H——04 §5 软着陆层）：sessionId 落格绑定同 goalDeposit 形
+      ...(options.budgetAdvisory !== undefined ? { budgetAdvisory: () => options.budgetAdvisory!(sessionId) } : {}),
       ...(options.onRunSettled !== undefined
         ? { onRunSettled: (receipt) => options.onRunSettled!(sessionId, receipt) }
         : {}),

@@ -27,6 +27,7 @@ import type { SessionEvent } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
+import { SUBAGENT_RESERVE_THRESHOLD } from '../llm/index.js';
 import { llmTextOf } from '../memory/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
 import type { GoalSummarizerFace } from '../goal/index.js';
@@ -65,6 +66,7 @@ import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
 import { createIssueSessionFactory } from './issue-session.js';
 import { createDelegationSessionTracker, createInProcessSubagentProvider } from './subagent-factory.js';
+import { budgetAdvisoryMessage } from './budget-advisory.js';
 import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactory } from './triggers.js';
 // 批 19e HTTP 面族接线：sdk 面工厂（件承载真身）+ issue 并行帽常量 +
 // webui 挂载闭包（assembly→webui-bridge→serve-entry→assembly 系声明式
@@ -285,6 +287,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // goal 轮间沉淀取值器（批 #99——04 §3.7）：depositFor 同步返缓存/回退
       // （指纹缓存单发在 goal 件内——同指纹零 LLM），goal 未装载 = null 零注入
       goalDeposit: (sessionId) => scope.tryGet<GoalFace>('goal')?.service.depositFor(sessionId) ?? null,
+      // 预算预警取值器（批 H——04 §5 三档软着陆）：origin 判预算帽下活
+      // （'trigger' headless root / 'delegation' 子代理；前台三 origin 与
+      // 不在册会话恒 null 零注入），文案分族铸造在 host/budget-advisory
+      // 纯函数族（投影读面 = stack.llm.backgroundUsage 与 canAfford 同账）
+      budgetAdvisory: (sessionId) => {
+        const origin = stack.manager.listActive().find((row) => row.sessionId === sessionId)?.origin;
+        return budgetAdvisoryMessage(stack.llm.backgroundUsage(), origin);
+      },
       // goal 前台记账腿（批 #99——04 §5 双轨 + 三入口统一）：run settled 链
       // 回执（窗扫 assistant/message 计数 + userInitiated 归因）→ recordTurn；
       // braked 即 warn 呈现；钩内异常驱动 noteRunSettled 自防炸兜底
@@ -414,7 +424,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     const delegationSessions = createDelegationSessionTracker();
     subagents.registerProvider(
       DEFAULT_SUBAGENT_PROVIDER,
-      createInProcessSubagentProvider({ stack, tracker: delegationSessions, warn: (message) => logger.warn(message) }),
+      createInProcessSubagentProvider({
+        stack,
+        tracker: delegationSessions,
+        warn: (message) => logger.warn(message),
+        // reserve 线判定（批 H——04 §5 非交互子代理 90% 线强停）：投影读面与
+        // 预警三档同账（backgroundUsage 单源），阈值常量 SUBAGENT_RESERVE_THRESHOLD
+        reserveBreached: () => stack.llm.backgroundUsage().ratio >= SUBAGENT_RESERVE_THRESHOLD,
+      }),
     );
     // boot 全局层工具执行时语境解析闭包（批 19c-1——深度登记表 ?? 根 1；
     // 父面枚举 = 活体驱动 toolNames 快照，纯对话形 undefined 不可枚举）：

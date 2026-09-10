@@ -1272,6 +1272,51 @@ describe('ConversationDriver goal 驱动侧接线（批 #99）', () => {
   });
 });
 
+/* ---------------- 预算预警注入（04 §5 软着陆层——遗漏审计批 H） ---------------- */
+
+describe('ConversationDriver 预算预警注入（批 H）', () => {
+  it('budgetAdvisory 注入：非空文案进请求尾单条（瞬态纪律——durable 零落账）+ null 零注入', async () => {
+    let supply: string | null = '[预算预警 URGENT] 当日后台预算已用约 85%。请停止开启新的工作腿。';
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({}), assistant({})],
+      budgetAdvisory: () => supply,
+    });
+    await driver.submit('一问');
+    expect(seen[0]!.messages[seen[0]!.messages.length - 1]).toMatchObject({ role: 'user', content: supply });
+    expect(types(driver).filter((type) => type === 'user/message')).toHaveLength(1); // durable 唯一 user = 种子
+    supply = null; // 次请求零注入（前台会话/未达档位形）
+    await driver.submit('二问');
+    expect(seen[1]!.messages[seen[1]!.messages.length - 1]).toMatchObject({ role: 'user', content: '二问' });
+  });
+
+  it('注入序定律：reminders → 预算预警 → goal 沉淀 → todo 恒最后（05 §1.1）', async () => {
+    const dispatch = new EventDispatch();
+    const { driver, seen } = makeDriver({
+      dispatch,
+      scripts: [assistant({})],
+      budgetAdvisory: () => '[预算提示 NOTICE] 当日后台预算已用约 70%。',
+      goalDeposit: () => 'goal 沉淀文案',
+    });
+    dispatch.onWaterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, (payload, next) => {
+      payload.reminders.push('提醒甲');
+      return next(payload);
+    });
+    await driver.submit('问');
+    // 预期消息序：种子 user → reminders（提醒甲）→ 预算预警 → goal 沉淀 → todo
+    //（todo 快照 null 时缺席——本例未建 todo 表，断言前四层序）
+    const contents = seen[0]!.messages.map((m) => (m.role === 'user' ? String(m.content) : `(${m.role})`));
+    expect(contents.indexOf('提醒甲')).toBeLessThan(contents.findIndex((c) => c.includes('预算提示 NOTICE')));
+    expect(contents.findIndex((c) => c.includes('预算提示 NOTICE'))).toBeLessThan(contents.indexOf('goal 沉淀文案'));
+    expect(contents[contents.length - 1]).toBe('goal 沉淀文案'); // todo 缺席时 goal 沉淀收尾
+  });
+
+  it('注入位缺席 = 零注入（缺省形零破口）', async () => {
+    const { driver, seen } = makeDriver({ scripts: [assistant({})] });
+    await driver.submit('问');
+    expect(seen[0]!.messages).toHaveLength(1); // 仅种子
+  });
+});
+
 /* ---------------- session/lifecycle 活体广播（04 §6 e-2 观测腿） ---------------- */
 
 describe('ConversationDriver session/lifecycle 活体广播', () => {

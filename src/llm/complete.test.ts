@@ -16,6 +16,7 @@ import type { AssistantMessage, Message } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
 import { createLlmRuntime } from './runtime.js';
 import { createLlmService, type LlmServiceOptions } from './complete.js';
+import { budgetAdvisoryLevel, BUDGET_ADVISORY_THRESHOLDS, SUBAGENT_RESERVE_THRESHOLD } from './complete.js';
 import { InFlightTracker } from './inflight.js';
 
 /* ---------------- 测试基建 ---------------- */
@@ -163,6 +164,34 @@ describe('complete：预算两维（foreground 恒放行 / background 软闸门�
     faux.setResponses([() => messageOf('stop')]);
     const result = await service.complete({ messages: [userMsg('x')], priority: 'background' });
     expect(result.message.stopReason).toBe('stop');
+  });
+
+  it('backgroundUsage 投影：spent/limit 与 canAfford 同源同账（数值面）', () => {
+    const { service } = makeService({ backgroundBudgetTokens: 4_000_000, backgroundSpentToday: spent(3_000_000) });
+    expect(service.backgroundUsage()).toEqual({ spent: 3_000_000, limit: 4_000_000, ratio: 0.75 });
+    // 缺省无装配 = 零已耗零比值（lib 形态投影零异常）
+    const { service: bare } = makeService();
+    expect(bare.backgroundUsage()).toEqual({ spent: 0, limit: 4_000_000, ratio: 0 });
+  });
+});
+
+/* ---------------- 预警三档（04 §5 软着陆层——遗漏审计批 H） ---------------- */
+
+describe('complete：预算预警三档（budgetAdvisoryLevel 单源判定）', () => {
+  it('档位边界：70/85/95% 三档闭开区间（达线即档、档内不跃档）', () => {
+    expect(budgetAdvisoryLevel(0)).toBeNull();
+    expect(budgetAdvisoryLevel(0.699)).toBeNull(); // 未达 notice 线零预警
+    expect(budgetAdvisoryLevel(0.7)).toBe('notice'); // 达线即档
+    expect(budgetAdvisoryLevel(0.849)).toBe('notice');
+    expect(budgetAdvisoryLevel(0.85)).toBe('urgent');
+    expect(budgetAdvisoryLevel(0.949)).toBe('urgent');
+    expect(budgetAdvisoryLevel(0.95)).toBe('critical');
+    expect(budgetAdvisoryLevel(1)).toBe('critical'); // 池尽仍 critical（exhausted 不设档——硬拒归 canAfford）
+  });
+
+  it('三档线常量：70/85/95 与 reserve 线 90（常量可配置不入库——04 §5）', () => {
+    expect(BUDGET_ADVISORY_THRESHOLDS).toEqual({ notice: 0.7, urgent: 0.85, critical: 0.95 });
+    expect(SUBAGENT_RESERVE_THRESHOLD).toBe(0.9);
   });
 });
 

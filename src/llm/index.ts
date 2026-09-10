@@ -33,6 +33,11 @@ export {
 } from './recovery.js';
 export {
   createLlmService,
+  budgetAdvisoryLevel,
+  BUDGET_ADVISORY_THRESHOLDS,
+  SUBAGENT_RESERVE_THRESHOLD,
+  type BackgroundBudgetUsage,
+  type BudgetAdvisoryLevel,
   type CompleteRequest,
   type CompleteResult,
   type LlmService,

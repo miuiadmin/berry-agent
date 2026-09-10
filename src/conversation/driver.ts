@@ -495,14 +495,21 @@ export class ConversationDriver {
         originalMessages: [...preTransformMessages],
       });
     }
-    // agent_pre_step 提醒注入 + goal 轮间沉淀（批 #99）：同属请求组装瞬态层
-    // 不落 durable；注入序定律 reminders → goal 沉淀 → todo 恒最后（05 §1.1）。
-    // 提醒槽取后即清（跨请求不残留——一次 pre_step 暂存对应一次请求组装）
+    // agent_pre_step 提醒注入 + 预算预警 + goal 轮间沉淀（批 #99 + 批 H）：
+    // 同属请求组装瞬态层不落 durable；注入序定律 reminders → 预算预警 →
+    // goal 沉淀 → todo 恒最后（05 §1.1）。提醒槽取后即清（跨请求不残留——
+    // 一次 pre_step 暂存对应一次请求组装）
     const reminders = this.pendingReminders;
     this.pendingReminders = [];
     const transientTail: Message[] = [];
     if (reminders.length > 0) {
       transientTail.push({ role: 'user', content: reminders.join('\n'), timestamp: Date.now() });
+    }
+    // 预算预警注入（04 §5 三档软着陆——瞬态 UserMessage；root/subagent 分族
+    // 文案由装配位铸造，本层只管注入位与序）
+    const advisory = this.options.budgetAdvisory?.() ?? null;
+    if (advisory !== null) {
+      transientTail.push({ role: 'user', content: advisory, timestamp: Date.now() });
     }
     const deposit = this.options.goalDeposit?.() ?? null;
     if (deposit !== null) {

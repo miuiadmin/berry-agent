@@ -13,7 +13,9 @@
  * 当日后台累计 tokens < 限额（缺省 4M）。执法位点 = llm 层拒发
  * （LLM_BUDGET_EXCEEDED 拒在请求发出前）；底账 = 注入的聚合查询
  * （backgroundSpentToday 读侧）——余额不存储、重放推导（llm/usage durable
- * 事件聚合，05 篇）。
+ * 事件聚合，05 篇）。硬拒之上另有软着陆层（04 §5 预警三档）：backgroundUsage
+ * 投影读面 + budgetAdvisoryLevel 档位判定（70/85/95%）供装配位铸造瞬态预警
+ * 注入文案；子代理 90% reserve 线常量同件单源（SUBAGENT_RESERVE_THRESHOLD）。
  */
 
 import type { AssistantMessage, Message, ModelInfo, Usage } from '../contracts/index.js';
@@ -94,6 +96,14 @@ export interface LlmService {
    */
   canAfford(priority: 'background' | 'foreground'): boolean;
   /**
+   * 当日后台预算投影（04 §5 软着陆层——遗漏审计批 H）：spent/limit 与
+   * canAfford 同源同账（spentToday / backgroundBudgetTokens 单点）的数值面
+   * ——预警三档（70/85/95%）与子代理 reserve 线（90%）消费位经此取比值，
+   * 不再各自读底账。llm 件不持档位语义（档位判定 budgetAdvisoryLevel 单源
+   * 纯函数），文案铸造归装配位。
+   */
+  backgroundUsage(): BackgroundBudgetUsage;
+  /**
    * 错误桶判定（04 §3.5——recovery.ts classifyError 单源表的服务面公开位）：
    * conversation 件等宿主内消费方经服务面取用（拓扑不含 llm 边时判定器经
    * 服务面注入驱动——「全仓无第二分类处」的执法前提是宿主面可得）。
@@ -160,6 +170,38 @@ const NO_USAGE: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, tota
 const DEFAULT_BACKGROUND_BUDGET = 4_000_000;
 
 /**
+ * 预警三档线（04 §5 软着陆层——达 70 / 85 / 95% 各档：NOTICE / URGENT /
+ * CRITICAL）：常量可配置、不入库。exhausted 不设档——池尽归 canAfford 硬拒
+ * 与停靠腿（04 §5 成熟度 #5 实装），本层不重复造词。
+ */
+export const BUDGET_ADVISORY_THRESHOLDS = { notice: 0.7, urgent: 0.85, critical: 0.95 } as const;
+
+/** 预警档位（三档闭集——档位判定的单源产物） */
+export type BudgetAdvisoryLevel = 'notice' | 'urgent' | 'critical';
+
+/**
+ * 非交互子代理 reserve 线（04 §5——总预算 90% 线强停子代理）：留余量给
+ * 主循环写终态（子代理先耗尽则父终态写不出，实证失败模式）。执法位 =
+ * host/subagent-factory（起跑前 + 在飞轮询），本件只持常量单源。
+ */
+export const SUBAGENT_RESERVE_THRESHOLD = 0.9;
+
+/** 当日后台预算投影（spent/limit/ratio 同源单点——预警三档与 reserve 线消费面共用） */
+export interface BackgroundBudgetUsage {
+  readonly spent: number;
+  readonly limit: number;
+  readonly ratio: number;
+}
+
+/** 档位判定（ratio → 三档；null = 未达 notice 线无预警——消费面零注入） */
+export function budgetAdvisoryLevel(ratio: number): BudgetAdvisoryLevel | null {
+  if (ratio >= BUDGET_ADVISORY_THRESHOLDS.critical) return 'critical';
+  if (ratio >= BUDGET_ADVISORY_THRESHOLDS.urgent) return 'urgent';
+  if (ratio >= BUDGET_ADVISORY_THRESHOLDS.notice) return 'notice';
+  return null;
+}
+
+/**
  * 创建单发受托管补全服务（host 装配根 provide 的那一个对象）。
  */
 export function createLlmService(options: LlmServiceOptions): LlmService {
@@ -218,6 +260,12 @@ export function createLlmService(options: LlmServiceOptions): LlmService {
     },
 
     canAfford,
+
+    // 当日后台预算投影（canAfford 同源数值面——同 spentToday/限额两单点）
+    backgroundUsage: (): BackgroundBudgetUsage => {
+      const spent = spentToday();
+      return { spent, limit: budget, ratio: spent / budget };
+    },
 
     async complete(req: CompleteRequest): Promise<CompleteResult> {
       // 预算闸门（04 §5 执法位点）：后台调用且当日已耗尽 → 拒在请求发出前

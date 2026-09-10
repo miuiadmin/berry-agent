@@ -335,4 +335,78 @@ describe('createInProcessSubagentProvider（批 19c-1——真工厂全环）', 
     expect(result.stopReason).toBe('aborted');
     await rt.shutdown();
   });
+
+  it('reserve 线起跑前执法（批 H——04 §5 90% 线）：已越线不起跑 + aborted 诚实回执 + 零会话', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({
+      stack,
+      tracker,
+      warn: () => {},
+      reserveBreached: () => true, // 起跑前已越线（总预算 ≥ 90%）
+    });
+    const parent = stack.openStartupSession(ws);
+
+    const result = await provider.run({ prompt: '不跑了', parentSessionId: parent.sessionId, depth: 1 });
+    expect(result.stopReason).toBe('aborted');
+    expect(result.diagnostic).toContain('90% reserve 线');
+    // 零会话零请求——余量留给主循环写终态（不建子会话不耗预算）
+    expect(faux.state.callCount).toBe(0);
+    await rt.persistence.flush();
+    expect(stack.manager.list({}).find((row) => row.origin === 'delegation')).toBeUndefined();
+    await rt.shutdown();
+  });
+
+  it('reserve 线在飞期执法（批 H）：越线翻位 → 轮询 abort → aborted + diagnostic 归因预算', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    let breached = false;
+    const provider = createInProcessSubagentProvider({
+      stack,
+      tracker,
+      warn: () => {},
+      reserveBreached: () => breached,
+    });
+    const parent = stack.openStartupSession(ws);
+
+    // 挂起流（honor signal——abort 时 aborted 终态收口；stopRequested 缺席，
+    // 走 reserve 轮询腿）：翻位在起跑后——首拍轮询（500ms）触发 abort
+    faux.setResponses([
+      (_ctx, opts) =>
+        new Promise((resolve) => {
+          const signal = (opts as { signal?: AbortSignal } | undefined)?.signal;
+          if (signal === undefined || signal.aborted) {
+            resolve(messageOf(signal?.aborted ? 'aborted' : 'stop'));
+            return;
+          }
+          signal.addEventListener('abort', () => resolve(messageOf('aborted')), { once: true });
+          setImmediate(() => {
+            breached = true; // 起跑后越线（模拟总预算爬过 90% 线）
+          });
+        }),
+    ]);
+    const result = await provider.run({ prompt: '跑到线', parentSessionId: parent.sessionId, depth: 1 });
+    expect(result.stopReason).toBe('aborted');
+    // diagnostic 归因预算（reserve 触发的 abort——非泛 aborted 回执）
+    expect(result.diagnostic).toContain('90% reserve 线');
+    await rt.shutdown();
+  });
+
+  it('reserve 判定缺席 = 不执法（缺省形零破口——预警软着陆层另走 driver 注入位）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({ stack, tracker, warn: () => {} });
+    const parent = stack.openStartupSession(ws);
+
+    faux.setResponses([() => messageOf('stop')]);
+    const result = await provider.run({ prompt: '照常跑', parentSessionId: parent.sessionId, depth: 1 });
+    expect(result.stopReason).toBe('stop'); // 无 reserve 判定面即无强停腿
+    await rt.shutdown();
+  });
 });
