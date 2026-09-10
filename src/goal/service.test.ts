@@ -449,6 +449,31 @@ describe('depositFor（04 §3.7 轮间沉淀——指纹缓存单发 + 确定性
     expect(service.depositFor('s1')).toContain('计划态：open 0 项'); // 失败缓存回退
     expect(calls).toHaveLength(1); // 同指纹不重烧
   });
+
+  it('summarizer 成功但空产出：回落确定性文本入缓存（空串不占缓存承载——第二回落路径）', async () => {
+    let resolveOnce: ((text: string) => void) | undefined;
+    const calls: number[] = [];
+    const { service } = openService({
+      summarizer: {
+        complete: (req) => {
+          calls.push(req.prompt.length);
+          return new Promise((resolve) => {
+            resolveOnce = (text: string) => resolve({ text });
+          });
+        },
+      },
+    });
+    await service.activate({ sessionId: 's1', objective: '写周报', schedule: 'x' });
+    expect(service.depositFor('s1')).toContain('计划态：open 0 项'); // 缓存冷——回退立即承载
+    // 成功但产出纯空白（trim 后空串）——失败回落之外的第二条回落路径：该
+    // ternary 被误删后空产出直入缓存（depositFor 返空白、goal 注入面失效）
+    // 而全套测试无红（2026-09-11 遗漏扫描批 test-gap-6 补锁）。
+    resolveOnce?.('   ');
+    await new Promise((resolve) => void setTimeout(resolve, 0));
+    expect(service.depositFor('s1')).toBe('目标：写周报\n计划态：open 0 项 / completed 0 项'); // fallback 入缓存
+    expect(service.depositFor('s1')).toBe('目标：写周报\n计划态：open 0 项 / completed 0 项'); // 命中缓存
+    expect(calls).toHaveLength(1); // 缓存位由 fallback 占据而非空产出——同指纹零重烧
+  });
 });
 
 describe('goalScopeFor（chat↔goal 数据通道窄面）', () => {

@@ -1238,6 +1238,25 @@ describe('ConversationDriver goal 驱动侧接线（批 #99）', () => {
     ]);
   });
 
+  it('onRunSettled 崩溃形：StreamFn 违约 = 计数 0 + status 键缺席（不虚构——crashed run 记账不漏账）', async () => {
+    const receipts: RunSettledReceipt[] = [];
+    const { driver } = makeDriver({
+      // 违「StreamFn 永不抛」契约的注入——settled 拒绝分支 noteRunSettled
+      // 无 status 实参（launch 崩溃路径）；若该分支漏调 noteRunSettled，崩溃
+      // run 的 assistant 计数停止进窗——goal 日帽/预算对 crashed run 全漏账且
+      // 无测试变红（2026-09-11 遗漏扫描批 test-gap-4 补锁——正常完成形之外
+      // 的第二形）。
+      streamFn: () => {
+        throw new Error('崩溃注入');
+      },
+      onRunSettled: (receipt) => void receipts.push(receipt),
+    });
+    await expect(driver.submit('问')).rejects.toThrow('崩溃注入');
+    // toStrictEqual 严查键集：status 键必须缺席（undefined 值键也算在场——
+    // 「不虚构终值」半面）。
+    expect(receipts).toStrictEqual([{ sessionId: 's-driver', assistantMessages: 0, userInitiated: true }]);
+  });
+
   it('onRunSettled 自防炸：钩异常不反噬 run 终态（warn 落面）', async () => {
     const warns: string[] = [];
     const { driver } = makeDriver({
@@ -1635,5 +1654,29 @@ describe('ConversationDriver lane 帽 seam（04 §4——m-2）', () => {
     expect(seen).toHaveLength(0); // 零 LLM——预算帽/日池执法在排队窗内仍生效
     // 种子同样转 inject 落账（durable 真相不丢）
     expect(driver.session.events().some((event) => event.type === 'user/message')).toBe(true);
+  });
+
+  it('abort 记忆位单发消费（双排队形）：首位取位即还位收 aborted + 种子转 inject；次位正常起跑不外溢', async () => {
+    const gate = testRunGate(true);
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '次位答' }] })],
+      acquireRunSlot: gate,
+    });
+    const first = driver.submit('一');
+    const second = driver.submit('二'); // 双排队（帽满等位——currentRun 均未置形）
+    expect(gate.queued).toBe(2);
+    driver.abort(); // 无在飞 + 有排队 kick → 记忆请求置位（abortRequestedValue）
+    gate.flush(); // 首位取位——消费记忆位：单发清位 + 还位 + 种子转 inject + aborted 回执
+    await expect(first).resolves.toMatchObject({ status: 'aborted' });
+    expect(seen).toHaveLength(0); // 首位零 LLM 收场
+    expect(
+      driver.session
+        .events()
+        .some((event) => event.type === 'user/message' && (event.data as { content?: unknown }).content === '一'),
+    ).toBe(true); // 首位种子转 inject 落账（durable 真相不丢）
+    gate.flush(); // 次位取位——记忆位已单发清位：正常起跑（记忆不外溢到无关 run）
+    await expect(second).resolves.toMatchObject({ status: 'completed' });
+    expect(seen).toHaveLength(1); // 唯一 LLM 调用属次位 run
+    expect(gate.released).toBe(2); // 首位取位即还 + 次位终态释放——零占位泄漏
   });
 });
