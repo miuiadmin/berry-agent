@@ -416,6 +416,15 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       DEFAULT_SUBAGENT_PROVIDER,
       createInProcessSubagentProvider({ stack, tracker: delegationSessions, warn: (message) => logger.warn(message) }),
     );
+    // boot 全局层工具执行时语境解析闭包（批 19c-1——深度登记表 ?? 根 1；
+    // 父面枚举 = 活体驱动 toolNames 快照，纯对话形 undefined 不可枚举）：
+    // 两消费位同源单闭包——core:subagent 件 deps 位与程序化腿物化 toolDeps
+    // （遗漏审计批 G——注册即派生消费腿与声明式腿同语境同形）
+    const subagentSessionContext = (sessionId: string) => {
+      const depth = delegationSessions.depthOf(sessionId) ?? 1;
+      const toolNames = stack.driverOf(sessionId)?.toolNames;
+      return { depth, ...(toolNames !== undefined ? { availableTools: toolNames } : {}) };
+    };
 
     // —— memory 件 LLM seam 适配器（批 19b-2——词面独立律：memory 席 DAG 无
     // llm 边，LlmService→MemoryLlmFace 的适配归装配根）。UserMessage.timestamp
@@ -509,6 +518,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           llm: stack.llmRuntime,
           triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
           subagents, // ctx.agent.registerSubagentProvider 受局面（D 批 D-2——同上）
+          // 程序化子代理物化 toolDeps（消费腿——遗漏审计批 G：注册即派生的
+          // 装配链接线；bootPlugins 内以 toolRegistry 铸造物化回调透传动词层）
+          subagentToolDeps: { service: subagents, sessionContext: subagentSessionContext },
           // Job 归属围栏收口腿（Job 消费面批桥二——04 §10 定形）：卸载 closer 序
           // 对 activated 逐插件 closeOwner（owner = 插件 id 的收口执法位）
           jobs,
@@ -575,14 +587,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // 归因 'memory'、/tick 归因 'tick'；sessionId 位呈现侧路由后端自决）
               notify: (source, message) => stack.channels.notify(source, message),
               // 子代理委派面两位（批 19c-1）：service 真身 + boot 全局层工具
-              // 执行时语境解析闭包（深度登记表 ?? 根 1；父面枚举 = 活体驱动
-              // toolNames 快照——纯对话形 undefined 不可枚举）
+              // 执行时语境解析闭包（上方提取位——程序化腿物化 toolDeps 同源）
               subagents,
-              subagentSessionContext: (sessionId) => {
-                const depth = delegationSessions.depthOf(sessionId) ?? 1;
-                const toolNames = stack.driverOf(sessionId)?.toolNames;
-                return { depth, ...(toolNames !== undefined ? { availableTools: toolNames } : {}) };
-              },
+              subagentSessionContext,
               // goal 会话日志读面（批 19c-3——goal 件主闸二）：活体日志优先
               // （driver 在场读内存面），驱动已收口的外部会话兜底落盘读；
               // 长度经 events() 视图取长（O(1)——内部数组直视图非拷贝）

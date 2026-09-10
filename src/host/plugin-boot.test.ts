@@ -24,6 +24,8 @@ import {
   openStore,
 } from '../persist/index.js';
 import type { AuditFace, LoadHistoryFace, Store } from '../persist/index.js';
+// 子代理 service 真身（物化消费腿 e2e——遗漏审计批 G）
+import { createJobRegistry, createSubagentService } from '../subagent/index.js';
 
 import { readBootFailures } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
@@ -1479,5 +1481,65 @@ describe('装载史世代落账（05 §9——装载史批 h-3 写点：boot 完
     ledger.remove('p', 't1');
     expect(ledger.toolsOf('p')).toEqual([]);
     expect(ledger.toolsOf('absent')).toEqual([]);
+  });
+});
+
+describe('程序化子代理物化消费腿（遗漏审计批 G——03 §2.2 行 109「注册即派生」全环）', () => {
+  /** 真 service 速记（通知面零动作桩——物化链不触 run） */
+  function makeService(): ReturnType<typeof createSubagentService> {
+    return createSubagentService({
+      registry: createJobRegistry({ warn: () => undefined }),
+      notify: {
+        notifySettled: () => Promise.resolve(),
+        notifyApprovalPending: () => Promise.resolve(),
+      },
+      warn: () => undefined,
+    });
+  }
+
+  it('插件 apply 内注册 provider → boot 全局层工具面见 agent_<name>（owner 恒 core:subagent）+ service 位同落', async () => {
+    const service = makeService();
+    const ref: CorePluginReference = {
+      name: 'sub-user',
+      apply: async (ctx) => {
+        (ctx as { agent: { registerSubagentProvider(def: unknown): () => void } }).agent.registerSubagentProvider({
+          name: 'daily',
+          description: '日结员',
+          systemPrompt: '你是日结员',
+        });
+      },
+    };
+    const { options } = rigBoot('/data', {
+      corePlugins: [ref],
+      fs: memoryFs(),
+      subagents: service,
+      subagentToolDeps: { service },
+    });
+    const boot = await bootPlugins(options);
+    // 物化工具真进 boot 全局层（registry.definitions 消费腿重放位同源）
+    const tool = boot.tools.definitions().find((t) => t.name === 'agent_daily');
+    expect(tool).toMatchObject({ name: 'agent_daily', description: '日结员', owner: 'core:subagent' });
+    // service 位同落（注册者归因 = 插件 id 分域键——两层各司其职）
+    expect(service.programmaticProviders()).toEqual([
+      { def: { name: 'daily', description: '日结员', systemPrompt: '你是日结员' }, owner: 'core:sub-user' },
+    ]);
+  });
+
+  it('缺席分级：subagentToolDeps 缺席 = 动词只落 service 位（诊断形——工具面零新增）', async () => {
+    const service = makeService();
+    const ref: CorePluginReference = {
+      name: 'sub-user',
+      apply: async (ctx) => {
+        (ctx as { agent: { registerSubagentProvider(def: unknown): () => void } }).agent.registerSubagentProvider({
+          name: 'daily',
+          description: '日结员',
+          systemPrompt: '你是日结员',
+        });
+      },
+    };
+    const { options } = rigBoot('/data', { corePlugins: [ref], fs: memoryFs(), subagents: service });
+    const boot = await bootPlugins(options);
+    expect(boot.tools.definitions().some((t) => t.name === 'agent_daily')).toBe(false); // 无物化
+    expect(service.programmaticProviders()).toHaveLength(1); // service 位照落
   });
 });

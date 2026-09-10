@@ -35,7 +35,7 @@ export { subagentSettledContent } from './notify.js';
 export { createSubagentService } from './service.js';
 export type { ProgrammaticProviderEntry, SubagentService, SubagentServiceOptions } from './service.js';
 
-export { createAgentTool, createDeclarativeAgentTool, createProgrammaticTools } from './tool.js';
+export { createAgentTool, createDeclarativeAgentTool } from './tool.js';
 export type { DelegationToolDeps } from './tool.js';
 
 export { defBoundProvider, materializeDeclarativeSubagents } from './declarative.js';

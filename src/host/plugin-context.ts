@@ -232,6 +232,16 @@ export interface PluginContextOptions {
   /** 子代理注册面（缺席同上——SubagentService 程序化腿，D 批 D-2 装配批注入） */
   readonly subagents?: SubagentRegistryLike;
   /**
+   * 程序化子代理物化面（消费腿——遗漏审计批 G：03 §2.2 行 109「注册即派生
+   * 静态工具」的动词层兑现）。真身 = 装配链注入的 registry.register 闭包
+   * （bootPlugins 构造 toolRegistry 后铸造——owner 恒 'core:subagent'，
+   * agent_ 派生族域归属〔03 §2.7 前缀闸豁免域〕；注册者归因由 service
+   * providers 册 owner 分域键承载，两层各司其职）。动词编排序 = service 位
+   * 落册 → 物化；物化拒整体拒（service 位回滚不留半注册）。缺席 = 动词只落
+   * service 位（诊断形/测试替身——与 subagents 位缺席分级）。
+   */
+  readonly subagentToolMaterializer?: (def: ProgrammaticSubagentDef) => Disposer;
+  /**
    * 界面后端注册面受局面（缺席同上——ChannelsService 插件域腿，U3 批 U3-4
    * 装配批注入）。注：受局面缺席与门检的先后 = 门检在前（03 §2.7 执法序）——
    * 未开门插件先吃门关码，探测不到受局面在否。
@@ -766,11 +776,28 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         assertWindow('ctx.agent.registerSubagentProvider');
         countAction();
         // 第十二动词（03 §2.2 行 109——注册者 id 即 owner 分域键，本插件
-        // 身份由 ctx 闭包携带不假手插件自报——防冒名）
-        return required(options.subagents, 'subagents', 'ctx.agent.registerSubagentProvider').registerProgrammatic(
-          pluginId,
-          def,
-        );
+        // 身份由 ctx 闭包携带不假手插件自报——防冒名）；消费腿 = 注册即
+        // 派生（04 §10 程序化注册槽）：service 位落册后物化 agent_<name>
+        // 静态工具（物化面缺席 = 诊断形只落 service 位）；物化拒（撞名等）
+        // 整体拒——service 位回滚，半注册结构性不存在
+        const disposeProvider = required(
+          options.subagents,
+          'subagents',
+          'ctx.agent.registerSubagentProvider',
+        ).registerProgrammatic(pluginId, def);
+        let disposeTool: Disposer | undefined;
+        if (options.subagentToolMaterializer !== undefined) {
+          try {
+            disposeTool = options.subagentToolMaterializer(def);
+          } catch (err) {
+            disposeProvider(); // 回滚 service 位（注册整体拒）
+            throw err;
+          }
+        }
+        return () => {
+          disposeProvider();
+          disposeTool?.(); // 工具注册位与 service 位同生共死
+        };
       },
     },
     prompts: {

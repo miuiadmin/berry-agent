@@ -42,12 +42,12 @@ import { isAbsolute, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 import { BaseError } from '../contracts/index.js';
-import type { HostFace } from '../contracts/index.js';
+import type { HostFace, ProgrammaticSubagentDef } from '../contracts/index.js';
 // internal 桶机制符号深导（02 §4.3 #2 深挖面册首条——API 治理批 2 分桶：
 // 机制符号非插件 API 不进公开根，内核消费全深导 contracts/api.js）
 import { materializeHostFace } from '../contracts/api.js';
 import { EventDispatch } from '../context/index.js';
-import type { Scope } from '../context/index.js';
+import type { Disposer, Scope } from '../context/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { LlmRuntime } from '../llm/index.js';
@@ -66,6 +66,10 @@ import type { PluginRouteRegistry } from '../sdk/index.js';
 import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
 import type { JobRegistry } from '../subagent/index.js';
+// 程序化子代理物化消费腿（遗漏审计批 G——注册即派生）：物化真身 + toolDeps
+// 类型（与 core:subagent 件声明式腿同源单物化函数）
+import { createDeclarativeAgentTool } from '../subagent/index.js';
+import type { DelegationToolDeps } from '../subagent/index.js';
 
 import { clearBootFailure, recordBootFailure } from './boot-failures.js';
 import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
@@ -184,6 +188,14 @@ export interface PluginBootOptions {
    * 缺席 = ctx.agent.registerSubagentProvider 抛 CONTEXT_SERVICE_MISSING）
    */
   readonly subagents?: SubagentRegistryLike;
+  /**
+   * 程序化子代理物化 toolDeps（受局面注入——消费腿，遗漏审计批 G：03 §2.2
+   * 行 109「注册即派生静态工具」）。在场时 bootPlugins 以本函数级 toolRegistry
+   * 铸造物化回调（createDeclarativeAgentTool 单条派生 + owner 恒
+   * 'core:subagent'——agent_ 派生族域归属）透传 pluginContextOptions；缺席 =
+   * 动词只落 service 位（诊断形——与 subagents 位缺席分级）。
+   */
+  readonly subagentToolDeps?: DelegationToolDeps;
   /**
    * 界面后端注册面受局面（U3 批 U3-4——ChannelsService 插件域腿）：ctx.
    * channels.registerUiBackend 的委派目标（门检 channels.ui-backend 前置在
@@ -344,6 +356,16 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   const fs = options.fs ?? defaultFs();
   // boot 级注册表：两消费面（ctx 注册动词 + TUI 披露）同实例
   const tools = createToolRegistry(options.dispatch);
+  // 程序化子代理物化回调（消费腿——遗漏审计批 G，03 §2.2 行 109「注册即
+  // 派生」）：registry 本体闭包铸造；owner 恒 'core:subagent'（agent_ 派生
+  // 族域归属——03 §2.7 前缀闸豁免域；注册者归因由 service providers 册
+  // owner 分域键承载）；声明式腿同函数单条物化（createDeclarativeAgentTool
+  // 单源）。缺席 = 诊断形（动词只落 service 位）
+  const subagentToolMaterializer =
+    options.subagentToolDeps !== undefined
+      ? (def: ProgrammaticSubagentDef): Disposer =>
+          tools.register({ ...createDeclarativeAgentTool(def, options.subagentToolDeps!), owner: 'core:subagent' })
+      : undefined;
   const promptSections = new PromptSectionRegistry();
   const hostFace: HostFace = materializeHostFace({
     version: options.version,
@@ -471,6 +493,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       ...(options.triggers !== undefined ? { triggers: options.triggers } : {}),
       // 子代理注册面受局面透传（D 批 D-2——缺席时 ctx.agent.registerSubagentProvider 响亮缺位）
       ...(options.subagents !== undefined ? { subagents: options.subagents } : {}),
+      // 程序化子代理物化回调透传（消费腿——遗漏审计批 G；缺席 = 动词只落 service 位）
+      ...(subagentToolMaterializer !== undefined ? { subagentToolMaterializer } : {}),
       // 界面后端注册面受局面透传（U3 批 U3-4——缺席时 ctx.channels.registerUiBackend 响亮缺位）
       ...(options.uiBackends !== undefined ? { uiBackends: options.uiBackends } : {}),
       // 会话血缘判定面透传（e2-4——缺席时 ctx.events.subscribeSessionLifecycle

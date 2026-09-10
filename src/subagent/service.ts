@@ -76,7 +76,7 @@ interface ProviderEntry {
   readonly def?: ProgrammaticSubagentDef;
 }
 
-/** 程序化注册条目（物化读面——会话工具面组装时快照派生工具清单） */
+/** 程序化注册条目（注册册读面载荷——def 供动词层物化消费腿单条派生） */
 export interface ProgrammaticProviderEntry {
   readonly def: ProgrammaticSubagentDef;
   /** 注册者插件 id（core: 含前缀原形） */
@@ -106,7 +106,7 @@ export interface SubagentService {
    * @returns 注销器（只摘本人条目——重注后旧注销器不误摘接任者）
    */
   registerProgrammatic(owner: string, def: ProgrammaticSubagentDef): Disposer;
-  /** 程序化注册读面（注册序——物化消费：会话工具面组装时派生 agent_<name> 静态工具） */
+  /** 程序化注册读面（注册序——注册册标准读面/测试断言位；物化消费腿在动词层即时派生〔遗漏审计批 G〕） */
   programmaticProviders(): readonly ProgrammaticProviderEntry[];
   /** provider 在册读面（声明式层 late-binding 消费位） */
   getProvider(name: string): SubagentProvider | undefined;

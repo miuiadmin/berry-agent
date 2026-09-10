@@ -8,7 +8,7 @@
  */
 import { BaseError, type ToolDefinition } from '../contracts/index.js';
 import { Type } from 'typebox';
-import type { ProgrammaticProviderEntry, SubagentService } from './service.js';
+import type { SubagentService } from './service.js';
 import { AGENT_TOOL_NAME, AGENT_TOOL_PREFIX, type SubagentDef } from './types.js';
 
 /**
@@ -184,16 +184,8 @@ export function createDeclarativeAgentTool(
   };
 }
 
-/**
- * 程序化注册位物化（04 §10 程序化注册槽——「注册即派生静态工具」的机器层
- * 兑现）：在册条目逐个派生 `agent_<name>` 工具（与声明式同形同律——
- * createDeclarativeAgentTool 单源）。消费腿 = 会话工具面组装位（快照
- * programmaticProviders 后逐条物化）；driver 工具面合流挂账装载态集成批
- * （D 批 D-2 只落机器与读面）。
- */
-export function createProgrammaticTools(
-  entries: readonly ProgrammaticProviderEntry[],
-  deps: DelegationToolDeps,
-): readonly ToolDefinition[] {
-  return entries.map((entry) => createDeclarativeAgentTool(entry.def, deps));
-}
+// 程序化注册位的消费腿已改动词层即时物化（遗漏审计批 G——03 §2.2 行 109
+// 「注册即派生」）：ctx.agent.registerSubagentProvider 内 service 位落册后
+// 经装配链注入的物化回调单条派生（createDeclarativeAgentTool 单源）入 boot
+// 全局层；原批量快照物化函数（createProgrammaticTools）随之退役删除——
+// programmaticProviders() 读面保留作注册册标准读面。

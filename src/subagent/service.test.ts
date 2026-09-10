@@ -13,7 +13,7 @@ import {
 } from '../contracts/index.js';
 import { createJobRegistry, type JobHandle, type JobRegistry } from './registry.js';
 import { createSubagentService, type SubagentService } from './service.js';
-import { createProgrammaticTools } from './tool.js';
+import { createDeclarativeAgentTool } from './tool.js';
 import type { SubagentNotifyFace } from './types.js';
 
 /** 断言 async 抛指定码（返错误供 message 断言） */
@@ -501,12 +501,14 @@ describe('程序化 named provider 注册面（registerProgrammatic——04 §10
     expect(provider.requests[1]).toMatchObject({ model: 'm/y', systemPrompt: '覆盖' });
   });
 
-  it('物化：createProgrammaticTools 逐条派生 agent_<name> 静态工具（与声明式同形——注册即派生的机器层兑现）', async () => {
+  it('物化：createDeclarativeAgentTool 单条派生 agent_<name> 静态工具（注册即派生的机器层——动词层消费腿同函数单源）', async () => {
     const { service, provider } = assemble({ auto: { output: '完成', stopReason: 'stop' } });
     service.registerProgrammatic('acme', defOf('daily'));
     service.registerProgrammatic('core:issue', defOf('scan'));
-    const tools = createProgrammaticTools(service.programmaticProviders(), { service, parentSessionId: 's1' });
-    expect(tools.map((tool) => tool.name)).toEqual(['agent_daily', 'agent_scan']); // 注册序
+    const entries = service.programmaticProviders();
+    expect(entries.map((entry) => entry.def.name)).toEqual(['daily', 'scan']); // 注册序
+    const tools = entries.map((entry) => createDeclarativeAgentTool(entry.def, { service, parentSessionId: 's1' }));
+    expect(tools.map((tool) => tool.name)).toEqual(['agent_daily', 'agent_scan']);
     expect(tools[0]!.description).toBe('daily 测试子代理');
     // execute 走委派链：路由到 def 名 + def 缺省合流
     const result = await tools[0]!.execute({ prompt: '跑' }, { toolCallId: 'test' });

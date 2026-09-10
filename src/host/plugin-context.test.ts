@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
+import type { ProgrammaticSubagentDef } from '../contracts/index.js';
 import type { UiBackend } from '../contracts/index.js';
 import { getErrorCodeInfo } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
+import type { Disposer } from '../context/index.js';
 import { CommandRegistry, createChannels } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import { createJobRegistry, createSubagentService } from '../subagent/index.js';
@@ -35,6 +37,7 @@ function assemble(overrides?: {
   auditSink?: AuditSink;
   sessionLineage?: { isSameTree(a: string, b: string): boolean };
   toolLedger?: PluginToolLedger;
+  subagentToolMaterializer?: (def: ProgrammaticSubagentDef) => Disposer;
 }): {
   handle: PluginContextHandle;
   dispatch: EventDispatch;
@@ -81,6 +84,9 @@ function assemble(overrides?: {
     ...(overrides?.auditSink !== undefined ? { auditSink: overrides.auditSink } : {}),
     ...(overrides?.sessionLineage !== undefined ? { sessionLineage: overrides.sessionLineage } : {}),
     ...(overrides?.toolLedger !== undefined ? { toolLedger: overrides.toolLedger } : {}),
+    ...(overrides?.subagentToolMaterializer !== undefined
+      ? { subagentToolMaterializer: overrides.subagentToolMaterializer }
+      : {}),
   });
   return { handle, dispatch, scope, promptSections, triggers, subagents, channels, tools };
 }
@@ -679,6 +685,51 @@ describe('子代理注册面（ctx.agent.registerSubagentProvider——03 §2.2 
       () => handle.ctx.agent.registerSubagentProvider({ name: 'Acme/Daily', description: '', systemPrompt: '' }),
       'SUBAGENT_NAME_INVALID',
     );
+  });
+
+  it('消费腿物化（注册即派生——04 §10 程序化注册槽遗漏审计批 G）：service 位落册后物化回调派生工具，注销器两撤', () => {
+    const materialized: ProgrammaticSubagentDef[] = [];
+    let toolDisposed = 0;
+    const { handle, subagents } = assemble({
+      subagentToolMaterializer: (def) => {
+        materialized.push(def);
+        return () => {
+          toolDisposed++;
+        };
+      },
+    });
+    const off = handle.ctx.agent.registerSubagentProvider({
+      name: 'daily',
+      description: '日结',
+      systemPrompt: '你是日结员',
+    });
+    // 物化回调吃注册 def 原文（派生 agent_<name> 的单源）；service 位已同落
+    expect(materialized).toEqual([{ name: 'daily', description: '日结', systemPrompt: '你是日结员' }]);
+    expect(subagents.programmaticProviders()).toHaveLength(1);
+    off();
+    expect(toolDisposed).toBe(1); // 工具注册位撤
+    expect(subagents.programmaticProviders()).toEqual([]); // service 注册位同撤（同生共死）
+  });
+
+  it('物化拒整体拒：回调抛错 → service 位回滚 + 原错误直传（不留半注册）', () => {
+    let calls = 0;
+    const { handle, subagents } = assemble({
+      subagentToolMaterializer: () => {
+        calls++;
+        if (calls === 1) throw new BaseError('TOOL_NAME_CONFLICT', 'agent_daily 派生名重影');
+        return () => {};
+      },
+    });
+    expectCode(
+      () => handle.ctx.agent.registerSubagentProvider({ name: 'daily', description: '', systemPrompt: '' }),
+      'TOOL_NAME_CONFLICT',
+    );
+    expect(subagents.programmaticProviders()).toEqual([]); // 回滚——半注册结构性不存在
+    // 回滚后名可再注（无残留占用；第二次物化放行证明落册从头走）
+    expect(() =>
+      handle.ctx.agent.registerSubagentProvider({ name: 'daily', description: '', systemPrompt: '' }),
+    ).not.toThrow();
+    expect(subagents.programmaticProviders()).toHaveLength(1);
   });
 
   it('装载窗关后注册拒（PLUGIN_WINDOW_CLOSED——第十二动词同窗律）；回调窗内合法', () => {
