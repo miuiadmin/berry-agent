@@ -62,6 +62,7 @@ berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用�
 | `BERRY_AGENT_FD_PATH`                | `@` 补全的 fd 路径（保留位——fd 批未触，当前仅内置遍历） | —                           |
 | `BERRY_AGENT_BROWSER_PATH`           | 浏览器引擎路径                                          | 引擎发现序                  |
 | `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE` | 插件装机供应链护栏：npm 源最小发布龄分钟数（0 = 关窗）  | 1440                        |
+| `BERRY_AGENT_MAX_CONCURRENT_RUNS`    | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸） | 16 |
 
 ## 遥测
 
