@@ -689,7 +689,7 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
           const query = lastUserQueryText(deps.fetchEvents, payload.sessionId);
           if (query !== null) {
             // minScore 不设位 = 水位旋钮缺省关（06 §6 拍板——检索路本身在场）
-            const injection = recallForQuery({ dao, ownerKeys, sessionId: payload.sessionId }, query);
+            const injection = recallForQuery({ dao, now, ownerKeys, sessionId: payload.sessionId }, query);
             if (injection !== null) {
               const message = recallInjectionMessage(injection.text, Date.now());
               if (message !== null) payload.messages.push(message);

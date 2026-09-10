@@ -354,6 +354,27 @@ describe('读出消毒罩工具面（06 §8.2——批 18c-4：历史入库敏�
   });
 });
 
+describe('条目行时效标注（06 §6 p-1——工具面列表行 updated= 键值后缀，ISO 绝对形）', () => {
+  it('memory_write 回执与 memory_read 简报行均带 updated=<ISO UTC>（入库时点冻结）', async () => {
+    const { tools } = setup();
+    const w = await run(byName(tools, 'memory_write'), {
+      kind: 'fact',
+      summary: 'timezone anchor fact',
+      content: 'anchored',
+    });
+    expect(w.text).toMatch(/\[m:m1\] \[fact\] timezone anchor fact  id=m1  updated=2026-09-08T08:00:00Z/);
+    const r = await run(byName(tools, 'memory_read'), {});
+    expect(r.text).toMatch(/\[m:m1\] \[fact\] timezone anchor fact  id=m1  updated=2026-09-08T08:00:00Z/);
+  });
+
+  it('memory_search 命中行 score 后拼 updated=（与 id= 同族键值后缀）', async () => {
+    const { dao, tools } = setup();
+    seed(dao);
+    const r = await run(byName(tools, 'memory_search'), { query: 'pnpm' });
+    expect(r.text).toMatch(/id=m1  score=-\d+\.\d+  updated=2026-09-08T08:00:00Z/);
+  });
+});
+
 describe('memory_search 联合检索（批 18c-6——06 §10 定形注五则）', () => {
   /** 事件信封便捷构造 */
   function ev(type: string, seq: number, data: unknown): SessionEvent {

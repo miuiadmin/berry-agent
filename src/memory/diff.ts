@@ -52,7 +52,9 @@ export const MEMORY_DIFF_EVENT_META: EventTypeMeta = {
 
 /**
  * 简报基线拍平为权威面三元组（frozen + competitive + 晋升候选三流——
- * §9.1「候选行进简报权威面」的物理承载；quoted 呈现层注记不进面）。
+ * §9.1「候选行进简报权威面」的物理承载；quoted 呈现层注记不进面；
+ * updatedAt/expiresAt 时效数据字段同 quoted 律不进面——06 §6 p-1 指纹
+ * 排除律：时间流逝不换纪元、差分不 churn）。
  */
 export function faceOf(baseline: BriefBaseline): readonly BriefFaceEntry[] {
   return [...baseline.frozen, ...baseline.competitive, ...baseline.candidates].map((e) => ({

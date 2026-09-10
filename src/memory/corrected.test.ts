@@ -535,7 +535,7 @@ describe('晋升纪律句强化（§9.1 第 4 件——2026-09-08 消化批）',
     const dao = setup();
     fillCompetitive(dao);
     seedCrossSession(dao, { summary: 'discipline lesson', content: 'discipline lesson body' });
-    const text = renderCoreBrief(briefBaseline(dao, nowMs, ['global']));
+    const text = renderCoreBrief(briefBaseline(dao, nowMs, ['global']), nowMs);
     expect(text).toContain('不写模型癖性自述'); // 既有锚句（旧回归锁不破）
     expect(text).toContain('可机械自检'); // 强化一：「怎么验」须可机械自检（挂 §11.7 自检环）
     expect(text).toContain('复现成本'); // 强化二：技能省复现成本不期失败→成功翻转

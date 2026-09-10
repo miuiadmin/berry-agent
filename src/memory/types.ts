@@ -88,6 +88,9 @@ export const MEMORY_BRIEF_TOP_N = 20;
 /** 未用强排除阈值天数（§5 效用维度——30 天管常驻面；frozen 免） */
 export const MEMORY_BRIEF_STALE_DAYS = 30;
 
+/** TTL 临近阈值天数（06 §6 条目行时效标注——p-1 批：expires_at 距今 ≤ 此值时注入行复合「TTL剩M天」段） */
+export const MEMORY_TTL_SOON_DAYS = 7;
+
 /** 按需检索 query 帽（当轮 user 消息作为检索 query 的资格条件——超长不入检） */
 export const MEMORY_RECALL_QUERY_MAX_CHARS = 200;
 

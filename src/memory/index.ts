@@ -143,6 +143,7 @@ export type {
 export {
   MEMORY_CITE_RE,
   shortIdOf,
+  freshnessLabel,
   briefBaseline,
   renderCoreBrief,
   buildCoreBrief,
