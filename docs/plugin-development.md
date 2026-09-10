@@ -48,23 +48,24 @@ export default async function apply(ctx, config) {
 
 ### ctx 能力面
 
-| 面           | 动词                                                                                 | 语义                                                                                                   |
-| ------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| 服务目录     | `get(name)` / `tryGet(name)` / `provide(name, svc)`                                  | 取服务（缺席 fail-loud 附服务目录名单）/ 诚实缺席档 / 注册（撞名拒；跨插件可见——装载序依赖的事实源）   |
-| 作用域       | `effect(register)`                                                                   | 可逆注册（LIFO 回卷；帽 10⁴）                                                                          |
-| 钩子         | `on(hookName, handler)`                                                              | fail-closed（词不在主表拒）；handler 包 5s 钟                                                          |
-| 活体事件     | `emit(name, data?)`                                                                  | 自域词 `${pluginId}/` 起头强制——全局词结构性不可达                                                     |
-| 工具         | `tools.register(def, opts?)`                                                         | 拒绝式撞名执法；返回 Disposer                                                                          |
-| 命令         | `channels.registerCommand(name, handler, description?)`                              | `/命令` 人面；后写胜出                                                                                 |
-| 模型         | `llm.registerProvider(provider)`                                                     | provider 注册（后写胜出 upsert）                                                                       |
-| durable 词汇 | `events.registerSessionEventType(meta)`                                              | **不可逆**——进程生命周期词汇，无 disposer                                                              |
-| 消息角色     | `agent.registerMessageRole(role, def)`                                               | 自定义消息角色（拒绝式）                                                                               |
-| 子代理       | `agent.registerSubagentProvider(def)`                                                | 程序化 named provider（撞名/词法两闸）                                                                 |
-| 提示词       | `prompts.registerSection(slot, builder)`                                             | 系统提示词段（slot 域前缀两段式执法）                                                                  |
-| 触发器       | `triggers.register(def)`                                                             | 事件触发起会（门检/撞名/格式三闸）                                                                     |
-| 凭证         | `secrets.get(name)` / `secrets.set(name, value)` / `secrets.registerOAuthFlow(spec)` | 自域隔离读 / 宿主回调窗内写（受理制）/ oauth 流注册（装载窗 only——详见[凭证节](#凭证ctxsecrets)）      |
-| UI 后端      | `channels.registerUiBackend(backend)`                                                | 自定义 UI 后端（拒绝式；`channels.ui-backend` 高危面开门制**前置**于撞名律——未开门连撞名检查都不可达） |
-| 自省         | `host`                                                                               | 宿主信息面（版本、装配、本插件 id）                                                                    |
+| 面           | 动词                                                                                 | 语义                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| 服务目录     | `get(name)` / `tryGet(name)` / `provide(name, svc)`                                  | 取服务（缺席 fail-loud 附服务目录名单）/ 诚实缺席档 / 注册（撞名拒；跨插件可见——装载序依赖的事实源）                |
+| 作用域       | `effect(register)`                                                                   | 可逆注册（LIFO 回卷；帽 10⁴）                                                                                       |
+| 钩子         | `on(hookName, handler)`                                                              | fail-closed（词不在主表拒）；handler 包 5s 钟                                                                       |
+| 活体事件     | `emit(name, data?)`                                                                  | 自域词 `${pluginId}/` 起头强制——全局词结构性不可达                                                                  |
+| 工具         | `tools.register(def, opts?)`                                                         | 拒绝式撞名执法；返回 Disposer                                                                                       |
+| 命令         | `channels.registerCommand(name, handler, description?)`                              | `/命令` 人面；后写胜出                                                                                              |
+| 模型         | `llm.registerProvider(provider)`                                                     | provider 注册（后写胜出 upsert）                                                                                    |
+| durable 词汇 | `events.registerSessionEventType(meta)`                                              | **不可逆**——进程生命周期词汇，无 disposer                                                                           |
+| 跨会话订阅   | `events.subscribeSessionLifecycle(handler, opts?)`                                   | scope 三档 `self`/`tree`/`all`（all 走 `sessions.observe-cross` 门检 + 审计恰一笔）；装载窗注册即挂 effect 自动撤订 |
+| 消息角色     | `agent.registerMessageRole(role, def)`                                               | 自定义消息角色（拒绝式）                                                                                            |
+| 子代理       | `agent.registerSubagentProvider(def)`                                                | 程序化 named provider（撞名/词法两闸）                                                                              |
+| 提示词       | `prompts.registerSection(slot, builder)`                                             | 系统提示词段（slot 域前缀两段式执法）                                                                               |
+| 触发器       | `triggers.register(def)`                                                             | 事件触发起会（门检/撞名/格式三闸）                                                                                  |
+| 凭证         | `secrets.get(name)` / `secrets.set(name, value)` / `secrets.registerOAuthFlow(spec)` | 自域隔离读 / 宿主回调窗内写（受理制）/ oauth 流注册（装载窗 only——详见[凭证节](#凭证ctxsecrets)）                   |
+| UI 后端      | `channels.registerUiBackend(backend)`                                                | 自定义 UI 后端（拒绝式；`channels.ui-backend` 高危面开门制**前置**于撞名律——未开门连撞名检查都不可达）              |
+| 自省         | `host`                                                                               | 宿主信息面（版本、装配、本插件 id）                                                                                 |
 
 频率护栏：注册类动词 1000 次 / 滑动 1s 窗（越限 `PLUGIN_RATE_LIMITED`）。
 
@@ -133,6 +134,45 @@ export default async function apply(ctx) {
 
 约束面（受理序逐条执法）：最终路径恒 `/plugins/<你的 id><suffix>`（前缀受理面施加、域外不可达）；每插件路由数帽 16；鉴权档子集 `token` / `token-or-cookie` / `open{purpose}`（purpose ∈ `liveness` / `static-shell`——鉴权逃生档不开放插件道）；尾段 `*` 为域内 catch-all。拒码族 `SDK_ROUTE_PATH_RESERVED` / `SDK_ROUTE_AUTH_FORBIDDEN` / `SDK_ROUTE_BODY_LIMIT` / `SDK_ROUTE_LIMIT_REACHED`；未开门时 `sdk-routes` 服务面结构性缺席（`CONTEXT_SERVICE_MISSING`）。注册只在装载窗内（`/reload` 换代随代回收重放）。
 
+### 跨会话操控（受限开放——`sessions-control` 服务面）
+
+插件可向**其他会话**注入输入、打断在飞 run、撤回在队件（模型侧同能力走宿主内建 `session_send` / `session_interrupt` / `session_withdraw` 工具族——两面同一实现源、动词语义单源）——先开门后可达：
+
+```yaml
+# enabled.yaml 你的插件行——高危面开门（默认全关；操控全域无树内豁免）
+- id: my-plugin
+  opens: ['sessions.control-cross']
+```
+
+```ts
+// 入口模块：inject 声明（排序位——装载序依赖的事实源）
+export const inject = ['sessions-control'];
+
+export default async function apply(ctx) {
+  const control = ctx.get('sessions-control');
+  // caller 无参数位——受理面恒按本插件身份铸归因 source `plugin:<你的 id>`
+  //（伪造结构性不存在）；a2a 链深按插件道起跳 1 计
+  const receipt = await control.send({
+    targetSessionId: 'other-session',
+    text: '跨会话指令',
+    dedupeKey: 'job-42-step-3', // 可选幂等键——同键重复 send 返原回执不重复注入（键域按调用方分域；近期窗内存位不承诺跨进程）
+  });
+  // receipt.status ∈ 'delivered'（已投递）/ 'queued'（目标 busy 期 steer 入列，
+  // 溢出时被丢件呈报不静默）/ 'dropped'（队列拒新）——发送方不选通道，
+  // idle 起跑 / busy 合批 / 停摆落 inject 由目标会话驱动侧单源路由
+  if (receipt.status === 'queued') {
+    // 在队件可撤回（messageId = send 回执所铸 id）
+    await control.withdraw({ targetSessionId: 'other-session', messageId: receipt.messageId });
+    // 'withdrawn' = 已移除；'delivered' = 已出队 no-op 诚实回执（不虚构撤回成功）
+  }
+  // 打断只打断当前 run——回执含 stillQueued 在队操控件清单 + queuedCount 计数，
+  // 调用方据此决定是否 withdraw 余件（在队件保留在下次 followUp 作种子续跑）
+  await control.interrupt({ targetSessionId: 'other-session' });
+}
+```
+
+受理序（逐动词执法）：send = 幽灵守卫 `SESSION_TARGET_NOT_FOUND` → 门检 `SESSION_CONTROL_DENIED` → a2a 链深帽 `SESSION_ROUND_LIMIT`（缺省 5）→ 乐观并发位 `expectedTurnId` 翻页拒 `SESSION_TURN_STALE` → 投递（目标未 open 即 resume 自动打开）；interrupt = 幽灵守卫 → 门检 → 无在飞拒 `SESSION_INACTIVE`（响亮拒不静默 no-op）；withdraw 同前两闸。
+
 ## import 白名单（插件可 import 什么）
 
 三道白名单（越出即拒载）：
@@ -159,15 +199,22 @@ plugins:
 
 ## 错误码（插件域 `PLUGIN_` 前缀）
 
-| 码                        | 语义                                       |
-| ------------------------- | ------------------------------------------ |
-| `PLUGIN_SHAPE_INVALID`    | 清单形状/字符集/未知键/install 拒不合规    |
-| `PLUGIN_IMPORT_FORBIDDEN` | import 越出三道白名单                      |
-| `PLUGIN_APPLY_FAILED`     | apply 抛错或超 10s 时钟帽（错误归一）      |
-| `PLUGIN_RATE_LIMITED`     | 注册动词越频率护栏                         |
-| `PLUGIN_WINDOW_CLOSED`    | 装载窗口关窗后注册（宿主回调上下文内例外） |
-| `PLUGIN_CONFIG_INVALID`   | 启用行 config 值不符 manifest 判据         |
-| `PLUGIN_LOAD_FAILED`      | 装载失败（跳过/降级/拒启三档分立处置）     |
+| 码                               | 语义                                                   |
+| -------------------------------- | ------------------------------------------------------ |
+| `PLUGIN_SHAPE_INVALID`           | 清单形状/字符集/未知键/install 拒不合规                |
+| `PLUGIN_IMPORT_FORBIDDEN`        | import 越出三道白名单                                  |
+| `PLUGIN_APPLY_FAILED`            | apply 抛错或超 10s 时钟帽（错误归一）                  |
+| `PLUGIN_RATE_LIMITED`            | 注册动词越频率护栏                                     |
+| `PLUGIN_WINDOW_CLOSED`           | 装载窗口关窗后注册（宿主回调上下文内例外）             |
+| `PLUGIN_CONFIG_INVALID`          | 启用行 config 值不符 manifest 判据                     |
+| `PLUGIN_LOAD_FAILED`             | 装载失败（跳过/降级/拒启三档分立处置）                 |
+| `PLUGIN_HOOK_UNKNOWN`            | `ctx.on` 钩名不在主表（fail-closed 拒）                |
+| `PLUGIN_EVENT_TYPE_CONFLICT`     | 自定义事件类型撞 LIVE 词表既有词（核心词/域名式/在册） |
+| `PLUGIN_PROMPT_SLOT_INVALID`     | 提示词段 slot 非本插件域两段式                         |
+| `PLUGIN_PROMPT_SECTION_CONFLICT` | 同 slot 提示词段重复注册（两段同位即拒）               |
+| `PLUGIN_CAPABILITY_DOOR_CLOSED`  | 高危面未开门即用（默认全关——见各受限开放节）           |
+
+全册错误码总目录见规范 02 §5.3（注册表单源）；装机域 `PLUGIN_INSTALL_FAILED` / `PLUGIN_UNINSTALL_REFUSED` 见 [usage.md](usage.md#plugins-插件管理)。
 
 错误全仓单基类 `BaseError`（`{ code, message, cause? }`）——catch 一律按 code 分派。
 
@@ -180,7 +227,7 @@ plugins:
 }
 ```
 
-`berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；用户侧装机动词全在场：`berry-agent plugins install <包名>`（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏；`local:<路径>` 形可装本地目录）或 TUI 内 `/plugins install`。装机写入账本与启用行，成功尾提示重载（TUI 面自动链 `/reload`，CLI 面下次启动生效）。
+`berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；用户侧装机动词全在场：`berry-agent plugins install npm:<包名>`（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏；另有 `git:<url>[#<ref>]` 与 `local:<路径>` 两源形，ref 词法详见 [usage.md](usage.md#plugins-插件管理)）或 TUI 内 `/plugins install`。装机写入账本与启用行，成功尾提示重载（TUI 面自动链 `/reload`，CLI 面下次启动生效）。
 
 ## 最小完整示例
 

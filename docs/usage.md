@@ -202,9 +202,17 @@ berry-agent serve stop               # 停守护
 ```bash
 berry-agent plugins list             # 三分区清单：core: 内置 / 磁盘装机 / 装载失败
 berry-agent plugins check            # 装机面体检（只读）
-berry-agent plugins install <包名>   # 装机（npm 源供应链护栏：钉版安装 + --omit=dev + min-release-age）
+berry-agent plugins install <ref>    # 装机（ref 自含源前缀，词法见下）
 berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 / 加 = 执行；--data keep|purge 缺省 keep）
 ```
+
+`install <ref>` 三源词法（**ref 单参自含源前缀——无前缀即用法错拒收，不猜默认源**）：
+
+- `npm:<包名>[@<版本>]` —— npm 源（供应链护栏：钉版安装 + `--omit=dev` + min-release-age 静置窗）；`--min-release-age <分钟>` 旗标逐次覆盖 `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE`（`0` = 显式关窗）；
+- `git:<url>[#<ref>]` —— git 源（`#<ref>` 钉定 commit/tag/branch）；
+- `local:<绝对路径>` —— 本地目录（开发态免发布直装）。
+
+装机失败拒 `PLUGIN_INSTALL_FAILED`（含护栏拒与坏 ref 形）；卸载拒 `PLUGIN_UNINSTALL_REFUSED`（装机账本损坏等拒写防覆盖形）。
 
 写侧六动词执行面全在场：装机动词（`install`/`update`）走 npm 钉版安装（供应链护栏），行级动词（`mount`/`unmount`/`toggle`）编辑 `enabled.yaml` 启用行，`uninstall` 走双相清算（四段幂等 + 审计落账）。`enabled.yaml` 仍是启用面的底层真源（手编与命令同链可审计——boot 装载序 diff 补播）；`--no-plugins` 安全模式跳过全部插件装载（core: 与用户插件都不装）——坏插件锁死启动时的自救位。
 
