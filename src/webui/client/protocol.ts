@@ -97,6 +97,3 @@ export interface ClientTodoItem {
   readonly content: string;
   readonly activeForm?: string;
 }
-
-/** 审批应答体（answer 闭集四值同服务端——SPA 面只呈现三键，词面不收窄） */
-export type ClientApprovalAnswer = 'approve' | 'reject' | 'cancel' | 'always';

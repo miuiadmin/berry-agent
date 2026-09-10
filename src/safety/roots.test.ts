@@ -154,9 +154,8 @@ describe('createRootsProvider / absolutize', () => {
     expect(provider()).toEqual([sep]);
   });
 
-  it('absolutize：相对锚 workspace、绝对原样（守门行预检用）', () => {
-    const input = { workspace: ws, mode: () => 'workspace-write' as const };
-    expect(absolutize(input, 'src/a.ts')).toBe(join(ws, 'src', 'a.ts'));
-    expect(absolutize(input, join(ws, 'b.ts'))).toBe(join(ws, 'b.ts'));
+  it('absolutize：相对锚 workspace、绝对原样（守门行/fence 预检单源）', () => {
+    expect(absolutize(ws, 'src/a.ts')).toBe(join(ws, 'src', 'a.ts'));
+    expect(absolutize(ws, join(ws, 'b.ts'))).toBe(join(ws, 'b.ts'));
   });
 });

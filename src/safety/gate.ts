@@ -24,7 +24,6 @@
  * **先装本行**再装其余守门者（安全栈固定占守门段首位）。
  */
 
-import { resolve as resolvePath } from 'node:path';
 import { TOOL_PRE_EXECUTE_EVENT } from '../contracts/index.js';
 import type { GateInput, ToolDefinition } from '../contracts/index.js';
 import type { EventDispatch } from '../context/events.js';
@@ -32,6 +31,7 @@ import { parseApplyPatch } from '../tools/index.js';
 import type { ApprovalService } from './approval.js';
 import type { SandboxMode } from './types.js';
 import {
+  absolutize,
   buildCarveOutTable,
   canonicalPath,
   deriveWritableRoots,
@@ -152,7 +152,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
       // 逐路径独立判定：任一 deny 命中即整调用硬拒（多文件补丁不部分放行）
       for (const rawPath of extractWritePaths(tool.name, input.args)) {
         // 与 fence 同源的 canonical 化（相对锚 workspace、最近存在祖先解析符号链）
-        const absPath = canonicalPath(resolvePath(workspace, rawPath));
+        const absPath = absolutize(workspace, rawPath);
         const verdict = resolveWritability(absPath, roots, carveTable);
         if (!verdict.allowed && verdict.kind === 'carve-out') {
           const node = verdict.matched!;
@@ -178,7 +178,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
         isFsFamily
           ? {
               tool: tool.name,
-              writePaths: extractWritePaths(tool.name, input.args).map((p) => canonicalPath(resolvePath(workspace, p))),
+              writePaths: extractWritePaths(tool.name, input.args).map((p) => absolutize(workspace, p)),
               workspace,
             }
           : { tool: tool.name },
@@ -196,7 +196,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     if (isFsFamily) {
       const roots = deriveWritableRoots(workspace, mode);
       const outside = extractWritePaths(tool.name, input.args).some((p) => {
-        const verdict = resolveWritability(canonicalPath(resolvePath(workspace, p)), roots, carveTable);
+        const verdict = resolveWritability(absolutize(workspace, p), roots, carveTable);
         return !verdict.allowed && verdict.kind === 'outside-roots';
       });
       if (outside) return next(input); // fence 的拒绝面，本行不重复拦
@@ -206,9 +206,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     // 该路径；多目标 = 排序去重拼接——同集合才谈得上免问）；其余 write-effect
     // 工具 = 工具名（整名族语义——同工具的后续调用免问）
     const targets = isFsFamily
-      ? [
-          ...new Set(extractWritePaths(tool.name, input.args).map((p) => canonicalPath(resolvePath(workspace, p)))),
-        ].sort()
+      ? [...new Set(extractWritePaths(tool.name, input.args).map((p) => absolutize(workspace, p)))].sort()
       : [tool.name];
     // 草案（04 §9 定形③）：fs 族仅在单目标时携带（精确 canonical 路径——批
     // 这一次不升格批全仓）；多目标无单一路径可代表即无草案；非 fs 族无路径

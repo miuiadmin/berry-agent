@@ -85,7 +85,7 @@ export function expandCarveOutEntry(workspace: string, entry: CarveOutEntry): st
     : workspace;
   const leaf = entry.pattern.includes('/') ? entry.pattern.slice(entry.pattern.lastIndexOf('/') + 1) : entry.pattern;
   if (!leaf.includes('*')) {
-    return [canonicalPath(resolvePath(workspace, entry.pattern))];
+    return [absolutize(workspace, entry.pattern)];
   }
   // 顶层单层 glob：`*` 不跨分隔符，扫描目录层取实际存在的匹配
   const pattern = new RegExp(`^${leaf.replace(/[.+^${}()|[\]\\]/g, String.raw`\$&`).replaceAll('*', '[^/]*')}$`);
@@ -174,8 +174,7 @@ export function createRootsProvider(input: WritableRootsInput): () => string[] {
   return () => deriveWritableRoots(workspace, input.mode());
 }
 
-/** 绝对化工具：相对路径锚 workspace、绝对路径原样（守门行预检用——canonical 化后比对） */
-export function absolutize(input: WritableRootsInput, p: string): string {
-  const workspace = canonicalPath(input.workspace);
+/** 绝对化工具：workspace 锚定 canonical 化（相对锚 workspace、绝对原样——守门行预检单源） */
+export function absolutize(workspace: string, p: string): string {
   return canonicalPath(isAbsolute(p) ? resolvePath(p) : resolvePath(workspace, p));
 }

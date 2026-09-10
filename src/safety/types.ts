@@ -16,9 +16,6 @@ import type { RunnerFailureRule, SandboxEnforcement, SandboxPolicy } from './san
 /** 三档文件效果词汇（04 §8）：只管文件效果——网络与进程可见性显式排除在词汇外 */
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger';
 
-/** 受限档（danger 之外的档位——SandboxPolicy 能携带的 mode；danger 不进 confine 直接透传） */
-export type ConfinedSandboxMode = Exclude<SandboxMode, 'danger'>;
-
 /** 审批策略档位闭集恰两值（04 §9）：ask 悬置问询（无人应答 fail-closed）/ never 确定性拒绝回执 */
 export type ApprovalPolicyMode = 'ask' | 'never';
 
