@@ -604,7 +604,16 @@ export const DEFAULT_RUN_LANE_CAPACITY = 16;
 export function resolveRunLaneCapacity(override: number | undefined, env: Record<string, string | undefined>): number {
   const raw = override ?? env['BERRY_AGENT_MAX_CONCURRENT_RUNS'];
   if (raw === undefined) return DEFAULT_RUN_LANE_CAPACITY;
-  const value = typeof raw === 'number' ? raw : Number.parseInt(raw, 10);
+  // 字串形全串 /^\d+$/ 判——parseInt 截停会把 '16x'/'16.5'/'0x10'/'+16'/' 16' 类
+  // 尾随垃圾静默放行成 16，与「空帽/坏帽是死配置」的 fail-loud 自述相悖
+  let value: number;
+  if (typeof raw === 'number') {
+    value = raw;
+  } else if (/^\d+$/.test(raw)) {
+    value = Number.parseInt(raw, 10);
+  } else {
+    value = Number.NaN;
+  }
   if (!Number.isInteger(value) || value < 1) {
     throw new RangeError(
       `lane 帽容量须为正整数，收到 ${String(raw)}——空帽/坏帽是死配置（BERRY_AGENT_MAX_CONCURRENT_RUNS / maxConcurrentRuns）`,

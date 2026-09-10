@@ -61,7 +61,7 @@ import {
 } from '../goal/index.js';
 import type { GoalService, GoalSessionFace, GoalSummarizerFace, GoalTodoItem } from '../goal/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
-import { createDangerGate, createSandboxService, DANGER_V1_ACTIONS } from '../safety/index.js';
+import { createDangerGate, createSandboxService, DANGER_V1_ACTIONS, normalizeDangerMandate } from '../safety/index.js';
 import {
   createOsCronRegistrar,
   createProcessRunnerFactory,
@@ -1411,13 +1411,20 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
       let danger: IssueDangerFace | undefined;
       let disposeDangerCmd: (() => void) | undefined;
       if (dangerDataDir !== null) {
+        // mandate 经 normalizeDangerMandate 归一装配（DangerMandate「normalize 产物」
+        // 契约兑现——原料虽经 normalizeIssueConfig 预归一，装配位仍走归一器兜底：
+        // 第三方消费件接入时此位即唯一入口；坏形折 ISSUE_CONFIG_INVALID 行级失败）
+        const mandate = normalizeDangerMandate({
+          actions: DANGER_V1_ACTIONS,
+          targets: normalized.config.repos,
+          maxPerDay: normalized.config.maxDeliveriesPerDay,
+        });
+        if (!mandate.ok) {
+          throw new BaseError('ISSUE_CONFIG_INVALID', `[ISSUE_CONFIG_INVALID] ${mandate.message}`);
+        }
         const gate = createDangerGate({
           consumerId: 'core:issue',
-          mandate: {
-            actions: DANGER_V1_ACTIONS,
-            targets: normalized.config.repos,
-            maxPerDay: normalized.config.maxDeliveriesPerDay,
-          },
+          mandate: mandate.mandate,
           dataDir: dangerDataDir,
           warn,
         });

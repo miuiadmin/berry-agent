@@ -614,24 +614,35 @@ export function createDangerGate(opts: DangerGateOptions): DangerGate {
         );
       }
 
-      /* 步 6：执行外部写 → 回执后记账（verdict 按成败落；失败上抛 = allow-failed 原错误直传） */
+      /* 步 6：执行外部写 → 回执后记账（verdict 按成败落；失败上抛 = allow-failed 原错误直传）。
+       * 记账失败 = warn 降级（denyAndThrow 同律对称——决策与执行已成立，账本侧 IO
+       * 失败不改变回执语义：成功尾不折假失败〔外部写已发生〕、失败腿原错误不被
+       * 记账错误顶替；链完整性由下次 loadLedger 的追加前验证承担）。 */
       let result: T;
       try {
         result = await execute();
       } catch (err) {
-        await appendRecord(
-          records,
-          {
-            action: req.action,
-            target: req.target,
-            verdict: 'allow-failed',
-            detail: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
-          },
-          nowMs,
-        );
+        try {
+          await appendRecord(
+            records,
+            {
+              action: req.action,
+              target: req.target,
+              verdict: 'allow-failed',
+              detail: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+            },
+            nowMs,
+          );
+        } catch (accErr) {
+          warn(`危险闸 allow-failed 记账失败（原错误优先上报——账本侧告警）：${(accErr as Error).message}`);
+        }
         throw err;
       }
-      await appendRecord(records, { action: req.action, target: req.target, verdict: 'allow-succeeded' }, nowMs);
+      try {
+        await appendRecord(records, { action: req.action, target: req.target, verdict: 'allow-succeeded' }, nowMs);
+      } catch (accErr) {
+        warn(`危险闸 allow-succeeded 记账失败（外部写已发生——回执不降级，账本侧告警）：${(accErr as Error).message}`);
+      }
       return result;
     });
   }

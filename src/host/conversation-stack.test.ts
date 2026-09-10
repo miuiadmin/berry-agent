@@ -918,6 +918,19 @@ describe('lane 帽闸件（04 §4——m-2）', () => {
     expect(() => resolveRunLaneCapacity(undefined, { BERRY_AGENT_MAX_CONCURRENT_RUNS: 'abc' })).toThrow(RangeError);
   });
 
+  it('resolveRunLaneCapacity 字串形全串 /^\d+$/ 判（parseInt 截停放行堵死——尾随垃圾是坏帽死配置）', () => {
+    // '16x'/'16.5'/'0x10'/'+16'/' 16'/'16 ' 在 parseInt 截停下均被静默放行为 16/16/16/16/16/16
+    for (const raw of ['16x', '16.5', '0x10', '+16', ' 16', '16 ', '']) {
+      expect(
+        () => resolveRunLaneCapacity(undefined, { BERRY_AGENT_MAX_CONCURRENT_RUNS: raw }),
+        `raw=${JSON.stringify(raw)}`,
+      ).toThrow(RangeError);
+    }
+    // 纯数字串照常放行（全串判不收紧合法值域）
+    expect(resolveRunLaneCapacity(undefined, { BERRY_AGENT_MAX_CONCURRENT_RUNS: '16' })).toBe(16);
+    expect(resolveRunLaneCapacity(undefined, { BERRY_AGENT_MAX_CONCURRENT_RUNS: '1' })).toBe(1);
+  });
+
   it('装配级 lane 帽（maxConcurrentRuns 透传）：多会话并发首 run 在飞次 run 排队、终态后无缝续跑', async () => {
     const { rt } = rigRuntime();
     const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });

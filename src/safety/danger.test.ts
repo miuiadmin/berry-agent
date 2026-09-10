@@ -544,3 +544,41 @@ describe('对拍：dangerTargetMatches vs repoMatchesGlob（词面独立律漂�
     }
   });
 });
+
+describe('步 6 记账失败降级（与 deny 路径对称——决策与执行已成立，账本侧 IO 失败不改变回执语义）', () => {
+  it('成功尾记账失败：runGuarded 仍返执行结果 + warn 恰一笔（外部写已发生不可折假失败）', async () => {
+    const warns: string[] = [];
+    const gate = makeGate({ warn: (m) => warns.push(m) });
+    await gate.approve();
+    // 首笔成功——账本就位（含首建目录 fsync）
+    await gate.runGuarded({ action: 'push', target: 'o/r' }, async () => 'first');
+    // 账本去写位——次笔 execute 成功但 appendRecord IO 失败（EACCES）
+    const ledgerPath = join(dir, DANGER_LEDGER_FILE);
+    await chmod(ledgerPath, 0o444);
+    try {
+      await expect(gate.runGuarded({ action: 'push', target: 'o/r' }, async () => 'second')).resolves.toBe('second');
+      expect(warns.filter((m) => m.includes('allow-succeeded 记账失败'))).toHaveLength(1);
+    } finally {
+      await chmod(ledgerPath, 0o644); // 还权——afterEach rm 可清
+    }
+  });
+
+  it('执行失败腿记账失败：原错误直传不被顶替（记账错误不上抛）+ warn 恰一笔', async () => {
+    const warns: string[] = [];
+    const gate = makeGate({ warn: (m) => warns.push(m) });
+    await gate.approve();
+    await gate.runGuarded({ action: 'push', target: 'o/r' }, async () => 'ok');
+    const ledgerPath = join(dir, DANGER_LEDGER_FILE);
+    await chmod(ledgerPath, 0o444);
+    try {
+      await expect(
+        gate.runGuarded({ action: 'push', target: 'o/r' }, async () => {
+          throw new Error('EXEC_BLOWN');
+        }),
+      ).rejects.toThrow('EXEC_BLOWN');
+      expect(warns.filter((m) => m.includes('allow-failed 记账失败'))).toHaveLength(1);
+    } finally {
+      await chmod(ledgerPath, 0o644);
+    }
+  });
+});
