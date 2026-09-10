@@ -31,9 +31,9 @@
  * 消息落 llm/usage 底账（deterministic callId `run:<sessionId>:<seq>`——
  * write-behind 批落重试的去重锚点；priority background——聚合只计后台道）。
  *
- * goal 编舞挂点（19c-3 挂账本笔兑现其一）：settle → goalScopeFor 在场 →
- * recordTurn 一 run 一笔（userInitiated = 非 tick 形——用户在场轮复位唤醒
- * 预算）；braked 如实 warn。
+ * goal 编舞（19c-3 挂账批 #99 全数兑现——驱动侧三件落 driver/assembly）：
+ * recordTurn 记账/agent_pre_step 预算复验/轮间沉淀全经 driver 层 seam，本
+ * 入口零 goal 感知（三入口统一——TUI/webui/issue 同律零重复挂点）。
  */
 import { renameSync, writeFileSync } from 'node:fs';
 import { cwd as processCwd, pid, stderr as processStderr, stdout as processStdout } from 'node:process';
@@ -388,18 +388,9 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     }
   }
 
-  // —— ⑧ goal recordTurn 挂点（19c-3 挂账——一 run 一笔；userInitiated = 非
-  // tick 形：用户在场轮才复位唤醒预算）——
-  const goalFace = scope.tryGet<GoalFace>('goal');
-  if (goalFace !== undefined) {
-    const goalScope = goalFace.service.goalScopeFor(sessionId);
-    if (goalScope !== undefined) {
-      const turn = goalFace.service.recordTurn(goalScope.goalId, {
-        userInitiated: flags.tick === undefined,
-      });
-      if (turn.braked) err.write(`goal 前台记账帽已到（${turn.used}/${turn.cap ?? '∞'}）——预算刹停\n`);
-    }
-  }
+  // —— ⑧ goal recordTurn 挂点已上移驱动层（批 #99 三入口统一：TUI/webui/
+  // issue/run CLI 全经 driver launch settled 链的 onRunSettled 回执——此处
+  // 再记一笔即双计，故移除；userInitiated 归因由回执 seeds 窗扫承载）——
 
   // —— ⑨ settle：CLI 级收场语义（truncated 到帽位在 run 本体 aborted 之上
   // 如实标注）+ 退出码三态映射（completed → 0；failed/aborted/truncated → 1）——

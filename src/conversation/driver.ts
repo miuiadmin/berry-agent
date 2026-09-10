@@ -49,11 +49,14 @@ import type {
   ContextTransformInput,
   ConversationDriverOptions,
   InjectedReceipt,
+  PreStepInput,
+  RunSettledReceipt,
   SessionLifecycleEvent,
   SubmitOptions,
   WakeRefusedReceipt,
 } from './types.js';
 import {
+  AGENT_PRE_STEP_EVENT,
   CONTEXT_TRANSFORM_EVENT,
   DEFAULT_RETRY_POLICY,
   MAX_CONSECUTIVE_WAKES,
@@ -138,6 +141,12 @@ export class ConversationDriver {
     if (!options.dispatch.isRegistered(SESSION_LIFECYCLE_EVENT)) {
       options.dispatch.registerEventNames([SESSION_LIFECYCLE_EVENT]);
     }
+    // agent_pre_step 词汇自举注册（03 §2.4 message 层行——批 #99 发射腿）：
+    // 同上幂等双源——goal 件装载期 ctx.on('agent_pre_step') 可达在前，此处
+    // 兜底独立 stack 形（无 bootPlugins 的驱动也要能发射）
+    if (!options.dispatch.isRegistered(AGENT_PRE_STEP_EVENT)) {
+      options.dispatch.registerEventNames([AGENT_PRE_STEP_EVENT]);
+    }
     // resolveToolOwner 透传（tool/call 载荷 owner 位取数 seam——T9 案一批 t-1）；
     // 缺席 = 载荷不带 owner（wiring 侧可选带出形）
     this.wiring = new DurableWiring(this.session, {
@@ -156,6 +165,7 @@ export class ConversationDriver {
       ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
       convertToLlm: options.convertToLlm,
       transformContext: this.onTransformContext,
+      preModelRequest: this.onPreModelRequest,
       getSteeringMessages: this.consumeInRun,
       getFollowUpMessages: this.consumeInRun,
       onEvent: this.onLiveEvent,
@@ -393,6 +403,24 @@ export class ConversationDriver {
   };
 
   /**
+   * 模型请求前瀑布分派（03 §2.4 agent_pre_step——批 #99 发射腿）：loop
+   * while 体顶调用（steering 消费与 turn_start 之前——刹停零 dangling turn）。
+   * 刹停 = warn 报备 + 'stop'（run 以 stopReason 'stop' 收 completed）；提醒
+   * 槽暂存 pendingReminders、于同请求的 transformContext 关口注入（瞬态不落
+   * durable）；管线失败沿链传播（fail-closed——context_transform 同律）。
+   */
+  private pendingReminders: string[] = [];
+  private readonly onPreModelRequest = async (): Promise<'stop' | void> => {
+    const input: PreStepInput = { sessionId: this.session.sessionId, reminders: [] };
+    const out = await this.options.dispatch.waterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, input);
+    if (out.stop !== undefined) {
+      this.warnFace(`agent_pre_step 刹停（${out.stop.reason}）——本 turn 不起模型请求`);
+      return 'stop';
+    }
+    if (out.reminders.length > 0) this.pendingReminders = out.reminders;
+  };
+
+  /**
    * 请求组装最后关口：信封快照（边界制）在此落账——快照取原始 systemPrompt
    * （04 §11 快照序钉死：先快照后注入，瞬态注入体不入快照不落日志）。
    * 环境披露段（04 §11 装配注入条款）：五件文本块追加于 systemPrompt 尾
@@ -457,6 +485,22 @@ export class ConversationDriver {
       throw Object.assign(err instanceof Error ? err : new Error(String(err)), {
         originalMessages: [...preTransformMessages],
       });
+    }
+    // agent_pre_step 提醒注入 + goal 轮间沉淀（批 #99）：同属请求组装瞬态层
+    // 不落 durable；注入序定律 reminders → goal 沉淀 → todo 恒最后（05 §1.1）。
+    // 提醒槽取后即清（跨请求不残留——一次 pre_step 暂存对应一次请求组装）
+    const reminders = this.pendingReminders;
+    this.pendingReminders = [];
+    const transientTail: Message[] = [];
+    if (reminders.length > 0) {
+      transientTail.push({ role: 'user', content: reminders.join('\n'), timestamp: Date.now() });
+    }
+    const deposit = this.options.goalDeposit?.() ?? null;
+    if (deposit !== null) {
+      transientTail.push({ role: 'user', content: deposit, timestamp: Date.now() });
+    }
+    if (transientTail.length > 0) {
+      transformed = { ...transformed, messages: [...transformed.messages, ...transientTail] };
     }
     // todo 快照注入位：null = 空表跳过（从未建表/用户已重置——不打扰上下文）
     // goal 段升格（03 §10.5）：goalScopeFor 供锚 → fold 边界升格 goal 生命周期
@@ -593,6 +637,10 @@ export class ConversationDriver {
     if (wakeTriggered) this.wakeStreak += 1;
     else this.wakeStreak = 0;
     this.applyToolFace(wakeTriggered);
+    // 记账窗锚（04 §5——批 #99）：settle 时窗扫 [seqAtLaunch, settle) 的
+    // assistant/message 计数；捕获位在种子落账前（seeds 的 user/message 不入窗）
+    const eventsBefore = this.session.events();
+    const seqAtLaunch = eventsBefore.length > 0 ? eventsBefore[eventsBefore.length - 1]!.seq : 0;
     // session/lifecycle 起拍广播（04 §6 e-2——fire-and-forget：活体投影不阻塞
     // run 起跑；监听异常经 dispatch 隔离上报不回传）
     void this.options.dispatch.emit(SESSION_LIFECYCLE_EVENT, {
@@ -604,15 +652,53 @@ export class ConversationDriver {
     const settled: Promise<RunResult> = inner.then(
       (result) => {
         if (this.currentRun === settled) this.currentRun = undefined;
+        this.noteRunSettled(seeds, seqAtLaunch, result.status);
         return result;
       },
       (error: unknown) => {
         if (this.currentRun === settled) this.currentRun = undefined;
+        this.noteRunSettled(seeds, seqAtLaunch); // 崩溃路径——status 缺席不虚构
         throw error;
       },
     );
     this.currentRun = settled;
     return settled;
+  }
+
+  /**
+   * run 结算记账腿（04 §5 双轨第一腿——批 #99 三入口统一：TUI/webui/issue/
+   * run CLI 全经 launch，一处嵌钩全入口覆盖）：窗扫 durable assistant/message
+   * 计数 + 种子归因单源（kind 判据——'user'/'channel:*' 真人入口 true、
+   * 'schedule' tick 源机器轮 false）。嵌于 settled 链内分支（回执 promise 引用
+   * 恒等律不破）；钩体自防炸（记账失败 warn 不改写 run 终态）。
+   */
+  private noteRunSettled(seeds: readonly AgentMessage[], seqAtLaunch: number, status?: RunResult['status']): void {
+    if (this.options.onRunSettled === undefined) return;
+    try {
+      let assistantMessages = 0;
+      for (const event of this.session.events()) {
+        if (event.seq > seqAtLaunch && event.type === 'assistant/message') assistantMessages += 1;
+      }
+      const userInitiated = seeds.some((message) => {
+        if (!isStandardMessage(message) || message.role !== 'user') return false;
+        // 「用户在场」判据 = 归因 kind（user / channel:* 真人入口）——schedule/
+        // budget-extended/subagent-* 机器注入位 treatedAsUser 虽 true（投影同视
+        // 用户话语——05 §3.1）但不算用户在场（04 §5 唤醒预算复位语义：机器
+        // 轮不复位）
+        const parsed = parseEventSource(message.source ?? 'user');
+        return parsed.kind === 'user' || parsed.kind === 'channel';
+      });
+      this.options.onRunSettled({
+        sessionId: this.session.sessionId,
+        assistantMessages,
+        userInitiated,
+        ...(status !== undefined ? { status } : {}),
+      } satisfies RunSettledReceipt);
+    } catch (err) {
+      this.warnFace(
+        `run 结算记账失败（onRunSettled 自防炸——run 终态不受累）：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**

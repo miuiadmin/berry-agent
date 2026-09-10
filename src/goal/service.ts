@@ -19,7 +19,15 @@ import { BaseError } from '../contracts/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
 import { foldGoalTodos, openGoalItems, progressFingerprint } from './fold.js';
 import { evaluateGoalGates, type GoalGateDeps } from './gates.js';
-import type { GoalRow, GoalSessionFace, GoalWakeRow, GoalJobsFace, WakeDecision } from './types.js';
+import type {
+  GoalRow,
+  GoalSessionFace,
+  GoalSummarizerFace,
+  GoalTodoItem,
+  GoalWakeRow,
+  GoalJobsFace,
+  WakeDecision,
+} from './types.js';
 
 /** objective 硬帽（16KiB——与 scheduler prompt 帽同值） */
 const OBJECTIVE_MAX_BYTES = 16 * 1024;
@@ -27,6 +35,19 @@ const OBJECTIVE_MAX_BYTES = 16 * 1024;
 export const DEFAULT_STALL_LIMIT = 5;
 /** 唤醒预算帽缺省（§4 maxConsecutiveWakes 同值——连续 clock 唤醒无进展即拒） */
 export const DEFAULT_WAKE_BUDGET_LIMIT = 3;
+/** 轮间沉淀摘要帽（04 §3.7 complete 单发 maxChars——注入面单条消息量级） */
+export const GOAL_DEPOSIT_MAX_CHARS = 2000;
+
+/** 沉淀单发提示词（objective + 计划态两段——单发即弃零会话态） */
+function depositPrompt(row: GoalRow, items: readonly GoalTodoItem[]): string {
+  const completed = items.filter((item) => item.status === 'completed').length;
+  return [
+    '为长期目标的下一轮工作生成一段简短沉淀摘要（供下一轮对话开局注入）。',
+    `目标：${row.objective}`,
+    `当前计划态：open ${items.length - completed} 项 / completed ${completed} 项。`,
+    '要求：概括目标、当前进度与下一步建议，不含多余客套。',
+  ].join('\n');
+}
 
 /** activate 请求形 */
 export interface ActivateGoalRequest {
@@ -58,6 +79,11 @@ export interface GoalServiceDeps {
   stallLimit?: number;
   /** 唤醒预算帽（缺省 3——§4 maxConsecutiveWakes） */
   wakeBudgetLimit?: number;
+  /**
+   * 沉淀摘要窄面（批 #99——词面独立律：goal 席 DAG 无 llm 边，适配器归装配
+   * 根注入）。缺席 = depositFor 恒走确定性回退（零 LLM 依赖保底）。
+   */
+  summarizer?: GoalSummarizerFace;
 }
 
 /** goal 服务公开面 */
@@ -78,12 +104,22 @@ export interface GoalService {
   list(): GoalRow[];
   /** 归因审计面（/goal show 渲染） */
   wakes(goalId: string): GoalWakeRow[];
-  /** 记账刹停腿：一轮记一笔（userInitiated 轮复位唤醒预算——用户在场才复位） */
-  recordTurn(goalId: string, opts?: { userInitiated?: boolean }): { braked: boolean; used: number; cap: number | null };
+  /** 记账刹停腿：一轮记一笔（userInitiated 轮复位唤醒预算——用户在场才复位）；messages = 本窗 durable assistant/message 计数（04 §176 记账单位——批 #99 驱动窗扫供给，缺省 1 兼容单笔形） */
+  recordTurn(
+    goalId: string,
+    opts?: { userInitiated?: boolean; messages?: number },
+  ): { braked: boolean; used: number; cap: number | null };
   /** 委派结算折叠腿（subagent 结算喂入——批 15c 接线） */
   foldDelegation(goalId: string, units: number): void;
   /** agent_pre_step 复验面（两腿合计对帽——防竞速漏刹） */
   budgetExceeded(goalId: string): boolean;
+  /**
+   * 轮间沉淀读面（04 §3.7——批 #99 驱动 goalDeposit 供给）：同步返回缓存
+   * 文本（缓存冷 = 确定性回退立即承载），指纹变化时后台单发刷新（fire-
+   * and-forget——同指纹零 LLM 调用，刷新完成前回退值兜底）。undefined
+   * active goal = null 零注入。
+   */
+  depositFor(sessionId: string): string | null;
   /** chat↔goal 数据通道窄面工厂（组合根闭包注入 conversation——零拓扑边） */
   goalScopeFor(sessionId: string): { goalId: string; activatedSeq: number } | undefined;
   /** 第五槽迟到注入（scheduler 装载晚于 goal 件的补接线——冲洗暂存挂钟需求） */
@@ -300,6 +336,10 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
   let jobsFace: GoalJobsFace | null = null;
   /** 迟到暂存面（先 goal 后 scheduler 装载序的补接线队列） */
   const pendingClocks = new Set<string>();
+  /** 轮间沉淀缓存（goalId → {指纹, 文本}——同指纹零 LLM 单发，批 #99） */
+  const depositCache = new Map<string, { fingerprint: string; text: string }>();
+  /** 沉淀单发在飞位（同 goal 至多一次在飞——请求组装路径不排队堆积） */
+  const depositInFlight = new Set<string>();
 
   /** 单漏斗挂钟注册（activate 与 attach 冲洗共用；回执 {ok:false} 上抛响亮） */
   async function registerClock(goal: GoalRow): Promise<void> {
@@ -510,7 +550,9 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       const row = dao.get(goalId);
       if (!row)
         throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（recordTurn 幽灵 id 零行守卫——装配接线错位）`);
-      const used = row.budgetMessagesUsed + 1;
+      // 记账单位 = 本窗 durable assistant/message 条数（04 §176——批 #99 驱动
+      // 窗扫供给；缺省 1 兼容旧单笔调用形）
+      const used = row.budgetMessagesUsed + Math.max(1, Math.floor(opts?.messages ?? 1));
       dao.update(goalId, { budgetMessagesUsed: used, ...(opts?.userInitiated ? { wakeStreak: 0 } : {}) }, now());
       const folded = row.budgetFoldedUnits;
       return {
@@ -530,6 +572,35 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       const row = dao.get(goalId);
       if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（budgetExceeded 幽灵 id 零行守卫）`);
       return row.budgetMessagesCap !== null && row.budgetMessagesUsed + row.budgetFoldedUnits >= row.budgetMessagesCap;
+    },
+
+    depositFor(sessionId) {
+      const row = dao.activeFor(sessionId);
+      if (row === undefined) return null; // 无 active goal = 零注入（驱动同形降级）
+      const items = foldGoalTodos(deps.session.events(sessionId), row.activatedSeq);
+      const fingerprint = progressFingerprint(items);
+      const cached = depositCache.get(row.id);
+      if (cached !== undefined && cached.fingerprint === fingerprint) return cached.text;
+      // 指纹已变（或缓存冷）：确定性回退立即承载 + 后台单发刷新（fire-and-
+      // forget——请求组装路径零等待；同指纹失败也缓存回退，杜绝每请求重烧）
+      const completed = items.filter((item) => item.status === 'completed').length;
+      const fallback = `目标：${row.objective}\n计划态：open ${items.length - completed} 项 / completed ${completed} 项`;
+      if (deps.summarizer !== undefined && !depositInFlight.has(row.id)) {
+        depositInFlight.add(row.id);
+        void deps.summarizer
+          .complete({ prompt: depositPrompt(row, items), maxChars: GOAL_DEPOSIT_MAX_CHARS })
+          .then((out) => {
+            depositCache.set(row.id, { fingerprint, text: out.text.trim() === '' ? fallback : out.text });
+          })
+          .catch((err: unknown) => {
+            warn(
+              `[goal] 沉淀摘要单发失败（确定性回退承载同指纹缓存）：${err instanceof Error ? err.message : String(err)}`,
+            );
+            depositCache.set(row.id, { fingerprint, text: fallback });
+          })
+          .finally(() => depositInFlight.delete(row.id));
+      }
+      return cached !== undefined ? cached.text : fallback;
     },
 
     goalScopeFor(sessionId) {

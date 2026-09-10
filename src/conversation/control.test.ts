@@ -28,6 +28,19 @@ import type { ControlUsedRecord, PluginControlFace, SessionsControlFace } from '
 let dir: string;
 let persistence: Persistence;
 
+/** 测试台句柄（显式接口——切断 harnesses 数组 ReturnType 的循环类型引用） */
+interface TestHarness {
+  manager: SessionManager;
+  control: SessionsControlFace;
+  opens: Set<string>;
+  used: ControlUsedRecord[];
+  drivers: Set<ConversationDriver>;
+  releaseAll: () => void;
+}
+
+/** 在场 harness 账（afterEach 收尾屏障用——放行 gate + 等全部 fire-and-forget run 落定） */
+const harnesses: TestHarness[] = [];
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'berry-agent-control-test-'));
   persistence = Persistence.open({
@@ -38,6 +51,19 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  // 收尾屏障：放行全部 gate 后等在场驱动零在飞 run——fire-and-forget kick 的
+  // run 落定即其 durable 追加尽数入队，close 的 flush 屏障方能收尽（run 推进
+  // 链自批 #99 起多两拍微任务〔preModelRequest 窗 + settled 记账链〕，
+  // 「run 比 close 先跑完」的竞速侥幸不再成立——屏障化收尾让 teardown 确定性）
+  for (const h of harnesses) h.releaseAll();
+  await vi.waitFor(() => {
+    for (const h of harnesses) {
+      for (const driver of h.drivers) {
+        if (driver.running) throw new Error('仍有在飞 run——收尾屏障等待中');
+      }
+    }
+  });
+  harnesses.length = 0;
   await persistence.close().catch(() => undefined);
   rmSync(dir, { recursive: true, force: true });
 });
@@ -61,11 +87,13 @@ function assistantDone(): AssistantMessage {
  * 测试台：gate per-session（每会话首次流调用挂起；releaseAll 置放行标志后
  * 既有与后续 gate 全直通——放行早于流调用到达的时序安全形）。
  */
-function makeHarness() {
+function makeHarness(): TestHarness {
   const dispatch = new EventDispatch();
   let releasedAll = false;
   const gates = new Map<string, Promise<void>>();
   const releases: Array<() => void> = [];
+  /** 在场驱动账（工厂逐 open 收集——收尾屏障的零在飞断言面） */
+  const openDrivers = new Set<ConversationDriver>();
   const gateFor = (sessionId: string): Promise<void> => {
     let gate = gates.get(sessionId);
     if (gate === undefined) {
@@ -82,8 +110,8 @@ function makeHarness() {
     }
     return gate;
   };
-  const createDriver: DriverFactory = ({ session }) =>
-    new ConversationDriver({
+  const createDriver: DriverFactory = ({ session }) => {
+    const driver = new ConversationDriver({
       session,
       scope: Scope.createRoot(),
       dispatch,
@@ -102,6 +130,9 @@ function makeHarness() {
       convertToLlm: passthrough,
       model: 'test/model',
     });
+    openDrivers.add(driver);
+    return driver;
+  };
   const manager = new SessionManager({ persistence, dispatch, createDriver });
   const used: ControlUsedRecord[] = [];
   const opens = new Set<string>();
@@ -112,17 +143,20 @@ function makeHarness() {
     getOpensFor: () => opens,
     onCapabilityUsed: (record) => used.push(record),
   });
-  return {
+  const harness = {
     manager,
     control,
     opens,
     used,
+    drivers: openDrivers,
     /** 置放行标志 + 放行全部已挂 gate（后续流调用恒直通） */
     releaseAll: () => {
       releasedAll = true;
       releases.splice(0).forEach((release) => release());
     },
   };
+  harnesses.push(harness);
+  return harness;
 }
 
 /** 目标 durable 日志最近 turn/start seq（expectedTurnId 断言简写） */

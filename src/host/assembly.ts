@@ -27,7 +27,9 @@ import type { SessionEvent } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
+import { llmTextOf } from '../memory/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
+import type { GoalSummarizerFace } from '../goal/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
 import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
 import {
@@ -280,6 +282,26 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // （stack 先建 boot 后跑——goal 件未装载 = undefined，fold 退化
       // run-scoped 现行为；goalScopeFor 调用面 = 驱动每请求 fold）
       goalScopeFor: (sessionId) => scope.tryGet<GoalFace>('goal')?.service.goalScopeFor(sessionId),
+      // goal 轮间沉淀取值器（批 #99——04 §3.7）：depositFor 同步返缓存/回退
+      // （指纹缓存单发在 goal 件内——同指纹零 LLM），goal 未装载 = null 零注入
+      goalDeposit: (sessionId) => scope.tryGet<GoalFace>('goal')?.service.depositFor(sessionId) ?? null,
+      // goal 前台记账腿（批 #99——04 §5 双轨 + 三入口统一）：run settled 链
+      // 回执（窗扫 assistant/message 计数 + userInitiated 归因）→ recordTurn；
+      // braked 即 warn 呈现；钩内异常驱动 noteRunSettled 自防炸兜底
+      onRunSettled: (sessionId, receipt) => {
+        const face = scope.tryGet<GoalFace>('goal');
+        const goalScope = face?.service.goalScopeFor(sessionId);
+        if (face === undefined || goalScope === undefined) return;
+        const turn = face.service.recordTurn(goalScope.goalId, {
+          userInitiated: receipt.userInitiated,
+          messages: receipt.assistantMessages,
+        });
+        if (turn.braked) {
+          logger.warn(
+            `goal「${goalScope.goalId}」前台预算帽已到（已用 ${turn.used}/${turn.cap ?? '∞'} 轮）——recordTurn 刹停（后续 agent_pre_step 复验拒新请求）`,
+          );
+        }
+      },
       // 跨树观测门检接线（e2-4——03 §4.6 第五枚 sessions.observe-cross 工具
       // 腿；开门制扩展批 2026-09-09 授予面接线）：模型道门检输入 = doors 段
       // 单独（活体读——受理时点现读现判，撤位即收回；插件道订阅走 plugin-context
@@ -409,6 +431,21 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           priority: req.priority ?? 'background',
         }),
       canAfford: (priority) => stack.llm.canAfford(priority),
+    };
+
+    // —— goal 件摘要 seam 适配器（批 #99——词面独立律同上：goal 席 DAG 无 llm
+    // 边，LlmService→GoalSummarizerFace 适配归装配根）：04 §3.7 轮间沉淀
+    // complete 单发；priority 恒 'background'（周期道预算闸门执法位——沉淀属
+    // 后台道非用户可见请求）；结果文本面提取 llmTextOf（memory 件单源复用）
+    // + maxChars 截断（超帽截断归实现侧——GoalSummarizerFace 契约）。
+    const goalSummarizer: GoalSummarizerFace = {
+      complete: async (req) => {
+        const result = await stack.llm.complete({
+          messages: [{ role: 'user', content: req.prompt, timestamp: Date.now() }],
+          priority: 'background',
+        });
+        return { text: llmTextOf(result.message.content).slice(0, req.maxChars) };
+      },
     };
 
     // —— issue 凭证迁移（c-5——03 §10.9「env 与库优先级」兑现）：插件凭证
@@ -558,6 +595,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                   return log.events().length;
                 },
               },
+              // goal 沉淀摘要窄面（批 #99——上方适配器真身；缺席律不适用：
+              // 适配器零依赖构造恒在场，goal 件内 summarizer 缺席走确定性回退）
+              goalSummarizer,
               // checkpoint 两 seam + 焦点会话位（批 19c-4——05 §5.3 词面独立律）：
               // 语境面 contextOf 活体日志优先（lastClosedBoundary 单源）+ 行
               // workspaceRoot 锚经公开列表面反查（sessions.fork 同法——不为内部

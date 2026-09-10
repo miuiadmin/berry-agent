@@ -76,6 +76,9 @@ function fakeService(
     recordTurn() {
       throw new Error('测试不触');
     },
+    depositFor() {
+      throw new Error('测试不触');
+    },
     foldDelegation() {
       throw new Error('测试不触');
     },

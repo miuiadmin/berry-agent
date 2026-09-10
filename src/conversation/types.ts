@@ -162,6 +162,24 @@ export interface ConversationDriverOptions {
   readonly goalScopeFor?: (sessionId: string) => { goalId: string; activatedSeq: number } | undefined;
 
   /**
+   * goal 轮间沉淀供应商（04 §3.7 complete 单发——03 §10.5 挂账件批 #99 兑现）：
+   * 每请求组装时经 onTransformContext 取用，返回文本注入于 todo 快照之前
+   * （注入序定律：插件段 → 披露段 → context_transform 瀑布 → goal 沉淀 →
+   * todo 恒最后）。瞬态层不落 durable——goalScopeFor 供锚 + 指纹缓存限频
+   * 都归 goal 件侧闭包。缺席/返回 null = 零注入。
+   */
+  readonly goalDeposit?: () => string | null;
+
+  /**
+   * run 结算钩（04 §5 记账腿——批 #99 三入口统一）：launch settled 链内
+   * 嵌（run 回执 promise 引用恒等不破）；settle 时窗扫 durable 事件计数
+   * 前台 assistant/message（04 §176 记账单位 = 消息非 run）。双计防线：
+   * CLI run 入口的既有挂点已随本钩上移移除。缺席 = 零记账（goal 件未
+   * 装载同形）。
+   */
+  readonly onRunSettled?: (receipt: RunSettledReceipt) => void;
+
+  /**
    * 警示面（唤醒预算拒收等运行时护栏 warn 的落点）：缺省 stderr 直写
    * （护栏不静默）；装配根接 logger。
    */
@@ -198,6 +216,22 @@ export interface SubmitOptions {
 }
 
 /**
+ * run 结算回执（onRunSettled 载荷——04 §5 记账腿消费面）：窗扫
+ * [seqAtLaunch, settle) durable 事件的前台 assistant/message 计数 +
+ * 种子归因单源（seeds 逐条 treatedAsUser——'schedule'（tick）源 false、
+ * 'channel:cli'/'user' 源 true）。
+ */
+export interface RunSettledReceipt {
+  readonly sessionId: string;
+  /** 本窗 durable assistant/message 条数（settle 时窗扫——04 §176 记账单位） */
+  readonly assistantMessages: number;
+  /** 种子含任一 treatedAsUser 源（用户在场轮——goal 唤醒预算复位判据） */
+  readonly userInitiated: boolean;
+  /** run 终态（RunResult 收窄——崩溃路径缺席不虚构） */
+  readonly status?: RunStatus;
+}
+
+/**
  * inject 通道投递收执（04 §4 inject 行：dismantled 停摆期投递只追加会话
  * 日志/投影、不触发任何模型调用——「随下次启动带入」的 durable 承载）。
  */
@@ -224,6 +258,32 @@ export const MAX_CONSECUTIVE_WAKES = 3;
  * 构造器自举在后（已注册词跳过——一词两册不撞名，open-tools 同律）。
  */
 export const CONTEXT_TRANSFORM_EVENT = 'context_transform';
+
+/**
+ * agent_pre_step 钩子事件词（03 §2.4 主表 message 层行——mode waterfall）。
+ * 每次模型请求前发射（loop while 体顶、steering 消费与 turn_start 之前——
+ * 预算刹停不产生 dangling turn）：驱动发射、插件经 ctx.on 挂瀑布监听器。
+ * 消费例：goal 预算复验（04 §5 双轨第二腿——budgetExceeded 步间复查防
+ * 记账腿与执行腿竞速漏刹）、压缩压力挂点。词汇注册双源幂等：
+ * bootPlugins 预注册在前，驱动构造器自举在后（CONTEXT_TRANSFORM_EVENT
+ * 同律）。
+ */
+export const AGENT_PRE_STEP_EVENT = 'agent_pre_step';
+
+/**
+ * agent_pre_step 瀑布载荷（03 §2.4 签名「可注入提醒、检查目标」承载）。
+ * 载荷对象整链固定；handler 就地 push 注入提醒 / 置 stop 即刹车（不调
+ * next 也短路——管线语义）。reminders 由驱动暂存、于同请求的
+ * transformContext 关口以瞬态 UserMessage 注入（不落 durable）。
+ */
+export interface PreStepInput {
+  /** 目标会话（注入面绑会话的判据位） */
+  readonly sessionId: string;
+  /** 提醒注入槽（handler 就地 push——驱动消费后清空，跨请求不残留） */
+  readonly reminders: string[];
+  /** 刹车位：置 {reason} 即本 turn 不起模型请求、run 以 stop 收 completed */
+  stop?: { reason: string };
+}
 
 /**
  * context_transform 瀑布载荷（03 §2.4 签名「双参 `(messages, sessionId)`」＝

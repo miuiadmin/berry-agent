@@ -30,7 +30,7 @@ import type {
   OAuthFlowRegistry,
 } from '../credentials/index.js';
 import { GOAL_MIGRATION } from '../goal/index.js';
-import type { GoalSessionFace } from '../goal/index.js';
+import type { GoalSessionFace, GoalSummarizerFace } from '../goal/index.js';
 import type { IssueBudgetFace, IssueSessionFace, IssueStoreStateFace } from '../issue/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
@@ -49,8 +49,8 @@ import { bootPlugins } from './plugin-boot.js';
 import type { PluginBootFs } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
 import { assembleOpenTools } from '../conversation/open-tools.js';
-import type { ContextTransformInput, ExecToolService } from '../conversation/index.js';
-import { CONTEXT_TRANSFORM_EVENT } from '../conversation/index.js';
+import type { ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
+import { AGENT_PRE_STEP_EVENT, CONTEXT_TRANSFORM_EVENT } from '../conversation/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
 import { createSessionsFace, type SessionsFace } from './sessions-face.js';
 
@@ -90,6 +90,8 @@ interface DepsForTest {
   llm?: () => MemoryLlmFace;
   notify?: (source: string, message: string) => void;
   goalSession?: GoalSessionFace;
+  /** goal 沉淀摘要窄面（批 #99——GoalSummarizerFace 注入面） */
+  goalSummarizer?: GoalSummarizerFace;
   checkpointSession?: SessionContextFace;
   checkpointFork?: RewindForkFace;
   focusSessionId?: () => string | undefined;
@@ -168,6 +170,7 @@ async function bootCore(
       ...(coreDeps.llm !== undefined ? { llm: coreDeps.llm } : {}),
       ...(coreDeps.notify !== undefined ? { notify: coreDeps.notify } : {}),
       ...(coreDeps.goalSession !== undefined ? { goalSession: coreDeps.goalSession } : {}),
+      ...(coreDeps.goalSummarizer !== undefined ? { goalSummarizer: coreDeps.goalSummarizer } : {}),
       ...(coreDeps.checkpointSession !== undefined ? { checkpointSession: coreDeps.checkpointSession } : {}),
       ...(coreDeps.checkpointFork !== undefined ? { checkpointFork: coreDeps.checkpointFork } : {}),
       ...(coreDeps.focusSessionId !== undefined ? { focusSessionId: coreDeps.focusSessionId } : {}),
@@ -1058,6 +1061,73 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     if (goalCmd === undefined) throw new Error('/goal 命令不在捕获面');
     await goalCmd.handler({ raw: '', argv: ['list'] });
     expect(notified[notified.length - 1]!).toContain('共 1 个 goal');
+    await persistence.close();
+  });
+
+  it('goal agent_pre_step 复验监听 + 沉淀摘要注入面（批 #99）：超帽置 stop、未超帽/无 goal/卸载后直通；goalSummarizer 透传单发', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal2-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-goal2' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal2' ? session.events() : []),
+      length: (sid) => (sid === 's-goal2' ? session.events().length : 0),
+    };
+    const prompts: string[] = [];
+    const { scope, dispatch, boot } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        goalSession,
+        goalSummarizer: {
+          complete: async (req) => {
+            prompts.push(req.prompt);
+            return { text: '沉淀摘要体' };
+          },
+        },
+      },
+    );
+    expect(dispatch.isRegistered(AGENT_PRE_STEP_EVENT)).toBe(true); // boot 预注册词表（词自举律前置位）
+
+    const face = scope.tryGet<GoalFace>('goal')!;
+    const row = await face.service.activate({
+      sessionId: 's-goal2',
+      objective: '复验目标',
+      schedule: 'every:60s',
+      budgetMessagesCap: 1,
+    });
+
+    // 未超帽直通：stop 缺席
+    const pass = await dispatch.waterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, { sessionId: 's-goal2', reminders: [] });
+    expect(pass.stop).toBeUndefined();
+    // 无 goal 会话直通（他域零打扰——goalScopeFor undefined）
+    const other = await dispatch.waterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, { sessionId: 's-other', reminders: [] });
+    expect(other.stop).toBeUndefined();
+
+    // 超帽刹停：recordTurn 到帽 → budgetExceeded 复验置 stop（waterfall 值直改）
+    face.service.recordTurn(row.id);
+    const braked = await dispatch.waterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, {
+      sessionId: 's-goal2',
+      reminders: [],
+    });
+    expect(braked.stop).toMatchObject({ reason: expect.stringContaining('预算帽') });
+
+    // 沉淀摘要注入面：deps.goalSummarizer 透传 depositFor（回退先承载 → 后台单发落地缓存）
+    expect(face.service.depositFor('s-goal2')).toContain('目标：复验目标');
+    await new Promise((resolve) => void setTimeout(resolve, 0));
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain('复验目标');
+    expect(face.service.depositFor('s-goal2')).toBe('沉淀摘要体');
+
+    // disposer 回卷：卸载后监听器离场（budget 事实仍在而 waterfall 直通——stop 不再置）
+    await boot.report.unload();
+    const after = await dispatch.waterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, { sessionId: 's-goal2', reminders: [] });
+    expect(after.stop).toBeUndefined();
     await persistence.close();
   });
 

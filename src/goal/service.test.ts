@@ -12,7 +12,7 @@ import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
 import { GOAL_MIGRATION } from './migration.js';
 import { createGoalService, type GoalService } from './service.js';
-import type { GoalJobsFace, GoalSessionFace } from './types.js';
+import type { GoalJobsFace, GoalSessionFace, GoalSummarizerFace } from './types.js';
 
 let dir: string;
 let store: Store | null = null;
@@ -57,6 +57,7 @@ function openService(
     stallLimit?: number;
     wakeBudgetLimit?: number;
     statMap?: Record<string, { exists: boolean; size: number }>;
+    summarizer?: GoalSummarizerFace;
   } = {},
 ): { service: GoalService; session: FakeSession; face: GoalJobsFace; calls: string[]; registerFailFor: Set<string> } {
   store = openStore({
@@ -95,6 +96,7 @@ function openService(
     },
     ...(options.stallLimit !== undefined ? { stallLimit: options.stallLimit } : {}),
     ...(options.wakeBudgetLimit !== undefined ? { wakeBudgetLimit: options.wakeBudgetLimit } : {}),
+    ...(options.summarizer !== undefined ? { summarizer: options.summarizer } : {}),
   });
   return { service, session, face, calls, registerFailFor };
 }
@@ -370,6 +372,82 @@ describe('预算双轨（recordTurn 刹停腿 + foldDelegation 折叠腿）', ()
     expect(service.get(goal.id)?.wakeStreak).toBe(0); // 用户在场才复位
     for (let i = 0; i < 10; i += 1) service.recordTurn(goal.id);
     expect(service.budgetExceeded(goal.id)).toBe(false); // cap null 永不刹
+  });
+
+  it('recordTurn messages 批量记账：窗扫计数整批入账（缺省 1 兼容单笔形——04 §176 记账单位）', async () => {
+    const { service } = openService();
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x', budgetMessagesCap: 5 });
+    expect(service.recordTurn(goal.id, { messages: 3 })).toEqual({ braked: false, used: 3, cap: 5 });
+    expect(service.recordTurn(goal.id, { messages: 2 })).toEqual({ braked: true, used: 5, cap: 5 }); // 整批先到帽即刹
+    expect(service.get(goal.id)?.budgetMessagesUsed).toBe(5); // durable 落行
+  });
+});
+
+describe('depositFor（04 §3.7 轮间沉淀——指纹缓存单发 + 确定性回退）', () => {
+  it('无 active goal = null 零注入；零 summarizer 走确定性回退形（objective + 计划态计数）', async () => {
+    const { service, session } = openService();
+    expect(service.depositFor('s1')).toBeNull(); // 无 active goal
+    await service.activate({ sessionId: 's1', objective: '写周报', schedule: 'x' });
+    session.push('s1', 'todo/write', {
+      items: [
+        { status: 'completed', content: 'A' },
+        { status: 'pending', content: 'B' },
+      ],
+    });
+    expect(service.depositFor('s1')).toBe('目标：写周报\n计划态：open 1 项 / completed 1 项');
+  });
+
+  it('summarizer 成功路：缓存冷先回退、单发落地后同指纹取缓存；in-flight 守卫 + 指纹不变零重烧', async () => {
+    let resolveOnce: ((text: string) => void) | undefined;
+    const calls: number[] = [];
+    const { service, session } = openService({
+      summarizer: {
+        complete: (req) => {
+          calls.push(req.prompt.length);
+          return new Promise((resolve) => {
+            resolveOnce = (text: string) => resolve({ text });
+          });
+        },
+      },
+    });
+    await service.activate({ sessionId: 's1', objective: '写周报', schedule: 'x' });
+    expect(service.depositFor('s1')).toContain('目标：写周报'); // 缓存冷——确定性回退立即承载（零等待）
+    expect(service.depositFor('s1')).toContain('目标：写周报'); // in-flight 守卫——不重发
+    expect(calls).toHaveLength(1);
+    resolveOnce?.('摘要：周报已成');
+    await new Promise((resolve) => void setTimeout(resolve, 0)); // 后台单发落地的微任务冲刷
+    expect(service.depositFor('s1')).toBe('摘要：周报已成'); // 同指纹命中缓存
+    expect(calls).toHaveLength(1); // 指纹不变零重烧
+    session.push('s1', 'todo/write', { items: [{ status: 'pending', content: 'C' }] }); // 指纹变
+    // 指纹变期语义：旧缓存文本先承载（旧摘要含历史脉络，优于裸计数回退）
+    // + 后台再单发刷新（缓存冷才用确定性回退）
+    expect(service.depositFor('s1')).toBe('摘要：周报已成');
+    expect(calls).toHaveLength(2); // 指纹变即再单发
+    resolveOnce?.('摘要：新计划');
+    await new Promise((resolve) => void setTimeout(resolve, 0));
+    expect(service.depositFor('s1')).toBe('摘要：新计划'); // 新单发落地缓存
+  });
+
+  it('summarizer 失败路：失败也缓存回退（同指纹不重烧——warn 落面）', async () => {
+    let rejectOnce: ((err: Error) => void) | undefined;
+    const calls: number[] = [];
+    const { service } = openService({
+      summarizer: {
+        complete: () => {
+          calls.push(1);
+          return new Promise((_resolve, reject) => {
+            rejectOnce = (err: Error) => reject(err);
+          });
+        },
+      },
+    });
+    await service.activate({ sessionId: 's1', objective: '写周报', schedule: 'x' });
+    expect(service.depositFor('s1')).toContain('计划态：open 0 项');
+    rejectOnce?.(new Error('单发炸'));
+    await new Promise((resolve) => void setTimeout(resolve, 0));
+    expect(warn.mock.calls.flat().join('\n')).toContain('沉淀摘要单发失败');
+    expect(service.depositFor('s1')).toContain('计划态：open 0 项'); // 失败缓存回退
+    expect(calls).toHaveLength(1); // 同指纹不重烧
   });
 });
 

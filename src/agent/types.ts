@@ -69,6 +69,14 @@ export interface AgentLoopConfig {
   convertToLlm: (message: AgentMessage) => Message | Message[] | null;
   /** 请求组装最后关口（记忆检索瞬态注入在此挂） */
   transformContext?: (context: LlmContext) => LlmContext | Promise<LlmContext>;
+  /**
+   * 每次模型请求前钩（03 §2.4 agent_pre_step 发射窗——04 §2/§5）：loop
+   * while 体顶、steering 消费与 turn_start 之前调用；返回 'stop' 即本 turn
+   * 不起模型请求、run 以 stopReason 'stop' 收 completed（预算刹停不产生
+   * dangling turn）。驱动侧分派 waterfall（载荷 PreStepInput——提醒注入
+   * 槽 + 刹车位）。
+   */
+  preModelRequest?: (context: AgentContext) => 'stop' | void | Promise<'stop' | void>;
   /** 凭证取用（缺省 undefined 走 llm 层持久化凭证链） */
   getApiKey?: (model: string) => string | undefined;
   /** turn 终止裁决（停止词、预算尽、打断——返回 true 优雅停 completed） */

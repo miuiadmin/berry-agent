@@ -12,12 +12,19 @@ export type {
   ConversationDriverOptions,
   ExecToolService,
   ExecSessionDeps,
+  PreStepInput,
   ReseededTimeline,
   RetryPolicyConfig,
+  RunSettledReceipt,
   SessionLifecycleEvent,
   SubmitOptions,
 } from './types.js';
-export { CONTEXT_TRANSFORM_EVENT, DEFAULT_RETRY_POLICY, SESSION_LIFECYCLE_EVENT } from './types.js';
+export {
+  AGENT_PRE_STEP_EVENT,
+  CONTEXT_TRANSFORM_EVENT,
+  DEFAULT_RETRY_POLICY,
+  SESSION_LIFECYCLE_EVENT,
+} from './types.js';
 export { reseedTimeline } from './reseed.js';
 export { ConversationDriver } from './driver.js';
 export type { SubmitResult } from './driver.js';

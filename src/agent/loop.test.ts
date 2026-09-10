@@ -253,6 +253,34 @@ describe('run 终态三值', () => {
   });
 });
 
+/* ---------------- preModelRequest 刹车（03 §2.4 agent_pre_step 窗消费位） ---------------- */
+
+describe('preModelRequest 刹车', () => {
+  it("'stop' → 零模型请求收场 completed + stopReason 'stop'（零 dangling turn）", async () => {
+    const seen: StreamFnOptions[] = [];
+    const { context, config, events } = rig({
+      streamFn: scriptedStreamFn([], seen), // 脚本空——任何模型请求即耗尽抛红
+      preModelRequest: () => 'stop',
+    });
+    const result = await startRun(context, config, [user('刹车')]);
+    expect(seen).toHaveLength(0); // 模型请求零发出
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'stop' });
+    // 事件面：种子入列 → agent_start →（刹车短循环零 turn）→ agent_end
+    expect(typesOf(events)).toEqual(['message_start', 'message_end', 'agent_start', 'agent_end']);
+    const end = events[events.length - 1]!;
+    expect(end.type === 'agent_end' && end.status).toBe('completed');
+  });
+
+  it('void 不刹：正常起请求（对照锁）', async () => {
+    const { context, config } = rig({
+      streamFn: scriptedStreamFn([assistant({ content: [{ type: 'text', text: 'hi' }] })]),
+      preModelRequest: () => undefined,
+    });
+    const result = await startRun(context, config, [user('通行')]);
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'stop' }); // 模型自然停
+  });
+});
+
 /* ---------------- 工具批三律 ---------------- */
 
 describe('工具批语义', () => {

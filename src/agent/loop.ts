@@ -1,11 +1,9 @@
 /**
  * agent 件 — loop 骨架（04 §2 形态铁律：双 while、≤150 行、零 try/catch、零存储感知）。
- *
  * 外层 turn 循环：steering 注入 → 流消费 → 终态判定 → 工具批 → followUp 续跑裁决。
  * 内层流消费与工具批执行分别住在 stream.ts / tools-batch.ts（骨架只留控制流）。
- * 全部策略经注入回调（AgentLoopConfig 11 项）、全部状态经活体事件回流——
- * loop 不知道 conversation 存在；错误不就地 try/catch（StreamFn 永不抛契约 +
- * 执行器包装位），失败由 run 终态承载（04 篇 §2/§3）。
+ * 全部策略经注入回调（AgentLoopConfig 12 项）、全部状态经活体事件回流——
+ * loop 不知道 conversation 存在；错误不就地 try/catch（StreamFn 永不抛契约），失败由 run 终态承载（04 §2/§3）。
  */
 
 import { BaseError } from '../contracts/index.js';
@@ -33,8 +31,7 @@ function toolCallsOf(message: AssistantMessage): AgentToolCall[] {
 
 /**
  * 种子起跑：seeds 逐条入列（用户直发——channel 缺省）后进主循环。
- * @param context 运行上下文（messages 活数组） @param config 回调面
- * @param seeds 种子消息（缺省空——纯续入形走 continueRun）
+ * @param context 运行上下文（messages 活数组） @param config 回调面 @param seeds 种子消息（缺省空）
  */
 export function startRun(
   context: AgentContext,
@@ -70,8 +67,18 @@ async function runLoop(context: AgentContext, config: AgentLoopConfig, emit: Emi
   let stopReason: StopReason | undefined;
   let errorMessage: string | undefined;
   while (true) {
-    // turn 顶：steering 注入（busy 中插入的消息进本轮上下文）
+    // turn 顶：steering 注入（busy 中插入的消息进本轮上下文）——消费点在
+    // preModelRequest 之前（同步零让出）：await 窗若先于消费点，busy 期
+    // submit 会漂移进 steer 通道（本应 followUp 尾声消费——通道语义时序
+    // 回归锁见 driver.test 队列通道族）
     pushAll(context, config.getSteeringMessages?.() ?? [], emit, 'steer');
+    // 模型请求前检查（03 §2.4 agent_pre_step 窗——'stop' 刹停零 dangling turn）：
+    // 位置 = steering 消费后、turn_start 前（steering 注入属上下文组装非模型
+    // 请求；刹停时 steer 件已落 durable 由下次 run 重播种承载）
+    if ((await config.preModelRequest?.(context)) === 'stop') {
+      stopReason = 'stop';
+      break;
+    }
     turn += 1;
     emit({ type: 'turn_start', turn });
     const assistant = await streamAssistantResponse(config, context, emit);
@@ -116,8 +123,7 @@ async function runLoop(context: AgentContext, config: AgentLoopConfig, emit: Emi
       pushAll(context, outcome.results, emit);
       if (outcome.terminate) break; // 批内一致 terminate → 优雅停
     }
-    // turn 终止裁决（停止词/预算尽/打断）——先于 followUp 消费：停则 followUp
-    // 留在驱动侧队列不入列（未消费消息不悬空在本 run 上下文里）
+    // turn 终止裁决（停止词/预算尽/打断）——先于 followUp 消费：停则留在驱动侧队列不入列
     if (await config.shouldStopAfterTurn?.(context, assistant)) break;
     if (assistant.stopReason !== 'toolUse') {
       // stop/deferred：followUp 是 idle 起跑通道——空即自然停 completed

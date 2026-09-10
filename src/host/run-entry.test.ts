@@ -10,8 +10,8 @@
  * llm/usage 落账（callId `run:<sid>:<seq>` 幂等身份 + priority background）+
  * tick 双形态（用户行 prompt/cwd/source='schedule' 落账；行缺席退 2；件缺席
  * 退 2；goal 挂钟行 wake 不落诚实零跑退 0、wake 落地续接 goal 会话 +
- * recordTurn 记账帽 warn）+ provider unconfigured 产品级文案（07 §5）+
- * 退出码三态。
+ * recordTurn 记账 durable 读回〔批 #99 上移驱动 settled 链〕）+ provider
+ * unconfigured 产品级文案（07 §5）+ 退出码三态。
  *
  * 断言只对行为与结构位（禁断言 AI 生成文本——'ok'/'例行巡检' 等均为测试
  * 自造常量经 faux 脚本原样透传）。
@@ -426,17 +426,26 @@ describe('runRunEntry --tick goal 挂钟行', () => {
     expect(run.out.lines).toEqual([]); // text 档零产物（无 assistant 输出）
   });
 
-  it('wake 落地：续接 goal 绑定会话 + recordTurn 记账帽 warn（cap=1 首 run 即刹停）', async () => {
+  it('wake 落地：续接 goal 绑定会话 + recordTurn 记账落行（cap=1 首 run 即刹停——驱动 onRunSettled 回执）', async () => {
     const dataDir = tmpDir('run-data-');
     const goal = await seedGoal(dataDir, { cap: 1 });
     const run = await rigRun({
       message: '',
       flags: { tick: `goal-${goal.id}`, outputFormat: 'json' },
       dataDir,
+      // 双响应：沉淀摘要单发（goalSummarizer 适配器——批 #99 轮间沉淀）与
+      // 真模型请求各烧一条（同 provider 队列，消耗序确定）
+      responses: [messageOf(), messageOf()],
     });
     await expect(run.entry).resolves.toBe(0);
-    expect(summaryOf(run.out)['sessionId']).toBe(goal.sessionId); // goal 会话由裁决选取
-    expect(run.err.text).toContain('记账帽'); // used 1/1 → braked warn 如实呈报
+    // 记账面（批 #99 三入口统一——挂点已上移驱动 settled 链）：warn 文本不再
+    // 走 CLI stderr，改 durable 读回——used 1/1 落行即证回执窗扫计数腿真跑
+    const audit = await seedAssembly(dataDir);
+    try {
+      expect(audit.goal?.service.get(goal.id)?.budgetMessagesUsed).toBe(1);
+    } finally {
+      await audit.shutdown();
+    }
   });
 });
 

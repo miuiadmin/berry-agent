@@ -145,6 +145,16 @@ export interface GoalSessionFace {
   length(sessionId: string): number;
 }
 
+/**
+ * goal 沉淀摘要窄面（04 §3.7 complete 单发——批 #99 词面独立律：goal 席
+ * DAG 无 llm 边，适配器归装配根注入；compaction complete 形镜像）。缺席 =
+ * depositFor 走确定性回退（objective + 计划态计数——零 LLM 依赖保底）。
+ */
+export interface GoalSummarizerFace {
+  /** 单发摘要（prompt + maxChars 帽——超帽截断归实现侧） */
+  complete(request: { prompt: string; maxChars: number }): Promise<{ text: string }>;
+}
+
 /** 唤醒裁决（wake 公开面返回——落地与否与拒因，调用方决定后续编排） */
 export interface WakeDecision {
   readonly landed: boolean;

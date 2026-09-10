@@ -53,6 +53,7 @@ import type {
   ControlCaller,
   ControlUsedRecord,
   DriverFactory,
+  RunSettledReceipt,
   SubmitOptions,
   SubmitResult,
   SessionsControlFace,
@@ -116,6 +117,18 @@ export interface ConversationStackOptions {
    * getScope 判据面。
    */
   readonly goalScopeFor?: (sessionId: string) => { goalId: string; activatedSeq: number } | undefined;
+  /**
+   * goal 轮间沉淀取值器（批 #99——04 §3.7 complete 单发件供给）：驱动每请求
+   * 组装时经 onTransformContext 取用、注入于 todo 快照之前（瞬态 UserMessage
+   * 不落 durable）；返回 null = 零注入（goal 未装载/无 active goal）。
+   */
+  readonly goalDeposit?: (sessionId: string) => string | null;
+  /**
+   * run 结算回执钩（批 #99——goal 前台记账腿三入口统一）：驱动 launch settled
+   * 链内嵌发射（assistant/message 窗扫计数 + userInitiated 归因——04 §176
+   * 记账单位），组合根闭包接 recordTurn；钩内异常驱动侧自防炸（warn 不炸收场）。
+   */
+  readonly onRunSettled?: (sessionId: string, receipt: RunSettledReceipt) => void;
   /** 跨会话 allowlist 条目（04 §9 粘性第 3 款 advisory 免问面；装配层读 allowlist.json 载入——缺省功能关闭） */
   readonly allowlist?: readonly AllowlistEntry[];
   /** 「始终允许」条目写入回调（04 §9 粘性段定形③——装配层接 allowlist-store 文件写；缺省 always 面关闭） */
@@ -450,6 +463,11 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       ...(options.pluginSections !== undefined ? { pluginSections: options.pluginSections } : {}),
       // goal 段升格锚穿线（批 19c-3——驱动 fold 升格消费位 driver.ts）
       ...(options.goalScopeFor !== undefined ? { goalScopeFor: options.goalScopeFor } : {}),
+      // goal 轮间沉淀 + 记账回执穿线（批 #99——sessionId 位在此落格绑定）
+      ...(options.goalDeposit !== undefined ? { goalDeposit: () => options.goalDeposit!(sessionId) } : {}),
+      ...(options.onRunSettled !== undefined
+        ? { onRunSettled: (receipt) => options.onRunSettled!(sessionId, receipt) }
+        : {}),
       classifyError,
       compactForOverflow: (log: SessionLog) => compaction.compactForOverflow(log),
       environmentDisclosure: options.runtime.disclosure,

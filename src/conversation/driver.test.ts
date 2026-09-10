@@ -28,8 +28,8 @@ import { SessionLog } from '../session/index.js';
 import type { AgentEvent } from '../agent/index.js';
 import { ConversationDriver } from './driver.js';
 import type { ConversationDriverOptions } from './types.js';
-import { CONTEXT_TRANSFORM_EVENT, SESSION_LIFECYCLE_EVENT } from './types.js';
-import type { ContextTransformInput, SessionLifecycleEvent } from './types.js';
+import { CONTEXT_TRANSFORM_EVENT, SESSION_LIFECYCLE_EVENT, AGENT_PRE_STEP_EVENT } from './types.js';
+import type { ContextTransformInput, SessionLifecycleEvent, PreStepInput, RunSettledReceipt } from './types.js';
 import { provideAgentService } from './agent-service.js';
 import { createTodoTool } from './todo.js';
 
@@ -1159,6 +1159,97 @@ describe('ConversationDriver run 终态回调（ctx.agent onRunSettled）', () =
     const result = await driver.submit('问');
     expect(result.status).toBe('completed');
     expect(recorded).toEqual(['completed']);
+  });
+});
+
+/* ---------------- goal 驱动侧接线（批 #99——agent_pre_step 发射 + goalDeposit 注入 + onRunSettled 回执） ---------------- */
+
+describe('ConversationDriver goal 驱动侧接线（批 #99）', () => {
+  it('agent_pre_step 词汇自举：裸总线构造后词在场（同 context_transform 律）', () => {
+    const dispatch = new EventDispatch();
+    expect(dispatch.isRegistered(AGENT_PRE_STEP_EVENT)).toBe(false); // 裸总线零词
+    makeDriver({ dispatch, scripts: [assistant({})] });
+    expect(dispatch.isRegistered(AGENT_PRE_STEP_EVENT)).toBe(true); // 驱动自举补位
+  });
+
+  it('agent_pre_step 刹停：监听器置 stop → 零 LLM 请求 + warn + completed/stop（载荷 {sessionId, reminders}——stop 后置）', async () => {
+    const dispatch = new EventDispatch();
+    const warns: string[] = [];
+    const payloads: PreStepInput[] = [];
+    const { driver, seen } = makeDriver({
+      dispatch,
+      scripts: [], // 脚本空——任何模型请求即耗尽抛红
+      warn: (message) => void warns.push(message),
+    });
+    dispatch.onWaterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, (payload, next) => {
+      payloads.push(payload);
+      payload.stop = { reason: 'goal 前台预算帽已到' };
+      return next(payload);
+    });
+    const result = await driver.submit('问');
+    // 载荷形（toMatchObject——监听器置 stop 是入参同引用直改，快照晚于置位）
+    expect(payloads).toMatchObject([{ sessionId: 's-driver', reminders: [] }]);
+    expect(seen).toHaveLength(0); // LLM 请求零发出（刹车先于 turn_start——零 dangling turn）
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'stop' });
+    expect(warns.join('\n')).toContain('agent_pre_step 刹停');
+  });
+
+  it('agent_pre_step reminders：经瀑布注入请求尾单条拼合（瞬态纪律——durable 零落账）', async () => {
+    const dispatch = new EventDispatch();
+    const { driver, seen } = makeDriver({ dispatch, scripts: [assistant({})] });
+    dispatch.onWaterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, (payload, next) => {
+      payload.reminders.push('提醒甲', '提醒乙');
+      return next(payload);
+    });
+    await driver.submit('问');
+    expect(seen[0]!.messages).toHaveLength(2); // 种子 + reminders 单条
+    expect(seen[0]!.messages[1]).toMatchObject({ role: 'user', content: '提醒甲\n提醒乙' });
+    expect(types(driver).filter((type) => type === 'user/message')).toHaveLength(1); // durable 唯一 user = 种子
+  });
+
+  it('goalDeposit 注入：供给位注入请求尾（04 §3.7 轮间沉淀）+ null 零注入', async () => {
+    let supply: string | null = '目标：写周报\n计划态：open 2 项 / completed 0 项';
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({}), assistant({})],
+      goalDeposit: () => supply,
+    });
+    await driver.submit('一问');
+    expect(seen[0]!.messages[seen[0]!.messages.length - 1]).toMatchObject({
+      role: 'user',
+      content: '目标：写周报\n计划态：open 2 项 / completed 0 项',
+    });
+    expect(types(driver).filter((type) => type === 'user/message')).toHaveLength(1); // 瞬态纪律
+    supply = null; // 次请求零注入（goal 未装载/无 active 形）
+    await driver.submit('二问');
+    expect(seen[1]!.messages[seen[1]!.messages.length - 1]).toMatchObject({ role: 'user', content: '二问' });
+  });
+
+  it('onRunSettled 回执：窗扫 assistant/message 计数 + seeds 归因（user 源 true / schedule 源 false）', async () => {
+    const receipts: RunSettledReceipt[] = [];
+    const { driver } = makeDriver({
+      scripts: [assistant({}), assistant({})], // 两 run 各一轮
+      onRunSettled: (receipt) => void receipts.push(receipt),
+    });
+    await driver.submit('一问'); // 缺省 source 'user' → 真人入口 true
+    await driver.submit('挂钟问', { source: 'schedule' }); // tick 源机器轮 → false（唤醒预算不复位）
+    expect(receipts).toEqual([
+      { sessionId: 's-driver', assistantMessages: 1, userInitiated: true, status: 'completed' },
+      { sessionId: 's-driver', assistantMessages: 1, userInitiated: false, status: 'completed' },
+    ]);
+  });
+
+  it('onRunSettled 自防炸：钩异常不反噬 run 终态（warn 落面）', async () => {
+    const warns: string[] = [];
+    const { driver } = makeDriver({
+      scripts: [assistant({})],
+      warn: (message) => void warns.push(message),
+      onRunSettled: () => {
+        throw new Error('记账炸');
+      },
+    });
+    const result = await driver.submit('问');
+    expect(result.status).toBe('completed');
+    expect(warns.join('\n')).toContain('run 结算记账失败');
   });
 });
 

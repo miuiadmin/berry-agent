@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import type { GateInput, SessionEvent, ToolDefinition } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
-import type { AgentService, ContextTransformInput, ExecToolService } from '../conversation/index.js';
+import type { AgentService, ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import type { SpawnPipeline } from '../exec/index.js';
 import { createMcpService, normalizeMcpConfig } from '../mcp/index.js';
@@ -59,7 +59,7 @@ import {
   runGoalCommand,
   GOAL_USAGE,
 } from '../goal/index.js';
-import type { GoalService, GoalSessionFace, GoalTodoItem } from '../goal/index.js';
+import type { GoalService, GoalSessionFace, GoalSummarizerFace, GoalTodoItem } from '../goal/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createDangerGate, createSandboxService, DANGER_V1_ACTIONS } from '../safety/index.js';
 import {
@@ -315,6 +315,12 @@ export interface CorePluginHostDeps {
    * 装载（主闸二——同 sqlite 律；/goal 命令 eventsFor 面同源派生）。
    */
   readonly goalSession?: GoalSessionFace;
+  /**
+   * goal 沉淀摘要窄面（批 #99——GoalSummarizerFace：04 §3.7 complete 单发
+   * 件；词面独立律 goal 席 DAG 无 llm 边，LlmService 适配器归装配根注入）。
+   * 缺席 = depositFor 恒走确定性回退（objective + 计划态计数——零 LLM 保底）。
+   */
+  readonly goalSummarizer?: GoalSummarizerFace;
   /**
    * checkpoint 会话语境读面（批 19c-4——05 §5.3 词面独立 seam：
    * contextOf(sessionId) → {末闭合边界, 工作区锚}——gate per-run 判据与
@@ -966,10 +972,11 @@ export interface GoalFace {
  * GateAllowed 恒 false（needsWrite 申报+人面批准链路未建——拒申报即拒
  * 评测双拦位）+ hasLsp 同源 lsp 在场否。
  *
- * 挂账 run 入口批（驱动循环编舞三件同笔——件已装载仅缺驱动侧接线，预算
- * 刹停腿 inert 至入口批）：prepareNextTurn 轮间沉淀（complete 单发
- * objective 摘要）、agent_pre_step 预算复验发射位（agent 域 waterfall 词
- * 无发射者）、recordTurn 前台记账挂点。
+ * 驱动侧接线三件（批 #99 兑现——预算刹停腿由 inert 转执法）：本件装载
+ * agent_pre_step 复验监听（waterfall 链——budgetExceeded 现判置 stop，驱动
+ * 发射位在 driver.ts）；轮间沉淀 complete 单发（deps.goalSummarizer 注入
+ * GoalService——缺席确定性回退）与 recordTurn 记账腿（驱动 onRunSettled 窗
+ * 扫回执 → 组合根闭包 recordTurn——三入口统一经驱动层，本件不再自带挂点）。
  *
  * 主闸双位 = sqlite seam + goalSession face（同 memory 律）：任一缺席 = 件
  * 整体零装载（诚实缺席律）。
@@ -1001,6 +1008,8 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
           workspaceRoot: canonicalWorkspaceRoot(deps.cwd),
           ...(lsp !== undefined ? { lsp: { queryDiagnostics: (files: string[]) => lsp.queryDiagnostics(files) } } : {}),
         },
+        // 沉淀摘要窄面（批 #99——缺席 = depositFor 确定性回退，零 LLM 保底）
+        ...(deps.goalSummarizer !== undefined ? { summarizer: deps.goalSummarizer } : {}),
       });
 
       // goal_update：boot 全局层 + 执行时会话解析包装（deps.getSessionId 是
@@ -1031,6 +1040,19 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const sched = context.tryGet<SchedulerFace>('scheduler');
       if (sched !== undefined) await service.attachGoalJobsFace(sched.goalJobs);
 
+      // agent_pre_step 预算复验腿（批 #99——04 §5 双轨第二腿）：驱动每模型
+      // 请求前发射 waterfall（driver.ts onPreModelRequest），本监听现判
+      // budgetExceeded——已超帽即置 stop 刹停本 turn（零 dangling turn；run
+      // 收场 stopReason 'stop' → completed）。与起跑位预验同判据双保险
+      const offPreStep = context.on('agent_pre_step', (value, next) => {
+        const input = value as PreStepInput;
+        const goalScope = service.goalScopeFor(input.sessionId);
+        if (goalScope !== undefined && service.budgetExceeded(goalScope.goalId)) {
+          input.stop = { reason: 'goal 前台预算帽已到（budgetExceeded 复验刹停）' };
+        }
+        return next(input) as Promise<PreStepInput>;
+      });
+
       context.provide('goal', {
         service,
         todoFactory: (todoDeps) =>
@@ -1042,6 +1064,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       } satisfies GoalFace);
 
       return () => {
+        offPreStep();
         if (sched !== undefined) service.detachGoalJobsFace();
         disposeGoal();
         disposeUpdate();
