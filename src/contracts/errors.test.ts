@@ -1,3 +1,7 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 import {
   BaseError,
@@ -92,5 +96,71 @@ describe('错误码注册表', () => {
       const matched = ERROR_CODE_PREFIXES.some((p) => info.code.startsWith(p));
       expect(matched, `${info.code} 应命中前缀族`).toBe(true);
     }
+  });
+});
+
+/* ---------------- 字面量 ⊆ 注册表机器对拍锁（02 §5.3 族规范 #2 执法腿） ---------------- */
+
+describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验抛出/写入点一致」执法腿）', () => {
+  it('src 全源文三形字面量码集 ⊆ listErrorCodes() 注册表（未注册字面量即红）', async () => {
+    // 注册侧全集：fs 递归发现 src/**/codes.ts 逐份动态导入（副作用注册）——
+    // 未来新增 codes.ts 面自动纳入、完备性程序自证；核心码由本文件顶部
+    // import './index.js' 模块加载灌入。哨值 23 = 当前实有面数（净删面须
+    // 同步改此哨——防扫描根意外缩水成假绿）
+    const srcRoot = fileURLToPath(new URL('../', import.meta.url));
+    const codeModules: string[] = [];
+    const collect = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) collect(join(dir, entry.name));
+        else if (entry.name === 'codes.ts') codeModules.push(join(dir, entry.name));
+      }
+    };
+    collect(srcRoot);
+    expect(codeModules.length).toBeGreaterThanOrEqual(23);
+    for (const mod of codeModules) await import(pathToFileURL(mod).href);
+
+    // 抛出/写入侧：三形静态字面量（new BaseError('…') / codedMessage('…') /
+    // code: '…'）。注释行同样被抓——特性非缺陷：注释里承诺的码也须在册
+    // （红证即用注释注入法）；动态拼接形（模板串/变量传递）静态不可达，
+    // 属本锁已知边界。行内逐正则多命中全收（一行多码不漏）
+    const registered = new Set(listErrorCodes().map((info) => info.code));
+    // 个案豁免集：Node errno 系统码域（ErrnoException.code 的桩构造与
+    // 断言形——fs.test/single-instance.test 构造 EACCES/ENOENT 族错误对象）
+    // ——外来码域非本仓错误码族；新豁免须逐案点名注记（防豁免集长成后门）
+    const externalSystemCodes = new Set(['ENOENT']);
+    const patterns = [
+      /new\s+BaseError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
+      /\bcodedMessage\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
+      /\bcode:\s*'([A-Z][A-Z0-9_]+)'/g,
+    ];
+    const unregistered = new Map<string, string[]>(); // code -> 位点清单（文件:行）
+    const scan = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scan(full);
+          continue;
+        }
+        if (!entry.name.endsWith('.ts')) continue;
+        const lines = readFileSync(full, 'utf8').split('\n');
+        lines.forEach((line, i) => {
+          for (const re of patterns) {
+            re.lastIndex = 0;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(line)) !== null) {
+              const code = m[1]!;
+              if (!registered.has(code) && !externalSystemCodes.has(code)) {
+                const sites = unregistered.get(code) ?? [];
+                sites.push(`${relative(srcRoot, full)}:${i + 1}`);
+                unregistered.set(code, sites);
+              }
+            }
+          }
+        });
+      }
+    };
+    scan(srcRoot);
+    const report = [...unregistered.entries()].map(([code, sites]) => `${code} @ ${sites.join(', ')}`);
+    expect(report).toEqual([]);
   });
 });

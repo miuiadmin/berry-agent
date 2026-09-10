@@ -23,6 +23,7 @@
  * superseded → 清单出清；abort 撤销清槽；未知 id superseded）
  * ⑦连接帽 503 / 静态面（index/内容型/SPA fallback/穿越拒/未装配 404）
  * ⑧收场丢弃性结算（未决 ask 不 resolve——行回卷语义；监听关停归面）
+ * ⑨WEBUI_ENDPOINTS 双表对拍（客户端副本 vs 服务端单源整表恒等——词面单源执法）
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
@@ -44,6 +45,8 @@ import type {
   WebuiSubmitInput,
 } from './index.js';
 import { mountWebui } from './server.js';
+import { WEBUI_ENDPOINTS as WEBUI_ENDPOINTS_SERVER } from './types.js';
+import { WEBUI_ENDPOINTS as WEBUI_ENDPOINTS_CLIENT } from './client/protocol.js';
 
 /* ---------------- 注入面桩（装配桥最小同构） ---------------- */
 
@@ -687,5 +690,16 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     expect(settled).toBe(false); // 丢弃性结算——清槽不造值
     await expect(fetch(`http://127.0.0.1:${port}/api/health`)).rejects.toThrow();
     reader.abort();
+  });
+});
+
+/* ---------------- ⑨ 双表对拍锁（词面单源执法——tests 不计边表账） ---------------- */
+
+describe('WEBUI_ENDPOINTS 双表对拍（客户端副本 vs 服务端单源）', () => {
+  it('整表恒等：键集 + 逐键值（12 路径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
+    // client/protocol.ts 头注承诺「与服务端 WEBUI_ENDPOINTS 同形同词面」——
+    // 承诺升为可执行锁；toStrictEqual 整表锁含键集/逐键值/键序三面，
+    // 任一侧改词面（含增删键）四门禁即红
+    expect(WEBUI_ENDPOINTS_CLIENT).toStrictEqual(WEBUI_ENDPOINTS_SERVER);
   });
 });
