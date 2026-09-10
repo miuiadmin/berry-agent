@@ -21,6 +21,7 @@ export {
   MEMORY_DB_PATH,
   resolveDataDir,
   resolveDatabasePath,
+  resolveDatabasePathIn,
   ensureDataDir,
 } from './paths.js';
 export {

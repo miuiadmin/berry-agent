@@ -12,6 +12,7 @@ import {
   repairFileMode,
   resolveDataDir,
   resolveDatabasePath,
+  resolveDatabasePathIn,
 } from './paths.js';
 
 /** 测试期改 env 须存还原（vitest 单 node 轨进程共享——勿污染兄弟用例） */
@@ -53,6 +54,23 @@ describe('主库归属三级梯子', () => {
   it('空白 env 值视为未设置（trim 判空）', () => {
     process.env[DATA_DIR_ENV] = '   ';
     expect(resolveDataDir()).toBe(join(process.env.HOME ?? '', '.berry-agent'));
+  });
+});
+
+describe('锚定数据目录形（resolveDatabasePathIn——装配根显式 dataDir 位）', () => {
+  it('显式 dataDir 锚定库位（显式参数 > env DATA_DIR——库与 secret.key 同目录不分家）', () => {
+    // env 指向别处也不吞显式目录（原先装配根只传 dataDir 而 dbPath 走 env
+    // 梯子——库开错位、与 secret.key 分家；本例即其回归锁）
+    process.env[DATA_DIR_ENV] = '/tmp/env-dir';
+    expect(resolveDatabasePathIn('/tmp/explicit-dir')).toBe('/tmp/explicit-dir/sessions.db');
+  });
+
+  it('DB_PATH 单文件级覆盖在场恒赢（tier-2 不被目录锚定吞掉）', () => {
+    process.env[DB_PATH_ENV] = '/elsewhere/tier2.db';
+    expect(resolveDatabasePathIn('/tmp/explicit-dir')).toBe('/elsewhere/tier2.db');
+    // 空白值视为未设置——回落目录锚定
+    process.env[DB_PATH_ENV] = '  ';
+    expect(resolveDatabasePathIn('/tmp/explicit-dir')).toBe('/tmp/explicit-dir/sessions.db');
   });
 });
 

@@ -100,6 +100,21 @@ describe('createHostRuntime 启动序', () => {
     expect(dbFiles).toEqual([]);
     await rt.shutdown();
   });
+
+  it('非 memory 形库路径锚定显式 dataDir（回归锁——库与 secret.key 同目录不分家）', async () => {
+    // 修复前必红：装配根只传 dataDir 而 Persistence 层 dbPath 缺省走 env 梯子
+    // （BERRY_AGENT_DATA_DIR 指向测试共享库）——显式目录被无视，会话行落进
+    // 共享库（同文件用例间互相可见），目录里只有 secret.key 无 sessions.db
+    const { dir, rt } = rig();
+    const log = rt.persistence.createSession({ origin: 'conversation', workspaceRoot: '/w' });
+    // 行随首事件经写队列落库（createSession 零 I/O——append 才是真落位点）
+    log.append('user/message', { text: '落库' });
+    await rt.persistence.flush();
+    expect(existsSync(join(dir, 'sessions.db'))).toBe(true); // 库落显式目录
+    // 会话行真落本目录库（listSessions 从该库读到——非 env 位共享库）
+    expect(rt.persistence.listSessions({}).map((row) => row.id)).toContain(log.sessionId);
+    await rt.shutdown();
+  });
 });
 
 describe('退出序六步编舞（04 §1 全序有界）', () => {

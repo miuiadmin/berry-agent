@@ -21,7 +21,7 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 import type { TerminalIO } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
-import { Persistence } from '../persist/index.js';
+import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
@@ -332,8 +332,12 @@ describe('sessions fork（全装配——与 run --fork / TUI fork 同机）', (
     expect(text).toContain(`续接：berry-agent sessions resume ${newId}`);
 
     // 库面验证：血缘三元组 + 种子事件（createSeededSession 同步落库——id 必
-    // 可读）。探针走缺省梯子（与装配面同库——库文件路径归三级梯子单源）
-    const persistence = Persistence.open({ migrations: HOST_MIGRATION_TAIL });
+    // 可读）。探针锚定 dataDir（与装配面同解析——库文件路径随显式 dataDir）
+    const persistence = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
     try {
       const row = persistence.store.getSessionRow(newId);
       expect(row?.origin).toBe('fork');

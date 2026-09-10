@@ -17,7 +17,7 @@ import type { TerminalIO } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
-import { Persistence } from '../persist/index.js';
+import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
 import { runTuiEntry } from './tui-entry.js';
@@ -177,10 +177,14 @@ describe('runTuiEntry 装配序', () => {
     first.io.send('\x04');
     expect(await first.entry).toBe(0);
 
-    // 在册 id 反查（库面——该 cwd 唯一会话。装配面库文件走缺省梯子，dataDir
-    // 不重定位库文件〔路径梯子律〕——探针同走梯子即同库；workspaceRoot 过滤
-    // 精确定位本测试会话，免疫同文件共享库噪声）
-    const probe = Persistence.open({ migrations: HOST_MIGRATION_TAIL });
+    // 在册 id 反查（库面——该 cwd 唯一会话。装配面库文件锚定 dataDir〔显式
+    // dataDir 锚定律——runtime 开库位与 probe 同解析〕——探针同锚定即同库；
+    // workspaceRoot 过滤精确定位本测试会话，免疫库内邻例噪声）
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
     const [row] = probe.store.listSessions({ workspaceRoot: canonicalWorkspaceRoot(ws) });
     await probe.close();
     expect(row).toBeDefined();

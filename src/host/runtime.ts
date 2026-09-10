@@ -24,6 +24,7 @@ import {
   MEMORY_DB_PATH,
   Persistence,
   resolveDataDir,
+  resolveDatabasePathIn,
 } from '../persist/index.js';
 import type { PersistenceOptions } from '../persist/index.js';
 // core: 表族迁移声明（05 §6.4 机械聚合——声明来自插件、执行在宿主；host 行
@@ -144,7 +145,13 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
   try {
     persistence = Persistence.open({
       ...(options.persistence ?? {}),
-      ...(memory ? { dbPath: MEMORY_DB_PATH } : { dataDir: dataDir as string }),
+      // 非 memory 形库路径锚定显式 dataDir（bug 回归锁位：原先只传 dataDir
+      // 而 Persistence 层 dbPath 缺省走 env 梯子——显式目录被无视，库开在
+      // env/家目录位、secret.key 与库分家；resolveDatabasePathIn 保
+      // BERRY_AGENT_DB_PATH 单文件覆盖恒赢——tier-2 不被目录锚定吞掉）
+      ...(memory
+        ? { dbPath: MEMORY_DB_PATH }
+        : { dbPath: resolveDatabasePathIn(dataDir as string), dataDir: dataDir as string }),
       // 迁移链机械聚合（05 §6.4）：core: 插件表族声明并入宿主单链——调用方
       // 迁移在前、追加件按版本升序插队（scheduler v2 → goal v3 先于 memory
       // v4-6；调用方版本须全链严格递增——19c 追加件同律校验）

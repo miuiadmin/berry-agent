@@ -47,6 +47,23 @@ export function resolveDatabasePath(): string {
 }
 
 /**
+ * 解析主库文件路径（锚定数据目录形——宿主装配根显式 dataDir 位的配套解析）：
+ * BERRY_AGENT_DB_PATH 单文件级覆盖在场恒赢（tier-2 不被目录锚定吞掉）；
+ * 否则库文件 = 传入目录下 sessions.db。
+ *
+ * 为什么需要本形（bug 回归锁的规范位）：resolveDatabasePath() 只看 env 梯子，
+ * 完全无视调用方显式传入的 dataDir——宿主装配根（CLI --data-dir / 测试 rig）
+ * 传了 dataDir 时库仍开在 env/家目录位，secret.key 与库分家（1e3a299 修过
+ * CLI 直开库两处的同病，装配根主路径是漏网的第三处）。参数级语义：
+ * 显式 dataDir > env BERRY_AGENT_DATA_DIR（常识序——显式参数先于 env）。
+ */
+export function resolveDatabasePathIn(dataDir: string): string {
+  const dbOverride = process.env[DB_PATH_ENV];
+  if (dbOverride && dbOverride.trim() !== '') return dbOverride;
+  return join(dataDir, DEFAULT_DB_BASENAME);
+}
+
+/**
  * 确保数据目录在场且权限 0700（05 §6.6 自检修复 + warn——凭证是操作者状态
  * 五样之一，目录权限是第一道面）。幂等：在场且权限已符即静默通过。
  * @param dir 数据目录路径
