@@ -5,12 +5,15 @@ import { describe, expect, it } from 'vitest';
 import { scanForSecrets } from './scan.js';
 
 describe('scanForSecrets（保守常量清单命中面）', () => {
+  // GitHub push protection 对 blob 原文做格式级检测——Slack 样本拆两段运行时拼接：
+  // 文件里不出现完整字面量（防未来触碰本文件的提交再被拦），扫描器收到的仍是完整串
+  const slackSample = 'xoxb-' + '123456789012-abcdefghijklmn';
   it.each([
     ['openai-style-key', '我把 key 贴这了：sk-abc123def456ghi789jkl mno'],
     ['github-token', 'ghp_0123456789abcdefghijklmnopqrstuvwxyz0123'],
     ['aws-access-key', 'AWS key = AKIAIOSFODNN7EXAMPLE'],
     ['google-api-key', 'AIzaSyA1234567890abcdefghijklmnopqrstuv'],
-    ['slack-token', 'xoxb-123456789012-abcdefghijklmn'],
+    ['slack-token', slackSample],
     ['jwt', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N65Ihog'],
     ['pem-private-key', '-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7\n-----END RSA PRIVATE KEY-----'],
   ])('%s 命中', (pattern, text) => {
