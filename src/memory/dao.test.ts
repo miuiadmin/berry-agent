@@ -87,11 +87,11 @@ function ftsHits(query: string): number {
   ).n;
 }
 
-describe('迁移链（四槽顺跑）', () => {
-  it('user_version=9、表族四件在场（v9 表重建后 memory_access 仍在名册）', () => {
+describe('迁移链（五槽顺跑）', () => {
+  it('user_version=11、表族四件在场（批 ev-1 v11 只 ALTER 不建表——valid_from/reason 落列）', () => {
     openDao();
     const db = store!.sqlite();
-    expect(db.pragma('user_version', { simple: true })).toBe(9);
+    expect(db.pragma('user_version', { simple: true })).toBe(11);
     const names = new Set(
       (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(
         (r) => r.name,
@@ -376,6 +376,87 @@ describe('读面与工具', () => {
     expect(ftsHits('pnpm')).toBe(0);
     dao.rebuildFts();
     expect(ftsHits('pnpm')).toBe(1);
+  });
+});
+
+describe('批 ev-1 valid_from 起点段（注入形/管理形两形拆分）', () => {
+  const DAY = 86_400_000;
+
+  it('种子 a：frozen=1 未生效行不入注入面三处（listVisible/overview/search）——frozen 不豁免起点段一锁双杀', () => {
+    const dao = openDao();
+    const id = dao.ingest(candidate({ validFrom: nowMs + 7 * DAY })).id;
+    sql('UPDATE memories SET frozen = 1 WHERE id = ?', id); // frozen=1 → TTL 段恒过——红绿只取决于起点段
+    expect(dao.listVisible()).toHaveLength(0); // 注入形遮蔽
+    expect(dao.overview().core).toHaveLength(0); // 常驻简报同注入形
+    expect(dao.overview().recent).toHaveLength(0);
+    expect(dao.search('pnpm')).toHaveLength(0); // 检索腿同注入形
+    // 种子 d（dao 半边）：管理形可见（/memory 活体区不过滤起点）+ 直读不过滤
+    expect(dao.listVisibleForManagement().map((r) => r.id)).toEqual([id]);
+    expect(dao.get(id)!.validFrom).toBe(nowMs + 7 * DAY);
+    // 拨钟过起点 → 注入面浮现（到点可见——副解语义正主）
+    nowMs += 8 * DAY;
+    expect(dao.listVisible()).toHaveLength(1);
+  });
+
+  it('合并腿起点不漂移（m7）：keep 既有起点合并后不动；候选携带 validFrom 合并入不落', () => {
+    const dao = openDao();
+    // 正向：keep 未生效，新证据 exact 合并并入——起点保持（新证据并入未生效行合法）
+    const keepId = dao.ingest(candidate({ validFrom: nowMs + 3 * DAY })).id;
+    const out = dao.ingest(candidate({ sourceRefs: [{ sessionId: 's2', seq: 9 }] }));
+    expect(out.action).toBe('merged-exact');
+    expect(out.id).toBe(keepId);
+    expect(dao.get(keepId)!.validFrom).toBe(nowMs + 3 * DAY); // 起点不漂移
+    expect(dao.listVisible()).toHaveLength(0); // 合并不改变注入面不可见性
+    // 反向：keep 无起点，候选带未来 validFrom 合并——起点不采纳（仅独立插入腿生效）
+    const keep2 = dao.ingest(candidate({ summary: 'repo uses npm mirrors', content: 'npm mirrors body' })).id;
+    const out2 = dao.ingest(
+      candidate({ summary: 'repo uses npm mirrors', content: 'npm mirrors body', validFrom: nowMs + 3 * DAY }),
+    );
+    expect(out2.action).toBe('merged-exact');
+    expect(out2.id).toBe(keep2);
+    expect(dao.get(keep2)!.validFrom).toBeNull();
+  });
+
+  it('TTL×起点组合：钟先到 sweep 照物化（正交推论——TTL 钟不因未生效暂停）', () => {
+    const dao = openDao();
+    const id = dao.ingest(candidate({ validFrom: nowMs + 30 * DAY, ttlDays: 1 })).id;
+    nowMs += 2 * DAY; // TTL 钟已过、起点尚远
+    const swept = dao.sweepExpired();
+    expect(swept.expired).toBe(1);
+    expect(dao.get(id)!.status).toBe('expired');
+    expect(dao.get(id)!.supersededBy).toBe('ttl');
+  });
+});
+
+describe('批 ev-1 lineage 谱系查询（三链一读）', () => {
+  it('absorb 后：keep 前身链含 drop；drop 后继解析为 keep 行（llm:<id> 可导航形）+ reason 入链', () => {
+    const dao = openDao();
+    const keepId = dao.ingest(candidate()).id;
+    const dropId = dao.ingest(candidate({ summary: 'repo uses npm mirrors', content: 'npm mirrors' })).id;
+    dao.absorb(keepId, dropId, '主题一致的重复条目');
+    const keepLin = dao.lineage(keepId);
+    expect(keepLin.row.id).toBe(keepId);
+    expect(keepLin.predecessors.map((p) => p.id)).toEqual([dropId]); // 前身反查 superseded_by='llm:<keep>'
+    expect(keepLin.versions.at(-1)!.cause).toBe('merge');
+    expect(keepLin.versions.at(-1)!.reason).toBe('主题一致的重复条目'); // 种子 c（dao 侧）
+    const dropLin = dao.lineage(dropId);
+    expect('id' in dropLin.successor! ? dropLin.successor.id : null).toBe(keepId); // 可导航 successor
+  });
+
+  it('后继三形：在册 null / skill·user 字面量 marker / llm 链断回退 marker（诚实呈现不伪造）', () => {
+    const dao = openDao();
+    const active = dao.ingest(candidate()).id;
+    expect(dao.lineage(active).successor).toBeNull(); // 在册行无后继
+    const skilled = dao.ingest(candidate({ summary: 'skill entry summary', content: 'skill body' })).id;
+    dao.forget(skilled, { promotedToSkill: 'pnpm-rules' });
+    expect(dao.lineage(skilled).successor).toEqual({ marker: 'skill:pnpm-rules' }); // 指路形
+    const userGone = dao.ingest(candidate({ summary: 'user removed entry', content: 'gone body' })).id;
+    dao.forget(userGone);
+    expect(dao.lineage(userGone).successor).toEqual({ marker: 'user' }); // 字面量形
+    // 链断：llm: 指向缺席行 → 原记号 marker 呈现（不静默吞、不伪造目标）
+    const orphan = dao.ingest(candidate({ summary: 'orphan successor entry', content: 'orphan body' })).id;
+    sql(`UPDATE memories SET status = 'dismissed', superseded_by = ? WHERE id = ?`, 'llm:m_absent', orphan);
+    expect(dao.lineage(orphan).successor).toEqual({ marker: 'llm:m_absent' });
   });
 });
 

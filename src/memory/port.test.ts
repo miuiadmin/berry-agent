@@ -14,7 +14,7 @@ import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
 import { BaseError } from '../contracts/index.js';
 import { createMemoryDao, type MemoryDao } from './dao.js';
 import { MEMORY_MIGRATIONS } from './migration.js';
-import type { MemoryCandidate, MemoryExportHeader, MemoryExportRow } from './types.js';
+import type { MemoryCandidate, MemoryExportHeader, MemoryExportRow, MemoryExportVersionRow } from './types.js';
 import {
   buildMemoryExport,
   isWithinRoots,
@@ -144,7 +144,7 @@ describe('serializeMemoryExport / buildMemoryExport（导出面——确定性�
     const header = JSON.parse(lines[0]!) as Record<string, unknown>;
     expect(header).toMatchObject({
       format: 'berry-agent-memory',
-      formatVersion: 1,
+      formatVersion: 2, // 批 ev-1 版本链随包升版（v1 判读收）
       exportedAt: nowMs,
       ownerScope: 'all',
       ownerRoots: { global: '/origin/root' },
@@ -153,6 +153,8 @@ describe('serializeMemoryExport / buildMemoryExport（导出面——确定性�
     expect(Object.keys(row)).toContain('owner_key'); // 蛇列词面与 DDL 同源
     expect(Object.keys(row)).toContain('evidence_count');
     expect(Object.keys(row)).toContain('source_refs');
+    expect(Object.keys(row)).toContain('valid_from'); // 批 ev-1——导出恒写（值可 null）
+    expect(Object.keys(row)).toContain('versions'); // 版本链随包（缺省空链也在场）
     expect(Object.keys(row)).not.toContain('ownerKey'); // 驼峰不入线形
     expect(Array.isArray(row['source_refs'])).toBe(true); // 解析形（非 JSON 字符串）
     expect(text.endsWith('\n')).toBe(true); // 尾行换行收口
@@ -206,7 +208,7 @@ describe('parseMemoryImportHeader（整文件拒判据——MEMORY_IMPORT_FORMAT
     bad('not-json'); // 非 JSON
     bad('{}'); // 缺 magic/formatVersion
     bad(JSON.stringify({ format: 'other-format', formatVersion: 1 })); // magic 不符
-    bad(JSON.stringify({ format: 'berry-agent-memory', formatVersion: 2 })); // 版本不符
+    bad(JSON.stringify({ format: 'berry-agent-memory', formatVersion: 3 })); // 版本不符（批 ev-1 双收 {1,2}——3 起拒）
     bad(
       JSON.stringify({
         format: 'berry-agent-memory',
@@ -408,5 +410,109 @@ describe('命令件（/memory-export · /memory-import——守卫错折文本�
     const denied = await runMemoryImportCommand([badFile], { dao: target });
     expect(denied).toContain('MEMORY_IMPORT_FORMAT_INVALID'); // 整文件拒折文本
     expect(await runMemoryImportCommand([], { dao: target })).toContain('用法：/memory-import');
+  });
+});
+
+describe('批 ev-1 版本链随包导出与 v1 判读收', () => {
+  /** 随包版本行（override 面覆盖各形——蛇列与 MemoryExportVersionRow 同源） */
+  function versionRow(overrides: Partial<MemoryExportVersionRow> = {}): MemoryExportVersionRow {
+    idSeq += 1;
+    return {
+      id: `ver-${idSeq}`,
+      revision: 1,
+      cause: 'insert',
+      reason: null,
+      owner_key: 'global',
+      kind: 'insight',
+      summary: 'imported lesson summary',
+      content: 'imported lesson content body',
+      confidence: 0.7,
+      evidence_count: 2,
+      created_at: 1_700_000_000_500,
+      ...overrides,
+    };
+  }
+
+  it('种子 b：导出行内嵌 versions 链（cause/reason/快照蛇列全列）', () => {
+    const dao = setup();
+    const keepId = seed(dao);
+    const dropId = seed(dao, { summary: 'merged duplicate summary', content: 'dup body' });
+    dao.absorb(keepId, dropId, '同主题重复');
+    const text = buildMemoryExport(dao, { ownerRoots: {}, now: nowMs });
+    const row = JSON.parse(text.trimEnd().split('\n')[1]!) as Record<string, unknown>;
+    expect(Array.isArray(row['versions'])).toBe(true);
+    const versions = row['versions'] as Record<string, unknown>[];
+    expect(versions).toHaveLength(2); // insert + merge
+    expect(versions[0]!['cause']).toBe('insert');
+    expect(versions[0]!['reason']).toBeNull();
+    expect(versions[1]!['cause']).toBe('merge');
+    expect(versions[1]!['reason']).toBe('同主题重复');
+    expect(versions[1]!['owner_key']).toBe('global'); // 蛇列词面与 DDL 同源
+    expect(versions[1]!['evidence_count']).toBe(2); // 证据合并后的快照值
+  });
+
+  it('导入链原值直搬（revision 不重排、created_at 不自造钟）+ restore(revision) 跨机互操作 + 幂等二跑含链', () => {
+    const dao = setup();
+    const chain = [
+      versionRow({ revision: 3, cause: 'insert' }),
+      versionRow({ revision: 5, cause: 'decay', reason: '老化' }),
+    ];
+    const row = wireRow({ versions: chain });
+    const text = [headerLine(), JSON.stringify(row)].join('\n') + '\n';
+    expect(runMemoryImport(text, dao)).toEqual({
+      inserted: 1,
+      skippedExisting: 0,
+      rejectedSecret: 0,
+      rejectedMalformed: 0,
+    });
+    const versions = dao.versions(row.id);
+    expect(versions).toHaveLength(2);
+    expect(versions.map((v) => v.revision)).toEqual([3, 5]); // 原值直搬——restore 参数跨机互操作前提
+    expect(versions[1]!.reason).toBe('老化');
+    expect(versions[1]!.createdAt).toBe(1_700_000_000_500); // 历史事实不自外来钟
+    // restore 到导入链 revision（跨机往返后回滚面可用——next revision = max+1 = 6）
+    const restored = dao.restore(row.id, 5);
+    expect(restored.status).toBe('active');
+    expect(dao.versions(row.id).at(-1)!.cause).toBe('rollback');
+    expect(dao.versions(row.id).at(-1)!.revision).toBe(6);
+    // 幂等二跑：id 已在整行跳过含链（版本行不重复）
+    expect(runMemoryImport(text, dao)).toEqual({
+      inserted: 0,
+      skippedExisting: 1,
+      rejectedSecret: 0,
+      rejectedMalformed: 0,
+    });
+    expect(dao.versions(row.id)).toHaveLength(3); // 直搬 2 + rollback 1——跳过不追加
+  });
+
+  it('v1 旧件判读收：formatVersion=1 + 无 valid_from/versions 键不折坏形（首版快造用本库钟）', () => {
+    const dao = setup();
+    const v1Row = wireRow(); // wireRow 基形即 v1 18 列——无 valid_from/versions
+    const text = [headerLine(), JSON.stringify(v1Row)].join('\n') + '\n'; // headerLine 恒 formatVersion=1
+    expect(runMemoryImport(text, dao)).toEqual({
+      inserted: 1,
+      skippedExisting: 0,
+      rejectedSecret: 0,
+      rejectedMalformed: 0,
+    });
+    const row = dao.get(v1Row.id)!;
+    expect(row.validFrom).toBeNull(); // 缺席按 NULL 收
+    const versions = dao.versions(v1Row.id);
+    expect(versions).toHaveLength(1); // 无链 → 首版快造
+    expect(versions[0]!.cause).toBe('insert');
+    expect(versions[0]!.revision).toBe(1);
+    expect(versions[0]!.createdAt).toBe(nowMs); // 本库时间线不自外来钟
+    // formatVersion=3 越界整文件拒（双收闭集外）
+    const badHeader = JSON.stringify({ ...JSON.parse(headerLine()), formatVersion: 3 });
+    expectCode(() => parseMemoryImportHeader(badHeader), 'MEMORY_IMPORT_FORMAT_INVALID');
+  });
+
+  it('versions 坏形行拒：revision 重复 / cause 非闭集 / reason 非串（行级 MEMORY_ENTRY_INVALID）', () => {
+    const dup = wireRow({ versions: [versionRow({ revision: 2 }), versionRow({ revision: 2 })] });
+    expectCode(() => parseMemoryImportRow(JSON.stringify(dup), 2), 'MEMORY_ENTRY_INVALID');
+    const badCause = wireRow({ versions: [versionRow({ cause: 'manual' as MemoryExportVersionRow['cause'] })] });
+    expectCode(() => parseMemoryImportRow(JSON.stringify(badCause), 2), 'MEMORY_ENTRY_INVALID');
+    const badReason = wireRow({ versions: [versionRow({ reason: 7 as unknown as string })] });
+    expectCode(() => parseMemoryImportRow(JSON.stringify(badReason), 2), 'MEMORY_ENTRY_INVALID');
   });
 });

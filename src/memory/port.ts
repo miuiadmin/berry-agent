@@ -2,8 +2,10 @@
  * memory 导入导出件（批 18c-8——06 §3 文件导入导出条 + 落码定形注）。
  *
  * **格式**：JSONL + 首行 header meta（magic 串 `berry-agent-memory`、
- * formatVersion 1——第一天定死不留旧格式兼容层）；数据行 = 蛇列名全列
- * （与 DDL 同源的持久互操作词面），全状态现行值按 id 升序确定性排列（可 diff）。
+ * formatVersion 2——批 ev-1 版本链随包升版；v1 旧件按版本判读收〔无
+ * versions/valid_from 键〕——判读靠 formatVersion 字段正是「第一天定死
+ * 不留旧格式匹配兼容层」的机制用途）；数据行 = 蛇列名全列（与 DDL 同源的
+ * 持久互操作词面），全状态现行值按 id 升序确定性排列（可 diff）。
  *
  * **导入 = 恢复式语义**：按 id 幂等（无此 id 直插；有则跳过零合并零覆写）；
  * 行级尽力而为四账（inserted/skippedExisting/rejectedSecret/
@@ -24,14 +26,18 @@ import {
   MEMORY_STATUSES,
   type MemoryExportHeader,
   type MemoryExportRow,
+  type MemoryExportVersionRow,
   type MemoryImportOutcome,
   type MemoryRow,
   type MemorySourceRef,
+  type MemoryVersionRow,
 } from './types.js';
 
-/** memory DAO 窄面（词面独立律——port 只消费导出取数与导入直插两法） */
+/** memory DAO 窄面（词面独立律——port 只消费导出取数、版本链读与导入直插三法） */
 export interface MemoryPortDaoFace {
   listForExport(ownerKey?: string): readonly MemoryRow[];
+  /** 版本链读面（批 ev-1——导出行内嵌 versions 随包） */
+  versions(memoryId: string): readonly MemoryVersionRow[];
   importInsert(row: MemoryExportRow): boolean;
 }
 
@@ -48,8 +54,8 @@ export function isWithinRoots(path: string, roots: readonly string[]): boolean {
   });
 }
 
-/** 驼峰行 → 蛇列 JSONL 行（词面与 DDL 同源；值形取解析形——source_refs 数组、frozen 布尔） */
-export function exportRowOf(row: MemoryRow): MemoryExportRow {
+/** 驼峰行 → 蛇列 JSONL 行（词面与 DDL 同源；值形取解析形——source_refs 数组、frozen 布尔；versions 批 ev-1 随包） */
+export function exportRowOf(row: MemoryRow, versions?: readonly MemoryVersionRow[]): MemoryExportRow {
   return {
     id: row.id,
     owner_key: row.ownerKey,
@@ -69,29 +75,55 @@ export function exportRowOf(row: MemoryRow): MemoryExportRow {
     frozen: row.frozen,
     ttl_days: row.ttlDays,
     expires_at: row.expiresAt,
+    valid_from: row.validFrom,
+    ...(versions !== undefined
+      ? {
+          versions: versions.map((v): MemoryExportVersionRow => ({
+            id: v.id,
+            revision: v.revision,
+            cause: v.cause,
+            reason: v.reason,
+            owner_key: v.ownerKey,
+            kind: v.kind,
+            summary: v.summary,
+            content: v.content,
+            confidence: v.confidence,
+            evidence_count: v.evidenceCount,
+            created_at: v.createdAt,
+          })),
+        }
+      : {}),
   };
 }
 
 /**
  * 导出序列化纯函数（header + 行按入参序确定性输出——同库两次导出文本
  * 恒等除 exportedAt；行已由 DAO 按 id 升序取数）。尾行换行收口（POSIX 文本件惯例）。
+ * versionsOf 注入位（批 ev-1——装配面恒接 dao.versions；缺省行不带 versions 键）。
  */
 export function serializeMemoryExport(
   meta: Omit<MemoryExportHeader, 'format' | 'formatVersion'>,
   rows: readonly MemoryRow[],
+  versionsOf?: (id: string) => readonly MemoryVersionRow[],
 ): string {
   const header: MemoryExportHeader = {
     format: MEMORY_EXPORT_MAGIC,
     formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
     ...meta,
   };
-  return [JSON.stringify(header), ...rows.map((row) => JSON.stringify(exportRowOf(row)))].join('\n') + '\n';
+  return (
+    [JSON.stringify(header), ...rows.map((row) => JSON.stringify(exportRowOf(row, versionsOf?.(row.id))))].join('\n') +
+    '\n'
+  );
 }
 
-/** header 坏形整文件拒（唯一 MEMORY_IMPORT_FORMAT_INVALID 抛点——判据：magic 不符或 formatVersion ≠ 1 或 meta 字段坏形） */
+/** header 坏形整文件拒（唯一 MEMORY_IMPORT_FORMAT_INVALID 抛点——判据：magic 不符或 formatVersion ∉ {1,2} 或 meta 字段坏形） */
 function invalidHeader(detail: string): BaseError {
   return new BaseError('MEMORY_IMPORT_FORMAT_INVALID', `导入文件 header 坏形整文件拒（${detail}）`);
 }
+
+/** formatVersion 可收值（批 ev-1——v1 旧件判读收；双收判定单源） */
+const FORMAT_VERSIONS: readonly number[] = [1, 2];
 
 /** 首行 header 解析（magic/formatVersion/exportedAt/ownerScope/ownerRoots 五字段全检） */
 export function parseMemoryImportHeader(line: string): MemoryExportHeader {
@@ -106,8 +138,8 @@ export function parseMemoryImportHeader(line: string): MemoryExportHeader {
   }
   const o = parsed as Record<string, unknown>;
   if (o['format'] !== MEMORY_EXPORT_MAGIC) throw invalidHeader(`magic 串不符：${String(o['format'])}`);
-  if (o['formatVersion'] !== MEMORY_EXPORT_FORMAT_VERSION) {
-    throw invalidHeader(`formatVersion ≠ ${MEMORY_EXPORT_FORMAT_VERSION}：${String(o['formatVersion'])}`);
+  if (!FORMAT_VERSIONS.includes(o['formatVersion'] as number)) {
+    throw invalidHeader(`formatVersion ∉ {1,2}：${String(o['formatVersion'])}`);
   }
   if (!Number.isInteger(o['exportedAt']) || (o['exportedAt'] as number) < 0) {
     throw invalidHeader(`exportedAt 坏形（非负整数）：${String(o['exportedAt'])}`);
@@ -124,7 +156,7 @@ export function parseMemoryImportHeader(line: string): MemoryExportHeader {
   }
   return {
     format: MEMORY_EXPORT_MAGIC,
-    formatVersion: MEMORY_EXPORT_FORMAT_VERSION,
+    formatVersion: o['formatVersion'] as MemoryExportHeader['formatVersion'],
     exportedAt: o['exportedAt'] as number,
     ownerScope: o['ownerScope'] as string,
     ownerRoots: roots as Record<string, string>,
@@ -232,6 +264,80 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
   if (expiresAt !== null && !isNonNegInt(expiresAt)) {
     problems.push(`expires_at 坏形（非负整数或 null）：${String(expiresAt)}`);
   }
+  // valid_from 容错位（批 ev-1——v1/早期 v2 旧件缺席按 NULL 收、不折坏形；在场须非负整数或 null）
+  const validFrom = o['valid_from'];
+  if (validFrom !== undefined && validFrom !== null && !isNonNegInt(validFrom)) {
+    problems.push(`valid_from 坏形（非负整数或 null）：${String(validFrom)}`);
+  }
+  // versions 随包链（批 ev-1——v1 旧件无此键缺席收；在场须数组且逐行词法全检）
+  const rawVersions = o['versions'];
+  let versions: readonly MemoryExportVersionRow[] | undefined;
+  if (rawVersions !== undefined) {
+    if (!Array.isArray(rawVersions)) {
+      problems.push('versions 坏形（数组）');
+    } else {
+      const parsedVersions: MemoryExportVersionRow[] = [];
+      const seenRevisions = new Set<number>();
+      for (const [i, raw] of rawVersions.entries()) {
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+          problems.push(`versions[${i}] 坏形（对象形）`);
+          break;
+        }
+        const v = raw as Record<string, unknown>;
+        const vProblems: string[] = [];
+        if (typeof v['id'] !== 'string' || v['id'] === '') vProblems.push('id 坏形（非空字符串）');
+        if (!Number.isInteger(v['revision']) || (v['revision'] as number) < 1) {
+          vProblems.push(`revision 坏形（正整数）：${String(v['revision'])}`);
+        } else if (seenRevisions.has(v['revision'] as number)) {
+          vProblems.push(`revision 重复：${String(v['revision'])}`);
+        } else {
+          seenRevisions.add(v['revision'] as number);
+        }
+        if (v['cause'] !== 'insert' && v['cause'] !== 'merge' && v['cause'] !== 'decay' && v['cause'] !== 'rollback') {
+          vProblems.push(`cause 非四值闭集：${String(v['cause'])}`);
+        }
+        if (v['reason'] !== null && v['reason'] !== undefined && typeof v['reason'] !== 'string') {
+          vProblems.push(`reason 坏形（字符串或 null）：${String(v['reason'])}`);
+        }
+        if (typeof v['owner_key'] !== 'string' || v['owner_key'] === '') vProblems.push('owner_key 坏形（非空字符串）');
+        if (typeof v['kind'] !== 'string' || !MEMORY_KINDS.includes(v['kind'] as MemoryExportRow['kind'])) {
+          vProblems.push(`kind 非七值闭集：${String(v['kind'])}`);
+        }
+        if (typeof v['summary'] !== 'string' || v['summary'] === '') vProblems.push('summary 坏形（非空字符串）');
+        if (typeof v['content'] !== 'string' || v['content'] === '') vProblems.push('content 坏形（非空字符串）');
+        if (
+          typeof v['confidence'] !== 'number' ||
+          !Number.isFinite(v['confidence']) ||
+          v['confidence'] < 0 ||
+          v['confidence'] > 1
+        ) {
+          vProblems.push(`confidence 越界 [0,1]：${String(v['confidence'])}`);
+        }
+        if (!isNonNegInt(v['evidence_count']) || (v['evidence_count'] as number) < 1) {
+          vProblems.push(`evidence_count 坏形（≥1 整数）：${String(v['evidence_count'])}`);
+        }
+        if (!isNonNegInt(v['created_at'])) vProblems.push(`created_at 坏形（非负整数）：${String(v['created_at'])}`);
+        if (vProblems.length > 0) {
+          problems.push(`versions[${i}]：${vProblems.join('；')}`);
+          break;
+        }
+        parsedVersions.push({
+          id: v['id'] as string,
+          revision: v['revision'] as number,
+          cause: v['cause'] as MemoryExportVersionRow['cause'],
+          reason: (v['reason'] as string | null | undefined) ?? null,
+          owner_key: v['owner_key'] as string,
+          kind: v['kind'] as MemoryExportVersionRow['kind'],
+          summary: v['summary'] as string,
+          content: v['content'] as string,
+          confidence: v['confidence'] as number,
+          evidence_count: v['evidence_count'] as number,
+          created_at: v['created_at'] as number,
+        });
+      }
+      if (parsedVersions.length === rawVersions.length) versions = parsedVersions;
+    }
+  }
   if (problems.length > 0) throw invalidRow(lineNo, problems.join('；'));
   return {
     id: id!,
@@ -252,6 +358,8 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
     frozen: frozen as boolean,
     ttl_days: (ttlDays as number | null) ?? null,
     expires_at: (expiresAt as number | null) ?? null,
+    ...(validFrom !== undefined ? { valid_from: (validFrom as number | null) ?? null } : {}),
+    ...(versions !== undefined ? { versions } : {}),
   };
 }
 
@@ -293,5 +401,7 @@ export function buildMemoryExport(
   return serializeMemoryExport(
     { exportedAt: opts.now, ownerScope: opts.ownerKey ?? 'all', ownerRoots: opts.ownerRoots },
     rows,
+    // 批 ev-1——版本链随包导出（跨机往返后 restore revision 回滚面的前提）
+    (id) => dao.versions(id),
   );
 }

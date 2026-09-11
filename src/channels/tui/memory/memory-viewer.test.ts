@@ -42,6 +42,7 @@ function row(id: string, over: Partial<MemoryRowFace> = {}): MutRow {
     supersededBy: null,
     updatedAt: T0,
     frozen: false,
+    validFrom: null,
     ...over,
   };
 }
@@ -73,8 +74,8 @@ function makeDao(rows: MutRow[], calls: string[]) {
     return r;
   };
   return {
-    listVisible(ownerKeys?: readonly string[]) {
-      calls.push(`listVisible:${ownerKeys?.join(',') ?? ''}`);
+    listVisibleForManagement(ownerKeys?: readonly string[]) {
+      calls.push(`listVisibleForManagement:${ownerKeys?.join(',') ?? ''}`);
       return rows.filter((r) => r.status === 'active' && (ownerKeys === undefined || ownerKeys.includes(r.ownerKey)));
     },
     listForExport() {
@@ -530,7 +531,7 @@ describe('刷新重取与光标锚定（动词成功后整表重取）', () => {
     viewer.handleEvent(text('f'));
     const after = calls.slice(before);
     expect(after.filter((c) => c === 'overview')).toHaveLength(1);
-    expect(after.filter((c) => c.startsWith('listVisible:'))).toHaveLength(1);
+    expect(after.filter((c) => c.startsWith('listVisibleForManagement:'))).toHaveLength(1);
     expect(after.filter((c) => c === 'listForExport')).toHaveLength(1);
     expect(after).toContain('freeze:maaaaaaa');
   });

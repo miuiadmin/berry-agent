@@ -305,7 +305,9 @@ export function createConsolidator(deps: ConsolidateDeps): Consolidator {
           continue;
         }
         try {
-          dao.absorb(m.keep, m.drop); // 血缘继承 + drop 终态 llm:<keep> 内联
+          // 血缘继承 + drop 终态 llm:<keep> 内联；批 ev-1 reason 入链——护栏
+          // 校验后的 LLM 建议组 reason 随版本行持久化（用完即弃 → durable 因由）
+          dao.absorb(m.keep, m.drop, m.reason);
           merged++;
         } catch {
           ignoredSuggestions++; // 执行期拒（并发终态等）——吞不反噬
@@ -326,7 +328,9 @@ export function createConsolidator(deps: ConsolidateDeps): Consolidator {
           continue;
         }
         try {
-          dao.decay(d.id, decayFactor); // confidence × factor + 版本 cause='decay'
+          // confidence × factor + 版本 cause='decay'；批 ev-1——decay 判据描述
+          // （护栏校验后的 LLM 自由文本 reason）随版本行持久化
+          dao.decay(d.id, decayFactor, d.reason);
           decayed++;
         } catch {
           ignoredSuggestions++;

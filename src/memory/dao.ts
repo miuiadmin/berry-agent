@@ -11,9 +11,12 @@
  * 版本链 INSERT 同事务——06 §3「不许只写一边」〕）；better-sqlite3 同步 API，
  * 全件同步零 await。
  *
- * **TTL 读面谓词**（06 §3 单一来源）：一切读面统一过滤
- * `status='active' AND (frozen=1 OR expires_at IS NULL OR expires_at > now)`；
- * 合并目标扫描叠加 frozen=0（frozen 豁免三分支——候选撞冻结行作独立新条目）。
+ * **TTL 读面谓词两形**（06 §3 单一来源；批 ev-1 生效起点条扩形——冷读闸 M2
+ * 拆形）：注入形 = `status='active' AND (frozen=1 OR expires_at IS NULL OR
+ * expires_at > now) AND (valid_from IS NULL OR valid_from <= now)`——一切进
+ * 模型上下文与效用计量的面；管理形 = TTL 段 only（/memory 活体区、谱系、
+ * 导出）。合并目标扫描管理形 + frozen=0 叠加（frozen 豁免三分支——候选撞
+ * 冻结行作独立新条目；起点段同样不过滤——新证据并入未生效 keep 行）。
  *
  * 时钟与 id 生成注入（goal 先例同律——测试确定性）；uuid v7 手卷（时间有序
  * 主键，06 §3 DDL 注——crypto 随机位、无第三方依赖）。
@@ -47,6 +50,7 @@ import {
   type MemoryCandidate,
   type MemoryExportRow,
   type MemoryKind,
+  type MemoryLineage,
   type MemoryReadOverview,
   type MemoryRow,
   type MemorySearchHit,
@@ -93,10 +97,14 @@ export interface MemoryDao {
   ingest(candidate: MemoryCandidate): IngestOutcome;
   /** 按 id 直取（不过滤——管理面用，含终态行） */
   get(id: string): MemoryRow | undefined;
-  /** 可见条目清单（TTL 谓词统一过滤；ownerKeys 限定 = owner 并集读） */
+  /** 可见条目清单（**注入形**——TTL 段 AND 起点段；ownerKeys 限定 = owner 并集读；常驻简报与 memory_read 无 id 腿消费） */
   listVisible(ownerKeys?: readonly string[]): MemoryRow[];
+  /** 可见条目清单管理形（TTL 段 only——未生效行可见；/memory 活体区消费——批 ev-1 M2 拆形） */
+  listVisibleForManagement(ownerKeys?: readonly string[]): MemoryRow[];
   /** 版本链读面（revision 升序） */
   versions(memoryId: string): MemoryVersionRow[];
+  /** 谱系查询（id → 现行值 + 版本链 + 前身链 + 后继解析三链一读——管理面直读不过滤；批 ev-1） */
+  lineage(id: string): MemoryLineage;
   /** FTS 全量重建（投影卫生面——可丢弃可重建纪律） */
   rebuildFts(): void;
 
@@ -127,13 +135,13 @@ export interface MemoryDao {
    * forget('llm:<keepId>')。自指/frozen 任一侧/非在册行拒。FTS 零触达
    * （summary/content 不变——external-content 只同步文本面变更）。
    */
-  absorb(keepId: string, dropId: string): MemoryRow;
+  absorb(keepId: string, dropId: string, reason?: string | null): MemoryRow;
   /**
    * 降权物化：confidence × factor，**不刷 updated_at**（降权不是新证据——防
    * 反复 decay 把条目「洗新」出老化候选集）；版本链追加 cause='decay'。
    * factor ∈ (0,1]；frozen/非在册拒。
    */
-  decay(id: string, factor: number): MemoryRow;
+  decay(id: string, factor: number, reason?: string | null): MemoryRow;
   /**
    * TTL 物化 + 访问日志窗口清扫（批 18c-8 双清同拍单事务——06 §3 定形注）：
    * ① active 且非 frozen 且 expires_at ≤ now 的行 → status='expired'、
@@ -192,11 +200,13 @@ export interface MemoryDao {
   /**
    * 导入直插（状态面第二写点——内容面插入/合并路径唯一不变）：单事务三写
    * = memories 全列直插（id/owner_key/状态列原值含 dismissed/expired/frozen）
-   * + FTS 投影 + 版本链首版 cause='insert'（「插入即落首版无链空窗」对导入
-   * 位同罩——快照内容面取导入行原值，版本行 id/created_at 用本库 now〔本库
-   * 时间线不自外来钟〕）。id 已在库 → 整行跳过返回 false（恢复式幂等零合并
-   * 零覆写）。行形校验归 port.parseMemoryImportRow（词法判定单点）；写前
-   * secret 扫描在此单点执法（导入面即写入面——没有绕过扫描的写入方）。
+   * + FTS 投影 + 版本链（批 ev-1 双路：随包 versions 非空 → 按 revision 升序
+   * 原值直搬重建链〔id/revision/cause/reason/created_at 全原值——revision 原值
+   * 是 restore 参数跨机互操作的前提〕；无链 → 首版快造 cause='insert'〔快照
+   * 内容面取导入行原值，版本行 id/created_at 用本库 now——本库时间线不自外来
+   * 钟〕）。id 已在库 → 整行跳过返回 false（恢复式幂等零合并零覆写**含链**）。
+   * 行形校验归 port.parseMemoryImportRow（词法判定单点）；写前 secret 扫描
+   * 在此单点执法（导入面即写入面——没有绕过扫描的写入方）。
    */
   importInsert(row: MemoryExportRow): boolean;
 }
@@ -222,12 +232,30 @@ interface MemoryDbRow {
   frozen: number;
   ttl_days: number | null;
   expires_at: number | null;
+  valid_from: number | null;
 }
+
+/**
+ * TTL 读面谓词**两形**（批 ev-1——06 §3「生效起点」条落码切分面，冷读闸 M2
+ * 钉死；承冷读闸 o3 先抽单源再扩段——四处内联手抄自此归一）：
+ *
+ *   管理形 = TTL 段 only——管理与审计读面可见未生效行（/memory 活体区、谱系、
+ *            导出、访问流水）；合并目标扫描同形（§5 起点段不过滤——新证据
+ *            并入未生效 keep 行、起点不漂移）。
+ *   注入形 = TTL 段 AND 起点段——一切进模型上下文与效用计量的面（常驻简报、
+ *            memory_read 无 id 腿、memory_search 命中）。frozen **不豁免**
+ *            起点段（OR 只包住 TTL 段、AND 结构天然执法——m10 一锁双杀位）。
+ *
+ * 两形均带一个 now 绑定参数（注入形共两个——TTL 一个 + 起点一个）。
+ */
+const TTL_COND_MANAGEMENT = `(frozen = 1 OR expires_at IS NULL OR expires_at > ?)`;
+const TTL_COND_INJECT = `(frozen = 1 OR expires_at IS NULL OR expires_at > ?)
+       AND (valid_from IS NULL OR valid_from <= ?)`;
 
 /** memories 查列清单（单源——get/listVisible/目标扫描共用） */
 const MEMORY_COLUMNS = `id, owner_key, kind, summary, content, confidence, evidence_count, status,
                         superseded_by, source_refs, created_at, updated_at, usage_count,
-                        last_used_at, corrected_count, frozen, ttl_days, expires_at`;
+                        last_used_at, corrected_count, frozen, ttl_days, expires_at, valid_from`;
 
 /** source_refs 解析（坏形 JSON 按 [] 兜底——读面不炸、写面才执法） */
 function parseSourceRefs(raw: string): MemorySourceRef[] {
@@ -260,6 +288,7 @@ function mapRow(row: MemoryDbRow): MemoryRow {
     frozen: row.frozen === 1,
     ttlDays: row.ttl_days,
     expiresAt: row.expires_at,
+    validFrom: row.valid_from,
   };
 }
 
@@ -275,6 +304,7 @@ interface VersionDbRow {
   confidence: number;
   evidence_count: number;
   cause: string;
+  reason: string | null;
   created_at: number;
 }
 
@@ -291,6 +321,7 @@ function mapVersionRow(row: VersionDbRow): MemoryVersionRow {
     confidence: row.confidence,
     evidenceCount: row.evidence_count,
     cause: row.cause as MemoryVersionRow['cause'],
+    reason: row.reason,
     createdAt: row.created_at,
   };
 }
@@ -306,23 +337,25 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   const newId = deps.newId ?? (() => uuidv7(deps.now()));
 
   const stmtGet = db.prepare(`SELECT ${MEMORY_COLUMNS} FROM memories WHERE id = ?`);
+  // 注入形（listVisible 本体——常驻简报与 memory_read 无 id 腿共用的读面）
   const stmtListAll = db.prepare(
     `SELECT ${MEMORY_COLUMNS} FROM memories
-     WHERE status = 'active' AND (frozen = 1 OR expires_at IS NULL OR expires_at > ?)
+     WHERE status = 'active' AND ${TTL_COND_INJECT}
      ORDER BY updated_at DESC`,
   );
-  // 合并目标扫描（落码定形注：同 owner+kind、active、frozen=0、TTL 可见、updated_at DESC 首中即断）
+  // 合并目标扫描（落码定形注：同 owner+kind、active、frozen=0、TTL 可见、updated_at DESC 首中即断；
+  // **管理形**——起点段不过滤〔§5：新证据并入未生效 keep 行、起点不漂移〕）
   const stmtScanTargets = db.prepare(
     `SELECT ${MEMORY_COLUMNS} FROM memories
      WHERE owner_key = ? AND kind = ? AND status = 'active' AND frozen = 0
-       AND (expires_at IS NULL OR expires_at > ?)
+       AND ${TTL_COND_MANAGEMENT}
      ORDER BY updated_at DESC`,
   );
   const stmtInsertMemory = db.prepare(
     `INSERT INTO memories (id, owner_key, kind, summary, content, confidence, evidence_count,
                            status, superseded_by, source_refs, created_at, updated_at,
-                           ttl_days, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?)`,
+                           ttl_days, expires_at, valid_from)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?)`,
   );
   const stmtInsertFts = db.prepare(`INSERT INTO memory_fts (rowid, summary, content) VALUES (?, ?, ?)`);
   const stmtMergeAbsorb = db.prepare(
@@ -338,12 +371,12 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   );
   const stmtInsertVersion = db.prepare(
     `INSERT INTO memory_versions (id, memory_id, revision, owner_key, kind, summary, content,
-                                  confidence, evidence_count, cause, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                  confidence, evidence_count, cause, reason, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const stmtVersions = db.prepare(
     `SELECT id, memory_id, revision, owner_key, kind, summary, content, confidence,
-            evidence_count, cause, created_at
+            evidence_count, cause, reason, created_at
      FROM memory_versions WHERE memory_id = ? ORDER BY revision`,
   );
   const stmtRebuildFts = db.prepare(`INSERT INTO memory_fts (memory_fts) VALUES ('rebuild')`);
@@ -390,7 +423,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   const stmtSweepAccess = db.prepare(`DELETE FROM memory_access WHERE ts <= ?`);
   const stmtGetVersion = db.prepare(
     `SELECT id, memory_id, revision, owner_key, kind, summary, content, confidence,
-            evidence_count, cause, created_at
+            evidence_count, cause, reason, created_at
      FROM memory_versions WHERE memory_id = ? AND revision = ?`,
   );
   const stmtInsertAccess = db.prepare(
@@ -422,12 +455,27 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   const stmtListForExportOwner = db.prepare(`SELECT ${MEMORY_COLUMNS} FROM memories WHERE owner_key = ? ORDER BY id`);
   // 导入直插（全列 INSERT——id/owner_key/状态列原值；stmtInsertMemory 硬编码
   // 'active'/NULL 不可复用，导入是状态面第二写点故独立语句）；corrected_count
-  // 为容错位（旧 17 列文件缺席按 DEFAULT 0 收——port 解析面单点判定）
+  // 为容错位（旧 17 列文件缺席按 DEFAULT 0 收——port 解析面单点判定）、
+  // valid_from 同律容错（旧 18 列文件缺席按 NULL 收）
   const stmtImportInsert = db.prepare(
     `INSERT INTO memories (id, owner_key, kind, summary, content, confidence, evidence_count,
                            status, superseded_by, source_refs, created_at, updated_at,
-                           usage_count, last_used_at, corrected_count, frozen, ttl_days, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                           usage_count, last_used_at, corrected_count, frozen, ttl_days,
+                           expires_at, valid_from)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  // 导入链行直插（批 ev-1——随包 versions 原值直搬：id/revision/cause/reason/
+  // 快照六列/created_at 全原值。**revision 原值直搬是 restore 参数跨机互操作的
+  // 前提**；与无链行首版快造用本库 now 分立——历史事实不自造钟）
+  const stmtImportInsertVersion = db.prepare(
+    `INSERT INTO memory_versions (id, memory_id, revision, owner_key, kind, summary, content,
+                                  confidence, evidence_count, cause, reason, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  // 谱系前身反查（superseded_by 以 'llm:<本id>' 形指向本条的终态行——合并吸收
+  // 面与搬家前身；audit 面不过滤 valid_from——未生效行谱系照可查）
+  const stmtPredecessors = db.prepare(
+    `SELECT ${MEMORY_COLUMNS} FROM memories WHERE superseded_by = ? ORDER BY created_at DESC`,
   );
 
   /** 坏形拒（MEMORY_ENTRY_INVALID——闭集/形状/越界判据全清单） */
@@ -457,6 +505,11 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       (!Number.isInteger(candidate.ttlDays) || candidate.ttlDays < 1)
     ) {
       problems.push(`ttl_days 形违例（正整数或 null）：${candidate.ttlDays}`);
+    }
+    // valid_from 形（批 ev-1——Unix 毫秒整数或 null/缺席；ISO→毫秒转换在工具面，
+    // 此处只收毫秒形。工具面坏 ISO 拒 MEMORY_ENTRY_INVALID 与本判定同码同判据族）
+    if (candidate.validFrom !== undefined && candidate.validFrom !== null && !Number.isInteger(candidate.validFrom)) {
+      problems.push(`valid_from 形违例（Unix 毫秒整数或 null）：${String(candidate.validFrom)}`);
     }
     if (problems.length > 0) {
       throw new BaseError('MEMORY_ENTRY_INVALID', `记忆候选坏形拒：${problems.join('；')}`);
@@ -505,6 +558,9 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     },
     cause: MemoryVersionRow['cause'],
     now: number,
+    /** 因由叙述（批 ev-1 reason 入链——LLM absorb 携护栏校验后的建议 reason /
+     * decay 携判据描述；缺省 null：insert/rollback 与确定性三分支合并无自由文本） */
+    reason?: string | null,
   ): void {
     const revision = (stmtNextRevision.get(memoryId) as { next: number }).next;
     stmtInsertVersion.run(
@@ -518,6 +574,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       face.confidence,
       face.evidenceCount,
       cause,
+      reason ?? null,
       now,
     );
   }
@@ -533,6 +590,9 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     // ttl 标记即算（06 §7 memory_write 扩参——仅独立插入腿生效，合并腿不动既有策略）
     const ttlDays = candidate.ttlDays ?? null;
     const expiresAt = ttlDays !== null ? now + ttlDays * MEMORY_DAY_MS : null;
+    // 生效起点原值落库（批 ev-1——与 ttlDays 同律仅独立插入腿；合并吸收腿
+    // stmtMergeAbsorb 不写 valid_from，起点不漂移）
+    const validFrom = candidate.validFrom ?? null;
     const info = stmtInsertMemory.run(
       id,
       candidate.ownerKey,
@@ -546,6 +606,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       now,
       ttlDays,
       expiresAt,
+      validFrom,
     );
     // FTS external-content 同步：新行进投影（真身 rowid 即 lastInsertRowid）
     stmtInsertFts.run(Number(info.lastInsertRowid), candidate.summary, candidate.content);
@@ -675,7 +736,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   );
 
   /** absorb：显式合并物理动作（consolidation 执行腿——单事务：过继 + 版本 + drop 终态） */
-  const absorbTx = db.transaction((keepId: string, dropId: string): MemoryRow => {
+  const absorbTx = db.transaction((keepId: string, dropId: string, reason?: string | null): MemoryRow => {
     if (keepId === dropId) {
       throw new BaseError('MEMORY_ENTRY_INVALID', `absorb 自指拒（keep 与 drop 同 id）：${keepId}`);
     }
@@ -709,6 +770,8 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       },
       'merge',
       now,
+      // 批 ev-1 reason 入链：consolidation 携 §5 护栏校验后的 LLM 建议组 reason
+      reason ?? null,
     );
     // drop 终态（同事务内联——active 前置检查已等价 forget 终态短路的检查面）
     stmtDismissUser.run(`llm:${keepId}`, dropId);
@@ -716,7 +779,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   });
 
   /** decay：降权物化（confidence × factor + 版本 cause='decay'——不刷 updated_at） */
-  const decayTx = db.transaction((id: string, factor: number): MemoryRow => {
+  const decayTx = db.transaction((id: string, factor: number, reason?: string | null): MemoryRow => {
     if (!Number.isFinite(factor) || factor <= 0 || factor > 1) {
       throw new BaseError('MEMORY_ENTRY_INVALID', `decay factor 形违例（(0,1] 区间）：${factor}`);
     }
@@ -742,6 +805,8 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       },
       'decay',
       now,
+      // 批 ev-1 reason 入链：consolidation decay 判据描述（自由文本）
+      reason ?? null,
     );
     return reload(id);
   });
@@ -891,9 +956,10 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     if (problems.length > 0) {
       throw new BaseError('MEMORY_ENTRY_INVALID', `导入行坏形拒：${problems.join('；')}`);
     }
-    // —— 幂等判定：id 已在库整行跳过（恢复式语义——零合并零覆写）
+    // —— 幂等判定：id 已在库整行跳过（恢复式语义——零合并零覆写，**含链**：
+    // 在库行的随包版本链不重放不覆盖）
     if (stmtGet.get(row.id) !== undefined) return false;
-    // —— 三写一体（同事务：主表全列直插 + FTS external-content 投影 + 版本链首版）
+    // —— 三写一体（同事务：主表全列直插 + FTS external-content 投影 + 版本链）
     const info = stmtImportInsert.run(
       row.id,
       row.owner_key,
@@ -913,37 +979,87 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       row.frozen ? 1 : 0,
       row.ttl_days,
       row.expires_at,
+      row.valid_from ?? null,
     );
     stmtInsertFts.run(Number(info.lastInsertRowid), row.summary, row.content);
-    appendVersion(
-      row.id,
-      {
-        ownerKey: row.owner_key,
-        kind: row.kind,
-        summary: row.summary,
-        content: row.content,
-        confidence: row.confidence,
-        evidenceCount: row.evidence_count,
-      },
-      // 快照内容面取导入行原值；版本行 id/created_at 用本库 now——本库时间线不自外来钟
-      'insert',
-      deps.now(),
-    );
+    if (row.versions && row.versions.length > 0) {
+      // 批 ev-1 随包链重建：按 revision 升序逐行原值直搬（id/revision/cause/
+      // reason/快照六列/created_at 全原值——历史事实不自造钟；revision 原值是
+      // restore 参数跨机互操作的前提）。解析面已保证升序与词法，此处排序兜底。
+      for (const v of [...row.versions].sort((a, b) => a.revision - b.revision)) {
+        stmtImportInsertVersion.run(
+          v.id,
+          row.id,
+          v.revision,
+          v.owner_key,
+          v.kind,
+          v.summary,
+          v.content,
+          v.confidence,
+          v.evidence_count,
+          v.cause,
+          v.reason ?? null,
+          v.created_at,
+        );
+      }
+    } else {
+      // 无链行首版快造（18c-8 既有律）：快照内容面取导入行原值，版本行
+      // id/created_at 用本库 now——本库时间线不自外来钟
+      appendVersion(
+        row.id,
+        {
+          ownerKey: row.owner_key,
+          kind: row.kind,
+          summary: row.summary,
+          content: row.content,
+          confidence: row.confidence,
+          evidenceCount: row.evidence_count,
+        },
+        'insert',
+        deps.now(),
+      );
+    }
     return true;
   });
 
   /* ---------------- 检索与读面实装 ---------------- */
-  /** listVisible 本体（方法面与 overview 共用——TTL 谓词单源） */
+  /**
+   * listVisible 本体（**注入形**——批 ev-1 M2 拆形：常驻简报与 memory_read 无
+   * id 腿共用的读面，TTL 段 AND 起点段）。管理形消费方（/memory 活体区）走
+   * listVisibleForManagementImpl——两法同 SQL 骨架不同谓词形，直在本法扩段
+   * 会把管理面未生效行一并滤掉、静默违反 06 §6 呈现边界，故拆形。
+   */
   function listVisibleImpl(ownerKeys: readonly string[] | undefined): MemoryRow[] {
     const now = deps.now();
     if (!ownerKeys || ownerKeys.length === 0) {
-      return (stmtListAll.all(now) as MemoryDbRow[]).map(mapRow);
+      return (stmtListAll.all(now, now) as MemoryDbRow[]).map(mapRow);
     }
     // owner 并集读（单语句按需 prepare——owner 键组合开放、缓存无意义）
     const placeholders = ownerKeys.map(() => '?').join(', ');
     const stmt = db.prepare(
       `SELECT ${MEMORY_COLUMNS} FROM memories
-       WHERE status = 'active' AND (frozen = 1 OR expires_at IS NULL OR expires_at > ?)
+       WHERE status = 'active' AND ${TTL_COND_INJECT}
+         AND owner_key IN (${placeholders})
+       ORDER BY updated_at DESC`,
+    );
+    return (stmt.all(now, now, ...ownerKeys) as MemoryDbRow[]).map(mapRow);
+  }
+
+  /** listVisible 管理形（TTL 段 only——/memory 活体区：未生效行可见〔「N天后生效」标注位〕） */
+  function listVisibleForManagementImpl(ownerKeys: readonly string[] | undefined): MemoryRow[] {
+    const now = deps.now();
+    if (!ownerKeys || ownerKeys.length === 0) {
+      const stmt = db.prepare(
+        `SELECT ${MEMORY_COLUMNS} FROM memories
+         WHERE status = 'active' AND ${TTL_COND_MANAGEMENT}
+         ORDER BY updated_at DESC`,
+      );
+      return (stmt.all(now) as MemoryDbRow[]).map(mapRow);
+    }
+    const placeholders = ownerKeys.map(() => '?').join(', ');
+    const stmt = db.prepare(
+      `SELECT ${MEMORY_COLUMNS} FROM memories
+       WHERE status = 'active' AND ${TTL_COND_MANAGEMENT}
          AND owner_key IN (${placeholders})
        ORDER BY updated_at DESC`,
     );
@@ -957,8 +1073,13 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     if (sanitized === '') return [];
     const now = deps.now();
     const limit = clampLimit(opts?.limit, MEMORY_SEARCH_DEFAULT_LIMIT, MEMORY_SEARCH_MAX_LIMIT);
-    const conds = [`m.status = 'active'`, `(m.frozen = 1 OR m.expires_at IS NULL OR m.expires_at > ?)`];
-    const params: unknown[] = [`"${sanitized}"`, now];
+    // 注入形谓词（memory_search 命中进模型上下文——起点段同过滤；两 now：TTL + 起点）
+    const conds = [
+      `m.status = 'active'`,
+      `(m.frozen = 1 OR m.expires_at IS NULL OR m.expires_at > ?)
+       AND (m.valid_from IS NULL OR m.valid_from <= ?)`,
+    ];
+    const params: unknown[] = [`"${sanitized}"`, now, now];
     if (opts?.kind !== undefined) {
       conds.push(`m.kind = ?`);
       params.push(opts.kind);
@@ -1063,6 +1184,30 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     return { aggregates, flow };
   }
 
+  /**
+   * 谱系查询（批 ev-1 06 §7 memory_lineage——id 一站三链一读）。纯只读零迁移；
+   * 管理面直读语义：不做起点/终态过滤（未生效行谱系照可查——audit 面不过滤
+   * valid_from）。successor 解析三形：'llm:<id>' 可导航直取（缺席回退 marker
+   * 诚实呈现原记号——链断不造钟）；'skill:<名>' 指路名不导航；'user'/
+   * 'auto_resolved'/'ttl' 无目标形字面量呈现。active 行 null。
+   */
+  function lineageImpl(id: string): MemoryLineage {
+    const row = mustGet(id);
+    const versions = (stmtVersions.all(id) as VersionDbRow[]).map(mapVersionRow);
+    const predecessors = (stmtPredecessors.all(`llm:${id}`) as MemoryDbRow[]).map(mapRow);
+    let successor: MemoryLineage['successor'] = null;
+    if (row.supersededBy !== null) {
+      const llmTarget = row.supersededBy.startsWith('llm:') ? row.supersededBy.slice('llm:'.length) : null;
+      successor =
+        llmTarget !== null
+          ? (stmtGet.get(llmTarget) as MemoryDbRow | undefined) !== undefined
+            ? mapRow(stmtGet.get(llmTarget) as MemoryDbRow)
+            : { marker: row.supersededBy } // 链断（目标行缺席）——原记号诚实呈现
+          : { marker: row.supersededBy }; // 'skill:<名>'/'user'/'auto_resolved'/'ttl' 无目标形
+    }
+    return { row, versions, predecessors, successor };
+  }
+
   return {
     ingest(candidate) {
       validate(candidate); // 坏形拒在事务外（不入库不改库——纯请求面校验）
@@ -1075,6 +1220,10 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     listVisible(ownerKeys) {
       return listVisibleImpl(ownerKeys);
     },
+    /** 管理形（批 ev-1 M2 拆形——/memory 活体区消费；未生效行可见） */
+    listVisibleForManagement(ownerKeys) {
+      return listVisibleForManagementImpl(ownerKeys);
+    },
     versions(memoryId) {
       return (stmtVersions.all(memoryId) as VersionDbRow[]).map(mapVersionRow);
     },
@@ -1084,11 +1233,14 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     forget(id, opts) {
       return forgetTx(id, opts?.promotedToSkill, opts?.supersededBy);
     },
-    absorb(keepId, dropId) {
-      return absorbTx(keepId, dropId);
+    absorb(keepId, dropId, reason) {
+      return absorbTx(keepId, dropId, reason);
     },
-    decay(id, factor) {
-      return decayTx(id, factor);
+    decay(id, factor, reason) {
+      return decayTx(id, factor, reason);
+    },
+    lineage(id) {
+      return lineageImpl(id);
     },
     sweepExpired() {
       // 双清同拍单事务（TTL 物化 + 访问日志窗口清扫——纯状态变更不动 updated_at 不追加版本）

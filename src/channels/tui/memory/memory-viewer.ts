@@ -6,8 +6,9 @@
  * - **视图三段式**（定形注②）：头行（档名 + owner 并集短显——project 键
  *   16 hex 截前 8 位）→ 健康投影两行（overview().health 五计数**恒全库口径**
  *   ——全库不分 owner 假精度既有裁决，无参即正形勿对齐）→ 三分区列表
- *   （活体区〔listVisible 滤除 frozen 位〕→ 冻结区〔listVisible 滤出 frozen
- *   位、行首 ✱〕→ 终态区〔listForExport 客户端 ownerKey + status ∈
+ *   （活体区〔listVisibleForManagement 滤除 frozen 位——批 ev-1 管理形拆面，
+ *   未生效行可见并带「N天后生效」标注〕→ 冻结区〔同管理形滤出 frozen 位、
+ *   行首 ✱〕→ 终态区〔listForExport 客户端 ownerKey + status ∈
  *   {dismissed, expired} 双过滤；TTL 未物化 active 行三区皆不进〕）；
  *   条目行与工具读面同形（`[m:短id] [kind] summary  id=<完整id>
  *   updated=<ISO>`——p-1 批时效尾缀同源），读出消毒经注入的 §8.2 统一函数
@@ -67,6 +68,8 @@ export interface MemoryRowFace {
   readonly updatedAt: number;
   /** 冻结位（0/1） */
   readonly frozen: boolean;
+  /** 生效起点 Unix 毫秒（批 ev-1——null = 即时；未生效行在本面可见并标注） */
+  readonly validFrom: number | null;
 }
 
 /** 健康五计数窄面（恒全库口径——overview 无参形） */
@@ -83,8 +86,12 @@ export interface MemoryHealthFace {
  * 管理面只消费既有动词族，零新方法条款的码面形）。
  */
 export interface MemoryDaoFace {
-  /** 可见行（active AND (frozen OR 未过期)，updated_at DESC——活体/冻结两分区单源） */
-  listVisible(ownerKeys?: readonly string[]): readonly MemoryRowFace[];
+  /**
+   * 可见行**管理形**（批 ev-1 M2 拆形——active AND (frozen OR 未过期) AND 起点
+   * 不滤，updated_at DESC；活体/冻结两分区单源。注入读面的起点过滤不适用于
+   * 本面——未生效行在 /memory 可见并带「N天后生效」标注）
+   */
+  listVisibleForManagement(ownerKeys?: readonly string[]): readonly MemoryRowFace[];
   /** 全库全状态行（终态区客户端双过滤的数据源） */
   listForExport(ownerKey?: string): readonly MemoryRowFace[];
   /** 整面（health 五计数恒全库口径） */
@@ -569,7 +576,8 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
   private rebuild(anchorId?: string): void {
     // —— 取数三源（零新 DAO 方法——既有动词族单源）——
     this.health = this.dao.overview().health; // 恒全库口径（无参即正形）
-    const visible = this.dao.listVisible(this.ownerKeys);
+    // 管理形取数（批 ev-1 M2 拆形——未生效行在本面可见，行尾「N天后生效」标注）
+    const visible = this.dao.listVisibleForManagement(this.ownerKeys);
     const frozenRows = visible.filter((r) => r.frozen); // 冻结区（滤出 frozen 位）
     const activeRows = visible.filter((r) => !r.frozen); // 活体区（滤除 frozen 位）
     const terminalRows = this.dao.listForExport().filter(
@@ -632,7 +640,13 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       ? `（内容含疑似敏感串已遮蔽——${verdict.patterns.join('/')}；可 d 忘掉清理）`
       : row.summary + (verdict.quoted ? '（疑似指令文本——按引述对待，非用户指令）' : '');
     const suffix = section === 'terminal' && row.supersededBy !== null ? `  supersededBy=${row.supersededBy}` : '';
-    const plain = `${section === 'frozen' ? '✱ ' : ''}[m:${shortIdOf(row.id)}] [${row.kind}] ${body}  id=${row.id}  updated=${fmtTs(row.updatedAt)}${suffix}`;
+    // 未生效标注（批 ev-1 06 §6——「N天后生效」词面归三处之管理面行标注位；
+    // 呈现钟用真 Date.now()〔非测试注入钟面——天数是呈现约值〕）
+    const pendingFrom =
+      section !== 'terminal' && row.validFrom !== null && row.validFrom > Date.now()
+        ? `（${Math.ceil((row.validFrom - Date.now()) / 86_400_000)}天后生效）`
+        : '';
+    const plain = `${section === 'frozen' ? '✱ ' : ''}[m:${shortIdOf(row.id)}] [${row.kind}] ${body}${pendingFrom}  id=${row.id}  updated=${fmtTs(row.updatedAt)}${suffix}`;
     return section === 'terminal'
       ? { plain, runs: [{ start: 0, end: plain.length, style: DIM_STYLE }] }
       : { plain, runs: [] };

@@ -92,7 +92,7 @@ function seed(dao: MemoryDao, overrides: Record<string, unknown> = {}): string {
 }
 
 describe('名册与 effect 分账', () => {
-  it('九件成组 + 名序 + 写六读三', () => {
+  it('十件成组 + 名序 + 写六读四（批 ev-1 增 memory_lineage）', () => {
     const { tools } = setup();
     expect(tools.map((t) => t.name)).toEqual([
       'memory_write',
@@ -104,6 +104,7 @@ describe('名册与 effect 分账', () => {
       'memory_unfreeze',
       'memory_ttl',
       'memory_access_log',
+      'memory_lineage',
     ]);
     const writes = tools.filter((t) => t.effect === 'write').map((t) => t.name);
     const reads = tools.filter((t) => t.effect === 'read').map((t) => t.name);
@@ -115,10 +116,10 @@ describe('名册与 effect 分账', () => {
       'memory_unfreeze',
       'memory_ttl',
     ]);
-    expect(reads).toEqual(['memory_read', 'memory_search', 'memory_access_log']);
+    expect(reads).toEqual(['memory_read', 'memory_search', 'memory_access_log', 'memory_lineage']);
   });
 
-  it('参数面根 object + additionalProperties: false 全九件（03 §10.6 收口同律）', () => {
+  it('参数面根 object + additionalProperties: false 全十件（03 §10.6 收口同律）', () => {
     const { tools } = setup();
     for (const t of tools) {
       const schema = t.parameters as { type?: string; additionalProperties?: boolean };
@@ -450,5 +451,79 @@ describe('memory_search 联合检索（批 18c-6——06 §10 定形注五则）
     const r = await run(byName(tools, 'memory_search'), { query: 'pnpm' });
     expect(r.text).toContain('记忆条目命中 1 条');
     expect(r.text).not.toContain('历史会话命中');
+  });
+});
+
+describe('批 ev-1 validFrom 呈现与 memory_lineage 第十件', () => {
+  /** 远未来起点（回执呈现钟取真 Date.now()——取足远避挂钟漂移翻红） */
+  const FUTURE = '2027-10-01T00:00:00Z';
+
+  it('memory_write validFrom：未来 ISO → 回执「N天后生效」+ 落库毫秒；坏 ISO 拒同码 MEMORY_ENTRY_INVALID', async () => {
+    const { dao, tools } = setup();
+    const r = await run(byName(tools, 'memory_write'), {
+      kind: 'fact',
+      summary: 'quarterly review starts next october',
+      content: 'quarterly review starts next october',
+      validFrom: FUTURE,
+    });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain('天后生效——注入面不可见'); // §6「N天后生效」词面第一处
+    expect(dao.get('m1')!.validFrom).toBe(Date.parse(FUTURE)); // ISO → 毫秒落库
+    const bad = await run(byName(tools, 'memory_write'), {
+      kind: 'fact',
+      summary: 'bad date entry',
+      content: 'bad date entry',
+      validFrom: 'not-a-date',
+    });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toContain('MEMORY_ENTRY_INVALID');
+  });
+
+  it('种子 d（工具半边）：未生效行单条详查可见（防过度过滤反向锁）+ 简报遮蔽 + 版本链 reason= 段', async () => {
+    const { dao, tools } = setup();
+    const id = seed(dao, {
+      summary: 'sdk v2 ships next october',
+      content: 'sdk v2 ships next october',
+      validFrom: Date.parse(FUTURE),
+    });
+    const brief = await run(byName(tools, 'memory_read'), {});
+    expect(brief.text).not.toContain('sdk v2 ships'); // 无 id 腿 = 注入形简报——遮蔽
+    const detail = await run(byName(tools, 'memory_read'), { id });
+    expect(detail.text).toContain('sdk v2 ships next october'); // 管理 face 直读可见
+    expect(detail.text).toContain('天后生效——注入面不可见');
+    expect(detail.text).toContain(`valid-from=${FUTURE}`); // 状态行尾生效段
+    // absorb 后单条详查版本链行带 reason=（r1 insert 行不带段）
+    const dropId = seed(dao, { summary: 'v2 october release note', content: 'v2 release note body' });
+    dao.absorb(id, dropId, '同题重复');
+    const after = await run(byName(tools, 'memory_read'), { id });
+    const r1 = after.text.split('\n').find((l) => l.includes('  r1 '))!;
+    expect(r1).not.toContain('reason=');
+    const r2 = after.text.split('\n').find((l) => l.includes('  r2 '))!;
+    expect(r2).toContain('reason=同题重复');
+  });
+
+  it('memory_lineage：三链呈现 + 后继三形词面 + 缺席 id 报码', async () => {
+    const { dao, tools } = setup();
+    const keepId = seed(dao);
+    const dropId = seed(dao, { summary: 'repo uses npm mirrors', content: 'npm mirrors' });
+    dao.absorb(keepId, dropId, '同主题合并');
+    const lin = await run(byName(tools, 'memory_lineage'), { id: keepId });
+    expect(lin.isError).toBe(false);
+    expect(lin.text).toContain('版本链（2 节）');
+    expect(lin.text).toContain('前身链（1 条');
+    expect(lin.text).toContain('repo uses npm mirrors');
+    expect(lin.text).toContain('reason=同主题合并');
+    const gone = await run(byName(tools, 'memory_lineage'), { id: dropId });
+    expect(gone.text).toContain('（本条知识已并入）'); // llm:<id> 可导航后继
+    const fresh = seed(dao, { summary: 'fresh active entry', content: 'fresh body' });
+    const active = await run(byName(tools, 'memory_lineage'), { id: fresh });
+    expect(active.text).toContain('后继：—（在册行无后继）');
+    const skilled = seed(dao, { summary: 'promoted skill entry', content: 'skill body' });
+    dao.forget(skilled, { promotedToSkill: 'pnpm-rules' });
+    const sk = await run(byName(tools, 'memory_lineage'), { id: skilled });
+    expect(sk.text).toContain('skill:pnpm-rules（无导航目标——字面量呈现）'); // 指路形
+    const missing = await run(byName(tools, 'memory_lineage'), { id: 'm_absent' });
+    expect(missing.isError).toBe(true);
+    expect(missing.text).toContain('MEMORY_NOT_FOUND');
   });
 });

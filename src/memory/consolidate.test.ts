@@ -205,6 +205,33 @@ describe('DAO absorb（显式合并物理动作——06 §5 落码定形注）',
     dao.forget(c);
     expect(() => dao.absorb(a, c)).toThrowError(expect.objectContaining({ code: 'MEMORY_ENTRY_INVALID' })); // drop 已终态拒
   });
+
+  it('批 ev-1 种子 c：合并 reason 随版本行持久化（用完即弃 → durable 因由）；缺省 NULL', () => {
+    const dao = openDao();
+    const keepId = seed(dao);
+    const dropId = seed(dao, { summary: 'repo uses npm registry mirrors', content: 'npm mirrors body' });
+    dao.absorb(keepId, dropId, '同主题重复：同一偏好的两种表述');
+    const versions = dao.versions(keepId);
+    expect(versions.at(-1)!.cause).toBe('merge');
+    expect(versions.at(-1)!.reason).toBe('同主题重复：同一偏好的两种表述');
+    // 缺省不带 reason（机器可推导的因由是 cause 的职责）
+    const keep2 = seed(dao, { summary: 'third distinct entry', content: 'third body' });
+    const drop2 = seed(dao, { summary: 'fourth distinct entry', content: 'fourth body' });
+    dao.absorb(keep2, drop2);
+    expect(dao.versions(keep2).at(-1)!.reason).toBeNull();
+  });
+
+  it('批 ev-1：decay 判据描述入链；缺省 NULL', () => {
+    const dao = openDao();
+    const id = seed(dao, { confidence: 0.8 });
+    dao.decay(id, 0.7, '30 天零引用老化降权');
+    const v = dao.versions(id).at(-1)!;
+    expect(v.cause).toBe('decay');
+    expect(v.reason).toBe('30 天零引用老化降权');
+    const id2 = seed(dao, { summary: 'another distinct entry', content: 'another body' });
+    dao.decay(id2, 0.7);
+    expect(dao.versions(id2).at(-1)!.reason).toBeNull();
+  });
 });
 
 describe('DAO decay（降权物化——06 §5 落码定形注）', () => {

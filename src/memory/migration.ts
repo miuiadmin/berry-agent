@@ -130,10 +130,32 @@ const MEMORY_CORRECTED_MIGRATION: MigrationSpec = {
   `,
 };
 
-/** 表族四迁移槽（host 装配根机械聚合入宿主单链——05 §6.4；export-only 本面） */
+/**
+ * v11：时效与谱系两 ALTER 一体（批 ev-1——06 §3「生效起点」条 + memory_versions
+ * reason 行；2026-09-11 记忆自进化残余批）。**迁移号位**：统一链 head=10 下为
+ * v11——load-history v10（装载史 durable 载体批 h-2 已落码占号）之后；冷读闸
+ * M1 勘正（起草值 v10 系漏算 h-2 占号）。两 ALTER 存量行 NULL 自然回填、
+ * 行为零变。
+ *   ① memories 补 valid_from（生效起点 Unix 毫秒——NULL = 即时生效；起点未到
+ *      的读面分层过滤见 dao 谓词两形：注入形带起点段、管理形不带）；
+ *   ② memory_versions 补 reason（因由叙述自由文本 NULL 容错——merge 携护栏
+ *      校验后的 LLM 建议组 reason、decay 携判据描述、确定性三分支与
+ *      insert/rollback NULL）。
+ */
+const MEMORY_LINEAGE_MIGRATION: MigrationSpec = {
+  version: 11,
+  name: 'memory-lineage',
+  sql: `
+    ALTER TABLE memories ADD COLUMN valid_from INTEGER;
+    ALTER TABLE memory_versions ADD COLUMN reason TEXT;
+  `,
+};
+
+/** 表族迁移槽（host 装配根机械聚合入宿主单链——05 §6.4；export-only 本面） */
 export const MEMORY_MIGRATIONS: readonly MigrationSpec[] = [
   MEMORY_FAMILY_MIGRATION,
   MEMORY_UTILITY_MIGRATION,
   MEMORY_HOLDING_MIGRATION,
   MEMORY_CORRECTED_MIGRATION,
+  MEMORY_LINEAGE_MIGRATION,
 ];

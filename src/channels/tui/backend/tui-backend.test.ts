@@ -1308,12 +1308,13 @@ describe('TuiBackend /memory 副屏装配（setMemoryScreen / openMemory——mm
         supersededBy: null,
         updatedAt: 0,
         frozen: false,
+        validFrom: null,
       },
     ];
     return {
       ownerKeys: ['global'],
       dao: {
-        listVisible: () => rows,
+        listVisibleForManagement: () => rows,
         listForExport: () => rows,
         overview: () => ({ health: { active: 1, dismissed: 0, expired: 0, frozen: 0, total: 1 } }),
         forget: () => rows[0]!,

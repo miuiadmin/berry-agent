@@ -283,6 +283,12 @@ export interface MemoryCandidate {
    * 既有条目的持有策略（既有条目策略保持——receipt 面 action 可见合并结局）。
    */
   readonly ttlDays?: number | null;
+  /**
+   * 生效起点 Unix 毫秒（可选——批 ev-1「一列两解」：主解历史起点标注 /
+   * 副解前瞻知识；NULL = 即时生效）。与 ttlDays 同律落码定形注：仅在独立
+   * 插入腿生效，合并吸收腿**起点不漂移**（stmtMergeAbsorb 不写 valid_from）。
+   */
+  readonly validFrom?: number | null;
 }
 
 /** memories 表行（列全量驼峰形——DAO 读面统一映射） */
@@ -314,6 +320,12 @@ export interface MemoryRow {
   readonly ttlDays: number | null;
   /** 过期钟（Unix 毫秒，NULL = 不过期） */
   readonly expiresAt: number | null;
+  /**
+   * 生效起点（Unix 毫秒，NULL = 即时生效——批 ev-1 06 §3「生效起点」条）。
+   * 读面分层过滤（M2 切分面）：注入读面过滤「未生效」（谓词注入形）、管理/
+   * 审计读面可见（管理形）；frozen **不豁免**起点段（AND 结构天然执法）。
+   */
+  readonly validFrom: number | null;
 }
 
 /** memory_versions 表行（append-only 版本链） */
@@ -331,6 +343,13 @@ export interface MemoryVersionRow {
   readonly evidenceCount: number;
   /** 'insert' | 'merge' | 'decay' | 'rollback'（闭集） */
   readonly cause: 'insert' | 'merge' | 'decay' | 'rollback';
+  /**
+   * 因由叙述自由文本（批 ev-1 reason 入链——NULL 容错）：merge 携 §5 护栏
+   * 校验后的 LLM 建议组 reason / decay 携判据描述；insert/rollback 通常 NULL；
+   * **确定性三分支合并（exact/fuzzy）无 LLM 参与、reason NULL**——机器可推导
+   * 的因由是 cause 的职责，不为确定性分支造机器 reason。
+   */
+  readonly reason: string | null;
   /** Unix 毫秒 */
   readonly createdAt: number;
 }
@@ -513,8 +532,15 @@ export const MEMORY_ACCESS_WINDOW_DAYS = 90;
 /** 导出文件 magic 串（对外声明值位——品牌词例外律；持久互操作标识第一天定死） */
 export const MEMORY_EXPORT_MAGIC = 'berry-agent-memory';
 
+/**
+ * 导出格式版本可收值（批 ev-1 版本链随包导出升 1→2；v1 旧件无 versions/
+ * valid_from 键按版本判读收——「不留旧格式匹配兼容层」禁的是按形状猜格式，
+ * 判读靠 formatVersion 字段正是该机制用途）。
+ */
+export type MemoryExportFormatVersion = 1 | 2;
+
 /** 导出格式版本（formatVersion 非 version——版本链语境下 version 会被读成数据版本） */
-export const MEMORY_EXPORT_FORMAT_VERSION = 1;
+export const MEMORY_EXPORT_FORMAT_VERSION: MemoryExportFormatVersion = 2;
 
 /**
  * 导出文件首行 header meta（06 §3 导入导出条）。ownerScope = 'all' 或单
@@ -524,7 +550,8 @@ export const MEMORY_EXPORT_FORMAT_VERSION = 1;
  */
 export interface MemoryExportHeader {
   readonly format: typeof MEMORY_EXPORT_MAGIC;
-  readonly formatVersion: typeof MEMORY_EXPORT_FORMAT_VERSION;
+  /** 可收 1 | 2（v1 判读收——本库导出恒写当前版 2） */
+  readonly formatVersion: MemoryExportFormatVersion;
   /** Unix 毫秒 */
   readonly exportedAt: number;
   readonly ownerScope: string;
@@ -559,6 +586,58 @@ export interface MemoryExportRow {
   readonly frozen: boolean;
   readonly ttl_days: number | null;
   readonly expires_at: number | null;
+  /**
+   * 生效起点（**容错位**——批 ev-1 入列 18 → 19 列；导出恒写，导入缺席按
+   * NULL 收〔v1/早期 v2 件〕、在场须整数或 null）。
+   */
+  readonly valid_from?: number | null;
+  /**
+   * 版本链随包（批 ev-1——跨机往返后 restore revision 回滚面的前提；
+   * revision 升序、快照全列举）。v1 旧件无此键。
+   */
+  readonly versions?: readonly MemoryExportVersionRow[];
+}
+
+/**
+ * 导出行内嵌版本链行（蛇列名同律——id/revision/cause/reason/快照六列/
+ * created_at 全列举；导入**原值直搬**含 revision 与 created_at——历史事实
+ * 不自造钟，revision 原值是 restore 参数跨机互操作的前提）。
+ */
+export interface MemoryExportVersionRow {
+  readonly id: string;
+  readonly revision: number;
+  readonly cause: 'insert' | 'merge' | 'decay' | 'rollback';
+  readonly reason: string | null;
+  /** 快照六列（与 memory_versions 触发清单严格同集——不含持有面） */
+  readonly owner_key: string;
+  readonly kind: MemoryKind;
+  readonly summary: string;
+  readonly content: string;
+  readonly confidence: number;
+  readonly evidence_count: number;
+  readonly created_at: number;
+}
+
+/**
+ * 谱系查询返回（批 ev-1 06 §7 memory_lineage——id 一站三链一读；纯只读
+ * 零迁移，audit 面不过滤 valid_from——未生效行谱系可查）。
+ */
+export interface MemoryLineage {
+  /** 本条现行值（管理面直读——不做起点/终态过滤） */
+  readonly row: MemoryRow;
+  /** 版本链（revision 升序——memory_read 单条详查既有面的谱系归一） */
+  readonly versions: readonly MemoryVersionRow[];
+  /**
+   * 前身链：superseded_by 以 'llm:<本id>' 形指向本条的终态行（合并吸收面
+   * 与搬家前身），按 created_at 降序——多前身并存时新吸收在前。
+   */
+  readonly predecessors: readonly MemoryRow[];
+  /**
+   * 后继解析（本行若终态）：'llm:<id>' 可导航直取；'skill:<名>' 指路名
+   * 不导航；'user'/'auto_resolved'/'ttl' 无目标形字面量诚实呈现。本行
+   * active 时 null。
+   */
+  readonly successor: MemoryRow | { readonly marker: string } | null;
 }
 
 /** 导入行级四账（恢复式运维动词尽力而为 + 回执如实分账——坏形行不弃批） */
