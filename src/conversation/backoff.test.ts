@@ -32,9 +32,13 @@ describe('jitteredBackoff 指数退避 + 等比半幅抖动', () => {
 
 describe('abortableSleep 可中止睡眠', () => {
   it('睡满返回 true', async () => {
+    // 时长 25ms + 阈值 20ms（绝对容差 5ms）：Node 定时器「不早于」非硬保证（libuv
+    // 可提前约 1ms）+ Date.now 毫秒取整双端 ±1 + CI 慢机调度抖动——5ms 睡眠的
+    // 零容差断言在 CI 必翻（run 34605274869 实测 4 < 5）；容差只放宽下界读数，
+    // 「真睡了 20ms 量级而非零等返回」的语义不变
     const start = Date.now();
-    expect(await abortableSleep(5)).toBe(true);
-    expect(Date.now() - start).toBeGreaterThanOrEqual(5);
+    expect(await abortableSleep(25)).toBe(true);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(20);
   });
 
   it('已中止信号：立即返回 false（零等待）', async () => {
