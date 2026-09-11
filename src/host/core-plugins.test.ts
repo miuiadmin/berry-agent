@@ -1856,3 +1856,38 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     ]);
   });
 });
+
+describe('configFaceOf 配置声明面取值器（ix-3b/c——03 §1.2 表单腿消费源）', () => {
+  it('core 引用形 configSchema 在场 → { fields, hostDefaults }；无 schema / id 不在计划面 = undefined', async () => {
+    const boot = await bootPlugins({
+      runtime: stubRuntime(null),
+      version: 'test',
+      scope: Scope.createRoot(),
+      dispatch: new EventDispatch(),
+      commands: { register: () => () => undefined },
+      llm: { registerProvider: () => () => undefined },
+      corePlugins: [
+        {
+          name: 'cfg-demo',
+          apply: async () => undefined,
+          config: { mode: 'fast' },
+          configSchema: [
+            { key: 'mode', type: 'select', options: [{ value: 'fast', label: '快' }] },
+            { key: 'token', type: 'secret', required: true },
+          ],
+        },
+        { name: 'bare-demo', apply: async () => undefined },
+      ],
+    });
+    expect(boot.configFaceOf('core:cfg-demo')).toEqual({
+      fields: [
+        { key: 'mode', type: 'select', options: [{ value: 'fast', label: '快' }] },
+        { key: 'token', type: 'secret', required: true },
+      ],
+      hostDefaults: { mode: 'fast' },
+    });
+    expect(boot.configFaceOf('core:bare-demo')).toBeUndefined(); // 无声明配置面
+    expect(boot.configFaceOf('core:nope')).toBeUndefined(); // 不在计划面
+    expect(boot.configFaceOf('user-x')).toBeUndefined();
+  });
+});

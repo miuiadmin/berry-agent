@@ -26,6 +26,7 @@ import {
   readEnabledRowsForEdit,
   readLedger,
   removeLedgerEntry,
+  setRowConfig,
   toggleRow,
   unmountRow,
   upsertLedgerEntry,
@@ -398,6 +399,60 @@ describe('生命周期归因账落词（05 §1.1 audit 落账批——成功尾 
     expect(mountRow('/data', 'user-x', undefined, fs).ok).toBe(true);
     expect(toggleRow('/data', 'user-x', fs).ok).toBe(true);
     expect(unmountRow('/data', 'user-x', fs).ok).toBe(true);
+  });
+});
+
+describe('setRowConfig 行 config 整值替换（ix-3b/c 表单腿写盘点）', () => {
+  const sink: LifecycleAuditSink = () => undefined;
+
+  it('行在场：config 整值替换 + disabled/opens/doors 段全保真', () => {
+    const dir = '/dd-setrow';
+    const fs = memFs({
+      [`${dir}/enabled.yaml`]: [
+        'plugins:',
+        '  - id: demo',
+        '    disabled: true',
+        "    opens: ['sdk.register-route']",
+        'doors:',
+        '  - sessions.observe-cross',
+        '',
+      ].join('\n'),
+    });
+    const result = setRowConfig(dir, 'demo', { mode: 'fast' }, fs);
+    expect(result.ok).toBe(true);
+    const read = readEnabledRowsForEdit(dir, fs);
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.rows).toEqual([
+        { id: 'demo', config: { mode: 'fast' }, disabled: true, opens: ['sdk.register-route'] },
+      ]);
+      expect(read.doors).toEqual(['sessions.observe-cross']); // 静默抹段 = 静默收回用户授予
+    }
+  });
+
+  it('行不在场：core: overlay 新行合法（表单可预编待启用行）；用户 id 拒（先 mount）', () => {
+    const dir = '/dd-setrow-new';
+    const fs = memFs();
+    const core = setRowConfig(dir, 'core:exec', { limit: 5 }, fs);
+    expect(core.ok).toBe(true);
+    const read = readEnabledRowsForEdit(dir, fs);
+    if (read.ok) expect(read.rows).toEqual([{ id: 'core:exec', config: { limit: 5 } }]);
+
+    const user = setRowConfig(dir, 'demo', { a: 1 }, fs);
+    expect(user.ok).toBe(false);
+    if (!user.ok) expect(user.message).toContain('先走 /plugins mount');
+  });
+
+  it('config 非对象拒（防御位——表单腿产物恒对象）；整值替换非合并（旧键不残留）', () => {
+    const dir = '/dd-setrow-guard';
+    const fs = memFs();
+    expect(setRowConfig(dir, 'demo', 'flat', fs).ok).toBe(false);
+    expect(setRowConfig(dir, 'demo', [1], fs).ok).toBe(false);
+    mountRow(dir, 'demo', { old: 1, keep: 2 }, fs, sink);
+    const result = setRowConfig(dir, 'demo', { keep: 2 }, fs);
+    expect(result.ok).toBe(true);
+    const read = readEnabledRowsForEdit(dir, fs);
+    if (read.ok) expect(read.rows[0]!.config).toEqual({ keep: 2 }); // old 键随整值替换消失
   });
 });
 

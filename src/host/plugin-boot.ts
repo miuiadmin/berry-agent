@@ -72,6 +72,7 @@ import { createDeclarativeAgentTool } from '../subagent/index.js';
 import type { DelegationToolDeps } from '../subagent/index.js';
 
 import { clearBootFailure, recordBootFailure } from './boot-failures.js';
+import type { ConfigField } from './config-schema.js';
 import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
 import { loadPlugins } from './loader.js';
 import type { DiskPluginSpec } from './loader.js';
@@ -363,6 +364,14 @@ export interface PluginBootHandle {
    * diff 的取值源；名账口径 = 收口时点在册集，与世代行 tools 列同源）。
    */
   readonly toolsOf: (pluginId: string) => readonly string[];
+  /**
+   * 配置声明面取值器（ix-3——03 §1.2 表单腿消费源）：configSchema 在场
+   * 插件返回 { fields, hostDefaults }（禁用行照答——表单可预编待启用行）；
+   * 无声明配置面（fields 缺席）或 id 不在计划面 = undefined。
+   */
+  readonly configFaceOf: (
+    pluginId: string,
+  ) => { readonly fields: readonly ConfigField[]; readonly hostDefaults?: unknown } | undefined;
   /** 提示词段注册表（消费腿 = assembly pluginSections 取值器 → driver systemPrompt 装配位） */
   readonly promptSections: PromptSectionRegistry;
 }
@@ -421,6 +430,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       counts: { total: 0, enabled: 0, failed: 0 },
       tools,
       toolsOf: () => [],
+      configFaceOf: () => undefined,
       promptSections,
     };
   }
@@ -723,6 +733,15 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     },
     tools,
     toolsOf: toolLedger.toolsOf,
+    // 配置声明面取值器（ix-3）：plan 行直取双轨——core: 引用形 / 磁盘 manifest；
+    // 换代取值器闭包（/reload 后即新代声明面）
+    configFaceOf: (pluginId) => {
+      const row = plan.find((r) => r.id === pluginId);
+      if (row === undefined) return undefined;
+      const fields = row.kind === 'core' ? row.reference.configSchema : row.manifest.configSchema;
+      if (fields === undefined) return undefined;
+      return { fields, hostDefaults: row.kind === 'core' ? row.reference.config : row.manifest.config };
+    },
     promptSections,
   };
 }

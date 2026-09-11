@@ -62,6 +62,7 @@ import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
 import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from './plugin-reload.js';
 import type { PluginReloader } from './plugin-reload.js';
 import { PLUGINS_CMD_USAGE, runPluginsCommand } from './plugins-command.js';
+import { runPluginConfigForm } from './plugins-config.js';
 import { DOORS_USAGE, parseDoorsArgv, runDoorsCommand } from './doors-cmd.js';
 import { createDefaultSpawnRunner, createPluginLifecycleTools } from './plugin-tools.js';
 import { createPluginStoreFs } from './plugin-store.js';
@@ -975,10 +976,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 阻塞——行编辑已生效）、成功尾自动链 reloader（03 §5.2）、内存装载
     // 报告取值器（list 读面——换代取值器闭包，/reload 后即新代投影）。
     // 回执经 notify 归因 'plugins'（与 'reload'/'tick'/'credentials' 同律）。
+    // config 表单腿（ix-3b/c）：问询走本会话 ask 通道（args.sessionId 绑定
+    // ——表单需会话锚，缺席诚实拒）；secret 写凭证盒 + credentials/changed
+    // 审计与 c-5 人面同律（值恒不入载荷）。
     stack.channels.commands.register(
       'plugins',
       async (args) => {
-        const outcome = runPluginsCommand(args.argv, {
+        const outcome = await runPluginsCommand(args.argv, {
           dataDir,
           fs: createPluginStoreFs(),
           auditSink: (type, payload) => {
@@ -992,6 +996,33 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           },
           requestReload: () => void reloader.request(),
           report: () => boot?.report,
+          configForm:
+            dataDir === null
+              ? undefined // 纯 memory 形在命令层已拒（此位结构性不达——防御缺省）
+              : (id) => {
+                  if (args.sessionId === undefined) {
+                    return Promise.resolve({
+                      ok: false,
+                      text: 'config 表单需会话锚（此命令面无发起会话——问询无法投递）——TUI 会话内执行 /plugins config',
+                    });
+                  }
+                  const sessionId = args.sessionId;
+                  return runPluginConfigForm(id, {
+                    dataDir,
+                    fs: createPluginStoreFs(),
+                    configFaceOf: (pluginId) => boot?.configFaceOf(pluginId),
+                    ask: {
+                      confirm: (message, opts) => stack.channels.confirm(sessionId, message, opts),
+                      select: (message, choices, opts) => stack.channels.select(sessionId, message, choices, opts),
+                      input: (message, opts) => stack.channels.input(sessionId, message, opts),
+                    },
+                    getCredential: (namespace, name) => runtimeNow.persistence.store.getCredential(namespace, name),
+                    setCredential: (namespace, name, entry) =>
+                      runtimeNow.persistence.store.setCredential(namespace, name, entry),
+                    onCredentialChanged: (payload) => audit.append('credentials/changed', { ...payload }),
+                    requestReload: () => void reloader.request(),
+                  });
+                },
         });
         void stack.channels.notify('plugins', outcome.text);
       },

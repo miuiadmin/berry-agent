@@ -384,6 +384,37 @@ export function toggleRow(
 }
 
 /**
+ * setRowConfig：行 config 键整值替换（ix-3——03 §1.2 表单腿写盘位）。
+ * 保行内其余字段原样（disabled/opens——整值替换只及 config 键）+ doors 段
+ * 往返保真。行不在场：core: id = overlay 新行合法（内置态无行，写 config
+ * 即立 overlay 行）；用户 id = 拒（未启用行编辑 = 先 mount——表单对不在
+ * 启用面的用户插件诚实指路，不凭空造行）。
+ *
+ * 审计词缺席注记：生命周期五词（05 §1.1）辖装机/挂载/卸下/翻转/更新五
+ * 动词——config 编辑不在六动词面（ix-1 规范笔未立词）；secret 写凭证盒
+ * 有自有审计道（credentials/changed seam——表单腿装配位接线）。
+ */
+export function setRowConfig(dataDir: string, id: string, config: unknown, fs: PluginStoreFs): RowEditResult {
+  const read = readEnabledRowsForEdit(dataDir, fs);
+  if (!read.ok) return read;
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+    return { ok: false, message: 'config 须为对象（整值替换非合并）——表单腿产物恒对象，此处为防御位' };
+  }
+  const rows = [...read.rows];
+  const index = rows.findIndex((row) => row.id === id);
+  if (index === -1) {
+    if (!id.startsWith('core:')) {
+      return { ok: false, message: `插件 ${id} 不在启用面——config 编辑先走 /plugins mount（不凭空造行）` };
+    }
+    rows.push({ id, config });
+  } else {
+    rows[index] = { ...rows[index]!, config };
+  }
+  writeEnabledRows(dataDir, rows, read.doors, fs);
+  return { ok: true };
+}
+
+/**
  * enabled.yaml 原子写（yaml 序列化——与读侧形状对偶）。doors 段原样携带
  * （开门制扩展批 2026-09-09——03 §5.3 行编辑与段编辑全文件形状往返保真律：
  * 行编辑腿〔mount/uninstall/toggle〕重写本文件时 doors 段必须保真，静默抹段

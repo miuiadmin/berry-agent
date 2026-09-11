@@ -28,11 +28,12 @@ import { mountRow, readLedger, toggleRow, unmountRow } from './plugin-store.js';
 import type { LifecycleAuditSink, PluginStoreFs } from './plugin-store.js';
 
 /** 用法说明（命令描述位 + 未知动词回执共用单源） */
-export const PLUGINS_CMD_USAGE = `/plugins list | mount <id> | unmount <id> | toggle <id>
+export const PLUGINS_CMD_USAGE = `/plugins list | mount <id> | unmount <id> | toggle <id> | config <id>
   list                装载态清单三分区（启用/失败/禁用——内存读面零磁盘）
   mount <id>          挂载已装机插件（成功尾自动链 /reload）
   unmount <id>        卸下（装机保留——成功尾自动链 /reload）
   toggle <id>         禁用态翻转（成功尾自动链 /reload）
+  config <id>         配置表单（configSchema 逐字段问答——secret 入凭证盒）
 （install/uninstall/update 走 CLI：berry-agent plugins <sub>——03 §5.8 三面同源）`;
 
 /** 结算形（ok 位留 CLI 对等面/测试分档；TUI 装配面只消费 text） */
@@ -53,6 +54,11 @@ export interface PluginsCommandDeps {
   readonly requestReload: () => void;
   /** 装载报告取值器（换代取值器——/reload 后即新代投影） */
   readonly report: () => LoadReport | undefined;
+  /**
+   * config 表单腿（ix-3b/c——plugins-config.ts 编排，sessionId 由装配面绑定；
+   * 缺席 = 此面无问询通道（CLI 对等面/无发起会话形），诚实回执不装样子）。
+   */
+  readonly configForm?: (id: string) => Promise<PluginsCommandOutcome>;
 }
 
 /** list 三分区渲染（CLI list 同构输出——两面同源人读形） */
@@ -89,14 +95,34 @@ function mountPreflight(id: string, deps: PluginsCommandDeps): string | undefine
 }
 
 /**
- * `/plugins` 命令面主入口（argv → 结算形）。行编辑失败零副作用（无变更不造账
- * 不链 reload）；成功尾序 = audit 落账 → 自动链 /reload → 回执。
+ * `/plugins` 命令面主入口（argv → 结算形；async——config 表单腿问询在途）。
+ * 行编辑失败零副作用（无变更不造账不链 reload）；成功尾序 = audit 落账 →
+ * 自动链 /reload → 回执。
  */
-export function runPluginsCommand(argv: readonly string[], deps: PluginsCommandDeps): PluginsCommandOutcome {
+export async function runPluginsCommand(
+  argv: readonly string[],
+  deps: PluginsCommandDeps,
+): Promise<PluginsCommandOutcome> {
   const verb = argv[0];
   // list：读内存投影——dataDir null 与 noPlugins 形均诚实呈现（零写面）
   if (verb === 'list') {
     return { ok: true, text: renderList(deps.report()) };
+  }
+  if (verb === 'config') {
+    const id = argv[1];
+    if (id === undefined || id === '') {
+      return { ok: false, text: `用法错——缺 <id>。\n${PLUGINS_CMD_USAGE}` };
+    }
+    if (deps.dataDir === null) {
+      return { ok: false, text: '纯 memory 诊断形无数据目录——写动词不可用（行编辑无落点）' };
+    }
+    if (deps.configForm === undefined) {
+      return {
+        ok: false,
+        text: 'config 表单腿未装配（此命令面无发起会话/问询通道）——TUI 会话内 /plugins config 或手编 enabled.yaml',
+      };
+    }
+    return deps.configForm(id);
   }
   if (verb === 'mount' || verb === 'unmount' || verb === 'toggle') {
     if (deps.dataDir === null) {

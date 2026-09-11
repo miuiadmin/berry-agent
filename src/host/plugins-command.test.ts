@@ -68,23 +68,23 @@ function rig(overrides: Partial<PluginsCommandDeps> & { dir?: string } = {}): {
 }
 
 describe('用法与 list 读面', () => {
-  it('未知动词 → 用法回执（含 install 指路 CLI 句）', () => {
+  it('未知动词 → 用法回执（含 install 指路 CLI 句）', async () => {
     const rig_ = rig();
-    const out = runPluginsCommand(['frobnicate'], rig_.deps);
+    const out = await runPluginsCommand(['frobnicate'], rig_.deps);
     expect(out.ok).toBe(false);
     expect(out.text).toContain(PLUGINS_CMD_USAGE);
     expect(rig_.reloads()).toBe(0); // 零链
   });
 
-  it('mount 缺 <id> → 用法错', () => {
+  it('mount 缺 <id> → 用法错', async () => {
     const rig_ = rig();
-    const out = runPluginsCommand(['mount'], rig_.deps);
+    const out = await runPluginsCommand(['mount'], rig_.deps);
     expect(out.ok).toBe(false);
     expect(out.text).toContain('缺 <id>');
     expect(rig_.reloads()).toBe(0);
   });
 
-  it('list：报告投影三分区渲染（含技能目录行与失败分区）', () => {
+  it('list：报告投影三分区渲染（含技能目录行与失败分区）', async () => {
     const rig_ = rig();
     const deps: PluginsCommandDeps = {
       ...rig_.deps,
@@ -98,7 +98,7 @@ describe('用法与 list 读面', () => {
           [{ id: 'core:off', reason: 'disabled' }],
         ),
     };
-    const out = runPluginsCommand(['list'], deps);
+    const out = await runPluginsCommand(['list'], deps);
     expect(out.ok).toBe(true);
     expect(out.text).toContain('启用（2）：');
     expect(out.text).toContain('core:demo  技能目录：/a/skills、/b/skills');
@@ -110,42 +110,42 @@ describe('用法与 list 读面', () => {
     expect(out.text).toContain('user-x');
   });
 
-  it('list：报告缺席（noPlugins 形）诚实呈现', () => {
+  it('list：报告缺席（noPlugins 形）诚实呈现', async () => {
     const rig_ = rig();
-    const out = runPluginsCommand(['list'], rig_.deps);
+    const out = await runPluginsCommand(['list'], rig_.deps);
     expect(out.ok).toBe(true);
     expect(out.text).toContain('装载面未装配');
   });
 
-  it('纯 memory 诊断形（dataDir null）：写动词拒、list 放行', () => {
+  it('纯 memory 诊断形（dataDir null）：写动词拒、list 放行', async () => {
     const rig_ = rig();
     const deps: PluginsCommandDeps = { ...rig_.deps, dataDir: null };
-    expect(runPluginsCommand(['mount', 'user-x'], deps).text).toContain('无数据目录');
-    expect(runPluginsCommand(['list'], deps).ok).toBe(true);
+    expect((await runPluginsCommand(['mount', 'user-x'], deps)).text).toContain('无数据目录');
+    expect((await runPluginsCommand(['list'], deps)).ok).toBe(true);
   });
 });
 
 describe('mount 前置两查（与 CLI 同律）', () => {
-  it('id 词法违例拒（大写）', () => {
+  it('id 词法违例拒（大写）', async () => {
     const rig_ = rig();
-    const out = runPluginsCommand(['mount', 'Bad_Id'], rig_.deps);
+    const out = await runPluginsCommand(['mount', 'Bad_Id'], rig_.deps);
     expect(out.ok).toBe(false);
     expect(out.text).toContain('词法违例');
     expect(rig_.reloads()).toBe(0);
     expect(rig_.audits).toEqual([]); // 零审计
   });
 
-  it('用户 id 未装机拒（指路 install）', () => {
+  it('用户 id 未装机拒（指路 install）', async () => {
     const dir = tmpDir('plug-cmd-noinstall-');
     const rig_ = rig({ dir });
-    const out = runPluginsCommand(['mount', 'user-x'], rig_.deps);
+    const out = await runPluginsCommand(['mount', 'user-x'], rig_.deps);
     expect(out.ok).toBe(false);
     expect(out.text).toContain('未装机');
     expect(out.text).toContain('install');
     expect(rig_.reloads()).toBe(0);
   });
 
-  it('装机在场过查：ledger 有行 → 行编辑成功链生效', () => {
+  it('装机在场过查：ledger 有行 → 行编辑成功链生效', async () => {
     const dir = tmpDir('plug-cmd-installed-');
     mkdirSync(join(dir, 'plugins'), { recursive: true });
     writeFileSync(
@@ -166,25 +166,25 @@ describe('mount 前置两查（与 CLI 同律）', () => {
       'utf8',
     );
     const rig_ = rig({ dir });
-    const out = runPluginsCommand(['mount', 'user-x'], rig_.deps);
+    const out = await runPluginsCommand(['mount', 'user-x'], rig_.deps);
     expect(out.ok).toBe(true);
     expect(rig_.reloads()).toBe(1);
     expect(rig_.audits).toEqual([['plugin/mounted', { id: 'user-x' }]]);
   });
 
-  it('core: 前缀豁免装机查（内置态天然在场）', () => {
+  it('core: 前缀豁免装机查（内置态天然在场）', async () => {
     const rig_ = rig();
-    const out = runPluginsCommand(['mount', 'core:demo'], rig_.deps);
+    const out = await runPluginsCommand(['mount', 'core:demo'], rig_.deps);
     expect(out.ok).toBe(true); // core: 无需 ledger
     expect(rig_.audits).toEqual([['plugin/mounted', { id: 'core:demo' }]]);
   });
 });
 
 describe('写动词成功尾三面（自动链/审计/回执）', () => {
-  it('mount：行真落盘 + 审计恰一笔 + 链恰一次 + 回执指向自动链', () => {
+  it('mount：行真落盘 + 审计恰一笔 + 链恰一次 + 回执指向自动链', async () => {
     const dir = tmpDir('plug-cmd-mount-');
     const rig_ = rig({ dir });
-    const out = runPluginsCommand(['mount', 'core:demo'], rig_.deps);
+    const out = await runPluginsCommand(['mount', 'core:demo'], rig_.deps);
     expect(out.ok).toBe(true);
     expect(out.text).toContain('已挂载：core:demo');
     expect(out.text).toContain('已自动链 /reload'); // TUI 面文案——与 CLI「下次启动生效」分立
@@ -196,11 +196,11 @@ describe('写动词成功尾三面（自动链/审计/回执）', () => {
     expect(rig_.audits).toEqual([['plugin/mounted', { id: 'core:demo' }]]);
   });
 
-  it('toggle：禁用旗翻转（absent ↔ true）+ plugin/toggled 审计双态载荷', () => {
+  it('toggle：禁用旗翻转（absent ↔ true）+ plugin/toggled 审计双态载荷', async () => {
     const dir = tmpDir('plug-cmd-toggle-');
     const rig_ = rig({ dir });
-    runPluginsCommand(['mount', 'core:demo'], rig_.deps); // 先挂行（absent 启用态）
-    const out = runPluginsCommand(['toggle', 'core:demo'], rig_.deps);
+    await runPluginsCommand(['mount', 'core:demo'], rig_.deps); // 先挂行（absent 启用态）
+    const out = await runPluginsCommand(['toggle', 'core:demo'], rig_.deps);
     expect(out.ok).toBe(true);
     expect(out.text).toContain('已切换：core:demo');
     expect(rig_.audits).toEqual([
@@ -211,12 +211,12 @@ describe('写动词成功尾三面（自动链/审计/回执）', () => {
     expect(rig_.reloads()).toBe(2); // 每成功动词恰一次
   });
 
-  it('unmount：删行保装机 + plugin/unmounted 审计 + 行缺席 core: 指路 toggle', () => {
+  it('unmount：删行保装机 + plugin/unmounted 审计 + 行缺席 core: 指路 toggle', async () => {
     const dir = tmpDir('plug-cmd-unmount-');
     const rig_ = rig({ dir });
     // 挂行（core: 豁免装机查）→ 卸下（行在场真删）
-    runPluginsCommand(['mount', 'core:demo'], rig_.deps);
-    const out = runPluginsCommand(['unmount', 'core:demo'], rig_.deps);
+    await runPluginsCommand(['mount', 'core:demo'], rig_.deps);
+    const out = await runPluginsCommand(['unmount', 'core:demo'], rig_.deps);
     expect(out.ok).toBe(true);
     expect(out.text).toContain('已卸下：core:demo（装机保留）');
     expect(rig_.audits).toEqual([
@@ -226,7 +226,7 @@ describe('写动词成功尾三面（自动链/审计/回执）', () => {
     expect(rig_.reloads()).toBe(2); // 每成功动词恰一次
     expect(readFileSync(join(dir, 'enabled.yaml'), 'utf8')).not.toContain('core:demo'); // 行已删
     // 行不在场的 core: 卸下 → 指路 toggle（内置态不可删）
-    const again = runPluginsCommand(['unmount', 'core:demo'], rig_.deps);
+    const again = await runPluginsCommand(['unmount', 'core:demo'], rig_.deps);
     expect(again.ok).toBe(false);
     expect(again.text).toContain('内置全启无启用行可删');
     expect(again.text).toContain('toggle');
@@ -234,25 +234,72 @@ describe('写动词成功尾三面（自动链/审计/回执）', () => {
 });
 
 describe('失败零副作用（无变更不造账不链）', () => {
-  it('unmount core: 行不在场拒 → 零审计零链', () => {
+  it('unmount core: 行不在场拒 → 零审计零链', async () => {
     const rig_ = rig();
-    const out = runPluginsCommand(['unmount', 'core:demo'], rig_.deps);
+    const out = await runPluginsCommand(['unmount', 'core:demo'], rig_.deps);
     expect(out.ok).toBe(false);
     expect(rig_.audits).toEqual([]);
     expect(rig_.reloads()).toBe(0);
   });
 
-  it('unmount 用户 id 幂等跳过（已不在启用面）→ 成功但零审计（无变更不造账）', () => {
+  it('unmount 用户 id 幂等跳过（已不在启用面）→ 成功但零审计（无变更不造账）', async () => {
     const rig_ = rig();
-    const out = runPluginsCommand(['unmount', 'user-x'], rig_.deps);
+    const out = await runPluginsCommand(['unmount', 'user-x'], rig_.deps);
     expect(out.ok).toBe(true);
     expect(rig_.audits).toEqual([]); // 幂等跳过腿库件零调用——同 CLI 律
     expect(out.text).toContain('已卸下');
   });
 });
 
+describe('config 动词分流（ix-3b/c 表单腿）', () => {
+  it('缺 <id> → 用法错（含 config 行指路）', async () => {
+    const rig_ = rig();
+    const out = await runPluginsCommand(['config'], rig_.deps);
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain('缺 <id>');
+    expect(PLUGINS_CMD_USAGE).toContain('config <id>');
+    expect(rig_.reloads()).toBe(0);
+  });
+
+  it('configForm 缺席（CLI 对等面/无会话锚形）→ 诚实回执不装样子 + 零链', async () => {
+    const rig_ = rig();
+    const out = await runPluginsCommand(['config', 'demo'], rig_.deps);
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain('表单腿未装配');
+    expect(rig_.reloads()).toBe(0);
+    expect(rig_.audits).toEqual([]);
+  });
+
+  it('纯 memory 诊断形：config 与 mount 同拒（无落点）', async () => {
+    const rig_ = rig();
+    const deps: PluginsCommandDeps = {
+      ...rig_.deps,
+      dataDir: null,
+      configForm: async () => ({ ok: true, text: '不应到达' }),
+    };
+    const out = await runPluginsCommand(['config', 'demo'], deps);
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain('无数据目录');
+  });
+
+  it('configForm 在场 → id 透传 + 回执直传（编排归 plugins-config.ts，本面零包装）', async () => {
+    const seen: string[] = [];
+    const rig_ = rig();
+    const deps: PluginsCommandDeps = {
+      ...rig_.deps,
+      configForm: async (id) => {
+        seen.push(id);
+        return { ok: true, text: `表单回执（${id}）` };
+      },
+    };
+    const out = await runPluginsCommand(['config', 'demo'], deps);
+    expect(out).toEqual({ ok: true, text: '表单回执（demo）' });
+    expect(seen).toEqual(['demo']);
+  });
+});
+
 describe('tmpDir 监听器卫生（回归锁）', () => {
-  it('tmpDir 多次调用不累积 process exit 监听器（单 listener 收集形——修复前每调用 +1 累积至超帽）', () => {
+  it('tmpDir 多次调用不累积 process exit 监听器（单 listener 收集形——修复前每调用 +1 累积至超帽）', async () => {
     const before = process.listenerCount('exit');
     tmpDir('plug-cmd-leak-');
     tmpDir('plug-cmd-leak-');
