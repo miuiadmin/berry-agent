@@ -111,7 +111,16 @@ while True:
     if not data:
         break
     out.write(data)
-sys.exit(child.returncode or 0)
+# 收尾必须显式收尸：排空循环 break 时 child 可能尚未被 reap（Linux 上 child 关
+# stdio 后 master 读即 EIO——relay 先于子进程真退收尸），returncode=None 被
+# or-0 折成 0 吞掉真退出码（CI run 34604785581 两 fatal 腿 0≠1 红的根因；
+# macOS 时序侥幸恒绿）。未收尸 fail-loud 折非零，不冒充成功。
+try:
+    child.wait(timeout=30)
+except subprocess.TimeoutExpired:
+    child.kill()
+    child.wait()
+sys.exit(child.returncode if child.returncode is not None else 1)
 `;
 
 /** python3 + pty 模块可用性探针（缺席即跳过——非 unix / 精简环境不失信） */
