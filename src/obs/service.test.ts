@@ -361,6 +361,50 @@ describe('④ 查询面：过滤维 + 拒误读', () => {
     service.dispose();
   });
 
+  it('eventType 尾通配（u-4——03 §10.8 RP5）：<族前缀>/* 族计数一次可达 + 窗口正交 + LIKE 元字符按字面', () => {
+    const h0 = Date.UTC(2026, 8, 7, 8);
+    events.push('compaction/start', h0 + 1000);
+    events.push('compaction/end', h0 + 2000);
+    events.push('compaction/fallback', h0 + 3000);
+    events.push('user/message', h0 + 4000);
+    // LIKE 元字符探针：前缀含 '_'——未转义则单字符通配会误中 plugAn/x
+    events.push('plugAn/x', h0 + 5000);
+    events.push('plug_n/y', h0 + 6000);
+    events.push('compaction/start', h0 + H + 1000);
+    const service = make();
+    nowMs = h0 + 2 * H;
+    service.refresh();
+
+    // 族计数一次可达：compaction/* 全族四行（分型分桶），族外零收
+    expect(service.query({ granularity: 'hour', eventType: 'compaction/*' })).toEqual([
+      { bucket: h0, eventType: 'compaction/end', count: 1 },
+      { bucket: h0, eventType: 'compaction/fallback', count: 1 },
+      { bucket: h0, eventType: 'compaction/start', count: 1 },
+      { bucket: h0 + H, eventType: 'compaction/start', count: 1 },
+    ]);
+    // 与窗口维正交组合：只取 h0+H 桶
+    expect(service.query({ granularity: 'hour', from: h0 + H, to: h0 + H + 500, eventType: 'compaction/*' })).toEqual([
+      { bucket: h0 + H, eventType: 'compaction/start', count: 1 },
+    ]);
+    // LIKE 元字符按字面：plug_n/* 只中 plug_n/y（'_' 转义——未转义必双中）
+    expect(service.query({ granularity: 'hour', eventType: 'plug_n/*' })).toEqual([
+      { bucket: h0, eventType: 'plug_n/y', count: 1 },
+    ]);
+    // day 粒度同路（table 变量切换——单码点覆盖两粒度的回归锚）：当日聚合
+    // 未闭合不物化 events_day，但代码路径同分支——用次日闭合拍锁
+    nowMs = h0 + 2 * D;
+    service.refresh();
+    expect(service.query({ granularity: 'day', eventType: 'compaction/*' })).toEqual([
+      { bucket: Date.UTC(2026, 8, 7), eventType: 'compaction/end', count: 1 },
+      { bucket: Date.UTC(2026, 8, 7), eventType: 'compaction/fallback', count: 1 },
+      { bucket: Date.UTC(2026, 8, 7), eventType: 'compaction/start', count: 2 },
+    ]);
+    // 非约定 '*' 形兜底：服务侧精确匹配零行（诚实空——工具面 schema 段已
+    // 前置拒，此为防御纵深注记的执法锚）
+    expect(service.query({ granularity: 'hour', eventType: 'compaction/**' })).toEqual([]);
+    service.dispose();
+  });
+
   it('坏行 OBS_ROLLUP_CORRUPT 拒误读（第二连接注毒——派生物宁弃读）', () => {
     const h0 = Date.UTC(2026, 8, 7, 8);
     events.push('user/message', h0 + 1000);

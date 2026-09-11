@@ -10,7 +10,11 @@
  *  - 驱动层（组合根口径——真 session/wiring/reseed/loop，mock 只停
  *    streamFn 注入位）：合法流零误报锁——多轮工具流/steer 顶注/重试遮蔽
  *    续入/冷启动 resume 全形态过请求关口不抛（规范形对真实管线形状的
- *    忠实性反向锁：总拍恒开后既有全部用例面即本锁的放大器）。
+ *    忠实性反向锁：总拍恒开后既有全部用例面即本锁的放大器）；
+ *  - 离线对账档（05 §1.2——u-4 度量笔）：同一对拍判据在不发请求的诊断
+ *    时点显式复用——run 收口后（请求间窗）活体 timeline 与投影独立重建
+ *    逐条等价；长活多轮（真锁面）+ 冷启动 reseed（恒真形态——形态文档锁）
+ *    + 幽灵注入必红（锁非空转证明）。
  *
  * 禁断言 AI 生成文本——只断言结构与编舞行为。
  */
@@ -35,6 +39,7 @@ import type { ProjectedMessage } from '../session/index.js';
 import { ConversationDriver } from './driver.js';
 import type { ConversationDriverOptions } from './types.js';
 import { assertModelVisibleTimeline, degradationMask } from './model-visible.js';
+import { reseedTimeline } from './reseed.js';
 
 /* ---------------- 测试构造件（driver.test 同族——本件自持最小面） ---------------- */
 
@@ -382,5 +387,73 @@ describe('model-visible 总拍（驱动层——合法流零误报锁）', () =>
     expect(result.status).toBe('completed');
     expect(second.seen.length).toBe(1);
     expect(session.events().filter((event) => event.type === 'assistant/message').length).toBe(2);
+  });
+});
+
+/* ---------------- 离线对账档（05 §1.2——u-4 度量笔：测试面锁两形态） ---------------- */
+
+describe('离线对账档（05 §1.2——同一对拍判据在不发请求的诊断时点显式复用）', () => {
+  /**
+   * 诊断时点对拍：活体 timeline vs §3.1 投影独立重建——判据/豁免规则与请求
+   * 关口总拍单源同路（assertModelVisibleTimeline + reseedTimeline +
+   * degradationMask 三件复用，两侧组装路径同 v 批）。活体读经结构化窄面
+   * （context 私有——「人面诊断位不预建」律下不扩 driver 公开面，测试专用
+   * 读取位）。
+   */
+  function offlineReconcile(driver: ConversationDriver): void {
+    const live = (driver as unknown as { context: { messages: AgentMessage[] } }).context.messages;
+    const events = driver.session.events();
+    const projection = driver.session.projection();
+    const expected = reseedTimeline(projection, (seq) => events[seq]?.time ?? 0);
+    assertModelVisibleTimeline(live, expected, degradationMask(projection));
+  }
+
+  it('长活会话多轮后等价（真锁面）：每 run 收口后的请求间窗逐轮零抛', async () => {
+    // 多轮 + 工具流：活体由 loop「入列↔emit」对偶增量维护（非重建产物），
+    // 每 run 收口后的请求间窗是请求关口总拍未辖的时段——离线对拍补此窗
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [call('c1', 'echo')], stopReason: 'toolUse' }),
+        assistant({ content: [text('一答')] }),
+        assistant({ content: [text('二答')] }),
+        assistant({ content: [text('三答')] }),
+      ],
+      tools: [makeTool('echo')],
+    });
+    await driver.submit('一问');
+    expect(() => offlineReconcile(driver)).not.toThrow();
+    await driver.submit('二问');
+    expect(() => offlineReconcile(driver)).not.toThrow();
+    await driver.submit('三问');
+    expect(() => offlineReconcile(driver)).not.toThrow();
+    // 对拍面有实质（非空数组恒等平凡过）：含工具流形状 + 三轮用户话语
+    const types = driver.session.events().map((event) => event.type);
+    expect(types).toContain('tool/call');
+    expect(types.filter((type) => type === 'user/message')).toHaveLength(3);
+  });
+
+  it('冷启动 reseed 后等价（恒真形态——活体即重建产物）：resume 续接后诊断时点零抛', async () => {
+    const session = new SessionLog({ sessionId: 's-mv-offline-resume' });
+    const first = makeDriver({ session, scripts: [assistant({ content: [text('一答')] })] });
+    await first.driver.submit('一问');
+    // 冷启动：同 session 新驱动——runTurns 入口重播种（活体 = 重建产物），
+    // 本形态断言恒真（05 §1.2 注记——形态文档锁，真锁面在长活形态）
+    const second = makeDriver({ session, scripts: [assistant({ content: [text('二答')] })] });
+    await second.driver.submit('二问');
+    expect(() => offlineReconcile(second.driver)).not.toThrow();
+    expect(session.events().filter((event) => event.type === 'assistant/message').length).toBe(2);
+  });
+
+  it('锁非空转证明：同一诊断路径活体注入幽灵消息即红（暗通道方向）', async () => {
+    const { driver } = makeDriver({ scripts: [assistant({ content: [text('答')] })] });
+    await driver.submit('问');
+    // 人为复现暗通道（模型可见写入未经 durable 落账）→ 诊断时点判据必红：
+    // 证明上两例零抛非断言空转——离线对拍与请求关口同判据同武装
+    (driver as unknown as { context: { messages: AgentMessage[] } }).context.messages.push({
+      role: 'user',
+      content: '幽灵消息',
+      timestamp: 0,
+    });
+    expect(() => offlineReconcile(driver)).toThrowError(/长度差.*暗通道/s);
   });
 });

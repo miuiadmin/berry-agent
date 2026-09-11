@@ -41,6 +41,15 @@ const SCAN_PAGE_GUARD = 1_000;
 const QUERY_LIMIT_DEFAULT = 100;
 const QUERY_LIMIT_MAX = 1_000;
 
+/**
+ * LIKE 前缀转义（03 §10.8 u-1 RP5 尾通配——u-4 落码）：族前缀按字面匹配，
+ * `\` `%` `_` 三元前置反斜杠——LIKE 元字符不放大匹配面（未转义的 `_` 会
+ * 单字符通配误中，如 `plug_n/*` 误中 `plugAn/x`，破坏族语义）。
+ */
+function escapeLikePrefix(prefix: string): string {
+  return prefix.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 /** createObsService 工厂（装载面/测试唯一入口） */
 export function createObsService(deps: ObsServiceDeps): ObsService {
   return new ObsServiceImpl(deps);
@@ -156,8 +165,19 @@ class ObsServiceImpl implements ObsService {
       params.push(to);
     }
     if (input.eventType !== undefined) {
-      clauses.push('event_type = ?');
-      params.push(input.eventType);
+      // 尾通配形（03 §10.8 u-1 RP5 定形——u-4 落码扩形）：`<族前缀>/*` 一次
+      // 取全族计数（如 compaction/*——四词族一次可达）；语法限定尾 `/*` 一形
+      // 非任意 glob。LIKE ESCAPE '\' + 前缀转义保字面；hour/day 两表同路
+      // （table 变量切换——本分支单码点覆盖两粒度）。非尾通配的含 '*' 形
+      // 落精确匹配零行（诚实空不炸——工具面 schema pattern 段已前置拒，
+      // 此处兜底即防御纵深）
+      if (input.eventType.endsWith('/*')) {
+        clauses.push("event_type LIKE ? ESCAPE '\\'");
+        params.push(`${escapeLikePrefix(input.eventType.slice(0, -1))}%`);
+      } else {
+        clauses.push('event_type = ?');
+        params.push(input.eventType);
+      }
     }
     params.push(limit);
     const rows = this.db

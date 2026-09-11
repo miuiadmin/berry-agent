@@ -69,7 +69,7 @@ export interface ObsQueryInput {
   readonly from?: number;
   /** 窗口上界（epoch ms 含；缺省无上界） */
   readonly to?: number;
-  /** 事件类型过滤（仅 metric='events' 有效） */
+  /** 事件类型过滤（仅 metric='events' 有效）：精确匹配或尾通配 <族前缀>/* 一形（03 §10.8 RP5） */
   readonly eventType?: string;
   /** 行上限（缺省 100、硬帽 1000） */
   readonly limit?: number;

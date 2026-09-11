@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Value } from 'typebox/value';
 import type { SessionEvent } from '../contracts/index.js';
 import { createObsService } from './service.js';
 import { createObsQueryTool } from './tool.js';
@@ -100,6 +101,29 @@ describe('obs_query 工具', () => {
     expect(text).toContain('hit_rate'); // header 列在场
     // token 原始值——不折算货币（无 $ 字样）
     expect(text.includes('$')).toBe(false);
+  });
+
+  it('eventType 尾通配（u-4——03 §10.8 RP5）：族计数透传 + schema pattern 段前置拒非法定形', async () => {
+    const h0 = Date.UTC(2026, 8, 7, 8);
+    const tool = createObsQueryTool(
+      makeService([ev('compaction/start', h0 + 1000), ev('compaction/end', h0 + 2000), ev('user/message', h0 + 3000)]),
+    );
+    // 族计数透传：工具面一次取全族（分型行呈现），族外零收
+    const result = await tool.execute({ granularity: 'hour', eventType: 'compaction/*' }, {} as never);
+    expect(result.isError).toBeUndefined();
+    const text = textOf(result);
+    expect(text).toContain('compaction/start');
+    expect(text).toContain('compaction/end');
+    expect(text).not.toContain('user/message');
+    // schema pattern 段直证（04 §7 段 1 判据——非法定形在管道被 TOOL_INVALID_ARGS
+    // 前置拒，本测直证判据本身）：精确形/尾通配形过，其余 glob 形全拒
+    const schema = tool.parameters as Parameters<typeof Value.Check>[0];
+    expect(Value.Check(schema, { granularity: 'hour', eventType: 'compaction/start' })).toBe(true);
+    expect(Value.Check(schema, { granularity: 'hour', eventType: 'compaction/*' })).toBe(true);
+    expect(Value.Check(schema, { granularity: 'hour', eventType: 'com*paction' })).toBe(false); // 中缀 '*'
+    expect(Value.Check(schema, { granularity: 'hour', eventType: '/*' })).toBe(false); // 空前缀
+    expect(Value.Check(schema, { granularity: 'hour', eventType: 'compaction/**' })).toBe(false); // '**'
+    expect(Value.Check(schema, { granularity: 'hour', eventType: '*' })).toBe(false); // 裸 '*'
   });
 
   it('空窗口：诚实空回执（不造零行）', async () => {

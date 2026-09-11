@@ -45,7 +45,8 @@ export function createObsQueryTool(service: ObsService): ToolDefinition {
     name: 'obs_query',
     description:
       '查询观测聚合（durable 事件流的小时/日桶统计）。metric=events 返回各事件类型' +
-      '计数；metric=usage 返回 LLM token 用量聚合（input/output 主计费桶与 cache 桶' +
+      '计数（eventType 支持尾通配 <族前缀>/*——如 compaction/* 族计数一次可达；' +
+      '非任意 glob）；metric=usage 返回 LLM token 用量聚合（input/output 主计费桶与 cache 桶' +
       '分列，token 原始值——不折算货币；hit_rate = 缓存命中率派生列 cacheRead/' +
       '(input+cacheRead+cacheWrite) 桶内聚合比值，n/a = 桶内无 token 流）。桶时刻 ' +
       'UTC 对齐。窗口 from/to 为 epoch 毫秒（含边界）；行上限缺省 100、硬帽 1000，' +
@@ -62,7 +63,16 @@ export function createObsQueryTool(service: ObsService): ToolDefinition {
         ),
         from: Type.Optional(Type.Number({ description: '窗口下界（epoch 毫秒，含）' })),
         to: Type.Optional(Type.Number({ description: '窗口上界（epoch 毫秒，含）' })),
-        eventType: Type.Optional(Type.String({ description: '事件类型过滤（仅 metric=events 有效）' })),
+        eventType: Type.Optional(
+          Type.String({
+            // 尾通配一形（03 §10.8 u-1 RP5——u-4 落码）：无 '*' 精确匹配，或恰
+            // 一个尾 '/*'；其余 glob 形（中缀 '*'、空前缀 '/*'、'**'、裸 '*'）
+            // schema 段前置拒——04 §7 段 1 既有码 TOOL_INVALID_ARGS（零新码）
+            pattern: '^[^*]+(/\\*)?$',
+            description:
+              '事件类型过滤（仅 metric=events 有效）：精确匹配或尾通配 <族前缀>/*（如 compaction/* 族计数一次可达；非任意 glob）',
+          }),
+        ),
         limit: Type.Optional(Type.Number({ description: '行上限（缺省 100、硬帽 1000）' })),
       },
       { additionalProperties: false },
