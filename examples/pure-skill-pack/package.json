@@ -1,0 +1,14 @@
+{
+  "name": "berry-agent-example-pure-skill",
+  "version": "0.1.0",
+  "description": "berry-agent 纯技能包模板——零代码装载形（无 entry：声明 skills 目录即整包为技能载荷，包主入口不执行）",
+  "license": "MIT",
+  "keywords": [
+    "berry-agent-plugin"
+  ],
+  "berryAgent": {
+    "skills": [
+      "skills"
+    ]
+  }
+}

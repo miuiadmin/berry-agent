@@ -1,0 +1,12 @@
+{
+  "name": "berry-agent-example-minimal-code",
+  "version": "0.1.0",
+  "description": "berry-agent 最小代码插件模板——注册一条人面命令的最小完整形（--plugin-file 即可试跑）",
+  "license": "MIT",
+  "keywords": [
+    "berry-agent-plugin"
+  ],
+  "berryAgent": {
+    "entry": "entry.js"
+  }
+}
