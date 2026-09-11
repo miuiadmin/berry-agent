@@ -90,6 +90,13 @@ export interface AssembleHostOptions {
   readonly runtime: Omit<HostRuntimeOptions, 'pluginsProvider'>;
   /** 安全模式（--no-plugins——装载面整跳） */
   readonly noPlugins: boolean;
+  /**
+   * 快速试件路径（--plugin-file——03 §7 生态启动批 eco-3a）：只管启动期注入
+   * `_quick_test` 合成行；/reload 换代 reapply 恒单参调用（本旗标不随换代
+   * ——不变式 4：全量重载后试件行不再合成）。与 noPlugins 同给 = 安全模式
+   * 优先（bootPlugins 短路在前）。
+   */
+  readonly pluginFile?: string;
   /** 日志提级（--debug——env 已设时让位律在件内执法） */
   readonly debug: boolean;
   /** 宿主版本（HostFace 物化位） */
@@ -244,7 +251,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     };
     // boot 重跑闭包（try 内定型——全部 seam 真身闭包捕获；/reload reapply 与
     // 首次 boot 同一函数 = 同一装载面，无第二装配序）
-    let runBoot: ((noPluginsFlag: boolean) => Promise<PluginBootHandle>) | undefined;
+    // pluginFile 第二参（eco-3a——03 §7 不变式 4 单源保证）：reapply 恒单参
+    // 调用即 pluginFile undefined = 试件行换代消失；类型可选 + 调用点唯一性
+    let runBoot: ((noPluginsFlag: boolean, pluginFile?: string) => Promise<PluginBootHandle>) | undefined;
     // 最近真用户消息时刻（批 20c——scheduler GateFacts lastUserMessageAt 宿主
     // 源）：boot 后 session/event 监听器更新（user/channel 真人输入才计——
     // schedule/subagent-settled/compaction/plugin 注入不计数）；null = 无近期
@@ -580,7 +589,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // 只管启动期短路，人面显式 reload 即显式装载请求）。rt = narrowed
       // 承接（let runtime 在闭包内失窄化——直线位 const 固化）
       const rt = runtime;
-      runBoot = (noPluginsFlag) =>
+      runBoot = (noPluginsFlag, pluginFile) =>
         bootPlugins({
           runtime: rt,
           scope,
@@ -652,6 +661,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 装载史世代面（装载史批 h-3——boot 完成尾落行 + reapply 尾换代同点）
           loadHistory,
           noPlugins: noPluginsFlag,
+          // 快速试件（eco-3a——启动期一次性注入；reapply 单参调用时 undefined）
+          ...(pluginFile !== undefined ? { pluginFile } : {}),
           // 卸载换代槽（03 §5.7——本代卸载序改写槽，上方一次性 closer 读槽）
           unloadRef: pluginUnloadRef,
           version: options.version,
@@ -808,7 +819,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             }),
           warn: (message) => logger.warn(message),
         });
-      boot = await runBoot(options.noPlugins === true);
+      boot = await runBoot(options.noPlugins === true, options.pluginFile);
     } catch (err) {
       await runtime.shutdown(); // 已建资源先收口（幂等六步照走）
       if (err instanceof BaseError && err.code === 'PLUGIN_ROW_INVALID') {
@@ -925,7 +936,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         if (unload === null) return emptyRollbackReceipt();
         return rollbackFromReport(await unload());
       },
-      // 换入新代：runBoot + 三处换代写回（boot 定位/披露匣/skills 层）
+      // 换入新代：runBoot + 三处换代写回（boot 定位/披露匣/skills 层）。
+      // 单参调用（pluginFile 不传）= 03 §7 不变式 4 的机器落点：全量重载后
+      // --plugin-file 试件行不再合成（换代面恒真实装载形）。
       reapply: async () => {
         const previous = boot; // 换代前旧代（工具面 diff 基线——03 §2.8 通道真值）
         const handle = await runBoot!(false);

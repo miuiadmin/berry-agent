@@ -38,7 +38,7 @@
  * promptSections 经 assembly pluginSections 取值器由 driver systemPrompt 装配位消费。
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 import { BaseError } from '../contracts/index.js';
@@ -77,7 +77,7 @@ import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, Serv
 import { loadPlugins } from './loader.js';
 import type { DiskPluginSpec } from './loader.js';
 import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js';
-import type { EnabledRow } from './manifest.js';
+import type { EnabledRow, PluginManifest } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
 import type { ChannelsUiFace } from './plugin-context.js';
 import type {
@@ -319,6 +319,14 @@ export interface PluginBootOptions {
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
   readonly noPlugins?: boolean;
   /**
+   * 快速试件路径（--plugin-file——03 §7 生态启动批 eco-3a）：真实存在的插件
+   * 目录（含 package.json）或单文件入口（.js/.mjs/.ts）两形。装载计划纯内存
+   * 多一行 `_quick_test`（行 id = 装载计划保留字，非插件身份位）——同装载
+   * 管线无旁路、零落盘退出即消失、/reload 换代不携（reapply 恒 runBoot(false)
+   * 单参）。与 --no-plugins 同给 = 安全模式优先（短路在前，坏路径亦不炸）。
+   */
+  readonly pluginFile?: string;
+  /**
    * 卸载换代槽（/reload 批——03 §5.7 热重载换代执法位）：在场时本代卸载
    * 序不走 runtime closers 直注册，改写槽内 current（装配根一次性注册读
    * 槽 closer——shutdown 恒跑**最新代**回卷，reload 换代不累积重复
@@ -448,13 +456,26 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   const ledger = readLedger(options.runtime.dataDir, fs, warn);
 
   // ②④ 计划合成（core 内置全启 + overlay + 磁盘行账本解析）
-  const { plan, synthesisFailures } = synthesizePlan({
+  const synthesized = synthesizePlan({
     rows,
     corePlugins: options.corePlugins ?? [],
     dataDir: options.runtime.dataDir,
     ledger,
     fs,
   });
+  const synthesisFailures = synthesized.synthesisFailures;
+  // ⑫ 快速试件合成行（--plugin-file——03 §7 八不变式，生态启动批 eco-3a）：
+  // 纯内存注入装载计划多一行（行 id = 保留字 QUICK_TEST_ROW_ID），同装载
+  // 管线（合成 DiskPluginSpec——jiti/门禁/Kahn/时钟帽全真）无专用旁路；零
+  // 落盘退出即消失（enabled.yaml/ledger.json 不沾；boot-failures 记账过滤见
+  // onBootFailure——防幽灵残账在下次 boot 横幅误报）。路径/清单/撞名失败
+  // fail-loud 拒启（PLUGIN_ROW_INVALID——试件行违例同族码）。/reload 换代
+  // reapply 恒 runBoot(false) 单参 = 行自然消失（不变式 4——assembly 参形
+  // 单源保证，本函数零额外状态）。
+  const plan: LoaderPlanRow[] = [...synthesized.plan];
+  if (options.pluginFile !== undefined) {
+    plan.push(resolveQuickTestRow(options.pluginFile, plan, fs));
+  }
 
   // ⑧ 记账路径（memory 形无数据目录——诊断面整跳）
   const bookkeepingPath = options.runtime.dataDir === null ? null : join(options.runtime.dataDir, 'boot-failures.json');
@@ -644,8 +665,12 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     ...(bookkeepingPath === null
       ? {}
       : {
-          onBootFailure: (id: string, version: string) =>
-            recordBootFailure(bookkeepingPath, id, version, bookkeepingFs),
+          onBootFailure: (id: string, version: string) => {
+            // 试件行不进持久诊断账（不变式 1 零落盘面）：残账无清名时机（下次
+            // boot 无此行）→ 横幅会误报已消失的幽灵行——这里过滤而非事后清
+            if (id === QUICK_TEST_ROW_ID) return;
+            recordBootFailure(bookkeepingPath, id, version, bookkeepingFs);
+          },
         }),
   });
   // 装载成功行清名（横幅只报仍坏行——报捷即抹账）
@@ -1028,6 +1053,73 @@ function synthesizePlan(input: {
     else plan.push(resolved.spec);
   }
   return { plan, synthesisFailures };
+}
+
+/**
+ * 快速试件合成行 id（--plugin-file——03 §7）：装载计划**保留字**、非插件
+ * 身份位——合法插件 id 字符集（小写字母起头）结构性不含下划线起头形，恒
+ * 不与任何已装/内置插件撞名（单文件形的隐式清单 id 即此值，结构性免检）。
+ */
+export const QUICK_TEST_ROW_ID = '_quick_test';
+
+/**
+ * 快速试件行解析（03 §7 八不变式之 3/6 的机器落点——两形路径 + 撞名拒启）。
+ *
+ * 目录形 = 路径下有 package.json：真清单过 parseManifest（official:false——
+ * 与磁盘行同判据同律，坏形 fail-loud 拒启不静默隔离；试件是显式指定物，
+ * 坏形当场红比行级隔离更指向根因）。撞名检查对象 = 试件清单声明 id vs
+ * 计划面全体行 id ∪ 磁盘行清单 id（装载身份位与呈现位两锚都护——冒名
+ * 顶替拒启）。单文件形 = 路径本身可读的裸入口：宿主合成隐式清单（entry
+ * 定死该文件、id = 保留字——合法插件结构性不可能持此名）。两形皆不中 =
+ * fail-loud（message 指路两形）。
+ */
+function resolveQuickTestRow(pluginFile: string, plan: readonly LoaderPlanRow[], fs: PluginBootFs): DiskPluginSpec {
+  const abs = resolve(pluginFile);
+  const pkgText = fs.read(join(abs, 'package.json'));
+  if (pkgText !== null) {
+    // 目录形：真清单判据（未知键/坏形/secret 明文拒同磁盘行全套执法）
+    let pkg: unknown;
+    try {
+      pkg = JSON.parse(pkgText);
+    } catch (err) {
+      throw new BaseError(
+        'PLUGIN_ROW_INVALID',
+        `--plugin-file 试件 package.json 非合法 JSON（${abs}）：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const parsed = parseManifest(pkg, { official: false });
+    if (!parsed.ok) {
+      throw new BaseError('PLUGIN_ROW_INVALID', `--plugin-file 试件清单坏形（${abs}）：${parsed.message}`);
+    }
+    const manifest = parsed.manifest;
+    const takenIds = new Set<string>([
+      ...plan.map((row) => row.id),
+      ...plan.flatMap((row) => (row.kind === 'disk' ? [row.manifest.id] : [])),
+    ]);
+    if (takenIds.has(manifest.id)) {
+      throw new BaseError(
+        'PLUGIN_ROW_INVALID',
+        `--plugin-file 试件撞名：清单声明 id "${manifest.id}" 撞已装/内置插件（装载计划在场同 id）——改 package.json 的 name/berryAgent.id 后重试（冒名顶替拒启）`,
+      );
+    }
+    return { kind: 'disk', id: QUICK_TEST_ROW_ID, manifest, pluginDir: abs };
+  }
+  // 单文件形：路径本身可读 = 裸入口文件（宿主合成隐式清单——装载全程身份
+  // 仍 row.id 保留字，manifest.id 仅合成件内位）
+  if (fs.read(abs) !== null) {
+    const entry = basename(abs);
+    const manifest: PluginManifest = {
+      id: QUICK_TEST_ROW_ID,
+      label: QUICK_TEST_ROW_ID,
+      entry,
+      entryPlan: { kind: 'entry-file', entry },
+    };
+    return { kind: 'disk', id: QUICK_TEST_ROW_ID, manifest, pluginDir: dirname(abs) };
+  }
+  throw new BaseError(
+    'PLUGIN_ROW_INVALID',
+    `--plugin-file 路径不存在（${abs}）：应为真实存在的插件目录（含 package.json）或单文件入口（.js/.mjs/.ts）`,
+  );
 }
 
 /** 磁盘行解析产物（两态——成功入计划/失败进档②面） */

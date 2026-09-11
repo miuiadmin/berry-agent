@@ -163,6 +163,10 @@ describe('执法⑤ 互斥组违例退 2', () => {
     expectUsage(['run', 'hi', '--session', 's1', '--fork'], '互斥');
     expectUsage(['run', 'hi', '--continue', '--fork'], '互斥');
   });
+
+  it('--plugin-file × dump-config 互斥（诊断保真差——03 §7 不变式 7）', () => {
+    expectUsage(['dump-config', '--plugin-file', './x.js'], '互斥');
+  });
 });
 
 describe('TUI 入口（无参主入口）', () => {
@@ -183,6 +187,23 @@ describe('TUI 入口（无参主入口）', () => {
       expect(r.command.flags).toEqual({ port: 8080, noPlugins: true, debug: true });
     } else {
       expect.unreachable('tui 解析应成功');
+    }
+  });
+
+  it('--plugin-file 取值形（快速试件——03 §7）', () => {
+    const r = parseCli(['--plugin-file', './x.js']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'tui') {
+      expect(r.command.flags.pluginFile).toBe('./x.js');
+    } else {
+      expect.unreachable('tui 解析应成功');
+    }
+    const run = parseCli(['run', 'hi', '--plugin-file', './x.js']);
+    expect(run.ok).toBe(true);
+    if (run.ok && run.command.kind === 'run') {
+      expect(run.command.flags.pluginFile).toBe('./x.js');
+    } else {
+      expect.unreachable('run 解析应成功');
     }
   });
 

@@ -36,6 +36,12 @@ export interface TuiFlags {
   readonly noPlugins: boolean;
   /** 日志提级 */
   readonly debug: boolean;
+  /**
+   * 快速试件路径（--plugin-file <path>——03 §7 生态启动批 eco-3a）：插件目录
+   * 或单文件入口两形；装载计划纯内存注入 `_quick_test` 行、零落盘退出即消
+   * 失。与 --no-plugins 同给 = 安全模式优先；dump-config 互斥（诊断保真差）。
+   */
+  readonly pluginFile?: string;
 }
 
 /** run 旗标族（07 §5「run 旗标族扩展」全量——批 13 SDK 通道消费） */
@@ -67,6 +73,8 @@ export interface RunFlags {
   readonly fork?: { readonly id?: string };
   /** --preset <名>：权限预设逐次生效（04 §9 ⑥——只动两旋钮不写盘；与 --read-only 互斥：同层 mode 冲突单选） */
   readonly preset?: 'conservative' | 'balanced' | 'open';
+  /** --plugin-file <path>：快速试件（TuiFlags 同位同语义——03 §7） */
+  readonly pluginFile?: string;
 }
 
 /** serve 旗标（--no-plugins 不透传——自动化入口；--no-delta run/serve 共收） */
@@ -282,8 +290,10 @@ function expectArity(literals: readonly string[], min: number, max: number, usag
 const PORT_FLAG: FlagSchema = { name: 'port', kind: 'value', positiveInt: { upTo: 65535 } };
 const NO_PLUGINS_FLAG: FlagSchema = { name: 'no-plugins', kind: 'boolean' };
 const DEBUG_FLAG: FlagSchema = { name: 'debug', kind: 'boolean' };
+/** 快速试件旗标（--plugin-file <path>——TUI/run 两入口收；dump-config 收而互斥拒） */
+const PLUGIN_FILE_FLAG: FlagSchema = { name: 'plugin-file', kind: 'value' };
 
-const TUI_SCHEMAS: readonly FlagSchema[] = [PORT_FLAG, NO_PLUGINS_FLAG, DEBUG_FLAG];
+const TUI_SCHEMAS: readonly FlagSchema[] = [PORT_FLAG, NO_PLUGINS_FLAG, DEBUG_FLAG, PLUGIN_FILE_FLAG];
 
 const RUN_SCHEMAS: readonly FlagSchema[] = [
   PORT_FLAG,
@@ -306,6 +316,8 @@ const RUN_SCHEMAS: readonly FlagSchema[] = [
   // --preset <名>：权限预设逐次形（04 §9 ⑥ ap-3——值域三档单源 safety/presets；
   // 与 --read-only 互斥在 parseRun 执法——同层 mode 冲突）
   { name: 'preset', kind: 'value', values: ['conservative', 'balanced', 'open'] },
+  // --plugin-file <path>：快速试件（03 §7 生态启动批 eco-3a——TUI 同位同语义）
+  PLUGIN_FILE_FLAG,
 ];
 
 const SERVE_SCHEMAS: readonly FlagSchema[] = [
@@ -319,7 +331,7 @@ const SERVE_SCHEMAS: readonly FlagSchema[] = [
   { name: 'sdk-host', kind: 'value' },
 ];
 
-const DUMP_SCHEMAS: readonly FlagSchema[] = [PORT_FLAG, NO_PLUGINS_FLAG, DEBUG_FLAG];
+const DUMP_SCHEMAS: readonly FlagSchema[] = [PORT_FLAG, NO_PLUGINS_FLAG, DEBUG_FLAG, PLUGIN_FILE_FLAG];
 
 const UNINSTALL_SCHEMAS: readonly FlagSchema[] = [
   { name: 'confirm', kind: 'boolean' },
@@ -398,6 +410,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
     continueLatest: has('continue'),
     fork: scan.values.has('fork') ? { id: scan.values.get('fork') || undefined } : undefined,
     preset,
+    pluginFile: scan.values.get('plugin-file'),
   };
   // tick 形 message 置空串（CliCommand 契约 string 必填保持——run-entry 按
   // flags.tick 判到点形态，不消费 message 位；非 tick 形 arity 已保恰一非空）
@@ -648,6 +661,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
         port: port === undefined ? undefined : Number(port),
         noPlugins: scan.booleans.has('no-plugins'),
         debug: scan.booleans.has('debug'),
+        pluginFile: scan.values.get('plugin-file'),
       },
     };
     return finish(scan, command);
@@ -677,6 +691,12 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     case 'dump-config': {
       const scan = scanFlags(rest, DUMP_SCHEMAS);
       if (scan.error) return usageFail(scan.error);
+      // --plugin-file 互斥（03 §7 不变式 7）：:memory: 同构诊断须呈现真实
+      // 装载面——试件行注入即诊断保真差；收而互斥拒（非未识别拒——message
+      // 指向互斥根因而非「拼错旗标」）
+      if (scan.values.has('plugin-file')) {
+        return usageFail('--plugin-file 与 dump-config 互斥（诊断保真：:memory: 面须呈现真实装载形，不注入试件行）');
+      }
       const arity = expectArity(scan.literals, 0, 0, 'berry-agent dump-config');
       if ('exitCode' in arity) return arity;
       const port = scan.values.get('port');

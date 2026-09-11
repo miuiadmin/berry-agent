@@ -83,6 +83,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       ...(options.memory === true ? { memory: true } : {}),
     },
     noPlugins: options.flags.noPlugins === true,
+    // 快速试件透传（--plugin-file——03 §7 生态启动批 eco-3a；缺席形省键）
+    ...(options.flags.pluginFile !== undefined ? { pluginFile: options.flags.pluginFile } : {}),
     debug: options.flags.debug === true,
     version: options.version ?? '0.0.0',
     ...(options.providers !== undefined ? { providers: options.providers } : {}),
