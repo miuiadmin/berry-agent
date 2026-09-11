@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * API 治理机器执法层（03 篇 §8.8 check-api 十查，2026-09-05 API 治理批 2 起——
- * 查 3/4 随 DEP 注册簿批充实、查 5 豁免节常量随首实验键批、查 7 扫描面随官方
+ * 查 3/4 随 DEP 注册簿批充实、查 5 豁免节机制随首实验键批（生态启动批 eco-3
+ * testkit 域）落、查 7 扫描面随官方
  * 插件批、查 8 两生成物腿随批 4 增挂）。
  *
  * 进 lint:topology 链（CI 同一套）。十查形态（落码节奏——§8.10 批表）：
@@ -13,9 +14,10 @@
  * 3. 废弃登记完整性——DEP 注册簿行不变式 + 双向对照（注册簿批充实；裸
  *    @deprecated 标签扫描本批即活——标签形 = @deprecated DEP-NNN 说明）；
  * 4. 官方全家桶零废弃使用——扫描面随官方插件批充实（机制常驻，目标集空即过）；
- * 5. 实验面隔离——豁免节之外零实验符号（现零实验键恒绿，机制常驻——实验键
- *    上线日即执法日；豁免节标记常量与查 5 共享单源随首实验键批落
- *    api-doc-sections.mjs）；
+ * 5. 实验面隔离——豁免节之外零实验符号（首实验键已上线 = eco-3 testkit 域
+ *    16 符号全 tier experimental，即执法日；豁免节标记常量与剥除件 =
+ *    api-doc-sections.mjs EXPERIMENTAL_SECTION_MARK / stripExperimentalSections
+ *    ——标记行起至同级/更高级标题止，节内合法披露）；
  * 6. compat 件死期——批 4 点火前结构性拒绝（src/compat/ 在场即红——死期机器
  *    未落地，compat 件无登记可查 = fail-closed，非静默放行）；
  * 7. 清单 api 块狗家全覆盖——apps/ 目录 .app.yaml 全体装载门裁决（官方插件
@@ -46,7 +48,7 @@ import {
   loadArchivedSnapshots,
 } from './extract-api-surface.mjs';
 import { renderFaceDecls, API_DECLS_DIR } from './generate-api-decls.mjs';
-import { KNOWLEDGE_DOMAIN_RE } from './api-doc-sections.mjs';
+import { KNOWLEDGE_DOMAIN_RE, stripExperimentalSections } from './api-doc-sections.mjs';
 
 /** 仓库根（脚本位置上一级） */
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -336,15 +338,15 @@ const DEPRECATIONS =
 {
   const experimentalSymbols = surface.exports.filter((e) => e.tier === 'experimental');
   if (experimentalSymbols.length > 0) {
-    // 豁免节标记常量（stripExperimentalSection）随首实验键批落
-    // api-doc-sections.mjs（与两生成器共享单源）——本段在首实验键落地批同笔
-    // 接入节剥除预处理；现零实验键恒绿，机制常驻
+    // 豁免节剥除预处理（生态启动批 eco-4 落——03 §8.8 查 5 定形注）：独立一行
+    // 〔实验面〕标记节（标记行起至同级/更高级标题止）内实验符号合法披露，
+    // 节外零容忍；标记常量与剥除件 = api-doc-sections.mjs 单源（两生成器共享）
     const docFiles = [...walkFiles('docs', ['.md']), ...walkFiles('examples', ['.ts', '.md']), ...ROOT_READMES];
     for (const entry of experimentalSymbols) {
       const re = new RegExp(`\\b${entry.symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
       const keyRe = entry.module.includes('/') ? new RegExp(entry.module.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : null;
       for (const file of docFiles) {
-        const text = readFileSync(join(SCAN_ROOT, file), 'utf8');
+        const text = stripExperimentalSections(readFileSync(join(SCAN_ROOT, file), 'utf8'));
         if (re.test(text) || (keyRe !== null && keyRe.test(text))) {
           v(
             `[查 5] 实验面 ${entry.module}::${entry.symbol} 漏进稳定文档/示例 ${file}（豁免节〔实验面〕之外——实验符号唯一合法披露位在两生成器的实验面节，§8.8 查 5）`,

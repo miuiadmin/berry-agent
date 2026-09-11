@@ -15,7 +15,7 @@
  * - 硬依赖声明在 named export `inject`（数组空 = 零依赖）；软依赖在
  *   `optionalInject`（缺席注入 undefined——诚实降级不拒载）；
  * - 注册动词全部走 ctx 面（本模板只用 ctx.channels.registerCommand + ctx.ui.notify；
- *   工具/提示词段/钩子/触发器等面见 docs/plugins-dev.md）；
+ *   工具/提示词段/钩子/触发器等面见 docs/plugin-development.md）；
  * - 每个注册动词返回 disposer 或记入 ctx.effect（§2.2 回卷律）——本模板
  *   取 ctx.effect 形：包住的注册在换代/unmount 时自动回卷（丢弃 disposer
  *   不接 effect = 跨换代注册残留，属插件侧契约违例）。

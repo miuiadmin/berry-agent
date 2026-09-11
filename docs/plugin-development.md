@@ -1,6 +1,6 @@
 # 插件开发指南
 
-本文自包含覆盖 berry-agent 插件的全部开发面：清单、装载、ctx 能力面、扩展点、错误码与发布。架构背景见[架构总览](./architecture.md)。
+本文自包含覆盖 berry-agent 插件的全部开发面：清单、装载、ctx 能力面、扩展点、快速试跑、测试（testkit）、错误码与发布。架构背景见[架构总览](./architecture.md)。
 
 一切能力皆以插件装载——官方 16 件（`core:` 前缀）与社区插件走**同一装载面**，第一方无私有车道。
 
@@ -182,7 +182,32 @@ export default async function apply(ctx) {
 2. **虚拟面六键闭集**：`berry-agent`、`berry-agent/llm`、`berry-agent/sqlite`、`typebox`、`typebox/value`、`typebox/compile`——装载器注入的同实例模块，永不落 node_modules 解析；
 3. 插件目录树内自带 node_modules 的第三方依赖。
 
-`berry-agent` 主键注入**宿主契约公开面**（工具定义 `ToolDefinition`、事件词汇、错误基类 `BaseError`、消息/审批/LLM 共享类型——插件作者的主要类型面）；`typebox` 三键注入与宿主同实例的校验库（工具参数 Schema 用它写最顺）。`berry-agent/llm` 与 `berry-agent/sqlite` 两子键为保留位（模型层与数据库窄面随后续版本接入）。
+`berry-agent` 主键注入**宿主契约公开面**（工具定义 `ToolDefinition`、事件词汇、错误基类 `BaseError`、消息/审批/LLM 共享类型——插件作者的主要类型面）；`typebox` 三键注入与宿主同实例的校验库（工具参数 Schema 用它写最顺）。`berry-agent/llm` 与 `berry-agent/sqlite` 两子键为保留位（模型层与数据库窄面随后续版本接入）。注意：六键是**闭集**——例如 testkit 子路径（作者测试面，见下[测试节](#测试testkit-生命周期证明)）不在其中，插件入口运行时 import 它会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载。
+
+## 快速试跑（`--plugin-file`——零装机）
+
+开发回路免装机直跑：TUI（无参）与 `run` 两入口同收 `--plugin-file <路径>`，在装载计划注入一条**纯内存**试件行——退出即消失，`enabled.yaml` 与装机账本零落盘。
+
+```bash
+# 目录形：插件目录（package.json 清单走与磁盘装机行同判据的完整校验）
+berry-agent --plugin-file ./my-plugin
+
+# 单文件形：裸入口文件（.js / .mjs / .ts——宿主合成隐式清单，装载身份恒为保留字 _quick_test）
+berry-agent --plugin-file ./plugin.js
+
+# run 单发同样收
+berry-agent run --plugin-file ./my-plugin "试一下新命令"
+```
+
+语义边界：
+
+- **同装载管线**：试件走与装机行完全相同的装载面（真 jiti 求值、ctx 注册动词真达）——试过即等于装过，无专用旁路；
+- **坏形 fail-loud 拒启**：清单坏形/未知键当场红（试件是显式指定物，不做行级隔离静默降级）；路径不存在响亮报错并指路两形；
+- **撞名拒启**：目录形清单声明 id 撞已装/内置插件即拒（冒名顶替拒）；单文件形装载身份恒为保留字 `_quick_test`（合法插件 id 字符集不含下划线起头形），结构性免撞；
+- **`/reload` 热重载丢试件**：热重载按磁盘真源重建装载计划，试件行不复活——迭代需重进一次旗标；
+- **与 `--no-plugins` 同给安全模式胜**（逃生门不被试件顶掉）；**与 `dump-config` 互斥**（诊断保真——`:memory:` 面须呈现真实装载形）。
+
+试跑满意后的正式装机：`berry-agent plugins install local:<绝对路径>`（enabled.yaml + 装机账本两源落盘）。仓内随包附两形模板：[`examples/minimal-code-plugin/`](../examples/minimal-code-plugin)（代码插件）与 [`examples/pure-skill-pack/`](../examples/pure-skill-pack)（纯技能包）——均可 `--plugin-file` 直接试跑。
 
 ## 启用与配置
 
@@ -255,6 +280,53 @@ plugins:
 
 错误全仓单基类 `BaseError`（`{ code, message, cause? }`）——catch 一律按 code 分派。
 
+## 测试（testkit 生命周期证明）
+
+〔实验面〕
+
+宿主提供 `berry-agent/testkit`——插件作者的**生命周期证明矩阵**：对插件目录真跑一遍「装得上、挂载得出、事件收得到」，产出可贴 README 的 markdown 回执（testkit 域现处 experimental 档——升级评估随真发节奏）。八行断言：
+
+| 行                                                                 | 证什么                                                                       |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| install（装机 + pack 完整性）                                       | 真装机落账 + npm pack 产物含装载必需文件（发布物自检）                        |
+| mount（真装载 activated + 注册账在场）                              | 启用行落盘 + 真装载进 activated + 期望命令注册账在场                          |
+| 事件面（plugin/mounted 恰一笔）                                     | 审计词真词面、恰一笔不重放                                                   |
+| 幂等/负向（换代不双注 + mountRow 撞名拒）                           | `/reload` 同语义换代后旧代出账新代单注；重复启用行被拒                        |
+| toggle（行翻转两断言）                                              | 禁用/回启用两向旗标生效                                                      |
+| 开门面（plugin/opens 幂等 diff）                                    | 行 `opens` 授予审计恰一笔、同面再 boot 不重放                                |
+| unmount（disposer 回卷 + 注册账缺席）                               | 完整卸载序双腿全跑、命令/监听账面归零（真实缺席证明）                          |
+| 残留检查（审计词 + 数据面双白名单）                                 | 零越权词汇、零残留文件（宿主记账方白名单豁免）                               |
+
+全部断言经**真装载整体走真**（真装机、真 enabled.yaml 落盘、真 jiti 求值、真审计词）——手工拼 ctx 的证明不算数。
+
+**定位边界**：testkit 不是作者的单测框架（业务逻辑单测归作者自选框架）、不是宿主 CI——它守的是「插件与宿主装载契约的符合性」这一层。
+
+消费回路（devDep——宿主真发前以 `file:` 链本地狗粮，需先在宿主仓 `npm run build`（exports 指 `dist/` 产物））：
+
+```bash
+npm install --save-dev berry-agent        # 真发后；真发前：npm install --save-dev file:../berry-agent
+```
+
+```ts
+// test/lifecycle.test.ts（vitest / node:test 均可——testkit 只是一段异步函数）
+import { join } from 'node:path';
+import { proveLifecycleMatrix, formatMatrixReceipt } from 'berry-agent/testkit';
+
+const report = await proveLifecycleMatrix({
+  pluginDir: join(import.meta.dirname, '..'), // 插件包根（真盘）
+  expect: { commands: ['my-command'] },       // 期望装载后在册的人面命令名（可选声明面）
+});
+if (!report.ok) throw new Error(formatMatrixReceipt(report)); // 回执即失败明细
+```
+
+`formatMatrixReceipt(report)` 产出 markdown 表——贴进插件 README 即「生命周期已证明」的公开回执。
+
+注意：
+
+- testkit 是**作者侧 devDep 消费面**——只在你的测试文件里 import；插件入口运行时 import `berry-agent/testkit` 不在装载器虚拟面六键闭集内，会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载（见上[import 白名单](#import-白名单插件可-import-什么)）；
+- install 行内置 **npm pack 完整性预检**（`--dry-run` 零 tarball 落盘）：发布物缺 `entry` 入口、`skills`/`agents` 声明目录文件当场红；npm 缺席的环境该行落 skipped（环境位如实呈现，非放行；`packCheck: false` 可显式关）；
+- 首版锁假宿主层 + 真装载器两层——真宿主层断言（真模型行为）随后续版本随金样轨并轨。
+
 ## 发布
 
 ```json
@@ -265,6 +337,13 @@ plugins:
 ```
 
 `berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；用户侧装机动词全在场：`berry-agent plugins install npm:<包名>`（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏；另有 `git:<url>[#<ref>]` 与 `local:<路径>` 两源形，ref 词法详见 [usage.md](usage.md#plugins-插件管理)；TUI `/plugins` 面只承载载态查看与行编辑——装机走 CLI）。装机写入账本与启用行，成功尾提示重载（TUI 行编辑面自动链 `/reload`，CLI 面下次启动生效）。
+
+发布前清单：
+
+1. **keyword 单源**：`berry-agent-plugin` 恰在 package.json `keywords`——发现键漏写即从生态检索面消失；
+2. **pack 完整性**：`npm pack --dry-run` 检查产物含装载必需文件（`entry` 入口、`skills`/`agents` 声明目录全部文件）——testkit 矩阵 install 行已内置此预检（见上[测试节](#测试testkit-生命周期证明)）；
+3. **生命周期证明**：testkit 八行全绿，回执贴 README；
+4. **secret 零明文**：`configSchema` `secret` 型键不携明文值（package.json 与 enabled.yaml 双源均拒——装载即红）。
 
 ## 最小完整示例
 
@@ -302,5 +381,6 @@ export default async function apply(ctx, config) {
 
 ## 下一步
 
+- [examples/](../examples/)——两形插件模板（最小代码插件 / 纯技能包），`--plugin-file` 直接试跑；
 - [开发指南](./development.md)——本仓开发约定与门禁；
 - [运维手册](./operations.md)——enabled.yaml 运维与插件故障排查。

@@ -17,6 +17,7 @@ import {
   serializeSurface,
 } from './extract-api-surface.mjs';
 import { renderFaceDecls, declareKeysOf } from './generate-api-decls.mjs';
+import { stripExperimentalSections } from './api-doc-sections.mjs';
 
 /** 仓库根（测试文件位置上两级） */
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -134,6 +135,65 @@ describe('check-api 十查红绿证（spawn 全闸形态）', () => {
     expect(status).toBe(1);
     expect(out).toContain('[查 9]');
     expect(out).toContain('面动号不动');
+  });
+
+  it('查 5：实验符号漏进稳定文档红 + 豁免节内合法（CHECK_API_SURFACE 注入 + CHECK_API_ROOT 夹具树）', () => {
+    const dir = fixtureDir('check5');
+    // 夹具树最小形（查 10 同款）：查 2 barrel 扫描无条件读 src/contracts/index.ts
+    mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
+    mkdirSync(join(dir, 'api-decls'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
+    // 注入面：单实验符号（模块含 '/' → keyRe 路径字面支同验）
+    const surfacePath = join(dir, 'surface.json');
+    writeFileSync(
+      surfacePath,
+      serializeSurface({
+        ...REAL_SNAPSHOT,
+        exports: [
+          {
+            module: 'berry-agent/x-demo',
+            symbol: 'demoProbe',
+            kind: 'function',
+            tier: 'experimental',
+            since: '1.0',
+            desc: '夹具实验符号',
+          },
+        ],
+      }),
+    );
+    // 双文档：outside 豁免节之外提及（红）；inside 提及全在 〔实验面〕 豁免节内（绿）
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(
+      join(dir, 'docs', 'outside.md'),
+      ['# 稳定文档', '', '提及 demoProbe 与 berry-agent/x-demo。', ''].join('\n'),
+    );
+    writeFileSync(
+      join(dir, 'docs', 'inside.md'),
+      [
+        '# 另一册',
+        '',
+        '## 实验节',
+        '',
+        '〔实验面〕',
+        '',
+        '提及 demoProbe 与 berry-agent/x-demo——豁免节内合法。',
+        '',
+        '### 更深子节仍在豁免内',
+        '',
+        'demoProbe 再提。',
+        '',
+        '## 稳定节（收界后）',
+        '',
+        '此处干净。',
+        '',
+      ].join('\n'),
+    );
+    const { status, out } = runCheck({ CHECK_API_ROOT: dir, CHECK_API_SURFACE: surfacePath });
+    expect(status).toBe(1);
+    expect(out).toContain('[查 5]');
+    expect(out).toContain('demoProbe');
+    expect(out).toContain('outside.md');
+    expect(out).not.toContain('inside.md'); // 豁免是定点开口——节内提及不红
   });
 
   it('查 10：夹具树公开产物指路知识域红（CHECK_API_ROOT 换树）', () => {
@@ -304,6 +364,40 @@ describe('抽取器纯函数单元锁', () => {
     // 永负、后续 interface 认定失明——回补后 B 正常收
     const barrelSrc = "export { A } from './a.js';\nexport interface B { y: number }";
     expect([...findExportedInterfaces(barrelSrc).keys()]).toEqual(['B']);
+  });
+
+  it('stripExperimentalSections：标记行起至同级标题豁免 + 句中字面不算标记', () => {
+    const text = [
+      '# 册',
+      '',
+      '句中〔实验面〕不算标记——保留扫描，probeOne 在此须仍可见。',
+      '',
+      '## 实验节',
+      '',
+      '〔实验面〕',
+      '',
+      'probeTwo 提及',
+      '',
+      '### 更深子节仍豁免',
+      '',
+      'probeThree 再提',
+      '',
+      '## 稳定节',
+      '',
+      'probeFour 节外',
+      '',
+    ].join('\n');
+    const stripped = stripExperimentalSections(text);
+    // 句中字面不触发豁免——该行保留
+    expect(stripped).toContain('句中〔实验面〕不算标记');
+    expect(stripped).toContain('probeOne');
+    // 标记行起至同级（##）标题止：节内正文 + 更深子节标题全剥
+    expect(stripped).not.toContain('probeTwo');
+    expect(stripped).not.toContain('probeThree');
+    expect(stripped).not.toContain('更深子节仍豁免');
+    // 收界标题与其后正文回扫描面
+    expect(stripped).toContain('## 稳定节');
+    expect(stripped).toContain('probeFour');
   });
 });
 

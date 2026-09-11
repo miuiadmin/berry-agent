@@ -22,4 +22,5 @@ berry-agent --plugin-file ./examples/pure-skill-pack
 enabled.yaml 与装机账本零落盘）；正式装机走 `berry-agent plugins install
 local:<绝对路径>`。
 
-更多面（工具/钩子/提示词段/触发器/LSP/MCP……）见 `docs/plugins-dev.md`。
+更多面（工具/凭证/HTTP 路由/跨会话操控/配置声明/测试与发布……）见
+`docs/plugin-development.md`。
