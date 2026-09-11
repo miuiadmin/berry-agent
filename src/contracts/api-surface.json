@@ -1045,7 +1045,14 @@
       "module": "manifest-keys",
       "tier": "stable",
       "since": "1.0",
-      "desc": "配置形状（typebox JSON Schema）；启用行值同判据校验"
+      "desc": "宿主侧默认配置值（启用行 config 缺席时作 apply 的 config 实参；形状声明归 configSchema——2026-09-11 交互动词族批 schema/值分键）"
+    },
+    {
+      "symbol": "configSchema",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "配置字段声明面（字段描述数组——字段级校验与 /plugins config 表单渲染双消费源）"
     },
     {
       "symbol": "entry",

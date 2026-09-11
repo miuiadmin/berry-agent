@@ -236,6 +236,41 @@ describe('parseManifest 各键浅校验', () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.manifest.entryPlan).toEqual({ kind: 'default-export' });
   });
+
+  // —— ix-3：configSchema 深校验接线（03 §1.2 configSchema 条款——parse 域
+  // 单元面在 config-schema.test.ts，此处断言 manifest 侧包装码与交叉判）——
+  it('configSchema 坏形拒 → PLUGIN_SHAPE_INVALID；合法面随清单返回', () => {
+    const bad = basePkg();
+    (bad['berryAgent'] as Record<string, unknown>)['configSchema'] = [{ key: 'A', type: 'text' }];
+    const badResult = parseManifest(bad);
+    expect(badResult.ok).toBe(false);
+    if (!badResult.ok) expect(badResult.code).toBe('PLUGIN_SHAPE_INVALID');
+    const okPkg = basePkg();
+    (okPkg['berryAgent'] as Record<string, unknown>)['configSchema'] = [
+      { key: 'endpoint', type: 'text', required: true },
+      { key: 'token', type: 'secret', required: true },
+    ];
+    const r = parseManifest(okPkg);
+    expect(r.ok).toBe(true);
+    if (r.ok)
+      expect(r.manifest.configSchema).toEqual([
+        { key: 'endpoint', type: 'text', required: true },
+        { key: 'token', type: 'secret', required: true },
+      ]);
+  });
+
+  it('清单 config 键（宿主默认值位）撞 configSchema secret 型键明文 → PLUGIN_CONFIG_INVALID', () => {
+    const pkg = basePkg();
+    const block = pkg['berryAgent'] as Record<string, unknown>;
+    block['config'] = { token: 'plain-in-pkg' };
+    block['configSchema'] = [{ key: 'token', type: 'secret' }];
+    const r = parseManifest(pkg);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe('PLUGIN_CONFIG_INVALID'); // 非 shapeFail——语义面归 config 族
+      expect(r.message).toContain('package.json');
+    }
+  });
 });
 
 describe('parseEnabledRows 行校验', () => {

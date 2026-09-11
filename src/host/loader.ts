@@ -26,10 +26,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJiti } from 'jiti';
 import type { Jiti, TransformOptions, TransformResult } from 'jiti';
-import { Value } from 'typebox/value';
 
 import { BaseError } from '../contracts/index.js';
 
+import { synthesizePluginConfig, type ConfigField } from './config-schema.js';
 import { createGateTransform } from './import-gate.js';
 import type { PluginManifest } from './manifest.js';
 import { withoutSessionAnchor } from './session-anchor.js';
@@ -43,6 +43,11 @@ export interface CorePluginReference {
   readonly optionalInject?: readonly string[];
   /** 宿主侧默认 config（启用行 config 缺席时用） */
   readonly config?: unknown;
+  /**
+   * 配置字段声明面（ix-3——03 §1.2 configSchema）：core: 件类型化真身，
+   * TS 保证形状；磁盘轨经 parseManifest 深校验同判据（03 §1.4 形状同轨）。
+   */
+  readonly configSchema?: readonly ConfigField[];
   readonly events?: readonly string[];
   readonly skills?: readonly string[];
   readonly apply: (ctx: unknown, config?: unknown) => Promise<void | (() => void)>;
@@ -128,8 +133,20 @@ export interface LoadPluginsOptions<TCtx = unknown> {
    * 回调窗内合法——装配批（12f-2b）以 ctx 面件 handle 表消费本回调。
    */
   readonly onApplySettled?: (pluginId: string) => void;
-  /** 软依赖缺席 warn 落点（03 §1.3「缺席仅记 warn」；缺席 = 不记） */
+  /** 软依赖缺席 warn 落点（03 §1.3「缺席仅记 warn」；缺席 = 不记）——secret 诊断豁免提示行同落点 */
   readonly warn?: (message: string) => void;
+  /**
+   * 插件配置 secret 读面（ix-3——03 §1.2 合成序⑤）：装载合成时宿主从凭证盒
+   * 直取 plugin:<id> 域 config:<key>；缺席 = secret 恒缺席，required secret
+   * 拒载照常（:memory: 诊断形另走 allowMissingRequiredSecret 豁免）。
+   */
+  readonly getConfigSecret?: (pluginId: string, key: string) => string | undefined;
+  /**
+   * required-secret 诊断豁免（07 §5 dump-config :memory: 同构纪律——凭证盒
+   * 结构性恒空，required secret 缺席降级 warn 提示行装载照走；真实装载形
+   * 不传 = 缺席拒载照常）。
+   */
+  readonly allowMissingRequiredSecret?: boolean;
   /** jiti 工厂注入位（测试替身；缺省 = 真门禁真虚拟面 jiti） */
   readonly jitiFactory?: (pluginDir: string, opts: LoadPluginJitiOptions) => Jiti;
 }
@@ -279,7 +296,25 @@ async function loadRow<TCtx>(
   try {
     // 开门授予集只随磁盘行透传（core: 行无 opens 位——读侧已拒，结构性保证）
     const ctx = options.createContext(row.id, row.kind === 'disk' ? row.opens : undefined);
-    const config = row.kind === 'core' ? (row.config !== undefined ? row.config : row.reference.config) : row.config;
+    // 装载位配置合成（ix-3——03 §1.2 合成序）：configSchema 缺席 = 行为零变化
+    // （原值直传零校验——双轨同判）；在场 = 行 config 整值覆盖宿主默认 → 字段级
+    // 校验 → default 兜底 → secret 凭证直取 → 未声明键透传。磁盘轨宿主默认
+    // 回落 = 清单 config 键（schema/值分键后值单源；旧「config 当 typebox
+    // schema 消费」路径已拆）；core 轨 = 引用形 config 位（既有回落不变）。
+    const defaultConfig = row.kind === 'core' ? row.reference.config : row.manifest.config;
+    const config = synthesizePluginConfig({
+      pluginId: row.id,
+      ...(row.kind === 'core'
+        ? row.reference.configSchema !== undefined && { fields: row.reference.configSchema }
+        : row.manifest.configSchema !== undefined && { fields: row.manifest.configSchema }),
+      ...(row.config !== undefined && { rowConfig: row.config }),
+      ...(defaultConfig !== undefined && { defaultConfig }),
+      ...(options.getConfigSecret !== undefined && {
+        getSecret: (key: string) => options.getConfigSecret?.(row.id, key),
+      }),
+      ...(options.allowMissingRequiredSecret === true && { allowMissingRequiredSecret: true }),
+      ...(options.warn !== undefined && { warn: options.warn }),
+    });
 
     if (row.kind === 'core') {
       // §1.4 直调轨：零 jiti 零门禁；其余契约（时钟/回卷）与磁盘插件同轨
@@ -294,8 +329,9 @@ async function loadRow<TCtx>(
       return;
     }
 
-    // 磁盘轨：行 config 先过清单形状（§1.2——值校验归装载器）
-    validateRowConfig(row, config);
+    // 磁盘轨：行 config 形状执法已随 typebox 旧路径拆除（ix-3——行 config
+    // 须对象在 readEnabledRows 行校验层；字段级校验/secret 明文拒在上方
+    // 合成步统一执法——configSchema 缺席时零变化原值直传）
 
     // 纯声明包（entryPlan 三态之一）：零码装载——技能清单随行激活（相对
     // pluginDir 解析；agents-only 声明形 skills 缺席 = 空清单）
@@ -464,38 +500,6 @@ async function invokeApply(
   }
   if (typeof returned === 'function') {
     disposeStack.push({ id, fn: returned as () => void | Promise<void> }); // 激活序入栈——unload LIFO
-  }
-}
-
-/** 磁盘行 config 形状执法（§1.2——typebox JSON Schema 同判据） */
-function validateRowConfig(row: DiskPluginSpec, config: unknown): void {
-  const schema = row.manifest.config;
-  if (schema === undefined) {
-    if (config !== undefined) {
-      throw new BaseError('PLUGIN_CONFIG_INVALID', `行 config 在场而清单未声明形状（插件 ${row.id}）——形状声明先行`);
-    }
-    return;
-  }
-  try {
-    if (!Value.Check(schema as never, config as never)) {
-      const first = [...Value.Errors(schema as never, config as never)]
-        .slice(0, 3)
-        .map((e) => e.message)
-        .join('；');
-      throw new BaseError(
-        'PLUGIN_CONFIG_INVALID',
-        `行 config 不合清单形状（插件 ${row.id}）：${first || '校验不通过'}`,
-      );
-    }
-  } catch (err) {
-    if (err instanceof BaseError) throw err;
-    throw new BaseError(
-      'PLUGIN_CONFIG_INVALID',
-      `清单 config 形状自身坏形（插件 ${row.id}）：${err instanceof Error ? err.message : String(err)}`,
-      {
-        cause: err,
-      },
-    );
   }
 }
 

@@ -377,70 +377,170 @@ export default async function apply(ctx) { ctx.provide('depFs', dep); }
   });
 });
 
-describe('loadPlugins config 形状执法（§1.2——值校验归装载器）', () => {
-  const configSchema = {
-    type: 'object',
-    properties: { name: { type: 'string' } },
-    required: ['name'],
-    additionalProperties: false,
-  };
+describe('loadPlugins config 合成执法（ix-3——03 §1.2 configSchema 装载接线）', () => {
+  /** 四型字段齐备的声明面 fixture（text/secret/select/boolean） */
+  const fields = [
+    { key: 'name', type: 'text', required: true },
+    { key: 'token', type: 'secret', required: true },
+    {
+      key: 'mode',
+      type: 'select',
+      default: 'fast',
+      options: [
+        { value: 'fast', label: '快' },
+        { value: 'slow', label: '慢' },
+      ],
+    },
+    { key: 'verbose', type: 'boolean', default: false },
+  ];
 
-  function configRow(dir: string, config: unknown): DiskPluginSpec {
-    return {
-      kind: 'disk',
-      id: 'plug-cfg',
-      config,
-      pluginDir: dir,
-      manifest: manifestOf({
+  function schemaRow(dir: string, config: unknown): DiskPluginSpec {
+    return diskRow(
+      'plug-cfg',
+      dir,
+      {
         name: 'plug-cfg',
         version: '1.0.0',
-        berryAgent: { entry: 'entry.js', config: configSchema },
-      }),
-    };
+        berryAgent: { entry: 'entry.js', configSchema: fields },
+      },
+      { config },
+    );
   }
 
-  it('值合形状过 + apply 收到行 config', async () => {
+  it('合成序四步齐验：行值过校验 + default 兜底 + secret 凭证直取 + 未声明键透传', async () => {
     const dir = makePluginDir({
       'package.json': JSON.stringify({
         name: 'plug-cfg',
         version: '1.0.0',
-        berryAgent: { entry: 'entry.js', config: configSchema },
+        berryAgent: { entry: 'entry.js', configSchema: fields },
       }),
       'entry.js': `export default async function apply(ctx, config) { ctx.provide('got', config); }\n`,
     });
-    const options = rigOptions([configRow(dir, { name: 'alice' })]);
+    const options = rigOptions([schemaRow(dir, { name: 'alice', undeclared: true })], {
+      getConfigSecret: (_id, key) => (key === 'token' ? 'sekret-from-vault' : undefined),
+    });
     const report = await loadPlugins(options);
     expect(report.failed).toEqual([]);
-    expect(options.services.get('got')).toEqual({ name: 'alice' });
+    expect(options.services.get('got')).toEqual({
+      name: 'alice',
+      token: 'sekret-from-vault',
+      mode: 'fast', // select default 兜底
+      verbose: false, // boolean default 兜底
+      undeclared: true, // 未声明键原样透传
+    });
   });
 
-  it('值违例（required 缺席）→ PLUGIN_CONFIG_INVALID + 报文含形状错误', async () => {
+  it('值违例三型 → PLUGIN_CONFIG_INVALID（text 非串 / select 出值域 / boolean 非布）', async () => {
     const dir = makePluginDir({
       'package.json': JSON.stringify({
         name: 'plug-cfg',
         version: '1.0.0',
-        berryAgent: { entry: 'entry.js', config: configSchema },
+        berryAgent: { entry: 'entry.js', configSchema: fields },
       }),
       'entry.js': `export default async function apply() {}\n`,
     });
-    const report = await loadPlugins(rigOptions([configRow(dir, { wrong: 1 })]));
-    expect(report.failed[0]?.code).toBe('PLUGIN_CONFIG_INVALID');
+    for (const bad of [{ name: 42 }, { name: 'a', mode: 'warp' }, { name: 'a', verbose: 'yes' }]) {
+      const report = await loadPlugins(rigOptions([schemaRow(dir, bad)]));
+      expect(report.failed[0]?.code, JSON.stringify(bad)).toBe('PLUGIN_CONFIG_INVALID');
+    }
   });
 
-  it('行 config 在场而清单未声明形状 → PLUGIN_CONFIG_INVALID（形状声明先行）', async () => {
+  it('configSchema 缺席 = 行为零变化：行 config 原值直传零校验（旧 typebox 消费路径拆除的回归锁）', async () => {
     const dir = makePluginDir({
       'package.json': JSON.stringify({ name: 'plug-cfg', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+      'entry.js': `export default async function apply(ctx, config) { ctx.provide('got', config); }\n`,
+    });
+    const options = rigOptions([
+      diskRow(
+        'plug-cfg',
+        dir,
+        { name: 'plug-cfg', version: '1.0.0', berryAgent: { entry: 'entry.js' } },
+        { config: { undeclared: true } },
+      ),
+    ]);
+    const report = await loadPlugins(options);
+    expect(report.failed).toEqual([]);
+    expect(options.services.get('got')).toEqual({ undeclared: true });
+  });
+
+  it('行 config 携 secret 明文值拒（PLUGIN_CONFIG_INVALID + 报文指路表单）', async () => {
+    const dir = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'plug-cfg',
+        version: '1.0.0',
+        berryAgent: { entry: 'entry.js', configSchema: fields },
+      }),
       'entry.js': `export default async function apply() {}\n`,
     });
-    const row: DiskPluginSpec = {
-      kind: 'disk',
-      id: 'plug-cfg',
-      config: { undeclared: true },
-      pluginDir: dir,
-      manifest: manifestOf({ name: 'plug-cfg', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
-    };
-    const report = await loadPlugins(rigOptions([row]));
+    const report = await loadPlugins(rigOptions([schemaRow(dir, { name: 'a', token: 'plain-leak' })]));
     expect(report.failed[0]?.code).toBe('PLUGIN_CONFIG_INVALID');
+    expect(report.failed[0]?.message).toContain('/plugins config');
+  });
+
+  it('required secret 凭证缺席 → 拒（getConfigSecret 缺席位 = secret 恒缺席）', async () => {
+    const dir = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'plug-cfg',
+        version: '1.0.0',
+        berryAgent: { entry: 'entry.js', configSchema: fields },
+      }),
+      'entry.js': `export default async function apply() {}\n`,
+    });
+    const report = await loadPlugins(rigOptions([schemaRow(dir, { name: 'a' })]));
+    expect(report.failed[0]?.code).toBe('PLUGIN_CONFIG_INVALID');
+    expect(report.failed[0]?.message).toContain('凭证盒');
+  });
+
+  it('allowMissingRequiredSecret 豁免（:memory: 诊断形）→ warn 提示行 + 装载照走', async () => {
+    const dir = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'plug-cfg',
+        version: '1.0.0',
+        berryAgent: { entry: 'entry.js', configSchema: fields },
+      }),
+      'entry.js': `export default async function apply(ctx, config) { ctx.provide('got', config); }\n`,
+    });
+    const warns: string[] = [];
+    const options = rigOptions([schemaRow(dir, { name: 'a' })], {
+      allowMissingRequiredSecret: true,
+      warn: (m) => void warns.push(m),
+    });
+    const report = await loadPlugins(options);
+    expect(report.failed).toEqual([]); // 降级不拒
+    expect(warns.join('\n')).toContain('豁免');
+    expect(options.services.get('got')).toEqual({ name: 'a', mode: 'fast', verbose: false }); // token 缺席不注
+  });
+
+  it('core: 轨同链：configSchema 合成 + 行 config 胜引用形默认', async () => {
+    let got: unknown;
+    const row: CorePluginSpec = {
+      kind: 'core',
+      id: 'core:cfg',
+      config: { endpoint: 'row.example' },
+      reference: {
+        name: 'cfg',
+        config: { endpoint: 'default.example' },
+        configSchema: [{ key: 'endpoint', type: 'text', required: true }],
+        apply: async (_c, config) => void (got = config),
+      },
+    };
+    await loadPlugins(rigOptions([row]));
+    expect(got).toEqual({ endpoint: 'row.example' });
+  });
+
+  it('core: 轨 required 缺席 → fail-loud（CorePluginBootError 载 PLUGIN_CONFIG_INVALID）', async () => {
+    const row: CorePluginSpec = {
+      kind: 'core',
+      id: 'core:cfg',
+      reference: {
+        name: 'cfg',
+        configSchema: [{ key: 'endpoint', type: 'text', required: true }],
+        apply: async () => {},
+      },
+    };
+    await expect(loadPlugins(rigOptions([row]))).rejects.toMatchObject({
+      failure: { code: 'PLUGIN_CONFIG_INVALID' },
+    });
   });
 });
 

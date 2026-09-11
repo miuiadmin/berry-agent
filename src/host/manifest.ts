@@ -12,6 +12,7 @@
 import { join } from 'node:path';
 
 import type { ApiBlock } from '../contracts/index.js';
+import { parseConfigSchemaFields, type ConfigField } from './config-schema.js';
 import { isValidApiVersion } from '../contracts/index.js';
 // internal 桶机制符号深导（opens 授予位值域单源——02 §4.3 #2 深挖面册纪律）
 import { DOORS_SEGMENT_V1_DOMAIN, USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
@@ -35,8 +36,10 @@ export interface PluginManifest {
   readonly entry?: string;
   /** grants 申请面（§4 单维 writableRoots；深校验随装载器批——本笔浅校验形状） */
   readonly grants?: Readonly<Record<string, unknown>>;
-  /** 配置形状（typebox JSON Schema；行 config 值校验 = PLUGIN_CONFIG_INVALID 归装载器） */
+  /** 宿主侧默认配置值（启用行 config 缺席时的整值回落——schema/值分键后值单源；secret 型键明文值拒载） */
   readonly config?: unknown;
+  /** 配置字段声明面（字段描述数组——装载期字段级校验 + 表单腿渲染双消费源；缺席 = 行为零变化） */
+  readonly configSchema?: readonly ConfigField[];
   /** API 治理块（§8.4 装载门消费；形状校验在本笔——单源判据 contracts） */
   readonly api?: ApiBlock;
   /** 技能目录清单（§6；非空即在场的唯一「声明载荷」——纯声明包判定输入） */
@@ -70,7 +73,16 @@ export const MANIFEST_KEY_CATALOG: readonly {
   { key: 'label', tier: 'stable', desc: '展示名；缺省取 id' },
   { key: 'entry', tier: 'stable', desc: '入口文件（相对包根）；缺席走入口解析序三步' },
   { key: 'grants', tier: 'stable', desc: '授权申请面；单维 writableRoots 字符串数组' },
-  { key: 'config', tier: 'stable', desc: '配置形状（typebox JSON Schema）；启用行值同判据校验' },
+  {
+    key: 'config',
+    tier: 'stable',
+    desc: '宿主侧默认配置值（启用行 config 缺席时作 apply 的 config 实参；形状声明归 configSchema——2026-09-11 交互动词族批 schema/值分键）',
+  },
+  {
+    key: 'configSchema',
+    tier: 'stable',
+    desc: '配置字段声明面（字段描述数组——字段级校验与 /plugins config 表单渲染双消费源）',
+  },
   { key: 'api', tier: 'stable', desc: 'API 治理块（minApiVersion/targetApiVersion/experimental）' },
   { key: 'skills', tier: 'stable', desc: '技能目录清单；非空即在场的唯一声明载荷（纯声明包零码装载）' },
 ];
@@ -102,10 +114,14 @@ export function checkPluginId(id: string, opts: { official: boolean }): boolean 
   return PLUGIN_ID_RE.test(id);
 }
 
-/** 校验失败结果——码固定 PLUGIN_SHAPE_INVALID（install 拒绝与形状违例同码，message 分流） */
+/**
+ * 校验失败结果（message 分流）。形状违例码 PLUGIN_SHAPE_INVALID；secret 明文
+ * 拒码 PLUGIN_CONFIG_INVALID（03 §1.2「双源同拒」清单侧半边——install 时刻
+ * 即拒，码与装载器行 config 半边同码同律）。
+ */
 export interface ManifestInvalid {
   readonly ok: false;
-  readonly code: 'PLUGIN_SHAPE_INVALID';
+  readonly code: 'PLUGIN_SHAPE_INVALID' | 'PLUGIN_CONFIG_INVALID';
   readonly message: string;
 }
 
@@ -203,11 +219,31 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
     }
   }
 
-  // config：须对象（typebox JSON Schema 形——浅校验；行值校验归装载器）
+  // config：须对象（宿主侧默认配置值——schema/值分键后值单源；secret 明文拒在 configSchema 解析后交叉判）
   if (manifest['config'] !== undefined) {
     const config = manifest['config'];
     if (typeof config !== 'object' || config === null || Array.isArray(config)) {
-      return shapeFail(`berryAgent.config 须为 JSON Schema 对象（插件 ${id}）`);
+      return shapeFail(`berryAgent.config 须为对象（插件 ${id}——宿主侧默认配置值）`);
+    }
+  }
+
+  // configSchema：字段描述数组深校验（ix-3——03 §1.2 configSchema 条款）+ 清单侧 secret 明文拒
+  let configSchema: readonly ConfigField[] | undefined;
+  if (manifest['configSchema'] !== undefined) {
+    const parsed = parseConfigSchemaFields(manifest['configSchema'], { pluginId: id });
+    if (!parsed.ok) {
+      return shapeFail(parsed.message);
+    }
+    configSchema = parsed.fields;
+    // secret 明文拒（清单侧半边——宿主默认值位携 secret 键明文值拒；行 config 半边归装载器）
+    if (manifest['config'] !== undefined) {
+      const defaults = manifest['config'] as Record<string, unknown>;
+      const leaked = configSchema.filter((f) => f.type === 'secret' && f.key in defaults).map((f) => f.key);
+      if (leaked.length > 0) {
+        return configFail(
+          `清单 config 键携 secret 型键明文值（插件 ${id}：${leaked.join('、')}）——从 package.json 删该键、走表单/凭证盒（package.json 随 npm 分发明文更烈）`,
+        );
+      }
     }
   }
 
@@ -281,6 +317,7 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
       entry,
       grants: manifest['grants'] as PluginManifest['grants'],
       config: manifest['config'],
+      configSchema,
       api,
       skills,
       entryPlan,
@@ -291,6 +328,11 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
 /** 形状失败速记（同码分流——install 拒绝与形状违例共用 PLUGIN_SHAPE_INVALID） */
 function shapeFail(message: string): ManifestInvalid {
   return { ok: false, code: 'PLUGIN_SHAPE_INVALID', message };
+}
+
+/** 值违例失败（secret 明文拒专用——PLUGIN_CONFIG_INVALID 面） */
+function configFail(message: string): ManifestInvalid {
+  return { ok: false, code: 'PLUGIN_CONFIG_INVALID', message };
 }
 
 /** [major, minor] 数值比较：a < b（判据调用方保证两串已过格式校验） */

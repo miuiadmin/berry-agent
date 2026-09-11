@@ -51,7 +51,7 @@ import type { Disposer, Scope } from '../context/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { LlmRuntime } from '../llm/index.js';
-import { createEnvRefResolver, createSecretsFace } from '../credentials/index.js';
+import { createEnvRefResolver, createSecretsFace, pluginNamespace } from '../credentials/index.js';
 import type { SecretsFaceOptions } from '../credentials/index.js';
 import type { OAuthFlowRegistry } from '../credentials/index.js';
 // 跨会话操控受理器（e4-3——sessions-control fork 绑定；host→conversation 边在册）
@@ -618,6 +618,18 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     services,
     createContext,
     warn,
+    // 插件配置 secret 读面（ix-3——03 §1.2 合成序⑤）：宿主装载序从凭证盒直取
+    // plugin:<id> 域 config:<key> 注回合成 config（secrets 面缺席 = 诊断/替身形
+    // secret 恒缺席，required secret 拒载照常——诚实缺席律）
+    ...(options.secrets !== undefined
+      ? {
+          getConfigSecret: (pluginId: string, key: string) =>
+            options.secrets?.store.getCredential(pluginNamespace(pluginId), `config:${key}`)?.apiKey,
+        }
+      : {}),
+    // required-secret 诊断豁免（07 §5 :memory: 同构纪律）：诊断形凭证盒结构性
+    // 恒空——缺席拒降级 warn 提示行装载照走（真实装载形不豁免，拒载照常）
+    ...(options.runtime.memory ? { allowMissingRequiredSecret: true } : {}),
     onApplySettled: (pluginId) => handles.get(pluginId)?.closeWindow(), // 行收口即关窗（finally 语义）
     ...(bookkeepingPath === null
       ? {}
@@ -1072,7 +1084,7 @@ function resolveDiskRow(
     return {
       failure: {
         id: row.id,
-        code: 'PLUGIN_SHAPE_INVALID',
+        code: manifestResult.code,
         message: `清单校验失败（${pluginDir}）：${manifestResult.message}`,
       },
     };
