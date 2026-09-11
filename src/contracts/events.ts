@@ -1,5 +1,5 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——28 核心词全列，
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——32 核心词全列，
  * compaction 三词 2026-09-06 纵切批增补、compaction/fallback 2026-09-09
  * U4 落码批入册、session/thinking-level 同日遗漏
  * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
@@ -49,7 +49,7 @@ export interface EventTypeMeta {
 }
 
 /**
- * 核心事件类型 23 词（05 §1.1 表格逐条转录；owner 归属按表注：
+ * 核心事件类型 32 词（05 §1.1 表格逐条转录；owner 归属按表注：
  * gate/decision 归 tools、llm/usage 归 llm、llm/retry 注册走 session
  * 核心词汇（llm 模块不知道驱动存在）、plugin/uninstalled 宿主写点 host、
  * approval/* 与 sandbox/mode 归 safety 域、todo/write 与
@@ -79,6 +79,9 @@ export interface EventTypeMeta {
  * 受理时序承载〕；后者载荷 {pluginId, key, action} 值与元数据恒不入、
  * 发射位随 ctx.sessions 受理制写面批兑现〔规范已裁代码未落——词先锚定，
  * compaction/fallback 同律〕）。
+ * 31→32：preset/applied 随审批分档批 ap-3 入册（05 §1.1 权限预设切换审计词
+ * ——载体 = audit_events；写点 = TUI /approval preset 执行尾恰一笔，CLI
+ * --preset 逐次形零审计——04 §9 ⑥ ap-3 定形补充）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -305,6 +308,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '键值写历史（T9 案一批 2026-09-09——store_state LRU+ttl 只有终态、写无历史的 durable 归因）：载荷 {pluginId, key 裸键名, action: set|delete}（值与 ttl/kind 元数据恒不入载荷——credentials/changed 同律；读腿零落账；persist 层 LRU/ttl 治理写零落账〔治理/受理分层〕）；写点 = ctx.sessions store_state 受理面 set/delete 成功尾逐笔——**规范已裁、代码未落**（词先锚定，发射位随受理制写面落码批兑现，compaction/fallback 同律）；载体 = audit_events',
+  },
+  {
+    type: 'preset/applied',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '权限预设切换审计（审批分档批 ap-3 2026-09-11——04 §9 定形块⑥「预设切换落审计」兑现：用户主权动作留痕，/danger approve 同形）：载荷 {preset: conservative|balanced|open, sandboxMode, approvalPolicy, appended}（appended = 建议集去重后真追加数——balanced/conservative 恒 0）；写点 = TUI /approval preset 执行尾恰一笔（写盘成功后；CLI --preset 逐次形零审计、失败路径零落账）；载体 = audit_events',
   },
 ];
 

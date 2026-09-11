@@ -93,6 +93,15 @@ export interface ToolPolicyMatch {
 }
 
 /**
+ * 命中来源标注串（ap-3 三面同源单源）：守门行 deny 理由 / allow 免问
+ * allowReason、/approval explain 干跑呈现、session_status 整名族干跑呈现
+ * ——三面共用本函数，执法与呈现漂移在结构上不可能（同函数同条目同串）。
+ */
+export function policyHitNote(match: ToolPolicyMatch): string {
+  return `policy-${match.entry.decision}:${match.index}`;
+}
+
+/**
  * 判定入口（04 §9 定形块④评估序的纯函数半边）：**deny 命中恒最先且终局**
  * ——全表扫描中首个 deny 命中即返回（**序在 allow 之前恒胜**：条目序不构成
  * deny 与 allow 的优先级，deny 是不同维度的主权裁决）；无 deny 命中时返回

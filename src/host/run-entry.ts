@@ -46,6 +46,7 @@ import type { SubmitResult } from '../conversation/index.js';
 import { diagnoseProviderFailure } from '../llm/index.js';
 import type { LlmUsageEventData, Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
+import { approvalPresetOf } from '../safety/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
@@ -111,7 +112,9 @@ export async function runRunEntry(options: RunEntryOptions): Promise<number> {
 
   // —— 装配公共段（批 19a-3 迁 assembly 件——与 TUI/serve 同一合成代码路径：
   // 运行时→logger→共享根→栈→**插件装载**〔core 注册表 + enabled.yaml 真跑〕；
-  // --ephemeral → memory 形零落盘；--read-only → 沙箱档 read-only 单发覆盖）——
+  // --ephemeral → memory 形零落盘；--read-only → 沙箱档 read-only 单发覆盖；
+  // --preset <名> → 权限预设两旋钮逐次覆盖（ap-3——逐次生效不写盘，与
+  // --read-only 在解析层互斥；来源标注随旋钮注入供 /approval status 呈现）——
   const assembly = await assembleHostStack({
     runtime: {
       ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
@@ -123,7 +126,16 @@ export async function runRunEntry(options: RunEntryOptions): Promise<number> {
     ...(options.providers !== undefined ? { providers: options.providers } : {}),
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.env !== undefined ? { env: options.env } : {}),
-    ...(options.flags.readOnly ? { sandboxMode: (): SandboxMode => 'read-only' } : {}),
+    ...(options.flags.readOnly
+      ? { sandboxMode: (): SandboxMode => 'read-only', sandboxModeSource: 'CLI --read-only' }
+      : options.flags.preset !== undefined
+        ? {
+            sandboxMode: (): SandboxMode => approvalPresetOf(options.flags.preset!)!.sandboxMode,
+            sandboxModeSource: `CLI --preset ${options.flags.preset}`,
+            approvalPolicy: approvalPresetOf(options.flags.preset!)!.approvalPolicy,
+            approvalPolicySource: `CLI --preset ${options.flags.preset}`,
+          }
+        : {}),
     ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
   });
   if (!assembly.ok) {

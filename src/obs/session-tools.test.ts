@@ -11,7 +11,7 @@ import type { ToolDefinition } from '../contracts/index.js';
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
 import { createSessionTools, OBSERVE_CROSS_CAPABILITY } from './session-tools.js';
 import type { SessionObserveUsedRecord, SessionToolsDeps } from './session-tools.js';
-import type { SessionEnvFace, SessionSummaryRow, SessionView } from './types.js';
+import type { SessionEnvFace, SessionSummaryRow, SessionToolPolicySnapshot, SessionView } from './types.js';
 
 /** 假 view（数据面固定——树判定受控：'in' 树内 / 其余跨树） */
 function fakeView(opts?: { inTree?: readonly string[] }): SessionView {
@@ -253,6 +253,13 @@ describe('session_status 环境自感（e-3——工具清单/门态快照/负�
     expect(text).toContain('（无——当前能力面无缺失声明）');
   });
 
+  it('ap-3 第四段缺席：toolPolicy getter 未注入 = 段不呈现（诚实降级不虚构）', async () => {
+    const defs = toolsFor({ env: envFor() });
+    const result = await tool(defs, 'session_status').execute({}, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).not.toContain('tool-policy');
+  });
+
   it('无工作区负面行（防幻觉负向清单第二锚）', async () => {
     const view = fakeView();
     const defs = createSessionTools({
@@ -277,5 +284,70 @@ describe('session_status 环境自感（e-3——工具清单/门态快照/负�
     expect(text).not.toContain('tools(');
     expect(text).not.toContain('capability-doors:');
     expect(text).not.toContain('negative-capabilities:');
+  });
+});
+
+describe('session_status 工具策略段（ap-3——快照 + 整名族干跑 + 实参族计数注记）', () => {
+  /** 干跑闭包速构：整名族条目 matchToolPolicy 语义模拟（host 注入位同源——deny 无档位限定 = 全档命中） */
+  const policyFor =
+    (entries: ReadonlyArray<{ tool: string; decision: 'allow' | 'deny'; reason?: string }>) =>
+    (): SessionToolPolicySnapshot => ({
+      entries: entries.map((entry, index) => ({
+        index,
+        tool: entry.tool,
+        decision: entry.decision,
+        ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
+      })),
+      path: '/data/tool-policy.json',
+      dryRun: (tool) => {
+        const hit = entries.findIndex((e) => e.tool === tool);
+        return hit === -1 ? undefined : { decision: entries[hit]!.decision, index: hit };
+      },
+    });
+
+  /** env 速构（本 describe 自含——门态恒闭门形，与 e-3 describe 的 envFor 同形最小面） */
+  const envWithPolicy = (policy?: () => SessionToolPolicySnapshot): SessionEnvFace => ({
+    listTools: () => [{ name: 'bash' }, { name: 'session_status' }],
+    doorStates: () => {
+      const verdict = adjudicateCapabilityDoor(new Set<string>(), OBSERVE_CROSS_CAPABILITY);
+      return [
+        {
+          capability: OBSERVE_CROSS_CAPABILITY,
+          open: verdict.ok,
+          ...(verdict.ok ? {} : { reason: verdict.message }),
+          scope: '跨树会话枚举与读取（session_list/session_read/session_trace 跨树目标）',
+        },
+      ];
+    },
+    ...(policy !== undefined ? { toolPolicy: policy } : {}),
+  });
+
+  it('条目清单全列 + 载体路径注明 + dryRun deny 全档命中行', async () => {
+    const defs = toolsFor({
+      env: envWithPolicy(
+        policyFor([
+          { tool: 'web_search', decision: 'deny', reason: '禁搜' },
+          { tool: 'bash', decision: 'allow' },
+        ]),
+      ),
+    });
+    const result = await tool(defs, 'session_status').execute({}, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('tool-policy(2)');
+    expect(text).toContain('[0] tool=web_search decision=deny reason=禁搜');
+    expect(text).toContain('path=/data/tool-policy.json');
+    // 整名族干跑：web_search 全档命中（deny 硬拒标注）
+    expect(text).toContain('web_search: 全档命中 policy-deny:0');
+    // fs/bash 族计数注记指路 explain（不假报无命中）
+    expect(text).toContain('另 1 条 write/edit/bash 族条目逐调用裁决');
+    expect(text).toContain('/approval explain');
+  });
+
+  it('空表诚实呈现', async () => {
+    const defs = toolsFor({ env: envWithPolicy(policyFor([])) });
+    const result = await tool(defs, 'session_status').execute({}, {} as never);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('tool-policy(0)');
+    expect(text).toContain('（空——无任何条目）');
   });
 });

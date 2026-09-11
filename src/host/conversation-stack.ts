@@ -24,6 +24,8 @@
  * memory 形降级（05 §6.6/07 §5）：runtime.dataDir === null 时 open 域工具整面
  * 缺席（守门恒排除位必填真 dataDir）——纯对话 run，工具面类型可选的诚实降级。
  */
+import { join } from 'node:path';
+
 import { canonicalWorkspaceRoot, EventDispatch, Scope } from '../context/index.js';
 import { createChannels } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
@@ -73,13 +75,15 @@ import {
   resolveDefaultModelSpec,
 } from '../llm/index.js';
 import type { LlmRuntime, LlmService, Provider } from '../llm/index.js';
-import type { SandboxMode, ToolPolicyDraft, ToolPolicyEntry } from '../safety/index.js';
+import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft, ToolPolicyEntry } from '../safety/index.js';
+import { matchToolPolicy } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
 
 import type { HostRuntime } from './runtime.js';
 import type { HookDispatchGuardFace } from './hook-dispatch-guard.js';
 import type { GoalFace } from './core-plugins.js';
+import { TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import { createSessionTools, createSessionView, OBSERVE_CROSS_CAPABILITY } from '../obs/index.js';
 import type { SessionObserveUsedRecord, SessionView } from '../obs/index.js';
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
@@ -105,6 +109,12 @@ export interface ConversationStackOptions {
   readonly dispatch?: EventDispatch;
   /** 沙箱档位取值器（缺省 workspace-write——04 §7 缺省档） */
   readonly sandboxMode?: () => SandboxMode;
+  /**
+   * 审批策略档（04 §9 两旋钮之二——ask/never；缺省不注入 = approval 服务
+   * 内缺省 'ask'。装配根四层解析胜者注入：CLI --preset/旗标 > settings.json
+   * > 代码常量；会话策略层在驱动面另有 override，不经本位）
+   */
+  readonly approvalPolicy?: ApprovalPolicyMode;
   /** 工作区锚取值器（缺省 canonicalWorkspaceRoot——git 根回退字面 cwd；批 12f-4 注入面与 sandboxMode 同形态，e2e 隔离位） */
   readonly workspace?: () => string;
   /** 系统提示词基线（04 §11：披露段由驱动在 transformContext 关口另行追加） */
@@ -435,6 +445,39 @@ export function createConversationStack(options: ConversationStackOptions): Conv
               },
             ];
           },
+          // ap-3 第四段数据源（03 §10.8 ap-3 定形注）：装配期快照 + 整名族
+          // dryRun 闭包（matchToolPolicy 同源——obs 零 safety 依赖的桥位）；
+          // 策略表功能缺席（options.toolPolicy undefined）= getter 返 undefined
+          // ——obs 段不呈现。dryRun 只喂整名族条目（write/edit/bash 条目命中
+          // 依赖调用实参，整名干跑恒 miss——闭包内过滤防假报）
+          ...(options.toolPolicy !== undefined
+            ? {
+                toolPolicy: () => {
+                  // memory 形降级防御：dataDir 缺席（正常装配下不共现——
+                  // assembly 只在 dataDir 非空时穿 toolPolicy）= 段不呈现
+                  if (options.runtime.dataDir === null) return undefined;
+                  const wholeName = options.toolPolicy!.filter(
+                    (e) => e.tool !== 'write' && e.tool !== 'edit' && e.tool !== 'bash',
+                  );
+                  return {
+                    entries: options.toolPolicy!.map((entry, index) => ({
+                      index,
+                      tool: entry.tool,
+                      ...(entry.pattern !== undefined ? { pattern: entry.pattern } : {}),
+                      ...(entry.effect !== undefined ? { effect: entry.effect } : {}),
+                      decision: entry.decision,
+                      ...(entry.reason !== undefined ? { reason: entry.reason } : {}),
+                      ...(entry.expiresAt !== undefined ? { expiresAt: entry.expiresAt } : {}),
+                    })),
+                    path: join(options.runtime.dataDir, TOOL_POLICY_BASENAME),
+                    dryRun: (tool: string, effect: 'read' | 'write' | 'exec') => {
+                      const hit = matchToolPolicy(wholeName, { tool, effect }, Date.now());
+                      return hit === undefined ? undefined : { decision: hit.entry.decision, index: hit.index };
+                    },
+                  };
+                },
+              }
+            : {}),
         },
       });
       const assembly = assembleOpenTools({
@@ -448,6 +491,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         askApproval: askFace,
         ...(options.toolPolicy !== undefined ? { toolPolicy: options.toolPolicy } : {}),
         ...(options.persistToolPolicy !== undefined ? { persistToolPolicy: options.persistToolPolicy } : {}),
+        // 审批策略档穿线（04 §9 两旋钮——装配根四层解析胜者；缺省不注入 =
+        // approval 服务内缺省 'ask'）
+        ...(options.approvalPolicy !== undefined ? { policy: options.approvalPolicy } : {}),
         // 会话维工具族并入扩展位（bootTools 同位——模型可见清单恒在律）；
         // 操控三件同位并入（e-4——恒挂载，门检在受理器内执法）；
         // ccr_retrieve 同位并入（05 §2.1 压缩可逆性——恒挂载：压缩归档原文

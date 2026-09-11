@@ -32,7 +32,7 @@ import { llmTextOf } from '../memory/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
 import type { GoalSummarizerFace } from '../goal/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
-import type { SandboxMode, ToolPolicyDraft } from '../safety/index.js';
+import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft } from '../safety/index.js';
 import {
   DEFAULT_SUBAGENT_PROVIDER,
   createJobRegistry,
@@ -44,6 +44,8 @@ import type { SkillsRegistry } from '../skills/index.js';
 import { createSsrfGuardedFetch } from '../web/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy } from './tool-policy-store.js';
+import { readHostSettings } from './settings-store.js';
+import { APPROVAL_USAGE, parseApprovalArgv, runApprovalCommand } from './approval-cmd.js';
 import { createCorePlugins } from './core-plugins.js';
 import type { GoalFace } from './core-plugins.js';
 import { createSessionsFace } from './sessions-face.js';
@@ -98,6 +100,12 @@ export interface AssembleHostOptions {
   readonly env?: Record<string, string | undefined>;
   /** 沙箱档位取值器（透传组合根） */
   readonly sandboxMode?: () => SandboxMode;
+  /** 沙箱档来源标注（/approval status 呈现——CLI 层胜者由入口注入，如「CLI --read-only」/「CLI --preset open」） */
+  readonly sandboxModeSource?: string;
+  /** 审批策略档（04 §9 两旋钮之二——CLI --preset/--旗标层胜者；缺省走 settings.json 持久层或代码常量 'ask'） */
+  readonly approvalPolicy?: ApprovalPolicyMode;
+  /** 审批策略档来源标注（同 sandboxModeSource） */
+  readonly approvalPolicySource?: string;
   /** 运行时组装后回调（信号/崩溃编舞切运行时本体——main attachRuntime） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** core: 官方件注册表（缺省 CORE_PLUGINS 单源——批 19a 起逐纵切笔入册；测试注入面/诊断覆盖经本位） */
@@ -189,6 +197,15 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     const dataDir = runtime.dataDir;
     const toolPolicyLoad = dataDir !== null ? readToolPolicy(dataDir, { warn: (m) => logger.warn(m) }) : null;
 
+    // —— settings.json 持久缺省层（04 §9 ⑥ ap-3——§8 解析链第四层执法位：
+    // 工具参数 > 会话策略 > CLI 旗标（逐次） > 本文件 > 代码常量。持久位
+    // 只填 gaps：CLI 显式位在场即胜、本层不覆盖〔下方条件透传〕。dataDir
+    // 在场即真读；坏形 warn 降级视同缺席〔配置层坏形取缺省非 fail-stop 面，
+    // 与策略表坏形拒写分立——彼为用户资产写前校验、此为读侧降级〕）——
+    const settingsLoad = dataDir !== null ? readHostSettings(dataDir, { warn: (m) => logger.warn(m) }) : null;
+    const settingsMode = settingsLoad?.settings.sandboxMode;
+    const settingsPolicy = settingsLoad?.settings.approvalPolicy;
+
     // —— 进程级 durable 审计流载体（05 §9 audit_events——U3 批 U3-5 真接线）：
     // 单写者 = 本装配根（boot plugin/opens 幂等 diff + 触发器/凭证/人面三
     // 受理 seam + 高危面动词 auditSink——插件面零写入位）；:memory: 诊断形
@@ -272,6 +289,15 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
+      // 第四层 gaps 填充（ap-3）：CLI 显式位缺席时 settings.json 持久缺省
+      // 补位——两旋钮同律；settings 亦缺席 = 组合根代码常量缺省
+      ...(options.sandboxMode === undefined && settingsMode !== undefined
+        ? { sandboxMode: (): SandboxMode => settingsMode }
+        : {}),
+      ...(options.approvalPolicy !== undefined ? { approvalPolicy: options.approvalPolicy } : {}),
+      ...(options.approvalPolicy === undefined && settingsPolicy !== undefined
+        ? { approvalPolicy: settingsPolicy }
+        : {}),
       // 装载工具定义重放取值器（会话装配时点 boot 已定型——noPlugins/装载
       // 失败形 boot.tools 为空注册表，取值器返回 [] 零打扰）；插件生命周期
       // 模型工具族八件恒并入宿主全局面（03 §5.6——先于插件注册面，插件侧
@@ -958,6 +984,62 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         void stack.channels.notify('doors', outcome.text);
       },
       DOORS_USAGE,
+    );
+
+    // —— /approval TUI 命令面（04 §9 定形块⑤⑥——ap-3）：宿主级直注册
+    // （与 /reload、/plugins、/doors 同位——机制宿主有，不随插件换代卸除）；
+    // 纯逻辑件单源（approval-cmd.ts——四动词 status/entries/explain/preset）。
+    // status 面 = 装配期四层解析胜者快照（来源标注由入口注入：CLI 层
+    // sandboxModeSource/approvalPolicySource；settings/缺省层本装配根自证）；
+    // preset 写盘成功尾落 preset/applied 审计恰一笔（05 §1.1——落账失败
+    // warn 不阻塞，写盘已生效；CLI --preset 逐次形零审计——不经本面）。
+    // 回执经 notify 归因 'approval'（与 'doors' 同律）。
+    const effectiveMode: SandboxMode =
+      options.sandboxMode !== undefined
+        ? options.sandboxMode()
+        : settingsMode !== undefined
+          ? settingsMode
+          : 'workspace-write';
+    const modeSource =
+      options.sandboxModeSource ??
+      (options.sandboxMode !== undefined
+        ? 'CLI 旗标（逐次）'
+        : settingsMode !== undefined
+          ? 'settings.json（持久缺省）'
+          : '缺省（代码常量）');
+    const effectivePolicy: ApprovalPolicyMode = options.approvalPolicy ?? settingsPolicy ?? 'ask';
+    const policySource =
+      options.approvalPolicySource ??
+      (options.approvalPolicy !== undefined
+        ? 'CLI --preset/旗标（逐次）'
+        : settingsPolicy !== undefined
+          ? 'settings.json（持久缺省）'
+          : '缺省（代码常量）');
+    stack.channels.commands.register(
+      'approval',
+      async (args) => {
+        const parsed = parseApprovalArgv(args.argv);
+        if (!parsed.ok) {
+          void stack.channels.notify('approval', parsed.message);
+          return;
+        }
+        const outcome = runApprovalCommand(parsed.sub, {
+          dataDir,
+          status: { mode: effectiveMode, policy: effectivePolicy, modeSource, policySource },
+          workspace: () => canonicalWorkspaceRoot(),
+          onPresetApplied: (preset, sandboxMode, approvalPolicy, appended) => {
+            try {
+              audit.append('preset/applied', { preset, sandboxMode, approvalPolicy, appended });
+            } catch (err) {
+              logger.warn(
+                `preset 审计落账失败：${err instanceof Error ? err.message : String(err)}——主流程不受影响（写盘已生效）`,
+              );
+            }
+          },
+        });
+        void stack.channels.notify('approval', outcome.text);
+      },
+      APPROVAL_USAGE,
     );
 
     return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts, reloader };

@@ -73,9 +73,9 @@ interface RawAuditRow {
 }
 
 /**
- * 构造审计流面。词汇闸以 contracts 事件注册表为判据（模块加载即含 22 核心
- * 词——两审计词 plugin/opens·capability/used 已随 U3-1 入册，插件扩展词经
- * registerEventType 亦即时可达）。
+ * 构造审计流面。词汇闸以 contracts 事件注册表为判据（模块加载即含全部
+ * 核心词——计数随批增长以注册表为单源，此处不复述数字防漂移；插件扩展
+ * 词经 registerEventType 亦即时可达）。
  * @param db 已开库句柄（audit_events 表须已由迁移链建就——表不在则首笔
  *   INSERT 即 SQLite 报错，fail-loud 不静默）
  * @param clock 挂钟注入（测试假钟；缺省 Date.now）

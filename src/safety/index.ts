@@ -4,7 +4,8 @@
  *
  * 消费方：tools/fs 的 fence（createRootsProvider 数据源）、exec 的 bash 工具
  * 件（confine + 升权）、host 装配根（installSafetyGate + createApprovalService
- * + 持久/策略表接线——审批分档批起载体名 tool-policy.json）。权限预设（用户面打包）随 host 装配批落码。
+ * + 持久/策略表接线——审批分档批起载体名 tool-policy.json）。权限预设（presets
+ * 纯数据件 + host 人面/装配消费腿）2026-09-11 审批分档批 ap-3 落码。
  *
  * 引入 './codes.js' 触发 SANDBOX_ 三码注册（注册纪律：import 发生才注册——
  * 与 tools/llm/session 的 codes.ts 同款）。
@@ -15,6 +16,7 @@ export * from './types.js';
 export * from './roots.js';
 export * from './sensitive.js';
 export * from './tool-policy.js';
+export * from './presets.js';
 export * from './approval.js';
 export * from './sandbox.js';
 export * from './seatbelt.js';

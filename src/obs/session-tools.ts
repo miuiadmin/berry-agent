@@ -30,7 +30,13 @@
 import { BaseError, type AgentToolResult, type ToolDefinition } from '../contracts/index.js';
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
 import { Type } from 'typebox';
-import type { SessionDoorStateEntry, SessionEnvFace, SessionSummaryRow, SessionView } from './types.js';
+import type {
+  SessionDoorStateEntry,
+  SessionEnvFace,
+  SessionSummaryRow,
+  SessionToolPolicySnapshot,
+  SessionView,
+} from './types.js';
 
 /** 观测轴高危面名（03 §4.6 v1 首批第五枚——拉取/订阅两形态一枚统摄） */
 export const OBSERVE_CROSS_CAPABILITY = 'sessions.observe-cross';
@@ -175,7 +181,8 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
       description:
         '查询自身坐标与环境自感（「我是谁在哪、有什么、没有什么」）：本会话 id、血缘 origin 与父会话、' +
         '工作区根、在飞粗状态、近次模型，以及可用工具清单（整形后有效可见集）、能力门态快照（高危面开/闭与' +
-        '闭门理由）、负面能力声明（未开门面/无工作区等「不要承诺」负向清单——防幻觉）。' +
+        '闭门理由）、负面能力声明（未开门面/无工作区等「不要承诺」负向清单——防幻觉）、工具策略表快照' +
+        '（allow/deny 条目 + 整名族干跑裁决——装配期快照，/approval explain 为活体试解析）。' +
         '零参数——目标恒为本会话（树内 self 档，零开门）。',
       parameters: Type.Object({}, { additionalProperties: false }),
       effect: 'read',
@@ -201,6 +208,12 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
             }
             const negatives = negativeLines(doors, status.workspaceRoot);
             lines.push('negative-capabilities:', ...negatives);
+            // ap-3 第四段：工具策略表（toolPolicy 缺席 = 段不呈现——与 doorStates
+            // 同缺席语义；装配期快照诚实，/approval entries/explain 才是活体面）
+            const policy = deps.env.toolPolicy?.();
+            if (policy !== undefined) {
+              lines.push(...policyLines(policy));
+            }
           }
           return { content: [{ type: 'text', text: lines.join('\n') }] };
         }),
@@ -244,6 +257,70 @@ function summaryLine(row: SessionSummaryRow): string {
     row.model ?? '-',
     String(row.updatedAt),
   ].join('  ');
+}
+
+/**
+ * 实参绑定族工具名（write/edit/bash——条目命中依赖调用实参〔路径/命令〕，
+ * 整名干跑恒 miss 不可判；字面 = host 工具词汇非 safety 域逻辑——obs 零
+ * safety 依赖〔DAG〕，此处仅作呈现分族，判定真源在注入的 dryRun 闭包）。
+ */
+const ARG_BOUND_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'bash']);
+
+/**
+ * 工具策略表段渲染（ap-3 第四段——03 §10.8 ap-3 定形注）：① 条目清单全列
+ * （装配期快照 + 载体路径注明）；② 整名族条目经 dryRun（守门行同一
+ * matchToolPolicy 注入）干跑呈行——deny/allow 命中含条目序与 reason，无
+ * 命中不占行；③ 实参绑定族（fs/bash）计数注记指路 /approval explain——
+ * 不假报无命中（诚实分形）。
+ */
+function policyLines(policy: SessionToolPolicySnapshot): string[] {
+  const lines: string[] = [`tool-policy(${policy.entries.length}) [装配期快照 path=${policy.path}]:`];
+  if (policy.entries.length === 0) {
+    lines.push('  （空——无任何条目）');
+    return lines;
+  }
+  for (const entry of policy.entries) {
+    const bits = [`[${entry.index}]`, `tool=${entry.tool}`];
+    if (entry.pattern !== undefined) bits.push(`pattern=${entry.pattern}`);
+    bits.push(`decision=${entry.decision}`);
+    if (entry.effect !== undefined) bits.push(`effect=${entry.effect}`);
+    if (entry.reason !== undefined) bits.push(`reason=${entry.reason}`);
+    if (entry.expiresAt !== undefined) bits.push(`expiresAt=${new Date(entry.expiresAt).toISOString()}`);
+    lines.push(`  ${bits.join(' ')}`);
+  }
+  // ② 整名族干跑（每工具三档并列；同条目命中的档合并呈一行「全档」）
+  const wholeNameTools = [...new Set(policy.entries.filter((e) => !ARG_BOUND_TOOLS.has(e.tool)).map((e) => e.tool))];
+  const argBoundCount = policy.entries.filter((e) => ARG_BOUND_TOOLS.has(e.tool)).length;
+  if (wholeNameTools.length > 0) {
+    lines.push('  整名族干跑（装配期快照 + 守门行同一判定函数）：');
+    for (const tool of wholeNameTools) {
+      const hits = (['read', 'write', 'exec'] as const)
+        .map((effect) => ({ effect, hit: policy.dryRun(tool, effect) }))
+        .filter(
+          (h): h is { effect: 'read' | 'write' | 'exec'; hit: { decision: 'allow' | 'deny'; index: number } } =>
+            h.hit !== undefined,
+        );
+      if (hits.length === 0) continue; // 无命中不占行（如 allow 条目已过期）
+      const sameEntry = hits.every((h) => h.hit.index === hits[0]!.hit.index);
+      const verdict = (hit: { decision: 'allow' | 'deny'; index: number }) =>
+        hit.decision === 'deny'
+          ? `policy-deny:${hit.index}（硬拒——任何面不可翻转）`
+          : `policy-allow:${hit.index}（免问放行）`;
+      if (sameEntry) {
+        const tiers = hits.length === 3 ? '全档' : hits.map((h) => h.effect).join('/');
+        lines.push(`    ${tool}: ${tiers}命中 ${verdict(hits[0]!.hit)}`);
+      } else {
+        for (const { effect, hit } of hits) lines.push(`    ${tool}: ${effect}档命中 ${verdict(hit)}`);
+      }
+    }
+  }
+  // ③ 实参绑定族计数注记（不假报无命中——指路活体试解析）
+  if (argBoundCount > 0) {
+    lines.push(
+      `  （另 ${argBoundCount} 条 write/edit/bash 族条目逐调用裁决——命中依赖路径/命令实参，/approval explain <tool> [pattern] 试解析）`,
+    );
+  }
+  return lines;
 }
 
 /** 统一异常编码（03 §2.3——BaseError 携码前置披露；obs_query 同款先例） */

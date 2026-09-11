@@ -1302,6 +1302,13 @@
       "desc": "生命周期归因面——换装成功事实（id/from?/to——from 缺席 = 旧账本无版本位；local 源 no-op 不落〔无变更不造账〕；写点 = CLI 人面 update 成功尾；载体 = audit_events）"
     },
     {
+      "symbol": "preset/applied",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "权限预设切换审计（审批分档批 ap-3 2026-09-11——04 §9 定形块⑥「预设切换落审计」兑现：用户主权动作留痕，/danger approve 同形）：载荷 {preset: conservative|balanced|open, sandboxMode, approvalPolicy, appended}（appended = 建议集去重后真追加数——balanced/conservative 恒 0）；写点 = TUI /approval preset 执行尾恰一笔（写盘成功后；CLI --preset 逐次形零审计、失败路径零落账）；载体 = audit_events"
+    },
+    {
       "symbol": "request/header",
       "module": "session-events",
       "tier": "stable",

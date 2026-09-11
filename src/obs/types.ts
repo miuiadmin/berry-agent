@@ -272,6 +272,42 @@ export interface SessionDoorStateEntry {
 }
 
 /**
+ * 工具策略表条目行（ap-3 第四段——纯数据面：obs 零 safety 依赖，条目形状
+ * 经此窄面转录；六字段同 ToolPolicyEntry 结构但独立声明〔DAG 边表不变——
+ * obs 不 import safety〕）。
+ */
+export interface SessionToolPolicyEntry {
+  /** 条目序（表内 0 基序——命中标注 policy-<decision>:<序> 同源） */
+  readonly index: number;
+  readonly tool: string;
+  readonly pattern?: string;
+  readonly effect?: string;
+  readonly decision: 'allow' | 'deny';
+  readonly reason?: string;
+  readonly expiresAt?: number;
+}
+
+/**
+ * 工具策略快照（ap-3 session_status 第四段数据源——装配期快照诚实〔非活体
+ * 读〕；dryRun = 整名族干跑裁决闭包，由 host 侧注入〔matchToolPolicy 同源
+ * ——obs 零 safety 依赖〕）。
+ */
+export interface SessionToolPolicySnapshot {
+  /** 装配期载入的条目快照（含序） */
+  readonly entries: readonly SessionToolPolicyEntry[];
+  /** 载体文件路径（呈现注明——与 /approval entries 活体面分立的时点证据） */
+  readonly path: string;
+  /**
+   * 整名族干跑（无实参依赖条目——fs/bash 族条目命中依赖调用实参恒 miss，
+   * 不参与本面〔呈现为计数注记〕）：返 undefined = 无命中。
+   */
+  readonly dryRun: (
+    tool: string,
+    effect: 'read' | 'write' | 'exec',
+  ) => { readonly decision: 'allow' | 'deny'; readonly index: number } | undefined;
+}
+
+/**
  * session_status 环境自感面（e-3——工具面/能力自省只读 + 负面能力声明文案
  * 的数据源；装配根 per-session 注入，缺席 = 基础坐标档诚实降级不虚构）。
  * 与 SessionView 分立：会话坐标/血缘是 durable 派生（视图服务），工具清单/
@@ -282,6 +318,11 @@ export interface SessionEnvFace {
   readonly listTools: () => readonly SessionToolListingEntry[];
   /** 能力门态快照（模型道可达的门面——v1 观测门一枚，操控门随 e-4 扩） */
   readonly doorStates: () => readonly SessionDoorStateEntry[];
+  /**
+   * 工具策略快照（ap-3 第四段——缺席 = 段不呈现，与 doorStates 同缺席
+   * 语义；装配期快照 + 整名族干跑闭包）。
+   */
+  readonly toolPolicy?: () => SessionToolPolicySnapshot | undefined;
 }
 
 /**

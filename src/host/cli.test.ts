@@ -295,6 +295,31 @@ describe('run 命令族', () => {
   it('--tick 缺值 = 取值旗标占位缺失退 2', () => {
     expectUsage(['run', 'hi', '--tick'], '须带值');
   });
+
+  it('--preset <名> 合法三档解析（ap-3——值域单源 presets 闭集）', () => {
+    for (const name of ['conservative', 'balanced', 'open'] as const) {
+      const r = parseCli(['run', 'hi', '--preset', name]);
+      expect(r.ok).toBe(true);
+      if (r.ok && r.command.kind === 'run') {
+        expect(r.command.flags.preset).toBe(name);
+      } else {
+        expect.unreachable(`--preset ${name} 解析应成功`);
+      }
+    }
+  });
+
+  it('--preset 值域外退 2（取值旗标 values 域执法）', () => {
+    expectUsage(['run', 'hi', '--preset', 'yolo'], 'yolo');
+  });
+
+  it('--preset 缺值退 2', () => {
+    expectUsage(['run', 'hi', '--preset'], '须带值');
+  });
+
+  it('--read-only × --preset 互斥退 2（同层 mode 冲突单选——预设档已含沙箱档位）', () => {
+    expectUsage(['run', 'hi', '--read-only', '--preset', 'open'], '互斥');
+    expectUsage(['run', 'hi', '--read-only', '--preset', 'conservative'], '互斥');
+  });
 });
 
 describe('serve 族 + 管理动词', () => {

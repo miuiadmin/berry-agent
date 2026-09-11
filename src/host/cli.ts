@@ -65,6 +65,8 @@ export interface RunFlags {
   readonly continueLatest: boolean;
   /** --fork [<id>]：边界快照分叉（不带值取 cwd 最新；与 --session/--continue 互斥） */
   readonly fork?: { readonly id?: string };
+  /** --preset <名>：权限预设逐次生效（04 §9 ⑥——只动两旋钮不写盘；与 --read-only 互斥：同层 mode 冲突单选） */
+  readonly preset?: 'conservative' | 'balanced' | 'open';
 }
 
 /** serve 旗标（--no-plugins 不透传——自动化入口；--no-delta run/serve 共收） */
@@ -301,6 +303,9 @@ const RUN_SCHEMAS: readonly FlagSchema[] = [
   { name: 'fork', kind: 'optional-value' },
   // --output-schema 未实现：显式传入即用法错退 2 不静默忽略（07 §5——实现随批 13 落地翻转）
   { name: 'output-schema', kind: 'boolean' },
+  // --preset <名>：权限预设逐次形（04 §9 ⑥ ap-3——值域三档单源 safety/presets；
+  // 与 --read-only 互斥在 parseRun 执法——同层 mode 冲突）
+  { name: 'preset', kind: 'value', values: ['conservative', 'balanced', 'open'] },
 ];
 
 const SERVE_SCHEMAS: readonly FlagSchema[] = [
@@ -366,6 +371,15 @@ function parseRun(rest: readonly string[]): CliParseResult {
   if (resumePicks > 1) {
     return usageFail('--session / --continue / --fork 三者互斥（续接显式 opt-in 单选）');
   }
+  // --read-only × --preset 互斥（ap-3）：同为 CLI 层 sandbox 档定值位——预设
+  // 档已含沙箱档位（conservative=read-only/balanced|open=workspace-write），
+  // 同层冲突单选免层内优先级暗规则（04 §9 ⑥ ap-3 定形补充）
+  const preset = scan.values.get('preset') as RunFlags['preset'];
+  if (preset !== undefined && has('read-only')) {
+    return usageFail(
+      '--read-only 与 --preset 互斥（预设档已含沙箱档位——单选：conservative=read-only / balanced|open=workspace-write）',
+    );
+  }
   const port = scan.values.get('port');
   const maxTurns = scan.values.get('max-turns');
   const flags: RunFlags = {
@@ -383,6 +397,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
     session: scan.values.get('session'),
     continueLatest: has('continue'),
     fork: scan.values.has('fork') ? { id: scan.values.get('fork') || undefined } : undefined,
+    preset,
   };
   // tick 形 message 置空串（CliCommand 契约 string 必填保持——run-entry 按
   // flags.tick 判到点形态，不消费 message 位；非 tick 形 arity 已保恰一非空）

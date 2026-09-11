@@ -46,7 +46,7 @@ import {
   resolveWritability,
   type CarveOutEntry,
 } from './roots.js';
-import { FS_WRITE_TOOLS, matchToolPolicy, type ToolPolicyEntry } from './tool-policy.js';
+import { FS_WRITE_TOOLS, matchToolPolicy, policyHitNote, type ToolPolicyEntry } from './tool-policy.js';
 import { sandboxDenialMarker } from './sandbox.js';
 
 /** 内置默认 carve-out 条目（04 §8 例示：.git 转只读 + .env 族遮罩——含单层 glob 两形） */
@@ -191,7 +191,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     if (hit !== undefined && hit.entry.decision === 'deny') {
       input.outcome = {
         action: 'block',
-        reason: `${sandboxDenialMarker(mode)} ${tool.name} 命中工具策略表 deny 条目 policy-deny:${hit.index}${hit.entry.reason !== undefined ? `（${hit.entry.reason}）` : ''}——用户主权硬拒，任何面不可翻转（解除唯手删条目）。`,
+        reason: `${sandboxDenialMarker(mode)} ${tool.name} 命中工具策略表 deny 条目 ${policyHitNote(hit)}${hit.entry.reason !== undefined ? `（${hit.entry.reason}）` : ''}——用户主权硬拒，任何面不可翻转（解除唯手删条目）。`,
       };
       return input; // 不调 next：短路整链（deny 优先律——硬拒）
     }
@@ -228,7 +228,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     // ——管道 recordGate 承接进 gate/decision 的 reason 位（免问放行仍可审计
     // ——不产生 approval 事件对，来源在此标注）
     if (hit !== undefined) {
-      input.allowReason = `policy-allow:${hit.index}`;
+      input.allowReason = policyHitNote(hit);
       return next(input);
     }
 
