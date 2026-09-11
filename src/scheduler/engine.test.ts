@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { pid as processPid } from 'node:process';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
 import { SCHEDULER_MIGRATION } from './migration.js';
 import { createSchedulerEngine, type SchedulerEngine, type TimerSeam } from './engine.js';
@@ -71,7 +72,9 @@ function fakeRunner(): RunnerFactory & {
         kill: (reason) => kills.push({ index, reason }),
       };
       const handle: RunnerHandle = {
-        pid: 1000 + index,
+        // 大基值假 pid（900001+——与测试进程真 pid 撞值概率零：claim-then-advance
+        // 记账断言面可安全断 activePid = 假件 pid）
+        pid: 900001 + index,
         kill(reason) {
           pending[index]?.kill(reason);
         },
@@ -104,6 +107,7 @@ function assemble(
     gateFacts?: (row: JobRow) => GateFacts;
     maxConcurrent?: number;
     wallTimeoutMs?: number;
+    isPidAlive?: (pid: number) => boolean;
   } = {},
 ): {
   service: SchedulerService;
@@ -135,6 +139,7 @@ function assemble(
     gateFacts: options.gateFacts,
     maxConcurrent: options.maxConcurrent,
     wallTimeoutMs: options.wallTimeoutMs,
+    isPidAlive: options.isPidAlive,
   });
   return { service, dao, engine, timers, runner };
 }
@@ -332,5 +337,115 @@ describe('启停与幽灵守卫', () => {
     service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p' });
     engine.poke();
     expect(timers.seq).toBeGreaterThan(before);
+  });
+});
+
+describe('claim-then-advance 记账（u-2 定形注③）', () => {
+  it('fire 起跑落 activePid + 起跑墙钟；settle 清账（对偶位）', async () => {
+    const { service, dao, engine, runner } = assemble();
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const p = engine.fireNow('j', 'manual');
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(1));
+    // 已 claim：activePid = runner 句柄 pid（乙案子进程 pid 形），起跑时刻在场
+    await vi.waitFor(() => expect(dao.get('j')?.activePid).toBe(900001));
+    expect(dao.get('j')?.activeStartedAt).not.toBeNull();
+    runner.resolve(0);
+    await p;
+    // settle 清账（claim 对偶——行回 idle 可重发）
+    expect(dao.get('j')?.activePid).toBeNull();
+    expect(dao.get('j')?.activeStartedAt).toBeNull();
+  });
+
+  it('runner 内零跑判定（gated 结局）走 settleGated——不动 last_fire_at', async () => {
+    const { service, dao, engine, runner } = assemble();
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const p = engine.fireNow('j', 'manual');
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(1));
+    runner.resolve(0, { reason: 'gated', error: '处理器缺席（零跑判定）' });
+    const outcome = await p;
+    expect(outcome.reason).toBe('gated');
+    const row = dao.get('j');
+    expect(row?.lastOutcome?.reason).toBe('gated'); // 结局照记
+    expect(row?.lastOutcome?.error).toContain('处理器缺席');
+    expect(row?.lastFireAt).toBeNull(); // 非真跑不污染冷却闸判据
+    expect(row?.activePid).toBeNull(); // claim 账面已清
+    expect(row?.nextFireAt).not.toBeNull(); // next 推进照常
+  });
+
+  it('跨进程在飞判定：activePid 活体未超钟 → gated 让位不 spawn 不 kill', async () => {
+    const { service, dao, engine, runner } = assemble({ isPidAlive: () => true });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    // 预置他实例占用（乙案子进程 pid——非本进程、活体、起跑时刻新鲜）
+    const startedAt = new Date(nowMs - 60_000).toISOString();
+    dao.setActive('j', 4321, startedAt, startedAt);
+    const outcome = await engine.fireNow('j', 'clock');
+    expect(outcome.reason).toBe('gated');
+    expect(outcome.error).toContain('跨进程');
+    expect(runner.requests).toHaveLength(0); // 不 spawn
+    expect(runner.kills).toHaveLength(0); // 跨进程不 kill（pid 复用误杀险）
+    const row = dao.get('j');
+    expect(row?.lastOutcome?.reason).toBe('gated'); // 让位照记结局
+    expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
+  });
+
+  it('跨进程占用死残账/超钟残账：不拦照跑（覆写自愈）', async () => {
+    // 死残账：pid 已死但未超钟——isPidAlive false 判死即不拦
+    const dead = assemble({ isPidAlive: () => false });
+    dead.service.addJob({ name: 'a', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const t0 = new Date(nowMs - 1_000).toISOString();
+    dead.dao.setActive('a', 4321, t0, t0);
+    const pa = dead.engine.fireNow('a', 'clock');
+    await vi.waitFor(() => expect(dead.runner.requests).toHaveLength(1));
+    expect(dead.dao.get('a')?.activePid).toBe(900001); // 覆写自愈
+    dead.runner.resolve(0);
+    await pa;
+    // 超钟残账：活体但超墙钟（pid 复用误判险形）——不拦（下轮 fire 覆写）
+    const stale = assemble({ isPidAlive: () => true, wallTimeoutMs: 30_000 });
+    stale.service.addJob({ name: 'b', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const old = new Date(nowMs - 60_000).toISOString();
+    stale.dao.setActive('b', 4321, old, old);
+    const pb = stale.engine.fireNow('b', 'clock');
+    await vi.waitFor(() => expect(stale.runner.requests).toHaveLength(1));
+    stale.runner.resolve(0);
+    await pb;
+    expect(stale.dao.get('b')?.lastOutcome?.reason).toBe('exit_code');
+  });
+});
+
+describe('start 僵行清扫（u-2 定形注③）', () => {
+  it('activePid 死 + 超墙钟：清账回 idle + lastOutcome 记回收（killed）', () => {
+    const { service, dao, engine } = assemble({ isPidAlive: () => false, wallTimeoutMs: 30_000 });
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const old = new Date(nowMs - 60_000).toISOString();
+    dao.setActive('j', 4321, old, old);
+    engine.start();
+    const row = dao.get('j');
+    expect(row?.activePid).toBeNull(); // 占用清
+    expect(row?.activeStartedAt).toBeNull();
+    expect(row?.lastOutcome?.reason).toBe('killed'); // 回收结局照记
+    expect(row?.lastOutcome?.error).toContain('僵行回收');
+    expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('僵行清扫'));
+  });
+
+  it('保守判：活+超钟不清（pid 复用误判险）；死+未超钟不清（在飞窗口内）', () => {
+    const { service, dao, engine } = assemble({ isPidAlive: () => true, wallTimeoutMs: 30_000 });
+    service.addJob({ name: 'alive', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const old = new Date(nowMs - 60_000).toISOString();
+    dao.setActive('alive', 4321, old, old); // 活 + 超钟——不清挂账
+    service.addJob({ name: 'fresh', schedule: 'every:10m', prompt: 'p', enabled: true });
+    dao.setActive('fresh', 4321, new Date(nowMs).toISOString(), new Date(nowMs).toISOString()); // 活 + 未超钟——不清
+    engine.start();
+    expect(dao.get('alive')?.activePid).toBe(4321);
+    expect(dao.get('fresh')?.activePid).toBe(4321);
+  });
+
+  it('己 pid 占用不清（甲案在飞——进程内注册表管辖）', () => {
+    const { service, dao, engine } = assemble({ isPidAlive: () => false, wallTimeoutMs: 30_000 });
+    service.addJob({ name: 'self', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const old = new Date(nowMs - 60_000).toISOString();
+    dao.setActive('self', processPid, old, old); // 己 pid = 甲案宿主在飞
+    engine.start();
+    expect(dao.get('self')?.activePid).toBe(processPid); // 清扫跳过
   });
 });

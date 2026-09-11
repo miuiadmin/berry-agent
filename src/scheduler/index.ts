@@ -62,6 +62,7 @@ export {
   FIRE_WALL_TIMEOUT_MS,
   MAX_POLL_MS,
   MIN_POLL_MS,
+  realIsPidAlive,
   realTimerSeam,
   type SchedulerEngine,
   type SchedulerEngineDeps,

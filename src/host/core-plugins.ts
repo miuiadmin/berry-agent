@@ -60,6 +60,7 @@ import {
   GOAL_USAGE,
 } from '../goal/index.js';
 import type { GoalService, GoalSessionFace, GoalSummarizerFace, GoalTodoItem } from '../goal/index.js';
+import type { ConversationStack } from './conversation-stack.js';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createDangerGate, createSandboxService, DANGER_V1_ACTIONS, normalizeDangerMandate } from '../safety/index.js';
 import {
@@ -70,7 +71,15 @@ import {
   runTickCommand,
   TICK_USAGE,
 } from '../scheduler/index.js';
-import type { GateFacts, GoalJobsFace, JobRow, SchedulerEngine, SchedulerService } from '../scheduler/index.js';
+import type {
+  GateFacts,
+  GoalJobsFace,
+  JobRow,
+  JobsDao,
+  SchedulerEngine,
+  SchedulerService,
+} from '../scheduler/index.js';
+import { createSchedulerTickRunner, type IssuePollFace } from './scheduler-tick.js';
 import { createFetchTool, createInFlightGate, createWebFetchService, DEFAULT_WEB_LIMITS } from '../web/index.js';
 import type { InFlightGate, WebFetchService } from '../web/index.js';
 import {
@@ -282,6 +291,14 @@ export interface CorePluginHostDeps {
     readonly depth: number;
     readonly availableTools?: readonly string[];
   };
+  /**
+   * 宿主对话栈（u-2 无人值守深化批——04 §12 定形注①进程内推进律）：在场 =
+   * 引擎 runner 换进程内实装（scheduler-tick——宿主进程内经 conversation-stack
+   * 起 headless run，fire 不 spawn）；缺席 = 测试替身形降级 process runner
+   * （spawn 诚实收场）。**生产装配根恒注入**（assembly 单源——本位缺席即
+   * 装配残缺，e2e 回归锁锁死生产可达形恒进程内）。
+   */
+  readonly conversationStack?: ConversationStack;
   /**
    * 调度闸事实收集器（批 19c-2——04 §12 DiscoveryGates 装配位）：engine 到点
    * fire 前逐行求值（agentBusy/lastUserMessageAt/canAfford 从宿主面收集——
@@ -853,6 +870,13 @@ export interface SchedulerFace {
   readonly service: SchedulerService;
   readonly goalJobs: GoalJobsFace;
   readonly engine: SchedulerEngine;
+  /**
+   * jobs 表 DAO 窄面（u-2 定形注③）——run-entry --tick 让位律的行读/清账
+   * 消费位（乙案子进程读行判 activePid：活体未超钟 → yielded 让位；死/超钟
+   * → setActive 清账照跑）。引擎侧对偶判定在 engine.fireRow（同律单源
+   * realIsPidAlive）。
+   */
+  readonly dao: JobsDao;
 }
 
 /**
@@ -907,9 +931,31 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
       });
       const engine = createSchedulerEngine({
         dao,
-        // 真 bin spawn 接线：子进程 env 走 exec 白名单基座（deny-by-default
-        // 同律——PATH/locale 最小集，零宿主环境继承）
-        runner: createProcessRunnerFactory({ env: buildChildEnv(), command: binCommand }),
+        // 引擎 runner 两形（04 §12 无人值守执行链定形注①）：
+        // - 宿主 stack 在场（生产恒真——assembly 单源注入）= 甲案进程内推进
+        //   （scheduler-tick：fire 不 spawn——经 conversation-stack 起 headless
+        //   run + builtin 行程序化分派零模型；kill = interrupt 协作中止）；
+        // - stack 缺席 = 测试替身形降级 process runner（spawn 子进程形——
+        //   乙案 OS cron 触发腿的执行入口，run --read-only --tick）
+        ...(deps.conversationStack !== undefined
+          ? {
+              runner: createSchedulerTickRunner({
+                stack: deps.conversationStack,
+                // 分派处理器 fire 时动态解析（装载序无关——goal/issue 可后装）
+                resolveGoal: () => context.tryGet<GoalFace>('goal')?.service,
+                resolveIssuePoll: () => context.tryGet<IssuePollFace>('issue'),
+                now,
+                warn,
+              }),
+            }
+          : {
+              runner: createProcessRunnerFactory({
+                // 子进程 env 走 exec 白名单基座（deny-by-default 同律——
+                // PATH/locale 最小集，零宿主环境继承）
+                env: buildChildEnv(),
+                command: binCommand,
+              }),
+            }),
         now,
         warn,
         ...(deps.schedulerGateFacts !== undefined ? { gateFacts: deps.schedulerGateFacts } : {}),
@@ -941,7 +987,7 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
         TICK_USAGE,
       );
 
-      context.provide('scheduler', { service, goalJobs, engine } satisfies SchedulerFace);
+      context.provide('scheduler', { service, goalJobs, engine, dao } satisfies SchedulerFace);
 
       // 迟到序对称腿（04 §12 第五槽双序合法）：goal 件先装载（注册表序倒置
       // 或本件单件复活）时此处补接线；先行腿在 goal 件 apply 内 tryGet 本面。

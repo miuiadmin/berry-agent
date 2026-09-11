@@ -13,10 +13,21 @@
  *   - manual 道不走闸（用户显式意图）也不受并发帽辖（pi-tick manual 同律）；
  *     帽只辖 clock sweep 的自动并发。
  *
+ * claim-then-advance 接线律（04 §12 无人值守执行链定形注③——u-2 落码）：
+ * fire 起跑 setActive 记账（activePid = runner 句柄 pid——甲案宿主 pid/
+ * 乙案子进程 pid）、settle 清账——「执行前抢占」条款的 durable 对偶（进程
+ * 内注册表管进程内防双跑，activePid 管跨进程可见性）；start() 僵行清扫
+ * （pid 死 + 超墙钟 → 行回 idle 可重发）+ fire 前跨进程在飞判定（乙案
+ * 并存窗让位的引擎侧对偶——见 fireRow）。墙钟 kill 语义由 runner 实装
+ * 定义（定形注④两形：进程内实装 = interrupt 协作中止；进程实装 = TERM
+ * →KILL）——引擎只认 kill 接口零感知。
+ *
  * 定时器全接缝注入（TimerSeam——测试假钟驱动；缺省真身 setTimeout）。
  * 停钟不杀在飞：stop 只摘轮询定时器，在飞实例自然收场照常结算回写
  * （宿主退出编舞若需「杀在飞」属 host 装配批 killAll 编舞，不在本件）。
  */
+import { kill as processKill, pid as processPid } from 'node:process';
+
 import { BaseError } from '../contracts/index.js';
 import { evaluateGates, type GateFacts } from './gates.js';
 import { nextFireAt } from './schedule.js';
@@ -66,6 +77,11 @@ export interface SchedulerEngineDeps {
   wallTimeoutMs?: number;
   /** clock sweep 并发帽（缺省 1） */
   maxConcurrent?: number;
+  /**
+   * pid 活死判（u-2——定形注③僵行清扫/跨进程在飞判定的探活面；缺省真身
+   * 0 信号探活：ESRCH = 死、EPERM = 活但非己属。测试注假件零真信号）
+   */
+  isPidAlive?: (pid: number) => boolean;
 }
 
 /** scheduler 引擎公开面 */
@@ -97,6 +113,7 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
   const wallTimeoutMs = deps.wallTimeoutMs ?? FIRE_WALL_TIMEOUT_MS;
   const maxConcurrent = deps.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
   const gateFacts = deps.gateFacts ?? (() => ({}));
+  const isPidAlive = deps.isPidAlive ?? realIsPidAlive;
 
   /** 同名在飞注册表（键=行名——抢占判据面） */
   const active = new Map<string, RunnerHandle>();
@@ -133,6 +150,25 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
     start() {
       if (running) return;
       running = true;
+      // 僵行清扫（定形注③——u-2）：activePid 非空非己的行，pid 死 + 超起跑
+      // 墙钟（activeStartedAt + wallTimeoutMs）→ 清账行回 idle + lastOutcome
+      // 记回收（settleGated 形不动 last_fire_at——非真跑）。与关系保守判：
+      // 活 + 超钟形（pid 复用误判险）不清、下轮 fire 的 setActive 覆写自愈。
+      for (const row of dao.list()) {
+        if (row.activePid === null || row.activePid === processPid) continue; // 己 pid = 甲案在飞（进程内注册表管辖）
+        const startedAtMs = row.activeStartedAt !== null ? Date.parse(row.activeStartedAt) : 0;
+        const expired = Date.parse(now()) - startedAtMs > wallTimeoutMs;
+        if (!expired || isPidAlive(row.activePid)) continue;
+        const outcome: RunOutcome = {
+          trigger: 'clock',
+          reason: 'killed',
+          error: `僵行回收（activePid ${row.activePid} 已死且超墙钟——乙案子进程 kill -9 残账/宿主重启旧账）`,
+          finishedAt: now(),
+        };
+        dao.setActive(row.name, null, null, now());
+        dao.settleGated(row.name, outcome, row.nextFireAt, now());
+        warn(`[scheduler] 僵行清扫：${row.name}（activePid ${row.activePid} 死 + 超墙钟——行回 idle 可重发）`);
+      }
       // 重启补推进：既 due 行静默跳下一刻（错过不重放——warn 留痕不 fire）
       const missed = dao.due(now());
       for (const row of missed) {
@@ -200,8 +236,31 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
         }
       }
       const firedAt = now();
+      // 跨进程在飞判定（定形注③乙案并存窗的引擎侧对偶——u-2）：行 activePid
+      // 非空非己且活体未超墙钟 = 乙案子进程（或他宿主）真在飞 → 本轮让位
+      // （gated 记结局 + 推进，不 kill 不双跑——跨进程 kill 有 pid 复用误杀
+      // 险，「执行前抢占」条款对跨进程实例不越权；子进程侧对偶 = run-entry
+      // --tick 让位律，双向对称）。死/超钟形不拦（settle 段覆写自愈）。
+      if (row.activePid !== null && row.activePid !== processPid && isPidAlive(row.activePid)) {
+        const startedAtMs = row.activeStartedAt !== null ? Date.parse(row.activeStartedAt) : 0;
+        const expired = Date.parse(now()) - startedAtMs > wallTimeoutMs;
+        if (!expired) {
+          const next = nextFireAt(row.schedule, new Date(firedAt));
+          const outcome: RunOutcome = {
+            trigger,
+            reason: 'gated',
+            error: `跨进程实例在飞（activePid ${row.activePid}）——本轮让位不双跑`,
+            finishedAt: firedAt,
+          };
+          dao.settleGated(name, outcome, next, now());
+          return outcome;
+        }
+      }
       const handle = await runner.spawn({ row, trigger, wallTimeoutMs });
       active.set(name, handle);
+      // claim-then-advance 记账（定形注③）：fire 起跑落 activePid（runner 句柄
+      // pid——甲案宿主 pid/乙案子进程 pid）+ 起跑墙钟；settle 清（对偶位）
+      if (handle.pid !== null) dao.setActive(name, handle.pid, now(), now());
       // 墙钟超时守卫（kill('timeout')——TERM→宽限→KILL 由 runner 实装升级）
       const wallHandle = timers.set(wallTimeoutMs, () => handle.kill('timeout'));
       let outcome: RunOutcome;
@@ -210,10 +269,17 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       } finally {
         timers.clear(wallHandle);
         active.delete(name);
+        dao.setActive(name, null, null, now()); // durable 在飞占用面清账（claim 对偶）
       }
-      // next 从结算时刻取下一刻（every 形锚 now——错过不重放同律）
+      // next 从结算时刻取下一刻（every 形锚 now——错过不重放同律）；
+      // runner 内零跑判定（gated——wake 未落地/分派处理器缺席）同走 settleGated
+      // 不动 last_fire_at（与闸拦同律：非真跑不污染冷却闸判据）
       const next = nextFireAt(row.schedule, new Date(now()));
-      dao.settleFire(name, firedAt, outcome, next, now());
+      if (outcome.reason === 'gated') {
+        dao.settleGated(name, outcome, next, now());
+      } else {
+        dao.settleFire(name, firedAt, outcome, next, now());
+      }
       return outcome;
     } finally {
       reserved.delete(name);
@@ -241,5 +307,19 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       sweeping = false;
     }
     scheduleNextPoll();
+  }
+}
+
+/**
+ * pid 活死判真身（0 信号探活——不投递信号只验存在性）：ESRCH = 进程不存在
+ * （死）；EPERM = 存在但非己属（活——他用户/系统进程照算活体）。run-entry
+ * --tick 让位律与引擎清扫/判定共用单源（u-2 定形注③）。
+ */
+export function realIsPidAlive(pid: number): boolean {
+  try {
+    processKill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
 }

@@ -8,10 +8,10 @@
  *    user_msg 闸拦（engine fireNow clock 道诚实 gated）；schedule 源注入
  *    不计数（闸放行——run --tick 回流的 user/message 非人语，不打扰礼仪门
  *    只认真人）。
- * 3. 真 bin 出厂 + cron 乙案开启位：BERRY_AGENT_BIN env → runner spawn 命令
- *    真值（/usr/bin/true 收场 exit_code 0——缺席缺省形 spawn ENOENT 可判别）；
- *    BERRY_AGENT_CRON 开启形装载期对账回填（既有启用行补注册 OS 面、禁用行
- *    零动作、命令段 = bin 单源）——execCrontab 注入假件零真系统写。
+ * 3. cron 乙案开启位：BERRY_AGENT_CRON 开启形装载期对账回填（既有启用行
+ *    补注册 OS 面、禁用行零动作、命令段 = bin 单源）——execCrontab 注入
+ *    假件零真系统写。bin 命令段的消费面随 u-2 收窄为 cron 乙案命令段单源
+ *    （runner 恒进程内形——第二测的 spawn 断言已翻转为进程内推进断言）。
  *
  * 纪律：mock 只停在模型层（faux provider）与 crontab 执行器注入位；装载
  * 管线/引擎闸评估/spawn 全走真实现。
@@ -61,12 +61,13 @@ function messageOf(): PiAssistantMessage {
 }
 
 /**
- * 编舞测试装配（faux provider + BERRY_AGENT_BIN 注入 /usr/bin/true——
- * spawn 命令真值可判：缺省 'berry-agent' PATH 缺席归 spawn 失败形）
+ * 编舞测试装配（faux provider 双响应——闸测的 submitText 预注入与 fireNow
+ * 进程内 run 各耗一；缺省 BERRY_AGENT_BIN：u-2 后 runner 恒进程内形，若
+ * 回退 spawn 形则 PATH 名缺席归 spawn 失败结局可判别为红）
  */
 async function clockRig() {
   const faux = fauxProvider({ provider: 'faux-clock', models: [{ id: 'm1' }] });
-  faux.setResponses([() => messageOf()]);
+  faux.setResponses([() => messageOf(), () => messageOf()]);
   const dataDir = tmpDir('clock-data-');
   const ws = tmpDir('clock-ws-');
   const assembly = await assembleHostStack({
@@ -76,7 +77,6 @@ async function clockRig() {
     version: 'test',
     providers: [faux.provider],
     model: 'faux-clock/m1',
-    env: { BERRY_AGENT_BIN: '/usr/bin/true' },
   });
   if (!assembly.ok) throw new Error(`装配失败：${assembly.message}`);
   const sched = assembly.scope.tryGet<SchedulerFace>('scheduler');
@@ -165,7 +165,7 @@ describe('GateFacts 宿主三源接线（批 20c——assembly 闭包单源）',
     }
   });
 
-  it('schedule 源注入不计数：闸放行 + BERRY_AGENT_BIN 真值到 spawn（exit 0）', async () => {
+  it('schedule 源注入不计数：闸放行 + 甲案进程内推进收场（u-2 后 fire 不 spawn——exit 0）', async () => {
     const rig = await clockRig();
     try {
       rig.sched.service.addJob({
@@ -180,9 +180,12 @@ describe('GateFacts 宿主三源接线（批 20c——assembly 闭包单源）',
       if (run === undefined) throw new Error('提交无回执');
       await run; // source='schedule' 的 user/message 非人语——lastUserMessageAt 不计
 
+      // 闸全放行 → 进程内 headless run（faux 模型真收行 prompt）→ exit_code 0。
+      // 旧断言「/usr/bin/true spawn」随 u-2 失效：runner 恒进程内形，若回退
+      // spawn 形则 PATH 名缺席归 reason 'spawn' → 红（回退可判）
       const outcome = await rig.sched.engine.fireNow('bin-job', 'clock');
-      expect(outcome.reason).toBe('exit_code'); // 闸全放行 → 真 spawn 起跑
-      expect(outcome.exitCode).toBe(0); // /usr/bin/true——BERRY_AGENT_BIN 单源真值（缺省 PATH 名应归 spawn 失败形）
+      expect(outcome.reason).toBe('exit_code');
+      expect(outcome.exitCode).toBe(0);
     } finally {
       await rig.shutdown();
     }

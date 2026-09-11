@@ -738,7 +738,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                 fetchFn: oauthFetch,
                 warn: (message) => logger.warn(message),
               },
-              // —— scheduler 编舞接线三位（批 20c——19c-2 挂账销账）——
+              // —— scheduler 编舞接线（批 20c 三位 + u-2 进程内推进一位）——
+              // 宿主对话栈（u-2——04 §12 定形注①）：生产恒注入——引擎 runner
+              // 换进程内实装（scheduler-tick：fire 不 spawn，经 stack 起
+              // headless run + builtin 行程序化分派）；e2e 回归锁锁死此形
+              conversationStack: stack,
               // GateFacts 宿主三源收集闭包：行启停位 + 宿主在飞（anyRunning）+
               // 最近真用户消息（boot 后监听器维护）+ 行上次触发（JobRow 自带
               // lastFireAt 列）+ 当日后台预算（04 §5 canAfford）

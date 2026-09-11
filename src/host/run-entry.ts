@@ -45,6 +45,8 @@ import { isStandardMessage } from '../contracts/index.js';
 import type { SubmitResult } from '../conversation/index.js';
 import { diagnoseProviderFailure } from '../llm/index.js';
 import type { LlmUsageEventData, Provider } from '../llm/index.js';
+import { FIRE_WALL_TIMEOUT_MS, realIsPidAlive } from '../scheduler/index.js';
+import type { RunOutcome } from '../scheduler/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { approvalPresetOf } from '../safety/index.js';
 
@@ -179,6 +181,30 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       // 行缺席 = 配置漂移档（add 过的行被删/改名——cron/引擎侧 argv 过期）
       err.write(`--tick 行缺席：jobs 表无「${flags.tick}」行（检查行是否被删改——/tick list 可查在册行）\n`);
       return 2;
+    }
+    // —— 让位律（u-2 定形注③乙案并存窗子进程侧腿——与引擎 fire 前跨进程
+    // 在飞判定双向对称）：行 activePid 非空非己且活体未超墙钟 = 宿主甲案/
+    // 他乙案实例真在飞 → 本子进程诚实让位（yielded 结局、next 原样推进、
+    // 不动 last_fire_at、退出码 0——让位非失败零新错误码）；死残账（占位
+    // 进程已死）与超钟残账（活+超墙钟——pid 复用误判险不 yield）均清占用
+    // 照跑。跨进程不 kill（pid 复用误杀险——「执行前抢占」条款对跨进程实例
+    // 不越权）；残账兜底 = 引擎侧 start 僵行清扫与 fire 覆写自愈。
+    if (row.activePid !== null && row.activePid !== pid) {
+      const nowIso = new Date().toISOString();
+      const startedAtMs = row.activeStartedAt !== null ? Date.parse(row.activeStartedAt) : 0;
+      if (realIsPidAlive(row.activePid) && Date.now() - startedAtMs <= FIRE_WALL_TIMEOUT_MS) {
+        const outcome: RunOutcome = {
+          trigger: 'cron',
+          reason: 'yielded',
+          error: `他实例在飞（activePid ${row.activePid}）——诚实让位不双跑`,
+          finishedAt: nowIso,
+        };
+        schedFace.dao.settleGated(row.name, outcome, row.nextFireAt, nowIso);
+        err.write(`--tick 行「${row.name}」他实例在飞（activePid ${row.activePid}）——让位退出\n`);
+        return 0;
+      }
+      // 死残账/超钟残账：清占用照跑（引擎侧覆写自愈兜底）
+      schedFace.dao.setActive(row.name, null, null, nowIso);
     }
     if (row.builtin && row.name.startsWith('goal-')) {
       // goal 挂钟行：wake 判定先行（重绑护栏/唤醒预算/停滞硬停全在 goal 服务

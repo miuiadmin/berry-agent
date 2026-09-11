@@ -28,7 +28,13 @@ export interface JobRow {
   lastFireAt: string | null;
   /** 上次触发结局摘要（JSON；null = 从未触发/从未被闸拦） */
   lastOutcome: RunOutcome | null;
-  /** 跨进程抢占判据面：在飞 run 子进程 pid（进程内挂钟在飞时不落此列——OS cron 后端形态子进程自记；null = 无在飞） */
+  /**
+   * 跨进程在飞占用面（claim-then-advance 接线律——04 §12 无人值守执行链
+   * 定形注③，u-2 接线兑现）：fire 起跑经引擎 setActive 记账（甲案进程内
+   * runner = 宿主 pid；乙案 spawn 形 = 子进程 pid）、settle 清。消费位 =
+   * 乙案并存窗双向让位（引擎 fire 前跨进程在飞判定 + run-entry --tick
+   * 读行让位律）与 start() 僵行清扫（pid 死 + 超墙钟 → 行回 idle）。
+   */
   activePid: number | null;
   /** 在飞 run 起跑时刻（ISO UTC；activePid 判活后的僵行清扫依据） */
   activeStartedAt: string | null;
@@ -40,8 +46,13 @@ export type TriggerKind = 'clock' | 'manual' | 'cron';
 /** 触发结局（行内摘要形——终态镜像落 jobs 行；§10 ctx.jobs 的「终态不落库」豁免不辖此面） */
 export interface RunOutcome {
   trigger: TriggerKind;
-  /** 结局分类：exit_code 正常收场 / timeout / killed / preempted 被新实例抢占 / gated 触发前置门拦 / spawn 子进程没起来 */
-  reason: 'exit_code' | 'timeout' | 'killed' | 'preempted' | 'gated' | 'spawn';
+  /**
+   * 结局分类：exit_code 正常收场 / timeout / killed / preempted 被新实例
+   * 占 / gated 触发前置门拦（含 runner 内零跑判定——wake 未落地/分派处理
+   * 器缺席/跨进程在飞让位）/ yielded 乙案子进程让位形（诚实退出非失败——
+   * u-2 定形注③让位律载体）/ spawn 子进程没起来
+   */
+  reason: 'exit_code' | 'timeout' | 'killed' | 'preempted' | 'gated' | 'yielded' | 'spawn';
   /** 退出码（exit_code 形在场；其余形缺席） */
   exitCode?: number;
   /** gated 形携带拦截门 id；他形缺席 */

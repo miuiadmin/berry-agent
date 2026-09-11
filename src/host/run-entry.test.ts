@@ -416,6 +416,65 @@ describe('runRunEntry --tick 用户任务行', () => {
   });
 });
 
+describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿）', () => {
+  it('activePid 活体未超钟（ppid 占用）：yielded 让位退 0 + 结局照记 + next 原样', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({ name: 'yield-job', prompt: '例行巡检', cwd: jobWs, schedule: 'every:30m' });
+    // 预置他实例占用：ppid = vitest 主进程（活体且必 ≠ 本 worker pid——
+    // realIsPidAlive 真身零 mock，探活面同生产）
+    const t0 = new Date().toISOString();
+    seed.scheduler.dao.setActive('yield-job', process.ppid, t0, t0);
+    const nextBefore = seed.scheduler.service.getJob('yield-job')?.nextFireAt;
+    await seed.shutdown();
+
+    const run = await rigRun({ message: '', flags: { tick: 'yield-job' }, dataDir, cwd: jobWs });
+    await expect(run.entry).resolves.toBe(0); // 让位非失败
+    expect(run.err.text).toContain('让位退出');
+    expect(run.out.lines).toEqual([]); // 零跑零产物
+
+    // durable 断言：yielded 结局照记 + next 原样（不推进不重排）+ 占用面不动
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('yield-job');
+      expect(row?.lastOutcome?.reason).toBe('yielded');
+      expect(row?.lastOutcome?.error).toContain(String(process.ppid));
+      expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
+      expect(row?.nextFireAt).toBe(nextBefore); // 原样（无新信息不猜下一刻）
+      expect(row?.activePid).toBe(process.ppid); // 让位不越权清他人占用
+    } finally {
+      await audit.shutdown();
+    }
+  });
+
+  it('activePid 超钟残账（活+超墙钟）：清占用照跑——run 正常收场', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({ name: 'stale-job', prompt: '例行巡检', cwd: jobWs, schedule: 'every:30m' });
+    // 活体（ppid）但起跑时刻 = 40min 前（超 FIRE_WALL_TIMEOUT_MS 30min）——
+    // pid 复用误判险形不 yield，残账清后照跑
+    const stale = new Date(Date.now() - 40 * 60_000).toISOString();
+    seed.scheduler.dao.setActive('stale-job', process.ppid, stale, stale);
+    await seed.shutdown();
+
+    const run = await rigRun({ message: '', flags: { tick: 'stale-job' }, dataDir, cwd: jobWs });
+    await expect(run.entry).resolves.toBe(0); // 照跑收场（faux 单响应 'ok'）
+    expect(run.out.lines).toEqual(['ok']);
+    expect(run.err.text).not.toContain('让位'); // 未让位
+
+    // durable 断言：残账占用已清（activePid null——照跑腿自清他人死账）
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('stale-job');
+      expect(row?.activePid).toBeNull();
+    } finally {
+      await audit.shutdown();
+    }
+  });
+});
+
 describe('runRunEntry --tick goal 挂钟行', () => {
   it('wake 不落（终态 goal）：诚实零跑退 0 + stderr 说明', async () => {
     const dataDir = tmpDir('run-data-');
