@@ -143,6 +143,13 @@ export interface GoalSessionFace {
   events(sessionId: string): readonly SessionEvent[];
   /** 会话日志长度（= 下一写入 seq——激活锚落值单源） */
   length(sessionId: string): number;
+  /**
+   * 会话停靠词落笔（无人值守深化批 u-3——04 §5 定形注②③：goal 预算停靠
+   * 在目标会话落 session/paused；词面独立律下 goal 席落词经窄面注入，宿主
+   * 侧真身 = 幂等开驱动 + session.append('session/paused', {reason:'budget'})）。
+   * 幂等护栏在调用侧（service 停靠登记）——本面纯落笔。
+   */
+  appendPaused(sessionId: string): void;
 }
 
 /**

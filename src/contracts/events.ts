@@ -82,6 +82,11 @@ export interface EventTypeMeta {
  * 31→32：preset/applied 随审批分档批 ap-3 入册（05 §1.1 权限预设切换审计词
  * ——载体 = audit_events；写点 = TUI /approval preset 执行尾恰一笔，CLI
  * --preset 逐次形零审计——04 §9 ⑥ ap-3 定形补充）。
+ * 32→33：session/paused 随无人值守深化批 u-3 入册（05 §1.1 会话停靠词
+ * ——04 §5 停靠升格定形注②；载体 = 会话流；写入者 = 编排层停靠登记位
+ * 〔issue 悬置/goal 停靠——run 在飞时先 driver.abort() 协作中止、收口后
+ * 落词〕；fold 语义 = 尾条即停靠〔SessionLiveState 推导判据〕；恢复不设
+ * 对称词——唤醒消息落账尾条翻位即恢复，resumed 词不立）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -316,6 +321,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '权限预设切换审计（审批分档批 ap-3 2026-09-11——04 §9 定形块⑥「预设切换落审计」兑现：用户主权动作留痕，/danger approve 同形）：载荷 {preset: conservative|balanced|open, sandboxMode, approvalPolicy, appended}（appended = 建议集去重后真追加数——balanced/conservative 恒 0）；写点 = TUI /approval preset 执行尾恰一笔（写盘成功后；CLI --preset 逐次形零审计、失败路径零落账）；载体 = audit_events',
+  },
+  {
+    type: 'session/paused',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '会话停靠（无人值守深化批 u-3 2026-09-11——04 §5 停靠升格定形注②；05 §1.1 词行）：载荷 {reason}（v1 单值 budget——预算语境停靠；触发形态非穷举：记账刹停/budgetExceeded 复验/起跑前池检拒/issue 悬置同词承载）；写入者 = 编排层停靠登记位（run 在飞时先 driver.abort() 协作中止、收口后落词）；fold 语义 = 尾条即停靠（SessionLiveState paused 档推导判据）；恢复不设对称词——唤醒消息（user/message source=budget-extended）落账尾条翻位即恢复 running，resumed 词不立；载体 = 会话流',
   },
 ];
 

@@ -26,7 +26,12 @@ import type { JobRow, Schedule } from '../scheduler/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { ConversationStack } from './conversation-stack.js';
-import { createSchedulerTickRunner, type GoalWakeFace, type IssuePollFace } from './scheduler-tick.js';
+import {
+  createSchedulerTickRunner,
+  type GoalParkFace,
+  type GoalWakeFace,
+  type IssuePollFace,
+} from './scheduler-tick.js';
 import type { SchedulerFace } from './core-plugins.js';
 
 /* ---------------- 测试基建 ---------------- */
@@ -258,13 +263,14 @@ function jobRow(name: string, opts: { builtin?: boolean; prompt?: string } = {})
 }
 
 /** 单元装配（假 stack + 可换分派处理器假件） */
-function unitRig(opts: { goal?: GoalWakeFace; issue?: IssuePollFace } = {}) {
+function unitRig(opts: { goal?: GoalWakeFace; issue?: IssuePollFace; park?: GoalParkFace } = {}) {
   const fake = fakeStack();
   const warns: string[] = [];
   const runner = createSchedulerTickRunner({
     stack: fake.stack,
     resolveGoal: () => opts.goal,
     resolveIssuePoll: () => opts.issue,
+    ...(opts.park !== undefined ? { resolveGoalPark: () => opts.park } : {}), // u-3 池检腿——缺席即不注入
     now: () => '2026-09-11T08:00:00.000Z',
     warn: (m) => warns.push(m),
   });
@@ -357,6 +363,44 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     const outcome = await handle.settled;
     expect(outcome.reason).toBe('exit_code');
     expect(outcome.exitCode).toBe(0);
+  });
+
+  it('goal 挂钟行 u-3 池检：wake 落地而日池尽 → park true → gated 预算停靠（零提交零开——04 §5 定形注③第二形态）', async () => {
+    const goal: GoalWakeFace = {
+      wake: async () => ({ landed: true, reason: 'due', message: '到点', goal: { sessionId: 'sess-1' } }),
+    };
+    const parked: string[] = [];
+    const park: GoalParkFace = async (goalId) => {
+      parked.push(goalId);
+      return true; // 起跑前日池尽——停靠成立
+    };
+    const rig = unitRig({ goal, park });
+    const handle = await rig.spawn(jobRow('goal-g3', { builtin: true, prompt: 'goal 快照提示词' }));
+    const outcome = await handle.settled;
+    expect(outcome.reason).toBe('gated');
+    expect(outcome.error).toContain('预算停靠'); // 停靠-唤醒形（非硬拒）
+    expect(outcome.error).toContain('budget_extended');
+    expect(parked).toEqual(['g3']); // 池检以 goalId 直调（tick 侧零预算知识）
+    expect(rig.fake.submits).toHaveLength(0); // 零提交——不进模型
+  });
+
+  it('goal 挂钟行 u-3 池检对照：park false（日池可负担）→ 直接起跑；park 面缺席 → 池检腿跳过照常起跑（独立装配形零降级）', async () => {
+    const goal: GoalWakeFace = {
+      wake: async () => ({ landed: true, reason: 'due', message: '到点', goal: { sessionId: 'sess-1' } }),
+    };
+    // park false：日池可负担——正常起跑
+    const afford = unitRig({ goal, park: async () => false });
+    afford.fake.stack.manager.create({ workspaceRoot: '/tmp/ws' });
+    const ok = await afford.spawn(jobRow('goal-g4', { builtin: true }));
+    afford.fake.settleAssistant('sess-1', { status: 'completed' }, [{ type: 'text', text: '照常' }]);
+    expect((await ok.settled).exitCode).toBe(0);
+    // park 缺席：池检腿不注入——wake 落地直接起跑（既有例②形态的显式锁）
+    const absent = unitRig({ goal });
+    absent.fake.stack.manager.create({ workspaceRoot: '/tmp/ws' });
+    const bare = await absent.spawn(jobRow('goal-g5', { builtin: true }));
+    expect(absent.fake.submits[0]).toMatchObject({ sessionId: 'sess-1', source: 'schedule' });
+    absent.fake.settleAssistant('sess-1', { status: 'completed' }, [{ type: 'text', text: '裸配' }]);
+    expect((await bare.settled).exitCode).toBe(0);
   });
 
   it('issue-poll：pollOnce 摘要入 finalTextPreview（零模型——定形注②正位）', async () => {

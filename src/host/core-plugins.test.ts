@@ -44,6 +44,9 @@ import { createJobRegistry, provideJobsService } from '../subagent/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
 import type { GoalFace, SchedulerFace } from './core-plugins.js';
+import type { BudgetBroadcastFace } from './budget-broadcast.js';
+import { createBudgetBroadcast } from './budget-broadcast.js';
+import type { ConversationStack } from './conversation-stack.js';
 import type { WebuiFaceMount } from './webui-bridge.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { PluginBootFs } from './plugin-boot.js';
@@ -83,6 +86,15 @@ function stubRuntime(dataDir: string | null): HostRuntime {
   return stub as unknown as HostRuntime; // closers 等私有位不在公开类型——结构替身
 }
 
+/** 等条件真（有界轮询——广播 watcher 唤醒窗 5ms 档） */
+async function until(cond: () => boolean, ms = 4000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > deadline) throw new Error('测试超时：条件未达成');
+    await new Promise((resolve) => void setTimeout(resolve, 10));
+  }
+}
+
 /** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler/goal 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位，goal 增会话读面主闸二；checkpoint 增语境/fork 两 seam + 焦点会话位——批 19c-4；19e 增 HTTP 面族十位——sdk/webui/obs/issue 四件） */
 interface DepsForTest {
   sqlite?: () => ReturnType<Persistence['store']['sqlite']>;
@@ -92,6 +104,10 @@ interface DepsForTest {
   goalSession?: GoalSessionFace;
   /** goal 沉淀摘要窄面（批 #99——GoalSummarizerFace 注入面） */
   goalSummarizer?: GoalSummarizerFace;
+  /** u-3 停靠广播面（goal 停靠项登记——缺席 = 停靠无自动唤醒腿） */
+  budgetBroadcast?: BudgetBroadcastFace;
+  /** u-3 对话栈投影（parkIfBudgetExhausted 池检 + 唤醒提交面） */
+  conversationStack?: ConversationStack;
   checkpointSession?: SessionContextFace;
   checkpointFork?: RewindForkFace;
   focusSessionId?: () => string | undefined;
@@ -171,6 +187,8 @@ async function bootCore(
       ...(coreDeps.notify !== undefined ? { notify: coreDeps.notify } : {}),
       ...(coreDeps.goalSession !== undefined ? { goalSession: coreDeps.goalSession } : {}),
       ...(coreDeps.goalSummarizer !== undefined ? { goalSummarizer: coreDeps.goalSummarizer } : {}),
+      ...(coreDeps.budgetBroadcast !== undefined ? { budgetBroadcast: coreDeps.budgetBroadcast } : {}),
+      ...(coreDeps.conversationStack !== undefined ? { conversationStack: coreDeps.conversationStack } : {}),
       ...(coreDeps.checkpointSession !== undefined ? { checkpointSession: coreDeps.checkpointSession } : {}),
       ...(coreDeps.checkpointFork !== undefined ? { checkpointFork: coreDeps.checkpointFork } : {}),
       ...(coreDeps.focusSessionId !== undefined ? { focusSessionId: coreDeps.focusSessionId } : {}),
@@ -1033,6 +1051,9 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     const goalSession: GoalSessionFace = {
       events: (sid) => (sid === 's-goal' ? session.events() : []),
       length: (sid) => (sid === 's-goal' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-goal') session.append('session/paused', { reason: 'budget' });
+      },
     };
     const { scope, boot, commands, commandSpecs } = await bootCore(
       dataDir,
@@ -1123,6 +1144,9 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     const goalSession: GoalSessionFace = {
       events: (sid) => (sid === 's-goal2' ? session.events() : []),
       length: (sid) => (sid === 's-goal2' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-goal2') session.append('session/paused', { reason: 'budget' });
+      },
     };
     const prompts: string[] = [];
     const { scope, dispatch, boot } = await bootCore(
@@ -1176,6 +1200,100 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     await boot.report.unload();
     const after = await dispatch.waterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, { sessionId: 's-goal2', reminders: [] });
     expect(after.stop).toBeUndefined();
+    await persistence.close();
+  });
+
+  it('goal u-3 停靠编舞（04 §5 定形注③）：池检停靠三动作 + 广播登记 → 唤醒 submit → 收口三分诊（正常复活/wake-refused 摘登记/再停靠不复活）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal3-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-goal3' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal3' ? session.events() : []),
+      length: (sid) => (sid === 's-goal3' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-goal3') session.append('session/paused', { reason: 'budget' });
+      },
+    };
+    // 可翻旗日池（stack 池检与 broadcast 电平同源）+ 假 stack（submit 受控 deferred）
+    let affordOk = true;
+    const submits: { sessionId: string; text: string; source?: string; backgroundWake?: boolean }[] = [];
+    const pending: Array<(value: unknown) => void> = [];
+    const fakeConversationStack = {
+      llm: { canAfford: (_tier: string) => affordOk },
+      submitText: (sessionId: string, text: string, opts?: { source?: string; backgroundWake?: boolean }) => {
+        submits.push({ sessionId, text, ...opts });
+        return new Promise<unknown>((resolve) => pending.push(resolve));
+      },
+    } as unknown as ConversationStack;
+    const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+    const { scope } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        goalSession,
+        budgetBroadcast: broadcast,
+        conversationStack: fakeConversationStack,
+      },
+    );
+
+    const face = scope.tryGet<GoalFace>('goal')!;
+    const schedFace = scope.tryGet<SchedulerFace>('scheduler')!;
+    const row = await face.service.activate({ sessionId: 's-goal3', objective: '停靠目标', schedule: 'every:60s' });
+    const jobName = `goal-${row.id}`;
+
+    // 池检可负担：不停车（false——正常起跑语义）
+    expect(await face.parkIfBudgetExhausted(row.id)).toBe(false);
+
+    // 池尽停靠：挂钟行 disable + 会话落词 + 广播登记（三动作齐落）
+    affordOk = false;
+    expect(await face.parkIfBudgetExhausted(row.id)).toBe(true);
+    expect(schedFace.service.getJob(jobName)?.enabled).toBe(false); // 挂钟停摆
+    expect(session.events().some((e) => e.type === 'session/paused')).toBe(true); // 落词
+    expect(broadcast.size()).toBe(1); // 广播登记（宿主件同播三面之一）
+
+    // —— 分诊一（正常收口）：电平翻真 → watcher 唤醒 → submit（backgroundWake
+    // 吃三帽防环）→ receipt completed → 挂钟复活 + 双侧摘登记 ——
+    affordOk = true;
+    await until(() => submits.length === 1);
+    expect(submits[0]).toMatchObject({
+      sessionId: 's-goal3',
+      source: 'budget-extended', // durable 唤醒消息（05 §3.1 第六字面量同律）
+      backgroundWake: true, // driver 三帽辖——防环
+    });
+    expect(broadcast.size()).toBe(0); // wake 编舞先行摘登记（再停靠复登记净面）
+    pending.shift()!({ status: 'completed' });
+    await until(() => schedFace.service.getJob(jobName)?.enabled === true); // reviveClock
+    expect(face.service.isParkedForBudget(row.id)).toBe(false);
+
+    // —— 分诊二（wake-refused 收口——三帽兜底）：再停靠 → 再唤醒 → refused →
+    // 摘登记 warn 人工，挂钟保持停摆 ——
+    affordOk = false;
+    expect(await face.parkIfBudgetExhausted(row.id)).toBe(true);
+    affordOk = true;
+    await until(() => submits.length === 2);
+    pending.shift()!({ status: 'wake-refused' });
+    await until(() => broadcast.size() === 0);
+    expect(schedFace.service.getJob(jobName)?.enabled).toBe(false); // 不复活——自动唤醒路尽
+
+    // —— 分诊三（再停靠先查）：收口现判若已复停靠（又超帽），receipt 处理
+    // 不复活挂钟（disable 保持——复登记由收口位完成）——
+    affordOk = false;
+    expect(await face.parkIfBudgetExhausted(row.id)).toBe(true);
+    affordOk = true;
+    await until(() => submits.length === 3);
+    face.service.parkForBudget(row.id); // 模拟 onRunSettled 收口现判先复停靠（agent 面在装配根——本 rig 缺席）
+    pending.shift()!({ status: 'completed' });
+    await new Promise((resolve) => void setTimeout(resolve, 20)); // receipt 链微任务窗
+    expect(schedFace.service.getJob(jobName)?.enabled).toBe(false); // isParked 先查 → 不 reviveClock
+    expect(face.service.isParkedForBudget(row.id)).toBe(true); // 停靠保持
+
+    broadcast.dispose();
     await persistence.close();
   });
 
@@ -1444,6 +1562,9 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     const goalSession: GoalSessionFace = {
       events: (sid) => (sid === 's-lg' ? session.events() : []),
       length: (sid) => (sid === 's-lg' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-lg') session.append('session/paused', { reason: 'budget' });
+      },
     };
 
     // 形 A：全 core 装载（lsp 序内前件在场）——diagnostics 门申报过闸 + durable 承载
@@ -1479,6 +1600,9 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
         goalSession: {
           events: (sid) => (sid === 's-lg2' ? sessionB.events() : []),
           length: (sid) => (sid === 's-lg2' ? sessionB.events().length : 0),
+          appendPaused: (sid) => {
+            if (sid === 's-lg2') sessionB.append('session/paused', { reason: 'budget' });
+          },
         },
       },
     );

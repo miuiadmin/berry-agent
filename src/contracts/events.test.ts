@@ -11,7 +11,7 @@ import {
 } from './index.js';
 
 describe('事件词汇注册表', () => {
-  it('核心 32 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填、plugin/opens·capability/used 2026-09-08 U3 落码批入册〔开门制两审计词——载体 = 进程级 audit_events 审计流非会话流，入册值 = 核心词身份双闸〕、compaction/fallback 2026-09-09 U4 落码批入册〔回落三律第 3 律审计词〕、生命周期五词 2026-09-09 audit 落账批入册〔plugin/installed·mounted·unmounted·toggled·updated——05 §1.1 生命周期归因面；uninstall 词已随装机面落码批先行落 audit_events 载体——六词同面〕、doors/updated 2026-09-09 开门制扩展批入册〔05 §1.1 行 72——doors 段进程级开门位授予面切换事实，boot diff 幂等同 plugin/opens 律〕、hook/registered·kv/written 2026-09-09 T9 案一批入册〔常规行为归因两词——钩子受理账 + 键值写历史；前者发射位在 ctx.on 受理壳成功尾、后者词先锚定而发射位随 ctx.sessions 受理制写面批（规范已裁代码未落）〕、preset/applied 2026-09-11 审批分档批 ap-3 入册〔05 §1.1 权限预设切换审计词——载体 = audit_events；写点 = TUI /approval preset 执行尾恰一笔、CLI --preset 逐次形零审计〕）', () => {
+  it('核心 33 词全注册（05 篇 §1.1 表格全列——逐词点名；compaction 三词 2026-09-06 纵切批增补、session/thinking-level 2026-09-06 遗漏审计批回填、plugin/opens·capability/used 2026-09-08 U3 落码批入册〔开门制两审计词——载体 = 进程级 audit_events 审计流非会话流，入册值 = 核心词身份双闸〕、compaction/fallback 2026-09-09 U4 落码批入册〔回落三律第 3 律审计词〕、生命周期五词 2026-09-09 audit 落账批入册〔plugin/installed·mounted·unmounted·toggled·updated——05 §1.1 生命周期归因面；uninstall 词已随装机面落码批先行落 audit_events 载体——六词同面〕、doors/updated 2026-09-09 开门制扩展批入册〔05 §1.1 行 72——doors 段进程级开门位授予面切换事实，boot diff 幂等同 plugin/opens 律〕、hook/registered·kv/written 2026-09-09 T9 案一批入册〔常规行为归因两词——钩子受理账 + 键值写历史；前者发射位在 ctx.on 受理壳成功尾、后者词先锚定而发射位随 ctx.sessions 受理制写面批（规范已裁代码未落）〕、preset/applied 2026-09-11 审批分档批 ap-3 入册〔05 §1.1 权限预设切换审计词——载体 = audit_events；写点 = TUI /approval preset 执行尾恰一笔、CLI --preset 逐次形零审计〕、session/paused 2026-09-11 无人值守深化批 u-3 入册〔04 §5 停靠升格定形注②——会话停靠词；载体 = 会话流；fold 语义 = 尾条即停靠；恢复不设对称词〕）', () => {
     const expected = [
       'turn/start',
       'turn/end',
@@ -27,6 +27,7 @@ describe('事件词汇注册表', () => {
       'gate/decision',
       'sandbox/mode',
       'session/thinking-level',
+      'session/paused',
       'llm/usage',
       'llm/retry',
       'plugin/uninstalled',

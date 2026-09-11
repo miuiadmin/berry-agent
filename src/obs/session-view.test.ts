@@ -66,6 +66,7 @@ describe('尾条推导映射（03 §10.8 e-2 定形注单源）', () => {
   it.each([
     ['turn/end', 'idle'],
     ['approval/asked', 'waiting-approval'],
+    ['session/paused', 'paused'],
     ['turn/start', 'running'],
     ['user/message', 'running'],
     ['assistant/message', 'running'],
@@ -95,6 +96,26 @@ describe('尾条推导映射（03 §10.8 e-2 定形注单源）', () => {
       });
       expect(createSessionView(deps).trace('s1').live).toBe('idle');
     }
+  });
+
+  it('u-3 停靠翻位：session/paused 尾条 → paused；唤醒消息落账（尾条翻位）→ running——恢复不设对称词的推导侧表达', () => {
+    const parked = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 2 })],
+      events: [
+        { sessionId: 's1', event: ev('turn/start', 0) },
+        { sessionId: 's1', event: ev('session/paused', 2, { reason: 'budget' }) },
+      ],
+    });
+    expect(createSessionView(parked).trace('s1').live).toBe('paused');
+    const woken = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 3 })],
+      events: [
+        { sessionId: 's1', event: ev('turn/start', 0) },
+        { sessionId: 's1', event: ev('session/paused', 2, { reason: 'budget' }) },
+        { sessionId: 's1', event: ev('user/message', 3, { source: 'budget-extended' }) },
+      ],
+    });
+    expect(createSessionView(woken).trace('s1').live).toBe('running'); // 尾条翻位即恢复
   });
 
   it('零事件会话（lastSeq=-1）→ idle', () => {

@@ -85,6 +85,18 @@ function fakeService(
     budgetExceeded() {
       return false;
     },
+    async parkForBudget() {
+      throw new Error('测试不触');
+    },
+    isParkedForBudget() {
+      return false;
+    },
+    unparkForBudget() {
+      /* 测试不触 */
+    },
+    async reviveClock() {
+      /* 测试不触 */
+    },
     goalScopeFor(sessionId) {
       const active = rows.find((r) => r.sessionId === sessionId && r.status === 'active');
       return active === undefined ? undefined : { goalId: active.id, activatedSeq: active.activatedSeq };

@@ -191,8 +191,8 @@ export interface ObsLiveSessionInfo {
   readonly origin: string;
 }
 
-/** 在飞粗状态三态（尾条推导——03 §10.8 e-2 定形注映射表单源） */
-export type SessionLiveState = 'idle' | 'running' | 'waiting-approval';
+/** 在飞粗状态四态（尾条推导——03 §10.8 e-2 定形注映射表单源 + u-1 定形注 paused 第四值〔u-3 落码〕） */
+export type SessionLiveState = 'idle' | 'running' | 'waiting-approval' | 'paused';
 
 /** session_list 行（进程内清单 × durable 行元数据 join + 尾条推导） */
 export interface SessionSummaryRow {

@@ -68,6 +68,9 @@ class RamSession implements GoalSessionFace {
   length(sessionId: string): number {
     return (this.logs.get(sessionId) ?? []).length;
   }
+  appendPaused(sessionId: string): void {
+    this.push(sessionId, 'session/paused', { reason: 'budget' }); // u-3 停靠词落笔（真身语义镜像）
+  }
   push(sessionId: string, type: string, data: unknown): void {
     const arr = this.logs.get(sessionId) ?? [];
     arr.push({ type, seq: arr.length, time: 0, data });

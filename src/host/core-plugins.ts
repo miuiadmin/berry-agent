@@ -61,6 +61,7 @@ import {
 } from '../goal/index.js';
 import type { GoalService, GoalSessionFace, GoalSummarizerFace, GoalTodoItem } from '../goal/index.js';
 import type { ConversationStack } from './conversation-stack.js';
+import type { BudgetBroadcastEntry, BudgetBroadcastFace } from './budget-broadcast.js';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createDangerGate, createSandboxService, DANGER_V1_ACTIONS, normalizeDangerMandate } from '../safety/index.js';
 import {
@@ -299,6 +300,14 @@ export interface CorePluginHostDeps {
    * 装配残缺，e2e 回归锁锁死生产可达形恒进程内）。
    */
   readonly conversationStack?: ConversationStack;
+  /**
+   * 宿主级 budget-extended 广播件（u-3——04 §5 定形注①：canAfford 恢复
+   * watcher 升格宿主件装配根单真身）。在场 = goal 停靠项登记广播面（预算
+   * 恢复时 enable 挂钟行 + submit 唤醒——§12 唤醒判定链同链）；缺席 = goal
+   * 停靠无自动唤醒腿（落词 + disable 挂钟行仍执法——与「硬停等人工」等价
+   * 的诚实降级，测试替身形零广播）。
+   */
+  readonly budgetBroadcast?: BudgetBroadcastFace;
   /**
    * 调度闸事实收集器（批 19c-2——04 §12 DiscoveryGates 装配位）：engine 到点
    * fire 前逐行求值（agentBusy/lastUserMessageAt/canAfford 从宿主面收集——
@@ -943,6 +952,8 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
                 stack: deps.conversationStack,
                 // 分派处理器 fire 时动态解析（装载序无关——goal/issue 可后装）
                 resolveGoal: () => context.tryGet<GoalFace>('goal')?.service,
+                // u-3 唤醒起跑前池检腿（04 §5 定形注③第二形态——goal 件停靠投影）
+                resolveGoalPark: () => context.tryGet<GoalFace>('goal')?.parkIfBudgetExhausted,
                 resolveIssuePoll: () => context.tryGet<IssuePollFace>('issue'),
                 now,
                 warn,
@@ -1043,6 +1054,13 @@ export function startSchedulerClock(
  */
 export interface GoalFace {
   readonly service: GoalService;
+  /**
+   * 预算停靠投影（u-3——04 §5 定形注③：scheduler 池检腿消费〔scheduler-
+   * tick GoalParkFace 结构兼容〕）。查池（stack.llm.canAfford('background')
+   * ——件内闭包）+ 停靠编舞内聚单动词：日池尽 = 停靠-唤醒返回 true，可负担
+   * = false 正常起跑。stack 缺席（测试替身形）恒 false——池检腿零降级。
+   */
+  readonly parkIfBudgetExhausted: (goalId: string) => Promise<boolean>;
   /** per-session 扩展 todo 工具构造（换装产物同名 'todo'——模型面无感） */
   readonly todoFactory: (deps: {
     readonly append: (data: { items: GoalTodoItem[] }) => void;
@@ -1145,8 +1163,99 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         return next(input) as Promise<PreStepInput>;
       });
 
+      // —— u-3 停靠化编舞（04 §5 定形注③「goal 停靠化律」码面兑现）——
+      // 预算语境两形态（记账刹停〔含 budgetExceeded 复验〕、唤醒起跑前池检
+      // 拒）改停靠-唤醒：service.parkForBudget（disable 挂钟行 + 会话落
+      // session/paused + 幂等登记）+ 广播件登记（恢复时 enable 复活 + submit
+      // 唤醒——§12 唤醒判定链同链）。防环不靠边沿靠 driver 三帽：唤醒轮若
+      // 复超帽，收口现判再停靠复登记，canAfford 仍真再唤醒，第 4 次
+      // backgroundWake 拒收 wake-refused → 摘登记 warn 人工（挂钟行保持
+      // disabled）。非预算语境维持既有：停滞硬停（人工 /goal wake）与
+      // wake_budget 拒收（warn 不硬停）两形态皆非停靠。
+      const broadcast = deps.budgetBroadcast;
+      const stack = deps.conversationStack;
+      /** 唤醒消息文本（durable user/message 载体——issue 面 WAKE_MESSAGE 同律） */
+      const GOAL_WAKE_MESSAGE =
+        '后台预算日池已恢复（budget_extended）——goal 挂钟唤醒，请继续推进当前目标，完成后按 goal_update 纪律收口。';
+      /** goal 停靠项登记表（goalId → 广播 entry——复停靠同键换新防泄漏） */
+      const wakeEntries = new Map<string, BudgetBroadcastEntry>();
+
+      /** 广播唤醒编舞：摘双侧登记 → submit（backgroundWake 吃三帽防环）→ 收口分诊 */
+      const wakeGoalFromPark = (goalId: string, sessionId: string): void => {
+        const entry = wakeEntries.get(goalId);
+        if (entry !== undefined) {
+          broadcast?.unregister(entry);
+          wakeEntries.delete(goalId);
+        }
+        service.unparkForBudget(goalId); // service 侧登记同笔摘（再停靠时复登记）
+        if (stack === undefined) return; // 测试替身形无提交面——durable 停靠在，人工道 /goal wake
+        const run = stack.submitText(sessionId, GOAL_WAKE_MESSAGE, {
+          source: 'budget-extended',
+          backgroundWake: true,
+        });
+        if (run === undefined) {
+          console.error(`[goal] 广播唤醒提交失败：会话 ${sessionId} 无驱动在册——停靠保持，人工道 /goal wake`);
+          return;
+        }
+        void run.then(async (receipt) => {
+          // 再停靠检查先行：onRunSettled 收口现判（同步先于本 receipt）若已
+          // 复停靠（又超帽），挂钟行保持 disabled 不复活——复登记已由收口位完成
+          if (service.isParkedForBudget(goalId)) return;
+          // wake-refused 收口（三帽兜底——鲸鱼任务诚实边界）：自动唤醒路尽，
+          // 挂钟行保持 disabled + 摘登记 + warn 人工路径（issue 面同律）
+          if (receipt.status === 'wake-refused') {
+            service.unparkForBudget(goalId);
+            console.error(
+              `[goal] 连续后台唤醒超帽（04 §4 maxConsecutiveWakes=3）：goal「${goalId}」停自动唤醒——挂钟保持停摆，/goal wake 手动复位或提帽`,
+            );
+            return;
+          }
+          // 正常收口：复活挂钟行（下轮 due 经 §12 唤醒判定链自然重入）
+          await service.reviveClock(goalId);
+        });
+      };
+
+      /** 预算停靠编舞包装：service 三动作 + 广播登记（复停靠同键换新） */
+      const parkGoalForBudget = async (goalId: string): Promise<boolean> => {
+        const landed = await service.parkForBudget(goalId);
+        if (!landed) return false; // 终态/幂等复入——无新登记面
+        if (broadcast !== undefined) {
+          const prior = wakeEntries.get(goalId);
+          if (prior !== undefined) broadcast.unregister(prior); // 旧 entry 防泄漏（复停靠换新）
+          const row = service.get(goalId);
+          if (row !== undefined && row.status === 'active') {
+            const entry: BudgetBroadcastEntry = {
+              wake: () => wakeGoalFromPark(goalId, row.sessionId),
+            };
+            wakeEntries.set(goalId, entry);
+            broadcast.register(entry);
+          }
+        }
+        return true;
+      };
+
+      /** 池检投影（GoalFace.parkIfBudgetExhausted 真身——scheduler tick 池检腿消费）：
+       *  查池（04 §5 background 档）+ 停靠内聚单动词；stack 缺席恒 false（测试替身形零降级） */
+      const parkIfBudgetExhausted = async (goalId: string): Promise<boolean> => {
+        if (stack === undefined) return false;
+        if (stack.llm.canAfford('background')) return false; // 可负担——正常起跑
+        return parkGoalForBudget(goalId); // 日池尽——改停靠-唤醒（gated 零跑由 tick 侧收场）
+      };
+
+      // run 收口现判停靠位（04 §5 定形注②「触发形态非穷尽」判据式）：记账
+      // 刹停（run 完成记账超帽）与复验刹停（agent_pre_step stop → completed）
+      // 两形态同收口位一网打尽——goal 域会话 run 终态即现判 budgetExceeded
+      const agent = context.tryGet<AgentService>('agent');
+      const offSettlePark = agent?.onRunSettled((event) => {
+        const scope = service.goalScopeFor(event.sessionId);
+        if (scope === undefined) return; // 非 goal 域会话不辖
+        if (!service.budgetExceeded(scope.goalId)) return; // 未超帽——正常收口
+        void parkGoalForBudget(scope.goalId);
+      });
+
       context.provide('goal', {
         service,
+        parkIfBudgetExhausted,
         todoFactory: (todoDeps) =>
           createGoalTodoTool({
             ...todoDeps,
@@ -1156,7 +1265,11 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       } satisfies GoalFace);
 
       return () => {
+        offSettlePark?.();
         offPreStep();
+        // 停靠项广播登记逐摘（件卸载——广播件宿主生命周期不随件回卷，登记面须自清）
+        if (broadcast !== undefined) for (const entry of wakeEntries.values()) broadcast.unregister(entry);
+        wakeEntries.clear();
         if (sched !== undefined) service.detachGoalJobsFace();
         disposeGoal();
         disposeUpdate();

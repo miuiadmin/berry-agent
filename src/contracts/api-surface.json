@@ -1330,6 +1330,13 @@
       "desc": "fork 种子边界标记（data 为空对象，边界即事件自身 seq）"
     },
     {
+      "symbol": "session/paused",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话停靠（无人值守深化批 u-3 2026-09-11——04 §5 停靠升格定形注②；05 §1.1 词行）：载荷 {reason}（v1 单值 budget——预算语境停靠；触发形态非穷举：记账刹停/budgetExceeded 复验/起跑前池检拒/issue 悬置同词承载）；写入者 = 编排层停靠登记位（run 在飞时先 driver.abort() 协作中止、收口后落词）；fold 语义 = 尾条即停靠（SessionLiveState paused 档推导判据）；恢复不设对称词——唤醒消息（user/message source=budget-extended）落账尾条翻位即恢复 running，resumed 词不立；载体 = 会话流"
+    },
+    {
       "symbol": "session/thinking-level",
       "module": "session-events",
       "tier": "stable",

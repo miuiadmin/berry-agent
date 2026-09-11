@@ -71,6 +71,13 @@ export interface SchedulerTickDeps {
   readonly stack: ConversationStack;
   /** goal 件唤醒判定链（fire 时动态解析；缺席 = goal 行漂移 gated 形） */
   readonly resolveGoal: () => GoalWakeFace | undefined;
+  /**
+   * goal 唤醒起跑前池检（u-3——04 §5 定形注③第二形态）：wake 落地而日池
+   * 已尽时不硬拒——改停靠-唤醒（goal 件编舞：disable 挂钟行 + 会话落
+   * session/paused + 广播登记）。fire 时动态解析；缺席 = 池检腿缺席直接
+   * 起跑（run 期 agent_pre_step 复验刹停仍兜底在——独立装配形零降级）。
+   */
+  readonly resolveGoalPark?: () => GoalParkFace | undefined;
   /** issue 件轮询入口（fire 时动态解析；缺席 = issue-poll 行漂移 gated 形） */
   readonly resolveIssuePoll: () => IssuePollFace | undefined;
   /** memory-review 编排入口（v1 恒缺席——前瞻分派位，04 §12 定形注②第三员） */
@@ -80,6 +87,12 @@ export interface SchedulerTickDeps {
   /** 告警面（缺省 console.error） */
   readonly warn?: (message: string) => void;
 }
+
+/**
+ * goal 预算停靠投影（goal 件闭包——查池+停靠内聚单动词，tick 侧零预算知识
+ * 〔词面独立律〕；GoalFace.parkIfBudgetExhausted 函数形直配）。
+ */
+export type GoalParkFace = (goalId: string) => Promise<boolean>;
 
 /**
  * 进程内 tick runner 工厂。编舞三路：builtin 分派（零模型）/ goal 挂钟行
@@ -184,6 +197,16 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
       return settledHandle(trigger, {
         reason: 'gated',
         error: `goal「${goalId}」本轮未唤醒（${decision.reason}）：${decision.message}`,
+      });
+    }
+    // 唤醒起跑前池检（u-3——04 §5 定形注③第二形态）：wake 判定链只看 goal
+    // 自身（停滞/唤醒预算），日池尽在此拦——改停靠-唤醒（disable 挂钟行 +
+    // 会话落词 + 广播登记，budget_extended 恢复时同链唤醒），gated 零跑收场
+    const park = deps.resolveGoalPark?.();
+    if (park !== undefined && (await park(goalId))) {
+      return settledHandle(trigger, {
+        reason: 'gated',
+        error: `goal「${goalId}」唤醒落地而起跑前日池尽——预算停靠（挂钟停摆 + session/paused 落词，待 budget_extended 广播唤醒）`,
       });
     }
     // 落地：goal 绑定会话幂等开驱动后提交 promptSnapshot（与 run-entry tick 形同链）

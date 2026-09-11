@@ -68,6 +68,7 @@ import { createPluginStoreFs } from './plugin-store.js';
 import type { HostRuntime, HostRuntimeOptions } from './runtime.js';
 import { createHostRuntime } from './runtime.js';
 import { createIssueSessionFactory } from './issue-session.js';
+import { createBudgetBroadcast } from './budget-broadcast.js';
 import { createDelegationSessionTracker, createInProcessSubagentProvider } from './subagent-factory.js';
 import { budgetAdvisoryMessage } from './budget-advisory.js';
 import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactory } from './triggers.js';
@@ -524,17 +525,32 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtimeNow.persistence.store.getCredential(HOST_NAMESPACE, ISSUE_WEBHOOK_SECRET_NAME)?.apiKey ??
       (env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET !== '' ? env.BERRY_AGENT_ISSUE_WEBHOOK_SECRET : undefined);
 
+    // —— 宿主级 budget-extended 广播件（u-3——04 §5 定形注①：canAfford 恢复
+    // watcher 自 issue 会话工厂私有升格宿主件，装配根单真身三停靠面同播
+    // [issue 停靠项 / goal 停靠项 / 会话级停靠项]；电平判语义不变——有停靠
+    // 项且 canAfford 恢复即触发，恢复判据覆盖日池翻转与提额两形）。
+    // canAfford 窄面与 issue 工厂同源单点（stack.llm.canAfford('background')）
+    const budgetBroadcast = createBudgetBroadcast({
+      canAfford: () => stack.llm.canAfford('background'),
+    });
+    runtime.registerCloser({
+      label: 'budget-broadcast',
+      fn: () => Promise.resolve(budgetBroadcast.dispose()),
+    });
+
     // —— issue headless 会话真工厂（成熟度缺口 #5——04 §5 停靠/唤醒腿的
     // 生产承载；subagent-factory 同族 in-process 形）：canAfford 窄面注入
     // background 档日池判（词面独立律——工厂不自持预算知识）；warn 走宿主
-    // logger。closer 注册序即 drain 序（注册序串行）：conversation-manager
-    // closer 先拆全部驱动（在飞 run 协作中止 → runRound 自然收口 failed
-    // 『run 被外部中止』），本 closer 后到——停靠项 resolve paused（retain
-    // 语义：worktree/授予全保留归 orphanScan 重入），dismantle 幂等双跑无害
+    // logger；广播件注入（唤醒 watcher 升格宿主件后工厂只持登记面）。closer
+    // 注册序即 drain 序（注册序串行）：conversation-manager closer 先拆全部
+    // 驱动（在飞 run 协作中止 → runRound 自然收口 failed『run 被外部中止』），
+    // 本 closer 后到——停靠项 resolve paused（retain 语义：worktree/授予全
+    // 保留归 orphanScan 重入），dismantle 幂等双跑无害
     const issueSessionFactory = createIssueSessionFactory({
       stack,
       canAfford: () => stack.llm.canAfford('background'),
       warn: (message) => logger.warn(message),
+      broadcast: budgetBroadcast,
     });
     runtime.registerCloser({ label: 'issue-session-face', fn: () => Promise.resolve(issueSessionFactory.dispose()) });
 
@@ -658,6 +674,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                   const log = stack.driverOf(sessionId)?.session ?? runtimeNow.persistence.loadSession(sessionId).log;
                   return log.events().length;
                 },
+                // u-3 停靠词落笔真身（04 §5 定形注②③）：幂等开驱动（冷会话
+                // 落词前置——goal 停靠可在无在飞驱动时发生〔scheduler 池检
+                // 形〕）+ session/paused 词落账（word 已随本批入册核心词表）
+                appendPaused: (sessionId) => {
+                  const driver = stack.driverOf(sessionId) ?? stack.manager.open(sessionId).driver;
+                  driver.session.append('session/paused', { reason: 'budget' });
+                },
               },
               // goal 沉淀摘要窄面（批 #99——上方适配器真身；缺席律不适用：
               // 适配器零依赖构造恒在场，goal 件内 summarizer 缺席走确定性回退）
@@ -743,6 +766,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // 换进程内实装（scheduler-tick：fire 不 spawn，经 stack 起
               // headless run + builtin 行程序化分派）；e2e 回归锁锁死此形
               conversationStack: stack,
+              // 宿主级 budget-extended 广播件（u-3——04 §5 定形注①升格）：
+              // goal 停靠项登记面（生产恒注入；与 issue 工厂共享同一真身——
+              // 三停靠面同播单源）
+              budgetBroadcast,
               // GateFacts 宿主三源收集闭包：行启停位 + 宿主在飞（anyRunning）+
               // 最近真用户消息（boot 后监听器维护）+ 行上次触发（JobRow 自带
               // lastFireAt 列）+ 当日后台预算（04 §5 canAfford）

@@ -44,6 +44,9 @@ class FakeSession implements GoalSessionFace {
   length(sessionId: string): number {
     return (this.logs.get(sessionId) ?? []).length;
   }
+  appendPaused(sessionId: string): void {
+    this.push(sessionId, 'session/paused', { reason: 'budget' }); // u-3 停靠词落笔（真身语义镜像）
+  }
   push(sessionId: string, type: string, data: unknown): void {
     const arr = this.logs.get(sessionId) ?? [];
     arr.push({ type, seq: arr.length, time: 0, data });
@@ -486,5 +489,87 @@ describe('goalScopeFor（chat↔goal 数据通道窄面）', () => {
     expect(service.goalScopeFor('s1')).toEqual({ goalId: goal.id, activatedSeq: 2 });
     await service.complete(goal.id, 'ev');
     expect(service.goalScopeFor('s1')).toBeUndefined();
+  });
+});
+
+describe('parkForBudget（u-3 停靠——04 §5 定形注③ service 侧三动作 + 摘登记对称面）', () => {
+  it('三动作齐落：disable 挂钟行 + 会话落 session/paused + 内存登记翻真；幂等复入不重复', async () => {
+    const { service, session, face, calls } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+
+    expect(await service.parkForBudget(goal.id)).toBe(true);
+    expect(calls).toEqual([`register:${goal.id}`, `disable:${goal.id}`]); // 挂钟停摆恰一笔
+    const paused = session.events('s1').filter((e) => e.type === 'session/paused');
+    expect(paused).toHaveLength(1); // 落词恰一笔
+    expect((paused[0]?.data as { reason?: string } | undefined)?.reason).toBe('budget');
+    expect(service.isParkedForBudget(goal.id)).toBe(true);
+    expect(service.get(goal.id)).toMatchObject({ status: 'active' }); // 行保持 active（goal status 三值不动）
+
+    // 幂等复入（三触发位竞速——复验/记账/池检首笔落全、余笔蒸发）
+    expect(await service.parkForBudget(goal.id)).toBe(true);
+    expect(calls.filter((c) => c === `disable:${goal.id}`)).toHaveLength(1);
+    expect(session.events('s1').filter((e) => e.type === 'session/paused')).toHaveLength(1);
+    expect(warn).toHaveBeenCalled(); // 停靠亮警（人工可见）
+  });
+
+  it('face 缺席诚实降级：disable 腿跳过、落词与登记照落（广播编舞在件侧不受影响）', async () => {
+    const { service, session, calls } = openService(); // 不 attach——jobsFace 缺席
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    expect(await service.parkForBudget(goal.id)).toBe(true);
+    expect(calls).toEqual([]); // register 需求暂存、disable 无面可调
+    expect(session.events('s1').some((e) => e.type === 'session/paused')).toBe(true); // 落词不缺席
+    expect(service.isParkedForBudget(goal.id)).toBe(true);
+  });
+
+  it('幽灵/终态守卫：零行抛 GOAL_NOT_FOUND；终态 false 不登记', async () => {
+    const { service } = openService();
+    await expectCode(service.parkForBudget('ghost'), 'GOAL_NOT_FOUND');
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await service.abandon(goal.id);
+    expect(await service.parkForBudget(goal.id)).toBe(false); // 终态无停靠语义
+    expect(service.isParkedForBudget(goal.id)).toBe(false);
+  });
+
+  it('manual wake 摘停靠登记（人工接管——广播唤醒面让位防双跑）+ reviveClock 纯挂钟复活', async () => {
+    const { service, face, calls } = openService();
+    await service.attachGoalJobsFace(face);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await service.parkForBudget(goal.id);
+
+    // manual wake：登记摘除（件侧 wakeGoalFromPark 复靠此判据防误 enable）
+    const manual = await service.wake(goal.id, { trigger: 'manual', attribution: '/goal wake' });
+    expect(manual.landed).toBe(true);
+    expect(service.isParkedForBudget(goal.id)).toBe(false);
+
+    // reviveClock：与 manual wake 全编舞分立的纯挂钟复活道（广播唤醒链正常
+    // 收口后由件侧调用——只 enable，不碰停滞计数/登记）
+    await service.parkForBudget(goal.id); // 再停靠（manual 道已摘——可复入）
+    const before = calls.filter((c) => c === `enable:${goal.id}`).length;
+    await service.reviveClock(goal.id);
+    expect(calls.filter((c) => c === `enable:${goal.id}`)).toHaveLength(before + 1);
+    expect(service.isParkedForBudget(goal.id)).toBe(true); // 登记不摘——件侧 unparkForBudget 分职
+  });
+
+  it('complete/abandon 终态清登记（广播面不再辖终态 goal）', async () => {
+    const { service } = openService();
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await service.parkForBudget(goal.id);
+    await service.abandon(goal.id, '不要了');
+    expect(service.isParkedForBudget(goal.id)).toBe(false);
+
+    const second = await service.activate({ sessionId: 's2', objective: 'p', schedule: 'x' });
+    await service.parkForBudget(second.id);
+    await service.complete(second.id, 'ev');
+    expect(service.isParkedForBudget(second.id)).toBe(false);
+  });
+
+  it('unparkForBudget：件侧唤醒编舞专用摘除（禁复靠手动互调）', async () => {
+    const { service } = openService();
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await service.parkForBudget(goal.id);
+    service.unparkForBudget(goal.id);
+    expect(service.isParkedForBudget(goal.id)).toBe(false);
+    expect(service.get(goal.id)).toMatchObject({ status: 'active' }); // 纯登记面——行与挂钟不动
   });
 });

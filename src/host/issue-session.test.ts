@@ -7,12 +7,15 @@
  * 的测试红利——不碰真实 LlmService 预算态）。钉死六景：
  * ① 起跑全环（origin 'trigger' durable 行 + extraTools 管道注册 + completed
  *    映射 messagesUsed/summary + 首跑 source 'plugin:core:issue'）；
- * ② 起跑前池尽停靠（不 submit 零事件）+ budget_extended 唤醒续跑同会话
- *    （durable user/message source 'budget-extended'——05 §3.1 第六字面量）；
- * ③ run 中日池尽 watchdog 协作中止 → 停靠（outcome 悬置）→ dispose 收口
- *    paused（retain 语义）+ 终态 dismantle；
+ * ② 起跑前池尽停靠（不 submit 零模型事件）+ budget_extended 唤醒续跑同
+ *    会话（durable user/message source 'budget-extended'——05 §3.1 第六
+ *    字面量）+ session/paused 落词锁（u-3——04 §5 定形注②，daemon 猝死
+ *    后冷启动可恢复呈现）；
+ * ③ run 中日池尽 watchdog 协作中止 → 停靠（outcome 悬置）+ 落词 → dispose
+ *    收口 paused（retain 语义）+ 终态 dismantle；
  * ④ 鲸鱼循环：连三唤醒后再唤醒 → driver 三帽 wake-refused → failed
- *    『连续后台唤醒超帽』（诚实边界）；
+ *    『连续后台唤醒超帽』（诚实边界）+ 逐轮落词恰 4 条（第 5 次唤醒被拒
+ *    未起跑不落词）；
  * ⑤ 每 issue 消息帽：assistant 计数达帽 → abort → failed『每 issue 预算帽
  *    耗尽』（两层分账的 run 侧执法）；
  * ⑥ needs-human：completed 但存在被拒审批（无审批后端 notify 化到底即答
@@ -31,6 +34,7 @@ import { createConversationStack } from './conversation-stack.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { createIssueSessionFactory } from './issue-session.js';
+import { createBudgetBroadcast } from './budget-broadcast.js';
 
 /* ---------------- 测试基建（subagent-factory.test.ts 同款形） ---------------- */
 
@@ -206,7 +210,7 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     await rt.shutdown();
   });
 
-  it('② 起跑前池尽停靠（零事件不 submit）+ budget_extended 唤醒续跑同会话（durable source 第六字面量）', async () => {
+  it('② 起跑前池尽停靠（零模型事件不 submit + session/paused 落词）+ budget_extended 唤醒续跑同会话（durable source 第六字面量）', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();
     const { faux, stack } = rigStack(rt, ws);
@@ -226,9 +230,14 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
       budgetMessages: 50,
       tools: [],
     });
-    // 停靠即刻成立：outcome 悬置 + 零事件（未 submit——无 user/message）
+    // 停靠即刻成立：outcome 悬置 + 零模型事件（未 submit——无 user/message）
+    // + session/paused 落词（u-3 锁——04 §5 定形注②：daemon 猝死后冷启动
+    // 可恢复呈现；修复前无此词必红）
     expect(await isPending(outcome)).toBe(true);
-    expect(stack.manager.driverOf(sessionId)!.session.events()).toHaveLength(0);
+    const parkedEvents = stack.manager.driverOf(sessionId)!.session.events();
+    expect(parkedEvents.filter((e) => e.type === 'user/message')).toHaveLength(0);
+    const paused = parkedEvents.find((e) => e.type === 'session/paused');
+    expect((paused?.data as { reason?: string } | undefined)?.reason).toBe('budget');
     expect(warns.join()).toContain('停靠');
 
     // 唤醒腿：日池恢复（覆盖日池翻转与提额两形的电平判）→ watcher 起跑全部停靠 run
@@ -269,8 +278,15 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     afford.set(false);
     await until(() => !stack.manager.driverOf(sessionId)!.running);
     // 停靠成立：outcome 悬置（04 §5 不落终态）+ 会话上下文保留（driver 活体）
+    // + session/paused 落词（u-3——run 中池尽与起跑前池尽同词承载，fold
+    // 语义 = 尾条即停靠）
     expect(await isPending(outcome)).toBe(true);
     expect(stack.manager.driverOf(sessionId)?.dismantled).toBe(false);
+    const pausedMid = stack.manager
+      .driverOf(sessionId)!
+      .session.events()
+      .find((e) => e.type === 'session/paused');
+    expect((pausedMid?.data as { reason?: string } | undefined)?.reason).toBe('budget');
 
     // 停机收口：resolve paused（retain——worktree/授予归 orphanScan 重入）+ dismantle
     factory.dispose();
@@ -312,6 +328,15 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     expect(result.status).toBe('failed');
     expect(result.status === 'failed' && result.reason).toContain('连续后台唤醒超帽');
     expect(result.status === 'failed' && result.reason).toContain('人工介入');
+    // 逐轮落词恰 4 条：四轮起跑-停靠各落一笔（第 4 次唤醒仍成功起跑——
+    // 三帽拒的是循环结束后的第 5 次 submit）；wake-refused 收口未起跑不
+    // 落词（词与行为同账）
+    expect(
+      stack.manager
+        .driverOf(sessionId)!
+        .session.events()
+        .filter((e) => e.type === 'session/paused'),
+    ).toHaveLength(4);
     factory.dispose();
     await rt.shutdown();
   });
@@ -381,6 +406,53 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     expect(decided.length).toBeGreaterThanOrEqual(1);
     expect((decided[0]?.data as { decision?: string } | undefined)?.decision).toBe('cancel');
     factory.dispose();
+    await rt.shutdown();
+  });
+
+  it('⑦ 广播注入形（u-3——04 §5 定形注①）：停靠登记入宿主件 + 宿主件唤醒续跑 + 工厂 dispose 不连坐宿主件', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const afford = mutableAfford(false); // 起跑前日池尽
+    // 宿主级单真身（装配根同构注入——ownsBroadcast=false 形）：与工厂同源
+    // canAfford 电平，pollMs 5
+    const broadcast = createBudgetBroadcast({ canAfford: afford.canAfford, pollMs: 5 });
+    const factory = createIssueSessionFactory({
+      stack,
+      canAfford: afford.canAfford,
+      warn: () => {},
+      pollMs: 5,
+      broadcast, // 注入形——工厂只持登记面，不自建不代管
+    });
+
+    faux.setResponses([() => messageOf('注入形续跑')]);
+    const { sessionId, outcome } = await factory.startHeadless({
+      cwd: ws,
+      prompt: '注入形任务',
+      budgetMessages: 50,
+      tools: [],
+    });
+    // 停靠成立：登记入宿主件（size 1——三停靠面同播的正位）+ 落词
+    expect(await isPending(outcome)).toBe(true);
+    await until(() => broadcast.size() === 1);
+    expect(
+      stack.manager
+        .driverOf(sessionId)!
+        .session.events()
+        .some((e) => e.type === 'session/paused'),
+    ).toBe(true);
+
+    // 宿主件电平判唤醒（升格后真源——非工厂私有 watcher）→ 续跑完成
+    afford.set(true);
+    const result = await settle(outcome);
+    expect(result).toEqual({ status: 'completed', messagesUsed: 1, summary: '注入形续跑' });
+    expect(broadcast.size()).toBe(0); // 唤醒侧同笔摘——空登记面
+
+    // 工厂 dispose 不连坐宿主件（注入形 ownsBroadcast=false——宿主件归
+    // 装配根 registerCloser 收口；缺省形才自建自收）
+    factory.dispose();
+    expect(() => broadcast.register({ wake: () => {} })).not.toThrow();
+    broadcast.dispose(); // 测试自收口
     await rt.shutdown();
   });
 });

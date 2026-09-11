@@ -114,6 +114,26 @@ export interface GoalService {
   /** agent_pre_step 复验面（两腿合计对帽——防竞速漏刹） */
   budgetExceeded(goalId: string): boolean;
   /**
+   * 预算停靠编舞（无人值守深化批 u-3——04 §5 定形注③「goal 停靠化律」：
+   * 预算语境两形态〔记账刹停含 budgetExceeded 复验、唤醒起跑前池检拒〕改
+   * 停靠-唤醒）。三动作：挂钟行 disable（停摆载体——goal 行 status 不扩
+   * parked 值，三值 CHECK 不动）+ 会话落 session/paused 词（daemon 猝死后
+   * 冷启动可恢复呈现）+ 内存停靠登记（幂等判据——已停靠 no-op 复入安全）。
+   * 唤醒编舞（enable + submit 唤醒消息）住 core-plugins 件侧（需 stack 与
+   * 广播件——词面独立律下 service 不持提交面）。
+   */
+  parkForBudget(goalId: string): Promise<boolean>;
+  /** 停靠登记现判（件侧唤醒收口查「再停靠已发生」防误 enable 复活刚 disable 的挂钟行） */
+  isParkedForBudget(goalId: string): boolean;
+  /** 停靠登记摘除（唤醒起跑前摘——再停靠时复登记） */
+  unparkForBudget(goalId: string): void;
+  /**
+   * 挂钟行复活（u-3——广播唤醒正常收口消费：GoalJobsFace disable/enable
+   * 复活链的 service 侧单源；无行 = 静默 no-op 既有律。与 manual wake 全编舞
+   * 分立——本面纯挂钟复活，不复位计数不落 wake 归因）。
+   */
+  reviveClock(goalId: string): Promise<void>;
+  /**
    * 轮间沉淀读面（04 §3.7——批 #99 驱动 goalDeposit 供给）：同步返回缓存
    * 文本（缓存冷 = 确定性回退立即承载），指纹变化时后台单发刷新（fire-
    * and-forget——同指纹零 LLM 调用，刷新完成前回退值兜底）。undefined
@@ -340,6 +360,8 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
   const depositCache = new Map<string, { fingerprint: string; text: string }>();
   /** 沉淀单发在飞位（同 goal 至多一次在飞——请求组装路径不排队堆积） */
   const depositInFlight = new Set<string>();
+  /** 预算停靠登记（u-3——04 §5 定形注③：parkForBudget 幂等判据 + 件侧唤醒收口现判面；进程内存位——durable 事实由挂钟行 disabled + 会话词承载，daemon 猝死后冷启动经挂钟停摆自然呈现） */
+  const parkedForBudget = new Set<string>();
 
   /** 单漏斗挂钟注册（activate 与 attach 冲洗共用；回执 {ok:false} 上抛响亮） */
   async function registerClock(goal: GoalRow): Promise<void> {
@@ -464,6 +486,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         throw new BaseError('GOAL_TRANSITION_INVALID', `完成否决——判据门未全绿（${listing}）`);
       }
       dao.update(goalId, { status: 'completed', endedAt: now(), endingNote: evidence }, now());
+      parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
       await jobsFace?.disable(goalId); // 终态同笔停摆（行留史）
       return dao.get(goalId)!;
     },
@@ -475,6 +498,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         throw new BaseError('GOAL_TRANSITION_INVALID', `goal「${goalId}」已终态（${row.status}）——不可再迁转`);
       }
       dao.update(goalId, { status: 'abandoned', endedAt: now(), endingNote: reason ?? 'abandoned' }, now());
+      parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
       await jobsFace?.disable(goalId);
       return dao.get(goalId)!;
     },
@@ -494,8 +518,11 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       const fingerprint = progressFingerprint(foldGoalTodos(deps.session.events(row.sessionId), row.activatedSeq));
       const progressed = row.lastFingerprint === null ? true : fingerprint !== row.lastFingerprint;
 
-      // manual 道：手动起闹——停滞/预算双复位 + 挂钟复活（用户显式意图，双帽不辖）
+      // manual 道：手动起闹——停滞/预算双复位 + 挂钟复活（用户显式意图，双帽不辖）。
+      // u-3 停靠让位：人工复位即人工接管——预算停靠登记同笔摘除（广播唤醒面
+      // 让位，防广播翻真后对已复活 goal 再 submit 双跑）
       if (opts.trigger === 'manual') {
+        parkedForBudget.delete(goalId);
         dao.update(goalId, { stallStreak: 0, wakeStreak: 0, lastFingerprint: fingerprint }, now());
         await jobsFace?.enable(goalId);
         dao.insertWake(goalId, now(), 'manual', opts.attribution, fingerprint, progressed);
@@ -572,6 +599,36 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       const row = dao.get(goalId);
       if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（budgetExceeded 幽灵 id 零行守卫）`);
       return row.budgetMessagesCap !== null && row.budgetMessagesUsed + row.budgetFoldedUnits >= row.budgetMessagesCap;
+    },
+
+    async parkForBudget(goalId) {
+      const row = dao.get(goalId);
+      if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（parkForBudget 幽灵 id 零行守卫）`);
+      // 终态 goal 无停靠语义（重绑护栏同律——终态行挂钟本已停摆）
+      if (row.status !== 'active') return false;
+      // 幂等判据：已停靠 no-op（复验/记账/池检三触发位竞速时首笔落全、余笔蒸发）
+      if (parkedForBudget.has(goalId)) return true;
+      parkedForBudget.add(goalId);
+      // 挂钟行 disable（起停载体——行留史、广播恢复时 enable 复活；无行 = 静默
+      // no-op 既有律）。goal 行 status 三值 CHECK 不动（04 §5 定形注③）
+      await jobsFace?.disable(goalId);
+      // 会话落停靠词（daemon 猝死后冷启动可恢复呈现——05 §1.1 词行；宿主侧
+      // 真身幂等开驱动后 append，会话缺席由窄面真身诚实处置）
+      deps.session.appendPaused(row.sessionId);
+      warn(
+        `[goal] 预算停靠：goal「${goalId}」（会话 ${row.sessionId}）挂钟停摆 + 会话落 session/paused——待 budget_extended 广播唤醒（人工复位道：/goal wake）`,
+      );
+      return true;
+    },
+
+    isParkedForBudget: (goalId) => parkedForBudget.has(goalId),
+
+    unparkForBudget(goalId) {
+      parkedForBudget.delete(goalId);
+    },
+
+    async reviveClock(goalId) {
+      await jobsFace?.enable(goalId);
     },
 
     depositFor(sessionId) {

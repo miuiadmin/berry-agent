@@ -5,10 +5,13 @@
  * 度量聚合是原档读取 + 推导），一切数据经 deps 三窄面注入。
  *
  * **尾条推导单源**（03 §10.8——e-2 定形注：append-only 流最后一条事件
- * 推导粗状态，无锁无心跳无中心注册）：
+ * 推导粗状态，无锁无心跳无中心注册；u-1 定形注 paused 第四值〔u-3 落码〕）：
  *  - 尾条 `turn/end` → `idle`（回合闭合——reason 全值归 idle，粗状态不
  *    分终态细分档）；
  *  - 尾条 `approval/asked` → `waiting-approval`（等用户答审批）；
+ *  - 尾条 `session/paused` → `paused`（预算停靠——04 §5 定形注②；恢复
+ *    不设对称词：唤醒消息〔user/message source=budget-extended〕落账尾条
+ *    翻位即恢复 running，零推导面特判）；
  *  - 其余一切尾条（turn/start、user/message、assistant/message、tool/*、
  *    request/header、llm/*、gate/decision、approval/decided、compaction/*
  *    及自定义词）→ `running`（回合未闭合）；
@@ -69,11 +72,12 @@ export function createSessionView(deps: SessionViewDeps): SessionView {
     return result.events.at(-1);
   };
 
-  /** 粗状态映射（文件头映射表的执法位） */
+  /** 粗状态映射（文件头映射表的执法位——paused 档 u-3 落码：置于「其余一切 running」兜底前〔03 §10.8 u-1 定形注〕，唤醒消息落账尾条翻位即恢复 running——零推导面特判） */
   const deriveLiveState = (tail: SessionEvent | undefined): SessionLiveState => {
     if (tail === undefined) return 'idle';
     if (tail.type === 'turn/end') return 'idle';
     if (tail.type === 'approval/asked') return 'waiting-approval';
+    if (tail.type === 'session/paused') return 'paused';
     return 'running';
   };
 

@@ -14,12 +14,15 @@
  *    跨停靠保留——唤醒走 followUp 通道续跑同会话）；assistant/message 计数
  *    达每 issue 帽 → abort → failed『每 issue 预算帽耗尽』（两层分账的
  *    run 侧执法）；
- *  - 唤醒腿（04 §5 budget_extended）：工厂自持 watcher——canAfford 恢复即
- *    对全部停靠项 submit 唤醒消息（source 'budget-extended' +
+ *  - 唤醒腿（04 §5 budget_extended）：宿主级广播件（u-3——04 §5 定形注①
+ *    自本工厂私有 watcher 升格 budget-broadcast.ts 装配根单真身，三停靠面
+ *    同播；缺席注入时工厂自建私有实例同一实现单源）——canAfford 恢复即对
+ *    全部停靠项 submit 唤醒消息（source 'budget-extended' +
  *    backgroundWake:true——05 §3.1 同笔词行；恢复判据覆盖日池翻转与提额
  *    两形）。唤醒三帽单源在 driver（04 §4 maxConsecutiveWakes=3）：第 4 次
  *    唤醒件拒收 wake-refused → 本层收口 failed『连续后台唤醒超帽』（鲸鱼
- *    任务跨 4 个日池窗后停自动续跑——诚实边界）。
+ *    任务跨 4 个日池窗后停自动续跑——诚实边界）。停靠同笔在目标会话落
+ *    session/paused 词（u-3——定形注②：daemon 猝死后冷启动可恢复呈现）。
  *
  * 终局映射（IssueRunOutcome 四态）：completed（messagesUsed + 末条 assistant
  * 文本 summary）→ 若事件流存在被拒审批（approval/decided decision ∉
@@ -36,6 +39,7 @@ import type { EventSource, ToolDefinition } from '../contracts/index.js';
 import type { IssueSessionFace, IssueSessionStartResult, IssueRunOutcome } from '../issue/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
+import { createBudgetBroadcast, type BudgetBroadcastFace } from './budget-broadcast.js';
 
 /** 首跑 source（03 §2.2 provenance 盖章——core:issue 件身份；plugin: 域谱系） */
 const ISSUE_SUBMIT_SOURCE: EventSource = 'plugin:core:issue';
@@ -58,6 +62,13 @@ export interface IssueSessionFactoryOptions {
   readonly warn?: (message: string) => void;
   /** 轮询间隔缺省 1000ms（测试注窄值驱动时序） */
   readonly pollMs?: number;
+  /**
+   * 宿主级 budget-extended 广播件（u-3——04 §5 定形注①：canAfford 恢复
+   * watcher 自工厂私有升格宿主件，装配根单真身三停靠面同播）。缺席 = 工厂
+   * 自建私有实例（同一实现单源——独立装配形/测试形零降级）；注入形工厂
+   * dispose 不关广播件（归宿主停机序）。
+   */
+  readonly broadcast?: BudgetBroadcastFace;
 }
 
 /** 工厂公开面（IssueSessionFace 超集——dispose 归宿主停机序消费） */
@@ -123,6 +134,11 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   /** 停靠登记表（唤醒 watcher 扫描面——跨 startHeadless 共享，进程生命周期） */
   const parked = new Set<ParkedEntry>();
+  // 广播件解析（u-3——04 §5 定形注①升格）：注入形 = 宿主单真身（三停靠面
+  // 同播，dispose 归宿主停机序不归本工厂）；缺席 = 自建私有实例（同一实现
+  // 单源——独立装配形/测试形零降级，工厂 dispose 时同笔收口）
+  const ownsBroadcast = options.broadcast === undefined;
+  const broadcast = options.broadcast ?? createBudgetBroadcast({ canAfford, pollMs });
 
   async function startHeadless(req: {
     readonly cwd: string;
@@ -164,19 +180,27 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
       }
     };
 
-    /** 终局收口（一次结算 + 清轮询 + 终态停摆——subagent-factory 同律） */
+    /** 终局收口（一次结算 + 清轮询 + 双侧摘登记 + 终态停摆——subagent-factory 同律） */
     const finish = (result: IssueRunOutcome): void => {
       if (finished) return;
       finished = true;
       parked.delete(entry);
+      broadcast.unregister(entry); // 广播侧同笔摘（宿主级面不再扫描已收口项）
       stopWatchdog();
       driver.dismantle();
       settleOutcome(result);
     };
 
-    /** 停靠登记（04 §5——outcome 悬置 + 会话上下文保留，驱动活体不 dismantle） */
+    /** 停靠登记（04 §5——outcome 悬置 + 会话上下文保留，驱动活体不 dismantle）。
+     *  u-3 落词（04 §5 定形注②）：预算语境停靠在目标会话落 session/paused
+     *  （reason 'budget'）——daemon 猝死后冷启动可恢复呈现；两触发位（起跑前
+     *  池检/watchdog 收口后）皆在 run 收口后或未起跑，词行「收口后落词」合规。
+     *  复停靠（唤醒轮再停靠）再落一笔——append 事实流，尾条即停靠态由
+     *  SessionLiveState 推导 */
     const parkNow = (reason: string): void => {
       parked.add(entry);
+      broadcast.register(entry); // 宿主级广播面登记（canAfford 恢复同播三面之一）
+      driver.session.append('session/paused', { reason: 'budget' });
       warn(`issue 会话停靠（${sessionId}）：${reason}——待 budget_extended 唤醒（04 §5 不落终态）`);
     };
 
@@ -275,7 +299,8 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
 
     const entry: ParkedEntry = {
       wake() {
-        parked.delete(entry); // 先摘（再停靠时 parkNow 重登记）
+        parked.delete(entry); // 先摘（再停靠时 parkNow 重登记——双侧同笔）
+        broadcast.unregister(entry);
         void runRound(WAKE_MESSAGE, WAKE_SOURCE, true);
       },
       dispose() {
@@ -291,22 +316,17 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
     return { sessionId, outcome };
   }
 
-  // 唤醒 watcher（工厂生命周期自持——04 §5 budget_extended 起跑全部停靠 run）：
-  // 电平判（有停靠项且 canAfford 恢复即触发——恢复判据覆盖日池翻转与提额两形；
-  // 防环不靠边沿靠 driver 三帽：唤醒起跑后若一轮耗尽复停靠，canAfford 已 false
-  // 自然静默，翻真后三帽内续跑、超帽 wake-refused 收口 failed）
-  const watcher = setInterval(() => {
-    if (parked.size === 0) return;
-    if (!canAfford()) return;
-    for (const entry of [...parked]) entry.wake();
-  }, pollMs);
-  watcher.unref();
+  // 唤醒扫描（u-3 升格——04 §5 定形注①）：原工厂私有 watcher 已升格宿主级
+  // 广播件（budget-broadcast.ts 装配根单真身三停靠面同播；电平判语义逐字
+  // 平移——有停靠项且 canAfford 恢复即触发，防环不靠边沿靠 driver 三帽）。
+  // 本工厂只持登记面（parkNow 双登记 / finish·wake 双侧摘）
 
   return {
     startHeadless,
     dispose() {
-      clearInterval(watcher);
-      for (const entry of [...parked]) entry.dispose();
+      for (const entry of [...parked]) entry.dispose(); // finish 内双侧摘登记
+      // 自建私有形同笔收口；注入形宿主真身归停机序——不可在此关闭
+      if (ownsBroadcast) broadcast.dispose();
     },
   };
 }
