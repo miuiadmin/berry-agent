@@ -29,7 +29,12 @@ import { createChannels } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
 import type { AgentMessage, AgentTool, ApprovalAskRequest, ThinkingLevel, ToolDefinition } from '../contracts/index.js';
 import { getMessageRoleDefinition, isStandardMessage } from '../contracts/index.js';
-import { createCompactionService, createCompactionSlots, BEFORE_COMPACT_ATTRIB } from '../compaction/index.js';
+import {
+  createCompactionService,
+  createCompactionSlots,
+  createCcrRetrieveTool,
+  BEFORE_COMPACT_ATTRIB,
+} from '../compaction/index.js';
 import type {
   BeforeCompactAttribution,
   BeforeCompactResult,
@@ -431,6 +436,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
         // 会话维工具族并入扩展位（bootTools 同位——模型可见清单恒在律）；
         // 操控三件同位并入（e-4——恒挂载，门检在受理器内执法）；
+        // ccr_retrieve 同位并入（05 §2.1 压缩可逆性——恒挂载：压缩归档原文
+        // 回取面，turn 1 起在场永不摘除；memory 形随工具整面缺席）；
         // extraTools 会话维追加位（缺口 #5——issue 工具面经管道注册并入，
         // boot 全局层之后、会话族之前：宿主全局面 → 本会话编排面 → 观测族）
         extraTools: () => [
@@ -438,6 +445,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           ...(extraTools?.() ?? []),
           ...sessionTools,
           ...createControlTools({ callerSessionId: sessionId, control: sessionsControl }),
+          ...createCcrRetrieveTool({ events: () => session.events() }),
         ],
         ...(goalTodo !== undefined ? { todoTool: goalTodo } : {}),
         sensitiveValues, // 出口消毒值基腿（栈级单闭包——多会话装配共享，live 读）

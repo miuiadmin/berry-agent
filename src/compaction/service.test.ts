@@ -92,15 +92,28 @@ describe('handleRunSettled 五步两事件形', () => {
       estTokens: 100_000,
       effectiveWindow: 200_000,
     });
-    // 摘要：普通 append（无 surfaceOp——两事件形）、载体前缀、source 归因
-    expect(summary!.data).toEqual({ content: `${SUMMARY_PREFIX} 压缩完成摘要`, source: 'compaction' });
+    // 摘要：普通 append（无 surfaceOp——两事件形）、载体前缀、source 归因；
+    // CCR 标记段（05 §2.1 压缩可逆性）：尾部 host 追加——当次标记行与 surface
+    // 的 ccrHash 映射位同源一致（「标记里的 hash 必须能兑付」往返契约）
+    const surfaceData = surface!.data as { ccrHash: string; occludedChars: number };
+    expect(summary!.data).toEqual({
+      content:
+        `${SUMMARY_PREFIX} 压缩完成摘要\n\n` +
+        `<<ccr:${surfaceData.ccrHash}>> 原文已归档（4 条消息 / ${surfaceData.occludedChars} 字符）`,
+      source: 'compaction',
+    });
+    expect(surfaceData.ccrHash).toMatch(/^[0-9a-f]{16}$/);
     expect(summary!.surfaceOp).toBeUndefined();
     expect(summary!.seq).toBe((surface!.data as { summarySeq: number }).summarySeq);
-    // surface：信封独携 + 溯源完整（区间全部 seq + 摘要 seq）
+    // surface：信封独携 + 溯源完整（区间全部 seq + 摘要 seq）+ CCR 归档映射位
     expect(surface!.surfaceOp).toEqual({ op: 'replace', start: 4, end: 12 });
     const expectedSeqs = [...Array(12 - 4 + 1).keys()].map((i) => 4 + i).concat([summary!.seq]);
     expect(surface!.sourceEventSeqs).toEqual(expectedSeqs);
-    expect(surface!.data).toMatchObject({ summarySeq: summary!.seq, occludedMessages: 4 });
+    expect(surface!.data).toMatchObject({
+      summarySeq: summary!.seq,
+      occludedMessages: 4,
+      ccrHash: surfaceData.ccrHash,
+    });
     // end：完成 + 规模审计
     expect(end!.data).toMatchObject({ reason: 'completed', occludedMessages: 4, occludedChars: expect.any(Number) });
 

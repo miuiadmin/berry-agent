@@ -243,6 +243,9 @@ const MODULE_EXTERNALS = {
   // conversation 的 todo 工具件参数面（07 篇 schema 层同律——宿主件直用；
   // 11e 落码批起用）
   conversation: ['typebox'],
+  // compaction 的 typebox（ccr_retrieve 检索工具参数面——05 §2.1 压缩可逆性
+  // CCR 批；schema 层宿主件直用同律）
+  compaction: ['typebox'],
   // web 的 fetch 工具参数面（07 篇 schema 层同律——core: 官方件同仓宿主侧
   // 直用；14c 落码批起用）
   web: ['typebox'],

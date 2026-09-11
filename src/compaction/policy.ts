@@ -8,6 +8,7 @@
 import type { SessionEvent } from '../contracts/index.js';
 import type { ProjectedMessage } from '../session/index.js';
 import type { CompactionConfig, SegmentPlan, ThresholdBasis } from './types.js';
+import { stripCcrSection } from './ccr.js';
 
 /** 摘要载体前缀（防注入标记：模型可辨框架文本与用户话语；提取前次摘要时剥除） */
 export const SUMMARY_PREFIX = '[COMPACTION-SUMMARY]';
@@ -168,7 +169,10 @@ export function previousSummaryText(events: readonly SessionEvent[]): string | n
     if (data.source !== 'compaction') continue;
     const text = plainTextOf(data.content);
     if (text === null || text.length === 0) continue; // 载体形坏（防御）——继续倒扫
-    return text.startsWith(SUMMARY_PREFIX) ? text.slice(SUMMARY_PREFIX.length).trim() : text;
+    // 前缀剥除 + CCR 标记段剥离（05 §2.1 压缩可逆性——目录行是机制噪声非
+    // 摘要素材，迭代链提示词只喂摘要正文；批前载体无标记段原样兼容）
+    if (!text.startsWith(SUMMARY_PREFIX)) return stripCcrSection(text).trim();
+    return stripCcrSection(text.slice(SUMMARY_PREFIX.length)).trim();
   }
   return null;
 }

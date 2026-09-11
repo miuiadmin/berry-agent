@@ -41,6 +41,7 @@ import {
   summaryBudgetFor,
   validateAdjustedRange,
 } from './policy.js';
+import { ccrDirectoryOf, ccrHashOf, withCcrSection } from './ccr.js';
 
 /** per-session 防抖状态（内存态——重启清零即丢冷却锚，无正确性损失） */
 interface SessionCompactionState {
@@ -298,12 +299,21 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
       summarizer,
     });
     // 步 3：摘要落账——两事件形：普通 append、不带 surfaceOp（孤儿摘要按普通
-    // user/message 同视的处置条款依赖此形）；载体前缀防注入
+    // user/message 同视的处置条款依赖此形）；载体前缀防注入。
+    // CCR 标记段（05 §2.1 压缩可逆性）：宿主追加非算法产物——当次标记行 +
+    // 目录恒链（此前历次 surface 事件全量：旧载体被遮蔽后历史哈希仍可达）
+    const hash = ccrHashOf(plan.occluded);
+    const directory = [
+      ...ccrDirectoryOf(log.events()),
+      { hash, messages: plan.occludedMessages, chars: plan.occludedChars },
+    ];
     const summaryEvent = log.append('user/message', {
-      content: `${SUMMARY_PREFIX} ${text}`,
+      content: `${SUMMARY_PREFIX} ${withCcrSection(text, directory)}`,
       source: 'compaction',
     });
-    // 步 4：遮蔽指令——正门独携信封；溯源 = 区间全部 seq + 摘要事件 seq
+    // 步 4：遮蔽指令——正门独携信封；溯源 = 区间全部 seq + 摘要事件 seq；
+    // ccrHash = 归档映射位（本事件即「哈希 → 区间原文」映射记录——events 表
+    // 即归档 store，检索面 ccr_retrieve 的匹配键）
     const sourceEventSeqs: number[] = [];
     for (let seq = plan.start; seq <= plan.end; seq++) sourceEventSeqs.push(seq);
     sourceEventSeqs.push(summaryEvent.seq);
@@ -313,6 +323,7 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
         summarySeq: summaryEvent.seq,
         occludedMessages: plan.occludedMessages,
         occludedChars: plan.occludedChars,
+        ccrHash: hash,
       },
       { op: 'replace', start: plan.start, end: plan.end },
       sourceEventSeqs,

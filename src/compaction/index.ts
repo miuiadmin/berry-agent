@@ -34,3 +34,12 @@ export {
 } from './policy.js';
 export { createCompactionService } from './service.js';
 export type { CompactionServiceOptions } from './service.js';
+export {
+  CCR_MARKER_PREFIX,
+  ccrDirectoryOf,
+  ccrHashOf,
+  stripCcrSection,
+  withCcrSection,
+  type CcrDirectoryEntry,
+} from './ccr.js';
+export { createCcrRetrieveTool, type CcrToolsDeps } from './ccr-tools.js';

@@ -177,8 +177,8 @@ describe('createConversationStack 装配序', () => {
       systemPrompt: '你是子代理，专注探索',
       shapeTools: (tools) => tools.filter((tool) => tool.name !== 'bash' && tool.name !== 'grep'),
     });
-    // 整形后实面快照（孙代委派的基准面；会话维四件 + 操控三件恒挂载——
-    // e2-4/e4-3 与 fs/检索/todo 并列）
+    // 整形后实面快照（孙代委派的基准面；会话维四件 + 操控三件 + ccr_retrieve
+    // 检索件恒挂载——e2-4/e4-3 与 fs/检索/todo 并列；CCR 批起 05 §2.1 件 3）
     expect(child.driver.toolNames).toEqual([
       'read',
       'write',
@@ -193,6 +193,7 @@ describe('createConversationStack 装配序', () => {
       'session_send',
       'session_interrupt',
       'session_withdraw',
+      'ccr_retrieve',
     ]);
 
     faux.setResponses([() => messageOf('stop')]);
@@ -201,7 +202,7 @@ describe('createConversationStack 装配序', () => {
 
     // 信封快照（边界制）承载两位：systemPrompt 原始值（快照先于注入）+
     // toolSchemas = 整形后实面（裸栈 = fs 四 + 检索两 + todo + 会话维四件 +
-    // 操控三件，无 bash）
+    // 操控三件 + ccr_retrieve，无 bash）
     const header = child.driver.session.events().find((event) => event.type === 'request/header') as
       { data: { systemPrompt: string; toolSchemas: Array<{ name: string }> } } | undefined;
     expect(header).toBeDefined();
@@ -220,6 +221,7 @@ describe('createConversationStack 装配序', () => {
       'session_send',
       'session_interrupt',
       'session_withdraw',
+      'ccr_retrieve',
     ]);
     await rt.shutdown();
   });
