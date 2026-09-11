@@ -72,6 +72,7 @@ export const ERROR_CODE_PREFIXES = [
   'TRIGGER_',
   'CREDENTIALS_',
   'DANGER_',
+  'UI_',
 ] as const;
 
 /**
@@ -144,6 +145,24 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     code: 'API_CAPABILITY_MISSING',
     module: 'host',
     description: '（预留）宿主能力面缺席清单所需能力——可选件构建差能力分叉日启用，结构化 message 载缺席能力名清单',
+  },
+  {
+    code: 'UI_ASK_UNANCHORED',
+    module: 'host',
+    description:
+      'ctx.ui 阻塞原语（confirm/select/input）无会话锚拒：装载期/无锚后台语境 opts.sessionId 缺席且无 ambient 命令锚（07 §4.3 消费腿条款档位 2）',
+  },
+  {
+    code: 'UI_ASK_SESSION_CLOSED',
+    module: 'host',
+    description:
+      'ctx.ui 阻塞原语显式锚受理时会话不在通道核在册集拒：未 registerSession 或已 unregisterSession——命令尾链陈年锚晚到不悬死（07 §4.3 档位 2 锚时效）',
+  },
+  {
+    code: 'UI_ASK_WINDOW_INVALID',
+    module: 'host',
+    description:
+      '钩子派发窗内调 ctx.ui 阻塞三件拒：判序窗判前置锚判（窗内即使显式 sessionId 亦拒——撞的是派发序非锚定面，03 §3.4 钩子窗执法同形扩位）',
   },
   {
     code: 'AGENT_CONTINUE_INVALID',

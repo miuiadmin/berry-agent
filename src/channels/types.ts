@@ -47,6 +47,12 @@ export interface CommandArgs {
   readonly raw: string;
   /** 引号感知切分的词数组（单引号保字面、双引号保内部空格、裸词按空白切） */
   readonly argv: readonly string[];
+  /**
+   * 发起会话 id（07 §4.3 消费腿条款档位 2 配套——交互动词族批 ix-2 新建）：
+   * 命令由会话输入框发起时通道核透传发起会话；CLI 面命令（无会话语境）
+   * 缺席——缺席即无锚语境，ctx.ui 阻塞三件须显式 opts.sessionId。
+   */
+  readonly sessionId?: string;
 }
 
 /** TUI 命令 handler 形（03 §2.2：void/Promise 双形） */

@@ -86,13 +86,17 @@ export class CommandRegistry {
    * 分发输入行：命中注册命令 → 执行 handler 返回 true；未命中（非命令形或
    * 名不在册）返回 false——「未注册的 /词 怎么处置（提示未知命令 or 当普通
    * 消息进 run）」是驱动侧语义，归 conversation 件。
+   *
+   * sessionId 位（ix-2 新建）：发起会话透传进 CommandArgs（CLI 面缺席）——
+   * 插件命令 handler 可显式携带（ctx.ui opts.sessionId 透传），ambient 自动
+   * 锚另由 host 侧 ALS 承载（两轨并行——显式位是插件可见面、ALS 是零自觉面）。
    */
-  async dispatch(input: string): Promise<boolean> {
+  async dispatch(input: string, sessionId?: string): Promise<boolean> {
     const parsed = this.parse(input);
     if (parsed === null) return false;
     const spec = this.commands.get(parsed.name);
     if (spec === undefined) return false;
-    await spec.handler(parsed.args);
+    await spec.handler(sessionId !== undefined ? { ...parsed.args, sessionId } : parsed.args);
     return true;
   }
 }

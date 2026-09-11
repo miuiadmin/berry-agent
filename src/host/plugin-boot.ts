@@ -78,6 +78,7 @@ import type { DiskPluginSpec } from './loader.js';
 import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js';
 import type { EnabledRow } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
+import type { ChannelsUiFace } from './plugin-context.js';
 import type {
   CommandRegistryLike,
   PluginContextHandle,
@@ -299,7 +300,21 @@ export interface PluginBootOptions {
    * conversation-stack 另路注入（同一 guard 两窄面）。缺席 = 不计数
    * （直测形）。
    */
-  readonly hookDispatchGuard?: { readonly enter: () => void; readonly exit: () => void };
+  readonly hookDispatchGuard?: {
+    readonly enter: () => void;
+    readonly exit: () => void;
+    /** 窗内只读判定（ix-2——ctx.ui 钩子窗禁律消费；真身本有，窄面扩只读位） */
+    readonly inHookDispatch?: () => boolean;
+  };
+  /**
+   * ctx.ui 消费腿通道核窄面（ix-2——07 §4.3 消费腿条款）：真身 =
+   * assembly 的 ChannelsService 适配闭包（notify 空位适配——核层 void 该
+   * 位）；缺席 = 直测形/:memory: 诊断形（阻塞三件/notify/hasAudience 响亮
+   * 缺位、单向原语降档 no-op warn——诚实缺席律）。
+   */
+  readonly channelsUi?: ChannelsUiFace;
+  /** ctx.ui 降档 warn 出口（缺省 console.warn；装配接 logger.warn） */
+  readonly uiWarn?: (message: string) => void;
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
   readonly noPlugins?: boolean;
   /**
@@ -505,6 +520,10 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       promptSections,
       // 钩子派发段 guard 开合面透传（ca-3——全部插件 ctx 共享同一全局深度计数）
       ...(options.hookDispatchGuard !== undefined ? { hookDispatchGuard: options.hookDispatchGuard } : {}),
+      // ctx.ui 消费腿通道核窄面 + 降档 warn 出口透传（ix-2——fork 级联共享
+      // 单真身；缺席时阻塞三件/notify/hasAudience 响亮缺位、单向原语降档）
+      ...(options.channelsUi !== undefined ? { channelsUi: options.channelsUi } : {}),
+      ...(options.uiWarn !== undefined ? { uiWarn: options.uiWarn } : {}),
       provide: services.provide, // ctx.provide 委派共享根（§2.2 表行——跨插件可见）
       hostFace,
       // 触发器注册表受局面透传（C 批 C-2——缺席时 ctx.triggers.register 响亮缺位）

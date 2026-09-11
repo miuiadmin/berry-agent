@@ -120,6 +120,23 @@ describe('dispatch', () => {
     await reg.dispatch('/slow');
     expect(flag).toBe(true);
   });
+
+  // ix-2——07 §4.3 档位 2：发起会话显式位（CLI 面缺席 / TUI 注入聚焦会话）
+  it('dispatch 第二参 sessionId 透传 CommandArgs（缺席时 args 不含该位）', async () => {
+    const reg = new CommandRegistry();
+    let withSid: string | undefined;
+    let withoutSid: boolean | undefined;
+    reg.register('anchored', (args) => {
+      withSid = (args as { sessionId?: string }).sessionId;
+    });
+    reg.register('bare', (args) => {
+      withoutSid = 'sessionId' in args;
+    });
+    await reg.dispatch('/anchored', 's-42');
+    expect(withSid).toBe('s-42');
+    await reg.dispatch('/bare');
+    expect(withoutSid).toBe(false);
+  });
 });
 
 describe('tokenize 引号感知切分', () => {

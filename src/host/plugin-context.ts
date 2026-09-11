@@ -26,10 +26,11 @@
  * apply 收口后 closeWindow；钩子词汇 registerEventNames 预注册归装配批（12f-2b），
  * 本件只按主表路由不注册词。
  *
- * 挂账注记（消费面未齐暂缓，随各自消费腿定形）：ctx.ui 七原语 + registerRenderer
- * （07 §4.1 渲染签名未钉——随 TUI/SPA 消费腿）；ctx.sessions/ctx.host 动词包装
+ * 挂账注记（消费面未齐暂缓，随各自消费腿定形）：registerRenderer（07 §4.1
+ * 渲染签名未钉——随 TUI/SPA 消费腿）；ctx.sessions/ctx.host 动词包装
  * （§4.4/§4.5——随 core:memory 消费腿）；tools 管道 waterfall 派发位（pipeline.ts
- * 归 tools 域——宿主发射位接线随装配批）。
+ * 归 tools 域——宿主发射位接线随装配批）。ctx.ui 七原语已随交互动词族批
+ * ix-2 兑销（消费腿条款 07 §4.3——会话锚定档位表/钩子窗禁律/护栏增位）。
  */
 import { BaseError, registerEventType, registerMessageRole } from '../contracts/index.js';
 // internal 桶机制符号深导（门检裁决核——03 §4.6；开门是宿主裁决面非插件 API）
@@ -40,9 +41,13 @@ import type {
   EventTypeMeta,
   HostFace,
   MessageRoleDefinition,
+  NotifyLevel,
   ProgrammaticSubagentDef,
   ToolDefinition,
+  UiAskOptions,
   UiBackend,
+  UiInputOptions,
+  UiSelectChoice,
 } from '../contracts/index.js';
 import type { LlmRuntime } from '../llm/index.js';
 import type { CommandHandler } from '../channels/index.js';
@@ -53,6 +58,7 @@ import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import type { SessionLifecycleEvent } from '../conversation/index.js';
 import type { PromptSectionBuilder, PromptSectionRegisterOptions, PromptSectionRegistry } from './prompt-sections.js';
 import type { TriggerDef } from './triggers.js';
+import { readSessionAnchor, withoutSessionAnchor } from './session-anchor.js';
 
 /** 钩子分派模式（03 §2.4——模式是钩子公开契约的一部分） */
 export type HookMode = 'emit' | 'waterfall' | 'serial' | 'parallel';
@@ -195,12 +201,68 @@ export interface PluginContext {
   };
   /** 触发器注册（拒绝式——门检/撞名/格式三闸执法在 TriggerRegistry，C 批 C-2） */
   readonly triggers: { register(def: TriggerDef): Disposer };
+  /**
+   * 通道交互面（ix-2——07 §4.3 消费腿条款）：七原语 + 会话锚定档位执法。
+   * 阻塞三件判序 = 频率护栏 → 钩子窗禁（窗判前置锚判）→ 受局面 → 锚解析
+   * （显式 sessionId 优先 / ambient 命令锚〔ALS〕回落 / 缺席拒
+   * UI_ASK_UNANCHORED / 不在册拒 UI_ASK_SESSION_CLOSED）；单向原语无锚
+   * 降档 no-op warn。notify/hasAudience 无会话位恒可。
+   */
+  readonly ui: PluginUiFace;
   /** 宿主自省面（§8.5——装配根一次物化、fork 级联共享；附本插件 id） */
   readonly host: HostFace & { readonly pluginId: string };
 }
 
 /** provider 入参形（经 LlmRuntime 公开面取——host 不直依赖 pi-ai 类型，07 栈纪律） */
 export type ProviderInput = Parameters<LlmRuntime['registerProvider']>[0];
+
+/**
+ * ctx.ui 消费腿通道核窄面（ix-2——07 §4.3 消费腿条款的受理委派面）。
+ * 手写结构相容 ChannelsService 七原语子集 + hasSession（锚时效真源）——
+ * 不 import ChannelsService 全型防 DAG 新边（mm 批 memory-viewer 同先例）。
+ * notify 不带 sessionId 首参（核层 void 掉该位——恒扇出语义，装配位适配
+ * 闭包注空位）。
+ */
+export interface ChannelsUiFace {
+  /** 一次性通知（恒扇出——无会话归属，07 §4.3 档位 1） */
+  notify(message: string, opts?: { level?: NotifyLevel }): void;
+  confirm(sessionId: string, message: string, opts?: UiAskOptions): Promise<boolean>;
+  select(sessionId: string, message: string, choices: readonly UiSelectChoice[], opts?: UiAskOptions): Promise<string>;
+  input(sessionId: string, message: string, opts?: UiInputOptions): Promise<string>;
+  setStatus(sessionId: string, status: string): void;
+  setWidget(sessionId: string, node: unknown | null): void;
+  /** 观众探针（进程级——与核层同形） */
+  hasAudience(): boolean;
+  /** 在册判定（锚时效——受理时检查，陈年锚不悬死） */
+  hasSession(sessionId: string): boolean;
+}
+
+/**
+ * ctx.ui 七原语面（07 §4.3 签名块定稿形——缺省无会话位，本批增可选
+ * sessionId 显式位）：notify/hasAudience 无会话位恒可（档位 1）；阻塞三件
+ * + setStatus/setWidget 携可选 sessionId（档位 2/3——显式位优先、ambient
+ * 命令锚〔ALS〕回落）。
+ */
+export interface PluginUiFace {
+  /** 一次性通知（'success' = 任务完成语义档）——无会话位恒可 */
+  notify(message: string, opts?: { level?: NotifyLevel }): void;
+  /** 是/否确认——sessionId = 会话锚显式位（缺席按调用语境档位裁决） */
+  confirm(message: string, opts?: { signal?: AbortSignal; sessionId?: string }): Promise<boolean>;
+  /** 单选（Enter 选定 / Esc 取消收 ''） */
+  select(
+    message: string,
+    choices: readonly UiSelectChoice[],
+    opts?: { signal?: AbortSignal; sessionId?: string },
+  ): Promise<string>;
+  /** 自由文本输入（placeholder 可选） */
+  input(message: string, opts?: { signal?: AbortSignal; placeholder?: string; sessionId?: string }): Promise<string>;
+  /** 状态行更新（无锚语境 = no-op warn 一行——单向原语降档不炸装载） */
+  setStatus(status: string, opts?: { sessionId?: string }): void;
+  /** 自定义渲染槽呈现（会话级单槽——同 setStatus 降档律） */
+  setWidget(node: unknown | null, opts?: { sessionId?: string }): void;
+  /** 观众探针（无人值守降档判据——只读免护栏计数） */
+  hasAudience(): boolean;
+}
 
 /** 钩子超时上报面（缺省 stderr 直写——装配根接 logger） */
 export type HookTimeoutReporter = (pluginId: string, hookName: string, err: unknown) => void;
@@ -233,11 +295,33 @@ export interface PluginContextOptions {
    * 工具执行体**（03 §3.4 只禁钩子段——enterHostCallback 外包的工具执行期
    * 不经本面）。缺席 = 不计数（直测形）——llm 侧执法面亦缺席时整体不执法。
    */
-  readonly hookDispatchGuard?: { readonly enter: () => void; readonly exit: () => void };
+  readonly hookDispatchGuard?: {
+    readonly enter: () => void;
+    readonly exit: () => void;
+    /**
+     * 窗内只读判定（ix-2——ctx.ui 阻塞三件钩子窗禁律）：真身 createHookDispatchGuard
+     * 本有此读位（HookDispatchGuardFace 同形）；窄面此前只收开合两法，本批扩
+     * 只读位供 ctx.ui 窗判（判序窗判前置锚判——窗内即使显式 sessionId 亦拒）。
+     * 可选 = 测试替身零成本缺席（缺席 = 不执法窗判，同 llm 面缺席律）。
+     */
+    readonly inHookDispatch?: () => boolean;
+  };
   /** llm 运行时（缺席同上——只取 registerProvider 一面） */
   readonly llm?: Pick<LlmRuntime, 'registerProvider'>;
   /** 提示词段注册表（缺席同上） */
   readonly promptSections?: PromptSectionRegistry;
+  /**
+   * ctx.ui 消费腿通道核窄面（ix-2——07 §4.3 消费腿条款）：缺席 = 阻塞三件
+   * /notify/hasAudience 抛 CONTEXT_SERVICE_MISSING（受局面缺席响亮——同
+   * tools 先例）；setStatus/setWidget 缺席降档 no-op warn（单向原语不炸
+   * 装载/不炸派发）。装配根恒注（fork 级联共享单真身）。
+   */
+  readonly channelsUi?: ChannelsUiFace;
+  /**
+   * ctx.ui 降档 warn 出口（setStatus/setWidget 无锚 no-op、受局面缺席降档
+   * 的呈现位）：缺省 console.warn（短命/测试形零依赖）；装配根接 logger.warn。
+   */
+  readonly uiWarn?: (message: string) => void;
   /** 触发器注册表（缺席同上——starter 真身随 C-3 装配批注入） */
   readonly triggers?: TriggerRegistryLike;
   /** 子代理注册面（缺席同上——SubagentService 程序化腿，D 批 D-2 装配批注入） */
@@ -483,6 +567,70 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     return face;
   };
 
+  // ---- ctx.ui 消费腿（ix-2——07 §4.3 消费腿条款）----
+  /** 降档 warn 出口（缺省 console.warn——装配根接 logger.warn） */
+  const warnUi = (message: string): void => {
+    (options.uiWarn ?? ((m: string) => console.warn(`[host] ${m}`)))(message);
+  };
+
+  /** 钩子窗禁律（判序窗判前置锚判——窗内即使显式 sessionId 亦拒：撞的是派发序非锚定面） */
+  const assertNotInHookDispatch = (verb: string): void => {
+    if (options.hookDispatchGuard?.inHookDispatch?.() ?? false) {
+      throw new BaseError(
+        'UI_ASK_WINDOW_INVALID',
+        `ctx.ui ${verb} 在钩子派发窗内被拒（插件 ${pluginId}——07 §4.3 钩子窗条：阻塞挂起与钩子消费钟/waterfall 短路序相撞；窗内即使显式 sessionId 亦拒）`,
+      );
+    }
+  };
+
+  /**
+   * 阻塞三件锚解析（档位 2）：显式 opts.sessionId 优先 → ambient 命令锚
+   * （ALS 语境继承——命令 handler 及其异步尾链零自觉锚定）回落；缺席拒
+   * UI_ASK_UNANCHORED（fail-loud——「问了没人答」不得伪装「用户答了否」）；
+   * 锚时效：不在通道核在册集拒 UI_ASK_SESSION_CLOSED（陈年锚晚到不悬死）。
+   */
+  const resolveAskAnchor = (verb: string, explicit?: string): { ui: ChannelsUiFace; sessionId: string } => {
+    const ui = required(options.channelsUi, 'channels-ui', `ctx.ui.${verb}`);
+    const sessionId = explicit ?? readSessionAnchor();
+    if (sessionId === undefined) {
+      throw new BaseError(
+        'UI_ASK_UNANCHORED',
+        `ctx.ui ${verb} 无会话锚（插件 ${pluginId}——07 §4.3 档位 2：装载期/无锚后台语境 opts.sessionId 缺席且无 ambient 命令锚；命令 handler 内自动锚、尾链继承）`,
+      );
+    }
+    if (!ui.hasSession(sessionId)) {
+      throw new BaseError(
+        'UI_ASK_SESSION_CLOSED',
+        `ctx.ui ${verb} 会话锚已收口（插件 ${pluginId}，会话 ${sessionId}——未注册或已注销：命令尾链陈年锚晚到不悬死，与在队收口三则对称分立）`,
+      );
+    }
+    return { ui, sessionId };
+  };
+
+  /**
+   * 单向原语锚解析（档位 3）：缺席/不在册 = no-op warn 一行（降档不炸装载/
+   * 不炸派发——问不到人可以不问，状态行更新炸装载属过罚失当）；受局面
+   * 缺席同律降档（阻塞三件的 required 拒与此分档）。
+   */
+  const resolveStatusAnchor = (
+    verb: string,
+    explicit?: string,
+  ): { ui: ChannelsUiFace; sessionId: string } | undefined => {
+    const ui = options.channelsUi;
+    if (ui === undefined) {
+      warnUi(`ctx.ui ${verb} 受局面缺席（插件 ${pluginId}）——no-op（装配根未接通道核窄面）`);
+      return undefined;
+    }
+    const sessionId = explicit ?? readSessionAnchor();
+    if (sessionId === undefined || !ui.hasSession(sessionId)) {
+      warnUi(
+        `ctx.ui ${verb} 无有效会话锚（插件 ${pluginId}${sessionId === undefined ? '' : `，会话 ${sessionId} 已收口`}）——no-op（07 §4.3 档位 3：单向原语降档不炸装载）`,
+      );
+      return undefined;
+    }
+    return { ui, sessionId };
+  };
+
   /**
    * 回调窗包裹：handler 体前后开合（同步/异步腿都收口——finally 恢复）。
    * 本包裹只用于钩子派发两腿（waterfall/notify）——回调窗与钩子派发段窗
@@ -493,7 +641,12 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     hostCallbackDepth++;
     options.hookDispatchGuard?.enter(); // 钩子派发段开窗（await 跨度覆盖 handler 全执行段）
     try {
-      return await fn();
+      // 钩子派发段语境遮蔽（ix-2——07 §4.3 档位 2 两处遮蔽之一）：ambient
+      // 命令锚不穿透进钩子 handler（钩子语境结构性无自动锚——单向原语 no-op
+      // warn、阻塞三件另由窗判拒）。ALS.exit 语境跟随 async 执行：handler
+      // 全执行段（含 await 续体）均在遮蔽内；fire-and-forget 尾链（派发收口
+      // 后自起）在遮蔽外——ambient 锚自然恢复（「锚判随后自理」的边界即此）。
+      return await withoutSessionAnchor(fn);
     } finally {
       options.hookDispatchGuard?.exit(); // 派发收口即闭窗（fire-and-forget 尾链窗外合法）
       hostCallbackDepth--;
@@ -839,6 +992,62 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         assertWindow('ctx.triggers.register');
         countAction();
         return required(options.triggers, 'triggers', 'ctx.triggers.register').register(pluginId, def);
+      },
+    },
+    ui: {
+      // 档位 1：notify 无会话位恒可（核层恒扇出）——只过护栏与受局面
+      notify(message: string, opts?: { level?: NotifyLevel }): void {
+        countAction();
+        required(options.channelsUi, 'channels-ui', 'ctx.ui.notify').notify(message, opts);
+      },
+      // 档位 2：阻塞三件——判序护栏 → 窗判前置 → 锚解析（显式优先/ALS 回落
+      // /缺席拒/不在册拒）；opts 剥 sessionId 后透传核层形（核层 sessionId 是首参）
+      confirm(message: string, opts?: { signal?: AbortSignal; sessionId?: string }): Promise<boolean> {
+        countAction();
+        assertNotInHookDispatch('confirm');
+        const { ui, sessionId } = resolveAskAnchor('confirm', opts?.sessionId);
+        const { signal } = opts ?? {};
+        return ui.confirm(sessionId, message, signal !== undefined ? { signal } : undefined);
+      },
+      select(
+        message: string,
+        choices: readonly UiSelectChoice[],
+        opts?: { signal?: AbortSignal; sessionId?: string },
+      ): Promise<string> {
+        countAction();
+        assertNotInHookDispatch('select');
+        const { ui, sessionId } = resolveAskAnchor('select', opts?.sessionId);
+        const { signal } = opts ?? {};
+        return ui.select(sessionId, message, choices, signal !== undefined ? { signal } : undefined);
+      },
+      input(
+        message: string,
+        opts?: { signal?: AbortSignal; placeholder?: string; sessionId?: string },
+      ): Promise<string> {
+        countAction();
+        assertNotInHookDispatch('input');
+        const { ui, sessionId } = resolveAskAnchor('input', opts?.sessionId);
+        const { signal, placeholder } = opts ?? {};
+        const askOpts =
+          signal !== undefined || placeholder !== undefined
+            ? { ...(signal !== undefined ? { signal } : {}), ...(placeholder !== undefined ? { placeholder } : {}) }
+            : undefined;
+        return ui.input(sessionId, message, askOpts);
+      },
+      // 档位 3：单向原语——无有效锚 no-op warn（不炸装载/不炸派发）
+      setStatus(status: string, opts?: { sessionId?: string }): void {
+        countAction();
+        const resolved = resolveStatusAnchor('setStatus', opts?.sessionId);
+        if (resolved !== undefined) resolved.ui.setStatus(resolved.sessionId, status);
+      },
+      setWidget(node: unknown | null, opts?: { sessionId?: string }): void {
+        countAction();
+        const resolved = resolveStatusAnchor('setWidget', opts?.sessionId);
+        if (resolved !== undefined) resolved.ui.setWidget(resolved.sessionId, node);
+      },
+      // 档位 1：观众探针——只读免护栏计数（03 §3.4 免计清单）
+      hasAudience(): boolean {
+        return required(options.channelsUi, 'channels-ui', 'ctx.ui.hasAudience').hasAudience();
       },
     },
     host: { ...hostFace, pluginId },

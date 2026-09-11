@@ -32,6 +32,7 @@ import { BaseError } from '../contracts/index.js';
 
 import { createGateTransform } from './import-gate.js';
 import type { PluginManifest } from './manifest.js';
+import { withoutSessionAnchor } from './session-anchor.js';
 import { withTimeout } from './runtime.js';
 
 /** 官方引用形（03 §1.4——宿主函数引用注册表成员；apply 直调零 jiti） */
@@ -441,11 +442,17 @@ async function invokeApply(
 ): Promise<void> {
   let returned: unknown;
   try {
-    // 时钟帽包裹（返回值经闭包捕获——withTimeout 面 Promise<void>）
+    // 时钟帽包裹（返回值经闭包捕获——withTimeout 面 Promise<void>）+
+    // 装载期语境遮蔽（ix-2——07 §4.3 档位 2 两处遮蔽之二）：apply 即使处
+    // 命令异步链内（/reload、/plugins install 等命令触发的装载流）亦按无锚
+    // 判——装载期结构性无自动锚（apply 内 ctx.ui 阻塞三件拒、单向原语
+    // no-op warn）。ALS.exit 语境跟随 async：apply 全执行段均在遮蔽内。
     await withTimeout(
-      Promise.resolve(apply(ctx, config)).then((r) => {
-        returned = r;
-      }),
+      withoutSessionAnchor(() =>
+        Promise.resolve(apply(ctx, config)).then((r) => {
+          returned = r;
+        }),
+      ),
       applyBudgetMs,
       `apply ${id}`,
     );

@@ -585,8 +585,24 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           scope,
           dispatch,
           // 钩子派发段 guard 开合面（ca-3——全部插件 ctx 钩子派发两腿开合同
-          // 一全局深度计数；只读面已随 stack 注入 llm 双入口）
+          // 一全局深度计数；只读面已随 stack 注入 llm 双入口，ctx.ui 窗判
+          // 消费同一真身只读位〔ix-2〕）
           hookDispatchGuard,
+          // ctx.ui 消费腿通道核窄面（ix-2——07 §4.3 消费腿条款）：ChannelsService
+          // 七原语结构适配闭包（notify 首参空位——核层 void 该位恒扇出语义；
+          // hasSession 锚时效真源）。fork 级联共享单真身。
+          channelsUi: {
+            notify: (message, opts) => stack.channels.notify('', message, opts),
+            confirm: (sid, message, opts) => stack.channels.confirm(sid, message, opts),
+            select: (sid, message, choices, opts) => stack.channels.select(sid, message, choices, opts),
+            input: (sid, message, opts) => stack.channels.input(sid, message, opts),
+            setStatus: (sid, status) => stack.channels.setStatus(sid, status),
+            setWidget: (sid, node) => stack.channels.setWidget(sid, node),
+            hasAudience: () => stack.channels.hasAudience(),
+            hasSession: (sid) => stack.channels.hasSession(sid),
+          },
+          // ctx.ui 降档 warn 出口（setStatus/setWidget 无锚 no-op 一行的呈现位）
+          uiWarn: (message) => logger.warn(message),
           commands: stack.channels.commands,
           llm: stack.llmRuntime,
           triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）

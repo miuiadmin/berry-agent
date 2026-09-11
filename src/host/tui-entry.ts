@@ -31,6 +31,7 @@ import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import { startSchedulerClock } from './core-plugins.js';
 import type { CorePluginReference } from './loader.js';
+import { runWithSessionAnchor } from './session-anchor.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
@@ -184,7 +185,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       },
       onInterrupt: (sessionId) => stack.interrupt(sessionId),
       onQuit: () => quitResolve(),
-      dispatchCommand: (input) => stack.channels.dispatchCommand(input),
+      // 命令执行窗自动锚（ix-2——07 §4.3 档位 2）：发起会话 = 聚焦会话
+      //（兜底启动会话——焦点空悬时命令仍属 TUI 主会话）；ALS 语境继承语义
+      //——命令 handler 及其 fire-and-forget 尾链零自觉锚定（显式 opts
+      // .sessionId 优先）。sessionId 实参同笔透传（CommandArgs 显式位）。
+      dispatchCommand: (input: string) => {
+        const sid = stack.channels.focusedId ?? session.sessionId;
+        return runWithSessionAnchor(sid, () => stack.channels.dispatchCommand(input, sid));
+      },
       todoFor: (sessionId) => {
         const driver = stack.driverOf(sessionId);
         return driver === undefined ? null : foldTodoTable(driver.session.events());

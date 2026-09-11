@@ -13,7 +13,9 @@ import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import { BEFORE_COMPACT_ATTRIB } from '../compaction/index.js';
 import type { BeforeCompactAttribution } from '../compaction/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
-import type { AuditSink, PluginContextHandle, PluginToolLedger } from './plugin-context.js';
+import type { AuditSink, ChannelsUiFace, PluginContextHandle, PluginToolLedger } from './plugin-context.js';
+import { createHookDispatchGuard } from './hook-dispatch-guard.js';
+import { runWithSessionAnchor, withoutSessionAnchor, readSessionAnchor } from './session-anchor.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
 import { TriggerRegistry } from './triggers.js';
 // 错误码册注册腿（「import 发生才注册」——门关码注册断言的前置副作用）
@@ -38,6 +40,11 @@ function assemble(overrides?: {
   sessionLineage?: { isSameTree(a: string, b: string): boolean };
   toolLedger?: PluginToolLedger;
   subagentToolMaterializer?: (def: ProgrammaticSubagentDef) => Disposer;
+  channelsUi?: ChannelsUiFace;
+  hookDispatchGuard?: ReturnType<typeof createHookDispatchGuard>;
+  uiWarn?: (message: string) => void;
+  /** 通道核外注（ix-2 消费腿用例——channelsUi 适配闭包需先于 assemble 引用） */
+  channels?: ReturnType<typeof createChannels>;
 }): {
   handle: PluginContextHandle;
   dispatch: EventDispatch;
@@ -62,7 +69,7 @@ function assemble(overrides?: {
   const subagents = createSubagentService({ registry: createJobRegistry() });
   // 通道核真源（U3 批 U3-4——插件域腿 registerPluginBackend 委派目标；
   // 撞名/分域执法在 channels.test 域，此处只验门检/窗口/委派/落账）
-  const channels = createChannels();
+  const channels = overrides?.channels ?? createChannels();
   // 工具注册表真源（受理壳铸造例的 owner 断言面——listFor 读已铸定义）
   const tools = createToolRegistry(dispatch);
   const handle = createPluginContext({
@@ -87,6 +94,9 @@ function assemble(overrides?: {
     ...(overrides?.subagentToolMaterializer !== undefined
       ? { subagentToolMaterializer: overrides.subagentToolMaterializer }
       : {}),
+    ...(overrides?.channelsUi !== undefined ? { channelsUi: overrides.channelsUi } : {}),
+    ...(overrides?.hookDispatchGuard !== undefined ? { hookDispatchGuard: overrides.hookDispatchGuard } : {}),
+    ...(overrides?.uiWarn !== undefined ? { uiWarn: overrides.uiWarn } : {}),
   });
   return { handle, dispatch, scope, promptSections, triggers, subagents, channels, tools };
 }
@@ -1268,3 +1278,237 @@ describe('session_before_compact 归因两律（U4-3——05 §2.1 接管缝）'
 function next0(value: unknown): Promise<unknown> {
   return Promise.resolve(value);
 }
+
+// ---- ctx.ui 消费腿（ix-2——07 §4.3 消费腿条款：会话锚定档位表） ----
+
+/**
+ * 全能力记录型通道后端（mock 只停通道后端层——AskQueue/降级链核层真身直用，
+ * 立题档测试纪律）：confirm/select/input 三形 + setStatus 记录位。
+ * resolveAsks = true 时阻塞原语立即应答（成功往返断言）；false 时永挂
+ * （挂起入队 per-session 断言——测试尾 catch 防未处理拒绝）。
+ */
+function makeFullBackend(opts?: { resolveAsks?: boolean; audience?: boolean }): {
+  backend: UiBackend<never>;
+  calls: { notify: Array<{ message: string; level?: string }>; setStatus: string[] };
+} {
+  const calls = { notify: [] as Array<{ message: string; level?: string }>, setStatus: [] as string[] };
+  const resolveAsks = opts?.resolveAsks ?? false;
+  const pending = new Promise<never>(() => undefined);
+  return {
+    calls,
+    backend: {
+      id: 'fake-full',
+      capabilities: {
+        notify: true,
+        confirm: true,
+        select: true,
+        input: true,
+        approval: true,
+        setStatus: true,
+        setWidget: true,
+      },
+      hasAudience: () => opts?.audience ?? true,
+      notify: (message, notifyOpts) => {
+        calls.notify.push({ message, level: notifyOpts?.level });
+      },
+      confirm: () => (resolveAsks ? Promise.resolve(true) : pending),
+      select: () => (resolveAsks ? Promise.resolve('a') : pending),
+      input: () => (resolveAsks ? Promise.resolve('typed') : pending),
+      setStatus: (_sid, status) => {
+        calls.setStatus.push(status);
+      },
+      setWidget: () => undefined,
+    },
+  };
+}
+
+/** channelsUi 适配闭包（assembly 注入位同形——notify 首参空位：核层 void 恒扇出） */
+function adaptChannelsUi(svc: ReturnType<typeof createChannels>): ChannelsUiFace {
+  return {
+    notify: (message, opts) => svc.notify('', message, opts),
+    confirm: (sid, message, opts) => svc.confirm(sid, message, opts),
+    select: (sid, message, choices, opts) => svc.select(sid, message, choices, opts),
+    input: (sid, message, opts) => svc.input(sid, message, opts),
+    setStatus: (sid, status) => svc.setStatus(sid, status),
+    setWidget: (sid, node) => svc.setWidget(sid, node),
+    hasAudience: () => svc.hasAudience(),
+    hasSession: (sid) => svc.hasSession(sid),
+  };
+}
+
+describe('ctx.ui 消费腿（ix-2——07 §4.3 会话锚定档位表）', () => {
+  it('档位 2 无锚拒：装载期/无锚后台语境 confirm 缺席 sessionId 且无 ambient 锚 = UI_ASK_UNANCHORED', () => {
+    const channels = createChannels();
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels) });
+    channels.registerSession('s1');
+    expectCode(() => handle.ctx.ui.confirm('继续?'), 'UI_ASK_UNANCHORED');
+  });
+
+  it('受局面缺席分档：阻塞三件/notify/hasAudience 响亮 CONTEXT_SERVICE_MISSING，单向原语降档 no-op warn', () => {
+    const warns: string[] = [];
+    const { handle } = assemble({ uiWarn: (m) => warns.push(m) });
+    expectCode(() => handle.ctx.ui.confirm('x'), 'CONTEXT_SERVICE_MISSING');
+    expectCode(() => handle.ctx.ui.notify('x'), 'CONTEXT_SERVICE_MISSING');
+    expectCode(() => handle.ctx.ui.hasAudience(), 'CONTEXT_SERVICE_MISSING');
+    expect(() => handle.ctx.ui.setStatus('idle')).not.toThrow(); // 无受局面 + 无锚——双重降档仍 no-op
+    expect(warns.length).toBe(1);
+  });
+
+  it('档位 2 命令执行窗自动锚：ALS 语境内 confirm 挂起进发起会话的 per-session 队', () => {
+    const channels = createChannels();
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels) });
+    channels.registerSession('s1');
+    const p = runWithSessionAnchor('s1', () => handle.ctx.ui.confirm('继续?'));
+    p.catch(() => undefined); // 永挂后端——防会话收口腿的未处理拒绝
+    expect(channels.pendingAsks('s1')).toHaveLength(1);
+  });
+
+  it('档位 2 锚随异步链继承：fire-and-forget 尾链（微任务续体）保留 ambient 锚', async () => {
+    const channels = createChannels();
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels) });
+    channels.registerSession('s1');
+    const { backend } = makeFullBackend(); // confirm 永挂——队列不收口（无 capability 后端的降级链会在微任务边界清队，测不到在队真值）
+    channels.addBackend(backend);
+    // 模拟命令 handler 的尾链：handler 已返回、任务稍后自起——锚仍在
+    runWithSessionAnchor('s1', () => {
+      void Promise.resolve().then(() => {
+        handle.ctx.ui.confirm('任务完成，继续?').catch(() => undefined);
+      });
+    });
+    await new Promise((r) => setTimeout(r, 0)); // 微任务落定
+    expect(channels.pendingAsks('s1')).toHaveLength(1);
+  });
+
+  it('档位 2 显式位优先：ambient s1 在场而显式 s2 → 入 s2 队不入 s1 队', () => {
+    const channels = createChannels();
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels) });
+    channels.registerSession('s1');
+    channels.registerSession('s2');
+    runWithSessionAnchor('s1', () => {
+      handle.ctx.ui.confirm('问 s2', { sessionId: 's2' }).catch(() => undefined);
+    });
+    expect(channels.pendingAsks('s2')).toHaveLength(1);
+    expect(channels.pendingAsks('s1')).toHaveLength(0);
+  });
+
+  it('锚时效：会话不在在册集（未注册/已注销）= UI_ASK_SESSION_CLOSED——陈年锚不悬死', () => {
+    const channels = createChannels();
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels) });
+    expectCode(() => handle.ctx.ui.confirm('x', { sessionId: 'gone' }), 'UI_ASK_SESSION_CLOSED');
+    channels.registerSession('s1');
+    channels.unregisterSession('s1'); // 注销后再问（尾链晚到形）
+    expectCode(() => handle.ctx.ui.confirm('x', { sessionId: 's1' }), 'UI_ASK_SESSION_CLOSED');
+  });
+
+  it('钩子窗禁律：guard 窗内阻塞三件拒 UI_ASK_WINDOW_INVALID——判序窗判前置锚判（显式 sessionId 亦拒）', () => {
+    const guard = createHookDispatchGuard();
+    const channels = createChannels();
+    const { handle } = assemble({
+      channels,
+      channelsUi: adaptChannelsUi(channels),
+      hookDispatchGuard: guard,
+    });
+    channels.registerSession('s1');
+    guard.enter();
+    try {
+      expectCode(() => handle.ctx.ui.confirm('x', { sessionId: 's1' }), 'UI_ASK_WINDOW_INVALID');
+      expectCode(
+        () => handle.ctx.ui.select('x', [{ value: 'a', label: 'A' }], { sessionId: 's1' }),
+        'UI_ASK_WINDOW_INVALID',
+      );
+      expectCode(() => handle.ctx.ui.input('x', { sessionId: 's1' }), 'UI_ASK_WINDOW_INVALID');
+      expect(() => handle.ctx.ui.setStatus('busy', { sessionId: 's1' })).not.toThrow(); // 单向原语窗内合法
+    } finally {
+      guard.exit();
+    }
+    // 窗外恢复可挂
+    handle.ctx.ui.confirm('x', { sessionId: 's1' }).catch(() => undefined);
+    expect(channels.pendingAsks('s1')).toHaveLength(1);
+  });
+
+  it('档位 3 单向原语：无锚 no-op warn 一行不炸；显式锚透传真身', () => {
+    const warns: string[] = [];
+    const channels = createChannels();
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels), uiWarn: (m) => warns.push(m) });
+    const { backend, calls } = makeFullBackend();
+    channels.addBackend(backend);
+    channels.registerSession('s1');
+    expect(() => handle.ctx.ui.setStatus('idle')).not.toThrow();
+    expect(warns.length).toBe(1);
+    handle.ctx.ui.setStatus('busy', { sessionId: 's1' }); // 显式锚在册——直传核层（槽位语义无锚时效拒）
+    expect(calls.setStatus).toContain('busy');
+  });
+
+  it('档位 1 notify/hasAudience 无会话位恒可：后端扇出 + 探针直读', () => {
+    const channels = createChannels();
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels) });
+    const { backend, calls } = makeFullBackend({ audience: false });
+    channels.addBackend(backend);
+    handle.ctx.ui.notify('部署完成', { level: 'success' });
+    expect(calls.notify).toEqual([{ message: '部署完成', level: 'success' }]);
+    expect(handle.ctx.ui.hasAudience()).toBe(false);
+  });
+
+  it('护栏增位：ctx.ui 动作计入滑动窗（第三动作拒），hasAudience 免计', () => {
+    const channels = createChannels();
+    const { handle } = assemble({
+      channels,
+      channelsUi: adaptChannelsUi(channels),
+      rateLimit: { windowMs: 60_000, max: 2 },
+    });
+    channels.registerSession('s1');
+    handle.ctx.ui.notify('a');
+    handle.ctx.ui.notify('b');
+    expectCode(() => handle.ctx.ui.notify('c'), 'PLUGIN_RATE_LIMITED');
+    expect(handle.ctx.ui.hasAudience()).toBe(false); // 免计——超限后探针仍可
+  });
+
+  it('成功往返：解析后端 confirm/select/input 三值回传 + opts 剥 sessionId 透传核层形', async () => {
+    const channels = createChannels();
+    const { handle } = assemble({ channels, channelsUi: adaptChannelsUi(channels) });
+    channels.registerSession('s1');
+    const { backend } = makeFullBackend({ resolveAsks: true });
+    channels.addBackend(backend);
+    expect(await runWithSessionAnchor('s1', () => handle.ctx.ui.confirm('继续?'))).toBe(true);
+    expect(await runWithSessionAnchor('s1', () => handle.ctx.ui.select('选', [{ value: 'a', label: 'A' }]))).toBe('a');
+    expect(await runWithSessionAnchor('s1', () => handle.ctx.ui.input('输入'))).toBe('typed');
+  });
+});
+
+describe('session-anchor ALS 件（ix-2——命令执行窗自动锚载体）', () => {
+  it('run 内可读、run 外无痕、exit 遮蔽、退出恢复', () => {
+    expect(readSessionAnchor()).toBeUndefined(); // 外无痕
+    runWithSessionAnchor('s1', () => {
+      expect(readSessionAnchor()).toBe('s1');
+      withoutSessionAnchor(() => {
+        expect(readSessionAnchor()).toBeUndefined(); // 遮蔽位（装载 apply/钩子派发两包裹）
+      });
+      expect(readSessionAnchor()).toBe('s1'); // 遮蔽退出即恢复
+    });
+    expect(readSessionAnchor()).toBeUndefined();
+  });
+
+  it('async 语境跟随：run 派生的 await 续体保留锚（尾链继承机制本体）', async () => {
+    const seen: Array<string | undefined> = [];
+    await runWithSessionAnchor('tail', async () => {
+      seen.push(readSessionAnchor());
+      await Promise.resolve();
+      seen.push(readSessionAnchor()); // await 恢复仍在锚内
+    });
+    seen.push(readSessionAnchor());
+    expect(seen).toEqual(['tail', 'tail', undefined]);
+  });
+
+  it('exit 的 async 续体结构性无锚（装载期遮蔽覆盖 apply 全执行段）', async () => {
+    const seen: Array<string | undefined> = [];
+    await runWithSessionAnchor('cmd', async () => {
+      await withoutSessionAnchor(async () => {
+        seen.push(readSessionAnchor());
+        await Promise.resolve();
+        seen.push(readSessionAnchor()); // apply 内 await 恢复仍无锚
+      });
+      seen.push(readSessionAnchor()); // apply 返回后 ambient 恢复（fire-and-forget 尾链自理边界）
+    });
+    expect(seen).toEqual([undefined, undefined, 'cmd']);
+  });
+});

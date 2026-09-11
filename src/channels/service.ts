@@ -54,6 +54,11 @@ export interface ChannelsService<TProjection> {
   /** 会话管理（unregisterSession 联动提问队列收口 + widget 槽清空） */
   registerSession(sessionId: string): void;
   unregisterSession(sessionId: string): void;
+  /**
+   * 在册判定（ix-2——ctx.ui 锚时效真源）：未 registerSession 或已
+   * unregisterSession = false。阻塞原语受理时检查——陈年锚晚到不悬死。
+   */
+  hasSession(sessionId: string): boolean;
   /** 焦点切换（清屏重画——拉投影经装配注入回调） */
   focus(sessionId: string): Promise<void>;
   isFocused(sessionId: string): boolean;
@@ -78,7 +83,7 @@ export interface ChannelsService<TProjection> {
 
   // ---- 命令面便捷透传（ctx.channels.registerCommand 同形——host 装配侧直挂） ----
   registerCommand(name: string, handler: CommandHandler, description?: string): Disposer;
-  dispatchCommand(input: string): Promise<boolean>;
+  dispatchCommand(input: string, sessionId?: string): Promise<boolean>;
   listCommands(): readonly CommandSpec[];
 }
 
@@ -184,6 +189,9 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
       registry.unregisterSession(sessionId);
       uiCore.closeSession(sessionId);
     },
+    hasSession(sessionId) {
+      return registry.has(sessionId);
+    },
     focus(sessionId) {
       return registry.focus(sessionId);
     },
@@ -230,8 +238,8 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     registerCommand(name, handler, description) {
       return commands.register(name, handler, description);
     },
-    dispatchCommand(input) {
-      return commands.dispatch(input);
+    dispatchCommand(input, sessionId) {
+      return commands.dispatch(input, sessionId);
     },
     listCommands() {
       return commands.list();
