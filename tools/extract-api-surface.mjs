@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * API 治理抽取器（03 篇 §8.2 六真相源 → surface.json，2026-09-05 API 治理批 2）。
+ * API 治理抽取器（03 篇 §8.2 七真相源 → surface.json，2026-09-05 API 治理批 2）。
  *
  * 产机器可读 API 面清单：顶层 exports[]（逐符号 { symbol, module, tier, since,
  * forwarded?, deprecated?, sig?, desc?, kind? }）+ 顶层 capabilities[]（能力面
@@ -36,6 +36,12 @@
  * 5. 插件清单 schema——真源 = host/manifest.ts MANIFEST_KEY_CATALOG 目录
  *    （批 12a 接入 manifest-keys 域；校验闭集同源派生）。
  * 6. 装机账本词表——未落码（真相源⑥空集）；随装机账本落码批接入。
+ * 7. 宿主主包子路径导出面（生态启动批 eco-3 接入）——`src/host/testkit/index.ts`
+ *    barrel 闭包 token 扫描（collectBarrelSymbols 泛化同 #1a 律）+ jiti 值面
+ *    自检；module 域 'berry-agent/testkit'（作者侧 devDep 消费——非 loader
+ *    注入，不入 VIRTUAL_API_KEYS 六键表，03 §9.5/§8.2 表行）；tier 全标
+ *    experimental（§9.5 落码定形）；域不挂 sig（声明发射面未及——符号集 +
+ *    drift 闸覆盖）。
  *
  * tier 载体分职（§8.3）：键级读 VIRTUAL_API_KEYS tier 列；目录宿主符号读注册表
  * 定义项 tier 必填字段；自由符号（公开根非转译直导出）读 JSDoc 标签——现役为
@@ -460,6 +466,8 @@ function stripQuotes(s) {
 /**
  * 公开根传递闭包：从 index.ts 出发递归解星出/具名转发，收集全部导出符号。
  * internal（相对说明符）递归进目标文件再扫；包说明符（typebox 族）标 forwarded。
+ * @param {string} [barrelPath] barrel 根文件（缺省 contracts 公开根；#7 testkit
+ *   域以 src/host/testkit/index.ts 复用同闭包律——生态启动批 eco-3 泛化）
  * @returns {{
  *   symbols: { name: string, forwarded: boolean }[],
  *   rootTags: Map<string, string|null>,
@@ -471,7 +479,7 @@ function stripQuotes(s) {
  *   kind 从**声明点**收割：符号的 JSDoc 与声明形住在叶子文件，与根的转译形
  *   态无关；跨文件同名即 TS 编译保证下的单义键，后访覆盖无实义）
  */
-function collectBarrelSymbols() {
+function collectBarrelSymbols(barrelPath = BARREL_PATH) {
   /** name → forwarded */
   const out = new Map();
   /** 公开根声明形直导出的标级载体（tier 载体分职——§8.3） */
@@ -488,7 +496,7 @@ function collectBarrelSymbols() {
   // docs-only 子树全程 docs-only（目标再星出/再具名转发均不并名——真声明位若
   // 在更深处会漏 desc，可接受形：desc 是可选增强非承诺面）。
   const visit = (absPath, isRoot, absorbNames) => {
-    if (visiting.has(absPath)) throw new Error(`contracts 再导出成环：${absPath}`);
+    if (visiting.has(absPath)) throw new Error(`barrel 再导出成环：${absPath}`);
     visiting.add(absPath);
     const src = readFileSync(absPath, 'utf8');
     const { names, stars, namedSpecs, tags, docs: fileDocs, kinds: fileKinds } = scanTopLevelExports(src);
@@ -522,7 +530,7 @@ function collectBarrelSymbols() {
     // 体展开上游面超出豁免面——本仓 typebox 走独立键转发条目
     visiting.delete(absPath);
   };
-  visit(BARREL_PATH, true, true);
+  visit(barrelPath, true, true);
   return {
     symbols: [...out.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
     rootTags,
@@ -1367,7 +1375,7 @@ export function assertApiBucketPartition(apiNames, barrelFaceNames, whitelist = 
   }
 }
 
-/* ---------------- 六真相源抽取主流程 ---------------- */
+/* ---------------- 七真相源抽取主流程 ---------------- */
 
 /**
  * 虚拟键 × 面清单对账（缺键即炸）：VIRTUAL_API_KEYS 每键在面清单至少一条导
@@ -1643,7 +1651,34 @@ export async function extractSurface() {
     });
   }
   // —— #6：装机账本词表——真相源⑥未落码（装机账本落码批接入 data-keys 域）——
-  // —— #7：DEP 注册簿 join——批 3 落地 src/contracts/deprecations.ts 后接入
+  // —— #7：宿主主包子路径导出面（真相源⑦——`berry-agent/testkit` 子路径域，
+  // 生态启动批 eco-3 接入；03 §9.5/§8.2 表行）：barrel 闭包 token 扫描同 #1a
+  // 律（collectBarrelSymbols 泛化）+ jiti 值面自检（扫描器漏值导出即炸）。
+  // tier 全标 experimental（§9.5 落码定形——alpha 期作者工具面，真发节奏评估
+  // 升级；无 VIRTUAL_API_KEYS 键位，域级定级单源在此常量）；desc/kind 闭包收割
+  // 同 #1a（叶子声明位在 harness/matrix 本仓源）；域不挂 sig（声明发射面未及
+  // ——同 session-events 词表域；符号集增删 + drift 闸已覆盖面漂移）——
+  const TESTKIT_TIER = 'experimental';
+  const testkit = collectBarrelSymbols(join(REPO_ROOT, 'src/host/testkit/index.ts'));
+  const runtimeTestkit = await imp('../src/host/testkit/index.ts');
+  const scannedTestkit = new Set(testkit.symbols.map((s) => s.name));
+  const missedTestkit = Object.keys(runtimeTestkit).filter((n) => !scannedTestkit.has(n));
+  if (missedTestkit.length > 0) {
+    throw new Error(`testkit barrel token 扫描器漏值导出（自检红）：${missedTestkit.join(', ')}`);
+  }
+  for (const s of testkit.symbols) {
+    const desc = descFromJsdoc(testkit.docs.get(s.name) ?? null);
+    const kind = testkit.kinds.get(s.name);
+    exports.push({
+      symbol: s.name,
+      module: 'berry-agent/testkit',
+      tier: TESTKIT_TIER,
+      since: pkg.apiVersion,
+      ...(desc !== undefined ? { desc } : {}),
+      ...(kind !== undefined ? { kind } : {}),
+    });
+  }
+  // —— #8：DEP 注册簿 join——批 3 落地 src/contracts/deprecations.ts 后接入
   //（命中 module::symbol 坐标即改标 deprecated 并挂载荷；注册簿指向面清单缺席
   // 的坐标 = 登记漂移，抽取期即炸不待查 3）——
 

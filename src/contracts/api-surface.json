@@ -1034,6 +1034,134 @@
       "sig": "9d3b33568822fbc4"
     },
     {
+      "symbol": "CommandAccount",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "命令注册账（注入式真注册表——register/disposer 出入账计数，跨换代共享一账）",
+      "kind": "interface"
+    },
+    {
+      "symbol": "DispatchListenerProbe",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "事件分派监听器净计数探针（实例方法包壳观察——真派发行为不 mock，只记账）",
+      "kind": "interface"
+    },
+    {
+      "symbol": "HarnessInstallOutcome",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "装机结果（installPlugin 直传——ok = 落账条目）",
+      "kind": "type"
+    },
+    {
+      "symbol": "LifecycleMatrixReport",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "矩阵总报告（ok = 无 fail 行；skipped 不折损——环境位如实呈现）",
+      "kind": "interface"
+    },
+    {
+      "symbol": "MatrixOptions",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "矩阵选项（harness 选项 + 作者声明面 + pack 预检开关）",
+      "kind": "interface"
+    },
+    {
+      "symbol": "MatrixRowResult",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "单行结果（pass/fail/skipped——skipped = 环境不适用非放行）",
+      "kind": "interface"
+    },
+    {
+      "symbol": "MemoryAuditSink",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "内存审计汇（AuditFace 真形实现——append/lastOf/listRecent 三法 + 断言器扩展读面）",
+      "kind": "class"
+    },
+    {
+      "symbol": "PluginHarness",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "假宿主装配件（矩阵断言器的运转底座——全部动词真身直调）",
+      "kind": "interface"
+    },
+    {
+      "symbol": "PluginHarnessOptions",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "构造选项（作者测试文件一行起跑）",
+      "kind": "interface"
+    },
+    {
+      "symbol": "createCommandAccount",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "命令注册账铸造（disposer 出账——换代 dispose 后单注可证）",
+      "kind": "function"
+    },
+    {
+      "symbol": "createPluginHarness",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "装配假宿主（构造即读清单定 id——坏清单构造即红，坏样本由矩阵层收面）",
+      "kind": "function"
+    },
+    {
+      "symbol": "formatMatrixReceipt",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "可贴 README 的 markdown 回执（「产出可贴 README 的证明」——03 §9.5 定位段）",
+      "kind": "function"
+    },
+    {
+      "symbol": "instrumentDispatchListeners",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "分派器监听器探针铸造（on 注册 +1、退订 −1；onWaterfall 腿 v1 未观察——注释明示）",
+      "kind": "function"
+    },
+    {
+      "symbol": "npmPackFiles",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "npm pack 文件清单探测（--dry-run 零 tarball 落盘；60s 帽防挂）",
+      "kind": "function"
+    },
+    {
+      "symbol": "proveLifecycleMatrix",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "生命周期证明矩阵主入口——一站式可召唤（作者测试一行起跑）： ```ts const report = await proveLifecycleMatrix({ pluginDir: __dirname }); expect(report.ok).toBe(true); ``` 收场自动回卷在飞代 + 清理自建临时目录（报告先行返回——dispose 失败不折损证明）",
+      "kind": "function"
+    },
+    {
+      "symbol": "realStoreFs",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "假宿主真盘数据面（PluginStoreFs 真身适配——node:fs 直连，无内存仿真）",
+      "kind": "function"
+    },
+    {
       "symbol": "agents",
       "module": "manifest-keys",
       "tier": "stable",

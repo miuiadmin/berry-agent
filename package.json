@@ -16,8 +16,17 @@
   "bin": {
     "berry-agent": "./dist/host/main.js"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/api/berry-agent.d.ts",
+      "default": "./dist/contracts/index.js"
+    },
+    "./testkit": "./dist/host/testkit/index.js",
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist",
+    "examples",
     "README.md",
     "LICENSE"
   ],
