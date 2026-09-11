@@ -273,6 +273,54 @@ describe('parseManifest 各键浅校验', () => {
   });
 });
 
+describe('parseManifest agents 键（生态启动批 eco-1——03 §6.3 键收下：修复前红=闭集拒键）', () => {
+  it('agents 合法形收下：非空字符串数组 + agents-only 纯声明包判定（零码装载第②步）', () => {
+    const r = parseManifest({ ...basePkg(), berryAgent: { id: 'demo', agents: ['./agents', 'extras'] } });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.manifest.agents).toEqual(['./agents', 'extras']);
+      expect(r.manifest.skills).toBeUndefined();
+      // 声明载荷 = skills/agents 任一非空即第②步（03 §6.3「agents 在场不改变
+      // 纯声明包判定档位」——agents-only 同走零码装载）
+      expect(r.manifest.entryPlan.kind).toBe('declared-payload');
+    }
+  });
+
+  it('skills + agents 并陈同收（两清单独立、清单序保真）', () => {
+    const r = parseManifest({
+      ...basePkg(),
+      berryAgent: { id: 'demo', skills: ['s-one'], agents: ['./agents', 'more'] },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.manifest.skills).toEqual(['s-one']);
+      expect(r.manifest.agents).toEqual(['./agents', 'more']);
+      expect(r.manifest.entryPlan.kind).toBe('declared-payload');
+    }
+  });
+
+  it('agents 坏形拒（非数组/空串元素）——PLUGIN_SHAPE_INVALID 指路', () => {
+    for (const bad of ['x', ['a', ''], [1]]) {
+      const r = parseManifest({ ...basePkg(), berryAgent: { id: 'demo', agents: bad } });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.code).toBe('PLUGIN_SHAPE_INVALID');
+        expect(r.message).toContain('agents');
+      }
+    }
+  });
+
+  it('agents 空数组 = 无声明载荷 → 仍走 default-export（与 skills 空数组同律——非空才算在场）', () => {
+    const r = parseManifest({ ...basePkg(), berryAgent: { id: 'demo', agents: [] } });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.manifest.entryPlan.kind).toBe('default-export');
+  });
+
+  it('MANIFEST_KEY_CATALOG 收 agents 键（surface manifest-keys 域同源单列）', () => {
+    expect(MANIFEST_KEY_CATALOG.map((k) => k.key)).toContain('agents');
+  });
+});
+
 describe('parseEnabledRows 行校验', () => {
   it('合法行集过（含 core: 覆盖行——用户行覆盖官方行合法形态）', () => {
     const r = parseEnabledRows({

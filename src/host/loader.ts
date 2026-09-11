@@ -22,12 +22,13 @@
  * conversation/TUI 装配批定形）。
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createJiti } from 'jiti';
 import type { Jiti, TransformOptions, TransformResult } from 'jiti';
 
 import { BaseError } from '../contracts/index.js';
+import { providerApiFace } from '../llm/index.js';
 
 import { synthesizePluginConfig, type ConfigField } from './config-schema.js';
 import { createGateTransform } from './import-gate.js';
@@ -50,6 +51,8 @@ export interface CorePluginReference {
   readonly configSchema?: readonly ConfigField[];
   readonly events?: readonly string[];
   readonly skills?: readonly string[];
+  /** 声明式子代理目录清单（03 §6.3——与 skills 同形；core 行声明基 = 宿主包根） */
+  readonly agents?: readonly string[];
   readonly apply: (ctx: unknown, config?: unknown) => Promise<void | (() => void)>;
 }
 
@@ -115,10 +118,10 @@ export interface LoadPluginsOptions<TCtx = unknown> {
    */
   readonly createContext: (pluginId: string, opens?: readonly string[]) => TCtx;
   /**
-   * jiti 虚拟面注入（防双实例直注）。缺省 = 宿主四键 lazy 直注：
-   * berry-agent 主键（contracts 公开面）+ typebox 三键；berry-agent/llm 与
-   * berry-agent/sqlite 随其 face 件落码批接入（缺席键的 import 落自然
-   * 解析失败 = fail-closed）。
+   * jiti 虚拟面注入（防双实例直注）。缺省 = 宿主五键 lazy 直注：
+   * berry-agent 主键（contracts 公开面）+ typebox 三键 + berry-agent/llm
+   * （providerApiFace——eco-1 接线）；berry-agent/sqlite 随 persist SqliteFace
+   * 落码批接入（缺席键的 import 落自然解析失败 = fail-closed）。
    */
   readonly virtualFaces?: Readonly<Record<string, unknown>>;
   /** apply 时钟帽（§3.4 钉 10s；测试位可调） */
@@ -152,15 +155,37 @@ export interface LoadPluginsOptions<TCtx = unknown> {
 }
 
 /**
- * 激活行（skillDirs 随行——mount 即注册的装载侧收集面，03 §6.1）：声明是
- * 相对包根的目录路径（磁盘行 manifest / core 行 reference 同形），装载位在此
- * 解析为绝对路径——磁盘行基 = pluginDir（装机树内插件目录）、core 行基 =
- * 宿主包根（本模块上推两级——与 skills 件 resolveFactorySkillsDir 同法双
- * 形态同构）。消费位 = 装配根补注册编舞（06 §11.4 位 4）。
+ * 激活行（skillDirs/agentDirs 随行——mount 即收集的装载侧面，03 §6.1/§6.3）：
+ * 声明是相对包根的目录路径（磁盘行 manifest / core 行 reference 同形），装载位
+ * 在此解析为绝对路径并过包根包含执法——磁盘行基 = pluginDir（装机树内插件
+ * 目录）、core 行基 = 宿主包根（本模块上推两级——与 skills 件
+ * resolveFactorySkillsDir 同法双形态同构）。消费位：skills = 装配根补注册
+ * 编舞（06 §11.4 位 4）；agents = 物化消费腿挂账 core:subagent 消费批
+ * （生态启动批 eco-1 收集先行——立题档 20260911 裁决点 C 降档）。
  */
 export interface ActivatedPlugin {
   readonly id: string;
   readonly skillDirs: readonly string[];
+  readonly agentDirs: readonly string[];
+}
+
+/**
+ * 声明载荷目录解析 + 包根包含执法（生态启动批 eco-1——pi 反面实证：pi-lens
+ * 声明 `"skills": ["../../skills"]` 裸 resolve 逃逸包根仍被装载）。resolve
+ * 归一后须等于基或以 `<base>/` 开头（同 isWithinRoots 谓词形——port.ts/
+ * skills manage 同律）；违例抛 PLUGIN_SHAPE_INVALID（磁盘行折失败行隔离降级）。
+ */
+function resolveDeclaredDirs(dirs: readonly string[] | undefined, base: string, pluginId: string): readonly string[] {
+  return (dirs ?? []).map((dir) => {
+    const abs = resolve(base, dir);
+    if (abs !== base && !abs.startsWith(base + sep)) {
+      throw new BaseError(
+        'PLUGIN_SHAPE_INVALID',
+        `声明载荷目录逃逸装载基（插件 ${pluginId}：${dir} 解析为 ${abs}、出界基 ${base}——须相对包根内路径）`,
+      );
+    }
+    return abs;
+  });
 }
 
 /** core: 行声明基（宿主包根——src/host 与 dist/host 双形态上推两级皆包根） */
@@ -324,7 +349,8 @@ async function loadRow<TCtx>(
       // 声明即达——官方件技能/agents 从属资源与磁盘件同形同律）
       state.activated.push({
         id: row.id,
-        skillDirs: (row.reference.skills ?? []).map((dir) => resolve(hostPackageRoot, dir)),
+        skillDirs: resolveDeclaredDirs(row.reference.skills, hostPackageRoot, row.id),
+        agentDirs: resolveDeclaredDirs(row.reference.agents, hostPackageRoot, row.id),
       });
       return;
     }
@@ -333,12 +359,13 @@ async function loadRow<TCtx>(
     // 须对象在 readEnabledRows 行校验层；字段级校验/secret 明文拒在上方
     // 合成步统一执法——configSchema 缺席时零变化原值直传）
 
-    // 纯声明包（entryPlan 三态之一）：零码装载——技能清单随行激活（相对
-    // pluginDir 解析；agents-only 声明形 skills 缺席 = 空清单）
+    // 纯声明包（entryPlan 三态之一）：零码装载——声明载荷清单随行激活（相对
+    // pluginDir 解析 + 包根包含执法；skills/agents 任一缺席 = 该清单空数组）
     if (row.manifest.entryPlan.kind === 'declared-payload') {
       state.activated.push({
         id: row.id,
-        skillDirs: (row.manifest.skills ?? []).map((dir) => resolve(row.pluginDir, dir)),
+        skillDirs: resolveDeclaredDirs(row.manifest.skills, row.pluginDir, row.id),
+        agentDirs: resolveDeclaredDirs(row.manifest.agents, row.pluginDir, row.id),
       });
       return;
     }
@@ -364,7 +391,8 @@ async function loadRow<TCtx>(
     );
     state.activated.push({
       id: row.id,
-      skillDirs: (row.manifest.skills ?? []).map((dir) => resolve(row.pluginDir, dir)),
+      skillDirs: resolveDeclaredDirs(row.manifest.skills, row.pluginDir, row.id),
+      agentDirs: resolveDeclaredDirs(row.manifest.agents, row.pluginDir, row.id),
     });
   } finally {
     // 行收口即关窗（finally 语义——成功/失败/零码行皆达；03 §2.1 装载窗口）
@@ -427,11 +455,14 @@ async function loadDiskModule(
 }
 
 /**
- * 缺省虚拟面四键（宿主模块对象直注——防双实例）。
+ * 缺省虚拟面五键（宿主模块对象直注——防双实例）。
  *
  * typebox 三键 = 宿主进程同一份（插件经虚拟键拿到的 Type/Value/Compile 与
  * 宿主共用模块实例——Kind 符号失配结构性不可能）；berry-agent 主键 =
- * contracts 公开面。/llm·/sqlite 键随其 face 件落码批接入。
+ * contracts 公开面；berry-agent/llm 键 = llm/provider-face 的 providerApiFace
+ * （生态启动批 eco-1 接线——face 件/API 注册表/surface 三处早已在册而装载
+ * 注入缺席，provider 插件装载必炸于模块解析的三读分叉收口）。
+ * `berry-agent/sqlite` 键仍随 persist SqliteFace 落码批接入（无真身不进表）。
  *
  * export（装机面落码批 #10——install 收割腿与装载器同源共用：虚拟面单源，
  * 不散拷）。
@@ -448,6 +479,8 @@ export async function loadDefaultVirtualFaces(): Promise<Record<string, unknown>
     typebox,
     'typebox/value': typeboxValue,
     'typebox/compile': typeboxCompile,
+    // 顶层导出形直注（非命名空间整包）——与 surface.json 收割的 4 符号面同源
+    'berry-agent/llm': providerApiFace,
   };
 }
 

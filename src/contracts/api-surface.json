@@ -1034,6 +1034,13 @@
       "sig": "9d3b33568822fbc4"
     },
     {
+      "symbol": "agents",
+      "module": "manifest-keys",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "声明式子代理目录清单（06 §11.6 位 4；与 skills 同形——mount 即收集、物化消费腿挂 core:subagent 消费批）"
+    },
+    {
       "symbol": "api",
       "module": "manifest-keys",
       "tier": "stable",
@@ -1087,7 +1094,7 @@
       "module": "manifest-keys",
       "tier": "stable",
       "since": "1.0",
-      "desc": "技能目录清单；非空即在场的唯一声明载荷（纯声明包零码装载）"
+      "desc": "技能目录清单；非空即在场的「声明载荷」之一（纯声明包零码装载）"
     },
     {
       "symbol": "compaction",

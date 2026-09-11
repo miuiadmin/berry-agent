@@ -42,8 +42,14 @@ export interface PluginManifest {
   readonly configSchema?: readonly ConfigField[];
   /** API 治理块（§8.4 装载门消费；形状校验在本笔——单源判据 contracts） */
   readonly api?: ApiBlock;
-  /** 技能目录清单（§6；非空即在场的唯一「声明载荷」——纯声明包判定输入） */
+  /** 技能目录清单（§6；非空即在场的「声明载荷」之一——纯声明包判定输入） */
   readonly skills?: readonly string[];
+  /**
+   * 声明式子代理目录清单（§6.3——06 §11.6 位 4；与 skills 同形：相对包根
+   * 目录路径数组）。生态启动批 eco-1 键收下：装载收集随行（agentDirs）、
+   * 物化消费腿挂账 core:subagent 消费批（立题档 20260911 裁决点 C 降档）。
+   */
+  readonly agents?: readonly string[];
   /** 入口解析序判定产物（§1.2 三步定死） */
   readonly entryPlan: PluginEntryPlan;
 }
@@ -84,7 +90,12 @@ export const MANIFEST_KEY_CATALOG: readonly {
     desc: '配置字段声明面（字段描述数组——字段级校验与 /plugins config 表单渲染双消费源）',
   },
   { key: 'api', tier: 'stable', desc: 'API 治理块（minApiVersion/targetApiVersion/experimental）' },
-  { key: 'skills', tier: 'stable', desc: '技能目录清单；非空即在场的唯一声明载荷（纯声明包零码装载）' },
+  { key: 'skills', tier: 'stable', desc: '技能目录清单；非空即在场的「声明载荷」之一（纯声明包零码装载）' },
+  {
+    key: 'agents',
+    tier: 'stable',
+    desc: '声明式子代理目录清单（06 §11.6 位 4；与 skills 同形——mount 即收集、物化消费腿挂 core:subagent 消费批）',
+  },
 ];
 
 /** 清单块已知键闭集（未知键拒载——拒绝式而非忽略式；自目录派生单源） */
@@ -290,7 +301,7 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
     api = { minApiVersion: apiRecord['minApiVersion'] as string, targetApiVersion, experimental };
   }
 
-  // skills：须字符串数组（非空数组即在场的唯一「声明载荷」）
+  // skills：须字符串数组（非空数组即在场的「声明载荷」之一）
   let skills: readonly string[] | undefined;
   if (manifest['skills'] !== undefined) {
     if (!Array.isArray(manifest['skills']) || manifest['skills'].some((s) => typeof s !== 'string' || s.length === 0)) {
@@ -299,12 +310,23 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
     skills = manifest['skills'] as readonly string[];
   }
 
-  // 入口解析序三步定死（03 §1.2）
+  // agents：声明式子代理目录清单（§6.3——与 skills 同形同判据；生态启动批
+  // eco-1 键收下：entryPlan 判定同认「声明载荷」，装载收集在 loader）
+  let agents: readonly string[] | undefined;
+  if (manifest['agents'] !== undefined) {
+    if (!Array.isArray(manifest['agents']) || manifest['agents'].some((s) => typeof s !== 'string' || s.length === 0)) {
+      return shapeFail(`berryAgent.agents 须为非空字符串数组（插件 ${id}——声明式子代理目录清单）`);
+    }
+    agents = manifest['agents'] as readonly string[];
+  }
+
+  // 入口解析序三步定死（03 §1.2——声明载荷 = skills/agents 任一非空即第②步）
   const entry = manifest['entry'] as string | undefined;
+  const declaredPayload = (skills !== undefined && skills.length > 0) || (agents !== undefined && agents.length > 0);
   const entryPlan: PluginEntryPlan =
     entry !== undefined
       ? { kind: 'entry-file', entry }
-      : skills !== undefined && skills.length > 0
+      : declaredPayload
         ? { kind: 'declared-payload' }
         : { kind: 'default-export' };
 
@@ -320,6 +342,7 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
       configSchema,
       api,
       skills,
+      agents,
       entryPlan,
     },
   };

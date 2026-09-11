@@ -13,8 +13,9 @@ import { basename, isAbsolute, join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
+import { providerApiFace } from '../llm/index.js';
 
-import { loadPlugins } from './loader.js';
+import { CorePluginBootError, loadPlugins } from './loader.js';
 import type { CorePluginSpec, DiskPluginSpec, LoadPluginsOptions, LoaderPlanRow, ServiceBag } from './loader.js';
 import { parseManifest } from './manifest.js';
 import type { PluginManifest } from './manifest.js';
@@ -311,8 +312,9 @@ export default async function apply(ctx) { ctx.provide('depFs', dep); }
       ]),
     );
     expect(report.activated).toEqual([
-      // 磁盘行 skillDirs 相对 pluginDir 解析（批 19 skills——03 §6.1 相对包根声明）
-      { id: 'plug-skills', skillDirs: [resolve(dir, 's-one'), resolve(dir, 's-two')] },
+      // 磁盘行 skillDirs 相对 pluginDir 解析（批 19 skills——03 §6.1 相对包根声明；
+      // agentDirs 随行同律——eco-1 agents 键收下，未声明 = 空清单）
+      { id: 'plug-skills', skillDirs: [resolve(dir, 's-one'), resolve(dir, 's-two')], agentDirs: [] },
     ]);
     expect(report.failed).toEqual([]);
   });
@@ -771,8 +773,8 @@ describe('ActivatedPlugin skillDirs 装载位解析（批 19 skills——03 §6.
     expect(report.failed).toEqual([]);
     expect(report.activated).toEqual([
       // './skills' 与裸段名同归一（resolve 语义）；清单序即注册面序
-      { id: 'p-decl', skillDirs: [resolve(declared, 'skills'), resolve(declared, 'extras')] },
-      { id: 'p-code', skillDirs: [resolve(coded, 'skills')] },
+      { id: 'p-decl', skillDirs: [resolve(declared, 'skills'), resolve(declared, 'extras')], agentDirs: [] },
+      { id: 'p-code', skillDirs: [resolve(coded, 'skills')], agentDirs: [] },
     ]);
   });
 
@@ -788,5 +790,134 @@ describe('ActivatedPlugin skillDirs 装载位解析（批 19 skills——03 §6.
     expect(isAbsolute(dir)).toBe(true); // 相对声明已在装载位解析
     expect(basename(dir)).toBe('skills'); // './skills' 归一（非粘字符串）
     expect(report.activated[1]!.skillDirs).toEqual([]); // 无声明零清单
+  });
+});
+
+describe('生态启动批 eco-1 三锁（修复前必红）——llm 虚拟键接线 / agents 键收下 / 声明载荷包根包含执法', () => {
+  it('锁① berry-agent/llm 虚拟键真装载：provider 插件 import 可达且同实例（修复前红 = 装载失败于模块解析）', async () => {
+    const dir = makePluginDir({
+      'package.json': JSON.stringify({ name: 'plug-llm', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+      'entry.js': `
+import { createProvider, hasApi } from 'berry-agent/llm';
+export default async function apply(ctx) {
+  ctx.provide('llmCreateProvider', createProvider);
+  ctx.provide('llmHasApi', hasApi);
+}
+`,
+    });
+    const options = rigOptions([
+      diskRow('plug-llm', dir, { name: 'plug-llm', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+    ]);
+    const report = await loadPlugins(options);
+    expect(report.failed).toEqual([]);
+    // 身份断言：与宿主 providerApiFace 同模块实例（防双实例——03 §3.2 纪律，
+    // 接线前 jiti 解析 'berry-agent/llm' 落自然失败 → failed 行非空）
+    expect(options.services.get('llmCreateProvider')).toBe(providerApiFace.createProvider);
+    expect(options.services.get('llmHasApi')).toBe(providerApiFace.hasApi);
+  });
+
+  it('锁② agents 键装载收集：磁盘行 agents-only 纯声明包零码装载、agentDirs 相对 pluginDir 解析（修复前红 = 键被闭集拒载）', async () => {
+    const dir = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'plug-agents',
+        version: '1.0.0',
+        berryAgent: { agents: ['./agents', 'more-agents'] },
+      }),
+    });
+    const report = await loadPlugins(
+      rigOptions([
+        diskRow('plug-agents', dir, {
+          name: 'plug-agents',
+          version: '1.0.0',
+          berryAgent: { agents: ['./agents', 'more-agents'] },
+        }),
+      ]),
+    );
+    expect(report.failed).toEqual([]);
+    expect(report.activated).toEqual([
+      {
+        id: 'plug-agents',
+        skillDirs: [], // skills 缺席 = 空清单（agents-only 声明形）
+        agentDirs: [resolve(dir, 'agents'), resolve(dir, 'more-agents')], // './' 前缀归一 + 清单序保真
+      },
+    ]);
+  });
+
+  it('锁②' + 'b core 行 agents 同律：基 = 宿主包根绝对解析', async () => {
+    const report = await loadPlugins(
+      rigOptions([
+        coreRow('core:ag', async () => undefined, { agents: ['./agents'] }),
+        coreRow('core:plain', async () => undefined),
+      ]),
+    );
+    expect(report.activated[0]!.agentDirs).toHaveLength(1);
+    expect(isAbsolute(report.activated[0]!.agentDirs[0]!)).toBe(true);
+    expect(basename(report.activated[0]!.agentDirs[0]!)).toBe('agents');
+    expect(report.activated[1]!.agentDirs).toEqual([]); // 无声明零清单
+  });
+
+  it('锁③ 声明载荷目录逃逸装载基拒——`../../` 出界即 PLUGIN_SHAPE_INVALID（修复前红 = 裸 resolve 逃逸装载成功；pi-lens 反面实证）', async () => {
+    const escapeSkills = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'plug-esc-skills',
+        version: '1.0.0',
+        berryAgent: { skills: ['../../escape'] },
+      }),
+    });
+    const escapeAgents = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'plug-esc-agents',
+        version: '1.0.0',
+        berryAgent: { agents: ['../outside'] },
+      }),
+    });
+    const report = await loadPlugins(
+      rigOptions([
+        diskRow('plug-esc-skills', escapeSkills, {
+          name: 'plug-esc-skills',
+          version: '1.0.0',
+          berryAgent: { skills: ['../../escape'] },
+        }),
+        diskRow('plug-esc-agents', escapeAgents, {
+          name: 'plug-esc-agents',
+          version: '1.0.0',
+          berryAgent: { agents: ['../outside'] },
+        }),
+      ]),
+    );
+    // 两行各自隔离降级（档②）——逃逸不装载、不注册任何目录
+    expect(report.activated).toEqual([]);
+    expect(report.failed).toHaveLength(2);
+    for (const failure of report.failed) {
+      expect(failure.code).toBe('PLUGIN_SHAPE_INVALID');
+      expect(failure.message).toContain('逃逸');
+    }
+    expect(report.failed.map((f) => f.id)).toEqual(['plug-esc-skills', 'plug-esc-agents']);
+  });
+
+  it('锁③b 界内 `..` 归一不误伤（a/../skills 仍在基内 = 放行）+ core 行逃逸 fail-loud', async () => {
+    const inside = makePluginDir({
+      'package.json': JSON.stringify({
+        name: 'plug-inside',
+        version: '1.0.0',
+        berryAgent: { skills: ['a/../skills'] },
+      }),
+    });
+    const report = await loadPlugins(
+      rigOptions([
+        diskRow('plug-inside', inside, {
+          name: 'plug-inside',
+          version: '1.0.0',
+          berryAgent: { skills: ['a/../skills'] },
+        }),
+      ]),
+    );
+    expect(report.failed).toEqual([]);
+    expect(report.activated[0]!.skillDirs).toEqual([resolve(inside, 'skills')]); // resolve 归一后在界内
+
+    // core 行同律顺手执法：宿主包根逃逸 = fail-loud 拒启（不留半装配）
+    await expect(
+      loadPlugins(rigOptions([coreRow('core:esc', async () => undefined, { skills: ['../../..'] })])),
+    ).rejects.toBeInstanceOf(CorePluginBootError);
   });
 });
