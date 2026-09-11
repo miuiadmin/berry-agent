@@ -91,7 +91,8 @@ bin (berry-agent) → host/main
 ## 安全模型
 
 - **沙箱档位**：read-only / workspace-write / danger（升权 allowed-once 审批缺席即 fail-closed）；
-- **审批**：工具执行前 ask → 用户应答（allow / deny / always）——`always` 落 `allowlist.json` 持久回写；
+- **审批**：工具执行前 ask → 用户应答（allow / deny / always）——`always` 落 `tool-policy.json`（工具策略表）持久回写；用户手写同表 `deny` 条目 = 主权硬拒（先于一切审批面、不可翻转）；
+- **权限预设**：conservative / balanced（缺省）/ open 三档打包（TUI `/approval preset` 写盘 `settings.json` 两键 + open 档建议集 append；CLI `--preset` 逐次生效不写盘）——四层解析：工具参数 > 会话策略 > CLI 旗标 > settings.json > 代码常量；
 - **SSRF 卫生**：URL 白名单 → 私网双查（字面 + DNS）→ 重定向逐跳复检 → 字节帽；
 - **进程治理**：detached 进程组、树杀、登记簿孤儿清扫、pid 复用防线；
 - **默认零遥测**：无使用统计、无崩溃上报、无版本检查——出厂网络面仅凭证供给的模型调用与用户显式动作。

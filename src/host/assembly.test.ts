@@ -18,7 +18,8 @@ import { assembleHostStack, createControlOpensFor, readDoorsSegmentLive, readTri
 import type { AssemblySuccess } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
-import { readToolPolicy } from './tool-policy-store.js';
+import { readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
+import { SETTINGS_BASENAME } from './settings-store.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
 import { createAuditFace } from '../persist/index.js';
@@ -949,6 +950,198 @@ describe('/doors TUI 命令面 e2e（注册 + 段写回 + doors/updated origin t
       const after = [...auditFace.listRecent()].filter((r) => r.type === 'doors/updated').map((r) => r.data);
       expect(after).toEqual(before);
       expect(readDoorsSegmentLive(dir).size).toBe(0);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
+describe('审批分档收口锁 e2e（ap-4——§8 四层解析装配执法 + /approval preset 全链 + deny 不可翻转 × explain 同源对拍）', () => {
+  /** notify 捕获后端（/doors e2e 同形） */
+  const captureBackend = (notified: string[]): UiBackend<never> => ({
+    id: 'ap4-probe',
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: (_message, opts) => void notified.push(`${opts?.level ?? 'info'}|${_message}`),
+  });
+
+  it('四层解析：settings.json 第四层 gaps 填充 + CLI 显式位在场即胜（两旋钮独立分裁）', async () => {
+    // 缺省档全审批快照（无 settings 无 CLI——代码常量层）
+    const dir0 = tmpDir('host-asm-ap4-default-');
+    const asm0 = await assembleHostStack({
+      runtime: { dataDir: dir0 },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [],
+    });
+    if (!asm0.ok) throw new Error(`装配意外失败：${asm0.message}`);
+    try {
+      const notified0: string[] = [];
+      asm0.stack.channels.addBackend(captureBackend(notified0));
+      expect(await asm0.stack.channels.dispatchCommand('/approval')).toBe(true);
+      expect(notified0.some((t) => t.includes('sandbox 档 = workspace-write') && t.includes('缺省（代码常量）'))).toBe(
+        true,
+      );
+      expect(notified0.some((t) => t.includes('审批 policy = ask') && t.includes('缺省（代码常量）'))).toBe(true);
+    } finally {
+      await asm0.runtime.shutdown();
+    }
+
+    // settings.json 持久缺省层：CLI 位缺席时两键各自补位
+    const dir = tmpDir('host-asm-ap4-settings-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ sandboxMode: 'read-only', approvalPolicy: 'never' }));
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      expect(await assembly.stack.channels.dispatchCommand('/approval')).toBe(true);
+      expect(
+        notified.some((t) => t.includes('sandbox 档 = read-only') && t.includes('settings.json（持久缺省）')),
+      ).toBe(true);
+      expect(notified.some((t) => t.includes('审批 policy = never') && t.includes('settings.json（持久缺省）'))).toBe(
+        true,
+      );
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+
+    // CLI 显式位在场即胜：mode 传 CLI 位（--preset balanced 形来源标注），settings
+    // 的 read-only 不覆盖；policy 无 CLI 位且 settings 缺席 = 代码常量（旋钮独立）
+    const dir2 = tmpDir('host-asm-ap4-cliwin-');
+    writeFileSync(join(dir2, SETTINGS_BASENAME), JSON.stringify({ sandboxMode: 'read-only' }));
+    const assembly2 = await assembleHostStack({
+      runtime: { dataDir: dir2 },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [],
+      sandboxMode: (): 'workspace-write' => 'workspace-write',
+      sandboxModeSource: 'CLI --preset balanced',
+    });
+    if (!assembly2.ok) throw new Error(`装配意外失败：${assembly2.message}`);
+    try {
+      const notified2: string[] = [];
+      assembly2.stack.channels.addBackend(captureBackend(notified2));
+      expect(await assembly2.stack.channels.dispatchCommand('/approval')).toBe(true);
+      expect(
+        notified2.some((t) => t.includes('sandbox 档 = workspace-write') && t.includes('CLI --preset balanced')),
+      ).toBe(true);
+      expect(notified2.some((t) => t.includes('sandbox 档 = read-only'))).toBe(false);
+      expect(notified2.some((t) => t.includes('审批 policy = ask') && t.includes('缺省（代码常量）'))).toBe(true);
+    } finally {
+      await assembly2.runtime.shutdown();
+    }
+  });
+
+  it('/approval preset open 全链：两键写盘 + 七条建议集 + 审计恰一笔 + 当前进程快照不变', async () => {
+    const dir = tmpDir('host-asm-ap4-preset-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      expect(await assembly.stack.channels.dispatchCommand('/approval preset open')).toBe(true);
+      // settings 两键（合并写）
+      const settings = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+      expect(settings).toEqual({ sandboxMode: 'workspace-write', approvalPolicy: 'ask' });
+      // 建议集七条经写侧正门（fs 两件 workspace 根前缀 + bash 五词干）
+      const load = readToolPolicy(dir);
+      expect(load.healthy).toBe(true);
+      expect(load.entries).toHaveLength(7);
+      expect(load.entries.filter((e) => e.tool === 'bash').map((e) => e.pattern)).toEqual([
+        'git status',
+        'git log',
+        'git diff',
+        'git show',
+        'git branch',
+      ]);
+      // 审计恰一笔（audit_events 载体——载荷四值；id/time 行元数据映射收窄同 /doors e2e）
+      const rows = [...createAuditFace(assembly.runtime.persistence.store.sqlite()).listRecent()]
+        .filter((r) => r.type === 'preset/applied')
+        .map((r) => ({ type: r.type, data: r.data }));
+      expect(rows).toEqual([
+        {
+          type: 'preset/applied',
+          data: { preset: 'open', sandboxMode: 'workspace-write', approvalPolicy: 'ask', appended: 7 },
+        },
+      ]);
+      // 回执诚实句（生效时点）+ 当前进程不变（装配期快照——status 仍缺省档）
+      expect(notified.some((t) => t.includes('下次启动/新装配生效'))).toBe(true);
+      expect(await assembly.stack.channels.dispatchCommand('/approval')).toBe(true);
+      expect(notified.some((t) => t.includes('sandbox 档 = workspace-write（来源：缺省（代码常量）'))).toBe(true);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('deny 不可翻转全链 + explain 同源对拍：deny 先于 ask（sticky always 亦无从翻转）→ policy-deny:0 与人面干跑同串', async () => {
+    const dir = tmpDir('host-asm-ap4-deny-');
+    const ws = tmpDir('host-asm-ap4-deny-ws-');
+    const faux = fauxProvider({ provider: 'faux-ap4', models: [{ id: 'm1' }] });
+    // 装载期种子：write 对 ws 前缀 deny（用户主权硬拒——序 0）
+    writeFileSync(
+      join(dir, TOOL_POLICY_BASENAME),
+      JSON.stringify({ entries: [{ tool: 'write', pattern: ws, decision: 'deny', reason: '测试主权硬拒' }] }),
+    );
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [],
+      providers: [faux.provider],
+      model: 'faux-ap4/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // sticky always = 最强翻转面——deny 若可被翻转必在此现形
+      const backend = new R1ApprovalBackend('always');
+      assembly.stack.channels.addBackend(backend);
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      const session = assembly.stack.openStartupSession(ws);
+      faux.setResponses([
+        () => toolCallOf('t-ap4', 'write', { path: join(ws, 'denied.txt'), content: 'x' }),
+        () => fauxText('知道了'),
+      ]);
+      const receipt = await assembly.stack.submitText(session.sessionId, '写入');
+      expect(receipt).toMatchObject({ status: 'completed' });
+      // deny 先于 ask——审批从未被问（零翻转面）；写效应未发生
+      expect(backend.requests).toHaveLength(0);
+      expect(existsSync(join(ws, 'denied.txt'))).toBe(false);
+      // gate/decision 落账：block + reason 携 policy-deny:0（deny 最先且终局）
+      const gate = session.driver.session
+        .events()
+        .filter((event) => event.type === 'gate/decision')
+        .map((event) => event.data as { decision?: string; reason?: string });
+      expect(gate.some((d) => d.decision === 'block' && (d.reason ?? '').includes('policy-deny:0'))).toBe(true);
+      // explain 同源对拍：人面干跑与守门行同一 matchToolPolicy + policyHitNote——同串
+      expect(await assembly.stack.channels.dispatchCommand(`/approval explain write ${join(ws, 'denied.txt')}`)).toBe(
+        true,
+      );
+      expect(notified.some((t) => t.includes('policy-deny:0') && t.includes('硬拒'))).toBe(true);
     } finally {
       await assembly.runtime.shutdown();
     }
