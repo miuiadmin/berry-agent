@@ -8,10 +8,11 @@
  *    恒不可写——底线不交模型裁决。与 berry 分叉：berry 把命中做成升权审批面
  *    不承）；数据目录条（04 §7 宿主状态根）无条件恒追加、不可经 entries=[]
  *    关闭（恒 = 平台底线，不交装配裁量——2026-09-06 遗漏审计批补钉）；
- * 2. **write-effect 审批对**（03 §2.3「write 触发审批对」）：effect='write'
- *    的工具调用走审批 ask（粘性短路在 ApprovalService 内）——allowlist 命中
- *    免问（advisory：只影响问不问，fence/执行段照走）；
- * 3. 其余（read 工具）放行交棒。
+ * 2. **write/exec 审批对**（03 §2.3「write|exec 触发审批对」——2026-09-11
+ *    审批分档批三值扩）：write/exec 档工具调用走审批 ask（粘性短路在
+ *    ApprovalService 内）——工具策略表 allow 条目命中免问（advisory：只影
+ *    响问不问，fence/执行段照走）、deny 条目命中硬拒（04 §9 定形块④）；
+ * 3. 其余（显式声明 read 的工具）放行交棒。
  *
  * 分工（防重复拦截）：粗粒度根 containment 在 tools/fs 的 fence——路径在可
  * 写根外（outside-roots）是 fence 的拒绝面，本行不拦不问（问了 fence 也会
@@ -38,7 +39,7 @@ import {
   resolveWritability,
   type CarveOutEntry,
 } from './roots.js';
-import { FS_WRITE_TOOLS, matchAllowlist, type AllowlistEntry } from './allowlist.js';
+import { FS_WRITE_TOOLS, matchToolPolicy, type ToolPolicyEntry } from './allowlist.js';
 import { sandboxDenialMarker } from './sandbox.js';
 
 /** 内置默认 carve-out 条目（04 §8 例示：.git 转只读 + .env 族遮罩——含单层 glob 两形） */
@@ -78,13 +79,15 @@ export interface SafetyGateOptions {
    */
   readonly dataDir: string;
   /**
-   * 跨会话 allowlist（04 §9 粘性第 3 款——advisory 免问面）：命中即跳过写
-   * 审批直接放行本行。只影响「问不问」：fence/根推导/执行段照走，carve-out
-   * 硬拒面不受影响（条目免问放不进 .git——硬拒判定在前）。条目落用户配置
-   * 层（存储读写接线随 host 装配批落地，装配注入活数组引用——TTL 过期由
-   * 引擎逐调用判定）。缺省无 = 功能关闭。
+   * 跨会话工具策略表（04 §9 粘性第 3 款 + 2026-09-11 审批分档批定形块③④
+   * ——双面 advisory：allow 条目免问 / deny 条目硬拒）：allow 命中即跳过写
+   * 审批直接放行本行（只影响「问不问」：fence/根推导/执行段照走，carve-out
+   * 硬拒面不受影响——硬拒判定在前）；deny 命中硬拒 block（reason
+   * `policy-deny:<条目序>`——不可被任何后续面翻转）。条目落用户配置层
+   * （tool-policy.json——存储读写接线在 host 件，装配注入活数组引用——TTL
+   * 过期由引擎逐调用判定）。缺省无 = 功能关闭。
    */
-  readonly allowlist?: readonly AllowlistEntry[];
+  readonly allowlist?: readonly ToolPolicyEntry[];
 }
 
 /**
@@ -141,8 +144,11 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     // read-only 档：fence 拒全量写（空根）——本行跳过，不产生审批交互（问了
     // 也白问；denial 回执由 fence 的 FS_OUTSIDE_WRITABLE_ROOTS 承担）
     if (mode === 'read-only') return next(input);
-    // 本行只管写意图（03 §2.3 effect 面）：read 工具放行交棒
-    if (tool.effect !== 'write') return next(input);
+    // 本行只管写/执行意图（03 §2.3 effect 面）：**显式声明 read 才放行**交棒
+    // ——write/exec 同走审批链（04 §9 定形块①；exec 档不留审批旁路。缺省
+    // 反转〔注册面归一 ?? 'exec'〕随审批分档批执法笔落码——反转前未声明
+    // 工具仍归一 read 走本位放行，行为零变化）
+    if (tool.effect === 'read') return next(input);
 
     const isFsFamily = FS_WRITE_TOOLS.has(tool.name);
 
@@ -167,25 +173,41 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
       }
     }
 
-    /* ---- ② allowlist 免问（粘性第 3 款；advisory——只影响问不问） ---- */
+    /* ---- ② 工具策略表（粘性第 3 款 + 审批分档批定形块④：allow 免问 / deny 硬拒） ---- */
     if (opts.allowlist !== undefined && opts.allowlist.length > 0) {
-      // fs 族判定收窄到写意图族（writePaths 全量 all-or-nothing）；其余 write-effect
-      // 工具走整名族（工具名整匹配）。命中审计（04 §9 批 12f-4）：放行来源标注
-      // allowlist:<条目序> 落 GateInput——管道 recordGate 承接进 gate/decision
-      // 的 reason 位（免问放行仍可审计——不产生 approval 事件对，来源在此标注）
-      const hit = matchAllowlist(
+      // fs 族判定收窄到写意图族（writePaths 全量 all-or-nothing）；其余
+      // write/exec 工具走整名族（工具名整匹配）。命中审计（04 §9 ④）：放行
+      // 来源标注 policy-allow:<条目序> 落 GateInput——管道 recordGate 承接进
+      // gate/decision 的 reason 位（免问放行仍可审计——不产生 approval 事件
+      // 对，来源在此标注）。deny 命中（引擎 deny 优先律——首个 deny 命中即
+      // 终局返回）硬拒 block 短路：不产生审批对（粘性命中无审批对同律），
+      // reason policy-deny:<条目序> 落 gate/decision——用户主权裁决留痕。
+      // 【六步重排注】完整评估序（deny 移位至 read 放行/carve-out 之前、
+      // read-only skip 后 deny 可拦 read 档工具）随审批分档批执法笔重排——
+      // 本位先兑现「deny 不当 allow 放行」与「deny 不可翻转」两律。
+      const hit = matchToolPolicy(
         opts.allowlist,
         isFsFamily
           ? {
               tool: tool.name,
+              // 档位取值：注册面归一后应恒在场；类型位缺省兜底 = exec（未知缺省
+              // 最危律同律——守门行自身防御与注册面归一同向，双保险）
+              effect: tool.effect ?? 'exec',
               writePaths: extractWritePaths(tool.name, input.args).map((p) => absolutize(workspace, p)),
               workspace,
             }
-          : { tool: tool.name },
+          : { tool: tool.name, effect: tool.effect ?? 'exec' },
         Date.now(),
       );
+      if (hit !== undefined && hit.entry.decision === 'deny') {
+        input.outcome = {
+          action: 'block',
+          reason: `${sandboxDenialMarker(mode)} ${tool.name} 命中工具策略表 deny 条目 policy-deny:${hit.index}${hit.entry.reason !== undefined ? `（${hit.entry.reason}）` : ''}——用户主权硬拒，任何面不可翻转（解除唯手删条目）。`,
+        };
+        return input; // 不调 next：短路整链（deny 优先律——硬拒）
+      }
       if (hit !== undefined) {
-        input.allowReason = `allowlist:${hit.index}`;
+        input.allowReason = `policy-allow:${hit.index}`;
         return next(input);
       }
     }

@@ -655,6 +655,15 @@
       "sig": "10a7f9d4dba3297e"
     },
     {
+      "symbol": "TOOL_TIER_RANK",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具档偏序 rank（04 §9 定形块①：read < write < exec）",
+      "kind": "const",
+      "sig": "b9da2b2887f71001"
+    },
+    {
       "symbol": "TextContent",
       "module": "berry-agent",
       "tier": "stable",
@@ -713,9 +722,9 @@
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "工具效果面（03 §2.3 一位两用）：缺省 read；write 兼任批调度屏障（批边界串行）与审批对触发（审批编舞归 safety 件）",
+      "desc": "工具效果面（03 §2.3 一位两用）——**工具档三值**（04 §9 定形块①，2026-09-11 审批分档批）：`read` = 只读（批内并行调度、不走审批对）；`write` = 写面（批边界串行屏障 + 审批对触发）；`exec` = 任意进程执行类（v1 升档清单恰一处 = bash——exec/bash.ts；write/exec 同触发审批对、同走批边界串行）",
       "kind": "type",
-      "sig": "0d0001e711109c11"
+      "sig": "a1f0c02a6ea977f7"
     },
     {
       "symbol": "ToolPipelineExecutor",

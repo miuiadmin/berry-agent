@@ -1,6 +1,7 @@
 /**
- * safety/allowlist 测试 — 三族匹配引擎 + commandStem 剥壳（04 §9 粘性第 3/4 款
- * 纯函数半边）。
+ * safety/allowlist 测试 — 工具策略表三族匹配引擎 + commandStem 剥壳（04 §9
+ * 粘性第 3/4 款纯函数半边 + 2026-09-11 审批分档批定形块③④：条目双面 /
+ * deny 优先律 / 档位偏序包含判）。
  *
  * 纪律：纯函数全真；临时目录夹具只喂 canonical 化路径（与守门行同一口径）。
  */
@@ -9,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalPath } from './roots.js';
-import { commandStem, matchAllowlist, type AllowlistEntry } from './allowlist.js';
+import { commandStem, matchToolPolicy, type ToolPolicyEntry } from './allowlist.js';
 
 /** 每用例独立工作区（canonical 形） */
 let ws = '';
@@ -28,53 +29,69 @@ const NOW = 1_800_000_000_000;
 
 describe('fs 族匹配', () => {
   it('全部写目标落在前缀内才命中（all-or-nothing）', () => {
-    const entries: AllowlistEntry[] = [{ tool: 'write', pattern: 'src' }];
-    const input = { tool: 'write', workspace: ws, now: NOW } as const;
+    const entries: ToolPolicyEntry[] = [{ tool: 'write', pattern: 'src', decision: 'allow' }];
+    const input = { tool: 'write', effect: 'write' as const, workspace: ws } as const;
     expect(
-      matchAllowlist(entries, { ...input, writePaths: [join(ws, 'src', 'a.ts'), join(ws, 'src', 'b.ts')] }, NOW),
+      matchToolPolicy(entries, { ...input, writePaths: [join(ws, 'src', 'a.ts'), join(ws, 'src', 'b.ts')] }, NOW),
     ).toMatchObject({ index: 0 });
     // 一个目标在前缀外 → 整体未命中（保守）
     expect(
-      matchAllowlist(entries, { ...input, writePaths: [join(ws, 'src', 'a.ts'), join(ws, 'docs', 'b.ts')] }, NOW),
+      matchToolPolicy(entries, { ...input, writePaths: [join(ws, 'src', 'a.ts'), join(ws, 'docs', 'b.ts')] }, NOW),
     ).toBeUndefined();
   });
 
   it('前缀到路径分隔边界（/app 不匹配 /apple）', () => {
-    const entries: AllowlistEntry[] = [{ tool: 'write', pattern: join(ws, 'app') }];
+    const entries: ToolPolicyEntry[] = [{ tool: 'write', pattern: join(ws, 'app'), decision: 'allow' }];
     expect(
-      matchAllowlist(entries, { tool: 'write', workspace: ws, writePaths: [join(ws, 'apple', 'x.ts')] }, NOW),
+      matchToolPolicy(
+        entries,
+        { tool: 'write', effect: 'write', workspace: ws, writePaths: [join(ws, 'apple', 'x.ts')] },
+        NOW,
+      ),
     ).toBeUndefined();
     expect(
-      matchAllowlist(entries, { tool: 'write', workspace: ws, writePaths: [join(ws, 'app', 'x.ts')] }, NOW),
+      matchToolPolicy(
+        entries,
+        { tool: 'write', effect: 'write', workspace: ws, writePaths: [join(ws, 'app', 'x.ts')] },
+        NOW,
+      ),
     ).toMatchObject({ index: 0 });
   });
 
   it('工具名不等的条目跳过（条目按工具分族）', () => {
     expect(
-      matchAllowlist(
-        [{ tool: 'edit', pattern: 'src' }],
-        { tool: 'write', workspace: ws, writePaths: [join(ws, 'src', 'a.ts')] },
+      matchToolPolicy(
+        [{ tool: 'edit', pattern: 'src', decision: 'allow' }],
+        { tool: 'write', effect: 'write', workspace: ws, writePaths: [join(ws, 'src', 'a.ts')] },
         NOW,
       ),
     ).toBeUndefined();
   });
 
   it('TTL 过期条目跳过（回落 ask），后续未过期条目可命中', () => {
-    const entries: AllowlistEntry[] = [
-      { tool: 'write', pattern: 'src', expiresAt: NOW - 1 },
-      { tool: 'write', pattern: '.' },
+    const entries: ToolPolicyEntry[] = [
+      { tool: 'write', pattern: 'src', decision: 'allow', expiresAt: NOW - 1 },
+      { tool: 'write', pattern: '.', decision: 'allow' },
     ];
     expect(
-      matchAllowlist(entries, { tool: 'write', workspace: ws, writePaths: [join(ws, 'src', 'a.ts')] }, NOW),
+      matchToolPolicy(
+        entries,
+        { tool: 'write', effect: 'write', workspace: ws, writePaths: [join(ws, 'src', 'a.ts')] },
+        NOW,
+      ),
     ).toMatchObject({ index: 1 });
   });
 });
 
 /* ---------------- bash 族：命令词干 ---------------- */
 
-describe('bash 族匹配（matchAllowlist + commandStem 同源）', () => {
+describe('bash 族匹配（matchToolPolicy + commandStem 同源）', () => {
   const bash = (pattern: string, command: string): boolean =>
-    matchAllowlist([{ tool: 'bash', pattern }], { tool: 'bash', bashCommand: command }, NOW) !== undefined;
+    matchToolPolicy(
+      [{ tool: 'bash', pattern, decision: 'allow' }],
+      { tool: 'bash', effect: 'exec', bashCommand: command },
+      NOW,
+    ) !== undefined;
 
   it('单词条目匹配「命令 + 任意非 flag 形参」', () => {
     expect(bash('git', 'git status')).toBe(true);
@@ -129,14 +146,99 @@ describe('commandStem', () => {
 
 /* ---------------- 整名族：工具名整匹配 ---------------- */
 
-describe('整名族匹配（其余 write-effect 工具）', () => {
+describe('整名族匹配（其余 write/exec 档工具）', () => {
   it('工具名相等即命中（pattern 忽略）；不等相关工具跳过', () => {
-    expect(matchAllowlist([{ tool: 'deploy', pattern: '' }], { tool: 'deploy' }, NOW)).toMatchObject({ index: 0 });
-    expect(matchAllowlist([{ tool: 'deploy', pattern: '' }], { tool: 'rollback' }, NOW)).toBeUndefined();
-  });
-  it('整名族同样吃 TTL', () => {
     expect(
-      matchAllowlist([{ tool: 'deploy', pattern: '', expiresAt: NOW - 1 }], { tool: 'deploy' }, NOW),
+      matchToolPolicy([{ tool: 'deploy', pattern: '', decision: 'allow' }], { tool: 'deploy', effect: 'write' }, NOW),
+    ).toMatchObject({ index: 0 });
+    expect(
+      matchToolPolicy([{ tool: 'deploy', pattern: '', decision: 'allow' }], { tool: 'rollback', effect: 'write' }, NOW),
     ).toBeUndefined();
+  });
+  it('整名族同样吃 TTL（仅 allow 条目）', () => {
+    expect(
+      matchToolPolicy(
+        [{ tool: 'deploy', pattern: '', decision: 'allow', expiresAt: NOW - 1 }],
+        { tool: 'deploy', effect: 'write' },
+        NOW,
+      ),
+    ).toBeUndefined();
+  });
+  it('decision 缺席防御 = allow（旧三字段形升格读入语义——引擎与读侧归一同向）', () => {
+    const legacyRow = { tool: 'deploy', pattern: '' } as unknown as ToolPolicyEntry;
+    expect(matchToolPolicy([legacyRow], { tool: 'deploy', effect: 'write' }, NOW)).toMatchObject({ index: 0 });
+  });
+});
+
+/* ---------------- 审批分档批定形块④：deny 优先律 ---------------- */
+
+describe('deny 优先律（④：deny 命中恒最先且终局——序在 allow 之前恒胜）', () => {
+  it('deny 条目序在 allow 之后仍胜（条目序不构成 deny/allow 优先级）', () => {
+    const entries: ToolPolicyEntry[] = [
+      { tool: 'deploy', pattern: '', decision: 'allow' },
+      { tool: 'deploy', pattern: '', decision: 'deny', reason: '生产环境禁部署' },
+    ];
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'write' }, NOW)).toMatchObject({
+      index: 1,
+      entry: { decision: 'deny' },
+    });
+  });
+  it('deny 在前 allow 在后：返回 deny（首个 deny 即终局，不返回首个 allow）', () => {
+    const entries: ToolPolicyEntry[] = [
+      { tool: 'deploy', pattern: '', decision: 'deny' },
+      { tool: 'deploy', pattern: '', decision: 'allow' },
+    ];
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'write' }, NOW)).toMatchObject({ index: 0 });
+  });
+  it('fs 族 deny 条目按 pattern 圈定拒绝面（前缀外不 deny）', () => {
+    const entries: ToolPolicyEntry[] = [{ tool: 'write', pattern: join(ws, 'secrets'), decision: 'deny' }];
+    expect(
+      matchToolPolicy(
+        entries,
+        { tool: 'write', effect: 'write', workspace: ws, writePaths: [join(ws, 'secrets', 'k.env')] },
+        NOW,
+      ),
+    ).toMatchObject({ index: 0 });
+    expect(
+      matchToolPolicy(
+        entries,
+        { tool: 'write', effect: 'write', workspace: ws, writePaths: [join(ws, 'src', 'a.ts')] },
+        NOW,
+      ),
+    ).toBeUndefined();
+  });
+  it('deny 条目带 expiresAt 属坏形 → 逐条剔除（其余条目照常评估，非整档失效）', () => {
+    const entries: ToolPolicyEntry[] = [
+      { tool: 'deploy', decision: 'deny', expiresAt: NOW + 1000 }, // 坏形（deny 无 TTL）
+      { tool: 'deploy', pattern: '', decision: 'allow' },
+    ];
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'write' }, NOW)).toMatchObject({ index: 1 });
+    // 唯 deny 坏形在场 → 整体无命中（回落 ask——fail-closed 方向同向）
+    expect(matchToolPolicy([entries[0]!], { tool: 'deploy', effect: 'write' }, NOW)).toBeUndefined();
+  });
+});
+
+/* ---------------- 审批分档批定形块③：档位偏序包含判 ---------------- */
+
+describe('档位偏序包含判（③：allow 及以下窄化自限 / deny 及以上覆写扩面）', () => {
+  it('write 档 allow 条目不覆盖 exec 调用（窄化自限——04 §9 ①）', () => {
+    const entries: ToolPolicyEntry[] = [{ tool: 'deploy', pattern: '', decision: 'allow', effect: 'write' }];
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'write' }, NOW)).toMatchObject({ index: 0 });
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'read' }, NOW)).toMatchObject({ index: 0 }); // 该档及以下：read 调用仍免问
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'exec' }, NOW)).toBeUndefined(); // exec 调用不覆盖 → 回落 ask
+  });
+  it('write 档 deny 条目覆盖 write+exec 调用、不覆盖 read 档调用（覆写扩面）', () => {
+    const entries: ToolPolicyEntry[] = [{ tool: 'deploy', pattern: '', decision: 'deny', effect: 'write' }];
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'exec' }, NOW)).toMatchObject({ index: 0 }); // 及以上：exec 拒
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'write' }, NOW)).toMatchObject({ index: 0 });
+    expect(matchToolPolicy(entries, { tool: 'deploy', effect: 'read' }, NOW)).toBeUndefined(); // 以下：read 档调用不在拒绝面
+  });
+  it('effect 缺席 = 全档（allow 覆盖 exec / deny 覆盖 read）', () => {
+    expect(
+      matchToolPolicy([{ tool: 'deploy', pattern: '', decision: 'allow' }], { tool: 'deploy', effect: 'exec' }, NOW),
+    ).toMatchObject({ index: 0 });
+    expect(
+      matchToolPolicy([{ tool: 'deploy', pattern: '', decision: 'deny' }], { tool: 'deploy', effect: 'read' }, NOW),
+    ).toMatchObject({ index: 0 });
   });
 });

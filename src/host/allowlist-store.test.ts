@@ -1,6 +1,7 @@
 /**
- * host/allowlist-store 测试——跨会话 allowlist 文件读写三律（04 §9 粘性第
- * 3 款定形块；批 12f-4）。
+ * host/allowlist-store 测试——跨会话策略表文件读写三律（04 §9 粘性第 3 款
+ * 定形块；批 12f-4；2026-09-11 审批分档批六字段行形扩——deny 面/deny 无
+ * TTL 坏形/旧三字段形升格读入）。
  *
  * 真盘临时目录（文件 IO 件全栈惯例）：读侧缺席/好形/文件级坏形/行级坏形
  * 四态 + 写侧追加/幂等/坏形拒写三态 + 原子替换不留 tmp 残。
@@ -41,7 +42,7 @@ describe('readAllowlist 读侧（04 §9 定形块读侧律）', () => {
     expect(io.warnings).toEqual([]);
   });
 
-  it('好形载入：多行含 expiresAt（三字段全形）', () => {
+  it('好形载入：旧三字段形升格读入（decision 缺席归一 allow）', () => {
     const dir = tmpDir('al-ok-');
     writeFileSync(
       join(dir, 'allowlist.json'),
@@ -55,8 +56,29 @@ describe('readAllowlist 读侧（04 §9 定形块读侧律）', () => {
     const load = readAllowlist(dir);
     expect(load.healthy).toBe(true);
     expect(load.entries).toEqual([
-      { tool: 'write', pattern: '/w/a.md' },
-      { tool: 'bash', pattern: 'git push', expiresAt: 1893456000000 },
+      { tool: 'write', pattern: '/w/a.md', decision: 'allow' },
+      { tool: 'bash', pattern: 'git push', decision: 'allow', expiresAt: 1893456000000 },
+    ]);
+  });
+
+  it('六字段全形载入（审批分档批③）：deny/effect/reason 全字段直读', () => {
+    const dir = tmpDir('al-six-');
+    writeFileSync(
+      join(dir, 'allowlist.json'),
+      JSON.stringify({
+        entries: [
+          { tool: 'deploy', pattern: '', decision: 'deny', reason: '生产环境禁部署' },
+          { tool: 'write', pattern: '/w/src', decision: 'allow', effect: 'write' },
+          { tool: 'deploy', decision: 'deny', effect: 'exec' }, // pattern 缺席 = 整名族合法形
+        ],
+      }),
+    );
+    const load = readAllowlist(dir);
+    expect(load.healthy).toBe(true);
+    expect(load.entries).toEqual([
+      { tool: 'deploy', pattern: '', decision: 'deny', reason: '生产环境禁部署' },
+      { tool: 'write', pattern: '/w/src', decision: 'allow', effect: 'write' },
+      { tool: 'deploy', decision: 'deny', effect: 'exec' },
     ]);
   });
 
@@ -79,7 +101,7 @@ describe('readAllowlist 读侧（04 §9 定形块读侧律）', () => {
     const dir = tmpDir('al-rowbad-');
     const raw = JSON.stringify({
       entries: [
-        { tool: 'write', pattern: '/w/ok.md' }, // 好行
+        { tool: 'write', pattern: '/w/ok.md' }, // 好行（旧形——升格 allow 存活）
         { tool: '', pattern: '/w/x' }, // tool 空
         { tool: 'bash', pattern: 123 }, // pattern 非字符串
         { tool: 'write', pattern: '/w/y', expiresAt: 'soon' }, // expiresAt 非数值
@@ -91,9 +113,31 @@ describe('readAllowlist 读侧（04 §9 定形块读侧律）', () => {
     const io = captureWarn();
     const load = readAllowlist(dir, io);
     expect(load.healthy).toBe(true); // 行级坏形不降级整文件
-    expect(load.entries).toEqual([{ tool: 'write', pattern: '/w/ok.md' }]); // 好行存活
+    expect(load.entries).toEqual([{ tool: 'write', pattern: '/w/ok.md', decision: 'allow' }]); // 好行存活
     expect(io.warnings.length).toBe(5); // 五坏行逐行点名
     expect(readFileSync(join(dir, 'allowlist.json'), 'utf8')).toBe(raw); // 原文未动
+  });
+
+  it('审批分档批新坏形族剔行：decision/effect 闭集外 + deny 带 expiresAt（方向性坏形）', () => {
+    const dir = tmpDir('al-rowbad2-');
+    writeFileSync(
+      join(dir, 'allowlist.json'),
+      JSON.stringify({
+        entries: [
+          { tool: 'write', pattern: '/w/ok.md', decision: 'allow' }, // 好行
+          { tool: 'deploy', pattern: '', decision: 'maybe' }, // decision 闭集外
+          { tool: 'deploy', pattern: '', decision: 'allow', effect: 'dangerous' }, // effect 闭集外
+          { tool: 'deploy', pattern: '', decision: 'deny', expiresAt: 1893456000000 }, // deny 带 TTL = 方向性坏形
+          { tool: 'deploy', pattern: '', decision: 'allow', reason: 42 }, // reason 非字符串
+        ],
+      }),
+    );
+    const io = captureWarn();
+    const load = readAllowlist(dir, io);
+    expect(load.healthy).toBe(true);
+    expect(load.entries).toEqual([{ tool: 'write', pattern: '/w/ok.md', decision: 'allow' }]);
+    expect(io.warnings.length).toBe(4);
+    expect(io.warnings.join('\n')).toContain('deny 无 TTL');
   });
 });
 
@@ -102,7 +146,8 @@ describe('appendAllowlistEntry 写侧（04 §9 定形块写侧律——唯一正
     const dir = tmpDir('al-append-');
     expect(appendAllowlistEntry(dir, { tool: 'write', pattern: '/w/a.md' })).toBe('appended');
     const first = readAllowlist(dir);
-    expect(first.entries).toEqual([{ tool: 'write', pattern: '/w/a.md' }]);
+    // 机器写入恒带 decision:'allow'（写侧唯一正门只产 allow 条目——deny 唯用户手写）
+    expect(first.entries).toEqual([{ tool: 'write', pattern: '/w/a.md', decision: 'allow' }]);
     expect(first.healthy).toBe(true);
     // 幂等：同 tool+pattern 不二写
     expect(appendAllowlistEntry(dir, { tool: 'write', pattern: '/w/a.md' })).toBe('duplicate');
@@ -136,8 +181,8 @@ describe('appendAllowlistEntry 写侧（04 §9 定形块写侧律——唯一正
     );
     expect(appendAllowlistEntry(dir, { tool: 'bash', pattern: 'npm test' })).toBe('appended');
     expect(readAllowlist(dir).entries).toEqual([
-      { tool: 'write', pattern: '/w/ok.md' },
-      { tool: 'bash', pattern: 'npm test' },
+      { tool: 'write', pattern: '/w/ok.md', decision: 'allow' },
+      { tool: 'bash', pattern: 'npm test', decision: 'allow' },
     ]); // 坏行不进重写产物（读侧已剔——写侧只见好行）
   });
 });

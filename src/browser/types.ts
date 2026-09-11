@@ -20,7 +20,7 @@
  * 页面态永不跨进程恢复，durable 只落工具事件不落页面态）。
  */
 import { BaseError } from '../contracts/index.js';
-import type { ToolContext } from '../contracts/index.js';
+import type { ToolContext, ToolEffect } from '../contracts/index.js';
 import type { WebFetchService } from '../web/index.js';
 
 /* ---------------- 常量（缺省值单源——03 §10.3 生命周期与回收条款） ---------------- */
@@ -174,7 +174,7 @@ export interface BrowserRegisterToolsFace {
     description: string;
     parameters: object;
     timeoutMs?: number;
-    effect?: 'read' | 'write';
+    effect?: ToolEffect;
     execute: (args: Record<string, unknown>, toolCtx: ToolContext) => Promise<unknown>;
   }): () => void;
 }

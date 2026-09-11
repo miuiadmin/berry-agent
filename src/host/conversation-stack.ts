@@ -73,7 +73,7 @@ import {
   resolveDefaultModelSpec,
 } from '../llm/index.js';
 import type { LlmRuntime, LlmService, Provider } from '../llm/index.js';
-import type { AllowlistDraft, AllowlistEntry, SandboxMode } from '../safety/index.js';
+import type { AllowlistDraft, SandboxMode, ToolPolicyEntry } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
 
@@ -150,9 +150,9 @@ export interface ConversationStackOptions {
    * 记账单位），组合根闭包接 recordTurn；钩内异常驱动侧自防炸（warn 不炸收场）。
    */
   readonly onRunSettled?: (sessionId: string, receipt: RunSettledReceipt) => void;
-  /** 跨会话 allowlist 条目（04 §9 粘性第 3 款 advisory 免问面；装配层读 allowlist.json 载入——缺省功能关闭） */
-  readonly allowlist?: readonly AllowlistEntry[];
-  /** 「始终允许」条目写入回调（04 §9 粘性段定形③——装配层接 allowlist-store 文件写；缺省 always 面关闭） */
+  /** 跨会话工具策略表条目（04 §9 粘性第 3 款 + 审批分档批双面；装配层读 tool-policy.json 载入——缺省功能关闭） */
+  readonly allowlist?: readonly ToolPolicyEntry[];
+  /** 「始终允许」条目写入回调（04 §9 粘性段定形③——装配层接 allowlist-store 文件写，只产 allow 条目；缺省 always 面关闭） */
   readonly persistAllowlist?: (draft: AllowlistDraft) => void;
   /**
    * compaction 服务注入位（缺省内部组装真身——SummaryChannel 适配 + 缺省配置；

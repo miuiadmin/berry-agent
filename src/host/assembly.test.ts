@@ -667,7 +667,7 @@ describe('serve/daemon 形 always 回写同律（R-1——U3-0 台账记账项�
       expect(load.healthy).toBe(true);
       expect(load.entries).toHaveLength(1);
       expect(load.entries[0]!.tool).toBe('write');
-      expect(load.entries[0]!.pattern.endsWith('r1.txt')).toBe(true); // canonical 绝对路径（realpath 平台差异不锁全串）
+      expect(load.entries[0]!.pattern?.endsWith('r1.txt')).toBe(true); // canonical 绝对路径（realpath 平台差异不锁全串）
     } finally {
       await assembly.runtime.shutdown();
     }

@@ -1,6 +1,6 @@
 /**
  * safety/gate 测试 — 守门固定行全编舞（04 §8 carve-out 硬拒 + §9 审批对 +
- * allowlist 免问）。
+ * 工具策略表双面〔allow 免问 / deny 硬拒——2026-09-11 审批分档批定形块③④〕）。
  *
  * 纪律：EventDispatch 全真（context 件）；approval 是被测编舞的可编程参与
  * 者（注入行为非替身——粘性短路属 ApprovalService 自身，已在 approval.test
@@ -12,9 +12,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventDispatch } from '../context/index.js';
 import { TOOL_EVENT_NAMES } from '../contracts/index.js';
-import type { GateInput, ToolDefinition } from '../contracts/index.js';
+import type { GateInput, ToolDefinition, ToolEffect } from '../contracts/index.js';
 import { canonicalPath, type CarveOutEntry } from './roots.js';
-import type { AllowlistEntry } from './allowlist.js';
+import type { ToolPolicyEntry } from './allowlist.js';
 import type { ApprovalService } from './approval.js';
 import type { ApprovalOutcome, ApprovalRequest, SandboxMode } from './types.js';
 import { installSafetyGate } from './gate.js';
@@ -32,7 +32,7 @@ afterEach(() => {
 /* ---------------- 测试构造件 ---------------- */
 
 /** 最小真工具形（effect 面 = 被测分支键） */
-function makeTool(name: string, effect: 'read' | 'write'): ToolDefinition {
+function makeTool(name: string, effect: ToolEffect): ToolDefinition {
   return {
     name,
     description: '测试工具',
@@ -46,6 +46,7 @@ const WRITE = makeTool('write', 'write');
 const EDIT = makeTool('edit', 'write');
 const READ = makeTool('read', 'read');
 const DEPLOY = makeTool('deploy', 'write'); // 整名族（非 fs 写意图工具）
+const EXEC_TOOL = makeTool('shell', 'exec'); // exec 档工具（三值扩——任意进程执行类）
 
 /** 两文件补丁（多路径 edit 场景；f1/f2 均相对 workspace） */
 function twoFilePatch(f1: string, f2: string): string {
@@ -59,7 +60,7 @@ function twoFilePatch(f1: string, f2: string): string {
 function makeRig(opts?: {
   mode?: SandboxMode;
   entries?: readonly CarveOutEntry[];
-  allowlist?: readonly AllowlistEntry[];
+  allowlist?: readonly ToolPolicyEntry[];
   /** 数据目录恒排除位覆写（缺省 tmp 下固定假路径——不与 workspace 交叠，隔离「根内遮罩」与「fence 根外」两面） */
   dataDir?: string;
   beforeInstall?: () => void;
@@ -162,7 +163,7 @@ describe('carve-out 硬拒', () => {
   });
 
   it('allowlist 免问放不进 carve-out（硬拒判定在前——底线不受免问面影响）', async () => {
-    const rig = makeRig({ allowlist: [{ tool: 'write', pattern: '.git' }] });
+    const rig = makeRig({ allowlist: [{ tool: 'write', pattern: '.git', decision: 'allow' }] });
     const result = await rig.run(WRITE, { path: join(ws, '.git', 'hooks', 'pre-commit') });
     expect(result.blocked).toBe(true);
     expect(rig.asks).toHaveLength(0);
@@ -277,7 +278,7 @@ describe('write-effect 审批对', () => {
 
 describe('allowlist 免问', () => {
   it('fs 前缀命中：全部写目标在前缀内 → 免问放行（fence/执行段照走）', async () => {
-    const rig = makeRig({ allowlist: [{ tool: 'write', pattern: 'src' }] });
+    const rig = makeRig({ allowlist: [{ tool: 'write', pattern: 'src', decision: 'allow' }] });
     const result = await rig.run(WRITE, { path: 'src/deep/nested/a.ts' });
     expect(result.blocked).toBe(false);
     expect(result.reached).toBe(true);
@@ -285,33 +286,35 @@ describe('allowlist 免问', () => {
   });
 
   it('TTL 过期条目不命中 → 照问', async () => {
-    const rig = makeRig({ allowlist: [{ tool: 'write', pattern: 'src', expiresAt: Date.now() - 1 }] });
+    const rig = makeRig({
+      allowlist: [{ tool: 'write', pattern: 'src', decision: 'allow', expiresAt: Date.now() - 1 }],
+    });
     await rig.run(WRITE, { path: 'src/a.ts' });
     expect(rig.asks).toHaveLength(1);
   });
 
   it('整名族：非 fs 写意图工具按工具名免问（deploy 条目只免 deploy）', async () => {
-    const rig = makeRig({ allowlist: [{ tool: 'deploy', pattern: '' }] });
+    const rig = makeRig({ allowlist: [{ tool: 'deploy', pattern: '', decision: 'allow' }] });
     const hit = await rig.run(DEPLOY, { region: 'cn' });
     expect(hit.blocked).toBe(false);
     expect(rig.asks).toHaveLength(0);
     // 其他 write-effect 工具不受整名条目影响（工具名不等不命中）
-    const rig2 = makeRig({ allowlist: [{ tool: 'deploy', pattern: '' }] });
+    const rig2 = makeRig({ allowlist: [{ tool: 'deploy', pattern: '', decision: 'allow' }] });
     await rig2.run(WRITE, { path: 'src/a.ts' });
     expect(rig2.asks).toHaveLength(1);
   });
 
-  it('命中审计标注（04 §9 批 12f-4）：allowReason = allowlist:<条目序>——首条命中 0、第二条命中 1', async () => {
+  it('命中审计标注（04 §9 命中审计条款 + 审批分档批④更词）：allowReason = policy-allow:<条目序>——首条命中 0、第二条命中 1', async () => {
     // 首条工具名不匹配（跳过），第二条命中——序号是条目在清单中的位置非命中次数
     const rig = makeRig({
       allowlist: [
-        { tool: 'deploy', pattern: '' },
-        { tool: 'write', pattern: 'src' },
+        { tool: 'deploy', pattern: '', decision: 'allow' },
+        { tool: 'write', pattern: 'src', decision: 'allow' },
       ],
     });
     const hit = await rig.run(WRITE, { path: 'src/a.ts' });
     expect(hit.blocked).toBe(false);
-    expect(hit.allowReason).toBe('allowlist:1');
+    expect(hit.allowReason).toBe('policy-allow:1');
   });
 
   it('未命中路径不置标注（allowReason 缺省 undefined——审批放行是普通放行非免问面）', async () => {
@@ -320,6 +323,81 @@ describe('allowlist 免问', () => {
     expect(result.blocked).toBe(false);
     expect(rig.asks).toHaveLength(1); // 走了审批对
     expect(result.allowReason).toBeUndefined();
+  });
+});
+
+/* ---------------- 工具策略表 deny 面（审批分档批定形块④——deny 优先律） ---------------- */
+
+describe('deny 硬拒', () => {
+  it('deny 条目命中 → block 硬拒短路：不产生审批对、reason 注明策略表归因与不可翻转', async () => {
+    const rig = makeRig({ allowlist: [{ tool: 'deploy', pattern: '', decision: 'deny', reason: '生产环境禁部署' }] });
+    const result = await rig.run(DEPLOY, { region: 'cn' });
+    expect(result.blocked).toBe(true);
+    expect(result.reached).toBe(false); // 短路整链
+    expect(rig.asks).toHaveLength(0); // deny 拒不产生 approval 对（粘性命中无审批对同律）
+    expect(result.reason).toContain('policy-deny:0');
+    expect(result.reason).toContain('生产环境禁部署'); // 用户手写 reason 呈现
+  });
+
+  it('deny 序在 allow 之后仍胜（引擎 deny 优先律——allow 条目不可翻转 deny）', async () => {
+    const rig = makeRig({
+      allowlist: [
+        { tool: 'deploy', pattern: '', decision: 'allow' },
+        { tool: 'deploy', pattern: '', decision: 'deny' },
+      ],
+    });
+    const result = await rig.run(DEPLOY, { region: 'cn' });
+    expect(result.blocked).toBe(true);
+    expect(rig.asks).toHaveLength(0);
+  });
+
+  it('fs 族 deny 条目按 pattern 圈定拒绝面：前缀外照常走审批（非整工具绝杀）', async () => {
+    const rig = makeRig({ allowlist: [{ tool: 'write', pattern: 'secrets', decision: 'deny' }] });
+    const denied = await rig.run(WRITE, { path: 'secrets/k.env' });
+    expect(denied.blocked).toBe(true);
+    expect(rig.asks).toHaveLength(0);
+    // 前缀外：deny 未命中 → 照问（本测 rig 缺省批准 → 放行）
+    const outside = await rig.run(WRITE, { path: 'src/a.ts' });
+    expect(outside.blocked).toBe(false);
+    expect(rig.asks).toHaveLength(1);
+  });
+
+  it('deny 条目带 expiresAt 属坏形 → 引擎剔除：不硬拒不误免问，照常回落审批', async () => {
+    const rig = makeRig({
+      allowlist: [{ tool: 'deploy', pattern: '', decision: 'deny', expiresAt: Date.now() + 60_000 }],
+    });
+    const result = await rig.run(DEPLOY, { region: 'cn' });
+    expect(result.blocked).toBe(false);
+    expect(rig.asks).toHaveLength(1); // 坏形剔除后无 deny 面 → 回落 ask
+  });
+
+  it('write 档 deny 条目不覆盖 read 档调用——read 工具在显式 read 声明下放行', async () => {
+    // 档位偏序（③）：deny 及以上扩面——write 档 deny 不拦 read 档调用；
+    // read 档放行 = 显式声明 read 才有宽档（当前序位 read 早退在策略表前，
+    // deny 拦 read 档工具的完整六步序随执法笔重排）
+    const rig = makeRig({ allowlist: [{ tool: 'read', decision: 'deny', effect: 'write' }] });
+    const result = await rig.run(READ, { path: 'src/a.ts' });
+    expect(result.blocked).toBe(false);
+    expect(rig.asks).toHaveLength(0);
+  });
+});
+
+/* ---------------- exec 档（审批分档批三值扩——read 早退收紧锁） ---------------- */
+
+describe('exec 档工具', () => {
+  it('exec 档走审批对（read 早退收紧：非 read 档不留审批旁路）', async () => {
+    const rig = makeRig();
+    const result = await rig.run(EXEC_TOOL, { command: 'ls' });
+    expect(result.blocked).toBe(false);
+    expect(result.reached).toBe(true);
+    expect(rig.asks).toHaveLength(1); // exec 同 write 触发审批对
+    expect(rig.asks[0]!.stickyKey).toEqual({ target: 'shell', tier: 'workspace-write' }); // 整名族指纹
+  });
+
+  it('exec 调用不被 write 档 allow 条目免问（偏序窄化自限——write 档免问授权结构上不覆盖 exec）', async () => {
+    const rig = makeRig({ allowlist: [{ tool: 'shell', pattern: '', decision: 'allow', effect: 'write' }] });
+    await rig.run(EXEC_TOOL, { command: 'ls' });
+    expect(rig.asks).toHaveLength(1); // 条目档位不及 → 未命中 → 照问
   });
 });
 

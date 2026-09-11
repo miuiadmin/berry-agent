@@ -75,8 +75,29 @@ export type AgentToolCall = ToolCallBlock;
 /* 都是跨件消费方，契约面不得住 tools 实现件（DAG 只允许 tools 反向被依赖） */
 /* ------------------------------------------------------------------ */
 
-/** 工具效果面（03 §2.3 一位两用）：缺省 read；write 兼任批调度屏障（批边界串行）与审批对触发（审批编舞归 safety 件） */
-export type ToolEffect = 'read' | 'write';
+/**
+ * 工具效果面（03 §2.3 一位两用）——**工具档三值**（04 §9 定形块①，2026-09-11
+ * 审批分档批）：`read` = 只读（批内并行调度、不走审批对）；`write` = 写面
+ * （批边界串行屏障 + 审批对触发）；`exec` = 任意进程执行类（v1 升档清单恰
+ * 一处 = bash——exec/bash.ts；write/exec 同触发审批对、同走批边界串行）。
+ * **缺省 = exec**（未知缺省最危律——04 §9 定形块②；执法位在注册面归一
+ * `def.effect ?? 'exec'`，2026-09-11 缺省反转，原缺省 read 作废）。
+ * 审批编舞归 safety 件。
+ */
+export type ToolEffect = 'read' | 'write' | 'exec';
+
+/**
+ * 工具档偏序 rank（04 §9 定形块①：read < write < exec）。与 §8 沙箱档
+ * TIER_RANK（safety/approval 件内私有常量）**两轴分立**：工具档 = 该工具
+ * 固有风险位，沙箱档 = 本次运行许可面，互不推导。消费位：策略表条目
+ * `effect?` 限定的偏序包含判（safety 匹配引擎）、粘性/allow 授权不跨档
+ * 覆盖的比较面（04 §9 ①「write 档免问授权结构上不覆盖 exec 调用」）。
+ */
+export const TOOL_TIER_RANK: Readonly<Record<ToolEffect, number>> = {
+  read: 0,
+  write: 1,
+  exec: 2,
+};
 
 /** 工具执行语境（管道构造后传给 ToolDefinition.execute 的第 2 参） */
 export interface ToolContext {
@@ -104,7 +125,7 @@ export interface ToolDefinition {
   parameters: object;
   /** 单次执行预算毫秒（正数；缺省走管道 60s——04 §7 执行段） */
   timeoutMs?: number;
-  /** 效果面（一位两用——调度语义 + 审批触发；缺省 read。03 §2.3） */
+  /** 效果面（一位两用——调度语义 + 审批触发；缺省 exec〔未知缺省最危律——04 §9 定形块②，2026-09-11 反转〕。03 §2.3） */
   effect?: ToolEffect;
   /**
    * 幂等位（03 §2.3）：缺省 true；false = 禁静默重试——副作用型工具重放即
@@ -155,10 +176,11 @@ export interface GateInput {
   /** 参数已被改写旗（改参的守门者维护；落账 decision=mutate 的判据） */
   mutated: boolean;
   /**
-   * 放行来源标注（04 §9 批 12f-4 命中审计条款）：免问面（跨会话 allowlist）
-   * 命中的守门者置 `allowlist:<条目序>`，管道落 gate/decision 时承接进 reason
-   * 位（放行仍可审计——「谁放的行」指哪条既有授权放的行）；缺省 undefined =
-   * 普通放行，落账 reason 'ok'
+   * 放行来源标注（04 §9 命中审计条款）：免问面（跨会话工具策略表）命中的
+   * 守门者置 `policy-allow:<条目序>`（2026-09-11 审批分档批更词——原
+   * `allowlist:<条目序>` 词面作废，04 §9 定形块④；值域归 04 §9 单源），
+   * 管道落 gate/decision 时承接进 reason 位（放行仍可审计——「谁放的行」
+   * 指哪条既有授权放的行）；缺省 undefined = 普通放行，落账 reason 'ok'
    */
   allowReason?: string;
   /** 拦截决策（block 者置；缺省 undefined = 放行沿链） */

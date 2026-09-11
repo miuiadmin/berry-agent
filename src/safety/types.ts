@@ -45,13 +45,15 @@ export type ApprovalAnswer = 'approve' | 'reject' | 'cancel' | 'always';
 
 /**
  * 审批推荐规则候选（04 §9 粘性段定形③草案条款）：由请求动作生成的
- * allowlist 条目草案——用户选 always 即按此形状写用户配置层。生成规则：
+ * 策略表 **allow 条目**草案——用户选 always 即按此形状写用户配置层
+ * （tool-policy.json——机器写侧唯一正门只产 allow 条目，deny 唯用户手写：
+ * 2026-09-11 审批分档批定形块③）。生成规则：
  * fs 族 = 该次写目标的精确 canonical 路径（不取公共目录——批这一次不升格
  * 批全仓）；bash 族 = 剥壳命令词干（≤2 词「命令 [子命令]」，剥不出干净
  * 词干即无草案）；升权目标为 danger 的高位动作恒不携带（选项不呈现）。
  */
 export interface AllowlistDraft {
-  /** 目标工具名（宿主面统一词汇——与 AllowlistEntry.tool 同源） */
+  /** 目标工具名（宿主面统一词汇——与 ToolPolicyEntry.tool 同源） */
   readonly tool: string;
   /** 条目模式：fs = 精确 canonical 路径 / bash = 剥壳词干 */
   readonly pattern: string;

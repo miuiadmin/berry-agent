@@ -27,11 +27,11 @@ import type { SessionLog } from '../session/index.js';
 import { createRootsProvider, installSafetyGate, sensitiveReadFiles } from '../safety/index.js';
 import type {
   AllowlistDraft,
-  AllowlistEntry,
   ApprovalPolicyMode,
   ApprovalService,
   CarveOutEntry,
   SandboxMode,
+  ToolPolicyEntry,
 } from '../safety/index.js';
 import { createFsTools, createSearchTools, createToolPipeline, createToolRegistry } from '../tools/index.js';
 import type { ToolRegistry } from '../tools/index.js';
@@ -59,8 +59,8 @@ export interface OpenToolsOptions {
   readonly policy?: ApprovalPolicyMode;
   /** 「始终允许」条目写入回调（04 §9 粘性段定形③；缺省 always 面关闭） */
   readonly persistAllowlist?: (draft: AllowlistDraft) => void;
-  /** 跨会话 allowlist（04 §9 粘性第 3 款 advisory 免问面；缺省功能关闭） */
-  readonly allowlist?: readonly AllowlistEntry[];
+  /** 跨会话工具策略表（04 §9 粘性第 3 款 + 审批分档批③④双面：allow 免问 / deny 硬拒；缺省功能关闭） */
+  readonly allowlist?: readonly ToolPolicyEntry[];
   /** carve-out 例外条目（缺省内置 .git/.env 条目；传 [] 显式关闭例示面——数据目录条恒在） */
   readonly entries?: readonly CarveOutEntry[];
   /** 装载工具定义取值器（批 19a 消费腿：boot 全局层定义经会话装配重放注册——走本管道守门/审批与驱动层同律；每会话装配时调用一次） */

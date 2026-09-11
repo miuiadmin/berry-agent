@@ -381,7 +381,7 @@ describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘�
     expect(load.healthy).toBe(true);
     expect(load.entries).toHaveLength(1);
     expect(load.entries[0]!.tool).toBe('write');
-    expect(load.entries[0]!.pattern.endsWith('n1.txt')).toBe(true); // canonical 绝对路径（realpath 平台差异不锁全串）
+    expect(load.entries[0]!.pattern?.endsWith('n1.txt')).toBe(true); // canonical 绝对路径（realpath 平台差异不锁全串）
     await rt.shutdown();
   });
 
@@ -396,7 +396,7 @@ describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘�
       env: {},
       workspace: () => ws,
       // 条目 = 工作区前缀（fs 族 all-or-nothing——write 落 ws 内即命中）
-      allowlist: [{ tool: 'write', pattern: ws }],
+      allowlist: [{ tool: 'write', pattern: ws, decision: 'allow' }],
     });
     // 若被问则恒答 approve（免问失效时本测断言零请求即红——不静默放水）
     const backend = new ApprovalBackend('approve');
@@ -411,14 +411,14 @@ describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘�
     expect(backend.requests).toHaveLength(0);
     expect(dataOf(session.driver.session, 'approval/asked')).toHaveLength(0);
     expect(readFileSync(join(ws, 'n2.txt'), 'utf8')).toBe('yo');
-    // 命中审计（04 §9 批 12f-4）：放行行 reason 位落 allowlist:<条目序>——
-    // 免问放行仍可审计（「谁放的行」= 哪条既有授权放的行）
+    // 命中审计（04 §9 命中审计条款 + 审批分档批④更词）：放行行 reason 位落
+    // policy-allow:<条目序>——免问放行仍可审计（「谁放的行」= 哪条既有授权放的行）
     const gateDecisions = dataOf(session.driver.session, 'gate/decision');
     expect(
       gateDecisions.some(
         (d) =>
           (d as { decision: string; reason: string }).decision === 'allow' &&
-          (d as { decision: string; reason: string }).reason === 'allowlist:0',
+          (d as { decision: string; reason: string }).reason === 'policy-allow:0',
       ),
     ).toBe(true);
     await rt.shutdown();
@@ -721,7 +721,7 @@ describe('跨会话操控装配（e4-3 操控腿接线）', () => {
       model: 'faux-stack/m1',
       env: {},
       workspace: () => ws,
-      allowlist: [{ tool: 'session_send', pattern: ws }],
+      allowlist: [{ tool: 'session_send', pattern: ws, decision: 'allow' }],
     });
     const a = stack.openStartupSession(ws);
     const b = stack.openStartupSession(ws); // 目标（同树/跨树同门——操控轴无树内豁免）
