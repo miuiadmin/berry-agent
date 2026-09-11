@@ -28,7 +28,8 @@ manifest 是包内声明面（键闭集，未知键**拒载**——拒绝式而�
 | `label`  | string      | 展示名；缺省取 id                                                                                           |
 | `entry`  | string      | 入口文件（相对包根）；缺席走解析序                                                                          |
 | `grants` | object      | 授权申请面；单维 `writableRoots: string[]`                                                                  |
-| `config` | JSON Schema | 配置形状（typebox 产物或等价 JSON Schema）；启用行 `config` 值同判据校验                                    |
+| `config` | object      | 宿主侧默认配置值（启用行 `config` 缺席时整值回落——**整值替换非合并**；secret 型键明文值拒载）                |
+| `configSchema` | ConfigField[] | 配置字段声明面（四型字段描述数组——装载期字段级校验与 `/plugins config` 表单渲染双消费源；见下「配置声明」节） |
 | `api`    | object      | API 治理块（`minApiVersion` / `targetApiVersion` / `experimental`）                                         |
 | `skills` | string[]    | 技能目录清单；非空即在场的唯一声明载荷                                                                      |
 
@@ -190,12 +191,48 @@ export default async function apply(ctx) {
 ```yaml
 plugins:
   - id: my-plugin # 必填
-    config: { ... } # 可选——按 manifest config 判据校验（整值替换非合并）
+    config: { ... } # 可选——宿主默认值的行级整值覆盖（非合并；字段判据见 manifest configSchema，secret 型键明文拒）
     disabled: true # 可选——行级禁用
     opens: [...] # 可选——高危面开门授予集（默认全关；进程级开门另走顶层 doors 段 / TUI /doors open——两源任一含即门开）
 ```
 
 用户行与 `core:` 同名行字段级后写胜出（可覆盖官方件 config 或禁用单件）。
+
+## 配置声明（configSchema）
+
+`configSchema` 声明插件配置的字段面——**字段描述数组**（JSON 可序列化；typebox JSON Schema 原生形不采——typebox Type 对象不可序列化进清单，且 secret 凭证域联动在原生 JSON Schema 无语义位）。声明在场时驱动两件事：装载期字段级校验（`PLUGIN_CONFIG_INVALID` 执法源）与 TUI `/plugins config <id>` 表单逐字段问答。
+
+```json
+{
+  "berryAgent": {
+    "configSchema": [
+      { "key": "endpoint", "type": "text", "required": true, "label": "端点", "description": "服务地址" },
+      { "key": "token", "type": "secret", "required": true },
+      { "key": "mode", "type": "select", "default": "fast", "options": [
+        { "value": "fast", "label": "快" }, { "value": "slow", "label": "慢" }
+      ] },
+      { "key": "verbose", "type": "boolean", "default": false }
+    ]
+  }
+}
+```
+
+字段型四值闭集（`type` 闭集外值拒载）：
+
+| 型         | 校验                     | 表单问询                       | default       |
+| ---------- | ------------------------ | ------------------------------ | ------------- |
+| `text`     | 须字符串                 | input（空答保留现值）          | 可选（string） |
+| `secret`   | 明文双源拒（见下）       | input（空答保留现值）          | **禁携**       |
+| `select`   | 须在 `options` 值域内    | select（choices 即声明值域）   | 可选（string） |
+| `boolean`  | 须布尔                   | confirm（确认 = 开 / 取消 = 关）| 可选（boolean）|
+
+通用字段位：`key`（必携，词法 `^[a-z][a-z0-9-]*$` 与插件 id 同形，重复拒）/ `label` / `description` / `required`；`select` 型必携非空 `options: { value, label }[]`；未知键拒绝式（拼写错误当场红）。
+
+**secret 凭证盒语义**：`secret` 型字段的值**不落 enabled.yaml 也不落 package.json**（两源明文均拒——行侧指路表单、清单侧指路作者删键），唯一真源是凭证盒 `plugin:<id>/config:<key>`（加密存储域）。`/plugins config` 表单答值写入凭证盒（meta `source: 'manual'`，审计 `credentials/changed` 归因恰一笔——值恒不入审计载荷）；装载期合成时凭证直取注回——apply 收到的 config 里该键即明文现值。呈现纪律：一切人面呈现位 secret 值遮蔽 `'***'`。
+
+**缺省合成序**（configSchema 在场时；缺席 = 行为零变化，行 config ?? 宿主默认原值直传）：① base = 行 `config` ?? 宿主默认 `config`（整值替换非合并）→ ② secret 型键在 base 出现即拒（明文双源拒）→ ③ 声明字段过字段级校验（required 合成后缺席拒）→ ④ 余键字段 `default` 兜底 → ⑤ secret 键凭证直取注回（required 的 secret 凭证缺席拒载）→ ⑥ 未声明键原样透传。
+
+表单侧同律的缺省烘焙回避：值等于缺省源（行缺席时宿主默认/字段 default）的字段不落行——行是覆盖仓，表单全默认直存会把清单缺省烙进用户行，作者后续改 `default` 不再传播。取消（任一问询拒绝）整次放弃——零写盘零凭证写。
 
 ## 错误码（插件域 `PLUGIN_` 前缀）
 
@@ -206,7 +243,7 @@ plugins:
 | `PLUGIN_APPLY_FAILED`            | apply 抛错或超 10s 时钟帽（错误归一）                  |
 | `PLUGIN_RATE_LIMITED`            | 注册动词越频率护栏                                     |
 | `PLUGIN_WINDOW_CLOSED`           | 装载窗口关窗后注册（宿主回调上下文内例外）             |
-| `PLUGIN_CONFIG_INVALID`          | 启用行 config 值不符 manifest 判据                     |
+| `PLUGIN_CONFIG_INVALID`          | config 值不符 configSchema 判据 / secret 型键明文在场（行与清单双源拒）/ required 合成后缺席 |
 | `PLUGIN_LOAD_FAILED`             | 装载失败（跳过/降级/拒启三档分立处置）                 |
 | `PLUGIN_HOOK_UNKNOWN`            | `ctx.on` 钩名不在主表（fail-closed 拒）                |
 | `PLUGIN_EVENT_TYPE_CONFLICT`     | 自定义事件类型撞 LIVE 词表既有词（核心词/域名式/在册） |
@@ -227,7 +264,7 @@ plugins:
 }
 ```
 
-`berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；用户侧装机动词全在场：`berry-agent plugins install npm:<包名>`（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏；另有 `git:<url>[#<ref>]` 与 `local:<路径>` 两源形，ref 词法详见 [usage.md](usage.md#plugins-插件管理)）或 TUI 内 `/plugins install`。装机写入账本与启用行，成功尾提示重载（TUI 面自动链 `/reload`，CLI 面下次启动生效）。
+`berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；用户侧装机动词全在场：`berry-agent plugins install npm:<包名>`（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏；另有 `git:<url>[#<ref>]` 与 `local:<路径>` 两源形，ref 词法详见 [usage.md](usage.md#plugins-插件管理)；TUI `/plugins` 面只承载载态查看与行编辑——装机走 CLI）。装机写入账本与启用行，成功尾提示重载（TUI 行编辑面自动链 `/reload`，CLI 面下次启动生效）。
 
 ## 最小完整示例
 

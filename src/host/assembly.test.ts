@@ -17,6 +17,9 @@ import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
 import { assembleHostStack, createControlOpensFor, readDoorsSegmentLive, readTriggerOpensLive } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
+import type { PluginContext } from './plugin-context.js';
+import { createPluginStoreFs, readEnabledRowsForEdit } from './plugin-store.js';
+import { runWithSessionAnchor } from './session-anchor.js';
 import { createHostRuntime } from './runtime.js';
 import { readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import { SETTINGS_BASENAME } from './settings-store.js';
@@ -1471,6 +1474,195 @@ describe('插件道路由装配全栈 e2e（U5-3——受理→开面 replay→f
       expect(row?.message).toContain('服务 sdk-routes 缺席'); // CONTEXT_SERVICE_MISSING 文案保真
       expect(assembly.boot.report.activated.map((a) => a.id)).toContain('core:demo'); // 行级隔离——他行照装
       expect(sdkRouteUsedOf(assembly, 'acme-lone')).toEqual([]);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
+/* ---------------- /plugins config 表单 + ctx.ui 问询 e2e（ix-4 收口锁——全真装配问询应答往返） ---------------- */
+
+describe('/plugins config 表单与 ctx.ui 问询 e2e（ix-4——表单写读闭环 + ALS 锚问询往返）', () => {
+  /** ask 三原语 script 应答后端（按调用序弹答案；notify 捕获回执——/plugins e2e captureBackend 同族） */
+  function askScriptBackend(
+    script: { inputs?: readonly string[]; confirms?: readonly boolean[]; selects?: readonly string[] },
+    notified: string[],
+    calls: { confirms: string[]; inputs: Array<[string, unknown]>; selects: Array<[string, string[]]> },
+  ): UiBackend<never> {
+    let inIdx = 0;
+    let cfIdx = 0;
+    let selIdx = 0;
+    return {
+      id: 'ask-script',
+      capabilities: {
+        notify: true,
+        confirm: true,
+        select: true,
+        input: true,
+        approval: false,
+        setStatus: false,
+        setWidget: false,
+      },
+      hasAudience: () => true,
+      notify: (message, opts) => void notified.push(`${opts?.level ?? 'info'}|${message}`),
+      confirm: async (message) => {
+        calls.confirms.push(message);
+        return script.confirms?.[cfIdx++] ?? false;
+      },
+      input: async (message, opts) => {
+        calls.inputs.push([message, opts]);
+        return script.inputs?.[inIdx++] ?? '';
+      },
+      select: async (message, choices) => {
+        calls.selects.push([message, choices.map((c) => c.value)]);
+        return script.selects?.[selIdx++] ?? choices[0]!.value;
+      },
+    };
+  }
+
+  it('ctx.ui 阻塞三件 ambient 锚全真往返——tui-entry 同款 ALS 调用形下问询达后端、答案回 handler', async () => {
+    const dir = tmpDir('host-asm-ix4-ask-');
+    const askDemo: CorePluginReference = {
+      name: 'askdemo',
+      apply: async (ctx) => {
+        const context = ctx as PluginContext;
+        context.channels.registerCommand('ask-probe', async (args) => {
+          // ambient 锚语境（零自觉面）：不显式 sessionId，靠 ALS 命令锚解析
+          const yes = await context.ui.confirm('继续？');
+          const word = await context.ui.input('输入一词');
+          const mode = await context.ui.select('选档', [
+            { value: 'fast', label: '快' },
+            { value: 'slow', label: '慢' },
+          ]);
+          context.ui.notify(`回执 ${yes}/${word}/${mode}（锚 ${args.sessionId ?? '无'}）`);
+        });
+        return undefined;
+      },
+    };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [askDemo],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 锚时效前置（ix-2 档位 2：受理时不在通道核在册集拒 UI_ASK_SESSION_CLOSED）
+      assembly.stack.channels.registerSession('sess-e2e');
+      const notified: string[] = [];
+      const calls = {
+        confirms: [] as string[],
+        inputs: [] as Array<[string, unknown]>,
+        selects: [] as Array<[string, string[]]>,
+      };
+      assembly.stack.channels.addBackend(
+        askScriptBackend({ inputs: ['hello'], confirms: [true], selects: ['slow'] }, notified, calls),
+      );
+      // tui-entry :194 同款调用形：ALS 包裹 + 双参 dispatch（ambient 锚唯一注入位）
+      const dispatched = await runWithSessionAnchor('sess-e2e', () =>
+        assembly.stack.channels.dispatchCommand('/ask-probe ping', 'sess-e2e'),
+      );
+      expect(dispatched).toBe(true);
+      // 问询真达后端（ctx.ui → 锚解析 → channelsUi 闭包 → UiCore → askQueue → backend 全链）
+      expect(calls.confirms).toEqual(['继续？']);
+      expect(calls.inputs[0]![0]).toBe('输入一词');
+      expect(calls.selects).toEqual([['选档', ['fast', 'slow']]]);
+      // 答案回流 + notify 呈现（args.sessionId 透传在同链验证）
+      expect(notified.some((t) => t.endsWith('回执 true/hello/slow（锚 sess-e2e）'))).toBe(true);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('/plugins config 全链写读闭环——表单写值后自动链换代、新代 config 实参合成全链（secret 凭证直取注回）', async () => {
+    const dir = tmpDir('host-asm-ix4-cfg-');
+    const seenConfigs: unknown[] = [];
+    const cfgDemo: CorePluginReference = {
+      name: 'cfgdemo',
+      config: { mode: 'fast' },
+      configSchema: [
+        { key: 'endpoint', type: 'text' },
+        { key: 'token', type: 'secret' },
+        {
+          key: 'mode',
+          type: 'select',
+          default: 'fast',
+          options: [
+            { value: 'fast', label: '快' },
+            { value: 'slow', label: '慢' },
+          ],
+        },
+        { key: 'verbose', type: 'boolean', default: false },
+      ],
+      apply: async (_ctx, config) => {
+        seenConfigs.push(config);
+        return undefined;
+      },
+    };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [cfgDemo],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 初代：行缺席 → base = 宿主默认 {mode:'fast'}；verbose default 兜底注回；
+      // endpoint/token 无值缺席（合成序④——apply 实参即合成结果）
+      expect(assembly.pluginCounts).toEqual({ total: 1, enabled: 1, failed: 0 });
+      expect(seenConfigs).toEqual([{ mode: 'fast', verbose: false }]);
+
+      const notified: string[] = [];
+      const calls = {
+        confirms: [] as string[],
+        inputs: [] as Array<[string, unknown]>,
+        selects: [] as Array<[string, string[]]>,
+      };
+      assembly.stack.channels.addBackend(
+        askScriptBackend(
+          { inputs: ['https://api.example', 'sekret-e2e'], confirms: [true], selects: ['slow'] },
+          notified,
+          calls,
+        ),
+      );
+      // 表单腿：dispatchCommand 第二参 = CommandArgs.sessionId → configForm 闭包显式绑 ask（不依赖 ALS）
+      expect(await assembly.stack.channels.dispatchCommand('/plugins config core:cfgdemo', 'sess-cfg')).toBe(true);
+      // 回执呈现纪律：已更新 + secret 遮蔽；明文不进任何呈现位
+      expect(notified.some((t) => t.includes('已更新 core:cfgdemo 配置'))).toBe(true);
+      expect(notified.some((t) => t.includes('***（凭证盒，已更新）'))).toBe(true);
+      expect(notified.some((t) => t.includes('sekret-e2e'))).toBe(false);
+
+      // 落点一：enabled.yaml 真盘——非 secret 三值整值替换、secret 不落 yaml
+      const edit = readEnabledRowsForEdit(dir, createPluginStoreFs());
+      if (!edit.ok) throw new Error(`坏行：${edit.message}`);
+      expect(edit.rows).toEqual([
+        { id: 'core:cfgdemo', config: { endpoint: 'https://api.example', mode: 'slow', verbose: true } },
+      ]);
+      const yamlText = readFileSync(join(dir, 'enabled.yaml'), 'utf8'); // enabledYamlPath = <dataDir>/enabled.yaml
+      expect(yamlText).toContain('endpoint: https://api.example');
+      expect(yamlText).not.toContain('token');
+      expect(yamlText).not.toContain('sekret-e2e');
+      // 落点二：凭证盒真库 + credentials/changed 审计恰一笔（值恒不入载荷）
+      const entry = assembly.runtime.persistence.store.getCredential('plugin:core:cfgdemo', 'config:token');
+      expect(entry?.apiKey).toBe('sekret-e2e');
+      expect(entry?.meta).toEqual({ source: 'manual' });
+      const credAudit = [...createAuditFace(assembly.runtime.persistence.store.sqlite()).listRecent()]
+        .filter((r) => r.type === 'credentials/changed')
+        .map((r) => r.data);
+      expect(credAudit).toEqual([
+        { namespace: 'plugin:core:cfgdemo', name: 'config:token', action: 'add', origin: 'human' },
+      ]);
+
+      // 成功尾自动链换代：新代 apply 实参 = 行 config（endpoint/mode/verbose）+
+      // secret 凭证直取注回 token（合成序⑤）——写读闭环在装载面收口
+      await assembly.reloader.settle();
+      expect(assembly.pluginCounts).toEqual({ total: 1, enabled: 1, failed: 0 });
+      expect(seenConfigs).toEqual([
+        { mode: 'fast', verbose: false },
+        { endpoint: 'https://api.example', token: 'sekret-e2e', mode: 'slow', verbose: true },
+      ]);
     } finally {
       await assembly.runtime.shutdown();
     }

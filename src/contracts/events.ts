@@ -1,11 +1,14 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——32 核心词全列，
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——34 核心词全列，
  * compaction 三词 2026-09-06 纵切批增补、compaction/fallback 2026-09-09
  * U4 落码批入册、session/thinking-level 同日遗漏
  * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
  * capability/used 2026-09-08 U3 落码批入册〔05 行 70-71 开门制两审计词——
  * 载体 = 进程级 durable 审计流（05 §9 audit_events，非会话 append 面），
- * 入册即得核心词身份双闸（U3-0 台账 R-2）〕）。
+ * 入册即得核心词身份双闸（U3-0 台账 R-2）〕、session/paused 2026-09-11
+ * 无人值守深化批 u-3 入册〔核心词 33〕、credentials/changed 同日 ix-4
+ * 补注册〔c-1 立词而注册表漏行——/plugins config 表单腿 e2e 走真装配
+ * audit 词汇闸 fail-loud 抓出；核心词 34〕）。
  *
  * 双入口纪律：核心词汇本表静态声明（含类别/归属/语义），插件扩展经
  * registerEventType 显式注册；session append 词汇检查（未注册类型抛
@@ -321,6 +324,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '权限预设切换审计（审批分档批 ap-3 2026-09-11——04 §9 定形块⑥「预设切换落审计」兑现：用户主权动作留痕，/danger approve 同形）：载荷 {preset: conservative|balanced|open, sandboxMode, approvalPolicy, appended}（appended = 建议集去重后真追加数——balanced/conservative 恒 0）；写点 = TUI /approval preset 执行尾恰一笔（写盘成功后；CLI --preset 逐次形零审计、失败路径零落账）；载体 = audit_events',
+  },
+  {
+    type: 'credentials/changed',
+    category: 'log-only',
+    owner: 'host',
+    tier: 'stable',
+    description:
+      '凭证治理记账（凭证代管批 c-1 立词 2026-09-08——05 §1.1 词条单源；ix-4 补注册：规范立词而核心词表漏行的 c 批真遗漏，audit 词汇闸 fail-loud 抓出）：载荷 {namespace, name, action: add|remove|rotate, origin: human|oauth-flow}（值恒不入载荷——模型可见性铁律 03 §10.9）；写点 = 宿主受理位（人面 /credentials add/rm + oauth 流写/轮换 + /plugins config 表单 secret 入盒——装配根单写者律）；载体 = audit_events',
   },
   {
     type: 'session/paused',

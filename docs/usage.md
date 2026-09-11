@@ -110,7 +110,7 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | `@`      | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形） |
 | `/`      | 命令补全（注册命令表）                                |
 
-TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件装机管理——list/check/install/uninstall/mount/unmount/toggle/update，写动词成功尾自动链重载）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry-agent doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务手动推进）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
+TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry-agent plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry-agent doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务手动推进）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
 
 ### run 单次执行
 
@@ -216,7 +216,7 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 
 装机失败拒 `PLUGIN_INSTALL_FAILED`（含护栏拒与坏 ref 形）；卸载拒 `PLUGIN_UNINSTALL_REFUSED`（装机账本损坏等拒写防覆盖形）。
 
-写侧六动词执行面全在场：装机动词（`install`/`update`）走 npm 钉版安装（供应链护栏），行级动词（`mount`/`unmount`/`toggle`）编辑 `enabled.yaml` 启用行，`uninstall` 走双相清算（四段幂等 + 审计落账）。`enabled.yaml` 仍是启用面的底层真源（手编与命令同链可审计——boot 装载序 diff 补播）；`--no-plugins` 安全模式跳过全部插件装载（core: 与用户插件都不装）——坏插件锁死启动时的自救位。
+写侧六动词执行面全在场：装机动词（`install`/`update`）走 npm 钉版安装（供应链护栏），行级动词（`mount`/`unmount`/`toggle`）编辑 `enabled.yaml` 启用行，`uninstall` 走双相清算（四段幂等 + 审计落账）；配置表单 `config <id>`（TUI 会话内 `/plugins config <id>`）按插件 `configSchema` 逐字段问答——非 secret 值整值替换写入行 `config`、secret 值入凭证盒（`plugin:<id>/config:<key>`）不落 yaml，值等于缺省源不落行（行是覆盖仓不烙缺省），取消整次放弃零写盘。`enabled.yaml` 仍是启用面的底层真源（手编与命令同链可审计——boot 装载序 diff 补播）；`--no-plugins` 安全模式跳过全部插件装载（core: 与用户插件都不装）——坏插件锁死启动时的自救位。
 
 ## 环境变量
 
