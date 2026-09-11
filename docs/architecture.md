@@ -37,7 +37,7 @@
 | `core:skills`      | 技能装载（SKILL.md 双层结构、六位发现层、渐进披露、skill_manage）                                               |
 | `core:web`         | 网络取数（fetch 工具 + ctx.fetch + SSRF 五卫生件）                                                              |
 | `core:scheduler`   | 定时任务（jobs 表、抢占、`/tick`、cron 可选后端）                                                               |
-| `core:goal`        | 目标续跑（goals 表族、计划态 fold、wake 双帽、预算双轨）                                                        |
+| `core:goal`        | 目标续跑（goals 表族、计划态 fold、wake 双帽、预算双轨、帽尽停靠-唤醒）                                         |
 | `core:subagent`    | 子代理（Job 注册表、provider 面、声明式物化）                                                                   |
 | `core:checkpoint`  | 边界快照（pre-mutation 拍摄、blob 仓、`/rewind`）                                                               |
 | `core:memory`      | 记忆（表族、合并/极性、注入两路、周期提取、导入导出）                                                           |
