@@ -67,15 +67,23 @@ describe('两层解析（listFor / agentToolsFor）', () => {
     expect(registry.size).toBe(3);
   });
 
-  it('effect 缺省归一 read；timeoutMs 过小钳至下限（归一副本不动原对象）', () => {
+  it('effect 缺省归一 exec（未知缺省最危律回归锁——04 §9 定形块②反转：修前形归一 read 必红，未声明工具走全审批链不留静默豁口）；timeoutMs 过小钳至下限（归一副本不动原对象）', () => {
     const { registry } = makeRig();
     const original = makeDef({ name: 't', timeoutMs: 5 });
     registry.register(original);
     const stored = registry.listFor('any').find((d) => d.name === 't')!;
-    expect(stored.effect).toBe('read');
+    expect(stored.effect).toBe('exec');
     expect(stored.timeoutMs).toBe(TOOL_TIMEOUT_FLOOR_MS);
     expect(original.timeoutMs).toBe(5); // 原对象未被改动
     expect(original.effect).toBeUndefined();
+    // 三值显式声明原样保留（归一只补缺省不覆写）
+    registry.register(makeDef({ name: 'r', effect: 'read' }));
+    registry.register(makeDef({ name: 'w', effect: 'write' }));
+    registry.register(makeDef({ name: 'x', effect: 'exec' }));
+    const defs = registry.listFor('any');
+    expect(defs.find((d) => d.name === 'r')!.effect).toBe('read');
+    expect(defs.find((d) => d.name === 'w')!.effect).toBe('write');
+    expect(defs.find((d) => d.name === 'x')!.effect).toBe('exec');
   });
 
   it('repeatable 缺省归一 true；显式 false 保留（幂等位锚定——03 §2.3）', () => {
@@ -87,12 +95,14 @@ describe('两层解析（listFor / agentToolsFor）', () => {
     expect(defs.find((d) => d.name === 'one-shot')!.repeatable).toBe(false);
   });
 
-  it('toAgentTool 透传 effect（write 屏障键到达 loop 消费面）', () => {
+  it('toAgentTool 透传 effect（write/exec 屏障键到达 loop 消费面——03 §2.3 尾注三值调度）', () => {
     const executor = vi.fn(async () => ({ content: [] }));
-    const readTool = toAgentTool(makeDef({ name: 'r' }), executor);
+    const readTool = toAgentTool(makeDef({ name: 'r', effect: 'read' }), executor);
     const writeTool = toAgentTool(makeDef({ name: 'w', effect: 'write' }), executor);
-    expect(readTool.effect).toBeUndefined(); // read 是缺省——undefined 与 'read' 段归类同效
+    const execTool = toAgentTool(makeDef({ name: 'x', effect: 'exec' }), executor);
+    expect(readTool.effect).toBe('read');
     expect(writeTool.effect).toBe('write');
+    expect(execTool.effect).toBe('exec');
   });
 
   it('agentToolsFor 未接管道 → CONTEXT_SERVICE_MISSING 响亮失败（装配缺陷不静默）', () => {

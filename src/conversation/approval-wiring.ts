@@ -29,7 +29,7 @@ import type { EventDispatch } from '../context/index.js';
 import type { SessionLog } from '../session/index.js';
 import { APPROVAL_ANSWER_EVENT, bridgeApprovalSignal, createApprovalService } from '../safety/index.js';
 import type {
-  AllowlistDraft,
+  ToolPolicyDraft,
   ApprovalAnswerEnvelope,
   ApprovalPolicyMode,
   ApprovalRequest,
@@ -49,7 +49,7 @@ export interface SessionApprovalOptions {
   /** 策略档（缺省 'ask'；never = 无人值守确定性拒绝） */
   readonly policy?: ApprovalPolicyMode;
   /** 「始终允许」条目写入回调（04 §9 粘性段定形③织入位；缺省 always 面关闭） */
-  readonly persistAllowlist?: (draft: AllowlistDraft) => void;
+  readonly persistToolPolicy?: (draft: ToolPolicyDraft) => void;
 }
 
 /** 会话审批装配产物 */
@@ -79,7 +79,7 @@ export function wireSessionApproval(opts: SessionApprovalOptions): SessionApprov
   const service = createApprovalService(opts.dispatch, {
     ownership: { sessionId: opts.sessionId },
     ...(opts.policy !== undefined ? { policy: opts.policy } : {}),
-    ...(opts.persistAllowlist !== undefined ? { persistAllowlist: opts.persistAllowlist } : {}),
+    ...(opts.persistToolPolicy !== undefined ? { persistToolPolicy: opts.persistToolPolicy } : {}),
     // 审批对 durable 落账（05 §1.1 词行 data 形与 sink 载荷一一对应）
     sink: {
       asked: (payload) => opts.session.append('approval/asked', payload),
@@ -138,7 +138,7 @@ export function wireSessionApproval(opts: SessionApprovalOptions): SessionApprov
 /**
  * safety ApprovalRequest → 呈现载荷（contracts/approval 单源形）：
  * suggestedEntry 草案对象折人可读一行（`<tool> <pattern>`——面板展示面，
- * 回写走 persistAllowlist 的结构形草案，不经本串）。
+ * 回写走 persistToolPolicy 的结构形草案，不经本串）。
  */
 function toAskRequest(req: ApprovalRequest): ApprovalAskRequest {
   return {

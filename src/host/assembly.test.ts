@@ -18,7 +18,7 @@ import { assembleHostStack, createControlOpensFor, readDoorsSegmentLive, readTri
 import type { AssemblySuccess } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import { createHostRuntime } from './runtime.js';
-import { readAllowlist } from './allowlist-store.js';
+import { readToolPolicy } from './tool-policy-store.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
 import { createAuditFace } from '../persist/index.js';
@@ -65,10 +65,10 @@ function toolCallOf(id: string, name: string, args: Record<string, unknown>): Pi
   } as unknown as PiAssistantMessage;
 }
 
-describe('allowlist 装配期载入（批 12f-4——04 §9 定形块读侧律）', () => {
-  it('好形 allowlist.json：装配照常成功（advisory 免问面在场不拦装配序）', async () => {
+describe('工具策略表装配期载入（批 12f-4——04 §9 定形块读侧律；ap-2 更名 + 升格序）', () => {
+  it('好形 tool-policy.json：装配照常成功（advisory 免问面在场不拦装配序）', async () => {
     const dir = tmpDir('host-asm-al-ok-');
-    writeFileSync(join(dir, 'allowlist.json'), JSON.stringify({ entries: [{ tool: 'write', pattern: '/w/a.md' }] }));
+    writeFileSync(join(dir, 'tool-policy.json'), JSON.stringify({ entries: [{ tool: 'write', pattern: '/w/a.md' }] }));
     const assembly = await assembleHostStack({
       runtime: { dataDir: dir },
       noPlugins: true,
@@ -81,7 +81,7 @@ describe('allowlist 装配期载入（批 12f-4——04 §9 定形块读侧律�
 
   it('文件级坏形：warn 降级视同空清单——装配仍成功（与 enabled.yaml 拒启律分立的回归锁）', async () => {
     const dir = tmpDir('host-asm-al-bad-');
-    writeFileSync(join(dir, 'allowlist.json'), '{ Oops'); // JSON 坏形
+    writeFileSync(join(dir, 'tool-policy.json'), '{ Oops'); // JSON 坏形
     const assembly = await assembleHostStack({
       runtime: { dataDir: dir },
       noPlugins: true,
@@ -93,7 +93,20 @@ describe('allowlist 装配期载入（批 12f-4——04 §9 定形块读侧律�
     if (assembly.ok) await assembly.runtime.shutdown();
   });
 
-  it('纯 memory 形（dataDir null）：allowlist 双缺不炸——装配照常', async () => {
+  it('唯旧 allowlist.json 在场（新名缺席）：升格读入不炸——装配照常（更名迁移防御锁）', async () => {
+    const dir = tmpDir('host-asm-al-legacy-');
+    writeFileSync(join(dir, 'allowlist.json'), JSON.stringify({ entries: [{ tool: 'write', pattern: '/w/a.md' }] }));
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    expect(assembly.ok).toBe(true);
+    if (assembly.ok) await assembly.runtime.shutdown();
+  });
+
+  it('纯 memory 形（dataDir null）：策略表双缺不炸——装配照常', async () => {
     const assembly = await assembleHostStack({
       runtime: { memory: true },
       noPlugins: true,
@@ -619,14 +632,14 @@ class R1ApprovalBackend implements UiBackend<AgentMessage> {
 }
 
 describe('serve/daemon 形 always 回写同律（R-1——U3-0 台账记账项收口锁）', () => {
-  it('装配真接 persistAllowlist：always 应答真落 allowlist.json + decided=always（不降级 approve）', async () => {
+  it('装配真接 persistToolPolicy：always 应答真落 tool-policy.json + decided=always（不降级 approve）', async () => {
     const dir = tmpDir('host-asm-r1-');
     const ws = tmpDir('host-asm-r1-ws-');
     const faux = fauxProvider({ provider: 'faux-r1', models: [{ id: 'm1' }] });
     // serve-daemon.ts 同调用形（runtime: {dataDir} 直传——批 19a-3 迁 assembly
     // 公共段后 serve/daemon/mcp 与 TUI 同一合成代码路径；R-1 记账时缺口在
-    // serve/daemon 各自装配不传 persistAllowlist，公共段统一后本例锁两形态
-    // 同律——always 应答在 serve 形下同真落 allowlist.json、decided 不降级）
+    // serve/daemon 各自装配不传 persistToolPolicy，公共段统一后本例锁两形态
+    // 同律——always 应答在 serve 形下同真落 tool-policy.json、decided 不降级）
     const assembly = await assembleHostStack({
       runtime: { dataDir: dir },
       noPlugins: false,
@@ -655,15 +668,15 @@ describe('serve/daemon 形 always 回写同律（R-1——U3-0 台账记账项�
       expect(backend.requests).toHaveLength(1);
       expect(readFileSync(join(ws, 'r1.txt'), 'utf8')).toBe('hi');
 
-      // R-1 两断言面：① decided 落账 'always'（persistAllowlist 在场才有的
-      // 分流值——缺席则防御降级 'approve'）② 结构草案真落 allowlist.json
+      // R-1 两断言面：① decided 落账 'always'（persistToolPolicy 在场才有的
+      // 分流值——缺席则防御降级 'approve'）② 结构草案真落 tool-policy.json
       // （写侧唯一正门全链——装配闭包 dataDir 接 store 文件写）
       const decided = session.driver.session
         .events()
         .filter((event) => event.type === 'approval/decided')
         .map((event) => event.data);
       expect(decided[0]).toMatchObject({ decision: 'always' });
-      const load = readAllowlist(dir);
+      const load = readToolPolicy(dir);
       expect(load.healthy).toBe(true);
       expect(load.entries).toHaveLength(1);
       expect(load.entries[0]!.tool).toBe('write');

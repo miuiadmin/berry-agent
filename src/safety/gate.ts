@@ -1,18 +1,25 @@
 /**
  * L3 safety — 守门固定行（04 §7 守门段 + §8 carve-out 条 + §9 审批对）。
  *
- * 本行装在 tools_pre_execute 守门段首位，承担三件事：
- * 1. **carve-out 判定**（04 §8 2026-09-06 定形）：fs 写路径在根内但命中
+ * 本行装在 tools_pre_execute 守门段首位，评估序六步（04 §9 定形块④——
+ * 2026-09-11 审批分档批重排定形，read-only 档让棒沿旧保持一切判定之前）：
+ * 1. **(1) 工具策略表 deny 面**——命中即 block **硬拒**最先短路（reason
+ *    `policy-deny:<条目序>`，**不可被任何后续面翻转**：sticky always /
+ *    allow 命中 / policy never / sandbox danger 全不豁免——deny 是用户
+ *    主权裁决；deny 可拦 read 档工具，(1) 先于 (3)）；
+ * 2. **(2) carve-out 判定**（04 §8 2026-09-06 定形）：fs 写路径在根内但命中
  *    carve-out 例外（.git / .env 族 + 数据目录族）→ block **硬拒**——denial
  *    marker 回执、无升权出路（不存在「升到哪档能写 .git」，任何档含 danger
  *    恒不可写——底线不交模型裁决。与 berry 分叉：berry 把命中做成升权审批面
  *    不承）；数据目录条（04 §7 宿主状态根）无条件恒追加、不可经 entries=[]
  *    关闭（恒 = 平台底线，不交装配裁量——2026-09-06 遗漏审计批补钉）；
- * 2. **write/exec 审批对**（03 §2.3「write|exec 触发审批对」——2026-09-11
- *    审批分档批三值扩）：write/exec 档工具调用走审批 ask（粘性短路在
- *    ApprovalService 内）——工具策略表 allow 条目命中免问（advisory：只影
- *    响问不问，fence/执行段照走）、deny 条目命中硬拒（04 §9 定形块④）；
- * 3. 其余（显式声明 read 的工具）放行交棒。
+ * 3. **(3) read 档放行**（显式声明 read 才有宽档；未声明经注册面归一 exec
+ *    不经此位——04 §9 ②未知缺省最危律）；
+ * 4. **(4) allow 命中免问**（策略表 allow 条目 + 偏序档位判——advisory：只
+ *    影响问不问，fence/执行段照走；carve-out 硬拒面与之无交叉命中面）；
+ * 5. **(5) fence 前核**（§7 outside-roots 不问直接拒，沿旧）；
+ * 6. **(6) write/exec 审批对 ask**（03 §2.3「write|exec 触发审批对」——粘性
+ *    短路在 ApprovalService 内；policy never → 直接拒沿旧）。
  *
  * 分工（防重复拦截）：粗粒度根 containment 在 tools/fs 的 fence——路径在可
  * 写根外（outside-roots）是 fence 的拒绝面，本行不拦不问（问了 fence 也会
@@ -39,7 +46,7 @@ import {
   resolveWritability,
   type CarveOutEntry,
 } from './roots.js';
-import { FS_WRITE_TOOLS, matchToolPolicy, type ToolPolicyEntry } from './allowlist.js';
+import { FS_WRITE_TOOLS, matchToolPolicy, type ToolPolicyEntry } from './tool-policy.js';
 import { sandboxDenialMarker } from './sandbox.js';
 
 /** 内置默认 carve-out 条目（04 §8 例示：.git 转只读 + .env 族遮罩——含单层 glob 两形） */
@@ -80,14 +87,16 @@ export interface SafetyGateOptions {
   readonly dataDir: string;
   /**
    * 跨会话工具策略表（04 §9 粘性第 3 款 + 2026-09-11 审批分档批定形块③④
-   * ——双面 advisory：allow 条目免问 / deny 条目硬拒）：allow 命中即跳过写
-   * 审批直接放行本行（只影响「问不问」：fence/根推导/执行段照走，carve-out
-   * 硬拒面不受影响——硬拒判定在前）；deny 命中硬拒 block（reason
-   * `policy-deny:<条目序>`——不可被任何后续面翻转）。条目落用户配置层
+   * ——双面 advisory：allow 条目免问 / deny 条目硬拒）：deny 命中硬拒 block
+   * （评估序 (1) 最先短路——reason `policy-deny:<条目序>`，不可被任何后续
+   * 面翻转：sticky always / allow 命中 / policy never / sandbox danger 全
+   * 不豁免）；allow 命中即跳过写审批直接放行本行（评估序 (4)——只影响
+   * 「问不问」：fence/根推导/执行段照走，carve-out 硬拒面不受影响〔硬拒
+   * 判定序 (2) 在后但两序位无交叉命中面〕）。条目落用户配置层
    * （tool-policy.json——存储读写接线在 host 件，装配注入活数组引用——TTL
    * 过期由引擎逐调用判定）。缺省无 = 功能关闭。
    */
-  readonly allowlist?: readonly ToolPolicyEntry[];
+  readonly toolPolicy?: readonly ToolPolicyEntry[];
 }
 
 /**
@@ -141,18 +150,53 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     }
     const mode = opts.mode();
     const tool: ToolDefinition = input.tool;
-    // read-only 档：fence 拒全量写（空根）——本行跳过，不产生审批交互（问了
-    // 也白问；denial 回执由 fence 的 FS_OUTSIDE_WRITABLE_ROOTS 承担）
+    // read-only 档让棒沿旧（04 §9 定形块④：skip 位保持一切判定之前——fence
+    // 拒全量写（空根），本行跳过不产生审批交互；策略表在 read-only 会话无
+    // 执法位〔冷读闸 m1 定位〕，deny 亦不因 read-only 档而前置执法）
     if (mode === 'read-only') return next(input);
-    // 本行只管写/执行意图（03 §2.3 effect 面）：**显式声明 read 才放行**交棒
-    // ——write/exec 同走审批链（04 §9 定形块①；exec 档不留审批旁路。缺省
-    // 反转〔注册面归一 ?? 'exec'〕随审批分档批执法笔落码——反转前未声明
-    // 工具仍归一 read 走本位放行，行为零变化）
-    if (tool.effect === 'read') return next(input);
 
     const isFsFamily = FS_WRITE_TOOLS.has(tool.name);
+    // canonical 写目标集一次提取（fs 族）：deny 匹配 / fence 前核 / 粘性指纹
+    // 三消费点共用（相对路径锚 workspace、符号链解析与 fence 同源）
+    const canonicalWritePaths = isFsFamily
+      ? extractWritePaths(tool.name, input.args).map((p) => absolutize(workspace, p))
+      : [];
 
-    /* ---- ① carve-out 判定（fs 族写路径；任何档含 danger 照走——硬拒） ---- */
+    /* ---- (1) 工具策略表 deny 面（04 §9 定形块④评估序①——最先短路） ---- */
+    // 匹配一次全表持有：引擎 deny 优先律（首个 deny 命中即终局返回）——deny
+    // 序位在 carve-out / read 放行 / allow 免问 / ask 全部之前，**不可被任何
+    // 后续面翻转**（sticky always / allow 命中 / policy never / sandbox danger
+    // 全不豁免——deny 是用户主权裁决，其余面无权翻案）。deny 可拦 read 档
+    // 工具（(1) 先于 (3)：「此工具永拒」的用户主权语义自然覆盖只读工具——
+    // read 档免审 ≠ 免策略表）。deny 拒不产生 approval 对（短路在 ask 之前
+    // ——粘性命中无审批对同律），reason policy-deny:<条目序> 落 gate/decision。
+    const hit =
+      opts.toolPolicy !== undefined && opts.toolPolicy.length > 0
+        ? matchToolPolicy(
+            opts.toolPolicy,
+            isFsFamily
+              ? {
+                  tool: tool.name,
+                  // 档位取值：注册面归一（04 §9 定形块②反转）后应恒在场；类型
+                  // 位缺省兜底 = exec（未知缺省最危律同律——守门行自身防御与
+                  // 注册面归一同向，双保险）
+                  effect: tool.effect ?? 'exec',
+                  writePaths: canonicalWritePaths,
+                  workspace,
+                }
+              : { tool: tool.name, effect: tool.effect ?? 'exec' },
+            Date.now(),
+          )
+        : undefined;
+    if (hit !== undefined && hit.entry.decision === 'deny') {
+      input.outcome = {
+        action: 'block',
+        reason: `${sandboxDenialMarker(mode)} ${tool.name} 命中工具策略表 deny 条目 policy-deny:${hit.index}${hit.entry.reason !== undefined ? `（${hit.entry.reason}）` : ''}——用户主权硬拒，任何面不可翻转（解除唯手删条目）。`,
+      };
+      return input; // 不调 next：短路整链（deny 优先律——硬拒）
+    }
+
+    /* ---- (2) carve-out 判定（fs 族写路径；任何档含 danger 照走——硬拒） ---- */
     if (isFsFamily) {
       const roots = deriveWritableRoots(workspace, mode);
       // 逐路径独立判定：任一 deny 命中即整调用硬拒（多文件补丁不部分放行）
@@ -173,63 +217,37 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
       }
     }
 
-    /* ---- ② 工具策略表（粘性第 3 款 + 审批分档批定形块④：allow 免问 / deny 硬拒） ---- */
-    if (opts.allowlist !== undefined && opts.allowlist.length > 0) {
-      // fs 族判定收窄到写意图族（writePaths 全量 all-or-nothing）；其余
-      // write/exec 工具走整名族（工具名整匹配）。命中审计（04 §9 ④）：放行
-      // 来源标注 policy-allow:<条目序> 落 GateInput——管道 recordGate 承接进
-      // gate/decision 的 reason 位（免问放行仍可审计——不产生 approval 事件
-      // 对，来源在此标注）。deny 命中（引擎 deny 优先律——首个 deny 命中即
-      // 终局返回）硬拒 block 短路：不产生审批对（粘性命中无审批对同律），
-      // reason policy-deny:<条目序> 落 gate/decision——用户主权裁决留痕。
-      // 【六步重排注】完整评估序（deny 移位至 read 放行/carve-out 之前、
-      // read-only skip 后 deny 可拦 read 档工具）随审批分档批执法笔重排——
-      // 本位先兑现「deny 不当 allow 放行」与「deny 不可翻转」两律。
-      const hit = matchToolPolicy(
-        opts.allowlist,
-        isFsFamily
-          ? {
-              tool: tool.name,
-              // 档位取值：注册面归一后应恒在场；类型位缺省兜底 = exec（未知缺省
-              // 最危律同律——守门行自身防御与注册面归一同向，双保险）
-              effect: tool.effect ?? 'exec',
-              writePaths: extractWritePaths(tool.name, input.args).map((p) => absolutize(workspace, p)),
-              workspace,
-            }
-          : { tool: tool.name, effect: tool.effect ?? 'exec' },
-        Date.now(),
-      );
-      if (hit !== undefined && hit.entry.decision === 'deny') {
-        input.outcome = {
-          action: 'block',
-          reason: `${sandboxDenialMarker(mode)} ${tool.name} 命中工具策略表 deny 条目 policy-deny:${hit.index}${hit.entry.reason !== undefined ? `（${hit.entry.reason}）` : ''}——用户主权硬拒，任何面不可翻转（解除唯手删条目）。`,
-        };
-        return input; // 不调 next：短路整链（deny 优先律——硬拒）
-      }
-      if (hit !== undefined) {
-        input.allowReason = `policy-allow:${hit.index}`;
-        return next(input);
-      }
+    /* ---- (3) read 档放行（04 §9 定形块④评估序③：显式声明 read 才有宽档） ---- */
+    // 本行只管写/执行意图（03 §2.3 effect 面）：write/exec 同走审批链——
+    // exec 档不留审批旁路；未声明效果面工具经注册面归一（04 §9 ②缺省反转
+    // ?? 'exec'）已恒为 exec 档，不经本位放行
+    if (tool.effect === 'read') return next(input);
+
+    /* ---- (4) allow 命中免问（评估序④：策略表 allow 条目 + 偏序档位判） ---- */
+    // 命中审计（04 §9 ④）：放行来源标注 policy-allow:<条目序> 落 GateInput
+    // ——管道 recordGate 承接进 gate/decision 的 reason 位（免问放行仍可审计
+    // ——不产生 approval 事件对，来源在此标注）
+    if (hit !== undefined) {
+      input.allowReason = `policy-allow:${hit.index}`;
+      return next(input);
     }
 
-    /* ---- ③ write-effect 审批对（03 §2.3；粘性短路在 ApprovalService 内） ---- */
+    /* ---- (5)(6) write/exec 审批对（03 §2.3；粘性短路在 ApprovalService 内） ---- */
     // 审批前先核 fence 面：任一写目标在可写根外 = fence 必拒（本行不问——
     // 审批对为可执行动作而设，防「批了又被 fence 拒」的空转交互）
     if (isFsFamily) {
       const roots = deriveWritableRoots(workspace, mode);
-      const outside = extractWritePaths(tool.name, input.args).some((p) => {
-        const verdict = resolveWritability(absolutize(workspace, p), roots, carveTable);
+      const outside = canonicalWritePaths.some((p) => {
+        const verdict = resolveWritability(p, roots, carveTable);
         return !verdict.allowed && verdict.kind === 'outside-roots';
       });
       if (outside) return next(input); // fence 的拒绝面，本行不重复拦
     }
 
     // 粘性指纹目标摘要（04 §9 粘性第 1/2 款）：fs 族 = 写目标路径（单目标 =
-    // 该路径；多目标 = 排序去重拼接——同集合才谈得上免问）；其余 write-effect
+    // 该路径；多目标 = 排序去重拼接——同集合才谈得上免问）；其余 write/exec
     // 工具 = 工具名（整名族语义——同工具的后续调用免问）
-    const targets = isFsFamily
-      ? [...new Set(extractWritePaths(tool.name, input.args).map((p) => absolutize(workspace, p)))].sort()
-      : [tool.name];
+    const targets = isFsFamily ? [...new Set(canonicalWritePaths)].sort() : [tool.name];
     // 草案（04 §9 定形③）：fs 族仅在单目标时携带（精确 canonical 路径——批
     // 这一次不升格批全仓）；多目标无单一路径可代表即无草案；非 fs 族无路径
     // 语义亦无草案（整名草案随真实消费者出现再裁）

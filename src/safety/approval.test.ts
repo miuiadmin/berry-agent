@@ -38,7 +38,7 @@ function makeRig(answer: ApprovalAnswer | undefined | Error, opts?: { policy?: '
   const service = createApprovalService(dispatch, {
     sink: rec.sink,
     policy: opts?.policy,
-    persistAllowlist: (draft) => written.push(draft),
+    persistToolPolicy: (draft) => written.push(draft),
   });
   if (answer !== undefined) {
     dispatch.onWaterfall<ApprovalAnswerEnvelope>(APPROVAL_ANSWER_EVENT, (envelope) => {

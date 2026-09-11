@@ -318,7 +318,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
         await postReceipt(issue, `🤖 issue run 失败：${outcome.reason}（分支 \`${created.branch}\` 留存供排查）`);
         handle.settle({ status: 'failed', detail: outcome.reason });
       } else {
-        // needs-human：无应答者审批拒/写动作无 allowlist 覆盖（04 §9 fail-closed）——转人审
+        // needs-human：无应答者审批拒/写动作无策略表覆盖（04 §9 fail-closed）——转人审
         await postReceipt(
           issue,
           `🤖 issue run 需人审：${outcome.reason}（分支 \`${created.branch}\` 留存——处理后可重开）`,

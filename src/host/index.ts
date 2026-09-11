@@ -110,9 +110,15 @@ export type {
 // 批 12f-3 装配序公共段（:memory: 同构纪律防侧门件——TUI 与诊断命令唯一装配序真源）
 export { assembleHostStack } from './assembly.js';
 export type { AssembleHostOptions, AssemblySuccess, AssemblyFailure } from './assembly.js';
-// 批 12f-4 跨会话 allowlist 文件读写件（04 §9 粘性第 3 款定形块装配侧执法）
-export { readAllowlist, appendAllowlistEntry, ALLOWLIST_BASENAME } from './allowlist-store.js';
-export type { AllowlistLoad, ReadAllowlistOptions, AllowlistAppendResult } from './allowlist-store.js';
+// 批 12f-4 跨会话工具策略表文件读写件（04 §9 粘性第 3 款定形块装配侧执法；
+// 2026-09-11 审批分档批更名 tool-policy.json + 旧文件升格读入）
+export {
+  readToolPolicy,
+  appendToolPolicyEntry,
+  TOOL_POLICY_BASENAME,
+  LEGACY_ALLOWLIST_BASENAME,
+} from './tool-policy-store.js';
+export type { ToolPolicyLoad, ReadToolPolicyOptions, ToolPolicyAppendResult } from './tool-policy-store.js';
 // 批 12f-3 dump-config / plugins 子命令族（同构诊断命令 + 装载态清单 + 纯只读体检骨架）
 export { runDumpConfigEntry } from './dump-config.js';
 export type { DumpConfigEntryOptions } from './dump-config.js';

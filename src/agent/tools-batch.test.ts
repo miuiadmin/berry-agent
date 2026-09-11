@@ -24,12 +24,16 @@ function gate() {
 
 /**
  * 记录起跑序的门控工具：execute 先记 name 再挂门。
- * @param log 起跑序收集数组 @param effect 效果面（缺省 read）@param hold 门（缺省即时过）
+ * @param log 起跑序收集数组 @param effect 效果面（显式三值之一——2026-09-11
+ * 审批分档批后批调度「并行仅限显式 read」，段谓词与注册面归一〔?? 'exec'〕
+ * 分立：批次层在场未声明走屏障腿最危归一〔防旁路形——注册面才是归一执法
+ * 位〕；undefined = 在场不带 effect 字段的旁路形——屏障腿语义用例专用）
+ * @param hold 门（缺省即时过）
  */
 function gatedTool(
   name: string,
   log: string[],
-  effect: 'read' | 'write' | undefined,
+  effect: 'read' | 'write' | 'exec' | undefined,
   hold?: { promise: Promise<void> },
 ) {
   return {
@@ -67,8 +71,8 @@ describe('读写批调度（effect 一位两用——03 §2.3 尾注）', () => 
     const r1Gate = gate();
     const r2Gate = gate();
     const { config, context, emit } = rig([
-      gatedTool('r1', started, undefined, r1Gate),
-      gatedTool('r2', started, undefined, r2Gate),
+      gatedTool('r1', started, 'read', r1Gate),
+      gatedTool('r2', started, 'read', r2Gate),
     ]);
     // r1 先起跑、r2 随后起跑——旧串行路径下 r2 必等 r1 结算，永不到齐
     const pending = executeToolBatch(config, context, [callOf('c1', 'r1'), callOf('c2', 'r2')], emit);
@@ -87,9 +91,9 @@ describe('读写批调度（effect 一位两用——03 §2.3 尾注）', () => 
     const r1Gate = gate();
     const wGate = gate();
     const { config, context, emit } = rig([
-      gatedTool('r1', started, undefined, r1Gate),
+      gatedTool('r1', started, 'read', r1Gate),
       gatedTool('w', started, 'write', wGate),
-      gatedTool('r2', started, undefined),
+      gatedTool('r2', started, 'read'),
     ]);
     const pending = executeToolBatch(
       config,
@@ -124,9 +128,54 @@ describe('读写批调度（effect 一位两用——03 §2.3 尾注）', () => 
     expect(outcome.results.map((m) => m.toolName)).toEqual(['w1', 'w2']);
   });
 
+  it('exec 屏障：连续 exec 严格串行（审批分档批三值扩——exec 同 write 批边界；v1 升档 bash 即落此档）', async () => {
+    const started: string[] = [];
+    const e1Gate = gate();
+    const { config, context, emit } = rig([gatedTool('e1', started, 'exec', e1Gate), gatedTool('e2', started, 'exec')]);
+    const pending = executeToolBatch(config, context, [callOf('c1', 'e1'), callOf('c2', 'e2')], emit);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(started).toEqual(['e1']); // e2 未起跑（exec 屏障——任意进程执行类不与任何工具并发）
+    e1Gate.release();
+    const outcome = await pending;
+    expect(started).toEqual(['e1', 'e2']);
+    expect(outcome.results.map((m) => m.toolName)).toEqual(['e1', 'e2']);
+  });
+
+  it('exec 不入 read 并行段：read 在飞时 exec 不起跑（屏障腿串行——镜像 write 屏障形）', async () => {
+    const started: string[] = [];
+    const rGate = gate();
+    const { config, context, emit } = rig([gatedTool('r1', started, 'read', rGate), gatedTool('x', started, 'exec')]);
+    const pending = executeToolBatch(config, context, [callOf('c1', 'r1'), callOf('c2', 'x')], emit);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(started).toEqual(['r1']); // x 未起跑——read 段在首个 exec 处截断
+    rGate.release();
+    const outcome = await pending;
+    expect(started).toEqual(['r1', 'x']);
+    expect(outcome.results.map((m) => m.toolName)).toEqual(['r1', 'x']);
+  });
+
+  it("在场未声明 effect 走屏障腿（批次层防御与注册面归一 ?? 'exec' 分立——并行仅限显式 read）", async () => {
+    // 注册面是归一执法位（未声明恒归 exec）；批次层只对「在场但不带字段」的
+    // 旁路形 fail-closed 收紧——真实流经注册表的工具恒带显式 effect，本例锁
+    // 旁路防御形：undefined 不因缺席而享受并行档
+    const started: string[] = [];
+    const uGate = gate();
+    const { config, context, emit } = rig([
+      gatedTool('u1', started, undefined, uGate),
+      gatedTool('u2', started, 'read'),
+    ]);
+    const pending = executeToolBatch(config, context, [callOf('c1', 'u1'), callOf('c2', 'u2')], emit);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(started).toEqual(['u1']); // u1 单独成段（屏障腿）；u2 未并入并行段
+    uGate.release();
+    const outcome = await pending;
+    expect(started).toEqual(['u1', 'u2']);
+    expect(outcome.results.map((m) => m.toolName)).toEqual(['u1', 'u2']);
+  });
+
   it('工具不在场（lookup 失败）视同 read 入段——回配置漂移 isError 不炸批', async () => {
     const started: string[] = [];
-    const { config, context, emit } = rig([gatedTool('real', started, undefined)]);
+    const { config, context, emit } = rig([gatedTool('real', started, 'read')]);
     const outcome = await executeToolBatch(config, context, [callOf('c1', 'ghost'), callOf('c2', 'real')], emit);
     expect(started).toEqual(['real']); // ghost 不在场但批仍执行到 real
     expect(outcome.results[0]).toMatchObject({ toolName: 'ghost', isError: true });

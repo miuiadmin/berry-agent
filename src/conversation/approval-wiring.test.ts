@@ -82,7 +82,7 @@ describe('wireSessionApproval 审批对', () => {
   it('粘性第 2 款（子集预批）：always 授宽档后，同目标更严档免问（source=subset）', async () => {
     const { session, wiring } = makeWiring({
       askApproval: answer('always'),
-      persistAllowlist: () => undefined,
+      persistToolPolicy: () => undefined,
     });
     const target = '/tmp/x';
     // 宽档 always（粘性表入账 grantedTier=danger）
@@ -115,7 +115,7 @@ describe('wireSessionApproval 审批对', () => {
     const drafts: unknown[] = [];
     const { session, wiring } = makeWiring({
       askApproval: answer('always'),
-      persistAllowlist: (draft) => void drafts.push(draft),
+      persistToolPolicy: (draft) => void drafts.push(draft),
     });
     const key = { target: 'bash git push', tier: 'danger' as const };
     const first = await wiring.approval.ask({

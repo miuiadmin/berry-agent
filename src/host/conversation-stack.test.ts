@@ -5,7 +5,7 @@
  * （mock 只停在模型层）。钉死：启动会话策略（新建/按 cwd 续接）/ 投影拉取
  * （活体优先 + 回库装载）/ 信封回流 / memory 形工具缺席降级 / 退出序接线。
  */
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -18,7 +18,7 @@ import { Scope } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { SessionLog } from '../session/index.js';
 
-import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
+import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import {
   createConversationStack,
   createRunLaneGate,
@@ -306,7 +306,7 @@ describe('llmRuntime 出口（批 12f-2b——插件 provider 注册面防双实
   });
 });
 
-/* ---------------- 批 12f-4：审批 always 回写与 allowlist 免问接线 e2e ---------------- */
+/* ---------------- 批 12f-4：审批 always 回写与策略表免问接线 e2e（ap-2 更名 tool-policy.json） ---------------- */
 
 /** 审批应答后端（askApproval 能力位——记录请求 + 恒答配置值） */
 class ApprovalBackend implements UiBackend<AgentMessage> {
@@ -348,8 +348,8 @@ function dataOf(driverSession: { events(): ReadonlyArray<{ type: string; data: u
     .map((event) => event.data);
 }
 
-describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘性第 3 款全链接线）', () => {
-  it('write 审批 always：结构草案经 persistAllowlist → appendAllowlistEntry 真落 allowlist.json', async () => {
+describe('审批 always 回写与策略表免问（批 12f-4——04 §9 粘性第 3 款全链接线）', () => {
+  it('write 审批 always：结构草案经 persistToolPolicy → appendToolPolicyEntry 真落 tool-policy.json', async () => {
     const { dir, rt } = rigRuntime();
     const ws = rigWorkspace();
     const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
@@ -360,7 +360,7 @@ describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘�
       model: 'faux-stack/m1',
       env: {},
       workspace: () => ws, // 工具写目标锚定隔离工作区（不落真 cwd）
-      persistAllowlist: (draft) => void appendAllowlistEntry(dir, draft),
+      persistToolPolicy: (draft) => void appendToolPolicyEntry(dir, draft),
     });
     const backend = new ApprovalBackend('always');
     stack.channels.addBackend(backend);
@@ -377,15 +377,18 @@ describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘�
     expect(decided[0]).toMatchObject({ decision: 'always' }); // decided 落 always（非降级 approve）
 
     // 写侧律全链：approval 服务结构草案（fs 单目标 = 精确 canonical 路径）→ 文件
-    const load = readAllowlist(dir);
+    // （写入恒落新名 tool-policy.json——审批分档批载体更名执法）
+    expect(existsSync(join(dir, TOOL_POLICY_BASENAME))).toBe(true);
+    const load = readToolPolicy(dir);
     expect(load.healthy).toBe(true);
     expect(load.entries).toHaveLength(1);
+    expect(load.entries[0]!.decision).toBe('allow'); // 机器写侧唯一正门只产 allow
     expect(load.entries[0]!.tool).toBe('write');
     expect(load.entries[0]!.pattern?.endsWith('n1.txt')).toBe(true); // canonical 绝对路径（realpath 平台差异不锁全串）
     await rt.shutdown();
   });
 
-  it('allowlist 条目透传：免问放行（零审批交互 + 工具照常执行）', async () => {
+  it('策略表 allow 条目透传：免问放行（零审批交互 + 工具照常执行）', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();
     const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
@@ -396,7 +399,7 @@ describe('审批 always 回写与 allowlist 免问（批 12f-4——04 §9 粘�
       env: {},
       workspace: () => ws,
       // 条目 = 工作区前缀（fs 族 all-or-nothing——write 落 ws 内即命中）
-      allowlist: [{ tool: 'write', pattern: ws, decision: 'allow' }],
+      toolPolicy: [{ tool: 'write', pattern: ws, decision: 'allow' }],
     });
     // 若被问则恒答 approve（免问失效时本测断言零请求即红——不静默放水）
     const backend = new ApprovalBackend('approve');
@@ -713,7 +716,7 @@ describe('跨会话操控装配（e4-3 操控腿接线）', () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();
     const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
-    // write-effect 审批对整名免问（本测焦点在操控门非审批链——allowlist 整名
+    // write-effect 审批对整名免问（本测焦点在操控门非审批链——策略表整名
     // 条目合法放行面；操控门是受理器内第二道执法，两道门各自独立）
     const stack = createConversationStack({
       runtime: rt,
@@ -721,7 +724,7 @@ describe('跨会话操控装配（e4-3 操控腿接线）', () => {
       model: 'faux-stack/m1',
       env: {},
       workspace: () => ws,
-      allowlist: [{ tool: 'session_send', pattern: ws, decision: 'allow' }],
+      toolPolicy: [{ tool: 'session_send', pattern: ws, decision: 'allow' }],
     });
     const a = stack.openStartupSession(ws);
     const b = stack.openStartupSession(ws); // 目标（同树/跨树同门——操控轴无树内豁免）

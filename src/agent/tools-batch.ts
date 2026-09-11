@@ -188,9 +188,15 @@ export async function executeToolBatch(
       index++;
     }
     if (index >= calls.length) break; // 排干到尾（余量全是非执行腿——收尾）
-    // 连续 read 段（effect 缺省 read——含工具不在场腿；非执行腿切段）
+    // 连续 read 段（effect=read 并行档——2026-09-11 审批分档批三值扩后唯一
+    // 并行档；write|exec 均串行屏障。工具不在场腿留在本段〔执行期报不在场
+    // 错——缺席非声明，与「在场未声明 = exec 最危」的注册面归一分立〕；
+    // 非执行腿切段）
     const segment: AgentToolCall[] = [];
-    while (index < calls.length && kinds[index] === 'dispatch' && lookup(context, calls[index]!)?.effect !== 'write') {
+    while (index < calls.length && kinds[index] === 'dispatch') {
+      const found = lookup(context, calls[index]!);
+      // 并行仅限显式 read：write/exec（及在场未声明的最危归一形）一律出局走屏障腿
+      if (found !== undefined && found.effect !== 'read') break;
       segment.push(calls[index]!);
       index++;
     }
@@ -207,7 +213,9 @@ export async function executeToolBatch(
       }
       continue;
     }
-    // write 腿：单件串行屏障（写前清空在飞只读——前 read 段已排干；写后 read 段待本腿结算）
+    // write/exec 屏障腿：单件串行（写前清空在飞只读——前 read 段已排干；
+    // 屏障后 read 段待本腿结算。03 §2.3 尾注读写调度语义：write|exec 批边界
+    // 串行——审批分档批三值扩同律）
     const writeCall = calls[index]!;
     index++;
     const settled = await executeOne(config, context, lookup(context, writeCall), writeCall, emit);

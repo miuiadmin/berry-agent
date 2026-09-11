@@ -74,9 +74,9 @@ export interface ChannelsOptions<TProjection> {
    */
   readonly fetchProjection?: (sessionId: string) => Promise<readonly TProjection[]>;
   /**
-   * 审批 always 的 allowlist 回写注入（07 §4.3 提问队列条款 / 04 §9 ③ 既有
+   * 审批 always 的策略表回写注入（07 §4.3 提问队列条款 / 04 §9 ③ 既有
    * 条款的通道侧接法）：用户答 `always` 且载荷带 suggestedEntry 草案 → 本
-   * 回调落跨会话 allowlist 条目（用户显式按键后机器只执行写入——装配接
+   * 回调落跨会话策略表 allow 条目（用户显式按键后机器只执行写入——装配接
    * safety 侧写入面）。无草案 always 不触发（零草案零副作用）。
    */
   readonly onApprovalAlways?: (entry: string) => void;

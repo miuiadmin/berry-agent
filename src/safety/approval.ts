@@ -21,7 +21,7 @@
 import { randomUUID } from 'node:crypto';
 import type { EventDispatch } from '../context/events.js';
 import type {
-  AllowlistDraft,
+  ToolPolicyDraft,
   ApprovalAnswer,
   ApprovalOutcome,
   ApprovalPolicyMode,
@@ -112,10 +112,10 @@ export interface ApprovalServiceOptions {
   readonly ownership?: { readonly sessionId: string };
   /**
    * 「始终允许」条目写入回调（04 §9 粘性段定形③织入位）：answerer 返回
-   * 'always' 且载荷带草案时调用——装配层接用户配置层 allowlist 写入（幂等）。
+   * 'always' 且载荷带草案时调用——装配层接用户配置层策略表写入（幂等——tool-policy.json）。
    * 缺省不传 = always 面关闭（视同 approve，零副作用）。
    */
-  readonly persistAllowlist?: (draft: AllowlistDraft) => void;
+  readonly persistToolPolicy?: (draft: ToolPolicyDraft) => void;
 }
 
 /** 沙箱档宽度偏序秩（read-only ⊂ workspace-write ⊂ danger）——子集预批判定用 */
@@ -215,8 +215,8 @@ export function createApprovalService(dispatch: EventDispatch, opts: ApprovalSer
             // 载荷无草案或写入回调未装配 = answerer 面本不该呈现该选项，防御
             // 收口视同 approve（零草案零副作用——含粘性表：一次性批准不产生
             // 会话免问面，与「decided 落 approve 而非 always」同口径）
-            if (enriched.suggestedEntry !== undefined && opts.persistAllowlist !== undefined) {
-              opts.persistAllowlist(enriched.suggestedEntry);
+            if (enriched.suggestedEntry !== undefined && opts.persistToolPolicy !== undefined) {
+              opts.persistToolPolicy(enriched.suggestedEntry);
               alwaysWritten = true;
               // 粘性表入账（stickyKey 在场时）——会话内同指纹/子集后续免问
               if (key !== undefined) {

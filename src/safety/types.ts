@@ -52,7 +52,7 @@ export type ApprovalAnswer = 'approve' | 'reject' | 'cancel' | 'always';
  * 批全仓）；bash 族 = 剥壳命令词干（≤2 词「命令 [子命令]」，剥不出干净
  * 词干即无草案）；升权目标为 danger 的高位动作恒不携带（选项不呈现）。
  */
-export interface AllowlistDraft {
+export interface ToolPolicyDraft {
   /** 目标工具名（宿主面统一词汇——与 ToolPolicyEntry.tool 同源） */
   readonly tool: string;
   /** 条目模式：fs = 精确 canonical 路径 / bash = 剥壳词干 */
@@ -97,10 +97,10 @@ export interface ApprovalRequest {
   readonly stickyKey?: StickyKey;
   /**
    * 推荐规则候选（04 §9 粘性段定形③）：在场时 answerer 呈现「始终允许」
-   * 选项；用户选 always → 按此草案经写入回调落跨会话 allowlist。高位动作
+   * 选项；用户选 always → 按此草案经写入回调落跨会话工具策略表（allow 条目）。高位动作
    * （升权目标 danger）不携带。
    */
-  readonly suggestedEntry?: AllowlistDraft;
+  readonly suggestedEntry?: ToolPolicyDraft;
   /**
    * 发起 run 的取消信号（04 §9 run 信号透传条款）：调用方语境字段——
    * answerer 桥接消费（run abort 即撤销在身提问，保守收场落 cancelled——

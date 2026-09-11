@@ -109,10 +109,10 @@ describe('discoverBash 发现序', () => {
 });
 
 describe('createBashTool 工具面', () => {
-  it('schema 形：五参数面 + additionalProperties:false + effect write', () => {
+  it('schema 形：五参数面 + additionalProperties:false + effect exec（v1 升档清单恰一处——2026-09-11 审批分档批 bash 由 write 升 exec）', () => {
     const tool = dangerTool(createSpawnPipeline());
     expect(tool.name).toBe('bash');
-    expect(tool.effect).toBe('write');
+    expect(tool.effect).toBe('exec');
     const schema = tool.parameters as { properties: Record<string, unknown>; additionalProperties: boolean };
     expect(Object.keys(schema.properties).sort()).toEqual(
       ['command', 'cwd', 'justification', 'sandbox_permissions', 'timeoutMs'].sort(),

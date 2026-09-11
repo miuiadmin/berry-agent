@@ -34,7 +34,7 @@ type AskPresenter<T> = (signal: AbortSignal) => Promise<T>;
 export class UiCore {
   private readonly backendsGetter: () => readonly UiBackend<never>[];
   private readonly askQueue: AskQueue;
-  /** 审批 always 的 allowlist 回写注入（07 §4.3 提问队列条款——装配接线） */
+  /** 审批 always 的策略表回写注入（07 §4.3 提问队列条款——装配接线） */
   private readonly onApprovalAlways: ((entry: string) => void) | undefined;
   /** widget 会话级单槽（07 §4.3——per-session 恰一槽，后写胜前写） */
   private readonly widgets = new Map<string, { node: unknown }>();
@@ -202,7 +202,7 @@ export class UiCore {
     );
   }
 
-  /** always 收口路：带草案回写 allowlist 注入面；无草案防御视同 approve */
+  /** always 收口路：带草案回写策略表注入面；无草案防御视同 approve */
   private settleApprovalAlways(answer: ApprovalAskAnswer, request: ApprovalAskRequest): ApprovalAskAnswer {
     if (answer !== 'always') return answer;
     if (request.suggestedEntry === undefined) return 'approve'; // 零草案零副作用（04 §9 ③）

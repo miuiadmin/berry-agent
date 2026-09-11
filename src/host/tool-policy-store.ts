@@ -1,20 +1,27 @@
 /**
- * host/allowlist-store — 跨会话策略表文件读写件（04 §9 粘性第 3 款
+ * host/tool-policy-store — 跨会话工具策略表文件读写件（04 §9 粘性第 3 款
  * 2026-09-07 定形块的装配侧执法；批 12f-4；2026-09-11 审批分档批六字段行形
- * 扩——条目双面 allow/deny，载体更名 tool-policy.json 随本批执法笔落码）。
+ * 扩 + 载体更名 tool-policy.json——本件即更名执法与旧文件升格迁移所在）。
  *
- * 载体 = 数据目录 `allowlist.json`（单一用途用户资产文件——与 boot-failures
- * /ledger 同族 JSON）。本件只管文件 IO 与行校验；匹配判定归 safety 域纯函数
- * 半边（matchToolPolicy——engine 不碰文件），草案生成归审批服务
- * （suggestedEntry）。
+ * 载体 = 数据目录 `tool-policy.json`（单一用途用户资产文件——与
+ * boot-failures/ledger 同族 JSON；原名 `allowlist.json`，本批更名）。本件只
+ * 管文件 IO 与行校验；匹配判定归 safety 域纯函数半边（matchToolPolicy——
+ * engine 不碰文件），草案生成归审批服务（suggestedEntry）。
+ *
+ * 新旧文件共存序（04 §9 定形块③）：**新文件在场即唯一源**（旧文件在场也
+ * 不读）；**唯旧在场且新缺席才升格读入**（旧三字段形 decision 缺席归一
+ * allow——ap-1 读侧归一语义）；**旧文件留置不删**（机器永不写入旧名——
+ * 升格只发生在读侧，新条目追加恒落新文件名；首次追加即把升格条目物化进
+ * 新文件，旧文件自此为惰性遗存。生态未启动实际零存量，防御性迁移）。
  *
  * 读写三律（定形块原文执法）：
  * - 读侧装配期载入：缺席 = 空清单零负担；**文件级坏形 = warn 降级视同空
  *   清单**（advisory 免问面坏形降级方向 = 更严〔多问〕不是更松，fail-closed
  *   同向——与 enabled.yaml 拒启律分立）；**行级坏形 = 剔除该行 + warn 点名**
  *   （防类型脏行进匹配引擎；含 deny 条目带 expiresAt 的方向性坏形；文件不
- *   因读侧改写——机器永不覆写用户手写面）。
- * - 写侧唯一正门（装配注入 persistAllowlist 回调）：**只产 allow 条目**
+ *   因读侧改写——机器永不覆写用户手写面）。升格读入语境下旧文件即当前
+ *   源——旧文件坏形同律（坏形期回写拒，修复归用户手面）。
+ * - 写侧唯一正门（装配注入 persistToolPolicy 回调）：**只产 allow 条目**
  *   （deny 唯用户手写）；append 幂等去重（同 tool+pattern 不二写）+
  *   **原子替换**（临时文件 + rename——防撕裂丢条目）；**坏形期回写拒**
  *   （机器不在坏形文件上追加——防覆写扩大破坏，修复归用户手面）。
@@ -26,37 +33,40 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 
 import type { ToolEffect } from '../contracts/index.js';
-import type { AllowlistDraft, ToolPolicyEntry } from '../safety/index.js';
+import type { ToolPolicyDraft, ToolPolicyEntry } from '../safety/index.js';
 
-/** allowlist 文件名（数据目录单段——04 §9 定形块定名） */
-export const ALLOWLIST_BASENAME = 'allowlist.json';
+/** 策略表文件名（数据目录单段——04 §9 定形块③定名，2026-09-11 审批分档批更名） */
+export const TOOL_POLICY_BASENAME = 'tool-policy.json';
+
+/**
+ * 旧载体名（更名前遗留）——升格读入用，**本件永不写入此名**（旧文件留置
+ * 不删；读侧敏感件保护两名单同列——safety/sensitive 防旧文件读敞门）。
+ */
+export const LEGACY_ALLOWLIST_BASENAME = 'allowlist.json';
 
 /** 读侧产物（healthy=false = 文件级坏形已降级——写侧拒写依据） */
-export interface AllowlistLoad {
+export interface ToolPolicyLoad {
   readonly entries: readonly ToolPolicyEntry[];
   /** false = 文件级坏形（视同空清单 + 回写拒）；true = 缺席或好形 */
   readonly healthy: boolean;
 }
 
 /** 读侧选项 */
-export interface ReadAllowlistOptions {
+export interface ReadToolPolicyOptions {
   /** 警示面（坏形 warn 落点——缺省 stderr；装配层接 logger.warn） */
   readonly warn?: (message: string) => void;
 }
 
 /**
- * 装配期载入 allowlist（04 §9 定形块读侧律）。缺席 = 空清单 healthy（零负担
- * 首启）；文件级坏形 = 空 + warn + unhealthy；行级坏形 = 剔行 + warn 点名。
+ * 单文件解析 + 行级校验（新旧文件同律——升格语境下旧三字段形 decision 缺席
+ * 归一 allow）。返回 healthy=false = 文件级坏形（调用方定降级语义）。
  */
-export function readAllowlist(dataDir: string, options: ReadAllowlistOptions = {}): AllowlistLoad {
-  const warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
-  const path = join(dataDir, ALLOWLIST_BASENAME);
-  if (!existsSync(path)) return { entries: [], healthy: true }; // 首启零文件零负担
+function loadPolicyFile(path: string, warn: (message: string) => void): ToolPolicyLoad {
   let raw: string;
   try {
     raw = readFileSync(path, 'utf8');
   } catch (err) {
-    warn(`allowlist 读取失败（${path}）：${err instanceof Error ? err.message : String(err)}——视同空清单`);
+    warn(`策略表读取失败（${path}）：${err instanceof Error ? err.message : String(err)}——视同空清单`);
     return { entries: [], healthy: false };
   }
   // 文件级三检：JSON 可解析 / 顶层对象 / entries 为数组——任一违例整文件降级
@@ -65,17 +75,17 @@ export function readAllowlist(dataDir: string, options: ReadAllowlistOptions = {
     doc = JSON.parse(raw);
   } catch (err) {
     warn(
-      `allowlist 坏形（${path}，JSON 解析失败：${err instanceof Error ? err.message : String(err)}）——视同空清单；手改修复前回写拒（防机器覆写扩大破坏）`,
+      `策略表坏形（${path}，JSON 解析失败：${err instanceof Error ? err.message : String(err)}）——视同空清单；手改修复前回写拒（防机器覆写扩大破坏）`,
     );
     return { entries: [], healthy: false };
   }
   if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) {
-    warn(`allowlist 坏形（${path}，顶层须为对象 { "entries": [...] }）——视同空清单；手改修复前回写拒`);
+    warn(`策略表坏形（${path}，顶层须为对象 { "entries": [...] }）——视同空清单；手改修复前回写拒`);
     return { entries: [], healthy: false };
   }
   const rows = (doc as { entries?: unknown }).entries;
   if (!Array.isArray(rows)) {
-    warn(`allowlist 坏形（${path}，entries 须为数组）——视同空清单；手改修复前回写拒`);
+    warn(`策略表坏形（${path}，entries 须为数组）——视同空清单；手改修复前回写拒`);
     return { entries: [], healthy: false };
   }
   // 行级校验（拒绝式 schema——2026-09-11 审批分档批六字段扩：tool 非空字符串
@@ -88,41 +98,41 @@ export function readAllowlist(dataDir: string, options: ReadAllowlistOptions = {
   const entries: ToolPolicyEntry[] = [];
   rows.forEach((row, index) => {
     if (typeof row !== 'object' || row === null) {
-      warn(`allowlist 第 ${index + 1} 行非对象——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行非对象——剔除（文件未改动）`);
       return;
     }
     const { tool, pattern, decision, effect, reason, expiresAt, ...rest } = row as Record<string, unknown>;
     if (typeof tool !== 'string' || tool.length === 0) {
-      warn(`allowlist 第 ${index + 1} 行 tool 缺失或非字符串——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行 tool 缺失或非字符串——剔除（文件未改动）`);
       return;
     }
     if (pattern !== undefined && typeof pattern !== 'string') {
-      warn(`allowlist 第 ${index + 1} 行 pattern 须为字符串——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行 pattern 须为字符串——剔除（文件未改动）`);
       return;
     }
     if (decision !== undefined && decision !== 'allow' && decision !== 'deny') {
-      warn(`allowlist 第 ${index + 1} 行 decision 闭集外（allow|deny）——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行 decision 闭集外（allow|deny）——剔除（文件未改动）`);
       return;
     }
     if (effect !== undefined && effect !== 'read' && effect !== 'write' && effect !== 'exec') {
-      warn(`allowlist 第 ${index + 1} 行 effect 闭集外（read|write|exec）——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行 effect 闭集外（read|write|exec）——剔除（文件未改动）`);
       return;
     }
     if (reason !== undefined && typeof reason !== 'string') {
-      warn(`allowlist 第 ${index + 1} 行 reason 须为字符串——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行 reason 须为字符串——剔除（文件未改动）`);
       return;
     }
     if (expiresAt !== undefined && typeof expiresAt !== 'number') {
-      warn(`allowlist 第 ${index + 1} 行 expiresAt 须为数值——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行 expiresAt 须为数值——剔除（文件未改动）`);
       return;
     }
     if (decision === 'deny' && expiresAt !== undefined) {
-      warn(`allowlist 第 ${index + 1} 行 deny 条目带 expiresAt 属坏形（deny 无 TTL——永久至手删）——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行 deny 条目带 expiresAt 属坏形（deny 无 TTL——永久至手删）——剔除（文件未改动）`);
       return;
     }
     const unknownKeys = Object.keys(rest);
     if (unknownKeys.length > 0) {
-      warn(`allowlist 第 ${index + 1} 行未知键 ${unknownKeys.join('、')}——剔除（文件未改动）`);
+      warn(`策略表第 ${index + 1} 行未知键 ${unknownKeys.join('、')}——剔除（文件未改动）`);
       return;
     }
     // 塑形落位：可选字段缺席即不带（JSON 面?键不落盘）；decision 缺席归一 allow
@@ -138,20 +148,44 @@ export function readAllowlist(dataDir: string, options: ReadAllowlistOptions = {
   return { entries, healthy: true };
 }
 
+/**
+ * 装配期载入工具策略表（04 §9 定形块读侧律 + 更名升格序）。新文件在场即
+ * 唯一源；唯旧在场且新缺席才升格读入（旧文件留置不删）；两文件皆缺席 =
+ * 空清单 healthy（零负担首启）；文件级坏形 = 空 + warn + unhealthy；行级
+ * 坏形 = 剔行 + warn 点名。
+ */
+export function readToolPolicy(dataDir: string, options: ReadToolPolicyOptions = {}): ToolPolicyLoad {
+  const warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
+  // 共存优先序：新名在场即唯一源（旧名在场也不读——防止双源漂移）
+  const path = join(dataDir, TOOL_POLICY_BASENAME);
+  if (existsSync(path)) return loadPolicyFile(path, warn);
+  // 升格读入：唯旧在场且新缺席——旧三字段形经行级归一（decision 缺省 allow）
+  const legacyPath = join(dataDir, LEGACY_ALLOWLIST_BASENAME);
+  if (existsSync(legacyPath)) {
+    warn(
+      `allowlist.json 已更名 tool-policy.json（2026-09-11 审批分档批）——旧文件条目升格读入，旧文件留置不动（机器永不写旧名；新条目追加落新文件 ${TOOL_POLICY_BASENAME}）`,
+    );
+    return loadPolicyFile(legacyPath, warn);
+  }
+  return { entries: [], healthy: true };
+}
+
 /** append 回执（三态——审计/测试面可分辨） */
-export type AllowlistAppendResult = 'appended' | 'duplicate' | 'rejected';
+export type ToolPolicyAppendResult = 'appended' | 'duplicate' | 'rejected';
 
 /**
  * 写侧唯一正门：追加 **allow 条目**（04 §9 定形块写侧律 + 审批分档批③——
  * 机器永不写 deny，deny 是用户主权面唯用户手写）。幂等去重（同 tool+pattern
  * 的 allow 条目不二写——手写 deny 条目不参与去重键：引擎 deny 优先律下机器
  * allow 追加恒 inert，但去重误报 duplicate 会吞掉用户按键的真实意图呈现）；
- * 原子替换落盘（tmp + rename）；文件级坏形期拒写（修复归用户手面）。
+ * 原子替换落盘（tmp + rename）；文件级坏形期拒写（修复归用户手面——升格
+ * 语境下旧文件坏形同拒）。写入恒落新名 tool-policy.json（升格条目随首次
+ * 追加物化进新文件，旧文件自此为惰性遗存）。
  */
-export function appendAllowlistEntry(dataDir: string, draft: AllowlistDraft): AllowlistAppendResult {
-  const path = join(dataDir, ALLOWLIST_BASENAME);
+export function appendToolPolicyEntry(dataDir: string, draft: ToolPolicyDraft): ToolPolicyAppendResult {
+  const path = join(dataDir, TOOL_POLICY_BASENAME);
   // 坏形拒写第一闸：复用读侧全套校验（坏形期在坏文件上追加 = 覆写扩大破坏）
-  const load = readAllowlist(dataDir);
+  const load = readToolPolicy(dataDir);
   if (!load.healthy) return 'rejected';
   if (load.entries.some((e) => e.decision !== 'deny' && e.tool === draft.tool && e.pattern === draft.pattern)) {
     return 'duplicate';

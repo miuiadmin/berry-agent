@@ -152,8 +152,11 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
       },
       { additionalProperties: false },
     ),
-    // bash 执行 shell 命令 = 写世界动作面（03 §2.3 效果面）
-    effect: 'write',
+    // bash 执行任意 shell 命令 = exec 档（04 §9 定形块①三值扩——v1 升档清单
+    // 恰一处即本件：任意进程执行类固有风险位最高，自 write 升 exec 档；批内
+    // 调度 write|exec 同串行屏障（03 §2.3 尾注）、审批对照走、write 档免问
+    // 授权不覆盖 bash 调用（偏序窄化自限））
+    effect: 'exec',
     execute: async (args, toolCtx): Promise<AgentToolResult> => {
       try {
         const command = String(args.command);

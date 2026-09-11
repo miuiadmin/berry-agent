@@ -159,7 +159,7 @@ export function createToolPipeline(dispatch: EventDispatch, opts: ToolPipelineOp
       throw new BaseError('TOOL_BLOCKED', codedMessage('TOOL_BLOCKED', gated.outcome.reason));
     }
     // 放行/改参：mutated 旗由改参的守门者维护，汇总进 durable 决策；allowReason
-    // = 放行来源标注（allowlist 免问命中置 allowlist:<条目序>——04 §9 命中审计）
+    // = 放行来源标注（策略表 allow 免问命中置 policy-allow:<条目序>——04 §9 命中审计）
     recordGate({ toolCallId, decision: gated.mutated ? 'mutate' : 'allow', reason: gated.allowReason ?? 'ok' });
 
     /* ---- 第二段：执行（around-dispatch；链尾缺省实现 = 超时预算 + execute） ---- */

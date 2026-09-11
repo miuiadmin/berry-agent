@@ -10,7 +10,7 @@
 /**
  * 审批 ask 应答闭集（07 §4.3 提问队列条款——审批入队契约）：approve/reject/
  * cancel/always。收口对齐 04 §9 run 信号透传 ask 链——会话关闭 / run 打断
- * 收口 → `'cancel'`（非 unavailable）；`always` + 草案的 allowlist 回写经
+ * 收口 → `'cancel'`（非 unavailable）；`always` + 草案的策略表回写经
  * 装配注入回调（onApprovalAlways）。
  */
 export type ApprovalAskAnswer = 'approve' | 'reject' | 'cancel' | 'always';
@@ -18,7 +18,7 @@ export type ApprovalAskAnswer = 'approve' | 'reject' | 'cancel' | 'always';
 /**
  * 审批 ask 呈现载荷（07 §4.3——通道侧形）：channels 与 safety 边表互无边
  * （02 §4.1），safety 侧 ApprovalRequest 经装配根映射注入本形；`suggestedEntry`
- * = 「始终允许」草案条目（04 §9 ③ allowlist 回写目标；无草案 = always 选项
+ * = 「始终允许」草案条目（04 §9 ③ 策略表 allow 条目回写目标；无草案 = always 选项
  * 语义上不呈现、防御收口视同 approve）。
  */
 export interface ApprovalAskRequest {
@@ -30,6 +30,6 @@ export interface ApprovalAskRequest {
   readonly toolName?: string;
   /** 挂起身份短形（多驱动单输入框下防串答） */
   readonly approvalId?: string;
-  /** 「始终允许」草案条目（allowlist 回写目标；缺席 = always 防御收口视同 approve） */
+  /** 「始终允许」草案条目（策略表 allow 条目回写目标；缺席 = always 防御收口视同 approve） */
   readonly suggestedEntry?: string;
 }

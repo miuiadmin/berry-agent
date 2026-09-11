@@ -177,7 +177,7 @@ export interface IssueWorktreeFace {
  * session 侧形态）：
  * - completed：目标达成（messagesUsed 供预算记账）；
  * - failed：run 失败（含每 issue 预算帽耗尽——reason 载明）；
- * - needs-human：无应答者审批拒/写动作无 allowlist 覆盖（04 §9 fail-closed）；
+ * - needs-human：无应答者审批拒/写动作无策略表覆盖（04 §9 fail-closed）；
  * - paused：全局日池尽（04 §5 停靠——**不落终态**，待 budget_extended 唤醒；
  *   唤醒接线随装配批）。
  */

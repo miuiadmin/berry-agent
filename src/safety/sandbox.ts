@@ -17,7 +17,7 @@
  */
 
 import { BaseError } from '../contracts/index.js';
-import type { AllowlistDraft, ApprovalOutcome, ApprovalRequest, SandboxBackend, SandboxMode } from './types.js';
+import type { ApprovalOutcome, ApprovalRequest, SandboxBackend, SandboxMode, ToolPolicyDraft } from './types.js';
 import { canonicalPath, deriveWritableRoots } from './roots.js';
 import { sensitiveReadFiles } from './sensitive.js';
 // 平台链引用（函数体内才调用，无顶层互调——与后端文件的双向引用安全）
@@ -168,7 +168,7 @@ export function createSandboxService(opts: SandboxServiceOptions = {}): SandboxS
    *   单源打架。
    * - 写侧（04 §7/§14「模型不可自授」的 bash 腿）：dataDir 在场即无条件
    *   并入 denyWritePaths——danger 档 allow-default 下 `> ~/.berry-agent/
-   *   allowlist.json` 自授面此前敞门，本条封死；恒 = 平台底线不交装配
+   *   tool-policy.json`〔原 allowlist.json——更名批同笔〕自授面此前敞门，本条封死；恒 = 平台底线不交装配
    *   裁量，调用方携带值与 enrich 取并集去重。
    */
   const enrichPolicy = (policy: SandboxPolicy): SandboxPolicy => {
@@ -342,7 +342,7 @@ export interface EscalationApprovalInput extends ValidEscalation {
    * 词干），仅 workspace-write 目标携带——danger 是 safety 高位，恒不带
    * 草案（「始终允许」选项不呈现）。
    */
-  readonly suggestedEntry?: AllowlistDraft;
+  readonly suggestedEntry?: ToolPolicyDraft;
   /** 发起 run 的取消信号（调用方语境字段——answerer 桥接消费，机制不按它分支） */
   readonly signal?: AbortSignal;
 }

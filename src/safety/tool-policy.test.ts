@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalPath } from './roots.js';
-import { commandStem, matchToolPolicy, type ToolPolicyEntry } from './allowlist.js';
+import { commandStem, matchToolPolicy, type ToolPolicyEntry } from './tool-policy.js';
 
 /** 每用例独立工作区（canonical 形） */
 let ws = '';

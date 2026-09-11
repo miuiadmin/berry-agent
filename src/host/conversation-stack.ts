@@ -73,7 +73,7 @@ import {
   resolveDefaultModelSpec,
 } from '../llm/index.js';
 import type { LlmRuntime, LlmService, Provider } from '../llm/index.js';
-import type { AllowlistDraft, SandboxMode, ToolPolicyEntry } from '../safety/index.js';
+import type { SandboxMode, ToolPolicyDraft, ToolPolicyEntry } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
 
@@ -151,9 +151,9 @@ export interface ConversationStackOptions {
    */
   readonly onRunSettled?: (sessionId: string, receipt: RunSettledReceipt) => void;
   /** 跨会话工具策略表条目（04 §9 粘性第 3 款 + 审批分档批双面；装配层读 tool-policy.json 载入——缺省功能关闭） */
-  readonly allowlist?: readonly ToolPolicyEntry[];
-  /** 「始终允许」条目写入回调（04 §9 粘性段定形③——装配层接 allowlist-store 文件写，只产 allow 条目；缺省 always 面关闭） */
-  readonly persistAllowlist?: (draft: AllowlistDraft) => void;
+  readonly toolPolicy?: readonly ToolPolicyEntry[];
+  /** 「始终允许」条目写入回调（04 §9 粘性段定形③——装配层接 tool-policy-store 文件写，只产 allow 条目；缺省 always 面关闭） */
+  readonly persistToolPolicy?: (draft: ToolPolicyDraft) => void;
   /**
    * compaction 服务注入位（缺省内部组装真身——SummaryChannel 适配 + 缺省配置；
    * 测试注入计量替身观察阈值触发入参，未来装配覆盖位与 providers/model 同形）
@@ -446,8 +446,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         dataDir: options.runtime.dataDir,
         workspace: workspaceAnchor,
         askApproval: askFace,
-        ...(options.allowlist !== undefined ? { allowlist: options.allowlist } : {}),
-        ...(options.persistAllowlist !== undefined ? { persistAllowlist: options.persistAllowlist } : {}),
+        ...(options.toolPolicy !== undefined ? { toolPolicy: options.toolPolicy } : {}),
+        ...(options.persistToolPolicy !== undefined ? { persistToolPolicy: options.persistToolPolicy } : {}),
         // 会话维工具族并入扩展位（bootTools 同位——模型可见清单恒在律）；
         // 操控三件同位并入（e-4——恒挂载，门检在受理器内执法）；
         // ccr_retrieve 同位并入（05 §2.1 压缩可逆性——恒挂载：压缩归档原文

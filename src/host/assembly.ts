@@ -32,7 +32,7 @@ import { llmTextOf } from '../memory/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
 import type { GoalSummarizerFace } from '../goal/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
-import type { AllowlistDraft, SandboxMode } from '../safety/index.js';
+import type { SandboxMode, ToolPolicyDraft } from '../safety/index.js';
 import {
   DEFAULT_SUBAGENT_PROVIDER,
   createJobRegistry,
@@ -43,7 +43,7 @@ import { createDirProvider } from '../skills/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
 import { createSsrfGuardedFetch } from '../web/index.js';
 
-import { appendAllowlistEntry, readAllowlist } from './allowlist-store.js';
+import { appendToolPolicyEntry, readToolPolicy } from './tool-policy-store.js';
 import { createCorePlugins } from './core-plugins.js';
 import type { GoalFace } from './core-plugins.js';
 import { createSessionsFace } from './sessions-face.js';
@@ -182,11 +182,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     if (options.debug && env.BERRY_AGENT_LOG_LEVEL === undefined) logState.setGlobalLevel('debug');
     const logger = createLogger('host', logState);
 
-    // —— 跨会话 allowlist 装配期载入（04 §9 粘性第 3 款定形块读侧律——
+    // —— 跨会话工具策略表装配期载入（04 §9 粘性第 3 款定形块读侧律——
     // dataDir 在场即真读〔含同构诊断形：报告真实装载会走到的路〕；纯 memory
-    // 形 dataDir null 双缺〔无归属地〕。坏形 warn 降级 + 回写拒在 store 内执法）——
+    // 形 dataDir null 双缺〔无归属地〕。坏形 warn 降级 + 回写拒在 store 内执法；
+    // 旧 allowlist.json 升格读入在 store 内执法——2026-09-11 审批分档批）——
     const dataDir = runtime.dataDir;
-    const allowlistLoad = dataDir !== null ? readAllowlist(dataDir, { warn: (m) => logger.warn(m) }) : null;
+    const toolPolicyLoad = dataDir !== null ? readToolPolicy(dataDir, { warn: (m) => logger.warn(m) }) : null;
 
     // —— 进程级 durable 审计流载体（05 §9 audit_events——U3 批 U3-5 真接线）：
     // 单写者 = 本装配根（boot plugin/opens 幂等 diff + 触发器/凭证/人面三
@@ -282,11 +283,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       pluginSections: (sessionId: string) => boot?.promptSections.materialize(sessionId) ?? '',
       // 审批 always 回写透传（04 §9 定形块写侧律——闭包 dataDir 接 store
       // 文件写；坏形期拒写在 store 内执法，healthy 载入才接线）
-      ...(allowlistLoad !== null
+      ...(toolPolicyLoad !== null
         ? {
-            allowlist: allowlistLoad.entries,
-            ...(dataDir !== null && allowlistLoad.healthy
-              ? { persistAllowlist: (draft: AllowlistDraft) => void appendAllowlistEntry(dataDir, draft) }
+            toolPolicy: toolPolicyLoad.entries,
+            ...(dataDir !== null && toolPolicyLoad.healthy
+              ? { persistToolPolicy: (draft: ToolPolicyDraft) => void appendToolPolicyEntry(dataDir, draft) }
               : {}),
           }
         : {}),

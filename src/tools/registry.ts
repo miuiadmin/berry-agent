@@ -143,8 +143,10 @@ export function toAgentTool(def: ToolDefinition, executor: ToolPipelineExecutor,
 
 /**
  * 组装工具注册表（装配根调用一次；tools_change 经注入的 dispatch 发射）。
- * 注册面归一：effect 缺省 'read'、repeatable 缺省 true（03 §2.3 契约缺省）；
- * timeoutMs 正数过小钳至下限（存归一副本——对调用方原对象零改动）。
+ * 注册面归一：effect 缺省 'exec'（**未知缺省最危律**——2026-09-11 审批分档
+ * 批缺省反转，04 §9 定形块②：未声明效果面的工具按最高危档归一走全审批链，
+ * 「缺省放行」的静默豁口不立；03 §2.3 契约缺省同笔更文）、repeatable 缺省
+ * true；timeoutMs 正数过小钳至下限（存归一副本——对调用方原对象零改动）。
  */
 export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOptions = {}): ToolRegistry {
   const executor = opts.pipeline;
@@ -260,10 +262,12 @@ export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOp
           `注册表两层合计达总量帽 ${totalLimit}（当前 ${totalSize()}）——超限拒新注册：${def.name}`,
         );
       }
-      // 归一副本：effect 缺省 read、repeatable 缺省 true（03 §2.3 契约缺省）；timeoutMs 钳下限
+      // 归一副本：effect 缺省 exec（未知缺省最危律——04 §9 定形块②反转：
+      // 未声明 = 最高危档走全审批链，修前形 read 直达的静默豁口封死）、
+      // repeatable 缺省 true（03 §2.3 契约缺省）；timeoutMs 钳下限
       const normalized: ToolDefinition = {
         ...def,
-        effect: def.effect ?? 'read',
+        effect: def.effect ?? 'exec',
         repeatable: def.repeatable ?? true,
         ...(def.timeoutMs !== undefined ? { timeoutMs: Math.max(def.timeoutMs, TOOL_TIMEOUT_FLOOR_MS) } : {}),
       };
