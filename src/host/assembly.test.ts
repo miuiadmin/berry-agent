@@ -339,6 +339,49 @@ describe('assembleHostStack 成功档', () => {
   });
 });
 
+describe('钩子派发段 guard 装配 e2e（03 §3.4——ca-3 收口锁）', () => {
+  it('guard 单实例全链穿线：钩子派发面真触碰 + 连跑两轮不泄漏（第二轮模型调用即窗外证）', async () => {
+    const dir = tmpDir('host-asm-guard-');
+    let transforms = 0;
+    // core ref 注册 context_transform（waterfall 腿）——每轮对话必触派发面，
+    // withCallbackWindow 随之开合 guard 深度
+    const ref: CorePluginReference = {
+      name: 'guard-probe',
+      apply: async (ctx) => {
+        const pluginCtx = ctx as { on: (hook: string, handler: (...args: never[]) => unknown) => void };
+        pluginCtx.on('context_transform', (messages: unknown, next: (m: unknown) => unknown) => {
+          transforms++;
+          return next(messages); // 放行——不改消息
+        });
+      },
+    };
+    const faux = fauxProvider({ provider: 'faux-guard-asm', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [ref],
+      providers: [faux.provider],
+      model: 'faux-guard-asm/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const session = assembly.stack.openStartupSession();
+      faux.setResponses([() => fauxText('第一轮'), () => fauxText('第二轮')]);
+      // 连跑两轮：第一轮内 context_transform 派发开合 guard；若派发收口后深度
+      // 未归零（泄漏恒真），第二轮的模型调用将被 LLM_CALL_IN_HOOK 拒 → failed
+      const first = await assembly.stack.submitText(session.sessionId, '第一轮');
+      const second = await assembly.stack.submitText(session.sessionId, '第二轮');
+      expect(first).toMatchObject({ status: 'completed' });
+      expect(second).toMatchObject({ status: 'completed' }); // 窗外证——guard 收口恒净
+      expect(transforms).toBeGreaterThanOrEqual(2); // 钩子派发面确被触碰（非空转锁）
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
 describe('失败三档归一（不抛——呈报面归调用方）', () => {
   it('运行时组装失败 = 干净退出档（crashed:false——运行时未建成无资源待收）', async () => {
     const dir = tmpDir('host-asm-busy-');

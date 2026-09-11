@@ -61,7 +61,7 @@ export default async function apply(ctx, config) {
 | 跨会话订阅   | `events.subscribeSessionLifecycle(handler, opts?)`                                   | scope 三档 `self`/`tree`/`all`（all 走 `sessions.observe-cross` 门检 + 审计恰一笔）；装载窗注册即挂 effect 自动撤订 |
 | 消息角色     | `agent.registerMessageRole(role, def)`                                               | 自定义消息角色（拒绝式）                                                                                            |
 | 子代理       | `agent.registerSubagentProvider(def)`                                                | 程序化 named provider（撞名/词法两闸；注册即派生 `agent_<name>` 静态工具入 boot 全局层）                              |
-| 提示词       | `prompts.registerSection(slot, builder)`                                             | 系统提示词段（slot 域前缀两段式执法）                                                                               |
+| 提示词       | `prompts.registerSection(slot, builder, opts?)`                                      | 系统提示词段（slot 域前缀两段式执法）；`opts.volatile.reason` 声明会话内可变段——置请求尾不进缓存稳定区，缺省即承诺会话内稳定（漂移 warn 不拒） |
 | 触发器       | `triggers.register(def)`                                                             | 事件触发起会（门检/撞名/格式三闸）                                                                                  |
 | 凭证         | `secrets.get(name)` / `secrets.set(name, value)` / `secrets.registerOAuthFlow(spec)` | 自域隔离读 / 宿主回调窗内写（受理制）/ oauth 流注册（装载窗 only——详见[凭证节](#凭证ctxsecrets)）                   |
 | UI 后端      | `channels.registerUiBackend(backend)`                                                | 自定义 UI 后端（拒绝式；`channels.ui-backend` 高危面开门制**前置**于撞名律——未开门连撞名检查都不可达）              |

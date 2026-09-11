@@ -149,7 +149,17 @@ describe('① 摄取：首拍全量 + 幂等替换', () => {
     ]);
     let usageRows = service.query({ granularity: 'hour', metric: 'usage' });
     expect(usageRows).toEqual([
-      { bucket: h0, calls: 1, input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 },
+      {
+        bucket: h0,
+        calls: 1,
+        input: 10,
+        output: 5,
+        cacheRead: 0,
+        cacheWrite: 0,
+        cacheWrite1h: 0,
+        reasoning: 0,
+        hitRate: 0,
+      },
     ]);
 
     // 同拍重跑（幂等——DELETE+INSERT 替换语义零重复）
@@ -212,7 +222,38 @@ describe('② 闭日物化：只在闭日后、跨日无新事件也物化', () 
     nowMs = day3 + D + 1000; // 次日——day3 已闭
     service.refresh();
     expect(service.query({ granularity: 'day', metric: 'usage' })).toEqual([
-      { bucket: day3, calls: 2, input: 110, output: 55, cacheRead: 7, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 },
+      {
+        bucket: day3,
+        calls: 2,
+        input: 110,
+        output: 55,
+        cacheRead: 7,
+        cacheWrite: 0,
+        cacheWrite1h: 0,
+        reasoning: 0,
+        hitRate: 7 / 117,
+      },
+    ]);
+    service.dispose();
+  });
+
+  it('hitRate 派生列（RP5）：桶内聚合比值 cacheRead/(input+cacheRead+cacheWrite)；分母零 null', () => {
+    const h0 = Date.UTC(2026, 8, 7, 8);
+    usage(h0 + 1000, { input: 50, output: 5, cacheRead: 30, cacheWrite: 20 }); // 30/100
+    usage(h0 + 2000, { input: 10, output: 5, cacheRead: 30, cacheWrite: 0 }); // 累计 60/140
+    const h1 = h0 + H;
+    usage(h1 + 1000, { input: 0, output: 0 }); // 桶内零 token 流——分母零
+    const service = make();
+    nowMs = h1 + 10 * 60_000;
+    service.refresh();
+    const rows = service.query({ granularity: 'hour', metric: 'usage' }) as unknown as Array<{
+      bucket: number;
+      hitRate: number | null;
+    }>;
+    // 桶内聚合比值（非均值）：h0 桶 = 60/(60+60+20)——两发合计 cacheRead 60、分母 140
+    expect(rows.map((r) => [r.bucket, r.hitRate])).toEqual([
+      [h0, 60 / 140],
+      [h1, null], // 分母零守卫——诚实缺席非 0%
     ]);
     service.dispose();
   });

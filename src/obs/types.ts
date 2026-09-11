@@ -102,6 +102,12 @@ export interface ObsUsageRow {
   readonly cacheWrite1h: number;
   /** 推理 token 子集（未上报聚合为 0；已含于 output） */
   readonly reasoning: number;
+  /**
+   * 缓存命中率派生列（cache 经济批 RP5——查询期派生零 rollup 列）：
+   * `cacheRead / (input + cacheRead + cacheWrite)` 桶内聚合比值（非均值）；
+   * null = 分母零守卫（桶内无 token 流——诚实缺席非 0%）。
+   */
+  readonly hitRate: number | null;
 }
 
 /** 查询结果行二态 */

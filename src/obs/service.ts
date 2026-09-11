@@ -412,6 +412,15 @@ class ObsServiceImpl implements ObsService {
       cacheWrite: typed.cache_write as number,
       cacheWrite1h: typed.cache_write_1h as number,
       reasoning: typed.reasoning as number,
+      // 命中率派生列（RP5——查询期派生零 rollup 列）：桶内聚合比值；分母零
+      // = 无 token 流 → null（诚实缺席非 0%）
+      hitRate: (() => {
+        const input = typed.input as number;
+        const cacheRead = typed.cache_read as number;
+        const cacheWrite = typed.cache_write as number;
+        const denominator = input + cacheRead + cacheWrite;
+        return denominator > 0 ? cacheRead / denominator : null;
+      })(),
     };
   }
 }

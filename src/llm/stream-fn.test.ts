@@ -101,6 +101,33 @@ describe('永不抛契约（在飞帽达帽 → 错误流，transient 桶）', (
   });
 });
 
+/* ---------------- 钩子派发段执法（03 §3.4——LLM_CALL_IN_HOOK 接线，ca-3） ---------------- */
+
+describe('钩子派发段前置查（钩子 handler 内流式调用 → 错误流携码）', () => {
+  it('窗内命中：errorCode=LLM_CALL_IN_HOOK、分类 non-retryable（违例非瞬态）', async () => {
+    const { runtime } = makeFauxRuntime();
+    const streamFn = createStreamFn(runtime, {}, undefined, { inHookDispatch: () => true });
+    const stream = await streamFn(simpleContext([userMsg('hi')]), { model: 'faux-test/m1' });
+    const events = await drainStream(stream);
+    expect(events.map((e) => e.type)).toEqual(['error']);
+    const final = await stream.result();
+    expect(final.errorCode).toBe('LLM_CALL_IN_HOOK');
+    expect(final.errorMessage).toContain('钩子执行段禁模型调用');
+    expect(classifyError(final)).toBe('non-retryable');
+  });
+
+  it('窗外放行（inHookDispatch false = 正常路径不受执法面影响）；不传第四参 = 执法缺席', async () => {
+    const { faux, runtime } = makeFauxRuntime();
+    faux.setResponses([() => fauxAssistantMessage('正常'), () => fauxAssistantMessage('正常')]);
+    const inWindow = createStreamFn(runtime, {}, undefined, { inHookDispatch: () => false });
+    const finalA = await (await inWindow(simpleContext([userMsg('hi')]), { model: 'faux-test/m1' })).result();
+    expect(finalA.errorCode).toBeUndefined(); // 窗外零拦截
+    const noGuard = createStreamFn(runtime);
+    const finalB = await (await noGuard(simpleContext([userMsg('hi')]), { model: 'faux-test/m1' })).result();
+    expect(finalB.errorCode).toBeUndefined(); // 缺席形同窗外
+  });
+});
+
 /* ---------------- 成功路：直通零拷贝与参数组装 ---------------- */
 
 describe('直通与参数组装（超集兼容子集）', () => {

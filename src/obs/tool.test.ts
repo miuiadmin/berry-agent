@@ -95,6 +95,9 @@ describe('obs_query 工具', () => {
     expect(text).toContain('main(in+out)=100');
     expect(text).toContain('cache_read=5');
     expect(text).toContain('cache_write=6');
+    // hitRate 派生列（RP5）：5/(60+5+6) = 5/71 ≈ 7.04%——工具回执同步携带
+    expect(text).toContain('hit_rate=7.04%');
+    expect(text).toContain('hit_rate'); // header 列在场
     // token 原始值——不折算货币（无 $ 字样）
     expect(text.includes('$')).toBe(false);
   });

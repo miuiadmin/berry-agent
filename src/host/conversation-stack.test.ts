@@ -451,6 +451,20 @@ describe('阈值触发 usage 真值笔', () => {
     expect(lastUsageFactOf(logOf([{ type: 'user/message', data: {} }])).usage).toBeUndefined();
   });
 
+  it('lastUsageFactOf cache 两桶同笔（RP4 basis 五件数据源）：数型透传、缺桶/坏形不猜', () => {
+    const ev = (usage: unknown) => ({ type: 'assistant/message', data: { usage } });
+    // 数型在场同笔带出（与 input 同事件同一读笔）
+    expect(lastUsageFactOf(logOf([ev({ input: 500, output: 1, cacheRead: 70, cacheWrite: 30 })])).usage).toEqual({
+      input: 500,
+      cacheRead: 70,
+      cacheWrite: 30,
+    });
+    // 缺桶：键缺席非零值（供应商未报/旧档——诚实缺席）
+    expect(lastUsageFactOf(logOf([ev({ input: 500, output: 1 })])).usage).toEqual({ input: 500 });
+    // 坏形桶（字符串）：不透传不猜
+    expect(lastUsageFactOf(logOf([ev({ input: 500, output: 1, cacheRead: 'x' })])).usage).toEqual({ input: 500 });
+  });
+
   it('全链：run 终态 handleRunSettled 收到日志末条 assistant 真计量（faux 实算值正数）', async () => {
     const { rt } = rigRuntime();
     const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });

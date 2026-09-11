@@ -15,7 +15,7 @@ function formatBucket(bucket: number): string {
   return new Date(bucket).toISOString().replace('.000Z', 'Z');
 }
 
-/** 用量行文本（列对齐——主计费桶与 cache 桶分列呈现） */
+/** 用量行文本（列对齐——主计费桶与 cache 桶分列 + 命中率派生列〔RP5〕） */
 function usageLine(row: ObsUsageRow): string {
   const main = row.input + row.output;
   return [
@@ -26,6 +26,8 @@ function usageLine(row: ObsUsageRow): string {
     `cache_write=${row.cacheWrite}`,
     `cache_write_1h=${row.cacheWrite1h}`,
     `reasoning=${row.reasoning}`,
+    // 命中率呈现：null = 桶内无 token 流（诚实缺席）；有值取两位百分比
+    `hit_rate=${row.hitRate === null ? 'n/a' : `${(row.hitRate * 100).toFixed(2)}%`}`,
   ].join('  ');
 }
 
@@ -44,8 +46,10 @@ export function createObsQueryTool(service: ObsService): ToolDefinition {
     description:
       '查询观测聚合（durable 事件流的小时/日桶统计）。metric=events 返回各事件类型' +
       '计数；metric=usage 返回 LLM token 用量聚合（input/output 主计费桶与 cache 桶' +
-      '分列，token 原始值——不折算货币）。桶时刻 UTC 对齐。窗口 from/to 为 epoch ' +
-      '毫秒（含边界）；行上限缺省 100、硬帽 1000，按时间正序返回。',
+      '分列，token 原始值——不折算货币；hit_rate = 缓存命中率派生列 cacheRead/' +
+      '(input+cacheRead+cacheWrite) 桶内聚合比值，n/a = 桶内无 token 流）。桶时刻 ' +
+      'UTC 对齐。窗口 from/to 为 epoch 毫秒（含边界）；行上限缺省 100、硬帽 1000，' +
+      '按时间正序返回。',
     parameters: Type.Object(
       {
         granularity: Type.Union([Type.Literal('hour'), Type.Literal('day')], {
@@ -79,7 +83,7 @@ export function createObsQueryTool(service: ObsService): ToolDefinition {
         }
         const header =
           args.metric === 'usage'
-            ? 'bucket  calls  main(in+out)  cache_read  cache_write  cache_write_1h  reasoning'
+            ? 'bucket  calls  main(in+out)  cache_read  cache_write  cache_write_1h  reasoning  hit_rate'
             : 'bucket  event_type  count';
         const lines = rows.map((row) => ('eventType' in row ? eventsLine(row) : usageLine(row)));
         return { content: [{ type: 'text', text: [header, ...lines].join('\n') }] };

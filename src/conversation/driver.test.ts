@@ -990,51 +990,60 @@ describe('ConversationDriver context_transform 瀑布派发', () => {
 
 /* ---------------- 11f 纵切：披露段注入 / 审批挂起通知 / onRunSettled ---------------- */
 
-describe('ConversationDriver 环境披露段注入（04 §11）', () => {
-  it('披露段拼 systemPrompt 尾（两 \n 分隔）；header 快照钉死原始值（披露永不入账）', async () => {
+describe('ConversationDriver 环境披露段注入（04 §11——cache 经济批 RP1 迁层后形）', () => {
+  it('披露段注入消息尾瞬态族首位（不进 systemPrompt）；header 快照钉死原始值（披露永不入账）', async () => {
     const { driver, seen } = makeDriver({
       scripts: [assistant({})],
       environmentDisclosure: () => '【环境披露】工作区块',
     });
     await driver.submit('问');
-    // 请求上下文：原始值 + 披露段两换行拼接（瞬态层——每请求重算）
-    expect(seen[0]!.systemPrompt).toBe('sys\n\n【环境披露】工作区块');
+    // 迁层定形（04 §11——cache 经济批 RP1）：systemPrompt 会话内恒定，披露段
+    // 改注入消息尾瞬态 UserMessage（git/插件计数/日期三 volatile 件 churn 不再
+    // 杀前缀缓存）；瞬态族首位（先于 reminders/预算预警/goal 沉淀/todo）
+    expect(seen[0]!.systemPrompt).toBe('sys');
+    const messages = seen[0]!.messages;
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatchObject({ role: 'user', content: '【环境披露】工作区块' });
     // 快照序钉死：request/header 落的是装配面原始 systemPrompt
     expect((dataOf(driver, 'request/header')[0] as { systemPrompt: string }).systemPrompt).toBe('sys');
   });
 
-  it('无原始 systemPrompt：披露段独立成体（无前导换行）', async () => {
+  it('无原始 systemPrompt：披露段仍独立注入消息尾（systemPrompt 维持缺席）', async () => {
     const { driver, seen } = makeDriver({
       scripts: [assistant({})],
       systemPrompt: undefined,
       environmentDisclosure: () => '只有披露',
     });
     await driver.submit('问');
-    expect(seen[0]!.systemPrompt).toBe('只有披露');
+    expect(seen[0]!.systemPrompt).toBeUndefined();
+    expect((seen[0]!.messages[1] as { content?: unknown }).content).toBe('只有披露');
   });
 
-  it('披露段返回 null = 零拼接（systemPrompt 维持原始值）', async () => {
+  it('披露段返回 null = 零注入（systemPrompt 维持原始值、消息尾无瞬态追写）', async () => {
     const { driver, seen } = makeDriver({
       scripts: [assistant({})],
       environmentDisclosure: () => null,
     });
     await driver.submit('问');
     expect(seen[0]!.systemPrompt).toBe('sys');
+    expect(seen[0]!.messages).toHaveLength(1);
   });
 });
 
 /* ---------------- 19a 消费腿：插件提示词段注入（03 §2.5 注册即生效面） ---------------- */
 
 describe('ConversationDriver 插件提示词段注入（批 19a 消费腿）', () => {
-  it('双段在场：sections 先于披露段（官方内容段先于环境尾注）；快照钉死原始值', async () => {
-    // 回归锁：披露段拼接曾基于 context.systemPrompt 丢 sections——本例锁累积序
+  it('sections 拼入 systemPrompt 尾、披露段独立注入消息尾（迁层后两区分离）；快照钉死原始值', async () => {
+    // 回归锁：披露段拼接曾基于 context.systemPrompt 丢 sections——迁层后
+    // sections 独占 systemPrompt 尾（会话内恒定面主体）、披露段走消息尾
     const { driver, seen } = makeDriver({
       scripts: [assistant({})],
       pluginSections: () => '【插件段】skills 清单',
       environmentDisclosure: () => '【环境披露】工作区块',
     });
     await driver.submit('问');
-    expect(seen[0]!.systemPrompt).toBe('sys\n\n【插件段】skills 清单\n\n【环境披露】工作区块');
+    expect(seen[0]!.systemPrompt).toBe('sys\n\n【插件段】skills 清单');
+    expect((seen[0]!.messages[1] as { content?: unknown }).content).toBe('【环境披露】工作区块');
     // 快照序钉死：request/header 落装配面原始 systemPrompt（瞬态段不入账）
     expect((dataOf(driver, 'request/header')[0] as { systemPrompt: string }).systemPrompt).toBe('sys');
   });

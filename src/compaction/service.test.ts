@@ -84,7 +84,7 @@ describe('handleRunSettled 五步两事件形', () => {
     expect(tailTypes).toEqual(['compaction/start', 'user/message', 'compaction/surface', 'compaction/end']);
     const [start, summary, surface, end] = log.events().slice(-4);
 
-    // start：判据快照三件 + willRetry（阈值路失败后下轮触发自然重做）
+    // start：判据快照五件（RP4 扩值——cache 两桶随真值笔透传）+ willRetry
     expect(start!.data).toMatchObject({
       reason: 'threshold',
       willRetry: true,
@@ -135,6 +135,29 @@ describe('handleRunSettled 五步两事件形', () => {
     const start = log.eventsOfType('compaction/start')[0]!;
     expect(start.data).toMatchObject({ basis: 'estimate', willRetry: true });
     expect(log.eventsOfType('compaction/end').at(-1)!.data).toMatchObject({ reason: 'completed' });
+  });
+
+  it('basis 五件（RP4）：真值笔携 cache 两桶同笔落账；缺桶不落键（无 false 零值）', async () => {
+    // 携桶形：cacheRead/cacheWrite 从 usage 真值笔透传进 start 判据快照
+    const rig = makeRig(['摘要甲']);
+    const logA = sixTurnLog();
+    rig.service.handleRunSettled({
+      log: logA,
+      usage: { input: 100_000, contextWindow: 200_000, cacheRead: 7_000, cacheWrite: 3_000 },
+    });
+    await rig.service.drain();
+    expect(logA.eventsOfType('compaction/start')[0]!.data).toMatchObject({
+      basis: 'usage',
+      cacheRead: 7_000,
+      cacheWrite: 3_000,
+    });
+    // 缺桶形：usage 笔无 cache 桶（供应商未报/旧档）——键缺席而非 0
+    const logB = sixTurnLog();
+    rig.service.handleRunSettled({ log: logB, usage: FIRE_USAGE });
+    await rig.service.drain();
+    const startB = logB.eventsOfType('compaction/start')[0]!.data as Record<string, unknown>;
+    expect(startB['cacheRead']).toBeUndefined();
+    expect(startB['cacheWrite']).toBeUndefined();
   });
 
   it('未达阈不动作（零事件零通道调用）', async () => {

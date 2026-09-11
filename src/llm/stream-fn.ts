@@ -28,6 +28,16 @@ import type { InFlightSlot, InFlightTracker } from './inflight.js';
 import type { LlmRuntime } from './runtime.js';
 
 /**
+ * 钩子派发段只读窄面（03 §3.4 执法——02 §5.3 LLM_CALL_IN_HOOK 接线消费）。
+ * host 装配根持有 guard 真身（host/hook-dispatch-guard），llm 无 host 逆边
+ * （02 §4.1）——本域自持同形结构副本，装配注入。
+ */
+export interface HookDispatchWindow {
+  /** true = 当前调用栈在钩子派发段内（深度 > 0） */
+  readonly inHookDispatch: () => boolean;
+}
+
+/**
  * StreamFn 默认请求参数（llm 闭包内持有——重试/采样档位是 provider 层配置，
  * 不进 agent 契约面；04 §3 重试四层第二行「provider SDK 透传」）。
  * abort 是终态绝不重试——pi-ai SDK 行为，本层不另加重试。
@@ -60,13 +70,27 @@ const NO_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens
  * @param defaults 请求参数默认值（重试/采样档位，闭包持有）
  * @param tracker per-provider 在飞计数器（04 §3.6——host 装配根与 complete
  *        单发路共享同一份传入，「两出口同源计数」名实相符；不传 = 不限）
+ * @param hookDispatch 钩子派发段只读面（03 §3.4 执法——02 §5.3 LLM_CALL_IN_HOOK
+ *        接线：钩子 handler 执行段内流式调用即耦合死锁位，前置查命中转错误流
+ *        携码；不传 = 该执法缺席〔lib/测试形〕。02 §4.1 llm 无 host 逆边——
+ *        窗态经装配注入，本域自持同形结构副本）
  */
 export function createStreamFn(
   runtime: LlmRuntime,
   defaults: StreamFnDefaults = {},
   tracker?: InFlightTracker,
+  hookDispatch?: HookDispatchWindow,
 ): StreamFn {
   return (context: LlmContext, options: StreamFnOptions, signal?: AbortSignal): AssistantStream => {
+    // 钩子派发段前置查（03 §3.4）：钩子 handler 内 await 流式模型面 = 耦合
+    // 违法（fire-and-forget 尾链窗外合法——guard 深度随派发收口归零）；先于
+    // 模型解析（调用方违例与模型配置无关，最先判）
+    if (hookDispatch?.inHookDispatch() === true) {
+      return errorStream(
+        '钩子执行段禁模型调用（03 §3.4——钩子 handler 内 await 流式即耦合；起异步任务不等结果合法）',
+        'LLM_CALL_IN_HOOK',
+      );
+    }
     // 模型解析失败 → 编码为错误流（永不抛错；错误在此转数据）。
     // 文案携带 [CODE] 前缀维持人读可辨（机器判定位是 errorCode 字段）
     let model: Model<string>;

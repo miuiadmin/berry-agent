@@ -598,6 +598,23 @@ describe('提示词段注册表（prompt-sections——03 §2.5/§2.7）', () =>
     expect(promptSections.slotList()).toEqual(['acme-widgets/alpha', 'acme-widgets/zeta']);
   });
 
+  it('第三参 options 透传 registry（volatile 声明经 ctx 面——cache 经济批 ca-2/m7）', () => {
+    const { handle, promptSections } = assemble();
+    handle.ctx.prompts.registerSection('acme-widgets/clock', () => 'V', {
+      volatile: { reason: '时间戳类' },
+    });
+    // volatile 段物化位恒段区尾（两段律）——经 ctx 面声明与直注 registry 同效
+    handle.ctx.prompts.registerSection('acme-widgets/steady', () => 'S');
+    expect(promptSections.materialize()).toBe('S\n\nV');
+    expectCode(
+      () =>
+        handle.ctx.prompts.registerSection('acme-widgets/bad', () => '', {
+          volatile: { reason: '' },
+        }),
+      'PLUGIN_PROMPT_SLOT_INVALID',
+    );
+  });
+
   it('slot 非域前缀两段式拒（PLUGIN_PROMPT_SLOT_INVALID 四档）', () => {
     const { handle } = assemble();
     expectCode(() => handle.ctx.prompts.registerSection('裸段', () => ''), 'PLUGIN_PROMPT_SLOT_INVALID'); // 无 /

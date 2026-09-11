@@ -356,6 +356,54 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(registry!.providerIds()).toEqual(['project', 'cross-repo', 'factory']);
   });
 
+  it('memory/core 归类基线②：volatile 声明 + 每会话懒冻结（cache 经济批 ca-2——批 19 简报冻结挂账兑销）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-frz-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-frz-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-frz-home-'));
+    dirs.push(dataDir, workspace, home);
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    const { scope, boot } = await bootCore(
+      dataDir,
+      memoryFs(),
+      { cwd: workspace, homeDir: home },
+      {
+        sqlite: () => persistence.store.sqlite(),
+        fetchEvents: () => [],
+        llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
+      },
+    );
+    const memoryService = scope.tryGet<{ dao: MemoryDao }>('memory')!;
+
+    // ① volatile 声明在册（03 §2.5 既有宿主段归类基线②——免漂移 warn + 物化位恒段区尾）
+    const entry = boot.promptSections.list().find((e) => e.slot === 'memory/core');
+    expect(entry?.volatileReason).toBeDefined();
+
+    // ② 每会话懒冻结：首物化即冻结该会话简报；库变更后会话内再物化零漂移
+    //    （时效词面取冻结时点值——会话内前缀缓存兑现）
+    memoryService.dao.ingest({
+      ownerKey: 'global',
+      kind: 'convention',
+      summary: '冻结前',
+      content: '冻结前行内容',
+      confidence: 0.8,
+      sourceRefs: [{ sessionId: 's-frz', seq: 0 }],
+    });
+    const frozen = boot.promptSections.materialize('s-frz');
+    expect(frozen).toContain('冻结前');
+    memoryService.dao.ingest({
+      ownerKey: 'global',
+      kind: 'convention',
+      summary: '冻结后',
+      content: '冻结后行内容',
+      confidence: 0.8,
+      sourceRefs: [{ sessionId: 's-frz', seq: 1 }],
+    });
+    expect(boot.promptSections.materialize('s-frz')).toBe(frozen); // 同会话恒冻结文本
+    // ③ 异会话各自冻结（新会话首物化见新行）；④ 诊断形（sessionId 缺席）活体物化
+    expect(boot.promptSections.materialize('s-other')).toContain('冻结后');
+    expect(boot.promptSections.materialize()).toContain('冻结后');
+  });
+
   it('memory 件装载全环（批 19b-2）：真 :memory: 座 → 服务面/九工具/简报段/三消费腿/命令注册', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-mem2-'));
     const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-mem2-ws-'));

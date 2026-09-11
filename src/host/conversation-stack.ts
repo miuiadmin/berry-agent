@@ -78,6 +78,7 @@ import { deriveMessages } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
 
 import type { HostRuntime } from './runtime.js';
+import type { HookDispatchGuardFace } from './hook-dispatch-guard.js';
 import type { GoalFace } from './core-plugins.js';
 import { createSessionTools, createSessionView, OBSERVE_CROSS_CAPABILITY } from '../obs/index.js';
 import type { SessionObserveUsedRecord, SessionView } from '../obs/index.js';
@@ -110,8 +111,15 @@ export interface ConversationStackOptions {
   readonly systemPrompt?: string;
   /** 装载工具定义取值器（批 19a 消费腿：boot 全局层定义快照——每会话装配时调用；闭包晚绑定：装配根 stack 先建、boot 后跑，会话首开时 boot 已定型） */
   readonly bootTools?: () => readonly ToolDefinition[];
-  /** 插件提示词段物化取值器（批 19a 消费腿：PromptSectionRegistry.materialize 的闭包——每请求组装时重取，注册即生效面；空串 = 零段） */
-  readonly pluginSections?: () => string;
+  /** 插件提示词段物化取值器（批 19a 消费腿：PromptSectionRegistry.materialize 的闭包——每请求组装时重取，注册即生效面；sessionId 参透传 builder〔cache 经济批 ca-2——每会话懒冻结类段〕；空串 = 零段） */
+  readonly pluginSections?: (sessionId: string) => string;
+  /**
+   * 钩子派发段 guard 只读面（03 §3.4 执法——cache 经济批 ca-3：host 装配根
+   * 全局 guard 的只读窄面注入 llm 双入口〔StreamFn + complete〕前置查，钩子
+   * handler 执行段内模型调用拒 LLM_CALL_IN_HOOK；缺席 = 该执法缺席〔测试形〕
+   * ——guard 真身与 enter/exit 开合在装配根/boot 侧，本件只穿只读面）
+   */
+  readonly hookDispatchGuard?: HookDispatchGuardFace;
   /** 思考档位（会话态） */
   readonly thinkingLevel?: ThinkingLevel;
   /**
@@ -254,11 +262,17 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // todo 回看角色幂等注册（进程级单表——convertToLlm 消费前置）
   ensureTodoRole();
 
-  // ② llm 运行时：两出口共享同一 InFlightTracker（04 §3.6 同源计数名实相符）
+  // ② llm 运行时：两出口共享同一 InFlightTracker（04 §3.6 同源计数名实相符）；
+  // 钩子派发段只读面同注双入口（03 §3.4——LLM_CALL_IN_HOOK 前置查，ca-3）
   const llmRuntime = createLlmRuntime(options.providers !== undefined ? { providers: options.providers } : {});
   const tracker = new InFlightTracker();
-  const streamFn = createStreamFn(llmRuntime, {}, tracker);
-  const llm = createLlmService({ runtime: llmRuntime, tracker, defaultModel: () => model });
+  const streamFn = createStreamFn(llmRuntime, {}, tracker, options.hookDispatchGuard);
+  const llm = createLlmService({
+    runtime: llmRuntime,
+    tracker,
+    defaultModel: () => model,
+    ...(options.hookDispatchGuard !== undefined ? { hookDispatch: options.hookDispatchGuard } : {}),
+  });
 
   // ③ compaction：SummaryChannel 适配（maxChars 由 prompt 指令承载——complete
   // 单发面无 maxTokens 参数；输出防御性截断兜底）。阈值触发器接线：run 终态
@@ -591,7 +605,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
  * - contextWindow 不供（栈面只有模型 id 无目录查询）——分母归服务侧
  *   fallbackWindowTokens 缺省，与估算档同分母。
  */
-export function lastUsageFactOf(log: SessionLog): { usage?: { input: number } } {
+export function lastUsageFactOf(log: SessionLog): {
+  usage?: { input: number; cacheRead?: number; cacheWrite?: number };
+} {
   const events = log.events();
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i]!;
@@ -604,7 +620,16 @@ export function lastUsageFactOf(log: SessionLog): { usage?: { input: number } } 
       typeof (usage as { input?: unknown }).input === 'number' &&
       (usage as { input: number }).input > 0
     ) {
-      return { usage: { input: (usage as { input: number }).input } };
+      // cache 两桶同笔带出（cache 经济批 RP4——basis 五件的数据源）：与 input
+      // 同一事件同一读笔，缺桶/非数不猜（透传面收敛 number 判）
+      const record = usage as { input: number; cacheRead?: unknown; cacheWrite?: unknown };
+      return {
+        usage: {
+          input: record.input,
+          ...(typeof record.cacheRead === 'number' ? { cacheRead: record.cacheRead } : {}),
+          ...(typeof record.cacheWrite === 'number' ? { cacheWrite: record.cacheWrite } : {}),
+        },
+      };
     }
     return {}; // 末条已见而无可信计量——无真值不猜（不回溯）
   }

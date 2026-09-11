@@ -108,7 +108,8 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
 };
 
 /**
- * 阈值判据快照（compaction/start 的 basis 三件——仅阈值路落账，05 §2.1）。
+ * 阈值判据快照（compaction/start 的 basis 五件——仅阈值路落账，05 §2.1；
+ * 2026-09-11 cache 经济批 RP4：三件扩五件 +cacheRead/+cacheWrite）。
  * 溢出应急路无判阈过程，不落。
  */
 export interface ThresholdBasis {
@@ -118,6 +119,14 @@ export interface ThresholdBasis {
   readonly estTokens: number;
   /** 实际生效的窗口大小（真 contextWindow 或 fallbackWindowTokens） */
   readonly effectiveWindow: number;
+  /**
+   * 触发时点主 loop 最近计量的 cacheRead 桶（RP4——压缩即前缀缓存全毁，
+   * 毁前成本快照记账可见；与 estTokens 同事件同笔〔lastUsageFactOf〕快照
+   * 自洽。estimate 兜底路无真值笔恒缺省）。
+   */
+  readonly cacheRead?: number;
+  /** 同上 cacheWrite 桶（同笔同源） */
+  readonly cacheWrite?: number;
 }
 
 /** 区间规划产物（policy.planSegment 输出；start/end 为事件 seq 闭区间） */
@@ -143,6 +152,13 @@ export interface RunUsageFact {
   readonly input: number;
   /** 模型上下文窗口（缺省用 fallbackWindowTokens） */
   readonly contextWindow?: number;
+  /**
+   * 同笔 cacheRead 桶（RP4——basis 五件的数据源；与 input 同一事件同一读笔，
+   * 快照同源自洽。缺省 = 计量事件未带该桶）。
+   */
+  readonly cacheRead?: number;
+  /** 同上 cacheWrite 桶 */
+  readonly cacheWrite?: number;
 }
 
 /** 压缩服务面（三入口——阈值触发 fire-and-forget / 溢出应急可等待 / 排空收口） */

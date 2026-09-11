@@ -427,8 +427,10 @@ export class ConversationDriver {
   /**
    * 请求组装最后关口：信封快照（边界制）在此落账——快照取原始 systemPrompt
    * （04 §11 快照序钉死：先快照后注入，瞬态注入体不入快照不落日志）。
-   * 环境披露段（04 §11 装配注入条款）：五件文本块追加于 systemPrompt 尾
-   * ——瞬态层（每请求重算、不落日志、随请求即弃；缺席/返回 null = 无披露）。
+   * 环境披露段（04 §11 迁层定形——2026-09-11 cache 经济批 RP1）：五件文本块
+   * 注入消息尾瞬态 UserMessage 族首位（原 systemPrompt 尾拼装废止——git 摘要/
+   * 插件计数/日期三 volatile 件随自主运行日 commit/装载/跨日 churn 杀全部
+   * 前缀缓存；瞬态层每请求重算、不落日志、随请求即弃；缺席/返回 null = 无披露）。
    * todo 回看注入（05 §1.1 跨 turn 每轮当前全表）：UserMessage 追加于消息
    * 尾——瞬态层（不进 timeline 活数组不落 durable，llmContext 每请求新建
    * 零累积）；空表不注入；fold 单源 = durable 日志可见事件（遮蔽感知），
@@ -452,9 +454,11 @@ export class ConversationDriver {
       });
     }
     // 插件提示词段注入位（批 19a 消费腿——03 §2.5 注册即生效面）：每请求
-    // 重取物化（段集动态）；拼于披露段之前（官方内容段先于环境尾注）；
-    // 空串/缺席 = 零段跳过（与披露段同判空律）
-    const sections = this.options.pluginSections !== undefined ? this.options.pluginSections() : '';
+    // 重取物化（段集动态；sessionId 透传 builder——每会话懒冻结类段消费，
+    // cache 经济批 ca-2）；披露段已迁瞬态层，本段区 = systemPrompt 会话内
+    // 恒定面的主体；空串/缺席 = 零段跳过
+    const sections =
+      this.options.pluginSections !== undefined ? this.options.pluginSections(this.session.sessionId) : '';
     let transformed: LlmContext = context;
     if (sections !== '') {
       transformed = {
@@ -463,18 +467,6 @@ export class ConversationDriver {
           context.systemPrompt !== undefined && context.systemPrompt !== ''
             ? `${context.systemPrompt}\n\n${sections}`
             : sections,
-      };
-    }
-    // 披露段注入位：装配注入的单文本块 → systemPrompt 尾（04 §11——快照已
-    // 在上拍落账取原始值，此处改写不影响 durable 面）
-    const disclosure = this.options.environmentDisclosure?.() ?? null;
-    if (disclosure !== null) {
-      transformed = {
-        ...transformed,
-        systemPrompt:
-          transformed.systemPrompt !== undefined && transformed.systemPrompt !== ''
-            ? `${transformed.systemPrompt}\n\n${disclosure}`
-            : disclosure,
       };
     }
     // context_transform 瀑布派发（03 §2.4——LLM 请求组装最后关口的插件管线）：
@@ -495,13 +487,19 @@ export class ConversationDriver {
         originalMessages: [...preTransformMessages],
       });
     }
-    // agent_pre_step 提醒注入 + 预算预警 + goal 轮间沉淀（批 #99 + 批 H）：
-    // 同属请求组装瞬态层不落 durable；注入序定律 reminders → 预算预警 →
-    // goal 沉淀 → todo 恒最后（05 §1.1）。提醒槽取后即清（跨请求不残留——
-    // 一次 pre_step 暂存对应一次请求组装）
+    // 披露段 + agent_pre_step 提醒 + 预算预警 + goal 轮间沉淀（批 #99 + 批 H
+    // + cache 经济批 RP1）：同属请求组装瞬态层不落 durable；注入序定律（04
+    // §5 H 注单源）= 披露段 → reminders → 预算预警 → goal 沉淀 → todo 恒
+    // 最后（05 §1.1）。提醒槽取后即清（跨请求不残留——一次 pre_step 暂存
+    // 对应一次请求组装）
     const reminders = this.pendingReminders;
     this.pendingReminders = [];
     const transientTail: Message[] = [];
+    // 披露段注入位（04 §11 迁层定形）：消息尾瞬态族首位——瀑布之后注入
+    const disclosure = this.options.environmentDisclosure?.() ?? null;
+    if (disclosure !== null) {
+      transientTail.push({ role: 'user', content: disclosure, timestamp: Date.now() });
+    }
     if (reminders.length > 0) {
       transientTail.push({ role: 'user', content: reminders.join('\n'), timestamp: Date.now() });
     }

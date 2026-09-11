@@ -23,7 +23,7 @@ import { BaseError } from '../contracts/index.js';
 import { randomUUID } from 'node:crypto';
 import type { LlmRuntime } from './runtime.js';
 import { formatModelId } from './model-id.js';
-import type { StreamFnDefaults } from './stream-fn.js';
+import type { HookDispatchWindow, StreamFnDefaults } from './stream-fn.js';
 import type { InFlightTracker } from './inflight.js';
 import {
   classifyError,
@@ -148,6 +148,13 @@ export interface LlmServiceOptions {
    * 不接 = 零观测（lib 形态）。
    */
   onUsageError?: (err: unknown, info: { callId: string; model: string }) => void;
+  /**
+   * 钩子派发段只读面（03 §3.4 执法——02 §5.3 LLM_CALL_IN_HOOK 接线：钩子
+   * handler 执行段内 complete 单发即耦合死锁位，入口前置查命中抛
+   * `LLM_CALL_IN_HOOK`；不传 = 该执法缺席〔lib/测试形〕。与 createStreamFn
+   * 第四参同源——host 装配根同一 guard 只读面双入口注入）。
+   */
+  hookDispatch?: HookDispatchWindow;
   /** 当日后台预算限额 tokens（in+out 合计；缺省 4,000,000——04 §5 起草值随实测调） */
   backgroundBudgetTokens?: number;
   /**
@@ -205,7 +212,7 @@ export function budgetAdvisoryLevel(ratio: number): BudgetAdvisoryLevel | null {
  * 创建单发受托管补全服务（host 装配根 provide 的那一个对象）。
  */
 export function createLlmService(options: LlmServiceOptions): LlmService {
-  const { runtime, defaults = {}, defaultModel, retry = DEFAULT_RETRY, tracker } = options;
+  const { runtime, defaults = {}, defaultModel, retry = DEFAULT_RETRY, tracker, hookDispatch } = options;
   const budget = options.backgroundBudgetTokens ?? DEFAULT_BACKGROUND_BUDGET;
   // 当日后台已耗 = 注入的聚合查询（底账 = llm/usage 事件投影，缺省无已耗）
   const spentToday = options.backgroundSpentToday ?? (() => 0);
@@ -268,6 +275,15 @@ export function createLlmService(options: LlmServiceOptions): LlmService {
     },
 
     async complete(req: CompleteRequest): Promise<CompleteResult> {
+      // 钩子派发段前置查（03 §3.4——02 §5.3 LLM_CALL_IN_HOOK）：钩子 handler
+      // 内 await 单发补全 = 耦合违法（fire-and-forget 尾链窗外合法）；先于预算
+      // 闸/模型解析（调用方违例最先判）
+      if (hookDispatch?.inHookDispatch() === true) {
+        throw new BaseError(
+          'LLM_CALL_IN_HOOK',
+          '钩子执行段禁模型调用（03 §3.4——钩子 handler 内 await 单发补全即耦合；起异步任务不等结果合法）',
+        );
+      }
       // 预算闸门（04 §5 执法位点）：后台调用且当日已耗尽 → 拒在请求发出前
       // （不是事后记账发现超了——钱花出去才拒不是预算）。检查在调用前；入账在
       // 成功后（装配层经 onUsage 落 llm/usage durable 事件）——最后一发可略超

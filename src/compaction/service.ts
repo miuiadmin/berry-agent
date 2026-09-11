@@ -291,7 +291,7 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
       log.append('compaction/end', { reason: 'failed', error: String(err) });
       throw err;
     }
-    // 步 1：压缩意图与判据快照（basis 三件仅阈值路落账）+ 归因位
+    // 步 1：压缩意图与判据快照（basis 五件仅阈值路落账——RP4 扩值含 cache 两桶）+ 归因位
     log.append('compaction/start', {
       reason,
       willRetry: reason === 'threshold',
@@ -426,10 +426,14 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
             tailKeep: getConfig().tailKeep,
           });
           if (plan === null) return; // 区间不足——诚实无操作（不动冷却锚）
+          // basis 五件（RP4 扩值）：判据三件 + cache 两桶（毁前成本快照——
+          // 从主 loop 真值笔同笔透传；estimate 兜底路 input.usage 恒缺省不落）
           const basis: ThresholdBasis = {
             basis: verdict.basis,
             estTokens: verdict.estTokens,
             effectiveWindow: verdict.effectiveWindow,
+            ...(input.usage?.cacheRead !== undefined ? { cacheRead: input.usage.cacheRead } : {}),
+            ...(input.usage?.cacheWrite !== undefined ? { cacheWrite: input.usage.cacheWrite } : {}),
           };
           // —— 接管缝（U4）：阈值路排队体内、区间规划后、start 落账前派发 ——
           let algo: Algo = { kind: 'host' };

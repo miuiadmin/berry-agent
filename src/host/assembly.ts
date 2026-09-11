@@ -53,6 +53,7 @@ import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
 import type { CorePluginReference } from './loader.js';
+import { createHookDispatchGuard } from './hook-dispatch-guard.js';
 import { enabledYamlPath, parseEnabledRows } from './manifest.js';
 import type { PluginBootHandle, PluginUnloadReceipt } from './plugin-boot.js';
 import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
@@ -140,6 +141,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
   // 对话栈与插件装载仍同根同源）——
   const scope = Scope.createRoot();
   const dispatch = new EventDispatch();
+  // 钩子派发段 guard（03 §3.4 执法形——cache 经济批 ca-3）：全局单实例深度
+  // 计数；两窄面分路注入——enter/exit 随 bootPlugins 透传插件 ctx（钩子派发
+  // 两腿开合）、只读面随 conversation-stack 注入 llm 双入口前置查
+  // （LLM_CALL_IN_HOOK）。同一真身保证「谁开窗谁可见」跨插件嵌套正确
+  const hookDispatchGuard = createHookDispatchGuard();
   let runtime: HostRuntime | undefined;
   try {
     // —— 运行时组装（单活跃机 + 开库 fail-loud——干净退出档，非崩溃取证档）——
@@ -259,6 +265,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtime,
       scope,
       dispatch,
+      // 钩子派发段只读面（ca-3——llm 双入口 LLM_CALL_IN_HOOK 前置查）
+      hookDispatchGuard,
       ...(options.providers !== undefined ? { providers: options.providers } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
@@ -268,8 +276,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // 模型工具族八件恒并入宿主全局面（03 §5.6——先于插件注册面，插件侧
       // 撞名即装载失败 fail-loud）
       bootTools: () => [...(boot?.tools.definitions() ?? []), ...pluginLifecycleTools],
-      // 插件提示词段物化取值器（每请求组装时重取——03 §2.5 注册即生效面）
-      pluginSections: () => boot?.promptSections.materialize() ?? '',
+      // 插件提示词段物化取值器（每请求组装时重取——03 §2.5 注册即生效面；
+      // sessionId 透传 materialize → builder〔cache 经济批 ca-2——每会话懒
+      // 冻结类段消费〕）
+      pluginSections: (sessionId: string) => boot?.promptSections.materialize(sessionId) ?? '',
       // 审批 always 回写透传（04 §9 定形块写侧律——闭包 dataDir 接 store
       // 文件写；坏形期拒写在 store 内执法，healthy 载入才接线）
       ...(allowlistLoad !== null
@@ -531,6 +541,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           runtime: rt,
           scope,
           dispatch,
+          // 钩子派发段 guard 开合面（ca-3——全部插件 ctx 钩子派发两腿开合同
+          // 一全局深度计数；只读面已随 stack 注入 llm 双入口）
+          hookDispatchGuard,
           commands: stack.channels.commands,
           llm: stack.llmRuntime,
           triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）

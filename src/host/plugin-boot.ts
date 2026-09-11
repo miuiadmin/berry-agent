@@ -292,6 +292,14 @@ export interface PluginBootOptions {
   readonly sdkRoutes?: PluginRouteRegistry;
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
+  /**
+   * 钩子派发段 guard 开合面（03 §3.4 执法形——cache 经济批 ca-3）：装配根
+   * 全局单实例 guard 的 enter/exit 窄面，透传 createPluginContext——钩子
+   * 派发两腿（waterfall/notify）随回调窗同步开合；llm 双入口只读面由
+   * conversation-stack 另路注入（同一 guard 两窄面）。缺席 = 不计数
+   * （直测形）。
+   */
+  readonly hookDispatchGuard?: { readonly enter: () => void; readonly exit: () => void };
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
   readonly noPlugins?: boolean;
   /**
@@ -366,7 +374,15 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       ? (def: ProgrammaticSubagentDef): Disposer =>
           tools.register({ ...createDeclarativeAgentTool(def, options.subagentToolDeps!), owner: 'core:subagent' })
       : undefined;
-  const promptSections = new PromptSectionRegistry();
+  // 漂移观测接线（03 §2.5 节区稳定性纪律——cache 经济批 ca-2）：承诺稳定段
+  // 内容漂移经 warn 落日志（性能事件 fail-open——不拒不炸请求）；注册集变更
+  // 清基线重立在 registry 内执法（装载面真变更不落 warn）
+  const promptSections = new PromptSectionRegistry({
+    onDrift: ({ slot, owner }) =>
+      warn(
+        `提示词段 ${slot}（${owner}）物化内容漂移——注册面缺省承诺会话内稳定，builder 输出跨请求变化即前缀缓存失效；若属可变内容请声明 volatile:{reason}（03 §2.5）`,
+      ),
+  });
   const hostFace: HostFace = materializeHostFace({
     version: options.version,
     apiVersion: options.apiVersion ?? '1.0',
@@ -487,6 +503,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       commands: options.commands,
       llm: options.llm,
       promptSections,
+      // 钩子派发段 guard 开合面透传（ca-3——全部插件 ctx 共享同一全局深度计数）
+      ...(options.hookDispatchGuard !== undefined ? { hookDispatchGuard: options.hookDispatchGuard } : {}),
       provide: services.provide, // ctx.provide 委派共享根（§2.2 表行——跨插件可见）
       hostFace,
       // 触发器注册表受局面透传（C 批 C-2——缺席时 ctx.triggers.register 响亮缺位）

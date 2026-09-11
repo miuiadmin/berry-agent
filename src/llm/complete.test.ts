@@ -105,6 +105,28 @@ describe('complete：请求面组装与直通', () => {
 
 /* ---------------- 错误终态上抛（Promise 面回到异常形态） ---------------- */
 
+describe('complete：钩子派发段前置查（LLM_CALL_IN_HOOK，ca-3）', () => {
+  it('窗内命中 → BaseError(LLM_CALL_IN_HOOK)，先于预算闸/模型解析（无响应脚本也不触达 provider）', async () => {
+    // 不设 faux 响应脚本——前置查若漏位将落到 provider 面报错而非本码
+    const { service } = makeService({ hookDispatch: { inHookDispatch: () => true } });
+    const err = await service.complete({ messages: [userMsg('x')] }).catch((e) => e);
+    expect(err).toBeInstanceOf(BaseError);
+    expect((err as BaseError).code).toBe('LLM_CALL_IN_HOOK');
+    expect((err as BaseError).message).toContain('钩子执行段禁模型调用');
+  });
+
+  it('窗外放行（inHookDispatch false）与执法缺席（不传 hookDispatch）均正常路', async () => {
+    const a = makeService({ hookDispatch: { inHookDispatch: () => false } });
+    a.faux.setResponses([() => messageOf('stop')]);
+    const okA = await a.service.complete({ messages: [userMsg('x')] });
+    expect(okA.message.stopReason).toBe('stop');
+    const b = makeService(); // 缺席形
+    b.faux.setResponses([() => messageOf('stop')]);
+    const okB = await b.service.complete({ messages: [userMsg('x')] });
+    expect(okB.message.stopReason).toBe('stop');
+  });
+});
+
 describe('complete：错误终态上抛 LLM_COMPLETE_FAILED', () => {
   it('stopReason=error → BaseError(LLM_COMPLETE_FAILED)，errorMessage 透传', async () => {
     const { faux, service } = makeService();

@@ -51,7 +51,7 @@ import type { ToolRegistry } from '../tools/index.js';
 import type { Disposer, EventDispatch, Scope, WaterfallListener } from '../context/index.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import type { SessionLifecycleEvent } from '../conversation/index.js';
-import type { PromptSectionBuilder, PromptSectionRegistry } from './prompt-sections.js';
+import type { PromptSectionBuilder, PromptSectionRegisterOptions, PromptSectionRegistry } from './prompt-sections.js';
 import type { TriggerDef } from './triggers.js';
 
 /** 钩子分派模式（03 §2.4——模式是钩子公开契约的一部分） */
@@ -189,8 +189,10 @@ export interface PluginContext {
     /** 程序化 named provider 注册（拒绝式——撞名/词法两闸执法在 SubagentService，D 批 D-2） */
     registerSubagentProvider(def: ProgrammaticSubagentDef): Disposer;
   };
-  /** 系统提示词段注册（拒绝式——slot 域前缀两段式执法在 PromptSectionRegistry） */
-  readonly prompts: { registerSection(slot: string, builder: PromptSectionBuilder): Disposer };
+  /** 系统提示词段注册（拒绝式——slot 域前缀两段式执法在 PromptSectionRegistry；options.volatile = 逃生门声明〔03 §2.5〕） */
+  readonly prompts: {
+    registerSection(slot: string, builder: PromptSectionBuilder, options?: PromptSectionRegisterOptions): Disposer;
+  };
   /** 触发器注册（拒绝式——门检/撞名/格式三闸执法在 TriggerRegistry，C 批 C-2） */
   readonly triggers: { register(def: TriggerDef): Disposer };
   /** 宿主自省面（§8.5——装配根一次物化、fork 级联共享；附本插件 id） */
@@ -223,6 +225,15 @@ export interface PluginContextOptions {
   readonly toolLedger?: PluginToolLedger;
   /** 命令注册表（缺席同上） */
   readonly commands?: CommandRegistryLike;
+  /**
+   * 钩子派发段 guard 开合面（03 §3.4 执法形——cache 经济批 ca-3）：全局
+   * guard 真身住装配根（host/hook-dispatch-guard 单实例），此处收 enter/exit
+   * 窄面——withCallbackWindow（钩子派发两腿专用包裹）随回调窗同步开合深度
+   * 计数；llm 双入口只读面经装配另路注入（本面不持）。**只包钩子派发不包
+   * 工具执行体**（03 §3.4 只禁钩子段——enterHostCallback 外包的工具执行期
+   * 不经本面）。缺席 = 不计数（直测形）——llm 侧执法面亦缺席时整体不执法。
+   */
+  readonly hookDispatchGuard?: { readonly enter: () => void; readonly exit: () => void };
   /** llm 运行时（缺席同上——只取 registerProvider 一面） */
   readonly llm?: Pick<LlmRuntime, 'registerProvider'>;
   /** 提示词段注册表（缺席同上） */
@@ -472,12 +483,19 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     return face;
   };
 
-  /** 回调窗包裹：handler 体前后开合（同步/异步腿都收口——finally 恢复） */
+  /**
+   * 回调窗包裹：handler 体前后开合（同步/异步腿都收口——finally 恢复）。
+   * 本包裹只用于钩子派发两腿（waterfall/notify）——回调窗与钩子派发段窗
+   * （guard 深度计数，03 §3.4 执法）同开同合；工具执行体走 loader 侧
+   * enterHostCallback 外包，不经本面（钩子段禁模型、工具段不禁的分界位）。
+   */
   const withCallbackWindow = async <T>(fn: () => T | Promise<T>): Promise<T> => {
     hostCallbackDepth++;
+    options.hookDispatchGuard?.enter(); // 钩子派发段开窗（await 跨度覆盖 handler 全执行段）
     try {
       return await fn();
     } finally {
+      options.hookDispatchGuard?.exit(); // 派发收口即闭窗（fire-and-forget 尾链窗外合法）
       hostCallbackDepth--;
     }
   };
@@ -801,13 +819,18 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
       },
     },
     prompts: {
-      registerSection(slot: string, builder: PromptSectionBuilder): Disposer {
+      registerSection(
+        slot: string,
+        builder: PromptSectionBuilder,
+        registerOptions?: PromptSectionRegisterOptions,
+      ): Disposer {
         assertWindow('ctx.prompts.registerSection');
         countAction();
         return required(options.promptSections, 'promptSections', 'ctx.prompts.registerSection').register(
           slot,
           pluginId,
           builder,
+          registerOptions,
         );
       },
     },

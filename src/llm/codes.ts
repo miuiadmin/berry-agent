@@ -66,4 +66,13 @@ registerErrorCodes([
     module: 'llm',
     description: 'complete 单发补全失败（stopReason=error/aborted 终态或达帽拒绝上抛）',
   },
+  // 03 §3.4 钩子段禁模型调用执法码（guard 前置查命中——双入口同码：stream 路
+  // errorStream 携带、complete 路 BaseError 抛；词面 02 §5.3 LLM_ 前缀族早已
+  // 在册，码册条目随 ca 批执法接线补齐）。non-retryable：钩子段内重试无意义
+  // ——违例是结构性的，换时刻（派发收口后）再调即合法
+  {
+    code: 'LLM_CALL_IN_HOOK',
+    module: 'llm',
+    description: '钩子派发段内禁模型调用（03 §3.4——起异步任务不等结果合法、await 耦合违法；non-retryable）',
+  },
 ]);

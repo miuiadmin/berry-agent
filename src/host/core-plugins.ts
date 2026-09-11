@@ -614,9 +614,41 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         }
       });
 
-      // 常驻简报段（每请求物化——06 §6 路 1；重建时点求值见 inject.ts 注记）
-      const disposeBrief = context.prompts.registerSection('memory/core', () =>
-        buildCoreBrief({ dao, now, ownerKeys }),
+      // 常驻简报段（每请求物化——06 §6 路 1；cache 经济批 ca-2 定形：volatile
+      // 声明 + 每会话懒冻结两律合用——03 §2.5 既有宿主段归类基线②）。简报含
+      // O1 批时效词面（freshnessLabel 随 nowMs 派生——inject.ts），跨日/TTL
+      // 阈值穿越即代内漂移：缺省承诺稳定面下日界一过即 warn 噪声 + 前缀失效
+      // ——两律合用取两全：
+      //  - volatile 声明 = 跨请求可变诚实化（免漂移 warn + 物化位恒段区尾
+      //    ——豁免多会话宿主下交替物化的跨会话锚噪声）；
+      //  - 每会话懒冻结 = 会话内字节恒定兑现缓存价值：首请求物化即冻结该会话
+      //    简报文本，时效词面取冻结时点值（跨会话各自冻结；会话内记忆变更经
+      //    memory/diff 瞬态注入腿呈现——06 §6 差分通道，简报本体不追新）；
+      //    sessionId 缺席形〔诊断直物化〕活体物化不冻结。冻结缓存帽 256 会话
+      //    逐最旧（装载代内闭包——/reload 换代新实例自然重置；批 19「简报
+      //    每会话冻结管道改造」挂账随本笔兑销）
+      const briefFreezeCache = new Map<string, string>();
+      const disposeBrief = context.prompts.registerSection(
+        'memory/core',
+        (sessionId?: string) => {
+          // sessionId 缺席 = 诊断直物化形——无会话身份可冻结，活体物化
+          if (sessionId === undefined) return buildCoreBrief({ dao, now, ownerKeys });
+          const frozen = briefFreezeCache.get(sessionId);
+          if (frozen !== undefined) return frozen;
+          const brief = buildCoreBrief({ dao, now, ownerKeys });
+          // 帽 256 逐最旧（Map 插入序 = 首冻结序）
+          if (briefFreezeCache.size >= 256) {
+            const oldest = briefFreezeCache.keys().next().value;
+            if (oldest !== undefined) briefFreezeCache.delete(oldest);
+          }
+          briefFreezeCache.set(sessionId, brief);
+          return brief;
+        },
+        {
+          volatile: {
+            reason: '简报时效词面与懒基线随会话/时间自然变化（03 §2.5 归类基线②——每会话懒冻结兜会话内稳定）',
+          },
+        },
       );
 
       // memory/diff 词汇注册（不可逆装配面——06 §329 装载面作用域化注册）。
