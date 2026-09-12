@@ -338,6 +338,46 @@ describe('钩子订阅路由（03 §2.4）', () => {
     expect(timeouts).toEqual(['acme-slow:session_start']);
   });
 
+  it('钩子消费钟射程（03 §3.4 精确化）：waterfall 下游链不归因插件钟——await next 跨钟阈值照常返回', async () => {
+    const { handle, dispatch } = assemble({ hookTimeoutMs: 20 });
+    // handler 即回 next（自有段零耗时），下游链慢 150ms ≫ 20ms 钟——
+    // 修前全程钟必超时（真模型五轮定罪形态：checkpoint await next 包住
+    // safety 守门审批等待，交互审批 >5s 必 TOOL_GATE_FAILED）
+    handle.ctx.on('context_transform', (_v, next) => next(_v));
+    // 链尾挂慢监听器模拟下游（宿主守门行审批等待的替身——同 dispatch
+    // waterfall 注册序在其后者）
+    const slowDownstream = dispatch as unknown as {
+      onWaterfall(name: string, listener: (v: unknown, n: (v: unknown) => Promise<unknown>) => Promise<unknown>): void;
+    };
+    slowDownstream.onWaterfall('context_transform', (v, next) =>
+      new Promise((resolve) => setTimeout(() => resolve(undefined), 150)).then(() => next(v)),
+    );
+    const result = await dispatch.waterfall('context_transform', 'payload');
+    expect(result).toBe('payload'); // 下游慢不触发插件钟（射程 = 自有段）
+  });
+
+  it('钩子消费钟射程：waterfall 回程段重起钟——next 返回后自有段超钟仍执法', async () => {
+    const { handle, dispatch } = assemble({ hookTimeoutMs: 20 });
+    // 下游即回（零等待），回程段慢 150ms —— 分段钟第二段仍计时（防修过头：
+    // 下游豁免不等于回程无限慢）
+    handle.ctx.on('context_transform', async (v, next) => {
+      await next(v);
+      await new Promise((resolve) => setTimeout(resolve, 150)); // 回程自有段超钟
+      return v;
+    });
+    await expect(dispatch.waterfall('context_transform', 'payload')).rejects.toThrow(/消费超时/);
+  });
+
+  it('钩子消费钟射程：waterfall 首段超钟仍执法（进 handler 到首调 next 的自有段计时不变）', async () => {
+    const { handle, dispatch } = assemble({ hookTimeoutMs: 20 });
+    // 首段慢 150ms 才调 next —— 射程精确化不放松首段（自有执行照 5s 钟律）
+    handle.ctx.on('context_transform', async (v, next) => {
+      await new Promise((resolve) => setTimeout(resolve, 150)); // 首段自有段超钟
+      return next(v);
+    });
+    await expect(dispatch.waterfall('context_transform', 'payload')).rejects.toThrow(/消费超时/);
+  });
+
   it('钩子 handler 执行期回调窗开（handler 内注册合法——窗口延伸）', async () => {
     const { handle, dispatch } = assemble();
     handle.ctx.on('session_start', () => {

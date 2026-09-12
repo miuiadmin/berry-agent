@@ -653,17 +653,16 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     }
   };
 
+  /** 超时错误构造（时钟语义非域码语义——不占错误码册位；标记位供 notify 腿区分吞并档） */
+  const hookTimeoutError = (hookName: string) =>
+    Object.assign(new Error(`插件 ${pluginId} 钩子 ${hookName} 消费超时（${hookTimeoutMs}ms——03 §3.4 时钟）`), {
+      hookTimedOut: true,
+    } as const);
+
   /** 值保真竞速钟（§3.4 钩子消费点 5s——超时 reject 携标记位；notify 腿据此吞并收口、waterfall 腿按管线失败传播） */
   const raceTimeout = <T>(p: Promise<T>, hookName: string): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        // 时钟语义非域码语义（不占错误码册位）——标记位供 notify 腿区分吞并档
-        reject(
-          Object.assign(new Error(`插件 ${pluginId} 钩子 ${hookName} 消费超时（${hookTimeoutMs}ms——03 §3.4 时钟）`), {
-            hookTimedOut: true,
-          } as const),
-        );
-      }, hookTimeoutMs);
+      const timer = setTimeout(() => reject(hookTimeoutError(hookName)), hookTimeoutMs);
       Promise.resolve(p).then(
         (value) => {
           clearTimeout(timer);
@@ -675,6 +674,69 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
         },
       );
     });
+  };
+
+  /**
+   * waterfall 腿分段钟（§3.4 射程精确化——2026-09-13 真模型五轮定罪件）：
+   * 钟只测插件自有执行段——首段（进 handler 到首调 next）与回程段（next
+   * resolve 后到返回）各 hookTimeoutMs；next 委派的下游链（宿主守门行/
+   * 其余监听器——含审批 ask 悬置等待）是宿主管线时间，不归因本插件钟：
+   * 首调即停钟、resolve 后重起。全程无 next（短路形）= 单段全程钟（与
+   * notify 腿同射程）。曾用全程钟致交互审批结构性不可用（checkpoint 观察
+   * 钩子 await next 包住 safety 审批等待，>5s 必 fail-closed block）。
+   */
+  const createWaterfallClock = (hookName: string) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false; // 派发已收口（成功/失败/超时）——此后停/起皆 no-op
+    let paused = false; // 粘性暂停位：next 已委派、下游链在飞——arm 不生效（resume 清位）
+    let rejectOuter: ((err: unknown) => void) | undefined;
+    const arm = () => {
+      if (settled || paused || rejectOuter === undefined || timer !== undefined) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        settled = true; // 超时即收口——迟到结果弃置（与 raceTimeout 同语义）
+        rejectOuter?.(hookTimeoutError(hookName));
+      }, hookTimeoutMs);
+    };
+    const disarm = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    };
+    return {
+      /**
+       * 段边界：next 委派时粘性停钟（下游链不归因插件钟——§3.4 射程精确化）。
+       * 粘性 = handler 同步前缀即调 next 的形下 pause 先于 race/arm 执行，
+       * 非粘性位会被随后的 arm 抵消（首段钟白起——下游等待仍被计时）。
+       */
+      pause: () => {
+        disarm();
+        paused = true;
+      },
+      /** 段边界：next 返回后重起钟（回程段自有执行再计时） */
+      resume: () => {
+        paused = false;
+        arm();
+      },
+      /** 竞速入口（与 raceTimeout 同收口语义：settle 后迟到值弃置） */
+      race<T>(p: Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+          rejectOuter = reject;
+          arm();
+          Promise.resolve(p).then(
+            (value) => {
+              disarm();
+              settled = true;
+              resolve(value);
+            },
+            (err) => {
+              disarm();
+              settled = true;
+              reject(err);
+            },
+          );
+        });
+      },
+    };
   };
 
   /** 钩子消费点超时判定（标记位判据——raceTimeout 超时腿专属） */
@@ -738,19 +800,21 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
             if (produced !== value) markBeforeCompactRewrite(produced, pluginId);
             return forgeBeforeCompactIdentity(produced, value, pluginId);
           };
+          // 分段钟（§3.4 射程精确化）：包装 next——首调停钟（下游链是宿主
+          // 管线时间不归因本插件钟），resolve 后重起（回程段自有执行再计时）
+          const clock = createWaterfallClock(hookName);
+          const gatedNext = (nextValue: unknown) => {
+            delegated = true;
+            clock.pause();
+            return Promise.resolve(next(attributed(nextValue))).finally(() => clock.resume());
+          };
           return withCallbackWindow(() =>
-            raceTimeout(
-              Promise.resolve(
-                handler(value, (nextValue: unknown) => {
-                  delegated = true;
-                  return next(attributed(nextValue));
-                }),
-              ).then((result) => {
+            clock.race(
+              Promise.resolve(handler(value, gatedNext)).then((result) => {
                 if (delegated) return result;
                 // 短路形：未委托即返回——返回值即管线终值，同律记名铸造
                 return attributed(result);
               }),
-              hookName,
             ),
           );
         }) as WaterfallListener<unknown>;
