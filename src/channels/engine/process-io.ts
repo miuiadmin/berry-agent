@@ -15,7 +15,12 @@ export class ProcessTerminalIO implements TerminalIO {
   }
 
   size(): { columns: number; rows: number } {
-    return { columns: process.stdout.columns ?? 80, rows: process.stdout.rows ?? 24 };
+    // 兜底用 || 而非 ??：pty 未设 winsize 时（expect/CI 伪终端）node 返回
+    // rows/columns = 0 而非 undefined——`??` 只兜 null/undefined 兜不住 0；
+    // 0 行 0 列的终端物理不存在，零值与缺席同属「无有效几何」，一律回落
+    // 80×24（2026-09-13 真模型五轮实测定罪：0 值直透曾致 CellGrid 零宽
+    // 只擦不写 + 负行号 CUP——固定区渲染全空）。
+    return { columns: process.stdout.columns || 80, rows: process.stdout.rows || 24 };
   }
 
   setRawMode(enable: boolean): void {

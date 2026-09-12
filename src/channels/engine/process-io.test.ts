@@ -103,6 +103,12 @@ describe('ProcessTerminalIO（process 直连适配器）', () => {
     expect(new ProcessTerminalIO().size()).toEqual({ columns: 80, rows: 24 });
   });
 
+  it('size：winsize 零值兜底 80×24（pty 未设尺寸——isTTY 在场而 rows/columns=0 的真机形态，2026-09-13 真模型五轮实测定罪）', () => {
+    const f = fakeProcess({ columns: 0, rows: 0, isTTY: true });
+    vi.stubGlobal('process', f.process);
+    expect(new ProcessTerminalIO().size()).toEqual({ columns: 80, rows: 24 });
+  });
+
   it('setRawMode：TTY 态两向透传', () => {
     const f = fakeProcess({ isTTY: true });
     vi.stubGlobal('process', f.process);
