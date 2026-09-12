@@ -251,6 +251,41 @@ describe('AutocompletePopup', () => {
     expect(popup.handleEvent(key('enter'))).toBe(false); // 不可见（未 refresh）
   });
 
+  // —— 全量输入穿透律（2026-09-13 真模型五轮实测定罪：完整输入 /plugins 后
+  // 弹层照开，enter 被「应用」吞键而无净代换——提交被吞须二次 enter，命令
+  // 粘连进模型）——恰在全量输入时 enter 穿透提交、tab 专职填充恒应用 ——
+
+  it('高亮项已全量输入：enter 穿透不消费（提交归编辑器——修前吞键实证红）', () => {
+    const { model, popup } = rig(['/help']);
+    popup.refresh();
+    expect(popup.visible).toBe(true); // 全量输入弹层照开（唯一候选 = 自身）
+    expect(popup.handleEvent(key('enter'))).toBe(false); // 穿透——修前 applySelection 无净代换仍返 true
+    expect(model.getText()).toBe('/help'); // 无代换发生
+  });
+
+  it('高亮项已全量输入：tab 仍消费应用（键面分离——tab 无提交歧义）', () => {
+    const { model, popup } = rig(['/help']);
+    popup.refresh();
+    expect(popup.handleEvent(key('tab'))).toBe(true);
+    expect(model.getText()).toBe('/help'); // 幂等代换——文本不变但键被消费
+  });
+
+  it('半输入前缀形：enter 照常应用（补全流保形防矫枉过正）', () => {
+    const { model, popup } = rig(['/m']);
+    popup.refresh();
+    expect(popup.handleEvent(key('enter'))).toBe(true);
+    expect(model.getText()).toBe('/model'); // 前缀两候选（/model、/memory）——应用高亮首项
+  });
+
+  it('全量输入穿透：@ 文件段源同律（label 与 replacement 异形时不穿透）', () => {
+    // mentions 源 label 'docs/' replacement '@/docs/'——输入 '@' 后 token '@'
+    // 与候选 replacement '@/docs/' 异形 → enter 仍应用（异形不穿透）
+    const { model, popup } = rig(['see @']);
+    popup.refresh();
+    expect(popup.handleEvent(key('enter'))).toBe(true);
+    expect(model.getText()).toBe('see @/docs/');
+  });
+
   it('引号形 replacement：代换后行内引号形 + 后续空格不再触发（防尾空格击穿）', () => {
     const { model, popup } = rig(['see @doc']);
     popup.refresh();

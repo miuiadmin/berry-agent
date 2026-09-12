@@ -7,6 +7,8 @@
  *   不显）；候选窗口 10 行帽 + 高亮跟随滚动；
  * - 键面：↑/↓ 循环换高亮、enter/tab 应用、escape 关本轮（后续输入再 refresh
  *   重开）；其余键不消费（穿透回 Editor 继续输入——弹层随下次 refresh 重算）；
+ *   enter 的全量输入穿透律——token 已是高亮项全文时 enter 不消费（穿透提交，
+ *   归编辑器——2026-09-13 真模型五轮实测定罪补）、tab 恒应用；
  * - 应用 = 整 token 代换（模型 replaceToken 原语——replacement 含触发前缀
  *   与引号形）。
  */
@@ -113,6 +115,12 @@ export class AutocompletePopup implements Renderable {
       return true;
     }
     if (event.key === 'enter' || event.key === 'tab') {
+      // 全量输入穿透律（2026-09-13 真模型五轮实测定罪修复）：当前 token 已是
+      // 高亮项 replacement 全文时，enter 的「应用」是无净代换的空动作——吞键
+      // 会把完整输入的斜杠命令逼成「先应用再提交」双 enter 形（且第二次输入
+      // 与残留拼接进模型）。此处 enter 穿透回编辑器走提交语义；tab 专职填充
+      // 无提交歧义、恒应用（键面分离）。
+      if (event.key === 'enter' && this.selectionAlreadyTyped()) return false;
       this.applySelection();
       return true;
     }
@@ -142,5 +150,18 @@ export class AutocompletePopup implements Renderable {
     this.result = null; // 应用即隐（先隐后代换——代换的 notify 可能再触发 refresh 重开，属新轮）
     const cursor = this.model.getCursor();
     this.model.replaceToken(cursor.line, result.replaceStart, result.replaceEnd, item.replacement);
+  }
+
+  /**
+   * 全量输入判定：光标 token 现文本 === 高亮项 replacement 全文（弹层可见期
+   * 间输入变更必经 refresh 重开——本判定取值恒新鲜，无陈旧区间风险）。
+   */
+  private selectionAlreadyTyped(): boolean {
+    const result = this.result;
+    if (result === null || result.items.length === 0) return false;
+    const item = result.items[this.activeIndex]!;
+    const line = this.model.getLines()[this.model.getCursor().line];
+    if (line === undefined) return false;
+    return line.slice(result.replaceStart, result.replaceEnd) === item.replacement;
   }
 }
