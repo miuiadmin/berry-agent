@@ -11,9 +11,11 @@
  * setWidget 帧词汇——status 心跳已携带，widget 是 TUI/webui 呈现概念）。
  *
  * fail-closed（03 §10.6 第三腿）：ask 到来时该会话无订阅者即立即 resolve
- * `'cancel'`（headless 无人值守不豁免——与通道核「notify 化到底 cancel」
- * 同语义，本后端自身执法避免核级竞速挂死）。重连补推：hello 落订阅即该会话
- * 未决 ask 全量重推（调用方重启凭 hello 重收 ask 面，幂等账护住已决者）。
+ * `'unavailable'`（结构性无人可答——04 §9 无应答者语义，ApprovalService 落
+ * unavailable/timeout 源；与打断路保守值 `'cancel'` 两语义分立——用户主动
+ * 终止 ≠ 通道无人。2026-09-13 真模型四轮修，修前误答 'cancel' 致 decided
+ * 错标 cancel/user 双失真）。重连补推：hello 落订阅即该会话未决 ask 全量
+ * 重推（调用方重启凭 hello 重收 ask 面，幂等账护住已决者）。
  *
  * 传输归宿主 serve（13c stdio）/core:sdk 件（13e HTTP+SSE）——装配桥喂
  * deps（除 decideApproval/onSubscribed 两面由本件自持），dispose 归连接
@@ -39,7 +41,7 @@ export interface SdkBackendHandle {
   readonly backend: UiBackend<never>;
   /** 线协议核（宿主行解码 → handleRequest / 定时 heartbeatTick+drain） */
   readonly core: SdkWireCore;
-  /** 连接收口：在飞 ask 全部 cancel 保守收场 + core.close()（后续全静默） */
+  /** 连接收口：在飞 ask 全部 unavailable 收场（通道消失语义）+ core.close()（后续全静默） */
   dispose(): void;
 }
 
@@ -103,9 +105,10 @@ export function createSdkBackend(
     onEnvelope: (env: SessionEnvelope) => core.pushEvent(env.sessionId, env.event),
     askApproval: (sessionId, request, opts) =>
       new Promise<ApprovalAskAnswer>((resolve) => {
-        // fail-closed：该会话无订阅者即无人可答——立即 cancel（帧不出站）
+        // fail-closed：该会话无订阅者即结构性无人可答——立即 unavailable
+        //（帧不出站；04 §9 无应答者语义，非用户主动取消——与 abort 路分立）
         if (!core.isSubscribed(sessionId)) {
-          resolve('cancel');
+          resolve('unavailable');
           return;
         }
         const approvalId = request.approvalId ?? `sdk-${++askSeq}`;
@@ -121,8 +124,9 @@ export function createSdkBackend(
         const entry: PendingAsk = { frame, settled: false, resolve };
         pending.set(approvalId, entry);
         core.pushFrame(frame, sessionId);
-        // 败腿撤销（UiCore 竞速先答后 abort 传播位）：保守值 cancel + 出账
-        //（迟到 decide 归 superseded）；已决后迟到 abort 是无害 no-op
+        // 败腿撤销（UiCore 竞速先答后 abort 传播位）：保守值 cancel（04 §9
+        // run 信号透传——用户主动打断语义，不落 unavailable）+ 出账（迟到
+        // decide 归 superseded）；已决后迟到 abort 是无害 no-op
         opts?.signal?.addEventListener(
           'abort',
           () => {
@@ -140,11 +144,12 @@ export function createSdkBackend(
     backend,
     core,
     dispose: () => {
-      // 连接收口：在飞 ask 保守收场（持有 Promise 的上层按 cancel 语义续走）
+      // 连接收口：在飞 ask 按通道消失语义收场（unavailable——连接断了无观众
+      // 可答，ApprovalService 落 timeout 源；用户主动打断走 abort 路 cancel）
       for (const entry of pending.values()) {
         if (entry.settled) continue;
         entry.settled = true;
-        entry.resolve('cancel');
+        entry.resolve('unavailable');
       }
       pending.clear();
       core.close();

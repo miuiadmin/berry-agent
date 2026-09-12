@@ -96,10 +96,12 @@ describe('身份与能力面 + 观众探针', () => {
 });
 
 describe('审批 ask 编舞（03 §10.6 第三腿——独立帧族 + 幂等 decide）', () => {
-  it('fail-closed：无订阅者立即 cancel、零帧出站（headless 不豁免）', async () => {
+  it('fail-closed：无订阅者立即 unavailable、零帧出站（结构性无人非用户取消——04 §9）', async () => {
     const h = createHarness();
     h.sessions.set('s1', { state: 'open', highWater: 0, log: [] }); // 在册未订阅
-    await expect(h.handle.backend.askApproval!('s1', { summary: '写文件' })).resolves.toBe('cancel');
+    // 2026-09-13 真模型四轮修：无应答者 = unavailable（04 §9 :321——与打断路
+    // cancel 两语义分立；修前误答 'cancel' 致 decided 错标 cancel/user 双失真）
+    await expect(h.handle.backend.askApproval!('s1', { summary: '写文件' })).resolves.toBe('unavailable');
     expect(h.frames).toEqual([]);
   });
 
@@ -194,12 +196,14 @@ describe('审批 ask 编舞（03 §10.6 第三腿——独立帧族 + 幂等 dec
     expect(h.frames.filter((f) => f.kind === 'ask')).toHaveLength(1);
   });
 
-  it('dispose：在飞 ask 全部 cancel 收场 + core.close（后续 push/decide 静默）', async () => {
+  it('dispose：在飞 ask 全部 unavailable 收场（通道消失非用户打断——04 §9）+ core.close（后续 push/decide 静默）', async () => {
     const h = createHarness();
     subscribeS1(h);
     const p = h.handle.backend.askApproval!('s1', { summary: '在飞' });
     h.handle.dispose();
-    await expect(p).resolves.toBe('cancel');
+    // 连接收口 = 通道消失（诚实收口 unavailable——ApprovalService 落 timeout 源；
+    // 用户主动打断走 abort 路的 cancel，两语义分立）
+    await expect(p).resolves.toBe('unavailable');
     h.frames.length = 0;
     h.handle.backend.onEnvelope!({ sessionId: 's1', event: { type: 'agent_start' } }, true);
     h.handle.core.handleRequest({ verb: 'decide', approvalId: 'sdk-1', answer: 'approve' });
