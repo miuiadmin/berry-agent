@@ -662,6 +662,15 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     // 恒空——缺席拒降级 warn 提示行装载照走（真实装载形不豁免，拒载照常）
     ...(options.runtime.memory ? { allowMissingRequiredSecret: true } : {}),
     onApplySettled: (pluginId) => handles.get(pluginId)?.closeWindow(), // 行收口即关窗（finally 语义）
+    // 官方件宿主面铸造（2026-09-13 真模型四轮 C 组——03 §2.1 官方件异步续段
+    // 通道）：core 行 apply 第三参 = 按本插件 handle 铸开窗器（enterHostCallback
+    // 重入计数——与钩子派发/工具执行期同一窗真源）；core 件 apply 发起的宿主
+    // 编排异步任务（MCP 发现续段等）完成时点属宿主回调时点，续段内注册经此
+    // 开窗合法。磁盘行结构性不传（第三方插件无此通道——有意禁区）
+    coreHostChannel: (pluginId) => {
+      const handle = handles.get(pluginId);
+      return handle === undefined ? undefined : { openHostCallback: () => handle.enterHostCallback() };
+    },
     ...(bookkeepingPath === null
       ? {}
       : {

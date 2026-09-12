@@ -1773,7 +1773,7 @@ const BROWSER_CMD_USAGE =
 function makeMcpPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'mcp',
-    async apply(ctx, config) {
+    async apply(ctx, config, host) {
       const context = ctx as PluginContext;
       const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
       if (pipeline === undefined) return; // 主闸——exec 管道缺席零装载（诚实缺席律）
@@ -1781,7 +1781,23 @@ function makeMcpPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const servers: McpConfig = normalizeMcpConfig((config as { servers?: unknown } | undefined)?.servers);
       const service = createMcpService({
         spawn: pipeline,
-        registry: { register: (def) => context.tools.register(def as ToolDefinition) },
+        // 注册闭包经宿主面开窗（2026-09-13 真模型四轮 C 组——03 §2.1 官方件
+        // 异步续段通道/§10.1 连接语义定形注）：resurface 全部到达时点（discover
+        // 续段/运行期 onDown 撤桥重铺）均在装载窗收口后——直调 ctx.tools.register
+        // 100% 撞 PLUGIN_WINDOW_CLOSED（真装配 MCP 工具注册恒败；单测 FakeRegistry
+        // 无窗闸绕过故绿）。经 host.openHostCallback 开本插件回调窗再注册——窗
+        // 语义与钩子/工具执行期同律，注册链全语义保留（owner 覆写 core:mcp/
+        // 工具名账/复合名撞名闸照走）。host 缺席（直调形/测试替身）维持直调。
+        registry: {
+          register: (def) => {
+            const restore = host?.openHostCallback?.();
+            try {
+              return context.tools.register(def as ToolDefinition);
+            } finally {
+              restore?.();
+            }
+          },
+        },
         scope: scopeFaceOf(context),
         notify: (message) => deps.notify?.('mcp', message),
         ...(deps.version !== undefined ? { clientVersion: deps.version } : {}),

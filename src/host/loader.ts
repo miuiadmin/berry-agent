@@ -53,7 +53,24 @@ export interface CorePluginReference {
   readonly skills?: readonly string[];
   /** 声明式子代理目录清单（03 §6.3——与 skills 同形；core 行声明基 = 宿主包根） */
   readonly agents?: readonly string[];
-  readonly apply: (ctx: unknown, config?: unknown) => Promise<void | (() => void)>;
+  /**
+   * 宿主面第三参（2026-09-13 真模型四轮 C 组——03 §2.1 官方件异步续段通道
+   * 定形）：core 行独有（磁盘行结构性不传 = 第三方插件无此通道——有意
+   * 禁区）。开窗器经本插件 handle 铸（bootPlugins 闭包单源）；core 件 apply
+   * 发起的宿主编排异步任务（MCP 发现续段等）完成时点属宿主回调时点，续段
+   * 内注册动词经此开窗合法（窗语义与钩子/工具执行期同律——注册链全语义
+   * 保留）。缺席 = 无通道（直调形照旧撞窗闸）。
+   */
+  readonly apply: (ctx: unknown, config?: unknown, host?: CorePluginHostChannel) => Promise<void | (() => void)>;
+}
+
+/**
+ * 官方件宿主面（core 行 apply 第三参——03 §2.1 装载窗例外第三到达形）。
+ * openHostCallback：开本插件回调窗、返回恢复闭包（重入计数形——与钩子
+ * handler/工具执行期同一窗真源 hostCallbackDepth）。
+ */
+export interface CorePluginHostChannel {
+  readonly openHostCallback?: () => () => void;
 }
 
 /** 计划行公共面（id/config/disabled——自启用行与 core: 注册表合流） */
@@ -136,6 +153,13 @@ export interface LoadPluginsOptions<TCtx = unknown> {
    * 回调窗内合法——装配批（12f-2b）以 ctx 面件 handle 表消费本回调。
    */
   readonly onApplySettled?: (pluginId: string) => void;
+  /**
+   * 官方件宿主面铸造位（2026-09-13 真模型四轮 C 组——03 §2.1 官方件异步
+   * 续段通道）：core 行 apply 第三参由此铸造（按 pluginId 查本插件 handle
+   * 铸开窗器）；磁盘行结构性不传。缺席 = core 行也不带宿主面（直调形——
+   * 测试替身/诊断形，异步续段注册照旧撞窗闸）。
+   */
+  readonly coreHostChannel?: (pluginId: string) => CorePluginHostChannel | undefined;
   /** 软依赖缺席 warn 落点（03 §1.3「缺席仅记 warn」；缺席 = 不记）——secret 诊断豁免提示行同落点 */
   readonly warn?: (message: string) => void;
   /**
@@ -345,7 +369,17 @@ async function loadRow<TCtx>(
     if (row.kind === 'core') {
       // §1.4 直调轨：零 jiti 零门禁；其余契约（时钟/回卷）与磁盘插件同轨
       warnMissingOptional(row.id, row.reference.optionalInject, state);
-      await invokeApply(row.id, row.reference.apply, ctx, config, applyBudgetMs, state.disposeStack);
+      await invokeApply(
+        row.id,
+        row.reference.apply,
+        ctx,
+        config,
+        applyBudgetMs,
+        state.disposeStack,
+        // 官方件宿主面（core 行独有——03 §2.1 官方件异步续段通道；缺席位
+        // undefined = 直调形）
+        state.options.coreHostChannel?.(row.id),
+      );
       // core 行声明基 = 宿主包根（06 §11.6 位 6 注记：core: 件出厂内容经位 4
       // 声明即达——官方件技能/agents 从属资源与磁盘件同形同律）
       state.activated.push({
@@ -504,11 +538,12 @@ function mapJitiError(pluginId: string, err: unknown): BaseError {
 /** apply 三态包装：时钟帽 + disposer 收栈 + 错误归一 PLUGIN_APPLY_FAILED */
 async function invokeApply(
   id: string,
-  apply: (ctx: unknown, config?: unknown) => Promise<void | (() => void)>,
+  apply: (ctx: unknown, config?: unknown, host?: CorePluginHostChannel) => Promise<void | (() => void)>,
   ctx: unknown,
   config: unknown,
   applyBudgetMs: number,
   disposeStack: Array<{ id: string; fn: () => void | Promise<void> }>,
+  host?: CorePluginHostChannel, // 官方件宿主面（core 行独有——缺席 = 直调形）
 ): Promise<void> {
   let returned: unknown;
   try {
@@ -519,7 +554,7 @@ async function invokeApply(
     // no-op warn）。ALS.exit 语境跟随 async：apply 全执行段均在遮蔽内。
     await withTimeout(
       withoutSessionAnchor(() =>
-        Promise.resolve(apply(ctx, config)).then((r) => {
+        Promise.resolve(apply(ctx, config, host)).then((r) => {
           returned = r;
         }),
       ),
