@@ -1279,6 +1279,43 @@ describe('compaction 面装配（U4-3——03 §2.2 ctx 面册 compaction 席 fo
     expect(errs).toHaveLength(1);
     expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
   });
+
+  // 磁盘轨全链（四轮真模型批补锁——U4-3 当时只锁 core 轨；磁盘轨 inject 声明
+  // → Kahn 可满足标记位 → fork 绑定 → ctx.get 消费 → 席位容器见值，五段缺一
+  // 即红）。真模型四轮实测踩坑：试件属性直访 ctx.compaction ≠ ctx.get('compaction')
+  // 消费形（03 §2.2 第十二面正规动词）——apply 内 TypeError 属行级隔离降级、
+  // 唯一痕迹是 boot-failures 计数，此锁同时钉住「消费形正确时全链真达」。
+  it('磁盘轨全链：inject 声明 + ctx.get("compaction") 消费 + setConfig 真达容器（合并语义）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'host-plugin-boot-cpt-'));
+    dirs.push(dataDir);
+    const pluginDir = join(dataDir, 'plugins', 'node_modules', 'acme-cpt');
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      JSON.stringify({ name: 'acme-cpt', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+    );
+    writeFileSync(
+      join(pluginDir, 'entry.js'),
+      [
+        "export const inject = ['compaction'];",
+        'export default async (ctx) => {',
+        '  ctx.get("compaction").setConfig({ thresholdRatio: 0.0005 });',
+        '};',
+      ].join('\n'),
+    );
+    writeFileSync(join(dataDir, 'enabled.yaml'), enabledYaml('  - id: acme-cpt\n'));
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({ 'acme-cpt': { installPath: 'plugins/node_modules/acme-cpt' } }),
+    );
+    const slots = createCompactionSlots();
+    const { options } = rigBoot(dataDir, { compaction: slots });
+    const boot = await bootPlugins(options);
+    expect(boot.report.failed).toEqual([]); // 装载零失败（apply 内消费形正确）
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['acme-cpt']); // 磁盘行 id 原样
+    // 单键注入合并语义：注入键生效、其余键缺省保底（partial 合并非整替）
+    expect(slots.getConfig()).toMatchObject({ thresholdRatio: 0.0005, tailKeep: 6, cooldownMs: 600_000 });
+  });
 });
 
 describe('sdk-routes 面装配（U5-2——03 §2.2 ctx 面册 sdk-routes 席 fork 级绑定 + core:sdk 件席双条件）', () => {
