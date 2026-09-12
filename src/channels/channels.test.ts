@@ -458,11 +458,12 @@ describe('审批 ask（askApproval——07 §4.3 提问队列条款，批 10e-2 
     expect(await p2).toBe('cancel');
   });
 
-  it('降级到底（零 capable 后端）：notify 呈现摘要 + cancel（无人可答 fail-closed）', async () => {
+  it('降级到底（零 capable 后端）：notify 呈现摘要 + unavailable（headless 结构态——04 §9 无应答者非用户取消）', async () => {
     const s = createChannels();
     const b = fakeBackend('web', { approval: false });
     s.addBackend(b.backend);
-    expect(await s.askApproval('s1', req('危险写'))).toBe('cancel');
+    // 2026-09-13 真模型实测批：修前误答 'cancel'（decided 错标 cancel/user）
+    expect(await s.askApproval('s1', req('危险写'))).toBe('unavailable');
     expect(b.approvalAsks).toEqual([]);
     expect(b.notified.map((n) => n.message)).toEqual(['危险写']);
   });

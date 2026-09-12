@@ -18,8 +18,8 @@
  *    未起跑不落词）；
  * ⑤ 每 issue 消息帽：assistant 计数达帽 → abort → failed『每 issue 预算帽
  *    耗尽』（两层分账的 run 侧执法）；
- * ⑥ needs-human：completed 但存在被拒审批（无审批后端 notify 化到底即答
- *    cancel——approval/decided 闭集载荷判定）。
+ * ⑥ needs-human：completed 但存在被拒审批（无审批后端 notify 化到底自报
+ *    unavailable——approval/decided 闭集载荷判定）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -382,9 +382,10 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
       pollMs: 5,
     });
 
-    // write 需审批 + 零审批后端 → askFace notify 化到底即答 cancel（无人值守
-    // fail-closed）→ approval/decided {decision:'cancel'} durable 落账；拒后
-    // 模型收口 stop → completed 改判 needs-human（闭集载荷判定不猜文本）
+    // write 需审批 + 零审批后端 → askFace notify 化到底自报 unavailable（无人
+    // 值守结构态，2026-09-13 真模型实测批修——修前误答 cancel）→ approval/
+    // decided {decision:'unavailable'} durable 落账；拒后模型收口 stop →
+    // completed 改判 needs-human（闭集载荷判定不猜文本）
     faux.setResponses([
       () => toolCallOf('t-write', 'write', { path: 'out.txt', content: 'x' }),
       () => messageOf('写不了，收工'),
@@ -398,13 +399,13 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     const result = await settle(outcome);
     expect(result.status).toBe('needs-human');
     expect(result.status === 'needs-human' && result.reason).toContain('审批被拒');
-    // 判据纯事件载荷：approval/decided decision 'cancel' 在场（不是文本猜测）
+    // 判据纯事件载荷：approval/decided decision 'unavailable' 在场（不是文本猜测）
     const decided = stack.manager
       .driverOf(sessionId)!
       .session.events()
       .filter((e) => e.type === 'approval/decided');
     expect(decided.length).toBeGreaterThanOrEqual(1);
-    expect((decided[0]?.data as { decision?: string } | undefined)?.decision).toBe('cancel');
+    expect((decided[0]?.data as { decision?: string } | undefined)?.decision).toBe('unavailable');
     factory.dispose();
     await rt.shutdown();
   });

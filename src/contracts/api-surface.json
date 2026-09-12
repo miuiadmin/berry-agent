@@ -79,9 +79,9 @@
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "审批 ask 应答闭集（07 §4.3 提问队列条款——审批入队契约）：approve/reject/ cancel/always",
+      "desc": "审批 ask 应答闭集（07 §4.3 提问队列条款——审批入队契约）：approve/reject/ cancel/always/unavailable",
       "kind": "type",
-      "sig": "e822aaf8bcfed1f8"
+      "sig": "2f4e86e5b19c183f"
     },
     {
       "symbol": "ApprovalAskRequest",

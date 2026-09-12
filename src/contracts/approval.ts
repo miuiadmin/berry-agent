@@ -9,11 +9,15 @@
 
 /**
  * 审批 ask 应答闭集（07 §4.3 提问队列条款——审批入队契约）：approve/reject/
- * cancel/always。收口对齐 04 §9 run 信号透传 ask 链——会话关闭 / run 打断
- * 收口 → `'cancel'`（非 unavailable）；`always` + 草案的策略表回写经
- * 装配注入回调（onApprovalAlways）。
+ * cancel/always/unavailable。收口语义两分立（对齐 04 §9 run 信号透传 ask 链）：
+ * 会话关闭 / run 打断收口 → `'cancel'`（用户主动终止语境）；降级到底（全部
+ * 后端无 approval capability——headless 单发形态的结构态）→ `'unavailable'`
+ * （呈现面结构性无人可答——ApprovalService 侧落 outcome unavailable +
+ * source timeout，04 §9 无应答者语义；2026-09-13 真模型实测批增，修前误答
+ * `'cancel'` 致 decided 错标 cancel/user 双失真）；`always` + 草案的策略表
+ * 回写经装配注入回调（onApprovalAlways）。
  */
-export type ApprovalAskAnswer = 'approve' | 'reject' | 'cancel' | 'always';
+export type ApprovalAskAnswer = 'approve' | 'reject' | 'cancel' | 'always' | 'unavailable';
 
 /**
  * 审批 ask 呈现载荷（07 §4.3——通道侧形）：channels 与 safety 边表互无边

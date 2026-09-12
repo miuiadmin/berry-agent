@@ -35,13 +35,17 @@ export type DecisionSource =
   | 'policy-never'; // never 档确定性拒绝（策略面定死「问都不问」）
 
 /**
- * answerer（审批应答者）的四值答案闭集（04 §9）——经 approval/answer
+ * answerer（审批应答者）的答案闭集（04 §9）——经 approval/answer
  * waterfall 短路返回。`always` = 该指纹粘性放行：批准本次 + 经装配注入的
  * 写入回调落跨会话 allowlist 条目（04 §9 粘性段定形③草案条款）；载荷必须
  * 携带 suggestedEntry 草案才呈现该选项——无草案的 always 防御收口视同
- * approve（零草案零副作用）。
+ * approve（零草案零副作用）。`'unavailable'`（2026-09-13 真模型实测批增）=
+ * 呈现面自报结构性无人可答（零 approval capability 后端——headless 形态；
+ * 通道核降级到底的答案）——与 answer 缺席（全链无人应答）同归 outcome
+ * unavailable + source timeout（04 §9 无应答者收口），与 'cancel'（用户
+ * 主动终止）分立。
  */
-export type ApprovalAnswer = 'approve' | 'reject' | 'cancel' | 'always';
+export type ApprovalAnswer = 'approve' | 'reject' | 'cancel' | 'always' | 'unavailable';
 
 /**
  * 审批推荐规则候选（04 §9 粘性段定形③草案条款）：由请求动作生成的

@@ -177,10 +177,13 @@ export class UiCore {
   /**
    * 审批 ask（07 §4.3 提问队列条款——与阻塞三件同队同收口律）：
    * 多后端竞速先答先得（跨入口单漏斗——decide durable 单漏斗在
-   * ApprovalService 不变）；收口对齐 04 §9 run 信号透传 ask 链——
-   * 会话关闭 / run 打断 / 降级到底 → `'cancel'`（非 unavailable）；
-   * `always` + 草案 → onApprovalAlways 回写；无草案 always 防御收口
-   * 视同 approve（零草案零副作用）。
+   * ApprovalService 不变）；收口两语义分立（对齐 04 §9 run 信号透传
+   * ask 链）——会话关闭 / run 打断 → `'cancel'`（用户主动终止）；降级
+   * 到底（全部后端无 approval capability）→ `'unavailable'`（呈现面
+   * 结构性无人可答——ApprovalService 侧落 timeout 源；2026-09-13 真模型
+   * 实测批修，修前误答 'cancel' 错标用户主动取消）；`always` + 草案 →
+   * onApprovalAlways 回写；无草案 always 防御收口视同 approve（零草案
+   * 零副作用）。
    */
   askApproval(sessionId: string, request: ApprovalAskRequest, opts?: UiAskOptions): Promise<ApprovalAskAnswer> {
     return this.ask(
@@ -195,9 +198,11 @@ export class UiCore {
             this.settleApprovalAlways(answer, request),
           );
         }
-        // notify 化到底：呈现摘要后 cancel 收场（无人可答 fail-closed）
+        // notify 化到底：呈现摘要后自报结构性无人（fail-closed——04 §9 无应答
+        // 者语义，ApprovalService 落 unavailable/timeout；与打断路保守值 'cancel'
+        // 分立——修前误答 'cancel' 致 decided 错标 cancel/user 双失真）
         this.notify(request.summary);
-        return Promise.resolve('cancel');
+        return Promise.resolve('unavailable');
       },
     );
   }

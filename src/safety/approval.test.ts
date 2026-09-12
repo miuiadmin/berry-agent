@@ -99,6 +99,16 @@ describe('createApprovalService.ask', () => {
     expect(rig.rec.decided[0]).toMatchObject({ decision: 'unavailable', source: 'timeout' });
   });
 
+  it('answerer 显式答 unavailable（呈现面自报无人——通道核降级到底的答案）→ 同 unavailable/timeout', async () => {
+    // 与全链无答（answer 缺席）同归——2026-09-13 真模型实测批：headless 零
+    // approval capability 后端时 ui-core 降级到底答 'unavailable'（修前误答
+    // 'cancel'），service 侧映射必须与「无人应答」同语义非「用户取消」
+    const rig = makeRig('unavailable');
+    const result = await rig.service.ask(req());
+    expect(result).toEqual({ outcome: 'unavailable', source: 'timeout' });
+    expect(rig.rec.decided[0]).toMatchObject({ decision: 'unavailable', source: 'timeout' });
+  });
+
   it('answerer 抛错 → 先落 decided 闭合审计对（unavailable）再原样上抛', async () => {
     const rig = makeRig(new Error('answerer 崩溃'));
     await expect(rig.service.ask(req())).rejects.toThrow('answerer 崩溃');

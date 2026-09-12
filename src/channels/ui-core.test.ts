@@ -123,6 +123,16 @@ describe('ask 编舞单元边界', () => {
     expect(await p).toBe('cancel');
   });
 
+  it('审批降级到底 → unavailable（零 approval capability 后端——headless 结构态；04 §9 无应答者语义非用户取消）', async () => {
+    const b = fakeBackend('headless', { approval: false });
+    const ui = makeCore([b.backend]);
+    const p = ui.askApproval('s1', { summary: '写文件' });
+    // 修前误答 'cancel'——decided 错标 cancel/user 双失真（2026-09-13 真模型
+    // 实测实锤：headless run 触发写类审批对，模型被「run 已打断」文案误导连试 3 次）
+    expect(await p).toBe('unavailable');
+    expect(b.notified).toEqual(['写文件']); // 摘要仍 notify 呈现（记录面不缺）
+  });
+
   it('审批多后端竞速先答先得、败腿经内部 signal 撤销（04 §9 跨入口竞速同链）', async () => {
     const b1 = fakeBackend('tui');
     const b2 = fakeBackend('web');

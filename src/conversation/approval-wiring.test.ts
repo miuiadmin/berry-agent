@@ -152,6 +152,17 @@ describe('wireSessionApproval 呈现面', () => {
     expect(result).toEqual({ outcome: 'unavailable', source: 'timeout' });
   });
 
+  it('呈现面答 unavailable（降级到底自报无人）→ 短路写 answer 非 undefined 交棒，decided 落 unavailable/timeout', async () => {
+    // 2026-09-13 真模型实测批：headless 零能力后端时通道核答 'unavailable'——
+    // 桥层必须把它当「已答」短路（非 undefined 交棒），不能当「没答」传给下一环
+    const { session, wiring } = makeWiring({
+      askApproval: async () => 'unavailable',
+    });
+    const result = await wiring.approval.ask({ summary: '写' });
+    expect(result).toEqual({ outcome: 'unavailable', source: 'timeout' });
+    expect(dataOf(session, 'approval/decided')[0]).toMatchObject({ decision: 'unavailable', source: 'timeout' });
+  });
+
   it('载荷映射：呈现面收到 contracts 同形（suggestedEntry 草案折人可读一行）', async () => {
     const seen: ApprovalAskRequest[] = [];
     const { wiring } = makeWiring({
