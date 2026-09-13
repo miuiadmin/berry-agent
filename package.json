@@ -53,7 +53,8 @@
     "build:sdk": "tsc -p packages/berry-agent-sdk/tsconfig.json",
     "build:webui": "vite build",
     "golden:record": "tsx tools/golden-record.ts",
-    "release": "node tools/release.mjs"
+    "release": "node tools/release.mjs",
+    "release:sdk": "node tools/release.mjs --package sdk"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.4",

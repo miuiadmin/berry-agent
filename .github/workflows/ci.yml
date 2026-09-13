@@ -105,9 +105,14 @@ jobs:
           git config user.name "ci-drill"
           git config user.email "ci-drill@local"
           npm version 0.0.0-drill.${{ github.run_number }} --no-git-tag-version
+          # SDK 包同款临时 bump（07 §8.3 差分⑤——两包版本源独立，SDK 真发后
+          # tag sdk-v<version> 已在且异 commit 会咬契约 6；bump 并入同一 drill commit）
+          npm version 0.0.0-drill.${{ github.run_number }} --no-git-tag-version --prefix packages/berry-agent-sdk
           git commit -am "drill: 临时演习版本（CI 彩排——不推送）"
       - name: 发布演习（--dry-run 全真链，DRILL-EXIT=0 即绿）
         run: npm run release -- --dry-run
+      - name: SDK 发布演习（--package sdk --dry-run 全真链，rl 批双包发布道）
+        run: npm run release:sdk -- --dry-run
 
   typecheck:
     runs-on: ubuntu-latest

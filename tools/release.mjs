@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 /**
- * 发布机器（07 篇 §8.3 六道契约——思路照搬 berry 从零重建，2026-09-08 批 22）。
+ * 发布机器（07 篇 §8.3 六道契约 + 双包发布道——思路照搬 berry 从零重建，
+ * 2026-09-08 批 22；2026-09-14 rl 批包参数化纳入 berry-agent-sdk）。
  *
  * 形态：手写发布脚本（仓库手写纪律同向——argv/logger/拓扑门禁/三座桥皆手写；
- * npm CLI 为唯一传输层，不自写 registry HTTP）。版本号单一事实源 = package.json
- * `version`（bump 走普通 commit；脚本不 bump 不自增——发布失败重跑同号无跳号）。
+ * npm CLI 为唯一传输层，不自写 registry HTTP）。**版本号单一事实源 = 各包各自
+ * 的 package.json `version`**（bump 走普通 commit；脚本不 bump 不自增——发布
+ * 失败重跑同号无跳号）。
+ *
+ * 双包发布道：`--package <main|sdk>`（缺省 main 零参兼容）——六道编舞单源
+ * 零分叉，全部包差异收进 PACKAGES 描述符单源表（07 §8.3 差分五则）；分立
+ * 脚本与双包并跑一进程均否决（编舞复制 = 漂移面 / 一包失败另一包已传不可撤）。
  *
  * 六道契约（探测序即防线序；触网写面全集 = publish / dist-tag add / git push
  * tag 三点显式在册，此外零触网写）：
@@ -12,17 +18,17 @@
  * 2. registry 探测（先行只读）——E404=正常发 / 在场=记待比 / 其余=拒发，
  *    按 npm 错误类型分支禁退码一刀切；
  * 3. 构建即打包与发布物验收——全新 build → pack 白名单机器验收 → 真打包
- *    出 tarball+shasum → 安装冒烟（--version 结构前缀断言 + dump-config
- *    官方装载面就绪断言；数据目录 env 钉入冒烟临时目录防污染真数据域）；
+ *    出 tarball+shasum → 安装冒烟（主包 CLI 形 / SDK import 形——差分 ②；
+ *    数据目录 env 钉入冒烟临时目录防污染真数据域）；
  * 4. 幂等收口与 publish 单点——shasum 等价=跳过视为成功；不等=深对照
- *    （剥离 .build-meta 溯源戳一件）等价跳 / 有实质差异响亮拒 / 拉取不可行
- *    维持拒 fail-closed；publish 单点上传（prerelease 显式 --tag next；
+ *    （剥离集随包——主包溯源戳两件 / SDK 空集）等价跳 / 有实质差异响亮拒 /
+ *    拉取不可行维持拒 fail-closed；publish 单点上传（prerelease 显式 --tag next；
  *    真发前 README 占位符检查——dry-run 不拦）；
  * 5. dist-tag 终态机器断言——preview 期 latest 与 next 恒同指最新 prerelease
  *    （正式版起分叉：latest 指新版、next 不动）；断言失败退 1（半成功态必须
  *    被人看见）；
- * 6. 尾件 git tag——v<version> 轻量 tag（幂等：同 commit 跳过 / 异 commit
- *    响亮拒）；push 恒带 -c http.version=HTTP/1.1。
+ * 6. 尾件 git tag——tag 域两包分立（主包 v<version> / SDK sdk-v<version>；
+ *    幂等：同 commit 跳过 / 异 commit 响亮拒）；push 恒带 -c http.version=HTTP/1.1。
  *
  * 演习形态：--dry-run——契约 1/2 照跑；契约 3 真做；契约 4 幂等照判、publish
  * 走 npm publish --dry-run；契约 5 只调纯函数断言期望终态、不执行 dist-tag
@@ -49,7 +55,83 @@ import { createJiti } from 'jiti';
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 // ---------------------------------------------------------------------------
-// 纯判定器（全导出——测试即留档）
+// 包描述符单源表（07 §8.3 双包发布道——六道编舞零分叉，差异全收此表）
+// ---------------------------------------------------------------------------
+
+/**
+ * 主包白名单：恰收 dist 全树 + 三自动件 + README 语言族 + examples 挂账位。
+ * 07 §8.3 白名单验收律：在场资产恰收、缺席资产不预占白名单位——examples/ 落位批
+ * eco-3（插件模板两形）在场，package.json files 已扩入，机器验收面随批同步扩
+ * （eco-3 落码时漏扩本正则——2026-09-14 首发真发契约 3 咬住，补笔在场恰收）；
+ * examples/ 缺席时本分支空转无件可收，不预占白名单位。
+ * README 语言变体族（2026-09-14 多语言 README 批）：npm always-included 族——
+ * 根目录 README 变体自动入包（package.json files 白名单拦不住），故语言集枚举形
+ * 恰收五件（zh/ko/fr/es/ru）；缺席语言（如 de）不预占位，新语言随落位批同步扩。
+ */
+const MAIN_PACK_ALLOWED = /^(package\.json|README(\.(zh|ko|fr|es|ru))?\.md|LICENSE|dist\/.+|examples\/.+)$/;
+/** 主包三禁（全域执法不问目录——dist 内同样禁测试/映射件） */
+const MAIN_PACK_BANNED = /\.(test|spec)\.(js|ts|tsx)$|\.test\.d\.ts$|\.js\.map$/;
+/** 主包必在件（bin 主入口 / SPA 面 / API 治理面 / 溯源戳 / 双档） */
+const MAIN_PACK_MUST = [
+  'dist/host/main.js',
+  'dist/webui/index.html',
+  'dist/api/surface.json',
+  'dist/.build-meta.json',
+  'README.md',
+  'LICENSE',
+];
+
+/**
+ * SDK 包白名单：恰收 package.json / README 单件（无语言族）/ 入口树 +
+ * 同编译自包含跟进树（批 13f「类型面自仓单源同编译」——SDK src import 主仓
+ * 契约/通道码，tsc 跟进编译入包，import 图可达才入树）。
+ * 必在件 = 入口 index 双档 + client/http/stdio/types 四模块 .js + README。
+ */
+const SDK_PACK_ALLOWED = /^(package\.json|README\.md|dist\/(packages\/berry-agent-sdk\/src|src)\/.+)$/;
+/** SDK 三禁：test 件照禁；.js.map 放行（类型化客户端调试栈帧是产品面——07 §8.3 差分①） */
+const SDK_PACK_BANNED = /\.(test|spec)\.(js|ts|tsx)$|\.test\.d\.ts$/;
+/** SDK 必在件（入口面缺件即红） */
+const SDK_PACK_MUST = [
+  'dist/packages/berry-agent-sdk/src/index.js',
+  'dist/packages/berry-agent-sdk/src/index.d.ts',
+  'dist/packages/berry-agent-sdk/src/client.js',
+  'dist/packages/berry-agent-sdk/src/http.js',
+  'dist/packages/berry-agent-sdk/src/stdio.js',
+  'dist/packages/berry-agent-sdk/src/types.js',
+  'README.md',
+];
+
+/**
+ * 包描述符单源表（--package 词面全集；07 §8.3 双包发布道定形块）。
+ * tagPrefix 两包分立：主包 v<version> / SDK sdk-v<version>（版本号独立演进，
+ * 同号真发时同形 tag 必撞）；treeStrip = 契约 4 深对照剥离集（主包溯源戳
+ * 两件 / SDK 纯 tsc 确定性编译空集——shasum 不等即实质差异）。
+ */
+export const PACKAGES = {
+  main: {
+    name: 'berry-agent',
+    pkgDir: '',
+    tagPrefix: 'v',
+    tarballName: (version) => `berry-agent-${version}.tgz`,
+    packAllowed: MAIN_PACK_ALLOWED,
+    packBanned: MAIN_PACK_BANNED,
+    packMust: MAIN_PACK_MUST,
+    treeStrip: ['dist/.build-meta.json', 'dist/.api-emit.stamp'],
+  },
+  sdk: {
+    name: 'berry-agent-sdk',
+    pkgDir: 'packages/berry-agent-sdk',
+    tagPrefix: 'sdk-v',
+    tarballName: (version) => `berry-agent-sdk-${version}.tgz`,
+    packAllowed: SDK_PACK_ALLOWED,
+    packBanned: SDK_PACK_BANNED,
+    packMust: SDK_PACK_MUST,
+    treeStrip: [],
+  },
+};
+
+// ---------------------------------------------------------------------------
+// 纯判定器（全导出——测试即留档；白名单/剥离集随包描述符参数化）
 // ---------------------------------------------------------------------------
 
 /** prerelease 判定（preview 期 = 版本号带 prerelease 段） */
@@ -82,54 +164,30 @@ export function judgeRegistryProbe(res) {
   };
 }
 
-/**
- * pack 白名单（契约 3 机器验收）——发布物恰收：dist 全树 + 三自动件 + README 语言族
- * + examples 挂账位。
- * 07 §8.3 白名单验收律：在场资产恰收、缺席资产不预占白名单位——examples/ 落位批
- * eco-3（插件模板两形）在场，package.json files 已扩入，机器验收面随批同步扩
- * （eco-3 落码时漏扩本正则——2026-09-14 首发真发契约 3 咬住，补笔在场恰收）；
- * examples/ 缺席时本分支空转无件可收，不预占白名单位。
- * README 语言变体族（2026-09-14 多语言 README 批）：npm always-included 族——
- * 根目录 README 变体自动入包（package.json files 白名单拦不住），故语言集枚举形
- * 恰收五件（zh/ko/fr/es/ru）；缺席语言（如 de）不预占位，新语言随落位批同步扩。
- */
-const PACK_ALLOWED = /^(package\.json|README(\.(zh|ko|fr|es|ru))?\.md|LICENSE|dist\/.+|examples\/.+)$/;
-/** pack 三禁（全域执法不问目录——dist 内同样禁测试/映射件） */
-const PACK_BANNED = /\.(test|spec)\.(js|ts|tsx)$|\.test\.d\.ts$|\.js\.map$/;
-/** pack 必在件（bin 主入口 / SPA 面 / API 治理面 / 溯源戳 / 双档） */
-const PACK_MUST = [
-  'dist/host/main.js',
-  'dist/webui/index.html',
-  'dist/api/surface.json',
-  'dist/.build-meta.json',
-  'README.md',
-  'LICENSE',
-];
-
-/** 契约 3 pack 内容面验收——白名单 + 三禁双执法（src/tools 全落 forbidden，dist 内测试/映射同落） */
-export function judgePackList(files) {
-  const missing = PACK_MUST.filter((m) => !files.includes(m));
-  const forbidden = files.filter((f) => !PACK_ALLOWED.test(f) || PACK_BANNED.test(f));
+/** 契约 3 pack 内容面验收——白名单 + 三禁双执法（profile 随包描述符；缺省主包） */
+export function judgePackList(files, profile = PACKAGES.main) {
+  const missing = profile.packMust.filter((m) => !files.includes(m));
+  const forbidden = files.filter((f) => !profile.packAllowed.test(f) || profile.packBanned.test(f));
   return { ok: missing.length === 0 && forbidden.length === 0, missing, forbidden };
 }
 
 /**
- * 契约 4 深对照——两 tarball 解包树（path → sha256）剥离溯源戳两件后逐件比：
+ * 契约 4 深对照——两 tarball 解包树（path → sha256）剥离溯源戳类后逐件比：
  * 全同 = 等价跳（中断重跑时 HEAD 已移属正常）；有实质差异 = 响亮拒
  * （registry 不可重写同版本）。
- * 剥离集（07 §8.3 契约 4——2026-09-14 补笔两件）= 溯源戳类非确定值：
- * `.build-meta.json`（builtAt）+ `.api-emit.stamp`（emit-api-decls 生成时戳）；
+ * 剥离集随包（07 §8.3 差分③）：主包 = .build-meta.json（builtAt）+
+ * .api-emit.stamp（emit-api-decls 生成时戳）两件非确定溯源值；SDK = 空集
+ * （纯 tsc 确定性编译，无溯源件——shasum 不等即实质差异）。
  * 判据 = 溯源戳类，内容件永不入集。
  */
-export function judgeTarballTrees(localTree, remoteTree) {
-  const STRIP = ['dist/.build-meta.json', 'dist/.api-emit.stamp'];
-  const strip = (tree) => {
+export function judgeTarballTrees(localTree, remoteTree, strip = PACKAGES.main.treeStrip) {
+  const stripTree = (tree) => {
     const copy = { ...tree };
-    for (const k of STRIP) delete copy[k];
+    for (const k of strip) delete copy[k];
     return copy;
   };
-  const a = strip(localTree);
-  const b = strip(remoteTree);
+  const a = stripTree(localTree);
+  const b = stripTree(remoteTree);
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   const diffs = [...keys].filter((k) => a[k] !== b[k]);
   return { equivalent: diffs.length === 0, diffs };
@@ -212,13 +270,25 @@ export const INJECT_SPECTRUM = {
   },
 };
 
-/** argv 解析：{ dryRun, inject, errors }——用法错聚齐由 CLI 层退 2 */
+/** argv 解析：{ pkg, dryRun, inject, errors }——用法错聚齐由 CLI 层退 2 */
 export function parseReleaseArgs(argv) {
-  const out = { dryRun: false, inject: undefined, errors: [] };
+  const out = { pkg: 'main', dryRun: false, inject: undefined, errors: [] };
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
     if (tok === '--dry-run') out.dryRun = true;
-    else if (tok === '--inject') {
+    else if (tok === '--package') {
+      const key = argv[i + 1];
+      if (key === undefined || key.startsWith('--')) {
+        out.errors.push('--package 需要包名（合法：' + Object.keys(PACKAGES).join(' / ') + '）');
+        break;
+      }
+      if (!Object.hasOwn(PACKAGES, key)) {
+        out.errors.push(`未知包名：${key}（合法：${Object.keys(PACKAGES).join(' / ')}）`);
+      } else {
+        out.pkg = key;
+      }
+      i++;
+    } else if (tok === '--inject') {
       const key = argv[i + 1];
       if (key === undefined || key.startsWith('--')) {
         out.errors.push('--inject 需要谱项名（见 --inject 列表：' + Object.keys(INJECT_SPECTRUM).join(' / ') + '）');
@@ -231,7 +301,9 @@ export function parseReleaseArgs(argv) {
       }
       i++;
     } else {
-      out.errors.push(`未知参数：${tok}（仅认 --dry-run / --inject <谱项>）`);
+      out.errors.push(
+        `未知参数：${tok}（仅认 --package <${Object.keys(PACKAGES).join('|')}> / --dry-run / --inject <谱项>）`,
+      );
     }
   }
   // publish 之后的谱项无 --dry-run 即用法错（防真上传后撞注入终态）
@@ -247,18 +319,20 @@ export function parseReleaseArgs(argv) {
 
 /**
  * @param {object} seams 缝面（CLI=realSeams 实装；测试=假缝注入谱场景）
- * @param {{version: string, dryRun: boolean, log: (line: string) => void}} opts
+ * @param {{version: string, pkgKey?: string, dryRun: boolean, log: (line: string) => void}} opts
+ *   pkgKey 缺省 'main'（07 §8.3 双包发布道——编舞零分叉，差异全在描述符/缝面）
  * @returns {{code: number, report: string[]}}
  */
 export async function runRelease(seams, opts) {
   const { version, dryRun } = opts;
+  const pkg = PACKAGES[opts.pkgKey ?? 'main'];
   const report = [];
   const log = (line) => {
     report.push(line);
     opts.log(line);
   };
   const prerelease = isPrerelease(version);
-  log(`[release] berry-agent@${version}${dryRun ? '（--dry-run 演习）' : ''} 六道契约起跑`);
+  log(`[release] ${pkg.name}@${version}${dryRun ? '（--dry-run 演习）' : ''} 六道契约起跑`);
 
   // —— 契约 1：门禁前置不可绕 + 工作树净空 ——
   log('[契约1] 四门禁前置……');
@@ -290,7 +364,7 @@ export async function runRelease(seams, opts) {
     return { code: 1, report };
   }
   const files = seams.packList();
-  const packVerdict = judgePackList(files);
+  const packVerdict = judgePackList(files, pkg);
   if (!packVerdict.ok) {
     log(
       `[契约3] 红：pack 内容面验收不过——缺必在件 [${packVerdict.missing.join(', ') || '无'}] / 白名单外 [${packVerdict.forbidden.join(', ') || '无'}]`,
@@ -317,7 +391,7 @@ export async function runRelease(seams, opts) {
       log('[契约4] 拒：registry 在场且 shasum 不一致，深对照拉取不可行——fail-closed 拒发（registry 不可重写同版本）');
       return { code: 1, report };
     }
-    const deep = judgeTarballTrees(seams.tarballTree(tarballPath), seams.tarballTree(remoteTarball));
+    const deep = judgeTarballTrees(seams.tarballTree(tarballPath), seams.tarballTree(remoteTarball), pkg.treeStrip);
     if (!deep.equivalent) {
       log(`[契约4] 拒：深对照有实质差异（剥离溯源戳后仍不同：[${deep.diffs.join(', ')}]）——registry 不可重写同版本`);
       return { code: 1, report };
@@ -347,7 +421,7 @@ export async function runRelease(seams, opts) {
     const add = seams.distTagAdd(version, 'latest');
     if (add.status !== 0) {
       log(
-        '[契约5] 红：dist-tag add latest 失败——半成功态，人工接管（npm dist-tag add berry-agent@' +
+        `[契约5] 红：dist-tag add latest 失败——半成功态，人工接管（npm dist-tag add ${pkg.name}@` +
           version +
           ' latest）',
       );
@@ -370,8 +444,8 @@ export async function runRelease(seams, opts) {
   }
   log('[契约5] 绿：dist-tag 终态断言过');
 
-  // —— 契约 6：尾件 git tag ——
-  const tagName = `v${version}`;
+  // —— 契约 6：尾件 git tag ——（tag 域两包分立：主包 v<version> / SDK sdk-v<version>——07 §8.3 差分③同节）
+  const tagName = `${pkg.tagPrefix}${version}`;
   const tagState = seams.gitTagState(tagName);
   if (tagState === 'absent') {
     if (dryRun) {
@@ -388,7 +462,7 @@ export async function runRelease(seams, opts) {
     return { code: 1, report };
   }
 
-  log(`[release] 全契约绿${dryRun ? '（演习态——零上传零 tag 写）' : ''}：berry-agent@${version}`);
+  log(`[release] 全契约绿${dryRun ? '（演习态——零上传零 tag 写）' : ''}：${pkg.name}@${version}`);
   return { code: 0, report };
 }
 
@@ -436,12 +510,66 @@ async function runSmoke(tarballPath, version, coreIds) {
   }
 }
 
+/** SDK 安装冒烟实装（契约 3 差分②——import 冒烟 + apiVersion 断言；零 bin 零 CLI 面） */
+async function runSmokeSdk(tarballPath, version) {
+  const failures = [];
+  const smokeDir = mkdtempSync(join(tmpdir(), 'berry-release-smoke-sdk.'));
+  try {
+    const prefix = join(smokeDir, 'prefix');
+    const inst = cap('npm', ['i', '-g', `--prefix=${prefix}`, tarballPath, '--no-audit', '--no-fund']);
+    if (inst.status !== 0)
+      return { ok: false, failures: ['临时 prefix 安装失败：' + (inst.stderr ?? '').split('\n')[0]] };
+    // 全局安装位 node_modules（unix 形 lib/node_modules）——ESM 禁目录 import 且
+    // 全局 node_modules 不在解析链，须经 createRequire.resolve 取 main 指位文件 URL
+    // 再 dynamic import（解析成功才是「main 指位真实可达」的真证明——07 §8.3 差分②）
+    const nmDir = join(prefix, 'lib', 'node_modules');
+    const { createRequire } = await import('node:module');
+    const req = createRequire(join(smokeDir, 'smoke.js'));
+    let entryUrl;
+    try {
+      entryUrl = pathToFileURL(req.resolve('berry-agent-sdk', { paths: [nmDir] })).href;
+    } catch (err) {
+      return { ok: false, failures: [`require.resolve 安装位解析失败：${err?.message ?? err}`] };
+    }
+    // 安装位 package.json 断言：version 全等 + apiVersion 治理锚（漂移即冒烟红）
+    const meta = JSON.parse(readFileSync(join(nmDir, 'berry-agent-sdk', 'package.json'), 'utf8'));
+    if (meta.version !== version) failures.push(`安装位 version ${meta.version} ≠ ${version}`);
+    if (meta.apiVersion !== '1.0') failures.push(`apiVersion ${meta.apiVersion} ≠ '1.0'（治理锚漂移）`);
+    // 子进程 import 冒烟：裸 node 环境加载安装位包（导出面四键断言；隔离防意外副作用）
+    const entry = `
+      const m = await import(process.argv[1]);
+      const checks = [
+        ['createSdkClient', typeof m.createSdkClient === 'function'],
+        ['spawnServeTransport', typeof m.spawnServeTransport === 'function'],
+        ['httpSdkTransport', typeof m.httpSdkTransport === 'function'],
+        ['SDK_PROTOCOL_VERSION', typeof m.SDK_PROTOCOL_VERSION === 'string' && m.SDK_PROTOCOL_VERSION.length > 0],
+      ];
+      const bad = checks.filter(([, ok]) => !ok).map(([n]) => n);
+      if (bad.length > 0) {
+        console.error('导出面缺席：' + bad.join('，'));
+        process.exit(1);
+      }
+    `;
+    const probe = spawnSync(process.execPath, ['--input-type=module', '-e', entry, '--', entryUrl], {
+      encoding: 'utf8',
+    });
+    if (probe.status !== 0) failures.push('import 冒烟失败：' + (probe.stderr ?? '').trim().split('\n')[0]);
+    return { ok: failures.length === 0, failures };
+  } finally {
+    rmSync(smokeDir, { recursive: true, force: true });
+  }
+}
+
 /**
  * CLI 实装缝。gates/build/publish 走 stdio inherit（人面可见长输出）；
  * 探测/pack/dist-tag 捕获形（机器判定）。tarball 解包树用系统 tar。
+ * pkgKey 参数化（07 §8.3 双包发布道）：包名/包目录 cwd/tarball 名/readmeText
+ * 读面/build 链/冒烟形随 PACKAGES 描述符分叉；git 系缝两包共享。
  */
-export function realSeams() {
-  const version = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version;
+export function realSeams(pkgKey = 'main') {
+  const pkg = PACKAGES[pkgKey];
+  const pkgRoot = join(REPO_ROOT, pkg.pkgDir);
+  const version = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')).version;
   let coreIdsPromise = null;
   const getCoreIds = () => {
     if (coreIdsPromise === null) coreIdsPromise = loadCoreIds();
@@ -478,43 +606,52 @@ export function realSeams() {
         ok: cap('npm', ['run', name], { stdio: 'inherit' }).status === 0,
       })),
     gitStatusPorcelain: () => cap('git', ['status', '--porcelain']).stdout ?? '',
-    probe: (v) => cap('npm', ['view', `berry-agent@${v}`, 'dist.shasum', '--json']),
+    probe: (v) => cap('npm', ['view', `${pkg.name}@${v}`, 'dist.shasum', '--json']),
     build: () => {
-      rmSync(join(REPO_ROOT, 'dist'), { recursive: true, force: true }); // 全新 build（先清 dist/）
-      return { ok: cap('npm', ['run', 'build'], { stdio: 'inherit' }).status === 0 };
+      // 全新 build（先清包 dist/——主包仓根 dist、SDK 包内 dist）
+      rmSync(join(pkgRoot, 'dist'), { recursive: true, force: true });
+      const script = pkgKey === 'sdk' ? 'build:sdk' : 'build';
+      return { ok: cap('npm', ['run', script], { stdio: 'inherit' }).status === 0 };
     },
     packList: () => {
-      const res = cap('npm', ['pack', '--dry-run', '--json']);
+      // npm pack 依 cwd 的 package.json 定打哪个包——必须切包目录
+      const res = cap('npm', ['pack', '--dry-run', '--json'], { cwd: pkgRoot });
       if (res.status !== 0) return [];
       return JSON.parse(res.stdout).flatMap((entry) => entry.files.map((f) => f.path));
     },
     pack: () => {
       const outDir = mkdtempSync(join(tmpdir(), 'berry-release-pack.'));
-      cap('npm', ['pack', `--pack-destination=${outDir}`]);
-      return { tarballPath: join(outDir, `berry-agent-${version}.tgz`) };
+      cap('npm', ['pack', `--pack-destination=${outDir}`], { cwd: pkgRoot });
+      return { tarballPath: join(outDir, pkg.tarballName(version)) };
     },
     fileShasum: shasumOf,
     tarballTree,
     fetchTarball: (v) => {
       const outDir = mkdtempSync(join(tmpdir(), 'berry-release-fetch.'));
-      const res = cap('npm', ['pack', `berry-agent@${v}`, `--pack-destination=${outDir}`]);
+      const res = cap('npm', ['pack', `${pkg.name}@${v}`, `--pack-destination=${outDir}`]);
       if (res.status !== 0) {
         rmSync(outDir, { recursive: true, force: true });
         return null;
       }
-      return join(outDir, `berry-agent-${v}.tgz`);
+      return join(outDir, pkg.tarballName(v));
     },
     // 契约 4 读面 = README 全语言族拼合（根 README*.md——npm always-included
     // 族随包走，占位符门不得漏检任一译文；动态 glob 形——新语言落位即自动
     // 入检，fail-safe 方向无需枚举同步。2026-09-14 扫描三役 F22 勘正：修前
-    // 只读根 README.md 单件，五译文占位符漏检）
+    // 只读根 README.md 单件，五译文占位符漏检）。SDK 道读面包目录单件
+    // （无语言变体族——07 §8.3 差分①）。
     readmeText: () =>
-      readdirSync(REPO_ROOT)
-        .filter((f) => /^README.*\.md$/.test(f))
-        .sort()
-        .map((f) => readFileSync(join(REPO_ROOT, f), 'utf8'))
-        .join('\n\n'),
-    smoke: async (tarballPath) => runSmoke(tarballPath, version, await getCoreIds()),
+      pkgKey === 'sdk'
+        ? readFileSync(join(pkgRoot, 'README.md'), 'utf8')
+        : readdirSync(REPO_ROOT)
+            .filter((f) => /^README.*\.md$/.test(f))
+            .sort()
+            .map((f) => readFileSync(join(REPO_ROOT, f), 'utf8'))
+            .join('\n\n'),
+    smoke:
+      pkgKey === 'sdk'
+        ? async (tarballPath) => runSmokeSdk(tarballPath, version)
+        : async (tarballPath) => runSmoke(tarballPath, version, await getCoreIds()),
     publish: (tarballPath, o) => {
       const args = ['publish', tarballPath];
       if (o.next) args.push('--tag', 'next');
@@ -522,7 +659,7 @@ export function realSeams() {
       return cap('npm', args, { stdio: 'inherit' });
     },
     distTagLs: () => {
-      const res = cap('npm', ['dist-tag', 'ls', 'berry-agent']);
+      const res = cap('npm', ['dist-tag', 'ls', pkg.name]);
       if (res.status !== 0) return { latest: '<unreachable>', next: '<unreachable>' };
       const tags = {};
       for (const line of (res.stdout ?? '').split('\n')) {
@@ -531,7 +668,7 @@ export function realSeams() {
       }
       return tags;
     },
-    distTagAdd: (v, tag) => cap('npm', ['dist-tag', 'add', `berry-agent@${v}`, tag], { stdio: 'inherit' }),
+    distTagAdd: (v, tag) => cap('npm', ['dist-tag', 'add', `${pkg.name}@${v}`, tag], { stdio: 'inherit' }),
     headCommit: () => cap('git', ['rev-parse', 'HEAD']).stdout.trim(),
     gitTagState: (tag) => {
       const exists = cap('git', ['tag', '--list', tag]).stdout.trim() !== '';
@@ -554,14 +691,15 @@ if (isMain) {
   const parsed = parseReleaseArgs(process.argv.slice(2));
   if (parsed.errors.length > 0) {
     for (const e of parsed.errors) console.error(`用法错：${e}`);
-    console.error('用法：node tools/release.mjs [--dry-run] [--inject <谱项>]');
+    console.error('用法：node tools/release.mjs [--package <main|sdk>] [--dry-run] [--inject <谱项>]');
     process.exit(2);
   }
-  const base = realSeams();
+  const base = realSeams(parsed.pkg);
   const seams = parsed.inject !== undefined ? INJECT_SPECTRUM[parsed.inject].patch(base) : base;
-  const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+  const pkgJson = JSON.parse(readFileSync(join(REPO_ROOT, PACKAGES[parsed.pkg].pkgDir, 'package.json'), 'utf8'));
   const result = await runRelease(seams, {
-    version: pkg.version,
+    version: pkgJson.version,
+    pkgKey: parsed.pkg,
     dryRun: parsed.dryRun,
     log: (line) => console.log(line),
   });

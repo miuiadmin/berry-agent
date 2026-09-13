@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   INJECT_SPECTRUM,
+  PACKAGES,
   judgeDistTag,
   judgePackList,
   judgeReadme,
@@ -17,10 +18,37 @@ import {
  * 全绿，测试即留档）。零网络零 git 写：runRelease 消费假缝（fake seam
  * table），谱项经 INJECT_SPECTRUM.patch 同一机器施加——与 CLI --inject
  * 同物，谱语义漂移在此当场红。
+ *
+ * 双包发布道（2026-09-14 rl 批）：fakeSeams 按 pkgKey 参数化（packList 基线 /
+ * tarball 名 / 解包树键随 PACKAGES 描述符分叉）；既有例全走 main 缺省形回归。
  */
 
-/** 假缝工厂——全绿基线 + 调用留痕（断言「未触写面」用） */
-function fakeSeams(overrides = {}) {
+/** 各包全绿 packList 基线（pack 真实产物形态的最小代表集） */
+const PACK_BASELINES = {
+  main: [
+    'package.json',
+    'README.md',
+    'LICENSE',
+    'dist/host/main.js',
+    'dist/webui/index.html',
+    'dist/api/surface.json',
+    'dist/.build-meta.json',
+  ],
+  sdk: [
+    'package.json',
+    'README.md',
+    'dist/packages/berry-agent-sdk/src/index.js',
+    'dist/packages/berry-agent-sdk/src/index.d.ts',
+    'dist/packages/berry-agent-sdk/src/client.js',
+    'dist/packages/berry-agent-sdk/src/http.js',
+    'dist/packages/berry-agent-sdk/src/stdio.js',
+    'dist/packages/berry-agent-sdk/src/types.js',
+    'dist/src/channels/sdk/protocol.js',
+  ],
+};
+
+/** 假缝工厂——全绿基线 + 调用留痕（断言「未触写面」用）；pkgKey 随包分叉基线 */
+function fakeSeams(overrides = {}, pkgKey = 'main') {
   const calls = { build: 0, publish: [], distTagAdd: [], gitTagCreate: [], gitTagPush: [], fetch: 0 };
   const base = {
     calls,
@@ -36,16 +64,8 @@ function fakeSeams(overrides = {}) {
       calls.build++;
       return { ok: true };
     },
-    packList: () => [
-      'package.json',
-      'README.md',
-      'LICENSE',
-      'dist/host/main.js',
-      'dist/webui/index.html',
-      'dist/api/surface.json',
-      'dist/.build-meta.json',
-    ],
-    pack: () => ({ tarballPath: '/tmp/fake/berry-agent-0.1.0-alpha.1.tgz' }),
+    packList: () => [...PACK_BASELINES[pkgKey]],
+    pack: () => ({ tarballPath: `/tmp/fake/${PACKAGES[pkgKey].tarballName('0.1.0-alpha.1')}` }),
     fileShasum: () => 'localsha',
     smoke: async () => ({ ok: true, failures: [] }),
     fetchTarball: () => {
@@ -75,10 +95,10 @@ function fakeSeams(overrides = {}) {
   return { ...base, ...overrides };
 }
 
-/** runRelease 直跑快捷（静默 log） */
-async function run(seams, version = '0.1.0-alpha.1', dryRun = true) {
+/** runRelease 直跑快捷（静默 log；pkgKey 透传双包） */
+async function run(seams, version = '0.1.0-alpha.1', dryRun = true, pkgKey = 'main') {
   const report = [];
-  const result = await runRelease(seams, { version, dryRun, log: (l) => report.push(l) });
+  const result = await runRelease(seams, { version, pkgKey, dryRun, log: (l) => report.push(l) });
   return { ...result, report };
 }
 
@@ -222,8 +242,8 @@ describe('judgeReadme / isPrerelease', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseReleaseArgs', () => {
-  it('空参 = 真发；--dry-run = 演习', () => {
-    expect(parseReleaseArgs([])).toEqual({ dryRun: false, inject: undefined, errors: [] });
+  it('空参 = 真发 + 缺省主包；--dry-run = 演习', () => {
+    expect(parseReleaseArgs([])).toEqual({ pkg: 'main', dryRun: false, inject: undefined, errors: [] });
     expect(parseReleaseArgs(['--dry-run']).dryRun).toBe(true);
   });
 
@@ -244,6 +264,19 @@ describe('parseReleaseArgs', () => {
     expect(parseReleaseArgs(['--inject', 'tag:conflict']).errors.length).toBe(1);
     // publish 前谱项无此限
     expect(parseReleaseArgs(['--inject', 'probe:network']).errors).toEqual([]);
+  });
+
+  // rl 批双包发布道——--package 词面（缺省 main 零参兼容 + 未知/缺参用法错）
+  it('--package sdk 合法；--package 缺参/未知包名 → 用法错', () => {
+    expect(parseReleaseArgs(['--package', 'sdk'])).toEqual({
+      pkg: 'sdk',
+      dryRun: false,
+      inject: undefined,
+      errors: [],
+    });
+    expect(parseReleaseArgs(['--package', 'sdk', '--dry-run']).pkg).toBe('sdk');
+    expect(parseReleaseArgs(['--package']).errors[0]).toContain('--package 需要包名');
+    expect(parseReleaseArgs(['--package', 'nope']).errors[0]).toContain('未知包名');
   });
 });
 
@@ -398,5 +431,86 @@ describe('runRelease 真发形态（假缝全绿）', () => {
     expect(s.calls.publish[0].next).toBe(false);
     expect(s.calls.distTagAdd).toEqual([]);
     expect(s.calls.gitTagCreate).toEqual(['v1.0.0']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 双包发布道（rl 批——07 §8.3 差分五则：描述符/tag 域/白名单 map 分叉/空剥离集）
+// ---------------------------------------------------------------------------
+
+describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
+  it('描述符对拍锁：name/tagPrefix/treeStrip 两包分立不得漂移', () => {
+    expect(PACKAGES.main.name).toBe('berry-agent');
+    expect(PACKAGES.main.tagPrefix).toBe('v');
+    expect(PACKAGES.main.treeStrip).toEqual(['dist/.build-meta.json', 'dist/.api-emit.stamp']);
+    expect(PACKAGES.sdk.name).toBe('berry-agent-sdk');
+    expect(PACKAGES.sdk.tagPrefix).toBe('sdk-v'); // tag 域分立主锁——同号真发不撞（差分③）
+    expect(PACKAGES.sdk.treeStrip).toEqual([]); // 纯 tsc 确定性编译无溯源件（差分③）
+  });
+
+  it('judgePackList SDK 基线全绿（含同编译跟进树件 + map 放行）', () => {
+    const files = [
+      ...PACK_BASELINES.sdk,
+      'dist/packages/berry-agent-sdk/src/index.js.map',
+      'dist/src/channels/sdk/protocol.js.map',
+    ];
+    expect(judgePackList(files, PACKAGES.sdk).ok).toBe(true);
+  });
+
+  it('SDK 三禁：test 件照禁（map 放行不豁免测试件）；主包缺省 profile 照禁 map', () => {
+    const withTest = [...PACK_BASELINES.sdk, 'dist/src/x.test.js'];
+    expect(judgePackList(withTest, PACKAGES.sdk).forbidden).toEqual(['dist/src/x.test.js']);
+    // 同一 map 件：SDK 放行（调试栈帧产品面）、主包拒（瘦身律）——分叉成文即非漂移
+    expect(judgePackList(['dist/x.js.map'], PACKAGES.main).forbidden).toEqual(['dist/x.js.map']);
+  });
+
+  it('SDK 必在件缺 → 红（入口面缺件即拒）；SDK 白名单外件（语言族 README/LICENSE）照拒', () => {
+    const missing = judgePackList(
+      PACK_BASELINES.sdk.filter((f) => f !== 'dist/packages/berry-agent-sdk/src/index.d.ts'),
+      PACKAGES.sdk,
+    );
+    expect(missing.ok).toBe(false);
+    expect(missing.missing).toContain('dist/packages/berry-agent-sdk/src/index.d.ts');
+    const v = judgePackList([...PACK_BASELINES.sdk, 'README.zh.md', 'LICENSE'], PACKAGES.sdk);
+    expect(v.forbidden).toEqual(['README.zh.md', 'LICENSE']); // SDK 无语言族无 LICENSE 文本件（差分① v1 定案）
+  });
+
+  it('judgeTarballTrees SDK 空剥离集：map 差异 = 实质差异拒（无溯源件可剥）', () => {
+    const local = { 'package.json': 'a', 'dist/packages/berry-agent-sdk/src/index.js': 'x' };
+    const remote = { 'package.json': 'a', 'dist/packages/berry-agent-sdk/src/index.js': 'x' };
+    expect(judgeTarballTrees(local, remote, PACKAGES.sdk.treeStrip).equivalent).toBe(true);
+    const drifted = { ...remote, 'dist/packages/berry-agent-sdk/src/index.js': 'y' };
+    const v = judgeTarballTrees(local, drifted, PACKAGES.sdk.treeStrip);
+    expect(v.equivalent).toBe(false);
+    expect(v.diffs).toEqual(['dist/packages/berry-agent-sdk/src/index.js']);
+  });
+
+  it('runRelease SDK 演习全绿：tarball 名/tag 域/log 面随包分叉', async () => {
+    const s = fakeSeams({}, 'sdk');
+    const r = await run(s, '0.1.0-alpha.1', true, 'sdk');
+    expect(r.code).toBe(0);
+    expect(r.report.join('\n')).toContain('berry-agent-sdk@0.1.0-alpha.1');
+    expect(s.calls.publish).toEqual([
+      { tarball: '/tmp/fake/berry-agent-sdk-0.1.0-alpha.1.tgz', next: true, dryRun: true },
+    ]);
+    expect(r.report.join('\n')).toContain('演习：tag sdk-v0.1.0-alpha.1 缺席'); // tag 域分立（差分③）
+    expect(s.calls.gitTagCreate).toEqual([]);
+  });
+
+  it('runRelease SDK 真发：打 sdk-v tag 推送 + dist-tag 同律', async () => {
+    const s = fakeSeams({}, 'sdk');
+    const r = await run(s, '0.1.0-alpha.1', false, 'sdk');
+    expect(r.code).toBe(0);
+    expect(s.calls.gitTagCreate).toEqual(['sdk-v0.1.0-alpha.1']);
+    expect(s.calls.gitTagPush).toEqual(['sdk-v0.1.0-alpha.1']);
+    expect(s.calls.distTagAdd).toEqual([['0.1.0-alpha.1', 'latest']]); // preview 期 latest 跟 prerelease 同律（契约 5 包无关）
+  });
+
+  it('注入谱 SDK 道同律：probe:network 拒发且不 build（谱项包无关）', async () => {
+    const s = INJECT_SPECTRUM['probe:network'].patch(fakeSeams({}, 'sdk'));
+    const r = await run(s, '0.1.0-alpha.1', true, 'sdk');
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('拒发');
+    expect(s.calls.build).toBe(0);
   });
 });
