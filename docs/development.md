@@ -67,7 +67,7 @@ docs/                   公开文档面（本五册）
 ## 工程约定
 
 - **注释中文、标识符英文**：所有新写代码充分中文注释（JSDoc + 关键分支行内——写「为什么」不写「是什么」）；
-- **命名去品牌化**：代码标识符禁品牌词。品牌词只允许出现在 package.json name/keywords、bin 命令名、UI 文案/文档标题、对外声明值位（`~/.berry-agent`、`BERRY_AGENT_*`、`berry-agent-plugin` keyword、虚拟主键 `berry-agent`、magic 串 `berry-agent:host`）；
+- **命名去品牌化**：代码标识符禁品牌词。品牌词只允许出现在 package.json name/keywords、bin 命令名、UI 文案/文档标题、对外声明值位（`~/.berry-agent`、`BERRY_AGENT_*`、`berry-agent-plugin` keyword、虚拟主键 `berry-agent`、值位 magic/格式串三件——memory 导出 `berry-agent-memory`、会话导入 `berry-agent/session`、cron marker `# berry-agent:<名>`）；
 - **词汇**：扩展单位一律叫「插件」（plugin）——「应用/app」是禁用词；生命周期动词 install/uninstall/mount/unmount/toggle/update；
 - **env 前缀**：一律 `BERRY_AGENT_*`；
 - **提交**：一个逻辑完整的变更 = 一次 commit，完成即提交不积攒；逐文件点名 `git add`、慎用 `git add -A`；commit 前核 `git status` 无未登记残留。
