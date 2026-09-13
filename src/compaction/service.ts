@@ -449,9 +449,12 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
         return;
       }
       // 门③ cooldown：冷却窗挡（判据与 policy.inCooldown 同式就地展开——
-      // remainMs 窗余值需要差值，单一 now() 采样点保证两值同账）
-      if (state.lastCompactAt !== null && now() - state.lastCompactAt < cfg.cooldownMs) {
-        appendSkip(input.log, 'cooldown', basis, cfg.cooldownMs - (now() - state.lastCompactAt));
+      // remainMs 窗余值需要差值，单一 now() 采样点保证两值同账。2026-09-13
+      // 复盘发现 ⑰：修前判据与余值各采一次——挂钟跨采样推进可出负余值
+      // （判据说「窗内」而回执窗余为负，不同账），就此单采样）
+      const nowMs = now();
+      if (state.lastCompactAt !== null && nowMs - state.lastCompactAt < cfg.cooldownMs) {
+        appendSkip(input.log, 'cooldown', basis, cfg.cooldownMs - (nowMs - state.lastCompactAt));
         return;
       }
       state.pending = true;

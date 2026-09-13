@@ -882,6 +882,35 @@ describe('obs-b 压缩判据观测（compaction/skip 五门）', () => {
     expect(skipsOf(log)).toHaveLength(1); // 放行不新增 skip
   });
 
+  it('cooldown 门单采样律（2026-09-13 复盘发现 ⑰）：判据与窗余同账——逐采样推进的挂钟下窗余不为负', async () => {
+    // 修前病灶：门③判据与 remainMs 各取一次 now()（注释自称「单一采样点」
+    // 与实况矛盾）——挂钟每次采样推进 500ms 的构造下，判据说「窗内」
+    // （500 < 600 即挡）而余值按第二采样算出负数（600 - 1000 = -400），
+    // 回执窗余与判据不同账。单采样后：恒 600 - 500 = 100
+    let clock = 0;
+    const rig = makeRig(['首压'], {
+      now: () => (clock += 500), // 单调但逐采样推进——双采样即跨一步
+      config: { cooldownMs: 600 },
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE }); // 真压一次（冷却锚 = 500）
+    await rig.service.drain();
+    for (let i = 7; i <= 9; i++) {
+      log.append('turn/start', {});
+      log.append('user/message', { content: `续 ${i}`, source: 'user' });
+      log.append('assistant/message', { content: [{ type: 'text', text: `答 ${i}` }] });
+      log.append('turn/end', { reason: 'completed' });
+    }
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE }); // 判据采样 = 1000 → 500 < 600 挡
+    await rig.service.drain();
+    const skips = skipsOf(log);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]!.data).toMatchObject({ gate: 'cooldown' });
+    const remain = (skips[0]!.data as { remainMs: number }).remainMs;
+    expect(remain).toBeGreaterThan(0); // 修前 = -400 红；修后 = 100
+    expect(remain).toBeLessThanOrEqual(600);
+  });
+
   it('no-channel 门：通道缺席且 fire 首触落一条 skip（后续静默）——与 warn-once 同锚', async () => {
     const warns: string[] = [];
     const service = createCompactionService({ warn: (m) => warns.push(m) });
