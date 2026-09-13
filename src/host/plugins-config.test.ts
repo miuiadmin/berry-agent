@@ -4,8 +4,9 @@
  *
  * 纪律：mock 只停在问询面（scripted ask——通道行为面归 channels 域）与
  * 凭证盒（内存 Map）；行编辑真链（真 yaml 往返经 memFs 注入）。断言面：
- * 逐字段问答分流（四型→input/confirm/select）/ secret 入盒不落 yaml +
- * credentials/changed 归因 / 未声明键透传 / 取消整次放弃 / required 两拒 /
+ * 逐字段问答分流（四型→input/select〔boolean 亦 select 两值——s-9〕）/ secret 入盒不落 yaml +
+ * credentials/changed 归因 / 未声明键透传 / 取消整次放弃（含 boolean 问询取消
+ * s-9 修前红）/ required 两拒 /
  * 缺省烘焙回避 / 回执呈现纪律（secret 恒 '***'）。
  */
 import { describe, expect, it } from 'vitest';
@@ -60,7 +61,6 @@ function memFs(initial: Record<string, string> = {}): PluginStoreFs {
 /** 问询脚本（Error 元素 = 该次问询拒绝——取消路径注入） */
 interface AskScript {
   readonly inputs?: readonly (string | Error)[];
-  readonly confirms?: readonly boolean[];
   readonly selects?: readonly string[];
 }
 
@@ -106,11 +106,9 @@ function rig(
   const failSecondCredentialWith = overrides.failSecondCredentialWith;
   const calls = {
     inputs: [] as Array<[string, UiInputOptions | undefined]>,
-    confirms: [] as string[],
     selects: [] as Array<[string, readonly UiSelectChoice[]]>,
   };
   let inIdx = 0;
-  let cfIdx = 0;
   let selIdx = 0;
   const deps: PluginConfigFormDeps = {
     dataDir: dir,
@@ -123,10 +121,6 @@ function rig(
         const next = script.inputs?.[inIdx++] ?? '';
         if (next instanceof Error) throw next;
         return next;
-      },
-      confirm: async (message) => {
-        calls.confirms.push(message);
-        return script.confirms?.[cfIdx++] ?? false;
       },
       select: async (message, choices) => {
         calls.selects.push([message, choices]);
@@ -202,17 +196,24 @@ describe('声明面缺席与前置拒', () => {
 });
 
 describe('四型字段全景（问询分流 + 落盘双落点）', () => {
-  it('text/secret→input、boolean→confirm、select→select；secret 入盒不落 yaml', async () => {
+  it('text/secret→input、boolean→select 两值（s-9）、select→select；secret 入盒不落 yaml', async () => {
     const rig_ = rig({
       enabledYaml: 'plugins:\n  - id: demo\n',
-      script: { inputs: ['https://x', 'sekret'], confirms: [true], selects: ['slow'] },
+      // 问询序 = 字段序：mode 先、verbose 后——selects 两脚本轮到两问
+      script: { inputs: ['https://x', 'sekret'], selects: ['slow', 'true'] },
     });
     const out = await runPluginConfigForm('demo', rig_.deps);
     expect(out.ok).toBe(true);
     // 问询分流四型（label 缺省 = key；required text 用 placeholder 缺席形）
     expect(rig_.calls.inputs).toHaveLength(2);
     expect(rig_.calls.inputs[0]![0]).toContain('端点'); // label 在场胜 key
-    expect(rig_.calls.confirms[0]).toContain('verbose');
+    // boolean 问询 = select 两值（s-9——confirm 面取消不可辨，弃用）
+    expect(rig_.calls.selects).toHaveLength(2);
+    expect(rig_.calls.selects[1]![0]).toContain('verbose');
+    expect(rig_.calls.selects[1]![1]).toEqual([
+      { value: 'true', label: '开' },
+      { value: 'false', label: '关' },
+    ]);
     expect(rig_.calls.selects[0]![1]).toEqual((FIELDS[2] as { options: readonly UiSelectChoice[] }).options);
     // 行落盘：非 secret 三值（mode/verbose 偏离缺省故落行）——token 不落 yaml
     expect(rig_.rows()).toEqual([{ id: 'demo', config: { endpoint: 'https://x', mode: 'slow', verbose: true } }]);
@@ -231,7 +232,7 @@ describe('四型字段全景（问询分流 + 落盘双落点）', () => {
     const rig_ = rig({
       enabledYaml: 'plugins:\n  - id: demo\n    config:\n      endpoint: https://old\n',
       presetCredentials: { 'plugin:demo/config:token': 'existing-sekret' },
-      script: { inputs: ['', ''], confirms: [false], selects: ['fast'] },
+      script: { inputs: ['', ''], selects: ['fast', 'false'] },
     });
     const out = await runPluginConfigForm('demo', rig_.deps);
     expect(out.ok).toBe(true);
@@ -253,7 +254,7 @@ describe('未声明键透传与缺省烘焙回避', () => {
     const rig_ = rig({
       enabledYaml:
         'plugins:\n  - id: demo\n    config:\n      endpoint: https://old\n      extra:\n        deep: true\n',
-      script: { inputs: ['https://new', ''], confirms: [false], selects: ['fast'] },
+      script: { inputs: ['https://new', ''], selects: ['fast', 'false'] },
     });
     const out = await runPluginConfigForm('demo', rig_.deps);
     expect(out.ok).toBe(true);
@@ -265,7 +266,7 @@ describe('未声明键透传与缺省烘焙回避', () => {
     const rig_ = rig({
       id: 'core:demo',
       fields: FIELDS.filter((f) => f.key !== 'endpoint'), // 去 required text——全随缺省场景
-      script: { confirms: [false], selects: ['fast'] },
+      script: { selects: ['fast', 'false'] },
     });
     const out = await runPluginConfigForm('core:demo', rig_.deps);
     expect(out.ok).toBe(true);
@@ -278,7 +279,7 @@ describe('未声明键透传与缺省烘焙回避', () => {
 
 describe('防御位（行缺席用户 id——真实面 configFaceOf 结构性不可达）', () => {
   it('全字段答毕后 setRowConfig 拒——回执指路先 mount（诚实拒非静默吞）', async () => {
-    const rig_ = rig({ script: { inputs: ['https://x', ''], confirms: [false], selects: ['fast'] } });
+    const rig_ = rig({ script: { inputs: ['https://x', ''], selects: ['fast', 'false'] } });
     const out = await runPluginConfigForm('demo', rig_.deps);
     expect(out.ok).toBe(false);
     expect(out.text).toContain('先走 /plugins mount');
@@ -305,12 +306,30 @@ describe('取消语义（整次放弃）', () => {
     const rig_ = rig({
       enabledYaml: 'plugins:\n  - id: demo\n    config:\n      endpoint: https://old\n',
       // rig select 脚本缺省回落 choices[0] 只吃 nullish——显式传 '' 即保守值直达
-      script: { inputs: ['https://x', ''], confirms: [false], selects: [''] },
+      script: { inputs: ['https://x', ''], selects: [''] },
     });
     const out = await runPluginConfigForm('demo', rig_.deps);
     expect(out.ok).toBe(false);
     expect(out.text).toContain('已取消');
     // 整次放弃三零：行原样（endpoint 旧值未动、mode 未落 ''）+ 零凭证 + 零链
+    expect(rig_.rows()).toEqual([{ id: 'demo', config: { endpoint: 'https://old' } }]);
+    expect(rig_.writes).toEqual([]);
+    expect(rig_.reloads()).toBe(0);
+  });
+
+  it("boolean 问询取消（'' 保守值——s-9 修前红）→ 整次放弃零写盘——旧码取消折「关」落盘违取消条款", async () => {
+    // s-9（03 §1.2 2026-09-13 定形注）：confirm 通道 Esc 折 false 与显式「否」
+    // 不可辨——旧码 boolean 用 confirm 时取消被折成「关」落行。修后 boolean
+    // 走 select 两值，'' 取消信使同律整次放弃；回执点名 boolean 问询取消
+    const rig_ = rig({
+      enabledYaml: 'plugins:\n  - id: demo\n    config:\n      endpoint: https://old\n',
+      script: { inputs: ['https://x', ''], selects: ['fast', ''] },
+    });
+    const out = await runPluginConfigForm('demo', rig_.deps);
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain('boolean 问询取消'); // 修前红锚——旧码无此问询形
+    expect(out.text).toContain('整次放弃');
+    // 三零：endpoint 旧值未动、verbose 未折「关」落行、零凭证零链
     expect(rig_.rows()).toEqual([{ id: 'demo', config: { endpoint: 'https://old' } }]);
     expect(rig_.writes).toEqual([]);
     expect(rig_.reloads()).toBe(0);

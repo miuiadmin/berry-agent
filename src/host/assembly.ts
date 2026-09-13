@@ -1051,7 +1051,6 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                     fs: createPluginStoreFs(),
                     configFaceOf: (pluginId) => boot?.configFaceOf(pluginId),
                     ask: {
-                      confirm: (message, opts) => stack.channels.confirm(sessionId, message, opts),
                       select: (message, choices, opts) => stack.channels.select(sessionId, message, choices, opts),
                       input: (message, opts) => stack.channels.input(sessionId, message, opts),
                     },

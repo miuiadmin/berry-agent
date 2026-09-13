@@ -3,8 +3,8 @@
  * 表单条款 + 07 §4.3 提问队列消费）。
  *
  * fields 驱动逐字段问答：text/secret 用 input（secret 空答 = 保留现值）、
- * boolean 用 confirm、select 用 select；问询经 ask seam（sessionId 由装配
- * 面绑定——表单需会话锚，无发起会话的面装配缺席）。写盘分两落点：
+ * boolean 用 select 两值（开/关——s-9 修）、select 用 select；问询经 ask
+ * seam（sessionId 由装配面绑定——表单需会话锚，无发起会话的面装配缺席）。写盘分两落点：
  *  - 非_secret 字段 + 未声明键透传 → enabled.yaml 行 config 整值替换
  *    （setRowConfig——保留 disabled/opens/doors 原样）；
  *  - secret 字段 → 凭证盒 plugin:<id>/config:<key>（meta source 'manual'，
@@ -12,8 +12,9 @@
  *
  * 取消语义（03 §1.2「取消 = 整次放弃」）：任一 ask 拒绝（通道取消/abort）
  * → 捕获为诚实回执，零写盘零凭证写；select 面永不 reject——取消/降级链
- * 出值域答复的保守值 '' 是取消唯一信使（options 值域结构性非空，合法答复
- * 恒非 ''），按取消语义整次放弃——'' 落行即写坏插件（不在值域，下次装载
+ * 出值域答复的保守值 '' 是取消唯一信使（select 与 boolean 两值形同律；
+ * options 值域结构性非空，合法答复恒非 ''），按取消语义整次放弃——'' 落行
+ * 即写坏插件（不在值域，下次装载
  * PLUGIN_CONFIG_INVALID 拒载）。落盘期异常按进度分档诚实回执（已写事实
  * 不谎称零写盘）。缺省烘焙回避：值等于缺省源（行缺席
  * 时宿主默认/字段 default）的字段不落行——行是覆盖仓，表单全默认直存会把
@@ -31,9 +32,9 @@ import { readEnabledRowsForEdit, setRowConfig } from './plugin-store.js';
 import type { PluginStoreFs } from './plugin-store.js';
 import type { PluginsCommandOutcome } from './plugins-command.js';
 
-/** 问询四原语的会话绑定形（装配面闭包绑定 sessionId——本件零会话感知） */
+/** 问询三原语的会话绑定形（装配面闭包绑定 sessionId——本件零会话感知；
+ *  boolean 走 select 两值后 confirm 不再入面——s-9 修） */
 export interface PluginConfigAskFace {
-  readonly confirm: (message: string, opts?: UiAskOptions) => Promise<boolean>;
   readonly select: (message: string, choices: readonly UiSelectChoice[], opts?: UiAskOptions) => Promise<string>;
   readonly input: (message: string, opts?: UiInputOptions) => Promise<string>;
 }
@@ -92,7 +93,8 @@ export async function runPluginConfigForm(
   let writtenSecrets = 0; // 已入盒 secret 计数（同上——审计 seam 失败不折抵已写事实）
 
   try {
-    // —— 逐字段问答（03 §1.2 表单条款——text/secret→input、boolean→confirm、select→select）——
+    // —— 逐字段问答（03 §1.2 表单条款——text/secret→input、boolean→select
+    // 两值〔s-9 修〕、select→select）——
     const next: Record<string, unknown> = {}; // 落行值（非 secret）
     const secrets: { key: string; value: string }[] = []; // 入盒值
     const receipt: string[] = []; // 回执逐字段行（呈现纪律：secret 恒遮蔽）
@@ -145,8 +147,22 @@ export async function runPluginConfigForm(
         continue;
       }
       if (field.type === 'boolean') {
+        // boolean 走 select 两值（开/关）不走 confirm——s-9 修（03 §1.2
+        // 2026-09-13 定形注）：07 §4.3 confirm 后端 Esc 折保守值 false、与
+        // 显式「否」结构性不可辨，「取消 = 整次放弃」经 confirm 面不可表达
+        // （旧码取消折「关」落盘违取消条款）；'' 取消信使同 select 律
         const current = typeof currentRaw === 'boolean' ? currentRaw : (field.default ?? false);
-        const value = await deps.ask.confirm(`${label}？（当前 ${onOff(current)}——确认 = 开 / 取消答复 = 关）${hint}`);
+        const answer = await deps.ask.select(`${label}（当前 ${onOff(current)}）:${hint}`, [
+          { value: 'true', label: '开' },
+          { value: 'false', label: '关' },
+        ]);
+        if (answer === '') {
+          return {
+            ok: false,
+            text: `已取消——${pluginId} config 编辑整次放弃（boolean 问询取消——零写盘零凭证写）。`,
+          };
+        }
+        const value = answer === 'true';
         if (fromRow || value !== defaultSource) next[field.key] = value;
         receipt.push(`  ${field.key} = ${onOff(value)}`);
         continue;
