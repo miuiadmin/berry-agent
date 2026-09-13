@@ -34,9 +34,9 @@ export interface GoalTodoToolDeps {
    */
   commandGateStatus: (goalId: string) => CommandGateStatus;
   /**
-   * exec seam 在场否（03 §10.5 s 批补注①——诚实缺席律，hasLsp 同律镜像）：
-   * GateExecSeam 组合根 v1 未接线，缺席时 command gate 申报即拒（判序先于
-   * 双位合取——seam 缺席时批准也无用）；真接线随「exec 判据门真接线」立题批。
+   * exec seam 在场否（诚实缺席律，hasLsp 同律镜像——ex 批真接线后真身 =
+   * exec 件 createGateExec 工厂）：缺席（exec 件禁用/缺席）时 command gate
+   * 申报即拒（判序先于双位合取——seam 缺席时批准也无用）。
    */
   hasCommandExec: boolean;
   /** lsp 诊断查询面在场否（缺席 = diagnostics gate 申报即拒 fail-closed） */

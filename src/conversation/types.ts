@@ -403,4 +403,14 @@ export interface ExecSessionDeps {
 export interface ExecToolService {
   /** bash 工具件工厂（04 §8 参数面：command/timeoutMs/cwd/sandbox_permissions/justification 成对必填） */
   createBashTool(deps: ExecSessionDeps): ToolDefinition;
+  /**
+   * goal gates command 源执行 seam 工厂（03 §10.5 ex 批——exec 判据门真接线）。
+   * **可选键 + 结构 typing 内联零 import**（goal 席 GateExecSeam 真身不可
+   * import——conversation 席无 goal 边；可选性兼容既有 fake 与旧代 exec 件）。
+   * 档位恒 workspace-write、升权恒不可用、30s 帽固定（细则 = exec 件
+   * gate-exec.ts + 03 §10.5 ex 定形注）。
+   */
+  createGateExec?(workspaceRoot: () => string): {
+    execCommand(command: string): Promise<{ exitCode: number; timedOut: boolean; stderrTail: string }>;
+  };
 }

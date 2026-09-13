@@ -51,7 +51,7 @@ import {
   REWIND_USAGE,
 } from '../checkpoint/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
-import { createBashTool, createSpawnPipeline, buildChildEnv } from '../exec/index.js';
+import { createBashTool, createGateExec, createSpawnPipeline, buildChildEnv } from '../exec/index.js';
 import {
   createGoalService,
   createGoalTodoTool,
@@ -209,6 +209,11 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
         // 区）由消费位注入求值——结构契约单源在 conversation/types.ts；
         // deps.sandboxService 显式在场时胜出（测试/宿主覆盖位——展开序在后）
         createBashTool: (deps2) => createBashTool({ pipeline, sandboxService, ...deps2 }),
+        // goal gates command 源 seam 工厂（03 §10.5 ex 批——exec 判据门真
+        // 接线）：装载期单例闭包供入（pipeline/sandbox 自持 + goal 侧
+        // workspaceRoot 注入——恒 workspace-write/无升权/30s 帽，细则归
+        // exec/gate-exec.ts）；goal 件 tryGet 序内前件消费
+        createGateExec: (workspaceRoot) => createGateExec({ pipeline, sandboxService, workspaceRoot }),
       };
       context.provide('exec', service);
     },
@@ -1217,8 +1222,9 @@ export interface GoalFace {
  * 用；倒置序对称腿在 scheduler 件内）+ 'goal' 服务面供给（todoFactory +
  * service 宿主投影〔s 批补注②——写动词不进投影〕）。
  *
- * gates v1 接线形：workspaceRoot 真值 + exec seam 诚实缺席（GateExecSeam
- * 零绑定——03 §10.5 s 批补注①：todo 申报位 hasCommandExec 判据拒 + 评测位
+ * gates 接线形（ex 批真接线后）：workspaceRoot 真值 + exec seam 经
+ * tryGet('exec') 服务面翻真（03 §10.5 ex 定形注：恒 workspace-write/无升权/
+ * 30s 帽；exec 缺席时 hasCommandExec 判据拒照旧——诚实缺席律双拦维持）。
  * fail-closed 双拦，真接线随「exec 判据门真接线」立题批）+ lsp seam 接线真
  * 诊断面（批 19d 回补——queryDiagnostics 窄面，lsp 件缺席即缺席
  * fail-closed）；todo 换装 commandGateStatus 活查双位合取（f-1 已接线——
@@ -1248,10 +1254,16 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // tryGet 序内前件；lsp 件缺席/disabled = GateLspSeam 缺席 = diagnostics
       // gate 申报即拒 fail-closed〔03 §10.5〕，todoFactory hasLsp 同源）
       const lsp = context.tryGet<LspService>('lsp');
-      // exec seam 诚实缺席（03 §10.5 s 批补注①）：GateExecSeam v1 零绑定——
-      // 单一声明位供 gates 评测面与 todo 申报位（hasCommandExec）同源；真接线
-      // （绑真 exec 三段管道：守门/审批对/落账）随「exec 判据门真接线」立题批
-      const gateExec: GateExecSeam | undefined = undefined;
+      // exec 判据门真接线（03 §10.5 ex 批——原「v1 诚实缺席」挂账收口）：
+      // exec 件 tryGet 序内前件（装载序 exec 居 goal 前，lsp 同律）；在场即
+      // createGateExec 翻真（单一声明位供 gates 评测面与 todo 申报位
+      // 〔hasCommandExec〕同源——两处随本笔自动翻真）；exec 禁用/缺席 =
+      // gateExec 维持 undefined，申报位拒照旧（诚实缺席律双拦不变）
+      const execService = context.tryGet<ExecToolService>('exec');
+      const gateExec: GateExecSeam | undefined =
+        execService?.createGateExec !== undefined
+          ? execService.createGateExec(() => canonicalWorkspaceRoot(deps.cwd))
+          : undefined;
       const service = createGoalService({
         db,
         now,

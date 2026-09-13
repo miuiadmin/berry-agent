@@ -41,6 +41,11 @@ export type { SpawnPipelineOptions } from './spawn.js';
 export { assertNoBackgroundCommand, createBashTool, discoverBash } from './bash.js';
 export type { BashToolDeps } from './bash.js';
 
+// goal gates command 源执行 seam 工厂（03 §10.5 ex 批——exec 判据门真接线；
+// 守门全序与 bash 工具同模块函数族单源复用）
+export { createGateExec, GATE_EXEC_OWNER, GATE_EXEC_TIMEOUT_MS } from './gate-exec.js';
+export type { GateExecFactoryDeps, GateExecHandle } from './gate-exec.js';
+
 // bash 侧 .git 拦截面（04 §252 桥条款两腿——成熟度缺口 #9 落码批）
 export {
   findGitRedirectViolations,

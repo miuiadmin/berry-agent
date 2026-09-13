@@ -1254,12 +1254,14 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     await goalCmd.handler({ raw: '', argv: ['list'] });
     expect(notified[notified.length - 1]!).toContain('共 1 个 goal');
 
-    // f-1 装配层活查回归锁 + s 批诚实缺席律 e2e（v1 真实形态——03 §10.5
-    // s 批补注①）：新 goal 申报 needsWrite → todoFactory 产物申报 command
-    // gate 即拒——exec seam 组合根零绑定，判序**先于**双位（文案为「exec
-    // 执行面缺席」档而非 not-approved 档）→ 人面 /goal approve 真通道批准
-    // （双位合取翻绿——全环位可证）→ 同工具实例重报**仍拒**（seam 缺席时
-    // 批准也无用——判序锁）
+    // f-1 装配层活查回归锁 + ex 批真接线后双位分档 e2e（03 §10.5 ex 定形注
+    // ——s 批「组合根零绑定」时代断言随真接线勘正：bootCore 全内置态 exec 件
+    // 在场，hasCommandExec 翻真——申报位不再走「exec 执行面缺席」档；缺席档
+    // e2e 由 goal-gate-exec.test.ts 例 D〔enabled.yaml 禁 core:exec 生产真实
+    // 形〕承载）：新 goal 申报 needsWrite → 未批准申报拒 **not-approved 档**
+    // （文案指路 /goal approve——f-1 双位分档锁）→ 人面 /goal approve 真通道
+    // 批准（双位合取翻绿——全环位可证）→ 同工具实例重报**过申报位**（真接线
+    // 兑现——件级轻锁；评测真跑全链归 goal-gate-exec.test.ts）+ durable 落账
     const row2 = await svc!.activate({
       sessionId: 's-goal',
       objective: '申报写权的目标',
@@ -1277,17 +1279,15 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       .catch((err: unknown) => err);
     expect(refused).toBeInstanceOf(BaseError);
     expect((refused as BaseError).code).toBe('GOAL_TODO_SCOPE');
-    expect((refused as BaseError).message).toContain('exec 执行面缺席');
-    expect((refused as BaseError).message).not.toContain('/goal approve'); // 判序先于双位——not-approved 文案不可达
+    expect((refused as BaseError).message).toContain('/goal approve'); // not-approved 档指路（exec 在场——缺席档不可达）
+    expect((refused as BaseError).message).not.toContain('exec 执行面缺席');
     // 人面批准真通道（/goal approve——f-1 批准唯一写面）
     await goalCmd.handler({ raw: '', argv: ['approve', row2.id] });
     expect(svc!.commandGateStatus(row2.id)).toEqual({ allowed: true, reason: 'ok' }); // 双位合取翻绿（全环位可证）
-    const stillRefused = await todo2
-      .execute({ items: gated }, { toolCallId: 'c-goal-todo-gate2' })
-      .catch((err: unknown) => err);
-    expect(stillRefused).toBeInstanceOf(BaseError);
-    expect((stillRefused as BaseError).message).toContain('exec 执行面缺席'); // seam 缺席时批准也无用
-    expect(session.events().filter((e) => e.type === 'todo/write').length).toBe(writesBefore); // 恒拒——零新增 durable 落账
+    // 重报过申报位（ex 批真接线——seam 在场 + 双位绿 → 申报放行落账）
+    const accepted = await todo2.execute({ items: gated }, { toolCallId: 'c-goal-todo-gate2' });
+    expect(JSON.stringify(accepted)).toContain('判据门 1 项'); // 回执汇总形（gate 声明计入）
+    expect(session.events().filter((e) => e.type === 'todo/write').length).toBe(writesBefore + 1); // 申报落账恰一笔
     await persistence.close();
   });
 
