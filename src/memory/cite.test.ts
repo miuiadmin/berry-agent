@@ -16,7 +16,7 @@ import { MEMORY_DAY_MS } from './types.js';
 import { createMemoryDao, type MemoryDao } from './dao.js';
 import { MEMORY_MIGRATIONS } from './migration.js';
 import { shortIdOf } from './inject.js';
-import { createCiteRecorder, parseCitations } from './cite.js';
+import { createCiteRecorder, parseCitations, recordCorrectedCites } from './cite.js';
 
 let dir: string;
 let store: Store | null = null;
@@ -212,5 +212,26 @@ describe('createCiteRecorder（durable 事件消费）', () => {
     expect(dao.resolveShortId(shortIdOf(id))).toEqual([id]);
     expect(dao.resolveShortId(shortIdOf(id).slice(0, 7))).toEqual([]); // 定长比对
     expect(dao.resolveShortId('ffffffff')).toEqual([]); // 零命中
+  });
+
+  it('resolveShortId 起点段过滤：未生效行不参与归责（注入形同谓词——修前红）', () => {
+    const dao = setup();
+    // 未生效行（valid_from > now——模型从未见过）与已生效边界行（valid_from === now；
+    // kind 异置避 ingest 合并腿吸收——目标扫描同 owner+kind，撞则 edge 种并入 future 行）
+    const futureId = seed(dao, { validFrom: nowMs + MEMORY_DAY_MS });
+    const edgeId = seed(dao, { kind: 'insight', validFrom: nowMs });
+    expect(dao.resolveShortId(shortIdOf(futureId))).toEqual([]); // 修前误归 [futureId]
+    expect(dao.resolveShortId(shortIdOf(edgeId))).toEqual([edgeId]); // <= 边界含
+    // 终态行照计（status/TTL 段不过滤——18c-7 裁决正交面）
+    const dismissedId = seed(dao, { summary: 'dismissed entry', content: 'dismissed' });
+    sql("UPDATE memories SET status = 'dismissed' WHERE id = ?", dismissedId);
+    expect(dao.resolveShortId(shortIdOf(dismissedId))).toEqual([dismissedId]);
+  });
+
+  it('纠正负效用同律：未生效行 corrected 零记（归责不到 = 不折不可见行）', () => {
+    const dao = setup();
+    const futureId = seed(dao, { validFrom: nowMs + MEMORY_DAY_MS });
+    recordCorrectedCites(dao, 's-correct', `纠错 [m:${shortIdOf(futureId)}]`, (m) => warns.push(m));
+    expect(dao.get(futureId)!.correctedCount).toBe(0); // 修前误 +1（记到模型从未见过的行）
   });
 });

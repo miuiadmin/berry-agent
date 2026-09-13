@@ -163,7 +163,11 @@ export interface MemoryDao {
   /* —— 效用回写面（批 18c-7——06 §6 cite 引用闭环） —— */
 
   /**
-   * 短 id 归责（substr 定长前缀比对——不做可见性过滤，身份解析非读面）：
+   * 短 id 归责（substr 定长前缀比对——免 LIKE 通配转义面）。**起点段过滤**
+   * （注入形同谓词——06 §3「一切进模型上下文与效用计量的面」：归责即效用
+   * 计量前置，未生效行〔valid_from > now〕不参与——模型 cite 不到从未注入
+   * 的行，归到它 = 记到不可见行）；status/TTL 段**不过滤**（终态行照计是
+   * 18c-7 裁决的负效用语义；续期复活防护在 markUsed 语句本体，与此正交）。
    * 返回前缀命中全集，归责三态由消费侧判——零命中 = 未知引用忽略、
    * 多命中 = 歧义全部忽略、恰一命中 = 唯一归属。
    */
@@ -437,8 +441,11 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
                          expires_at = CASE WHEN ttl_days IS NOT NULL THEN ? + ttl_days * ? ELSE expires_at END
      WHERE id = ? AND status != 'expired'`,
   );
-  // 短 id 归责（substr 定长前缀比对——与 accessLog 前缀过滤同法，免 LIKE 通配转义面）
-  const stmtResolvePrefix = db.prepare(`SELECT id FROM memories WHERE substr(id, 1, 8) = ?`);
+  // 短 id 归责（substr 定长前缀比对——与 accessLog 前缀过滤同法，免 LIKE 通配转义面）；
+  // 起点段过滤（注入形同谓词——归责属效用计量面，未生效行不参与，接口 JSDoc 同注）
+  const stmtResolvePrefix = db.prepare(
+    `SELECT id FROM memories WHERE substr(id, 1, 8) = ? AND (valid_from IS NULL OR valid_from <= ?)`,
+  );
   // 纠正负效用回写（2026-09-08 消化批——§3 守卫①③）：**只动 corrected_count**——
   // 不保活（usage/last_used/expires 全不动）；**无状态过滤**（终态行照记——
   // 对照 markUsed 的 expired 跳过：那是防续期复活，负效用无此面）
@@ -1268,7 +1275,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       return accessLogImpl(query);
     },
     resolveShortId(shortId) {
-      return (stmtResolvePrefix.all(shortId) as { id: string }[]).map((r) => r.id);
+      return (stmtResolvePrefix.all(shortId, deps.now()) as { id: string }[]).map((r) => r.id);
     },
     markUsed(ids, sessionId) {
       return markUsedTx(ids, sessionId ?? null);
