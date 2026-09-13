@@ -46,14 +46,14 @@ import type { SubmitResult } from '../conversation/index.js';
 import { diagnoseProviderFailure } from '../llm/index.js';
 import type { LlmUsageEventData, Provider } from '../llm/index.js';
 import { FIRE_WALL_TIMEOUT_MS, nextFireAt, realIsPidAlive } from '../scheduler/index.js';
-import type { JobRow, JobsDao, RunOutcome } from '../scheduler/index.js';
+import type { JobRow, RunOutcome } from '../scheduler/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { approvalPresetOf } from '../safety/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import type { RunFlags } from './cli.js';
-import type { GoalFace, SchedulerFace } from './core-plugins.js';
+import type { GoalFace, SchedulerFace, SchedulerTickSettleFace } from './core-plugins.js';
 import type { HostRuntime } from './runtime.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { openWebuiFace } from './webui-bridge.js';
@@ -174,7 +174,7 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   // 在飞判定与僵行清扫由此见本实例）+ 收场 settle（真跑 settleFire 三笔推进
   // / 零跑 gated settleGated 只推进 next）。乙案形态引擎不在环——CLI 是该
   // fire 的唯一记账方 ——
-  let tickJob: { dao: JobsDao; row: JobRow; firedAt: string } | undefined;
+  let tickJob: { dao: SchedulerTickSettleFace; row: JobRow; firedAt: string } | undefined;
   /** 结算单点（单笔幂等——settle 后再呼零副作用；非 tick 形恒零副作用） */
   const settleTick = (outcome: RunOutcome): void => {
     if (tickJob === undefined) return;

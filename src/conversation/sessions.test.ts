@@ -382,4 +382,25 @@ describe('SessionManager retire', () => {
     manager.dispose();
     expect(manager.retire(a.sessionId)).toBe(false); // 全量拆解后再 retire 无害
   });
+
+  it('收口观察 seam（2026-09-13 复盘发现 ⑯ 接线位）：成功路恰一笔发射 onRetired；不在册零发射；观察者异常吞隔离不回卷收口序', () => {
+    const observed: string[] = [];
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      onRetired: (sessionId) => {
+        observed.push(sessionId);
+        throw new Error('观察者炸');
+      },
+    });
+    expect(manager.retire('no-such-session')).toBe(false);
+    expect(observed).toEqual([]); // 不在册零发射（幂等 false 路无观察）
+    const a = manager.create();
+    expect(manager.retire(a.sessionId)).toBe(true); // 观察者炸不回卷——收口主流程（dismantle + 摘登记）已完成
+    expect(observed).toEqual([a.sessionId]); // 成功路恰一笔
+    expect(manager.retire(a.sessionId)).toBe(false); // 重复收口零再发射
+    expect(observed).toEqual([a.sessionId]);
+  });
 });

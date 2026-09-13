@@ -196,6 +196,13 @@ export interface ConversationStackOptions {
   };
   /** 警示面（缺省 stderr——驱动护栏与压缩 warn 的落点） */
   readonly warn?: (message: string) => void;
+  /**
+   * 单会话收口观察穿线位（宿主内部——SessionManager.onRetired 的装配透传，
+   * 2026-09-13 复盘发现 ⑯）：retire 成功路发射（dismantle + 摘登记后；
+   * 观察者异常吞隔离）。消费位 = 装配根订阅面（memory 件简报冻结缓存收口
+   * 摘除）。缺席 = 无观察（测试替身形——帽 256 FIFO 兜底仍在）。
+   */
+  readonly onSessionRetired?: (sessionId: string) => void;
 }
 
 /** 启动会话回执（07 §5 启动会话策略的产物面） */
@@ -565,7 +572,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     });
     return driver;
   };
-  const manager = new SessionManager({ persistence: options.runtime.persistence, dispatch, createDriver });
+  const manager = new SessionManager({
+    persistence: options.runtime.persistence,
+    dispatch,
+    createDriver,
+    // 单会话收口观察穿线（发现 ⑯——缺席形不设位保持测试替身零观察）
+    ...(options.onSessionRetired !== undefined ? { onRetired: options.onSessionRetired } : {}),
+  });
 
   // 操控受理器（e-4——03 §2.2 第十一面双面同源单源实现位）：栈级单例——
   // 工具族（模型道 per-session 闭包）与 plugin-boot fork 绑定（插件道）消费

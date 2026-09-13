@@ -121,6 +121,13 @@ export interface SessionManagerOptions {
   readonly persistence: Persistence;
   readonly dispatch: EventDispatch;
   readonly createDriver: DriverFactory;
+  /**
+   * 单会话收口观察 seam（宿主内部 DI 位——非插件可见 API；2026-09-13 复盘
+   * 发现 ⑯）：retire 成功路（dismantle + 摘登记后）恰一笔发射；观察者异常
+   * 吞隔离不回卷收口序。消费位 = 装配根订阅面穿线（memory 件简报冻结缓存
+   * 收口摘除——会话收口后复续首物化重冻结取新值，不困旧冻结）。
+   */
+  readonly onRetired?: (sessionId: string) => void;
 }
 
 /**
@@ -131,6 +138,8 @@ export class SessionManager {
   private readonly persistence: Persistence;
   private readonly dispatch: EventDispatch;
   private readonly createDriver: DriverFactory;
+  /** 单会话收口观察位（构造面注入——缺省无观察） */
+  private readonly onRetired?: (sessionId: string) => void;
   /** 已开会话登记（sessionId → 驱动 + 血缘形态——幂等 open 的判据面） */
   private readonly records = new Map<string, { driver: ConversationDriver; origin: SessionOrigin }>();
 
@@ -138,6 +147,7 @@ export class SessionManager {
     this.persistence = options.persistence;
     this.dispatch = options.dispatch;
     this.createDriver = options.createDriver;
+    this.onRetired = options.onRetired;
     // 钩子词汇接线（一词两册幂等跳过——03 §2.4 装配序律：装载批预注册主表
     // 镜像在前，session_before_fork 已注册即共享登记；未注册自举保独立装配）；
     // 重复建管理器检测改经装配哨兵（永不 emit 的占位词——二次装配撞哨兵红）
@@ -330,6 +340,14 @@ export class SessionManager {
     if (record === undefined) return false;
     record.driver.dismantle();
     this.records.delete(sessionId);
+    // 收口观察 seam：主流程（dismantle + 摘登记）已成——观察者异常吞隔离
+    // 不回卷收口序（观察位当前 = 冻结缓存摘除〔Map.delete 不抛〕，防御位
+    // 留给未来观察者）
+    try {
+      this.onRetired?.(sessionId);
+    } catch {
+      /* 观察者异常不回卷收口序（发射序末位） */
+    }
     return true;
   }
 

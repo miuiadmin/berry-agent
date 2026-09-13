@@ -290,6 +290,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       queryEvents: (filter) => persistence.store.queryEvents(filter),
       db: persistence.store.sqlite(),
     });
+    // 单会话收口订阅槽（2026-09-13 复盘发现 ⑯——memory 件简报冻结缓存收口
+    // 摘除）：stack retire 观察 → 当前代 feed；core 件订阅 → 覆写槽。末位
+    // 覆写语义：/reload 换代 boot 重跑、新 memory 件重订阅即顶替旧代 feed
+    // （旧代缓存随旧件废弃，无累积无泄漏——槽消费懒取时点恒当前代）
+    let sessionRetireFeed: ((sessionId: string) => void) | undefined;
     const stack = createConversationStack({
       runtime,
       scope,
@@ -362,6 +367,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           );
         }
       },
+      // 单会话收口观察穿线（发现 ⑯）：manager retire 成功路 → 当前代订阅 feed
+      onSessionRetired: (sessionId) => sessionRetireFeed?.(sessionId),
       // 跨树观测门检接线（e2-4——03 §4.6 第五枚 sessions.observe-cross 工具
       // 腿；开门制扩展批 2026-09-09 授予面接线）：模型道门检输入 = doors 段
       // 单独（活体读——受理时点现读现判，撤位即收回；插件道订阅走 plugin-context
@@ -678,6 +685,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // memory 件数据面（批 19b-2——sqlite 主闸恒接线；fts 双 seam 同
               // Store 直传——词面独立律 compat 面，对拍测试互证）
               sqlite: () => runtimeNow.persistence.store.sqlite(),
+              // 单会话收口订阅面（发现 ⑯）：memory 件简报冻结缓存收口摘除
+              // ——末位覆写（/reload 换代新件重订阅即顶替旧代 feed）
+              subscribeSessionRetire: (feed) => {
+                sessionRetireFeed = feed;
+              },
               // 活体日志优先（write-behind 在飞事件不落盘——driver 在场时读
               // 内存面零缺口）；驱动已收口的外部会话兜底落盘读
               fetchEvents: (sessionId) =>

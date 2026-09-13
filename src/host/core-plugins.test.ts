@@ -98,6 +98,8 @@ async function until(cond: () => boolean, ms = 4000): Promise<void> {
 /** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler/goal 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位，goal 增会话读面主闸二；checkpoint 增语境/fork 两 seam + 焦点会话位——批 19c-4；19e 增 HTTP 面族十位——sdk/webui/obs/issue 四件） */
 interface DepsForTest {
   sqlite?: () => ReturnType<Persistence['store']['sqlite']>;
+  /** 单会话收口订阅面（发现 ⑯——CorePluginHostDeps.subscribeSessionRetire 同形） */
+  subscribeSessionRetire?: (feed: (sessionId: string) => void) => void;
   fetchEvents?: (sessionId: string) => readonly SessionEvent[];
   llm?: () => MemoryLlmFace;
   notify?: (source: string, message: string) => void;
@@ -182,6 +184,9 @@ async function bootCore(
       ...(anchors.cwd !== undefined ? { cwd: anchors.cwd } : {}),
       ...(anchors.homeDir !== undefined ? { homeDir: anchors.homeDir } : {}),
       ...(coreDeps.sqlite !== undefined ? { sqlite: coreDeps.sqlite } : {}),
+      ...(coreDeps.subscribeSessionRetire !== undefined
+        ? { subscribeSessionRetire: coreDeps.subscribeSessionRetire }
+        : {}),
       ...(coreDeps.fetchEvents !== undefined ? { fetchEvents: coreDeps.fetchEvents } : {}),
       ...(coreDeps.llm !== undefined ? { llm: coreDeps.llm } : {}),
       ...(coreDeps.notify !== undefined ? { notify: coreDeps.notify } : {}),
@@ -420,6 +425,65 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     // ③ 异会话各自冻结（新会话首物化见新行）；④ 诊断形（sessionId 缺席）活体物化
     expect(boot.promptSections.materialize('s-other')).toContain('冻结后');
     expect(boot.promptSections.materialize()).toContain('冻结后');
+  });
+
+  it('冻结缓存收口摘除（2026-09-13 复盘发现 ⑯）：订阅 feed 摘条目——复续物化重冻结取新值；他会话条目不受波及', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-retire-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-retire-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-retire-home-'));
+    dirs.push(dataDir, workspace, home);
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    // 订阅位捕获（装配根穿线形——末位覆写语义的测试替身形：只记末位 feed）
+    let retireFeed: ((sessionId: string) => void) | undefined;
+    const { scope, boot } = await bootCore(
+      dataDir,
+      memoryFs(),
+      { cwd: workspace, homeDir: home },
+      {
+        sqlite: () => persistence.store.sqlite(),
+        fetchEvents: () => [],
+        llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
+        subscribeSessionRetire: (feed) => {
+          retireFeed = feed;
+        },
+      },
+    );
+    const memoryService = scope.tryGet<{ dao: MemoryDao }>('memory')!;
+    expect(retireFeed).toBeTypeOf('function'); // 件 apply 期已订阅（sqlite 主闸开路下）
+
+    // 冻结基线：首物化即冻结（含「冻结前」行）
+    memoryService.dao.ingest({
+      ownerKey: 'global',
+      kind: 'convention',
+      summary: '冻结前',
+      content: '冻结前行内容',
+      confidence: 0.8,
+      sourceRefs: [{ sessionId: 's-rt', seq: 0 }],
+    });
+    const frozen = boot.promptSections.materialize('s-rt');
+    expect(frozen).toContain('冻结前');
+    const neighbor = boot.promptSections.materialize('s-neighbor'); // 邻位先冻结（不波及位）
+
+    // 未收口恒冻结：库变更后会话内再物化零漂移
+    memoryService.dao.ingest({
+      ownerKey: 'global',
+      kind: 'convention',
+      summary: '收口后',
+      content: '收口后行内容',
+      confidence: 0.8,
+      sourceRefs: [{ sessionId: 's-rt', seq: 1 }],
+    });
+    expect(boot.promptSections.materialize('s-rt')).toBe(frozen);
+
+    // 收口摘除：retire feed 发射 → 条目摘除 → 复续首物化重冻结见新行
+    retireFeed!('s-rt');
+    const refrozen = boot.promptSections.materialize('s-rt');
+    expect(refrozen).not.toBe(frozen);
+    expect(refrozen).toContain('收口后');
+    // 邻位条目不受波及（仍冻结旧面）；重复 feed（条目已无）幂等无害
+    expect(boot.promptSections.materialize('s-neighbor')).toBe(neighbor);
+    retireFeed!('s-rt');
+    expect(boot.promptSections.materialize('s-rt')).toBe(refrozen);
   });
 
   it('memory 件装载全环（批 19b-2）：真 :memory: 座 → 服务面/九工具/简报段/三消费腿/命令注册', async () => {
@@ -814,6 +878,23 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     // /tick 命令注册（桩捕获名单）
     expect(commands).toContain('tick');
     await persistence.close();
+  });
+
+  it('scheduler dao 让位窄面类型锁（2026-09-13 复盘发现 ⑩）：provide 域 dao 只裸三动词——回宽即编译红', () => {
+    // 类型级锁：窄面外动词（insert/remove/setEnabled/advanceNextFire/get/list
+    // /due/earliestNextFire）在 SchedulerFace['dao'] 上不可达——@ts-expect-error
+    // 抑制的是真错误（green）；若 dao 回宽为全量 JobsDao，下述访问不再报错、
+    // 指令变 unused → tsc 门禁红。运行时真身 = JobsDao 实例（结构满足窄面，
+    // 件装载全环例 :859 已对拍）——本例类型面独占（dao 恒 undefined，?. 零解引用）
+    const dao = undefined as unknown as SchedulerFace['dao'];
+    // @ts-expect-error 窄面无 insert
+    dao?.insert;
+    // @ts-expect-error 窄面无 remove
+    dao?.remove;
+    // @ts-expect-error 窄面无 setEnabled
+    dao?.setEnabled;
+    // @ts-expect-error 窄面无 advanceNextFire
+    dao?.advanceNextFire;
   });
 
   it('/tick handler 真调（批 19c-2）：add → 行在场（缺省停用）+ list → 输出面归因 tick 的结算文本', async () => {
