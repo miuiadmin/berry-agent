@@ -1034,6 +1034,13 @@
       "sig": "9d3b33568822fbc4"
     },
     {
+      "symbol": "openAICompletionsApi",
+      "module": "berry-agent/llm",
+      "tier": "stable",
+      "since": "1.0",
+      "sig": "87e52b877fd9c602"
+    },
+    {
       "symbol": "CommandAccount",
       "module": "berry-agent/testkit",
       "tier": "experimental",

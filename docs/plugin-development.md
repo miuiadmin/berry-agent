@@ -223,7 +223,7 @@ export default async function apply(ctx) {
 2. **虚拟面六键闭集**：`berry-agent`、`berry-agent/llm`、`berry-agent/sqlite`、`typebox`、`typebox/value`、`typebox/compile`——装载器注入的同实例模块，永不落 node_modules 解析；
 3. 插件目录树内自带 node_modules 的第三方依赖。
 
-`berry-agent` 主键注入**宿主契约公开面**（工具定义 `ToolDefinition`、事件词汇、错误基类 `BaseError`、消息/审批/LLM 共享类型——插件作者的主要类型面）；`typebox` 三键注入与宿主同实例的校验库（工具参数 Schema 用它写最顺）。`berry-agent/llm` 子键注入 **provider 注册窄面**（pi-ai 工厂族再导出：`createProvider` / `hasApi` / `lazyApi` / `anthropicMessagesApi`——provider 插件经它用宿主同版本 pi-ai 造 provider，再 `ctx.llm.registerProvider` 入册，防双实例分叉）；`berry-agent/sqlite` 仍为保留位（数据库窄面随后续版本接入）。注意：六键是**闭集**——例如 testkit 子路径（作者测试面，见下[测试节](#测试testkit-生命周期证明)）不在其中，插件入口运行时 import 它会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载。
+`berry-agent` 主键注入**宿主契约公开面**（工具定义 `ToolDefinition`、事件词汇、错误基类 `BaseError`、消息/审批/LLM 共享类型——插件作者的主要类型面）；`typebox` 三键注入与宿主同实例的校验库（工具参数 Schema 用它写最顺）。`berry-agent/llm` 子键注入 **provider 注册窄面**（pi-ai 工厂族再导出：`createProvider` / `hasApi` / `lazyApi` / `anthropicMessagesApi` / `openAICompletionsApi`——后两键分别是 Anthropic messages 协议与 OpenAI chat-completions 协议的 API face，provider 插件经它用宿主同版本 pi-ai 造 provider，再 `ctx.llm.registerProvider` 入册，防双实例分叉）；`berry-agent/sqlite` 仍为保留位（数据库窄面随后续版本接入）。注意：六键是**闭集**——例如 testkit 子路径（作者测试面，见下[测试节](#测试testkit-生命周期证明)）不在其中，插件入口运行时 import 它会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载。
 
 ## 快速试跑（`--plugin-file`——零装机）
 

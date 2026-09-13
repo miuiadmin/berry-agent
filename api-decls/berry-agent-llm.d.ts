@@ -15,3 +15,4 @@ export declare const anthropicMessagesApi: Face['anthropicMessagesApi'];
 export declare const createProvider: Face['createProvider'];
 export declare const hasApi: Face['hasApi'];
 export declare const lazyApi: Face['lazyApi'];
+export declare const openAICompletionsApi: Face['openAICompletionsApi'];

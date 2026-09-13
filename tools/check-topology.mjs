@@ -221,13 +221,14 @@ const PRESENT_MODULES = new Set([
 /** 裸导入白名单（产码账；测试账豁免整个检查）——node:* 全局放行，包按模块分账 */
 const NODE_BUILTIN = /^node:/;
 const MODULE_EXTERNALS = {
-  // pi-ai 裸导入仅 llm（07 篇栈纪律）：主包 + 两子路径（内置 provider 全家桶 /
-  // Anthropic-first lazy api——主包出口不含 providers/* 与 api/*，package.json
-  // exports 子路径即官方形态）
+  // pi-ai 裸导入仅 llm（07 篇栈纪律）：主包 + 三子路径（内置 provider 全家桶 /
+  // Anthropic-first lazy api / OpenAI chat-completions lazy api——主包出口不含
+  // providers/* 与 api/*，package.json exports 子路径即官方形态）
   llm: [
     '@earendil-works/pi-ai',
     '@earendil-works/pi-ai/providers/all',
     '@earendil-works/pi-ai/api/anthropic-messages.lazy',
+    '@earendil-works/pi-ai/api/openai-completions.lazy',
   ],
   // get-east-asian-width 裸导入仅 channels（07 篇 §2.1 精确锁）：自研 TUI 引擎
   // width 件的 EAW 分类数据面（2026-09-06 TUI 栈改裁换防——pi-tui 出列、此包入替）
