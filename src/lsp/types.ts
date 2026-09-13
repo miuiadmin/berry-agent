@@ -15,10 +15,13 @@
  *
  * context 席边为真消费（createLogger——装载态 ui.notify 接线随装配批）。
  *
- * 配置面边界：03 §10.2 未立 config 校验码（mcp 件 MCP_CONFIG_INVALID 先例
- * 系 mcp 章节明需 /reload 响亮拒位；lsp 章节无此条款）——本件类型即契约，
- * 路由对合法配置全域全覆盖，坏行经类型面在装配根拦截。
+ * 配置面归一（03 §10.2「config 坏形装载期归一响亮拒」条——2026-09-13 f-2
+ * 批立）：行 config 经 `normalizeLspSettings` 装载期归一，坏形抛
+ * `LSP_CONFIG_INVALID` → 行级装载失败（/reload 时刻可修，与
+ * `MCP_CONFIG_INVALID`/`ISSUE_CONFIG_INVALID` 坏形律同族）。归一器与辅助
+ * 函数落本件——词面独立律下不 import mcp（镜像实现各自自持）。
  */
+import { BaseError } from '../contracts/index.js';
 import type { AgentToolResult } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 
@@ -56,7 +59,7 @@ export const LSP_DIAGNOSTICS_SEGMENT_LIMIT_BYTES = 4 * 1024;
 
 /* ---------------- 配置面（core:lsp 行 config——用户可配域） ---------------- */
 
-/** 单服务器配置（config.servers 键的值形） */
+/** 单服务器配置（config.servers 键的值形；坏形不入此形——normalizeLspSettings 先行） */
 export interface LspServerConfig {
   /** 可执行（v1 只收绝对路径——与 mcp 件同口径） */
   readonly command: string;
@@ -64,7 +67,7 @@ export interface LspServerConfig {
   readonly args?: readonly string[];
   /** 显式注入 env（EnvPolicy.set 面） */
   readonly env?: Readonly<Record<string, string>>;
-  /** 扩展名路由表（lowercase 归一匹配——'.ts' 与 'ts' 同形；多服务器命中取键声明序首） */
+  /** 扩展名路由表（lowercase 归一匹配——'.ts' 与 'ts' 同形；多服务器命中取键声明序首；非空——空表即路由永不命中的死行） */
   readonly languages: readonly string[];
   /** 握手预算秒（缺省 30——只罩 spawn+initialize） */
   readonly startup_timeout_sec?: number;
@@ -80,6 +83,99 @@ export interface LspSettings {
   readonly servers: LspConfig;
   /** 诊断回流竞速钟 ms（缺省 3500；实效 = min(此值, 3500 硬帽)） */
   readonly diagnostics_timeout_ms?: number;
+}
+
+/**
+ * 归一行 config（坏形响亮拒 LSP_CONFIG_INVALID——/reload 时刻可见；镜像
+ * mcp normalizeMcpConfig 律，词面独立律下辅助函数局部自持）。
+ * null/undefined → 空形 `{servers:{}}`（缺省 servers 空 = 行惰性无害零
+ * spawn）；servers 键缺席同归空表（件级 diagnostics_timeout_ms 可独行）。
+ */
+export function normalizeLspSettings(raw: unknown): LspSettings {
+  if (raw === undefined || raw === null) return { servers: {} };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new BaseError('LSP_CONFIG_INVALID', 'config 须为对象（servers + diagnostics_timeout_ms）');
+  }
+  const v = raw as Record<string, unknown>;
+  const servers = v.servers === undefined ? {} : normalizeServers(v.servers);
+  const diagnostics = positiveNumber(v.diagnostics_timeout_ms, 'diagnostics_timeout_ms');
+  return { servers, ...(diagnostics !== undefined ? { diagnostics_timeout_ms: diagnostics } : {}) };
+}
+
+/** servers 整值归一（键声明序 = 路由裁决序，Object.entries 保插入序） */
+function normalizeServers(raw: unknown): LspConfig {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new BaseError('LSP_CONFIG_INVALID', 'config.servers 须为对象（键 = 服务器名）');
+  }
+  const out: Record<string, LspServerConfig> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    out[name] = normalizeServerEntry(name, value);
+  }
+  return out;
+}
+
+/** 单服务器条目归一（字段集逐一类型校验——绝对路径/非空路由表/正数域） */
+function normalizeServerEntry(name: string, value: unknown): LspServerConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new BaseError('LSP_CONFIG_INVALID', `servers.${name} 须为对象`);
+  }
+  const v = value as Record<string, unknown>;
+  const command = v.command;
+  if (typeof command !== 'string' || command === '' || !command.startsWith('/')) {
+    throw new BaseError(
+      'LSP_CONFIG_INVALID',
+      `servers.${name}.command 须为绝对路径（v1 只收绝对路径）：${JSON.stringify(command)}`,
+    );
+  }
+  const languages = v.languages;
+  if (!Array.isArray(languages) || languages.length === 0 || languages.some((l) => typeof l !== 'string' || l === '')) {
+    // 空表即路由永不命中的死行——扩展名路由表的物理前提，缺席与空表同拒
+    throw new BaseError('LSP_CONFIG_INVALID', `servers.${name}.languages 须为非空字符串数组`);
+  }
+  const args = strArray(v.args, `servers.${name}.args`);
+  const env = strRecord(v.env, `servers.${name}.env`);
+  const startup = positiveNumber(v.startup_timeout_sec, `servers.${name}.startup_timeout_sec`);
+  const request = positiveNumber(v.request_timeout_sec, `servers.${name}.request_timeout_sec`);
+  return {
+    command,
+    languages: languages as readonly string[],
+    ...(args !== undefined ? { args } : {}),
+    ...(env !== undefined ? { env } : {}),
+    ...(startup !== undefined ? { startup_timeout_sec: startup } : {}),
+    ...(request !== undefined ? { request_timeout_sec: request } : {}),
+  };
+}
+
+/** 字符串数组字段校验（undefined 放行——可选字段缺席合法） */
+function strArray(value: unknown, label: string): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((e) => typeof e !== 'string')) {
+    throw new BaseError('LSP_CONFIG_INVALID', `${label} 须为字符串数组`);
+  }
+  return value as readonly string[];
+}
+
+/** 字符串记录字段校验（env 显式注入面） */
+function strRecord(value: unknown, label: string): Readonly<Record<string, string>> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new BaseError('LSP_CONFIG_INVALID', `${label} 须为 string→string 对象`);
+  }
+  for (const [k, val] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof val !== 'string') {
+      throw new BaseError('LSP_CONFIG_INVALID', `${label}.${k} 须为 string`);
+    }
+  }
+  return value as Readonly<Record<string, string>>;
+}
+
+/** 正数域字段校验（超时秒/ms——0/负/非数拒） */
+function positiveNumber(value: unknown, label: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new BaseError('LSP_CONFIG_INVALID', `${label} 须为正数`);
+  }
+  return value;
 }
 
 /* ---------------- 窄面（结构兼容真身——组合根直接传真身） ---------------- */

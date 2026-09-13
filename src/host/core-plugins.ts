@@ -34,8 +34,8 @@ import { canonicalWorkspaceRoot } from '../context/index.js';
 import type { SpawnPipeline } from '../exec/index.js';
 import { createMcpService, normalizeMcpConfig } from '../mcp/index.js';
 import type { McpConfig } from '../mcp/index.js';
-import { createLspService } from '../lsp/index.js';
-import type { LspConfig, LspService } from '../lsp/index.js';
+import { createLspService, normalizeLspSettings } from '../lsp/index.js';
+import type { LspService } from '../lsp/index.js';
 import {
   createBrowserService,
   defaultDownloadFace,
@@ -1888,9 +1888,9 @@ function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * 3500ms 硬帽先触即收，两道预算线谁先触谁执法，checkpoint 同论证）。
  *
  * 主闸 = 'exec-pipeline'（spawn 同册）。config 线 = apply 第二参
- * （{servers, diagnostics_timeout_ms} 整值替换；坏形无装载期归一器——
- * LSP_CONFIG_INVALID 未立码，坏服务器配置走运行期降级语义〔连接失败计
- * 熔断 + notify warn，03 §10.2 既有条款〕，归一器挂账随真实需求裁）。
+ * （{servers, diagnostics_timeout_ms} 整值替换；坏形 normalizeLspSettings
+ * 响亮拒 LSP_CONFIG_INVALID → 行级装载失败，/reload 时刻可修——03 §10.2
+ * config 坏形条，2026-09-13 f-2 批立）。
  * rootUri 锚 = canonical 工作区根（canonicalWorkspaceRoot——rootPath 位）
  * 。'lsp' 服务面供给（goal 件 gates 消费 queryDiagnostics 窄面）。
  */
@@ -1902,7 +1902,6 @@ function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
       if (pipeline === undefined) return; // 主闸——exec 管道缺席零装载（诚实缺席律）
 
-      const raw = config as { servers?: unknown; diagnostics_timeout_ms?: unknown } | undefined;
       const service = createLspService({
         spawn: pipeline,
         registry: { register: (def) => context.tools.register(def) },
@@ -1915,12 +1914,8 @@ function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
         rootPath: canonicalWorkspaceRoot(deps.cwd),
         notify: (message) => deps.notify?.('lsp', message),
       });
-      service.apply({
-        servers: (raw?.servers as LspConfig | undefined) ?? {},
-        ...(raw?.diagnostics_timeout_ms !== undefined
-          ? { diagnostics_timeout_ms: raw.diagnostics_timeout_ms as number }
-          : {}),
-      });
+      // 装载期归一（f-2 批立——坏形行级装载失败，不再走运行期降级语义）
+      service.apply(normalizeLspSettings(config));
       context.provide('lsp', service);
     },
   };

@@ -1,9 +1,10 @@
 /**
- * lsp 桥域错误码注册（03 §10.2——LSP_ 前缀族首批，02 §5.3 明列三码）。
+ * lsp 桥域错误码注册（03 §10.2——LSP_ 前缀族首批，02 §5.3 明列三码、
+ * 2026-09-13 f-2 批增列第四码）。
  *
- * 码名清单与语义真源 = 03 篇 §10.2 生命周期条 LSP_ 三码。本文件由模块公开
- * 面 index.ts 引入（注册纪律：写入点文件必须实际 import 本文件注册才发生
- * ——与 issue/scheduler/mcp 先例同款）。
+ * 码名清单与语义真源 = 03 篇 §10.2 生命周期条 LSP_ 三码 + config 坏形条
+ * LSP_CONFIG_INVALID。本文件由模块公开面 index.ts 引入（注册纪律：写入点
+ * 文件必须实际 import 本文件注册才发生——与 issue/scheduler/mcp 先例同款）。
  */
 import { registerErrorCodes } from '../contracts/index.js';
 
@@ -25,5 +26,11 @@ registerErrorCodes([
     module: 'lsp',
     description:
       '同 server 3 连败熔断开（实例级旗标、复位走 /reload、行内他服务器不受累；作用域回卷的协议化关停不计熔断计数）',
+  },
+  {
+    code: 'LSP_CONFIG_INVALID',
+    module: 'lsp',
+    description:
+      '行 config 坏形装载期归一响亮拒——servers 对象形/command 绝对路径/languages 非空/超时正数域逐一校验，坏形 = 行级装载失败 /reload 时刻可修（03 §10.2 config 坏形条，2026-09-13 f-2 批增列）',
   },
 ]);

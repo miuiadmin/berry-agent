@@ -1576,6 +1576,29 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect((rootCause as BaseError).code).toBe('MCP_CONFIG_INVALID'); // 坏形真因可溯
   });
 
+  it('LSP 坏形 config（core:lsp 行 command 相对路径）→ core 行 fail-loud 拒启（LSP_CONFIG_INVALID——f-2 归一器）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-lspcfg-'));
+    dirs.push(dataDir);
+    // enabled.yaml core:lsp 行 config——servers.ts.command 坏形（相对路径）
+    const fs = memoryFs({
+      [join(dataDir, 'enabled.yaml')]:
+        'plugins:\n  - id: core:lsp\n    config:\n      servers:\n        ts:\n          command: tsserver\n          languages: [ts]\n',
+    });
+    const err = await bootCore(dataDir, fs).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BaseError);
+    // 与 MCP 坏形例同律：PLUGIN_APPLY_FAILED 包装 + core 行 fail-loud + cause
+    // 链可溯归一器真因 LSP_CONFIG_INVALID（/reload 时刻可修）
+    expect((err as BaseError).code).toBe('PLUGIN_APPLY_FAILED');
+    expect((err as BaseError).message).toContain('core:lsp');
+    expect((err as BaseError).message).toContain('须为绝对路径'); // 归一器响亮拒文本透出
+    const cause = (err as BaseError).cause;
+    expect(cause).toBeInstanceOf(BaseError);
+    expect((cause as BaseError).code).toBe('PLUGIN_APPLY_FAILED');
+    const rootCause = (cause as BaseError).cause;
+    expect(rootCause).toBeInstanceOf(BaseError);
+    expect((rootCause as BaseError).code).toBe('LSP_CONFIG_INVALID'); // 坏形真因可溯
+  });
+
   it('goal hasLsp 回补（批 19d）：lsp 序内前件在场 → diagnostics 判据门申报过闸；core:lsp 禁用 → 申报即拒（fail-closed）', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-lspgoal-'));
     dirs.push(dataDir);
