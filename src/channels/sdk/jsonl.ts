@@ -65,17 +65,6 @@ export function isSdkRequest(value: unknown): value is SdkRequest {
   );
 }
 
-/** 值判别：线帧（kind 判别字段在闭集内）——非抛型窄卫 */
-export function isSdkFrame(value: unknown): value is SdkWireFrame {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'kind' in value &&
-    typeof (value as { kind: unknown }).kind === 'string' &&
-    FRAME_KIND_SET.has((value as { kind: string }).kind)
-  );
-}
-
 /** 结构校验：非对象 / 判别字段缺席 / 判别值不在闭集 —— 各自独立报因 */
 function classify(value: unknown, rawLine: string): 'request' | 'frame' {
   if (typeof value !== 'object' || value === null) {

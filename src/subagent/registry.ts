@@ -17,7 +17,6 @@ import {
   type JobEntry,
   type JobKind,
   type JobSettledEvent,
-  type JobStatus,
   type JobTerminal,
 } from '../contracts/index.js';
 
@@ -220,9 +219,4 @@ export function createJobRegistry(options: JobRegistryOptions = {}): JobRegistry
       return live.get(id)?.entry ?? settledHistory.find((job) => job.id === id);
     },
   };
-}
-
-/** 终态判定读面（状态词汇闭集外判——呈现/对账面共用） */
-export function isTerminalStatus(status: JobStatus): status is Extract<JobStatus, 'completed' | 'killed' | 'failed'> {
-  return status === 'completed' || status === 'killed' || status === 'failed';
 }

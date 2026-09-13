@@ -10,7 +10,7 @@
  */
 import './codes.js';
 
-export { isTerminalStatus, JOB_RETENTION_CAP, createJobRegistry } from './registry.js';
+export { JOB_RETENTION_CAP, createJobRegistry } from './registry.js';
 export type { JobRegistry, JobRegistryOptions, JobHandle, JobSettledEmitter } from './registry.js';
 
 export {

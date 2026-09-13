@@ -51,9 +51,6 @@ export const EL_TO_EOL = `${ESC}[K`;
 export const CR = '\r';
 /** 换行（滚动区内：区底自动滚、区外/中部只下移） */
 export const LF = '\n';
-/** 光标保存 / 恢复（DECSC/DECRC——编舞对（擦写远端区）后还原位） */
-export const SAVE_CURSOR = `${ESC}7`;
-export const RESTORE_CURSOR = `${ESC}8`;
 /** 清全屏 + 光标归位（repaint 路） */
 export const CLEAR_SCREEN = `${ESC}[2J${ESC}[H`;
 /** 设滚动区 DECSTBM（1 基行号——底部固定区留区外） */

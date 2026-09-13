@@ -7,7 +7,7 @@
  */
 import { chmodSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 /** 数据目录环境变量（整目录覆盖——多数据目录 = 独立实例的正门，05 §6.6） */
 export const DATA_DIR_ENV = 'BERRY_AGENT_DATA_DIR';
@@ -107,9 +107,4 @@ function repairMode(target: string, mode: number, name: string, warn: (message: 
 /** 数据目录派生位（secret.key 等数据目录内文件的定位面） */
 export function dataFilePath(dataDir: string, basename: string): string {
   return join(dataDir, basename);
-}
-
-/** 库文件路径的数据目录推算（备份文件命名等邻接文件定位面） */
-export function databaseDir(dbPath: string): string {
-  return dirname(dbPath);
 }

@@ -218,20 +218,19 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
 /**
  * core:web——fetch 工具（effect 'read'，经 ctx.tools.register 散装注册走
  * bootTools 重放消费腿）+ 'web-fetch' 服务面供给（02 §4.1 席 18「ctx.fetch」
- * 词面落形：服务名带域防裸名撞位）+ 'web-gate' 在飞门单例供给（03 §10.3
- * browser 件共享同一实例——装配根经共享根传实例的装载面形态）。归因 sink
- * 缺省 no-op（观测面挂账归 obs 纵切笔——sink 不绑架数据面）。
+ * 词面落形：服务名带域防裸名撞位）。归因 sink 缺省 no-op（观测面挂账归
+ * obs 纵切笔——sink 不绑架数据面）。
  */
 const webPlugin: CorePluginReference = {
   name: 'web',
   async apply(ctx) {
     const context = ctx as PluginContext;
     // 在飞门单例（容量缺省单源 DEFAULT_WEB_LIMITS.maxConcurrent = 4——fetch
-    // 工具/服务面/browser 导航三消费位同一实例）
+    // 工具/服务面/browser 导航三消费位同一实例；browser 件经 'web-fetch'
+    // 服务闭包共享 gate，不另立 'web-gate' 供给位）
     const gate: InFlightGate = createInFlightGate(DEFAULT_WEB_LIMITS.maxConcurrent);
     const service = createWebFetchService({ gate });
     context.provide('web-fetch', service);
-    context.provide('web-gate', gate);
     // 工具注册（boot 全局层——openTools 会话装配重放走真三段管道）
     return context.tools.register(createFetchTool(service));
   },

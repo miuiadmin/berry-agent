@@ -6,7 +6,7 @@
  * JSON/判别缺席/闭集外/必填缺失各自报因）；④流式分帧跨 chunk 零半帧零丢失。
  */
 import { describe, expect, it } from 'vitest';
-import { decodeWireLine, encodeWireLine, isSdkFrame, isSdkRequest, SdkDecodeError, splitWireLines } from './jsonl.js';
+import { decodeWireLine, encodeWireLine, isSdkRequest, SdkDecodeError, splitWireLines } from './jsonl.js';
 import type { SdkRequest, SdkWireFrame } from './protocol.js';
 
 /** 全帧型样本（十 kind 各一——往返测试的穷举面） */
@@ -49,7 +49,6 @@ describe('编解码往返（全帧型 + 全请求型）', () => {
   it.each(FRAME_SAMPLES.map((frame) => [frame.kind, frame] as const))('线帧 %s 编码→解码零损', (_kind, frame) => {
     const decoded = decodeWireLine(encodeWireLine(frame).trimEnd());
     expect(decoded).toEqual(frame);
-    expect(isSdkFrame(decoded)).toBe(true);
   });
 
   it.each(REQUEST_SAMPLES.map((req) => [req.verb, req] as const))('请求 %s 编码→解码零损', (_verb, req) => {
@@ -133,14 +132,12 @@ describe('fail-loud 解码（坏行不产半帧）', () => {
   });
 });
 
-describe('窄卫判别（isSdkRequest / isSdkFrame）', () => {
-  it('请求判别真、帧判别真、杂形双假', () => {
+describe('窄卫判别（isSdkRequest——生产消费面路由用）', () => {
+  it('请求判别真、杂形假（含帧形非请求）', () => {
     expect(isSdkRequest(REQUEST_SAMPLES[0])).toBe(true);
-    expect(isSdkFrame(FRAME_SAMPLES[0])).toBe(true);
     expect(isSdkRequest(null)).toBe(false);
     expect(isSdkRequest({})).toBe(false);
-    expect(isSdkFrame('x')).toBe(false);
-    expect(isSdkFrame({ verb: 'hello', protocolVersion: 1 })).toBe(false); // 请求非帧
+    expect(isSdkRequest(FRAME_SAMPLES[0])).toBe(false); // 帧非请求
   });
 });
 

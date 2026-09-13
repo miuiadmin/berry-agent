@@ -296,18 +296,17 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     assembly.dispose();
   });
 
-  it('web 件装载全环：工具走 bootTools 消费腿重放 + web-fetch/web-gate 服务面同 gate 实例', async () => {
+  it('web 件装载全环：工具走 bootTools 消费腿重放 + web-fetch 服务面（gate 经服务闭包共享）', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-web-'));
     const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-web-ws-'));
     const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-web-home-'));
     dirs.push(dataDir, workspace, home);
     const { scope, dispatch, boot } = await bootCore(dataDir, memoryFs(), { cwd: workspace, homeDir: home });
 
-    // 服务面：fetch 服务与 gate 单例双供给（03 §10.3 browser 共享位）
+    // 服务面：fetch 服务供给（gate 经 createWebFetchService 闭包内嵌——browser 件同源共享，无独立 gate 供给位）
     const service = scope.tryGet<{ fetch(url: string): Promise<unknown> }>('web-fetch');
-    const gate = scope.tryGet<{ readonly capacity: number }>('web-gate');
     expect(service).toBeDefined();
-    expect(gate?.capacity).toBe(4); // DEFAULT_WEB_LIMITS.maxConcurrent 单源
+    expect(scope.tryGet('web-gate')).toBeUndefined(); // 无零消费的独立 gate 供给位
 
     // 工具消费腿：boot 全局层定义快照含 fetch（effect 'read'）
     const defs = boot.tools.definitions();
