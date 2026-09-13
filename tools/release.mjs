@@ -83,13 +83,17 @@ export function judgeRegistryProbe(res) {
 }
 
 /**
- * pack 白名单（契约 3 机器验收）——发布物恰收：dist 全树 + 三自动件 + examples 挂账位。
+ * pack 白名单（契约 3 机器验收）——发布物恰收：dist 全树 + 三自动件 + README 语言族
+ * + examples 挂账位。
  * 07 §8.3 白名单验收律：在场资产恰收、缺席资产不预占白名单位——examples/ 落位批
  * eco-3（插件模板两形）在场，package.json files 已扩入，机器验收面随批同步扩
  * （eco-3 落码时漏扩本正则——2026-09-14 首发真发契约 3 咬住，补笔在场恰收）；
  * examples/ 缺席时本分支空转无件可收，不预占白名单位。
+ * README 语言变体族（2026-09-14 多语言 README 批）：npm always-included 族——
+ * 根目录 README 变体自动入包（package.json files 白名单拦不住），故语言集枚举形
+ * 恰收五件（zh/ko/fr/es/ru）；缺席语言（如 de）不预占位，新语言随落位批同步扩。
  */
-const PACK_ALLOWED = /^(package\.json|README\.md|LICENSE|dist\/.+|examples\/.+)$/;
+const PACK_ALLOWED = /^(package\.json|README(\.(zh|ko|fr|es|ru))?\.md|LICENSE|dist\/.+|examples\/.+)$/;
 /** pack 三禁（全域执法不问目录——dist 内同样禁测试/映射件） */
 const PACK_BANNED = /\.(test|spec)\.(js|ts|tsx)$|\.test\.d\.ts$|\.js\.map$/;
 /** pack 必在件（bin 主入口 / SPA 面 / API 治理面 / 溯源戳 / 双档） */

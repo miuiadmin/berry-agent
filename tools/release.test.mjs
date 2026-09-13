@@ -151,6 +151,17 @@ describe('judgePackList（契约 3 白名单机器验收）', () => {
     expect(v.ok).toBe(false);
     expect(v.forbidden).toEqual(['examples/x.test.js', 'examples/y.js.map']);
   });
+
+  // 2026-09-14 多语言 README 批回归锁——npm always-included 族：根目录 README 变体
+  // 自动入包（files 白名单拦不住，npm pack --dry-run 实证），语言集枚举恰收五件；
+  // 缺席语言件（de）照拒 = 不预占律执法面（新语言随落位批同步扩）
+  it('README 语言变体五件恰收过；缺席语言件照拒', () => {
+    const langs = ['README.zh.md', 'README.ko.md', 'README.fr.md', 'README.es.md', 'README.ru.md'];
+    expect(judgePackList([...fakeSeams().packList(), ...langs]).ok).toBe(true);
+    const v = judgePackList([...fakeSeams().packList(), ...langs, 'README.de.md']);
+    expect(v.ok).toBe(false);
+    expect(v.forbidden).toEqual(['README.de.md']);
+  });
 });
 
 describe('judgeTarballTrees（契约 4 深对照）', () => {
