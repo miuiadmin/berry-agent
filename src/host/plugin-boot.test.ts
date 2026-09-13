@@ -252,9 +252,15 @@ describe('装机账本读侧（03 §5.4——warn 降级与 installPath 解析�
     expect(boot.report.failed).toHaveLength(1);
     expect(boot.report.failed[0]!.id).toBe('acme');
     expect(boot.report.failed[0]!.message).toContain('装机账本无此 id');
-    // 记账面：boot-failures.json 落失败行
+    // 记账面：boot-failures.json 落失败行（obs-a——含 lastError 错误文本与
+    // lastFailedAt 时点；合成失败行同批扩形）
     const failures = readBootFailures('/data/boot-failures.json', { read: fs.read, write: fs.write });
-    expect(failures.failures['acme']).toEqual({ version: '', count: 1 });
+    expect(failures.failures['acme']).toEqual({
+      version: '',
+      count: 1,
+      lastError: expect.stringContaining('装机账本无此 id'),
+      lastFailedAt: expect.any(String),
+    });
   });
 
   it('installPath 相对/绝对两式解析（相对 join 数据目录；declared-payload 零码形免真盘）', async () => {
@@ -366,6 +372,30 @@ describe('装机账本读侧（03 §5.4——warn 降级与 installPath 解析�
 });
 
 describe('boot-failures 记账与清名（§5.7 档②）', () => {
+  it('loader 行失败启动横幅点名（obs-a——装载序尾逐行 warn 与合成失败行同形 + 账本落错误文本）', async () => {
+    const fs = memoryFs({
+      '/data/enabled.yaml': enabledYaml('  - id: acme-bad\n'),
+      '/data/plugins/ledger.json': JSON.stringify({ 'acme-bad': { installPath: 'plugins/node_modules/acme-bad' } }),
+      // 清单声明 entry 而文件缺席——装载步（jiti）失败 = loader 路径非合成路径
+      '/data/plugins/node_modules/acme-bad/package.json': JSON.stringify({
+        name: 'acme-bad',
+        version: '1.0.0',
+        berryAgent: { entry: 'entry.js' },
+      }),
+    });
+    const { options, warnings } = rigBoot('/data', { fs });
+    const boot = await bootPlugins(options);
+    expect(boot.report.failed.map((f) => f.id)).toEqual(['acme-bad']);
+    // 修前：loader 行失败零 warn（错误文本只在 failed 面静默——「横幅」仅存于
+    // 注释与规范文本）；修后：装载序尾逐行点名，与合成失败行同形
+    expect(warnings.some((w) => w.startsWith('插件装载失败（acme-bad）：['))).toBe(true);
+    // 账本 lastError = [码] 报文（修前条目只有 {version, count}——错误文本在
+    // 装载器 seam 丢弃）
+    const failures = readBootFailures('/data/boot-failures.json', { read: fs.read, write: fs.write });
+    expect(failures.failures['acme-bad']?.lastError).toMatch(/^\[[A-Z_]+\] /);
+    expect(failures.failures['acme-bad']?.lastFailedAt).toEqual(expect.any(String));
+  });
+
   it('装载成功行清名（报捷即抹账——横幅只报仍坏行）', async () => {
     const fs = memoryFs({
       // 先前失败遗留的账

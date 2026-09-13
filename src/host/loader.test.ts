@@ -175,7 +175,7 @@ describe('loadPlugins Kahn 轮次（服务可用性驱动排序）', () => {
   });
 
   it('用户行 inject 不可达——隔离降级 + onBootFailure 记账（其余行照常）', async () => {
-    const bootCalls: Array<[string, string]> = [];
+    const bootCalls: Array<[string, string, { code: string; message: string }]> = [];
     const dir = makePluginDir({
       'package.json': JSON.stringify({ name: 'plug-orphan', version: '3.1.4', berryAgent: { entry: 'entry.js' } }),
       'entry.js': `export default async function apply() {}`,
@@ -193,12 +193,24 @@ describe('loadPlugins Kahn 轮次（服务可用性驱动排序）', () => {
     const healthy = coreRow('core:healthy', async () => {});
     const report = await loadPlugins({
       ...rigOptions([orphan, healthy]),
-      onBootFailure: (id, version) => void bootCalls.push([id, version]),
+      onBootFailure: (id, version, failure) => void bootCalls.push([id, version, failure]),
     });
     expect(report.failed).toHaveLength(1);
     expect(report.failed[0]?.code).toBe('PLUGIN_INJECT_UNRESOLVED');
     expect(report.activated.map((a) => a.id)).toEqual(['core:healthy']); // 其余行照常（档②）
-    expect(bootCalls).toEqual([['plug-orphan', '3.1.4']]); // 记账面收 id+version
+    // 记账面收 id+version+错误细节（obs-a——修前错误文本在装载器 seam 丢弃；
+    // 细节 = 整行 FailedPlugin 透传——{id, code, message} 超集形）
+    expect(bootCalls).toEqual([
+      [
+        'plug-orphan',
+        '3.1.4',
+        {
+          id: 'plug-orphan',
+          code: 'PLUGIN_INJECT_UNRESOLVED',
+          message: '硬依赖服务不可达：never-provided',
+        },
+      ],
+    ]);
   });
 });
 

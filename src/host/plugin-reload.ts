@@ -40,8 +40,16 @@ export interface ReapplyReceipt {
   readonly total: number;
   readonly enabled: number;
   readonly failed: number;
-  /** 行级失败面点名（档②汇总——boot-failures.json 已由 bootPlugins 记账） */
-  readonly failedIds: readonly string[];
+  /**
+   * 行级失败面（档②汇总——boot-failures.json 已由 bootPlugins 记账）。obs-a
+   * 扩形：原 failedIds 纯 id 点名 → 附错误文本（03 §5.7② 呈现三面之③——与
+   * plugins list 失败分区同形行 `{id, code, message}`）。
+   */
+  readonly failures: readonly {
+    readonly id: string;
+    readonly code: string;
+    readonly message: string;
+  }[];
   /**
    * 新代新增工具面（03 §2.8 通道真值——/reload 回执呈现新代 activated[].tools
    * 对前代 diff，逐插件点名）：模型通道动作时点恒诚实空（addedToolNames 恒
@@ -128,8 +136,12 @@ export function createPluginReloader(options: PluginReloadOptions): PluginReload
         // 新代工具面 diff 呈现（03 §2.8——新增工具名逐插件；无新增不加行不造噪声）
         lines.push(`新增工具面：${receipt.addedTools.map((a) => `${a.pluginId} → ${a.tools.join('、')}`).join('；')}`);
       }
-      if (receipt.failedIds.length > 0) {
-        lines.push(`行级失败（隔离降级，已记 boot-failures）：${receipt.failedIds.join('、')}`);
+      if (receipt.failures.length > 0) {
+        // 行级失败附错误文本（03 §5.7② obs-a 呈现三面之③——与 plugins list
+        // 失败分区同形行；boot-failures.json 已由装载序记账）
+        lines.push(
+          `行级失败（隔离降级，已记 boot-failures）：\n${receipt.failures.map((f) => `  ${f.id}  [${f.code}] ${f.message}`).join('\n')}`,
+        );
       }
       if (rollbackFailedIds.length > 0) {
         lines.push(`上代回卷残留（下轮重载收口）：${rollbackFailedIds.join('、')}`);

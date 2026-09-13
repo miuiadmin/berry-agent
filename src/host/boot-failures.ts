@@ -15,6 +15,22 @@ import { readFileSync, writeFileSync } from 'node:fs';
 export interface BootFailureEntry {
   readonly version: string;
   readonly count: number;
+  /**
+   * 最近一次失败文本（`[码] 报文` 形，**帽 500 字符**——03 §5.7② obs-a 定形注；
+   * 缺席容错读：obs-a 前旧形条目无此字段照常解析，不迁移）。
+   */
+  readonly lastError?: string;
+  /** 最近一次失败时点（ISO 形——obs-a；缺席容错读） */
+  readonly lastFailedAt?: string;
+}
+
+/**
+ * 失败细节面（obs-a——lastError 的数据源）：装载行失败 {code, message}
+ * （loader 的 FailedPlugin 子集形——结构满足即可，不依赖具体类型）。
+ */
+export interface BootFailureDetail {
+  readonly code: string;
+  readonly message: string;
 }
 
 /** 账本文件形（顶层 failures 键——为后续聚合面预留扩展位） */
@@ -61,7 +77,18 @@ export function readBootFailures(path: string, fs: BootFailuresFs = defaultFs())
         typeof (entry as BootFailureEntry).version === 'string' &&
         typeof (entry as BootFailureEntry).count === 'number'
       ) {
-        failures[id] = { version: (entry as BootFailureEntry).version, count: (entry as BootFailureEntry).count };
+        // obs-a 扩形字段容错携带：字符串在场即带出，非字符串/缺席静默剥除
+        // （旧形条目照常解析——缺席容错读，不迁移）
+        failures[id] = {
+          version: (entry as BootFailureEntry).version,
+          count: (entry as BootFailureEntry).count,
+          ...(typeof (entry as BootFailureEntry).lastError === 'string'
+            ? { lastError: (entry as BootFailureEntry).lastError }
+            : {}),
+          ...(typeof (entry as BootFailureEntry).lastFailedAt === 'string'
+            ? { lastFailedAt: (entry as BootFailureEntry).lastFailedAt }
+            : {}),
+        };
       }
     }
     return { failures };
@@ -71,18 +98,27 @@ export function readBootFailures(path: string, fs: BootFailuresFs = defaultFs())
 }
 
 /**
- * 记一次启动失败（count 累加；version 就地刷新为本次版本）——读改写整账本。
+ * 记一次启动失败（count 累加；version 就地刷新为本次版本；lastError/lastFailedAt
+ * 刷新为最近一次——03 §5.7② obs-a）——读改写整账本。
  */
 export function recordBootFailure(
   path: string,
   id: string,
   version: string,
+  failure: BootFailureDetail,
   fs: BootFailuresFs = defaultFs(),
 ): BootFailureDoc {
   const doc = readBootFailures(path, fs);
   const prev = doc.failures[id];
   const next: Record<string, BootFailureEntry> = { ...doc.failures };
-  next[id] = { version, count: (prev?.count ?? 0) + 1 };
+  // lastError = `[码] 报文` 形帽 500 字符（obs-a 定形注——防账本膨胀；超长截断）
+  const text = `[${failure.code}] ${failure.message}`;
+  next[id] = {
+    version,
+    count: (prev?.count ?? 0) + 1,
+    lastError: text.length > 500 ? text.slice(0, 500) : text,
+    lastFailedAt: new Date().toISOString(),
+  };
   const written: BootFailureDoc = { failures: next };
   fs.write(path, `${JSON.stringify(written, null, 2)}\n`);
   return written;

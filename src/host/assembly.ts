@@ -961,7 +961,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           total: handle.counts.total,
           enabled: handle.counts.enabled,
           failed: handle.counts.failed,
-          failedIds: handle.report.failed.map((f) => f.id),
+          // 行级失败附错误文本（obs-a——03 §5.7② 呈现三面之③；report.failed
+          // 三键结构满足即透传，与 plugins list 失败分区同源同形）
+          failures: handle.report.failed.map((f) => ({ id: f.id, code: f.code, message: f.message })),
           addedTools,
         };
       },

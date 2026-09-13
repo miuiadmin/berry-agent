@@ -32,7 +32,13 @@ function rig(overrides: Partial<PluginReloadOptions> = {}): {
     },
     reapply: async () => {
       calls.push('reapply');
-      return { total: 3, enabled: 2, failed: 1, failedIds: ['bad-row'], addedTools: [] };
+      return {
+        total: 3,
+        enabled: 2,
+        failed: 1,
+        failures: [{ id: 'bad-row', code: 'PLUGIN_APPLY_FAILED', message: 'apply 崩了' }],
+        addedTools: [],
+      };
     },
     isBusy: () => busy,
     onRunSettled: (handler) => {
@@ -66,6 +72,9 @@ describe('idle 直入与执行序（①preflight → ③rollback → ②reapply�
     expect(rig_.reports[0]).toContain('插件已重载：启用 2/3');
     expect(rig_.reports[0]).toContain('行级失败');
     expect(rig_.reports[0]).toContain('bad-row');
+    // obs-a：行级失败附错误文本（原 failedIds 纯点名扩文本——与 plugins list
+    // 失败分区同形行）
+    expect(rig_.reports[0]).toContain('[PLUGIN_APPLY_FAILED] apply 崩了');
     expect(reloader.hasPending()).toBe(false);
   });
 
@@ -217,7 +226,7 @@ describe('链串行（in-flight 链——并发请求不交错）', () => {
       },
       reapply: async () => {
         calls.push('reapply');
-        return { total: 1, enabled: 1, failed: 0, failedIds: [], addedTools: [] };
+        return { total: 1, enabled: 1, failed: 0, failures: [], addedTools: [] };
       },
     });
     const reloader = createPluginReloader(rig_.options);
@@ -238,7 +247,7 @@ describe('新代工具面 diff 呈现（03 §2.8 通道真值——装载史批 
         total: 2,
         enabled: 2,
         failed: 0,
-        failedIds: [],
+        failures: [],
         addedTools: [
           { pluginId: 'acme:tools', tools: ['acme_probe', 'acme_scan'] },
           { pluginId: 'demo:calc', tools: ['demo_calc'] },

@@ -145,8 +145,12 @@ export interface LoadPluginsOptions<TCtx = unknown> {
   readonly applyBudgetMs?: number;
   /** 插件 disposer 回卷帽（§3.4 钉 1s；测试位可调） */
   readonly disposerBudgetMs?: number;
-  /** 档②记账接线位（boot-failures 件；缺席 = 不记账） */
-  readonly onBootFailure?: (id: string, version: string) => void;
+  /**
+   * 档②记账接线位（boot-failures 件；缺席 = 不记账）。载荷三参
+   * （03 §5.7② obs-a 扩形）：id + version + failure{code, message}——错误
+   * 文本不再在装载器 seam 丢弃（修前只递 id/version，错误细节只进 failed 面）。
+   */
+  readonly onBootFailure?: (id: string, version: string, failure: { code: string; message: string }) => void;
   /**
    * 逐插件行收口回调（finally 语义——成功/失败/零码行皆达）。
    * 装载窗口关窗接线位（03 §2.1）：apply 收口即关窗，此后该插件注册动词仅
@@ -288,7 +292,7 @@ export async function loadPlugins<TCtx = unknown>(options: LoadPluginsOptions<TC
         throw new CorePluginBootError(failure, { cause: err });
       }
       failed.push(failure); // 用户行隔离降级——其余行照常（档②）
-      options.onBootFailure?.(row.id, row.manifest?.version ?? '');
+      options.onBootFailure?.(row.id, row.manifest?.version ?? '', failure);
     }
   }
   // 不动点余行：inject 不可达（含环——环成员互等永不满足）
@@ -304,7 +308,7 @@ export async function loadPlugins<TCtx = unknown>(options: LoadPluginsOptions<TC
       throw new CorePluginBootError(failure);
     }
     failed.push(failure);
-    options.onBootFailure?.(row.id, row.manifest.version ?? '');
+    options.onBootFailure?.(row.id, row.manifest.version ?? '', failure);
   }
 
   return {

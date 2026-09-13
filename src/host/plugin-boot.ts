@@ -480,10 +480,11 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // ⑧ 记账路径（memory 形无数据目录——诊断面整跳）
   const bookkeepingPath = options.runtime.dataDir === null ? null : join(options.runtime.dataDir, 'boot-failures.json');
   const bookkeepingFs = toBootFailuresFs(fs);
-  // 合成失败行：档②语义记账（装载未达——warn 横幅与 boot-failures 皆见）
+  // 合成失败行：档②语义记账（装载未达——warn 横幅与 boot-failures 皆见；
+  // obs-a——failure 细节随账落 lastError/lastFailedAt）
   for (const failure of synthesisFailures) {
     warn(`插件装载失败（${failure.id}）：[${failure.code}] ${failure.message}`);
-    if (bookkeepingPath !== null) recordBootFailure(bookkeepingPath, failure.id, '', bookkeepingFs);
+    if (bookkeepingPath !== null) recordBootFailure(bookkeepingPath, failure.id, '', failure, bookkeepingFs);
   }
 
   // ⑥⑦ ctx 装配族：ServiceBag 接共享根 + 逐插件 fork + 行收口关窗
@@ -674,17 +675,26 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     ...(bookkeepingPath === null
       ? {}
       : {
-          onBootFailure: (id: string, version: string) => {
+          onBootFailure: (id: string, version: string, failure: { code: string; message: string }) => {
             // 试件行不进持久诊断账（不变式 1 零落盘面）：残账无清名时机（下次
             // boot 无此行）→ 横幅会误报已消失的幽灵行——这里过滤而非事后清
             if (id === QUICK_TEST_ROW_ID) return;
-            recordBootFailure(bookkeepingPath, id, version, bookkeepingFs);
+            recordBootFailure(bookkeepingPath, id, version, failure, bookkeepingFs);
           },
         }),
   });
   // 装载成功行清名（横幅只报仍坏行——报捷即抹账）
   if (bookkeepingPath !== null) {
     for (const a of loaded.activated) clearBootFailure(bookkeepingPath, a.id, bookkeepingFs);
+  }
+
+  // —— 启动横幅聚合 warn（03 §5.7② obs-a 兑现）：装载序尾对本 boot loader
+  //    行失败（jiti 装载/apply/模块 inject 执法——合成失败行已在上方点名）
+  //    逐行 warn，与合成失败行同形 `插件装载失败（id）：[码] 报文`。修前本
+  //    横幅仅存于注释与规范文本、从未落码：loader 行失败只静默进 failed 面，
+  //    人面零错误呈现。memory 形照 warn（warn 面自身诊断安全）。
+  for (const f of loaded.failed) {
+    warn(`插件装载失败（${f.id}）：[${f.code}] ${f.message}`);
   }
 
   // —— plugin/opens 幂等落（05 §1.1 开门/关门审计腿——U3 批 U3-5）：boot

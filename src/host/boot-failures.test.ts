@@ -48,6 +48,36 @@ describe('readBootFailures', () => {
     });
   });
 
+  it('obs-a 扩形字段携带：lastError/lastFailedAt 字符串在场即带出、非字符串静默剥除', () => {
+    const fs = memFs({
+      '/boot-failures.json': JSON.stringify({
+        failures: {
+          'new-shape': {
+            version: '1.0.0',
+            count: 2,
+            lastError: '[PLUGIN_APPLY_FAILED] apply 崩了',
+            lastFailedAt: '2026-09-13T00:00:00.000Z',
+          },
+          // 旧形条目（obs-a 前落账）——两字段缺席容错读不迁移
+          'old-shape': { version: '0.9.0', count: 7 },
+          badError: { version: '1.0.0', count: 1, lastError: 42, lastFailedAt: true },
+        },
+      }),
+    });
+    expect(readBootFailures('/boot-failures.json', fs)).toEqual({
+      failures: {
+        'new-shape': {
+          version: '1.0.0',
+          count: 2,
+          lastError: '[PLUGIN_APPLY_FAILED] apply 崩了',
+          lastFailedAt: '2026-09-13T00:00:00.000Z',
+        },
+        'old-shape': { version: '0.9.0', count: 7 },
+        badError: { version: '1.0.0', count: 1 },
+      },
+    });
+  });
+
   it('顶层坏形（failures 非对象）视同空', () => {
     const fs = memFs({ '/boot-failures.json': JSON.stringify({ failures: 'nope' }) });
     expect(readBootFailures('/boot-failures.json', fs)).toEqual({ failures: {} });
@@ -55,29 +85,96 @@ describe('readBootFailures', () => {
 });
 
 describe('recordBootFailure 记账', () => {
-  it('首记 count=1；再记同 id count 累加 + version 就地刷新', () => {
+  it('首记 count=1；再记同 id count 累加 + version 就地刷新 + lastError 刷新为本次（obs-a）', () => {
     const fs = memFs();
-    const first = recordBootFailure('/boot-failures.json', 'plug-a', '1.0.0', fs);
-    expect(first.failures['plug-a']).toEqual({ version: '1.0.0', count: 1 });
-    const second = recordBootFailure('/boot-failures.json', 'plug-a', '2.0.0', fs);
-    expect(second.failures['plug-a']).toEqual({ version: '2.0.0', count: 2 }); // 版本刷新为本次
+    const first = recordBootFailure(
+      '/boot-failures.json',
+      'plug-a',
+      '1.0.0',
+      { code: 'PLUGIN_APPLY_FAILED', message: '甲报文' },
+      fs,
+    );
+    expect(first.failures['plug-a']).toEqual({
+      version: '1.0.0',
+      count: 1,
+      lastError: '[PLUGIN_APPLY_FAILED] 甲报文',
+      lastFailedAt: expect.any(String),
+    });
+    const second = recordBootFailure(
+      '/boot-failures.json',
+      'plug-a',
+      '2.0.0',
+      { code: 'PLUGIN_LOAD_FAILED', message: '乙报文' },
+      fs,
+    );
+    expect(second.failures['plug-a']).toEqual({
+      version: '2.0.0', // 版本刷新为本次
+      count: 2,
+      lastError: '[PLUGIN_LOAD_FAILED] 乙报文', // 错误文本刷新为最近一次
+      lastFailedAt: expect.any(String),
+    });
+    // lastFailedAt 是 ISO 时点（可被 Date.parse 复原）
+    expect(Number.isFinite(Date.parse(String(second.failures['plug-a']?.lastFailedAt)))).toBe(true);
+  });
+
+  it('lastError 帽 500 字符（[码] 报文 合成后截断——防账本膨胀）', () => {
+    const fs = memFs();
+    const doc = recordBootFailure(
+      '/boot-failures.json',
+      'plug-long',
+      '1.0.0',
+      { code: 'PLUGIN_APPLY_FAILED', message: 'x'.repeat(2_000) },
+      fs,
+    );
+    const entry = doc.failures['plug-long'];
+    expect(entry?.lastError).toHaveLength(500);
+    expect(entry?.lastError?.startsWith('[PLUGIN_APPLY_FAILED] ')).toBe(true);
+  });
+
+  it('旧形遗留账本续记：prev 无 lastError 照常累加（缺席容错——无迁移读改写）', () => {
+    const fs = memFs({
+      '/boot-failures.json': JSON.stringify({ failures: { 'plug-a': { version: '1.0.0', count: 5 } } }),
+    });
+    const doc = recordBootFailure(
+      '/boot-failures.json',
+      'plug-a',
+      '1.0.0',
+      { code: 'PLUGIN_APPLY_FAILED', message: 'm' },
+      fs,
+    );
+    expect(doc.failures['plug-a']).toEqual({
+      version: '1.0.0',
+      count: 6, // 旧形 count 续接
+      lastError: '[PLUGIN_APPLY_FAILED] m',
+      lastFailedAt: expect.any(String),
+    });
   });
 
   it('他行保留（读改写整账本不丢行）', () => {
     const fs = memFs({
       '/boot-failures.json': JSON.stringify({ failures: { other: { version: '0.9.0', count: 5 } } }),
     });
-    const doc = recordBootFailure('/boot-failures.json', 'plug-a', '1.0.0', fs);
+    const doc = recordBootFailure(
+      '/boot-failures.json',
+      'plug-a',
+      '1.0.0',
+      { code: 'PLUGIN_APPLY_FAILED', message: 'm' },
+      fs,
+    );
     expect(doc.failures['other']).toEqual({ version: '0.9.0', count: 5 });
-    expect(doc.failures['plug-a']).toEqual({ version: '1.0.0', count: 1 });
+    expect(doc.failures['plug-a']?.count).toBe(1);
   });
 
   it('落盘形 = 单 JSON 对象（人读可改——诊断面友好）', () => {
     const fs = memFs();
-    recordBootFailure('/boot-failures.json', 'plug-a', '1.0.0', fs);
+    recordBootFailure('/boot-failures.json', 'plug-a', '1.0.0', { code: 'PLUGIN_APPLY_FAILED', message: 'm' }, fs);
     const written = fs.files.get('/boot-failures.json') ?? '';
     expect(written.endsWith('\n')).toBe(true);
-    expect(JSON.parse(written)).toEqual({ failures: { 'plug-a': { version: '1.0.0', count: 1 } } });
+    expect(JSON.parse(written).failures['plug-a']).toMatchObject({
+      version: '1.0.0',
+      count: 1,
+      lastError: '[PLUGIN_APPLY_FAILED] m',
+    });
   });
 });
 
