@@ -895,9 +895,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // ——插件层压出厂层）：摘 factory → 位 4 逐插件插入 → factory 原实例重挂
     // 末位。/reload 换代对称（03 §6.2 技能层摘除）：旧代 plugin: 前缀层先全
     // 摘再插新代（首跑零层清场幂等）。refresh 落新快照（披露段每请求物化
-    // 即生效）+ 桥发射 skills_change（providers 变化可观测）。per-provider
-    // 独立 realpath 去重集：与标准层目录交集仅病态形（装机树 vs 工作区/家/
-    // 出厂根构造性不相交），重叠时 first-wins + collision 诊断兜底。
+    // 即生效）+ 桥发射 skills_change（providers 变化可观测）。realpath 去重
+    // 集 pass 域化（b288974 起）：registry 每 refresh 铸新集经 scan(passSeen)
+    // 透传全部层（含 plugin: 层），层间同文件去重在 realpath 层静默完成；
+    // 同名异文件才落 first-wins + collision 诊断（与 registry.ts/discovery.ts
+    // 同源表述——2026-09-14 扫描三役 F19 勘正，修前注记系 b288974 前旧形态）。
     const wiredSkillRegistries = new WeakSet<object>();
     const resyncPluginSkillLayers = async (handle: PluginBootHandle): Promise<void> => {
       const registry = scope.tryGet('skills') as SkillsRegistry | undefined;

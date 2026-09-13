@@ -14,8 +14,9 @@ import type { Usage, UsageBuckets } from '../contracts/index.js';
 export interface LlmUsageEventData {
   /**
    * settlement 幂等身份（write-behind 批落重试去重的锚点）：
-   * complete 路每次调用唯一生成（随机 UUID）；委派结算折叠路 = 'delegation:'
-   * + jobId（04 §5 结算折叠——子代理用量归账不重复计）；run 路桥接 =
+   * complete 路每次调用唯一生成（随机 UUID）；委派结算折叠路 'delegation:'+
+   * jobId 为预留形（v1 零生产者零消费者——子代理用量走 run 路桥接已覆盖归账；
+   * 消费位出生随委派结算单发化另题——04 §5 结算折叠与 mq 立题档 3-A 同源）；run 路桥接 =
    * 'run:<sessionId>:<seq>'（窗内 assistant 落账 seq 天然唯一——同会话跨
    * run 不撞，与 run CLI 旧桥接方案同形平移）。
    */

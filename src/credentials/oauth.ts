@@ -2,7 +2,7 @@
  * credentials — oauth 授权流件（03 §10.9 oauth bullet；c-6 落码批）。
  *
  * 三段承载：
- *  1. **device-code 流编舞**（RFC 8628——回调受理位挂账 U5 后，v1 只此流）：
+ *  1. **device-code 流编舞**（RFC 8628——回调受理位经 U5 立题批 RP6 裁决维持挂账不进 v1，v1 只此流）：
  *     `runDeviceCodeFlow` 纯舞步——发起（POST deviceAuthUrl form）→ present
  *     用户（user_code/verification_uri 人读呈现）→ 按 interval 轮询 token
  *     端点 → authorization_pending 续轮 / slow_down 提速降频（interval+5s）/
@@ -22,8 +22,9 @@
  * runDeviceCode 舞步 + present 呈现面）→ 插件窗内 `ctx.secrets.set` 写
  * 自域（token 经 io 返回值只在内存过手——宿主不落 token，永不持值面）。
  *
- * 回调受理位（redirect URI 形）挂账 U5 路由受限开放后定形——本批只钉
- * 挂点归属（sdk.register-route 门制复用），不落形。
+ * 回调受理位（redirect URI 形）经 U5 立题批 RP6 裁决维持挂账不进 v1——落形随
+ * 授权码流立题批；本批只钉挂点归属（sdk.register-route 门制复用），不落形。
+ * 〔2026-09-14 扫描三役 F25 勘正：原注「挂账 U5 后定形」系 U5 落地前旧前提——U5 已收官而裁决为维持挂账〕
  */
 import { BaseError } from '../contracts/index.js';
 

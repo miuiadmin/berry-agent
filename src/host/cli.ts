@@ -311,7 +311,9 @@ const RUN_SCHEMAS: readonly FlagSchema[] = [
   { name: 'session', kind: 'value' },
   { name: 'continue', kind: 'boolean' },
   { name: 'fork', kind: 'optional-value' },
-  // --output-schema 未实现：显式传入即用法错退 2 不静默忽略（07 §5——实现随批 13 落地翻转）
+  // --output-schema 未实现：显式传入即用法错退 2 不静默忽略（07 §5 v1 诚实缺席——
+  // 无既定兑现批；落地时本闸与用法错文案同步翻转）〔2026-09-14 扫描三役 F24 勘正：
+  // 原注锚「批 13/SDK 通道批」均已飞未兑现，向用户指向不存在的批次〕
   { name: 'output-schema', kind: 'boolean' },
   // --preset <名>：权限预设逐次形（04 §9 ⑥ ap-3——值域三档单源 safety/presets；
   // 与 --read-only 互斥在 parseRun 执法——同层 mode 冲突）
@@ -351,7 +353,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
   if (scan.error) return usageFail(scan.error);
   // --output-schema 显式传入即退 2（未实现——不静默忽略）
   if (scan.booleans.has('output-schema')) {
-    return usageFail('--output-schema 尚未实现——显式传入即用法错（不静默忽略；实现随 SDK 通道批落地后翻转本闸）');
+    return usageFail('--output-schema 尚未实现——显式传入即用法错（不静默忽略；v1 有意缺席，落地时本闸同步翻转）');
   }
   // --tick <名> 取值形（批 20a）：与 message 位置参数互斥——到点形态提示词在行内不在
   // argv（07 §5 定名）；arity 随形态分档（--tick 在场零位置参数、缺席恰一）
