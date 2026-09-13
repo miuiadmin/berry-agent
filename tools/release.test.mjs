@@ -131,6 +131,26 @@ describe('judgePackList（契约 3 白名单机器验收）', () => {
     expect(v.ok).toBe(false);
     expect(v.forbidden).toEqual(['src/host/main.ts', 'tools/release.mjs', 'dist/x.test.js', 'dist/x.js.map']);
   });
+
+  // eco-3 落位漏扩补笔的回归锁（2026-09-14 首发真发契约 3 咬住）——examples 挂账位
+  // 在场恰收（07 §8.3 白名单验收律）；eco-3 形五件全录防漂移
+  it('examples 件在场 → 恰收过（eco-3 两形全件）', () => {
+    const v = judgePackList([
+      ...fakeSeams().packList(),
+      'examples/README.md',
+      'examples/minimal-code-plugin/package.json',
+      'examples/minimal-code-plugin/entry.js',
+      'examples/pure-skill-pack/package.json',
+      'examples/pure-skill-pack/skills/markdown-table/SKILL.md',
+    ]);
+    expect(v.ok).toBe(true);
+  });
+
+  it('examples 内 test/map 件照样禁（三禁全域执法不问目录）', () => {
+    const v = judgePackList([...fakeSeams().packList(), 'examples/x.test.js', 'examples/y.js.map']);
+    expect(v.ok).toBe(false);
+    expect(v.forbidden).toEqual(['examples/x.test.js', 'examples/y.js.map']);
+  });
 });
 
 describe('judgeTarballTrees（契约 4 深对照）', () => {
