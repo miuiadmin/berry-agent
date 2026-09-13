@@ -1,5 +1,5 @@
 /**
- * host/mcp-entry — `berry-agent mcp` 入口（07 §5 命令族·MCP server 包装形态）。
+ * host/mcp-entry — `berry mcp` 入口（07 §5 命令族·MCP server 包装形态）。
  *
  * 组合根形态承 serve-entry 同族：装配公共段（批 19a-3 迁 assembly 件——
  * 运行时→logger→共享根→栈→**插件装载**，与 TUI 同一合成代码路径）→ 装配桥

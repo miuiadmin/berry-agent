@@ -7,7 +7,7 @@ title: ''
 
 ## 环境
 
-- berry-agent 版本（`berry-agent --version` 的输出）：
+- berry-agent 版本（`berry --version` 的输出）：
 - 操作系统（macOS / Linux 发行版 + 版本）：
 - Node 版本（`node --version` 的输出）：
 - 安装方式（npm 全局 / 安装脚本 / 源码构建）：
@@ -37,4 +37,4 @@ title: ''
 
 2. 数据目录（缺省 `~/.berry-agent/`，可用 `BERRY_AGENT_DATA_DIR` 重定位）
    中的报错现场：如有 `enabled.yaml` 手改历史或插件刚装/刚卸，请一并说明；
-3. 涉及插件时：`berry-agent plugins` 的输出（装载态清单）。
+3. 涉及插件时：`berry plugins` 的输出（装载态清单）。

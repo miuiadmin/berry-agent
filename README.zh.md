@@ -40,7 +40,7 @@
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | **为无人值守而生**   | 目标驱动的续跑——小时级 soak 实测、`kill -9` 硬杀后验证可恢复。降低人工干预，以 AI 全自动化为目标。                               |
 | **一切皆插件**       | shell、技能、网络取数、定时任务、目标续跑、子代理、快照、记忆、MCP、LSP、浏览器、Web 界面……16 件官方能力与你的扩展走同一装载面。 |
-| **开门制，不靠默契** | 危险能力一律坐在显式门后——`berry-agent doors list` 逐门可见态；装得进不隐含权限，插件装机永不默认授权。                          |
+| **开门制，不靠默契** | 危险能力一律坐在显式门后——`berry doors list` 逐门可见态；装得进不隐含权限，插件装机永不默认授权。                          |
 | **模型无关**         | Anthropic、OpenAI、Google 等统一接入面。一个环境变量换模型，零代码改动、零锁定。                                                 |
 | **会话可信**         | 每场会话落 SQLite——fork / resume / search / reindex；运行时断言「模型可见 ≡ 已记录」，看到即存下。                               |
 | **三面自动化**       | TUI 驾驶、Web UI + `/v1/*` HTTP 监督、SDK 与 MCP 编程接入——一个 Agent，各类消费者通吃。                                          |
@@ -62,14 +62,16 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent
 sh install.sh
 ```
 
+装好后的命令是 **`berry`**：
+
 ```bash
-berry-agent                    # TUI：直进对话（按当前目录续接最新会话）
-berry-agent run "一句话单发"     # 单次执行 → stdout
-berry-agent sessions list      # 会话管理：list / resume / fork / search / reindex
-berry-agent plugins list       # 插件装机：list / check / install / uninstall / mount / unmount / toggle / update
-berry-agent credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授权流）
-berry-agent doors list         # 开门制门态只读（开/关走 TUI /doors open|close）
-berry-agent serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
+berry                    # TUI：直进对话（按当前目录续接最新会话）
+berry run "一句话单发"     # 单次执行 → stdout
+berry sessions list      # 会话管理：list / resume / fork / search / reindex
+berry plugins list       # 插件装机：list / check / install / uninstall / mount / unmount / toggle / update
+berry credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授权流）
+berry doors list         # 开门制门态只读（开/关走 TUI /doors open|close）
+berry serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
 ```
 
 首启自动创建 `~/.berry-agent/`。模型缺省 `anthropic/claude-sonnet-5`（凭证按
@@ -102,11 +104,11 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` �
 
 ## 自动化通道
 
-- **HTTP**——`berry-agent serve` 起常驻宿主：Web 界面 + 版本化、Bearer 鉴权的
+- **HTTP**——`berry serve` 起常驻宿主：Web 界面 + 版本化、Bearer 鉴权的
   `/v1/*` JSON API；`serve --daemon` 后台运行（`serve status` / `serve stop`）。
 - **SDK**——类型化 TypeScript 客户端（stdio spawn / 直连 HTTP 两传输）随仓库同源；
   `berry-agent-sdk` npm 包随 beta 落地。
-- **MCP**——`berry-agent mcp` 以 MCP server 形态暴露 Agent，任意 MCP 客户端可接入。
+- **MCP**——`berry mcp` 以 MCP server 形态暴露 Agent，任意 MCP 客户端可接入。
 
 ## 架构
 
@@ -116,7 +118,7 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` �
 
 ```mermaid
 graph TD
-    CLI["berry-agent CLI<br/>run · sessions · plugins · doors · credentials · serve"]
+    CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["终端 UI"]
     WEB["Web 界面 + /v1/* HTTP"]
     HOST["宿主——装配根<br/>开门制 · 审计时间线 · 预算护栏"]

@@ -250,7 +250,7 @@ function formatReport(deps: UninstallDeps, report: UninstallReport): string {
     `  数据域：${report.dataSizeBytes !== undefined ? `${report.dataSizeBytes} 字节（文件域 + 域表页量 + 域键值）` : '无可测面（缺席非 0）'}——--data keep（缺省）保留 / purge 清除`,
   );
   lines.push(`  受影响会话：装载过该插件的会话 ${report.affectedSessionCounts.count} 个`);
-  lines.push('execute 走 --confirm（人面独占）：berry-agent plugins uninstall <id> --confirm [--data purge]');
+  lines.push('execute 走 --confirm（人面独占）：berry plugins uninstall <id> --confirm [--data purge]');
   return lines.join('\n');
 }
 

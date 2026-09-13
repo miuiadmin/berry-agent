@@ -10,7 +10,7 @@
  *   gated 拒——绝不 spawn 子进程把占位串发往模型）。
  *
  * 修复前两锁必红：装配位 runner = createProcessRunnerFactory → spawn
- * 'berry-agent'（测试环境 PATH 缺席 → ENOENT）→ 行结局 reason 'spawn'
+ * 'berry'（测试环境 PATH 缺席 → ENOENT）→ 行结局 reason 'spawn'
  * ≠ 断言的进程内/分派形态。
  *
  * 纪律：mock 只停在模型层（faux provider）；装载管线/引擎编舞/行管理全真。
@@ -98,7 +98,7 @@ describe('u-2 G0 回归锁：甲案进程内推进（04 §12 定形注①——�
       });
       const outcome = await rig.sched.engine.fireNow('inproc-job', 'clock');
       // 进程内推进：faux 模型真收行内提示词 → completed → exit_code 0
-      //（修复前：spawn 'berry-agent' ENOENT → reason 'spawn' → 红）
+      //（修复前：spawn 'berry' ENOENT → reason 'spawn' → 红）
       expect(outcome.reason).toBe('exit_code');
       expect(outcome.exitCode).toBe(0);
       // 占位锁补强：行 prompt 是经 submitText 入模型的真提示词——streamFn

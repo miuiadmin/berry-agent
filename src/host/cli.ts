@@ -359,8 +359,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
   if (tickName !== undefined && scan.literals.length > 0) {
     return usageFail('--tick 与 message 位置参数互斥（到点形态提示词在 jobs 行内不在 argv）');
   }
-  const msg =
-    tickName !== undefined ? ([] as string[]) : expectArity(scan.literals, 1, 1, 'berry-agent run "<message>"');
+  const msg = tickName !== undefined ? ([] as string[]) : expectArity(scan.literals, 1, 1, 'berry run "<message>"');
   if ('exitCode' in msg) return msg;
   const has = (b: string) => scan.booleans.has(b);
   // 互斥组执法（执法⑤）：--ephemeral × 续接族 + --tick/--background（续接族里 --session/--fork 是取值旗标——判在场看 values）
@@ -426,7 +425,7 @@ function parseServe(rest: readonly string[]): CliParseResult {
     scan.literals,
     0,
     0,
-    'berry-agent serve [--daemon] [--port <n>] [--sdk-port <n>] [--sdk-host <host>]',
+    'berry serve [--daemon] [--port <n>] [--sdk-port <n>] [--sdk-host <host>]',
   );
   if ('exitCode' in arity) return arity;
   // daemon 形专属旗标互斥执法（执法⑤同族）：--sdk-port/--sdk-host 是 daemon 形
@@ -461,14 +460,14 @@ function parsePlugins(rest: readonly string[]): CliParseResult {
     case 'check': {
       const scan = scanFlags(tail, []);
       if (scan.error) return usageFail(scan.error);
-      const arity = expectArity(scan.literals, 0, 0, `berry-agent plugins ${head}`);
+      const arity = expectArity(scan.literals, 0, 0, `berry plugins ${head}`);
       if ('exitCode' in arity) return arity;
       return finish(scan, { kind: 'plugins', sub: { sub: head } });
     }
     case 'install': {
       const scan = scanFlags(tail, INSTALL_SCHEMAS);
       if (scan.error) return usageFail(scan.error);
-      const args = expectArity(scan.literals, 1, 1, 'berry-agent plugins install <ref> [--min-release-age <分钟>]');
+      const args = expectArity(scan.literals, 1, 1, 'berry plugins install <ref> [--min-release-age <分钟>]');
       if ('exitCode' in args) return args;
       const ageRaw = scan.values.get('min-release-age');
       // 非负整数域已由 scanFlags 执法——此处仅 Number 化（CLI > env > 缺省三级缺一）
@@ -485,12 +484,7 @@ function parsePlugins(rest: readonly string[]): CliParseResult {
     case 'uninstall': {
       const scan = scanFlags(tail, UNINSTALL_SCHEMAS);
       if (scan.error) return usageFail(scan.error);
-      const args = expectArity(
-        scan.literals,
-        1,
-        1,
-        'berry-agent plugins uninstall <id> [--confirm] [--data keep|purge]',
-      );
+      const args = expectArity(scan.literals, 1, 1, 'berry plugins uninstall <id> [--confirm] [--data keep|purge]');
       if ('exitCode' in args) return args;
       const dataRaw = scan.values.get('data');
       return finish(scan, {
@@ -509,7 +503,7 @@ function parsePlugins(rest: readonly string[]): CliParseResult {
     case 'update': {
       const scan = scanFlags(tail, []);
       if (scan.error) return usageFail(scan.error);
-      const args = expectArity(scan.literals, 1, 1, `berry-agent plugins ${head} <id>`);
+      const args = expectArity(scan.literals, 1, 1, `berry plugins ${head} <id>`);
       if ('exitCode' in args) return args;
       return finish(scan, { kind: 'plugins', sub: { sub: head, id: args[0] as string } });
     }
@@ -533,9 +527,7 @@ function parseSessions(rest: readonly string[]): CliParseResult {
   }
   const scan = scanFlags(tail, []);
   if (scan.error) return usageFail(scan.error);
-  const usage = zeroArg
-    ? `berry-agent sessions ${head}`
-    : `berry-agent sessions ${head} <${head === 'search' ? 'query' : 'id'}>`;
+  const usage = zeroArg ? `berry sessions ${head}` : `berry sessions ${head} <${head === 'search' ? 'query' : 'id'}>`;
   const args = expectArity(scan.literals, zeroArg ? 0 : 1, zeroArg ? 0 : 1, usage);
   if ('exitCode' in args) return args;
   if (zeroArg) return finish(scan, { kind: 'sessions', sub: { sub: head as 'list' | 'reindex' } });
@@ -562,14 +554,14 @@ function parseCredentials(rest: readonly string[]): CliParseResult {
     case 'list': {
       const scan = scanFlags(tail, []);
       if (scan.error) return usageFail(scan.error);
-      const arity = expectArity(scan.literals, 0, 0, 'berry-agent credentials list');
+      const arity = expectArity(scan.literals, 0, 0, 'berry credentials list');
       if ('exitCode' in arity) return arity;
       return finish(scan, { kind: 'credentials', sub: { sub: 'list' } });
     }
     case 'add': {
       const scan = scanFlags(tail, [NAMESPACE_FLAG]);
       if (scan.error) return usageFail(scan.error);
-      const args = expectArity(scan.literals, 2, 2, 'berry-agent credentials add <name> <value> [--namespace <ns>]');
+      const args = expectArity(scan.literals, 2, 2, 'berry credentials add <name> <value> [--namespace <ns>]');
       if ('exitCode' in args) return args;
       const ns = namespaceOf(scan);
       return finish(scan, {
@@ -585,7 +577,7 @@ function parseCredentials(rest: readonly string[]): CliParseResult {
     case 'rm': {
       const scan = scanFlags(tail, [NAMESPACE_FLAG]);
       if (scan.error) return usageFail(scan.error);
-      const args = expectArity(scan.literals, 1, 1, 'berry-agent credentials rm <name> [--namespace <ns>]');
+      const args = expectArity(scan.literals, 1, 1, 'berry credentials rm <name> [--namespace <ns>]');
       if ('exitCode' in args) return args;
       const ns = namespaceOf(scan);
       return finish(scan, {
@@ -613,7 +605,7 @@ function parseDoors(rest: readonly string[]): CliParseResult {
     case 'list': {
       const scan = scanFlags(tail, []);
       if (scan.error) return usageFail(scan.error);
-      const arity = expectArity(scan.literals, 0, 0, 'berry-agent doors list');
+      const arity = expectArity(scan.literals, 0, 0, 'berry doors list');
       if ('exitCode' in arity) return arity;
       return finish(scan, { kind: 'doors', sub: { sub: 'list' } });
     }
@@ -621,7 +613,7 @@ function parseDoors(rest: readonly string[]): CliParseResult {
     case 'close': {
       const scan = scanFlags(tail, []);
       if (scan.error) return usageFail(scan.error);
-      const args = expectArity(scan.literals, 1, 1, `berry-agent doors ${head} <capability>`);
+      const args = expectArity(scan.literals, 1, 1, `berry doors ${head} <capability>`);
       if ('exitCode' in args) return args;
       return finish(scan, { kind: 'doors', sub: { sub: head, door: args[0] as string } });
     }
@@ -652,7 +644,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     const leading: string[] = head === undefined ? [] : [head];
     const scan = scanFlags([...leading, ...rest], TUI_SCHEMAS);
     if (scan.error) return usageFail(scan.error);
-    const arity = expectArity(scan.literals, 0, 0, 'berry-agent（无参 = TUI 主入口；脚本化用 run/serve）');
+    const arity = expectArity(scan.literals, 0, 0, 'berry（无参 = TUI 主入口；脚本化用 run/serve）');
     if ('exitCode' in arity) return arity;
     const port = scan.values.get('port');
     const command: CliCommand = {
@@ -675,7 +667,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       if (sub === 'status' || sub === 'stop') {
         const scan = scanFlags(tail, []);
         if (scan.error) return usageFail(scan.error);
-        const arity = expectArity(scan.literals, 0, 0, `berry-agent serve ${sub}`);
+        const arity = expectArity(scan.literals, 0, 0, `berry serve ${sub}`);
         if ('exitCode' in arity) return arity;
         return finish(scan, { kind: sub === 'status' ? 'serve-status' : 'serve-stop' });
       }
@@ -684,7 +676,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     case 'mcp': {
       const scan = scanFlags(rest, []);
       if (scan.error) return usageFail(scan.error);
-      const arity = expectArity(scan.literals, 0, 0, 'berry-agent mcp');
+      const arity = expectArity(scan.literals, 0, 0, 'berry mcp');
       if ('exitCode' in arity) return arity;
       return finish(scan, { kind: 'mcp' });
     }
@@ -697,7 +689,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       if (scan.values.has('plugin-file')) {
         return usageFail('--plugin-file 与 dump-config 互斥（诊断保真：:memory: 面须呈现真实装载形，不注入试件行）');
       }
-      const arity = expectArity(scan.literals, 0, 0, 'berry-agent dump-config');
+      const arity = expectArity(scan.literals, 0, 0, 'berry dump-config');
       if ('exitCode' in arity) return arity;
       const port = scan.values.get('port');
       const command: CliCommand = {
@@ -721,7 +713,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     case 'upgrade': {
       const scan = scanFlags(rest, [DEBUG_FLAG]);
       if (scan.error) return usageFail(scan.error);
-      const arity = expectArity(scan.literals, 0, 0, 'berry-agent upgrade');
+      const arity = expectArity(scan.literals, 0, 0, 'berry upgrade');
       if ('exitCode' in arity) return arity;
       return finish(scan, { kind: 'upgrade' });
     }

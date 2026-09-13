@@ -419,13 +419,13 @@ async function runSmoke(tarballPath, version, coreIds) {
       return { ok: false, failures: ['临时 prefix 安装失败：' + (inst.stderr ?? '').split('\n')[0]] };
     const env = { ...process.env, BERRY_AGENT_DATA_DIR: join(smokeDir, 'data') };
     // ① --version：退出码 0 + 结构前缀断言（防 semver 前缀吞 prerelease 漂移）+ 与真值全等
-    const ver = spawnSync(join(prefix, 'bin', 'berry-agent'), ['--version'], { encoding: 'utf8', env });
+    const ver = spawnSync(join(prefix, 'bin', 'berry'), ['--version'], { encoding: 'utf8', env });
     const verOut = (ver.stdout ?? '').trim();
     if (ver.status !== 0) failures.push(`--version 退出码 ${ver.status}`);
     if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(verOut)) failures.push(`--version 非裸 semver：${verOut}`);
     if (verOut !== version) failures.push(`--version ${verOut} ≠ package.json ${version}`);
     // ② dump-config 真握手：官方装载面就绪（core 15 件缺席即红——静默降级收进发布闸）
-    const dump = spawnSync(join(prefix, 'bin', 'berry-agent'), ['dump-config'], { encoding: 'utf8', env });
+    const dump = spawnSync(join(prefix, 'bin', 'berry'), ['dump-config'], { encoding: 'utf8', env });
     if (dump.status !== 0) failures.push(`dump-config 退出码 ${dump.status}`);
     for (const id of coreIds) {
       if (!(dump.stdout ?? '').includes(`"core:${id}"`)) failures.push(`dump-config 缺官方件 core:${id}`);

@@ -25,7 +25,7 @@
 
 ```bash
 # 停常驻宿主（如在场）
-berry-agent serve stop
+berry serve stop
 
 # 整目录打包（主库 + 密钥 + 清单 + 技能一次全备）
 tar czf berry-agent-backup.tar.gz -C ~ .berry-agent
@@ -52,9 +52,9 @@ plugins:
 ## 常驻宿主管理
 
 ```bash
-berry-agent serve --daemon     # 后台守护（unix sock 缺省接入点；--port / --sdk-port 开 TCP 面）
-berry-agent serve status       # 态查询（只读豁免——不占单活跃机）
-berry-agent serve stop         # 停守护
+berry serve --daemon     # 后台守护（unix sock 缺省接入点；--port / --sdk-port 开 TCP 面）
+berry serve status       # 态查询（只读豁免——不占单活跃机）
+berry serve stop         # 停守护
 ```
 
 守护猝死不需要人工清标记——活跃标记随进程亡，下次启动 pid 判死后自动接管。
@@ -65,7 +65,7 @@ berry-agent serve stop         # 停守护
 
 单活跃机执法：同一数据目录同一时刻恰一活跃进程。处置序：
 
-1. `berry-agent serve status` 看是否真有守护在场；
+1. `berry serve status` 看是否真有守护在场；
 2. 确认报错中的 pid 是否存活（`ps -p <pid>`）；
 3. pid 已死 → 直接重启（自动接管，无需清标记）；
 4. 确需双实例并存 → 用 `BERRY_AGENT_DATA_DIR` 分离数据目录。
@@ -73,7 +73,7 @@ berry-agent serve stop         # 停守护
 ### TUI 起不来（疑似坏插件）
 
 ```bash
-berry-agent --no-plugins     # 安全模式：core: 与用户插件全跳过
+berry --no-plugins     # 安全模式：core: 与用户插件全跳过
 ```
 
 起来后修复 enabled.yaml（删坏行或整文件回内置态），再正常启动。
@@ -87,7 +87,7 @@ berry-agent --no-plugins     # 安全模式：core: 与用户插件全跳过
 FTS 索引是派生物（不修不补）：
 
 ```bash
-berry-agent sessions reindex   # 全量重建即修复
+berry sessions reindex   # 全量重建即修复
 ```
 
 ### 模型调用失败

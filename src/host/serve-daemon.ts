@@ -3,7 +3,7 @@
  * daemon/status/stop 三动词 + 02 数据域表 serve/ 行三足迹）。
  *
  * 三动词分职：
- * - **spawner**（`berry-agent serve --daemon`）：spawn 自镜像 detached 子进程
+ * - **spawner**（`berry serve --daemon`）：spawn 自镜像 detached 子进程
  *   （POSIX setsid 族 = Node `detached: true`；stdio stdin/stdout ignore——
  *   daemon 与 stdio 传输互斥〔07 §5〕、stderr 追加重定向 daemon.log）后即退；
  *   起活确认窗内轮询 pid 登记（child 写 pid 才算起活）——child 秒死（撞

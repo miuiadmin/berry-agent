@@ -256,13 +256,13 @@ export default async function apply(ctx) {
 
 ```bash
 # 目录形：插件目录（package.json 清单走与磁盘装机行同判据的完整校验）
-berry-agent --plugin-file ./my-plugin
+berry --plugin-file ./my-plugin
 
 # 单文件形：裸入口文件（.js / .mjs / .ts——宿主合成隐式清单，装载身份恒为保留字 _quick_test）
-berry-agent --plugin-file ./plugin.js
+berry --plugin-file ./plugin.js
 
 # run 单发同样收
-berry-agent run --plugin-file ./my-plugin "试一下新命令"
+berry run --plugin-file ./my-plugin "试一下新命令"
 ```
 
 语义边界：
@@ -273,7 +273,7 @@ berry-agent run --plugin-file ./my-plugin "试一下新命令"
 - **`/reload` 热重载丢试件**：热重载按磁盘真源重建装载计划，试件行不复活——迭代需重进一次旗标；
 - **与 `--no-plugins` 同给安全模式胜**（逃生门不被试件顶掉）；**与 `dump-config` 互斥**（诊断保真——`:memory:` 面须呈现真实装载形）。
 
-试跑满意后的正式装机：`berry-agent plugins install local:<绝对路径>`（enabled.yaml + 装机账本两源落盘）。仓内随包附两形模板：[`examples/minimal-code-plugin/`](../examples/minimal-code-plugin)（代码插件）与 [`examples/pure-skill-pack/`](../examples/pure-skill-pack)（纯技能包）——均可 `--plugin-file` 直接试跑。
+试跑满意后的正式装机：`berry plugins install local:<绝对路径>`（enabled.yaml + 装机账本两源落盘）。仓内随包附两形模板：[`examples/minimal-code-plugin/`](../examples/minimal-code-plugin)（代码插件）与 [`examples/pure-skill-pack/`](../examples/pure-skill-pack)（纯技能包）——均可 `--plugin-file` 直接试跑。
 
 ## 启用与配置
 
@@ -408,7 +408,7 @@ if (!report.ok) throw new Error(formatMatrixReceipt(report)); // 回执即失败
 }
 ```
 
-`berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；用户侧装机动词全在场：`berry-agent plugins install npm:<包名>`（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏；另有 `git:<url>[#<ref>]` 与 `local:<路径>` 两源形，ref 词法详见 [usage.md](usage.md#plugins-插件管理)；TUI `/plugins` 面只承载载态查看与行编辑——装机走 CLI）。装机写入账本与启用行，成功尾提示重载（TUI 行编辑面自动链 `/reload`，CLI 面下次启动生效）。
+`berry-agent-plugin` keyword 是 npm 生态发现键——按此键检索即得插件生态全集。发布常规 npm 包即可；用户侧装机动词全在场：`berry plugins install npm:<包名>`（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏；另有 `git:<url>[#<ref>]` 与 `local:<路径>` 两源形，ref 词法详见 [usage.md](usage.md#plugins-插件管理)；TUI `/plugins` 面只承载载态查看与行编辑——装机走 CLI）。装机写入账本与启用行，成功尾提示重载（TUI 行编辑面自动链 `/reload`，CLI 面下次启动生效）。
 
 发布前清单：
 

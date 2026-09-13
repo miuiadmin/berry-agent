@@ -337,7 +337,7 @@ export interface CorePluginHostDeps {
   readonly schedulerGateFacts?: (row: JobRow) => GateFacts;
   /**
    * run 子进程可执行（批 20c 真 bin 出厂——runner spawn 与 cron 行命令段
-   * 共用单源；装配根解析 env BERRY_AGENT_BIN 注入，缺席 'berry-agent'
+   * 共用单源；装配根解析 env BERRY_AGENT_BIN 注入，缺席 'berry'
    * PATH 名解析——bin 缺席诚实归 spawn_failed 结局）。
    */
   readonly schedulerBinCommand?: string;
@@ -1027,7 +1027,7 @@ export interface SchedulerFace {
  * 批 20c 编舞接线三笔兑现（19c-2 挂账销账）：① GateFacts 宿主三源收集
  * （deps.schedulerGateFacts——装配根闭包单源）② 真 bin 出厂（deps.
  * schedulerBinCommand——runner spawn 与 cron 行命令段单源；缺席
- * 'berry-agent' PATH 名解析，bin 缺席诚实归 spawn_failed）③ cron 乙案开启位
+ * 'berry' PATH 名解析，bin 缺席诚实归 spawn_failed）③ cron 乙案开启位
  * （deps.schedulerCronEnabled——true 时装配 OS cron 注册器 + 装载期既有启用
  * 行对账回填〔per-row try/catch——once 形/不可表达形不炸装载〕）。
  *
@@ -1044,8 +1044,8 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const warn = (message: string) => console.error(message);
       const now = () => new Date().toISOString();
       // 真 bin 单源（批 20c）：runner spawn 命令与 cron 行命令段共用——装配根
-      // 解析 env BERRY_AGENT_BIN 注入；缺席 'berry-agent' PATH 名解析
-      const binCommand = deps.schedulerBinCommand ?? 'berry-agent';
+      // 解析 env BERRY_AGENT_BIN 注入；缺席 'berry' PATH 名解析
+      const binCommand = deps.schedulerBinCommand ?? 'berry';
       // cron 乙案开启位（批 20c）：env BERRY_AGENT_CRON=1 显式置值即人面授权链
       // 的 env 形（写系统 crontab 的授权凭据）——authorize 恒 true 的凭据在
       // 装配根的 env 判定本身，此处不再二次盘问；缺席 = 纯进程内挂钟。

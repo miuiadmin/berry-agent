@@ -42,7 +42,7 @@ export interface CronBackendDeps {
   platform?: NodeJS.Platform;
   /** 人面授权链（缺省缺席 = 未授权——写操作亮拒不猜） */
   authorize?: () => boolean;
-  /** berry-agent 可执行（crontab 行命令段；缺省 'berry-agent'——PATH 名） */
+  /** berry 可执行（crontab 行命令段；缺省 'berry'——PATH 名） */
   command?: string;
   /** crontab 执行器（缺省 spawnSync 真身；测试注入） */
   execCrontab?: (args: string[], input?: string) => CrontabResult;
@@ -99,7 +99,7 @@ export function scheduleToCron(s: Schedule): string {
 /** OS crontab 注册器实装（同步编舞——联动契约见头注） */
 export function createOsCronRegistrar(deps: CronBackendDeps = {}): CronRegistrar {
   const platform = deps.platform ?? process.platform;
-  const command = deps.command ?? 'berry-agent';
+  const command = deps.command ?? 'berry';
   const exec = deps.execCrontab ?? execCrontabViaSpawnSync;
 
   /** 平台前置（两动词同判——win32 无 crontab 生态，读写皆不可为） */

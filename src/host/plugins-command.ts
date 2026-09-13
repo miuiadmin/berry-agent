@@ -35,7 +35,7 @@ export const PLUGINS_CMD_USAGE = `/plugins list | mount <id> | unmount <id> | to
   unmount <id>        卸下（装机保留——成功尾自动链 /reload）
   toggle <id>         禁用态翻转（成功尾自动链 /reload）
   config <id>         配置表单（configSchema 逐字段问答——secret 入凭证盒）
-（install/uninstall/update 走 CLI：berry-agent plugins <sub>——03 §5.8 三面同源）`;
+（install/uninstall/update 走 CLI：berry plugins <sub>——03 §5.8 三面同源）`;
 
 /** 结算形（ok 位留 CLI 对等面/测试分档；TUI 装配面只消费 text） */
 export interface PluginsCommandOutcome {

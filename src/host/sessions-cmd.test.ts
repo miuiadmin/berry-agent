@@ -329,7 +329,7 @@ describe('sessions fork（全装配——与 run --fork / TUI fork 同机）', (
     const newId = /已分叉：(\S+)/.exec(text)![1]!;
     expect(newId).not.toBe(sourceId);
     expect(text).toContain(`源会话 ${sourceId}`);
-    expect(text).toContain(`续接：berry-agent sessions resume ${newId}`);
+    expect(text).toContain(`续接：berry sessions resume ${newId}`);
 
     // 库面验证：血缘三元组 + 种子事件（createSeededSession 同步落库——id 必
     // 可读）。探针锚定 dataDir（与装配面同解析——库文件路径随显式 dataDir）

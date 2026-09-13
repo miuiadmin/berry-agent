@@ -3,11 +3,11 @@
  *
  * 试跑（零装机——装载计划纯内存注入 `_quick_test` 行，退出即消失）：
  *
- *     berry-agent --plugin-file ./examples/minimal-code-plugin
+ *     berry --plugin-file ./examples/minimal-code-plugin
  *
  * 装机（正式安装进数据目录——enabled.yaml + 装机账本两源落盘）：
  *
- *     berry-agent plugins install local:$(pwd)/examples/minimal-code-plugin
+ *     berry plugins install local:$(pwd)/examples/minimal-code-plugin
  *
  * 契约要点（03 篇 §1.2/§2.2）：
  * - 入口 = default export 的 async 函数（ctx = 插件上下文；返回清理函数即

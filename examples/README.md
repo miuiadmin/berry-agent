@@ -12,14 +12,14 @@ testkit 断言矩阵的 fixture（对真模板跑全绿）。
 
 ```bash
 # 代码插件——注册 /example-hello 命令
-berry-agent --plugin-file ./examples/minimal-code-plugin
+berry --plugin-file ./examples/minimal-code-plugin
 
 # 纯技能包——装载 markdown-table 技能
-berry-agent --plugin-file ./examples/pure-skill-pack
+berry --plugin-file ./examples/pure-skill-pack
 ```
 
 `--plugin-file` 为纯内存注入（装载计划 `_quick_test` 行，退出即消失——
-enabled.yaml 与装机账本零落盘）；正式装机走 `berry-agent plugins install
+enabled.yaml 与装机账本零落盘）；正式装机走 `berry plugins install
 local:<绝对路径>`。
 
 更多面（工具/凭证/HTTP 路由/跨会话操控/配置声明/测试与发布……）见

@@ -35,7 +35,7 @@ export const APPROVAL_USAGE = `/approval [status] | entries | explain <tool> [pa
   entries                策略表全列（活体现读 tool-policy.json——装配期快照外的当前真身）
   explain <tool> [pattern]  真裁决干跑（守门行同一 matchToolPolicy）：fs 族须带路径前缀参数、bash 须带命令原文、整名族三档并列
   preset <名>            预设写盘（conservative|balanced|open——settings.json 两键 + 建议集 append；下次启动/新装配生效）
-（CLI 面无本命令——「berry-agent run --preset <名>」为逐次生效不写盘）`;
+（CLI 面无本命令——「berry run --preset <名>」为逐次生效不写盘）`;
 
 /** 子命令形（TUI parseApprovalArgv 产物——tagged union） */
 export type ApprovalSub =

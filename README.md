@@ -42,7 +42,7 @@ the same surface; there is no first-class private lane.
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Unattended by design**        | Goal-driven runs that keep going — soak-tested for hours and verified to recover after a hard `kill -9`. Less human intervention, full autonomy as the goal.                            |
 | **Everything is a plugin**      | Shell, skills, web fetch, cron, goals, sub-agents, checkpoints, memory, MCP, LSP, browser, web UI… all 16 official capabilities mount through the same surface your own extensions use. |
-| **Capability doors, not vibes** | Dangerous capabilities sit behind explicit doors — `berry-agent doors list` shows each one's state. Installing a plugin never implies granting it permissions.                          |
+| **Capability doors, not vibes** | Dangerous capabilities sit behind explicit doors — `berry doors list` shows each one's state. Installing a plugin never implies granting it permissions.                          |
 | **Model-agnostic**              | Anthropic, OpenAI, Google and more behind one interface. Switch with one env var, no code changes, no lock-in.                                                                          |
 | **Sessions you can trust**      | Every session lives in SQLite — fork, resume, search, reindex. A runtime assertion guarantees that what the model saw is exactly what got recorded.                                     |
 | **Three automation surfaces**   | Terminal UI for driving, Web UI + `/v1/*` HTTP for supervising, SDK & MCP for programs — one agent, every kind of consumer.                                                             |
@@ -64,14 +64,16 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent
 sh install.sh
 ```
 
+Once installed, the command is **`berry`**:
+
 ```bash
-berry-agent                    # TUI: jump straight into a conversation (continues the latest session in the current directory)
-berry-agent run "one shot"     # single execution → stdout
-berry-agent sessions list      # sessions: list / resume / fork / search / reindex
-berry-agent plugins list       # plugins: list / check / install / uninstall / mount / unmount / toggle / update
-berry-agent credentials list   # credentials: add / list / rm (the TUI also has an OAuth flow)
-berry-agent doors list         # capability-door state (read-only)
-berry-agent serve --port 7860  # resident host: Web UI + /v1/* programmatic surface
+berry                    # TUI: jump straight into a conversation (continues the latest session in the current directory)
+berry run "one shot"     # single execution → stdout
+berry sessions list      # sessions: list / resume / fork / search / reindex
+berry plugins list       # plugins: list / check / install / uninstall / mount / unmount / toggle / update
+berry credentials list   # credentials: add / list / rm (the TUI also has an OAuth flow)
+berry doors list         # capability-door state (read-only)
+berry serve --port 7860  # resident host: Web UI + /v1/* programmatic surface
 ```
 
 The first run creates `~/.berry-agent/`. The default model is `anthropic/claude-sonnet-5`
@@ -107,12 +109,12 @@ Writing your own: a plugin is a manifest plus one entry file — see the
 
 ## Automation channels
 
-- **HTTP** — `berry-agent serve` starts a resident host with the Web UI and a
+- **HTTP** — `berry serve` starts a resident host with the Web UI and a
   versioned, bearer-authenticated `/v1/*` JSON API; `serve --daemon` runs it in the
   background (`serve status` / `serve stop`).
 - **SDK** — a typed TypeScript client (stdio spawn or direct HTTP) lives in the
   repository; the `berry-agent-sdk` npm package lands with the beta.
-- **MCP** — `berry-agent mcp` exposes the agent as an MCP server, so any MCP
+- **MCP** — `berry mcp` exposes the agent as an MCP server, so any MCP
   client can drive it.
 
 ## Architecture
@@ -124,7 +126,7 @@ modules form a one-way DAG — the direction of every dependency is
 
 ```mermaid
 graph TD
-    CLI["berry-agent CLI<br/>run · sessions · plugins · doors · credentials · serve"]
+    CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["Terminal UI"]
     WEB["Web UI + /v1/* HTTP"]
     HOST["Host — assembly root<br/>capability doors · audit timeline · budgets"]

@@ -71,9 +71,9 @@ export interface DispatchEnv {
 }
 
 /** 帮助文案（07 §5 命令族定名块单源摘编——自包含不外指） */
-export const HELP_TEXT = `berry-agent — 单一可扩展的个人 Agent
+export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
 
-用法：berry-agent [命令] [旗标]
+用法：berry [命令] [旗标]
 
 命令：
   （无参）                TUI 主入口：直进对话
@@ -130,7 +130,7 @@ export async function dispatchCli(
   // TUI 入口非 TTY 卫兵（07 §5 单源：stdin 或 stdout 非 TTY 即触发）
   if (command.kind === 'tui' && (!env.stdinIsTTY || !env.stdoutIsTTY)) {
     env.writeErr(
-      '非交互环境（stdin/stdout 非 TTY）——无参 TUI 主入口不适用于管道/CI；改用 `berry-agent run "<message>"` 单发或 `berry-agent serve` 常驻。',
+      '非交互环境（stdin/stdout 非 TTY）——无参 TUI 主入口不适用于管道/CI；改用 `berry run "<message>"` 单发或 `berry serve` 常驻。',
     );
     return 2;
   }

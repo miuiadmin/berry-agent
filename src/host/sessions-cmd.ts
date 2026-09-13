@@ -197,7 +197,7 @@ async function runResume(options: SessionsEntryOptions, id: string): Promise<num
   const stdoutIsTTY = options.stdoutIsTTY ?? processStdout.isTTY === true;
   if (!stdinIsTTY || !stdoutIsTTY) {
     err(
-      '非交互环境（stdin/stdout 非 TTY）——sessions resume 进 TUI 不适用于管道/CI；单发续接改用 `berry-agent run --session <id> "<message>"`。',
+      '非交互环境（stdin/stdout 非 TTY）——sessions resume 进 TUI 不适用于管道/CI；单发续接改用 `berry run --session <id> "<message>"`。',
     );
     return 2;
   }
@@ -264,7 +264,7 @@ async function runFork(options: SessionsEntryOptions, id: string): Promise<numbe
     }
     out(`已分叉：${forked.sessionId}`);
     out(`  源会话 ${id}（种子 ${forked.lineage.seedLength} 事件）`);
-    out(`  续接：berry-agent sessions resume ${forked.sessionId}`);
+    out(`  续接：berry sessions resume ${forked.sessionId}`);
     return 0;
   } finally {
     await assembly.runtime.shutdown();

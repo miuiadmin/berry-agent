@@ -85,7 +85,7 @@ describe('spawn 请求形', () => {
       string[],
       { cwd?: string; detached?: boolean },
     ];
-    expect(cmd).toBe('berry-agent');
+    expect(cmd).toBe('berry');
     expect(argv).toEqual(['run', '--read-only', '--tick', 'daily-review']);
     expect(options.cwd).toBe('/tmp');
     expect(options.detached).toBe(true);
@@ -172,7 +172,7 @@ describe('结局分类', () => {
 });
 
 describe('TERM→KILL 升级（真 node 子进程腿——本地零外联）', () => {
-  /** 真进程装配：node -e <脚本>（绕开缺席的 berry-agent bin） */
+  /** 真进程装配：node -e <脚本>（绕开缺席的 berry bin） */
   function nodeRunner(script: string, killGraceMs: number) {
     return {
       runner: createProcessRunnerFactory({

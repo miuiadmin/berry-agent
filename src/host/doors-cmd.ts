@@ -8,7 +8,7 @@
  *  - **TUI 面**（assembly 直挂——与 /reload、/plugins 同位，机制宿主有、
  *    不随插件换代卸除）：三动词全量——list 只读 + open/close 写动词（写回
  *    段 + 落 `doors/updated` origin 'tui-cmd' + 生效时点诚实回执）；
- *  - **CLI 面**（`berry-agent doors <sub>`——runDoorsEntry）：list 只读
+ *  - **CLI 面**（`berry doors <sub>`——runDoorsEntry）：list 只读
  *    受理；open/close **语义拒退 1**（合法解析形非用法错——解析层照常受理，
  *    执行层诚实指路文件直编）。零装配零库纯文件读（不 boot 插件面、不开
  *    Persistence——段在文件不在库）。
@@ -177,7 +177,7 @@ export interface DoorsEntryOptions {
 }
 
 /**
- * `berry-agent doors <sub>` CLI 入口（07 §5 定名——list 只读 v1 进、写动词
+ * `berry doors <sub>` CLI 入口（07 §5 定名——list 只读 v1 进、写动词
  * 语义拒）。零装配零库纯文件读：不开运行时、不占单活跃机标记、不 boot
  * 插件面、不开 Persistence（与 credentials-cmd 直开库分立点——doors 真源
  * 恒文件）。退出码：0 成功（含空集诚实呈现）/ 1 执行失败或写动词语义拒 /

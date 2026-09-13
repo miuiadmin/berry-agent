@@ -1,5 +1,5 @@
 /**
- * 任务执行 runner（04 §12：任务执行入口 = `berry-agent run --read-only`
+ * 任务执行 runner（04 §12：任务执行入口 = `berry run --read-only`
  * ——headless 无应答者、审批天然 fail-closed〔§9 无静默审批单发形〕）。
  *
  * 两层：RunnerFactory 接缝（引擎只认接缝——spawn 编舞装配可换、测试注假件）
@@ -39,7 +39,7 @@ export interface RunnerFactory {
 
 /** 进程实装装配面（全注入缺省真身——测试注假件零进程） */
 export interface ProcessRunnerOptions {
-  /** berry-agent 可执行（缺省 'berry-agent'——PATH 解析；装配批可指绝对径） */
+  /** berry 可执行（缺省 'berry'——PATH 解析；装配批可指绝对径） */
   command?: string;
   /** argv 构造（缺省 run --read-only --tick <名>；装配批可换形） */
   buildArgv?: (row: JobRow, trigger: TriggerKind) => string[];
@@ -65,7 +65,7 @@ const OUTPUT_TAIL_BYTES = 4096;
  * assistant 文本——07 §5；尾窗即足）；stderr 尾窗作错误摘要源。
  */
 export function createProcessRunnerFactory(options: ProcessRunnerOptions = {}): RunnerFactory {
-  const command = options.command ?? 'berry-agent';
+  const command = options.command ?? 'berry';
   const buildArgv = options.buildArgv ?? ((row: JobRow) => ['run', '--read-only', '--tick', row.name]);
   const spawnFn = options.spawnFn ?? spawn;
   const killGraceMs = options.killGraceMs ?? 5_000;

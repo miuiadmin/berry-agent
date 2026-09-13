@@ -13,11 +13,12 @@ set -eu
 warn() { printf '%s\n' "$*" >&2; }
 
 # ---------- 程序卸载 ----------
-if command -v berry-agent >/dev/null 2>&1; then
+# 兼容两代命令名：改裁前的装机 bin 名是 berry-agent（npm 升级自动换链，旧链在场即旧装机）
+if command -v berry >/dev/null 2>&1 || command -v berry-agent >/dev/null 2>&1; then
   printf '==> 卸载 npm 全局包 berry-agent……\n'
   npm rm -g berry-agent
 else
-  warn '未发现 berry-agent 命令（跳过程序卸载）。'
+  warn '未发现 berry 命令（跳过程序卸载）。'
 fi
 warn '源码形态安装：直接删除 clone 目录即可，无需本脚本。'
 

@@ -3,7 +3,7 @@
  * c-5 落码批）。
  *
  * 双面共享底座：TUI `/credentials`（core-plugins 注册——argv 面）与 CLI
- * `berry-agent credentials`（cli.ts 解析产物 CredentialsSub 直入）同源本件
+ * `berry credentials`（cli.ts 解析产物 CredentialsSub 直入）同源本件
  * ——动词语义/值域执法/结算文本单源，两面只差投递形（notify vs stdout）。
  * 形态律同 /tick /memory-export（命令件先例）：argv → 人读文本；服务面守卫
  * 错（BaseError）折文本不抛——命令面是用户面不是异常面。

@@ -53,7 +53,7 @@
 ## 运行时骨架
 
 ```
-bin (berry-agent) → host/main
+bin (berry) → host/main
   ├─ 崩溃/信号编舞（crash.log 取证、SIGINT②/SIGTERM 优雅序）
   ├─ parseCli + dispatchCli（用法错退 2 / help·version 短路 / 非 TTY 卫兵退 2）
   └─ 五入口

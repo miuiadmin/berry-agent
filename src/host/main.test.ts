@@ -30,7 +30,7 @@ function rig(name: string): {
   mkdirSync(sub);
   const realPath = join(sub, name);
   writeFileSync(realPath, '#!/usr/bin/env node\n');
-  // bin 符号链接形（npm 单 bin 装机即此形：prefix/bin/berry-agent → 包内 main.js）
+  // bin 符号链接形（npm 单 bin 装机即此形：prefix/bin/berry → 包内 main.js）
   const fileLink = join(dir, `${name}.link`);
   symlinkSync(realPath, fileLink);
   // 目录链接环节形（路径中间环节是符号链接——/tmp、/var、shim 目录）

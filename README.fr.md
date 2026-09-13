@@ -43,7 +43,7 @@ de montage ; il n'existe aucune voie privée de premier parti.
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Autonome par conception**                  | Des exécutions pilotées par objectif qui ne s'arrêtent pas — testées en continu pendant des heures, récupération vérifiée après un `kill -9`. Moins d'intervention humaine, l'autonomie complète pour objectif.            |
 | **Tout est plugin**                          | Shell, compétences, récupération web, cron, objectifs, sous-agents, points de contrôle, mémoire, MCP, LSP, navigateur, interface web… les 16 capacités officielles passent par la même surface que vos propres extensions. |
-| **Des portes de capacité, rien d'implicite** | Les capacités dangereuses vivent derrière des portes explicites — `berry-agent doors list` affiche l'état de chacune. Installer un plugin n'implique jamais l'octroi de permissions.                                       |
+| **Des portes de capacité, rien d'implicite** | Les capacités dangereuses vivent derrière des portes explicites — `berry doors list` affiche l'état de chacune. Installer un plugin n'implique jamais l'octroi de permissions.                                       |
 | **Agnostique du modèle**                     | Anthropic, OpenAI, Google et d'autres derrière une seule interface. Changez de modèle avec une variable d'environnement, sans toucher au code, sans enfermement.                                                           |
 | **Des sessions fiables**                     | Chaque session vit dans SQLite — fork, resume, search, reindex. Une assertion à l'exécution garantit que ce que le modèle a vu est exactement ce qui a été enregistré.                                                     |
 | **Trois surfaces d'automatisation**          | L'interface terminale pour piloter, l'interface web + HTTP `/v1/*` pour superviser, SDK & MCP pour les programmes — un seul agent, tous les consommateurs.                                                                 |
@@ -65,14 +65,16 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent
 sh install.sh
 ```
 
+Une fois installé, la commande est **`berry`** :
+
 ```bash
-berry-agent                    # TUI : plongez directement dans la conversation (reprend la dernière session du répertoire courant)
-berry-agent run "one-shot"     # exécution unique → stdout
-berry-agent sessions list      # sessions : list / resume / fork / search / reindex
-berry-agent plugins list       # plugins : list / check / install / uninstall / mount / unmount / toggle / update
-berry-agent credentials list   # identifiants : add / list / rm (le TUI propose aussi un flux OAuth)
-berry-agent doors list         # état des portes de capacité (lecture seule)
-berry-agent serve --port 7860  # hôte résident : interface web + surface programmatique /v1/*
+berry                    # TUI : plongez directement dans la conversation (reprend la dernière session du répertoire courant)
+berry run "one-shot"     # exécution unique → stdout
+berry sessions list      # sessions : list / resume / fork / search / reindex
+berry plugins list       # plugins : list / check / install / uninstall / mount / unmount / toggle / update
+berry credentials list   # identifiants : add / list / rm (le TUI propose aussi un flux OAuth)
+berry doors list         # état des portes de capacité (lecture seule)
+berry serve --port 7860  # hôte résident : interface web + surface programmatique /v1/*
 ```
 
 Le premier lancement crée `~/.berry-agent/`. Le modèle par défaut est
@@ -109,12 +111,12 @@ Tous activés par défaut ; chacun peut être désactivé individuellement.
 
 ## Canaux d'automatisation
 
-- **HTTP** — `berry-agent serve` démarre un hôte résident avec l'interface web et
+- **HTTP** — `berry serve` démarre un hôte résident avec l'interface web et
   une API JSON `/v1/*` versionnée et authentifiée par bearer ; `serve --daemon`
   le lance en arrière-plan (`serve status` / `serve stop`).
 - **SDK** — un client TypeScript typé (spawn stdio ou HTTP direct) vit dans le
   dépôt ; le paquet npm `berry-agent-sdk` arrive avec la bêta.
-- **MCP** — `berry-agent mcp` expose l'agent comme serveur MCP, pilotable par
+- **MCP** — `berry mcp` expose l'agent comme serveur MCP, pilotable par
   n'importe quel client MCP.
 
 ## Architecture
@@ -127,7 +129,7 @@ machine](./docs/architecture.md) (en chinois).
 
 ```mermaid
 graph TD
-    CLI["berry-agent CLI<br/>run · sessions · plugins · doors · credentials · serve"]
+    CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["Interface terminale"]
     WEB["Interface web + HTTP /v1/*"]
     HOST["Hôte — racine d'assemblage<br/>portes de capacité · chronique d'audit · budgets"]

@@ -1,5 +1,5 @@
 /**
- * host/run-entry — `berry-agent run` 单次执行入口装配（批 20b；07 §5 run
+ * host/run-entry — `berry run` 单次执行入口装配（批 20b；07 §5 run
  * 权威条文全量兑现）。
  *
  * 定位：CLI 单发的薄编舞层——装配公共段（assembly——与 TUI/serve 同一合成

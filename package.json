@@ -14,7 +14,7 @@
   },
   "homepage": "https://github.com/miuiadmin/berry-agent#readme",
   "bin": {
-    "berry-agent": "./dist/host/main.js"
+    "berry": "./dist/host/main.js"
   },
   "exports": {
     ".": {

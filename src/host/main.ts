@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * host/main — bin 入口装配位（package.json bin = berry-agent → dist/host/main.js）。
+ * host/main — bin 入口装配位（package.json bin = berry → dist/host/main.js）。
  *
  * 薄壳三件事：装崩溃编舞（前置窗口直写 crash.log——运行时组装后切
  * runtime.writeCrashLog）→ 装信号编舞（SIGINT②→130 / SIGTERM 优雅序——

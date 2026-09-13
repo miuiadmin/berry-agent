@@ -43,7 +43,7 @@ existe ninguna vía privada de primer partido.
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Autónomo por diseño**                  | Ejecuciones guiadas por objetivos que no se detienen — probadas en soak durante horas y con recuperación verificada tras un `kill -9`. Menos intervención humana, autonomía total como meta.                     |
 | **Todo es un plugin**                    | Shell, habilidades, fetch web, cron, objetivos, subagentes, checkpoints, memoria, MCP, LSP, navegador, interfaz web… las 16 capacidades oficiales se montan por la misma superficie que tus propias extensiones. |
-| **Puertas de capacidad, no intuiciones** | Las capacidades peligrosas viven detrás de puertas explícitas — `berry-agent doors list` muestra el estado de cada una. Instalar un plugin nunca implica concederle permisos.                                    |
+| **Puertas de capacidad, no intuiciones** | Las capacidades peligrosas viven detrás de puertas explícitas — `berry doors list` muestra el estado de cada una. Instalar un plugin nunca implica concederle permisos.                                    |
 | **Agnóstico del modelo**                 | Anthropic, OpenAI, Google y más detrás de una sola interfaz. Cambia de modelo con una variable de entorno, sin tocar código, sin encerrarse.                                                                     |
 | **Sesiones de fiar**                     | Cada sesión vive en SQLite — fork, resume, search, reindex. Una aserción en tiempo de ejecución garantiza que lo que el modelo vio es exactamente lo que quedó registrado.                                       |
 | **Tres superficies de automatización**   | La terminal para conducir, la interfaz web + HTTP `/v1/*` para supervisar, SDK y MCP para programas — un solo agente para todo tipo de consumidores.                                                             |
@@ -65,14 +65,16 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent
 sh install.sh
 ```
 
+Una vez instalado, el comando es **`berry`**:
+
 ```bash
-berry-agent                    # TUI: entra directamente en conversación (retoma la última sesión del directorio actual)
-berry-agent run "tarea única"  # ejecución única → stdout
-berry-agent sessions list      # sesiones: list / resume / fork / search / reindex
-berry-agent plugins list       # plugins: list / check / install / uninstall / mount / unmount / toggle / update
-berry-agent credentials list   # credenciales: add / list / rm (la TUI también tiene flujo OAuth)
-berry-agent doors list         # estado de las puertas de capacidad (solo lectura)
-berry-agent serve --port 7860  # host residente: interfaz web + superficie programática /v1/*
+berry                    # TUI: entra directamente en conversación (retoma la última sesión del directorio actual)
+berry run "tarea única"  # ejecución única → stdout
+berry sessions list      # sesiones: list / resume / fork / search / reindex
+berry plugins list       # plugins: list / check / install / uninstall / mount / unmount / toggle / update
+berry credentials list   # credenciales: add / list / rm (la TUI también tiene flujo OAuth)
+berry doors list         # estado de las puertas de capacidad (solo lectura)
+berry serve --port 7860  # host residente: interfaz web + superficie programática /v1/*
 ```
 
 El primer arranque crea `~/.berry-agent/`. El modelo por defecto es
@@ -109,12 +111,12 @@ Escribe el tuyo: un plugin es un manifiesto más un archivo de entrada — consu
 
 ## Canales de automatización
 
-- **HTTP** — `berry-agent serve` arranca un host residente con la interfaz web y
+- **HTTP** — `berry serve` arranca un host residente con la interfaz web y
   una API JSON `/v1/*` versionada y autenticada por bearer; `serve --daemon` lo
   ejecuta en segundo plano (`serve status` / `serve stop`).
 - **SDK** — un cliente TypeScript tipado (spawn stdio o HTTP directo) vive en el
   repositorio; el paquete npm `berry-agent-sdk` llega con la beta.
-- **MCP** — `berry-agent mcp` expone el agente como servidor MCP, para que
+- **MCP** — `berry mcp` expone el agente como servidor MCP, para que
   cualquier cliente MCP pueda conducirlo.
 
 ## Arquitectura
@@ -126,7 +128,7 @@ de cada dependencia está [impuesta por máquina](./docs/architecture.md) (en ch
 
 ```mermaid
 graph TD
-    CLI["berry-agent CLI<br/>run · sessions · plugins · doors · credentials · serve"]
+    CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["Interfaz de terminal"]
     WEB["Interfaz web + HTTP /v1/*"]
     HOST["Host — raíz de ensamblaje<br/>puertas de capacidad · cronología de auditoría · presupuestos"]

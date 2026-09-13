@@ -851,7 +851,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                 lastFireAt: row.lastFireAt,
                 canAfford: stack.llm.canAfford('background'),
               }),
-              // 真 bin 出厂（BERRY_AGENT_BIN env 载体——缺席 'berry-agent'
+              // 真 bin 出厂（BERRY_AGENT_BIN env 载体——缺席 'berry'
               // PATH 名解析归件内缺省）
               ...(env.BERRY_AGENT_BIN !== undefined && env.BERRY_AGENT_BIN !== ''
                 ? { schedulerBinCommand: env.BERRY_AGENT_BIN }

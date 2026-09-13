@@ -42,7 +42,7 @@
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **무인운용 설계**         | 목표 기반 실행이 멈추지 않습니다 — 시간 단위 soak 테스트와 `kill -9` 강제 종료 후 복구 검증 완료. 개입은 줄이고, 완전 자율화가 목표입니다.             |
 | **모든 것이 플러그인**    | 셸, 스킬, 웹 페치, cron, 목표, 서브에이전트, 체크포인트, 메모리, MCP, LSP, 브라우저, 웹 UI… 16개 공식 기능이 여러분의 확장과 같은 장착면을 사용합니다. |
-| **감이 아닌 역량 게이트** | 위험한 기능은 명시적 게이트 뒤에 있습니다 — `berry-agent doors list`로 각 상태를 확인하세요. 플러그인 설치는 권한 부여를 의미하지 않습니다.            |
+| **감이 아닌 역량 게이트** | 위험한 기능은 명시적 게이트 뒤에 있습니다 — `berry doors list`로 각 상태를 확인하세요. 플러그인 설치는 권한 부여를 의미하지 않습니다.            |
 | **모델 독립적**           | Anthropic, OpenAI, Google 등이 하나의 인터페이스 뒤에 있습니다. 환경변수 하나로 모델 교체, 코드 변경 없음, 락인 없음.                                  |
 | **신뢰할 수 있는 세션**   | 모든 세션은 SQLite에 저장 — fork, resume, search, reindex. 런타임 어설션이 "모델이 본 것 = 기록된 것"을 보장합니다.                                    |
 | **세 가지 자동화 표면**   | 구동하는 터미널 UI, 감독하는 웹 UI + `/v1/*` HTTP, 프로그램을 위한 SDK & MCP — 하나의 에이전트로 모든 소비자를 수용합니다.                             |
@@ -64,14 +64,16 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent
 sh install.sh
 ```
 
+설치 후 명령어는 **`berry`**입니다:
+
 ```bash
-berry-agent                    # TUI: 바로 대화 시작 (현재 디렉터리의 최신 세션 이어가기)
-berry-agent run "원샷 실행"     # 단일 실행 → stdout
-berry-agent sessions list      # 세션: list / resume / fork / search / reindex
-berry-agent plugins list       # 플러그인: list / check / install / uninstall / mount / unmount / toggle / update
-berry-agent credentials list   # 자격증명: add / list / rm (TUI에는 OAuth 흐름도 있음)
-berry-agent doors list         # 역량 게이트 상태 (읽기 전용)
-berry-agent serve --port 7860  # 상주 호스트: 웹 UI + /v1/* 프로그래밍 표면
+berry                    # TUI: 바로 대화 시작 (현재 디렉터리의 최신 세션 이어가기)
+berry run "원샷 실행"     # 단일 실행 → stdout
+berry sessions list      # 세션: list / resume / fork / search / reindex
+berry plugins list       # 플러그인: list / check / install / uninstall / mount / unmount / toggle / update
+berry credentials list   # 자격증명: add / list / rm (TUI에는 OAuth 흐름도 있음)
+berry doors list         # 역량 게이트 상태 (읽기 전용)
+berry serve --port 7860  # 상주 호스트: 웹 UI + /v1/* 프로그래밍 표면
 ```
 
 첫 실행 시 `~/.berry-agent/`가 생성됩니다. 기본 모델은
@@ -107,12 +109,12 @@ berry-agent serve --port 7860  # 상주 호스트: 웹 UI + /v1/* 프로그래�
 
 ## 자동화 채널
 
-- **HTTP** — `berry-agent serve`는 웹 UI와 버전 관리되는 Bearer 인증 `/v1/*`
+- **HTTP** — `berry serve`는 웹 UI와 버전 관리되는 Bearer 인증 `/v1/*`
   JSON API를 갖춘 상주 호스트를 시작합니다; `serve --daemon`으로 백그라운드
   실행 (`serve status` / `serve stop`).
 - **SDK** — 타입스크립트 클라이언트(stdio 스폰 또는 직접 HTTP)가 저장소에
   포함되어 있습니다; `berry-agent-sdk` npm 패키지는 베타와 함께 출시됩니다.
-- **MCP** — `berry-agent mcp`는 에이전트를 MCP 서버로 노출하여 모든 MCP
+- **MCP** — `berry mcp`는 에이전트를 MCP 서버로 노출하여 모든 MCP
   클라이언트가 구동할 수 있습니다.
 
 ## 아키텍처
@@ -123,7 +125,7 @@ berry-agent serve --port 7860  # 상주 호스트: 웹 UI + /v1/* 프로그래�
 
 ```mermaid
 graph TD
-    CLI["berry-agent CLI<br/>run · sessions · plugins · doors · credentials · serve"]
+    CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["터미널 UI"]
     WEB["웹 UI + /v1/* HTTP"]
     HOST["호스트 — 어셈블리 루트<br/>역량 게이트 · 감사 타임라인 · 예산 가드레일"]

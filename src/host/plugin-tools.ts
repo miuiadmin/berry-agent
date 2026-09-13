@@ -263,7 +263,7 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
         '插件卸载预检（只读零副作用——§5.5 UninstallReport 全量呈报将删项：启用' +
         '行/装机物/域表/store_state 域键/数据域体量）。卸载执行（--confirm 两段式）' +
         '是人面独占动词——模型面只到 inspect 为止，执行指路 CLI：' +
-        'berry-agent plugins uninstall <id> --confirm [--data purge]。',
+        'berry plugins uninstall <id> --confirm [--data purge]。',
       parameters: Type.Object(
         { id: Type.String({ description: '装机插件 id（core: 前缀非 uninstall 对象）' }) },
         { additionalProperties: false },

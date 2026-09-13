@@ -16,7 +16,7 @@ sh install.sh
 ```
 
 > 不要写成 `curl … | sh` 管道直灌：连接中段断裂时 shell 会执行半截脚本。
-> 脚本依次做：Node ≥ 24 检查 → `npm install -g berry-agent` → `berry-agent --version` 验证 → 欢迎横幅；失败时给出排查建议（权限 / 网络）。
+> 脚本依次做：Node ≥ 24 检查 → `npm install -g berry-agent` → `berry --version` 验证 → 欢迎横幅；失败时给出排查建议（权限 / 网络）。
 
 **路二：npm 直接安装**：
 
@@ -64,7 +64,7 @@ export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 pr
 ## 入口命令族
 
 ```
-berry-agent [命令] [旗标]
+berry [命令] [旗标]
 ```
 
 | 命令                | 作用                                                                                                                                                                                      |
@@ -84,15 +84,11 @@ berry-agent [命令] [旗标]
 
 通用旗标：`--help` / `--version` 全入口收；`--debug`（日志提级）主入口族收（无参 TUI / `run` / `serve` / `dump-config`）——子命令族（plugins/sessions/credentials/doors/mcp）不设此旗标，传入即用法错退 2。`--port <n>` TUI / run / serve / dump-config 收（dump-config 忽略不起监听）；`--no-plugins` 安全模式不入自动化入口 serve / mcp；`--plugin-file <path>` 快速试件（插件目录或单文件入口 `.js`/`.mjs`/`.ts`——纯内存注入试件行，退出即消失零落盘；TUI / run 收，`dump-config` 互斥拒）。
 
-### 快捷别名（可选）
+### 命令名与包名
 
-官方命令名固定为 `berry-agent`。想要更短的敲法，在 shell 配置里自行设别名——个人配置，不随包安装、不影响升级：
+npm 包名是 `berry-agent`（`npm install -g berry-agent`），装出来的命令是 **`berry`**——`npx berry-agent` 同样可跑（npx 对单 bin 包自动执行）。
 
-```bash
-echo "alias berry='berry-agent'" >> ~/.zshrc     # bash 用 ~/.bashrc；重开终端生效
-```
-
-npm 全局安装之前的源码形态，可先指向仓库构建产物：
+源码形态（npm 全局安装之前）可设别名指向构建产物：
 
 ```bash
 alias berry='node /path/to/berry-agent/dist/host/main.js'
@@ -111,18 +107,18 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | `/`      | 命令补全（注册命令表）                                                                                       |
 | 鼠标     | 副屏（`/history`、`/memory`）滚轮滚动 + 左键拖选复制（OSC 52——终端支持时直达剪贴板）；主对话面 v1 不消费鼠标 |
 
-TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry-agent plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry-agent doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见 `/tick` 用法；`--write` = needsWrite 申报非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停帽（前台计数 + 委派折叠合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申报〔判据门批准位——v1 command 执行面缺席形下 gate kind command 申报照拒（诚实缺席），files/diagnostics 判据不受影响〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
+TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见 `/tick` 用法；`--write` = needsWrite 申报非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停帽（前台计数 + 委派折叠合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申报〔判据门批准位——v1 command 执行面缺席形下 gate kind command 申报照拒（诚实缺席），files/diagnostics 判据不受影响〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
 
 ### run 单次执行
 
 ```bash
-berry-agent run "解释这段代码的作用"
-berry-agent run --continue "继续刚才的话题"          # 取当前目录最新会话续接
-berry-agent run --session <id> "继续指定会话"         # 按 id 续接
-berry-agent run --fork "从这里分叉另起一路"           # 边界快照分叉后续跑
-berry-agent run --ephemeral "一次性问题，零落盘"       # 零落盘单发
-berry-agent run --read-only "只读分析这个仓库"         # 只读沙箱单发
-berry-agent run --preset open "重构这个模块"           # 权限预设逐次生效（open 档）
+berry run "解释这段代码的作用"
+berry run --continue "继续刚才的话题"          # 取当前目录最新会话续接
+berry run --session <id> "继续指定会话"         # 按 id 续接
+berry run --fork "从这里分叉另起一路"           # 边界快照分叉后续跑
+berry run --ephemeral "一次性问题，零落盘"       # 零落盘单发
+berry run --read-only "只读分析这个仓库"         # 只读沙箱单发
+berry run --preset open "重构这个模块"           # 权限预设逐次生效（open 档）
 ```
 
 run 旗标族：
@@ -147,11 +143,11 @@ run 旗标族：
 ### sessions 会话管理
 
 ```bash
-berry-agent sessions list              # 清单：id/标题/时间/血缘（updated 倒序，帽 100）
-berry-agent sessions resume <id>       # 按 id 续接后进 TUI（与无参 TUI 的按目录取最新互补）
-berry-agent sessions fork <id>         # 边界快照分叉（种子事件随种子走）
-berry-agent sessions search "关键词"    # 跨会话全文检索（bm25 序，输出 id/标题/#seq/切窗摘录）
-berry-agent sessions reindex           # 全文索引全量重建（派生物不修不补——重建即修复）
+berry sessions list              # 清单：id/标题/时间/血缘（updated 倒序，帽 100）
+berry sessions resume <id>       # 按 id 续接后进 TUI（与无参 TUI 的按目录取最新互补）
+berry sessions fork <id>         # 边界快照分叉（种子事件随种子走）
+berry sessions search "关键词"    # 跨会话全文检索（bm25 序，输出 id/标题/#seq/切窗摘录）
+berry sessions reindex           # 全文索引全量重建（派生物不修不补——重建即修复）
 ```
 
 读腿（list/search/reindex）零装配直开库——不开运行时、不占单活跃机标记；`fork` 与 `run --fork` 同机（钩子保真）；`resume` 在非交互环境退 2 并指引改 `run --session`。
@@ -159,10 +155,10 @@ berry-agent sessions reindex           # 全文索引全量重建（派生物不
 ### credentials 凭证管理
 
 ```bash
-berry-agent credentials add github-token ghp_...                        # 录入 host 域（core:issue 件消费——同名即生效）
-berry-agent credentials add api-key secret... --namespace plugin:my-plugin   # 录入插件域（插件经 ctx.secrets 读自域）
-berry-agent credentials list                                            # 全域列示——域/名/来源/更新时间
-berry-agent credentials rm github-token                                 # 撤销（删除唯一路径）
+berry credentials add github-token ghp_...                        # 录入 host 域（core:issue 件消费——同名即生效）
+berry credentials add api-key secret... --namespace plugin:my-plugin   # 录入插件域（插件经 ctx.secrets 读自域）
+berry credentials list                                            # 全域列示——域/名/来源/更新时间
+berry credentials rm github-token                                 # 撤销（删除唯一路径）
 ```
 
 - **值永不呈现**：录入回执与列示只含域/名/来源与时间——值只进加密存储（shell 历史里的 argv 仍属本机明文，敏感值建议改用 TUI `/credentials`）；
@@ -171,7 +167,7 @@ berry-agent credentials rm github-token                                 # 撤销
 ### doors 开门制门态只读
 
 ```bash
-berry-agent doors list   # 高危面门态清单（闭门附同源 reason；授予双源分组呈现）
+berry doors list   # 高危面门态清单（闭门附同源 reason；授予双源分组呈现）
 ```
 
 只读面——开/关动词 CLI 不受理（退 1），编辑走 TUI `/doors open <capability>` / `/doors close <capability>`（进程级 doors 段）；插件道开门走启用行 `opens` 位（两源任一含即门开）。
@@ -183,13 +179,13 @@ berry-agent doors list   # 高危面门态清单（闭门附同源 reason；授�
 ### serve 常驻宿主与自动化通道
 
 ```bash
-berry-agent serve                    # 前台 stdio JSONL 线协议（SDK spawn 形态）
-berry-agent serve --daemon           # 后台守护（unix sock 为缺省接入点）
-berry-agent serve --daemon --port 7860        # 守护 + 统一 HTTP 面 TCP 侧开面
-berry-agent serve --daemon --sdk-port 7870    # sdk 线协议面 TCP 侧（daemon 专属；前台形传入即退 2）
-berry-agent serve --no-delta         # 线面退订流式增量（run/serve 共收）
-berry-agent serve status             # 守护态查询（只读豁免——不占单活跃机）
-berry-agent serve stop               # 停守护
+berry serve                    # 前台 stdio JSONL 线协议（SDK spawn 形态）
+berry serve --daemon           # 后台守护（unix sock 为缺省接入点）
+berry serve --daemon --port 7860        # 守护 + 统一 HTTP 面 TCP 侧开面
+berry serve --daemon --sdk-port 7870    # sdk 线协议面 TCP 侧（daemon 专属；前台形传入即退 2）
+berry serve --no-delta         # 线面退订流式增量（run/serve 共收）
+berry serve status             # 守护态查询（只读豁免——不占单活跃机）
+berry serve stop               # 停守护
 ```
 
 `--sdk-host`（daemon 专属）指定线协议面绑定地址——**非回环值必配 `BERRY_AGENT_SDK_TOKEN`**（见环境变量表）。
@@ -197,7 +193,7 @@ berry-agent serve stop               # 停守护
 配套生态：
 
 - **npm SDK**：`npm install berry-agent-sdk`——类型化客户端，spawn stdio / 直连 HTTP 两传输；
-- **MCP 包装**：`berry-agent mcp` 以 MCP server 形态暴露 `berry-agent` / `berry-agent-reply` 两工具，供任意 MCP 客户端接入；
+- **MCP 包装**：`berry mcp` 以 MCP server 形态暴露 `berry-agent` / `berry-agent-reply` 两工具，供任意 MCP 客户端接入；
 - **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。
 
 ### 无人值守与预算停靠
@@ -215,10 +211,10 @@ berry-agent serve stop               # 停守护
 ### plugins 插件管理
 
 ```bash
-berry-agent plugins list             # 三分区装载态清单：启用（N）/ 失败（N）/ 禁用（N）——失败与禁用行各附原因
-berry-agent plugins check            # 装机面体检（只读）
-berry-agent plugins install <ref>    # 装机（ref 自含源前缀，词法见下）
-berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 / 加 = 执行；--data keep|purge 缺省 keep）
+berry plugins list             # 三分区装载态清单：启用（N）/ 失败（N）/ 禁用（N）——失败与禁用行各附原因
+berry plugins check            # 装机面体检（只读）
+berry plugins install <ref>    # 装机（ref 自含源前缀，词法见下）
+berry plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 / 加 = 执行；--data keep|purge 缺省 keep）
 ```
 
 `install <ref>` 三源词法（**ref 单参自含源前缀——无前缀即用法错拒收，不猜默认源**）：
