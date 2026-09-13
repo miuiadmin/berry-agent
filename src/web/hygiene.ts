@@ -52,7 +52,7 @@ export function parseWebUrl(raw: string): URL {
  */
 function isPrivateIPv4(octets: number[]): boolean {
   // 解构带缺省窄化索引访问（noUncheckedIndexedAccess）；缺省 -1 不落任何段
-  const [a = -1, b = -1] = octets;
+  const [a = -1, b = -1, c = -1] = octets;
   return (
     a === 127 || // 环回
     a === 0 || // 未指定
@@ -61,6 +61,11 @@ function isPrivateIPv4(octets: number[]): boolean {
     (a === 192 && b === 168) || // 私网 C
     (a === 169 && b === 254) || // 链路本地
     (a === 100 && b >= 64 && b <= 127) || // CGNAT
+    (a === 198 && (b === 18 || b === 19)) || // 基准测试 198.18.0.0/15（RFC 2544——IANA 特殊用途）
+    (a === 192 && b === 0 && c === 0) || // IETF 协议分配 TRAP 段 192.0.0.0/24
+    (a === 192 && b === 0 && c === 2) || // TEST-NET-1 192.0.2.0/24（RFC 5737）
+    (a === 198 && b === 51 && c === 100) || // TEST-NET-2 198.51.100.0/24
+    (a === 203 && b === 0 && c === 113) || // TEST-NET-3 203.0.113.0/24
     a >= 224 // 组播 + 保留（224-255）
   );
 }
@@ -69,7 +74,10 @@ function isPrivateIPv4(octets: number[]): boolean {
  * IPv6 私网/保留段判定（入参 = expandIPv6 产出的 8 组 4 位补零十六进制）。
  * 覆盖：未指定 ::、环回 ::1、唯一本地 fc00::/7、链路本地 fe80::/10、
  * v4 映射 ::ffff:0:0/96 与 v4 兼容 ::/96（尾 32 位还原 v4 递归查）、
- * v4 翻译 64:ff9b::/96（同递归）。
+ * v4 翻译 64:ff9b::/96（同递归）、IANA 特殊用途段——NAT64 本地用途
+ * 64:ff9b:1::/48 与丢弃只读 100::/64 恒拒、6to4 2002::/16（第 2-3 组内嵌
+ * v4 递归）与 Teredo/ISATAP 2001::/32（尾 32 位内嵌 v4 递归）；文档段
+ * 2001:db8::/32 维持既有裁决豁免（全球单播文档用——回归锁在案）。
  */
 function isPrivateIPv6(groups: string[]): boolean {
   // 显式索引取位（?? 收窄 noUncheckedIndexedAccess）——解构按位置赋值，
@@ -100,6 +108,27 @@ function isPrivateIPv6(groups: string[]): boolean {
   // v4 翻译 64:ff9b::/96（0064:ff9b 前缀 + 第 3-6 组零）
   if (g0 === '0064' && groups[1] === 'ff9b' && groups.slice(2, 6).every((group) => group === '0000')) {
     return isPrivateIPv4(decodeV4Tail());
+  }
+  // NAT64 本地用途翻译段 64:ff9b:1::/48（RFC 8215——内嵌 v4 允许私网，
+  // 整段本地非全球：恒拒，不递归〔与 /96 递归段的差异锁〕）
+  if (g0 === '0064' && groups[1] === 'ff9b' && groups[2] === '0001') {
+    return true;
+  }
+  // 6to4 2002::/16——第 2-3 组（索引 1-2）内嵌 32 位 v4，递归还原查
+  // （私网 v4 经隧道前缀逃逸的主载体；内嵌公网 v4 放行）
+  if (g0 === '2002') {
+    const h16 = Number.parseInt(groups[1] ?? '0000', 16);
+    const l16 = Number.parseInt(groups[2] ?? '0000', 16);
+    return isPrivateIPv4([(h16 >> 8) & 0xff, h16 & 0xff, (l16 >> 8) & 0xff, l16 & 0xff]);
+  }
+  // Teredo/ISATAP 前缀 2001::/32（2001:0000——与文档段 2001:db8 互斥）——
+  // 尾 32 位内嵌 client v4 递归查
+  if (g0 === '2001' && groups[1] === '0000') {
+    return isPrivateIPv4(decodeV4Tail());
+  }
+  // 丢弃只读段 100::/64（0100:0000:0000:0000 前缀——IANA 特殊用途恒拒）
+  if (g0 === '0100' && groups.slice(1, 4).every((group) => group === '0000')) {
+    return true;
   }
   return false;
 }
