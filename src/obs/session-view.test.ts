@@ -118,6 +118,59 @@ describe('尾条推导映射（03 §10.8 e-2 定形注单源）', () => {
     expect(createSessionView(woken).trace('s1').live).toBe('running'); // 尾条翻位即恢复
   });
 
+  it('obs-b 压缩族尾条回扫：skip/end 尾条 → 回扫前一条非压缩族事件定档（idle 仍 idle）——修前恒 running 误报', () => {
+    // 场景写照：run 收场（turn/end）→ handleRunSettled → skip 落账成尾条
+    const deps = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 2 })],
+      events: [
+        { sessionId: 's1', event: ev('turn/start', 0) },
+        { sessionId: 's1', event: ev('turn/end', 1, { reason: 'completed' }) },
+        { sessionId: 's1', event: ev('compaction/skip', 2, { gate: 'cooldown' }) },
+      ],
+    });
+    expect(createSessionView(deps).trace('s1').live).toBe('idle'); // 修前：尾条 skip → running（红）
+    // 真压缩收尾同律：compaction/end 尾条回扫 turn/end → idle
+    const compacted = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 3 })],
+      events: [
+        { sessionId: 's1', event: ev('turn/start', 0) },
+        { sessionId: 's1', event: ev('turn/end', 1, { reason: 'completed' }) },
+        { sessionId: 's1', event: ev('compaction/start', 2, { reason: 'threshold' }) },
+        { sessionId: 's1', event: ev('compaction/end', 3, { reason: 'completed' }) },
+      ],
+    });
+    expect(createSessionView(compacted).trace('s1').live).toBe('idle'); // 修前：尾条 end → running（红）
+  });
+
+  it('obs-b 回扫按映射定档非恒 idle：skip 尾条回扫 approval/asked → waiting-approval；paused 不受例外影响', () => {
+    const asked = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 2 })],
+      events: [
+        { sessionId: 's1', event: ev('approval/asked', 1, {}) },
+        { sessionId: 's1', event: ev('compaction/skip', 2, { gate: 'pending' }) },
+      ],
+    });
+    expect(createSessionView(asked).trace('s1').live).toBe('waiting-approval');
+    // session/paused 非压缩族——例外不及（paused 档照旧）
+    const parked = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 2 })],
+      events: [
+        { sessionId: 's1', event: ev('turn/start', 0) },
+        { sessionId: 's1', event: ev('session/paused', 2, { reason: 'budget' }) },
+      ],
+    });
+    expect(createSessionView(parked).trace('s1').live).toBe('paused');
+    // 防御兜底：全流皆压缩族（真实流不可能形）→ idle
+    const allCompaction = fakeDeps({
+      sessions: [row({ id: 's1', lastSeq: 1 })],
+      events: [
+        { sessionId: 's1', event: ev('compaction/start', 0, {}) },
+        { sessionId: 's1', event: ev('compaction/skip', 1, { gate: 'cooldown' }) },
+      ],
+    });
+    expect(createSessionView(allCompaction).trace('s1').live).toBe('idle');
+  });
+
   it('零事件会话（lastSeq=-1）→ idle', () => {
     const deps = fakeDeps({
       sessions: [row({ id: 's1', lastSeq: -1 })],

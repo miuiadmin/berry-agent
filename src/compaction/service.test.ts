@@ -323,7 +323,7 @@ describe('compactForOverflow', () => {
 /* ---------------- 通道缺席（阈值路停用） ---------------- */
 
 describe('通道缺席', () => {
-  it('handleRunSettled no-op 且只告警一次（缺配是装配错误不是运行抖动）', async () => {
+  it('handleRunSettled no-op 且只告警一次（缺配是装配错误不是运行抖动；obs-b 后 fire 首触落一条 skip）', async () => {
     const warns: string[] = [];
     const service = createCompactionService({ warn: (m) => warns.push(m) });
     const log = sixTurnLog();
@@ -332,7 +332,10 @@ describe('通道缺席', () => {
     await service.drain();
     expect(warns).toHaveLength(1);
     expect(warns[0]).toContain('COMPACTION_NO_CHANNEL');
-    expect(log.events()).toHaveLength(24); // 零事件
+    // obs-b：通道压缩零执行（无 start/end）——仅首触一条 no-channel skip
+    expect(log.events()).toHaveLength(25);
+    expect(log.eventsOfType('compaction/skip')).toHaveLength(1);
+    expect(log.eventsOfType('compaction/skip')[0]!.data).toMatchObject({ gate: 'no-channel' });
   });
 });
 
@@ -787,5 +790,132 @@ describe('U4 provider 槽 + 配置槽', () => {
     await rig.service.drain();
     expect(log.eventsOfType('compaction/end')).toHaveLength(1); // 触发并完成
     expect(log.eventsOfType('compaction/start')[0]!.data).toMatchObject({ basis: 'usage' });
+  });
+});
+
+/* ---------------- obs-b 压缩判据观测（compaction/skip 五门——05 §1.1/§2.1） ---------------- */
+
+describe('obs-b 压缩判据观测（compaction/skip 五门）', () => {
+  /** skip 事件速记（修前该词不存在——eventsOfType 恒空，红例由此成立） */
+  const skipsOf = (log: SessionLog) => log.eventsOfType('compaction/skip');
+
+  it('below 不落：未达阈值零 skip（判据素材可后算——不为 below 防 durable 膨胀落账）', async () => {
+    const rig = makeRig();
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: { input: 1_000, contextWindow: 200_000 } });
+    await rig.service.drain();
+    expect(skipsOf(log)).toHaveLength(0);
+  });
+
+  it('判序锁：below 时通道缺席也不落不警（阈值评估先行——fire 而被门挡才落）', async () => {
+    const warns: string[] = [];
+    const service = createCompactionService({ warn: (m) => warns.push(m) });
+    const log = sixTurnLog();
+    service.handleRunSettled({ log, usage: { input: 1_000, contextWindow: 200_000 } });
+    await service.drain();
+    expect(skipsOf(log)).toHaveLength(0);
+    expect(warns).toHaveLength(0); // 修前：通道检查先于判阈——below 也 warn（红）
+  });
+
+  it('pending 门：进行中/已排队期重复 fire 落 skip（gate=pending）+ basis 快照五件', async () => {
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => (release = resolve));
+    const rig = makeRig([barrier, '后续真摘要']);
+    const log = sixTurnLog();
+    const usage = { ...FIRE_USAGE, cacheRead: 7_000 };
+    rig.service.handleRunSettled({ log, usage }); // 排队 → 执行 → 阻在屏障
+    rig.service.handleRunSettled({ log, usage }); // pending → skip（同步段落账）
+    release();
+    await rig.service.drain();
+    const skips = skipsOf(log);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]!.data).toMatchObject({
+      gate: 'pending',
+      basis: 'usage',
+      estTokens: 100_000,
+      effectiveWindow: 200_000,
+      cacheRead: 7_000, // fire 判据快照随真值笔透传（与 start 同律）
+    });
+    expect(log.eventsOfType('compaction/end')).toHaveLength(1); // 首触发真收场
+  });
+
+  it('cooldown 门：冷却窗内 fire 落 skip（gate=cooldown + remainMs 窗余 + basis）；窗过放行', async () => {
+    const rig = makeRig(['首压', '窗后重压'], { config: { cooldownMs: 600_000 } });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE }); // 真压一次（冷却锚 = now）
+    await rig.service.drain();
+    // 追加新轮（冷却挡重触发与内容无关——保持会话有新素材的真实形）
+    for (let i = 7; i <= 9; i++) {
+      log.append('turn/start', {});
+      log.append('user/message', { content: `续 ${i}`, source: 'user' });
+      log.append('assistant/message', { content: [{ type: 'text', text: `答 ${i}` }] });
+      log.append('turn/end', { reason: 'completed' });
+    }
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE }); // 窗内 → skip
+    await rig.service.drain();
+    const skips = skipsOf(log);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]!.data).toMatchObject({ gate: 'cooldown', basis: 'usage' });
+    const remain = (skips[0]!.data as { remainMs: number }).remainMs;
+    expect(remain).toBeGreaterThan(0);
+    expect(remain).toBeLessThanOrEqual(600_000);
+    expect(rig.calls).toHaveLength(1); // 通道不被再调
+    rig.advance(600_000); // 拨过冷却窗 → 放行真压
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(rig.calls).toHaveLength(2);
+    expect(skipsOf(log)).toHaveLength(1); // 放行不新增 skip
+  });
+
+  it('no-channel 门：通道缺席且 fire 首触落一条 skip（后续静默）——与 warn-once 同锚', async () => {
+    const warns: string[] = [];
+    const service = createCompactionService({ warn: (m) => warns.push(m) });
+    const log = sixTurnLog();
+    service.handleRunSettled({ log, usage: FIRE_USAGE });
+    service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await service.drain();
+    const skips = skipsOf(log);
+    expect(skips).toHaveLength(1); // 首触落一条、次触静默（装配级永久门不刷屏）
+    expect(skips[0]!.data).toMatchObject({ gate: 'no-channel', basis: 'usage' });
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('COMPACTION_NO_CHANNEL');
+  });
+
+  it('no-segment 门：fire 但区间规划无合法段落 skip（gate=no-segment）——不动冷却锚、通道零调用', async () => {
+    const rig = makeRig(['不应消费']);
+    const log = new SessionLog({ sessionId: 's-thin' });
+    log.append('turn/start', {});
+    log.append('user/message', { content: '单轮薄会话', source: 'user' });
+    log.append('assistant/message', { content: [{ type: 'text', text: '薄答' }] });
+    log.append('turn/end', { reason: 'completed' });
+    // usage 主判 fire（100k/200k）；投影仅 2 条——head 首 turn + tail 6 全兜 → 可遮区间空
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    const skips = skipsOf(log);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]!.data).toMatchObject({ gate: 'no-segment', basis: 'usage' });
+    expect(rig.calls).toHaveLength(0);
+    expect(log.eventsOfType('compaction/start')).toHaveLength(0);
+  });
+
+  it('retracted 门：排队锁内复评已不 fire 落 skip（gate=retracted——幻影触发可查）；不动冷却锚', async () => {
+    let ratio = 0.4; // 入队时 fire（0.5 ≥ 0.4）
+    const rig = makeRig(['不应消费'], {
+      getConfig: () => ({ ...DEFAULT_COMPACTION_CONFIG, cooldownMs: 0, thresholdRatio: ratio }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    ratio = 0.99; // 排队期间阈值翻高——锁内复评（0.5 < 0.99）已不 fire
+    await rig.service.drain();
+    const skips = skipsOf(log);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]!.data).toMatchObject({ gate: 'retracted', basis: 'usage', estTokens: 100_000 });
+    expect(rig.calls).toHaveLength(0);
+    expect(log.eventsOfType('compaction/start')).toHaveLength(0);
+    // 不动冷却锚：阈值复原后同会话立即可再触发（retracted 非完成）
+    ratio = 0.4;
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(log.eventsOfType('compaction/end')).toHaveLength(1); // 复原即真压
   });
 });

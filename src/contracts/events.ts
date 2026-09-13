@@ -1,5 +1,5 @@
 /**
- * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——34 核心词全列，
+ * 会话事件词汇注册表（05 篇 §1.1 事件类型清单——35 核心词全列，
  * compaction 三词 2026-09-06 纵切批增补、compaction/fallback 2026-09-09
  * U4 落码批入册、session/thinking-level 同日遗漏
  * 审计批回填〔05 行 66 agent 纵切批已定名而注册表漏登〕、plugin/opens·
@@ -8,7 +8,9 @@
  * 入册即得核心词身份双闸（U3-0 台账 R-2）〕、session/paused 2026-09-11
  * 无人值守深化批 u-3 入册〔核心词 33〕、credentials/changed 同日 ix-4
  * 补注册〔c-1 立词而注册表漏行——/plugins config 表单腿 e2e 走真装配
- * audit 词汇闸 fail-loud 抓出；核心词 34〕）。
+ * audit 词汇闸 fail-loud 抓出；核心词 34〕、compaction/skip 2026-09-13
+ * obs-b 压缩判据观测批入册〔05 §1.1 五门 skip 词——fire 而被门挡才落；
+ * 核心词 35〕）。
  *
  * 双入口纪律：核心词汇本表静态声明（含类别/归属/语义），插件扩展经
  * registerEventType 显式注册；session append 词汇检查（未注册类型抛
@@ -90,6 +92,13 @@ export interface EventTypeMeta {
  * 〔issue 悬置/goal 停靠——run 在飞时先 driver.abort() 协作中止、收口后
  * 落词〕；fold 语义 = 尾条即停靠〔SessionLiveState 推导判据〕；恢复不设
  * 对称词——唤醒消息落账尾条翻位即恢复，resumed 词不立）。
+ * 34→35：compaction/skip 随 obs-b 压缩判据观测批入册（05 §1.1 五门
+ * skip 词 + §2.1 判序定形注——fire 而被门挡才落：判序 = 阈值评估先行
+ * 〔below 不落——判据素材可后算，不为 below 防 durable 膨胀落账〕→
+ * no-channel〔首触一条后静默，与 warn-once 同锚〕→ pending → cooldown
+ * 〔+remainMs 窗余〕，锁内复评已不 fire = retracted〔幻影触发可查〕、
+ * 区间规划无合法段 = no-segment；basis 五件同 compaction/start〔fire
+ * 判据快照〕；写入者 = 宿主 compaction 件；载体 = 会话流）。
  */
 const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
   {
@@ -300,6 +309,14 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     tier: 'stable',
     description:
       '接管/算法槽失败回落事实（05 §2.1 回落三律第 3 律——回落非静默换算法；source=plugin:<id>、stage=throw|timeout|rejected〔抛错/超预算/产物被拒——空文本同宿主通道失败律〕、error? 截断、circuit?=true 末次记三振停用〔进程级，复位走重启〕；U4 调整途非法调整同 stage=rejected 记账）',
+  },
+  {
+    type: 'compaction/skip',
+    category: 'log-only',
+    owner: 'compaction',
+    tier: 'stable',
+    description:
+      '压缩判据观测五门 skip（obs-b 2026-09-13——05 §1.1 行 82 + §2.1 判序定形注：fire 而被门挡才落，below 恒不落）：gate=pending〔防重入挡〕|cooldown〔冷却窗挡，+remainMs 窗余〕|no-segment〔fire 但区间规划无合法段〕|retracted〔排队锁内复评已不 fire——幻影触发可查〕|no-channel〔摘要通道缺席——首触落一条后静默，与 warn-once 同锚〕；basis 五件同 compaction/start（fire 判据快照——触发时刻判据素材，非门检时刻）；五门均不动冷却锚（skip 非 completed）；写入者 = 宿主 compaction 件 handleRunSettled',
   },
   {
     type: 'hook/registered',

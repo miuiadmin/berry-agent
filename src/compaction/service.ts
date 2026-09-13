@@ -33,7 +33,6 @@ import { DEFAULT_COMPACTION_CONFIG } from './types.js';
 import {
   buildSummaryPrompt,
   evaluateThreshold,
-  inCooldown,
   planFromRange,
   planSegment,
   previousSummaryText,
@@ -118,6 +117,25 @@ function appendFallback(
     stage,
     error: String(error).slice(0, FALLBACK_ERROR_MAX),
     ...(circuit ? { circuit: true } : {}),
+  });
+}
+
+/**
+ * obs-b 五门 skip 统一落账形（05 §1.1 compaction/skip + §2.1 判序定形注）：
+ * fire 而被门挡才落（below 恒不落）；basis 五件 = fire 判据快照（与 start
+ * 同律——触发时刻判据素材）；remainMs 仅 cooldown 门随行（窗余值）；五门
+ * 均不动冷却锚（skip 非 completed——下轮触发照常参与判阈）。
+ */
+function appendSkip(
+  log: SessionLog,
+  gate: 'pending' | 'cooldown' | 'no-segment' | 'retracted' | 'no-channel',
+  basis: ThresholdBasis,
+  remainMs?: number,
+): void {
+  log.append('compaction/skip', {
+    gate,
+    ...basis,
+    ...(remainMs !== undefined ? { remainMs } : {}),
   });
 }
 
@@ -393,19 +411,11 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
 
   return {
     handleRunSettled(input: { log: SessionLog; usage?: RunUsageFact }): void {
-      // 通道缺席：阈值路停用（告警一次——缺配是装配错误不是运行抖动）
-      if (channel === undefined) {
-        if (!warnedNoChannel) {
-          warnedNoChannel = true;
-          warn('[COMPACTION_NO_CHANNEL] 摘要通道缺席——阈值压缩停用（溢出面将报 failed）');
-        }
-        return;
-      }
-      const state = stateOf(input.log.sessionId);
-      const cfg = getConfig();
-      if (state.pending) return; // 防重入（进行中/已排队）
-      if (inCooldown(state.lastCompactAt, now(), cfg)) return; // 冷却防抖
+      // —— obs-b 判序定形（05 §2.1）：阈值评估先行（纯函数零副作用）——
+      //    below 不落任何账（判据素材可后算，不为 below 防 durable 膨胀落
+      //    skip）；fire 而被门挡才落 compaction/skip（五门词 05 §1.1）。
       // 判阈双源：真 token 主判（usage.input）、投影字符兜底（chars/4）
+      const cfg = getConfig();
       const verdict = evaluateThreshold({
         usageInput: input.usage?.input ?? null,
         contextWindow: input.usage?.contextWindow,
@@ -413,10 +423,56 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
         config: cfg,
       });
       if (verdict === null || !verdict.fire) return;
+      // basis 五件（RP4 扩值）：fire 判据快照——触发时刻判据素材（与 start
+      // 同律；cache 两桶从主 loop 真值笔同笔透传，estimate 兜底路恒缺省不落）
+      const basis: ThresholdBasis = {
+        basis: verdict.basis,
+        estTokens: verdict.estTokens,
+        effectiveWindow: verdict.effectiveWindow,
+        ...(input.usage?.cacheRead !== undefined ? { cacheRead: input.usage.cacheRead } : {}),
+        ...(input.usage?.cacheWrite !== undefined ? { cacheWrite: input.usage.cacheWrite } : {}),
+      };
+      // 门① no-channel（装配级永久门最先呈报最诊断）：通道缺席——首触落
+      // 一条 skip 后静默（与 warn-once 同锚——缺配是装配错误不是运行抖动）
+      if (channel === undefined) {
+        if (!warnedNoChannel) {
+          warnedNoChannel = true;
+          warn('[COMPACTION_NO_CHANNEL] 摘要通道缺席——阈值压缩停用（溢出面将报 failed）');
+          appendSkip(input.log, 'no-channel', basis);
+        }
+        return;
+      }
+      const state = stateOf(input.log.sessionId);
+      // 门② pending：防重入挡（进行中/已排队期重复 fire 可观测）
+      if (state.pending) {
+        appendSkip(input.log, 'pending', basis);
+        return;
+      }
+      // 门③ cooldown：冷却窗挡（判据与 policy.inCooldown 同式就地展开——
+      // remainMs 窗余值需要差值，单一 now() 采样点保证两值同账）
+      if (state.lastCompactAt !== null && now() - state.lastCompactAt < cfg.cooldownMs) {
+        appendSkip(input.log, 'cooldown', basis, cfg.cooldownMs - (now() - state.lastCompactAt));
+        return;
+      }
       state.pending = true;
       // fire-and-forget：排队体内部全收口（不外抛）；冷却锚只在成功时推进
       void enqueue(async () => {
         try {
+          // 锁内复评（幻影触发闸）：全局串行链排队期间判据面可能已变（投影
+          // 被他路压缩改写 / 配置槽翻值）；原 usage 笔不重放——真 token 计量
+          // 是请求事实非投影派生，token-basis 复评不受投影影响
+          const freshVerdict = evaluateThreshold({
+            usageInput: input.usage?.input ?? null,
+            contextWindow: input.usage?.contextWindow,
+            projectedChars: input.log.projectedChars(),
+            config: getConfig(),
+          });
+          if (freshVerdict === null || !freshVerdict.fire) {
+            // 门④ retracted：入队时 fire、锁内已不 fire——幻影触发可查（basis
+            // 用原 verdict 快照——触发时刻判据，非复评时刻）
+            appendSkip(input.log, 'retracted', basis);
+            return; // 不动冷却锚（skip 非 completed）
+          }
           // 锁内新投影（全局串行链 = 互斥锁——排队期间他路压缩可能已改写投影，
           // 规划与落账同账零迟滞窗）
           const messages = input.log.projection();
@@ -425,16 +481,11 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
             messages,
             tailKeep: getConfig().tailKeep,
           });
-          if (plan === null) return; // 区间不足——诚实无操作（不动冷却锚）
-          // basis 五件（RP4 扩值）：判据三件 + cache 两桶（毁前成本快照——
-          // 从主 loop 真值笔同笔透传；estimate 兜底路 input.usage 恒缺省不落）
-          const basis: ThresholdBasis = {
-            basis: verdict.basis,
-            estTokens: verdict.estTokens,
-            effectiveWindow: verdict.effectiveWindow,
-            ...(input.usage?.cacheRead !== undefined ? { cacheRead: input.usage.cacheRead } : {}),
-            ...(input.usage?.cacheWrite !== undefined ? { cacheWrite: input.usage.cacheWrite } : {}),
-          };
+          if (plan === null) {
+            // 门⑤ no-segment：fire 但区间规划无合法段（head+tail 全兜的薄会话形）
+            appendSkip(input.log, 'no-segment', basis);
+            return; // 不动冷却锚——诚实无操作可观测
+          }
           // —— 接管缝（U4）：阈值路排队体内、区间规划后、start 落账前派发 ——
           let algo: Algo = { kind: 'host' };
           let effectivePlan = plan;

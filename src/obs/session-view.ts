@@ -55,6 +55,14 @@ const TAIL_LIMIT_MAX = 200;
 /** session_trace 尾窗定值（「当前进行态」固定窗——无参数面） */
 const TRACE_WINDOW = 20;
 
+/**
+ * 尾条推导回扫窗（03 §10.8 obs-b 例外注）：压缩族词（compaction/*）是
+ * run 收场后的后台任务审计面——落账不改变会话粗状态，尾条为压缩族词时
+ * 回扫窗内最近一条非压缩族事件按其映射定档。窗 20 条 = 防御帽（真实流
+ * 压缩族连发至多数条——fire 前提是 settled，连续压缩族词间必夹 turn 事件）。
+ */
+const STATE_SCAN_WINDOW = 20;
+
 /** 呈现摘要文本截断帽（单行 200 字符——模型消费面有界） */
 const SUMMARY_MAX_CHARS = 200;
 
@@ -65,11 +73,25 @@ const HEADER_SCAN_LIMIT = 100;
 export function createSessionView(deps: SessionViewDeps): SessionView {
   const workspaceRoot = deps.workspaceRoot ?? (() => undefined);
 
-  /** 尾条推导（lastSeq 精确定位——fromSeq 含边界取 1 条即尾行） */
+  /**
+   * 尾条推导（lastSeq 精确定位——fromSeq 含边界取 1 条即尾行）。obs-b 例外
+   * （03 §10.8）：尾行为压缩族词时回扫窗内最近一条非压缩族事件——压缩审计
+   * 落账不改变粗状态（skip 的 cooldown/pending 门每轮收场可落，不回扫则
+   * idle 恒误报 running）；尾行非压缩族时行为与例外前逐字一致（write-behind
+   * 滞后 → undefined → idle 的保守语义不变）。窗内全压缩族（防御极端形）→
+   * undefined 兜底 idle。
+   */
   const tailEvent = (row: ObsSessionRow): SessionEvent | undefined => {
     if (row.lastSeq < 0) return undefined; // 零事件会话
-    const result = deps.events.queryEvents({ sessionId: row.id, fromSeq: row.lastSeq, limit: 1 });
-    return result.events.at(-1);
+    const exact = deps.events.queryEvents({ sessionId: row.id, fromSeq: row.lastSeq, limit: 1 });
+    const tail = exact.events.at(-1);
+    if (tail === undefined || !tail.type.startsWith('compaction/')) return tail;
+    const fromSeq = Math.max(0, row.lastSeq - (STATE_SCAN_WINDOW - 1));
+    const window = deps.events.queryEvents({ sessionId: row.id, fromSeq, limit: STATE_SCAN_WINDOW });
+    for (let i = window.events.length - 1; i >= 0; i -= 1) {
+      if (!window.events[i]!.type.startsWith('compaction/')) return window.events[i];
+    }
+    return undefined;
   };
 
   /** 粗状态映射（文件头映射表的执法位——paused 档 u-3 落码：置于「其余一切 running」兜底前〔03 §10.8 u-1 定形注〕，唤醒消息落账尾条翻位即恢复 running——零推导面特判） */

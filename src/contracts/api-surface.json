@@ -1339,6 +1339,13 @@
       "desc": "接管/算法槽失败回落事实（05 §2.1 回落三律第 3 律——回落非静默换算法；source=plugin:<id>、stage=throw|timeout|rejected〔抛错/超预算/产物被拒——空文本同宿主通道失败律〕、error? 截断、circuit?=true 末次记三振停用〔进程级，复位走重启〕；U4 调整途非法调整同 stage=rejected 记账）"
     },
     {
+      "symbol": "compaction/skip",
+      "module": "session-events",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "压缩判据观测五门 skip（obs-b 2026-09-13——05 §1.1 行 82 + §2.1 判序定形注：fire 而被门挡才落，below 恒不落）：gate=pending〔防重入挡〕|cooldown〔冷却窗挡，+remainMs 窗余〕|no-segment〔fire 但区间规划无合法段〕|retracted〔排队锁内复评已不 fire——幻影触发可查〕|no-channel〔摘要通道缺席——首触落一条后静默，与 warn-once 同锚〕；basis 五件同 compaction/start（fire 判据快照——触发时刻判据素材，非门检时刻）；五门均不动冷却锚（skip 非 completed）；写入者 = 宿主 compaction 件 handleRunSettled"
+    },
+    {
       "symbol": "compaction/start",
       "module": "session-events",
       "tier": "stable",
