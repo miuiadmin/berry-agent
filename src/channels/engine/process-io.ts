@@ -2,7 +2,7 @@
  * 真终端适配器（07 篇引擎节件 5 的真 TTY 位——TerminalIO 的 process 直连实现）。
  *
  * 引擎六件只认 TerminalIO 注入面、永不直触 process.stdin/stdout——本件是
- * 唯一的进程接缝。非 TTY fail-loud（管道下运行 berry-agent 需明确报错）归
+ * 唯一的进程接缝。非 TTY fail-loud（管道下运行 berry 需明确报错）归
  * host 装配批（批 12）在装配层执法——本件 setRawMode 对非 TTY 静默跳过
  * （`process.stdin.setRawMode` 在非 TTY 上会抛——先查 isTTY 再设）。
  */

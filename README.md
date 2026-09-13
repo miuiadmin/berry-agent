@@ -29,7 +29,7 @@ the same surface; there is no first-class private lane.
 **16** built-in plugins · **28**-module one-way DAG · **4,000+** tests ·
 **6** machine-checked release contracts · **0** telemetry
 
-> Status: `0.1.0-alpha.1` — contract-first, built in vertical slices; the API surface
+> Status: `0.1.0-alpha.2` — contract-first, built in vertical slices; the API surface
 > may still shift before 1.0.
 
 </div>
@@ -75,6 +75,10 @@ berry credentials list   # credentials: add / list / rm (the TUI also has an OAu
 berry doors list         # capability-door state (read-only)
 berry serve --port 7860  # resident host: Web UI + /v1/* programmatic surface
 ```
+
+Upgrading from alpha.1? The bin name is now `berry`; the old `berry-agent`
+command still works as a fallback, and the link switches to `berry`
+automatically once you upgrade to the renamed-bin version.
 
 The first run creates `~/.berry-agent/`. The default model is `anthropic/claude-sonnet-5`
 (supply `ANTHROPIC_API_KEY`); override with `BERRY_AGENT_MODEL`. The full command,

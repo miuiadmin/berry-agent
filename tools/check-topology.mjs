@@ -19,7 +19,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-/** 模块边表（25 席；02 篇 §4.1 依赖列全量转录——L3/L4 对 contracts 共边不省略） */
+/** 模块边表（28 席；02 篇 §4.1 依赖列全量转录——L3/L4 对 contracts 共边不省略。三次加席 26→27→28 注释计数随批更新） */
 const MODULE_EDGES = {
   contracts: [],
   context: ['contracts'],

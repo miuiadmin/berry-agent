@@ -31,24 +31,24 @@
 
 ### core: 官方插件 16（随包出厂、默认启用可禁用；id 以 `core:` 前缀，经同一插件装载面装配——第一方无私有车道）
 
-| 插件               | 能力                                                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `core:exec`        | shell 执行工具族（bash 工具、进程树杀、输出截尾、env 白名单）                                                      |
-| `core:skills`      | 技能装载（SKILL.md 双层结构、六位发现层、渐进披露、load_skill 按需装载〔节级寻址 / mode 行级过滤〕、skill_manage） |
-| `core:web`         | 网络取数（fetch 工具 + ctx.fetch + SSRF 五卫生件）                                                                 |
-| `core:scheduler`   | 定时任务（jobs 表、抢占、`/tick`、cron 可选后端）                                                                  |
-| `core:goal`        | 目标续跑（goals 表族、计划态 fold、wake 双帽、预算双轨、帽尽停靠-唤醒）                                            |
-| `core:subagent`    | 子代理（Job 注册表、provider 面、声明式物化）                                                                      |
-| `core:checkpoint`  | 边界快照（pre-mutation 拍摄、blob 仓、`/rewind`）                                                                  |
-| `core:memory`      | 记忆（表族、合并/极性、注入两路、周期提取、导入导出）                                                              |
-| `core:mcp`         | MCP 客户端桥（stdio JSON-RPC 手写最小桥）                                                                          |
-| `core:lsp`         | LSP 客户端桥（Content-Length 帧、惰性实例、诊断回流）                                                              |
-| `core:browser`     | 浏览器（CDP 手写桥、引擎发现、十工具、/browser install）                                                           |
-| `core:webui`       | Web 界面（SPA + `/api/*`，经 SDK HTTP 面路由扩展位挂载）                                                           |
-| `core:sdk`         | 自动化通道（HTTP+SSE `/v1/*` 传输、daemon 编舞、路由扩展位）                                                       |
-| `core:obs`         | 观测（rollup 表族、`obs_query`、告警通知；自管库）                                                                 |
-| `core:issue`       | issue 模式（GitHub 轮询 + webhook、worktree 隔离、交付映射）                                                       |
-| `core:credentials` | 凭证代管（加密存储、`ctx.secrets` 受理制开面、`@credentials:` env 注入、oauth 流与刷新链、`/credentials` 人面）    |
+| 插件               | 能力                                                                                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core:exec`        | shell 执行工具族（bash 工具、进程树杀、输出截尾、env 白名单）                                                                                                                                                                 |
+| `core:skills`      | 技能装载（SKILL.md 双层结构、六位发现层、渐进披露、load_skill 按需装载〔节级寻址 / mode 行级过滤〕、skill_manage）                                                                                                            |
+| `core:web`         | 网络取数（fetch 工具 + ctx.fetch + SSRF 五卫生件）                                                                                                                                                                            |
+| `core:scheduler`   | 定时任务（jobs 表、抢占、`/tick`、cron 可选后端）                                                                                                                                                                             |
+| `core:goal`        | 目标续跑（goals 表族、计划态 fold、wake 双帽、预算双轨、帽尽停靠-唤醒）                                                                                                                                                       |
+| `core:subagent`    | 子代理（Job 注册表、provider 面、声明式物化）                                                                                                                                                                                 |
+| `core:checkpoint`  | 边界快照（pre-mutation 拍摄、blob 仓、`/rewind`）                                                                                                                                                                             |
+| `core:memory`      | 记忆（表族、合并/极性、注入两路、周期提取、导入导出）                                                                                                                                                                         |
+| `core:mcp`         | MCP 客户端桥（stdio JSON-RPC 手写最小桥）                                                                                                                                                                                     |
+| `core:lsp`         | LSP 客户端桥（Content-Length 帧、惰性实例、诊断回流）                                                                                                                                                                         |
+| `core:browser`     | 浏览器（CDP 手写桥、引擎发现、十工具、/browser install）                                                                                                                                                                      |
+| `core:webui`       | Web 界面（SPA + `/api/*`，经 SDK HTTP 面路由扩展位挂载）                                                                                                                                                                      |
+| `core:sdk`         | 自动化通道（HTTP+SSE `/v1/*` 传输、daemon 编舞、路由扩展位）                                                                                                                                                                  |
+| `core:obs`         | 观测（rollup 表族、`obs_query`、告警通知；自管库）                                                                                                                                                                            |
+| `core:issue`       | issue 模式（GitHub 轮询 + webhook、worktree 隔离 + 前次分支指路、交付验证门〔verifyCommand 真跑、未过拒交付〕、escalation 登记转人审、编排定序〔验证门→escalation→档位〕、对账纪律句、needs-human 判词、draft/auto 交付映射） |
+| `core:credentials` | 凭证代管（加密存储、`ctx.secrets` 受理制开面、`@credentials:` env 注入、oauth 流与刷新链、`/credentials` 人面）                                                                                                               |
 
 ## 运行时骨架
 

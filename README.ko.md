@@ -29,7 +29,7 @@
 **16**개 내장 플러그인 · **28**모듈 단방향 DAG · **4,000+** 테스트 ·
 **6**개의 기계 검증 릴리스 계약 · **0** 텔레메트리
 
-> 상태: `0.1.0-alpha.1` — 계약 선행, 수직 슬라이스로 구축; 1.0 이전에는 API
+> 상태: `0.1.0-alpha.2` — 계약 선행, 수직 슬라이스로 구축; 1.0 이전에는 API
 > 표면이 변경될 수 있습니다.
 
 </div>
@@ -75,6 +75,10 @@ berry credentials list   # 자격증명: add / list / rm (TUI에는 OAuth 흐름
 berry doors list         # 역량 게이트 상태 (읽기 전용)
 berry serve --port 7860  # 상주 호스트: 웹 UI + /v1/* 프로그래밍 표면
 ```
+
+alpha.1에서 업그레이드한 사용자: bin 이름이 `berry`로 바뀌었습니다. 이전 명령어
+`berry-agent`도 여전히 대체 경로로 사용할 수 있으며, 이름이 바뀐 bin 버전으로
+업그레이드하면 링크가 자동으로 `berry`로 전환됩니다.
 
 첫 실행 시 `~/.berry-agent/`가 생성됩니다. 기본 모델은
 `anthropic/claude-sonnet-5` (`ANTHROPIC_API_KEY` 제공), `BERRY_AGENT_MODEL`로

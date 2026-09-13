@@ -11,7 +11,7 @@
 
 ## 流程
 
-1. 开 issue（bug 报告带诊断信息：`berry-agent --version`、数据目录 `crash.log` 末行、stderr 原文）；
+1. 开 issue（bug 报告带诊断信息：`berry --version`、数据目录 `crash.log` 末行、stderr 原文）；
 2. fork + 特性分支；
 3. 实现——遵循下方工程纪律；
 4. 四门禁全绿：

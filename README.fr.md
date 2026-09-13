@@ -30,7 +30,7 @@ de montage ; il n'existe aucune voie privée de premier parti.
 **16** plugins intégrés · DAG unidirectionnel de **28** modules · **4 000+** tests ·
 **6** contrats de publication vérifiés par la machine · **0** télémétrie
 
-> Statut : `0.1.0-alpha.1` — piloté par les contrats, construit par tranches
+> Statut : `0.1.0-alpha.2` — piloté par les contrats, construit par tranches
 > verticales ; la surface d'API peut encore évoluer avant la 1.0.
 
 </div>
@@ -76,6 +76,10 @@ berry credentials list   # identifiants : add / list / rm (le TUI propose aussi 
 berry doors list         # état des portes de capacité (lecture seule)
 berry serve --port 7860  # hôte résident : interface web + surface programmatique /v1/*
 ```
+
+Vous mettez à niveau depuis alpha.1 ? Le nom du binaire est désormais `berry` ;
+l'ancienne commande `berry-agent` reste utilisable en repli, et le lien bascule
+automatiquement vers `berry` lors de la mise à niveau vers la version au binaire renommé.
 
 Le premier lancement crée `~/.berry-agent/`. Le modèle par défaut est
 `anthropic/claude-sonnet-5` (fournissez `ANTHROPIC_API_KEY`) ; surchargez avec

@@ -2,7 +2,7 @@
 
 本文自包含覆盖 berry-agent 的安装、入口命令族、TUI 操作与环境变量。架构背景见[架构总览](./architecture.md)。
 
-> 状态：`0.1.0-alpha.1`。命令族中标注「尚未装配」的动词会诚实报错退出（解析与旗标面已就绪，执行面随后续版本接入）——不含糊、不静默。包已发布 npm（`berry-agent@0.1.0-alpha.1`，dist-tag `latest`/`next` 同指）：安装三路皆即时可用。
+> 状态：`0.1.0-alpha.2`（开发版）。命令族中标注「尚未装配」的动词会诚实报错退出（解析与旗标面已就绪，执行面随后续版本接入）——不含糊、不静默。首版已发布 npm（`berry-agent@0.1.0-alpha.1`，dist-tag `latest`/`next` 同指）：安装三路皆即时可用。
 
 ## 安装
 
@@ -16,7 +16,9 @@ sh install.sh
 ```
 
 > 不要写成 `curl … | sh` 管道直灌：连接中段断裂时 shell 会执行半截脚本。
-> 脚本依次做：Node ≥ 24 检查 → `npm install -g berry-agent` → `berry --version` 验证 → 欢迎横幅；失败时给出排查建议（权限 / 网络）。
+> 脚本依次做：Node ≥ 24 检查 → `npm install -g berry-agent` → 安装验证（`berry --version` 优先、旧命令名 `berry-agent --version` 回落） → 欢迎横幅；失败时给出排查建议（权限 / 网络）。
+>
+> 从 alpha.1 升级的用户：bin 已换代为 `berry`；旧命令 `berry-agent` 仍回落可用，升级到换代版本后 npm 自动换链。
 
 **路二：npm 直接安装**：
 
@@ -208,6 +210,35 @@ berry serve stop               # 停守护
 
 定时任务到点执行双形态：宿主在跑 = 进程内推进（与前台 run 同池并发帽、审批 fail-closed 同律）；宿主停机期 = cron 可选后端（`BERRY_AGENT_CRON=1` 显式开启即写系统 crontab 的授权凭据）子进程触发 `run --tick`——同任务跨进程防双跑（他实例在飞诚实让位），行账（上次触发/结局/下次到点）durable 落结。
 
+### issue 驱动工作模式（core:issue）
+
+监听 GitHub issue 的无人值守处理模式：件**缺省零装载**——`enabled.yaml` 给 `core:issue` 行配 `config` 才启用（坏形响亮拒 `ISSUE_CONFIG_INVALID`）。触发双源：轮询（缺省每 120s）+ webhook（统一 HTTP 面〔`--port`〕开面后挂 `/webhooks/issue` 路由，`X-Signature-256` HMAC 验签；secret 缺席 = 路由在场但守卫拒）。命中 issue 起一次隔离处理：独立 worktree（`issue-N` 命名，撞名让位 `-r2..-r9`）+ headless 会话（后台道预算记账、每 issue 消息帽缺省 400）。重跑同 issue 时**前次分支全列举进提示词**（git 史即断点真源——可续作也可从头独立解决）；提示词同时带对账纪律（完成前逐条对账 issue 正文与评论中的显式要求）与边界禁令（严禁自行 push / 开 PR / 发评论——交付由编排层收口）。
+
+模型侧两工具：`issue_get`（读 issue 正文与评论，64KiB 上下文帽）与 `issue_escalate`（上报待裁决问题——`question` 必填，可选 `options` 候选 / `recommendation` 建议 / `continueWithDefault` 缺省案；只登记不发评论，escalation 进回执转人审，不中途打断任务）。
+
+**交付验证门**（渐进启用安全键）：`config` 配 `verifyCommand`（如 `npm test`）即在场——编排层在交付前一步于 worktree 内真跑该命令，非 0 退出 / 超时 / 执行异常一律**拒交付**，收口 failed 转人审（回执评论附退出码与输出尾证据，分支留存供排查）；缺席 = 无门不拦交付（空串是坏形拒——配了门就不能静默视同没配）。`verifyTimeoutMs` 配验证时帽毫秒（缺省 120000）。编排定序：验证门先于危险闸——验证未过零闸决策记账。
+
+档位与收口：`mode: draft`（缺省）收口评论贴分支 + 补丁（等人采信）；`mode: auto` 走危险闸预授权交付（push / 开 PR，`/danger approve` 签发、日成功帽缺省 10）——escalation 在场时降级不自动交付转人审。headless 会话审批被拒或写动作无策略表覆盖时收口 **needs-human** 转人审。
+
+配置例（`~/.berry-agent/enabled.yaml`；也可 TUI `/plugins config core:issue` 表单）：
+
+```yaml
+plugins:
+  - id: core:issue
+    config:
+      repos: ["owner/name"] # 必填——精确串轮询+匹配；含 * 的 glob 仅匹配面
+      mode: draft # draft | auto（缺省 draft——全自动显式 opt-in）
+      verifyCommand: "npm test" # 交付验证门（可选——缺席不拦交付）
+      verifyTimeoutMs: 120000 # 验证时帽毫秒（缺省 120000）
+      # labels: ["bug"] # 可选白名单（空/缺省 = 该维不约束）
+      # assignees: [] # 同上
+      # perIssueBudgetMessages: 400 # 每 issue 消息帽（缺省 400）
+      # baseBranch: main # 补丁基线（缺省 main）
+      # maxDeliveriesPerDay: 10 # 交付日成功帽（缺省 10）
+```
+
+GitHub 凭证：host 域凭证 `github-token`（`/credentials add github-token <token>` 录入优先，`BERRY_AGENT_GITHUB_TOKEN` 回落）；webhook 签名密钥 `issue-webhook-secret`（同回落律，`BERRY_AGENT_ISSUE_WEBHOOK_SECRET`）。凭证缺席 = 件零装载。
+
 ### plugins 插件管理
 
 ```bash
@@ -242,7 +273,7 @@ berry plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 
 | `BERRY_AGENT_BASH_PATH`                | bash 工具可执行路径（缺失 fail-loud）                                                                                       | PATH 发现序                 |
 | `BERRY_AGENT_FD_PATH`                  | `@` 文件补全的 fd 可执行路径（保留位——fd 批未触，当前仅内置遍历，设置无效）                                                 | —                           |
 | `BERRY_AGENT_BROWSER_PATH`             | 浏览器引擎可执行路径                                                                                                        | 引擎发现序                  |
-| `BERRY_AGENT_BIN`                      | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                                                                       | 进程自身路径推导            |
+| `BERRY_AGENT_BIN`                      | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                                                                       | `berry`（PATH 名解析）      |
 | `BERRY_AGENT_CRON`                     | cron 可选后端开关/载体                                                                                                      | 进程内挂钟                  |
 | `BERRY_AGENT_GIT_PATH`                 | worktree 工具 git 可执行路径（保留位——装配侧未接，当前设置无效）                                                            | PATH 发现序                 |
 | `BERRY_AGENT_SDK_TOKEN`                | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）                                                       | 缺省不开 TCP 侧             |

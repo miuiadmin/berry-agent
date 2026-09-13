@@ -28,7 +28,7 @@
 **16** 件内置插件 · **28** 模块单向 DAG · **4,000+** 测试 ·
 **6** 道机器验收发布契约 · **0** 遥测
 
-> 状态：`0.1.0-alpha.1`——契约先行、逐批纵切落地；1.0 前 API 面仍可能调整。
+> 状态：`0.1.0-alpha.2`——契约先行、逐批纵切落地；1.0 前 API 面仍可能调整。
 
 </div>
 
@@ -73,6 +73,8 @@ berry credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授
 berry doors list         # 开门制门态只读（开/关走 TUI /doors open|close）
 berry serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
 ```
+
+从 alpha.1 升级的用户：bin 已换代为 `berry`；旧命令 `berry-agent` 仍回落可用，升级到换代版本后 npm 自动换链。
 
 首启自动创建 `~/.berry-agent/`。模型缺省 `anthropic/claude-sonnet-5`（凭证按
 provider 生态变量供给，如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` 可覆盖。
