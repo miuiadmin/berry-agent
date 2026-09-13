@@ -49,6 +49,11 @@ export interface ToolPolicyLoad {
   readonly entries: readonly ToolPolicyEntry[];
   /** false = 文件级坏形（视同空清单 + 回写拒）；true = 缺席或好形 */
   readonly healthy: boolean;
+  /**
+   * 文件级坏形真源路径（2026-09-13 复盘发现 #26：升格语境下真源可以是旧名
+   * allowlist.json——在场即随载、回执指名用；healthy=true 恒缺席）。
+   */
+  readonly unhealthyPath?: string;
 }
 
 /** 读侧选项 */
@@ -67,7 +72,7 @@ function loadPolicyFile(path: string, warn: (message: string) => void): ToolPoli
     raw = readFileSync(path, 'utf8');
   } catch (err) {
     warn(`策略表读取失败（${path}）：${err instanceof Error ? err.message : String(err)}——视同空清单`);
-    return { entries: [], healthy: false };
+    return { entries: [], healthy: false, unhealthyPath: path };
   }
   // 文件级三检：JSON 可解析 / 顶层对象 / entries 为数组——任一违例整文件降级
   let doc: unknown;
@@ -77,16 +82,16 @@ function loadPolicyFile(path: string, warn: (message: string) => void): ToolPoli
     warn(
       `策略表坏形（${path}，JSON 解析失败：${err instanceof Error ? err.message : String(err)}）——视同空清单；手改修复前回写拒（防机器覆写扩大破坏）`,
     );
-    return { entries: [], healthy: false };
+    return { entries: [], healthy: false, unhealthyPath: path };
   }
   if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) {
     warn(`策略表坏形（${path}，顶层须为对象 { "entries": [...] }）——视同空清单；手改修复前回写拒`);
-    return { entries: [], healthy: false };
+    return { entries: [], healthy: false, unhealthyPath: path };
   }
   const rows = (doc as { entries?: unknown }).entries;
   if (!Array.isArray(rows)) {
     warn(`策略表坏形（${path}，entries 须为数组）——视同空清单；手改修复前回写拒`);
-    return { entries: [], healthy: false };
+    return { entries: [], healthy: false, unhealthyPath: path };
   }
   // 行级校验（拒绝式 schema——2026-09-11 审批分档批六字段扩：tool 非空字符串
   // 必填、pattern 可选〔在场须为字符串——空串/缺席对整名族合法；fs/bash 族

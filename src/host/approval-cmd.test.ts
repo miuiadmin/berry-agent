@@ -16,7 +16,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { parseApprovalArgv, runApprovalCommand } from './approval-cmd.js';
 import type { ApprovalCommandDeps, ApprovalStatusFace } from './approval-cmd.js';
-import { readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
+import { readToolPolicy, TOOL_POLICY_BASENAME, LEGACY_ALLOWLIST_BASENAME } from './tool-policy-store.js';
 import { SETTINGS_BASENAME } from './settings-store.js';
 
 /** 临时数据目录族（统一清） */
@@ -138,6 +138,17 @@ describe('entries（活体现读全列）', () => {
     const outcome = runApprovalCommand({ sub: 'entries' }, baseDirs({ dataDir: dir }));
     expect(outcome.ok).toBe(false);
     expect(outcome.text).toContain('坏形');
+  });
+  it('升格语境坏形指名真源（2026-09-13 复盘发现 #26）：唯旧 allowlist.json 坏形 → 回执点名旧名文件，不指错 tool-policy.json', () => {
+    // 修前病灶：坏形回执一律手拼 join(dataDir, tool-policy.json)——升格语境
+    // （新名缺席 + 唯旧名在场且坏形）下真源是 allowlist.json，指错文件会把
+    // 用户引去修一个不存在的新名文件
+    const dir = tmpDir('approval-entries-legacy-bad-');
+    writeFileSync(join(dir, LEGACY_ALLOWLIST_BASENAME), '{broken');
+    const outcome = runApprovalCommand({ sub: 'entries' }, baseDirs({ dataDir: dir }));
+    expect(outcome.ok).toBe(false);
+    expect(outcome.text).toContain(LEGACY_ALLOWLIST_BASENAME); // 指名真源（坏形旧名文件）
+    expect(outcome.text).not.toContain(TOOL_POLICY_BASENAME); // 不指错文件（新名文件缺席）
   });
   it('memory 形 = 空面诚实（dataDir null）', () => {
     const outcome = runApprovalCommand({ sub: 'entries' }, baseDirs());

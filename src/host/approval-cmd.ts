@@ -152,7 +152,10 @@ function renderEntries(deps: ApprovalCommandDeps): ApprovalCommandOutcome {
   const load = readToolPolicy(deps.dataDir);
   const path = join(deps.dataDir, TOOL_POLICY_BASENAME);
   if (!load.healthy) {
-    return { ok: false, text: `策略表文件级坏形（${path}）——已降级视同空清单；手改修复前 preset 写动词同拒。` };
+    // 坏形真源随载（发现 #26）：升格语境下真源可以是旧名 allowlist.json——
+    // 指错文件会把用户引去修一个不存在的新名文件
+    const badPath = load.unhealthyPath ?? path;
+    return { ok: false, text: `策略表文件级坏形（${badPath}）——已降级视同空清单；手改修复前 preset 写动词同拒。` };
   }
   const lines: string[] = [];
   lines.push(`策略表（活体现读 ${path}——装配期载入的是启动时快照，两时点可分立）：`);
@@ -183,8 +186,9 @@ function renderExplain(
   }
   const load = readToolPolicy(deps.dataDir);
   if (!load.healthy) {
-    const path = join(deps.dataDir, TOOL_POLICY_BASENAME);
-    return { ok: false, text: `策略表文件级坏形（${path}）——已降级视同空清单，干跑不可判。` };
+    // 坏形真源随载（发现 #26——同 renderEntries 注）
+    const badPath = load.unhealthyPath ?? join(deps.dataDir, TOOL_POLICY_BASENAME);
+    return { ok: false, text: `策略表文件级坏形（${badPath}）——已降级视同空清单，干跑不可判。` };
   }
   const now = Date.now();
   const workspaceRoot = deps.workspace();
@@ -282,9 +286,11 @@ function runPreset(name: string, deps: ApprovalCommandDeps): ApprovalCommandOutc
   // 拒不留半应用态——04 §9 ⑥ ap-3 定形补充）
   const load = readToolPolicy(deps.dataDir);
   if (!load.healthy) {
+    // 坏形真源随载（发现 #26——同 renderEntries 注）
+    const badPath = load.unhealthyPath ?? join(deps.dataDir, TOOL_POLICY_BASENAME);
     return {
       ok: false,
-      text: `策略表文件级坏形（${join(deps.dataDir, TOOL_POLICY_BASENAME)}）——preset 全拒（防半应用态：不写 settings.json 亦不 append 条目）；手改修复后重试。`,
+      text: `策略表文件级坏形（${badPath}）——preset 全拒（防半应用态：不写 settings.json 亦不 append 条目）；手改修复后重试。`,
     };
   }
   // 两旋钮合并写（保留未知键——用户手编面不因预设切换损毁）
