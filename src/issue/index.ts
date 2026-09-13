@@ -20,6 +20,8 @@ export {
   ISSUE_GITHUB_TOKEN_NAME,
   ISSUE_WEBHOOK_SECRET_NAME,
   ISSUE_MAX_DELIVERIES_PER_DAY_DEFAULT,
+  ISSUE_VERIFY_TIMEOUT_MS_DEFAULT,
+  ISSUE_VERIFY_TAIL_BYTES,
   ISSUE_WORKTREE_NAME_RE,
   issueDedupeKey,
 } from './types.js';
@@ -39,6 +41,9 @@ export type {
   IssueEnqueueResult,
   IssueDangerFace,
   IssueDangerStatusFace,
+  IssueEscalation,
+  IssueVerifyFace,
+  IssueVerifyResult,
 } from './types.js';
 export { createGithubBackend, assertRepoValid } from './github.js';
 export type { GithubBackend, GithubBackendOptions, GithubPullRequestRef } from './github.js';

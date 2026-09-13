@@ -14,6 +14,7 @@ import {
   ISSUE_DEFAULT_SCHEDULE,
   ISSUE_MAX_DELIVERIES_PER_DAY_DEFAULT,
   ISSUE_PER_ISSUE_MESSAGES_DEFAULT,
+  ISSUE_VERIFY_TIMEOUT_MS_DEFAULT,
 } from './types.js';
 
 /** repo 串词法（精确形 `owner/name`——与 github.ts REPO_RE 同形，此处独立持有：filter 不依赖取数层） */
@@ -129,6 +130,30 @@ export function normalizeIssueConfig(raw: unknown): { ok: true; config: IssueCon
     maxDeliveriesPerDay = n;
   }
 
+  // verifyCommand：可选非空串（⑪ 裁决 5——交付验证门；缺席 = 无门不拦交付，
+  // **空串 = 坏形拒**——空串静默视同缺席是安全面方向错误：用户以为配了门而实际无门）
+  let verifyCommand: string | undefined;
+  if (obj.verifyCommand !== undefined) {
+    if (typeof obj.verifyCommand !== 'string' || obj.verifyCommand === '') {
+      return {
+        ok: false,
+        message: `issue 配置 verifyCommand 须非空串（得 ${JSON.stringify(obj.verifyCommand)}）——无验证门就不配，空串不是关门的合法形`,
+      };
+    }
+    verifyCommand = obj.verifyCommand;
+  }
+
+  // verifyTimeoutMs：缺省 120000（npm test 量级——goal gate 30s 帽对交付验证太短）；
+  // 正整数律；verifyCommand 缺席时在场合法无害（时帽键可先行配置）
+  let verifyTimeoutMs = ISSUE_VERIFY_TIMEOUT_MS_DEFAULT;
+  if (obj.verifyTimeoutMs !== undefined) {
+    const n = obj.verifyTimeoutMs;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) {
+      return { ok: false, message: `issue 配置 verifyTimeoutMs 须正整数（得 ${JSON.stringify(n)}）` };
+    }
+    verifyTimeoutMs = n;
+  }
+
   return {
     ok: true,
     config: {
@@ -140,6 +165,8 @@ export function normalizeIssueConfig(raw: unknown): { ok: true; config: IssueCon
       perIssueBudgetMessages,
       baseBranch,
       maxDeliveriesPerDay,
+      ...(verifyCommand !== undefined ? { verifyCommand } : {}),
+      verifyTimeoutMs,
     },
   };
 }

@@ -311,3 +311,50 @@ describe('配置归一 maxDeliveriesPerDay（04 §13——mandate maxPerDay 原�
     }
   });
 });
+
+describe('配置归一 verifyCommand/verifyTimeoutMs（⑪ 裁决 5——交付验证门渐进启用法）', () => {
+  it('缺席 = 无门：verifyCommand 键不落 + verifyTimeoutMs 缺省 120000', () => {
+    const r = normalizeIssueConfig({ repos: ['o/r'] });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.config).not.toHaveProperty('verifyCommand'); // 缺席即键不在（非显式 undefined）
+      expect(r.config.verifyTimeoutMs).toBe(120_000);
+    }
+  });
+
+  it('好值透传：verifyCommand 字符串 + verifyTimeoutMs 覆写', () => {
+    expect(normalizeIssueConfig({ repos: ['o/r'], verifyCommand: 'npm test', verifyTimeoutMs: 60_000 })).toMatchObject({
+      ok: true,
+      config: { verifyCommand: 'npm test', verifyTimeoutMs: 60_000 },
+    });
+  });
+
+  it('verifyCommand 在场空串拒（空串不是关门的合法形——想关就删键）', () => {
+    const r = normalizeIssueConfig({ repos: ['o/r'], verifyCommand: '' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain('verifyCommand');
+  });
+
+  it('verifyCommand 非串拒（42/null——不发明默转）', () => {
+    for (const bad of [42, null, {}]) {
+      const r = normalizeIssueConfig({ repos: ['o/r'], verifyCommand: bad });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toContain('verifyCommand');
+    }
+  });
+
+  it('verifyTimeoutMs 坏形拒（0/负数/小数/字符串——非正整数全拒）', () => {
+    for (const bad of [0, -1, 1.5, '120000', null]) {
+      const r = normalizeIssueConfig({ repos: ['o/r'], verifyTimeoutMs: bad });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toContain('verifyTimeoutMs');
+    }
+  });
+
+  it('verifyTimeoutMs 在场而 verifyCommand 缺席 = 合法无害（门 inert——时帽先配命令后补）', () => {
+    expect(normalizeIssueConfig({ repos: ['o/r'], verifyTimeoutMs: 30_000 })).toMatchObject({
+      ok: true,
+      config: { verifyTimeoutMs: 30_000 },
+    });
+  });
+});

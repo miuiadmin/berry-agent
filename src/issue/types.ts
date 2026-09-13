@@ -58,6 +58,12 @@ export const ISSUE_WEBHOOK_SECRET_NAME = 'issue-webhook-secret';
  * 哨兵或撤 consent 不走空帽） */
 export const ISSUE_MAX_DELIVERIES_PER_DAY_DEFAULT = 10;
 
+/** 交付验证时帽缺省毫秒（⑪ 裁决 5——120s：npm test 量级，goal gate 30s 帽对交付验证太短） */
+export const ISSUE_VERIFY_TIMEOUT_MS_DEFAULT = 120_000;
+
+/** 验证输出尾字节帽（stdout+stderr 合并保尾截断——回执评论与 settle detail 证据面） */
+export const ISSUE_VERIFY_TAIL_BYTES = 4 * 1024;
+
 /* ---------------- 配置面（mount config 键——用户可配域） ---------------- */
 
 /** 运行档位（03 §10.7 裁决④⑤：两档可配、缺省草稿先行——fail-closed 缺省律） */
@@ -85,6 +91,14 @@ export interface IssueConfig {
   readonly baseBranch: string;
   /** 交付日成功帽（04 §13 mandate maxPerDay 原料——缺省 10，正整数律） */
   readonly maxDeliveriesPerDay: number;
+  /**
+   * 交付验证命令（⑪ 裁决 5——用户配置如 `npm test`；**缺席 = 无验证门**
+   * 〔v1 渐进启用，不配不拦交付〕，在场即编排层交付前一步真跑执法——
+   * 非 0 退出/超时/执行异常一律拒交付）
+   */
+  readonly verifyCommand?: string;
+  /** 交付验证时帽毫秒（缺省 120000——normalize 后恒带；verifyCommand 缺席时在场合法无害） */
+  readonly verifyTimeoutMs: number;
 }
 
 /* ---------------- 数据面（GitHub 归一形——轮询/webhook 共用） ---------------- */
@@ -204,6 +218,57 @@ export interface IssueSessionFace {
     /** 件注册的只读工具面（issue_get 等——随会话装载） */
     readonly tools: readonly ToolDefinition[];
   }): Promise<IssueSessionStartResult>;
+}
+
+/* ---------------- ⑪ 执行腿零件（escalation 登记 + 交付验证门） ---------------- */
+
+/**
+ * escalation 上报载荷（issue_escalate 工具四字段——裁决 4 轻采形：结构化
+ * 登记面 + run 收口转人审）。continueWithDefault v1 仅呈报不执行（无人值守按
+ * 建议自我授权继续是 fail-closed 审批律同族敏感面——人回评论后经重轮询/手动
+ * 再入续跑）。
+ */
+export interface IssueEscalation {
+  /** 待裁决问题（必填） */
+  readonly question: string;
+  /** 候选案清单（可选） */
+  readonly options?: readonly string[];
+  /** 建议案（可选） */
+  readonly recommendation?: string;
+  /** 建议的缺省继续案（仅呈报不执行——人审可见模型建议的缺省案） */
+  readonly continueWithDefault?: string;
+}
+
+/**
+ * 交付验证执行窄面（⑪ 裁决 5——编排层交付前一步的真跑面）。词面独立律：组合根
+ * 注入 child_process 真身（danger push 腿 spawn 同族——宿主编排动作不经模型
+ * 工具管道；verifyCommand 是用户 mount config 非模型输入，无守门需求）。
+ * **face 注入缺席（verifyCommand 在场时）同律拒交付转人审**——IssueDangerFace
+ * 缺席阻塞转人审先例同形（防落码选「缺席 = 无门放行」）。
+ */
+export interface IssueVerifyFace {
+  /**
+   * worktree cwd 内真跑验证命令（超时击杀；stdout+stderr 合并尾收集）。
+   * spawn 失败折 exitCode null 不上抛——非 0 判据面在编排层收口（fail-closed：
+   * 一切 seam 缺席 = fail，goal gates 同律）。
+   */
+  runVerify(req: {
+    readonly cwd: string;
+    readonly command: string;
+    readonly timeoutMs: number;
+  }): Promise<IssueVerifyResult>;
+}
+
+/** 验证执行结果（证据四元组缺命令面——命令由调用方自持随取） */
+export interface IssueVerifyResult {
+  /** 退出码（信号杀/spawn 失败 = null——fail-closed 判据：非 0 或 null 即拒） */
+  readonly exitCode: number | null;
+  /** 超时击杀旗（true = 时帽到） */
+  readonly timedOut: boolean;
+  /** stdout+stderr 合并尾（实现侧帽内保尾截断——回执与 detail 双面证据） */
+  readonly outputTail: string;
+  /** 时长毫秒 */
+  readonly durationMs: number;
 }
 
 /* ---------------- 危险闸窄面（04 §13 装配窄面注入——词面独立律） ---------------- */

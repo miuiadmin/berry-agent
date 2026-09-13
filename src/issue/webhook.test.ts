@@ -17,6 +17,7 @@ const CONFIG: IssueConfig = {
   perIssueBudgetMessages: 10,
   baseBranch: 'main',
   maxDeliveriesPerDay: 10,
+  verifyTimeoutMs: 120_000,
 };
 
 /** issues 事件原始载荷 */

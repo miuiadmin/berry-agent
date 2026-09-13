@@ -20,7 +20,7 @@
  * 会话级 deps（档位/审批/工作区）经服务面工厂形求值：装载期固定构造会
  * 丢会话面（批 19a 定形——ExecToolService 契约见 conversation/types.ts）。
  */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import * as fsp from 'node:fs/promises';
@@ -131,6 +131,7 @@ import type { PluginRouteRegistry, SdkHttpFaceHandle } from '../sdk/index.js';
 import { createObsQueryTool, createObsService } from '../obs/index.js';
 import type { ObsAlertRule, ObsAudienceFace, ObsEventsFace, ObsNotifyFace } from '../obs/index.js';
 import { createGithubBackend, createIssueService, mountIssueWebhook, normalizeIssueConfig } from '../issue/index.js';
+import { ISSUE_VERIFY_TAIL_BYTES } from '../issue/index.js';
 import type {
   IssueBudgetFace,
   IssueDangerFace,
@@ -139,6 +140,7 @@ import type {
   IssueSchedulerFace,
   IssueSessionFace,
   IssueStoreStateFace,
+  IssueVerifyResult,
   IssueWebhookMountFace,
 } from '../issue/index.js';
 import { createWorktreeService } from '../tools/index.js';
@@ -1662,6 +1664,61 @@ const DANGER_CMD_USAGE =
   '用法：/danger approve [ttlDays]（缺省 30 天）签发危险闸 consent；/danger status 查看闸状态五呈';
 
 /**
+ * 交付验证执行腿（⑪ 裁决 5——IssueVerifyFace 真身，host spawn 家族：danger
+ * push 腿同族，宿主编排动作不经模型工具管道〔verifyCommand 是用户 mount
+ * config 整串命令非 argv 数组——shell 语义经 /bin/sh -c；无守门需求〕）。
+ * 超时 SIGKILL 击杀；stdout+stderr 合并尾滚动收集（内存帽保尾弃头——失败
+ * 证据在尾）；spawn 失败折 exitCode null 不上抛——非 0 判据面在编排层收口
+ * （fail-closed：一切 seam 缺席 = fail）。
+ */
+function runIssueVerify(req: { cwd: string; command: string; timeoutMs: number }): Promise<IssueVerifyResult> {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const child = spawn('/bin/sh', ['-c', req.command], { cwd: req.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    // 滚动收集窗（尾帽 4 倍——弃头保尾 + 截尾余量；巨型输出不积内存）
+    const keepBytes = ISSUE_VERIFY_TAIL_BYTES * 4;
+    let chunks: Buffer[] = [];
+    let collected = 0;
+    const collect = (stream: NodeJS.ReadableStream): void => {
+      stream.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+        collected += chunk.length;
+        if (collected > keepBytes) {
+          const merged = Buffer.concat(chunks);
+          const kept = merged.subarray(merged.length - keepBytes);
+          chunks = [kept];
+          collected = kept.length;
+        }
+      });
+    };
+    collect(child.stdout!);
+    collect(child.stderr!);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, req.timeoutMs);
+    const finish = (exitCode: number | null, extraTail: string): void => {
+      clearTimeout(timer);
+      const merged = Buffer.concat(chunks);
+      // 保尾截断（字节级——多字节字符边界前移，工具输出护栏 tailBytes 同律）
+      let start = Math.max(0, merged.length - ISSUE_VERIFY_TAIL_BYTES);
+      while (start > 0 && start < merged.length && (merged[start]! & 0xc0) === 0x80) start++;
+      const tail = merged.subarray(start).toString('utf8');
+      resolve({
+        exitCode,
+        timedOut,
+        outputTail: extraTail !== '' ? `${extraTail}\n${tail}` : tail,
+        durationMs: Date.now() - startedAt,
+      });
+    };
+    // error（spawn 失败）后 close 可能再触发——resolve 幂等，先到先得
+    child.on('close', (code) => finish(code, ''));
+    child.on('error', (err) => finish(null, `执行体异常：${err.message}`));
+  });
+}
+
+/**
  * push 执行腿（04 §13 create/push 执行面——宿主 spawn 真身）。token 经
  * `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` env 注入
  * `http.https://github.com/.extraheader`（`AUTHORIZATION: basic base64(
@@ -1878,6 +1935,9 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
         budget,
         capabilities,
         ...(danger !== undefined ? { danger } : {}),
+        // 交付验证执行面（⑪ 裁决 5——恒注入：verifyCommand 缺席时门 inert；
+        // 真身 = host spawn 家族〔上方 runIssueVerify——danger push 腿同族〕）
+        verify: { runVerify: runIssueVerify },
         ...(webhookSecret !== '' ? { webhookSecret } : {}),
         warn,
       });

@@ -9,11 +9,16 @@
  * 见 types.ts owner 注记）→ fire runOne（不 await）。
  *
  * runOne 编舞（单 issue 全程）：
- * worktree 名候选让位（issue-N → -r2..-r9，分支留史撞名域）→ create →
- * startHeadless（cwd=worktree、prompt=buildIssuePrompt、预算帽、issue_get）→
- * grant（拿到 sessionId 才能授予——create 时会话不存在的补授位）→ await
- * outcome → 交付映射（04 §10 issue 消费注）：
- * - draft+completed → 评论贴分支+补丁（60k 帽）→ settle completed；
+ * worktree 名候选让位（issue-N → -r2..-r9，分支留史撞名域；撞名让位分支
+ * 全列举进 prompt——⑪ 裁决 2 前次分支指路）→ create → startHeadless
+ * （cwd=worktree、prompt=buildIssuePrompt、预算帽、issue_get + issue_escalate）
+ * → grant（拿到 sessionId 才能授予——create 时会话不存在的补授位）→ await
+ * outcome → 交付序（⑪ 编排定序）：completed 先过**交付验证门**（裁决 5——
+ * verifyCommand 在场即真跑执法，未过拒交付；先于危险闸 deliver：验证未过
+ * 零闸决策记账不落 allow-failed 笔）→ escalation 检查（裁决 4——auto 档
+ * 在场降级转人审不 push）→ 交付映射（04 §10 issue 消费注）：
+ * - draft+completed → 评论贴分支+补丁（60k 帽；escalation 在场附结构化段、
+ *   settle 维持 completed + detail 注记 N 条）→ settle completed；
  * - auto+completed → 危险闸交付腿（04 §13——deliver = 闸包裹的 push/PR
  *   执行）：push 分支 → 开 PR → 回执贴 PR 链接 → settle completed；闸拒
  *   （DANGER_ 族）= 评论转人审 + 指路修复动作 + settle failed 需人审；
@@ -37,11 +42,13 @@ import type {
   IssueConfig,
   IssueDangerFace,
   IssueEnqueueResult,
+  IssueEscalation,
   IssueJobsFace,
   IssueRef,
   IssueSchedulerFace,
   IssueSessionFace,
   IssueStoreStateFace,
+  IssueVerifyFace,
   IssueWorktreeFace,
 } from './types.js';
 import { ISSUE_POLL_JOB_NAME, ISSUE_RECEIPT_PATCH_CHARS, ISSUE_WORKTREE_NAME_RE, issueDedupeKey } from './types.js';
@@ -67,6 +74,22 @@ function dangerRemedy(code: string): string {
   return DANGER_REMEDIES[code] ?? '运行 /danger status 检查危险闸状态';
 }
 
+/**
+ * escalation 结构化段（⑪ 裁决 4——回执评论承载面：四字段全量、多条累积
+ * 全量非末条）。收口消费双面用：draft 档随完成回执附段 / auto 档降级转人审
+ * 回执主体。
+ */
+function escalationSection(escalations: readonly IssueEscalation[]): string {
+  const blocks = escalations.map((e, i) => {
+    const lines = [`**上报 ${i + 1}**：${e.question}`];
+    if (e.options !== undefined && e.options.length > 0) lines.push(`- 候选：${e.options.join(' ｜ ')}`);
+    if (e.recommendation !== undefined) lines.push(`- 建议：${e.recommendation}`);
+    if (e.continueWithDefault !== undefined) lines.push(`- 建议缺省继续案（仅呈报不执行）：${e.continueWithDefault}`);
+    return lines.join('\n');
+  });
+  return [`## ⚠️ 模型上报待裁决（${escalations.length} 条——run 收口转人审）`, ...blocks].join('\n\n');
+}
+
 /** builtin 轮询行的 prompt 占位（RunnerFactory 对该行名程序化分派 pollOnce 零 token——行 prompt 不入模型面） */
 const POLL_PROMPT_PLACEHOLDER =
   '(builtin) issue 轮询占位——挂钟行由 issue 件程序化分派（pollOnce），本 prompt 不发往任何模型';
@@ -88,6 +111,13 @@ export interface IssueServiceDeps {
    * 阻塞转人审原语义保持（memory 诊断形 dataDir null 零闸——fail-closed）。
    */
   readonly danger?: IssueDangerFace;
+  /**
+   * 交付验证执行窄面（⑪ 裁决 5——verifyCommand 在场时的执法真跑面）。
+   * **缺席（verifyCommand 在场时）同律拒交付转人审**——IssueDangerFace 缺席
+   * 先例同形（fail-closed：防「缺席 = 无门放行」）。verifyCommand 缺席时
+   * 本槽闲置（门 inert）。
+   */
+  readonly verify?: IssueVerifyFace;
   /** webhook secret（缺席 = webhook 面关闭——handleWebhook 响亮拒） */
   readonly webhookSecret?: string;
   /** warn 日志面（缺省 no-op——测试静默） */
@@ -132,17 +162,28 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
     for (let r = 2; r <= 9; r++) yield `issue-${number}-r${r}`;
   }
 
-  /** 组单 issue 的 headless 首跑 prompt（交付纪律内嵌：禁 push/PR/评论、预算可见、issue_get 指引） */
-  function buildIssuePrompt(issue: IssueRef, branch: string): string {
-    return [
-      `处理 GitHub issue ${issue.repo}#${issue.number}：「${issue.title}」。`,
-      '',
+  /**
+   * 组单 issue 的 headless 首跑 prompt（交付纪律内嵌 + ⑪ 两笔：撞名让位
+   * 前次分支指路〔裁决 2——git 史即断点真源〕+ converge 对账纪律句〔裁决 6〕）。
+   */
+  function buildIssuePrompt(issue: IssueRef, branch: string, priorBranches: readonly string[]): string {
+    const lines: string[] = [`处理 GitHub issue ${issue.repo}#${issue.number}：「${issue.title}」。`, ''];
+    if (priorBranches.length > 0) {
+      // 前次分支指路：撞名让位分支全列举（多次残留全列举——单指首撞位漏后续史）
+      lines.push(
+        `- 本任务此前跑过：前次分支 ${priorBranches.map((b) => `\`${b}\``).join('、')} 在场，可用 \`git log\` 查看前次进度与提交（已完成/剩余自行从提交史总结），也可从头独立解决。`,
+        '',
+      );
+    }
+    lines.push(
       '- 先用 issue_get 工具读 issue 正文与全部评论（本会话已绑定该 issue，无需参数）。',
       `- 当前目录是为本次任务建的独立 git worktree（分支 ${branch}）——所有改动在此分支上做并本地提交。`,
-      '- 严禁 push、严禁创建 PR、严禁对 issue 发评论（交付由编排层收口——越界动作将被拒）。',
+      '- 严禁 push、严禁创建 PR、严禁对 issue 发评论（交付由编排层收口——越界动作将被拒）；需人裁决的问题用 issue_escalate 工具上报（run 收口时随回执转人审）。',
       `- 消息预算上限 ${deps.config.perIssueBudgetMessages} 条——聚焦最小可用改动，相关测试跑绿即算达成。`,
+      '- 完成前逐条对账 issue 正文与评论中的显式要求——全部覆盖，或在总结中明确说明未尽项。',
       '- 目标：完成 issue 所述改动（含测试）并在本地提交。',
-    ].join('\n');
+    );
+    return lines.join('\n');
   }
 
   /** 评论投递（失败不抛——回执后补语义，warn 记；终态必落优先于投递成功） */
@@ -167,6 +208,8 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
     let retain = false; // paused 停靠：授予/worktree/在飞记账全保留（唤醒接线随装配批）
     try {
       // ── 隔离：worktree 名候选让位（撞名 = 前次重跑残留——分支留史的代价面） ──
+      // 撞名让位分支全列举进 prompt（⑪ 裁决 2——前次分支指路，git 史即断点真源）
+      const priorBranches: string[] = [];
       let lastExists: unknown;
       for (const name of worktreeNameCandidates(issue.number)) {
         try {
@@ -174,6 +217,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
           break;
         } catch (err) {
           if (err instanceof BaseError && err.code === 'FS_WORKTREE_EXISTS') {
+            priorBranches.push(name);
             lastExists = err;
             continue;
           }
@@ -187,12 +231,24 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       }
       inflight.set(key, created.name);
 
+      // ── escalation 登记表（⑪ 裁决 4——runOne 闭包：与工具工厂同域；停靠
+      //    唤醒 followUp 续跑同会话闭包跨停靠存活；进程内随 Job 蒸发——
+      //    tool/call + tool/result durable 既有词天然留痕，零新 05 §3.1 事件词） ──
+      const escalations: IssueEscalation[] = [];
+
       // ── 起跑：headless 会话（cwd=worktree、预算帽、issue_get 绑定面） ──
       const started = await deps.session.startHeadless({
         cwd: created.path,
-        prompt: buildIssuePrompt(issue, created.branch),
+        prompt: buildIssuePrompt(issue, created.branch, priorBranches),
         budgetMessages: deps.config.perIssueBudgetMessages,
-        tools: createIssueTools({ backend: deps.backend, repo: issue.repo, number: issue.number }),
+        tools: createIssueTools({
+          backend: deps.backend,
+          repo: issue.repo,
+          number: issue.number,
+          onEscalate: (escalation) => {
+            escalations.push(escalation);
+          },
+        }),
       });
       sessionId = started.sessionId;
       // 拿到 sessionId 才能授予（create 时会话不存在的补授位——04 §7 补钉①编排路径）
@@ -208,9 +264,75 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
         );
         return;
       }
-      if (outcome.status === 'completed') {
+      // ── 交付验证门（⑪ 裁决 5——编排层交付前一步、先于危险闸 deliver 调用：
+      //    验证未过零闸决策记账、不落 allow-failed 笔不污染账本。fail-closed
+      //    三拒形：face 缺席 / 执行体异常 / 非零退出或超时——证据四元组进回执
+      //    评论与 settle detail 双面） ──
+      let verifyBlocked = false;
+      const verifyCommand = deps.config.verifyCommand;
+      if (outcome.status === 'completed' && verifyCommand !== undefined) {
+        if (deps.verify === undefined) {
+          // face 注入缺席同律拒交付转人审（IssueDangerFace 缺席先例同形——防「缺席=无门放行」）
+          await postReceipt(
+            issue,
+            [
+              `🤖 issue run 不可交付（验证门缺席）：verifyCommand 已配置（\`${verifyCommand}\`）但验证执行面未注入——阻塞转人审：分支 \`${created.branch}\` 已就绪（本地未 push），请人工验证后交付。`,
+              outcome.summary,
+            ].join('\n'),
+          );
+          handle.settle({
+            status: 'failed',
+            detail: '需人审：验证执行面缺席（verifyCommand 在场而 IssueVerifyFace 未注入）',
+          });
+          verifyBlocked = true;
+        } else {
+          try {
+            const r = await deps.verify.runVerify({
+              cwd: created.path,
+              command: verifyCommand,
+              timeoutMs: deps.config.verifyTimeoutMs,
+            });
+            if (r.timedOut || r.exitCode !== 0) {
+              const verdict = r.timedOut
+                ? `超时（>${deps.config.verifyTimeoutMs}ms，${r.durationMs}ms 击杀）`
+                : `退出码 ${r.exitCode}（${r.durationMs}ms）`;
+              await postReceipt(
+                issue,
+                [
+                  `🤖 issue run 验证未过：\`${verifyCommand}\`——${verdict}。拒交付，分支 \`${created.branch}\` 留存供排查。`,
+                  outcome.summary,
+                  '',
+                  '```',
+                  r.outputTail || '（无输出）',
+                  '```',
+                ].join('\n'),
+              );
+              handle.settle({ status: 'failed', detail: `验证未过：\`${verifyCommand}\` ${verdict}` });
+              verifyBlocked = true;
+            }
+          } catch (err) {
+            // 执行体异常一律拒交付（门故障 = 门不放行——goal gates「一切 seam 缺席 = fail」同律）
+            const detail = err instanceof Error ? err.message : String(err);
+            await postReceipt(
+              issue,
+              [
+                `🤖 issue run 验证未过（执行异常）：\`${verifyCommand}\`——${detail}。拒交付，分支 \`${created.branch}\` 留存供排查。`,
+                outcome.summary,
+              ].join('\n'),
+            );
+            handle.settle({ status: 'failed', detail: `验证未过：\`${verifyCommand}\` 执行体异常（${detail}）` });
+            verifyBlocked = true;
+          }
+        }
+      }
+
+      // ── 交付映射（04 §10 issue 消费注·终态三因；⑪ 编排定序：verify 门 →
+      //    escalation 检查 → 档位映射——验证未过更根本，先于一切交付分叉） ──
+      if (outcome.status === 'completed' && !verifyBlocked) {
         if (deps.config.mode === 'draft') {
-          // draft 档：评论贴分支 + 补丁（60k 字符帽——GitHub 评论体上限内留余量）
+          // draft 档：评论贴分支 + 补丁（60k 字符帽——GitHub 评论体上限内留余量；
+          // escalation 在场附四字段结构化段——draft 档交付本就等人采信，终态
+          // 不因附段翻档〔⑪ 裁决 4 收口消费〕）
           let patch = '';
           try {
             patch = await deps.worktree.diffPatch({ name: created.name, baseRef: deps.config.baseBranch });
@@ -220,20 +342,36 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
           if (patch.length > ISSUE_RECEIPT_PATCH_CHARS) {
             patch = `${patch.slice(0, ISSUE_RECEIPT_PATCH_CHARS)}\n…（补丁超 ${ISSUE_RECEIPT_PATCH_CHARS} 字符帽截断）`;
           }
+          const receiptLines = [
+            `🤖 issue run 完成（draft 档）：分支 \`${created.branch}\`（本地——未 push）`,
+            outcome.summary,
+            '',
+            '```diff',
+            patch || '（无补丁——无改动或取数失败）',
+            '```',
+          ];
+          if (escalations.length > 0) receiptLines.push('', escalationSection(escalations));
+          await postReceipt(issue, receiptLines.join('\n'));
+          handle.settle({
+            status: 'completed',
+            detail: `draft：分支 ${created.branch}（${outcome.messagesUsed} 条消息${escalations.length > 0 ? `；escalation 在场 ${escalations.length} 条` : ''}）`,
+          });
+        } else if (escalations.length > 0) {
+          // auto 档 escalation 降级转人审（⑪ 裁决 4——不 push：与 needs-human 检测
+          // 同律保守偏向，有疑问的成果不自动交付；静默改判路径比危险闸拒更隐蔽，
+          // 回执与 detail 双留痕）
           await postReceipt(
             issue,
             [
-              `🤖 issue run 完成（draft 档）：分支 \`${created.branch}\`（本地——未 push）`,
+              `🤖 issue run 需人审：模型上报 escalation ${escalations.length} 条在身——auto 档不自动交付，分支 \`${created.branch}\` 已就绪（本地未 push），请人审后交付。`,
               outcome.summary,
               '',
-              '```diff',
-              patch || '（无补丁——无改动或取数失败）',
-              '```',
+              escalationSection(escalations),
             ].join('\n'),
           );
           handle.settle({
-            status: 'completed',
-            detail: `draft：分支 ${created.branch}（${outcome.messagesUsed} 条消息）`,
+            status: 'failed',
+            detail: `需人审：escalation 在场 ${escalations.length} 条（auto 档不 push）`,
           });
         } else {
           // auto 档：危险闸交付腿（04 §13——deliver = 闸包裹的 push/PR 执行闭包）。
@@ -317,8 +455,10 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       } else if (outcome.status === 'failed') {
         await postReceipt(issue, `🤖 issue run 失败：${outcome.reason}（分支 \`${created.branch}\` 留存供排查）`);
         handle.settle({ status: 'failed', detail: outcome.reason });
-      } else {
-        // needs-human：无应答者审批拒/写动作无策略表覆盖（04 §9 fail-closed）——转人审
+      } else if (outcome.status === 'needs-human') {
+        // needs-human：无应答者审批拒/写动作无策略表覆盖（04 §9 fail-closed）——转人审。
+        // 显式判词（非 else 兜底）：completed-but-verifyBlocked 形不走本支——验证门拒已自落
+        // 回执与终态，漏进本支会把 completed 误报成 needs-human（TS 窄化报错即此病自证）
         await postReceipt(
           issue,
           `🤖 issue run 需人审：${outcome.reason}（分支 \`${created.branch}\` 留存——处理后可重开）`,
