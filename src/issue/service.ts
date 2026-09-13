@@ -49,12 +49,25 @@ import type {
   IssueSessionFace,
   IssueStoreStateFace,
   IssueVerifyFace,
+  IssueVerifyResult,
   IssueWorktreeFace,
 } from './types.js';
 import { ISSUE_POLL_JOB_NAME, ISSUE_RECEIPT_PATCH_CHARS, ISSUE_WORKTREE_NAME_RE, issueDedupeKey } from './types.js';
 
 /** capabilities 预检名单（03 §10.7 ③入队定值——三名缺席任一拒） */
 const REQUIRED_CAPABILITIES: readonly string[] = ['goal', 'exec', 'checkpoint'];
+
+/**
+ * 验证判据段（证据四元组之判据/时长两段——回执评论与 settle detail 双 face
+ * 单源拼装防再漂移；03 §10.7 定形注「证据四元组双面」+ types.ts
+ * IssueVerifyResult.outputTail JSDoc「回执与 detail 双面证据」同源执法）。
+ */
+function verifyVerdict(r: IssueVerifyResult, timeoutMs: number): string {
+  return r.timedOut ? `超时（>${timeoutMs}ms，${r.durationMs}ms 击杀）` : `退出码 ${r.exitCode}（${r.durationMs}ms）`;
+}
+
+/** 输出尾段（四元组之尾段——空尾诚实注明「（无输出）」非静默省略；两 face 同体直嵌） */
+const verifyTail = (tail: string): string => tail || '（无输出）';
 
 /**
  * 危险闸拒码 → 回执指路（04 §13 消费面按码分流呈现——approve / 重签 /
@@ -293,9 +306,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
               timeoutMs: deps.config.verifyTimeoutMs,
             });
             if (r.timedOut || r.exitCode !== 0) {
-              const verdict = r.timedOut
-                ? `超时（>${deps.config.verifyTimeoutMs}ms，${r.durationMs}ms 击杀）`
-                : `退出码 ${r.exitCode}（${r.durationMs}ms）`;
+              const verdict = verifyVerdict(r, deps.config.verifyTimeoutMs);
               await postReceipt(
                 issue,
                 [
@@ -303,11 +314,17 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
                   outcome.summary,
                   '',
                   '```',
-                  r.outputTail || '（无输出）',
+                  verifyTail(r.outputTail),
                   '```',
                 ].join('\n'),
               );
-              handle.settle({ status: 'failed', detail: `验证未过：\`${verifyCommand}\` ${verdict}` });
+              // detail 面同载输出尾（双面证据律——2026-09-14 扫描三役 F2 勘正：
+              // 修前 detail 只载命令/判据/时长三段、尾段缺席，与 03 §10.7
+              // 定形注及 types.ts JSDoc 相悖；尾体原文直嵌不折叠保证据保真）
+              handle.settle({
+                status: 'failed',
+                detail: `验证未过：\`${verifyCommand}\` ${verdict}\n输出尾：${verifyTail(r.outputTail)}`,
+              });
               verifyBlocked = true;
             }
           } catch (err) {

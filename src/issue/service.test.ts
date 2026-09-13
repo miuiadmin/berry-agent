@@ -3,7 +3,10 @@
  * 入队纪律四闸（capabilities/closed/dedupe/budget）、runOne 编舞五结局
  * （draft·completed/auto·completed/failed/needs-human/paused）、worktree
  * 撞名让位、dirty 保留、编舞异常兜底、孤儿扫描、start/stop、
- * ⑪ 三零件（交付验证门三态/escalation 收口双档/前次分支指路 prompt）。
+ * ⑪ 三零件（交付验证门三态/escalation 收口双档/前次分支指路 prompt）、
+ * ⑪ 遗漏修复批两件（非 completed 收口 escalation 附段双面——回执评论与
+ * settle detail；验证四元组 settle detail 补齐——非零分支输出尾 + 异常
+ * 分支时长）。
  */
 import { BaseError } from '../contracts/index.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -114,7 +117,7 @@ function fakeWorktree(behavior?: {
       return releasedPaths;
     },
   };
-  return { wt, created, cleaned, granted, released, grantMap };
+  return { wt, created, cleaned, granted, released, grantMap, createCalls: () => createCalls };
 }
 
 /** headless 会话假件（可注结局；记录起跑面） */
@@ -446,6 +449,20 @@ describe('runOne 编舞（其余结局）', () => {
     expect(f.fsess.starts[0]!.cwd).toBe('/wt/issue-7-r2');
   });
 
+  it('九连撞耗尽：候选穷尽 → 折 lastExists settle failed（终态必落不悬挂）+ 起跑前零交付面', async () => {
+    // 2026-09-14 扫描三役 F18 补锁：耗尽分支（service.ts 撞名让位循环尾）此前
+    // 零测试触达——existsFirst 帽 99 使九候选全撞，锁「折 lastExists 原码面 +
+    // settle 兜底 + 零回执零起会」三断言面
+    const { f } = await runWithOutcome({ status: 'completed', messagesUsed: 2, summary: 's' }, { existsFirst: 99 });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(f.fwd.createCalls()).toBe(9); // 候选序列穷尽（issue-7 + -r2..-r9）
+    expect(f.fwd.created).toHaveLength(0); // 九试九撞——无 worktree 落成
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('FS_WORKTREE_EXISTS'); // 折 lastExists（第 9 次原码面）
+    expect(f.fsess.starts).toHaveLength(0); // 起会未达
+    expect(f.fback.comments).toHaveLength(0); // 起跑前折——零回执零交付
+  });
+
   it('clean 遇 dirty 保留（FS_WORKTREE_DIRTY 不强拆）', async () => {
     const { f } = await runWithOutcome({ status: 'completed', messagesUsed: 2, summary: 's' }, { dirtyOnClean: true });
     await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
@@ -679,6 +696,10 @@ describe('⑪ 交付验证门（verifyCommand 在场即执法——编排层交�
     expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
     expect(f.fj.settled[0]!.terminal.detail).toContain('验证未过');
     expect(f.fj.settled[0]!.terminal.detail).toContain('退出码 1');
+    // 证据四元组双面律（03 §10.7 定形注 + types.ts IssueVerifyResult.outputTail
+    // JSDoc「回执与 detail 双面证据」）：detail 面必须同载输出尾——2026-09-14
+    // 扫描三役 F2 修前红锚（此前 detail 只载命令/判据/时长三段，尾段缺席）
+    expect(f.fj.settled[0]!.terminal.detail).toContain('断言未过：期望 3 得 4');
     const body = f.fback.comments[0]!.body;
     expect(body).toContain('验证未过');
     expect(body).toContain('断言未过：期望 3 得 4'); // 输出尾证据面
