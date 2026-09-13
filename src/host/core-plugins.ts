@@ -408,8 +408,12 @@ export interface CorePluginHostDeps {
   readonly obsAudience?: ObsAudienceFace;
   /**
    * issue headless 起会面（批 19e——issue 件主闸三：IssueSessionFace
-   * 装配位真身）。缺席 = issue 件零装载（挂账：起会接线改道
-   * ctx.triggers.register 随 issue 件扩展批——03 §10.7 运行条）。
+   * 装配位真身，host/issue-session.ts createIssueSessionFactory in-process
+   * 工厂产物、assembly 装配根接线）。缺席 = issue 件零装载。〔2026-09-13
+   * f-3 注记勘正：原「挂账改道 ctx.triggers.register」注已过时——03 §10.7
+   * 2026-09-09 改向注记定形：起会腿归宿主装配直连（cwd 绑定/工具面追加/
+   * 终局四态映射/停靠-唤醒循环系编排语义非触发语义，TriggerStartSpec 四位
+   * 形状不匹配），不经动词面即无门检面——装配注入位本身即宿主裁决权〕
    */
   readonly issueSession?: IssueSessionFace;
   /**
