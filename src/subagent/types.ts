@@ -3,8 +3,8 @@
  *
  * 词汇面（02 §4.1 席 15）：ctx.jobs——Job 注册表（registry.ts 机器）+
  * SubagentProvider 契约（contracts 归位——跨件消费方 exec/issue/host 共享）
- * + 委派工具（tool.ts）。in-process 真工厂（每子代理独立装配全套）是
- * host 装配批的活——本件提供机器与接缝（装载态挂账同 15a/15b 律）。
+ * + 委派工具（tool.ts）。in-process 真工厂（每子代理独立装配全套）已落
+ * host/subagent-factory.ts（19c-1 装配接线兑现）——本件提供机器与接缝。
  */
 import type { SubagentRequest, SubagentResult } from '../contracts/index.js';
 

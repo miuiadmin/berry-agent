@@ -6,7 +6,8 @@
  * 节流/批帽 64/指数退避/毒丸隔离·durable 标记/flush 屏障）+ Persistence 门面
  * （SessionLog 接线/种子会话同步落库）+ 凭证密文盒（AES-256-GCM）+ 主库
  * 归属三级梯子 + store_state LRU 治理 + session_fts 对账三档。
- * 消费面（host 装配根/ctx.sessions 只读服务/core: 插件 DAO）随后续批接线。
+ * 消费面（host 装配根 Persistence 门面 / ctx.sessions 'sessions' 服务面 /
+ * core:memory 插件 DAO）均已接线。
  */
 import './codes.js';
 

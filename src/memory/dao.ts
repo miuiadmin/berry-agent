@@ -91,7 +91,7 @@ export interface MemoryDaoDeps {
   readonly newId?: () => string;
 }
 
-/** memory DAO 公开面（18c-1 域 = 入库单点 + 读面；18c-2 域 = 持有面动词 + 检索/访问面；周期路/晋升桥随后续批扩） */
+/** memory DAO 公开面（18c-1 域 = 入库单点 + 读面；18c-2 域 = 持有面动词 + 检索/访问面；周期路/晋升桥的 DAO 承载面已扩——18c-5 整理面四法承周期路 consolidation、18c-7 效用回写面承晋升桥 cite 闭环） */
 export interface MemoryDao {
   /** 入库单点（校验 → 写前扫描 → 三分支合并/插入——单事务） */
   ingest(candidate: MemoryCandidate): IngestOutcome;

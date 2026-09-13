@@ -4,7 +4,8 @@
  * 裁决（本仓 vs berry 蓝本差异②）：蓝本 AgentTool 族先落 agent 件后迁
  * contracts——本仓一步到位直上 contracts（插件 defineTool 的参数类型消费面，
  * 避免落码即迁的双写窗口）。工具面三段管道（schema→守门→执行）本体在
- * tools 件（后续批）；本件只钉**执行体形状**——loop 工具批的直接消费面。
+ * tools 件（已落——pipeline.ts/registry.ts）；本件只钉**执行体形状**——
+ * loop（AgentLoopConfig.tools）的直接消费面。
  */
 
 import type { ImageContent, TextContent, ToolCallBlock, Usage } from './llm.js';

@@ -46,8 +46,9 @@ export interface PluginManifest {
   readonly skills?: readonly string[];
   /**
    * 声明式子代理目录清单（§6.3——06 §11.6 位 4；与 skills 同形：相对包根
-   * 目录路径数组）。生态启动批 eco-1 键收下：装载收集随行（agentDirs）、
-   * 物化消费腿挂账 core:subagent 消费批（立题档 20260911 裁决点 C 降档）。
+   * 目录路径数组）。生态启动批 eco-1 键收下：装载收集随行（agentDirs）；
+   * 物化消费腿已随子代理消费腿批 ⑥-3 兑现（装配根行投影喂 core:subagent
+   * 插件层物化）。
    */
   readonly agents?: readonly string[];
   /** 入口解析序判定产物（§1.2 三步定死） */

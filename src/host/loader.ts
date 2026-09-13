@@ -192,9 +192,9 @@ export interface LoadPluginsOptions<TCtx = unknown> {
  * 在此解析为绝对路径并过包根包含执法——磁盘行基 = pluginDir（装机树内插件
  * 目录）、core 行基 = 宿主包根（本模块上推两级——与 skills 件
  * resolveFactorySkillsDir 同法双形态同构）。消费位：skills = 装配根补注册
- * 编舞（06 §11.4 位 4）；agents = 物化消费腿挂账 core:subagent 消费批
- * （生态启动批 eco-1 收集先行——立题档 20260911 §七风险段预授权裁决点 C
- * 消费腿降档，冷读闸把关确认）。
+ * 编舞（06 §11.4 位 4）；agents = 装配根滤行（agentDirs > 0）投影喂
+ * core:subagent 插件层物化（子代理消费腿批 ⑥-3 兑现——eco-1 收集先行的
+ * 降档消费腿已收口）。
  */
 export interface ActivatedPlugin {
   readonly id: string;

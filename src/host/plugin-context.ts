@@ -146,7 +146,8 @@ export interface PluginContext {
    * 新服务、后续轮次自然解锁依赖方）。委派目标 = 共享根作用域（跨插件可见
    * 面——同批插件互见才可排装载序，04 §6 fork 语义）；撞名 = 撞名闸前置
    * （CONTEXT_SERVICE_DUPLICATE，§2.7 尾注）。无 un-provide——进程级单册
-   * （§2.2 尾注明文例外；服务撤回面挂账 /reload 批）。
+   * （§2.2 尾注明文例外）；/reload 换代重供走同主刷新律（04 §6 定形注——
+   * 16ce571 撞名修复批定形：同主原位刷新、跨主照拒，执法在 scope.ts）。
    */
   provide(name: string, service: unknown): void;
   /** 可逆注册（LIFO 回卷——计频率护栏动作数；§3.1 三动词消费面，不吃窗口闸） */

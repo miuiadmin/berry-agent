@@ -20,8 +20,9 @@
  * **addedToolNames 诚实空**（§2.8 双通道）：装机/挂载类动作的工具结果携带
  * 新注册工具名清单——但模型面动作时点「装机零生效」（§5.4）且不自动链
  * reload，插件工具注册发生在人面 /reload 后的新代装载；故本族结果恒携带
- * `addedToolNames: []`（通道在位、值诚实空——通道真值的发射位在新代装载
- * 器侧，随 durable 装载史载体批挂账）。
+ * `addedToolNames: []`（通道在位、值诚实空——真值不经模型面发射：/reload
+ * 换代回执 ReapplyReceipt.addedTools 承载新代工具面 diff，装载史批 h-4
+ * 兑现）。
  *
  * 执行件全复用三面同源真源：installPlugin/updatePlugin（plugin-install）、
  * mountRow/unmountRow/toggleRow + readLedger（plugin-store）、inspectUninstall
