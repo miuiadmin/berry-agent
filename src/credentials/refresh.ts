@@ -39,7 +39,7 @@ export interface RefreshChainDeps {
   readonly notify: (message: string) => void;
   /** 单败 warn（日志面——非用户面，宿主接线位自决去向） */
   readonly warn: (message: string) => void;
-  /** credentials/changed 审计 seam（rotate 成功后调用；缺省 no-op——U3-2 挂账） */
+  /** credentials/changed 审计 seam（rotate 成功后调用；缺省 no-op = 测试形；生产已接线 audit_events） */
   readonly onCredentialChanged?: (payload: CredentialChangedPayload) => void;
   /** 提前量毫秒（到期前多久开始刷新——缺省 5 分钟） */
   readonly aheadMs?: number;

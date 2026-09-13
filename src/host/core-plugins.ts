@@ -463,7 +463,8 @@ export interface CorePluginHostDeps {
   readonly credentialsStore?: CredentialsCommandStore;
   /**
    * credentials/changed 审计 seam（c-5——人面 add/rm 发射位；05 §1.1 载荷
-   * 值域单源。缺省 no-op——audit_events 载体挂账 U3-2 真发射位接线）。
+   * 值域单源。缺省 no-op = 测试形；生产装配已接线 audit_events 真发射
+   * ——assembly U3 批 U3-5，2026-09-13 勘正旧挂账注记）。
    */
   readonly credentialsOnChanged?: (payload: CredentialChangedPayload) => void;
   /**

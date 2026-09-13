@@ -11,8 +11,8 @@
  * 退出码：0 成功（含空清单——诚实空非失败）/ 1 执行失败（名缺席、namespace
  * 坏形——结算文本已含原因，不另打行）。用法错归解析层（exit 2）。
  *
- * 审计注记：CLI 短命进程不接 credentials/changed seam（audit_events 载体
- * 挂账 U3-2；宿主运行时形态的发射位在 assembly deps）。
+ * 审计注记：CLI 短命进程不接 credentials/changed seam（宿主运行时形态的
+ * 发射位在 assembly deps——U3 批 U3-5 已接线 audit_events）。
  */
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
 

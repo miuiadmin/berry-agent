@@ -28,9 +28,9 @@ import {
 } from '../persist/index.js';
 import type { PersistenceOptions } from '../persist/index.js';
 // core: 表族迁移声明（05 §6.4 机械聚合——声明来自插件、执行在宿主；host 行
-// 拓扑边在册）。版本升序：scheduler v2 → goal v3 → memory v4-6·9 →
-// credentials v7 → audit v8 → load-generations v10（后两号 = 宿主域表——
-// persist export-only 声明，非 core: 表族）。
+// 拓扑边在册）。版本升序：scheduler v2 → goal v3 → memory v4-6·9·11 →
+// credentials v7 → audit v8 → load-generations v10 → goal v12（audit v8 与
+// load-generations v10 = 宿主域表——persist export-only 声明，非 core: 表族）。
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';

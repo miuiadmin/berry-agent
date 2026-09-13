@@ -31,7 +31,8 @@
  *     空报告/零计数/不注册 closer/不发生命周期事件；注册表仍交空形（消费面稳定）。
  *  ⑪ 生命周期事件（§2.4 生命周期组）：装载收口**批量补发**（report 迭代发
  *     plugin/activated·failed·skipped + composition/reloaded 三清单载荷）——
- *     逐行时点发射位装载器未开（挂账 /reload 批）；合成失败行并入 failed 面。
+ *     逐行时点发射位装载器仍未开（/reload 批已飞未启——2026-09-13 勘正，
+ *     维持收口批量补发形态）；合成失败行并入 failed 面。
  *
  * 消费腿实况（2026-09-11 勘正——原「挂账」注记所指批次均已飞）：boot 级
  * 工具注册表经 assembly bootTools 取值器并入会话工具面（conversation-stack）；
@@ -240,7 +241,8 @@ export interface PluginBootOptions {
    * core:credentials 件席在场（计划行未禁用）时，装载序逐插件 fork 绑定
    * 'secrets' 自域版（ctx.get("secrets") 消费面——服务闭包携 pluginId 防
    * 冒名）。开门集/受理窗由本件接线 handle 真源（grantedOpens/
-   * inHostCallback）；两审计 seam 缺省 no-op（audit_events 载体挂账 U3-2）。
+   * inHostCallback）；两审计 seam 缺省 no-op = 测试形（生产装配已接线
+   * audit_events 真发射——assembly U3 批 U3-5，2026-09-13 勘正旧挂账注记）。
    * 缺席 = secrets 面整体不提供（ctx.get 响亮 CONTEXT_SERVICE_MISSING——
    * 诚实缺席律：测试替身形/:memory: 诊断形）。
    */

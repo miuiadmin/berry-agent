@@ -55,7 +55,7 @@ export interface CredentialsCommandStore {
 /** 命令装配依赖（宿主装配位注入——本件零宿主依赖，纯逻辑可测） */
 export interface CredentialsCommandDeps {
   readonly store: CredentialsCommandStore;
-  /** credentials/changed 审计 seam（add/rm 成功后调用；缺省 no-op——U3-2 挂账真发射位） */
+  /** credentials/changed 审计 seam（add/rm 成功后调用；缺省 no-op = 测试形；生产装配已接线 audit_events——assembly U3 批 U3-5） */
   readonly onCredentialChanged?: (payload: CredentialChangedPayload) => void;
 }
 
@@ -209,7 +209,8 @@ function runAdd(
   const meta: CredentialMeta = { source: 'manual' };
   deps.store.setCredential(ns, name, { apiKey: value, meta });
   // credentials/changed 审计 seam（05 §1.1 值域单源：人面写 = action 'add' /
-  // origin 'human'；值恒不入载荷；audit_events 载体挂账 U3-2，seam 先立）
+  // origin 'human'；值恒不入载荷；生产装配已接线 audit_events——assembly
+  // U3 批 U3-5，缺省 no-op = 测试形）
   deps.onCredentialChanged?.({ namespace: ns, name, action: 'add', origin: 'human' });
   return {
     ok: true,

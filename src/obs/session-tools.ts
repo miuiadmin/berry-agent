@@ -9,7 +9,8 @@
  *  - 跨树/全会话维枚举与读走高危面 `sessions.observe-cross` 门检
  *    （03 §4.6 v1 首批第五枚——adjudicateCapabilityDoor；拒 =
  *    SESSION_OBSERVE_DENIED〔02 §5.3 e-2 补登〕）；门开后逐次
- *    capability/used 审计 seam（05 §1.1——真发射位 U3-2 挂账同律）。
+ *    capability/used 审计 seam（05 §1.1——真发射位 U3 批已接线
+ *    audit_events）。
  *  - session_list 的门未开形 = 只列树内会话（枚举本身即跨树信息——
  *    「枚举与读」同门同码防旁路）。
  *

@@ -14,7 +14,8 @@
  *    门检 `credentials.read-cross`（§4.6 v1 首批第四枚——未开门拒同码，
  *    message 底稿 = 门检 verdict 原文指路 opens 授予位；core: 官方件直开
  *    豁免——triggers.ts 同律：装配即用户意图）→ 开门后逐次 `capability/used`
- *    审计 seam（audit_events 载体落码挂账 U3-2——seam 先立，缺省 no-op）。
+ *    审计 seam（缺省 no-op = 测试形；生产装配已接线 audit_events 真发射
+ *    ——assembly U3 批 U3-5，2026-09-13 勘正旧挂账注记）。
  *  - `set(name, value, meta?)`：恒自域写——受理窗判定（宿主回调窗内可达，
  *    窗外拒 `CREDENTIALS_WRITE_WINDOW_CLOSED`；缺省恒窗外 = fail-closed）；
  *    写成功落 `credentials/changed` 审计 seam（action 'rotate'/origin
@@ -56,7 +57,7 @@ export interface CredentialsStoreFace {
 /** 高危面名（本件门检唯一消费位——§4.6 v1 首批第四枚） */
 const READ_CROSS_CAPABILITY = 'credentials.read-cross';
 
-/** capability/used 审计 seam 载荷（audit_events 落码挂账 U3-2——发射位后接） */
+/** capability/used 审计 seam 载荷（生产装配已接线 audit_events——assembly U3 批 U3-5） */
 export interface CapabilityUsedPayload {
   readonly pluginId: string;
   /** 高危面名（本件恒 'credentials.read-cross'） */
@@ -134,9 +135,9 @@ export interface SecretsFaceOptions {
    * （窗外拒——fail-closed：无窗态位即无写面）。
    */
   readonly inWriteWindow?: () => boolean;
-  /** capability/used 审计 seam（开门后逐次越域读调用；缺省 no-op——U3-2 挂账） */
+  /** capability/used 审计 seam（开门后逐次越域读调用；缺省 no-op = 测试形；生产已接线 audit_events） */
   readonly onCapabilityUsed?: (payload: CapabilityUsedPayload) => void;
-  /** credentials/changed 审计 seam（set 写成功后调用；缺省 no-op——U3-2 挂账） */
+  /** credentials/changed 审计 seam（set 写成功后调用；缺省 no-op = 测试形；生产已接线 audit_events） */
   readonly onCredentialChanged?: (payload: CredentialChangedPayload) => void;
   /**
    * oauth 流注册面受局面（c-6——缺席 = registerOAuthFlow 响亮缺位拒；
@@ -190,8 +191,8 @@ export function createSecretsFace(options: SecretsFaceOptions): SecretsService {
       if (entry === undefined) {
         throw new BaseError('CREDENTIALS_NOT_FOUND', `凭证 ${name} 不在目标域（${target}）——越域读命中空名同响亮拒`);
       }
-      // 开门后逐次审计（05 §1.1 capability/used——audit_events 载体挂账 U3-2，
-      // seam 先立；core: 直开豁免同记审计——豁免免的是门不是账）
+      // 开门后逐次审计（05 §1.1 capability/used——audit_events 真发射：生产
+      // 装配已接线 assembly U3 批 U3-5；core: 直开豁免同记审计——豁免免的是门不是账）
       options.onCapabilityUsed?.({ pluginId, capability: READ_CROSS_CAPABILITY, namespace: target, name });
       return entry.apiKey;
     },
