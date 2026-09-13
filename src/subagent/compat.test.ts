@@ -21,7 +21,7 @@ import { Scope } from '../context/index.js';
 import type { SubmitResult } from '../conversation/index.js';
 import type { ConversationDriver } from '../conversation/index.js';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
-import { GOAL_MIGRATION } from '../goal/migration.js';
+import { GOAL_APPROVAL_MIGRATION, GOAL_MIGRATION } from '../goal/migration.js';
 import { createGoalService, type GoalService } from '../goal/service.js';
 import type { GoalSessionFace } from '../goal/types.js';
 import { createJobRegistry, type JobRegistry } from './registry.js';
@@ -151,7 +151,7 @@ describe('onSettled → goal.foldDelegation 喂入 seam', () => {
       dbPath: join(dir, 'test.db'),
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
-      migrations: [GOAL_MIGRATION],
+      migrations: [GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION], // v3+v12（f-1 批准位列随链）
     });
     const goal: GoalService = createGoalService({
       db: store.sqlite(),

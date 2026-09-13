@@ -16,7 +16,7 @@
 import { Type } from 'typebox';
 import { BaseError, type ToolDefinition } from '../contracts/index.js';
 import { parseResumeWhen } from './fold.js';
-import type { GoalTodoItem, WritableGoalTodoItem } from './types.js';
+import type { CommandGateStatus, GoalTodoItem, WritableGoalTodoItem } from './types.js';
 
 /** 扩展字段名集（非 goal 段申报即拒的判据面——与 schema 字段面同源人工互镜） */
 const EXTENDED_FIELDS = ['resumeWhen', 'role', 'taskClass', 'followUp', 'noFollowUp', 'gate'] as const;
@@ -27,8 +27,11 @@ export interface GoalTodoToolDeps {
   append: (data: { items: GoalTodoItem[] }) => void;
   /** 当前会话 goal 段判据（null = 非 goal 段——双向执法判据面） */
   getScope: () => { goalId: string; activatedSeq: number } | null;
-  /** command 判据门可用性（goal needsWrite 申报+批准后 true） */
-  commandGateAllowed: boolean;
+  /**
+   * command 判据门可用性活查（f-1 定形注③——执行期按当前 goal 行求值双位
+   * 合取，非构造期快照；reason 分档承载申报拒文案指引差）。
+   */
+  commandGateStatus: (goalId: string) => CommandGateStatus;
   /** lsp 诊断查询面在场否（缺席 = diagnostics gate 申报即拒 fail-closed） */
   hasLsp: boolean;
   /** 词法判窗锚（缺省 Date.now——测试注固定钟） */
@@ -163,13 +166,17 @@ function enforceScope(
       `completed 条目「${item.content}」必携后继二择一（follow_up 或 no_follow_up: true）——防完成即失联`,
     );
   }
-  // gate 声明申报位 fail-closed（评测位 gates.ts 双拦）
+  // gate 声明申报位 fail-closed（评测位 gates.ts 双拦）；command 位两档全拒
+  // ——文案分档仅指引差（f-1 定形注③：not-approved 档给 /goal approve 指路）
   if (item.gate !== undefined) {
     if (item.gate.kind === 'command') {
-      if (!deps.commandGateAllowed) {
+      const status = deps.commandGateStatus(scope.goalId);
+      if (!status.allowed) {
         throw new BaseError(
           'GOAL_TODO_SCOPE',
-          `条目「${item.content}」command 判据门不可申报——goal 未申报 needsWrite（防模型自造命令免审批自跑）`,
+          status.reason === 'not-approved'
+            ? `条目「${item.content}」command 判据门不可申报——goal 已申报 needsWrite 但未获人面批准（/goal approve ${scope.goalId} 批准后方可申报）`
+            : `条目「${item.content}」command 判据门不可申报——goal 未申报 needsWrite（防模型自造命令免审批自跑）`,
         );
       }
       if (item.gate.command.trim().length === 0) {

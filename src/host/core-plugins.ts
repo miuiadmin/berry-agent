@@ -1259,7 +1259,9 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         todoFactory: (todoDeps) =>
           createGoalTodoTool({
             ...todoDeps,
-            commandGateAllowed: false, // v1 接线形——needsWrite 批准链路挂账
+            // f-1 批接线活查——执行期按当前 goal 行求值双位合取（申报位两档
+            // 全拒 + 文案分档指路；旧「恒 false 接线形」挂账就此销账）
+            commandGateStatus: (goalId) => service.commandGateStatus(goalId),
             hasLsp: lsp !== undefined, // 批 19d 回补——真诊断面在场否（申报面 fail-closed 判据）
           }),
       } satisfies GoalFace);

@@ -14,7 +14,7 @@
  */
 import './codes.js';
 
-export { GOAL_MIGRATION } from './migration.js';
+export { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from './migration.js';
 export type {
   GoalStatus,
   GoalRow,
@@ -27,6 +27,7 @@ export type {
   GoalSessionFace,
   GoalSummarizerFace,
   WakeDecision,
+  CommandGateStatus,
 } from './types.js';
 export { foldGoalTodos, openGoalItems, progressFingerprint, parseResumeWhen, validateGoalTodoItems } from './fold.js';
 export {

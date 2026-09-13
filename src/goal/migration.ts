@@ -10,6 +10,10 @@
  *     last_fingerprint（fold 投影指纹——进展判据）；
  *   - goal_wakes 副表：归因轮身份 durable 落账（04 §12 续跑触发条款——
  *     哪个 run 为哪个 goal 醒的，跨进程可审计）。
+ *
+ * 迁移历史不可变律：v3 DDL 已在既有库执行（user_version ≥3 的库不再重跑），
+ * 后续列扩张一律走新号 ALTER（本族第二条 GOAL_APPROVAL_MIGRATION v12——
+ * 2026-09-13 f-1 批：needsWrite 人面批准位）。
  */
 import type { MigrationSpec } from '../persist/index.js';
 
@@ -49,4 +53,16 @@ export const GOAL_MIGRATION: MigrationSpec = {
     );
     CREATE INDEX idx_goal_wakes_goal ON goal_wakes (goal_id);
   `,
+};
+
+/**
+ * goals 表增列迁移（迁移 v12——f-1 批 2026-09-13；05 §6.4「号随注册序顺延」：
+ * v11 memory 谱系批后本件顺占 v12）。write_approved = needsWrite 人面批准位
+ * （03 §10.5 f-1 定形注①——双 durable 位之批准位；缺省 0，唯一写面 =
+ * /goal approve）。
+ */
+export const GOAL_APPROVAL_MIGRATION: MigrationSpec = {
+  version: 12,
+  name: 'goal-write-approved',
+  sql: `ALTER TABLE goals ADD COLUMN write_approved INTEGER NOT NULL DEFAULT 0;`,
 };

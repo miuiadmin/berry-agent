@@ -15,18 +15,18 @@ registerErrorCodes([
     code: 'GOAL_TRANSITION_INVALID',
     module: 'goal',
     description:
-      'goal 状态迁转机器否决——goal_update 终态 completed 必附 evidence 且 open 项在/携 gate 项未全绿即拒（响亮回执列 open 项）、同会话既有 active goal 撞席拒、GoalJobsFace register 坏串回执同折',
+      'goal 状态迁转机器否决——goal_update 终态 completed 必附 evidence 且 open 项在/携 gate 项未全绿即拒（响亮回执列 open 项）、同会话既有 active goal 撞席拒、GoalJobsFace register 坏串回执同折、/goal approve 批准无对象〔未申报 needsWrite 或终态行——f-1 批 03 §10.5 定形注〕',
   },
   {
     code: 'GOAL_TODO_SCOPE',
     module: 'goal',
     description:
-      'todo/write 段约束双向执法——goal 段内 deferred 缺 resume_when、completed 缺后继二择一（follow_up/noFollowUp）、resume_when 词法坏形拒；非 goal 段申报扩字段亦拒；gate 声明申报位 fail-closed（command 未过 needsWrite 批准、diagnostics 缺 lsp 面）',
+      'todo/write 段约束双向执法——goal 段内 deferred 缺 resume_when、completed 缺后继二择一（follow_up/noFollowUp）、resume_when 词法坏形拒；非 goal 段申报扩字段亦拒；gate 声明申报位 fail-closed（command 未过 needsWrite 申报+人面批准、diagnostics 缺 lsp 面）',
   },
   {
     code: 'GOAL_NOT_FOUND',
     module: 'goal',
-    description: '幽灵 goalId 零行守卫——update/complete/abandon/wake 作用行缺席响亮拒',
+    description: '幽灵 goalId 零行守卫——update/complete/abandon/wake/approve 作用行缺席响亮拒',
   },
   {
     code: 'GOAL_GOAL_INVALID',

@@ -18,6 +18,7 @@ function row(partial: Partial<GoalRow> & Pick<GoalRow, 'id'>): GoalRow {
     schedule: 'every:10m',
     promptSnapshot: 'p',
     needsWrite: false,
+    writeApproved: false,
     budgetMessagesCap: null,
     budgetMessagesUsed: 0,
     budgetFoldedUnits: 0,
@@ -45,9 +46,14 @@ function wake(partial: Partial<GoalWakeRow> & Pick<GoalWakeRow, 'goalId'>): Goal
   };
 }
 
-/** 假 service（手搓行 + 可编排 wake 结局） */
+/** 假 service（手搓行 + 可编排 wake/approve 结局） */
 function fakeService(
-  options: { rows?: GoalRow[]; wakes?: GoalWakeRow[]; wakeImpl?: (goalId: string) => WakeDecision } = {},
+  options: {
+    rows?: GoalRow[];
+    wakes?: GoalWakeRow[];
+    wakeImpl?: (goalId: string) => WakeDecision;
+    approveImpl?: (goalId: string) => GoalRow;
+  } = {},
 ): GoalService {
   const rows = options.rows ?? [];
   const wakeRows = options.wakes ?? [];
@@ -68,6 +74,16 @@ function fakeService(
     async wake(goalId) {
       if (options.wakeImpl !== undefined) return options.wakeImpl(goalId);
       return { landed: true, reason: 'ok', message: '手动唤醒已落地（停滞计数复位）', goal: byId(goalId) };
+    },
+    async approve(goalId) {
+      if (options.approveImpl !== undefined) return options.approveImpl(goalId);
+      return byId(goalId);
+    },
+    commandGateStatus(goalId) {
+      const r = rows.find((row) => row.id === goalId);
+      if (r === undefined || !r.needsWrite) return { allowed: false, reason: 'not-declared' as const };
+      if (!r.writeApproved) return { allowed: false, reason: 'not-approved' as const };
+      return { allowed: true, reason: 'ok' as const };
     },
     get: (goalId) => rows.find((r) => r.id === goalId),
     activeFor: (sessionId) => rows.find((r) => r.sessionId === sessionId && r.status === 'active'),
@@ -194,9 +210,19 @@ describe('/goal show', () => {
     expect(text).toContain('目标：跑通目标');
     expect(text).toContain('激活锚 seq=2');
     expect(text).toContain('预算：前台 0 + 委派折叠 0（无帽）');
+    expect(text).toContain('needsWrite：未申报（command 判据门不可用）');
     expect(text).toContain('open 项：1（[pending] 待办甲）');
     expect(text).toContain('（无唤醒记录）');
     expect(text).not.toContain('终态回执');
+  });
+
+  it('needsWrite 双位三态渲染（f-1——/goal show 呈现申报/批准位）', async () => {
+    const declared = fakeService({ rows: [row({ id: 'g-1', needsWrite: true })] });
+    const text1 = await runGoalCommand(['show', 'g-1'], { service: declared, eventsFor: NO_EVENTS });
+    expect(text1).toContain('已申报·未批准（/goal approve 后可用）');
+    const approved = fakeService({ rows: [row({ id: 'g-1', needsWrite: true, writeApproved: true })] });
+    const text2 = await runGoalCommand(['show', 'g-1'], { service: approved, eventsFor: NO_EVENTS });
+    expect(text2).toContain('已申报·已批准（command 判据门可用）');
   });
 
   it('终态 goal：终态回执行在场 + open 项不叠（scope 已退化）', async () => {
@@ -215,6 +241,24 @@ describe('/goal show', () => {
     expect(text).toContain('open 项：0'); // 终态行 goalScopeFor undefined——段外不渲染 open
     expect(text).toContain('clock 道 · 有进展 · 归因 job-1');
     expect(text).toContain('manual 道 · 无进展 · 归因 /goal wake');
+  });
+});
+
+describe('/goal approve', () => {
+  it('f-1 人面批准动词：缺 id 折 usage；成功渲染解锁回执；守卫错折文本', async () => {
+    const service = fakeService({ rows: [row({ id: 'g-1', needsWrite: true })] });
+    expect(await runGoalCommand(['approve'], { service, eventsFor: NO_EVENTS })).toBe(`缺 goalId。\n${GOAL_USAGE}`);
+    const text = await runGoalCommand(['approve', 'g-1'], { service, eventsFor: NO_EVENTS });
+    expect(text).toContain('已批准 goal「g-1」的 needsWrite 申报');
+    expect(text).toContain('command 判据门申报解锁');
+    const refused = fakeService({
+      rows: [row({ id: 'g-1', needsWrite: true })],
+      approveImpl: () => {
+        throw new BaseError('GOAL_TRANSITION_INVALID', 'goal「g-1」已终态（completed）——批准无对象');
+      },
+    });
+    const refusedText = await runGoalCommand(['approve', 'g-1'], { service: refused, eventsFor: NO_EVENTS });
+    expect(refusedText).toBe('GOAL_TRANSITION_INVALID：goal「g-1」已终态（completed）——批准无对象');
   });
 });
 

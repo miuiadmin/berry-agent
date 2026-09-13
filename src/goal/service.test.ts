@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
-import { GOAL_MIGRATION } from './migration.js';
+import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from './migration.js';
 import { createGoalService, type GoalService } from './service.js';
 import type { GoalJobsFace, GoalSessionFace, GoalSummarizerFace } from './types.js';
 
@@ -67,7 +67,7 @@ function openService(
     dbPath: join(dir, 'test.db'),
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
-    migrations: [GOAL_MIGRATION],
+    migrations: [GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION],
   });
   const session = new FakeSession();
   const calls: string[] = [];
@@ -255,6 +255,70 @@ describe('complete（完成否决律机器面）', () => {
     expect(done.endedAt).toBe(nowIso);
     expect(calls).toContain(`disable:${goal.id}`);
     expect(service.activeFor('s1')).toBeUndefined();
+  });
+});
+
+describe('approve + commandGateStatus（f-1 needsWrite 批准链路——03 §10.5 定形注）', () => {
+  it('approve 守卫链：幽灵 id / 未申报 / 终态行 / 幂等重复批准', async () => {
+    const { service, face } = openService();
+    await service.attachGoalJobsFace(face);
+    await expectCode(service.approve('ghost'), 'GOAL_NOT_FOUND');
+    // 未申报 needsWrite——批准无对象
+    const plain = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    const err = await expectCode(service.approve(plain.id), 'GOAL_TRANSITION_INVALID');
+    expect(err.message).toContain('未申报 needsWrite');
+    // 申报行可批准；重复 approve 幂等回执
+    const declared = await service.activate({
+      sessionId: 's2',
+      objective: 'o2',
+      schedule: 'x',
+      needsWrite: true,
+    });
+    const approved = await service.approve(declared.id);
+    expect(approved.writeApproved).toBe(true);
+    const again = await service.approve(declared.id);
+    expect(again.writeApproved).toBe(true); // 幂等
+    // 终态行——批准无对象
+    await service.abandon(declared.id);
+    const terminalErr = await expectCode(service.approve(declared.id), 'GOAL_TRANSITION_INVALID');
+    expect(terminalErr.message).toContain('已终态');
+  });
+
+  it('commandGateStatus 双位合取三态：not-declared / not-approved / ok（执行期活查）', async () => {
+    const { service } = openService();
+    expect(service.commandGateStatus('ghost')).toEqual({ allowed: false, reason: 'not-declared' }); // 幽灵防御位
+    const declared = await service.activate({
+      sessionId: 's1',
+      objective: 'o',
+      schedule: 'x',
+      needsWrite: true,
+    });
+    expect(service.commandGateStatus(declared.id)).toEqual({ allowed: false, reason: 'not-approved' });
+    await service.approve(declared.id);
+    expect(service.commandGateStatus(declared.id)).toEqual({ allowed: true, reason: 'ok' }); // 活查——同 id 前后两态
+  });
+
+  it('complete 评测侧合取终判：批准前 command 门红提批准缺位、批准后红提 exec seam（防御纵深）', async () => {
+    const { service, session } = openService();
+    const goal = await service.activate({
+      sessionId: 's1',
+      objective: 'o',
+      schedule: 'x',
+      needsWrite: true,
+    });
+    session.push('s1', 'todo/write', {
+      items: [
+        { status: 'completed', content: '跑测试', noFollowUp: true, gate: { kind: 'command', command: 'make test' } },
+      ],
+    });
+    // 未批准：评测位合取 false——gate 红文案指批准缺位
+    const before = await expectCode(service.complete(goal.id, 'ev'), 'GOAL_TRANSITION_INVALID');
+    expect(before.message).toContain('未获批准');
+    // 批准后：合取 true、但 exec seam 缺席——红文案换档（证合取已在评测侧生效）
+    await service.approve(goal.id);
+    const after = await expectCode(service.complete(goal.id, 'ev'), 'GOAL_TRANSITION_INVALID');
+    expect(after.message).toContain('exec 执行面缺席');
+    expect(after.message).not.toContain('未获批准');
   });
 });
 

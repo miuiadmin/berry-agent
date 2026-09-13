@@ -14,6 +14,7 @@ export const GOAL_USAGE = [
   '用法：/goal wake <goalId> —— 手动起闹（停滞/预算双复位 + 挂钟复活）',
   '　　　/goal list —— 全部 goal（状态/挂钟/预算速览）',
   '　　　/goal show <goalId> —— 单 goal 详情（计划态 + 归因唤醒审计）',
+  '　　　/goal approve <goalId> —— 人面批准 needsWrite（command 判据门放行链）',
 ].join('\n');
 
 /** 命令装配依赖 */
@@ -35,6 +36,13 @@ export async function runGoalCommand(argv: readonly string[], deps: GoalCommandD
         return decision.landed
           ? `已手动唤醒 goal「${goalId}」（停滞/唤醒预算双复位，挂钟复活）。${decision.message}`
           : `唤醒未落地：${decision.message}`;
+      }
+      case 'approve': {
+        // 人面批准（f-1 定形注②——批准唯一写面；守卫错折文本同面）
+        const goalId = rest[0];
+        if (!goalId) return `缺 goalId。\n${GOAL_USAGE}`;
+        await deps.service.approve(goalId);
+        return `已批准 goal「${goalId}」的 needsWrite 申报——command 判据门申报解锁（todo 工具 gate 声明即刻可用）。`;
       }
       case 'list': {
         const rows = deps.service.list();
@@ -80,6 +88,7 @@ export async function runGoalCommand(argv: readonly string[], deps: GoalCommandD
           `目标：${row.objective}`,
           `挂钟：${row.schedule}（激活锚 seq=${row.activatedSeq}，会话 ${row.sessionId}）`,
           `预算：前台 ${row.budgetMessagesUsed} + 委派折叠 ${row.budgetFoldedUnits}${row.budgetMessagesCap === null ? '（无帽）' : ` / 帽 ${row.budgetMessagesCap}`}`,
+          `needsWrite：${row.needsWrite ? (row.writeApproved ? '已申报·已批准（command 判据门可用）' : '已申报·未批准（/goal approve 后可用）') : '未申报（command 判据门不可用）'}`,
           `停滞计数：${row.stallStreak}（帽内复位靠进展或手动）`,
           openLine,
           row.endingNote !== null ? `终态回执：${row.endingNote}` : '',

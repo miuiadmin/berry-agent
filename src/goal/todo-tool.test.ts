@@ -16,13 +16,16 @@ function deps(overrides: Partial<GoalTodoToolDeps> & { scope?: typeof SCOPE | nu
   const deps: GoalTodoToolDeps = {
     append: (data) => appended.push(data as { items: unknown[] }),
     getScope: () => (overrides.scope === undefined ? SCOPE : overrides.scope),
-    commandGateAllowed: false,
+    commandGateStatus: () => ({ allowed: false, reason: 'not-declared' as const }),
     hasLsp: false,
     nowMs: () => Date.parse('2026-09-07T08:00:00.000Z'),
     ...overrides,
   };
   return { deps, appended };
 }
+
+/** 批准态活查桩（allowed: true, reason: 'ok'——f-1 双位合取放行形） */
+const approvedGate = () => ({ allowed: true, reason: 'ok' as const });
 
 /** 断言 execute 抛指定码 */
 async function expectCode(promise: Promise<unknown>, code: string): Promise<BaseError> {
@@ -61,8 +64,8 @@ describe('GOAL_TODO_SCOPE 段内执法', () => {
     await run(tool, [{ status: 'completed', content: '明示无后继', no_follow_up: true }]);
   });
 
-  it('gate 申报位 fail-closed：command 未过 needsWrite/空命令、diagnostics 缺 lsp/空目标集、files 空目标集', async () => {
-    const { deps: d } = deps(); // commandGateAllowed: false, hasLsp: false
+  it('gate 申报位 fail-closed：command 双档拒/空命令、diagnostics 缺 lsp/空目标集、files 空目标集', async () => {
+    const { deps: d } = deps(); // commandGateStatus: not-declared, hasLsp: false
     const tool = createGoalTodoTool(d);
     const err1 = await expectCode(
       run(tool, [
@@ -70,9 +73,9 @@ describe('GOAL_TODO_SCOPE 段内执法', () => {
       ]),
       'GOAL_TODO_SCOPE',
     );
-    expect(err1.message).toContain('needsWrite');
+    expect(err1.message).toContain('未申报 needsWrite');
     const { deps: d2 } = deps();
-    const tool2 = createGoalTodoTool({ ...d2, commandGateAllowed: true });
+    const tool2 = createGoalTodoTool({ ...d2, commandGateStatus: approvedGate });
     await expectCode(
       run(tool2, [{ status: 'completed', content: 'x', no_follow_up: true, gate: { kind: 'command', command: '  ' } }]),
       'GOAL_TODO_SCOPE',
@@ -84,7 +87,7 @@ describe('GOAL_TODO_SCOPE 段内执法', () => {
       'GOAL_TODO_SCOPE',
     );
     expect(err2.message).toContain('lsp');
-    const { deps: d3 } = deps({ hasLsp: true, commandGateAllowed: true, scope: SCOPE });
+    const { deps: d3 } = deps({ hasLsp: true, commandGateStatus: approvedGate, scope: SCOPE });
     const tool3 = createGoalTodoTool(d3);
     await expectCode(
       run(tool3, [{ status: 'completed', content: 'x', no_follow_up: true, gate: { kind: 'diagnostics', files: [] } }]),
@@ -96,8 +99,39 @@ describe('GOAL_TODO_SCOPE 段内执法', () => {
     );
   });
 
+  it('f-1 双位分档：not-approved 档文案给 /goal approve 指路、批准后同条目重报即过（活查非快照）', async () => {
+    // 已申报未批准档：文案指路 /goal approve <goalId>
+    const { deps: d1 } = deps({ commandGateStatus: () => ({ allowed: false, reason: 'not-approved' as const }) });
+    const tool1 = createGoalTodoTool(d1);
+    const err = await expectCode(
+      run(tool1, [
+        { status: 'completed', content: 'x', no_follow_up: true, gate: { kind: 'command', command: 'make' } },
+      ]),
+      'GOAL_TODO_SCOPE',
+    );
+    expect(err.message).toContain('/goal approve g-1');
+    // 活查语义：同一工具实例，status 求值随行变化——未批拒、批准后重报同条目即过
+    let approved = false;
+    const { deps: d2, appended } = deps({
+      commandGateStatus: () =>
+        approved ? { allowed: true, reason: 'ok' as const } : { allowed: false, reason: 'not-approved' as const },
+    });
+    const tool2 = createGoalTodoTool(d2);
+    await expectCode(
+      run(tool2, [
+        { status: 'completed', content: 'x', no_follow_up: true, gate: { kind: 'command', command: 'make' } },
+      ]),
+      'GOAL_TODO_SCOPE',
+    );
+    approved = true; // /goal approve 落地——执行期活查即放行
+    await run(tool2, [
+      { status: 'completed', content: 'x', no_follow_up: true, gate: { kind: 'command', command: 'make' } },
+    ]);
+    expect(appended).toHaveLength(1);
+  });
+
   it('合法扩展载荷透传 append（扩展字段入 durable todo/write）+ 回执段标记', async () => {
-    const { deps: d, appended } = deps({ commandGateAllowed: true });
+    const { deps: d, appended } = deps({ commandGateStatus: approvedGate });
     const tool = createGoalTodoTool(d);
     const result = await run(tool, [
       {

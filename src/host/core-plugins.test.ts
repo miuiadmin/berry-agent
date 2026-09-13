@@ -29,7 +29,7 @@ import type {
   OAuthFetchLike,
   OAuthFlowRegistry,
 } from '../credentials/index.js';
-import { GOAL_MIGRATION } from '../goal/index.js';
+import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
 import type { GoalSessionFace, GoalSummarizerFace } from '../goal/index.js';
 import type { IssueBudgetFace, IssueSessionFace, IssueStoreStateFace } from '../issue/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
@@ -1039,11 +1039,11 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
   it('goal 件装载全环（批 19c-3）：主闸双位在场 → 服务面 + goal_update + /goal 注册 + 挂钟委派真行 + todoFactory 换装 + 完成否决律', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal-'));
     dirs.push(dataDir);
-    // 迁移链 = 宿主聚合同构（v2 scheduler + v3 goal + v4-6 memory 全在链，
-    // runtime.ts 聚合形镜像）
+    // 迁移链 = 宿主聚合同构（v2 scheduler + v3 goal + v12 goal 批准位 + v4-6
+    // memory 全在链，runtime.ts 聚合形镜像）
     const persistence = Persistence.open({
       dbPath: MEMORY_DB_PATH,
-      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
     });
     const notified: string[] = [];
     // goalSession 面：内存 SessionLog 单会话真身（events 视图 + 长度真值）
@@ -1130,6 +1130,31 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     if (goalCmd === undefined) throw new Error('/goal 命令不在捕获面');
     await goalCmd.handler({ raw: '', argv: ['list'] });
     expect(notified[notified.length - 1]!).toContain('共 1 个 goal');
+
+    // f-1 装配层活查回归锁（防「恒 false 接线形」复发）：新 goal 申报
+    // needsWrite → todoFactory 产物申报 command gate 先拒（not-approved——
+    // 文案指路 /goal approve）→ 人面 approve → 同工具实例重报即过（执行期
+    // 活查非构造期快照）
+    const row2 = await face!.service.activate({
+      sessionId: 's-goal',
+      objective: '申报写权的目标',
+      schedule: 'every:60s',
+      needsWrite: true,
+    });
+    const todo2 = face!.todoFactory({
+      append: (data) => session.append('todo/write', data),
+      getScope: () => ({ goalId: row2.id, activatedSeq: 0 }),
+    });
+    const gated = [{ status: 'pending', content: '跑构建', gate: { kind: 'command', command: 'make build' } }];
+    const refused = await todo2
+      .execute({ items: gated }, { toolCallId: 'c-goal-todo-gate' })
+      .catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(BaseError);
+    expect((refused as BaseError).code).toBe('GOAL_TODO_SCOPE');
+    expect((refused as BaseError).message).toContain('/goal approve');
+    await face!.service.approve(row2.id); // 人面批准（装配真身链）
+    await todo2.execute({ items: gated }, { toolCallId: 'c-goal-todo-gate2' });
+    expect(JSON.stringify(session.events().at(-1)?.data)).toContain('跑构建'); // 批准后落 durable
     await persistence.close();
   });
 
@@ -1138,7 +1163,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     dirs.push(dataDir);
     const persistence = Persistence.open({
       dbPath: MEMORY_DB_PATH,
-      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
     });
     const session = new SessionLog({ sessionId: 's-goal2' });
     const goalSession: GoalSessionFace = {
@@ -1208,7 +1233,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     dirs.push(dataDir);
     const persistence = Persistence.open({
       dbPath: MEMORY_DB_PATH,
-      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
     });
     const session = new SessionLog({ sessionId: 's-goal3' });
     const goalSession: GoalSessionFace = {
@@ -1302,7 +1327,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     dirs.push(dataDir);
     const persistence = Persistence.open({
       dbPath: MEMORY_DB_PATH,
-      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
     });
     // sqlite 在场、goalSession 缺席——主闸二独立执法（goalSession 是会话
     // 读面缺席即无 fold 重放源，件整体不装）
@@ -1556,7 +1581,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     dirs.push(dataDir);
     const persistence = Persistence.open({
       dbPath: MEMORY_DB_PATH,
-      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, ...MEMORY_MIGRATIONS],
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
     });
     const session = new SessionLog({ sessionId: 's-lg' });
     const goalSession: GoalSessionFace = {

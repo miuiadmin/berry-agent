@@ -34,8 +34,10 @@ export interface GoalRow {
   readonly schedule: string;
   /** 续跑提示词快照（挂钟行 prompt 面） */
   readonly promptSnapshot: string;
-  /** needsWrite 申报（command gate 可用性判据——申报且人面批准后 true） */
+  /** needsWrite 申报（activate 时落行——申报非授权，零放行效力〔03 §10.5 f-1 定形注①〕） */
   readonly needsWrite: boolean;
+  /** needsWrite 人面批准位（/goal approve 唯写面——command 判据门可用性 = needsWrite && writeApproved 双位合取） */
+  readonly writeApproved: boolean;
   /** 前台记账帽（null = 无帽；两腿先到先刹——04 §5 goal 预算双轨） */
   readonly budgetMessagesCap: number | null;
   /** 前台记账已用（assistant/message 轮计数） */
@@ -96,6 +98,16 @@ export interface GoalTodoItem {
 /** 判据门三源（03 §10.5 gates 条——{kind, spec} 形） */
 export type GateSpec =
   { kind: 'command'; command: string } | { kind: 'files'; paths: string[] } | { kind: 'diagnostics'; files: string[] };
+
+/**
+ * command 判据门可用性判据结果（03 §10.5 f-1 定形注③——双位合取单源）。
+ * reason 分档承载申报拒文案的指引差：not-declared = 未申报（goal 语义面缺位）；
+ * not-approved = 已申报未批准（文案给 /goal approve 指路）。
+ */
+export type CommandGateStatus = {
+  readonly allowed: boolean;
+  readonly reason: 'ok' | 'not-declared' | 'not-approved';
+};
 
 /** 可写构建形（收窄/构建面的局部载体——readonly 契约形由返回承载） */
 export type WritableGoalTodoItem = { -readonly [K in keyof GoalTodoItem]: GoalTodoItem[K] };

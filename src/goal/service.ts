@@ -20,6 +20,7 @@ import type { SqliteDatabase } from '../persist/index.js';
 import { foldGoalTodos, openGoalItems, progressFingerprint } from './fold.js';
 import { evaluateGoalGates, type GoalGateDeps } from './gates.js';
 import type {
+  CommandGateStatus,
   GoalRow,
   GoalSessionFace,
   GoalSummarizerFace,
@@ -98,6 +99,17 @@ export interface GoalService {
   abandon(goalId: string, reason?: string): Promise<GoalRow>;
   /** 唤醒裁决（重绑护栏 + wakeGate 双帽 + 停滞硬停 + 归因落账） */
   wake(goalId: string, opts: { trigger: 'clock' | 'manual'; attribution: string }): Promise<WakeDecision>;
+  /**
+   * needsWrite 人面批准（03 §10.5 f-1 定形注②——批准唯一写面 = /goal approve，
+   * 模型工具面零写位）。守卫链：幽灵 id GOAL_NOT_FOUND；未申报 needsWrite 与
+   * 终态行 GOAL_TRANSITION_INVALID（批准无对象）；重复 approve 幂等回执。
+   */
+  approve(goalId: string): Promise<GoalRow>;
+  /**
+   * command 判据门可用性读面（f-1 定形注③——双位合取单源，恒按当前行求值
+   * 的执行期活查）：todo 工具申报位与 goal_update 完成否决评测位两腿同源消费。
+   */
+  commandGateStatus(goalId: string): CommandGateStatus;
   get(goalId: string): GoalRow | undefined;
   /** 会话当前 active goal（goalScopeFor 的取值面——undefined = fold 退化 run-scoped） */
   activeFor(sessionId: string): GoalRow | undefined;
@@ -159,6 +171,7 @@ interface GoalDbRow {
   schedule: string;
   prompt_snapshot: string;
   needs_write: number;
+  write_approved: number;
   budget_messages_cap: number | null;
   budget_messages_used: number;
   budget_folded_units: number;
@@ -173,7 +186,7 @@ interface GoalDbRow {
 
 /** goals 表行查列清单（单源——get/list/activeFor 共用） */
 const GOAL_COLUMNS = `id, session_id, objective, status, activated_seq, schedule, prompt_snapshot,
-                      needs_write, budget_messages_cap, budget_messages_used, budget_folded_units,
+                      needs_write, write_approved, budget_messages_cap, budget_messages_used, budget_folded_units,
                       stall_streak, wake_streak, last_fingerprint, created_at, updated_at,
                       ended_at, ending_note`;
 
@@ -201,10 +214,10 @@ class GoalDao {
     this.db
       .prepare(
         `INSERT INTO goals (id, session_id, objective, status, activated_seq, schedule, prompt_snapshot,
-                            needs_write, budget_messages_cap, budget_messages_used, budget_folded_units,
+                            needs_write, write_approved, budget_messages_cap, budget_messages_used, budget_folded_units,
                             stall_streak, wake_streak, last_fingerprint, created_at, updated_at,
                             ended_at, ending_note)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         goal.id,
@@ -215,6 +228,7 @@ class GoalDao {
         goal.schedule,
         goal.promptSnapshot,
         goal.needsWrite ? 1 : 0,
+        goal.writeApproved ? 1 : 0,
         goal.budgetMessagesCap,
         goal.budgetMessagesUsed,
         goal.budgetFoldedUnits,
@@ -236,7 +250,7 @@ class GoalDao {
     this.db
       .prepare(
         `UPDATE goals SET session_id = ?, objective = ?, status = ?, activated_seq = ?, schedule = ?,
-                          prompt_snapshot = ?, needs_write = ?, budget_messages_cap = ?,
+                          prompt_snapshot = ?, needs_write = ?, write_approved = ?, budget_messages_cap = ?,
                           budget_messages_used = ?, budget_folded_units = ?, stall_streak = ?,
                           wake_streak = ?, last_fingerprint = ?, updated_at = ?, ended_at = ?,
                           ending_note = ?
@@ -250,6 +264,7 @@ class GoalDao {
         next.schedule,
         next.promptSnapshot,
         next.needsWrite ? 1 : 0,
+        next.writeApproved ? 1 : 0,
         next.budgetMessagesCap,
         next.budgetMessagesUsed,
         next.budgetFoldedUnits,
@@ -329,6 +344,7 @@ function goalFromDb(row: GoalDbRow): GoalRow {
     schedule: row.schedule,
     promptSnapshot: row.prompt_snapshot,
     needsWrite: row.needs_write === 1,
+    writeApproved: row.write_approved === 1,
     budgetMessagesCap: row.budget_messages_cap,
     budgetMessagesUsed: row.budget_messages_used,
     budgetFoldedUnits: row.budget_folded_units,
@@ -402,6 +418,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         schedule: req.schedule,
         promptSnapshot: req.promptSnapshot ?? `继续推进目标：${req.objective}`,
         needsWrite: req.needsWrite === true,
+        writeApproved: false, // 批准位恒由 /goal approve 后置（f-1 定形注②——申报非授权）
         budgetMessagesCap: req.budgetMessagesCap ?? null,
         budgetMessagesUsed: 0,
         budgetFoldedUnits: 0,
@@ -479,7 +496,12 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         );
       }
       // 携 gate 项须全绿（fail-closed 评测——seam 缺席即该门 fail）
-      const outcomes = await evaluateGoalGates(items, { ...deps.gates, commandGateAllowed: row.needsWrite });
+      const outcomes = await evaluateGoalGates(items, {
+        ...deps.gates,
+        // 双位合取终判（f-1 定形注③——评测位防御纵深：越路径直写事件流的
+        // command gate 条目在此兜底否决）
+        commandGateAllowed: row.needsWrite && row.writeApproved,
+      });
       const failed = outcomes.filter((o) => !o.ok);
       if (failed.length > 0) {
         const listing = failed.map((o) => `${o.kind} 门：${o.detail}`).join('；');
@@ -572,6 +594,34 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
     activeFor: (sessionId) => dao.activeFor(sessionId),
     list: () => dao.list(),
     wakes: (goalId) => dao.wakes(goalId),
+
+    async approve(goalId) {
+      const row = dao.get(goalId);
+      if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（approve 幽灵 id 零行守卫）`);
+      // 批准无对象两档：未申报 needsWrite（approve 前置语义缺位）/ 终态行
+      // （生命周期已收口——f-1 定形注②守卫链）
+      if (!row.needsWrite) {
+        throw new BaseError(
+          'GOAL_TRANSITION_INVALID',
+          `goal「${goalId}」未申报 needsWrite——无批准对象（activate 时申报后方可批准）`,
+        );
+      }
+      if (row.status !== 'active') {
+        throw new BaseError('GOAL_TRANSITION_INVALID', `goal「${goalId}」已终态（${row.status}）——批准无对象`);
+      }
+      if (row.writeApproved) return row; // 重复 approve 幂等回执（批准位已置）
+      dao.update(goalId, { writeApproved: true }, now());
+      return dao.get(goalId)!;
+    },
+
+    commandGateStatus(goalId) {
+      // 执行期活查（f-1 定形注③——恒按当前行求值；幽灵行防御位归 not-declared，
+      // 正常路径 scope 活则行恒在）
+      const row = dao.get(goalId);
+      if (!row || !row.needsWrite) return { allowed: false, reason: 'not-declared' as const };
+      if (!row.writeApproved) return { allowed: false, reason: 'not-approved' as const };
+      return { allowed: true, reason: 'ok' as const };
+    },
 
     recordTurn(goalId, opts) {
       const row = dao.get(goalId);

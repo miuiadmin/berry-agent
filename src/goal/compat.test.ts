@@ -18,7 +18,7 @@ import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/migration.js';
 import { createSchedulerService, type GoalJobsFace as SchedulerGoalJobsFace } from '../scheduler/service.js';
 import { foldGoalTodos } from './fold.js';
-import { GOAL_MIGRATION } from './migration.js';
+import { GOAL_APPROVAL_MIGRATION, GOAL_MIGRATION } from './migration.js';
 import { createGoalService, type GoalService } from './service.js';
 import type { GoalJobsFace, GoalScope, GoalSessionFace, GoalTodoItem } from './types.js';
 
@@ -84,7 +84,7 @@ function openBoth() {
     dbPath: join(dir, 'test.db'),
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
-    migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION],
+    migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION], // v3+v12（f-1 批准位列随链）
   });
   const session = new RamSession();
   const {

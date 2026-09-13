@@ -32,7 +32,7 @@ import type { PersistenceOptions } from '../persist/index.js';
 // credentials v7 → audit v8 → load-generations v10（后两号 = 宿主域表——
 // persist export-only 声明，非 core: 表族）。
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
-import { GOAL_MIGRATION } from '../goal/index.js';
+import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
 import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
 import type { MigrationSpec } from '../persist/index.js';
@@ -50,6 +50,9 @@ import type { ActiveMarkerLease } from './single-instance.js';
 export const HOST_MIGRATION_TAIL: readonly MigrationSpec[] = [
   SCHEDULER_MIGRATION,
   GOAL_MIGRATION,
+  // 2026-09-13 f-1 批聚合（goals 增列 write_approved 人面批准位 v12——03 §10.5
+  // f-1 定形注①；goal 表族第二条迁移，号随注册序顺延）
+  GOAL_APPROVAL_MIGRATION,
   ...MEMORY_MIGRATIONS,
   // 2026-09-08 c-2 存储腿聚合（credentials 表 namespace 扩容 v7——03 §10.9；
   // 声明在 core:credentials 件、执行在宿主——05 §6.4 机械聚合单源）
