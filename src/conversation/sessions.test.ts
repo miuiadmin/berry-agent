@@ -348,3 +348,38 @@ describe('SessionManager dispose', () => {
     expect(manager.driverOf(a.sessionId)).toBeUndefined();
   });
 });
+
+/* ---------------- retire（05 §7 retire 律——单会话收口动词） ---------------- */
+
+describe('SessionManager retire', () => {
+  it('单会话收口：dismantle + 摘登记（isOpen false / driverOf 缺席 / listActive 退出）+ durable 行仍可 open 复续', async () => {
+    const { manager } = makeManager();
+    const a = manager.create({ workspaceRoot: '/ws' });
+    const b = manager.create({ workspaceRoot: '/ws' });
+    closedTurn(a.driver.session, '收口前一轮');
+    await persistence.flush(); // durable 行在场（retire 不动 durable 面）
+
+    expect(manager.retire(a.sessionId)).toBe(true);
+    expect(a.driver.dismantled).toBe(true); // 终态停摆（driver 专测面行为，此处锁旗标）
+    expect(manager.isOpen(a.sessionId)).toBe(false);
+    expect(manager.driverOf(a.sessionId)).toBeUndefined();
+    expect(manager.listActive().map((s) => s.sessionId)).toEqual([b.sessionId]); // 活体清单退出
+    // 邻位不受牵连
+    expect(manager.isOpen(b.sessionId)).toBe(true);
+    // durable 面不受影响：行仍在库、open 复续重造活体（幂等 open 对已摘行）
+    expect(manager.exists(a.sessionId)).toBe(true);
+    const resumed = manager.open(a.sessionId);
+    expect(manager.isOpen(a.sessionId)).toBe(true);
+    resumed.driver.dismantle();
+  });
+
+  it('幂等：不在册回 false 零副作用（未建 id / 重复 retire / dispose 后再 retire）', () => {
+    const { manager } = makeManager();
+    expect(manager.retire('no-such-session')).toBe(false);
+    const a = manager.create();
+    expect(manager.retire(a.sessionId)).toBe(true);
+    expect(manager.retire(a.sessionId)).toBe(false); // 重复收口幂等
+    manager.dispose();
+    expect(manager.retire(a.sessionId)).toBe(false); // 全量拆解后再 retire 无害
+  });
+});

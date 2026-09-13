@@ -180,14 +180,14 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
       }
     };
 
-    /** 终局收口（一次结算 + 清轮询 + 双侧摘登记 + 终态停摆——subagent-factory 同律） */
+    /** 终局收口（一次结算 + 清轮询 + 双侧摘登记 + 单会话收口——subagent-factory 同律） */
     const finish = (result: IssueRunOutcome): void => {
       if (finished) return;
       finished = true;
       parked.delete(entry);
       broadcast.unregister(entry); // 广播侧同笔摘（宿主级面不再扫描已收口项）
       stopWatchdog();
-      driver.dismantle();
+      stack.manager.retire(sessionId); // dismantle 终态停摆 + 摘活体登记（05 §7 retire 律）
       settleOutcome(result);
     };
 

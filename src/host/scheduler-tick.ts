@@ -160,7 +160,12 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
     };
   }
 
-  /** 用户行编舞：新建会话 → submitText（source='schedule'）→ 三终态映射 + 后台道记账 */
+  /**
+   * 用户行编舞：新建会话 → submitText（source='schedule'）→ 三终态映射 + 后台道
+   * 记账。会话终态收口（04 §12 第 5 律）：用户行每次 fire 新建会话（fresh per
+   * fire）——settle 尾即 retire（dismantle + 摘登记），活体登记无界驻留收口；
+   * durable 面不受影响。goal 行复用 goal 绑定会话（广播唤醒依赖），不走此收口。
+   */
   function spawnUserRow(row: JobRow, trigger: RunnerRequest['trigger']): RunnerHandle {
     const workspaceRoot = canonicalWorkspaceRoot(row.cwd ?? processCwd());
     let sessionId: string;
@@ -172,7 +177,15 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
         error: `会话创建失败：${err instanceof Error ? err.message : String(err)}`,
       });
     }
-    return runSession(trigger, sessionId, row.prompt);
+    const base = runSession(trigger, sessionId, row.prompt);
+    // settle 尾收口（finally 面——映射异常路径同样摘登记；kill 折叠序在先，
+    // retire 后 interrupt 对已摘行 = 可选链 no-op，幂等无害）
+    return {
+      ...base,
+      settled: base.settled.finally(() => {
+        deps.stack.manager.retire(sessionId);
+      }),
+    };
   }
 
   /** goal 挂钟行编舞：wake 判定先行（零模型）——落地则 goal 会话提交 promptSnapshot。判定段（毫秒级 DB 读）先于句柄铸造，kill 不可达窗可忽略 */

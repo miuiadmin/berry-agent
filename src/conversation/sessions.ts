@@ -314,6 +314,25 @@ export class SessionManager {
     this.records.clear();
   }
 
+  /**
+   * 单会话收口（run 生命周期收口——05 §7 retire 律 / 04 §12 第 5 律）：驱动
+   * dismantle（终态停摆——打断在飞 run，dispose 同律）+ 摘活体登记。幂等——
+   * 不在册回 false 零副作用（dispose 后再 retire / 重复收口均无害）。
+   *
+   * 与 dispose 分立：彼系进程收尾序全量拆解，此系单条无头编排会话的终态
+   * 收口（tick 用户行 / subagent 子会话 / issue headless 会话三消费位——
+   * 19c-1 头注「活体登记回收挂账」的销账动词）。durable 面不受影响：日志
+   * 仍可查、open 可复续（幂等 open 对已摘行重造活体）。会话复用形（goal
+   * 绑定会话——广播唤醒依赖活体登记）不走此收口。
+   */
+  retire(sessionId: string): boolean {
+    const record = this.records.get(sessionId);
+    if (record === undefined) return false;
+    record.driver.dismantle();
+    this.records.delete(sessionId);
+    return true;
+  }
+
   /** 登记 + 驱动构造 + 入册（create/open/fork 共尾；装配覆盖位仅 create 腿携带——resume 不回放） */
   private adopt(
     log: SessionLog,

@@ -189,6 +189,9 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
       budgetMessages: 50,
       tools: [probeTool()],
     });
+    // 在飞期捕获驱动引用（settle 尾 manager.retire 摘登记——05 §7 retire 律，
+    // 终态后 driverOf 缺席；断言面改持捕获引用）
+    const driver = stack.manager.driverOf(sessionId)!;
     const result = await settle(outcome);
     expect(result).toEqual({ status: 'completed', messagesUsed: 1, summary: '修好了' });
 
@@ -197,15 +200,13 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     const row = stack.manager.list({}).find((r) => r.id === sessionId);
     expect(row?.origin).toBe('trigger');
     // extraTools 经真三段管道注册（模型可见清单恒在律）
-    expect(stack.manager.driverOf(sessionId)?.toolNames).toContain('issue_probe');
+    expect(driver.toolNames).toContain('issue_probe');
     // 首跑 source 盖章（03 §2.2 provenance——plugin: 域谱系归 1 跳）
-    const userMsg = stack.manager
-      .driverOf(sessionId)!
-      .session.events()
-      .find((e) => e.type === 'user/message');
+    const userMsg = driver.session.events().find((e) => e.type === 'user/message');
     expect((userMsg?.data as { source?: string } | undefined)?.source).toBe('plugin:core:issue');
-    // 终态收口：dismantle 停摆（驱动活体不残留）
-    expect(stack.manager.driverOf(sessionId)?.dismantled).toBe(true);
+    // 终态收口：retire（dismantle 停摆 + 摘活体登记——驱动无界驻留修复）
+    expect(driver.dismantled).toBe(true);
+    expect(stack.manager.isOpen(sessionId)).toBe(false);
     factory.dispose();
     await rt.shutdown();
   });
@@ -234,7 +235,8 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     // + session/paused 落词（u-3 锁——04 §5 定形注②：daemon 猝死后冷启动
     // 可恢复呈现；修复前无此词必红）
     expect(await isPending(outcome)).toBe(true);
-    const parkedEvents = stack.manager.driverOf(sessionId)!.session.events();
+    const driver = stack.manager.driverOf(sessionId)!; // 停靠态活体（收口前捕获——settle 尾 retire）
+    const parkedEvents = driver.session.events();
     expect(parkedEvents.filter((e) => e.type === 'user/message')).toHaveLength(0);
     const paused = parkedEvents.find((e) => e.type === 'session/paused');
     expect((paused?.data as { reason?: string } | undefined)?.reason).toBe('budget');
@@ -245,7 +247,7 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     const result = await settle(outcome);
     expect(result).toEqual({ status: 'completed', messagesUsed: 1, summary: '续跑完成' });
     // 唤醒消息 durable 落账：source 'budget-extended'（05 §3.1 第六字面量）
-    const events = stack.manager.driverOf(sessionId)!.session.events();
+    const events = driver.session.events();
     const wake = events.find((e) => (e.data as { source?: string } | undefined)?.source === 'budget-extended');
     expect(wake?.type).toBe('user/message');
     // 零 submit 泄漏：首跑 prompt 未落账（起跑前已停靠——只有唤醒消息进日志）
@@ -254,7 +256,7 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     await rt.shutdown();
   });
 
-  it('③ run 中日池尽：watchdog 协作中止 → 停靠悬置 → dispose 收口 paused（retain 语义）+ 终态 dismantle', async () => {
+  it('③ run 中日池尽：watchdog 协作中止 → 停靠悬置 → dispose 收口 paused（retain 语义）+ 单会话收口 retire', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();
     const { faux, stack } = rigStack(rt, ws);
@@ -273,27 +275,26 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
       budgetMessages: 50,
       tools: [],
     });
+    const driver = stack.manager.driverOf(sessionId)!; // 在飞期捕获（dispose 收口 retire 后 driverOf 缺席）
     // run 真起跑（在飞）后再翻池尽——watchdog 轮询执法窗内协作中止
-    await until(() => stack.manager.driverOf(sessionId)!.running);
+    await until(() => driver.running);
     afford.set(false);
-    await until(() => !stack.manager.driverOf(sessionId)!.running);
+    await until(() => !driver.running);
     // 停靠成立：outcome 悬置（04 §5 不落终态）+ 会话上下文保留（driver 活体）
     // + session/paused 落词（u-3——run 中池尽与起跑前池尽同词承载，fold
     // 语义 = 尾条即停靠）
     expect(await isPending(outcome)).toBe(true);
-    expect(stack.manager.driverOf(sessionId)?.dismantled).toBe(false);
-    const pausedMid = stack.manager
-      .driverOf(sessionId)!
-      .session.events()
-      .find((e) => e.type === 'session/paused');
+    expect(driver.dismantled).toBe(false);
+    const pausedMid = driver.session.events().find((e) => e.type === 'session/paused');
     expect((pausedMid?.data as { reason?: string } | undefined)?.reason).toBe('budget');
 
-    // 停机收口：resolve paused（retain——worktree/授予归 orphanScan 重入）+ dismantle
+    // 停机收口：resolve paused（retain——worktree/授予归 orphanScan 重入）+ 单会话收口
     factory.dispose();
     const result = await settle(outcome);
     expect(result.status).toBe('paused');
     expect(result.status === 'paused' && result.reason).toContain('宿主停机');
-    expect(stack.manager.driverOf(sessionId)?.dismantled).toBe(true);
+    expect(driver.dismantled).toBe(true); // retire 面一：dismantle 停摆
+    expect(stack.manager.isOpen(sessionId)).toBe(false); // retire 面二：摘活体登记
     await rt.shutdown();
   });
 
@@ -318,10 +319,11 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
       budgetMessages: 5000,
       tools: [],
     });
+    const driver = stack.manager.driverOf(sessionId)!; // 在飞期捕获（wake-refused 收口即 retire）
     for (let round = 0; round < 4; round += 1) {
-      await until(() => stack.manager.driverOf(sessionId)!.running); // 本轮起跑
+      await until(() => driver.running); // 本轮起跑
       afford.set(false); // 池尽 → watchdog abort → 停靠
-      await until(() => !stack.manager.driverOf(sessionId)!.running);
+      await until(() => !driver.running);
       afford.set(true); // 恢复 → watcher 唤醒下一轮（第 4 轮 wake-refused 收口）
     }
     const result = await settle(outcome);
@@ -331,12 +333,7 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     // 逐轮落词恰 4 条：四轮起跑-停靠各落一笔（第 4 次唤醒仍成功起跑——
     // 三帽拒的是循环结束后的第 5 次 submit）；wake-refused 收口未起跑不
     // 落词（词与行为同账）
-    expect(
-      stack.manager
-        .driverOf(sessionId)!
-        .session.events()
-        .filter((e) => e.type === 'session/paused'),
-    ).toHaveLength(4);
+    expect(driver.session.events().filter((e) => e.type === 'session/paused')).toHaveLength(4);
     factory.dispose();
     await rt.shutdown();
   });
@@ -396,14 +393,12 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
       budgetMessages: 50,
       tools: [],
     });
+    const driver = stack.manager.driverOf(sessionId)!; // 在飞期捕获（终态 retire 后 driverOf 缺席）
     const result = await settle(outcome);
     expect(result.status).toBe('needs-human');
     expect(result.status === 'needs-human' && result.reason).toContain('审批被拒');
     // 判据纯事件载荷：approval/decided decision 'unavailable' 在场（不是文本猜测）
-    const decided = stack.manager
-      .driverOf(sessionId)!
-      .session.events()
-      .filter((e) => e.type === 'approval/decided');
+    const decided = driver.session.events().filter((e) => e.type === 'approval/decided');
     expect(decided.length).toBeGreaterThanOrEqual(1);
     expect((decided[0]?.data as { decision?: string } | undefined)?.decision).toBe('unavailable');
     factory.dispose();

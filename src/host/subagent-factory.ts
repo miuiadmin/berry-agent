@@ -12,8 +12,8 @@
  *  - systemPrompt/model：def 直传纯内存覆盖。
  *
  * 黑盒收口：submit 起跑 → RunResult→SubagentResult 映射（completed→stop/
- * aborted→aborted/failed→error+diagnostic）→ finally dismantle（终态停摆——
- * 子会话 durable 面不受影响，log 仍可查；活体登记回收挂账）。
+ * aborted→aborted/failed→error+diagnostic）→ finally retire（终态停摆 +
+ * 摘活体登记——子会话 durable 面不受影响，log 仍可查）。
  */
 import type {
   AgentTool,
@@ -33,7 +33,7 @@ const STRUCTURALLY_KEPT = new Set(EXCLUDED_FROM_DERIVED_SURFACE.filter((name) =>
 /**
  * 委派会话登记表（boot 全局层工具的执行时语境真源）：childSessionId →
  * 委派深度。根会话缺席（depthOf → undefined → 工具侧兜底 1）。run 终态
- * release（防进程级 Map 无界增长——子会话活体登记回收另挂账）。
+ * release（防进程级 Map 无界增长——会话活体登记同笔经 manager.retire 摘除）。
  */
 export interface DelegationSessionTracker {
   record(sessionId: string, depth: number): void;
@@ -220,7 +220,10 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
       } finally {
         if (timer !== undefined) clearInterval(timer);
         tracker.release(child.sessionId);
-        driver.dismantle(); // 终态停摆（后续投递转 inject——durable 面不受影响）
+        // 单会话收口（05 §7 retire 律）：dismantle 终态停摆 + 摘活体登记
+        //（原 driver.dismantle 直调的「活体登记回收挂账」销账——durable 面
+        // 不受影响，log 仍可查）
+        stack.manager.retire(child.sessionId);
       }
     },
   };

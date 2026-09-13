@@ -171,9 +171,18 @@ describe('createInProcessSubagentProvider（批 19c-1——真工厂全环）', 
     const provider = createInProcessSubagentProvider({ stack, tracker, warn: () => {} });
     const parent = stack.openStartupSession(ws);
 
-    faux.setResponses([() => messageOf('stop')]);
     // 白名单 ['find']：子实面 = fs 四恒留 + find（bash/grep/todo 滤除——裸栈
-    // 无 bash，滤除断言走 grep/todo 位）
+    // 无 bash，滤除断言走 grep/todo 位）。工具面快照在飞窗内捕获（run 终态
+    // manager.retire 摘登记——05 §7 retire 律；toolNames 纯内存 create 期
+    // 整形，终态后登记表不可观测）
+    let childToolNames: readonly string[] | undefined;
+    faux.setResponses([
+      () => {
+        const live = stack.manager.listActive().find((s) => s.origin === 'delegation');
+        childToolNames = stack.manager.driverOf(live?.sessionId ?? '')?.toolNames;
+        return messageOf('stop');
+      },
+    ]);
     const result = await provider.run({
       prompt: '探索',
       tools: ['find'],
@@ -191,10 +200,11 @@ describe('createInProcessSubagentProvider（批 19c-1——真工厂全环）', 
     const child = rows.find((row) => row.origin === 'delegation');
     expect(child).toBeDefined();
     expect(child!.title).toBe('探索员');
-    // 子工具面快照 = 整形后实面（孙代委派以此为基准面）
-    expect(stack.driverOf(child!.id)?.toolNames).toEqual(['read', 'write', 'edit', 'ls', 'find']);
-    // 终态释放（finally teardown）
+    // 子工具面快照 = 整形后实面（孙代委派以此为基准面——在飞窗捕获值）
+    expect(childToolNames).toEqual(['read', 'write', 'edit', 'ls', 'find']);
+    // 终态释放（finally teardown：tracker release + manager.retire 摘登记）
     expect(tracker.depthOf(child!.id)).toBeUndefined();
+    expect(stack.manager.isOpen(child!.id)).toBe(false);
     await rt.shutdown();
   });
 

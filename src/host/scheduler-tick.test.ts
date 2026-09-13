@@ -121,11 +121,12 @@ describe('u-2 G0 回归锁：甲案进程内推进（04 §12 定形注①——�
       });
       await rig.sched.engine.fireNow('inproc-prompt-job', 'clock');
       // 进程内提交链证据：run 落的会话事件里 user/message 载行 prompt 标记
-      //（修复前：spawn 形零会话事件 → 红）
+      //（修复前：spawn 形零会话事件 → 红）。用户行 settle 尾已 retire（04
+      // §12 第 5 律）——durable 面经 open 复续读取（活体缺席回退）
       let found = false;
       for (const row of rig.assembly.stack.manager.list({})) {
-        const log = rig.assembly.stack.driverOf(row.id)?.session;
-        if (!log) continue;
+        const log =
+          rig.assembly.stack.driverOf(row.id)?.session ?? rig.assembly.stack.manager.open(row.id).driver.session;
         for (const ev of log.events()) {
           if (ev.type === 'user/message' && JSON.stringify(ev.data).includes('inproc-prompt-marker')) {
             found = true;
@@ -180,13 +181,15 @@ interface FakeEvent {
 }
 
 /**
- * 假 ConversationStack（tick runner 消费窄面投影）：manager.create/open、
+ * 假 ConversationStack（tick runner 消费窄面投影）：manager.create/open/retire、
  * driverOf(session.events/append)、submitText、interrupt、model。全记录可断言。
+ * （retire 假身只记调用不摘会话——登记表语义归 sessions.test.ts 真身锁。）
  */
 function fakeStack() {
   const sessions = new Map<string, FakeEvent[]>();
   const submits: Array<{ sessionId: string; text: string; source?: string }> = [];
   const interrupts: string[] = [];
+  const retires: string[] = [];
   const deferreds = new Map<string, Array<(result: unknown) => void>>();
   let n = 0;
   const stack = {
@@ -200,6 +203,10 @@ function fakeStack() {
       open(sessionId: string) {
         if (!sessions.has(sessionId)) throw new Error(`会话不存在：${sessionId}`);
         return { sessionId };
+      },
+      retire(sessionId: string) {
+        retires.push(sessionId);
+        return true;
       },
     },
     driverOf(sessionId: string) {
@@ -240,7 +247,7 @@ function fakeStack() {
     const queue = deferreds.get(sessionId);
     queue?.shift()?.(result);
   }
-  return { stack, submits, interrupts, settleAssistant };
+  return { stack, submits, interrupts, retires, settleAssistant };
 }
 
 /** 造 JobRow（全字段——测试值） */
@@ -321,6 +328,22 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     expect(outcome.error).toContain('模型面不可达');
   });
 
+  it('会话终态收口（04 §12 第 5 律——修前红）：在飞不摘、settle 尾恰一笔 retire；kill 折叠路径同收口', async () => {
+    const rig = unitRig();
+    const handle = await rig.spawn(jobRow('u-retire'));
+    expect(rig.fake.retires).toEqual([]); // 在飞未决——活体登记在场（记账/预览均依赖）
+    rig.fake.settleAssistant('sess-1', { status: 'completed' }, [{ type: 'text', text: '完毕' }]);
+    await handle.settled;
+    expect(rig.fake.retires).toEqual(['sess-1']); // settle 尾单会话收口（fresh per fire——驱动无界驻留修复）
+    // kill 路径同律：interrupt 协作中止 → abort settle → finally 面同样收口
+    const rig2 = unitRig();
+    const handle2 = await rig2.spawn(jobRow('u-retire-2'));
+    handle2.kill('timeout');
+    rig2.fake.settleAssistant('sess-1', { status: 'aborted' }, [{ type: 'text', text: '中断' }]);
+    await handle2.settled;
+    expect(rig2.fake.retires).toEqual(['sess-1']);
+  });
+
   it('kill 折叠（定形注④甲案形）：kill=interrupt 协作中止 + reason 折中止形', async () => {
     const rig = unitRig();
     const handle = await rig.spawn(jobRow('u3'));
@@ -363,6 +386,8 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     const outcome = await handle.settled;
     expect(outcome.reason).toBe('exit_code');
     expect(outcome.exitCode).toBe(0);
+    // 会话复用形不摘（04 §12 第 5 律——goal 绑定会话的广播唤醒依赖活体登记）
+    expect(rig.fake.retires).toEqual([]);
   });
 
   it('goal 挂钟行 u-3 池检：wake 落地而日池尽 → park true → gated 预算停靠（零提交零开——04 §5 定形注③第二形态）', async () => {
