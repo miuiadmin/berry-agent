@@ -197,7 +197,11 @@ export interface SubagentCapabilities {
   readonly cancel: boolean;
   /** 支持后台收场（Job 注册表托管；one-shot-only provider 恒 false） */
   readonly background: boolean;
-  /** 支持结构化输出（SubagentResult.structured 面） */
+  /**
+   * 支持结构化输出（SubagentResult.structured 面）：语义 = 「结果携宿主铸造
+   * 结构账可依赖」——in-process 真 = 工厂结算位机器账（04 §10 定形段），
+   * 第三方 true = 自有形（契约位宽形不锁字段表）。
+   */
   readonly structuredOutput: boolean;
 }
 
@@ -246,13 +250,24 @@ export interface SubagentRequest {
  * 委派结算（04 §10：子代理是黑盒——结果不重试，立即结算给父）。
  */
 export interface SubagentResult {
-  /** 最终输出（黑盒面——父只见结果不见内部过程） */
+  /** 最终输出（黑盒面——父只见结果不见内部过程；机器账在位时降为参考面） */
   readonly output: string;
-  /** 结构化输出（capabilities.structuredOutput 时有效） */
+  /**
+   * 结构化输出（capabilities.structuredOutput 时有效）。契约位保持宽形
+   * （unknown——第三方 provider 可铸自有形）；in-process 工厂 v1 唯一形 =
+   * 宿主机器账 { childSessionId, jobName?, durationMs, turnCount,
+   * messageCount, usage {input,output}|null, stopReason }（04 §10 structured
+   * 定形段——subagent/types.ts SubagentMachineAccount 单源形）。
+   */
   readonly structured?: unknown;
   /** 降级上报（≤4096 截断——哪些工具被拒、以何降级路径完成；禁伪装执法位） */
   readonly diagnostic?: string;
-  /** 用量（子栈计量上报；缺席 = 未计量） */
+  /**
+   * 用量（子栈计量上报；缺席 = 未计量）。in-process 工厂与 structured.usage
+   * 同值双填（同源一次铸造——顶层位 = 末条 assistant 完整 Usage、机器账位 =
+   * 同源两桶投影）；顶层位独立保留意义 = 第三方 provider 只报顶层计量不铸
+   * 机器账。
+   */
   readonly usage?: Usage;
   /** 收场原因（error 形 = 结果即错误数据——重试是父的策略不是子代理机制） */
   readonly stopReason: SubagentStopReason;

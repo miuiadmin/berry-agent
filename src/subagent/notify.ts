@@ -27,11 +27,30 @@ function stopWord(stopReason: SubagentResult['stopReason']): string {
 }
 
 /**
+ * 结算通知的子会话指针行（RP3——收果拉取面轻量案：通知携指针非全文）。
+ * 取数自宿主机器账（in-process 工厂铸造位 structured）——第三方 provider
+ * 自有形无此字段则指针行诚实缺席（防御 guard：只认 in-process v1 形的
+ * string childSessionId + number messageCount，缺任一即视无指针）。
+ */
+function childSessionPointerLine(result: SubagentResult): string | undefined {
+  const account = result.structured;
+  if (account === null || typeof account !== 'object') return undefined;
+  const { childSessionId, messageCount } = account as { childSessionId?: unknown; messageCount?: unknown };
+  if (typeof childSessionId !== 'string' || childSessionId === '') return undefined;
+  if (typeof messageCount !== 'number' || !Number.isInteger(messageCount) || messageCount < 0) {
+    return undefined;
+  }
+  return `子会话 ${childSessionId}（${messageCount} 条消息）`;
+}
+
+/**
  * 结算通知 content（subagent-settled 注入体的唯一文案真源）。
  */
 export function subagentSettledContent(input: { jobName: string; result: SubagentResult }): string {
   const { jobName, result } = input;
   const lines = [`子代理「${jobName}」${stopWord(result.stopReason)}。`];
+  const pointer = childSessionPointerLine(result);
+  if (pointer !== undefined) lines.push(pointer);
   if (result.output !== '') lines.push(`输出：${preview(result.output)}`);
   // 降级上报如实呈现（禁伪装——上报表是知情面三律之一）
   if (result.diagnostic !== undefined && result.diagnostic !== '') {

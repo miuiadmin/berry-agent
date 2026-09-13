@@ -112,7 +112,11 @@ async function runList(options: PluginsEntryOptions): Promise<number> {
     const lines: string[] = [];
     lines.push(`启用（${activated.length}）：`);
     for (const a of activated)
-      lines.push(`  ${a.id}${a.skillDirs.length > 0 ? `  技能目录：${a.skillDirs.join('、')}` : ''}`);
+      lines.push(
+        `  ${a.id}` +
+          `${a.skillDirs.length > 0 ? `  技能目录：${a.skillDirs.join('、')}` : ''}` +
+          `${a.agentDirs.length > 0 ? `  子代理目录：${a.agentDirs.join('、')}` : ''}`,
+      );
     lines.push(`失败（${failed.length}）：`);
     for (const f of failed) lines.push(`  ${f.id}  ${formatPluginFailureText(f)}`);
     lines.push(`禁用（${skipped.length}）：`);

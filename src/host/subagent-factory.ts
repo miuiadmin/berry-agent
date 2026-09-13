@@ -21,9 +21,11 @@ import type {
   SubagentProvider,
   SubagentRequest,
   SubagentResult,
+  Usage,
 } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { EXCLUDED_FROM_DERIVED_SURFACE, IN_PROCESS_CAPABILITIES } from '../subagent/index.js';
+import type { SubagentMachineAccount } from '../subagent/index.js';
 import { formatSkillBlock, validateSkillRefList } from '../skills/index.js';
 import type { Skill } from '../skills/index.js';
 
@@ -101,6 +103,68 @@ function stopReasonOf(status: string): SubagentResult['stopReason'] {
   if (status === 'completed') return 'stop';
   if (status === 'failed') return 'error';
   return 'aborted';
+}
+
+/**
+ * RP4 机器账铸造（in-process 工厂结算位——04 §10 structured 定形段）：
+ * 从子会话事件流单次扫铸 {turnCount, messageCount, usage 两桶}。
+ * - turnCount = 'turn/start' 计数；
+ * - messageCount = user/message + assistant/message 计数（模型可见消息——
+ *   结算通知「（N 条消息）」取数位）；
+ * - usage = 末条 assistant/message 计量（05 §1.1 通道词律同源——主 loop
+ *   末条 assistant）的两桶投影；零 turn 诚实 null。
+ */
+function forgeAccountFacts(events: readonly { type: string; data?: unknown }[]): {
+  turnCount: number;
+  messageCount: number;
+  lastUsage: Usage | undefined;
+} {
+  let turnCount = 0;
+  let messageCount = 0;
+  let lastUsage: Usage | undefined;
+  for (const event of events) {
+    if (event.type === 'turn/start') turnCount += 1;
+    if (event.type === 'user/message' || event.type === 'assistant/message') messageCount += 1;
+    if (event.type === 'assistant/message') {
+      const usage = (event.data as { usage?: unknown } | undefined)?.usage;
+      // 窄 guard 两桶（durable 回读形防御）——在场即视为末条计量（后扫覆盖前扫）
+      if (
+        typeof usage === 'object' &&
+        usage !== null &&
+        typeof (usage as { input?: unknown }).input === 'number' &&
+        typeof (usage as { output?: unknown }).output === 'number'
+      ) {
+        lastUsage = usage as Usage;
+      }
+    }
+  }
+  return { turnCount, messageCount, lastUsage };
+}
+
+/**
+ * 机器账组装（structured + 顶层 usage 同值双填——同源一次铸造）：顶层位
+ * = 末条 assistant 完整 Usage 透传（第三方 provider 只报顶层的独立保留位）；
+ * structured.usage = 同源两桶投影（无计量诚实 null）。
+ */
+function forgeMachineAccount(input: {
+  childSessionId: string;
+  request: SubagentRequest;
+  startedAt: number;
+  events: readonly { type: string; data?: unknown }[];
+  stopReason: SubagentResult['stopReason'];
+}): { structured: SubagentMachineAccount; usage: Usage | undefined } {
+  const facts = forgeAccountFacts(input.events);
+  const structured: SubagentMachineAccount = {
+    childSessionId: input.childSessionId,
+    // jobName 仅 background 形在场（与注册表条目/通知文案同名——one-shot 无 Job 身份）
+    ...(input.request.background === true && input.request.name !== undefined ? { jobName: input.request.name } : {}),
+    durationMs: Date.now() - input.startedAt,
+    turnCount: facts.turnCount,
+    messageCount: facts.messageCount,
+    usage: facts.lastUsage !== undefined ? { input: facts.lastUsage.input, output: facts.lastUsage.output } : null,
+    stopReason: input.stopReason,
+  };
+  return { structured, usage: facts.lastUsage };
 }
 
 /** in-process 工厂构造面 */
@@ -215,7 +279,9 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
           : undefined;
       // 子会话装配（真工厂核心）：origin 'delegation' durable 归因；model/
       // systemPrompt def 直传（skills 注入后形）；shapeTools 派生面整形；
-      // askApproval 升父面。
+      // askApproval 升父面。startedAt 在建会话前取（机器账 durationMs 计量
+      // 含装配段——「子运行墙钟」从委派受理起算）。
+      const startedAt = Date.now();
       const child = stack.manager.create({
         origin: 'delegation',
         workspaceRoot: canonicalWorkspaceRoot(),
@@ -252,13 +318,28 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
         // 子 prompt 提交：source 缺省 'user'（父即子的用户；origin
         // 'delegation' 在会话行是 durable 归因——EventSource 闭集无该词）
         const outcome = await driver.submit(request.prompt);
-        const output = lastAssistantText(driver.session.events());
+        const events = driver.session.events();
+        const output = lastAssistantText(events);
+        // 机器账铸造（RP4——已起跑位含防御位都铸：childSessionId 已有、
+        // 计量如实〔防御位 turnCount 0 形〕；pre-spawn 拒径不铸〔无会话〕）
+        const account = forgeMachineAccount({
+          childSessionId: child.sessionId,
+          request,
+          startedAt,
+          events,
+          stopReason:
+            outcome.status === 'injected' || outcome.status === 'wake-refused'
+              ? 'aborted'
+              : stopReasonOf(outcome.status),
+        });
         if (outcome.status === 'injected' || outcome.status === 'wake-refused') {
           // 理论不达防御位（新会话无停摆/无唤醒件）——诚实回执不伪装完成
           return {
             output,
             stopReason: 'aborted',
             diagnostic: `子会话提交未起跑（${outcome.status}）`,
+            structured: account.structured,
+            ...(account.usage !== undefined ? { usage: account.usage } : {}),
           };
         }
         return {
@@ -270,6 +351,8 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
           ...(outcome.status === 'failed' && outcome.errorMessage !== undefined
             ? { diagnostic: outcome.errorMessage }
             : {}),
+          structured: account.structured,
+          ...(account.usage !== undefined ? { usage: account.usage } : {}),
         };
       } finally {
         if (timer !== undefined) clearInterval(timer);

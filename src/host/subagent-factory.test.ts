@@ -260,6 +260,87 @@ describe('createInProcessSubagentProvider（批 19c-1——真工厂全环）', 
     await rt.shutdown();
   });
 
+  it('机器账铸造（RP4）：one-shot 单轮——structured 六位/usage 同值双填/jobName 缺席', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({ stack, tracker, warn: () => {} });
+    const parent = stack.openStartupSession(ws);
+
+    faux.setResponses([() => messageOf('stop')]);
+    const result = await provider.run({
+      prompt: '记账',
+      parentSessionId: parent.sessionId,
+      depth: 1,
+      name: '会计',
+    });
+    expect(result.stopReason).toBe('stop');
+    // structured = 宿主机器账 v1 形（childSessionId + 计数 + usage 两桶 + stopReason）
+    const structured = result.structured as {
+      childSessionId?: unknown;
+      jobName?: unknown;
+      durationMs?: unknown;
+      turnCount?: unknown;
+      messageCount?: unknown;
+      usage?: unknown;
+      stopReason?: unknown;
+    };
+    expect(typeof structured.childSessionId).toBe('string');
+    expect(structured.childSessionId).not.toBe('');
+    expect('jobName' in structured).toBe(false); // one-shot 无 Job 身份——缺席
+    expect(structured.durationMs).toBeGreaterThanOrEqual(0);
+    expect(structured.turnCount).toBe(1); // 单轮一 turn/start
+    expect(structured.messageCount).toBe(2); // user/message + assistant/message
+    expect(structured.stopReason).toBe('stop');
+    // usage 同值双填：structured.usage = 末条 assistant 两桶投影、顶层 usage =
+    // 同源完整 Usage 透传（数值不硬编——真源是驱动运行期计量〔v 批镜像律〕，非 faux 消息面）
+    expect(result.usage).toBeDefined();
+    expect(structured.usage).toEqual({ input: result.usage!.input, output: result.usage!.output });
+    await rt.shutdown();
+  });
+
+  it('机器账铸造（RP4）：background 形 jobName 在场（request.name 同源）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({ stack, tracker, warn: () => {} });
+    const parent = stack.openStartupSession(ws);
+
+    faux.setResponses([() => messageOf('stop')]);
+    const result = await provider.run({
+      prompt: '后台记账',
+      parentSessionId: parent.sessionId,
+      depth: 1,
+      name: '夜班',
+      background: true,
+    });
+    expect(result.stopReason).toBe('stop');
+    expect((result.structured as { jobName?: unknown }).jobName).toBe('夜班'); // background 且 name 在场
+    await rt.shutdown();
+  });
+
+  it('pre-spawn 拒径不铸账：reserve 线拒的回执无 structured（无会话无可归因）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { stack } = rigStack(rt, ws); // 不起跑——faux 零消费不取
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({
+      stack,
+      tracker,
+      warn: () => {},
+      reserveBreached: () => true,
+    });
+    const parent = stack.openStartupSession(ws);
+
+    const result = await provider.run({ prompt: '不起跑', parentSessionId: parent.sessionId, depth: 1 });
+    expect(result.stopReason).toBe('aborted');
+    expect(result.structured).toBeUndefined(); // 未建会话——无 childSessionId 可铸（已起跑/未起跑分界）
+    expect(result.usage).toBeUndefined();
+    await rt.shutdown();
+  });
+
   it('审批升父面（one-shot）：子 write 审批落父会话呈现面（backend 见父 sessionId）', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();

@@ -103,6 +103,25 @@ describe('materializeDeclarativeSubagents 物化', () => {
     materializeDeclarativeSubagents([DEF], service, { parentSessionId: 's1' });
     expect(() => materializeDeclarativeSubagents([DEF], service, { parentSessionId: 's1' })).toThrow(BaseError);
   });
+
+  it('dispose 撤 provider 位（RP5 物化腿）：撤后同 def 重物化不撞名——reload 全摘重挂的机器前提', () => {
+    const service = makeService(recordingBase().provider);
+    const first = materializeDeclarativeSubagents([DEF], service, { parentSessionId: 's1' });
+    expect(service.providerNames()).toContain('researcher');
+    first.dispose();
+    expect(service.providerNames()).not.toContain('researcher'); // provider 位随撤释放名
+    // 重物化同 def 不撞名（旧形 disposer 缺 provider 撤位 → 二次装配即炸 SUBAGENT_PROVIDER_EXISTS）
+    const second = materializeDeclarativeSubagents([DEF], service, { parentSessionId: 's1' });
+    expect(service.providerNames()).toContain('researcher');
+    second.dispose();
+    expect(service.providerNames()).not.toContain('researcher');
+  });
+
+  it('owner 分域标签入撞名归因面：物化携 owner 位（缺省 declarative / 显式 core:subagent）', () => {
+    const service = makeService(recordingBase().provider);
+    materializeDeclarativeSubagents([DEF], service, { parentSessionId: 's1' }, { owner: 'core:subagent' });
+    expect(() => materializeDeclarativeSubagents([DEF], service, { parentSessionId: 's1' })).toThrow(/core:subagent/); // 撞名 message 携在册方 owner（分域存名的归因兑现）
+  });
 });
 
 describe('静态工具 def 字段闭包绑定', () => {

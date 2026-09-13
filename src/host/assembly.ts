@@ -48,7 +48,7 @@ import { appendToolPolicyEntry, readToolPolicy } from './tool-policy-store.js';
 import { readHostSettings } from './settings-store.js';
 import { APPROVAL_USAGE, parseApprovalArgv, runApprovalCommand } from './approval-cmd.js';
 import { createCorePlugins } from './core-plugins.js';
-import type { GoalFace } from './core-plugins.js';
+import type { GoalFace, SubagentLayerResyncHook } from './core-plugins.js';
 import { createSessionsFace } from './sessions-face.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
@@ -442,6 +442,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 结算钩子 onSettled（goal foldDelegation 喂入 seam）挂 19c-3+ goal 笔
     const subagents = createSubagentService({
       registry: jobs,
+      // 单父扇出帽旋钮面（RP2——04 §10 扇出帽段：env BERRY_AGENT_MAX_CONCURRENT_
+      // SUBAGENTS > 缺省 8；坏形 fail-loud 启动当场红）
+      env,
       notify: {
         notifySettled: ({ parentSessionId, content }) => {
           const run = stack.submitText(parentSessionId, content, {
@@ -513,6 +516,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       const toolNames = stack.driverOf(sessionId)?.toolNames;
       return { depth, ...(toolNames !== undefined ? { availableTools: toolNames } : {}) };
     };
+    // 插件层物化钩子槽（RP5 物化腿——runBoot 内 core:subagent apply 经 sink
+    // 覆写本槽〔末位胜出——/reload 换代重挂〕；resyncPluginAgentLayers 于
+    // 装载收口后经此取钩子喂 activated 行的 agentDirs 投影）
+    let subagentLayerResyncHook: SubagentLayerResyncHook | undefined;
 
     // —— memory 件 LLM seam 适配器（批 19b-2——词面独立律：memory 席 DAG 无
     // llm 边，LlmService→MemoryLlmFace 的适配归装配根）。UserMessage.timestamp
@@ -719,6 +726,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // 执行时语境解析闭包（上方提取位——程序化腿物化 toolDeps 同源）
               subagents,
               subagentSessionContext,
+              // 插件层物化钩子接收位（RP5 物化腿——03 §6.3 兑现）：core:subagent
+              // apply 换代重挂即覆写本槽（末位胜出——同 subscribeSessionRetire
+              // 律）；resyncPluginAgentLayers 装载收口后经此取钩子喂 activated 行
+              subagentLayerResyncSink: (hook) => {
+                subagentLayerResyncHook = hook;
+              },
               // goal 会话日志读面（批 19c-3——goal 件主闸二）：活体日志优先
               // （driver 在场读内存面），驱动已收口的外部会话兜底落盘读；
               // 长度经 events() 视图取长（O(1)——内部数组直视图非拷贝）
@@ -927,6 +940,20 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     });
     await resyncPluginSkillLayers(boot);
 
+    // —— 插件声明子代理层重同步（RP5 物化腿——03 §6.3 兑现注）：镜像 skills
+    // resync 时序位（boot 装载收口后首调 + /reload reapply 内重调）。钩子真身
+    // 在 core:subagent apply 闭包（物化/撤位/后窗注册全在彼——assembly 只编排
+    // 时序与喂 activated 行）；行滤 agentDirs > 0 投影为 SubagentPluginLayerRow。
+    // 无独立 closer：件级 disposer（apply 返）即卸载对称位——provider 位 +
+    // 工具位两撤。
+    const resyncPluginAgentLayers = async (handle: PluginBootHandle): Promise<void> => {
+      const rows = handle.report.activated
+        .filter((row) => row.agentDirs.length > 0)
+        .map((row) => ({ id: row.id, agentDirs: [...row.agentDirs] }));
+      await subagentLayerResyncHook?.(rows);
+    };
+    await resyncPluginAgentLayers(boot);
+
     // —— session/event 用户消息追踪（批 20c——GateFacts lastUserMessageAt 宿主
     // 源维护）：真用户输入（user/channel:*）才更新最近时刻——schedule（挂钟
     // 触发的 user/message 非人语）/subagent-settled/compaction/plugin 注入不
@@ -975,6 +1002,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         boot = handle;
         Object.assign(pluginCounts, handle.counts);
         await resyncPluginSkillLayers(handle);
+        await resyncPluginAgentLayers(handle);
         // 新代工具面 diff（03 §2.8 定形——/reload 回执呈现新代 activated[].tools
         // 对前代 diff）：基线 = 旧代 activated 全体工具名并集；新代逐插件取
         // 差集、非空才呈现（不造噪声）。首启 noPlugins 短路形 previous 为空代

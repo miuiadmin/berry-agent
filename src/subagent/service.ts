@@ -46,6 +46,45 @@ const DIAGNOSTIC_MAX = 4096;
 const PROVIDER_NAME_MAX = 64;
 
 /**
+ * 单父在飞子代理扇出帽缺省值（04 §10 扇出帽段——码面缺省参数非契约
+ * 常数：细节包值 20 对交互场景，本宿主子代理面向编排/调研，取向 8 与
+ * Job per-kind 帽〔issue 2/trigger 4〕量级相称、宿主 lane 帽 16 内留
+ * 交互余量；与委派深度帽〔缺省 3〕正交——深度拦嵌套、本帽拦扇出）。
+ */
+export const DEFAULT_SUBAGENT_FANOUT_LIMIT = 8;
+
+/** 扇出帽 env 旋钮名（07 §8 env 表——与 BERRY_AGENT_MAX_CONCURRENT_RUNS 同形族） */
+export const ENV_MAX_CONCURRENT_SUBAGENTS = 'BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS';
+
+/**
+ * 扇出帽容量解析（04 §10 扇出帽段）：解析序 = 显式覆盖位 >
+ * env `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` > 缺省 8。非正整数
+ * fail-loud 拒（RangeError）——空帽/坏帽是死配置（字串形全串 /^\d+$/
+ * 判防 parseInt 截停，同 resolveRunLaneCapacity 律）。
+ */
+export function resolveSubagentFanoutLimit(
+  override: number | undefined,
+  env: Record<string, string | undefined>,
+): number {
+  const raw = override ?? env[ENV_MAX_CONCURRENT_SUBAGENTS];
+  if (raw === undefined) return DEFAULT_SUBAGENT_FANOUT_LIMIT;
+  let value: number;
+  if (typeof raw === 'number') {
+    value = raw;
+  } else if (/^\d+$/.test(raw)) {
+    value = Number.parseInt(raw, 10);
+  } else {
+    value = Number.NaN;
+  }
+  if (!Number.isInteger(value) || value < 1) {
+    throw new RangeError(
+      `子代理扇出帽须为正整数，收到 ${String(raw)}——空帽/坏帽是死配置（${ENV_MAX_CONCURRENT_SUBAGENTS} / maxConcurrentPerParent）`,
+    );
+  }
+  return value;
+}
+
+/**
  * 子代理名词法违例清单（空 = 合法）。裸词四查：字符集/长度/首尾连字符/
  * 连续连字符——与 skills validateSkillName 同形本地复刻（02 §4.1 无
  * subagent→skills 边，词法真源 06:386 frontmatter name 行，不经 import 共享）。
@@ -87,6 +126,16 @@ export interface ProgrammaticProviderEntry {
 export interface SubagentServiceOptions {
   /** Job 注册表（ctx.jobs 服务面本体——kind 'subagent' 由本服务构造时自登） */
   readonly registry: JobRegistry;
+  /**
+   * 单父在飞子代理扇出帽（04 §10 扇出帽段——per-parentSessionId 内存位，
+   * 与 SESSION_ROUND_LIMIT 同律不进 durable；one-shot 与 background 同池
+   * 同帽）。缺省经 resolveSubagentFanoutLimit（env 旋钮 > 8）。
+   */
+  readonly maxConcurrentPerParent?: number;
+  /**
+   * env 面（扇出帽旋钮解析取数——组合根注入 process.env；测试替身注入字典）。
+   */
+  readonly env?: Record<string, string | undefined>;
   /** 父会话通知面（组合根注入——词面独立律；background 结算/审批挂起两通知的落通道桥） */
   readonly notify?: SubagentNotifyFace;
   /** 结算钩子（goal foldDelegation 喂入 seam——组合根接线位；通知后、settle 前调） */
@@ -97,8 +146,10 @@ export interface SubagentServiceOptions {
 
 /** 委派机器公开面 */
 export interface SubagentService {
-  /** 注册 named provider（声明式腿——撞名拒 SUBAGENT_PROVIDER_EXISTS，静态绑定面） */
-  registerProvider(name: string, provider: SubagentProvider): void;
+  /** 注册 named provider（声明式腿——撞名拒 SUBAGENT_PROVIDER_EXISTS，静态绑定面）
+   * @returns 注销器（只摘本人条目——镜像 registerProgrammatic 三律②；RP5 物化
+   *   腿 reload 全摘重挂的撤位载体） */
+  registerProvider(name: string, provider: SubagentProvider, opts?: { owner?: string }): Disposer;
   /**
    * 程序化 named provider 注册（03 §2.2 第十二动词受局面——拒绝式两闸，
    * 执法序撞名前置格式：撞名经派生工具名 agent_<name> 比对 SUBAGENT_PROVIDER_EXISTS
@@ -153,17 +204,75 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
   const providers = new Map<string, ProviderEntry>();
   options.registry.registerKind('subagent');
 
+  // ── 单父扇出闸（04 §10 扇出帽段——per-parentSessionId 内存位） ──
+  // 同 lane 帽哲学：满帽排队非拒收 FIFO（工具执行体内等待、释放依序续跑）；
+  // 分账 = lane 拦「新 run 诞生」全局，本帽拦「单父子代理扇出」；one-shot
+  // 与 background 同池同帽（同父语义连续）。
+  const maxConcurrentPerParent = resolveSubagentFanoutLimit(options.maxConcurrentPerParent, options.env ?? {});
+  interface FanoutSlot {
+    active: number;
+    /** 排队等待者（FIFO——释放时位直接移交：active 不减不增） */
+    waiters: Array<() => void>;
+  }
+  const fanout = new Map<string, FanoutSlot>();
+
+  /**
+   * 同步试位（true = 已得位——**零异步边界**：one-shot 受理面同步跑到
+   * provider.run，不因取位引入微任务〔「调用后同步推杆」的既有时序假设
+   * 不破坏〕；false = 满帽，经 waitSlot 排队）。
+   */
+  function tryAcquireSlot(parentSessionId: string): boolean {
+    let slot = fanout.get(parentSessionId);
+    if (slot === undefined) {
+      slot = { active: 0, waiters: [] };
+      fanout.set(parentSessionId, slot);
+    }
+    if (slot.active < maxConcurrentPerParent) {
+      slot.active++;
+      return true;
+    }
+    return false;
+  }
+
+  /** 满帽等待（FIFO 排队——释放时位直接移交：active 不减不增）；排队项无独立停止位〔stopRequested 桥排队中缺席 = 诚实边界，成文不隐藏〕 */
+  function waitSlot(parentSessionId: string): Promise<void> {
+    const slot = fanout.get(parentSessionId);
+    if (slot === undefined) return Promise.resolve(); // 防御位（理论不可达——tryAcquire 失败必已建槽）
+    return new Promise<void>((resolve) => {
+      slot.waiters.push(resolve);
+    });
+  }
+
+  /** 释放（等待队首直接接位——位移交不经过计数；队空归零删键防 Map 无界驻留） */
+  function releaseSlot(parentSessionId: string): void {
+    const slot = fanout.get(parentSessionId);
+    if (slot === undefined) return; // 防御位（理论不可达——acquire 必先建槽）
+    const waiter = slot.waiters.shift();
+    if (waiter !== undefined) {
+      waiter();
+      return;
+    }
+    slot.active--;
+    if (slot.active <= 0 && slot.waiters.length === 0) fanout.delete(parentSessionId);
+  }
+
   const service: SubagentService = {
-    registerProvider(name, provider) {
-      // 声明式腿（core:skills 物化调用）：词法在解析层执法（agents.ts——
-      // name 是注册键不宽容），此处只管词法身份面撞名
+    registerProvider(name, provider, opts) {
+      // 声明式腿（core:skills/core:subagent 物化调用）：词法在解析层执法
+      // （agents.ts——name 是注册键不宽容），此处只管词法身份面撞名
       if (providers.has(name)) {
         throw new BaseError(
           'SUBAGENT_PROVIDER_EXISTS',
           `named provider「${name}」已注册（注册方 ${providers.get(name)?.owner}）——撞名拒（静态绑定面）`,
         );
       }
-      providers.set(name, { provider, owner: 'declarative' });
+      const entry: ProviderEntry = { provider, owner: opts?.owner ?? 'declarative' };
+      providers.set(name, entry);
+      // 注销器只摘本人条目（三律②——镜像 registerProgrammatic；reload 全摘
+      // 重挂的撤位载体〔RP5〕；在飞委派闭包持有 provider 引用跑完自灭）
+      return () => {
+        if (providers.get(name) === entry) providers.delete(name);
+      };
     },
     registerProgrammatic(owner, def) {
       // ── 闸一 撞名（前置格式闸——在册名必已合法，「名字被占用」更指向根因；
@@ -277,14 +386,22 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
             : {}),
           stopRequested: () => handle.entry.status === 'stopping',
         };
-        // 后台收场编舞（fire-and-forget——回执只携 Job 身份）：先 provider 黑盒
-        // 跑完 → 通知先落（无条件先于归属释放）→ 结算钩子 → Job 条目后销
+        // 后台收场编舞（fire-and-forget——回执只携 Job 身份）：register 先行
+        // （m5 定形——Job 条目先落 running〔帽满排队期状态面可见〕、run() 回执
+        // jobId 不因帽满延后、取位等待在条目落账后的执行段）→ 取位 → provider
+        // 黑盒跑完 → 通知先落（无条件先于归属释放）→ 结算钩子 → Job 条目后销
         void (async () => {
+          // 同步 fast-path 优先（与 one-shot 同形——满帽才入异步 FIFO 等待）
+          if (!tryAcquireSlot(input.parentSessionId)) {
+            await waitSlot(input.parentSessionId);
+          }
           let result: SubagentResult;
           try {
             result = normalizeResult(await provider.run(backgroundRequest));
           } catch (err) {
             result = errorResult(err);
+          } finally {
+            releaseSlot(input.parentSessionId);
           }
           if (options.notify !== undefined) {
             try {
@@ -306,11 +423,20 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
         return { mode: 'background', jobName, jobId: handle.entry.id };
       }
       // ── one-shot：父同步等结果（黑盒——异常折 error 结果不重试） ──
+      // 校验闸（深度/路由/预检/能力）已全部跑完——取位在闸后（拒径不占位）；
+      // 同步 fast-path 取位：有位情形零异步边界直达 provider.run（「run 调用
+      // 后同步推杆」的既有调用时序不因闸引入微任务而破坏——m-2 受理即已落
+      // 账律同族考量），满帽才入异步 FIFO 等待
+      if (!tryAcquireSlot(input.parentSessionId)) {
+        await waitSlot(input.parentSessionId);
+      }
       try {
         const result = normalizeResult(await provider.run(request));
         return { mode: 'one-shot', result };
       } catch (err) {
         return { mode: 'one-shot', result: errorResult(err) };
+      } finally {
+        releaseSlot(input.parentSessionId);
       }
     },
   };

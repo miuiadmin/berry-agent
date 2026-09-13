@@ -101,6 +101,30 @@ export interface DelegationSettlement {
 }
 
 /**
+ * in-process 工厂结算位铸造的宿主机器账 v1 形（04 §10 SubagentResult.
+ * structured 定形段——契约位 `structured?: unknown` 保持宽形〔第三方 provider
+ * 可铸自有形，能力位只声明「structured 有形可依赖」〕，本类型是 in-process
+ * v1 唯一形）。「父读子结构化产物账、不信口头 findings」的机器对价——
+ * output 由此定形为参考面、机器账为对账面。
+ */
+export interface SubagentMachineAccount {
+  /** 委派子会话 id（对账锚——durable sessions 行 origin='delegation' 归因） */
+  readonly childSessionId: string;
+  /** Job 名（background 形在场——与注册表条目/通知文案同名） */
+  readonly jobName?: string;
+  /** 子运行墙钟毫秒（child 建立马达结算位） */
+  readonly durationMs: number;
+  /** 子会话 turn 计数（turn/start 事件计数） */
+  readonly turnCount: number;
+  /** 子会话模型可见消息计数（user/assistant 投影形——通知「（N 条消息）」取数位） */
+  readonly messageCount: number;
+  /** 用量两桶（主 loop 末条 assistant 计量——05 §1.1 通道词律同源；零 turn 诚实 null） */
+  readonly usage: { readonly input: number; readonly output: number } | null;
+  /** 收场原因（与顶层 stopReason 同值——闭集三值） */
+  readonly stopReason: 'stop' | 'error' | 'aborted';
+}
+
+/**
  * 声明式子代理解析产物（agents/*.md 纯数据 def——解析层住 core:skills、
  * 机器住 core:subagent 的接缝形状；06 §11.6）。def 形状归 contracts
  * （skills↔subagent 共享只走契约面——02 §4.1 无 skills→subagent 边）。

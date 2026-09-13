@@ -12,7 +12,7 @@ import {
   type SubagentResult,
 } from '../contracts/index.js';
 import { createJobRegistry, type JobHandle, type JobRegistry } from './registry.js';
-import { createSubagentService, type SubagentService } from './service.js';
+import { createSubagentService, resolveSubagentFanoutLimit, type SubagentService } from './service.js';
 import { createDeclarativeAgentTool } from './tool.js';
 import type { SubagentNotifyFace } from './types.js';
 
@@ -514,5 +514,126 @@ describe('程序化 named provider 注册面（registerProgrammatic——04 §10
     const result = await tools[0]!.execute({ prompt: '跑' }, { toolCallId: 'test' });
     expect(result.isError).toBeUndefined(); // one-shot 完成回执（renderOutcome 形）
     expect(provider.requests.at(-1)).toMatchObject({ name: 'daily', systemPrompt: '你是 daily' });
+  });
+});
+
+describe('单父扇出闸（RP2——04 §10 扇出帽段：per-parentSessionId 内存位、满帽排队 FIFO 非拒收）', () => {
+  it('resolveSubagentFanoutLimit 解析序：显式覆盖 > env > 缺省 8；坏形 fail-loud', () => {
+    expect(resolveSubagentFanoutLimit(undefined, {})).toBe(8); // 缺省档
+    expect(resolveSubagentFanoutLimit(undefined, { BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS: '3' })).toBe(3); // env 覆盖
+    expect(resolveSubagentFanoutLimit(2, { BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS: '3' })).toBe(2); // 显式位优先
+    expect(() => resolveSubagentFanoutLimit(undefined, { BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS: '2x' })).toThrow(
+      RangeError,
+    ); // 全串 /^\d+$/ 判防 parseInt 截停
+    expect(() => resolveSubagentFanoutLimit(0, {})).toThrow(RangeError); // 空帽死配置
+  });
+
+  it('one-shot 排队 FIFO：满帽后到者等待、释放依序续跑（同池同帽、拒径不占位）', async () => {
+    // 帽 1：第一个在飞、第二三个排队；释放序 = 到达序（FIFO）
+    const provider = new FakeProvider();
+    const service = createSubagentService({
+      registry: createJobRegistry(),
+      maxConcurrentPerParent: 1,
+      notify: { notifySettled: async () => undefined, notifyApprovalPending: async () => undefined },
+    });
+    service.registerProvider('in-process', provider);
+    const order: string[] = [];
+    const run1 = service.run({ ...BASE_INPUT, prompt: '一' }).then(() => order.push('done:1'));
+    await new Promise((r) => setTimeout(r, 10)); // 一号取位在飞
+    expect(provider.requests.map((r) => r.prompt)).toEqual(['一']); // 满帽：二三未起跑
+    const run2 = service.run({ ...BASE_INPUT, prompt: '二' }).then(() => order.push('done:2'));
+    const run3 = service.run({ ...BASE_INPUT, prompt: '三' }).then(() => order.push('done:3'));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(provider.requests.map((r) => r.prompt)).toEqual(['一']); // 仍只一在飞
+    provider.settle({ output: '1', stopReason: 'stop' }); // 释放一号位
+    await new Promise((r) => setTimeout(r, 10));
+    expect(provider.requests.map((r) => r.prompt)).toEqual(['一', '二']); // 二号接位（FIFO）
+    provider.settle({ output: '2', stopReason: 'stop' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(provider.requests.map((r) => r.prompt)).toEqual(['一', '二', '三']);
+    provider.settle({ output: '3', stopReason: 'stop' });
+    await Promise.all([run1, run2, run3]);
+    expect(order).toEqual(['done:1', 'done:2', 'done:3']);
+  });
+
+  it('深度拒径不占位：超帽请求抛出后同父立即可再跑（校验闸先于取位）', async () => {
+    const provider = new FakeProvider({ output: 'ok', stopReason: 'stop' });
+    const service = createSubagentService({
+      registry: createJobRegistry(),
+      maxConcurrentPerParent: 1,
+      notify: { notifySettled: async () => undefined, notifyApprovalPending: async () => undefined },
+    });
+    service.registerProvider('in-process', provider);
+    await expectCode(service.run({ ...BASE_INPUT, depth: 99, background: true }), 'SUBAGENT_DEPTH_EXCEEDED'); // 校验闸拒——不占扇出位
+    // 同父立即跑一个不受残留位影响（深度拒后扇出计数干净）
+    const outcome = await service.run(BASE_INPUT);
+    expect(outcome.mode).toBe('one-shot');
+  });
+
+  it('background register 先行（m5 定形）：满帽期 run() 回执 jobId 不延后、Job 条目先落 running', async () => {
+    const provider = new FakeProvider();
+    const registry = createJobRegistry();
+    const service = createSubagentService({
+      registry,
+      maxConcurrentPerParent: 1,
+      notify: { notifySettled: async () => undefined, notifyApprovalPending: async () => undefined },
+    });
+    service.registerProvider('in-process', provider);
+    // 占位者：一号在飞（不推杆）
+    const held = service.run({ ...BASE_INPUT, prompt: '占位', background: true });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(provider.requests).toHaveLength(1);
+    // 二号 background：register 先行——回执立即返（不等取位）
+    const outcome2 = await service.run({ ...BASE_INPUT, prompt: '排队', background: true, name: 'second' });
+    expect(outcome2.mode).toBe('background');
+    if (outcome2.mode !== 'background') return;
+    const entry = registry.get(outcome2.jobId);
+    expect(entry?.status).toBe('running'); // 帽满排队期状态面可见（running 兼表）
+    expect(provider.requests).toHaveLength(1); // 仍未起跑（排队中）
+    // 释放一号位 → 二号起跑 → 结算链收口
+    provider.settle({ output: '1', stopReason: 'stop' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(provider.requests.map((r) => r.prompt)).toEqual(['占位', '排队']);
+    provider.settle({ output: '2', stopReason: 'stop' });
+    await held;
+  });
+
+  it('跨父分池：两父各持独立帽（per-parentSessionId 键——单父扇出非全局并发）', async () => {
+    // 双 provider 挂起形：FakeProvider 单 resolveRun 槽——真并发两挂起 run 须
+    // 各持实例（挂起并发推杆是测试替身局限，非产品面约束）
+    const p1 = new FakeProvider();
+    const p2 = new FakeProvider();
+    const service = createSubagentService({
+      registry: createJobRegistry(),
+      maxConcurrentPerParent: 1,
+      notify: { notifySettled: async () => undefined, notifyApprovalPending: async () => undefined },
+    });
+    service.registerProvider('p-one', p1);
+    service.registerProvider('p-two', p2);
+    const r1 = service.run({ ...BASE_INPUT, providerName: 'p-one', prompt: '父一' });
+    const r2 = service.run({ ...BASE_INPUT, providerName: 'p-two', parentSessionId: 's2', prompt: '父二' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(p1.requests.map((r) => r.prompt)).toEqual(['父一']);
+    expect(p2.requests.map((r) => r.prompt)).toEqual(['父二']); // 两父各取各位——互不排队（全局池则父二此际仍排队、p2 空）
+    p1.settle({ output: 'a', stopReason: 'stop' });
+    p2.settle({ output: 'b', stopReason: 'stop' });
+    const [o1, o2] = await Promise.all([r1, r2]);
+    expect(o1.mode).toBe('one-shot');
+    expect(o2.mode).toBe('one-shot');
+  });
+
+  it('registerProvider 注销器：撤本人条目——重注后旧注销器不误摘接任者（三律②镜像）', () => {
+    const service = createSubagentService({ registry: createJobRegistry() });
+    const p1: SubagentProvider = { capabilities: FULL_CAPS, run: async () => ({ output: '', stopReason: 'stop' }) };
+    const dispose1 = service.registerProvider('scout', p1);
+    expect(service.providerNames()).toContain('scout');
+    dispose1();
+    expect(service.providerNames()).not.toContain('scout'); // 撤位即释放名
+    const p2: SubagentProvider = { capabilities: FULL_CAPS, run: async () => ({ output: '', stopReason: 'stop' }) };
+    const dispose2 = service.registerProvider('scout', p2, { owner: 'plugin:acme' });
+    dispose1(); // 过期注销器——不误摘接任者（条目身份比对）
+    expect(service.providerNames()).toContain('scout');
+    dispose2();
+    expect(service.providerNames()).not.toContain('scout');
   });
 });

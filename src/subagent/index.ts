@@ -24,6 +24,7 @@ export type {
   DelegationOutcome,
   DelegationSettlement,
   ResolvedRequest,
+  SubagentMachineAccount,
   SubagentNotifyFace,
 } from './types.js';
 export type { SubagentDef } from '../contracts/index.js';
@@ -32,13 +33,18 @@ export { deriveToolSurface, findPrecheckGaps, intersectToolWhitelist } from './s
 
 export { subagentSettledContent } from './notify.js';
 
-export { createSubagentService } from './service.js';
+export {
+  createSubagentService,
+  DEFAULT_SUBAGENT_FANOUT_LIMIT,
+  ENV_MAX_CONCURRENT_SUBAGENTS,
+  resolveSubagentFanoutLimit,
+} from './service.js';
 export type { ProgrammaticProviderEntry, SubagentService, SubagentServiceOptions } from './service.js';
 
 export { createAgentTool, createDeclarativeAgentTool } from './tool.js';
 export type { DelegationToolDeps } from './tool.js';
 
 export { defBoundProvider, materializeDeclarativeSubagents } from './declarative.js';
-export type { MaterializedSubagents } from './declarative.js';
+export type { MaterializeOptions, MaterializedSubagents } from './declarative.js';
 
 export { JOBS_SERVICE_NAME, provideJobsService } from './provide.js';

@@ -122,7 +122,7 @@ import type {
   SessionFtsSearchFace,
 } from '../memory/index.js';
 import type { SessionsFace } from './sessions-face.js';
-import { collectAgentDefs, createStandardAgentLayers } from '../skills/index.js';
+import { collectAgentDefs, createAgentLayerProvider, createStandardAgentLayers } from '../skills/index.js';
 import { createAgentTool, materializeDeclarativeSubagents, JOBS_SERVICE_NAME } from '../subagent/index.js';
 import type { DelegationToolDeps, SubagentService } from '../subagent/index.js';
 // 批 19e HTTP 面族四件（sdk/webui/issue/obs——core 15 件齐册）
@@ -302,6 +302,13 @@ export interface CorePluginHostDeps {
     readonly depth: number;
     readonly availableTools?: readonly string[];
   };
+  /**
+   * 子代理插件层物化钩子接收位（RP5 物化腿——03 §6.3 兑现）：core:subagent
+   * apply 上挂 resync 钩子经本 sink 交 assembly 编排（boot 后首调 + /reload
+   * reapply 内重调——镜像 resyncPluginSkillLayers 时序位）。缺席 = 插件层
+   * agentDirs 物化腿不接线（测试替身形——标准层物化照常）。
+   */
+  readonly subagentLayerResyncSink?: (hook: SubagentLayerResyncHook) => void;
   /**
    * 宿主对话栈（u-2 无人值守深化批——04 §12 定形注①进程内推进律）：在场 =
    * 引擎 runner 换进程内实装（scheduler-tick——宿主进程内经 conversation-stack
@@ -852,6 +859,22 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
 }
 
 /**
+ * 插件声明子代理层行（RP5 物化腿——assembly resync 喂入载荷：activated 行
+ * 滤 agentDirs > 0 的投影形；id = 插件 id 原形，层 id 以 `plugin:<id>` 分域）。
+ */
+export interface SubagentPluginLayerRow {
+  readonly id: string;
+  readonly agentDirs: readonly string[];
+}
+
+/**
+ * 插件层物化钩子（RP5——core:subagent apply 上挂、assembly 编排时序调用：
+ * boot 装载收口后首调 + /reload reapply 内重调）。幂等律：重入先全摘旧代
+ * 插件层（provider 位 + 工具位两撤）再物化新代。
+ */
+export type SubagentLayerResyncHook = (rows: readonly SubagentPluginLayerRow[]) => Promise<void>;
+
+/**
  * core:subagent（批 19c-1）——委派面装载态兑现：通用 `agent` 工具（boot
  * 全局层散装注册——执行时会话语境解析，toolCtx.sessionId → 深度/父面
  * 枚举）+ 声明式子代理腿（agents 层发现 [skills/agents.ts 解析层镜像律]
@@ -861,11 +884,16 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * in-process 真工厂本体在 assembly 根（subagent-factory.ts——真工厂需
  * ConversationStack 真身，件内不可达）；本 apply 只消费 service 面 +
  * sessionContext 解析闭包（deps 两新位）。缺席 = 件整体零装载。
+ *
+ * 两阶段物化（RP5——③ §6.3 兑现注）：标准层在 apply 内物化（boot 窗内、
+ * durable 世代行工具账全）；插件层经 resync 钩子在装载收口后物化（活体
+ * 工具账在、durable 世代行缺席 = core:mcp 异步工具同一诚实边界）。disposer
+ * 两撤（provider 位 + 工具位）——/reload 重放 boot 时撞名修复的撤位律。
  */
 function makeSubagentPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'subagent',
-    async apply(ctx) {
+    async apply(ctx, _config, host) {
       const context = ctx as PluginContext;
       const service = deps.subagents;
       if (service === undefined) return; // 缺席零装载（诚实缺席律——assembly 未接线形）
@@ -881,7 +909,9 @@ function makeSubagentPlugin(deps: CorePluginHostDeps): CorePluginReference {
 
       // 声明式腿：标准层发现（project/user/跨库——dataDir null 跳 user 层，
       // 同 skills 律）→ 坏文件诊断 warn（不炸装配——skills 纪律镜像）→
-      // def 物化（named provider 注册 + 静态工具族）
+      // def 物化（named provider 注册 + 静态工具族）。owner 显式
+      // 'core:subagent'（物化执行方归因——plugin-boot 物化回调同律；层来源
+      // 分域在发现层 id 表达）
       const layers = createStandardAgentLayers({
         ...(deps.cwd !== undefined ? { cwd: deps.cwd } : {}),
         ...(deps.dataDir !== null ? { dataDir: deps.dataDir } : {}),
@@ -891,11 +921,62 @@ function makeSubagentPlugin(deps: CorePluginHostDeps): CorePluginReference {
       for (const diagnostic of collection.diagnostics) {
         warn(`[subagent] ${diagnostic.type}：${diagnostic.message}（${diagnostic.path}）`);
       }
-      const materialized = materializeDeclarativeSubagents(collection.defs, service, toolDeps);
+      const materialized = materializeDeclarativeSubagents(collection.defs, service, toolDeps, {
+        owner: 'core:subagent',
+      });
       const disposeDeclarative = materialized.tools.map((tool) => context.tools.register(tool));
 
+      // ── 插件层物化钩子（RP5）：assembly 在装载收口后调（boot 尾/reapply）；
+      // 重入先全摘旧代（reload 换代对称——provider 位 + 工具位两撤，首跑
+      // 零层幂等）。层 id `plugin:<id>` 分域（与标准层结构性不撞——skills
+      // resync 同律）；插件层间 first-wins = 装载序（collectAgentDefs 单源）；
+      // 跨层撞标准层名走注册面拒 → warn 降级逐 def 隔离（不炸 resync）。
+      let pluginPhaseDisposers: Array<() => void> = [];
+      const resyncPluginAgentLayers: SubagentLayerResyncHook = async (rows) => {
+        for (const dispose of pluginPhaseDisposers.reverse()) dispose();
+        pluginPhaseDisposers = [];
+        if (rows.length === 0) return;
+        const providers = rows.map((row) =>
+          createAgentLayerProvider({ id: `plugin:${row.id}`, roots: [...row.agentDirs] }),
+        );
+        const pluginCollection = await collectAgentDefs(providers);
+        for (const diagnostic of pluginCollection.diagnostics) {
+          warn(`[subagent] ${diagnostic.type}：${diagnostic.message}（${diagnostic.path}）`);
+        }
+        for (const def of pluginCollection.defs) {
+          try {
+            const phase = materializeDeclarativeSubagents([def], service, toolDeps, { owner: 'core:subagent' });
+            const disposeTools: Array<() => void> = [];
+            try {
+              for (const tool of phase.tools) {
+                // 注册经宿主回调窗（core:mcp 后窗通道同律——resync 时点在装载
+                // 窗收口后，直调必撞 PLUGIN_WINDOW_CLOSED；窗语义全保留：owner
+                // 覆写/工具名账/撞名闸照走。host 缺席〔测试替身〕维持直调）
+                const restore = host?.openHostCallback?.();
+                try {
+                  disposeTools.push(context.tools.register(tool));
+                } finally {
+                  restore?.();
+                }
+              }
+            } catch (err) {
+              // 整体拒 + 回滚（c2bb147 注销器律）：工具位部分注册回卷 + provider 位回卷
+              for (const dispose of disposeTools.reverse()) dispose();
+              phase.dispose();
+              throw err;
+            }
+            pluginPhaseDisposers.push(...disposeTools, phase.dispose);
+          } catch (err) {
+            warn(`[subagent] 插件子代理「${def.name}」物化拒：${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      };
+      deps.subagentLayerResyncSink?.(resyncPluginAgentLayers);
+
       return () => {
-        for (const dispose of disposeDeclarative.reverse()) dispose();
+        for (const dispose of pluginPhaseDisposers.reverse()) dispose(); // 插件层两撤
+        for (const dispose of disposeDeclarative.reverse()) dispose(); // 标准层工具位撤
+        materialized.dispose(); // 标准层 provider 位撤（/reload 重放撞名修复——RP5 撤位律）
         disposeAgent();
       };
     },

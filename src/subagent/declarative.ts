@@ -53,6 +53,16 @@ export interface MaterializedSubagents {
   readonly names: readonly string[];
   /** 静态工具族（装配面注册进工具表——工具面变更刷新） */
   readonly tools: readonly ToolDefinition[];
+  /**
+   * provider 撤位（RP5 物化腿——reload 全摘重挂/卸载对称两撤的 provider 位；
+   * 逆注册序撤——只撤本批注册的本人条目，与工具撤位配对成完整 disposer）。
+   */
+  readonly dispose: () => void;
+}
+
+/** 物化选项（owner = 注册者分域存名标签——core:subagent 物化腿恒 'core:subagent'，插件层 'plugin:<id>'） */
+export interface MaterializeOptions {
+  readonly owner?: string;
 }
 
 /**
@@ -65,13 +75,19 @@ export function materializeDeclarativeSubagents(
   defs: readonly SubagentDef[],
   service: SubagentService,
   deps: Omit<DelegationToolDeps, 'service'>,
+  opts?: MaterializeOptions,
 ): MaterializedSubagents {
   const names: string[] = [];
   const tools: ToolDefinition[] = [];
+  const disposeProviders: Array<() => void> = [];
   for (const def of defs) {
-    service.registerProvider(def.name, defBoundProvider(def, service));
+    disposeProviders.push(service.registerProvider(def.name, defBoundProvider(def, service), { owner: opts?.owner }));
     names.push(def.name);
     tools.push(createDeclarativeAgentTool(def, { ...deps, service }));
   }
-  return { names, tools };
+  // 撤位逆注册序（镜像 tools 撤位律）；索引逆扫免 reverse 变异（重入安全）
+  const dispose = () => {
+    for (let i = disposeProviders.length - 1; i >= 0; i--) disposeProviders[i]?.();
+  };
+  return { names, tools, dispose };
 }
