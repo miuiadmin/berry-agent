@@ -692,6 +692,86 @@ describe('注入腿席位接线（c-4——03 §10.9 注入腿：credentials-env
   });
 });
 
+describe('provide 同主刷新律（04 §6 定形注——/reload 撞名修复批：boot-twice 同 scope 换代形）', () => {
+  /** 内存凭证窄面替身（c-3 块同形——assembly 真源 = persistence.store 凭证投影） */
+  function memorySecretsStore() {
+    const rows = new Map<string, { apiKey: string; meta?: unknown }>();
+    return {
+      rows,
+      getCredential: (ns: string, provider: string) => rows.get(`${ns} ${provider}`),
+      setCredential: (ns: string, provider: string, entry: { apiKey: string; meta?: unknown }) =>
+        void rows.set(`${ns} ${provider}`, entry),
+    };
+  }
+
+  it('席位 provide 换代重跑不炸：credentials-env-ref 同主原位刷新（/reload 生产形首炸点回归锁）', async () => {
+    const store = memorySecretsStore();
+    store.setCredential('host', 'github-token', { apiKey: 'sk-v1' });
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    const { options, scope } = rigBoot('/data', {
+      corePlugins: [credentials],
+      fs: memoryFs(),
+      secrets: { store },
+    });
+    await bootPlugins(options);
+    const first = scope.tryGet('credentials-env-ref') as (name: string) => string;
+    expect(first('github-token')).toBe('sk-v1');
+    // /reload 换代真形 = 同一共享根上重跑 bootPlugins（assembly reapply 闭包同
+    // options）——原撞名律下此处必抛 CONTEXT_SERVICE_DUPLICATE（整代失效且重试
+    // 恒炸，唯一恢复 = 进程重启）；同主刷新律下 = 原位换新展开器
+    await bootPlugins(options);
+    const second = scope.tryGet('credentials-env-ref') as (name: string) => string;
+    expect(second).not.toBe(first); // 刷新非保留——新代展开器覆盖取用面
+    expect(second('github-token')).toBe('sk-v1'); // 新值经同一 store 真达
+  });
+
+  it('插件 ctx.provide 换代重跑不炸：同插件 id 重供同位刷新（次炸面——core 件十余处 provide 行）', async () => {
+    let gen = 0;
+    const provider: CorePluginReference = {
+      name: 'provider',
+      apply: async (ctx) => {
+        gen += 1;
+        (ctx as { provide: (n: string, v: unknown) => void }).provide('demo-shared-svc', { gen });
+        return () => undefined;
+      },
+    };
+    const { options, scope } = rigBoot('/data', { corePlugins: [provider], fs: memoryFs() });
+    await bootPlugins(options);
+    expect((scope.tryGet('demo-shared-svc') as { gen: number }).gen).toBe(1);
+    // 换代重跑：ctx.provide owner 恒 = 本插件 id（装载器包装注入）——同主重供刷新
+    await bootPlugins(options);
+    expect((scope.tryGet('demo-shared-svc') as { gen: number }).gen).toBe(2);
+  });
+
+  it('跨插件撞名照旧拒：换代后异主供同位 = CONTEXT_SERVICE_DUPLICATE（刷新律不豁免撞名律）', async () => {
+    const mk = (name: string): CorePluginReference => ({
+      name,
+      apply: async (ctx) => {
+        (ctx as { provide: (n: string, v: unknown) => void }).provide('contested-svc', { by: name });
+        return () => undefined;
+      },
+    });
+    const { options: gen1, scope } = rigBoot('/data', { corePlugins: [mk('a')], fs: memoryFs() });
+    await bootPlugins(gen1);
+    // 第二代换插件集：插件 b 供上一代插件 a 的位——异主不刷新，响亮拒
+    const { options: gen2 } = rigBoot('/data', { corePlugins: [mk('b')], fs: memoryFs(), scope });
+    try {
+      await bootPlugins(gen2);
+      expect.unreachable();
+    } catch (err) {
+      // core: 行 apply 抛错包 CorePluginBootError 拒启（invokeApply 外包
+      // PLUGIN_APPLY_FAILED——撞名语义在内层消息与 cause 链）
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('PLUGIN_APPLY_FAILED');
+        expect(err.message).toContain('已被提供'); // 撞名语义透传
+        expect((scope.tryGet('contested-svc') as { by: string }).by).toBe('a'); // 拒不破坏既有位
+        return;
+      }
+    }
+    expect.unreachable();
+  });
+});
+
 describe('closer plugin-unload（§5.7 档③ + effect 回卷）', () => {
   it('apply disposer LIFO + fork 作用域逆序 dispose（ctx.effect 回卷）', async () => {
     const order: string[] = [];

@@ -238,3 +238,59 @@ describe('provide/get 服务注册面', () => {
     expect(Scope.createRoot().serviceNames()).toEqual([]);
   });
 });
+
+describe('provide 同主刷新律（04 §6 定形注——/reload 撞名修复批）', () => {
+  it('同主重供 = 原位刷新（不抛、取用面即见新值、名册零重复）', () => {
+    const scope = Scope.createRoot();
+    scope.provide('svc', 'v1', 'host:plugin-boot');
+    // /reload 换代重跑同装配位 = 同主重供——原位覆盖非撞名
+    expect(() => scope.provide('svc', 'v2', 'host:plugin-boot')).not.toThrow();
+    expect(scope.get<string>('svc')).toBe('v2'); // 依赖方下次取用即见新值
+    expect(scope.serviceNames()).toEqual(['svc']); // 刷新非新增——名册不重复
+  });
+
+  it('跨主撞名照旧拒（CONTEXT_SERVICE_DUPLICATE——首供值原封不动）', () => {
+    const scope = Scope.createRoot();
+    scope.provide('svc', 'v1', 'owner-a');
+    try {
+      scope.provide('svc', 'v2', 'owner-b');
+      expect.unreachable();
+    } catch (err) {
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('CONTEXT_SERVICE_DUPLICATE');
+        expect(scope.get<string>('svc')).toBe('v1'); // 拒不破坏既有位
+        return;
+      }
+    }
+    expect.unreachable();
+  });
+
+  it('匿名重供照旧拒（匿名位不可刷新——双匿名/带主重供匿名位/匿名重供带主位三形）', () => {
+    // 双匿名：既有「同作用域撞名拒」律原样（两参形）
+    const s1 = Scope.createRoot();
+    s1.provide('svc', 1);
+    expect(() => s1.provide('svc', 2)).toThrowError(BaseError);
+    // 首供匿名、后供带主：undefined ≠ 'x'——不可证明同主即拒
+    const s2 = Scope.createRoot();
+    s2.provide('svc', 1);
+    expect(() => s2.provide('svc', 2, 'owner-a')).toThrowError(BaseError);
+    // 首供带主、后供匿名：同上镜像
+    const s3 = Scope.createRoot();
+    s3.provide('svc', 1, 'owner-a');
+    expect(() => s3.provide('svc', 2)).toThrowError(BaseError);
+  });
+
+  it('fork 子作用域同名照旧遮蔽（与 owner 无关——子层首供恒新位，父面不污染）', () => {
+    const parent = Scope.createRoot();
+    parent.provide('svc', '父值', 'owner-a');
+    const child = parent.fork();
+    // 子层首供同主 = 遮蔽父位（fork 面独立——新 entry 非同层重供）
+    child.provide('svc', '子值-a', 'owner-a');
+    expect(child.get<string>('svc')).toBe('子值-a');
+    // 子层首供匿名 = 同样遮蔽（owner 只在同层判）
+    const child2 = parent.fork();
+    child2.provide('svc', '子值匿名');
+    expect(child2.get<string>('svc')).toBe('子值匿名');
+    expect(parent.get<string>('svc')).toBe('父值'); // 父面不被任何子遮蔽污染
+  });
+});

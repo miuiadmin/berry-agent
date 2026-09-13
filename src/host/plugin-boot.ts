@@ -509,7 +509,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // 引用形 fail-loud（exec 侧拒以字面值注入——单一名册语义：件在 = 凭证
   // 代管全腿在场，件去 = 全腿缺席，无半开态）
   if (secretsWiring !== undefined && secretsSeatActive) {
-    options.scope.provide('credentials-env-ref', createEnvRefResolver(secretsWiring.store));
+    // owner 位 = 装配位标识（同主刷新律——04 §6 定形注）：/reload 换代重跑本
+    // 装配位 = 同主重供原位刷新，不再结构性撞名自炸
+    options.scope.provide('credentials-env-ref', createEnvRefResolver(secretsWiring.store), 'host:plugin-boot');
   }
   // 操控受理器席位判（e4-3——host 内建机制非 core 件，无件席门：在场即绑）
   const controlSeatActive = options.sessionsControl !== undefined;
@@ -535,7 +537,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
             : name === SDK_ROUTES_SERVICE && sdkRoutesSeatActive
               ? SDK_ROUTES_SEAT_MARKER
               : options.scope.tryGet(name),
-    provide: (name, value) => options.scope.provide(name, value),
+    // owner 位透传（同主刷新律——04 §6 定形注）：委派面带主直达共享根
+    provide: (name, value, owner) => options.scope.provide(name, value, owner),
   };
   // per-plugin 工具名账（装载史批 h-3——05 §9 世代行 tools 列真值源）：本
   // boot 周期单实例，createContext 逐插件透传（ctx.tools.register 包壳层记
@@ -562,7 +565,10 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       // 单真身；缺席时阻塞三件/notify/hasAudience 响亮缺位、单向原语降档）
       ...(options.channelsUi !== undefined ? { channelsUi: options.channelsUi } : {}),
       ...(options.uiWarn !== undefined ? { uiWarn: options.uiWarn } : {}),
-      provide: services.provide, // ctx.provide 委派共享根（§2.2 表行——跨插件可见）
+      // ctx.provide 委派共享根（§2.2 表行——跨插件可见）。owner 恒 = 本插件 id
+      // 由本包装闭包注入（owner 真源 = 装载器非自报——插件面签名不变仍两参；
+      // /reload 换代重跑 = 同插件 id 同主重供原位刷新，04 §6 同主刷新律）
+      provide: (name, value) => services.provide(name, value, pluginId),
       hostFace,
       // 触发器注册表受局面透传（C 批 C-2——缺席时 ctx.triggers.register 响亮缺位）
       ...(options.triggers !== undefined ? { triggers: options.triggers } : {}),

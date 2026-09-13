@@ -111,10 +111,14 @@ export interface CorePluginSpec extends PlanRowBase {
 
 export type LoaderPlanRow = DiskPluginSpec | CorePluginSpec;
 
-/** 服务袋（ctx.provide/get 的装载侧投影——Kahn 轮次的可用性真源） */
+/**
+ * 服务袋（ctx.provide/get 的装载侧投影——Kahn 轮次的可用性真源）。
+ * provide 可选 owner 位（同主刷新律——04 §6 定形注）：装载器包装层注入
+ * 本插件 id（owner 真源 = 装载器非自报），同主重供 = 原位刷新。
+ */
 export interface ServiceBag {
   get(name: string): unknown | undefined;
-  provide(name: string, value: unknown): void;
+  provide(name: string, value: unknown, owner?: string): void;
 }
 
 /** jiti 组装面（jitiFactory 注入参数——测试替身据此还原门禁件） */

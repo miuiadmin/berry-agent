@@ -34,6 +34,12 @@ export class Scope {
   private readonly parent?: Scope;
   /** 自有服务注册（fork 面继承 = get 沿父链上溯；子重提供同名 = 遮蔽合法） */
   private readonly services = new Map<string, unknown>();
+  /**
+   * 服务主位账（同主刷新律——04 §6 定形注：/reload 撬名修复批）。键值与
+   * services 同集（每次成功 provide 同步落位；匿名提供 = undefined 位）。
+   * 刷新判据专用，不另设公共读面。
+   */
+  private readonly owners = new Map<string, string | undefined>();
   /** 已登记 disposer（登记序）——回卷按逆序 LIFO */
   private readonly disposers: Disposer[] = [];
   /** 未回卷的子作用域（父回卷时级联先卷） */
@@ -69,18 +75,31 @@ export class Scope {
 
   /**
    * 登记服务（装载期接线、运行期取用）。
-   * 同作用域撞名拒 CONTEXT_SERVICE_DUPLICATE（两方抢一名即装配 bug）；
-   * 迟到注册（已回卷）拒 SCOPE_STALE。
+   * 撞名分档（同主刷新律——04 §6 定形注）：同 owner 重供 = 原位刷新
+   * （upsert——依赖方下次取用即见新值；`/reload` 换代重跑同装配位的结构性
+   * 支撑）；跨主撞名与匿名重供（任一方匿名即不可证明同主）照旧拒
+   * CONTEXT_SERVICE_DUPLICATE（两方抢一名仍是装配 bug）。
+   * owner 真源 = 装载器注入非自报（ctx.provide 恒 = 本插件 id——包装层注入；
+   * 宿主装配位 = 装配位标识）。迟到注册（已回卷）拒 SCOPE_STALE。
    */
-  provide(name: string, service: unknown): void {
+  provide(name: string, service: unknown, owner?: string): void {
     if (this.disposed) throw new BaseError('SCOPE_STALE', `迟到注册拒：作用域已回卷（${name}）`);
     if (this.services.has(name)) {
-      throw new BaseError(
-        'CONTEXT_SERVICE_DUPLICATE',
-        `服务名 ${name} 在本作用域已被提供（fork 子作用域重提供 = 遮蔽合法，同层撞名 = 装配 bug）`,
-      );
+      const prevOwner = this.owners.get(name);
+      // 匿名任一方即拒：undefined 位不可被刷新（无法证明同主），带主重供匿名
+      // 位同理——防匿名注册经刷新律洗白为带主位
+      if (owner === undefined || prevOwner === undefined || owner !== prevOwner) {
+        throw new BaseError(
+          'CONTEXT_SERVICE_DUPLICATE',
+          `服务名 ${name} 在本作用域已被提供（fork 子作用域重提供 = 遮蔽合法，同层撞名 = 装配 bug；同主重供 = 原位刷新）`,
+        );
+      }
+      // 同主原位刷新——非新增（serviceNames 名册零重复）
+      this.services.set(name, service);
+      return;
     }
     this.services.set(name, service);
+    this.owners.set(name, owner);
   }
 
   /**

@@ -782,6 +782,54 @@ describe('/reload 热重载 e2e（03 §5.7——手编漂移换代全链）', ()
     }
     expect(disposed).toEqual(['demo1']); // shutdown 走直路径收口初代
   });
+
+  it('席位 + 插件 provide 换代重跑全链：同主刷新律（/reload 生产形回归锁——原撞名律下 100% 炸）', async () => {
+    const dir = tmpDir('host-asm-reload-provide-');
+    const disposed: string[] = [];
+    let gen = 0;
+    // credentials 哑件激活席位（plan 行 core:credentials 未禁 + assembly secrets
+    // 恒注）——席位 provide 'credentials-env-ref' 落共享根（生产首炸点）
+    const credentials: CorePluginReference = {
+      name: 'credentials',
+      apply: async () => () => void disposed.push('credentials'),
+    };
+    // provider 件 apply 期 ctx.provide 落共享根（生产次炸面——core 件十余处
+    // context.provide 行同形）
+    const provider: CorePluginReference = {
+      name: 'provider',
+      apply: async (ctx) => {
+        gen += 1;
+        (ctx as { provide: (n: string, v: unknown) => void }).provide('demo-shared-svc', { gen });
+        return () => void disposed.push('provider');
+      },
+    };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [credentials, provider],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      expect(assembly.boot.report.activated.map((a) => a.id)).toEqual(['core:credentials', 'core:provider']);
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      assembly.reloader.request();
+      await assembly.reloader.settle();
+      // 换代成功（原律下 reapply 必抛 CONTEXT_SERVICE_DUPLICATE →「重载失败」）
+      expect(notified.some((t) => t.includes('插件已重载：启用 2/2'))).toBe(true);
+      expect(notified.some((t) => t.includes('重载失败'))).toBe(false);
+      // 整代回卷真跑（旧代 disposer 齐）
+      expect(disposed).toEqual(['provider', 'credentials']);
+      // 插件 provide 取用面直证走 boot-twice 单元锁（scope 直读在此层不可达）
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+    // shutdown 收口新代两件（换代槽不累积）
+    expect(disposed).toEqual(['provider', 'credentials', 'provider', 'credentials']);
+    expect(gen).toBe(2); // 两代各跑一次 apply
+  });
 });
 
 /* ---------------- /plugins TUI 命令面 e2e（03 §5.8——命令注册 + 自动链 + 审计落账） ---------------- */
