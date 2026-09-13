@@ -36,15 +36,22 @@ import { createObsService, type ObsService } from '../obs/index.js';
 /* ---------------- 帽值（码面定值——07 §4.1 回填落点） ---------------- */
 
 /** 三 wall-time 帽与 engine/perf-lock.test.ts 同值同笔（CI 宽余量上帽） */
-const COLD_START_FIRST_FRAME_BUDGET_MS = 500; // 冷启首帧：start → 首帧写出
-const KEY_ECHO_BUDGET_MS = 200; // 按键回显：输入字节 → echo 帧（backend 层指标）
-const RESIZE_RELAYOUT_BUDGET_MS = 500; // resize 重排：几何变更 → 重排帧
+/**
+ * CI 档倍率——共享跑机 wall-clock 噪声（2026-09-14 实测：摄取 50ms 帽 CI 跑
+ * 82ms、回显 200ms 帽 CI 跑 215ms 级超）；放大后仍锁病态量级（每事件一事务/
+ * N+1 查询类为秒级——4x 后远破帽），本机跑保持原帽。与
+ * channels/engine/perf-lock.test.ts 同笔。
+ */
+const CI_SCALE = process.env.CI ? 4 : 1;
+const COLD_START_FIRST_FRAME_BUDGET_MS = 500 * CI_SCALE; // 冷启首帧：start → 首帧写出
+const KEY_ECHO_BUDGET_MS = 200 * CI_SCALE; // 按键回显：输入字节 → echo 帧（backend 层指标）
+const RESIZE_RELAYOUT_BUDGET_MS = 500 * CI_SCALE; // resize 重排：几何变更 → 重排帧
 /**
  * obs 增量摄取帽：5000 事件单拍 refresh wall-time。实机实测约 4ms（本批
- * 定值依据）——帽取 50ms（约 12x CI 宽余量；仍能锁住每事件一事务/
- * N+1 查询类病态回归——5000 次单事务实测量级即破帽）。
+ * 定值依据）——帽取 50ms（仍能锁住每事件一事务/N+1 查询类病态回归——
+ * 5000 次单事务实测量级即破帽）。
  */
-const OBS_INGEST_BUDGET_MS = 50;
+const OBS_INGEST_BUDGET_MS = 50 * CI_SCALE;
 
 /* ---------------- ambient：两态切片装配 ---------------- */
 
