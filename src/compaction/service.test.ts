@@ -271,7 +271,7 @@ describe('迭代链', () => {
 /* ---------------- 溢出应急面（05 §2.3 三值 + 共享互斥） ---------------- */
 
 describe('compactForOverflow', () => {
-  it('成功：compacted + 四事件（overflow 路 willRetry=false、无 basis）', async () => {
+  it('成功：compacted + 四事件（overflow 路 willRetry=false、无 basis；CCR 归档位与阈值路同律）', async () => {
     const rig = makeRig(['溢出摘要']);
     const log = sixTurnLog();
     const outcome = await rig.service.compactForOverflow(log);
@@ -280,6 +280,21 @@ describe('compactForOverflow', () => {
     expect(start.data).toMatchObject({ reason: 'overflow', willRetry: false });
     expect((start.data as Record<string, unknown>)['basis']).toBeUndefined(); // 溢出路无判阈过程
     expect(log.eventsOfType('compaction/end')[0]!.data).toMatchObject({ reason: 'completed' });
+    // CCR 归档位两断言（2026-09-13 复盘发现 19 补锁——溢出路此前无 CCR 断言）：
+    // surface 携 16-hex 归档哈希 + 摘要载体尾标记行与哈希同源（可逆往返契约
+    // 不因应急路豁免——溢出压缩的原文同样可经 ccr_retrieve 取回）
+    const surface = log.eventsOfType('compaction/surface')[0]!;
+    const surfaceData = surface.data as { ccrHash: string; occludedMessages: number; occludedChars: number };
+    expect(surfaceData.ccrHash).toMatch(/^[0-9a-f]{16}$/);
+    const summary = log
+      .events()
+      .find((e) => e.type === 'user/message' && (e.data as { source?: string }).source === 'compaction')!;
+    expect(summary.data).toEqual({
+      content:
+        `${SUMMARY_PREFIX} 溢出摘要\n\n` +
+        `<<ccr:${surfaceData.ccrHash}>> 原文已归档（${surfaceData.occludedMessages} 条消息 / ${surfaceData.occludedChars} 字符）`,
+      source: 'compaction',
+    });
   });
 
   it('区间不足：nothing（小日志压无可压——应急档不豁免最小条数保护）', async () => {

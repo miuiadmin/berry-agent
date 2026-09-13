@@ -190,6 +190,25 @@ describe('目录重建 ccrDirectoryOf', () => {
     ];
     expect(ccrDirectoryOf(events)).toEqual([]);
   });
+
+  it('llm/retry 携 surfaceOp 亦不列（retry 遮蔽非归档面——检索键只认 compaction/surface）', () => {
+    // 2026-09-13 复盘发现 20 补锁：llm/retry 是唯一另一类携遮蔽信封的事件型
+    // （conversation/driver 驱逐失败轮上下文）。契约 = retry 遮蔽**不**入归档
+    // 目录（无可逆回取键）——若未来要给 retry 遮蔽配归档，此红是拍板闸
+    const events = [
+      ev(0, 'turn/start', {}),
+      ev(1, 'user/message', { content: '失败前指令', source: 'user' }),
+      ev(2, 'assistant/message', { content: [{ type: 'text', text: '中途失败' }], errorMessage: 'boom' }),
+      ev(
+        3,
+        'llm/retry',
+        { attempt: 1, maxAttempts: 3, delayMs: 1_000, phase: 'scheduled', reason: 'transient' },
+        { op: 'replace', start: 1, end: 2 },
+      ),
+      ev(4, 'user/message', { content: '重试后续', source: 'user' }),
+    ];
+    expect(ccrDirectoryOf(events)).toEqual([]);
+  });
 });
 
 /* ---------------- 迭代链 × CCR 段（policy 件的 CCR 消费行为） ---------------- */

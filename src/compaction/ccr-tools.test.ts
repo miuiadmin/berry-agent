@@ -9,7 +9,7 @@
  * 机制面（标记段/哈希映射/分段窗口/miss 文案）。
  */
 import { describe, it, expect } from 'vitest';
-import { SessionLog } from '../session/index.js';
+import { SessionLog, deriveMessages } from '../session/index.js';
 import type { SessionEvent } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 import { createCompactionService } from './service.js';
@@ -192,6 +192,18 @@ describe('分段续取：预算窗口 + 尾部账', () => {
     expect(text).toContain('已渲染 4/4 条，本段已取尽');
   });
 
+  it('fromMessage 负值与 NaN 皆缺省同窗（2026-09-13 复盘发现 33 补锁——防御夹取不抛错）', async () => {
+    const log = await compactedLog();
+    const tool = toolOf({ events: () => log.events(), renderBudgetChars: 15 });
+    const args = { hash: lastHash(log) };
+    const baseline = await run(tool, args); // 缺省 0 起窗
+    const neg = await run(tool, { ...args, fromMessage: -3 }); // 负值夹 0
+    const nan = await run(tool, { ...args, fromMessage: Number.NaN }); // NaN 缺省化 0
+    expect(neg).toBe(baseline);
+    expect(nan).toBe(baseline);
+    expect(baseline).toContain('已渲染 1/4 条——续取传 fromMessage=1 可取余下'); // 窗确自头位起算
+  });
+
   it('缺省预算 56KiB：常规段一窗取尽', async () => {
     const log = await compactedLog();
     const text = await run(toolOf({ events: () => log.events() }), { hash: lastHash(log) });
@@ -238,6 +250,27 @@ describe('miss 三态（诚实文本非异常面）', () => {
     ];
     const text = await run(toolOf({ events: () => events }), { hash: 'y1y1y1y1y1y1y1y1' });
     expect(text).toContain('区间不可读：遮蔽区间内无可重导的消息');
+  });
+
+  it('retry 遮蔽区间不可经 CCR 取回（哈希真算形也 miss——2026-09-13 复盘发现 20 补锁）', async () => {
+    // llm/retry 携遮蔽信封驱逐失败轮上下文，但非归档面：用与 compaction 同式
+    // 的重建路径（区间切片 deriveMessages → ccrHashOf）真算该段哈希——目录无
+    // 此键必 miss。与态一（伪标记免疫）的差别：这里哈希就是**本会话真实被
+    // 遮蔽内容**的规范哈希，miss 证明的是「retry 遮蔽不归档」契约本身
+    const events = [
+      ev(0, 'turn/start', {}),
+      ev(1, 'user/message', { content: '失败前指令', source: 'user' }),
+      ev(2, 'assistant/message', { content: [{ type: 'text', text: '中途失败' }], errorMessage: 'boom' }),
+      ev(
+        3,
+        'llm/retry',
+        { attempt: 1, maxAttempts: 3, delayMs: 1_000, phase: 'scheduled', reason: 'transient' },
+        { op: 'replace', start: 1, end: 2 },
+      ),
+    ];
+    const retryHash = ccrHashOf(deriveMessages(events.filter((e) => e.seq >= 1 && e.seq <= 2)));
+    const text = await run(toolOf({ events: () => events }), { hash: retryHash });
+    expect(text).toContain(`未找到哈希 ${retryHash}`);
   });
 });
 
