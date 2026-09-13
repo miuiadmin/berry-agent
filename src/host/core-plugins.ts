@@ -59,7 +59,7 @@ import {
   runGoalCommand,
   GOAL_USAGE,
 } from '../goal/index.js';
-import type { GoalService, GoalSessionFace, GoalSummarizerFace, GoalTodoItem } from '../goal/index.js';
+import type { GateExecSeam, GoalService, GoalSessionFace, GoalSummarizerFace, GoalTodoItem } from '../goal/index.js';
 import type { ConversationStack } from './conversation-stack.js';
 import type { BudgetBroadcastEntry, BudgetBroadcastFace } from './budget-broadcast.js';
 import type { SqliteDatabase } from '../persist/index.js';
@@ -356,6 +356,15 @@ export interface CorePluginHostDeps {
    * 缺席 = depositFor 恒走确定性回退（objective + 计划态计数——零 LLM 保底）。
    */
   readonly goalSummarizer?: GoalSummarizerFace;
+  /**
+   * goal 全环服务宿主捕获位（s 批——provide 投影律〔03 §10.5 s 批补注②〕的
+   * 装配域例外通道）：boot 件内 service 创建后单发回调（全量 GoalService——
+   * 写动词在内）。**生产装配恒缺席**（宿主消费面全经六法投影/件内闭包——
+   * provide 面插件只见投影）；消费方 = e2e rig（goal 生产创建入口——/goal
+   * create 动词、CLI 子命令均未落地〔U10 立题〕——立题落地前测试的
+   * activate/approve 生命周期通道）。回调时点 = service 创建后、provide 前。
+   */
+  readonly goalServiceSink?: (service: GoalService) => void;
   /**
    * checkpoint 会话语境读面（批 19c-4——05 §5.3 词面独立 seam：
    * contextOf(sessionId) → {末闭合边界, 工作区锚}——gate per-run 判据与
@@ -1031,7 +1040,7 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // 迟到序对称腿（04 §12 第五槽双序合法）：goal 件先装载（注册表序倒置
       // 或本件单件复活）时此处补接线；先行腿在 goal 件 apply 内 tryGet 本面。
       // 附着者回卷律——本腿 attach 则本腿 detach（goal 件先行腿自理对称）
-      let attachedGoal: GoalService | undefined;
+      let attachedGoal: GoalHostServiceFace | undefined;
       const goalEarly = context.tryGet<GoalFace>('goal');
       if (goalEarly !== undefined) {
         await goalEarly.service.attachGoalJobsFace(goalJobs);
@@ -1073,15 +1082,28 @@ export function startSchedulerClock(
 }
 
 /**
+ * 'goal' 服务面 service 腿宿主投影形（03 §10.5 s 批补注②——provide 投影律）：
+ * 宿主消费面白名单六法。写动词（approve/activate/complete/abandon/park 族）
+ * **不进投影**——人面命令（/goal）与模型工具（goal_update/todo）在 goal 件
+ * 内闭包消费全量 GoalService（danger 件 dangerFace 从不 provide 先例同律）。
+ */
+export type GoalHostServiceFace = Pick<
+  GoalService,
+  'wake' | 'goalScopeFor' | 'depositFor' | 'recordTurn' | 'attachGoalJobsFace' | 'detachGoalJobsFace'
+>;
+
+/**
  * 'goal' 服务面（批 19c-3——conversation-stack 换装消费位 + 宿主入口面）。
  * todoFactory = per-session 扩展 todo 工具构造（03 §10.5 换装律——append/
  * getScope 会话闭包由调用方注入，件内补段约束执法三判据）；service =
- * GoalService 全环（goalScopeFor 锚 = chat↔goal 数据通道零服务面例外位
- * ——组合根经本面取锚，driver fold 升格与 /goal show 渲染共用）。宿主入口
- * recordTurn/wake 消费已接线（批 #99 三入口统一——挂点上移驱动层 settled 链）。
+ * 宿主消费面投影 GoalHostServiceFace（s 批补注②——运行时白名单投影非仅
+ * 类型收窄：goalScopeFor 锚 = chat↔goal 数据通道零服务面例外位，组合根经
+ * 本面取锚，driver fold 升格与收口域判共用；wake/recordTurn 宿主入口两法
+ * 已接线〔批 #99 三入口统一——挂点上移驱动层 settled 链〕；挂钟双序迟到
+ * 注入对称腿两法 scheduler 件消费）。
  */
 export interface GoalFace {
-  readonly service: GoalService;
+  readonly service: GoalHostServiceFace;
   /**
    * 预算停靠投影（u-3——04 §5 定形注③：scheduler 池检腿消费〔scheduler-
    * tick GoalParkFace 结构兼容〕）。查池（stack.llm.canAfford('background')
@@ -1098,17 +1120,19 @@ export interface GoalFace {
 
 /**
  * core:goal（批 19c-3）——03 §10.5 计划态机器装载态兑现：GoalService 全环
- * （goals 表族 v3 已由宿主聚合）+ goal_update 终态申报工具（boot 全局层
- * ——执行时会话解析包装：toolCtx.sessionId 先落可变格再入件，多会话共享
- * 一 def）+ /goal 命令（输出经 notify 归因 'goal'）+ 挂钟迟到注入先行腿
- * （tryGet scheduler 面——注册表序 scheduler 先装载即挂即用；倒置序对称
- * 腿在 scheduler 件内）+ 'goal' 服务面供给（todoFactory + service）。
+ * （goals 表族 v3 已由宿主聚合；件内闭包消费）+ goal_update 终态申报工具
+ * （boot 全局层——执行时会话解析包装：toolCtx.sessionId 先落可变格再入
+ * 件，多会话共享一 def）+ /goal 命令（输出经 notify 归因 'goal'）+ 挂钟
+ * 迟到注入先行腿（tryGet scheduler 面——注册表序 scheduler 先装载即挂即
+ * 用；倒置序对称腿在 scheduler 件内）+ 'goal' 服务面供给（todoFactory +
+ * service 宿主投影〔s 批补注②——写动词不进投影〕）。
  *
- * gates v1 接线形：workspaceRoot 真值 + exec seam 缺席 fail-closed（files
- * 源真 statSync 件内缺省）+ lsp seam 接线真诊断面（批 19d 回补——query-
- * Diagnostics 窄面，lsp 件缺席即缺席 fail-closed）；todo 换装 command-
- * GateAllowed 恒 false（needsWrite 申报+人面批准链路未建——拒申报即拒
- * 评测双拦位）+ hasLsp 同源 lsp 在场否。
+ * gates v1 接线形：workspaceRoot 真值 + exec seam 诚实缺席（GateExecSeam
+ * 零绑定——03 §10.5 s 批补注①：todo 申报位 hasCommandExec 判据拒 + 评测位
+ * fail-closed 双拦，真接线随「exec 判据门真接线」立题批）+ lsp seam 接线真
+ * 诊断面（批 19d 回补——queryDiagnostics 窄面，lsp 件缺席即缺席
+ * fail-closed）；todo 换装 commandGateStatus 活查双位合取（f-1 已接线——
+ * 申报位 seam→双位两档全拒文案分档）+ hasCommandExec/hasLsp 双在场判据。
  *
  * 驱动侧接线三件（批 #99 兑现——预算刹停腿由 inert 转执法）：本件装载
  * agent_pre_step 复验监听（waterfall 链——budgetExceeded 现判置 stop，驱动
@@ -1134,21 +1158,29 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // tryGet 序内前件；lsp 件缺席/disabled = GateLspSeam 缺席 = diagnostics
       // gate 申报即拒 fail-closed〔03 §10.5〕，todoFactory hasLsp 同源）
       const lsp = context.tryGet<LspService>('lsp');
+      // exec seam 诚实缺席（03 §10.5 s 批补注①）：GateExecSeam v1 零绑定——
+      // 单一声明位供 gates 评测面与 todo 申报位（hasCommandExec）同源；真接线
+      // （绑真 exec 三段管道：守门/审批对/落账）随「exec 判据门真接线」立题批
+      const gateExec: GateExecSeam | undefined = undefined;
       const service = createGoalService({
         db,
         now,
         warn,
         session: sessionFace,
-        // 判据门 v1 接线形：files 源真 stat；exec 缺席 = 该源评测恒 fail；
-        // lsp seam 接线真诊断面（queryDiagnostics——词面独立律适配在装配
-        // 侧收口，goal 席 DAG 无 lsp 边）
+        // 判据门 v1 接线形：files 源真 stat；exec 诚实缺席 = 该源申报即拒 +
+        // 评测恒 fail；lsp seam 接线真诊断面（queryDiagnostics——词面独立律
+        // 适配在装配侧收口，goal 席 DAG 无 lsp 边）
         gates: {
           workspaceRoot: canonicalWorkspaceRoot(deps.cwd),
+          ...(gateExec !== undefined ? { exec: gateExec } : {}),
           ...(lsp !== undefined ? { lsp: { queryDiagnostics: (files: string[]) => lsp.queryDiagnostics(files) } } : {}),
         },
         // 沉淀摘要窄面（批 #99——缺席 = depositFor 确定性回退，零 LLM 保底）
         ...(deps.goalSummarizer !== undefined ? { summarizer: deps.goalSummarizer } : {}),
       });
+      // 全环捕获位单发（s 批——生产恒缺席；e2e rig lifecycle 通道，见
+      // CorePluginHostDeps.goalServiceSink 注）
+      deps.goalServiceSink?.(service);
 
       // goal_update：boot 全局层 + 执行时会话解析包装（deps.getSessionId 是
       // 工厂期闭包——包装在 execute 前以 toolCtx.sessionId 落格）
@@ -1281,15 +1313,31 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         void parkGoalForBudget(scope.goalId);
       });
 
+      // provide 投影律（03 §10.5 s 批补注②——danger 先例同律）：service 腿按
+      // 宿主消费面白名单运行时投影（六法——非仅类型收窄）；写动词
+      // （approve/activate/complete/abandon/park 族）不进投影——人面 /goal 与
+      // 模型工具 goal_update/todo 在本件闭包消费全量 service，插件道 tryGet
+      // 只见投影（写动词的插件可连性就此闭合——ΔA⇏ΔC 判据面执法）
+      const hostServiceFace: GoalHostServiceFace = {
+        wake: (goalId, opts) => service.wake(goalId, opts),
+        goalScopeFor: (sessionId) => service.goalScopeFor(sessionId),
+        depositFor: (sessionId) => service.depositFor(sessionId),
+        recordTurn: (goalId, opts) => service.recordTurn(goalId, opts),
+        attachGoalJobsFace: (face) => service.attachGoalJobsFace(face),
+        detachGoalJobsFace: () => service.detachGoalJobsFace(),
+      };
       context.provide('goal', {
-        service,
+        service: hostServiceFace,
         parkIfBudgetExhausted,
         todoFactory: (todoDeps) =>
           createGoalTodoTool({
             ...todoDeps,
-            // f-1 批接线活查——执行期按当前 goal 行求值双位合取（申报位两档
-            // 全拒 + 文案分档指路；旧「恒 false 接线形」挂账就此销账）
+            // f-1 批接线活查——执行期按当前 goal 行求值双位合取（申报位 seam→
+            // 双位两档全拒 + 文案分档指路；旧「恒 false 接线形」挂账就此销账）
             commandGateStatus: (goalId) => service.commandGateStatus(goalId),
+            // s 批补注①——exec seam 在场判据（诚实缺席律，hasLsp 同律镜像）：
+            // 与 gates.exec 同源单声明位（gateExec），真接线两处同笔翻真
+            hasCommandExec: gateExec !== undefined,
             hasLsp: lsp !== undefined, // 批 19d 回补——真诊断面在场否（申报面 fail-closed 判据）
           }),
       } satisfies GoalFace);

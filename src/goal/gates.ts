@@ -2,9 +2,11 @@
  * 判据门三源评测机（03 §10.5 gates 条——fail-closed）。
  *
  * 三源判据（goal 段 todo 项可选 gate 声明，完成否决律消费）：
- *  - `command`：exit 0 放行、超时帽 30s、走 exec 三段管道全执法（seam 由
- *    组合根绑真 exec 服务——本件零进程）；**仅 goal needsWrite 申报批准后
- *    可用**（模型自造命令免审批自跑是注入面——申报位与评测位双拦）；
+ *  - `command`：exit 0 放行、超时帽 30s、走 exec 三段管道全执法（exec seam
+ *    组合根注入——**v1 未接线**〔03 §10.5 s 批补注①诚实缺席律〕：todo 申报位
+ *    hasCommandExec 判据拒 + 评测位本件 fail 双拦，真接线随「exec 判据门真
+ *    接线」立题批）；**仅 goal needsWrite 申报批准后可用**（模型自造命令免
+ *    审批自跑是注入面——申报位与评测位双拦）；
  *  - `files`：全部存在且非空；stat 前归一判工作区根内（裸 stat 不得是无
  *    fence 存在性 oracle——路径归一后越根即 fail）；
  *  - `diagnostics`：目标文件集 LSP 诊断无 error 级；lsp 查询窄面缺席时
@@ -20,7 +22,11 @@ import type { GateOutcome, GateSpec, GoalTodoItem } from './types.js';
 /** command gate 超时帽（30s——04 §12 exec 三段管道墙钟同量级） */
 export const GATE_COMMAND_TIMEOUT_MS = 30_000;
 
-/** exec seam 契约（组合根绑真 exec 服务——三段管道守门/审批/落账照常在场） */
+/**
+ * exec seam 契约（设计位 = 组合根绑真 exec 三段管道——守门/审批/落账照常
+ * 在场；**v1 接线实况 = 未接线**：组合根零绑定，command 源申报位 hasCommandExec
+ * 拒 + 评测位缺席 fail 双拦——03 §10.5 s 批补注①，真接线随立题批）
+ */
 export interface GateExecSeam {
   /** 跑一条命令返退出码（超时帽内未收场 → timedOut: true；seam 内部执法） */
   execCommand(command: string): Promise<{ exitCode: number; timedOut: boolean; stderrTail: string }>;

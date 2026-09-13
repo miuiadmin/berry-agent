@@ -30,7 +30,7 @@ import type {
   OAuthFlowRegistry,
 } from '../credentials/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
-import type { GoalSessionFace, GoalSummarizerFace } from '../goal/index.js';
+import type { GoalService, GoalSessionFace, GoalSummarizerFace } from '../goal/index.js';
 import type { IssueBudgetFace, IssueSessionFace, IssueStoreStateFace } from '../issue/index.js';
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import type { MemoryCycle, MemoryDao, MemoryLlmFace } from '../memory/index.js';
@@ -106,6 +106,8 @@ interface DepsForTest {
   goalSession?: GoalSessionFace;
   /** goal 沉淀摘要窄面（批 #99——GoalSummarizerFace 注入面） */
   goalSummarizer?: GoalSummarizerFace;
+  /** goal 全环服务捕获位（s 批——CorePluginHostDeps.goalServiceSink 同形；投影律下写动词测试通道） */
+  goalServiceSink?: (service: GoalService) => void;
   /** u-3 停靠广播面（goal 停靠项登记——缺席 = 停靠无自动唤醒腿） */
   budgetBroadcast?: BudgetBroadcastFace;
   /** u-3 对话栈投影（parkIfBudgetExhausted 池检 + 唤醒提交面） */
@@ -192,6 +194,7 @@ async function bootCore(
       ...(coreDeps.notify !== undefined ? { notify: coreDeps.notify } : {}),
       ...(coreDeps.goalSession !== undefined ? { goalSession: coreDeps.goalSession } : {}),
       ...(coreDeps.goalSummarizer !== undefined ? { goalSummarizer: coreDeps.goalSummarizer } : {}),
+      ...(coreDeps.goalServiceSink !== undefined ? { goalServiceSink: coreDeps.goalServiceSink } : {}),
       ...(coreDeps.budgetBroadcast !== undefined ? { budgetBroadcast: coreDeps.budgetBroadcast } : {}),
       ...(coreDeps.conversationStack !== undefined ? { conversationStack: coreDeps.conversationStack } : {}),
       ...(coreDeps.checkpointSession !== undefined ? { checkpointSession: coreDeps.checkpointSession } : {}),
@@ -1136,6 +1139,8 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
         if (sid === 's-goal') session.append('session/paused', { reason: 'budget' });
       },
     };
+    // 全环捕获位（s 批——投影律下 write 动词测试通道；生产恒缺席）
+    let svc: GoalService | undefined;
     const { scope, boot, commands, commandSpecs } = await bootCore(
       dataDir,
       memoryFs(),
@@ -1143,22 +1148,60 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       {
         sqlite: () => persistence.store.sqlite(),
         goalSession,
+        goalServiceSink: (service) => {
+          svc = service;
+        },
         notify: (source, message) => {
           if (source === 'goal') notified.push(message); // 归因位可辨（notify 双参化回归锁）
         },
       },
     );
 
-    // 服务面：'goal' 在场（service 全环 + todoFactory 换装工厂）
+    // 服务面：'goal' 在场（service 六法投影〔s 批补注②〕+ todoFactory 换装工厂）
     const face = scope.tryGet<GoalFace>('goal');
     expect(face).toBeDefined();
     // goal_update 在 boot 全局层（执行时会话解析包装 def）+ /goal 命令注册
     expect(boot.tools.definitions().map((d) => d.name)).toContain('goal_update');
     expect(commands).toContain('goal');
 
+    // s 批投影律回归锁：tryGet 面 service = 六法白名单运行时投影——写动词
+    // 与非宿主消费读面全不在场（插件道写可连性闭合——ΔA⇏ΔC 执法形）
+    const projected = face!.service as unknown as Record<string, unknown>;
+    for (const absent of [
+      'activate',
+      'resume',
+      'complete',
+      'abandon',
+      'approve',
+      'commandGateStatus',
+      'get',
+      'activeFor',
+      'list',
+      'wakes',
+      'foldDelegation',
+      'budgetExceeded',
+      'parkForBudget',
+      'isParkedForBudget',
+      'unparkForBudget',
+      'reviveClock',
+    ]) {
+      expect(projected[absent]).toBeUndefined();
+    }
+    for (const kept of [
+      'wake',
+      'goalScopeFor',
+      'depositFor',
+      'recordTurn',
+      'attachGoalJobsFace',
+      'detachGoalJobsFace',
+    ]) {
+      expect(typeof projected[kept]).toBe('function');
+    }
+
     // 挂钟委派真行（迟到注入先行腿——注册表序 scheduler 先装载即挂即用）：
-    // activate → jobs 表 goal-<id> builtin 建行即启
-    const row = await face!.service.activate({
+    // activate → jobs 表 goal-<id> builtin 建行即启（全环位——生产入口
+    // U10 立题前的测试通道）
+    const row = await svc!.activate({
       sessionId: 's-goal',
       objective: '测试目标——装载全环',
       schedule: 'every:60s',
@@ -1212,11 +1255,13 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     await goalCmd.handler({ raw: '', argv: ['list'] });
     expect(notified[notified.length - 1]!).toContain('共 1 个 goal');
 
-    // f-1 装配层活查回归锁（防「恒 false 接线形」复发）：新 goal 申报
-    // needsWrite → todoFactory 产物申报 command gate 先拒（not-approved——
-    // 文案指路 /goal approve）→ 人面 approve → 同工具实例重报即过（执行期
-    // 活查非构造期快照）
-    const row2 = await face!.service.activate({
+    // f-1 装配层活查回归锁 + s 批诚实缺席律 e2e（v1 真实形态——03 §10.5
+    // s 批补注①）：新 goal 申报 needsWrite → todoFactory 产物申报 command
+    // gate 即拒——exec seam 组合根零绑定，判序**先于**双位（文案为「exec
+    // 执行面缺席」档而非 not-approved 档）→ 人面 /goal approve 真通道批准
+    // （双位合取翻绿——全环位可证）→ 同工具实例重报**仍拒**（seam 缺席时
+    // 批准也无用——判序锁）
+    const row2 = await svc!.activate({
       sessionId: 's-goal',
       objective: '申报写权的目标',
       schedule: 'every:60s',
@@ -1227,15 +1272,23 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       getScope: () => ({ goalId: row2.id, activatedSeq: 0 }),
     });
     const gated = [{ status: 'pending', content: '跑构建', gate: { kind: 'command', command: 'make build' } }];
+    const writesBefore = session.events().filter((e) => e.type === 'todo/write').length;
     const refused = await todo2
       .execute({ items: gated }, { toolCallId: 'c-goal-todo-gate' })
       .catch((err: unknown) => err);
     expect(refused).toBeInstanceOf(BaseError);
     expect((refused as BaseError).code).toBe('GOAL_TODO_SCOPE');
-    expect((refused as BaseError).message).toContain('/goal approve');
-    await face!.service.approve(row2.id); // 人面批准（装配真身链）
-    await todo2.execute({ items: gated }, { toolCallId: 'c-goal-todo-gate2' });
-    expect(JSON.stringify(session.events().at(-1)?.data)).toContain('跑构建'); // 批准后落 durable
+    expect((refused as BaseError).message).toContain('exec 执行面缺席');
+    expect((refused as BaseError).message).not.toContain('/goal approve'); // 判序先于双位——not-approved 文案不可达
+    // 人面批准真通道（/goal approve——f-1 批准唯一写面）
+    await goalCmd.handler({ raw: '', argv: ['approve', row2.id] });
+    expect(svc!.commandGateStatus(row2.id)).toEqual({ allowed: true, reason: 'ok' }); // 双位合取翻绿（全环位可证）
+    const stillRefused = await todo2
+      .execute({ items: gated }, { toolCallId: 'c-goal-todo-gate2' })
+      .catch((err: unknown) => err);
+    expect(stillRefused).toBeInstanceOf(BaseError);
+    expect((stillRefused as BaseError).message).toContain('exec 执行面缺席'); // seam 缺席时批准也无用
+    expect(session.events().filter((e) => e.type === 'todo/write').length).toBe(writesBefore); // 恒拒——零新增 durable 落账
     await persistence.close();
   });
 
@@ -1255,6 +1308,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       },
     };
     const prompts: string[] = [];
+    let svc: GoalService | undefined;
     const { scope, dispatch, boot } = await bootCore(
       dataDir,
       memoryFs(),
@@ -1262,6 +1316,9 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       {
         sqlite: () => persistence.store.sqlite(),
         goalSession,
+        goalServiceSink: (service) => {
+          svc = service;
+        },
         goalSummarizer: {
           complete: async (req) => {
             prompts.push(req.prompt);
@@ -1273,7 +1330,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(dispatch.isRegistered(AGENT_PRE_STEP_EVENT)).toBe(true); // boot 预注册词表（词自举律前置位）
 
     const face = scope.tryGet<GoalFace>('goal')!;
-    const row = await face.service.activate({
+    const row = await svc!.activate({
       sessionId: 's-goal2',
       objective: '复验目标',
       schedule: 'every:60s',
@@ -1336,6 +1393,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       },
     } as unknown as ConversationStack;
     const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+    let svc: GoalService | undefined;
     const { scope } = await bootCore(
       dataDir,
       memoryFs(),
@@ -1345,12 +1403,15 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
         goalSession,
         budgetBroadcast: broadcast,
         conversationStack: fakeConversationStack,
+        goalServiceSink: (service) => {
+          svc = service;
+        },
       },
     );
 
     const face = scope.tryGet<GoalFace>('goal')!;
     const schedFace = scope.tryGet<SchedulerFace>('scheduler')!;
-    const row = await face.service.activate({ sessionId: 's-goal3', objective: '停靠目标', schedule: 'every:60s' });
+    const row = await svc!.activate({ sessionId: 's-goal3', objective: '停靠目标', schedule: 'every:60s' });
     const jobName = `goal-${row.id}`;
 
     // 池检可负担：不停车（false——正常起跑语义）
@@ -1375,7 +1436,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(broadcast.size()).toBe(0); // wake 编舞先行摘登记（再停靠复登记净面）
     pending.shift()!({ status: 'completed' });
     await until(() => schedFace.service.getJob(jobName)?.enabled === true); // reviveClock
-    expect(face.service.isParkedForBudget(row.id)).toBe(false);
+    expect(svc!.isParkedForBudget(row.id)).toBe(false);
 
     // —— 分诊二（wake-refused 收口——三帽兜底）：再停靠 → 再唤醒 → refused →
     // 摘登记 warn 人工，挂钟保持停摆 ——
@@ -1393,11 +1454,11 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(await face.parkIfBudgetExhausted(row.id)).toBe(true);
     affordOk = true;
     await until(() => submits.length === 3);
-    face.service.parkForBudget(row.id); // 模拟 onRunSettled 收口现判先复停靠（agent 面在装配根——本 rig 缺席）
+    svc!.parkForBudget(row.id); // 模拟 onRunSettled 收口现判先复停靠（agent 面在装配根——本 rig 缺席）
     pending.shift()!({ status: 'completed' });
     await new Promise((resolve) => void setTimeout(resolve, 20)); // receipt 链微任务窗
     expect(schedFace.service.getJob(jobName)?.enabled).toBe(false); // isParked 先查 → 不 reviveClock
-    expect(face.service.isParkedForBudget(row.id)).toBe(true); // 停靠保持
+    expect(svc!.isParkedForBudget(row.id)).toBe(true); // 停靠保持
 
     broadcast.dispose();
     await persistence.close();
@@ -1697,10 +1758,22 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     };
 
     // 形 A：全 core 装载（lsp 序内前件在场）——diagnostics 门申报过闸 + durable 承载
-    const booted = await bootCore(dataDir, memoryFs(), {}, { sqlite: () => persistence.store.sqlite(), goalSession });
+    let svcA: GoalService | undefined;
+    const booted = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        goalSession,
+        goalServiceSink: (service) => {
+          svcA = service;
+        },
+      },
+    );
     const face = booted.scope.tryGet<GoalFace>('goal')!;
     expect(face).toBeDefined();
-    const row = await face.service.activate({
+    const row = await svcA!.activate({
       sessionId: 's-lg',
       objective: 'hasLsp 回补回归锁',
       schedule: 'every:60s',

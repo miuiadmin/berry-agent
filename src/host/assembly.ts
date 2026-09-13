@@ -31,6 +31,7 @@ import { SUBAGENT_RESERVE_THRESHOLD } from '../llm/index.js';
 import { llmTextOf } from '../memory/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
 import type { GoalSummarizerFace } from '../goal/index.js';
+import type { GoalService } from '../goal/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
 import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft } from '../safety/index.js';
 import {
@@ -119,6 +120,13 @@ export interface AssembleHostOptions {
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** core: 官方件注册表（缺省 CORE_PLUGINS 单源——批 19a 起逐纵切笔入册；测试注入面/诊断覆盖经本位） */
   readonly corePlugins?: readonly CorePluginReference[];
+  /**
+   * goal 全环服务宿主捕获位透传（s 批——CorePluginHostDeps.goalServiceSink
+   * 同形）：生产装配恒缺席；e2e rig 经 assembleHostStack 全真链捕获全环
+   * service（provide 投影律下 tryGet 只见六法——写动词 lifecycle 测试通道，
+   * U10「goal 生产创建入口缺席」立题前）。
+   */
+  readonly goalServiceSink?: (service: GoalService) => void;
   /** 警示面（缺省 stderr 直写） */
   readonly warn?: (message: string) => void;
 }
@@ -727,6 +735,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // goal 沉淀摘要窄面（批 #99——上方适配器真身；缺席律不适用：
               // 适配器零依赖构造恒在场，goal 件内 summarizer 缺席走确定性回退）
               goalSummarizer,
+              // 全环捕获位透传（s 批——生产恒缺席；e2e rig lifecycle 通道）
+              ...(options.goalServiceSink !== undefined ? { goalServiceSink: options.goalServiceSink } : {}),
               // checkpoint 两 seam + 焦点会话位（批 19c-4——05 §5.3 词面独立律）：
               // 语境面 contextOf 活体日志优先（lastClosedBoundary 单源）+ 行
               // workspaceRoot 锚经公开列表面反查（sessions.fork 同法——不为内部

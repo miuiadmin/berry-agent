@@ -31,6 +31,7 @@ import { fauxProvider } from '../llm/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { GoalFace, SchedulerFace } from './core-plugins.js';
+import type { GoalService } from '../goal/index.js';
 
 /* ---------------- 测试基建（scheduler-tick.test tickRig 同族） ---------------- */
 
@@ -79,6 +80,8 @@ async function parkRig() {
   faux.setResponses(Array.from({ length: 8 }, () => () => messageOf('推进了一步')));
   const dataDir = tmpDir('park-data-');
   const ws = tmpDir('park-ws-');
+  // 全环服务捕获格（goalServiceSink 落位）
+  let serviceRef: GoalService | undefined;
   const assembly = await assembleHostStack({
     runtime: { dataDir },
     noPlugins: false,
@@ -86,13 +89,18 @@ async function parkRig() {
     version: 'test',
     providers: [faux.provider],
     model: 'faux-park/m1',
+    // 全环捕获位（s 批——投影律下 write 动词测试通道；生产恒缺席）
+    goalServiceSink: (service) => {
+      serviceRef = service;
+    },
   });
   if (!assembly.ok) throw new Error(`装配失败：${assembly.message}`);
   const goal = assembly.scope.tryGet<GoalFace>('goal');
   if (goal === undefined) throw new Error('goal 件未装载');
+  if (serviceRef === undefined) throw new Error('goal 全环服务未捕获');
   const sched = assembly.scope.tryGet<SchedulerFace>('scheduler');
   if (sched === undefined) throw new Error('scheduler 件未装载');
-  return { assembly, goal, sched, ws, shutdown: () => assembly.runtime.shutdown() };
+  return { assembly, goal, service: serviceRef, sched, ws, shutdown: () => assembly.runtime.shutdown() };
 }
 
 /* ---------------- offSettlePark 收口现判全链（04 §5 定形注③） ---------------- */
@@ -102,7 +110,7 @@ describe('goal 预算停靠收口现判 e2e（u-5——agent 面装配位）', (
     const rig = await parkRig();
     try {
       const { sessionId } = rig.assembly.stack.manager.create({ workspaceRoot: rig.ws });
-      const row = await rig.goal.service.activate({
+      const row = await rig.service.activate({
         sessionId,
         objective: 'e2e 停靠锁目标',
         schedule: 'every:30m',
@@ -117,17 +125,17 @@ describe('goal 预算停靠收口现判 e2e（u-5——agent 面装配位）', (
       // 随后 recordTurn 记账 1/1 → budgetExceeded 翻真
       const first = await rig.assembly.stack.submitText(sessionId, '推进目标', { source: 'user' });
       expect(first?.status).toBe('completed');
-      expect(rig.goal.service.budgetExceeded(goalId)).toBe(true);
-      expect(rig.goal.service.isParkedForBudget(goalId)).toBe(false);
+      expect(rig.service.budgetExceeded(goalId)).toBe(true);
+      expect(rig.service.isParkedForBudget(goalId)).toBe(false);
 
       // run₂：agent_pre_step 复验刹停（零模型请求 completed）→ 收口现判已超 →
       // parkGoalForBudget 全链起跑（fire-and-forget——durable 面有界轮询等落）
       const second = await rig.assembly.stack.submitText(sessionId, '继续推进', { source: 'user' });
       expect(second?.status).toBe('completed');
-      await until(() => rig.goal.service.isParkedForBudget(goalId));
+      await until(() => rig.service.isParkedForBudget(goalId));
 
       // 停靠动作一：内存停靠登记（幂等判据面）
-      expect(rig.goal.service.isParkedForBudget(goalId)).toBe(true);
+      expect(rig.service.isParkedForBudget(goalId)).toBe(true);
       // 停靠动作二：挂钟行 disable（goal 行 status 三值不动——行留史可复活）
       await until(() => rig.sched.service.getJob(`goal-${goalId}`)?.enabled === false);
       // 停靠动作三：会话落 durable session/paused（daemon 猝死后冷启动可恢复

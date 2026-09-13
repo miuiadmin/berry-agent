@@ -31,6 +31,7 @@ import { fauxProvider } from '../llm/index.js';
 import { assembleHostStack } from './assembly.js';
 import type { RunFlags } from './cli.js';
 import type { GoalFace, SchedulerFace } from './core-plugins.js';
+import type { GoalService } from '../goal/index.js';
 import { runRunEntry } from './run-entry.js';
 
 /* ---------------- 测试基建 ---------------- */
@@ -150,12 +151,15 @@ async function seedAssembly(
 ): Promise<{
   scheduler: SchedulerFace;
   goal: GoalFace | undefined;
+  goalService: GoalService;
   createSession: (workspaceRoot: string) => string;
   submit: (sessionId: string, text: string) => Promise<unknown>;
   shutdown: () => Promise<void>;
 }> {
   const faux = fauxProvider({ provider: 'faux-seed', models: [{ id: 'm1' }] });
   faux.setResponses((opts.responses ?? [messageOf()]).map((msg) => () => msg));
+  // 全环服务捕获格（s 批——投影律下 write 动词测试通道；生产恒缺席）
+  let goalServiceRef: GoalService | undefined;
   const assembly = await assembleHostStack({
     runtime: { dataDir },
     noPlugins: false,
@@ -164,13 +168,18 @@ async function seedAssembly(
     providers: [faux.provider],
     model: 'faux-seed/m1',
     env: {},
+    goalServiceSink: (service) => {
+      goalServiceRef = service;
+    },
   });
   if (!assembly.ok) throw new Error(`种子装配失败：${assembly.message}`);
   const scheduler = assembly.scope.tryGet<SchedulerFace>('scheduler');
   if (scheduler === undefined) throw new Error('种子装配：scheduler 件未装载');
+  if (goalServiceRef === undefined) throw new Error('种子装配：goal 件未装载（全环服务未捕获）');
   return {
     scheduler,
     goal: assembly.scope.tryGet<GoalFace>('goal'),
+    goalService: goalServiceRef,
     createSession: (workspaceRoot) => assembly.stack.manager.create({ workspaceRoot }).sessionId,
     submit: (sessionId, text) => {
       const promise = assembly.stack.submitText(sessionId, text);
@@ -190,14 +199,13 @@ async function seedGoal(
   const seed = await seedAssembly(dataDir);
   const sessionId = seed.createSession(canonicalWorkspaceRoot(ws));
   await seed.submit(sessionId, '起个头'); // 首事件落行屏障——goal 绑定会话可回读
-  if (seed.goal === undefined) throw new Error('种子装配：goal 件未装载');
-  const goal = await seed.goal.service.activate({
+  const goal = await seed.goalService.activate({
     sessionId,
     objective: '写周报',
     schedule: 'daily@09:00',
     ...(opts.cap !== undefined ? { budgetMessagesCap: opts.cap } : {}),
   });
-  if (opts.abandon) await seed.goal.service.abandon(goal.id, '测试即弃');
+  if (opts.abandon) await seed.goalService.abandon(goal.id, '测试即弃');
   await seed.shutdown();
   return { id: goal.id, sessionId: goal.sessionId };
 }
@@ -590,7 +598,7 @@ describe('runRunEntry --tick goal 挂钟行', () => {
     // 走 CLI stderr，改 durable 读回——used 1/1 落行即证回执窗扫计数腿真跑
     const audit = await seedAssembly(dataDir);
     try {
-      expect(audit.goal?.service.get(goal.id)?.budgetMessagesUsed).toBe(1);
+      expect(audit.goalService.get(goal.id)?.budgetMessagesUsed).toBe(1);
     } finally {
       await audit.shutdown();
     }

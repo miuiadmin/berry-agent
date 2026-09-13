@@ -1,7 +1,8 @@
 /**
  * goal 段 todo 工具测试——GOAL_TODO_SCOPE 双向执法（段内必携纪律/段外申报
- * 拒/gate 申报位 fail-closed）+ 合法载荷透传（扩展字段入 durable）+ 回执。
- * append 桩捕获（mock 停在注入位）；schema 校验走 typebox Value。
+ * 拒/gate 申报位 fail-closed〔含 s 批 exec seam 诚实缺席律——判序先于双位〕）
+ * + 合法载荷透传（扩展字段入 durable）+ 回执。append 桩捕获（mock 停在注入位）；
+ * schema 校验走 typebox Value。
  */
 import { describe, expect, it } from 'vitest';
 import { Value } from 'typebox/value';
@@ -10,13 +11,14 @@ import { createGoalTodoTool, type GoalTodoToolDeps } from './todo-tool.js';
 
 const SCOPE = { goalId: 'g-1', activatedSeq: 0 };
 
-/** 装配依赖（scope 可编排） */
+/** 装配依赖（scope 可编排；hasCommandExec 缺省 true = seam 已接线形——双位链测试前提，缺席律独立测） */
 function deps(overrides: Partial<GoalTodoToolDeps> & { scope?: typeof SCOPE | null } = {}) {
   const appended: { items: unknown[] }[] = [];
   const deps: GoalTodoToolDeps = {
     append: (data) => appended.push(data as { items: unknown[] }),
     getScope: () => (overrides.scope === undefined ? SCOPE : overrides.scope),
     commandGateStatus: () => ({ allowed: false, reason: 'not-declared' as const }),
+    hasCommandExec: true, // seam 在场形（真接线后生产同形）；缺席形态见诚实缺席律专项例
     hasLsp: false,
     nowMs: () => Date.parse('2026-09-07T08:00:00.000Z'),
     ...overrides,
@@ -97,6 +99,32 @@ describe('GOAL_TODO_SCOPE 段内执法', () => {
       run(tool3, [{ status: 'completed', content: 'x', no_follow_up: true, gate: { kind: 'files', paths: [] } }]),
       'GOAL_TODO_SCOPE',
     );
+  });
+
+  it('s 批诚实缺席律：hasCommandExec 缺席 = command gate 申报即拒——判序先于双位（批准也无用）', async () => {
+    // seam 缺席 + 双位全过（approvedGate）——仍拒：seam 判据先于双位合取
+    const { deps: d, appended } = deps({ hasCommandExec: false, commandGateStatus: approvedGate });
+    const tool = createGoalTodoTool(d);
+    const err = await expectCode(
+      run(tool, [
+        { status: 'completed', content: 'x', no_follow_up: true, gate: { kind: 'command', command: 'make' } },
+      ]),
+      'GOAL_TODO_SCOPE',
+    );
+    expect(err.message).toContain('exec 执行面缺席');
+    expect(err.message).not.toContain('/goal approve'); // not-approved 文案不可达（判序）
+    // seam 缺席 + 未申报档：同一文案（双位文案均不可达——v1 生产真实形态）
+    const { deps: d2 } = deps({ hasCommandExec: false });
+    const tool2 = createGoalTodoTool(d2);
+    const err2 = await expectCode(
+      run(tool2, [
+        { status: 'completed', content: 'x', no_follow_up: true, gate: { kind: 'command', command: 'make' } },
+      ]),
+      'GOAL_TODO_SCOPE',
+    );
+    expect(err2.message).toContain('exec 执行面缺席');
+    expect(err2.message).not.toContain('未申报 needsWrite');
+    expect(appended).toHaveLength(0); // 恒拒零落账
   });
 
   it('f-1 双位分档：not-approved 档文案给 /goal approve 指路、批准后同条目重报即过（活查非快照）', async () => {

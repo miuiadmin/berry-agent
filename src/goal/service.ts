@@ -396,6 +396,17 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
     }
   }
 
+  /**
+   * 双位合取单源闭包（f-1 定形注③——complete 评测位与 commandGateStatus
+   * 读面同源消费此一处，勿另写合取；s 批 U3 收口：评测位手写合取撤）
+   */
+  const commandGateStatusOf = (goalId: string): CommandGateStatus => {
+    const row = dao.get(goalId);
+    if (!row || !row.needsWrite) return { allowed: false, reason: 'not-declared' as const };
+    if (!row.writeApproved) return { allowed: false, reason: 'not-approved' as const };
+    return { allowed: true, reason: 'ok' as const };
+  };
+
   const service: GoalService = {
     async activate(req) {
       const bytes = Buffer.byteLength(req.objective, 'utf8');
@@ -499,8 +510,8 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       const outcomes = await evaluateGoalGates(items, {
         ...deps.gates,
         // 双位合取终判（f-1 定形注③——评测位防御纵深：越路径直写事件流的
-        // command gate 条目在此兜底否决）
-        commandGateAllowed: row.needsWrite && row.writeApproved,
+        // command gate 条目在此兜底否决；单源闭包消费非手写合取〔s 批 U3〕）
+        commandGateAllowed: commandGateStatusOf(goalId).allowed,
       });
       const failed = outcomes.filter((o) => !o.ok);
       if (failed.length > 0) {
@@ -616,11 +627,8 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
 
     commandGateStatus(goalId) {
       // 执行期活查（f-1 定形注③——恒按当前行求值；幽灵行防御位归 not-declared，
-      // 正常路径 scope 活则行恒在）
-      const row = dao.get(goalId);
-      if (!row || !row.needsWrite) return { allowed: false, reason: 'not-declared' as const };
-      if (!row.writeApproved) return { allowed: false, reason: 'not-approved' as const };
-      return { allowed: true, reason: 'ok' as const };
+      // 正常路径 scope 活则行恒在）——单源闭包消费（s 批 U3：与 complete 评测位同源）
+      return commandGateStatusOf(goalId);
     },
 
     recordTurn(goalId, opts) {

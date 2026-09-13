@@ -10,8 +10,9 @@
  *  - goal 段内（scope 在场）：deferred 必携 resume_when（词法可 parse 可
  *    判窗）、completed 必携后继二择一（follow_up 或 noFollowUp）——缺即拒；
  *  - 非 goal 段（scope 缺席）：申报任何扩展字段即拒（goal 段词汇不悬空）；
- *  - gate 声明申报位 fail-closed：command 未过 needsWrite 申报批准、
- *    diagnostics 缺 lsp 查询面——申报即拒（评测位 gates.ts 双拦）。
+ *  - gate 声明申报位 fail-closed：command 须 exec seam 在场（hasCommandExec
+ *    判据——03 §10.5 s 批补注①诚实缺席律，判序先于双位合取）且过 needsWrite
+ *    双位、diagnostics 缺 lsp 查询面——申报即拒（评测位 gates.ts 双拦）。
  */
 import { Type } from 'typebox';
 import { BaseError, type ToolDefinition } from '../contracts/index.js';
@@ -32,6 +33,12 @@ export interface GoalTodoToolDeps {
    * 合取，非构造期快照；reason 分档承载申报拒文案指引差）。
    */
   commandGateStatus: (goalId: string) => CommandGateStatus;
+  /**
+   * exec seam 在场否（03 §10.5 s 批补注①——诚实缺席律，hasLsp 同律镜像）：
+   * GateExecSeam 组合根 v1 未接线，缺席时 command gate 申报即拒（判序先于
+   * 双位合取——seam 缺席时批准也无用）；真接线随「exec 判据门真接线」立题批。
+   */
+  hasCommandExec: boolean;
   /** lsp 诊断查询面在场否（缺席 = diagnostics gate 申报即拒 fail-closed） */
   hasLsp: boolean;
   /** 词法判窗锚（缺省 Date.now——测试注固定钟） */
@@ -166,10 +173,17 @@ function enforceScope(
       `completed 条目「${item.content}」必携后继二择一（follow_up 或 no_follow_up: true）——防完成即失联`,
     );
   }
-  // gate 声明申报位 fail-closed（评测位 gates.ts 双拦）；command 位两档全拒
-  // ——文案分档仅指引差（f-1 定形注③：not-approved 档给 /goal approve 指路）
+  // gate 声明申报位 fail-closed（评测位 gates.ts 双拦）；command 位三判序
+  // ——seam 在场（s 批补注①：缺席即拒，先于双位——批准也无用）→ 双位两档全拒
+  // （文案分档仅指引差——f-1 定形注③：not-approved 档给 /goal approve 指路）
   if (item.gate !== undefined) {
     if (item.gate.kind === 'command') {
+      if (!deps.hasCommandExec) {
+        throw new BaseError(
+          'GOAL_TODO_SCOPE',
+          `条目「${item.content}」command 判据门不可申报——exec 执行面缺席（组合根未接线，fail-closed 非静默跳过）`,
+        );
+      }
       const status = deps.commandGateStatus(scope.goalId);
       if (!status.allowed) {
         throw new BaseError(

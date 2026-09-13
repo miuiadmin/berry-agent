@@ -311,14 +311,17 @@ describe('approve + commandGateStatus（f-1 needsWrite 批准链路——03 §10
         { status: 'completed', content: '跑测试', noFollowUp: true, gate: { kind: 'command', command: 'make test' } },
       ],
     });
-    // 未批准：评测位合取 false——gate 红文案指批准缺位
+    // 未批准：评测位合取 false——gate 红文案指批准缺位（status 读面同源镜像
+    // 〔s 批 U3 单源闭包〕——complete 评测与 commandGateStatus 消费同一处）
     const before = await expectCode(service.complete(goal.id, 'ev'), 'GOAL_TRANSITION_INVALID');
     expect(before.message).toContain('未获批准');
+    expect(service.commandGateStatus(goal.id)).toEqual({ allowed: false, reason: 'not-approved' });
     // 批准后：合取 true、但 exec seam 缺席——红文案换档（证合取已在评测侧生效）
     await service.approve(goal.id);
     const after = await expectCode(service.complete(goal.id, 'ev'), 'GOAL_TRANSITION_INVALID');
     expect(after.message).toContain('exec 执行面缺席');
     expect(after.message).not.toContain('未获批准');
+    expect(service.commandGateStatus(goal.id)).toEqual({ allowed: true, reason: 'ok' });
   });
 });
 
