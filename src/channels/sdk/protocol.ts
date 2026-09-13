@@ -220,7 +220,7 @@ export interface SdkAskFrame {
   reason?: string;
   /** 发起审批的工具名（可选呈现） */
   toolName?: string;
-  /** 「始终允许」草案条目（always 应答的 allowlist 回写目标——缺席 = always 视同 approve） */
+  /** 「始终允许」草案条目（always 应答的策略表回写目标——缺席 = always 视同 approve） */
   suggestedEntry?: string;
 }
 

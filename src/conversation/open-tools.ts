@@ -6,7 +6,7 @@
  *  ① 词汇接线——工具族事件词注册（contracts TOOL_EVENT_NAMES 的装配消费面）；
  *  ② 审批三件前两件（wireSessionApproval：服务 + answerer + settlePending）；
  *  ③ 守门安装（installSafetyGate **先装本行**——waterfall 注册序即执行序，
- *     carve-out 硬拒 / allowlist 免问 / write-effect 审批对最先执法；后续
+ *     carve-out 硬拒 / 策略表 allow 免问 / write-effect 审批对最先执法；后续
  *     守门者（插件拦截族）装在其后）；
  *  ④ 管道 + 注册表（gate/decision durable 落账接线——守门不可绕不变式的
  *     断言对象）；

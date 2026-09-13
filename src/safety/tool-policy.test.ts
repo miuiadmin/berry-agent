@@ -1,5 +1,5 @@
 /**
- * safety/allowlist 测试 — 工具策略表三族匹配引擎 + commandStem 剥壳（04 §9
+ * safety/tool-policy 测试 — 工具策略表三族匹配引擎 + commandStem 剥壳（04 §9
  * 粘性第 3/4 款纯函数半边 + 2026-09-11 审批分档批定形块③④：条目双面 /
  * deny 优先律 / 档位偏序包含判）。
  *

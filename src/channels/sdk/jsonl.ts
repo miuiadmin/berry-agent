@@ -25,7 +25,9 @@ const PS = '\u2029';
 const FRAME_KIND_SET: ReadonlySet<string> = new Set(SDK_FRAME_KINDS);
 const REQUEST_VERB_SET: ReadonlySet<string> = new Set(SDK_REQUEST_VERBS);
 
-/** decide.answer 四值闭集（contracts ApprovalAskAnswer 同集——结构性校验面） */
+/** decide.answer 四值闭集（contracts ApprovalAskAnswer 减 'unavailable'——结构性
+ * 自报值非通道答案，SDK 通道面不受理；2026-09-13 复盘发现 #28：修前注称「同集」
+ * 在 unavailable 入集后失真） */
 const APPROVAL_ANSWERS: ReadonlySet<unknown> = new Set(['approve', 'reject', 'cancel', 'always']);
 
 /** decide-result.outcome 闭集（跨入口竞速回执两档） */

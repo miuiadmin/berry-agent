@@ -169,7 +169,7 @@ describe('carve-out 硬拒', () => {
     expect(rig.asks).toHaveLength(1); // 只有 after.env 真的问了
   });
 
-  it('allowlist 免问放不进 carve-out（硬拒判定在前——底线不受免问面影响）', async () => {
+  it('策略表 allow 免问放不进 carve-out（硬拒判定在前——底线不受免问面影响）', async () => {
     const rig = makeRig({ toolPolicy: [{ tool: 'write', pattern: '.git', decision: 'allow' }] });
     const result = await rig.run(WRITE, { path: join(ws, '.git', 'hooks', 'pre-commit') });
     expect(result.blocked).toBe(true);
@@ -283,7 +283,7 @@ describe('write-effect 审批对', () => {
 
 /* ---------------- 策略表 allow 免问（粘性第 3 款——advisory；2026-09-11 审批分档批更名） ---------------- */
 
-describe('allowlist 免问', () => {
+describe('策略表 allow 免问', () => {
   it('fs 前缀命中：全部写目标在前缀内 → 免问放行（fence/执行段照走）', async () => {
     const rig = makeRig({ toolPolicy: [{ tool: 'write', pattern: 'src', decision: 'allow' }] });
     const result = await rig.run(WRITE, { path: 'src/deep/nested/a.ts' });

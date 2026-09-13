@@ -498,9 +498,9 @@ describe('secrets 面装配（c-3——03 §2.2 第十面 fork 级绑定 + 席�
     const rows = new Map<string, { apiKey: string; meta?: unknown }>();
     return {
       rows,
-      getCredential: (ns: string, provider: string) => rows.get(`${ns} ${provider}`),
+      getCredential: (ns: string, provider: string) => rows.get(`${ns}\u0000${provider}`),
       setCredential: (ns: string, provider: string, entry: { apiKey: string; meta?: unknown }) =>
-        void rows.set(`${ns} ${provider}`, entry),
+        void rows.set(`${ns}\u0000${provider}`, entry),
     };
   }
 

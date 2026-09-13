@@ -50,7 +50,10 @@ export interface ToolPolicyEntry {
   readonly tool: string;
   /**
    * 按工具族分派的模式：fs = 路径前缀 / bash = 命令词干 / 其余 = 忽略。
-   * fs/bash 族上缺席 = 坏形（匹配不到任何调用——读侧逐条剔除同语义）。
+   * fs/bash 族上缺席 = 惰性行（引擎恒 miss——照问照审，fail-closed 方向
+   * 无害；读侧不剔行。2026-09-13 复盘发现 #24：修前注称「坏形——读侧逐条
+   * 剔除」与 store 行级校验注矛盾；实况 = store 只剔「在场非字符串」，
+   * 缺席行保留，两注就此同义对齐）。
    */
   readonly pattern?: string;
   /**
