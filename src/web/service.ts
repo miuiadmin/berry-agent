@@ -40,6 +40,22 @@ export const DEFAULT_WEB_LIMITS: WebFetchLimits = {
 /** 重定向状态码集（其余 3xx 按终态返回不跟随） */
 const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
 
+/** 跨源跳转须剥的凭证头族（小写键比对——fetch 规范跨源重定向同保护） */
+const CROSS_ORIGIN_CREDENTIAL_HEADERS: ReadonlySet<string> = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+]);
+
+/** 跨源跳转剥凭证头：剔除命中族（键名小写比对——大小写不敏感），其余头原样保留 */
+function stripCrossOriginCredentials(headers: Record<string, string>): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (!CROSS_ORIGIN_CREDENTIAL_HEADERS.has(key.toLowerCase())) kept[key] = value;
+  }
+  return kept;
+}
+
 /**
  * 流式读响应体到字节帽：触帽即 cancel 流（不再拉数据）、截到恰好帽值、
  * truncated 置真。只产原始字节——UTF-8 严格解码由调用方在快照 bytes 之后
@@ -142,11 +158,15 @@ export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService 
           // 卫生件 4/5：重定向逐跳跟随（手动——每跳目标重跑三查，跳数触帽拒）
           let requestMethod = method;
           let requestBody = init.body;
+          // 逐跳头可变副本：跨源跳转剥凭证头（对齐 fetch 规范跨源重定向语义
+          // ——原生 follow 由传输层剥 Authorization/Cookie 族；手动逐跳实现
+          // 须自持同保护，否则调用方凭证头被原样转发给任意跳转目标 = 凭证泄漏面）
+          let requestHeaders: Record<string, string> | undefined = init.headers;
           let response: Response;
           while (true) {
             response = await fetchImpl(url.toString(), {
               method: requestMethod,
-              ...(init.headers ? { headers: init.headers } : {}),
+              ...(requestHeaders ? { headers: requestHeaders } : {}),
               ...(requestBody !== undefined ? { body: requestBody } : {}),
               redirect: 'manual',
               ...(init.signal ? { signal: init.signal } : {}),
@@ -164,6 +184,10 @@ export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService 
             const next = parseWebUrl(new URL(location, url.toString()).toString());
             await assertPublicHost(next, resolveDns);
             redirects += 1;
+            // 跨源跳转剥凭证头（大小写不敏感——键名小写比对剔除，普通头原样保留）
+            if (requestHeaders !== undefined && next.origin !== url.origin) {
+              requestHeaders = stripCrossOriginCredentials(requestHeaders);
+            }
             url = next;
             // 方法改写语义：303 恒转 GET 弃体；301/302 携 POST 按浏览器兼容转
             // GET（RFC 保留方法但现实生态如此）；307/308 保方法保体

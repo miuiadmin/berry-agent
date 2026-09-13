@@ -188,6 +188,60 @@ describe('卫生件 4：重定向逐跳跟随', () => {
     expect(result.body).toBe('not moved');
     expect(result.redirects).toBe(0);
   });
+
+  it('跨源跳转剥凭证头（Authorization/Cookie/Proxy-Authorization——对齐 fetch 规范跨源重定向剥头语义）', async () => {
+    const calls: Array<{ url: string; init?: WebFetchInit }> = [];
+    const service = createWebFetchService({
+      ...baseInit,
+      fetchImpl: scriptedFetch(
+        [
+          new Response(null, { status: 302, headers: { location: 'https://cdn.example.org/final' } }),
+          new Response('ok'),
+        ],
+        calls,
+      ),
+    });
+    const result = await service.fetch('https://example.com/start', {
+      headers: {
+        Authorization: 'Bearer sekrit',
+        Cookie: 'session=abc',
+        'Proxy-Authorization': 'Basic xyz',
+        'X-Custom': 'keep-me',
+        authorization: 'Bearer lower',
+      },
+    });
+    expect(result.status).toBe(200);
+    // 第二跳（跨源 example.com → cdn.example.org）：凭证头全剥（含小写键形），普通头保留
+    const second = calls[1]?.init?.headers as Record<string, string>;
+    expect(second['X-Custom']).toBe('keep-me');
+    expect(second.Authorization).toBeUndefined();
+    expect(second.authorization).toBeUndefined();
+    expect(second.Cookie).toBeUndefined();
+    expect(second['Proxy-Authorization']).toBeUndefined();
+    // 首跳（发起方请求自身）凭证头原样在场——剥离只发生在跨源跳转之后
+    const first = calls[0]?.init?.headers as Record<string, string>;
+    expect(first.Authorization).toBe('Bearer sekrit');
+  });
+
+  it('同源跳转凭证头保留（origin 未变不剥）', async () => {
+    const calls: Array<{ url: string; init?: WebFetchInit }> = [];
+    const service = createWebFetchService({
+      ...baseInit,
+      fetchImpl: scriptedFetch(
+        [
+          new Response(null, { status: 302, headers: { location: '/final' } }),
+          new Response('ok'),
+        ],
+        calls,
+      ),
+    });
+    const result = await service.fetch('https://example.com/start', {
+      headers: { Authorization: 'Bearer sekrit' },
+    });
+    expect(result.status).toBe(200);
+    const second = calls[1]?.init?.headers as Record<string, string>;
+    expect(second.Authorization).toBe('Bearer sekrit');
+  });
 });
 
 describe('卫生件 5：字节上限（截断非拒）', () => {
