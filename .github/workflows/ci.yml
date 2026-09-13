@@ -19,6 +19,12 @@ on:
     branches: [main, dev]
   pull_request:
 
+# 全 job 无写面需求（checkout + 只读检查；release-drill 零推送零留痕）——
+# 顶层钉最小权限，GITHUB_TOKEN 不按仓库缺省权限下发；未来真发 job 需写时
+# 按 job 单独提权（2026-09-14 扫描三役 F29）
+permissions:
+  contents: read
+
 jobs:
   # 公开仓配套面在场锁——不装依赖，纯文件检查
   repo-files:
@@ -57,8 +63,9 @@ jobs:
           # 文案锁：公开文档面安装指引禁「curl … | sh」管道直灌形——
           # 两段式纪律（连接中段断裂会让 shell 执行半截脚本）。
           # 正则必含 http：只咬真实直灌命令（带 URL），不咬「不要写成
-          # curl … | sh」一类警示提及
-          if grep -REn 'curl[^|]*http[^|]*\|[[:space:]]*(ba)?sh' README.md docs/; then
+          # curl … | sh」一类警示提及。README*.md glob 恰收根目录全语言
+          # README（六件——runner shell 展开形；新译文落位自动入锁）
+          if grep -REn 'curl[^|]*http[^|]*\|[[:space:]]*(ba)?sh' README*.md docs/; then
             echo '::error::公开文档面出现「curl … | sh」管道直灌安装形——须为两段式（先落盘再执行）'
             exit 1
           fi

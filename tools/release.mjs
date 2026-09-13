@@ -504,7 +504,16 @@ export function realSeams() {
       }
       return join(outDir, `berry-agent-${v}.tgz`);
     },
-    readmeText: () => readFileSync(join(REPO_ROOT, 'README.md'), 'utf8'),
+    // 契约 4 读面 = README 全语言族拼合（根 README*.md——npm always-included
+    // 族随包走，占位符门不得漏检任一译文；动态 glob 形——新语言落位即自动
+    // 入检，fail-safe 方向无需枚举同步。2026-09-14 扫描三役 F22 勘正：修前
+    // 只读根 README.md 单件，五译文占位符漏检）
+    readmeText: () =>
+      readdirSync(REPO_ROOT)
+        .filter((f) => /^README.*\.md$/.test(f))
+        .sort()
+        .map((f) => readFileSync(join(REPO_ROOT, f), 'utf8'))
+        .join('\n\n'),
     smoke: async (tarballPath) => runSmoke(tarballPath, version, await getCoreIds()),
     publish: (tarballPath, o) => {
       const args = ['publish', tarballPath];
