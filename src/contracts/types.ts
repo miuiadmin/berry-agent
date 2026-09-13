@@ -234,6 +234,12 @@ export interface SubagentRequest {
    * 只读观察非信号——轮询/桥接形态由工厂自选。
    */
   readonly stopRequested?: () => boolean;
+  /**
+   * 机器注入位——技能正文永久注入清单（06 §11.6 skills 键 spawn 永久注入模）：
+   * 技能名数组（形状三验在工厂 spawn 时统一复验——声明式 def 填充缺省/程序化
+   * def 镜像/直呼三方同点执法）；模型侧工具 schema 不暴露。
+   */
+  readonly skills?: readonly string[];
 }
 
 /**
@@ -324,6 +330,8 @@ export interface SubagentDef {
   readonly tools?: readonly string[];
   /** 前置要求（04 §10 预检闸声明位——与 tools 白名单正交不混读） */
   readonly requires?: readonly string[];
+  /** 技能正文永久注入清单（06 §11.6 skills 键——spawn 时具名块拼入子 systemPrompt 尾） */
+  readonly skills?: readonly string[];
   /** 模型覆盖（子代理启动参数直传工厂——不进能力协商面） */
   readonly model?: string;
   /** 正文即系统提示（frontmatter 闭合 --- 之后全文） */
@@ -348,6 +356,8 @@ export interface ProgrammaticSubagentDef {
   readonly tools?: readonly string[];
   /** 前置要求（04 §10 预检闸声明位——与 tools 白名单正交不混读） */
   readonly requires?: readonly string[];
+  /** 技能正文永久注入清单（06 §11.6 skills 键——镜像 frontmatter 形；spawn 时统一复验） */
+  readonly skills?: readonly string[];
   /** 模型覆盖（子代理启动参数直传工厂——不进能力协商面） */
   readonly model?: string;
   /** 子代理系统提示（程序化腿无文件载体——正文直传） */
@@ -355,14 +365,21 @@ export interface ProgrammaticSubagentDef {
 }
 
 /**
- * 形状同构锁：ProgrammaticSubagentDef ≡ Omit<SubagentDef, 'filePath'>（双向可赋）。
- * 声明式 def 增删字段时此处编译红——「镜像形」由类型系统执法而非注释自觉
- * （漂移窗口零化）。
+ * 形状同构锁：ProgrammaticSubagentDef ≡ Omit<SubagentDef, 'filePath'>（双向可赋
+ * + 键集双向含）。声明式 def 增删字段时此处编译红——「镜像形」由类型系统执法
+ * 而非注释自觉（漂移窗口零化）。keyof 级是必要的：optional 键不参与结构子类型
+ * （{a:string} extends {a:string,b?:number} 为真），只查赋值兼容对「镜像腿漏带
+ * optional 键」不红（⑤ 批实证——skills 键曾靠手动补）；键集双向比对补齐此盲区。
  */
+type SubagentDefMirrorKeys = keyof Omit<SubagentDef, 'filePath'>;
 type ProgrammaticDefMirrorsSubagentDef =
   ProgrammaticSubagentDef extends Omit<SubagentDef, 'filePath'>
     ? Omit<SubagentDef, 'filePath'> extends ProgrammaticSubagentDef
-      ? true
+      ? keyof ProgrammaticSubagentDef extends SubagentDefMirrorKeys
+        ? SubagentDefMirrorKeys extends keyof ProgrammaticSubagentDef
+          ? true
+          : never
+        : never
       : never
     : never;
 void (true satisfies ProgrammaticDefMirrorsSubagentDef);

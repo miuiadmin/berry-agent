@@ -326,7 +326,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       extraTools: () => boot.tools.definitions(),
     });
     expect(assembly.tools.map((tool) => tool.name)).toContain('fetch');
-    expect(assembly.tools).toHaveLength(24); // fs 四 + 检索两 + bash + todo + fetch + skill_manage + lsp 静态四 + browser 十（批 19d 三桥入册）
+    expect(assembly.tools).toHaveLength(25); // fs 四 + 检索两 + bash + todo + fetch + skill_manage + load_skill + lsp 静态四 + browser 十（⑤ 批 load_skill 入册）
     assembly.dispose();
   });
 

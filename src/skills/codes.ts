@@ -29,7 +29,8 @@ registerErrorCodes([
   {
     code: 'SKILLS_NOT_FOUND',
     module: 'skills',
-    description: 'skill_manage patch 目标技能不在注册表（先刷新后改；盘上有坏文件不入册者同报——修坏文件走人面）',
+    description:
+      '注册表查无该名——skill_manage patch 目标不在册（先刷新后改；盘上坏文件不入册者同报，修坏文件走人面）与 load_skill name 未命中（指路 <available_skills> 清单）两消费面（06 §12.1/§11.5）',
   },
   {
     code: 'SKILLS_LAYER_READONLY',

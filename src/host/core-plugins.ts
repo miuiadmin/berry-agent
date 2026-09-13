@@ -84,6 +84,7 @@ import { createSchedulerTickRunner, type IssuePollFace } from './scheduler-tick.
 import { createFetchTool, createInFlightGate, createWebFetchService, DEFAULT_WEB_LIMITS } from '../web/index.js';
 import type { InFlightGate, WebFetchService } from '../web/index.js';
 import {
+  createLoadSkillTool,
   createSkillManageTool,
   createSkillsRegistry,
   createStandardLayers,
@@ -486,10 +487,11 @@ export interface CorePluginHostDeps {
 /**
  * core:skills——技能注册表装载（06 §11 渐进披露装载态兑现）：标准六位层
  * 构造 + 全量 refresh 落快照 + 'skills' 服务面供给（插件 tryGet 消费）+
- * skill_manage 工具（boot 全局层散装注册——bootTools 重放消费腿）+
- * 'skills/manifest' 提示词段（每请求物化——registry 快照变化即生效，
- * 06 §11.3 渐进披露的「披露清单」半边；激活半边 = 模型显式读 SKILL.md
- * 归 agent 工具面）。
+ * skill_manage 管理工具 + load_skill 装载工具（boot 全局层散装注册——
+ * bootTools 重放消费腿；06 §11.5(a) 按需拉取模）+ 'skills/manifest'
+ * 提示词段（每请求物化——registry 快照变化即生效，06 §11.3 渐进披露的
+ * 「披露清单」半边；装载半边 = load_skill 具名通道 / read FS 通道归
+ * agent 工具面）。
  *
  * 磁盘件技能目录载荷层（06 §11.4 位 4）不在此 apply——装载序结构性晚到
  * （synthesizePlan core 行先入 plan，磁盘件 manifest.skills 此刻未激活），
@@ -520,13 +522,15 @@ function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // 可写面 = project `.agents/skills`（06 §11 用户/跨库层只读——写点
       // 前置断言面在件内）
       const workspaceRoot = () => canonicalWorkspaceRoot();
-      const disposeTool = context.tools.register(
+      const disposeManageTool = context.tools.register(
         createSkillManageTool({
           registry,
           workspaceRoot,
           writableRoots: () => [join(workspaceRoot(), '.agents', 'skills')],
         }),
       );
+      // load_skill：按需拉取模装载工具（06 §11.5(a) 具名通道——只读无审批对）
+      const disposeLoadTool = context.tools.register(createLoadSkillTool({ registry }));
       // 披露清单段：builder 每请求物化时重取快照（PromptSectionBuilder
       // 求值即取——refresh 后变化自然生效）
       const disposeSection = context.prompts.registerSection(
@@ -535,7 +539,8 @@ function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
       );
       return () => {
         disposeSection();
-        disposeTool();
+        disposeLoadTool();
+        disposeManageTool();
       };
     },
   };

@@ -15,6 +15,7 @@ export {
   SKILL_MANIFEST_BYTE_CAP,
   SKILL_NAME_MAX,
   SKILL_PROVENANCE_MEMORIES_MAX,
+  SKILL_REFS_MAX,
   SKILL_SNAPSHOT_CAP,
 } from './types.js';
 export type {
@@ -28,11 +29,11 @@ export type {
 } from './types.js';
 
 // frontmatter 解析与单文件装载
-export { loadSkillFromText, parseSkillFrontmatter, validateSkillName } from './frontmatter.js';
+export { loadSkillFromText, parseSkillFrontmatter, validateSkillName, validateSkillRefList } from './frontmatter.js';
 export type { LoadSkillResult, SkillFrontmatterError, SkillFrontmatterParse } from './frontmatter.js';
 
-// 渐进披露第三层细化（节级寻址/行级过滤）
-export { filterSkillBody, findSkillSection, splitSkillSections } from './sections.js';
+// 渐进披露第三层细化（节级寻址/行级过滤/模式词表推导）
+export { deriveModeVocabulary, filterSkillBody, findSkillSection, splitSkillSections } from './sections.js';
 export type { FilterSkillBodyOptions, FindSkillSectionResult, SkillSection } from './sections.js';
 
 // 发现六位序列（目录扫描 + 标准层构造）
@@ -55,10 +56,14 @@ export type {
 export { createSkillsRegistry } from './registry.js';
 export type { SkillsRegistry, SkillsRegistryOptions } from './registry.js';
 
-// 渐进披露渲染层（清单块 + 激活包装）
-export { formatSkillInvocation, parseSkillInvocation, renderAvailableSkills } from './render.js';
+// 渐进披露渲染层（清单块 + 具名块单源 + 激活包装）
+export { formatSkillBlock, formatSkillInvocation, parseSkillInvocation, renderAvailableSkills } from './render.js';
 export type { RenderedSkillManifest, RenderSkillManifestOptions, SkillInvocation } from './render.js';
 
-// skill_manage 工具
+// skill_manage 工具（§12.1 管理动词）
 export { createSkillManageTool } from './manage.js';
 export type { SkillManageDeps } from './manage.js';
+
+// load_skill 工具（§11.5(a) 按需拉取模——具名通道）
+export { createLoadSkillTool } from './load.js';
+export type { LoadSkillDeps } from './load.js';

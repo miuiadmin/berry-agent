@@ -9,7 +9,7 @@
  */
 import { basename, dirname } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX, SKILL_PROVENANCE_MEMORIES_MAX } from './types.js';
+import { SKILL_DESCRIPTION_MAX, SKILL_NAME_MAX, SKILL_PROVENANCE_MEMORIES_MAX, SKILL_REFS_MAX } from './types.js';
 import type { Skill, SkillDiagnostic, SkillSectionSkeleton } from './types.js';
 import { splitSkillSections } from './sections.js';
 
@@ -94,6 +94,32 @@ export function validateSkillName(name: string): string[] {
   }
   if (name.includes('--')) {
     errors.push('name 不得含连续连字符');
+  }
+  return errors;
+}
+
+/**
+ * 技能引用清单校验（06 §11.6 skills 键形状护栏——帽 8 / 词法 / 重复三验单源）。
+ *
+ * 消费面两腿同一真源：agents frontmatter 解析层 + 子代理工厂 spawn 前复验
+ * （解析层管形状、工厂复验兜底——程序化注册与直呼 SubagentRequest 绕过解析层，
+ * 工厂侧是唯一全覆盖执法点）。存在性不在本函数查（装载序晚于装配期物化，
+ * 存在性归工厂 resolve 时点）。返回违例清单（空 = 合法）。
+ */
+export function validateSkillRefList(names: readonly string[]): string[] {
+  const errors: string[] = [];
+  if (names.length > SKILL_REFS_MAX) {
+    errors.push(`skills 引用超 ${SKILL_REFS_MAX} 项（现 ${names.length}）`);
+  }
+  const seen = new Set<string>();
+  for (const name of names) {
+    for (const error of validateSkillName(name)) {
+      errors.push(`skills 项「${name}」${error}`);
+    }
+    if (seen.has(name)) {
+      errors.push(`skills 项「${name}」重复`);
+    }
+    seen.add(name);
   }
   return errors;
 }

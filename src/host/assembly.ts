@@ -496,6 +496,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         // reserve 线判定（批 H——04 §5 非交互子代理 90% 线强停）：投影读面与
         // 预警三档同账（backgroundUsage 单源），阈值常量 SUBAGENT_RESERVE_THRESHOLD
         reserveBreached: () => stack.llm.backgroundUsage().ratio >= SUBAGENT_RESERVE_THRESHOLD,
+        // skills 键解析位（⑤ 批——06 §11.6 skills 键存在性执法的装配位单
+        // 真身）：scope 晚绑取用与 resyncPluginSkillLayers/closer 同形（换代
+        // 自适——/reload 重挂 core:skills 即换新 registry 实例）；--no-plugins
+        // 或 core:skills 缺席形 tryGet undefined → skills 键 spawn 拒
+        //（fail-closed 同 requires 语义，不静默丢注入）
+        resolveSkill: (name) => scope.tryGet<SkillsRegistry>('skills')?.get(name),
       }),
     );
     // boot 全局层工具执行时语境解析闭包（批 19c-1——深度登记表 ?? 根 1；

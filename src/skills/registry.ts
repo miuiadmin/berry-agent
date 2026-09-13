@@ -67,10 +67,13 @@ export function createSkillsRegistry(options: SkillsRegistryOptions = {}): Skill
     const merged = new Map<string, Skill>(); // name → skill（first-wins）
     const diagnostics: SkillDiagnostic[] = [];
     let collisions = 0;
+    // pass 域去重集：本轮 refresh 新铸（层间同文件 realpath 去重锚）——
+    // 不跨 refresh 持久（曾因持久共享集致二次 refresh 起整册静默清空）
+    const passSeen = new Set<string>();
     for (const provider of providers) {
       let scan: { skills: readonly Skill[]; diagnostics: readonly SkillDiagnostic[] };
       try {
-        scan = await provider.scan();
+        scan = await provider.scan(passSeen);
       } catch (error) {
         // 单 provider 扫描炸不拖垮其余层（坏层诊断降级——其余层技能照常服务）
         diagnostics.push({

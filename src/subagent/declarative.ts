@@ -39,6 +39,7 @@ export function defBoundProvider(def: Omit<SubagentDef, 'filePath'>, service: Su
         ...(request.model === undefined && def.model !== undefined ? { model: def.model } : {}),
         ...(request.systemPrompt === undefined ? { systemPrompt: def.systemPrompt } : {}),
         ...(request.tools === undefined && def.tools !== undefined ? { tools: [...def.tools] } : {}),
+        ...(request.skills === undefined && def.skills !== undefined ? { skills: [...def.skills] } : {}),
         name: request.name ?? def.name,
       };
       return base.run(merged) as Promise<SubagentResult>;

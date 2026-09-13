@@ -63,7 +63,7 @@ export function renderAvailableSkills(
   }
   const header = [
     '以下技能为特定任务提供专门指令。',
-    '当任务与某技能的描述匹配时，用 read 工具按 location 装载该技能全文。',
+    '当任务与某技能的描述匹配时，用 load_skill 工具按名装载该技能全文或节（section 节寻址），或用 read 工具按 location 直读全文。',
     '技能正文引用相对路径时，以技能目录（SKILL.md 父目录）为根解析为绝对路径后再使用。',
     '',
     '<available_skills>',
@@ -118,16 +118,27 @@ export interface SkillInvocation {
 }
 
 /**
- * 显式激活包装（§11.5(b)）：全文包装为具名 user message 注入（不走 FS）。
+ * 具名技能块单源（§11.5 具名块三消费面共用：显式激活包装 / load_skill 工具
+ * 回执 / skills 键 spawn 注入——06 §11.6）。
  *
- * 引导句钉相对路径解析锚（baseDir）——模型 follow-up 引用 references/ 等
- * 相对路径时的解析约定（06 §11.3 细化②薄主文件范式的配套面）。
+ * content 由调用方给定（全文 / 命中节重建 / mode 过滤形）——回执与激活包装
+ * 同形同源（formatSkillInvocation = 本件 + args 尾段）。引导句钉相对路径
+ * 解析锚（baseDir）——模型 follow-up 引用 references/ 等相对路径时的解析
+ * 约定（06 §11.3 细化②薄主文件范式的配套面）。
+ */
+export function formatSkillBlock(skill: Skill, content: string): string {
+  const head = `<skill name="${escapeXml(skill.name)}" location="${escapeXml(skill.filePath)}">`;
+  const body = `引用相对路径以 ${skill.baseDir} 为根解析。\n\n${content}`;
+  return `${head}\n${body}\n</skill>`;
+}
+
+/**
+ * 显式激活包装（§11.5(b)）：全文包装为具名 user message 注入（不走 FS）。
  */
 export function formatSkillInvocation(skill: Skill, args?: string): string {
-  const head = `<skill name="${escapeXml(skill.name)}" location="${escapeXml(skill.filePath)}">`;
-  const body = `引用相对路径以 ${skill.baseDir} 为根解析。\n\n${skill.content}`;
+  const block = formatSkillBlock(skill, skill.content);
   const tail = args !== undefined && args.trim() !== '' ? `\n\n${args}` : '';
-  return `${head}\n${body}\n</skill>${tail}`;
+  return `${block}${tail}`;
 }
 
 /**

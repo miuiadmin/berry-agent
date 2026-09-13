@@ -1,7 +1,7 @@
 /**
  * 声明式子代理解析层（06 §11.6——解析层住 core:skills、机器住 core:subagent）。
  *
- * agents/*.md = frontmatter（name/description/tools/requires/model）+ 正文即
+ * agents/*.md = frontmatter（name/description/tools/requires/skills/model）+ 正文即
  * 系统提示。发现位置镜像技能位 1-4：project `.agents/agents`（需目录信任）>
  * user `<dataDir>/agents` > 跨库 `~/.agents/agents` 与 `~/.claude/agents` >
  * 插件声明载荷；位 5 CLI/动态不纳入、位 6 无出厂位。层序即信任序，
@@ -17,7 +17,7 @@ import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { SubagentDef } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
-import { parseSkillFrontmatter, validateSkillName } from './frontmatter.js';
+import { parseSkillFrontmatter, validateSkillName, validateSkillRefList } from './frontmatter.js';
 import { SKILL_DESCRIPTION_MAX, type SkillDiagnostic } from './types.js';
 
 /** 解析失败形态（人读原因——诊断面直接透传，镜像 SkillFrontmatterError） */
@@ -38,7 +38,8 @@ export type ParsedAgentDef = SubagentDef | AgentDefError;
  *  - name 缺席 → 回落文件基名（去 .md）；提供时须与基名一致（身份键纪律：
  *    静态工具名 agent_<name> 与文件名漂移即双名混乱）且过技能名词法
  *    （物化为工具名的词法安全面）——违例拒（name 是注册键不宽容）；
- *  - tools/requires 非字符串数组 → 拒；model 非字符串 → 拒；
+ *  - tools/requires/skills 非字符串数组 → 拒；model 非字符串 → 拒；
+ *    skills 项数帽 8/项词法/重复项拒（06 §11.6 形状护栏——存在性归工厂复验）；
  *  - 正文空（trim 后）→ 拒（正文即系统提示——空正文无装载面）；
  *  - 未采用字段（license 等生态超集）→ 静默忽略（生态宽容——CC 形可装载）。
  */
@@ -69,11 +70,19 @@ export function parseAgentDef(raw: string, context: { filePath: string }): Parse
     return { error: nameErrors.join('；') };
   }
 
-  // tools/requires：可选字符串数组（白名单与前置要求正交——语义执法在机器侧）
+  // tools/requires/skills：可选字符串数组（白名单/前置要求/技能注入三键正交——语义执法在机器侧）
   const tools = parseStringList(frontmatter['tools'], 'tools');
   if ('error' in tools) return { error: tools.error };
   const requires = parseStringList(frontmatter['requires'], 'requires');
   if ('error' in requires) return { error: requires.error };
+  // skills 键形状三验在解析层（帽 8/技能名词法/重复拒——06 §11.6 声明面低宽容）；
+  // 存在性不在此查（装载序晚于装配期物化——存在性归工厂 spawn 时点复验）
+  const skills = parseStringList(frontmatter['skills'], 'skills');
+  if ('error' in skills) return { error: skills.error };
+  const skillRefErrors = skills.value !== undefined ? validateSkillRefList(skills.value) : [];
+  if (skillRefErrors.length > 0) {
+    return { error: skillRefErrors.join('；') };
+  }
 
   // model：可选字符串（模型覆盖——启动参数直传工厂）
   const rawModel = frontmatter['model'];
@@ -91,6 +100,7 @@ export function parseAgentDef(raw: string, context: { filePath: string }): Parse
     description,
     ...(tools.value !== undefined ? { tools: tools.value } : {}),
     ...(requires.value !== undefined ? { requires: requires.value } : {}),
+    ...(skills.value !== undefined ? { skills: skills.value } : {}),
     ...(rawModel !== undefined ? { model: rawModel } : {}),
     systemPrompt: parsed.body,
     filePath: context.filePath,

@@ -449,7 +449,7 @@
       "since": "1.0",
       "desc": "程序化 named provider 注册 def（03 §2.2 第十二动词 ctx.agent.registerSubagentProvider 单参——04 §10 程序化注册槽段机制真源）",
       "kind": "interface",
-      "sig": "0565bdd00e913f73"
+      "sig": "026e057ad79a62a1"
     },
     {
       "symbol": "RetryProbe",
@@ -566,7 +566,7 @@
       "since": "1.0",
       "desc": "声明式子代理解析产物（06 §11.6 agents/*.md 纯数据 def）",
       "kind": "interface",
-      "sig": "3971c91244b3f315"
+      "sig": "39d4cd0c4c3cd5a7"
     },
     {
       "symbol": "SubagentProvider",
@@ -584,7 +584,7 @@
       "since": "1.0",
       "desc": "委派请求（04 §10：请求含 prompt、工具白名单、模型覆盖——其余为机器注入位，模型侧工具 schema 不暴露）",
       "kind": "interface",
-      "sig": "a724232fce16ee36"
+      "sig": "12f0cd32cdd5a338"
     },
     {
       "symbol": "SubagentResult",

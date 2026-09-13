@@ -24,6 +24,8 @@ import type {
 } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { EXCLUDED_FROM_DERIVED_SURFACE, IN_PROCESS_CAPABILITIES } from '../subagent/index.js';
+import { formatSkillBlock, validateSkillRefList } from '../skills/index.js';
+import type { Skill } from '../skills/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
 
@@ -115,6 +117,13 @@ export interface InProcessSubagentProviderOptions {
    * 不执法（测试替身/lib 形——预警软着陆层另走 driver 注入位与本腿分立）。
    */
   readonly reserveBreached?: () => boolean;
+  /**
+   * 技能解析位（06 §11.6 skills 键存在性执法——注册表唯一可达域经装配位
+   * 单真身 late-binding 持有；/reload 重挂自然换新实例）：undefined = 技能
+   * 注册表不可达（--no-plugins 形）——skills 键 spawn 拒（fail-closed 同
+   * requires 语义，不静默丢注入）。
+   */
+  readonly resolveSkill?: (name: string) => Skill | undefined;
 }
 
 /**
@@ -134,6 +143,50 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
           stopReason: 'aborted',
           diagnostic: '后台预算已达 90% reserve 线——子代理不起跑，余量留给主循环写终态（04 §5）',
         };
+      }
+      // skills 键执法（06 §11.6 spawn 永久注入模）：形状三验工厂侧统一复验
+      //（单执法点覆盖声明式 def/程序化 def/直呼 request 全腿——解析层管形状、
+      // 工厂兜底：程序化与直呼腿不经解析层）；存在性逐名解析，任一缺席 =
+      // 拒 spawn 回执缺口 fail-ask（不建会话不耗预算——reserve 线同形）。
+      // disable-model-invocation 隐藏件不受限（作者侧声明面——清单滤除律
+      // 只限模型自动装载面）。
+      let childSystemPrompt = request.systemPrompt;
+      if (request.skills !== undefined && request.skills.length > 0) {
+        const shapeErrors = validateSkillRefList(request.skills);
+        if (shapeErrors.length > 0) {
+          return {
+            output: '',
+            stopReason: 'aborted',
+            diagnostic: `skills 键形状违例：${shapeErrors.join('；')}——子代理不起跑（06 §11.6 形状护栏）`,
+          };
+        }
+        if (options.resolveSkill === undefined) {
+          return {
+            output: '',
+            stopReason: 'aborted',
+            diagnostic: '技能注册表不可达（无插件装配形）——skills 键子代理不起跑（fail-closed，06 §11.6）',
+          };
+        }
+        const missing: string[] = [];
+        const blocks: string[] = [];
+        for (const ref of request.skills) {
+          const skill = options.resolveSkill(ref);
+          if (skill === undefined) {
+            missing.push(ref);
+          } else {
+            blocks.push(formatSkillBlock(skill, skill.content));
+          }
+        }
+        if (missing.length > 0) {
+          return {
+            output: '',
+            stopReason: 'aborted',
+            diagnostic: `技能未解析（${missing.join('、')}）——子代理不起跑（06 §11.6 skills 键 fail-ask）；可查 <available_skills> 清单核对名称`,
+          };
+        }
+        // 全命中：具名块拼入子 systemPrompt 尾（systemPrompt 缺席 = 空串起拼
+        //——注入不依赖其在场；与清单渐进披露并存——额外正文常驻非替代披露）
+        childSystemPrompt = `${request.systemPrompt ?? ''}\n\n${blocks.join('\n\n')}`;
       }
       // service 已在 request.tools 位算好 effectiveTools（availableTools 在场
       // = 派生面∩白名单交集；缺席 = 透传白名单）——整形器以之为准
@@ -161,13 +214,14 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
             }
           : undefined;
       // 子会话装配（真工厂核心）：origin 'delegation' durable 归因；model/
-      // systemPrompt def 直传；shapeTools 派生面整形；askApproval 升父面。
+      // systemPrompt def 直传（skills 注入后形）；shapeTools 派生面整形；
+      // askApproval 升父面。
       const child = stack.manager.create({
         origin: 'delegation',
         workspaceRoot: canonicalWorkspaceRoot(),
         ...(request.name !== undefined ? { title: request.name } : {}),
         ...(request.model !== undefined ? { model: request.model } : {}),
-        ...(request.systemPrompt !== undefined ? { systemPrompt: request.systemPrompt } : {}),
+        ...(childSystemPrompt !== undefined ? { systemPrompt: childSystemPrompt } : {}),
         shapeTools: shapeDerivedTools(whitelist),
         ...(askApproval !== undefined ? { askApproval } : {}),
       });

@@ -40,7 +40,7 @@ function agentFile(fields: Record<string, string> = {}, body = '你是搜索专�
 }
 
 describe('parseAgentDef frontmatter 处置', () => {
-  it('全形：name/description/tools/requires/model + 正文即系统提示（原样保留）', () => {
+  it('全形：name/description/tools/requires/skills/model + 正文即系统提示（原样保留）', () => {
     const raw = [
       '---',
       'name: researcher',
@@ -50,6 +50,8 @@ describe('parseAgentDef frontmatter 处置', () => {
       '  - web',
       'requires:',
       '  - lsp',
+      'skills:',
+      '  - code-review',
       'model: m1',
       '---',
       '你是调研员。',
@@ -63,6 +65,7 @@ describe('parseAgentDef frontmatter 处置', () => {
       description: '深度调研员',
       tools: ['grep', 'web'],
       requires: ['lsp'],
+      skills: ['code-review'],
       model: 'm1',
       systemPrompt: '你是调研员。\n多行正文保留缩进。',
       filePath: '/x/researcher.md',
@@ -114,6 +117,41 @@ describe('parseAgentDef frontmatter 处置', () => {
     ).toBe(true);
     expect('error' in parseAgentDef('---\ndescription: d\nrequires: lsp\n---\nb', { filePath: '/x/a.md' })).toBe(true);
     expect('error' in parseAgentDef('---\ndescription: d\nmodel: 42\n---\nb', { filePath: '/x/a.md' })).toBe(true);
+  });
+
+  it('skills 键合法——字符串数组入 def；缺席不落键', () => {
+    const raw = '---\ndescription: d\nskills:\n  - code-review\n  - commit-style\n---\nb';
+    const parsed = parseAgentDef(raw, { filePath: '/x/a.md' });
+    expect('error' in parsed).toBe(false);
+    if ('error' in parsed) return;
+    expect(parsed.skills).toEqual(['code-review', 'commit-style']);
+    const absent = parseAgentDef('---\ndescription: d\n---\nb', { filePath: '/x/a.md' });
+    expect('error' in absent).toBe(false);
+    if ('error' in absent) return;
+    expect(absent.skills).toBeUndefined();
+  });
+
+  it('skills 键形状三验——超帽 8/词法/重复均拒（存在性不查——归工厂复验）', () => {
+    // 超帽
+    const nine = Array.from({ length: 9 }, (_, i) => `skill-${i}`).join('\n  - ');
+    expect('error' in parseAgentDef(`---\ndescription: d\nskills:\n  - ${nine}\n---\nb`, { filePath: '/x/a.md' })).toBe(
+      true,
+    );
+    // 词法违例（大写）
+    expect('error' in parseAgentDef('---\ndescription: d\nskills:\n  - BadName\n---\nb', { filePath: '/x/a.md' })).toBe(
+      true,
+    );
+    // 重复
+    expect(
+      'error' in parseAgentDef('---\ndescription: d\nskills:\n  - demo\n  - demo\n---\nb', { filePath: '/x/a.md' }),
+    ).toBe(true);
+    // 非字符串数组
+    expect('error' in parseAgentDef('---\ndescription: d\nskills: demo\n---\nb', { filePath: '/x/a.md' })).toBe(true);
+    // 存在性不在解析层查（装载序晚于装配期物化——任意合法名均可过）
+    const ghost = parseAgentDef('---\ndescription: d\nskills:\n  - not-installed\n---\nb', {
+      filePath: '/x/a.md',
+    });
+    expect('error' in ghost).toBe(false);
   });
 
   it('正文空拒（正文即系统提示）；frontmatter 坏形拒；未采用字段静默忽略', () => {

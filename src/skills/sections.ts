@@ -131,6 +131,12 @@ export function findSkillSection(body: string, path: string): FindSkillSectionRe
   return { ok: false, reason: 'not-found', candidates: sections.map((s) => s.path) };
 }
 
+/** 强度表行模式标签（`| **label** | …`——行级过滤与模式词表推导共用判据） */
+const MODE_TABLE_LABEL_RE = /^\|\s*\*\*(.+?)\*\*\s*\|/;
+
+/** 带引号工作示例行模式标签（`- label: "…"`——引号是判据的一部分） */
+const MODE_EXAMPLE_LABEL_RE = /^-\s*([^:]+):\s*"/;
+
 /** 行级过滤选项（命中注入前按运行参数裁剪——模式词汇由调用方给定） */
 export interface FilterSkillBodyOptions {
   /** 模式词汇全集（如 ['lite', 'full', 'ultra']——标签命中词汇才进模式判定） */
@@ -152,17 +158,15 @@ export function filterSkillBody(body: string, options: FilterSkillBodyOptions): 
   const normalize = (label: string): string => label.trim().toLowerCase();
   const modeSet = new Set(options.modes.map(normalize));
   const active = normalize(options.active);
-  const tableLabel = /^\|\s*\*\*(.+?)\*\*\s*\|/;
-  const exampleLabel = /^-\s*([^:]+):\s*"/;
   return body
     .split('\n')
     .filter((line) => {
-      const tableMatch = tableLabel.exec(line);
+      const tableMatch = MODE_TABLE_LABEL_RE.exec(line);
       if (tableMatch !== null) {
         const label = normalize(tableMatch[1] ?? '');
         if (modeSet.has(label)) return label === active;
       }
-      const exampleMatch = exampleLabel.exec(line);
+      const exampleMatch = MODE_EXAMPLE_LABEL_RE.exec(line);
       if (exampleMatch !== null) {
         const label = normalize(exampleMatch[1] ?? '');
         if (modeSet.has(label)) return label === active;
@@ -170,4 +174,31 @@ export function filterSkillBody(body: string, options: FilterSkillBodyOptions): 
       return true;
     })
     .join('\n');
+}
+
+/**
+ * 模式词表双形交集推导（06 §11.5 load_skill mode 判据）。
+ *
+ * 词表 = 强度表行标签 ∩ 带引号示例行标签（双形同现才认模式名——单形如
+ * `| **Version** |` 只是普通表行，入词表会把非模式正文误裁）；推导域 =
+ * 待过滤正文自身（作者在正文里写了什么模式，模型就只能选什么——无第三真源）。
+ * trim+小写归一与 filterSkillBody 比对同源。
+ */
+export function deriveModeVocabulary(body: string): readonly string[] {
+  const normalize = (label: string): string => label.trim().toLowerCase();
+  const table = new Set<string>();
+  const example = new Set<string>();
+  for (const line of body.split('\n')) {
+    const tableMatch = MODE_TABLE_LABEL_RE.exec(line);
+    if (tableMatch !== null) {
+      table.add(normalize(tableMatch[1] ?? ''));
+      continue;
+    }
+    const exampleMatch = MODE_EXAMPLE_LABEL_RE.exec(line);
+    if (exampleMatch !== null) {
+      example.add(normalize(exampleMatch[1] ?? ''));
+    }
+  }
+  // 交集（table 迭代序 = 正文出现序——词表呈现稳定）
+  return [...table].filter((label) => example.has(label));
 }

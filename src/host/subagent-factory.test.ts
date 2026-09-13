@@ -19,6 +19,7 @@ import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { fauxProvider } from '../llm/index.js';
 
 import type { AgentMessage } from '../contracts/index.js';
+import type { Skill } from '../skills/index.js';
 import { createConversationStack } from './conversation-stack.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
@@ -417,6 +418,224 @@ describe('createInProcessSubagentProvider（批 19c-1——真工厂全环）', 
     faux.setResponses([() => messageOf('stop')]);
     const result = await provider.run({ prompt: '照常跑', parentSessionId: parent.sessionId, depth: 1 });
     expect(result.stopReason).toBe('stop'); // 无 reserve 判定面即无强停腿
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- skills 键 spawn 永久注入（⑤ 批 06 §11.6） ---------------- */
+
+describe('createInProcessSubagentProvider skills 键注入与执法', () => {
+  /** 技能桩（工厂注入用——纯内存 resolve） */
+  const skillOf = (name: string, content: string): Skill => ({
+    name,
+    description: `${name} 描述`,
+    filePath: `/w/.agents/skills/${name}/SKILL.md`,
+    baseDir: `/w/.agents/skills/${name}`,
+    providerId: 'project',
+    content,
+    disableModelInvocation: false,
+    sections: [],
+  });
+
+  /** 捕获型响应（F9 锁锚——外发 LLM 请求面 systemPrompt 非信封快照） */
+  it('全命中注入：具名块拼入子 systemPrompt 尾（faux 外发面捕获）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({
+      stack,
+      tracker,
+      warn: () => {},
+      resolveSkill: (name) =>
+        name === 'code-review'
+          ? skillOf('code-review', '评审规则甲。')
+          : name === 'commit-style'
+            ? skillOf('commit-style', '提交风格乙。')
+            : undefined,
+    });
+    const parent = stack.openStartupSession(ws);
+
+    let outbound: string | undefined;
+    faux.setResponses([
+      (context) => {
+        outbound = context.systemPrompt;
+        return messageOf('stop');
+      },
+    ]);
+    const result = await provider.run({
+      prompt: '干活',
+      systemPrompt: '你是守门员。',
+      skills: ['code-review', 'commit-style'],
+      parentSessionId: parent.sessionId,
+      depth: 1,
+    });
+    expect(result.stopReason).toBe('stop');
+    // 注入 = def systemPrompt 在前 + 具名块按引用序拼尾（与清单渐进披露并存）
+    expect(outbound).toContain('你是守门员。');
+    expect(outbound).toContain('<skill name="code-review"');
+    expect(outbound).toContain('评审规则甲。');
+    expect(outbound).toContain('<skill name="commit-style"');
+    expect(outbound).toContain('提交风格乙。');
+    expect(outbound!.indexOf('你是守门员。')).toBeLessThan(outbound!.indexOf('<skill name="code-review"'));
+    expect(outbound!.indexOf('<skill name="code-review"')).toBeLessThan(
+      outbound!.indexOf('<skill name="commit-style"'),
+    );
+    await rt.shutdown();
+  });
+
+  it('systemPrompt 缺席 = 空串起拼（注入不依赖其在场）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({
+      stack,
+      tracker,
+      warn: () => {},
+      resolveSkill: (name) => (name === 'solo' ? skillOf('solo', '独技正文。') : undefined),
+    });
+    const parent = stack.openStartupSession(ws);
+
+    let outbound: string | undefined;
+    faux.setResponses([
+      (context) => {
+        outbound = context.systemPrompt;
+        return messageOf('stop');
+      },
+    ]);
+    const result = await provider.run({
+      prompt: '干活',
+      skills: ['solo'],
+      parentSessionId: parent.sessionId,
+      depth: 1,
+    });
+    expect(result.stopReason).toBe('stop');
+    expect(outbound).toContain('<skill name="solo"');
+    expect(outbound).toContain('独技正文。');
+    await rt.shutdown();
+  });
+
+  it('任一缺席 = 拒 spawn fail-ask：不建会话不耗预算 + 诊断列缺席名', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({
+      stack,
+      tracker,
+      warn: () => {},
+      resolveSkill: (name) => (name === 'present' ? skillOf('present', '在册。') : undefined),
+    });
+    const parent = stack.openStartupSession(ws);
+
+    let consumed = 0;
+    faux.setResponses([
+      () => {
+        consumed += 1;
+        return messageOf('stop');
+      },
+    ]);
+    const result = await provider.run({
+      prompt: '干活',
+      skills: ['present', 'ghost-skill'],
+      parentSessionId: parent.sessionId,
+      depth: 1,
+    });
+    expect(result.stopReason).toBe('aborted');
+    expect(result.output).toBe('');
+    expect(result.diagnostic).toContain('ghost-skill');
+    expect(result.diagnostic).toContain('skills 键 fail-ask');
+    expect(consumed).toBe(0); // 不耗预算——LLM 零调用
+    await rt.persistence.flush();
+    const delegation = stack.manager.list({}).filter((row) => row.origin === 'delegation');
+    expect(delegation).toHaveLength(0); // 不建会话
+    await rt.shutdown();
+  });
+
+  it('resolveSkill 缺席（--no-plugins 形）= fail-closed 拒', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({ stack, tracker, warn: () => {} });
+    const parent = stack.openStartupSession(ws);
+
+    const result = await provider.run({
+      prompt: '干活',
+      skills: ['any-skill'],
+      parentSessionId: parent.sessionId,
+      depth: 1,
+    });
+    expect(result.stopReason).toBe('aborted');
+    expect(result.diagnostic).toContain('技能注册表不可达');
+    await rt.shutdown();
+  });
+
+  it('形状违例工厂侧复验拒（直呼 request 绕过解析层的兜底执法）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({
+      stack,
+      tracker,
+      warn: () => {},
+      resolveSkill: (name) => (name === 'ok-skill' ? skillOf('ok-skill', 'x') : undefined),
+    });
+    const parent = stack.openStartupSession(ws);
+
+    // 词法违例（大写）
+    const badLex = await provider.run({
+      prompt: '干活',
+      skills: ['Bad_Name'],
+      parentSessionId: parent.sessionId,
+      depth: 1,
+    });
+    expect(badLex.stopReason).toBe('aborted');
+    expect(badLex.diagnostic).toContain('形状违例');
+    // 超帽 9 项
+    const nine = Array.from({ length: 9 }, (_, i) => `skill-${i}`);
+    const badCap = await provider.run({
+      prompt: '干活',
+      skills: nine,
+      parentSessionId: parent.sessionId,
+      depth: 1,
+    });
+    expect(badCap.stopReason).toBe('aborted');
+    expect(badCap.diagnostic).toContain('形状违例');
+    await rt.shutdown();
+  });
+
+  it('disable-model-invocation 隐藏件不受限（作者侧声明面——清单滤除律只限模型装载面）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const hidden: Skill = { ...skillOf('hidden-gem', '隐藏技正文。'), disableModelInvocation: true };
+    const provider = createInProcessSubagentProvider({
+      stack,
+      tracker,
+      warn: () => {},
+      resolveSkill: (name) => (name === 'hidden-gem' ? hidden : undefined),
+    });
+    const parent = stack.openStartupSession(ws);
+
+    let outbound: string | undefined;
+    faux.setResponses([
+      (context) => {
+        outbound = context.systemPrompt;
+        return messageOf('stop');
+      },
+    ]);
+    const result = await provider.run({
+      prompt: '干活',
+      skills: ['hidden-gem'],
+      parentSessionId: parent.sessionId,
+      depth: 1,
+    });
+    expect(result.stopReason).toBe('stop');
+    expect(outbound).toContain('<skill name="hidden-gem"');
     await rt.shutdown();
   });
 });

@@ -200,8 +200,6 @@ export interface DirProviderOptions {
   readonly writable?: boolean;
   /** project 层信任锚标记（false = 跳过扫描带诊断） */
   readonly trusted?: boolean;
-  /** realpath 去重集注入（跨 provider 共享——缺省独立集合） */
-  readonly seenRealPaths?: Set<string>;
 }
 
 /**
@@ -216,7 +214,10 @@ export function createDirProvider(options: DirProviderOptions): SkillsProvider {
     roots: options.roots,
     ...(options.writable !== undefined ? { writable: options.writable } : {}),
     ...(options.trusted !== undefined ? { trusted: options.trusted } : {}),
-    scan: async (): Promise<ProviderScan> => {
+    // passSeen = 本轮扫描 pass 的去重集（registry.refresh 铸新集透传——层间
+    // 同文件去重；缺省独立集 = provider 自身多根跨根去重）。不持有跨 refresh
+    // 持久集（曾致二次 refresh 起 realpath 全「已见」整册静默清空）
+    scan: async (passSeen?: Set<string>): Promise<ProviderScan> => {
       if (options.trusted === false) {
         return {
           skills: [],
@@ -231,7 +232,7 @@ export function createDirProvider(options: DirProviderOptions): SkillsProvider {
       }
       const skills: Skill[] = [];
       const diagnostics: SkillDiagnostic[] = [];
-      const seen = options.seenRealPaths ?? new Set<string>();
+      const seen = passSeen ?? new Set<string>();
       for (const root of options.roots) {
         const scanned = await scanSkillsDir(root, { providerId: options.id, seenRealPaths: seen });
         skills.push(...scanned.skills);
@@ -270,18 +271,19 @@ export interface StandardLayersOptions {
   readonly factoryDir?: string;
   /** project 层目录信任（缺省 true——装配按信任锚集合判定注入） */
   readonly trustedProject?: boolean;
-  /** 跨 provider 共享的 realpath 去重集（缺省独立集合） */
-  readonly seenRealPaths?: Set<string>;
 }
 
 /**
  * 构造六位序列标准层（注册序即优先序——project > user > 跨库 > 插件 > 出厂；
  * provider 注册序即优先序 06 §11.3 护栏②，同名 first-wins 由扫描序表达）。
+ *
+ * realpath 去重集 pass 域律：各层不持有跨 refresh 持久去重集——层间同文件
+ * 去重由注册表 refresh 时铸新集经 scan(passSeen) 透传（曾因共享持久集致
+ * 第二次 refresh 起 realpath 全「已见」整册静默清空——装配尾 resync 与
+ * skill_manage 写后刷新共用径全灭，回归锁在 discovery.test.ts）。
  */
 export function createStandardLayers(options: StandardLayersOptions): SkillsProvider[] {
   const home = options.homeDir ?? homedir();
-  const seen = options.seenRealPaths ?? new Set<string>();
-  const shared = { seenRealPaths: seen };
   const layers: SkillsProvider[] = [
     // 位 1：project `.agents/skills`（canonical 工作区根锚——与 memory owner_key/
     // project 域键同源一处实现；需目录信任、可改写）
@@ -290,31 +292,23 @@ export function createStandardLayers(options: StandardLayersOptions): SkillsProv
       roots: [join(canonicalWorkspaceRoot(options.cwd ?? process.cwd()), '.agents', 'skills')],
       writable: true,
       trusted: options.trustedProject ?? true,
-      ...shared,
     }),
     // 位 2：user `<dataDir>/skills`（无需信任）——缺席跳过（:memory: 形无
     // 用户技能面，不造空根目录）
     ...(options.dataDir !== undefined
-      ? [createDirProvider({ id: 'user', roots: [join(options.dataDir, 'skills')], ...shared })]
+      ? [createDirProvider({ id: 'user', roots: [join(options.dataDir, 'skills')] })]
       : []),
     // 位 3：跨库 `~/.agents/skills` 与 `~/.claude/skills`（agentskills.io 生态复用）
     createDirProvider({
       id: 'cross-repo',
       roots: [join(home, '.agents', 'skills'), join(home, '.claude', 'skills')],
-      ...shared,
     }),
     // 位 4：插件声明载荷层（信任序低于主人位——first-wins 全序表达）
-    ...(options.pluginLayers ?? []).map((layer) =>
-      createDirProvider({
-        ...layer,
-        seenRealPaths: seen,
-      }),
-    ),
+    ...(options.pluginLayers ?? []).map((layer) => createDirProvider({ ...layer })),
     // 位 6：宿主出厂 `<包根>/skills/`（恒扫描、末位——用户/project 同名恒压出厂件）
     createDirProvider({
       id: 'factory',
       roots: [options.factoryDir ?? resolveFactorySkillsDir()],
-      ...shared,
     }),
   ];
   return layers;

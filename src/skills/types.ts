@@ -21,6 +21,12 @@ export const SKILL_MANIFEST_BYTE_CAP = 64 * 1024;
 export const SKILL_PROVENANCE_MEMORIES_MAX = 50;
 
 /**
+ * 单条 skills 引用清单帽（agents frontmatter `skills` 键 / SubagentRequest.skills
+ * 两面同判——06 §11.6 第五键；spawn 永久注入位防正文膨胀的形状护栏之一）
+ */
+export const SKILL_REFS_MAX = 8;
+
+/**
  * 技能条目（装载态纯数据）。
  *
  * FS 假设钉死（06 §11.4）：filePath 必须真实存在且模型可 read——§11.5(a) 模型
@@ -94,8 +100,12 @@ export interface SkillsProvider {
   readonly writable?: boolean;
   /** 信任锚标记（project 层需目录信任——false 时跳过扫描带诊断，04 目录信任条） */
   readonly trusted?: boolean;
-  /** 扫描（refresh 时调用；缺省实现 = 逐 root 目录扫描） */
-  readonly scan: () => Promise<ProviderScan>;
+  /**
+   * 扫描（refresh 时调用；缺省实现 = 逐 root 目录扫描）。可选参 = 本轮扫描
+   * pass 的 realpath 去重集（registry.refresh 铸新集透传——层间同文件去重；
+   * pass 域律：不跨 refresh 持久，缺省独立集 = provider 自身跨根去重）。
+   */
+  readonly scan: (passSeen?: Set<string>) => Promise<ProviderScan>;
 }
 
 /** registry.refresh() 产物（诊断反馈 + 计数面） */

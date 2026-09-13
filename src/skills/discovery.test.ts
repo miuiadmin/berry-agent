@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDirProvider, createStandardLayers, resolveFactorySkillsDir, scanSkillsDir } from './discovery.js';
+import { createSkillsRegistry } from './registry.js';
 
 const cleanups: string[] = [];
 afterEach(async () => {
@@ -172,7 +173,7 @@ describe('createStandardLayers 六位层序', () => {
     expect(existsSync(layers[0]?.roots[0] ?? '')).toBe(true);
   });
 
-  it('共享 seenRealPaths——插件层与出厂层同文件只装一次', async () => {
+  it('pass 域去重集——同轮扫描层间同文件只装一次（registry.refresh 透传形）', async () => {
     const dir = await tmpRoot('shared');
     await writeSkill(dir, 'same');
     const home = await tmpRoot('home-isolated'); // 隔离假家目录——不触真实 HOME
@@ -183,9 +184,15 @@ describe('createStandardLayers 六位层序', () => {
       pluginLayers: [{ id: 'plug', roots: [dir] }],
       factoryDir: dir,
     });
+    // registry.refresh 每 pass 铸新集透传各层（此处直扫等价表达——一集贯全程）
+    const passSeen = new Set<string>();
     const names: string[] = [];
-    for (const layer of layers) names.push(...(await layer.scan()).skills.map((s) => s.name));
+    for (const layer of layers) names.push(...(await layer.scan(passSeen)).skills.map((s) => s.name));
     expect(names.filter((n) => n === 'same')).toHaveLength(1); // 插件层与出厂层同根去重
+    // 独立集（缺省形）各自完整扫描——层间同名兜底归 first-wins + collision 诊断
+    const independent: string[] = [];
+    for (const layer of layers) independent.push(...(await layer.scan()).skills.map((s) => s.name));
+    expect(independent.filter((n) => n === 'same')).toHaveLength(2);
   });
 
   it('dataDir 缺席跳过 user 层（批 19b-1 :memory: 装载形——余四位照常构造）', async () => {
@@ -197,6 +204,39 @@ describe('createStandardLayers 六位层序', () => {
       factoryDir: factory,
     });
     expect(layers.map((l) => l.id)).toEqual(['project', 'cross-repo', 'factory']);
+  });
+});
+
+describe('refresh 全量重扫与 pass 域去重（装配双 refresh 清册回归锁）', () => {
+  it('双 refresh 技能存活——去重集 pass 域不跨 refresh 残留（resyncPluginSkillLayers/skill_manage 写后刷新共用径）', async () => {
+    const ws = await tmpRoot('ws-2r');
+    const dataDir = await tmpRoot('data-2r');
+    const home = await tmpRoot('home-2r');
+    const factory = await tmpRoot('factory-2r');
+    await writeSkill(join(ws, '.agents', 'skills'), 'from-project');
+    await writeSkill(join(dataDir, 'skills'), 'from-user');
+    await writeSkill(factory, 'from-factory');
+    const registry = createSkillsRegistry();
+    for (const layer of createStandardLayers({ cwd: ws, dataDir, homeDir: home, factoryDir: factory })) {
+      registry.registerProvider(layer);
+    }
+    const first = await registry.refresh();
+    expect(first.total).toBe(3);
+    // 第二次 refresh（装配尾 resync / skill_manage 写后刷新等价形）——曾因
+    // 跨 refresh 持久共享 seen 集而整册静默清空（realpath 已见即跳过）
+    const second = await registry.refresh();
+    expect(second.total).toBe(3);
+    expect(
+      registry
+        .list()
+        .map((s) => s.name)
+        .sort(),
+    ).toEqual(['from-factory', 'from-project', 'from-user']);
+    // 写后刷新等价形：新落技能第三 refresh 可见（skill_manage create 后自动刷新）
+    await writeSkill(join(dataDir, 'skills'), 'late-skill');
+    const third = await registry.refresh();
+    expect(third.total).toBe(4);
+    expect(registry.get('late-skill')).toBeDefined();
   });
 });
 

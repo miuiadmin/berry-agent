@@ -6,7 +6,7 @@
  * filterSkillBody 引号判据（普通规则行绝不误杀——ponytail 实测教训）。
  */
 import { describe, expect, it } from 'vitest';
-import { filterSkillBody, findSkillSection, splitSkillSections } from './sections.js';
+import { deriveModeVocabulary, filterSkillBody, findSkillSection, splitSkillSections } from './sections.js';
 
 describe('splitSkillSections 切节', () => {
   it('级别嵌套——祖先路径以 > 连接', () => {
@@ -123,5 +123,27 @@ describe('filterSkillBody 行级过滤（ponytail 形）', () => {
   it('无模式行正文原样往返', () => {
     const body = '# T\n\n- a: "quoted"\n';
     expect(filterSkillBody(body, { modes: [], active: 'x' })).toBe(body);
+  });
+});
+
+describe('deriveModeVocabulary 双形交集推导（06 §11.5 load_skill 词表）', () => {
+  it('双形同现才入词表——表行 ∩ 带引号示例行', () => {
+    const body = '| **Lite** | 快 |\n| **Full** | 全 |\n- lite: "轻"\n- full: "全"\n- other: "他"\n';
+    expect(deriveModeVocabulary(body)).toEqual(['lite', 'full']);
+  });
+
+  it('单形在场不入词表（普通表行防误杀）', () => {
+    const body = '| **Version** | 1 |\n- lite: "轻"\n';
+    expect(deriveModeVocabulary(body)).toEqual([]); // version 无示例形、lite 无表行形
+  });
+
+  it('trim + 小写归一（与 filterSkillBody 比对同源）', () => {
+    const body = '| **  Lite ** | x |\n-  Lite: "轻"\n';
+    expect(deriveModeVocabulary(body)).toEqual(['lite']);
+  });
+
+  it('词表序 = 表行出现序（呈现稳定）', () => {
+    const body = '| **b** | 2 |\n| **a** | 1 |\n- a: "甲"\n- b: "乙"\n';
+    expect(deriveModeVocabulary(body)).toEqual(['b', 'a']);
   });
 });

@@ -1716,3 +1716,123 @@ describe('/plugins config 表单与 ctx.ui 问询 e2e（ix-4——表单写读�
     }
   });
 });
+
+/* ------------- skills 双注入位与自愈重注入装配锁（⑤ 批——06 §11.5/§11.6） ------------- */
+
+describe('skills 双注入位装配 e2e（⑤ 批）', () => {
+  /** user 层技能 + 声明式 agent 落盘（dataDir/skills + dataDir/agents——user 层标准位） */
+  function seedSkillsAndAgent(dir: string): void {
+    mkdirSync(join(dir, 'skills', 'commit-style'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'commit-style', 'SKILL.md'),
+      '---\nname: commit-style\ndescription: 提交信息风格守则\n---\n# 提交规范\n\n提交规范正文：动词开头、单逻辑一提交。',
+    );
+    mkdirSync(join(dir, 'agents'), { recursive: true });
+    writeFileSync(
+      join(dir, 'agents', 'researcher.md'),
+      '---\ndescription: 调研专员\nskills:\n  - commit-style\n---\n你是调研专员。',
+    );
+  }
+
+  it('锁 1 子代理注入位：声明式 def skills 键 → 工厂具名块 + 清单段双在场（子代理外发面）', async () => {
+    const dir = tmpDir('host-asm-sk5-');
+    const ws = tmpDir('host-asm-sk5-ws-');
+    seedSkillsAndAgent(dir);
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-asm/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 声明式 def 物化为静态工具 agent_researcher（frontmatter skills 键随 def 闭包绑定）
+      const tool = assembly.boot.tools.definitions().find((definition) => definition.name === 'agent_researcher');
+      expect(tool).toBeDefined();
+
+      const parent = assembly.stack.openStartupSession(ws);
+      let outbound: string | undefined;
+      faux.setResponses([
+        (context) => {
+          outbound = context.systemPrompt; // 子代理外发 LLM 请求面（非信封快照）
+          return fauxText('调研完毕');
+        },
+      ]);
+      const result = await tool!.execute({ prompt: '去调研' }, { toolCallId: 'c-sk5', sessionId: parent.sessionId });
+      expect(result.isError).not.toBe(true);
+
+      // 双注入位同框：工厂具名块（spawn 永久注入——06 §11.6）+ 清单段
+      // （SessionStart 常驻——06 §11.3 护栏③每请求物化）
+      expect(outbound).toContain('你是调研专员。');
+      expect(outbound).toContain('<skill name="commit-style"');
+      expect(outbound).toContain('提交规范正文');
+      expect(outbound).toContain('<available_skills>');
+      expect(outbound).toContain('<name>commit-style</name>');
+
+      // 子会话 durable 行（真工厂全栈——origin delegation）
+      await assembly.runtime.persistence.flush();
+      const child = assembly.stack.manager.list({}).find((row) => row.origin === 'delegation');
+      expect(child).toBeDefined();
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('锁 2 自愈重注入：压缩触发后下一请求外发面清单段仍在场（transient 槽每请求重物化）', async () => {
+    const dir = tmpDir('host-asm-sk5c-');
+    const ws = tmpDir('host-asm-sk5c-ws-');
+    mkdirSync(join(dir, 'skills', 'probe-skill'), { recursive: true });
+    writeFileSync(
+      join(dir, 'skills', 'probe-skill', 'SKILL.md'),
+      '---\nname: probe-skill\ndescription: 探针技能\n---\n探针正文。',
+    );
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-asm/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 触发形压缩（任何真计量即触发）+ 插件 summarizer 固定产物（faux 响应纯对话轮）
+      const face = assembly.stack.compactionSlots.bindForPlugin({ pluginId: 'sk5-fire', inLoadWindow: () => true });
+      face.setConfig({ thresholdRatio: 0.000001, cooldownMs: 0, tailKeep: 2 });
+      face.registerSummarizer(async () => ({ text: '压缩产物' }));
+
+      const session = assembly.stack.openStartupSession(ws);
+      const log = assembly.stack.driverOf(session.sessionId)!.session;
+      const outboundPerTurn: string[] = [];
+      for (let i = 1; i <= 3; i++) {
+        faux.setResponses([
+          (context) => {
+            outboundPerTurn.push(context.systemPrompt ?? '');
+            return fauxText(`第${i}轮答复`);
+          },
+        ]);
+        await assembly.stack.submitText(session.sessionId, `第${i}轮任务`);
+      }
+      await assembly.runtime.shutdown(); // closer 序含 compaction-drain——排空后才断言
+
+      // 压缩确已发生（否则锁无意义——卫生断言）
+      const start = log.eventsOfType('compaction/start').at(-1);
+      expect(start).toBeDefined();
+      // 自愈重注入：压缩后的请求外发面仍携带清单段（builder 每请求重物化——
+      // matcher startup|clear|compact 的结构性兑现）
+      const after = outboundPerTurn.at(-1)!;
+      expect(after).toContain('<available_skills>');
+      expect(after).toContain('<name>probe-skill</name>');
+      // 每一轮都在场（常驻非一次性）
+      for (const [index, outbound] of outboundPerTurn.entries()) {
+        expect(outbound, `第${index + 1}轮`).toContain('<available_skills>');
+      }
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});

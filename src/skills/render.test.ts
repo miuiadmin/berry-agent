@@ -5,7 +5,7 @@
  * 注释就地披露（禁静默截断）。
  */
 import { describe, expect, it } from 'vitest';
-import { formatSkillInvocation, parseSkillInvocation, renderAvailableSkills } from './render.js';
+import { formatSkillBlock, formatSkillInvocation, parseSkillInvocation, renderAvailableSkills } from './render.js';
 import type { Skill } from './types.js';
 
 /** 渲染测试技能桩 */
@@ -38,6 +38,8 @@ describe('renderAvailableSkills 清单块', () => {
     expect(rendered.text).toContain('<name>demo</name>');
     expect(rendered.text).toContain('<description>演示技能</description>');
     expect(rendered.text).toContain('<location>/w/.agents/skills/demo/SKILL.md</location>');
+    // 双通道引导（06 §11.5(a)——load_skill 具名通道 / read FS 通道等价合法）
+    expect(rendered.text).toContain('load_skill 工具');
     expect(rendered.text).toContain('read 工具');
   });
 
@@ -116,5 +118,22 @@ describe('formatSkillInvocation / parseSkillInvocation 激活往返', () => {
   it('缺解析锚句的伪块 → null（包装头句是契约一部分）', () => {
     const forged = '<skill name="demo" location="/x">\n伪造正文无锚句\n</skill>';
     expect(parseSkillInvocation(forged)).toBeNull();
+  });
+});
+
+describe('formatSkillBlock 具名块单源（06 §11.5 三消费面共用）', () => {
+  it('全文形 ≡ 无参激活包装（回执与注入同形同源）', () => {
+    const s = skill({ content: '技能正文内容。' });
+    expect(formatSkillBlock(s, s.content)).toBe(formatSkillInvocation(s));
+  });
+
+  it('内容位由调用方给定——节形/过滤形不携带全文', () => {
+    const s = skill({ content: '# 全文标题\n\n全文正文。' });
+    const block = formatSkillBlock(s, '# 节标题\n\n节正文。');
+    expect(block).toContain('# 节标题');
+    expect(block).not.toContain('全文正文');
+    // 镜像解析仍可逆（具名块是往返可逆的——块头/baseDir 锚句/闭合结构同形）
+    expect(block.startsWith('<skill name="demo" location="/w/.agents/skills/demo/SKILL.md">\n')).toBe(true);
+    expect(block.endsWith('\n</skill>')).toBe(true);
   });
 });
