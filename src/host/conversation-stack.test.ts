@@ -1196,6 +1196,96 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     await rt.shutdown();
   });
 
+  it('单发计量：complete metering 归因落目标会话流 + 当日缓存同推（修前红——04 §5 mq）', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    const { faux, stack } = rigStack(rt, { warn: (m) => warns.push(m) });
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => meteredMessage(30, 12)]);
+    const result = await stack.llm.complete({
+      messages: [{ role: 'user', content: '单发', timestamp: Date.now() }],
+      priority: 'background',
+      metering: { sessionId: session.sessionId },
+    });
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const usageEvents = events.filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(1);
+    const pen = usageEvents[0]!.data as Record<string, unknown>;
+    expect(pen['callId']).toBe(result.callId); // 同源（CompleteResult.callId 直落）
+    expect(String(pen['callId'])).toMatch(/^[0-9a-f-]{36}$/); // complete 路唯一 UUID（非 run: 前缀——单发无重试落账窗口）
+    expect(pen['priority']).toBe('background');
+    expect(typeof pen['elapsedMs']).toBe('number'); // 照执行真值实录（run 路桥接无此源）
+    // 当日缓存随落账同推：spent = 转抄笔同源断言（faux 计量动态取转抄值律——不硬编）
+    const ledger = pen['usage'] as { input: number; output: number };
+    expect(stack.llm.backgroundUsage().spent).toBe(ledger.input + ledger.output);
+    expect(warns).toEqual([]); // 有归因不 warn
+    await rt.shutdown();
+  });
+
+  it('单发计量：foreground 照实录入账不进后台池（compaction 同形——04 §5 mq）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => meteredMessage(40, 8)]);
+    await stack.llm.complete({
+      messages: [{ role: 'user', content: '压缩', timestamp: Date.now() }],
+      priority: 'foreground',
+      metering: { sessionId: session.sessionId },
+    });
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const usageEvents = events.filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(1);
+    expect((usageEvents[0]!.data as Record<string, unknown>)['priority']).toBe('foreground');
+    // 前台花销照入账不进闸门（与 run 路桥接同律）
+    expect(stack.llm.backgroundUsage().spent).toBe(0);
+    await rt.shutdown();
+  });
+
+  it('单发计量：metering 缺席零落账 + warn 丢账可观测（不静默律——04 §5 mq）', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    const { faux, stack } = rigStack(rt, { warn: (m) => warns.push(m) });
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => meteredMessage(5, 5)]);
+    await stack.llm.complete({
+      messages: [{ role: 'user', content: '无归因', timestamp: Date.now() }],
+      priority: 'background',
+    });
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    expect(events.filter((e) => e.type === 'llm/usage')).toHaveLength(0);
+    expect(warns.some((w) => w.includes('metering'))).toBe(true);
+    await rt.shutdown();
+  });
+
+  it('单发计量：会话退役后 detached loadSession 仍落账（写路径律活体优先——04 §5 mq）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    await stack.submitText(session.sessionId, '先跑一轮'); // 会话行落库（loadSession 可载）
+    await rt.persistence.flush();
+    stack.manager.retire(session.sessionId); // 摘活体 → driverOf undefined
+    faux.setResponses([() => meteredMessage(20, 10)]);
+    await stack.llm.complete({
+      messages: [{ role: 'user', content: '退役后', timestamp: Date.now() }],
+      priority: 'background',
+      metering: { sessionId: session.sessionId },
+    });
+    await rt.persistence.flush();
+    // detached 腿落账 durable 可查（loadSession.log append 直通写队列）。
+    // 同流还有先跑轮 run 路桥接笔（callId 'run:' 前缀）——按 callId 形区分
+    const page = rt.persistence.store.queryEvents({ sessionId: session.sessionId, types: ['llm/usage'], sinceMs: 0 });
+    const singles = page.events.filter(
+      (e) => !String((e.data as Record<string, unknown>)['callId']).startsWith('run:'),
+    );
+    expect(singles).toHaveLength(1);
+    expect((singles[0]!.data as Record<string, unknown>)['priority']).toBe('background');
+    await rt.shutdown();
+  });
+
   it('同会话两 run 各落各账（窗锚推进——恰一笔/assistant 无双计）', async () => {
     const { rt } = rigRuntime();
     const { faux, stack } = rigStack(rt);

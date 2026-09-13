@@ -64,19 +64,22 @@ function llmStub(opts: { reply?: string; throws?: boolean; affordable?: boolean 
   face: MemoryLlmFace;
   prompts: string[];
   systemPrompts: string[];
+  sessionIds: (string | undefined)[];
 } {
   const prompts: string[] = [];
   const systemPrompts: string[] = [];
+  const sessionIds: (string | undefined)[] = [];
   const face: MemoryLlmFace = {
     async complete(req) {
       prompts.push(req.messages[0]!.content);
+      sessionIds.push(req.sessionId); // 计量归因穿线收集（04 §5 mq）
       if (req.systemPrompt !== undefined) systemPrompts.push(req.systemPrompt);
       if (opts.throws) throw new Error('llm down');
       return { message: { content: opts.reply ?? '[]' } };
     },
     canAfford: () => opts.affordable ?? true,
   };
-  return { face, prompts, systemPrompts };
+  return { face, prompts, systemPrompts, sessionIds };
 }
 
 /** 真会话形事件窗（user/assistant 两腿 + tool 面与机器源面各掺一笔） */
@@ -175,6 +178,13 @@ describe('runMemoryReview（编排全 outcome 面）', () => {
     const r = await runMemoryReview({ dao, llm: face }, 's1', sampleWindow());
     expect(r).toEqual({ outcome: 'skipped-budget', extracted: 0, discarded: 0 });
     expect(prompts).toHaveLength(0);
+  });
+
+  it('计量归因穿线：sessionId 随请求供（04 §5 mq）', async () => {
+    const dao = openDao();
+    const { face, sessionIds } = llmStub({ reply: '[]' });
+    await runMemoryReview({ dao, llm: face }, 's7', sampleWindow());
+    expect(sessionIds).toEqual(['s7']); // 周期触发会话 id 到达 complete 调用位
   });
 
   it('skipped-error：complete 抛——warn 观测面不反噬', async () => {

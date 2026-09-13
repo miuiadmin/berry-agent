@@ -85,9 +85,11 @@ function sql(text: string, ...params: (string | number)[]): void {
 function llmStub(opts: { plan?: unknown; raw?: string; affordable?: boolean; onCall?: () => void } = {}): {
   face: MemoryLlmFace;
   prompts: string[];
+  sessionIds: (string | undefined)[];
   setAffordable: (v: boolean) => void;
 } {
   const prompts: string[] = [];
+  const sessionIds: (string | undefined)[] = [];
   let affordable = opts.affordable ?? true;
   const normalizePlan = (p: unknown): unknown =>
     p === undefined || (typeof p === 'object' && p !== null && !Array.isArray(p) && Object.keys(p).length === 0)
@@ -96,12 +98,13 @@ function llmStub(opts: { plan?: unknown; raw?: string; affordable?: boolean; onC
   const face: MemoryLlmFace = {
     async complete(req) {
       prompts.push(req.messages[0]!.content);
+      sessionIds.push(req.sessionId); // 计量归因穿线收集（04 §5 mq）
       opts.onCall?.();
       return { message: { content: opts.raw ?? JSON.stringify(normalizePlan(opts.plan)) } };
     },
     canAfford: () => affordable,
   };
-  return { face, prompts, setAffordable: (v) => (affordable = v) };
+  return { face, prompts, sessionIds, setAffordable: (v) => (affordable = v) };
 }
 
 /** 整理器便捷装配（缺省参全起草值；override 面拨容量/老化/anchor） */
@@ -329,9 +332,9 @@ describe('consolidation 编排（护栏四件 + 候选集三源）', () => {
     dao.freeze(frozenId);
     sql('UPDATE memories SET updated_at = ? WHERE id = ?', nowMs - 91 * DAY, frozenId); // frozen 虽老化仍排除
 
-    const { face, prompts } = llmStub({ plan: {} });
+    const { face, prompts, sessionIds } = llmStub({ plan: {} });
     const c = consolidator(dao, face, { staleDays: 90 });
-    const r = await c.run({ pollutedSessions: ['spoll'] });
+    const r = await c.run({ pollutedSessions: ['spoll'], sessionId: 's9' });
     expect(r.outcome).toBe('ran');
     expect(prompts[0]).toContain(staleId);
     expect(prompts[0]).toContain(pollutedId);
@@ -340,6 +343,8 @@ describe('consolidation 编排（护栏四件 + 候选集三源）', () => {
     // 去重：staleId 只出现一次（多源命中不重复计）
     expect(prompts[0]!.split(staleId).length - 1).toBe(1);
     expect(r.candidateCount).toBe(2);
+    // 计量归因穿线（04 §5 mq）：input.sessionId 直达 complete 调用位（cycle.fire 供）
+    expect(sessionIds).toEqual(['s9']);
   });
 
   it('溢出面：owner 超容量的最低效用分盈余入候选（同把尺反向——升序取低分）', async () => {

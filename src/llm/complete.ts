@@ -52,6 +52,15 @@ export interface CompleteRequest {
    * 'foreground' 恒放行——用户可见请求永远优先。
    */
   priority?: 'background' | 'foreground';
+  /**
+   * 计量归因声明（04 §5 单发计量批 mq 定形——2026-09-14）：complete 是无会话
+   * 态服务，落 llm/usage 需调用方声明归因会话（服务级回调无会话位是有意契约
+   * 形非缝）。在场 → 装配层 onUsage 回调按该 sessionId 落 llm/usage durable 事件
+   *（usageBucketsOf 单源映射 + 进程内当日缓存同推）；缺席 → 不落账（装配层
+   * 落账 handler 自 warn 丢账可观测——「不静默」律）。归因三形：compaction →
+   * 压缩会话流 / goal → 绑定会话流 / memory → 周期触发会话流。
+   */
+  metering?: { sessionId: string };
 }
 
 /** 单发补全结果：终态消息 + 用量 + 计量身份（usage 已过 onUsage 计量回调） */
@@ -139,8 +148,10 @@ export interface LlmServiceOptions {
    * 用量计量回调（底账接线 seam——canAfford 数据源的写侧：host 装配根在此落
    * llm/usage durable 事件，read 侧聚合查询注入 backgroundSpentToday，两侧经
    * 事件日志闭合为同一本账）。回调异常被隔离：计量是观测面，不拖垮补全结果本身。
+   * 第三参 metering 透传 CompleteRequest.metering（04 §5 单发计量批——归因
+   * 声明随请求携带；缺席 = 调用方未声明归因，接线面自决丢账观测）。
    */
-  onUsage?: (result: CompleteResult, modelSpec: string) => void;
+  onUsage?: (result: CompleteResult, modelSpec: string, metering?: { sessionId: string }) => void;
   /**
    * onUsage 回调异常的观测面：回调抛错时携带 { callId, model, error } 上抛给
    * 接线面落 warn——llm/usage 是预算投影唯一底账，丢账不静默。llm 边表仅
@@ -364,8 +375,9 @@ export function createLlmService(options: LlmServiceOptions): LlmService {
         elapsedMs: performance.now() - startedAt,
       };
       // 计量 seam：回调异常隔离（观测面不拖垮补全结果；底账由装配层在此落 durable）
+      // 第三参透传 metering 归因声明（04 §5 单发计量批——落哪个会话流随请求携带）
       try {
-        options.onUsage?.(result, modelSpec);
+        options.onUsage?.(result, modelSpec, req.metering);
       } catch (usageErr) {
         // onUsage 异常隔离不变，但不再零可观测：llm/usage 是预算闸门唯一底账，
         // 丢账必须可观测——经 onUsageError 交接线面落 warn（04 §3.7）

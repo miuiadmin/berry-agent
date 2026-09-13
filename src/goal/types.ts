@@ -170,8 +170,12 @@ export interface GoalSessionFace {
  * depositFor 走确定性回退（objective + 计划态计数——零 LLM 依赖保底）。
  */
 export interface GoalSummarizerFace {
-  /** 单发摘要（prompt + maxChars 帽——超帽截断归实现侧） */
-  complete(request: { prompt: string; maxChars: number }): Promise<{ text: string }>;
+  /**
+   * 单发摘要（prompt + maxChars 帽——超帽截断归实现侧）。sessionId 可选归因
+   * 穿线（04 §5 单发计量批 mq——只穿线不落账，归因真源在装配层 metering）：
+   * depositFor 以 goal 绑定会话 id 供；缺席 = 不声明归因（测试替身兼容）。
+   */
+  complete(request: { prompt: string; maxChars: number; sessionId?: string }): Promise<{ text: string }>;
 }
 
 /** 唤醒裁决（wake 公开面返回——落地与否与拒因，调用方决定后续编排） */

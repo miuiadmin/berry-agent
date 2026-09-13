@@ -212,6 +212,9 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
         maxChars: summaryBudgetFor(plan.occludedChars, getConfig()),
       }),
       maxChars: summaryBudgetFor(plan.occludedChars, getConfig()),
+      // 归因穿线（04 §5 单发计量批 mq）：压缩会话 id 供通道真身落 llm/usage——
+      // 「压缩本就是该会话的压缩」归因就近诚实
+      sessionId: log.sessionId,
     });
     // 空摘要 = 通道质量异常——按通道失败收口（把内容遮在空摘要后是静默信息丢失）
     if (response.text.trim().length === 0) throw new Error('摘要通道返回空文本');

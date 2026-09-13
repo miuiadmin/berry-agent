@@ -470,10 +470,12 @@ describe('depositFor（04 §3.7 轮间沉淀——指纹缓存单发 + 确定性
   it('summarizer 成功路：缓存冷先回退、单发落地后同指纹取缓存；in-flight 守卫 + 指纹不变零重烧', async () => {
     let resolveOnce: ((text: string) => void) | undefined;
     const calls: number[] = [];
+    const sessionIds: (string | undefined)[] = []; // 计量归因穿线收集（04 §5 mq）
     const { service, session } = openService({
       summarizer: {
         complete: (req) => {
           calls.push(req.prompt.length);
+          sessionIds.push(req.sessionId); // depositFor 的绑定会话 id 到达 complete 调用位
           return new Promise((resolve) => {
             resolveOnce = (text: string) => resolve({ text });
           });
@@ -496,6 +498,8 @@ describe('depositFor（04 §3.7 轮间沉淀——指纹缓存单发 + 确定性
     resolveOnce?.('摘要：新计划');
     await new Promise((resolve) => void setTimeout(resolve, 0));
     expect(service.depositFor('s1')).toBe('摘要：新计划'); // 新单发落地缓存
+    // 计量归因穿线（04 §5 mq）：两次单发均归因绑定会话 s1
+    expect(sessionIds).toEqual(['s1', 's1']);
   });
 
   it('summarizer 失败路：失败也缓存回退（同指纹不重烧——warn 落面）', async () => {

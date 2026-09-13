@@ -87,9 +87,11 @@ export interface ConsolidateRunResult {
 export interface Consolidator {
   /**
    * 跑一轮整理。pollutedSessions = 当前 polluted 会话集（§4.1 圈候选消费面，
-   * 由周期路编排件随轮注入）。
+   * 由周期路编排件随轮注入）。sessionId = 计量归因穿线（04 §5 单发计量批 mq
+   * ——review 与 consolidation 两调用位同归因到周期触发会话；cycle.fire 供、
+   * 直调形缺席 = 不声明归因）。
    */
-  run(input?: { pollutedSessions?: readonly string[] }): Promise<ConsolidateRunResult>;
+  run(input?: { pollutedSessions?: readonly string[]; sessionId?: string }): Promise<ConsolidateRunResult>;
 }
 
 /* ---------------- LLM 计划 schema（TypeBox 深校验——未知字段拒收） ---------------- */
@@ -271,6 +273,8 @@ export function createConsolidator(deps: ConsolidateDeps): Consolidator {
             },
           ],
           priority: 'background',
+          // 计量归因穿线（04 §5 mq）：与 review 同归因到周期触发会话（cycle.fire 供）
+          ...(input?.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
         });
         const parsed = parseJsonPayload(llmTextOf(completion.message.content));
         plan = parsed !== null && Value.Check(PLAN, parsed) ? (parsed as ConsolidatePlan) : null;

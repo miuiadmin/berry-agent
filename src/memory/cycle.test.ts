@@ -61,16 +61,22 @@ function ev(type: string, seq: number, data: unknown): SessionEvent {
 }
 
 /** LLM 桩（reply = complete 回的文本；calls 面供零调用断言） */
-function llmStub(opts: { reply?: string } = {}): { face: MemoryLlmFace; prompts: string[] } {
+function llmStub(opts: { reply?: string } = {}): {
+  face: MemoryLlmFace;
+  prompts: string[];
+  sessionIds: (string | undefined)[];
+} {
   const prompts: string[] = [];
+  const sessionIds: (string | undefined)[] = [];
   const face: MemoryLlmFace = {
     async complete(req) {
       prompts.push(req.messages[0]!.content);
+      sessionIds.push(req.sessionId); // 计量归因穿线收集（04 §5 mq——review 与 consolidation 同收）
       return { message: { content: opts.reply ?? '[]' } };
     },
     canAfford: () => true,
   };
-  return { face, prompts };
+  return { face, prompts, sessionIds };
 }
 
 /** 闸门 LLM 桩（每次 complete 悬置一格，release 按序放行——多次 fire 测用） */
@@ -165,7 +171,7 @@ describe('审阅窗切片 sliceReviewWindow', () => {
 describe('fire 序（sweep 首步 → 资格 → review → consolidation → 复位）', () => {
   it('常规轮：review 拍完成 + 空库 consolidation skipped-empty（零额外 LLM 调用）+ 计数器复位', async () => {
     const dao = openDao();
-    const { face, prompts } = llmStub({ reply: '[]' });
+    const { face, prompts, sessionIds } = llmStub({ reply: '[]' });
     const c = cycle(dao, face, turns(4));
     for (let t = 1; t <= 10; t++) c.onDurableEvent('s1', ev('turn/end', t, {}));
     expect(c.dueSessions()).toEqual(['s1']);
@@ -176,6 +182,9 @@ describe('fire 序（sweep 首步 → 资格 → review → consolidation → �
     expect(r.review).toEqual({ outcome: 'ran', extracted: 0, discarded: 0 });
     expect(r.consolidation!.outcome).toBe('skipped-empty'); // 空库候选面空
     expect(prompts).toHaveLength(1); // 只有 review 一拍——consolidation 零调用
+    // 计量归因穿线（04 §5 mq）：fire(sessionId) 两调用位同归因——review 一笔到位、
+    // consolidation skipped-empty 零调用不计
+    expect(sessionIds).toEqual(['s1']);
 
     // 里程表复位：due 清空；再喂 1 回合不达阈、攒满 10 回合重新 due
     expect(c.dueSessions()).toEqual([]);

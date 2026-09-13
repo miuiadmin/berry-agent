@@ -164,6 +164,13 @@ export interface MemoryLlmFace {
     systemPrompt?: string;
     messages: readonly { role: 'user'; content: string }[];
     priority?: 'background' | 'foreground';
+    /**
+     * 计量归因穿线（04 §5 单发计量批 mq——只穿线不落账，归因真源在装配层
+     * metering）：review/consolidate 调用位以周期触发会话 id 供（fire(sessionId)
+     * 计数满阈事件所在会话——维护工作由该会话活动触发，归因锚就近诚实）。
+     * 缺席 = 不声明归因（装配层丢账可观测；测试替身旧形兼容）。
+     */
+    sessionId?: string;
   }): Promise<{ message: { content: string | readonly { type: string; text?: string }[] } }>;
   canAfford(priority: 'background' | 'foreground'): boolean;
 }

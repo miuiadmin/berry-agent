@@ -703,7 +703,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       if (deps.summarizer !== undefined && !depositInFlight.has(row.id)) {
         depositInFlight.add(row.id);
         void deps.summarizer
-          .complete({ prompt: depositPrompt(row, items), maxChars: GOAL_DEPOSIT_MAX_CHARS })
+          .complete({ prompt: depositPrompt(row, items), maxChars: GOAL_DEPOSIT_MAX_CHARS, sessionId })
           .then((out) => {
             depositCache.set(row.id, { fingerprint, text: out.text.trim() === '' ? fallback : out.text });
           })

@@ -15,7 +15,7 @@ import { SUMMARY_PREFIX } from './policy.js';
 
 /** 可编程摘要通道：脚本项 = 文本 | Error（失败） | Promise（屏障——放行前阻塞） */
 function makeChannel(scripts: (string | Error | Promise<void>)[] = []) {
-  const calls: { prompt: string; maxChars: number }[] = [];
+  const calls: { prompt: string; maxChars: number; sessionId?: string }[] = [];
   let inFlight = 0;
   let maxInFlight = 0;
   const channel: SummaryChannel = {
@@ -238,6 +238,8 @@ describe('全局串行队列', () => {
     // 两会话各自完成压缩（分账互不串扰）
     expect(logA.eventsOfType('compaction/end')).toHaveLength(1);
     expect(logB.eventsOfType('compaction/end')).toHaveLength(1);
+    // 计量归因穿线（04 §5 mq）：runHost(log) 以压缩会话 id 供通道
+    expect(rig.calls.map((c) => c.sessionId)).toEqual(['s-a', 's-b']);
   });
 });
 
@@ -593,7 +595,7 @@ describe('U4 回落三律 + 三振熔断', () => {
   });
 
   it('回落律 1（超预算）：fallback{stage=timeout} + 回落（60s 预算参数化注入短值）', async () => {
-    const calls: { prompt: string; maxChars: number }[] = [];
+    const calls: { prompt: string; maxChars: number; sessionId?: string }[] = [];
     const channel: SummaryChannel = {
       complete: async (req) => {
         calls.push({ ...req });

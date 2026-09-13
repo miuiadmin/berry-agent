@@ -328,6 +328,43 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     ...(options.hookDispatchGuard !== undefined ? { hookDispatch: options.hookDispatchGuard } : {}),
     backgroundSpentToday,
     ...(backgroundBudgetTokens !== undefined ? { backgroundBudgetTokens } : {}),
+    // —— 单发计量装配单点（04 §5 mq 定形——2026-09-14）：complete 路 onUsage
+    // 落 llm/usage（compaction/memory/goal 三调用位经三中间面 sessionId 穿线
+    // → metering 声明到此）。manager 前向引用安全（complete 调用期必已建）。
+    onUsage: (result, modelSpec, metering) => {
+      // 缺席 = 调用方未声明归因：不落账 + warn 丢账可观测（「不静默」律；
+      // lib/测试形不传 onUsage 零行为变化——本回调只存在宿主装配形）
+      if (metering === undefined) {
+        warn(
+          `llm/usage 单发落账跳过——complete 未声明 metering 归因（callId=${result.callId}, model=${modelSpec}）：丢账不静默（04 §5）`,
+        );
+        return;
+      }
+      // 写路径律：活体优先（driverOf）；会话退役后 detached loadSession
+      //（:677 既有式——loadSession.log append 直通写队列，durable）
+      const log =
+        manager.driverOf(metering.sessionId)?.session ??
+        options.runtime.persistence.loadSession(metering.sessionId).log;
+      log.append('llm/usage', {
+        callId: result.callId,
+        model: modelSpec,
+        usage: usageBucketsOf(result.usage),
+        priority: result.priority,
+        elapsedMs: result.elapsedMs,
+      } satisfies LlmUsageEventData);
+      // 进程内当日缓存随落账同推（仅 background——run 路桥接同式；先经读面
+      // 确保日键已初始化——未初始化时磁盘聚合随后自会收编本笔，双计不生）
+      if (result.priority === 'background') {
+        void backgroundSpentToday();
+        if (spentDayStart === startOfTodayMs()) spentCached += result.usage.input + result.usage.output;
+      }
+    },
+    // onUsage 回调异常的观测交接（04 §3.7——丢账不静默；llm 件窄面回调落 ctx warn）
+    onUsageError: (err, info) => {
+      warn(
+        `llm/usage 单发落账回调异常（丢账可观测）：callId=${info.callId} model=${info.model}——${err instanceof Error ? err.message : String(err)}`,
+      );
+    },
   });
 
   /**
@@ -382,10 +419,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     options.compaction ??
     createCompactionService({
       channel: {
-        complete: async ({ prompt, maxChars }) => {
+        complete: async ({ prompt, maxChars, sessionId }) => {
           const result = await llm.complete({
             messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
             priority: 'foreground',
+            // 单发计量归因（04 §5 mq）：sessionId 穿线 → metering 声明（真源在
+            // 调用方 service 侧 runHost——本适配器只透传）
+            ...(sessionId !== undefined ? { metering: { sessionId } } : {}),
           });
           // 文本块拼接 + 预算截断（防御位——prompt 指令是主预算通道）
           const text = result.message.content

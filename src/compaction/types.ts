@@ -17,8 +17,13 @@ import type { ProjectedMessage, SessionLog } from '../session/index.js';
  * 由通道真身照章入账，本模块不经手。
  */
 export interface SummaryChannel {
-  /** 单发补全：prompt 进、text 出（失败抛错——五步骨架落 end-failed 闭段） */
-  complete(request: { prompt: string; maxChars: number }): Promise<{ text: string }>;
+  /**
+   * 单发补全：prompt 进、text 出（失败抛错——五步骨架落 end-failed 闭段）。
+   * sessionId 可选归因穿线（04 §5 单发计量批 mq——只穿线不落账，归因真源在
+   * metering）：service 侧 runHost(log) 以压缩会话 id 供；测试替身/旧形缺席 =
+   * 通道真身不声明归因（装配层丢账可观测）。
+   */
+  complete(request: { prompt: string; maxChars: number; sessionId?: string }): Promise<{ text: string }>;
 }
 
 /** SummarizerFn 输入（05 §2.1 U4 provider 槽——素材给足、输出只要文本） */

@@ -177,8 +177,9 @@ export function createMemoryCycle(deps: MemoryCycleDeps): MemoryCycle {
           review = await runMemoryReview({ dao: deps.dao, llm: deps.llm, warn }, sessionId, window);
         }
 
-        // —— consolidation 拍（polluted 会话集注入——§4.1 淘汰批圈候选）
-        const consolidation = await consolidator.run({ pollutedSessions: pollution.pollutedSessions() });
+        // —— consolidation 拍（polluted 会话集注入——§4.1 淘汰批圈候选；
+        // sessionId 归因穿线——与 review 同归因到周期触发会话，04 §5 mq）
+        const consolidation = await consolidator.run({ pollutedSessions: pollution.pollutedSessions(), sessionId });
 
         // —— 计数器复位（里程表——review 完成后归零；due 同清）
         counters.delete(sessionId);

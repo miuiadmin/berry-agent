@@ -240,6 +240,8 @@ export async function runMemoryReview(
       systemPrompt: REVIEW_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: `会话 ${sessionId} 审阅窗转录：\n${lines}` }],
       priority: 'background',
+      // 计量归因穿线（04 §5 mq）：周期触发会话——fire(sessionId) 满阈所在会话
+      sessionId,
     });
     parsed = parseJsonPayload(llmTextOf(completion.message.content));
   } catch (error) {

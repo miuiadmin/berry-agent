@@ -533,6 +533,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           ...(req.systemPrompt !== undefined ? { systemPrompt: req.systemPrompt } : {}),
           messages: req.messages.map((m) => ({ role: 'user' as const, content: m.content, timestamp: Date.now() })),
           priority: req.priority ?? 'background',
+          // 单发计量归因（04 §5 mq）：sessionId 穿线 → metering 声明（真源在
+          // review/consolidate 调用位——本适配器只透传）
+          ...(req.sessionId !== undefined ? { metering: { sessionId: req.sessionId } } : {}),
         }),
       canAfford: (priority) => stack.llm.canAfford(priority),
     };
@@ -547,6 +550,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         const result = await stack.llm.complete({
           messages: [{ role: 'user', content: req.prompt, timestamp: Date.now() }],
           priority: 'background',
+          // 单发计量归因（04 §5 mq）：goal 绑定会话穿线 → metering 声明
+          ...(req.sessionId !== undefined ? { metering: { sessionId: req.sessionId } } : {}),
         });
         return { text: llmTextOf(result.message.content).slice(0, req.maxChars) };
       },
