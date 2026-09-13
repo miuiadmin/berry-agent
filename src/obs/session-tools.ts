@@ -100,7 +100,7 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
       description:
         '列出本进程在管会话清单（id/标题/血缘 origin·parentId/在飞粗状态/近次模型/updatedAt）。' +
         '默认只列本会话血缘树内会话；跨树/全会话维枚举需高危面 sessions.observe-cross 开门（未开门时跨树会话不呈现）。' +
-        '在飞粗状态由事件流尾条推导（idle = 回合闭合 / running = 回合进行中 / waiting-approval = 等待用户审批）。',
+        '在飞粗状态由事件流尾条推导（idle = 回合闭合 / running = 回合进行中 / waiting-approval = 等待用户审批 / paused = 预算停靠——预算帽尽停靠、回充唤醒）。',
       parameters: Type.Object({}, { additionalProperties: false }),
       effect: 'read',
       execute: async (): Promise<AgentToolResult> =>

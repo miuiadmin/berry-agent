@@ -11,7 +11,13 @@ import type { ToolDefinition } from '../contracts/index.js';
 import { adjudicateCapabilityDoor } from '../contracts/api.js';
 import { createSessionTools, OBSERVE_CROSS_CAPABILITY } from './session-tools.js';
 import type { SessionObserveUsedRecord, SessionToolsDeps } from './session-tools.js';
-import type { SessionEnvFace, SessionSummaryRow, SessionToolPolicySnapshot, SessionView } from './types.js';
+import type {
+  SessionEnvFace,
+  SessionLiveState,
+  SessionSummaryRow,
+  SessionToolPolicySnapshot,
+  SessionView,
+} from './types.js';
 
 /** 假 view（数据面固定——树判定受控：'in' 树内 / 其余跨树） */
 function fakeView(opts?: { inTree?: readonly string[] }): SessionView {
@@ -111,6 +117,21 @@ describe('工具族形制', () => {
     const defs = toolsFor();
     expect(tool(defs, 'session_read').description).toContain('向当事会话发消息');
     expect(tool(defs, 'session_trace').description).toContain('向当事会话发消息');
+  });
+
+  it('session_list live 值域遍历锁（2026-09-13 复盘发现 ⑮）：description 四态全披露与 SessionLiveState 单源对拍', () => {
+    // Record<SessionLiveState, …> 键位 = 类型级锁——值域添第五态即编译红（缺键），
+    // 运行层再核 description 逐态收录（态词 + 释义锚词都在——模型自足消费面）
+    const WORDS: Record<SessionLiveState, string> = {
+      idle: 'idle = 回合闭合',
+      running: 'running = 回合进行中',
+      'waiting-approval': 'waiting-approval = 等待用户审批',
+      paused: 'paused = 预算停靠——预算帽尽停靠、回充唤醒',
+    };
+    const description = tool(toolsFor(), 'session_list').description;
+    for (const anchor of Object.values(WORDS)) {
+      expect(description).toContain(anchor);
+    }
   });
 });
 
