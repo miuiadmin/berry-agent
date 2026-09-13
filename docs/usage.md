@@ -109,8 +109,9 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | `Ctrl+D` | 空框退出                                              |
 | `@`      | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形） |
 | `/`      | 命令补全（注册命令表）                                |
+| 鼠标     | 副屏（`/history`、`/memory`）滚轮滚动 + 左键拖选复制（OSC 52——终端支持时直达剪贴板）；主对话面 v1 不消费鼠标 |
 
-TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry-agent plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry-agent doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务手动推进）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
+TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry-agent plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry-agent doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
 
 ### run 单次执行
 
@@ -199,6 +200,18 @@ berry-agent serve stop               # 停守护
 - **MCP 包装**：`berry-agent mcp` 以 MCP server 形态暴露 `berry-agent` / `berry-agent-reply` 两工具，供任意 MCP 客户端接入；
 - **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。
 
+### 无人值守与预算停靠
+
+无人值守 run（goal 续跑、issue 处理、定时任务到点、`run --background`）的模型调用记**后台道**、计入当日后台预算日池（durable `llm/usage` 聚合——重启不清零、用户可审计当日谁花了多少）；前台对话不占日池。日池耗尽 = 后台道调用拒发（下周期再试），在飞无人值守会话不硬杀——**停靠**（durable 落 `session/paused` 词）三面同律：
+
+- **goal 会话**：挂钟行停摆 + 会话停靠（`/goal list` 可见）；日池回充自动复活挂钟续跑；
+- **issue 会话**：停靠项登记，回充时经唤醒消息续跑；
+- **普通无人值守会话**（定时任务行 / 后台 run）：会话级停靠项，回充时同链唤醒。
+
+日池回充（自然翻日或提额）由宿主 **budget-extended 广播**统一唤醒上述三面。停靠态 `paused` 在模型工具 `session_list` 状态档可见；Web 界面 v1 不呈现停靠态。后台 run 用量达日池 70 / 85 / 95% 时逐轮注入预算提示 / 预警 / 临界三档软着陆文案（临界档指令收尾陈述结论与未竟项；预警只对后台道生效，前台对话恒无）。
+
+定时任务到点执行双形态：宿主在跑 = 进程内推进（与前台 run 同池并发帽、审批 fail-closed 同律）；宿主停机期 = cron 可选后端（`BERRY_AGENT_CRON=1` 显式开启即写系统 crontab 的授权凭据）子进程触发 `run --tick`——同任务跨进程防双跑（他实例在飞诚实让位），行账（上次触发/结局/下次到点）durable 落结。
+
 ### plugins 插件管理
 
 ```bash
@@ -253,6 +266,7 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 - **技能**：SKILL.md 双层结构（frontmatter + 正文），六位发现层（项目 `.agents/skills/` > 用户 `~/.berry-agent/skills/` > 跨库 `~/.agents/skills`、`~/.claude/skills` > 插件 > 出厂）；对话中渐进披露，`skill_manage` 工具可创建/修补；
 - **记忆**：跨会话持久条目（偏好、约定、教训），常驻简报 + 按需检索两路注入；`/memory` 副屏轻管理（活体/冻结/终态三分区——冻结切换、忘掉、恢复、导出）；`/memory-export` `/memory-import` 明文迁移；
 - **环境自省**：模型工具面含 `session_status`——当前会话状态、整形后可见工具清单与高危面门态快照三段（只读，供模型自省工作环境）；
+- **插件生命周期与压缩回归**：模型工具面含插件生命周期族八件——只读三件 `plugins_list` / `events_query` / `plugin_uninstall_inspect` + 写类五件 `plugin_install` / `plugin_mount` / `plugin_unmount` / `plugin_toggle` / `plugin_update`（写类走审批对自动执法；装载生效回执指路 `/reload`——模型面不自动链重载）；及 `ccr_retrieve`（压缩归档原文检索——会话压缩折叠后按 hash 取回原文段，压缩可逆）；
 - **用量观测**：模型工具面含 `obs_query`——小时/日桶聚合查询（`metric=usage` 为 LLM token 用量：input/output 主计费桶与 cache 桶分列、token 原始值不折算货币；`hit_rate` = 缓存命中率派生列 `cacheRead/(input+cacheRead+cacheWrite)` 桶内聚合比值，`n/a` = 桶内无 token 流）。
 
 ## 下一步

@@ -15,7 +15,7 @@
 | `plugins/ledger.json` | 装机账本         | 装了什么（与 enabled.yaml「要什么」两账两名对仗）                                                                                               |
 | `plugins/<id>/`       | 装机树           | 磁盘插件包体                                                                                                                                    |
 | `skills/`             | 用户技能层       | SKILL.md 目录（六位发现层第二位）                                                                                                               |
-| `allowlist.json`      | 审批 always 清单 | 审批选 always 的工具+参数指纹持久回写（用户资产，非配置）                                                                                       |
+| `tool-policy.json`    | 工具策略表       | 审批选 always 的工具+参数条目持久回写 + 用户手写 `deny` 主权硬拒条目（用户资产，非配置）；更名前的旧审批清单文件在场时自动升格读入、旧文件留置不动（机器永不写旧名） |
 | `data/obs/rollup.db`  | 观测自管库       | core:obs 派生观测数据（可删——重建即恢复）                                                                                                       |
 | `crash.log`           | 崩溃取证         | 崩溃路径先写一行再退；排障第一站                                                                                                                |
 

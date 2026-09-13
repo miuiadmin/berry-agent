@@ -23,8 +23,8 @@
 | `llm`          | 模型运行时（provider 注册表、pi-ai 直连、faux 测试 provider）                        |
 | `persist`      | 持久化（SQLite 单库、迁移框架、durable 事件、FTS 检索；better-sqlite3 只准出现在此） |
 | `tools`        | 工具注册表与工具调用域                                                               |
-| `safety`       | 安全判据面（沙箱档位、审批 ask/decide、allowlist）                                   |
-| `compaction`   | 上下文压缩（摘要折叠）                                                               |
+| `safety`       | 安全判据面（沙箱档位、审批 ask/decide、tool-policy 策略表）                          |
+| `compaction`   | 上下文压缩（摘要折叠 + 压缩归档可逆回归——`ccr_retrieve` 原文检索服务面）              |
 | `channels`     | 呈现通道核（信封路由、backend 注册、TUI 引擎全套件族）                               |
 | `conversation` | 对话组合域（ConversationDriver、三通道路由、todo 机器）                              |
 | `host`         | 装配根（CLI 解析/分派、运行时组装、插件装载、五个入口）                              |
@@ -83,8 +83,8 @@ bin (berry-agent) → host/main
 
 ## 呈现通道
 
-- **TUI（主界面）**：`channels` 内自研栈——渲染引擎（diff 帧管线、xterm oracle 互证）、输入解码（kitty 推栈、bracketed paste）、编辑器（fish 式 undo、IME）、Markdown 件、副屏回看器（`/history`）；
-- **Web 界面（`--port` 开面）**：`core:webui` SPA + REST/SSE，经 `core:sdk` HTTP 面的路由扩展位挂载——恒回环、token 鉴权、三防线（Host/Origin/回环判定）；
+- **TUI（主界面）**：`channels` 内自研栈——渲染引擎（diff 帧管线、xterm oracle 互证）、输入解码（kitty 推栈、bracketed paste、鼠标 SGR 1006 + X10 降级链）、编辑器（fish 式 undo、IME）、Markdown 件、副屏族（`/history` 回看器、`/memory` 记忆管理面——副屏滚轮滚动 + 线性选区 OSC 52 复制；主对话面 v1 不消费鼠标）；
+- **Web 界面（`--port` 开面）**：`core:webui` SPA + REST/SSE，经 `core:sdk` HTTP 面的路由扩展位挂载——恒回环、token 鉴权、三防线（Host/Origin/回环判定）；预算停靠态（`session/paused`）v1 不进 Web 呈现面——停靠/唤醒的可见位 = TUI 命令族与模型工具 `session_list`；
 - **SDK**：`berry-agent-sdk` npm 包（spawn stdio / 直连 HTTP 两传输）+ MCP 包装形态——自动化通道的完整契约面；
 - **信封路由**：多 backend 并存（TUI + Web 同时在场），按 sessionId 各投各；审批（ask/decide）跨入口裁决，先 settle 者胜。
 

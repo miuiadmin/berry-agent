@@ -51,7 +51,7 @@ src/
   llm/          模型运行时（provider 注册表、faux 测试 provider）
   persist/      SQLite 持久化（迁移框架、durable 事件、FTS、aux 库）
   tools/        工具注册表
-  safety/       安全判据面（沙箱、审批、allowlist）
+  safety/       安全判据面（沙箱、审批、tool-policy 策略表）
   compaction/   上下文压缩
   channels/     呈现通道核（信封路由 + TUI 引擎件族全套）
   conversation/ 对话组合域（driver、三通道路由、todo）

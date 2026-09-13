@@ -62,7 +62,7 @@ export default async function apply(ctx, config) {
 | 跨会话订阅   | `events.subscribeSessionLifecycle(handler, opts?)`                                   | scope 三档 `self`/`tree`/`all`（all 走 `sessions.observe-cross` 门检 + 审计恰一笔）；装载窗注册即挂 effect 自动撤订 |
 | 消息角色     | `agent.registerMessageRole(role, def)`                                               | 自定义消息角色（拒绝式）                                                                                            |
 | 子代理       | `agent.registerSubagentProvider(def)`                                                | 程序化 named provider（撞名/词法两闸；注册即派生 `agent_<name>` 静态工具入 boot 全局层）                              |
-| 提示词       | `prompts.registerSection(slot, builder, opts?)`                                      | 系统提示词段（slot 域前缀两段式执法）；`opts.volatile.reason` 声明会话内可变段——置请求尾不进缓存稳定区，缺省即承诺会话内稳定（漂移 warn 不拒） |
+| 提示词       | `prompts.registerSection(slot, builder, opts?)`                                      | 系统提示词段（slot 域前缀两段式执法）；`opts.volatile.reason` 声明跨请求可变段——物化位恒系统提示词段区尾（不进缓存稳定前缀区），缺省即承诺会话内稳定（漂移 warn 不拒——性能事件非正确性事件） |
 | 触发器       | `triggers.register(def)`                                                             | 事件触发起会（门检/撞名/格式三闸）                                                                                  |
 | 凭证         | `secrets.get(name)` / `secrets.set(name, value)` / `secrets.registerOAuthFlow(spec)` | 自域隔离读 / 宿主回调窗内写（受理制）/ oauth 流注册（装载窗 only——详见[凭证节](#凭证ctxsecrets)）                   |
 | UI 后端      | `channels.registerUiBackend(backend)`                                                | 自定义 UI 后端（拒绝式；`channels.ui-backend` 高危面开门制**前置**于撞名律——未开门连撞名检查都不可达）              |
@@ -77,7 +77,7 @@ export default async function apply(ctx, config) {
   name: 'my_tool',                    // 全局唯一（拒绝式撞名）
   description: '给模型看的一句话用途',
   parameters: Type.Object({ ... }),    // JSON Schema（根须 object；typebox 产物或等价手写）
-  effect: 'write',                     // 'read'（缺省）| 'write'——调度语义 + 审批触发
+  effect: 'write',                     // 'read' | 'write' | 'exec'——缺省 exec（未知缺省最危律）；调度语义 + 审批触发
   repeatable: false,                   // 缺省 true；false = 禁静默重试（副作用型）
   timeoutMs: 30_000,                   // 缺省走管道 60s
   // owner：无需传——宿主注册受理壳无条件覆写为注册者 pluginId（自报值恒不达
@@ -89,7 +89,7 @@ export default async function apply(ctx, config) {
 }
 ```
 
-`effect: 'write'` 的工具在写前触发审批（ask → 用户 allow / deny / always——always 落 `allowlist.json` 持久回写）；审批缺席即 fail-closed。
+工具档三值：`read` = 只读（批内并行调度、不走审批对）；`write` = 写面、`exec` = 进程执行类——两者批边界串行屏障 + 写前触发审批对（ask → 用户 allow / deny / always——always 落 `tool-policy.json`〔工具策略表〕持久回写）；审批缺席即 fail-closed。**缺省 `exec`**：未声明效果面的工具按最高危档执法（未知缺省最危律）。
 
 ### 凭证（ctx.secrets）
 
@@ -223,7 +223,7 @@ export default async function apply(ctx) {
 2. **虚拟面六键闭集**：`berry-agent`、`berry-agent/llm`、`berry-agent/sqlite`、`typebox`、`typebox/value`、`typebox/compile`——装载器注入的同实例模块，永不落 node_modules 解析；
 3. 插件目录树内自带 node_modules 的第三方依赖。
 
-`berry-agent` 主键注入**宿主契约公开面**（工具定义 `ToolDefinition`、事件词汇、错误基类 `BaseError`、消息/审批/LLM 共享类型——插件作者的主要类型面）；`typebox` 三键注入与宿主同实例的校验库（工具参数 Schema 用它写最顺）。`berry-agent/llm` 与 `berry-agent/sqlite` 两子键为保留位（模型层与数据库窄面随后续版本接入）。注意：六键是**闭集**——例如 testkit 子路径（作者测试面，见下[测试节](#测试testkit-生命周期证明)）不在其中，插件入口运行时 import 它会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载。
+`berry-agent` 主键注入**宿主契约公开面**（工具定义 `ToolDefinition`、事件词汇、错误基类 `BaseError`、消息/审批/LLM 共享类型——插件作者的主要类型面）；`typebox` 三键注入与宿主同实例的校验库（工具参数 Schema 用它写最顺）。`berry-agent/llm` 子键注入 **provider 注册窄面**（pi-ai 工厂族再导出：`createProvider` / `hasApi` / `lazyApi` / `anthropicMessagesApi`——provider 插件经它用宿主同版本 pi-ai 造 provider，再 `ctx.llm.registerProvider` 入册，防双实例分叉）；`berry-agent/sqlite` 仍为保留位（数据库窄面随后续版本接入）。注意：六键是**闭集**——例如 testkit 子路径（作者测试面，见下[测试节](#测试testkit-生命周期证明)）不在其中，插件入口运行时 import 它会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载。
 
 ## 快速试跑（`--plugin-file`——零装机）
 
