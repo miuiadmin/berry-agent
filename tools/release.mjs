@@ -482,6 +482,18 @@ async function loadCoreIds() {
   return mod.createCorePlugins({}).map((ref) => ref.name);
 }
 
+/**
+ * 线协议握手锚真值预载（SDK 冒烟差分②——安装位 SDK_PROTOCOL_VERSION 与
+ * 主仓 src 真源对拍，`===` 连类型漂移一并咬住：真源是 number 字面量
+ * 〔protocol.ts `export const SDK_PROTOCOL_VERSION = 1`〕，rl-4 首演曾以
+ * 臆断 string 断言被咬红——断言预期必须来自真源非想象）。
+ */
+async function loadProtocolVersion() {
+  const jiti = createJiti(import.meta.url);
+  const mod = await jiti.import(fileURLToPath(new URL('../src/channels/sdk/protocol.ts', import.meta.url)));
+  return mod.SDK_PROTOCOL_VERSION;
+}
+
 /** 安装冒烟实装（契约 3 三连断言；env 钉临时数据目录防污染真数据域） */
 async function runSmoke(tarballPath, version, coreIds) {
   const failures = [];
@@ -511,7 +523,7 @@ async function runSmoke(tarballPath, version, coreIds) {
 }
 
 /** SDK 安装冒烟实装（契约 3 差分②——import 冒烟 + apiVersion 断言；零 bin 零 CLI 面） */
-async function runSmokeSdk(tarballPath, version) {
+async function runSmokeSdk(tarballPath, version, expectedProtocolVersion) {
   const failures = [];
   const smokeDir = mkdtempSync(join(tmpdir(), 'berry-release-smoke-sdk.'));
   try {
@@ -535,14 +547,15 @@ async function runSmokeSdk(tarballPath, version) {
     const meta = JSON.parse(readFileSync(join(nmDir, 'berry-agent-sdk', 'package.json'), 'utf8'));
     if (meta.version !== version) failures.push(`安装位 version ${meta.version} ≠ ${version}`);
     if (meta.apiVersion !== '1.0') failures.push(`apiVersion ${meta.apiVersion} ≠ '1.0'（治理锚漂移）`);
-    // 子进程 import 冒烟：裸 node 环境加载安装位包（导出面四键断言；隔离防意外副作用）
+    // 子进程 import 冒烟：裸 node 环境加载安装位包（导出面四键断言；隔离防意外副作用）。
+    // SDK_PROTOCOL_VERSION 与主仓真值全等对拍（===——类型/值双锁）
     const entry = `
       const m = await import(process.argv[1]);
       const checks = [
         ['createSdkClient', typeof m.createSdkClient === 'function'],
         ['spawnServeTransport', typeof m.spawnServeTransport === 'function'],
         ['httpSdkTransport', typeof m.httpSdkTransport === 'function'],
-        ['SDK_PROTOCOL_VERSION', typeof m.SDK_PROTOCOL_VERSION === 'string' && m.SDK_PROTOCOL_VERSION.length > 0],
+        ['SDK_PROTOCOL_VERSION', m.SDK_PROTOCOL_VERSION === ${JSON.stringify(expectedProtocolVersion)}],
       ];
       const bad = checks.filter(([, ok]) => !ok).map(([n]) => n);
       if (bad.length > 0) {
@@ -574,6 +587,11 @@ export function realSeams(pkgKey = 'main') {
   const getCoreIds = () => {
     if (coreIdsPromise === null) coreIdsPromise = loadCoreIds();
     return coreIdsPromise;
+  };
+  let protocolVersionPromise = null;
+  const getProtocolVersion = () => {
+    if (protocolVersionPromise === null) protocolVersionPromise = loadProtocolVersion();
+    return protocolVersionPromise;
   };
   const shasumOf = (path) => createHash('sha1').update(readFileSync(path)).digest('hex');
   const tarballTree = (tarballPath) => {
@@ -650,7 +668,7 @@ export function realSeams(pkgKey = 'main') {
             .join('\n\n'),
     smoke:
       pkgKey === 'sdk'
-        ? async (tarballPath) => runSmokeSdk(tarballPath, version)
+        ? async (tarballPath) => runSmokeSdk(tarballPath, version, await getProtocolVersion())
         : async (tarballPath) => runSmoke(tarballPath, version, await getCoreIds()),
     publish: (tarballPath, o) => {
       const args = ['publish', tarballPath];
