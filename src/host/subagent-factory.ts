@@ -316,8 +316,12 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
       }
       try {
         // 子 prompt 提交：source 缺省 'user'（父即子的用户；origin
-        // 'delegation' 在会话行是 durable 归因——EventSource 闭集无该词）
-        const outcome = await driver.submit(request.prompt);
+        // 'delegation' 在会话行是 durable 归因——EventSource 闭集无该词）。
+        // 车道声明恒 background（04 §5 结算折叠段「子代理活儿恒后台道」车道
+        // 兑现笔——委派 run 是后台编排，桥接记账据此入后台日池：闸门/预警
+        // ratio/90% reserve 线三消费面对子代理 token 可见；预警分族仍走
+        // origin 会话级判，与本声明位互不替代）
+        const outcome = await driver.submit(request.prompt, { backgroundLane: true });
         const events = driver.session.events();
         const output = lastAssistantText(events);
         // 机器账铸造（RP4——已起跑位含防御位都铸：childSessionId 已有、

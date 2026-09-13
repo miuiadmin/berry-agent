@@ -209,6 +209,50 @@ describe('createInProcessSubagentProvider（批 19c-1——真工厂全环）', 
     await rt.shutdown();
   });
 
+  it('委派车道恒 background（修前红——04 §5 结算折叠段车道兑现笔）：子 run 桥接落账 priority=background、当日后台池如实计入', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({ stack, tracker, warn: () => {} });
+    const parent = stack.openStartupSession(ws);
+    // 带计量的 faux assistant（桥接窗扫的计量源——usage 非零可断言池计入面）
+    const metered = (input: number, output: number): PiAssistantMessage =>
+      ({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output },
+        stopReason: 'stop',
+        timestamp: 1,
+      }) as unknown as PiAssistantMessage;
+    faux.setResponses([() => metered(30, 12)]);
+    const result = await provider.run({ prompt: '干活', parentSessionId: parent.sessionId, depth: 1 });
+    expect(result.stopReason).toBe('stop');
+    await rt.persistence.flush();
+    const child = stack.manager.list({}).find((row) => row.origin === 'delegation');
+    expect(child).toBeDefined();
+
+    // 事件字面锁：子会话流 llm/usage 笔 priority = background
+    // （修前红锚：submit 未声明车道 → 桥接 receipt.backgroundLane 恒 false → foreground）
+    const page = rt.persistence.store.queryEvents({
+      sessionId: child!.id,
+      types: ['llm/usage'],
+      sinceMs: 0,
+    });
+    expect(page.events).toHaveLength(1);
+    const pen = page.events[0]!.data as Record<string, unknown>;
+    expect(pen['priority']).toBe('background');
+    expect(String(pen['callId'])).toMatch(/^run:.+:\d+$/); // run 路桥接同源（非 'delegation:' 预留形）
+
+    // 消费面闭环：当日后台池如实计入（修前红锚：spent = 0——闸门/预警
+    // ratio/90% reserve 线三消费面对子代理 token 全失明即此读面恒零；
+    // 数值面与转抄笔同源断言——faux 计量动态取转抄值，不硬编 42）
+    const ledger = pen['usage'] as { input: number; output: number };
+    expect(stack.llm.backgroundUsage().spent).toBe(ledger.input + ledger.output);
+    expect(stack.llm.backgroundUsage().spent).toBeGreaterThan(0); // 计入面非零（主锁）
+    await rt.shutdown();
+  });
+
   it('深度登记：在飞期 depthOf = 请求深度（孙代语境解析真源）', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();
