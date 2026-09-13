@@ -3,9 +3,10 @@
  *
  * 04 §5 预算预警条款的文案本体位：档位判定与投影读面在 llm 件单源
  * （budgetAdvisoryLevel / backgroundUsage），本件只做两件事——
- *  1. 预算帽下活判据：本层只对预算帽下的活生效（headless root run 与子代理；
- *     前台会话恒放行无池可警——'conversation' / 'import' / 'fork' 三 origin
- *     不注入）；
+ *  1. 预算帽下活判据（run 级后台性——2026-09-13 全面复盘修复批）：本层
+ *     只对预算帽下的活生效（headless root run、后台道无头 run〔tick 用户行
+ *     /goal 挂钟行/run --background〕、子代理）；前台 run 恒放行无池可警
+ *     （origin 会话级两判 + backgroundLane run 级声明位——见总入口注）；
  *  2. root 与 subagent 各配分级 wrap-up 文案（三档 × 两族）：CRITICAL 档指令
  *     「收尾：陈述当前结论与未竟项」而非续开新腿——预算尽头的最后 token
  *     花在收口上。
@@ -56,17 +57,24 @@ function subagentMessage(level: 'notice' | 'urgent' | 'critical', usage: Backgro
 }
 
 /**
- * 预算预警文案总入口（04 §5——root/subagent 分族）：
+ * 预算预警文案总入口（04 §5——root/subagent 分族 + run 级后台性判据）：
  *  - 未达 notice 线（< 70%）→ null 零注入；
  *  - origin 'trigger'（headless root 两道：issue-session / triggers）→ root 族；
  *  - origin 'delegation'（in-process 子代理）→ subagent 族；
- *  - 其余 origin（'conversation' / 'import' / 'fork' = 前台恒放行无池可警）
- *    → null；不在册会话（origin undefined，如 dismantle 后）同 null。
+ *  - origin 余三（conversation/import/fork）按 run 级后台道声明位：
+ *    backgroundRun true（tick 用户行/goal 挂钟行共用 runSession 声明、
+ *    `run --background` 入口声明）→ root 族；缺省 false = 前台恒 null
+ *    （无池可警——goal 前台轮记 goal 件内预算非后台日池，同 null）；
+ *  - 不在册会话（origin undefined，如 retire 后）同 null。
  */
-export function budgetAdvisoryMessage(usage: BackgroundBudgetUsage, origin: SessionOrigin | undefined): string | null {
+export function budgetAdvisoryMessage(
+  usage: BackgroundBudgetUsage,
+  origin: SessionOrigin | undefined,
+  backgroundRun: boolean,
+): string | null {
   const level = budgetAdvisoryLevel(usage.ratio);
   if (level === null) return null;
-  if (origin === 'trigger') return rootMessage(level, usage);
   if (origin === 'delegation') return subagentMessage(level, usage);
+  if (origin === 'trigger' || backgroundRun) return rootMessage(level, usage);
   return null;
 }

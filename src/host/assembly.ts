@@ -335,13 +335,15 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // goal 轮间沉淀取值器（批 #99——04 §3.7）：depositFor 同步返缓存/回退
       // （指纹缓存单发在 goal 件内——同指纹零 LLM），goal 未装载 = null 零注入
       goalDeposit: (sessionId) => scope.tryGet<GoalFace>('goal')?.service.depositFor(sessionId) ?? null,
-      // 预算预警取值器（批 H——04 §5 三档软着陆）：origin 判预算帽下活
-      // （'trigger' headless root / 'delegation' 子代理；前台三 origin 与
-      // 不在册会话恒 null 零注入），文案分族铸造在 host/budget-advisory
-      // 纯函数族（投影读面 = stack.llm.backgroundUsage 与 canAfford 同账）
-      budgetAdvisory: (sessionId) => {
+      // 预算预警取值器（批 H——04 §5 三档软着陆 + 2026-09-13 修复批 run 级
+      // 后台性判据）：origin 会话级两判（'trigger' headless root / 'delegation'
+      // 子代理）+ backgroundLane run 级声明位（tick 用户行/goal 挂钟行/run
+      // --background 的 conversation 会话后台 run）——前台 run 恒 null 零注入，
+      // 文案分族铸造在 host/budget-advisory 纯函数族（投影读面 =
+      // stack.llm.backgroundUsage 与 canAfford 同账）
+      budgetAdvisory: (sessionId, backgroundLane) => {
         const origin = stack.manager.listActive().find((row) => row.sessionId === sessionId)?.origin;
-        return budgetAdvisoryMessage(stack.llm.backgroundUsage(), origin);
+        return budgetAdvisoryMessage(stack.llm.backgroundUsage(), origin, backgroundLane);
       },
       // goal 前台记账腿（批 #99——04 §5 双轨 + 三入口统一）：run settled 链
       // 回执（窗扫 assistant/message 计数 + userInitiated 归因）→ recordTurn；

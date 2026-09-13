@@ -303,12 +303,17 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
 
   /**
    * 会话 run 编舞共用（用户行/goal 落地形单源）：起跑前 seq 锚 →
-   * submitText（source='schedule'）→ 三终态映射 + 后台道记账。
+   * submitText（source='schedule' + backgroundLane 声明——04 §5 后台道
+   * 无头 run 的 run 级预警分族判据〔2026-09-13 修复批〕）→ 三终态映射 +
+   * 后台道记账。
    */
   function runSession(trigger: RunnerRequest['trigger'], sessionId: string, prompt: string): RunnerHandle {
     // 起跑前 seq 锚（后台道记账窗——本 run 新增 assistant 消息的 seq 下界）
     const seqBefore = deps.stack.driverOf(sessionId)?.session.events().length ?? 0;
-    const runPromise = deps.stack.submitText(sessionId, prompt, { source: 'schedule' });
+    const runPromise = deps.stack.submitText(sessionId, prompt, {
+      source: 'schedule',
+      backgroundLane: true,
+    });
     if (runPromise === undefined) {
       // 驱动缺席（open/create 与提交间被拆——理论不达防御，诚实失败）
       return settledHandle(trigger, {

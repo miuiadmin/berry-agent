@@ -388,9 +388,14 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   keepaliveTimer?.unref?.(); // 不拖进程生命周期（事件环外定时器）
 
   // —— ⑥ 提交（fire-and-forget 面的 await 侧——回执即收场凭据；source 归因：
-  // tick 形 'schedule'〔挂钟调度触发〕、余 'channel:cli'〔CLI 管道喂入〕）——
+  // tick 形 'schedule'〔挂钟调度触发〕、余 'channel:cli'〔CLI 管道喂入〕；
+  // backgroundLane 声明与后台道记账同条件〔flags.background——04 §5 修复批：
+  // 预警分族与记账同一车道判定〕）——
   const source: EventSource = flags.tick !== undefined ? 'schedule' : 'channel:cli';
-  const runPromise = stack.submitText(sessionId, message, { source });
+  const runPromise = stack.submitText(sessionId, message, {
+    source,
+    ...(flags.background ? { backgroundLane: true } : {}),
+  });
   if (runPromise === undefined) {
     // 理论不达防御：③四形必落驱动——到达即装配 bug，fail-loud（经外层崩溃档）
     throw new Error(`会话 ${sessionId} 无驱动在册——提交序不可达`);

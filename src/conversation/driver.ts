@@ -94,6 +94,12 @@ export class ConversationDriver {
   private readonly queue = new PendingMessageQueue();
   /** 在飞 runTurns（busy 判据 + submit 搭车面） */
   private currentRun: Promise<RunResult> | undefined;
+  /**
+   * 当前 run 后台道声明位（04 §5——run 级后台性，2026-09-13 全面复盘修复批）：
+   * launch 随起跑 submit 置位、run 结算清位；请求组装期 budgetAdvisory 取值
+   * 器消费（前台 run 恒 false）。纯 run 级内存载体——不落 durable。
+   */
+  private runLaneValue = false;
   /** 当前 run 的协作中止控制器（abort() 触发——streamFn/工具执行/退避睡眠共挂） */
   private activeController: AbortController | undefined;
   /** 停摆旗标（02 §2.3 取消模型——会话级标记非 run 状态机成员；置位后一切投递转 inject） */
@@ -200,7 +206,9 @@ export class ConversationDriver {
       ...(options?.source !== undefined ? { source: options.source } : { source: 'user' }),
       ...(options?.dedupeKey !== undefined ? { dedupeKey: options.dedupeKey } : {}),
     };
-    return this.routeMessage(message, options?.backgroundWake);
+    // 后台道声明位随起跑透传（04 §5 run 级后台性——busy steer 搭在飞 run
+    // 时本位被忽略：车道随起跑 submit，不随搭车件）
+    return this.routeMessage(message, options?.backgroundWake, options?.backgroundLane === true);
   }
 
   /**
@@ -212,7 +220,11 @@ export class ConversationDriver {
    * 唤醒预算（04 §4 maxConsecutiveWakes=3 批消费位记账）：超帽唤醒件拒收
    * （receipt + warn，不静默）；前台输入起跑即复位计数。
    */
-  private routeMessage(message: UserMessage, backgroundWake: boolean | undefined): Promise<SubmitResult> {
+  private routeMessage(
+    message: UserMessage,
+    backgroundWake: boolean | undefined,
+    backgroundLane: boolean,
+  ): Promise<SubmitResult> {
     // a2a 链深更新律（03 §2.2 第十一面回合护栏——e-4）：人面输入归 0（用户
     // 在场即重置链深）、plugin: 源归 1（插件直唤即第一跳）；session: 源到不了
     // 这里（submit 已拒 + deliverControl 专径另走）——compaction 等其余非用户
@@ -239,10 +251,12 @@ export class ConversationDriver {
       return this.kick(
         consumed.items.map((item) => item.message),
         false,
+        false, // 搁浅前台件起跑——前台车道
       );
     }
     const seeds = [...consumed.items.map((item) => item.message), message];
-    return this.kick(seeds, newWake || consumed.wakeTriggered);
+    // 车道随起跑 submit 声明位（搁浅件批次级近似——04 §5 修复批定形注）
+    return this.kick(seeds, newWake || consumed.wakeTriggered, backgroundLane);
   }
 
   /**
@@ -277,7 +291,9 @@ export class ConversationDriver {
     // idle：搁浅件合批 + 新件作种子起跑（fire-and-forget）
     const consumed = this.consumeBatch();
     const seeds = [...consumed.items.map((item) => item.message), message];
-    void this.kick(seeds, consumed.wakeTriggered).catch((error: unknown) => {
+    // 跨会话操控不置后台道（e-4 落码裁决语义同 backgroundWake——明确意图的
+    // 协作非后台道编排，04 §5 修复批定形注）
+    void this.kick(seeds, consumed.wakeTriggered, false).catch((error: unknown) => {
       this.warnFace(`操控投递起跑异常（会话 ${this.session.sessionId}）：${String(error)}`);
     });
     return { status: 'delivered', messageId };
@@ -342,7 +358,8 @@ export class ConversationDriver {
       source: 'subagent-approval-pending',
       dedupeKey,
     };
-    return this.routeMessage(message, undefined);
+    // 审批挂起通知 = 信息位注入非后台道编排——前台车道（04 §5 修复批定形注）
+    return this.routeMessage(message, undefined, false);
   }
 
   /**
@@ -503,9 +520,10 @@ export class ConversationDriver {
     if (reminders.length > 0) {
       transientTail.push({ role: 'user', content: reminders.join('\n'), timestamp: Date.now() });
     }
-    // 预算预警注入（04 §5 三档软着陆——瞬态 UserMessage；root/subagent 分族
-    // 文案由装配位铸造，本层只管注入位与序）
-    const advisory = this.options.budgetAdvisory?.() ?? null;
+    // 预算预警注入（04 §5 三档软着陆——瞬态 UserMessage；分族判据 = origin
+    // 会话级两判 + 当前 run 后台道声明位〔修复批 run 级后台性〕，装配位闭包
+    // 铸造，本层只管注入位与序）
+    const advisory = this.options.budgetAdvisory?.(this.runLaneValue) ?? null;
     if (advisory !== null) {
       transientTail.push({ role: 'user', content: advisory, timestamp: Date.now() });
     }
@@ -554,17 +572,17 @@ export class ConversationDriver {
    * steer/inject 腿不经本闸：busy 腿入列搭车（routeMessage 直入 queue）、
    * 停摆腿 durable 落账（routeMessage 直落 inject）——两腿不产生新 run。
    */
-  private kick(seeds: readonly AgentMessage[], wakeTriggered: boolean): Promise<RunResult> {
+  private kick(seeds: readonly AgentMessage[], wakeTriggered: boolean, backgroundLane: boolean): Promise<RunResult> {
     const gate = this.options.acquireRunSlot;
     // 缺席直通：零包装零排队（既有「busy 回执 === 在飞 run promise」引用恒等
     // 与「受理即已落账」同步段不破——渐进增强零破口含同步段）
-    if (gate === undefined) return this.launch(seeds, wakeTriggered);
+    if (gate === undefined) return this.launch(seeds, wakeTriggered, backgroundLane);
     // 在场同步试位：帽内有位直通（tryAcquire 零微任务边界——受理回执时种子
     // 落账已完成，投影一致性同缺席形）；终态释放挂 settled 两路（run 回执
     // promise 引用不变——busy 恒等同律保持）
     const fast = gate.tryAcquire();
     if (fast !== undefined) {
-      const settled = this.launch(seeds, wakeTriggered);
+      const settled = this.launch(seeds, wakeTriggered, backgroundLane);
       void settled.then(fast, fast);
       return settled;
     }
@@ -611,7 +629,7 @@ export class ConversationDriver {
           return ride;
         }
         try {
-          return await this.launch(seeds, wakeTriggered);
+          return await this.launch(seeds, wakeTriggered, backgroundLane);
         } finally {
           // run 终态释放位（幂等保护在闸件——release() 双调安全）
           release();
@@ -647,9 +665,12 @@ export class ConversationDriver {
    * await 的就是清理后的 promise——resolved 后 running 必已归 false，无
    * 观察窗口）。
    */
-  private launch(seeds: readonly AgentMessage[], wakeTriggered: boolean): Promise<RunResult> {
+  private launch(seeds: readonly AgentMessage[], wakeTriggered: boolean, backgroundLane: boolean): Promise<RunResult> {
     if (wakeTriggered) this.wakeStreak += 1;
     else this.wakeStreak = 0;
+    // 后台道声明位随起跑置位（04 §5 run 级后台性——本 run 存续期请求组装的
+    // 预警分族判据；结算链清位防跨 run 残留）
+    this.runLaneValue = backgroundLane;
     this.applyToolFace(wakeTriggered);
     // 记账窗锚（04 §5——批 #99）：settle 时窗扫 [seqAtLaunch, settle) 的
     // assistant/message 计数；捕获位在种子落账前（seeds 的 user/message 不入窗）
@@ -666,11 +687,13 @@ export class ConversationDriver {
     const settled: Promise<RunResult> = inner.then(
       (result) => {
         if (this.currentRun === settled) this.currentRun = undefined;
+        this.runLaneValue = false; // 车道随 run 结算清位（单 run 不变量下无跨 run 竞态）
         this.noteRunSettled(seeds, seqAtLaunch, result.status);
         return result;
       },
       (error: unknown) => {
         if (this.currentRun === settled) this.currentRun = undefined;
+        this.runLaneValue = false;
         this.noteRunSettled(seeds, seqAtLaunch); // 崩溃路径——status 缺席不虚构
         throw error;
       },

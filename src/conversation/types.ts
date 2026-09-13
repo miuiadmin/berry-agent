@@ -172,13 +172,15 @@ export interface ConversationDriverOptions {
   readonly goalDeposit?: () => string | null;
 
   /**
-   * 预算预警取值器（04 §5 软着陆层——遗漏审计批 H）：每请求组装时取用，
-   * 非空文本以瞬态 UserMessage 注入消息尾（注入序：reminders → 预算预警 →
-   * goal 沉淀 → todo 恒最后）——不落 durable 不进快照（与披露段/todo 回看
-   * 同律）。文案铸造与档位判定归装配位闭包（root/subagent 分族）；本层只管
-   * 注入位与序。缺席/返回 null = 零注入（前台会话无池可警同形）。
+   * 预算预警取值器（04 §5 软着陆层——遗漏审计批 H + 2026-09-13 修复批
+   * run 级后台性判据）：每请求组装时取用（携当前 run 后台道声明位——
+   * 前台 run 恒 false），非空文本以瞬态 UserMessage 注入消息尾（注入序：
+   * reminders → 预算预警 → goal 沉淀 → todo 恒最后）——不落 durable 不进
+   * 快照（与披露段/todo 回看同律）。文案铸造与分族判定归装配位闭包
+   * （origin 会话级两判 + backgroundLane run 级声明位）；本层只管注入位
+   * 与序。缺席/返回 null = 零注入（前台 run 无池可警同形）。
    */
-  readonly budgetAdvisory?: () => string | null;
+  readonly budgetAdvisory?: (backgroundLane: boolean) => string | null;
 
   /**
    * run 结算钩（04 §5 记账腿——批 #99 三入口统一）：launch settled 链内
@@ -207,8 +209,9 @@ export interface ConversationDriverOptions {
 }
 
 /**
- * 用户输入入口选项（04 §4 三通道注入——发送方只声明 backgroundWake，
- * steer/followUp/inject 三通道判定是驱动单源职责，按 run 状态路由）。
+ * 用户输入入口选项（04 §4 三通道注入——发送方只声明 backgroundWake /
+ * backgroundLane，steer/followUp/inject 三通道判定是驱动单源职责，按 run
+ * 状态路由）。
  */
 export interface SubmitOptions {
   /**
@@ -216,6 +219,16 @@ export interface SubmitOptions {
    * maxConsecutiveWakes 唤醒预算（防自激励环）；缺省 false = 前台输入。
    */
   readonly backgroundWake?: boolean;
+  /**
+   * 后台道声明位（04 §5——run 级后台性单源，2026-09-13 全面复盘修复批）：
+   * true = 本条起跑的 run 消耗后台道预算。起跑方声明（tick 用户行与 goal
+   * 挂钟行共用 scheduler-tick runSession、`run --background` 入口）；缺省
+   * false = 前台。纯 run 级载体：不落 durable、不进 user/message 载荷；
+   * 预算预警分族判据消费（assembly 闭包），记账仍归各调用方 seq 锚窗扫
+   * （本位不是记账面）。steer 入列与搁浅件随新起 run 车道（批次级近似——
+   * 预警是软着陆层非记账面，精度足够）。
+   */
+  readonly backgroundLane?: boolean;
   /**
    * 幂等 admit 去重键（05 §3.5 第二腿——两词一字段两面）：调用方自选、
    * 随 user/message 落 durable data.dedupeKey。serve/SDK 线面受理时以

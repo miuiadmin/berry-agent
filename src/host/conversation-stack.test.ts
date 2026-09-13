@@ -897,6 +897,44 @@ describe('预算预警装配穿线（批 H——budgetAdvisory stack 级注入�
     expect(tail2.content).not.toContain('预算提示'); // 零注入回合请求尾为 durable 消息
     await rt.shutdown();
   });
+
+  it('run 车道透传（2026-09-13 修复批——修前红）：submitText 声明位经穿线达取值器（sessionId 落格 + 车道实参）', async () => {
+    const { rt } = rigRuntime();
+    const seenCalls: Array<{ sessionId: string; backgroundLane: boolean }> = [];
+    const { faux, stack } = rigStack(rt, {
+      budgetAdvisory: (sessionId, backgroundLane) => {
+        seenCalls.push({ sessionId, backgroundLane });
+        return backgroundLane ? '[预算提示 NOTICE] 后台道。' : null;
+      },
+    });
+    const session = stack.openStartupSession(rigWorkspace());
+    const seenMessages: Array<Array<{ role: string; content: unknown }>> = [];
+    faux.setResponses([
+      (ctx) => {
+        seenMessages.push(ctx.messages as Array<{ role: string; content: unknown }>);
+        return messageOf('stop');
+      },
+      (ctx) => {
+        seenMessages.push(ctx.messages as Array<{ role: string; content: unknown }>);
+        return messageOf('stop');
+      },
+    ]);
+    // 后台道声明位 submit：取值器收 (sessionId, true) + 文案注入请求尾
+    await stack.submitText(session.sessionId, '后台问', { backgroundLane: true });
+    expect(seenCalls).toEqual([{ sessionId: session.sessionId, backgroundLane: true }]);
+    expect(seenMessages[0]![seenMessages[0]!.length - 1]).toMatchObject({
+      role: 'user',
+      content: expect.stringContaining('后台道'),
+    });
+    // 前台 submit（缺省）：车道 false 零注入（尾条回落披露段瞬态槽——预警在其后，缺注入即不现）
+    await stack.submitText(session.sessionId, '前台问');
+    expect(seenCalls).toEqual([
+      { sessionId: session.sessionId, backgroundLane: true },
+      { sessionId: session.sessionId, backgroundLane: false },
+    ]);
+    expect(seenMessages[1]!.some((m) => String(m.content).includes('后台道'))).toBe(false);
+    await rt.shutdown();
+  });
 });
 
 /* ---------------- lane 帽闸件（04 §4 宿主级 run 并发帽——channels 消息语义批 m-2） ---------------- */

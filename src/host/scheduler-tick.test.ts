@@ -187,7 +187,7 @@ interface FakeEvent {
  */
 function fakeStack() {
   const sessions = new Map<string, FakeEvent[]>();
-  const submits: Array<{ sessionId: string; text: string; source?: string }> = [];
+  const submits: Array<{ sessionId: string; text: string; source?: string; backgroundLane?: boolean }> = [];
   const interrupts: string[] = [];
   const retires: string[] = [];
   const deferreds = new Map<string, Array<(result: unknown) => void>>();
@@ -221,8 +221,8 @@ function fakeStack() {
         },
       };
     },
-    submitText(sessionId: string, text: string, opts?: { source?: string }) {
-      submits.push({ sessionId, text, source: opts?.source });
+    submitText(sessionId: string, text: string, opts?: { source?: string; backgroundLane?: boolean }) {
+      submits.push({ sessionId, text, source: opts?.source, backgroundLane: opts?.backgroundLane });
       if (!sessions.has(sessionId)) return undefined;
       return new Promise<unknown>((resolve) => {
         const queue = deferreds.get(sessionId) ?? [];
@@ -291,8 +291,11 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     const rig = unitRig();
     const handle = await rig.spawn(jobRow('u1'));
     expect(handle.pid).toBe(process.pid); // 甲案进程内形——宿主 pid 即占用面
-    // 在飞未决——settled 不收口
-    expect(rig.fake.submits).toEqual([{ sessionId: 'sess-1', text: '行内提示词', source: 'schedule' }]);
+    // 在飞未决——settled 不收口；后台道声明位随提交（04 §5 修复批——预警
+    // 分族的 run 级判据，与后台道记账同笔）
+    expect(rig.fake.submits).toEqual([
+      { sessionId: 'sess-1', text: '行内提示词', source: 'schedule', backgroundLane: true },
+    ]);
     rig.fake.settleAssistant('sess-1', { status: 'completed' }, [{ type: 'text', text: '巡检完毕' }], {
       input: 10,
       output: 5,
@@ -381,7 +384,14 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     // 预置 goal 会话在册（open 幂等开需在场——goal 绑定会话的 durable 形）
     rig.fake.stack.manager.create({ workspaceRoot: '/tmp/ws' });
     const handle = await rig.spawn(jobRow('goal-g2', { builtin: true, prompt: 'goal 快照提示词' }));
-    expect(rig.fake.submits[0]).toMatchObject({ sessionId: 'sess-1', text: 'goal 快照提示词', source: 'schedule' });
+    // goal 挂钟行同走 runSession——后台道声明位同笔（goal 预算 run 的预警
+    // 射程；goal 前台轮不经此路径无声明位——恰分）
+    expect(rig.fake.submits[0]).toMatchObject({
+      sessionId: 'sess-1',
+      text: 'goal 快照提示词',
+      source: 'schedule',
+      backgroundLane: true,
+    });
     rig.fake.settleAssistant('sess-1', { status: 'completed' }, [{ type: 'text', text: 'goal 收口' }]);
     const outcome = await handle.settled;
     expect(outcome.reason).toBe('exit_code');

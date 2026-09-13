@@ -1324,6 +1324,31 @@ describe('ConversationDriver 预算预警注入（批 H）', () => {
     await driver.submit('问');
     expect(seen[0]!.messages).toHaveLength(1); // 仅种子
   });
+
+  it('run 车道透传（2026-09-13 修复批——修前红）：backgroundLane 声明随 run 起跑达取值器；结算后回落 false', async () => {
+    // 取值器实参账：每次调用记录当前 run 车道（修复前零参调用恒 undefined）
+    const lanes: boolean[] = [];
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({}), assistant({})],
+      budgetAdvisory: (backgroundLane) => {
+        lanes.push(backgroundLane);
+        return backgroundLane ? '[预算提示 NOTICE] 后台道。' : null;
+      },
+    });
+    await driver.submit('后台问', { backgroundLane: true });
+    expect(lanes).toEqual([true]); // 声明位随起跑透传（busy 搭车前的首请求）
+    expect(seen[0]!.messages[seen[0]!.messages.length - 1]).toMatchObject({
+      role: 'user',
+      content: '[预算提示 NOTICE] 后台道。',
+    });
+    // 前台 submit：车道 false + 零注入（同会话次 run——车道随起跑 submit 覆写）
+    await driver.submit('前台问');
+    expect(lanes).toEqual([true, false]);
+    expect(seen[1]!.messages[seen[1]!.messages.length - 1]).toMatchObject({
+      role: 'user',
+      content: '前台问',
+    });
+  });
 });
 
 /* ---------------- session/lifecycle 活体广播（04 §6 e-2 观测腿） ---------------- */
