@@ -160,6 +160,13 @@ describe('judgeTarballTrees（契约 4 深对照）', () => {
     expect(judgeTarballTrees(local, remote).equivalent).toBe(true);
   });
 
+  // 2026-09-14 首发幂等收口咬住补笔——api-emit.stamp 亦时间戳溯源值，同入剥离集
+  it('仅 api-emit.stamp 溯源戳差异 → 等价跳（剥离集两件）', () => {
+    const local = { 'package.json': 'a', 'dist/.api-emit.stamp': 't1', 'dist/.build-meta.json': 'm1' };
+    const remote = { 'package.json': 'a', 'dist/.api-emit.stamp': 't2', 'dist/.build-meta.json': 'm2' };
+    expect(judgeTarballTrees(local, remote).equivalent).toBe(true);
+  });
+
   it('实质差异（多一件/少一件/内容异）→ 拒', () => {
     const local = { 'package.json': 'a', 'dist/x.js': 'x' };
     const remote = { 'package.json': 'b', 'dist/y.js': 'y' };

@@ -110,14 +110,18 @@ export function judgePackList(files) {
 }
 
 /**
- * 契约 4 深对照——两 tarball 解包树（path → sha256）剥离 dist/.build-meta.json
- * 溯源戳一件后逐件比：全同 = 等价跳（中断重跑时 HEAD 已移属正常）；有实质
- * 差异 = 响亮拒（registry 不可重写同版本）。
+ * 契约 4 深对照——两 tarball 解包树（path → sha256）剥离溯源戳两件后逐件比：
+ * 全同 = 等价跳（中断重跑时 HEAD 已移属正常）；有实质差异 = 响亮拒
+ * （registry 不可重写同版本）。
+ * 剥离集（07 §8.3 契约 4——2026-09-14 补笔两件）= 溯源戳类非确定值：
+ * `.build-meta.json`（builtAt）+ `.api-emit.stamp`（emit-api-decls 生成时戳）；
+ * 判据 = 溯源戳类，内容件永不入集。
  */
 export function judgeTarballTrees(localTree, remoteTree) {
+  const STRIP = ['dist/.build-meta.json', 'dist/.api-emit.stamp'];
   const strip = (tree) => {
     const copy = { ...tree };
-    delete copy['dist/.build-meta.json'];
+    for (const k of STRIP) delete copy[k];
     return copy;
   };
   const a = strip(localTree);
