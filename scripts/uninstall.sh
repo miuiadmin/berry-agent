@@ -30,7 +30,10 @@ if [ -d "$data_dir" ]; then
   warn '内含记忆、会话历史、插件装机物与凭证——删除不可恢复。'
   warn '如需保留记忆，请先启动 TUI 执行 /memory-export 导出后再继续。'
   printf '确认删除数据目录？[y/N] '
-  read -r answer
+  # EOF 折保留分支（fail-safe）：非交互 stdin（sh uninstall.sh < /dev/null、
+  # 管道、cron 场景）裸 read 退非零会连 set -eu 整脚本截断——npm 卸载已完成
+  # 而确认段静默中止。EOF/读失败一律折「未确认」走保留分支出 0。
+  read -r answer || answer=''
   case "$answer" in
     y | Y)
       rm -rf "$data_dir"
