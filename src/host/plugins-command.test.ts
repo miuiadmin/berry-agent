@@ -19,14 +19,16 @@ import type { LoadReport } from './loader.js';
 import { createPluginStoreFs } from './plugin-store.js';
 import type { LifecycleAuditSink, PluginStoreFs } from './plugin-store.js';
 
-/** 最小 LoadReport 替身（unload no-op——命令面只读三分区投影） */
+/** 最小 LoadReport 替身（unload no-op——命令面只读三分区投影）。activated
+ * 行 agentDirs 缺省填空数组：真实 loader 恒双目录随行（loader.ts 激活行），
+ * renderList 直读两字段——缺省填充保替身与真形同构。 */
 function fakeReport(
-  activated: Array<{ id: string; skillDirs: string[] }>,
+  activated: Array<{ id: string; skillDirs: string[]; agentDirs?: string[] }>,
   failed: Array<{ id: string; code: string; message: string }>,
   skipped: Array<{ id: string; reason: string }>,
 ): LoadReport {
   return {
-    activated,
+    activated: activated.map((a) => ({ agentDirs: [], ...a })),
     failed,
     skipped,
     unload: () => Promise.resolve({ disposed: [], failed: [] }),
@@ -115,6 +117,33 @@ describe('用法与 list 读面', () => {
     const out = await runPluginsCommand(['list'], rig_.deps);
     expect(out.ok).toBe(true);
     expect(out.text).toContain('装载面未装配');
+  });
+
+  it('list：启用行子代理目录尾注与 CLI 同串形（两面同源回归锁——cecd6b0 CLI 面补齐 agentDirs 而 TUI 面漏跟，修前本例红）', async () => {
+    const rig_ = rig();
+    const deps: PluginsCommandDeps = {
+      ...rig_.deps,
+      report: () =>
+        fakeReport(
+          [
+            // 双目录齐备行：技能段前、子代理段后（与 plugins-cmd runList 同串形）
+            { id: 'core:demo', skillDirs: ['/a/skills'], agentDirs: ['/x/agents', '/y/agents'] },
+            // 仅子代理目录行：技能段缺席、子代理段照呈
+            { id: 'core:agent-only', skillDirs: [], agentDirs: ['/z/agents'] },
+            // 双空行：不带任何尾注
+            { id: 'user-x', skillDirs: [], agentDirs: [] },
+          ],
+          [],
+          [],
+        ),
+    };
+    const out = await runPluginsCommand(['list'], deps);
+    expect(out.ok).toBe(true);
+    expect(out.text).toContain('core:demo  技能目录：/a/skills  子代理目录：/x/agents、/y/agents');
+    expect(out.text).toContain('core:agent-only  子代理目录：/z/agents');
+    expect(out.text).not.toContain('core:agent-only  技能目录');
+    expect(out.text).not.toContain('user-x  技能目录');
+    expect(out.text).not.toContain('user-x  子代理目录');
   });
 
   it('纯 memory 诊断形（dataDir null）：写动词拒、list 放行', async () => {

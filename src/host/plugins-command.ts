@@ -62,7 +62,11 @@ export interface PluginsCommandDeps {
   readonly configForm?: (id: string) => Promise<PluginsCommandOutcome>;
 }
 
-/** list 三分区渲染（CLI list 同构输出——两面同源人读形） */
+/**
+ * list 三分区渲染（CLI list 同构输出——两面同源人读形）：启用行双目录尾注
+ * （技能目录/子代理目录）与 plugins-cmd runList 同串形逐字对齐——空清单不
+ * 带尾注段（cecd6b0 CLI 面补齐 agentDirs，本面同笔跟齐）。
+ */
 function renderList(report: LoadReport | undefined): string {
   if (report === undefined) {
     return '装载面未装配（noPlugins 诊断形）——无装载态可列。';
@@ -70,7 +74,11 @@ function renderList(report: LoadReport | undefined): string {
   const lines: string[] = [];
   lines.push(`启用（${report.activated.length}）：`);
   for (const a of report.activated)
-    lines.push(`  ${a.id}${a.skillDirs.length > 0 ? `  技能目录：${a.skillDirs.join('、')}` : ''}`);
+    lines.push(
+      `  ${a.id}` +
+        `${a.skillDirs.length > 0 ? `  技能目录：${a.skillDirs.join('、')}` : ''}` +
+        `${a.agentDirs.length > 0 ? `  子代理目录：${a.agentDirs.join('、')}` : ''}`,
+    );
   lines.push(`失败（${report.failed.length}）：`);
   for (const f of report.failed) lines.push(`  ${f.id}  ${formatPluginFailureText(f)}`);
   lines.push(`禁用（${report.skipped.length}）：`);
