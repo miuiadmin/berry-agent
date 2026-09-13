@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
+import Database from 'better-sqlite3';
 
 import type { AgentEvent, SessionEvent } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
@@ -371,6 +372,94 @@ describe('runRunEntry --background 记账（04 §5 后台道）', () => {
     expect(anchor).toBeDefined(); // seq 锚定的确是本 run 的 assistant 消息
     expect(first['priority']).toBe('background'); // 聚合只计后台道
     expect(first['model']).toBe('faux-run/m1'); // 记账 model = 栈内解析真值
+  });
+});
+
+/* ---------------- --tick settle 落账（04 §12 律 3 乙案侧——2026-09-13 修复批） ---------------- */
+
+/**
+ * 模型调用窗直读 jobs 行单列（WAL 并读——claim 已落/settle 未至的确定性
+ * 中点观察：claim 严格先于 submit→模型调用，settle 严格后于模型收场）。
+ * 测试面直开库（fts.test 同例——src 侧 better-sqlite3 只准 persist 的纪律
+ * 不辖测试诊断读）。
+ */
+function probeJobColumn(
+  dataDir: string,
+  name: string,
+  column: 'active_pid' | 'last_outcome' | 'next_fire_at',
+): unknown {
+  const db = new Database(join(dataDir, 'sessions.db'));
+  try {
+    const row = db.prepare(`SELECT ${column} AS v FROM jobs WHERE name = ?`).get(name) as { v: unknown } | undefined;
+    return row?.v;
+  } finally {
+    db.close();
+  }
+}
+
+describe('runRunEntry --tick settle 落账（律 3 乙案侧：claim-then-advance 的 CLI 腿）', () => {
+  it('用户行真跑（修前红）：run 期占用面 = 本 CLI pid + 终态四笔——lastOutcome 镜像/last_fire_at 落账/next 推进/占用清', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({
+      name: 'settle-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true, // 启用行（cron 注册态真实形态——addJob 缺省建停用行）
+    });
+    const nextBefore = seed.scheduler.service.getJob('settle-job')?.nextFireAt;
+    await seed.shutdown();
+
+    // 模型调用回调窗内直读行（替换响应队——rigRun 未及消费前覆写安全：
+    // 模型调用严格后于装配完成，而装配是首个 await 边界）
+    let midRunActivePid: unknown;
+    const run = await rigRun({ message: '', flags: { tick: 'settle-job' }, dataDir, cwd: jobWs });
+    run.faux.setResponses([
+      () => {
+        midRunActivePid = probeJobColumn(dataDir, 'settle-job', 'active_pid');
+        return messageOf();
+      },
+    ]);
+    await expect(run.entry).resolves.toBe(0);
+
+    // claim 中点可见（律 3 乙案侧——此前单向：只读他人占用不自记）
+    expect(midRunActivePid).toBe(process.pid);
+    // 终态四笔（audit 读回——第二装配在收场后开）
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('settle-job');
+      expect(row?.lastOutcome?.reason).toBe('exit_code'); // 终态镜像落账
+      expect(row?.lastOutcome?.exitCode).toBe(0);
+      expect(row?.lastOutcome?.finalTextPreview).toBe('ok'); // 末条 assistant 文本（faux 常量透传）
+      expect(row?.lastFireAt).not.toBeNull(); // 真跑落 last_fire_at（此前永不推进）
+      expect(row?.activePid).toBeNull(); // settle 清占用（claim 对偶）
+      // next 推进：结算时刻锚 every:30m 下一刻 > 种入时的 now+30m
+      expect(Date.parse(row?.nextFireAt ?? '')).toBeGreaterThan(Date.parse(nextBefore ?? ''));
+    } finally {
+      await audit.shutdown();
+    }
+  });
+
+  it('goal wake 未落地（修前红）：gated 结局照记 + 不动 last_fire_at（此前零 settle 行永 due）', async () => {
+    const dataDir = tmpDir('run-data-');
+    const goal = await seedGoal(dataDir, { abandon: true }); // 激活即弃 → inactive
+    const run = await rigRun({ message: '', flags: { tick: `goal-${goal.id}` }, dataDir });
+    await expect(run.entry).resolves.toBe(0); // 零跑零账退 0
+    expect(run.err.text).toContain('未唤醒');
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob(`goal-${goal.id}`);
+      expect(row?.lastOutcome?.reason).toBe('gated'); // gated 结局照记（引擎 spawnGoalRow 同律）
+      expect(row?.lastOutcome?.error).toContain('未唤醒');
+      expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
+      expect(row?.nextFireAt).not.toBeNull(); // next 照推进（行不再永 due）
+      expect(row?.activePid).toBeNull(); // 零 claim 零占用
+    } finally {
+      await audit.shutdown();
+    }
   });
 });
 

@@ -45,8 +45,8 @@ import { isStandardMessage } from '../contracts/index.js';
 import type { SubmitResult } from '../conversation/index.js';
 import { diagnoseProviderFailure } from '../llm/index.js';
 import type { LlmUsageEventData, Provider } from '../llm/index.js';
-import { FIRE_WALL_TIMEOUT_MS, realIsPidAlive } from '../scheduler/index.js';
-import type { RunOutcome } from '../scheduler/index.js';
+import { FIRE_WALL_TIMEOUT_MS, nextFireAt, realIsPidAlive } from '../scheduler/index.js';
+import type { JobRow, JobsDao, RunOutcome } from '../scheduler/index.js';
 import type { SandboxMode } from '../safety/index.js';
 import { approvalPresetOf } from '../safety/index.js';
 
@@ -167,6 +167,40 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   const { options, outputFormat, out, err, runtime, stack, scope } = ctx;
   const flags = options.flags;
 
+  // —— ⓪ tick settle 记账位（04 §12 无人值守执行链定形注律 3 乙案侧——
+  // 2026-09-13 全面复盘修复批：乙案让位律原单向兑现——子进程读行让位而自跑
+  // 零占用记账、收场零结算（lastOutcome 不落账/last_fire_at 不推进/僵行清扫
+  // 空转）。本批兑现双向：起跑 claim（activePid = 本 CLI pid——引擎侧跨进程
+  // 在飞判定与僵行清扫由此见本实例）+ 收场 settle（真跑 settleFire 三笔推进
+  // / 零跑 gated settleGated 只推进 next）。乙案形态引擎不在环——CLI 是该
+  // fire 的唯一记账方 ——
+  let tickJob: { dao: JobsDao; row: JobRow; firedAt: string } | undefined;
+  /** 结算单点（单笔幂等——settle 后再呼零副作用；非 tick 形恒零副作用） */
+  const settleTick = (outcome: RunOutcome): void => {
+    if (tickJob === undefined) return;
+    const { dao, row, firedAt } = tickJob;
+    tickJob = undefined;
+    const nowIso = new Date().toISOString();
+    // next 从结算时刻取下一刻（错过不重放同律——引擎 settle 段同锚）
+    const next = nextFireAt(row.schedule, new Date(nowIso));
+    if (outcome.reason === 'gated') {
+      dao.settleGated(row.name, outcome, next, nowIso);
+    } else {
+      dao.settleFire(row.name, firedAt, outcome, next, nowIso);
+    }
+    // claim 清账（settle 对偶——settleFire/settleGated 不动 active_pid 列，本侧补清）
+    dao.setActive(row.name, null, null, nowIso);
+  };
+  /** tick 行早退收账（claim 后 run 未起跑形——spawn 形落账诚实记「没起来」） */
+  const abortTick = (error: string): void => {
+    settleTick({
+      trigger: 'cron',
+      reason: 'spawn',
+      error: error.slice(0, 200),
+      finishedAt: new Date().toISOString(),
+    });
+  };
+
   // —— ① tick 形预解析（jobs 行读取 + goal 挂钟行 wake 判定先行——提示词与
   // 会话归属都可能来自行内，须在会话选取前定形）——
   let message = options.message;
@@ -229,7 +263,21 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       });
       if (!decision.landed) {
         // 诚实零跑：不落即本轮无事（inactive/stalled/wake_budget 各由 message
-        // 说明）——零跑零账退 0
+        // 说明）——零跑零账退 0。gated 结局照记 + next 推进（2026-09-13 修复批：
+        // 引擎侧 spawnGoalRow gated 同律——乙案此前零 settle，行永 due 反复过
+        // wake 判定面）
+        const gatedAt = new Date().toISOString();
+        schedFace.dao.settleGated(
+          row.name,
+          {
+            trigger: 'cron',
+            reason: 'gated',
+            error: `goal「${goalId}」本轮未唤醒（${decision.reason}）`,
+            finishedAt: gatedAt,
+          },
+          nextFireAt(row.schedule, new Date(gatedAt)),
+          gatedAt,
+        );
         err.write(`goal「${goalId}」本轮未唤醒（${decision.reason}）：${decision.message}\n`);
         return 0;
       }
@@ -240,10 +288,25 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       message = row.prompt;
       if (row.cwd !== null) cwdAnchor = row.cwd;
     }
+    // 起跑 claim（律 3 乙案侧——2026-09-13 修复批）：本 CLI 进程 pid 落占用面
+    // + 起跑钟；此后本 run 期引擎侧跨进程在飞判定见他实例让位、kill -9 残账
+    // 由僵行清扫回收（让位律由单向变双向真值）。收场对偶在 ⑨ settleTick。
+    const firedAtIso = new Date().toISOString();
+    schedFace.dao.setActive(row.name, pid, firedAtIso, firedAtIso);
+    tickJob = { dao: schedFace.dao, row, firedAt: firedAtIso };
   }
 
   // —— ② --background 预检（04 §5 后台道预算闸门——拒在起跑前，零跑零账）——
   if (flags.background && !stack.llm.canAfford('background')) {
+    // tick 形同步 gated 落账（2026-09-13 修复批：引擎 daily_budget 门同律——
+    // 非真跑不动 last_fire_at、next 照推进；非 tick 形 settleTick 零副作用）
+    settleTick({
+      trigger: 'cron',
+      reason: 'gated',
+      gate: 'daily_budget',
+      error: '当日后台道预算不可负担（canAfford 假）',
+      finishedAt: new Date().toISOString(),
+    });
     err.write('当日后台道预算已尽（LLM_BUDGET_EXCEEDED 语义——后台日池已满）：明日再跑或去 --background 走前台道\n');
     return 1;
   }
@@ -256,6 +319,7 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     try {
       sessionId = stack.manager.open(goalSessionId).sessionId; // 幂等——goal 绑定会话续接
     } catch (error) {
+      abortTick('goal 会话打开失败');
       err.write(`goal 会话打开失败：${error instanceof Error ? error.message : String(error)}\n`);
       return 1;
     }
@@ -263,6 +327,7 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     try {
       sessionId = stack.manager.open(flags.session).sessionId; // missing 即 throw（fail-loud）
     } catch {
+      abortTick('--session 会话不存在');
       err.write(`--session 会话不存在：${flags.session}\n`);
       return 1;
     }
@@ -275,6 +340,7 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     if (sourceId === undefined) {
       const [latest] = stack.manager.list({ workspaceRoot, limit: 1 });
       if (latest === undefined) {
+        abortTick('--fork 无源会话');
         err.write('--fork 未带 id 且当前工作区无既有会话——无从分叉\n');
         return 1;
       }
@@ -284,11 +350,13 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     try {
       forked = await stack.manager.fork(sourceId);
     } catch (error) {
+      abortTick('--fork 失败');
       err.write(`--fork 失败：${error instanceof Error ? error.message : String(error)}\n`);
       return 1;
     }
     if (forked.status === 'vetoed') {
       // session_before_fork 钩子否决——非错误路径但 run 无法进行（退 1 执行失败档）
+      abortTick('--fork 被钩子否决');
       err.write(`--fork 被钩子否决：${forked.reason}\n`);
       return 1;
     }
@@ -315,6 +383,7 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
         });
       } catch (error) {
         // 开面失败（如端口占用 EADDRINUSE）= 预期内环境态——干净呈报不写 crash.log
+        abortTick('--port 开面失败');
         err.write(`--port 开面失败：${error instanceof Error ? error.message : String(error)}\n`);
         return 1;
       }
@@ -409,6 +478,7 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   }
   if (result.status === 'injected' || result.status === 'wake-refused') {
     // 本入口无 backgroundWake 载体/停摆期注入语义——到达即异常态，诚实退 1
+    abortTick(`提交回执异常（${result.status}）`);
     err.write(`提交回执异常（${result.status}）——run 未起跑\n`);
     return 1;
   }
@@ -459,6 +529,36 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       }
     } else if (result.errorMessage !== undefined && result.errorMessage !== '') {
       err.write(`run 中止：${result.errorMessage}\n`); // aborted 带说明时呈报（SIGINT 路径说明缺席为常态）
+    }
+  }
+
+  // —— ⑨' tick settle（律 3 乙案侧收场腿——2026-09-13 修复批）：终态镜像落
+  // jobs 行（completed→exit_code 0+preview / failed→exit_code 1+error /
+  // truncated·aborted→killed；preview 帽 200 与 RunOutcome 契约同值）。崩溃/
+  // 信号路径不达本段——claim 残账由引擎僵行清扫回收（律 3 既有兜底语义）——
+  if (tickJob !== undefined) {
+    const finishedAt = new Date().toISOString();
+    if (finalStatus === 'completed') {
+      const outcome: RunOutcome = { trigger: 'cron', reason: 'exit_code', exitCode: 0, finishedAt };
+      if (lastAssistantText !== undefined) outcome.finalTextPreview = lastAssistantText.slice(0, 200);
+      settleTick(outcome);
+    } else if (finalStatus === 'truncated') {
+      settleTick({
+        trigger: 'cron',
+        reason: 'killed',
+        error: `--max-turns ${flags.maxTurns} 到帽截断（truncated）`,
+        finishedAt,
+      });
+    } else if (result.status === 'failed') {
+      settleTick({
+        trigger: 'cron',
+        reason: 'exit_code',
+        exitCode: 1,
+        error: (result.errorMessage ?? 'run 失败（无错误说明）').slice(0, 200),
+        finishedAt,
+      });
+    } else {
+      settleTick({ trigger: 'cron', reason: 'killed', error: 'run 中止（协作/信号 abort）', finishedAt });
     }
   }
 
