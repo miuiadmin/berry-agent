@@ -89,6 +89,8 @@ function rig(
     readonly hostDefaults?: unknown;
     readonly enabledYaml?: string;
     readonly presetCredentials?: Record<string, string>;
+    /** 第 2 次 setCredential 抛此错（落盘期半途异常注入——分档回执锁） */
+    readonly failSecondCredentialWith?: Error;
   } = {},
 ) {
   const pluginId = overrides.id ?? 'demo';
@@ -101,6 +103,7 @@ function rig(
   const changes: CredentialChangedPayload[] = [];
   let reloads = 0;
   const script = overrides.script ?? {};
+  const failSecondCredentialWith = overrides.failSecondCredentialWith;
   const calls = {
     inputs: [] as Array<[string, UiInputOptions | undefined]>,
     confirms: [] as string[],
@@ -132,6 +135,8 @@ function rig(
     },
     getCredential: (ns, name) => creds.get(`${ns}/${name}`),
     setCredential: (ns, name, entry) => {
+      // 第 2 次入盒抛错（failSecondCredentialWith 在场时）——落盘半途注入
+      if (failSecondCredentialWith !== undefined && writes.length === 1) throw failSecondCredentialWith;
       writes.push([ns, name, entry]);
       creds.set(`${ns}/${name}`, entry);
     },
@@ -294,5 +299,62 @@ describe('取消语义（整次放弃）', () => {
     expect(rig_.rows()).toEqual([{ id: 'demo', config: { endpoint: 'https://old' } }]);
     expect(rig_.writes).toEqual([]);
     expect(rig_.reloads()).toBe(0);
+  });
+
+  it("select 问询取消（'' 保守值）→ 整次放弃——'' 不在值域，落行即写坏插件（修前红）", async () => {
+    const rig_ = rig({
+      enabledYaml: 'plugins:\n  - id: demo\n    config:\n      endpoint: https://old\n',
+      // rig select 脚本缺省回落 choices[0] 只吃 nullish——显式传 '' 即保守值直达
+      script: { inputs: ['https://x', ''], confirms: [false], selects: [''] },
+    });
+    const out = await runPluginConfigForm('demo', rig_.deps);
+    expect(out.ok).toBe(false);
+    expect(out.text).toContain('已取消');
+    // 整次放弃三零：行原样（endpoint 旧值未动、mode 未落 ''）+ 零凭证 + 零链
+    expect(rig_.rows()).toEqual([{ id: 'demo', config: { endpoint: 'https://old' } }]);
+    expect(rig_.writes).toEqual([]);
+    expect(rig_.reloads()).toBe(0);
+  });
+});
+
+describe('落盘期异常分档回执（已写事实不谎称零写盘）', () => {
+  it('secret 入盒半途抛错 → 回执点名已写进度（行已写 + 1 secret 已入盒不回滚）', async () => {
+    const rig_ = rig({
+      fields: [
+        { key: 'a', type: 'text' },
+        { key: 's1', type: 'secret' },
+        { key: 's2', type: 'secret' },
+      ],
+      enabledYaml: 'plugins:\n  - id: demo\n',
+      script: { inputs: ['x', 'sek1', 'sek2'] },
+      failSecondCredentialWith: new Error('sqlite boom'),
+    });
+    const out = await runPluginConfigForm('demo', rig_.deps);
+    expect(out.ok).toBe(false);
+    // 诚实分档：不再谎称「零写盘」，点名已写事实与指路面
+    expect(out.text).not.toContain('零写盘');
+    expect(out.text).toContain('已写入');
+    expect(out.text).toContain('sqlite boom');
+    expect(out.text).toContain('/plugins config');
+    // 事实面：行已写盘 + 恰 1 个 secret 已入盒（不回滚）
+    expect(rig_.rows()).toEqual([{ id: 'demo', config: { a: 'x' } }]);
+    expect(rig_.writes).toHaveLength(1);
+    expect(rig_.writes[0]![1]).toBe('config:s1');
+  });
+});
+
+describe('生效现值三级（行 config ?? 宿主默认 ?? 字段 default——装载合成序同源）', () => {
+  it('行 config 缺该键 + 宿主默认缺席 + 字段 default 在场 → placeholder 承载字段 default（修前红）', async () => {
+    const rig_ = rig({
+      fields: [{ key: 'url', type: 'text', default: 'https://field-default' }],
+      enabledYaml: 'plugins:\n  - id: demo\n',
+      script: { inputs: ['https://field-default'] },
+    });
+    const out = await runPluginConfigForm('demo', rig_.deps);
+    expect(out.ok).toBe(true);
+    // placeholder = 生效现值（三级合成）——修前仅两级，字段 default 层漏呈
+    expect(rig_.calls.inputs[0]![1]).toEqual({ placeholder: 'https://field-default' });
+    // 答值 = 缺省源 → 缺省烘焙回避不落行（行在场照写律——config 空对象）
+    expect(rig_.rows()).toEqual([{ id: 'demo', config: {} }]);
   });
 });

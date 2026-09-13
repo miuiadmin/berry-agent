@@ -11,7 +11,11 @@
  *    credentials/changed seam 归因——值恒不入生命周期面）。
  *
  * 取消语义（03 §1.2「取消 = 整次放弃」）：任一 ask 拒绝（通道取消/abort）
- * → 捕获为诚实回执，零写盘零凭证写。缺省烘焙回避：值等于缺省源（行缺席
+ * → 捕获为诚实回执，零写盘零凭证写；select 面永不 reject——取消/降级链
+ * 出值域答复的保守值 '' 是取消唯一信使（options 值域结构性非空，合法答复
+ * 恒非 ''），按取消语义整次放弃——'' 落行即写坏插件（不在值域，下次装载
+ * PLUGIN_CONFIG_INVALID 拒载）。落盘期异常按进度分档诚实回执（已写事实
+ * 不谎称零写盘）。缺省烘焙回避：值等于缺省源（行缺席
  * 时宿主默认/字段 default）的字段不落行——行是覆盖仓，表单全默认直存会把
  * 清单缺省烙进用户行，作者后续改 default 不再传播。
  *
@@ -84,6 +88,9 @@ export async function runPluginConfigForm(
       ? { ...(face.hostDefaults as Record<string, unknown>) }
       : {};
 
+  let rowWritten = false; // 行 config 已写盘旗（落盘期异常分档回执判据——try/catch 两面共见，故置 try 外）
+  let writtenSecrets = 0; // 已入盒 secret 计数（同上——审计 seam 失败不折抵已写事实）
+
   try {
     // —— 逐字段问答（03 §1.2 表单条款——text/secret→input、boolean→confirm、select→select）——
     const next: Record<string, unknown> = {}; // 落行值（非 secret）
@@ -92,11 +99,11 @@ export async function runPluginConfigForm(
     for (const field of face.fields) {
       const label = field.label ?? field.key;
       const hint = field.description === undefined ? '' : `\n  ${field.description}`;
-      // 生效现值 = 行 config ?? 宿主默认 ?? 字段 default（装载合成序同源）
-      const currentRaw = field.key in rowConfig ? rowConfig[field.key] : defaults[field.key];
-      const fromRow = field.key in rowConfig;
       // 字段 default 的型外安全读（secret 型无 default 位——判别联合外共取须窄化）
       const fieldDefault = 'default' in field ? field.default : undefined;
+      // 生效现值 = 行 config ?? 宿主默认 ?? 字段 default（装载合成序同源——三级）
+      const currentRaw = field.key in rowConfig ? rowConfig[field.key] : (defaults[field.key] ?? fieldDefault);
+      const fromRow = field.key in rowConfig;
       const defaultSource = fromRow ? rowConfig[field.key] : (defaults[field.key] ?? fieldDefault);
 
       if (field.type === 'text') {
@@ -144,13 +151,23 @@ export async function runPluginConfigForm(
         receipt.push(`  ${field.key} = ${onOff(value)}`);
         continue;
       }
-      // select：choices 即声明 options（值域单源——出值域答复结构性不可达）
+      // select：choices 即声明 options（值域单源）；'' = 取消/降级链保守值
+      // （select 面永不 reject——ui-core 保守值恒 ''；options 值域结构性非空
+      // 〔config-schema 深校验拒空 value〕，合法答复恒非 ''——'' 是取消唯一
+      // 信使，按取消语义整次放弃，绝不落行〔落行即写坏插件：'' 不在值域，
+      // 下次装载 PLUGIN_CONFIG_INVALID 拒载〕）
       const choices: readonly UiSelectChoice[] = field.options;
       const current = typeof currentRaw === 'string' ? currentRaw : field.default;
       const value = await deps.ask.select(
         `${label}${current === undefined ? '' : `（当前 ${current}）`}:${hint}`,
         choices,
       );
+      if (value === '') {
+        return {
+          ok: false,
+          text: `已取消——${pluginId} config 编辑整次放弃（select 问询取消——零写盘零凭证写）。`,
+        };
+      }
       if (fromRow || value !== defaultSource) next[field.key] = value;
       receipt.push(`  ${field.key} = ${value}`);
     }
@@ -166,10 +183,12 @@ export async function runPluginConfigForm(
     if (rowWriteNeeded) {
       const write = setRowConfig(deps.dataDir, pluginId, newRowConfig, deps.fs);
       if (!write.ok) return { ok: false, text: write.message };
+      rowWritten = true;
     }
     const ns = pluginNamespace(pluginId);
     for (const { key, value } of secrets) {
       deps.setCredential(ns, `config:${key}`, { apiKey: value, meta: { source: 'manual' } });
+      writtenSecrets += 1; // 入盒即已写（onCredentialChanged 审计 seam 失败不折抵）
       deps.onCredentialChanged?.({ namespace: ns, name: `config:${key}`, action: 'add', origin: 'human' });
     }
     const changed = rowWriteNeeded || secrets.length > 0;
@@ -187,10 +206,18 @@ export async function runPluginConfigForm(
       text: `${head}\n${receipt.join('\n')}${undeclaredLine}`,
     };
   } catch (err) {
-    // 取消/通道断 = 整次放弃（零写盘——行写盘在全部问询之后，此捕获点必然先于一切写）
+    const reason = err instanceof Error ? err.message : String(err);
+    // 问询期取消（落盘未达）= 整次放弃；落盘期异常按进度分档诚实回执——
+    // 已写事实不谎称零写盘（行写盘在全部问询之后，问询期异常恒走首档）
+    if (!rowWritten) {
+      return {
+        ok: false,
+        text: `已取消——${pluginId} config 编辑整次放弃（零写盘零凭证写）：${reason}`,
+      };
+    }
     return {
       ok: false,
-      text: `已取消——${pluginId} config 编辑整次放弃（零写盘零凭证写）：${err instanceof Error ? err.message : String(err)}`,
+      text: `已写入 ${pluginId} 行 config（${writtenSecrets} 个 secret 已入凭证盒、未回滚）：${reason}——表单未完整收口，可重跑 /plugins config 覆盖修复或手编 enabled.yaml`,
     };
   }
 }
