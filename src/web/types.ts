@@ -8,6 +8,8 @@
  * 注册工具 + provide 服务）归批 12 后装载面；本批纯逻辑腿。
  */
 
+import type { Dispatcher } from 'undici';
+
 /** 消费面标注（归因落账的 consumer 字段——三消费位同一路径可区分） */
 export type WebConsumer = 'tool' | 'service' | 'navigate';
 
@@ -94,6 +96,8 @@ export type FetchLike = (
     body?: string;
     redirect?: 'manual';
     signal?: AbortSignal;
+    /** 钉死 dispatcher（连接级 DNS 钉死——rb 批；undici Agent，全局 fetch init.dispatcher 位） */
+    dispatcher?: Dispatcher;
   },
 ) => Promise<Response>;
 

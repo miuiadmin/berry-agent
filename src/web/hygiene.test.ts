@@ -154,8 +154,11 @@ describe('私网判定全腿（assertPublicHost——字面 + DNS 双查）', ()
     await expectWebError(assertPublicHost(new URL('http://example.com/'), mixedResolver), 'WEB_PRIVATE_ADDRESS');
   });
 
-  it('全公网解析放行', async () => {
-    await expect(assertPublicHost(new URL('https://example.com/'), publicResolver)).resolves.toBeUndefined();
+  it('全公网解析放行——返回经校验地址集（连接级钉死的钉值来源，rb 批）', async () => {
+    await expect(assertPublicHost(new URL('https://example.com/'), publicResolver)).resolves.toEqual([
+      '93.184.216.34',
+      '2606:4700:4700::1111',
+    ]);
   });
 
   it('DNS 解析失败原样上抛（非卫生拦截——无 WEB_ 码）', async () => {

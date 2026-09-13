@@ -15,18 +15,23 @@
  *   逐跳跟随编舞只在 web service 唯一实现（service.ts），本件不复制第二份；
  * - **守卫件住 web 域**——credentials 无 web 边（「本件无 web 边，fetchFn
  *   宿主装配位注入」），装配位（host 已有 web 边）包裹注入，credentials
- *   模块零改动。
+ *   模块零改动；
+ * - **连接级钉死**（2026-09-14 rb 批——定形注尾句「漂移窗挂账」已收口）：
+ *   assertPublicHost 通过地址集入钉（dns-pin 进程级登记）+ 透传 fetch 携
+ *   dispatcher——「校验通过 → 连接」的 rebinding TOCTOU 间隙闭合。
  *
  * 与 web service 的分职：service = 模型可控任意 URL 的全卫生编排（在飞门/
  * 逐跳重定向/字节帽/归因落账）；本件 = 宿主外联固定端点的窄面包裹（无门
  * 无帽无归因——端点是插件声明非模型生成，额度面不适用）。
  */
+import { getPinnedDispatcher, pinDnsAddresses } from './dns-pin.js';
 import { assertPublicHost, defaultDnsResolver, parseWebUrl } from './hygiene.js';
 import type { DnsResolver, FetchLike } from './types.js';
 
 /**
  * 构造 SSRF 守卫 fetch：每次调用先卫生两查（解析 + 协议白名单 → 字面 +
- * DNS 私网拒），过了才透传底层 fetchImpl（init 原样 + redirect 钉 manual）。
+ * DNS 私网拒），过了才透传底层 fetchImpl（init 原样 + redirect 钉 manual +
+ * dispatcher 钉死）。
  *
  * 返回形 = FetchLike（结构兼容全局 fetch 窄面；credentials OAuthFetchLike
  * 只消费 ok/status/text 三面——Response 超集，装配位直传即合法注入）。
@@ -37,10 +42,12 @@ import type { DnsResolver, FetchLike } from './types.js';
 export function createSsrfGuardedFetch(fetchImpl: FetchLike, resolveDns: DnsResolver = defaultDnsResolver): FetchLike {
   return async (url, init) => {
     // 卫生两查（卫生单源复用——解析/协议白名单在 parseWebUrl，字面 + DNS
-    // 私网拒在 assertPublicHost；拒即抛 WEB_ 族 BaseError 不透传底层）
+    // 私网拒在 assertPublicHost；拒即抛 WEB_ 族 BaseError 不透传底层）；
+    // 通过地址集入钉（连接级钉死——连接走钉值，rb 批）
     const parsed = parseWebUrl(url);
-    await assertPublicHost(parsed, resolveDns);
-    // 透传（redirect 钉 manual 不跟随——3xx 按非 200 由消费面折兜底码）
-    return fetchImpl(url, { ...init, redirect: 'manual' });
+    pinDnsAddresses(parsed.hostname, await assertPublicHost(parsed, resolveDns));
+    // 透传（redirect 钉 manual 不跟随——3xx 按非 200 由消费面折兜底码；
+    // dispatcher = 单例钉死 Agent）
+    return fetchImpl(url, { ...init, redirect: 'manual', dispatcher: getPinnedDispatcher() });
   };
 }

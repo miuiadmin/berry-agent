@@ -248,8 +248,10 @@ const MODULE_EXTERNALS = {
   // CCR 批；schema 层宿主件直用同律）
   compaction: ['typebox'],
   // web 的 fetch 工具参数面（07 篇 schema 层同律——core: 官方件同仓宿主侧
-  // 直用；14c 落码批起用）
-  web: ['typebox'],
+  // 直用；14c 落码批起用）+ undici（2026-09-14 rb 批——连接级 DNS 钉死只用
+  // Agent 类构造 connect.lookup；钉版 8.10.2 直依赖入册 07 §2.1，07 篇精确
+  // 锁同表分账）
+  web: ['typebox', 'undici'],
   // exec 的 bash 工具参数面（07 篇 schema 层同律；14a 落码批起用）
   exec: ['typebox'],
   // goal 的 todo 工具参数面（goal 段扩语义 schema——07 篇 schema 层宿主件

@@ -8,9 +8,11 @@
  *   → 主机私网判定（字面 IP 段查 + DNS 解析结果查——WEB_PRIVATE_ADDRESS）
  * 重定向每跳目标重跑同一判定序。
  *
- * 已知边界（v1 注记）：DNS 校验与实际连接之间存在解析漂移窗（rebinding 全防
- * 需自定义连接级 lookup/undici dispatcher）——本件落「请求前解析全查」档，
- * 连接级钉死挂账后续批。
+ * 连接级钉死（2026-09-14 rb 批兑现——原 v1 注记「解析漂移窗挂账」已收口）：
+ * assertPublicHost 通过即返回经校验地址集（string[]），调用方将其入钉
+ * （dns-pin.ts 进程级登记）并携 dispatcher 连接——「校验通过 → 连接」的
+ * TOCTOU 间隙闭合。本件保持纯函数（判定 + 返回，不落登记——副作用归
+ * dns-pin 单源）。
  */
 import { lookup } from 'node:dns/promises';
 import { BaseError } from '../contracts/index.js';
@@ -193,11 +195,13 @@ function expandIPv6(input: string): string[] | null {
 
 /**
  * 主机私网判定全腿（字面 + DNS）：字面腿命中即拒；非字面主机名经解析器
- * 全地址查——任一解析结果落私网段即拒（DNS rebinding 首跳防御档）。
+ * 全地址查——任一解析结果落私网段即拒。
+ * @returns 经校验的公网地址集（连接级钉死的钉值来源——调用方入钉后连接，
+ *   rb 批；字面公网 IP 经解析器解析为其自身，同路返回）
  * @throws WEB_PRIVATE_ADDRESS 私网/保留段命中
  * @throws 原样上抛解析失败（非卫生拦截——网络不可达属普通失败，不携 WEB_ 码）
  */
-export async function assertPublicHost(url: URL, resolveDns: DnsResolver): Promise<void> {
+export async function assertPublicHost(url: URL, resolveDns: DnsResolver): Promise<string[]> {
   const hostname = url.hostname.replace(/^\[|\]$/g, ''); // URL 已剥 []，防御双保险
   if (isPrivateHostLiteral(hostname)) {
     throw new BaseError('WEB_PRIVATE_ADDRESS', `目标主机属私网/保留段（SSRF 红线拒）：${hostname}`);
@@ -217,4 +221,5 @@ export async function assertPublicHost(url: URL, resolveDns: DnsResolver): Promi
   if (hit) {
     throw new BaseError('WEB_PRIVATE_ADDRESS', `目标主机解析命中私网/保留段地址（SSRF 红线拒）：${hostname} → ${hit}`);
   }
+  return addresses;
 }

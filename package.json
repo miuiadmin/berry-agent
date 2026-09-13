@@ -62,6 +62,7 @@
     "ignore": "^7",
     "jiti": "^2",
     "typebox": "1.3.25",
+    "undici": "8.10.2",
     "yaml": "^2"
   },
   "devDependencies": {

@@ -11,11 +11,12 @@
  * 超时不在本件：signal 归调用方（工具面 = 管道执行段预算；服务面 = 调用方
  * 自带）——服务内不设时钟（可测性 + 预算单源）。
  *
- * 已知边界（v1 注记）：redirect:'manual' 逐跳拦截 + 请求前 DNS 全查已覆盖
- * 模型可控的全部 URL 面；DNS 校验与实际连接的解析漂移窗（rebinding）与
- * undici 连接级钉死挂账后续批。
+ * 连接级钉死（2026-09-14 rb 批——原 v1 注记「解析漂移窗挂账」已收口）：
+ * 每跳 assertPublicHost 通过的地址集入钉（dns-pin 进程级登记）+ fetch 调用
+ * 携单例 dispatcher——「校验通过 → 连接」的 rebinding TOCTOU 间隙闭合。
  */
 import { BaseError } from '../contracts/index.js';
+import { getPinnedDispatcher, pinDnsAddresses } from './dns-pin.js';
 import { createInFlightGate } from './gate.js';
 import { assertPublicHost, defaultDnsResolver, parseWebUrl } from './hygiene.js';
 import type {
@@ -152,8 +153,8 @@ export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService 
           // catch 统一落账）
           // 卫生件 2/5：URL 解析 + 协议白名单
           let url = parseWebUrl(rawUrl);
-          // 卫生件 3/5：私网判定（字面 + DNS）
-          await assertPublicHost(url, resolveDns);
+          // 卫生件 3/5：私网判定（字面 + DNS）——通过地址集入钉（连接级钉死）
+          pinDnsAddresses(url.hostname, await assertPublicHost(url, resolveDns));
 
           // 卫生件 4/5：重定向逐跳跟随（手动——每跳目标重跑三查，跳数触帽拒）
           let requestMethod = method;
@@ -170,6 +171,8 @@ export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService 
               ...(requestBody !== undefined ? { body: requestBody } : {}),
               redirect: 'manual',
               ...(init.signal ? { signal: init.signal } : {}),
+              // 连接级钉死：全局 fetch init.dispatcher 位（连接走钉值 lookup）
+              dispatcher: getPinnedDispatcher(),
             });
             if (!REDIRECT_STATUSES.has(response.status)) break;
             const location = response.headers.get('location');
@@ -181,8 +184,9 @@ export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService 
               );
             }
             // 跳目标经同一卫生单源复检（协议/私网/DNS——重定向是 SSRF 主载体）
+            // + 通过地址集再钉（跳后连接同走钉值——每跳不复开漂移窗）
             const next = parseWebUrl(new URL(location, url.toString()).toString());
-            await assertPublicHost(next, resolveDns);
+            pinDnsAddresses(next.hostname, await assertPublicHost(next, resolveDns));
             redirects += 1;
             // 跨源跳转剥凭证头（大小写不敏感——键名小写比对剔除，普通头原样保留）
             if (requestHeaders !== undefined && next.origin !== url.origin) {

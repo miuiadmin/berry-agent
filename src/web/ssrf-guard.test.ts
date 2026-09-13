@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 
+import { getPinnedDispatcher, pinnedAddressesOf } from './dns-pin.js';
 import { createSsrfGuardedFetch } from './ssrf-guard.js';
 import type { DnsResolver, FetchLike } from './types.js';
 
@@ -122,7 +123,7 @@ describe('公网放行透传（oauth 调用形）', () => {
     expect(res.ok).toBe(true);
     expect(res.status).toBe(200);
     await expect(res.text()).resolves.toBe('{"ok":1}');
-    // 透传断言：url/method/headers/body 原样 + redirect manual 钉入
+    // 透传断言：url/method/headers/body 原样 + redirect manual 钉入 + dispatcher 钉死传抵
     expect(rec.calls).toHaveLength(1);
     expect(rec.calls[0]!.url).toBe('https://issuer.example/v1/device/code');
     expect(rec.calls[0]!.init).toEqual({
@@ -130,13 +131,14 @@ describe('公网放行透传（oauth 调用形）', () => {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: 'client_id=abc&scope=read',
       redirect: 'manual',
+      dispatcher: getPinnedDispatcher(),
     });
   });
 
-  it('init 缺席调用形：只钉 redirect 不发明字段', async () => {
+  it('init 缺席调用形：只钉 redirect + dispatcher 不发明别的字段', async () => {
     const { guarded, rec } = guardedOf();
     await guarded('https://issuer.example/v1/token');
-    expect(rec.calls[0]!.init).toEqual({ redirect: 'manual' });
+    expect(rec.calls[0]!.init).toEqual({ redirect: 'manual', dispatcher: getPinnedDispatcher() });
   });
 
   it('多次调用每次重查（oauth 轮询形态——DNS 每次解析不缓存）', async () => {
@@ -155,5 +157,16 @@ describe('公网放行透传（oauth 调用形）', () => {
     const err = await guarded('http://192.168.0.1/token', { method: 'POST' }).catch((e) => e);
     expect(err).toBeInstanceOf(BaseError);
     expect(err.code).toBe('WEB_PRIVATE_ADDRESS');
+  });
+
+  it('校验地址集入钉 + 拦截零入钉（连接级钉死——rb 批）', async () => {
+    const { guarded } = guardedOf();
+    await guarded('https://guard-pin.rb-batch.test/v1/token');
+    expect(pinnedAddressesOf('guard-pin.rb-batch.test')).toEqual(['93.184.216.34']);
+    // 解析命中私网即拒——blocked 路零登记（fail-closed 无半途钉）
+    await expect(guarded('https://dns-private.example/v1/token')).rejects.toMatchObject({
+      code: 'WEB_PRIVATE_ADDRESS',
+    });
+    expect(pinnedAddressesOf('dns-private.example')).toBeUndefined();
   });
 });

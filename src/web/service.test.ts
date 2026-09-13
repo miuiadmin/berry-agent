@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
+import { getPinnedDispatcher, pinnedAddressesOf } from './dns-pin.js';
 import { createWebFetchService } from './service.js';
 import type { FetchLike, WebAttributionRecord, WebFetchInit, WebFetchResponse } from './types.js';
 
@@ -386,5 +387,42 @@ describe('注入面缺省腿', () => {
     expect(Object.keys(result).sort()).toEqual(
       ['body', 'bytes', 'contentType', 'finalUrl', 'redirects', 'status', 'truncated', 'url'].sort(),
     );
+  });
+});
+
+describe('卫生件 3 连接级钉死（DNS rebinding TOCTOU 闭合——rb 批）', () => {
+  it('fetch 调用携单例钉死 dispatcher（桩捕获恒等断言——全局 fetch init.dispatcher 传抵）', async () => {
+    const calls: Array<{ url: string; init?: WebFetchInit }> = [];
+    const service = createWebFetchService({
+      ...baseInit,
+      fetchImpl: scriptedFetch([new Response('ok')], calls),
+    });
+    await service.fetch('https://dispatcher-pin.rb-batch.test/a');
+    const init = calls[0]?.init as { dispatcher?: unknown } | undefined;
+    expect(init?.dispatcher).toBe(getPinnedDispatcher());
+  });
+
+  it('校验地址集入钉：首跳 + 重定向跳各一（hostname 逐跳登记）', async () => {
+    const service = createWebFetchService({
+      ...baseInit,
+      fetchImpl: scriptedFetch([
+        new Response(null, { status: 302, headers: { location: 'https://hop-two.rb-batch.test/final' } }),
+        new Response('landed'),
+      ]),
+    });
+    await service.fetch('https://hop-one.rb-batch.test/start');
+    expect(pinnedAddressesOf('hop-one.rb-batch.test')).toEqual(['93.184.216.34']);
+    expect(pinnedAddressesOf('hop-two.rb-batch.test')).toEqual(['93.184.216.34']);
+  });
+
+  it('私网拒不入钉（blocked 路零登记——fail-closed 无半途钉）', async () => {
+    const service = createWebFetchService({
+      ...baseInit,
+      resolveDns: async () => ['10.0.0.7'],
+    });
+    await service.fetch('https://blocked-pin.rb-batch.test/').catch(() => {
+      /* 卫生拦截预期路径 */
+    });
+    expect(pinnedAddressesOf('blocked-pin.rb-batch.test')).toBeUndefined();
   });
 });
