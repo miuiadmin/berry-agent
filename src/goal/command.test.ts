@@ -1,11 +1,12 @@
 /**
  * /goal 命令面测试——wake/list/show 观察面渲染 + 守卫错折文本
- * （tick.test.ts 同 idiom：假 service 手搓行，纯函数直击）。
+ * （tick.test.ts 同 idiom：假 service 手搓行，纯函数直击）+ create 生产
+ * 创建入口（U10——位参形/会话锚/用法错守卫面分工）。
  */
 import { describe, expect, it } from 'vitest';
 import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { GOAL_USAGE, runGoalCommand } from './command.js';
-import type { GoalService } from './service.js';
+import type { ActivateGoalRequest, GoalService } from './service.js';
 import type { GoalRow, GoalWakeRow, WakeDecision } from './types.js';
 
 /** 行构造简写（缺省 active） */
@@ -46,20 +47,22 @@ function wake(partial: Partial<GoalWakeRow> & Pick<GoalWakeRow, 'goalId'>): Goal
   };
 }
 
-/** 假 service（手搓行 + 可编排 wake/approve 结局） */
+/** 假 service（手搓行 + 可编排 wake/approve/activate 结局） */
 function fakeService(
   options: {
     rows?: GoalRow[];
     wakes?: GoalWakeRow[];
     wakeImpl?: (goalId: string) => WakeDecision;
     approveImpl?: (goalId: string) => GoalRow;
+    activateImpl?: (req: ActivateGoalRequest) => GoalRow;
   } = {},
 ): GoalService {
   const rows = options.rows ?? [];
   const wakeRows = options.wakes ?? [];
   const byId = (goalId: string) => rows.find((r) => r.id === goalId)!;
   return {
-    async activate() {
+    async activate(req) {
+      if (options.activateImpl !== undefined) return options.activateImpl(req);
       throw new Error('测试不触');
     },
     async resume(goalId) {
@@ -259,6 +262,127 @@ describe('/goal approve', () => {
     });
     const refusedText = await runGoalCommand(['approve', 'g-1'], { service: refused, eventsFor: NO_EVENTS });
     expect(refusedText).toBe('GOAL_TRANSITION_INVALID：goal「g-1」已终态（completed）——批准无对象');
+  });
+});
+
+describe('/goal create（U10 生产创建入口——03 §10.5 U10 落码定形注）', () => {
+  it('位参形全链：objective join 复原全文 + 会话锚透传 + 通用回执「挂钟行已排」（未申报无帽零尾行）', async () => {
+    const seen: ActivateGoalRequest[] = [];
+    const service = fakeService({
+      rows: [row({ id: 'g-9', objective: '写完发布文档', schedule: 'every:60s' })],
+      activateImpl: (req) => {
+        seen.push(req);
+        return row({ id: 'g-9', objective: req.objective, schedule: req.schedule });
+      },
+    });
+    // objective 含空格整体引号（argv 引号感知切分后 join 复原——/tick add prompt 同律）
+    const text = await runGoalCommand(
+      ['create', 'every:60s', '写完', '发布', '文档'],
+      { service, eventsFor: NO_EVENTS },
+      's1',
+    );
+    // 请求形：锚/全文 join/schedule 透传 + needsWrite·budgetMessagesCap 显式缺省形
+    expect(seen).toEqual([
+      {
+        sessionId: 's1',
+        objective: '写完 发布 文档',
+        schedule: 'every:60s',
+        needsWrite: false,
+        budgetMessagesCap: null,
+      },
+    ]);
+    expect(text).toContain('已建 goal「g-9」');
+    expect(text).toContain('挂钟行已排'); // 通用文案——回执不探测装配态（定形注⑤）
+    expect(text).not.toContain('/goal approve'); // 未申报零指路
+    expect(text).not.toContain('预算帽');
+  });
+
+  it('--write 申报（申报非授权——approve 指路）与 --budget <n> 帽透传 + 回执呈现', async () => {
+    const seen: ActivateGoalRequest[] = [];
+    const service = fakeService({
+      activateImpl: (req) => {
+        seen.push(req);
+        return row({
+          id: 'g-9',
+          objective: req.objective,
+          schedule: req.schedule,
+          needsWrite: req.needsWrite === true,
+          budgetMessagesCap: req.budgetMessagesCap ?? null,
+        });
+      },
+    });
+    const text = await runGoalCommand(
+      ['create', 'daily@09:00', '晨报', '--write', '--budget', '5'],
+      { service, eventsFor: NO_EVENTS },
+      's-2',
+    );
+    expect(seen[0]).toMatchObject({ sessionId: 's-2', needsWrite: true, budgetMessagesCap: 5 });
+    expect(text).toContain('/goal approve g-9'); // f-1 文案同源指路
+    expect(text).toContain('预算帽 5');
+  });
+
+  it('缺会话锚诚实拒（定形注③——CLI 面/防御位，不猜默认会话源）；activate 零调用', async () => {
+    const seen: ActivateGoalRequest[] = [];
+    const service = fakeService({
+      activateImpl: (req) => {
+        seen.push(req);
+        return row({ id: 'g-9' });
+      },
+    });
+    const text = await runGoalCommand(['create', 'every:60s', '目标'], { service, eventsFor: NO_EVENTS });
+    expect(text).toContain('缺会话锚');
+    expect(text).toContain(GOAL_USAGE);
+    expect(seen).toHaveLength(0);
+  });
+
+  it('用法错族无码折 usage（守卫面分工——位参/空白/选项/值域全在命令层）；activate 零调用', async () => {
+    const seen: ActivateGoalRequest[] = [];
+    const service = fakeService({
+      activateImpl: (req) => {
+        seen.push(req);
+        return row({ id: 'g-9' });
+      },
+    });
+    const deps = { service, eventsFor: NO_EVENTS };
+    const cases: [string[], RegExp][] = [
+      [['create'], /create 须带两段位参/], // 全缺
+      [['create', 'every:60s'], /create 须带两段位参/], // 缺 objective
+      [['create', 'every:60s', ' ', ' '], /create 须带两段位参/], // objective 仅空白（service length 判不辖——命令层 trim 判）
+      [['create', 'every:60s', '目标', '--bogus'], /未知选项「--bogus」/],
+      [['create', 'every:60s', '目标', '--budget'], /--budget 须带正整数值/], // 缺值
+      [['create', 'every:60s', '目标', '--budget', '0'], /--budget 须带正整数值/], // 0 = 建即死帽（used+folded>=cap 恒真）
+      [['create', 'every:60s', '目标', '--budget', '-3'], /--budget 须带正整数值/],
+      [['create', 'every:60s', '目标', '--budget', 'abc'], /--budget 须带正整数值/],
+    ];
+    for (const [argv, pattern] of cases) {
+      const text = await runGoalCommand(argv, deps, 's1');
+      expect(text, `argv=${JSON.stringify(argv)}`).toMatch(pattern);
+      expect(text).toContain(GOAL_USAGE);
+    }
+    expect(seen).toHaveLength(0);
+  });
+
+  it('服务面守卫错折文本不抛：单 active 撞席/挂钟坏串回执（GOAL_TRANSITION_INVALID 码直呈）', async () => {
+    const clash = fakeService({
+      activateImpl: () => {
+        throw new BaseError(
+          'GOAL_TRANSITION_INVALID',
+          '会话 s1 已有 active goal（单 active 守卫——先 complete/abandon 再建新）',
+        );
+      },
+    });
+    expect(await runGoalCommand(['create', 'every:60s', '目标'], { service: clash, eventsFor: NO_EVENTS }, 's1')).toBe(
+      'GOAL_TRANSITION_INVALID：会话 s1 已有 active goal（单 active 守卫——先 complete/abandon 再建新）',
+    );
+    const badClock = fakeService({
+      activateImpl: () => {
+        throw new BaseError('GOAL_TRANSITION_INVALID', '挂钟注册失败（goal g-x）：schedule 词法不识');
+      },
+    });
+    // schedule 透传律（定形注⑤——命令层零词法执法，坏串判据 = register 回执折码）
+    expect(
+      await runGoalCommand(['create', 'bogus@串', '目标'], { service: badClock, eventsFor: NO_EVENTS }, 's1'),
+    ).toBe('GOAL_TRANSITION_INVALID：挂钟注册失败（goal g-x）：schedule 词法不识');
   });
 });
 

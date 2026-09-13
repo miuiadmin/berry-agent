@@ -361,9 +361,10 @@ export interface CorePluginHostDeps {
    * goal 全环服务宿主捕获位（s 批——provide 投影律〔03 §10.5 s 批补注②〕的
    * 装配域例外通道）：boot 件内 service 创建后单发回调（全量 GoalService——
    * 写动词在内）。**生产装配恒缺席**（宿主消费面全经六法投影/件内闭包——
-   * provide 面插件只见投影）；消费方 = e2e rig（goal 生产创建入口——/goal
-   * create 动词、CLI 子命令均未落地〔U10 立题〕——立题落地前测试的
-   * activate/approve 生命周期通道）。回调时点 = service 创建后、provide 前。
+   * provide 面插件只见投影；创建写面 = /goal create 人面命令〔U10 批——03
+   * §10.5 U10 落码定形注①〕，CLI 形随定形注④重开条件挂账）；消费方 =
+   * e2e rig（approve/complete 等生命周期全环位的测试通道）。回调时点 =
+   * service 创建后、provide 前。
    */
   readonly goalServiceSink?: (service: GoalService) => void;
   /**
@@ -1202,11 +1203,17 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const disposeUpdate = context.tools.register(goalUpdate);
 
       // /goal 命令（argv → 人读文本——守卫错已折文本不抛；eventsFor 与
-      // service.session 同源读面；输出面经 notify 归因 'goal'）
+      // service.session 同源读面；输出面经 notify 归因 'goal'）。sessionId
+      // 透传（U10 定形注③——goal 锚 = 命令发起会话；缺席仅 create 受影响
+      // 〔诚实拒〕，观察动词不辖）
       const disposeGoal = context.channels.registerCommand(
         'goal',
         async (args) => {
-          const text = await runGoalCommand(args.argv, { service, eventsFor: (sid) => sessionFace.events(sid) });
+          const text = await runGoalCommand(
+            args.argv,
+            { service, eventsFor: (sid) => sessionFace.events(sid) },
+            args.sessionId,
+          );
           deps.notify?.('goal', text);
         },
         GOAL_USAGE,

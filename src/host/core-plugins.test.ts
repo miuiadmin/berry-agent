@@ -1198,14 +1198,16 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       expect(typeof projected[kept]).toBe('function');
     }
 
-    // 挂钟委派真行（迟到注入先行腿——注册表序 scheduler 先装载即挂即用）：
-    // activate → jobs 表 goal-<id> builtin 建行即启（全环位——生产入口
-    // U10 立题前的测试通道）
-    const row = await svc!.activate({
-      sessionId: 's-goal',
-      objective: '测试目标——装载全环',
-      schedule: 'every:60s',
-    });
+    // U10 生产创建入口真值链：/goal create 人面命令 → CommandArgs.sessionId
+    // 透传 → activate → jobs 表 goal-<id> builtin 建行即启（挂钟委派真行
+    // ——迟到注入先行腿：注册表序 scheduler 先装载即挂即用）
+    const goalCmd = commandSpecs.find((spec) => spec.name === 'goal');
+    if (goalCmd === undefined) throw new Error('/goal 命令不在捕获面');
+    await goalCmd.handler({ raw: '', argv: ['create', 'every:60s', '测试目标——装载全环'], sessionId: 's-goal' });
+    const createdText = notified[notified.length - 1]!;
+    expect(createdText).toContain('已建 goal「');
+    expect(createdText).toContain('挂钟行已排');
+    const row = svc!.activeFor('s-goal')!;
     const schedFace = scope.tryGet<SchedulerFace>('scheduler')!;
     expect(schedFace.service.getJob(`goal-${row.id}`)?.builtin).toBe(true);
     expect(schedFace.service.getJob(`goal-${row.id}`)?.enabled).toBe(true); // 建行即启
@@ -1249,9 +1251,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(schedFace.service.getJob(`goal-${row.id}`)?.enabled).toBe(false); // 终态停摆
     expect(face!.service.goalScopeFor('s-goal')).toBeUndefined(); // 锚失活
 
-    // /goal handler 真调：list → 输出面归因 goal 的结算文本
-    const goalCmd = commandSpecs.find((spec) => spec.name === 'goal');
-    if (goalCmd === undefined) throw new Error('/goal 命令不在捕获面');
+    // /goal handler 真调：list → 输出面归因 goal 的结算文本（goalCmd 已在上文捕获）
     await goalCmd.handler({ raw: '', argv: ['list'] });
     expect(notified[notified.length - 1]!).toContain('共 1 个 goal');
 
