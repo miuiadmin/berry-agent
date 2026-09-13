@@ -59,6 +59,31 @@ describe('plugins list——同构装载态清单（三分区）', () => {
     expect(text).toContain('装机账本无此 id'); // 失败行诊断信息透出
   });
 
+  it('dataDir 缺省走 env 梯子：BERRY_AGENT_DATA_DIR 下磁盘行照呈（obs-c 回归锁——修前 list 恒读 ~/.berry-agent 致装机行三区皆隐）', async () => {
+    // 2026-09-13 可观测性批 obs-c：真模型六轮实机实证——装+mount 后 list 只呈
+    // 16 core 件。根因 = list 对 options.dataDir 条件展开（undefined 时省略）而
+    // 其他五动词同律 `?? resolveDataDir()`——env 梯子由此断线，memory 诊断形
+    // dataDir=null 整跳 enabled.yaml。本锁：不传 options.dataDir、只设 env，
+    // 磁盘行必须照常呈现（修前必红——enabled.yaml 被无视、只呈 core 册）
+    const dir = tmpDir('plug-list-envdir-');
+    writeFileSync(join(dir, 'enabled.yaml'), 'plugins:\n  - id: user-env-x\n');
+    const one: CorePluginReference = { name: 'one', apply: async () => undefined };
+    const io = capture();
+    const prev = process.env.BERRY_AGENT_DATA_DIR;
+    process.env.BERRY_AGENT_DATA_DIR = dir;
+    try {
+      const code = await runPluginsEntry({ sub: 'list' }, { version: 'x', corePlugins: [one], ...io });
+      expect(code).toBe(0);
+      const text = io.out.join('\n');
+      expect(text).toContain('user-env-x'); // env 位磁盘行照呈——失败区（装机账本无此 id）
+      expect(text).toContain('装机账本无此 id');
+      expect(text).toContain('失败（1）：');
+    } finally {
+      if (prev === undefined) delete process.env.BERRY_AGENT_DATA_DIR;
+      else process.env.BERRY_AGENT_DATA_DIR = prev;
+    }
+  });
+
   it('缺省装载形：空目录 = core 内置态全装（批 19a—19e——exec/web/skills/memory/subagent/scheduler/mcp/browser/lsp/goal/checkpoint/sdk/webui/obs/issue 十五件 + c-3 credentials 增席十六件齐册，清单缺席）', async () => {
     const dir = tmpDir('plug-list-empty-');
     const io = capture();

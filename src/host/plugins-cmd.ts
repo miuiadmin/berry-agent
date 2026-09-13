@@ -85,9 +85,14 @@ export async function runPluginsEntry(sub: PluginsCommand, options: PluginsEntry
 async function runList(options: PluginsEntryOptions): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
+  // dataDir 解析与其他五动词同律（?? resolveDataDir()——env 梯子 BERRY_AGENT_DATA_DIR
+  // 由此接通；2026-09-13 可观测性批 obs-c 修：修前条件展开在 undefined 时省略
+  // dataDir ⇒ memory 诊断形 dataDir=null ⇒ enabled.yaml/账本整跳 ⇒ 磁盘装机
+  // 行三区皆隐〔真模型六轮实机实证：装+mount 后 list 仍只呈 16 core 件〕）
+  const dataDir = options.dataDir ?? resolveDataDir();
   const assembly = await assembleHostStack({
     runtime: {
-      ...(options.dataDir !== undefined ? { dataDir: options.dataDir } : {}),
+      dataDir,
       memory: true, // 同构诊断形（与 dump-config 同形——真盘读侧 + 主库零落盘）
     },
     noPlugins: false, // list 语义 = 报告装载态——装载面必须跑（无 --no-plugins 旗标面）
