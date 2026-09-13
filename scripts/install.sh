@@ -39,10 +39,16 @@ fi
 
 # ---------- 安装验证 ----------
 printf '==> 验证安装……\n'
-if ! version=$(berry --version 2>/dev/null); then
-  die "安装完成但验证失败（berry --version 未正常返回）——请重开终端后重试（PATH 刷新）；仍失败请到仓库 issue 报告并附本脚本全部输出"
+# 兼容两代命令名（与 uninstall.sh 同款语义）：改裁前的装机 bin 名是
+# berry-agent——registry 已发布版仍以旧名链出；升级到 bin 换代版本后
+# npm 自动换链为 berry。新名优先、旧名回落，过渡期两代装机都验证得过。
+if version=$(berry --version 2>/dev/null); then
+  printf '==> 已就位：berry %s\n' "$version"
+elif version=$(berry-agent --version 2>/dev/null); then
+  printf '==> 已就位：berry-agent %s（旧命令名——升级到 bin 换代版本后自动换链为 berry）\n' "$version"
+else
+  die "安装完成但验证失败（berry / berry-agent --version 均未正常返回）——请重开终端后重试（PATH 刷新）；仍失败请到仓库 issue 报告并附本脚本全部输出"
 fi
-printf '==> 已就位：berry %s\n' "$version"
 
 # ---------- 欢迎横幅 ----------
 printf '\n'
