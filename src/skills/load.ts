@@ -2,7 +2,9 @@
  * load_skill 工具（06 §11.5(a) 按需拉取模——双模装载第二模）。
  *
  * 注册位：core:skills 件注册的全局工具（boot 全局层同 skill_manage 恒挂载）；
- * 只读无审批对（不写任何根——effect 面空）。与 read 的分工：read 是 FS 通道
+ * 只读无审批对（不写任何根——effect 显式声明 'read'：04 §9 定形块②缺省归一
+ * exec 后「面空」即落 exec 档、审批对复活，显式声明是唯一正档法——06
+ * §11.5(a) ⑤ 2026-09-14 勘正同源）。与 read 的分工：read 是 FS 通道
  * （模型自持路径语义）、本工具是具名通道（注册表解析 + 节级寻址/行级过滤
  * 两细化承载）——两通道等价合法。
  *
@@ -74,6 +76,10 @@ function normalizeModeLabel(value: string): string {
 export function createLoadSkillTool(deps: LoadSkillDeps): ToolDefinition {
   return {
     name: 'load_skill',
+    // 只读档显式声明（04 §9 定形块②缺省归一 exec——面空即落 exec 档审批对复活；
+    // 2026-09-14 处置批补笔，修前 load_skill 实际落 exec：gate read 直通不命中、
+    // headless 无人值守首调即被审批 fail-closed 拦死）
+    effect: 'read',
     description:
       '按名装载技能内容（注册表具名通道——与 read 按 location 直读等价，另承节级寻址与' +
       '行级过滤两细化）：name 必填；section 缺省装载全文、给祖先路径（"A > B" 式）只装' +

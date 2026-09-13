@@ -170,3 +170,13 @@ describe('load_skill 行级过滤', () => {
     expect(filtered).not.toContain('| **Full** |');
   });
 });
+
+describe('load_skill 只读档契约', () => {
+  it("effect 显式声明 'read'（04 §9 定形块②缺省归一 exec——声明缺位即落 exec 档）", async () => {
+    const tool = createLoadSkillTool({ registry: await registryOf([skill()]) });
+    // 修前红锚（2026-09-14 处置批）：本工具曾「面空」未声明，registry 按
+    // def.effect ?? 'exec' 归一落 exec 档——gate read 直通不命中、headless
+    // 无人值守首调即被审批 fail-closed 拦死。此断言钉住显式声明位防回退。
+    expect(tool.effect).toBe('read');
+  });
+});
