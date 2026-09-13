@@ -82,7 +82,7 @@ berry [命令] [旗标]
 
 退出码三态：**0** 成功（含诚实空——空清单/零命中非失败）/ **1** 执行失败 / **2** 环境态误用（用法错、TUI 在非交互环境）。
 
-通用旗标：`--help` / `--version` 全入口收；`--debug`（日志提级）主入口族收（无参 TUI / `run` / `serve` / `dump-config`）——子命令族（plugins/sessions/credentials/doors/mcp）不设此旗标，传入即用法错退 2。`--port <n>` TUI / run / serve / dump-config 收（dump-config 忽略不起监听）；`--no-plugins` 安全模式不入自动化入口 serve / mcp；`--plugin-file <path>` 快速试件（插件目录或单文件入口 `.js`/`.mjs`/`.ts`——纯内存注入试件行，退出即消失零落盘；TUI / run 收，`dump-config` 互斥拒）。
+通用旗标：`--help` / `--version` 各入口收（`--help` 短路排在子命令自身校验之后——如 `run` 缺 message 时 `--help` 先吃用法错退 2，`serve --help` 则正常打帮助退 0）；`--debug`（日志提级）主入口族收（无参 TUI / `run` / `serve` / `dump-config`）——子命令族（plugins/sessions/credentials/doors/mcp）不设此旗标，传入即用法错退 2。`--port <n>` TUI / run / serve / dump-config 收（dump-config 忽略不起监听）；`--no-plugins` 安全模式不入自动化入口 serve / mcp；`--plugin-file <path>` 快速试件（插件目录或单文件入口 `.js`/`.mjs`/`.ts`——纯内存注入试件行，退出即消失零落盘；TUI / run 收，`dump-config` 互斥拒）。
 
 ### 命令名与包名
 
@@ -192,7 +192,7 @@ berry serve stop               # 停守护
 
 配套生态：
 
-- **npm SDK**：`npm install berry-agent-sdk`——类型化客户端，spawn stdio / 直连 HTTP 两传输；
+- **npm SDK**：`berry-agent-sdk`（类型化客户端，spawn stdio / 直连 HTTP 两传输）**随 beta 落地 npm、当前未发布**——SDK 源码在仓内 `packages/berry-agent-sdk`，可 `file:` 链本地消费；
 - **MCP 包装**：`berry mcp` 以 MCP server 形态暴露 `berry-agent` / `berry-agent-reply` 两工具，供任意 MCP 客户端接入；
 - **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。
 

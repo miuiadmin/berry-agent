@@ -23,7 +23,7 @@ npm run format:check    # 门禁四：prettier 检查
 
 ```bash
 npm run format          # prettier 写入（写后如再手编须重读文件）
-npm run build           # 构建链：webui（vite）→ tsc 直出 dist/ → API 声明快照
+npm run build           # 构建链：webui（vite）→ tsc 直出 dist/ → API 声明快照 → 溯源戳（build-meta）
 npm run build:sdk       # SDK 包独立构建（packages/berry-agent-sdk）
 ```
 
