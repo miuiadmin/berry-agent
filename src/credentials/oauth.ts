@@ -90,6 +90,13 @@ export interface OAuthFlowRegistry {
   flowsOf(pluginId: string): readonly RegisteredOAuthFlow[];
   /** 全表（刷新链巡检面） */
   list(): readonly RegisteredOAuthFlow[];
+  /**
+   * 整组摘除（03 §10.9 oauth 死域批——流条目随装载代生死）：代回卷时清该
+   * 插件名下全部流，防死代开窗器幽灵窗 / 刷新链为已禁用已卸载插件续轮换 /
+   * 人面解析到死代流。库条目不随代删——token 数据是用户资产，流注册是
+   * 插件运行时面（两分立）。返回是否有摘除（回执诊断位）。
+   */
+  unregisterForPlugin(pluginId: string): boolean;
 }
 
 /** 注册表工厂（纯内存——零 IO，装载代内生命周期） */
@@ -126,6 +133,9 @@ export function createOAuthFlowRegistry(): OAuthFlowRegistry {
     },
     list() {
       return [...flows.values()].flatMap((byName) => [...byName.values()]);
+    },
+    unregisterForPlugin(pluginId) {
+      return flows.delete(pluginId);
     },
   };
 }

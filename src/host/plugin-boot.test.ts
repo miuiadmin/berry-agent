@@ -14,6 +14,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 import type { UiBackend } from '../contracts/index.js';
+// oauth 流注册表真身（03 §10.9 oauth 死域批——换代清理/死域开窗两道闸测试）
+import { createOAuthFlowRegistry } from '../credentials/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { createChannels } from '../channels/index.js';
 import {
@@ -1723,5 +1725,77 @@ describe('官方件宿主面开窗器死域 fail-closed（03 §10.1 异步续段
       }
       throw err;
     }
+  });
+});
+
+describe('oauth 流注册表死域与换代清理（03 §10.9 oauth 死域批）', () => {
+  /** 内存凭证窄面替身（c-3 describe 同形——作用域内自持） */
+  function memorySecretsStore() {
+    const rows = new Map<string, { apiKey: string; meta?: unknown }>();
+    return {
+      rows,
+      getCredential: (ns: string, provider: string) => rows.get(`${ns} ${provider}`),
+      setCredential: (ns: string, provider: string, entry: { apiKey: string; meta?: unknown }) =>
+        void rows.set(`${ns} ${provider}`, entry),
+    };
+  }
+
+  it('代回卷流条目整组摘除 + 死代流 invoke 开窗即拒（两道闸）', async () => {
+    const registry = createOAuthFlowRegistry();
+    const credentials: CorePluginReference = { name: 'credentials', apply: async () => undefined };
+    let handlerCalls = 0;
+    const flowPlugin: CorePluginReference = {
+      name: 'flowhost',
+      apply: async (ctx) => {
+        // 装载窗内注册流（registerOAuthFlow 窗执法的合法位）——def 最小合法形
+        const face = (ctx as { get: (n: string) => unknown }).get('secrets') as {
+          registerOAuthFlow: (spec: {
+            def: {
+              readonly name: string;
+              readonly deviceAuthUrl: string;
+              readonly tokenUrl: string;
+              readonly clientId: string;
+            };
+            handler: (io: unknown) => Promise<void>;
+          }) => void;
+        };
+        face.registerOAuthFlow({
+          def: {
+            name: 'gh',
+            deviceAuthUrl: 'https://example.com/device',
+            tokenUrl: 'https://example.com/token',
+            clientId: 'cid',
+          },
+          handler: async () => {
+            handlerCalls += 1;
+          },
+        });
+      },
+    };
+    const unloadRef: { current: (() => Promise<PluginUnloadReceipt>) | null } = { current: null };
+    const { options } = rigBoot('/data', {
+      corePlugins: [credentials, flowPlugin],
+      fs: memoryFs(),
+      secrets: { store: memorySecretsStore(), oauthRegistry: registry },
+      unloadRef,
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:credentials', 'core:flowhost']);
+    // 装载期注册成功 + 活代 invoke 走宿主回调窗可达（前置——窗真源绑本插件 handle）
+    const flow = registry.get('core:flowhost', 'gh');
+    expect(flow).toBeDefined();
+    await flow!.invoke({ runDeviceCode: async () => ({ accessToken: 't' }) } as never);
+    expect(handlerCalls).toBe(1);
+    // 代回卷：流条目整组摘除（修前红：registry 跨代存活残留——刷新链将为
+    // 已禁用/已卸载插件续轮换、人面 /credentials oauth 解析到死代流）
+    await unloadRef.current!();
+    expect(registry.flowsOf('core:flowhost')).toEqual([]);
+    expect(registry.list()).toEqual([]);
+    // 纵深第二道闸：死代流 invoke 开窗即拒（修前红：闭包常驻开窗器照开 =
+    // owner 归已死代的幽灵注册行——清理面失效时仍 fail-closed）
+    await expect(flow!.invoke({ runDeviceCode: async () => ({ accessToken: 't' }) } as never)).rejects.toMatchObject({
+      code: 'PLUGIN_WINDOW_CLOSED',
+    });
+    expect(handlerCalls).toBe(1); // handler 未再执行
   });
 });

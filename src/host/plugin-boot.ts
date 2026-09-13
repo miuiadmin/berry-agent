@@ -609,7 +609,19 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
             ? {
                 oauth: {
                   registry: oauthRegistry,
-                  openWriteWindow: () => handle.enterHostCallback(),
+                  // 世代死域 fail-closed（03 §10.9 oauth 死域批 + §10.1 同律
+                  // 第二实例）：开窗器系闭包常驻物，换代/卸载后死代流 invoke
+                  // 即拒——防 owner 归已死代的幽灵注册行；与 unloadAll 流摘除
+                  // 清理面两道闸并存（纵深位，非替代）
+                  openWriteWindow: () => {
+                    if (generationDead) {
+                      throw new BaseError(
+                        'PLUGIN_WINDOW_CLOSED',
+                        `oauth 流开窗被拒：插件 ${pluginId} 所属装载代已卸载/已换代（03 §10.9——域已死即窗恒闭）`,
+                      );
+                    }
+                    return handle.enterHostCallback();
+                  },
                   inLoadWindow: () => handle.inLoadWindow,
                 },
               }
@@ -772,6 +784,14 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       for (const a of loaded.activated) await options.jobs.closeOwner(a.id);
     }
     for (const fork of pluginScopes.reverse()) await fork.dispose(); // ctx.effect 回卷
+    // oauth 流条目随代摘除（03 §10.9 oauth 死域批——流注册随代生死）：防死代
+    // 开窗器幽灵窗 / 刷新链为已禁用已卸载插件续轮换 / 人面解析到死代流。
+    // 库条目不随代删——token 数据是用户资产，流注册是插件运行时面（两分立）。
+    // 成功换代重注册走「后写胜出」自然覆盖；本腿兜住缺席重注册的残留面
+    const oauthRegistry = options.secrets?.oauthRegistry;
+    if (oauthRegistry !== undefined) {
+      for (const a of loaded.activated) oauthRegistry.unregisterForPlugin(a.id);
+    }
     return receipt; // 回卷回执（/reload 档③聚合报告数据源——换代槽消费）
   };
   if (options.unloadRef !== undefined) {
