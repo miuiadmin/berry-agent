@@ -256,6 +256,7 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 | `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`     | core:issue 件 webhook 签名密钥（同回落律）                                                                                  | 缺席                        |
 | `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE`   | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                                                                | 1440                        |
 | `BERRY_AGENT_MAX_CONCURRENT_RUNS`      | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸）                                          | 16                          |
+| `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` | 单父在飞子代理扇出帽（per-父会话内存位——正整数必需，坏值 fail-loud 拒启；满帽排队非拒收，one-shot 与后台同池同帽）          | 8                           |
 | `BERRY_AGENT_BACKGROUND_BUDGET_TOKENS` | 当日后台道 token 日池限额（后台 run 记账对照面；非负整数字串，`0` = 显式关池，坏值 fail-loud 拒启；前台花销照入账不进闸门） | 4000000                     |
 
 ## 遥测立场
@@ -265,6 +266,7 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 ## 技能与记忆
 
 - **技能**：SKILL.md 双层结构（frontmatter + 正文），六位发现层（项目 `.agents/skills/` > 用户 `~/.berry-agent/skills/` > 跨库 `~/.agents/skills`、`~/.claude/skills` > 插件 > 出厂）；对话中渐进披露，`skill_manage` 工具可创建/修补；
+- **子代理**：声明式 `agents/*.md`（frontmatter 六键 name/description/tools/requires/skills/model + 正文即系统提示），发现层镜像技能位 1-4（项目 `.agents/agents/` > 用户 `~/.berry-agent/agents/` > 跨库 `~/.agents/agents`、`~/.claude/agents` > 插件声明目录）；装载即物化为静态工具 `agent_<name>`（层序即信任序、first-wins 撞名）；模型面另有通用 `agent` 工具按名路由；后台收场结算通知携子会话指针行（「子会话 X（N 条消息）」——收果可回查）；单父在飞扇出帽默认 8（`BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` 可调——满帽排队不拒收）；
 - **记忆**：跨会话持久条目（偏好、约定、教训），常驻简报 + 按需检索两路注入；`/memory` 副屏轻管理（活体/冻结/终态三分区——冻结切换、忘掉、恢复、导出）；`/memory-export` `/memory-import` 明文迁移；
 - **环境自省**：模型工具面含 `session_status`——当前会话状态、整形后可见工具清单与高危面门态快照三段（只读，供模型自省工作环境）；
 - **插件生命周期与压缩回归**：模型工具面含插件生命周期族八件——只读三件 `plugins_list` / `events_query` / `plugin_uninstall_inspect` + 写类五件 `plugin_install` / `plugin_mount` / `plugin_unmount` / `plugin_toggle` / `plugin_update`（写类走审批对自动执法；装载生效回执指路 `/reload`——模型面不自动链重载）；及 `ccr_retrieve`（压缩归档原文检索——会话压缩折叠后按 hash 取回原文段，压缩可逆）；

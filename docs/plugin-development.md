@@ -32,6 +32,7 @@ manifest 是包内声明面（键闭集，未知键**拒载**——拒绝式而�
 | `configSchema` | ConfigField[] | 配置字段声明面（四型字段描述数组——装载期字段级校验与 `/plugins config` 表单渲染双消费源；见下「配置声明」节） |
 | `api`          | object        | API 治理块（`minApiVersion` / `targetApiVersion` / `experimental`）                                           |
 | `skills`       | string[]      | 技能目录清单；非空即在场的唯一声明载荷                                                                        |
+| `agents`       | string[]      | 声明式子代理目录清单（`agents/*.md` frontmatter def——装载即物化，见下[声明式子代理节](#声明式子代理agents-目录)）           |
 
 ## apply 函数与 ctx
 
@@ -173,6 +174,30 @@ export default async function apply(ctx) {
 ```
 
 受理序（逐动词执法）：send = 幽灵守卫 `SESSION_TARGET_NOT_FOUND` → 门检 `SESSION_CONTROL_DENIED` → a2a 链深帽 `SESSION_ROUND_LIMIT`（缺省 5）→ 乐观并发位 `expectedTurnId` 翻页拒 `SESSION_TURN_STALE` → 投递（目标未 open 即 resume 自动打开）；interrupt = 幽灵守卫 → 门检 → 无在飞拒 `SESSION_INACTIVE`（响亮拒不静默 no-op）；withdraw 同前两闸。
+
+## 声明式子代理（`agents/` 目录）
+
+manifest `agents` 键声明的目录（或项目 `.agents/agents/` 等主人位）下，`*.md` 文件即一个声明式子代理 def——frontmatter + 正文，装载期物化为静态工具 `agent_<name>`，无需写代码：
+
+```markdown
+---
+name: researcher        # 裸词（小写字母/数字/连字符，≤64）——物化名 agent_researcher
+description: 深度调研员   # 工具描述位（模型选型依据）
+tools: [grep, web]      # 工具白名单（∩ 派生面——bash 恒排除）
+requires: [grep]        # 预检闸：父会话工具面缺任一即拒 spawn
+skills: [search-docs]   # spawn 时技能全文永久注入（缺席 = fail-closed 拒）
+model: provider/m1      # 缺省模型位（可被请求覆盖）
+---
+
+你是调研员。正文即系统提示。
+```
+
+装载语义：
+
+- **物化两件套**：每 def 一个 named provider + 一个静态工具 `agent_<name>`（`/reload` 与卸载对称两撤——provider 位与工具位逆注册序回收，重挂无撞名残留）；
+- **信任序**：发现层 first-wins（project > user > 跨库 > 插件声明目录）；跨层撞名（如插件 def 撞主人位 def）装载期 warn 降级跳过，不炸装配；
+- **收场账**：子代理结算回执携宿主机器账（子会话 id / 轮数 / 消息数 / token 两桶 / 收场因）；后台收场另向父会话投结算通知（首行后带「子会话 X（N 条消息）」指针行）；
+- **并发护栏**：单父在飞子代理扇出帽缺省 8（env `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS`），满帽排队非拒收；程序化腿（`ctx.agent.registerSubagentProvider`）与声明式腿同池同帽。
 
 ## 异步发现（hook-carried 模式）
 
