@@ -91,8 +91,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: 临时演习版本（避开在场幂等分支——checkout 临时副本上改，不留痕）
-        run: npm version 0.0.0-drill.${{ github.run_number }} --no-git-tag-version
+      - name: 临时演习版本并提交（避开在场幂等分支；契约 1 工作树净空与 bump 天然
+          冲突——真发流程本就是 bump→commit→release，演习同款完整彩排；checkout
+          临时副本上提交，零推送零留痕）
+        run: |
+          git config user.name "ci-drill"
+          git config user.email "ci-drill@local"
+          npm version 0.0.0-drill.${{ github.run_number }} --no-git-tag-version
+          git commit -am "drill: 临时演习版本（CI 彩排——不推送）"
       - name: 发布演习（--dry-run 全真链，DRILL-EXIT=0 即绿）
         run: npm run release -- --dry-run
 
