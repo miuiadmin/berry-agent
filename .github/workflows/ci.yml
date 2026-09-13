@@ -1,15 +1,17 @@
-# CI 门禁（首笔 = 四门禁 + 公开仓配套面在场锁）
+# CI 门禁（四门禁 + 配套面在场锁 + 随首发节奏三件——07 §7.4 #6 兑现）
 #
 # - 四门禁：typecheck / test / lint:topology / format:check——与提交前本地
 #   门禁同源同令，逐门禁分立 job（并行跑 + 单门禁失败独立可见）；
 # - 配套面在场锁：SECURITY.md / CODEOWNERS / 中文问题模板三件被误删或清空
 #   时，第一道推流即红（零依赖纯文件检查，最快出结果）；
-# - `npm audit --omit=dev` / release 演习 job / 双 OS 矩阵随首发节奏接入，
-#   本档只保基线门禁。
+# - 随首发节奏三件（2026-09-14 首发后解禁接入，条目真源 07 §7.4 #6）：
+#   audit（npm audit --omit=dev 生产依赖审计）/ release 演习（发布机器
+#   六道契约 --dry-run 彩排）/ 安装脚本真跑（registry 现行版净环境装机）。
 #
-# 平台注记：单 OS（ubuntu-latest）起步。测试面平台分支均自适应（sandbox
-# 默认链按平台断言、PTY 用例按 python3 可用性探测跳过），Linux 上全绿路径
-# 已核；macOS 腿随双 OS 矩阵接入。
+# 平台注记：test 走双 OS 矩阵（ubuntu + macOS）——测试面平台分支均自适应
+# （sandbox 默认链按平台断言、PTY 用例按 python3 可用性探测跳过），Linux 上
+# 全绿路径已核，macOS 腿随矩阵接入；typecheck / lint / format 为平台无关
+# 纯静态面，单 OS（ubuntu-latest）跑足。
 name: CI
 
 on:
@@ -38,12 +40,14 @@ jobs:
           fi
           exit $fail
 
-  # 安装脚本锁——脚本语法机器锁 + 公开面文案禁管道直灌
-  # （真跑安装随首发节奏接入：包未发布前 npm install -g 必失败，先锁形不锁跑）
+  # 安装脚本锁——脚本语法机器锁 + 公开面文案禁管道直灌 + 真跑装机
   install-script:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
       - name: 安装脚本锁（POSIX 语法 + 文案禁管道直灌）
         run: |
           set -eu
@@ -59,6 +63,38 @@ jobs:
             exit 1
           fi
           echo '安装脚本锁绿：语法过 + 零管道直灌'
+      - name: 真跑装机（首发后解禁——净环境装 registry 现行版全链冒烟）
+        run: |
+          set -eu
+          sh scripts/install.sh
+          # 净场：runner 全局不留装机（setup-node prefix 下 npm rm 即摘）
+          npm rm -g berry-agent
+
+  # 生产依赖审计——零 npm ci（audit 只读 lockfile + 注册表元数据，最快出结果）
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm audit --omit=dev
+
+  # 发布机器演习——release 六道契约 --dry-run 全真链彩排（build/pack 验收/安装冒烟真做，
+  # publish 走 --dry-run 不上传）。临时 bump CI 演习版本号：registry 已有正式发布版而
+  # 主干 dist 恒新于已发布版，深对照幂等分支必拒（同版本号不可重发——正确执法非故障）；
+  # bump 后走「首发纯判」路径 = 每次真发布前的常态彩排路径，演习对象是发布机器链路
+  # 健康，不是「当前版本可发」的断言。
+  release-drill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: 临时演习版本（避开在场幂等分支——checkout 临时副本上改，不留痕）
+        run: npm version 0.0.0-drill.${{ github.run_number }} --no-git-tag-version
+      - name: 发布演习（--dry-run 全真链，DRILL-EXIT=0 即绿）
+        run: npm run release -- --dry-run
 
   typecheck:
     runs-on: ubuntu-latest
@@ -71,8 +107,14 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
 
+  # 双 OS 矩阵：唯一带平台分支的面（sandbox 默认链按平台断言 / PTY 用例按
+  # python3 可用性探测）；fail-fast 关——单 OS 红不取消另一 OS 的可见性
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
