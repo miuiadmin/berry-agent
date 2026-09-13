@@ -22,17 +22,17 @@
 
 manifest 是包内声明面（键闭集，未知键**拒载**——拒绝式而非忽略式）：
 
-| 键             | 形            | 说明                                                                                                          |
-| -------------- | ------------- | ------------------------------------------------------------------------------------------------------------- |
-| `id`           | string        | 插件 id；缺省取 package.json `name`。字符集：小写字母/数字/连字符，首字符非连字符；`core:` 前缀为官方件保留   |
-| `label`        | string        | 展示名；缺省取 id                                                                                             |
-| `entry`        | string        | 入口文件（相对包根）；缺席走解析序                                                                            |
-| `grants`       | object        | 授权申请面；单维 `writableRoots: string[]`                                                                    |
-| `config`       | object        | 宿主侧默认配置值（启用行 `config` 缺席时整值回落——**整值替换非合并**；secret 型键明文值拒载）                 |
-| `configSchema` | ConfigField[] | 配置字段声明面（四型字段描述数组——装载期字段级校验与 `/plugins config` 表单渲染双消费源；见下「配置声明」节） |
-| `api`          | object        | API 治理块（`minApiVersion` / `targetApiVersion` / `experimental`）                                           |
-| `skills`       | string[]      | 技能目录清单；非空即在场的唯一声明载荷                                                                        |
-| `agents`       | string[]      | 声明式子代理目录清单（`agents/*.md` frontmatter def——装载即物化，见下[声明式子代理节](#声明式子代理agents-目录)）           |
+| 键             | 形            | 说明                                                                                                              |
+| -------------- | ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `id`           | string        | 插件 id；缺省取 package.json `name`。字符集：小写字母/数字/连字符，首字符非连字符；`core:` 前缀为官方件保留       |
+| `label`        | string        | 展示名；缺省取 id                                                                                                 |
+| `entry`        | string        | 入口文件（相对包根）；缺席走解析序                                                                                |
+| `grants`       | object        | 授权申请面；单维 `writableRoots: string[]`                                                                        |
+| `config`       | object        | 宿主侧默认配置值（启用行 `config` 缺席时整值回落——**整值替换非合并**；secret 型键明文值拒载）                     |
+| `configSchema` | ConfigField[] | 配置字段声明面（四型字段描述数组——装载期字段级校验与 `/plugins config` 表单渲染双消费源；见下「配置声明」节）     |
+| `api`          | object        | API 治理块（`minApiVersion` / `targetApiVersion` / `experimental`）                                               |
+| `skills`       | string[]      | 技能目录清单；非空即在场的唯一声明载荷                                                                            |
+| `agents`       | string[]      | 声明式子代理目录清单（`agents/*.md` frontmatter def——装载即物化，见下[声明式子代理节](#声明式子代理agents-目录)） |
 
 ## apply 函数与 ctx
 
@@ -181,12 +181,12 @@ manifest `agents` 键声明的目录（或项目 `.agents/agents/` 等主人位�
 
 ```markdown
 ---
-name: researcher        # 裸词（小写字母/数字/连字符，≤64）——物化名 agent_researcher
-description: 深度调研员   # 工具描述位（模型选型依据）
-tools: [grep, web]      # 工具白名单（∩ 派生面——bash 恒排除）
-requires: [grep]        # 预检闸：父会话工具面缺任一即拒 spawn
-skills: [search-docs]   # spawn 时技能全文永久注入（缺席 = fail-closed 拒）
-model: provider/m1      # 缺省模型位（可被请求覆盖）
+name: researcher # 裸词（小写字母/数字/连字符，≤64）——物化名 agent_researcher
+description: 深度调研员 # 工具描述位（模型选型依据）
+tools: [grep, web] # 工具白名单（∩ 派生面——bash 恒排除）
+requires: [grep] # 预检闸：父会话工具面缺任一即拒 spawn
+skills: [search-docs] # spawn 时技能全文永久注入（缺席 = fail-closed 拒）
+model: provider/m1 # 缺省模型位（可被请求覆盖）
 ---
 
 你是调研员。正文即系统提示。
@@ -248,7 +248,7 @@ export default async function apply(ctx) {
 2. **虚拟面六键闭集**：`berry-agent`、`berry-agent/llm`、`berry-agent/sqlite`、`typebox`、`typebox/value`、`typebox/compile`——装载器注入的同实例模块，永不落 node_modules 解析；
 3. 插件目录树内自带 node_modules 的第三方依赖。
 
-`berry-agent` 主键注入**宿主契约公开面**（工具定义 `ToolDefinition`、事件词汇、错误基类 `BaseError`、消息/审批/LLM 共享类型——插件作者的主要类型面）；`typebox` 三键注入与宿主同实例的校验库（工具参数 Schema 用它写最顺）。`berry-agent/llm` 子键注入 **provider 注册窄面**（pi-ai 工厂族再导出：`createProvider` / `hasApi` / `lazyApi` / `anthropicMessagesApi` / `openAICompletionsApi`——后两键分别是 Anthropic messages 协议与 OpenAI chat-completions 协议的 API face，provider 插件经它用宿主同版本 pi-ai 造 provider，再 `ctx.llm.registerProvider` 入册，防双实例分叉）；`berry-agent/sqlite` 仍为保留位（数据库窄面随后续版本接入）。注意：六键是**闭集**——例如 testkit 子路径（作者测试面，见下[测试节](#测试testkit-生命周期证明)）不在其中，插件入口运行时 import 它会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载。
+`berry-agent` 主键注入**宿主契约公开面**（工具定义 `ToolDefinition`、事件词汇、错误基类 `BaseError`、消息/审批/LLM 共享类型——插件作者的主要类型面）；`typebox` 三键注入与宿主同实例的校验库（工具参数 Schema 用它写最顺）。`berry-agent/llm` 子键注入 **provider 注册窄面**（provider 工厂族再导出：`createProvider` / `hasApi` / `lazyApi` / `anthropicMessagesApi` / `openAICompletionsApi`——后两键分别是 Anthropic messages 协议与 OpenAI chat-completions 协议的 API face，provider 插件经它用与宿主同版本的协议实现造 provider，再 `ctx.llm.registerProvider` 入册，防双实例分叉）；`berry-agent/sqlite` 仍为保留位（数据库窄面随后续版本接入）。注意：六键是**闭集**——例如 testkit 子路径（作者测试面，见下[测试节](#测试testkit-生命周期证明)）不在其中，插件入口运行时 import 它会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载。
 
 ## 快速试跑（`--plugin-file`——零装机）
 

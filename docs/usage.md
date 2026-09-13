@@ -54,7 +54,7 @@ sh uninstall.sh
 
 ## 模型配置
 
-缺省模型 `anthropic/claude-sonnet-5`（pi-ai 直连；凭证按 provider 生态变量供给）。
+缺省模型 `anthropic/claude-sonnet-5`（凭证按 provider 生态变量供给）。
 
 ```bash
 export ANTHROPIC_API_KEY=sk-...   # 凭证按 provider 生态变量供给
@@ -215,7 +215,7 @@ berry-agent serve stop               # 停守护
 ### plugins 插件管理
 
 ```bash
-berry-agent plugins list             # 三分区清单：core: 内置 / 磁盘装机 / 装载失败
+berry-agent plugins list             # 三分区装载态清单：启用（N）/ 失败（N）/ 禁用（N）——失败与禁用行各附原因
 berry-agent plugins check            # 装机面体检（只读）
 berry-agent plugins install <ref>    # 装机（ref 自含源前缀，词法见下）
 berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 / 加 = 执行；--data keep|purge 缺省 keep）
@@ -265,7 +265,7 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 
 ## 技能与记忆
 
-- **技能**：SKILL.md 双层结构（frontmatter + 正文），六位发现层（项目 `.agents/skills/` > 用户 `~/.berry-agent/skills/` > 跨库 `~/.agents/skills`、`~/.claude/skills` > 插件 > 出厂）；对话中渐进披露，`skill_manage` 工具可创建/修补；
+- **技能**：SKILL.md 双层结构（frontmatter + 正文），六位发现层（项目 `.agents/skills/` > 用户 `~/.berry-agent/skills/` > 跨库 `~/.agents/skills`、`~/.claude/skills` > 插件 > 出厂）；对话中渐进披露（常驻清单一技能一块——name/description/location 三位），深读由模型工具 `load_skill` 按名装载——具名通道，与 `read` 按 location 直读等价，另承两细化：`section` 给祖先路径（"A > B" 式）只装命中节（标题按层级重建）、`mode` 按词表行级过滤正文（词表 = 待装内容自身「强度表行 ∩ 带引号示例行」双形交集推导）；报错不猜——name 未命中复用 `SKILLS_NOT_FOUND` 指路清单、节未命中列全部可寻址节、同名歧义列候选带行号、mode 不在词表拒列词表（词表空则原样装载就地注明）；回执为具名技能块（与 `/skill:<name>` 显式激活同形同源）；`disable-model-invocation` 件不经此通道（拒载并指路显式激活）；`skill_manage` 工具可创建/修补；
 - **子代理**：声明式 `agents/*.md`（frontmatter 六键 name/description/tools/requires/skills/model + 正文即系统提示），发现层镜像技能位 1-4（项目 `.agents/agents/` > 用户 `~/.berry-agent/agents/` > 跨库 `~/.agents/agents`、`~/.claude/agents` > 插件声明目录）；装载即物化为静态工具 `agent_<name>`（层序即信任序、first-wins 撞名）；模型面另有通用 `agent` 工具按名路由；后台收场结算通知携子会话指针行（「子会话 X（N 条消息）」——收果可回查）；单父在飞扇出帽默认 8（`BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` 可调——满帽排队不拒收）；
 - **记忆**：跨会话持久条目（偏好、约定、教训），常驻简报 + 按需检索两路注入；`/memory` 副屏轻管理（活体/冻结/终态三分区——冻结切换、忘掉、恢复、导出）；`/memory-export` `/memory-import` 明文迁移；
 - **环境自省**：模型工具面含 `session_status`——当前会话状态、整形后可见工具清单与高危面门态快照三段（只读，供模型自省工作环境）；

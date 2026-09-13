@@ -44,7 +44,7 @@ existe ninguna vía privada de primer partido.
 | **Autónomo por diseño**                  | Ejecuciones guiadas por objetivos que no se detienen — probadas en soak durante horas y con recuperación verificada tras un `kill -9`. Menos intervención humana, autonomía total como meta.                     |
 | **Todo es un plugin**                    | Shell, habilidades, fetch web, cron, objetivos, subagentes, checkpoints, memoria, MCP, LSP, navegador, interfaz web… las 16 capacidades oficiales se montan por la misma superficie que tus propias extensiones. |
 | **Puertas de capacidad, no intuiciones** | Las capacidades peligrosas viven detrás de puertas explícitas — `berry-agent doors list` muestra el estado de cada una. Instalar un plugin nunca implica concederle permisos.                                    |
-| **Agnóstico del modelo**                 | Impulsado por [pi-ai](https://github.com/earendil-works/pi-ai): Anthropic, OpenAI, Google y más detrás de una sola interfaz. Cambia de modelo con una variable de entorno, sin tocar código, sin encerrarse.     |
+| **Agnóstico del modelo**                 | Anthropic, OpenAI, Google y más detrás de una sola interfaz. Cambia de modelo con una variable de entorno, sin tocar código, sin encerrarse.                                                                     |
 | **Sesiones de fiar**                     | Cada sesión vive en SQLite — fork, resume, search, reindex. Una aserción en tiempo de ejecución garantiza que lo que el modelo vio es exactamente lo que quedó registrado.                                       |
 | **Tres superficies de automatización**   | La terminal para conducir, la interfaz web + HTTP `/v1/*` para supervisar, SDK y MCP para programas — un solo agente para todo tipo de consumidores.                                                             |
 | **Cero telemetría**                      | Sin estadísticas de uso, sin informes de fallos, sin llamadas de comprobación de versión. La superficie de red por defecto: llamadas al modelo y lo que pidas explícitamente — nada más.                         |
@@ -141,14 +141,6 @@ graph TD
     LOOP --> STORE
     PLUGINS --> STORE
 ```
-
-## A hombros de gigantes
-
-La capa mecánica de berry-agent lleva adelante ideas probadas de **berry**,
-**pi**, **dsh** y **opencode** — con raíces académicas en el «el editor es un
-intérprete» de Emacs y la lección de VS Code sobre las dobles vías privilegiadas.
-El acceso a los LLM lo impulsa [pi-ai](https://github.com/earendil-works/pi-ai).
-El código en sí es una reescritura independiente desde cero.
 
 ## Documentación
 

@@ -43,7 +43,7 @@ the same surface; there is no first-class private lane.
 | **Unattended by design**        | Goal-driven runs that keep going — soak-tested for hours and verified to recover after a hard `kill -9`. Less human intervention, full autonomy as the goal.                            |
 | **Everything is a plugin**      | Shell, skills, web fetch, cron, goals, sub-agents, checkpoints, memory, MCP, LSP, browser, web UI… all 16 official capabilities mount through the same surface your own extensions use. |
 | **Capability doors, not vibes** | Dangerous capabilities sit behind explicit doors — `berry-agent doors list` shows each one's state. Installing a plugin never implies granting it permissions.                          |
-| **Model-agnostic**              | Powered by [pi-ai](https://github.com/earendil-works/pi-ai): Anthropic, OpenAI, Google and more behind one interface. Switch with one env var, no code changes, no lock-in.             |
+| **Model-agnostic**              | Anthropic, OpenAI, Google and more behind one interface. Switch with one env var, no code changes, no lock-in.                                                                          |
 | **Sessions you can trust**      | Every session lives in SQLite — fork, resume, search, reindex. A runtime assertion guarantees that what the model saw is exactly what got recorded.                                     |
 | **Three automation surfaces**   | Terminal UI for driving, Web UI + `/v1/*` HTTP for supervising, SDK & MCP for programs — one agent, every kind of consumer.                                                             |
 | **Zero telemetry**              | No usage stats, no crash reports, no phone-home version checks. The default network surface is model calls plus what you explicitly ask for — nothing else.                             |
@@ -139,14 +139,6 @@ graph TD
     LOOP --> STORE
     PLUGINS --> STORE
 ```
-
-## Standing on shoulders
-
-berry-agent's mechanism layer carries forward proven ideas from **berry**, **pi**,
-**dsh** and **opencode** — with academic roots in Emacs' "the editor is an
-interpreter" and VS Code's lesson about privileged dual tracks. LLM access is
-powered by [pi-ai](https://github.com/earendil-works/pi-ai). The code itself is an
-independent rewrite from zero.
 
 ## Documentation
 

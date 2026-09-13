@@ -39,15 +39,15 @@ de montage ; il n'existe aucune voie privée de premier parti.
 
 ## Pourquoi berry-agent
 
-|                                              |                                                                                                                                                                                                                                  |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Autonome par conception**                  | Des exécutions pilotées par objectif qui ne s'arrêtent pas — testées en continu pendant des heures, récupération vérifiée après un `kill -9`. Moins d'intervention humaine, l'autonomie complète pour objectif.                  |
-| **Tout est plugin**                          | Shell, compétences, récupération web, cron, objectifs, sous-agents, points de contrôle, mémoire, MCP, LSP, navigateur, interface web… les 16 capacités officielles passent par la même surface que vos propres extensions.       |
-| **Des portes de capacité, rien d'implicite** | Les capacités dangereuses vivent derrière des portes explicites — `berry-agent doors list` affiche l'état de chacune. Installer un plugin n'implique jamais l'octroi de permissions.                                             |
-| **Agnostique du modèle**                     | Propulsé par [pi-ai](https://github.com/earendil-works/pi-ai) : Anthropic, OpenAI, Google et d'autres derrière une seule interface. Changez de modèle avec une variable d'environnement, sans toucher au code, sans enfermement. |
-| **Des sessions fiables**                     | Chaque session vit dans SQLite — fork, resume, search, reindex. Une assertion à l'exécution garantit que ce que le modèle a vu est exactement ce qui a été enregistré.                                                           |
-| **Trois surfaces d'automatisation**          | L'interface terminale pour piloter, l'interface web + HTTP `/v1/*` pour superviser, SDK & MCP pour les programmes — un seul agent, tous les consommateurs.                                                                       |
-| **Zéro télémétrie**                          | Pas de statistiques d'usage, pas de rapports de plantage, pas d'appel de vérification de version. La surface réseau par défaut : les appels de modèle et ce que vous demandez explicitement — rien d'autre.                      |
+|                                              |                                                                                                                                                                                                                            |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Autonome par conception**                  | Des exécutions pilotées par objectif qui ne s'arrêtent pas — testées en continu pendant des heures, récupération vérifiée après un `kill -9`. Moins d'intervention humaine, l'autonomie complète pour objectif.            |
+| **Tout est plugin**                          | Shell, compétences, récupération web, cron, objectifs, sous-agents, points de contrôle, mémoire, MCP, LSP, navigateur, interface web… les 16 capacités officielles passent par la même surface que vos propres extensions. |
+| **Des portes de capacité, rien d'implicite** | Les capacités dangereuses vivent derrière des portes explicites — `berry-agent doors list` affiche l'état de chacune. Installer un plugin n'implique jamais l'octroi de permissions.                                       |
+| **Agnostique du modèle**                     | Anthropic, OpenAI, Google et d'autres derrière une seule interface. Changez de modèle avec une variable d'environnement, sans toucher au code, sans enfermement.                                                           |
+| **Des sessions fiables**                     | Chaque session vit dans SQLite — fork, resume, search, reindex. Une assertion à l'exécution garantit que ce que le modèle a vu est exactement ce qui a été enregistré.                                                     |
+| **Trois surfaces d'automatisation**          | L'interface terminale pour piloter, l'interface web + HTTP `/v1/*` pour superviser, SDK & MCP pour les programmes — un seul agent, tous les consommateurs.                                                                 |
+| **Zéro télémétrie**                          | Pas de statistiques d'usage, pas de rapports de plantage, pas d'appel de vérification de version. La surface réseau par défaut : les appels de modèle et ce que vous demandez explicitement — rien d'autre.                |
 
 ## Démarrage rapide
 
@@ -142,15 +142,6 @@ graph TD
     LOOP --> STORE
     PLUGINS --> STORE
 ```
-
-## Debout sur des épaules de géants
-
-La couche mécanique de berry-agent porte en avant des idées éprouvées de
-**berry**, **pi**, **dsh** et **opencode** — avec des racines académiques dans
-l'Emacs « l'éditeur est un interpréteur » et la leçon de VS Code sur les doubles
-voies privilégiées. L'accès aux LLM est propulsé par
-[pi-ai](https://github.com/earendil-works/pi-ai). Le code lui-même est une
-réécriture indépendante, partie de zéro.
 
 ## Documentation
 
