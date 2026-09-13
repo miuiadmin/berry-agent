@@ -12,13 +12,7 @@
  * context 事件总线并预注册词汇）。终态条目保序保留帽 256 FIFO（进程
  * 生命周期内跨会话有界——供 UI 回看与结算对账，超帽即弃最老）。
  */
-import {
-  BaseError,
-  type JobEntry,
-  type JobKind,
-  type JobSettledEvent,
-  type JobTerminal,
-} from '../contracts/index.js';
+import { BaseError, type JobEntry, type JobKind, type JobSettledEvent, type JobTerminal } from '../contracts/index.js';
 
 /** 终态条目保序保留帽（04 §10——FIFO 截断） */
 export const JOB_RETENTION_CAP = 256;

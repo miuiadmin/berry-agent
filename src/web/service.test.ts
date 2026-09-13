@@ -228,10 +228,7 @@ describe('卫生件 4：重定向逐跳跟随', () => {
     const service = createWebFetchService({
       ...baseInit,
       fetchImpl: scriptedFetch(
-        [
-          new Response(null, { status: 302, headers: { location: '/final' } }),
-          new Response('ok'),
-        ],
+        [new Response(null, { status: 302, headers: { location: '/final' } }), new Response('ok')],
         calls,
       ),
     });
