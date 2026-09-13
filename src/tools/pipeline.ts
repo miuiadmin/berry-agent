@@ -26,6 +26,7 @@
 import { Value } from 'typebox/value';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { BaseError } from '../contracts/index.js';
 import { redactToolResultExit } from '../contracts/index.js';
 import { TOOL_EXECUTE_EVENT, TOOL_POST_EXECUTE_EVENT, TOOL_PRE_EXECUTE_EVENT } from '../contracts/index.js';
@@ -64,7 +65,7 @@ function codedMessage(code: string, message: string): string {
 /** 缺省输出护栏预算（64KiB——04 §7 执行段细则：输出护栏是管道属性） */
 export const OUTPUT_GUARD_BYTES = 64 * 1024;
 
-/** spill 文件序号（模块级自增——文件名在 tmpdir 内唯一即可） */
+/** spill 文件序号（模块级自增——辅助段；唯一性主载体是随机前缀） */
 let spillSeq = 0;
 
 /**
@@ -91,18 +92,22 @@ async function applyOutputGuard(result: AgentToolResult, toolCallId: string, gua
   const totalBytes = Buffer.byteLength(full, 'utf8');
   if (totalBytes <= guardBytes) return;
 
-  // spill 全文（尽力而为）：文件名只留安全字符，防 callId 形态未知的路径注入
+  // spill 全文（尽力而为）：文件名只留安全字符，防 callId 形态未知的路径注入；
+  // 铸名 = 随机前缀 + 独占写 wx + 0600（04 §7 2026-09-14 spill 安全硬化三件）——
+  // 随机前缀使种植者不可预测文件名，wx 即便撞名也不跟随既有 symlink（种植位
+  // 结构性不可用），0600 独占读（工具输出可能含敏感面，世界可读即泄漏面）
   spillSeq += 1;
   const safeCallId = toolCallId.replace(/[^A-Za-z0-9_-]/g, '_');
-  const spillPath = `${tmpdir()}/tool-output-${safeCallId}-${spillSeq}.txt`;
+  const nonce = randomBytes(6).toString('hex');
+  const spillPath = `${tmpdir()}/tool-output-${nonce}-${safeCallId}-${spillSeq}.txt`;
   let spilled = true;
   try {
-    await writeFile(spillPath, full, 'utf8');
+    await writeFile(spillPath, full, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
   } catch {
-    spilled = false; // tmp 满等故障：截断照做，路径不承诺
+    spilled = false; // tmp 满/EEXIST 撞名等故障：截断照做，路径不承诺
   }
   const tail = tailBytes(Buffer.from(full, 'utf8'), guardBytes);
-  const note = `\n\n[输出 ${totalBytes} 字节超 ${guardBytes} 字节上限，已保尾截断${spilled ? `；全文外溢至 ${spillPath}` : ''}]`;
+  const note = `\n\n[输出 ${totalBytes} 字节超 ${guardBytes} 字节上限，已保尾截断${spilled ? `；全文外溢至 ${spillPath}（可用 read/grep 从外溢文件取段）` : ''}]`;
   result.content = [...result.content.filter((part) => part.type !== 'text'), { type: 'text', text: `${tail}${note}` }];
 }
 

@@ -247,6 +247,55 @@ describe('第 3 段：后处理 + 输出护栏（固定链尾）', () => {
     expect(spilled).toBe(big);
   });
 
+  it('spill 安全硬化：0600 独占读（世界不可读——工具输出可能含敏感面）', async () => {
+    const { executor } = makeRig({ outputGuardBytes: 16 });
+    const tool = makeTool({
+      execute: async () => ({ content: [{ type: 'text', text: 'x'.repeat(200) }] }),
+    });
+    const result = await executor(tool, 'call-spill-mode', { n: 1 });
+    const text = (result.content[0] as TextContent).text;
+    const spillMatch = text.match(/外溢至 (\S+\.txt)/);
+    expect(spillMatch).not.toBeNull();
+    const { stat } = await import('node:fs/promises');
+    const info = await stat(spillMatch![1]!);
+    // 修前红锁：writeFile 无 mode 缺省 0644（组/其他可读）——04 §7 2026-09-14 硬化
+    expect(info.mode & 0o777).toBe(0o600);
+  });
+
+  it('spill 安全硬化：铸名随机前缀（不可预测——防 tmpdir symlink 种植）', async () => {
+    const { executor } = makeRig({ outputGuardBytes: 16 });
+    const tool = makeTool({
+      execute: async () => ({ content: [{ type: 'text', text: 'x'.repeat(200) }] }),
+    });
+    const first = await executor(tool, 'call-spill-nonce', { n: 1 });
+    const second = await executor(tool, 'call-spill-nonce', { n: 1 });
+    const basePath = (r: { content: Array<{ type: string; text?: string }> }) =>
+      (r.content[0] as TextContent).text.match(/外溢至 (\S+\.txt)/)?.[1];
+    const firstPath = basePath(first);
+    const secondPath = basePath(second);
+    expect(firstPath).toBeDefined();
+    expect(secondPath).toBeDefined();
+    // 修前红锁：纯自增序号名（tool-output-<callId>-<seq>.txt）无随机段——
+    // 共享机器 tmpdir 攻击者可预造同名 symlink 令宿主跟随覆写任意文件
+    const base = (p: string) => p.split('/').pop()!;
+    expect(base(firstPath!)).toMatch(/^tool-output-[0-9a-f]{12}-[A-Za-z0-9_-]+-\d+\.txt$/);
+    expect(base(secondPath!)).toMatch(/^tool-output-[0-9a-f]{12}-[A-Za-z0-9_-]+-\d+\.txt$/);
+    // 随机段两两不同（nonce 真随机——非序号变体）
+    const nonceOf = (p: string) => base(p).match(/^tool-output-([0-9a-f]{12})-/)?.[1];
+    expect(nonceOf(firstPath!)).not.toBe(nonceOf(secondPath!));
+  });
+
+  it('spill 注记检索提示：read/grep 取段指路（非静默——模型可见如何自取全文）', async () => {
+    const { executor } = makeRig({ outputGuardBytes: 16 });
+    const tool = makeTool({
+      execute: async () => ({ content: [{ type: 'text', text: 'x'.repeat(200) }] }),
+    });
+    const result = await executor(tool, 'call-spill-hint', { n: 1 });
+    const text = (result.content[0] as TextContent).text;
+    // 修前红锁：注记只给路径无工具指路（04 §7 2026-09-14 定形②）
+    expect(text).toContain('可用 read/grep 从外溢文件取段');
+  });
+
   it('护栏只钳文本 content：image 块原样保留', async () => {
     const { executor } = makeRig({ outputGuardBytes: 8 });
     const tool = makeTool({
