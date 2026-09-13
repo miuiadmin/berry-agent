@@ -140,6 +140,26 @@ function fakeSession(outcome: IssueRunOutcome) {
   return { session, starts };
 }
 
+/**
+ * 延迟结局会话假件：起跑后先让测试调 issue_escalate 登记、再放行终局——
+ * 证登记表与编舞同域跨收口存活（工具工厂在 runOne 内组、回调闭包入表）。
+ * 模块级共享（escalation 收口双档族 + 非 completed 收口附段族共件）。
+ */
+function deferredSession() {
+  let resolveOutcome!: (o: IssueRunOutcome) => void;
+  const outcome = new Promise<IssueRunOutcome>((resolve) => {
+    resolveOutcome = resolve;
+  });
+  let tools: ToolDefinition[] = [];
+  const session: IssueSessionFace = {
+    startHeadless: async (req) => {
+      tools = [...req.tools];
+      return { sessionId: 'headless-1', outcome };
+    },
+  };
+  return { session, settle: (o: IssueRunOutcome) => resolveOutcome(o), toolsOf: () => tools };
+}
+
 /** 预算假件（可注余量） */
 function fakeBudget(ok = true, reason?: string): IssueBudgetFace {
   return { canAffordIssue: () => ({ ok, reason }) };
@@ -200,6 +220,24 @@ function fakeDanger(behavior?: { pushFail?: Error; prFail?: Error; denyCode?: st
     },
   };
   return { face, deliverCalls };
+}
+
+/** verify 假件（可注结局；记录调用面——交付验证门与非 completed 收口附段族共件） */
+function fakeVerify(behavior?: { exitCode?: number; timedOut?: boolean; throwErr?: Error }) {
+  const calls: { cwd: string; command: string; timeoutMs: number }[] = [];
+  const face: IssueVerifyFace = {
+    runVerify: async (req) => {
+      calls.push({ cwd: req.cwd, command: req.command, timeoutMs: req.timeoutMs });
+      if (behavior?.throwErr !== undefined) throw behavior.throwErr;
+      return {
+        exitCode: behavior?.exitCode ?? 0,
+        timedOut: behavior?.timedOut ?? false,
+        outputTail: 'FAIL  src/x.test.ts\n断言未过：期望 3 得 4',
+        durationMs: 1234,
+      };
+    },
+  };
+  return { face, calls };
 }
 
 /** 测试基线 issue */
@@ -652,24 +690,6 @@ describe('auto 档危险闸交付腿（04 §13——闸在场三径）', () => {
 });
 
 describe('⑪ 交付验证门（verifyCommand 在场即执法——编排层交付前一步）', () => {
-  /** verify 假件（可注结局；记录调用面） */
-  function fakeVerify(behavior?: { exitCode?: number; timedOut?: boolean; throwErr?: Error }) {
-    const calls: { cwd: string; command: string; timeoutMs: number }[] = [];
-    const face: IssueVerifyFace = {
-      runVerify: async (req) => {
-        calls.push({ cwd: req.cwd, command: req.command, timeoutMs: req.timeoutMs });
-        if (behavior?.throwErr !== undefined) throw behavior.throwErr;
-        return {
-          exitCode: behavior?.exitCode ?? 0,
-          timedOut: behavior?.timedOut ?? false,
-          outputTail: 'FAIL  src/x.test.ts\n断言未过：期望 3 得 4',
-          durationMs: 1234,
-        };
-      },
-    };
-    return { face, calls };
-  }
-
   /** 通路快捷：verifyCommand 在场 + draft 档 → enqueue → 等终态 */
   async function runWithVerifyGate(verify?: IssueVerifyFace) {
     const f = makeService({
@@ -723,6 +743,17 @@ describe('⑪ 交付验证门（verifyCommand 在场即执法——编排层交�
     expect(f.fj.settled[0]!.terminal.detail).toContain('spawn ENOENT');
   });
 
+  it('执行体异常拒 detail 补时长：编排层围挂钟（异常上抛无 face 报告 durationMs 可读）', async () => {
+    // ⑪ 裁决 5 四元组双面收尾——异常分支此前连时长也不进 detail（红源：
+    // 修前 detail 形 `执行体异常（spawn ENOENT）` 无 ms 段）；face 异常上抛
+    // 时无 IssueVerifyResult.durationMs 可读，时长源 = 编排层 try 前围挂钟
+    const fv = fakeVerify({ throwErr: new Error('spawn ENOENT') });
+    const f = await runWithVerifyGate(fv.face);
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('`npm test`'); // 命令面（四元组第一元既有）
+    expect(detail).toMatch(/执行体异常（spawn ENOENT，\d+ms）/); // 时长段——修前红锚
+  });
+
   it('face 注入缺席（verifyCommand 在场时）→ 同律拒交付转人审（不选「缺席=无门放行」）', async () => {
     const f = await runWithVerifyGate(undefined);
     expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
@@ -743,25 +774,6 @@ describe('⑪ 交付验证门（verifyCommand 在场即执法——编排层交�
 });
 
 describe('⑪ escalation 收口消费（issue_escalate 登记面——runOne 闭包登记表）', () => {
-  /**
-   * 延迟结局会话假件：起跑后先让测试调 issue_escalate 登记、再放行终局——
-   * 证登记表与编舞同域跨收口存活（工具工厂在 runOne 内组、回调闭包入表）。
-   */
-  function deferredSession() {
-    let resolveOutcome!: (o: IssueRunOutcome) => void;
-    const outcome = new Promise<IssueRunOutcome>((resolve) => {
-      resolveOutcome = resolve;
-    });
-    let tools: ToolDefinition[] = [];
-    const session: IssueSessionFace = {
-      startHeadless: async (req) => {
-        tools = [...req.tools];
-        return { sessionId: 'headless-1', outcome };
-      },
-    };
-    return { session, settle: (o: IssueRunOutcome) => resolveOutcome(o), toolsOf: () => tools };
-  }
-
   /** 通路快捷：延迟会话 → enqueue → 等起跑 → 登记上报 → 放行 completed → 等终态 */
   async function runWithEscalation(over?: { mode?: 'draft' | 'auto'; danger?: IssueDangerFace }) {
     const ds = deferredSession();
@@ -813,6 +825,86 @@ describe('⑪ escalation 收口消费（issue_escalate 登记面——runOne 闭
     expect(body).toContain('不自动交付');
     expect(body).toContain('**上报 1**');
     expect(body).toContain('本地未 push'); // 分支状态如实陈述
+  });
+});
+
+describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle detail 双面）', () => {
+  /**
+   * 通路快捷（三路径共用）：延迟会话 + 可注 verify 门 → enqueue → 等起跑 →
+   * 可选登记 escalation → 放行注定的非 completed 结局 → 等终态。
+   * needs-human / failed 直落对应分支；verifyBlocked 以 completed + 验证
+   * 非零拒触达（verifyCommand 在场 + verify 假件注 exitCode 1）。
+   */
+  async function runToNonCompleted(outcome: IssueRunOutcome, over?: { escalate?: boolean; verify?: IssueVerifyFace }) {
+    const ds = deferredSession();
+    const f = makeService({
+      outcome,
+      session: ds.session,
+      ...(over?.verify !== undefined ? { verify: over.verify, verifyCommand: 'npm test' } : {}),
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(ds.toolsOf()).toHaveLength(2)); // 双工具族装载
+    if (over?.escalate) {
+      const escalate = ds.toolsOf().find((t) => t.name === 'issue_escalate')!;
+      await escalate.execute({ question: 'API 形选 REST 还是 GraphQL？' }, { toolCallId: 'tc-esc-1' });
+    }
+    ds.settle(outcome);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    return f;
+  }
+
+  it('needs-human 路径：escalation 在场 → 回执附摘要段 + settle detail 双面附（注记 + 摘要同形）', async () => {
+    // 03 §10.7 ⑪ 定形注（2026-09-14 补笔）：转人审场景恰是 escalation 呈现的
+    // 第一场景——登记表随 Job 蒸发，回执与 detail 是仅有的 durable 呈现面
+    const f = await runToNonCompleted(
+      { status: 'needs-human', messagesUsed: 5, reason: '写动作无审批覆盖' },
+      { escalate: true },
+    );
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    const body = f.fback.comments[0]!.body;
+    expect(body).toContain('需人审');
+    expect(body).toContain('## ⚠️ 模型上报待裁决（1 条'); // 摘要段同 draft 附段形
+    expect(body).toContain('**上报 1**：API 形选 REST 还是 GraphQL？');
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('需人审：写动作无审批覆盖'); // 原 detail 面保持
+    expect(detail).toContain('escalation 在场 1 条'); // draft 注记同律
+    expect(detail).toContain('API 形选 REST 还是 GraphQL？'); // detail 含摘要（双面承诺）
+  });
+
+  it('failed 路径：escalation 在场 → 回执与 settle detail 均附摘要段（detail 不再只剩 reason）', async () => {
+    const f = await runToNonCompleted(
+      { status: 'failed', messagesUsed: 3, reason: '每 issue 预算帽耗尽' },
+      { escalate: true },
+    );
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fback.comments[0]!.body).toContain('## ⚠️ 模型上报待裁决（1 条');
+    expect(f.fback.comments[0]!.body).toContain('**上报 1**');
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('每 issue 预算帽耗尽'); // 原 reason 保持
+    expect(detail).toContain('escalation 在场 1 条');
+    expect(detail).toContain('**上报 1**'); // 全量结构化段非仅计数
+  });
+
+  it('verifyBlocked 路径：验证非零拒 + escalation 在场 → 回执与 detail 双面附摘要段', async () => {
+    const fv = fakeVerify({ exitCode: 1 });
+    const f = await runToNonCompleted(
+      { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      { escalate: true, verify: fv.face },
+    );
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
+    expect(f.fj.settled[0]!.terminal.detail).toContain('验证未过'); // 验证判据保持
+    expect(f.fback.comments[0]!.body).toContain('## ⚠️ 模型上报待裁决（1 条');
+    const detail = f.fj.settled[0]!.terminal.detail ?? '';
+    expect(detail).toContain('escalation 在场 1 条');
+    expect(detail).toContain('API 形选 REST 还是 GraphQL？');
+  });
+
+  it('零呈现锁：无 escalation 登记的非 completed 收口——回执与 detail 均零附段零注记', async () => {
+    const f = await runToNonCompleted({ status: 'needs-human', messagesUsed: 5, reason: '写动作无审批覆盖' });
+    expect(f.fback.comments[0]!.body).not.toContain('模型上报待裁决');
+    expect(f.fback.comments[0]!.body).not.toContain('**上报 1**');
+    // detail 维持原串不加空段（零呈现律）
+    expect(f.fj.settled[0]!.terminal.detail).toBe('需人审：写动作无审批覆盖');
   });
 });
 

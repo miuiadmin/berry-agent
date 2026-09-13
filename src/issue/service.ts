@@ -25,6 +25,10 @@
  *   闸缺席（装配未注入 face）= 03 §10.7 原语义保持——阻塞转人审；
  * - failed → 评论贴原因 → settle failed；
  * - needs-human → 评论转人审 → settle failed（需人审）；
+ * - ⑪ 遗漏修复批：failed / needs-human / verifyBlocked 一切非 completed
+ *   收口，回执评论与 settle detail 均附 escalation 摘要段（03 §10.7 ⑪
+ *   定形注 2026-09-14 补笔——转人审场景恰是 escalation 呈现的第一场景；
+ *   无登记零呈现）。
  * - paused → **不 settle 不 clean 不释授予**——worktree/授予/在飞记账全
  *   保留（budget_extended 唤醒 watcher 已接线——issue-session 起跑时登记
  *   全部停靠 run，预算恢复自动唤醒续跑）。
@@ -101,6 +105,28 @@ function escalationSection(escalations: readonly IssueEscalation[]): string {
     return lines.join('\n');
   });
   return [`## ⚠️ 模型上报待裁决（${escalations.length} 条——run 收口转人审）`, ...blocks].join('\n\n');
+}
+
+/**
+ * escalation 回执附段（⑪ 遗漏修复批——非 completed 收口三路径共用：
+ * needs-human / failed / verifyBlocked）。**转人审场景恰是 escalation
+ * 呈现的第一场景**（03 §10.7 ⑪ 定形注 2026-09-14 补笔）：登记表进程内随
+ * Job 蒸发，回执评论是 escalation 唯一 durable 呈现面——此刻附段缺席 =
+ * 待裁决问题随 Job 蒸发、人只见终态不见问题。同 draft 附段形（全量四
+ * 字段结构化、多条累积非末条）；无登记零呈现不加空段。
+ */
+function appendEscalationReceipt(body: string, escalations: readonly IssueEscalation[]): string {
+  return escalations.length > 0 ? `${body}\n\n${escalationSection(escalations)}` : body;
+}
+
+/**
+ * escalation settle detail 附面（与回执同笔双面——03 §10.7 ⑪「回执评论
+ * 与 Job settle detail 均附」）：「escalation 在场 N 条」注记（draft 档
+ * 注记同律）+ 摘要段同形；无登记零呈现（detail 维持原串）。
+ */
+function appendEscalationDetail(detail: string, escalations: readonly IssueEscalation[]): string {
+  if (escalations.length === 0) return detail;
+  return `${detail}；escalation 在场 ${escalations.length} 条\n\n${escalationSection(escalations)}`;
 }
 
 /** builtin 轮询行的 prompt 占位（RunnerFactory 对该行名程序化分派 pollOnce 零 token——行 prompt 不入模型面） */
@@ -288,17 +314,26 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
           // face 注入缺席同律拒交付转人审（IssueDangerFace 缺席先例同形——防「缺席=无门放行」）
           await postReceipt(
             issue,
-            [
-              `🤖 issue run 不可交付（验证门缺席）：verifyCommand 已配置（\`${verifyCommand}\`）但验证执行面未注入——阻塞转人审：分支 \`${created.branch}\` 已就绪（本地未 push），请人工验证后交付。`,
-              outcome.summary,
-            ].join('\n'),
+            appendEscalationReceipt(
+              [
+                `🤖 issue run 不可交付（验证门缺席）：verifyCommand 已配置（\`${verifyCommand}\`）但验证执行面未注入——阻塞转人审：分支 \`${created.branch}\` 已就绪（本地未 push），请人工验证后交付。`,
+                outcome.summary,
+              ].join('\n'),
+              escalations,
+            ),
           );
           handle.settle({
             status: 'failed',
-            detail: '需人审：验证执行面缺席（verifyCommand 在场而 IssueVerifyFace 未注入）',
+            detail: appendEscalationDetail(
+              '需人审：验证执行面缺席（verifyCommand 在场而 IssueVerifyFace 未注入）',
+              escalations,
+            ),
           });
           verifyBlocked = true;
         } else {
+          // 执行体围挂钟起点（异常分支时长源——face 异常上抛无 IssueVerifyResult
+          // .durationMs 可读，编排层自计；非零/超时分支优先用 face 报告值）
+          const verifyStartMs = Date.now();
           try {
             const r = await deps.verify.runVerify({
               cwd: created.path,
@@ -309,35 +344,52 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
               const verdict = verifyVerdict(r, deps.config.verifyTimeoutMs);
               await postReceipt(
                 issue,
-                [
-                  `🤖 issue run 验证未过：\`${verifyCommand}\`——${verdict}。拒交付，分支 \`${created.branch}\` 留存供排查。`,
-                  outcome.summary,
-                  '',
-                  '```',
-                  verifyTail(r.outputTail),
-                  '```',
-                ].join('\n'),
+                appendEscalationReceipt(
+                  [
+                    `🤖 issue run 验证未过：\`${verifyCommand}\`——${verdict}。拒交付，分支 \`${created.branch}\` 留存供排查。`,
+                    outcome.summary,
+                    '',
+                    '```',
+                    verifyTail(r.outputTail),
+                    '```',
+                  ].join('\n'),
+                  escalations,
+                ),
               );
               // detail 面同载输出尾（双面证据律——2026-09-14 扫描三役 F2 勘正：
               // 修前 detail 只载命令/判据/时长三段、尾段缺席，与 03 §10.7
               // 定形注及 types.ts JSDoc 相悖；尾体原文直嵌不折叠保证据保真）
               handle.settle({
                 status: 'failed',
-                detail: `验证未过：\`${verifyCommand}\` ${verdict}\n输出尾：${verifyTail(r.outputTail)}`,
+                detail: appendEscalationDetail(
+                  `验证未过：\`${verifyCommand}\` ${verdict}\n输出尾：${verifyTail(r.outputTail)}`,
+                  escalations,
+                ),
               });
               verifyBlocked = true;
             }
           } catch (err) {
             // 执行体异常一律拒交付（门故障 = 门不放行——goal gates「一切 seam 缺席 = fail」同律）
             const detail = err instanceof Error ? err.message : String(err);
+            // 时长围挂钟补进 detail（四元组第四位——异常上抛无 face 报告 durationMs）
+            const elapsedMs = Date.now() - verifyStartMs;
             await postReceipt(
               issue,
-              [
-                `🤖 issue run 验证未过（执行异常）：\`${verifyCommand}\`——${detail}。拒交付，分支 \`${created.branch}\` 留存供排查。`,
-                outcome.summary,
-              ].join('\n'),
+              appendEscalationReceipt(
+                [
+                  `🤖 issue run 验证未过（执行异常）：\`${verifyCommand}\`——${detail}。拒交付，分支 \`${created.branch}\` 留存供排查。`,
+                  outcome.summary,
+                ].join('\n'),
+                escalations,
+              ),
             );
-            handle.settle({ status: 'failed', detail: `验证未过：\`${verifyCommand}\` 执行体异常（${detail}）` });
+            handle.settle({
+              status: 'failed',
+              detail: appendEscalationDetail(
+                `验证未过：\`${verifyCommand}\` 执行体异常（${detail}，${elapsedMs}ms）`,
+                escalations,
+              ),
+            });
             verifyBlocked = true;
           }
         }
@@ -470,17 +522,29 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
           }
         }
       } else if (outcome.status === 'failed') {
-        await postReceipt(issue, `🤖 issue run 失败：${outcome.reason}（分支 \`${created.branch}\` 留存供排查）`);
-        handle.settle({ status: 'failed', detail: outcome.reason });
+        // 非 completed 收口 escalation 附段（⑪ 定形注 2026-09-14 补笔——转人审
+        // 场景恰是 escalation 呈现的第一场景：回执与 settle detail 双面附，
+        // 待裁决问题不随 Job 蒸发）
+        await postReceipt(
+          issue,
+          appendEscalationReceipt(
+            `🤖 issue run 失败：${outcome.reason}（分支 \`${created.branch}\` 留存供排查）`,
+            escalations,
+          ),
+        );
+        handle.settle({ status: 'failed', detail: appendEscalationDetail(outcome.reason, escalations) });
       } else if (outcome.status === 'needs-human') {
         // needs-human：无应答者审批拒/写动作无策略表覆盖（04 §9 fail-closed）——转人审。
         // 显式判词（非 else 兜底）：completed-but-verifyBlocked 形不走本支——验证门拒已自落
         // 回执与终态，漏进本支会把 completed 误报成 needs-human（TS 窄化报错即此病自证）
         await postReceipt(
           issue,
-          `🤖 issue run 需人审：${outcome.reason}（分支 \`${created.branch}\` 留存——处理后可重开）`,
+          appendEscalationReceipt(
+            `🤖 issue run 需人审：${outcome.reason}（分支 \`${created.branch}\` 留存——处理后可重开）`,
+            escalations,
+          ),
         );
-        handle.settle({ status: 'failed', detail: `需人审：${outcome.reason}` });
+        handle.settle({ status: 'failed', detail: appendEscalationDetail(`需人审：${outcome.reason}`, escalations) });
       }
 
       // ── 收尾：拆 worktree（dirty 保留——未提交变更可能是交付物残余） ──
