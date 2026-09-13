@@ -71,7 +71,7 @@ import type { JobRegistry } from '../subagent/index.js';
 import { createDeclarativeAgentTool } from '../subagent/index.js';
 import type { DelegationToolDeps } from '../subagent/index.js';
 
-import { clearBootFailure, recordBootFailure } from './boot-failures.js';
+import { clearBootFailure, formatPluginFailureText, recordBootFailure } from './boot-failures.js';
 import type { ConfigField } from './config-schema.js';
 import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
 import { loadPlugins } from './loader.js';
@@ -483,7 +483,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // 合成失败行：档②语义记账（装载未达——warn 横幅与 boot-failures 皆见；
   // obs-a——failure 细节随账落 lastError/lastFailedAt）
   for (const failure of synthesisFailures) {
-    warn(`插件装载失败（${failure.id}）：[${failure.code}] ${failure.message}`);
+    warn(`插件装载失败（${failure.id}）：${formatPluginFailureText(failure)}`);
     if (bookkeepingPath !== null) recordBootFailure(bookkeepingPath, failure.id, '', failure, bookkeepingFs);
   }
 
@@ -734,7 +734,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   //    横幅仅存于注释与规范文本、从未落码：loader 行失败只静默进 failed 面，
   //    人面零错误呈现。memory 形照 warn（warn 面自身诊断安全）。
   for (const f of loaded.failed) {
-    warn(`插件装载失败（${f.id}）：[${f.code}] ${f.message}`);
+    warn(`插件装载失败（${f.id}）：${formatPluginFailureText(f)}`);
   }
 
   // —— plugin/opens 幂等落（05 §1.1 开门/关门审计腿——U3 批 U3-5）：boot

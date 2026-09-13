@@ -27,6 +27,8 @@
  * 人面显式 reload 即显式装载请求），本件零旗标知识。
  */
 /** 编舞注入面（全部闭包真身——本件零 db/fs/驱动知识，词面独立律） */
+import { formatPluginFailureText } from './boot-failures.js';
+
 /** 回卷回执（档③聚合报告的数据源——回卷失败清单来自旧代 unload 结果） */
 export interface RollbackReceipt {
   /** 回卷成功的插件 id 清单 */
@@ -140,7 +142,7 @@ export function createPluginReloader(options: PluginReloadOptions): PluginReload
         // 行级失败附错误文本（03 §5.7② obs-a 呈现三面之③——与 plugins list
         // 失败分区同形行；boot-failures.json 已由装载序记账）
         lines.push(
-          `行级失败（隔离降级，已记 boot-failures）：\n${receipt.failures.map((f) => `  ${f.id}  [${f.code}] ${f.message}`).join('\n')}`,
+          `行级失败（隔离降级，已记 boot-failures）：\n${receipt.failures.map((f) => `  ${f.id}  ${formatPluginFailureText(f)}`).join('\n')}`,
         );
       }
       if (rollbackFailedIds.length > 0) {

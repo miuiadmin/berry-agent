@@ -22,6 +22,7 @@
  * 纯 memory 诊断形（dataDir null）无数据目录——写动词诚实拒（行编辑无落点），
  * list 仍可用（读内存投影）。
  */
+import { formatPluginFailureText } from './boot-failures.js';
 import type { LoadReport } from './loader.js';
 import { checkPluginId } from './manifest.js';
 import { mountRow, readLedger, toggleRow, unmountRow } from './plugin-store.js';
@@ -71,7 +72,7 @@ function renderList(report: LoadReport | undefined): string {
   for (const a of report.activated)
     lines.push(`  ${a.id}${a.skillDirs.length > 0 ? `  技能目录：${a.skillDirs.join('、')}` : ''}`);
   lines.push(`失败（${report.failed.length}）：`);
-  for (const f of report.failed) lines.push(`  ${f.id}  [${f.code}] ${f.message}`);
+  for (const f of report.failed) lines.push(`  ${f.id}  ${formatPluginFailureText(f)}`);
   lines.push(`禁用（${report.skipped.length}）：`);
   for (const s of report.skipped) lines.push(`  ${s.id}  ${s.reason}`);
   return lines.join('\n');

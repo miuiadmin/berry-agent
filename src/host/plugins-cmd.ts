@@ -32,6 +32,7 @@ import { Persistence, createAuditFace, resolveDataDir } from '../persist/index.j
 
 import type { PluginsCommand } from './cli.js';
 import { assembleHostStack } from './assembly.js';
+import { formatPluginFailureText } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
 import { checkPluginId } from './manifest.js';
 import { installPlugin, updatePlugin, createDefaultSpawnRunner } from './plugin-install.js';
@@ -113,7 +114,7 @@ async function runList(options: PluginsEntryOptions): Promise<number> {
     for (const a of activated)
       lines.push(`  ${a.id}${a.skillDirs.length > 0 ? `  技能目录：${a.skillDirs.join('、')}` : ''}`);
     lines.push(`失败（${failed.length}）：`);
-    for (const f of failed) lines.push(`  ${f.id}  [${f.code}] ${f.message}`);
+    for (const f of failed) lines.push(`  ${f.id}  ${formatPluginFailureText(f)}`);
     lines.push(`禁用（${skipped.length}）：`);
     for (const s of skipped) lines.push(`  ${s.id}  ${s.reason}`);
     writeOut(lines.join('\n'));

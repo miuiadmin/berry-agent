@@ -32,6 +32,7 @@ import { Type } from 'typebox';
 import { BaseError, type AgentToolResult, type ToolDefinition } from '../contracts/index.js';
 import type { QueryEventsFilter, QueryEventsResult, SqliteDatabase } from '../persist/index.js';
 
+import { formatPluginFailureText } from './boot-failures.js';
 import type { LoadReport } from './loader.js';
 import { checkPluginId } from './manifest.js';
 import { createDefaultSpawnRunner, installPlugin, updatePlugin } from './plugin-install.js';
@@ -144,7 +145,7 @@ function renderPluginsList(deps: PluginLifecycleToolsDeps): string {
     }
     lines.push(`failed（${report.failed.length}）：`);
     for (const item of report.failed) {
-      lines.push(`  ${item.id}  [${badgeOf(item.id, ledgerById)}]  [${item.code}] ${item.message}`);
+      lines.push(`  ${item.id}  [${badgeOf(item.id, ledgerById)}]  ${formatPluginFailureText(item)}`);
     }
   }
   // installed-unmounted：账本 id 无启用行且不在装载报告（core: 恒不在账本——

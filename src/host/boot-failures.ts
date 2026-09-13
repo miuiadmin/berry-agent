@@ -33,6 +33,16 @@ export interface BootFailureDetail {
   readonly message: string;
 }
 
+/**
+ * `[码] 报文` 形单源铸造（2026-09-13 复盘发现 ⑪——修前六处手抄：warn 横幅
+ * ×2 / CLI·TUI plugins list 失败行 / reload 行级失败清单 / plugin_boot 工具
+ * 面失败行 / 本件 lastError 账本）。回执、账本、横幅同一形——变格式只改此
+ * 处；结构满足 BootFailureDetail 即可喂入（id 徽记位由各消费面自拼）。
+ */
+export function formatPluginFailureText(failure: BootFailureDetail): string {
+  return `[${failure.code}] ${failure.message}`;
+}
+
 /** 账本文件形（顶层 failures 键——为后续聚合面预留扩展位） */
 export interface BootFailureDoc {
   readonly failures: Readonly<Record<string, BootFailureEntry>>;
@@ -111,8 +121,9 @@ export function recordBootFailure(
   const doc = readBootFailures(path, fs);
   const prev = doc.failures[id];
   const next: Record<string, BootFailureEntry> = { ...doc.failures };
-  // lastError = `[码] 报文` 形帽 500 字符（obs-a 定形注——防账本膨胀；超长截断）
-  const text = `[${failure.code}] ${failure.message}`;
+  // lastError = `[码] 报文` 形帽 500 字符（obs-a 定形注——防账本膨胀；超长截断；
+  // 格式单源 = formatPluginFailureText——发现 ⑪）
+  const text = formatPluginFailureText(failure);
   next[id] = {
     version,
     count: (prev?.count ?? 0) + 1,
