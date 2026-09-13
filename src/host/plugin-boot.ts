@@ -490,6 +490,12 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // ⑥⑦ ctx 装配族：ServiceBag 接共享根 + 逐插件 fork + 行收口关窗
   const handles = new Map<string, PluginContextHandle>();
   const pluginScopes: Scope[] = []; // 激活序入栈——closer 逆序 dispose
+  // 世代死域旗（03 §10.1 异步续段开窗批连带定形——开窗器 fail-closed）：本代
+  // 卸载/换代即翻 true；本代铸的全部开窗器（coreHostChannel 闭包常驻物——
+  // /reload 换代后旧代续段仍可持旧开窗器）此后开窗即拒，防 owner 归已死代
+  // 的幽灵注册行。置位真源 = 下方 unloadAll 顶部（/reload rollback 腿与
+  // shutdown 同一回卷口——回卷最前即封窗，拆除期零新开窗）
+  let generationDead = false;
   // core:credentials 件席在场判（c-3——03 §10.9 禁用语义：enabled.yaml 禁
   // core:credentials ⇒ plan 行 disabled ⇒ secrets 面整体缺席诚实缺席律；
   // plan 含禁用行〔loadPlugins 前置过滤〕，判 !row.disabled）
@@ -670,7 +676,23 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     // 开窗合法。磁盘行结构性不传（第三方插件无此通道——有意禁区）
     coreHostChannel: (pluginId) => {
       const handle = handles.get(pluginId);
-      return handle === undefined ? undefined : { openHostCallback: () => handle.enterHostCallback() };
+      return handle === undefined
+        ? undefined
+        : {
+            // 开窗时查活（03 §10.1——铸造发生在 apply 期必活，铸造时单查无
+            // 意义）：世代死域开窗即抛 PLUGIN_WINDOW_CLOSED——与窗闸同码
+            // 同语义（域已死即窗恒闭），报文区分域死成因（core 件捕获后降
+            // warn 收口，与发现腿失败收口同律）
+            openHostCallback: () => {
+              if (generationDead) {
+                throw new BaseError(
+                  'PLUGIN_WINDOW_CLOSED',
+                  `官方件宿主面开窗被拒：插件 ${pluginId} 所属装载代已卸载/已换代（03 §10.1——域已死即窗恒闭，防 owner 归已死代的幽灵注册行）`,
+                );
+              }
+              return handle.enterHostCallback();
+            },
+          };
     },
     ...(bookkeepingPath === null
       ? {}
@@ -738,6 +760,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   //    换代槽双形态（/reload 批）：unloadRef 在场改写槽（shutdown 恒跑最新代，
   //    reload 换代不累积重复 closer）；缺席维持直注册（单次 boot 形）。
   const unloadAll = async (): Promise<PluginUnloadReceipt> => {
+    generationDead = true; // 世代死域置位（03 §10.1——回卷最前即封窗，拆除期零新开窗）
     const receipt = await loaded.unload();
     if (options.jobs !== undefined) {
       for (const a of loaded.activated) await options.jobs.closeOwner(a.id);

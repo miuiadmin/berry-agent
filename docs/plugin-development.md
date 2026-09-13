@@ -174,6 +174,47 @@ export default async function apply(ctx) {
 
 受理序（逐动词执法）：send = 幽灵守卫 `SESSION_TARGET_NOT_FOUND` → 门检 `SESSION_CONTROL_DENIED` → a2a 链深帽 `SESSION_ROUND_LIMIT`（缺省 5）→ 乐观并发位 `expectedTurnId` 翻页拒 `SESSION_TURN_STALE` → 投递（目标未 open 即 resume 自动打开）；interrupt = 幽灵守卫 → 门检 → 无在飞拒 `SESSION_INACTIVE`（响亮拒不静默 no-op）；withdraw 同前两闸。
 
+## 异步发现（hook-carried 模式）
+
+装载窗收口后，**异步任务续段内直接调用注册动词会被拒**（`PLUGIN_WINDOW_CLOSED`）——「装载后异步任务续段注册」在 v1 属有意禁区。插件需要在装载期发起后台任务（典型：MCP 式握手完成后才拿得到远端工具清单）、而发现结果晚于 apply 收口到达时，官方表达是 **hook-carried 模式**：后台任务只落结果，注册动作由前置消费钩携带：
+
+```js
+export default async function apply(ctx) {
+  let discovered = false; // 发现结果旗——异步任务与消费钩之间的接力棒
+
+  // ① apply 期 fire-and-forget 起后台任务——不 await（装载窗不被网络 IO 拖住）；
+  //    任务腿内【不要】注册任何动词——此处已在装载窗外，直调即拒
+  startDiscovery().then(() => {
+    discovered = true;
+  });
+
+  // ② 前置消费钩携带注册——agent_pre_step 是生产派发的请求前瀑布钩（每轮
+  //    模型请求前必经），handler 整个执行段都在宿主回调窗内，此处注册合法
+  let registered = false;
+  ctx.on('agent_pre_step', (value) => {
+    if (discovered && !registered) {
+      registered = true; // 防多轮重复注册
+      ctx.tools.register({
+        name: 'my_async_tool',
+        description: '后台发现的工具',
+        parameters: { type: 'object', properties: {} },
+      });
+    }
+    return value; // waterfall 直通——原样返回载荷（不刹停、不改写）
+  });
+}
+```
+
+**下游可见性（如实分面）**：
+
+| 面         | 语义                                                                                                                    |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 工具       | 注册即时入宿主全局册；会话工具面在**会话装配时点**取快照——在飞会话当轮不可见，之后新装配的会话可见                        |
+| 提示词段   | 段供应子逐请求求值——钩内注册即达**当轮**请求                                                                              |
+| 命令       | **quiescent 缺口**：静默 TUI 无任何钩子派发，异步发现的命令注册不达——缓解 = apply 期注册静态根命令、handler 内动态子分派（宿主装配面与 core 件惯用形，如 `/plugins`） |
+
+装载期直注与钩内携带两式落**同一全局册、同一消费模型**——对下一次消费点而言无实用差；这是本模式被定为官方表达而非另开注册通道的原因。
+
 ## import 白名单（插件可 import 什么）
 
 三道白名单（越出即拒载）：

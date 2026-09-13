@@ -1610,3 +1610,38 @@ describe('程序化子代理物化消费腿（遗漏审计批 G——03 §2.2 �
     expect(service.programmaticProviders()).toHaveLength(1); // service 位照落
   });
 });
+
+describe('官方件宿主面开窗器死域 fail-closed（03 §10.1 异步续段开窗批连带定形）', () => {
+  it('世代卸载后旧开窗器开窗即拒 PLUGIN_WINDOW_CLOSED（报文区分域死成因）——活期开窗照常', async () => {
+    // 伪造 core 件：apply 捕获宿主面第三参铸的开窗器（模拟 core:mcp 式异步
+    // 续段持旧开窗器形——开窗器是闭包常驻物，跨世代存活）
+    let captured: (() => () => void) | undefined;
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (_ctx, _config, host) => {
+        captured = host?.openHostCallback;
+      },
+    };
+    const unloadRef: { current: (() => Promise<PluginUnloadReceipt>) | null } = { current: null };
+    const { options } = rigBoot('/data', { corePlugins: [probe], fs: memoryFs(), unloadRef });
+    await bootPlugins(options);
+    expect(captured).toBeDefined();
+    // 活期开窗照常（正向对照——C 组通道语义不回归；开即恢复不留深）
+    captured!()();
+    // 世代卸载（/reload rollback 腿与 shutdown 同一 unloadAll 真源）
+    await unloadRef.current!();
+    // 死域开窗即拒（域已死即窗恒闭——03 §10.1：与窗闸同码同语义，报文须
+    // 区分域死成因非「装载窗口外」文案）
+    try {
+      captured!();
+      expect.unreachable('死域开窗器照开 = owner 归已死代的幽灵注册行敞口（修前红）');
+    } catch (err) {
+      if (err instanceof BaseError) {
+        expect(err.code).toBe('PLUGIN_WINDOW_CLOSED');
+        expect(err.message).toContain('已卸载'); // 域死成因报文
+        return;
+      }
+      throw err;
+    }
+  });
+});
