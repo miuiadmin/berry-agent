@@ -29,7 +29,14 @@ import { join } from 'node:path';
 import { canonicalWorkspaceRoot, EventDispatch, Scope } from '../context/index.js';
 import { createChannels } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
-import type { AgentMessage, AgentTool, ApprovalAskRequest, ThinkingLevel, ToolDefinition } from '../contracts/index.js';
+import type {
+  AgentMessage,
+  AgentTool,
+  ApprovalAskRequest,
+  ThinkingLevel,
+  ToolDefinition,
+  Usage,
+} from '../contracts/index.js';
 import { getMessageRoleDefinition, isStandardMessage } from '../contracts/index.js';
 import {
   createCompactionService,
@@ -73,8 +80,10 @@ import {
   createStreamFn,
   InFlightTracker,
   resolveDefaultModelSpec,
+  usageBucketsOf,
 } from '../llm/index.js';
-import type { LlmRuntime, LlmService, Provider } from '../llm/index.js';
+import type { LlmRuntime, LlmService, LlmUsageEventData, Provider } from '../llm/index.js';
+import type { QueryEventsFilter, QueryEventsResult } from '../persist/index.js';
 import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft, ToolPolicyEntry } from '../safety/index.js';
 import { matchToolPolicy } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
@@ -272,6 +281,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 单例信号量，driver 装配位 seam 注入（acquireRunSlot——kick 同步试位/
   // 排队段两面消费；steer/inject 腿不经闸）。容量解析序：显式覆盖位 > env > 缺省 16。
   const runLane = createRunLaneGate(resolveRunLaneCapacity(options.maxConcurrentRuns, options.env ?? process.env));
+  // 当日后台预算限额（04 §5 env 旋钮——2026-09-13 复盘修复 #44 F3）：
+  // undefined = 缺省 4M（缺省值单源在 llm 件——本层只透传覆盖位）
+  const backgroundBudgetTokens = resolveBackgroundBudgetTokens(options.env ?? process.env);
   const sandboxMode = options.sandboxMode ?? (() => 'workspace-write' as SandboxMode);
   const workspaceAnchor = options.workspace ?? (() => canonicalWorkspaceRoot());
 
@@ -281,16 +293,71 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   ensureTodoRole();
 
   // ② llm 运行时：两出口共享同一 InFlightTracker（04 §3.6 同源计数名实相符）；
-  // 钩子派发段只读面同注双入口（03 §3.4——LLM_CALL_IN_HOOK 前置查，ca-3）
+  // 钩子派发段只读面同注双入口（03 §3.4——LLM_CALL_IN_HOOK 前置查，ca-3）。
+  // 预算读面同位接线（04 §5——2026-09-13 复盘修复 #44：修前 backgroundSpentToday
+  // 缺省 () => 0 空转，canAfford/预警三档/reserve 线三消费面生产恒判未超）。
   const llmRuntime = createLlmRuntime(options.providers !== undefined ? { providers: options.providers } : {});
   const tracker = new InFlightTracker();
   const streamFn = createStreamFn(llmRuntime, {}, tracker, options.hookDispatchGuard);
+  // 当日后台已耗读面：日键缓存 + 桥接增量（05 §1.1 口径——SUM(input+output)、
+  // background 道过滤）。单写者进程（单活跃机收口）内首读聚合后只随本进程
+  // 桥接落账增量推进；日翻转重聚合（昨账不跨日）。write-behind 未落盘窗内
+  // 最近一笔偏松——软闸门既有语义（04 §5 定形注②）。
+  let spentDayStart = -1;
+  let spentCached = 0;
+  const backgroundSpentToday = (): number => {
+    const dayStart = startOfTodayMs();
+    if (dayStart !== spentDayStart) {
+      spentDayStart = dayStart;
+      try {
+        spentCached = aggregateBackgroundSpentToday(options.runtime.persistence.store, dayStart);
+      } catch (err) {
+        // 读面失败 fail-open + warn：预算是软闸门，db 抖动不应反噬请求路（欠账
+        // 随下次日键重试/进程重启收口——丢弃的只是当次聚合精度）
+        warn(
+          `当日后台已耗聚合失败（fail-open 归既知值 ${spentCached}）：${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return spentCached;
+  };
   const llm = createLlmService({
     runtime: llmRuntime,
     tracker,
     defaultModel: () => model,
     ...(options.hookDispatchGuard !== undefined ? { hookDispatch: options.hookDispatchGuard } : {}),
+    backgroundSpentToday,
+    ...(backgroundBudgetTokens !== undefined ? { backgroundBudgetTokens } : {}),
   });
+
+  /**
+   * usage 桥接落账（04 §5 记账桥接单点——2026-09-13 复盘修复 #41/#44 定形注①）：
+   * settled 回执窗扫 (seqFromLaunch, settle] 的 assistant/message 逐条转抄
+   * llm/usage（真源仍是 assistant 落账位——桥接投影零改写；05 §1.1 表注）。
+   * callId `run:<sid>:<seq>`（与 run CLI 旧桥接同形平移零迁移）；priority 随
+   * run 级 backgroundLane（「前台花销照入账」就此收口——TUI/webui/issue/SDK
+   * /run CLI 五入口统一）。run-entry --background 块与 scheduler-tick
+   * recordBackgroundUsage 两处旧扫已退役（同窗同键防双计）。
+   */
+  const bridgeUsageLedger = (log: SessionLog, modelSpec: string, receipt: RunSettledReceipt): void => {
+    for (const event of log.events()) {
+      if (event.seq <= receipt.seqFromLaunch || event.type !== 'assistant/message') continue;
+      const usage = (event.data as { usage?: Usage }).usage;
+      if (usage === undefined) continue; // 无计量不造零账
+      log.append('llm/usage', {
+        callId: `run:${receipt.sessionId}:${event.seq}`,
+        model: modelSpec,
+        usage: usageBucketsOf(usage),
+        priority: receipt.backgroundLane ? 'background' : 'foreground',
+      } satisfies LlmUsageEventData);
+      // 当日缓存增量（仅后台道进闸门口径；先经读面确保日键已初始化——
+      // 未初始化时磁盘聚合随后自会收编本笔，双计不生）
+      if (receipt.backgroundLane) {
+        void backgroundSpentToday();
+        if (spentDayStart === startOfTodayMs()) spentCached += usage.input + usage.output;
+      }
+    }
+  };
 
   // ③ compaction：SummaryChannel 适配（maxChars 由 prompt 指令承载——complete
   // 单发面无 maxTokens 参数；输出防御性截断兜底）。阈值触发器接线：run 终态
@@ -558,9 +625,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       ...(options.budgetAdvisory !== undefined
         ? { budgetAdvisory: (backgroundLane: boolean) => options.budgetAdvisory!(sessionId, backgroundLane) }
         : {}),
-      ...(options.onRunSettled !== undefined
-        ? { onRunSettled: (receipt) => options.onRunSettled!(sessionId, receipt) }
-        : {}),
+      // run 结算回执链（无条件装——2026-09-13 复盘修复 #41/#44 记账桥接单点）：
+      // 桥接落账先于消费侧钩（usage 底账近源先行；goal recordTurn 等
+      // options.onRunSettled 消费者随后——批 #99 既有链不破）。session 直接
+      // 取闭包本尊（settle 时点即本驱动日志——不经 manager 回查）
+      onRunSettled: (receipt) => {
+        bridgeUsageLedger(session, sessionModel ?? model, receipt);
+        options.onRunSettled?.(sessionId, receipt);
+      },
       classifyError,
       compactForOverflow: (log: SessionLog) => compaction.compactForOverflow(log),
       environmentDisclosure: options.runtime.disclosure,
@@ -730,6 +802,64 @@ export function resolveRunLaneCapacity(override: number | undefined, env: Record
     );
   }
   return value;
+}
+
+/** env 名（04 §5——2026-09-13 复盘修复 #44 F3；07 环境变量 BERRY_AGENT_* 前缀族） */
+export const BACKGROUND_BUDGET_TOKENS_ENV = 'BERRY_AGENT_BACKGROUND_BUDGET_TOKENS';
+
+/**
+ * 当日后台预算限额解析（04 §5 env 旋钮）：env 缺席 = undefined（缺省 4M 由
+ * llm 件单源持有——本函数只产覆盖位）。坏形 fail-loud 启动当场红（与 lane
+ * 帽/静置窗两旋钮同律：坏预算值是死配置，静默回落缺省会吞掉用户显式
+ * 降额/提额意图）。零值合法（显式关池——canAfford 恒 false，停靠腿承接）。
+ */
+export function resolveBackgroundBudgetTokens(env: Record<string, string | undefined>): number | undefined {
+  const raw = env[BACKGROUND_BUDGET_TOKENS_ENV];
+  if (raw === undefined || raw === '') return undefined;
+  // 字串形全串 /^\d+$/ 判（同 resolveRunLaneCapacity——parseInt 截停防）
+  if (!/^\d+$/.test(raw)) {
+    throw new RangeError(
+      `当日后台预算限额须为非负整数字串，收到 "${raw}"——坏形是死配置（${BACKGROUND_BUDGET_TOKENS_ENV}）`,
+    );
+  }
+  return Number.parseInt(raw, 10);
+}
+
+/** 当日零点毫秒（本地时区——「当日」语义随用户挂钟；04 §5 日池窗） */
+export function startOfTodayMs(now: number = Date.now()): number {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/**
+ * 当日后台已耗聚合（04 §5 #44 聚合读面——05 §1.1 口径单源）：queryEvents
+ * 当日窗 llm/usage · `priority === 'background'` 过滤 · SUM(input+output)
+ * 主计费桶（cache 桶进观察面板不进闸门）。分页游标走满（页帽顶格 10000——
+ * 当日调用密度远不及帽，走满是完整性防御非热路径）。读失败上抛由调用方
+ * 定姿态（装配位 fail-open + warn——预算软闸门不反噬请求路）。
+ */
+export function aggregateBackgroundSpentToday(
+  store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
+  sinceMs: number,
+): number {
+  let sum = 0;
+  let cursor: string | null | undefined = undefined;
+  do {
+    const page = store.queryEvents({
+      types: ['llm/usage'],
+      sinceMs,
+      limit: 10_000,
+      ...(cursor !== undefined ? { cursor } : {}),
+    });
+    for (const event of page.events) {
+      const data = event.data as { priority?: string; usage?: { input?: number; output?: number } };
+      if (data.priority !== 'background') continue; // 前台照入账不进闸门
+      sum += (data.usage?.input ?? 0) + (data.usage?.output ?? 0);
+    }
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+  return sum;
 }
 
 /** 宿主级 run 并发闸（04 §4 lane 帽）：计数信号量 + FIFO 等位队列 */

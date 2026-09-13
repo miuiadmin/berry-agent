@@ -40,11 +40,11 @@ import { cwd as processCwd, pid, stderr as processStderr, stdout as processStdou
 import type { Writable } from 'node:stream';
 
 import { canonicalWorkspaceRoot } from '../context/index.js';
-import type { AgentEvent, EventSource, UiBackend, Usage, UsageBuckets } from '../contracts/index.js';
+import type { AgentEvent, EventSource, UiBackend, Usage } from '../contracts/index.js';
 import { isStandardMessage } from '../contracts/index.js';
 import type { SubmitResult } from '../conversation/index.js';
 import { diagnoseProviderFailure } from '../llm/index.js';
-import type { LlmUsageEventData, Provider } from '../llm/index.js';
+import type { Provider } from '../llm/index.js';
 import { FIRE_WALL_TIMEOUT_MS, nextFireAt, realIsPidAlive } from '../scheduler/index.js';
 import type { JobRow, RunOutcome } from '../scheduler/index.js';
 import type { SandboxMode } from '../safety/index.js';
@@ -395,7 +395,6 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   let truncated = false; // --max-turns 到帽收场语义位（CLI 级——run 本体仍 aborted）
   let lastAssistantText: string | undefined;
   const usageSum: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
-  const seqBefore = stack.driverOf(sessionId)?.session.events().length ?? 0; // --background 记账窗口锚
 
   const backend: UiBackend<never> = {
     id: 'cli-run',
@@ -484,24 +483,9 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   }
   // 此后 result 收窄为 RunResult（completed/aborted/failed 三终态）
 
-  // —— ⑦ --background 记账：settle 后落 llm/usage 底账（durable assistant/message
-  // 扫描窗〔seqBefore 起〕逐条对应；callId `run:<sid>:<seq>` 幂等身份——
-  // 同会话两 run 的 seq 域天然不撞，进程重试同 seq 去重）——
-  if (flags.background) {
-    const driver = stack.driverOf(sessionId);
-    for (const event of driver?.session.events() ?? []) {
-      if (event.seq < seqBefore || event.type !== 'assistant/message') continue;
-      const usage = (event.data as { usage?: Usage }).usage;
-      if (usage === undefined) continue; // 无计量不造零账
-      const ledger: LlmUsageEventData = {
-        callId: `run:${sessionId}:${event.seq}`,
-        model: stack.model,
-        usage: toBuckets(usage),
-        priority: 'background',
-      };
-      driver?.session.append('llm/usage', ledger);
-    }
-  }
+  // —— ⑦ --background 记账：已上移组合根 settled 桥接单点（04 §5 2026-09-13
+  // #41/#44 定形——五入口 run 路统一〔run/tick/TUI/webui/issue 前后台全入账〕，
+  // priority 由回执 backgroundLane 声明；此处再扫即双计，旧段退役）——
 
   // —— ⑧ goal recordTurn 挂点已上移驱动层（批 #99 三入口统一：TUI/webui/
   // issue/run CLI 全经 driver launch settled 链的 onRunSettled 回执——此处
@@ -605,14 +589,4 @@ function addUsageInto(sum: Usage, usage: Usage): void {
   sum.totalTokens = sum.input + sum.output + sum.cacheRead + sum.cacheWrite;
 }
 
-/** Usage → 计量四桶（05 §1.1——totalTokens/cost 不入账，派生/折算在投影侧） */
-function toBuckets(usage: Usage): UsageBuckets {
-  return {
-    input: usage.input,
-    output: usage.output,
-    cacheRead: usage.cacheRead,
-    cacheWrite: usage.cacheWrite,
-    ...(usage.cacheWrite1h !== undefined ? { cacheWrite1h: usage.cacheWrite1h } : {}),
-    ...(usage.reasoning !== undefined ? { reasoning: usage.reasoning } : {}),
-  };
-}
+// 计量桶映射单源已上移 llm/events.ts usageBucketsOf（04 §5 #41/#44 桥接单点化——旧扫退役）

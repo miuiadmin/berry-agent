@@ -16,7 +16,8 @@ import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { Scope } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
-import type { SessionLog } from '../session/index.js';
+import { SessionLog } from '../session/index.js';
+import type { EventWrite, SessionRegistration } from '../persist/store.js';
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import {
@@ -25,6 +26,7 @@ import {
   DEFAULT_RUN_LANE_CAPACITY,
   lastUsageFactOf,
   resolveRunLaneCapacity,
+  startOfTodayMs,
   type ConversationStackOptions,
 } from './conversation-stack.js';
 import { createPluginContext } from './plugin-context.js';
@@ -1100,6 +1102,143 @@ describe('lane 帽闸件（04 §4——m-2）', () => {
     await expect(runA).resolves.toMatchObject({ status: 'completed' });
     await expect(runB).resolves.toMatchObject({ status: 'completed' });
     await vi.waitFor(() => expect(faux.state.callCount).toBe(2));
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- 预算读面接线 + usage 桥接单点（04 §5——2026-09-13 复盘修复 #41/#44） ---------------- */
+
+describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
+  /** 带计量的 faux assistant 消息（桥接窗扫的计量源——usage 非零可断言数值面） */
+  const meteredMessage = (input: number, output: number): PiAssistantMessage =>
+    ({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output },
+      stopReason: 'stop',
+      timestamp: 1,
+    }) as unknown as PiAssistantMessage;
+
+  /** 直接落库 llm/usage 底账（聚合读面测试种子——绕过桥接，专测读侧口径） */
+  function seedLedger(
+    rt: HostRuntime,
+    sessionId: string,
+    rows: { at: number; input: number; output: number; priority: 'background' | 'foreground' }[],
+  ): void {
+    let clock = rows[0]?.at ?? 0;
+    const log = new SessionLog({ sessionId, clock: () => clock });
+    for (const row of rows) {
+      clock = row.at;
+      log.append('llm/usage', {
+        callId: `seed:${sessionId}:${row.at}:${row.input}`,
+        model: 'seed/m1',
+        usage: { input: row.input, output: row.output, cacheRead: 0, cacheWrite: 0 },
+        priority: row.priority,
+      });
+    }
+    const registration: SessionRegistration = {
+      origin: 'conversation',
+      parentId: undefined,
+      seedLength: 0,
+      workspaceRoot: '/tmp/ws',
+      title: undefined,
+    };
+    const writes: EventWrite[] = log.events().map((event) => ({ sessionId, event, registration }));
+    rt.persistence.store.writeEvents(writes);
+  }
+
+  it('前台 run settle 落 llm/usage（priority foreground——修前红：前台五入口零落账）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => meteredMessage(30, 12)]);
+    await stack.submitText(session.sessionId, '你好'); // 前台缺省道（TUI/webui/issue/SDK 同路）
+
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const usageEvents = events.filter((e) => e.type === 'llm/usage');
+    expect(usageEvents.length).toBeGreaterThanOrEqual(1); // 修前红锚：前台路此前零落账
+    const first = usageEvents[0]!.data as Record<string, unknown>;
+    expect(first['priority']).toBe('foreground'); // 前台花销照入账
+    expect(first['model']).toBe('faux-stack/m1'); // 记账 model = 会话级解析真值
+    // callId 幂等身份 run:<sid>:<seq>——seq 锚定的确是本 run 的 assistant 消息
+    const match = /^run:(.+):(\d+)$/.exec(String(first['callId']));
+    expect(match?.[1]).toBe(session.sessionId);
+    const anchor = events.find((e) => e.type === 'assistant/message' && e.seq === Number(match?.[2]));
+    expect(anchor).toBeDefined();
+    // 转抄保真律：计量桶逐值同源（faux 按请求自算 usage——数值动态，锁的是
+    // 「桥接零改写」而非 faux 计量本身）
+    const anchorUsage = (anchor!.data as { usage?: { input: number; output: number } }).usage;
+    expect(first['usage']).toMatchObject({ input: anchorUsage?.input, output: anchorUsage?.output });
+    // 前台不入闸门：spent 恒 0（05 §1.1 口径——聚合只计 background）
+    expect(stack.llm.backgroundUsage().spent).toBe(0);
+    expect(stack.llm.canAfford('background')).toBe(true);
+    await rt.shutdown();
+  });
+
+  it('backgroundLane run：priority background + 聚合增量当日推进', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => meteredMessage(80, 20)]);
+    await stack.submitText(session.sessionId, '巡检', { source: 'schedule', backgroundLane: true });
+
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const usageEvents = events.filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(1);
+    expect((usageEvents[0]!.data as Record<string, unknown>)['priority']).toBe('background');
+    // 读面增量：桥接落账后 backgroundUsage 即时可见（日键缓存 + 增量——不待
+    // 落盘；spent = 本笔 input+output，faux 计量动态取转抄值同源断言）
+    const ledger = usageEvents[0]!.data as { usage: { input: number; output: number } };
+    expect(stack.llm.backgroundUsage().spent).toBe(ledger.usage.input + ledger.usage.output);
+    expect(stack.llm.canAfford('background')).toBe(true); // 缺省 4M 池内
+    await rt.shutdown();
+  });
+
+  it('同会话两 run 各落各账（窗锚推进——恰一笔/assistant 无双计）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => meteredMessage(10, 5), () => meteredMessage(7, 3)]);
+    await stack.submitText(session.sessionId, '一问');
+    await stack.submitText(session.sessionId, '二问');
+
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const usageEvents = events.filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(2); // 两 run 各一笔——窗 (seqFromLaunch, settle] 不交叠
+    const callIds = usageEvents.map((e) => (e.data as Record<string, unknown>)['callId']);
+    expect(new Set(callIds).size).toBe(2); // seq 域天然不撞（幂等身份）
+    // 前台双笔不入闸门
+    expect(stack.llm.backgroundUsage().spent).toBe(0);
+    await rt.shutdown();
+  });
+
+  it('聚合读面：当日窗 + background 过滤 + 前台不入闸（05 §1.1 口径单源）', async () => {
+    const { rt } = rigRuntime();
+    const today = startOfTodayMs();
+    seedLedger(rt, 'seed-ledger', [
+      { at: today - 60_000, input: 900, output: 99, priority: 'background' }, // 昨日尾——不跨日
+      { at: today + 60_000, input: 50, output: 0, priority: 'foreground' }, // 前台——不入闸
+      { at: today + 120_000, input: 80, output: 20, priority: 'background' }, // 当日后台——唯一入账
+    ]);
+    const { stack } = rigStack(rt);
+    const usage = stack.llm.backgroundUsage();
+    expect(usage.spent).toBe(100); // 80+20 恰一笔——昨日/前台两排除律
+    expect(usage.limit).toBe(4_000_000); // 缺省池（llm 件单源）
+    expect(usage.ratio).toBeCloseTo(100 / 4_000_000);
+    await rt.shutdown();
+  });
+
+  it('env 旋钮：好形覆盖 / 零值显式关池 / 坏形 fail-loud 启动当场红', async () => {
+    const { rt } = rigRuntime();
+    const capped = rigStack(rt, { env: { BERRY_AGENT_BACKGROUND_BUDGET_TOKENS: '150' } });
+    expect(capped.stack.llm.backgroundUsage().limit).toBe(150); // 好形覆盖缺省
+    const zeroed = rigStack(rt, { env: { BERRY_AGENT_BACKGROUND_BUDGET_TOKENS: '0' } });
+    expect(zeroed.stack.llm.canAfford('background')).toBe(false); // 零值 = 显式关池
+    expect(zeroed.stack.llm.canAfford('foreground')).toBe(true); // 前台恒放行
+    expect(() => rigStack(rt, { env: { BERRY_AGENT_BACKGROUND_BUDGET_TOKENS: '12x' } })).toThrow(RangeError); // 坏形死配置当场红
     await rt.shutdown();
   });
 });

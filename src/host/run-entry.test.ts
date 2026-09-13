@@ -117,6 +117,8 @@ async function rigRun(opts: {
   dataDir?: string;
   responses?: readonly PiAssistantMessage[];
   model?: string;
+  /** env 面（缺省 {} 隔离——预算旋钮等 BERRY_AGENT_* 测试注入位） */
+  env?: Record<string, string | undefined>;
 }) {
   const faux = fauxProvider({ provider: 'faux-run', models: [{ id: 'm1' }] });
   faux.setResponses((opts.responses ?? [messageOf()]).map((msg) => () => msg));
@@ -131,7 +133,7 @@ async function rigRun(opts: {
     ...(opts.flags?.ephemeral ? {} : { dataDir }), // ephemeral 形零落盘——不建数据目录
     providers: [faux.provider],
     model: opts.model ?? 'faux-run/m1',
-    env: {},
+    env: opts.env ?? {},
     stdout: out.stream,
     stderr: err.stream,
   });
@@ -362,8 +364,8 @@ describe('runRunEntry --output-last-message', () => {
 
 /* ---------------- --background 记账 ---------------- */
 
-describe('runRunEntry --background 记账（04 §5 后台道）', () => {
-  it('settle 后落 llm/usage 底账（callId run:<sid>:<seq> + priority background）', async () => {
+describe('runRunEntry run 路记账（04 §5——2026-09-13 复盘修复 #41/#44 桥接单点化）', () => {
+  it('--background：settle 后落 llm/usage 底账（callId run:<sid>:<seq> + priority background）', async () => {
     const run = await rigRun({ flags: { background: true, outputFormat: 'json' } });
     await expect(run.entry).resolves.toBe(0);
     const sid = summaryOf(run.out)['sessionId'] as string;
@@ -380,6 +382,21 @@ describe('runRunEntry --background 记账（04 §5 后台道）', () => {
     expect(anchor).toBeDefined(); // seq 锚定的确是本 run 的 assistant 消息
     expect(first['priority']).toBe('background'); // 聚合只计后台道
     expect(first['model']).toBe('faux-run/m1'); // 记账 model = 栈内解析真值
+  });
+
+  it('前台 run 照入账（priority foreground——修前红：前台入口此前零落账）', async () => {
+    // 组合根桥接单点（04 §5 定形注①）：五入口统一——前台 CLI 与 TUI/webui/
+    // issue/SDK 同经 driver settled 桥接；priority 随回执 backgroundLane（缺省前台）
+    const run = await rigRun({ flags: { outputFormat: 'json' } });
+    await expect(run.entry).resolves.toBe(0);
+    const sid = summaryOf(run.out)['sessionId'] as string;
+
+    const { events } = await readDurable(run.dataDir, sid);
+    const usageEvents = events.filter((event) => event.type === 'llm/usage');
+    expect(usageEvents.length).toBeGreaterThanOrEqual(1); // 修前红锚——旧代码前台零落账
+    for (const event of usageEvents) {
+      expect((event.data as Record<string, unknown>)['priority']).toBe('foreground');
+    }
   });
 });
 
@@ -465,6 +482,122 @@ describe('runRunEntry --tick settle 落账（律 3 乙案侧：claim-then-advanc
       expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
       expect(row?.nextFireAt).not.toBeNull(); // next 照推进（行不再永 due）
       expect(row?.activePid).toBeNull(); // 零 claim 零占用
+    } finally {
+      await audit.shutdown();
+    }
+  });
+
+  it('claim 后早退（--session 幽灵）：spawn 形落账——fire 已起跑面 last_fire_at 推进 + 占用清', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({
+      name: 'ghost-session-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true,
+    });
+    const nextBefore = seed.scheduler.service.getJob('ghost-session-job')?.nextFireAt;
+    await seed.shutdown();
+
+    // claim（① 尾）已落账后 --session 幽灵（③ open fail-loud）→ abortTick spawn 形
+    const run = await rigRun({
+      message: '',
+      flags: { tick: 'ghost-session-job', session: 'no-such-session' },
+      dataDir,
+      cwd: jobWs,
+    });
+    await expect(run.entry).resolves.toBe(1);
+    expect(run.err.text).toContain('--session 会话不存在');
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('ghost-session-job');
+      expect(row?.lastOutcome?.reason).toBe('spawn'); // 没起来诚实记 spawn（非静默吞）
+      expect(row?.lastOutcome?.error).toContain('--session 会话不存在');
+      expect(row?.lastFireAt).not.toBeNull(); // claim 后早退走 settleFire——fire 面照推进
+      expect(row?.activePid).toBeNull(); // claim 清账对偶
+      expect(Date.parse(row?.nextFireAt ?? '')).toBeGreaterThan(Date.parse(nextBefore ?? '')); // next 推进
+    } finally {
+      await audit.shutdown();
+    }
+  });
+
+  it('claim 后预检拒（--background 预算尽）：gated 落账——last_fire_at 不动 + gate=daily_budget + 占用清', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({
+      name: 'budget-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true,
+    });
+    const nextBefore = seed.scheduler.service.getJob('budget-job')?.nextFireAt;
+    await seed.shutdown();
+
+    // env 旋钮显式关池（'0' = canAfford('background') 恒假）——无需真耗 4M 缺省池
+    const run = await rigRun({
+      message: '',
+      flags: { tick: 'budget-job', background: true },
+      dataDir,
+      cwd: jobWs,
+      env: { BERRY_AGENT_BACKGROUND_BUDGET_TOKENS: '0' },
+    });
+    await expect(run.entry).resolves.toBe(1);
+    expect(run.err.text).toContain('当日后台道预算已尽');
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('budget-job');
+      expect(row?.lastOutcome?.reason).toBe('gated');
+      expect((row?.lastOutcome as { gate?: string } | undefined)?.gate).toBe('daily_budget');
+      expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at（与真跑 spawn 形分野）
+      expect(row?.activePid).toBeNull(); // claim（② 前已落）→ settle 清账对偶
+      expect(Date.parse(row?.nextFireAt ?? '')).toBeGreaterThan(Date.parse(nextBefore ?? '')); // next 照推进
+    } finally {
+      await audit.shutdown();
+    }
+  });
+
+  it('settle 单笔幂等（守卫面）：gated 早退后残余路径不得二次结算——ghost --session 潜在覆盖者被吞', async () => {
+    // 组合形：tick + --background（预算尽）+ ghost --session 同场。② gated settle
+    // 后 return 1——③ 的 abortTick('spawn') 不可达；即便 return 回归丢失，settleTick
+    // 的 tickJob=undefined 守卫也吞掉二次结算。锁定：结局恰一笔终值 gated、
+    // spawn 文案不可达（双防线任一回归即红：结局翻 spawn 或 err 多出会话句）
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({
+      name: 'idem-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true,
+    });
+    await seed.shutdown();
+
+    const run = await rigRun({
+      message: '',
+      flags: { tick: 'idem-job', background: true, session: 'no-such-session' },
+      dataDir,
+      cwd: jobWs,
+      env: { BERRY_AGENT_BACKGROUND_BUDGET_TOKENS: '0' },
+    });
+    await expect(run.entry).resolves.toBe(1);
+    expect(run.err.text).toContain('当日后台道预算已尽');
+    expect(run.err.text).not.toContain('--session 会话不存在'); // ③ 不可达（return 早退）
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('idem-job');
+      expect(row?.lastOutcome?.reason).toBe('gated'); // 终值不被后续覆盖（幂等守卫面）
+      expect((row?.lastOutcome as { gate?: string } | undefined)?.gate).toBe('daily_budget');
+      expect(row?.lastOutcome?.error).not.toContain('--session'); // 非 spawn 覆盖形
+      expect(row?.lastFireAt).toBeNull();
+      expect(row?.activePid).toBeNull();
     } finally {
       await audit.shutdown();
     }

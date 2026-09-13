@@ -44,6 +44,7 @@ export {
   type LlmServiceOptions,
 } from './complete.js';
 export type { LlmUsageEventData } from './events.js';
+export { usageBucketsOf } from './events.js';
 /** 虚拟键 berry-agent/llm 注入物（pi-ai provider 工厂族背书导出，03 篇 §3.2） */
 export { providerApiFace } from './provider-face.js';
 // pi-ai 注入面类型再出口（host 适配 persist 的两 Store / 插件注册 provider 用）

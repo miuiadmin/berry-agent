@@ -287,12 +287,12 @@ function unitRig(opts: { goal?: GoalWakeFace; issue?: IssuePollFace; park?: Goal
 }
 
 describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
-  it('completed：exit_code 0 + 末条 assistant 预览 + 后台道记账（callId tick:<sid>:<seq>）', async () => {
+  it('completed：exit_code 0 + 末条 assistant 预览 + 后台道声明位随提交', async () => {
     const rig = unitRig();
     const handle = await rig.spawn(jobRow('u1'));
     expect(handle.pid).toBe(process.pid); // 甲案进程内形——宿主 pid 即占用面
     // 在飞未决——settled 不收口；后台道声明位随提交（04 §5 修复批——预警
-    // 分族的 run 级判据，与后台道记账同笔）
+    // 分族的 run 级判据 + 桥接记账的 priority 源，均由组合根 settled 链消费）
     expect(rig.fake.submits).toEqual([
       { sessionId: 'sess-1', text: '行内提示词', source: 'schedule', backgroundLane: true },
     ]);
@@ -307,16 +307,9 @@ describe('scheduler-tick 单元：用户行全编舞（定形注①）', () => {
     expect(outcome.reason).toBe('exit_code');
     expect(outcome.exitCode).toBe(0);
     expect(outcome.finalTextPreview).toBe('巡检完毕'); // 末条 assistant 文本预览
-    // 后台道记账：新增 assistant 消息逐条落 llm/usage（priority background）
-    const driver = rig.fake.stack.driverOf('sess-1');
-    const events = driver?.session.events() ?? [];
-    const usageEvent = events.find((e) => e.type === 'llm/usage');
-    expect(usageEvent).toBeDefined();
-    const ledger = usageEvent!.data as Record<string, unknown>;
-    expect(ledger['callId']).toMatch(/^tick:sess-1:\d+$/); // deterministic 幂等身份
-    expect(ledger['priority']).toBe('background');
-    expect(ledger['model']).toBe('faux-unit/m1');
-    expect(ledger['usage']).toMatchObject({ input: 10, output: 5 }); // 计量四桶入账
+    // 记账断言已迁移：本 harness 是假 stack（无组合根桥接链），tick 级旧扫
+    // recordBackgroundUsage 已退役（04 §5 #41/#44 桥接单点化——真栈落账由
+    // run-entry.test 前后台两例 + conversation-stack.test 桥接族覆盖）
   });
 
   it('failed：exit_code 1 + error 摘要（errorMessage 截 200）', async () => {

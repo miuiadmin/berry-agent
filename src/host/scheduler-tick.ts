@@ -27,8 +27,6 @@
 import { cwd as processCwd } from 'node:process';
 
 import { canonicalWorkspaceRoot } from '../context/index.js';
-import type { Usage, UsageBuckets } from '../contracts/index.js';
-import type { LlmUsageEventData } from '../llm/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
 import type { RunnerFactory, RunnerHandle, RunnerRequest } from '../scheduler/index.js';
@@ -308,8 +306,6 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
    * 后台道记账。
    */
   function runSession(trigger: RunnerRequest['trigger'], sessionId: string, prompt: string): RunnerHandle {
-    // 起跑前 seq 锚（后台道记账窗——本 run 新增 assistant 消息的 seq 下界）
-    const seqBefore = deps.stack.driverOf(sessionId)?.session.events().length ?? 0;
     const runPromise = deps.stack.submitText(sessionId, prompt, {
       source: 'schedule',
       backgroundLane: true,
@@ -323,9 +319,8 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
     }
     return inflightHandle(sessionId, async () => {
       const result = await runPromise;
-      // 后台道记账（run-entry --background ⑦ 段同律：本 run 新增 assistant
-      // 消息逐条落 llm/usage——deterministic callId `tick:<sid>:<seq>` 幂等身份）
-      recordBackgroundUsage(sessionId, seqBefore);
+      // 后台道记账已上移组合根 settled 桥接单点（04 §5 #41/#44——本 submit
+      // 已声明 backgroundLane: true，priority 由回执声明位承载；此处再扫即双计）
       if (result.status === 'completed') {
         const outcome: RunOutcome = { reason: 'exit_code', exitCode: 0, trigger, finishedAt: now() };
         const preview = lastAssistantText(sessionId);
@@ -362,34 +357,6 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
     }
     return undefined;
   }
-
-  /** 后台道记账：seqBefore 起新增 assistant 消息逐条落 llm/usage（priority background） */
-  function recordBackgroundUsage(sessionId: string, seqBefore: number): void {
-    const driver = deps.stack.driverOf(sessionId);
-    if (driver === undefined) return;
-    for (const event of driver.session.events()) {
-      if (event.seq < seqBefore || event.type !== 'assistant/message') continue;
-      const usage = (event.data as { usage?: Usage }).usage;
-      if (usage === undefined) continue; // 无计量不造零账
-      const ledger: LlmUsageEventData = {
-        callId: `tick:${sessionId}:${event.seq}`,
-        model: deps.stack.model,
-        usage: toBuckets(usage),
-        priority: 'background',
-      };
-      driver.session.append('llm/usage', ledger);
-    }
-  }
 }
 
-/** Usage → 计量四桶（05 §1.1——totalTokens/cost 不入账，派生/折算在投影侧） */
-function toBuckets(usage: Usage): UsageBuckets {
-  return {
-    input: usage.input,
-    output: usage.output,
-    cacheRead: usage.cacheRead,
-    cacheWrite: usage.cacheWrite,
-    ...(usage.cacheWrite1h !== undefined ? { cacheWrite1h: usage.cacheWrite1h } : {}),
-    ...(usage.reasoning !== undefined ? { reasoning: usage.reasoning } : {}),
-  };
-}
+// 计量桶映射单源已上移 llm/events.ts usageBucketsOf（04 §5 #41/#44 桥接单点化——旧扫退役）

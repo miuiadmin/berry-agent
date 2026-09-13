@@ -256,6 +256,7 @@ berry-agent plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读�
 | `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`   | core:issue 件 webhook 签名密钥（同回落律）                                                   | 缺席                        |
 | `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE` | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                                 | 1440                        |
 | `BERRY_AGENT_MAX_CONCURRENT_RUNS`    | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸）           | 16                          |
+| `BERRY_AGENT_BACKGROUND_BUDGET_TOKENS` | 当日后台道 token 日池限额（后台 run 记账对照面；非负整数字串，`0` = 显式关池，坏值 fail-loud 拒启；前台花销照入账不进闸门） | 4000000            |
 
 ## 遥测立场
 

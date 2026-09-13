@@ -1233,18 +1233,32 @@ describe('ConversationDriver goal 驱动侧接线（批 #99）', () => {
     expect(seen[1]!.messages[seen[1]!.messages.length - 1]).toMatchObject({ role: 'user', content: '二问' });
   });
 
-  it('onRunSettled 回执：窗扫 assistant/message 计数 + seeds 归因（user 源 true / schedule 源 false）', async () => {
+  it('onRunSettled 回执：窗扫 assistant/message 计数 + seeds 归因（user 源 true / schedule 源 false）+ 窗锚/后台性扩形', async () => {
     const receipts: RunSettledReceipt[] = [];
     const { driver } = makeDriver({
-      scripts: [assistant({}), assistant({})], // 两 run 各一轮
+      scripts: [assistant({}), assistant({}), assistant({})], // 三 run 各一轮
       onRunSettled: (receipt) => void receipts.push(receipt),
     });
     await driver.submit('一问'); // 缺省 source 'user' → 真人入口 true
     await driver.submit('挂钟问', { source: 'schedule' }); // tick 源机器轮 → false（唤醒预算不复位）
-    expect(receipts).toEqual([
-      { sessionId: 's-driver', assistantMessages: 1, userInitiated: true, status: 'completed' },
-      { sessionId: 's-driver', assistantMessages: 1, userInitiated: false, status: 'completed' },
-    ]);
+    expect(receipts).toHaveLength(2);
+    // 批 #41/#44 扩形：seqFromLaunch（窗锚——组合根桥接扫 (seqFromLaunch, settle]）
+    // + backgroundLane（priority 声明位）。首 run 空盘起跑锚 0。
+    expect(receipts[0]).toMatchObject({
+      sessionId: 's-driver',
+      assistantMessages: 1,
+      userInitiated: true,
+      status: 'completed',
+      seqFromLaunch: 0,
+      backgroundLane: false,
+    });
+    // 窗锚推进律：次 run 锚 > 首 run 锚（两 run 窗不交叠——桥接恰一笔/assistant
+    // 的机制前提；桥接双计防线在组合根 e2e 另锁）
+    expect(receipts[1]!.seqFromLaunch).toBeGreaterThan(receipts[0]!.seqFromLaunch);
+    expect(receipts[1]).toMatchObject({ userInitiated: false, status: 'completed', backgroundLane: false });
+    // 后台道声明位：submit 携 backgroundLane → 回执如实携带（priority 源）
+    await driver.submit('后台问', { source: 'schedule', backgroundLane: true });
+    expect(receipts[2]).toMatchObject({ backgroundLane: true, status: 'completed' });
   });
 
   it('onRunSettled 崩溃形：StreamFn 违约 = 计数 0 + status 键缺席（不虚构——crashed run 记账不漏账）', async () => {
@@ -1262,8 +1276,11 @@ describe('ConversationDriver goal 驱动侧接线（批 #99）', () => {
     });
     await expect(driver.submit('问')).rejects.toThrow('崩溃注入');
     // toStrictEqual 严查键集：status 键必须缺席（undefined 值键也算在场——
-    // 「不虚构终值」半面）。
-    expect(receipts).toStrictEqual([{ sessionId: 's-driver', assistantMessages: 0, userInitiated: true }]);
+    // 「不虚构终值」半面）；扩形键 seqFromLaunch/backgroundLane 照落（crashed
+    // run 的记账窗锚不缺席——桥接窗扫照常可用）。
+    expect(receipts).toStrictEqual([
+      { sessionId: 's-driver', assistantMessages: 0, userInitiated: true, seqFromLaunch: 0, backgroundLane: false },
+    ]);
   });
 
   it('onRunSettled 自防炸：钩异常不反噬 run 终态（warn 落面）', async () => {

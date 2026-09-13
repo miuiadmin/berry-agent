@@ -248,6 +248,18 @@ export interface RunSettledReceipt {
   readonly sessionId: string;
   /** 本窗 durable assistant/message 条数（settle 时窗扫——04 §176 记账单位） */
   readonly assistantMessages: number;
+  /**
+   * 记账窗锚（04 §5 记账桥接单点——2026-09-13 复盘修复 #41/#44 定形）：
+   * 窗 = (seqFromLaunch, settle] 的 durable 事件（种子 user/message 不入窗——
+   * 捕获位在种子落账前）。usage 桥接落账与 assistant 计数同窗单源。
+   */
+  readonly seqFromLaunch: number;
+  /**
+   * run 级预算道快照（起跑 submit 声明位——04 §5）：桥接落账的 priority 源
+   * （true → 'background'、false → 'foreground'）。快照时点 = launch 起跑
+   * （随 run 结算清位前捕获——回执消费面不读驱动活态）。
+   */
+  readonly backgroundLane: boolean;
   /** 种子含任一 treatedAsUser 源（用户在场轮——goal 唤醒预算复位判据） */
   readonly userInitiated: boolean;
   /** run 终态（RunResult 收窄——崩溃路径缺席不虚构） */

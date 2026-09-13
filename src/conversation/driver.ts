@@ -688,13 +688,13 @@ export class ConversationDriver {
       (result) => {
         if (this.currentRun === settled) this.currentRun = undefined;
         this.runLaneValue = false; // 车道随 run 结算清位（单 run 不变量下无跨 run 竞态）
-        this.noteRunSettled(seeds, seqAtLaunch, result.status);
+        this.noteRunSettled(seeds, seqAtLaunch, backgroundLane, result.status);
         return result;
       },
       (error: unknown) => {
         if (this.currentRun === settled) this.currentRun = undefined;
         this.runLaneValue = false;
-        this.noteRunSettled(seeds, seqAtLaunch); // 崩溃路径——status 缺席不虚构
+        this.noteRunSettled(seeds, seqAtLaunch, backgroundLane); // 崩溃路径——status 缺席不虚构
         throw error;
       },
     );
@@ -709,7 +709,12 @@ export class ConversationDriver {
    * 'schedule' tick 源机器轮 false）。嵌于 settled 链内分支（回执 promise 引用
    * 恒等律不破）；钩体自防炸（记账失败 warn 不改写 run 终态）。
    */
-  private noteRunSettled(seeds: readonly AgentMessage[], seqAtLaunch: number, status?: RunResult['status']): void {
+  private noteRunSettled(
+    seeds: readonly AgentMessage[],
+    seqAtLaunch: number,
+    backgroundLane: boolean,
+    status?: RunResult['status'],
+  ): void {
     if (this.options.onRunSettled === undefined) return;
     try {
       let assistantMessages = 0;
@@ -728,6 +733,8 @@ export class ConversationDriver {
       this.options.onRunSettled({
         sessionId: this.session.sessionId,
         assistantMessages,
+        seqFromLaunch: seqAtLaunch,
+        backgroundLane,
         userInitiated,
         ...(status !== undefined ? { status } : {}),
       } satisfies RunSettledReceipt);
