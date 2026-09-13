@@ -14,8 +14,9 @@
  * **衔接序与同步读面**（05 §3.5 衔接序①②③）：注入读面全同步 ⇒ 订阅 =
  * 「先快照高水位→重放至快照→replay-end→挂活体监听」在单同步事务内原子
  * 完成——活体缓冲窗不存在（快照后事件只走直播段，零跨段重复零丢失——
- * 双轨律按构造成立）。异步读面（13e HTTP durable 查询跨 tick）需引入
- * 订阅期活体缓冲——挂账 13e，届时仅扩本件订阅相位机不改协议词汇。
+ * 双轨律按构造成立）。13e 已收官仍为同步桥读面（衔接序①②③按构造零
+ * 丢失——终形）；活体缓冲随异步 durable 读面真实需求再启窗，届时仅扩
+ * 本件订阅相位机不改协议词汇。
  */
 import type { AgentEvent } from '../../agent/index.js';
 import type { ApprovalAskAnswer, RetryProbe } from '../../contracts/index.js';

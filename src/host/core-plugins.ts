@@ -218,8 +218,8 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
 /**
  * core:web——fetch 工具（effect 'read'，经 ctx.tools.register 散装注册走
  * bootTools 重放消费腿）+ 'web-fetch' 服务面供给（02 §4.1 席 18「ctx.fetch」
- * 词面落形：服务名带域防裸名撞位）。归因 sink 缺省 no-op（观测面挂账归
- * obs 纵切笔——sink 不绑架数据面）。
+ * 词面落形：服务名带域防裸名撞位）。v1 归因面诚实缺席（sink 缺省
+ * no-op——观测面无消费位，随真实需求再启窗）。
  */
 const webPlugin: CorePluginReference = {
   name: 'web',
@@ -479,8 +479,9 @@ export interface CorePluginHostDeps {
   readonly credentialsOnChanged?: (payload: CredentialChangedPayload) => void;
   /**
    * oauth 流受局面（c-6——03 §10.9 oauth 案）：流注册表（assembly 单真身，
-   * 与 plugin-boot fork 绑定共用）+ fetch 注入（生产 = globalThis.fetch——
-   * credentials 件无 web 边，SSRF 守卫挂账安全批注记）+ 刷新链节奏（缺省
+   * 与 plugin-boot fork 绑定共用）+ fetch 注入（生产 = SSRF 守卫包裹 fetch
+   * ——assembly oauthFetch 单源，2026-09-09 守卫批已收口；缺省/测试形 =
+   * globalThis.fetch 直传）+ 刷新链节奏（缺省
    * 60s 自驱；0 = 不自驱——测试手动 tick）+ 单败 warn 去向（缺省丢弃——
    * 三振 notify 告警腿恒在场）。缺席 = oauth 动词不启用 + 刷新链不起
    * （/credentials 命令三动词不受影响）。

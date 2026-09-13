@@ -1198,8 +1198,9 @@ type DiskResolution = { readonly spec: DiskPluginSpec } | { readonly failure: Fa
 /**
  * 磁盘行账本解析（§5.4 boot 读侧消费）：installPath（绝对直用/相对 join
  * 数据目录）→ 装机目录 package.json 过清单校验（official:false）。三失败态
- * （账本缺席/目录不可读/清单坏形）皆行级隔离降级——码沿用 PLUGIN_LOAD_
- * FAILED/PLUGIN_SHAPE_INVALID 分流，新码语义挂账生命周期批。
+ * （账本缺席/目录不可读/清单坏形）皆行级隔离降级——v1 有意沿用两码分流
+ * （PLUGIN_LOAD_FAILED/PLUGIN_SHAPE_INVALID——行级隔离语义已足，新码
+ * 无消费面）。
  */
 function resolveDiskRow(
   row: EnabledRow,

@@ -28,9 +28,10 @@
  *
  * 挂账注记（消费面未齐暂缓，随各自消费腿定形）：registerRenderer（07 §4.1
  * 渲染签名未钉——随 TUI/SPA 消费腿）；ctx.sessions/ctx.host 动词包装
- * （§4.4/§4.5——随 core:memory 消费腿）；tools 管道 waterfall 派发位（pipeline.ts
- * 归 tools 域——宿主发射位接线随装配批）。ctx.ui 七原语已随交互动词族批
- * ix-2 兑销（消费腿条款 07 §4.3——会话锚定档位表/钩子窗禁律/护栏增位）。
+ * （§4.4/§4.5——随 core:memory 消费腿）。ctx.ui 七原语已随交互动词族批
+ * ix-2 兑销（消费腿条款 07 §4.3——会话锚定档位表/钩子窗禁律/护栏增位）；
+ * tools 管道 waterfall 派发位已接线兑销（pipeline.ts 三发射位——tools_
+ * pre_execute/tools_execute/tools_post_execute，装配根共享 dispatch 单源）。
  */
 import { BaseError, registerEventType, registerMessageRole } from '../contracts/index.js';
 // internal 桶机制符号深导（门检裁决核——03 §4.6；开门是宿主裁决面非插件 API）
