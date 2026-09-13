@@ -321,6 +321,18 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     }
     return spentCached;
   };
+  // 计量写位粘滞持有（04 §5 mq 定形注补律——mq-3 收口锁批）：run settle 钩子
+  // 观测活体日志即存档；onUsage 解析序 = 活体 → 粘滞持有 → detached 铸新。
+  // 病灶（compaction 链 e2e 抓获）：onUsage 回调期才解析目标日志时，「会话
+  // 退役落在 complete 在飞窗内」（shutdown closer 序 conversation-manager
+  // dispose 先于 compaction-drain；单会话 retire 同窗）→ driverOf 转
+  // undefined → loadSession 从滞后的库（write-behind 队列未冲刷）铸第二内存
+  // 日志——per-session seq 双计数器撞车 = PERSIST_DATA_CORRUPT 写序违约。
+  // 单追加者律（一会话同一时刻至多一个可追加日志对象）：持有在场 = 同对象
+  // 同计数器，append 续既有写队列尾、序不破；「从未见过活体」（跨进程/从未
+  // run）才铸新——该会话本进程队列必空，安全。持有不驱逐（v1 有意边界：
+  // 驱逐安全需「队列已冲刷 ∧ 无外部日志引用」双判据，后者不可判定）。
+  const meteringLogHold = new Map<string, SessionLog>();
   const llm = createLlmService({
     runtime: llmRuntime,
     tracker,
@@ -340,10 +352,15 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         );
         return;
       }
-      // 写路径律：活体优先（driverOf）；会话退役后 detached loadSession
-      //（:677 既有式——loadSession.log append 直通写队列，durable）
+      // 写路径律：活体优先 + 粘滞持有（04 §5 mq 定形注）——活体观测即刷新
+      //（复开换代取最新活体）；detached loadSession（:677 既有式——
+      // loadSession.log append 直通写队列，durable）只在「从未见过活体」形
+      //（真退役/跨进程）铸新
+      const live = manager.driverOf(metering.sessionId)?.session;
+      if (live !== undefined) meteringLogHold.set(metering.sessionId, live);
       const log =
-        manager.driverOf(metering.sessionId)?.session ??
+        live ??
+        meteringLogHold.get(metering.sessionId) ??
         options.runtime.persistence.loadSession(metering.sessionId).log;
       log.append('llm/usage', {
         callId: result.callId,
@@ -709,7 +726,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 不携带 → 服务侧回落投影字符估算（estimate 兜底档）
   agentService.onRunSettled((event) => {
     const driver = manager.driverOf(event.sessionId);
-    if (driver !== undefined) compaction.handleRunSettled({ log: driver.session, ...lastUsageFactOf(driver.session) });
+    if (driver === undefined) return;
+    // 粘滞持有刷新（04 §5 mq 定形注）：settle 期活体日志存档——压缩链
+    // fire-and-forget 异步执行，本钩子与 onUsage 回调之间会话可能退役
+    //（shutdown dispose / 单会话 retire），持有保证计量写笔仍落同一日志
+    // 对象（单追加者律——seq 双计数器撞车防线）
+    meteringLogHold.set(event.sessionId, driver.session);
+    compaction.handleRunSettled({ log: driver.session, ...lastUsageFactOf(driver.session) });
   });
 
   /** 投影拉取：驱动活体优先（内存最新鲜），未开回库装载（双事实源纪律同律） */

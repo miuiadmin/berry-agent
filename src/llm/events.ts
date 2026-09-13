@@ -2,9 +2,12 @@
  * llm — llm/usage 事件载荷类型（05 篇 §1.1 表；owner=llm——核心词汇已列
  * contracts/events.ts 核心表，本文件只补载荷形状）。
  *
- * 写入者两路（05 §1.1 表注——2026-09-13 复盘修复批 #41 覆盖面扩形）：①
- * complete 单发路 onUsage 回调（生产 v1 未接线——有意边界，04 §5 同笔注）；
- * ②主对话 run 路桥接 = 组合根 settled 订阅窗扫 assistant/message 逐条转抄
+ * 写入者两路（05 §1.1 表注——2026-09-13 复盘修复批 #41 覆盖面扩形；2026-09-14
+ * 单发计量批 mq 兑现销账）：①complete 单发路 onUsage 回调（生产已接线——装配
+ * 单点 conversation-stack：调用方经 CompleteRequest.metering 声明归因会话，
+ * 归因三形〔compaction 压缩会话 / goal 绑定会话 / memory 周期触发会话〕与
+ * 写路径律见 04 §5 mq 定形注；缺席不落账 + warn 丢账可观测——非静默）；②
+ * 主对话 run 路桥接 = 组合根 settled 订阅窗扫 assistant/message 逐条转抄
  * （真源仍是 assistant 落账位，桥接投影零改写）。底账 = 本事件跨会话时间窗
  * 聚合投影（canAfford 数据源，04 §5：余额不存、查询推导）。
  */

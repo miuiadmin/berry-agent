@@ -29,6 +29,7 @@ import { createAuditFace } from '../persist/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import type { UiBackend } from '../channels/index.js';
+import type { GoalService } from '../goal/index.js';
 import { fauxProvider } from '../llm/index.js';
 
 /** 临时数据目录族（统一清） */
@@ -1831,6 +1832,134 @@ describe('skills 双注入位装配 e2e（⑤ 批）', () => {
       for (const [index, outbound] of outboundPerTurn.entries()) {
         expect(outbound, `第${index + 1}轮`).toContain('<available_skills>');
       }
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
+/* ---------------- 单发计量三链 e2e（mq-3——04 §5 mq 收口锁） ---------------- */
+
+describe('单发计量三链 e2e（mq-3——归因三形经真适配器落 llm/usage 入归因会话流）', () => {
+  /** 活体会话日志的单发计量笔（callId 无 run: 前缀 = complete 路唯一 UUID 形——与 run 路桥接笔可辨） */
+  function singleShotUsagesOf(log: {
+    eventsOfType(type: string): readonly { data: unknown }[];
+  }): { callId: string; priority?: string }[] {
+    return log
+      .eventsOfType('llm/usage')
+      .map((event) => event.data as { callId: string; priority?: string })
+      .filter((data) => !String(data.callId).startsWith('run:'));
+  }
+
+  /** 轮询直至谓词命中（单发链路 fire 异步脱离 submit 回执窗——上限 2s 防挂） */
+  async function until(cond: () => boolean): Promise<void> {
+    for (let i = 0; i < 200 && !cond(); i += 1) {
+      await new Promise((resolve) => void setTimeout(resolve, 10));
+    }
+  }
+
+  it('compaction 链：阈值压缩宿主通道单发 → llm/usage 归因本会话（foreground——照实录入账不进闸门）', async () => {
+    const dir = tmpDir('host-asm-mq-comp-');
+    const ws = tmpDir('host-asm-mq-comp-ws-');
+    const faux = fauxProvider({ provider: 'faux-mq-comp', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-mq-comp/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 触发形压缩 + 不注册插件算法（summarizer 席空 → 宿主缺省算法走 runHost →
+      // 通道 complete——mq 穿线真身位）
+      const face = assembly.stack.compactionSlots.bindForPlugin({ pluginId: 'mq-fire', inLoadWindow: () => true });
+      face.setConfig({ thresholdRatio: 0.000001, cooldownMs: 0, tailKeep: 2 });
+      const session = assembly.stack.openStartupSession(ws);
+      const log = assembly.stack.driverOf(session.sessionId)!.session;
+      for (let i = 1; i <= 3; i++) {
+        // 第 3 轮多备一条响应——settle-3 压缩的宿主通道单发消耗（1-2 轮 head 空
+        // plan null 零消耗——tailKeep 2 下三轮才有一轮可压）
+        faux.setResponses(
+          i < 3 ? [() => fauxText(`第${i}轮答复`)] : [() => fauxText('第3轮答复'), () => fauxText('压缩摘要产物')],
+        );
+        await assembly.stack.submitText(session.sessionId, `第${i}轮任务`);
+      }
+      await assembly.runtime.shutdown(); // closer 序含 compaction-drain——排空后才断言
+      // 压缩确已发生且走宿主通道（否则锁无意义——卫生断言）
+      expect(log.eventsOfType('compaction/start').at(-1)?.data).toMatchObject({ summarizer: 'host' });
+      const single = singleShotUsagesOf(log);
+      expect(single).toHaveLength(1);
+      expect(single[0]!.priority).toBe('foreground'); // compaction 道现况 foreground 照实录入账
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('memory 链：10 轮满阈 → cycle fire → review 单发归因本会话（background——周期道）', async () => {
+    const dir = tmpDir('host-asm-mq-mem-');
+    const ws = tmpDir('host-asm-mq-mem-ws-');
+    const faux = fauxProvider({ provider: 'faux-mq-mem', models: [{ id: 'm1' }] });
+    // 11 条响应一次排足：10 轮对话 + 第 11 条喂 review 单发（fire 异步于第 10 次
+    // settle；consolidation 空库 skipped-empty 零消耗）
+    faux.setResponses(Array.from({ length: 11 }, (_, i) => () => fauxText(i < 10 ? `第${i + 1}轮答复` : '[]')));
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-mq-mem/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const session = assembly.stack.openStartupSession(ws);
+      const log = assembly.stack.driverOf(session.sessionId)!.session;
+      for (let i = 1; i <= 10; i++) {
+        await assembly.stack.submitText(session.sessionId, `第${i}轮任务`); // 每轮 1 turn/end——10 轮满阈
+      }
+      await until(() => singleShotUsagesOf(log).length > 0);
+      const single = singleShotUsagesOf(log);
+      expect(single).toHaveLength(1);
+      expect(single[0]!.priority).toBe('background'); // memory 周期道恒后台
+      expect(single[0]!.callId).toMatch(/^[0-9a-f-]{36}$/); // complete 路唯一 UUID 形
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('goal 链：depositFor 缓存冷单发 → llm/usage 归因绑定会话（background——沉淀道恒后台）', async () => {
+    const dir = tmpDir('host-asm-mq-goal-');
+    const ws = tmpDir('host-asm-mq-goal-ws-');
+    const faux = fauxProvider({ provider: 'faux-mq-goal', models: [{ id: 'm1' }] });
+    // 双响应：首跑落行屏障 + 沉淀摘要单发（depositFor 缓存冷即发）
+    faux.setResponses([() => fauxText('起头完成'), () => fauxText('摘要：周报已成')]);
+    let goalService: GoalService | undefined; // 全环服务捕获格（s 批——生产恒缺席的测试通道）
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-mq-goal/m1',
+      goalServiceSink: (service) => {
+        goalService = service;
+      },
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      if (goalService === undefined) throw new Error('goal 件未装载（全环服务未捕获）');
+      const session = assembly.stack.openStartupSession(ws);
+      const log = assembly.stack.driverOf(session.sessionId)!.session;
+      await assembly.stack.submitText(session.sessionId, '起个头'); // 首事件落行屏障——goal 绑定会话可回读
+      await goalService.activate({ sessionId: session.sessionId, objective: '写周报', schedule: 'daily@09:00' });
+      // 缓存冷——确定性回退立即承载（零等待），后台单发异步落地
+      expect(goalService.depositFor(session.sessionId)).toContain('目标：写周报');
+      await until(() => singleShotUsagesOf(log).length > 0);
+      const single = singleShotUsagesOf(log);
+      expect(single).toHaveLength(1);
+      expect(single[0]!.priority).toBe('background'); // goal 沉淀道恒后台
     } finally {
       await assembly.runtime.shutdown();
     }
