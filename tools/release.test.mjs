@@ -435,7 +435,7 @@ describe('runRelease 真发形态（假缝全绿）', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 双包发布道（rl 批——07 §8.3 差分五则：描述符/tag 域/白名单 map 分叉/空剥离集）
+// 双包发布道（rl 批——07 §8.3 差分六则：描述符/tag 域/白名单 map 分叉/空剥离集/值链依赖律）
 // ---------------------------------------------------------------------------
 
 describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
@@ -512,5 +512,19 @@ describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
     expect(r.code).toBe(1);
     expect(r.report.join('\n')).toContain('拒发');
     expect(s.calls.build).toBe(0);
+  });
+
+  // 2026-09-14 SDK 首演咬住的真缺陷回归锁——值链依赖声明律（07 §8.3 差分⑥）：
+  // SDK 跟进树值链（http/stdio → jsonl → schema）裸 import typebox，包却零
+  // dependencies，消费者安装后 import 必挂（ERR_MODULE_NOT_FOUND）；修 = 包内
+  // 声明 typebox（版本对齐主包 1.3.25 锁版）。此静态锁防依赖面再漂移——
+  // 运行时终验在 runSmokeSdk import 冒烟（每次演习真装真引）。
+  it('SDK 值链依赖声明在册：dependencies.typebox 锁版对齐主包（缺即红）', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { fileURLToPath } = await import('node:url');
+    const meta = JSON.parse(
+      await readFile(fileURLToPath(new URL('../packages/berry-agent-sdk/package.json', import.meta.url)), 'utf8'),
+    );
+    expect(meta.dependencies?.typebox).toBe('1.3.25');
   });
 });
