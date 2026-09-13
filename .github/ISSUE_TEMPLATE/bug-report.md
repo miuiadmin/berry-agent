@@ -32,7 +32,7 @@ title: ''
 1. 用调试级日志重跑一次，把输出贴在下面：
 
    ```bash
-   BERRY_AGENT_LOG_LEVEL=debug berry-agent <你的命令>
+   BERRY_AGENT_LOG_LEVEL=debug berry <你的命令>
    ```
 
 2. 数据目录（缺省 `~/.berry-agent/`，可用 `BERRY_AGENT_DATA_DIR` 重定位）

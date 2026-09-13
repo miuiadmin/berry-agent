@@ -6,8 +6,9 @@
 #   sh install.sh
 # 不要写成 `curl … | sh`：连接中段断裂时 shell 会执行半截脚本。
 #
-# 编舞：Node >= 24 检查 → npm 全局安装 → berry --version 验证 →
-# 欢迎横幅；失败出口给排查建议（镜像建议保持中性——不钦点具体镜像源）。
+# 编舞：Node >= 24 检查 → npm 全局安装 → 双代名验证（berry / berry-agent
+# ——新名优先旧名回落）→ 欢迎横幅（引实测就位命令名）；失败出口给排查建议
+# （镜像建议保持中性——不钦点具体镜像源）。
 set -eu
 
 # ---------- 工具函数 ----------
@@ -42,9 +43,13 @@ printf '==> 验证安装……\n'
 # 兼容两代命令名（与 uninstall.sh 同款语义）：改裁前的装机 bin 名是
 # berry-agent——registry 已发布版仍以旧名链出；升级到 bin 换代版本后
 # npm 自动换链为 berry。新名优先、旧名回落，过渡期两代装机都验证得过。
+# cmd 钉住实测就位的命令名——横幅同引（验证段双代语义贯穿到快速上手，
+# 旧名装机不被指去敲不存在的 berry 命令）。
 if version=$(berry --version 2>/dev/null); then
+  cmd=berry
   printf '==> 已就位：berry %s\n' "$version"
 elif version=$(berry-agent --version 2>/dev/null); then
+  cmd=berry-agent
   printf '==> 已就位：berry-agent %s（旧命令名——升级到 bin 换代版本后自动换链为 berry）\n' "$version"
 else
   die "安装完成但验证失败（berry / berry-agent --version 均未正常返回）——请重开终端后重试（PATH 刷新）；仍失败请到仓库 issue 报告并附本脚本全部输出"
@@ -52,11 +57,11 @@ fi
 
 # ---------- 欢迎横幅 ----------
 printf '\n'
-printf '  berry 已安装。\n'
+printf '  %s 已安装。\n' "$cmd"
 printf '\n'
 printf '  快速上手：\n'
-printf '    berry                  直接进入 TUI 对话（说需求即可）\n'
-printf '    berry --help           全部命令与旗标\n'
+printf '    %-22s %s\n' "$cmd" '直接进入 TUI 对话（说需求即可）'
+printf '    %-22s %s\n' "$cmd --help" '全部命令与旗标'
 printf '    文档：https://github.com/miuiadmin/berry-agent#readme\n'
 printf '\n'
 printf '  首次启动自动创建数据目录 ~/.berry-agent/（BERRY_AGENT_DATA_DIR 可重定位）。\n'
