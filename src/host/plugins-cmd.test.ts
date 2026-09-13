@@ -59,6 +59,47 @@ describe('plugins list——同构装载态清单（三分区）', () => {
     expect(text).toContain('装机账本无此 id'); // 失败行诊断信息透出
   });
 
+  it('启用行双目录段：report 带 skillDirs+agentDirs → id→技能目录→子代理目录三段同现（与 TUI renderList 5a11f3c 同源形——两面同源承诺 CLI 侧补执法）', async () => {
+    const dir = tmpDir('plug-list-dualdirs-');
+    const io = capture();
+    // 声明式目录（loader.ts:395-396——core 行声明基 = 宿主包根，resolveDeclaredDirs
+    // 只 resolve 不查在场；此前本面零 agentDirs/技能目录断言，上批已知洞核实属实）
+    const dual: CorePluginReference = {
+      name: 'dual',
+      skills: ['skills/fixture-skill-a'],
+      agents: ['agents/fixture-agent-b'],
+      apply: async () => undefined,
+    };
+    const code = await runPluginsEntry({ sub: 'list' }, { version: 'x', dataDir: dir, corePlugins: [dual], ...io });
+    expect(code).toBe(0);
+    const text = io.out.join('\n');
+    // 段序锁：整行正则（id → 技能目录 → 子代理目录，两空格分隔同 TUI 串形）
+    expect(text).toMatch(/^  core:dual  技能目录：.+skills\/fixture-skill-a  子代理目录：.+agents\/fixture-agent-b$/m);
+  });
+
+  it('条件段缺席形：只 skillDirs → 无子代理目录段；两目录俱缺 → 裸 id 行（空清单不带尾注段）', async () => {
+    const dir = tmpDir('plug-list-segabsent-');
+    const io = capture();
+    const skillOnly: CorePluginReference = {
+      name: 'skillonly',
+      skills: ['skills/fixture-only-skill'],
+      apply: async () => undefined,
+    };
+    const bare: CorePluginReference = { name: 'bare', apply: async () => undefined };
+    const code = await runPluginsEntry(
+      { sub: 'list' },
+      { version: 'x', dataDir: dir, corePlugins: [skillOnly, bare], ...io },
+    );
+    expect(code).toBe(0);
+    const text = io.out.join('\n');
+    // 只技能目录：行含技能段且整行无子代理目录段（缺席不造空段）
+    expect(text).toMatch(/^  core:skillonly  技能目录：.+skills\/fixture-only-skill$/m);
+    expect(text).not.toMatch(/^  core:skillonly.*子代理目录/m);
+    // 俱缺：裸 id 行（长度 0 条件段两段皆不出现）
+    expect(text).toMatch(/^  core:bare$/m);
+    expect(text).toMatch(/启用（2）：/);
+  });
+
   it('dataDir 缺省走 env 梯子：BERRY_AGENT_DATA_DIR 下磁盘行照呈（obs-c 回归锁——修前 list 恒读 ~/.berry-agent 致装机行三区皆隐）', async () => {
     // 2026-09-13 可观测性批 obs-c：真模型六轮实机实证——装+mount 后 list 只呈
     // 16 core 件。根因 = list 对 options.dataDir 条件展开（undefined 时省略）而
