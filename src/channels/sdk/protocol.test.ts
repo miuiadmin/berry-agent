@@ -7,6 +7,7 @@
  * 定形，此后不漂移）。
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   SDK_FRAME_KINDS,
   SDK_PROTOCOL_VERSION,
@@ -70,6 +71,22 @@ describe('信封定形（03 §10.6「{seq, sessionId, event} 形随落码批定�
     };
     // 最小形恰四键——reason/toolName/suggestedEntry 均可选位；多必填即信封漂移红
     expect(Object.keys(frame).sort()).toEqual(['approvalId', 'kind', 'sessionId', 'summary']);
+  });
+
+  it('replay-end 帧零 nextCursor 位——死契约字段删除锁（2026-09-14 四役定形，03 §10.6 注记）', () => {
+    // 定形背景：v1 serve 桥单页全窗成文定案（重放腿跟尽义务由桥并页兑现），
+    // replay-end 的 nextCursor 声明后永不发射（wire-core handleHello 唯一发射
+    // 位恒不携带）即死契约字段——消费方据类型面写「截断续读」逻辑永远等不到
+    // 它，已删；跟尽语义活位在 entries 帧的 nextCursor（getEntries 腿续读位）。
+    // 接口无运行时投影（擦除），锁落源面：接口块内不得再出现 nextCursor 词面。
+    const src = readFileSync(new URL('./protocol.ts', import.meta.url), 'utf8');
+    const block = /export interface SdkReplayEndFrame \{[\s\S]*?\n\}/.exec(src)?.[0];
+    // 切片锚：块必须切中（接口改名/删除时本锁失锚即红，不静默放行）
+    expect(block).toContain('lastReplayedSeq');
+    expect(block).not.toContain('nextCursor');
+    // 语义活位锚：entries 帧仍携带 nextCursor（跟尽语义单源位——getEntries 腿）
+    const entriesBlock = /export interface SdkEntriesFrame \{[\s\S]*?\n\}/.exec(src)?.[0];
+    expect(entriesBlock).toContain('nextCursor');
   });
 });
 

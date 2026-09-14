@@ -30,6 +30,7 @@ import {
   validateSdkRequest,
   type SdkOutboundSink,
   type SdkRequest,
+  type SdkWireCore,
   type SdkWireFrame,
 } from '../channels/index.js';
 
@@ -111,6 +112,8 @@ export interface McpFaceOptions {
 export interface McpFaceHandle {
   /** 通道核注册面（UiBackend 契约件——宿主 stack.channels.addBackend 消费） */
   readonly backend: ReturnType<typeof createSdkBackend>['backend'];
+  /** 协议核观测面（isSubscribed 订阅判据等——HTTP 形同款观测位，测试/诊断单源） */
+  readonly core: SdkWireCore;
   /** 终局（EOF 优雅 0 / 传输面坏死 1）——宿主 await 后走运行时退出序 */
   readonly done: Promise<number>;
   /** 收口（幂等）：解挂输入监听 + 后端 dispose（在飞 ask 保守 cancel + core.close） */
@@ -129,9 +132,11 @@ export function runMcpFace(options: McpFaceOptions): McpFaceHandle {
   // 收集式 sink：MCP 形请求/应答档——无订阅即无直播帧流；应答帧在
   // handleRequest 同步事务内收齐、由工具调用处取走翻译成 MCP 工具结果
   //（协议核应答帧不达 MCP 线——包装层只投影不转发）。
-  // capturing 位 = 零直播面的传输边界执法：prompt 自动订阅（13b 落码定形）
-  // 会让在飞 run 的活体帧流入本 sink——无 MCP 直播线可承载即弃（返回 true
-  // 视为写达，出站队列恒空——背压机械不触发）；仅在 roundTrip 事务内收帧
+  // capturing 位 = 零直播面的传输边界执法：fresh prompt 的核内自动订阅
+  //（13b 落码定形）已在 roundTrip 受理后即撤（见其反制位——03 §10.6 MCP
+  // 形条款），本位是纵深防御兜底——若仍有帧达（如撤订在途的活体帧），无
+  // MCP 直播线可承载即弃（返回 true 视为写达，出站队列恒空——背压机械
+  // 不触发）；仅在 roundTrip 事务内收帧
   let collected: SdkWireFrame[] = [];
   let capturing = false;
   const sink: SdkOutboundSink = {
@@ -162,7 +167,17 @@ export function runMcpFace(options: McpFaceOptions): McpFaceHandle {
     }
     const frames = collected;
     collected = [];
-    return frames[0];
+    // prompt 落定后幽灵订阅即撤（03 §10.6 MCP 形条款——HTTP 面 postVerb 同款
+    // 反制）：fresh prompt 在核内自动挂直播订阅（13b 定形），而 MCP 面结构性
+    // 零直播线（无 SSE 观众位、工具面无 hello/decide）——保留空订阅只会让
+    // ask 打入无人区挂死（askApproval fail-closed 判据被幽灵订阅骗过 → ask
+    // 帧入 sink 事务外弃帧 → 应答 Promise 悬挂）；受理得 ack 即撤，撤后 ask
+    // 无订阅者即时 unavailable（04 §9 headless 律兑现）
+    const first = frames[0];
+    if (req.verb === 'prompt' && first?.kind === 'ack') {
+      backend.core.unsubscribe(first.sessionId);
+    }
+    return first;
   };
 
   /** 写一行 JSON-RPC 消息 */
@@ -367,6 +382,7 @@ export function runMcpFace(options: McpFaceOptions): McpFaceHandle {
 
   return {
     backend: backend.backend,
+    core: backend.core,
     done,
     dispose: () => finish(0), // 宿主 closer 消费（信号路优雅档）；幂等
   };

@@ -98,15 +98,18 @@ describe('createSdkClient 方法面', () => {
     await expect(client.prompt({ content: 'x' })).rejects.toBeInstanceOf(SdkError);
   });
 
-  it('getEntries：since 缺省 -1、显式值透传', async () => {
+  it('getEntries：since 缺省 -1、显式值透传、cursor 续读位透传', async () => {
     const fake = fakeTransport();
     const entriesFrame: SdkWireFrame = { kind: 'entries', sessionId: 's-1', entries: [] };
     fake.setResponder(() => entriesFrame);
     const client = createSdkClient(fake.transport);
     await client.getEntries({ sessionId: 's-1' });
     await client.getEntries({ sessionId: 's-1', since: 41 });
+    // cursor = 分页续读游标回送位（上一页 nextCursor 在场即携之续读——缺席即省略）
+    await client.getEntries({ sessionId: 's-1', cursor: 'c-1' });
     expect(fake.requests[0]).toEqual({ verb: 'getEntries', sessionId: 's-1', since: -1 });
     expect(fake.requests[1]).toEqual({ verb: 'getEntries', sessionId: 's-1', since: 41 });
+    expect(fake.requests[2]).toEqual({ verb: 'getEntries', sessionId: 's-1', since: -1, cursor: 'c-1' });
   });
 
   it('sessions：应答帧取 sessions 数组直出', async () => {

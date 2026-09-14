@@ -8,8 +8,10 @@
  * 应答归属：HTTP 请求/响应一一对应，帧归属天然无歧义——无需 stdio 形的
  * 事务串行链。错误帧以非 2xx + 错误体（与线协议错误帧同构）回达 → 本层
  * 还原为帧原样返回（投形归 client）；传输级失败（连接拒/断）抛
- * `SDK_TRANSPORT`。直播档 = GET /v1/events SSE：`data: <单行 JSON>` 块 +
- * `: ping` 注释行——与 face 写侧纪律一一对应。
+ * `SDK_TRANSPORT`——建连期错误发在 req、应答期夭折错误发在 res，两期皆
+ * 接线 reject（不留悬挂 Promise）。直播档 = GET /v1/events SSE：`data:
+ * <单行 JSON>` 块 + `: ping` 注释行——与 face 写侧纪律一一对应；建立期
+ * （replay-end 界标前）流终结同样 fail-loud reject，已建立后流错误只诊断。
  */
 import { request as httpRequest } from 'node:http';
 import type { IncomingMessage } from 'node:http';
@@ -79,6 +81,10 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
           const chunks: Buffer[] = [];
           res.on('data', (chunk: Buffer) => chunks.push(chunk));
           res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+          // 应答阶段连接夭折（ECONNRESET 等）错误发在 res 而非 req——不挂即悬挂
+          res.on('error', (err: Error) =>
+            reject(new SdkError('SDK_TRANSPORT', `${method} ${path} 传输失败：${err.message}`)),
+          );
         },
       );
       req.on('error', (err: Error) =>
@@ -142,7 +148,8 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
       new Promise<SdkLiveHandle>((resolve, reject) => {
         const query = new URLSearchParams({ sessionId: params.sessionId });
         if (params.after !== undefined) query.set('after', String(params.after));
-        if (params.noDelta !== undefined) query.set('noDelta', params.noDelta ? '1' : '0');
+        // 布尔词面 = 宿主解码位字面（只认 'true'/'false'，其余 400 SDK_DECODE）——'1'/'0' 形恒被拒
+        if (params.noDelta !== undefined) query.set('noDelta', params.noDelta ? 'true' : 'false');
         const req = httpRequest(
           {
             socketPath: options.socketPath,
@@ -176,6 +183,7 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
               return;
             }
             liveStreams.add(res);
+            let settled = false; // 建立界标守卫：replay-end resolve 置位——界标前终局一律建流失败
             let highWaterSeq = -1;
             let buffer = '';
             res.setEncoding('utf8');
@@ -201,7 +209,8 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
                     onFrame(frame);
                     if (frame.kind === 'replay-end') {
                       // 衔接界标即建立点——界标帧已入监听面（重放段全量承诺）
-                      resolve({ sessionId: params.sessionId, highWaterSeq, close: liveClose(res) });
+                      settled = true;
+                      resolve({ sessionId: params.sessionId, highWaterSeq, close: liveClose(res, liveStreams) });
                     }
                   } catch (err) {
                     warn(`SSE 坏载荷跳过：${err instanceof Error ? err.message : String(err)}`);
@@ -209,7 +218,23 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
                 }
               }
             });
-            res.on('error', (err) => warn(`SSE 流错误：${err.message}`));
+            // 终局摘账 + 建立期守卫：流终结先摘 liveStreams 账（对端收流/server 侧
+            // 断开同族——终局即离场，不滞留已死流对象）；replay-end 未至的终局 =
+            // 建流失败 fail-loud（调用方拿到悬空 Future 无超时兜底可依，最劣形）。
+            const terminate = (why: string): void => {
+              liveStreams.delete(res);
+              if (!settled) reject(new SdkError('SDK_TRANSPORT', `SSE 流在 replay-end 前终止（${why}）`));
+            };
+            res.on('end', () => terminate('应答流结束'));
+            res.on('close', () => terminate('连接关闭'));
+            res.on('error', (err) => {
+              if (settled) {
+                // 已建立后的流中断只诊断不打回（收口归 handle.close / transport.close）
+                warn(`SSE 流错误：${err.message}`);
+                return;
+              }
+              reject(new SdkError('SDK_TRANSPORT', `SSE 流在 replay-end 前终止（流错误：${err.message}）`));
+            });
           },
         );
         req.on('error', (err: Error) => reject(new SdkError('SDK_TRANSPORT', `SSE 建流传输失败：${err.message}`)));
@@ -235,9 +260,16 @@ function sseDataPayloads(block: string): string[] {
   return data;
 }
 
-/** 单订阅收口工厂（幂等——流账摘除 + 销毁） */
-function liveClose(res: IncomingMessage): () => Promise<void> {
+/**
+ * 单订阅收口工厂（幂等——流账摘除先于销毁；res 'close' 终局另有摘账兜底）。
+ *
+ * 模块缝注：具名导出仅供同模块测试件锁账纪纪律（摘账先于销毁），包公开面
+ * （index.ts）不转发——外部勿依赖。
+ */
+export function liveClose(res: IncomingMessage, streams: Set<IncomingMessage>): () => Promise<void> {
   return async () => {
+    // 摘账先于销毁——滞留已销毁流对象即无界账（每订阅周期一漏，跨会话反复订阅累积）
+    streams.delete(res);
     res.destroy();
   };
 }

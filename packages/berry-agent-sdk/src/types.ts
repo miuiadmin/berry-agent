@@ -110,17 +110,19 @@ export interface SdkPromptInput {
   readonly content: string;
 }
 
-/** getEntries 入参（since 缺省 -1 从头全窗） */
+/** getEntries 入参（since 缺省 -1 从头全窗；cursor = 分页续读游标——SDK 面亦透传） */
 export interface SdkEntriesInput {
   readonly sessionId: string;
   readonly since?: number;
+  /** 分页续读游标（上一页 entries 帧 nextCursor 在场即携之续读——跟尽义务的回送位，分页帽落地时可跟尽） */
+  readonly cursor?: string;
 }
 
 /** 类型化客户端（传输无关面——两传输同方法面消费） */
 export interface SdkClient {
   /** 会话发起/续接（→ ack 应答：会话句柄 + 受理回执）；错误帧 → 抛 {@link SdkError} */
   prompt(input: SdkPromptInput): Promise<SdkAckFrame>;
-  /** 断线对账读面（→ entries 页帧）；跟尽义务在调用方（nextCursor 在场即续读） */
+  /** 断线对账读面（→ entries 页帧）；跟尽义务在调用方（nextCursor 在场即续读——cursor 位透传，分页帽落地时可跟尽） */
   getEntries(input: SdkEntriesInput): Promise<SdkEntriesFrame>;
   /** 会话清单 */
   sessions(): Promise<SdkSessionSummary[]>;

@@ -55,6 +55,8 @@ export function createSdkClient(transport: SdkTransport): SdkClient {
         verb: 'getEntries',
         sessionId: input.sessionId,
         since: input.since ?? -1,
+        // cursor 分页续读游标回送位——SDK 面亦透传（缺席即省略）
+        ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
       });
       ensureNotError(frame);
       return frame as SdkEntriesFrame; // 应答闭集 {entries, error}

@@ -26,6 +26,11 @@ rl.on('line', (line) => {
     if (req.messageId === 'm-bad') process.stdout.write('this is { not json\\n');
     out({ kind: 'ack', sessionId: req.sessionId ?? 's-1', messageId: req.messageId, duplicate: false, highWaterSeq: ++n });
   } else if (req.verb === 'hello') {
+    if (req.sessionId === undefined) {
+      // 连接级握手档（无会话订阅）——仅回 hello 帧（对齐宿主 wire-core 连接级档零订阅语义）
+      out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: '', highWaterSeq: 0 });
+      return;
+    }
     if (req.sessionId === 's-missing') { out({ kind: 'error', code: 'SESSION_NOT_FOUND', message: '无此会话' }); return; }
     out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: req.sessionId, highWaterSeq: 3 });
     out({ kind: 'entries', sessionId: req.sessionId, entries: [{ type: 'user/message', seq: 1, time: 1, data: {} }], lastSeq: 2 });
@@ -44,6 +49,54 @@ function rig(onWarn?: (m: string) => void): SdkStdioTransport {
   return spawnServeTransport({ args: ['-e', RESPONDER_SCRIPT], onWarn });
 }
 
+/**
+ * 应答机变体：连接级握手正常应答，收到 prompt 即 exit(9) 不应答——
+ * 「子进程终局时在飞事务 fail-loud」谱（修前红锚：现状在飞请求永挂）。
+ */
+const DIE_ON_PROMPT_SCRIPT = `
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+rl.on('line', (line) => {
+  let req; try { req = JSON.parse(line); } catch { return; }
+  if (req.verb === 'hello' && req.sessionId === undefined) {
+    out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: '', highWaterSeq: 0 });
+    return;
+  }
+  if (req.verb === 'prompt') process.exit(9); // 在飞期死亡——不应答
+});
+`;
+
+/** 应答机变体：连接级握手回错配版本（999）——「版本错配 fail-loud 拒用传输」谱 */
+const MISMATCH_SCRIPT = `
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+rl.on('line', (line) => {
+  let req; try { req = JSON.parse(line); } catch { return; }
+  if (req.verb === 'hello') {
+    out({ kind: 'hello', protocolVersion: 999, sessionId: '', highWaterSeq: 0 });
+  } // 其余动词不应答（错配后传输应已拒用——不应再发）
+});
+`;
+
+/** 应答机变体：首帧必须握手 hello——请求帧先到（无握手）即自毁 exit(5)（「握手先于任何请求帧」锁） */
+const HANDSHAKE_FIRST_SCRIPT = `
+const rl = require('node:readline').createInterface({ input: process.stdin });
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let sawHello = false;
+rl.on('line', (line) => {
+  let req; try { req = JSON.parse(line); } catch { return; }
+  if (req.verb === 'hello' && req.sessionId === undefined) {
+    sawHello = true;
+    out({ kind: 'hello', protocolVersion: req.protocolVersion, sessionId: '', highWaterSeq: 0 });
+    return;
+  }
+  if (!sawHello) process.exit(5); // 请求帧先于握手——违约自毁
+  if (req.verb === 'prompt') {
+    out({ kind: 'ack', sessionId: req.sessionId ?? 's-1', messageId: req.messageId, duplicate: false, highWaterSeq: 1 });
+  }
+});
+`;
+
 /** 等直播帧到齐（轮询 setImmediate/短眠——子进程异步面） */
 async function waitFor(ready: () => boolean, budgetMs = 4000): Promise<void> {
   const start = Date.now();
@@ -51,6 +104,20 @@ async function waitFor(ready: () => boolean, budgetMs = 4000): Promise<void> {
     if (Date.now() - start > budgetMs) throw new Error('waitFor 超时');
     await new Promise((r) => setTimeout(r, 10));
   }
+}
+
+/**
+ * 限期锚（fail-loud 断言用）：超期以 Error resolve——永挂形在 expects.rejects
+ * 断言下即红（而非等测程超时兜底），修前红锚的可判形态。
+ */
+function withDeadline<T>(p: Promise<T>, ms = 2000): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((resolve) => {
+      const timer = setTimeout(() => resolve(new Error(`限期 ${ms}ms 内未落定（永挂形）`) as unknown as T), ms);
+      timer.unref?.(); // 不持住进程句柄（测程收口干净）
+    }),
+  ]);
 }
 
 describe('spawnServeTransport stdio 传输', () => {
@@ -156,5 +223,54 @@ describe('spawnServeTransport stdio 传输', () => {
     await transport.close();
     await expect(transport.exited).resolves.toBe(0);
     await transport.close(); // 幂等
+  });
+
+  it('子进程终局：在飞事务 fail-loud reject（SDK_TRANSPORT 含退出码）、串行链续走后即拒不挂', async () => {
+    const transport = spawnServeTransport({ args: ['-e', DIE_ON_PROMPT_SCRIPT] });
+    try {
+      const client = createSdkClient(transport);
+      // 在飞请求限期落定（修前：子进程退出后在飞请求永挂——deadline 锚判红）
+      await expect(withDeadline(client.prompt({ messageId: 'm-die', content: 'x' }))).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_TRANSPORT',
+        message: expect.stringContaining('code=9') as unknown,
+      });
+      // 串行链续走：后续请求立即 fail-loud 拒（不永挂），报因同含退出码
+      await expect(withDeadline(client.prompt({ messageId: 'm-next', content: 'x' }))).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_TRANSPORT',
+        message: expect.stringContaining('code=9') as unknown,
+      });
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it('建立即连接级握手：版本错配 → fail-loud 拒用传输（SDK_PROTOCOL_MISMATCH）', async () => {
+    const transport = spawnServeTransport({ args: ['-e', MISMATCH_SCRIPT] });
+    try {
+      const client = createSdkClient(transport);
+      // 修前：无握手——prompt 无应答永挂（deadline 锚判红）
+      await expect(withDeadline(client.prompt({ messageId: 'm-1', content: 'x' }))).rejects.toMatchObject({
+        name: 'SdkError',
+        code: 'SDK_PROTOCOL_MISMATCH',
+      });
+      // 毒丸持续：其后一切事务面同错拒用（不挂、不静默互操作）
+      await expect(withDeadline(client.sessions())).rejects.toMatchObject({ code: 'SDK_PROTOCOL_MISMATCH' });
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it('建立即连接级握手：握手先于任何请求帧（首帧非 hello 应答机即自毁）', async () => {
+    const transport = spawnServeTransport({ args: ['-e', HANDSHAKE_FIRST_SCRIPT] });
+    try {
+      const client = createSdkClient(transport);
+      // ack 到手即证明 hello 先行（若请求帧先到，应答机 exit(5) 自毁——prompt 永挂）
+      const ack = await withDeadline(client.prompt({ messageId: 'm-1', content: 'x' }));
+      expect(ack).toMatchObject({ kind: 'ack', messageId: 'm-1' });
+    } finally {
+      await transport.close();
+    }
   });
 });

@@ -4,7 +4,8 @@
  * 协议级全注入：假装配桥（内存会话宇宙）+ PassThrough 传输对——受理/
  * admit/深校验/错误码全走真协议核（单源验证），只桥面为假。锁：五方法
  * 受理/两工具映射投影/幂等 admit 两档/业务错 isError 位/协议错码位/
- * 通知零应答/版本回显制/零直播面（事务外活体帧弃）/EOF 优雅收口。
+ * 通知零应答/版本回显制/零直播面（事务外活体帧弃）/EOF 优雅收口/
+ * prompt 幽灵订阅即撤 + headless ask 即时 unavailable（http 面同律反制）。
  *
  * 应答等待位：PassThrough 'data' 事件异步派发——ask() 以 id 关联 promise
  * 逐请求等待（发号器模块级自增），通知/坏行等无 id 面走 tick 刷帧后断言。
@@ -315,6 +316,37 @@ describe('berry-agent-reply 工具（→ getEntries 投影）', () => {
     const resp = await r.ask('tools/call', { name: MCP_POLL_TOOL_NAME, arguments: { sessionId: 'ghost' } });
     expect(resp.result?.isError).toBe(true);
     expect(resp.result?.content?.[0]?.text).toContain('SESSION_NOT_FOUND');
+    r.end();
+  });
+});
+
+describe('幽灵订阅反制（http 面同律——MCP 面结构性零直播线）', () => {
+  it('prompt fresh 受理后自动订阅即撤：isSubscribed(sessionId) === false', async () => {
+    const r = rig();
+    const payload = toolJson(
+      await r.ask('tools/call', { name: MCP_PROMPT_TOOL_NAME, arguments: { message: '问', messageId: 'm-1' } }),
+    );
+    expect(payload.sessionId).toBe('s-1');
+    // 修前：核内自动订阅（13b 定形）受理后滞留 → true——幽灵订阅击穿
+    // headless fail-closed 判据（askApproval 误判有观众）；受理即撤后判据
+    // 与真观众同步（MCP 面永无直播线——撤面恒正确）
+    expect(r.face.core.isSubscribed('s-1')).toBe(false);
+    r.end();
+  });
+
+  it('headless ask（无订阅者）即时 unavailable 不悬挂（Promise.race 超时锚）', async () => {
+    const r = rig();
+    const payload = toolJson(
+      await r.ask('tools/call', { name: MCP_PROMPT_TOOL_NAME, arguments: { message: '问', messageId: 'm-ask' } }),
+    );
+    const sessionId = String(payload.sessionId);
+    // 超时锚：修前幽灵订阅骗过 fail-closed 判据 → ask 帧入 sink（事务外
+    // 弃帧）→ 应答 Promise 悬挂 → 锚胜出落 'hang'；修后 isSubscribed=false
+    // → 同步路立即 resolve('unavailable')（04 §9 headless 律——结构性无人
+    // 可答，非用户主动取消）
+    const anchor = new Promise<'hang'>((resolve) => setTimeout(() => resolve('hang'), 500));
+    const answer = await Promise.race([r.face.backend.askApproval!(sessionId, { summary: '测试审批' }), anchor]);
+    expect(answer).toBe('unavailable');
     r.end();
   });
 });

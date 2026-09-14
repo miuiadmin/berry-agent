@@ -117,18 +117,17 @@ export interface SdkAckFrame {
  * 重放游标标记帧（线控事件族四件之四——重放段与直播段的衔接界标）。
  * 直播起播 = 后续 event 帧 seq > lastReplayedSeq 首条（含未落库在飞——05 §3.5
  * 衔接序第 ③ 步；重放尾与直播首无缝衔接 = 落码回归锁位，见 ./cursor.ts）。
+ *
+ * 〔2026-09-14 遗漏扫描四役定形：本帧曾携 nextCursor 续读游标位——发射位
+ * （wire-core handleHello）结构性永不携带，属死契约字段已删；v1 serve 桥
+ * 单页全窗成文定案（重放腿跟尽义务由桥并页兑现），跟尽语义活位在 entries
+ * 帧的 nextCursor（getEntries 腿续读位）——03 §10.6 四役注记。〕
  */
 export interface SdkReplayEndFrame {
   kind: 'replay-end';
   sessionId: string;
   /** 重放段末条 seq（空重放 = after 原值或 −1） */
   lastReplayedSeq: number;
-  /**
-   * 重放被分页截断时的续读游标（05 §3.4 nextCursor——帽 10000；重放腿必须跟尽，
-   * 跟尽义务在调用方：单页即止 = 截断不报错，系调用方违约协议不补发）。
-   * 缺席 = 重放已跟尽。
-   */
-  nextCursor?: string;
 }
 
 /**
@@ -173,7 +172,13 @@ export interface SdkEntriesFrame {
   sessionId: string;
   /** (since, 高水位] 窗口内 durable 事件（重放源 = 会话内存日志——含未落库在飞，装配桥接） */
   entries: SdkDurableEntry[];
-  /** 分页续读游标（05 §3.4——缺席 = 已跟尽） */
+  /**
+   * 分页续读游标（05 §3.4 强制有帽有界——缺省帽 1000 / 硬帽 10000；缺席 =
+   * 已跟尽）。跟尽义务在调用方：在场即携 cursor 续读（SdkGetEntriesRequest
+   * .cursor 位回传），单页即止 = 截断不报错（系调用方违约，协议不补发）——
+   * 2026-09-14 四役定形：跟尽语义单源在本帧（replay-end 帧曾携同名字段系
+   * 死契约位已删，见彼处文注）。
+   */
   nextCursor?: string;
 }
 
