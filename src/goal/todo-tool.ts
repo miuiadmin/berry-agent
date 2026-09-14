@@ -179,9 +179,11 @@ function enforceScope(
   if (item.gate !== undefined) {
     if (item.gate.kind === 'command') {
       if (!deps.hasCommandExec) {
+        // 缺席归因（四役勘正——03 §10.5）：组合根已真接线（ex 批），缺席唯一
+        // 生产可达形 = exec 件禁用/缺席——词面如实指该方向（diagnostics 分支同律）
         throw new BaseError(
           'GOAL_TODO_SCOPE',
-          `条目「${item.content}」command 判据门不可申报——exec 执行面缺席（组合根未接线，fail-closed 非静默跳过）`,
+          `条目「${item.content}」command 判据门不可申报——exec 执行面缺席（exec 件未装载或被禁用——诚实缺席，fail-closed 不放行）`,
         );
       }
       const status = deps.commandGateStatus(scope.goalId);

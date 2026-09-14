@@ -88,7 +88,13 @@ async function evaluateCommand(command: string, deps: GoalGateDeps): Promise<Gat
     };
   }
   if (deps.exec === undefined) {
-    return { ok: false, kind: 'command', detail: 'exec 执行面缺席——fail-closed 不放行（组合根未接线）' };
+    // 缺席归因（四役勘正——03 §10.5）：组合根已真接线（ex 批），缺席唯一生产
+    // 可达形 = exec 件禁用/缺席（enabled.yaml）——词面如实指该方向
+    return {
+      ok: false,
+      kind: 'command',
+      detail: 'exec 执行面缺席（exec 件未装载或被禁用——诚实缺席，fail-closed 不放行）',
+    };
   }
   const result = await deps.exec.execCommand(command);
   if (result.timedOut) {
@@ -131,7 +137,12 @@ async function evaluateDiagnostics(files: readonly string[], deps: GoalGateDeps)
     return { ok: false, kind: 'diagnostics', detail: '空目标集——空门即非门（申报位已拦，评测位双拦）' };
   }
   if (deps.lsp === undefined) {
-    return { ok: false, kind: 'diagnostics', detail: 'lsp 诊断查询面缺席——fail-closed 不放行（组合根未接线）' };
+    // 同律缺席归因（四役勘正——03 §10.5）：lsp 件禁用/缺席即诚实缺席
+    return {
+      ok: false,
+      kind: 'diagnostics',
+      detail: 'lsp 诊断查询面缺席（lsp 件未装载或被禁用——诚实缺席，fail-closed 不放行）',
+    };
   }
   const diags = await deps.lsp.queryDiagnostics([...files]);
   const errors = diags.filter((d) => d.level === 'error');
