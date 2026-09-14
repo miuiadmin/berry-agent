@@ -102,10 +102,37 @@ const SDK_PACK_MUST = [
 ];
 
 /**
+ * 主包 README 读面（契约 4 占位符门输入，随包描述符承载）：根目录 README
+ * 全语言族 glob 排序拼合（npm always-included 族随包走，占位符门不得漏检
+ * 任一译文；动态 glob 形——新语言落位即自动入检，fail-safe 方向无需枚举
+ * 同步。2026-09-14 扫描三役 F22 勘正：修前只读根 README.md 单件，五译文
+ * 占位符漏检）。pkgRoot = 仓根（pkgDir 空）。
+ */
+function readMainReadmeText(pkgRoot) {
+  return readdirSync(pkgRoot)
+    .filter((f) => /^README.*\.md$/.test(f))
+    .sort()
+    .map((f) => readFileSync(join(pkgRoot, f), 'utf8'))
+    .join('\n\n');
+}
+
+/** SDK 包 README 读面：包目录单件（无语言变体族——07 §8.3 差分①） */
+function readSdkReadmeText(pkgRoot) {
+  return readFileSync(join(pkgRoot, 'README.md'), 'utf8');
+}
+
+/**
  * 包描述符单源表（--package 词面全集；07 §8.3 双包发布道定形块）。
  * tagPrefix 两包分立：主包 v<version> / SDK sdk-v<version>（版本号独立演进，
  * 同号真发时同形 tag 必撞）；treeStrip = 契约 4 深对照剥离集（主包溯源戳
  * 两件 / SDK 纯 tsc 确定性编译空集——shasum 不等即实质差异）。
+ * buildScript / readmeText / smoke = 差分面随表承载（07 §8.3 定形句把
+ * 「冒烟形」列为描述符第 9 项，build 链与 readme 读面同款收口——2026-09-14
+ * 扫描四役 idx 8：修前三者内联在 realSeams 的 pkgKey if 分叉系参数化遗漏，
+ * 第三包入册/冷读对拍即漏点）：buildScript 两包分立（主包复合链 / SDK
+ * tsc 直出）；readmeText 读面两形（主包根 glob 族拼合 / SDK 包目录单件）；
+ * smoke 冒烟形两形（主包 CLI 形吃官方件 id 集 / SDK import 形吃线协议握手
+ * 锚真值——deps 经 lazy loader 注入，realSeams 零 pkgKey 分叉）。
  */
 export const PACKAGES = {
   main: {
@@ -117,6 +144,9 @@ export const PACKAGES = {
     packBanned: MAIN_PACK_BANNED,
     packMust: MAIN_PACK_MUST,
     treeStrip: ['dist/.build-meta.json', 'dist/.api-emit.stamp'],
+    buildScript: 'build',
+    readmeText: readMainReadmeText,
+    smoke: async (tarballPath, version) => runSmoke(tarballPath, version, await loadCoreIds()),
   },
   sdk: {
     name: 'berry-agent-sdk',
@@ -127,6 +157,9 @@ export const PACKAGES = {
     packBanned: SDK_PACK_BANNED,
     packMust: SDK_PACK_MUST,
     treeStrip: [],
+    buildScript: 'build:sdk',
+    readmeText: readSdkReadmeText,
+    smoke: async (tarballPath, version) => runSmokeSdk(tarballPath, version, await loadProtocolVersion()),
   },
 };
 
@@ -371,7 +404,17 @@ export async function runRelease(seams, opts) {
     );
     return { code: 1, report };
   }
-  const { tarballPath } = seams.pack();
+  // pack 缝失败以抛错为契约形（realSeams.pack 查 npm pack 退出码，非零抛含
+  // stderr 摘录的错——2026-09-14 扫描四役 idx 9：修前退出码被丢弃、拼好
+  // tarballPath 照返，下游 fileShasum 裸抛 ENOENT 出裸栈非契约式报告）。
+  // 此处收口成契约 3 红退 1——失败也走「[契约N] 红」报告面。
+  let tarballPath;
+  try {
+    tarballPath = seams.pack().tarballPath;
+  } catch (err) {
+    log(`[契约3] 红：npm pack 失败——${err?.message ?? err}`);
+    return { code: 1, report };
+  }
   const localShasum = seams.fileShasum(tarballPath);
   const smoke = await seams.smoke(tarballPath);
   if (!smoke.ok) {
@@ -475,23 +518,40 @@ function cap(cmd, args, opts = {}) {
   return spawnSync(cmd, args, { cwd: REPO_ROOT, encoding: 'utf8', ...opts });
 }
 
-/** core: 官方件 id 单源预载（空 deps 实例化注册表——make* 只在 apply 期消费 deps） */
-async function loadCoreIds() {
-  const jiti = createJiti(import.meta.url);
-  const mod = await jiti.import(fileURLToPath(new URL('../src/host/core-plugins.ts', import.meta.url)));
-  return mod.createCorePlugins({}).map((ref) => ref.name);
+/**
+ * core: 官方件 id 单源预载（空 deps 实例化注册表——make* 只在 apply 期消费
+ * deps）。进程级 lazy memo（描述符 smoke 冒烟形入口——真正冒烟才装载，
+ * 与修前 realSeams 闭包内 lazy memo 行为等价：CLI 每进程单 realSeams 实例）。
+ */
+let coreIdsPromise = null;
+function loadCoreIds() {
+  if (coreIdsPromise === null) {
+    coreIdsPromise = (async () => {
+      const jiti = createJiti(import.meta.url);
+      const mod = await jiti.import(fileURLToPath(new URL('../src/host/core-plugins.ts', import.meta.url)));
+      return mod.createCorePlugins({}).map((ref) => ref.name);
+    })();
+  }
+  return coreIdsPromise;
 }
 
 /**
  * 线协议握手锚真值预载（SDK 冒烟差分②——安装位 SDK_PROTOCOL_VERSION 与
  * 主仓 src 真源对拍，`===` 连类型漂移一并咬住：真源是 number 字面量
  * 〔protocol.ts `export const SDK_PROTOCOL_VERSION = 1`〕，rl-4 首演曾以
- * 臆断 string 断言被咬红——断言预期必须来自真源非想象）。
+ * 臆断 string 断言被咬红——断言预期必须来自真源非想象）。进程级 lazy memo
+ * （描述符 smoke 冒烟形入口——真正冒烟才读真源）。
  */
-async function loadProtocolVersion() {
-  const jiti = createJiti(import.meta.url);
-  const mod = await jiti.import(fileURLToPath(new URL('../src/channels/sdk/protocol.ts', import.meta.url)));
-  return mod.SDK_PROTOCOL_VERSION;
+let protocolVersionPromise = null;
+function loadProtocolVersion() {
+  if (protocolVersionPromise === null) {
+    protocolVersionPromise = (async () => {
+      const jiti = createJiti(import.meta.url);
+      const mod = await jiti.import(fileURLToPath(new URL('../src/channels/sdk/protocol.ts', import.meta.url)));
+      return mod.SDK_PROTOCOL_VERSION;
+    })();
+  }
+  return protocolVersionPromise;
 }
 
 /** 安装冒烟实装（契约 3 三连断言；env 钉临时数据目录防污染真数据域） */
@@ -576,23 +636,15 @@ async function runSmokeSdk(tarballPath, version, expectedProtocolVersion) {
 /**
  * CLI 实装缝。gates/build/publish 走 stdio inherit（人面可见长输出）；
  * 探测/pack/dist-tag 捕获形（机器判定）。tarball 解包树用系统 tar。
- * pkgKey 参数化（07 §8.3 双包发布道）：包名/包目录 cwd/tarball 名/readmeText
- * 读面/build 链/冒烟形随 PACKAGES 描述符分叉；git 系缝两包共享。
+ * pkgKey 参数化（07 §8.3 双包发布道）：全部包差异经 PACKAGES 描述符承载
+ * （name/包目录/tarball 名/白名单族/build 链/readme 读面/冒烟形……），
+ * 本函数体零 pkgKey 条件分叉——git 系缝两包共享。描述符承载面含 2026-09-14
+ * 扫描四役 idx 8 收笔的 build/readme/smoke 三面（修前内联 if 分叉系参数化遗漏）。
  */
 export function realSeams(pkgKey = 'main') {
   const pkg = PACKAGES[pkgKey];
   const pkgRoot = join(REPO_ROOT, pkg.pkgDir);
   const version = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8')).version;
-  let coreIdsPromise = null;
-  const getCoreIds = () => {
-    if (coreIdsPromise === null) coreIdsPromise = loadCoreIds();
-    return coreIdsPromise;
-  };
-  let protocolVersionPromise = null;
-  const getProtocolVersion = () => {
-    if (protocolVersionPromise === null) protocolVersionPromise = loadProtocolVersion();
-    return protocolVersionPromise;
-  };
   const shasumOf = (path) => createHash('sha1').update(readFileSync(path)).digest('hex');
   const tarballTree = (tarballPath) => {
     const dir = mkdtempSync(join(tmpdir(), 'berry-release-tree.'));
@@ -626,10 +678,9 @@ export function realSeams(pkgKey = 'main') {
     gitStatusPorcelain: () => cap('git', ['status', '--porcelain']).stdout ?? '',
     probe: (v) => cap('npm', ['view', `${pkg.name}@${v}`, 'dist.shasum', '--json']),
     build: () => {
-      // 全新 build（先清包 dist/——主包仓根 dist、SDK 包内 dist）
+      // 全新 build（先清包 dist/——主包仓根 dist、SDK 包内 dist）；build 链随描述符
       rmSync(join(pkgRoot, 'dist'), { recursive: true, force: true });
-      const script = pkgKey === 'sdk' ? 'build:sdk' : 'build';
-      return { ok: cap('npm', ['run', script], { stdio: 'inherit' }).status === 0 };
+      return { ok: cap('npm', ['run', pkg.buildScript], { stdio: 'inherit' }).status === 0 };
     },
     packList: () => {
       // npm pack 依 cwd 的 package.json 定打哪个包——必须切包目录
@@ -639,7 +690,14 @@ export function realSeams(pkgKey = 'main') {
     },
     pack: () => {
       const outDir = mkdtempSync(join(tmpdir(), 'berry-release-pack.'));
-      cap('npm', ['pack', `--pack-destination=${outDir}`], { cwd: pkgRoot });
+      const res = cap('npm', ['pack', `--pack-destination=${outDir}`], { cwd: pkgRoot });
+      // 退出码必检（2026-09-14 扫描四役 idx 9）：非零即抛含 stderr 摘录的错——
+      // 不得拼好 tarballPath 照返（下游 fileShasum 对缺席件裸抛 ENOENT，产出
+      // 裸栈非契约式报告）；runRelease 契约 3 位收口成红报告。临时目录回收。
+      if (res.status !== 0) {
+        rmSync(outDir, { recursive: true, force: true });
+        throw new Error(`npm pack 失败（退出码 ${res.status}）：${(res.stderr ?? '').trim().split('\n')[0] ?? ''}`);
+      }
       return { tarballPath: join(outDir, pkg.tarballName(version)) };
     },
     fileShasum: shasumOf,
@@ -653,23 +711,11 @@ export function realSeams(pkgKey = 'main') {
       }
       return join(outDir, pkg.tarballName(v));
     },
-    // 契约 4 读面 = README 全语言族拼合（根 README*.md——npm always-included
-    // 族随包走，占位符门不得漏检任一译文；动态 glob 形——新语言落位即自动
-    // 入检，fail-safe 方向无需枚举同步。2026-09-14 扫描三役 F22 勘正：修前
-    // 只读根 README.md 单件，五译文占位符漏检）。SDK 道读面包目录单件
-    // （无语言变体族——07 §8.3 差分①）。
-    readmeText: () =>
-      pkgKey === 'sdk'
-        ? readFileSync(join(pkgRoot, 'README.md'), 'utf8')
-        : readdirSync(REPO_ROOT)
-            .filter((f) => /^README.*\.md$/.test(f))
-            .sort()
-            .map((f) => readFileSync(join(REPO_ROOT, f), 'utf8'))
-            .join('\n\n'),
-    smoke:
-      pkgKey === 'sdk'
-        ? async (tarballPath) => runSmokeSdk(tarballPath, version, await getProtocolVersion())
-        : async (tarballPath) => runSmoke(tarballPath, version, await getCoreIds()),
+    // 契约 4 读面随描述符（主包 = 根 README 全语言族 glob 拼合 / SDK = 包目录
+    // 单件——读面语义与来龙去脉见 readMainReadmeText / readSdkReadmeText 注）
+    readmeText: () => pkg.readmeText(pkgRoot),
+    // 冒烟形随描述符（主包 CLI 形 / SDK import 形——deps 懒装载见描述符 smoke 注）
+    smoke: (tarballPath) => pkg.smoke(tarballPath, version),
     publish: (tarballPath, o) => {
       const args = ['publish', tarballPath];
       if (o.next) args.push('--tag', 'next');

@@ -1,3 +1,8 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -517,14 +522,86 @@ describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
   // 2026-09-14 SDK 首演咬住的真缺陷回归锁——值链依赖声明律（07 §8.3 差分⑥）：
   // SDK 跟进树值链（http/stdio → jsonl → schema）裸 import typebox，包却零
   // dependencies，消费者安装后 import 必挂（ERR_MODULE_NOT_FOUND）；修 = 包内
-  // 声明 typebox（版本对齐主包 1.3.25 锁版）。此静态锁防依赖面再漂移——
-  // 运行时终验在 runSmokeSdk import 冒烟（每次演习真装真引）。
+  // 声明 typebox（版本对齐主包）。此静态锁防依赖面再漂移——运行时终验在
+  // runSmokeSdk import 冒烟（每次演习真装真引）。
+  // 锁形（2026-09-14 勘正批）：双包对账——读根 package.json 与 SDK 包
+  // package.json 两处 dependencies.typebox，断言全等 + 均非空串；不硬编码
+  // 具体版本字面量（旧形只读 SDK 侧锚 '1.3.25'，主包漂移时漏检——对齐律
+  // 本身是锁面，主包升级无须改此测试，任一侧缺席/漂移即自红）。
   it('SDK 值链依赖声明在册：dependencies.typebox 锁版对齐主包（缺即红）', async () => {
     const { readFile } = await import('node:fs/promises');
     const { fileURLToPath } = await import('node:url');
-    const meta = JSON.parse(
-      await readFile(fileURLToPath(new URL('../packages/berry-agent-sdk/package.json', import.meta.url)), 'utf8'),
+    // 双包 typebox 取值器（相对本测试文件定位两处 package.json 真源）
+    const readTypebox = async (rel) => {
+      const pkg = JSON.parse(await readFile(fileURLToPath(new URL(rel, import.meta.url)), 'utf8'));
+      return pkg.dependencies?.typebox;
+    };
+    const sdkTypebox = await readTypebox('../packages/berry-agent-sdk/package.json');
+    const mainTypebox = await readTypebox('../package.json');
+    // 非空串两断言：缺席（undefined）或空串都在此红——「声明在册」的字面锁面
+    expect(typeof sdkTypebox).toBe('string');
+    expect(sdkTypebox.length).toBeGreaterThan(0);
+    // 全等一断言：双包版本对齐——漂移在此红（对齐即锁，不锚具体号）
+    expect(sdkTypebox).toBe(mainTypebox);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 描述符参数化收口 + pack 失败契约式红（2026-09-14 遗漏扫描四役修复批）
+// idx 8：07 §8.3 定形句把「冒烟形」列为描述符第 9 项（连同 build 链 / readme
+// 读面），realSeams 内联 pkgKey 三处 if 分叉系参数化遗漏——本批收进 PACKAGES
+// 单源表；idx 9：realSeams.pack() 检查 npm pack 退出码，非零抛含 stderr 摘录
+// 的错（runRelease 契约 3 位收口成红报告——非契约式裸栈/裸 ENOENT 禁）。
+// ---------------------------------------------------------------------------
+
+describe('描述符参数化收口（冒烟形 + build 链 + readme 读面入表）', () => {
+  it('描述符静态断言：buildScript 两包分立、readmeText/smoke 皆函数入表', () => {
+    expect(PACKAGES.main.buildScript).toBe('build');
+    expect(PACKAGES.sdk.buildScript).toBe('build:sdk');
+    expect(PACKAGES.main.readmeText).toBeInstanceOf(Function);
+    expect(PACKAGES.sdk.readmeText).toBeInstanceOf(Function);
+    expect(PACKAGES.main.smoke).toBeInstanceOf(Function);
+    expect(PACKAGES.sdk.smoke).toBeInstanceOf(Function);
+  });
+
+  // 源级漂移锁：realSeams 实装缝体内不得再出现 pkgKey 条件分叉——包差异的
+  // 唯一承载 = PACKAGES 描述符（第三包入册/冷读对拍时此锁咬住新内联分叉）
+  it('realSeams 源零 pkgKey 分叉：包差异唯一承载 = PACKAGES 描述符', async () => {
+    const src = await readFile(fileURLToPath(new URL('./release.mjs', import.meta.url)), 'utf8');
+    const at = src.indexOf('export function realSeams');
+    expect(at).toBeGreaterThan(0); // 切片锚在场（锚漂移时防静默全绿假通过）
+    expect(src.slice(at)).not.toContain('pkgKey ===');
+  });
+
+  // readme 读面真源对拍（动态取转抄值须同源断言律）：主包面 = 根 README 全
+  // 语言族排序拼合（同源重算，非臆断字符串）；SDK 面 = 包目录单件全等
+  it('readmeText 读面真源对拍：主包根 glob 族排序拼合 / SDK 包目录单件', () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+    const readmes = readdirSync(repoRoot)
+      .filter((f) => /^README.*\.md$/.test(f))
+      .sort();
+    // 语言族在场（>1 件）——主包读面静默退化成单件时此断言先红
+    expect(readmes.length).toBeGreaterThan(1);
+    expect(PACKAGES.main.readmeText(repoRoot)).toBe(
+      readmes.map((f) => readFileSync(join(repoRoot, f), 'utf8')).join('\n\n'),
     );
-    expect(meta.dependencies?.typebox).toBe('1.3.25');
+    const sdkRoot = join(repoRoot, 'packages', 'berry-agent-sdk');
+    expect(PACKAGES.sdk.readmeText(sdkRoot)).toBe(readFileSync(join(sdkRoot, 'README.md'), 'utf8'));
+  });
+});
+
+describe('pack 失败契约式红（退出码检查——非裸栈/裸 ENOENT）', () => {
+  it('pack 缝抛含 stderr 摘录的错 → [契约3] 红退 1，上传面未触', async () => {
+    const s = fakeSeams({
+      pack: () => {
+        throw new Error('npm pack 失败（退出码 1）：npm error code ENOTFOUND');
+      },
+    });
+    const r = await run(s);
+    expect(r.code).toBe(1);
+    const text = r.report.join('\n');
+    expect(text).toContain('[契约3] 红');
+    expect(text).toContain('npm pack 失败');
+    expect(s.calls.publish).toEqual([]); // 未走到上传面
   });
 });

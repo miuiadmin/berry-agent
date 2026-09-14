@@ -119,6 +119,28 @@ describe('check-api 十查红绿证（spawn 全闸形态）', () => {
     expect(out).toContain('无对应 @deprecated JSDoc 标签');
   });
 
+  it('查 7：已裁决否决的 berry 旧形态扫描腿零残留（夹具树独立清单目录绿 + 源面零旧词）', () => {
+    const dir = fixtureDir('check7');
+    // 夹具树最小形（查 5/查 10 同款）：apps/ 下放 berry 源篇旧形态独立清单
+    // 文件——修前查 7 旧腿扫到即红（「清单 schema 真相源缺席」布局异常）；修后
+    // 该形态已被 03 §11 表 #10 裁决③连带否决（清单载体 = 插件 package.json
+    // `berryAgent` 字段单一形状、禁双载体），查 7 真身随「官方插件清单 api 块
+    // 回填批」同批落（03 §8.4），本形态不再是任何查的扫描面——零问题静默过
+    mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
+    mkdirSync(join(dir, 'api-decls'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
+    mkdirSync(join(dir, 'apps'), { recursive: true });
+    writeFileSync(join(dir, 'apps', 'demo.app.yaml'), 'id: demo\n');
+    const { status, out } = runCheck({ CHECK_API_ROOT: dir });
+    expect(status).toBe(0);
+    expect(out).toBe('');
+    // 源面卫生锁：门禁脚本零旧形态扫描位词面——目录扫描后缀词与 contracts
+    // schema 真相源期待位同删（02 §5.2「应用/app」禁用词律同笔收口）
+    const source = readFileSync(CHECK_SCRIPT, 'utf8');
+    expect(source).not.toContain('.app.yaml');
+    expect(source).not.toContain('contracts/app.ts');
+  });
+
   it('查 9：面动号不动红（ignited 快照 + CHECK_API_ARCHIVES 夹具归档）', () => {
     const dir = fixtureDir('check9');
     // 当前快照换片为 ignited 纪元（查 9 纪元门开）；真快照 enforcement='pre-ignition'

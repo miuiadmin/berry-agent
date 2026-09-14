@@ -673,6 +673,12 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     // 路径穿越：编码形出根即拒（403 forbidden）
     const escape = await rawRequest(port, '/..%2F..%2Fetc%2Fpasswd', { host: '127.0.0.1' });
     expect(escape.status).toBe(403);
+    // 畸形百分号序列（decodeURIComponent 抛 URIError）：与未知路径同语义——
+    // SPA fallback 回 index.html（非 500 internal 错误分档失真；未认证客户端可任意触发位）
+    const malformed = await rawRequest(port, '/_%E0%A4', { host: '127.0.0.1' });
+    expect(malformed.status).toBe(200);
+    expect(malformed.headers['content-type']).toContain('text/html');
+    expect(malformed.body).toContain('<!doctype html>');
   });
 
   /* ---- ⑧ 收场丢弃性结算 ---- */

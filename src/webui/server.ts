@@ -314,8 +314,17 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       return;
     }
     const root = resolve(deps.staticDir);
-    // wildcard 无前导斜杠（面级匹配器以段拼回）——根路径空串归 index.html
-    let rel = wildcard === '' ? 'index.html' : decodeURIComponent(wildcard);
+    // wildcard 无前导斜杠（面级匹配器以段拼回）——根路径空串归 index.html；
+    // 畸形百分号序列（decodeURIComponent 抛 URIError）与未知路径同语义——
+    // 归 SPA fallback（index.html），不容未认证客户端以畸形 URL 触发 500 internal 分档失真
+    let rel = 'index.html';
+    if (wildcard !== '') {
+      try {
+        rel = decodeURIComponent(wildcard);
+      } catch {
+        rel = 'index.html'; // decode 抛 URIError——赋值未发生，明示复位走既有 fallback 段
+      }
+    }
     let target = resolve(join(root, rel));
     // 路径穿越防线：归一后须仍在根内（.. 段与编码形出根即拒）
     if (target !== root && !target.startsWith(root + sep)) {
