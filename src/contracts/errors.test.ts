@@ -102,7 +102,7 @@ describe('错误码注册表', () => {
 /* ---------------- 字面量 ⊆ 注册表机器对拍锁（02 §5.3 族规范 #2 执法腿） ---------------- */
 
 describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验抛出/写入点一致」执法腿）', () => {
-  it('src 全源文三形字面量码集 ⊆ listErrorCodes() 注册表（未注册字面量即红）', async () => {
+  it('src 全源文六形字面量码集 ⊆ listErrorCodes() 注册表（未注册字面量即红）', async () => {
     // 注册侧全集：fs 递归发现 src/**/codes.ts 逐份动态导入（副作用注册）——
     // 未来新增 codes.ts 面自动纳入、完备性程序自证；核心码由本文件顶部
     // import './index.js' 模块加载灌入。哨值 23 = 当前实有面数（净删面须
@@ -119,10 +119,15 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
     expect(codeModules.length).toBeGreaterThanOrEqual(23);
     for (const mod of codeModules) await import(pathToFileURL(mod).href);
 
-    // 抛出/写入侧：三形静态字面量（new BaseError('…') / codedMessage('…') /
-    // code: '…'）。注释行同样被抓——特性非缺陷：注释里承诺的码也须在册
-    // （红证即用注释注入法）；动态拼接形（模板串/变量传递）静态不可达，
-    // 属本锁已知边界。行内逐正则多命中全收（一行多码不漏）
+    // 抛出/写入侧：六形静态字面量（new BaseError('…') / codedMessage('…') /
+    // code: '…' / toolError('…',…) 工厂首参 / emitError('…') 首参 /
+    // errorWithTail('[…]',…) 位置参数方括号前缀形——2026-09-14 第四役补后
+    // 三形：EXEC_ABORTED 即从 errorWithTail 缝漏网的实证）。注释行同样被抓
+    // ——特性非缺陷：注释里承诺的码也须在册（红证即用注释注入法）；动态拼
+    // 接形（模板串/变量传递）静态不可达，属本锁已知边界；跨行调用形（首参
+    // 换行书写）同为边界。行内逐正则多命中全收（一行多码不漏）。
+    // 方括号前缀形收窄在 errorWithTail 首参：warn('[CODE] …') 类日志文案
+    // （COMPACTION_NO_CHANNEL / SCHEDULER_*_MISSING——非错误码发射面）不入门
     const registered = new Set(listErrorCodes().map((info) => info.code));
     // 个案豁免集：Node errno 系统码域（ErrnoException.code 的桩构造与
     // 断言形——fs.test/single-instance.test 构造 EACCES/ENOENT 族错误对象）
@@ -132,6 +137,9 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
       /new\s+BaseError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
       /\bcodedMessage\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
       /\bcode:\s*'([A-Z][A-Z0-9_]+)'/g,
+      /\btoolError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
+      /\bemitError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
+      /\berrorWithTail\s*\(\s*'\[([A-Z][A-Z0-9_]+)\]/g,
     ];
     const unregistered = new Map<string, string[]>(); // code -> 位点清单（文件:行）
     const scan = (dir: string): void => {

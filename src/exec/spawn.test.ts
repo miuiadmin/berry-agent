@@ -157,6 +157,68 @@ describe('createSpawnPipeline spawn 管道', () => {
     })();
   });
 
+  it('自然退出腿同杀组——父 exit 0 后组内残留孙进程被回收（04 §8 第四役定形）', { timeout: 15_000 }, async () => {
+    // 编舞：child spawn grandchild（stdio ignore——孙不持管道，close 不推迟）后
+    // 立即自然退出；grandchild 写 pid 文件后空转。修前：close 到达即结算 exit 0、
+    // 组内孙进程脱管存活（模型经管道留后台进程的第二路径）
+    const dir = await mkdtemp(join(tmpdir(), 'berry-exec-exit-tree-'));
+    cleanups.push(dir);
+    const gpidFile = join(dir, 'gpid');
+    const grandScript = join(dir, 'grand.cjs');
+    const childScript = join(dir, 'child.cjs');
+    await writeFile(
+      grandScript,
+      `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(gpidFile)}, String(process.pid)); ${SPIN}\n`,
+      'utf8',
+    );
+    await writeFile(
+      childScript,
+      `const { spawn } = require('node:child_process');
+       const fs = require('node:fs');
+       spawn(process.execPath, [${JSON.stringify(grandScript)}], { stdio: 'ignore' });
+       // 等孙进程 pid 落地再退——保证「父自然退出时组内确有存活孙进程」（病灶
+       // 现场）；不等的话 close 腿组杀会先于孙进程 exec 完成，pid 永不落地
+       const wait = setInterval(() => {
+         if (fs.existsSync(${JSON.stringify(gpidFile)})) { clearInterval(wait); process.exit(0); }
+       }, 10);
+      `,
+      'utf8',
+    );
+    const pipeline = createSpawnPipeline();
+    // 无 timeoutMs——纯自然退出腿
+    const result = await pipeline.run({ argv: [execPath, childScript] });
+    expect(result.outcome).toBe('exit');
+    expect(result.exitCode).toBe(0);
+    let leaked: number | undefined;
+    try {
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        try {
+          const pid = Number(await readFile(gpidFile, 'utf8'));
+          if (Number.isFinite(pid) && pid > 0) {
+            leaked = pid;
+            // 孙进程 pid 落地后验死——自然退出腿也须杀组（孙被回收）
+            await until(() => !isPidAlive(pid), 5_000);
+            return;
+          }
+        } catch {
+          // 文件未写完重试
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      expect.unreachable('孙进程 pid 未落地或未被组杀');
+    } finally {
+      // 修前红跑此兜底：验死失败时杀掉泄漏孙进程，不留孤儿污染后续测试
+      if (leaked !== undefined && isPidAlive(leaked)) {
+        try {
+          process.kill(leaked, 'SIGKILL');
+        } catch {
+          // 已死
+        }
+      }
+    }
+  });
+
   it('env 白名单集成——子进程只见 allow 面，宿主凭证缺席', async () => {
     const pipeline = createSpawnPipeline({
       hostEnv: { ...process.env, BERRY_TEST_SECRET_SENTINEL: 'leak-me' },

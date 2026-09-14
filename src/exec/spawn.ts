@@ -9,7 +9,9 @@
  * 结算进 result）构成失败二分。
  *
  * 树杀纪律：超时/打断即进程组树杀（SIGKILL 直杀不递进 TERM——预算已燃尽，
- * 可捕获信号的优雅退出窗会拉长超时尾；组杀失败〔组不在〕降杀进程本体）。
+ * 可捕获信号的优雅退出窗会拉长超时尾；组杀失败〔组不在〕降杀进程本体）；
+ * 自然退出腿（close 到达）同杀组——主进程已退而组内残留孙进程 = 脱管泄漏，
+ * 只清组内残留、不改写已封归因（04 §8 2026-09-14 第四役定形）。
  */
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -241,7 +243,15 @@ async function runSpawn(request: SpawnRequest, deps: RunDeps): Promise<ExecResul
     child.on('close', (code) => {
       settle('exit');
       detachSources();
-      if (child.pid !== undefined) deps.registry.remove(child.pid);
+      if (child.pid !== undefined) {
+        deps.registry.remove(child.pid);
+        // 自然退出腿同杀组（04 §8 2026-09-14 第四役定形）：close 到达即结算，
+        // 主进程已退而组内残留孙进程 = 脱管泄漏（模型经管道遗留后台进程的第二
+        // 路径——孙进程不持 stdio 管道时 close 不推迟，修前仅超时/打断腿杀组）。
+        // 幂等安全：超时/打断腿已杀过组，再杀 ESRCH 静默；组已随主进程消亡同静默；
+        // 已封归因（outcome）不因此改写
+        killProcessTree(child.pid, deps.logger);
+      }
       const finished = tail.finish();
       resolve({
         outcome,

@@ -14,10 +14,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolContext } from '../contracts/index.js';
-import { BaseError } from '../contracts/index.js';
+import { BaseError, getErrorCodeInfo, isKnownErrorCode } from '../contracts/index.js';
 import { canonicalPath } from '../safety/index.js';
 import type { ConfinedArgv, SandboxMode, SandboxPolicy, SandboxService } from '../safety/index.js';
 import { assertNoBackgroundCommand, createBashTool, discoverBash } from './bash.js';
+// 错误码册注册腿（import 发生才注册——EXEC_ABORTED 在册断言的前置副作用）
+import './codes.js';
 import { createProcessRegistry } from './registry.js';
 import { worktreeGitDir } from './git-guard.js';
 import { createSpawnPipeline } from './spawn.js';
@@ -74,12 +76,45 @@ describe('assertNoBackgroundCommand 后台化截获', () => {
     expect(() => assertNoBackgroundCommand(cmd)).toThrowError(/脱管/);
   });
 
-  it.each(['echo "a & b"', 'cd /tmp && ls', 'echo nohup', 'grep nohup file.txt', 'a && b && c'])(
-    '放：非后台形态 —— %s',
+  // 2026-09-14 第四役（04 §8 定形注）：中位「空格 & 空格」分隔形与子 shell
+  // 后台形一并拦——修前三形全部逃逸（中位 & 同为 shell 后台化算子；重定向
+  // devnull 形后台子进程不持 stdout 管道、close 不推迟，完全脱管）
+  it.each(['sleep 99999 & echo ok', 'sleep 99999 >/dev/null 2>&1 & echo ok', '(sleep 99999 >/dev/null 2>&1 &)'])(
+    '拒：中位/子 shell 后台逃逸形 —— %s',
     (cmd) => {
-      expect(() => assertNoBackgroundCommand(cmd)).not.toThrow();
+      expect(() => assertNoBackgroundCommand(cmd)).toThrowError(BaseError);
+      try {
+        assertNoBackgroundCommand(cmd);
+        expect.unreachable();
+      } catch (error) {
+        expect(error instanceof BaseError && error.code).toBe('EXEC_BACKGROUND_REJECTED');
+      }
     },
   );
+
+  it.each([
+    'echo "a & b"',
+    'cd /tmp && ls',
+    'echo nohup',
+    'grep nohup file.txt',
+    'a && b && c',
+    'echo a&b',
+    'echo ok # 尾注 & 不算',
+    '(echo a && echo b)',
+    "grep '&' file.txt",
+  ])('放：非后台形态 —— %s', (cmd) => {
+    expect(() => assertNoBackgroundCommand(cmd)).not.toThrow();
+  });
+});
+
+describe('EXEC_ABORTED 码册在册（第四役入册锁）', () => {
+  it('isKnownErrorCode(EXEC_ABORTED) 真 + 目录条目在（errorWithTail 前缀披露形的码侧对齐）', () => {
+    // 双保险：全量对拍锁（contracts/errors.test 六形）靠 errorWithTail('[…]' 首参
+    // 正则覆盖本码——若未来发射形改写（非方括号前缀/非首参），该正则够不着，
+    // 此显式断言仍守「发射的码必须在册」（02 §5.3 #2）
+    expect(isKnownErrorCode('EXEC_ABORTED')).toBe(true);
+    expect(getErrorCodeInfo('EXEC_ABORTED')?.module).toBe('exec');
+  });
 });
 
 describe('discoverBash 发现序', () => {

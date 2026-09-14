@@ -82,21 +82,105 @@ function assertExecutable(path: string, soft = false): boolean {
   }
 }
 
-/** 后台化截获（04 §8「无后台化」：模型不能脱管留后台进程） */
+/**
+ * 后台化截获（04 §8「无后台化」：模型不能脱管留后台进程；04 §8 2026-09-14
+ * 第四役定形注——拦截面不止尾部单 & 与首 token nohup/disown）：
+ *
+ *   1. 尾部单 &（不含 && 逻辑与——两字符形是串行算子）；
+ *   2. 中位「空格 & 空格」分隔形（`sleep 99999 & echo ok`——中位 & 同为
+ *      shell 后台化算子；重定向 devnull 组合形后台子进程不持 stdout 管道、
+ *      close 不推迟，完全逃逸管道治理）；
+ *   3. 子 shell 后台形（`(长任务 &)`——& 藏在括号内，整串判定够不着）；
+ *   4. 命令位 nohup/disown（首 token）：挂断免疫/脱管语义同为后台化面。
+ *
+ * 判定在结构骨架上做（引号内容/转义序列折叠为空格、行尾注释截断）——只看
+ * 结构性 token 不看引号内数据，`echo "a & b"` / `echo a&b`（参数形）/ 注释
+ * 里的 & 皆不误伤。
+ */
 export function assertNoBackgroundCommand(command: string): void {
-  const trimmed = command.trimEnd();
-  // 尾部单 &（不含 && 逻辑与——两字符形是串行算子）= 后台化
-  if (trimmed.endsWith('&') && !trimmed.endsWith('&&')) {
+  const skeleton = structuralSkeleton(command);
+  if (rejectBackgroundOperators(skeleton) || rejectInsideParens(skeleton)) {
     throw new BaseError(
       'EXEC_BACKGROUND_REJECTED',
-      '命令尾部单 &（后台化）被拒——模型不能脱管留后台进程；长任务用 timeoutMs 显式控预算',
+      '后台化命令被拒（尾部/中位单 &、子 shell 后台形或 nohup/disown 脱管）——' +
+        '模型不能脱管留后台进程；长任务用 timeoutMs 显式控预算',
     );
   }
-  // 命令位 nohup/disown（首 token）：挂断免疫/脱管语义同为后台化面
-  const firstToken = command.trimStart().split(/\s+/)[0] ?? '';
-  if (firstToken === 'nohup' || firstToken === 'disown') {
-    throw new BaseError('EXEC_BACKGROUND_REJECTED', `命令位 ${firstToken}（脱管语义）被拒——模型不能脱管留后台进程`);
+}
+
+/**
+ * 结构骨架提取（守卫判定专用词法）：单/双引号内容折叠为空格（保留 token 边
+ * 界——`'a'&'b'` 折叠后成 ` & ` 仍可判）、反斜杠转义序列折叠为空格（`\&` 字
+ * 面形不进判定）、行首或空白后的 `#` 起注释截断。不追求完整 bash 词法——
+ * 只消解「& 藏在数据里」的误伤面。
+ */
+function structuralSkeleton(command: string): string {
+  const out: string[] = [];
+  const n = command.length;
+  let i = 0;
+  while (i < n) {
+    const ch = command[i]!;
+    if (ch === "'") {
+      // 单引号全字面：整体折叠为一个空格（未闭合则吞到行尾）
+      const close = command.indexOf("'", i + 1);
+      out.push(' ');
+      i = close === -1 ? n : close + 1;
+    } else if (ch === '"') {
+      // 双引号：内容折叠（含 \" 一类转义消费）、整体一个空格
+      out.push(' ');
+      i += 1;
+      while (i < n && command[i] !== '"') {
+        i += command[i] === '\\' && i + 1 < n ? 2 : 1;
+      }
+      i += 1; // 越过闭引号（未闭合则吞到行尾）
+    } else if (ch === '\\') {
+      // 转义序列：两字符折叠为空格（\& 字面 & 不进判定）
+      out.push(' ');
+      i += 2;
+    } else if (ch === '#' && (i === 0 || /\s/.test(command[i - 1]!))) {
+      // 注释起点（bash 词法：行首或空白后的 #）——其后全部截断
+      break;
+    } else {
+      out.push(ch);
+      i += 1;
+    }
   }
+  return out.join('');
+}
+
+/** 骨架上判后台化算子三形（尾部单 & / 中位空白定界 & / 首 token 脱管词） */
+function rejectBackgroundOperators(skeleton: string): boolean {
+  const trimmed = skeleton.trim();
+  // 尾部单 &（不含 && 逻辑与——两字符形是串行算子）
+  if (trimmed.endsWith('&') && !trimmed.endsWith('&&')) return true;
+  // 中位「空格 & 空格」分隔形：` && ` 两形皆非空白定界单 &（第一个 & 后是 &、
+  // 第二个 & 前是 &），正则天然无交集——`sleep 9 & echo ok` / `... 2>&1 & e` 命中
+  if (/\s&\s/.test(skeleton)) return true;
+  // 命令位 nohup/disown（首 token）
+  const firstToken = trimmed.split(/\s+/)[0] ?? '';
+  return firstToken === 'nohup' || firstToken === 'disown';
+}
+
+/** 括号组内递归判定——子 shell 后台形 `(cmd &)` 的 & 不在整串判定面 */
+function rejectInsideParens(skeleton: string): boolean {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < skeleton.length; i++) {
+    const ch = skeleton[i]!;
+    if (ch === '(') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === ')') {
+      depth -= 1;
+      if (depth < 0) return false; // 不平衡（bash 语法错形）——组判定放弃，整串判定已做
+      if (depth === 0 && start >= 0) {
+        // 顶层平衡组：组内容整判 + 嵌套组递归
+        const inner = skeleton.slice(start + 1, i);
+        if (rejectBackgroundOperators(inner) || rejectInsideParens(inner)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** bash 工具工厂依赖（装配根注入；全可测） */
@@ -131,7 +215,8 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
     description:
       '在工作区执行 bash 命令（login shell：profile 级工具链在场）。默认 120 秒' +
       '超时（上限 600 秒，到点进程组树杀）；输出保尾 60KiB 合计截断。工作目录' +
-      '缺省为工作区根。不支持后台化（尾部 & 与 nohup 被拒）。受限沙箱档下写' +
+      '缺省为工作区根。不支持后台化（尾部/中位单 &、子 shell 后台形与 nohup ' +
+      '被拒）。受限沙箱档下写' +
       '工作区外会被拒；确需越档时同调用携带 sandbox_permissions（目标档）与' +
       'justification（理由）发起升权审批。',
     parameters: Type.Object(
