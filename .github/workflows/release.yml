@@ -1,92 +1,70 @@
-# 发布腿（07 §8.3 末定形注 2026-09-15 CI 化——OIDC trusted publishing 常轨）
-#
-# 触发 = push tag v*（本机触发腿交棒）；workflow_dispatch = CI 机器演习位
-# （钉最新已发 tag ref 幂等空转复验形——禁 dev/main 直跑，首步 ref 断言
-# 机制化执法）。发布物从 tag 树在 CI 重建再验收（六道契约全量重跑），
-# publish 经 OIDC 免令牌免 2FA（npmjs.com 包设置已绑本仓 + workflow 三元组）。
-# SDK 不在本腿射程（sdk-v* 不匹配 v* glob——令牌全本地旧序，07 §8.3 差分⑤）。
+# 诊断件二段（probe/oidc 分支独占——默认分支/tag 的真身不受影响，出数即删）
+# 目的：以 release.yml 文件名铸 OIDC 令牌并重放 npm 交换端点——读 npmjs.com
+# 登记面对 (miuiadmin, berry-agent, release.yml) 的权威回话（契约4 ENEEDAUTH
+# 定案：npm utils/oidc.js 交换失败只打 verbose 静默跳过 → 无凭证 → ENEEDAUTH，
+# 故真因在交换响应体里）。全脚本与 npm utils/oidc.js 同式：audience
+# npm:registry.npmjs.org（oidc.js:74）+ POST /-/npm/v1/oidc/token/exchange/
+# package/berry-agent（oidc.js:120）。
 name: release
 
 on:
   push:
-    tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: '已发 tag 名（钉最新已发 tag——幂等空转复验形）'
-        required: true
+    branches: ['probe/oidc']
+    tags: ['probe-oidc-*']
 
-# 同 tag 串行防重推并发；publish 中途不被杀跑（定形注第 2 款）
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
-  publish:
+  probe:
     runs-on: ubuntu-latest
-    # job 级最小面：id-token = OIDC 必需 + contents 只读（tag checkout）——
-    # 定形注第 2 款；GITHUB_TOKEN 无写面需求（tag 已由本机触发腿 push）
-    permissions:
-      id-token: write
-      contents: read
     steps:
-      # 定形注第 5 款禁令机制化：非 refs/tags/v* 形即红（dispatch 直跑腿须钉
-      # tag 名——防绕 tag 保护 ruleset 的发布物直跑）
-      - name: ref 断言（refs/tags/v* 形——非 tag ref 即红）
+      - name: 铸令牌并重放 npm OIDC 交换
         run: |
           set -eu
-          ref="${{ github.ref }}"
-          if [ "$ref" != refs/tags/v* ] && [ -n "${{ inputs.tag }}" ]; then
-            ref="refs/tags/${{ inputs.tag }}"
-          fi
-          case "$ref" in
-            refs/tags/v*) echo "RELEASE_REF=$ref" >> "$GITHUB_ENV" ;;
-            *) echo "::error::GITHUB_REF 非 refs/tags/v* 形（禁 dev/main 直跑——07 §8.3 定形注第 5 款）"; exit 1 ;;
-          esac
-      # persist-credentials:false——checkout 后 GITHUB_TOKEN 凭证不落盘（job 面
-      # 只剩 OIDC 面；零写面需求）
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.RELEASE_REF }}
-          persist-credentials: false
-      # 定形注第 2 款：tag↔version 一致性断言（乱打 tag 错位在此咬住）
-      - name: tag↔version 一致性断言
-        run: |
-          set -eu
-          tag_ver="${RELEASE_REF#refs/tags/v}"
-          pkg_ver="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
-          if [ "$tag_ver" != "$pkg_ver" ]; then
-            echo "::error::tag v${tag_ver} ≠ 树 version ${pkg_ver}（乱打 tag 错位）"
-            exit 1
-          fi
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-      # 「npm ≥11.5.1 随行」是断言非假设（定形注第 2 款——OIDC publish 版本下限）
-      - name: npm 版本下限断言（≥ 11.5.1）
-        run: |
-          set -eu
-          npm -v
-          node -e "
-            const v = require('child_process').execSync('npm -v').toString().trim().split('.').map(Number);
-            if (v[0] < 11 || (v[0] === 11 && v[1] < 5)) {
-              console.error('npm ' + v.join('.') + ' < 11.5.1（OIDC publish 下限）');
-              process.exit(1);
-            }
-          "
-      # 同 ci.yml test job 装腿：契约 1 门禁内跑全量测试（gate-exec bwrap 真跑腿，
-      # GH runner 无预装；Ubuntu 24.04 AppArmor 默认限制非特权 userns 一并放行）
-      - name: Linux L3 沙箱依赖（bubblewrap + userns 放行）
-        run: |
-          set -eu
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq bubblewrap
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          bwrap --version
-      - run: npm ci
-      # 六道契约全量（CI 发布腿形——env 判入；publish 经 OIDC；契约 5 只读断言
-      # next、契约 6 只校验既有 tag——latest 挪位在本机触发腿收口段）
-      - run: npm run release
-        env:
-          BERRY_AGENT_RELEASE_MODE: ci
+          node --input-type=module <<'EOF'
+          const out = (s) => console.log(s);
+          out("=== [0] env 在场性 ===");
+          out(`REQUEST_TOKEN: ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN ? "yes" : "no"}`);
+          out(`REQUEST_URL: ${process.env.ACTIONS_ID_TOKEN_REQUEST_URL ? "yes" : "no"}`);
+          const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.append("audience", "npm:registry.npmjs.org");
+          out(`=== [1] 铸令牌（audience=npm:registry.npmjs.org——npm oidc.js:74 同式）===`);
+          const mint = await fetch(url.href, {
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`,
+            },
+          });
+          const mintJson = await mint.json().catch(() => ({}));
+          out(`铸币 HTTP ${mint.status}`);
+          const jwt = mintJson.value || "";
+          out(`JWT 长度: ${jwt.length}`);
+          if (!jwt) process.exit(0);
+          const payload = JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf8"));
+          out("=== [2] JWT 声明（registry 所见面）===");
+          out(JSON.stringify(payload, null, 2));
+          out("=== [3] 重放交换 POST /-/npm/v1/oidc/token/exchange/package/berry-agent ===");
+          const exch = await fetch(
+            "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/berry-agent",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${jwt}`,
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              body: "{}",
+            },
+          );
+          const exchText = await exch.text();
+          out(`交换 HTTP ${exch.status}`);
+          try {
+            const j = JSON.parse(exchText);
+            if (typeof j.token === "string") j.token = `<REDACTED len=${j.token.length}>`;
+            out(JSON.stringify(j, null, 2));
+          } catch {
+            out(exchText.slice(0, 800));
+          }
+          EOF
