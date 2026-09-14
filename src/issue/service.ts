@@ -276,8 +276,8 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
   /** 出口消毒单源（03 §10.7 五役扩射笔——回执全面 + auto 档交付腿 PR 正文
    *  同律〔五役复核笔同批收口〕）：值基 redactKnownSecretValues 先行 + 模式腿
    *  redactSensitiveText 补裸形（verifyTail b 腿同款合流序），只抹值不折叠。
-   *  回执（postReceipt）与 create-pr 交付腿（PR body）两出口共用本单源——
-   *  同一公开 GitHub 面、同一威胁模型。 */
+   *  回执（postReceipt）与 create-pr 交付腿（PR title + body——title 六役
+   *  补钉同律扩入）两出口共用本单源——同一公开 GitHub 面、同一威胁模型。 */
   const redactOutbound = (text: string): string => redactSensitiveText(redactKnownSecretValues(text, secretValues()));
 
   async function postReceipt(issue: IssueRef, body: string): Promise<void> {
@@ -565,7 +565,11 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
               repo: issue.repo,
               branch: created.branch,
               base: deps.config.baseBranch,
-              title: issue.title,
+              // PR title 同律消毒（03 §10.7 六役补钉——title 与 body 同过
+              // redactOutbound 单源）：issue.title 属外部不可信文本（与正文
+              // 同威胁模型），同一公开 GitHub 面单行 title 面不得裸贴明文
+              // ——title 单行面：值基腿照抹、模式腿空命中亦无妨
+              title: redactOutbound(issue.title),
               // PR 正文同律消毒（03 §10.7 五役扩射笔交付腿——与回执评论同一公开
               // GitHub 面：outcome.summary 模型可控，明文凭证不得直进 PR 描述）
               body: redactOutbound(

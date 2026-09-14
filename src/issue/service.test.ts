@@ -1270,4 +1270,26 @@ describe('五役 CL-2 回执全面出口消毒（03 §10.7 五役扩射笔——
     expect(prBody).toContain('[REDACTED:credential]');
     expect(prBody).toContain('Closes #7'); // 只抹值不折叠——闭环位与 PR 结构照旧
   });
+
+  it('交付腿 PR title 携伪凭证明文（issue.title 外部文本）→ create-pr title 同律抹值（03 §10.7 六役补钉；修前红锚：title 直拼 issue.title 裸贴公开 PR 面）', async () => {
+    const live = 'sk-pr-title-8877665544'; // ≥8 过值基腿长度阈
+    const fd = fakeDanger();
+    const f = makeService({
+      mode: 'auto',
+      danger: fd.face,
+      sensitiveValues: () => [live],
+    });
+    // issue.title 属外部不可信文本（与正文同威胁模型）——单行面双构造：
+    // 敏感键名赋值形（模式腿）+ 活值裸明文（值基腿）
+    f.svc.enqueue({ ...ISSUE, title: `bug: 核对 GATEWAY_KEY=sk-pr-pattern-998877 与裸值 ${live} 后修复` });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(fd.deliverCalls.map((c) => c.kind)).toEqual(['push', 'create-pr']); // 交付序照旧（消毒不扰编舞）
+    const prTitle = fd.deliverCalls[1]!.title!; // create-pr 腿标题（公开 PR 面单行 title）
+    // 两腿双抹同 body：键名赋值形 → [REDACTED:secret]；活值裸明文 → [REDACTED:credential]
+    expect(prTitle).not.toContain('sk-pr-pattern-998877');
+    expect(prTitle).not.toContain(live);
+    expect(prTitle).toContain('[REDACTED:secret]');
+    expect(prTitle).toContain('[REDACTED:credential]');
+    expect(prTitle).toContain('bug:'); // 只抹值不折叠——title 主体照旧
+  });
 });

@@ -307,3 +307,35 @@ describe('createGateExec git 豁免策略组装（独立抄写面不漂移）', 
     expect(captured.policy?.writableRoots).toContain(canonicalPath(wt));
   });
 });
+
+/* ---------------- git push 截获（03 :823 六役消费位接线——纯增序） ---------------- */
+
+describe('createGateExec git push 截获（03 :823 六役——守门缺位收口；修前红锚：push 形照常放行进执行段）', () => {
+  // 词干变形矩阵与 bash.test.ts 腿三硬拒矩阵同源对拍（isGitPushAttempt
+  // 真身单源——gate 侧只锁「守门消费位在场」这一件事，词干判覆盖面归 git-guard 测试辖）
+  it.each([
+    ['git push origin main', '主形带 remote/分支参'],
+    ['git -C sub push', '全局旗 -C 变形'],
+    ['git --git-dir=.git push', '--git-dir= 自包含形'],
+    ['GIT_DIR=.git git push', '段首 env 赋值前缀形'],
+    ['git status && git push', '分段组合形'],
+  ])('push 形命令 %s（%s）硬拒：exitCode 1 + stderrTail 带 EXEC_GIT_PUSH_DENIED，pipeline 零收抵', async (command) => {
+    const { pipeline, requests } = stubPipeline(execResult());
+    const deps = factoryDeps({ pipeline });
+    const gate = createGateExec(deps);
+    const result = await gate.execCommand(command);
+    expect(result.exitCode).toBe(1);
+    expect(result.timedOut).toBe(false);
+    expect(result.stderrTail).toContain('EXEC_GIT_PUSH_DENIED');
+    expect(requests).toHaveLength(0); // 截获在 spawn 之前（远端史不可逆写——全档无升权出路）
+  });
+
+  it('不误伤：git commit -m push（-m 参值非子命令位）照常进执行段', async () => {
+    const { pipeline, requests } = stubPipeline(execResult());
+    const deps = factoryDeps({ pipeline });
+    const gate = createGateExec(deps);
+    const result = await gate.execCommand('git commit -m push');
+    expect(result.stderrTail).not.toContain('EXEC_GIT_PUSH_DENIED');
+    expect(requests).toHaveLength(1); // 未截获——照常 spawn
+  });
+});
