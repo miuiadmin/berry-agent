@@ -6,18 +6,23 @@
  * → 非 0 + outcome 名）+ stderrTail 末行取行 + pipeline 收抵断言（owner
  * 'goal-gate' + 30s 帽 + cwd 锚）+ confine 恒 workspace-write 档 + 跨域
  * 同值对拍锁（exec 域 GATE_EXEC_TIMEOUT_MS ≡ goal 域 GATE_COMMAND_
- * TIMEOUT_MS——分域自持两常量不得漂移，测试面 import 两域合法）。
+ * TIMEOUT_MS——分域自持两常量不得漂移，测试面 import 两域合法）+
+ * git 豁免两分支策略组装收抵（ex-2 + test/ex-1——豁免主仓形不携 deny/
+ * 豁免 worktree 锚定形补 backing gitdir 可写根；对照 bash.test.ts 只读
+ * 先例同构，锁 gate-exec.ts 独立抄写面不漂移）。
  *
  * 桩位：pipeline 全桩（捕获 request 返钦定 ExecResult）+ confine 捕获桩
  * （policy 断言面）——mock 只停在注入位（守门函数族全真）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import type { SandboxPolicy, SandboxService, ConfinedArgv } from '../safety/index.js';
+import { canonicalPath } from '../safety/index.js';
 import { GATE_COMMAND_TIMEOUT_MS } from '../goal/gates.js';
+import { worktreeGitDir } from './git-guard.js';
 import { createGateExec, GATE_EXEC_OWNER, GATE_EXEC_TIMEOUT_MS, type GateExecFactoryDeps } from './gate-exec.js';
 import type { ExecResult, SpawnPipeline, SpawnRequest } from './types.js';
 
@@ -252,5 +257,52 @@ describe('createGateExec 执行段收抵（pipeline.request 断言）', () => {
     await gate.execCommand('echo 2');
     expect(requests[0]?.cwd).toBe(ws1);
     expect(requests[1]?.cwd).toBe(ws2);
+  });
+});
+
+/* ---------------- git 豁免两分支策略组装（04 §252 腿二抄写面收抵——ex-2 + test/ex-1） ---------------- */
+
+describe('createGateExec git 豁免策略组装（独立抄写面不漂移）', () => {
+  it('豁免命令 + 主仓形：不携 denyWritePaths/writableRoots（裸 workspace-write 形）', async () => {
+    const { pipeline } = stubPipeline(execResult());
+    const captured: { policy?: SandboxPolicy; argv?: readonly string[] } = {};
+    const deps = factoryDeps({ pipeline, sandboxService: captureSandbox(captured) });
+    const gate = createGateExec(deps);
+    // 白名单命令（'git commit -m x'——首词 git + 次词 commit ∈ GIT_METADATA_COMMANDS，无展开无子壳）
+    await gate.execCommand('git commit -m x');
+    // 豁免形：策略不携 workspace .git 写 deny（白名单命令放行面——对照 bash.test.ts :459 先例）
+    expect(captured.policy?.mode).toBe('workspace-write');
+    expect(captured.policy?.workspaceRoot).toBe(deps.ws);
+    expect(captured.policy?.denyWritePaths).toBeUndefined();
+    // 主仓形无 worktree 授予腿（tmpWs 无 .git → worktreeGitDir 探测 undefined）——writableRoots 同不携
+    expect(captured.policy?.writableRoots).toBeUndefined();
+  });
+
+  it('豁免命令 + worktree 锚定：backing common git dir 入 writableRoots', async () => {
+    // worktree 夹具（同构 bash.test.ts :476-497 先例——其夹具私有不可 import，手搭同形）：
+    // 主仓预置 .git/worktrees/<名> backing 目录 + worktree 根 .git 文件指针（gitdir: 指回 backing）
+    const repo = mkdtempSync(join(tmpdir(), 'gate-exec-wt-repo-'));
+    dirs.push(repo);
+    const backing = join(repo, '.git', 'worktrees', 'wt');
+    mkdirSync(backing, { recursive: true });
+    const wt = mkdtempSync(join(tmpdir(), 'gate-exec-wt-ws-'));
+    dirs.push(wt);
+    writeFileSync(join(wt, '.git'), `gitdir: ${backing}\n`);
+
+    const { pipeline } = stubPipeline(execResult());
+    const captured: { policy?: SandboxPolicy; argv?: readonly string[] } = {};
+    const gate = createGateExec({ pipeline, sandboxService: captureSandbox(captured), workspaceRoot: () => wt });
+    await gate.execCommand('git commit -m x');
+
+    // 豁免 + worktree 锚定：不携 deny、backing（common git dir）入可写根
+    // （gate 档恒 workspace-write——bash.ts:253 的 mode 判在此恒真，等价省略）
+    expect(captured.policy?.mode).toBe('workspace-write');
+    expect(captured.policy?.denyWritePaths).toBeUndefined();
+    expect(captured.policy?.writableRoots).toBeDefined();
+    // common git dir（主仓 .git——对象库/refs/backing 共享落点）在可写根内（修 worktree git 沙箱断链）
+    expect(captured.policy?.writableRoots).toContain(worktreeGitDir(wt));
+    // 缺省可写根族保全（workspace 本根不被授予腿顶替——追加律非覆盖律；
+    // canonical 归一对拍——macOS /var → /private/var 符号链解析同形）
+    expect(captured.policy?.writableRoots).toContain(canonicalPath(wt));
   });
 });
