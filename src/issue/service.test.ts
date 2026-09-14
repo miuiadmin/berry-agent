@@ -8,7 +8,10 @@
  * settle detail；验证四元组 settle detail 补齐——非零分支输出尾 + 异常
  * 分支时长）、FX-1 并行帽诚实受理（帽满预检 + 受理残窗兜底——不谎报
  * started 不崩进程）与 issue-3 补锁（验证门异常分支回执评论证据面 +
- * verifyBlocked 两分支 × escalation 附段组合）。
+ * verifyBlocked 两分支 × escalation 附段组合）、五役 CL-2 回执全面出口
+ * 消毒三锁（03 §10.7 五役扩射笔——postReceipt 出口单源收口，全 body 过
+ * 值基+模式双腿消毒；outcome.summary / 危险闸原始判据 / escalation 段
+ * 三射程面各一锁——修前红锚「明文直贴公开评论」）。
  */
 import { BaseError } from '../contracts/index.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -1152,5 +1155,119 @@ describe('⑪ 前次分支指路与对账纪律（prompt 两笔）', () => {
     f.svc.enqueue(ISSUE);
     await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
     expect(f.fsess.starts[0]!.prompt).not.toContain('本任务此前跑过');
+  });
+});
+
+describe('五役 CL-2 回执全面出口消毒（03 §10.7 五役扩射笔——postReceipt 出口单源收口）', () => {
+  /**
+   * 射程背景：修前 postReceipt → backend.postComment 的 body 除验证尾段
+   * （verifyTail 第四役 b 腿已消毒）外零消毒——outcome.summary / 错误
+   * detail / 危险闸原始判据 / escalation 段均模型可控或含外部内容文本，
+   * 明文凭证直贴公开 GitHub 评论（威胁模型 = 模型读 worktree 内 .env 等
+   * 外来凭证后原文引述进总结）。修形 = postReceipt 投递前全 body 过
+   * redactSensitiveText(redactKnownSecretValues(body, secrets))（合流序
+   * 与 b 腿同款——值基先行 + 模式腿补裸形；secrets 与 verifyTail 同一
+   * 活值源）。三锁各证一射程面。
+   */
+
+  it('outcome.summary 携伪凭证明文 → 回执 body 明文被 [REDACTED:*] 置换（值基+模式双腿；修前红锚：明文直贴公开评论）', async () => {
+    const live = 'sk-plain-token-987654'; // ≥8 过值基腿长度阈（装配注入件内已知凭证活值）
+    const f = makeService({
+      outcome: {
+        status: 'completed',
+        messagesUsed: 9,
+        // summary 是模型可控面：既含敏感键名赋值形（模式腿射程）又含裸值
+        // 明文（值基腿射程）——「模型读 .env 后原文引述进总结」的构造形
+        summary: '改动完成。核对远端配置 GATEWAY_TOKEN=sk-echo-abcdef123456 与裸值 sk-plain-token-987654 后收口',
+      },
+      sensitiveValues: () => [live],
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    const body = f.fback.comments[0]!.body;
+    // 两腿双抹：敏感键名赋值形 → [REDACTED:secret]；活值裸明文 → [REDACTED:credential]
+    expect(body).not.toContain('sk-echo-abcdef123456');
+    expect(body).not.toContain(live);
+    expect(body).toContain('[REDACTED:secret]');
+    expect(body).toContain('[REDACTED:credential]');
+    // 只抹值不折叠：summary 主体句与 draft 回执结构（补丁段）照旧
+    expect(body).toContain('改动完成');
+    expect(body).toContain('```diff');
+  });
+
+  it('危险闸原始判据 err.message 携伪凭证明文 → 回执「原始判据」行抹值（修前红锚：判据原文直贴）', async () => {
+    const crit = 'ghp_denycrit1234567890'; // ≥8——危险闸判据串可携活值明文形（CL-2 射程面之一）
+    const face: IssueDangerFace = {
+      deliver: async (req) => {
+        if (req.kind === 'push') {
+          throw new BaseError('DANGER_CONSENT_INVALID', `consent 校验失败：基串 ${crit} 不匹配`);
+        }
+        return {};
+      },
+      approve: async () => ({ ok: true, expiresAt: 1 }),
+      status: async () => {
+        throw new Error('status 不在编舞路径——不应触达');
+      },
+    };
+    const f = makeService({
+      outcome: { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      mode: 'auto',
+      danger: face,
+      sensitiveValues: () => [crit],
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    const body = f.fback.comments[0]!.body;
+    expect(body).not.toContain(crit);
+    expect(body).toContain('原始判据：'); // 判据行在场（只抹值不折叠——行不整删）
+    expect(body).toContain('[REDACTED:credential]');
+    expect(body).toContain('需人审'); // 拒收 scaffold 照旧
+  });
+
+  it('escalation 段（模型可控 question）携伪凭证明文 → 回执附段抹值（收口段同射程）', async () => {
+    const live = 'sk-esc-q-8877665544'; // ≥8
+    const ds = deferredSession();
+    const f = makeService({
+      outcome: { status: 'completed', messagesUsed: 9, summary: '改动完成' },
+      session: ds.session,
+      sensitiveValues: () => [live],
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(ds.toolsOf()).toHaveLength(2)); // 双工具族装载
+    const escalate = ds.toolsOf().find((t) => t.name === 'issue_escalate')!;
+    // issue_escalate 四字段均模型输入——上报问题文本携明文（模型可控面）
+    await escalate.execute({ question: `部署密钥 ${live} 是否轮换？` }, { toolCallId: 'tc-esc-1' });
+    ds.settle({ status: 'needs-human', messagesUsed: 5, reason: '写动作无审批覆盖' });
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    const body = f.fback.comments[0]!.body;
+    expect(body).not.toContain(live);
+    expect(body).toContain('**上报 1**：部署密钥 [REDACTED:credential] 是否轮换？'); // 只抹值不折叠——问题主体照旧
+    expect(body).toContain('需人审'); // needs-human 收口 scaffold 照旧
+  });
+
+  it('交付腿 PR 正文携伪凭证明文 → create-pr body 抹值（同一公开 GitHub 面——五役复核笔同批收口；修前红锚：PR 描述直贴裸 summary）', async () => {
+    const live = 'sk-pr-body-4455667788'; // ≥8 过值基腿长度阈
+    const fd = fakeDanger();
+    const f = makeService({
+      outcome: {
+        status: 'completed',
+        messagesUsed: 9,
+        // summary 模型可控面：敏感键名赋值形（模式腿）+ 活值裸明文（值基腿）双构造
+        summary: `改动完成。远端网关核对 GATEWAY_KEY=sk-pr-pattern-998877 与裸值 ${live} 后收口`,
+      },
+      mode: 'auto',
+      danger: fd.face,
+      sensitiveValues: () => [live],
+    });
+    f.svc.enqueue(ISSUE);
+    await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
+    expect(fd.deliverCalls.map((c) => c.kind)).toEqual(['push', 'create-pr']); // 交付序照旧（消毒不扰编舞）
+    const prBody = fd.deliverCalls[1]!.body!; // create-pr 腿正文（公开 PR 描述面）
+    // 两腿双抹：键名赋值形 → [REDACTED:secret]；活值裸明文 → [REDACTED:credential]
+    expect(prBody).not.toContain('sk-pr-pattern-998877');
+    expect(prBody).not.toContain(live);
+    expect(prBody).toContain('[REDACTED:secret]');
+    expect(prBody).toContain('[REDACTED:credential]');
+    expect(prBody).toContain('Closes #7'); // 只抹值不折叠——闭环位与 PR 结构照旧
   });
 });

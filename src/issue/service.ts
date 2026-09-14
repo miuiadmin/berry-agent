@@ -257,10 +257,34 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
     return lines.join('\n');
   }
 
-  /** 评论投递（失败不抛——回执后补语义，warn 记；终态必落优先于投递成功） */
+  /**
+   * 评论投递（失败不抛——回执后补语义，warn 记；终态必落优先于投递成功）。
+   *
+   * 出口消毒（03 §10.7 五役扩射笔——**出口消毒射程 = 回执全面**）：postReceipt
+   * 是回执评论的唯一出口，投递前对全 body 过值基+模式双腿消毒（合流序与
+   * b 腿〔verifyTail〕同款——值基 redactKnownSecretValues 先行、模式腿
+   * redactSensitiveText 补裸形）。回执拼装面——outcome.summary / 错误
+   * detail / 危险闸原始判据「原始判据：${err.message}」/ escalation 段——
+   * 均模型可控或含外部内容文本（issue 正文属外部不可信文本威胁模型），
+   * 明文凭证直贴公开 GitHub 评论的整通道在此单点收口。secrets 与 verifyTail
+   * 同一活值源 secretValues（件内已知凭证就近最小集，装配注入位；缺席 =
+   * 纯模式腿降级执法——消毒是出口护栏非执法门，provider 缺席不炸回执）。
+   * **只抹值不折叠**：消毒只做 `[REDACTED:*]` 具名注记替换，回执长度与
+   * 结构照旧；verifyTail 既有消毒保留——双过幂等无害（redact 后文本再过
+   * redact 不变形）。
+   */
+  /** 出口消毒单源（03 §10.7 五役扩射笔——回执全面 + auto 档交付腿 PR 正文
+   *  同律〔五役复核笔同批收口〕）：值基 redactKnownSecretValues 先行 + 模式腿
+   *  redactSensitiveText 补裸形（verifyTail b 腿同款合流序），只抹值不折叠。
+   *  回执（postReceipt）与 create-pr 交付腿（PR body）两出口共用本单源——
+   *  同一公开 GitHub 面、同一威胁模型。 */
+  const redactOutbound = (text: string): string => redactSensitiveText(redactKnownSecretValues(text, secretValues()));
+
   async function postReceipt(issue: IssueRef, body: string): Promise<void> {
+    // 出口单点：投递前全 body 双腿消毒（redactOutbound 单源——b 腿合流序同款）
+    const sanitized = redactOutbound(body);
     try {
-      await deps.backend.postComment({ repo: issue.repo, number: issue.number, body });
+      await deps.backend.postComment({ repo: issue.repo, number: issue.number, body: sanitized });
     } catch (err) {
       warn(
         `issue 回执评论投递失败（${issue.repo}#${issue.number}）：${err instanceof Error ? err.message : String(err)}`,
@@ -542,7 +566,11 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
               branch: created.branch,
               base: deps.config.baseBranch,
               title: issue.title,
-              body: [outcome.summary, '', `Closes #${issue.number}`, '', `Source issue: ${issue.htmlUrl}`].join('\n'),
+              // PR 正文同律消毒（03 §10.7 五役扩射笔交付腿——与回执评论同一公开
+              // GitHub 面：outcome.summary 模型可控，明文凭证不得直进 PR 描述）
+              body: redactOutbound(
+                [outcome.summary, '', `Closes #${issue.number}`, '', `Source issue: ${issue.htmlUrl}`].join('\n'),
+              ),
               worktreePath: created.path,
             });
             const prRef = pr.prUrl !== undefined && pr.prUrl !== '' ? pr.prUrl : `#${pr.prNumber ?? '?'}`;
