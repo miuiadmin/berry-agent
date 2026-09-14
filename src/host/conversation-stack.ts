@@ -88,6 +88,7 @@ import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft, ToolPolicyEntry 
 import { matchToolPolicy } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
+import type { WorktreeService } from '../tools/index.js';
 
 import type { HostRuntime } from './runtime.js';
 import type { HookDispatchGuardFace } from './hook-dispatch-guard.js';
@@ -126,6 +127,14 @@ export interface ConversationStackOptions {
   readonly approvalPolicy?: ApprovalPolicyMode;
   /** 工作区锚取值器（缺省 canonicalWorkspaceRoot——git 根回退字面 cwd；批 12f-4 注入面与 sandboxMode 同形态，e2e 隔离位） */
   readonly workspace?: () => string;
+  /**
+   * worktree 服务面（04 §7 补钉① + 03 §10.7 六役定形注）：在场则每会话
+   * open 域装配挂载 worktree 三工具 + fs fence 并入本会话授予根（live
+   * callback——每次可写性检查现取 grantedRoots(sessionId)）。缺省缺席 =
+   * 三工具诚实缺席、无授予并入（exec 服务面同律）。装配根应注入与 issue
+   * 件共享的同一实例（授予记账单源——件侧编排授予与会话内工具消费同台账）。
+   */
+  readonly worktree?: WorktreeService;
   /** 系统提示词基线（04 §11：披露段由驱动在 transformContext 关口另行追加） */
   readonly systemPrompt?: string;
   /** 装载工具定义取值器（批 19a 消费腿：boot 全局层定义快照——每会话装配时调用；闭包晚绑定：装配根 stack 先建、boot 后跑，会话首开时 boot 已定型） */
@@ -286,6 +295,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const backgroundBudgetTokens = resolveBackgroundBudgetTokens(options.env ?? process.env);
   const sandboxMode = options.sandboxMode ?? (() => 'workspace-write' as SandboxMode);
   const workspaceAnchor = options.workspace ?? (() => canonicalWorkspaceRoot());
+  // worktree 服务栈级单持有（缺省 undefined = 诚实缺席）；grantedRoots 闭包
+  // 每次可写性检查活取（04 §7 补钉①——授予记账在服务实例内，与 issue 件
+  // 共享同实例即同台账）
+  const worktreeService = options.worktree;
 
   // ① ctx.agent 服务面先于一切驱动起跑（onRunSettled 订阅供给前提）
   const agentService = provideAgentService(scope);
@@ -525,6 +538,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     extraTools,
   }) => {
     const sessionId = session.sessionId;
+    // 会话锚源 = 登记行 workspaceRoot（03 §10.7 六役定形注）：驱动工厂每次
+    // 起会（create/open/fork）自日志活体取锚传入工具装配——issue 起
+    // headless 会话的 worktree 路径经此落位（修前恒栈级 canonical 仓根，
+    // 相对路径解析锚错根）。行无 workspaceRoot（普通会话）回落栈级锚不变。
+    // 锚自 durable 登记行经 SessionLog 活体直达——纯内存通道律不破（值源
+    // 是行非新增通道；createSession 零 I/O，行首事件才落库，故不走库读）。
+    const rowWorkspaceRoot = session.workspaceRoot;
+    const sessionWorkspace = rowWorkspaceRoot !== undefined ? () => rowWorkspaceRoot : workspaceAnchor;
     // 粘滞持有入位前移（04 §5 mq-2 勘正——四役漏扫修复批）：「见过活体」自
     // 驱动创建/开期即算——manager create/open/fork 共尾 adopt 均经本工厂，
     // 创建即持，补齐「首 run 在飞、尚无被观测 settle 即退役」窗（该窗
@@ -640,7 +661,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         scope,
         mode: sandboxMode,
         dataDir: options.runtime.dataDir,
-        workspace: workspaceAnchor,
+        // 会话锚（上文本工厂行锚——胜出栈级缺省；见 sessionWorkspace 注）
+        workspace: sessionWorkspace,
+        // worktree 消费接线（04 §7 补钉①）：三工具挂载 + 授予根 live 并入
+        // fs fence（grantedRoots(sessionId) 每次可写性检查现取——授予起于
+        // 会话起后，活取非快照）；服务缺席两腿同缺（诚实缺席）
+        ...(worktreeService !== undefined
+          ? { worktree: worktreeService, grantedRoots: () => worktreeService.grantedRoots(sessionId) }
+          : {}),
         askApproval: askFace,
         ...(options.toolPolicy !== undefined ? { toolPolicy: options.toolPolicy } : {}),
         ...(options.persistToolPolicy !== undefined ? { persistToolPolicy: options.persistToolPolicy } : {}),

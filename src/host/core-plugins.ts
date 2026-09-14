@@ -144,6 +144,7 @@ import type {
   IssueWebhookMountFace,
 } from '../issue/index.js';
 import { createWorktreeService } from '../tools/index.js';
+import type { WorktreeService } from '../tools/index.js';
 // c 批 credentials 件（c-3 席占位入册 / c-5 人面命令注册——03 §10.9）
 import {
   CREDENTIALS_USAGE,
@@ -503,6 +504,15 @@ export interface CorePluginHostDeps {
     readonly intervalMs?: number;
     readonly warn?: (message: string) => void;
   };
+  /**
+   * worktree 服务共享注入位（04 §7 补钉① + 03 §10.7 六役定形注）：issue
+   * 件编排授予（create 自动授予 / grant 补授）与会话内工具消费（三工具
+   * 挂载 + fence grantedRoots 并入）必须同台账——装配根建单实例经本位与
+   * ConversationStackOptions.worktree 双注。**生产装配恒注入**；缺席 = issue
+   * 件内自建（件内真身构造——直接测试形保独立可跑，生产同源律由装配根
+   * 承担）。
+   */
+  readonly worktree?: WorktreeService;
 }
 
 /**
@@ -2021,7 +2031,10 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
         jobs,
         scheduler: schedulerFace,
         state,
-        worktree: createWorktreeService({ repoRoot: canonicalWorkspaceRoot(deps.cwd) }),
+        // worktree 服务：装配根共享位胜出（04 §7 补钉①——issue 编排授予与
+        // 会话内工具消费同台账单实例）；缺席 = 件内自建（直接测试形——生产
+        // 装配恒注入同源实例）
+        worktree: deps.worktree ?? createWorktreeService({ repoRoot: canonicalWorkspaceRoot(deps.cwd) }),
         session,
         budget,
         capabilities,

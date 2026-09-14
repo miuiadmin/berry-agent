@@ -55,6 +55,7 @@ import { createConversationStack } from './conversation-stack.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
+import { createWorktreeService } from '../tools/index.js';
 import type { CorePluginReference } from './loader.js';
 import { createHookDispatchGuard } from './hook-dispatch-guard.js';
 import { enabledYamlPath, parseEnabledRows } from './manifest.js';
@@ -309,12 +310,19 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 覆写语义：/reload 换代 boot 重跑、新 memory 件重订阅即顶替旧代 feed
     // （旧代缓存随旧件废弃，无累积无泄漏——槽消费懒取时点恒当前代）
     let sessionRetireFeed: ((sessionId: string) => void) | undefined;
+    // worktree 服务装配根单真身（04 §7 补钉① + 03 §10.7 六役定形注）：
+    // ConversationStack.worktree（会话内三工具挂载 + fence grantedRoots
+    // live 并入）与 core 件 issue 编排授予共享同一实例——授予记账单源
+    // （件侧 grant 与会话内 create 自动授予同台账）；仓根锚 canonical 单源
+    const worktreeService = createWorktreeService({ repoRoot: canonicalWorkspaceRoot() });
     const stack = createConversationStack({
       runtime,
       scope,
       dispatch,
       // 钩子派发段只读面（ca-3——llm 双入口 LLM_CALL_IN_HOOK 前置查）
       hookDispatchGuard,
+      // worktree 消费接线（见上方单真身注——件/栈同源双注之一）
+      worktree: worktreeService,
       ...(options.providers !== undefined ? { providers: options.providers } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
@@ -731,6 +739,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             options.corePlugins ??
             createCorePlugins({
               dataDir: rt.dataDir,
+              // worktree 服务共享位（件/栈同源双注之二——issue 编排授予与
+              // 会话内工具消费同台账；见 stack 前单真身注）
+              worktree: worktreeService,
               // memory 件数据面（批 19b-2——sqlite 主闸恒接线；fts 双 seam 同
               // Store 直传——词面独立律 compat 面，对拍测试互证）
               sqlite: () => runtimeNow.persistence.store.sqlite(),

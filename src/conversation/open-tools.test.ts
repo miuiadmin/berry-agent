@@ -8,12 +8,13 @@
  * 04 §7 「管道是唯一执行路径」的结构保证位即本测试的断言对象）。
  */
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventDispatch, Scope } from '../context/index.js';
 import { SessionLog } from '../session/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
+import type { WorktreeService } from '../tools/index.js';
 import { assembleOpenTools } from './open-tools.js';
 import type { OpenToolsOptions } from './open-tools.js';
 
@@ -318,5 +319,134 @@ describe('assembleOpenTools 出口消毒', () => {
     const text = result.content[0] as { type: string; text: string };
     expect(text.text).toContain('GITHUB_TOKEN=[REDACTED:secret]');
     expect(text.text).not.toContain('ghp_abcdef123456');
+  });
+});
+
+/* ---------------- worktree 消费接线（04 §7 补钉①——CL-A1 回归锁） ---------------- */
+
+/**
+ * worktree 服务结构假件（记账面真实现形——git 腿不跑：本测面只锁装配接线
+ * 与授予/fence 消费，git 行为归 tools/worktree.test.ts 域）。create 产物
+ * 路径由注入的派生器给出（测试指向 HOME 下仓外目录——缺省可写根之外，
+ * fence 并入与否才可观察）；create 携 sessionId 即记账授予（与真身同律）。
+ */
+function fakeWorktreeService(pathFor: (name: string) => string): {
+  service: WorktreeService;
+  grants: Map<string, Set<string>>;
+} {
+  const grants = new Map<string, Set<string>>();
+  const addGrant = (sessionId: string, path: string): void => {
+    let set = grants.get(sessionId);
+    if (set === undefined) {
+      set = new Set();
+      grants.set(sessionId, set);
+    }
+    set.add(path);
+  };
+  const service: WorktreeService = {
+    async create(req) {
+      const path = pathFor(req.name);
+      // 授予记账与真身同律（04 §7 补钉①——create 成功即自动授予本会话）
+      if (req.sessionId !== undefined) addGrant(req.sessionId, path);
+      return { name: req.name, path, branch: req.name };
+    },
+    async list() {
+      return [];
+    },
+    async clean() {
+      throw new Error('不在本测面（git 腿归 tools/worktree.test.ts）');
+    },
+    async diffPatch() {
+      throw new Error('不在本测面（git 腿归 tools/worktree.test.ts）');
+    },
+    async grant(req) {
+      addGrant(req.sessionId, req.path);
+    },
+    grantedRoots(sessionId) {
+      return [...(grants.get(sessionId) ?? [])];
+    },
+    releaseSession(sessionId) {
+      const released = [...(grants.get(sessionId) ?? [])];
+      grants.delete(sessionId);
+      return released;
+    },
+  };
+  return { service, grants };
+}
+
+describe('assembleOpenTools worktree 消费接线', () => {
+  it('服务在场：三工具挂载（create/list/clean）；缺席：诚实缺席（会话面无 worktree 词）', () => {
+    // 在场形（修前红位：worktree 选项位不存在——运行时被忽略，三名不在装配面）
+    const { service } = fakeWorktreeService(() => '/nonexistent');
+    const mounted = makeAssembly({ worktree: service });
+    const names = mounted.assembly.tools.map((tool) => tool.name);
+    expect(names).toContain('worktree_create');
+    expect(names).toContain('worktree_list');
+    expect(names).toContain('worktree_clean');
+    // 缺席形（既有现状锁——不注入即无三词，不虚构能力）
+    const bare = makeAssembly();
+    for (const name of ['worktree_create', 'worktree_list', 'worktree_clean']) {
+      expect(bare.assembly.tools.map((tool) => tool.name)).not.toContain(name);
+    }
+  });
+
+  it('create 自动授予 → grantedRoots 活取并入 fence：授予前仓外写拒（fail-closed），授予后放行（授予起于装配后——非快照）', async () => {
+    // 授予目录在 HOME 下——缺省三根（workspace + /tmp + tmpdir）之外，
+    // fence 并入与否才可观察（macOS /tmp 属缺省可写根，仓外判定必须绕开）
+    const grantedDir = mkdtempSync(join(homedir(), 'berry-open-wt-'));
+    const { service } = fakeWorktreeService(() => grantedDir);
+    // 审批计数呈现面（六役 A1 复核 blocker 锁——恒答桩升级为计数桩：授予域
+    // 写必须触发审批对，防「守门判 outside 交棒、fence 却放行」的零审批旁路）
+    let asks = 0;
+    const countingApprove: AskFace = async (req) => {
+      asks += 1;
+      return answer('approve')(req);
+    };
+    // grantedRoots 直连服务记账面（live callback——fence 每次检查活取）
+    const made = makeAssembly({
+      worktree: service,
+      grantedRoots: () => service.grantedRoots('s-open'),
+      askApproval: countingApprove,
+    });
+    // 授予前：fail-closed——仓外路径拒（FS_OUTSIDE_WRITABLE_ROOTS）；拒件
+    // 属 fence 拒绝面，守门行不问（ask 计数不动——拒不产生审批交互）
+    let preGrantRejection: unknown;
+    try {
+      await toolOf(made.assembly, 'write').execute('c-pre', { path: join(grantedDir, 'out.txt'), content: 'x' });
+    } catch (err) {
+      preGrantRejection = err;
+    }
+    expect(preGrantRejection).toMatchObject({ code: 'FS_OUTSIDE_WRITABLE_ROOTS' });
+    expect(asks).toBe(0);
+    // create 经真三段管道：自动授予本会话（toolCtx.sessionId 记账）——
+    // 断言式取工具（修前红位：三名不在装配面 → toBeDefined 断言失败）
+    const worktreeCreate = made.assembly.tools.find((tool) => tool.name === 'worktree_create');
+    expect(worktreeCreate).toBeDefined();
+    const created = await worktreeCreate!.execute('c-wt', { name: 'issue-1' });
+    expect(created.isError).toBeUndefined();
+    expect(service.grantedRoots('s-open')).toContain(grantedDir);
+    // create 是 write-effect 工具（非 fs 族——整名审批）：恰问一次（守门行
+    // 对 write/exec 意图零免检，授予动作本身也过审批对）
+    expect(asks).toBe(1);
+    // 授予后：同路径写放行（修前红位：grantedRoots 零消费 → 仍拒）——且必过
+    // 审批对（六役 A1 blocker 锁：守门行与 fence 同根集后授予域写按「在根内」
+    // 判定走审批，非误判 outside 交棒放行——根集并入只扩「批了能成」的域）
+    asks = 0;
+    let postGrantRejection: unknown;
+    try {
+      const written = await toolOf(made.assembly, 'write').execute('c-post', {
+        path: join(grantedDir, 'out.txt'),
+        content: 'in-wt',
+      });
+      expect(written.isError).toBeUndefined();
+    } catch (err) {
+      postGrantRejection = err;
+    }
+    expect(postGrantRejection).toBeUndefined();
+    // blocker 锁本体：授予域写零审批放行 = 红（A1 复核实抓 askCount=0 缺陷
+    // ——同根集修复后守门行按「在根内」走审批对，ask ≥ 1 才是放行正道）
+    expect(asks).toBeGreaterThanOrEqual(1);
+    expect(readFileSync(join(grantedDir, 'out.txt'), 'utf8')).toBe('in-wt');
+    rmSync(grantedDir, { recursive: true, force: true });
   });
 });

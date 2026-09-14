@@ -11,7 +11,7 @@
 import { describe, expect, it, afterAll } from 'vitest';
 import { execPath } from 'node:process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolContext } from '../contracts/index.js';
 import { BaseError, getErrorCodeInfo, isKnownErrorCode } from '../contracts/index.js';
@@ -578,6 +578,50 @@ describe('createBashTool .git 拦截面（04 §252 两腿——成熟度缺口 #
       }).execute({ command: 'git status' }, CTX);
       expect(runs()).toBe(1);
       expect(policies[0]?.denyWritePaths).toBeUndefined();
+      expect(policies[0]?.writableRoots).toBeUndefined();
+    }
+  });
+
+  it('授予根并入（六役 A1）：workspace-write + grantedRoots 在场 → 授予根 canonical 入可写根、.git deny 位照走', async () => {
+    // 授予目录取 HOME 下——缺省推导根（workspace + /tmp + tmpdir）之外，
+    // 并入与否才可观察（tmpdir 路径会让 toContain 平凡通过——修前红不可复现）
+    const grantedDir = mkdtempSync(join(homedir(), 'bash-granted-'));
+    wtDirs.push(grantedDir);
+    const { svc, policies } = recordingSandbox();
+    const { pipeline, runs } = countingPipeline();
+    await createBashTool({
+      pipeline,
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'workspace-write',
+      sandboxService: svc,
+      grantedRoots: () => [grantedDir],
+    }).execute({ command: 'echo hi' }, CTX);
+    expect(runs()).toBe(1);
+    // 授予根并入可写根（canonical 化——worktree 工具面「后续 fs 写/bash 以该
+    // worktree 为锚」承诺的 bash 半句兑现；修前红位：grantedRoots 零消费 →
+    // writableRoots 缺席 → toContain 断言失败）
+    expect(policies[0]?.writableRoots).toContain(canonicalPath(grantedDir));
+    // 非豁免形 .git deny 位不因授予在场而豁免（授予扩「批了能成」的域，
+    // carve-out 底线不交授予面）
+    expect(policies[0]?.denyWritePaths).toEqual([canonicalPath(join(process.cwd(), '.git'))]);
+  });
+
+  it('授予根档位律：read-only 空根不授予 / danger 全盘不变形（与 fence「仅 workspace-write」同律）', async () => {
+    const grantedDir = mkdtempSync(join(homedir(), 'bash-granted2-'));
+    wtDirs.push(grantedDir);
+    for (const mode of ['read-only', 'danger'] as const) {
+      const { svc, policies } = recordingSandbox();
+      const { pipeline, runs } = countingPipeline();
+      await createBashTool({
+        pipeline,
+        workspaceRoot: () => process.cwd(),
+        currentMode: () => mode,
+        sandboxService: svc,
+        grantedRoots: () => [grantedDir],
+      }).execute({ command: 'git status' }, CTX);
+      expect(runs()).toBe(1);
+      // read-only 空根不授予（授予非写权来源）、danger 已全盘不追加——两档
+      // 策略形零变形
       expect(policies[0]?.writableRoots).toBeUndefined();
     }
   });

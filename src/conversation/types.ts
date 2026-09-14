@@ -387,6 +387,13 @@ export interface ExecSessionDeps {
   readonly sandboxService?: SandboxService;
   /** 升权审批面（缺席则升权请求 fail-closed 拒——不给「无审批静默放行」） */
   readonly approval?: { ask(req: ApprovalRequest): Promise<{ outcome: ApprovalOutcome }> };
+  /**
+   * 会话授予根 live 取值器（六役 A1 复核定形——两道防线同根集，04 §7 补钉①
+   * 六役定形注）：在场时 bash 沙箱 workspace-write 档可写根并入授予根（与
+   * fs fence 同 live 源同「仅 workspace-write、canonical 化去重」律）；缺省
+   * 无授予面。纯透传字段——消费语义在 exec 件 createBashTool。
+   */
+  readonly grantedRoots?: () => string[];
   /** 环境源（bash 发现序读面） */
   readonly env?: NodeJS.ProcessEnv;
 }

@@ -158,4 +158,31 @@ describe('createRootsProvider / absolutize', () => {
     expect(absolutize(ws, 'src/a.ts')).toBe(join(ws, 'src', 'a.ts'));
     expect(absolutize(ws, join(ws, 'b.ts'))).toBe(join(ws, 'b.ts'));
   });
+
+  it('grantedRoots live callback：workspace-write 并入授予根（活取非快照——授予起于装配后）+ 去重 + canonical 化；授予不越档（read-only 恒空 / danger 恒 [sep]）', () => {
+    // 授予根用确定性不存在路径——canonicalPath 就近实存祖先回退形仍往返
+    // （fence 并入面的 canonical 化与派生面同律，不因路径未建而变形）
+    const granted = '/nonexistent-grant-root/wt-x';
+    let live: string[] = [];
+    let mode: 'read-only' | 'workspace-write' | 'danger' = 'workspace-write';
+    // 修前红位：WritableRootsInput 无 grantedRoots 位——传入键运行时被忽略，
+    // provider() 恒三根不含授予根 → 断言失败
+    const provider = createRootsProvider({ workspace: ws, mode: () => mode, grantedRoots: () => live });
+    // 未授予：三根现状不变（fail-closed 起点）
+    expect(provider()).toEqual(deriveWritableRoots(ws, 'workspace-write'));
+    // 装配后授予（live 翻转——每次 fence 检查活取，非装配时快照）
+    live = [granted];
+    expect(provider()).toContain(canonicalPath(granted));
+    expect(provider()).toHaveLength(deriveWritableRoots(ws, 'workspace-write').length + 1);
+    // 授予不越档：read-only 恒空根（授予只并入 workspace-write 可写面）
+    mode = 'read-only';
+    expect(provider()).toEqual([]);
+    // danger 恒全盘 [sep]（已全可写——授予并入无意义不变形）
+    mode = 'danger';
+    expect(provider()).toEqual([sep]);
+    // 去重：重复授予同一路径不翻倍
+    mode = 'workspace-write';
+    live = [granted, granted];
+    expect(provider()).toHaveLength(deriveWritableRoots(ws, 'workspace-write').length + 1);
+  });
 });

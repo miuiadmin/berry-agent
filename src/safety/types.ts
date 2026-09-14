@@ -135,4 +135,11 @@ export interface WritableRootsInput {
   readonly workspace: string;
   /** 当前生效档位取值器（与守门行同款 getter 形态——每次 fence 检查取最新） */
   readonly mode: () => SandboxMode;
+  /**
+   * 会话授予根 live 取值器（04 §7 补钉①——worktree 产物可写根并入口）：
+   * 每次可写根推导现取（授予起于装配后——issue 编排在会话起后才 grant，
+   * 快照形会漏授予）。仅 workspace-write 档并入（授予不越档：read-only 恒
+   * 空根、danger 恒全盘）；缺省 undefined = 无授予面（既有调用方零破坏）。
+   */
+  readonly grantedRoots?: () => string[];
 }

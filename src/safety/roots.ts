@@ -168,10 +168,22 @@ export function resolveWritability(
  * 过渡缺省——批 8 挂账兑现）。返回的根列表按当前档位推导（mode getter 每
  * 次 fence 检查取最新——read-only 空根 / danger 全盘根 / workspace-write
  * 三根），已 canonical 化，与沙箱 profile 同源。
+ *
+ * grantedRoots live 并入（04 §7 补钉①——worktree 产物可写根）：仅
+ * workspace-write 档把授予根 canonical 化后并入（去重——与既有根同形时
+ * 不翻倍）；每次调用现取（授予起于装配后，快照形会漏授予）。授予不越档：
+ * read-only 恒空根、danger 恒全盘 [sep]（已全可写，并入无意义不变形）。
  */
 export function createRootsProvider(input: WritableRootsInput): () => string[] {
   const workspace = canonicalPath(input.workspace);
-  return () => deriveWritableRoots(workspace, input.mode());
+  return () => {
+    const mode = input.mode();
+    const roots = deriveWritableRoots(workspace, mode);
+    // 授予只并入 workspace-write 可写面（越档授予无效——档位是裁决面）
+    if (mode !== 'workspace-write' || input.grantedRoots === undefined) return roots;
+    for (const granted of input.grantedRoots()) roots.push(canonicalPath(granted));
+    return [...new Set(roots)];
+  };
 }
 
 /** 绝对化工具：workspace 锚定 canonical 化（相对锚 workspace、绝对原样——守门行预检单源） */

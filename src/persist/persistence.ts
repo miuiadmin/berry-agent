@@ -244,6 +244,10 @@ export class Persistence {
     const log = new SessionLog({
       sessionId,
       seed,
+      // 工作区锚透传（03 §10.7 六役定形注）：登记行 workspaceRoot 随日志活体
+      // 直达驱动工厂——createSession 零 I/O（行首事件才落库），起会时库中行
+      // 尚不可见，锚不能走库读（loadSession 形同源，行值即登记值）
+      workspaceRoot: registration.workspaceRoot,
       lineage:
         registration.parentId !== undefined || registration.seedLength > 0 || registration.origin !== 'conversation'
           ? { parentId: registration.parentId, seedLength: registration.seedLength, origin: registration.origin }

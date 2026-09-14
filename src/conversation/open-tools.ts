@@ -11,9 +11,11 @@
  *  ④ 管道 + 注册表（gate/decision durable 落账接线——守门不可绕不变式的
  *     断言对象）；
  *  ⑤ 工具族：fs 四件（read/write/edit/ls——fence 数据源 createRootsProvider
- *     与守门行同档位单源）+ 检索两件（find/grep）+ bash（exec 服务面
- *     scope.tryGet 诚实缺席——exec 禁用 = coding 降级对话本体仍通）+
- *     todo 一件（全量快照 durable 落 todo/write）。
+ *     与守门行同档位单源；grantedRoots live 并入〔04 §7 补钉①〕）+ 检索两件
+ *     （find/grep）+ bash（exec 服务面 scope.tryGet 诚实缺席——exec 禁用 =
+ *     coding 降级对话本体仍通）+ worktree 三件（服务注入位在场则挂载——
+ *     create/list/clean，缺席诚实缺席）+ todo 一件（全量快照 durable 落
+ *     todo/write）。
  *
  * 工具注册走注册表驱动层（{driver: sessionId}——per-session 工具面）；
  * agentToolsFor 快照即驱动 tools 面直用形。dispose 按 LIFO 拆解（工具注册 →
@@ -33,8 +35,14 @@ import type {
   SandboxMode,
   ToolPolicyEntry,
 } from '../safety/index.js';
-import { createFsTools, createSearchTools, createToolPipeline, createToolRegistry } from '../tools/index.js';
-import type { ToolRegistry } from '../tools/index.js';
+import {
+  createFsTools,
+  createSearchTools,
+  createToolPipeline,
+  createToolRegistry,
+  createWorktreeTools,
+} from '../tools/index.js';
+import type { ToolRegistry, WorktreeService } from '../tools/index.js';
 import type { ExecToolService } from './types.js';
 import type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import { wireSessionApproval } from './approval-wiring.js';
@@ -79,6 +87,21 @@ export interface OpenToolsOptions {
    * 结构注入 seam（闭包由调用方构造）。
    */
   readonly sensitiveValues?: () => readonly string[];
+  /**
+   * worktree 服务面（04 §7 补钉①——三动词工具挂载）：在场则本域挂载
+   * worktree_create/list/clean 三工具（经真三段管道执法）；缺席 = 三工具
+   * 诚实缺席（exec 服务面同律——不虚构能力）。词面独立律：本域零 git
+   * 知识——纯结构注入 seam。
+   */
+  readonly worktree?: WorktreeService;
+  /**
+   * 会话授予根 live 取值器（04 §7 补钉①——worktree 产物可写根并入口）：
+   * fs fence 每次可写性检查现取并入（授予起于装配后——issue 编排在会话起
+   * 后才 grant，快照形会漏授予；03 §10.7 六役定形注「活取非快照」）。
+   * 缺省 undefined = 无授予面（既有调用方零破坏）。与 worktree 选项独立
+   * （授予面消费在 safety 层，工具挂载消费在 tools 层——两腿可分立注入）。
+   */
+  readonly grantedRoots?: () => string[];
 }
 
 /** open 域装配产物 */
@@ -124,6 +147,16 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     ...(opts.persistToolPolicy !== undefined ? { persistToolPolicy: opts.persistToolPolicy } : {}),
   });
 
+  // 同源可写根 provider（六役 A1 复核 blocker——守门行与 fence 同根集单源）：
+  // 同一闭包产物双消费——③ 守门行 (2)/(5) 判定与 ⑤ fs fence 数据源完全同源
+  // （grantedRoots live 并入在 provider 内，见 04 §7 补钉① 六役定形注：
+  // 授予域写仍过审批对——防「守门判 outside 交棒、fence 却放行」的旁路）
+  const writableRoots = createRootsProvider({
+    workspace: workspaceRoot,
+    mode: opts.mode,
+    ...(opts.grantedRoots !== undefined ? { grantedRoots: opts.grantedRoots } : {}),
+  });
+
   // ③ 守门安装（先装本行——waterfall 注册序即执行序，本行最先执法；
   // sessionId 归属位 = 会话归属过滤——他会话〔in-process 子代理等〕的工具
   // 调用本行让棒，防止同栈多会话装配时同一 toolCall 被多行各问一次审批）
@@ -133,6 +166,8 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     workspace: workspaceRoot,
     mode: opts.mode,
     dataDir: opts.dataDir,
+    // 守门行与 fence 同根集（六役 A1——SafetyGateOptions.writableRoots 注）
+    writableRoots,
     ...(opts.toolPolicy !== undefined ? { toolPolicy: opts.toolPolicy } : {}),
     ...(opts.entries !== undefined ? { entries: opts.entries } : {}),
   });
@@ -145,12 +180,14 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
   });
   const registry = createToolRegistry(opts.dispatch, { pipeline });
 
-  // ⑤ 工具族装配（fs fence 数据源与守门行同档位单源——createRootsProvider；
+  // ⑤ 工具族装配（fs fence 数据源与守门行同档位单源——上方同一 provider；
   // fs/search 两族读侧 carve-out 同注入位——sensitiveReadFiles 单源派生，与
   // 沙箱 profile 读 deny 行同数据〔2026-09-08 P0① 两腿同源〕）
   const fsTools = createFsTools({
     workspace,
-    writableRoots: createRootsProvider({ workspace: workspaceRoot, mode: opts.mode }),
+    // grantedRoots live 并入（04 §7 补钉①）：授予根经 live callback 进
+    // fence 数据源——每次可写性检查现取（会话起后的授予即时生效）
+    writableRoots,
     protectedReadFiles: () => sensitiveReadFiles(opts.dataDir),
   });
   const searchTools = createSearchTools({
@@ -166,6 +203,9 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
       ? execService.createBashTool({
           workspaceRoot: workspace,
           currentMode: opts.mode,
+          // 授予根 live 透传（六役 A1 复核定形——两道防线同根集）：bash 沙箱
+          // workspace-write 档可写根并入授予根，与 fence 同 live 源
+          ...(opts.grantedRoots !== undefined ? { grantedRoots: opts.grantedRoots } : {}),
           // 升权审批面绑本会话审批服务（结构窄面 {ask}——ApprovalService 满足）
           approval: { ask: (req) => approvalWiring.approval.ask(req) },
         })
@@ -177,6 +217,10 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     ...fsTools.tools,
     ...searchTools.tools,
     ...(bashTool !== undefined ? [bashTool] : []),
+    // worktree 三件（04 §7 补钉①——服务在场即挂载，走真三段管道执法；
+    // 缺席诚实缺席〔exec 服务面同律〕。create 自动授予经服务的会话记账面
+    // ——grantedRoots live callback 同栈并入 fs fence）
+    ...(opts.worktree !== undefined ? createWorktreeTools(opts.worktree) : []),
     todoTool,
     // 装载工具重放（批 19a 消费腿：boot 全局层定义经驱动层注册走真三段
     // 管道——04 §7 插件工具同管线执法；每会话重放一次，快照在装配时点取）

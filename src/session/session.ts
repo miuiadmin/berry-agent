@@ -35,6 +35,14 @@ export interface SessionLogOptions {
   readonly clock?: () => number;
   /** 预算刀截断 warn 面（装配根接 logger.warn；缺省 stderr——可观测降级不静默） */
   readonly warn?: (message: string) => void;
+  /**
+   * 会话工作区锚（durable 行 workspaceRoot 的活体载体——03 §10.7 六役定形注）：
+   * persist attachSession 从登记行透传。createSession 零 I/O（行首事件才落库），
+   * 驱动工厂起会时库中行尚不可见——锚经本字段随日志活体直达（纯内存通道律
+   * 不破：值源仍是 durable 登记行，非新增内存通道）。缺省 undefined = 普通
+   * 会话（工具装配回落栈级 canonical 缺省锚）。
+   */
+  readonly workspaceRoot?: string;
 }
 
 /** append 选项（信封扩展位——surfaceOp/sourceEventSeqs 仅调用方显式传入时携带，05 §1.2 步 2） */
@@ -56,6 +64,11 @@ export interface AppendOptions {
 export class SessionLog {
   readonly sessionId: string;
   readonly lineage: SessionLineage | undefined;
+  /**
+   * 会话工作区锚（登记行 workspaceRoot——03 §10.7 六役定形注）：驱动工厂
+   * 每次起会自本活体取锚传入工具装配；undefined = 普通会话（回落栈级缺省）。
+   */
+  readonly workspaceRoot: string | undefined;
   /** 日志本体（append-only；data 冻结态——外部拿到也改不动） */
   private readonly log: SessionEvent[] = [];
   /** 增量投影状态（FoldState——投影的缓存而非第二事实源，可全量重放对账） */
@@ -67,6 +80,8 @@ export class SessionLog {
   constructor(options: SessionLogOptions) {
     this.sessionId = options.sessionId;
     this.lineage = options.lineage;
+    // 工作区锚直传（durable 登记行 workspaceRoot 的活体载体——见 options 同名 JSDoc）
+    this.workspaceRoot = options.workspaceRoot;
     this.onAppend = options.onAppend ?? (() => undefined);
     this.clock = options.clock ?? (() => Date.now());
     this.warn = options.warn ?? ((message) => console.error(message));

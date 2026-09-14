@@ -74,6 +74,15 @@ export interface SafetyGateOptions {
   readonly workspace: string;
   /** 当前生效档位取值器（三级解析产物；每次预检取最新——会话 override 即时生效） */
   readonly mode: () => SandboxMode;
+  /**
+   * 同源可写根提供器（六役 A1 复核 blocker 收口——守门行与 fence 同根集
+   * 单源）：在场时评估序 (2) carve-out 判定与 (5) fence 前核改走本提供器
+   * （grantedRoots 已在其中并入——授予域写按「在根内」判定、照走审批对，
+   * 防误判 outside-roots 交棒后 fence 却放行的审批旁路）；缺省回落
+   * deriveWritableRoots 推导（单会话测试形 / 无授予语境行为不变）。装配位
+   * 应传与 fs fence 完全同一的 createRootsProvider 产物（同闭包同 live 源）。
+   */
+  readonly writableRoots?: () => string[];
   /** carve-out 例外条目（缺省内置 .git/.env 条目；传 [] 显式关闭——只关例示面，数据目录条恒在） */
   readonly entries?: readonly CarveOutEntry[];
   /**
@@ -210,7 +219,9 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
 
     /* ---- (2) carve-out 判定（fs 族写路径；任何档含 danger 照走——硬拒） ---- */
     if (isFsFamily) {
-      const roots = deriveWritableRoots(workspace, mode);
+      // 同源可写根（六役 A1——SafetyGateOptions.writableRoots 注）：与 fence
+      // 同一 provider，授予根并入后两序判定同根集；缺省回落推导
+      const roots = opts.writableRoots !== undefined ? opts.writableRoots() : deriveWritableRoots(workspace, mode);
       // 逐路径独立判定：任一 deny 命中即整调用硬拒（多文件补丁不部分放行）
       for (const rawPath of extractWritePaths(tool.name, input.args)) {
         // 与 fence 同源的 canonical 化（相对锚 workspace、最近存在祖先解析符号链）
@@ -248,7 +259,9 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     // 审批前先核 fence 面：任一写目标在可写根外 = fence 必拒（本行不问——
     // 审批对为可执行动作而设，防「批了又被 fence 拒」的空转交互）
     if (isFsFamily) {
-      const roots = deriveWritableRoots(workspace, mode);
+      // 同源可写根（六役 A1——同 (2) 位）：授予根在根集内 = 不属 fence 拒绝
+      // 面 → 照走审批对（授予域写仍必问——根集并入只扩「批了能成」的域）
+      const roots = opts.writableRoots !== undefined ? opts.writableRoots() : deriveWritableRoots(workspace, mode);
       const outside = canonicalWritePaths.some((p) => {
         const verdict = resolveWritability(p, roots, carveTable);
         return !verdict.allowed && verdict.kind === 'outside-roots';

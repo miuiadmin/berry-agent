@@ -195,6 +195,13 @@ export interface BashToolDeps {
   readonly sandboxService?: SandboxService;
   /** 升权审批面（缺席则升权请求 fail-closed 拒——不给「无审批静默放行」） */
   readonly approval?: { ask(req: ApprovalRequest): Promise<{ outcome: ApprovalOutcome }> };
+  /**
+   * 会话授予根 live 取值器（六役 A1 复核定形——两道防线同根集，04 §7 补钉①
+   * 六役定形注）：在场时 workspace-write 档沙箱可写根并入授予根——与 fs fence
+   * 同 live 源（worktree 工具面「后续 fs 写/bash 以该 worktree 为锚」承诺的
+   * bash 半句兑现）；缺省无授予面，策略形零变形。
+   */
+  readonly grantedRoots?: () => string[];
   /** 环境源（发现序读面；测试注入） */
   readonly env?: NodeJS.ProcessEnv;
 }
@@ -352,11 +359,38 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
         // backing gitdir 入可写根（danger 已全盘不追加、read-only 空根不授予
         // ——豁免是 carve-out 面非写权授予）
         const backing = gitExempt && mode === 'workspace-write' ? worktreeGitDir(wsRoot) : undefined;
+        // 授予根并入（六役 A1 复核定形——两道防线同根集，04 §7 补钉① 六役
+        // 定形注）：仅 workspace-write 档把授予根 canonical 化去重后并入沙箱
+        // 可写根（read-only 空根不授予、danger 已全盘不变形——与 fence
+        // createRootsProvider 同「仅 workspace-write」越档无效律）；live 现取
+        // （授予起于会话装配后，快照形会漏授予）。非授予语境零变形。
+        const grantedWritable =
+          mode === 'workspace-write' && deps.grantedRoots !== undefined
+            ? [...new Set(deps.grantedRoots().map(canonicalPath))]
+            : [];
+        // 授予在场时三形统一显式 writableRoots（推导根 + backing + 授予根并集）
+        const grantedWritableRoots = () => [
+          ...new Set([
+            ...deriveWritableRoots(wsRoot, mode),
+            ...(backing !== undefined ? [backing] : []),
+            ...grantedWritable,
+          ]),
+        ];
         const policy: SandboxPolicy = !gitExempt
-          ? { mode, workspaceRoot: wsRoot, denyWritePaths: [canonicalPath(join(wsRoot, '.git'))] }
+          ? grantedWritable.length > 0
+            ? // 授予在场：显式可写根（授予域可达），.git deny 位照走不因授予豁免
+              {
+                mode,
+                workspaceRoot: wsRoot,
+                writableRoots: grantedWritableRoots(),
+                denyWritePaths: [canonicalPath(join(wsRoot, '.git'))],
+              }
+            : { mode, workspaceRoot: wsRoot, denyWritePaths: [canonicalPath(join(wsRoot, '.git'))] }
           : backing !== undefined
-            ? { mode, workspaceRoot: wsRoot, writableRoots: [...deriveWritableRoots(wsRoot, mode), backing] }
-            : { mode, workspaceRoot: wsRoot };
+            ? { mode, workspaceRoot: wsRoot, writableRoots: grantedWritableRoots() }
+            : grantedWritable.length > 0
+              ? { mode, workspaceRoot: wsRoot, writableRoots: grantedWritableRoots() }
+              : { mode, workspaceRoot: wsRoot };
         const confined: ConfinedArgv = deps.sandboxService.confine(rawArgv, policy);
         const result = await deps.pipeline.run({
           argv: confined.argv,
