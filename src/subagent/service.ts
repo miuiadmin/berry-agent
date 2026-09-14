@@ -87,7 +87,8 @@ export function resolveSubagentFanoutLimit(
 /**
  * 子代理名词法违例清单（空 = 合法）。裸词四查：字符集/长度/首尾连字符/
  * 连续连字符——与 skills validateSkillName 同形本地复刻（02 §4.1 无
- * subagent→skills 边，词法真源 06:386 frontmatter name 行，不经 import 共享）。
+ * subagent→skills 边，词法真源 06 §11.2 frontmatter name 行「小写连字符
+ * 与数字」，行号免锚，不经 import 共享）。
  */
 function validateProviderName(name: string): string[] {
   const violations: string[] = [];
@@ -196,8 +197,8 @@ function terminalOf(result: SubagentResult): { status: 'completed' | 'killed' | 
 }
 
 /**
- * 建委派机器。kind 'subagent' 构造即登记（本件自有 kind——exec 'process' /
- * issue 'issue' 各消费件装载期自登，同注册表分立）。
+ * 建委派机器。kind 'subagent' 构造即登记（本件自有 kind——issue 件 'issue'
+ * 装载期自登，同注册表分立；exec 子进程治理不走 Job 表，无自有 kind）。
  */
 export function createSubagentService(options: SubagentServiceOptions): SubagentService {
   const warn = options.warn ?? ((message: string) => console.warn(message));

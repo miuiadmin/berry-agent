@@ -32,7 +32,7 @@ export const JOB_RETENTION_CAP = 256;
 export const JOB_KIND_HOST_OWNER = 'HOST';
 
 /**
- * registerKind def 形（03 §2.2 行 126 def 槽——五役 d3-2 兑现：修前码面
+ * registerKind def 形（03 §2.2「Job 登记面」def 槽——行号免锚；五役 d3-2 兑现：修前码面
  * 单参签名静默丢 def 实参）。
  */
 export interface JobKindDef {
@@ -73,9 +73,10 @@ export interface JobHandle {
 /** Job 注册表（ctx.jobs 服务面本体） */
 export interface JobRegistry {
   /**
-   * 登记种类型（装载期调用——subagent/process/issue 各消费件自登）。
-   * def 帽槽（03 §2.2 行 126——五役 d3-2）：登记期 parallelLimits 并入
-   * per-kind 帽表即执法（与构造期 options.parallelLimits 同表）。
+   * 登记种类型（装载期调用——subagent/issue 各消费件自登；exec 子进程治理
+   * 不走 Job 表，无自有 kind——六役勘正笔）。def 帽槽（03 §2.2「Job 登记面」
+   * ——五役 d3-2）：登记期 parallelLimits 并入 per-kind 帽表即执法（与构造期
+   * options.parallelLimits 同表）。
    */
   registerKind(kind: JobKind, def?: JobKindDef): void;
   /** 种类是否已登记（装配断言/诊断面） */

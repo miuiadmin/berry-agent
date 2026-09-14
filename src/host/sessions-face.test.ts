@@ -14,7 +14,12 @@
 import { describe, expect, it } from 'vitest';
 import { BaseError, registerEventType } from '../contracts/index.js';
 import { SessionLog } from '../session/index.js';
-import { createSessionsFace, type SessionsDriverOf } from './sessions-face.js';
+import {
+  bindSessionsForPlugin,
+  createSessionsFace,
+  type PluginSessionsFace,
+  type SessionsDriverOf,
+} from './sessions-face.js';
 
 // 测试用插件词（过闸正路样本——词汇注册表单源）
 registerEventType({
@@ -190,5 +195,23 @@ describe('surfaceOp 信封参数腿（03 §4.5 修缝批——改道 appendWithS
     const returned = append('sessions-face.test/note', { note: '普通' });
     expect(returned).toMatchObject({ type: 'sessions-face.test/note', seq: 0 });
     expect(log.events()[0]).not.toHaveProperty('surfaceOp');
+  });
+});
+
+describe('PluginSessionsFace 类型收窄（caller 位结构性缺席——归因闸闭包铸造）', () => {
+  it('类型守卫：插件道类型面无 caller 参数位——自报归因须编译红（@ts-expect-error 执法在门禁一 tsc，vitest 不查类型）', () => {
+    const { table, driverOf } = tableOf();
+    const log = new SessionLog({ sessionId: 's-type' });
+    table.set('s-type', { session: log });
+    // 绑定面产物即插件道消费面（PluginSessionsFace）：单参取引用正路照常可用
+    const bound: PluginSessionsFace = bindSessionsForPlugin('demo', createSessionsFace({ driverOf }));
+    const append = bound.appendEventFor('s-type')!;
+    append('sessions-face.test/note', { note: '类型笔' });
+    // 归因键由绑定面闭包铸造（宿主单方拼装）——运行时腿：落账 data 恒带
+    // source: plugin:demo（非自报，与类型收窄同一防冒名意图的行为面）
+    expect(log.events()[0]).toMatchObject({ data: { note: '类型笔', source: 'plugin:demo' } });
+    // caller 自报位在插件道类型面结构性不存在：传第二参须 TS2554 编译红
+    // @ts-expect-error 插件道消费面已收窄无 caller 参数位——伪造归因在类型层即拒
+    bound.appendEventFor('s-type', { kind: 'plugin', pluginId: 'fake' });
   });
 });

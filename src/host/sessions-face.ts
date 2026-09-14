@@ -69,11 +69,17 @@ export interface SessionsCaller {
 }
 
 /**
- * 插件道消费面（fork 绑定真身——03 §4.5）。与 SessionsFace 结构同形但语义
- * 分立：本形恒经绑定面铸造（caller 已闭包固化），文档面明示「归因键恒在」；
- * 完整受理面（只读四件等）随后续批扩本形。
+ * 插件道消费面（fork 绑定真身——03 §4.5）。与 SessionsFace 其余成员结构
+ * 同形，但 **appendEventFor 的 caller 参数位结构性缺席**（Omit 收窄——
+ * PluginControlFace 同构先例）：归因由绑定面闭包铸造（传入面无参数位——
+ * 伪造结构性不存在），类型层同落此门——插件/模型经本类型面自报 caller
+ * 须编译红（防冒名单源在类型面兑现）；完整受理面（只读四件等）随后续批
+ * 扩本形。
  */
-export type PluginSessionsFace = SessionsFace;
+export type PluginSessionsFace = Omit<SessionsFace, 'appendEventFor'> & {
+  /** 插件道取引用形（caller 缺席——绑定面铸造 `{kind:'plugin', pluginId}` 后透传基础面） */
+  appendEventFor(sessionId: string): AppendFn | undefined;
+};
 
 /** 建 sessions 服务面（装配根：`bindSessionsForPlugin` 绑定后 fork 级提供） */
 export function createSessionsFace(options: { readonly driverOf: SessionsDriverOf }): SessionsFace {

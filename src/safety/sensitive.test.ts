@@ -4,19 +4,21 @@
  * 保护两名同列；2026-09-14 五役 CL-1——serve/daemon.log 入集，集员自
  * 「直下 basename」扩为「dataDir 相对路径」，数组名随之勘正）。
  *
- * 对拍律：SENSITIVE_READ_DATA_PATHS 与三字面锚（persist/secret-box 的
+ * 对拍律：SENSITIVE_READ_DATA_PATHS 与四锚（persist/secret-box 的
  * SECRET_KEY_BASENAME、host/tool-policy-store 的 TOOL_POLICY_BASENAME 与
- * LEGACY_ALLOWLIST_BASENAME）互证——safety 不 import persist/host（DAG 边
+ * LEGACY_ALLOWLIST_BASENAME、host/serve-daemon 的 daemonPaths().logPath
+ * ——daemon.log 产侧真源）互证——safety 不 import persist/host（DAG 边
  * 表），字面漂移在对拍处变红。测试文件豁免边表（*.test.* 两账分离）。
  */
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { SENSITIVE_READ_DATA_PATHS, sensitiveReadFiles } from './sensitive.js';
 import { canonicalPath } from './roots.js';
 import { SECRET_KEY_BASENAME } from '../persist/secret-box.js';
 import { LEGACY_ALLOWLIST_BASENAME, TOOL_POLICY_BASENAME } from '../host/tool-policy-store.js';
+import { daemonPaths } from '../host/serve-daemon.js';
 
 describe('SENSITIVE_READ_DATA_PATHS 对拍锚（字面同步互证——漂移即红）', () => {
   it('secret.key ≡ persist/secret-box SECRET_KEY_BASENAME', () => {
@@ -31,7 +33,11 @@ describe('SENSITIVE_READ_DATA_PATHS 对拍锚（字面同步互证——漂移�
   it('serve/daemon.log 入集（04 §7 五役 CL-1——daemon 形自动生成 SDK token 的明文披露位，读集缺席即「读凭证 → 公开外泄」链的读腿）', () => {
     expect(SENSITIVE_READ_DATA_PATHS).toContain('serve/daemon.log');
   });
-  it('恰四件（新敏感件入册须同步扩对拍锚——防无锚字面漂入；子路径员 daemon.log 无独立字面锚，字面由上一例直锁）', () => {
+  it('serve/daemon.log ≡ host/serve-daemon daemonPaths logPath（产侧对拍——serve/ 目录名或 daemon.log 文件名在产侧漂移即红；daemonPaths 纯路径演算零 fs 动作，测试文件豁免边表先例同上）', () => {
+    const dataDir = join(realpathSync(tmpdir()), 'sens-anchor-');
+    expect(SENSITIVE_READ_DATA_PATHS).toContain(relative(dataDir, daemonPaths(dataDir).logPath));
+  });
+  it('恰四件（新敏感件入册须同步扩对拍锚——防无锚字面漂入；daemon.log 直锁字面由上上例、产侧由上例 daemonPaths 对拍）', () => {
     expect(SENSITIVE_READ_DATA_PATHS).toHaveLength(4);
   });
 });

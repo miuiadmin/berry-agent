@@ -184,8 +184,8 @@ export function createDeclarativeAgentTool(
   };
 }
 
-// 程序化注册位的消费腿已改动词层即时物化（遗漏审计批 G——03 §2.2 行 109
-// 「注册即派生」）：ctx.agent.registerSubagentProvider 内 service 位落册后
+// 程序化注册位的消费腿已改动词层即时物化（遗漏审计批 G——03 §2.2
+// registerSubagentProvider 行「注册即派生」，行号免锚）：ctx.agent.registerSubagentProvider 内 service 位落册后
 // 经装配链注入的物化回调单条派生（createDeclarativeAgentTool 单源）入 boot
 // 全局层；原批量快照物化函数（createProgrammaticTools）随之退役删除——
 // programmaticProviders() 读面保留作注册册标准读面。

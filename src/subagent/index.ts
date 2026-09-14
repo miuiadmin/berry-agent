@@ -2,8 +2,8 @@
  * subagent 件公开面（04 §10——ctx.jobs 注册表 + SubagentProvider 委派机器）。
  *
  * 消费方：host 装配根（in-process 真工厂接线 + provideJobsService）、
- * exec/issue 同表消费件（registerKind 'process'/'issue'）、组合根（通知面
- * 与结算钩子桥接）。in-process 真工厂本体在 host/subagent-factory.ts
+ * issue 同表消费件（registerKind 'issue'）、组合根（通知面与结算钩子桥接）。
+ * in-process 真工厂本体在 host/subagent-factory.ts
  * （19c-1 装配接线兑现）——本件提供机器与 late-binding 接缝。
  * 程序化注册面（registerProgrammatic——03 §2.2 第十二动词受局面，D 批
  * D-2）：注册表机器与执法序在本件，ctx 动词包装在 host/plugin-context。
