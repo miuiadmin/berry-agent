@@ -38,7 +38,7 @@
  * 物）、releaseSession。评论投递失败不阻塞 settle 的反面——settle 恒在评论
  * 后落（人可见面优先；网络挂死场景 fetch 层兜底）。
  */
-import { BaseError } from '../contracts/index.js';
+import { BaseError, redactKnownSecretValues, redactSensitiveText } from '../contracts/index.js';
 import type { GithubBackend } from './github.js';
 import { createIssueTools } from './tools.js';
 import { createIssuePoller, type PollReport } from './poll.js';
@@ -81,8 +81,14 @@ function verifyVerdict(r: IssueVerifyResult, timeoutMs: number): string {
   return r.timedOut ? `超时（>${timeoutMs}ms，${r.durationMs}ms 击杀）` : `退出码 ${r.exitCode}（${r.durationMs}ms）`;
 }
 
-/** 输出尾段（四元组之尾段——空尾诚实注明「（无输出）」非静默省略；两 face 同体直嵌） */
-const verifyTail = (tail: string): string => tail || '（无输出）';
+/** 输出尾段（四元组之尾段——空尾诚实注明「（无输出）」非静默省略；两 face 同体直嵌）
+ *
+ * 出口消毒（03 §10.7 第四役补笔附段 b——issue 正文属外部不可信文本威胁模型，
+ * 验证输出可回显子进程环境与 worktree 内不可信内容）：值基腿先行 + 模式腿补
+ * 裸形（工具管道 pipeline 同款合流序）。只抹值不折叠——证据四元组长度与
+ * 结构照旧（[REDACTED:*] 具名注记替换明文）。 */
+const verifyTail = (tail: string, secrets: readonly string[]): string =>
+  redactSensitiveText(redactKnownSecretValues(tail || '（无输出）', secrets));
 
 /**
  * 危险闸拒码 → 回执指路（04 §13 消费面按码分流呈现——approve / 重签 /
@@ -170,6 +176,14 @@ export interface IssueServiceDeps {
   readonly verify?: IssueVerifyFace;
   /** webhook secret（缺席 = webhook 面关闭——handleWebhook 响亮拒） */
   readonly webhookSecret?: string;
+  /**
+   * 出口消毒值基腿活值 provider（03 §10.7 第四役附段 b——验证输出尾已知
+   * 秘密活值整段置换源）。装配位注入件内已知凭证活值；**缺席 = 纯模式腿
+   * 降级执法**（pipeline sensitiveValues 同款降级诚实——消毒是出口护栏非
+   * 执法门，provider 缺席不该炸掉回执）。live 读（每次调用现取——验证
+   * 期间新入库凭证同受覆盖）。
+   */
+  readonly sensitiveValues?: () => readonly string[];
   /** warn 日志面（缺省 no-op——测试静默） */
   readonly warn?: (message: string) => void;
 }
@@ -203,6 +217,8 @@ export interface IssueService {
 /** 组 issue 服务 */
 export function createIssueService(deps: IssueServiceDeps): IssueService {
   const warn = deps.warn ?? (() => undefined);
+  // 出口消毒值基腿活值（附段 b——缺席 = 纯模式腿降级；live 读）
+  const secretValues = deps.sensitiveValues ?? (() => [] as const);
   // 在飞记账（dedupeKey → worktree 名——orphanScan 的在飞减集；paused 停靠保留）
   const inflight = new Map<string, string>();
   // kind issue 在飞键集（FX-1 并行帽预检源——本服务是 kind issue 唯一注册方，
@@ -399,7 +415,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
                     outcome.summary,
                     '',
                     '```',
-                    verifyTail(r.outputTail),
+                    verifyTail(r.outputTail, secretValues()),
                     '```',
                   ].join('\n'),
                   escalations,
@@ -407,11 +423,12 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
               );
               // detail 面同载输出尾（双面证据律——2026-09-14 扫描三役 F2 勘正：
               // 修前 detail 只载命令/判据/时长三段、尾段缺席，与 03 §10.7
-              // 定形注及 types.ts JSDoc 相悖；尾体原文直嵌不折叠保证据保真）
+              // 定形注及 types.ts JSDoc 相悖；尾体消毒后直嵌不折叠保证据保真——
+              // 只抹值不折叠〔第四役附段 b 出口消毒，长度与结构照旧〕）
               handle.settle({
                 status: 'failed',
                 detail: appendEscalationDetail(
-                  `验证未过：\`${verifyCommand}\` ${verdict}\n输出尾：${verifyTail(r.outputTail)}`,
+                  `验证未过：\`${verifyCommand}\` ${verdict}\n输出尾：${verifyTail(r.outputTail, secretValues())}`,
                   escalations,
                 ),
               });

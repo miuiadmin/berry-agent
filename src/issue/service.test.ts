@@ -273,7 +273,13 @@ function fakeDanger(behavior?: { pushFail?: Error; prFail?: Error; denyCode?: st
 }
 
 /** verify 假件（可注结局；记录调用面——交付验证门与非 completed 收口附段族共件） */
-function fakeVerify(behavior?: { exitCode?: number; timedOut?: boolean; throwErr?: Error }) {
+function fakeVerify(behavior?: {
+  exitCode?: number;
+  timedOut?: boolean;
+  throwErr?: Error;
+  /** 输出尾覆写位（出口消毒例注入敏感形——缺省沿用基线尾） */
+  outputTail?: string;
+}) {
   const calls: { cwd: string; command: string; timeoutMs: number }[] = [];
   const face: IssueVerifyFace = {
     runVerify: async (req) => {
@@ -282,7 +288,7 @@ function fakeVerify(behavior?: { exitCode?: number; timedOut?: boolean; throwErr
       return {
         exitCode: behavior?.exitCode ?? 0,
         timedOut: behavior?.timedOut ?? false,
-        outputTail: 'FAIL  src/x.test.ts\n断言未过：期望 3 得 4',
+        outputTail: behavior?.outputTail ?? 'FAIL  src/x.test.ts\n断言未过：期望 3 得 4',
         durationMs: 1234,
       };
     },
@@ -316,6 +322,8 @@ function makeService(over?: {
   verify?: IssueVerifyFace;
   verifyCommand?: string;
   session?: IssueSessionFace;
+  /** 出口消毒值基腿活值 provider（附段 b——缺席 = 纯模式腿降级） */
+  sensitiveValues?: () => readonly string[];
   /** jobs 假件帽执法开关（FX-1——真 registry kind issue 并行帽语义注入位） */
   jobsIssueLimit?: number;
 }) {
@@ -348,6 +356,7 @@ function makeService(over?: {
     capabilities: ['goal', 'exec', 'checkpoint'],
     ...(over?.danger !== undefined ? { danger: over.danger } : {}),
     ...(over?.verify !== undefined ? { verify: over.verify } : {}),
+    ...(over?.sensitiveValues !== undefined ? { sensitiveValues: over.sensitiveValues } : {}),
     webhookSecret: over?.webhookSecret,
   });
   return { svc, config, fj, fsched, fstate, fwd, fsess, fbud, fback };
@@ -743,11 +752,12 @@ describe('auto 档危险闸交付腿（04 §13——闸在场三径）', () => {
 
 describe('⑪ 交付验证门（verifyCommand 在场即执法——编排层交付前一步）', () => {
   /** 通路快捷：verifyCommand 在场 + draft 档 → enqueue → 等终态 */
-  async function runWithVerifyGate(verify?: IssueVerifyFace) {
+  async function runWithVerifyGate(verify?: IssueVerifyFace, over?: { sensitiveValues?: () => readonly string[] }) {
     const f = makeService({
       outcome: { status: 'completed', messagesUsed: 9, summary: '改动完成' },
       verifyCommand: 'npm test',
       ...(verify !== undefined ? { verify } : {}),
+      ...(over?.sensitiveValues !== undefined ? { sensitiveValues: over.sensitiveValues } : {}),
     });
     f.svc.enqueue(ISSUE);
     await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
@@ -778,6 +788,28 @@ describe('⑪ 交付验证门（verifyCommand 在场即执法——编排层交�
     expect(body).toContain('分支 `issue-7` 留存供排查');
     expect(f.fback.comments[0]!.body).not.toContain('```diff'); // 未交付——无补丁段
     expect(f.fwd.cleaned).toEqual(['issue-7']); // 收尾清理照走（分支留史非 worktree 留存）
+  });
+
+  it('输出尾出口消毒：模式腿（敏感键名赋值形）+ 值基腿（sensitiveValues 活值）双面抹值不折叠（附段 b——2026-09-14 第四役修前红锚）', async () => {
+    const live = 'sk-live-abcdef1234567890'; // ≥8 过值基腿长度阈
+    const fv = fakeVerify({
+      exitCode: 1,
+      outputTail:
+        'FAIL  src/x.test.ts\nFAKE_SECRET=sk-test-12345678\nenv LIVE_TOKEN=sk-live-abcdef1234567890\n断言未过：期望 3 得 4',
+    });
+    const f = await runWithVerifyGate(fv.face, { sensitiveValues: () => [live] });
+    const body = f.fback.comments[0]!.body;
+    // 两腿双面：回执评论与 settle detail 均不得含明文（issue 正文=外部不可信
+    // 文本威胁模型——验证输出可回显 env，03 §10.7 第四役附段 b）
+    expect(body).not.toContain('sk-test-12345678');
+    expect(body).not.toContain(live);
+    expect(body).toContain('[REDACTED:secret]'); // 模式腿具名注记（FAKE_SECRET 敏感键名形）
+    expect(body).toContain('[REDACTED:credential]'); // 值基腿整段置换
+    expect(body).toContain('断言未过：期望 3 得 4'); // 只抹值不折叠——非敏感行证据照旧
+    const detail = f.fj.settled[0]!.terminal.detail;
+    expect(detail).not.toContain('sk-test-12345678');
+    expect(detail).not.toContain(live);
+    expect(detail).toContain('断言未过：期望 3 得 4');
   });
 
   it('超时拒：timedOut → 同律拒交付（detail 载超时判据）', async () => {
