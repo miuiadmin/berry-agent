@@ -140,7 +140,7 @@ graph TD
     WEB["Interface web + HTTP /v1/*"]
     HOST["Hôte — racine d'assemblage<br/>portes de capacité · chronique d'audit · budgets"]
     LOOP["Boucle d'agent — StreamFn indépendant du modèle"]
-    PLUGINS["Surface de plugins<br/>13 verbes d'extension · 16 plugins intégrés"]
+    PLUGINS["Surface de plugins<br/>18 facettes d'extension · 16 plugins intégrés"]
     STORE[("SQLite<br/>sessions · mémoire · audit")]
     CLI --> HOST
     TUI --> HOST

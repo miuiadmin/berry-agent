@@ -125,7 +125,7 @@ graph TD
     WEB["Web 界面 + /v1/* HTTP"]
     HOST["宿主——装配根<br/>开门制 · 审计时间线 · 预算护栏"]
     LOOP["Agent 循环——模型无关 StreamFn"]
-    PLUGINS["插件面<br/>13 扩展动词 · 16 件内置插件"]
+    PLUGINS["插件面<br/>18 扩展面 · 16 件内置插件"]
     STORE[("SQLite<br/>会话 · 记忆 · 审计")]
     CLI --> HOST
     TUI --> HOST

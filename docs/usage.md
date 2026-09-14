@@ -69,18 +69,18 @@ export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 pr
 berry [命令] [旗标]
 ```
 
-| 命令                | 作用                                                                                                                                                                                      |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| （无参）            | TUI 主入口：直进对话                                                                                                                                                                      |
-| `run "<message>"`   | 单次执行：一轮对话 → stdout 输出结果                                                                                                                                                      |
-| `serve`             | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词）                                                                                                                      |
-| `mcp`               | MCP server 包装形态                                                                                                                                                                       |
-| `dump-config`       | 打印实际生效装配（诊断）                                                                                                                                                                  |
-| `plugins <sub>`     | 插件生命周期八动词全在场：`list` / `check` 只读，`install` / `uninstall` / `mount` / `unmount` / `toggle` / `update` 写侧（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏） |
-| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex`                                                                                                             |
-| `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`）                                                                   |
-| `doors <sub>`       | 开门制门态只读：`list`（开/关编辑走 TUI `/doors open\|close`）                                                                                                                            |
-| `upgrade`           | 升级维护动词（尚未装配）                                                                                                                                                                  |
+| 命令                | 作用                                                                                                                                                                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| （无参）            | TUI 主入口：直进对话                                                                                                                                                                                                                                           |
+| `run "<message>"`   | 单次执行：一轮对话 → stdout 输出结果                                                                                                                                                                                                                           |
+| `serve`             | 常驻宿主（stdio JSONL；另有 `serve status` / `serve stop` 管理动词）                                                                                                                                                                                           |
+| `mcp`               | MCP server 包装形态                                                                                                                                                                                                                                            |
+| `dump-config`       | 打印实际生效装配（诊断）                                                                                                                                                                                                                                       |
+| `plugins <sub>`     | 插件生命周期八动词全在场：`list` / `check` 只读（`check` 的装机体检真身尚未装配——空/缺席账本通过、非空账本诚实退 1），`install` / `uninstall` / `mount` / `unmount` / `toggle` / `update` 写侧（npm 源含钉版安装 + `--omit=dev` + min-release-age 供应链护栏） |
+| `sessions <sub>`    | 会话管理：`list` / `resume <id>` / `fork <id>` / `search <query>` / `reindex`                                                                                                                                                                                  |
+| `credentials <sub>` | 凭证管理：`add <name> <value>` / `list` / `rm <name>`（`--namespace <ns>` 指定域；oauth 授权流仅在 TUI `/credentials`）                                                                                                                                        |
+| `doors <sub>`       | 开门制门态只读：`list`（开/关编辑走 TUI `/doors open\|close`）                                                                                                                                                                                                 |
+| `upgrade`           | 升级维护动词（尚未装配）                                                                                                                                                                                                                                       |
 
 退出码三态：**0** 成功（含诚实空——空清单/零命中非失败）/ **1** 执行失败 / **2** 环境态误用（用法错、TUI 在非交互环境）。
 
@@ -109,7 +109,7 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | `/`      | 命令补全（注册命令表）                                                                                       |
 | 鼠标     | 副屏（`/history`、`/memory`）滚轮滚动 + 左键拖选复制（OSC 52——终端支持时直达剪贴板）；主对话面 v1 不消费鼠标 |
 
-TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见 `/tick` 用法；`--write` = needsWrite 申报非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停帽（前台计数 + 委派折叠合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申报〔判据门批准位——批准后 gate kind command 可申报并真跑评测（恒 workspace-write 档 + 30s 帽 + 无升权出路）；exec 件禁用形下申报照拒（诚实缺席），files/diagnostics 判据不受影响〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
+TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见下文〔/tick 定时任务〕节；`--write` = needsWrite 申报非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停帽（前台计数 + 委派折叠合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申报〔判据门批准位——批准后 gate kind command 可申报并真跑评测（恒 workspace-write 档 + 30s 帽 + 无升权出路）；exec 件禁用形下申报照拒（诚实缺席），files/diagnostics 判据不受影响〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词，用法与 schedule 串形见下文〔/tick 定时任务〕节；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
 
 ### run 单次执行
 
@@ -200,7 +200,7 @@ berry serve stop               # 停守护
 
 ### 无人值守与预算停靠
 
-无人值守 run（goal 续跑、issue 处理、定时任务到点、`run --background`）的模型调用记**后台道**、计入当日后台预算日池（durable `llm/usage` 聚合——重启不清零、用户可审计当日谁花了多少）；前台对话不占日池。日池耗尽 = 后台道调用拒发（下周期再试），在飞无人值守会话不硬杀——**停靠**（durable 落 `session/paused` 词）三面同律：
+无人值守 run（goal 续跑、issue 处理、定时任务到点、`run --background`）的模型调用记**后台道**、计入当日后台预算日池（durable `llm/usage` 聚合——重启不清零、用户可审计当日谁花了多少）；前台对话不占日池。子代理委派例外恒律：模型派子代理的花销恒记后台道、计入当日日池——含前台对话发起的委派（委派 run 属后台编排）。日池耗尽 = 后台道调用拒发（下周期再试），在飞无人值守会话不硬杀——**停靠**（durable 落 `session/paused` 词）三面同律：
 
 - **goal 会话**：挂钟行停摆 + 会话停靠（`/goal list` 可见）；日池回充自动复活挂钟续跑；
 - **issue 会话**：停靠项登记，回充时经唤醒消息续跑；
@@ -210,9 +210,34 @@ berry serve stop               # 停守护
 
 定时任务到点执行双形态：宿主在跑 = 进程内推进（与前台 run 同池并发帽、审批 fail-closed 同律）；宿主停机期 = cron 可选后端（`BERRY_AGENT_CRON=1` 显式开启即写系统 crontab 的授权凭据）子进程触发 `run --tick`——同任务跨进程防双跑（他实例在飞诚实让位），行账（上次触发/结局/下次到点）durable 落结。
 
+### /tick 定时任务（schedule 串形）
+
+TUI 内 `/tick` 六动词——用法错时 TUI 现场呈现同一份用法文案，本节与之同源：
+
+```text
+/tick add <名> <schedule 串> <prompt 全文> [--cwd <绝对径>] [--enable]
+/tick list
+/tick rm <名>
+/tick run <名>
+/tick enable <名>
+/tick disable <名>
+```
+
+`add` 缺省建行**停用**——「存在 ≠ 启用」，`enable` 显式开跑（`--enable` 建行即启用）；`--cwd` 锚定任务工作目录（绝对径）；`run` 手动起跑一轮（与 `run --tick <名>` 同载体）。`/goal create` 的 schedule 串与此同法。schedule 串形五写四形（`once` 有绝对/相对两写）：
+
+| 串形                  | 语义                                                      |
+| --------------------- | --------------------------------------------------------- |
+| `every:<n>[s\|m\|h]`  | 间隔重复（n 正整数；总秒数下限 5s）                       |
+| `once@+<n>[s\|m\|h]`  | 一次性相对延迟（自建行时刻起）                            |
+| `once@<ISO>`          | 一次性绝对时刻                                            |
+| `daily@HH:MM`         | 每日（本地时区 24h 制）                                   |
+| `weekly@<days>@HH:MM` | 每周（days = 逗号分隔星期名——mon/tue/.../sun 全写或三写） |
+
+语义三条：`once` 触发后不再到点（行留表可见、不再 due）；错过不重放（宿主停机期错过的到点重启后直接跳下一刻）；`daily`/`weekly` 按本地时区解释（存储/比较恒 ISO UTC）。坏串拒 `SCHEDULER_SCHEDULE_INVALID`（message 载原因）。
+
 ### issue 驱动工作模式（core:issue）
 
-监听 GitHub issue 的无人值守处理模式：件**缺省零装载**——`enabled.yaml` 给 `core:issue` 行配 `config` 才启用（坏形响亮拒 `ISSUE_CONFIG_INVALID`）。触发双源：轮询（缺省每 120s）+ webhook（统一 HTTP 面〔`--port`〕开面后挂 `/webhooks/issue` 路由，`X-Signature-256` HMAC 验签；secret 缺席 = 路由在场但守卫拒）。命中 issue 起一次隔离处理：独立 worktree（`issue-N` 命名，撞名让位 `-r2..-r9`）+ headless 会话（后台道预算记账、每 issue 消息帽缺省 400）。重跑同 issue 时**前次分支全列举进提示词**（git 史即断点真源——可续作也可从头独立解决）；提示词同时带对账纪律（完成前逐条对账 issue 正文与评论中的显式要求）与边界禁令（严禁自行 push / 开 PR / 发评论——交付由编排层收口）。
+监听 GitHub issue 的无人值守处理模式：件**缺省零装载**——`enabled.yaml` 给 `core:issue` 行配 `config` 才启用（坏形响亮拒 `ISSUE_CONFIG_INVALID`）。触发双源：轮询（缺省每 120s）+ webhook（统一 HTTP 面〔`--port`〕开面后挂 `/webhooks/issue` 路由，`X-Hub-Signature-256` HMAC 验签；secret 缺席 = 路由在场但守卫拒）。命中 issue 起一次隔离处理：独立 worktree（`issue-N` 命名，撞名让位 `-r2..-r9`）+ headless 会话（后台道预算记账、每 issue 消息帽缺省 400）。重跑同 issue 时**前次分支全列举进提示词**（git 史即断点真源——可续作也可从头独立解决）；提示词同时带对账纪律（完成前逐条对账 issue 正文与评论中的显式要求）与边界禁令（严禁自行 push / 开 PR / 发评论——交付由编排层收口）。
 
 模型侧两工具：`issue_get`（读 issue 正文与评论，64KiB 上下文帽）与 `issue_escalate`（上报待裁决问题——`question` 必填，可选 `options` 候选 / `recommendation` 建议 / `continueWithDefault` 缺省案；只登记不发评论，escalation 进回执转人审，不中途打断任务）。
 
@@ -220,15 +245,15 @@ berry serve stop               # 停守护
 
 档位与收口：`mode: draft`（缺省）收口评论贴分支 + 补丁（等人采信）；`mode: auto` 走危险闸预授权交付（push / 开 PR，`/danger approve` 签发、日成功帽缺省 10）——escalation 在场时降级不自动交付转人审。headless 会话审批被拒或写动作无策略表覆盖时收口 **needs-human** 转人审。
 
-配置例（`~/.berry-agent/enabled.yaml`；也可 TUI `/plugins config core:issue` 表单）：
+配置例（`~/.berry-agent/enabled.yaml`——core:issue 无 `configSchema` 声明，TUI `/plugins config` 表单不适用〔如实报「无声明配置面」〕；手编启用行后 `/reload` 生效）：
 
 ```yaml
 plugins:
   - id: core:issue
     config:
-      repos: ["owner/name"] # 必填——精确串轮询+匹配；含 * 的 glob 仅匹配面
+      repos: ['owner/name'] # 必填——精确串轮询+匹配；含 * 的 glob 仅匹配面
       mode: draft # draft | auto（缺省 draft——全自动显式 opt-in）
-      verifyCommand: "npm test" # 交付验证门（可选——缺席不拦交付）
+      verifyCommand: 'npm test' # 交付验证门（可选——缺席不拦交付）
       verifyTimeoutMs: 120000 # 验证时帽毫秒（缺省 120000）
       # labels: ["bug"] # 可选白名单（空/缺省 = 该维不约束）
       # assignees: [] # 同上
@@ -243,7 +268,7 @@ GitHub 凭证：host 域凭证 `github-token`（`/credentials add github-token <
 
 ```bash
 berry plugins list             # 三分区装载态清单：启用（N）/ 失败（N）/ 禁用（N）——失败与禁用行各附原因
-berry plugins check            # 装机面体检（只读）
+berry plugins check            # 装机面体检（只读——体检真身尚未装配：空/缺席账本通过，非空账本诚实退 1）
 berry plugins install <ref>    # 装机（ref 自含源前缀，词法见下）
 berry plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 / 加 = 执行；--data keep|purge 缺省 keep）
 ```
@@ -285,6 +310,8 @@ berry plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 
 | `BERRY_AGENT_MAX_CONCURRENT_RUNS`      | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸）                                          | 16                          |
 | `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` | 单父在飞子代理扇出帽（per-父会话内存位——正整数必需，坏值 fail-loud 拒启；满帽排队非拒收，one-shot 与后台同池同帽）          | 8                           |
 | `BERRY_AGENT_BACKGROUND_BUDGET_TOKENS` | 当日后台道 token 日池限额（后台 run 记账对照面；非负整数字串，`0` = 显式关池，坏值 fail-loud 拒启；前台花销照入账不进闸门） | 4000000                     |
+
+`BERRY_AGENT_LOG_LEVEL` 另支持**逗号分隔 per-module 语法**（如 `info,session:debug`）：每条目按**最右一个冒号**切分模块名与级别（模块名含冒号可表达——`core:memory:debug` 意为模块 `core:memory` 开 debug，段内冒号不是分隔符）；模块名按**前缀匹配**生效（`session` 命中 `session` 与 `session:*` 全体），多条目前缀同时命中取最长；不带模块名的条目设全局级（全局 `silent` 压倒一切 per-module 条目）；无效条目 stderr 警告后跳过（视同未设）。
 
 ## 遥测立场
 

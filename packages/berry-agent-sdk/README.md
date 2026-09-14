@@ -73,9 +73,6 @@ await client.close();
   `SdkAckFrame` / `SdkEntriesFrame` / `SdkSessionSummary` / `SdkDurableEntry` /
   `SdkEventFrame` / `SdkHelloFrame` / `SdkErrorFrame` / `SDK_PROTOCOL_VERSION`。
 
-线协议语义（重放窗口、幂等键、心跳、审批竞速）见主仓规范篇
-`设计文档/01-规范/`（03 §10.6 / 05 §3.5 / 07 §5）。
-
 ## 状态
 
-0.1.0-alpha——随主仓批 13（SDK 通道）演进；发布机器批落定前暂不经 npm 分发。
+0.1.0-alpha——随主仓演进；npm 分发走主仓发布机器 `release:sdk`。

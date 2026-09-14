@@ -135,7 +135,7 @@ graph TD
     WEB["웹 UI + /v1/* HTTP"]
     HOST["호스트 — 어셈블리 루트<br/>역량 게이트 · 감사 타임라인 · 예산 가드레일"]
     LOOP["에이전트 루프 — 모델 독립 StreamFn"]
-    PLUGINS["플러그인 표면<br/>13 확장 동사 · 16 내장 플러그인"]
+    PLUGINS["플러그인 표면<br/>18 확장 면 · 16 내장 플러그인"]
     STORE[("SQLite<br/>세션 · 메모리 · 감사")]
     CLI --> HOST
     TUI --> HOST

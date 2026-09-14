@@ -137,7 +137,7 @@ graph TD
     WEB["Web UI + /v1/* HTTP"]
     HOST["Host — assembly root<br/>capability doors · audit timeline · budgets"]
     LOOP["Agent loop — model-agnostic StreamFn"]
-    PLUGINS["Plugin surface<br/>13 extension verbs · 16 built-in plugins"]
+    PLUGINS["Plugin surface<br/>18 extension faces · 16 built-in plugins"]
     STORE[("SQLite<br/>sessions · memory · audit")]
     CLI --> HOST
     TUI --> HOST
