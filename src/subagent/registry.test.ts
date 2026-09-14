@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
-import { createJobRegistry, JOB_RETENTION_CAP } from './registry.js';
+import { createJobRegistry, JOB_KIND_HOST_OWNER, JOB_RETENTION_CAP } from './registry.js';
 
 /** 断言同步抛指定码 */
 function expectCodeSync(fn: () => unknown, code: string): BaseError {
@@ -28,6 +28,61 @@ describe('JobRegistry 词汇闸', () => {
     registry.registerKind('subagent'); // 幂等——词汇集是 Set 语义
     expect(registry.hasKind('subagent')).toBe(true);
     expect(registry.register({ kind: 'subagent', name: 'x', owner: 's1' }).entry.id).toBe('job-1');
+  });
+});
+
+describe('JobRegistry kind 归属记录（五役 d3-1——谱系执法）', () => {
+  it('宿主直调 = 宿主席归属；fork 绑定注入插件 id（真身同表）；未登记 undefined', () => {
+    const registry = createJobRegistry();
+    registry.registerKind('trigger'); // 宿主直调（assembly 装配序形）
+    expect(registry.ownerOfKind('trigger')).toBe(JOB_KIND_HOST_OWNER);
+    expect(registry.hasKind('trigger')).toBe(true);
+    expect(registry.ownerOfKind('process')).toBeUndefined(); // 未登记无归属
+    // fork 绑定形（'secrets' 席同构——plugin-boot 装载序逐插件 fork 'jobs' 面）：
+    // registerKind 携本插件 id，归属记录落真身同表
+    const bound = registry.bindForPlugin('acme');
+    bound.registerKind('process');
+    expect(registry.ownerOfKind('process')).toBe('acme');
+    expect(bound.hasKind('process')).toBe(true); // 委托真身读面
+    expect(bound.ownerOfKind('trigger')).toBe(JOB_KIND_HOST_OWNER);
+  });
+
+  it('归属 first-wins：异主重登不夺籍（warn 可观测）——词汇面维持幂等', () => {
+    const warns: string[] = [];
+    const registry = createJobRegistry({ warn: (message) => warns.push(message) });
+    registry.bindForPlugin('acme').registerKind('process');
+    registry.bindForPlugin('beta').registerKind('process'); // 异主重登——不夺籍
+    expect(registry.ownerOfKind('process')).toBe('acme'); // 首登者定籍
+    expect(warns.join('\n')).toContain('不夺籍');
+    registry.bindForPlugin('acme').registerKind('process'); // 同主重登幂等零 warn
+    expect(warns).toHaveLength(1);
+  });
+
+  it('fork 绑定面委托真身：register/settle 与真身同表互见（唯一改写位 = registerKind 归属）', () => {
+    const registry = createJobRegistry();
+    const bound = registry.bindForPlugin('acme');
+    bound.registerKind('process');
+    const handle = bound.register({ kind: 'process', name: 'a', owner: 's1' });
+    // 绑定面注册的条目真身读面可见（单表委托非副本）
+    expect(registry.running().map((entry) => entry.id)).toEqual(['job-1']);
+    handle.settle({ status: 'completed' });
+    expect(registry.get('job-1')?.status).toBe('completed');
+  });
+});
+
+describe('JobRegistry registerKind def 帽槽（五役 d3-2——03 §2.2 行 126 def 槽兑现）', () => {
+  it('登记期 parallelLimits 并入帽表即执法：第二笔 JOB_LIMIT_REACHED（修前红——无 def 形参即无帽受理）', () => {
+    const registry = createJobRegistry();
+    registry.registerKind('process', { parallelLimits: 1 }); // 登记期并帽（构造期无帽）
+    registry.register({ kind: 'process', name: 'a', owner: 's1' });
+    expectCodeSync(() => registry.register({ kind: 'process', name: 'b', owner: 's1' }), 'JOB_LIMIT_REACHED');
+  });
+
+  it('登记期值后写胜出：覆盖构造期帽（同表后写——登记期值生效即执法）', () => {
+    const registry = createJobRegistry({ parallelLimits: { trigger: 4 } }); // 构造期帽 4
+    registry.registerKind('trigger', { parallelLimits: 1 }); // 登记期并帽覆盖
+    registry.register({ kind: 'trigger', name: 'a', owner: 's1' });
+    expectCodeSync(() => registry.register({ kind: 'trigger', name: 'b', owner: 's1' }), 'JOB_LIMIT_REACHED');
   });
 });
 

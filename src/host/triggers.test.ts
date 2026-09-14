@@ -163,7 +163,8 @@ interface FakeCreateInit {
 /**
  * 假栈（TriggerStackFace 替身）：create/submit 入参全记录；submit 回执 Promise
  * 由测试手动结算（终态映射逐档驱动）；submitUndefined 档模拟驱动缺席。每会话
- * 配一枚假驱动（abort 计数——stop→interrupt 桥的到达证据面）。
+ * 配一枚假驱动（abort 计数——stop→interrupt 桥的到达证据面）。manager.retire
+ * 调用全记录（五役 d2-1——run 终态 retire 收口的断言面）。
  */
 function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
   const creates: FakeCreateInit[] = [];
@@ -171,6 +172,8 @@ function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
   const resolvers: Array<(result: SubmitResult) => void> = [];
   /** 逐会话假驱动（abort 计数——与 creates 序对应） */
   const drivers: Array<{ abortCount: number }> = [];
+  /** retire 调用记录（d2-1——起会成功后终态路径收口的证据面） */
+  const retires: string[] = [];
   const stack: TriggerStackFace = {
     manager: {
       create(init: FakeCreateInit = {}) {
@@ -187,6 +190,10 @@ function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
           origin: init.origin ?? 'conversation',
         };
       },
+      retire(sessionId: string) {
+        retires.push(sessionId);
+        return true;
+      },
     },
     submitText(sessionId: string, text: string, options?: SubmitOptions & { source?: string }) {
       submits.push({
@@ -199,7 +206,7 @@ function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
       return new Promise<SubmitResult>((resolve) => resolvers.push(resolve));
     },
   };
-  return { stack, creates, submits, resolvers, drivers };
+  return { stack, creates, submits, resolvers, drivers, retires };
 }
 
 /** starter 测试台：真 Job 注册表（帽执法真件）+ 假栈 + 可变开门集 + warn/settled/审计记录仪 */
@@ -219,7 +226,12 @@ function assembleStarter(initialOpens?: readonly string[]) {
     },
     warn: (message) => warns.push(message),
   });
+  // 宿主预登记形（五役 d3-1——谱系闸真源模拟）：'trigger' = host 装配期自登
+  // （缺省围栏 kind）；'subagent' = 宿主直调真身预登记（宿主席归属——fork 绑定
+  // 形另经 bindForPlugin 单测模拟）；'issue'/'process' 留未登记（JOB_KIND_UNKNOWN
+  // 腿与 fork 绑定正道腿的测试面）
   jobs.registerKind('trigger');
+  jobs.registerKind('subagent');
   const fake = makeFakeStack();
   const makeStarter = createTriggerStarterFactory({
     stack: {
@@ -228,6 +240,7 @@ function assembleStarter(initialOpens?: readonly string[]) {
           order.push('create');
           return fake.stack.manager.create(init);
         },
+        retire: (sessionId) => fake.stack.manager.retire(sessionId),
       },
       submitText: fake.stack.submitText,
     },
@@ -238,6 +251,7 @@ function assembleStarter(initialOpens?: readonly string[]) {
         handles.push(handle);
         return handle;
       },
+      ownerOfKind: (kind) => jobs.ownerOfKind(kind),
     },
     getOpens: () => opens,
     workspaceRoot: () => '/ws',
@@ -314,9 +328,39 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
 
   it('显式 jobKind 未登记 → JOB_KIND_UNKNOWN 拒（受理失败不起会）', () => {
     const t = assembleStarter(['triggers.start-run']);
-    t.makeStarter('acme', 'acme/daily')({ prompt: '跑', jobKind: 'issue' }); // 测试台只自登 trigger
+    // 台自登 'trigger'（host 缺省 kind）与 'subagent'（宿主预登记形）；'issue'
+    // 留未登记——本测走 JOB_KIND_UNKNOWN 腿（谱系闸只拦已登记异主，未登记照旧
+    // 交 register 词汇闸——五役 d3-1 两闸分立）
+    t.makeStarter('acme', 'acme/daily')({ prompt: '跑', jobKind: 'issue' });
     expect(t.warns.join('\n')).toContain('JOB_KIND_UNKNOWN');
     expect(t.fake.creates).toEqual([]);
+  });
+
+  it('宿主预登记 kind 谱系闸（d3-1 修前红）：jobKind「subagent」（宿主席归属）第三方 starter 复用即拒——warn + 零受理零起会', () => {
+    const t = assembleStarter(['triggers.start-run']);
+    expect(() => t.makeStarter('acme', 'acme/daily')({ prompt: '跑', jobKind: 'subagent' })).not.toThrow();
+    expect(t.warns.join('\n')).toContain('已归属'); // 归属拒固定报文可观测
+    expect(t.jobs.list()).toEqual([]); // 零受理（谱系闸在 Job 受理位之前——无条目）
+    expect(t.fake.creates).toEqual([]); // 不起会话（防绕帽：'subagent' 无帽受理）
+  });
+
+  it('谱系闸正道：本插件 fork 绑定自登 kind 放行 + 他插件归属即拒 + 显式 trigger 恒放行（缺省隐式 kind 语义）', () => {
+    const t = assembleStarter(['triggers.start-run']);
+    // fork 绑定形（'secrets' 席同构——plugin-boot 装载序逐插件 fork 'jobs' 面）：
+    // 本插件经绑定面自登 'process'（携登记期帽），归属 = 本插件 id
+    t.jobs.bindForPlugin('acme').registerKind('process', { parallelLimits: 2 });
+    t.makeStarter('acme', 'acme/daily')({ prompt: '跑', jobKind: 'process' });
+    expect(t.fake.creates).toHaveLength(1); // 本插件自有 kind 放行
+    expect(t.jobs.running()[0]).toMatchObject({ kind: 'process', owner: 'acme' });
+    // 他插件复用即拒（归属 ≠ 起会方——warn 可观测 + 零受理零起会）
+    t.makeStarter('beta', 'beta/hourly')({ prompt: '跑', jobKind: 'process' });
+    expect(t.warns.join('\n')).toContain('beta');
+    expect(t.fake.creates).toHaveLength(1);
+    expect(t.jobs.running()).toHaveLength(1);
+    // 显式 'trigger' 恒放行（宿主自登缺省 kind——缺省隐式语义同一面，非复用）
+    t.makeStarter('acme', 'acme/daily')({ prompt: '再跑', jobKind: 'trigger' });
+    expect(t.fake.creates).toHaveLength(2);
+    expect(t.warns.join('\n')).not.toContain('再跑'); // 放行两形零归属 warn
   });
 
   it('提交缺席（驱动 undefined）→ Job 落 failed 终态（受理先行的对称收口）', async () => {
@@ -339,6 +383,7 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
     await flush();
     expect(settled[0]!.entry.terminal).toMatchObject({ status: 'failed' });
     expect(settled[0]!.entry.terminal?.detail).toContain('run 未起');
+    expect(fake.retires).toEqual(['s-1']); // 早退位同收口（起会成功后终态路径全覆盖）
   });
 
   it('回执三终态映射：aborted→killed / failed→failed（detail 携 errorMessage）/ injected·wake-refused→failed（run 未起交代去向）', async () => {
@@ -358,6 +403,20 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
     expect(terminals[1]?.detail).toBe('模型 500');
     expect(terminals[2]?.detail).toContain('seq 7');
     expect(terminals[3]?.detail).toContain('唤醒');
+  });
+
+  it('run 终态 retire 收口（d2-1 修前红——05 §7 retire 律补员笔）：completed/failed 两路径 settle 尾即 retire(sessionId)', async () => {
+    const t = assembleStarter(['triggers.start-run']);
+    t.makeStarter('acme', 'acme/daily')({ prompt: '跑a' });
+    t.makeStarter('acme', 'acme/daily')({ prompt: '跑b' });
+    expect(t.fake.retires).toEqual([]); // run 未终态前零收口
+    t.fake.resolvers[0]!({ status: 'completed' });
+    t.fake.resolvers[1]!({ status: 'failed', errorMessage: '模型 500' });
+    await flush();
+    expect(t.settled.map((e) => e.entry.terminal?.status)).toEqual(['completed', 'failed']);
+    // settle 尾即 retire（scheduler-tick settled.finally 同形）——修前零调用即
+    // records Map 无界驻留（活体登记收口缺口——fresh-per-fire 每次起会必收口）
+    expect(t.fake.retires).toEqual(['s-1', 's-2']);
   });
 
   it('prompt 坏形（空串）→ warn + 零受理零起会（运行期传参防御）', () => {

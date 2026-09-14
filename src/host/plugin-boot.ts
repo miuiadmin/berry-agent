@@ -19,7 +19,8 @@
  *  ⑦ 逐插件 ctx 装配（12f-2a 件）：per-plugin fork（effect 回卷隔离）+
  *     createPluginContext + secrets 面自域绑定（c-3——03 §2.2 第十面，
  *     core:credentials 席在场且 store 注入时 fork.provide）+ sessions-
- *     control（e4-3）/compaction（U4-3）两席位 fork 绑定；
+ *     control（e4-3）/compaction（U4-3）两席位 fork 绑定 + 'jobs' 面
+ *     fork 绑定（五役 d3-1——registerKind 携本插件 id 入 kind 归属记录）；
  *     onApplySettled → closeWindow（行收口即关窗）。
  *  ⑧ loadPlugins 接线：onBootFailure → recordBootFailure 记账、activated →
  *     clearBootFailure 清名（横幅只报仍坏行）；memory 形诊断面整跳。
@@ -67,6 +68,8 @@ import type { PluginRouteRegistry } from '../sdk/index.js';
 import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
 import type { JobRegistry } from '../subagent/index.js';
+// 'jobs' 服务词汇名（五役 d3-1 谱系执法腿——fork 绑定 provide 的键位）
+import { JOBS_SERVICE_NAME } from '../subagent/index.js';
 // 程序化子代理物化消费腿（遗漏审计批 G——注册即派生）：物化真身 + toolDeps
 // 类型（与 core:subagent 件声明式腿同源单物化函数）
 import { createDeclarativeAgentTool } from '../subagent/index.js';
@@ -234,8 +237,17 @@ export interface PluginBootOptions {
    * 插件 id 的卸载收口腿）。卸载 closer 序对 activated 逐插件 closeOwner
    * （先协作中止路由再兜底 killed——run 不留孤儿烧钱）。缺席 = 诚实缺位
    * 不收口（测试替身形/:memory: 诊断形——Job 注册表本进程内语义）。
+   *
+   * bindForPlugin（五役 d3-1 谱系执法腿——可选扩展位）：在场时装载序逐插件
+   * fork 绑定 'jobs' 面（'secrets' 席同构先例——fork 对象委托真身、
+   * registerKind 携本插件 id 入 kind 归属记录；宿主直调真身 = 宿主席归属）。
+   * 共享根 provideJobsService 真身不动（Kahn 可满足判与宿主消费面走真身），
+   * 本绑定只改插件取用面的归属注入。缺席 = 替身/诊断形不绑定（插件取共享
+   * 根真身——registerKind 落宿主席归属，starter 谱系闸照常执法）。
    */
-  readonly jobs?: Pick<JobRegistry, 'closeOwner'>;
+  readonly jobs?: Pick<JobRegistry, 'closeOwner'> & {
+    readonly bindForPlugin?: (pluginId: string) => JobRegistry;
+  };
   /**
    * 插件凭证面装配位（c-3——03 §2.2 第十面/§10.9 读腿）：store 在场且
    * core:credentials 件席在场（计划行未禁用）时，装载序逐插件 fork 绑定
@@ -666,6 +678,15 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
         }),
       );
       fork.effect(() => () => registry.releaseFor(pluginId));
+    }
+    // 'jobs' 面 fork 绑定（五役 d3-1——'secrets' 席同构先例）：fork 对象委托
+    // 真身、registerKind 携本插件 id（kind 归属记录——trigger starter 谱系闸
+    // 的判籍面；宿主直调真身 = 宿主席归属）。共享根 provideJobsService 真身
+    // 不动（Kahn 可满足判与非插件消费面走真身），本绑定只改插件取用面的归属
+    // 注入。bindForPlugin 缺席 = 替身/诊断形不绑定（插件取共享根真身）。
+    // host 内建机制非 core 件，无件席门：绑定面在场即绑
+    if (options.jobs?.bindForPlugin !== undefined) {
+      fork.provide(JOBS_SERVICE_NAME, options.jobs.bindForPlugin(pluginId));
     }
     handles.set(pluginId, handle);
     return handle.ctx;

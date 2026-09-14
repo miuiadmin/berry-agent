@@ -20,13 +20,18 @@
  *    （03 §2.2 行 108 定形注记——重装载经重注册重新注入，旧 starter 因 fire
  *    复检悬空失效不悬空越权）。
  *  - **starter 真身工厂**（createTriggerStarterFactory——装配根注入窄依赖面
- *    造 `(pluginId, name) => starter`）：fire 复检（活体开门收回）→ Job 受理
+ *    造 `(pluginId, name) => starter`）：fire 复检（活体开门收回）→ spec 轻校验
+ *    + jobKind 谱系闸（五役 d3-1——显式 jobKind 须归属本插件：宿主/他插件
+ *    预登记 kind 复用即拒 warn+return；未登记照旧走 register 的
+ *    JOB_KIND_UNKNOWN；缺省/显式 'trigger' 恒放行）→ Job 受理
  *    **先于**起会（「fire 受理先过帽再起会话」——帽满 JOB_LIMIT_REACHED /
  *    显式 jobKind 未登记 JOB_KIND_UNKNOWN，不起会不留孤儿）→ 起无头会话
  *    （origin 'trigger' + source `plugin:<id>` 归因 + per-fresh-session 模型
  *    载体 + backgroundLane 恒置〔04 §5 车道兑现笔——trigger run 是后台编排，
  *    记账进后台日池〕）→ 回执三终态映射 Job 终态（completed→completed / aborted→killed /
- *    failed→failed；injected/wake-refused = run 未起落 failed）。**starter
+ *    failed→failed；injected/wake-refused = run 未起落 failed）；起会成功后
+ *    的一切终态路径统一 retire（05 §7 retire 律补员笔——五役 d2-1：
+ *    fresh-per-fire 每会终态摘活体登记，records Map 无界驻留收口）。**starter
  *    永不 throw**——插件事件源回调内执行，throw 即进程级风险；拒与失败一律
  *    warn 可观测 + Job 终态收口（无人值守鲁棒性）。
  *
@@ -54,7 +59,13 @@ export interface TriggerStartSpec {
   readonly title?: string;
   /** 模型覆盖（缺席回落宿主模型） */
   readonly model?: string;
-  /** Job 托管 kind（缺席隐式 'trigger'——host 装配期自登 + 缺省并行帽 4） */
+  /**
+   * Job 托管 kind（缺席隐式 'trigger'——host 装配期自登 + 缺省并行帽 4）。
+   * 显式且 ≠ 'trigger' 时谱系闸执法（五役 d3-1）：须归属本插件（经 fork 绑定
+   * 'jobs' 面自登）——宿主/他插件预登记 kind 复用即拒（warn + return）；
+   * 未登记照旧走 register 的 JOB_KIND_UNKNOWN。显式 'trigger' 恒放行
+   * （缺省隐式 kind 语义——宿主自登非复用）。
+   */
   readonly jobKind?: JobKind;
 }
 
@@ -170,7 +181,8 @@ export const TRIGGER_JOB_PARALLEL_LIMIT = 4;
 
 /** 对话栈结构面（starter 消费的窄面——测试替身免建全栈） */
 export interface TriggerStackFace {
-  readonly manager: Pick<SessionManager, 'create'>;
+  /** 起会 + 单会话收口（retire——05 §7 retire 律：run 终态摘活体登记，幂等） */
+  readonly manager: Pick<SessionManager, 'create' | 'retire'>;
   /** 提交入口（fire-and-forget 形——回执经信封回流；无该会话驱动时 undefined） */
   submitText(
     sessionId: string,
@@ -183,8 +195,15 @@ export interface TriggerStackFace {
 export interface TriggerStarterDeps {
   /** 对话栈消费窄面（起会 + 提交） */
   readonly stack: TriggerStackFace;
-  /** Job 注册面（帽与词汇执法在 JobRegistry——受理先于起会） */
-  readonly jobs: Pick<JobRegistry, 'register'>;
+  /**
+   * Job 注册面（帽与词汇执法在 JobRegistry——受理先于起会）。ownerOfKind =
+   * 谱系闸读面〔五役 d3-1——显式 jobKind 归属校验〕：结构位拾取
+   * KindOwningJobRegistry 的归属查询形（基面不扩员——窄面消费免整器注入）。
+   */
+  readonly jobs: Pick<JobRegistry, 'register'> & {
+    /** kind 归属查询（宿主席 = 'HOST' id 语法外哨兵、fork 绑定 = 插件 id；未登记 undefined） */
+    readonly ownerOfKind: (kind: JobKind) => string | undefined;
+  };
   /** 开门授予集活体读取源（fire 复检——与注册闸同源，/reload 撤位即拒） */
   readonly getOpens: (pluginId: string) => ReadonlySet<string>;
   /** 工作区根读取（起会 workspaceRoot 选取键——cwd 归一根） */
@@ -226,6 +245,22 @@ export function createTriggerStarterFactory(
     if (typeof spec.prompt !== 'string' || spec.prompt.length === 0) {
       deps.warn(`触发器 ${name} 起会参数坏形：prompt 缺席或空（插件 ${pluginId}）`);
       return;
+    }
+    // —— jobKind 谱系闸（五役 d3-1——spec 轻校验同形）：显式 jobKind（≠ 缺省
+    //    'trigger'）须归属本插件——宿主/他插件预登记 kind 复用即拒（防绕帽：
+    //    'subagent' 无 parallelLimits 位即无帽受理、'issue' 占两席挤真轮询吃
+    //    JOB_LIMIT_REACHED 拒收回执；'subagent' 并行治理归 run lane 帽 +
+    //    per-provider 帽，不另设 kind 帽位）。未登记不在本闸拦——照旧走
+    //    register 的 JOB_KIND_UNKNOWN（两闸分立）；缺省/显式 'trigger' 恒放行
+    //    （缺省隐式 kind 语义——host 装配期自登宿主位非复用）
+    if (spec.jobKind !== undefined && spec.jobKind !== 'trigger') {
+      const kindOwner = deps.jobs.ownerOfKind(spec.jobKind);
+      if (kindOwner !== undefined && kindOwner !== pluginId) {
+        deps.warn(
+          `触发器 ${name} 起会被拒：jobKind「${spec.jobKind}」已归属 ${kindOwner}（非本插件 ${pluginId}）——宿主/他插件预登记 kind 不可复用（03 §2.2 五役执法补笔）`,
+        );
+        return;
+      }
     }
     // —— Job 受理先于起会（「fire 受理先过帽再起会话」：帽满 JOB_LIMIT_REACHED /
     // 显式 jobKind 未登记 JOB_KIND_UNKNOWN 都不造孤儿会话）。owner = 插件 id
@@ -271,12 +306,15 @@ export function createTriggerStarterFactory(
     //    起跑方声明位单源（04 §5 车道兑现笔 + 四役补笔）：trigger run 是后台
     //    编排，与 tick 后台 run / run --background / 子代理 submit 同道同位恒置
     //    background——桥接 llm/usage 记账进后台日池，起跑方自身消耗不再失明）
-    const submitted = deps.stack.submitText(opened.sessionId, spec.prompt, {
+    const sessionId = opened.sessionId;
+    const submitted = deps.stack.submitText(sessionId, spec.prompt, {
       source: `plugin:${pluginId}`,
       backgroundLane: true,
     });
     if (submitted === undefined) {
       job.settle({ status: 'failed', detail: 'run 未起——会话驱动缺席' });
+      // 起会成功后的终态路径①：驱动缺席早退位同收口（05 §7 retire 律——幂等）
+      deps.stack.manager.retire(sessionId);
       deps.warn(`触发器 ${name} 提交失败：会话驱动缺席（插件 ${pluginId}）`);
       return;
     }
@@ -284,30 +322,39 @@ export function createTriggerStarterFactory(
     // U3-5 兑现）：run 真起才算使用；core: 豁免门检照记（豁免免的是门不是账）
     deps.onCapabilityUsed?.(pluginId, name);
     // —— 回执 → Job 终态映射（aborted→killed 承 Job 终态词——SubagentStopReason
-    // 同映射；injected/wake-refused 两收执 = run 未起，落 failed 交代去向）
-    void submitted.then(
-      (result) => {
-        if (result.status === 'completed') {
-          job.settle({ status: 'completed' });
-        } else if (result.status === 'aborted') {
-          job.settle({ status: 'killed', detail: 'run 被中止' });
-        } else if (result.status === 'failed') {
-          job.settle({
-            status: 'failed',
-            ...(result.errorMessage !== undefined ? { detail: result.errorMessage } : {}),
-          });
-        } else if (result.status === 'injected') {
-          job.settle({
-            status: 'failed',
-            detail: `run 未起——输入落 inject 通道（durable seq ${result.seq}，随下次启动带入）`,
-          });
-        } else {
-          job.settle({ status: 'failed', detail: 'run 未起——连续后台唤醒超帽拒收（wake-refused）' });
-        }
-      },
-      (err) => {
-        job.settle({ status: 'failed', detail: `run 异常：${err instanceof Error ? err.message : String(err)}` });
-      },
-    );
+    // 同映射；injected/wake-refused 两收执 = run 未起，落 failed 交代去向）；
+    // 尾部 .finally 统一 retire = 起会成功后的终态路径②（一切回执腿全覆盖：
+    // completed/aborted/failed/injected/wake-refused/异常腿——05 §7 retire 律
+    // 补员笔「trigger starter fresh-per-fire 面系第四消费位」：settle 尾即
+    // retire〔dismantle + 摘登记〕，活体登记无界驻留收口、durable 面不受影响；
+    // scheduler-tick settled.finally 同形〔04 §12 第 5 律〕，幂等无害）
+    void submitted
+      .then(
+        (result) => {
+          if (result.status === 'completed') {
+            job.settle({ status: 'completed' });
+          } else if (result.status === 'aborted') {
+            job.settle({ status: 'killed', detail: 'run 被中止' });
+          } else if (result.status === 'failed') {
+            job.settle({
+              status: 'failed',
+              ...(result.errorMessage !== undefined ? { detail: result.errorMessage } : {}),
+            });
+          } else if (result.status === 'injected') {
+            job.settle({
+              status: 'failed',
+              detail: `run 未起——输入落 inject 通道（durable seq ${result.seq}，随下次启动带入）`,
+            });
+          } else {
+            job.settle({ status: 'failed', detail: 'run 未起——连续后台唤醒超帽拒收（wake-refused）' });
+          }
+        },
+        (err) => {
+          job.settle({ status: 'failed', detail: `run 异常：${err instanceof Error ? err.message : String(err)}` });
+        },
+      )
+      .finally(() => {
+        deps.stack.manager.retire(sessionId);
+      });
   };
 }
