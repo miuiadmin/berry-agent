@@ -24,7 +24,8 @@
  *    **先于**起会（「fire 受理先过帽再起会话」——帽满 JOB_LIMIT_REACHED /
  *    显式 jobKind 未登记 JOB_KIND_UNKNOWN，不起会不留孤儿）→ 起无头会话
  *    （origin 'trigger' + source `plugin:<id>` 归因 + per-fresh-session 模型
- *    载体）→ 回执三终态映射 Job 终态（completed→completed / aborted→killed /
+ *    载体 + backgroundLane 恒置〔04 §5 车道兑现笔——trigger run 是后台编排，
+ *    记账进后台日池〕）→ 回执三终态映射 Job 终态（completed→completed / aborted→killed /
  *    failed→failed；injected/wake-refused = run 未起落 failed）。**starter
  *    永不 throw**——插件事件源回调内执行，throw 即进程级风险；拒与失败一律
  *    warn 可观测 + Job 终态收口（无人值守鲁棒性）。
@@ -266,8 +267,14 @@ export function createTriggerStarterFactory(
       deps.warn(`触发器 ${name} 起会失败（插件 ${pluginId}）：${detail}`);
       return;
     }
-    // —— 提交首条输入（source=`plugin:<id>` 归因——05 §3.1 受控注入位）
-    const submitted = deps.stack.submitText(opened.sessionId, spec.prompt, { source: `plugin:${pluginId}` });
+    // —— 提交首条输入（source=`plugin:<id>` 归因——05 §3.1 受控注入位；车道随
+    //    起跑方声明位单源（04 §5 车道兑现笔 + 四役补笔）：trigger run 是后台
+    //    编排，与 tick 后台 run / run --background / 子代理 submit 同道同位恒置
+    //    background——桥接 llm/usage 记账进后台日池，起跑方自身消耗不再失明）
+    const submitted = deps.stack.submitText(opened.sessionId, spec.prompt, {
+      source: `plugin:${pluginId}`,
+      backgroundLane: true,
+    });
     if (submitted === undefined) {
       job.settle({ status: 'failed', detail: 'run 未起——会话驱动缺席' });
       deps.warn(`触发器 ${name} 提交失败：会话驱动缺席（插件 ${pluginId}）`);

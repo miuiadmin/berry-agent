@@ -451,4 +451,69 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     broadcast.dispose(); // 测试自收口
     await rt.shutdown();
   });
+
+  it('⑧ 车道兑现（修前红——04 §5 车道兑现笔射程勘正 + 四役补笔）：首跑与唤醒轮桥接落账 priority=background + 后台日池如实计入', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const afford = mutableAfford(true);
+    const factory = createIssueSessionFactory({
+      stack,
+      canAfford: afford.canAfford,
+      warn: () => {},
+      pollMs: 5,
+    });
+
+    // 带计量的 faux assistant（桥接窗扫的计量源——usage 非零可断言池计入面）
+    const metered = (input: number, output: number): PiAssistantMessage =>
+      ({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output },
+        stopReason: 'stop',
+        timestamp: 1,
+      }) as unknown as PiAssistantMessage;
+
+    // —— 首跑腿（runRound 首跑分支：source plugin:core:issue 不带唤醒位）——
+    faux.setResponses([() => metered(30, 12)]);
+    const first = await factory.startHeadless({ cwd: ws, prompt: '车道首跑', budgetMessages: 50, tools: [] });
+    expect((await settle(first.outcome)).status).toBe('completed');
+
+    // —— 唤醒腿（runRound 唤醒分支全路径：起跑前池尽停靠 → budget_extended
+    //    唤醒续跑同会话——backgroundWake:true 腿同置车道）——
+    afford.set(false);
+    faux.setResponses([() => metered(10, 5)]);
+    const second = await factory.startHeadless({ cwd: ws, prompt: '车道唤醒', budgetMessages: 50, tools: [] });
+    expect(await isPending(second.outcome)).toBe(true); // 停靠悬置（未 submit）
+    afford.set(true); // 日池恢复 → 广播件唤醒续跑
+    expect((await settle(second.outcome)).status).toBe('completed');
+
+    // 事件字面锁：两会话流 llm/usage 笔 priority = background（修前红锚：
+    // 起跑未声明车道 → 桥接 receipt.backgroundLane 恒 false → foreground——
+    // 起跑前池检/watchdog 与预警 ratio 消费的后台日池对 issue 自身消耗失明）
+    await rt.persistence.flush();
+    const pensOf = (sessionId: string): Record<string, unknown>[] =>
+      rt.persistence.store
+        .queryEvents({ sessionId, types: ['llm/usage'], sinceMs: 0 })
+        .events.map((e) => e.data as Record<string, unknown>);
+    const firstPens = pensOf(first.sessionId);
+    const secondPens = pensOf(second.sessionId);
+    expect(firstPens).toHaveLength(1);
+    expect(secondPens).toHaveLength(1);
+    for (const pen of [firstPens[0]!, secondPens[0]!]) {
+      expect(pen['priority']).toBe('background');
+      expect(String(pen['callId'])).toMatch(/^run:.+:\d+$/); // run 路桥接同源
+    }
+
+    // 消费面闭环：当日后台池如实计入（修前红锚：spent 恒 0；数值面与转抄笔
+    // 同源断言——faux 计量动态取转抄值，不硬编）
+    const ledgerTotal = [firstPens[0]!, secondPens[0]!].reduce((sum, pen) => {
+      const usage = pen['usage'] as { input: number; output: number };
+      return sum + usage.input + usage.output;
+    }, 0);
+    expect(stack.llm.backgroundUsage().spent).toBe(ledgerTotal);
+    expect(stack.llm.backgroundUsage().spent).toBeGreaterThan(0); // 计入面非零（主锁）
+    factory.dispose();
+    await rt.shutdown();
+  });
 });

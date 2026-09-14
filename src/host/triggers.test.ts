@@ -6,14 +6,22 @@
  * 交接/回滚与注销器守卫）；starter 真身 = 假栈 + 真 Job 注册表（受理帽执法与
  * 终态映射走真件，起会/提交窄面替身免建全栈）。
  */
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
+import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 import { BaseError } from '../contracts/index.js';
 import type { JobSettledEvent, SessionOrigin } from '../contracts/index.js';
 import type { ConversationDriver, SubmitOptions, SubmitResult } from '../conversation/index.js';
+import { fauxProvider } from '../llm/index.js';
 import { createJobRegistry } from '../subagent/index.js';
 import type { JobHandle } from '../subagent/index.js';
 import { TRIGGER_JOB_PARALLEL_LIMIT, TriggerRegistry, createTriggerStarterFactory } from './triggers.js';
 import type { TriggerDef, TriggerStackFace, TriggerStarter } from './triggers.js';
+import { createConversationStack } from './conversation-stack.js';
+import { createHostRuntime } from './runtime.js';
+import type { HostRuntime } from './runtime.js';
 // 错误码册注册腿（「import 发生才注册」——TRIGGER_ 两码断言的前置副作用）
 import './codes.js';
 
@@ -159,7 +167,7 @@ interface FakeCreateInit {
  */
 function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
   const creates: FakeCreateInit[] = [];
-  const submits: Array<{ sessionId: string; text: string; source?: string }> = [];
+  const submits: Array<{ sessionId: string; text: string; source?: string; backgroundLane?: boolean }> = [];
   const resolvers: Array<(result: SubmitResult) => void> = [];
   /** 逐会话假驱动（abort 计数——与 creates 序对应） */
   const drivers: Array<{ abortCount: number }> = [];
@@ -181,7 +189,12 @@ function makeFakeStack(mode: { submitUndefined?: boolean } = {}) {
       },
     },
     submitText(sessionId: string, text: string, options?: SubmitOptions & { source?: string }) {
-      submits.push({ sessionId, text, ...(options?.source !== undefined ? { source: options.source } : {}) });
+      submits.push({
+        sessionId,
+        text,
+        ...(options?.source !== undefined ? { source: options.source } : {}),
+        ...(options?.backgroundLane !== undefined ? { backgroundLane: options.backgroundLane } : {}),
+      });
       if (mode.submitUndefined === true) return undefined;
       return new Promise<SubmitResult>((resolve) => resolvers.push(resolve));
     },
@@ -251,7 +264,10 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
     // 编舞序：受理先于起会（fire 受理先过帽再起会话——帽满不造孤儿会话）
     expect(t.order).toEqual(['job', 'create']);
     expect(t.fake.creates).toEqual([{ origin: 'trigger', workspaceRoot: '/ws', title: '日报', model: 'm/x' }]);
-    expect(t.fake.submits).toEqual([{ sessionId: 's-1', text: '跑日报', source: 'plugin:acme' }]);
+    // 车道字面锁（修前红锚——04 §5 车道兑现笔射程勘正 + 四役补笔）：起跑
+    // submitText 恒声明 backgroundLane:true（trigger run 是后台编排）——修前
+    // 该键缺席（undefined）与本期望不等
+    expect(t.fake.submits).toEqual([{ sessionId: 's-1', text: '跑日报', source: 'plugin:acme', backgroundLane: true }]);
     expect(t.jobs.running()).toHaveLength(1); // run 未终态前在飞
     expect(t.jobs.running()[0]).toMatchObject({ kind: 'trigger', owner: 'acme', name: '日报' });
     t.fake.resolvers[0]!({ status: 'completed' });
@@ -398,5 +414,103 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
     expect(t.settled[0]!.entry.terminal?.detail).toContain('归属围栏收口');
     expect(t.warns.join('\n')).toContain('静默弃');
     expect(t.jobs.running()).toHaveLength(0); // 无孤儿在飞
+  });
+});
+
+/* ---------------- 车道兑现（真栈——04 §5 车道兑现笔射程勘正 + 四役补笔） ---------------- */
+
+/** 临时目录族（真盘真库形） */
+const laneDirs: string[] = [];
+afterAll(() => {
+  for (const d of laneDirs) rmSync(d, { recursive: true, force: true });
+});
+
+/** 新数据目录 + 真运行时速记（issue-session.test.ts 同款形） */
+function laneRigRuntime(): HostRuntime {
+  const dir = mkdtempSync(join(tmpdir(), 'triggers-lane-data-'));
+  laneDirs.push(dir);
+  return createHostRuntime({ dataDir: dir });
+}
+
+/** 带计量的 faux assistant（桥接窗扫的计量源——usage 非零可断言池计入面） */
+function laneMetered(input: number, output: number): PiAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'ok' }],
+    usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output },
+    stopReason: 'stop',
+    timestamp: 1,
+  } as unknown as PiAssistantMessage;
+}
+
+const laneSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 等条件真（有界轮询——starter 回执 fire-and-forget，Job 终态即 run 已结算） */
+async function laneUntil(cond: () => boolean, ms = 4000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > deadline) throw new Error('测试超时：条件未达成');
+    await laneSleep(10);
+  }
+}
+
+describe('starter 车道兑现（真栈——trigger 起跑 run 恒 background 道）', () => {
+  it('桥接落账 priority=background（修前红）+ 当日后台池如实计入（起跑方消耗不再失明）', async () => {
+    const rt = laneRigRuntime();
+    const ws = mkdtempSync(join(tmpdir(), 'triggers-lane-ws-'));
+    laneDirs.push(ws);
+    const faux = fauxProvider({ provider: 'faux-trigger', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-trigger/m1',
+      env: {},
+      workspace: () => ws,
+    });
+    const settled: JobSettledEvent[] = [];
+    const jobs = createJobRegistry({
+      emit: (e) => {
+        settled.push(e);
+      },
+      warn: () => {},
+    });
+    jobs.registerKind('trigger');
+    const starter = createTriggerStarterFactory({
+      stack, // 真栈（mock 只停在模型层——faux 走真实 streamFn/桥接/落账全链）
+      jobs,
+      getOpens: () => new Set(['triggers.start-run']),
+      workspaceRoot: () => ws,
+      warn: () => {},
+    })('acme', 'acme/daily');
+
+    faux.setResponses([() => laneMetered(30, 12)]);
+    starter({ prompt: '跑日报', title: '车道锁' });
+    // run 真起 + Job 终态映射链走完（settled 即 submit 回执已结算——桥接笔已落）
+    await laneUntil(() => jobs.running().length === 0);
+    expect(settled).toHaveLength(1);
+    expect(settled[0]!.entry.terminal).toMatchObject({ status: 'completed' });
+
+    // 事件字面锁：trigger 会话流 llm/usage 笔 priority = background
+    // （修前红锚：起跑 submitText 未声明车道 → 桥接 receipt.backgroundLane
+    // 恒 false → foreground——后台日池对 trigger 自身消耗失明即此读面不含本笔）
+    await rt.persistence.flush();
+    const row = stack.manager.list({}).find((r) => r.origin === 'trigger');
+    expect(row).toBeDefined();
+    const page = rt.persistence.store.queryEvents({
+      sessionId: row!.id,
+      types: ['llm/usage'],
+      sinceMs: 0,
+    });
+    expect(page.events).toHaveLength(1);
+    const pen = page.events[0]!.data as Record<string, unknown>;
+    expect(pen['priority']).toBe('background');
+    expect(String(pen['callId'])).toMatch(/^run:.+:\d+$/); // run 路桥接同源
+
+    // 消费面闭环：当日后台池如实计入（修前红锚：spent 恒 0；数值面与转抄笔
+    // 同源断言——不硬编计量值）
+    const ledger = pen['usage'] as { input: number; output: number };
+    expect(stack.llm.backgroundUsage().spent).toBe(ledger.input + ledger.output);
+    expect(stack.llm.backgroundUsage().spent).toBeGreaterThan(0);
+    await rt.shutdown();
   });
 });

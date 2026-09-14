@@ -234,7 +234,16 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
       watchdog.unref();
       let result: Awaited<ReturnType<typeof driver.submit>>;
       try {
-        result = await driver.submit(text, { source, ...(backgroundWake ? { backgroundWake: true } : {}) });
+        // 车道随起跑方声明位单源（04 §5 车道兑现笔 + 四役补笔——issue run 是
+        // 后台编排，与 tick 后台 run / run --background / 子代理 submit 同道
+        // 同位）：首跑与唤醒轮（backgroundWake 分支）全路径恒置 background——
+        // 桥接 llm/usage 记账进后台日池，起跑前池检/watchdog 与预警 ratio 消费
+        // 的池从此对 issue 自身消耗不再失明
+        result = await driver.submit(text, {
+          source,
+          backgroundLane: true,
+          ...(backgroundWake ? { backgroundWake: true } : {}),
+        });
       } catch (err) {
         // 驱动层永不抛（契约位）——防御收口：诚实 failed 不悬挂编排层
         running = false;
