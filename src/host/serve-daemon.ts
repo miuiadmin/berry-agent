@@ -84,23 +84,28 @@ interface IssueWebhookMountKit {
 
 /* ---------------- 足迹词面（02 数据域表 serve/ 行） ---------------- */
 
+// 四足迹词面常量 + 下方两时限常量均件内私有：全仓零外部消费（词面真值经
+// daemonPaths/probe 行为面测试锁定），export 关键字按「零消费 + API 快照
+// 不在册」死码判据摘除，不虚增模块公开面（DAEMON_CHILD_ENV 例外——main
+// 分派层与测试消费，维持导出）。
+
 /** daemon 三足迹所在子目录名（数据目录下） */
-export const SERVE_DIR_BASENAME = 'serve';
+const SERVE_DIR_BASENAME = 'serve';
 /** pid 登记文件名（status/stop 消费——uptime 报告源） */
-export const DAEMON_PID_BASENAME = 'daemon.pid';
+const DAEMON_PID_BASENAME = 'daemon.pid';
 /** Unix-domain socket 监听位文件名（HTTP 面缺省接入点） */
-export const DAEMON_SOCK_BASENAME = 'daemon.sock';
+const DAEMON_SOCK_BASENAME = 'daemon.sock';
 /** stderr 重定向日志文件名（token 披露位/崩溃取证面） */
-export const DAEMON_LOG_BASENAME = 'daemon.log';
+const DAEMON_LOG_BASENAME = 'daemon.log';
 
 /** child 身份 env 标记（不入 CLI 词面——防 spawn 递归） */
 export const DAEMON_CHILD_ENV = 'BERRY_AGENT_SERVE_DAEMON_CHILD';
 
 /** stop 升格 SIGKILL 窗（07 §5 落码定名批定值 10s） */
-export const STOP_SIGKILL_GRACE_MS = 10_000;
+const STOP_SIGKILL_GRACE_MS = 10_000;
 
 /** spawner 起活确认窗（裁量钉位——child 写 pid 登记才算起活） */
-export const SPAWN_CONFIRM_TIMEOUT_MS = 10_000;
+const SPAWN_CONFIRM_TIMEOUT_MS = 10_000;
 
 /** pid 登记记录形（与 active.json 同形异职——见件头分职注记） */
 export interface DaemonPidRecord {

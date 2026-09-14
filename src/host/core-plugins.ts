@@ -1225,10 +1225,9 @@ export interface GoalFace {
  * gates 接线形（ex 批真接线后）：workspaceRoot 真值 + exec seam 经
  * tryGet('exec') 服务面翻真（03 §10.5 ex 定形注：恒 workspace-write/无升权/
  * 30s 帽；exec 缺席时 hasCommandExec 判据拒照旧——诚实缺席律双拦维持）。
- * fail-closed 双拦，真接线随「exec 判据门真接线」立题批）+ lsp seam 接线真
- * 诊断面（批 19d 回补——queryDiagnostics 窄面，lsp 件缺席即缺席
- * fail-closed）；todo 换装 commandGateStatus 活查双位合取（f-1 已接线——
- * 申报位 seam→双位两档全拒文案分档）+ hasCommandExec/hasLsp 双在场判据。
+ * lsp seam 接线真诊断面（批 19d 回补——queryDiagnostics 窄面，lsp 件缺席
+ * 即缺席 fail-closed）；todo 换装 commandGateStatus 活查双位合取（f-1 已
+ * 接线——申报位 seam→双位两档全拒文案分档）+ hasCommandExec/hasLsp 双在场判据。
  *
  * 驱动侧接线三件（批 #99 兑现——预算刹停腿由 inert 转执法）：本件装载
  * agent_pre_step 复验监听（waterfall 链——budgetExceeded 现判置 stop，驱动

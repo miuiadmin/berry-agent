@@ -63,6 +63,24 @@ describe('三足迹与 pid 登记原语', () => {
     expect(p.logPath).toBe(join('/data', 'serve', 'daemon.log'));
   });
 
+  it('件内私有常量不进导出面（死码收口锁——六常量全仓零外部消费）', async () => {
+    // 六常量（足迹词面四件 + 两时限窗）export 关键字已按「零外部消费 + API
+    // 快照不在册」判据摘除——模块命名空间不应再出现这些键（防公开面回涨）。
+    const mod = await import('./serve-daemon.js');
+    for (const key of [
+      'SERVE_DIR_BASENAME',
+      'DAEMON_PID_BASENAME',
+      'DAEMON_SOCK_BASENAME',
+      'DAEMON_LOG_BASENAME',
+      'STOP_SIGKILL_GRACE_MS',
+      'SPAWN_CONFIRM_TIMEOUT_MS',
+    ]) {
+      expect(key in mod, `${key} 不应出现在模块导出面`).toBe(false);
+    }
+    // 对照组：真消费在场的面维持导出（main 分派层/测试消费族——防矫枉过正）
+    expect('DAEMON_CHILD_ENV' in mod).toBe(true);
+  });
+
   it('writeDaemonPid → probeDaemon 读回；clear 幂等双清', () => {
     const fs = memFs();
     const paths = daemonPaths('/data');
