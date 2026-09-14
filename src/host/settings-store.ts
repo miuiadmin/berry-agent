@@ -7,8 +7,9 @@
  * 持久位不覆盖逐次显式位（装配根做 gaps 填充，run-entry 只传显式胜者）。
  *
  * 两键面（本批定形）：`sandboxMode?` / `approvalPolicy?`——预设展开的持久
- * 缺省位；**非敏感件**（两旋钮无秘密，不入 SENSITIVE_READ_BASENAMES——
- * 模型可读面不设防，恰三件敏感清单测试锁不动）。
+ * 缺省位；**非敏感件**（两旋钮无秘密，不入 SENSITIVE_READ_DATA_PATHS——
+ * 模型可读面不设防，恰四件敏感清单测试锁不动；2026-09-14 五役 CL-1 集员
+ * 扩容 + 数组名自 BASENAMES 勘正后注笔随勘）。
  *
  * 读写纪律（与 tool-policy-store 同族——「文件即用户资产」律）：
  * - 读侧缺席 = {}（零负担首启）；文件级坏 JSON = warn 降级 {}（配置层坏形

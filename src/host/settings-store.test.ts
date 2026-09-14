@@ -120,7 +120,7 @@ describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）',
     // 原文件字节不动
     expect(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')).toBe('{broken');
   });
-  it('非敏感件自证：文件名不在 settings 面（SENSITIVE_READ_BASENAMES 恰三件锁不动——此例锁对面）', () => {
+  it('非敏感件自证：文件名不在 settings 面（SENSITIVE_READ_DATA_PATHS 恰四件锁不动——此例锁对面；2026-09-14 五役 CL-1 集员扩容注笔随勘）', () => {
     // settings.json 非敏感（两旋钮无秘密）——可读性自证：写后文件存在且可读
     const dir = tmpDir('settings-plain-');
     writeHostSettings(dir, { approvalPolicy: 'ask' });

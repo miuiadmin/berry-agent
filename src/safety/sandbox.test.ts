@@ -6,6 +6,7 @@
  * 的平台链冒烟面承担）；平台后端（seatbelt/bwrap）只测参数面纯函数。
  */
 import { describe, it, expect } from 'vitest';
+import { join } from 'node:path';
 import { BaseError } from '../contracts/index.js';
 import type { SandboxBackend } from './types.js';
 import {
@@ -26,6 +27,7 @@ import {
   requestEscalation,
 } from './index.js';
 import { createBwrapBackend } from './bwrap.js';
+import { canonicalPath } from './roots.js';
 import { sensitiveReadFiles, type SandboxPolicy } from './index.js';
 
 /** bwrap 基座参数字面量（测试侧期望形——tmpfs 恒第一条：顺序即正确性） */
@@ -412,6 +414,9 @@ describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②�
     const service = createSandboxService({ backends: [recorder], dataDir: '/data' });
     service.confine(['ls'], { mode: 'danger', workspaceRoot: '/ws' });
     expect(seen[0]!.denyReadFiles).toEqual(sensitiveReadFiles('/data')); // 单源派生注入
+    // CL-1（04 §7 五役笔）：daemon.log 子路径员随单源补位进 bash 读 deny——
+    // issue 会话 cat 即读的外泄链读腿在此腿封死（成员断言独立于同源 toEqual——修前红锚）
+    expect(seen[0]!.denyReadFiles).toContain(canonicalPath(join('/data', 'serve/daemon.log')));
     service.confine(['ls'], { mode: 'danger', workspaceRoot: '/ws', denyReadFiles: [] });
     expect(seen[1]!.denyReadFiles).toEqual([]); // 显式空数组 = 显式无读 deny
     const bare = createSandboxService({ backends: [recorder] }); // 无 dataDir（诊断形）
