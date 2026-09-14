@@ -516,4 +516,53 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     factory.dispose();
     await rt.shutdown();
   });
+
+  it('⑨ 停机窗 inject 回执 = 停靠保持（修前红——03 §10.7 五役定形补笔）：dismantle 态广播唤醒 → inject 收执 → paused-retain 非 failed', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const afford = mutableAfford(false); // 起跑前日池尽 → 停靠
+    const factory = createIssueSessionFactory({
+      stack,
+      canAfford: afford.canAfford,
+      warn: () => {},
+      pollMs: 5,
+    });
+
+    faux.setResponses([() => messageOf('不应起跑')]); // 若误起跑即露馅（inject 不起 run 零消费）
+    const { sessionId, outcome } = await factory.startHeadless({
+      cwd: ws,
+      prompt: '停机窗任务',
+      budgetMessages: 50,
+      tools: [],
+    });
+    expect(await isPending(outcome)).toBe(true); // 停靠成立（outcome 悬置）
+    const driver = stack.manager.driverOf(sessionId)!; // 停靠态捕获（dismantle 后 driverOf 缺席——断言面持引用）
+
+    // 停机 closer drain 窗复刻（装配根注册序即 drain 序的真窗）：conversation-
+    // manager closer 已跑（全量 dismantle——driver 停摆）而 budget-broadcast
+    // closer 未跑（工厂私有广播件仍活）——正是两 closer 之间的窗
+    stack.manager.dispose();
+    expect(driver.dismantled).toBe(true);
+
+    // 窗内电平翻真：广播 watcher 唤醒停靠项 → runRound 起跑 → dismantle 态
+    // driver.submit 经 inject 通道（04 §4 三通道路由单源）返 {status:'injected'}
+    // ——只落 durable 账不起 run
+    afford.set(true);
+    const result = await settle(outcome);
+    // 修前红锚：此形落 failed『提交未起跑（injected——理论不达防御位…）』
+    // → issue 服务 failed 收口 = worktree clean + 失败回执——丢失停靠保留
+    // 语义；修后 = paused-retain（worktree 与授予保留、orphanScan 再入——
+    // issue 服务 paused 分现成承载）
+    expect(result.status).toBe('paused');
+    expect(result.status === 'paused' && result.reason).toContain('停靠保留');
+    // 唤醒输入非丢失（规范笔「随下次启动带入」）：inject 通道 durable 落账
+    // user/message（source 'budget-extended'——下次启动 timeline 重播种带入）
+    const injected = driver.session
+      .events()
+      .find((e) => (e.data as { source?: string } | undefined)?.source === 'budget-extended');
+    expect(injected?.type).toBe('user/message');
+    factory.dispose();
+    await rt.shutdown();
+  });
 });

@@ -33,7 +33,10 @@
  * 停机收口（dispose）：停靠项 resolve paused（03 §10.7 paused 分支的生产
  * 承载——retain 语义：worktree 归 orphanScan 标注、重轮询再入走让位序）；
  * 在飞 run 不强收（宿主 conversation-manager closer 的 dismantle 打断在飞
- * run → aborted → 本层自然收口 failed）。
+ * run → aborted → 本层自然收口 failed）；停机 closer drain 窗内（manager
+ * 已 dismantle、broadcast 未 dispose——注册序即 drain 序的窗）广播唤醒的
+ * inject 收执同笔 paused-retain（03 §10.7 五役定形补笔——runRound injected
+ * 分支注）。
  */
 import type { EventSource, ToolDefinition } from '../contracts/index.js';
 import type { IssueSessionFace, IssueSessionStartResult, IssueRunOutcome } from '../issue/index.js';
@@ -294,15 +297,28 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
         finish({ status: 'failed', messagesUsed: used, reason: 'run 被外部中止' });
         return;
       }
-      // injected / wake-refused（通道收执形）：活体 driver 提交 injected 理论
-      // 不达；wake-refused 真实可达（连续后台唤醒超帽——鲸鱼任务诚实边界）
+      // wake-refused（通道收执形——真实可达）：连续后台唤醒超帽（鲸鱼任务诚实
+      // 边界，与停机窗无关）——诚实 failed 收口（04 §4 maxConsecutiveWakes=3）
+      if (result.status === 'wake-refused') {
+        finish({
+          status: 'failed',
+          messagesUsed: used,
+          reason: '连续后台唤醒超帽（04 §4 maxConsecutiveWakes=3——鲸鱼任务跨 4 个日池窗，需人工介入或提额）',
+        });
+        return;
+      }
+      // injected（停机窗 inject 通道——真实可达，原注「理论不达」系勘正对象：
+      // 03 §10.7 五役定形补笔）：停机 closer drain 窗内（装配根注册序即 drain
+      // 序——conversation-manager 已 dismantle、budget-broadcast 未 dispose 的
+      // 窗）广播 watcher 唤醒停靠项，dismantle 态 driver.submit 经 inject 通道
+      // （04 §4 三通道路由）只落 durable 账不唤醒 run。此形停靠保持 =
+      // paused-retain：failed 收口会触发 issue 服务 worktree clean + 失败回执，
+      // 丢失停靠保留语义（本应 worktree/授予保留归 orphanScan 重入）；唤醒输入
+      // 已随 inject 通道 durable 落账（user/message），下次启动 timeline 重播种
+      // 带入非丢失——与 goal 面广播唤醒停机防御（run 未起即停靠保持）同律
       finish({
-        status: 'failed',
-        messagesUsed: used,
-        reason:
-          result.status === 'wake-refused'
-            ? '连续后台唤醒超帽（04 §4 maxConsecutiveWakes=3——鲸鱼任务跨 4 个日池窗，需人工介入或提额）'
-            : `提交未起跑（${result.status}——理论不达防御位，诚实回执）`,
+        status: 'paused',
+        reason: '提交未起跑（停机窗 inject 通道——停靠保留：worktree 与授予归 orphanScan 再入，唤醒输入随下次启动带入）',
       });
     };
 
