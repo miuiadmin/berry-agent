@@ -37,4 +37,4 @@ title: ''
 
 2. 数据目录（缺省 `~/.berry-agent/`，可用 `BERRY_AGENT_DATA_DIR` 重定位）
    中的报错现场：如有 `enabled.yaml` 手改历史或插件刚装/刚卸，请一并说明；
-3. 涉及插件时：`berry plugins` 的输出（装载态清单）。
+3. 涉及插件时：`berry plugins list` 的输出（装载态清单）。

@@ -29,7 +29,7 @@
 | `conversation` | 对话组合域（ConversationDriver、三通道路由、todo 机器）                              |
 | `host`         | 装配根（CLI 解析/分派、运行时组装、插件装载、五个入口）                              |
 
-### core: 官方插件 16（随包出厂、默认启用可禁用；id 以 `core:` 前缀，经同一插件装载面装配——第一方无私有车道）
+### core: 官方插件 16（随包出厂；15 件默认启用可禁用，`core:issue` 需 `enabled.yaml` 配 `config` 才装载；id 以 `core:` 前缀，经同一插件装载面装配——第一方无私有车道）
 
 | 插件               | 能力                                                                                                                                                                                                                          |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -67,7 +67,7 @@ bin (berry) → host/main
 要点：
 
 - **单活跃机**：同一数据目录同一时刻恰一活跃进程（`active.json` 标记 + pid 判活，死 pid 自动接管）；
-- **插件装载**：core: 注册表内置全启 + `enabled.yaml` 用户行覆盖；Kahn 轮次按 `ctx.provide` 依赖解锁排序；装载失败三档（跳过 / 降级 / 拒启）分立；
+- **插件装载**：core: 注册表内置全启（例外 `core:issue`——缺省无 `config` 即零装载）+ `enabled.yaml` 用户行覆盖；Kahn 轮次按 `ctx.provide` 依赖解锁排序；装载失败三档（跳过 / 降级 / 拒启）分立；
 - **`:memory:` 同构纪律**：诊断命令与真实入口走同一装配序真源（`assembleHostStack`），防侧门件；
 - **退出码三态**：0 成功 / 1 执行失败 / 2 环境态误用（用法错、非 TTY）。
 
@@ -85,7 +85,7 @@ bin (berry) → host/main
 
 - **TUI（主界面）**：`channels` 内自研栈——渲染引擎（diff 帧管线、xterm oracle 互证）、输入解码（kitty 推栈、bracketed paste、鼠标 SGR 1006 + X10 降级链）、编辑器（fish 式 undo、IME）、Markdown 件、副屏族（`/history` 回看器、`/memory` 记忆管理面——副屏滚轮滚动 + 线性选区 OSC 52 复制；主对话面 v1 不消费鼠标）；
 - **Web 界面（`--port` 开面）**：`core:webui` SPA + REST/SSE，经 `core:sdk` HTTP 面的路由扩展位挂载——恒回环、token 鉴权、三防线（Host/Origin/回环判定）；预算停靠态（`session/paused`）v1 不进 Web 呈现面——停靠/唤醒的可见位 = TUI 命令族与模型工具 `session_list`；
-- **SDK**：`berry-agent-sdk` npm 包（spawn stdio / 直连 HTTP 两传输）+ MCP 包装形态——自动化通道的完整契约面；
+- **SDK**：类型化 TypeScript 客户端（spawn stdio / 直连 HTTP 两传输）+ MCP 包装形态——自动化通道的完整契约面；SDK 源码在仓内 `packages/berry-agent-sdk`，`berry-agent-sdk` npm 包随 beta 落地、当前未发布；
 - **信封路由**：多 backend 并存（TUI + Web 同时在场），按 sessionId 各投各；审批（ask/decide）跨入口裁决，先 settle 者胜。
 
 ## 安全模型

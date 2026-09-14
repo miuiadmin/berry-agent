@@ -98,7 +98,7 @@ docs/                   公开文档面（本五册）
 
 ## API 治理面
 
-`tools/check-api.mjs` 执法 API 面快照（`emit-api-decls` 随 build 链再生）——公开面变更须随批同步快照；apiVersion 语义与破坏性变更立场见[架构总览](./architecture.md)。
+`tools/check-api.mjs` 执法 API 面快照（`emit-api-decls` 随 build 链再生）——公开面变更须随批同步快照。
 
 ## 贡献流程
 
