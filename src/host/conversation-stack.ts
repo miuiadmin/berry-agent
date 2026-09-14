@@ -321,16 +321,23 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     }
     return spentCached;
   };
-  // 计量写位粘滞持有（04 §5 mq 定形注补律——mq-3 收口锁批）：run settle 钩子
-  // 观测活体日志即存档；onUsage 解析序 = 活体 → 粘滞持有 → detached 铸新。
+  // 计量写位粘滞持有（04 §5 mq 定形注补律——mq-3 收口锁批 + 四役 mq-2 勘正）：
+  // 持有入位随会话驱动创建/开（createDriver 工厂 seam——manager create/open/fork
+  // 共尾 adopt 均经此，创建即持）；settle 观测逐次刷新取最新活体；onUsage 解析序
+  // = 活体 → 粘滞持有 → detached 铸新。
   // 病灶（compaction 链 e2e 抓获）：onUsage 回调期才解析目标日志时，「会话
   // 退役落在 complete 在飞窗内」（shutdown closer 序 conversation-manager
   // dispose 先于 compaction-drain；单会话 retire 同窗）→ driverOf 转
   // undefined → loadSession 从滞后的库（write-behind 队列未冲刷）铸第二内存
   // 日志——per-session seq 双计数器撞车 = PERSIST_DATA_CORRUPT 写序违约。
+  // mq-2 勘正：settle 观测补持有存在「首 run 在飞、尚无被观测 settle 即退役」
+  // 窗（retire/dispose 同步摘登记后 settle 通知必经早退分支，hold 永不落；goal
+  // 沉淀单发恰在 run 组装期发起、无先导 settle）——「见过活体」的认定时点 =
+  // 驱动创建/开期即算，创建即持补齐该窗；本进程创建/开过的会话，其车道日志
+  // 解析永不经 detached 铸新腿（活体或持有常在）。
   // 单追加者律（一会话同一时刻至多一个可追加日志对象）：持有在场 = 同对象
   // 同计数器，append 续既有写队列尾、序不破；「从未见过活体」（跨进程/从未
-  // run）才铸新——该会话本进程队列必空，安全。持有不驱逐（v1 有意边界：
+  // 开驱动）才铸新——该会话本进程队列必空，安全。持有不驱逐（v1 有意边界：
   // 驱逐安全需「队列已冲刷 ∧ 无外部日志引用」双判据，后者不可判定）。
   const meteringLogHold = new Map<string, SessionLog>();
   const llm = createLlmService({
@@ -364,7 +371,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         options.runtime.persistence.loadSession(metering.sessionId).log;
       log.append('llm/usage', {
         callId: result.callId,
-        model: modelSpec,
+        // model 实录优先（05 §1.1）：响应自带 provider+model 拼全形（网关改道
+        // 场景请求标识与实录分叉——实录入账），缺席回落请求标识 modelSpec
+        model: ledgerModelOf(result.message.provider, result.message.model, modelSpec),
         usage: usageBucketsOf(result.usage),
         priority: result.priority,
         elapsedMs: result.elapsedMs,
@@ -390,17 +399,21 @@ export function createConversationStack(options: ConversationStackOptions): Conv
    * llm/usage（真源仍是 assistant 落账位——桥接投影零改写；05 §1.1 表注）。
    * callId `run:<sid>:<seq>`（与 run CLI 旧桥接同形平移零迁移）；priority 随
    * run 级 backgroundLane（「前台花销照入账」就此收口——TUI/webui/issue/SDK
-   * /run CLI 五入口统一）。run-entry --background 块与 scheduler-tick
-   * recordBackgroundUsage 两处旧扫已退役（同窗同键防双计）。
+   * /run CLI 五入口统一）。model 实录优先同律（05 §1.1）：载荷自带
+   * provider+model 拼全形、缺席回落请求标识。run-entry --background 块与
+   * scheduler-tick recordBackgroundUsage 两处旧扫已退役（同窗同键防双计）。
    */
   const bridgeUsageLedger = (log: SessionLog, modelSpec: string, receipt: RunSettledReceipt): void => {
     for (const event of log.events()) {
       if (event.seq <= receipt.seqFromLaunch || event.type !== 'assistant/message') continue;
-      const usage = (event.data as { usage?: Usage }).usage;
+      const data = event.data as { usage?: Usage; provider?: string; model?: string };
+      const usage = data.usage;
       if (usage === undefined) continue; // 无计量不造零账
       log.append('llm/usage', {
         callId: `run:${receipt.sessionId}:${event.seq}`,
-        model: modelSpec,
+        // model 实录优先（05 §1.1——与 complete 路 onUsage 同律）：载荷自带
+        // provider+model 拼全形（响应实录随事件落位），缺席回落请求标识
+        model: ledgerModelOf(data.provider, data.model, modelSpec),
         usage: usageBucketsOf(usage),
         priority: receipt.backgroundLane ? 'background' : 'foreground',
       } satisfies LlmUsageEventData);
@@ -512,6 +525,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     extraTools,
   }) => {
     const sessionId = session.sessionId;
+    // 粘滞持有入位前移（04 §5 mq-2 勘正——四役漏扫修复批）：「见过活体」自
+    // 驱动创建/开期即算——manager create/open/fork 共尾 adopt 均经本工厂，
+    // 创建即持，补齐「首 run 在飞、尚无被观测 settle 即退役」窗（该窗
+    // live/hold 双空 → onUsage 走 detached loadSession 从滞后库铸第二内存
+    // 日志 = per-session seq 双计数器撞车；goal 沉淀单发恰在 run 组装期发起、
+    // 无先导 settle 同窗）。settle 观测保留「逐次刷新取最新活体」既有语义
+    //（onRunSettled 订阅位）；持有不驱逐（v1 有意边界不变——头注见上）。
+    meteringLogHold.set(sessionId, session);
     // 审批桥：driver 与 open 域工具共用同一 per-session ask 面（07 §4.3 提问队列）；
     // 工厂注入覆盖在场时胜出（委派边界①——子会话审批落父会话呈现面，04 §10）
     const askFace =
@@ -789,6 +810,17 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       return { ...created, resumed: false, workspaceRoot };
     },
   };
+}
+
+/**
+ * llm/usage 记账 model 字段解析（05 §1.1「model 实录优先」——四役漏扫修复批
+ * mq-3）：响应自带 provider+model 双真值在场 → 拼全形 'provider/model'（仓内
+ * 全形惯例——llm/model-id.ts formatModelId 同形；网关改道场景请求标识与响应
+ * 实录分叉，实录入账）；任一缺席（含空串）→ 回落请求标识兜底——半形不拼，
+ * 缺席就诚实记请求标识。
+ */
+function ledgerModelOf(provider: string | undefined, model: string | undefined, fallback: string): string {
+  return provider && model ? `${provider}/${model}` : fallback;
 }
 
 /**

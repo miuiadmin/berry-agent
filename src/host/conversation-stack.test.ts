@@ -9,7 +9,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
+import {
+  createAssistantMessageEventStream,
+  type AssistantMessage as PiAssistantMessage,
+  type AssistantMessageEventStream,
+  type Provider,
+} from '@earendil-works/pi-ai';
 
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import { materializeHostFace } from '../contracts/api.js';
@@ -1108,6 +1113,53 @@ describe('lane 帽闸件（04 §4——m-2）', () => {
 
 /* ---------------- 预算读面接线 + usage 桥接单点（04 §5——2026-09-13 复盘修复 #41/#44） ---------------- */
 
+/**
+ * 网关改道形 provider 包装（mq-3 回归锁场——05 §1.1「model 实录优先」）：全权
+ * 委派 faux（目录/auth/事件流原样），仅把终态报文上的 provider/model 改写为
+ * 网关实录——复现「请求标识 ≠ 响应实录」的网关改道场景（请求按 'faux-stack/m1'
+ * 解析路由、网关内部改道后响应实录另一标识）。faux 原生 cloneMessage 会把
+ * provider/model 强写回请求值，故经本包装在出口改写。
+ */
+function gatewayRewriteProvider(
+  faux: ReturnType<typeof fauxProvider>,
+  reported: { provider: string; model: string },
+): Provider {
+  const base = faux.provider;
+  /** 终态 assistant 报文改写实录位（非 assistant 形透传——防御位） */
+  const rewrite = (message: unknown): unknown =>
+    (message as { role?: string } | undefined)?.role === 'assistant'
+      ? { ...(message as object), provider: reported.provider, model: reported.model }
+      : message;
+  /**
+   * 事件流包装：终态 done 事件改写报文实录（start/partial 族透传——只有终值
+   * 进记账面）。注意根包的 AssistantMessageEventStream 类名经 types.ts 型
+   * 再出口为 type-only——实例化走官方 createAssistantMessageEventStream 工厂
+   * （"for use in extensions" 的值出口）。
+   */
+  const wrapStream = (stream: AssistantMessageEventStream): AssistantMessageEventStream => {
+    const out = createAssistantMessageEventStream();
+    void (async () => {
+      for await (const event of stream) {
+        if (event.type === 'done') {
+          out.push({ ...event, message: rewrite((event as { message?: unknown }).message) } as typeof event);
+        } else {
+          out.push(event);
+        }
+      }
+      // done 事件 push 已解析终值；end 兜底迭代未产 done 的防御形（幂等无害）
+      out.end(rewrite(await stream.result()) as PiAssistantMessage);
+    })();
+    return out;
+  };
+  // createProvider 产物是闭包方法对象（无 this 依赖）——spread 委派安全，仅覆写两流入口
+  const wrapped: Provider = {
+    ...base,
+    stream: (model, context, options) => wrapStream(base.stream(model, context, options)),
+    streamSimple: (model, context, options) => wrapStream(base.streamSimple(model, context, options)),
+  };
+  return wrapped;
+}
+
 describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
   /** 带计量的 faux assistant 消息（桥接窗扫的计量源——usage 非零可断言数值面） */
   const meteredMessage = (input: number, output: number): PiAssistantMessage =>
@@ -1260,13 +1312,16 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     await rt.shutdown();
   });
 
-  it('单发计量：会话退役后 detached loadSession 仍落账（写路径律活体优先——04 §5 mq）', async () => {
+  it('单发计量：会话退役后粘滞持有仍落账（settle 观测持有在场——写路径律 04 §5 mq）', async () => {
     const { rt } = rigRuntime();
     const { faux, stack } = rigStack(rt);
     const ws = rigWorkspace();
     const session = stack.openStartupSession(ws);
-    await stack.submitText(session.sessionId, '先跑一轮'); // 会话行落库（loadSession 可载）
+    // 先跑一轮：会话行落库 + settle 观测已把活体日志入持有——本例实走粘滞
+    // 持有腿（词面与实走腿一致；detached 铸新腿形归跨进程形例，见下例）
+    await stack.submitText(session.sessionId, '先跑一轮');
     await rt.persistence.flush();
+    const loadSpy = vi.spyOn(rt.persistence, 'loadSession');
     stack.manager.retire(session.sessionId); // 摘活体 → driverOf undefined
     faux.setResponses([() => meteredMessage(20, 10)]);
     await stack.llm.complete({
@@ -1275,14 +1330,160 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
       metering: { sessionId: session.sessionId },
     });
     await rt.persistence.flush();
-    // detached 腿落账 durable 可查（loadSession.log append 直通写队列）。
-    // 同流还有先跑轮 run 路桥接笔（callId 'run:' 前缀）——按 callId 形区分
+    // 腿身份钉死：持有在场 → loadSession 铸新腿零调用（live 缺席解析走持有
+    // 对象——append 直通既有写队列，durable 可查）。同流还有先跑轮 run 路
+    // 桥接笔（callId 'run:' 前缀）——按 callId 形区分
+    expect(loadSpy).not.toHaveBeenCalled();
     const page = rt.persistence.store.queryEvents({ sessionId: session.sessionId, types: ['llm/usage'], sinceMs: 0 });
     const singles = page.events.filter(
       (e) => !String((e.data as Record<string, unknown>)['callId']).startsWith('run:'),
     );
     expect(singles).toHaveLength(1);
     expect((singles[0]!.data as Record<string, unknown>)['priority']).toBe('background');
+    await rt.shutdown();
+  });
+
+  it('单发计量：零 run 会话退役后解析走粘滞持有、loadSession 铸新腿零调用（mq-2 修前红——首-run-在飞窗 live/hold 双空）', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    const { faux, stack } = rigStack(rt, { warn: (m) => warns.push(m) });
+    const ws = rigWorkspace();
+    // 零 run 即退役 = 「首 run 在飞、尚无被观测 settle 即退役」窗的等价触发
+    //（goal 沉淀单发恰在 run 组装期发起、无先导 settle——goalDeposit 同窗形）：
+    // 修前持有只在 settle 观测落位 → live/hold 双空；修后创建/开期即持
+    const session = stack.openStartupSession(ws);
+    const loadSpy = vi.spyOn(rt.persistence, 'loadSession');
+    stack.manager.retire(session.sessionId); // dismantle + 摘登记 → driverOf undefined
+    faux.setResponses([() => meteredMessage(20, 10)]);
+    const result = await stack.llm.complete({
+      messages: [{ role: 'user', content: '退役后', timestamp: Date.now() }],
+      priority: 'background',
+      metering: { sessionId: session.sessionId },
+    });
+    // 解析走持有：detached loadSession 铸新腿零调用（修前红锚——当前双空必经
+    // loadSession；零 run 会话行未落库时该调用直接抛 PERSIST_DATA_CORRUPT →
+    // 丢账仅 warn）
+    expect(loadSpy).not.toHaveBeenCalled();
+    // 笔落既有日志：创建期持有 = 同对象同计数器（无第二日志、无 seq 撞车）
+    const usageEvents = session.driver.session.events().filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(1);
+    expect((usageEvents[0]!.data as Record<string, unknown>)['callId']).toBe(result.callId);
+    // 无丢账可观测（修前：onUsage 回调内抛 → onUsageError 交接 warn 在场）
+    expect(warns.some((w) => w.includes('丢账'))).toBe(false);
+    await rt.shutdown();
+  });
+
+  it('单发计量：跨进程形 detached loadSession 铸新腿仍落账（从未见过活体——test/mq-1 补锁）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'stack-data-'));
+    dirs.push(dir);
+    const ws = rigWorkspace();
+    // 栈 A：持久 dataDir 跑一轮落会话行后完整 shutdown（write-behind 冲刷在内）
+    const rt1 = createHostRuntime({ dataDir: dir });
+    const rig1 = rigStack(rt1);
+    const first = rig1.stack.openStartupSession(ws);
+    rig1.faux.setResponses([() => meteredMessage(30, 12)]);
+    await rig1.stack.submitText(first.sessionId, '第一轮');
+    await rt1.shutdown();
+    // 栈 B：同 dataDir 新建——hold 空（本进程未创建/开过该会话驱动）、driverOf
+    // 空 = 「从未见过活体」形，解析必经 detached loadSession 铸新腿
+    const rt2 = createHostRuntime({ dataDir: dir });
+    const rig2 = rigStack(rt2);
+    const loadSpy = vi.spyOn(rt2.persistence, 'loadSession');
+    rig2.faux.setResponses([() => meteredMessage(8, 3)]);
+    const result = await rig2.stack.llm.complete({
+      messages: [{ role: 'user', content: '跨进程记账', timestamp: Date.now() }],
+      priority: 'background',
+      metering: { sessionId: first.sessionId },
+    });
+    // 真走 detached 腿：loadSession 被调（铸新内存日志对象——该会话本进程写
+    // 队列必空，铸新安全）
+    expect(loadSpy).toHaveBeenCalled();
+    await rt2.persistence.flush();
+    // durable 落账可查：单发笔在场（callId 非 'run:' 前缀——同流另有栈 A 的
+    // run 路桥接笔，按 callId 形区分）
+    const page = rt2.persistence.store.queryEvents({ sessionId: first.sessionId, types: ['llm/usage'], sinceMs: 0 });
+    const singles = page.events.filter(
+      (e) => !String((e.data as Record<string, unknown>)['callId']).startsWith('run:'),
+    );
+    expect(singles).toHaveLength(1);
+    expect((singles[0]!.data as Record<string, unknown>)['callId']).toBe(result.callId);
+    await rt2.shutdown();
+  });
+
+  it('llm/usage model 实录优先：complete 响应自带网关实录拼全形入账（mq-3 修前红——当前恒请求标识）', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    // 网关改道形：请求标识 'faux-stack/m1' 照常解析路由，响应报文实录
+    // 'gw-x/actual'（≠ 请求标识——网关内部改道，账面失真场景复现）
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [gatewayRewriteProvider(faux, { provider: 'gw-x', model: 'actual' })],
+      model: 'faux-stack/m1',
+      env: {},
+    });
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => meteredMessage(12, 4)]);
+    await stack.llm.complete({
+      messages: [{ role: 'user', content: '单发', timestamp: Date.now() }],
+      priority: 'foreground',
+      metering: { sessionId: session.sessionId },
+    });
+    const usageEvents = stack
+      .driverOf(session.sessionId)!
+      .session.events()
+      .filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(1);
+    // 实录全形字面断言（05 §1.1「响应自带 provider+model 拼全形」——修前红锚：
+    // 当前恒记请求标识 'faux-stack/m1'，网关改道场景账面失真）
+    expect((usageEvents[0]!.data as Record<string, unknown>)['model']).toBe('gw-x/actual');
+    await rt.shutdown();
+  });
+
+  it('llm/usage model 实录优先：桥接路载荷自带 provider/model 拼全形、缺席回落请求标识（mq-3 修前红）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    // 在飞窗挂起：run 起跑（seqFromLaunch 已捕获）后向活体日志注入一条载荷
+    // 自带网关实录的 assistant/message，再放行真响应——两条同窗各成一笔
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    faux.setResponses([async () => await gate.then(() => meteredMessage(15, 6))]);
+    const runP = stack.submitText(session.sessionId, '问');
+    await vi.waitFor(() => {
+      // 首请求已发出（挂起中）且 turn 已起拍——注入事件必落桥接窗 (seqFromLaunch, settle]
+      expect(faux.state.callCount).toBe(1);
+      expect(
+        stack
+          .driverOf(session.sessionId)!
+          .session.events()
+          .some((e) => e.type === 'turn/start'),
+      ).toBe(true);
+    });
+    const synthetic = stack.driverOf(session.sessionId)!.session.append('assistant/message', {
+      content: [],
+      usage: { input: 9, output: 4, cacheRead: 0, cacheWrite: 0 },
+      stopReason: 'stop',
+      provider: 'gw-x',
+      model: 'actual',
+    });
+    openGate();
+    await expect(runP).resolves.toMatchObject({ status: 'completed' });
+
+    const ledger = new Map<string, string>();
+    for (const event of stack.driverOf(session.sessionId)!.session.events()) {
+      if (event.type !== 'llm/usage') continue;
+      const data = event.data as Record<string, unknown>;
+      ledger.set(String(data['callId']), String(data['model']));
+    }
+    // 实录条：载荷自带 provider+model → 拼全形（修前红锚：当前恒 'faux-stack/m1'）
+    expect(ledger.get(`run:${session.sessionId}:${synthetic.seq}`)).toBe('gw-x/actual');
+    // 缺席条（真响应落账不带 provider/model）→ 回落请求标识（05 §1.1 兜底律）
+    const others = [...ledger.entries()].filter(([callId]) => callId !== `run:${session.sessionId}:${synthetic.seq}`);
+    expect(others).toHaveLength(1);
+    expect(others[0]![1]).toBe('faux-stack/m1');
     await rt.shutdown();
   });
 
