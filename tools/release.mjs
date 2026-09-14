@@ -564,6 +564,12 @@ async function runSmoke(tarballPath, version, coreIds) {
     if (inst.status !== 0)
       return { ok: false, failures: ['临时 prefix 安装失败：' + (inst.stderr ?? '').split('\n')[0]] };
     const env = { ...process.env, BERRY_AGENT_DATA_DIR: join(smokeDir, 'data') };
+    // ⓪ bin 目录恰只含 berry（零旧名双键回归锁——2026-09-14 bin 改裁审计补：单键时
+    // 安装位天然只生成 berry，但若未来把 berry-agent 塞回 bin 双键，仅 spawn berry 的
+    // ①② 断言不会红——此处点名安装位内容恰为 ['berry'] 锁死回归面）
+    const binEntries = readdirSync(join(prefix, 'bin')).sort();
+    if (JSON.stringify(binEntries) !== JSON.stringify(['berry']))
+      failures.push(`安装位 bin 目录非恰含 berry：[${binEntries.join(', ')}]`);
     // ① --version：退出码 0 + 结构前缀断言（防 semver 前缀吞 prerelease 漂移）+ 与真值全等
     const ver = spawnSync(join(prefix, 'bin', 'berry'), ['--version'], { encoding: 'utf8', env });
     const verOut = (ver.stdout ?? '').trim();

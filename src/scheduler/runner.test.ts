@@ -97,14 +97,16 @@ describe('spawn 请求形', () => {
 
   it('buildArgv 可注入换形（装配批可换）；env 透传', async () => {
     const { spawn, children } = fakeSpawn();
+    // 注入命令名取新 bin 名（与生产缺省 'berry' 同代——2026-09-14 bin 改裁审计观感统一；
+    // 本例锁「依赖注入的命令名被原样采用」，注入值任意选皆可）
     const runner = factory(spawn, {
-      command: '/abs/berry-agent',
+      command: '/abs/berry',
       buildArgv: (row, trigger) => ['go', row.name, trigger],
       env: { BERRY_AGENT_DATA_DIR: '/data' },
     });
     const handle = await runner.spawn({ row: rowOf('x'), trigger: 'cron', wallTimeoutMs: 1000 });
     const [cmd, argv, options] = spawn.mock.calls[0] as unknown as [string, string[], { env?: Record<string, string> }];
-    expect(cmd).toBe('/abs/berry-agent');
+    expect(cmd).toBe('/abs/berry');
     expect(argv).toEqual(['go', 'x', 'cron']);
     expect(options.env).toEqual({ BERRY_AGENT_DATA_DIR: '/data' });
     children[0]!.emit('close', 0, null);

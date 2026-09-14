@@ -100,7 +100,9 @@ describe('OS 注册器编舞（execCrontab 假件）', () => {
     fake: { execCrontab: CronBackendDeps['execCrontab'] },
     extra: Partial<CronBackendDeps> = {},
   ): CronBackendDeps {
-    return { execCrontab: fake.execCrontab, authorize: () => true, command: '/usr/local/bin/berry-agent', ...extra };
+    // 注入命令名取新 bin 名（与生产缺省 'berry' 同代——2026-09-14 bin 改裁审计观感统一；
+    // 缺省路径另有专例直构不注入 command 锁住，见下「缺省命令名」用例）
+    return { execCrontab: fake.execCrontab, authorize: () => true, command: '/usr/local/bin/berry', ...extra };
   }
 
   it('register：他人行保留 + 自有条目挂尾（标记判据）', () => {
@@ -109,9 +111,20 @@ describe('OS 注册器编舞（execCrontab 假件）', () => {
     reg.register(rowOf({ kind: 'daily', time: '09:30' }, 'daily-review'));
     expect(exec.writes).toHaveLength(1);
     expect(exec.writes[0]).toContain('0 9 * * * echo morning'); // 他人行保留
-    expect(exec.writes[0]).toContain('30 9 * * * /usr/local/bin/berry-agent run --read-only --tick daily-review');
+    expect(exec.writes[0]).toContain('30 9 * * * /usr/local/bin/berry run --read-only --tick daily-review');
     expect(exec.writes[0]).toContain(cronMarker('daily-review'));
     expect(exec.writes[0]?.endsWith('\n')).toBe(true);
+  });
+
+  it('register：缺省命令名 = berry（bin 改裁缺省锁——不注入 command 即走生产缺省）', () => {
+    const exec = fakeCrontab({});
+    // 直构 deps 不带 command 键——触发生产缺省（cron-backend.ts `deps.command ?? 'berry'`）；
+    // 2026-09-14 bin 改裁审计补锁：此前全部用例经 depsWith 注入绕开缺省分支，
+    // 缺省被误改回旧名或误拼时四门禁不红
+    const reg = createOsCronRegistrar({ execCrontab: exec.execCrontab, authorize: () => true });
+    reg.register(rowOf({ kind: 'daily', time: '09:30' }, 'default-cmd'));
+    expect(exec.writes[0]).toContain(' berry run --read-only --tick default-cmd');
+    expect(exec.writes[0]).not.toContain('berry-agent run'); // marker `# berry-agent:` 是值位不受此断言影响
   });
 
   it('register：空 crontab 直挂单行；重复 register 同名替换不叠行', () => {
@@ -125,6 +138,10 @@ describe('OS 注册器编舞（execCrontab 假件）', () => {
   });
 
   it('unregister：摘自有行留他人行；无条目 no-op 不写', () => {
+    // 旧装机现场夹具：alpha.1 装机 crontab 命令段为旧 bin 名 `berry-agent`（07 §5 F7 迁移
+    // 叙事）——unregister 识别判据是行尾 marker（# berry-agent:<名>）与命令名无关，
+    // 旧装机行同样被摘除。保留旧名即锁「旧装机自愈对账」语义（2026-09-14 bin 改裁
+    // 审计注：非应改未改）
     const exec = fakeCrontab({
       initial: `0 9 * * * echo morning\n*/5 * * * * berry-agent run --read-only --tick poller ${cronMarker('poller')}\n`,
     });
