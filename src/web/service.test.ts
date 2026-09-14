@@ -5,6 +5,8 @@
  * 覆盖：在飞门拒/URL 与协议拒/私网双查/重定向逐跳复检与跳数帽/字节帽截断
  * （含多字节劈尾回退）/归因落账三结局（ok/blocked/error）。
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import { getPinnedDispatcher, pinnedAddressesOf } from './dns-pin.js';
@@ -371,7 +373,7 @@ describe('归因落账兜底面', () => {
 
 describe('注入面缺省腿', () => {
   it('缺省 service 形——fetchImpl/now 走缺省位不炸构造（DNS 桩断在卫生件——零外联）', async () => {
-    // DNS 桩返回私网段：缺省 fetchImpl（全局 fetch）永不触达——断在私网
+    // DNS 桩返回私网段：缺省 fetchImpl（pinnedFetch——rb-2 同包单源）永不触达——断在私网
     // 判定（更早段）。夹具教训：返回公网段时缺省腿会打真实网络，禁之。
     const service = createWebFetchService({ resolveDns: async () => ['10.0.0.5'] });
     const error = await service.fetch('https://example.com/').catch((e: unknown) => e);
@@ -387,6 +389,32 @@ describe('注入面缺省腿', () => {
     expect(Object.keys(result).sort()).toEqual(
       ['body', 'bytes', 'contentType', 'finalUrl', 'redirects', 'status', 'truncated', 'url'].sort(),
     );
+  });
+});
+
+/**
+ * 缺省腿接线锁（rb-2 同包单源——service 级，五役挂账收口批）。
+ *
+ * 职责边界：行为级「pinnedFetch 真连接自携钉」与「全局 fetch × 包 Agent
+ * 确定性互斥必抛」两把锁已由 dns-pin.test.ts 执掌（:199 真连接自携钉 +
+ * :231 it.fails tripwire）——本锁只管 service 装配接线面：缺省腿恒
+ * `deps.fetchImpl ?? pinnedFetch` 同包单源，防「简化回全局 fetch」的装配
+ * 回退（行为级双锁测的是 pinnedFetch 自身，测不到 service 装配位换腿）。
+ *
+ * network-free 可锁形态 = 源面接线锁（先例：tools/check-api.test.mjs 查 7
+ * 源面卫生断言——读源文件断言接线形态，声明面固定件不受「禁断言 AI 生成
+ * 文本」约束）。
+ */
+describe('缺省腿接线锁（rb-2 同包单源——service 级，五役挂账收口批）', () => {
+  it('缺省腿恒 pinnedFetch 同包单源（接线形态源面锁——防「简化回全局 fetch」回归）', () => {
+    // 同目录相对 URL 取件（cwd 无关——engine-restore.pty.test.ts 同款形）
+    const source = readFileSync(fileURLToPath(new URL('./service.ts', import.meta.url)), 'utf8');
+    // 正锚：接线单源形态——缺省腿只有 pinnedFetch 一个来源
+    expect(source).toContain('deps.fetchImpl ?? pinnedFetch');
+    // 负锚：任何「回退全局 fetch」形禁入（?? fetch / ?? globalThis.fetch 两形都拒）
+    expect(source).not.toMatch(/\?\?\s*(globalThis\.)?fetch\b/);
+    // 导入锚：同包导入路径在场——pinnedFetch 只准出自 dns-pin 同包（跨包取腿即回退形）
+    expect(source).toContain("from './dns-pin.js'");
   });
 });
 
