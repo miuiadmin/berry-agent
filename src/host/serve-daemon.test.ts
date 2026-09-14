@@ -12,13 +12,24 @@
  * 真 spawn 真进程集成不在此（vitest 无 dist/tsx 直跑运行态）——实机联调归
  * 批 13e-3 落地后手动验证（诚实注记：spawn 编舞的进程边界由注入面覆盖）。
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
+import type { Store } from '../persist/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
 import {
@@ -614,5 +625,85 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     await expect(done).resolves.toBe(0);
     expect(existsSync(paths.pidPath)).toBe(false);
     expect(existsSync(paths.sockPath)).toBe(false);
+  });
+});
+
+/* ---------------- serve 四桥会话键 canonical 统一（CL-A2） ---------------- */
+
+describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('登记位（daemon 桥 cwd 锚）：非 canonical 锚（symlink 别名）经 canonical 化登记——查询侧按 canonical 根必命中', async () => {
+    // 非 canonical 形造法：git 仓库根 + symlink 别名（canonicalWorkspaceRoot
+    // (别名) = realpath 仓库根 ≠ raw 别名串——06 §74 解析律）
+    const base = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'a2-daemon-')));
+    const repoRoot = join(base, 'repo');
+    mkdirSync(join(repoRoot, '.git'), { recursive: true });
+    const alias = join(base, 'repo-link');
+    symlinkSync(repoRoot, alias);
+    const canonical = canonicalWorkspaceRoot(alias);
+    expect(canonical).toBe(realpathSync(repoRoot)); // 前置自证：别名确非 canonical 形
+    expect(canonical).not.toBe(alias);
+
+    const faux = fauxProvider({ provider: 'faux-daemon-a2', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-a2-data-'));
+    dirs.push(dataDir);
+    const paths = daemonPaths(dataDir);
+    const lines: string[] = [];
+    let runtimeShutdown: (() => Promise<void>) | undefined;
+    let store: Store | undefined; // onRuntime 捕获——查询侧真源
+    const done = runDaemonServe({
+      flags: { noDelta: false, port: 0 }, // 人面实口内核指派——披露行见实值
+      dataDir,
+      cwd: alias, // daemon 登记位：raw 别名锚注入（修前直落 raw 键）
+      providers: [faux.provider],
+      model: 'faux-daemon-a2/m1',
+      env: {},
+      heartbeatIntervalMs: 60,
+      onRuntime: (runtime) => {
+        store = runtime.persistence.store;
+        runtimeShutdown = () => runtime.shutdown();
+      },
+      writeErr: (l) => lines.push(l),
+    });
+    try {
+      // 就绪等待：人面披露行达（webui 开面 = mount 后写——承 `--port` 全环例式）
+      let webuiLine: string | undefined;
+      for (let i = 0; i < 200 && webuiLine === undefined; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        webuiLine = lines.find((l) => l.startsWith('Web 界面已开面：http://'));
+      }
+      expect(webuiLine, `披露行：${lines.join(' / ')}`).toBeDefined();
+      const port = Number(webuiLine!.match(/http:\/\/[^:]+:(\d+)\//)![1]);
+      const token = lines.find((l) => l.startsWith('daemon token'))!.match(/Bearer (\S+)/)![1]!;
+      // /v1/prompt 无 sessionId → 桥 submitPrompt 走 manager.create（登记位）
+      const res = await fetch(`http://127.0.0.1:${port}/v1/prompt`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-sdk-protocol': '1',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ messageId: 'a2-d-1', content: '键统一' }),
+      });
+      expect(res.status).toBe(200);
+      const ack = (await res.json()) as { sessionId: string };
+      // 行随首事件落库——等无过滤清单见本会话（红因锁定在键断言非时序）
+      const t0 = Date.now();
+      while (!store!.listSessions().some((row) => row.id === ack.sessionId)) {
+        if (Date.now() - t0 > 4_000) throw new Error('轮询超时（会话行未落库）');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      // 断言：按 canonical 根查询必须命中（修前 raw 别名键落库 → miss → 红）
+      const hit = store!.listSessions({ workspaceRoot: canonical }).find((row) => row.id === ack.sessionId);
+      expect(hit, `canonical=${canonical} 键下未见会话 ${ack.sessionId}`).toBeDefined();
+    } finally {
+      await runtimeShutdown!();
+    }
+    await expect(done).resolves.toBe(0);
+    expect(existsSync(paths.pidPath)).toBe(false); // 足迹自清（承全环例式）
   });
 });

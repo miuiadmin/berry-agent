@@ -6,12 +6,13 @@
  * 「compat 互证归 host 装配批」本件兑现（桥真身经服务端全链，词面独立律
  * 结构兼容双向互证）。mock 只停在模型层。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
+import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
@@ -522,6 +523,63 @@ describe("18a-3' 三入口咬合：共用挂载段", () => {
       expect(after.status).toBe(404);
       await face.stop();
     } finally {
+      await rt.shutdown();
+    }
+  });
+});
+
+/* ---------------- serve 四桥会话键 canonical 统一（CL-A2） ---------------- */
+
+describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
+  it('登记位（webui 桥 cwd 锚）：非 canonical 锚（symlink 别名）经 canonical 化登记——查询侧按 canonical 根必命中', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('a2-webui-data-') });
+    const { faux, stack } = rigStack(rt);
+    faux.setResponses([() => messageOf()]);
+    // 非 canonical 形造法：git 仓库根 + symlink 别名（canonicalWorkspaceRoot
+    // (别名) = realpath 仓库根 ≠ raw 别名串——06 §74 解析律）
+    const base = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'a2-webui-')));
+    const repoRoot = join(base, 'repo');
+    mkdirSync(join(repoRoot, '.git'), { recursive: true });
+    const alias = join(base, 'repo-link');
+    symlinkSync(repoRoot, alias);
+    const canonical = canonicalWorkspaceRoot(alias);
+    expect(canonical).toBe(realpathSync(repoRoot)); // 前置自证：别名确非 canonical 形
+    expect(canonical).not.toBe(alias);
+
+    let opened: { port: number; token: string } | undefined;
+    // webui 登记位：openWebuiFace 内 createServeBridge cwd 锚（CL-A2 补注入位）
+    const handle = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      cwd: alias, // raw 别名锚注入（修前直落 raw 键）
+      disclose: () => undefined, // 测试态 stderr 静默
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    try {
+      // /v1/prompt 无 sessionId → 桥 submitPrompt 走 manager.create（登记位）
+      const res = await fetch(`http://127.0.0.1:${opened!.port}/v1/prompt`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-sdk-protocol': '1',
+          authorization: `Bearer ${opened!.token}`,
+        },
+        body: JSON.stringify({ messageId: 'a2-w-1', content: '键统一' }),
+      });
+      expect(res.status).toBe(200);
+      const ack = (await res.json()) as { sessionId: string };
+      // 行随首事件落库——等无过滤清单见本会话（红因锁定在键断言非时序）
+      await until(() => rt.persistence.store.listSessions().some((row) => row.id === ack.sessionId));
+      // 断言：按 canonical 根查询必须命中（修前 raw 别名键落库 → miss → 红）
+      const hit = rt.persistence.store
+        .listSessions({ workspaceRoot: canonical })
+        .find((row) => row.id === ack.sessionId);
+      expect(hit, `canonical=${canonical} 键下未见会话 ${ack.sessionId}`).toBeDefined();
+    } finally {
+      await handle.stop(); // closer 幂等——rt.shutdown 内二次 stop 无害
       await rt.shutdown();
     }
   });

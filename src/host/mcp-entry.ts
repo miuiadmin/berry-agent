@@ -28,7 +28,7 @@ import type { HostRuntime } from './runtime.js';
 export interface McpEntryOptions {
   /** 传输流对（缺省 process stdin/stdout——MCP stdio 形态本体） */
   readonly io?: { readonly input: Readable; readonly output: Writable };
-  /** 新会话工作区根锚点（缺省 process.cwd()） */
+  /** 新会话工作区根锚点（缺省 process.cwd()——落库前经 canonicalWorkspaceRoot canonical 化〔CL-A2〕） */
   readonly cwd?: string;
   /** 数据目录（缺省 resolveDataDir() 三级梯子） */
   readonly dataDir?: string;
@@ -78,6 +78,7 @@ export async function runMcpEntry(options: McpEntryOptions): Promise<number> {
 
   let exitCode = 0;
   try {
+    // 登记键 canonical 化归 createServeBridge 内单源执法（CL-A2）——本位只传 raw cwd 锚
     const bridge = createServeBridge(stack, runtime, { cwd: options.cwd ?? process.cwd() });
     const face = runMcpFace({
       io: options.io ?? { input: stdin, output: stdout },

@@ -50,6 +50,7 @@ import type {
   SdkWireFrame,
 } from '../channels/index.js';
 import type { SessionEvent } from '../contracts/index.js';
+import { canonicalWorkspaceRoot } from '../context/index.js';
 
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
@@ -72,7 +73,7 @@ export interface ServeEntryOptions {
   readonly flags: ServeFlags;
   /** 传输流对（缺省 process stdin/stdout） */
   readonly io?: ServeIo;
-  /** 新会话工作区根锚点（缺省 process.cwd()——sessions.workspace_root 落账位） */
+  /** 新会话工作区根锚点（缺省 process.cwd()——落库前经 canonicalWorkspaceRoot canonical 化〔CL-A2〕） */
   readonly cwd?: string;
   /** 数据目录（HostRuntimeOptions 透传；缺省 resolveDataDir() 三级梯子） */
   readonly dataDir?: string;
@@ -117,6 +118,12 @@ export type ServeBridgeDeps = Omit<SdkWireDeps, 'decideApproval' | 'onSubscribed
  *   显式携带 manager.open 落驱动（幂等续接；missing/closed 已被线核先决门
  *   拦截）；routedChannel 按受理时刻 driver.running 推导（03 §10.6 注记）；
  *   归因 `channel:sdk` + messageId→dedupeKey 落账（05 §3.5 两词一字段两面）。
+ *   登记键律（CL-A2）：workspaceRoot 同过 canonicalWorkspaceRoot（context
+ *   单源——06 §74 解析律）落库。四桥（serve stdio / mcp / webui / daemon）
+ *   全经本桥登记，canonical 化在此单源执法——查询侧（openStartupSession /
+ *   scheduler-tick / sessions 命令族）已同键同律；raw cwd（symlink 别名、
+ *   子目录启动等非 canonical 形）直落会致 store 精确串匹配 miss——续接
+ *   miss 缺陷的修位。
  * - queryEntries：单页全窗（重放腿跟尽 nextCursor 义务由桥并页兑现——cursor
  *   形参 v1 无第二页可续）。
  * - highWaterOf：在册 = 内存日志长度；未开 = 行 lastSeq（= 末次落账事件数）。
@@ -137,7 +144,11 @@ export function createServeBridge(
     submitPrompt: (input: SdkSubmitInput): SdkSubmitOutcome => {
       let sessionId = input.sessionId;
       if (sessionId === undefined) {
-        sessionId = stack.manager.create({ workspaceRoot: anchors.cwd }).sessionId;
+        // 登记键 canonical 化（CL-A2）：raw cwd 锚过 canonicalWorkspaceRoot
+        // （context 单源）再落 sessions.workspace_root——查询侧同键同律，非
+        // canonical 形（symlink 别名/子目录启动）不再裂键（探测按 cwd 进程内
+        // 缓存——长驻 daemon 形零重复打 fs）
+        sessionId = stack.manager.create({ workspaceRoot: canonicalWorkspaceRoot(anchors.cwd) }).sessionId;
       }
       // 显式会话可能仅库面在册——open 幂等落驱动（线核先决门已拦 missing/closed）
       const driver = stack.driverOf(sessionId) ?? stack.manager.open(sessionId).driver;
@@ -264,6 +275,9 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
           stack,
           runtime,
           port: options.flags.port,
+          // cwd 锚与 stdio 线同源（CL-A2——同进程两面登记键一致；缺省
+          // process.cwd() 维持既有全局态缺省）
+          cwd: options.cwd ?? process.cwd(),
           ...(mountKit !== undefined ? { mountKit } : {}),
           // U5-2：插件道路由受理器经 core:sdk kit 透传（snapshot/attachFace）
           ...(sdkKit.pluginRoutes !== undefined ? { pluginRoutes: sdkKit.pluginRoutes } : {}),

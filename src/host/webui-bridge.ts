@@ -60,6 +60,13 @@ export interface WebuiBridgeOptions {
   readonly port?: number;
   /** 静态面目录覆盖（测试注入；缺省探测 dist/webui——缺席 API-only） */
   readonly staticDir?: string;
+  /**
+   * 新会话工作区根锚点（缺省 process.cwd()）。CL-A2 补位：与 serve/mcp/
+   * daemon 三入口的 cwd 注入面同形——测试可注入非 canonical 形锚（symlink
+   * 别名等）；登记键 canonical 化在 createServeBridge 内单源执法（本件只
+   * 透传 raw 锚，不自造 canonical 化）。
+   */
+  readonly cwd?: string;
   /** 开面披露行（缺省 stderr——token 一次性显示面） */
   readonly disclose?: (line: string) => void;
   /**
@@ -116,7 +123,9 @@ export async function openWebuiFace(
 ): Promise<WebuiBridgeHandle> {
   const face = createSdkHttpFace({
     config: { tcp: { host: WEBUI_DEFAULT_HOST, port: options.port ?? WEBUI_DEFAULT_PORT } },
-    bridge: createServeBridge(options.stack, options.runtime, { cwd: process.cwd() }),
+    // cwd 锚透传（CL-A2——缺省全局态 process.cwd 不变；raw 锚直传，canonical
+    // 化归 createServeBridge 登记位单源，本面不自造第二套归一）
+    bridge: createServeBridge(options.stack, options.runtime, { cwd: options.cwd ?? process.cwd() }),
     // U5-2 构造期 replay：装载序已受理的插件道路由快照注入 routes 位
     // （受理与挂载两时点解耦——03 §10.6 时序缝定形）
     ...(options.pluginRoutes !== undefined ? { routes: options.pluginRoutes.snapshot() } : {}),

@@ -10,7 +10,7 @@
  *
  * 断言只对线面帧与行为（禁断言 AI 生成文本——事件类型与结构位为准）。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -19,10 +19,14 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 
 import type { SdkWireFrame } from '../channels/index.js';
 import { decodeWireLine } from '../channels/index.js';
+import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
 
-import { runServeEntry } from './serve-entry.js';
+import { createConversationStack } from './conversation-stack.js';
+import { runServeEntry, createServeBridge } from './serve-entry.js';
+import { createHostRuntime } from './runtime.js';
+import type { HostRuntime } from './runtime.js';
 import type { ServeFlags } from './cli.js';
 
 /* ---------------- 测试基建 ---------------- */
@@ -376,5 +380,67 @@ describe('传输环鲁棒位', () => {
     rig.frames.length = 0;
     await rig.until(() => rig.frames.some((f) => f.kind === 'heartbeat'), 2_000);
     await closeExpect0(rig, entry);
+  });
+});
+
+/* ---------------- serve 四桥会话键 canonical 统一（CL-A2） ---------------- */
+
+/**
+ * 非 canonical 形锚造法（symlink 别名——参考 safety/sensitive.test 先例）：
+ * git 仓库根（.git 目录手摆）+ symlink 别名。canonicalWorkspaceRoot(别名) =
+ * realpath 仓库根（06 §74 解析律——.git 上溯 + realpath 消符号链）≠ raw 别名串，
+ * 即「同一工作区的两种路径形」。修前 raw 锚直落 sessions.workspace_root，
+ * 查询侧按 canonical 根（store 精确串匹配）必 miss——续接 miss 缺陷的真源。
+ */
+function makeAliasFixture(prefix: string): { readonly repoRoot: string; readonly alias: string } {
+  const base = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), prefix)));
+  const repoRoot = join(base, 'repo');
+  mkdirSync(join(repoRoot, '.git'), { recursive: true });
+  const alias = join(base, 'repo-link');
+  symlinkSync(repoRoot, alias);
+  return { repoRoot, alias };
+}
+
+/** 轮询至谓词真（有界——行随首事件落库的等待位；超时 throw 非断言红位） */
+async function pollUntil(pred: () => boolean, ms = 4_000): Promise<void> {
+  const t0 = Date.now();
+  while (!pred()) {
+    if (Date.now() - t0 > ms) throw new Error('pollUntil 超时（会话行未落库）');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
+  it('登记位（createServeBridge 内 manager.create）：非 canonical 锚经 canonicalWorkspaceRoot 登记——查询侧按 canonical 根必命中', async () => {
+    const { repoRoot, alias } = makeAliasFixture('a2-funnel-');
+    // 前置自证：别名确为非 canonical 形（canonical 根 = realpath 仓库根 ≠ raw 别名）
+    const canonical = canonicalWorkspaceRoot(alias);
+    expect(canonical).toBe(realpathSync(repoRoot));
+    expect(canonical).not.toBe(alias);
+
+    const rt: HostRuntime = createHostRuntime({
+      dataDir: mkdtempSync(join(realpathSync(tmpdir()), 'a2-funnel-data-')),
+    });
+    const faux = fauxProvider({ provider: 'faux-a2-funnel', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf()]);
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider] as readonly Provider[],
+      model: 'faux-a2-funnel/m1',
+      env: {},
+    });
+    try {
+      // 四桥共漏斗：serve stdio / mcp / webui / daemon 四登记位全经本桥
+      // submitPrompt → manager.create（sessionId 缺席新建 = 登记位）
+      const bridge = createServeBridge(stack, rt, { cwd: alias });
+      const { sessionId } = bridge.submitPrompt({ content: '键统一', messageId: 'a2-f-1' });
+      // 行随首事件落库——先等无过滤清单见本会话（红因锁定在键断言非时序）
+      await pollUntil(() => rt.persistence.store.listSessions().some((row) => row.id === sessionId));
+      // 断言：按 canonical 根查询必须命中（修前 raw 别名键落库 → miss → 红）
+      const hit = rt.persistence.store.listSessions({ workspaceRoot: canonical }).find((row) => row.id === sessionId);
+      expect(hit, `canonical=${canonical} 键下未见会话 ${sessionId}`).toBeDefined();
+    } finally {
+      await rt.shutdown();
+    }
   });
 });

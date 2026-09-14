@@ -9,17 +9,19 @@
  * 续接轮事件面续长 / EOF 优雅退 0。断言只对协议面与事件类型位（禁断言
  * AI 生成文本）。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
+import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
 
 import { runMcpEntry } from './mcp-entry.js';
+import type { HostRuntime } from './runtime.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -230,5 +232,59 @@ describe('runMcpEntry 装配全环（异步档：受理即回执 + 轮询读面�
     });
     await expect(entry).resolves.toBe(1); // 干净退出档（不写 crash.log）
     expect(rig.outbound).toBe(0); // 拒在传输面装配前（迁移前直调栈不读清单——本例即装载真跑回归锁）
+  });
+});
+
+/* ---------------- serve 四桥会话键 canonical 统一（CL-A2） ---------------- */
+
+describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
+  it('登记位（mcp 桥 cwd 锚）：非 canonical 锚（symlink 别名）经 canonical 化登记——查询侧按 canonical 根必命中', async () => {
+    // 非 canonical 形造法：git 仓库根 + symlink 别名（canonicalWorkspaceRoot
+    // (别名) = realpath 仓库根 ≠ raw 别名串——06 §74 解析律）
+    const base = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'a2-mcp-')));
+    const repoRoot = join(base, 'repo');
+    mkdirSync(join(repoRoot, '.git'), { recursive: true });
+    const alias = join(base, 'repo-link');
+    symlinkSync(repoRoot, alias);
+    const canonical = canonicalWorkspaceRoot(alias);
+    expect(canonical).toBe(realpathSync(repoRoot)); // 前置自证：别名确非 canonical 形
+    expect(canonical).not.toBe(alias);
+
+    const faux = fauxProvider({ provider: 'faux-a2-mcp', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf()]);
+    const dataDir = mkdtempSync(join(tmpdir(), 'mcp-a2-data-'));
+    dirs.push(dataDir);
+    const rig = new JsonRpcRig();
+    let rt: HostRuntime | undefined; // onRuntime 捕获——store 查询侧真源
+    const entry = runMcpEntry({
+      io: { input: rig.input, output: rig.output },
+      dataDir,
+      cwd: alias, // mcp 登记位：raw 别名锚注入（修前直落 raw 键）
+      providers: [faux.provider],
+      model: 'faux-a2-mcp/m1',
+      env: {},
+      version: 'v-test',
+      onRuntime: (runtime) => {
+        rt = runtime;
+      },
+    });
+    try {
+      await rig.ask('initialize', { protocolVersion: '2025-06-18' });
+      // tools/call berry-agent 无 sessionId → 桥 submitPrompt 走 manager.create
+      const ack = await callTool(rig, 'berry-agent', { message: '键统一', messageId: 'a2-m-1' });
+      const sessionId = ack.sessionId as string;
+      // 行随首事件落库——等无过滤清单见本会话（红因锁定在键断言非时序）
+      const t0 = Date.now();
+      while (!rt!.persistence.store.listSessions().some((row) => row.id === sessionId)) {
+        if (Date.now() - t0 > 4_000) throw new Error('轮询超时（会话行未落库）');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      // 断言：按 canonical 根查询必须命中（修前 raw 别名键落库 → miss → 红）
+      const hit = rt!.persistence.store.listSessions({ workspaceRoot: canonical }).find((row) => row.id === sessionId);
+      expect(hit, `canonical=${canonical} 键下未见会话 ${sessionId}`).toBeDefined();
+    } finally {
+      rig.end();
+    }
+    await expect(entry).resolves.toBe(0);
   });
 });
