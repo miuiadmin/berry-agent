@@ -11,12 +11,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
-import { BaseError } from '../contracts/index.js';
+import { BaseError, getErrorCodeInfo } from '../contracts/index.js';
 import { createMemoryDao, type MemoryDao } from './dao.js';
+import './codes.js';
 import { MEMORY_MIGRATIONS } from './migration.js';
 import type { MemoryCandidate, MemoryExportHeader, MemoryExportRow, MemoryExportVersionRow } from './types.js';
 import {
   buildMemoryExport,
+  FORMAT_VERSIONS,
   isWithinRoots,
   parseMemoryImportHeader,
   parseMemoryImportRow,
@@ -227,6 +229,19 @@ describe('parseMemoryImportHeader（整文件拒判据——MEMORY_IMPORT_FORMAT
         ownerRoots: ['数组不是对照'], // ownerRoots 非对象
       }),
     );
+  });
+});
+
+describe('MEMORY_IMPORT_FORMAT_INVALID 描述与码面双收判定同源（描述漂移锁）', () => {
+  it('码描述宣称的可收版本集 = port.ts FORMAT_VERSIONS 真源集形（单收宣称即红）', () => {
+    const info = getErrorCodeInfo('MEMORY_IMPORT_FORMAT_INVALID');
+    expect(info).toBeDefined();
+    // 描述宣称段须逐字收下真源集形（集形从 FORMAT_VERSIONS 单源渲染——
+    // 码面改双收/再扩收而描述漏跟即在此红）
+    const setForm = `{${FORMAT_VERSIONS.join(',')}}`;
+    expect(info!.description).toContain(setForm);
+    // 单收宣称形（formatVersion ≠ <单值>）是描述漂移的旧形态——禁回潮
+    expect(info!.description).not.toMatch(/formatVersion\s*≠\s*\d/);
   });
 });
 

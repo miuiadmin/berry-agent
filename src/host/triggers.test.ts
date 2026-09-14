@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 import { BaseError } from '../contracts/index.js';
-import type { JobSettledEvent, SessionOrigin } from '../contracts/index.js';
+import type { JobKind, JobSettledEvent, SessionOrigin } from '../contracts/index.js';
 import type { ConversationDriver, SubmitOptions, SubmitResult } from '../conversation/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { createJobRegistry } from '../subagent/index.js';
@@ -24,6 +24,14 @@ import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 // 错误码册注册腿（「import 发生才注册」——TRIGGER_ 两码断言的前置副作用）
 import './codes.js';
+
+/**
+ * 第三方自定义 kind 模拟词（六役 F 簇单点 cast）：JobKind 联合是宿主预登记
+ * 闭集（'subagent'|'issue'|'trigger' 三值），第三方插件经 fork 绑定面
+ * registerKind 自登的 kind 天然在联合外——谱系闸正道腿需要一个非宿主词，
+ * 以单点 cast 模拟运行期词汇开放面（值任意，取 cron 词仅示意）。
+ */
+const customKind = 'cron' as JobKind;
 
 /** 测试装配：可变开门集（活体读取源语义——测试直接 mutate 造 /reload 收门）+ starter 工厂记录仪 */
 function assemble(initialOpens?: readonly string[]) {
@@ -228,7 +236,7 @@ function assembleStarter(initialOpens?: readonly string[]) {
   });
   // 宿主预登记形（五役 d3-1——谱系闸真源模拟）：'trigger' = host 装配期自登
   // （缺省围栏 kind）；'subagent' = 宿主直调真身预登记（宿主席归属——fork 绑定
-  // 形另经 bindForPlugin 单测模拟）；'issue'/'process' 留未登记（JOB_KIND_UNKNOWN
+  // 形另经 bindForPlugin 单测模拟）；'issue'/'cron' 留未登记（JOB_KIND_UNKNOWN
   // 腿与 fork 绑定正道腿的测试面）
   jobs.registerKind('trigger');
   jobs.registerKind('subagent');
@@ -347,13 +355,13 @@ describe('starter 真身（createTriggerStarterFactory——C 批 C-3 编舞序�
   it('谱系闸正道：本插件 fork 绑定自登 kind 放行 + 他插件归属即拒 + 显式 trigger 恒放行（缺省隐式 kind 语义）', () => {
     const t = assembleStarter(['triggers.start-run']);
     // fork 绑定形（'secrets' 席同构——plugin-boot 装载序逐插件 fork 'jobs' 面）：
-    // 本插件经绑定面自登 'process'（携登记期帽），归属 = 本插件 id
-    t.jobs.bindForPlugin('acme').registerKind('process', { parallelLimits: 2 });
-    t.makeStarter('acme', 'acme/daily')({ prompt: '跑', jobKind: 'process' });
+    // 本插件经绑定面自登 'cron'（携登记期帽），归属 = 本插件 id
+    t.jobs.bindForPlugin('acme').registerKind(customKind, { parallelLimits: 2 });
+    t.makeStarter('acme', 'acme/daily')({ prompt: '跑', jobKind: customKind });
     expect(t.fake.creates).toHaveLength(1); // 本插件自有 kind 放行
-    expect(t.jobs.running()[0]).toMatchObject({ kind: 'process', owner: 'acme' });
+    expect(t.jobs.running()[0]).toMatchObject({ kind: 'cron', owner: 'acme' });
     // 他插件复用即拒（归属 ≠ 起会方——warn 可观测 + 零受理零起会）
-    t.makeStarter('beta', 'beta/hourly')({ prompt: '跑', jobKind: 'process' });
+    t.makeStarter('beta', 'beta/hourly')({ prompt: '跑', jobKind: customKind });
     expect(t.warns.join('\n')).toContain('beta');
     expect(t.fake.creates).toHaveLength(1);
     expect(t.jobs.running()).toHaveLength(1);

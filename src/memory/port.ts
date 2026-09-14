@@ -122,8 +122,8 @@ function invalidHeader(detail: string): BaseError {
   return new BaseError('MEMORY_IMPORT_FORMAT_INVALID', `导入文件 header 坏形整文件拒（${detail}）`);
 }
 
-/** formatVersion 可收值（批 ev-1——v1 旧件判读收；双收判定单源） */
-const FORMAT_VERSIONS: readonly number[] = [1, 2];
+/** formatVersion 可收值（批 ev-1——v1 旧件判读收；双收判定单源）。导出 = 错误码描述漂移锁的对拍真源（codes.ts 描述宣称的版本集须与本表一致） */
+export const FORMAT_VERSIONS: readonly number[] = [1, 2];
 
 /** 首行 header 解析（magic/formatVersion/exportedAt/ownerScope/ownerRoots 五字段全检） */
 export function parseMemoryImportHeader(line: string): MemoryExportHeader {

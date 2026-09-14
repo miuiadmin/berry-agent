@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { CAPABILITIES, USER_GRANTABLE_CAPABILITIES, adjudicateCapabilityDoor } from './api.js';
+import { BaseError } from './errors.js';
+import { CAPABILITIES, USER_GRANTABLE_CAPABILITIES, adjudicateApiGate, adjudicateCapabilityDoor } from './api.js';
 
 describe('USER_GRANTABLE_CAPABILITIES 单源派生', () => {
   it('派生面 = 目录 userGrantable 标注位精确投影（零漂移不变式）', () => {
@@ -74,5 +75,26 @@ describe('adjudicateCapabilityDoor 门检裁决', () => {
   it('完全未知名同落 not-a-door（名单在裁决核单源判）', () => {
     const verdict = adjudicateCapabilityDoor(new Set(), 'no-such-door');
     expect(verdict).toMatchObject({ ok: false, kind: 'not-a-door' });
+  });
+});
+
+describe('adjudicateApiGate 出口 4 迁移指引键位（治理声明面批）', () => {
+  it('点火后缺 api 块拒载报文指路真键位 package.json 的 berryAgent 块（顶层 "api" 错键指路即红）', () => {
+    // 出口 4 点火形：api 块缺席 + ignited=true → API_VERSION_MISMATCH 拒载。
+    // 迁移指引必须指到真键位——api 块在清单 berryAgent 块内（manifest.ts
+    // 解析单源：record['berryAgent'].api），报文指路顶层 "api" 键 = 插件作者
+    // 照抄必落空（治理声明面漂移锁——产品固定报文断言不受 AI 文本禁令约束）
+    let caught: unknown;
+    try {
+      adjudicateApiGate(undefined, '1.0', 'acme-plugin', true);
+      expect.unreachable('点火后缺 api 块应拒载');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(BaseError);
+    expect((caught as BaseError).code).toBe('API_VERSION_MISMATCH');
+    // 真键位点名：块位词 berryAgent 与子键位 "api" 双词齐备（顶层错键指路即红）
+    expect((caught as Error).message).toMatch(/berryAgent/);
+    expect((caught as Error).message).toMatch(/"api"/);
   });
 });

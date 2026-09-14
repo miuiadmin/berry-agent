@@ -52,6 +52,6 @@ registerErrorCodes([
     code: 'MEMORY_IMPORT_FORMAT_INVALID',
     module: 'memory',
     description:
-      '导入文件首行 header 坏形整文件拒（批 18c-8）——magic 串 berry-agent-memory 不符或 formatVersion ≠ 1；行级坏形不入此码（行级宽容分账 rejectedMalformed——恢复式运维动词不弃批）',
+      '导入文件首行 header 坏形整文件拒（批 18c-8）——magic 串 berry-agent-memory 不符或 formatVersion ∉ {1,2}（批 ev-1 起 v1|v2 双收：v2 现役版本链随包、v1 旧件判读收；可收值单源 = port.ts FORMAT_VERSIONS）；行级坏形不入此码（行级宽容分账 rejectedMalformed——恢复式运维动词不弃批）',
   },
 ]);

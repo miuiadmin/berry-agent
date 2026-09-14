@@ -4,8 +4,17 @@
  * closeOwner 归属围栏/并行帽/终态帽 256 FIFO/emit 活体通知。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { BaseError } from '../contracts/index.js';
+import { BaseError, type JobKind } from '../contracts/index.js';
 import { createJobRegistry, JOB_KIND_HOST_OWNER, JOB_RETENTION_CAP } from './registry.js';
+
+/**
+ * 第三方自定义 kind 模拟词（六役 F 簇单点 cast）：JobKind 联合是宿主预登记
+ * 闭集（'subagent'|'issue'|'trigger' 三值——04 §10 kind 行），第三方插件经
+ * registerKind 自登的 kind 天然在联合外（运行期词汇开放面）。归属/登记面
+ * 测试需要一个非宿主词，以单点 cast 模拟开放面语义——值任意（取 cron 词
+ * 仅示意，与 scheduler 的 cron 类型族无涉），后续测试词族皆引本常量。
+ */
+const customKind = 'cron' as JobKind;
 
 /** 断言同步抛指定码 */
 function expectCodeSync(fn: () => unknown, code: string): BaseError {
@@ -37,32 +46,32 @@ describe('JobRegistry kind 归属记录（五役 d3-1——谱系执法）', () 
     registry.registerKind('trigger'); // 宿主直调（assembly 装配序形）
     expect(registry.ownerOfKind('trigger')).toBe(JOB_KIND_HOST_OWNER);
     expect(registry.hasKind('trigger')).toBe(true);
-    expect(registry.ownerOfKind('process')).toBeUndefined(); // 未登记无归属
+    expect(registry.ownerOfKind(customKind)).toBeUndefined(); // 未登记无归属
     // fork 绑定形（'secrets' 席同构——plugin-boot 装载序逐插件 fork 'jobs' 面）：
     // registerKind 携本插件 id，归属记录落真身同表
     const bound = registry.bindForPlugin('acme');
-    bound.registerKind('process');
-    expect(registry.ownerOfKind('process')).toBe('acme');
-    expect(bound.hasKind('process')).toBe(true); // 委托真身读面
+    bound.registerKind(customKind);
+    expect(registry.ownerOfKind(customKind)).toBe('acme');
+    expect(bound.hasKind(customKind)).toBe(true); // 委托真身读面
     expect(bound.ownerOfKind('trigger')).toBe(JOB_KIND_HOST_OWNER);
   });
 
   it('归属 first-wins：异主重登不夺籍（warn 可观测）——词汇面维持幂等', () => {
     const warns: string[] = [];
     const registry = createJobRegistry({ warn: (message) => warns.push(message) });
-    registry.bindForPlugin('acme').registerKind('process');
-    registry.bindForPlugin('beta').registerKind('process'); // 异主重登——不夺籍
-    expect(registry.ownerOfKind('process')).toBe('acme'); // 首登者定籍
+    registry.bindForPlugin('acme').registerKind(customKind);
+    registry.bindForPlugin('beta').registerKind(customKind); // 异主重登——不夺籍
+    expect(registry.ownerOfKind(customKind)).toBe('acme'); // 首登者定籍
     expect(warns.join('\n')).toContain('不夺籍');
-    registry.bindForPlugin('acme').registerKind('process'); // 同主重登幂等零 warn
+    registry.bindForPlugin('acme').registerKind(customKind); // 同主重登幂等零 warn
     expect(warns).toHaveLength(1);
   });
 
   it('fork 绑定面委托真身：register/settle 与真身同表互见（唯一改写位 = registerKind 归属）', () => {
     const registry = createJobRegistry();
     const bound = registry.bindForPlugin('acme');
-    bound.registerKind('process');
-    const handle = bound.register({ kind: 'process', name: 'a', owner: 's1' });
+    bound.registerKind(customKind);
+    const handle = bound.register({ kind: customKind, name: 'a', owner: 's1' });
     // 绑定面注册的条目真身读面可见（单表委托非副本）
     expect(registry.running().map((entry) => entry.id)).toEqual(['job-1']);
     handle.settle({ status: 'completed' });
@@ -70,12 +79,12 @@ describe('JobRegistry kind 归属记录（五役 d3-1——谱系执法）', () 
   });
 });
 
-describe('JobRegistry registerKind def 帽槽（五役 d3-2——03 §2.2 行 126 def 槽兑现）', () => {
+describe('JobRegistry registerKind def 帽槽（五役 d3-2——03 §2.2「Job 登记面」def 槽兑现，行号免锚）', () => {
   it('登记期 parallelLimits 并入帽表即执法：第二笔 JOB_LIMIT_REACHED（修前红——无 def 形参即无帽受理）', () => {
     const registry = createJobRegistry();
-    registry.registerKind('process', { parallelLimits: 1 }); // 登记期并帽（构造期无帽）
-    registry.register({ kind: 'process', name: 'a', owner: 's1' });
-    expectCodeSync(() => registry.register({ kind: 'process', name: 'b', owner: 's1' }), 'JOB_LIMIT_REACHED');
+    registry.registerKind(customKind, { parallelLimits: 1 }); // 登记期并帽（构造期无帽）
+    registry.register({ kind: customKind, name: 'a', owner: 's1' });
+    expectCodeSync(() => registry.register({ kind: customKind, name: 'b', owner: 's1' }), 'JOB_LIMIT_REACHED');
   });
 
   it('登记期值后写胜出：覆盖构造期帽（同表后写——登记期值生效即执法）', () => {
@@ -228,12 +237,12 @@ describe('JobRegistry 并行帽', () => {
   it('按 kind 分帽：在飞数达帽拒新注册；结算释放后再放行', () => {
     const registry = createJobRegistry({ parallelLimits: { subagent: 2 } });
     registry.registerKind('subagent');
-    registry.registerKind('process');
+    registry.registerKind(customKind);
     const a = registry.register({ kind: 'subagent', name: 'a', owner: 's1' });
     registry.register({ kind: 'subagent', name: 'b', owner: 's1' });
     expectCodeSync(() => registry.register({ kind: 'subagent', name: 'c', owner: 's1' }), 'JOB_LIMIT_REACHED');
     // 异 kind 不受 subagent 帽约束（分帽语义）
-    registry.register({ kind: 'process', name: 'p', owner: 's1' });
+    registry.register({ kind: customKind, name: 'p', owner: 's1' });
     a.settle({ status: 'completed' });
     registry.register({ kind: 'subagent', name: 'c', owner: 's1' }); // 释放后放行
     expect(registry.running().filter((entry) => entry.kind === 'subagent')).toHaveLength(2);

@@ -5,7 +5,7 @@
  * 本文件 = API 面身份层的机器可读真相源（§8.2 六真相源中的三处）：
  * - `VIRTUAL_API_KEYS`：虚拟模块键表（键 + tier + since——§8.3 键级 tier 载体；
  *   loader 注入表、抽取器、check-api 三面共取此单源）
- * - `SERVICE_CATALOG`：ctx 服务面目录（首条真实 ctx 服务落码批增条——现空集）
+ * - `SERVICE_CATALOG`：ctx 服务面目录（随各服务面落码批增条——本目录即声明面）
  * - `CAPABILITIES`：能力面目录（surface.json 顶层 capabilities[] 的声明位，
  *   §8.5 ctx.host.capabilities 派生源；起算集 = core: 可卸件能力面——批 U2
  *   首登 v1 高危面两枚并携 `userGrantable` 开门制标注）
@@ -112,6 +112,39 @@ export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     module: 'sdk',
     faceInterface: 'SdkRoutesPluginFace',
     note: '路由受理面（ctx.get("sdk-routes") 消费——register 受理制注册 sdk HTTP 面插件道路由：前缀 /plugins/<id>/ 恒受理面施加 + 收窄四件〔鉴权子集/loopbackOnly 恒 true/体帽 1MiB 缺席即帽值/数帽 16〕+ 门检 sdk.register-route 前置 + 装载窗 only；裁决纯函数 sdk/plugin-routes.ts）',
+    tier: 'stable',
+  },
+  {
+    // fork 绑定真源 = plugin-boot 装载序 fork.provide(JOBS_SERVICE_NAME,
+    // options.jobs.bindForPlugin(pluginId))——绑定面委托共享根真身，仅
+    // registerKind 携本插件 id 改归属注入；方法面 = subagent/registry.ts
+    // JobRegistry 契约接口（七动词）
+    name: 'jobs',
+    module: 'subagent',
+    faceInterface: 'JobRegistry',
+    note: 'Job 注册表面（ctx.get("jobs") 消费——fork 绑定面委托共享根真身：registerKind 登记种类（fork 绑定携本插件 id 入 kind 归属记录——starter 谱系闸判籍面）、register 注册在飞 Job 得句柄、hasKind/running/list/get 只读对账、closeOwner 按 owner 围栏收口在飞；未登记 kind 拒 JOB_KIND_UNKNOWN）',
+    tier: 'stable',
+  },
+  {
+    // fork 绑定真源 = plugin-boot fork.provide('sessions',
+    // bindSessionsForPlugin(...))——归因闸 caller 宿主闭包铸造 + 行籍闸
+    // 两拍执法；方法面 = host/sessions-face.ts SessionsFace 契约接口
+    // （appendEventFor 单动词）
+    name: 'sessions',
+    module: 'host',
+    faceInterface: 'SessionsFace',
+    note: '会话事件受理面（ctx.get("sessions") 消费——appendEventFor 单动词按会话取 appendEvent 活引用：核心事件词/未注册词汇二道闸拒写、surfaceOp 信封改道 appendWithSurfaceOp 正门、无活体驱动返 undefined 诚实降级；插件道恒经绑定面——归因键 source: plugin:<id> 由宿主闭包铸造（传入面无 caller 位防冒名），行不在活装载代即残句柄拒写）',
+    tier: 'stable',
+  },
+  {
+    // fork 绑定真源 = plugin-boot fork.provide(SESSIONS_CONTROL_SERVICE,
+    // bindControlForPlugin(...))——caller 归因闭包铸造防冒名；方法面 =
+    // conversation/control.ts PluginControlFace 契约接口（send/interrupt/
+    // withdraw 三动词窄形——无 caller 位）
+    name: 'sessions-control',
+    module: 'conversation',
+    faceInterface: 'PluginControlFace',
+    note: '会话操控面（ctx.get("sessions-control") 消费——send/interrupt/withdraw 三动词窄形；caller 归因 {kind:"plugin", pluginId} 由宿主闭包铸造（传入面无 caller 位，传入即被覆写——伪造结构性不存在）；withdraw 目标未排队恒报 delivered 不虚构撤回成功；面缺席 = ctx.get 响亮 CONTEXT_SERVICE_MISSING 诚实缺席律）',
     tier: 'stable',
   },
 ];
@@ -327,7 +360,7 @@ export function isValidApiVersion(v: string): boolean {
  */
 export const API_ENFORCEMENT_IGNITED = false;
 
-/** 清单 api 块形状（package.json `api` 键运行时形——§8.4） */
+/** 清单 api 块形状（package.json `berryAgent.api` 键运行时形——§8.4） */
 export interface ApiBlock {
   /** 硬地板：宿主 apiVersion < min 即拒载（api 块在场则必填） */
   readonly minApiVersion: string;
@@ -377,7 +410,7 @@ export function adjudicateApiGate(
       throw new BaseError(
         'API_VERSION_MISMATCH',
         `插件 ${pluginId} 清单（package.json）缺 api 块——兼容执法已点火（api 块必填），` +
-          `须在 package.json 补 "api": { "minApiVersion": "<宿主当前 apiVersion 或更旧>" }` +
+          `须在 package.json 的 berryAgent 块补 "api": { "minApiVersion": "<宿主当前 apiVersion 或更旧>" }` +
           `（批 4 翻必填——min fail-loud 与兼容模式对全体插件生效）。${API_DOC_ANCHOR_NOTE}`,
       );
     }
@@ -417,7 +450,7 @@ export function assertExperimentalDeclared(
   throw new BaseError(
     'API_EXPERIMENTAL_UNDECLARED',
     `import 实验键 ${specifier} 未在清单声明——插件 ${pluginId ?? '(未知插件)'} 须在 package.json ` +
-      `api 块 experimental 数组显式点名该键方能启用（契约即知情：实验键任意 minor 可破可删）${API_DOC_ANCHOR_NOTE}`,
+      `的 berryAgent 块 api 段 experimental 数组显式点名该键方能启用（契约即知情：实验键任意 minor 可破可删）${API_DOC_ANCHOR_NOTE}`,
   );
 }
 

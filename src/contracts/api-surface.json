@@ -330,9 +330,9 @@
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "Job 种类闭集（04 §10——kind 现设四值；registerKind 显式登记后方可使用）",
+      "desc": "Job 种类闭集（04 §10——kind 现设三值；registerKind 显式登记后方可使用）",
       "kind": "type",
-      "sig": "70e3a22f6a466552"
+      "sig": "84063d1f1895675a"
     },
     {
       "symbol": "JobSettledEvent",
@@ -1256,6 +1256,70 @@
       "sig": "eaed545e9db39e4a"
     },
     {
+      "symbol": "jobs",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "Job 注册表面（ctx.get(\"jobs\") 消费——fork 绑定面委托共享根真身：registerKind 登记种类（fork 绑定携本插件 id 入 kind 归属记录——starter 谱系闸判籍面）、register 注册在飞 Job 得句柄、hasKind/running/list/get 只读对账、closeOwner 按 owner 围栏收口在飞；未登记 kind 拒 JOB_KIND_UNKNOWN）",
+      "sig": "2197e6026d13f6a1"
+    },
+    {
+      "symbol": "jobs.closeOwner",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "按 owner 收口在飞 Job（会话关闭——打断/杀并落 killed；返回收口条目）",
+      "sig": "291a6ad94e5bc70b"
+    },
+    {
+      "symbol": "jobs.get",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "单条目查（在飞与保留均查——结算对账面）",
+      "sig": "cebf415e145ba577"
+    },
+    {
+      "symbol": "jobs.hasKind",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "种类是否已登记（装配断言/诊断面）",
+      "sig": "b6530d7b37eaa9a7"
+    },
+    {
+      "symbol": "jobs.list",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "条目总览（在飞 + 保留终态，注册序；终态帽 256 FIFO）",
+      "sig": "a149db5d38cb06f2"
+    },
+    {
+      "symbol": "jobs.register",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "注册在飞 Job（并行帽按 kind 计在飞数；owner 围栏由收口面执法）",
+      "sig": "67fd413def44262a"
+    },
+    {
+      "symbol": "jobs.registerKind",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "登记种类型（装载期调用——subagent/issue 各消费件自登；exec 子进程治理不走 Job 表，无自有 kind——六役勘正笔）",
+      "sig": "e6d948deaa232cb7"
+    },
+    {
+      "symbol": "jobs.running",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "在飞（running/stopping）清单（finish gate 对账①核对面）",
+      "sig": "5b233d53bdd93a40"
+    },
+    {
       "symbol": "sdk-routes",
       "module": "services",
       "tier": "stable",
@@ -1302,6 +1366,51 @@
       "since": "1.0",
       "desc": "凭证写（恒自域——无跨域写面）",
       "sig": "a145f2df1e101ef9"
+    },
+    {
+      "symbol": "sessions",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话事件受理面（ctx.get(\"sessions\") 消费——appendEventFor 单动词按会话取 appendEvent 活引用：核心事件词/未注册词汇二道闸拒写、surfaceOp 信封改道 appendWithSurfaceOp 正门、无活体驱动返 undefined 诚实降级；插件道恒经绑定面——归因键 source: plugin:<id> 由宿主闭包铸造（传入面无 caller 位防冒名），行不在活装载代即残句柄拒写）",
+      "sig": "9864ee30b0cb0f50"
+    },
+    {
+      "symbol": "sessions-control",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话操控面（ctx.get(\"sessions-control\") 消费——send/interrupt/withdraw 三动词窄形；caller 归因 {kind:\"plugin\", pluginId} 由宿主闭包铸造（传入面无 caller 位，传入即被覆写——伪造结构性不存在）；withdraw 目标未排队恒报 delivered 不虚构撤回成功；面缺席 = ctx.get 响亮 CONTEXT_SERVICE_MISSING 诚实缺席律）",
+      "sig": "8519762d73c35273"
+    },
+    {
+      "symbol": "sessions-control.interrupt",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "sig": "021db39b86070150"
+    },
+    {
+      "symbol": "sessions-control.send",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "sig": "2fda4fb29323cfae"
+    },
+    {
+      "symbol": "sessions-control.withdraw",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "sig": "61cc045dcfece634"
+    },
+    {
+      "symbol": "sessions.appendEventFor",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "按会话取 appendEvent 活引用：过二道闸后委派 SessionLog.append（同步落账）",
+      "sig": "c5ebe16ceafdcab8"
     },
     {
       "symbol": "approval/asked",
