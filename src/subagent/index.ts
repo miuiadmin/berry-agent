@@ -11,7 +11,7 @@
 import './codes.js';
 
 export { JOB_RETENTION_CAP, createJobRegistry } from './registry.js';
-export type { JobRegistry, JobRegistryOptions, JobHandle, JobSettledEmitter } from './registry.js';
+export type { JobRegistry, JobsPluginFace, JobRegistryOptions, JobHandle, JobSettledEmitter } from './registry.js';
 
 export {
   AGENT_TOOL_NAME,

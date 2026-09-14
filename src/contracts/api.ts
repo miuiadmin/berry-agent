@@ -118,12 +118,12 @@ export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // fork 绑定真源 = plugin-boot 装载序 fork.provide(JOBS_SERVICE_NAME,
     // options.jobs.bindForPlugin(pluginId))——绑定面委托共享根真身，改
     // 归属注入两改写位（registerKind kind 归属 + register owner 闭包
-    // 固化——六役 CL-C ②）；方法面 = subagent/registry.ts JobRegistry
-    // 契约接口（七动词）
+    // 固化——六役 CL-C ②）；方法面 = subagent/registry.ts 窄面
+    // JobsPluginFace（七动词）
     name: 'jobs',
     module: 'subagent',
-    faceInterface: 'JobRegistry',
-    note: 'Job 注册表面（ctx.get("jobs") 消费——fork 绑定面委托共享根真身：registerKind 登记种类（fork 绑定携本插件 id 入 kind 归属记录——starter 谱系闸判籍面）、register 注册在飞 Job 得句柄、hasKind/running/list/get 只读对账、closeOwner 按 owner 围栏收口在飞；未登记 kind 拒 JOB_KIND_UNKNOWN）',
+    faceInterface: 'JobsPluginFace',
+    note: 'Job 注册表面（ctx.get("jobs") 消费——fork 绑定窄面 JobsPluginFace：registerKind 登记种类（fork 绑定携本插件 id 入 kind 归属记录——starter 谱系闸判籍面）、register 注册在飞 Job 得句柄（owner 由宿主绑定闭包固化注入——自报值不采信）、hasKind/ownerOfKind/running/list/get 只读对账；closeOwner/bindForPlugin 不入插件面——收口动词宿主单方执掌（卸载 disposer/会话 dispose 两路宿主闭包单源，03 §2.2 第九面 ④）；未登记 kind 拒 JOB_KIND_UNKNOWN）',
     tier: 'stable',
   },
   {

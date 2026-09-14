@@ -71,7 +71,8 @@ import type { PluginRouteRegistry } from '../sdk/index.js';
 // 载体真身；host→persist 边在册）
 import type { AuditFace, LoadHistoryFace } from '../persist/index.js';
 // Job 收口窄面类型（Job 消费面批桥二——插件卸载归属围栏收口；host→subagent 边在册）
-import type { JobRegistry } from '../subagent/index.js';
+// + jobs 窄面（JobsPluginFace——2026-09-15 ④ 笔 fork 绑面自报位除名后的插件可见形状）
+import type { JobRegistry, JobsPluginFace } from '../subagent/index.js';
 // 'jobs' 服务词汇名（五役 d3-1 谱系执法腿——fork 绑定 provide 的键位）
 import { JOBS_SERVICE_NAME } from '../subagent/index.js';
 // 程序化子代理物化消费腿（遗漏审计批 G——注册即派生）：物化真身 + toolDeps
@@ -253,12 +254,14 @@ export interface PluginBootOptions {
    * bindForPlugin（五役 d3-1 谱系执法腿——可选扩展位）：在场时装载序逐插件
    * fork 绑定 'jobs' 面（'secrets' 席同构先例——fork 对象委托真身、
    * registerKind 携本插件 id 入 kind 归属记录；宿主直调真身 = 宿主席归属）。
+   * 绑定产物 = 窄面 JobsPluginFace（2026-09-15 ④ 笔自报位除名——
+   * closeOwner/bindForPlugin 不入插件可见形状）。
    * 共享根 provideJobsService 真身不动（Kahn 可满足判与宿主消费面走真身），
    * 本绑定只改插件取用面的归属注入。缺席 = 替身/诊断形不绑定（插件取共享
    * 根真身——registerKind 落宿主席归属，starter 谱系闸照常执法）。
    */
   readonly jobs?: Pick<JobRegistry, 'closeOwner'> & {
-    readonly bindForPlugin?: (pluginId: string) => JobRegistry;
+    readonly bindForPlugin?: (pluginId: string) => JobsPluginFace;
   };
   /**
    * 插件凭证面装配位（c-3——03 §2.2 第十面/§10.9 读腿）：store 在场且

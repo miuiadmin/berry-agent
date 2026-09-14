@@ -122,6 +122,40 @@ export interface JobRegistry {
 }
 
 /**
+ * 插件可见 jobs 窄面（03 §2.2 第九面六役执法补笔 ④——2026-09-15）：fork
+ * 绑面自报位除名两枚——closeOwner/bindForPlugin 不入插件面。收口动词宿主
+ * 单方执掌（插件卸载 disposer 与会话 dispose 两路宿主闭包单源调用）：fork
+ * 面暴露 closeOwner(owner) 即任意 owner 收口直通、bindForPlugin(another)
+ * 即为他人绑定直通，均系 in-process 同特权纵深防御缺口。基面 JobRegistry
+ * 维持原成员集（宿主自用/测试替身不受影响）——除名只发生在 fork 绑面形状。
+ */
+export interface JobsPluginFace {
+  /** 登记种类型（fork 绑定携本插件 id 入 kind 归属记录——starter 谱系闸判籍面；exec 子进程治理不走 Job 表、无自有 kind——六役勘正笔） */
+  registerKind(kind: JobKind, def?: JobKindDef): void;
+  /** 种类是否已登记（装配断言/诊断面） */
+  hasKind(kind: JobKind): boolean;
+  /** kind 归属查询（谱系执法读面）：宿主直调 = 宿主席、fork 绑定 = 插件 id；未登记 undefined */
+  ownerOfKind(kind: JobKind): string | undefined;
+  /**
+   * 注册在飞 Job 得句柄（并行帽按 kind 计在飞数）。input.owner 参数保留在
+   * 签名里但语义 = 宿主绑定闭包固化注入——自报值不采信（六役 CL-C ②）。
+   */
+  register(input: {
+    kind: JobKind;
+    name: string;
+    owner: string;
+    /** 协作中止路由（04 §10 定形：stop 置 stopping 后调用——路由到该 Job 托管 run 的中止真源；异常 warn 隔离） */
+    onStop?: () => void;
+  }): JobHandle;
+  /** 条目总览（在飞 + 保留终态，注册序；终态帽 256 FIFO） */
+  list(): readonly JobEntry[];
+  /** 在飞（running/stopping）清单（finish gate 对账①核对面） */
+  running(): readonly JobEntry[];
+  /** 单条目查（在飞与保留均查——结算对账面） */
+  get(id: string): JobEntry | undefined;
+}
+
+/**
  * 谱系执法扩展面（五役 d3-1）：createJobRegistry 产物独有——基面 JobRegistry
  * 维持原成员集（既有结构实现/替身〔service.test captureHandles 等〕不因执法
  * 腿扩面被迫跟随）；跨模块窄面消费以结构位拾取（trigger starter 谱系闸的
@@ -138,11 +172,13 @@ export interface KindOwningJobRegistry extends JobRegistry {
    * fork 级绑定（'jobs' 席位 fork 绑定，'secrets' 席同构先例）：返回委托
    * 真身的注册表视图，改写位两枚（六役 CL-C ② 后）——registerKind 携
    * 本插件 id（kind 归属记录）+ register 的 owner 由绑定闭包固化注入
-   * （调用方自报值不采信）；宿主直调真身 = 宿主席归属。plugin-boot
-   * 装载序逐插件 fork provide 'jobs' 消费（共享根 provideJobsService
-   * 真身不动——Kahn 可满足判与宿主消费面走真身）。
+   * （调用方自报值不采信）；宿主直调真身 = 宿主席归属。自报位除名两枚
+   * （2026-09-15 ④ 笔）——closeOwner/bindForPlugin 不入 fork 绑面
+   * （宿主单方执掌动词）。plugin-boot 装载序逐插件 fork provide 'jobs'
+   * 消费（共享根 provideJobsService 真身不动——Kahn 可满足判与宿主消费
+   * 面走真身）。
    */
-  bindForPlugin(pluginId: string): KindOwningJobRegistry;
+  bindForPlugin(pluginId: string): JobsPluginFace;
 }
 
 /** 机器内部条目（句柄的私产——外部只见快照） */
@@ -266,14 +302,13 @@ export function createJobRegistry(options: JobRegistryOptions = {}): KindOwningJ
       // 绑定闭包注入（六役 CL-C ②——03 §2.2 第九面：fork 绑面 register 的
       // owner 非调用方自报，自报形系缺陷——冒名他 owner 即绕归属围栏收口；
       // 自报值被忽略，恒以绑定 pluginId 落格）；读面/写面全真身同表（单册
-      // 非副本）
+      // 非副本）。自报位除名两枚（2026-09-15 ④ 笔）——closeOwner/
+      // bindForPlugin 不入返回视图（收口动词宿主单方执掌，纵深防御）
       return {
         registerKind: (kind, def) => registerKindOwned(pluginId, kind, def),
         hasKind: (kind) => kindOwners.has(kind),
         ownerOfKind: (kind) => kindOwners.get(kind),
-        bindForPlugin: (another) => registry.bindForPlugin(another),
         register: (input) => registry.register({ ...input, owner: pluginId }),
-        closeOwner: (owner) => registry.closeOwner(owner),
         list: () => registry.list(),
         running: () => registry.running(),
         get: (id) => registry.get(id),

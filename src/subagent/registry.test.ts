@@ -157,6 +157,16 @@ describe('JobRegistry 六役 CL-C 执法批（帽值归属律 + fork owner 固�
     );
     expect(registry.ownerOfKind(customKind)).toBe('acme'); // 籍不动（违例整体不落）
   });
+
+  it('⑤ fork 绑面自报位除名（2026-09-15 ④ 笔——closeOwner/bindForPlugin 不入窄面，基面维持原成员集）', () => {
+    const registry = createJobRegistry();
+    const bound = registry.bindForPlugin('acme');
+    expect('closeOwner' in bound).toBe(false); // 收口动词宿主单方执掌——fork 面暴露即任意 owner 收口直通（修前红：in 判 true）
+    expect('bindForPlugin' in bound).toBe(false); // 为他人绑定直通同笔除名（修前红：in 判 true）
+    // 基面不动：宿主自用/测试替身不受影响（卸载 closer 与会话 dispose 两路走真身）
+    expect(typeof registry.closeOwner).toBe('function');
+    expect(typeof registry.bindForPlugin).toBe('function');
+  });
 });
 
 describe('JobRegistry 状态机', () => {

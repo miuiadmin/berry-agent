@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
+import type { JobKind } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 import type { UiBackend } from '../contracts/index.js';
 // oauth 流注册表真身（03 §10.9 oauth 死域批——换代清理/死域开窗两道闸测试）
@@ -26,8 +27,10 @@ import {
   openStore,
 } from '../persist/index.js';
 import type { AuditFace, LoadHistoryFace, Store } from '../persist/index.js';
-// 子代理 service 真身（物化消费腿 e2e——遗漏审计批 G）
+// 子代理 service 真身（物化消费腿 e2e——遗漏审计批 G）+ jobs 窄面类型
+// （2026-09-15 ④ 笔——fork 绑面自报位除名后的插件可见形状）
 import { createJobRegistry, createSubagentService } from '../subagent/index.js';
+import type { JobsPluginFace } from '../subagent/index.js';
 
 import { readBootFailures } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
@@ -1349,6 +1352,57 @@ describe('sessions-control 面装配（e4-3——03 §2.2 第十一面 fork 级�
     expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
     expect(errs).toHaveLength(1);
     expect((errs[0] as { code: string }).code).toBe('CONTEXT_SERVICE_MISSING');
+  });
+});
+
+describe("'jobs' 面 fork 绑定胶水（五役 d3-1 挂账锁——2026-09-15 收口批）", () => {
+  /** 第三方自定义 kind 模拟词（registry.test.ts 同形——单点 cast 模拟词汇开放面，值任意） */
+  const customKind = 'cron' as JobKind;
+
+  it('在场绑定：探针 fork 见窄面 + 归属注入电流锁（registerKind 归籍 + register 自报 owner 不采信）', async () => {
+    const registry = createJobRegistry(); // 真注册表（assembly 同源机器——全链电流）
+    const faces: unknown[] = [];
+    const jobIds: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        const face = (ctx as { get: (n: string) => unknown }).get('jobs') as JobsPluginFace;
+        faces.push(face);
+        face.registerKind(customKind);
+        // 自报 owner 'forged-owner'——窄面 register 的 owner 由宿主绑定闭包固化注入，不采信
+        const handle = face.register({ kind: customKind, name: 'probe-job', owner: 'forged-owner' });
+        jobIds.push(handle.entry.id);
+      },
+    };
+    const { options, scope } = rigBoot('/data', {
+      corePlugins: [probe],
+      fs: memoryFs(),
+      jobs: { closeOwner: registry.closeOwner, bindForPlugin: (id) => registry.bindForPlugin(id) },
+    });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
+    expect(faces).toHaveLength(1); // 探针 fork 作用域里 'jobs' 可见（消费面真达）
+    expect(typeof (faces[0] as JobsPluginFace).registerKind).toBe('function'); // 窄面动词真达
+    // registerKind 归籍：探针 fork 登记的 kind 归属 = 本插件 id（非宿主席）
+    expect(registry.ownerOfKind(customKind)).toBe('core:probe');
+    // register 归属注入：经真身 get 对账——自报 'forged-owner' 不采信，条目 owner = 绑定 pluginId
+    expect(jobIds).toHaveLength(1);
+    expect(registry.get(jobIds[0] as string)?.owner).toBe('core:probe');
+    expect(scope.tryGet('jobs')).toBeUndefined(); // 共享根无此名（fork 独见）
+  });
+
+  it("bindForPlugin 缺席：替身/诊断形不绑定——探针 fork 无 'jobs' 名（tryGet undefined）", async () => {
+    const seen: unknown[] = [];
+    const probe: CorePluginReference = {
+      name: 'probe',
+      apply: async (ctx) => {
+        seen.push((ctx as { tryGet: (n: string) => unknown }).tryGet('jobs'));
+      },
+    };
+    const { options } = rigBoot('/data', { corePlugins: [probe], fs: memoryFs() }); // 无 jobs 注入（options.jobs 整体缺席）
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe']);
+    expect(seen).toEqual([undefined]); // 探针 fork 无 'jobs' 名——替身/诊断形不绑定
   });
 });
 

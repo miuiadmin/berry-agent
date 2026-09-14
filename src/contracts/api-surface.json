@@ -1260,16 +1260,8 @@
       "module": "services",
       "tier": "stable",
       "since": "1.0",
-      "desc": "Job 注册表面（ctx.get(\"jobs\") 消费——fork 绑定面委托共享根真身：registerKind 登记种类（fork 绑定携本插件 id 入 kind 归属记录——starter 谱系闸判籍面）、register 注册在飞 Job 得句柄、hasKind/running/list/get 只读对账、closeOwner 按 owner 围栏收口在飞；未登记 kind 拒 JOB_KIND_UNKNOWN）",
-      "sig": "2197e6026d13f6a1"
-    },
-    {
-      "symbol": "jobs.closeOwner",
-      "module": "services",
-      "tier": "stable",
-      "since": "1.0",
-      "desc": "按 owner 收口在飞 Job（会话关闭——打断/杀并落 killed；返回收口条目）",
-      "sig": "291a6ad94e5bc70b"
+      "desc": "Job 注册表面（ctx.get(\"jobs\") 消费——fork 绑定窄面 JobsPluginFace：registerKind 登记种类（fork 绑定携本插件 id 入 kind 归属记录——starter 谱系闸判籍面）、register 注册在飞 Job 得句柄（owner 由宿主绑定闭包固化注入——自报值不采信）、hasKind/ownerOfKind/running/list/get 只读对账；closeOwner/bindForPlugin 不入插件面——收口动词宿主单方执掌（卸载 disposer/会话 dispose 两路宿主闭包单源，03 §2.2 第九面 ④）；未登记 kind 拒 JOB_KIND_UNKNOWN）",
+      "sig": "99e5963cfd99342c"
     },
     {
       "symbol": "jobs.get",
@@ -1296,11 +1288,19 @@
       "sig": "a149db5d38cb06f2"
     },
     {
+      "symbol": "jobs.ownerOfKind",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "kind 归属查询（谱系执法读面）：宿主直调 = 宿主席、fork 绑定 = 插件 id；未登记 undefined",
+      "sig": "65f17e6c76bf014f"
+    },
+    {
       "symbol": "jobs.register",
       "module": "services",
       "tier": "stable",
       "since": "1.0",
-      "desc": "注册在飞 Job（并行帽按 kind 计在飞数；owner 围栏由收口面执法）",
+      "desc": "注册在飞 Job 得句柄（并行帽按 kind 计在飞数）",
       "sig": "67fd413def44262a"
     },
     {
@@ -1308,7 +1308,7 @@
       "module": "services",
       "tier": "stable",
       "since": "1.0",
-      "desc": "登记种类型（装载期调用——subagent/issue 各消费件自登；exec 子进程治理不走 Job 表，无自有 kind——六役勘正笔）",
+      "desc": "登记种类型（fork 绑定携本插件 id 入 kind 归属记录——starter 谱系闸判籍面；exec 子进程治理不走 Job 表、无自有 kind——六役勘正笔）",
       "sig": "e6d948deaa232cb7"
     },
     {
