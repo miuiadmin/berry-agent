@@ -1,6 +1,6 @@
 {
   "name": "berry-agent",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "apiVersion": "1.0",
   "description": "berry-agent — 单一、可扩展的个人 Agent：对话与编码即本体，一切能力以插件装载",
   "type": "module",
