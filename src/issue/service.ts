@@ -4,9 +4,11 @@
  * 入队纪律（enqueue 同步裁决、running 判定到 register 零 await——双触发
  * 源竞速安全）：
  * capabilities 预检（goal/exec/checkpoint 三名缺席任一拒）→ closed 弃 →
- * dedupeKey 在飞互斥（running() 扫）→ 全局日池判（canAffordIssue）→
+ * dedupeKey 在飞互斥（running() 扫）→ issue 并行帽预检（FX-1——帽满诚实
+ * rejected 不谎报 started 不发起 runOne）→ 全局日池判（canAffordIssue）→
  * jobs.register（kind 'issue'、name=dedupeKey、owner=合成键——会话未起，
- * 见 types.ts owner 注记）→ fire runOne（不 await）。
+ * 见 types.ts owner 注记；受理失败在 runOne 首语句位 warn 收口不崩进程）→
+ * fire runOne（不 await）。
  *
  * runOne 编舞（单 issue 全程）：
  * worktree 名候选让位（issue-N → -r2..-r9，分支留史撞名域；撞名让位分支
@@ -56,7 +58,16 @@ import type {
   IssueVerifyResult,
   IssueWorktreeFace,
 } from './types.js';
-import { ISSUE_POLL_JOB_NAME, ISSUE_RECEIPT_PATCH_CHARS, ISSUE_WORKTREE_NAME_RE, issueDedupeKey } from './types.js';
+import {
+  ISSUE_POLL_JOB_NAME,
+  ISSUE_PARALLEL_LIMIT_DEFAULT,
+  ISSUE_RECEIPT_PATCH_CHARS,
+  ISSUE_WORKTREE_NAME_RE,
+  issueDedupeKey,
+} from './types.js';
+
+/** Job 受理句柄（IssueJobsFace.register 产物——settle 子面） */
+type IssueJobHandle = ReturnType<IssueJobsFace['register']>;
 
 /** capabilities 预检名单（03 §10.7 ③入队定值——三名缺席任一拒） */
 const REQUIRED_CAPABILITIES: readonly string[] = ['goal', 'exec', 'checkpoint'];
@@ -194,6 +205,11 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
   const warn = deps.warn ?? (() => undefined);
   // 在飞记账（dedupeKey → worktree 名——orphanScan 的在飞减集；paused 停靠保留）
   const inflight = new Map<string, string>();
+  // kind issue 在飞键集（FX-1 并行帽预检源——本服务是 kind issue 唯一注册方，
+  // 与 registry parallelLimits 的 kind 计数同源镜像；paused 停靠保留占帽同
+  // registry running 语义；跨实例漂移形〔重挂载后旧 job 仍在飞〕由 runOne
+  // 受理位 try-catch 兜底——fail-safe 方向：漏计只会退到 register 拒收兜底）
+  const issueRunning = new Set<string>();
 
   /** worktree 名候选序列（issue-N 首选；分支留史撞名让位 -r2..-r9——九连撞即弃转人审） */
   function* worktreeNameCandidates(number: number): Generator<string> {
@@ -237,11 +253,44 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
   }
 
   /**
+   * Job 受理（FX-1——enqueue 预检与 registry 帽执法间的兜底收口位）。成功 =
+   * 返 settle 句柄并记进 issueRunning 在飞键集；失败（帽满
+   * JOB_LIMIT_REACHED / kind 未登记 JOB_KIND_UNKNOWN）= triggers.ts 受理
+   * 先例同形 warn 不上抛 + issue 回执评论落可观测失败账（残窗形调用方已收
+   * started 回执——register 先查帽后入表、表内零条目无 settle 可落，回执
+   * 评论是唯一 durable 纠偏面），返 undefined。本函数至 register 零 await
+   * （enqueue「同步受理」语义保持——runOne 经 await 调本函数时 register
+   * 仍在 enqueue 返回前同步执行完毕）。
+   */
+  async function admitIssueJob(issue: IssueRef, key: string): Promise<IssueJobHandle | undefined> {
+    try {
+      const handle = deps.jobs.register({ kind: 'issue', name: key, owner: `issue-job:${key}` });
+      issueRunning.add(key); // 在飞记账（enqueue 帽预检源——受理成功即时入集）
+      return handle;
+    } catch (err) {
+      // 错误码入回执（BaseError 形 `[code] message`——triggers.ts 受理先例同形，可观测面带码）
+      const detail = err instanceof BaseError ? `[${err.code}] ${err.message}` : String(err);
+      warn(`issue run 未受理（Job 注册失败 ${key}）：${detail}`);
+      await postReceipt(
+        issue,
+        `🤖 issue run 未受理：Job 注册失败（${detail}）——本轮未处理该 issue；其后续更新（新评论等）会再次触发入队重试。`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * runOne：单 issue 全程编舞（enqueue fire——不 await 调用方）。自身异常
-   * 兜底 settle failed（终态必落——编舞崩溃不悬挂注册表）。
+   * 兜底 settle failed（终态必落——编舞崩溃不悬挂注册表）。Job 受理失败
+   * （帽满 JOB_LIMIT_REACHED / kind 未登记 JOB_KIND_UNKNOWN）在首语句位
+   * warn 收口不上抛（FX-1：register 曾裸在 try 块外，帽满同步 throw 直接
+   * reject 本函数——void 吞 rejection 后经全局崩溃编舞 exit(1) 杀 daemon）。
    */
   async function runOne(issue: IssueRef, key: string): Promise<void> {
-    const handle = deps.jobs.register({ kind: 'issue', name: key, owner: `issue-job:${key}` });
+    // Job 受理先行（原首语句迁入 admitIssueJob——受理失败形零表内条目、
+    // 零 worktree 零起跑，回执落账即收口返）
+    const handle = await admitIssueJob(issue, key);
+    if (handle === undefined) return;
     let created: { readonly name: string; readonly path: string; readonly branch: string } | undefined;
     let sessionId: string | undefined;
     let retain = false; // paused 停靠：授予/worktree/在飞记账全保留（唤醒接线随装配批）
@@ -571,6 +620,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       }
     } finally {
       if (!retain) {
+        issueRunning.delete(key); // 帽位释放（paused 保留——停靠仍占 registry running 位）
         inflight.delete(key);
         if (sessionId !== undefined) deps.worktree.releaseSession(sessionId);
       }
@@ -579,7 +629,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
 
   /**
    * 入队裁决（同步、零 await 到 register——竞速窗口不存在）。预检序：
-   * capabilities → closed → dedupe → budget → register → fire。
+   * capabilities → closed → dedupe → 并行帽 → budget → register → fire。
    */
   function enqueue(issue: IssueRef): IssueEnqueueResult {
     for (const cap of REQUIRED_CAPABILITIES) {
@@ -595,12 +645,29 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       warn(`[ISSUE_JOB_DUPLICATE] 在飞互斥撞锁：${key}（进程内——不重入）`);
       return { status: 'duplicate', key };
     }
+    // issue 并行帽预检（FX-1：受理位诚实化——帽满不谎报 started、不发起
+    // runOne，回执沿 rejected 形〔同预算闸〕。预检源 = issueRunning 在飞键集
+    // 〔本服务是 kind issue 唯一注册方，与 registry parallelLimits 计数同源
+    // 镜像〕；帽值单源 = ISSUE_PARALLEL_LIMIT_DEFAULT〔装配 parallelLimits
+    // 同常量〕；预检与 register 间的漂移残余由 runOne 受理位 try-catch 兜底。
+    // 拒收不打 GitHub 评论——轮询每周期重见同 issue 会刷屏，rejected 回执
+    // 〔轮询报告/webhook 响应〕已是调用方可见面；重试语义同预算拒先例：
+    // 水位照推、issue 后续更新再触发）
+    if (issueRunning.size >= ISSUE_PARALLEL_LIMIT_DEFAULT) {
+      warn(
+        `[ISSUE_JOB_LIMIT] issue 并行帽满（在飞 ${issueRunning.size} ≥ ${ISSUE_PARALLEL_LIMIT_DEFAULT}）——本轮拒收：${key}`,
+      );
+      return {
+        status: 'rejected',
+        reason: `issue 并行帽满（在飞 ${issueRunning.size} ≥ 帽 ${ISSUE_PARALLEL_LIMIT_DEFAULT}）——本轮拒收，issue 后续更新将自动重试入队`,
+      };
+    }
     const afford = deps.budget.canAffordIssue();
     if (!afford.ok) {
       return { status: 'rejected', reason: afford.reason ?? '全局预算日池尽（停靠）' };
     }
-    // fire（runOne 首语句 register 同步执行——enqueue 返回前已入册，紧随的
-    // 二次 enqueue 在 running() 扫描即见：互斥成立）
+    // fire（runOne 首语句经 admitIssueJob 同步执行 register——enqueue 返回前
+    // 已入册，紧随的二次 enqueue 在 running() 扫描即见：互斥成立）
     void runOne(issue, key);
     return { status: 'started', key };
   }
