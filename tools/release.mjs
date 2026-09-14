@@ -30,6 +30,16 @@
  * 6. 尾件 git tag——tag 域两包分立（主包 v<version> / SDK sdk-v<version>；
  *    幂等：同 commit 跳过 / 异 commit 响亮拒）；push 恒带 -c http.version=HTTP/1.1。
  *
+ * 执行形（07 §8.3 末定形注 2026-09-15 CI 化——OIDC trusted publishing 常轨）：
+ * resolveReleaseForm 按「--local-publish 旗标 > env BERRY_AGENT_RELEASE_MODE=ci
+ * > 描述符 publishMode 缺省」解析三分形——trigger 本机触发腿（主包缺省：预检 →
+ * 交棒 tag → gh 轮询 CI run 终态 → registry 复探收口〔恒深对照——溯源戳跨机必
+ * 不等〕→ preview 期本机 dist-tag set latest〔npm/cli#8547 结构性外置〕→ 契约 5
+ * 本机复断）/ ci CI 发布腿（release.yml 内 OIDC publish；契约 5 只读断言 next、
+ * 契约 6 只校验既有 tag）/ token 令牌全本地旧序（SDK 缺省 + 主包 --local-publish
+ * 应急——六道契约原序不动）。--dry-run 独立于模式轴：任何形下演习投影的都是
+ * 令牌道旧序（CI 等待段不在演习射程）。
+ *
  * 演习形态：--dry-run——契约 1/2 照跑；契约 3 真做；契约 4 幂等照判、publish
  * 走 npm publish --dry-run；契约 5 只调纯函数断言期望终态、不执行 dist-tag
  * add；契约 6 只校验既有 tag 状态。
@@ -125,7 +135,10 @@ function readSdkReadmeText(pkgRoot) {
  * 包描述符单源表（--package 词面全集；07 §8.3 双包发布道定形块）。
  * tagPrefix 两包分立：主包 v<version> / SDK sdk-v<version>（版本号独立演进，
  * 同号真发时同形 tag 必撞）；treeStrip = 契约 4 深对照剥离集（主包溯源戳
- * 两件 / SDK 纯 tsc 确定性编译空集——shasum 不等即实质差异）。
+ * 两件 / SDK 纯 tsc 确定性编译空集——shasum 不等即实质差异）。publishMode =
+ * 执行形缺省（07 §8.3 末定形注第 1 款——主包 ci〔缺省形 = 本机触发腿〕/
+ * SDK token〔全本地旧序〕；CI 真发形由 release.yml 设 env
+ * BERRY_AGENT_RELEASE_MODE=ci 判入，--local-publish 旗标强制 token 应急）。
  * buildScript / readmeText / smoke = 差分面随表承载（07 §8.3 定形句把
  * 「冒烟形」列为描述符第 9 项，build 链与 readme 读面同款收口——2026-09-14
  * 扫描四役 idx 8：修前三者内联在 realSeams 的 pkgKey if 分叉系参数化遗漏，
@@ -139,6 +152,7 @@ export const PACKAGES = {
     name: 'berry-agent',
     pkgDir: '',
     tagPrefix: 'v',
+    publishMode: 'ci',
     tarballName: (version) => `berry-agent-${version}.tgz`,
     packAllowed: MAIN_PACK_ALLOWED,
     packBanned: MAIN_PACK_BANNED,
@@ -152,6 +166,7 @@ export const PACKAGES = {
     name: 'berry-agent-sdk',
     pkgDir: 'packages/berry-agent-sdk',
     tagPrefix: 'sdk-v',
+    publishMode: 'token',
     tarballName: (version) => `berry-agent-sdk-${version}.tgz`,
     packAllowed: SDK_PACK_ALLOWED,
     packBanned: SDK_PACK_BANNED,
@@ -245,8 +260,48 @@ export function judgeReadme(text) {
   return { ok: hits === 0, hits };
 }
 
+/**
+ * 执行形解析（07 §8.3 末定形注第 1 款——模式轴单源）：
+ * --local-publish 旗标 > env BERRY_AGENT_RELEASE_MODE=ci > 描述符 publishMode。
+ * env 只认 'ci' 一值（release.yml 发布腿专属信号——本机不应自设）；env=ci 撞
+ * token 包（SDK 无 CI 腿）= 用法错响亮拒，非法取值同拒——fail-loud 不猜。
+ * 返回三态：'trigger'（本机触发腿——主包缺省）/ 'ci'（CI 发布腿）/
+ * 'token'（令牌全本地旧序——SDK 缺省 + 旗标应急）。
+ */
+export function resolveReleaseForm({ pkgKey = 'main', localPublish = false, env = process.env }) {
+  if (localPublish) return 'token';
+  const envMode = env.BERRY_AGENT_RELEASE_MODE;
+  if (envMode !== undefined) {
+    if (envMode !== 'ci') throw new Error(`BERRY_AGENT_RELEASE_MODE 取值非法：${envMode}（仅认 ci）`);
+    if (PACKAGES[pkgKey].publishMode !== 'ci') {
+      throw new Error(`env ci 撞无 CI 腿的包 ${PACKAGES[pkgKey].name}（SDK 走令牌全本地旧序）`);
+    }
+    return 'ci';
+  }
+  return PACKAGES[pkgKey].publishMode === 'ci' ? 'trigger' : 'token';
+}
+
+/**
+ * 契约 5 CI 形断言（07 §8.3 末定形注第 2 款——npm/cli#8547：trusted publishing
+ * 只认证 publish，dist-tag add 结构性走不了 OIDC，故 latest 挪位时序外置到本机
+ * 触发腿收口段）：CI 腿只读断言——prerelease 断 next 指 version（latest 挪位
+ * 尚未发生不断言）、正式版断 latest 指 version。终态 latest≡next 复断归本机
+ * 触发腿（judgeDistTag 原断言）。
+ */
+export function judgeDistTagCi(tags, version, prerelease) {
+  if (prerelease) {
+    if (tags.next === version) return { ok: true };
+    return {
+      ok: false,
+      reason: `CI 形 preview 断言：next(${tags.next}) 须指 ${version}（latest 挪位在本机触发腿收口段——npm/cli#8547）`,
+    };
+  }
+  if (tags.latest === version) return { ok: true };
+  return { ok: false, reason: `正式版 latest(${tags.latest}) 须指 ${version}（next 不动）` };
+}
+
 // ---------------------------------------------------------------------------
-// argv 解析（--dry-run / --inject <谱项>；用法错收集后退 2）
+// argv 解析（--dry-run / --local-publish / --inject <谱项>；用法错收集后退 2）
 // ---------------------------------------------------------------------------
 
 /**
@@ -301,14 +356,39 @@ export const INJECT_SPECTRUM = {
     note: 'git tag 已在且异 commit——响亮拒（registry 已传不可重写）',
     patch: (s) => ({ ...s, gitTagState: () => ({ commit: 'deadbeef' }) }),
   },
+  // 触发腿谱族（CI 段注入——CLI 形因 afterPublish 须配 --dry-run，而演习投影
+  // 令牌道旧序不走 CI 段故 CLI 注入形空转；场景面收进 release.test.mjs 以
+  // patch(假缝) 直跑触发腿全覆盖——测试即留档）
+  'ci:fail': {
+    afterPublish: true,
+    note: '触发腿 CI run 失败终态——响亮拒附 run URL + 恢复手续指路（定形注第 3/4 款）',
+    patch: (s) => ({
+      ...s,
+      ciWaitRun: () => ({ status: 'failure', runUrl: 'https://github.com/miuiadmin/berry-agent/actions/runs/999' }),
+    }),
+  },
+  'ci:timeout': {
+    afterPublish: true,
+    note: '触发腿 CI 轮询超时（30 分钟帽）——响亮拒附人工核 run 指路',
+    patch: (s) => ({ ...s, ciWaitRun: () => ({ status: 'timeout', runUrl: '' }) }),
+  },
+  'ci:green-absent': {
+    afterPublish: true,
+    note: 'CI run 绿但 registry 复探缺席——异常态收口拒（半成功必须被看见）',
+    patch: (s) => ({
+      ...s,
+      ciWaitRun: () => ({ status: 'success', runUrl: 'https://github.com/miuiadmin/berry-agent/actions/runs/999' }),
+    }),
+  },
 };
 
-/** argv 解析：{ pkg, dryRun, inject, errors }——用法错聚齐由 CLI 层退 2 */
+/** argv 解析：{ pkg, dryRun, inject, localPublish, errors }——用法错聚齐由 CLI 层退 2 */
 export function parseReleaseArgs(argv) {
-  const out = { pkg: 'main', dryRun: false, inject: undefined, errors: [] };
+  const out = { pkg: 'main', dryRun: false, inject: undefined, localPublish: false, errors: [] };
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
     if (tok === '--dry-run') out.dryRun = true;
+    else if (tok === '--local-publish') out.localPublish = true;
     else if (tok === '--package') {
       const key = argv[i + 1];
       if (key === undefined || key.startsWith('--')) {
@@ -335,7 +415,7 @@ export function parseReleaseArgs(argv) {
       i++;
     } else {
       out.errors.push(
-        `未知参数：${tok}（仅认 --package <${Object.keys(PACKAGES).join('|')}> / --dry-run / --inject <谱项>）`,
+        `未知参数：${tok}（仅认 --package <${Object.keys(PACKAGES).join('|')}> / --dry-run / --local-publish / --inject <谱项>）`,
       );
     }
   }
@@ -352,20 +432,35 @@ export function parseReleaseArgs(argv) {
 
 /**
  * @param {object} seams 缝面（CLI=realSeams 实装；测试=假缝注入谱场景）
- * @param {{version: string, pkgKey?: string, dryRun: boolean, log: (line: string) => void}} opts
- *   pkgKey 缺省 'main'（07 §8.3 双包发布道——编舞零分叉，差异全在描述符/缝面）
+ * @param {{version: string, pkgKey?: string, dryRun: boolean, localPublish?: boolean, env?: object, log: (line: string) => void}} opts
+ *   pkgKey 缺省 'main'（07 §8.3 双包发布道——编舞零分叉，差异全在描述符/缝面）；
+ *   localPublish/env 透传 resolveReleaseForm（执行形解析见定形注第 1 款——
+ *   env 缺省 process.env，测试经 env:{} 隔离宿主环境变量面）
  * @returns {{code: number, report: string[]}}
  */
 export async function runRelease(seams, opts) {
   const { version, dryRun } = opts;
-  const pkg = PACKAGES[opts.pkgKey ?? 'main'];
+  const pkgKey = opts.pkgKey ?? 'main';
+  const pkg = PACKAGES[pkgKey];
   const report = [];
   const log = (line) => {
     report.push(line);
     opts.log(line);
   };
   const prerelease = isPrerelease(version);
-  log(`[release] ${pkg.name}@${version}${dryRun ? '（--dry-run 演习）' : ''} 六道契约起跑`);
+  // 执行形解析（旗标 > env > 描述符——定形注第 1 款）。用法错（env 非法/撞
+  // token 包）fail-loud 退 1；--dry-run 独立于模式轴：解析照走（用法错照咬），
+  // 编舞恒投影令牌道旧序（CI 等待段不在演习射程）
+  let form;
+  try {
+    form = resolveReleaseForm({ pkgKey, localPublish: opts.localPublish ?? false, env: opts.env ?? process.env });
+  } catch (err) {
+    log(`[release] 拒：${err.message}`);
+    return { code: 1, report };
+  }
+  if (dryRun) form = 'token';
+  const formLabel = { trigger: '本机触发腿', ci: 'CI 发布腿', token: '令牌全本地' }[form];
+  log(`[release] ${pkg.name}@${version}${dryRun ? '（--dry-run 演习）' : `（执行形=${formLabel}）`} 六道契约起跑`);
 
   // —— 契约 1：门禁前置不可绕 + 工作树净空 ——
   log('[契约1] 四门禁前置……');
@@ -423,6 +518,131 @@ export async function runRelease(seams, opts) {
   }
   log(`[契约3] 绿：全新 build + pack 验收 + 安装冒烟过（tarball ${tarballPath}，shasum ${localShasum}）`);
 
+  // —— 触发腿分岔（07 §8.3 末定形注第 3 款）：本机不直接 publish——预检 →
+  // 交棒 tag → gh 轮询 CI run → registry 复探收口 → preview latest 挪位 →
+  // 契约 5 本机复断。契约 4 的本地 publish 单点让位给 CI 的 OIDC publish
+  //（版本字节上传仍单点，只是换了执行位——契约 4 尾注「机器内单调用点」不变）。
+  if (form === 'trigger') {
+    // 预检门 = 契约 4 同款 README 占位符检查，前提到交棒之前（拦在出门前非
+    // 交棒后——CI 带病跑完再拦即半成功态）
+    const readmeVerdict = judgeReadme(seams.readmeText());
+    if (!readmeVerdict.ok) {
+      log('[触发腿] 拒：发布物 README 含安装占位符——交棒前预检拦（仓转公开日回填前禁发）');
+      return { code: 1, report };
+    }
+    // 幂等判定：registry 已在场且等价 → 已发过，跳过交棒直收口（重跑幂等律）
+    let skipHandoff = false;
+    if (probe.state === 'present') {
+      if (probe.shasum === localShasum) {
+        skipHandoff = true;
+        log('[触发腿] 幂等：registry 在场且 shasum 等价——跳过交棒直收口');
+      } else {
+        // shasum 不等 → 深对照（溯源戳跨机必不等——恒走深对照判实质）
+        const remoteTarball = seams.fetchTarball(version);
+        if (remoteTarball === null) {
+          log('[触发腿] 拒：registry 在场且 shasum 不一致，深对照拉取不可行——fail-closed 拒发');
+          return { code: 1, report };
+        }
+        const deep = judgeTarballTrees(seams.tarballTree(tarballPath), seams.tarballTree(remoteTarball), pkg.treeStrip);
+        if (!deep.equivalent) {
+          log(`[触发腿] 拒：深对照有实质差异（[${deep.diffs.join(', ')}]）——registry 不可重写同版本`);
+          return { code: 1, report };
+        }
+        skipHandoff = true;
+        log('[触发腿] 幂等：深对照全同（仅溯源戳差异）——跳过交棒直收口');
+      }
+    }
+    // 交棒 = 打 tag + push（tag 即触发器；tag 保护 ruleset 已在场——定形注第 7 款）
+    if (!skipHandoff) {
+      const tagName = `${pkg.tagPrefix}${version}`;
+      const tagState = seams.gitTagState(tagName);
+      if (tagState === 'absent') {
+        seams.gitTagCreate(tagName);
+        const pushed = seams.gitTagPush(tagName);
+        if (pushed.status !== 0) {
+          log(`[触发腿] 拒：tag ${tagName} push 失败——CI 未触发（本地 tag 已打，恢复手续见定形注第 4 款）`);
+          return { code: 1, report };
+        }
+        log(`[触发腿] 交棒：tag ${tagName} 已打并 push（恒 HTTP/1.1）——CI 发布腿起跑`);
+      } else if (tagState.commit === seams.headCommit()) {
+        log(`[触发腿] 续跑：tag ${tagName} 已在同 commit（上次交棒后未收口——重等 CI）`);
+      } else {
+        log(`[触发腿] 拒：tag ${tagName} 已在但指 ${tagState.commit} ≠ HEAD ${seams.headCommit()}——异 commit 响亮拒`);
+        return { code: 1, report };
+      }
+      // gh 轮询 CI run 终态（fail-loud 前检 + 20s 间隔 + 30 分钟帽）
+      const ci = await seams.ciWaitRun(tagName, (st) => log(`[触发腿] CI 进行中（${st}）——轮询中`));
+      if (ci.status === 'failure') {
+        log(
+          `[触发腿] 拒：CI run 失败——${ci.runUrl}\n  恢复手续（定形注第 4 款）：删 tag ${tagName} → 修 commit → 重新交棒，或 GitHub UI 重跑`,
+        );
+        return { code: 1, report };
+      }
+      if (ci.status === 'timeout') {
+        log(
+          `[触发腿] 拒：CI run 30 分钟未出终态——人工核 https://github.com/miuiadmin/berry-agent/actions（tag ${tagName} 在场，CI 或仍在跑）`,
+        );
+        return { code: 1, report };
+      }
+      if (ci.status === 'fatal') {
+        log(`[触发腿] 拒：CI 轮询前检失败——${ci.reason}`);
+        return { code: 1, report };
+      }
+      log(`[触发腿] CI 绿：${ci.runUrl}`);
+    }
+    // 收口：registry 复探（CI 的 publish 单点已上传）——缺席即异常态响亮拒
+    const reprobe = judgeRegistryProbe(seams.probe(version));
+    if (reprobe.state !== 'present') {
+      log(
+        `[触发腿] 拒：CI 绿但 registry 复探非在场（${reprobe.state === 'absent' ? 'E404 缺席' : reprobe.reason}）——异常态，人工核 CI 日志与 registry`,
+      );
+      return { code: 1, report };
+    }
+    if (reprobe.shasum !== localShasum) {
+      // shasum 不等不必然是坏——溯源戳跨机必不等，深对照判实质（跨机确定性 =
+      // 本批首演验证点——定形注第 3 款）
+      const remoteTarball = seams.fetchTarball(version);
+      if (remoteTarball === null) {
+        log('[触发腿] 拒：复探 shasum 不一致且深对照拉取不可行——fail-closed（registry 不可重写同版本）');
+        return { code: 1, report };
+      }
+      const deep = judgeTarballTrees(seams.tarballTree(tarballPath), seams.tarballTree(remoteTarball), pkg.treeStrip);
+      if (!deep.equivalent) {
+        log(
+          `[触发腿] 拒：深对照有实质差异（[${deep.diffs.join(', ')}]）——CI 构建与本地非同物，registry 已不可重写，响亮拒`,
+        );
+        return { code: 1, report };
+      }
+      log('[触发腿] 收口：深对照等价（仅溯源戳差异）——CI 构建与本地同物');
+    } else {
+      log('[触发腿] 收口：registry 复探在场且 shasum 等价——发布确认');
+    }
+    // preview 期 latest 挪位（npm/cli#8547——dist-tag 走不了 OIDC，本机令牌腿
+    // 收尾；正式版 latest 由 CI publish 默认 tag 已落位，无挪位步）
+    if (prerelease) {
+      const add = seams.distTagAdd(version, 'latest');
+      if (add.status !== 0) {
+        log(
+          `[触发腿] 红：dist-tag set latest 失败——半成功态，人工接管（npm dist-tag set latest ${pkg.name}@` +
+            version +
+            '）',
+        );
+        return { code: 1, report };
+      }
+      log('[触发腿] preview latest 挪位完成（latest≡next 同指）');
+    }
+    // 契约 5 本机复断（终态 latest≡next 原断言——judgeDistTag）
+    const tagsNow = seams.distTagLs();
+    const tagVerdict = judgeDistTag(tagsNow, version, prerelease);
+    if (!tagVerdict.ok) {
+      log(`[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见`);
+      return { code: 1, report };
+    }
+    log('[契约5] 绿：dist-tag 终态断言过（触发腿复断）');
+    log(`[release] 全契约绿：${pkg.name}@${version}（本机触发腿——publish 由 CI OIDC 完成）`);
+    return { code: 0, report };
+  }
+
   // —— 契约 4：幂等收口与 publish 单点 ——
   let published = false;
   if (probe.state === 'present' && probe.shasum === localShasum) {
@@ -459,8 +679,18 @@ export async function runRelease(seams, opts) {
     );
   }
 
-  // —— 契约 5：dist-tag 终态机器断言（末尾必跑）——
-  if (prerelease && !dryRun && published) {
+  // —— 契约 5：dist-tag 终态机器断言（末尾必跑；断言件按执行形分件——CI 形只读
+  // 断 next〔latest 挪位时序在 CI 终态后，npm/cli#8547 结构性外置〕、令牌旧序照
+  // 原断言——07 §8.3 契约 5 尾注）——
+  if (form === 'ci') {
+    const ciTags = seams.distTagLs();
+    const ciVerdict = judgeDistTagCi(ciTags, version, prerelease);
+    if (!ciVerdict.ok) {
+      log(`[契约5] 红：${ciVerdict.reason}`);
+      return { code: 1, report };
+    }
+    log('[契约5] 绿：CI 形只读断言过（latest 挪位不在 CI 射程——本机触发腿收口段复断）');
+  } else if (prerelease && !dryRun && published) {
     const add = seams.distTagAdd(version, 'latest');
     if (add.status !== 0) {
       log(
@@ -473,24 +703,40 @@ export async function runRelease(seams, opts) {
   }
   // 终态输入源三分：真发查实际 ls（publish/dist-tag add 已落盘）；演习且首发
   // （registry 缺席——ls 尚未移动）只调纯函数断言期望终态；演习且在场（幂等
-  // 重跑形）查实际 ls——分叉在此被咬住（人工干预 dist-tag 不回写脚本 = 驯服失效之始）
-  const tags =
-    !dryRun || probe.state === 'present'
-      ? seams.distTagLs()
-      : prerelease
-        ? { latest: version, next: version }
-        : { latest: version };
-  const tagVerdict = judgeDistTag(tags, version, prerelease);
-  if (!tagVerdict.ok) {
-    log(`[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见（人工干预 dist-tag 后不回写脚本 = 驯服失效之始）`);
-    return { code: 1, report };
+  // 重跑形）查实际 ls——分叉在此被咬住（人工干预 dist-tag 不回写脚本 = 驯服失效
+  // 之始）。CI 形不走本块（终态 latest≡next 复断归本机触发腿——定形注第 2 款，
+  // CI 中间态 latest 未挪是设计内非分叉）。
+  if (form !== 'ci') {
+    const tags =
+      !dryRun || probe.state === 'present'
+        ? seams.distTagLs()
+        : prerelease
+          ? { latest: version, next: version }
+          : { latest: version };
+    const tagVerdict = judgeDistTag(tags, version, prerelease);
+    if (!tagVerdict.ok) {
+      log(`[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见（人工干预 dist-tag 后不回写脚本 = 驯服失效之始）`);
+      return { code: 1, report };
+    }
+    log('[契约5] 绿：dist-tag 终态断言过');
   }
-  log('[契约5] 绿：dist-tag 终态断言过');
 
-  // —— 契约 6：尾件 git tag ——（tag 域两包分立：主包 v<version> / SDK sdk-v<version>——07 §8.3 差分③同节）
+  // —— 契约 6：尾件 git tag ——（tag 域两包分立：主包 v<version> / SDK sdk-v<version>——07 §8.3 差分③同节；
+  // CI 形只校验既有——tag 即触发器，CI 不打 tag（定形注第 2/6 款 tag 时序三分形）——
   const tagName = `${pkg.tagPrefix}${version}`;
   const tagState = seams.gitTagState(tagName);
-  if (tagState === 'absent') {
+  if (form === 'ci') {
+    if (tagState === 'absent') {
+      log(`[契约6] 拒：CI 形 tag ${tagName} 必在场（tag 即触发器——非 tag 直跑形见定形注第 5 款）`);
+      return { code: 1, report };
+    }
+    if (tagState.commit === seams.headCommit()) {
+      log(`[契约6] 绿：tag ${tagName} 在场且同 commit（CI 只校验不打）`);
+    } else {
+      log(`[契约6] 拒：tag ${tagName} 指 ${tagState.commit} ≠ checkout ${seams.headCommit()}——异 commit 响亮拒`);
+      return { code: 1, report };
+    }
+  } else if (tagState === 'absent') {
     if (dryRun) {
       log(`[契约6] 演习：tag ${tagName} 缺席（真发时将创建 + push）`);
     } else {
@@ -748,6 +994,54 @@ export function realSeams(pkgKey = 'main') {
     gitTagCreate: (tag) => void cap('git', ['tag', tag]),
     gitTagPush: (tag) =>
       cap('git', ['-c', 'http.version=HTTP/1.1', 'push', 'origin', `refs/tags/${tag}`], { stdio: 'inherit' }),
+    /**
+     * 触发腿 CI 轮询（gh CLI——fail-loud 前检：gh 缺席/未认证即 fatal，不静默
+     * 空转）。轮询 `gh run list` 按 headBranch=tag 匹配 release.yml run；20s
+     * 间隔、30 分钟帽（四门禁含全量测试的 CI 时长量级之上留足裕量）。
+     * 返回 {status:'success', runUrl} / {status:'failure', runUrl} /
+     * {status:'timeout'} / {status:'fatal', reason}。
+     */
+    ciWaitRun: async (tag, onProgress) => {
+      const ghOk = cap('gh', ['--version']);
+      if (ghOk.status !== 0)
+        return {
+          status: 'fatal',
+          reason: 'gh CLI 缺席——本机触发腿依赖 gh 轮询 CI run（brew install gh && gh auth login）',
+        };
+      const ghAuth = cap('gh', ['auth', 'status']);
+      if (ghAuth.status !== 0) return { status: 'fatal', reason: 'gh CLI 未认证——gh auth login 后重跑' };
+      const deadline = Date.now() + 30 * 60 * 1000;
+      for (;;) {
+        const res = cap('gh', [
+          'run',
+          'list',
+          '--workflow=release.yml',
+          '--limit',
+          '20',
+          '--json',
+          'databaseId,status,conclusion,headBranch,url',
+        ]);
+        if (res.status === 0) {
+          let runs = [];
+          try {
+            runs = JSON.parse(res.stdout ?? '[]');
+          } catch {
+            runs = [];
+          }
+          const hit = runs.find((r) => r.headBranch === tag);
+          if (hit !== undefined) {
+            const done = hit.status === 'completed' || hit.status === 'success' || hit.status === 'failure';
+            if (done) {
+              const ok = hit.status === 'completed' ? hit.conclusion === 'success' : hit.status === 'success';
+              return { status: ok ? 'success' : 'failure', runUrl: hit.url };
+            }
+            if (onProgress !== undefined) onProgress(hit.status);
+          }
+        }
+        if (Date.now() >= deadline) return { status: 'timeout' };
+        cap('sleep', ['20']);
+      }
+    },
   };
 }
 
@@ -761,7 +1055,9 @@ if (isMain) {
   const parsed = parseReleaseArgs(process.argv.slice(2));
   if (parsed.errors.length > 0) {
     for (const e of parsed.errors) console.error(`用法错：${e}`);
-    console.error('用法：node tools/release.mjs [--package <main|sdk>] [--dry-run] [--inject <谱项>]');
+    console.error(
+      '用法：node tools/release.mjs [--package <main|sdk>] [--dry-run] [--local-publish] [--inject <谱项>]',
+    );
     process.exit(2);
   }
   const base = realSeams(parsed.pkg);
@@ -771,6 +1067,7 @@ if (isMain) {
     version: pkgJson.version,
     pkgKey: parsed.pkg,
     dryRun: parsed.dryRun,
+    localPublish: parsed.localPublish,
     log: (line) => console.log(line),
   });
   process.exit(result.code);

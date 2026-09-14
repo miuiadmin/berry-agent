@@ -9,11 +9,13 @@ import {
   INJECT_SPECTRUM,
   PACKAGES,
   judgeDistTag,
+  judgeDistTagCi,
   judgePackList,
   judgeReadme,
   judgeRegistryProbe,
   judgeTarballTrees,
   parseReleaseArgs,
+  resolveReleaseForm,
   runRelease,
   isPrerelease,
 } from './release.mjs';
@@ -54,7 +56,15 @@ const PACK_BASELINES = {
 
 /** 假缝工厂——全绿基线 + 调用留痕（断言「未触写面」用）；pkgKey 随包分叉基线 */
 function fakeSeams(overrides = {}, pkgKey = 'main') {
-  const calls = { build: 0, publish: [], distTagAdd: [], gitTagCreate: [], gitTagPush: [], fetch: 0 };
+  const calls = {
+    build: 0,
+    publish: [],
+    distTagAdd: [],
+    gitTagCreate: [],
+    gitTagPush: [],
+    fetch: 0,
+    ciWait: [],
+  };
   const base = {
     calls,
     gates: () => [
@@ -95,16 +105,52 @@ function fakeSeams(overrides = {}, pkgKey = 'main') {
     },
     gitTagPush: (t) => {
       calls.gitTagPush.push(t);
+      return { status: 0 };
+    },
+    // 触发腿 CI 轮询缺省绿（假缝——失败/超时/缺席场景经 INJECT_SPECTRUM.ci:* 或覆写注入）
+    ciWaitRun: (tag) => {
+      calls.ciWait.push(tag);
+      return { status: 'success', runUrl: 'https://github.com/miuiadmin/berry-agent/actions/runs/1' };
     },
   };
   return { ...base, ...overrides };
 }
 
-/** runRelease 直跑快捷（静默 log；pkgKey 透传双包） */
-async function run(seams, version = '0.1.0-alpha.1', dryRun = true, pkgKey = 'main') {
+/**
+ * runRelease 直跑快捷（静默 log；pkgKey 透传双包；extra 透传执行形参数——
+ * env 钉 {} 缺省隔离宿主环境变量〔BERRY_AGENT_RELEASE_MODE 宿主泄漏会改道
+ * 执行形〕，localPublish / env 经 extra 注入）
+ */
+async function run(seams, version = '0.1.0-alpha.1', dryRun = true, pkgKey = 'main', extra = {}) {
   const report = [];
-  const result = await runRelease(seams, { version, pkgKey, dryRun, log: (l) => report.push(l) });
+  const result = await runRelease(seams, {
+    version,
+    pkgKey,
+    dryRun,
+    env: {},
+    ...extra,
+    log: (l) => report.push(l),
+  });
   return { ...result, report };
+}
+
+/**
+ * 触发腿假缝工厂：probe 两态翻转（契约 2 缺席 → 收口复探在场——CI 已发布的
+ * 真形）+ 深对照腿配套（拉取可行；双树走 fakeSeams 缺省固定树——本地/远端
+ * 恒同即「仅溯源戳差异」等价形）。fetchTarball 覆写不挂 calls.fetch 计数
+ * （闭包取不到 base.calls——收口断言走报告面非 fetch 计数）。
+ */
+function triggerSeams(overrides = {}) {
+  const answers = [
+    { status: 1, stdout: '', stderr: 'npm error code E404\nnpm error 404 Not Found' },
+    { status: 0, stdout: '"2222222222222222222222222222222222222222"\n', stderr: '' },
+  ];
+  let n = 0;
+  return fakeSeams({
+    probe: () => answers[Math.min(n++, 1)],
+    fetchTarball: () => '/tmp/fake/fetch/berry-agent-0.1.0-alpha.1.tgz',
+    ...overrides,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -248,8 +294,20 @@ describe('judgeReadme / isPrerelease', () => {
 
 describe('parseReleaseArgs', () => {
   it('空参 = 真发 + 缺省主包；--dry-run = 演习', () => {
-    expect(parseReleaseArgs([])).toEqual({ pkg: 'main', dryRun: false, inject: undefined, errors: [] });
+    expect(parseReleaseArgs([])).toEqual({
+      pkg: 'main',
+      dryRun: false,
+      inject: undefined,
+      localPublish: false,
+      errors: [],
+    });
     expect(parseReleaseArgs(['--dry-run']).dryRun).toBe(true);
+  });
+
+  it('--local-publish 旗标解析（令牌腿应急）', () => {
+    expect(parseReleaseArgs(['--local-publish']).localPublish).toBe(true);
+    expect(parseReleaseArgs(['--dry-run', '--local-publish']).localPublish).toBe(true);
+    expect(parseReleaseArgs(['--local-publish']).dryRun).toBe(false);
   });
 
   it('合法谱项带 --dry-run → 过', () => {
@@ -267,6 +325,8 @@ describe('parseReleaseArgs', () => {
   it('publish 之后的谱项无 --dry-run → 用法错（防真上传后撞注入终态）', () => {
     expect(parseReleaseArgs(['--inject', 'disttag:diverged']).errors[0]).toContain('--dry-run');
     expect(parseReleaseArgs(['--inject', 'tag:conflict']).errors.length).toBe(1);
+    // 触发腿谱族同律（CI 段位于交棒/publish 之后）
+    expect(parseReleaseArgs(['--inject', 'ci:fail']).errors[0]).toContain('--dry-run');
     // publish 前谱项无此限
     expect(parseReleaseArgs(['--inject', 'probe:network']).errors).toEqual([]);
   });
@@ -277,6 +337,7 @@ describe('parseReleaseArgs', () => {
       pkg: 'sdk',
       dryRun: false,
       inject: undefined,
+      localPublish: false,
       errors: [],
     });
     expect(parseReleaseArgs(['--package', 'sdk', '--dry-run']).pkg).toBe('sdk');
@@ -407,20 +468,21 @@ describe('runRelease 演习（--dry-run）', () => {
     expect(r.report.join('\n')).toContain('幂等');
   });
 
-  it('README 占位符在演习态不拦（dry-run 不拦条款）、真发态拦', async () => {
+  it('README 占位符在演习态不拦（dry-run 不拦条款）、令牌腿真发态拦', async () => {
     const dirty = { readmeText: () => '# berry\nnpm install -g berry-agent <!-- placeholder -->' };
     expect((await run(fakeSeams(dirty), '0.1.0-alpha.1', true)).code).toBe(0);
-    const real = await run(fakeSeams(dirty), '0.1.0-alpha.1', false);
+    const real = await run(fakeSeams(dirty), '0.1.0-alpha.1', false, 'main', { localPublish: true });
     expect(real.code).toBe(1);
     expect(real.report.join('\n')).toContain('占位符');
   });
 });
 
-describe('runRelease 真发形态（假缝全绿）', () => {
+describe('runRelease 令牌腿真发（--local-publish 应急形 / SDK 常轨——全套旧序）', () => {
   it('prerelease：publish --tag next + dist-tag add latest + 打 tag 推 tag', async () => {
     const s = fakeSeams();
-    const r = await run(s, '0.1.0-alpha.1', false);
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { localPublish: true });
     expect(r.code).toBe(0);
+    expect(r.report.join('\n')).toContain('（执行形=令牌全本地）');
     expect(s.calls.publish).toEqual([
       { tarball: '/tmp/fake/berry-agent-0.1.0-alpha.1.tgz', next: true, dryRun: false },
     ]);
@@ -431,7 +493,7 @@ describe('runRelease 真发形态（假缝全绿）', () => {
 
   it('正式版：publish 默认 latest、不 dist-tag add、next 不动', async () => {
     const s = fakeSeams({ distTagLs: () => ({ latest: '1.0.0', next: '0.9.0-beta.9' }) });
-    const r = await run(s, '1.0.0', false);
+    const r = await run(s, '1.0.0', false, 'main', { localPublish: true });
     expect(r.code).toBe(0);
     expect(s.calls.publish[0].next).toBe(false);
     expect(s.calls.distTagAdd).toEqual([]);
@@ -488,6 +550,12 @@ describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
     const v = judgeTarballTrees(local, drifted, PACKAGES.sdk.treeStrip);
     expect(v.equivalent).toBe(false);
     expect(v.diffs).toEqual(['dist/packages/berry-agent-sdk/src/index.js']);
+  });
+
+  // 2026-09-15 CI 化批——publishMode 描述符锁（N4：枚举面随批扩入描述符定形块）
+  it('publishMode 描述符锁：main=ci（缺省形 = 本机触发腿）/ sdk=token（全本地旧序）', () => {
+    expect(PACKAGES.main.publishMode).toBe('ci');
+    expect(PACKAGES.sdk.publishMode).toBe('token');
   });
 
   it('runRelease SDK 演习全绿：tarball 名/tag 域/log 面随包分叉', async () => {
@@ -603,5 +671,240 @@ describe('pack 失败契约式红（退出码检查——非裸栈/裸 ENOENT）
     expect(text).toContain('[契约3] 红');
     expect(text).toContain('npm pack 失败');
     expect(s.calls.publish).toEqual([]); // 未走到上传面
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 执行形三分（2026-09-15 CI 化批——07 §8.3 末定形注第 1-3 款：OIDC trusted
+// publishing 常轨）。触发腿 = 本机预检→交棒 tag→gh 轮询 CI→registry 复探收口
+// →preview latest 挪位〔npm/cli#8547 结构性外置〕→契约 5 本机复断；CI 腿 =
+// release.yml 内 OIDC publish（契约 5 只读断言 next / 契约 6 只校验既有 tag）；
+// 令牌腿 = 全本地旧序（SDK 缺省 + --local-publish 应急）。
+// ---------------------------------------------------------------------------
+
+describe('resolveReleaseForm（执行形解析——旗标 > env > 描述符）', () => {
+  it('缺省：main→trigger（本机触发腿）/ sdk→token（全本地旧序）', () => {
+    expect(resolveReleaseForm({ pkgKey: 'main', env: {} })).toBe('trigger');
+    expect(resolveReleaseForm({ pkgKey: 'sdk', env: {} })).toBe('token');
+  });
+
+  it('旗标压过 env 与描述符：--local-publish 恒 token（应急腿）', () => {
+    expect(resolveReleaseForm({ pkgKey: 'main', localPublish: true, env: {} })).toBe('token');
+    expect(resolveReleaseForm({ pkgKey: 'main', localPublish: true, env: { BERRY_AGENT_RELEASE_MODE: 'ci' } })).toBe(
+      'token',
+    );
+  });
+
+  it('env=ci + main → ci（release.yml 发布腿形）；env=ci + sdk → 用法错（无 CI 腿）', () => {
+    expect(resolveReleaseForm({ pkgKey: 'main', env: { BERRY_AGENT_RELEASE_MODE: 'ci' } })).toBe('ci');
+    expect(() => resolveReleaseForm({ pkgKey: 'sdk', env: { BERRY_AGENT_RELEASE_MODE: 'ci' } })).toThrow(/无 CI 腿/);
+  });
+
+  it('env 非法取值 → 用法错（仅认 ci——fail-loud 不猜）', () => {
+    expect(() => resolveReleaseForm({ pkgKey: 'main', env: { BERRY_AGENT_RELEASE_MODE: 'local' } })).toThrow(
+      /取值非法/,
+    );
+  });
+});
+
+describe('judgeDistTagCi（契约 5 CI 形只读断言）', () => {
+  it('prerelease：next 指 version 即过（latest 未挪不断言——挪位外置本机腿）', () => {
+    expect(judgeDistTagCi({ latest: '0.0.9', next: '0.1.0-alpha.1' }, '0.1.0-alpha.1', true).ok).toBe(true);
+  });
+
+  it('prerelease：next 分叉 → 红（CI publish 未落 next 即异常）', () => {
+    const v = judgeDistTagCi({ latest: '0.1.0-alpha.1', next: '0.0.9' }, '0.1.0-alpha.1', true);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toContain('CI 形 preview 断言');
+  });
+
+  it('正式版：latest 指 version 过；不指红（next 不动）', () => {
+    expect(judgeDistTagCi({ latest: '1.0.0', next: '0.9.0-beta.1' }, '1.0.0', false).ok).toBe(true);
+    expect(judgeDistTagCi({ latest: '0.9.9', next: '0.9.0-beta.1' }, '1.0.0', false).ok).toBe(false);
+  });
+});
+
+describe('runRelease 触发腿（主包缺省形——交棒/轮询/收口/挪位全谱）', () => {
+  it('全绿：本机零上传（publish 单点在 CI）+ 交棒 tag + CI 绿 + 深对照收口 + latest 挪位', async () => {
+    const s = triggerSeams();
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(0);
+    const text = r.report.join('\n');
+    expect(text).toContain('（执行形=本机触发腿）');
+    expect(text).toContain('交棒：tag v0.1.0-alpha.1 已打并 push');
+    expect(text).toContain('CI 绿');
+    expect(text).toContain('深对照等价（仅溯源戳差异）');
+    expect(text).toContain('preview latest 挪位完成');
+    expect(s.calls.publish).toEqual([]); // 本机零 publish——版本字节上传单点在 CI（OIDC）
+    expect(s.calls.gitTagCreate).toEqual(['v0.1.0-alpha.1']);
+    expect(s.calls.gitTagPush).toEqual(['v0.1.0-alpha.1']);
+    expect(s.calls.ciWait).toEqual(['v0.1.0-alpha.1']);
+    expect(s.calls.distTagAdd).toEqual([['0.1.0-alpha.1', 'latest']]); // npm/cli#8547——dist-tag 走不了 OIDC
+  });
+
+  it('正式版：无 latest 挪位步（CI publish 默认 tag 已落位 latest）', async () => {
+    const s = triggerSeams({ distTagLs: () => ({ latest: '1.0.0', next: '0.9.0-beta.9' }) });
+    const r = await run(s, '1.0.0', false);
+    expect(r.code).toBe(0);
+    expect(s.calls.distTagAdd).toEqual([]);
+    expect(s.calls.gitTagCreate).toEqual(['v1.0.0']);
+  });
+
+  it('幂等重跑：registry 在场且 shasum 等价 → 跳过交棒直收口（零 tag 写零等待）', async () => {
+    const s = triggerSeams({
+      probe: () => ({ status: 0, stdout: '"2222222222222222222222222222222222222222"\n', stderr: '' }),
+      fileShasum: () => '2222222222222222222222222222222222222222',
+    });
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(0);
+    const text = r.report.join('\n');
+    expect(text).toContain('跳过交棒直收口');
+    expect(s.calls.gitTagCreate).toEqual([]);
+    expect(s.calls.ciWait).toEqual([]);
+    expect(s.calls.distTagAdd).toEqual([['0.1.0-alpha.1', 'latest']]); // 收口挪位照跑
+  });
+
+  it('tag 已在同 commit（上次交棒未收口）→ 续跑重等 CI 不重打', async () => {
+    const s = triggerSeams({ gitTagState: () => ({ commit: 'aaaa0000' }) });
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(0);
+    expect(s.calls.gitTagCreate).toEqual([]);
+    expect(s.calls.ciWait).toEqual(['v0.1.0-alpha.1']);
+  });
+
+  it('tag 已在异 commit → 响亮拒（交棒面前）', async () => {
+    const s = triggerSeams({ gitTagState: () => ({ commit: 'deadbeef' }) });
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('异 commit 响亮拒');
+    expect(s.calls.ciWait).toEqual([]); // 未进等待段
+  });
+
+  it('tag push 失败 → 拒且 CI 未触发（本地 tag 已打的恢复手续在报告面）', async () => {
+    const s = triggerSeams({ gitTagPush: () => ({ status: 1 }) });
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('push 失败——CI 未触发');
+    expect(s.calls.ciWait).toEqual([]);
+  });
+
+  it('README 占位符在交棒前预检拦（拦在出门前非交棒后——CI 带病跑完再拦即半成功态）', async () => {
+    const s = triggerSeams({ readmeText: () => '# berry\n<!-- placeholder -->' });
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('交棒前预检拦');
+    expect(s.calls.gitTagCreate).toEqual([]);
+    expect(s.calls.ciWait).toEqual([]);
+  });
+
+  it('谱项 ci:fail → 响亮拒附 run URL + 恢复手续指路（交棒已成——失败在 CI 段）', async () => {
+    const s = INJECT_SPECTRUM['ci:fail'].patch(triggerSeams());
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(1);
+    const text = r.report.join('\n');
+    expect(text).toContain('actions/runs/999');
+    expect(text).toContain('恢复手续');
+    expect(s.calls.gitTagCreate).toEqual(['v0.1.0-alpha.1']);
+  });
+
+  it('谱项 ci:timeout → 30 分钟帽响亮拒附人工核指路', async () => {
+    const s = INJECT_SPECTRUM['ci:timeout'].patch(triggerSeams());
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('30 分钟未出终态');
+  });
+
+  it('谱项 ci:green-absent → CI 绿但复探缺席响亮拒（半成功必须被看见）', async () => {
+    const s = INJECT_SPECTRUM['ci:green-absent'].patch(
+      triggerSeams({ probe: () => ({ status: 1, stdout: '', stderr: 'npm error code E404' }) }),
+    );
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('复探非在场');
+  });
+});
+
+describe('runRelease CI 形（env BERRY_AGENT_RELEASE_MODE=ci——release.yml 发布腿）', () => {
+  const ciEnv = { BERRY_AGENT_RELEASE_MODE: 'ci' };
+
+  it('全绿：publish OIDC 单点（prerelease --tag next）+ 零 dist-tag add + 零 tag 写', async () => {
+    const s = fakeSeams({ gitTagState: () => ({ commit: 'aaaa0000' }) });
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: ciEnv });
+    expect(r.code).toBe(0);
+    const text = r.report.join('\n');
+    expect(text).toContain('（执行形=CI 发布腿）');
+    expect(text).toContain('CI 形只读断言过');
+    expect(text).toContain('tag v0.1.0-alpha.1 在场且同 commit（CI 只校验不打）');
+    expect(s.calls.publish).toEqual([
+      { tarball: '/tmp/fake/berry-agent-0.1.0-alpha.1.tgz', next: true, dryRun: false },
+    ]);
+    expect(s.calls.distTagAdd).toEqual([]); // npm/cli#8547——dist-tag 走不了 OIDC，latest 挪位在本机腿
+    expect(s.calls.gitTagCreate).toEqual([]); // tag 即触发器——CI 不打 tag
+    expect(s.calls.gitTagPush).toEqual([]);
+  });
+
+  it('CI 中间态（latest 未挪、next 已指）照过——latest≡next 终态复断归本机腿非 CI', async () => {
+    const s = fakeSeams({
+      distTagLs: () => ({ latest: '0.0.9', next: '0.1.0-alpha.1' }),
+      gitTagState: () => ({ commit: 'aaaa0000' }),
+    });
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: ciEnv });
+    expect(r.code).toBe(0);
+  });
+
+  it('正式版：publish 默认 latest + judgeDistTagCi 断 latest', async () => {
+    const s = fakeSeams({
+      distTagLs: () => ({ latest: '1.0.0', next: '0.9.0-beta.9' }),
+      gitTagState: () => ({ commit: 'aaaa0000' }),
+    });
+    const r = await run(s, '1.0.0', false, 'main', { env: ciEnv });
+    expect(r.code).toBe(0);
+    expect(s.calls.publish[0].next).toBe(false);
+  });
+
+  it('next 分叉 → 契约 5 红（CI 形断言件）', async () => {
+    const s = fakeSeams({
+      distTagLs: () => ({ latest: '0.0.9', next: '0.0.9' }),
+      gitTagState: () => ({ commit: 'aaaa0000' }),
+    });
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: ciEnv });
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('CI 形 preview 断言');
+  });
+
+  it('tag 缺席（dispatch 直跑形）→ 契约 6 拒（tag 即触发器）', async () => {
+    const s = fakeSeams(); // gitTagState 缺省 absent
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: ciEnv });
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('tag 即触发器');
+  });
+
+  it('tag 异 commit → 契约 6 拒', async () => {
+    const s = fakeSeams({ gitTagState: () => ({ commit: 'deadbeef' }) });
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: ciEnv });
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('异 commit 响亮拒');
+  });
+
+  it('env ci 撞 SDK → 用法错退 1（SDK 无 CI 腿）', async () => {
+    const s = fakeSeams({}, 'sdk');
+    const r = await run(s, '0.1.0-alpha.1', false, 'sdk', { env: ciEnv });
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('无 CI 腿');
+  });
+
+  it('env 非法值 → 用法错退 1（fail-loud）', async () => {
+    const s = fakeSeams();
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: { BERRY_AGENT_RELEASE_MODE: 'local' } });
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('取值非法');
+  });
+
+  it('--local-publish 旗标在 runRelease 层照压过 env ci（模式轴单源）', async () => {
+    const s = fakeSeams();
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: ciEnv, localPublish: true });
+    expect(r.code).toBe(0);
+    expect(r.report.join('\n')).toContain('（执行形=令牌全本地）');
+    expect(s.calls.publish.length).toBe(1);
   });
 });
