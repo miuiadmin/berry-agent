@@ -11,7 +11,10 @@
 # 平台注记：test 走双 OS 矩阵（ubuntu + macOS）——测试面平台分支均自适应
 # （sandbox 默认链按平台断言、PTY 用例按 python3 可用性探测跳过），Linux 上
 # 全绿路径已核，macOS 腿随矩阵接入；typecheck / lint / format 为平台无关
-# 纯静态面，单 OS（ubuntu-latest）跑足。
+# 纯静态面，单 OS（ubuntu-latest）跑足。Linux job 须补装 bubblewrap——
+# gate-exec 判据门真跑腿走 L3 bwrap 沙箱后端，GH runner 镜像无预装
+# （2026-09-15 CI run 34852040696/34877836385 双红实证 spawn bwrap ENOENT）；
+# macOS 腿走 seatbelt 后端天然绿，无需装腿。
 name: CI
 
 on:
@@ -97,6 +100,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # 同 test job 装腿：契约 1 门禁内跑全量测试（含 gate-exec bwrap 真跑腿）
+      - name: Linux L3 沙箱依赖（bubblewrap + userns 放行）
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --version
       - run: npm ci
       - name: 临时演习版本并提交（避开在场幂等分支；契约 1 工作树净空与 bump 天然
           冲突——真发流程本就是 bump→commit→release，演习同款完整彩排；checkout
@@ -139,6 +150,18 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # Linux L3 沙箱依赖：gate-exec 判据门真跑腿走 bwrap 后端（GH runner 无
+      # 预装）；Ubuntu 24.04 起 AppArmor 默认限制非特权 userns——bwrap 建
+      # 命名空间会被拒，一并放行（runner 一次性 VM 安全面无虞；|| true 容
+      # 参数缺席的旧镜像）
+      - name: Linux L3 沙箱依赖（bubblewrap + userns 放行）
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --version
       - run: npm ci
       - run: npm test
 

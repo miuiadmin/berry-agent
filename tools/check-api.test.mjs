@@ -51,261 +51,270 @@ function fixtureDir(name) {
   return dir;
 }
 
-describe('check-api 十查红绿证（spawn 全闸形态）', () => {
-  it('净树恒绿（零问题静默过）', () => {
-    const { status, out } = runCheck();
-    expect(status).toBe(0);
-    expect(out).toBe('');
-  });
+describe(
+  'check-api 十查红绿证（spawn 全闸形态）',
+  // spawn 全闸腿 = 子进程真跑全仓扫描，CI 慢机实测 14-23s（本机 ~3s）——全局
+  // 15s 兜底帽必撞（2026-09-15 CI run 34852040696 双平台红实证：macos 23s /
+  // ubuntu 15.8s 超 Test timed out in 15000ms）。本 describe 整族放 60s 单点帽：
+  // 只放 spawn 形腿，纯函数件（scanTopLevelExports 等）仍守全局兜底——CI 档
+  // 放大非断言值，超时不掩盖回归语义（慢≠错，错另有窄断言把门）
+  { timeout: 60_000 },
+  () => {
+    it('净树恒绿（零问题静默过）', () => {
+      const { status, out } = runCheck();
+      expect(status).toBe(0);
+      expect(out).toBe('');
+    });
 
-  it('查 1：快照漂移红（CHECK_API_SNAPSHOT 换片注入假条目）', () => {
-    const dir = fixtureDir('check1');
-    const tampered = {
-      ...REAL_SNAPSHOT,
-      exports: [
-        ...REAL_SNAPSHOT.exports,
-        {
-          module: 'berry-agent',
-          symbol: 'fabricatedForTest',
-          kind: 'function',
-          tier: 'stable',
-          since: '1.0',
-          desc: '测试注入假面',
-        },
-      ],
-    };
-    const path = join(dir, 'snapshot.json');
-    writeFileSync(path, serializeSurface(tampered));
-    const { status, out } = runCheck({ CHECK_API_SNAPSHOT: path });
-    expect(status).toBe(1);
-    expect(out).toContain('[查 1]');
-    expect(out).toContain('fabricatedForTest');
-  });
-
-  it('查 2：怪 tier 与未来 since 双红（CHECK_API_SURFACE 注入面）', () => {
-    const dir = fixtureDir('check2');
-    const injected = {
-      ...REAL_SNAPSHOT,
-      exports: REAL_SNAPSHOT.exports.map((e, i) =>
-        i === 0 ? { ...e, tier: 'bogus' } : i === 1 ? { ...e, since: '9.9' } : e,
-      ),
-    };
-    const path = join(dir, 'surface.json');
-    writeFileSync(path, JSON.stringify(injected));
-    const { status, out } = runCheck({ CHECK_API_SURFACE: path });
-    expect(status).toBe(1);
-    // 注入面时查 1 整块跳过（drift 真值恒走真册）——断言不误伤
-    expect(out).not.toContain('[查 1]');
-    expect(out).toContain('[查 2]');
-    expect(out).toContain('bogus');
-    expect(out).toContain('since 9.9 > 当前 apiVersion');
-  });
-
-  it('查 3：DEP 注册簿行违规红（CHECK_API_DEPRECATIONS 换片）', () => {
-    const dir = fixtureDir('check3');
-    const path = join(dir, 'deprecations.json');
-    // 窗口 1.0→1.1（不足 3 minor）+ symbol 不在面清单 + 注册行无码面标签——三红齐发
-    writeFileSync(
-      path,
-      JSON.stringify([
-        { dep: 'DEP-001', symbol: 'berry-agent::nope', introducedIn: '1.0', removalIn: '1.1', replacement: 'x' },
-      ]),
-    );
-    const { status, out } = runCheck({ CHECK_API_DEPRECATIONS: path });
-    expect(status).toBe(1);
-    expect(out).toContain('[查 3]');
-    expect(out).toContain('废弃窗不足');
-    expect(out).toContain('不在面清单');
-    expect(out).toContain('无对应 @deprecated JSDoc 标签');
-  });
-
-  it('查 7：已裁决否决的 berry 旧形态扫描腿零残留（夹具树独立清单目录绿 + 源面零旧词）', () => {
-    const dir = fixtureDir('check7');
-    // 夹具树最小形（查 5/查 10 同款）：apps/ 下放 berry 源篇旧形态独立清单
-    // 文件——修前查 7 旧腿扫到即红（「清单 schema 真相源缺席」布局异常）；修后
-    // 该形态已被 03 §11 表 #10 裁决③连带否决（清单载体 = 插件 package.json
-    // `berryAgent` 字段单一形状、禁双载体），查 7 真身随「官方插件清单 api 块
-    // 回填批」同批落（03 §8.4），本形态不再是任何查的扫描面——零问题静默过
-    mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
-    mkdirSync(join(dir, 'api-decls'), { recursive: true });
-    writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
-    mkdirSync(join(dir, 'apps'), { recursive: true });
-    writeFileSync(join(dir, 'apps', 'demo.app.yaml'), 'id: demo\n');
-    const { status, out } = runCheck({ CHECK_API_ROOT: dir });
-    expect(status).toBe(0);
-    expect(out).toBe('');
-    // 源面卫生锁：门禁脚本零旧形态扫描位词面——目录扫描后缀词与 contracts
-    // schema 真相源期待位同删（02 §5.2「应用/app」禁用词律同笔收口）
-    const source = readFileSync(CHECK_SCRIPT, 'utf8');
-    expect(source).not.toContain('.app.yaml');
-    expect(source).not.toContain('contracts/app.ts');
-  });
-
-  it('查 7 真身：core: 注册表 api 块四红齐发（CHECK_API_CORE_PLUGINS 换片——缺块/断裂/不变式/格式）', () => {
-    const dir = fixtureDir('check7-registry');
-    // 换片注册表（env 缝注入）：alpha 缺 api 块〔判据①红〕+ beta min 9.9 高
-    // 于宿主 1.0〔判据③装载门断裂红〕+ gamma min > target〔判据②不变式红〕+
-    // delta 格式非法〔判据②格式红〕——四红齐发锁全判据
-    const fixturePath = join(dir, 'core-plugins-fixture.mjs');
-    writeFileSync(
-      fixturePath,
-      [
-        'export function createCorePlugins() {',
-        '  return [',
-        "    { name: 'alpha', apply: async () => undefined },",
-        "    { name: 'beta', api: { minApiVersion: '9.9' }, apply: async () => undefined },",
-        "    { name: 'gamma', api: { minApiVersion: '1.0', targetApiVersion: '0.9' }, apply: async () => undefined },",
-        "    { name: 'delta', api: { minApiVersion: 'x.y' }, apply: async () => undefined },",
-        '  ];',
-        '}',
-        '',
-      ].join('\n'),
-    );
-    const { status, out } = runCheck({ CHECK_API_CORE_PLUGINS: fixturePath });
-    expect(status).toBe(1);
-    expect(out).toContain('[查 7]');
-    expect(out).toContain('core:alpha');
-    expect(out).toContain('api 块缺席'); // 判据①：官方清单载体恒必填
-    expect(out).toContain('core:beta');
-    expect(out).toContain('装载门断裂'); // 判据③：try/catch 包裹红不炸闸
-    expect(out).toContain('minApiVersion 9.9');
-    expect(out).toContain('core:gamma');
-    expect(out).toContain('min ≤ target 不变式破'); // 判据②不变式
-    expect(out).toContain('core:delta');
-    expect(out).toContain('格式非法'); // 判据②格式
-  });
-
-  it('查 7 真身：真仓注册表绿（16 件 api 块齐备 + min 1.0 恒 admit——净树恒绿已锁，此处点名真身扫描面在跑）', () => {
-    // 换片为「空注册表」若真身没在跑则照样绿——反证法：注入缺块单件注册表
-    // （净树绿测试不换片，无法区分「查 7 在跑且绿」与「查 7 没在跑」；本测
-    // 用单件缺块注册表证红路连通，真仓 16 件全绿即净树恒绿测试的查 7 分量）
-    const dir = fixtureDir('check7-live-proof');
-    const fixturePath = join(dir, 'core-plugins-fixture.mjs');
-    writeFileSync(
-      fixturePath,
-      [
-        'export function createCorePlugins() {',
-        '  return [',
-        "    { name: 'solo', api: { minApiVersion: '1.0' }, apply: async () => undefined },",
-        '  ];',
-        '}',
-        '',
-      ].join('\n'),
-    );
-    const { status, out } = runCheck({ CHECK_API_CORE_PLUGINS: fixturePath });
-    expect(status).toBe(0); // 单件齐备即绿（缺块红路在上一测锁）
-    expect(out).toBe('');
-  });
-
-  it('查 9：面动号不动红（ignited 快照 + CHECK_API_ARCHIVES 夹具归档）', () => {
-    const dir = fixtureDir('check9');
-    // 当前快照换片为 ignited 纪元（查 9 纪元门开）；真快照 enforcement='pre-ignition'
-    const ignitedPath = join(dir, 'snapshot-ignited.json');
-    writeFileSync(ignitedPath, serializeSurface({ ...REAL_SNAPSHOT, enforcement: 'ignited' }));
-    // 归档族：单归档面比当前少 2 条导出而 apiVersion 同 '1.0'——面动号不动正形态
-    const archiveDir = join(dir, 'api', 'snapshots');
-    mkdirSync(archiveDir, { recursive: true });
-    writeFileSync(
-      join(archiveDir, '0.0.1.json'),
-      serializeSurface({ ...REAL_SNAPSHOT, exports: REAL_SNAPSHOT.exports.slice(0, -2) }),
-    );
-    const { status, out } = runCheck({ CHECK_API_SNAPSHOT: ignitedPath, CHECK_API_ARCHIVES: archiveDir });
-    expect(status).toBe(1);
-    expect(out).toContain('[查 9]');
-    expect(out).toContain('面动号不动');
-  });
-
-  it('查 5：实验符号漏进稳定文档红 + 豁免节内合法（CHECK_API_SURFACE 注入 + CHECK_API_ROOT 夹具树）', () => {
-    const dir = fixtureDir('check5');
-    // 夹具树最小形（查 10 同款）：查 2 barrel 扫描无条件读 src/contracts/index.ts
-    mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
-    mkdirSync(join(dir, 'api-decls'), { recursive: true });
-    writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
-    // 注入面：单实验符号（模块含 '/' → keyRe 路径字面支同验）
-    const surfacePath = join(dir, 'surface.json');
-    writeFileSync(
-      surfacePath,
-      serializeSurface({
+    it('查 1：快照漂移红（CHECK_API_SNAPSHOT 换片注入假条目）', () => {
+      const dir = fixtureDir('check1');
+      const tampered = {
         ...REAL_SNAPSHOT,
         exports: [
+          ...REAL_SNAPSHOT.exports,
           {
-            module: 'berry-agent/x-demo',
-            symbol: 'demoProbe',
+            module: 'berry-agent',
+            symbol: 'fabricatedForTest',
             kind: 'function',
-            tier: 'experimental',
+            tier: 'stable',
             since: '1.0',
-            desc: '夹具实验符号',
+            desc: '测试注入假面',
           },
         ],
-      }),
-    );
-    // 双文档：outside 豁免节之外提及（红）；inside 提及全在 〔实验面〕 豁免节内（绿）
-    mkdirSync(join(dir, 'docs'), { recursive: true });
-    writeFileSync(
-      join(dir, 'docs', 'outside.md'),
-      ['# 稳定文档', '', '提及 demoProbe 与 berry-agent/x-demo。', ''].join('\n'),
-    );
-    writeFileSync(
-      join(dir, 'docs', 'inside.md'),
-      [
-        '# 另一册',
-        '',
-        '## 实验节',
-        '',
-        '〔实验面〕',
-        '',
-        '提及 demoProbe 与 berry-agent/x-demo——豁免节内合法。',
-        '',
-        '### 更深子节仍在豁免内',
-        '',
-        'demoProbe 再提。',
-        '',
-        '## 稳定节（收界后）',
-        '',
-        '此处干净。',
-        '',
-      ].join('\n'),
-    );
-    const { status, out } = runCheck({ CHECK_API_ROOT: dir, CHECK_API_SURFACE: surfacePath });
-    expect(status).toBe(1);
-    expect(out).toContain('[查 5]');
-    expect(out).toContain('demoProbe');
-    expect(out).toContain('outside.md');
-    expect(out).not.toContain('inside.md'); // 豁免是定点开口——节内提及不红
-  });
+      };
+      const path = join(dir, 'snapshot.json');
+      writeFileSync(path, serializeSurface(tampered));
+      const { status, out } = runCheck({ CHECK_API_SNAPSHOT: path });
+      expect(status).toBe(1);
+      expect(out).toContain('[查 1]');
+      expect(out).toContain('fabricatedForTest');
+    });
 
-  it('查 10：夹具树公开产物指路知识域红（CHECK_API_ROOT 换树）', () => {
-    const dir = fixtureDir('check10');
-    // 夹具树最小形：查 2 barrel 扫描无条件读 src/contracts/index.ts——必须在场
-    mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
-    mkdirSync(join(dir, 'api-decls'), { recursive: true });
-    writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
-    // 文件面违规：随包分发件指路知识域
-    writeFileSync(
-      join(dir, 'api-decls', 'evil.d.ts'),
-      '/** 见设计文档 03 篇 §1。 */\nexport declare const probe: number;\n',
-    );
-    // message 面双形态：API_TEST_1 实参区字面量指路（红）；API_TEST_2 注释指路
-    // + 实参区模板插值干净（词法注释免疫 + 插值域协议锁）
-    writeFileSync(
-      join(dir, 'src', 'contracts', 'api-fixture.ts'),
-      [
-        '// 见设计文档——注释不是 message 面（词法免疫验证位）',
-        'declare const API_TEST_1: string, API_TEST_2: string, flag: boolean, BaseError: new (c: string, m: string) => Error;',
-        "if (flag) throw new BaseError(API_TEST_1, '见设计文档 03 篇');",
-        "throw new BaseError(API_TEST_2, `前缀 ${'内插'} 干净消息`);",
-        '',
-      ].join('\n'),
-    );
-    const { status, out } = runCheck({ CHECK_API_ROOT: dir });
-    expect(status).toBe(1);
-    expect(out).toContain('[查 10]');
-    expect(out).toContain('evil.d.ts');
-    expect(out).toContain('API_TEST_1');
-    // 注释免疫 + 干净实参：API_TEST_2 构造点不红（词法小扫描器只收实参区字面量）
-    expect(out).not.toContain('API_TEST_2');
-  });
-});
+    it('查 2：怪 tier 与未来 since 双红（CHECK_API_SURFACE 注入面）', () => {
+      const dir = fixtureDir('check2');
+      const injected = {
+        ...REAL_SNAPSHOT,
+        exports: REAL_SNAPSHOT.exports.map((e, i) =>
+          i === 0 ? { ...e, tier: 'bogus' } : i === 1 ? { ...e, since: '9.9' } : e,
+        ),
+      };
+      const path = join(dir, 'surface.json');
+      writeFileSync(path, JSON.stringify(injected));
+      const { status, out } = runCheck({ CHECK_API_SURFACE: path });
+      expect(status).toBe(1);
+      // 注入面时查 1 整块跳过（drift 真值恒走真册）——断言不误伤
+      expect(out).not.toContain('[查 1]');
+      expect(out).toContain('[查 2]');
+      expect(out).toContain('bogus');
+      expect(out).toContain('since 9.9 > 当前 apiVersion');
+    });
+
+    it('查 3：DEP 注册簿行违规红（CHECK_API_DEPRECATIONS 换片）', () => {
+      const dir = fixtureDir('check3');
+      const path = join(dir, 'deprecations.json');
+      // 窗口 1.0→1.1（不足 3 minor）+ symbol 不在面清单 + 注册行无码面标签——三红齐发
+      writeFileSync(
+        path,
+        JSON.stringify([
+          { dep: 'DEP-001', symbol: 'berry-agent::nope', introducedIn: '1.0', removalIn: '1.1', replacement: 'x' },
+        ]),
+      );
+      const { status, out } = runCheck({ CHECK_API_DEPRECATIONS: path });
+      expect(status).toBe(1);
+      expect(out).toContain('[查 3]');
+      expect(out).toContain('废弃窗不足');
+      expect(out).toContain('不在面清单');
+      expect(out).toContain('无对应 @deprecated JSDoc 标签');
+    });
+
+    it('查 7：已裁决否决的 berry 旧形态扫描腿零残留（夹具树独立清单目录绿 + 源面零旧词）', () => {
+      const dir = fixtureDir('check7');
+      // 夹具树最小形（查 5/查 10 同款）：apps/ 下放 berry 源篇旧形态独立清单
+      // 文件——修前查 7 旧腿扫到即红（「清单 schema 真相源缺席」布局异常）；修后
+      // 该形态已被 03 §11 表 #10 裁决③连带否决（清单载体 = 插件 package.json
+      // `berryAgent` 字段单一形状、禁双载体），查 7 真身随「官方插件清单 api 块
+      // 回填批」同批落（03 §8.4），本形态不再是任何查的扫描面——零问题静默过
+      mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
+      mkdirSync(join(dir, 'api-decls'), { recursive: true });
+      writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
+      mkdirSync(join(dir, 'apps'), { recursive: true });
+      writeFileSync(join(dir, 'apps', 'demo.app.yaml'), 'id: demo\n');
+      const { status, out } = runCheck({ CHECK_API_ROOT: dir });
+      expect(status).toBe(0);
+      expect(out).toBe('');
+      // 源面卫生锁：门禁脚本零旧形态扫描位词面——目录扫描后缀词与 contracts
+      // schema 真相源期待位同删（02 §5.2「应用/app」禁用词律同笔收口）
+      const source = readFileSync(CHECK_SCRIPT, 'utf8');
+      expect(source).not.toContain('.app.yaml');
+      expect(source).not.toContain('contracts/app.ts');
+    });
+
+    it('查 7 真身：core: 注册表 api 块四红齐发（CHECK_API_CORE_PLUGINS 换片——缺块/断裂/不变式/格式）', () => {
+      const dir = fixtureDir('check7-registry');
+      // 换片注册表（env 缝注入）：alpha 缺 api 块〔判据①红〕+ beta min 9.9 高
+      // 于宿主 1.0〔判据③装载门断裂红〕+ gamma min > target〔判据②不变式红〕+
+      // delta 格式非法〔判据②格式红〕——四红齐发锁全判据
+      const fixturePath = join(dir, 'core-plugins-fixture.mjs');
+      writeFileSync(
+        fixturePath,
+        [
+          'export function createCorePlugins() {',
+          '  return [',
+          "    { name: 'alpha', apply: async () => undefined },",
+          "    { name: 'beta', api: { minApiVersion: '9.9' }, apply: async () => undefined },",
+          "    { name: 'gamma', api: { minApiVersion: '1.0', targetApiVersion: '0.9' }, apply: async () => undefined },",
+          "    { name: 'delta', api: { minApiVersion: 'x.y' }, apply: async () => undefined },",
+          '  ];',
+          '}',
+          '',
+        ].join('\n'),
+      );
+      const { status, out } = runCheck({ CHECK_API_CORE_PLUGINS: fixturePath });
+      expect(status).toBe(1);
+      expect(out).toContain('[查 7]');
+      expect(out).toContain('core:alpha');
+      expect(out).toContain('api 块缺席'); // 判据①：官方清单载体恒必填
+      expect(out).toContain('core:beta');
+      expect(out).toContain('装载门断裂'); // 判据③：try/catch 包裹红不炸闸
+      expect(out).toContain('minApiVersion 9.9');
+      expect(out).toContain('core:gamma');
+      expect(out).toContain('min ≤ target 不变式破'); // 判据②不变式
+      expect(out).toContain('core:delta');
+      expect(out).toContain('格式非法'); // 判据②格式
+    });
+
+    it('查 7 真身：真仓注册表绿（16 件 api 块齐备 + min 1.0 恒 admit——净树恒绿已锁，此处点名真身扫描面在跑）', () => {
+      // 换片为「空注册表」若真身没在跑则照样绿——反证法：注入缺块单件注册表
+      // （净树绿测试不换片，无法区分「查 7 在跑且绿」与「查 7 没在跑」；本测
+      // 用单件缺块注册表证红路连通，真仓 16 件全绿即净树恒绿测试的查 7 分量）
+      const dir = fixtureDir('check7-live-proof');
+      const fixturePath = join(dir, 'core-plugins-fixture.mjs');
+      writeFileSync(
+        fixturePath,
+        [
+          'export function createCorePlugins() {',
+          '  return [',
+          "    { name: 'solo', api: { minApiVersion: '1.0' }, apply: async () => undefined },",
+          '  ];',
+          '}',
+          '',
+        ].join('\n'),
+      );
+      const { status, out } = runCheck({ CHECK_API_CORE_PLUGINS: fixturePath });
+      expect(status).toBe(0); // 单件齐备即绿（缺块红路在上一测锁）
+      expect(out).toBe('');
+    });
+
+    it('查 9：面动号不动红（ignited 快照 + CHECK_API_ARCHIVES 夹具归档）', () => {
+      const dir = fixtureDir('check9');
+      // 当前快照换片为 ignited 纪元（查 9 纪元门开）；真快照 enforcement='pre-ignition'
+      const ignitedPath = join(dir, 'snapshot-ignited.json');
+      writeFileSync(ignitedPath, serializeSurface({ ...REAL_SNAPSHOT, enforcement: 'ignited' }));
+      // 归档族：单归档面比当前少 2 条导出而 apiVersion 同 '1.0'——面动号不动正形态
+      const archiveDir = join(dir, 'api', 'snapshots');
+      mkdirSync(archiveDir, { recursive: true });
+      writeFileSync(
+        join(archiveDir, '0.0.1.json'),
+        serializeSurface({ ...REAL_SNAPSHOT, exports: REAL_SNAPSHOT.exports.slice(0, -2) }),
+      );
+      const { status, out } = runCheck({ CHECK_API_SNAPSHOT: ignitedPath, CHECK_API_ARCHIVES: archiveDir });
+      expect(status).toBe(1);
+      expect(out).toContain('[查 9]');
+      expect(out).toContain('面动号不动');
+    });
+
+    it('查 5：实验符号漏进稳定文档红 + 豁免节内合法（CHECK_API_SURFACE 注入 + CHECK_API_ROOT 夹具树）', () => {
+      const dir = fixtureDir('check5');
+      // 夹具树最小形（查 10 同款）：查 2 barrel 扫描无条件读 src/contracts/index.ts
+      mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
+      mkdirSync(join(dir, 'api-decls'), { recursive: true });
+      writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
+      // 注入面：单实验符号（模块含 '/' → keyRe 路径字面支同验）
+      const surfacePath = join(dir, 'surface.json');
+      writeFileSync(
+        surfacePath,
+        serializeSurface({
+          ...REAL_SNAPSHOT,
+          exports: [
+            {
+              module: 'berry-agent/x-demo',
+              symbol: 'demoProbe',
+              kind: 'function',
+              tier: 'experimental',
+              since: '1.0',
+              desc: '夹具实验符号',
+            },
+          ],
+        }),
+      );
+      // 双文档：outside 豁免节之外提及（红）；inside 提及全在 〔实验面〕 豁免节内（绿）
+      mkdirSync(join(dir, 'docs'), { recursive: true });
+      writeFileSync(
+        join(dir, 'docs', 'outside.md'),
+        ['# 稳定文档', '', '提及 demoProbe 与 berry-agent/x-demo。', ''].join('\n'),
+      );
+      writeFileSync(
+        join(dir, 'docs', 'inside.md'),
+        [
+          '# 另一册',
+          '',
+          '## 实验节',
+          '',
+          '〔实验面〕',
+          '',
+          '提及 demoProbe 与 berry-agent/x-demo——豁免节内合法。',
+          '',
+          '### 更深子节仍在豁免内',
+          '',
+          'demoProbe 再提。',
+          '',
+          '## 稳定节（收界后）',
+          '',
+          '此处干净。',
+          '',
+        ].join('\n'),
+      );
+      const { status, out } = runCheck({ CHECK_API_ROOT: dir, CHECK_API_SURFACE: surfacePath });
+      expect(status).toBe(1);
+      expect(out).toContain('[查 5]');
+      expect(out).toContain('demoProbe');
+      expect(out).toContain('outside.md');
+      expect(out).not.toContain('inside.md'); // 豁免是定点开口——节内提及不红
+    });
+
+    it('查 10：夹具树公开产物指路知识域红（CHECK_API_ROOT 换树）', () => {
+      const dir = fixtureDir('check10');
+      // 夹具树最小形：查 2 barrel 扫描无条件读 src/contracts/index.ts——必须在场
+      mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
+      mkdirSync(join(dir, 'api-decls'), { recursive: true });
+      writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
+      // 文件面违规：随包分发件指路知识域
+      writeFileSync(
+        join(dir, 'api-decls', 'evil.d.ts'),
+        '/** 见设计文档 03 篇 §1。 */\nexport declare const probe: number;\n',
+      );
+      // message 面双形态：API_TEST_1 实参区字面量指路（红）；API_TEST_2 注释指路
+      // + 实参区模板插值干净（词法注释免疫 + 插值域协议锁）
+      writeFileSync(
+        join(dir, 'src', 'contracts', 'api-fixture.ts'),
+        [
+          '// 见设计文档——注释不是 message 面（词法免疫验证位）',
+          'declare const API_TEST_1: string, API_TEST_2: string, flag: boolean, BaseError: new (c: string, m: string) => Error;',
+          "if (flag) throw new BaseError(API_TEST_1, '见设计文档 03 篇');",
+          "throw new BaseError(API_TEST_2, `前缀 ${'内插'} 干净消息`);",
+          '',
+        ].join('\n'),
+      );
+      const { status, out } = runCheck({ CHECK_API_ROOT: dir });
+      expect(status).toBe(1);
+      expect(out).toContain('[查 10]');
+      expect(out).toContain('evil.d.ts');
+      expect(out).toContain('API_TEST_1');
+      // 注释免疫 + 干净实参：API_TEST_2 构造点不红（词法小扫描器只收实参区字面量）
+      expect(out).not.toContain('API_TEST_2');
+    });
+  },
+);
 
 describe('抽取器纯函数单元锁', () => {
   it('scanTopLevelExports：声明形/转发形/直书花括形/default 红', () => {
