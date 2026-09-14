@@ -150,7 +150,10 @@ export function createOsCronRegistrar(deps: CronBackendDeps = {}): CronRegistrar
     const kept: string[] = [];
     let removed = false;
     for (const line of content.split('\n')) {
-      if (line.includes(marker)) removed = true;
+      // 行级锚：register 写入形 marker 恒在行尾（trimEnd 容行尾空白）——子串
+      // includes 会把前缀名任务误摘（`# berry-agent:job` 是 `# berry-agent:job-2`
+      // 的前缀，删 job 连带摘掉 job-2 行 → 宿主停机期保活腿静默失效）
+      if (line.trimEnd().endsWith(marker)) removed = true;
       else kept.push(line);
     }
     return [kept.join('\n'), removed];

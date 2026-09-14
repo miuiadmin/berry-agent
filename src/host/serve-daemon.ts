@@ -351,14 +351,22 @@ export interface DaemonServeOptions {
 /**
  * env 双载体回落位（07 §5：BERRY_AGENT_SDK_PORT/SDK_HOST/SDK_TOKEN 三名——
  * 旗标缺席时 env 补位，旗标恒胜出）：port 字串全串 /^\d+$/ 判 fail-loud
- * （lane 帽同律——parseInt 截停会把 '8080x' 类尾随垃圾静默放行成 8080）。
+ * （lane 帽同律——parseInt 截停会把 '8080x' 类尾随垃圾静默放行成 8080）；
+ * 范围判对齐旗标路（--sdk-port positiveInt upTo:65535——2026-09-14 第四役
+ * 补：原仅全串判放行 99999 类域外值，坏值推迟到运行期 listen 才报错、两
+ * 路不对称；env 路同界拒启。0 仍放行 = 内核指派端口，与 sdkPort 缺席
+ * 兜底 `?? 0` 同语义）。
  */
 function readSdkPortEnv(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   if (!/^\d+$/.test(raw)) {
     throw new RangeError(`BERRY_AGENT_SDK_PORT 须为非负整数字串，收到 ${raw}——坏值是死配置（fail-loud 拒启）`);
   }
-  return Number.parseInt(raw, 10);
+  const port = Number.parseInt(raw, 10);
+  if (port > 65535) {
+    throw new RangeError(`BERRY_AGENT_SDK_PORT 须为 0–65535 端口域整数，收到 ${raw}——坏值是死配置（fail-loud 拒启）`);
+  }
+  return port;
 }
 
 function daemonListenConfig(

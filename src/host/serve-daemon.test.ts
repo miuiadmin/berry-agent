@@ -431,6 +431,35 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     ).rejects.toThrow(/BERRY_AGENT_SDK_PORT/);
   });
 
+  it('env 双载体回落：SDK_PORT 域外值拒（99999——范围判对齐旗标路 positiveInt upTo:65535）', async () => {
+    // 修前红锚：原 /^\d+$/ 全串判放行 99999 → 坏值推迟到运行期 listen 报错
+    // （旗标路 --sdk-port 在解析期即用法错退 2——两路不对称）。SDK_HOST 借
+    // 非回环无 token 造「若过闸必退 2」的确定性出口：过闸即 resolves(2)、
+    // 拒启即 rejects——两态可辨，不 boot 任何运行时
+    await expect(
+      runDaemonServe({
+        flags: { noDelta: false },
+        dataDir: '/nonexistent-but-unused',
+        env: { BERRY_AGENT_SDK_PORT: '99999', BERRY_AGENT_SDK_HOST: '192.168.1.5' },
+        writeErr: () => {},
+      }),
+    ).rejects.toThrow(/BERRY_AGENT_SDK_PORT/);
+  });
+
+  it('env 双载体回落：SDK_PORT 域内值过闸（8080 到 judge 层执法——不因扩范围误伤）', async () => {
+    // 8080 过 readSdkPortEnv → 真被消费进 config 走到 judgeListenConfig：
+    // 非回环 × 无 token 退 2（证明域内值不被范围判误拒）
+    const lines: string[] = [];
+    const code = await runDaemonServe({
+      flags: { noDelta: false },
+      dataDir: '/nonexistent-but-unused',
+      env: { BERRY_AGENT_SDK_PORT: '8080', BERRY_AGENT_SDK_HOST: '192.168.1.5' },
+      writeErr: (l) => lines.push(l),
+    });
+    expect(code).toBe(2);
+    expect(lines[0]).toContain('BERRY_AGENT_SDK_TOKEN');
+  });
+
   it('旗标恒胜出：sdkPort 旗标在场短路 env 坏值（env 位不被消费即不炸）', async () => {
     // 胜出序负证：env 坏 port 若被读取即 RangeError；旗标在场时不读 env
     // port → 走 judge 正常路径（借 SDK_HOST 非回环无 token 造退 2 出口）

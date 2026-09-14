@@ -137,6 +137,25 @@ describe('OS 注册器编舞（execCrontab 假件）', () => {
     expect(exec.writes).toHaveLength(1); // 未再写
   });
 
+  it('unregister：前缀名任务不误摘（行级锚）——删 job 不动 job-2', () => {
+    // 病灶复现：job-2 行 .includes('# berry-agent:job') === true——子串匹配把
+    // 前缀名他任务行一并摘掉（宿主停机期保活腿静默失效）；行级锚 = marker 须
+    // 恒在行尾（register 写入形即行尾注释），前缀名不再误中
+    const jobLine = `*/5 * * * * berry run --read-only --tick job ${cronMarker('job')}`;
+    const job2Line = `*/5 * * * * berry run --read-only --tick job-2 ${cronMarker('job-2')}`;
+    expect(job2Line.includes(cronMarker('job'))).toBe(true); // 子串匹配病灶实证
+    const exec = fakeCrontab({ initial: `${jobLine}\n${job2Line}\n` });
+    const reg = createOsCronRegistrar(depsWith(exec));
+    reg.unregister('job');
+    expect(exec.writes).toHaveLength(1);
+    const written = exec.writes[0] ?? '';
+    // job 行整行摘除（判据 = 行级：写回内容无以 job marker 收尾的行）
+    expect(written.split('\n').some((l) => l.trimEnd().endsWith(cronMarker('job')))).toBe(false);
+    // job-2 行原样保留
+    expect(written.split('\n').some((l) => l.trimEnd().endsWith(cronMarker('job-2')))).toBe(true);
+    expect(written).toContain('--tick job-2');
+  });
+
   it('win32 诚实拒（两动词同判）', () => {
     const exec = fakeCrontab({});
     const deps = depsWith(exec, { platform: 'win32' });

@@ -31,8 +31,22 @@ import { Agent, fetch as undiciFetch } from 'undici';
 
 import type { FetchLike } from './types.js';
 
-/** 进程级钉死登记（hostname 小写归一 → 经校验公网地址集） */
+/**
+ * 进程级钉死登记（hostname 小写归一 → 经校验公网地址集）。
+ * Map 插入序即 LRU 序：重复入钉删后重插尾位 = 位刷新，首位 = 最久未刷新。
+ */
 const pins = new Map<string, readonly string[]>();
+
+/**
+ * 钉面恒帽（03 §10.3 安全卫生条 2026-09-14 第四役勘正注——帽值落码批定）：
+ * 进程级登记原无界（模型 fetch 面唯一 hostname 恒入钉、每跳再钉，进程生命
+ * 周期低速无界增长）。设帽不损 rebinding 防护语义：在钉 host 钉值永驻不
+ * 覆盖（首钉保留律维持）；帽满新 host 入钉逐 LRU 最旧条目——被逐 host
+ * 下次外联重走「校验→入钉」全链（两消费位恒先校验后连接，lookup 无钉即
+ * 错 fail-closed 兜底，不重开漂移窗）。帽值 1024 = 唯一 hostname 量级
+ * 天线级场景余量；同 host 重钉只刷新位不增计数（帽计唯一 host 数）。
+ */
+const PIN_CAP = 1024;
 
 /** hostname 归一：小写 + 防御性剥 v6 [ ] 包裹形（URL.hostname 已剥，双保险） */
 function normalizeHost(hostname: string): string {
@@ -42,13 +56,29 @@ function normalizeHost(hostname: string): string {
 
 /**
  * 入钉：卫生校验通过后登记地址集（调用方 = service 首跳/每跳、ssrf-guard
- * oauth 腿）。首钉保留（裁决 1）——已在钉即不覆盖；空主机名/空地址集防呆
- * 不入（不产空钉占键）。
+ * oauth 腿）。首钉保留（裁决 1）——已在钉即不覆盖，重复入钉仅刷新 LRU 位
+ * （不增计数）；空主机名/空地址集防呆不入（不产空钉占键）；钉面恒帽
+ * （见 PIN_CAP 注）——新 host 帽满先逐 LRU 最旧条目再入。
  */
 export function pinDnsAddresses(hostname: string, addresses: readonly string[]): void {
   const key = normalizeHost(hostname);
   if (key === '' || addresses.length === 0) return;
-  if (!pins.has(key)) pins.set(key, [...addresses]);
+  const existing = pins.get(key);
+  if (existing !== undefined) {
+    // 重复入钉 = 首钉保留（钉值永驻不覆盖）+ LRU 位刷新：删后重插尾位 =
+    // 最新；同 host 重钉不增计数（帽压下刷新不挤占他席）
+    pins.delete(key);
+    pins.set(key, existing);
+    return;
+  }
+  // 新 host 入钉前帽满逐最旧（Map 插入序首位 = 最久未刷新者；正在入钉的
+  // 新 host 恒不被逐）。被逐 host 下次外联重走「校验→入钉」全链
+  while (pins.size >= PIN_CAP) {
+    const oldest = pins.keys().next().value;
+    if (oldest === undefined) break; // 理论不达（帽 > 0 且 size ≥ 帽 > 0）——防御位
+    pins.delete(oldest);
+  }
+  pins.set(key, [...addresses]);
 }
 
 /** 钉值只读面（诊断/测试断言——不在钉返回 undefined） */
