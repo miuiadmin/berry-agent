@@ -33,7 +33,7 @@ import type {
 } from '../safety/index.js';
 import { BASH_TIMEOUT_DEFAULT_MS, BASH_TIMEOUT_MAX_MS } from './types.js';
 import type { ExecResult, SpawnPipeline } from './types.js';
-import { findGitRedirectViolations, isGitMetadataExempt, worktreeGitDir } from './git-guard.js';
+import { findGitRedirectViolations, isGitMetadataExempt, isGitPushAttempt, worktreeGitDir } from './git-guard.js';
 
 /**
  * bash 发现序（04 §8）：BERRY_AGENT_BASH_PATH > 系统 PATH 逐目录 X_OK 扫描。
@@ -259,6 +259,22 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
             `bash 重定向目标落在 .git 版本史内（${gitViolations.join('、')}）——carve-out 平台底线：` +
               '任何档恒不可写、无升权出路（04 §252）；git 元数据操作请走 git 命令白名单形' +
               '（add/commit/branch 等直陈命令，不带命令替换/子壳）',
+          );
+        }
+
+        // ---- 腿三（04 §8 呈拍落定批）：git push 外推截获——硬拒前置（与腿一
+        // 同位：升权审批前、任何档无升权出路）。「git push 恒走危险闸」（04 §6
+        // 预设条）的 bash 面执法兑现：模型面直接 push 绕过 IssueDangerFace 的
+        // consent/日帽/mandate 预授权执法——发布动作走宿主编排面（issue 场景
+        // 危险闸 deliver 腿）或人面自跑。词干判覆盖直接形+全局旗变形+env 前缀
+        // 形；shell 包装形（sh -c）是护栏边界（沙箱 .git deny 不在推送路径上
+        // ——push 本地写发生在远端接受后、exit 0，本判是唯一截获腿） ----
+        if (isGitPushAttempt(command)) {
+          throw new BaseError(
+            'EXEC_GIT_PUSH_DENIED',
+            'git push 外推动作在模型面全档截获（EXEC_GIT_PUSH_DENIED——04 §8 腿三）：' +
+              '发布动作走宿主编排面（issue 场景经危险闸 deliver 腿预授权执法）或人面自跑；' +
+              '本地工作（commit/branch 等）不受影响',
           );
         }
 

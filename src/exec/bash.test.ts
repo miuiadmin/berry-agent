@@ -446,6 +446,32 @@ describe('createBashTool .git 拦截面（04 §252 两腿——成熟度缺口 #
     expect(runs()).toBe(0);
   });
 
+  it.each([
+    ['git push', '主形'],
+    ['git push origin main', '带 remote/分支参'],
+    ['git -C sub push', '全局旗 -C 变形'],
+    ['git -c http.sslVerify=false push', '全局旗 -c 变形'],
+    ['git --git-dir=.git push', '--git-dir= 自包含形'],
+    ['GIT_DIR=.git git push', '段首 env 赋值前缀形'],
+    ['git status && git push', '分段组合形'],
+    ['git push --force origin main', '子命令后旗参'],
+  ])('腿三硬拒矩阵：%s（%s）——EXEC_GIT_PUSH_DENIED + 零 spawn', async (command) => {
+    const { pipeline, runs } = countingPipeline();
+    const result = await dangerTool(pipeline).execute({ command }, CTX);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('[EXEC_GIT_PUSH_DENIED] ');
+    expect(runs()).toBe(0);
+  });
+
+  it('腿三不误伤：git commit -m push（-m 参值）与只读动词照常进沙箱执行', async () => {
+    const { pipeline, runs } = countingPipeline();
+    const a = await dangerTool(pipeline).execute({ command: 'git commit -m push' }, CTX);
+    expect(textOf(a)).not.toContain('EXEC_GIT_PUSH_DENIED');
+    const b = await dangerTool(pipeline).execute({ command: 'git status' }, CTX);
+    expect(textOf(b)).not.toContain('EXEC_GIT_PUSH_DENIED');
+    expect(runs()).toBe(2);
+  });
+
   it('邻形不误伤：.gitignore/.github 写照常进沙箱执行', { timeout: 15_000 }, async () => {
     const result = await dangerTool(createSpawnPipeline()).execute(
       { command: 'echo x > /tmp/berry-gg-adjacent-test && echo ok' },

@@ -43,6 +43,9 @@ const execFile = promisify(execFileCallback);
  * worktree 形态下含 `.git/worktrees/<name>/`）受控放行的动词全集；非本表
  * 动词（如 `fast-import`/`update-ref` 直改版本史字节）不在放行面。
  * 执法位 = exec bash 拦截面（该面落码批接线——本常量先锚词汇）。
+ * 〔2026-09-14 呈拍落定批勘正：push 移出——push 是网络外推非元数据写，
+ * 腿三（git-guard isGitPushAttempt）恒截获任何形，「恒走危险闸」（04 §6
+ * 预设条）的 bash 面执法兑现；pull/fetch 维持（拉入无发布动作）〕
  */
 export const GIT_METADATA_COMMANDS: readonly string[] = [
   'add',
@@ -54,7 +57,6 @@ export const GIT_METADATA_COMMANDS: readonly string[] = [
   'rebase',
   'stash',
   'tag',
-  'push',
   'pull',
   'fetch',
   'status',

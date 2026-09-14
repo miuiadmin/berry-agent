@@ -174,7 +174,8 @@ describe('isGitMetadataExempt 白名单分类', () => {
     expect(isGitMetadataExempt("git commit -m 'fix: 修复'")).toBe(true);
     expect(isGitMetadataExempt('git commit -m "hello world"')).toBe(true);
     expect(isGitMetadataExempt('git log --oneline -5')).toBe(true);
-    expect(isGitMetadataExempt('git push origin main')).toBe(true);
+    // 2026-09-14 呈拍落定批翻档：push 移出白名单（腿三恒截获）→ 失豁免
+    expect(isGitMetadataExempt('git push origin main')).toBe(false);
     expect(isGitMetadataExempt('git worktree add ../x')).toBe(true);
     expect(isGitMetadataExempt('git add .')).toBe(true);
     expect(isGitMetadataExempt('/usr/bin/git status')).toBe(true); // basename 词干判

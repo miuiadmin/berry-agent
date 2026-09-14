@@ -1,17 +1,21 @@
 /**
  * exec 件 git-guard——bash 侧 .git 拦截面（04 §252 桥条款两腿执法，成熟度
- * 缺口 #9 落码批；此前「先有词后有法」挂账的执法批本体）。
+ * 缺口 #9 落码批；此前「先有词后有法」挂账的执法批本体；2026-09-14 呈拍
+ * 落定批增腿三 git push 外推截获）。
  *
  * 腿一（重定向目标扫描）：词法扫描 bash 命令串全部重定向目标，命中 .git
  * 树 = `EXEC_GIT_REDIRECT_DENIED` 硬拒（消费位 bash 工具件，升权审批前）。
  * 腿二（白名单分类）：静态洁净 git 形判定——非豁免形由调用方叠 workspace
  * `.git` 写 deny（运行时兜底关 tee/python/sed -i/变量间接等全部非重定向
  * 向量）；豁免形 + worktree 锚定补 backing gitdir 可写根。
+ * 腿三（git push 外推截获）：词干判 push 子命令位 = `EXEC_GIT_PUSH_DENIED`
+ * 硬拒（「git push 恒走危险闸」的 bash 面执法——沙箱 deny 不在推送路径上
+ * 〔push 本地写发生在远端接受后、exit 0〕，本腿是唯一截获腿）。
  *
  * 纯逻辑件（零 spawn）；fs 面 = statSync/readFileSync（worktree 探测）与
  * canonicalPath（最近存在祖先回退形——符号链/大小写归一判）。词法诚实边界
  * 见各函数注记：静态不可解的目标（`> $X` 形）由腿二运行时 deny 兜底，双层
- * 分层即本件的设计本体。
+ * 分层即本件的设计本体（腿三的 shell 包装形边界见 isGitPushAttempt 注记）。
  */
 import { readFileSync, statSync } from 'node:fs';
 import { join, resolve as resolvePath, sep } from 'node:path';
@@ -473,23 +477,15 @@ export function findGitRedirectViolations(command: string, cwd: string): readonl
 /* ------------------------------------------------------------------ */
 
 /**
- * 静态洁净 git 白名单形判定（04 §252 腿二——豁免 = 策略不携 workspace .git
- * 写 deny + worktree 授予腿）。
+ * 段切分与静态可判定旗（腿二/腿三共用基元）。
  *
- * 洁净形 = 段（未引号 `;` `&&` `||` `|` `&` 换行 切分）全部为：
- *  - 空段；或
- *  - `cd` 恰一参（静态词）；或
- *  - 首词 basename = `git` 且次词 ∈ `GIT_METADATA_COMMANDS`（`git -C sub
- *    commit` 全局旗形失豁——词干判形不展开旗参，保守边界）。
- * 且全串无**单引号外** `$` 与反引号（展开不可静态判定即失豁免——`git commit
- * -m "$(cat f)"` 保守失豁、`-F` 直传替代）、无未引号 `(`/`)`（子壳失豁）。
- *
- * 重定向允许在豁免形内（`git log > out.txt` 豁免 ✓——.git 目标由腿一执法、
- * 词面判缺席时非 .git 目标无害）。管道段各判（`git log | head` 两段各自词干
- * 判——head 段非 git 形 → 整体非豁免 → deny 在场：只读命令不受写 deny 影响
- * 照常工作）。glob/`~` 允许。
+ * 引号感知切分（未引号 `;` `&&` `||` `|` `&` 换行 为段界）；同时跟踪：
+ * expansion = 单引号外 `$`/反引号在场（展开不可静态判定）；subshell =
+ * 未引号 `(`/`)` 在场。重定向算子不切段（`git log > out.txt` 豁免面；
+ * fd 复制形 `>&N` 的 & 一并消费——防 `2>&1` 误切段界）。
  */
-export function isGitMetadataExempt(command: string): boolean {
+function segmentScan(command: string): { segments: readonly string[]; expansion: boolean; subshell: boolean } {
+  const segments: string[] = [];
   const boundaries: Array<[number, number]> = []; // 段切片 [start, end)
   let expansion = false; // 单引号外 $/反引号在场
   let subshell = false; // 未引号括号在场
@@ -559,10 +555,35 @@ export function isGitMetadataExempt(command: string): boolean {
     i++;
   }
   boundaries.push([segStart, n]);
+  for (const [start, end] of boundaries) segments.push(command.slice(start, end));
+  return { segments, expansion, subshell };
+}
 
+/**
+ * 静态洁净 git 白名单形判定（04 §252 腿二——豁免 = 策略不携 workspace .git
+ * 写 deny + worktree 授予腿）。
+ *
+ * 洁净形 = 段（未引号 `;` `&&` `||` `|` `&` 换行 切分）全部为：
+ *  - 空段；或
+ *  - `cd` 恰一参（静态词）；或
+ *  - 首词 basename = `git` 且次词 ∈ `GIT_METADATA_COMMANDS`（`git -C sub
+ *    commit` 全局旗形失豁——词干判形不展开旗参，保守边界）。
+ * 且全串无**单引号外** `$` 与反引号（展开不可静态判定即失豁免——`git commit
+ * -m "$(cat f)"` 保守失豁、`-F` 直传替代）、无未引号 `(`/`)`（子壳失豁）。
+ *
+ * 重定向允许在豁免形内（`git log > out.txt` 豁免 ✓——.git 目标由腿一执法、
+ * 词面判缺席时非 .git 目标无害）。管道段各判（`git log | head` 两段各自词干
+ * 判——head 段非 git 形 → 整体非豁免 → deny 在场：只读命令不受写 deny 影响
+ * 照常工作）。glob/`~` 允许。
+ *
+ * 2026-09-14 呈拍落定批勘正：`git push` 自本批失豁免（push 移出
+ * GIT_METADATA_COMMANDS——腿三恒截获，见 isGitPushAttempt）。
+ */
+export function isGitMetadataExempt(command: string): boolean {
+  const { segments, expansion, subshell } = segmentScan(command);
   if (expansion || subshell) return false;
-  for (const [start, end] of boundaries) {
-    const tokens = tokenizeWords(command.slice(start, end));
+  for (const segment of segments) {
+    const tokens = tokenizeWords(segment);
     if (tokens.length === 0) continue;
     if (tokens[0] === 'cd') {
       if (tokens.length !== 2) return false; // cd 多参/带旗形保守失豁
@@ -574,6 +595,72 @@ export function isGitMetadataExempt(command: string): boolean {
     if (verb === undefined || !GIT_METADATA_COMMANDS.includes(verb)) return false;
   }
   return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* 腿三：git push 外推截获                                              */
+/* ------------------------------------------------------------------ */
+
+/** git 全局取值旗闭集（各消耗一参——`-C <path>`/`-c <k=v>` 等；04 §8 腿三定形注） */
+const GIT_VALUE_FLAGS = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--exec-path',
+  '--super-prefix',
+]);
+
+/** 段首环境赋值词判（`GIT_DIR=… git push` 形——剥除后词干判） */
+const ENV_ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/**
+ * git push 外推截获判（04 §8 腿三——「git push 恒走危险闸」（04 §6 预设条）
+ * 的 bash 面执法兑现；呈拍落定批落码）。
+ *
+ * 段切分同腿二规则（分段独立判——`git status && git push` 的 push 段独立
+ * 命中）；每段：剥段首 env 赋值词 → 首词 basename = `git` → 全局旗区遍历
+ * （取值旗各消耗一参、`--flag=value` 自包含、其余 `-` 词首旗跳过）取**子
+ * 命令位** = `push` 即命中。
+ *
+ * 覆盖：`git push` 主形 / `git -C sub push` / `git -c k=v push` /
+ * `git --git-dir=.git push` / `GIT_DIR=x git push` env 前缀形。
+ * 不误伤：`git commit -m push`（`-m` 属子命令级旗——子命令位先判得
+ * `commit`）、只读动词。
+ * 诚实护栏边界：shell 包装形（`sh -c 'git push'`、脚本内嵌）不覆盖——
+ * 与 assertNoBackgroundCommand（nohup/disown 检测族）同定位：护栏层非
+ * 完美防线（04 §8 腿三定形注变形覆盖段——沙箱 .git deny 不在推送路径上
+ * 〔push 本地写发生在远端接受后、exit 0〕，本判是唯一截获腿故自扩覆盖
+ * 直接形与全局旗变形）。
+ */
+export function isGitPushAttempt(command: string): boolean {
+  for (const segment of segmentScan(command).segments) {
+    const tokens = tokenizeWords(segment);
+    // 段首 env 赋值词剥除（`GIT_DIR=… git push` 形——赋值前缀词逐个剥）
+    let i = 0;
+    while (i < tokens.length && ENV_ASSIGN_RE.test(tokens[i]!)) i++;
+    const exe = tokens[i]?.split(/[\\/]/).pop();
+    if (exe !== 'git') continue;
+    // 全局旗区遍历：取首个非旗词 = 子命令位
+    let j = i + 1;
+    let subcommand: string | undefined;
+    while (j < tokens.length) {
+      const t = tokens[j]!;
+      if (t.startsWith('-')) {
+        if (t.includes('=')) {
+          j++; // `--flag=value` 自包含
+          continue;
+        }
+        j += GIT_VALUE_FLAGS.has(t) ? 2 : 1; // 取值旗消耗一参；布尔旗跳过
+        continue;
+      }
+      subcommand = t;
+      break;
+    }
+    if (subcommand === 'push') return true;
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ */

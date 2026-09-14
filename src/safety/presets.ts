@@ -7,8 +7,9 @@
  * - `balanced`：workspace-write + ask + 空建议集——**缺省档 = 现状打包**，零行为变化；
  * - `open`：workspace-write + ask + 建议集 = 工作区根 fs 写前缀两件 +
  *   git 本地只读词干五件（04 §8 GIT_METADATA_COMMANDS 闭集取本地只读子集
- *   ——**push/pull/fetch 网络族不入集**：§13「此类词干不经 allowlist 放行」
- *   不因预设翻转，git push 恒走危险闸〔冷读闸 M5 定形〕）。
+ *   ——**pull/fetch 网络族不入集**：§13「此类词干不经 allowlist 放行」
+ *   不因预设翻转，git push 恒走危险闸〔冷读闸 M5 定形；2026-09-14 呈拍
+ *   落定批 push 移出闭集并由 04 §8 腿三在 bash 面恒截获〕）。
  *
  * 展开式非引用式（不留预设名第二真相源）：本件只产**展开值**——两旋钮
  * （sandboxMode/approvalPolicy）与 allow 草案清单；草案经写侧唯一正门
@@ -67,7 +68,9 @@ export function approvalPresetOf(name: string): ApprovalPreset | undefined {
 
 /**
  * open 档 bash 建议词干五件（04 §8 GIT_METADATA_COMMANDS 本地只读子集——
- * 网络写动词 push/pull/fetch 恒不入集，见文件头注）。
+ * 网络族 push/pull/fetch 恒不入集，见文件头注；push 已由 2026-09-14 呈拍
+ * 落定批移出 GIT_METADATA_COMMANDS——腿三恒截获，不入集的表述对 push 升格
+ * 为「闭集外+截获」双层）。
  */
 const OPEN_GIT_STEMS: readonly string[] = ['git status', 'git log', 'git diff', 'git show', 'git branch'];
 
