@@ -20,8 +20,16 @@ import {
 /** repo 串词法（精确形 `owner/name`——与 github.ts REPO_RE 同形，此处独立持有：filter 不依赖取数层） */
 const EXACT_REPO_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/** schedule 串词法（前缀形粗校验——精校归 scheduler parseSchedule 守卫） */
-const SCHEDULE_PREFIX_RE = /^(every:|daily:|weekly:|once:)/;
+/**
+ * schedule 串词法（前缀形粗校验——精校归 scheduler parseSchedule 守卫）。
+ * 真语法真源 = src/scheduler/schedule.ts parseSchedule：**every 系冒号形**
+ * （every:<n>[smh]）、**once/daily/weekly 系 @ 形**（once@+<n>[smh] /
+ * once@<ISO> / daily@HH:MM / weekly@<days>@HH:MM）。修前
+ * /^(every:|daily:|weekly:|once:)/ 与报错文案教错路——仿文案写冒号形
+ * daily:09:00 → 粗校过 → service.start() registerPollJob 精校抛
+ * SCHEDULER_SCHEDULE_INVALID → catch 只 warn → 轮询行零登记静默死。
+ */
+const SCHEDULE_PREFIX_RE = /^(every:|once@|daily@|weekly@)/;
 
 /** glob → 正则：`*` 通配段内任意（不含 `/`——段级通配）；锚定全配 */
 export function repoMatchesGlob(pattern: string, repo: string): boolean {
@@ -85,13 +93,15 @@ export function normalizeIssueConfig(raw: unknown): { ok: true; config: IssueCon
     mode = obj.mode;
   }
 
-  // schedule：缺省 every:120s；前缀粗校验（精校归 scheduler 守卫）
+  // schedule：缺省 every:120s；前缀粗校验（精校归 scheduler 守卫）——every
+  // 冒号形 / once·daily·weekly @ 形（parseSchedule 词法同源）；伪形在此位
+  // 即响亮拒（mount 配置期），不流到精校抛→catch 吞→轮询静默死的下游
   let schedule = ISSUE_DEFAULT_SCHEDULE;
   if (obj.schedule !== undefined) {
     if (typeof obj.schedule !== 'string' || !SCHEDULE_PREFIX_RE.test(obj.schedule)) {
       return {
         ok: false,
-        message: `issue 配置 schedule 坏形：${JSON.stringify(obj.schedule)}（every:/daily:/weekly:/once: 前缀四形）`,
+        message: `issue 配置 schedule 坏形：${JSON.stringify(obj.schedule)}（须 every:<n>[smh] / once@+<n>[smh] / once@<ISO> / daily@HH:MM / weekly@<days>@HH:MM——every 是冒号形，once/daily/weekly 是 @ 形）`,
       };
     }
     schedule = obj.schedule;

@@ -1,8 +1,9 @@
 /**
  * issue webhook 腿（03 §10.7 触发面——可开启面）。
  *
- * 验签：X-Signature-256 头 = `sha256=` + HMAC-SHA256(secret, 原始 body)——
- * timingSafeEqual 常时比对（防时序侧信道）；缺头/坏头/签名不符一律
+ * 验签：X-Hub-Signature-256 头（GitHub 官方词面——mount.ts
+ * WEBHOOK_SIGNATURE_HEADER 单源）= `sha256=` + HMAC-SHA256(secret, 原始
+ * body)——timingSafeEqual 常时比对（防时序侧信道）；缺头/坏头/签名不符一律
  * ISSUE_WEBHOOK_INVALID 响亮拒（不静默吞——运维可见）。
  *
  * 载荷路由（GitHub webhook 事件面子集）：
@@ -20,7 +21,7 @@ import { BaseError } from '../contracts/index.js';
 import type { IssueConfig, IssueEnqueueResult, IssueRef } from './types.js';
 import { issueMatchesFilter } from './filter.js';
 
-/** 计算 X-Signature-256 期望值（`sha256=` + hex——与 GitHub 官方算法一致） */
+/** 计算 X-Hub-Signature-256 期望值（`sha256=` + hex——与 GitHub 官方算法一致；头名单源 = mount.ts WEBHOOK_SIGNATURE_HEADER） */
 export function computeSignature(secret: string, rawBody: string): string {
   return `sha256=${createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')}`;
 }
@@ -163,7 +164,7 @@ export async function handleWebhookRequest(
   if (!req.signatureHeader || !signatureMatches(deps.secret, req.rawBody, req.signatureHeader)) {
     throw new BaseError(
       'ISSUE_WEBHOOK_INVALID',
-      '[ISSUE_WEBHOOK_INVALID] webhook 签名不符（X-Signature-256 缺失或错值——检查 secret 配置）',
+      '[ISSUE_WEBHOOK_INVALID] webhook 签名不符（X-Hub-Signature-256 缺失或错值——检查 secret 配置）',
     );
   }
   const payload = parseWebhookPayload(req.event, req.rawBody);
