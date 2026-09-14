@@ -352,6 +352,85 @@ describe('plugins check——三色体检面真身（03 §8.9 ag 批：绿/红 +
     expect(await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir2, ...io2 })).toBe(1);
     expect(io2.err.join('\n')).toContain('装机账本损坏');
   });
+
+  it('清单坏形红：可读 package.json 缺 berryAgent 字段 → 断裂行「清单坏形」+ exit 1（boot 装载同判据拒载——check 面同真相归红）', async () => {
+    const dir = tmpDir('plug-check-badshape-');
+    // 可读 JSON 但非插件包形（无 berryAgent 字段——parseManifest 判据同源）：
+    // 覆盖「悬空/坏 JSON 之外」的第三红族——清单在而坏形
+    const bad = join(tmpdir(), `berry-check-badshape-${process.pid}`);
+    dirs.push(bad);
+    mkdirSync(bad, { recursive: true });
+    writeFileSync(
+      join(bad, 'package.json'),
+      `${JSON.stringify({ name: 'badshape-pkg', version: '1.0.0', main: 'index.js' }, null, 2)}\n`,
+    );
+    writeLedger(dir, [entryOf('badshape-pkg', bad)]);
+    const io = capture();
+    const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
+    expect(code).toBe(1); // 坏清单归红族——fail-closed 拒猜
+    const text = io.out.join('\n');
+    expect(text).toContain('红（断裂，1）');
+    expect(text).toContain('badshape-pkg');
+    expect(text).toContain('清单坏形');
+    expect(text).toContain('无 berryAgent 字段'); // parseManifest 消息直呈（判据单源）
+  });
+
+  it('黄腿降级（库不可开）：sessions.db 垃圾字节 → warn 遥测库不可开 + 绿行照常 + exit 0（§8.7 降级承诺——黄腿不可用不拖垮主面）', async () => {
+    const dir = tmpDir('plug-check-depdb-');
+    const green = checkFixturePlugin('depdb-pkg', { minApiVersion: '1.0' });
+    writeLedger(dir, [entryOf('depdb-pkg', green)]);
+    // 非空库文件但非 SQLite 形（垃圾字节）——Persistence.open fail-loud，
+    // collectDeprecationUsed 捕获降级：warn + 黄腿缺席 + 绿/红主面照常
+    writeFileSync(join(dir, 'sessions.db'), 'this is not a sqlite database — garbage bytes payload');
+    const io = capture();
+    const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
+    expect(code).toBe(0); // 退出码恒以红为轴——黄腿降级不改码
+    const text = io.out.join('\n');
+    expect(text).toContain('绿（通过，1）'); // 主面照常出报告
+    expect(text).not.toContain('用废弃（遥测'); // 黄腿缺席（空段不渲染）
+    const err = io.err.join('\n');
+    expect(err).toContain('用废弃遥测库不可开'); // 降级 warn 在场（可见不静默）
+    expect(err).toContain('本报告不含黄腿面');
+  });
+
+  it('未知插件桶：载荷缺 pluginId 键的 deprecation 事件 → 「(未知插件) N 笔」黄行在场（读侧宽容不丢计数——§8.7 写点延迟触发期仿真）', async () => {
+    const dir = tmpDir('plug-check-unknownpid-');
+    const green = checkFixturePlugin('unkpid-pkg', { minApiVersion: '1.0' });
+    writeLedger(dir, [entryOf('unkpid-pkg', green)]);
+    // 直写 durable 事件（store.writeEvents 原始面）：载荷无 pluginId 键（历史
+    // 形/写点演进期载荷）——读侧归「(未知插件)」桶保计数
+    const seed = Persistence.open({
+      dataDir: dir,
+      dbPath: join(dir, 'sessions.db'),
+      migrations: HOST_MIGRATION_TAIL,
+      warn: () => undefined,
+    });
+    const now = Date.now();
+    try {
+      seed.store.writeEvents([
+        {
+          sessionId: 'seed-session',
+          event: { type: 'plugin/deprecation-used', seq: 0, time: now, data: { symbol: 'ctx.oldApi' } },
+          registration: {
+            origin: 'conversation' as const,
+            parentId: undefined,
+            seedLength: 0,
+            title: undefined,
+            workspaceRoot: undefined,
+          },
+        },
+      ]);
+    } finally {
+      await seed.close();
+    }
+    const io = capture();
+    const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
+    expect(code).toBe(0); // 黄腿不改退出码
+    const text = io.out.join('\n');
+    expect(text).toContain('用废弃（遥测 plugin/deprecation-used，1）：'); // 段头计数 = 件数（未知桶 1 件）
+    expect(text).toContain('(未知插件)  1 笔'); // 宽容桶黄行在场（无 pluginId 不丢计数）
+    expect(text).toContain('用废弃 1'); // 汇总计数在场
+  });
 });
 
 describe('plugins 写侧六动词——local fixture 真链 e2e（装机面落码批 #10）', () => {

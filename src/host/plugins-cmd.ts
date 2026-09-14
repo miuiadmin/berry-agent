@@ -212,10 +212,12 @@ async function collectDeprecationUsed(
     const counts = new Map<string, number>();
     let cursor: string | null = null;
     let pages = 0;
-    // 游标分页直查 + 页护栏（obs service 同律防坏游标死循环）；页帽 10000 =
-    // queryEvents 硬帽（64 页 = 64 万笔封顶，v1 结构性空集远不及）
+    // 游标分页直查 + 页护栏（obs service 同律防坏游标死循环）。页帽显式传
+    // limit: 10_000 = queryEvents 硬帽（缺省仅 1000/页——不传则真帽 6.4 万笔
+    // 与宣称不符；显式传后 64 页 = 64 万笔封顶，与 obs service 同律）
+    const pageLimit = 10_000;
     do {
-      const page = persistence.store.queryEvents({ types: ['plugin/deprecation-used'], cursor });
+      const page = persistence.store.queryEvents({ types: ['plugin/deprecation-used'], cursor, limit: pageLimit });
       for (const event of page.events) {
         const pid = (event.data as { pluginId?: unknown } | null)?.pluginId;
         const key = typeof pid === 'string' && pid.length > 0 ? pid : '(未知插件)';
@@ -223,6 +225,11 @@ async function collectDeprecationUsed(
       }
       cursor = page.nextCursor;
     } while (cursor !== null && ++pages < 64);
+    if (cursor !== null) {
+      // 护栏到顶 = 尚有余页未扫——静默截断会让本计数（§8.7 删除时点裁决料源）
+      // 低估在用面，warn 使截断可见
+      warn('warn：用废弃遥测分页护栏到顶（64 页）——计数可能低估（尚有余页未扫）');
+    }
     return counts;
   } catch (err) {
     warn(`warn：用废弃遥测查询失败（${err instanceof Error ? err.message : String(err)}）——本报告不含黄腿面`);

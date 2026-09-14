@@ -83,7 +83,8 @@ export function createSessionsFace(options: { readonly driverOf: SessionsDriverO
       if (log === undefined) return undefined; // 无活体驱动——诚实缺席（不造回库替身）
       return (type, data, surfaceOp, sourceEventSeqs) => {
         // 闸〇（归因闸前置的结构前提——仅 caller 在场的绑定道执法）：data 非
-        // 纯对象 = 归因键无处落（数组/原始值/null 拒写——fail-loud 先于词汇闸）
+        // 纯对象 = 归因键无处落（数组/原始值/null/类实例拒写——fail-loud 先于
+        // 词汇闸；纯对象判据与快照面 snapshot.ts 同源）
         const effectiveData = caller === undefined ? data : stampSourceKey(caller.pluginId, data);
         // 闸一：核心事件词伪造拒写（核心词写入权属宿主——双入口纪律的受理侧）
         if (CORE_EVENT_TYPE_NAMES.includes(type)) {
@@ -116,18 +117,26 @@ export function createSessionsFace(options: { readonly driverOf: SessionsDriverO
  * 归因键盖章（纯函数——「宿主单方拼装」的拼装位）：浅拷贝后盖
  * `source: plugin:<id>`。插件自供 source 键被覆写（传入面无归因参数位——
  * 防冒名单源，bindControlForPlugin caller 覆写律同构）；原对象零突变。
- * data 非纯对象（数组/原始值/null）→ `SESSION_EVENT_DATA_INVALID`（归因键
- * 恒在的结构前提——fail-loud 不静默降格为宿主道）。
+ * data 非纯对象（数组/原始值/null/类实例——prototype 判据与快照面
+ * snapshot.ts 同源）→ `SESSION_EVENT_DATA_INVALID`（归因键恒在的结构前提
+ * ——fail-loud 不静默降格为宿主道）。
  */
 function stampSourceKey(pluginId: string, data: unknown): Record<string, unknown> {
-  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+  // 纯对象判据与快照面（session/snapshot.ts）同源：prototype 检查明文拒类实例
+  // （Date/Map/Set 等）——typeof 'object' 且非数组的类实例若放行，浅拷贝对零
+  // 自有可枚举属性的类实例（如 Date）产出 {source} 单键、原数据静默净丢失；
+  // 数组经此判据同拒（Array.prototype ≠ Object.prototype）。Object.create(null)
+  // 形 proto === null 属纯对象收纳。
+  const proto = typeof data === 'object' && data !== null ? Object.getPrototypeOf(data) : undefined;
+  if (proto !== Object.prototype && proto !== null) {
     throw new BaseError(
       'SESSION_EVENT_DATA_INVALID',
       `插件 ${pluginId} 经 sessions.appendEventFor 的事件 data 须为纯对象（归因键 source 恒在的结构前提` +
-        `——数组/原始值/null 拒写）`,
+        `——数组/原始值/null/类实例〔Date、Map 等——判据与事件快照面同源〕拒写）`,
     );
   }
-  return { ...data, source: `plugin:${pluginId}` };
+  // 判定过闸即 proto ∈ {Object.prototype, null}——纯对象（Record 视角浅拷贝安全）
+  return { ...(data as Record<string, unknown>), source: `plugin:${pluginId}` };
 }
 
 /**

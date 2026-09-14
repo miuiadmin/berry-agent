@@ -136,6 +136,27 @@ describe('bindSessionsForPlugin 归因闸（单元——03 §4.5 cs-D2）', () =
     expect(log.events()).toHaveLength(0); // 拒写零落账
   });
 
+  it('结构前提·类实例形：Date/Map 类实例拒 SESSION_EVENT_DATA_INVALID（浅拷贝净丢失防线——判据与快照面 snapshot.ts 同源）；Object.create(null) 无原型纯对象形正常保留', () => {
+    const { table, driverOf } = tableOf();
+    const log = new SessionLog({ sessionId: 's-cls' });
+    table.set('s-cls', { session: log });
+    const bound = bindSessionsForPlugin('demo', createSessionsFace({ driverOf }));
+    const append = bound.appendEventFor('s-cls')!;
+    // Date/Map 类实例：typeof 'object' 且非数组——若放行，浅拷贝 {...data} 对零
+    // 自有可枚举属性的类实例产出 {source} 单键、原数据净丢失不可恢复（宿主道
+    // 同载荷被 SessionLog.append 快照面 prototype 判定 fail-loud 拒——受理面前
+    // 门必须同判据先拒，不留「受理面过、下游过、数据没了」的静默洞）
+    expectCode(() => append('sessions-bind.test/note', new Date('2026-09-14T00:00:00Z')), 'SESSION_EVENT_DATA_INVALID');
+    expectCode(() => append('sessions-bind.test/note', new Map([['k', 'v']])), 'SESSION_EVENT_DATA_INVALID');
+    expect(log.events()).toHaveLength(0); // 拒写零落账
+    // Object.create(null) 形 proto === null——纯对象判据收纳（自有可枚举属性保留）
+    const nullProto = Object.create(null);
+    nullProto.note = '无原型';
+    append('sessions-bind.test/note', nullProto);
+    expect(log.events()).toHaveLength(1);
+    expect(log.events()[0]!.data).toEqual({ note: '无原型', source: 'plugin:demo' }); // 数据保留 + 归因键恒在
+  });
+
   it('行籍闸：isRowActive=false → 残句柄写拒 PLUGIN_WINDOW_CLOSED（行不在活计划即无写径）', () => {
     const { table, driverOf } = tableOf();
     const log = new SessionLog({ sessionId: 's-stale' });
