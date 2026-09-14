@@ -19,6 +19,7 @@
 | `tool-policy.json`    | 工具策略表     | 审批选 always 的工具+参数条目持久回写 + 用户手写 `deny` 主权硬拒条目（用户资产，非配置）；更名前的旧审批清单文件在场时自动升格读入、旧文件留置不动（机器永不写旧名） |
 | `data/obs/rollup.db`  | 观测自管库     | core:obs 派生观测数据（可删——重建即恢复）                                                                                                                            |
 | `crash.log`           | 崩溃取证       | 崩溃路径先写一行再退；排障第一站                                                                                                                                     |
+| `serve/`              | 常驻宿主足迹   | daemon 形三件：`daemon.pid`（pid 登记——status/stop 消费）/ `daemon.sock`（unix sock 缺省接入点）/ `daemon.log`（stderr 重定向日志——**daemon 形自动生成 token 的明文披露位**，敏感读集成员）；目录常态可缺席、`berry serve --daemon` 启动才建、`berry serve stop` 清除 |
 
 ## 备份与恢复
 
@@ -100,7 +101,7 @@ berry sessions reindex   # 全量重建即修复
 ### Web 面连不上
 
 - `--port` 面恒回环（127.0.0.1）——远程访问需自行加 SSH 隧道，进程不绑非回环；
-- 访问令牌仅启动 stderr **一次性**显示；丢失即重启进程重新生成；
+- 访问令牌披露分两形：前台形（TUI `--port` / 前台 `serve`）启动 stderr **一次性**显示，丢失即重启进程重新生成；daemon 形（`serve --daemon`）token 落数据目录 `serve/daemon.log`（自动生成档唯一披露位——事后可查、不再复现）；
 - `core:webui` 件被禁用时面仍开但 `/api/*` 404（SDK 程序调用面 `/v1/*` 不受累）。
 
 ### 数据库升级降级

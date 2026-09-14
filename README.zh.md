@@ -74,7 +74,7 @@ berry doors list         # 开门制门态只读（开/关走 TUI /doors open|cl
 berry serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
 ```
 
-从 alpha.1 升级的用户：bin 已换代为 `berry`；旧命令 `berry-agent` 仍回落可用，升级到换代版本后 npm 自动换链。
+从 alpha.1 升级的用户：bin 已换代为 `berry`——净切、不留双名别名；npm 升级会把旧链 `berry-agent` 自动重链为 `berry`，旧命令名随之失效，脚本请改用 `berry`。
 
 首启自动创建 `~/.berry-agent/`。模型缺省 `anthropic/claude-sonnet-5`（凭证按
 provider 生态变量供给，如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` 可覆盖。

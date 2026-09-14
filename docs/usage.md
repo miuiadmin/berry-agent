@@ -18,7 +18,7 @@ sh install.sh
 > 不要写成 `curl … | sh` 管道直灌：连接中段断裂时 shell 会执行半截脚本。
 > 脚本依次做：Node ≥ 24 检查 → `npm install -g berry-agent` → 安装验证（`berry --version` 优先、旧命令名 `berry-agent --version` 回落） → 欢迎横幅；失败时给出排查建议（权限 / 网络）。
 >
-> 从 alpha.1 升级的用户：bin 已换代为 `berry`；旧命令 `berry-agent` 仍回落可用，升级到换代版本后 npm 自动换链。
+> 从 alpha.1 升级的用户：bin 已换代为 `berry`——净切、不留双名别名；npm 升级会把旧链 `berry-agent` 自动重链为 `berry`，旧命令名随之失效，脚本请改用 `berry`。
 
 **路二：npm 直接安装**：
 

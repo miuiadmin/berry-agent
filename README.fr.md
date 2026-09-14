@@ -77,9 +77,10 @@ berry doors list         # état des portes de capacité (lecture seule)
 berry serve --port 7860  # hôte résident : interface web + surface programmatique /v1/*
 ```
 
-Vous mettez à niveau depuis alpha.1 ? Le nom du binaire est désormais `berry` ;
-l'ancienne commande `berry-agent` reste utilisable en repli, et le lien bascule
-automatiquement vers `berry` lors de la mise à niveau vers la version au binaire renommé.
+Vous mettez à niveau depuis alpha.1 ? Le nom du binaire est désormais `berry` —
+coupe nette sans alias à double nom : la mise à niveau npm remplace
+automatiquement l'ancien lien `berry-agent` par `berry`, l'ancien nom de
+commande cesse de fonctionner ; adaptez vos scripts pour utiliser `berry`.
 
 Le premier lancement crée `~/.berry-agent/`. Le modèle par défaut est
 `anthropic/claude-sonnet-5` (fournissez `ANTHROPIC_API_KEY`) ; surchargez avec

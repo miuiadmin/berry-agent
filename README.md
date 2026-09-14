@@ -76,9 +76,10 @@ berry doors list         # capability-door state (read-only)
 berry serve --port 7860  # resident host: Web UI + /v1/* programmatic surface
 ```
 
-Upgrading from alpha.1? The bin name is now `berry`; the old `berry-agent`
-command still works as a fallback, and the link switches to `berry`
-automatically once you upgrade to the renamed-bin version.
+Upgrading from alpha.1? The bin name is now `berry` — a clean cut with no
+dual-name alias: the npm upgrade replaces the old `berry-agent` link with
+`berry` automatically, and the old command name stops working, so switch any
+scripts over to `berry`.
 
 The first run creates `~/.berry-agent/`. The default model is `anthropic/claude-sonnet-5`
 (supply `ANTHROPIC_API_KEY`); override with `BERRY_AGENT_MODEL`. The full command,

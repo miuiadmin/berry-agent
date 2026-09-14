@@ -77,9 +77,10 @@ berry doors list         # estado de las puertas de capacidad (solo lectura)
 berry serve --port 7860  # host residente: interfaz web + superficie programática /v1/*
 ```
 
-¿Actualizas desde alpha.1? El binario pasó a llamarse `berry`; el comando antiguo
-`berry-agent` sigue funcionando como alternativa, y el enlace cambia
-automáticamente a `berry` al actualizar a la versión con el binario renombrado.
+¿Actualizas desde alpha.1? El binario pasó a llamarse `berry` — corte limpio
+sin alias de doble nombre: al actualizar, npm reemplaza automáticamente el
+antiguo enlace `berry-agent` por `berry` y el antiguo nombre de comando deja de
+funcionar; pasa tus scripts a `berry`.
 
 El primer arranque crea `~/.berry-agent/`. El modelo por defecto es
 `anthropic/claude-sonnet-5` (proporciona `ANTHROPIC_API_KEY`); sobrescríbelo con

@@ -76,9 +76,10 @@ berry doors list         # 역량 게이트 상태 (읽기 전용)
 berry serve --port 7860  # 상주 호스트: 웹 UI + /v1/* 프로그래밍 표면
 ```
 
-alpha.1에서 업그레이드한 사용자: bin 이름이 `berry`로 바뀌었습니다. 이전 명령어
-`berry-agent`도 여전히 대체 경로로 사용할 수 있으며, 이름이 바뀐 bin 버전으로
-업그레이드하면 링크가 자동으로 `berry`로 전환됩니다.
+alpha.1에서 업그레이드한 사용자: bin 이름이 `berry`로 바뀌었습니다. 이중
+이름 별칭 없이 깔끔하게 전환됩니다. npm 업그레이드 시 이전 링크 `berry-agent`는
+자동으로 `berry`로 재연결되어 이전 명령어는 더 이상 동작하지 않으므로, 스크립트는
+`berry`로 변경하세요.
 
 첫 실행 시 `~/.berry-agent/`가 생성됩니다. 기본 모델은
 `anthropic/claude-sonnet-5` (`ANTHROPIC_API_KEY` 제공), `BERRY_AGENT_MODEL`로

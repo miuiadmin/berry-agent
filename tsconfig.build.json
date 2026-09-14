@@ -4,8 +4,10 @@
   // （npm run build）改用本配置，产出零测试/声明/映射产物的干净 dist/：
   //   - exclude 覆盖父值（extends 数组不合并），故新增 src/**/*.test.ts
   //     （测试不入发布物）；
-  //   - declaration/sourceMap 关：包只作 CLI 装机物（bin 单入口、无 exports 面），
-  //     .d.ts/.js.map 是死重。
+  //   - declaration/sourceMap 关：包不止 CLI 装机物（bin 单入口），另有 exports
+  //     面（API 治理面 dist/api/·dist/contracts/ 类型锚与 testkit）——其 .d.ts
+  //     由 build 链 API 声明步（emit-api-decls + tsconfig.api.json 声明发射）
+  //     单点供给，tsc 逐文件 .d.ts/.js.map 是死重。
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "declaration": false,
