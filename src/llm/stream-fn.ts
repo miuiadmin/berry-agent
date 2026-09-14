@@ -206,7 +206,9 @@ function toPiTool(tool: { name: string; description: string; parameters: object 
 }
 
 /**
- * 合成错误流：单 error 终止事件 + 终值消息（pi-ai 事件流原语自建，协议同构）。
+ * 合成错误流：start 占位 + error 终止事件 + 终值消息（pi-ai 事件流原语自建，
+ * 协议同构）。产出面按理想序供给（start 先行）使仓内合成流自洽；消费面仍须
+ * 容无 start 前导形（04 §3 定形——pi-ai provider 前置失败只发 error，不可改）。
  * @param errorMessage 人读错误说明（携 [CODE] 前缀）
  * @param errorCode 宿主合成码（classifyError 判定序的机器判定位）
  */
@@ -221,6 +223,8 @@ function errorStream(errorMessage: string, errorCode?: string): AssistantStream 
     timestamp: Date.now(),
   };
   const stream = createAssistantMessageEventStream();
+  // start 占位先行（partial 即错误终值快照——无增量内容的退化流形）
+  stream.push({ type: 'start', partial: message as PiAssistantMessage });
   stream.push({ type: 'error', reason: 'error', error: message as PiAssistantMessage });
   stream.end(message as PiAssistantMessage);
   return stream as unknown as AssistantStream;

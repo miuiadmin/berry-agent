@@ -77,6 +77,17 @@ function makeStream(final: AssistantMessage): AssistantStream {
   };
 }
 
+/** 无 start 前导流（provider 前置失败形：仅单 error 事件即收尾——pi-ai 请求
+ * 创建失败 catch 路径实证形；04 §3 定形：error 可无 start 前导） */
+function noStartErrorStream(final: AssistantMessage): AssistantStream {
+  return {
+    async *[Symbol.asyncIterator](): AsyncIterator<AssistantStreamEvent> {
+      yield { type: 'error', reason: 'error', error: final };
+    },
+    result: async () => final,
+  };
+}
+
 /** scripted streamFn：按序弹终值 + 记录每次调用的 options（换装断言面） */
 function scriptedStreamFn(scripts: AssistantMessage[], seen: StreamFnOptions[] = []): StreamFn {
   let i = 0;
@@ -250,6 +261,38 @@ describe('run 终态三值', () => {
     const tail = context.messages.slice(-2) as ToolResultMessage[];
     expect(tail.every((m) => m.role === 'toolResult' && m.isError === true)).toBe(true);
     expect((tail[0] as { toolCallId: string }).toolCallId).toBe('t1');
+  });
+});
+
+/* ---------------- 无 start 前导错误流（04 §3 定形——终值落位判占位在场） ---------------- */
+
+describe('无 start 前导错误流', () => {
+  it('error 先于 start 到达：终值 append 不覆写上一条活消息 + 补配对 message_start（真 bug 修前必红）', async () => {
+    // provider 前置失败形（pi-ai 请求创建失败 catch 路径只发 error 不发 start）：
+    // 修前缺陷 = 终值无条件尾替换把种子 user 消息顶替（数组少一条、用户输入在
+    // 活面消失）+ message_end 无配对 message_start（活体事件序违例）。04 §3
+    // 2026-09-14 定形：消费面终值落位须判占位在场——未见 start 时终值走
+    // append 不替换尾元素。
+    const boom = assistant({ stopReason: 'error', errorMessage: 'net down' });
+    const streamFn: StreamFn = () => noStartErrorStream(boom);
+    const { context, config, events } = rig({ streamFn });
+    const result = await startRun(context, config, [user('q')]);
+    expect(result).toMatchObject({ status: 'failed', stopReason: 'error', errorMessage: 'net down' });
+    // 种子存活 + 终值 append（修前红锚：种子被顶替，长度 1）
+    expect(context.messages).toHaveLength(2);
+    expect(context.messages[0]).toMatchObject({ role: 'user', content: 'q' });
+    expect(context.messages[1]).toMatchObject({ role: 'assistant', stopReason: 'error' });
+    // 事件序：终值补配对 message_start——message_end 不裸奔（修前：无此 start）
+    expect(typesOf(events)).toEqual([
+      'message_start',
+      'message_end', // 种子入列
+      'agent_start',
+      'turn_start',
+      'message_start', // 无 start 前导终值的补配对（修前缺）
+      'message_end',
+      'turn_end',
+      'agent_end',
+    ]);
   });
 });
 

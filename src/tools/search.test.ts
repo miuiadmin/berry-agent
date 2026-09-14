@@ -245,6 +245,61 @@ describe('grep 工具', () => {
     expect(res.details).toMatchObject({ mode: 'content', matched: 2 });
   });
 
+  it('同目录文件按名称字典序升序产出（walk 顺序契约——文件腿回归锁；修前形随降序数组逆序产出 zz 先于 aa）', async () => {
+    const { root } = rig;
+    await writeFile(join(root, 'zz.txt'), 'needle\n');
+    await writeFile(join(root, 'mm.txt'), 'needle\n');
+    await writeFile(join(root, 'aa.txt'), 'needle\n');
+    const res = await rig.grep.execute({ pattern: 'needle', output_mode: 'content' }, { toolCallId: 'test' });
+    const text = (res.content[0] as { text: string }).text;
+    // grep 按 walk 序收集无终排——本断言直接锁文件腿升序（头注「目录序 × 名称字典序」契约）
+    expect(text.split('\n')).toEqual(['aa.txt:1:needle', 'mm.txt:1:needle', 'zz.txt:1:needle']);
+  });
+
+  it('walk 全序：本层文件升序在先，子目录按名升序展开在后（顺序契约总锁）', async () => {
+    const local = makeRig(); // 干净树（不走 beforeEach 的 src/.gitignore 布景）
+    await mkdir(local.root, { recursive: true }); // local rig 根先建
+    try {
+      await mkdir(join(local.root, 'mdir'), { recursive: true });
+      await mkdir(join(local.root, 'ndir'), { recursive: true });
+      await writeFile(join(local.root, 'zz.txt'), 'needle\n');
+      await writeFile(join(local.root, 'aa.txt'), 'needle\n');
+      await writeFile(join(local.root, 'ndir/x.txt'), 'needle\n');
+      await writeFile(join(local.root, 'mdir/y.txt'), 'needle\n');
+      await writeFile(join(local.root, 'mdir/a.txt'), 'needle\n');
+      const res = await local.grep.execute({ pattern: 'needle', output_mode: 'content' }, { toolCallId: 'test' });
+      const text = (res.content[0] as { text: string }).text;
+      expect(text.split('\n')).toEqual([
+        'aa.txt:1:needle',
+        'zz.txt:1:needle',
+        'mdir/a.txt:1:needle',
+        'mdir/y.txt:1:needle',
+        'ndir/x.txt:1:needle',
+      ]);
+    } finally {
+      await rm(local.root, { recursive: true, force: true });
+    }
+  });
+
+  it('files_with_matches 截断子集 = 字典序在先文件（maxResults 早停依遍历序——修前逆序扫描保住的是靠后文件）', async () => {
+    const local = makeRig({ maxResults: 2 });
+    await mkdir(local.root, { recursive: true }); // local rig 根先建
+    try {
+      for (const name of ['aa.txt', 'bb.txt', 'cc.txt', 'dd.txt']) {
+        await writeFile(join(local.root, name), 'needle\n');
+      }
+      const res = await local.grep.execute({ pattern: 'needle' }, { toolCallId: 'test' });
+      const text = (res.content[0] as { text: string }).text;
+      expect(res.details).toMatchObject({ matched: 2, truncated: true });
+      // 字典序扫描 → 截断保住 aa/bb（修前形逆序产出保住 dd/cc）
+      expect(text.split('\n')[0]).toBe('aa.txt');
+      expect(text.split('\n')[1]).toBe('bb.txt');
+      expect(text).toContain('上限');
+    } finally {
+      await rm(local.root, { recursive: true, force: true });
+    }
+  });
+
   it('glob 文件名过滤：只搜匹配文件', async () => {
     await writeFile(join(rig.root, 'src/c.txt'), 'alpha in txt\n');
     const res = await rig.grep.execute({ pattern: 'alpha', glob: '**/*.txt' }, { toolCallId: 'test' });

@@ -229,6 +229,30 @@ describe('双帽（03 §3.4）', () => {
       vi.useRealTimers();
     }
   });
+
+  it('注销器桶空抛错不吞重试：扣桶可抛点先于幂等旗置位——回填后重试同一 disposer 真正注销（防护序回归锁；修前形旗先置位，重试静默 no-op 条目永久泄漏）', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const { registry, changes } = makeRig({ changeRate: { capacity: 2, perMinute: 600 } });
+      const dispose = registry.register(named('a')); // 令牌 1
+      registry.register(named('b')); // 令牌 2 → 桶空
+      // 桶空拒（unregister 也算变更）——抛错路径不得置幂等旗（调用方捕获后须可重试）
+      expectCode(() => dispose(), 'TOOL_CHANGE_RATE_LIMITED');
+      expect(registry.listFor('any').map((d) => d.name)).toEqual(['a', 'b']); // 条目未被半摘（仍在场）
+      // 推进 61 秒：回填 61s × 10/s = 620 枚（顶帽 2）→ 桶满；重试同一 disposer 必须真正完成注销
+      vi.setSystemTime(Date.now() + 61_000);
+      dispose();
+      expect(registry.listFor('any').map((d) => d.name)).toEqual(['b']); // 修前形此处静默 no-op——a 泄漏在场
+      expect(registry.size).toBe(1);
+      expect(changes).toHaveLength(3); // register a/b + unregister a
+      expect(changes[2]).toEqual({ kind: 'unregister', name: 'a' });
+      // 成功后再调 = 幂等零侧效应（旗已置位——正常幂等语义不受防护序重排影响）
+      dispose();
+      expect(changes).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('disposer 与 tools_change', () => {

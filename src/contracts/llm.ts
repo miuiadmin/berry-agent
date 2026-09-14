@@ -235,8 +235,11 @@ export type StreamFn = (
 
 /**
  * 流式事件（pi-ai AssistantMessageEvent 同构 12 型）。
- * 协议：`start` 先行 → 各内容块 start/delta/end 交错（partial 携带累计快照）→
- * 以 `done`（成功）或 `error`（stopReason=error/aborted）收尾。
+ * 协议：正常形 `start` 先行 → 各内容块 start/delta/end 交错（partial 携带累计
+ * 快照）→ 以 `done`（成功）或 `error`（stopReason=error/aborted）收尾。
+ * **error 可无 start 前导**（04 §3 2026-09-14 定形）：provider 前置失败形
+ * （请求创建失败）只发单个 `error` 即收尾——「start 先行」非流的隐含序约束，
+ * 消费面终值落位须判占位在场（未见 start 走 append，不尾替换）。
  */
 export type AssistantStreamEvent =
   | { type: 'start'; partial: AssistantMessage }

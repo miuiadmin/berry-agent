@@ -5,6 +5,8 @@
  * getApiKey → streamFn（永不抛——错误编码为流终值）→ 迭代（start 占位入列、
  * delta 就地替换、终值 result() 落位）。partial 就地替换：流中每事件的
  * partial 即累计快照，尾元素直接替换即活体更新——不重建数组。
+ * 终值落位判占位在场（04 §3 定形）：error 终值可无 start 前导（provider 前置
+ * 失败形），未见 start 时终值走 append——无条件尾替换会覆写上一条活消息。
  */
 
 import type { AgentMessage } from '../contracts/index.js';
@@ -49,9 +51,14 @@ export async function streamAssistantResponse(
     { model: config.model, thinkingLevel: config.thinkingLevel, apiKey: config.getApiKey?.(config.model) },
     config.signal,
   );
-  // ⑤ 消费流：start 占位入列 → 带 partial 事件就地替换尾 → 终值 result() 落位
+  // ⑤ 消费流：start 占位入列 → 带 partial 事件就地替换尾 → 终值 result() 落位。
+  // sawStart 追踪（04 §3 定形）：error 终值可无 start 前导——provider 前置失败形
+  // （pi-ai 请求创建失败 catch 路径只发 error 不发 start），「start 先行」非流的
+  // 隐含序约束；终值落位据此判占位在场。
+  let sawStart = false;
   for await (const event of stream) {
     if (event.type === 'start') {
+      sawStart = true;
       context.messages.push(event.partial);
       emit({ type: 'message_start', role: 'assistant' });
     } else if (event.type === 'done' || event.type === 'error') {
@@ -63,7 +70,16 @@ export async function streamAssistantResponse(
     }
   }
   const final = await stream.result();
-  context.messages[context.messages.length - 1] = final;
+  if (sawStart) {
+    // 正常形：占位在场——终值就地替换占位
+    context.messages[context.messages.length - 1] = final;
+  } else {
+    // 无 start 前导形：无占位可替换——终值走 append（无条件尾替换会覆写上一条
+    // 活消息：种子 user 消息被 error assistant 顶替即此形），并补发配对
+    // message_start（否则 message_end 裸奔——活体事件序违例与覆写同源）
+    context.messages.push(final);
+    emit({ type: 'message_start', role: 'assistant' });
+  }
   emit({ type: 'message_end', message: final });
   return final;
 }

@@ -60,8 +60,12 @@ describe('永不抛契约（模型解析失败 → 错误流）', () => {
     // 调用本身不抛（同步面）——错误在流内
     const stream = await streamFn(simpleContext([userMsg('hi')]), { model: 'faux-test/m9' });
     const events = await drainStream(stream);
-    expect(events.map((e) => e.type)).toEqual(['error']);
-    const error = events[0] as Extract<AssistantStreamEvent, { type: 'error' }>;
+    // 合成错误流自洽形：start 占位先行 → error 收尾（04 §3——消费面须容无 start
+    // 前导形，但产出面仍按理想序供给）
+    expect(events.map((e) => e.type)).toEqual(['start', 'error']);
+    const start = events[0] as Extract<AssistantStreamEvent, { type: 'start' }>;
+    expect(start.partial.role).toBe('assistant');
+    const error = events[1] as Extract<AssistantStreamEvent, { type: 'error' }>;
     expect(error.error.stopReason).toBe('error');
     // 终值同一错误消息：errorMessage 携 [CODE] 前缀（人读）+ errorCode 机器判定位
     const final = await stream.result();
@@ -90,7 +94,7 @@ describe('永不抛契约（在飞帽达帽 → 错误流，transient 桶）', (
     const streamFn = createStreamFn(runtime, {}, tracker);
     const stream = await streamFn(simpleContext([userMsg('hi')]), { model: 'faux-test/m1' });
     const events = await drainStream(stream);
-    expect(events.map((e) => e.type)).toEqual(['error']);
+    expect(events.map((e) => e.type)).toEqual(['start', 'error']);
     const final = await stream.result();
     expect(final.errorCode).toBe('LLM_INFLIGHT_LIMIT');
     expect(final.errorMessage).toContain('在飞请求达帽');
@@ -109,7 +113,7 @@ describe('钩子派发段前置查（钩子 handler 内流式调用 → 错误�
     const streamFn = createStreamFn(runtime, {}, undefined, { inHookDispatch: () => true });
     const stream = await streamFn(simpleContext([userMsg('hi')]), { model: 'faux-test/m1' });
     const events = await drainStream(stream);
-    expect(events.map((e) => e.type)).toEqual(['error']);
+    expect(events.map((e) => e.type)).toEqual(['start', 'error']);
     const final = await stream.result();
     expect(final.errorCode).toBe('LLM_CALL_IN_HOOK');
     expect(final.errorMessage).toContain('钩子执行段禁模型调用');

@@ -441,7 +441,7 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
     name: 'edit',
     effect: 'write',
     description:
-      '按 apply_patch 补丁格式编辑文件（一次补丁可改多文件：Update File / Add File / Delete File）。Update/Delete 的目标必须先 read 过；全部校验通过后才落盘（跨文件顺序应用，非原子）。只接受 UTF-8 文件。',
+      '按 apply_patch 补丁格式编辑文件（一次补丁可改多文件：Update File / Add File / Delete File；同文件多段按序生效）。Update/Delete 的目标必须先 read 过；全部校验通过后才落盘（顺序应用，非原子）。只接受 UTF-8 文件。',
     parameters: Type.Object({
       patch: Type.String({
         description:
@@ -451,9 +451,12 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
     execute: async (args) => {
       const ops = parseApplyPatch(args.patch as string);
       // 键推导先行：逐 op fence + canonical 化在链外完成——本补丁涉及的全
-      // 部 canonical 路径即链键全集（Map 去重；fence 每文件单独过——补丁
-      // 夹带根外目标逐个暴露）
-      const targets = new Map<string, { op: PatchOperation; abs: string }>();
+      // 部 canonical 路径即链键全集（fence 每文件单独过——补丁夹带根外目
+      // 标逐个暴露）。同 canonical 多段按序并入同键（04 §7 定形注——同文件
+      // 多段按序生效；别名拼写〔a.txt 与 ./a.txt、符号链指同物〕经
+      // resolveTarget/canonicalize 归一同键同并入——旧形 Map 存单 op、同键
+      // set 覆写致前段静默丢弃系缺陷，2026-09-14 批勘正为按序生效）
+      const targets = new Map<string, Array<{ op: PatchOperation; abs: string }>>();
       for (const op of ops) {
         const abs = resolveTarget(op.path);
         const canonical = await assertWritable(abs);
@@ -462,43 +465,94 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
         // 路径判紧随 fence——三 op 全拒（update 隐式读 / add 造敏感件 / delete
         // 篡改敏感件同面，敏感件归 persist 自管不归 fs 工具族）
         rejectProtectedReadPath(canonical, protectedReadFiles);
-        targets.set(canonical, { op, abs });
+        const segments = targets.get(canonical);
+        if (segments === undefined) targets.set(canonical, [{ op, abs }]);
+        else segments.push({ op, abs }); // 同键后段尾插——补丁序即应用序
       }
       // 两阶段全段入链：阶段一的读-CAS-算内容与阶段二的顺序落盘在同一互
       // 斥段内（阶段间窗口的并发写会让「已校验内容」过期——全段互斥才闭合）
       return serializeWrites([...targets.keys()], async () => {
-        /** 阶段一产物：通过全部校验、目标内容已就绪的待应用操作 */
+        /** 阶段一产物：通过全部校验、目标内容已就绪的待应用操作（总段数计——回执计数源） */
         const planned: Array<{ op: PatchOperation; abs: string; canonical: string; content?: string }> = [];
-        for (const [canonical, { op, abs }] of targets) {
+        for (const [canonical, segments] of targets) {
+          // 盘上真态只查一次（阶段一零落盘——组内全程不变）；首段守卫（未读
+          // 拒 / CAS 指纹 / Add 在场拒）以此为准
           const current = await currentVersion(canonical);
           const currentRef = current === undefined ? undefined : { version: current };
-          if (op.kind === 'update') {
-            // 编辑守卫：必须已读（present）且指纹一致；内容在阶段一就算好
-            //（定位失败前置暴露——不留到半途落盘才发现）
-            requireObservedForEdit(observed.get(abs), currentRef);
-            // 前置读同 read 口径严格 UTF-8 + open-handle 守卫（04 §7 定形④⑤
-            //——隐式读同过 inode 判：防补丁路径硬链/换靶读到敏感件）；非
-            // UTF-8 一律拒改（防转码回写毁档）；改写通道 = read 后 write 全文
-            // 替换（按 UTF-8 落盘）
-            const raw = await readGuarded(canonical);
-            const text = decodeUtf8Strict(raw);
-            planned.push({ op, abs, canonical, content: applyUpdateLines(abs, text, op.lines) });
-          } else if (op.kind === 'add') {
-            if (currentRef !== undefined) {
-              throw new BaseError(
-                'FS_PATCH_FAILED',
-                `[FS_PATCH_FAILED] *** Add File: ${abs} 目标已存在——修改已有文件请用 Update File`,
-              );
+          /**
+           * 同文件段链内容态（04 §7 定形注——同文件多段按序生效）：首段以盘
+           * 上真态为准（既有守卫全量照跑——与单段补丁完全同口径）；后段一律
+           * 在前段产物上继续应用（等价「前段已真实落盘」后紧随执行后段——内
+           * 容知识由本补丁前段自身建立，不重跑观察守卫）。exists=false 表示
+           * 已被本补丁前段删除——后段对不在场目标的更新/再删在阶段一即拒
+           * （FS_PATCH_FAILED），不进半途落盘窗。
+           */
+          let staged: { exists: boolean; content?: string } | undefined;
+          for (const { op, abs } of segments) {
+            if (op.kind === 'update') {
+              // 内容源分派：首段 = 盘上守卫读；后段 = 前段产物（按序链式）
+              let text: string;
+              if (staged === undefined) {
+                // 编辑守卫：必须已读（present）且指纹一致；内容在阶段一就算好
+                //（定位失败前置暴露——不留到半途落盘才发现）
+                requireObservedForEdit(observed.get(abs), currentRef);
+                // 前置读同 read 口径严格 UTF-8 + open-handle 守卫（04 §7 定形④⑤
+                //——隐式读同过 inode 判：防补丁路径硬链/换靶读到敏感件）；非
+                // UTF-8 一律拒改（防转码回写毁档）；改写通道 = read 后 write 全文
+                // 替换（按 UTF-8 落盘）
+                const raw = await readGuarded(canonical);
+                text = decodeUtf8Strict(raw);
+              } else {
+                if (!staged.exists) {
+                  throw new BaseError(
+                    'FS_PATCH_FAILED',
+                    `[FS_PATCH_FAILED] *** Update File: ${abs} 目标已被本补丁前段删除——按序语义下无法继续更新（请移除该段或调整段序）`,
+                  );
+                }
+                text = staged.content!;
+              }
+              const content = applyUpdateLines(abs, text, op.lines);
+              staged = { exists: true, content };
+              planned.push({ op, abs, canonical, content });
+            } else if (op.kind === 'add') {
+              if (staged === undefined) {
+                if (currentRef !== undefined) {
+                  throw new BaseError(
+                    'FS_PATCH_FAILED',
+                    `[FS_PATCH_FAILED] *** Add File: ${abs} 目标已存在——修改已有文件请用 Update File`,
+                  );
+                }
+              } else if (staged.exists) {
+                // 前段已创建/更新该文件——Add 的「不在场」前提已破（镜像盘上
+                // 在场拒：同补丁内不可重复 Add）
+                throw new BaseError(
+                  'FS_PATCH_FAILED',
+                  `[FS_PATCH_FAILED] *** Add File: ${abs} 目标已被本补丁前段创建/更新——同补丁内不可重复 Add`,
+                );
+              }
+              const content = addLinesToContent(op.lines);
+              staged = { exists: true, content };
+              planned.push({ op, abs, canonical, content });
+            } else {
+              // 删除守卫与 update 同款：首段删之前必须读过（知道删的是什
+              // 么）；后段只查段链在场性——重复删在阶段一即拒
+              if (staged === undefined) {
+                requireObservedForEdit(observed.get(abs), currentRef);
+              } else if (!staged.exists) {
+                throw new BaseError(
+                  'FS_PATCH_FAILED',
+                  `[FS_PATCH_FAILED] *** Delete File: ${abs} 目标已被本补丁前段删除——无法重复删除`,
+                );
+              }
+              staged = { exists: false };
+              planned.push({ op, abs, canonical });
             }
-            planned.push({ op, abs, canonical, content: addLinesToContent(op.lines) });
-          } else {
-            // 删除守卫与 update 同款：删之前必须读过（知道删的是什么）
-            requireObservedForEdit(observed.get(abs), currentRef);
-            planned.push({ op, abs, canonical });
           }
         }
         /* 阶段二：顺序应用（无回滚——语义错误已在阶段一全部暴露，只剩物理
-           写失败；物理写走 canonical，观察回填走用户拼写——与 write 同口径） */
+           写失败；物理写走 canonical，观察回填走用户拼写——与 write 同口
+           径；同文件多段逐段落盘〔中间态短暂可见——与跨文件顺序应用同一
+           非原子语义声明〕，末段即终态，回计按总段数报） */
         const summary: string[] = [];
         /** 结构化操作账（消费面 = 后续诊断注入等按 op 分型的面） */
         const operations: Array<{ op: string; path: string }> = [];

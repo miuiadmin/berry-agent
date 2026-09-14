@@ -156,7 +156,7 @@ export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOp
   const globalLayer = new Map<string, ToolDefinition>();
   /** 驱动层：sessionId → (name → 定义)（Map 保注册序） */
   const driverLayers = new Map<string, Map<string, ToolDefinition>>();
-  /** 变更频率桶（register 侧 fail-loud 先于变更；unregister 侧在注销器内） */
+  /** 变更频率桶（register 与 unregister 两侧同扣、同「fail-loud 先于变更」序） */
   const changeRate = new RateLimiter(rate.capacity, rate.perMinute);
 
   /** 撞名查重（碰撞域见文件头注）——命中返回既有来源描述（错误信息归因用） */
@@ -188,21 +188,28 @@ export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOp
     void dispatch.emit(TOOLS_CHANGE_EVENT, { kind, name, ...(driver !== undefined ? { driver } : {}) });
   };
 
-  /** 注销器（幂等——disposer 重复调用零次侧效应；频率桶同扣〔unregister 也算变更〕） */
+  /**
+   * 注销器（幂等——disposer 重复调用零次侧效应；频率桶同扣〔unregister 也算变更〕）。
+   * 防护序：扣桶（可抛点）先于幂等旗置位——与 register ④「fail-loud 先于变更」
+   * 同序。桶空抛 TOOL_CHANGE_RATE_LIMITED 时旗未置位，调用方（插件卸载流）
+   * 捕获后重试同一 disposer 仍能真正完成注销；若旗先置位，重试会被幂等语义
+   * 吞成静默 no-op——条目永久泄漏在注册表（仍进模型可见面、仍占总量帽）。
+   */
   const makeDisposer = (name: string, driver: string | undefined, normalized: ToolDefinition): Disposer => {
     let disposed = false;
     return () => {
       if (disposed) return;
-      disposed = true;
       const layer = driver === undefined ? globalLayer : driverLayers.get(driver);
       // 身份护栏：仅当仍是本定义时移除（防误摘后来胜出者——03 §2.7 与 disposer 释放对齐三律②）
       if (layer === undefined || layer.get(name) !== normalized) return;
+      // 扣桶先于一切状态变更（含幂等旗置位）——桶空抛错时旗未置，重试可完成注销
       if (!changeRate.take()) {
         throw new BaseError(
           'TOOL_CHANGE_RATE_LIMITED',
           `工具变更频率桶空（容量 ${rate.capacity}、回填 ${rate.perMinute}/分钟）——注销被拦：${name}`,
         );
       }
+      disposed = true;
       layer.delete(name);
       if (driver !== undefined && layer.size === 0) driverLayers.delete(driver);
       announce('unregister', name, driver);

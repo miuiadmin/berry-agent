@@ -237,6 +237,51 @@ describe('edit（apply_patch 两阶段：全检后写）', () => {
     expect(await readFile(join(root, 'unread2.txt'), 'utf8')).toBe('two\n');
   });
 
+  it('同文件两段 Update → 按序生效两处都改（前段不再被同键覆写丢弃；回计按总段数）', async () => {
+    await exec('write', { path: 'multi.txt', content: 'x\ny\n' });
+    await exec('read', { path: 'multi.txt' });
+    const result = await exec('edit', {
+      patch: patchOf('*** Update File: multi.txt', '-x', '+X', '*** Update File: multi.txt', '-y', '+Y'),
+    });
+    // 两处都改——缺陷形：阶段零 Map 同键覆写仅后段存活（盘上只剩 x\nY\n）
+    expect(await readFile(join(root, 'multi.txt'), 'utf8')).toBe('X\nY\n');
+    // 回执计数按总段数报（2 段），不是存活键数（1）
+    expect(firstText(result)).toContain('2 个操作');
+  });
+
+  it('别名拼写同键（alias.txt 与 ./alias.txt）→ 归一为同文件多段按序生效', async () => {
+    await exec('write', { path: 'alias.txt', content: 'p\nq\n' });
+    await exec('read', { path: 'alias.txt' });
+    const result = await exec('edit', {
+      patch: patchOf('*** Update File: alias.txt', '-p', '+P', '*** Update File: ./alias.txt', '-q', '+Q'),
+    });
+    // resolveTarget/canonicalize 把 ./ 前缀拼写归一同键——两段并入按序，两处都改
+    expect(await readFile(join(root, 'alias.txt'), 'utf8')).toBe('P\nQ\n');
+    expect(firstText(result)).toContain('2 个操作');
+  });
+
+  it('同文件 Update+Delete 跨类组合 → 两段全检后按序落盘（净效 = 删除，回计 2 段）', async () => {
+    await exec('write', { path: 'ud.txt', content: 'a\n' });
+    await exec('read', { path: 'ud.txt' });
+    const result = await exec('edit', {
+      patch: patchOf('*** Update File: ud.txt', '-a', '+b', '*** Delete File: ud.txt'),
+    });
+    // 按序生效：update 先落（阶段一已验定位）、delete 收尾——净效 = 文件不在
+    await expect(readFile(join(root, 'ud.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(firstText(result)).toContain('2 个操作');
+  });
+
+  it('同文件 Delete+Update（后段目标已被前段删除）→ 阶段一即拒 FS_PATCH_FAILED 且零落盘', async () => {
+    await exec('write', { path: 'du.txt', content: 'a\n' });
+    await exec('read', { path: 'du.txt' });
+    await expectCode(
+      exec('edit', { patch: patchOf('*** Delete File: du.txt', '*** Update File: du.txt', '-a', '+b') }),
+      'FS_PATCH_FAILED',
+    );
+    // 全检后写语义：段链一致性错误在阶段一暴露——盘上零变更
+    expect(await readFile(join(root, 'du.txt'), 'utf8')).toBe('a\n');
+  });
+
   it('补丁夹带根外目标 → 逐文件 fence 拒（FS_OUTSIDE_WRITABLE_ROOTS）', async () => {
     await expectCode(
       exec('edit', { patch: patchOf(`*** Add File: ${join(outside, 'esc.txt')}`, '+x') }),

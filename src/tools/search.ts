@@ -194,8 +194,12 @@ async function* walkFiles(root: string): AsyncGenerator<WalkedFile> {
     } catch {
       continue; // 目录读失败（权限/竞态消失）——跳过本目录继续其余子树
     }
-    // 倒序入栈 + pop 取首 → 保持名称字典序访问
-    const sorted = [...entries].sort((a, b) => b.name.localeCompare(a.name));
+    // 名称字典序升序排序：文件腿在循环内即时按升序 yield；子目录腿先收集、循环
+    // 末倒序入栈（pop 取尾 = 字典序最小者先出）——文件与目录共用同一次升序排
+    // 序，兑现头注「目录序 × 名称字典序」契约（修前形整表降序排，文件腿随降
+    // 序数组逆序产出——zz 先于 aa，与注释承诺相反）
+    const sorted = [...entries].sort((a, b) => a.name.localeCompare(b.name));
+    const subdirs: string[] = [];
     for (const entry of sorted) {
       if (entry.isDirectory()) {
         if (PRUNE_DIRS.has(entry.name)) continue;
@@ -204,13 +208,16 @@ async function* walkFiles(root: string): AsyncGenerator<WalkedFile> {
         const rel = dirPrefix ? `${dirPrefix}/${entry.name}` : entry.name;
         // 目录双测（带/不带尾斜杠）：兼容 `dir/` 与 `dir` 两种规则写法
         if (matcher.ignores(rel) || matcher.ignores(`${rel}/`)) continue;
-        stack.push(join(dir, entry.name));
+        subdirs.push(join(dir, entry.name));
       } else if (entry.isFile()) {
         const rel = toPosix(relative(root, join(dir, entry.name)));
         if (matcher.ignores(rel)) continue;
         yield { rel, abs: join(dir, entry.name) };
       }
     }
+    // 倒序入栈（显式倒序循环防超大目录展开打爆 spread 调用栈）→ 下一次 pop
+    // 取到本层名称字典序最小的子目录（目录序 = 升序）
+    for (let i = subdirs.length - 1; i >= 0; i--) stack.push(subdirs[i]!);
   }
 }
 

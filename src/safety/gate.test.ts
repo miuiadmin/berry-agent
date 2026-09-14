@@ -15,6 +15,8 @@ import { TOOL_EVENT_NAMES } from '../contracts/index.js';
 import type { GateInput, ToolDefinition, ToolEffect } from '../contracts/index.js';
 import { canonicalPath, type CarveOutEntry } from './roots.js';
 import type { ToolPolicyEntry } from './tool-policy.js';
+import { matchToolPolicy, policyHitNote } from './tool-policy.js';
+import { presetSuggestedEntries } from './presets.js';
 import type { ApprovalService } from './approval.js';
 import type { ApprovalOutcome, ApprovalPolicyMode, ApprovalRequest, SandboxMode } from './types.js';
 import { installSafetyGate } from './gate.js';
@@ -49,6 +51,7 @@ const EDIT = makeTool('edit', 'write');
 const READ = makeTool('read', 'read');
 const DEPLOY = makeTool('deploy', 'write'); // 整名族（非 fs 写意图工具）
 const EXEC_TOOL = makeTool('shell', 'exec'); // exec 档工具（三值扩——任意进程执行类）
+const BASH = makeTool('bash', 'exec'); // bash 工具（exec 档——词干条目族被测对象，name/effect 同 src/exec/bash.ts）
 
 /** 两文件补丁（多路径 edit 场景；f1/f2 均相对 workspace） */
 function twoFilePatch(f1: string, f2: string): string {
@@ -384,6 +387,69 @@ describe('deny 硬拒', () => {
     const rig = makeRig({ toolPolicy: [{ tool: 'read', decision: 'deny', effect: 'write' }] });
     const result = await rig.run(READ, { path: 'src/a.ts' });
     expect(result.blocked).toBe(false);
+    expect(rig.asks).toHaveLength(0);
+  });
+});
+
+/* ---------------- bash 族策略条目执法（穿线回归锁——04 §9 定形块③④） ---------------- */
+
+describe('bash 族策略条目执法', () => {
+  it('deny bash 条目拦 rm 命令：硬拒短路整链、不产生审批对、reason 落 policy-deny:<序>（修前 fail-open 锁——执法位曾不穿 bashCommand，用户主权拒静默失效）', async () => {
+    // 命令取无 flag 形（剥壳器对 flag 无词干——照问是另一档语义，本测锁词干命中面）
+    const rig = makeRig({ toolPolicy: [{ tool: 'bash', pattern: 'rm', decision: 'deny', reason: '禁删命令' }] });
+    const result = await rig.run(BASH, { command: 'rm build' });
+    expect(result.blocked).toBe(true);
+    expect(result.reached).toBe(false); // deny 短路整链（链下游不到达）
+    expect(rig.asks).toHaveLength(0); // 硬拒不产生审批交互
+    expect(result.reason).toContain('policy-deny:0');
+    expect(result.reason).toContain('禁删命令'); // 用户手写 reason 呈现
+    expect(result.reason).toContain('不可翻转'); // 用户主权裁决文案
+  });
+
+  it('open 预设 git 只读词干 allow 免问：git status 免问放行（allowReason 落条目序）；git push 不在词干集照问（网络写动词恒走审批）', async () => {
+    // 条目源 = 生产预设展开真值（presetSuggestedEntries('open') 的 bash 五词干）
+    // ——预设漂移则测试随真值走，不复制第二真相源
+    const entries: readonly ToolPolicyEntry[] = presetSuggestedEntries('open', ws)
+      .filter((draft) => draft.tool === 'bash')
+      .map((draft) => ({ tool: draft.tool, pattern: draft.pattern, decision: 'allow' as const }));
+    expect(entries).toHaveLength(5); // 五词干齐（write/edit 两件非本族面被滤除）
+    const rig = makeRig({ toolPolicy: entries });
+    const status = await rig.run(BASH, { command: 'git status' });
+    expect(status.blocked).toBe(false);
+    expect(status.reached).toBe(true); // 免问放行交棒
+    expect(rig.asks).toHaveLength(0); // 修前恒问（穿线前 bash 条目永不免问）
+    expect(status.allowReason).toBe('policy-allow:0'); // 首词干 git status 条目序 0
+    // 对照：git push 不在本地只读词干集（04 §8 网络族不入集）——照问
+    const push = await rig.run(BASH, { command: 'git push origin main' });
+    expect(push.blocked).toBe(false);
+    expect(rig.asks).toHaveLength(1);
+    expect(push.allowReason).toBeUndefined();
+  });
+
+  it('explain 干跑与执法同裁决对拍：同表同命令，执法闸与 explain 形 matchToolPolicy 落同一条目（deny/allow 双向——呈现面与执法面漂移结构性不可能）', async () => {
+    const entries: readonly ToolPolicyEntry[] = [
+      { tool: 'bash', pattern: 'git push', decision: 'deny' },
+      { tool: 'bash', pattern: 'git status', decision: 'allow' },
+    ];
+    const now = Date.now();
+    // explain 干跑面输入形（approval-cmd renderExplain bash 分支同款：effect 'exec' + bashCommand 命令原文）
+    const explainDeny = matchToolPolicy(
+      entries,
+      { tool: 'bash', effect: 'exec', bashCommand: 'git push origin main' },
+      now,
+    );
+    expect(explainDeny).toMatchObject({ index: 0 }); // explain 面：deny 命中首条
+    const rig = makeRig({ toolPolicy: entries });
+    const denied = await rig.run(BASH, { command: 'git push origin main' });
+    expect(denied.blocked).toBe(true); // 执法面同裁决——修前该面恒放行入审批（同表两面相反裁决）
+    expect(denied.reason).toContain(policyHitNote(explainDeny!)); // 同条目同序（policy-deny:0）
+
+    // allow 向对拍：explain 面命中 policy-allow:1，执法面 allowReason 同串零问
+    const explainAllow = matchToolPolicy(entries, { tool: 'bash', effect: 'exec', bashCommand: 'git status' }, now);
+    expect(explainAllow).toMatchObject({ index: 1 });
+    const allowed = await rig.run(BASH, { command: 'git status' });
+    expect(allowed.blocked).toBe(false);
+    expect(allowed.allowReason).toBe(policyHitNote(explainAllow!));
     expect(rig.asks).toHaveLength(0);
   });
 });

@@ -184,7 +184,19 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
                   writePaths: canonicalWritePaths,
                   workspace,
                 }
-              : { tool: tool.name, effect: tool.effect ?? 'exec' },
+              : {
+                  tool: tool.name,
+                  effect: tool.effect ?? 'exec',
+                  // bash 族执法穿线（04 §9 定形块③ bash 词干条目）：非 fs 分支
+                  // 携命令原文（取参位 = args.command——与 src/exec/bash.ts 参数面
+                  // 同源），bash 条目（allow/deny 双向）经剥壳词干判定命中。缺
+                  // 席不携带：引擎按空命令恒 miss → 照问照审（fail-closed 方向
+                  // 无害——与 explain 干跑面〔approval-cmd〕的 bashCommand 输入
+                  // 形同裁决，呈现面与执法面不漂移）
+                  ...(tool.name === 'bash' && typeof input.args?.command === 'string'
+                    ? { bashCommand: input.args.command }
+                    : {}),
+                },
             Date.now(),
           )
         : undefined;
