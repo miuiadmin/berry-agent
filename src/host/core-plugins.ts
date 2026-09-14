@@ -1356,9 +1356,14 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         }
         service.unparkForBudget(goalId); // service 侧登记同笔摘（再停靠时复登记）
         if (stack === undefined) return; // 测试替身形无提交面——durable 停靠在，人工道 /goal wake
+        // 车道随起跑方声明位单源（04 §5 机器注入轮枚举扩——第四役）：goal 挂钟
+        // 唤醒轮（budget-extended 广播）是机器注入轮，submit 恒置 backgroundLane
+        // ——桥接 llm/usage 记账进后台日池（修前恒 foreground，日池对 goal 唤醒
+        // 轮 token 失明）；预警判族与记账车道自此同向
         const run = stack.submitText(sessionId, GOAL_WAKE_MESSAGE, {
           source: 'budget-extended',
           backgroundWake: true,
+          backgroundLane: true,
         });
         if (run === undefined) {
           console.error(`[goal] 广播唤醒提交失败：会话 ${sessionId} 无驱动在册——停靠保持，人工道 /goal wake`);
@@ -1680,8 +1685,12 @@ const DANGER_CMD_USAGE =
  * config 整串命令非 argv 数组——shell 语义经 /bin/sh -c；无守门需求〕）。
  * 超时进程组 SIGKILL 击杀（detached 起 sh 自成组组长 + 负 pid 一发全组 +
  * 击杀即直收口——孙进程持管道写端不悬 close）；stdout+stderr 合并尾滚动收集
- * （内存帽保尾弃头——失败证据在尾）；spawn 失败折 exitCode null 不上抛——
- * 非 0 判据面在编排层收口（fail-closed：一切 seam 缺席 = fail）。
+ * （内存帽保尾弃头——失败证据在尾）；**env 窄白名单**（03 §10.7 第四役补笔
+ * 附段 a——与 c-4 凭证注入腿 buildChildEnv 机制族同源但方向相反：只给安全
+ * 最小集、缺省零继承宿主 env——宿主凭证回落链值〔BERRY_AGENT_GITHUB_TOKEN
+ * 等〕不泄进验证子进程，其输出尾直嵌公开回执的凭证外泄通道就此封死）；
+ * spawn 失败折 exitCode null 不上抛——非 0 判据面在编排层收口（fail-closed：
+ * 一切 seam 缺席 = fail）。
  */
 function runIssueVerify(req: { cwd: string; command: string; timeoutMs: number }): Promise<IssueVerifyResult> {
   return new Promise((resolve) => {
@@ -1693,6 +1702,11 @@ function runIssueVerify(req: { cwd: string; command: string; timeoutMs: number }
       cwd: req.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
+      // env 窄白名单（03 §10.7 第四役附段 a）：buildChildEnv 缺省策略 = 零继承
+      // 基底 + DEFAULT_ENV_ALLOW 白名单拷贝（PATH/HOME/TZ 类基座——npm test
+      // 量级命令可跑；缺省不含任何 BERRY_AGENT_* 凭证位）。成员单源在 exec
+      // 件（04 §11 deny-by-default 同族），此处不复造清单
+      env: buildChildEnv(),
     });
     // 滚动收集窗（尾帽 4 倍——弃头保尾 + 截尾余量；巨型输出不积内存）
     const keepBytes = ISSUE_VERIFY_TAIL_BYTES * 4;
@@ -1976,6 +1990,16 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
         // 真身 = host spawn 家族〔上方 runIssueVerify——danger push 腿同族〕）
         verify: { runVerify: runIssueVerify },
         ...(webhookSecret !== '' ? { webhookSecret } : {}),
+        // 出口消毒活值源（03 §10.7 第四役附段 b——装配位注入件内已知凭证
+        // 活值；就近最小集 = token+webhookSecret 两值，token 主闸二已滤恒在
+        // 场、webhookSecret 缺席不进集；栈级全集闭包见 conversation-stack，
+        // issue 件就近最小集是 v1 形；回执/detail 双面 verifyTail 消毒合流
+        // 的值基腿原料，活值读保证 revoke 即失效）
+        sensitiveValues: () => {
+          const values = [token];
+          if (webhookSecret !== '') values.push(webhookSecret);
+          return values;
+        },
         warn,
       });
       service.start();

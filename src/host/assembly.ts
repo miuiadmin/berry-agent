@@ -447,9 +447,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       env,
       notify: {
         notifySettled: ({ parentSessionId, content }) => {
+          // 车道随起跑方声明位单源（04 §5 机器注入轮枚举扩——第四役）：结算
+          // 通知轮是机器注入轮，submit 恒置 backgroundLane——桥接 llm/usage
+          // 记账进后台日池（修前恒 foreground，日池对结算通知轮 token 失明）
           const run = stack.submitText(parentSessionId, content, {
             source: 'subagent-settled',
             backgroundWake: true,
+            backgroundLane: true,
           });
           if (run === undefined) {
             logger.warn(`子代理结算通知无处投递（父会话 ${parentSessionId} 无活体驱动）——注册表条目仍终态`);

@@ -1382,11 +1382,22 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     };
     // 可翻旗日池（stack 池检与 broadcast 电平同源）+ 假 stack（submit 受控 deferred）
     let affordOk = true;
-    const submits: { sessionId: string; text: string; source?: string; backgroundWake?: boolean }[] = [];
+    // 记录形含 backgroundLane（04 §5 机器注入轮枚举扩——goal 挂钟唤醒轮窄锁位）
+    const submits: {
+      sessionId: string;
+      text: string;
+      source?: string;
+      backgroundWake?: boolean;
+      backgroundLane?: boolean;
+    }[] = [];
     const pending: Array<(value: unknown) => void> = [];
     const fakeConversationStack = {
       llm: { canAfford: (_tier: string) => affordOk },
-      submitText: (sessionId: string, text: string, opts?: { source?: string; backgroundWake?: boolean }) => {
+      submitText: (
+        sessionId: string,
+        text: string,
+        opts?: { source?: string; backgroundWake?: boolean; backgroundLane?: boolean },
+      ) => {
         submits.push({ sessionId, text, ...opts });
         return new Promise<unknown>((resolve) => pending.push(resolve));
       },
@@ -1424,13 +1435,18 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(broadcast.size()).toBe(1); // 广播登记（宿主件同播三面之一）
 
     // —— 分诊一（正常收口）：电平翻真 → watcher 唤醒 → submit（backgroundWake
-    // 吃三帽防环）→ receipt completed → 挂钟复活 + 双侧摘登记 ——
+    // 吃三帽防环 + backgroundLane 记账车道）→ receipt completed → 挂钟复活 +
+    // 双侧摘登记 ——
     affordOk = true;
     await until(() => submits.length === 1);
     expect(submits[0]).toMatchObject({
       sessionId: 's-goal3',
       source: 'budget-extended', // durable 唤醒消息（05 §3.1 第六字面量同律）
       backgroundWake: true, // driver 三帽辖——防环
+      // 车道字面锁（04 §5 机器注入轮枚举扩——第四役：goal 挂钟唤醒轮是机器
+      // 注入轮，submit 恒置 backgroundLane:true——修前红锚：该键缺席（undefined）
+      // 与期望不符；桥接记账随之恒 foreground，后台日池对 goal 唤醒轮 token 失明
+      backgroundLane: true,
     });
     expect(broadcast.size()).toBe(0); // wake 编舞先行摘登记（再停靠复登记净面）
     pending.shift()!({ status: 'completed' });

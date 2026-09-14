@@ -233,6 +233,23 @@ describe('assembleHostStack 成功档', () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       expect(settled).toBe(true); // 通知桥真落（assembly 织入——批 19c-1 兑现）
+
+      // 车道窄锁（04 §5 机器注入轮枚举扩——第四役）：结算通知轮是机器注入轮，
+      // notifySettled 的 submitText 恒置 backgroundLane:true → 唤醒 turn 的
+      // llm/usage 桥接笔 priority='background'（修前红锚：恒 foreground——后台
+      // 日池对结算通知轮 token 失明）。父会话本例唯一 run 即唤醒轮，首笔
+      // llm/usage 即其桥接笔（callId run: 前缀同源形）
+      let wakePen: Record<string, unknown> | undefined;
+      const usageDeadline = Date.now() + 5_000;
+      while (Date.now() < usageDeadline) {
+        wakePen = parentLog.events().find((event) => event.type === 'llm/usage')?.data as
+          Record<string, unknown> | undefined;
+        if (wakePen !== undefined) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(wakePen).toBeDefined(); // 唤醒 turn 真跑 + 桥接真落（faux 两响之二已耗）
+      expect(wakePen!['priority']).toBe('background');
+      expect(String(wakePen!['callId'])).toMatch(/^run:/); // run 路桥接同源
     } finally {
       await assembly.runtime.shutdown();
     }
