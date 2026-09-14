@@ -141,6 +141,62 @@ describe('check-api 十查红绿证（spawn 全闸形态）', () => {
     expect(source).not.toContain('contracts/app.ts');
   });
 
+  it('查 7 真身：core: 注册表 api 块四红齐发（CHECK_API_CORE_PLUGINS 换片——缺块/断裂/不变式/格式）', () => {
+    const dir = fixtureDir('check7-registry');
+    // 换片注册表（env 缝注入）：alpha 缺 api 块〔判据①红〕+ beta min 9.9 高
+    // 于宿主 1.0〔判据③装载门断裂红〕+ gamma min > target〔判据②不变式红〕+
+    // delta 格式非法〔判据②格式红〕——四红齐发锁全判据
+    const fixturePath = join(dir, 'core-plugins-fixture.mjs');
+    writeFileSync(
+      fixturePath,
+      [
+        'export function createCorePlugins() {',
+        '  return [',
+        "    { name: 'alpha', apply: async () => undefined },",
+        "    { name: 'beta', api: { minApiVersion: '9.9' }, apply: async () => undefined },",
+        "    { name: 'gamma', api: { minApiVersion: '1.0', targetApiVersion: '0.9' }, apply: async () => undefined },",
+        "    { name: 'delta', api: { minApiVersion: 'x.y' }, apply: async () => undefined },",
+        '  ];',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const { status, out } = runCheck({ CHECK_API_CORE_PLUGINS: fixturePath });
+    expect(status).toBe(1);
+    expect(out).toContain('[查 7]');
+    expect(out).toContain('core:alpha');
+    expect(out).toContain('api 块缺席'); // 判据①：官方清单载体恒必填
+    expect(out).toContain('core:beta');
+    expect(out).toContain('装载门断裂'); // 判据③：try/catch 包裹红不炸闸
+    expect(out).toContain('minApiVersion 9.9');
+    expect(out).toContain('core:gamma');
+    expect(out).toContain('min ≤ target 不变式破'); // 判据②不变式
+    expect(out).toContain('core:delta');
+    expect(out).toContain('格式非法'); // 判据②格式
+  });
+
+  it('查 7 真身：真仓注册表绿（16 件 api 块齐备 + min 1.0 恒 admit——净树恒绿已锁，此处点名真身扫描面在跑）', () => {
+    // 换片为「空注册表」若真身没在跑则照样绿——反证法：注入缺块单件注册表
+    // （净树绿测试不换片，无法区分「查 7 在跑且绿」与「查 7 没在跑」；本测
+    // 用单件缺块注册表证红路连通，真仓 16 件全绿即净树恒绿测试的查 7 分量）
+    const dir = fixtureDir('check7-live-proof');
+    const fixturePath = join(dir, 'core-plugins-fixture.mjs');
+    writeFileSync(
+      fixturePath,
+      [
+        'export function createCorePlugins() {',
+        '  return [',
+        "    { name: 'solo', api: { minApiVersion: '1.0' }, apply: async () => undefined },",
+        '  ];',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const { status, out } = runCheck({ CHECK_API_CORE_PLUGINS: fixturePath });
+    expect(status).toBe(0); // 单件齐备即绿（缺块红路在上一测锁）
+    expect(out).toBe('');
+  });
+
   it('查 9：面动号不动红（ignited 快照 + CHECK_API_ARCHIVES 夹具归档）', () => {
     const dir = fixtureDir('check9');
     // 当前快照换片为 ignited 纪元（查 9 纪元门开）；真快照 enforcement='pre-ignition'

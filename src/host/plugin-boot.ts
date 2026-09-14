@@ -19,7 +19,8 @@
  *  ⑦ 逐插件 ctx 装配（12f-2a 件）：per-plugin fork（effect 回卷隔离）+
  *     createPluginContext + secrets 面自域绑定（c-3——03 §2.2 第十面，
  *     core:credentials 席在场且 store 注入时 fork.provide）+ sessions-
- *     control（e4-3）/compaction（U4-3）两席位 fork 绑定 + 'jobs' 面
+ *     control（e4-3）/compaction（U4-3）/sessions（ag 批 cs-D2——03 §4.5
+ *     受理面）三席位 fork 绑定 + 'jobs' 面
  *     fork 绑定（五役 d3-1——registerKind 携本插件 id 入 kind 归属记录）；
  *     onApplySettled → closeWindow（行收口即关窗）。
  *  ⑧ loadPlugins 接线：onBootFailure → recordBootFailure 记账、activated →
@@ -47,7 +48,7 @@ import { BaseError } from '../contracts/index.js';
 import type { HostFace, ProgrammaticSubagentDef } from '../contracts/index.js';
 // internal 桶机制符号深导（02 §4.3 #2 深挖面册首条——API 治理批 2 分桶：
 // 机制符号非插件 API 不进公开根，内核消费全深导 contracts/api.js）
-import { materializeHostFace } from '../contracts/api.js';
+import { adjudicateApiGate, materializeHostFace } from '../contracts/api.js';
 import { EventDispatch } from '../context/index.js';
 import type { Disposer, Scope } from '../context/index.js';
 import { createToolRegistry } from '../tools/index.js';
@@ -59,6 +60,9 @@ import type { OAuthFlowRegistry } from '../credentials/index.js';
 // 跨会话操控受理器（e4-3——sessions-control fork 绑定；host→conversation 边在册）
 import { bindControlForPlugin, SESSIONS_CONTROL_SERVICE } from '../conversation/index.js';
 import type { SessionsControlFace } from '../conversation/index.js';
+// sessions 受理面 fork 绑定（ag 批 cs-D2——03 §4.5 定形注：共享根 provision 形态废止）
+import { bindSessionsForPlugin } from './sessions-face.js';
+import type { SessionsFace } from './sessions-face.js';
 // 压缩席位容器（U4-3——compaction fork 绑定；host→compaction 边在册）
 import type { CompactionSlotsHandle } from '../compaction/index.js';
 import { SDK_ROUTES_SERVICE } from '../sdk/index.js';
@@ -135,6 +139,14 @@ const COMPACTION_SEAT_MARKER = { seat: 'compaction' } as const;
  * 可解。
  */
 const SDK_ROUTES_SEAT_MARKER = { seat: 'sdk-routes' } as const;
+
+/**
+ * 'sessions' 席位可满足标记（ag 批 cs-D2——03 §4.5 定形注）：与 SECRETS_SEAT_
+ * MARKER 同构——sessions 受理面真身是 fork 级逐插件绑定（bindSessionsForPlugin
+ * 铸 caller 归因 + 行籍闸），共享根结构性无此名（provision 形态废止），标记位
+ * 使 inject: ['sessions'] 声明可解。
+ */
+const SESSIONS_SEAT_MARKER = { seat: 'sessions' } as const;
 
 /** 缺省真盘实现（读失败一律 null——文件缺席语义）；导出 = /reload 预检装配位复用（单源） */
 export function defaultFs(): PluginBootFs {
@@ -306,6 +318,16 @@ export interface PluginBootOptions {
    * （诚实缺席律：测试替身形/:memory: 诊断形）。
    */
   readonly sdkRoutes?: PluginRouteRegistry;
+  /**
+   * sessions 受理面基础面真身（ag 批 cs-D2——03 §4.5 定形注）：真身 =
+   * assembly 装配的 createSessionsFace 单真身（driverOf 绑 conversation
+   * stack——活引用语义）。在场时装载序逐插件 fork 绑定 bindSessionsForPlugin
+   * 产物（ctx.get("sessions") 消费——caller 归因 plugin:<行id> 宿主单方拼装
+   * + 行籍闸绑 generationDead；共享根结构性无此名——provision 形态废止）。
+   * 缺席 = ctx.get 响亮 CONTEXT_SERVICE_MISSING（诚实缺席律：测试替身形/
+   * :memory: 诊断形）。
+   */
+  readonly sessions?: SessionsFace;
   /** core: 官方引用注册表（内置全启；缺省空——core 件随各件装配批入册） */
   readonly corePlugins?: readonly CorePluginReference[];
   /**
@@ -349,7 +371,12 @@ export interface PluginBootOptions {
   readonly unloadRef?: { current: (() => Promise<PluginUnloadReceipt>) | null };
   /** 宿主版本（HostFace 物化位——main.readVersion 产物） */
   readonly version: string;
-  /** API 面版本（缺省 '1.0'——package.json apiVersion 同步维护） */
+  /**
+   * 宿主 API 面版本（装载门裁决坐标——ag 批 DP2）：运行时单源 = 装配根从
+   * 宿主 package.json 同文件补读 apiVersion 传入（人工同步纪律消灭）；本
+   * 缺省 '1.0' 仅系**测试注入面缺省**（直测形/诊断形不传恒走缺省——装配根
+   * 生产链恒传真值）。
+   */
   readonly apiVersion?: string;
   /** 警示面（缺省 stderr 直写） */
   readonly warn?: (message: string) => void;
@@ -402,8 +429,8 @@ export interface PluginBootHandle {
  * 插件装载主入口（async——装载管线内含 jiti ESM 求值）。
  *
  * counts 口径：total = 计划行数 + 合成失败行数；enabled = report.activated
- * 行数；failed = 合成失败 + report.failed 行数（skipped 行不入三数——禁用
- * 非失败非启用，披露段不虚报）。
+ * 行数；failed = 合成失败 + 装载门红行 + report.failed 行数（skipped 行不入
+ * 三数——禁用非失败非启用，披露段不虚报）。
  */
 export async function bootPlugins(options: PluginBootOptions): Promise<PluginBootHandle> {
   const warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
@@ -501,6 +528,69 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     if (bookkeepingPath !== null) recordBootFailure(bookkeepingPath, failure.id, '', failure, bookkeepingFs);
   }
 
+  // —— 装载门逐行裁决（ag 批——03 §8.4 定形注①：adjudicateApiGate 装载序
+  // 接线。四腿同公式：磁盘行 manifest.api / core 行 reference.api / 合成行
+  // / 试件行（试件腿同律——不变式 8 无分叉）。红出口（API_VERSION_MISMATCH
+  // 三段 message）→ failed 分区**行级隔离**（「一个旧插件挡全部装载」过重
+  // ——与装载态三分区既有语义同构）；出口 4（api 块缺席·未点火）= legacy
+  // 容忍态照常装载，per boot 恰一条聚合 warn（03 §8.4 定形注③：N 缺块聚一
+  // 条点名、不进 durable 账——容忍态非失败）。禁用行零裁决（禁用非装载——
+  // skipped 分区语义不变）。
+  const hostApiVersion = options.apiVersion ?? '1.0'; // 测试注入面缺省（装配根恒传真值——见 options 注记）
+  const admissiblePlan: LoaderPlanRow[] = [];
+  const gateFailures: Array<{ failure: FailedPlugin; version: string }> = [];
+  const legacyNoApiIds: string[] = [];
+  for (const row of plan) {
+    if (row.disabled === true) {
+      admissiblePlan.push(row); // 禁用行走 skipped——装载门零裁决
+      continue;
+    }
+    // api 块取值：core 行 = 注册表引用清单（CorePluginReference.api——官方
+    // 清单载体）；磁盘/合成/试件行 = package.json 清单解析产物
+    const api = row.kind === 'core' ? row.reference.api : row.manifest.api;
+    // core 行直调不 try/catch——官方件裁决红 = fail-loud 拒启（§5.7 core 行
+    // 纪律在裁决位的延伸：官方件失败不隔离降级；同仓同版本结构性恒过，红
+    // 只可能来自注册表误填——查 7 前置拦截 + 此处兜底拒启诚实）
+    if (row.kind === 'core') {
+      const verdict = adjudicateApiGate(api, hostApiVersion, row.id);
+      if (verdict.status === 'legacy') legacyNoApiIds.push(row.id);
+      admissiblePlan.push(row);
+      continue;
+    }
+    try {
+      const verdict = adjudicateApiGate(api, hostApiVersion, row.id);
+      if (verdict.status === 'legacy') legacyNoApiIds.push(row.id);
+      admissiblePlan.push(row);
+    } catch (err) {
+      // 红出口行级隔离（业务码 API_VERSION_MISMATCH）；非业务码异常原样上抛
+      // （防御式格式复验炸 = 宿主侧数据问题——fail-loud 诚实）
+      if (err instanceof BaseError && err.code === 'API_VERSION_MISMATCH') {
+        gateFailures.push({
+          failure: { id: row.id, code: err.code, message: err.message },
+          version: row.kind === 'disk' ? (row.manifest.version ?? '') : '',
+        });
+      } else {
+        throw err;
+      }
+    }
+  }
+  // legacy 聚合 warn（per boot 恰一条——点火日〔API_ENFORCEMENT_IGNITED 翻
+  // true〕缺块即拒载，本 warn 形态随之消灭）
+  if (legacyNoApiIds.length > 0) {
+    warn(
+      `装载门 legacy 容忍态：${legacyNoApiIds.length} 行清单缺 api 块（${legacyNoApiIds.join('、')}）` +
+        `——兼容执法点火前照常装载；建议补 "api": { "minApiVersion": "1.0" } 声明（点火日缺块即拒载）`,
+    );
+  }
+  // 红行档②语义记账（与合成失败行同形：warn 横幅 + boot-failures 账——试件
+  // 行不进持久账〔QUICK_TEST_ROW_ID 过滤——不变式 1 零落盘面〕）
+  for (const { failure, version } of gateFailures) {
+    warn(`插件装载失败（${failure.id}）：${formatPluginFailureText(failure)}`);
+    if (bookkeepingPath !== null && failure.id !== QUICK_TEST_ROW_ID) {
+      recordBootFailure(bookkeepingPath, failure.id, version, failure, bookkeepingFs);
+    }
+  }
+
   // ⑥⑦ ctx 装配族：ServiceBag 接共享根 + 逐插件 fork + 行收口关窗
   const handles = new Map<string, PluginContextHandle>();
   const pluginScopes: Scope[] = []; // 激活序入栈——closer 逆序 dispose
@@ -536,6 +626,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // ——secrets 席同构双条件〔受理器在场 × 件席在场〕）
   const sdkRoutesSeatActive =
     options.sdkRoutes !== undefined && plan.some((row) => row.id === 'core:sdk' && !row.disabled);
+  // sessions 受理面席位判（ag 批 cs-D2——03 §4.5 定形注）：host 内建机制面
+  // 非单 core 件，无件席门：基础面在场即绑（各 core 件/磁盘行 fork 独见）
+  const sessionsSeatActive = options.sessions !== undefined;
   const services: ServiceBag = {
     get: (name) =>
       // 'secrets' 是 fork 级逐插件绑定面（本插件独见——createContext 落真身
@@ -550,7 +643,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
             ? COMPACTION_SEAT_MARKER
             : name === SDK_ROUTES_SERVICE && sdkRoutesSeatActive
               ? SDK_ROUTES_SEAT_MARKER
-              : options.scope.tryGet(name),
+              : name === 'sessions' && sessionsSeatActive
+                ? SESSIONS_SEAT_MARKER
+                : options.scope.tryGet(name),
     // owner 位透传（同主刷新律——04 §6 定形注）：委派面带主直达共享根
     provide: (name, value, owner) => options.scope.provide(name, value, owner),
   };
@@ -679,6 +774,17 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       );
       fork.effect(() => () => registry.releaseFor(pluginId));
     }
+    // sessions 受理面绑定（ag 批 cs-D2——03 §4.5 定形注）：fork 级提供 =
+    // 本插件独见（共享根 provision 形态废止——归因闸/行籍闸在绑定面执法：
+    // caller 归因 plugin:<行id> 宿主单方拼装、行籍探针绑 generationDead
+    // 〔行不在活装载代即残句柄拒写〕）。缺席 = ctx.get 响亮 CONTEXT_SERVICE_
+    // MISSING（诚实缺席律——与 compaction/sdkRoutes 席同形）
+    if (sessionsSeatActive) {
+      fork.provide(
+        'sessions',
+        bindSessionsForPlugin(pluginId, options.sessions!, () => !generationDead),
+      );
+    }
     // 'jobs' 面 fork 绑定（五役 d3-1——'secrets' 席同构先例）：fork 对象委托
     // 真身、registerKind 携本插件 id（kind 归属记录——trigger starter 谱系闸
     // 的判籍面；宿主直调真身 = 宿主席归属）。共享根 provideJobsService 真身
@@ -693,7 +799,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   };
 
   const loaded = await loadPlugins({
-    plan,
+    // 装载门放行计划（装载门红行已行级隔离进 failed 面——ag 批；原 plan 全量
+    // 保留供 opens/lifecycle diff、counts.total 与 configFaceOf 消费）
+    plan: admissiblePlan,
     services,
     createContext,
     warn,
@@ -783,8 +891,13 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     );
   }
 
-  // ⑪ 生命周期事件批量补发（合成失败行并入 failed 面——收口一致真相）
-  const failedAll: readonly FailedPlugin[] = [...synthesisFailures, ...loaded.failed];
+  // ⑪ 生命周期事件批量补发（合成失败行 + 装载门红行 + loader 行失败行并
+  // failed 面——收口一致真相；ag 批装载门红行并入）
+  const failedAll: readonly FailedPlugin[] = [
+    ...synthesisFailures,
+    ...gateFailures.map((g) => g.failure),
+    ...loaded.failed,
+  ];
   for (const a of loaded.activated) await options.dispatch.emit('plugin/activated', { id: a.id });
   for (const f of failedAll) await options.dispatch.emit('plugin/failed', { id: f.id, code: f.code });
   for (const s of loaded.skipped) await options.dispatch.emit('plugin/skipped', { id: s.id, reason: s.reason });

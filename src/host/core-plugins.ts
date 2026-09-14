@@ -188,6 +188,9 @@ import type { WebuiFaceMount } from './webui-bridge.js';
 function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'exec',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       // 管道/沙箱服务进程级单例：spawn 登记簿与后端链探测缓存（probe 有
@@ -228,6 +231,9 @@ function makeExecPlugin(deps: CorePluginHostDeps): CorePluginReference {
  */
 const webPlugin: CorePluginReference = {
   name: 'web',
+  // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+  // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+  api: { minApiVersion: '1.0' },
   async apply(ctx) {
     const context = ctx as PluginContext;
     // 在飞门单例（容量缺省单源 DEFAULT_WEB_LIMITS.maxConcurrent = 4——fetch
@@ -520,6 +526,9 @@ export interface CorePluginHostDeps {
 function makeSkillsPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'skills',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       // 标准六位层（project/user/跨库/出厂——插件层装载收口后于 assembly 补
@@ -608,6 +617,9 @@ function lastUserQueryText(
 function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'memory',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       const db = deps.sqlite?.();
@@ -735,7 +747,11 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
 
       // —— memory/diff 发射位 + 两注入腿（批 19 销账笔——06 §6 三件收口）——
       // sessions 服务活引用（03 §4.4 appendEvent 最小面；tryGet 诚实缺席：
-      // 服务缺席 = 差分降级只渲染不落账——mirror 不锁步）。基线纪元采 sync 懒立
+      // 服务缺席 = 差分降级只渲染不落账——mirror 不锁步）。ag 批 cs-D2 改形
+      // （03 §4.5 定形注）：本 tryGet 消费位不变，取到的恒为 fork 绑定面
+      // （bindSessionsForPlugin——宿主单方铸 caller）——落账 data 携
+      // source: 'plugin:core:memory' 归因键（caller 归因同律不匿名；MemoryDiff
+      // Data 增源键对回放侧透传无感）。基线纪元采 sync 懒立
       // （件内自述语义零变）：纪元首请求即事实上的重建时点边界——boot//reload/
       // /new 三态自然覆盖（新进程/新装配/新会话首请求重立基线），显式
       // materialize 挂点不接（PromptSectionRegistry 每请求重跑 builder——挂其
@@ -900,6 +916,9 @@ export type SubagentLayerResyncHook = (rows: readonly SubagentPluginLayerRow[]) 
 function makeSubagentPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'subagent',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx, _config, host) {
       const context = ctx as PluginContext;
       const service = deps.subagents;
@@ -1041,6 +1060,9 @@ export interface SchedulerFace {
 function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'scheduler',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       const db = deps.sqlite?.();
@@ -1241,6 +1263,9 @@ export interface GoalFace {
 function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'goal',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       const db = deps.sqlite?.();
@@ -1494,6 +1519,9 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
 function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'checkpoint',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       const dataDir = deps.dataDir;
@@ -1562,6 +1590,9 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
 function makeSdkPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'sdk',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       const createFace = deps.sdkFaceFactory;
@@ -1590,6 +1621,9 @@ function makeSdkPlugin(deps: CorePluginHostDeps): CorePluginReference {
 function makeWebuiPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'webui',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       const mountOnFace = deps.webuiFaceMount;
@@ -1646,6 +1680,9 @@ function normalizeObsAlerts(raw: unknown, warn: (message: string) => void): ObsA
 function makeObsPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'obs',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx, config) {
       const context = ctx as PluginContext;
       const dataDir = deps.dataDir;
@@ -1849,6 +1886,9 @@ function renderDangerStatus(s: IssueDangerStatusFace): string {
 function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'issue',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx, config) {
       const context = ctx as PluginContext;
       if (config === undefined || config === null) return; // 主闸一——缺省无编排面零装载
@@ -2066,6 +2106,9 @@ const BROWSER_CMD_USAGE =
 function makeMcpPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'mcp',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx, config, host) {
       const context = ctx as PluginContext;
       const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
@@ -2116,6 +2159,9 @@ function makeMcpPlugin(deps: CorePluginHostDeps): CorePluginReference {
 function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'browser',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx, config) {
       const context = ctx as PluginContext;
       const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
@@ -2188,6 +2234,9 @@ function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
 function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'lsp',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx, config) {
       const context = ctx as PluginContext;
       const pipeline = context.tryGet<SpawnPipeline>('exec-pipeline');
@@ -2227,6 +2276,9 @@ function makeLspPlugin(deps: CorePluginHostDeps): CorePluginReference {
 function makeCredentialsPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
     name: 'credentials',
+    // 官方清单 api 块（ag 批 DP3——03 §8.4：装载门同律自证「官方也声明」，
+    // min = 宿主地板 1.0——同仓同版本恒过；齐备性由 check-api 查 7 执法）
+    api: { minApiVersion: '1.0' },
     async apply(ctx) {
       const context = ctx as PluginContext;
       const store = deps.credentialsStore;

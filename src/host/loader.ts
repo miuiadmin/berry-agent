@@ -28,6 +28,7 @@ import { createJiti } from 'jiti';
 import type { Jiti, TransformOptions, TransformResult } from 'jiti';
 
 import { BaseError } from '../contracts/index.js';
+import type { ApiBlock } from '../contracts/api.js';
 import { providerApiFace } from '../llm/index.js';
 
 import { synthesizePluginConfig, type ConfigField } from './config-schema.js';
@@ -53,6 +54,14 @@ export interface CorePluginReference {
   readonly skills?: readonly string[];
   /** 声明式子代理目录清单（03 §6.3——与 skills 同形；core 行声明基 = 宿主包根） */
   readonly agents?: readonly string[];
+  /**
+   * 清单 api 块（ag 批 DP3——03 §8.4 定形注②）：core: 件官方清单载体（core
+   * 件无磁盘 package.json——注册表即单源）。装载门逐行裁决消费（同仓同版本
+   * 恒过——min '1.0' 即宿主地板自证「官方也声明」形态；齐备性由 check-api
+   * 查 7 扫注册表执法）。可选位 = 测试替身/直测形零负担；16 件官方注册表
+   * 全填（查 7 红 = 缺块或断裂）。
+   */
+  readonly api?: ApiBlock;
   /**
    * 宿主面第三参（2026-09-13 真模型四轮 C 组——03 §2.1 官方件异步续段通道
    * 定形）：core 行独有（磁盘行结构性不传 = 第三方插件无此通道——有意

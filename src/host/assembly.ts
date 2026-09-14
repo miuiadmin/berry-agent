@@ -102,6 +102,12 @@ export interface AssembleHostOptions {
   readonly debug: boolean;
   /** 宿主版本（HostFace 物化位） */
   readonly version: string;
+  /**
+   * 宿主 API 面版本（ag 批 DP2——03 §8.4 定形注④）：**测试注入面**——缺省
+   * 恒从宿主 package.json 同文件补读 apiVersion（readHostApiVersion——与
+   * readVersion 同文件同源；人工同步纪律消灭）。
+   */
+  readonly apiVersion?: string;
   /** 初始 provider 集（缺省真 provider 全家桶——与 TUI 入口同路） */
   readonly providers?: readonly Provider[];
   /** 模型标识（缺省 BERRY_AGENT_MODEL 覆盖律——栈内解析） */
@@ -398,12 +404,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       warn: (message) => logger.warn(message),
     });
 
-    // —— 'sessions' 服务面（03 §4.4 appendEvent 最小面——批 19 销账笔）：活引用
-    // driverOf（调用时点解析——/new 热切换安全）；无活体驱动 = undefined 降级
-    // （消费方 core:memory 差分落账腿捕获降级——mirror 不锁步）；二道闸（核心
-    // 词拒写 + 未注册词拒写）闭包内执法。boot 前位——memory 件 apply 时
-    // tryGet('sessions') 已在场；完整只读四件 + 受理制写两腿归后续批
-    scope.provide('sessions', createSessionsFace({ driverOf: (sessionId) => stack.driverOf(sessionId) }));
+    // —— 'sessions' 受理面基础面真身（ag 批 cs-D2——03 §4.5 定形注：共享根
+    // provision 形态**废止**，本面改经 bootPlugins options.sessions 逐插件
+    // fork 绑定〔bindSessionsForPlugin——caller 归因 plugin:<行id> 宿主单方
+    // 拼装 + 行籍闸绑换代死域；共享根结构性无此名〕）。活引用 driverOf
+    // （调用时点解析——/new 热切换安全）；无活体驱动 = undefined 降级（消费
+    // 方 core:memory 差分落账腿捕获降级——mirror 不锁步）；二道闸（核心词
+    // 拒写 + 未注册词拒写）+ 归因盖章在绑定面闭包内执法
+    const sessionsFace = createSessionsFace({ driverOf: (sessionId) => stack.driverOf(sessionId) });
 
     // —— Job 注册表 + 触发器注册表（C 批 C-3——第十一动词宿主侧真源）：
     // job_settled 总线词先注册（活体事件发射前置——04 §10 内存直推不落库，
@@ -685,6 +693,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 插件道路由受理器（U5-2——fork 绑定位：窗/门真源绑本插件 handle +
           // fork.effect 卸载回收兜底；席位判 core:sdk 行在场在 plugin-boot）
           sdkRoutes: pluginRoutes,
+          // sessions 受理面基础面真身（ag 批 cs-D2——03 §4.5 定形注：fork 绑
+          // 定位。真身上方共享根废止位铸；plugin-boot 逐插件
+          // bindSessionsForPlugin 绑 caller 归因 + 行籍闸——core:memory 差分
+          // 落账腿同批随动，归因键 plugin:core:memory 不匿名）
+          sessions: sessionsFace,
           // 插件凭证面装配位（c-3——store = persistence.store 凭证投影真身直传
           // 〔词面独立律 compat 面，对拍测试互证〕；core:credentials 席在场判在
           // plugin-boot；oauthRegistry = c-6 流注册表真身——fork 绑定成
@@ -707,6 +720,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           // 卸载换代槽（03 §5.7——本代卸载序改写槽，上方一次性 closer 读槽）
           unloadRef: pluginUnloadRef,
           version: options.version,
+          // 宿主 API 面版本（ag 批 DP2——03 §8.4 定形注④）：运行时单源 =
+          // 宿主 package.json 同文件补读 apiVersion（同文件双值 version +
+          // apiVersion——人工同步纪律消灭）；options.apiVersion = 测试注入面
+          apiVersion: options.apiVersion ?? readHostApiVersion(),
           // core: 官方件注册表缺省单源（批 19a——测试注入面/诊断覆盖经 options；
           // 工厂形升级批 19b-1：dataDir 等宿主真身经 CorePluginHostDeps 入件；
           // 16 件逐纵切笔入册，见 core-plugins.ts）
@@ -1247,6 +1264,20 @@ export function readTriggerOpensLive(dataDir: string | null, pluginId: string): 
   const row = result.rows.find((r) => r.id === pluginId);
   if (row === undefined || row.disabled === true) return new Set<string>();
   return new Set<string>(row.opens ?? []);
+}
+
+/**
+ * 宿主 API 面版本补读（ag 批 DP2——03 §8.4 定形注④）：宿主 package.json
+ * 同文件双值（version + apiVersion）的 apiVersion 腿，装配根消费位补读
+ * （与 plugins-cmd readHostApiVersion 同文件同源同式；本件不 import
+ * main.ts〔宿主入口归他件域〕）。缺席兜 '1.0'（package.json 常位恒在——
+ * 兜底仅防御非常规装载形）。装载门裁决坐标的真源。
+ */
+function readHostApiVersion(): string {
+  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+    apiVersion?: string;
+  };
+  return pkg.apiVersion ?? '1.0';
 }
 
 /**

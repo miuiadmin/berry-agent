@@ -6,8 +6,9 @@
  *  - **list**：装载态清单三分区（启用/失败/禁用）。走与 dump-config **同一
  *    合成代码路径**（真数据目录读侧 + 主库零落盘 + 不占标记）——装载面必须
  *    跑（报告语义）。
- *  - **check**：纯只读零装配（07 §5——不走装载器直读装机账本）。api 块三色
- *    裁决挂账 API 治理批（03 §8.4/§8.9）。
+ *  - **check**：API 治理三色体检真身（03 §8.9 ag 批落码定形注——纯只读
+ *    零装配：装机账本 × 杄件装机目录 package.json api 块 × 宿主 apiVersion
+ *    三源纯文件面 + 黄腿 durable 事件直查，不走装载器不 boot 运行时）。
  *  - **install <ref>**：三源装机（plugin-install 执行器——ref 单参自含源前缀
  *    与账本同词法；--min-release-age 旗标逐次覆盖 env 静置窗）。
  *  - **uninstall <id>**：双相（无 --confirm = inspect 只读报告 / 加 = execute
@@ -24,22 +25,32 @@
  *
  * 退出码：0 成功 / 1 执行失败（结算文本含原因）/ 用法错 2 归解析层。
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 import { Persistence, createAuditFace, resolveDataDir } from '../persist/index.js';
+import { adjudicateApiGate, compareApiVersions } from '../contracts/api.js';
 
 import type { PluginsCommand } from './cli.js';
 import { assembleHostStack } from './assembly.js';
 import { formatPluginFailureText } from './boot-failures.js';
 import type { CorePluginReference } from './loader.js';
-import { checkPluginId } from './manifest.js';
+import { checkPluginId, parseManifest } from './manifest.js';
 import { installPlugin, updatePlugin, createDefaultSpawnRunner } from './plugin-install.js';
 import type { InstallExecutorDeps } from './plugin-install.js';
 import { executeUninstall, inspectUninstall } from './plugin-uninstall.js';
 import type { UninstallDataAction, UninstallDeps } from './plugin-uninstall.js';
-import { mountRow, readLedger, toggleRow, unmountRow, createPluginStoreFs } from './plugin-store.js';
+import {
+  ledgerPath,
+  mountRow,
+  readLedger,
+  resolveInstallPath,
+  toggleRow,
+  unmountRow,
+  createPluginStoreFs,
+} from './plugin-store.js';
 import type { LifecycleAuditSink } from './plugin-store.js';
 import type { HostRuntime } from './runtime.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
@@ -128,17 +139,129 @@ async function runList(options: PluginsEntryOptions): Promise<number> {
   }
 }
 
+/* ---------------- check：三色体检真身（03 §8.9 ag 批落码定形注） ---------------- */
+
+/** check 行分桶（渲染序 = 分桶序：绿 → 红 → legacy → 黄） */
+type CheckRow =
+  | {
+      readonly kind: 'green';
+      readonly id: string;
+      readonly min: string;
+      readonly target: string;
+      readonly effectiveTarget: string;
+      /** 宿主 < target（钳制出口——行内注 min(宿主, target)） */
+      readonly clamped: boolean;
+    }
+  | {
+      readonly kind: 'red';
+      readonly id: string;
+      /** 断裂消息（出口 1 = 三段消息直呈；悬空/坏清单 = 自家诊断文本） */
+      readonly message: string;
+      /** 三值矩阵行（min/target/宿主）——仅版本断裂腿在场，悬空腿缺席 */
+      readonly matrix: string | undefined;
+    }
+  | { readonly kind: 'legacy'; readonly id: string }
+  | { readonly kind: 'yellow'; readonly id: string; readonly count: number };
+
 /**
- * check：纯只读零装配骨架（07 §5——数据面纯只读零装配；不走装载器）。
- * 账本缺席/为空 = 零装机无可体检项（exit 0——「无断裂」成立）；非空账本的
- * apiVersion 三色裁决挂账 API 治理批（03 §8.4/§8.9——api 块回填同批）。
+ * 宿主 apiVersion 直读（03 §8.1 独立号——API 面版本，与包 version 分立）。
+ * **与 main.ts readVersion 同文件同源**：仓库根 package.json 的 version +
+ * apiVersion 双值同文件（src 与 dist 同相对深度 '../../package.json'——
+ * DP2「readVersion 同源补读」的同源位，本面不 import main.ts〔宿主入口
+ * 归他件域〕）。缺席兜底 '1.0' = 首快照号（boot options.apiVersion 缺省
+ * 同值——防御位，仓库 package.json 恒有该字段）。
  */
-function runCheck(options: PluginsEntryOptions): number {
+function readHostApiVersion(): string {
+  const pkgUrl = new URL('../../package.json', import.meta.url);
+  const pkg = JSON.parse(readFileSync(fileURLToPath(pkgUrl), 'utf8')) as { apiVersion?: string };
+  return pkg.apiVersion ?? '1.0';
+}
+
+/**
+ * 黄腿遥测：durable 事件 `plugin/deprecation-used` 直查（03 §8.7 obs 可禁用
+ * 降级语义的正道形——不为可禁用 core:obs 件造静默依赖，queryEvents 可达即
+ * 信息同构、聚合只省查询成本）。逐插件计数 → 黄行料源；**直查空集即无黄行**
+ * （v1 写点延迟触发——首个 deprecated 符号进 DEP 窗日，结构性空集是正确态）。
+ *
+ * 纯只读纪律：sessions.db 缺席 = 零 durable 事件，**不开库不造文件**（首启/
+ * 纯装机形零负担）；在场才经 Persistence 公开面（零装配直开库——uninstall
+ * 同形）直查。开库/查询失败 = 降级（warn + 返回 null——黄腿不可用不拖垮
+ * 绿/红主面，退出码仍以红为轴）。载荷插件 id 键 = `pluginId`（§8.7「插件
+ * id + DEP 编号」——写点延迟触发，读侧宽容：缺席归「(未知插件)」桶不丢计数）。
+ */
+async function collectDeprecationUsed(
+  dataDir: string,
+  warn: (message: string) => void,
+): Promise<Map<string, number> | null> {
+  const dbPath = join(dataDir, 'sessions.db');
+  if (!existsSync(dbPath)) return new Map(); // 库缺席 = 零事件——零开库（check 纯只读不造库）
+  let persistence: Persistence;
+  try {
+    // dbPath 显式随 dataDir（CLI 语义同 uninstall/审计腿——库随 --data-dir 走）
+    persistence = Persistence.open({
+      dataDir,
+      dbPath,
+      migrations: HOST_MIGRATION_TAIL,
+      warn: (message) => warn(`[check] ${message}`),
+    });
+  } catch (err) {
+    warn(`warn：用废弃遥测库不可开（${err instanceof Error ? err.message : String(err)}）——本报告不含黄腿面`);
+    return null;
+  }
+  try {
+    const counts = new Map<string, number>();
+    let cursor: string | null = null;
+    let pages = 0;
+    // 游标分页直查 + 页护栏（obs service 同律防坏游标死循环）；页帽 10000 =
+    // queryEvents 硬帽（64 页 = 64 万笔封顶，v1 结构性空集远不及）
+    do {
+      const page = persistence.store.queryEvents({ types: ['plugin/deprecation-used'], cursor });
+      for (const event of page.events) {
+        const pid = (event.data as { pluginId?: unknown } | null)?.pluginId;
+        const key = typeof pid === 'string' && pid.length > 0 ? pid : '(未知插件)';
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      cursor = page.nextCursor;
+    } while (cursor !== null && ++pages < 64);
+    return counts;
+  } catch (err) {
+    warn(`warn：用废弃遥测查询失败（${err instanceof Error ? err.message : String(err)}）——本报告不含黄腿面`);
+    return null;
+  } finally {
+    await persistence.close();
+  }
+}
+
+/**
+ * check：API 治理三色体检真身（03 §8.9——`berry plugins check` 只读体检）。
+ *
+ * 数据面纯只读零装配：装机账本 + 杄件装机目录 package.json api 块 + 宿主
+ * apiVersion（readHostApiVersion 同源直读）三源纯文件面，不 boot 插件运行
+ * 时；黄腿遥测 = durable 事件直查（collectDeprecationUsed）。裁决核 =
+ * **adjudicateApiGate 纯函数直调**（import 自 contracts/api——判据与装载门
+ * 单源，不走装载器）；清单面先经 parseManifest（与 boot 读侧同一校验单源
+ * ——坏清单在此即断裂，与装载 failed 分区同真相）。
+ *
+ * 三色 + legacy 呈现形（§8.9 ag 批定形注——v1 射程）：
+ *  - **绿** = admit（钳制/兼容两出口同绿——生效 target = min(宿主, target)，
+ *    钳制时行内注明）；
+ *  - **红** = 出口 1 拒载（三段消息 expected/actual/升级指引 + 三值矩阵行
+ *    min/target/宿主；悬空装机记录/坏清单同归红族 fail-closed 拒猜）；
+ *  - **legacy** = api 块缺席（未声明行单列不计红——点火前与装载门出口 4
+ *    容忍态同口径，提示补声明）；
+ *  - **黄** = plugin/deprecation-used 直查驱动（空集无黄行；替代指引与
+ *    死期渲染料源 = 废弃注册簿，随写点延迟触发日到场）。
+ *
+ * 退出码恒以红为轴：任红 = 1，全绿 = 0——黄/legacy 不改退出码。
+ * 账本缺席/为空 = 零装机无可体检项（exit 0——「无断裂」成立，既有行为保）。
+ */
+async function runCheck(options: PluginsEntryOptions): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
+  const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const dataDir = options.dataDir ?? resolveDataDir();
   let raw: string | null = null;
   try {
-    raw = readFileSync(join(dataDir, 'plugins', 'ledger.json'), 'utf8');
+    raw = readFileSync(ledgerPath(dataDir), 'utf8');
   } catch {
     raw = null; // 缺席 = 零装机（ENOENT 同义——首启零文件零负担）
   }
@@ -146,8 +269,123 @@ function runCheck(options: PluginsEntryOptions): number {
     writeOut('装机账本缺席或为空——无可体检项（通过）');
     return 0;
   }
-  writeOut('装机账本非空，但 apiVersion 三色体检面尚未装配（归 API 治理批——03 §8.4/§8.9）——本命令本批不覆盖此形态');
-  return 1;
+  const ledgerRead = readLedger(dataDir, createPluginStoreFs());
+  if (!ledgerRead.ok) {
+    // 坏账本 fail-closed：兼容面无法判定——不静默绿也不猜（写动词同源拒因）
+    writeErr(`装机账本损坏：${ledgerRead.reason}——无法体检（03 §5.4，重装可重建）`);
+    return 1;
+  }
+  if (ledgerRead.entries.length === 0) {
+    // 非空原文但零条目（如空数组形 '[]'）——语义同空账本
+    writeOut('装机账本缺席或为空——无可体检项（通过）');
+    return 0;
+  }
+  const hostApiVersion = readHostApiVersion();
+  const deprecations = await collectDeprecationUsed(dataDir, writeErr);
+
+  /* 逐件裁决三色分桶（adjudicateApiGate 纯函数直调——四出口机器形态见 contracts/api） */
+  const rows: CheckRow[] = [];
+  for (const entry of ledgerRead.entries) {
+    const abs = resolveInstallPath(dataDir, entry.installPath); // 绝对直用/相对 join 数据目录（§5.4）
+    let pkg: unknown;
+    try {
+      pkg = JSON.parse(readFileSync(join(abs, 'package.json'), 'utf8'));
+    } catch (err) {
+      // 悬空装机记录（目录失联/坏 JSON）——无法判定兼容面，红族 fail-closed 拒猜
+      const detail = err instanceof Error ? err.message : String(err);
+      rows.push({
+        kind: 'red',
+        id: entry.id,
+        message: `装机目录 package.json 不可读（${abs}）：${detail}——装机记录悬空，兼容面无法判定；重装可重建（plugins install ${entry.ref}）`,
+        matrix: undefined,
+      });
+      continue;
+    }
+    const parsed = parseManifest(pkg);
+    if (!parsed.ok) {
+      // 清单坏形——boot 装载同判据拒载，check 面同真相归红
+      rows.push({ kind: 'red', id: entry.id, message: `清单坏形：${parsed.message}`, matrix: undefined });
+      continue;
+    }
+    const api = parsed.manifest.api;
+    if (api === undefined) {
+      rows.push({ kind: 'legacy', id: entry.id });
+      continue;
+    }
+    try {
+      const verdict = adjudicateApiGate(api, hostApiVersion, entry.id);
+      const target = api.targetApiVersion ?? api.minApiVersion; // 粘性锚：缺省 = min 的值
+      rows.push({
+        kind: 'green',
+        id: entry.id,
+        min: api.minApiVersion,
+        target,
+        effectiveTarget: verdict.effectiveTarget,
+        clamped: compareApiVersions(hostApiVersion, target) < 0, // 宿主 < target 即钳制出口
+      });
+    } catch (err) {
+      // 出口 1 拒载——BaseError 三段消息（expected/actual/升级指引）直呈 + 三值矩阵行
+      rows.push({
+        kind: 'red',
+        id: entry.id,
+        message: err instanceof Error ? err.message : String(err),
+        matrix: `版本矩阵：min ${api.minApiVersion} / target ${api.targetApiVersion ?? api.minApiVersion} / 宿主 ${hostApiVersion}`,
+      });
+    }
+  }
+
+  /* 黄行 = 直查计数 ∩ 已装清单（已卸件的残遥测不进已装矩阵；未知插件桶保留计数） */
+  if (deprecations !== null) {
+    const installed = new Set(ledgerRead.entries.map((e) => e.id));
+    for (const [id, count] of deprecations) {
+      if (installed.has(id) || id === '(未知插件)') rows.push({ kind: 'yellow', id, count });
+    }
+  }
+
+  /* 渲染（空段不渲染——零桶零噪音） */
+  const lines: string[] = [];
+  const green = rows.filter((r): r is Extract<CheckRow, { kind: 'green' }> => r.kind === 'green');
+  const red = rows.filter((r): r is Extract<CheckRow, { kind: 'red' }> => r.kind === 'red');
+  const legacy = rows.filter((r): r is Extract<CheckRow, { kind: 'legacy' }> => r.kind === 'legacy');
+  const yellow = rows.filter((r): r is Extract<CheckRow, { kind: 'yellow' }> => r.kind === 'yellow');
+  if (green.length > 0) {
+    lines.push(`绿（通过，${green.length}）：`);
+    for (const g of green) {
+      lines.push(
+        `  ${g.id}  通过——min ${g.min} ≤ 宿主 ${hostApiVersion}，生效 target ${g.effectiveTarget}` +
+          (g.clamped
+            ? `（target ${g.target} 高于宿主被钳制：min(宿主 ${hostApiVersion}, target ${g.target}) = ${g.effectiveTarget}）`
+            : ''),
+      );
+    }
+  }
+  if (red.length > 0) {
+    lines.push(`红（断裂，${red.length}）：`);
+    for (const r of red) {
+      lines.push(`  ${r.id}  ${r.message}`);
+      if (r.matrix !== undefined) lines.push(`    ${r.matrix}`);
+    }
+  }
+  if (legacy.length > 0) {
+    lines.push(`legacy（api 块未声明，${legacy.length}——不计断裂）：`);
+    for (const l of legacy) {
+      lines.push(
+        `  ${l.id}  api 块缺席——点火前容忍（与装载门出口 4 同口径）；建议补声明：package.json berryAgent.api.minApiVersion`,
+      );
+    }
+  }
+  if (yellow.length > 0) {
+    lines.push(`用废弃（遥测 plugin/deprecation-used，${yellow.length}）：`);
+    for (const y of yellow) {
+      lines.push(`  ${y.id}  ${y.count} 笔——替代指引与死期料源 = 废弃注册簿（随首个 deprecated 符号进 DEP 窗日到场）`);
+    }
+  }
+  lines.push(
+    `体检汇总：已装 ${ledgerRead.entries.length}——绿 ${green.length} / 断裂 ${red.length} / 未声明 ${legacy.length} / 用废弃 ${yellow.length}` +
+      `（宿主 apiVersion ${hostApiVersion}；退出码以断裂为轴——黄/未声明不改码）`,
+  );
+  writeOut(lines.join('\n'));
+  return red.length > 0 ? 1 : 0;
 }
 
 /* ---------------- 写侧六动词（装机面落码批 #10 真身） ---------------- */

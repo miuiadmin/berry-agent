@@ -46,12 +46,13 @@ function stubRuntime(
   };
 }
 
-/** 装配选项速记（真盘 fs——jiti 真求值） */
+/** 装配选项速记（真盘 fs——jiti 真求值；warn 收集供装载门诊断面断言） */
 function rigBoot(
   dataDir: string | null,
   overrides: Partial<PluginBootOptions> = {},
-): { options: PluginBootOptions; dispatch: EventDispatch } {
+): { options: PluginBootOptions; dispatch: EventDispatch; warnings: string[] } {
   const dispatch = new EventDispatch();
+  const warnings: string[] = [];
   const options: PluginBootOptions = {
     runtime: stubRuntime(dataDir),
     scope: Scope.createRoot(),
@@ -59,10 +60,10 @@ function rigBoot(
     commands: { register: () => () => undefined },
     llm: { registerProvider: () => () => undefined },
     version: '9.9.9-test',
-    warn: () => undefined,
+    warn: (message) => warnings.push(message),
     ...overrides,
   };
-  return { options, dispatch };
+  return { options, dispatch, warnings };
 }
 
 /** 真盘试件插件目录速记（目录形——含真清单 + entry） */
@@ -201,9 +202,10 @@ describe('quick-test 八不变式（03 §7——测试先行，落码前必红�
   });
 
   it('不变式 8：api 装载门同律——api 块在场时试件行与磁盘行同态裁决（无判据分叉）', async () => {
-    // adjudicateApiGate（contracts 单源）尚未在装载序接线（挂账态——对磁盘行
-    // 同样不执法）；本例锁「无分叉」：试件行不得因试件身份被私设额外拒载或
-    // 额外豁免——装载门接线日磁盘行版本与此例同笔更新。
+    // 装载门已接线（ag 批——adjudicateApiGate 装载循环逐行裁决）：本例原
+    // 「两行皆过」现状锁随接线同笔翻档（min 99.0 > 宿主 1.0 → 两行同进
+    // failed 携 API_VERSION_MISMATCH——:204 挂账注记就此兑销，同态裁决不变式
+    // 仍锁「无分叉」：试件行不得因试件身份被私设额外拒载或额外豁免）。
     const dataDir = mkdtempSync(join(tmpdir(), 'host-quick-api-'));
     dirs.push(dataDir);
     // 磁盘行 acme 携 api 块（min 99.0 形状合法、版本高于宿主）
@@ -229,7 +231,76 @@ describe('quick-test 八不变式（03 §7——测试先行，落码前必红�
     const diskAcme = boot.report.activated.some((a) => a.id === 'acme-api');
     const quickRow = boot.report.activated.some((a) => a.id === '_quick_test');
     expect(diskAcme).toBe(quickRow); // 同态裁决——分叉即违不变式 8
-    expect(quickRow).toBe(true); // 装载门未接线现状：两行皆过（接线日两断言同笔改）
+    expect(quickRow).toBe(false); // 装载门已接线：min 99.0 > 宿主 1.0——两行同拒（ag 批同笔翻档）
+    // 同进 failed 分区携 API_VERSION_MISMATCH（三段 message 直呈——行级隔离不拒启）
+    expect(boot.report.failed.map((f) => f.id).sort()).toEqual(['_quick_test', 'acme-api']);
+    expect(boot.report.failed.every((f) => f.code === 'API_VERSION_MISMATCH')).toBe(true);
+  });
+
+  it('装载门出口 1：磁盘行 min 1.5 宿主 1.0 → failed 分区行级隔离（三段 message 直呈）', async () => {
+    // ag 批接线红证锚点②（立项档 §四——修前已录红：接线前本行照常进
+    // activated）；接线后 = failed 分区 + 行级隔离
+    const dataDir = mkdtempSync(join(tmpdir(), 'host-quick-gate-red-'));
+    dirs.push(dataDir);
+    const installed = join(dataDir, 'plugins', 'node_modules', 'acme-future');
+    mkdirSync(installed, { recursive: true });
+    writeFileSync(
+      join(installed, 'package.json'),
+      JSON.stringify({
+        name: 'acme-future',
+        version: '2.0.0',
+        berryAgent: { entry: 'entry.js', api: { minApiVersion: '1.5' } },
+      }),
+    );
+    writeFileSync(join(installed, 'entry.js'), 'export default async () => undefined;');
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins:\n  - id: acme-future\n');
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({ 'acme-future': { installPath: 'plugins/node_modules/acme-future' } }),
+    );
+    const boot = await bootPlugins(rigBoot(dataDir).options);
+    // 拒载行进 failed 分区（不 fail-loud 拒启——行级隔离）
+    expect(boot.report.activated).toEqual([]);
+    const fail = boot.report.failed.find((f) => f.id === 'acme-future');
+    expect(fail?.code).toBe('API_VERSION_MISMATCH');
+    // 三段 message 直呈（expected/actual/升级指引——03 §8.9 红形态）
+    expect(fail?.message).toContain('minApiVersion 1.5');
+    expect(fail?.message).toContain('宿主 API 面版本 1.0');
+    expect(fail?.message).toContain('升级指引');
+    expect(fail?.message).toContain('COMPATIBILITY.md');
+    expect(boot.counts).toEqual({ total: 1, enabled: 0, failed: 1 }); // 拒载行不入 enabled（失败非启用）
+  });
+
+  it('装载门出口 4：api 块缺席 → boot 诊断面聚合一条 legacy warn（per boot 一次、N 缺块聚一条）', async () => {
+    // ag 批接线红证锚点③（立项档 §四——修前已录红：聚合 warn 未落时零 warn）；
+    // 接线后 = 磁盘行与试件行各缺 api 块，boot 诊断面恰一条聚合 warn 点名两行
+    // （不进 durable 账——容忍态非失败）。
+    const dataDir = mkdtempSync(join(tmpdir(), 'host-quick-legacy-red-'));
+    dirs.push(dataDir);
+    const installed = join(dataDir, 'plugins', 'node_modules', 'acme-old');
+    mkdirSync(installed, { recursive: true });
+    writeFileSync(
+      join(installed, 'package.json'),
+      JSON.stringify({ name: 'acme-old', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+    );
+    writeFileSync(join(installed, 'entry.js'), 'export default async () => undefined;');
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins:\n  - id: acme-old\n');
+    writeFileSync(
+      join(dataDir, 'plugins', 'ledger.json'),
+      JSON.stringify({ 'acme-old': { installPath: 'plugins/node_modules/acme-old' } }),
+    );
+    // 试件行同缺 api 块（目录形缺省——两行同态触发聚一条）
+    const quickDir = makeQuickPluginDir({ entry: 'entry.js' });
+    const { options, warnings } = rigBoot(dataDir, { pluginFile: quickDir });
+    const boot = await bootPlugins(options);
+    // 容忍态照常装载（legacy 不拒载——点火前）
+    expect(boot.report.activated.map((a) => a.id).sort()).toEqual(['_quick_test', 'acme-old']);
+    expect(boot.report.failed).toEqual([]);
+    // per boot 恰一条聚合 warn：N 缺块聚一条、两 id 齐点名
+    const legacyWarns = warnings.filter((w) => w.includes('api 块'));
+    expect(legacyWarns).toHaveLength(1);
+    expect(legacyWarns[0]).toContain('acme-old');
+    expect(legacyWarns[0]).toContain('_quick_test');
   });
 
   it('试件清单坏形 = 响亮拒启（试件显式指定——不静默隔离）', async () => {

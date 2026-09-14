@@ -2,8 +2,8 @@
 /**
  * API 治理机器执法层（03 篇 §8.8 check-api 十查，2026-09-05 API 治理批 2 起——
  * 查 3/4 随 DEP 注册簿批充实、查 5 豁免节机制随首实验键批（生态启动批 eco-3
- * testkit 域）落、查 7 旧形态休眠腿随 2026-09-14 遗漏扫描四役批删除（真身随
- * 官方插件清单 api 块回填批同批落）、查 8 两生成物腿随批 4 增挂）。
+ * testkit 域）落、查 7 旧形态休眠腿随 2026-09-14 遗漏扫描四役批删除、真身
+ * 同日随 ag 批激活（core: 注册表扫描形）、查 8 两生成物腿随批 4 增挂）。
  *
  * 进 lint:topology 链（CI 同一套）。十查形态（落码节奏——§8.10 批表）：
  * 1. drift——快照 src/contracts/api-surface.json ≠ 抽取真值即红（面漂移当场抓）；
@@ -20,10 +20,12 @@
  *    ——标记行起至同级/更高级标题止，节内合法披露）；
  * 6. compat 件死期——批 4 点火前结构性拒绝（src/compat/ 在场即红——死期机器
  *    未落地，compat 件无登记可查 = fail-closed，非静默放行）；
- * 7. 清单 api 块狗家全覆盖——core: 插件 package.json `berryAgent.api` 全体
- *    schema 校验 + min ≤ target 不变式 + 装载门裁决（挂账休眠——真身随「官方
- *    插件清单 api 块回填批」同批落，03 §8.4「回填与查 7 同批」律：生效日即
- *    绿、无红窗；曾实装的 berry 旧形态休眠腿已删，见查 7 段内注记）；
+ * 7. core: 注册表 api 块全覆盖（ag 批 2026-09-14 激活——03 §8.8 定形注：
+ *    扫描对象 = 官方引用注册表 CorePluginReference.api 非磁盘清单——core:
+ *    件无磁盘 package.json，注册表单源 = src/host/core-plugins.ts）：全体
+ *    格式校验 + min ≤ target 不变式 + 装载门裁决 admit（拒载形 try/catch
+ *    包裹以码判——裸调炸闸进程会吞掉其余各查结果）；「回填与查 7 同批」律
+ *    （03 §8.6）——生效日即绿、无红窗；曾实装的 berry 旧形态休眠腿已删；
  * 8. 生成物 drift——api-decls Face 派生 .d.ts ≠ 生成器真值即红（生成物是提交
  *    件，手改或面变更后漏再生即漂移；再生入口 = build 尾或生成器 CLI --write；
  *    COMPATIBILITY.md / docs/API参考.md 两腿随批 4 增挂）；
@@ -371,18 +373,66 @@ const DEPRECATIONS =
   }
 }
 
-/* ---------------- 查 7：清单 api 块狗家全覆盖（挂账休眠——真身随回填批同批落） ---------------- */
+/* ---------------- 查 7：core: 注册表 api 块全覆盖（ag 批 2026-09-14 真身激活） ---------------- */
 
-// 〔2026-09-14 遗漏扫描四役收口批〕本查曾实装 berry 源篇旧形态扫描腿（独立
-// 清单文件目录全体扫描 + contracts 侧旧形 schema 真相源期待位），该形态已被
-// 03 §11 表 #10（裁决③连带）明确否决：api 块住 `berryAgent.api`、清单载体 =
-// 插件 package.json `berryAgent` 字段单一形状、禁双载体——旧腿在官方插件未
-// 落码期休眠恒绿，激活日若按旧形态建目录即直接违反裁决（且目录/后缀词形触
-// 02 §5.2「应用/app」禁用词律），故整段删除。真身 = 扫描 core: 插件
-// package.json 的 `berryAgent.api`（schema 校验 + min ≤ target 不变式 +
-// adjudicateApiGate 裁决非 legacy；拒载形包 try/catch 以 AppError 码判——
-// 裸调让拒载炸掉整个闸进程，会吞掉其余各查结果），随「官方插件清单 api 块
-// 回填批」同批落（03 §8.4「回填与查 7 同批」律——生效日即绿，无红窗）。
+{
+  // 〔史注〕本查曾实装 berry 源篇旧形态扫描腿（独立清单文件目录全体扫描 +
+  // contracts 侧旧形 schema 真相源期待位），该形态已被 03 §11 表 #10（裁决③
+  // 连带）明确否决：api 块住 `berryAgent.api`、清单载体 = 插件 package.json
+  // `berryAgent` 字段单一形状、禁双载体——旧腿 2026-09-14 遗漏扫描四役批整段
+  // 删除。真身（ag 批同日激活）= 扫 core: 官方引用注册表：core: 件无磁盘
+  // package.json，CorePluginReference.api 即官方清单载体（03 §8.4 定形注②）。
+  // 判据三重：①api 块在场（官方 16 件恒必填——legacy 容忍态只属第三方磁盘行）；
+  // ②min/target 格式合法 + min ≤ target 不变式；③装载门裁决 admit（同仓同
+  // 版本恒过形态）。坐标 = 面快照 apiVersion（与查 2/查 9 同一坐标系）。
+  // 拒载形 try/catch 包裹以文案红——裸调让拒载炸掉整个闸进程，会吞掉其余各
+  // 查结果。env 缝 CHECK_API_CORE_PLUGINS = 换片注册表模块路径（测试红锁
+  // 注入面；缺省真仓注册表——恒真仓锚，不随 CHECK_API_ROOT 缝移）。
+  const corePluginsMod =
+    process.env.CHECK_API_CORE_PLUGINS !== undefined
+      ? await jiti.import(process.env.CHECK_API_CORE_PLUGINS)
+      : await imp('../src/host/core-plugins.ts');
+  const refs = corePluginsMod.createCorePlugins({ dataDir: null });
+  for (const ref of refs) {
+    const id = `core:${ref.name}`;
+    // 判据①：api 块在场（缺席红——官方清单载体恒必填）
+    if (ref.api === undefined) {
+      v(
+        `[查 7] ${id} api 块缺席——CorePluginReference.api 即官方清单载体（官方件恒必填，03 §8.4「回填与查 7 同批」律），` +
+          `补 api: { minApiVersion: '<宿主当前 apiVersion 或更旧>' }`,
+      );
+      continue;
+    }
+    const api = ref.api;
+    // 判据②：格式合法 + min ≤ target 不变式（清单校验同判据——此处闸前执法）
+    if (
+      !apiContracts.isValidApiVersion(api.minApiVersion) ||
+      (api.targetApiVersion !== undefined && !apiContracts.isValidApiVersion(api.targetApiVersion))
+    ) {
+      v(
+        `[查 7] ${id} api 块版本号格式非法（min ${api.minApiVersion}` +
+          `${api.targetApiVersion !== undefined ? ` / target ${api.targetApiVersion}` : ''}——应为 MAJOR.MINOR）`,
+      );
+      continue;
+    }
+    if (
+      api.targetApiVersion !== undefined &&
+      apiContracts.compareApiVersions(api.minApiVersion, api.targetApiVersion) > 0
+    ) {
+      v(`[查 7] ${id} min ${api.minApiVersion} > target ${api.targetApiVersion}——min ≤ target 不变式破`);
+      continue;
+    }
+    // 判据③：装载门裁决（拒载形 try/catch——红以文案呈，不炸闸进程）
+    try {
+      const verdict = apiContracts.adjudicateApiGate(api, surface.apiVersion, id);
+      if (verdict.status !== 'admit') {
+        v(`[查 7] ${id} 装载门裁决非 admit（${verdict.status}）——core 件对宿主自身恒 admit（同仓同版本锁形态）`);
+      }
+    } catch (err) {
+      v(`[查 7] ${id} 装载门断裂：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
 
 /* ---------------- 查 8：生成物 drift（Face 派生件 ≠ 生成器真值红） ---------------- */
 

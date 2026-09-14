@@ -163,7 +163,47 @@ describe('plugins list——同构装载态清单（三分区）', () => {
   });
 });
 
-describe('plugins check——纯只读零装配骨架（07 §5「数据面纯只读」）', () => {
+describe('plugins check——三色体检面真身（03 §8.9 ag 批：绿/红 + legacy 未声明 + 黄槽遥测直查）', () => {
+  /**
+   * 宿主 apiVersion 真源（runCheck 同文件同源直读仓库根 package.json——
+   * 与 main.ts readVersion 同文件；测试动态取值不断言硬编码号，apiVersion
+   * 翻号日本测试族零改笔照跑）
+   */
+  const hostApi = (
+    JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { apiVersion: string }
+  ).apiVersion;
+
+  /** local 形装机 fixture：真目录 + package.json（berryAgent.api 块随参——undefined = 未声明形） */
+  function checkFixturePlugin(name: string, api: Record<string, unknown> | undefined): string {
+    const dir = join(tmpdir(), `berry-check-${name}-${process.pid}`);
+    dirs.push(dir);
+    mkdirSync(dir, { recursive: true });
+    const berryAgent: Record<string, unknown> = api === undefined ? {} : { api };
+    writeFileSync(
+      join(dir, 'package.json'),
+      `${JSON.stringify({ name, version: '1.0.0', main: 'index.js', berryAgent }, null, 2)}\n`,
+    );
+    return dir;
+  }
+
+  /** 真形账本条目（数组形——writeLedger 单一规范形；local 源 installPath 绝对） */
+  function entryOf(id: string, installPath: string): Record<string, unknown> {
+    return {
+      id,
+      source: 'local',
+      ref: `local:${installPath}`,
+      installedAt: '2026-09-14T00:00:00.000Z',
+      installPath,
+      declaredEvents: [],
+    };
+  }
+
+  /** 落账本速记（数组形 JSON） */
+  function writeLedger(dir: string, entries: readonly Record<string, unknown>[]): void {
+    mkdirSync(join(dir, 'plugins'), { recursive: true });
+    writeFileSync(join(dir, 'plugins', 'ledger.json'), `${JSON.stringify(entries, null, 2)}\n`);
+  }
+
   it('账本缺席 = 零装机无可体检项（exit 0——「无断裂」成立）', async () => {
     const dir = tmpDir('plug-check-absent-');
     const io = capture();
@@ -182,14 +222,135 @@ describe('plugins check——纯只读零装配骨架（07 §5「数据面纯只
     expect(io.out.join('\n')).toContain('无可体检项');
   });
 
-  it('账本非空：三色体检面挂账诚实退 1（归 API 治理批——03 §8.4/§8.9）', async () => {
-    const dir = tmpDir('plug-check-full-');
-    mkdirSync(join(dir, 'plugins'), { recursive: true });
-    writeFileSync(join(dir, 'plugins', 'ledger.json'), '{"plugins":{"user-x":{"installPath":"/tmp/x"}}}');
+  it('账本非空·绿腿：min ≤ 宿主 → 通过行 + 钳制注（target 高于宿主生效 target = min(宿主,target)）+ exit 0〔ag 批真身——修前占位「尚未装配」exit 1 翻档〕', async () => {
+    const dir = tmpDir('plug-check-green-');
+    const plain = checkFixturePlugin('green-pkg', { minApiVersion: '1.0' });
+    const clamped = checkFixturePlugin('clamp-pkg', { minApiVersion: '1.0', targetApiVersion: '2.0' });
+    writeLedger(dir, [entryOf('green-pkg', plain), entryOf('clamp-pkg', clamped)]);
     const io = capture();
     const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
-    expect(code).toBe(1); // 非空账本形态本批不覆盖——不静默吞
-    expect(io.out.join('\n')).toContain('尚未装配');
+    expect(code).toBe(0); // 全绿无断裂
+    const text = io.out.join('\n');
+    expect(text).toContain('绿（通过，2）');
+    expect(text).toContain('green-pkg');
+    expect(text).toContain('clamp-pkg');
+    // 钳制注：target 2.0 高于宿主——生效 target = min(宿主, target) 行内注明
+    expect(text).toContain('钳制');
+    expect(text).toContain(`min(宿主 ${hostApi}, target 2.0) = ${hostApi}`);
+    // 无红/未声明/黄段（空段不渲染——断言锚段头形防与汇总行计数词撞）+ 汇总行
+    expect(text).not.toContain('断裂，');
+    expect(text).not.toContain('未声明，');
+    expect(text).not.toContain('用废弃（遥测');
+    expect(text).toContain(`宿主 apiVersion ${hostApi}`);
+  });
+
+  it('账本非空·红腿：min 高于宿主 → 断裂行三段消息 + 三值矩阵行 + exit 1（绿红并存汇总两计）', async () => {
+    const dir = tmpDir('plug-check-red-');
+    const green = checkFixturePlugin('mix-green-pkg', { minApiVersion: '1.0' });
+    const red = checkFixturePlugin('red-pkg', { minApiVersion: '99.0' });
+    writeLedger(dir, [entryOf('mix-green-pkg', green), entryOf('red-pkg', red)]);
+    const io = capture();
+    const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
+    expect(code).toBe(1); // 任红 = 1
+    const text = io.out.join('\n');
+    expect(text).toContain('红（断裂，1）');
+    expect(text).toContain('绿（通过，1）'); // 绿红并存两段各计
+    // 三段消息：expected（min 声明）/ actual（宿主版本）/ 升级指引——adjudicateApiGate 出口 1 消息直呈
+    expect(text).toContain('minApiVersion 99.0');
+    expect(text).toContain('低于地板');
+    expect(text).toContain('升级指引');
+    // 三值矩阵行：min / target / 宿主（target 缺省 = min 粘性锚）
+    expect(text).toContain(`版本矩阵：min 99.0 / target 99.0 / 宿主 ${hostApi}`);
+    // 汇总行断裂计数
+    expect(text).toContain('断裂 1');
+  });
+
+  it('legacy 腿：api 块缺席 → 未声明行单列不计断裂 + 补声明提示 + exit 0（点火前与装载门出口 4 容忍态同口径）', async () => {
+    const dir = tmpDir('plug-check-legacy-');
+    const legacy = checkFixturePlugin('legacy-pkg', undefined);
+    writeLedger(dir, [entryOf('legacy-pkg', legacy)]);
+    const io = capture();
+    const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
+    expect(code).toBe(0); // legacy 不改退出码
+    const text = io.out.join('\n');
+    expect(text).toContain('legacy-pkg');
+    expect(text).toContain('api 块未声明');
+    expect(text).toContain('补声明');
+    expect(text).not.toContain('断裂，'); // 未声明非断裂
+    expect(text).toContain('未声明 1'); // 汇总计数在场
+  });
+
+  it('黄腿空集：durable plugin/deprecation-used 直查零事件 → 无黄行（§8.7 obs 禁用降级路径正道形——直查驱动非聚合依赖；sessions.db 缺席零开库）', async () => {
+    const dir = tmpDir('plug-check-yellow-empty-');
+    const green = checkFixturePlugin('yellow-empty-pkg', { minApiVersion: '1.0' });
+    writeLedger(dir, [entryOf('yellow-empty-pkg', green)]);
+    const io = capture();
+    const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
+    expect(code).toBe(0);
+    const text = io.out.join('\n');
+    expect(text).toContain('绿（通过，1）'); // 主面（绿/红）照常出报告
+    expect(text).not.toContain('用废弃（遥测'); // 直查空集 = 无黄行（v1 写点延迟触发——结构性空集；断言锚段头防与汇总计数词撞）
+    expect(existsSync(join(dir, 'sessions.db'))).toBe(false); // 纯只读纪律：库缺席不开库不造文件
+  });
+
+  it('黄腿在场：sessions.db 有 plugin/deprecation-used 事件 → 已装件黄行计数 + 已卸件残遥测不入矩阵 + 黄不改退出码', async () => {
+    const dir = tmpDir('plug-check-yellow-hit-');
+    const green = checkFixturePlugin('yellow-hit-pkg', { minApiVersion: '1.0' });
+    writeLedger(dir, [entryOf('yellow-hit-pkg', green)]);
+    // 库在场 + 直写 durable 事件（store.writeEvents 原始面——写点延迟触发期的
+    // 遥测仿真；载荷键 pluginId = §8.7「插件 id + DEP 编号」读侧约定）
+    const seed = Persistence.open({
+      dataDir: dir,
+      dbPath: join(dir, 'sessions.db'),
+      migrations: HOST_MIGRATION_TAIL,
+      warn: () => undefined,
+    });
+    const now = Date.now();
+    // 写序约束：同会话 seq 连续递增（writeEvents 单事务内逐条校验）
+    const depEvent = (seq: number, pluginId: string) => ({
+      sessionId: 'seed-session',
+      event: { type: 'plugin/deprecation-used', seq, time: now, data: { pluginId } },
+      registration: {
+        origin: 'conversation' as const,
+        parentId: undefined,
+        seedLength: 0,
+        title: undefined,
+        workspaceRoot: undefined,
+      },
+    });
+    try {
+      seed.store.writeEvents([depEvent(0, 'yellow-hit-pkg'), depEvent(1, 'yellow-hit-pkg'), depEvent(2, 'gone-pkg')]);
+    } finally {
+      await seed.close();
+    }
+    const io = capture();
+    const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
+    expect(code).toBe(0); // 黄腿不改退出码（恒以红为轴）
+    const text = io.out.join('\n');
+    expect(text).toContain('用废弃（遥测 plugin/deprecation-used，1）：'); // 段头计数 = 件数（黄行 1 件）
+    expect(text).toContain('yellow-hit-pkg  2 笔'); // 同件两笔聚合计数
+    expect(text).not.toContain('gone-pkg'); // 已卸件残遥测不进已装矩阵
+    expect(text).toContain('绿（通过，1）'); // 绿面照常
+    expect(text).toContain('用废弃 1'); // 汇总计数
+  });
+
+  it('悬空装机记录：installPath 无 package.json → 断裂行（fail-closed 拒猜）+ exit 1；坏账本（键映射形值坏形）→ 拒体检 exit 1', async () => {
+    const dir = tmpDir('plug-check-dangling-');
+    writeLedger(dir, [entryOf('ghost-pkg', join(dir, 'no-such-dir'))]);
+    const io = capture();
+    const code = await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir, ...io });
+    expect(code).toBe(1);
+    const text = io.out.join('\n');
+    expect(text).toContain('红（断裂，1）');
+    expect(text).toContain('ghost-pkg');
+    expect(text).toContain('不可读'); // 悬空记录 = 无法判定兼容面——红族直呈不静默
+    // 坏账本：键映射形值坏形（readLedger 拒因同源）——拒体检不猜
+    const dir2 = tmpDir('plug-check-badledger-');
+    mkdirSync(join(dir2, 'plugins'), { recursive: true });
+    writeFileSync(join(dir2, 'plugins', 'ledger.json'), '{"plugins":{"user-x":{"installPath":"/tmp/x"}}}');
+    const io2 = capture();
+    expect(await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir2, ...io2 })).toBe(1);
+    expect(io2.err.join('\n')).toContain('装机账本损坏');
   });
 });
 
