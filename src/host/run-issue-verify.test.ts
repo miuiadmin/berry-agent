@@ -1,5 +1,6 @@
 /**
- * runIssueVerify 真子进程回归锚（core-plugins.ts:1674——IssueVerifyFace 真身）。
+ * runIssueVerify 真子进程回归锚（core-plugins.ts 模块私有 runIssueVerify——IssueVerifyFace 真身，
+ * 函数名唯一可 grep——不锚行号防漂移）。
  *
  * 现状背景：issue 编排层对 verify 面的消费（service.test.ts）全用 mock 假件——
  * 真身（host spawn 家族：/bin/sh -c 语义 + SIGKILL 超时击杀 + 尾滚动收集内存帽
@@ -128,6 +129,23 @@ describe('runIssueVerify 真子进程语义（host spawn 家族真身）', () =>
     // 时长判据：≥ 时帽（容差——挂钟取整抖动）且远小于 sleep 全程（真击杀非等完）
     expect(r.durationMs).toBeGreaterThanOrEqual(200);
     expect(r.durationMs).toBeLessThan(10_000);
+  }, 15_000);
+
+  it('②b 进程组击杀：孙进程持管道写端形（后台 sleep + 前台长 sleep）→ 时帽到全组灭、击杀即收口不等孙进程自然退出', async () => {
+    // 修前病锚：单 pid SIGKILL 只断 sh 树根，孙进程（后台 sleep 2 / 前台 sleep 8）
+    // 继承 stdout 管道写端 → 'close' 悬到最长孙进程自然退出（~8000ms）才触发
+    // ——verify promise 挂死、Job 永占并行帽一席。'sleep 30' 单命令锚不到此病
+    // （sh 对末尾单命令 exec 优化无孙进程），须后台 & 双 sleep 形。
+    // 修后形：detached 进程组 + 负 pid 全组击杀 + 击杀即直收口——durationMs
+    // 贴时帽（400ms 级）远小于孙进程全程 8000ms；击杀即收口的 timer 腿注记
+    // 首行在场（产品固定报文——锁「直收口」腿胜出，非侥幸快 close）。
+    const r = await runVerify({ cwd: workDir(), command: 'sleep 2 & sleep 8', timeoutMs: 400 });
+    expect(r.timedOut).toBe(true);
+    expect(r.exitCode).toBeNull(); // 信号杀非自然退出
+    expect(r.outputTail).toContain('超时击杀'); // timer 腿直收口注记（extraTail 首行）
+    // 时长判据：≥ 时帽（容差）且远小于最长孙进程全程 8s——修前 ~8000ms 才收口（此即红锚）
+    expect(r.durationMs).toBeGreaterThanOrEqual(350);
+    expect(r.durationMs).toBeLessThan(2500);
   }, 15_000);
 
   it('③ 退出非零：exit 7 直达退出码 + stdout/stderr 合并进输出尾（两流都可见）', async () => {

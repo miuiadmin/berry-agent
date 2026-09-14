@@ -1678,14 +1678,22 @@ const DANGER_CMD_USAGE =
  * 交付验证执行腿（⑪ 裁决 5——IssueVerifyFace 真身，host spawn 家族：danger
  * push 腿同族，宿主编排动作不经模型工具管道〔verifyCommand 是用户 mount
  * config 整串命令非 argv 数组——shell 语义经 /bin/sh -c；无守门需求〕）。
- * 超时 SIGKILL 击杀；stdout+stderr 合并尾滚动收集（内存帽保尾弃头——失败
- * 证据在尾）；spawn 失败折 exitCode null 不上抛——非 0 判据面在编排层收口
- * （fail-closed：一切 seam 缺席 = fail）。
+ * 超时进程组 SIGKILL 击杀（detached 起 sh 自成组组长 + 负 pid 一发全组 +
+ * 击杀即直收口——孙进程持管道写端不悬 close）；stdout+stderr 合并尾滚动收集
+ * （内存帽保尾弃头——失败证据在尾）；spawn 失败折 exitCode null 不上抛——
+ * 非 0 判据面在编排层收口（fail-closed：一切 seam 缺席 = fail）。
  */
 function runIssueVerify(req: { cwd: string; command: string; timeoutMs: number }): Promise<IssueVerifyResult> {
   return new Promise((resolve) => {
     const startedAt = Date.now();
-    const child = spawn('/bin/sh', ['-c', req.command], { cwd: req.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    // detached：sh 自成新进程组组长（pgid = child.pid）——超时负 pid 击杀全组
+    // 的前提；孙进程（npm→vitest worker、`sleep 8 &` 后代等）继承组籍与 stdio
+    // 管道写端，组灭则写端齐关、close 即放
+    const child = spawn('/bin/sh', ['-c', req.command], {
+      cwd: req.cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    });
     // 滚动收集窗（尾帽 4 倍——弃头保尾 + 截尾余量；巨型输出不积内存）
     const keepBytes = ISSUE_VERIFY_TAIL_BYTES * 4;
     let chunks: Buffer[] = [];
@@ -1707,7 +1715,25 @@ function runIssueVerify(req: { cwd: string; command: string; timeoutMs: number }
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      // 路 A——进程组整体击杀：负 pid 形 -child.pid 一发杀全组（sh 与全体孙
+      // 进程同组全灭）。单杀 sh 只断树根：孙进程继承的 stdout/stderr 管道写
+      // 端不关 → 'close' 悬到最长孙进程自然退出才放——挂死型命令 = verify
+      // promise 永不收口，Job 悬挂永占并行帽一席。
+      if (child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          // 组已空（全树先于此已退出/被收尸）→ ESRCH 容错；单 pid 补枪（kill 对死体恒安全不掷错）
+          child.kill('SIGKILL');
+        }
+      } else {
+        // spawn 失败形（pid undefined——error 腿已收口，此处兜底不掷错）
+        child.kill('SIGKILL');
+      }
+      // 路 B——击杀即直收口：不候 'close'（逃组孙进程〔自 setsid 的守护形〕
+      // 仍持管道写端时 close 可能悬到自然退出）。resolve 幂等先到先得：超时
+      // 形由 timer 腿直落 finish，close 晚到自然落空、finish 幂等不变。
+      finish(null, `超时击杀：时帽 ${req.timeoutMs}ms 到，进程组整体 SIGKILL（输出尾截于击杀时刻）`);
     }, req.timeoutMs);
     const finish = (exitCode: number | null, extraTail: string): void => {
       clearTimeout(timer);
