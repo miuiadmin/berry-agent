@@ -5,8 +5,10 @@
  * 纪律：seam 与纯函数全真；probe 用计数假后端（不 spawn——真探测由 exec 批
  * 的平台链冒烟面承担）；平台后端（seatbelt/bwrap）只测参数面纯函数。
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { BaseError } from '../contracts/index.js';
 import type { SandboxBackend } from './types.js';
 import {
@@ -30,13 +32,13 @@ import { createBwrapBackend } from './bwrap.js';
 import { canonicalPath } from './roots.js';
 import { sensitiveReadFiles, type SandboxPolicy } from './index.js';
 
-/** bwrap 基座参数字面量（测试侧期望形——tmpfs 恒第一条：顺序即正确性） */
+/** bwrap 基座参数字面量（测试侧期望形——ro-bind / / 恒前、tmpfs /tmp 紧随：tmpfs 后位真身〔B4 勘正〕） */
 const BWRAP_BASE = [
-  '--tmpfs',
-  '/tmp',
   '--ro-bind',
   '/',
   '/',
+  '--tmpfs',
+  '/tmp',
   '--dev',
   '/dev',
   '--proc',
@@ -319,9 +321,9 @@ describe('seatbelt 参数面', () => {
 });
 
 describe('bwrap 参数面', () => {
-  it('基座：tmpfs /tmp 恒第一条挂载（顺序即正确性）+ 全系统只读 + 虚拟设备', () => {
+  it('基座：ro-bind / / 恒前二挂载、tmpfs /tmp 紧随（tmpfs 后位真身——B4：tmpfs 先行会被整根 bind 遮蔽成死位）+ 全系统只读 + 虚拟设备', () => {
     expect(bwrapArgs({ mode: 'read-only', workspaceRoot: '/ws' })).toEqual(BWRAP_BASE);
-    expect(BWRAP_BASE.slice(0, 4)).toEqual(['--tmpfs', '/tmp', '--ro-bind', '/']);
+    expect(BWRAP_BASE.slice(0, 5)).toEqual(['--ro-bind', '/', '/', '--tmpfs', '/tmp']);
   });
   it('workspace-write 逐根 bind 且 /tmp 根跳过重复挂载；后端差异元数据', () => {
     const args = bwrapArgs({ mode: 'workspace-write', workspaceRoot: '/ws', writableRoots: ['/tmp', '/ws'] });
@@ -345,6 +347,18 @@ describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②�
   const DENY = ['/data/secret.key', '/data/allowlist.json'];
   const DENY_LINES = DENY.map((p) => `(deny file-read* (literal "${p}"))`);
 
+  // bwrap 遮蔽行宿主在判过滤夹具（B4 勘正）：--ro-bind-try 的 try 位在 SRC 非
+  // DEST（SRC=/dev/null 恒在即永不跳），DEST 缺席须 bwrap 自动建挂载点、父目
+  // 录只读即硬错「Can't create file … Read-only file system」非静默跳过——故
+  // 遮蔽行只对宿主在场路径发行；夹具真文件双员在场 + 一员恒缺席
+  const denyFixture = mkdtempSync(join(tmpdir(), 'sbx-bwrap-deny-'));
+  const presentKey = join(denyFixture, 'secret.key');
+  const presentPolicy = join(denyFixture, 'tool-policy.json');
+  writeFileSync(presentKey, 'k');
+  writeFileSync(presentPolicy, '{}');
+  const absentFile = join(denyFixture, 'absent.json'); // 恒不建——过滤面断言员
+  afterAll(() => rmSync(denyFixture, { recursive: true, force: true }));
+
   it('seatbelt：读 deny 行末位追加（last-match-wins 压过此前全部 allow）', () => {
     const lines = seatbeltProfile({
       mode: 'workspace-write',
@@ -362,9 +376,14 @@ describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②�
     expect(profile).not.toContain('subpath');
   });
 
-  it('bwrap：遮蔽行末位追加 --ro-bind-try /dev/null <path>（后位遮蔽——mount 点后建压前挂载）', () => {
+  it('bwrap：遮蔽行末位追加 --ro-bind-try /dev/null <path>（后位遮蔽——mount 点后建压前挂载）+ 宿主在判过滤——缺席目标不发行（-try try 的是 SRC 非 DEST——B4）', () => {
     expect(
-      bwrapArgs({ mode: 'workspace-write', workspaceRoot: '/ws', writableRoots: ['/ws'], denyReadFiles: DENY }),
+      bwrapArgs({
+        mode: 'workspace-write',
+        workspaceRoot: '/ws',
+        writableRoots: ['/ws'],
+        denyReadFiles: [presentKey, absentFile, presentPolicy],
+      }),
     ).toEqual([
       ...BWRAP_BASE,
       '--bind',
@@ -372,15 +391,15 @@ describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②�
       '/ws',
       '--ro-bind-try',
       '/dev/null',
-      '/data/secret.key',
+      presentKey,
       '--ro-bind-try',
       '/dev/null',
-      '/data/allowlist.json',
+      presentPolicy,
     ]);
   });
 
-  it('bwrap danger 形：--bind / / 全盘读写 + 卫生旗恒在（--proc/--unshare-pid = /proc 同 uid 进程面结构性不可见）+ 遮蔽末位；无 tmpfs/ro-bind 基座', () => {
-    expect(bwrapArgs({ mode: 'danger', workspaceRoot: '/ws', denyReadFiles: DENY })).toEqual([
+  it('bwrap danger 形：--bind / / 全盘读写 + 卫生旗恒在（--proc/--unshare-pid = /proc 同 uid 进程面结构性不可见）+ 遮蔽末位（宿主在判过滤同律）；无 tmpfs/ro-bind 基座', () => {
+    expect(bwrapArgs({ mode: 'danger', workspaceRoot: '/ws', denyReadFiles: [presentKey, presentPolicy] })).toEqual([
       '--bind',
       '/',
       '/',
@@ -392,10 +411,10 @@ describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②�
       '--die-with-parent',
       '--ro-bind-try',
       '/dev/null',
-      '/data/secret.key',
+      presentKey,
       '--ro-bind-try',
       '/dev/null',
-      '/data/allowlist.json',
+      presentPolicy,
     ]);
   });
 
@@ -441,6 +460,17 @@ describe('读 deny / danger 档形（04 §7 读侧 carve-out + 04 §8 定形②�
 describe('写 deny / dataDir enrich（04 §252 腿二 + 04 §7 数据目录写腿）', () => {
   const WS_GIT = '/ws/.git';
 
+  // bwrap 写遮蔽行宿主在判过滤夹具（B4 勘正同读腿）：工作区 + .git 目录真在
+  // 场；缺席员恒不建——「.git 未建的会话新建可写」既有文档边界的参数面兑现
+  const wsFixture = mkdtempSync(join(tmpdir(), 'sbx-bwrap-ws-'));
+  const presentWs = join(wsFixture, 'ws');
+  const presentGit = join(presentWs, '.git');
+  mkdirSync(presentGit, { recursive: true });
+  const presentSecret = join(wsFixture, 'secret.key');
+  writeFileSync(presentSecret, 'k');
+  const absentGit = join(wsFixture, 'not-built', '.git'); // 恒不建——过滤面断言员
+  afterAll(() => rmSync(wsFixture, { recursive: true, force: true }));
+
   it('seatbelt：写 deny 行末位追加——压过 workspace-write 逐根 allow（last-match-wins）', () => {
     const lines = seatbeltProfile({
       mode: 'workspace-write',
@@ -471,35 +501,40 @@ describe('写 deny / dataDir enrich（04 §252 腿二 + 04 §7 数据目录写�
     ]);
   });
 
-  it('bwrap：写 deny 遮蔽行末位追加 --ro-bind-try <path> <path>（后位遮蔽既有 bind）', () => {
-    expect(
-      bwrapArgs({ mode: 'workspace-write', workspaceRoot: '/ws', writableRoots: ['/ws'], denyWritePaths: [WS_GIT] }),
-    ).toEqual([...BWRAP_BASE, '--bind', '/ws', '/ws', '--ro-bind-try', WS_GIT, WS_GIT]);
-    // 读遮蔽与写遮蔽同在：写行恒最末
+  it('bwrap：写 deny 遮蔽行末位追加 --ro-bind-try <path> <path>（后位遮蔽既有 bind）+ 宿主在判过滤——缺席 .git 不发行（未建新建可写——既有文档边界的参数面兑现）', () => {
     expect(
       bwrapArgs({
         mode: 'workspace-write',
-        workspaceRoot: '/ws',
-        writableRoots: ['/ws'],
-        denyReadFiles: ['/data/secret.key'],
-        denyWritePaths: [WS_GIT],
+        workspaceRoot: presentWs,
+        writableRoots: [presentWs],
+        denyWritePaths: [presentGit, absentGit],
+      }),
+    ).toEqual([...BWRAP_BASE, '--bind', presentWs, presentWs, '--ro-bind-try', presentGit, presentGit]);
+    // 读遮蔽与写遮蔽同在：写行恒最末（读目标在场双员——缺席读员不发行同律）
+    expect(
+      bwrapArgs({
+        mode: 'workspace-write',
+        workspaceRoot: presentWs,
+        writableRoots: [presentWs],
+        denyReadFiles: [presentSecret, absentGit],
+        denyWritePaths: [presentGit],
       }),
     ).toEqual([
       ...BWRAP_BASE,
       '--bind',
-      '/ws',
-      '/ws',
+      presentWs,
+      presentWs,
       '--ro-bind-try',
       '/dev/null',
-      '/data/secret.key',
+      presentSecret,
       '--ro-bind-try',
-      WS_GIT,
-      WS_GIT,
+      presentGit,
+      presentGit,
     ]);
   });
 
-  it('bwrap danger 形：--bind / / 后写遮蔽同律（danger 不豁免）', () => {
-    expect(bwrapArgs({ mode: 'danger', workspaceRoot: '/ws', denyWritePaths: [WS_GIT] })).toEqual([
+  it('bwrap danger 形：--bind / / 后写遮蔽同律（danger 不豁免——在场 .git 恒遮蔽）', () => {
+    expect(bwrapArgs({ mode: 'danger', workspaceRoot: '/ws', denyWritePaths: [presentGit] })).toEqual([
       '--bind',
       '/',
       '/',
@@ -510,8 +545,8 @@ describe('写 deny / dataDir enrich（04 §252 腿二 + 04 §7 数据目录写�
       '--unshare-pid',
       '--die-with-parent',
       '--ro-bind-try',
-      WS_GIT,
-      WS_GIT,
+      presentGit,
+      presentGit,
     ]);
   });
 

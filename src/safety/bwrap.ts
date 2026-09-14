@@ -7,23 +7,28 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import type { SandboxBackend } from './types.js';
 import { resolvePolicyRoots, type SandboxPolicy } from './sandbox.js';
 
 /**
  * bwrap argv 前缀（不含策略差异）：全系统只读 + 虚拟 /dev /proc + 隔离 PID
- * 命名空间。/tmp tmpfs 恒前置为第一条挂载：bwrap 按参数序建挂载，若 tmpfs
- * /tmp 出现在某 /tmp 子路径根的 bind 之后，会整树遮蔽该 bind（berry 刀四
- * CI 首跑红根因：bind 先、tmpfs 后 → 挂载点不可见；tmpfs 先、bind 后 →
- * bwrap 在 tmpfs 上自动造出 dest 挂载点，根正确露出——顺序即正确性）。
+ * 命名空间。挂载序两律（2026-09-15 CI 第三红族勘正〔B4〕实测定形）：
+ * - **ro-bind / / 恒在 tmpfs /tmp 之前**：bwrap 按参数序建挂载，整根 bind 罩
+ *   上后此前挂的 tmpfs 即成死位（沙箱内 /tmp 实为宿主只读视图——CI 实证
+ *   「Can't create file … Read-only file system」根因；/tmp 恒 tmpfs「能用
+ *   不留痕」由后位 tmpfs 真身承接）；
+ * - **全部 bind（工作区根/写根）恒在 tmpfs 之后**：bind 先、tmpfs 后会整树
+ *   遮蔽该 bind（berry 刀四 CI 首跑红根因），tmpfs 先、bind 后则 bwrap 在
+ *   tmpfs 上自动造出 dest 挂载点——顺序即正确性。
  */
 function bwrapBaseArgs(): string[] {
   return [
-    '--tmpfs',
-    '/tmp',
     '--ro-bind',
     '/',
     '/',
+    '--tmpfs',
+    '/tmp',
     '--dev',
     '/dev',
     '--proc',
@@ -36,17 +41,26 @@ function bwrapBaseArgs(): string[] {
 /**
  * 敏感件读 deny 遮蔽参数（04 §7 读侧 carve-out + 2026-09-08 P0① 定形）：
  * `--ro-bind-try /dev/null <canonical 路径>` 逐件一对。要点：
- * - SRC 恒在场（/dev/null 必在）、DEST 由 bwrap 自建（不必预先存在）；
- *   `-try` 形 = DEST 缺席跳过不报错（保护面不含「目录不存在即失败」语义）；
+ * - **宿主在判过滤**（2026-09-15 B4 勘正）：`-try` 的 try 位在 **SRC** 非
+ *   DEST（SRC=/dev/null 恒在即永不跳）；DEST 缺席须 bwrap 自动建挂载点、
+ *   仅当父目录可写——父只读即硬错「Can't create file … Read-only file
+ *   system」非静默跳过（CI 实证：缺席 tool-policy.json/secret.key 的 deny
+ *   行整 spawn 崩）。故缺席路径直接不发行：缺席文件本无可读，遮蔽行只对
+ *   在场文件有意义（「缺席敏感件静默跳过」的实现真身——04 §7 勘正②）；
  * - 后位遮蔽：mount 点后建遮蔽前挂载——必须排在全部既有 bind 之后（末位
- *   追加），否则被后续 bind 整树覆盖（顺序即正确性，与 base 的 tmpfs 前置
- *   同一律）；
+ *   追加），否则被后续 bind 整树覆盖（顺序即正确性，与 base 的挂载序同
+ *   一律）；
  * - 遮蔽形下硬链攻击链结构性失败：link() 跨 mount 点对只读遮蔽源操作不可
  *   达（内核 errno 多形不钉死——实机核验定形）。
+ * 诚实边界：existsSync 判后、bwrap 建挂载点前目标被删的窄窗 = spawn 亮错
+ * 失败（fail-closed 方向——命令不跑，非安全洞）。
  */
 function bwrapDenyArgs(policy: SandboxPolicy): string[] {
   const args: string[] = [];
-  for (const p of policy.denyReadFiles ?? []) args.push('--ro-bind-try', '/dev/null', p);
+  for (const p of policy.denyReadFiles ?? []) {
+    if (!existsSync(p)) continue; // 宿主在判过滤——缺席即不发行（见注记）
+    args.push('--ro-bind-try', '/dev/null', p);
+  }
   return args;
 }
 
@@ -54,13 +68,16 @@ function bwrapDenyArgs(policy: SandboxPolicy): string[] {
  * 写 deny 遮蔽参数（04 §252 腿二——成熟度缺口 #9）：`--ro-bind-try <path>
  * <path>` 逐件一对——把宿主该路径**只读**挂载遮蔽沙箱内同名路径（写即
  * read-only file system 拒）。与读 deny 同律末位追加（后位遮蔽——排在全部
- * 既有 bind 之后）；`-try` 形 DEST 缺席跳过（.git 未建的会话新建可写——
- * 已文档化边界：新建仓非篡改既有版本史）。danger 档 `--bind / /` 后追加
- * 同律（底线不交档位）。
+ * 既有 bind 之后）+ 同律宿主在判过滤（B4 勘正）：缺席即不发行 = 「`.git`
+ * 未建的会话新建可写」既有文档边界的参数面兑现（新建仓非篡改既有版本史）。
+ * danger 档 `--bind / /` 后追加同律（底线不交档位）。
  */
 function bwrapDenyWriteArgs(policy: SandboxPolicy): string[] {
   const args: string[] = [];
-  for (const p of policy.denyWritePaths ?? []) args.push('--ro-bind-try', p, p);
+  for (const p of policy.denyWritePaths ?? []) {
+    if (!existsSync(p)) continue; // 宿主在判过滤——缺席即不发行（见注记）
+    args.push('--ro-bind-try', p, p);
+  }
   return args;
 }
 
