@@ -14,7 +14,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { EventDispatch, Scope } from '../context/index.js';
@@ -227,107 +226,49 @@ async function bootCore(
 /** 恒答审批呈现面（write 类工具守门放行桩——审批装配测试同款，应答 = 'approve' 字面） */
 const approveAll = async () => 'approve' as const;
 
-/**
- * Linux bwrap 非特权形态「deny 遮蔽多层挂载」可用性探测（模块级缓存）。
- *
- * 背景（2026-09-15 CI run 34878565213 实证）：GH ubuntu-24.04 runner 放行
- * AppArmor userns 后 bwrap 可建命名空间，但 deny 遮蔽腿（--ro-bind-try
- * /dev/null <dest>）在「tmpfs /tmp → ro-bind / / → bind 工作区根」多层
- * 叠加态上 create dest 文件失败（bwrap: Can't create file at
- * …/secret.key: … file system）——非特权 userns 特有形态（本机 privileged
- * 容器同 argv 恒绿、挂载序无罪已证）。该形态属成熟度台账「Linux bwrap
- * 深修待用户」域（04 §8 执行 seam 条），此处环境自适应 skip 真执行腿
- * （PTY 用例按 python3 可用性探测同款先例）——装载环语义仍由 macOS
- * seatbelt 腿全覆盖；bwrap 缺席不 skip（后端缺席的诚实红维持原样）。
- */
-let bwrapDenyOverlayOk: boolean | undefined;
-
-function linuxBwrapDenyOverlayBroken(): boolean {
-  if (process.platform !== 'linux') return false;
-  // bwrap 缺席 = 后端缺席诚实红路径，不在此 skip（探测只判「在场但遮蔽腿破」）
-  if (spawnSync('bwrap', ['--version'], { timeout: 2000 }).status !== 0) return false;
-  if (bwrapDenyOverlayOk === undefined) {
-    // 最小同构形：挂载序与生产 bwrapArgs 逐段对应（tmpfs /tmp → ro-bind / /
-    // → bind 工作区根 → deny 遮蔽末位）
-    const probe = mkdtempSync(join(tmpdir(), 'bwrap-probe-'));
-    writeFileSync(join(probe, 'f'), 'x');
-    const r = spawnSync(
-      'bwrap',
-      [
-        '--tmpfs',
-        '/tmp',
-        '--ro-bind',
-        '/',
-        '/',
-        '--dev',
-        '/dev',
-        '--proc',
-        '/proc',
-        '--bind',
-        probe,
-        probe,
-        '--ro-bind-try',
-        '/dev/null',
-        join(probe, 'f'),
-        '--',
-        '/bin/true',
-      ],
-      { timeout: 5000 },
-    );
-    rmSync(probe, { recursive: true, force: true });
-    bwrapDenyOverlayOk = r.status === 0;
-  }
-  return !bwrapDenyOverlayOk;
-}
-
 describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
-  // 真执行腿环境自适应：Linux bwrap 非特权形态 deny 遮蔽腿破（见探测函数
-  // 注记——CI 实证 EROFS 形态）即 skip 本测试；其余平台/形态恒真跑
-  it.skipIf(linuxBwrapDenyOverlayBroken())(
-    'exec 件装载全环：真装载 → 共享根服务面 → 工厂产出 bash → openTools 拾取 → 真执行',
-    async () => {
-      const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-'));
-      dirs.push(dataDir);
-      const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-ws-'));
-      const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-home-'));
-      dirs.push(workspace, home);
-      const { scope, dispatch } = await bootCore(dataDir, memoryFs(), { cwd: workspace, homeDir: home }); // enabled.yaml 缺席 = 全 core 内置态
+  it('exec 件装载全环：真装载 → 共享根服务面 → 工厂产出 bash → openTools 拾取 → 真执行', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-'));
+    dirs.push(dataDir);
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-home-'));
+    dirs.push(workspace, home);
+    const { scope, dispatch } = await bootCore(dataDir, memoryFs(), { cwd: workspace, homeDir: home }); // enabled.yaml 缺席 = 全 core 内置态
 
-      // 装载报告面（core:exec 单件入册——缺省单源回归锁）
-      const service = scope.tryGet<ExecToolService>('exec');
-      expect(service).toBeDefined();
+    // 装载报告面（core:exec 单件入册——缺省单源回归锁）
+    const service = scope.tryGet<ExecToolService>('exec');
+    expect(service).toBeDefined();
 
-      // 工厂真值：会话装配期求值（会话级 deps 注入——workspace-write 档）
-      const bash = service!.createBashTool({
-        workspaceRoot: () => dataDir,
-        currentMode: () => 'workspace-write',
-      });
-      expect(bash.name).toBe('bash');
+    // 工厂真值：会话装配期求值（会话级 deps 注入——workspace-write 档）
+    const bash = service!.createBashTool({
+      workspaceRoot: () => dataDir,
+      currentMode: () => 'workspace-write',
+    });
+    expect(bash.name).toBe('bash');
 
-      // openTools 会话装配拾取（同共享根——tryGet 诚实缺席律的正例腿）
-      const session = new SessionLog({ sessionId: 's-coreplug' });
-      const assembly = assembleOpenTools({
-        sessionId: 's-coreplug',
-        dispatch,
-        session,
-        scope, // 装载共享根同根同源
-        mode: () => 'workspace-write',
-        dataDir,
-        workspace: () => workspace,
-        askApproval: approveAll, // bash effect=write——守门走审批恒答放行
-      });
-      expect(assembly.tools.map((tool) => tool.name)).toContain('bash');
-      expect(assembly.tools).toHaveLength(8); // fs 四 + 检索两 + bash + todo
+    // openTools 会话装配拾取（同共享根——tryGet 诚实缺席律的正例腿）
+    const session = new SessionLog({ sessionId: 's-coreplug' });
+    const assembly = assembleOpenTools({
+      sessionId: 's-coreplug',
+      dispatch,
+      session,
+      scope, // 装载共享根同根同源
+      mode: () => 'workspace-write',
+      dataDir,
+      workspace: () => workspace,
+      askApproval: approveAll, // bash effect=write——守门走审批恒答放行
+    });
+    expect(assembly.tools.map((tool) => tool.name)).toContain('bash');
+    expect(assembly.tools).toHaveLength(8); // fs 四 + 检索两 + bash + todo
 
-      // 真执行（真 spawn——echo 走真三段管道；断言输出不含 AI 生成文本面）
-      const bashTool = assembly.tools.find((tool) => tool.name === 'bash');
-      if (bashTool === undefined) throw new Error('bash 工具不在装配面');
-      const result = await bashTool.execute('c-echo', { command: 'echo core-plugs-ok' });
-      const text = JSON.stringify(result);
-      expect(text).toContain('core-plugs-ok');
-      assembly.dispose();
-    },
-  );
+    // 真执行（真 spawn——echo 走真三段管道；断言输出不含 AI 生成文本面）
+    const bashTool = assembly.tools.find((tool) => tool.name === 'bash');
+    if (bashTool === undefined) throw new Error('bash 工具不在装配面');
+    const result = await bashTool.execute('c-echo', { command: 'echo core-plugs-ok' });
+    const text = JSON.stringify(result);
+    expect(text).toContain('core-plugs-ok');
+    assembly.dispose();
+  });
 
   it('core:exec disabled 行 → bash 静默缺席（诚实缺席律——对话本体仍通）', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-off-'));
