@@ -91,7 +91,7 @@ bin (berry) → host/main
 ## 安全模型
 
 - **沙箱档位**：read-only / workspace-write / danger（升权 allowed-once 审批缺席即 fail-closed）；
-- **审批**：工具执行前 ask → 用户应答（allow / deny / always）——`always` 落 `tool-policy.json`（工具策略表）持久回写；用户手写同表 `deny` 条目 = 主权硬拒（先于一切审批面、不可翻转）；
+- **审批**：工具执行前 ask → 用户应答（allow / deny / always）——`always` 落 `tool-policy.json`（工具策略表）持久回写；用户手写同表 `deny` 条目 = 主权硬拒（先于一切审批面、不可翻转）。手写 `allow` 条目含 `git` 时请注意：git 命令可经 worktree 配置触及主仓版本史、可外推远端——含 git 的放行是信任边界外推，宜窄词干（如 `git status`）勿宽前缀；`git push` 在模型面任何档恒截获（EXEC_GIT_PUSH_DENIED——发布动作走宿主编排面），allow 条目放行不了它；
 - **权限预设**：conservative / balanced（缺省）/ open 三档打包（TUI `/approval preset` 写盘 `settings.json` 两键 + open 档建议集 append；CLI `--preset` 逐次生效不写盘）——四层解析：工具参数 > 会话策略 > CLI 旗标 > settings.json > 代码常量；
 - **SSRF 卫生**：URL 白名单 → 私网双查（字面 + DNS）→ 重定向逐跳复检 → 字节帽；校验通过地址集连接级钉死（DNS rebinding「校验时公网、连接时内网」TOCTOU 闭合）；
 - **进程治理**：detached 进程组、树杀、登记簿孤儿清扫、pid 复用防线；
