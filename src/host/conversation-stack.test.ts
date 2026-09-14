@@ -19,7 +19,7 @@ import {
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
-import { Scope } from '../context/index.js';
+import { canonicalWorkspaceRoot, Scope } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { SessionLog } from '../session/index.js';
 import type { EventWrite, SessionRegistration } from '../persist/store.js';
@@ -128,6 +128,15 @@ function rigStack(rt: HostRuntime, overrides: Partial<ConversationStackOptions> 
 }
 
 describe('createConversationStack 装配序', () => {
+  it('workspaceAnchor 栈级锚取值器：显式锚优先 / 缺省归一根（03 §10.7 会话锚源回落位——委派子会话父行无锚时消费）', () => {
+    const { rt } = rigRuntime(true);
+    const ws = rigWorkspace();
+    const anchored = createConversationStack({ runtime: rt, env: {}, workspace: () => ws });
+    expect(anchored.workspaceAnchor()).toBe(ws); // 装配根显式锚
+    const bare = createConversationStack({ runtime: rt, env: {} });
+    expect(bare.workspaceAnchor()).toBe(canonicalWorkspaceRoot()); // 同源断言——缺省归一根
+  });
+
   it('模型缺省链：env 覆盖律（faux 注入位同面）', () => {
     const { rt } = rigRuntime(true);
     const stack = createConversationStack({ runtime: rt, env: { BERRY_AGENT_MODEL: 'anthropic/x' } });

@@ -8,7 +8,7 @@
  * 审批升父面桥（one-shot 直落父面 / background 先发挂起通知）、stopRequested
  * 协作停止桥（轮询 → abort → aborted 收场）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -404,6 +404,10 @@ describe('createInProcessSubagentProvider（批 19c-1——真工厂全环）', 
     // 审批真落父面：恰一问 + 路由位 = 父 sessionId（委派边界①执法）
     expect(backend.asks).toHaveLength(1);
     expect(backend.asks[0]!.sessionId).toBe(parent.sessionId);
+    // 写落位锁（六役子承父锚律——03 §10.7 定形注）：子 write 落**父工作区**
+    // （ws 隔离夹具根）非进程 cwd——修前子会话锚硬铸 canonicalWorkspaceRoot()
+    // 系「锚定进程根」缺陷族残句（仓库根 bg/child-note 夹具泄漏即其脚印）
+    expect(existsSync(join(ws, 'child-note.txt'))).toBe(true);
     await rt.shutdown();
   });
 
@@ -439,6 +443,41 @@ describe('createInProcessSubagentProvider（批 19c-1——真工厂全环）', 
     // 审批本体仍落父面
     expect(backend.asks).toHaveLength(1);
     expect(backend.asks[0]!.sessionId).toBe(parent.sessionId);
+    // 写落位锁（六役子承父锚律——03 §10.7 定形注）：background 形同律——
+    // 子 write 落父工作区非进程 cwd
+    expect(existsSync(join(ws, 'bg-note.txt'))).toBe(true);
+    await rt.shutdown();
+  });
+
+  it('子承父锚律（分辨形）：父登记行 workspaceRoot 胜出栈锚（父锚≠栈锚——锚继承非栈回落，03 §10.7 定形注）', async () => {
+    const { rt } = rigRuntime();
+    const stackWs = rigWorkspace(); // 栈锚（分立目录——与父锚可分辨）
+    const parentWs = rigWorkspace(); // 父登记行锚
+    const faux = fauxProvider({ provider: 'faux-sub', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-sub/m1',
+      env: {},
+      workspace: () => stackWs,
+    });
+    const backend = new RoutingApprovalBackend('approve');
+    stack.channels.addBackend(backend);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({ stack, tracker, warn: () => {} });
+    // 父会话登记行锚 = parentWs（manager.create 活体登记——未 append 未落库
+    // 行亦可读，SessionLog.workspaceRoot 活体载体律）
+    const parent = stack.manager.create({ workspaceRoot: parentWs });
+
+    faux.setResponses([
+      () => toolCallOf('t-pa', 'write', { path: 'parent-anchored.txt', content: 'z' }),
+      () => messageOf('stop'),
+    ]);
+    const result = await provider.run({ prompt: '写文件', parentSessionId: parent.sessionId, depth: 1 });
+    expect(result.stopReason).toBe('stop');
+    // 子承父锚：写落**父**工作区；栈锚分立目录零落（证明锚来自父行非栈回落）
+    expect(existsSync(join(parentWs, 'parent-anchored.txt'))).toBe(true);
+    expect(existsSync(join(stackWs, 'parent-anchored.txt'))).toBe(false);
     await rt.shutdown();
   });
 

@@ -282,6 +282,12 @@ export interface ConversationStack {
   ): Promise<SubmitResult> | undefined;
   /** 协作中止（在飞 run 的打断柄） */
   interrupt(sessionId: string): void;
+  /**
+   * 栈级工作区锚取值器（03 §10.7 会话锚源律——会话行无 workspaceRoot 的
+   * 回落位）：装配根显式锚优先，缺省归一根（canonical）。委派子会话
+   * 「子承父锚」的父行无锚回落消费位（六役子承父锚律）。
+   */
+  workspaceAnchor(): string;
   /** 启动会话策略（07 §5：cwd 归一根取最新会话——有则续接无则新建） */
   openStartupSession(cwd?: string): StartupSession;
 }
@@ -837,6 +843,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     interrupt(sessionId) {
       manager.driverOf(sessionId)?.abort();
     },
+    // 栈级锚取值器（闭包 const 同名 shorthand——:306 装配锚优先/缺省归一根）
+    workspaceAnchor,
     openStartupSession(cwd?: string): StartupSession {
       const workspaceRoot = canonicalWorkspaceRoot(cwd);
       // 按 cwd 归一根取最新会话（会话表 workspace_root 选取键——07 §5 策略真源）

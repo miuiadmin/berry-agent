@@ -23,7 +23,6 @@ import type {
   SubagentResult,
   Usage,
 } from '../contracts/index.js';
-import { canonicalWorkspaceRoot } from '../context/index.js';
 import { EXCLUDED_FROM_DERIVED_SURFACE, IN_PROCESS_CAPABILITIES } from '../subagent/index.js';
 import type { SubagentMachineAccount } from '../subagent/index.js';
 import { formatSkillBlock, validateSkillRefList } from '../skills/index.js';
@@ -284,7 +283,11 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
       const startedAt = Date.now();
       const child = stack.manager.create({
         origin: 'delegation',
-        workspaceRoot: canonicalWorkspaceRoot(),
+        // 子承父锚（03 §10.7 定形注——六役子承父锚律）：委派会话锚 = 父登记
+        // 行 workspaceRoot，父行无锚回落栈级归一锚；**禁铸进程 cwd**（原硬铸
+        // canonicalWorkspaceRoot() 系「锚定进程根」缺陷族残句——子代理相对
+        // 路径写逃出会话工作区）
+        workspaceRoot: stack.manager.workspaceRootOf(parentSessionId) ?? stack.workspaceAnchor(),
         ...(request.name !== undefined ? { title: request.name } : {}),
         ...(request.model !== undefined ? { model: request.model } : {}),
         ...(childSystemPrompt !== undefined ? { systemPrompt: childSystemPrompt } : {}),

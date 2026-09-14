@@ -81,6 +81,17 @@ function makeManager(dispatch = new EventDispatch()): { manager: SessionManager;
 /* ---------------- create / list ---------------- */
 
 describe('SessionManager create 与登记', () => {
+  it('workspaceRootOf 活体锚读面：create 即可读（未 append 未 flush——「锚不能走库读」律）+ 无锚/未知 id 诚实 undefined（六役子承父锚消费位）', () => {
+    const { manager } = makeManager();
+    const withAnchor = manager.create({ workspaceRoot: '/parent-ws' });
+    // 行未落库（createSession 零 I/O——行首事件才落库）亦可读：活体镜像自
+    // 日志登记值 adopt 时入册（SessionLog.workspaceRoot 活体载体）
+    expect(manager.workspaceRootOf(withAnchor.sessionId)).toBe('/parent-ws');
+    const bare = manager.create();
+    expect(manager.workspaceRootOf(bare.sessionId)).toBeUndefined(); // 无锚形
+    expect(manager.workspaceRootOf('nope')).toBeUndefined(); // 未知 id 诚实缺席
+  });
+
   it('create：origin 缺省 conversation + 驱动入册（isOpen/driverOf）+ 行随首事件落库', async () => {
     const { manager } = makeManager();
     const opened = manager.create({ workspaceRoot: '/ws', title: '标题' });

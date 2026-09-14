@@ -153,8 +153,11 @@ export class SessionManager {
   private readonly onRetired?: (sessionId: string) => void;
   /** 会话关闭收口位（构造面注入——六役 CL-C ④；缺省零行为） */
   private readonly onSessionClosed?: (sessionId: string) => void;
-  /** 已开会话登记（sessionId → 驱动 + 血缘形态——幂等 open 的判据面） */
-  private readonly records = new Map<string, { driver: ConversationDriver; origin: SessionOrigin }>();
+  /** 已开会话登记（sessionId → 驱动 + 血缘形态 + 工作区锚活体镜像——幂等 open 的判据面；锚自日志登记值 adopt 时入册，03 §10.7「锚不能走库读」律） */
+  private readonly records = new Map<
+    string,
+    { driver: ConversationDriver; origin: SessionOrigin; workspaceRoot?: string }
+  >();
   /**
    * 停机 drain 窗封印位（六役停机窗补钉——02 §5.3 SESSION_MANAGER_DISPOSED）：
    * dispose 置位后 create 拒。原「closer 序先 dispose 会话管理器、自持钟后停」
@@ -181,6 +184,17 @@ export class SessionManager {
   /** 会话列表（「按 cwd 取最新」选取面透传） */
   list(options: { workspaceRoot?: string; limit?: number } = {}): SessionRow[] {
     return this.persistence.listSessions(options);
+  }
+
+  /**
+   * 单会话锚读面（03 §10.7 会话锚源律的消费位——委派子会话「子承父锚」
+   * 取父锚用）：**活体面**——createSession 零 I/O（行首事件才落库），起会时
+   * 库中行尚不可见、锚不能走库读（SessionLog.workspaceRoot 活体载体律）；
+   * 故锚自 adopt 时随日志登记值入册。未在册（未开/已 retire/未知 id）与
+   * 缺席 id（无父委派形）均诚实 undefined——回落栈级锚由调用方编排。
+   */
+  workspaceRootOf(sessionId: string | undefined): string | undefined {
+    return sessionId !== undefined ? this.records.get(sessionId)?.workspaceRoot : undefined;
   }
 
   /** 新开会话（origin 缺省普通对话；model/systemPrompt/shapeTools/askApproval/extraTools 为本会话装配覆盖——纯内存载体，批 19c-1 子代理通道同 model 律） */
@@ -426,7 +440,12 @@ export class SessionManager {
       ...(overrides.askApproval !== undefined ? { askApproval: overrides.askApproval } : {}),
       ...(overrides.extraTools !== undefined ? { extraTools: overrides.extraTools } : {}),
     });
-    this.records.set(log.sessionId, { driver, origin });
+    // 锚活体镜像入册（workspaceRootOf 读面单源——日志登记值，非库行）
+    this.records.set(log.sessionId, {
+      driver,
+      origin,
+      ...(log.workspaceRoot !== undefined ? { workspaceRoot: log.workspaceRoot } : {}),
+    });
     return { sessionId: log.sessionId, driver, origin };
   }
 }
