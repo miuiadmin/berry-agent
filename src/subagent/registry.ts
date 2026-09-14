@@ -12,6 +12,12 @@
  * 宿主席归属、bindForPlugin fork 绑定注入插件 id——ownerOfKind 查询面供
  * trigger starter 谱系闸判「宿主/他插件预登记 kind 不可复用」）+ def 帽槽
  * （五役 d3-2——登记期 parallelLimits 并入 per-kind 帽表即执法）。
+ * 六役 CL-C 执法补笔（03 §2.2 第九面）：① 帽值归属律——异主重登不夺籍
+ * 亦不夺帽（def 随籍 first-wins，同主重登 last-write 照旧）；② fork 绑面
+ * register 的 owner 由宿主绑定闭包注入、非调用方自报（自报形系缺陷）；
+ * ③ def 值域运行期校验 fail-loud（parallelLimits 非负有限——违例拒
+ * JOB_DEF_INVALID，02 §5.3 补登笔；kind 词汇开放面照旧——「登怪词」不拒
+ * 「用未登词」拒）。
  * 活体通知 job_settled（总线词，内存直推——emit 注入位，装配根接线到
  * context 事件总线并预注册词汇）。终态条目保序保留帽 256 FIFO（进程
  * 生命周期内跨会话有界——供 UI 回看与结算对账，超帽即弃最老）。
@@ -33,11 +39,27 @@ export const JOB_KIND_HOST_OWNER = 'HOST';
 
 /**
  * registerKind def 形（03 §2.2「Job 登记面」def 槽——行号免锚；五役 d3-2 兑现：修前码面
- * 单参签名静默丢 def 实参）。
+ * 单参签名静默丢 def 实参）。def 随籍 first-wins（六役 CL-C ①——03 §2.2 第九面
+ * 帽值归属律）：同主重登 def 后写胜出、异主重登 def 整体不落。
  */
 export interface JobKindDef {
-  /** per-kind 并行帽（与构造期 options.parallelLimits 同表并入——登记期值生效即执法，同 kind 后写胜出） */
+  /** per-kind 并行帽（与构造期 options.parallelLimits 同表并入——登记期值生效即执法，同主重登后写胜出、异主不落） */
   readonly parallelLimits?: number;
+}
+
+/**
+ * parallelLimits 值域校验单点（六役 CL-C ③——03 §2.2 第九面 + 02 §5.3
+ * JOB_DEF_INVALID 补登笔）：非负有限数。JS 直调形无 TS 位兜底——运行期
+ * fail-loud；构造期 options.parallelLimits 与登记期 def.parallelLimits 同
+ * helper 同律（单源复用）。
+ */
+function assertParallelLimit(value: number, source: string): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new BaseError(
+      'JOB_DEF_INVALID',
+      `parallelLimits 值域违例拒（${source} = ${String(value)}）——须非负有限数（03 §2.2 第九面六役 CL-C ③；02 §5.3）`,
+    );
+  }
 }
 
 /** job_settled 活体通知注入位（装配根接 context 总线——词汇预注册归装配） */
@@ -114,10 +136,11 @@ export interface KindOwningJobRegistry extends JobRegistry {
   ownerOfKind(kind: JobKind): string | undefined;
   /**
    * fork 级绑定（'jobs' 席位 fork 绑定，'secrets' 席同构先例）：返回委托
-   * 真身的注册表视图，唯一改写位 registerKind 携本插件 id（kind 归属
-   * 记录）；宿主直调真身 = 宿主席归属。plugin-boot 装载序逐插件 fork
-   * provide 'jobs' 消费（共享根 provideJobsService 真身不动——Kahn 可满足
-   * 判与宿主消费面走真身）。
+   * 真身的注册表视图，改写位两枚（六役 CL-C ② 后）——registerKind 携
+   * 本插件 id（kind 归属记录）+ register 的 owner 由绑定闭包固化注入
+   * （调用方自报值不采信）；宿主直调真身 = 宿主席归属。plugin-boot
+   * 装载序逐插件 fork provide 'jobs' 消费（共享根 provideJobsService
+   * 真身不动——Kahn 可满足判与宿主消费面走真身）。
    */
   bindForPlugin(pluginId: string): KindOwningJobRegistry;
 }
@@ -144,12 +167,16 @@ export function createJobRegistry(options: JobRegistryOptions = {}): KindOwningJ
    * 宿主席、fork 绑定注入插件 id）。原独立 kinds Set 并入本 Map（双簿必漂移）。
    */
   const kindOwners = new Map<JobKind, string>();
-  /** per-kind 并行帽表（构造期 options.parallelLimits 并入 + 登记期 def 值后写胜出——五役 d3-2 同表律） */
+  /** per-kind 并行帽表（构造期 options.parallelLimits 并入 + 登记期 def 值同主后写胜出——五役 d3-2 同表律；异主重登不落〔六役 ①〕） */
   const kindLimits = new Map<JobKind, number>();
   if (options.parallelLimits !== undefined) {
     for (const kind of Object.keys(options.parallelLimits) as JobKind[]) {
       const limit = options.parallelLimits[kind];
-      if (limit !== undefined) kindLimits.set(kind, limit);
+      // 构造期值域同律（单源 helper——六役 ③）：坏值建表即拒（装配期 fail-loud）
+      if (limit !== undefined) {
+        assertParallelLimit(limit, `options.parallelLimits[${kind}]`);
+        kindLimits.set(kind, limit);
+      }
     }
   }
   /** 在飞条目（注册序） */
@@ -161,14 +188,20 @@ export function createJobRegistry(options: JobRegistryOptions = {}): KindOwningJ
   /**
    * 登记单点（宿主直调与 fork 绑定共用——五役 d3-1）：归属 first-wins
    * （首登者定籍——重登同主幂等、异主不夺籍仅 warn 可观测，词汇面维持
-   * Set 语义）；def 帽值后写胜出（登记期值生效即执法——d3-2）。
+   * Set 语义）。def 帽值随籍 first-wins（六役 CL-C ①——03 §2.2 第九面帽值
+   * 归属律）：同主重登 def 后写胜出照旧；异主重登 def 整体不落（含
+   * parallelLimits——第三方改写宿主/他件帽值系缺陷，仅维持既有 warn 路径）。
+   * 值域校验前置（六役 ③）：def.parallelLimits 违例即拒——不半落登记册。
    */
   const registerKindOwned = (owner: string, kind: JobKind, def?: JobKindDef): void => {
+    if (def?.parallelLimits !== undefined) assertParallelLimit(def.parallelLimits, `def[${kind}]`);
     const existing = kindOwners.get(kind);
     if (existing === undefined) {
       kindOwners.set(kind, owner);
     } else if (existing !== owner) {
+      // 异主重登：不夺籍亦不夺帽（六役 ①）——def 整体不落直接返回
       warn(`Job kind「${kind}」已归属 ${existing}——${owner} 重登不夺籍（首登者定籍，03 §2.2 五役执法补笔）`);
+      return;
     }
     if (def?.parallelLimits !== undefined) kindLimits.set(kind, def.parallelLimits);
   };
@@ -228,14 +261,18 @@ export function createJobRegistry(options: JobRegistryOptions = {}): KindOwningJ
       return kindOwners.get(kind);
     },
     bindForPlugin(pluginId) {
-      // fork 对象委托真身（'secrets' 席同构——五役 d3-1）：唯一改写位
-      // registerKind 携本插件 id；读面/写面全真身同表（单册非副本）
+      // fork 对象委托真身（'secrets' 席同构——五役 d3-1）：改写位两枚——
+      // registerKind 携本插件 id（kind 归属记录）+ register 的 owner 由宿主
+      // 绑定闭包注入（六役 CL-C ②——03 §2.2 第九面：fork 绑面 register 的
+      // owner 非调用方自报，自报形系缺陷——冒名他 owner 即绕归属围栏收口；
+      // 自报值被忽略，恒以绑定 pluginId 落格）；读面/写面全真身同表（单册
+      // 非副本）
       return {
         registerKind: (kind, def) => registerKindOwned(pluginId, kind, def),
         hasKind: (kind) => kindOwners.has(kind),
         ownerOfKind: (kind) => kindOwners.get(kind),
         bindForPlugin: (another) => registry.bindForPlugin(another),
-        register: (input) => registry.register(input),
+        register: (input) => registry.register({ ...input, owner: pluginId }),
         closeOwner: (owner) => registry.closeOwner(owner),
         list: () => registry.list(),
         running: () => registry.running(),

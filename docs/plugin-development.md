@@ -144,7 +144,7 @@ export default async function apply(ctx, config) {
 
 ### Job 登记面（ctx.get("jobs")）
 
-`registerKind(kind, def?)` 登记 Job 种类（后台任务注册表的词汇面——未登记种类使用拒 `JOB_KIND_UNKNOWN`）；可选 `def.parallelLimits` 并入 per-kind 并行帽（同 kind 后写胜出）。经 `ctx.get("jobs")` 取用的登记恒记本插件归属——**谱系闸执法**：他插件或宿主预登记的 kind 复用即拒（触发器起会显式指定 `jobKind` 时须归属本插件——warn 可观测拒收，不冒名）。
+`registerKind(kind, def?)` 登记 Job 种类（后台任务注册表的词汇面——未登记种类使用拒 `JOB_KIND_UNKNOWN`）；可选 `def.parallelLimits` 并入 per-kind 并行帽（**同主后写胜出、异主重登 def 整体不落**——帽随登记籍 first-wins；值域须非负有限数，违例拒 `JOB_DEF_INVALID`）。经 `ctx.get("jobs")` 取用的登记恒记本插件归属——**谱系闸执法**：他插件或宿主预登记的 kind 复用即拒（触发器起会显式指定 `jobKind` 时须归属本插件——warn 可观测拒收，不冒名）。
 
 ### HTTP 路由（受限开放——`sdk-routes` 服务面）
 

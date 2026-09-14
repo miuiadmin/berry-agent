@@ -53,4 +53,10 @@ registerErrorCodes([
     description:
       '程序化注册槽 name 词法违例拒——非裸词（06 §11.6 声明式 name 同形、词法承 §11.2「小写连字符与数字」——词法真源 06 §11.2 frontmatter name 行）；执法序同 AGENT_ROLE 注记：撞名闸前置格式闸（03 §2.7「撞名闸前置格式闸」句；2026-09-07 冷读闸 blocker 修复批拍板案 a 改形——原「非域名两段式」弃）',
   },
+  {
+    code: 'JOB_DEF_INVALID',
+    module: 'subagent',
+    description:
+      'registerKind def 值域违例拒——parallelLimits 须非负有限数（JS 直调形运行期校验 fail-loud；02 §5.3 六役 CL-C ③ 补登笔）',
+  },
 ]);

@@ -116,9 +116,10 @@ export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
   },
   {
     // fork 绑定真源 = plugin-boot 装载序 fork.provide(JOBS_SERVICE_NAME,
-    // options.jobs.bindForPlugin(pluginId))——绑定面委托共享根真身，仅
-    // registerKind 携本插件 id 改归属注入；方法面 = subagent/registry.ts
-    // JobRegistry 契约接口（七动词）
+    // options.jobs.bindForPlugin(pluginId))——绑定面委托共享根真身，改
+    // 归属注入两改写位（registerKind kind 归属 + register owner 闭包
+    // 固化——六役 CL-C ②）；方法面 = subagent/registry.ts JobRegistry
+    // 契约接口（七动词）
     name: 'jobs',
     module: 'subagent',
     faceInterface: 'JobRegistry',

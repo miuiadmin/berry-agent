@@ -2,6 +2,9 @@
  * JobRegistry 测试——状态机全集（04 §10）：registerKind 词汇闸/first-wins
  * 结算/done 永不 reject/stop 协作幂等/onStop 协作中止路由（Job 消费面批）/
  * closeOwner 归属围栏/并行帽/终态帽 256 FIFO/emit 活体通知。
+ * 六役 CL-C 执法批（03 §2.2 第九面）：帽值归属律（异主重登 def 不落）+
+ * fork owner 固化（register owner 绑定闭包注入）+ def 值域校验
+ * （JOB_DEF_INVALID fail-loud）。
  */
 import { describe, expect, it, vi } from 'vitest';
 import { BaseError, type JobKind } from '../contracts/index.js';
@@ -67,7 +70,7 @@ describe('JobRegistry kind 归属记录（五役 d3-1——谱系执法）', () 
     expect(warns).toHaveLength(1);
   });
 
-  it('fork 绑定面委托真身：register/settle 与真身同表互见（唯一改写位 = registerKind 归属）', () => {
+  it('fork 绑定面委托真身：register/settle 与真身同表互见（改写位 = registerKind 归属 + register owner 固化——六役 ② 后两改写位）', () => {
     const registry = createJobRegistry();
     const bound = registry.bindForPlugin('acme');
     bound.registerKind(customKind);
@@ -92,6 +95,67 @@ describe('JobRegistry registerKind def 帽槽（五役 d3-2——03 §2.2「Job 
     registry.registerKind('trigger', { parallelLimits: 1 }); // 登记期并帽覆盖
     registry.register({ kind: 'trigger', name: 'a', owner: 's1' });
     expectCodeSync(() => registry.register({ kind: 'trigger', name: 'b', owner: 's1' }), 'JOB_LIMIT_REACHED');
+  });
+});
+
+describe('JobRegistry 六役 CL-C 执法批（帽值归属律 + fork owner 固化 + def 值域——03 §2.2 第九面）', () => {
+  it('①帽值归属律：异主重登不夺籍亦不夺帽——def 整体不落（修前红：异主 parallelLimits 99 last-write 生效夺帽）', () => {
+    const warns: string[] = [];
+    const registry = createJobRegistry({ warn: (message) => warns.push(message) });
+    registry.bindForPlugin('acme').registerKind(customKind, { parallelLimits: 1 });
+    registry.bindForPlugin('beta').registerKind(customKind, { parallelLimits: 99 }); // 异主重登——不夺籍亦不夺帽
+    expect(registry.ownerOfKind(customKind)).toBe('acme'); // 籍 first-wins 维持
+    // 帽仍 1（def 随籍 first-wins）：第一笔在飞后即达帽
+    registry.register({ kind: customKind, name: 'a', owner: 's1' });
+    expectCodeSync(() => registry.register({ kind: customKind, name: 'b', owner: 's1' }), 'JOB_LIMIT_REACHED');
+    expect(warns.join('\n')).toContain('不夺籍'); // 既有 warn 路径维持可观测
+  });
+
+  it('①同主重登 def 更新照旧（last-write 保持）：acme 帽 1 → 同主携 2 生效', () => {
+    const registry = createJobRegistry();
+    registry.bindForPlugin('acme').registerKind(customKind, { parallelLimits: 1 });
+    registry.bindForPlugin('acme').registerKind(customKind, { parallelLimits: 2 }); // 同主——后写胜出
+    registry.register({ kind: customKind, name: 'a', owner: 's1' });
+    registry.register({ kind: customKind, name: 'b', owner: 's1' });
+    expectCodeSync(() => registry.register({ kind: customKind, name: 'c', owner: 's1' }), 'JOB_LIMIT_REACHED');
+  });
+
+  it('②fork owner 固化：fork 面 register 的 owner 由绑定闭包注入（自报值被忽略——修前红：自报 owner 直传生效）', async () => {
+    const registry = createJobRegistry();
+    const bound = registry.bindForPlugin('acme');
+    bound.registerKind(customKind);
+    const handle = bound.register({ kind: customKind, name: 'a', owner: 'spoofed-owner' }); // 自报形——不采信
+    expect(handle.entry.owner).toBe('acme'); // 绑定 pluginId 固化
+    // 围栏同源后果：closeOwner('acme')（插件卸载 closer 两路同源之一）收口该条目
+    await registry.closeOwner('acme');
+    expect(handle.entry.status).toBe('killed');
+  });
+
+  it('③def 值域运行期校验 fail-loud：parallelLimits -1/NaN/Infinity 均拒 JOB_DEF_INVALID（修前红：静默落表）；违例不半落登记', () => {
+    const registry = createJobRegistry();
+    expectCodeSync(() => registry.registerKind(customKind, { parallelLimits: -1 }), 'JOB_DEF_INVALID');
+    expectCodeSync(() => registry.registerKind(customKind, { parallelLimits: Number.NaN }), 'JOB_DEF_INVALID');
+    expectCodeSync(
+      () => registry.registerKind(customKind, { parallelLimits: Number.POSITIVE_INFINITY }),
+      'JOB_DEF_INVALID',
+    );
+    expect(registry.hasKind(customKind)).toBe(false); // 违例拒——登记册零半落
+  });
+
+  it('③构造期同律：options.parallelLimits 坏值同码拒（单源 helper——JS 直调形无 TS 位兜底）', () => {
+    expectCodeSync(() => createJobRegistry({ parallelLimits: { subagent: -1 } }), 'JOB_DEF_INVALID');
+    expectCodeSync(() => createJobRegistry({ parallelLimits: { subagent: Number.NaN } }), 'JOB_DEF_INVALID');
+  });
+
+  it('③组合序锁：值域校验先于归属判——异主重登携坏 def 亦 JOB_DEF_INVALID（非 ① 的 warn 不夺籍路径）', () => {
+    const registry = createJobRegistry({ warn: () => undefined });
+    registry.bindForPlugin('acme').registerKind(customKind, { parallelLimits: 1 });
+    // 异主 + 坏 def 组合：fail-loud 优先（坏输入拒先于所有权问题——03 §2.2 第九面）
+    expectCodeSync(
+      () => registry.bindForPlugin('beta').registerKind(customKind, { parallelLimits: -1 }),
+      'JOB_DEF_INVALID',
+    );
+    expect(registry.ownerOfKind(customKind)).toBe('acme'); // 籍不动（违例整体不落）
   });
 });
 
