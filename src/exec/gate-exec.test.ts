@@ -295,7 +295,8 @@ describe('createGateExec git 豁免策略组装（独立抄写面不漂移）', 
     await gate.execCommand('git commit -m x');
 
     // 豁免 + worktree 锚定：不携 deny、backing（common git dir）入可写根
-    // （gate 档恒 workspace-write——bash.ts:253 的 mode 判在此恒真，等价省略）
+    // （gate 档恒 workspace-write——bash.ts 的 worktreeGitDir 消费 mode 判在此恒真，
+    //  等价省略；原注锚 :253 已漂移、现位 :354——行号免锚防漂移，以判定语义定位）
     expect(captured.policy?.mode).toBe('workspace-write');
     expect(captured.policy?.denyWritePaths).toBeUndefined();
     expect(captured.policy?.writableRoots).toBeDefined();

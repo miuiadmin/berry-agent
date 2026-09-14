@@ -48,7 +48,7 @@
 | `core:sdk`         | 自动化通道（HTTP+SSE `/v1/*` 传输、daemon 编舞、路由扩展位）                                                                                                                                                                  |
 | `core:obs`         | 观测（rollup 表族、`obs_query`、告警通知；自管库）                                                                                                                                                                            |
 | `core:issue`       | issue 模式（GitHub 轮询 + webhook、worktree 隔离 + 前次分支指路、交付验证门〔verifyCommand 真跑、未过拒交付〕、escalation 登记转人审、编排定序〔验证门→escalation→档位〕、对账纪律句、needs-human 判词、draft/auto 交付映射） |
-| `core:credentials` | 凭证代管（加密存储、`ctx.secrets` 受理制开面、`@credentials:` env 注入、oauth 流与刷新链、`/credentials` 人面）                                                                                                               |
+| `core:credentials` | 凭证代管（加密存储、`ctx.get("secrets")` 受理制开面、`@credentials:` env 注入、oauth 流与刷新链、`/credentials` 人面）                                                                                                        |
 
 ## 运行时骨架
 

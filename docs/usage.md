@@ -158,13 +158,13 @@ berry sessions reindex           # 全文索引全量重建（派生物不修不
 
 ```bash
 berry credentials add github-token ghp_...                        # 录入 host 域（core:issue 件消费——同名即生效）
-berry credentials add api-key secret... --namespace plugin:my-plugin   # 录入插件域（插件经 ctx.secrets 读自域）
+berry credentials add api-key secret... --namespace plugin:my-plugin   # 录入插件域（插件经 ctx.get("secrets") 读自域）
 berry credentials list                                            # 全域列示——域/名/来源/更新时间
 berry credentials rm github-token                                 # 撤销（删除唯一路径）
 ```
 
 - **值永不呈现**：录入回执与列示只含域/名/来源与时间——值只进加密存储（shell 历史里的 argv 仍属本机明文，敏感值建议改用 TUI `/credentials`）；
-- 域形两态：`host`（宿主域——core: 出厂件消费，如 issue 件的 `github-token` / `issue-webhook-secret` 两名；缺省）与 `plugin:<id>`（插件域）；插件经 `ctx.secrets` 只读自己的域，跨域读需用户显式开门；
+- 域形两态：`host`（宿主域——core: 出厂件消费，如 issue 件的 `github-token` / `issue-webhook-secret` 两名；缺省）与 `plugin:<id>`（插件域）；插件经 `ctx.get("secrets")` 只读自己的域，跨域读需用户显式开门；
 
 ### doors 开门制门态只读
 
@@ -289,27 +289,27 @@ berry plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 
 
 前缀一律 `BERRY_AGENT_*`：
 
-| 变量                                   | 作用                                                                                                                        | 缺省                        |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `BERRY_AGENT_MODEL`                    | 覆盖缺省模型                                                                                                                | `anthropic/claude-sonnet-5` |
-| `BERRY_AGENT_DATA_DIR`                 | 数据目录                                                                                                                    | `~/.berry-agent`            |
-| `BERRY_AGENT_DB_PATH`                  | 库文件路径（独立梯子——重定向库文件而不动数据目录）                                                                          | `<数据目录>/sessions.db`    |
-| `BERRY_AGENT_LOG_LEVEL`                | 日志级别：error / warn / info / debug / silent                                                                              | `info`                      |
-| `BERRY_AGENT_BASH_PATH`                | bash 工具可执行路径（缺失 fail-loud）                                                                                       | PATH 发现序                 |
-| `BERRY_AGENT_FD_PATH`                  | `@` 文件补全的 fd 可执行路径（保留位——fd 批未触，当前仅内置遍历，设置无效）                                                 | —                           |
-| `BERRY_AGENT_BROWSER_PATH`             | 浏览器引擎可执行路径                                                                                                        | 引擎发现序                  |
-| `BERRY_AGENT_BIN`                      | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                                                                       | `berry`（PATH 名解析）      |
-| `BERRY_AGENT_CRON`                     | cron 可选后端开关/载体                                                                                                      | 进程内挂钟                  |
-| `BERRY_AGENT_GIT_PATH`                 | worktree 工具 git 可执行路径（保留位——装配侧未接，当前设置无效）                                                            | PATH 发现序                 |
-| `BERRY_AGENT_SDK_TOKEN`                | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）                                                       | 缺省不开 TCP 侧             |
-| `BERRY_AGENT_SDK_PORT`                 | daemon SDK 面端口 env 补位（`--sdk-port` 旗标缺席时生效；`0..65535` 整数——`0` = 内核指派端口放行，越界/坏值 fail-loud 拒启）| 旗标缺席即不开              |
-| `BERRY_AGENT_SDK_HOST`                 | daemon SDK 面绑定地址 env 补位（`--sdk-host` 旗标缺席时生效；非回环值同样必配 token）                                       | `127.0.0.1`                 |
-| `BERRY_AGENT_GITHUB_TOKEN`             | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）                                                          | 缺席                        |
-| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`     | core:issue 件 webhook 签名密钥（同回落律）                                                                                  | 缺席                        |
-| `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE`   | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                                                                | 1440                        |
-| `BERRY_AGENT_MAX_CONCURRENT_RUNS`      | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸）                                          | 16                          |
-| `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` | 单父在飞子代理扇出帽（per-父会话内存位——正整数必需，坏值 fail-loud 拒启；满帽排队非拒收，one-shot 与后台同池同帽）          | 8                           |
-| `BERRY_AGENT_BACKGROUND_BUDGET_TOKENS` | 当日后台道 token 日池限额（后台 run 记账对照面；非负整数字串，`0` = 显式关池，坏值 fail-loud 拒启；前台花销照入账不进闸门） | 4000000                     |
+| 变量                                   | 作用                                                                                                                         | 缺省                        |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `BERRY_AGENT_MODEL`                    | 覆盖缺省模型                                                                                                                 | `anthropic/claude-sonnet-5` |
+| `BERRY_AGENT_DATA_DIR`                 | 数据目录                                                                                                                     | `~/.berry-agent`            |
+| `BERRY_AGENT_DB_PATH`                  | 库文件路径（独立梯子——重定向库文件而不动数据目录）                                                                           | `<数据目录>/sessions.db`    |
+| `BERRY_AGENT_LOG_LEVEL`                | 日志级别：error / warn / info / debug / silent                                                                               | `info`                      |
+| `BERRY_AGENT_BASH_PATH`                | bash 工具可执行路径（缺失 fail-loud）                                                                                        | PATH 发现序                 |
+| `BERRY_AGENT_FD_PATH`                  | `@` 文件补全的 fd 可执行路径（保留位——fd 批未触，当前仅内置遍历，设置无效）                                                  | —                           |
+| `BERRY_AGENT_BROWSER_PATH`             | 浏览器引擎可执行路径                                                                                                         | 引擎发现序                  |
+| `BERRY_AGENT_BIN`                      | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                                                                        | `berry`（PATH 名解析）      |
+| `BERRY_AGENT_CRON`                     | cron 可选后端开关/载体                                                                                                       | 进程内挂钟                  |
+| `BERRY_AGENT_GIT_PATH`                 | worktree 工具 git 可执行路径（保留位——装配侧未接，当前设置无效）                                                             | PATH 发现序                 |
+| `BERRY_AGENT_SDK_TOKEN`                | serve `--daemon` 线协议面 TCP 侧鉴权 token（`--sdk-host` 非回环必配）                                                        | 缺省不开 TCP 侧             |
+| `BERRY_AGENT_SDK_PORT`                 | daemon SDK 面端口 env 补位（`--sdk-port` 旗标缺席时生效；`0..65535` 整数——`0` = 内核指派端口放行，越界/坏值 fail-loud 拒启） | 旗标缺席即不开              |
+| `BERRY_AGENT_SDK_HOST`                 | daemon SDK 面绑定地址 env 补位（`--sdk-host` 旗标缺席时生效；非回环值同样必配 token）                                        | `127.0.0.1`                 |
+| `BERRY_AGENT_GITHUB_TOKEN`             | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）                                                           | 缺席                        |
+| `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`     | core:issue 件 webhook 签名密钥（同回落律）                                                                                   | 缺席                        |
+| `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE`   | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                                                                 | 1440                        |
+| `BERRY_AGENT_MAX_CONCURRENT_RUNS`      | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸）                                           | 16                          |
+| `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` | 单父在飞子代理扇出帽（per-父会话内存位——正整数必需，坏值 fail-loud 拒启；满帽排队非拒收，one-shot 与后台同池同帽）           | 8                           |
+| `BERRY_AGENT_BACKGROUND_BUDGET_TOKENS` | 当日后台道 token 日池限额（后台 run 记账对照面；非负整数字串，`0` = 显式关池，坏值 fail-loud 拒启；前台花销照入账不进闸门）  | 4000000                     |
 
 `BERRY_AGENT_LOG_LEVEL` 另支持**逗号分隔 per-module 语法**（如 `info,session:debug`）：每条目按**最右一个冒号**切分模块名与级别（模块名含冒号可表达——`core:memory:debug` 意为模块 `core:memory` 开 debug，段内冒号不是分隔符）；模块名按**前缀匹配**生效（`session` 命中 `session` 与 `session:*` 全体），多条目前缀同时命中取最长；不带模块名的条目设全局级（全局 `silent` 压倒一切 per-module 条目）；无效条目 stderr 警告后跳过（视同未设）。
 
