@@ -70,7 +70,13 @@ export interface DispatchEnv {
   readonly version: string;
 }
 
-/** 帮助文案（07 §5 命令族定名块单源摘编——自包含不外指） */
+/**
+ * 帮助文案（07 §5 命令族定名块单源摘编——自包含不外指）。
+ *
+ * 旗标归属行与 src/host/cli.ts 各入口旗标表（TUI/RUN/SERVE/DUMP_SCHEMAS）
+ * 对拍维护：--no-delta 系 run/serve 两表共收（非 serve 专属）；--plugin-file
+ * 系 TUI/RUN 收、DUMP 收而互斥拒（2026-09-14 勘正批两笔归属勘正的锚定注）。
+ */
 export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
 
 用法：berry [命令] [旗标]
@@ -89,9 +95,11 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
 
 常用旗标：
   --help / --version / --debug / --port <n> / --no-plugins
+  --plugin-file <path>  快速试件（插件目录或单文件入口 .js/.mjs/.ts——纯内存注入零落盘；TUI / run 收，dump-config 互斥拒）
   run 限定：--output-format <text|json|stream>  --output-last-message <file>  --ephemeral
             --max-turns <n>  --session <id>  --continue  --fork [id]  --read-only  --preset <名>  --tick <名>  --background
-  serve 限定：--daemon  --no-delta  --sdk-port <n>  --sdk-host <host>（后两旗标 daemon 形专属）
+  run/serve 共收：--no-delta（线面退订流式增量）
+  serve 限定：--daemon  --sdk-port <n>  --sdk-host <host>（后两旗标 daemon 形专属）
 
 裸 -- 之后的 argv 全字面；未识别 -- 词一律用法错退 2。`;
 
