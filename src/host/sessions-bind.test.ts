@@ -9,13 +9,15 @@
  *  - 结构前提：data 非纯对象拒（SESSION_EVENT_DATA_INVALID——归因键恒在
  *    的结构前提）；宿主道（无 caller 的基础面）零变——归因只发生在绑定面。
  *
- * 另含 ag 批 DP3 锁：core: 注册表 16 件 api 块对宿主 1.0 恒 admit（同仓同
- * 版本锁形态——CorePluginReference.api 即官方清单载体）。
+ * 另含 ag 批 DP3 锁：core: 注册表 16 件 api 块对宿主 apiVersion 真源（仓库
+ * 根 package.json 同源直读）恒 admit（同仓同版本锁形态——CorePluginReference.
+ * api 即官方清单载体；宿主版本同源断言律，不硬编码号）。
  *
  * 分层纪律：绑定件纯单元（真 SessionLog 零 mock）+ 组合根 fork 级（真装载
  * 管线 + HostRuntime 结构化替身）。
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 import { BaseError, registerEventType } from '../contracts/index.js';
 import { adjudicateApiGate } from '../contracts/api.js';
@@ -278,11 +280,21 @@ describe('fork 级接线（bootPlugins options.sessions——03 §4.5 共享根�
 });
 
 describe('core: 注册表 api 回填锁（ag 批 DP3——同仓同版本恒过形态）', () => {
-  it('16 件 api 块齐备且对宿主 1.0 全 admit（官方清单载体 = CorePluginReference.api）', () => {
+  /**
+   * 宿主 apiVersion 真源（同源断言律——CL-E 笔）：与 plugins-cmd.test.ts
+   * runCheck 同文件同源直读仓库根 package.json（与 main.ts readVersion 同
+   * 文件）；测试动态取值不断言硬编码号，apiVersion 翻号日本测试族零改笔
+   * 照跑（硬编码 '1.0' 脱钩真源——真源翻号即静默漂绿，已废止）
+   */
+  const hostApi = (
+    JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { apiVersion: string }
+  ).apiVersion;
+
+  it('16 件 api 块齐备且对宿主真源 apiVersion 全 admit（官方清单载体 = CorePluginReference.api）', () => {
     const refs = createCorePlugins({ dataDir: null });
     expect(refs).toHaveLength(16);
     for (const ref of refs) {
-      const verdict = adjudicateApiGate(ref.api, '1.0', `core:${ref.name}`);
+      const verdict = adjudicateApiGate(ref.api, hostApi, `core:${ref.name}`);
       expect(verdict.status).toBe('admit'); // api 块在场 + min ≤ 宿主——legacy/拒载出口结构性不发生
     }
   });

@@ -134,7 +134,7 @@ interface DepsForTest {
     intervalMs?: number;
     warn?: (message: string) => void;
   };
-  /** sessions 服务面（批 19 销账笔——assembly 同构 provide：memory 差分落账腿消费） */
+  /** sessions 服务面（ag 批 cs-D2——受局面注入 bootPlugins options.sessions：fork 级绑定面供 memory 差分落账腿消费，共享根 provide 形已废止） */
   sessionsFace?: SessionsFace;
 }
 
@@ -162,11 +162,11 @@ async function bootCore(
   if (coreDeps.issueSession !== undefined) {
     provideJobsService(scope, createJobRegistry({ warn: () => undefined }));
   }
-  // sessions 服务面（批 19 销账笔——assembly 同构 provide：boot 前在场供
-  // memory 件 tryGet 消费）
-  if (coreDeps.sessionsFace !== undefined) {
-    scope.provide('sessions', coreDeps.sessionsFace);
-  }
+  // sessions 服务面（CL-E rig 改造批——03 §4.5 定形注 ag 批 cs-D2）：受局面
+  // 注入形与生产装载同构（assembly.ts options.sessions 先例）——不再走已废止
+  // 的共享根 scope.provide('sessions') 旧形；plugin-boot 装载序逐插件
+  // fork.provide bindSessionsForPlugin 绑定面（归因闸 caller 宿主单方拼装 +
+  // 行籍闸执法），memory 件 tryGet 消费到的恒为绑定面真身
   const boot = await bootPlugins({
     runtime: stubRuntime(dataDir),
     scope,
@@ -214,6 +214,8 @@ async function bootCore(
       ...(coreDeps.credentialsOnChanged !== undefined ? { credentialsOnChanged: coreDeps.credentialsOnChanged } : {}),
       ...(coreDeps.credentialsOAuth !== undefined ? { credentialsOAuth: coreDeps.credentialsOAuth } : {}),
     }),
+    // sessions 受理面基础面（受局面注入——生产同构形，见上方 rig 注记）
+    ...(coreDeps.sessionsFace !== undefined ? { sessions: coreDeps.sessionsFace } : {}),
     version: '9.9.9-test',
     warn: (message) => warnings.push(message),
     fs,
@@ -614,7 +616,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
     // 会话附件：真 SessionLog 纯内存形（appendEventFor 过闸后的 durable 落点）
     const log = new SessionLog({ sessionId: 's-inj' });
-    const { scope, dispatch, warnings } = await bootCore(
+    const { scope, dispatch, warnings, boot } = await bootCore(
       dataDir,
       memoryFs(),
       { cwd: workspace, homeDir: home },
@@ -669,10 +671,24 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(out2.messages[1]!.content).toContain('以下来自历史记忆'); // recall 后
     const diffEvents = log.events().filter((e) => e.type === 'memory/diff');
     expect(diffEvents).toHaveLength(1);
-    const payload = diffEvents[0]!.data as { entries?: { op?: string; summary?: string }[]; fingerprint?: string };
+    const payload = diffEvents[0]!.data as {
+      entries?: { op?: string; summary?: string }[];
+      fingerprint?: string;
+      source?: string;
+    };
     expect(payload.entries).toHaveLength(1); // 基线后单行 = 单 '+' 条目
     expect(payload.entries![0]).toMatchObject({ op: '+', summary: 'diff lane probe row' });
     expect(typeof payload.fingerprint).toBe('string'); // 重启自愈判据位在场
+    // —— 归因键真实消费位锁（CL-E rig 改造批——03 §4.5 归因闸 ag 批 cs-D2）：
+    // rig 与生产装载同构（受局面注入 bootPlugins options.sessions → 装载序
+    // fork 级 bindSessionsForPlugin 绑定面）后，memory/diff 落账 data 必携
+    // source 归因键（宿主单方拼装 caller——落账不匿名；共享根 provide 旧形
+    // 无 caller，本断言对旧形必红）。同源断言律：期望值不手拼全串——行 id
+    // 取本 boot 激活报告真值（装载器记账的 core:<件名> 组合真身），前缀按
+    // sessions-face stampSourceKey 的 `plugin:${行id}` 组合形与行 id 组合对拍
+    const memoryRowId = boot.report.activated.map((a) => a.id).find((id) => id.endsWith(':memory'));
+    expect(memoryRowId).toBeDefined(); // 选择器命中（件改名时此处先响亮失败）
+    expect(payload.source).toBe(`plugin:${memoryRowId}`);
 
     // 拍 3（库无变更）：mirror 已锁步——幂等零追写（注入仍渲染，落账不重复）
     const out3 = await dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
