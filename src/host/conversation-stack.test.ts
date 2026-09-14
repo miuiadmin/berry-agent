@@ -1533,3 +1533,18 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     await rt.shutdown();
   });
 });
+
+describe('会话关闭收口穿线（六役 CL-C ④——04 §10 closeOwner 段消费位接线）', () => {
+  it('onSessionClosed 透传 manager：retire 成功路携会话 id 发射；dispose 全量拆解路同发（修前红：穿线位不存在）', () => {
+    const { rt } = rigRuntime(true);
+    const closed: string[] = [];
+    const { stack } = rigStack(rt, { onSessionClosed: (sessionId) => closed.push(sessionId) });
+    const a = stack.manager.create();
+    const b = stack.manager.create();
+    expect(stack.manager.retire(a.sessionId)).toBe(true);
+    expect(closed).toEqual([a.sessionId]); // retire 路恰一笔
+    stack.manager.dispose();
+    expect(closed).toEqual([a.sessionId, b.sessionId]); // dispose 路逐会话补发（同源两路不双发）
+    void rt.shutdown();
+  });
+});

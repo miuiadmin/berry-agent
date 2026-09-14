@@ -391,6 +391,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       },
       // 单会话收口观察穿线（发现 ⑯）：manager retire 成功路 → 当前代订阅 feed
       onSessionRetired: (sessionId) => sessionRetireFeed?.(sessionId),
+      // 会话关闭收口接线（六役 CL-C ④——04 §10 closeOwner 段消费位）：owner =
+      // 会话 id 形的围栏由会话终态收口序收口——retire 成功路 + dispose 全量
+      // 拆解路两路逐会话 → closeOwner（与插件卸载 closer 宿主位两路同源）。
+      // jobs 在 stack 后建（晚绑定闭包——发射时点恒在装配完成后，调用时点
+      // jobs 必已初始化）；closeOwner 返回 Promise——同步收口序里
+      // fire-and-forget（void 吞并：finalize 同步推进不留孤儿悬空，异步腿
+      // 不阻塞会话收口）
+      onSessionClosed: (sessionId) => void jobs.closeOwner(sessionId),
       // 跨树观测门检接线（e2-4——03 §4.6 第五枚 sessions.observe-cross 工具
       // 腿；开门制扩展批 2026-09-09 授予面接线）：模型道门检输入 = doors 段
       // 单独（活体读——受理时点现读现判，撤位即收回；插件道订阅走 plugin-context

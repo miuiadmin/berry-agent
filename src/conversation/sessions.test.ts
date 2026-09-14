@@ -5,7 +5,9 @@
  * 断言面：create/list 登记与幂等 open / open resume 的 closer 合成（崩溃
  * 收形消费位）/ fork 种子形状（end-seed 尾条 + 血缘 + 不返回幻影 id + 源日志
  * 零污染 + 活体优先事实源）/ session_before_fork 否决联合回执 / search 的
- * flush 屏障先行 + 会话内 FTS / dispose 全量拆解。
+ * flush 屏障先行 + 会话内 FTS / dispose 全量拆解 + 封印位（create 拒
+ * SESSION_MANAGER_DISPOSED——六役停机窗补钉 02 §5.3）+ 会话关闭收口 seam
+ * （六役 CL-C ④——onSessionClosed retire/dispose 两路同发）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -347,6 +349,28 @@ describe('SessionManager dispose', () => {
     expect(manager.isOpen(a.sessionId)).toBe(false);
     expect(manager.driverOf(a.sessionId)).toBeUndefined();
   });
+
+  it('封印位：dispose 后 create 拒 SESSION_MANAGER_DISPOSED（六役停机窗补钉——02 §5.3；修前红：现状不拒重造驱动）', () => {
+    const { manager } = makeManager();
+    manager.dispose();
+    // 停机 drain 窗封印位：会话管理器已 dispose 后 create 响亮拒——原
+    // 「closer 序先 dispose、自持钟后停」窗口内 scheduler tick 重造驱动防线
+    expect(() => manager.create()).toThrowError(expect.objectContaining({ code: 'SESSION_MANAGER_DISPOSED' }));
+  });
+
+  it('封印幂等语义：重复 dispose 无害 + 重复 dispose 后 create 仍拒 + open 不受封印辖（规范笔只辖 create）', async () => {
+    const { manager } = makeManager();
+    const a = manager.create({ workspaceRoot: '/ws' });
+    a.driver.session.append('turn/start', {}); // durable 行随首事件落库
+    await persistence.flush();
+    manager.dispose();
+    expect(() => manager.dispose()).not.toThrow(); // 幂等语义保持——重复 dispose 无害
+    expect(() => manager.create()).toThrowError(expect.objectContaining({ code: 'SESSION_MANAGER_DISPOSED' }));
+    // open/resume 不在封印面（02 册笔只辖 create 单动词；durable 复续照旧）
+    const resumed = manager.open(a.sessionId);
+    expect(manager.isOpen(a.sessionId)).toBe(true);
+    resumed.driver.dismantle();
+  });
 });
 
 /* ---------------- retire（05 §7 retire 律——单会话收口动词） ---------------- */
@@ -402,5 +426,80 @@ describe('SessionManager retire', () => {
     expect(observed).toEqual([a.sessionId]); // 成功路恰一笔
     expect(manager.retire(a.sessionId)).toBe(false); // 重复收口零再发射
     expect(observed).toEqual([a.sessionId]);
+  });
+});
+
+/* ---------------- 会话关闭收口 seam（六役 CL-C ④——closeOwner 消费位接线） ---------------- */
+
+describe('SessionManager 会话关闭收口 seam（六役 CL-C ④——04 §10 closeOwner 段）', () => {
+  it('retire 成功路逐会话发射 onSessionClosed（携 id）；不在册零发射；重复 retire 零再发射（修前红：回调位不存在）', () => {
+    const closed: string[] = [];
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      onSessionClosed: (sessionId) => closed.push(sessionId),
+    });
+    expect(manager.retire('no-such-session')).toBe(false);
+    expect(closed).toEqual([]); // 不在册零发射
+    const a = manager.create();
+    expect(manager.retire(a.sessionId)).toBe(true);
+    expect(closed).toEqual([a.sessionId]); // 成功路恰一笔、携会话 id
+    expect(manager.retire(a.sessionId)).toBe(false);
+    expect(closed).toEqual([a.sessionId]); // 幂等——零再发射
+  });
+
+  it('dispose 全量拆解路逐会话发射；已 retire 会话不重复（retire 路已发恰一笔）', () => {
+    const closed: string[] = [];
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      onSessionClosed: (sessionId) => closed.push(sessionId),
+    });
+    const a = manager.create();
+    const b = manager.create();
+    expect(manager.retire(a.sessionId)).toBe(true); // a 走 retire 路
+    manager.dispose(); // b 走 dispose 路（a 已摘登记不在册）
+    expect(closed).toEqual([a.sessionId, b.sessionId]); // 各恰一笔（同源两路不双发）
+  });
+
+  it('与 onRetired 分立两 seam：onRetired 只走 retire 路（发现 ⑯ 语义不动）、onSessionClosed 两路同发', () => {
+    const retired: string[] = [];
+    const closed: string[] = [];
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      onRetired: (sessionId) => retired.push(sessionId),
+      onSessionClosed: (sessionId) => closed.push(sessionId),
+    });
+    const a = manager.create();
+    manager.retire(a.sessionId);
+    const b = manager.create();
+    manager.dispose();
+    expect(retired).toEqual([a.sessionId]); // onRetired 不随 dispose 发射
+    expect(closed).toEqual([a.sessionId, b.sessionId]);
+  });
+
+  it('收口观察者异常吞隔离不回卷收口序（retire 主流程已完成、dispose 拆解序继续）', () => {
+    const dispatch = new EventDispatch();
+    const manager = new SessionManager({
+      persistence,
+      dispatch,
+      createDriver: makeFactory(dispatch),
+      onSessionClosed: () => {
+        throw new Error('收口观察炸');
+      },
+    });
+    const a = manager.create();
+    const b = manager.create();
+    expect(manager.retire(a.sessionId)).toBe(true); // 观察炸不回卷——收口主流程已成
+    expect(manager.isOpen(a.sessionId)).toBe(false);
+    expect(() => manager.dispose()).not.toThrow(); // 拆解序不被单会话观察炸打断
+    expect(manager.isOpen(b.sessionId)).toBe(false);
   });
 });

@@ -10,7 +10,9 @@
  * expectedTurnId 乐观并发位翻页拒（codex expected_turn_id 形）；SESSION_ROUND_LIMIT
  * 管 a2a 回合护栏帽拒（缺省 5、人面输入重置链深）。第五码 SESSION_CONTROL_DENIED
  * 管操控门检拒（sessions.control-cross 全域同门——操控轴无树内豁免；e-4
- * 落码批 02 §5.3 同笔扩册，SESSION_OBSERVE_DENIED 同构先例）。
+ * 落码批 02 §5.3 同笔扩册，SESSION_OBSERVE_DENIED 同构先例）。第六码
+ * SESSION_MANAGER_DISPOSED 管停机 drain 窗封印位（会话管理器已 dispose 后
+ * create 拒——04 §1 退出序六役补钉同批）。
  *
  * module 段 conversation——SESSION_ 前缀系跨功能域共用前缀（session 模块
  * 既有码族/批 13b SDK 面裸码〔module 段 session〕/obs 观测两码〔module 段
@@ -47,5 +49,10 @@ registerErrorCodes([
     module: 'conversation',
     description:
       '操控门未开门拒——高危面 sessions.control-cross（03 §4.6 v1 首批第六枚）门检执法位拒：操控轴无树内豁免、全域同门（03 §2.2 第十一面门制句），send/interrupt/withdraw 三动词共同前置（幽灵守卫之后）；SESSION_OBSERVE_DENIED 同构门检拒码先例（2026-09-08 e-4 落码批 02 §5.3 同笔扩册）',
+  },
+  {
+    code: 'SESSION_MANAGER_DISPOSED',
+    module: 'conversation',
+    description: '会话管理器已 dispose 后 create 拒——停机 drain 窗封印位（04 §1 退出序六役补钉；02 §5.3 六役停机窗批）',
   },
 ]);

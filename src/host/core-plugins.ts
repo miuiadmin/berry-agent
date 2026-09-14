@@ -1189,21 +1189,52 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * 不停钟会把进程拖活到 60s belt 定时器（shutdown 返回后进程不退）。
  * 诊断形（dump-config/run/测试装载）不调即不起钟（全惰性）。
  *
+ * 六役停机窗补钉（04 §1 退出序 step2 补钉）——abort 即停自持钟：除 closer
+ * 兜位腿外，起钟时订阅运行时 abort 信号，置位即刻停摆（见函数体选形注）。
+ * drain 窗内不得再起会话——closer 序先 dispose 会话管理器、后停钟的窗口内
+ * tick 不得再 fire。
+ *
  * @param scope 装配产物共享根（tryGet 'scheduler'——件缺席/禁用时 no-op：
  * 起钟属长驻编舞非正确性前提，诚实零动作）
- * @param runtime 运行时（registerCloser 挂停钟腿）
+ * @param runtime 运行时（registerCloser 挂停钟兜位腿 + abortSignal 即停订阅）
  * @returns 是否起钟（件在场且已 start——测试观察面；件缺席 false）
  */
 export function startSchedulerClock(
   scope: { tryGet<T>(name: string): T | undefined },
-  runtime: { registerCloser: (closer: { label: string; fn: () => void }) => void },
+  runtime: {
+    registerCloser: (closer: { label: string; fn: () => void }) => void;
+    /** 在飞 run 打断信号（04 §1 退出序①置位——订阅位即停自持钟） */
+    abortSignal: AbortSignal;
+  },
 ): boolean {
   const face = scope.tryGet<SchedulerFace>('scheduler');
   if (face === undefined) return false; // 件缺席/禁用——no-op（长驻编舞非正确性前提）
   face.engine.start(); // 重启补推进（missed 静默 advance）+ 排首轮轮询
+  // —— 六役停机窗补钉（04 §1 退出序 step2 补钉）：abort 置位即停自持钟 ——
+  // 选形说明：取「abort 信号订阅即停」形（startSchedulerClock 单点订阅覆盖
+  // serve/TUI/daemon 三长驻入口），不取「每 tick 前查 abort」形（须把信号
+  // 穿进 engine/doSweep 逐拍判——穿线面大且引擎域被迫知宿主信号越界）。
+  // engine 自持轮询定时器无裸 interval 句柄——stop() 即其 clearInterval 位
+  // （摘 pollHandle + running 落 false，幂等）。
+  // 缺陷账：原「closer drain 才停钟」形下，退出序① abort 与② closer 队列
+  // 之间（会话管理器 closer 先 dispose、scheduler-engine 后停）drain 窗内
+  // tick 可继续 fire——在已 dispose 管理器上重造驱动。订阅后 abort 即刻
+  // 停摆：drain 窗内不得再起会话（规范笔 04 §1 同批）。
+  const stopClock = (): void => {
+    face.engine.stop(); // 只摘轮询定时器（在飞自然收场——engine 头注；幂等重复停无害）
+  };
+  if (runtime.abortSignal.aborted) {
+    // 起钟位晚于 abort 置位的边角形（生产不可达——三长驻入口起钟都在退出序
+    // 启动前；防御位）：起后即停——start→stop 间为同步码零定时器窗，一 tick 不漏
+    stopClock();
+  } else {
+    // abort 订阅（once——abort 一次性信号自摘听）；信号生命周期与 runtime
+    // 同寿，closer 停钟后再触发/再调 stop 均幂等无害
+    runtime.abortSignal.addEventListener('abort', stopClock, { once: true });
+  }
   runtime.registerCloser({
     label: 'scheduler-engine',
-    fn: () => face.engine.stop(), // 只摘轮询定时器（在飞自然收场——engine 头注）
+    fn: stopClock, // 兜位腿：abort 订阅形外的收口保障（幂等再停——closer 序即 drain 序）
   });
   return true;
 }

@@ -12,6 +12,10 @@
  *    补注册 OS 面、禁用行零动作、命令段 = bin 单源）——execCrontab 注入
  *    假件零真系统写。bin 命令段的消费面随 u-2 收窄为 cron 乙案命令段单源
  *    （runner 恒进程内形——第二测的 spawn 断言已翻转为进程内推进断言）。
+ * 4. abort 即停自持钟（六役停机窗补钉——04 §1 退出序 step2 补钉）：真引擎 +
+ *    假 TimerSeam 驱动，起钟后置 abort → 停机窗推进假钟 tick 计数不再增长
+ *    （修前红：原 closer drain 才停钟——① abort 与② closer 队列之间的
+ *    drain 窗内 tick 继续，可在已 dispose 会话管理器上重造驱动）。
  *
  * 纪律：mock 只停在模型层（faux provider）与 crontab 执行器注入位；装载
  * 管线/引擎闸评估/spawn 全走真实现。
@@ -33,6 +37,7 @@ import { createCorePlugins, startSchedulerClock } from './core-plugins.js';
 import type { SchedulerFace } from './core-plugins.js';
 import { bootPlugins } from './plugin-boot.js';
 import type { HostRuntime } from './runtime.js';
+import { createSchedulerEngine, type JobsDao, type RunnerFactory, type TimerSeam } from '../scheduler/index.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -117,7 +122,12 @@ describe('startSchedulerClock 起停编舞（批 20c）', () => {
     });
     if (!assembly.ok) throw new Error(`装配失败：${assembly.message}`);
     const closers: { label: string; fn: () => void }[] = [];
-    expect(startSchedulerClock(assembly.scope, { registerCloser: (c) => closers.push(c) })).toBe(true);
+    expect(
+      startSchedulerClock(assembly.scope, {
+        registerCloser: (c) => closers.push(c),
+        abortSignal: assembly.runtime.abortSignal,
+      }),
+    ).toBe(true);
     expect(closers).toHaveLength(1);
     expect(closers[0]!.label).toBe('scheduler-engine');
     closers[0]!.fn(); // 停钟——真定时器已摘（不留 60s belt 拖活测试进程）
@@ -133,9 +143,127 @@ describe('startSchedulerClock 起停编舞（批 20c）', () => {
     });
     if (!assembly.ok) throw new Error(`装配失败：${assembly.message}`);
     const closers: { label: string; fn: () => void }[] = [];
-    expect(startSchedulerClock(assembly.scope, { registerCloser: (c) => closers.push(c) })).toBe(false);
+    expect(
+      startSchedulerClock(assembly.scope, {
+        registerCloser: (c) => closers.push(c),
+        abortSignal: assembly.runtime.abortSignal,
+      }),
+    ).toBe(false);
     expect(closers).toHaveLength(0);
     await assembly.runtime.shutdown();
+  });
+});
+
+/* ---------------- abort 即停自持钟（六役停机窗补钉——04 §1 退出序 step2 补钉） ---------------- */
+
+describe('startSchedulerClock abort 即停自持钟（六役停机窗补钉）', () => {
+  /**
+   * 假钟台：真引擎 + 假 TimerSeam（定时器句柄入册 Map——fireOne 触发一枚在册
+   * 定时器即「推进假钟一轮」；clear 即摘句柄）。tick 计数观察面 = dao.due 调用
+   * 次数（每 doSweep 恰一笔——due 恒空行集，零 fire 纯排程断言）。
+   */
+  function fakeClockRig() {
+    let sweeps = 0;
+    let timerSeq = 0;
+    const pendingTimers = new Map<number, () => void>();
+    const timers: TimerSeam = {
+      set: (_ms, fn) => {
+        const handle = ++timerSeq;
+        pendingTimers.set(handle, fn);
+        return handle;
+      },
+      clear: (handle) => {
+        pendingTimers.delete(handle as number);
+      },
+    };
+    const dao = {
+      list: () => [],
+      due: () => {
+        sweeps += 1; // 每轮 sweep 恰一笔 due——tick 计数单源观察面
+        return [];
+      },
+      earliestNextFire: () => null,
+    } as unknown as JobsDao;
+    const runner: RunnerFactory = {
+      // due 恒空——零 fire（触达即测试铺设破坏，fail-loud）
+      spawn: () => {
+        throw new Error('本测试面零 fire（due 恒空）');
+      },
+    };
+    const engine = createSchedulerEngine({
+      dao,
+      runner,
+      now: () => '2026-09-15T00:00:00.000Z',
+      warn: () => undefined,
+      timers,
+    });
+    const face = { engine } as unknown as SchedulerFace;
+    const scope = {
+      tryGet: <T>(name: string): T | undefined => (name === 'scheduler' ? (face as unknown as T) : undefined),
+    };
+    return {
+      scope,
+      /** 推进假钟一轮：触发一枚在册定时器（无在册 = 钟已停摆，返回 false） */
+      fireOne: (): boolean => {
+        const next = pendingTimers.entries().next();
+        if (next.done) return false;
+        const [handle, fn] = next.value;
+        pendingTimers.delete(handle);
+        fn();
+        return true;
+      },
+      /** 在册定时器数（停摆后应为 0——轮询拍已摘） */
+      pendingCount: () => pendingTimers.size,
+      /** tick 计数（dao.due 调用次数） */
+      sweeps: () => sweeps,
+    };
+  }
+
+  it('起钟后置 abort → 停机窗推进假钟 tick 计数不再增长（修前红：closer 才停钟——abort 后继续 tick）', () => {
+    const rig = fakeClockRig();
+    const controller = new AbortController();
+    const closers: { label: string; fn: () => void }[] = [];
+    expect(
+      startSchedulerClock(rig.scope, {
+        registerCloser: (c) => closers.push(c),
+        abortSignal: controller.signal,
+      }),
+    ).toBe(true);
+    // 钟在跑：两轮 tick 各重排下一拍（sweeps 递增 = 观察面成活）。
+    // base 锚定：start() 自身重启补推进段也查一笔 due（错过不重放），tick
+    // 计数取相对基值——只数轮询拍
+    const base = rig.sweeps();
+    expect(rig.fireOne()).toBe(true);
+    expect(rig.fireOne()).toBe(true);
+    expect(rig.sweeps()).toBe(base + 2);
+    // —— 04 §1 退出序① abort 置位：自持钟应即刻停摆（不等② closer drain）——
+    controller.abort();
+    // 停机窗内推进假钟：轮询定时器应已摘（无可触发）且 tick 计数冻结
+    expect(rig.pendingCount()).toBe(0); // 修前红：abort 不摘钟——轮询拍仍在册
+    expect(rig.fireOne()).toBe(false);
+    expect(rig.sweeps()).toBe(base + 2); // tick 计数不再增长
+    // closer 兜位腿仍在（label 单源可辨）且 abort 已停后再停幂等无害
+    expect(closers[0]!.label).toBe('scheduler-engine');
+    expect(() => closers[0]!.fn()).not.toThrow();
+    expect(rig.sweeps()).toBe(base + 2);
+  });
+
+  it('起钟位晚于 abort 置位的边角形（生产不可达——防御位）：起后即停零 tick', () => {
+    const rig = fakeClockRig();
+    const controller = new AbortController();
+    controller.abort(); // 起钟前已置位（退出序已启动）
+    const closers: { label: string; fn: () => void }[] = [];
+    expect(
+      startSchedulerClock(rig.scope, {
+        registerCloser: (c) => closers.push(c),
+        abortSignal: controller.signal,
+      }),
+    ).toBe(true);
+    expect(rig.pendingCount()).toBe(0); // 起后即停——零轮询拍在册
+    expect(rig.fireOne()).toBe(false); // 一 tick 不漏
+    // sweeps 恰 1 = start() 重启补推进段的自身 due 查账（空集零 fire——非
+    // 轮询拍；补推进后再无任何 sweep 触达）
+    expect(rig.sweeps()).toBe(1);
   });
 });
 

@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
@@ -30,6 +30,7 @@ import type { SkillsRegistry } from '../skills/index.js';
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
 import type { UiBackend } from '../channels/index.js';
 import type { GoalService } from '../goal/index.js';
+import type { JobRegistry } from '../subagent/index.js';
 import { fauxProvider } from '../llm/index.js';
 
 /** 临时数据目录族（统一清） */
@@ -1977,6 +1978,39 @@ describe('单发计量三链 e2e（mq-3——归因三形经真适配器落 llm/
       const single = singleShotUsagesOf(log);
       expect(single).toHaveLength(1);
       expect(single[0]!.priority).toBe('background'); // goal 沉淀道恒后台
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
+describe('会话关闭 Job 归属围栏接线 e2e（六役 CL-C ④——04 §10 closeOwner 段「宿主位两路同源」）', () => {
+  it('retire → closeOwner(owner=会话 id)：在飞 Job 两拍收口落 killed（修前红：装配链无此接线）', async () => {
+    const dir = tmpDir('host-asm-job-fence-');
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true,
+      debug: false,
+      version: 'x',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 装配根 provide 的 jobs 真身（共享根——宿主消费面同形）
+      const jobs = assembly.scope.tryGet<JobRegistry>('jobs');
+      expect(jobs).toBeDefined();
+      // 会话 + owner = 会话 id 形在飞 Job（subagent 委派归属形）；kind 宿主
+      // 席自登（noPlugins 形装配不自登 subagent——词汇闸前置）
+      const opened = assembly.stack.manager.create();
+      jobs!.registerKind('subagent');
+      const handle = jobs!.register({ kind: 'subagent', name: '侦察', owner: opened.sessionId });
+      expect(handle.entry.status).toBe('running');
+      // 会话终态收口 → onSessionClosed 闭包 → closeOwner（fire-and-forget
+      // 异步腿——waitFor 收口终态）
+      expect(assembly.stack.manager.retire(opened.sessionId)).toBe(true);
+      await vi.waitFor(() => {
+        expect(handle.entry.status).toBe('killed'); // 归属围栏收口（两拍：stopping → killed）
+      });
+      expect(handle.entry.terminal?.detail).toContain(opened.sessionId); // 归因载会话 id
     } finally {
       await assembly.runtime.shutdown();
     }

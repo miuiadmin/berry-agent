@@ -20,6 +20,7 @@
  * 先开者为准）。驱动构造经注入工厂（createDriver——streamFn/convertToLlm 等
  * 装配注入族归 host 装配根闭包，本件不持 LLM 边界任何依赖）。
  */
+import { BaseError } from '../contracts/index.js';
 import type { EventDispatch } from '../context/index.js';
 import type {
   AgentTool,
@@ -128,6 +129,16 @@ export interface SessionManagerOptions {
    * 收口摘除——会话收口后复续首物化重冻结取新值，不困旧冻结）。
    */
   readonly onRetired?: (sessionId: string) => void;
+  /**
+   * 会话关闭收口 seam（六役 CL-C ④——04 §10 closeOwner 段消费位接线）：
+   * 会话终态收口序（retire 成功路 + dispose 全量拆解路——涉及单会话拆除的
+   * 位）逐会话发射、携会话 id；观察者异常吞隔离不回卷收口序。与 onRetired
+   * 分立：彼只走 retire 路（发现 ⑯ 冻结缓存语义不动），此两路同发（Job
+   * 归属围栏「宿主位两路同源」——插件卸载 closer + 会话 dispose）。
+   * 消费位 = 装配根注入 () => void jobs.closeOwner(sessionId) 形闭包
+   * （owner = 会话 id 形的收口执法位）；缺席 = 零行为（测试替身形）。
+   */
+  readonly onSessionClosed?: (sessionId: string) => void;
 }
 
 /**
@@ -140,14 +151,24 @@ export class SessionManager {
   private readonly createDriver: DriverFactory;
   /** 单会话收口观察位（构造面注入——缺省无观察） */
   private readonly onRetired?: (sessionId: string) => void;
+  /** 会话关闭收口位（构造面注入——六役 CL-C ④；缺省零行为） */
+  private readonly onSessionClosed?: (sessionId: string) => void;
   /** 已开会话登记（sessionId → 驱动 + 血缘形态——幂等 open 的判据面） */
   private readonly records = new Map<string, { driver: ConversationDriver; origin: SessionOrigin }>();
+  /**
+   * 停机 drain 窗封印位（六役停机窗补钉——02 §5.3 SESSION_MANAGER_DISPOSED）：
+   * dispose 置位后 create 拒。原「closer 序先 dispose 会话管理器、自持钟后停」
+   * 的窗口内 scheduler tick 可在已 dispose 管理器上重造驱动——本位为该缺陷的
+   * 管理器边界防线（abort 即停自持钟是第一道，04 §1 退出序同批补钉）。
+   */
+  private disposed = false;
 
   constructor(options: SessionManagerOptions) {
     this.persistence = options.persistence;
     this.dispatch = options.dispatch;
     this.createDriver = options.createDriver;
     this.onRetired = options.onRetired;
+    this.onSessionClosed = options.onSessionClosed;
     // 钩子词汇接线（一词两册幂等跳过——03 §2.4 装配序律：装载批预注册主表
     // 镜像在前，session_before_fork 已注册即共享登记；未注册自举保独立装配）；
     // 重复建管理器检测改经装配哨兵（永不 emit 的占位词——二次装配撞哨兵红）
@@ -175,6 +196,15 @@ export class SessionManager {
       extraTools?: () => readonly ToolDefinition[];
     } = {},
   ): OpenedSession {
+    // 封印位首查（六役停机窗补钉——02 §5.3）：dispose 后 create 响亮拒不静默
+    // 重造驱动（drain 窗内 tick 防线——封印面 = create 单动词，open/resume
+    // durable 复续照旧不受辖）
+    if (this.disposed) {
+      throw new BaseError(
+        'SESSION_MANAGER_DISPOSED',
+        '会话管理器已 dispose——create 拒（停机 drain 窗封印位，02 §5.3 六役停机窗批）',
+      );
+    }
     const origin = init.origin ?? 'conversation';
     const log = this.persistence.createSession({
       origin,
@@ -316,10 +346,24 @@ export class SessionManager {
     return [...this.records.entries()].map(([sessionId, { origin }]) => ({ sessionId, origin }));
   }
 
-  /** 全量拆解（进程收尾序）：逐驱动 dismantle（打断在飞 run）+ 清登记 */
+  /**
+   * 全量拆解（进程收尾序）：逐驱动 dismantle（打断在飞 run）+ 清登记 +
+   * 置封印位（六役停机窗补钉——02 §5.3：此后 create 拒 SESSION_MANAGER_
+   * DISPOSED，drain 窗内不得重造驱动）。封印置位在拆解前——fail-closed：
+   * 拆解中途（任一驱动 teardown 异常）亦不再受理新会话。逐会话拆除位发射
+   * onSessionClosed（六役 CL-C ④——与 retire 路两路同源；已 retire 会话不在
+   * 册不重复发射）。观察者异常吞隔离不回卷拆解序。幂等——重复 dispose
+   * 无害（空登记零动作、封印位重置同值）。
+   */
   dispose(): void {
-    for (const { driver } of this.records.values()) {
+    this.disposed = true; // 封印先置（fail-closed——拆解异常亦不再起会话）
+    for (const [sessionId, { driver }] of this.records) {
       driver.dismantle();
+      try {
+        this.onSessionClosed?.(sessionId);
+      } catch {
+        /* 收口观察异常不回卷拆解序（发射位随逐会话拆除） */
+      }
     }
     this.records.clear();
   }
@@ -347,6 +391,14 @@ export class SessionManager {
       this.onRetired?.(sessionId);
     } catch {
       /* 观察者异常不回卷收口序（发射序末位） */
+    }
+    // 会话关闭收口 seam（六役 CL-C ④——04 §10 closeOwner 段）：retire 路与
+    // dispose 路两路同发（宿主位两路同源）；独立 try 位——前位观察者炸不夺
+    // 本位发射（Job 归属围栏收口是资源清理面非纯观察）
+    try {
+      this.onSessionClosed?.(sessionId);
+    } catch {
+      /* 收口观察异常不回卷收口序 */
     }
     return true;
   }

@@ -221,6 +221,15 @@ export interface ConversationStackOptions {
    * 摘除）。缺席 = 无观察（测试替身形——帽 256 FIFO 兜底仍在）。
    */
   readonly onSessionRetired?: (sessionId: string) => void;
+  /**
+   * 会话关闭收口穿线位（宿主内部——SessionManager.onSessionClosed 的装配
+   * 透传，六役 CL-C ④——04 §10 closeOwner 段）：retire 成功路 + dispose
+   * 全量拆解路两路逐会话发射（区别于 onSessionRetired 只走 retire 路）。
+   * 消费位 = 装配根注入 () => void jobs.closeOwner(sessionId) 形闭包（Job
+   * 归属围栏会话腿——宿主位两路同源：插件卸载 closer + 会话 dispose）。
+   * 缺席 = 零行为（测试替身形）。
+   */
+  readonly onSessionClosed?: (sessionId: string) => void;
 }
 
 /** 启动会话回执（07 §5 启动会话策略的产物面） */
@@ -756,6 +765,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     createDriver,
     // 单会话收口观察穿线（发现 ⑯——缺席形不设位保持测试替身零观察）
     ...(options.onSessionRetired !== undefined ? { onRetired: options.onSessionRetired } : {}),
+    // 会话关闭收口穿线（六役 CL-C ④——缺席形不设位保持测试替身零行为）
+    ...(options.onSessionClosed !== undefined ? { onSessionClosed: options.onSessionClosed } : {}),
   });
 
   // 操控受理器（e-4——03 §2.2 第十一面双面同源单源实现位）：栈级单例——
