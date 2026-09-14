@@ -160,7 +160,7 @@ export class SessionManager {
   >();
   /**
    * 停机 drain 窗封印位（六役停机窗补钉——02 §5.3 SESSION_MANAGER_DISPOSED）：
-   * dispose 置位后 create 拒。原「closer 序先 dispose 会话管理器、自持钟后停」
+   * dispose 置位后 create/fork 拒。原「closer 序先 dispose 会话管理器、自持钟后停」
    * 的窗口内 scheduler tick 可在已 dispose 管理器上重造驱动——本位为该缺陷的
    * 管理器边界防线（abort 即停自持钟是第一道，04 §1 退出序同批补钉）。
    */
@@ -211,8 +211,8 @@ export class SessionManager {
     } = {},
   ): OpenedSession {
     // 封印位首查（六役停机窗补钉——02 §5.3）：dispose 后 create 响亮拒不静默
-    // 重造驱动（drain 窗内 tick 防线——封印面 = create 单动词，open/resume
-    // durable 复续照旧不受辖）
+    // 重造驱动（drain 窗内 tick 防线——封印面 = create/fork 两动词〔铸新
+    // 会话全动词〕，open/resume durable 复续照旧不受辖）
     if (this.disposed) {
       throw new BaseError(
         'SESSION_MANAGER_DISPOSED',
@@ -253,8 +253,20 @@ export class SessionManager {
    * 前缀尾事件时间，§4 合成确定性同律），源日志零污染。session_before_fork
    * 钩子可否决（联合回执）。源会话已 open 取活体事件流（最新鲜）。
    * @throws 源会话不存在 / upToSeq 越界（fail-loud 调用方 bug）
+   * @throws SESSION_MANAGER_DISPOSED（dispose 后拒——封印面辖铸新会话两动词，
+   * durable 源在场亦拒；六役挂账收口批 02 §5.3 / 04 §1）
    */
   async fork(sourceSessionId: string, options: { upToSeq?: number; title?: string } = {}): Promise<ForkOutcome> {
+    // 封印位首查（六役挂账收口——02 §5.3 / 04 §1）：dispose 后 fork 响亮拒不
+    // 静默铸新会话（drain 窗防线——封印面 = create/fork 两动词〔铸新会话全
+    // 动词〕；durable 源在场亦拒——fork 走 loadSession 重载仍系铸新，与
+    // create 同一 drain 窗向量）
+    if (this.disposed) {
+      throw new BaseError(
+        'SESSION_MANAGER_DISPOSED',
+        '会话管理器已 dispose——fork 拒（停机 drain 窗封印位，02 §5.3 六役挂账收口批）',
+      );
+    }
     // —— 事实源选择：活体优先（双事实源纪律——未 open 才 loadSession）——
     const live = this.records.get(sourceSessionId);
     let sourceLog: SessionLog;
@@ -362,8 +374,8 @@ export class SessionManager {
 
   /**
    * 全量拆解（进程收尾序）：逐驱动 dismantle（打断在飞 run）+ 清登记 +
-   * 置封印位（六役停机窗补钉——02 §5.3：此后 create 拒 SESSION_MANAGER_
-   * DISPOSED，drain 窗内不得重造驱动）。封印置位在拆解前——fail-closed：
+   * 置封印位（六役停机窗补钉——02 §5.3：此后 create/fork 两动词拒
+   * SESSION_MANAGER_DISPOSED，drain 窗内不得重造驱动）。封印置位在拆解前——fail-closed：
    * 拆解中途（任一驱动 teardown 异常）亦不再受理新会话。逐会话拆除位发射
    * onSessionClosed（六役 CL-C ④——与 retire 路两路同源；已 retire 会话不在
    * 册不重复发射）。观察者异常吞隔离不回卷拆解序。幂等——重复 dispose

@@ -5,9 +5,9 @@
  * 断言面：create/list 登记与幂等 open / open resume 的 closer 合成（崩溃
  * 收形消费位）/ fork 种子形状（end-seed 尾条 + 血缘 + 不返回幻影 id + 源日志
  * 零污染 + 活体优先事实源）/ session_before_fork 否决联合回执 / search 的
- * flush 屏障先行 + 会话内 FTS / dispose 全量拆解 + 封印位（create 拒
- * SESSION_MANAGER_DISPOSED——六役停机窗补钉 02 §5.3）+ 会话关闭收口 seam
- * （六役 CL-C ④——onSessionClosed retire/dispose 两路同发）。
+ * flush 屏障先行 + 会话内 FTS / dispose 全量拆解 + 封印位（create/fork 拒
+ * SESSION_MANAGER_DISPOSED——六役停机窗补钉 02 §5.3 + 挂账收口笔 04 §1）+
+ * 会话关闭收口 seam（六役 CL-C ④——onSessionClosed retire/dispose 两路同发）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -369,7 +369,20 @@ describe('SessionManager dispose', () => {
     expect(() => manager.create()).toThrowError(expect.objectContaining({ code: 'SESSION_MANAGER_DISPOSED' }));
   });
 
-  it('封印幂等语义：重复 dispose 无害 + 重复 dispose 后 create 仍拒 + open 不受封印辖（规范笔只辖 create）', async () => {
+  it('封印位：dispose 后 fork 拒（封印面辖铸新会话两动词——durable 源在场亦拒，04 §1 六役挂账收口笔；修前红：现状走 durable 源重载仍铸新会话）', async () => {
+    const { manager } = makeManager();
+    const source = manager.create();
+    closedTurn(source.driver.session, '一轮'); // durable 行随首事件落库
+    await persistence.flush();
+    manager.dispose(); // 清登记——fork 事实源将回落 loadSession durable 路
+    // 缺陷向量：durable 行在场时 fork 原可在已 dispose 管理器上铸新会话
+    // （走 loadSession 重载仍系铸新——与 create 同一 drain 窗向量，故同辖）
+    await expect(manager.fork(source.sessionId)).rejects.toThrowError(
+      expect.objectContaining({ code: 'SESSION_MANAGER_DISPOSED' }),
+    );
+  });
+
+  it('封印幂等语义：重复 dispose 无害 + 重复 dispose 后 create 仍拒 + open 不受封印辖（封印面只辖 create/fork 铸新两动词）', async () => {
     const { manager } = makeManager();
     const a = manager.create({ workspaceRoot: '/ws' });
     a.driver.session.append('turn/start', {}); // durable 行随首事件落库
@@ -377,7 +390,7 @@ describe('SessionManager dispose', () => {
     manager.dispose();
     expect(() => manager.dispose()).not.toThrow(); // 幂等语义保持——重复 dispose 无害
     expect(() => manager.create()).toThrowError(expect.objectContaining({ code: 'SESSION_MANAGER_DISPOSED' }));
-    // open/resume 不在封印面（02 册笔只辖 create 单动词；durable 复续照旧）
+    // open/resume 不在封印面（封印面 = create/fork 铸新两动词；durable 复续照旧）
     const resumed = manager.open(a.sessionId);
     expect(manager.isOpen(a.sessionId)).toBe(true);
     resumed.driver.dismantle();

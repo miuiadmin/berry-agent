@@ -12,7 +12,8 @@
  * 管操控门检拒（sessions.control-cross 全域同门——操控轴无树内豁免；e-4
  * 落码批 02 §5.3 同笔扩册，SESSION_OBSERVE_DENIED 同构先例）。第六码
  * SESSION_MANAGER_DISPOSED 管停机 drain 窗封印位（会话管理器已 dispose 后
- * create 拒——04 §1 退出序六役补钉同批）。
+ * create/fork 两动词拒——封印面 = 铸新会话全动词；04 §1 退出序六役补钉同批，
+ * fork 面系 2026-09-15 六役挂账收口批补钉）。
  *
  * module 段 conversation——SESSION_ 前缀系跨功能域共用前缀（session 模块
  * 既有码族/批 13b SDK 面裸码〔module 段 session〕/obs 观测两码〔module 段
@@ -53,6 +54,7 @@ registerErrorCodes([
   {
     code: 'SESSION_MANAGER_DISPOSED',
     module: 'conversation',
-    description: '会话管理器已 dispose 后 create 拒——停机 drain 窗封印位（04 §1 退出序六役补钉；02 §5.3 六役停机窗批）',
+    description:
+      '会话管理器已 dispose 后 create/fork 拒——停机 drain 窗封印位（封印面 = 铸新会话全动词；04 §1 退出序六役补钉 + fork 面 02 §5.3 六役挂账收口批）',
   },
 ]);
