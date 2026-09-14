@@ -34,6 +34,7 @@ import type { CorePluginReference } from './loader.js';
 import {
   bootPlugins,
   createPluginToolLedger,
+  QUICK_TEST_ROW_ID,
   recordDoorsDiff,
   recordPluginLifecycleDiff,
   recordPluginOpensDiff,
@@ -199,6 +200,31 @@ describe('core: 装载与 Kahn provide（03 §1.3/§2.2 表行）', () => {
     await expect(bootPlugins(rigBoot('/data', { corePlugins: [bad], fs: memoryFs() }).options)).rejects.toThrow(
       'core: 官方件装载失败拒启',
     );
+  });
+});
+
+describe('装载门 core 行裁决（ag 批 03 §8.4 定形注①——core 腿直调无隔离，与磁盘/试件腿分立）', () => {
+  it('core 行 min > 宿主 → 裁决红直上抛拒启（API_VERSION_MISMATCH fail-loud——无行级隔离）', async () => {
+    // 修前零覆盖锁（第六役簇 A id=14）：core 腿直调 adjudicateApiGate 无
+    // try/catch——官方件裁决红 = fail-loud 拒启（§5.7 core 行纪律在裁决位的
+    // 延伸：官方件失败不隔离降级）；apiVersion 缺省 '1.0'（测试注入面缺省）
+    const bad: CorePluginReference = {
+      name: 'bad-core',
+      api: { minApiVersion: '99.0' },
+      apply: async () => undefined,
+    };
+    await expect(bootPlugins(rigBoot('/data', { corePlugins: [bad], fs: memoryFs() }).options)).rejects.toMatchObject({
+      code: 'API_VERSION_MISMATCH',
+      message: expect.stringContaining('core:bad-core'),
+    });
+  });
+
+  it('core 行 api 块缺席 = legacy 容忍态走聚合 warn 不拒启（装载照常——官方件可选位）', async () => {
+    const ref: CorePluginReference = { name: 'legacy-core', apply: async () => undefined };
+    const { options, warnings } = rigBoot('/data', { corePlugins: [ref], fs: memoryFs() });
+    const boot = await bootPlugins(options);
+    expect(boot.report.activated.map((a) => a.id)).toEqual(['core:legacy-core']);
+    expect(warnings.some((w) => w.includes('legacy 容忍态') && w.includes('core:legacy-core'))).toBe(true);
   });
 });
 
@@ -1067,6 +1093,49 @@ describe('生命周期五词 boot diff 补播（recordPluginLifecycleDiff——0
     face.append('plugin/toggled', { noId: true });
     expect(() => recordPluginLifecycleDiff(face, rowsOf([{ id: 'acme' }]))).not.toThrow();
     expect(face.listRecent()).toHaveLength(4); // 坏形笔本身在库，diff 零新笔
+  });
+});
+
+describe('试件行审计零泄漏（03 §7 不变式 1——--plugin-file 行不进 durable 生命周期审计账）', () => {
+  // 真库真面（audit_events 表由 AUDIT_MIGRATION 建就——读写往返零 mock）
+  const stores: Store[] = [];
+  afterAll(() => {
+    for (const s of stores) s.close();
+  });
+  function openFace(): AuditFace {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-agent-quick-audit-'));
+    dirs.push(dir);
+    const store = openStore({ dataDir: join(dir, 'data'), migrations: [AUDIT_MIGRATION] });
+    stores.push(store);
+    return createAuditFace(store.connection);
+  }
+  /** 试件行生命周期笔（三词任一）——泄漏判据面 */
+  const quickLifecyclePens = (face: AuditFace) =>
+    face
+      .listRecent()
+      .filter(
+        (r) =>
+          (r.type === 'plugin/mounted' || r.type === 'plugin/unmounted' || r.type === 'plugin/toggled') &&
+          r.data['id'] === QUICK_TEST_ROW_ID,
+      );
+
+  it('修前红：--plugin-file boot 后审计流零 _quick_test 生命周期笔（含退出后无 pluginFile 再 boot 形）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'host-plugin-boot-quick-audit-'));
+    dirs.push(dataDir);
+    // 单文件入口试件（真盘——装载管线全真；audit 面接线 = 生产装配同形）
+    writeFileSync(join(dataDir, 'solo.js'), 'export default async () => undefined;');
+    const face = openFace();
+    const boot = await bootPlugins(rigBoot(dataDir, { pluginFile: join(dataDir, 'solo.js'), audit: face }).options);
+    // 前置：试件行真装载（计划面在场——泄漏源头成立）
+    expect(boot.report.activated.map((a) => a.id)).toEqual([QUICK_TEST_ROW_ID]);
+    // 泄漏笔一（修前红锚）：首 boot 生命周期 diff 首见该 id（非 core、审计尾态
+    // absent）→ 落 plugin/mounted {_quick_test}——不变式 1「零落盘退出即消失」
+    // 被 durable 审计账击穿
+    expect(quickLifecyclePens(face)).toEqual([]);
+    // 泄漏笔二：无 pluginFile 再 boot（退出即消失形）→ 计划面缺席、审计尾态
+    // enabled → 落 plugin/unmounted {_quick_test}——幽灵残账永久驻留审计流
+    await bootPlugins(rigBoot(dataDir, { audit: face }).options);
+    expect(quickLifecyclePens(face)).toEqual([]);
   });
 });
 

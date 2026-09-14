@@ -428,9 +428,10 @@ export interface PluginBootHandle {
 /**
  * 插件装载主入口（async——装载管线内含 jiti ESM 求值）。
  *
- * counts 口径：total = 计划行数 + 合成失败行数；enabled = report.activated
- * 行数；failed = 合成失败 + 装载门红行 + report.failed 行数（skipped 行不入
- * 三数——禁用非失败非启用，披露段不虚报）。
+ * counts 口径：total = 计划行数（含禁用行——plan 全量保留的同一口径）+
+ * 合成失败行数；enabled = report.activated 行数；failed = 合成失败 + 装载
+ * 门红行 + report.failed 行数（skipped 行只入 total 不入 enabled/failed——
+ * 禁用非失败非启用，披露段不虚报）。
  */
 export async function bootPlugins(options: PluginBootOptions): Promise<PluginBootHandle> {
   const warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
@@ -456,9 +457,13 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
         `提示词段 ${slot}（${owner}）物化内容漂移——注册面缺省承诺会话内稳定，builder 输出跨请求变化即前缀缓存失效；若属可变内容请声明 volatile:{reason}（03 §2.5）`,
       ),
   });
+  // 宿主 API 面版本单源（测试注入面缺省 '1.0'——装配根恒传真值，见 options
+  // 注记）：hostFace 物化位与装载门裁决坐标位共用（原两处字面量散拷——改
+  // 其一漏其一即静默漂移）
+  const hostApiVersion = options.apiVersion ?? '1.0';
   const hostFace: HostFace = materializeHostFace({
     version: options.version,
-    apiVersion: options.apiVersion ?? '1.0',
+    apiVersion: hostApiVersion,
     capabilities: [],
     experimentalKeys: [],
   });
@@ -535,8 +540,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   // ——与装载态三分区既有语义同构）；出口 4（api 块缺席·未点火）= legacy
   // 容忍态照常装载，per boot 恰一条聚合 warn（03 §8.4 定形注③：N 缺块聚一
   // 条点名、不进 durable 账——容忍态非失败）。禁用行零裁决（禁用非装载——
-  // skipped 分区语义不变）。
-  const hostApiVersion = options.apiVersion ?? '1.0'; // 测试注入面缺省（装配根恒传真值——见 options 注记）
+  // skipped 分区语义不变）。（hostApiVersion 已上提至 hostFace 物化位单源）
   const admissiblePlan: LoaderPlanRow[] = [];
   const gateFailures: Array<{ failure: FailedPlugin; version: string }> = [];
   const legacyNoApiIds: string[] = [];
@@ -884,10 +888,13 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     // 批写点②）：手编 enabled.yaml 漂移检测——「用户手改文件」与「用户按
     // 命令」同链可审计；对审计流尾最近态 diff、有变才落（幂等同律）。本账
     // 含 core: 行（mount/unmount/toggle 对 core: 是合法 overlay 动作——与
-    // opens diff 排除 core: 分立）
+    // opens diff 排除 core: 分立）。试件行滤除（不变式 1 零落盘面——与
+    // gateFailures 记账/onBootFailure 两处 QUICK_TEST_ROW_ID 过滤同律）：
+    // 审计残账无清名时机（下次 boot 无此行）→ mounted/unmounted 幽灵笔
+    // 永久驻留 durable 审计流
     recordPluginLifecycleDiff(
       options.audit,
-      plan.map((row) => ({ id: row.id, disabled: row.disabled === true })),
+      plan.flatMap((row) => (row.id === QUICK_TEST_ROW_ID ? [] : [{ id: row.id, disabled: row.disabled === true }])),
     );
   }
 

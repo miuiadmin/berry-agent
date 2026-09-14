@@ -18,6 +18,7 @@ import { EventDispatch, Scope } from '../context/index.js';
 
 import { bootPlugins } from './plugin-boot.js';
 import type { PluginBootOptions } from './plugin-boot.js';
+import { readBootFailures } from './boot-failures.js';
 import type { HostRuntime } from './runtime.js';
 
 /** 临时目录族（统一清） */
@@ -227,7 +228,8 @@ describe('quick-test 八不变式（03 §7——测试先行，落码前必红�
     );
     // 试件行携同一 api 块——两行同态（同进 activated 或同进 failed，无分叉）
     const quickDir = makeQuickPluginDir({ entry: 'entry.js', api: { minApiVersion: '99.0' } });
-    const boot = await bootPlugins(rigBoot(dataDir, { pluginFile: quickDir }).options);
+    const { options, warnings } = rigBoot(dataDir, { pluginFile: quickDir });
+    const boot = await bootPlugins(options);
     const diskAcme = boot.report.activated.some((a) => a.id === 'acme-api');
     const quickRow = boot.report.activated.some((a) => a.id === '_quick_test');
     expect(diskAcme).toBe(quickRow); // 同态裁决——分叉即违不变式 8
@@ -235,6 +237,23 @@ describe('quick-test 八不变式（03 §7——测试先行，落码前必红�
     // 同进 failed 分区携 API_VERSION_MISMATCH（三段 message 直呈——行级隔离不拒启）
     expect(boot.report.failed.map((f) => f.id).sort()).toEqual(['_quick_test', 'acme-api']);
     expect(boot.report.failed.every((f) => f.code === 'API_VERSION_MISMATCH')).toBe(true);
+    // 装载门红行记账腿三分支锁（第六役簇 A id=1——此前断言止于 report 面，
+    // boot-failures.ts 记账循环三分支零测试锁）：
+    // ① warn 横幅：磁盘红行与合成失败行同形点名（试件行同报——warn 是会话
+    // 内诊断面非持久账，不受不变式 1 约束）
+    expect(warnings.some((w) => w.startsWith('插件装载失败（acme-api）：[API_VERSION_MISMATCH]'))).toBe(true);
+    expect(warnings.some((w) => w.startsWith('插件装载失败（_quick_test）：[API_VERSION_MISMATCH]'))).toBe(true);
+    // ② boot-failures 落账：磁盘红行进持久账（version 取清单版本 + count 累加
+    // + lastError 携业务码——03 §5.7② 档②语义）
+    const account = readBootFailures(join(dataDir, 'boot-failures.json'));
+    expect(account.failures['acme-api']).toMatchObject({
+      version: '1.0.0',
+      count: 1,
+      lastError: expect.stringContaining('API_VERSION_MISMATCH'),
+    });
+    // ③ QUICK_TEST_ROW_ID 过滤：试件行不进持久账（残账无清名时机——下次
+    // boot 无此行，横幅会误报幽灵行；不变式 1 零落盘面）
+    expect(account.failures['_quick_test']).toBeUndefined();
   });
 
   it('装载门出口 1：磁盘行 min 1.5 宿主 1.0 → failed 分区行级隔离（三段 message 直呈）', async () => {
@@ -258,7 +277,8 @@ describe('quick-test 八不变式（03 §7——测试先行，落码前必红�
       join(dataDir, 'plugins', 'ledger.json'),
       JSON.stringify({ 'acme-future': { installPath: 'plugins/node_modules/acme-future' } }),
     );
-    const boot = await bootPlugins(rigBoot(dataDir).options);
+    const { options, warnings } = rigBoot(dataDir);
+    const boot = await bootPlugins(options);
     // 拒载行进 failed 分区（不 fail-loud 拒启——行级隔离）
     expect(boot.report.activated).toEqual([]);
     const fail = boot.report.failed.find((f) => f.id === 'acme-future');
@@ -269,6 +289,9 @@ describe('quick-test 八不变式（03 §7——测试先行，落码前必红�
     expect(fail?.message).toContain('升级指引');
     expect(fail?.message).toContain('COMPATIBILITY.md');
     expect(boot.counts).toEqual({ total: 1, enabled: 0, failed: 1 }); // 拒载行不入 enabled（失败非启用）
+    // 磁盘红行 warn 横幅锁（第六役簇 A id=1——横幅腿此前零测试锁；与合成
+    // 失败行同形 `插件装载失败（id）：[码] 报文`）
+    expect(warnings.some((w) => w.startsWith('插件装载失败（acme-future）：[API_VERSION_MISMATCH]'))).toBe(true);
   });
 
   it('装载门出口 4：api 块缺席 → boot 诊断面聚合一条 legacy warn（per boot 一次、N 缺块聚一条）', async () => {
