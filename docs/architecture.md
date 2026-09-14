@@ -67,7 +67,7 @@ bin (berry) → host/main
 要点：
 
 - **单活跃机**：同一数据目录同一时刻恰一活跃进程（`active.json` 标记 + pid 判活，死 pid 自动接管）；
-- **插件装载**：core: 注册表内置全启（例外 `core:issue`——缺省无 `config` 即零装载）+ `enabled.yaml` 用户行覆盖；Kahn 轮次按 `ctx.provide` 依赖解锁排序；装载失败三档（跳过 / 降级 / 拒启）分立；
+- **插件装载**：core: 注册表内置全启（例外 `core:issue`——缺省无 `config` 即零装载）+ `enabled.yaml` 用户行覆盖；装载判据面含 API 版本治理门（manifest `api` 块 × 宿主 apiVersion 三色裁决——红即行级隔离拒载、core 件红即宿主 fail-loud 拒启）；Kahn 轮次按 `ctx.provide` 依赖解锁排序；装载失败三档（跳过 / 降级 / 拒启）分立；
 - **`:memory:` 同构纪律**：诊断命令与真实入口走同一装配序真源（`assembleHostStack`），防侧门件；
 - **退出码三态**：0 成功 / 1 执行失败 / 2 环境态误用（用法错、非 TTY）。
 

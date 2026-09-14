@@ -22,17 +22,40 @@
 
 manifest 是包内声明面（键闭集，未知键**拒载**——拒绝式而非忽略式）：
 
-| 键             | 形            | 说明                                                                                                              |
-| -------------- | ------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `id`           | string        | 插件 id；缺省取 package.json `name`。字符集：小写字母/数字/连字符，首字符非连字符；`core:` 前缀为官方件保留       |
-| `label`        | string        | 展示名；缺省取 id                                                                                                 |
-| `entry`        | string        | 入口文件（相对包根）；缺席走解析序                                                                                |
-| `grants`       | object        | 授权申请面；单维 `writableRoots: string[]`                                                                        |
-| `config`       | object        | 宿主侧默认配置值（启用行 `config` 缺席时整值回落——**整值替换非合并**；secret 型键明文值拒载）                     |
-| `configSchema` | ConfigField[] | 配置字段声明面（四型字段描述数组——装载期字段级校验与 `/plugins config` 表单渲染双消费源；见下「配置声明」节）     |
-| `api`          | object        | API 治理块（`minApiVersion` / `targetApiVersion` / `experimental`）                                               |
-| `skills`       | string[]      | 技能目录清单；非空即在场的唯一声明载荷                                                                            |
-| `agents`       | string[]      | 声明式子代理目录清单（`agents/*.md` frontmatter def——装载即物化，见下[声明式子代理节](#声明式子代理agents-目录)） |
+| 键             | 形            | 说明                                                                                                                             |
+| -------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | string        | 插件 id；缺省取 package.json `name`。字符集：小写字母/数字/连字符，首字符非连字符；`core:` 前缀为官方件保留                      |
+| `label`        | string        | 展示名；缺省取 id                                                                                                                |
+| `entry`        | string        | 入口文件（相对包根）；缺席走解析序                                                                                               |
+| `grants`       | object        | 授权申请面；单维 `writableRoots: string[]`                                                                                       |
+| `config`       | object        | 宿主侧默认配置值（启用行 `config` 缺席时整值回落——**整值替换非合并**；secret 型键明文值拒载）                                    |
+| `configSchema` | ConfigField[] | 配置字段声明面（四型字段描述数组——装载期字段级校验与 `/plugins config` 表单渲染双消费源；见下「配置声明」节）                    |
+| `api`          | object        | API 治理块（`minApiVersion` / `targetApiVersion` / `experimental`——装载门版本裁决，见下[API 治理块](#api-治理块manifest-api)节） |
+| `skills`       | string[]      | 技能目录清单；非空即在场的唯一声明载荷                                                                                           |
+| `agents`       | string[]      | 声明式子代理目录清单（`agents/*.md` frontmatter def——装载即物化，见下[声明式子代理节](#声明式子代理agents-目录)）                |
+
+### API 治理块（manifest `api`）
+
+`api` 块声明插件对宿主 API 面的版本要求（宿主 API 面版本是独立号，与包 `version` 分立）：
+
+```json
+{
+  "berryAgent": {
+    "api": {
+      "minApiVersion": "1.0",
+      "targetApiVersion": "1.2"
+    }
+  }
+}
+```
+
+- **`minApiVersion` 硬地板**（api 块在场则必填，形 `MAJOR.MINOR`）：宿主 API 面版本低于 min 即拒载 `API_VERSION_MISMATCH`——错误消息三段（expected / actual / 升级指引：升级宿主包或联系插件作者放宽 min）；
+- **`targetApiVersion` 行为锚**（可选，缺省 = min 粘性锚）：声明插件面向的 API 面时点；宿主较旧时生效 target = min(宿主, target) 钳制（不警示——按宿主当前面运行）；
+- **`experimental` 键级门禁**：实验键启用声明数组——import 实验键未在此点名即装载期拒 `API_EXPERIMENTAL_UNDECLARED`（契约即知情：实验键任意 minor 可破可删；现役虚拟键全 stable，实验键随后续版本进场）；
+- **api 块缺席 = legacy 容忍**（点火前）：装载照常 + 聚合 warn 提示补声明；兼容执法点火日（首个 latest 正式发版）起缺块即拒载；
+- **红行行级隔离**：单插件版本断裂只隔离自身进失败面，不挡其他插件装载（官方 `core:` 件例外——裁决红即宿主 fail-loud 拒启，同仓同版本结构性恒过）。
+
+`berry plugins check` 即本块的装机面三色只读体检（见 [usage.md](./usage.md#plugins-插件管理)）。
 
 ## apply 函数与 ctx
 
@@ -67,6 +90,8 @@ export default async function apply(ctx, config) {
 | 触发器       | `triggers.register(def)`                                                                                                                                                                                          | 事件触发起会（门检/撞名/格式三闸）                                                                                                                                                                                                                                                                                                                                       |
 | 凭证         | `secrets.get(name)` / `secrets.set(name, value)` / `secrets.registerOAuthFlow(spec)`（经 `ctx.get("secrets")` 消费）                                                                                              | 自域隔离读 / 宿主回调窗内写（受理制）/ oauth 流注册（装载窗 only——详见[凭证节](#凭证ctxgetsecrets)）                                                                                                                                                                                                                                                                     |
 | 压缩策略     | `compaction.setConfig(partial)` / `compaction.registerSummarizer(fn)`（经 `ctx.get("compaction")` 消费）                                                                                                          | 数值配置槽 / 摘要 provider 槽两动词：装载窗 only **严于通律**（回调窗延伸不适用——装配期配置/注册动作非回调场景动作）；单席位先到占、席位者可重设更新、他插件后到拒 `COMPACTION_CONFIG_TAKEN` / `COMPACTION_SUMMARIZER_TAKEN`（配置主权单源，fail-loud 拒不静默 last-wins）；返回摘槽 disposer（卸载自动回收）                                                            |
+| 会话数据面   | `appendEventFor(sessionId)`（经 `ctx.get("sessions")` 消费）                                                                                                                                                      | 受理制写：向指定会话事件流写插件自定义事件（v1 最小面——只读四件与 store_state 腿随后续批）；source 归因宿主单方盖章、行籍闸残句柄拒写，详见下[会话数据面](#会话数据面ctxgetsessions)节                                                                                                                                                                                   |
+| Job 登记     | `registerKind(kind, def?)`（经 `ctx.get("jobs")` 消费）                                                                                                                                                           | 登记种类恒携本插件归属（谱系闸执法——他插件/宿主预登记 kind 复用即拒）；可选 `def.parallelLimits` 并入 per-kind 并行帽，详见下[Job 登记面](#job-登记面ctxgetjobs)节                                                                                                                                                                                                       |
 | UI 后端      | `channels.registerUiBackend(backend)`                                                                                                                                                                             | 自定义 UI 后端（拒绝式；`channels.ui-backend` 高危面开门制**前置**于撞名律——未开门连撞名检查都不可达）                                                                                                                                                                                                                                                                   |
 | 交互         | `ui.notify(message, opts?)` / `ui.confirm(message, opts?)` / `ui.select(message, choices, opts?)` / `ui.input(message, opts?)` / `ui.setStatus(status, opts?)` / `ui.setWidget(node, opts?)` / `ui.hasAudience()` | 通道交互七原语（会话锚定档位执法）。阻塞三件 confirm/select/input **是拒绝不是降档**：会话锚缺席拒 `UI_ASK_UNANCHORED`、锚不在册拒 `UI_ASK_SESSION_CLOSED`（钩子派发窗内一律拒 `UI_ASK_WINDOW_INVALID`——窗判前置锚判；可选 `opts.sessionId` 显式锚优先、ambient 命令锚回落）；单向原语 setStatus/setWidget 无锚降档 no-op warn 不炸装载；notify/hasAudience 无会话位恒可 |
 | 自省         | `host`                                                                                                                                                                                                            | 宿主信息面（版本、装配、本插件 id）                                                                                                                                                                                                                                                                                                                                      |
@@ -104,6 +129,22 @@ export default async function apply(ctx, config) {
 - **env 注入引用形**：`{ GITHUB_TOKEN: '@credentials:github-token' }` 形的 env 值（消费面 v1 = MCP/LSP server config 的 `env`）由宿主在 spawn 时刻展开——明文只进子进程环境，配置面/工具结果/日志恒只见 `@credentials:` 引用形原文。
 
 错误码族：`CREDENTIALS_NOT_FOUND`（名缺席）/ `CREDENTIALS_NAMESPACE_DENIED`（越域未开门）/ `CREDENTIALS_WRITE_WINDOW_CLOSED`（窗外写）/ `CREDENTIALS_ENV_REF_INVALID`（引用形坏形）/ oauth 流三态 `CREDENTIALS_OAUTH_DENIED`（用户拒绝授权）/ `CREDENTIALS_OAUTH_EXPIRED`（device-code 过期）/ `CREDENTIALS_OAUTH_FLOW_FAILED`（端点传输/流编舞失败）。
+
+### 会话数据面（ctx.get("sessions")）
+
+向会话事件流写插件自定义事件（durable 追加）——v1 最小面为受理制写单动词 `appendEventFor(sessionId)`（按会话取 append 活引用；只读四件与 store_state 腿随后续批扩展）。要点：
+
+- **source 归因宿主单方盖章**：落账 data 恒盖 `source: plugin:<你的 id>` 键——自供 source 键被绑定面覆写（防冒名单源）；
+- **data 须纯对象**：数组/原始值/null/类实例（Date、Map 等——prototype 判据与事件快照面同源）拒写 `SESSION_EVENT_DATA_INVALID`（归因键无处落的结构前提；无原型的 `Object.create(null)` 形可写）；
+- **词汇二道闸**：核心事件词伪造拒 `SESSION_CORE_TYPE_FORBIDDEN`（核心事件族写入权属宿主）；未注册词汇拒 `SESSION_UNKNOWN_EVENT_TYPE`——先经 `ctx.events.registerSessionEventType` 注册方可写；
+- **行籍闸**：装载代回卷（卸载 / `/reload` 换代）后残句柄拒写 `PLUGIN_WINDOW_CLOSED`；
+- **会话缺席诚实返 undefined**（无活体驱动不造替身——消费方自行降级）。
+
+返回的 append 引用另收可选 `surfaceOp` 信封参数（改投影历史的唯一正门——边缘纪律与 `SESSION_SURFACE_OP_INVALID` 由正门单点执法）。
+
+### Job 登记面（ctx.get("jobs")）
+
+`registerKind(kind, def?)` 登记 Job 种类（后台任务注册表的词汇面——未登记种类使用拒 `JOB_KIND_UNKNOWN`）；可选 `def.parallelLimits` 并入 per-kind 并行帽（同 kind 后写胜出）。经 `ctx.get("jobs")` 取用的登记恒记本插件归属——**谱系闸执法**：他插件或宿主预登记的 kind 复用即拒（触发器起会显式指定 `jobKind` 时须归属本插件——warn 可观测拒收，不冒名）。
 
 ### HTTP 路由（受限开放——`sdk-routes` 服务面）
 
