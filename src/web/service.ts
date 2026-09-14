@@ -16,7 +16,7 @@
  * 携单例 dispatcher——「校验通过 → 连接」的 rebinding TOCTOU 间隙闭合。
  */
 import { BaseError } from '../contracts/index.js';
-import { getPinnedDispatcher, pinDnsAddresses } from './dns-pin.js';
+import { getPinnedDispatcher, pinDnsAddresses, pinnedFetch } from './dns-pin.js';
 import { createInFlightGate } from './gate.js';
 import { assertPublicHost, defaultDnsResolver, parseWebUrl } from './hygiene.js';
 import type {
@@ -120,7 +120,10 @@ function decodeUtf8Strict(bytes: Uint8Array, truncated: boolean): string {
  * 同一 service 实例即共用同一 execute 与同一在飞门。
  */
 export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService {
-  const fetchImpl: FetchLike = deps.fetchImpl ?? ((url, init) => fetch(url, init));
+  // 缺省外联腿 = dns-pin 同包 pinnedFetch（fetch 与单例 dispatcher 同包同版——
+  // 接口恒配；rb-2 批勘正：旧缺省全局 fetch × 包 Agent 在现役配对下确定性
+  // 互斥必抛——跨包形禁区，禁回改）
+  const fetchImpl: FetchLike = deps.fetchImpl ?? pinnedFetch;
   const resolveDns: DnsResolver = deps.resolveDns ?? defaultDnsResolver;
   const now = deps.now ?? (() => Date.now());
   const sink: WebAttributionSink = deps.sink ?? (() => {});
@@ -171,7 +174,9 @@ export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService 
               ...(requestBody !== undefined ? { body: requestBody } : {}),
               redirect: 'manual',
               ...(init.signal ? { signal: init.signal } : {}),
-              // 连接级钉死：全局 fetch init.dispatcher 位（连接走钉值 lookup）
+              // 连接级钉死：同包 fetch init.dispatcher 位（连接走钉值 lookup；
+              // 调用方显式再携一次与 pinnedFetch 自携同值幂等——保注入桩
+              // fetchImpl 路径的 dispatcher 断言面）
               dispatcher: getPinnedDispatcher(),
             });
             if (!REDIRECT_STATUSES.has(response.status)) break;

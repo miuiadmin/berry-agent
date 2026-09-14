@@ -42,7 +42,7 @@ import {
 } from '../subagent/index.js';
 import { createDirProvider } from '../skills/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
-import { createSsrfGuardedFetch } from '../web/index.js';
+import { createSsrfGuardedFetch, pinnedFetch } from '../web/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy } from './tool-policy-store.js';
 import { readHostSettings } from './settings-store.js';
@@ -483,9 +483,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // SSRF 守卫 fetch（2026-09-09 守卫批——挂账收口）：web 卫生单源包裹真身
     // fetch（协议白名单 + 字面/DNS 私网拒 + redirect 钉 manual 不跟随）——
     // credentials 件无 web 边（loop 只认 StreamFn 同律），守卫属宿主裁决权
-    // 装配位注入；人面发起腿与刷新链腿共用同守卫实例
+    // 装配位注入；人面发起腿与刷新链腿共用同守卫实例。底层腿 = dns-pin
+    // 同包 pinnedFetch（rb-2 勘正——fetch 与钉死 dispatcher 同包律；旧形
+    // 全局 fetch × 包 Agent 在现役配对下确定性互斥必抛，跨包形禁区）
     const oauthFlows = createOAuthFlowRegistry();
-    const oauthFetch = createSsrfGuardedFetch(fetch);
+    const oauthFetch = createSsrfGuardedFetch(pinnedFetch);
     // in-process 真工厂注册（批 19c-1 兑现）：委派深度登记表（boot 全局层
     // 工具执行时语境真源）+ DEFAULT_SUBAGENT_PROVIDER 位接线（声明式 def
     // bound provider late-binding 同位解析）

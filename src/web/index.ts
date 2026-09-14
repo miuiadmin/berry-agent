@@ -26,5 +26,8 @@ export type {
 export { createInFlightGate } from './gate.js';
 export { WEB_PROTOCOLS, defaultDnsResolver, parseWebUrl, isPrivateHostLiteral, assertPublicHost } from './hygiene.js';
 export { createSsrfGuardedFetch } from './ssrf-guard.js';
+// pinnedFetch = 生产外联 fetch 单源（fetch 与钉死 dispatcher 同包律——rb-2 勘正形；
+// 装配位 ssrf-guard 注入消费；跨包形〔全局 fetch × 包 Agent〕禁区见 dns-pin.ts 头注）
+export { pinnedFetch } from './dns-pin.js';
 export { createWebFetchService, DEFAULT_WEB_LIMITS } from './service.js';
 export { createFetchTool } from './tool.js';

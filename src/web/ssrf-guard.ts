@@ -36,7 +36,9 @@ import type { DnsResolver, FetchLike } from './types.js';
  * 返回形 = FetchLike（结构兼容全局 fetch 窄面；credentials OAuthFetchLike
  * 只消费 ok/status/text 三面——Response 超集，装配位直传即合法注入）。
  *
- * @param fetchImpl 底层 fetch（生产 = globalThis.fetch；测试注入桩）
+ * @param fetchImpl 底层 fetch（生产 = dns-pin 同包 pinnedFetch〔rb-2 勘正——
+ * fetch 与 dispatcher 同包律；旧生产形全局 fetch × 包 Agent 在现役配对下
+ * 确定性互斥必抛〕；测试注入桩）
  * @param resolveDns DNS 解析器（缺省 node:dns/promises lookup all——测试注入）
  */
 export function createSsrfGuardedFetch(fetchImpl: FetchLike, resolveDns: DnsResolver = defaultDnsResolver): FetchLike {

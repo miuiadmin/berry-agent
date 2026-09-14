@@ -16,13 +16,20 @@
  * - **无钉即错 fail-closed**（裁决 2）：lookup 查不到登记时报错而非回落
  *   node:dns——回落 = 钉死面静默重开漂移窗。理论不达（两消费位恒先校验后
  *   连接），防御位留给未来第三消费位误用；
- * - **只用包 Agent 类不用包 fetch**：node 全局 fetch 认 init.dispatcher、
- *   undici@8 包 fetch 不认（实验定案）——fetch 调用恒走全局 fetch。
+ * - **生产外联 fetch 恒走本包 fetch（fetch 与 dispatcher 同包律——2026-09-14
+ *   第四役 rb-2 勘正形）**：Node 全局 fetch（内置 undici 7.28——旧 handler
+ *   接口 onConnect/onHeaders 族）× 本包 8 Agent（新 RequestHandler 接口）
+ *   在现役配对下**确定性互斥**（assertRequestHandler 接口断言必抛）；本包
+ *   fetch × 本包 Agent 恒配。rb 批「全局 fetch 认 init.dispatcher」实验定案
+ *   方向记反，随批废止（03 §10.3 ② 勘正注 + 07 §2.1 行同笔）——跨包形列
+ *   结构性禁区，不押注两包 handler 接口跨版本对齐。
  *
  * 射程外：字面 IP URL 无 DNS 间隙天然无窗（钉值登记仅冗余无害）；出站代理
  * 不接（显式 Agent 无代理面——外联直连可审计）。
  */
-import { Agent } from 'undici';
+import { Agent, fetch as undiciFetch } from 'undici';
+
+import type { FetchLike } from './types.js';
 
 /** 进程级钉死登记（hostname 小写归一 → 经校验公网地址集） */
 const pins = new Map<string, readonly string[]>();
@@ -103,7 +110,8 @@ let dispatcherSingleton: Agent | null = null;
 /**
  * 钉死 dispatcher 取用面：单例 undici Agent（connect.lookup = 钉值 lookup
  * ——连接地址完全由钉登记决定，完全旁路真 DNS）。调用方将其作为
- * `fetch(url, { dispatcher })` 的 init 键传抵全局 fetch。
+ * `fetch(url, { dispatcher })` 的 init 键传抵**同包** fetch（跨包形禁区——
+ * 头注第三裁决）。
  */
 export function getPinnedDispatcher(): Agent {
   if (dispatcherSingleton === null) {
@@ -111,3 +119,21 @@ export function getPinnedDispatcher(): Agent {
   }
   return dispatcherSingleton;
 }
+
+/**
+ * 生产外联 fetch 单源（rb-2 批——fetch 与 dispatcher 同包律的执法位）：
+ * 同包 undici 8 fetch + 自携单例钉死 dispatcher。
+ *
+ * 为什么是导出面而非各消费位自行 import 包 fetch：① **单源**——service
+ * 缺省 fetchImpl 与 ssrf-guard 装配注入两消费位同源消费，「哪条 fetch ×
+ * 哪个 dispatcher」只此一处可答；② **自携 dispatcher**——调用方不传
+ * dispatcher 也恒钉（未来第三消费位忘携的面一并闭死，与 lookup 无钉即错
+ * fail-closed 同向纵深）；③ 测试注入桩 fetchImpl 的路径不受影响（deps 注
+ * 入位优先于本缺省）。
+ *
+ * 返回类型经 FetchLike（DOM 形 Response 声明位）——同包 Response 与
+ * @types/node 全局 Response 运行时同体、消费面（ok/status/text/headers）
+ * 全在场，类型域以缺省赋值直配（typecheck 裁决——两声明源同出
+ * undici-types）。
+ */
+export const pinnedFetch: FetchLike = (url, init) => undiciFetch(url, { ...init, dispatcher: getPinnedDispatcher() });

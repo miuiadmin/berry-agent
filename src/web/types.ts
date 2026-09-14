@@ -96,7 +96,7 @@ export type FetchLike = (
     body?: string;
     redirect?: 'manual';
     signal?: AbortSignal;
-    /** 钉死 dispatcher（连接级 DNS 钉死——rb 批；undici Agent，全局 fetch init.dispatcher 位） */
+    /** 钉死 dispatcher（连接级 DNS 钉死——rb 批；undici Agent，同包 fetch init.dispatcher 位〔rb-2 勘正形〕） */
     dispatcher?: Dispatcher;
   },
 ) => Promise<Response>;
