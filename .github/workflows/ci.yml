@@ -253,7 +253,7 @@ jobs:
       - run: npm ci
       - run: npx vitest run --coverage
       - name: 覆盖率产物归档（coverage/ 全目录——json-summary 在内）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/
