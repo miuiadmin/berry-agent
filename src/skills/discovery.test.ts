@@ -246,3 +246,63 @@ describe('resolveFactorySkillsDir 出厂目录定位', () => {
     expect(resolveFactorySkillsDir(pathToFileURL('/pkg/src/skills/discovery.js').href)).toBe(join('/pkg', 'skills'));
   });
 });
+
+/**
+ * 出厂技能四件回归锁（07 §8.6 定名批落位——2026-09-15）。
+ *
+ * 三面锁：
+ * 1. 出厂真目录装载面——四件全在场且零诊断（frontmatter 全绿，name 与目录
+ *    基名一致——落位批冷读 F2 的机器验收位）；
+ * 2. 出厂名参数化解析——06 §11.4「凡文档引用的技能名必须解析到真实
+ *    SKILL.md」的四名承载（07 §8.6 射程注记③：本节四件名即首批被锁引用）；
+ * 3. user 层同名压过出厂件——优先级真源序（06 §11.4：project > user >
+ *    跨库 > 插件 > 出厂，同名 first-wins 吸收 + collision 诊断）。
+ */
+describe('出厂技能四件（07 §8.6 落位批回归锁）', () => {
+  /** 出厂四件名单（07 §8.6 单源——与 tools/release.mjs MAIN_PACK_MUST 必在件同源） */
+  const FACTORY_SKILL_NAMES = ['coding-persona', 'plugins-quickstart', 'goal-unattended', 'memory-tools'];
+
+  it('出厂真目录装载——恰四件全在场、零诊断', async () => {
+    const factoryDir = resolveFactorySkillsDir();
+    // 落位后缺席即红（不再 skip 形——「在场必在」，07 §8.6 射程注记④同向）
+    expect(existsSync(factoryDir)).toBe(true);
+    const scan = await scanSkillsDir(factoryDir, { providerId: 'factory-real' });
+    expect(scan.diagnostics).toEqual([]);
+    expect(scan.skills.map((s) => s.name).sort()).toEqual([...FACTORY_SKILL_NAMES].sort());
+  });
+
+  // 参数化逐名断言：每个出厂名解析到真实 SKILL.md（文件在场 + 扫描装载面一致）
+  it.each(FACTORY_SKILL_NAMES)('出厂名解析——%s 必解析到真实 SKILL.md', async (name) => {
+    const factoryDir = resolveFactorySkillsDir();
+    expect(existsSync(join(factoryDir, name, 'SKILL.md'))).toBe(true);
+    const scan = await scanSkillsDir(factoryDir, { providerId: 'factory-real' });
+    const skill = scan.skills.find((s) => s.name === name);
+    expect(skill?.filePath).toBe(join(factoryDir, name, 'SKILL.md'));
+    expect(skill?.description.length).toBeGreaterThan(0);
+  });
+
+  it('user 层同名恒压出厂件——first-wins 优先序真源（注册序即优先序）', async () => {
+    const ws = await tmpRoot('ws-factory-override');
+    const dataDir = await tmpRoot('data-factory-override');
+    const home = await tmpRoot('home-factory-override'); // 隔离假家目录——跨库层不触真实 HOME
+    // user 层落一枚与出厂件同名的技能（真出厂名 memory-tools）；factory 用真出厂目录
+    await writeSkill(join(dataDir, 'skills'), 'memory-tools', '用户层同名覆盖件');
+    const registry = createSkillsRegistry();
+    for (const layer of createStandardLayers({ cwd: ws, dataDir, homeDir: home })) {
+      registry.registerProvider(layer);
+    }
+    const report = await registry.refresh();
+    // 四件出厂 + user 同名件 → 同名吸收后恰 4（collision 计 1：winner=user 件）
+    expect(report.total).toBe(4);
+    expect(report.collisions).toBe(1);
+    const winner = registry.get('memory-tools');
+    expect(winner?.description).toBe('用户层同名覆盖件');
+    expect(winner?.filePath).toContain(join(dataDir, 'skills'));
+    // 同名唯一面：被压过的出厂件不重复出现（first-wins 吸收形）
+    expect(registry.list().filter((s) => s.name === 'memory-tools')).toHaveLength(1);
+    // 出厂其余三件不受同名覆盖影响（恒扫描、末位但不被牵连）
+    for (const name of ['coding-persona', 'plugins-quickstart', 'goal-unattended']) {
+      expect(registry.get(name)?.providerId).toBe('factory');
+    }
+  });
+});

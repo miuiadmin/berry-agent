@@ -41,6 +41,11 @@ const PACK_BASELINES = {
     'dist/webui/index.html',
     'dist/api/surface.json',
     'dist/.build-meta.json',
+    // 出厂技能四件（2026-09-15 落位批——随必在件断言同步入基线）
+    'skills/coding-persona/SKILL.md',
+    'skills/plugins-quickstart/SKILL.md',
+    'skills/goal-unattended/SKILL.md',
+    'skills/memory-tools/SKILL.md',
   ],
   sdk: [
     'package.json',
@@ -236,6 +241,31 @@ describe('judgePackList（契约 3 白名单机器验收）', () => {
     const v = judgePackList([...fakeSeams().packList(), ...langs, 'README.de.md']);
     expect(v.ok).toBe(false);
     expect(v.forbidden).toEqual(['README.de.md']);
+  });
+
+  // 2026-09-15 出厂技能落位批回归锁（07 §8.6 射程注记②④）——skills/ 挂账资产位
+  // 在场恰收 + 出厂四件 SKILL.md 必在件断言（「在场才入」升「在场必在」：缺席
+  // 即 pack 验收红——出厂层自此是发布物契约面）
+  it('skills 件在场 → 恰收过（出厂四件全录）', () => {
+    const v = judgePackList([
+      ...fakeSeams().packList(),
+      'skills/coding-persona/SKILL.md',
+      'skills/plugins-quickstart/SKILL.md',
+      'skills/goal-unattended/SKILL.md',
+      'skills/memory-tools/SKILL.md',
+    ]);
+    expect(v.ok).toBe(true);
+  });
+
+  it('出厂四件 SKILL.md 任一缺席 → 红（必在件——在场必在）', () => {
+    // 基线含全四件，摘掉一件代表「任一缺席」形——missing 面恰为被摘件
+    const v = judgePackList(
+      fakeSeams()
+        .packList()
+        .filter((f) => f !== 'skills/memory-tools/SKILL.md'),
+    );
+    expect(v.ok).toBe(false);
+    expect(v.missing).toEqual(['skills/memory-tools/SKILL.md']);
   });
 });
 

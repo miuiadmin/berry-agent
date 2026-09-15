@@ -90,11 +90,15 @@ const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
  * README 语言变体族（2026-09-14 多语言 README 批）：npm always-included 族——
  * 根目录 README 变体自动入包（package.json files 白名单拦不住），故语言集枚举形
  * 恰收五件（zh/ko/fr/es/ru）；缺席语言（如 de）不预占位，新语言随落位批同步扩。
+ * skills/ 挂账资产位（2026-09-15 出厂技能落位批——07 §8.6 射程注记②）：
+ * 出厂四件 SKILL.md 随包分发（package.json files 同步扩入），前缀形整树承载
+ * （references/ 附属文件同收——06 §11.3 细化②）；必在件断言见下 MAIN_PACK_MUST
+ * （射程注记④「在场必在」——四件缺席即 pack 验收红）。
  */
-const MAIN_PACK_ALLOWED = /^(package\.json|README(\.(zh|ko|fr|es|ru))?\.md|LICENSE|dist\/.+|examples\/.+)$/;
+const MAIN_PACK_ALLOWED = /^(package\.json|README(\.(zh|ko|fr|es|ru))?\.md|LICENSE|dist\/.+|examples\/.+|skills\/.+)$/;
 /** 主包三禁（全域执法不问目录——dist 内同样禁测试/映射件） */
 const MAIN_PACK_BANNED = /\.(test|spec)\.(js|ts|tsx)$|\.test\.d\.ts$|\.js\.map$/;
-/** 主包必在件（bin 主入口 / SPA 面 / API 治理面 / 溯源戳 / 双档） */
+/** 主包必在件（bin 主入口 / SPA 面 / API 治理面 / 溯源戳 / 双档 / 出厂技能四件） */
 const MAIN_PACK_MUST = [
   'dist/host/main.js',
   'dist/webui/index.html',
@@ -102,6 +106,11 @@ const MAIN_PACK_MUST = [
   'dist/.build-meta.json',
   'README.md',
   'LICENSE',
+  // 出厂技能四件（07 §8.6 定名批——名单单源即本表，落位批「在场必在」升级）
+  'skills/coding-persona/SKILL.md',
+  'skills/plugins-quickstart/SKILL.md',
+  'skills/goal-unattended/SKILL.md',
+  'skills/memory-tools/SKILL.md',
 ];
 
 /**
