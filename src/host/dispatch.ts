@@ -75,7 +75,9 @@ export interface DispatchEnv {
  *
  * 旗标归属行与 src/host/cli.ts 各入口旗标表（TUI/RUN/SERVE/DUMP_SCHEMAS）
  * 对拍维护：--no-delta 系 run/serve 两表共收（非 serve 专属）；--plugin-file
- * 系 TUI/RUN 收、DUMP 收而互斥拒（2026-09-14 勘正批两笔归属勘正的锚定注）。
+ * 系 TUI/RUN 收、DUMP 收而互斥拒（2026-09-14 勘正批两笔归属勘正的锚定注）；
+ * --no-plugins 系 TUI/RUN/DUMP 三表收、SERVE 表不透传（mcp 零旗标面）——
+ * 照抄 `berry serve --no-plugins` 即用法错退 2，归属括注防此坑。
  */
 export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
 
@@ -94,7 +96,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   upgrade                 升级维护动词
 
 常用旗标：
-  --help / --version / --debug / --port <n> / --no-plugins
+  --help / --version / --debug / --port <n> / --no-plugins（TUI / run / dump-config 收——serve/mcp 不透传）
   --plugin-file <path>  快速试件（插件目录或单文件入口 .js/.mjs/.ts——纯内存注入零落盘；TUI / run 收，dump-config 互斥拒）
   run 限定：--output-format <text|json|stream>  --output-last-message <file>  --ephemeral
             --max-turns <n>  --session <id>  --continue  --fork [id]  --read-only  --preset <名>  --tick <名>  --background

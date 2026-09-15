@@ -1,7 +1,7 @@
 # 开发指南
 
 > **EN TL;DR**: You need Node.js ≥ 24 (aggressive mainline tracking — LTS-only
-> users cannot install yet). The full suite is ~280 test files / 4800+ cases
+> users cannot install yet). The full suite is ~310 test files / 5000+ cases
 > and takes a few minutes on a normal laptop; CI covers Linux and macOS only,
 > Windows is untested. Make the four gates green before every PR, and target
 > the `dev` branch (`main` is the stable release line). Two vocabulary rules:
@@ -21,7 +21,7 @@
 
 **平台支持**：CI 实测面 = Linux + macOS 双 OS。Windows 未测——`better-sqlite3` 原生模块在 Windows 侧的编译链未验证过，不承诺可装可跑；欢迎带诊断信息的 Windows issue，但修复不排优先级。
 
-**测试规模预期**：全量测试约 280 个测试文件、4800+ 用例——普通开发机（近几年主流配置的笔记本）本地全量数分钟；CI 在双 OS 上各完整跑一遍（以上为实测口径）。
+**测试规模预期**：全量测试约 310 个测试文件、5000+ 用例——普通开发机（近几年主流配置的笔记本）本地全量数分钟；CI 在双 OS 上各完整跑一遍（以上为实测口径）。
 
 ```bash
 git clone https://github.com/miuiadmin/berry-agent.git

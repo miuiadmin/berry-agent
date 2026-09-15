@@ -27,10 +27,10 @@ existe ninguna vía privada de primer partido.
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** plugins integrados · DAG unidireccional de **28** módulos · **4.000+** tests ·
+**16** plugins integrados · DAG unidireccional de **28** módulos · **5.000+** tests ·
 **6** contratos de publicación verificados por máquina · **0** telemetría
 
-> Estado: `0.1.0-alpha.2` — guiado por contratos, construido en porciones
+> Estado: `0.1.0-alpha.3` — guiado por contratos, construido en porciones
 > verticales; la superficie de API aún puede cambiar antes de la 1.0.
 
 </div>
@@ -122,8 +122,9 @@ Escribe el tuyo: un plugin es un manifiesto más un archivo de entrada — consu
   una API JSON `/v1/*` versionada y autenticada por bearer; `serve --daemon` lo
   ejecuta en segundo plano (`serve status` / `serve stop`).
 - **SDK** — un cliente TypeScript tipado (spawn stdio o HTTP directo) vive en el
-  repositorio; el paquete npm `berry-agent-sdk` ya está en npm en fase alfa y
-  evoluciona con el repositorio principal.
+  repositorio; el paquete npm `berry-agent-sdk` ya está en npm en fase alfa
+  (`npm install berry-agent-sdk` lo instala directamente) y evoluciona con el
+  repositorio principal.
 - **MCP** — `berry mcp` expone el agente como servidor MCP, para que
   cualquier cliente MCP pueda conducirlo.
 

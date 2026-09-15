@@ -92,6 +92,23 @@ describe('dispatchCli 非 TTY 卫兵（TUI 入口单源谓词）', () => {
   });
 });
 
+describe('dispatchCli HELP_TEXT 旗标归属注（--no-plugins 入口归属勘正）', () => {
+  it('--no-plugins 行带归属括注：TUI / run / dump-config 收——serve/mcp 不透传', () => {
+    // 帮助文案是用户拼命令的第一真源：无归属注时照抄 `berry serve --no-plugins`
+    // 即用法错退 2（SERVE_SCHEMAS 不收、mcp 零旗标面）。锁归属注在文。
+    const line = HELP_TEXT.split('\n').find((l) => l.includes('--no-plugins'));
+    expect(line).toBeDefined();
+    expect(line).toContain('TUI / run / dump-config');
+    expect(line).toContain('serve/mcp 不透传');
+  });
+
+  it('归属注与解析真源对拍为真：serve / mcp 传 --no-plugins 确为用法错', () => {
+    // 注非虚文——解析面两入口确不收该旗标（未识别 → !ok → 分派层退 2）
+    expect(parseCli(['serve', '--no-plugins']).ok).toBe(false);
+    expect(parseCli(['mcp', '--no-plugins']).ok).toBe(false);
+  });
+});
+
 describe('dispatchCli 执行器派发', () => {
   it('缺席执行器 → stderr 诚实告知 + 退 1（fail-loud 不静默挂死）', async () => {
     for (const argv of [['run', 'hi'], ['serve'], ['serve', 'status'], ['mcp'], ['dump-config'], ['upgrade']]) {

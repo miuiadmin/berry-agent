@@ -489,8 +489,11 @@ export default async function apply(ctx, config) {
 
   const disposeCommand = ctx.channels.registerCommand(
     'twice',
-    (input: string) => {
-      return `命令收到：${input}`;
+    (args) => {
+      // 命令 handler 单参形（通道契约）：args.raw = 命令名后的输入原文（引号形态
+      // 原样）、args.argv = 引号感知切分的词数组；返回值 void 无回执——呈现走
+      // ctx.ui.notify 等通道原语（与 examples/minimal-code-plugin/entry.js 同形）
+      ctx.ui.notify(`命令收到：${args.raw}`);
     },
     '重复两遍示例命令',
   );

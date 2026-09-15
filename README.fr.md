@@ -27,10 +27,10 @@ de montage ; il n'existe aucune voie privée de premier parti.
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** plugins intégrés · DAG unidirectionnel de **28** modules · **4 000+** tests ·
+**16** plugins intégrés · DAG unidirectionnel de **28** modules · **5 000+** tests ·
 **6** contrats de publication vérifiés par la machine · **0** télémétrie
 
-> Statut : `0.1.0-alpha.2` — piloté par les contrats, construit par tranches
+> Statut : `0.1.0-alpha.3` — piloté par les contrats, construit par tranches
 > verticales ; la surface d'API peut encore évoluer avant la 1.0.
 
 </div>
@@ -122,8 +122,9 @@ désactivé individuellement — `core:issue` ne se charge qu'une fois configur�
   une API JSON `/v1/*` versionnée et authentifiée par bearer ; `serve --daemon`
   le lance en arrière-plan (`serve status` / `serve stop`).
 - **SDK** — un client TypeScript typé (spawn stdio ou HTTP direct) vit dans le
-  dépôt ; le paquet npm `berry-agent-sdk` est sur npm en version alpha et suit
-  l'évolution du dépôt principal.
+  dépôt ; le paquet npm `berry-agent-sdk` est sur npm en version alpha
+  (`npm install berry-agent-sdk` l'installe directement) et suit l'évolution du
+  dépôt principal.
 - **MCP** — `berry mcp` expose l'agent comme serveur MCP, pilotable par
   n'importe quel client MCP.
 

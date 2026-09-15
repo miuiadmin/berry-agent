@@ -25,10 +25,10 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** 件内置插件 · **28** 模块单向 DAG · **4,000+** 测试 ·
+**16** 件内置插件 · **28** 模块单向 DAG · **5,000+** 测试 ·
 **6** 道机器验收发布契约 · **0** 遥测
 
-> 状态：`0.1.0-alpha.2`——契约先行、逐批纵切落地；1.0 前 API 面仍可能调整。
+> 状态：`0.1.0-alpha.3`——契约先行、逐批纵切落地；1.0 前 API 面仍可能调整。
 
 </div>
 
@@ -109,7 +109,7 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` �
 - **HTTP**——`berry serve` 起常驻宿主：Web 界面 + 版本化、Bearer 鉴权的
   `/v1/*` JSON API；`serve --daemon` 后台运行（`serve status` / `serve stop`）。
 - **SDK**——类型化 TypeScript 客户端（stdio spawn / 直连 HTTP 两传输）随仓库同源；
-  `berry-agent-sdk` npm 包 alpha 档已上 npm、随主仓演进。
+  `berry-agent-sdk` npm 包 alpha 档已上 npm（`npm install berry-agent-sdk` 即装）、随主仓演进。
 - **MCP**——`berry mcp` 以 MCP server 形态暴露 Agent，任意 MCP 客户端可接入。
 
 ## 架构
