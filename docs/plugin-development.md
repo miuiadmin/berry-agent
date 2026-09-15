@@ -311,7 +311,7 @@ berry run --plugin-file ./my-plugin "试一下新命令"
 语义边界：
 
 - **同装载管线**：试件走与装机行完全相同的装载面（真 jiti 求值、ctx 注册动词真达）——试过即等于装过，无专用旁路；
-- **坏形 fail-loud 拒启**：清单坏形/未知键当场红（试件是显式指定物，不做行级隔离静默降级）；路径不存在响亮报错并指路两形；
+- **合成面坏形 fail-loud 拒启**：路径不存在响亮报错并指路两形；试件 package.json 非法 JSON/清单坏形/未知键、撞名当场红（此族是计划合成期失败，试件为显式指定物，不做行级隔离静默降级）；而入口求值/apply 失败与磁盘行同律——行级隔离进 failed 面携启动 warn 横幅，不挡其余插件装载；
 - **撞名拒启**：目录形清单声明 id 撞已装/内置插件即拒（冒名顶替拒）；单文件形装载身份恒为保留字 `_quick_test`（合法插件 id 字符集不含下划线起头形），结构性免撞；
 - **`/reload` 热重载丢试件**：热重载按磁盘真源重建装载计划，试件行不复活——迭代需重进一次旗标；
 - **与 `--no-plugins` 同给安全模式胜**（逃生门不被试件顶掉）；**与 `dump-config` 互斥**（诊断保真——`:memory:` 面须呈现真实装载形）。
@@ -445,6 +445,7 @@ if (!report.ok) throw new Error(formatMatrixReceipt(report)); // 回执即失败
 - testkit 是**作者侧 devDep 消费面**——只在你的测试文件里 import；插件入口运行时 import `berry-agent/testkit` 不在装载器虚拟面六键闭集内，会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载（见上[import 白名单](#import-白名单插件可-import-什么)）；
 - **TS 作者的类型现状**：`berry-agent/testkit` v1 无类型锚——这是已拍板权衡（规范 03 §9.5 定形注：`.d.ts` 发射闭包与发布物收口纪律冲突，随后续批立题接）；TS 项目 import 需自持模块声明（`declare module 'berry-agent/testkit'`）或容忍 implicit any（无处理时实测报 TS7016）；
 - install 行内置 **npm pack 完整性预检**（`--dry-run` 零 tarball 落盘）：发布物缺 `entry` 入口、`skills`/`agents` 声明目录文件当场红；npm 缺席的环境该行落 skipped（环境位如实呈现，非放行；`packCheck: false` 可显式关）；
+- 假宿主已注入 **channels-ui 受局面**（`ctx.ui` 消费腿可证）：apply 期 `ctx.ui.notify(...)` 装载成功且收件经 harness 的 `ui.notifies()` 可断言（`notify` 无会话位恒可）；`hasAudience` 恒 `false`（假宿主无真人观众），假宿主零在册会话——阻塞三件按真判序拒（装载期无锚 `UI_ASK_UNANCHORED`）、单向原语无锚 no-op warn（降档 warn 走 harness `warn` 出口，缺省静默）；
 - 首版锁假宿主层 + 真装载器两层——真宿主层断言（真模型行为）随后续版本随金样轨并轨。
 
 ## 发布

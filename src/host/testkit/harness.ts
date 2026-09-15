@@ -4,8 +4,8 @@
  * 铁律（真装载器——deepseek-harness「真入口路径」教训照搬）：一切断言经
  * 真装载整体走真——installPlugin/mountRow/toggleRow/bootPlugins 全是真身
  * 直调（真 jiti 求值、真审计词、真 enabled.yaml/账本落盘），本件只提供
- * 假宿主受局面（runtime 替身 + 注入式注册账 + 内存审计汇）。手工拼
- * ctx.plugin 的套件不算数。
+ * 假宿主受局面（runtime 替身 + 注入式注册账 + 内存审计汇 + ui 受局面
+ * 记录账）。手工拼 ctx.plugin 的套件不算数。
  *
  * 消费位：作者测试文件经 `berry-agent/testkit` 子路径导入（作者侧 devDep
  * 消费——非装载器 jiti 注入面，03 §8.2 第七真相源「宿主主包子路径导出面」）。
@@ -32,10 +32,11 @@ import { bootPlugins } from '../plugin-boot.js';
 import type { PluginBootHandle, PluginBootOptions, PluginUnloadReceipt } from '../plugin-boot.js';
 import { mountRow, readEnabledRowsForEdit, toggleRow } from '../plugin-store.js';
 import type { PluginStoreFs, RowEditResult } from '../plugin-store.js';
-import type { CommandRegistryLike } from '../plugin-context.js';
+import type { CommandRegistryLike, ChannelsUiFace } from '../plugin-context.js';
 import { EventDispatch, Scope } from '../../context/index.js';
 import type { AuditFace, AuditEventRow } from '../../persist/index.js';
 import type { LlmRuntime } from '../../llm/index.js';
+import type { NotifyLevel } from '../../contracts/index.js';
 import { stringify as stringifyYaml } from 'yaml';
 
 import type { HostRuntime } from '../runtime.js';
@@ -115,6 +116,61 @@ export function createCommandAccount(): CommandAccount {
       },
     },
     counts: () => new Map(counts),
+  };
+}
+
+/** ui.notify 收件行（message + 可选 level——与 ctx.ui.notify 入参同形） */
+export interface UiNotifyRecord {
+  readonly message: string;
+  readonly level?: NotifyLevel;
+}
+
+/**
+ * ui 消费腿受局面记录账（W2——四问评估落地批：规范已定 ctx.ui.notify 无会话
+ * 位恒可，testkit 假宿主补 channels-ui 受局面最小注入）。notify 收件入账可
+ * 断言；hasAudience 恒 false（假宿主无真人观众——诚实值）；hasSession 恒
+ * false（假宿主零在册会话——阻塞三件锚解析与单向原语锚时效由 ctx 层真判序
+ * 执法：无锚拒 UI_ASK_UNANCHORED、锚不在册拒 UI_ASK_SESSION_CLOSED、无锚
+ * 单向原语 no-op warn——受局面在场不等于静默全开）。
+ */
+export interface UiAccount {
+  /** 受局面（bootPlugins 直注——ChannelsUiFace 假宿主最小形） */
+  readonly face: ChannelsUiFace;
+  /** notify 收件清单（正序快照——跨换代累积不清理，内存审计汇同律） */
+  notifies(): readonly UiNotifyRecord[];
+}
+
+/**
+ * ui 受局面铸造（W2）：notify 入账（恒扇出——与核层无后端仍扇出同语义）；
+ * 阻塞三件/单向原语四法结构性不可达（ctx 层锚闸均在委派前收口——
+ * hasSession 恒 false 下无锚形拒 UI_ASK_UNANCHORED、显式锚形拒
+ * UI_ASK_SESSION_CLOSED、无锚单向原语 no-op warn），可达即契约破——
+ * 防御位 fail-loud。
+ */
+function createUiAccount(): UiAccount {
+  const rows: UiNotifyRecord[] = [];
+  // 防御位：四法被委派即说明 ctx 层判序漂移（假宿主零在册会话恒不该过锚闸）
+  const unreachable = (method: string): never => {
+    throw new Error(`testkit：假受局面 ${method} 不可达（ctx 层锚解析应在委派前收口——判序漂移即红）`);
+  };
+  return {
+    face: {
+      // 档位 1：notify 无会话位恒可——收件入账（作者断言面）
+      notify: (message, opts) => {
+        rows.push({ message, ...(opts?.level !== undefined ? { level: opts.level } : {}) });
+      },
+      // 档位 1：观众探针——假宿主无真人观众（与无后端通道核同值）
+      hasAudience: () => false,
+      // 锚时效真源：假宿主零在册会话（阻塞三件任何锚均不在册——诚实拒）
+      hasSession: () => false,
+      // 以下四法结构性不可达（见函数头注）——fail-loud 防御位
+      confirm: () => unreachable('confirm'),
+      select: () => unreachable('select'),
+      input: () => unreachable('input'),
+      setStatus: () => unreachable('setStatus'),
+      setWidget: () => unreachable('setWidget'),
+    },
+    notifies: () => [...rows],
   };
 }
 
@@ -217,6 +273,8 @@ export interface PluginHarness {
   readonly audit: MemoryAuditSink;
   /** 命令注册账（跨换代共享——净计数出账可证） */
   readonly commands: CommandAccount;
+  /** ui 受局面记录账（channels-ui 假宿主最小形——notify 收件可断言） */
+  readonly ui: UiAccount;
   /** 事件分派器（含监听器净计数探针） */
   readonly dispatch: EventDispatch;
   /** dispatch.on 净计数探针（零注册残留断言源） */
@@ -263,6 +321,7 @@ export function createPluginHarness(options: PluginHarnessOptions): PluginHarnes
   const storeFs = realStoreFs();
   const audit = new MemoryAuditSink();
   const commands = createCommandAccount();
+  const ui = createUiAccount();
   const dispatch = new EventDispatch();
   const listeners = instrumentDispatchListeners(dispatch);
   const runtime = createHarnessRuntime(dataDir);
@@ -282,6 +341,7 @@ export function createPluginHarness(options: PluginHarnessOptions): PluginHarnes
     packageJson: pkgJson as Record<string, unknown>,
     audit,
     commands,
+    ui,
     dispatch,
     listeners,
     async install() {
@@ -322,6 +382,11 @@ export function createPluginHarness(options: PluginHarnessOptions): PluginHarnes
         dispatch,
         commands: commands.registry,
         llm: createLlmAccount(),
+        // ctx.ui 消费腿受局面（W2——假宿主最小形注入：notify 收件可断言、
+        // hasAudience/hasSession 诚实假值；其余动词按 ctx 层真判序拒/降档）
+        channelsUi: ui.face,
+        // ctx.ui 降档 warn 与装载 warn 同汇（缺省静默——不噪作者测试输出）
+        uiWarn: options.warn ?? (() => undefined),
         version: options.hostVersion ?? '0.0.0-testkit',
         warn: options.warn ?? (() => undefined),
         audit,
