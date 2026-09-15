@@ -21,6 +21,7 @@ coverage/
 # 承 berry 同律：gitignore 保护行入库存档，永不入公开史；禁 git add -f 强加）
 研究源码/
 
-# 治理文档本地自持（AGENTS.md 真身 + CLAUDE.md symlink 指向它）——不入公开库
-AGENTS.md
+# 治理文档本地自持（AGENTS.local.md 真身 + CLAUDE.md symlink 指向它）——不入公开库；
+# 公开版 AGENTS.md（对外 AI 代理指引）入库不忽略（2026-09-15 贡献流程批）
+AGENTS.local.md
 CLAUDE.md
