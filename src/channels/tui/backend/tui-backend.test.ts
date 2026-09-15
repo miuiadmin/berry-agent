@@ -13,10 +13,11 @@
  * 保活周期重发；
  * 主题面（批 10g——07 §4.1 R2）：缺省 dark 确定性基线、auto 档 OSC 11
  * 探测编舞（查询/订阅/应答换装/同板零帧/迟到换装/畸形忽略/stop 复原）、
- * colorEnv 三档接线。
+ * 硬退复原钩 2031 同写（七役扫描批——复原对称律）、resumeMain 复起重查
+ * （七役扫描批——副屏在场窗通知丢弃的补偿面）、colorEnv 三档接线。
  */
 import { describe, expect, it } from 'vitest';
-import { MemoryTerminalIO } from '../../engine/index.js';
+import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { buildSgr } from './ansi-rows.js';
 import { sessionColor } from '../theme/index.js';
@@ -1614,6 +1615,65 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
     const explicit = makeBackend(); // 缺省 dark
     explicit.backend.stop();
     expect(explicit.io.bytes).not.toContain('\x1b[?2031l');
+  });
+
+  it('硬退复原钩含 2031 复原（七役扫描批——复原对称律：armExitRestore 与 stop 同写）', () => {
+    // armExitRestore 仅真 ProcessTerminalIO 武装（注入 MemoryTerminalIO 零污染）
+    // ——捕获子类过 instanceof 门、写出面截留（不触真 stdout）
+    class CapturingProcessIO extends ProcessTerminalIO {
+      captured = '';
+      override write(data: string): void {
+        this.captured += data;
+      }
+    }
+    const io = new CapturingProcessIO();
+    const backend = new TuiBackend(io, { theme: 'auto' });
+    const before = new Set(process.listeners('exit'));
+    backend.start();
+    // 武装位自证：start 恰新增一个 'exit' 监听（armExitRestore 真身路径）
+    const added = process.listeners('exit').filter((l) => !before.has(l));
+    expect(added).toHaveLength(1);
+    io.captured = ''; // start 编舞字节不计入
+    (added[0] as () => void)(); // 模拟硬退——直调 process 'exit' 监听（零副作用：不发真 exit 事件）
+    expect(io.captured).toContain(MAIN_LEAVE); // 既有复原面（出屏串）在场
+    expect(io.captured).toContain('\x1b[?2031l'); // 修复点：2031 复原——修前此字节缺席（红锚）
+    backend.stop(); // 收尾：卸 stdin/resize 订阅 + 解除 exit 钩（不泄漏到后续进程退出）
+  });
+
+  it('硬退复原钩显式档不写 2031 关（与 stop 同条件——显式档从未开不写关）', () => {
+    class CapturingProcessIO extends ProcessTerminalIO {
+      captured = '';
+      override write(data: string): void {
+        this.captured += data;
+      }
+    }
+    const io = new CapturingProcessIO();
+    const backend = new TuiBackend(io); // 缺省 dark 显式档
+    const before = new Set(process.listeners('exit'));
+    backend.start();
+    const added = process.listeners('exit').filter((l) => !before.has(l));
+    expect(added).toHaveLength(1);
+    (added[0] as () => void)(); // 模拟硬退
+    expect(io.captured).toContain(MAIN_LEAVE); // 出屏复原照常
+    expect(io.captured).not.toContain('\x1b[?2031l'); // 显式档从未开订阅——不写关
+    backend.stop();
+  });
+
+  it('resumeMain auto 档补发 OSC 11 重查（七役扫描批——副屏在场窗通知丢弃的复起补偿）', () => {
+    const { io, backend } = makeBackend({ theme: 'auto' });
+    backend.suspendMain();
+    io.reset();
+    backend.resumeMain();
+    expect(io.frames[0]).toBe(MAIN_ENTER); // 复起起手仍是进屏串（重查不打头）
+    expect(io.bytes).toContain('\x1b]11;?\x07'); // 第二次 OSC 11 查询——修前缺席（红锚）
+  });
+
+  it('resumeMain 显式档不补发 OSC 11（显式档零探测——对称面）', () => {
+    const { io, backend } = makeBackend(); // 缺省 dark
+    backend.suspendMain();
+    io.reset();
+    backend.resumeMain();
+    expect(io.bytes).not.toContain('\x1b]11;?');
   });
 
   it('colorEnv 三档接线：truecolor 档 accent 仍 ANSI 6 直通、RGB 键走 38;2 直出', () => {

@@ -68,6 +68,26 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
     }
   });
 
+  it('16 档非高亮塌缩键修正（七役扫描批——ExactColor 覆写扩面）', () => {
+    // 修前塌缩形（dark 板最近邻）：link #58a6ff / codeInline #7ee787 → 7 亮灰
+    // （与 thinkingText #94a3b8→7 三键合流）、tableRule #30363d → 0 黑（暗底
+    // 零对比不可见）——07 §4.1 七役扫描批补笔：覆写面扩至非高亮同域塌缩键
+    const d = resolveTheme(DARK_PALETTE, '16');
+    expect(d.codeInline).toEqual(ansiColor(2)); // 复绿——承批 10g 前 CODE_COLOR=ANSI 2 中性定值
+    expect(d.tableRule).toEqual(ansiColor(8)); // 暗灰——暗底可见（≠ 0 黑）
+    expect(d.link).toEqual(ansiColor(12)); // 亮蓝——与亮灰前景互离（≠ 7）
+    // thinkingText 维持最近邻：italic 属性位已可辨，不占覆写位（规范笔定裁）
+    expect(d.thinkingText).toEqual(ansiColor(7));
+    // light 板对位（同键两板同色相族 + 互离 + 可见）：link 最近邻落 6 青——
+    // 亮底对比不足（10g accent 同由 6 改 4 的判据同源），覆写 4 蓝（亮底经典
+    // 强调位）；tableRule 最近邻恰落 7 亮灰（亮底表格线弱存在感正合真彩源
+    // #d0d7de 意图）、codeInline 恰落 2 与 dark 覆写位同绿族——两键保留最近邻
+    const l = resolveTheme(LIGHT_PALETTE, '16');
+    expect(l.link).toEqual(ansiColor(4));
+    expect(l.tableRule).toEqual(ansiColor(7));
+    expect(l.codeInline).toEqual(ansiColor(2));
+  });
+
   it('值域两律全键遍历：256 档 RGB 源键落 16-255、16 档落 0-15', () => {
     // RGB 源键 = 除 accent（AnsiColor 直通）与 text（undefined）外全集
     const rgbKeys = SEMANTIC_KEYS.filter((k) => k !== 'accent' && k !== 'text') as Exclude<

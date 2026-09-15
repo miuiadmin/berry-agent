@@ -596,6 +596,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.suspendedMain = false;
     this.io.write(ENTER_MAIN); // 进屏模式串（与出屏对称）
     this.armExitRestore(); // 复进屏重武装（arm 幂等——先解除旧钩再挂）
+    // OSC 11 重查（七役扫描批 A3）：挂起窗副屏 decoder 无 onOsc 透传、2031
+    // 明暗通知丢弃（v1 已知边界——副屏在场期即时跟随不做），复起重查即补偿。
+    // 同板应答 handleOscReply 短路零重画（零噪声）、迟到照常换装（无钟不设窗
+    // 语义同源）；2031 订阅挂起期未关（suspendMain 不写 disable）无须重开
+    if (this.themeSetting === 'auto') this.io.write(OSC11_QUERY);
     this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     this.io.resume(); // 显式放流（副屏 dispose 已 pause——共享 io 换防接缝）
@@ -1464,6 +1469,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const restore = (): void => {
       try {
         this.io.write(LEAVE_MAIN);
+        // 2031 复原（七役扫描批 A2——复原对称律）：终端私有模式不随进程退出
+        // 自复位，stop 既写关则硬退钩同写关、复原面不得留单边缺口。条件与
+        // stop() 同形（auto 档才开过订阅）；挂起态本钩已解除（suspendMain
+        // disarm——副屏自担其屏复原），无须 stop() 的 suspendedMain 分闸
+        if (this.themeSetting === 'auto') this.io.write(THEME_CHANGE_DISABLE);
         this.io.setRawMode(false);
         this.osc.restore(); // 件 7：硬退复原两写点（title 基线 + 进度清零——与 stop 同收口）
       } catch {

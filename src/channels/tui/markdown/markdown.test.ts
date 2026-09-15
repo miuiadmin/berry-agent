@@ -182,11 +182,11 @@ describe('MarkdownDoc 渲染', () => {
     expect(readRow(grid, 4, 20)).toBe(''); // H3 无尾线
   });
 
-  it('行内代码着 codeInline 键（缺省主题 16 档降采 #7ee787 → 亮灰 7；与 accent〔cyan 6〕分立）', () => {
+  it('行内代码着 codeInline 键（缺省主题 16 档 #7ee787 → 绿 2——七役扫描批 ExactColor 覆写；与 accent〔cyan 6〕分立）', () => {
     const doc = MarkdownDoc.of('看 `npm test` 命令');
     const grid = renderDoc(doc, 40);
     const codeCell = grid.getCell(0, 3); // '看' 宽 2 占 col 0-1、空格 col 2、code 首字 col 3
-    expect(codeCell?.style.fg).toBe(ansiColor(7));
+    expect(codeCell?.style.fg).toBe(ansiColor(2)); // 覆写位 2（修前最近邻塌缩 7 亮灰）
     expect(codeCell?.grapheme).toBe('n');
     expect(grid.getCell(0, 0)?.style.fg).toBeUndefined(); // 普通文本不着色
   });
@@ -259,7 +259,7 @@ describe('MarkdownDoc 渲染', () => {
     const doc = MarkdownDoc.of('a `中文码`');
     const grid = renderDoc(doc, 20);
     expect(readRow(grid, 0, 20)).toBe('a 中文码');
-    expect(grid.getCell(0, 2)?.style.fg).toBe(ansiColor(7)); // 起点按格位不按码位
+    expect(grid.getCell(0, 2)?.style.fg).toBe(ansiColor(2)); // 起点按格位不按码位（codeInline 覆写位 2）
     expect(grid.getCell(0, 2)?.grapheme).toBe('中');
   });
 
