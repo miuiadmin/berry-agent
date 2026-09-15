@@ -13,9 +13,10 @@
  * ⑤loopbackOnly 挂载规则（非回环 TCP 不挂载 404 同未注册 + start warn）
  * ⑥helper 三件（readBody 排空纪律 413 / verifyToken / openSse 帧形与收口）
  * + isClosed 扩展路由 503 同律 + 多监听并存（sock 缺席 / TCP×N）
+ * ⑦flaky 真案锁（连接 host 缺省钉 v4 字面——[::1] 同号端口劫持面闭死）
  */
 import { mkdtemp, rm } from 'node:fs/promises';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -51,7 +52,17 @@ function echoHandler(log: Array<{ params: Record<string, string>; wildcard?: str
   };
 }
 
-/** 裸请求（Host/Origin 防线位——fetch 禁改两头；POST 形可写体） */
+/**
+ * 裸请求（Host/Origin 防线位——fetch 禁改两头；POST 形可写体）。
+ *
+ * 连接 host 缺省钉 127.0.0.1 字面（flaky 真案修——2026-09-15 收口）：node
+ * http.request 缺省 host 为 localhost，本机解析序 ::1 先行；当测试面经 port:0
+ * 拿到的瞬态端口号恰与某 [::1] 回环占用者（实证 Sangfor O+Connect [::1]:64000，
+ * 对未知路径应 403）同号时，::1 先试即被劫持——「未匹配路径 404」断言得 403
+ * （四问评估 verify 全量 1/20 真案）。v4/v6 跨族同号并存内核不视为冲突，故
+ * 撞号结构性可能；连接 host 钉绑定侧字面即无 family 二义，永不旁落（⑦ 真案锁）。
+ * 显式传 host 的调用（防线用例/0.0.0.0 形）不受影响。
+ */
 function rawRequest(
   options: { port: number; host?: string },
   method: string,
@@ -60,7 +71,7 @@ function rawRequest(
   body?: string,
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = httpRequest({ ...options, method, path, headers }, (res) => {
+    const req = httpRequest({ ...options, host: options.host ?? '127.0.0.1', method, path, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
@@ -558,5 +569,59 @@ describe('sdk/http 路由扩展位（18a-1）', () => {
     expect(any.status).toBe(200);
     expect(warnings.some((w) => w.includes('loopbackOnly'))).toBe(true);
     await remote.stop();
+  });
+
+  /* ---------- ⑦ flaky 真案锁（连接 host family 钉死——2026-09-15 收口） ---------- */
+
+  it('v6 同号端口占用者不劫持：连接 host 缺省钉 127.0.0.1 字面（403 劫持真案锁）', async ({ skip }) => {
+    // 真案（2026-09-15 四问评估 verify 干净 clone 全量 1/20）：「未匹配路径 404
+    // 免凭证」404 断言得 403。根因 = 三条件撞号，缺一不触发——
+    // ①本机存在 [::1] 回环占用者钉在瞬态端口范围内（实证 Sangfor O+Connect
+    //   [::1]:64000——对未知路径应 403；事发时 verify 日志里测试端口恰在
+    //   63954-64049 邻域扫过）；
+    // ②测试面 port:0 内核指派端口号——v4 侧与 [::1]:Q 跨族不冲突，同号并存
+    //   可成立（本锁第一断言面：pinned face 在 127.0.0.1:Q 起面成功即实证裂缝）；
+    // ③裸请求连接 host 缺省 = node 的 localhost——本机解析序 ::1 先行（dns.lookup
+    //   实测 [::1, 127.0.0.1]），::1 先试即被劫持。
+    // 修法 = rawRequest 缺省连接 host 钉 v4 字面（family 二义闭死，恒达本面）；
+    // 本锁锁修后契约。v6 回环不可用 / 跨族同号并存被平台拒的环境：劫持面
+    // 在该环境结构性不存在，退位跳过（skip 理由明示）。
+    const squatter = createServer((_req, res) => {
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('squatter-mark');
+    });
+    const squatted = await new Promise<{ ok: true; port: number } | { ok: false }>((resolve) => {
+      squatter.once('error', () => resolve({ ok: false }));
+      squatter.listen(0, '::1', () => {
+        const addr = squatter.address();
+        resolve(typeof addr === 'object' && addr !== null ? { ok: true, port: addr.port } : { ok: false });
+      });
+    });
+    if (!squatted.ok) {
+      skip('v6 回环 [::1] 不可用——同号劫持面在本环境不存在，锁退位');
+      return;
+    }
+    const q = squatted.port;
+    let pinned: SdkHttpFaceHandle;
+    try {
+      pinned = createSdkHttpFace({ config: { tcp: { host: '127.0.0.1', port: q } }, bridge: makeBridge() });
+      await pinned.start(); // 与 [::1]:Q 同号 v4 起面成功 = 跨族并存裂缝实证
+    } catch (err) {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+      if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+        skip('v4 同号并存被平台拒（EADDRINUSE）——劫持裂缝在本环境不存在，锁退位');
+        return;
+      }
+      throw err;
+    }
+    try {
+      // 修后契约：缺省连接 host = 127.0.0.1 字面——无 family 二义恒达本面
+      const res = await rawRequest({ port: q }, 'GET', '/nowhere', {});
+      expect(res.status).toBe(404); // 被劫持形 = 占位者 403
+      expect(res.body).toBe('not found'); // 本面 404 词面（占位者词面 squatter-mark）
+    } finally {
+      await pinned.stop();
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
   });
 });

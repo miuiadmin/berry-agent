@@ -147,14 +147,24 @@ async function openSse(port: number, query: string, headers: Record<string, stri
   };
 }
 
-/** node:http 裸请求（Host/Origin 防线测试位——fetch 禁改两头） */
+/**
+ * node:http 裸请求（Host/Origin 防线测试位——fetch 禁改两头）。
+ *
+ * TCP 形连接 host 缺省钉 127.0.0.1 字面（flaky 真案修同根——routes.test ⑦
+ * 真案锁详注）：node 缺省 host=localhost 在本机解析序 ::1 先行，测试面 port:0
+ * 撞上 [::1] 同号占用者即被劫持；sock 形无 host 位，不受影响。
+ */
 function rawRequest(
   options: { socketPath?: string; port?: number; host?: string },
   path: string,
   headers: Record<string, string>,
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = httpRequest({ ...options, path, headers }, (res) => {
+    const pinned =
+      options.port !== undefined && options.host === undefined
+        ? ({ ...options, host: '127.0.0.1' } as typeof options)
+        : options;
+    const req = httpRequest({ ...pinned, path, headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
