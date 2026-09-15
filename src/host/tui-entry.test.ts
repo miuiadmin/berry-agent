@@ -7,7 +7,7 @@
  * `--port` webui 咬合（横幅走屏留痕面只带 URL、token 不入屏、退出收场面）。
  * 输入驱动走真 InputDecoder（'\r' 提交、'\x04' ctrl+d 空框退出）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -209,6 +209,47 @@ describe('runTuiEntry 装配序', () => {
     await until(() => second.io.output.includes('重启后见')); // resume 历史回读（投影重画）
     second.io.send('\x04');
     expect(await second.entry).toBe(0);
+  });
+
+  it('键位用户覆盖接线全链（批 10k 遗漏修装配位证）：settings keybindings editor.new-line=alt+j 提交文带换行', async () => {
+    const dataDir = rigDir('entry-kb-');
+    // settings.json keybindings 键（形校验在读侧——alt+j 合文法）：
+    // editor.new-line 缺省册 ['shift+enter','ctrl+j'] 整组替换为 alt+j
+    writeFileSync(join(dataDir, 'settings.json'), JSON.stringify({ keybindings: { 'editor.new-line': 'alt+j' } }));
+    const { entry, io, faux } = await rigEntry(dataDir, rigDir('entry-ws-kb-'));
+    // faux 工厂截获 context：末条 user 消息原文（覆盖生效则含 \n，未接线则
+    // alt+j 无义被丢、两段并作一行）
+    const userTexts: string[] = [];
+    faux.setResponses([
+      (context) => {
+        // 全 user 消息截获（环境前导 user 消息与用户轮同上下文——只取末条会
+        // 错拿环境前导，故全量入账）
+        for (const m of context.messages) {
+          if (m.role !== 'user') continue;
+          const c = (m as { content?: unknown }).content;
+          userTexts.push(
+            typeof c === 'string'
+              ? c
+              : Array.isArray(c)
+                ? c
+                    .map((b) =>
+                      typeof b === 'object' && b !== null && 'text' in b ? String((b as { text: unknown }).text) : '',
+                    )
+                    .join('')
+                : '',
+          );
+        }
+        return messageOf();
+      },
+    ]);
+    io.send('a');
+    io.send('\x1bj'); // alt+j（InputDecoder ESC+可打印即出 alt 修饰键事件）
+    io.send('b');
+    io.send('\r'); // Enter 提交——全链达 faux
+    await until(() => userTexts.some((t) => t.startsWith('a'))); // 用户轮到位（环境前导轮先行的调用序免疫）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    expect(userTexts).toContain('a\nb'); // 换行入文——覆盖经 tui-entry 装配位真接线的行为证据
   });
 
   it('resumeSessionId 按 id 续接（批 20d——与按 cwd 取最新互补：异 cwd 亦达 + 打错 id 不造新会话）', async () => {
