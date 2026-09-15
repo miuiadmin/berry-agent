@@ -80,6 +80,19 @@ describe('readHostSettings（读侧——缺席零负担 + 坏形降级）', () 
     // 文件未被动——原始字节往返保真
     expect(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')).toBe(raw);
   });
+  it('theme 键三值域读入（批 10g——dark/light/auto）；值域外忽略点名好键照常', () => {
+    const dir = tmpDir('settings-theme-');
+    for (const theme of ['dark', 'light', 'auto'] as const) {
+      writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme }));
+      expect(readHostSettings(dir).settings).toEqual({ theme });
+    }
+    // 值域外：忽略该键 + warn 点名（本面零行为耦合——只存取与值域校验）
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'blue', approvalPolicy: 'ask' }));
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings).toEqual({ approvalPolicy: 'ask' });
+    expect(warnings.some((w) => w.includes('theme 值域外'))).toBe(true);
+  });
 });
 
 describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）', () => {
@@ -119,6 +132,16 @@ describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）',
     expect(writeHostSettings(dir, { sandboxMode: 'read-only' })).toBe('rejected');
     // 原文件字节不动
     expect(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')).toBe('{broken');
+  });
+  it('theme 写侧合并：写 theme 不动他键、他键写不动 theme（缺席键不动现状律）', () => {
+    const dir = tmpDir('settings-theme-write-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'auto', approvalPolicy: 'ask' }));
+    expect(writeHostSettings(dir, { sandboxMode: 'read-only' })).toBe('written');
+    let doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'auto', approvalPolicy: 'ask', sandboxMode: 'read-only' });
+    expect(writeHostSettings(dir, { theme: 'light' })).toBe('written');
+    doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'light', approvalPolicy: 'ask', sandboxMode: 'read-only' });
   });
   it('非敏感件自证：文件名不在 settings 面（SENSITIVE_READ_DATA_PATHS 恰四件锁不动——此例锁对面；2026-09-14 五役 CL-1 集员扩容注笔随勘）', () => {
     // settings.json 非敏感（两旋钮无秘密）——可读性自证：写后文件存在且可读

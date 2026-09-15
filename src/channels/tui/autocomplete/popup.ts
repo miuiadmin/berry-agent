@@ -13,8 +13,7 @@
  *   与引号形）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region, Renderable } from '../../engine/index.js';
-import { ansiColor } from '../../engine/index.js';
-import { ACCENT_INDEX } from '../theme.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { EditorModel } from '../editor/editor-model.js';
 import { prefixDisplayWidth } from '../editor/visual-lines.js';
 import type { AutocompleteProvider, AutocompleteResult } from './provider.js';
@@ -26,8 +25,6 @@ const MAX_VISIBLE_ITEMS = 10;
 const ACTIVE_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 /** 补充说明段样式（dim） */
 const DETAIL_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 无候选提示样式（accent——theme 单源） */
-const EMPTY_STYLE: Readonly<CellStyle> = Object.freeze({ fg: ansiColor(ACCENT_INDEX) });
 
 /** 弹层件：provider 只读消费 + 模型代换原语调用 */
 export class AutocompletePopup implements Renderable {
@@ -36,10 +33,17 @@ export class AutocompletePopup implements Renderable {
   private windowStart = 0;
   private readonly provider: AutocompleteProvider;
   private readonly model: EditorModel;
+  /** 无候选提示样式（accent 派生——主题单源，setTheme 整体重建） */
+  private emptyStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
 
   constructor(provider: AutocompleteProvider, model: EditorModel) {
     this.provider = provider;
     this.model = model;
+  }
+
+  /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */
+  setTheme(theme: ResolvedTheme): void {
+    this.emptyStyle = Object.freeze({ fg: theme.accent });
   }
 
   /** 弹层在场态（无补全不显） */
@@ -82,7 +86,7 @@ export class AutocompletePopup implements Renderable {
     }
     const items = this.result.items;
     if (items.length === 0) {
-      buffer.writeText(region.row, region.col, '无匹配', EMPTY_STYLE);
+      buffer.writeText(region.row, region.col, '无匹配', this.emptyStyle);
       return;
     }
     const end = Math.min(items.length, this.windowStart + MAX_VISIBLE_ITEMS);

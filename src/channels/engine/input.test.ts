@@ -345,3 +345,83 @@ describe('协议探测落定（DA1 哨兵）', () => {
     expect(decoder.take()).toEqual([]);
   });
 });
+
+describe('OSC 串（ESC ] data 终结——BEL / ST 两形整串上抛）', () => {
+  /** OSC 收集 rig：onOsc 落账 + 事件面同收 */
+  function runOsc(chunks: string[]): { osc: string[]; events: InputEvent[] } {
+    const osc: string[] = [];
+    const decoder = new InputDecoder({ onOsc: (data) => osc.push(data) });
+    for (const c of chunks) decoder.feed(c);
+    return { osc, events: decoder.take() };
+  }
+
+  it('BEL 终结形：OSC 11 应答整串上抛、不产按键', () => {
+    const { osc, events } = runOsc(['\x1b]11;rgb:ffff/ffff/ffff\x07']);
+    expect(osc).toEqual(['11;rgb:ffff/ffff/ffff']);
+    expect(events).toEqual([]);
+  });
+
+  it('ST 终结形（ESC \\\\）：同律整串上抛', () => {
+    const { osc, events } = runOsc(['\x1b]11;rgb:0/0/0\x1b\\']);
+    expect(osc).toEqual(['11;rgb:0/0/0']);
+    expect(events).toEqual([]);
+  });
+
+  it('跨 chunk 续攒：终结符前分片到达不丢段', () => {
+    const { osc } = runOsc(['\x1b]11;rgb', ':1234/1234/1234', '\x07']);
+    expect(osc).toEqual(['11;rgb:1234/1234/1234']);
+  });
+
+  it('未终结悬置：内容积攒不上抛、也不误产键', () => {
+    const { osc, events } = runOsc(['\x1b]11;rgb:0/0/0']);
+    expect(osc).toEqual([]); // 无终结符——悬置待续
+    expect(events).toEqual([]);
+    // 后续补终结符——完整上抛（悬置可续）
+    const clock = new FakeClock();
+    const osc2: string[] = [];
+    const decoder = new InputDecoder({ now: clock.now, onOsc: (d) => osc2.push(d) });
+    decoder.feed('\x1b]11;rgb:1/1/1');
+    decoder.feed('\x07');
+    expect(osc2).toEqual(['11;rgb:1/1/1']);
+  });
+
+  it('OSC 内 ESC 后非 \\\\ ：截断上抛 + ESC 进次态重解（宁截不留）', () => {
+    // ESC Z 形 = alt+z——OSC 被 ESC 打断后截断上抛、ESC 序列按键面续解
+    const { osc, events } = runOsc(['\x1b]ab\x1bz']);
+    expect(osc).toEqual(['ab']);
+    expect(events).toEqual([key('z', { alt: true })]);
+  });
+
+  it('alt 右方括号语义退役：ESC ] 不再产 alt 键（OSC 起始位收编）', () => {
+    const { osc, events } = runOsc(['\x1b]x\x07']);
+    expect(osc).toEqual(['x']);
+    expect(events).toEqual([]); // 原先 ESC ] 会落 alt+右方括号——10g 起收编为 OSC 起始
+  });
+
+  it('超帽丢弃：OSC_CAP 1024 帽超后整串不上抛（毒化防御）', () => {
+    const { osc, events } = runOsc(['\x1b]' + 'x'.repeat(1100) + '\x07']);
+    expect(osc).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it('超帽后下一串恢复上抛（帽是串级非锁死级）', () => {
+    const clock = new FakeClock();
+    const osc: string[] = [];
+    const decoder = new InputDecoder({ now: clock.now, onOsc: (d) => osc.push(d) });
+    decoder.feed('\x1b]' + 'x'.repeat(1100) + '\x07');
+    decoder.feed('\x1b]11;rgb:0/0/0\x07'); // 串界已复位——续解正常
+    expect(osc).toEqual(['11;rgb:0/0/0']);
+  });
+
+  it('OSC 悬置期 discardPending：全清后续解不坏', () => {
+    const clock = new FakeClock();
+    const osc: string[] = [];
+    const decoder = new InputDecoder({ now: clock.now, onOsc: (d) => osc.push(d) });
+    decoder.feed('\x1b]11;rgb:0/0/0'); // 悬置（无终结符）
+    decoder.discardPending();
+    decoder.feed('\x07'); // 态已清——BEL 不再当终结符补上抛
+    expect(osc).toEqual([]);
+    decoder.feed('\x1b]11;rgb:1/1/1\x07'); // 新串正常
+    expect(osc).toEqual(['11;rgb:1/1/1']);
+  });
+});

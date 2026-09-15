@@ -30,6 +30,12 @@
  *   的会话里 X10 形到达 ⟺ 终端无 SGR 能力（判据可靠），首达触发
  *   onMouseLegacy 一次性回调（per-entry 闩），装配层据此 DECRST 关鼠标回
  *   原生选区。
+ * - **OSC 串**（批 10g——OSC 11 背景色应答消费位）：`ESC ] data BEL` /
+ *   `ESC ] data ESC \`（ST）两终结形整串识别，data 原文上抛 onOsc 回调
+ *   （协议层回执同 onProtocol/onMouseLegacy 先例——不进事件五分模型）；
+ *   语义解读（11;rgb:… 拆通道）归主题层探测件，本件纯字节流解析。防御：
+ *   超帽整串丢弃吞到终结；ST 前半 ESC 后非 '\' 字节 = 畸形——OSC 截断上抛、
+ *   当前字节回 esc 态重解。
  * - **lone-ESC 判定窗**：ESC 为 chunk 末字节时挂起等续；窗内
  *   （escapeWindowMs，缺省 30ms）无续字节（settle）→ 判 Esc 键。kitty
  *   disambiguate 轨下 Esc 键以 `CSI 27u` 到达，此窗只剩 legacy 轨兜底职责。
@@ -59,6 +65,12 @@ export interface InputDecoderOptions {
    * DECRST 关鼠标回原生选区（运行时降级）。
    */
   onMouseLegacy?: () => void;
+  /**
+   * OSC 串上抛回调（批 10g）：data = 终结符之间的原文（如 `11;rgb:…`）。
+   * 协议层回执面——同 onProtocol/onMouseLegacy 先例不进事件模型；OSC 11
+   * 背景色应答的消费入口（主题层探测件解读明暗）。
+   */
+  onOsc?: (data: string) => void;
 }
 
 /** 粘贴态防护帽：超帽强制冲刷（恶意/畸形流不锁死解码器——4 MiB） */
@@ -83,6 +95,9 @@ function pasteMarkerPrefixLen(rest: string): number {
 /** CSI 参数缓冲防护帽（超帽毒化吞到终点——畸形流防御） */
 const CSI_CAP = 64;
 
+/** OSC 体积攒防护帽（超帽整串丢弃吞到终结——畸形流防御；1 KiB 容 OSC 52 类长串余量） */
+const OSC_CAP = 1024;
+
 /** IME 跟随窗（ms）：两发 CSI 0 在窗内构成前缀链 = 流式预编辑（kitty 单发提交不受影响） */
 const IME_FOLLOW_WINDOW_MS = 100;
 
@@ -94,13 +109,14 @@ export class InputDecoder {
   /** 事件积压队列（take 排空后换新数组——feed 不回调，避免重入） */
   private queue: InputEvent[] = [];
   /**
-   * 解析态七分：ground 地面 / esc 转义挂起 / csi 参数积攒 / ss3 / paste
-   * 粘贴体 / paste-drain 粘贴吸收态（粘贴态被换防丢弃或超帽冲刷后残余粘贴体
-   * 不得按地面态解码成伪造命令行事件——空框 enter 开应用、`/exit`+CRLF 触
-   * 退出，吞到真终界 PASTE_END 再回地面）/ mouse-x10 X10 吞态（bare CSI M
-   * 后三字节整吞——坐标字节落可打印区间，地面态重解会伪造 text 事件）。
+   * 解析态八分：ground 地面 / esc 转义挂起 / csi 参数积攒 / ss3 / osc 串
+   * 积攒（批 10g——OSC 11 应答消费位）/ paste 粘贴体 / paste-drain 粘贴
+   * 吸收态（粘贴态被换防丢弃或超帽冲刷后残余粘贴体不得按地面态解码成伪造
+   * 命令行事件——空框 enter 开应用、`/exit`+CRLF 触退出，吞到真终界
+   * PASTE_END 再回地面）/ mouse-x10 X10 吞态（bare CSI M 后三字节整吞——
+   * 坐标字节落可打印区间，地面态重解会伪造 text 事件）。
    */
-  private mode: 'ground' | 'esc' | 'csi' | 'ss3' | 'paste' | 'paste-drain' | 'mouse-x10' = 'ground';
+  private mode: 'ground' | 'esc' | 'csi' | 'ss3' | 'osc' | 'paste' | 'paste-drain' | 'mouse-x10' = 'ground';
   /** CSI 参数积攒缓冲（含私用标记 ?/> 与参数字节） */
   private csiBuf = '';
   /** CSI 超帽毒化旗标：序列已判畸形——吞到终点字节整序丢弃（残段不漏成文本） */
@@ -129,16 +145,24 @@ export class InputDecoder {
   private mouseX10Remain = 0;
   /** X10 首达已上报旗标（onMouseLegacy 只发一次——per-entry 闩） */
   private mouseLegacyReported = false;
+  /** OSC 体积攒缓冲（终结符之间的原文） */
+  private oscBuf = '';
+  /** ST 前半悬置旗标（OSC 态内见 ESC——下一字节 '\' 即 ST 终结；跨 chunk 悬置） */
+  private oscEsc = false;
+  /** OSC 超帽丢弃旗标（超帽整串丢弃——吞到终结不上抛） */
+  private oscDropped = false;
   private readonly now: () => number;
   private readonly escapeWindowMs: number;
   private readonly onProtocol?: (protocol: KeyboardProtocol) => void;
   private readonly onMouseLegacy?: () => void;
+  private readonly onOsc?: (data: string) => void;
 
   constructor(opts: InputDecoderOptions = {}) {
     this.now = opts.now ?? Date.now;
     this.escapeWindowMs = opts.escapeWindowMs ?? 30;
     this.onProtocol = opts.onProtocol;
     this.onMouseLegacy = opts.onMouseLegacy;
+    this.onOsc = opts.onOsc;
   }
 
   /** 组字中旗标（焦面查询面——true 时预编辑在途） */
@@ -194,6 +218,17 @@ export class InputDecoder {
             i++;
             continue;
           }
+          if (cp === 0x5d) {
+            // ']' —— OSC 串起（批 10g：ESC ] 此形业界通译 OSC 起手——alt+]
+            // 旧 alt 编码路径让位；lone-ESC 判定窗随序列起手消解）
+            this.escPendingAt = null;
+            this.mode = 'osc';
+            this.oscBuf = '';
+            this.oscEsc = false;
+            this.oscDropped = false;
+            i++;
+            continue;
+          }
           if (cp === 0x1b) {
             // ESC ESC = alt+Escape（legacy alt 编码两字节形）
             this.escPendingAt = null;
@@ -241,6 +276,44 @@ export class InputDecoder {
           if (key) this.emitKey(key, { ...NO_MODS }, 'press');
           this.mode = 'ground';
           i++;
+          continue;
+        }
+        case 'osc': {
+          // OSC 串体积攒：吞到 BEL / ST（ESC '\'）终结整串上抛。语义解读归
+          // 主题层（本件纯字节流解析——回调面同 onProtocol 先例）。
+          if (this.oscEsc) {
+            // ST 前半裁决：'\' = ST 终结；否则 OSC 截断上抛、当前字节回 esc
+            // 态重解（i 不推进——如后续 CSI 序列起手 '[' 由 esc 态接管）
+            this.oscEsc = false;
+            this.dispatchOsc();
+            if (cp === 0x5c) {
+              this.mode = 'ground';
+              i++;
+            } else {
+              this.mode = 'esc';
+            }
+            continue;
+          }
+          if (cp === 0x07) {
+            // BEL 终结（主流 OSC 应答形——xterm/iTerm2/kitty 同）
+            this.dispatchOsc();
+            this.mode = 'ground';
+            i++;
+            continue;
+          }
+          if (cp === 0x1b) {
+            // ST 前半悬置（跨 chunk 悬置合法——实例字段承载）
+            this.oscEsc = true;
+            i++;
+            continue;
+          }
+          this.oscBuf += String.fromCodePoint(cp);
+          i += cp > 0xffff ? 2 : 1;
+          if (this.oscBuf.length > OSC_CAP) {
+            // 超帽整串丢弃（畸形流防御——继续吞到终结，不上抛半截串）
+            this.oscBuf = '';
+            this.oscDropped = true;
+          }
           continue;
         }
         case 'mouse-x10': {
@@ -331,7 +404,7 @@ export class InputDecoder {
    *
    * 粘贴态例外：粘贴体半截被弃后残余字节若按地面态重解会伪造命令行事件——
    * 粘贴态/吸收态换防改入吸收态（paste-drain），吞残余到真终界 PASTE_END 再
-   * 回地面；CSI/ESC/X10 半序列无续作义务，仍回地面。
+   * 回地面；CSI/ESC/X10/OSC 半序列无续作义务，仍回地面。
    */
   discardPending(): void {
     this.mode = this.mode === 'paste' || this.mode === 'paste-drain' ? 'paste-drain' : 'ground';
@@ -343,6 +416,9 @@ export class InputDecoder {
     this.escPendingAt = null;
     this.preedit = null;
     this.mouseX10Remain = 0;
+    this.oscBuf = '';
+    this.oscEsc = false;
+    this.oscDropped = false;
   }
 
   /** 排空事件队列（引擎 emit 的取货口） */
@@ -375,6 +451,18 @@ export class InputDecoder {
       const ev: ImeEvent = { kind: 'ime', text, committed: true };
       this.queue.push(ev);
     }
+  }
+
+  /**
+   * OSC 串终结上抛：终结符之间的原文交 onOsc 回调（超帽丢弃则不上抛）。
+   * 调用方负责态迁移（ground / esc 重解），本方法只清缓冲。
+   */
+  private dispatchOsc(): void {
+    const data = this.oscBuf;
+    this.oscBuf = '';
+    this.escPendingAt = null;
+    if (!this.oscDropped && data.length > 0) this.onOsc?.(data);
+    this.oscDropped = false;
   }
 
   /** C0 控制码 → 键事件（legacy ctrl 映射表：a-z=0x01-0x1a 等） */

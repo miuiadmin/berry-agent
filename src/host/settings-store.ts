@@ -6,10 +6,14 @@
  * 工具参数 > 会话策略 > CLI 旗标（逐次） > **本文件（持久缺省）** > 代码常量。
  * 持久位不覆盖逐次显式位（装配根做 gaps 填充，run-entry 只传显式胜者）。
  *
- * 两键面（本批定形）：`sandboxMode?` / `approvalPolicy?`——预设展开的持久
+ * 键面（本批扩三键）：`sandboxMode?` / `approvalPolicy?`——预设展开的持久
  * 缺省位；**非敏感件**（两旋钮无秘密，不入 SENSITIVE_READ_DATA_PATHS——
  * 模型可读面不设防，恰四件敏感清单测试锁不动；2026-09-14 五役 CL-1 集员
  * 扩容 + 数组名自 BASENAMES 勘正后注笔随勘）。
+ *
+ * 第三键 `theme?`（批 10g——07 §4.1 R2 / 04 §9 ⑥ 注记）：TUI 主题档
+ * dark/light/auto 三值，TUI 主入口装配消费（缺席 = auto 由 tui-entry 定
+ * 缺省——本件零行为耦合，只存取与值域校验）。
  *
  * 读写纪律（与 tool-policy-store 同族——「文件即用户资产」律）：
  * - 读侧缺席 = {}（零负担首启）；文件级坏 JSON = warn 降级 {}（配置层坏形
@@ -22,15 +26,18 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import type { ThemeSetting } from '../channels/index.js';
 import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 
 /** 配置文件名（数据目录单段——04 §9 ⑥「本批定名」） */
 export const SETTINGS_BASENAME = 'settings.json';
 
-/** 配置面形状（两键均可选——缺席走代码常量层） */
+/** 配置面形状（三键均可选——缺席走代码常量层） */
 export interface HostSettings {
   readonly sandboxMode?: SandboxMode;
   readonly approvalPolicy?: ApprovalPolicyMode;
+  /** TUI 主题档（批 10g——dark/light/auto；消费位 = tui-entry 装配） */
+  readonly theme?: ThemeSetting;
 }
 
 /** 读侧选项 */
@@ -48,6 +55,7 @@ export interface HostSettingsLoad {
 
 const SANDBOX_MODES: readonly string[] = ['read-only', 'workspace-write', 'danger'];
 const APPROVAL_POLICIES: readonly string[] = ['ask', 'never'];
+const THEME_SETTINGS: readonly string[] = ['dark', 'light', 'auto'];
 
 /**
  * 装配期读用户配置（缺席 {} 零负担；坏 JSON 降级 {} + unhealthy；键级坏值
@@ -77,15 +85,15 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     warn(`配置坏形（${path}，顶层须为对象）——视同缺席；手改修复前回写拒`);
     return { settings: {}, healthy: false };
   }
-  // 键级校验：两键值域闭集外忽略点名；未知键 warn 保留不动（读侧不区分
-  // 「保留在内存」与否——本面只产两键，未知键经写侧合并律存活）
+  // 键级校验：三键值域闭集外忽略点名；未知键 warn 保留不动（读侧不区分
+  // 「保留在内存」与否——本面只产三键，未知键经写侧合并律存活）
   const record = doc as Record<string, unknown>;
-  const { sandboxMode, approvalPolicy, ...rest } = record;
+  const { sandboxMode, approvalPolicy, theme, ...rest } = record;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
     warn(`配置含未知键 ${unknownKeys.join('、')}（${path}）——本面不消费、保留不动`);
   }
-  const settings: { sandboxMode?: SandboxMode; approvalPolicy?: ApprovalPolicyMode } = {};
+  const settings: { sandboxMode?: SandboxMode; approvalPolicy?: ApprovalPolicyMode; theme?: ThemeSetting } = {};
   if (sandboxMode !== undefined) {
     if (typeof sandboxMode === 'string' && SANDBOX_MODES.includes(sandboxMode)) {
       settings.sandboxMode = sandboxMode as SandboxMode;
@@ -100,6 +108,13 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
       warn(`配置键 approvalPolicy 值域外（ask|never）——忽略该键`);
     }
   }
+  if (theme !== undefined) {
+    if (typeof theme === 'string' && THEME_SETTINGS.includes(theme)) {
+      settings.theme = theme as ThemeSetting;
+    } else {
+      warn(`配置键 theme 值域外（dark|light|auto）——忽略该键`);
+    }
+  }
   return { settings, healthy: true };
 }
 
@@ -107,8 +122,8 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
 export type HostSettingsWriteResult = 'written' | 'rejected';
 
 /**
- * 写侧合并面：**只动两键**（在场键落值、缺席键不动现状——预设展开只写该
- * 预设携带的旋钮），未知键原样保留（用户手编面不因预设切换损毁）；原子
+ * 写侧合并面：**只动 patch 携带键**（在场键落值、缺席键不动现状——预设展开
+ * 只写该预设携带的旋钮），未知键原样保留（用户手编面不因预设切换损毁）；原子
  * 替换落盘（tmp + rename）；文件级坏形期拒写。
  */
 export function writeHostSettings(
@@ -130,6 +145,7 @@ export function writeHostSettings(
   const next: Record<string, unknown> = { ...base };
   if (patch.sandboxMode !== undefined) next.sandboxMode = patch.sandboxMode;
   if (patch.approvalPolicy !== undefined) next.approvalPolicy = patch.approvalPolicy;
+  if (patch.theme !== undefined) next.theme = patch.theme;
   mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');

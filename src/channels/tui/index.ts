@@ -10,6 +10,8 @@
  */
 export type { TuiBackendOptions } from './backend/tui-backend.js';
 export { TuiBackend } from './backend/tui-backend.js';
+// 主题面（批 10g——host tui-entry 消费：settings.theme → TuiBackendOptions.theme）
+export type { ColorEnv, ThemeSetting } from './theme/index.js';
 // 补全源族（批 12e host 装配消费——@ 文件段源与注入面类型；组件族余者仍件内）
 export { FileMentionSource } from './autocomplete/file-mentions.js';
 export type { FileMentionSourceOptions } from './autocomplete/file-mentions.js';

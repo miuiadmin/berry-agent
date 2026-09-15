@@ -14,7 +14,6 @@ import {
   ansiColor,
   graphemeWidth,
   splitGraphemes,
-  type AnsiColor,
   type CellBuffer,
   type CellStyle,
   type Region,
@@ -36,8 +35,8 @@ interface StyledGrapheme {
 
 /** span 样式解析（与块基础样式合并——行内位覆盖 base 的同名位） */
 function spanStyle(span: InlineSpan, base: Readonly<CellStyle> | undefined): Readonly<CellStyle> | undefined {
-  const style: { fg?: AnsiColor; bold?: boolean; italic?: boolean; underline?: boolean; dim?: boolean } =
-    base !== undefined ? { ...base } : {};
+  // 可变工作副本（CellStyle readonly——spread 保型不可写，本地可变形中转）
+  const style: { -readonly [K in keyof CellStyle]: CellStyle[K] } = base !== undefined ? { ...base } : {};
   if (span.code === true) style.fg = CODE_COLOR;
   if (span.bold === true) style.bold = true;
   if (span.italic === true) style.italic = true;

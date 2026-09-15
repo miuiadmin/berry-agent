@@ -66,7 +66,19 @@ import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { StatusLine } from '../status/status-line.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
-import { sessionColor } from '../theme.js';
+import {
+  builtinPalette,
+  detectColorDepth,
+  paletteForBackground,
+  parseOsc11Reply,
+  resolveTheme,
+  sessionColor,
+  type BuiltinPalette,
+  type ColorDepth,
+  type ColorEnv,
+  type ResolvedTheme,
+  type ThemeSetting,
+} from '../theme/index.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
 import { Editor } from '../editor/editor.js';
 import { OverlayStack, type OverlayAnchor, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
@@ -107,12 +119,25 @@ export interface TuiBackendOptions {
   readonly maxVisibleLines?: number;
   /** 宿主版本（件 7——title 基线 `berry-agent <版本>`；缺席或空串 = 无版本缀裸名。真值归批 12 host 装配传 HostFace.version） */
   readonly version?: string;
+  /**
+   * 主题档（批 10g——07 R2）：dark / light / auto。auto = start 时 OSC 11
+   * 背景查询裁定（无应答自然维持缺省 dark 即超时语义）；显式档短路零探测。
+   * 缺省 dark（注入缺席的确定性测试基线——与批 10g 前 accent 字节同源）。
+   */
+  readonly theme?: ThemeSetting;
+  /** 色域探测 env 投影（COLORTERM/TERM——批 10g 三档降采判据；缺省 {} = 16 色档） */
+  readonly colorEnv?: ColorEnv;
 }
 
 /** 主屏形进屏模式串：粘贴开 + kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
 const ENTER_MAIN = '\x1b[?2004h' + '\x1b[>1u' + '\x1b[?u' + '\x1b[c';
 /** 出屏模式串（与进屏严格对称反序——单源常量） */
 const LEAVE_MAIN = '\x1b[<u' + '\x1b[?2004l';
+/** OSC 11 背景色查询（BEL 终结形——xterm 主流；auto 档 start 时发） */
+const OSC11_QUERY = '\x1b]11;?\x07';
+/** 明暗变化通知订阅开/关（CSI ?2031——支持终端主题切换即时跟随、不支持无感） */
+const THEME_CHANGE_ENABLE = '\x1b[?2031h';
+const THEME_CHANGE_DISABLE = '\x1b[?2031l';
 
 /** 渲染合并帧率帽缺省（对齐 Engine DEFAULT_FPS_CAP——批 10f-3 性能回归锁校准定值 60，实机校准后收紧留批 12） */
 const DEFAULT_FPS_CAP = 60;
@@ -276,6 +301,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 进度态上次写出（忙闲迁移门——同态静默，周期重发归保活自持） */
   private progressBusy = false;
 
+  /* ---- 主题态（批 10g——07 R2 三档色域 + 语义键 + OSC 11 自动明暗） ---- */
+  /** 主题档（auto = start 时 OSC 11 探测裁定；显式档短路） */
+  private readonly themeSetting: ThemeSetting;
+  /** 色域档（构造期一次探测——env 注入面，渲染路径零探测） */
+  private readonly colorDepth: ColorDepth;
+  /** 当前主题（构造期解析 auto 先 dark；probe 回执换装走整体换引用） */
+  private theme: ResolvedTheme;
+
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
     this.sessionId = options.sessionId ?? 'main';
@@ -297,13 +330,24 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       schedule: this.scheduleFn ?? undefined,
       cancel: this.cancelFn,
     });
-    this.decoder = new InputDecoder({ now: this.now, escapeWindowMs: this.escapeWindowMs });
+    this.decoder = new InputDecoder({
+      now: this.now,
+      escapeWindowMs: this.escapeWindowMs,
+      onOsc: (data) => this.handleOscReply(data), // OSC 11 应答上抛（批 10g——显式档回调内短路）
+    });
+    // 主题基座（批 10g）：档位 + 色域构造期一次解析（显式档零探测；auto 先
+    // dark 缺省、probe 回执换装）；注入缺席缺省 = dark@16 与批 10g 前 accent
+    // 字节同源——既有确定性测试零扰动
+    this.themeSetting = options.theme ?? 'dark';
+    this.colorDepth = detectColorDepth(options.colorEnv ?? {});
+    this.theme = resolveTheme(builtinPalette(this.themeSetting === 'light' ? 'light' : 'dark'), this.colorDepth);
     this.editor = new Editor({
       onSubmit: (text) => this.handleSubmit(text),
       onChange: () => this.handleEditorChange(),
       maxVisibleLines: options.maxVisibleLines,
     });
     this.popup = new AutocompletePopup(new CombinedAutocompleteProvider(options.autocomplete ?? {}), this.editor.model);
+    this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     this.stack.onChange = () => this.touchFixed();
     this.screen = new MainScreen(io, { fixedHeight: 4 }); // 初始高：编辑器 3 + 状态行 1（动态更新经 setFixed）
     // 副屏宿主（构造放 constructor 尾——io 与注入面已赋值；引擎选项与主屏同源：
@@ -346,6 +390,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.io.write(ENTER_MAIN);
     this.armExitRestore();
     this.osc.setTitle(this.titleBaseline); // 件 7：起屏基线 title（OSC 0——值缓存首写）
+    // 主题探测（批 10g）：auto 档发 OSC 11 背景查询 + 明暗变化通知订阅（2031
+    // ——支持终端切换即时跟随）；显式档短路零写出。无应答超时降缺省 dark =
+    // 自然维持构造期 dark 板（无钟不设窗——应答迟到照常换装，语义等价且免竞）
+    if (this.themeSetting === 'auto') {
+      this.io.write(OSC11_QUERY + THEME_CHANGE_ENABLE);
+    }
     this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     // 显式放流（共享 io 换防接缝——副屏 Engine 复用同 io 场景；首启 no-op）
@@ -363,7 +413,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.running = false;
     // 挂起期主屏已出屏（suspendMain 已写出屏串）——重写会污染在场副屏；
     // 装配纪律恒「先收副屏再退出」，本闸是防御位非编舞路
-    if (!this.suspendedMain) this.io.write(LEAVE_MAIN);
+    if (!this.suspendedMain) {
+      this.io.write(LEAVE_MAIN);
+      if (this.themeSetting === 'auto') this.io.write(THEME_CHANGE_DISABLE); // 2031 复原（显式档从未开）
+    }
     this.unsubInput?.();
     this.unsubInput = null;
     this.unsubResize?.();
@@ -615,6 +668,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       const panel = new SelectPanel({
         title: message,
         options: choices.map((c) => ({ value: c.value, label: c.label })),
+        theme: this.theme, // 一次性面板构造期定值（当前主题快照）
       });
       const handle = this.openAskLayer(panel, () => resolve(''), opts?.signal, '⏹ 已取消选择');
       panel.onFinish = (value) => {
@@ -672,6 +726,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           { value: 'always', label: '总是批准', hint: request.suggestedEntry },
           { value: 'cancel', label: '取消' },
         ],
+        theme: this.theme, // 一次性面板构造期定值（当前主题快照）
       });
       const handle = this.openAskLayer(panel, () => resolve('cancel'), opts?.signal, '⏹ 已取消审批');
       panel.onFinish = (value) => {
@@ -901,6 +956,39 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (which === 'frame') this.frameHandle = null;
     else if (which === 'tick') this.tickHandle = null;
     else this.escapeHandle = null;
+  }
+
+  /* ---------------- 内部：主题面（批 10g） ---------------- */
+
+  /** 主题注入长存组件（editor 视图 / 状态行 / 补全弹层——accent 派生样式重建） */
+  private injectTheme(): void {
+    this.editor.view.setTheme(this.theme);
+    this.statusLine.setTheme(this.theme);
+    this.popup.setTheme(this.theme);
+  }
+
+  /**
+   * 换板换装：整体换 theme 引用 + 组件重注入 + 固定区重画（accent 载体全在
+   * 固定区/浮层；durable 正文已交 scrollback 物理不可回改——零重排义务）。
+   */
+  private applyPalette(palette: BuiltinPalette): void {
+    this.theme = resolveTheme(palette, this.colorDepth);
+    this.injectTheme();
+    this.touchFixed();
+  }
+
+  /**
+   * OSC 串上抛消费（decoder onOsc 接线）：OSC 11 背景色应答 → 明暗裁定换板。
+   * 显式档短路（2031 未开、查询未发——防御位）；非 11 码/畸形诚实忽略；同板
+   * 零换装（2031 通知的冗余应答与噪声不触发无谓重画）。
+   */
+  private handleOscReply(data: string): void {
+    if (this.themeSetting !== 'auto') return;
+    const bg = parseOsc11Reply(data);
+    if (bg === null) return;
+    const palette = paletteForBackground(bg);
+    if (palette.id === (this.theme.dark ? 'dark' : 'light')) return;
+    this.applyPalette(palette);
   }
 
   /* ---------------- 内部：状态面与固定区 ---------------- */

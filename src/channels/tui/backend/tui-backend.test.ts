@@ -10,13 +10,16 @@
  * abort 不误写四路各一例）；
  * 呈现面件 7（终端外显）：起屏基线 title、按会话净计数忙态（OSC 9;4）、
  * clamp 防穿底、切焦跨路回归锁、onRepaint 点缀短 id、stop 复原两写点、
- * 保活周期重发。
+ * 保活周期重发；
+ * 主题面（批 10g——07 §4.1 R2）：缺省 dark 确定性基线、auto 档 OSC 11
+ * 探测编舞（查询/订阅/应答换装/同板零帧/迟到换装/畸形忽略/stop 复原）、
+ * colorEnv 三档接线。
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryTerminalIO } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { buildSgr } from './ansi-rows.js';
-import { sessionColor } from '../theme.js';
+import { sessionColor } from '../theme/index.js';
 import { AltScreenHost } from '../overlay/alt-screen.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { MemoryViewerDataDeps } from '../memory/memory-viewer.js';
@@ -1436,5 +1439,75 @@ describe('TuiBackend /memory 副屏装配（setMemoryScreen / openMemory——mm
     expect(io.frames[1]).toBe(MAIN_ENTER);
     expect(backend.lifecycle).toBe('running');
     expect(io.bytes).not.toContain('记忆管理'); // 两屏行集分立——管理面不渗主屏
+  });
+});
+
+describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明暗）', () => {
+  it('缺省注入缺席 = dark 确定性基线：零探测写出、accent 落 ANSI 6（与批 10g 前字节同源）', () => {
+    const { io } = makeBackend();
+    expect(io.bytes).not.toContain('\x1b]11;?'); // 无 OSC 11 查询
+    expect(io.bytes).not.toContain('\x1b[?2031h'); // 无明暗变化订阅
+    expect(io.bytes).toContain('\x1b[36m'); // accent ANSI 6 cyan（编辑器边框载体）
+  });
+
+  it('auto 档 start：OSC 11 查询 + 2031 订阅两写点', () => {
+    const { io } = makeBackend({ theme: 'auto' });
+    expect(io.bytes).toContain('\x1b]11;?\x07');
+    expect(io.bytes).toContain('\x1b[?2031h');
+  });
+
+  it('auto 亮底应答换装：accent 翻 ANSI 4（SGR 34）固定区重画', () => {
+    const { io } = makeBackend({ theme: 'auto' });
+    io.bytes = '';
+    io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 白底应答（同步直出——换装即时落帧）
+    expect(io.bytes).toContain('\x1b[34m'); // light accent ANSI 4 blue
+    expect(io.bytes).not.toContain('\x1b[36m'); // dark accent 不再上帧
+  });
+
+  it('auto 同板应答零重画（2031 冗余应答与噪声不触发无谓帧）', () => {
+    const { io } = makeBackend({ theme: 'auto' }); // 构造期先 dark
+    io.bytes = '';
+    io.emitInput('\x1b]11;rgb:0000/0000/0000\x07'); // 黑底 = 同板
+    expect(io.bytes).toBe('');
+  });
+
+  it('auto 暗底应答迟到照常换装（无钟不设窗——2031 通知语义等价）', () => {
+    const { io } = makeBackend({ theme: 'auto' });
+    io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 先亮底换装
+    io.bytes = '';
+    io.emitInput('\x1b]11;rgb:0d11/0d11/0d11\x07'); // 再暗底（GitHub dark #0d1117）——换回
+    expect(io.bytes).toContain('\x1b[36m');
+    expect(io.bytes).not.toContain('\x1b[34m');
+  });
+
+  it('显式档短路：dark 显式下应答全忽略（防御位——查询本未发）', () => {
+    const { io } = makeBackend({ theme: 'dark' });
+    io.bytes = '';
+    io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07');
+    expect(io.bytes).toBe('');
+  });
+
+  it('畸形应答诚实忽略：非 11 码 / 非 rgb 形不换装', () => {
+    const { io } = makeBackend({ theme: 'auto' });
+    io.bytes = '';
+    io.emitInput('\x1b]10;rgb:ffff/ffff/ffff\x07'); // 前景色码（OSC 10）——非本面
+    io.emitInput('\x1b]11;rgb:zz/0/0\x07'); // 非 hex
+    expect(io.bytes).toBe('');
+  });
+
+  it('stop 复原：auto 档关 2031 订阅；显式档从未开不写关', () => {
+    const auto = makeBackend({ theme: 'auto' });
+    auto.backend.stop();
+    expect(auto.io.bytes).toContain('\x1b[?2031l');
+    const explicit = makeBackend(); // 缺省 dark
+    explicit.backend.stop();
+    expect(explicit.io.bytes).not.toContain('\x1b[?2031l');
+  });
+
+  it('colorEnv 三档接线：truecolor 档 accent 仍 ANSI 6 直通、RGB 键走 38;2 直出', () => {
+    // accent AnsiColor 全档直通——truecolor 档字节与 16 档同源
+    const tc = makeBackend({ colorEnv: { COLORTERM: 'truecolor' } });
+    expect(tc.io.bytes).toContain('\x1b[36m');
+    expect(tc.io.bytes).not.toContain('38;5;'); // 非聚焦会话色表未进帧（accent 直通自证）
   });
 });

@@ -4,8 +4,8 @@
  * accent 着色断言 / onChange 通知面。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { ansiColor, CellGrid } from '../../engine/index.js';
-import { ACCENT_INDEX } from '../theme.js';
+import { CellGrid } from '../../engine/index.js';
+import { DEFAULT_THEME } from '../theme/index.js';
 import { StatusLine } from './status-line.js';
 
 /** 读回一行（未写格按空格、trimEnd） */
@@ -41,7 +41,7 @@ describe('StatusLine', () => {
     const grid = renderLine(line);
     expect(readRow(grid, 0, 30)).toBe('⠋ 思考中');
     // 转轮 = accent 定值（theme 单源）——着色纪律的两个 accent 载体之一
-    expect(grid.getCell(0, 0)?.style.fg).toBe(ansiColor(ACCENT_INDEX));
+    expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.accent);
     expect(grid.getCell(0, 2)?.style.fg).toBeUndefined(); // 文案段不着色
   });
 

@@ -8,7 +8,7 @@
  * openStartupSession（07 §5 启动会话策略：cwd 归一根取最新续接、无则新建；
  * resumeSessionId 在场 = 按 id 续接——sessions resume <id> 的 CLI 载体〔批 20d〕）
  * → TuiBackend 组装（提交/打断/退出/命令分发/todo 回看/补全三源/version
- * 基线/生产定时器）→ addBackend → start → registerSession → focus 首画 →
+ * 基线/生产定时器/主题档）→ addBackend → start → registerSession → focus 首画 →
  * 主循环 await 退出 → runtime.shutdown 六步退出序（closer 内含 backend.stop
  * 出屏复原）。
  *
@@ -32,6 +32,7 @@ import type { AssemblySuccess } from './assembly.js';
 import { startSchedulerClock } from './core-plugins.js';
 import type { CorePluginReference } from './loader.js';
 import { runWithSessionAnchor } from './session-anchor.js';
+import { readHostSettings } from './settings-store.js';
 import type { HostRuntime } from './runtime.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
@@ -100,7 +101,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     process.stderr.write(`${assembly.crashed ? `TUI 运行失败：${assembly.message}` : assembly.message}\n`);
     return assembly.exitCode;
   }
-  const { runtime, stack, scope }: AssemblySuccess = assembly;
+  const { runtime, stack, scope, logger }: AssemblySuccess = assembly;
 
   let exitCode = 0;
   try {
@@ -180,6 +181,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 补全命令源：通道核命令表 → '/' 前缀条目（@ 文件段源锚工作区根）
     const mentions = new FileMentionSource({ basePath: session.workspaceRoot });
     const rows = io.size().rows;
+    // —— TUI 主题档装配（批 10g——07 §4.1 R2 主题载体条 / 04 §9 ⑥ 注记）：
+    // settings.json `theme` 键（dark/light/auto）经 TuiBackendOptions.theme
+    // 下装；缺席 = auto（OSC 11 背景探测 + 明暗变化通知——后端内执法）。
+    // assembly 装配段已读 settings 策略两键（gaps 填充）但不出面——本件重读
+    // （读侧幂等廉价；AssemblySuccess 不为单键扩面）。色域探测材料 = env 面
+    // COLORTERM/TERM 两键投影（缺省 process.env——测试注入面同源）。
+    const themeLoad =
+      runtime.dataDir !== null ? readHostSettings(runtime.dataDir, { warn: (m) => logger.warn(m) }) : null;
+    const env = options.env ?? process.env;
+
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
       onSubmit: (sessionId, text) => {
@@ -207,6 +218,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       },
       // 装配实测定值（07 §4.1）：编辑器可视行 = 终端高 30%（下钳 3）
       maxVisibleLines: Math.max(3, Math.floor(rows * 0.3)),
+      // 主题档（批 10g）：settings 缺席 = auto 探测路；色域档由 env 两键裁定
+      theme: themeLoad?.settings.theme ?? 'auto',
+      colorEnv: { COLORTERM: env.COLORTERM, TERM: env.TERM },
       ...(options.version !== undefined ? { version: options.version } : {}),
       // 生产定时器注入（保活/帧帽真定时——缺省同步直出仅测试语义）
       schedule: (fn, ms) => setTimeout(fn, ms),

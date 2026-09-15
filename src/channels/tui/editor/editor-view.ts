@@ -11,8 +11,8 @@
 import type { CellBuffer, Region, Renderable } from '../../engine/index.js';
 import { prefixDisplayWidth } from './visual-lines.js';
 import type { EditorModel } from './editor-model.js';
-import { ACCENT_INDEX } from '../theme.js';
-import { ansiColor, type CellStyle } from '../../engine/index.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import type { CellStyle } from '../../engine/index.js';
 
 /** 边框字符（制表符单宽——写格按字素推进） */
 const BORDER_TOP_LEFT = '┌';
@@ -21,9 +21,6 @@ const BORDER_BOTTOM_LEFT = '└';
 const BORDER_BOTTOM_RIGHT = '┘';
 const BORDER_H = '─';
 const BORDER_V = '│';
-
-/** 聚焦态边框样式（accent 定值——theme 单源） */
-const FOCUSED_BORDER: Readonly<CellStyle> = Object.freeze({ fg: ansiColor(ACCENT_INDEX) });
 
 /** 最大可视行数缺省（装配层按终端高 30% 注入覆盖——pi 同形 max(5, rows*0.3)） */
 const DEFAULT_MAX_VISIBLE_LINES = 8;
@@ -36,12 +33,19 @@ export class EditorView implements Renderable {
   /** 视口首行（视觉行下标——render 时对光标夹取自愈） */
   private scrollOffset = 0;
   private readonly maxVisibleLines: number;
+  /** 聚焦态边框样式（accent 派生——主题单源，setTheme 整体重建） */
+  private focusedBorder: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
 
   constructor(
     private readonly model: EditorModel,
     options: { maxVisibleLines?: number } = {},
   ) {
     this.maxVisibleLines = Math.max(1, options.maxVisibleLines ?? DEFAULT_MAX_VISIBLE_LINES);
+  }
+
+  /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */
+  setTheme(theme: ResolvedTheme): void {
+    this.focusedBorder = Object.freeze({ fg: theme.accent });
   }
 
   /** 聚焦态切换（事件路由裁决后由组件调用） */
@@ -76,7 +80,7 @@ export class EditorView implements Renderable {
   /* ---------------- 边框（含滚动指示） ---------------- */
 
   private drawBorder(buffer: CellBuffer, region: Region, totalLines: number): void {
-    const style = this.focused ? FOCUSED_BORDER : undefined;
+    const style = this.focused ? this.focusedBorder : undefined;
     const lastRow = region.row + region.height - 1;
     const lastCol = region.col + region.width - 1;
     // 四角

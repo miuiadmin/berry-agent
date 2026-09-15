@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ansiColor, CellGrid } from '../../engine/index.js';
-import { ACCENT_INDEX } from '../theme.js';
+import { DEFAULT_THEME } from '../theme/index.js';
 import { parseMarkdown } from './blocks.js';
 import { parseInline } from './inline.js';
 import { MarkdownDoc } from './markdown.js';
@@ -234,7 +234,7 @@ describe('MarkdownDoc 渲染', () => {
   it('accent 色不入场（正文不混用——引擎节件 3 纪律）', () => {
     const doc = MarkdownDoc.of('# 标题\n\n正文 `code` **粗** [链](u)\n\n> 引用\n\n---');
     const grid = renderDoc(doc, 30);
-    const accent = ansiColor(ACCENT_INDEX);
+    const accent = DEFAULT_THEME.accent;
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.columns; c++) {
         const cell = grid.getCell(r, c);

@@ -15,6 +15,7 @@
  * 重绘不走本函数，几何不同即编程错、fail-loud。
  */
 import { cellEquals, EMPTY_STYLE, styleEquals } from './cell.js';
+import { colorSgrBg, colorSgrFg } from './color.js';
 import type { CellBuffer, CellStyle } from './types.js';
 
 const ESC = '\x1b';
@@ -25,7 +26,7 @@ const SGR_RESET = `${ESC}[0m`;
 const HIDE_CURSOR = `${ESC}[?25l`;
 const SHOW_CURSOR = `${ESC}[?25h`;
 
-/** 样式 → SGR 序列（全量形——属性位 + 16 色前景背景；空样式返回空串由调用方复位） */
+/** 样式 → SGR 序列（全量形——属性位 + 三档前景背景；空样式返回空串由调用方复位。色段生成单源 = color 件 colorSgrFg/Bg——与 ansi-rows 件 buildSgr 字节同源） */
 function buildSgr(style: CellStyle): string {
   const params: string[] = [];
   if (style.bold) params.push('1');
@@ -33,14 +34,8 @@ function buildSgr(style: CellStyle): string {
   if (style.italic) params.push('3');
   if (style.underline) params.push('4');
   if (style.inverse) params.push('7');
-  if (style.fg !== undefined) {
-    // 前景 16 色：0-7 标准位 30+n / 8-15 亮位 90+(n-8)
-    params.push(String(style.fg < 8 ? 30 + style.fg : 82 + style.fg));
-  }
-  if (style.bg !== undefined) {
-    // 背景 16 色：0-7 标准位 40+n / 8-15 亮位 100+(n-8)
-    params.push(String(style.bg < 8 ? 40 + style.bg : 92 + style.bg));
-  }
+  if (style.fg !== undefined) params.push(colorSgrFg(style.fg));
+  if (style.bg !== undefined) params.push(colorSgrBg(style.bg));
   return params.length > 0 ? `${ESC}[${params.join(';')}m` : '';
 }
 

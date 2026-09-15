@@ -10,8 +10,8 @@
  *   关层归装配（onFinish 回调里 close 句柄——裸件不持栈引用）。
  */
 import type { CellBuffer, InputEvent, Region, Renderable } from '../../engine/index.js';
-import { ACCENT_INDEX } from '../theme.js';
-import { ansiColor, type CellStyle } from '../../engine/index.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import type { CellStyle } from '../../engine/index.js';
 import { prefixDisplayWidth } from '../editor/visual-lines.js';
 
 /** 保守取消值（select——空串与撤销面同语义） */
@@ -19,8 +19,6 @@ export const SELECT_CANCELLED = '';
 
 /** 高亮行样式（整行反色——面板内最强存在感） */
 const ACTIVE_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
-/** 标题样式（accent 定值——theme 单源） */
-const TITLE_STYLE: Readonly<CellStyle> = Object.freeze({ fg: ansiColor(ACCENT_INDEX) });
 /** 说明段样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 
@@ -45,6 +43,8 @@ export interface SelectOption {
 export interface SelectPanelOptions {
   readonly title?: string;
   readonly options: readonly SelectOption[];
+  /** 主题（一次性面板构造期定值——accent 派生标题样式；缺省 = DEFAULT_THEME） */
+  readonly theme?: ResolvedTheme;
 }
 
 /**
@@ -57,10 +57,13 @@ export class SelectPanel implements Renderable {
   private done = false;
   private readonly title: string | undefined;
   private readonly options: readonly SelectOption[];
+  /** 标题样式（accent 派生——构造期主题定值，一次性面板无换装面） */
+  private readonly titleStyle: Readonly<CellStyle>;
 
   constructor(options: SelectPanelOptions) {
     this.title = options.title;
     this.options = options.options;
+    this.titleStyle = Object.freeze({ fg: (options.theme ?? DEFAULT_THEME).accent });
   }
 
   /** 量高：标题（有则 1）+ 选项行数（单行制——不折行，超宽截断归渲染） */
@@ -79,7 +82,7 @@ export class SelectPanel implements Renderable {
     }
     let row = region.row;
     if (this.title !== undefined) {
-      buffer.writeText(row, region.col, this.title, TITLE_STYLE);
+      buffer.writeText(row, region.col, this.title, this.titleStyle);
       row += 1;
     }
     for (let i = 0; i < this.options.length; i++, row++) {

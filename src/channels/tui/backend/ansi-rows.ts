@@ -11,7 +11,16 @@
  * - 定位序列（绝对 CUP / 相对 CUU·CUD / CR / EL）与光标保存恢复；
  * - 行级差分（固定区重画——变行重写、未变行零写出，行粒度复用 cellEquals）。
  */
-import { cellEquals, EMPTY_STYLE, styleEquals, type CellGrid, type CellStyle } from '../../engine/index.js';
+import {
+  cellEquals,
+  colorSgrBg,
+  colorSgrFg,
+  EMPTY_STYLE,
+  styleEquals,
+  type CellGrid,
+  type CellStyle,
+  type ColorValue,
+} from '../../engine/index.js';
 
 /** ESC 前缀 */
 const ESC = '\x1b';
@@ -70,15 +79,15 @@ export function cud(n: number): string {
   return n > 0 ? `${ESC}[${n}B` : '';
 }
 
-/** 样式 → SGR（与 diff 件 buildSgr 同语义：属性位 + 16 色前景背景全量形；简行块直拼消费） */
+/** 样式 → SGR（与 diff 件 buildSgr 同语义：属性位 + 三档前景背景全量形——色段单源 = engine color 件；简行块直拼消费） */
 export function buildSgr(style: {
   bold?: boolean;
   dim?: boolean;
   italic?: boolean;
   underline?: boolean;
   inverse?: boolean;
-  fg?: number;
-  bg?: number;
+  fg?: ColorValue;
+  bg?: ColorValue;
 }): string {
   const params: string[] = [];
   if (style.bold) params.push('1');
@@ -86,8 +95,8 @@ export function buildSgr(style: {
   if (style.italic) params.push('3');
   if (style.underline) params.push('4');
   if (style.inverse) params.push('7');
-  if (style.fg !== undefined) params.push(String(style.fg < 8 ? 30 + style.fg : 82 + style.fg));
-  if (style.bg !== undefined) params.push(String(style.bg < 8 ? 40 + style.bg : 92 + style.bg));
+  if (style.fg !== undefined) params.push(colorSgrFg(style.fg));
+  if (style.bg !== undefined) params.push(colorSgrBg(style.bg));
   return params.length > 0 ? `${ESC}[${params.join(';')}m` : '';
 }
 

@@ -9,7 +9,7 @@
  * 面承载（CellBuffer 协议下实装在 cell 件、TerminalIO 下真终端适配在批 10c）。
  */
 
-/** 16 色 ANSI 色号（0-15；色域 = 16 色 + 属性位，真彩 / 256 色挂账不预造） */
+/** 16 色 ANSI 色号（0-15；三档色域最低档兼降采兜底——07 §4.1 引擎节件 3 R2） */
 export type AnsiColor = number & { readonly __brand: 'ansi-16-color' };
 
 /** 16 色色号构造（brand 收口：色号只能经此进入引擎面） */
@@ -20,12 +20,61 @@ export function ansiColor(n: number): AnsiColor {
   return n as AnsiColor;
 }
 
+/**
+ * 256 色（xterm 扩展色）色号（0-255；三档色域中档——SGR 38;5/48;5 序列化）。
+ * 品牌数值形承 AnsiColor：styleEquals 按原始值恒等比较（零对象开销）。
+ */
+export type Color256 = number & { readonly __brand: 'xterm-256-color' };
+
+/** 256 色色号构造（brand 收口 + 值域校验） */
+export function color256(n: number): Color256 {
+  if (!Number.isInteger(n) || n < 0 || n > 255) {
+    throw new Error(`color256: 色号须为 0-255 整数，收到 ${n}`);
+  }
+  return n as Color256;
+}
+
+/**
+ * 真彩色（`#rrggbb` 小写十六进制串；三档色域最高档——SGR 38;2/48;2 序列化）。
+ * 品牌字符串形：原始值恒等比较适配 styleEquals、快照/断言可直读。
+ */
+export type ColorRgb = string & { readonly __brand: 'rgb-hex-color' };
+
+/** 真彩色构造（`#rgb`/`#rrggbb` 归一小写 6 位——非法形 fail-loud） */
+export function colorRgb(hex: string): ColorRgb {
+  const s = hex.toLowerCase();
+  const expanded = s.length === 4 ? `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}` : s;
+  if (!/^#[0-9a-f]{6}$/.test(expanded)) {
+    throw new Error(`colorRgb: 须为 #rgb 或 #rrggbb 形，收到 ${hex}`);
+  }
+  return expanded as ColorRgb;
+}
+
+/** RGB 三通道（0-255）——真彩色的通道拆解形（降采与亮度判据消费） */
+export interface RgbChannels {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
+/** 真彩色按通道构造（0-255 整数三通道——调色板源值经此入 ColorValue 面） */
+export function colorRgbOf(r: number, g: number, b: number): ColorRgb {
+  const bad = (v: number): boolean => !Number.isInteger(v) || v < 0 || v > 255;
+  if (bad(r) || bad(g) || bad(b)) {
+    throw new Error(`colorRgbOf: 通道须为 0-255 整数，收到 (${r}, ${g}, ${b})`);
+  }
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}` as ColorRgb;
+}
+
+/** 三档色值联合（CellStyle fg/bg 的色型——07 §4.1 引擎节件 3 R2 三档色域） */
+export type ColorValue = AnsiColor | Color256 | ColorRgb;
+
 /** 单格样式（属性位族——缺省位一律 false / undefined） */
 export interface CellStyle {
-  /** 前景 16 色索引（undefined = 终端缺省前景） */
-  readonly fg?: AnsiColor;
-  /** 背景 16 色索引（undefined = 终端缺省背景） */
-  readonly bg?: AnsiColor;
+  /** 前景色（undefined = 终端缺省前景；三档联合——降采归主题层非样式层） */
+  readonly fg?: ColorValue;
+  /** 背景色（undefined = 终端缺省背景） */
+  readonly bg?: ColorValue;
   readonly bold?: boolean;
   readonly italic?: boolean;
   readonly underline?: boolean;

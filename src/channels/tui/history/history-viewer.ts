@@ -39,7 +39,7 @@ import { LiveTranscript, renderBlockStyledLines, shortIdOf } from '../backend/tr
 import type { StyledLine } from '../backend/ansi-rows.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { AgentMessage } from '../../../contracts/index.js';
-import { sessionColor } from '../theme.js';
+import { sessionColor } from '../theme/index.js';
 
 /** 回看器装配选项 */
 export interface HistoryViewerOptions {

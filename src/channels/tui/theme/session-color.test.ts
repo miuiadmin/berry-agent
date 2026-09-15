@@ -1,17 +1,11 @@
 /**
- * TUI 配色面单测（07 引擎节件 3 着色克制条款的定值锁）。
+ * 会话区分色单测（原 tui/theme.test.ts 迁入——批 10g 目录化）。
  *
  * sessionColor 是确定性纯函数（零配置零存储）——断言确定性 / 值域 / 非退化
  * 三性质，不断言具体散列值（散列无规范值面，具体值断言会锁死实现自由度）。
  */
 import { describe, expect, it } from 'vitest';
-import { ACCENT_INDEX, sessionColor } from './theme.js';
-
-describe('ACCENT_INDEX（accent 缺省定值）', () => {
-  it('v1 定值 = cyan 6（消费面可依赖的稳定常量）', () => {
-    expect(ACCENT_INDEX).toBe(6);
-  });
-});
+import { sessionColor } from './session-color.js';
 
 describe('sessionColor（会话短 id 散列映射 16 色板）', () => {
   it('确定性：同 id 多次调用恒同值', () => {

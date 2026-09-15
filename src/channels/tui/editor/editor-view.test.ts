@@ -4,8 +4,8 @@
  * （聚焦独占）、IME 预编辑下划线段。
  */
 import { describe, expect, it } from 'vitest';
-import { CellGrid, ansiColor } from '../../engine/index.js';
-import { ACCENT_INDEX } from '../theme.js';
+import { CellGrid } from '../../engine/index.js';
+import { DEFAULT_THEME } from '../theme/index.js';
 import { EditorModel } from './editor-model.js';
 import { EditorView } from './editor-view.js';
 
@@ -62,7 +62,7 @@ describe('EditorView 边框', () => {
     const focused = new CellGrid(10, 5);
     view.setFocused(true);
     view.render(focused, { row: 0, col: 0, width: 6, height: 3 });
-    expect(focused.getCell(0, 0)?.style.fg).toEqual(ansiColor(ACCENT_INDEX));
+    expect(focused.getCell(0, 0)?.style.fg).toEqual(DEFAULT_THEME.accent);
     const plain = new CellGrid(10, 5);
     view.setFocused(false);
     view.render(plain, { row: 0, col: 0, width: 6, height: 3 });

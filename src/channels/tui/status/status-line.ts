@@ -13,14 +13,10 @@
  *   接重绘请求。
  */
 import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
-import { ansiColor } from '../../engine/index.js';
-import { ACCENT_INDEX } from '../theme.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 转轮帧序（braille 十帧——accent 呈现形态随组件批定形，本批定形） */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
-
-/** 转轮样式（accent 定值——theme 单源） */
-const SPINNER_STYLE: Readonly<CellStyle> = Object.freeze({ fg: ansiColor(ACCENT_INDEX) });
 
 /** 状态行动画件（量高恒 1 行——底部固定区状态行） */
 export class StatusLine implements Renderable {
@@ -34,6 +30,13 @@ export class StatusLine implements Renderable {
   /** 实时工具名（tool_execution_start 写入；null = 无工具在场） */
   private toolName: string | null = null;
   private frameIndex = 0;
+  /** 转轮样式（accent 派生——主题单源，setTheme 整体重建） */
+  private spinnerStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
+
+  /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */
+  setTheme(theme: ResolvedTheme): void {
+    this.spinnerStyle = Object.freeze({ fg: theme.accent });
+  }
 
   /** 量高：恒 1（状态行单行制） */
   measure(width: number): number {
@@ -45,7 +48,7 @@ export class StatusLine implements Renderable {
   render(buffer: CellBuffer, region: Region): void {
     if (this.busy) {
       const frame = SPINNER_FRAMES[this.frameIndex % SPINNER_FRAMES.length]!;
-      buffer.writeText(region.row, region.col, frame, SPINNER_STYLE);
+      buffer.writeText(region.row, region.col, frame, this.spinnerStyle);
       // 转轮后文案段（rest 自带前导空格——起点 = 转轮格 +1；工具名优先——件 3 语义）
       const rest = this.toolName !== null ? ` ⚙ ${this.toolName} …` : this.busyText !== '' ? ` ${this.busyText}` : '';
       if (rest !== '') buffer.writeText(region.row, region.col + 1, rest);
