@@ -1,0 +1,74 @@
+name: Bug 报告
+description: 报告一个可复现的问题（行为与预期不符）
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告。带诊断信息的问题定位快一个数量级——报错原文直接粘贴，不要转述。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 一句话概述 + 期望行为与实际行为的差异。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: berry-agent 版本
+      description: '`berry --version` 输出'
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - macOS
+        - Linux
+        - Windows（WSL）
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node 版本
+      description: '`node --version` 输出'
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: 安装方式
+      options:
+        - npm 全局
+        - 安装脚本
+        - 源码构建
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从干净状态开始，逐步列出你做了什么。无法稳定复现的写「偶发」并描述频率。
+    validations:
+      required: true
+  - type: textarea
+    id: stderr
+    attributes:
+      label: 报错原文
+      description: stderr / 崩溃输出原文直接粘贴（命令行加 `BERRY_AGENT_LOG_LEVEL=debug` 重跑一次的输出更有价值）。
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断信息（可选）
+      description: >-
+        数据目录（缺省 `~/.berry-agent/`，可用 `BERRY_AGENT_DATA_DIR` 重定位）中的报错现场：崩溃类问题附
+        `crash.log` 末行；涉及插件时附 `berry plugins list` 输出与 `enabled.yaml`
+        手改历史（如有）。敏感信息（令牌、路径中的用户名）请先抹除。
+    validations:
+      required: false

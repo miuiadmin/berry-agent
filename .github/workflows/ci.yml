@@ -59,14 +59,14 @@ jobs:
         run: |
           set -eu
           fail=0
-          for f in SECURITY.md .github/CODEOWNERS .github/ISSUE_TEMPLATE/bug-report.md; do
+          for f in SECURITY.md .github/CODEOWNERS .github/ISSUE_TEMPLATE/bug-report.yml .github/ISSUE_TEMPLATE/feature-request.yml .github/ISSUE_TEMPLATE/config.yml; do
             if [ ! -s "$f" ]; then
               echo "::error file=$f::配套面文件缺席或为空：$f"
               fail=1
             fi
           done
           if [ "$fail" -eq 0 ]; then
-            echo "配套面三件齐（SECURITY.md / CODEOWNERS / 中文问题模板）"
+            echo "配套面五件齐（SECURITY.md / CODEOWNERS / issue 模板三件）"
           fi
           exit $fail
 

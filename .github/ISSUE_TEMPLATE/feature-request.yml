@@ -1,0 +1,42 @@
+name: 功能提议
+description: 提议新能力或增强——先看改动分级自评
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本仓理念：**基座强在接口，能力长在插件**——新能力默认以插件形态表达。分级表见[贡献指南](https://github.com/miuiadmin/berry-agent/blob/main/CONTRIBUTING.md)。L3/L4 级（基座接口/判据面）提议请把讨论重点放在边界与取舍上。
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 动机——解决什么问题
+      description: 没有此能力时你如何绕过、痛点在哪。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提议方案
+      description: 期望的形态与交互；有参考实现可附链接。
+    validations:
+      required: true
+  - type: dropdown
+    id: tier
+    attributes:
+      label: 改动分级自评
+      description: 按贡献指南四级阶梯自评——帮助维护者分流。
+      options:
+        - L1 错字/文档/测试
+        - L2 插件域内增强（不改公开接口）
+        - L3 基座接口改动（扩展点/钩子/事件词汇/错误码/API 面）
+        - L4 判据面改动（准入/安全/审批/沙箱）
+        - 不确定
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案（可选）
+      description: 考虑过的其他做法与不选的原因。
+    validations:
+      required: false
