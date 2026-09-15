@@ -3,7 +3,8 @@
  * 模块 DAG 拓扑门禁 v0（07 篇 §7.1 门禁 ①；重建清单 #1——从零自建，边表真源 =
  * 02 篇 §4.1 模块表「依赖（仅允许）」列逐席转录）。
  *
- * 执法维度（本版在场四项；深挖面册双向棘轮 / 计数锚 / 非 .ts 白名单随落码批接入）：
+ * 执法维度（本版在场四项；深挖面册双向棘轮 / 非 .ts 白名单随落码批接入；
+ * 计数锚已随 W5 批维度 6 接入）：
  *   1. 相对导入跨模块必须走边表白名单——同模块内相对导入自由；
  *   2. 裸导入按模块分账白名单（node:* 全局；包依赖只准进指定模块——
  *      native 隔离律：better-sqlite3 只准 persist）；
@@ -15,8 +16,17 @@
  *
  * 测试文件豁免（02 §4.3 #4 两账分离）：harness 全真组合跨模块合法——
  * 用例证据只计产码 import。
+ *
+ * W5 批（2026-09-15 拓扑门禁强化）两腿：
+ *   5. SDK 包产码（packages/berry-agent-sdk/src）入扫描面——SDK 包不是
+ *      28 席 DAG 成员、不执法边表维度；执法面 = 裸包分账 + 相对导入落点
+ *      收敛（指入主仓 src 的须命中公开面三名或深挖面册〔共享 DEEP_FACES
+ *      ∪ SDK 专属册 SDK_DEEP_FACES〕；包内相对导入豁免）；
+ *   6. 扫描面自检锚——独立 glob 真源（src 全树 + packages 下各包 src 全树）
+ *      与实际被 importSpecifiers 消费的集合交叉对拍，任何差集即红（扫描根
+ *      接线/收集器漂移信号）；输出行加「扫描文件 N / import 语句 M」计数。
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, globSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /** 模块边表（28 席；02 篇 §4.1 依赖列全量转录——L3/L4 对 contracts 共边不省略。三次加席 26→27→28 注释计数随批更新） */
@@ -311,12 +321,56 @@ const DEEP_FACES = {
   contracts: ['api.ts'],
 };
 
+/** SDK 包产码专属深挖面册（W5 批任务①随扫描面入册）。与共享 DEEP_FACES
+ * 分立的原因：共享册条目等于授权全部持边模块深挖该面（入册即放松 src 侧
+ * 执法——工具面只收紧不放松）；SDK 包产码的既有深挖属打包形态 sanctioned
+ * 例外（03 §10.6 批 13f 落码定形：SDK 包类型面/线协议消费「同仓单源、零
+ * 拷贝漂移——构建时编译入包」；rl 发布道批 dist 最小闭包 263 件形态）。
+ * 不走公开面桶的理由：channels/index 桶拉入整 channels+context+agent
+ * 运行时闭包与 get-east-asian-width 传递依赖（非 SDK 包依赖账）——发布物
+ * 材质性膨胀。面册外深挖仍即红；新条目须注明 sanctioned 依据。 */
+const SDK_DEEP_FACES = {
+  // SDK 线协议单源件（protocol.ts = SDK_PROTOCOL_VERSION/帧与请求词面；
+  // jsonl.ts = NDJSON 行帧编解码四函数——SDK 包 client/stdio/http/types
+  // 四件 type+value 消费，channels 侧头注「协议核心代码位与通道核同体」）
+  channels: ['sdk/protocol.ts', 'sdk/jsonl.ts'],
+  // 审批应答词面（ApprovalAskAnswer 四值闭集——SDK types.ts 策展点名
+  // re-export 消费；contracts/index 整桶出口会拉全 contracts 运行时面）
+  contracts: ['approval.ts'],
+};
+
+/** SDK 包产码裸导入白名单（与 MODULE_EXTERNALS 同款分账形态）。真源 =
+ * packages/berry-agent-sdk/package.json dependencies（typebox——运行时
+ * schema 依赖；本批扫描时点 src 产码尚无消费位，账面先随包声明登记；
+ * value 子路径与主包同账——MODULE_EXTERNALS 各席同款） */
+const SDK_PACKAGE_EXTERNALS = ['typebox', 'typebox/value'];
+
 /** 被检仓根——env 根缝 CHECK_TOPOLOGY_ROOT 供守护炮自测注入夹具根（07 篇
  * §7.4 #10：净树 exit 0 + 已知违规夹具 exit 1，与门禁同一进程形态）；
  * 缺省 = 当前工作目录（门禁原形态不变） */
 const ROOT = process.env.CHECK_TOPOLOGY_ROOT ?? process.cwd();
 const SRC = join(ROOT, 'src');
+/** SDK 包产码根（W5 任务①入扫描面——packages/berry-agent-sdk/src；夹具根
+ * 可能无 packages/ 树，消费位 existsSync 先判） */
+const SDK_PACKAGE_SRC = join(ROOT, 'packages', 'berry-agent-sdk', 'src');
 const violations = [];
+
+/** 实际被 importSpecifiers 消费的文件集（相对 ROOT 的 posix 路径）——扫描面
+ * 自检锚的受检侧真源（W5 任务②） */
+const scannedFiles = new Set();
+/** import 语句总数（输出行计数锚） */
+let importStatementCount = 0;
+
+/** 相对 ROOT 的 posix 风格路径（对拍与违规消息统一用——glob 返回值原生 posix） */
+function posixRel(file) {
+  return relative(ROOT, file).split(sep).join('/');
+}
+
+/** 测试文件判定（*.test.* 豁免两账分离）——收集器与 glob 真源共用同一谓词：
+ * 自检锚只对拍「根覆盖/接线」漂移，谓词本身单源不生双源漂移 */
+function isTestFileName(name) {
+  return name.includes('.test.');
+}
 
 /** 递归收集 src 下产码 .ts/.tsx（*.test.* 豁免两账分离——批 18a-2 起 .tsx
  *  入账：SPA 客户端树） */
@@ -325,7 +379,7 @@ function collectSourceFiles(dir) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) out.push(...collectSourceFiles(full));
-    else if ((name.endsWith('.ts') || name.endsWith('.tsx')) && !name.includes('.test.')) out.push(full);
+    else if ((name.endsWith('.ts') || name.endsWith('.tsx')) && !isTestFileName(name)) out.push(full);
   }
   return out;
 }
@@ -347,14 +401,20 @@ function importSpecifiers(text) {
 for (const file of collectSourceFiles(SRC)) {
   const mod = moduleOf(file);
   if (!mod || !PRESENT_MODULES.has(mod)) {
+    // 走访即入 consumed 集（自检锚只对拍根覆盖漂移——已判违规文件不二次
+    // 记账为「漏检」；其 import 语句未解析故不计入语句数）
+    scannedFiles.add(posixRel(file));
     violations.push(`${relative(ROOT, file)}: 不属于任何在场模块（src 顶层散文件）`);
     continue;
   }
   const allowed = MODULE_EDGES[mod] ?? [];
   const externals = MODULE_EXTERNALS[mod] ?? [];
   const text = readFileSync(file, 'utf8');
+  const specs = importSpecifiers(text);
+  scannedFiles.add(posixRel(file));
+  importStatementCount += specs.length;
 
-  for (const spec of importSpecifiers(text)) {
+  for (const spec of specs) {
     if (spec.startsWith('.')) {
       // 相对导入：解析目标真路径判模块归属（首段目录 = 模块）。
       // 件内子目录跳变（如 channels/tui → channels/engine 聚合面）真路径
@@ -398,12 +458,86 @@ for (const file of collectSourceFiles(SRC)) {
   }
 }
 
+// ---- SDK 包产码扫描（W5 任务①）----
+// SDK 包不是 28 席 DAG 成员——不执法边表维度；执法面 = 裸包分账 +
+// 相对导入落点收敛。packages/ 树缺席（夹具根形态）时整段跳过。
+if (existsSync(SDK_PACKAGE_SRC)) {
+  for (const file of collectSourceFiles(SDK_PACKAGE_SRC)) {
+    const text = readFileSync(file, 'utf8');
+    const specs = importSpecifiers(text);
+    scannedFiles.add(posixRel(file));
+    importStatementCount += specs.length;
+
+    for (const spec of specs) {
+      if (!spec.startsWith('.')) {
+        // 裸导入：node:* 全局；包依赖按 SDK 包分账（native 隔离律同款覆盖）
+        if (NODE_BUILTIN.test(spec)) continue;
+        if (!SDK_PACKAGE_EXTERNALS.includes(spec)) {
+          violations.push(
+            `${posixRel(file)}: SDK 裸导入 '${spec}' 不在 SDK 包白名单（node:* 全局 + ${SDK_PACKAGE_EXTERNALS.join(', ') || '无'}）`,
+          );
+        }
+        continue;
+      }
+      // 相对导入：解析目标真路径判落点（.js 后缀归一到 .ts——与 src 侧同律）
+      const targetPath = resolve(dirname(file), spec.replace(/\.js$/, '.ts'));
+      // 落点①：SDK 包 src 内——豁免（包内件组织自由，非 DAG 席）
+      const relToSdkSrc = relative(SDK_PACKAGE_SRC, targetPath);
+      if (!relToSdkSrc.startsWith('..') && !isAbsolute(relToSdkSrc)) continue;
+      // 落点②：主仓 src 内——公开面三名收敛（共享深挖面册 ∪ SDK 专属册）
+      const relToSrc = relative(SRC, targetPath);
+      if (!relToSrc.startsWith('..') && !isAbsolute(relToSrc)) {
+        const parts = relToSrc.split(sep);
+        const target = parts[0];
+        const face = parts.slice(1).join('/');
+        if (!face) {
+          violations.push(`${posixRel(file)}: SDK 相对导入 ${spec} 指向主仓 src 顶层散文件`);
+          continue;
+        }
+        const deepAllowed = [...(DEEP_FACES[target] ?? []), ...(SDK_DEEP_FACES[target] ?? [])];
+        if (!PUBLIC_FACES.has(face) && !deepAllowed.includes(face)) {
+          violations.push(
+            `${posixRel(file)}: SDK 深挖 ${target} 实现面（${face}）——只准走公开面三名（面册例外见 DEEP_FACES/SDK_DEEP_FACES）`,
+          );
+        }
+        continue;
+      }
+      // 落点③：两扫描根之外（packages 其他角落 / 仓外）——红
+      violations.push(`${posixRel(file)}: SDK 相对导入 ${spec} 跳出扫描根（SDK 包 src / 主仓 src）`);
+    }
+  }
+}
+
+// ---- 扫描面自检锚（W5 任务②）----
+// 独立 glob 真源与「实际被 importSpecifiers 消费的集合」交叉对拍：任何差集
+// 即红。真源宽于扫描根是有意设计——packages/*/src/** 覆盖任意包目录，新增
+// 包未接线扫描面（或收集器过滤器退化漏文件）在此立即爆红，而非静默漏检。
+const globTruth = new Set(
+  ['src/**/*.{ts,tsx}', 'packages/*/src/**/*.{ts,tsx}']
+    .flatMap((pattern) => globSync(pattern, { cwd: ROOT }))
+    .filter((p) => !isTestFileName(p)),
+);
+const missedByScan = [...globTruth].filter((p) => !scannedFiles.has(p));
+const extraInScan = [...scannedFiles].filter((p) => !globTruth.has(p));
+if (missedByScan.length > 0) {
+  violations.push(
+    `扫描面漏检 ${missedByScan.length} 文件（glob 真源有、扫描集无——检查扫描根接线/收集器）：${missedByScan.join(', ')}`,
+  );
+}
+if (extraInScan.length > 0) {
+  violations.push(
+    `扫描集超出 glob 真源 ${extraInScan.length} 文件（收集器多收——两源根覆盖谓词漂移）：${extraInScan.join(', ')}`,
+  );
+}
+
 if (violations.length > 0) {
-  console.error(`lint:topology 红——${violations.length} 处违规：`);
+  console.error(
+    `lint:topology 红——${violations.length} 处违规（扫描文件 ${scannedFiles.size} / import 语句 ${importStatementCount}）：`,
+  );
   for (const v of violations) console.error(`  - ${v}`);
   process.exit(1);
 }
 
 console.log(
-  `lint:topology 绿——在场 ${PRESENT_MODULES.size} 模块 / 边表 ${Object.keys(MODULE_EDGES).length} 席（占位 ${Object.keys(MODULE_EDGES).length - PRESENT_MODULES.size}）`,
+  `lint:topology 绿——在场 ${PRESENT_MODULES.size} 模块 / 边表 ${Object.keys(MODULE_EDGES).length} 席（占位 ${Object.keys(MODULE_EDGES).length - PRESENT_MODULES.size}）/ 扫描文件 ${scannedFiles.size} / import 语句 ${importStatementCount}`,
 );

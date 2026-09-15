@@ -56,6 +56,8 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
     const { status, out } = runCheck();
     expect(status).toBe(0);
     expect(out).toContain('lint:topology 绿');
+    // W5 任务②计数锚：绿行必须带「扫描文件 N / import 语句 M」
+    expect(out).toMatch(/扫描文件 \d+ \/ import 语句 \d+/);
   });
 
   it('跨模块未声明边 → 红（webui→session 不在边表）', () => {
@@ -111,5 +113,51 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
     const { status, out } = runCheck(root);
     expect(status).toBe(0);
     expect(out).toContain('lint:topology 绿');
+  });
+
+  // ---- W5 批（2026-09-15）两腿：任务① SDK 产码入扫描面 / 任务② 扫描面自检锚 ----
+
+  it('SDK 深挖主仓实现面 → 红（packages 产码深挖 persist/state.ts 未在面册）', () => {
+    const root = fixture('sdk-deep-violation', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'packages/berry-agent-sdk/src/client.ts':
+        "import { y } from '../../../src/persist/state.js';\nexport const z = y;\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain('SDK 深挖 persist 实现面（state.ts）');
+  });
+
+  it('SDK 裸导入越账 → 红（better-sqlite3 不在 SDK 包白名单——裸包分账同样覆盖 packages 产码）', () => {
+    const root = fixture('sdk-external-violation', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'packages/berry-agent-sdk/src/client.ts': "import Database from 'better-sqlite3';\nexport const db = Database;\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain("SDK 裸导入 'better-sqlite3'");
+  });
+
+  it('SDK 包内相对导入 + 主仓公开面三名 → 绿（对照腿：包内豁免与公开面命中不误伤）', () => {
+    const root = fixture('sdk-legal', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'packages/berry-agent-sdk/src/types.ts': 'export const a = 1;\n',
+      'packages/berry-agent-sdk/src/client.ts':
+        "import { a } from './types.js';\nimport { b } from '../../../src/contracts/index.js';\nimport { spawn } from 'node:child_process';\nexport const c = a ?? b ?? spawn;\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('lint:topology 绿');
+  });
+
+  it('扫描面漏检 → 红（未接线扫描根的 packages 包：glob 真源有、扫描集无）', () => {
+    const root = fixture('unwired-package', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'packages/other-pkg/src/a.ts': 'export const y = 1;\n',
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain('扫描面漏检');
+    expect(out).toContain('packages/other-pkg/src/a.ts');
   });
 });
