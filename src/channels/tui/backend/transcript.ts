@@ -1,10 +1,17 @@
 /**
  * 直播路行集模型与渲染归约（07 §4.1 直播路渲染单源 + 呈现面件 1/9——批 10e）。
  *
- * - **消息事件是唯一渲染源**：assistant 文本/⚙ 工具行随 message_start/update/
- *   end、↳ 工具结果行随 toolResult 的 message_end（本仓消息载荷在 end——事件
+ * - **消息事件是唯一渲染源**：assistant 文本/思考/工具调用随 message_start/
+ *   update/end、工具结果随 toolResult 的 message_end（本仓消息载荷在 end——事件
  *   形 2026-09-06 冷读注记对齐）；`tool_execution_*` 是执行层锚点正文零渲染
  *   （状态面消费归 TuiBackend）；
+ * - **思考前缀行**（批 10i R1）：流式槽渲染 = 思考行前缀 + doc 行——折叠单行
+ *   标签（缺省，省 scrollback）/ 展开体两档，ctrl+t 会话级开关；定稿换装时
+ *   思考行升位独立 thinking 块（同函数两渲染——冻结跳行不漂移）；
+ * - **工具卡定稿形**（批 10i R4）：toolCall 入在飞账不落行（直播路在飞期零
+ *   正文行），toolResult 按 toolCallId 配对落三态卡（✓/✖/⏹——中止走
+ *   details 结构化标记）；折叠 = 卡头 + 尾 5 行预览（ctrl+o 会话级展开）；
+ *   投影走查毕的在飞孤儿兜底 ⚙ 简行、配对到达撤销——两路收敛同形；
  * - **流式三段**（呈现面件 1 批 10h R1 三段化）：流式期 **markdown 直推**
  *   （streaming 槽携 StreamingMarkdown——增量装配 + 稳定面计量；doc = null
  *   为纯文本降档——字节帽超标回退形）、message_end 定稿换装（摘槽 →
@@ -30,6 +37,9 @@ import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
 import { gridRowToStyled, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
+import { renderThinkingStyledLines } from '../blocks/thinking.js';
+import { cardBodyOf, renderToolCardStyledLines, type ToolCardStatus } from '../blocks/tool-card.js';
+import { ACTION_CATALOG } from '../keys/registry.js';
 import type { SessionEnvelope } from '../../types.js';
 
 export type { StyleRun, StyledLine } from './ansi-rows.js';
@@ -54,7 +64,28 @@ const BRIEF_WIDTH = 40;
 export type TranscriptBlock =
   | { readonly kind: 'user'; readonly text: string }
   | { readonly kind: 'markdown'; readonly doc: MarkdownDoc }
-  | { readonly kind: 'tool-call'; readonly name: string; readonly brief: string }
+  | {
+      /** 思考块（批 10i R1——定稿形：斜体 + thinkingText 色，折叠标签/展开体两档） */
+      readonly kind: 'thinking';
+      readonly text: string;
+      readonly expanded: boolean;
+      readonly theme: ResolvedTheme;
+      readonly toggleHint: string;
+      /** 体 doc（换装时一构——repaint 免重解析） */
+      readonly doc: MarkdownDoc;
+    }
+  | {
+      /** 工具卡（批 10i R4——toolResult 按 toolCallId 配对落卡的三态定稿形） */
+      readonly kind: 'tool-card';
+      readonly name: string;
+      readonly brief: string;
+      readonly status: ToolCardStatus;
+      readonly body: readonly string[];
+      readonly diff: boolean;
+      readonly expanded: boolean;
+      readonly theme: ResolvedTheme;
+    }
+  | { readonly kind: 'tool-call'; readonly name: string; readonly brief: string; readonly toolCallId?: string }
   | { readonly kind: 'tool-result'; readonly brief: string }
   | {
       readonly kind: 'streaming';
@@ -63,6 +94,16 @@ export type TranscriptBlock =
       readonly text: string;
       /** 流式 markdown 直推档（null = 纯文本降档——字节帽超标回退形） */
       readonly doc: StreamingMarkdown | null;
+      /** 思考前缀（批 10i——合并思考文，槽渲染 = 思考行 + doc 行同前缀拼接） */
+      readonly thinking: string;
+      /** 思考体增量档（流式展开档的逐帧成本承接——与 doc 同件同律） */
+      readonly thinkingDoc: StreamingMarkdown | null;
+      /** 思考行已定判据（思考块全在末文本块前——冻结面可纳思考行的前提） */
+      readonly thinkingSettled: boolean;
+      /** 思考行渲染档（会话级开关快照——toggle 改写 + repaint 重渲） */
+      readonly thinkingExpanded: boolean;
+      readonly theme: ResolvedTheme;
+      readonly toggleHint: string;
     };
 
 /** 非聚焦摘要行（瞬时——呈现侧直写后即交 scrollback，不存账） */
@@ -99,15 +140,75 @@ export function renderBlockStyledLines(block: TranscriptBlock, columns: number):
       const lines = wrapText(block.text, columns - 2);
       return lines.map((line, i) => ({ plain: (i === 0 ? '> ' : '  ') + line, runs: [] }));
     }
+    case 'thinking':
+      // 思考块两档渲染（blocks/thinking 纯函数——槽前缀行同函数两用）
+      return renderThinkingStyledLines(
+        { text: block.text, expanded: block.expanded, theme: block.theme, toggleHint: block.toggleHint },
+        columns,
+        block.doc,
+      );
+    case 'tool-card':
+      return renderToolCardStyledLines(
+        {
+          name: block.name,
+          brief: block.brief,
+          status: block.status,
+          body: block.body,
+          diff: block.diff,
+          expanded: block.expanded,
+          theme: block.theme,
+        },
+        columns,
+      );
     case 'tool-call':
       return [dimStyledLine(` ⚙ ${block.name}${block.brief}`)];
     case 'tool-result':
       return [dimStyledLine(` ↳ ${block.brief}`)];
-    case 'streaming':
+    case 'streaming': {
+      // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线；降档（doc = null）纯文本直推；空文本零行
-      if (block.doc !== null) return renderDocLines(block.doc, columns);
-      return block.text === '' ? [] : wrapText(block.text, columns).map((text) => ({ plain: text, runs: [] }));
+      const lines: StyledLine[] = [];
+      if (block.thinking !== '') {
+        lines.push(
+          ...renderThinkingStyledLines(
+            {
+              text: block.thinking,
+              expanded: block.thinkingExpanded,
+              theme: block.theme,
+              toggleHint: block.toggleHint,
+            },
+            columns,
+            block.thinkingDoc,
+          ),
+        );
+      }
+      if (block.doc !== null) lines.push(...renderDocLines(block.doc, columns));
+      else if (block.text !== '')
+        lines.push(...wrapText(block.text, columns).map((text) => ({ plain: text, runs: [] })));
+      return lines;
+    }
   }
+}
+
+/**
+ * 槽稳定行数（批 10i——main-screen 冻结账消费）：思考行稳定判据 =
+ * thinkingSettled（思考块全在末文本块前——标签字数与体行此后不再变，全行
+ * 皆稳）+ doc 稳定面（既有三判）。**思考在场未定 → 冻结面整体为空**：槽行
+ * 头是逐帧变的标签行，冻结是前缀连续操作（头行不可跳）——其后 doc 稳定面
+ * 不得越过不稳头行先冻（交错形：末思考块在末文本块后——冻结面收缩到零，
+ * 帧帧全量重写，正确性不破）。
+ */
+export function stableSlotLineCount(slot: Extract<TranscriptBlock, { kind: 'streaming' }>, columns: number): number {
+  if (slot.thinking !== '' && !slot.thinkingSettled) return 0; // 不稳头行止冻——前缀连续律
+  const thinkingRows =
+    slot.thinking !== ''
+      ? renderThinkingStyledLines(
+          { text: slot.thinking, expanded: slot.thinkingExpanded, theme: slot.theme, toggleHint: slot.toggleHint },
+          columns,
+          slot.thinkingDoc,
+        ).length
+      : 0;
+  return thinkingRows + (slot.doc !== null ? slot.doc.stableLineCount(columns) : 0);
 }
 
 /** Renderable doc → 带样式行集（markdown 定稿与流式 doc 共用——同管线律） */
@@ -153,6 +254,49 @@ function joinTextBlocks(blocks: readonly { type: string; text?: string }[]): str
   return parts.join('');
 }
 
+/** 思考块抽取拼接（批 10i——连续思考块 '\n\n' 串接；redacted 无文本体跳过） */
+function joinThinkingBlocks(blocks: readonly { type: string; thinking?: string }[]): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    if (block.type === 'thinking' && typeof block.thinking === 'string') parts.push(block.thinking);
+  }
+  return parts.join('\n\n');
+}
+
+/**
+ * 思考已定判据（批 10i）：末思考块先于末文本块（文本已起且其后无思考）——
+ * 此后思考文不再变，思考行全量可冻。纯思考期（无文本块）恒未定——标签字数
+ * 逐帧变；思考/文本交错的供应商形在此判据下保守（后到思考使 settled 翻回
+ * false，冻结面收缩、正确性不破）。
+ */
+function thinkingSettledBeforeText(content: readonly { type: string }[]): boolean {
+  let lastText = -1;
+  let lastThinking = -1;
+  for (let i = 0; i < content.length; i++) {
+    const type = content[i]!.type;
+    if (type === 'text') lastText = i;
+    else if (type === 'thinking') lastThinking = i;
+  }
+  return lastThinking !== -1 && lastText > lastThinking;
+}
+
+/** 思考文抽取（宽面消息守卫归一——非 assistant/自定义角色返 ''） */
+function thinkingOf(message: AgentMessage): string {
+  if (!isStandardMessage(message) || message.role !== 'assistant') return '';
+  return joinThinkingBlocks(message.content);
+}
+
+/** 思考已定判据的宽面守卫形（同上——非 assistant 恒未定） */
+function thinkingSettledOf(message: AgentMessage): boolean {
+  if (!isStandardMessage(message) || message.role !== 'assistant') return false;
+  return thinkingSettledBeforeText(message.content);
+}
+
+/** details 结构化中止标记判定（tools-batch 中止合成位铸入 {aborted: true}） */
+function isAbortedDetails(details: unknown): boolean {
+  return typeof details === 'object' && details !== null && (details as { aborted?: unknown }).aborted === true;
+}
+
 /** 工具简述：参数键名序列（`path, content` 形——呈现面克制不倒参数值） */
 function argsBrief(args: Record<string, unknown>): string {
   const keys = Object.keys(args);
@@ -169,10 +313,29 @@ export interface LiveTranscriptOptions {
   /**
    * markdown 主题（流式直推档与定稿块的渲染键源——批 10h；缺省
    * DEFAULT_THEME。换装经 setTheme——只影响后续新建 doc，已落账 doc 不回改
-   * 〔durable 行已交 scrollback 物理不可回改〕）。
+   * 〔durable 行已交 scrollback 物理不可回改〕）。批 10i 起思考块与工具卡
+   * 同律（构造期烙印）。
    */
   readonly theme?: ResolvedTheme;
+  /**
+   * 动作键名取用面（批 10i——keyText(动作id) 单源消费；缺省册首键回退，
+   * TuiBackend 装配位传 Keymap 实例的 keyText——用户覆盖后标签提示随动）。
+   */
+  readonly keyText?: (actionId: string) => string;
 }
+
+/** 缺省键名回退表（册单源派生——直构档〔测试/回看器〕无 Keymap 时的取键面） */
+const DEFAULT_KEY_TEXT: ReadonlyMap<string, string> = new Map(ACTION_CATALOG.map((def) => [def.id, def.keys[0]!]));
+
+/** 在飞工具调用账（批 10i R4——toolCallId → 调用面，配对落卡的账本） */
+interface PendingToolCall {
+  readonly name: string;
+  readonly brief: string;
+  readonly arguments: Record<string, unknown>;
+}
+
+/** 在飞账帽（防御位——异常形消息序列下不无限滞留；超帽最旧让位） */
+const MAX_PENDING_CALLS = 64;
 
 /**
  * 直播路行集（单聚焦会话一账——非聚焦会话不建账，摘要行直返）。
@@ -183,15 +346,24 @@ export class LiveTranscript {
   private readonly blockCap: number;
   /** markdown 主题（流式/定稿 doc 的构造注入源） */
   private theme: ResolvedTheme;
+  /** 动作键名取用面（标签提示单源——装配位注入 Keymap.keyText） */
+  private readonly keyText: (actionId: string) => string;
   /** 槽代次计数器（每条 assistant message_start 递增） */
   private epochCounter = 0;
   private blocks: TranscriptBlock[] = [];
   /** 流式槽在场位（true = 末块是 streaming——message_start/message_end 配对守卫） */
   private slotOpen = false;
+  /** 在飞工具调用账（assistant toolCall 入账 → toolResult 配对出账落卡） */
+  private pendingCalls = new Map<string, PendingToolCall>();
+  /** 思考块会话级展开态（批 10i——缺省折叠省 scrollback） */
+  private thinkingExpanded = false;
+  /** 工具卡会话级展开态（批 10i——缺省折叠尾 5 行预览） */
+  private toolCardsExpanded = false;
 
   constructor(options: LiveTranscriptOptions = {}) {
     this.blockCap = options.blockCap ?? TRANSCRIPT_BLOCK_CAP;
     this.theme = options.theme ?? DEFAULT_THEME;
+    this.keyText = options.keyText ?? ((actionId) => DEFAULT_KEY_TEXT.get(actionId) ?? '');
   }
 
   /** 主题换装（probe 应答/显式档切换——后续新建 doc 生效，已建 doc 不回改） */
@@ -202,12 +374,35 @@ export class LiveTranscript {
   /**
    * 流式降档（字节帽超标应急——当前槽弃 doc 走纯文本直推，冻结账随换帧
    * 自然作废；下条 message_start 重建 doc 复位重试——降档是应急不是裁决）。
+   * 思考前缀行不受降档（标签单行成本恒定）。
    */
   setStreamingPlain(): void {
     const slot = this.blocks[this.blocks.length - 1];
     if (slot !== undefined && slot.kind === 'streaming') {
-      this.blocks[this.blocks.length - 1] = { kind: 'streaming', epoch: slot.epoch, text: slot.text, doc: null };
+      this.blocks[this.blocks.length - 1] = { ...slot, doc: null };
     }
+  }
+
+  /** 思考块会话级开关（批 10i ctrl+t——翻转 + 已落账块改写，呈现侧 repaint 收口） */
+  toggleThinking(): void {
+    this.thinkingExpanded = !this.thinkingExpanded;
+    this.rewriteExpandedFlags();
+  }
+
+  /** 工具卡会话级开关（批 10i ctrl+o——同律） */
+  toggleToolCards(): void {
+    this.toolCardsExpanded = !this.toolCardsExpanded;
+    this.rewriteExpandedFlags();
+  }
+
+  /** 展开态改写（思考块/工具卡/在飞槽——渲染纯函数化，态改数据随 repaint 重渲） */
+  private rewriteExpandedFlags(): void {
+    this.blocks = this.blocks.map((block) => {
+      if (block.kind === 'thinking') return { ...block, expanded: this.thinkingExpanded };
+      if (block.kind === 'tool-card') return { ...block, expanded: this.toolCardsExpanded };
+      if (block.kind === 'streaming') return { ...block, thinkingExpanded: this.thinkingExpanded };
+      return block;
+    });
   }
 
   /** 行集快照（只读——呈现侧消费） */
@@ -234,6 +429,7 @@ export class LiveTranscript {
   /** 投影重建（repaint 路——清账按投影重拉帽内段；直播/repaint 行集同构） */
   loadProjection(messages: readonly AgentMessage[]): void {
     const rebuilt: TranscriptBlock[] = [];
+    this.pendingCalls.clear(); // 配对账随投影重建（走查中 assistant 入账、toolResult 出账）
     for (const message of messages) {
       switch (message.role) {
         case 'user':
@@ -243,10 +439,15 @@ export class LiveTranscript {
           this.appendAssistantFinal(rebuilt, message);
           break;
         case 'toolResult':
-          rebuilt.push({ kind: 'tool-result', brief: resultBrief(message) });
+          this.appendToolResult(rebuilt, message);
           break;
         // 自定义角色：content unknown 宽容跳过（不猜形状——件 1 自定义渲染器优先级语义）
       }
+    }
+    // 在飞孤儿兜底：走查毕未见结果的调用照旧 ⚙ 简行（与直播路在飞期零正文行
+    // 收敛同形——投影把「在飞」显形为 ⚙，结果到达配对换卡时孤儿行撤销）
+    for (const [toolCallId, call] of this.pendingCalls) {
+      rebuilt.push({ kind: 'tool-call', name: call.name, brief: call.brief, toolCallId });
     }
     this.blocks = rebuilt;
     this.slotOpen = false; // 投影是 durable 快照——无在飞槽
@@ -275,12 +476,19 @@ export class LiveTranscript {
         if (event.role !== 'assistant') return;
         // 流式单槽守卫：重开先摘旧槽（占位容器不孤儿滞留）
         if (this.slotOpen) this.blocks.pop();
-        // 直推档随槽重建复位（降档是应急不是裁决——每条消息重试 markdown 档）
+        // 直推档随槽重建复位（降档是应急不是裁决——每条消息重试 markdown 档）；
+        // 思考前缀行同槽重建（批 10i——thinking/thinkingDoc 从空起步）
         this.blocks.push({
           kind: 'streaming',
           epoch: ++this.epochCounter,
           text: '',
           doc: new StreamingMarkdown(this.theme),
+          thinking: '',
+          thinkingDoc: new StreamingMarkdown(this.theme),
+          thinkingSettled: false,
+          thinkingExpanded: this.thinkingExpanded,
+          theme: this.theme,
+          toggleHint: this.keyText('thinking.toggle'),
         });
         this.slotOpen = true;
         break;
@@ -289,10 +497,18 @@ export class LiveTranscript {
         const slot = this.blocks[this.blocks.length - 1];
         if (slot === undefined || slot.kind !== 'streaming') return;
         // partial 是完整快照——直换非追加；markdown 档经 StreamingMarkdown
-        // 增量装配（append-only 前提下块级缓存承接，布局只跑尾块）
+        // 增量装配（append-only 前提下块级缓存承接，布局只跑尾块）；思考文
+        // 同律增量（合并形 append-only——块间 '\n\n' 串接只增不改）
         const text = textOf(event.partial);
+        const thinking = thinkingOf(event.partial);
         slot.doc?.update(text);
-        this.blocks[this.blocks.length - 1] = { kind: 'streaming', epoch: slot.epoch, text, doc: slot.doc };
+        slot.thinkingDoc?.update(thinking);
+        this.blocks[this.blocks.length - 1] = {
+          ...slot,
+          text,
+          thinking,
+          thinkingSettled: thinkingSettledOf(event.partial),
+        };
         break;
       }
       case 'message_end': {
@@ -307,7 +523,7 @@ export class LiveTranscript {
         } else if (message.role === 'user') {
           this.blocks.push({ kind: 'user', text: textOf(message) });
         } else if (message.role === 'toolResult') {
-          this.blocks.push({ kind: 'tool-result', brief: resultBrief(message) });
+          this.appendToolResult(this.blocks, message);
         }
         this.trimToCap();
         break;
@@ -317,17 +533,90 @@ export class LiveTranscript {
     }
   }
 
-  /** assistant 定稿展开：文本块非空 → markdown 块；每 toolCall 块 → ⚙ 行块 */
+  /**
+   * assistant 定稿展开（批 10i R1/R4 形）：思考文非空 → 思考块（折叠标签/
+   * 展开体——槽前缀行的换装对位块）；文本非空 → markdown 块；toolCall 块 →
+   * 在飞账入账（**不落 ⚙ 简行**——直播路在飞期零正文行，结果到达配对落卡；
+   * repaint 投影走查毕孤儿兜底 ⚙）。
+   */
   private appendAssistantFinal(target: TranscriptBlock[], message: AgentMessage): void {
     // 守卫 + 判别收窄到 AssistantMessage（CustomMessage 判别位是 string——见 textOf 注）
     if (!isStandardMessage(message) || message.role !== 'assistant') return;
     const text = textOf(message);
+    const thinking = joinThinkingBlocks(message.content);
+    if (thinking !== '') {
+      target.push({
+        kind: 'thinking',
+        text: thinking,
+        expanded: this.thinkingExpanded,
+        theme: this.theme,
+        toggleHint: this.keyText('thinking.toggle'),
+        doc: MarkdownDoc.of(thinking, this.theme),
+      });
+    }
     if (text !== '') target.push({ kind: 'markdown', doc: MarkdownDoc.of(text, this.theme) });
     for (const block of message.content) {
       if (block.type === 'toolCall') {
-        target.push({ kind: 'tool-call', name: block.name, brief: argsBrief(block.arguments) });
+        this.pendingCalls.set(block.id, {
+          name: block.name,
+          brief: argsBrief(block.arguments),
+          arguments: block.arguments,
+        });
       }
     }
+    // 在飞账帽：超帽最旧让位（Map 插入序——异常形序列防御，正常流配对即出）
+    while (this.pendingCalls.size > MAX_PENDING_CALLS) {
+      const oldest = this.pendingCalls.keys().next().value;
+      if (oldest === undefined) break;
+      this.pendingCalls.delete(oldest);
+    }
+  }
+
+  /**
+   * 工具结果配对落卡（批 10i R4）：账内在飞 → tool-card 三态卡（换卡时撤销
+   * 投影期同 id 孤儿 ⚙ 行——repaint 后到达的结果两路收敛同形）；账外兜底
+   * ↳ 简行（未配对结果不伪装成卡）。
+   */
+  private appendToolResult(target: TranscriptBlock[], message: AgentMessage): void {
+    if (!isStandardMessage(message) || message.role !== 'toolResult') return;
+    const call = this.pendingCalls.get(message.toolCallId);
+    if (call === undefined) {
+      target.push({ kind: 'tool-result', brief: resultBrief(message) });
+      return;
+    }
+    this.pendingCalls.delete(message.toolCallId);
+    // 孤儿撤销：repaint 投影显形的 ⚙ 行在结果到达时移除（模型账收敛——已交
+    // scrollback 的旧行物理不可回改，后续 repaint 不再显形）
+    const orphanIndex = target.findIndex(
+      (block) => block.kind === 'tool-call' && block.toolCallId === message.toolCallId,
+    );
+    if (orphanIndex >= 0) target.splice(orphanIndex, 1);
+    target.push(this.buildToolCard(call, message));
+  }
+
+  /** 卡面铸造：三态判定（aborted 标记 → isError → success）+ 卡体源选择（edit patch / 结果文本） */
+  private buildToolCard(
+    call: PendingToolCall,
+    message: Extract<AgentMessage, { role: 'toolResult' }>,
+  ): TranscriptBlock {
+    const status: ToolCardStatus = isAbortedDetails(message.details)
+      ? 'aborted'
+      : message.isError
+        ? 'error'
+        : 'success';
+    // edit 词级 diff 档：patch 参数体作卡体（R4「参数对」语义——呈现的是改了什么）
+    const isEditPatch = call.name === 'edit' && typeof call.arguments.patch === 'string';
+    const bodyText = isEditPatch ? (call.arguments.patch as string) : textOf(message);
+    return {
+      kind: 'tool-card',
+      name: call.name,
+      brief: call.brief,
+      status,
+      body: cardBodyOf(bodyText),
+      diff: isEditPatch,
+      expanded: this.toolCardsExpanded,
+      theme: this.theme,
+    };
   }
   /** 帽卸载：超帽从头卸（保留帽内最近段——滚出视口交 scrollback 后内存上限语义；全量档 Infinity 恒不触发） */
   private trimToCap(): void {

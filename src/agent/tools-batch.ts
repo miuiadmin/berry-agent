@@ -166,10 +166,11 @@ export async function executeToolBatch(
   let allTerminate = true;
   let index = 0;
   while (index < calls.length) {
-    // 段前中止检查：已中止 → 余量全部配对 isError 收口（无孤儿 toolUse；配对腿不参与 terminate 表决——与旧串行路径同律）
+    // 段前中止检查：已中止 → 余量全部配对 isError 收口（无孤儿 toolUse；配对腿不参与 terminate 表决——与旧串行路径同律）；
+    // details 结构化中止标记（批 10i R4——TUI 工具卡 ⏹ 三态判据位）
     if (config.signal?.aborted) {
       for (const call of calls.slice(index)) {
-        outcome.results.push(buildResult(call, '工具批已被打断（run 中止——余量配对收口）', true));
+        outcome.results.push(buildResult(call, '工具批已被打断（run 中止——余量配对收口）', true, { aborted: true }));
       }
       outcome.terminate = calls.length > 0 && allTerminate;
       return outcome;

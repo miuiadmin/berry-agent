@@ -314,3 +314,51 @@ describe('单响应工具批护栏（消费序前插 limiter——零改 loop �
     expect(started).toEqual(['poll', 'poll']); // y 执行了（x 回执不重执行）
   });
 });
+
+/* ---------------- 段前/段中中止余量配对（批 10i R4——details 结构化中止标记） ---------------- */
+
+describe('中止余量配对标记（批 10i——TUI 工具卡 ⏹ 三态判据位）', () => {
+  it('signal 已中止 → 余量逐件 isError 配对 + details {aborted: true}（零执行）', async () => {
+    const ctl = new AbortController();
+    ctl.abort();
+    const started: string[] = [];
+    const { config, context, emit } = rig([gatedTool('probe', started, 'read')]);
+    const outcome = await executeToolBatch(
+      { ...config, signal: ctl.signal },
+      context,
+      [callOf('t1', 'probe'), callOf('t2', 'probe')],
+      emit,
+    );
+    expect(started).toEqual([]); // 一件未执行
+    expect(outcome.results).toHaveLength(2); // 余量全配对（无孤儿 toolUse）
+    for (const result of outcome.results) {
+      expect(result.isError).toBe(true);
+      expect(result.details).toEqual({ aborted: true }); // 结构化标记——⏹ 卡判据消费位
+    }
+  });
+
+  it('段中中止：屏障腿首件执行毕 signal 中止 → 已结件保真、余量携标记（标记只落中止腿）', async () => {
+    const ctl = new AbortController();
+    const started: string[] = [];
+    const tool = {
+      ...gatedTool('probe', started, 'exec'), // exec 屏障腿串行——首件结算毕才查段前中止（read 段 Promise.all 并发齐发测不到段边界）
+      execute: async () => {
+        started.push('probe');
+        ctl.abort(); // 首件执行中中止——下轮段前检查收口余量
+        return { content: [{ type: 'text' as const, text: 'ok' }] };
+      },
+    };
+    const { config, context, emit } = rig([tool]);
+    const outcome = await executeToolBatch(
+      { ...config, signal: ctl.signal },
+      context,
+      [callOf('t1', 'probe'), callOf('t2', 'probe')],
+      emit,
+    );
+    expect(started).toEqual(['probe']); // 首件已执行（余量零起跑）
+    expect(outcome.results).toHaveLength(2);
+    expect(outcome.results[0]).toMatchObject({ isError: false }); // 已结件保真（无标记）
+    expect(outcome.results[0]).not.toHaveProperty('details');
+    expect(outcome.results[1]).toMatchObject({ isError: true, details: { aborted: true } }); // 余量标记
+  });
+});

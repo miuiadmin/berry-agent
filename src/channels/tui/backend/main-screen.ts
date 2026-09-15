@@ -32,7 +32,7 @@
  */
 import { CellGrid, type TerminalIO } from '../../engine/index.js';
 import { CLEAR_SCREEN, CR, cud, cuu, EL_TO_EOL, LF, renderFixedRegionDiff, setScrollRegion, cup } from './ansi-rows.js';
-import { renderBlockLines, type TranscriptBlock } from './transcript.js';
+import { renderBlockLines, stableSlotLineCount, type TranscriptBlock } from './transcript.js';
 
 /** 主屏选项 */
 export interface MainScreenOptions {
@@ -140,11 +140,13 @@ export class MainScreen {
     const slotLines = slot === null ? [] : this.renderSlotLines(slot);
     if (slot !== null) {
       // 稳定面冻结：可视余量外的稳定前缀升格 durable 直写（写行即交
-      // scrollback 不可回改——冻结额 = min(溢出量, 稳定行数 - 已冻结)）
+      // scrollback 不可回改——冻结额 = min(溢出量, 稳定行数 - 已冻结)）；
+      // 稳定面含思考前缀行（批 10i——thinkingSettled 判据下思考行全稳，
+      // stableSlotLineCount 单源；降档 doc = null 走 doc 面 0 + 思考行稳面）
       const regionBottom = this.rows - this.fixedHeight - 1;
       const capacity = regionBottom - this.durableEndRow + 1;
       const overflow = slotLines.length - this.frozenSlotLines - capacity;
-      const freezable = slot.doc !== null ? slot.doc.stableLineCount(this.columns) - this.frozenSlotLines : 0;
+      const freezable = stableSlotLineCount(slot, this.columns) - this.frozenSlotLines;
       const freezeNow = Math.max(0, Math.min(overflow, freezable));
       if (freezeNow > 0) {
         this.gotoRow(this.durableEndRow);

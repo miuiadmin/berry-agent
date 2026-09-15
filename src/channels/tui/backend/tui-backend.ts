@@ -80,6 +80,7 @@ import {
   type ThemeSetting,
 } from '../theme/index.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
+import { Keymap } from '../keys/registry.js';
 import { Editor } from '../editor/editor.js';
 import { OverlayStack, type OverlayAnchor, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
@@ -315,6 +316,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly colorDepth: ColorDepth;
   /** 当前主题（构造期解析 auto 先 dark；probe 回执换装走整体换引用） */
   private theme: ResolvedTheme;
+  /** 键位注册表（批 10i R5——动作册消费位；缺省册，用户覆盖接线归 10k） */
+  private readonly keymap: Keymap;
 
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
@@ -348,8 +351,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.themeSetting = options.theme ?? 'dark';
     this.colorDepth = detectColorDepth(options.colorEnv ?? {});
     this.theme = resolveTheme(builtinPalette(this.themeSetting === 'light' ? 'light' : 'dark'), this.colorDepth);
-    // 直播行集（批 10h）：主题随构造定着——流式 markdown 直推档与定稿块同源
-    this.transcript = new LiveTranscript({ theme: this.theme });
+    // 键位注册表（批 10i R5 基座）：缺省册——用户覆盖装配接线归 10k；
+    // keyText 单源下装 transcript（思考标签提示等显示面随册取键名）
+    this.keymap = new Keymap();
+    // 直播行集（批 10h/10i）：主题随构造定着——流式 markdown 直推档与定稿块同源
+    this.transcript = new LiveTranscript({ theme: this.theme, keyText: (id) => this.keymap.keyText(id) });
     this.editor = new Editor({
       onSubmit: (text) => this.handleSubmit(text),
       onChange: () => this.handleEditorChange(),
@@ -521,6 +527,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         sessionId,
         messages,
         columns: this.io.size().columns,
+        theme: this.theme, // 会话主题快照（批 10i——回看器行集与主屏同板，含思考块/工具卡烙印）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -781,12 +788,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 层④ 编辑器（未消费键终局丢弃——escape 等无全局绑定）。
    */
   private routeEvent(ev: import('../../engine/types.js').InputEvent): void {
-    if (ev.kind === 'key' && ev.phase === 'press' && ev.ctrl && !ev.alt && !ev.shift && !ev.meta) {
-      if (ev.key === 'c') {
+    // 层① 全局键经键位注册表解析（批 10i R5——册单源取代硬编码判键；ctrl+d
+    // 的 overlay 在场/编辑器非空让路守卫留在路由层：册只管键匹配、分层消解
+    // 归层序——不可覆盖动作无用户改键面）
+    if (ev.kind === 'key' && ev.phase === 'press') {
+      if (this.keymap.actionMatches(ev, 'global.interrupt')) {
         this.onInterrupt?.(this.sessionId);
         return;
       }
-      if (ev.key === 'd' && this.stack.size === 0 && this.editor.model.isEmpty()) {
+      if (this.keymap.actionMatches(ev, 'global.quit') && this.stack.size === 0 && this.editor.model.isEmpty()) {
         this.onQuit?.();
         return;
       }
@@ -796,7 +806,35 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.touchFixed(); // 弹层高亮/隐层——固定区重建
       return;
     }
+    // 层③.5 应用动作键（批 10i——思考块/工具卡会话级折叠展开；overlay 模态
+    // 已在上层独占、补全弹层未消费才达此，编辑器不绑 ctrl+t/ctrl+o 无争键）
+    if (ev.kind === 'key' && ev.phase === 'press') {
+      if (this.keymap.actionMatches(ev, 'thinking.toggle')) {
+        this.toggleThinking();
+        return;
+      }
+      if (this.keymap.actionMatches(ev, 'tools.toggle-expand')) {
+        this.toggleToolCards();
+        return;
+      }
+    }
     if (this.editor.handleEvent(ev)) this.touchFixed();
+  }
+
+  /**
+   * 思考块会话级开关（ctrl+t 批 10i）：transcript 翻态改写已落账块 +
+   * screen.repaint 全量重渲（2J 清屏不清 scrollback——已交滚回的旧行物理
+   * 不可回改，屏幕面与模型账立即一致；冻结账随 repaint 重置后按新态重建）。
+   */
+  private toggleThinking(): void {
+    this.transcript.toggleThinking();
+    this.screen.repaint(this.transcript.snapshot);
+  }
+
+  /** 工具卡会话级开关（ctrl+o 批 10i）——同律：改写 + repaint */
+  private toggleToolCards(): void {
+    this.transcript.toggleToolCards();
+    this.screen.repaint(this.transcript.snapshot);
   }
 
   /**

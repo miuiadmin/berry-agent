@@ -10,6 +10,7 @@ import { MainScreen } from './main-screen.js';
 import type { TranscriptBlock } from './transcript.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
+import { DEFAULT_THEME } from '../theme/index.js';
 
 const COLS = 80;
 const ROWS = 10;
@@ -22,8 +23,19 @@ function makeScreen(): { io: MemoryTerminalIO; screen: MainScreen } {
 
 /** 用户块（单行文本——不触折行路径的基元形态） */
 const userBlock = (text: string): TranscriptBlock => ({ kind: 'user', text });
-/** 流式槽块（epoch 恒 1 同槽；doc = null 纯文本降档形——字节期望不随高亮抖动） */
-const slotBlock = (text: string): TranscriptBlock => ({ kind: 'streaming', epoch: 1, text, doc: null });
+/** 流式槽块（epoch 恒 1 同槽；doc = null 纯文本降档形——字节期望不随高亮抖动；思考面缺席位 = 零思考槽形） */
+const slotBlock = (text: string): TranscriptBlock => ({
+  kind: 'streaming',
+  epoch: 1,
+  text,
+  doc: null,
+  thinking: '',
+  thinkingDoc: null,
+  thinkingSettled: false,
+  thinkingExpanded: false,
+  theme: DEFAULT_THEME,
+  toggleHint: 'ctrl+t',
+});
 
 /** 固定区网格（两行占位——差分路径行走用） */
 function fixedGrid(text: string): CellGrid {
@@ -240,20 +252,27 @@ describe('MainScreen 滚动与重建', () => {
 
 /* ---------------- 超视口冻结提交（批 10h R1——流式 markdown 直推编舞） ---------------- */
 
+/** 十个 H3 标题块（每块一行 + 块间空行——append-only 全稳定流样本；两冻结 describe 共用） */
+const NUMS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+const headingText = (count: number): string => {
+  const heads = NUMS.slice(0, count).map((n) => `### ${n}`);
+  if (count > 10) heads.push(`### 十${NUMS[count - 11] ?? '一'}`);
+  return heads.join('\n\n') + '\n'; // 尾随换行——尾块终态判据
+};
+const sg = (n: string): string => `\x1b[1m${n}\x1b[0m`; // 标题行 bold 包裹形
+
 describe('MainScreen 超视口冻结提交', () => {
-  /** 十个 H3 标题块（每块一行 + 块间空行——append-only 全稳定流样本） */
-  const NUMS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
-  const headingText = (count: number): string => {
-    const heads = NUMS.slice(0, count).map((n) => `### ${n}`);
-    if (count > 10) heads.push(`### 十${NUMS[count - 11] ?? '一'}`);
-    return heads.join('\n\n') + '\n'; // 尾随换行——尾块终态判据
-  };
-  const sg = (n: string): string => `\x1b[1m${n}\x1b[0m`; // 标题行 bold 包裹形
   const docSlot = (text: string, doc: StreamingMarkdown): TranscriptBlock => ({
     kind: 'streaming',
     epoch: 1,
     text,
     doc,
+    thinking: '',
+    thinkingDoc: null,
+    thinkingSettled: false,
+    thinkingExpanded: false,
+    theme: DEFAULT_THEME,
+    toggleHint: 'ctrl+t',
   });
 
   it('稳定面前缀超视口 → 冻结升格 durable（帧一全内容恰写一次）', () => {
@@ -325,5 +344,72 @@ describe('MainScreen 超视口冻结提交', () => {
     io.bytes = '';
     screen.present([slotBlock(text)]);
     expect(io.bytes).toContain('\rb'); // 全量重写——doc 空则 freezable 恒 0
+  });
+});
+
+/* ---------------- 思考前缀冻结面（批 10i R1——stableSlotLineCount 消费） ---------------- */
+
+describe('MainScreen 思考前缀冻结', () => {
+  /** 思考槽块（标签行 + doc 行——settled 判据参数化；折叠档 thinkingDoc 不消费） */
+  const thinkSlot = (text: string, doc: StreamingMarkdown, thinking: string, settled: boolean): TranscriptBlock => ({
+    kind: 'streaming',
+    epoch: 1,
+    text,
+    doc,
+    thinking,
+    thinkingDoc: null,
+    thinkingSettled: settled,
+    thinkingExpanded: false,
+    theme: DEFAULT_THEME,
+    toggleHint: 'ctrl+t',
+  });
+
+  it('settled 思考标签行入冻结面（帧二标签零重写——思考行全稳可冻）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const doc = new StreamingMarkdown();
+    doc.update(headingText(10)); // 标签 1 行 + doc 19 行 = 20 行 > 容量 8
+    screen.present([thinkSlot(headingText(10), doc, '想法', true)]);
+    io.bytes = '';
+    doc.update(headingText(11)); // 追加第十一标题（doc 尾续推）
+    screen.present([thinkSlot(headingText(11), doc, '想法', true)]);
+    expect(io.bytes).not.toContain('✻ 思考'); // 标签行已冻——帧间不重写
+    expect(io.bytes).toContain(sg('十一')); // 新尾仍写出（尾段重写）
+  });
+
+  it('思考在场未定 → 冻结面整体为空（不稳头行不可跳——前缀连续律；标签帧帧重写）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const doc = new StreamingMarkdown();
+    doc.update(headingText(10)); // 交错形：doc 稳定溢出但末思考块在末文本块后
+    screen.present([thinkSlot(headingText(10), doc, '想法', false)]);
+    io.bytes = '';
+    screen.present([thinkSlot(headingText(10), doc, '想法在继续', false)]); // 标签字数变
+    expect(io.bytes).toContain('✻ 思考'); // 标签行重写（未冻证据——冻结面前缀连续）
+  });
+
+  it('message_end 换装：thinking 块 + markdown 块跳过已冻前缀（含标签行——不重写不重复）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const text = headingText(10);
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    screen.present([thinkSlot(text, doc, '想法', true)]); // 冻结 12 行（标签 + 一..六）
+    io.bytes = '';
+    screen.present([
+      {
+        kind: 'thinking',
+        text: '想法',
+        expanded: false,
+        theme: DEFAULT_THEME,
+        toggleHint: 'ctrl+t',
+        doc: MarkdownDoc.of('想法'),
+      },
+      { kind: 'markdown', doc: MarkdownDoc.of(text) },
+    ]);
+    expect(io.bytes).not.toContain('✻ 思考'); // 已冻标签行不重写
+    for (const n of ['七', '八', '九', '十']) {
+      expect(io.bytes.split(sg(n)).length - 1).toBe(1); // 未冻尾恰写一次
+    }
   });
 });

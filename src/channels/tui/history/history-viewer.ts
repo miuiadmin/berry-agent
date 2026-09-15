@@ -39,7 +39,7 @@ import { LiveTranscript, renderBlockStyledLines, shortIdOf } from '../backend/tr
 import type { StyledLine } from '../backend/ansi-rows.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { AgentMessage } from '../../../contracts/index.js';
-import { sessionColor } from '../theme/index.js';
+import { sessionColor, type ResolvedTheme } from '../theme/index.js';
 
 /** 回看器装配选项 */
 export interface HistoryViewerOptions {
@@ -49,6 +49,8 @@ export interface HistoryViewerOptions {
   readonly messages: readonly AgentMessage[];
   /** 行集构建折宽锚（开屏时终端列宽——渲染期 ScrollView 按实际 region 宽重折） */
   readonly columns: number;
+  /** markdown 主题（批 10i——行集构建档与主屏同板；缺席 DEFAULT_THEME 旧形） */
+  readonly theme?: ResolvedTheme;
   /** 退出回看器（q/Esc/Ctrl+D——装配接线：收副屏〔AltScreenHost close〕） */
   readonly onExit: () => void;
   /** 打断在飞 run（Ctrl+C 副屏键面补丁——与主屏同键面，装配柄透传） */
@@ -130,7 +132,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.onQuit = options.onQuit;
     this.onCopy = options.onCopy;
     // 全量档行集：投影 → LiveTranscript（Infinity 帽恒不截）→ 带样式行（管线单源）
-    const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY });
+    const transcript = new LiveTranscript({ blockCap: Number.POSITIVE_INFINITY, theme: options.theme });
     transcript.loadProjection(options.messages);
     const styled: StyledLine[] = [];
     for (const block of transcript.snapshot) {

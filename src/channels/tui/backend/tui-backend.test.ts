@@ -1511,3 +1511,78 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
     expect(tc.io.bytes).not.toContain('38;5;'); // 非聚焦会话色表未进帧（accent 直通自证）
   });
 });
+
+/* ================= 批 10i：应用动作键（思考块/工具卡会话级开关——R1/R4/R5） ================= */
+
+describe('TuiBackend 会话级开关键（批 10i ctrl+t / ctrl+o）', () => {
+  /** 带思考块的 assistant 消息（本 describe 速构） */
+  const thinkingMsg = (thinking: string, text: string): AgentMessage => ({
+    role: 'assistant',
+    content: [
+      ...(thinking !== '' ? [{ type: 'thinking' as const, thinking }] : []),
+      ...(text !== '' ? [{ type: 'text' as const, text }] : []),
+    ],
+    usage,
+    stopReason: 'stop',
+    timestamp: 1,
+  });
+
+  it('ctrl+t 翻思考块会话级展开：repaint 清屏重渲（折叠标签 → 展开体 + 收起提示）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'message_end', message: thinkingMsg('先想再答', '正文') });
+    io.bytes = '';
+    io.emitInput('\x14'); // ctrl+t
+    expect(io.bytes).toContain('\x1b[2J\x1b[H'); // repaint 全量重渲（冻结账随 repaint 重置）
+    expect(io.bytes).toContain('收起'); // 展开档标签动词
+    expect(io.bytes).toContain('先想再答'); // 思考体行在场
+    io.bytes = '';
+    io.emitInput('\x14');
+    expect(io.bytes).toContain('（ctrl+t 展开）'); // 翻回折叠档
+    expect(io.bytes).not.toContain('收起');
+  });
+
+  it('ctrl+o 翻工具卡会话级展开：折叠尾 5 预览 → 全量（帽外首行回场）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, {
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'tc1', name: 'read', arguments: {} }],
+        usage,
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    });
+    emit(backend, {
+      type: 'message_end',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'tc1',
+        toolName: 'read',
+        content: [{ type: 'text', text: Array.from({ length: 8 }, (_, i) => `行${i + 1}`).join('\n') }],
+        isError: false,
+        timestamp: 1,
+      },
+    });
+    expect(io.bytes).toContain('✓'); // 三态卡头（success——符号段与名段间有转义重置不连续）
+    expect(io.bytes).toContain('read');
+    expect(io.bytes).not.toContain('行1'); // 折叠预览尾 5 行（行4..行8）——帽外首行不在场
+    io.bytes = '';
+    io.emitInput('\x0f'); // ctrl+o
+    expect(io.bytes).toContain('\x1b[2J\x1b[H');
+    expect(io.bytes).toContain('行1'); // 全量展开——首行回场
+  });
+
+  it('层② overlay 占焦期吞 ctrl+t（模态独占——层③.5 应用键不越层）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    emit(backend, { type: 'message_end', message: thinkingMsg('想法', '文') });
+    const p = backend.confirm('确认？');
+    pump();
+    io.bytes = '';
+    io.emitInput('\x14'); // overlay 在场——模态独占
+    expect(io.bytes).not.toContain('\x1b[2J'); // 不 repaint（面板吞键——开关零扰动）
+    io.emitInput('\r'); // 面板应答——层关
+    pump();
+    await expect(p).resolves.toBe(true);
+  });
+});
