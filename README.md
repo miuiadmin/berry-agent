@@ -120,7 +120,8 @@ Writing your own: a plugin is a manifest plus one entry file — see the
   versioned, bearer-authenticated `/v1/*` JSON API; `serve --daemon` runs it in the
   background (`serve status` / `serve stop`).
 - **SDK** — a typed TypeScript client (stdio spawn or direct HTTP) lives in the
-  repository; the `berry-agent-sdk` npm package lands with the beta.
+  repository; the `berry-agent-sdk` npm package is on npm in alpha and evolves
+  with this repository.
 - **MCP** — `berry mcp` exposes the agent as an MCP server, so any MCP
   client can drive it.
 

@@ -122,7 +122,8 @@ Escribe el tuyo: un plugin es un manifiesto más un archivo de entrada — consu
   una API JSON `/v1/*` versionada y autenticada por bearer; `serve --daemon` lo
   ejecuta en segundo plano (`serve status` / `serve stop`).
 - **SDK** — un cliente TypeScript tipado (spawn stdio o HTTP directo) vive en el
-  repositorio; el paquete npm `berry-agent-sdk` llega con la beta.
+  repositorio; el paquete npm `berry-agent-sdk` ya está en npm en fase alfa y
+  evoluciona con el repositorio principal.
 - **MCP** — `berry mcp` expone el agente como servidor MCP, para que
   cualquier cliente MCP pueda conducirlo.
 

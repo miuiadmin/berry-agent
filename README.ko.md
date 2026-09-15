@@ -119,7 +119,8 @@ alpha.1에서 업그레이드한 사용자: bin 이름이 `berry`로 바뀌었�
   JSON API를 갖춘 상주 호스트를 시작합니다; `serve --daemon`으로 백그라운드
   실행 (`serve status` / `serve stop`).
 - **SDK** — 타입스크립트 클라이언트(stdio 스폰 또는 직접 HTTP)가 저장소에
-  포함되어 있습니다; `berry-agent-sdk` npm 패키지는 베타와 함께 출시됩니다.
+  포함되어 있습니다; `berry-agent-sdk` npm 패키지는 알파 단계로 npm에 등록되어
+  있으며 본 저장소와 함께 발전합니다.
 - **MCP** — `berry mcp`는 에이전트를 MCP 서버로 노출하여 모든 MCP
   클라이언트가 구동할 수 있습니다.
 

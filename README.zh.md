@@ -109,7 +109,7 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` �
 - **HTTP**——`berry serve` 起常驻宿主：Web 界面 + 版本化、Bearer 鉴权的
   `/v1/*` JSON API；`serve --daemon` 后台运行（`serve status` / `serve stop`）。
 - **SDK**——类型化 TypeScript 客户端（stdio spawn / 直连 HTTP 两传输）随仓库同源；
-  `berry-agent-sdk` npm 包随 beta 落地。
+  `berry-agent-sdk` npm 包 alpha 档已上 npm、随主仓演进。
 - **MCP**——`berry mcp` 以 MCP server 形态暴露 Agent，任意 MCP 客户端可接入。
 
 ## 架构

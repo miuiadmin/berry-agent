@@ -122,7 +122,8 @@ désactivé individuellement — `core:issue` ne se charge qu'une fois configur�
   une API JSON `/v1/*` versionnée et authentifiée par bearer ; `serve --daemon`
   le lance en arrière-plan (`serve status` / `serve stop`).
 - **SDK** — un client TypeScript typé (spawn stdio ou HTTP direct) vit dans le
-  dépôt ; le paquet npm `berry-agent-sdk` arrive avec la bêta.
+  dépôt ; le paquet npm `berry-agent-sdk` est sur npm en version alpha et suit
+  l'évolution du dépôt principal.
 - **MCP** — `berry mcp` expose l'agent comme serveur MCP, pilotable par
   n'importe quel client MCP.
 
