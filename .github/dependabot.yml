@@ -1,0 +1,28 @@
+# Dependabot 依赖巡检（周检）——npm 依赖与 GitHub Actions 引用两生态自动开更新 PR。
+# 三个巡检入口：
+#   1. npm 仓根 package.json——主包生产/开发依赖；
+#   2. npm packages/berry-agent-sdk——SDK 子包独立 manifest（发布物运行时依赖）；
+#   3. github-actions .github/workflows/——工作流中 action 引用的钉定版本抬升。
+# 更新 PR 恒以 dev 为目标分支（main 为稳定发布线只随发布快进——分支模型见
+# CONTRIBUTING.md），与人工 PR 同过四门禁、同走 squash 合并面。
+version: 2
+updates:
+  # npm 生态——仓根 manifest
+  - package-ecosystem: npm
+    directory: /
+    # 开 PR 恒打 dev：main 只允许 dev 快进，依赖更新不合流直接进 main
+    target-branch: dev
+    schedule:
+      interval: weekly
+  # npm 生态——SDK 子包（独立发布物，运行时依赖需独立巡检）
+  - package-ecosystem: npm
+    directory: /packages/berry-agent-sdk
+    target-branch: dev
+    schedule:
+      interval: weekly
+  # GitHub Actions 生态——工作流 action 引用版本抬升
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
