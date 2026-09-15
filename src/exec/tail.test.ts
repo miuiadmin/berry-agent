@@ -103,11 +103,27 @@ describe('OutputTail 输出保尾', () => {
     const tail = new OutputTail(3);
     tail.append('stdout', b('12345678'));
     tail.append('stderr', b('XY'));
-    // 8 字节入账即单块劈尾（→'678'）；XY 入账后合计 5>3 弃最旧整块 → 仅剩 XY
+    // 跨块连续劈头（保尾不变式）：实收 10 字节保最后 3 = '8XY'——'8' 是首块
+    // 劈头后的残尾、'XY' 是末块（修前整块弃最旧会吞掉 '8'——块边界吞尾部现场）
     const out = tail.finish();
-    expect(out.stdout).toBe('');
+    expect(out.stdout).toBe('8');
     expect(out.stderr).toBe('XY');
     expect(out.truncated).toBe(true);
     expect(out.bytes).toBe(10);
+  });
+
+  it('跨块保尾——尾部现场不被块边界吞（修前红：macos CI flake 单元级真身）', () => {
+    // 复现形：末块小（子进程输出分块的 data 边界任意）+ 超帽量小——修前「整块
+    // 弃最旧」把含尾部数据的倒数第二块整块丢弃，尾部最多丢一个 data 块（可达
+    // 64KiB——04 §11「保后半」语义失守；CI run 34962693484 macos 腿实录）
+    const tail = new OutputTail(10);
+    tail.append('stdout', b('AAAAAAAAAA')); // 10 恰满
+    tail.append('stdout', b('BBBBBBBBBB')); // 20 超 10 → 弃旧块
+    tail.append('stdout', b('CC')); // 12 超 10 → 修前弃 B 整块仅剩 'CC'（尾部 8B 被吞）
+    const out = tail.finish();
+    // 保尾不变式：实收 22 字节保最后 10 = 'BBBBBBBBCC'（B 块劈头 2 字节）
+    expect(out.stdout).toBe('BBBBBBBBCC');
+    expect(out.bytes).toBe(22);
+    expect(out.truncated).toBe(true);
   });
 });

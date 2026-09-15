@@ -114,12 +114,15 @@ const MAIN_PACK_MUST = [
 ];
 
 /**
- * SDK 包白名单：恰收 package.json / README 单件（无语言族）/ 入口树 +
- * 同编译自包含跟进树（批 13f「类型面自仓单源同编译」——SDK src import 主仓
- * 契约/通道码，tsc 跟进编译入包，import 图可达才入树）。
- * 必在件 = 入口 index 双档 + client/http/stdio/types 四模块 .js + README。
+ * SDK 包白名单：恰收 package.json / README 单件（无语言族）/ LICENSE /
+ * 入口树 + 同编译自包含跟进树（批 13f「类型面自仓单源同编译」——SDK src
+ * import 主仓契约/通道码，tsc 跟进编译入包，import 图可达才入树）。
+ * 必在件 = 入口 index 双档 + client/http/stdio/types 四模块 .js + README +
+ * LICENSE（npm always-included 族在场必在——2026-09-15 白名单同步批：
+ * 12aa56d 落 LICENSE 后 npm pack 恒自动收，白名单未随批更新即 CI drill 红
+ * 〔run 34962693484〕——循主包「在场必在」律同形收口）。
  */
-const SDK_PACK_ALLOWED = /^(package\.json|README\.md|dist\/(packages\/berry-agent-sdk\/src|src)\/.+)$/;
+const SDK_PACK_ALLOWED = /^(package\.json|README\.md|LICENSE|dist\/(packages\/berry-agent-sdk\/src|src)\/.+)$/;
 /** SDK 三禁：test 件照禁；.js.map 放行（类型化客户端调试栈帧是产品面——07 §8.3 差分①） */
 const SDK_PACK_BANNED = /\.(test|spec)\.(js|ts|tsx)$|\.test\.d\.ts$/;
 /** SDK 必在件（入口面缺件即红） */
@@ -131,6 +134,7 @@ const SDK_PACK_MUST = [
   'dist/packages/berry-agent-sdk/src/stdio.js',
   'dist/packages/berry-agent-sdk/src/types.js',
   'README.md',
+  'LICENSE',
 ];
 
 /**

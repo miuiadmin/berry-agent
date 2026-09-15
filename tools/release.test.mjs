@@ -50,6 +50,9 @@ const PACK_BASELINES = {
   sdk: [
     'package.json',
     'README.md',
+    // npm always-included 族（12aa56d 落 LICENSE 后 npm pack 恒自动收——
+    // 2026-09-15 白名单同步批入册，CI run 34962693484 drill 红修）
+    'LICENSE',
     'dist/packages/berry-agent-sdk/src/index.js',
     'dist/packages/berry-agent-sdk/src/index.d.ts',
     'dist/packages/berry-agent-sdk/src/client.js',
@@ -567,15 +570,23 @@ describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
     expect(judgePackList(['dist/x.js.map'], PACKAGES.main).forbidden).toEqual(['dist/x.js.map']);
   });
 
-  it('SDK 必在件缺 → 红（入口面缺件即拒）；SDK 白名单外件（语言族 README/LICENSE）照拒', () => {
+  it('SDK 必在件缺 → 红（入口面缺件即拒，LICENSE 缺亦红——在场必在律）；白名单外件（语言族 README）照拒', () => {
     const missing = judgePackList(
       PACK_BASELINES.sdk.filter((f) => f !== 'dist/packages/berry-agent-sdk/src/index.d.ts'),
       PACKAGES.sdk,
     );
     expect(missing.ok).toBe(false);
     expect(missing.missing).toContain('dist/packages/berry-agent-sdk/src/index.d.ts');
-    const v = judgePackList([...PACK_BASELINES.sdk, 'README.zh.md', 'LICENSE'], PACKAGES.sdk);
-    expect(v.forbidden).toEqual(['README.zh.md', 'LICENSE']); // SDK 无语言族无 LICENSE 文本件（差分① v1 定案）
+    // LICENSE 在场必在（2026-09-15 白名单同步批——缺件即红）
+    const noLicense = judgePackList(
+      PACK_BASELINES.sdk.filter((f) => f !== 'LICENSE'),
+      PACKAGES.sdk,
+    );
+    expect(noLicense.ok).toBe(false);
+    expect(noLicense.missing).toContain('LICENSE');
+    // 语言族 README 照拒（SDK 无语言族——差分① v1 定案；LICENSE 已入白名单非禁件）
+    const v = judgePackList([...PACK_BASELINES.sdk, 'README.zh.md'], PACKAGES.sdk);
+    expect(v.forbidden).toEqual(['README.zh.md']);
   });
 
   it('judgeTarballTrees SDK 空剥离集：map 差异 = 实质差异拒（无溯源件可剥）', () => {

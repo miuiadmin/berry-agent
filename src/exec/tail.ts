@@ -1,9 +1,10 @@
 /**
  * 输出保尾器（04 §11：stdout/stderr 合计截尾保后半 60KiB）。
  *
- * 合计帽语义：两流按到达序共享同一字节预算——超预算时弃头部保尾部（尾部
- * 才有失败现场：栈迹/错误摘要在尾）。实现 = 到达序分块账本（每块记来源流
- * 与字节），超帽先整块弃最旧，仅剩单块仍超帽时劈尾保后半。
+ * 合计帽语义：两流按到达序共享同一字节预算——超预算时从最旧侧连续劈头保
+ * 尾部（尾部才有失败现场：栈迹/错误摘要在尾）。实现 = 到达序分块账本（每块
+ * 记来源流与字节），超帽量从最旧块头部起跨块连续扣除——finish 输出恒为实收
+ * 字节流的最后 ≤cap 字节（保尾不变式不受 data 分块边界影响）。
  *
  * 解码纪律：UTF-8 增量宽容解码（decoder.decode(part, {stream:true})——分块
  * 边界不劈多字节字符；fatal:false 替换符）。与 fs 读的 strict 拒收分立：
@@ -35,20 +36,28 @@ export class OutputTail {
     }
     this.chunks.push({ stream, bytes });
     this.totalBytes += bytes.byteLength;
-    // 整块弃最旧（块级粒度：read() 边界的块不必劈——留最后一块保证有现场）
-    while (this.chunks.length > 1 && this.totalBytes > this.cap) {
-      const oldest = this.chunks.shift();
-      if (oldest === undefined) break;
-      this.totalBytes -= oldest.bytes.byteLength;
-      this.droppedBytes += oldest.bytes.byteLength;
-    }
-    // 仅剩单块仍超帽：劈尾保后半（单块 100KiB 帽 60KiB 形）
-    const only = this.chunks[0];
-    if (only !== undefined && this.totalBytes > this.cap) {
-      const drop = this.totalBytes - this.cap;
-      this.chunks[0] = { stream: only.stream, bytes: only.bytes.subarray(drop) };
-      this.totalBytes = this.cap;
-      this.droppedBytes += drop;
+    // 超帽量从最旧块头部起跨块连续扣除——finish 输出恒为实收流的最后 ≤cap 字节。
+    // （2026-09-15 保尾不变式修：原「整块弃最旧」在末块小时会把含尾部数据的
+    // 倒数第二块整块丢弃——尾部最多丢一个 data 块〔可达 64KiB〕，04 §11「保
+    // 后半」语义被 data 分块边界破坏〔CI run 34962693484 macos 腿实录〕）
+    const excess = this.totalBytes - this.cap;
+    if (excess > 0) {
+      let remaining = excess;
+      while (remaining > 0 && this.chunks.length > 0) {
+        const oldest = this.chunks[0];
+        if (oldest === undefined) break;
+        if (oldest.bytes.byteLength <= remaining) {
+          this.chunks.shift();
+          this.totalBytes -= oldest.bytes.byteLength;
+          this.droppedBytes += oldest.bytes.byteLength;
+          remaining -= oldest.bytes.byteLength;
+        } else {
+          this.chunks[0] = { stream: oldest.stream, bytes: oldest.bytes.subarray(remaining) };
+          this.totalBytes -= remaining;
+          this.droppedBytes += remaining;
+          remaining = 0;
+        }
+      }
     }
   }
 

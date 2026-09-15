@@ -286,6 +286,9 @@ describe('createSpawnPipeline spawn 管道', () => {
     // 保尾：尾部行号在场、头部行号缺席
     expect(result.stdout).toContain('000199');
     expect(result.stdout.startsWith('000000')).toBe(false);
+    // 末行后缀锁（保尾不变式——04 §11「保后半」= 恰保最后 cap 字节，跨 data
+    // 块边界连续）：末行完整在场与分块时序解耦（修前整块弃最旧可吞末行前段）
+    expect(result.stdout.endsWith('000199' + '.' + 'x'.repeat(1018) + '\n')).toBe(true);
   });
 });
 
