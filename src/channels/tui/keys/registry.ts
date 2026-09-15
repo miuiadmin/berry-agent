@@ -133,6 +133,17 @@ export interface KeyInput {
 }
 
 /**
+ * 动作投影（R5 批 10k /help 键位册数据源）：册条目 + 解析后当前键集
+ * （用户覆盖生效形——拒载已回退缺省，投影只呈生效态）。
+ */
+export interface ActionView {
+  readonly id: string;
+  readonly scope: ActionScope;
+  readonly label: string;
+  readonly keys: readonly string[];
+}
+
+/**
  * 键事件 → 规范键串（'ctrl+t' / 'alt+ctrl+]' / 'shift+enter' 形——修饰键序
  * 恒 ctrl+alt+shift+）。meta 修饰返回 null 不入门（macOS cmd 家族留终端与
  * 系统——不与终端快捷键争键）。
@@ -280,5 +291,18 @@ export class Keymap {
   /** 动作当前首键名（显示面单源——覆盖后随动；未知动作返空串） */
   keyText(actionId: string): string {
     return this.keysByAction.get(actionId)?.[0] ?? '';
+  }
+
+  /**
+   * 动作册投影（R5 批 10k——/help 键位册数据源）：id/域/中文标签/解析后
+   * 键集（拒载回退后的生效形）。册序恒定（ACTION_CATALOG 声明序）。
+   */
+  get actions(): readonly ActionView[] {
+    return ACTION_CATALOG.map((def) => ({
+      id: def.id,
+      scope: def.scope,
+      label: def.label,
+      keys: this.keysByAction.get(def.id) ?? def.keys,
+    }));
   }
 }

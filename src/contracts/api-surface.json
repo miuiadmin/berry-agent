@@ -778,7 +778,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "e78468f04fa989fc"
+      "sig": "ffcc0988408301b8"
     },
     {
       "symbol": "UiCapabilities",
@@ -806,6 +806,24 @@
       "desc": "select 单选项（07 §4.3 签名定稿形）",
       "kind": "interface",
       "sig": "b0b22829e52dcdd2"
+    },
+    {
+      "symbol": "UiSessionSummary",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话清单条目（R7 批 10k `/sessions` 副屏切换器载荷——通道核拉取注入数据源的产物形；装配从 SessionRow 映射）",
+      "kind": "interface",
+      "sig": "ba9e5c57d05e39c7"
+    },
+    {
+      "symbol": "UiUsageSummary",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "会话用量汇总（R7 批 10k `/usage` 副屏面板载荷）：会话全 run 累计（token 四分表 + 合计 + 货币），与件 6 run 级清账态分职不互替",
+      "kind": "interface",
+      "sig": "7d118ec1d788a1f4"
     },
     {
       "symbol": "Usage",

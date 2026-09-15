@@ -46,6 +46,10 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
   const historyOpens: { sessionId: string; messages: readonly unknown[] }[] = [];
   const memoryOpens: number[] = [];
   let memoryOpenReturn = false;
+  const sessionsOpens: { sessions: readonly unknown[]; onSelect: (sessionId: string) => void }[] = [];
+  let sessionsOpenReturn = false;
+  const usageOpens: { sessionId: string; summary: unknown }[] = [];
+  let usageOpenReturn = false;
   let audience = true;
 
   function deferredPush<T>(asks: AskHandle<T>[], message: string, signal: AbortSignal | undefined): Promise<T> {
@@ -79,6 +83,14 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
             memoryOpens.push(memoryOpens.length);
             return memoryOpenReturn;
           },
+          openSessions: (sessions: readonly never[], onSelect: (sessionId: string) => void) => {
+            sessionsOpens.push({ sessions, onSelect });
+            return sessionsOpenReturn;
+          },
+          openUsage: (sessionId: string, summary: never) => {
+            usageOpens.push({ sessionId, summary });
+            return usageOpenReturn;
+          },
         }
       : {}),
   };
@@ -92,6 +104,13 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     setMemoryOpen(v: boolean) {
       memoryOpenReturn = v;
     },
+    /** openSessions/openUsage 返值编程（缺省 false） */
+    setSessionsOpen(v: boolean) {
+      sessionsOpenReturn = v;
+    },
+    setUsageOpen(v: boolean) {
+      usageOpenReturn = v;
+    },
     notified,
     confirmAsks,
     selectAsks,
@@ -104,6 +123,8 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
     collapses,
     historyOpens,
     memoryOpens,
+    sessionsOpens,
+    usageOpens,
   };
 }
 
@@ -564,6 +585,124 @@ describe('/memory 命令面（06 §7 形态定形注①——在场即注册、�
     expect(await s.dispatchCommand('/memory')).toBe(false);
     expect(b.memoryOpens).toEqual([]);
     expect(b.notified).toEqual([]);
+  });
+});
+
+describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册；选定走 registry.focus 权威路）', () => {
+  const list = [
+    { id: 's2', title: '乙', updatedAt: 1, active: false },
+    { id: 's1', updatedAt: 2, active: true },
+  ];
+
+  it('sessions 注入在场：注册 + 分发拉清单扇出 openSessions（返 true 零 notify）', async () => {
+    const s = createChannels({ sessions: async () => list });
+    const b1 = fakeBackend('tui', {}, true);
+    b1.setSessionsOpen(true);
+    const b2 = fakeBackend('web'); // 无副屏钩——缺席零义务
+    s.addBackend(b1.backend);
+    s.addBackend(b2.backend);
+    expect(s.listCommands().map((c) => c.name)).toContain('sessions'); // 在场即注册
+    expect(await s.dispatchCommand('/sessions')).toBe(true);
+    expect(b1.sessionsOpens).toHaveLength(1);
+    expect(b1.sessionsOpens[0]!.sessions).toEqual(list); // 清单原样透传
+    expect(b1.notified).toEqual([]); // 已开不降级
+  });
+
+  it('选定回调 = registry.focus 权威路（未注册会话视同注册——焦点即活跃声明）', async () => {
+    const s = createChannels({ sessions: async () => list });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    s.registerSession('s1');
+    await s.focus('s1');
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('s2'); // 选定未注册会话 s2
+    expect(s.focusedId).toBe('s2'); // 焦点同步置位（focus 前半同步）
+  });
+
+  it('全体 falsy：notify warn 降级提示（不静默假装已开）', async () => {
+    const s = createChannels({ sessions: async () => list });
+    const b = fakeBackend('web'); // 无钩后端
+    s.addBackend(b.backend);
+    expect(await s.dispatchCommand('/sessions')).toBe(true);
+    expect(b.notified).toEqual([{ message: '当前通道不支持会话切换器', level: 'warn' }]);
+  });
+
+  it('sessions 注入缺席：不注册不虚报（/sessions 不在命令面，分发返 false）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(s.listCommands().map((c) => c.name)).not.toContain('sessions');
+    expect(await s.dispatchCommand('/sessions')).toBe(false);
+    expect(b.sessionsOpens).toEqual([]);
+  });
+});
+
+describe('/usage 命令面（07 §4.1 R7 批 10k——聚焦会话为真源；焦点空悬静默）', () => {
+  const summary = {
+    turns: 2,
+    input: 10,
+    output: 5,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 15,
+    cost: 0,
+    currency: null,
+  };
+
+  it('usage 注入在场：注册 + 分发拉聚焦会话汇总扇出 openUsage（返 true 零 notify）', async () => {
+    const fetched: string[] = [];
+    const s = createChannels({
+      usage: async (sessionId) => {
+        fetched.push(sessionId);
+        return summary;
+      },
+    });
+    const b1 = fakeBackend('tui', {}, true);
+    b1.setUsageOpen(true);
+    const b2 = fakeBackend('web');
+    s.addBackend(b1.backend);
+    s.addBackend(b2.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    expect(s.listCommands().map((c) => c.name)).toContain('usage');
+    expect(await s.dispatchCommand('/usage')).toBe(true);
+    expect(fetched).toEqual(['a']); // 聚焦会话为真源
+    expect(b1.usageOpens).toEqual([{ sessionId: 'a', summary }]); // 汇总透传
+    expect(b1.notified).toEqual([]);
+  });
+
+  it('焦点空悬：分发即返静默（无汇总对象不拉取不虚报不报错）', async () => {
+    const fetched: string[] = [];
+    const s = createChannels({
+      usage: async (sessionId) => {
+        fetched.push(sessionId);
+        return summary;
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(await s.dispatchCommand('/usage')).toBe(true); // 命令在场被消费
+    expect(fetched).toEqual([]); // 零拉取
+    expect(b.usageOpens).toEqual([]); // 零扇出
+    expect(b.notified).toEqual([]); // 静默——非降级提示面
+  });
+
+  it('全体 falsy：notify warn 降级提示', async () => {
+    const s = createChannels({ usage: async () => summary });
+    const b = fakeBackend('web');
+    s.addBackend(b.backend);
+    s.registerSession('a');
+    await s.focus('a');
+    await s.dispatchCommand('/usage');
+    expect(b.notified).toEqual([{ message: '当前通道不支持用量面板', level: 'warn' }]);
+  });
+
+  it('usage 注入缺席：不注册不虚报', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(s.listCommands().map((c) => c.name)).not.toContain('usage');
+    expect(await s.dispatchCommand('/usage')).toBe(false);
   });
 });
 

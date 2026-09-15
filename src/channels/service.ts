@@ -149,6 +149,53 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     );
   }
 
+  // /sessions 注册面（07 §4.1 R7 批 10k——sessions 注入在场即注册、缺席不
+  // 注册不虚报；注册面律同 /history）：真源 = 拉会话清单 → 扇出后端
+  // openSessions（返 boolean——任一 true 即成功）；选定回调核内铸 =
+  // registry.focus() 既有权威路（未注册会话 focus 视同注册——焦点即活跃
+  // 声明）；全体 falsy 时 notify 降级提示（不静默）
+  if (opts.sessions !== undefined) {
+    const fetchSessions = opts.sessions;
+    commands.register(
+      'sessions',
+      async () => {
+        const sessions = await fetchSessions();
+        let opened = false;
+        for (const b of allBackends()) {
+          if (b.openSessions?.(sessions, (sessionId) => void registry.focus(sessionId)) === true) opened = true;
+        }
+        if (!opened) {
+          uiCore.notify('当前通道不支持会话切换器', { level: 'warn' });
+        }
+      },
+      '会话切换器（副屏清单——选定切焦）',
+    );
+  }
+
+  // /usage 注册面（07 §4.1 R7 批 10k——usage 注入在场即注册；数据源 = 件 6
+  // 同数据源但独立聚合——会话全 run 累计，非复用清账态）：真源 = 聚焦会话 →
+  // 拉汇总 → 扇出后端 openUsage；焦点空悬静默返回（无汇总对象不虚报）；
+  // 全体 falsy 时 notify 降级提示
+  if (opts.usage !== undefined) {
+    const fetchUsage = opts.usage;
+    commands.register(
+      'usage',
+      async () => {
+        const sessionId = registry.focusedId;
+        if (sessionId === null) return; // 焦点空悬——无汇总对象（静默返回不虚报）
+        const summary = await fetchUsage(sessionId);
+        let opened = false;
+        for (const b of allBackends()) {
+          if (b.openUsage?.(sessionId, summary) === true) opened = true;
+        }
+        if (!opened) {
+          uiCore.notify('当前通道不支持用量面板', { level: 'warn' });
+        }
+      },
+      '会话用量面板（全 run 累计分表）',
+    );
+  }
+
   return {
     commands,
     addBackend(backend) {

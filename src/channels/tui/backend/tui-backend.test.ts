@@ -25,7 +25,7 @@ import { AUTOCOMPLETE_DEBOUNCE_MS } from '../autocomplete/async.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import type { AgentEvent } from '../../../agent/index.js';
-import type { AgentMessage } from '../../../contracts/index.js';
+import type { AgentMessage, UiSessionSummary, UiUsageSummary } from '../../../contracts/index.js';
 
 const COLS = 80;
 const ROWS = 10;
@@ -1590,5 +1590,163 @@ describe('TuiBackend 会话级开关键（批 10i ctrl+t / ctrl+o）', () => {
     io.emitInput('\r'); // 面板应答——层关
     pump();
     await expect(p).resolves.toBe(true);
+  });
+});
+
+/* ================= 批 10k 交互面（键位覆盖 / 三副屏装配 / footer 分栏） ================= */
+
+describe('TuiBackend 键位覆盖面（R5 批 10k——keybindings 注入 + 拒载观测）', () => {
+  it('注入：好条目生效不受连坐 + 坏条目经 keybindingRejections 透出（装配位呈报）', () => {
+    const { backend } = makeBackend({
+      keybindings: { 'thinking.toggle': 'ctrl+g', 'no.such-action': 'ctrl+z' },
+    });
+    expect(backend.keybindingRejections).toHaveLength(1); // 只拒坏条目
+    expect(backend.keybindingRejections[0]).toMatchObject({
+      kind: 'unknown-action',
+      actionId: 'no.such-action',
+    });
+  });
+
+  it('注入缺席 = 零拒载（缺省册恒净）', () => {
+    const { backend } = makeBackend();
+    expect(backend.keybindingRejections).toEqual([]);
+  });
+});
+
+describe('TuiBackend /sessions · /usage · /help 副屏装配（R7 批 10k）', () => {
+  const SESSIONS: readonly UiSessionSummary[] = [
+    { id: 'sess-cccccccccc', title: '调 TUI', updatedAt: new Date(2026, 8, 15, 10, 30).getTime(), active: false },
+    { id: 'sess-dddddddddd', title: '旧会话', updatedAt: new Date(2026, 8, 14, 9, 5).getTime(), active: true },
+  ];
+  const SUMMARY: UiUsageSummary = {
+    turns: 2,
+    input: 12345,
+    output: 6789,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 19134,
+    cost: 0.5,
+    currency: 'USD',
+  };
+
+  /** 同步直出档装配（historyRig 同形） */
+  function rig(options: Partial<TuiBackendOptions> = {}) {
+    const calls: RigCalls = { submitted: [], interrupted: [], quit: 0, dispatched: [] };
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      onInterrupt: (sessionId) => calls.interrupted.push(sessionId),
+      onQuit: () => {
+        calls.quit += 1;
+      },
+      ...options,
+    });
+    io.reset(); // start 编舞字节不计入
+    return { io, backend, calls };
+  }
+
+  it('openSessions 编舞：主屏出屏 → 副屏进 → 切换器首帧清单在场', () => {
+    const { io, backend } = rig();
+    expect(backend.openSessions(SESSIONS, () => {})).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE); // 进序：主屏挂起出屏串在前
+    expect(io.frames[1]).toBe(ALT_ENTER); // 副屏 Engine 进屏
+    expect(io.bytes).toContain('⇄ 会话切换 · 2 会话'); // 头行
+    expect(io.bytes).toContain('调 TUI'); // 清单行（标题）
+    expect(io.bytes).toContain('●'); // 活跃位（sess-dd 活跃行）
+  });
+
+  it('openSessions 选定：enter 先收副屏再透传 onSelect（切焦回调核闭包）', () => {
+    const { io, backend } = rig();
+    const selected: string[] = [];
+    backend.openSessions(SESSIONS, (id) => selected.push(id));
+    io.reset();
+    io.emitInput('\r'); // enter——首行默认光标
+    expect(selected).toEqual(['sess-cccccccccc']); // 选定回调透传
+    expect(io.frames[0]).toBe(ALT_LEAVE); // 先收副屏
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    expect(backend.lifecycle).toBe('running');
+  });
+
+  it('openSessions 副屏内 Ctrl+C：打断目标 = 当前交互会话位（不退副屏）', () => {
+    const { io, backend, calls } = rig();
+    backend.openSessions(SESSIONS, () => {});
+    io.reset();
+    io.emitInput('\x03');
+    expect(calls.interrupted).toEqual([SESSION]); // 装配闭包锚交互会话（切焦前语义）
+    expect(backend.lifecycle).toBe('suspended');
+  });
+
+  it('openUsage 编舞：用量面板首帧（短 id 头行 + 分表千位分组 + 费用）', () => {
+    const { io, backend } = rig();
+    expect(backend.openUsage('sess-dddddddddd', SUMMARY)).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.bytes).toContain('⧗ 会话用量 · sess-ddd'); // 头行（参数会话非交互位；短 id 8 字符）
+    expect(io.bytes).toContain('12,345'); // 输入分表千位分组
+    expect(io.bytes).toContain('0.5000 USD'); // 费用行
+  });
+
+  it('openHelp 编舞：命令册 + 键位册双源首帧', () => {
+    const { io, backend } = rig();
+    expect(backend.openHelp([{ name: 'exit', description: '退出 TUI' }])).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.bytes).toContain('❓ 命令与键位帮助 · 会话 sess-aaa'); // 头行锚交互会话短 id
+    expect(io.bytes).toContain('── 命令 ──'); // 命令册段
+    expect(io.bytes).toContain('/exit'); // 注入命令条目
+    expect(io.bytes).toContain('── 键位 ──'); // 键位册段（keymap 投影）
+    expect(io.bytes).toContain('ctrl+c'); // 键位条目样点（全局域首条）
+  });
+
+  it('三面互斥：openHistory 在场三面全 false；收副屏后可开（单值备屏律）', () => {
+    const { io, backend } = rig();
+    backend.openHistory(SESSION, [{ role: 'user', content: '回看正文', timestamp: 1 }]);
+    io.reset();
+    expect(backend.openSessions(SESSIONS, () => {})).toBe(false);
+    expect(backend.openUsage(SESSION, SUMMARY)).toBe(false);
+    expect(backend.openHelp([])).toBe(false);
+    expect(io.bytes).toBe(''); // 拒开零写出
+    backend.collapseAltScreen();
+    expect(backend.openHelp([])).toBe(true); // 收后可开
+  });
+
+  it('onRepaint 切焦跟随：openHelp 头行短 id 随新聚焦会话（焦点权威信号）', () => {
+    const { io, backend } = rig();
+    backend.onRepaint('sess-bbbbbbbbbbbb', [], null); // 切焦 repaint——sessionId 跟随
+    io.reset();
+    backend.openHelp([]);
+    expect(io.bytes).toContain('❓ 命令与键位帮助 · 会话 sess-bbb'); // 新会话短 id
+  });
+});
+
+describe('TuiBackend footer 分栏（R6 批 10k——注入门控 + 切焦联动）', () => {
+  it('footer 注入：常驻段首画在场（cwd 短名 · 模型名 · 会话短 id）', () => {
+    const { io } = makeBackend({
+      sessionId: SESSION,
+      footer: { cwdLabel: 'berry-agent', modelLabel: 'glm-4.7' },
+    });
+    expect(io.bytes).toContain('berry-agent · glm-4.7 · sess-aaa'); // 状态行常驻段
+  });
+
+  it('切焦联动：onRepaint 后短 id 段随新会话（footer 与焦点同源）', () => {
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      footer: { cwdLabel: 'berry-agent', modelLabel: 'glm-4.7' },
+    });
+    backend.start();
+    io.reset();
+    backend.onRepaint('sess-bbbbbbbbbbbb', [], null);
+    expect(io.bytes).toContain('berry-agent · glm-4.7 · sess-bbb'); // 短 id 段已迁
+  });
+
+  it('注入缺席：状态行无常驻段（门控零扰动——旧形锚）', () => {
+    const { io } = makeBackend({ sessionId: SESSION });
+    expect(io.bytes).not.toContain('sess-aaa'); // 无 footer——短 id 段不落状态行（title 基线不含会话位）
+  });
+
+  it('缺席段缩位不虚报：cwd 注入 model 缺席 = 两段形', () => {
+    const { io } = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'berry-agent' } });
+    expect(io.bytes).toContain('berry-agent · sess-aaa');
   });
 });

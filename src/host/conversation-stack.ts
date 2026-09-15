@@ -59,6 +59,7 @@ import {
   CONTROL_CROSS_CAPABILITY,
   DEFAULT_RETRY_POLICY,
   ensureTodoRole,
+  foldSessionUsage,
   provideAgentService,
   reseedTimeline,
   SessionManager,
@@ -506,6 +507,28 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // /memory 注册位（06 §7——mm 批）：库座在位即注册（persistence 在场 ⇒
     // memory 件将装载；件缺席形由命令 handler 的 notify 降级提示诚实兜底）
     memory: true,
+    // /sessions 清单注入（07 §4.1 R7 批 10k）：manager 全量行 + 活跃位投影
+    // （最新在前——切换器装配序；listActive 空集时全 inactive 如实呈现）
+    sessions: () => {
+      const active = new Set(manager.listActive().map((entry) => entry.sessionId));
+      return Promise.resolve(
+        [...manager.list({})]
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .map((row) => ({
+            id: row.id,
+            title: row.title,
+            workspaceRoot: row.workspaceRoot,
+            updatedAt: row.updatedAt,
+            active: active.has(row.id),
+          })),
+      );
+    },
+    // /usage 数据源注入（R7——同 projectionOf 双事实源纪律：驱动活体优先，
+    // 未开回库装载；fold 口径 = 全 run 累计含被遮蔽 retry）
+    usage: (sessionId) => {
+      const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
+      return Promise.resolve(foldSessionUsage(log.events()));
+    },
   });
 
   // ④½ 会话维视图（e-2 观测腿——SessionView 纯派生读面）：数据三窄面全结构

@@ -58,6 +58,8 @@ import type {
   UiBackend,
   UiInputOptions,
   UiSelectChoice,
+  UiSessionSummary,
+  UiUsageSummary,
 } from '../../types.js';
 import { CellGrid, InputDecoder, ProcessTerminalIO, type TerminalIO } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
@@ -80,11 +82,14 @@ import {
   type ThemeSetting,
 } from '../theme/index.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
-import { Keymap } from '../keys/registry.js';
+import { Keymap, type KeybindingRejection } from '../keys/registry.js';
 import { Editor } from '../editor/editor.js';
 import { OverlayStack, type OverlayAnchor, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer } from '../history/history-viewer.js';
+import { SessionPicker } from '../history/session-picker.js';
+import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
+import { UsageViewer } from '../panels/usage-viewer.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import { ConfirmPanel, SelectPanel } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
@@ -129,6 +134,19 @@ export interface TuiBackendOptions {
   readonly theme?: ThemeSetting;
   /** 色域探测 env 投影（COLORTERM/TERM——批 10g 三档降采判据；缺省 {} = 16 色档） */
   readonly colorEnv?: ColorEnv;
+  /**
+   * 键位用户覆盖（R5 批 10k——settings.json `keybindings` 键透传）：形 = 动作
+   * id → 键串；四形拒载经 Keymap fail-loud（unknown-action / not-overridable
+   * / malformed-binding / conflict——拒载弃该键回退缺省），rejections 经
+   * keybindingRejections 观测面呈报（装配位 notify warn 点名）。
+   */
+  readonly keybindings?: Readonly<Record<string, string>>;
+  /**
+   * footer 常驻段标签（R6 批 10k）：cwd 短名 / 模型名——缺席段缩位不虚报
+   * （拼段执法）；会话短 id 段本件自持随切焦联动。注入缺席 = 无 footer
+   * （状态行旧形零扰动——确定性测试基线）。
+   */
+  readonly footer?: { readonly cwdLabel?: string; readonly modelLabel?: string };
 }
 
 /** 主屏形进屏模式串：粘贴开 + kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
@@ -321,8 +339,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly colorDepth: ColorDepth;
   /** 当前主题（构造期解析 auto 先 dark；probe 回执换装走整体换引用） */
   private theme: ResolvedTheme;
-  /** 键位注册表（批 10i R5——动作册消费位；缺省册，用户覆盖接线归 10k） */
+  /**
+   * 键位注册表（批 10i R5 基座 + 10k 用户覆盖接线）：Keymap 构造受理覆盖 +
+   * 四形拒载（rejections 观测面呈报——拒载键不生效但点名可见）；
+   * keyText 单源下装 transcript（思考标签提示等显示面随册取键名）
+   */
   private readonly keymap: Keymap;
+  /** footer 常驻段标签（R6 批 10k——cwd 短名/模型名；会话短 id 段随切焦联动） */
+  private readonly footerCwd: string | undefined;
+  private readonly footerModel: string | undefined;
 
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
@@ -356,9 +381,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.themeSetting = options.theme ?? 'dark';
     this.colorDepth = detectColorDepth(options.colorEnv ?? {});
     this.theme = resolveTheme(builtinPalette(this.themeSetting === 'light' ? 'light' : 'dark'), this.colorDepth);
-    // 键位注册表（批 10i R5 基座）：缺省册——用户覆盖装配接线归 10k；
-    // keyText 单源下装 transcript（思考标签提示等显示面随册取键名）
-    this.keymap = new Keymap();
+    // 键位注册表（批 10i R5 基座 + 10k 用户覆盖）：settings keybindings 键
+    // 透传——四形拒载 fail-loud（拒载弃该键回退缺省，rejections 观测面呈报）
+    this.keymap = new Keymap(options.keybindings);
+    // footer 常驻段标签（R6 批 10k）：空串同缺席缩位（不虚报空段）
+    this.footerCwd =
+      options.footer?.cwdLabel !== undefined && options.footer.cwdLabel !== '' ? options.footer.cwdLabel : undefined;
+    this.footerModel =
+      options.footer?.modelLabel !== undefined && options.footer.modelLabel !== ''
+        ? options.footer.modelLabel
+        : undefined;
+    // footer 门控（R6 批 10k）：footer 选项注入在场才开常驻段（短 id 段恒在——
+    // 缺席段缩位不虚报指两标签）；注入缺席 = 无 footer 状态行旧形（确定性测试
+    // 基线零扰动）
+    if (options.footer !== undefined) this.refreshFooter();
     // 直播行集（批 10h/10i）：主题随构造定着——流式 markdown 直推档与定稿块同源
     this.transcript = new LiveTranscript({ theme: this.theme, keyText: (id) => this.keymap.keyText(id) });
     this.editor = new Editor({
@@ -600,6 +636,81 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 开副屏会话切换器（UiBackend 可选能力面实装——R7 批 10k /sessions）：清单
+   * 载荷经通道核流转（openHistory 同律）；选定回调核闭包透传（registry.focus
+   * 既有权威路——本件呈现不触焦点态）。已在副屏 / 主屏不在 running 返 false
+   * （核侧 notify 降级）。打断柄锚当前交互会话位（切焦前语义）。
+   */
+  openSessions(sessions: readonly UiSessionSummary[], onSelect: (sessionId: string) => void): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new SessionPicker({
+        sessions,
+        onSelect,
+        onExit: () => this.closeAlt(),
+        onInterrupt: () => this.onInterrupt?.(this.sessionId),
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏用量面板（UiBackend 可选能力面实装——R7 批 10k /usage）：会话全
+   * run 累计分表（装配独立聚合——非件 6 清账态）。返 boolean 同 openSessions 律。
+   */
+  openUsage(sessionId: string, summary: UiUsageSummary): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new UsageViewer({
+        sessionId,
+        summary,
+        columns: this.io.size().columns,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏帮助面（R7 批 10k /help——命令册装配注入、键位册 = 本件 keymap
+   * 投影，双源在装配位合流）：不经通道核流转（键位册 TUI 侧持有——/help 命令
+   * 注册在装配位 tui-entry，与 openHistory 的核内注册分立）。已在副屏返
+   * false（装配位 notify 降级）。
+   */
+  openHelp(commands: readonly HelpCommandEntry[]): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new HelpViewer({
+        commands,
+        actions: this.keymap.actions, // 键位册投影——解析后生效键集（覆盖随动）
+        sessionId: this.sessionId,
+        columns: this.io.size().columns,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 键位拒载观测面（R5 批 10k）：Keymap 构造期四形拒载清单——装配位逐条
+   * notify warn 呈报（拒载键不生效但点名可见——fail-loud；缺省恒空）。
+   */
+  get keybindingRejections(): readonly KeybindingRejection[] {
+    return this.keymap.rejections;
+  }
+
+  /**
    * 收副屏（UiBackend 可选能力面实装——UiCore ask 入口扇出「先收副屏再入
    * 提问队列」，07 §4.1 件 8 注意力优先级 ask > 回看条款；viewer 退出键
    * 同路收口；/history 与 /memory 两件共口——在场者谁收谁）。幂等：无副屏 no-op。
@@ -643,6 +754,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.touchFixed();
   }
 
+  /**
+   * footer 常驻段重算（R6 批 10k）：cwd 短名 · 模型名 · 会话短 id 拼段
+   * （缺席段缩位不虚报——两标签装配注入期定值、短 id 段随切焦联动）。
+   * footer 选项注入缺席时状态行无常驻段（refreshFooter 只在门控内被调）。
+   */
+  private refreshFooter(): void {
+    const parts: string[] = [];
+    if (this.footerCwd !== undefined) parts.push(this.footerCwd);
+    if (this.footerModel !== undefined) parts.push(this.footerModel);
+    parts.push(shortIdOf(this.sessionId));
+    this.statusLine.setFooter(parts.join(' · '));
+    this.touchFixed();
+  }
+
   /** 活体信封呈现：渲染归约 + 摘要行分叉 + 聚焦态状态面消费 */
   onEnvelope(env: SessionEnvelope, focused: boolean): void {
     const summary = this.transcript.applyEvent(env, focused);
@@ -659,11 +784,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /** 重画呈现：投影重建行集 + 清屏全量重写（widget 槽值不支撑——忽略） */
   onRepaint(sessionId: string, projection: readonly AgentMessage[], _widget: { node: unknown } | null): void {
+    // repaint 是焦点切换的权威信号（focus() 未注册视同注册——首次注册同路）：
+    // 交互会话位跟随（提交/打断柄机器位锚新焦——/sessions 选定切焦路）
+    this.sessionId = sessionId;
+    this.refreshTodo(); // 件 4：todo 源锚新焦（refreshTodo 三时点之外的本位）
     // 模型半场照常（repaint 是新真相——挂起期也不丢投影：复起全帧重画携带）
     this.transcript.loadProjection(projection);
     this.resetUsage(); // 件 6：清行并归零（切焦清账重计——尾注射界）
     this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
-    this.refreshTodo(); // 件 4：刷新三时点之一
+    this.refreshFooter(); // footer 会话短 id 段随切焦联动（R6 批 10k）
     this.osc.setTitle(`${this.titleBaseline} · ${shortIdOf(sessionId)}`); // 件 7：title 点缀会话短 id（终端级外显——挂起期照常，批 10f-4 裁）
     // 权威全量重建——排队旧帧作废（repaint 是新真相，合并无意义）
     this.pendingOps = [];

@@ -123,4 +123,53 @@ export interface UiBackend<TProjection> {
    * 据此走 notify 降级提示（不静默）。缺席 = 不支持管理面的后端。
    */
   openMemory?(): boolean;
+  /**
+   * 开副屏会话切换器（07 §4.1 R7 批 10k `/sessions` 命令的呈现面——命令
+   * 注册在通道核按 ChannelsOptions.sessions 注入在场判，注册面律同
+   * openHistory）。载荷 = 会话清单 + 选定回调；选定经通道核闭包走
+   * registry.focus() 既有权威路（后端呈现不触焦点态）。返 boolean 同
+   * openMemory 律：true = 已开；false = 不支持或已在副屏——核据此 notify
+   * 降级提示。缺席 = 不支持切换器的后端。
+   */
+  openSessions?(sessions: readonly UiSessionSummary[], onSelect: (sessionId: string) => void): boolean;
+  /**
+   * 开副屏用量面板（07 §4.1 R7 批 10k `/usage` 命令的呈现面——数据源 =
+   * 件 6 同数据源〔message.usage〕但独立聚合：会话全 run 累计分表，非复用
+   * 件 6 清账态）。返 boolean 同 openSessions 律。缺席 = 不支持面板的后端。
+   */
+  openUsage?(sessionId: string, summary: UiUsageSummary): boolean;
+}
+
+/**
+ * 会话清单条目（R7 批 10k `/sessions` 副屏切换器载荷——通道核拉取注入
+ * 数据源的产物形；装配从 SessionRow 映射）。
+ */
+export interface UiSessionSummary {
+  readonly id: string;
+  /** 会话标题（首条用户消息截断——在场即显示，缺席如实缺段） */
+  readonly title?: string;
+  /** 工作区根（显示用——呈现侧取短名） */
+  readonly workspaceRoot?: string;
+  /** 最近活动时间（epoch ms） */
+  readonly updatedAt: number;
+  /** 活跃位（当前进程内有 driver 在场——行级标记显示用） */
+  readonly active: boolean;
+}
+
+/**
+ * 会话用量汇总（R7 批 10k `/usage` 副屏面板载荷）：会话全 run 累计
+ * （token 四分表 + 合计 + 货币），与件 6 run 级清账态分职不互替。
+ */
+export interface UiUsageSummary {
+  /** turn 数（turn/end 计数——含中止/错误收场） */
+  readonly turns: number;
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly totalTokens: number;
+  /** 累计货币额（cost 在场才累） */
+  readonly cost: number;
+  /** 币种（首见定着；null = 无 cost 上报） */
+  readonly currency: string | null;
 }

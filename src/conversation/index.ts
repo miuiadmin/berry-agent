@@ -66,6 +66,9 @@ export {
   renderTodoTable,
   todoSnapshotMessage,
 } from './todo.js';
+// 会话用量折叠（R7 批 10k /usage——全 run 累计投影；装配注入通道核）
+export type { SessionUsageSummary } from './usage.js';
+export { foldSessionUsage, ZERO_SESSION_USAGE } from './usage.js';
 // 审批三件 + open 域装配（11e：fresh 作用域审批 wiring + fs/检索/bash/todo 组装面）
 export type { SessionApprovalOptions, SessionApprovalWiring } from './approval-wiring.js';
 export { wireSessionApproval } from './approval-wiring.js';

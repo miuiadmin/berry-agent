@@ -15,6 +15,10 @@
  * dark/light/auto 三值，TUI 主入口装配消费（缺席 = auto 由 tui-entry 定
  * 缺省——本件零行为耦合，只存取与值域校验）。
  *
+ * 第四键 `keybindings?`（批 10k——07 §4.1 R5）：TUI 键位用户覆盖（动作
+ * id → 键串）。本面只做形校验（对象 + string→string），语义校验（未知
+ * 动作/不可覆盖/冲突）归 Keymap fail-loud 呈报——见 HostSettings 头注。
+ *
  * 读写纪律（与 tool-policy-store 同族——「文件即用户资产」律）：
  * - 读侧缺席 = {}（零负担首启）；文件级坏 JSON = warn 降级 {}（配置层坏形
  *   取缺省 = 现状常量，非 fail-stop 面）；键级坏值 = 忽略该键 + warn 点名
@@ -32,12 +36,19 @@ import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 /** 配置文件名（数据目录单段——04 §9 ⑥「本批定名」） */
 export const SETTINGS_BASENAME = 'settings.json';
 
-/** 配置面形状（三键均可选——缺席走代码常量层） */
+/** 配置面形状（四键均可选——缺席走代码常量层） */
 export interface HostSettings {
   readonly sandboxMode?: SandboxMode;
   readonly approvalPolicy?: ApprovalPolicyMode;
   /** TUI 主题档（批 10g——dark/light/auto；消费位 = tui-entry 装配） */
   readonly theme?: ThemeSetting;
+  /**
+   * 键位用户覆盖（R5 批 10k——动作 id → 键串）：值域校验两分——本面只做
+   * **形校验**（对象 + string→string 条目，坏形忽略点名），语义校验（未知
+   * 动作/不可覆盖/畸形键串/冲突）归 Keymap resolveKeybindings fail-loud
+   * （tui-entry 装配位呈报拒载清单）。非敏感件（键位无秘密）。
+   */
+  readonly keybindings?: Readonly<Record<string, string>>;
 }
 
 /** 读侧选项 */
@@ -88,12 +99,17 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
   // 键级校验：三键值域闭集外忽略点名；未知键 warn 保留不动（读侧不区分
   // 「保留在内存」与否——本面只产三键，未知键经写侧合并律存活）
   const record = doc as Record<string, unknown>;
-  const { sandboxMode, approvalPolicy, theme, ...rest } = record;
+  const { sandboxMode, approvalPolicy, theme, keybindings, ...rest } = record;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
     warn(`配置含未知键 ${unknownKeys.join('、')}（${path}）——本面不消费、保留不动`);
   }
-  const settings: { sandboxMode?: SandboxMode; approvalPolicy?: ApprovalPolicyMode; theme?: ThemeSetting } = {};
+  const settings: {
+    sandboxMode?: SandboxMode;
+    approvalPolicy?: ApprovalPolicyMode;
+    theme?: ThemeSetting;
+    keybindings?: Readonly<Record<string, string>>;
+  } = {};
   if (sandboxMode !== undefined) {
     if (typeof sandboxMode === 'string' && SANDBOX_MODES.includes(sandboxMode)) {
       settings.sandboxMode = sandboxMode as SandboxMode;
@@ -113,6 +129,23 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
       settings.theme = theme as ThemeSetting;
     } else {
       warn(`配置键 theme 值域外（dark|light|auto）——忽略该键`);
+    }
+  }
+  // keybindings 形校验（本面只做形——语义归 Keymap fail-loud）：非对象忽略整键；
+  // 条目值非字符串丢该条点名（好条目照常生效）
+  if (keybindings !== undefined) {
+    if (typeof keybindings === 'object' && keybindings !== null && !Array.isArray(keybindings)) {
+      const entries: Record<string, string> = {};
+      for (const [action, keys] of Object.entries(keybindings)) {
+        if (typeof keys === 'string') {
+          entries[action] = keys;
+        } else {
+          warn(`配置键 keybindings.${action} 值非字符串——丢该条`);
+        }
+      }
+      settings.keybindings = entries;
+    } else {
+      warn('配置键 keybindings 须为对象（动作 id → 键串）——忽略该键');
     }
   }
   return { settings, healthy: true };
@@ -146,6 +179,7 @@ export function writeHostSettings(
   if (patch.sandboxMode !== undefined) next.sandboxMode = patch.sandboxMode;
   if (patch.approvalPolicy !== undefined) next.approvalPolicy = patch.approvalPolicy;
   if (patch.theme !== undefined) next.theme = patch.theme;
+  if (patch.keybindings !== undefined) next.keybindings = patch.keybindings;
   mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');

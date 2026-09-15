@@ -294,6 +294,23 @@ describe('runTuiEntry 装配序', () => {
     await rt.shutdown();
   });
 
+  it('/help 副屏 + footer 常驻段（批 10k——R7 帮助面/R6 footer 落码装配位）', async () => {
+    const { entry, io } = await rigEntry(rigDir('entry-help-data-'), rigDir('entry-help-ws-'));
+    // footer 常驻段首画在场：模型名（faux-entry/m1 → m1 短名）+ 会话短 id 分隔形
+    await until(() => io.output.includes(' · m1 · '));
+    // /help 命令 → 帮助副屏：命令册首帧可见段（键位册段在册尾视口外——双册
+    // 全量已由 help-viewer.test 纯函数直锁，此处锁装配位真源）
+    io.send('/help\r');
+    await until(() => io.output.includes('❓ 命令与键位帮助'));
+    expect(io.output).toContain('── 命令 ──');
+    expect(io.output).toContain('/sessions'); // 10k 会话切换器在册（channels 注册面真源）
+    expect(io.output).toContain('/usage'); // 10k 用量面板在册
+    io.send('q'); // q text 轨收副屏（独立 ESC 字节有序列等待窗——避并包歧义）
+    await until(() => io.output.includes('\x1b[?1049l')); // ALT 收屏字节标记（回主屏）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
   it("`--port` webui 咬合（18a-3'）：横幅走屏留痕面只带 URL，token 不入屏，ctrl+d 收场面", async () => {
     const faux = fauxProvider({ provider: 'faux-port', models: [{ id: 'm1' }] });
     const io = new FakeTerminalIO();

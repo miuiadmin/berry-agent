@@ -18,6 +18,8 @@
  * 信号路径独立：SIGINT①/SIGTERM → onGraceful → runtime.shutdown → exit(0)
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
  */
+import { basename } from 'node:path';
+
 import { editorHeightCap, FileMentionSource, fuzzyFilter, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
@@ -183,8 +185,19 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       quitResolve = resolve;
     });
 
-    // 补全命令源：通道核命令表 → '/' 前缀条目（@ 文件段源锚工作区根）
-    const mentions = new FileMentionSource({ basePath: session.workspaceRoot });
+    // 补全命令源：通道核命令表 → '/' 前缀条目；@ 文件段源动态锚（R7 批
+    // 10k）——切焦后锚随聚焦会话工作区根（行面现读；聚焦空悬/行缺席回退
+    // 启动会话根——FileMentionSource per-query 新铸，锚取当下真值）
+    const mentionSourceFor = (): FileMentionSource => {
+      const focused = stack.channels.focusedId;
+      const root =
+        focused === null
+          ? session.workspaceRoot
+          : canonicalWorkspaceRoot(
+              runtime.persistence.store.getSessionRow(focused)?.workspaceRoot ?? session.workspaceRoot,
+            );
+      return new FileMentionSource({ basePath: root });
+    };
     const rows = io.size().rows;
     // —— TUI 主题档装配（批 10g——07 §4.1 R2 主题载体条 / 04 §9 ⑥ 注记）：
     // settings.json `theme` 键（dark/light/auto）经 TuiBackendOptions.theme
@@ -199,6 +212,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
       onSubmit: (sessionId, text) => {
+        // /sessions 切焦补开（R7 批 10k）：切焦 repaint 只投影不开驱动，选定
+        // 旧会话直接提交前补开（manager.open 幂等——existing 返既有 driver；
+        // open 失败 = 行面已失理论不达防御位，弃单与 submitText 未开形同律）
+        if (stack.driverOf(sessionId) === undefined) {
+          try {
+            stack.manager.open(sessionId);
+          } catch {
+            return;
+          }
+        }
         void stack.submitText(sessionId, text); // fire-and-forget——回执经信封回流
       },
       onInterrupt: (sessionId) => stack.interrupt(sessionId),
@@ -221,13 +244,21 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         commands: (query) => [...commandItems(stack.channels.listCommands(), query), ...exitCommandItems(query)],
         // 参数段源（R6 批 10j 装配接线）：四命令子动词首参 + 深位枚举
         commandArguments: (command, query, priorArgs) => commandArgumentItems(command, query, priorArgs),
-        mentions: (query) => mentions.get(query),
+        mentions: (query) => mentionSourceFor().get(query),
       },
       // 高度帽公式单源（07 §4.1 R3 批 10j）：max(5, rows×0.3)——迟滞带归视图
       maxVisibleLines: editorHeightCap(rows),
       // 主题档（批 10g）：settings 缺席 = auto 探测路；色域档由 env 两键裁定
       theme: themeLoad?.settings.theme ?? 'auto',
       colorEnv: { COLORTERM: env.COLORTERM, TERM: env.TERM },
+      // 键位用户覆盖（R5 批 10k）：settings.json keybindings 键——形校验在读
+      // 侧、语义校验归 Keymap fail-loud（拒载清单 start 后逐条呈报，见下）
+      ...(themeLoad !== null && themeLoad.settings.keybindings !== undefined
+        ? { keybindings: themeLoad.settings.keybindings }
+        : {}),
+      // footer 常驻段（R6 批 10k）：cwd 短名 + 模型短名（provider/model 形取
+      // model 段）——会话短 id 段由 backend 每帧随 sessionId 现拼
+      footer: { cwdLabel: basename(session.workspaceRoot), modelLabel: modelShortName(stack.model) },
       ...(options.version !== undefined ? { version: options.version } : {}),
       // 生产定时器注入（保活/帧帽真定时——缺省同步直出仅测试语义）
       schedule: (fn, ms) => setTimeout(fn, ms),
@@ -261,6 +292,33 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     backend.start();
     stack.channels.registerSession(session.sessionId);
     await stack.channels.focus(session.sessionId); // 启动投影首画（含 resume 历史回读）
+
+    // —— 键位覆盖拒载呈报（R5 批 10k——Keymap fail-loud 装配位）：settings
+    // 坏覆盖逐条 warn（不炸启动——坏项忽略、好项照常生效；首画后落屏可见）
+    for (const rejection of backend.keybindingRejections) {
+      backend.notify(`键位覆盖未生效：${rejection.detail}`, { level: 'warn' });
+    }
+
+    // —— /help 命令注册（R7 批 10k——host 装配侧直挂）：命令册双源合流 =
+    // 通道核命令表 + TUI 本地退出词（与补全源同两源，文案单源
+    // EXIT_DESCRIPTIONS）；键位册 = backend Keymap 投影（openHelp 内取）。
+    // 副屏占用时 openHelp false → notify 诚实降级（服务端 handler 同律）
+    stack.channels.registerCommand(
+      'help',
+      async () => {
+        const entries = [
+          ...stack.channels.listCommands().map((spec) => ({
+            name: spec.name,
+            ...(spec.description !== undefined ? { description: spec.description } : {}),
+          })),
+          ...EXIT_WORDS.map((name) => ({ name, description: EXIT_DESCRIPTIONS[name] })),
+        ];
+        if (!backend.openHelp(entries)) {
+          backend.notify('帮助面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        }
+      },
+      '命令与键位帮助（命令册 + 键位册双源）',
+    );
 
     // webui 开面横幅（18a-3'）：TuiBackend 起屏后经 channels.notify 扇出——
     // notify 恒扇出（webui backend 同帧收到，浏览器通知位随活）；横幅走屏
@@ -307,6 +365,12 @@ function commandItems(
 /** TUI 本地退出词表（07 §4.1 2026-09-15 /exit 批——/exit 正名 + /quit 别名） */
 const EXIT_WORDS = ['exit', 'quit'] as const;
 
+/** 退出词说明（单源——补全条目与 /help 命令册两消费面同文） */
+const EXIT_DESCRIPTIONS: Readonly<Record<(typeof EXIT_WORDS)[number], string>> = {
+  exit: '退出 TUI（与 Ctrl+D 同路优雅退出）',
+  quit: '退出 TUI（/exit 别名）',
+};
+
 /**
  * 退出词 → 补全条目（与通道命令表分源——前端生命周期词不进通道核命令表，
  * 装配位并流；query 已去斜杠，同 commandItems 契约）。
@@ -314,9 +378,15 @@ const EXIT_WORDS = ['exit', 'quit'] as const;
 export function exitCommandItems(query: string): readonly AutocompleteItem[] {
   return fuzzyFilter(EXIT_WORDS, (name) => name, query).map((name) => ({
     label: `/${name}`,
-    detail: name === 'exit' ? '退出 TUI（与 Ctrl+D 同路优雅退出）' : '退出 TUI（/exit 别名）',
+    detail: EXIT_DESCRIPTIONS[name],
     replacement: `/${name}`,
   }));
+}
+
+/** 模型短名（footer 常驻段呈现——provider/model 形取 model 段，裸名原样） */
+function modelShortName(model: string): string {
+  const slash = model.lastIndexOf('/');
+  return slash === -1 ? model : model.slice(slash + 1);
 }
 
 /* ---------------- 命令参数补全源（R6 批 10j 装配接线） ---------------- */

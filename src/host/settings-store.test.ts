@@ -93,6 +93,36 @@ describe('readHostSettings（读侧——缺席零负担 + 坏形降级）', () 
     expect(load.settings).toEqual({ approvalPolicy: 'ask' });
     expect(warnings.some((w) => w.includes('theme 值域外'))).toBe(true);
   });
+
+  it('keybindings 好形读入（批 10k R5——string→string 条目全量）', () => {
+    const dir = tmpDir('settings-keys-good-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({ keybindings: { 'thinking.toggle': 'ctrl+g', 'editor.undo': 'ctrl+/' } }),
+    );
+    expect(readHostSettings(dir).settings).toEqual({
+      keybindings: { 'thinking.toggle': 'ctrl+g', 'editor.undo': 'ctrl+/' },
+    });
+  });
+
+  it('keybindings 形校验两档：非对象忽略整键、条目值非字符串丢条点名（好条照常）', () => {
+    const dir = tmpDir('settings-keys-bad-');
+    // 档一：整键非对象（数组）
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ keybindings: ['ctrl+t'] }));
+    let { warnings, warn } = captureWarn();
+    let load = readHostSettings(dir, { warn });
+    expect(load.settings).toEqual({});
+    expect(warnings.some((w) => w.includes('keybindings 须为对象'))).toBe(true);
+    // 档二：条目值非字符串——丢该条点名、好条不受连坐
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({ keybindings: { 'thinking.toggle': 7, 'editor.undo': 'ctrl+/' } }),
+    );
+    ({ warnings, warn } = captureWarn());
+    load = readHostSettings(dir, { warn });
+    expect(load.settings).toEqual({ keybindings: { 'editor.undo': 'ctrl+/' } });
+    expect(warnings.some((w) => w.includes('keybindings.thinking.toggle 值非字符串'))).toBe(true);
+  });
 });
 
 describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）', () => {
@@ -142,6 +172,20 @@ describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）',
     expect(writeHostSettings(dir, { theme: 'light' })).toBe('written');
     doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
     expect(doc).toEqual({ theme: 'light', approvalPolicy: 'ask', sandboxMode: 'read-only' });
+  });
+  it('keybindings 写侧合并：写 keybindings 不动他键、他键写不动 keybindings（批 10k）', () => {
+    const dir = tmpDir('settings-keys-write-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
+    expect(writeHostSettings(dir, { keybindings: { 'thinking.toggle': 'ctrl+g' } })).toBe('written');
+    let doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', keybindings: { 'thinking.toggle': 'ctrl+g' } });
+    expect(writeHostSettings(dir, { sandboxMode: 'read-only' })).toBe('written');
+    doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({
+      theme: 'dark',
+      keybindings: { 'thinking.toggle': 'ctrl+g' },
+      sandboxMode: 'read-only',
+    });
   });
   it('非敏感件自证：文件名不在 settings 面（SENSITIVE_READ_DATA_PATHS 恰四件锁不动——此例锁对面；2026-09-14 五役 CL-1 集员扩容注笔随勘）', () => {
     // settings.json 非敏感（两旋钮无秘密）——可读性自证：写后文件存在且可读

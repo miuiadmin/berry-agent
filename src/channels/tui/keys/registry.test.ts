@@ -102,3 +102,25 @@ describe('Keymap 消费面', () => {
     expect(remapped.keyText('thinking.toggle')).toBe('ctrl+g');
   });
 });
+
+describe('Keymap.actions 投影（批 10k——/help 键位册消费源）', () => {
+  it('全册投影：id/scope/label/keys 四键齐 + 册序保持', () => {
+    const views = new Keymap().actions;
+    expect(views).toHaveLength(ACTION_CATALOG.length);
+    expect(views.map((v) => v.id)).toEqual(ACTION_CATALOG.map((d) => d.id));
+    const first = views[0]!;
+    expect(first).toMatchObject({ id: 'global.interrupt', scope: 'global', label: '中断当前 run', keys: ['ctrl+c'] });
+  });
+
+  it('覆盖生效形随动（keys = 解析后键集非缺省）', () => {
+    const views = new Keymap({ 'thinking.toggle': 'ctrl+g' }).actions;
+    const toggle = views.find((v) => v.id === 'thinking.toggle')!;
+    expect(toggle.keys).toEqual(['ctrl+g']);
+  });
+
+  it('拒载覆盖回退缺省键集（投影只见生效形）', () => {
+    const views = new Keymap({ 'global.interrupt': 'ctrl+x' }).actions; // 不可覆盖拒载
+    const interrupt = views.find((v) => v.id === 'global.interrupt')!;
+    expect(interrupt.keys).toEqual(['ctrl+c']);
+  });
+});

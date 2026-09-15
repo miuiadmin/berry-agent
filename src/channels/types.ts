@@ -21,11 +21,17 @@ export type {
   UiInputOptions,
   UiCapabilities,
   UiBackend,
+  UiSessionSummary,
+  UiUsageSummary,
 } from '../contracts/index.js';
 
 // 审批 ask 词汇归位 contracts（批 11b——conversation 消费同形而边表不可达
 // channels）；本面 re-export 维持通道侧公开面不变
 export type { ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+
+// 本面内用的契约类型（R7 批 10k——ChannelsOptions 两注入位的载荷形；re-export
+// 块不进本文件作用域，值用须显式 import）
+import type { UiSessionSummary, UiUsageSummary } from '../contracts/index.js';
 
 /**
  * todo 条目（07 §4.1 呈现面件 4——todoFor 注入载荷）：items 全量快照真源 =
@@ -103,4 +109,17 @@ export interface ChannelsOptions<TProjection> {
    * 将装载；件缺席由降级提示诚实兜底）。
    */
   readonly memory?: true;
+  /**
+   * 会话清单拉取注入（07 §4.1 R7 批 10k `/sessions`——注册面律同 history：
+   * 在场即注册、缺席不注册不虚报）。真源 = 拉会话清单 → 扇出后端
+   * openSessions；选定回调在核内铸（registry.focus() 既有权威路——未注册
+   * 会话 focus 视同注册，焦点即活跃声明）。
+   */
+  readonly sessions?: () => Promise<readonly UiSessionSummary[]>;
+  /**
+   * 会话用量聚合注入（07 §4.1 R7 批 10k `/usage`——注册面律同上）：数据源
+   * = 件 6 同数据源（message.usage）但独立聚合——会话全 run 累计，非复用
+   * 件 6 清账态。真源 = 聚焦会话 → 拉汇总 → 扇出后端 openUsage。
+   */
+  readonly usage?: (sessionId: string) => Promise<UiUsageSummary>;
 }

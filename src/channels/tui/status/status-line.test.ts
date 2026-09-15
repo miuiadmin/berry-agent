@@ -110,3 +110,70 @@ describe('StatusLine', () => {
     expect(spy).toHaveBeenCalledTimes(5);
   });
 });
+
+describe('StatusLine footer 分栏（R6 批 10k）', () => {
+  it('缺省 footerText = 旧形（前块既有测试全锚——分栏路零进入）', () => {
+    // 旧形锚点抽查：忙态转轮居左（分栏形会右对齐——此断言区分两路）
+    const line = new StatusLine();
+    line.start('思考中');
+    expect(readRow(renderLine(line), 0, 30)).toBe('⠋ 思考中');
+  });
+
+  it('footer 在场闲态独占（无右段文案——左段满行）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry · glm · a1b2c3');
+    expect(readRow(renderLine(line), 0, 30)).toBe('berry · glm · a1b2c3');
+  });
+
+  it('footer 左段 + 闲态文案右对齐（间隔 ≥1 列）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry · glm · a1b2c3');
+    line.setStatus('✓ 完成');
+    // footer 20 列（0-19），空 20-23，右段 6 列（24-29）
+    expect(readRow(renderLine(line), 0, 30)).toBe('berry · glm · a1b2c3    ✓ 完成');
+  });
+
+  it('footer 左段 + 忙态右对齐（转轮 accent + 活动文案随转轮）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry · glm · a1b2c3');
+    line.start('思考中');
+    const grid = renderLine(line);
+    expect(readRow(grid, 0, 30)).toBe('berry · glm · a1b2c3  ⠋ 思考中');
+    expect(grid.getCell(0, 22)?.style.fg).toBe(DEFAULT_THEME.accent); // 转轮仍 accent
+  });
+
+  it('footer 左段 + 忙态工具段优先（ ⚙ name … 随转轮右对齐）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry');
+    line.start('思考中');
+    line.setTool('read_file');
+    // rest 14 列 → 转轮 col 15；footer 5 列 + 10 空格间隔
+    expect(readRow(renderLine(line), 0, 30)).toBe('berry          ⠋ ⚙ read_file …');
+  });
+
+  it('footer 超宽整字截断加省略号（CJK 双宽不产半字）', () => {
+    const line = new StatusLine();
+    // footer 29 列 > 帽 25（30 - 右段「状态」4 - 间隔 1）→ 截 24 列 + 省略号
+    line.setFooter('很长的目录名 · 模型 · a1b2c3d');
+    line.setStatus('状态');
+    expect(readRow(renderLine(line), 0, 30)).toBe('很长的目录名 · 模型 · a1… 状态');
+  });
+
+  it('setFooter 空串清除回旧形（可逆切换）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry · glm · a1b2c3');
+    line.setFooter('');
+    line.start('思考中');
+    expect(readRow(renderLine(line), 0, 30)).toBe('⠋ 思考中'); // 旧形转轮居左
+  });
+
+  it('setFooter 触发 onChange（重绘请求面同族）', () => {
+    const line = new StatusLine();
+    const spy = vi.fn();
+    line.onChange = spy;
+    line.setFooter('berry');
+    expect(spy).toHaveBeenCalledTimes(1);
+    line.setFooter('');
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
