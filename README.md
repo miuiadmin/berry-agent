@@ -167,7 +167,7 @@ All five volumes are currently written in Chinese:
 npm install
 npm run typecheck       # gate 1: tsc --noEmit
 npm test                # gate 2: vitest run
-npm run lint:topology   # gate 3: module DAG + API snapshot gates
+npm run lint:topology   # gate 3: module DAG + API snapshot + vocabulary gates
 npm run format:check    # gate 4: prettier
 npm run build           # build chain (webui → tsc → API declaration snapshot)
 ```

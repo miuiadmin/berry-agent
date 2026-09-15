@@ -17,7 +17,7 @@ npm install
 ```bash
 npm run typecheck       # 门禁一：tsc --noEmit（root + SDK 包测试配置 + webui 客户端三段）
 npm test                # 门禁二：vitest run
-npm run lint:topology   # 门禁三：模块 DAG 边表 + API 治理面门禁
+npm run lint:topology   # 门禁三：模块 DAG 边表 + API 治理面 + 词汇查项门禁
 npm run format:check    # 门禁四：prettier 检查
 ```
 
@@ -104,11 +104,11 @@ docs/                   公开文档面（本五册）
 
 发布机器 = `tools/release.mjs`（六道契约编舞——门禁前置 / registry 探测 / 构建验收与安装冒烟 / publish 单点 / dist-tag 终态断言 / 尾件 git tag）。执行形三分（`resolveReleaseForm` 单源解析：`--local-publish` 旗标 > env `BERRY_AGENT_RELEASE_MODE=ci` > 包描述符 `publishMode` 缺省）：
 
-| 执行形 | 谁跑 | 语义 |
-| --- | --- | --- |
-| 本机触发腿（主包缺省） | 维护者本机 `npm run release` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 复探收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish |
-| CI 发布腿（`.github/workflows/release.yml`） | tag `v*` push 触发 | OIDC 免令牌免 2FA publish；契约 5 只读断言 `next`、契约 6 只校验既有 tag |
-| 令牌全本地旧序（SDK 缺省 / 主包 `--local-publish` 应急） | 本机 npm 凭证 | 六道契约原序全本地 |
+| 执行形                                                   | 谁跑                         | 语义                                                                                                                        |
+| -------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 本机触发腿（主包缺省）                                   | 维护者本机 `npm run release` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 复探收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish |
+| CI 发布腿（`.github/workflows/release.yml`）             | tag `v*` push 触发           | OIDC 免令牌免 2FA publish；契约 5 只读断言 `next`、契约 6 只校验既有 tag                                                    |
+| 令牌全本地旧序（SDK 缺省 / 主包 `--local-publish` 应急） | 本机 npm 凭证                | 六道契约原序全本地                                                                                                          |
 
 常规发版（主包）：改 `package.json` version → commit → `npm run release`——脚本完成交棒、等待 CI（gh CLI 轮询，30 分钟帽）、收口与 latest 挪位，全绿即发版完成。SDK：`npm run release:sdk`（令牌全本地形）。
 

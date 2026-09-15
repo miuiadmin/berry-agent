@@ -169,7 +169,7 @@ Los cinco volmenes están escritos actualmente en chino:
 npm install
 npm run typecheck       # barrera 1: tsc --noEmit
 npm test                # barrera 2: vitest run
-npm run lint:topology   # barrera 3: DAG de módulos + barreras de snapshot de API
+npm run lint:topology   # barrera 3: DAG de módulos + snapshot de API + vocabulario
 npm run format:check    # barrera 4: prettier
 npm run build           # cadena de build (webui → tsc → snapshot de declaraciones API)
 ```

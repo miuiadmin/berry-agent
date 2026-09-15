@@ -165,7 +165,7 @@ graph TD
 npm install
 npm run typecheck       # 게이트 1: tsc --noEmit
 npm test                # 게이트 2: vitest run
-npm run lint:topology   # 게이트 3: 모듈 DAG + API 스냅샷 게이트
+npm run lint:topology   # 게이트 3: 모듈 DAG + API 스냅샷 + 어휘 게이트
 npm run format:check    # 게이트 4: prettier
 npm run build           # 빌드 체인 (webui → tsc → API 선언 스냅샷)
 ```

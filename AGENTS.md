@@ -13,7 +13,7 @@
 ```bash
 npm run typecheck       # tsc 三连——主 tsconfig + sdk 测试配置 + webui-client（门禁一）
 npm test                # vitest run（门禁二）
-npm run lint:topology   # 模块 DAG 边表 + API 快照门禁（门禁三）
+npm run lint:topology   # 模块 DAG 边表 + API 快照 + 词汇查项门禁（门禁三）
 npm run format:check    # prettier 检查（门禁四）
 npm run format          # prettier 写入
 npm run build           # 发布物复合链——webui (vite) + tsc 直出 dist/ + API 声明导出 + 溯源戳

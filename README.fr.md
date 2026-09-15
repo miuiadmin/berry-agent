@@ -170,7 +170,7 @@ Les cinq volumes sont actuellement rédigés en chinois :
 npm install
 npm run typecheck       # barrière 1 : tsc --noEmit
 npm test                # barrière 2 : vitest run
-npm run lint:topology   # barrière 3 : DAG des modules + barrières de snapshot API
+npm run lint:topology   # barrière 3 : DAG des modules + snapshot API + vocabulaire
 npm run format:check    # barrière 4 : prettier
 npm run build           # chaîne de build (webui → tsc → snapshot des déclarations API)
 ```

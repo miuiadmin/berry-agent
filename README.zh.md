@@ -152,7 +152,7 @@ graph TD
 npm install
 npm run typecheck       # 门禁一：tsc --noEmit
 npm test                # 门禁二：vitest run
-npm run lint:topology   # 门禁三：模块 DAG + API 治理面门禁
+npm run lint:topology   # 门禁三：模块 DAG + API 治理面 + 词汇查项门禁
 npm run format:check    # 门禁四：prettier 检查
 npm run build           # 构建链（webui → tsc → API 声明快照）
 ```

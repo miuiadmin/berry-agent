@@ -169,7 +169,7 @@ graph TD
 npm install
 npm run typecheck       # барьер 1: tsc --noEmit
 npm test                # барьер 2: vitest run
-npm run lint:topology   # барьер 3: DAG модулей + барьеры снапшотов API
+npm run lint:topology   # барьер 3: DAG модулей + снапшоты API + лексика
 npm run format:check    # барьер 4: prettier
 npm run build           # цепочка сборки (webui → tsc → снапшот деклараций API)
 ```
