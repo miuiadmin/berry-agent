@@ -21,6 +21,7 @@ import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { buildSgr } from './ansi-rows.js';
 import { sessionColor } from '../theme/index.js';
 import { AltScreenHost } from '../overlay/alt-screen.js';
+import { AUTOCOMPLETE_DEBOUNCE_MS } from '../autocomplete/async.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import type { AgentEvent } from '../../../agent/index.js';
@@ -433,6 +434,11 @@ describe('TuiBackend 提交路由', () => {
 });
 
 describe('TuiBackend 补全弹层（三源路由）', () => {
+  /** 补全防抖窗泵（R6 批 10j——20ms 尾沿）：推过窗位使查询落层 */
+  const completePump = (clock: { advance: (ms: number) => void }): void => {
+    clock.advance(AUTOCOMPLETE_DEBOUNCE_MS + 1);
+  };
+
   /** 命令名 + 参数段双源记录 rig */
   function autocompleteRig() {
     const argCalls: [string, string][] = [];
@@ -449,15 +455,15 @@ describe('TuiBackend 补全弹层（三源路由）', () => {
   }
 
   it("'/' 起手弹层在场 → tab 整 token 代换 → escape 关层", () => {
-    const { io, clock, calls, pump } = autocompleteRig();
+    const { io, clock, calls } = autocompleteRig();
     io.emitInput('/he');
-    pump();
+    completePump(clock); // 防抖窗到——查询落层弹层在场（R6：尾沿 20ms 后交付）
     expect(io.bytes).toContain('/help'); // 弹层 label 在场
     expect(io.bytes).toContain('帮助'); // detail 右对齐段
     io.emitInput('\t'); // 应用代换
-    pump();
+    clock.advance(1);
     io.emitInput('\r'); // 提交代换后命令
-    pump();
+    clock.advance(1);
     expect(calls.submitted).toEqual([['s1', '/help']]); // 命令柄缺席——'/' 文本落 onSubmit（trim 后）
     io.bytes = '';
     io.emitInput('\x1b'); // escape 关层（新轮）
@@ -466,10 +472,10 @@ describe('TuiBackend 补全弹层（三源路由）', () => {
   });
 
   it('命令名已终结 → 参数段源路由（commandArguments 收命令名与 query）', () => {
-    const { io, argCalls, pump } = autocompleteRig();
+    const { io, clock, argCalls } = autocompleteRig();
     io.emitInput('/help ');
     io.emitInput('ar');
-    pump();
+    completePump(clock); // 防抖窗到——连打两 chunk 收敛为单查（尾沿律）
     expect(argCalls).toEqual([['help', 'ar']]);
     expect(io.bytes).toContain('arg1');
   });

@@ -17,3 +17,7 @@ export { FileMentionSource } from './autocomplete/file-mentions.js';
 export type { FileMentionSourceOptions } from './autocomplete/file-mentions.js';
 export type { AutocompleteSources } from './autocomplete/autocomplete.js';
 export type { AutocompleteItem } from './autocomplete/provider.js';
+// 高度帽公式（R3 批 10j——host 装配位 maxVisibleLines 注入单源）
+export { editorHeightCap } from './editor/height-cap.js';
+// fuzzy 子序列过滤（R6 批 10j——命令名 / @ 文件段两源装配消费）
+export { fuzzyFilter, isSubsequence, fuzzyMatchKind } from './autocomplete/fuzzy.js';

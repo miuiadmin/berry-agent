@@ -39,4 +39,4 @@ export {
   type RewindRestoreReceipt,
 } from './restore.js';
 
-export { REWIND_USAGE, runRewindCommand, type RewindCommandDeps } from './command.js';
+export { REWIND_SUBVERBS, REWIND_USAGE, runRewindCommand, type RewindCommandDeps } from './command.js';

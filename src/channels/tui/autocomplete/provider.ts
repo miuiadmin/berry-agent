@@ -3,6 +3,8 @@
  *
  * 多行坐标协议（承 berry @-mention 协议签名）：上下文带 lines/cursorLine/
  * cursorCol——按多行输入件坐标定位光标 token，弹层与源都只认本协议。
+ * R6 批 10j：查询升**异步形**——源可返同步数组（union 快路）或 Promise
+ * （重活源），signal 线传取消在途；同步源免包装同面。
  */
 
 /** 补全上下文（多行输入件坐标——模型只读投影） */
@@ -35,8 +37,14 @@ export interface AutocompleteResult {
   readonly replaceEnd: number;
 }
 
+/** 源返回形（union——同步数组快路 / Promise 异步源，R6 批 10j） */
+export type AutocompleteItems = readonly AutocompleteItem[] | Promise<readonly AutocompleteItem[]>;
+
+/** 取补全结果形（同 union 律——同步源同步交付、异步源微task 交付） */
+export type AutocompleteOutcome = AutocompleteResult | null | Promise<AutocompleteResult | null>;
+
 /** 补全源接口（组合件之外的独立源实现面） */
 export interface AutocompleteProvider {
-  /** 无补全返回 null（弹层不显） */
-  getCompletions(context: AutocompleteContext): AutocompleteResult | null;
+  /** 无补全返回 null（弹层不显）；signal = 取消在途（R6——源按需受理） */
+  getCompletions(context: AutocompleteContext, signal?: AbortSignal): AutocompleteOutcome;
 }

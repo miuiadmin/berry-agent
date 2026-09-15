@@ -11,6 +11,7 @@
 import type { CellBuffer, Region, Renderable } from '../../engine/index.js';
 import { prefixDisplayWidth } from './visual-lines.js';
 import type { EditorModel } from './editor-model.js';
+import { presentedLineCount } from './height-cap.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { CellStyle } from '../../engine/index.js';
 
@@ -33,6 +34,8 @@ export class EditorView implements Renderable {
   /** 视口首行（视觉行下标——render 时对光标夹取自愈） */
   private scrollOffset = 0;
   private readonly maxVisibleLines: number;
+  /** 上次呈现行数（迟滞带决策输入——R3 批 10j） */
+  private lastShownLines = 0;
   /** 聚焦态边框样式（accent 派生——主题单源，setTheme 整体重建） */
   private focusedBorder: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
 
@@ -53,11 +56,16 @@ export class EditorView implements Renderable {
     this.focused = focused;
   }
 
-  /** 量高：边框 2 + 视觉行数夹 maxVisibleLines（量高即分配承诺——不超卖） */
+  /**
+   * 量高：边框 2 + 呈现行数（迟滞带——R3 批 10j：增长即时夹帽、恰降 1 行
+   * 保持上次防抖、降 2 行才缩；量高即分配承诺——不超卖）。
+   */
   measure(width: number): number {
     this.model.setLayoutWidth(innerWidth(width));
     const count = this.model.visualLines().length;
-    return 2 + Math.min(count, this.maxVisibleLines);
+    const shown = presentedLineCount(count, this.maxVisibleLines, this.lastShownLines);
+    this.lastShownLines = shown;
+    return 2 + shown;
   }
 
   /** 落位渲染：边框 → 视口行 → 预编辑段 → 光标声明 */
@@ -98,16 +106,36 @@ export class EditorView implements Renderable {
       buffer.setCell(r, region.col, BORDER_V, style);
       buffer.setCell(r, lastCol, BORDER_V, style);
     }
-    // 滚动指示（有溢出才显——写入边框行右端、覆盖既有横边格）
+    // 滚动指示（有溢出才显——R3 批 10j ` ↑ N more ` 居中形；窄框放不下回退紧凑形）
     const above = this.scrollOffset;
     const below = totalLines - this.scrollOffset - (region.height - 2);
-    if (above > 0) this.writeIndicator(buffer, region.row, lastCol, ` ↑${above}`, style);
-    if (below > 0) this.writeIndicator(buffer, lastRow, lastCol, ` ↓${below}`, style);
+    if (above > 0) this.writeIndicator(buffer, region.row, region.col, region.width, above, '↑', style);
+    if (below > 0) this.writeIndicator(buffer, lastRow, region.col, region.width, below, '↓', style);
   }
 
-  /** 右端对齐写入指示文本（覆盖边框横格；越界由缓冲吸收） */
-  private writeIndicator(buffer: CellBuffer, row: number, lastCol: number, text: string, style?: CellStyle): void {
-    buffer.writeText(row, lastCol - text.length, text, style);
+  /**
+   * 滚动指示写入（R3 批 10j——` ↑ N more ` 形居中覆盖边框横格，两侧横边
+   * 自然延续成 `─── ↑ N more ──` 视觉；指示文本宽超内容区 = 窄框回退
+   * 右端紧凑 ` ↑N` 形——不劈角不溢出）。
+   */
+  private writeIndicator(
+    buffer: CellBuffer,
+    row: number,
+    col: number,
+    width: number,
+    count: number,
+    arrow: '↑' | '↓',
+    style?: CellStyle,
+  ): void {
+    const innerW = width - 2;
+    const full = ` ${arrow} ${count} more `;
+    if (full.length <= innerW) {
+      const start = col + 1 + Math.floor((innerW - full.length) / 2);
+      buffer.writeText(row, start, full, style);
+      return;
+    }
+    const compact = ` ${arrow}${count}`;
+    buffer.writeText(row, col + width - 1 - compact.length, compact, style); // 紧凑回退（右端——旧形）
   }
 
   /* ---------------- 正文（视口内视觉行） ---------------- */

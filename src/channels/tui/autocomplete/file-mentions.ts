@@ -2,8 +2,9 @@
  * @ 文件段补全源（07 §4.1 补全三合一第三源——mentions 源的实机行走件）。
  *
  * 语义承 berry 蓝本 getFileSuggestions 的 v1 子集：
- * - **目录列举 + 前缀过滤**（非模糊行走——fuzzy 全库发现随 fd 批挂账，
- *   `BERRY_AGENT_FD_PATH` 环境变量是其消费点、本批不触）；
+ * - **目录列举 + fuzzy 子序列过滤**（R6 批 10j——前缀命中置顶、子序列命中
+ *   随后；全库 fuzzy 发现仍随 fd 批挂账，`BERRY_AGENT_FD_PATH` 环境变量是
+ *   其消费点、本批不触）；
  * - 路径段解析：`src/ap` → 列 `src` 滤 `ap`；尾 `/` = 列该目录；相对段
  *   对 basePath（装配注入 cwd）、`~/` 展开家目录、`/` 起绝对位列举；
  * - `.git` 跳过（版本库内脏）；符号链指目录归类为目录（label 尾 `/`
@@ -19,6 +20,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import type { AutocompleteItem } from './provider.js';
+import { fuzzyMatchKind } from './fuzzy.js';
 
 /** 条目帽缺省（源侧规模锁——弹层自身另有窗口滚动帽） */
 const DEFAULT_MAX_ITEMS = 50;
@@ -78,11 +80,13 @@ export class FileMentionSource {
       return []; // 缺目录 / 不可及——空集（补全静默退场）
     }
 
-    const lowerPrefix = filePart.toLowerCase();
-    const items: AutocompleteItem[] = [];
+    // fuzzy 双组（R6 批 10j——子序列命中 + 前缀命中置顶；各组内目录优先再字典序）
+    const prefixHits: AutocompleteItem[] = [];
+    const fuzzyHits: AutocompleteItem[] = [];
     for (const entry of entries) {
       if (entry.name === '.git') continue; // 版本库内脏
-      if (!entry.name.toLowerCase().startsWith(lowerPrefix)) continue;
+      const hit = fuzzyMatchKind(entry.name, filePart);
+      if (hit === null) continue;
       // 目录归类：符号链补一次 stat（断链/竞态不可及——跳过）
       let isDirectory = entry.isDirectory();
       if (!isDirectory && entry.isSymbolicLink()) {
@@ -94,20 +98,16 @@ export class FileMentionSource {
       }
       // replacement 保用户敲的 dirPart 形（~/ 与绝对形原样续接）
       const pathValue = `${dirPart}${entry.name}${isDirectory ? '/' : ''}`;
-      items.push({
+      const item: AutocompleteItem = {
         label: `${entry.name}${isDirectory ? '/' : ''}`,
         replacement: `@${isQuoted || /\s/.test(pathValue) ? `"${pathValue}"` : pathValue}`,
-      });
+      };
+      (hit === 'prefix' ? prefixHits : fuzzyHits).push(item);
     }
 
-    // 目录优先、再 label 字典序（承 berry 排序语义）
-    items.sort((a, b) => {
-      const aDir = a.label.endsWith('/');
-      const bDir = b.label.endsWith('/');
-      if (aDir !== bDir) return aDir ? -1 : 1;
-      return a.label.localeCompare(b.label);
-    });
-    return items.slice(0, this.maxItems);
+    sortDirFirst(prefixHits);
+    sortDirFirst(fuzzyHits);
+    return [...prefixHits, ...fuzzyHits].slice(0, this.maxItems);
   };
 
   /** 列举目录解析（相对段对 basePath；~/ 家目录；/ 起绝对位） */
@@ -118,4 +118,14 @@ export class FileMentionSource {
     if (dirPart.startsWith('/')) return path.resolve(dirPart);
     return path.resolve(this.basePath, dirPart);
   }
+}
+
+/** 组内排序：目录优先、再 label 字典序（承 berry 排序语义——R6 批 10j 提取双组共用） */
+function sortDirFirst(items: AutocompleteItem[]): void {
+  items.sort((a, b) => {
+    const aDir = a.label.endsWith('/');
+    const bDir = b.label.endsWith('/');
+    if (aDir !== bDir) return aDir ? -1 : 1;
+    return a.label.localeCompare(b.label);
+  });
 }

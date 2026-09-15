@@ -29,6 +29,12 @@ import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import { writeHostSettings } from './settings-store.js';
 
+/**
+ * TUI 子动词册（R6 批 10j——补全源名集单源；增删动词同步 parseApprovalArgv
+ * 与 APPROVAL_USAGE）。
+ */
+export const APPROVAL_SUBVERBS = ['status', 'entries', 'explain', 'preset'] as const;
+
 /** 用法说明（TUI 命令描述位 + 解析错回执共用单源） */
 export const APPROVAL_USAGE = `/approval [status] | entries | explain <tool> [pattern] | preset <名>
   status                 当前态：sandbox 档 + 审批 policy（值 + 来源）+ 三档预设一览
@@ -116,7 +122,10 @@ export function parseApprovalArgv(
     }
     return { ok: true, sub: { sub: 'preset', name: rest[0] as string } };
   }
-  return { ok: false, message: `未知子命令：${verb}（合法：status/entries/explain/preset）。\n${APPROVAL_USAGE}` };
+  return {
+    ok: false,
+    message: `未知子命令：${verb}（合法：${APPROVAL_SUBVERBS.join('/')}）。\n${APPROVAL_USAGE}`,
+  };
 }
 
 /** 策略表条目单行渲染（entries 与 explain 命中行共用——六字段全列） */

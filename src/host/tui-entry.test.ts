@@ -20,7 +20,7 @@ import type { Provider } from '../llm/index.js';
 import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
-import { exitCommandItems, runTuiEntry } from './tui-entry.js';
+import { exitCommandItems, commandArgumentItems, runTuiEntry } from './tui-entry.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -136,6 +136,40 @@ describe('exitCommandItems 退出词补全源（07 §4.1 /exit 批）', () => {
     expect(exitCommandItems('ex').map((item) => item.label)).toEqual(['/exit']);
     expect(exitCommandItems('qu').map((item) => item.label)).toEqual(['/quit']);
     expect(exitCommandItems('zz')).toEqual([]); // 无关前缀零条目
+  });
+});
+
+describe('commandArgumentItems 命令参数补全源（R6 批 10j）', () => {
+  it('四命令首参子动词：全量 + 前缀/子序列过滤 + 带参者尾空格', () => {
+    // approval 全量（priorArgs 空 = 首参位）
+    const all = commandArgumentItems('approval', '', []);
+    expect(all.map((i) => i.label)).toEqual(['status', 'entries', 'explain', 'preset']);
+    // 无参动词无尾空格、带参动词尾空格（应用后直进下一 token 位）
+    expect(all.find((i) => i.label === 'status')?.replacement).toBe('status');
+    expect(all.find((i) => i.label === 'preset')?.replacement).toBe('preset ');
+    // 前缀 + 子序列两档（'pl' → plugins 前缀命中集）
+    expect(commandArgumentItems('plugins', 'li', []).map((i) => i.label)).toEqual(['list']);
+    // 'p' 前缀 preview 置顶 + 子序列 help（尾 p）随后——前缀组在前 fuzzy 组在后
+    expect(commandArgumentItems('rewind', 'p', []).map((i) => i.label)).toEqual(['preview', 'help']);
+    expect(commandArgumentItems('doors', '', []).map((i) => i.label)).toEqual(['list', 'open', 'close']);
+  });
+
+  it('深位枚举：approval preset 预设名（safety 单源）；doors open 能力名', () => {
+    const presets = commandArgumentItems('approval', '', ['preset']);
+    expect(presets.map((i) => i.label)).toEqual(['conservative', 'balanced', 'open']); // safety 预设三档单源
+    expect(presets[0]?.replacement).toBe('conservative '); // 枚举应用后尾空格
+    expect(presets[0]?.detail).toBeTruthy(); // 描述随行（safety 单源文本）
+    const caps = commandArgumentItems('doors', '', ['open']);
+    expect(caps.length).toBeGreaterThan(0); // contracts 面目录派生（非空集）
+    expect(caps.every((i) => i.replacement.endsWith(' '))).toBe(true);
+    // 深位失配（preset 后第三位 / 非 open·close 的 doors 动词后）——零条目
+    expect(commandArgumentItems('approval', 'x', ['preset', 'y'])).toEqual([]);
+    expect(commandArgumentItems('doors', 'x', ['list'])).toEqual([]);
+  });
+
+  it('未知命令 / 非首参位（活体 id 值）→ 零条目', () => {
+    expect(commandArgumentItems('model', '', [])).toEqual([]); // 静态面未接的命令
+    expect(commandArgumentItems('plugins', 'id', ['mount'])).toEqual([]); // 插件 id = 活体值不在静态面
   });
 });
 

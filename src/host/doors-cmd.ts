@@ -30,6 +30,9 @@ import { adjudicateCapabilityDoor, DOORS_SEGMENT_V1_DOMAIN, USER_GRANTABLE_CAPAB
 import { createPluginStoreFs, editDoorsSegment, readEnabledRowsForEdit } from './plugin-store.js';
 import type { PluginStoreFs } from './plugin-store.js';
 
+/** TUI 子动词册（R6 批 10j——补全源名集单源；capability 枚举 = contracts 面目录派生） */
+export const DOORS_SUBVERBS = ['list', 'open', 'close'] as const;
+
 /** 用法说明（TUI 命令描述位 + 解析错回执共用单源） */
 export const DOORS_USAGE = `/doors list | open <capability> | close <capability>
   list                 六枚高危面全清单 + 当前开态双源呈现（行 opens 按插件分组 + doors 段进程级一行）
@@ -88,7 +91,7 @@ export function parseDoorsArgv(argv: readonly string[]): { ok: true; sub: DoorsS
     }
     return { ok: true, sub: { sub: verb, door: rest[0] as string } };
   }
-  return { ok: false, message: `未知子命令：${verb}（合法：list/open/close）。\n${DOORS_USAGE}` };
+  return { ok: false, message: `未知子命令：${verb}（合法：${DOORS_SUBVERBS.join('/')}）。\n${DOORS_USAGE}` };
 }
 
 /**

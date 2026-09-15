@@ -41,6 +41,15 @@ describe('EditorView 量高', () => {
     expect(view.measure(20)).toBe(4); // 2 边框 + 2 行
   });
 
+  it('迟滞带（R3 批 10j）：恰降 1 行保持上次、降 2 行才缩', () => {
+    const { view, model } = viewOf('a\nb\nc\nd', { maxVisibleLines: 8 });
+    expect(view.measure(20)).toBe(6); // 4 行即时
+    model.setText('a\nb\nc'); // 降 1 行——保持 4（空白垫底）
+    expect(view.measure(20)).toBe(6);
+    model.setText('a\nb'); // 降 2 行——缩
+    expect(view.measure(20)).toBe(4);
+  });
+
   it('长行折行计入量高（字素硬折）', () => {
     const { view } = viewOf('aaaaaaaaaa', { layoutWidth: 8 });
     expect(view.measure(10)).toBe(4); // 8 列折两行
@@ -109,6 +118,18 @@ describe('EditorView 滚动指示与视口', () => {
     expect(readRow(grid, 1, 10)).toBe('│d       │');
     expect(readRow(grid, 2, 10)).toBe('│e       │');
     expect(readRow(grid, 0, 10)).toBe('┌───── ↑3┐');
+  });
+
+  it('宽框指示 ` ↑ N more ` 居中形（R3 批 10j——窄框放不下才回退紧凑形）', () => {
+    // setText 光标归尾——滚到底，上方溢出 3 行；宽 24 框放得下 ` ↑ 3 more `（9 格）
+    const { view } = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 2 });
+    const grid = new CellGrid(24, 4);
+    view.render(grid, { row: 0, col: 0, width: 24, height: 4 });
+    expect(readRow(grid, 0, 24)).toBe('┌────── ↑ 3 more ──────┐');
+    // 窄 10 框放不下（内宽 8 < 9）——回退右端紧凑 ` ↑3`
+    const narrow = new CellGrid(10, 4);
+    view.render(narrow, { row: 0, col: 0, width: 10, height: 4 });
+    expect(readRow(narrow, 0, 10)).toBe('┌───── ↑3┐');
   });
 });
 

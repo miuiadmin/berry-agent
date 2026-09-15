@@ -89,6 +89,7 @@ import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer
 import { ConfirmPanel, SelectPanel } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
 import { CombinedAutocompleteProvider, type AutocompleteSources } from '../autocomplete/autocomplete.js';
+import { AutocompleteCompleter } from '../autocomplete/async.js';
 
 /** 后端构造选项 */
 export interface TuiBackendOptions {
@@ -230,6 +231,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly statusLine = new StatusLine();
   private readonly editor: Editor;
   private readonly popup: AutocompletePopup;
+  /** 三源合一补全器（token 路由 + union 收口——R6 批 10j 调度器查询位） */
+  private readonly autocompleteProvider: CombinedAutocompleteProvider;
+  /** 补全防抖调度器（R6 批 10j：尾沿 20ms / AbortSignal / 错序丢弃三律） */
+  private readonly autocompleteCompleter: AutocompleteCompleter;
   private readonly stack = new OverlayStack();
   /** overlay 锚定注册表（content 身份键 → 本帧 region——renderFixed 行账重建） */
   private readonly overlayLayout = new Map<
@@ -361,7 +366,31 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       onChange: () => this.handleEditorChange(),
       maxVisibleLines: options.maxVisibleLines,
     });
-    this.popup = new AutocompletePopup(new CombinedAutocompleteProvider(options.autocomplete ?? {}), this.editor.model);
+    // 补全三件（R6 批 10j 异步形）：provider 路由单源 → 弹层纯落位面 → 防抖
+    // 调度器居中编舞。query 闭包 fire 时自取编辑器现态（防抖窗内连打取最新
+    // 态）；schedule 注入缺席 = 立即发（同步测试语义——既有确定性测试零扰动）
+    this.autocompleteProvider = new CombinedAutocompleteProvider(options.autocomplete ?? {});
+    this.popup = new AutocompletePopup(this.editor.model);
+    this.autocompleteCompleter = new AutocompleteCompleter({
+      query: (signal) => {
+        const cursor = this.editor.model.getCursor();
+        return this.autocompleteProvider.getCompletions(
+          {
+            lines: this.editor.model.getLines(),
+            cursorLine: cursor.line,
+            cursorCol: cursor.col,
+          },
+          signal,
+        );
+      },
+      onResult: (result) => {
+        if (this.inputAsk !== null) return; // 应答接管窗——迟到在途结果不落层
+        this.popup.applyResult(result);
+        this.touchFixed();
+      },
+      schedule: this.scheduleFn ?? undefined,
+      cancelSchedule: this.scheduleFn !== null ? this.cancelFn : undefined,
+    });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     this.stack.onChange = () => this.touchFixed();
     this.screen = new MainScreen(io, { fixedHeight: 4 }); // 初始高：编辑器 3 + 状态行 1（动态更新经 setFixed）
@@ -439,6 +468,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.cancelTimer('frame');
     this.cancelTimer('tick');
     this.cancelTimer('escape');
+    this.autocompleteCompleter.cancel(); // 补全在途全收（停机后零迟到交付）
     this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
     this.disarmExitRestore?.();
     this.io.pause();
@@ -704,7 +734,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       const ask: InputAsk = { message, resolve };
       this.inputAsk = ask;
       this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
-      this.popup.refresh(); // 应答期弹层抑制前，在层按空框重算自隐
+      this.autocompleteCompleter.cancel(); // 应答期弹层抑制：撤窗 + 在途作废
+      this.popup.applyResult(null); // 在层即刻收层
       opts?.signal?.addEventListener(
         'abort',
         () => {
@@ -712,7 +743,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.inputAsk = null;
           this.appendTransientLine('⏹ 已取消提问');
           this.editor.setText('');
-          this.popup.refresh();
+          this.autocompleteCompleter.cancel();
+          this.popup.applyResult(null);
           resolve('');
           this.touchFixed();
         },
@@ -846,7 +878,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (ask !== null) {
       this.inputAsk = null;
       ask.resolve(text);
-      this.popup.refresh(); // 应答期抑制的补全层此刻按空框重算自隐
+      this.autocompleteCompleter.cancel(); // 应答收场：撤窗 + 在途作废（下轮 ask 重开）
+      this.popup.applyResult(null); // 应答期抑制的补全层即刻收层
       this.touchFixed();
       return;
     }
@@ -894,9 +927,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     return true;
   }
 
-  /** 编辑器内容变更：补全层重取（应答期抑制）+ 固定区脏位 */
+  /** 编辑器内容变更：补全层重发查询（尾沿防抖——R6 批 10j）+ 固定区脏位 */
   private handleEditorChange(): void {
-    if (this.inputAsk === null) this.popup.refresh();
+    if (this.inputAsk === null) this.autocompleteCompleter.request();
     this.touchFixed();
   }
 

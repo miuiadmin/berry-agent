@@ -28,6 +28,9 @@ import { checkPluginId } from './manifest.js';
 import { mountRow, readLedger, toggleRow, unmountRow } from './plugin-store.js';
 import type { LifecycleAuditSink, PluginStoreFs } from './plugin-store.js';
 
+/** TUI 子动词册（R6 批 10j——补全源名集单源；install/uninstall/update 属 CLI 面不入册） */
+export const PLUGINS_SUBVERBS = ['list', 'mount', 'unmount', 'toggle', 'config'] as const;
+
 /** 用法说明（命令描述位 + 未知动词回执共用单源） */
 export const PLUGINS_CMD_USAGE = `/plugins list | mount <id> | unmount <id> | toggle <id> | config <id>
   list                装载态清单三分区（启用/失败/禁用——内存读面零磁盘）

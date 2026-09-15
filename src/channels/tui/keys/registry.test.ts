@@ -33,16 +33,16 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
   });
 
   it('合法覆盖生效（动作键位整替）', () => {
-    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+y' });
+    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+g' });
     expect(r.rejections).toEqual([]);
-    expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+y']);
+    expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+g']);
   });
 
   it('四形拒载之一：未知动作点名拒（其余照常）', () => {
-    const r = resolveKeybindings({ 'no.such-action': 'ctrl+z', 'thinking.toggle': 'ctrl+y' });
+    const r = resolveKeybindings({ 'no.such-action': 'ctrl+z', 'thinking.toggle': 'ctrl+g' });
     expect(r.rejections).toHaveLength(1);
     expect(r.rejections[0]).toMatchObject({ kind: 'unknown-action', actionId: 'no.such-action' });
-    expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+y']); // 无辜条目不受连坐
+    expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+g']); // 无辜条目不受连坐
   });
 
   it('四形拒载之二：不可覆盖动作（全局键生命线）', () => {
@@ -69,7 +69,7 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
   });
 
   it('双覆盖互相撞键 → 两条全拒（回退缺省、点名对家）', () => {
-    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+y', 'tools.toggle-expand': 'ctrl+y' });
+    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+g', 'tools.toggle-expand': 'ctrl+g' });
     expect(r.rejections).toHaveLength(2);
     expect(r.rejections.every((x) => x.kind === 'conflict')).toBe(true);
     expect(r.keysByAction.get('thinking.toggle')).toEqual(['ctrl+t']);
@@ -77,7 +77,7 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
   });
 
   it('把动作挪离缺省键不构成冲突（原键位让空）', () => {
-    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+y' });
+    const r = resolveKeybindings({ 'thinking.toggle': 'ctrl+g' });
     expect(r.rejections).toEqual([]);
     // ctrl+t 上不再有任何动作（thinking.toggle 已迁走）——倒排无越集
     const holders = ACTION_CATALOG.filter((def) => def.keys.includes('ctrl+t'));
@@ -87,10 +87,10 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
 
 describe('Keymap 消费面', () => {
   it('actionMatches 按当前键集命中（覆盖后随动）', () => {
-    const map = new Keymap({ 'thinking.toggle': 'ctrl+y' });
+    const map = new Keymap({ 'thinking.toggle': 'ctrl+g' });
     expect(map.actionMatches(key('t', { ctrl: true }), 'thinking.toggle')).toBe(false); // 旧键已迁
-    expect(map.actionMatches(key('y', { ctrl: true }), 'thinking.toggle')).toBe(true);
-    expect(map.actionMatches(key('y', { ctrl: true, meta: true }), 'thinking.toggle')).toBe(false); // meta 不入门
+    expect(map.actionMatches(key('g', { ctrl: true }), 'thinking.toggle')).toBe(true);
+    expect(map.actionMatches(key('g', { ctrl: true, meta: true }), 'thinking.toggle')).toBe(false); // meta 不入门
   });
 
   it('keyText 首键名单源（显示面消费；覆盖后随动）', () => {
@@ -98,7 +98,7 @@ describe('Keymap 消费面', () => {
     expect(map.keyText('thinking.toggle')).toBe('ctrl+t');
     expect(map.keyText('tools.toggle-expand')).toBe('ctrl+o');
     expect(map.keyText('no.such')).toBe(''); // 未知动作诚实空串
-    const remapped = new Keymap({ 'thinking.toggle': 'ctrl+y' });
-    expect(remapped.keyText('thinking.toggle')).toBe('ctrl+y');
+    const remapped = new Keymap({ 'thinking.toggle': 'ctrl+g' });
+    expect(remapped.keyText('thinking.toggle')).toBe('ctrl+g');
   });
 });

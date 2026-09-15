@@ -427,3 +427,202 @@ describe('EditorModel 视觉行查询', () => {
     expect(m.isOnFirstVisualLine()).toBe(true);
   });
 });
+
+/* ---------------- kill-ring 集成（R3 批 10j） ---------------- */
+
+describe('EditorModel kill-ring 集成', () => {
+  it('三 kill 原语被删段入环（词删 / 行首 / 行尾——行内段形）', () => {
+    const m = modelWith('hello world');
+    m.moveEnd();
+    m.deleteWordBackward(); // kill 'world'（词边界不含前导空格——余 'hello '）
+    expect(m.getText()).toBe('hello ');
+    expect(m.killRing.current()).toBe('world');
+    m.insertText('again'); // 'hello again'（空格已余）
+    m.moveEnd();
+    m.deleteToLineEnd(); // 行尾无内容 = no-op 不入环
+    expect(m.killRing.current()).toBe('world');
+    m.deleteToLineStart(); // kill 'hello again'
+    expect(m.getText()).toBe('');
+    expect(m.killRing.current()).toBe('hello again');
+  });
+
+  it('行首/行尾合并形 kill 入环换行段', () => {
+    const m = modelWith('ab\ncd'); // 光标 (1,2)——'cd' 行尾
+    m.moveHome(); // (1,0)
+    m.deleteToLineStart(); // 行首合并前行——kill '\n'
+    expect(m.getText()).toBe('abcd');
+    expect(m.killRing.current()).toBe('\n');
+    const m2 = modelWith('ab\ncd');
+    m2.moveHome(); // (1,0)
+    m2.moveUp(); // (0,0)
+    m2.moveEnd(); // (0,2)——'ab' 行尾
+    m2.deleteToLineEnd(); // 行尾合并次行——kill '\n'
+    expect(m2.getText()).toBe('abcd');
+    expect(m2.killRing.current()).toBe('\n');
+  });
+
+  it('yank：环头条目插入光标处、光标落尾、区间账在案', () => {
+    const m = modelWith('hello world');
+    m.moveEnd();
+    m.deleteWordBackward(); // kill 'world' → 'hello '
+    m.moveHome();
+    m.yank(); // 在行首 yank——插 'world'
+    expect(m.getText()).toBe('worldhello ');
+    expect(m.getCursor()).toEqual({ line: 0, col: 5 });
+    expect(m.killRing.activeSpan).toEqual({ line: 0, start: 0, end: 5, text: 'world' });
+  });
+
+  it('yankPop：环游标步进替换刚 yank 的段', () => {
+    const m = modelWith('one two');
+    m.moveEnd();
+    m.deleteWordBackward(); // kill 'two' → 'one '（环 [two]）
+    m.insertText(' three'); // 'one  three'（空格叠加）
+    m.moveEnd();
+    m.deleteWordBackward(); // kill 'three' → 'one  '（环 [three, two]）
+    m.moveHome();
+    m.yank(); // 插 'three'
+    expect(m.getText()).toBe('threeone  ');
+    m.yankPop(); // 替换为环下一条 'two'
+    expect(m.getText()).toBe('twoone  ');
+    m.yankPop(); // 回绕替换回 'three'
+    expect(m.getText()).toBe('threeone  ');
+  });
+
+  it('yankPop 无在案 yank = no-op；区间被编辑后 = no-op（自校验）', () => {
+    const m = modelWith('ab');
+    m.deleteToLineStart(); // kill 'ab'
+    m.yankPop(); // 无 yank 态
+    expect(m.getText()).toBe('');
+    m.yank(); // 插 'ab'
+    m.insertText('X'); // 编辑劈了 yank 区间
+    const before = m.getText();
+    m.yankPop(); // 区间账失效——no-op
+    expect(m.getText()).toBe(before);
+  });
+
+  it('yank / yankPop 不入 undo（undo 直跳 kill 前）；kill 入 undo', () => {
+    const m = new EditorModel();
+    m.insertText('hello world'); // undo 点①：空框
+    m.moveEnd();
+    m.deleteWordBackward(); // kill 'world' → 'hello '（undo 点②：全量）
+    m.yank(); // 插回 'world'（不入 undo——恢复非破坏）
+    expect(m.getText()).toBe('hello world');
+    m.undo(); // 直跳 kill 前（跳过 yank——yank 无 undo 点）
+    expect(m.getText()).toBe('hello world');
+    m.undo(); // 恰两步到底——kill 的 undo 点已耗
+    expect(m.getText()).toBe('');
+    expect(m.canUndo()).toBe(false);
+  });
+
+  it('词删（alt+backspace 同动作）与行删（ctrl+u / ctrl+k）入 undo 正常', () => {
+    const m = modelWith('keep drop');
+    m.moveEnd();
+    m.deleteWordBackward();
+    expect(m.getText()).toBe('keep ');
+    m.undo();
+    expect(m.getText()).toBe('keep drop');
+  });
+});
+
+/* ---------------- 粘贴标记化（R3 批 10j） ---------------- */
+
+describe('EditorModel 粘贴标记化', () => {
+  /** 造超阈粘贴文本（THRESHOLD+1 行） */
+  const bigPaste = Array.from({ length: 21 }, (_, i) => `行${i}`).join('\n');
+  const smallPaste = 'a\nb\nc';
+
+  it('超阈粘贴：标记恒独占行 + 登记原文 + undo 单步', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste);
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]']);
+    expect(m.isPasteMarkerLine(0)).toBe(true);
+    expect(m.getText()).toBe('[paste #1 +21 lines]'); // 框内只呈现标记
+    m.undo();
+    expect(m.getText()).toBe('');
+    expect(m.isPasteMarkerLine(0)).toBe(false); // 登记随快照回退
+  });
+
+  it('阈内小粘贴整段入框（原语义不变）', () => {
+    const m = new EditorModel();
+    m.insertPaste(smallPaste);
+    expect(m.getLines()).toEqual(['a', 'b', 'c']);
+    expect(m.isPasteMarkerLine(0)).toBe(false);
+  });
+
+  it('行中粘贴标记：劈行独占、前后文本保全', () => {
+    const m = modelWith('abcdef'); // 光标行尾
+    m.moveHome();
+    m.moveRight();
+    m.moveRight();
+    m.moveRight(); // col 3——'abc|def'
+    m.insertPaste(bigPaste);
+    expect(m.getLines()).toEqual(['abc', '[paste #1 +21 lines]', 'def']);
+    expect(m.getCursor()).toEqual({ line: 2, col: 0 });
+  });
+
+  it('提交时展开回正文（标记换原文）', () => {
+    const m = new EditorModel();
+    m.insertText('问：');
+    m.insertPaste(bigPaste);
+    const out = m.submit();
+    expect(out).toBe(`问：\n${bigPaste}`); // trim 后形
+    expect(m.getText()).toBe(''); // 全清
+  });
+
+  it('标记行上删除键 = 删整标记行（任意位、六原语同律、undo 单步）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste);
+    m.insertText('尾部'); // 标记行尾打字——守卫开新行（标记不劈）
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '尾部']);
+    m.moveUp(); // 回标记行
+    m.moveEnd();
+    m.backspace(); // 标记行内退格——删整标记行
+    expect(m.getLines()).toEqual(['尾部']);
+    expect(m.isPasteMarkerLine(0)).toBe(false);
+    m.undo();
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '尾部']); // 整行回退
+  });
+
+  it('标记内插入 = 就地展开（原文替换标记行、光标落原文首行首）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste); // lines [marker]，光标 (0,20)
+    m.insertText('尾部'); // 行尾守卫 → 后置空行：lines [marker, '尾部']
+    m.moveUp(); // sticky 列保持（显示列 4——'尾部' CJK 双宽）→ (0,4)——标记内部
+    expect(m.getCursor()).toEqual({ line: 0, col: 4 });
+    m.insertText('X'); // 就地展开：登记原文整行替换标记、光标落原文首行首再落字
+    expect(m.getLines()).toEqual(['X行0', ...Array.from({ length: 20 }, (_, i) => `行${i + 1}`), '尾部']);
+    expect(m.getCursor()).toEqual({ line: 0, col: 1 });
+    m.undo(); // 展开后快照——撤输入字，标记不回（劈开事实诚实记录）
+    expect(m.getLines()).toEqual([...Array.from({ length: 21 }, (_, i) => `行${i}`), '尾部']);
+    expect(m.isPasteMarkerLine(0)).toBe(false); // 登记已随展开注销
+  });
+
+  it('标记行首 / 行尾插入守卫：前置换行 / 后置空行（标记恒独占）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste);
+    m.moveEnd();
+    m.insertText('尾'); // 行尾守卫——后置空行
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '尾']);
+  });
+
+  it('undo 恢复标记形：登记表随快照一致（再删可再 undo）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste);
+    m.deleteToLineStart(); // 标记行整删
+    expect(m.getText()).toBe('');
+    m.undo(); // 回标记形
+    expect(m.isPasteMarkerLine(0)).toBe(true); // 登记随快照恢复
+    const out = m.submit();
+    expect(out).toBe(bigPaste); // 展开照常
+  });
+
+  it('序号从登记表推导（max+1）——多标记并存', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste);
+    m.insertText('\n');
+    m.insertPaste(bigPaste);
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '', '[paste #2 +21 lines]']);
+    const out = m.submit();
+    expect(out).toBe(`${bigPaste}\n\n${bigPaste}`);
+  });
+});

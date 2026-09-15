@@ -7,11 +7,11 @@
  * 单源消费）。
  *
  * 本批接线面：全局键（ctrl+c / ctrl+d——不可覆盖）+ thinking.toggle /
- * tools.toggle-expand 两动作。编辑器族动作**入册不迁 dispatch**（editor.ts
- * 内部键面维持原判——dispatch 迁册归 10j/10k）；入册即成 keyText 与冲突
- * 检测的判据域。缺省册自身的历史双绑（ctrl+d = 全局退出 / 编辑器删字——
- * 分层消解的既定形：空框退出、非空删字）按「键 → 动作集」整集对拍缺省册
- * 放行（见 conflict 检测注）。
+ * tools.toggle-expand 两动作 + **编辑器族 dispatch 迁册**（批 10j——editor.ts
+ * 内部键表退役，册为唯一真源；yank / yank-pop 两动作随 R3 kill-ring 同批入册）。
+ * keyText 与冲突检测的判据域随册走。缺省册自身的历史双绑（ctrl+d = 全局退出 /
+ * 编辑器删字——分层消解的既定形：空框退出、非空删字）按「键 → 动作集」整集
+ * 对拍缺省册放行（见 conflict 检测注）。
  *
  * 用户覆盖（settings.json `keybindings` 键——10k 装配接线）经
  * resolveKeybindings 四形校验 fail-loud 点名拒载：未知动作 / 不可覆盖动作 /
@@ -34,8 +34,7 @@ export interface ActionDef {
 /**
  * 缺省动作册（单源——缺省键位与动作同册）。键串文法：修饰键序 ctrl+alt+
  * shift+ + 键名（单字符或具名键，全小写）；具名键集 = NAMED_KEYS。
- * 编辑器族键位与 editor.ts 内部键表同值（迁册前的镜像义务——dispatch 迁册
- * 批以本册为真源回写 editor）。
+ * 编辑器族键位 = editor.ts dispatch 真源（批 10j 迁册——内部键表退役）。
  */
 export const ACTION_CATALOG: readonly ActionDef[] = [
   // 全局键（路由层①——不可覆盖：中断与退出是会话生命线）
@@ -45,7 +44,7 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   { id: 'thinking.toggle', scope: 'thinking', label: '思考块折叠/展开', keys: ['ctrl+t'], overridable: true },
   // 工具卡开关（批 10i——会话级展开/收起）
   { id: 'tools.toggle-expand', scope: 'tools', label: '工具卡展开/收起', keys: ['ctrl+o'], overridable: true },
-  // 编辑器族（editor.ts 键表镜像——dispatch 迁册归后续批）
+  // 编辑器族（批 10j 迁册——dispatch 真源）
   { id: 'editor.submit', scope: 'editor', label: '提交输入', keys: ['enter'], overridable: true },
   { id: 'editor.new-line', scope: 'editor', label: '换行', keys: ['shift+enter', 'ctrl+j'], overridable: true },
   { id: 'editor.undo', scope: 'editor', label: '撤销', keys: ['ctrl+-', 'ctrl+_'], overridable: true },
@@ -55,20 +54,20 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     id: 'editor.move-word-left',
     scope: 'editor',
     label: '左移一词',
-    keys: ['alt+left', 'ctrl+left'],
+    keys: ['alt+left', 'ctrl+left', 'alt+b'],
     overridable: true,
   },
   {
     id: 'editor.move-word-right',
     scope: 'editor',
     label: '右移一词',
-    keys: ['alt+right', 'ctrl+right'],
+    keys: ['alt+right', 'ctrl+right', 'alt+f'],
     overridable: true,
   },
   { id: 'editor.line-start', scope: 'editor', label: '行首', keys: ['home', 'ctrl+a'], overridable: true },
   { id: 'editor.line-end', scope: 'editor', label: '行尾', keys: ['end', 'ctrl+e'], overridable: true },
   { id: 'editor.jump-forward', scope: 'editor', label: '跳至下一空行', keys: ['ctrl+]'], overridable: true },
-  { id: 'editor.jump-backward', scope: 'editor', label: '跳至上一空行', keys: ['alt+ctrl+]'], overridable: true },
+  { id: 'editor.jump-backward', scope: 'editor', label: '跳至上一空行', keys: ['ctrl+alt+]'], overridable: true },
   { id: 'editor.page-up', scope: 'editor', label: '编辑器上翻页', keys: ['pageup'], overridable: true },
   { id: 'editor.page-down', scope: 'editor', label: '编辑器下翻页', keys: ['pagedown'], overridable: true },
   { id: 'editor.delete-backward', scope: 'editor', label: '向前删字符', keys: ['backspace'], overridable: true },
@@ -89,6 +88,9 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   },
   { id: 'editor.delete-to-line-start', scope: 'editor', label: '删至行首', keys: ['ctrl+u'], overridable: true },
   { id: 'editor.delete-to-line-end', scope: 'editor', label: '删至行尾', keys: ['ctrl+k'], overridable: true },
+  // kill-ring 消费键（R3 批 10j——kill 族键位即上方词删/行删既有条目，入环是行为升级非新键）
+  { id: 'editor.yank', scope: 'editor', label: '粘贴最近 kill 段', keys: ['ctrl+y'], overridable: true },
+  { id: 'editor.yank-pop', scope: 'editor', label: '环游标步进替换', keys: ['alt+y'], overridable: true },
   { id: 'editor.history-prev', scope: 'editor', label: '上一条历史', keys: ['up'], overridable: true },
   { id: 'editor.history-next', scope: 'editor', label: '下一条历史', keys: ['down'], overridable: true },
 ];

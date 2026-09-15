@@ -21,12 +21,20 @@ import {
 } from './visual-lines.js';
 import { findWordBackward, findWordForward } from './word-nav.js';
 import { UndoStack } from './undo-stack.js';
+import { KillRing } from './kill-ring.js';
+import { parsePasteMarker, pasteMarkerText, shouldMarkerize, nextMarkerId } from './paste-marker.js';
 
 /** 编辑器状态（undo 快照单元——可 structuredClone 的纯数据形） */
 export interface EditorState {
   lines: string[];
   cursorLine: number;
   cursorCol: number;
+  /**
+   * 粘贴标记登记表（R3 批 10j——id → 原文）。入 state：undo 快照随行
+   * （structuredClone(Map) 合法），恢复即一致视图；序号推导自键集
+   * （nextMarkerId——无独立计数器，快照回跳不重号）。
+   */
+  markers: Map<number, string>;
 }
 
 /** 输入历史帽（07 呈现面件 2 语义：输入历史 100 条） */
@@ -44,8 +52,10 @@ function normalizeText(text: string): string {
  * 编辑模型：状态自持、变更方法驱动；onChange 通知（渲染侧组装请求重绘）。
  */
 export class EditorModel {
-  private state: EditorState = { lines: [''], cursorLine: 0, cursorCol: 0 };
+  private state: EditorState = { lines: [''], cursorLine: 0, cursorCol: 0, markers: new Map() };
   private readonly undoStack = new UndoStack<EditorState>(UNDO_LIMIT);
+  /** kill 环（R3 批 10j——三 kill 原语被删段压环 + yank/yankPop 消费面） */
+  private readonly ring = new KillRing();
   /** undo 合并判据（fish 式）：连续词字符插入合并一单元；空白段、词接空白后各独立成步 */
   private lastAction: 'type-word' | 'type-whitespace' | null = null;
   private readonly history: string[] = [];
@@ -80,6 +90,11 @@ export class EditorModel {
     return this.preedit;
   }
 
+  /** kill 环观测面（组件层 yank/yankPop 键消费位——R3 批 10j） */
+  get killRing(): KillRing {
+    return this.ring;
+  }
+
   /** 视觉行映射（视图渲染与视口滚动共用——与模型内部导航同宽同源） */
   visualLines(): VisualSegment[] {
     return buildVisualLineMap(this.state.lines, this.layoutWidth);
@@ -110,7 +125,12 @@ export class EditorModel {
     this.exitHistoryBrowsing();
     const normalized = normalizeText(text);
     if (this.getText() !== normalized) this.pushUndo();
-    this.state = { lines: normalized.split('\n'), cursorLine: 0, cursorCol: 0 };
+    this.state = {
+      lines: normalized.split('\n'),
+      cursorLine: 0,
+      cursorCol: 0,
+      markers: new Map(),
+    };
     const last = this.state.lines[this.state.lines.length - 1] ?? '';
     this.state.cursorLine = this.state.lines.length - 1;
     this.state.cursorCol = last.length;
@@ -119,19 +139,27 @@ export class EditorModel {
   }
 
   /**
-   * 提交：取 trim 后全文、全清（状态 / undo / 历史浏览 / 预编辑）返回。
-   * 历史入册归调用方（组件层 onSubmit 消费方决定）。
+   * 提交：标记行展开回正文（R3——`[paste #N +L lines]` 换登记原文）后取
+   * trim 全文、全清（状态 / undo / 历史浏览 / 预编辑）返回。历史入册归
+   * 调用方（组件层 onSubmit 消费方决定）。登记表查不到的标记行保留原样
+   * （防御位——正常流标记恒有登记）。
    */
   submit(): string {
-    const result = this.getText().trim();
-    this.state = { lines: [''], cursorLine: 0, cursorCol: 0 };
+    const expanded = this.state.lines
+      .map((line) => {
+        const parsed = parsePasteMarker(line);
+        if (parsed === null) return line;
+        return this.state.markers.get(parsed.id) ?? line;
+      })
+      .join('\n');
+    this.state = { lines: [''], cursorLine: 0, cursorCol: 0, markers: new Map() };
     this.undoStack.clear();
     this.lastAction = null;
     this.preedit = null;
     this.preferredVisualCol = null;
     this.exitHistoryBrowsing();
     this.notify();
-    return result;
+    return expanded.trim();
   }
 
   /* ---------------- 插入路（text 游程 / IME 提交 / 粘贴共用） ---------------- */
@@ -139,14 +167,43 @@ export class EditorModel {
   /**
    * 光标处插入文本（可多行——拆行落位、光标落插入段尾）。
    * undo 合并：连续非空白段合并一单元（打字游程）、空白段独立成步。
+   * 光标在标记内部 → 先展开标记（R3——防插入劈开标记文本）。
    */
   insertText(text: string): void {
     if (text === '') return;
     this.exitHistoryBrowsing();
+    this.guardMarkerInsert();
     const isWhitespace = text.trim().length === 0;
     if (isWhitespace || this.lastAction !== 'type-word') this.pushUndo();
     this.lastAction = isWhitespace ? 'type-whitespace' : 'type-word';
     this.insertTextRaw(normalizeText(text));
+    this.notify();
+  }
+
+  /**
+   * 粘贴分阈（R3 批 10j）：超阈大段走**粘贴标记原子段**——标记恒独占行
+   * （光标处劈行落位，行首/行尾免相邻换行）、原文入登记表、undo 单步；
+   * 阈内小粘贴整段入框（原语义）。提交时展开回正文（见 submit）。
+   */
+  insertPaste(text: string): void {
+    if (text === '') return;
+    this.exitHistoryBrowsing();
+    this.pushUndo(); // 粘贴原子一步（标记化 / 整段同律）
+    this.lastAction = null;
+    if (!shouldMarkerize(normalizeText(text))) {
+      this.insertTextRaw(normalizeText(text));
+      this.notify();
+      return;
+    }
+    const normalized = normalizeText(text);
+    const id = nextMarkerId(this.state.markers);
+    this.state.markers.set(id, normalized);
+    const marker = pasteMarkerText(id, normalized.split('\n').length);
+    const line = this.state.lines[this.state.cursorLine] ?? '';
+    const atStart = this.state.cursorCol === 0;
+    const atEnd = this.state.cursorCol >= line.length;
+    // 劈行独占：前后换行按光标位省一侧（行首免前导 / 行尾免尾随——不留空行残骸）
+    this.insertTextRaw(`${atStart ? '' : '\n'}${marker}${atEnd ? '' : '\n'}`);
     this.notify();
   }
 
@@ -178,6 +235,8 @@ export class EditorModel {
    * 与水平粘滞链。
    */
   replaceToken(line: number, start: number, end: number, replacement: string): void {
+    // 标记行不承接 token 代换（弹层在标记行不应激活——代换坐标会劈开标记；防御位）
+    if (this.markerIdAt(line) !== null) return;
     this.exitHistoryBrowsing();
     this.pushUndo();
     this.preedit = null;
@@ -190,11 +249,89 @@ export class EditorModel {
     this.notify();
   }
 
+  /* ---------------- 粘贴标记原子段（R3 批 10j） ---------------- */
+
+  /** 行是活标记行判（parse 命中 + 登记表命中——手敲同形文本不获原子性） */
+  private markerIdAt(lineNo: number): number | null {
+    const parsed = parsePasteMarker(this.state.lines[lineNo] ?? '');
+    if (parsed === null) return null;
+    return this.state.markers.has(parsed.id) ? parsed.id : null;
+  }
+
+  /** 光标行/指定行是活标记行判（视图 dim 呈现 + 测试观测面） */
+  isPasteMarkerLine(lineNo: number): boolean {
+    return this.markerIdAt(lineNo) !== null;
+  }
+
+  /** 删除整标记行（登记注销 + 行删除，undo 单步；光标落删除位新行首或前行尾） */
+  private deleteMarkerLine(lineNo: number): void {
+    const id = this.markerIdAt(lineNo);
+    if (id === null) return;
+    this.exitHistoryBrowsing(); // 浏览态兜底（draft 恢复形可携标记行）
+    this.pushUndo();
+    this.state.markers.delete(id);
+    this.state.lines.splice(lineNo, 1);
+    if (this.state.lines.length === 0) this.state.lines = [''];
+    const next = Math.min(lineNo, this.state.lines.length - 1);
+    this.state.cursorLine = next;
+    const target = this.state.lines[next] ?? '';
+    // 删的是末行 → 新末行（前行）行尾；否则删除位新行（原后继行）行首
+    this.setCursorCol(next === lineNo ? 0 : target.length);
+    this.notify();
+  }
+
+  /**
+   * 插入位在标记行的防劈守卫（R3——标记恒独占行）：
+   * 光标在标记**内部** → 就地展开（登记原文整行替换标记文本、光标落原文
+   * 首行首——标记文本是渲染替身非用户内容，整行随标记消亡）；行首 → 前置
+   * 空行（文本落新行、原行后移）；行尾 → 后置空行（光标落新行首）。
+   */
+  private guardMarkerInsert(): void {
+    const lineNo = this.state.cursorLine;
+    if (this.markerIdAt(lineNo) === null) return;
+    const line = this.state.lines[lineNo] ?? '';
+    if (this.state.cursorCol > 0 && this.state.cursorCol < line.length) {
+      this.expandMarkerIfInside();
+      return;
+    }
+    if (this.state.cursorCol === 0) {
+      this.state.lines.splice(lineNo, 0, '');
+      return; // cursorLine 已指向新空行
+    }
+    this.state.lines.splice(lineNo + 1, 0, '');
+    this.state.cursorLine = lineNo + 1;
+    this.setCursorCol(0);
+  }
+
+  /**
+   * 标记内编辑 = 就地展开（登记原文整行替换标记文本、光标落原文首行首）。
+   * undo 快照在展开后（劈开事实被诚实记录——undo 撤输入字，标记回不去
+   * 除非撤到更早）。
+   */
+  private expandMarkerIfInside(): void {
+    const lineNo = this.state.cursorLine;
+    if (this.markerIdAt(lineNo) === null) return;
+    const line = this.state.lines[lineNo] ?? '';
+    // 只在光标落标记内部（0 < col < 行长）才展开——行首/行尾插入不劈标记
+    if (this.state.cursorCol === 0 || this.state.cursorCol >= line.length) return;
+    const id = this.markerIdAt(lineNo)!;
+    const original = this.state.markers.get(id) ?? '';
+    this.state.markers.delete(id);
+    const parts = original.split('\n');
+    this.state.lines = [...this.state.lines.slice(0, lineNo), ...parts, ...this.state.lines.slice(lineNo + 1)];
+    this.state.cursorLine = lineNo;
+    this.setCursorCol(0);
+  }
+
   /* ---------------- 删除族（字素算术 + 行合并） ---------------- */
 
-  /** 退格：删光标前一字素；行首与前行合并（换行删除语义） */
+  /** 退格：删光标前一字素；行首与前行合并（换行删除语义）；标记行 = 删整标记行 */
   backspace(): void {
     this.lastAction = null;
+    if (this.markerIdAt(this.state.cursorLine) !== null) {
+      this.deleteMarkerLine(this.state.cursorLine);
+      return;
+    }
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol > 0) {
       this.pushUndo();
@@ -215,10 +352,14 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 前删：删光标处一字素；行尾与下一行合并 */
+  /** 前删：删光标处一字素；行尾与下一行合并；标记行 = 删整标记行 */
   deleteForward(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
+    if (this.markerIdAt(this.state.cursorLine) !== null) {
+      this.deleteMarkerLine(this.state.cursorLine);
+      return;
+    }
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol < line.length) {
       this.pushUndo();
@@ -235,17 +376,23 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 删至行首：光标前段整删；行首与前行合并 */
+  /** 删至行首：光标前段整删；行首与前行合并（R3：被删段入 kill 环）；标记行 = 删整标记行 */
   deleteToLineStart(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
+    if (this.markerIdAt(this.state.cursorLine) !== null) {
+      this.deleteMarkerLine(this.state.cursorLine);
+      return;
+    }
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol > 0) {
       this.pushUndo();
+      this.ring.push(line.slice(0, this.state.cursorCol)); // kill：行前段
       this.state.lines[this.state.cursorLine] = line.slice(this.state.cursorCol);
       this.setCursorCol(0);
     } else if (this.state.cursorLine > 0) {
       this.pushUndo();
+      this.ring.push('\n'); // kill：换行段（合并形）
       const prev = this.state.lines[this.state.cursorLine - 1] ?? '';
       this.state.lines[this.state.cursorLine - 1] = prev + line;
       this.state.lines.splice(this.state.cursorLine, 1);
@@ -257,16 +404,22 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 删至行尾：光标后段整删；行尾与下一行合并 */
+  /** 删至行尾：光标后段整删；行尾与下一行合并（R3：被删段入 kill 环）；标记行 = 删整标记行 */
   deleteToLineEnd(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
+    if (this.markerIdAt(this.state.cursorLine) !== null) {
+      this.deleteMarkerLine(this.state.cursorLine);
+      return;
+    }
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol < line.length) {
       this.pushUndo();
+      this.ring.push(line.slice(this.state.cursorCol)); // kill：行尾段
       this.state.lines[this.state.cursorLine] = line.slice(0, this.state.cursorCol);
     } else if (this.state.cursorLine < this.state.lines.length - 1) {
       this.pushUndo();
+      this.ring.push('\n'); // kill：换行段（合并形）
       const next = this.state.lines[this.state.cursorLine + 1] ?? '';
       this.state.lines[this.state.cursorLine] = line + next;
       this.state.lines.splice(this.state.cursorLine + 1, 1);
@@ -276,14 +429,19 @@ export class EditorModel {
     this.notify();
   }
 
-  /** 词级退删：删光标前一词（词边界 = word-nav 单源）；行首与前行合并 */
+  /** 词级退删：删光标前一词（词边界 = word-nav 单源）；行首与前行合并（R3：被删段入 kill 环）；标记行 = 删整标记行 */
   deleteWordBackward(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
+    if (this.markerIdAt(this.state.cursorLine) !== null) {
+      this.deleteMarkerLine(this.state.cursorLine);
+      return;
+    }
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol === 0) {
       if (this.state.cursorLine > 0) {
         this.pushUndo();
+        this.ring.push('\n'); // kill：换行段（合并形）
         const prev = this.state.lines[this.state.cursorLine - 1] ?? '';
         this.state.lines[this.state.cursorLine - 1] = prev + line;
         this.state.lines.splice(this.state.cursorLine, 1);
@@ -295,15 +453,20 @@ export class EditorModel {
     }
     this.pushUndo();
     const boundary = findWordBackward(line, this.state.cursorCol);
+    this.ring.push(line.slice(boundary, this.state.cursorCol)); // kill：行内词段
     this.state.lines[this.state.cursorLine] = line.slice(0, boundary) + line.slice(this.state.cursorCol);
     this.setCursorCol(boundary);
     this.notify();
   }
 
-  /** 词级前删：删光标后一词；行尾与下一行合并 */
+  /** 词级前删：删光标后一词；行尾与下一行合并；标记行 = 删整标记行 */
   deleteWordForward(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
+    if (this.markerIdAt(this.state.cursorLine) !== null) {
+      this.deleteMarkerLine(this.state.cursorLine);
+      return;
+    }
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol >= line.length) {
       if (this.state.cursorLine < this.state.lines.length - 1) {
@@ -318,6 +481,67 @@ export class EditorModel {
     this.pushUndo();
     const boundary = findWordForward(line, this.state.cursorCol);
     this.state.lines[this.state.cursorLine] = line.slice(0, this.state.cursorCol) + line.slice(boundary);
+    this.notify();
+  }
+
+  /* ---------------- kill-ring 消费（R3 批 10j） ---------------- */
+
+  /**
+   * yank：环头条目插入光标处（R3 定值——**不入 undo**：恢复非破坏）。
+   * 插入段记 yank 区间账（yankPop 替换位）；含换行条目（合并形 '\n' kill）
+   * 插入后行结构变——单行区间账形不适用，不记账（其后 yankPop no-op）。
+   */
+  yank(): void {
+    const text = this.ring.current();
+    if (text === null || text === '') return;
+    this.exitHistoryBrowsing();
+    this.lastAction = null;
+    this.preedit = null;
+    this.guardMarkerInsert(); // 光标在标记行——先守卫防劈（R3）
+    const lineNo = this.state.cursorLine;
+    const start = this.state.cursorCol;
+    this.insertTextRaw(text); // 单行直插（环条目恒单行或 '\n'）
+    if (!text.includes('\n')) {
+      this.ring.markYank({ line: lineNo, start, end: this.state.cursorCol, text });
+    }
+    this.notify();
+  }
+
+  /**
+   * yankPop：环游标步进、刚 yank 的区间替换为下一条（不入 undo 同 yank）。
+   * 无在案区间账或账与行集不吻合（区间已被编辑 / 行结构已变）= no-op——
+   * 自校验形，无需在各编辑原语散布清态点。
+   */
+  yankPop(): void {
+    const span = this.ring.activeSpan;
+    if (span === null || !this.ring.spanIsValid(this.state.lines)) return;
+    const text = this.ring.step();
+    if (text === null) return;
+    this.exitHistoryBrowsing();
+    this.lastAction = null;
+    this.preedit = null;
+    const line = this.state.lines[span.line] ?? '';
+    if (!text.includes('\n')) {
+      this.state.lines[span.line] = line.slice(0, span.start) + text + line.slice(span.end);
+      this.state.cursorLine = span.line;
+      this.setCursorCol(span.start + text.length);
+      this.ring.markYank({ line: span.line, start: span.start, end: span.start + text.length, text });
+    } else {
+      // 多行条目替换：区间行在 start/end 劈开（与 insertTextRaw 同拆法）
+      const parts = text.split('\n');
+      const head = line.slice(0, span.start) + parts[0]!;
+      const tail = parts[parts.length - 1]! + line.slice(span.end);
+      this.state.lines = [
+        ...this.state.lines.slice(0, span.line),
+        head,
+        ...parts.slice(1, -1),
+        tail,
+        ...this.state.lines.slice(span.line + 1),
+      ];
+      this.state.cursorLine = span.line + parts.length - 1;
+      this.setCursorCol(parts[parts.length - 1]!.length);
+      // 行结构已变——单行区间账形不适用，不记账（后续 yankPop no-op）
+    }
     this.notify();
   }
 
@@ -338,11 +562,15 @@ export class EditorModel {
 
   /* ---------------- 移动族（字素边界 + 视觉行 sticky 列） ---------------- */
 
-  /** 左移一字素（行首 wrap 到前行行尾） */
+  /** 左移一字素（行首 wrap 到前行行尾）；标记行视作单字素——内部左移落行首（R3 原子界） */
   moveLeft(): void {
     this.lastAction = null;
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol > 0) {
+      if (this.markerIdAt(this.state.cursorLine) !== null) {
+        this.setCursorCol(0); // 标记原子左界
+        return;
+      }
       this.setCursorCol(prevGraphemeBoundary(line, this.state.cursorCol));
     } else if (this.state.cursorLine > 0) {
       this.state.cursorLine--;
@@ -350,11 +578,15 @@ export class EditorModel {
     }
   }
 
-  /** 右移一字素（行尾 wrap 到下一行行首） */
+  /** 右移一字素（行尾 wrap 到下一行行首）；标记行视作单字素——内部右移落行尾（R3 原子界） */
   moveRight(): void {
     this.lastAction = null;
     const line = this.state.lines[this.state.cursorLine] ?? '';
     if (this.state.cursorCol < line.length) {
+      if (this.markerIdAt(this.state.cursorLine) !== null) {
+        this.setCursorCol(line.length); // 标记原子右界
+        return;
+      }
       this.setCursorCol(nextGraphemeBoundary(line, this.state.cursorCol));
     } else if (this.state.cursorLine < this.state.lines.length - 1) {
       this.state.cursorLine++;

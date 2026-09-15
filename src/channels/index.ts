@@ -43,6 +43,10 @@ export { ProcessTerminalIO } from './engine/index.js';
 export type { TerminalIO } from './engine/index.js';
 export { FileMentionSource } from './tui/index.js';
 export type { FileMentionSourceOptions, AutocompleteSources, AutocompleteItem } from './tui/index.js';
+// 高度帽公式（R3 批 10j——host 装配 maxVisibleLines 单源）
+export { editorHeightCap } from './tui/index.js';
+// fuzzy 子序列过滤（R6 批 10j——host 命令名补全源消费）
+export { fuzzyFilter } from './tui/index.js';
 // 主题档类型（批 10g——host settings theme 键值面消费位）
 export type { ColorEnv, ThemeSetting } from './tui/index.js';
 // SDK 线协议（批 13a 契约先行——03 §10.6 件身份条：协议核心代码位与 channels

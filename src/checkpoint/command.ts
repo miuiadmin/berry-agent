@@ -17,6 +17,9 @@ import { previewRewind, restoreRewind, type RewindRestoreDeps } from './restore.
 import type { CheckpointStore } from './store.js';
 import type { SessionContextFace } from './types.js';
 
+/** TUI 子动词册（R6 批 10j——补全源名集单源；与 runRewindCommand switch 同步） */
+export const REWIND_SUBVERBS = ['list', 'preview', 'restore', 'help'] as const;
+
 export const REWIND_USAGE = [
   '用法：/rewind list —— 列当前工作区的回退点',
   '　　　/rewind preview <id> —— 预演（恢复 N/删除 M/不动 U，零改动）',

@@ -18,13 +18,15 @@
  * 信号路径独立：SIGINT①/SIGTERM → onGraceful → runtime.shutdown → exit(0)
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
  */
-import { FileMentionSource, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
+import { editorHeightCap, FileMentionSource, fuzzyFilter, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
+import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { foldTodoTable } from '../conversation/index.js';
 import { sanitizeEntryForReadout, type MemoryDao } from '../memory/index.js';
 import type { Provider } from '../llm/index.js';
-import type { SandboxMode } from '../safety/index.js';
+import { APPROVAL_PRESETS, type SandboxMode } from '../safety/index.js';
+import { REWIND_SUBVERBS } from '../checkpoint/index.js';
 
 import type { TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
@@ -34,6 +36,9 @@ import type { CorePluginReference } from './loader.js';
 import { runWithSessionAnchor } from './session-anchor.js';
 import { readHostSettings } from './settings-store.js';
 import type { HostRuntime } from './runtime.js';
+import { APPROVAL_SUBVERBS } from './approval-cmd.js';
+import { DOORS_SUBVERBS } from './doors-cmd.js';
+import { PLUGINS_SUBVERBS } from './plugins-command.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
@@ -214,10 +219,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // 通道核命令表 + TUI 本地退出词两源并流（07 §4.1 2026-09-15 /exit 批
         // 定形注——退出词属前端生命周期动作不进通道命令表，补全源在此并入）
         commands: (query) => [...commandItems(stack.channels.listCommands(), query), ...exitCommandItems(query)],
+        // 参数段源（R6 批 10j 装配接线）：四命令子动词首参 + 深位枚举
+        commandArguments: (command, query, priorArgs) => commandArgumentItems(command, query, priorArgs),
         mentions: (query) => mentions.get(query),
       },
-      // 装配实测定值（07 §4.1）：编辑器可视行 = 终端高 30%（下钳 3）
-      maxVisibleLines: Math.max(3, Math.floor(rows * 0.3)),
+      // 高度帽公式单源（07 §4.1 R3 批 10j）：max(5, rows×0.3)——迟滞带归视图
+      maxVisibleLines: editorHeightCap(rows),
       // 主题档（批 10g）：settings 缺席 = auto 探测路；色域档由 env 两键裁定
       theme: themeLoad?.settings.theme ?? 'auto',
       colorEnv: { COLORTERM: env.COLORTERM, TERM: env.TERM },
@@ -285,18 +292,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
   return exitCode;
 }
 
-/** 命令表 → 补全条目（'/' 前缀过滤——query 已去斜杠，AutocompleteSources 契约） */
+/** 命令表 → 补全条目（fuzzy 子序列过滤——query 已去斜杠，前缀命中置顶；R6 批 10j） */
 function commandItems(
   specs: readonly { name: string; description?: string }[],
   query: string,
 ): readonly AutocompleteItem[] {
-  return specs
-    .filter((spec) => spec.name.startsWith(query))
-    .map((spec) => ({
-      label: `/${spec.name}`,
-      ...(spec.description !== undefined ? { detail: spec.description } : {}),
-      replacement: `/${spec.name}`,
-    }));
+  return fuzzyFilter(specs, (spec) => spec.name, query).map((spec) => ({
+    label: `/${spec.name}`,
+    ...(spec.description !== undefined ? { detail: spec.description } : {}),
+    replacement: `/${spec.name}`,
+  }));
 }
 
 /** TUI 本地退出词表（07 §4.1 2026-09-15 /exit 批——/exit 正名 + /quit 别名） */
@@ -307,9 +312,83 @@ const EXIT_WORDS = ['exit', 'quit'] as const;
  * 装配位并流；query 已去斜杠，同 commandItems 契约）。
  */
 export function exitCommandItems(query: string): readonly AutocompleteItem[] {
-  return EXIT_WORDS.filter((name) => name.startsWith(query)).map((name) => ({
+  return fuzzyFilter(EXIT_WORDS, (name) => name, query).map((name) => ({
     label: `/${name}`,
     detail: name === 'exit' ? '退出 TUI（与 Ctrl+D 同路优雅退出）' : '退出 TUI（/exit 别名）',
     replacement: `/${name}`,
   }));
+}
+
+/* ---------------- 命令参数补全源（R6 批 10j 装配接线） ---------------- */
+
+/** 带参补全的四命令子动词名集（单源 = 各命令件 SUBVERBS 导出） */
+const SUBVERBS_BY_COMMAND: Readonly<Record<string, readonly string[]>> = {
+  approval: APPROVAL_SUBVERBS,
+  plugins: PLUGINS_SUBVERBS,
+  doors: DOORS_SUBVERBS,
+  rewind: REWIND_SUBVERBS,
+};
+
+/**
+ * 子动词元数据（键 = 「命令 动词」；值 = [说明, 是否带尾参]——带参者补全
+ * replacement 尾随空格，应用后直接进下一 token 位）。名集单源在各命令件，
+ * 说明位与名集同文件可目检同步。
+ */
+const VERB_META: Readonly<Record<string, readonly [string, boolean]>> = {
+  'approval status': ['当前态：sandbox 档 + 审批 policy + 预设一览', false],
+  'approval entries': ['策略表全列（活体现读）', false],
+  'approval explain': ['真裁决干跑（须带 <tool>）', true],
+  'approval preset': ['预设写盘（conservative|balanced|open）', true],
+  'plugins list': ['装载态清单三分区', false],
+  'plugins mount': ['挂载已装机插件 <id>', true],
+  'plugins unmount': ['卸下（装机保留）<id>', true],
+  'plugins toggle': ['禁用态翻转 <id>', true],
+  'plugins config': ['配置表单 <id>', true],
+  'doors list': ['高危面全清单 + 当前开态', false],
+  'doors open': ['开门 <capability>', true],
+  'doors close': ['关门 <capability>', true],
+  'rewind list': ['列当前工作区回退点', false],
+  'rewind preview': ['预演（零改动）<id>', true],
+  'rewind restore': ['回退并 fork 新会话 <id>', true],
+  'rewind help': ['用法说明', false],
+};
+
+/**
+ * 命令参数源（R6 批 10j）：四命令子动词首参 + 深位枚举（approval preset
+ * 预设名 / doors open·close 能力名——枚举单源 = safety 预设表与 contracts
+ * 面目录）。插件 id、回退点 id 等活体值不在此面（装配位无现取通道——v1 裁，
+ * 挂账）。query = 当前 token 原文、priorArgs = 已定参数序。
+ */
+export function commandArgumentItems(
+  command: string,
+  query: string,
+  priorArgs: readonly string[],
+): readonly AutocompleteItem[] {
+  // 深位枚举：approval preset <名>——预设三档（名与描述 = safety 单源）
+  if (command === 'approval' && priorArgs.length === 1 && priorArgs[0] === 'preset') {
+    return fuzzyFilter(APPROVAL_PRESETS, (preset) => preset.name, query).map((preset) => ({
+      label: preset.name,
+      detail: preset.description,
+      replacement: `${preset.name} `,
+    }));
+  }
+  // 深位枚举：doors open|close <capability>——可授能力名（contracts 面目录派生）
+  if (command === 'doors' && priorArgs.length === 1 && (priorArgs[0] === 'open' || priorArgs[0] === 'close')) {
+    return fuzzyFilter(USER_GRANTABLE_CAPABILITIES, (name) => name, query).map((name) => ({
+      label: name,
+      replacement: `${name} `,
+    }));
+  }
+  // 首参子动词（非首参位不补——活体值不在静态面）
+  const verbs = SUBVERBS_BY_COMMAND[command];
+  if (verbs === undefined || priorArgs.length > 0) return [];
+  return fuzzyFilter(verbs, (verb) => verb, query).map((verb) => {
+    // 元数据缺席兜底：零说明 + 尾空格（带参安全缺省）
+    const [detail, takesArg] = VERB_META[`${command} ${verb}`] ?? ['', true];
+    return {
+      label: verb,
+      ...(detail !== '' ? { detail } : {}),
+      replacement: takesArg ? `${verb} ` : verb,
+    };
+  });
 }
