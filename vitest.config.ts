@@ -13,6 +13,17 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    // 覆盖率配置（2026-09-15 四问评估基建短板件——W1 落地）：
+    // - provider v8（@vitest/coverage-v8 已入 devDependencies——CLI 走
+    //   `npx vitest run --coverage` 即启用；不跑 coverage 的常规门禁零开销零改动）；
+    // - reporter 双出口：text（job 日志内联表格）+ json-summary
+    //   （coverage/coverage-summary.json——CI artifact 上传消费位，不接第三方服务）；
+    // - 不设 include/exclude/thresholds：覆盖面 = 测试实际加载面（include 面
+    //   保持既有项目定义不动），阈值门禁未拍板不入（先收集后立线）。
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+    },
     projects: [
       {
         test: {

@@ -53,6 +53,7 @@
     "build:sdk": "tsc -p packages/berry-agent-sdk/tsconfig.json",
     "build:webui": "vite build",
     "golden:record": "tsx tools/golden-record.ts",
+    "soak": "node tools/soak.mjs",
     "release": "node tools/release.mjs",
     "release:sdk": "node tools/release.mjs --package sdk"
   },
@@ -73,6 +74,7 @@
     "@types/node": "^26.4.1",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "@xterm/headless": "^6.0.0",
     "jsdom": "^30.0.1",
     "prettier": "^3.5.0",
