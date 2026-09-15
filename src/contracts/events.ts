@@ -43,7 +43,7 @@ export interface EventTypeMeta {
   owner: string;
   /**
    * API 稳定性 tier（必填——零隐式 API 载体：目录宿主符号三级标签之一，
-   * TS 编译期即红；03 篇 §8.3 标级载体分职。核心 16 词全 stable——
+   * TS 编译期即红；03 篇 §8.3 标级载体分职。核心词全 stable——
    * 会话事件词汇是已收口契约面）。
    */
   tier: ApiTier;
@@ -54,7 +54,7 @@ export interface EventTypeMeta {
 }
 
 /**
- * 核心事件类型 32 词（05 §1.1 表格逐条转录；owner 归属按表注：
+ * 核心事件类型 35 词（05 §1.1 表格逐条转录；owner 归属按表注：
  * gate/decision 归 tools、llm/usage 归 llm、llm/retry 注册走 session
  * 核心词汇（llm 模块不知道驱动存在）、plugin/uninstalled 宿主写点 host、
  * approval/* 与 sandbox/mode 归 safety 域、todo/write 与

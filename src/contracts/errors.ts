@@ -45,6 +45,12 @@ export interface ErrorCodeInfo {
 /**
  * 错误码前缀族明列（02 篇 §5.3 #1）——文档性常量，供注册面校验与 CI 目录生成；
  * 'HOST_' 系装配根码族（单活跃机 HOST_DATA_DIR_BUSY 等，07 篇 §1 定名位）。
+ *
+ * 2026-09-15 七役簇 E 补登：BROWSER_/CHECKPOINT_/COMPACTION_/EVENT_/ISSUE_/
+ * LSP_/MCP_/MEMORY_/OBS_/SCOPE_ 十域码族——02 §5.3 族清单早已明列而本清单
+ * 滞后（browser/checkpoint/compaction/issue/lsp/mcp/memory/obs 各 codes.ts
+ * 与 context codes.ts 的 EVENT_/SCOPE_ 注册面均已落码在册）；补登后前缀锁
+ * （errors.test.ts 全量动态导入后断言）对核心码 + 域码全集生效。
  */
 export const ERROR_CODE_PREFIXES = [
   'TOOL_',
@@ -74,6 +80,17 @@ export const ERROR_CODE_PREFIXES = [
   'DANGER_',
   'UI_',
   'STRUCTURED_OUTPUT_',
+  // ↓ 十域码族补登（2026-09-15 七役簇 E——按族名字母序插入）
+  'BROWSER_',
+  'CHECKPOINT_',
+  'COMPACTION_',
+  'EVENT_',
+  'ISSUE_',
+  'LSP_',
+  'MCP_',
+  'MEMORY_',
+  'OBS_',
+  'SCOPE_',
 ] as const;
 
 /**

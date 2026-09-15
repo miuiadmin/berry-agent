@@ -112,7 +112,7 @@ export class InputDecoder {
    * 解析态八分：ground 地面 / esc 转义挂起 / csi 参数积攒 / ss3 / osc 串
    * 积攒（批 10g——OSC 11 应答消费位）/ paste 粘贴体 / paste-drain 粘贴
    * 吸收态（粘贴态被换防丢弃或超帽冲刷后残余粘贴体不得按地面态解码成伪造
-   * 命令行事件——空框 enter 开应用、`/exit`+CRLF 触退出，吞到真终界
+   * 命令行事件——空框 enter 伪提交、`/exit`+CRLF 触退出，吞到真终界
    * PASTE_END 再回地面）/ mouse-x10 X10 吞态（bare CSI M 后三字节整吞——
    * 坐标字节落可打印区间，地面态重解会伪造 text 事件）。
    */

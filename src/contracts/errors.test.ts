@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   BaseError,
   ERROR_CODE_PREFIXES,
@@ -91,23 +91,25 @@ describe('错误码注册表', () => {
     }
   });
 
-  it('前缀族明列与核心码前缀一致（02 篇 §5.3 #1 文档性锚）', () => {
-    for (const info of listErrorCodes()) {
-      const matched = ERROR_CODE_PREFIXES.some((p) => info.code.startsWith(p));
-      expect(matched, `${info.code} 应命中前缀族`).toBe(true);
-    }
-  });
+  // 前缀族锁原在此处（核心码 describe 内）——彼时执行序先于下方 describe 的
+  // 全量 codes.ts 动态导入，断言跑在「注册表只有核心码」的时点：域码
+  // （browser/checkpoint/compaction 等 codes.ts 注册面）永不被前缀锁覆盖
+  // （34 域码不命中任何已声明前缀而 CI 长绿——2026-09-15 七役簇 E 勘正）。
+  // 锁已移至全量导入之后（见下方 describe），此处不留核心码专属弱化版——
+  // 全集锁是核心码锁的严格超集。
 });
 
 /* ---------------- 字面量 ⊆ 注册表机器对拍锁（02 §5.3 族规范 #2 执法腿） ---------------- */
 
 describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验抛出/写入点一致」执法腿）', () => {
-  it('src 全源文六形字面量码集 ⊆ listErrorCodes() 注册表（未注册字面量即红）', async () => {
-    // 注册侧全集：fs 递归发现 src/**/codes.ts 逐份动态导入（副作用注册）——
-    // 未来新增 codes.ts 面自动纳入、完备性程序自证；核心码由本文件顶部
-    // import './index.js' 模块加载灌入。哨值 23 = 当前实有面数（净删面须
-    // 同步改此哨——防扫描根意外缩水成假绿）
-    const srcRoot = fileURLToPath(new URL('../', import.meta.url));
+  // 注册侧全集（beforeAll 结构性前置）：fs 递归发现 src/**/codes.ts 逐份
+  // 动态导入（副作用注册）——未来新增 codes.ts 面自动纳入、完备性程序自证；
+  // 核心码由本文件顶部 import './index.js' 模块加载灌入。哨值 23 = 当前
+  // 实有面数（净删面须同步改此哨——防扫描根意外缩水成假绿）。域码入册是
+  // 本 describe 两张锁（前缀族锁 + 字面量锁）对全集生效的前提——钉在
+  // beforeAll 而非首个 it 内，锁与导入的依赖成结构、不依赖 it 巧合序。
+  const srcRoot = fileURLToPath(new URL('../', import.meta.url));
+  beforeAll(async () => {
     const codeModules: string[] = [];
     const collect = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -118,7 +120,18 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
     collect(srcRoot);
     expect(codeModules.length).toBeGreaterThanOrEqual(23);
     for (const mod of codeModules) await import(pathToFileURL(mod).href);
+  });
 
+  it('前缀族明列与全部注册码前缀一致（02 篇 §5.3 #1 文档性锚——域码入锁）', () => {
+    // 全量注册码（核心 + 域）逐一须命中 ERROR_CODE_PREFIXES 某前缀——族
+    // 清单与注册面的机器对拍（原锁只盖核心码，见上方 describe 尾注勘正）。
+    for (const info of listErrorCodes()) {
+      const matched = ERROR_CODE_PREFIXES.some((p) => info.code.startsWith(p));
+      expect(matched, `${info.code} 应命中前缀族`).toBe(true);
+    }
+  });
+
+  it('src 全源文六形字面量码集 ⊆ listErrorCodes() 注册表（未注册字面量即红）', () => {
     // 抛出/写入侧：六形静态字面量（new BaseError('…') / codedMessage('…') /
     // code: '…' / toolError('…',…) 工厂首参 / emitError('…') 首参 /
     // errorWithTail('[…]',…) 位置参数方括号前缀形——2026-09-14 第四役补后
