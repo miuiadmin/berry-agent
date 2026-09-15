@@ -16,7 +16,7 @@
   "main": "./dist/packages/berry-agent-sdk/src/index.js",
   "types": "./dist/packages/berry-agent-sdk/src/index.d.ts",
   "dependencies": {
-    "typebox": "1.3.25"
+    "typebox": "1.3.30"
   },
   "files": [
     "dist",
