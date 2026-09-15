@@ -258,6 +258,83 @@ describe('事件写读（05 §6.3 批写 + §4 完整性）', () => {
     const reopened = open({ dbPath: path });
     expectCode(() => reopened.loadEvents('s-hole'), 'PERSIST_DATA_CORRUPT');
   });
+
+  it('写失败游标不推进：批内失败事务回滚后，内存游标保持在事务前值（重试不被误诊写序违约）', () => {
+    const store = open({ dbPath: join(dir, 'cursor-rollback.db') });
+    // 蓄底：一笔成功批写（sessions 行 + 内存游标推进至前缀尾 1）
+    store.writeEvents(writesFor('s-rollback', makeEvents('seed')));
+    // 批写中段失败构造（确定性，不依赖注入落点）：A 合法（seq2 先落库并
+    // 推进游标）+ B 违约（seq99 撞连续性断言）→ better-sqlite3 事务整体
+    // 回滚——库内 A 行消失，但缺陷形下游标已被 A 推进到 2（cursors.set
+    // 在事务回调内、不随回滚撤销）。等价于 SQLITE_FULL 落 COMMIT 边界的
+    // 物理形（enospc.test.ts hdiutil 真注入实测的 b 形——语句已过、COMMIT
+    // 失败、库回滚而游标已走）。
+    const good = (seq: number): SessionEvent => ({
+      type: 'user/message',
+      seq,
+      time: 42_000 + seq,
+      data: { content: `row-${seq}`, source: 'user' },
+    });
+    const bad: SessionEvent = { ...good(99), seq: 99 };
+    expectCode(
+      () => store.writeEvents(writesFor('s-rollback', [good(2), bad])),
+      'PERSIST_DATA_CORRUPT', // 真违约 fail-loud（既有行为——本 it 锁的是回滚后的游标面）
+    );
+    // 库内已随事务回滚：仅余前缀（A 行不在）
+    const seqsAfterRollback = store.connection
+      .prepare(`SELECT seq FROM events WHERE session_id = ? ORDER BY seq`)
+      .all('s-rollback') as { seq: number }[];
+    expect(seqsAfterRollback.map((r) => r.seq)).toEqual([0, 1]);
+    // 缺陷关键断言：重试合法批写（seq2 续接前缀）必须成功。修复前游标
+    // 停在 2（库内却无该行），此处撞连续性断言误诊 PERSIST_DATA_CORRUPT
+    // ——真因（前批整体回滚）被「写序违约 bug 指示器」遮蔽，与真违约
+    // 不可分辨；修复后游标随事务回滚保持事务前值，重试即成功。
+    store.writeEvents(writesFor('s-rollback', [good(2), good(3)]));
+    const seqsFinal = store.connection
+      .prepare(`SELECT seq FROM events WHERE session_id = ? ORDER BY seq`)
+      .all('s-rollback') as { seq: number }[];
+    expect(seqsFinal.map((r) => r.seq)).toEqual([0, 1, 2, 3]);
+    expect(store.connection.prepare(`SELECT last_seq FROM sessions WHERE id = ?`).get('s-rollback')).toEqual({
+      last_seq: 3,
+    });
+  });
+
+  it('SQLITE_FULL 语句中段失败：首写与重试均诚实磁盘满码，解帽后同条落账 seq 连续', () => {
+    const store = open({ dbPath: join(dir, 'cursor-full.db') });
+    const seeded = makeEvents('seed');
+    store.writeEvents(writesFor('s-full', seeded));
+    // 帽注入：max_page_count 钉当前页数 + 64KiB 大载荷下一条必申新页 →
+    // SQLITE_FULL（进程内纯注入、免物理挂载——落点为语句中段页分配受检）
+    const pages = store.connection.pragma('page_count', { simple: true }) as number;
+    store.connection.pragma(`max_page_count = ${pages}`);
+    const fat: SessionEvent = {
+      type: 'user/message',
+      seq: seeded.length,
+      time: 42_000,
+      data: { content: 'x'.repeat(64 * 1024), source: 'user' },
+    };
+    const fatWrite = { sessionId: 's-full', event: fat, registration: REG };
+    // 首写失败 + 同条重试（帽未解）均诚实 SQLITE_FULL——不因游标状态变形
+    for (const label of ['首写', '重试']) {
+      let err: { code?: string } | undefined;
+      try {
+        store.writeEventSingle(fatWrite);
+      } catch (thrown) {
+        err = thrown as { code?: string };
+      }
+      expect(err?.code, label).toBe('SQLITE_FULL');
+    }
+    // 解帽重试同条：成功落账——seq 续接前缀无跳号、sessions.last_seq 对齐
+    store.connection.pragma('max_page_count = 1073741823');
+    store.writeEventSingle(fatWrite);
+    const seqs = store.connection.prepare(`SELECT seq FROM events WHERE session_id = ? ORDER BY seq`).all('s-full') as {
+      seq: number;
+    }[];
+    expect(seqs.map((r) => r.seq)).toEqual([0, 1, seeded.length]);
+    expect(store.connection.prepare(`SELECT last_seq FROM sessions WHERE id = ?`).get('s-full')).toEqual({
+      last_seq: seeded.length,
+    });
+  });
 });
 
 describe('sessions 行面', () => {

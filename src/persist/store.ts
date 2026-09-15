@@ -308,6 +308,8 @@ function checkpointTruncate(db: Database.Database, warn: (message: string) => vo
  * 写路径 per-session 游标（cursors Map）做连续性断言：期望 seq = 游标 + 1，
  * 不符即 PERSIST_DATA_CORRUPT（入队序 = 事务序的结构性违约——bug 指示器，
  * fail-loud 不猜）。游标首遇从 sessions.last_seq 初始化（seeded 会话续写衔接）。
+ * 游标推进时机 = 事务成功返回后（批内以局部批 Map 承前条推进供断言）——事务
+ * 失败回滚时内存游标保持事务前值，重试不再被误诊写序违约（诊断遮蔽缺陷）。
  */
 export class Store implements WriteTarget {
   readonly dbPath: string;
@@ -374,26 +376,36 @@ export class Store implements WriteTarget {
     this.ensureOpen();
     if (writes.length === 0) return;
     const now = this.clock();
+    // 事务内有效游标（局部批 Map）：首值承内存真值、批内逐条推进，供连续性
+    // 断言用；真推进（this.cursors）留到 tx() 成功返回后——事务失败（如
+    // SQLITE_FULL 落 COMMIT 边界、批内后续条违约）时库内回滚而游标若已走，
+    // 重试即被连续性断言误诊写序违约（真因被遮蔽——见 store.test.ts 回归锁）
+    const batchCursors = new Map<string, number>();
     const tx = this.db.transaction(() => {
-      for (const write of writes) this.writeTuple(write, now);
+      for (const write of writes) this.writeTuple(write, now, batchCursors);
     });
     tx();
+    for (const [sessionId, seq] of batchCursors) this.cursors.set(sessionId, seq);
   }
 
   /** 行写：毒丸诊断模式（单条独立事务——失败原样抛，分类归 write-behind） */
   writeEventSingle(write: EventWrite): void {
     this.ensureOpen();
     const now = this.clock();
+    const batchCursors = new Map<string, number>();
     const tx = this.db.transaction(() => {
-      this.writeTuple(write, now);
+      this.writeTuple(write, now, batchCursors);
     });
     tx();
+    for (const [sessionId, seq] of batchCursors) this.cursors.set(sessionId, seq);
   }
 
   /** 单事件元组写（批/行两模式共用体：events 行 + fts 对账 + sessions 推进） */
-  private writeTuple(write: EventWrite, now: number): void {
+  private writeTuple(write: EventWrite, now: number, batchCursors: Map<string, number>): void {
     const { sessionId, event, registration } = write;
-    const expected = this.cursorFor(sessionId) + 1;
+    // 连续性断言游标：批内局部值优先（同批前条），否则内存真值（首遇仍经
+    // cursorFor 从 sessions.last_seq 初始化）
+    const expected = (batchCursors.get(sessionId) ?? this.cursorFor(sessionId)) + 1;
     if (event.seq !== expected) {
       throw new BaseError(
         'PERSIST_DATA_CORRUPT',
@@ -441,7 +453,8 @@ export class Store implements WriteTarget {
       now,
       event.seq,
     );
-    this.cursors.set(sessionId, event.seq);
+    // 批内推进（局部批 Map——真推进 this.cursors 由调用方在事务成功后统一落）
+    batchCursors.set(sessionId, event.seq);
   }
 
   /** 毒丸记账：不落行但推进游标（后续事件 seq 续账不撞连续性断言） */
