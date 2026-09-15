@@ -445,7 +445,7 @@ if (!report.ok) throw new Error(formatMatrixReceipt(report)); // 回执即失败
 注意：
 
 - testkit 是**作者侧 devDep 消费面**——只在你的测试文件里 import；插件入口运行时 import `berry-agent/testkit` 不在装载器虚拟面六键闭集内，会被 `PLUGIN_IMPORT_FORBIDDEN` 拒载（见上[import 白名单](#import-白名单插件可-import-什么)）；
-- **TS 作者的类型现状**：`berry-agent/testkit` v1 无类型锚——这是已拍板权衡（规范 03 §9.5 定形注：`.d.ts` 发射闭包与发布物收口纪律冲突，随后续批立题接）；TS 项目 import 需自持模块声明（`declare module 'berry-agent/testkit'`）或容忍 implicit any（无处理时实测报 TS7016）；
+- **TS 作者的类型现状**：`berry-agent/testkit` v1 无类型锚——这是已拍板权衡（`.d.ts` 发射闭包与发布物收口纪律冲突——类型声明文件不在宿主包发布物白名单内、testkit 面随包发射即破白名单收口律，类型锚随后续批立题接入）；TS 项目 import 需自持模块声明（`declare module 'berry-agent/testkit'`）或容忍 implicit any（无处理时实测报 TS7016）；
 - install 行内置 **npm pack 完整性预检**（`--dry-run` 零 tarball 落盘）：发布物缺 `entry` 入口、`skills`/`agents` 声明目录文件当场红；npm 缺席的环境该行落 skipped（环境位如实呈现，非放行；`packCheck: false` 可显式关）；
 - 假宿主已注入 **channels-ui 受局面**（`ctx.ui` 消费腿可证）：apply 期 `ctx.ui.notify(...)` 装载成功且收件经 harness 的 `ui.notifies()` 可断言（`notify` 无会话位恒可）；`hasAudience` 恒 `false`（假宿主无真人观众），假宿主零在册会话——阻塞三件按真判序拒（装载期无锚 `UI_ASK_UNANCHORED`）、单向原语无锚 no-op warn（降档 warn 走 harness `warn` 出口，缺省静默）；
 - 首版锁假宿主层 + 真装载器两层——真宿主层断言（真模型行为）随后续版本随金样轨并轨。

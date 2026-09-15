@@ -1,14 +1,16 @@
-# CI 门禁（四门禁 + 配套面在场锁 + 随首发节奏三件——07 §7.4 #6 兑现）
+# CI 门禁（四门禁 + 配套面在场锁 + 随首发节奏三件——CI 化定形批 2026-09-14 兑现）
 #
 # - 四门禁：typecheck / test / lint:topology / format:check——与提交前本地
 #   门禁同源同令，逐门禁分立 job（并行跑 + 单门禁失败独立可见）；
 # - 配套面在场锁：SECURITY.md / CODEOWNERS / issue 模板三件被误删或清空
 #   时，第一道推流即红（零依赖纯文件检查，最快出结果）；
-# - 随首发节奏三件（2026-09-14 首发后解禁接入，条目真源 07 §7.4 #6）：
+# - 随首发节奏三件（2026-09-14 首发后解禁接入，条目真源 = CI 化定形批
+#   2026-09-14 拍板清单）：
 #   audit（npm audit --omit=dev 生产依赖审计）/ release 演习（发布机器
 #   六道契约 --dry-run 彩排）/ 安装脚本真跑（registry 现行版净环境装机）。
 #
-# - CI 对外 PR 降噪降级（2026-09-15 贡献流程批，条目真源 07 §7.4 续件 3）：
+# - CI 对外 PR 降噪降级（2026-09-15 贡献流程批，条目真源 = 2026-09-15
+#   贡献流程批定形的对外 PR 治理条款）：
 #   release-drill 限 push 事件（发布机器彩排与外部 PR 改动无关——fork PR
 #   全链彩排纯耗额度）；纯文档 PR paths-ignore 降级（涉码路径任一即全量跑；
 #   **精确列举**而非 '**/*.md' 通配——SECURITY.md 与 .github/ISSUE_TEMPLATE/
@@ -173,7 +175,7 @@ jobs:
           git config user.name "ci-drill"
           git config user.email "ci-drill@local"
           npm version 0.0.0-drill.${{ github.run_number }} --no-git-tag-version
-          # SDK 包同款临时 bump（07 §8.3 差分⑤——两包版本源独立，SDK 真发后
+          # SDK 包同款临时 bump（双包发布道——两包版本源独立，SDK 真发后
           # tag sdk-v<version> 已在且异 commit 会咬契约 6；bump 并入同一 drill commit）
           npm version 0.0.0-drill.${{ github.run_number }} --no-git-tag-version --prefix packages/berry-agent-sdk
           git commit -am "drill: 临时演习版本（CI 彩排——不推送）"

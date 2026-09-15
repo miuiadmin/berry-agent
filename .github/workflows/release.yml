@@ -1,10 +1,12 @@
-# 发布腿（07 §8.3 末定形注 2026-09-15 CI 化——OIDC trusted publishing 常轨）
+# 发布腿（发布道 CI 化定形注 2026-09-15——OIDC trusted publishing 常轨）
 #
 # 触发 = push tag v*（本机触发腿交棒）；workflow_dispatch = CI 机器演习位
 # （钉最新已发 tag ref 幂等空转复验形——禁 dev/main 直跑，首步 ref 断言
 # 机制化执法）。发布物从 tag 树在 CI 重建再验收（六道契约全量重跑），
 # publish 经 OIDC 免令牌免 2FA（npmjs.com 包设置已绑本仓 + workflow 三元组）。
-# SDK 不在本腿射程（sdk-v* 不匹配 v* glob——令牌全本地旧序，07 §8.3 差分⑤）。
+# SDK 不在本腿射程（sdk-v* 不匹配 v* glob——SDK 真发已走本机令牌道上架；
+# CI 腿随 npmjs.com 侧 OIDC trusted publishing 绑定与 SDK 包 publishMode
+# 翻转两依赖另裁，不随批自动接入）。
 name: release
 
 on:
@@ -41,7 +43,7 @@ jobs:
           fi
           case "$ref" in
             refs/tags/v*) echo "RELEASE_REF=$ref" >> "$GITHUB_ENV" ;;
-            *) echo "::error::GITHUB_REF 非 refs/tags/v* 形（禁 dev/main 直跑——07 §8.3 定形注第 5 款）"; exit 1 ;;
+            *) echo "::error::GITHUB_REF 非 refs/tags/v* 形（禁 dev/main 直跑——发布道 CI 化定形的 ref 纪律）"; exit 1 ;;
           esac
       # persist-credentials:false——checkout 后 GITHUB_TOKEN 凭证不落盘（job 面
       # 只剩 OIDC 面；零写面需求）
