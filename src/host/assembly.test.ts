@@ -2016,3 +2016,46 @@ describe('会话关闭 Job 归属围栏接线 e2e（六役 CL-C ④——04 §10
     }
   });
 });
+
+/* ---------------- sessions 受理面真身接线 e2e（cs-D1——currentSessionId 判据 v1 尾键语义） ---------------- */
+
+describe('sessions 受理面真身接线 e2e（cs-D1——03 §4.4：currentSessionId 判据 v1 = SessionManager 活体 Map 尾键）', () => {
+  it('装配根注入真身全链：无活体诚实 undefined；建两会话尾键随最新首次入册者；幂等复开不移尾（conversation 域三语义的装配位对拍）', async () => {
+    const dir = tmpDir('host-asm-csid-');
+    // 捕获格：core 件 apply 期 ctx.get('sessions') 取 fork 绑定面
+    // （bindSessionsForPlugin 产物——currentSessionId 恒等透传基础面，基础面
+    // 透传装配根 :439 注入的 listActive().at(-1) 真身，链上零第二判据面）
+    let face: { currentSessionId(): string | undefined } | undefined;
+    const probe: CorePluginReference = {
+      name: 'csid-probe',
+      apply: async (ctx) => {
+        face = (ctx as { get: (name: string) => unknown }).get('sessions') as {
+          currentSessionId(): string | undefined;
+        };
+        return undefined;
+      },
+    };
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [probe],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      expect(face).toBeDefined(); // fork 绑定面在场（sessions 席位真身接线）
+      // 无活体会话：诚实缺席（undefined 非抛——03 §4.4 判据 v1 缺席档）
+      expect(face!.currentSessionId()).toBeUndefined();
+      // 建两会话（A → B）：尾键 = 最新首次入册者（listActive().at(-1)）
+      const a = assembly.stack.manager.create();
+      const b = assembly.stack.manager.create();
+      expect(face!.currentSessionId()).toBe(b.sessionId); // 尾键会话 id（真身接线主断言）
+      // 幂等复开不移尾：open A（已在册早退）→ 尾键仍 B
+      assembly.stack.manager.open(a.sessionId);
+      expect(face!.currentSessionId()).toBe(b.sessionId); // 「最新首次入册」非「最近触碰」
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});

@@ -7,7 +7,9 @@
  * 零污染 + 活体优先事实源）/ session_before_fork 否决联合回执 / search 的
  * flush 屏障先行 + 会话内 FTS / dispose 全量拆解 + 封印位（create/fork 拒
  * SESSION_MANAGER_DISPOSED——六役停机窗补钉 02 §5.3 + 挂账收口笔 04 §1）+
- * 会话关闭收口 seam（六役 CL-C ④——onSessionClosed retire/dispose 两路同发）。
+ * 会话关闭收口 seam（六役 CL-C ④——onSessionClosed retire/dispose 两路同发）+
+ * listActive 尾键判据三语义（cs-D1——currentSessionId 判据 v1：首次入册序 /
+ * 幂等复开不移尾 / 删后重开新尾插）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -450,6 +452,41 @@ describe('SessionManager retire', () => {
     expect(observed).toEqual([a.sessionId]); // 成功路恰一笔
     expect(manager.retire(a.sessionId)).toBe(false); // 重复收口零再发射
     expect(observed).toEqual([a.sessionId]);
+  });
+});
+
+/* ---------------- listActive 尾键判据（cs-D1——currentSessionId 判据 v1 三语义） ---------------- */
+
+describe('SessionManager listActive 尾键判据（cs-D1——装配根 currentSessionId 判据 v1 三语义：首次入册序 / 幂等复开不移尾 / 删后重开新尾插）', () => {
+  it('三语义一锁：入册序 = create 序；open 已在册早退不移尾（尾键仍 B）；retire 摘除后 open 复续 = 新尾插（尾键变 A）', async () => {
+    const { manager } = makeManager();
+    const a = manager.create({ workspaceRoot: '/ws' });
+    const b = manager.create({ workspaceRoot: '/ws' });
+    // durable 铺设：A 需在 retire 前落行（createSession 零 I/O——行随首事件
+    // 落库；未落库 id 在 open 复续腿上 loadSession fail-loud）
+    closedTurn(a.driver.session, '尾键判据一轮');
+    await persistence.flush();
+
+    // 语义一（首次入册序）：create A → create B → listActive 序 [A,B]——
+    // Map 插入序即活体清单序，尾键 = 最新首次入册者（非「最近触碰」）
+    expect(manager.listActive().map((s) => s.sessionId)).toEqual([a.sessionId, b.sessionId]);
+
+    // 语义二（幂等复开不移尾）：open A（已在册）→ 早退回同一活体驱动，
+    // 登记序零变——尾键仍 B（「最新首次入册」判据对复开不敏感）
+    const reopened = manager.open(a.sessionId);
+    expect(reopened.driver).toBe(a.driver); // 早退回同一活体（不造第二附着）
+    expect(manager.listActive().map((s) => s.sessionId)).toEqual([a.sessionId, b.sessionId]);
+    expect(manager.listActive().at(-1)?.sessionId).toBe(b.sessionId); // 尾键 = B
+
+    // 语义三（删后重开 = 新尾插）：retire A 摘登记（[B]）→ open A 复续走
+    // loadSession 重造活体 → Map.set 尾插——序 [B,A]、尾键 = A
+    expect(manager.retire(a.sessionId)).toBe(true);
+    expect(manager.listActive().map((s) => s.sessionId)).toEqual([b.sessionId]);
+    const resumed = manager.open(a.sessionId);
+    expect(resumed.driver).not.toBe(a.driver); // 新活体（旧驱动已 dismantle 收口）
+    expect(manager.listActive().map((s) => s.sessionId)).toEqual([b.sessionId, a.sessionId]);
+    expect(manager.listActive().at(-1)?.sessionId).toBe(a.sessionId); // 尾键 = A（新尾插）
+    resumed.driver.dismantle(); // 测试台收口（活体复续不回卷 durable 面）
   });
 });
 
