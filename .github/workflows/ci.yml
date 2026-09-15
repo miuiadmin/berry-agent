@@ -8,6 +8,13 @@
 #   audit（npm audit --omit=dev 生产依赖审计）/ release 演习（发布机器
 #   六道契约 --dry-run 彩排）/ 安装脚本真跑（registry 现行版净环境装机）。
 #
+# - CI 对外 PR 降噪降级（2026-09-15 贡献流程批，条目真源 07 §7.4 续件 3）：
+#   release-drill 限 push 事件（发布机器彩排与外部 PR 改动无关——fork PR
+#   全链彩排纯耗额度）；纯文档 PR paths-ignore 降级（涉码路径任一即全量跑；
+#   **精确列举**而非 '**/*.md' 通配——SECURITY.md 与 .github/ISSUE_TEMPLATE/
+#   刻意不在忽略列，repo-files 在场锁对纯文档 PR 仍执法，防「删配套面文件」
+#   从降级缝溜过）；concurrency 同 ref 新推取消旧跑（省公共仓额度）。
+#
 # 平台注记：test 走双 OS 矩阵（ubuntu + macOS）——测试面平台分支均自适应
 # （sandbox 默认链按平台断言、PTY 用例按 python3 可用性探测跳过），Linux 上
 # 全绿路径已核，macOS 腿随矩阵接入；typecheck / lint / format 为平台无关
@@ -21,6 +28,20 @@ on:
   push:
     branches: [main, dev]
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/docs/**'
+      - 'README*.md'
+      - 'CONTRIBUTING.md'
+      - 'AGENTS.md'
+      - '.github/*.md'
+      - 'packages/**/*.md'
+
+# 同 ref 新推取消旧跑（push 分支与 PR 各自成组互不干扰；dev 四门禁必需
+# 检查设 strict——up-to-date 重跑不受取消影响，被取消的旧跑有新跑接力）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 # 全 job 无写面需求（checkout + 只读检查；release-drill 零推送零留痕）——
 # 顶层钉最小权限，GITHUB_TOKEN 不按仓库缺省权限下发；未来真发 job 需写时
@@ -93,6 +114,9 @@ jobs:
   # bump 后走「首发纯判」路径 = 每次真发布前的常态彩排路径，演习对象是发布机器链路
   # 健康，不是「当前版本可发」的断言。
   release-drill:
+    # 限 push 事件：发布机器彩排与外部 PR 改动无关（外部 PR 不改发布链路；
+    # fork PR 跑全链彩排纯耗公共仓额度）。若确需彩排，维护者在 dev 直推即触发
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
