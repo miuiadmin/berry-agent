@@ -10,6 +10,7 @@
  *   补丁三件套与件 8 同律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
+import { stringWidth } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
@@ -123,7 +124,10 @@ export class UsageViewer extends ScrollView implements OverlayContent {
  */
 export function buildUsageLines(summary: UiUsageSummary): string[] {
   const labelCol = 18; // 标签列宽（最长「合计 totalTokens」+ 2）
-  const row = (label: string, value: string): string => `${label.padEnd(labelCol)}${value}`;
+  // 标签补齐按显示宽（批 10k 遗漏修——padEnd 码元计量下 CJK 双宽标签错位
+  // 1 格：缓存读/写行值列比轮次行右凸 1 列）；值列恒右起同列
+  const row = (label: string, value: string): string =>
+    label + ' '.repeat(Math.max(0, labelCol - stringWidth(label))) + value;
   return [
     '全 run 累计（含被遮蔽重试——token 已真实花费）',
     '',

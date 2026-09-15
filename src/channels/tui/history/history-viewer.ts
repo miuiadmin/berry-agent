@@ -34,6 +34,7 @@ import type { CellBuffer, CellStyle, InputEvent, MouseEvent, Region } from '../.
 import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
+import type { Keymap } from '../keys/registry.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { LiveTranscript, renderBlockStyledLines, shortIdOf } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
@@ -59,6 +60,11 @@ export interface HistoryViewerOptions {
   readonly onQuit?: () => void;
   /** OSC 52 复制写出柄（release 选区触发——onExit/onInterrupt 装配柄同形先例；装配层包 buildOsc52Copy 铸序列） */
   readonly onCopy?: (text: string) => void;
+  /**
+   * 键位注册表注入（批 10k 遗漏修——搜索行子编辑器同册）：缺席 = 子编辑器
+   * 自建缺省册（单测语义）；装配位注入会话册——用户覆盖对子编辑器同样生效。
+   */
+  readonly keymap?: Keymap;
 }
 
 /** 搜索匹配定位（逻辑行 + UTF-16 区间〔start 含 end 不含〕） */
@@ -143,6 +149,7 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.searchEditor = new Editor({
       maxVisibleLines: 1, // 单行档——搜索框
       onChange: () => this.recomputeMatches(),
+      keymap: options.keymap, // 同册注入（缺席 = 缺省册单测语义）
     });
     this.searchEditor.setFocused(false);
   }

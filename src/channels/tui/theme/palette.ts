@@ -7,7 +7,7 @@
  * ——终端色板位直通，见 semantic 件注）。
  */
 import { ansiColor, colorRgb, rgbChannels } from '../../engine/index.js';
-import type { SemanticPalette } from './semantic.js';
+import type { ExactColor, SemanticPalette } from './semantic.js';
 
 /** 内置色板元数据载体（id 参与主题解析的明暗裁定——ResolvedTheme.dark 单源） */
 export interface BuiltinPalette {
@@ -18,6 +18,16 @@ export interface BuiltinPalette {
 /** 色板源值简写（`#rrggbb` 构造校验 + 通道拆解——静态表错值启动即抛、测试直锁） */
 function rgb(hex: string) {
   return rgbChannels(colorRgb(hex));
+}
+
+/**
+ * 精确对位简写（批 10k 遗漏修）：rgb 主值 + 16 档覆写位。高亮五键族专利——
+ * 最近邻降采在低饱和蓝灰域塌缩（dark 板 4/5 键合流 ANSI 7），覆写值按
+ * 「色相族对板 + 五键互离」人工定值：dark 9/6/8/12/13（亮红/青/暗灰/亮蓝/
+ * 亮紫）、light 1/4/8/12/5（红/蓝/暗灰/亮蓝/紫）——同键两板同色相族。
+ */
+function exact(hex: string, ansi16: number): ExactColor {
+  return { rgb: rgbChannels(colorRgb(hex)), ansi16: ansiColor(ansi16) };
 }
 
 /**
@@ -39,12 +49,13 @@ export const DARK_PALETTE: BuiltinPalette = {
     tableRule: rgb('#30363d'),
     codeInline: rgb('#7ee787'),
     // 高亮键族（GitHub dark 语法色系——keyword 红 / string 浅蓝 / comment 灰
-    // / number 蓝青 / function 紫；五键 256 降采落点互离、16 档键合流亦可辨）
-    codeKeyword: rgb('#ff7b72'),
-    codeString: rgb('#a5d6ff'),
-    codeComment: rgb('#8b949e'),
-    codeNumber: rgb('#79c0ff'),
-    codeFunction: rgb('#d2a8ff'),
+    // / number 蓝青 / function 紫；五键 256 降采落点互离、16 档走精确对位覆写
+    // 互离——最近邻在低饱和蓝灰域塌缩，见 exact 简写注）
+    codeKeyword: exact('#ff7b72', 9),
+    codeString: exact('#a5d6ff', 6),
+    codeComment: exact('#8b949e', 8),
+    codeNumber: exact('#79c0ff', 12),
+    codeFunction: exact('#d2a8ff', 13),
   },
 };
 
@@ -66,12 +77,13 @@ export const LIGHT_PALETTE: BuiltinPalette = {
     link: rgb('#0969da'),
     tableRule: rgb('#d0d7de'),
     codeInline: rgb('#116329'),
-    // 高亮键族（GitHub light 语法色系——与 dark 对位同键同语义）
-    codeKeyword: rgb('#cf222e'),
-    codeString: rgb('#0a3069'),
-    codeComment: rgb('#57606a'),
-    codeNumber: rgb('#0550ae'),
-    codeFunction: rgb('#8250df'),
+    // 高亮键族（GitHub light 语法色系——与 dark 对位同键同语义；16 档走精确
+    // 对位覆写 1/4/8/12/5——同色相族对板互离，见 exact 简写注）
+    codeKeyword: exact('#cf222e', 1),
+    codeString: exact('#0a3069', 4),
+    codeComment: exact('#57606a', 8),
+    codeNumber: exact('#0550ae', 12),
+    codeFunction: exact('#8250df', 5),
   },
 };
 

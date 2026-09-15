@@ -753,6 +753,41 @@ describe('TuiBackend 渲染合并与 tick 自驱', () => {
     expect(bytes.indexOf('· 通知')).toBeLessThan(bytes.indexOf('问二'));
   });
 
+  it('transient 让位流式槽：槽在场缓冲、定稿关槽帧补吐（批 10k 遗漏修——瞬时行不嵌入槽首行位）', () => {
+    const rig = makeInteractive();
+    emit(rig.backend, { type: 'message_start', role: 'assistant' });
+    emit(rig.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('流式中') });
+    rig.pump();
+    rig.io.bytes = '';
+    // 槽在场瞬时行（notify）：直写会落槽首行位（gotoRow(durableEndRow) 起笔
+    // ——嵌入槽内破槽形）——缓冲不落屏
+    rig.backend.notify('槽期通知', { level: 'info' });
+    rig.pump();
+    expect(rig.io.bytes).not.toContain('槽期通知');
+    // 定稿关槽 → 缓冲补吐在定稿块之后（到达序保持）
+    emit(rig.backend, { type: 'message_end', message: assistantMsg('定稿') });
+    rig.pump();
+    expect(rig.io.bytes).toContain('定稿');
+    expect(rig.io.bytes).toContain('槽期通知');
+    expect(rig.io.bytes.indexOf('定稿')).toBeLessThan(rig.io.bytes.indexOf('槽期通知'));
+  });
+
+  it('编辑器键位覆盖注入（批 10k 遗漏修——keymap 装配位缺注）', () => {
+    const { io, calls, clock, pump } = makeInteractive({
+      keybindings: { 'editor.new-line': 'alt+j' }, // 换行键改 alt+j——ctrl+j 缺省位让位
+    });
+    // 键序可区分：alt+j 在前（覆盖生效 = 换行；缺注缺省册 = 无动作）、
+    // ctrl+j 在后（覆盖生效 = 无动作；缺省册 = 换行）——两态提交文互异
+    io.emitInput('a');
+    io.emitInput('\x1bj'); // alt+j（legacy ESC 前缀形）——覆盖后的换行位
+    escapePump(clock); // lone-ESC 判定窗推进（ESC j 二义性收束）
+    io.emitInput('b');
+    io.emitInput('\x0a'); // ctrl+j——覆盖后不再换行
+    io.emitInput('\r');
+    pump();
+    expect(calls.submitted).toEqual([['s1', 'a\nb']]); // alt+j 换行生效、ctrl+j 未换（缺注态为 'ab'）
+  });
+
   it('tick 自驱：忙态转轮推帧、闲态零写出、stop 后静默', () => {
     const rig = makeInteractive();
     rig.backend.onEnvelope({ sessionId: 's1', event: { type: 'agent_start' } }, true);

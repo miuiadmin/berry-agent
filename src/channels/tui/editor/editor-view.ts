@@ -33,7 +33,8 @@ export class EditorView implements Renderable {
   private focused = false;
   /** 视口首行（视觉行下标——render 时对光标夹取自愈） */
   private scrollOffset = 0;
-  private readonly maxVisibleLines: number;
+  /** 最大可视行数（resize 随动可变——批 10k 遗漏修：装配层按新几何 setMaxVisibleLines） */
+  private maxVisibleLines: number;
   /** 上次呈现行数（迟滞带决策输入——R3 批 10j） */
   private lastShownLines = 0;
   /** 聚焦态边框样式（accent 派生——主题单源，setTheme 整体重建） */
@@ -44,6 +45,13 @@ export class EditorView implements Renderable {
     options: { maxVisibleLines?: number } = {},
   ) {
     this.maxVisibleLines = Math.max(1, options.maxVisibleLines ?? DEFAULT_MAX_VISIBLE_LINES);
+  }
+
+  /** 帽随几何重设（批 10k 遗漏修——同值早退不重置迟滞带账） */
+  setMaxVisibleLines(cap: number): void {
+    const next = Math.max(1, cap);
+    if (next === this.maxVisibleLines) return;
+    this.maxVisibleLines = next;
   }
 
   /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */

@@ -84,6 +84,7 @@ import {
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
 import { Keymap, type KeybindingRejection } from '../keys/registry.js';
 import { Editor } from '../editor/editor.js';
+import { editorHeightCap } from '../editor/height-cap.js';
 import { OverlayStack, type OverlayAnchor, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer } from '../history/history-viewer.js';
@@ -182,7 +183,12 @@ const NOTIFY_SYMBOLS: Readonly<Record<NotifyLevel, string>> = Object.freeze({
 
 /** 渲染合并 op 两形（repaint/resize 权威重建不走队列——同步直出） */
 type PendingOp =
-  | { readonly kind: 'present'; readonly blocks: readonly TranscriptBlock[] }
+  | {
+      readonly kind: 'present';
+      readonly blocks: readonly TranscriptBlock[];
+      /** 入队时的裁块累计（绝对位对账——enqueue 与 flush 间 trim 可再进，帧内自洽） */
+      readonly offset: number;
+    }
   | { readonly kind: 'transient'; readonly lines: readonly string[] };
 
 /** input-ask 在飞体（提示行呈现 + 提交应答路） */
@@ -286,7 +292,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /* ---- 副屏装配态（批 10f-4 特性腿——件 8 /history；mm 批 /memory 并席） ---- */
   /** 副屏宿主（构造晚于 io 赋值——类字段初始化序：宿主构造须见 io 实值） */
   private readonly altHost: AltScreenHost;
-  /** 在场副屏句柄（单值承载 /history 与 /memory 两件——无嵌套备屏律；开、q/Esc/Ctrl+D/ask 收四路共闭） */
+  /** 在场副屏句柄（单值承载 /history /memory /help /sessions /usage 五件——无嵌套备屏律；开、q/Esc/Ctrl+D/ask 收四路共闭） */
   private altHandle: OverlayHandle | null = null;
   /**
    * 记忆管理面材料位（mm 批——后置注入）：构造期不可达（memory 件的 dao
@@ -301,6 +307,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly cancelFn: (handle: unknown) => void;
   private readonly now: () => number;
   private readonly minFrameMs: number;
+  /**
+   * 显式注入的编辑器高度帽（批 10k 遗漏修）：null = 帽公式按几何动态解析
+   * （resize 随动——handleResize 重算）；非 null = 测试/装配注入帽恒尊注入值。
+   */
+  private readonly fixedEditorCap: number | null;
+  /**
+   * 流式槽在场期的瞬时行缓冲（批 10k 遗漏修）：槽在场时 appendTransient 直
+   * 写会落槽首行位（gotoRow(durableEndRow) 起笔——嵌入槽内破槽形），缓冲至
+   * 关槽帧（present 无槽）后补吐——与 suspendedTransients 同形互补。
+   */
+  private slotTransients: string[] = [];
   private pendingOps: PendingOp[] = [];
   private needFixed = false;
   private frameHandle: unknown = null;
@@ -397,10 +414,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (options.footer !== undefined) this.refreshFooter();
     // 直播行集（批 10h/10i）：主题随构造定着——流式 markdown 直推档与定稿块同源
     this.transcript = new LiveTranscript({ theme: this.theme, keyText: (id) => this.keymap.keyText(id) });
+    // 编辑器高度帽单点解析（批 10k 遗漏修）：显式注入帽（测试语义）恒尊注入
+    // 值；缺席 = 帽公式单源按构造期几何解析（resize 随动见 handleResize）
+    this.fixedEditorCap = options.maxVisibleLines ?? null;
     this.editor = new Editor({
       onSubmit: (text) => this.handleSubmit(text),
       onChange: () => this.handleEditorChange(),
-      maxVisibleLines: options.maxVisibleLines,
+      maxVisibleLines: this.fixedEditorCap ?? editorHeightCap(this.io.size().rows),
+      // 键位注册表注入（批 10k 遗漏修——此前缺注 = 用户覆盖对编辑器不生效，
+      // Editor 自建缺省册与 backend 册两册分叉）；子编辑器（副屏搜索/导出行）
+      // 经 viewer options 同册注入
+      keymap: this.keymap,
     });
     // 补全三件（R6 批 10j 异步形）：provider 路由单源 → 弹层纯落位面 → 防抖
     // 调度器居中编舞。query 闭包 fire 时自取编辑器现态（防抖窗内连打取最新
@@ -568,11 +592,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.pendingOps = [];
     this.needFixed = false;
     // 全帧重画：几何真值重取（吸收停屏期 resize）+ 清屏 + 行集全量重写（含停屏期 durable 事件）
-    this.screen.handleResize(this.transcript.snapshot);
-    // 瞬时行缓冲补吐（复起补显射界含停屏期瞬时行——2026-09-07 勘正笔）
+    this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
+    // 瞬时行缓冲补吐（复起补显射界含停屏期瞬时行——2026-09-07 勘正笔）；槽在
+    // 场（停屏期起流未收口）走槽期缓冲路（关槽帧补吐——同 flush 编舞）
     const transients = this.suspendedTransients;
     this.suspendedTransients = [];
-    if (transients.length > 0) this.screen.appendTransient(transients);
+    if (transients.length > 0) {
+      if (this.transcript.snapshot.at(-1)?.kind === 'streaming') this.slotTransients.push(...transients);
+      else this.screen.appendTransient(transients);
+    }
     this.renderFixed();
     if (this.scheduleFn !== null) this.armTick(); // 状态行转轮复摆
   }
@@ -600,6 +628,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // OSC 52 复制写出柄（mu-2）：release 选区行间拼 LF 到达 → 铸序列直写
         // io（终端支持不可探测——尽力写出无反馈，件 8 细则）
         onCopy: (text) => this.io.write(buildOsc52Copy(text)),
+        // 键位册同源注入（批 10k 遗漏修——搜索行子编辑器同册，用户覆盖通效）
+        keymap: this.keymap,
       }),
     );
     this.altHandle = handle; // null = 主屏未 running 被拒——如实保持无副屏
@@ -628,6 +658,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onExit: () => this.closeAlt(),
         onInterrupt: () => this.onInterrupt?.(this.sessionId), // 零参形——装配闭包已知目标会话
         onQuit: this.onQuit,
+        // 键位册同源注入（批 10k 遗漏修——导出行子编辑器同册，用户覆盖通效）
+        keymap: this.keymap,
       }),
     );
     if (handle === null) return false; // 主屏未 running 被拒——如实报 false
@@ -691,7 +723,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         commands,
         actions: this.keymap.actions, // 键位册投影——解析后生效键集（覆盖随动）
         sessionId: this.sessionId,
-        columns: this.io.size().columns,
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -798,7 +829,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.pendingOps = [];
     this.needFixed = false;
     if (this.suspendedMain) return; // 挂起闸：屏上零写出（复起全帧重画携带新投影）
-    this.screen.repaint(this.transcript.snapshot);
+    this.screen.repaint(this.transcript.snapshot, this.transcript.trimmedBlockCount);
     this.renderFixed();
   }
 
@@ -817,9 +848,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** resize 编舞：几何重取 + 主屏全量重画 + 固定区按新几何重建（权威重建不走队列） */
   handleResize(): void {
     if (this.suspendedMain) return; // 挂起闸：停屏期零写出（此刻写出污染在场副屏）——几何真值由复起全帧重画重取吸收
+    // 编辑器高度帽随几何重算（批 10k 遗漏修——此前构造期一算永不随动：缩窗后
+    // 帽仍按初始行数，固定区总高可超屏行）；显式注入帽恒尊注入值（测试语义）
+    this.editor.setMaxVisibleLines(this.fixedEditorCap ?? editorHeightCap(this.io.size().rows));
     this.pendingOps = [];
     this.needFixed = false;
-    this.screen.handleResize(this.transcript.snapshot);
+    this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
     this.renderFixed();
   }
 
@@ -989,13 +1023,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private toggleThinking(): void {
     this.transcript.toggleThinking();
-    this.screen.repaint(this.transcript.snapshot);
+    this.screen.repaint(this.transcript.snapshot, this.transcript.trimmedBlockCount);
   }
 
   /** 工具卡会话级开关（ctrl+o 批 10i）——同律：改写 + repaint */
   private toggleToolCards(): void {
     this.transcript.toggleToolCards();
-    this.screen.repaint(this.transcript.snapshot);
+    this.screen.repaint(this.transcript.snapshot, this.transcript.trimmedBlockCount);
   }
 
   /**
@@ -1108,7 +1142,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private enqueuePresent(): void {
     const last = this.pendingOps[this.pendingOps.length - 1];
     if (last !== undefined && last.kind === 'present') this.pendingOps.pop();
-    this.pendingOps.push({ kind: 'present', blocks: [...this.transcript.snapshot] });
+    this.pendingOps.push({
+      kind: 'present',
+      blocks: [...this.transcript.snapshot],
+      offset: this.transcript.trimmedBlockCount,
+    });
   }
 
   /** 固定区脏位 + 渲染请求（touch 固定区的统一入口） */
@@ -1139,18 +1177,39 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.lastFlushAt = this.now();
     const ops = this.pendingOps;
     this.pendingOps = [];
+    // 帧序真源：present op 的行集是当时的真相（transcript.snapshot 可能已前进）
+    let frameBlocks: readonly TranscriptBlock[] = this.transcript.snapshot;
     for (const op of ops) {
       if (op.kind === 'present') {
-        this.screen.present(op.blocks);
+        frameBlocks = op.blocks;
+        this.screen.present(op.blocks, op.offset);
         // 流式帧字节帽（批 10h R1 perf 护栏）：冻结编舞下常态帧为视口量级，
         // 超帽即病理性重排（巨表/超长开栏）——降档纯文本直推，下条消息重试
         if (this.screen.lastSlotFrameBytes > STREAM_FRAME_BYTE_CAP) this.transcript.setStreamingPlain();
-      } else this.screen.appendTransient(op.lines);
+        // 关槽帧补吐槽期缓冲瞬时行（到达序保持——定稿块之后）
+        if (frameBlocks.at(-1)?.kind !== 'streaming') this.drainSlotTransients();
+      } else {
+        // 槽在场（帧序真源末块）瞬时行缓冲让位（嵌入槽首行位会破槽形）
+        if (frameBlocks.at(-1)?.kind === 'streaming') this.slotTransients.push(...op.lines);
+        else {
+          this.screen.appendTransient(op.lines);
+          this.drainSlotTransients(); // 直写后无槽在场——缓冲清空（防御序）
+        }
+      }
     }
     if (this.needFixed) {
       this.needFixed = false;
       this.renderFixed();
     }
+  }
+
+  /** 槽期瞬时行缓冲补吐（无槽在场才吐——调用位已判；防御再判一次） */
+  private drainSlotTransients(): void {
+    if (this.slotTransients.length === 0) return;
+    if (this.transcript.snapshot.at(-1)?.kind === 'streaming') return; // 槽又开（新消息起流）——续缓冲
+    const lines = this.slotTransients;
+    this.slotTransients = [];
+    this.screen.appendTransient(lines);
   }
 
   /** 状态行转轮自驱定时器（注入调度后自重排；忙态外 tick 零开销） */

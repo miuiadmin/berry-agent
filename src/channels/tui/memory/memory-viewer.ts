@@ -46,6 +46,7 @@
 import type { CellBuffer, CellStyle, InputEvent, MouseEvent, Region } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
+import type { Keymap } from '../keys/registry.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
@@ -132,6 +133,11 @@ export interface MemoryViewerOptions extends MemoryViewerDataDeps {
   readonly onInterrupt?: () => void;
   /** 退出进程（Ctrl+D——先收副屏〔onExit 已先调〕再转装配退出柄） */
   readonly onQuit?: () => void;
+  /**
+   * 键位注册表注入（批 10k 遗漏修——导出行子编辑器同册）：缺席 = 子编辑器
+   * 自建缺省册（单测语义）；装配位注入会话册——用户覆盖对子编辑器同样生效。
+   */
+  readonly keymap?: Keymap;
 }
 
 /* ---------------- 词面常量 ---------------- */
@@ -247,7 +253,7 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
-    this.exportEditor = new Editor({ maxVisibleLines: 1 }); // 单行档——导出参数行
+    this.exportEditor = new Editor({ maxVisibleLines: 1, keymap: options.keymap }); // 单行档——导出参数行（同册注入）
     this.exportEditor.setFocused(false);
     this.rebuild(); // 开屏快照（光标落首条——顶部对齐）
   }

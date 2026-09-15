@@ -413,3 +413,40 @@ describe('MainScreen 思考前缀冻结', () => {
     }
   });
 });
+
+/* ---------------- 批 10k 遗漏修：块账绝对位与固定区越界防御 ---------------- */
+
+describe('MainScreen 块账绝对位与越界防御（批 10k 遗漏修）', () => {
+  it('blocksOffset 对账：前缀裁块（trim 饱和）后增量只写新块——不漏写不重写', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    screen.present([userBlock('A'), userBlock('B'), userBlock('C')], 0);
+    io.bytes = '';
+    // trim 语义：前缀裁一块（A 离队）+ 尾增新块 D——blocksOffset = 已裁数
+    screen.present([userBlock('B'), userBlock('C'), userBlock('D')], 1);
+    expect(io.bytes).toContain('> D'); // 新块不漏写（相对块数对账在 trim 后误判零新增）
+    expect(io.bytes).not.toContain('> A'); // 裁块不重写（已交 scrollback 物理不可回改）
+    expect(io.bytes).not.toContain('> B'); // 在场旧块不重写（增量语义）
+  });
+
+  it('repaint 携 blocksOffset：裁块后全量重写不含已裁前缀账漏写', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    screen.present([userBlock('A'), userBlock('B')], 0);
+    io.bytes = '';
+    screen.repaint([userBlock('B'), userBlock('C')], 1); // 切焦重画（trim 已裁 A）
+    expect(io.bytes).toContain('> B');
+    expect(io.bytes).toContain('> C');
+    expect(io.bytes).not.toContain('> A');
+  });
+
+  it('固定区超屏（总高 > 行数）零负行定位——baseRow 钳 0（畸形几何防御位）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    // 12 行固定区 > 10 行屏（段溢出形——②段优先级截断挂账，此处锁兜底不产废字节）
+    const tall = new CellGrid(COLS, 12);
+    tall.writeText(0, 0, '超高固定区');
+    screen.setFixed(tall);
+    expect(io.bytes).not.toMatch(/\x1b\[-\d+;\d+H/); // 负行 cup = 废字节（终端吃掉或错位）
+  });
+});

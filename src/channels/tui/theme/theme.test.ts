@@ -59,6 +59,15 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
     expect(t.secondary).toEqual(ansiColor(8)); // #8b949e → 暗灰（距 128³ 系最小）
   });
 
+  it('16 档高亮五键互离（exactColor 覆写——最近邻塌缩修正，批 10k 遗漏修）', () => {
+    const keys = ['codeKeyword', 'codeString', 'codeComment', 'codeNumber', 'codeFunction'] as const;
+    for (const setting of ['dark', 'light'] as const) {
+      const theme = resolveTheme(builtinPalette(setting), '16');
+      const got = keys.map((k) => theme[k]);
+      expect(new Set(got).size, `${setting} 16 档五键互离`).toBe(5); // 塌缩形：dark 4/5 键合流 ANSI 7
+    }
+  });
+
   it('值域两律全键遍历：256 档 RGB 源键落 16-255、16 档落 0-15', () => {
     // RGB 源键 = 除 accent（AnsiColor 直通）与 text（undefined）外全集
     const rgbKeys = SEMANTIC_KEYS.filter((k) => k !== 'accent' && k !== 'text') as Exclude<

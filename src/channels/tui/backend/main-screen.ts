@@ -53,8 +53,13 @@ export class MainScreen {
   private columns = DEFAULT_COLUMNS;
   private rows = DEFAULT_ROWS;
   private fixedHeight: number;
-  /** 已直写 durable 块数（增量追加起点——repaint 归零全量重写） */
-  private writtenBlocks = 0;
+  /**
+   * 已直写 durable 绝对块位（批 10k 遗漏修——相对块数改绝对位）：绝对位 =
+   * blocksOffset（transcript 历史裁块累计）+ 块下标。trim 卸前缀后相对块数
+   * 恒 ≤ 帽值，`durableCount > writtenBlocks` 会误判零新增漏写新块；绝对位
+   * 对账在裁块下不漂移。repaint 重置为本帧 blocksOffset（全量重写）。
+   */
+  private writtenAbsolute = 0;
   /** 光标绝对行（0 基——写行/定位单点维护） */
   private cursorRow = 0;
   /** durable 末行（追加落笔行 = 槽首行；滚动时钉区底） */
@@ -94,8 +99,12 @@ export class MainScreen {
   /**
    * 增量呈现（追加块直写 → 稳定面冻结 → 槽换装 → 余行清除 → 固定区差分）。
    * 前置：光标在固定区末行行首（start / setFixed / 上次 present 归位）。
+   *
+   * @param blocks 当前行集（帽内最近段——trim 可卸前缀）
+   * @param blocksOffset 行集首块的历史裁块累计（绝对位对账输入——装配层取
+   *   transcript.trimmedBlockCount；缺席 0 = 无裁块旧形）
    */
-  present(blocks: readonly TranscriptBlock[]): void {
+  present(blocks: readonly TranscriptBlock[], blocksOffset = 0): void {
     this.slotFrameBytes = 0;
     // 末块为 streaming 时即流式槽（const 绑定经 kind 判别收窄）
     const last = blocks.length > 0 ? blocks[blocks.length - 1]! : null;
@@ -115,10 +124,13 @@ export class MainScreen {
     // B. 追加块直写（每行 CR 起笔 + LF 推进，区底触滚交 scrollback）。槽关帧
     //    （message_end 定稿换装）首块行集与冻结行同源同宽——跳过已冻结行数
     //    （定稿不重写冻结行：append-only 物理律；冻结超额的回缩残行留
-    //    scrollback，v1 边界头注）
-    if (durableCount > this.writtenBlocks) {
+    //    scrollback，v1 边界头注）。对账走绝对位（blocksOffset + 块下标——
+    //    trim 裁前缀后相对块数失真，见 writtenAbsolute 注）
+    const newAbsolute = blocksOffset + durableCount;
+    if (newAbsolute > this.writtenAbsolute) {
       let skip = this.frozenSlotLines;
-      for (let i = this.writtenBlocks; i < durableCount; i++) {
+      const start = Math.max(0, this.writtenAbsolute - blocksOffset);
+      for (let i = start; i < durableCount; i++) {
         for (const line of renderBlockLines(blocks[i]!, this.columns)) {
           if (skip > 0) {
             skip--;
@@ -127,7 +139,7 @@ export class MainScreen {
           this.writeLine(line);
         }
       }
-      this.writtenBlocks = durableCount;
+      this.writtenAbsolute = newAbsolute;
       this.durableEndRow = this.cursorRow;
     }
     // 槽不在场即冻结账收口（残值防御清——epoch 账只在槽在场期有意义）
@@ -213,24 +225,27 @@ export class MainScreen {
     this.redrawFixed();
   }
 
-  /** repaint（焦点切换）：清屏 + 行集全量重写（投影即真相——scrollback 旧内容不参与） */
-  repaint(blocks: readonly TranscriptBlock[]): void {
-    this.writtenBlocks = 0;
+  /**
+   * repaint（焦点切换）：清屏 + 行集全量重写（投影即真相——scrollback 旧内容
+   * 不参与）。绝对位账重置为本帧 blocksOffset（全量重写后账尾 = 行集末块）。
+   */
+  repaint(blocks: readonly TranscriptBlock[], blocksOffset = 0): void {
+    this.writtenAbsolute = blocksOffset;
     this.slotLineCount = 0;
     this.frozenSlotLines = 0;
     this.slotEpoch = null;
     this.durableEndRow = 0;
     this.io.write(CLEAR_SCREEN);
     this.applyScrollRegion();
-    this.present(blocks);
+    this.present(blocks, blocksOffset);
   }
 
   /** resize 编舞：几何重取 + 滚动区重设 + 全量重画（弃旧换新——宽字符 reflow 必失真） */
-  handleResize(blocks: readonly TranscriptBlock[]): void {
+  handleResize(blocks: readonly TranscriptBlock[], blocksOffset = 0): void {
     const size = this.io.size();
     this.columns = size.columns;
     this.rows = size.rows;
-    this.repaint(blocks);
+    this.repaint(blocks, blocksOffset);
   }
 
   /* ---------------- 内部编舞 ---------------- */
@@ -262,7 +277,9 @@ export class MainScreen {
   /** 固定区差分重画 + 光标落位（编辑光标外显的物理位） */
   private redrawFixed(): void {
     if (this.fixedGrid !== null) {
-      const baseRow = this.rows - this.fixedGrid.rows;
+      // baseRow 钳 0（畸形几何防御位——段总高 > 行数时固定区越屏顶，负行 cup
+      // 是废字节；段优先级截断归装配层，此处只兜不产错位定位）
+      const baseRow = Math.max(0, this.rows - this.fixedGrid.rows);
       this.io.write(renderFixedRegionDiff(this.prevFixed, this.fixedGrid, baseRow));
       this.prevFixed = this.fixedGrid;
       // 光标声明位落位（EditorView 编辑位经 setCursor 声明）——绝对 CUP 且

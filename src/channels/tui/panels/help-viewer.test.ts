@@ -79,7 +79,6 @@ describe('HelpViewer 副屏件', () => {
       commands: [{ name: 'help', description: '帮助面' }],
       actions: ACTIONS,
       sessionId: '1234567890abcdef',
-      columns: 60,
       onExit: () => {},
     });
     const grid = new CellGrid(60, Math.max(3, viewer.measure(60)));
@@ -91,7 +90,7 @@ describe('HelpViewer 副屏件', () => {
 
   it('q 退出（key 轨 + text 轨两形）——闭锁单次', () => {
     const onExit = vi.fn();
-    const viewer = new HelpViewer({ commands: [], actions: [], sessionId: 's', columns: 60, onExit });
+    const viewer = new HelpViewer({ commands: [], actions: [], sessionId: 's', onExit });
     expect(viewer.handleEvent(k('q'))).toBe(true);
     expect(onExit).toHaveBeenCalledTimes(1);
     expect(viewer.handleEvent({ kind: 'text', text: 'q' } as InputEvent)).toBe(true);
@@ -100,7 +99,7 @@ describe('HelpViewer 副屏件', () => {
 
   it('Esc 同 q 退出', () => {
     const onExit = vi.fn();
-    const viewer = new HelpViewer({ commands: [], actions: [], sessionId: 's', columns: 60, onExit });
+    const viewer = new HelpViewer({ commands: [], actions: [], sessionId: 's', onExit });
     viewer.handleEvent(k('escape'));
     expect(onExit).toHaveBeenCalledTimes(1);
   });
@@ -108,7 +107,7 @@ describe('HelpViewer 副屏件', () => {
   it('Ctrl+C = 打断在飞（收会话 id 透传）不退屏', () => {
     const onExit = vi.fn();
     const onInterrupt = vi.fn();
-    const viewer = new HelpViewer({ commands: [], actions: [], sessionId: 'sess-1', columns: 60, onExit, onInterrupt });
+    const viewer = new HelpViewer({ commands: [], actions: [], sessionId: 'sess-1', onExit, onInterrupt });
     viewer.handleEvent(k('c', { ctrl: true }));
     expect(onInterrupt).toHaveBeenCalledWith('sess-1');
     expect(onExit).not.toHaveBeenCalled(); // 打断不退副屏
@@ -120,7 +119,6 @@ describe('HelpViewer 副屏件', () => {
       commands: [],
       actions: [],
       sessionId: 's',
-      columns: 60,
       onExit: () => calls.push('exit'),
       onQuit: () => calls.push('quit'),
     });
@@ -129,7 +127,7 @@ describe('HelpViewer 副屏件', () => {
   });
 
   it('未消费键终局吞（模态独占）——enter 不逃逸', () => {
-    const viewer = new HelpViewer({ commands: [], actions: [], sessionId: 's', columns: 60, onExit: () => {} });
+    const viewer = new HelpViewer({ commands: [], actions: [], sessionId: 's', onExit: () => {} });
     expect(viewer.handleEvent(k('enter'))).toBe(true);
   });
 });

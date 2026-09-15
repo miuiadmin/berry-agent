@@ -45,7 +45,8 @@ export class Editor implements Renderable {
   /** jump 待靶方向（null = 常态） */
   private jumpPending: 'forward' | 'backward' | null = null;
   private readonly onSubmit: ((text: string) => void) | undefined;
-  private readonly pageSize: number;
+  /** 翻页步幅（= 呈现帽——帽随 resize 重算时同步，见 setMaxVisibleLines） */
+  private pageSize: number;
   private readonly keymap: Keymap;
 
   constructor(options: EditorOptions = {}) {
@@ -55,6 +56,16 @@ export class Editor implements Renderable {
     this.model = new EditorModel();
     this.model.onChange = (text) => options.onChange?.(text);
     this.view = new EditorView(this.model, { maxVisibleLines: options.maxVisibleLines });
+  }
+
+  /**
+   * 帽随几何重设（批 10k 遗漏修——装配层 resize 编舞调）：呈现帽与翻页步幅
+   * 同源随动（page 键步幅 = 视口高整页——帽变步幅不变会翻过头/翻不足）。
+   */
+  setMaxVisibleLines(cap: number): void {
+    const next = Math.max(1, cap);
+    this.pageSize = next;
+    this.view.setMaxVisibleLines(next);
   }
 
   /* ---------------- 装配面便捷委托 ---------------- */

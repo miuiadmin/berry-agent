@@ -355,6 +355,8 @@ export class LiveTranscript {
   private slotOpen = false;
   /** 在飞工具调用账（assistant toolCall 入账 → toolResult 配对出账落卡） */
   private pendingCalls = new Map<string, PendingToolCall>();
+  /** 历史裁块累计（单调递增——trimmedBlockCount 观测面的真身） */
+  private trimmedCount = 0;
   /** 思考块会话级展开态（批 10i——缺省折叠省 scrollback） */
   private thinkingExpanded = false;
   /** 工具卡会话级展开态（批 10i——缺省折叠尾 5 行预览） */
@@ -416,6 +418,16 @@ export class LiveTranscript {
   }
 
   /**
+   * 历史裁块累计（批 10k 遗漏修——呈现对账输入）：帽饱和 slice 卸前缀的
+   * 累计块数，单调递增不回退（再投影重建重裁同段照加——绝对位不重影）。
+   * MainScreen 增量对账以「绝对块位」计（blocksOffset + 块下标），相对块数
+   * 在 trim 后会误判零新增漏写新块。
+   */
+  get trimmedBlockCount(): number {
+    return this.trimmedCount;
+  }
+
+  /**
    * 直播路归约：活体信封 → 行集更新 + 瞬时行（非聚焦摘要行直返、聚焦返 null）。
    * 非聚焦会话的 durable 事件全忽略（行集是聚焦会话的账——投影重建走 loadProjection）。
    */
@@ -445,7 +457,7 @@ export class LiveTranscript {
       }
     }
     // 在飞孤儿兜底：走查毕未见结果的调用照旧 ⚙ 简行（与直播路在飞期零正文行
-    // 收敛同形——投影把「在飞」显形为 ⚙，结果到达配对换卡时孤儿行撤销）
+    // 收敛同形——投影把「在飞」显形为 ⚙；结果到达配对落卡时 ⚙ 留账留屏）
     for (const [toolCallId, call] of this.pendingCalls) {
       rebuilt.push({ kind: 'tool-call', name: call.name, brief: call.brief, toolCallId });
     }
@@ -585,12 +597,10 @@ export class LiveTranscript {
       return;
     }
     this.pendingCalls.delete(message.toolCallId);
-    // 孤儿撤销：repaint 投影显形的 ⚙ 行在结果到达时移除（模型账收敛——已交
-    // scrollback 的旧行物理不可回改，后续 repaint 不再显形）
-    const orphanIndex = target.findIndex(
-      (block) => block.kind === 'tool-call' && block.toolCallId === message.toolCallId,
-    );
-    if (orphanIndex >= 0) target.splice(orphanIndex, 1);
+    // 孤儿留账（批 10k 遗漏修）：repaint 投影显形的 ⚙ 行不撤销——已交
+    // scrollback 物理不可回改，splice 撤账是账屏失同步的假象收敛（屏上 ⚙
+    // 残留而块账消失，下次 repaint 前两账错位）。留账留屏 + 卡追加 = 净 +1
+    // 块（呈现侧 B 段照常写卡）；再投影自然收敛仅卡（pendingCalls 已出账）
     target.push(this.buildToolCard(call, message));
   }
 
@@ -621,6 +631,8 @@ export class LiveTranscript {
   /** 帽卸载：超帽从头卸（保留帽内最近段——滚出视口交 scrollback 后内存上限语义；全量档 Infinity 恒不触发） */
   private trimToCap(): void {
     if (this.blocks.length > this.blockCap) {
+      // 裁块累计单调入账（再投影重建重裁同段照加——绝对位不重影，见 getter 注）
+      this.trimmedCount += this.blocks.length - this.blockCap;
       this.blocks = this.blocks.slice(this.blocks.length - this.blockCap);
     }
   }

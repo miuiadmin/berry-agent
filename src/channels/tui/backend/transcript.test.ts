@@ -293,6 +293,21 @@ describe('LiveTranscript 投影重建与帽', () => {
     t.loadProjection(messages);
     expect(t.blockCount).toBe(TRANSCRIPT_BLOCK_CAP);
   });
+
+  it('裁块计数观测面（批 10k 遗漏修）：帽饱和累加 + 再投影重建不回退', () => {
+    const t = new LiveTranscript({ blockCap: 3 });
+    const messages = [userMsg('一'), userMsg('二'), userMsg('三'), userMsg('四'), userMsg('五')];
+    t.loadProjection(messages);
+    expect(t.trimmedBlockCount).toBe(2); // 5 块入帽 3——前缀裁 2
+    // 直播路续增：再入两块裁两块（对账输入持续累加——MainScreen 绝对位依据）
+    apply(t, { type: 'message_end', message: userMsg('六') });
+    apply(t, { type: 'message_end', message: userMsg('七') });
+    expect(t.blockCount).toBe(3);
+    expect(t.trimmedBlockCount).toBe(4);
+    // 再投影重建：走查重裁同段——计数不回退（blocks 整体替换后 trim 仍按帽裁）
+    t.loadProjection(messages);
+    expect(t.trimmedBlockCount).toBe(6); // 4 + 重建再裁 2（账单调递增——绝对位不重影）
+  });
 });
 
 /* ---------------- 渲染行提取（批 10f-4——管线单源 renderBlockLines） ---------------- */
@@ -554,21 +569,22 @@ describe('LiveTranscript 投影孤儿兜底与配对撤销（批 10i R4——rep
     expect(t.snapshot).toEqual([{ kind: 'tool-call', name: 'read', brief: '(path)', toolCallId: 'tc1' }]);
   });
 
-  it('配对到达撤销孤儿 ⚙ 行 → 落卡（两路收敛同形：repaint 后到达与直播路直落一致）', () => {
+  it('配对到达留账落卡（⚙ 行不撤销——append-only 留账律；净 +1 块）', () => {
     const t = new LiveTranscript();
     t.loadProjection([userMsg('问'), assistantMsg('', [{ id: 'tc1', name: 'grep', arguments: { pattern: 'x' } }])]);
     apply(t, { type: 'message_end', message: toolResultMsg('命中 1 处', { toolCallId: 'tc1' }) });
-    expect(t.snapshot.map((b) => b.kind)).toEqual(['user', 'tool-card']); // 孤儿 ⚙ 已撤销
-    expect(t.snapshot[1]).toMatchObject({ kind: 'tool-card', name: 'grep', status: 'success' });
-    // 与直播路直落同构（同序消息两路——无孤儿残留块）
-    const live = new LiveTranscript();
-    apply(live, { type: 'message_end', message: userMsg('问') });
-    apply(live, {
-      type: 'message_end',
-      message: assistantMsg('', [{ id: 'tc1', name: 'grep', arguments: { pattern: 'x' } }]),
-    });
-    apply(live, { type: 'message_end', message: toolResultMsg('命中 1 处', { toolCallId: 'tc1' }) });
-    expect(t.snapshot).toEqual(live.snapshot);
+    // ⚙ 已交 scrollback 物理不可回改——留账留屏，卡追加（净 +1：呈现侧 B 段
+    // 照常写卡、账屏一致；撤销 splice 是账屏失同步的假象收敛）
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['user', 'tool-call', 'tool-card']);
+    expect(t.snapshot[2]).toMatchObject({ kind: 'tool-card', name: 'grep', status: 'success' });
+    // 再投影自然收敛仅卡（pendingCalls 已出账——走查不再孤儿兜底；直播路无
+    // 孤儿形差异由再投影收敛吸收）
+    t.loadProjection([
+      userMsg('问'),
+      assistantMsg('', [{ id: 'tc1', name: 'grep', arguments: { pattern: 'x' } }]),
+      toolResultMsg('命中 1 处', { toolCallId: 'tc1' }),
+    ]);
+    expect(t.snapshot.map((b) => b.kind)).toEqual(['user', 'tool-card']);
   });
 });
 

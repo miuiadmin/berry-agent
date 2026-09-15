@@ -29,8 +29,6 @@ export interface HelpViewerOptions {
   /** 键位册（Keymap.actions 投影——解析后生效键集） */
   readonly actions: readonly ActionView[];
   readonly sessionId: string;
-  /** 行集构建折宽锚（开屏时终端列宽） */
-  readonly columns: number;
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;

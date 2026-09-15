@@ -51,10 +51,22 @@ export const SEMANTIC_KEYS = [
 export type SemanticKey = (typeof SEMANTIC_KEYS)[number];
 
 /**
- * 语义色板（键 → 源色值）。源值三形：
+ * 精确对位形（批 10k 遗漏修——16 档塌缩修正）：`rgb` 主值照常降采
+ * （truecolor 直出 / 256 最近邻），16 档走 `ansi16` 覆写位——最近邻降采在
+ * 低饱和蓝灰域系统性塌缩（GitHub 系语法色 dark 板 4/5 键合流 ANSI 7），
+ * 五键互离是可辨性硬需求，人工对板位定值（palette 件注记值表）。
+ */
+export interface ExactColor {
+  readonly rgb: RgbChannels;
+  readonly ansi16: AnsiColor;
+}
+
+/**
+ * 语义色板（键 → 源色值）。源值四形：
  * - `RgbChannels` 自带色值——随终端色域档降采（truecolor 直出 / 256→16 降采）；
  * - `AnsiColor` 终端色板位——**全档直通不降采**（尊重终端用户自定义色板——
  *   dark accent 沿 ANSI 6 cyan 的载体形）；
+ * - `ExactColor` 精确对位——rgb 主值两档照常、16 档覆写位（塌缩修正形）；
  * - `undefined` 终端缺省（`text` 专用——正文恒随终端前景配置）。
  */
-export type SemanticPalette = Readonly<Record<SemanticKey, RgbChannels | AnsiColor | undefined>>;
+export type SemanticPalette = Readonly<Record<SemanticKey, RgbChannels | AnsiColor | ExactColor | undefined>>;

@@ -100,16 +100,79 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 
 无参启动按当前目录取最新会话——有则续接、无则新建。入口旗标：`--port <n>`（开统一 HTTP 面——Web 界面与程序调用族同面）、`--no-plugins`（安全模式）、`--debug`、`--plugin-file <path>`（快速试件——插件免装机试跑，见[插件开发指南](./plugin-development.md#快速试跑--plugin-file零装机)）。
 
-| 键       | 作用                                                                                                         |
-| -------- | ------------------------------------------------------------------------------------------------------------ |
-| `Enter`  | 提交输入                                                                                                     |
-| `Ctrl+C` | 打断模型运行中回合 / 撤销审批提问                                                                            |
-| `Ctrl+D` | 空框退出                                                                                                     |
-| `@`      | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形）                                                        |
-| `/`      | 命令补全（注册命令表）                                                                                       |
-| 鼠标     | 副屏（`/history`、`/memory`）滚轮滚动 + 左键拖选复制（OSC 52——终端支持时直达剪贴板）；主对话面 v1 不消费鼠标 |
+键位册（27 个动作按域分组——`/help` 键位册同源呈现；动作 id 用于下文「用户设置」的键位覆盖）：
 
-TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见下文〔/tick 定时任务〕节；`--write` = needsWrite 申报非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停帽（前台计数 + 委派折叠合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申报〔判据门批准位——批准后 gate kind command 可申报并真跑评测（恒 workspace-write 档 + 30s 帽 + 无升权出路）；exec 件禁用形下申报照拒（诚实缺席），files/diagnostics 判据不受影响〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词，用法与 schedule 串形见下文〔/tick 定时任务〕节；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/memory-export` `/memory-import`（记忆导入导出）等。
+| 域     | 键位                                 | 动作 id                       | 说明                           |
+| ------ | ------------------------------------ | ----------------------------- | ------------------------------ |
+| 全局   | `ctrl+c`                             | `global.interrupt`            | 中断当前 run（不可覆盖）       |
+| 全局   | `ctrl+d`                             | `global.quit`                 | 退出（空框时）（不可覆盖）     |
+| 思考块 | `ctrl+t`                             | `thinking.toggle`             | 思考块折叠/展开                |
+| 工具卡 | `ctrl+o`                             | `tools.toggle-expand`         | 工具卡展开/收起                |
+| 编辑器 | `enter`                              | `editor.submit`               | 提交输入                       |
+| 编辑器 | `shift+enter` / `ctrl+j`             | `editor.new-line`             | 换行                           |
+| 编辑器 | `ctrl+-` / `ctrl+_`                  | `editor.undo`                 | 撤销                           |
+| 编辑器 | `left` / `ctrl+b`                    | `editor.move-left`            | 光标左移                       |
+| 编辑器 | `right` / `ctrl+f`                   | `editor.move-right`           | 光标右移                       |
+| 编辑器 | `alt+left` / `ctrl+left` / `alt+b`   | `editor.move-word-left`       | 左移一词                       |
+| 编辑器 | `alt+right` / `ctrl+right` / `alt+f` | `editor.move-word-right`      | 右移一词                       |
+| 编辑器 | `home` / `ctrl+a`                    | `editor.line-start`           | 行首                           |
+| 编辑器 | `end` / `ctrl+e`                     | `editor.line-end`             | 行尾                           |
+| 编辑器 | `ctrl+]`                             | `editor.jump-forward`         | 跳至下一空行                   |
+| 编辑器 | `ctrl+alt+]`                         | `editor.jump-backward`        | 跳至上一空行                   |
+| 编辑器 | `pageup`                             | `editor.page-up`              | 编辑器上翻页                   |
+| 编辑器 | `pagedown`                           | `editor.page-down`            | 编辑器下翻页                   |
+| 编辑器 | `backspace`                          | `editor.delete-backward`      | 向前删字符                     |
+| 编辑器 | `delete` / `ctrl+d`                  | `editor.delete-forward`       | 向后删字符                     |
+| 编辑器 | `ctrl+w` / `alt+backspace`           | `editor.delete-word-backward` | 向前删一词（被删段入 kill 环） |
+| 编辑器 | `alt+d` / `alt+delete`               | `editor.delete-word-forward`  | 向后删一词                     |
+| 编辑器 | `ctrl+u`                             | `editor.delete-to-line-start` | 删至行首（被删段入 kill 环）   |
+| 编辑器 | `ctrl+k`                             | `editor.delete-to-line-end`   | 删至行尾（被删段入 kill 环）   |
+| 编辑器 | `ctrl+y`                             | `editor.yank`                 | 粘贴最近 kill 段               |
+| 编辑器 | `alt+y`                              | `editor.yank-pop`             | kill 环内步进替换              |
+| 编辑器 | `up`                                 | `editor.history-prev`         | 上一条历史                     |
+| 编辑器 | `down`                               | `editor.history-next`         | 下一条历史                     |
+
+全局两条（中断/退出）是会话生命线**不可覆盖**；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+c` 中断在飞 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 双绑（空框 = 退出 / 非空 = 向后删字）是缺省既定的分层消解形；词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 在环内步进替换。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
+
+触发前缀与鼠标（非键位册动作）：
+
+| 键   | 作用                                                                                                                       |
+| ---- | -------------------------------------------------------------------------------------------------------------------------- |
+| `@`  | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形）                                                                      |
+| `/`  | 命令补全（注册命令表）                                                                                                     |
+| 鼠标 | 副屏（`/history`、`/memory`）滚轮滚动；`/history` 另有左键拖选复制（OSC 52——终端支持时直达剪贴板）；主对话面 v1 不消费鼠标 |
+
+TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；install/uninstall/update 走 CLI `berry plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见下文〔/tick 定时任务〕节；`--write` = needsWrite 申报非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停帽（前台计数 + 委派折叠合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申报〔判据门批准位——批准后 gate kind command 可申报并真跑评测（恒 workspace-write 档 + 30s 帽 + 无升权出路）；exec 件禁用形下申报照拒（诚实缺席），files/diagnostics 判据不受影响〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词，用法与 schedule 串形见下文〔/tick 定时任务〕节；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/sessions`（会话切换器——副屏清单光标选定切焦）、`/usage`（会话用量面板——本会话全 run 累计分表）、`/help`（命令与键位帮助——命令册 + 键位册双源副屏）、`/memory-export` `/memory-import`（记忆导入导出）、`/exit`（退出 TUI——与 Ctrl+D 同路优雅退出）、`/quit`（`/exit` 别名；两词为 TUI 本地退出词，不进通道命令表）等。
+
+### TUI 副屏面板
+
+副屏 = 主对话面上的全屏只读覆盖层，同一时刻只开一个（占用中新开请求降级提示——先退当前副屏再开）。通用退出键 `q` / `Esc`；`Ctrl+C` 打断、`Ctrl+D` 退出进程（先收副屏再转退出柄）。五个内建面板：
+
+- `/history` —— 会话回看：全量历史正文只读快照（与主屏同一渲染管线），`↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End` 键盘滚动 + 鼠标滚轮、左键拖选复制；
+- `/memory` —— 记忆管理：活体/冻结/终态三分区，`f` 冻结切换 / `d` 忘掉〔confirm 两段式〕/ `r` 恢复 / `e` 导出 / `Tab` 筛选循环（全部→活体→冻结→终态）；
+- `/sessions` —— 会话切换：会话清单光标选择（`↑`/`↓` 移动、`PgUp`/`PgDn`/`Home`/`End` 翻选、`Enter` 选定切焦）；
+- `/usage` —— 会话用量：本会话全 run 累计分表（轮次 + token 输入/输出/缓存读/缓存写四分 + 合计 + 费用——无费用上报时如实呈现）；
+- `/help` —— 命令与键位帮助：命令册（通道命令表 + 退出词合流）与键位册（当前生效键位按域分组——含用户覆盖生效形）双源。
+
+面板命令随对应能力装配在场而注册（缺席不注册、不虚报——`/memory` 件缺席或通道不支持时降级提示）；面板内容为打开时刻的静态快照（打开后新事件不进副屏，返回主屏全帧补显）。
+
+### 用户设置（settings.json）
+
+数据目录下 `~/.berry-agent/settings.json`（文件缺席 = 全缺省；手编改动下次启动生效）。TUI 相关键两枚：
+
+```json
+{
+  "theme": "dark",
+  "keybindings": {
+    "thinking.toggle": "ctrl+g"
+  }
+}
+```
+
+- `theme`——TUI 主题档 `dark` / `light` / `auto`（缺省 `auto`）：`auto` = 启动时发 OSC 11 背景色查询按终端明暗裁定色板，并订阅明暗变化通知（支持的终端切换明暗即时跟随换板；无应答维持暗色）；显式 `dark`/`light` 不探测；
+- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的缺省键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退缺省键位。拒载四形：未知动作 / 不可覆盖动作（全局两条）/ 畸形键串 / 键冲突（覆盖后同键动作集与缺省册不一致）。
+
+该文件同时承载 `/approval preset` 写入的 `sandboxMode` / `approvalPolicy` 两键（审批持久缺省档）；机器写盘只动自己的键，手编的其他键原样保留。
 
 ### run 单次执行
 
@@ -125,18 +188,18 @@ berry run --preset open "重构这个模块"           # 权限预设逐次生�
 
 run 旗标族：
 
-| 旗标                                            | 作用                                                                                                                 |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `--output-format <text\|json\|stream>`          | 输出三档（缺省 text）                                                                                                |
-| `--output-last-message <file>`                  | 末条 assistant 文本原子写文件                                                                                        |
-| `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background` 互斥）                                                                  |
-| `--max-turns <n>`                               | turn 数帽（到帽收场如实标 truncated）                                                                                |
-| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）                                                                                                 |
-| `--read-only`                                   | read-only 沙箱单发                                                                                                   |
-| `--preset <conservative\|balanced\|open>`       | 权限预设逐次生效不写盘（两旋钮：sandbox 档 + 审批 policy；与 `--read-only` 互斥；持久切换走 TUI `/approval preset`） |
-| `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥）                                                |
-| `--background`                                  | 后台道预算记账入口                                                                                                   |
-| `--no-delta`                                    | 线面退订流式增量                                                                                                     |
+| 旗标                                            | 作用                                                                                                                                          |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--output-format <text\|json\|stream>`          | 输出三档（缺省 text）                                                                                                                         |
+| `--output-last-message <file>`                  | 末条 assistant 文本原子写文件                                                                                                                 |
+| `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background` 互斥）                                                                                           |
+| `--max-turns <n>`                               | turn 数帽（到帽收场如实标 truncated）                                                                                                         |
+| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）                                                                                                                          |
+| `--read-only`                                   | read-only 沙箱单发                                                                                                                            |
+| `--preset <conservative\|balanced\|open>`       | 权限预设逐次生效不写盘（两旋钮：sandbox 档 + 审批 policy；与 `--read-only` 互斥；持久切换走 TUI `/approval preset`）                          |
+| `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥）                                                                         |
+| `--background`                                  | 后台道预算记账入口                                                                                                                            |
+| `--no-delta`                                    | 线面退订流式增量                                                                                                                              |
 | `--output-schema <file>`                        | 结构化输出：JSON Schema 文件（根须为带 `type` 字段的对象——Union/Intersect 根形 v1 不收）注入约束，收场校验末条回复须整体单一 JSON 且合 schema |
 
 `--output-schema` 两档失败语义：文件本身坏形（不可读/非法 JSON/根非带 `type` 字段对象）= 用法错退 2（执行前拦——不跑模型）；收场校验失败（末条回复非单一 JSON 或不合 schema）= 退 1 并在 stderr 载 `STRUCTURED_OUTPUT_PARSE_FAILED` / `STRUCTURED_OUTPUT_SCHEMA_MISMATCH` 码（`--output-format json` 档终值对象另载 `errorCode`/`errorMessage` 位；truncated/失败/中止收场不叠加校验）。

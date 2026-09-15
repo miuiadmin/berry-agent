@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent } from '../../engine/index.js';
+import { stringWidth } from '../../engine/index.js';
 import type { UiUsageSummary } from '../../../contracts/index.js';
 import { buildUsageLines, UsageViewer } from './usage-viewer.js';
 
@@ -34,9 +35,10 @@ const summary = (over: Partial<UiUsageSummary> = {}): UiUsageSummary => ({
 });
 
 describe('buildUsageLines 行集构造（纯函数）', () => {
-  it('口径注记 + 分表行（标签列 18 对齐 + 千位分组）', () => {
+  /** 标签段期望串（按显示宽补齐——批 10k 遗漏修后的真态） */
+  const label = (text: string): string => text + ' '.repeat(Math.max(0, 18 - stringWidth(text)));
+  it('口径注记 + 分表行（标签列 18 显示宽对齐 + 千位分组）', () => {
     const lines = buildUsageLines(summary());
-    const label = (text: string) => text.padEnd(18);
     expect(lines[0]).toBe('全 run 累计（含被遮蔽重试——token 已真实花费）');
     expect(lines[2]).toBe(`${label('轮次 turns')}3`);
     expect(lines[3]).toBe(`${label('输入 input')}12,345`);
@@ -47,12 +49,22 @@ describe('buildUsageLines 行集构造（纯函数）', () => {
   });
 
   it('费用行两态：无上报（currency null 且 cost 0）/ 四位小数 + 币种', () => {
-    expect(buildUsageLines(summary({ cost: 0, currency: null }))[9]).toBe(`${'费用 cost'.padEnd(18)}无上报`);
-    expect(buildUsageLines(summary({ cost: 0.12345, currency: 'CNY' }))[9]).toBe(`${'费用 cost'.padEnd(18)}0.1235 CNY`);
+    expect(buildUsageLines(summary({ cost: 0, currency: null }))[9]).toBe(`${label('费用 cost')}无上报`);
+    expect(buildUsageLines(summary({ cost: 0.12345, currency: 'CNY' }))[9]).toBe(`${label('费用 cost')}0.1235 CNY`);
   });
 
   it('cost 在场而 currency 缺席 = 数值裸呈（trimEnd 不留尾随空格）', () => {
-    expect(buildUsageLines(summary({ cost: 2, currency: null }))[9]).toBe(`${'费用 cost'.padEnd(18)}2.0000`);
+    expect(buildUsageLines(summary({ cost: 2, currency: null }))[9]).toBe(`${label('费用 cost')}2.0000`);
+  });
+
+  it('标签列按显示宽对齐（批 10k 遗漏修——padEnd 码元计量 CJK 错位 1 格）', () => {
+    const lines = buildUsageLines(summary());
+    // 数据行（轮次..合计）值首列显示位应恒同——标签段按显示宽补齐非码元
+    const cols = lines.slice(2, 8).map((line) => {
+      const value = /[\d,]+$/.exec(line)![0]!;
+      return stringWidth(line.slice(0, line.length - value.length));
+    });
+    expect(new Set(cols).size).toBe(1);
   });
 });
 

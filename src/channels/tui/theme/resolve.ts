@@ -15,7 +15,7 @@ import {
   type RgbChannels,
 } from '../../engine/index.js';
 import { DARK_PALETTE, type BuiltinPalette } from './palette.js';
-import { SEMANTIC_KEYS, type SemanticKey } from './semantic.js';
+import { SEMANTIC_KEYS, type ExactColor, type SemanticKey } from './semantic.js';
 
 /** 终端色域三档（探测归 detect 件——truecolor / 256 / 16） */
 export type ColorDepth = 'truecolor' | '256' | '16';
@@ -49,9 +49,17 @@ export interface ResolvedTheme {
   readonly codeFunction: ColorValue;
 }
 
-/** 单键源值降采（undefined / AnsiColor 直通；RgbChannels 按档降采） */
-function toDepthValue(value: RgbChannels | AnsiColor | undefined, depth: ColorDepth): ColorValue | undefined {
+/** 单键源值降采（undefined / AnsiColor 直通；ExactColor 16 档走覆写位；RgbChannels 按档降采） */
+function toDepthValue(
+  value: RgbChannels | AnsiColor | ExactColor | undefined,
+  depth: ColorDepth,
+): ColorValue | undefined {
   if (value === undefined || typeof value === 'number') return value; // AnsiColor 是 number brand——直通
+  if ('ansi16' in value) {
+    // 精确对位形：rgb 主值两档照常（truecolor 直出 / 256 最近邻）、16 档覆写
+    if (depth === '16') return value.ansi16;
+    return depth === '256' ? rgbTo256(value.rgb) : colorRgbOf(value.rgb.r, value.rgb.g, value.rgb.b);
+  }
   switch (depth) {
     case 'truecolor':
       return colorRgbOf(value.r, value.g, value.b);

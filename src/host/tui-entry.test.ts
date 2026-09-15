@@ -311,6 +311,40 @@ describe('runTuiEntry 装配序', () => {
     expect(await entry).toBe(0);
   });
 
+  it('/sessions 切焦补开驱动（批 10k 遗漏修——focus 只投影不开驱动，选定旧会话提交前补开）', async () => {
+    const dataDir = rigDir('entry-sess-data-');
+    const ws1 = rigDir('entry-sess-ws1-');
+
+    // 首启：一轮对话落库退出（s1 在库、活驱动随进程拆解）
+    const first = await rigEntry(dataDir, ws1);
+    first.io.send('旧会话探针\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+
+    // 二启：同库异 cwd（该 cwd 无会话——新建 s2 焦位）；/sessions 副屏在册：
+    // s2 零事件无库行（createSession 零 I/O、行首事件才落库——清单 = 库行真源），
+    // 故清单恰 1 行 = s1，光标起位即在 s1
+    const second = await rigEntry(dataDir, rigDir('entry-sess-ws2-'));
+    await until(() => second.io.output.includes(' · m1 · ')); // footer 就绪门
+    second.io.send('/sessions\r');
+    await until(() => second.io.output.includes('⇄ 会话切换 · 1 会话'));
+    // enter 切焦：registry.focus 只投影不开驱动 → repaint 回读 s1 历史
+    // （user 块 '> ' 锚形与清单行标题形可区分）
+    second.io.send('\r');
+    await until(() => second.io.output.includes('> 旧会话探针')); // 切焦重画（投影回读）
+    await until(() => second.io.output.includes('\x1b[?1049l')); // 副屏收面（回主屏）
+    expect(second.faux.state.callCount).toBe(0); // 切焦不达模型（投影非 run）
+    // 无驱动会话直接提交：onSubmit 补开（manager.open）→ submitText 真达模型
+    // （submitText 对未开会话返 undefined——补开位缺席即提交静默丢，本断言即锁）
+    second.io.send('续问探针\r');
+    await until(() => second.faux.state.callCount >= 1); // 补开 + 提交全链达模型
+    await until(() => second.io.output.includes('ok'));
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
+
   it("`--port` webui 咬合（18a-3'）：横幅走屏留痕面只带 URL，token 不入屏，ctrl+d 收场面", async () => {
     const faux = fauxProvider({ provider: 'faux-port', models: [{ id: 'm1' }] });
     const io = new FakeTerminalIO();
