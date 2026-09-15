@@ -38,6 +38,13 @@ export const DARK_PALETTE: BuiltinPalette = {
     link: rgb('#58a6ff'),
     tableRule: rgb('#30363d'),
     codeInline: rgb('#7ee787'),
+    // 高亮键族（GitHub dark 语法色系——keyword 红 / string 浅蓝 / comment 灰
+    // / number 蓝青 / function 紫；五键 256 降采落点互离、16 档键合流亦可辨）
+    codeKeyword: rgb('#ff7b72'),
+    codeString: rgb('#a5d6ff'),
+    codeComment: rgb('#8b949e'),
+    codeNumber: rgb('#79c0ff'),
+    codeFunction: rgb('#d2a8ff'),
   },
 };
 
@@ -59,6 +66,12 @@ export const LIGHT_PALETTE: BuiltinPalette = {
     link: rgb('#0969da'),
     tableRule: rgb('#d0d7de'),
     codeInline: rgb('#116329'),
+    // 高亮键族（GitHub light 语法色系——与 dark 对位同键同语义）
+    codeKeyword: rgb('#cf222e'),
+    codeString: rgb('#0a3069'),
+    codeComment: rgb('#57606a'),
+    codeNumber: rgb('#0550ae'),
+    codeFunction: rgb('#8250df'),
   },
 };
 

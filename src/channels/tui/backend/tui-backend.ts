@@ -141,6 +141,12 @@ const THEME_CHANGE_DISABLE = '\x1b[?2031l';
 
 /** 渲染合并帧率帽缺省（对齐 Engine DEFAULT_FPS_CAP——批 10f-3 性能回归锁校准定值 60，实机校准后收紧留批 12） */
 const DEFAULT_FPS_CAP = 60;
+/**
+ * 流式帧字节帽（批 10h——R1 perf 护栏落码定值）：冻结编舞下常态帧 ≈ 视口
+ * 行 × 转义开销（24×80 档 < 10KB）；256KB 帽只拦病理性整档重排。超标降档
+ * 纯文本（旧路径为降档开关——R1 分句原文），下条 message_start 复位重试。
+ */
+const STREAM_FRAME_BYTE_CAP = 256 * 1024;
 /** lone-ESC 判定窗缺省（对齐 Engine DEFAULT_ESCAPE_WINDOW_MS） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
 /** 状态行转轮自驱间隔（ms——注入调度后自重排） */
@@ -218,7 +224,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   private readonly io: TerminalIO;
   private readonly screen: MainScreen;
-  private readonly transcript = new LiveTranscript();
+  /** 直播行集（构造晚于主题解析——主题注入构造位，applyPalette 换装传导） */
+  private readonly transcript: LiveTranscript;
   private readonly statusLine = new StatusLine();
   private readonly editor: Editor;
   private readonly popup: AutocompletePopup;
@@ -341,6 +348,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.themeSetting = options.theme ?? 'dark';
     this.colorDepth = detectColorDepth(options.colorEnv ?? {});
     this.theme = resolveTheme(builtinPalette(this.themeSetting === 'light' ? 'light' : 'dark'), this.colorDepth);
+    // 直播行集（批 10h）：主题随构造定着——流式 markdown 直推档与定稿块同源
+    this.transcript = new LiveTranscript({ theme: this.theme });
     this.editor = new Editor({
       onSubmit: (text) => this.handleSubmit(text),
       onChange: () => this.handleEditorChange(),
@@ -931,8 +940,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const ops = this.pendingOps;
     this.pendingOps = [];
     for (const op of ops) {
-      if (op.kind === 'present') this.screen.present(op.blocks);
-      else this.screen.appendTransient(op.lines);
+      if (op.kind === 'present') {
+        this.screen.present(op.blocks);
+        // 流式帧字节帽（批 10h R1 perf 护栏）：冻结编舞下常态帧为视口量级，
+        // 超帽即病理性重排（巨表/超长开栏）——降档纯文本直推，下条消息重试
+        if (this.screen.lastSlotFrameBytes > STREAM_FRAME_BYTE_CAP) this.transcript.setStreamingPlain();
+      } else this.screen.appendTransient(op.lines);
     }
     if (this.needFixed) {
       this.needFixed = false;
@@ -973,6 +986,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private applyPalette(palette: BuiltinPalette): void {
     this.theme = resolveTheme(palette, this.colorDepth);
+    this.transcript.setTheme(this.theme); // 行集换装——后续新建 doc 生效（durable 已交 scrollback 不回改）
     this.injectTheme();
     this.touchFixed();
   }

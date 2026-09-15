@@ -89,8 +89,8 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
 });
 
 describe('语义键面（SEMANTIC_KEYS 单源表）', () => {
-  it('表恒 11 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
-    expect(SEMANTIC_KEYS.length).toBe(11);
+  it('表恒 16 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
+    expect(SEMANTIC_KEYS.length).toBe(16); // 11 核心键批 10g + 高亮键族五键批 10h
     const t = resolveTheme(DARK_PALETTE, 'truecolor');
     for (const key of SEMANTIC_KEYS) {
       // text 合法 undefined；余键恒有值——缺值即编程错 fail-loud 于消费

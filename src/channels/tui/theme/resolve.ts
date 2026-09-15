@@ -41,6 +41,12 @@ export interface ResolvedTheme {
   readonly link: ColorValue;
   readonly tableRule: ColorValue;
   readonly codeInline: ColorValue;
+  /** 高亮键族五键（批 10h——keyword/string/comment/number/function） */
+  readonly codeKeyword: ColorValue;
+  readonly codeString: ColorValue;
+  readonly codeComment: ColorValue;
+  readonly codeNumber: ColorValue;
+  readonly codeFunction: ColorValue;
 }
 
 /** 单键源值降采（undefined / AnsiColor 直通；RgbChannels 按档降采） */
@@ -58,8 +64,8 @@ function toDepthValue(value: RgbChannels | AnsiColor | undefined, depth: ColorDe
 
 /**
  * 色板 + 色域档 → ResolvedTheme（构造期一次降采、全键冻结）。
- * 键遍历单源 = SEMANTIC_KEYS 表——增键只动 semantic/palette 两件，本函数零改。
- * 完整性契约：SEMANTIC_KEYS 覆盖 ResolvedTheme 全部语义键（semantic 件头注
+ * 键遍历单源 = SEMANTIC_KEYS 表——增键动 semantic/palette/本件 interface 三处
+ * （遍历零改）。完整性契约：SEMANTIC_KEYS 覆盖 ResolvedTheme 全部语义键（semantic 件头注
  * 两处清单同步义务）——编译器不核此约束，越键漏值属编程错、fail-loud 于消费。
  */
 export function resolveTheme(palette: BuiltinPalette, depth: ColorDepth): ResolvedTheme {

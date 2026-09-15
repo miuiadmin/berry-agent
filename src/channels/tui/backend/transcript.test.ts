@@ -5,9 +5,12 @@
  * （tool_execution_* 正文零渲染）、非聚焦摘要行分档、投影重建、帽卸载。
  */
 import { describe, expect, it } from 'vitest';
+import { ansiColor } from '../../engine/index.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage } from '../../../contracts/index.js';
+import { LIGHT_PALETTE, resolveTheme } from '../theme/index.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
+import { StreamingMarkdown } from '../markdown/streaming.js';
 import {
   LiveTranscript,
   renderBlockLines,
@@ -15,6 +18,7 @@ import {
   shortIdOf,
   TRANSCRIPT_BLOCK_CAP,
   type SummaryLine,
+  type TranscriptBlock,
 } from './transcript.js';
 import { styledLineToAnsi } from './ansi-rows.js';
 
@@ -60,19 +64,25 @@ function apply(t: LiveTranscript, event: AgentEvent, focused = true): SummaryLin
 /* ---------------- 聚焦归约 ---------------- */
 
 describe('LiveTranscript 聚焦归约', () => {
-  it('message_start 开流式槽（空文本 streaming 末块）', () => {
+  it('message_start 开流式槽（空文本 streaming 末块——直推档携 StreamingMarkdown）', () => {
     const t = new LiveTranscript();
     apply(t, { type: 'message_start', role: 'assistant' });
     expect(t.snapshot).toHaveLength(1);
-    expect(t.snapshot[0]).toEqual({ kind: 'streaming', text: '' });
+    const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(slot).toMatchObject({ kind: 'streaming', epoch: 1, text: '' });
+    expect(slot.doc).toBeInstanceOf(StreamingMarkdown); // markdown 直推档随槽建
   });
 
-  it('message_update 槽文本直换（partial 完整快照非追加）', () => {
+  it('message_update 槽文本直换（partial 完整快照非追加——doc 同步增量装配）', () => {
     const t = new LiveTranscript();
     apply(t, { type: 'message_start', role: 'assistant' });
     apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('你好') });
     apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('你好，世界') });
-    expect(t.snapshot).toEqual([{ kind: 'streaming', text: '你好，世界' }]);
+    expect(t.snapshot).toHaveLength(1);
+    expect(t.snapshot[0]).toMatchObject({ kind: 'streaming', epoch: 1, text: '你好，世界' });
+    // doc 与 text 同源（直推档非装饰位——渲染面真消费）
+    const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(renderBlockLines(slot, 20)[0]).toContain('你好，世界');
   });
 
   it('message_update 在无槽时零效果（配对守卫）', () => {
@@ -101,12 +111,42 @@ describe('LiveTranscript 聚焦归约', () => {
     expect(t.snapshot).toEqual([{ kind: 'tool-call', name: 'ls', brief: '' }]);
   });
 
-  it('流式单槽守卫：重开 message_start 先摘旧槽（占位不孤儿滞留）', () => {
+  it('流式单槽守卫：重开 message_start 先摘旧槽（占位不孤儿滞留——epoch 递增）', () => {
     const t = new LiveTranscript();
     apply(t, { type: 'message_start', role: 'assistant' });
     apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('旧') });
     apply(t, { type: 'message_start', role: 'assistant' });
-    expect(t.snapshot).toEqual([{ kind: 'streaming', text: '' }]);
+    expect(t.snapshot).toHaveLength(1);
+    expect(t.snapshot[0]).toMatchObject({ kind: 'streaming', epoch: 2, text: '' }); // 新槽新账
+  });
+
+  it('setStreamingPlain 降档：当前槽弃 doc 走纯文本（epoch/text 保位——冻结账随换帧作废）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_start', role: 'assistant' });
+    apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('看 `npm` 命令') });
+    t.setStreamingPlain();
+    const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(slot.doc).toBeNull();
+    expect(slot.epoch).toBe(1); // 槽同一性保位（非重开）
+    expect(slot.text).toBe('看 `npm` 命令');
+    // 降档后渲染 = 纯文本折行（零 ANSI 网格管线）
+    expect(renderBlockLines(slot, 40)).toEqual(['看 `npm` 命令']);
+  });
+
+  it('setStreamingPlain 无槽零效果（防御）', () => {
+    const t = new LiveTranscript();
+    expect(() => t.setStreamingPlain()).not.toThrow();
+    expect(t.snapshot).toHaveLength(0);
+  });
+
+  it('setTheme 换装：后续新建 doc 生效（codeInline 键双板降采可辨）', () => {
+    const t = new LiveTranscript();
+    t.setTheme(resolveTheme(LIGHT_PALETTE, '16'));
+    apply(t, { type: 'message_end', message: assistantMsg('看 `npm` 命令') });
+    const doc = (t.snapshot[0] as { kind: 'markdown'; doc: MarkdownDoc }).doc;
+    const styled = renderBlockStyledLines({ kind: 'markdown', doc }, 40);
+    const codeRun = styled[0]!.runs.find((r) => r.style.fg !== undefined);
+    expect(codeRun?.style.fg).toBe(ansiColor(2)); // light 板 #116329 @16 → 绿 2（dark 板为亮灰 7——双板可辨）
   });
 
   it('user / toolResult 的 message_end 追加对应块', () => {
@@ -257,10 +297,22 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
     expect(lines[0]).toContain('\x1b[1m标题\x1b[0m'); // H1 bold
   });
 
-  it('streaming 块：空文本零行、有文本按宽折行（纯文本直推不走网格）', () => {
-    expect(renderBlockLines({ kind: 'streaming', text: '' }, 20)).toEqual([]);
-    const lines = renderBlockLines({ kind: 'streaming', text: 'abcdefgh' }, 4);
+  it('streaming 块降档形：空文本零行、有文本按宽折行（doc = null 纯文本直推不走网格）', () => {
+    expect(renderBlockLines({ kind: 'streaming', epoch: 1, text: '', doc: null }, 20)).toEqual([]);
+    const lines = renderBlockLines({ kind: 'streaming', epoch: 1, text: 'abcdefgh', doc: null }, 4);
     expect(lines).toEqual(['abcd', 'efgh']);
+  });
+
+  it('streaming 块直推档：doc 经网格管线、与定稿 markdown 块同行集（同管线律零第二渲染器）', () => {
+    const text = '# 标题\n\n正文段';
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    const streaming = renderBlockStyledLines({ kind: 'streaming', epoch: 1, text, doc }, 20);
+    const final = renderBlockStyledLines({ kind: 'markdown', doc: MarkdownDoc.of(text) }, 20);
+    expect(streaming).toEqual(final); // 同文同宽同主题 → 同行集（main-screen 冻结跳行的定位前提）
+    expect(streaming.length).toBeGreaterThanOrEqual(3);
+    expect(streaming[0]!.plain).toContain('标题');
+    expect(streaming[0]!.runs.some((r) => r.style.bold === true)).toBe(true); // H1 bold 位
   });
 });
 
@@ -297,12 +349,15 @@ describe('renderBlockStyledLines 带样式行（零第二渲染器——与主�
   });
 
   it('字节恒等锁：renderBlockLines ≡ styled 形经 styledLineToAnsi（零第二渲染器）', () => {
+    const streamingDoc = new StreamingMarkdown(); // 直推档也入锁——两档同管线律
+    streamingDoc.update('流式**粗体**与 `code`');
     const blocks: Parameters<typeof renderBlockStyledLines>[0][] = [
       { kind: 'user', text: '你好世界'.repeat(8) }, // 折行
       { kind: 'markdown', doc: MarkdownDoc.of('# 标题\n\n- 甲\n- 乙\n\n`code` 与 **粗**') },
       { kind: 'tool-call', name: 'grep', brief: '(pattern, path)' },
       { kind: 'tool-result', brief: '首行结果' },
-      { kind: 'streaming', text: '流式快照' },
+      { kind: 'streaming', epoch: 1, text: '流式快照', doc: null },
+      { kind: 'streaming', epoch: 2, text: '流式**粗体**与 `code`', doc: streamingDoc },
     ];
     for (const block of blocks) {
       const styled = renderBlockStyledLines(block, 24);

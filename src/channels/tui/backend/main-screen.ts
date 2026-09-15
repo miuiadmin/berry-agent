@@ -18,9 +18,17 @@
  * 归固定区末行行首（呈现不变式——编舞内相对定位全由此出发；固定区自身用
  * 绝对 CUP，钉屏底位可知）。
  *
+ * **超视口冻结提交**（批 10h R1——流式 markdown 直推的 append-only 相容
+ * 编舞）：槽稳定面前缀溢出可变区时逐行**升格 durable 直写**（写行即交
+ * scrollback，物理不可回改——冻结额 = min(溢出量, StreamingMarkdown
+ * stableLineCount - 已冻结)；回流/开栏形不稳定止冻于其开行前）；message_end
+ * 定稿换装时 B 段跳过已冻结行数（流式 doc 与定稿 doc 同文同宽同行集——
+ * 定位差零，冻结行不重写不重复）；槽代次（epoch）变更即冻结账清零。
+ *
  * v1 已知边界：流式槽 partial 回缩（新行数少于旧）按余行 EL 清——inline
  * 终端无删行机制；固定区高度变化时光标账按区底钳制（内容可能被固定区
- * 覆盖——装配宜随高度变化触发 repaint 重建）。
+ * 覆盖——装配宜随高度变化触发 repaint 重建）；不稳定尾自身超视口时接受
+ * 滚动（尾行样式陈旧不回改——开栏 fence 闭合高亮回翻即此形的代价注记）。
  */
 import { CellGrid, type TerminalIO } from '../../engine/index.js';
 import { CLEAR_SCREEN, CR, cud, cuu, EL_TO_EOL, LF, renderFixedRegionDiff, setScrollRegion, cup } from './ansi-rows.js';
@@ -53,6 +61,12 @@ export class MainScreen {
   private durableEndRow = 0;
   /** 当前槽直写行数（余行清除上界依据） */
   private slotLineCount = 0;
+  /** 当前槽已冻结升格 durable 的行数（epoch 变更清零——槽同一性账） */
+  private frozenSlotLines = 0;
+  /** 在场槽代次（null = 无槽——epoch 判据） */
+  private slotEpoch: number | null = null;
+  /** 本帧槽写出字节数（冻结 + 换装两段合计——字节帽判据观测面） */
+  private slotFrameBytes = 0;
   /** 固定区网格（装配画好交入——null = 固定区未装配只归位光标） */
   private fixedGrid: CellGrid | null = null;
   /** 固定区上次呈现网格（行级差分基准；null = 全量重画） */
@@ -78,13 +92,19 @@ export class MainScreen {
   }
 
   /**
-   * 增量呈现（追加块直写 → 槽换装 → 余行清除 → 固定区差分）。
+   * 增量呈现（追加块直写 → 稳定面冻结 → 槽换装 → 余行清除 → 固定区差分）。
    * 前置：光标在固定区末行行首（start / setFixed / 上次 present 归位）。
    */
   present(blocks: readonly TranscriptBlock[]): void {
+    this.slotFrameBytes = 0;
     // 末块为 streaming 时即流式槽（const 绑定经 kind 判别收窄）
     const last = blocks.length > 0 ? blocks[blocks.length - 1]! : null;
     const slot = last !== null && last.kind === 'streaming' ? last : null;
+    // 槽代次变更 = 新槽开账：冻结行数清零（旧槽冻结行已交 scrollback 不回收）
+    if (slot !== null && slot.epoch !== this.slotEpoch) {
+      this.slotEpoch = slot.epoch;
+      this.frozenSlotLines = 0;
+    }
     const durableCount = slot === null ? blocks.length : blocks.length - 1;
     // 余行清除上界：上次呈现的槽末行（= durable 末 + 槽行数 - 1——本帧前的账）
     const prevBottomRow = Math.min(this.rows - this.fixedHeight - 1, this.durableEndRow + this.slotLineCount - 1);
@@ -92,19 +112,53 @@ export class MainScreen {
     // 光标归 durable 末（B/C 共同起点——无新增块时 C 段也从这里起笔）
     this.gotoRow(this.durableEndRow);
 
-    // B. 追加块直写（每行 CR 起笔 + LF 推进，区底触滚交 scrollback）
+    // B. 追加块直写（每行 CR 起笔 + LF 推进，区底触滚交 scrollback）。槽关帧
+    //    （message_end 定稿换装）首块行集与冻结行同源同宽——跳过已冻结行数
+    //    （定稿不重写冻结行：append-only 物理律；冻结超额的回缩残行留
+    //    scrollback，v1 边界头注）
     if (durableCount > this.writtenBlocks) {
+      let skip = this.frozenSlotLines;
       for (let i = this.writtenBlocks; i < durableCount; i++) {
-        this.writeBlockLines(blocks[i]!);
+        for (const line of renderBlockLines(blocks[i]!, this.columns)) {
+          if (skip > 0) {
+            skip--;
+            continue;
+          }
+          this.writeLine(line);
+        }
       }
       this.writtenBlocks = durableCount;
       this.durableEndRow = this.cursorRow;
     }
+    // 槽不在场即冻结账收口（残值防御清——epoch 账只在槽在场期有意义）
+    if (slot === null) {
+      this.frozenSlotLines = 0;
+      this.slotEpoch = null;
+    }
 
-    // C. 槽换装（光标已在槽首 = durable 末；partial 是完整快照——逐行整写）
+    // C. 槽换装（光标已在槽尾段首 = durable 末；partial 是完整快照——逐行整写）
     const slotLines = slot === null ? [] : this.renderSlotLines(slot);
-    for (const line of slotLines) {
-      this.writeLine(line);
+    if (slot !== null) {
+      // 稳定面冻结：可视余量外的稳定前缀升格 durable 直写（写行即交
+      // scrollback 不可回改——冻结额 = min(溢出量, 稳定行数 - 已冻结)）
+      const regionBottom = this.rows - this.fixedHeight - 1;
+      const capacity = regionBottom - this.durableEndRow + 1;
+      const overflow = slotLines.length - this.frozenSlotLines - capacity;
+      const freezable = slot.doc !== null ? slot.doc.stableLineCount(this.columns) - this.frozenSlotLines : 0;
+      const freezeNow = Math.max(0, Math.min(overflow, freezable));
+      if (freezeNow > 0) {
+        this.gotoRow(this.durableEndRow);
+        for (let i = this.frozenSlotLines; i < this.frozenSlotLines + freezeNow; i++) {
+          this.writeSlotLine(slotLines[i]!);
+        }
+        this.frozenSlotLines += freezeNow;
+        this.durableEndRow = this.cursorRow;
+      }
+      // 尾段整写（回流/开栏不稳定尾恒在此重绘；自身超视口时接受滚动）
+      this.gotoRow(this.durableEndRow);
+      for (let i = this.frozenSlotLines; i < slotLines.length; i++) {
+        this.writeSlotLine(slotLines[i]!);
+      }
     }
 
     // D. 余行清除（新槽末到上次槽末之间的 stale 行——EL 擦除禁空格填充）
@@ -116,7 +170,12 @@ export class MainScreen {
 
     // E. 固定区差分重画 + 光标归位（呈现不变式）
     this.redrawFixed();
-    this.slotLineCount = slotLines.length;
+    this.slotLineCount = slot === null ? 0 : Math.max(0, slotLines.length - this.frozenSlotLines);
+  }
+
+  /** 本帧槽写出字节数（冻结 + 换装合计——装配层字节帽判据） */
+  get lastSlotFrameBytes(): number {
+    return this.slotFrameBytes;
   }
 
   /**
@@ -156,6 +215,8 @@ export class MainScreen {
   repaint(blocks: readonly TranscriptBlock[]): void {
     this.writtenBlocks = 0;
     this.slotLineCount = 0;
+    this.frozenSlotLines = 0;
+    this.slotEpoch = null;
     this.durableEndRow = 0;
     this.io.write(CLEAR_SCREEN);
     this.applyScrollRegion();
@@ -217,13 +278,14 @@ export class MainScreen {
     this.cursorRow = this.rows - 1;
   }
 
-  /** 块 → 行序列化直写（序列化单源 renderBlockLines——件 8 回看器复用同一管线，批 10f-4） */
-  private writeBlockLines(block: TranscriptBlock): void {
-    for (const line of renderBlockLines(block, this.columns)) this.writeLine(line);
+  /** 槽行直写（含帧字节计量——冻结段与换装段共用；编舞同 writeLine） */
+  private writeSlotLine(text: string): void {
+    this.slotFrameBytes += text.length;
+    this.writeLine(text);
   }
 
-  /** 流式槽行（纯文本直推——性能：不走网格不走样式；序列化同源 renderBlockLines） */
-  private renderSlotLines(slot: { readonly kind: 'streaming'; readonly text: string }): string[] {
+  /** 流式槽行（markdown 直推档与降档纯文本同源——renderBlockLines 单源；epoch/doc 随块型走） */
+  private renderSlotLines(slot: Extract<TranscriptBlock, { kind: 'streaming' }>): string[] {
     return renderBlockLines(slot, this.columns);
   }
 }

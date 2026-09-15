@@ -9,6 +9,7 @@ import { CellGrid, MemoryTerminalIO } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
 import type { TranscriptBlock } from './transcript.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
+import { StreamingMarkdown } from '../markdown/streaming.js';
 
 const COLS = 80;
 const ROWS = 10;
@@ -21,8 +22,8 @@ function makeScreen(): { io: MemoryTerminalIO; screen: MainScreen } {
 
 /** 用户块（单行文本——不触折行路径的基元形态） */
 const userBlock = (text: string): TranscriptBlock => ({ kind: 'user', text });
-/** 流式槽块 */
-const slotBlock = (text: string): TranscriptBlock => ({ kind: 'streaming', text });
+/** 流式槽块（epoch 恒 1 同槽；doc = null 纯文本降档形——字节期望不随高亮抖动） */
+const slotBlock = (text: string): TranscriptBlock => ({ kind: 'streaming', epoch: 1, text, doc: null });
 
 /** 固定区网格（两行占位——差分路径行走用） */
 function fixedGrid(text: string): CellGrid {
@@ -234,5 +235,95 @@ describe('MainScreen 滚动与重建', () => {
     screen.present([userBlock('块')]); // 无新块无槽——零正文写出
     expect(io.bytes).not.toContain('后台完成');
     expect(io.bytes).not.toContain('> 块');
+  });
+});
+
+/* ---------------- 超视口冻结提交（批 10h R1——流式 markdown 直推编舞） ---------------- */
+
+describe('MainScreen 超视口冻结提交', () => {
+  /** 十个 H3 标题块（每块一行 + 块间空行——append-only 全稳定流样本） */
+  const NUMS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  const headingText = (count: number): string => {
+    const heads = NUMS.slice(0, count).map((n) => `### ${n}`);
+    if (count > 10) heads.push(`### 十${NUMS[count - 11] ?? '一'}`);
+    return heads.join('\n\n') + '\n'; // 尾随换行——尾块终态判据
+  };
+  const sg = (n: string): string => `\x1b[1m${n}\x1b[0m`; // 标题行 bold 包裹形
+  const docSlot = (text: string, doc: StreamingMarkdown): TranscriptBlock => ({
+    kind: 'streaming',
+    epoch: 1,
+    text,
+    doc,
+  });
+
+  it('稳定面前缀超视口 → 冻结升格 durable（帧一全内容恰写一次）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const doc = new StreamingMarkdown();
+    doc.update(headingText(10)); // 10 行 + 9 空行 = 19 行 > 容量 8（区 0..7）
+    io.bytes = '';
+    screen.present([docSlot(headingText(10), doc)]);
+    // 冻结 11 行 + 尾段 8 行——每标题恰写一次（冻结段与尾段无重叠）
+    for (const n of NUMS) {
+      expect(io.bytes.split(sg(n)).length - 1).toBe(1);
+    }
+    expect(screen.lastSlotFrameBytes).toBeGreaterThan(0); // 帧字节计量面在场
+  });
+
+  it('闪烁负断言：帧二追加后已冻结前缀零写出（帧间未变冻结行不重写）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const doc = new StreamingMarkdown();
+    doc.update(headingText(10));
+    screen.present([docSlot(headingText(10), doc)]);
+    const text2 = headingText(11); // 追加第十一标题
+    doc.update(text2);
+    io.bytes = '';
+    screen.present([docSlot(text2, doc)]);
+    // 帧一冻结的前缀（溢出 11 行：标题一..六及其间隔）不再写出
+    for (const n of ['一', '二', '三', '四', '五', '六']) {
+      expect(io.bytes).not.toContain(sg(n));
+    }
+    expect(io.bytes).toContain(sg('十一')); // 新尾写出（尾段重写）
+  });
+
+  it('message_end 定稿换装：B 段跳过已冻结行（冻结行不重写不重复）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const text = headingText(10);
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    screen.present([docSlot(text, doc)]); // 冻结 11 行（标题一..六）
+    io.bytes = '';
+    screen.present([{ kind: 'markdown', doc: MarkdownDoc.of(text) }]); // 定稿换装（同文同宽同行集）
+    for (const n of ['一', '二', '三', '四', '五', '六']) {
+      expect(io.bytes).not.toContain(sg(n)); // 已冻前缀不重写
+    }
+    for (const n of ['七', '八', '九', '十']) {
+      expect(io.bytes.split(sg(n)).length - 1).toBe(1); // 未冻尾恰写一次
+    }
+    expect(screen.lastSlotFrameBytes).toBe(0); // 无槽帧计量归零
+  });
+
+  it('不稳定尾（段落回流形）不冻结：帧帧全量重写（v1 边界——接受滚动）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const text = 'A' + 'a'.repeat(80 * 14); // 单段落块折 15 行——恒不稳
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    screen.present([docSlot(text, doc)]);
+    io.bytes = '';
+    screen.present([docSlot(text, doc)]); // 同文——无冻结面可承接
+    expect(io.bytes).toContain('\rA'); // 首行仍重写（未冻证据——stableLineCount = 0）
+  });
+
+  it('降档纯文本（doc = null）零冻结：溢出走滚动不升格', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const text = 'b'.repeat(80 * 12); // 12 行纯文本 > 容量 8
+    screen.present([slotBlock(text)]);
+    io.bytes = '';
+    screen.present([slotBlock(text)]);
+    expect(io.bytes).toContain('\rb'); // 全量重写——doc 空则 freezable 恒 0
   });
 });

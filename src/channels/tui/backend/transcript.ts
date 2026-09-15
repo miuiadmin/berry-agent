@@ -5,9 +5,11 @@
  *   end、↳ 工具结果行随 toolResult 的 message_end（本仓消息载荷在 end——事件
  *   形 2026-09-06 冷读注记对齐）；`tool_execution_*` 是执行层锚点正文零渲染
  *   （状态面消费归 TuiBackend）；
- * - **流式两段**（呈现面件 1）：流式期纯文本直推（streaming 槽——message_update
- *   的 partial 快照直换）、message_end 定稿换装（摘槽 → markdown 定稿块 +
- *   ⚙ 行）；
+ * - **流式三段**（呈现面件 1 批 10h R1 三段化）：流式期 **markdown 直推**
+ *   （streaming 槽携 StreamingMarkdown——增量装配 + 稳定面计量；doc = null
+ *   为纯文本降档——字节帽超标回退形）、message_end 定稿换装（摘槽 →
+ *   markdown 定稿块 + ⚙ 行）；槽携 **epoch**（每条 message_start 递增——
+ *   main-screen 冻结账的槽同一性判据）；
  * - **流式单槽守卫**：repaint 切入 running 条目开的占位槽遇下一条 assistant
  *   message_start 重开时先摘旧槽（占位容器不孤儿滞留正文）；
  * - **帽 = 块数**（一个 Markdown 块一子行——呈现面件 1 滚动帽语义）：行集保留
@@ -23,7 +25,9 @@
  */
 import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage } from '../../../contracts/index.js';
-import { CellGrid, truncateToWidth, wrapText } from '../../engine/index.js';
+import { CellGrid, truncateToWidth, wrapText, type Renderable } from '../../engine/index.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { StreamingMarkdown } from '../markdown/streaming.js';
 import { gridRowToStyled, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import type { SessionEnvelope } from '../../types.js';
@@ -52,7 +56,14 @@ export type TranscriptBlock =
   | { readonly kind: 'markdown'; readonly doc: MarkdownDoc }
   | { readonly kind: 'tool-call'; readonly name: string; readonly brief: string }
   | { readonly kind: 'tool-result'; readonly brief: string }
-  | { readonly kind: 'streaming'; readonly text: string };
+  | {
+      readonly kind: 'streaming';
+      /** 槽代次（每条 assistant message_start 递增——冻结账同一性判据） */
+      readonly epoch: number;
+      readonly text: string;
+      /** 流式 markdown 直推档（null = 纯文本降档——字节帽超标回退形） */
+      readonly doc: StreamingMarkdown | null;
+    };
 
 /** 非聚焦摘要行（瞬时——呈现侧直写后即交 scrollback，不存账） */
 export interface SummaryLine {
@@ -74,21 +85,15 @@ const DIM_STYLE: Readonly<{ dim: true }> = Object.freeze({ dim: true });
  *
  * 主屏 MainScreen 直写（经 renderBlockLines 的 ANSI 序列化形）与件 8 回看器
  * cell 写出（StyledLine 直消费）共用本函数：同输入同行集、零第二渲染器
- * （07 件 8 数据源条款）；markdown 块经 CellGrid 渲染（gridRowToStyled 提段）、
- * user 块折行续挂对齐（宽算术单源走 wrapText）、简行块整行 dim、streaming
- * 纯文本零样式、markdown 无内容行保空行（主屏空行直写形字节不变）。
+ * （07 件 8 数据源条款）；markdown/streaming-doc 块经 CellGrid 渲染
+ * （gridRowToStyled 提段）、user 块折行续挂对齐（宽算术单源走 wrapText）、
+ * 简行块整行 dim、streaming 降档纯文本零样式、markdown 无内容行保空行
+ * （主屏空行直写形字节不变）。
  */
 export function renderBlockStyledLines(block: TranscriptBlock, columns: number): StyledLine[] {
   switch (block.kind) {
-    case 'markdown': {
-      const grid = new CellGrid(columns, block.doc.measure(columns));
-      block.doc.render(grid, { row: 0, col: 0, width: columns, height: grid.rows });
-      const lines: StyledLine[] = [];
-      for (let r = 0; r < grid.rows; r++) {
-        lines.push(gridRowToStyled(grid, r) ?? { plain: '', runs: [] }); // 无内容行保空行
-      }
-      return lines;
-    }
+    case 'markdown':
+      return renderDocLines(block.doc, columns);
     case 'user': {
       // '> ' 前缀 + 折行续挂对齐（首行前缀、续行两空格缩进）
       const lines = wrapText(block.text, columns - 2);
@@ -99,9 +104,21 @@ export function renderBlockStyledLines(block: TranscriptBlock, columns: number):
     case 'tool-result':
       return [dimStyledLine(` ↳ ${block.brief}`)];
     case 'streaming':
-      // 流式槽纯文本直推（性能：不走网格不走样式）；空文本零行
+      // markdown 直推档走网格管线；降档（doc = null）纯文本直推；空文本零行
+      if (block.doc !== null) return renderDocLines(block.doc, columns);
       return block.text === '' ? [] : wrapText(block.text, columns).map((text) => ({ plain: text, runs: [] }));
   }
+}
+
+/** Renderable doc → 带样式行集（markdown 定稿与流式 doc 共用——同管线律） */
+function renderDocLines(doc: Renderable, columns: number): StyledLine[] {
+  const grid = new CellGrid(columns, doc.measure(columns));
+  doc.render(grid, { row: 0, col: 0, width: columns, height: grid.rows });
+  const lines: StyledLine[] = [];
+  for (let r = 0; r < grid.rows; r++) {
+    lines.push(gridRowToStyled(grid, r) ?? { plain: '', runs: [] }); // 无内容行保空行
+  }
+  return lines;
 }
 
 /** 简行块的带样式形（整行 dim——与 ANSI 形 dim() 字节同源） */
@@ -149,6 +166,12 @@ export interface LiveTranscriptOptions {
    * 件 8 回看器全量档传 Number.POSITIVE_INFINITY（全量 durable 正文不截）。
    */
   readonly blockCap?: number;
+  /**
+   * markdown 主题（流式直推档与定稿块的渲染键源——批 10h；缺省
+   * DEFAULT_THEME。换装经 setTheme——只影响后续新建 doc，已落账 doc 不回改
+   * 〔durable 行已交 scrollback 物理不可回改〕）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /**
@@ -158,12 +181,33 @@ export interface LiveTranscriptOptions {
 export class LiveTranscript {
   /** 块帽（构造定着——主屏 500 / 回看器全量 Infinity） */
   private readonly blockCap: number;
+  /** markdown 主题（流式/定稿 doc 的构造注入源） */
+  private theme: ResolvedTheme;
+  /** 槽代次计数器（每条 assistant message_start 递增） */
+  private epochCounter = 0;
   private blocks: TranscriptBlock[] = [];
   /** 流式槽在场位（true = 末块是 streaming——message_start/message_end 配对守卫） */
   private slotOpen = false;
 
   constructor(options: LiveTranscriptOptions = {}) {
     this.blockCap = options.blockCap ?? TRANSCRIPT_BLOCK_CAP;
+    this.theme = options.theme ?? DEFAULT_THEME;
+  }
+
+  /** 主题换装（probe 应答/显式档切换——后续新建 doc 生效，已建 doc 不回改） */
+  setTheme(theme: ResolvedTheme): void {
+    this.theme = theme;
+  }
+
+  /**
+   * 流式降档（字节帽超标应急——当前槽弃 doc 走纯文本直推，冻结账随换帧
+   * 自然作废；下条 message_start 重建 doc 复位重试——降档是应急不是裁决）。
+   */
+  setStreamingPlain(): void {
+    const slot = this.blocks[this.blocks.length - 1];
+    if (slot !== undefined && slot.kind === 'streaming') {
+      this.blocks[this.blocks.length - 1] = { kind: 'streaming', epoch: slot.epoch, text: slot.text, doc: null };
+    }
   }
 
   /** 行集快照（只读——呈现侧消费） */
@@ -231,14 +275,26 @@ export class LiveTranscript {
         if (event.role !== 'assistant') return;
         // 流式单槽守卫：重开先摘旧槽（占位容器不孤儿滞留）
         if (this.slotOpen) this.blocks.pop();
-        this.blocks.push({ kind: 'streaming', text: '' });
+        // 直推档随槽重建复位（降档是应急不是裁决——每条消息重试 markdown 档）
+        this.blocks.push({
+          kind: 'streaming',
+          epoch: ++this.epochCounter,
+          text: '',
+          doc: new StreamingMarkdown(this.theme),
+        });
         this.slotOpen = true;
         break;
-      case 'message_update':
+      case 'message_update': {
         if (event.role !== 'assistant' || !this.slotOpen) return;
-        // partial 是完整快照——直换非追加（性能：纯文本直推）
-        this.blocks[this.blocks.length - 1] = { kind: 'streaming', text: textOf(event.partial) };
+        const slot = this.blocks[this.blocks.length - 1];
+        if (slot === undefined || slot.kind !== 'streaming') return;
+        // partial 是完整快照——直换非追加；markdown 档经 StreamingMarkdown
+        // 增量装配（append-only 前提下块级缓存承接，布局只跑尾块）
+        const text = textOf(event.partial);
+        slot.doc?.update(text);
+        this.blocks[this.blocks.length - 1] = { kind: 'streaming', epoch: slot.epoch, text, doc: slot.doc };
         break;
+      }
       case 'message_end': {
         // 判别位在载荷 message.role（事件自身不带 role 字段——轻载荷事件形）
         const { message } = event;
@@ -266,7 +322,7 @@ export class LiveTranscript {
     // 守卫 + 判别收窄到 AssistantMessage（CustomMessage 判别位是 string——见 textOf 注）
     if (!isStandardMessage(message) || message.role !== 'assistant') return;
     const text = textOf(message);
-    if (text !== '') target.push({ kind: 'markdown', doc: MarkdownDoc.of(text) });
+    if (text !== '') target.push({ kind: 'markdown', doc: MarkdownDoc.of(text, this.theme) });
     for (const block of message.content) {
       if (block.type === 'toolCall') {
         target.push({ kind: 'tool-call', name: block.name, brief: argsBrief(block.arguments) });

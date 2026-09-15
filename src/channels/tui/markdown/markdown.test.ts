@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { ansiColor, CellGrid } from '../../engine/index.js';
 import { DEFAULT_THEME } from '../theme/index.js';
-import { parseMarkdown } from './blocks.js';
+import { blockEquals, parseMarkdown } from './blocks.js';
 import { parseInline } from './inline.js';
 import { MarkdownDoc } from './markdown.js';
 
@@ -103,9 +103,9 @@ describe('parseMarkdown 块解析', () => {
     expect(blocks).toEqual([{ type: 'code', lines: ['const a = 1;', 'not **bold**'], language: 'ts' }]);
   });
 
-  it('未闭围栏收至文末（防御）', () => {
+  it('未闭围栏收至文末（防御——open 标记位在场，高亮冻结判据消费）', () => {
     const blocks = parseMarkdown('```\nabc');
-    expect(blocks).toEqual([{ type: 'code', lines: ['abc'] }]);
+    expect(blocks).toEqual([{ type: 'code', lines: ['abc'], language: undefined, open: true }]);
   });
 
   it('引用连续行归块（行内解析入块）', () => {
@@ -131,6 +131,38 @@ describe('parseMarkdown 块解析', () => {
     expect(parseMarkdown('')).toEqual([]);
     expect(parseMarkdown('\n\n')).toEqual([]);
   });
+
+  it('GFM 表格：表头 + 定界 + 数据行（单元格行内解析、剥外缘竖线）', () => {
+    const blocks = parseMarkdown('| 名 | 值 |\n| --- | --- |\n| 甲 | `code` |\n| 乙 | 2 |');
+    expect(blocks).toEqual([
+      {
+        type: 'table',
+        header: [[{ text: '名' }], [{ text: '值' }]],
+        rows: [
+          [[{ text: '甲' }], [{ text: 'code', code: true }]],
+          [[{ text: '乙' }], [{ text: '2' }]],
+        ],
+        align: [null, null],
+      },
+    ]);
+  });
+
+  it('GFM 表格对齐位三形（:--- 左 / :---: 中 / ---: 右）', () => {
+    const blocks = parseMarkdown('| a | b | c |\n|:-|:-:|-:|');
+    expect((blocks[0] as { align: unknown }).align).toEqual(['left', 'center', 'right']);
+  });
+
+  it('非定界次行不判表（含竖线段落回退——坏输入不丢字）', () => {
+    const blocks = parseMarkdown('a | b\nc | d');
+    expect(blocks[0]).toEqual({ type: 'paragraph', spans: [{ text: 'a | b c | d' }] });
+  });
+
+  it('表格数据行止于空行/无竖线行（GFM 行连续律）', () => {
+    const blocks = parseMarkdown('| a |\n| --- |\n| 1 |\n\n正文');
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toMatchObject({ type: 'table' });
+    expect(blocks[1]).toEqual({ type: 'paragraph', spans: [{ text: '正文' }] });
+  });
 });
 
 /* ---------------- MarkdownDoc 渲染 ---------------- */
@@ -150,11 +182,11 @@ describe('MarkdownDoc 渲染', () => {
     expect(readRow(grid, 4, 20)).toBe(''); // H3 无尾线
   });
 
-  it('行内代码着 ANSI 2 绿（与 accent〔cyan 6〕分立——正文不触 accent 家族）', () => {
+  it('行内代码着 codeInline 键（缺省主题 16 档降采 #7ee787 → 亮灰 7；与 accent〔cyan 6〕分立）', () => {
     const doc = MarkdownDoc.of('看 `npm test` 命令');
     const grid = renderDoc(doc, 40);
     const codeCell = grid.getCell(0, 3); // '看' 宽 2 占 col 0-1、空格 col 2、code 首字 col 3
-    expect(codeCell?.style.fg).toBe(ansiColor(2));
+    expect(codeCell?.style.fg).toBe(ansiColor(7));
     expect(codeCell?.grapheme).toBe('n');
     expect(grid.getCell(0, 0)?.style.fg).toBeUndefined(); // 普通文本不着色
   });
@@ -227,7 +259,7 @@ describe('MarkdownDoc 渲染', () => {
     const doc = MarkdownDoc.of('a `中文码`');
     const grid = renderDoc(doc, 20);
     expect(readRow(grid, 0, 20)).toBe('a 中文码');
-    expect(grid.getCell(0, 2)?.style.fg).toBe(ansiColor(2)); // 起点按格位不按码位
+    expect(grid.getCell(0, 2)?.style.fg).toBe(ansiColor(7)); // 起点按格位不按码位
     expect(grid.getCell(0, 2)?.grapheme).toBe('中');
   });
 
@@ -241,5 +273,68 @@ describe('MarkdownDoc 渲染', () => {
         if (cell !== null) expect(cell.style.fg === accent).toBe(false);
       }
     }
+  });
+});
+
+/* ---------------- blockEquals / fromBlocks 增量缓存（批 10h） ---------------- */
+
+describe('blockEquals 块结构相等（块级缓存命中判据）', () => {
+  it('同构同内容恒等（深比较无引用捷径）', () => {
+    const a = parseMarkdown('# 标\n\n- 项 `c`\n\n```\nx\n```');
+    const b = parseMarkdown('# 标\n\n- 项 `c`\n\n```\nx\n```');
+    expect(a).toHaveLength(b.length);
+    for (let i = 0; i < a.length; i++) expect(blockEquals(a[i]!, b[i]!)).toBe(true);
+  });
+
+  it('开栏标记位参与相等（open 差一票否决——样式回翻防线）', () => {
+    const [closed] = parseMarkdown('```\nx\n```');
+    const [open] = parseMarkdown('```\nx');
+    expect(blockEquals(closed!, open!)).toBe(false);
+  });
+
+  it('内容差 / 类型差 / 表格行差各否决', () => {
+    expect(blockEquals(parseMarkdown('a')[0]!, parseMarkdown('b')[0]!)).toBe(false);
+    expect(blockEquals(parseMarkdown('# a')[0]!, parseMarkdown('a')[0]!)).toBe(false);
+    const t1 = parseMarkdown('| a |\n| --- |\n| 1 |')[0]!;
+    const t2 = parseMarkdown('| a |\n| --- |\n| 2 |')[0]!;
+    expect(blockEquals(t1, t2)).toBe(false);
+  });
+});
+
+describe('MarkdownDoc.fromBlocks 增量装配（流式件帧路径）', () => {
+  it('同构块承接旧行集（引用相等 = 缓存命中直锁——布局算术只跑增量块）', () => {
+    const text = '# 标题\n\n段落一\n\n段落二';
+    const prev = MarkdownDoc.of(text);
+    const prevRows = prev.prefixRows(40, prev.blockCount); // 先开宽填基缓存
+    const next = MarkdownDoc.fromBlocks(parseMarkdown(text + '\n\n段落三'), prev);
+    const nextRows = next.prefixRows(40, prev.blockCount); // 同构前缀块承接
+    let contentChecked = 0;
+    for (let i = 0; i < prevRows.length; i++) {
+      if (prevRows[i]!.length === 0) continue; // 块间空行每次新 []——只锁内容行
+      expect(nextRows[i]).toBe(prevRows[i]); // 同对象——非重算
+      contentChecked++;
+    }
+    expect(contentChecked).toBeGreaterThanOrEqual(3); // 三块内容行全走到（非空断言防伪绿）
+  });
+
+  it('渲染同源：fromBlocks 与文本直构同行集（增量路径零第二渲染形）', () => {
+    const text = '# 标题\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n```ts\nconst x = 1;\n```';
+    const direct = MarkdownDoc.of(text);
+    const fromBlocks = MarkdownDoc.fromBlocks(parseMarkdown(text), null);
+    expect(fromBlocks.measure(40)).toBe(direct.measure(40));
+    const g1 = renderDoc(direct, 40);
+    const g2 = renderDoc(fromBlocks, 40);
+    for (let r = 0; r < g1.rows; r++) {
+      expect(readRow(g2, r, 40)).toBe(readRow(g1, r, 40));
+    }
+  });
+
+  it('换宽清缓存（防错位命中）', () => {
+    const doc = MarkdownDoc.of('# 标题\n\n段落');
+    doc.measure(40);
+    doc.measure(30); // 换宽——重布局
+    const grid = renderDoc(doc, 30);
+    expect(readRow(grid, 0, 30)).toBe('标题');
+    expect(grid.getCell(0, 0)?.style.bold).toBe(true);
   });
 });

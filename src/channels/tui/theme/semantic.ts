@@ -5,8 +5,8 @@
  * 非键级）；accent 仍是焦点指示专属键、正文不混用律不变（R2 改裁原句
  * 「accent 无用户配置面」废止）。
  *
- * 键面清单（本批定值 11 键——07 §4.1 R2「清单随 10g 落码定值回填注记」的
- * 兑现位；高亮键族〔codeKeyword 等五类〕随 10h 增补）：
+ * 键面清单（11 核心键批 10g 定值 + 高亮键族五键批 10h 定值——07 §4.1 R2
+ * 「清单随落码批定值回填注记」兑现位；用户自定义主题文件挂账不预造）：
  * - `accent` 焦点指示（输入件边框 / 状态行转轮 / overlay 占焦族 / 弹层空态）
  * - `text` 正文（undefined = 终端缺省前景——着色克制：正文恒随终端用户配置）
  * - `secondary` 次文（弱存在感段——工具卡中止态复用本键，专键不设：定稿形
@@ -15,9 +15,12 @@
  * - `thinkingText` 思考块文字（10i 消费）
  * - `success` / `error` 工具卡终态 ✓ / ✖（10i 消费）
  * - `diffAdded` / `diffRemoved` 词级 diff 增 / 删（10i 消费）
- * - `link` 链接（10h markdown 消费）
- * - `tableRule` 表格线（10h GFM 表格消费）
- * - `codeInline` 行内代码（原 ANSI 2 绿中性定值的语义键承接位——10h 消费）
+ * - `link` 链接（markdown 行内链接——10h 消费）
+ * - `tableRule` 表格线（GFM 表格框线——10h 消费）
+ * - `codeInline` 行内代码（原 ANSI 2 绿中性定值的语义键承接位）
+ * - `codeKeyword` / `codeString` / `codeComment` / `codeNumber` / `codeFunction`
+ *   高亮键族五键（10h 定值——自研词法器五类 token 各一键；覆盖语言外诚实
+ *   退单色不发明半高亮）
  */
 import type { AnsiColor, RgbChannels } from '../../engine/index.js';
 
@@ -37,6 +40,11 @@ export const SEMANTIC_KEYS = [
   'link',
   'tableRule',
   'codeInline',
+  'codeKeyword',
+  'codeString',
+  'codeComment',
+  'codeNumber',
+  'codeFunction',
 ] as const;
 
 /** 语义键（SEMANTIC_KEYS 的元素类型） */
