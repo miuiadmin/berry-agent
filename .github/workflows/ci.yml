@@ -260,9 +260,10 @@ jobs:
           if-no-files-found: error
 
   # nightly soak 档（四问评估「有证据无轨道 → 有轨道」件）——每日 19:23 UTC
-  # 定时 + workflow_dispatch 手动；build 后 tools/soak.mjs（W6 同批入仓）
-  # quick 三轮。RSS/延迟预算机器断言由 soak 驱动器自持；本档只跑 soak 不
-  # 重复全量 CI（既有 job 以 if 钉 push/PR 事件——反向钉 schedule/dispatch）
+  # 定时 + workflow_dispatch 手动；tools/soak.mjs（W6 同批入仓）src 真源直跑
+  # （NODE_OPTIONS 注入 tsx loader——零 dist 消费，不跑 build）quick 三轮。
+  # RSS/延迟预算机器断言由 soak 驱动器自持；本档只跑 soak 不重复全量 CI
+  # （既有 job 以 if 钉 push/PR 事件——反向钉 schedule/dispatch）
   soak:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -274,7 +275,6 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build
       - name: soak quick 三轮（CLI 契约：--rounds N --mode quick）
         run: node tools/soak.mjs --rounds 3 --mode quick
 
