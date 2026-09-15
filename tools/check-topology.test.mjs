@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -159,5 +159,38 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
     expect(status).toBe(1);
     expect(out).toContain('扫描面漏检');
     expect(out).toContain('packages/other-pkg/src/a.ts');
+  });
+
+  // ---- 字面量键唯一自检（2026-09-15 spec-align 批防再犯锁）----
+  // 缘起 = MODULE_EXTERNALS 重复 host 键：后键覆盖前键、c924c16 注册笔整条
+  // 遮蔽为静默死码而四门禁全绿。自检读「自身真身」（import.meta），故以变异
+  // 拷贝法造红：真脚本复制进夹具、向 MODULE_EXTERNALS 字面量头部注入重复
+  // host 键——被检对象即变异拷贝本体；CHECK_TOPOLOGY_ROOT 给可扫描最小
+  // src 树（扫描腿不崩即可，红来自键账对拍）。
+
+  it('字面量键重复 → 红（MODULE_EXTERNALS 注入重复 host 键——后键覆盖前键的静默死码形态）', () => {
+    const mutatedDir = join(FIXTURE_ROOT, 'dup-key-script');
+    mkdirSync(mutatedDir, { recursive: true });
+    const mutatedPath = join(mutatedDir, 'check-topology.mjs');
+    writeFileSync(
+      mutatedPath,
+      readFileSync(CHECK_SCRIPT, 'utf8').replace(
+        'const MODULE_EXTERNALS = {',
+        "const MODULE_EXTERNALS = {\n  host: ['typebox'],",
+      ),
+    );
+    const root = fixture('dup-key-src', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+    });
+    const r = spawnSync(process.execPath, [mutatedPath], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, CHECK_TOPOLOGY_ROOT: root },
+      encoding: 'utf8',
+    });
+    const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+    expect(r.status).toBe(1);
+    expect(out).toContain('MODULE_EXTERNALS 字面量重复键');
+    expect(out).toContain('host ×2');
+    expect(out).toContain('静默死码');
   });
 });

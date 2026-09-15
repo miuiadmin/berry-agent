@@ -28,6 +28,7 @@
  */
 import { existsSync, globSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** 模块边表（28 席；02 篇 §4.1 依赖列全量转录——L3/L4 对 contracts 共边不省略。三次加席 26→27→28 注释计数随批更新） */
 const MODULE_EDGES = {
@@ -298,15 +299,15 @@ const MODULE_EXTERNALS = {
   // memory 的 typebox 主包 + value 子路径（工具面九件参数面 + 18c-5 周期路
   // review 候选/整理计划 schema 深校验——schema 层宿主件直用同律）
   memory: ['typebox', 'typebox/value'],
-  // host 的 typebox 主包（import type TSchema——校验参数型面）+ value 子路径
-  // （run --output-schema 收场校验——07 §5 落码定形注〔2026-09-15 批〕：末条
-  // assistant 文本单一 JSON 的 typebox 深校验；schema 层宿主件直用同律）
-  host: ['typebox', 'typebox/value'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
-  // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
-  // 一律走虚拟键三转发；批 12d 落码起用）；yaml = 启用清单 enabled.yaml 读侧
-  // 解析（03 §5.3；批 12f-2b 装配批起用）；typebox 主包 = 插件生命周期模型
-  // 工具族参数面（03 §5.6 八件——task #89 笔三起用，obs/memory 同律）
+  // value 子路径 = 启用行 config 值校验 + run --output-schema 收场深校验〔07
+  // §5 落码定形注⑦：末条 assistant 文本单一 JSON 的 typebox 深校验〕——schema
+  // 层宿主件直用同律，插件侧一律走虚拟键三转发；批 12d 落码起用）；yaml =
+  // 启用清单 enabled.yaml 读侧解析（03 §5.3；批 12f-2b 装配批起用）；typebox
+  // 主包 = 插件生命周期模型工具族参数面（03 §5.6 八件——task #89 笔三起用，
+  // obs/memory 同律）+ import type TSchema 校验参数型面〔07 §5 定形注⑦同笔：
+  // c924c16 起用——原注册笔误加重复 host 前键、被既存键整条遮蔽为死码，
+  // 2026-09-15 spec-align 批删并注释，值恒并集零行为变化〕
   host: ['jiti', 'typebox', 'typebox/value', 'yaml'],
 };
 
@@ -532,6 +533,48 @@ if (extraInScan.length > 0) {
   violations.push(
     `扫描集超出 glob 真源 ${extraInScan.length} 文件（收集器多收——两源根覆盖谓词漂移）：${extraInScan.join(', ')}`,
   );
+}
+
+// ---- 字面量键唯一自检（防再犯锁——2026-09-15 spec-align 批）----
+// 缘起：MODULE_EXTERNALS 曾现重复 host 键——JS 字面量重复键后键覆盖前键、
+// 前键注册笔整条遮蔽为静默死码，且生效白名单 = 后键超集时四门禁全绿零可见
+// 信号。运行时无从查起（Object.keys 已去重），故以「自读源文本的键出现次数
+// vs Object.keys 运行时键数」对拍执法：运行时键必在源文本至少出现一次，
+// 两数不等即存在重复键（或抽取器漏键——同样红，fail-loud）。读自身真身
+// （import.meta）不受 CHECK_TOPOLOGY_ROOT 夹具根影响。
+for (const [name, table] of Object.entries({
+  MODULE_EDGES,
+  MODULE_EXTERNALS,
+  DEEP_FACES,
+  SDK_DEEP_FACES,
+})) {
+  const selfLines = readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n');
+  const start = selfLines.findIndex((l) => l === `const ${name} = {`);
+  if (start === -1) {
+    // 锚失联 fail-loud：字面量改名/换声明形时自检随之失效——静默失效即防线失效
+    violations.push(`字面量键唯一自检锚失联：源文本未见「const ${name} = {」声明行（抽取器与声明形漂移——修自检）`);
+    continue;
+  }
+  const keys = [];
+  for (let i = start + 1; i < selfLines.length; i++) {
+    if (selfLines[i] === '};') break; // 块终止锚（列 0 闭合行）
+    // 锚两空格缩进裸键行：注释行 // 起头不匹配、数组元素更深缩进不匹配
+    const m = selfLines[i].match(/^  ([A-Za-z_]\w*):/);
+    if (m) keys.push(m[1]);
+  }
+  if (keys.length !== Object.keys(table).length) {
+    const counts = new Map();
+    for (const k of keys) counts.set(k, (counts.get(k) ?? 0) + 1);
+    const dups = [...counts.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([k, n]) => `${k} ×${n}`)
+      .join(', ');
+    violations.push(
+      dups
+        ? `${name} 字面量重复键（${dups}）——后键覆盖前键、前键注册笔为静默死码（源键 ${keys.length} vs 运行时键 ${Object.keys(table).length}）`
+        : `${name} 字面量键账不平且无重复（源键 ${keys.length} vs 运行时键 ${Object.keys(table).length}）——抽取器漏键，键声明形漂移须修自检`,
+    );
+  }
 }
 
 if (violations.length > 0) {
