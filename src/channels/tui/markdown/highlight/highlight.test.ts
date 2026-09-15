@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME } from '../../theme/index.js';
 import { highlight, isHighlightable, tokenize, tokenStyle } from './index.js';
-import { PYTHON_SPEC, TS_SPEC, YAML_SPEC } from './languages.js';
+import { JS_SPEC, PYTHON_SPEC, TS_SPEC, YAML_SPEC } from './languages.js';
 
 /** 精确文本找 token（非 plain 类断言用——plain 有弥合不在此断言） */
 function tokenOf(tokens: ReturnType<typeof tokenize>, text: string) {
@@ -18,6 +18,7 @@ function tokenOf(tokens: ReturnType<typeof tokenize>, text: string) {
 /** 多语言串接恒等原文律样本 */
 const FIDELITY_SAMPLES: ReadonlyArray<readonly [string, string]> = [
   ['ts', 'const x = 42; // 注释\nfoo(1); "str \'esc\'" `t`'],
+  ['js', 'let x = 42; // c\nfn(`t`)'],
   ['python', 'def f(a):\n    """doc\n    string"""\n    return None # c'],
   ['bash', 'echo "hi" # c\nif [ -f x ]; then\n  ls\nfi'],
   ['sql', 'SELECT * FROM t WHERE a = 1 -- c'],
@@ -48,6 +49,24 @@ describe('highlight 自研高亮器', () => {
     expect(tokenOf(tokens, "'s'")?.type).toBe('string');
     // 非关键字标识符归 plain（弥合律 plain 与相邻空白/符号并段——包含断言）
     expect(tokens.some((t) => t.type === 'plain' && t.text.includes('x'))).toBe(true);
+  });
+
+  it('JS 独立词表判据（js 别名同达 + JS_SPEC token 级：console=keyword、TS 类型位词剥除）', () => {
+    // 别名面：js 短名 → JS_SPEC 可高亮（与 FIDELITY_SAMPLES 的 js 样本互补——
+    // 此处进 token 级，样本只锁串接恒等）
+    const viaAlias = highlight('let x = 1;', 'js');
+    expect(viaAlias).not.toBeNull();
+    expect(tokenOf(viaAlias!, 'let')?.type).toBe('keyword');
+    // JS_SPEC 直测：console 入 JS 词表（runtime 调试词——与 TS_SPEC 同收）
+    const tokens = tokenize('console.log("x")', JS_SPEC);
+    expect(tokenOf(tokens, 'console')?.type).toBe('keyword');
+    expect(tokenOf(tokens, '"x"')?.type).toBe('string');
+    // 分辨形断言：TS 类型位词 interface 不入 JS 词表（JS_SPEC ≠ TS_SPEC 复述
+    // ——TS 子集剥除即两词表分界的可红锚点）；plain 弥合并段用包含断言
+    expect(tokenize('interface Foo {}', JS_SPEC).some((t) => t.type === 'plain' && t.text.includes('interface'))).toBe(
+      true,
+    );
+    expect(tokenOf(tokenize('interface Foo {}', TS_SPEC), 'interface')?.type).toBe('keyword');
   });
 
   it('跨行 carry：块注释开于前行、闭后回常规扫描', () => {
