@@ -27,6 +27,7 @@ import type {
   BrowserEnvFace,
   BrowserFsFace,
   BrowserLoggerFace,
+  BrowserProxyFace,
   BrowserRegisterToolsFace,
   BrowserScopeFace,
   BrowserSpawnFace,
@@ -46,6 +47,8 @@ export interface BrowserServiceDeps {
   readonly config: BrowserConfig;
   /** web 卫生单源（navigate 预检第三消费位——同一 execute 同一在飞门） */
   readonly web: BrowserWebFace;
+  /** 引擎出口代理窄面（透传 engine 编舞——03 §10.3 引擎网络栈出口钉死律） */
+  readonly proxy: BrowserProxyFace;
   readonly logger?: BrowserLoggerFace;
   /** 人面通知（云端占位 boot 通知 + 引擎降级 warn） */
   readonly notify?: (message: string) => void;
@@ -105,6 +108,7 @@ export function createBrowserService(deps: BrowserServiceDeps): BrowserService {
         homeDir: deps.homeDir,
         dataDir: deps.dataDir,
         config: deps.config,
+        proxy: deps.proxy,
         ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
       })
         .then((handle) => {

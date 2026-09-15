@@ -6,7 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BaseError } from '../contracts/index.js';
 import { launchBrowserEngine } from './engine.js';
 import type { EngineHandle } from './engine.js';
-import type { BrowserChildFace, BrowserFsFace, BrowserSpawnFace, BrowserWsConnection, BrowserWsFace } from './types.js';
+import type {
+  BrowserChildFace,
+  BrowserFsFace,
+  BrowserProxyFace,
+  BrowserSpawnFace,
+  BrowserWsConnection,
+  BrowserWsFace,
+} from './types.js';
 
 /** 脚本化引擎子进程（exit 监听多挂线——Set 账忠实现面） */
 class FakeChild implements BrowserChildFace {
@@ -111,17 +118,32 @@ async function tick(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/** 脚本化出口代理面（endpoint 恒回环定值——端口断言同源取本常量） */
+const FAKE_PROXY_ENDPOINT = '127.0.0.1:47651';
+
 /** 组启动依赖（引擎路径钉 /opt/chrome——发现序第①步显式腿） */
-function makeHarness(over: { closeGraceMs?: number; startupTimeoutMs?: number } = {}) {
+function makeHarness(over: { closeGraceMs?: number; startupTimeoutMs?: number; proxy?: BrowserProxyFace } = {}) {
   const child = new FakeChild();
   let spawnArgv: readonly string[] = [];
+  /** 消费序账（endpoint vs spawn——「出口代理先起后 spawn」律的断言面） */
+  const order: string[] = [];
   const spawn: BrowserSpawnFace = {
     spawnInteractive: (request) => {
       expect(request.owner).toBe('browser:engine');
+      order.push('spawn');
       spawnArgv = request.argv;
       return child;
     },
   };
+  const proxy: BrowserProxyFace =
+    over.proxy !== undefined
+      ? over.proxy
+      : {
+          endpoint: async () => {
+            order.push('endpoint');
+            return FAKE_PROXY_ENDPOINT;
+          },
+        };
   const connections: FakeWs[] = [];
   const ws: BrowserWsFace = {
     connect: (url) => {
@@ -140,10 +162,11 @@ function makeHarness(over: { closeGraceMs?: number; startupTimeoutMs?: number } 
       homeDir: '/home/tester',
       dataDir: '/data',
       config: { executablePath: '/opt/chrome' },
+      proxy,
       ...(over.closeGraceMs !== undefined ? { closeGraceMs: over.closeGraceMs } : {}),
       ...(over.startupTimeoutMs !== undefined ? { startupTimeoutMs: over.startupTimeoutMs } : {}),
     });
-  return { child, connections, launch, getSpawnArgv: () => spawnArgv };
+  return { child, connections, launch, getSpawnArgv: () => spawnArgv, order };
 }
 
 /**
@@ -184,7 +207,49 @@ describe('启动编舞', () => {
     expect(argv).toContain('--headless=new');
     expect(argv).toContain('--remote-debugging-port=0');
     expect(argv).toContain('--user-data-dir=/data/browser/profile');
+    // ---- 引擎网络栈出口钉死旗集（03 §10.3 安全卫生条 2026-09-15 批）----
+    // 代理端点动态端口——前缀匹配（同源断言律：端点值来自 fake proxy 非硬编码）
+    expect(argv.some((a) => a.startsWith('--proxy-server=http://127.0.0.1:'))).toBe(true);
+    // 剥 Chromium 缺省 loopback bypass——重定向到回环也进代理受查
+    expect(argv).toContain('--proxy-bypass-list=<-loopback>');
+    // Chrome 侧自发 DNS 全灭（解析权恒在代理端——纵深防御位）
+    expect(argv).toContain('--host-resolver-rules=MAP * ~NOTFOUND');
+    // UDP/QUIC 腿不经 HTTP 代理——钉死
+    expect(argv).toContain('--disable-quic');
+    // WebRTC 非代理 UDP 候选禁发（宿主网卡 IP 泄漏面闭死）
+    expect(argv).toContain('--webrtc-ip-handling-policy=disable_non_proxied_udp');
     await handle.close();
+  });
+
+  it('出口代理先起后 spawn：endpoint 先于 spawnInteractive 被消费 + 端点值落旗', async () => {
+    const h = makeHarness();
+    const { pending, ws } = await launched(h);
+    await answerHandshake(ws, pending);
+    // 消费序：endpoint（代理侦听就位）→ spawn（旗面引用侦听端口）
+    expect(h.order).toEqual(['endpoint', 'spawn']);
+    // 端点值原样入旗（FAKE_PROXY_ENDPOINT 同源常量）
+    expect(h.getSpawnArgv()).toContain(`--proxy-server=http://${FAKE_PROXY_ENDPOINT}`);
+  });
+
+  it('出口代理起不来 → fail-closed 不裸起引擎（BROWSER_CONNECT_FAILED + 零 spawn）', async () => {
+    const h = makeHarness({
+      startupTimeoutMs: 50, // 修前红兜底窗：旧码零消费 proxy 走超时腿（argv 非空即红）
+      proxy: {
+        endpoint: async () => {
+          throw new Error('EADDRNOTAVAIL');
+        },
+      },
+    });
+    const outcome = await h.launch().then(
+      () => ({ ok: true as const }),
+      (err: unknown) => ({ ok: false as const, err }),
+    );
+    expect(outcome.ok).toBe(false);
+    const err = outcome.ok ? undefined : outcome.err;
+    expect(err).toBeInstanceOf(BaseError);
+    expect((err as BaseError).code).toBe('BROWSER_CONNECT_FAILED');
+    expect((err as BaseError).message).toContain('出口代理');
+    expect(h.getSpawnArgv()).toEqual([]); // 旗发不出去 = 不裸起引擎（零 spawn）
   });
 
   it('侦听行跨 stderr chunk 拼接（分片不丢）', async () => {

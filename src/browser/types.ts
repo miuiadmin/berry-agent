@@ -132,6 +132,16 @@ export interface BrowserSpawnFace {
 }
 
 /**
+ * 引擎出口代理窄面（03 §10.3 安全卫生条——引擎网络栈出口钉死 2026-09-15 批；
+ * 真身 = proxy 件回环侦听器，engine 编舞「endpoint 先于 spawn」消费——旗面
+ * 引用侦听端口，代理不在场 = 旗发不出去 = 引擎不出网）。
+ */
+export interface BrowserProxyFace {
+  /** 回环侦听端点（host:port——惰性 listen、进程级单例 unref 不阻退出） */
+  endpoint(): Promise<string>;
+}
+
+/**
  * WebSocket 连接窄面（Node ≥22 原生 WebSocket 的最小子集——03 §10.3 形态
  * 条款「零新增依赖」；生产用全局 WebSocket，测试走脚本化桩）。
  */

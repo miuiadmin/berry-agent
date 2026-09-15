@@ -206,6 +206,9 @@ describe('真 SpawnPipeline ↔ BrowserSpawnFace（结构兼容）', () => {
       homeDir: homedir(),
       dataDir: dir,
       config: { executablePath: enginePath },
+      // 出口代理桩（假引擎不消费代理旗——endpoint 先于 spawn 的消费律由
+      // engine.test 锁；本测只证 spawn 管道与 CDP 真子进程互证）
+      proxy: { endpoint: async () => '127.0.0.1:47651' },
     });
     expect(handle.alive).toBe(true);
     expect(handle.discovered.source).toBe('config');

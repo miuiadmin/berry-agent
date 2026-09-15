@@ -5,6 +5,8 @@
  * 批 17b-3 工具面+编排腿：页面上下文 + 工具面十件 + 编排（惰性引擎/会话
  * 路由/两级闲置回收）。批 17b-4 install 件：/browser install 下载原语
  * （CfT 元数据 + 流式下载 + 手写 unzip + 摘要账本 TOFU 锚定）已入本面。
+ * 2026-09-15 出口代理件：proxy.ts 引擎网络栈出口钉死（03 §10.3 安全卫生
+ * 条——引擎全部出网流量改走回环代理受卫生单源同源两查）。
  */
 import './codes.js';
 
@@ -26,6 +28,7 @@ export type {
   BrowserConfig,
   BrowserChildFace,
   BrowserSpawnFace,
+  BrowserProxyFace,
   BrowserWsConnection,
   BrowserWsFace,
   BrowserFsFace,
@@ -35,6 +38,8 @@ export type {
   BrowserEnvFace,
   BrowserWebFace,
 } from './types.js';
+export { createBrowserProxy, engineEgressProxy } from './proxy.js';
+export type { BrowserProxyDeps, ProxyConnectTarget } from './proxy.js';
 export { wellKnownPaths, discoverEngine } from './discover.js';
 export type { DiscoveredEngine, DiscoverEngineDeps } from './discover.js';
 export { createCdpConnection, defaultWsFace, CdpCommandError } from './cdp.js';

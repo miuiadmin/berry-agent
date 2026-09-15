@@ -88,8 +88,11 @@ function makeDeps(over: Partial<BrowserServiceDeps> = {}): Harness {
   const registered: string[] = [];
   const unregistered: string[] = [];
   const config: BrowserConfig = {};
+  // 出口代理桩（透传断言按同引用判——同源断言律）
+  const proxy = { endpoint: async () => '127.0.0.1:47651' };
   const deps: BrowserServiceDeps = {
     spawn: { spawnInteractive: () => ({ stderr: { on: () => {} }, onExit: () => {}, kill: () => {} }) },
+    proxy,
     ws: {
       connect: () => ({
         send: () => {},
@@ -330,6 +333,8 @@ describe('createBrowserService', () => {
     expect(l.homeDir).toBe('/home/u');
     expect(l.platform).toBe('darwin');
     expect(l.config).toEqual({});
+    // 出口代理窄面原样透传（引擎编舞「endpoint 先于 spawn」消费位——同引用判）
+    expect(l.proxy).toBe(h.deps.proxy);
     await svc.shutdown();
   });
 });

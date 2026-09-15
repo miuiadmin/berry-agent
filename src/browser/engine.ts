@@ -1,9 +1,12 @@
 /**
  * 引擎生命周期件（03 §10.3——惰性首用 spawn + DevTools 侦听行发现 + CDP 建立）。
  *
- * 编舞：发现序（discoverEngine）→ spawn（`--headless=new` +
- * `--remote-debugging-port=0`〔自动分配零端口竞态〕+ `--user-data-dir` 钉数据
- * 目录不碰用户日常档）→ stderr 侦听行解析（port=0 形态下引擎在 stderr 报
+ * 编舞：发现序（discoverEngine）→ 出口代理 endpoint 先起（03 §10.3 引擎
+ * 网络栈出口钉死——spawn 旗面引用其侦听端口，起不来即 fail-closed 不
+ * spawn）→ spawn（`--headless=new` + `--remote-debugging-port=0`〔自动
+ * 分配零端口竞态〕+ `--user-data-dir` 钉数据目录不碰用户日常档 + 出口
+ * 钉死旗集——全部出网流量改走回环出口代理受卫生查）→ stderr 侦听行解析
+ * （port=0 形态下引擎在 stderr 报
  * `DevTools listening on ws://127.0.0.1:<port>/devtools/browser/<guid>`——
  * 零端口即唯一出口）→ ws 建立（browser 级单连接）→ Browser.getVersion 握手
  * 校验。全程同罩启动预算钟。
@@ -24,7 +27,14 @@ import {
   BROWSER_STARTUP_TIMEOUT_MS,
   DEVTOOLS_LISTENING_RE,
 } from './types.js';
-import type { BrowserConfig, BrowserFsFace, BrowserLoggerFace, BrowserSpawnFace, BrowserWsFace } from './types.js';
+import type {
+  BrowserConfig,
+  BrowserFsFace,
+  BrowserLoggerFace,
+  BrowserProxyFace,
+  BrowserSpawnFace,
+  BrowserWsFace,
+} from './types.js';
 
 /** 引擎句柄公开面 */
 export interface EngineHandle {
@@ -50,6 +60,8 @@ export interface LaunchEngineDeps {
   readonly homeDir: string;
   readonly dataDir: string;
   readonly config: BrowserConfig;
+  /** 引擎出口代理窄面（03 §10.3 引擎网络栈出口钉死——endpoint 先于 spawn 消费） */
+  readonly proxy: BrowserProxyFace;
   readonly logger?: BrowserLoggerFace;
   /** 启动预算 ms（缺省 BROWSER_STARTUP_TIMEOUT_MS） */
   readonly startupTimeoutMs?: number;
@@ -82,6 +94,18 @@ export async function launchBrowserEngine(deps: LaunchEngineDeps): Promise<Engin
   const profileDir = `${deps.dataDir}/browser/profile`;
   await deps.fs.mkdir(profileDir, { recursive: true });
 
+  // 出口代理先起（03 §10.3 引擎网络栈出口钉死：endpoint 先于 spawn——旗面
+  // 引用侦听端口；代理起不来 = 旗发不出去 = 引擎裸网风险 → fail-closed 不 spawn）
+  let proxyEndpoint: string;
+  try {
+    proxyEndpoint = await deps.proxy.endpoint();
+  } catch (err) {
+    throw new BaseError(
+      'BROWSER_CONNECT_FAILED',
+      `引擎出口代理启动失败（fail-closed 不裸起引擎）：${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   const child = deps.spawn.spawnInteractive({
     argv: [
       discovered.path,
@@ -90,6 +114,17 @@ export async function launchBrowserEngine(deps: LaunchEngineDeps): Promise<Engin
       `--user-data-dir=${profileDir}`,
       '--no-first-run',
       '--no-default-browser-check',
+      // ---- 引擎网络栈出口钉死旗集（03 §10.3 安全卫生条 2026-09-15 批）----
+      // 全部出网流量改走本地回环出口代理（代理端卫生单源同源两查）
+      `--proxy-server=http://${proxyEndpoint}`,
+      // 剥 Chromium 缺省 loopback bypass——重定向到 127.0.0.1 也进代理受查
+      '--proxy-bypass-list=<-loopback>',
+      // Chrome 侧自发 DNS 全灭——解析权恒在代理端（代理被未知腿绕过即解析失败 fail-closed）
+      '--host-resolver-rules=MAP * ~NOTFOUND',
+      // UDP/QUIC 腿不经 HTTP 代理——钉死
+      '--disable-quic',
+      // WebRTC 非代理 UDP 候选禁发——宿主网卡 IP 泄漏面闭死
+      '--webrtc-ip-handling-policy=disable_non_proxied_udp',
       'about:blank',
     ],
     env: { allow: BROWSER_ENGINE_ENV_ALLOW },
