@@ -279,6 +279,15 @@ berry plugins uninstall <id>   # 卸载（双相：无 --confirm = 只读预览 
 - `git:<url>[#<ref>]` —— git 源（`#<ref>` 钉定 commit/tag/branch）；
 - `local:<绝对路径>` —— 本地目录（开发态免发布直装）。
 
+**装机两步制（install ≠ 启用）**：`install` 只做装机落账 + 事件词汇收割，插件此时**尚未装载**——启用必须第二步显式 mount：
+
+```bash
+berry plugins mount <id>      # 「下次启动装载生效」只归属 mount 后——CLI 短命进程不装配装载器；
+                              # 宿主运行中则会话内 /reload（或 TUI /plugins mount <id>）即时生效
+```
+
+`install` 成功尾行即附该第二步命令（可直接复制执行）；`update` 不改启用态（`enabled.yaml` 不动，已 mount 的插件更新后照常装载）。
+
 装机失败拒 `PLUGIN_INSTALL_FAILED`（含护栏拒与坏 ref 形）；卸载拒 `PLUGIN_UNINSTALL_REFUSED`（装机账本损坏等拒写防覆盖形）。
 
 写侧六动词执行面全在场：装机动词（`install`/`update`）走 npm 钉版安装（供应链护栏），行级动词（`mount`/`unmount`/`toggle`）编辑 `enabled.yaml` 启用行，`uninstall` 走双相清算（四段幂等 + 审计落账）；配置表单 `config <id>`（TUI 会话内 `/plugins config <id>`）按插件 `configSchema` 逐字段问答——非 secret 值整值替换写入行 `config`、secret 值入凭证盒（`plugin:<id>/config:<key>`）不落 yaml，值等于缺省源不落行（行是覆盖仓不烙缺省），取消整次放弃零写盘。`enabled.yaml` 仍是启用面的底层真源（手编与命令同链可审计——boot 装载序 diff 补播）；`--no-plugins` 安全模式跳过全部插件装载（core: 与用户插件都不装）——坏插件锁死启动时的自救位。

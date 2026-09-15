@@ -44,6 +44,13 @@
  * 走 npm publish --dry-run；契约 5 只调纯函数断言期望终态、不执行 dist-tag
  * add；契约 6 只校验既有 tag 状态。
  *
+ * 纪元点火彩排（W8 纪元彩排批）：--dry-run 常开（真发形经 --epoch-drill 显式
+ * 开；CI 形零旗标零噪音）——以「已点火」形状投影 03 §8.8 检查 9「面动号不动」
+ * 的点火前休眠面：提交位快照 vs 最新归档面判差，输出点火日将破的存量面清单/
+ * 计数。report-only——只出报告行不改退出码（彩排是观察件不是门禁：存量面大
+ * 整理的执行日是点火日，彩排日只负责把清单提前摆上桌）。SDK 包无独立 API 面
+ * 坐标系不跑彩排。
+ *
  * 失败注入：--inject <谱项>（npm 调用边界注入脚本化应答——不真起 HTTP
  * server，在 exec 边界喂 canned 输出/错误）；位于 publish 之后的谱项无
  * --dry-run 即用法错（防真上传后撞注入终态留半成功态）。演习完成判据 =
@@ -60,6 +67,12 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { realpathSync } from 'node:fs';
 import { createJiti } from 'jiti';
+
+// API 面治理判差语义单源（W8 纪元彩排批引入）：classifyFaceDiff = 面 diff 分桶
+// 投影（剥文档/元数据载荷——文档润色不是面变），loadArchivedSnapshots = 查 9
+// 归档族加载（api/snapshots/<pkg.version>.json 全体，包版本升序）。彩排只消费
+// 判差语义零复制——与 check-api 查 9 同源同判。
+import { classifyFaceDiff, loadArchivedSnapshots } from './extract-api-surface.mjs';
 
 /** 仓库根（脚本位置上一级） */
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -300,8 +313,49 @@ export function judgeDistTagCi(tags, version, prerelease) {
   return { ok: false, reason: `正式版 latest(${tags.latest}) 须指 ${version}（next 不动）` };
 }
 
+/**
+ * 纪元点火彩排判定（W8 纪元彩排批——03 §8.8 检查 9「面动号不动」点火前投影）。
+ *
+ * 语义与 check-api 查 9 同源：基线门（归档族非空——首 release 前基线未成即
+ * 无比较基准）与面判差（classifyFaceDiff——判差语义单源）原样保留；惟纪元门
+ * （快照 enforcement === 'ignited'）在彩排语境强制开——彩排要回答的恰是
+ * 「若今天点火，存量面会不会破」，与 API_ENFORCEMENT_IGNITED 当前值无关。
+ * 门条件「面动 ∧ 当前快照 apiVersion === 最新归档 apiVersion」是查 9 内联
+ * 条件的镜像式——check-api 该段内联改动时此处须同步（两侧同变；回归锁锁
+ * dormant/will-red/will-pass 三态输出）。
+ * @param {{ surface: object, archives: Array<{version: string, surface: object}> }} faces
+ *   surface = 提交位 API 面快照（src/contracts/api-surface.json 真值）；
+ *   archives = 查 9 归档族（api/snapshots/ 全体，包版本升序）
+ * @returns {{ state: 'dormant', reason: string } |
+ *   { state: 'will-red', diff: object, apiVersion: string, lastVersion: string } |
+ *   { state: 'will-pass', diff: object }}
+ */
+export function judgeEpochIgnitionDrill({ surface, archives }) {
+  // 基线门照原样：归档族空 = 休眠（检查 9 在点火日也仍休眠——如实呈现，非误报）
+  if (!Array.isArray(archives) || archives.length === 0) {
+    return {
+      state: 'dormant',
+      reason: '档案族空——首个 release 归档未落，检查 9 无比较基准（基线应随发布时点 extract-api-surface --archive 落）',
+    };
+  }
+  const last = archives[archives.length - 1];
+  const diff = classifyFaceDiff(last.surface, surface);
+  const faceMoved =
+    diff.added.length > 0 ||
+    diff.removed.length > 0 ||
+    diff.changed.length > 0 ||
+    diff.reTiered.length > 0 ||
+    diff.capabilitiesChanged;
+  // 查 9 门条件镜像：面动 ∧ 号不动 → 点火日将红
+  if (faceMoved && surface.apiVersion === last.surface.apiVersion) {
+    return { state: 'will-red', diff, apiVersion: surface.apiVersion, lastVersion: last.version };
+  }
+  // 面动号也动（合法形）或面静止 → 点火日投影绿
+  return { state: 'will-pass', diff };
+}
+
 // ---------------------------------------------------------------------------
-// argv 解析（--dry-run / --local-publish / --inject <谱项>；用法错收集后退 2）
+// argv 解析（--dry-run / --local-publish / --epoch-drill / --inject <谱项>；用法错收集后退 2）
 // ---------------------------------------------------------------------------
 
 /**
@@ -309,6 +363,25 @@ export function judgeDistTagCi(tags, version, prerelease) {
  * 无 --dry-run 即用法错，防真上传后撞注入终态留半成功态）。
  * patch(seams) 在 exec 边界喂 canned 应答（不真起 HTTP server）。
  */
+
+/** 纪元彩排注入用演示面（epoch:will-red 谱项专属 canned 面——漂移形：新增一导出） */
+const EPOCH_DEMO_ARCHIVED = {
+  apiVersion: '1.0',
+  enforcement: 'pre-ignition',
+  exports: [
+    { module: 'berry-agent', symbol: 'A', tier: 'stable', since: '1.0', sig: 'aaaa1111' },
+    { module: 'berry-agent', symbol: 'B', tier: 'stable', since: '1.0', sig: 'bbbb2222' },
+  ],
+  capabilities: [],
+};
+const EPOCH_DEMO_DRIFTED = {
+  ...EPOCH_DEMO_ARCHIVED,
+  exports: [
+    ...EPOCH_DEMO_ARCHIVED.exports,
+    { module: 'berry-agent', symbol: 'C', tier: 'stable', since: '1.0', sig: 'cccc3333' },
+  ],
+};
+
 export const INJECT_SPECTRUM = {
   'probe:e404': {
     afterPublish: false,
@@ -338,6 +411,19 @@ export const INJECT_SPECTRUM = {
     afterPublish: false,
     note: 'publish 步失败——上传单点失败即退',
     patch: (s) => ({ ...s, publish: () => ({ status: 1, stdout: '', stderr: 'npm error publish failed (injected)' }) }),
+  },
+  'epoch:will-red': {
+    afterPublish: false,
+    note: '纪元彩排红面——检查 9「面动号不动」点火前投影报告出场（report-only 不改退出码）',
+    patch: (s) => ({
+      ...s,
+      // canned 面（与真快照/归档无关——注入语义即「喂脚本化应答」）：漂移形
+      // 新增一导出而 apiVersion 未动，彩排报告应呈现「点火日将红」清单
+      epochDrillFaces: () => ({
+        surface: EPOCH_DEMO_DRIFTED,
+        archives: [{ version: '0.1.0-alpha.2', surface: EPOCH_DEMO_ARCHIVED }],
+      }),
+    }),
   },
   'disttag:diverged': {
     afterPublish: true,
@@ -382,13 +468,14 @@ export const INJECT_SPECTRUM = {
   },
 };
 
-/** argv 解析：{ pkg, dryRun, inject, localPublish, errors }——用法错聚齐由 CLI 层退 2 */
+/** argv 解析：{ pkg, dryRun, inject, localPublish, epochDrill, errors }——用法错聚齐由 CLI 层退 2 */
 export function parseReleaseArgs(argv) {
-  const out = { pkg: 'main', dryRun: false, inject: undefined, localPublish: false, errors: [] };
+  const out = { pkg: 'main', dryRun: false, inject: undefined, localPublish: false, epochDrill: false, errors: [] };
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
     if (tok === '--dry-run') out.dryRun = true;
     else if (tok === '--local-publish') out.localPublish = true;
+    else if (tok === '--epoch-drill') out.epochDrill = true;
     else if (tok === '--package') {
       const key = argv[i + 1];
       if (key === undefined || key.startsWith('--')) {
@@ -415,7 +502,7 @@ export function parseReleaseArgs(argv) {
       i++;
     } else {
       out.errors.push(
-        `未知参数：${tok}（仅认 --package <${Object.keys(PACKAGES).join('|')}> / --dry-run / --local-publish / --inject <谱项>）`,
+        `未知参数：${tok}（仅认 --package <${Object.keys(PACKAGES).join('|')}> / --dry-run / --local-publish / --epoch-drill / --inject <谱项>）`,
       );
     }
   }
@@ -432,10 +519,11 @@ export function parseReleaseArgs(argv) {
 
 /**
  * @param {object} seams 缝面（CLI=realSeams 实装；测试=假缝注入谱场景）
- * @param {{version: string, pkgKey?: string, dryRun: boolean, localPublish?: boolean, env?: object, log: (line: string) => void}} opts
+ * @param {{version: string, pkgKey?: string, dryRun: boolean, localPublish?: boolean, epochDrill?: boolean, env?: object, log: (line: string) => void}} opts
  *   pkgKey 缺省 'main'（07 §8.3 双包发布道——编舞零分叉，差异全在描述符/缝面）；
  *   localPublish/env 透传 resolveReleaseForm（执行形解析见定形注第 1 款——
- *   env 缺省 process.env，测试经 env:{} 隔离宿主环境变量面）
+ *   env 缺省 process.env，测试经 env:{} 隔离宿主环境变量面）；epochDrill =
+ *   纪元点火彩排真发形显式开（--dry-run 下彩排恒开，见彩排段注）
  * @returns {{code: number, report: string[]}}
  */
 export async function runRelease(seams, opts) {
@@ -461,6 +549,53 @@ export async function runRelease(seams, opts) {
   if (dryRun) form = 'token';
   const formLabel = { trigger: '本机触发腿', ci: 'CI 发布腿', token: '令牌全本地' }[form];
   log(`[release] ${pkg.name}@${version}${dryRun ? '（--dry-run 演习）' : `（执行形=${formLabel}）`} 六道契约起跑`);
+
+  // —— 纪元点火彩排（W8 纪元彩排批——report-only，不参与退出码）：以「已点火」
+  // 形状投影 03 §8.8 检查 9「面动号不动」的点火前休眠面——提交位快照 vs 最新
+  // 归档面判差，点火日将破的存量面清单/计数预呈现。--dry-run 常开；真发形经
+  // --epoch-drill 显式开（CI 形零旗标零噪音——权衡：彩排是观察件不是门禁，
+  // 不改退出码，存量面大整理的执行日是点火日，彩排日只负责把清单提前摆上桌）。
+  // 置于契约 1 之前：彩排输入（快照/归档族）不依赖门禁结果，门禁红时报告仍应
+  // 可见。SDK 包无独立 API 面坐标系（检查 9 比较基准 = 主包快照/归档族）不跑。
+  if ((dryRun || opts.epochDrill === true) && pkgKey === 'main') {
+    try {
+      const faces = seams.epochDrillFaces?.();
+      if (faces === undefined) {
+        log('[纪元彩排] report-only：缝缺席——彩排跳过（realSeams 实装缝在位；本缝面表未装）');
+      } else {
+        const verdict = judgeEpochIgnitionDrill(faces);
+        if (verdict.state === 'dormant') {
+          log(`[纪元彩排] report-only：休眠——${verdict.reason}`);
+        } else if (verdict.state === 'will-red') {
+          const d = verdict.diff;
+          // 样本帽 5 条/桶——存量面大整理日的清单读面（全量明细走 check-api 单跑）
+          const sample = (list) =>
+            list.length === 0
+              ? '无'
+              : `${list.slice(0, 5).join('、')}${list.length > 5 ? ` 等 ${list.length} 条` : ''}`;
+          log(
+            `[纪元彩排] report-only：检查 9 点火日将红——面动号不动（当前快照 vs 最新归档 ${verdict.lastVersion}：` +
+              `新增 ${d.added.length}〔${sample(d.added)}〕/ 移除 ${d.removed.length}〔${sample(d.removed)}〕/ ` +
+              `改形 ${d.changed.length}〔${sample(d.changed)}〕/ 重定级 ${d.reTiered.length}〔${sample(d.reTiered)}〕` +
+              `${d.capabilitiesChanged ? ' / capabilities 有变' : ''}；apiVersion 均 ${verdict.apiVersion}）——` +
+              `面变更须同笔 bump package.json apiVersion 并再生成快照+归档（03 §8.8 检查 9）`,
+          );
+        } else {
+          const d = verdict.diff;
+          const moved =
+            d.added.length + d.removed.length + d.changed.length + d.reTiered.length > 0 || d.capabilitiesChanged;
+          log(
+            `[纪元彩排] report-only：检查 9 点火日投影绿——${
+              moved ? '面 diff 非零但 apiVersion 随动（合法形）' : '面 diff 零（面静止）'
+            }`,
+          );
+        }
+      }
+    } catch (err) {
+      // report-only：彩排缝任何故障不拖累发布编舞
+      log(`[纪元彩排] report-only：不可用（${err?.message ?? err}）——不影响发布编舞`);
+    }
+  }
 
   // —— 契约 1：门禁前置不可绕 + 工作树净空 ——
   log('[契约1] 四门禁前置……');
@@ -968,6 +1103,12 @@ export function realSeams(pkgKey = 'main') {
     readmeText: () => pkg.readmeText(pkgRoot),
     // 冒烟形随描述符（主包 CLI 形 / SDK import 形——deps 懒装载见描述符 smoke 注）
     smoke: (tarballPath) => pkg.smoke(tarballPath, version),
+    // 纪元彩排读面（W8 纪元彩排批）：提交位 API 面快照 + 查 9 归档族——两读
+    // 全只读，不触网不触 git 写面；判差语义在 extract-api-surface 单源
+    epochDrillFaces: () => ({
+      surface: JSON.parse(readFileSync(join(REPO_ROOT, 'src/contracts/api-surface.json'), 'utf8')),
+      archives: loadArchivedSnapshots(),
+    }),
     publish: (tarballPath, o) => {
       const args = ['publish', tarballPath];
       if (o.next) args.push('--tag', 'next');
@@ -1056,7 +1197,7 @@ if (isMain) {
   if (parsed.errors.length > 0) {
     for (const e of parsed.errors) console.error(`用法错：${e}`);
     console.error(
-      '用法：node tools/release.mjs [--package <main|sdk>] [--dry-run] [--local-publish] [--inject <谱项>]',
+      '用法：node tools/release.mjs [--package <main|sdk>] [--dry-run] [--local-publish] [--epoch-drill] [--inject <谱项>]',
     );
     process.exit(2);
   }
@@ -1068,6 +1209,7 @@ if (isMain) {
     pkgKey: parsed.pkg,
     dryRun: parsed.dryRun,
     localPublish: parsed.localPublish,
+    epochDrill: parsed.epochDrill,
     log: (line) => console.log(line),
   });
   process.exit(result.code);

@@ -10,6 +10,7 @@ import {
   PACKAGES,
   judgeDistTag,
   judgeDistTagCi,
+  judgeEpochIgnitionDrill,
   judgePackList,
   judgeReadme,
   judgeRegistryProbe,
@@ -67,6 +68,9 @@ function fakeSeams(overrides = {}, pkgKey = 'main') {
   };
   const base = {
     calls,
+    // 纪元彩排缺省假缝面（W8 纪元彩排批）：档案族空 → 休眠态——与仓内现行
+    // 真态同形（api/snapshots 档案族尚未成形，检查 9 基线闸在点火日之前休眠）
+    epochDrillFaces: () => ({ surface: { apiVersion: '1.0', enforcement: 'pre-ignition' }, archives: [] }),
     gates: () => [
       { name: 'typecheck', ok: true },
       { name: 'test', ok: true },
@@ -299,6 +303,7 @@ describe('parseReleaseArgs', () => {
       dryRun: false,
       inject: undefined,
       localPublish: false,
+      epochDrill: false,
       errors: [],
     });
     expect(parseReleaseArgs(['--dry-run']).dryRun).toBe(true);
@@ -338,6 +343,7 @@ describe('parseReleaseArgs', () => {
       dryRun: false,
       inject: undefined,
       localPublish: false,
+      epochDrill: false,
       errors: [],
     });
     expect(parseReleaseArgs(['--package', 'sdk', '--dry-run']).pkg).toBe('sdk');
@@ -906,5 +912,155 @@ describe('runRelease CI 形（env BERRY_AGENT_RELEASE_MODE=ci——release.yml �
     expect(r.code).toBe(0);
     expect(r.report.join('\n')).toContain('（执行形=令牌全本地）');
     expect(s.calls.publish.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 纪元点火彩排（epoch drill——W8 纪元彩排批）
+// ---------------------------------------------------------------------------
+
+/**
+ * 纪元彩排面定形：以「已点火」形状投影 03 §8.8 检查 9「面动号不动」的
+ * 点火前休眠面——语义单源 = classifyFaceDiff（与 check-api 同源）；门条件
+ * = 面动 ∧ 当前快照 apiVersion 与最新档案相同（检查 9 内联条件的镜像式）。
+ * 彩排链 report-only：只出报告行，不改退出码（CI 形零旗标零噪音）。
+ */
+describe('纪元点火彩排（epoch drill——检查 9 点火前投影，report-only）', () => {
+  /** 已归档基线面（上一版发布时的快照形态——两导出 + 一能力） */
+  const EPOCH_ARCHIVED_SURFACE = {
+    apiVersion: '1.0',
+    enforcement: 'pre-ignition',
+    exports: [
+      { symbol: 'A', module: 'berry-agent', tier: 'stable', since: '1.0', sig: 'aaaa1111' },
+      { symbol: 'B', module: 'berry-agent', tier: 'stable', since: '1.0', sig: 'bbbb2222' },
+    ],
+    capabilities: [{ name: 'cap-x', providedBy: 'core:x' }],
+  };
+  const EPOCH_ARCHIVE = [{ version: '0.1.0-alpha.2', surface: EPOCH_ARCHIVED_SURFACE }];
+  /** 漂移面：新增 C + B 形变（面动）——apiVersion 未动 → 点火日将红 */
+  const EPOCH_DRIFTED_SURFACE = {
+    apiVersion: '1.0',
+    enforcement: 'pre-ignition',
+    exports: [
+      { symbol: 'A', module: 'berry-agent', tier: 'stable', since: '1.0', sig: 'aaaa1111' },
+      { symbol: 'B', module: 'berry-agent', tier: 'stable', since: '1.0', sig: 'cccc3333' },
+      { symbol: 'C', module: 'berry-agent', tier: 'stable', since: '1.0', sig: 'dddd4444' },
+    ],
+    capabilities: [{ name: 'cap-x', providedBy: 'core:x' }],
+  };
+
+  it('judgeEpochIgnitionDrill：面动号不动 → will-red（分桶计数 + 同 apiVersion 坐标）', () => {
+    const v = judgeEpochIgnitionDrill({ surface: EPOCH_DRIFTED_SURFACE, archives: EPOCH_ARCHIVE });
+    expect(v.state).toBe('will-red');
+    expect(v.diff.added).toEqual(['berry-agent::C']);
+    expect(v.diff.changed).toEqual(['berry-agent::B']);
+    expect(v.diff.removed).toEqual([]);
+    expect(v.diff.reTiered).toEqual([]);
+    expect(v.apiVersion).toBe('1.0');
+    expect(v.lastVersion).toBe('0.1.0-alpha.2');
+  });
+
+  it('面动号也动（同一漂移 + apiVersion 升 1.1）→ will-pass 合法形', () => {
+    const v = judgeEpochIgnitionDrill({
+      surface: { ...EPOCH_DRIFTED_SURFACE, apiVersion: '1.1' },
+      archives: EPOCH_ARCHIVE,
+    });
+    expect(v.state).toBe('will-pass');
+  });
+
+  it('面静止（仅 enforcement 纪元章翻转）→ will-pass 零面差（纪元章不是面）', () => {
+    const v = judgeEpochIgnitionDrill({
+      surface: { ...EPOCH_ARCHIVED_SURFACE, enforcement: 'ignited' },
+      archives: EPOCH_ARCHIVE,
+    });
+    expect(v.state).toBe('will-pass');
+    expect(v.diff.added).toEqual([]);
+  });
+
+  it('档案族空 → dormant（基线未成形——检查 9 点火日仍休眠，如实呈现非误报）', () => {
+    const v = judgeEpochIgnitionDrill({ surface: EPOCH_DRIFTED_SURFACE, archives: [] });
+    expect(v.state).toBe('dormant');
+    expect(v.reason).toContain('档案族空');
+  });
+
+  it('彩排链常开：--dry-run 报告带纪元彩排段且 report-only 不改退出码（will-red 形仍退 0）', async () => {
+    const s = fakeSeams({
+      epochDrillFaces: () => ({ surface: EPOCH_DRIFTED_SURFACE, archives: EPOCH_ARCHIVE }),
+    });
+    const r = await run(s); // dryRun = true——彩排常开
+    expect(r.code).toBe(0);
+    const text = r.report.join('\n');
+    expect(text).toContain('[纪元彩排]');
+    expect(text).toContain('面动号不动');
+    expect(text).toContain('berry-agent::C');
+    expect(text).toContain('berry-agent::B');
+    expect(text).toContain('apiVersion 均 1.0');
+  });
+
+  it('真发形缺省静默（缝不被调）；--epoch-drill 显式开——带报告且不改退出码', async () => {
+    // 缺省真发（令牌腿）：彩排缝被调即抛——证零噪音
+    const silent = await run(
+      fakeSeams({
+        epochDrillFaces: () => {
+          throw new Error('真发缺省不应触彩排缝');
+        },
+      }),
+      '0.1.0-alpha.1',
+      false,
+      'main',
+      { localPublish: true },
+    );
+    expect(silent.code).toBe(0);
+    expect(silent.report.join('\n')).not.toContain('[纪元彩排]');
+    // --epoch-drill 显式开：报告在场 + report-only 退 0
+    const on = await run(
+      fakeSeams({
+        epochDrillFaces: () => ({ surface: EPOCH_DRIFTED_SURFACE, archives: EPOCH_ARCHIVE }),
+      }),
+      '0.1.0-alpha.1',
+      false,
+      'main',
+      { localPublish: true, epochDrill: true },
+    );
+    expect(on.code).toBe(0);
+    expect(on.report.join('\n')).toContain('[纪元彩排]');
+  });
+
+  it('SDK 包不跑彩排（API 面治理是主包坐标系——SDK 无独立快照档案族）', async () => {
+    const s = fakeSeams(
+      {
+        epochDrillFaces: () => {
+          throw new Error('SDK 包不应触纪元彩排缝');
+        },
+      },
+      'sdk',
+    );
+    const r = await run(s, '0.1.0-alpha.1', true, 'sdk');
+    expect(r.code).toBe(0);
+    expect(r.report.join('\n')).not.toContain('[纪元彩排]');
+  });
+
+  it('档案族空（仓内现行真态）→ 休眠报告行如实呈现——不为静默而吞', async () => {
+    const r = await run(fakeSeams()); // 缺省缝即休眠形
+    expect(r.code).toBe(0);
+    const text = r.report.join('\n');
+    expect(text).toContain('[纪元彩排]');
+    expect(text).toContain('休眠');
+  });
+
+  it('注入谱 epoch:will-red：CLI --inject 同物——谱语义漂移在此当场红（注入证可红）', async () => {
+    const s = INJECT_SPECTRUM['epoch:will-red'].patch(fakeSeams());
+    const r = await run(s); // dry-run 缺省——谱项无 publish 后段（afterPublish: false）
+    expect(r.code).toBe(0); // report-only：注入的红面彩排不改退出码
+    const text = r.report.join('\n');
+    expect(text).toContain('[纪元彩排]');
+    expect(text).toContain('面动号不动');
+  });
+
+  it('parseReleaseArgs：--epoch-drill 布尔旗标解析 + 未知参数指引语含旗标', () => {
+    expect(parseReleaseArgs(['--epoch-drill']).epochDrill).toBe(true);
+    expect(parseReleaseArgs(['--dry-run', '--epoch-drill']).epochDrill).toBe(true);
+    expect(parseReleaseArgs([]).epochDrill).toBe(false);
+    expect(parseReleaseArgs(['--wat']).errors[0]).toContain('--epoch-drill');
   });
 });

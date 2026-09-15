@@ -459,6 +459,9 @@ describe('plugins 写侧六动词——local fixture 真链 e2e（装机面落�
     // install：local 直引真收割 + 落账
     expect(await runPluginsEntry({ sub: 'install', ref: `local:${fixture}` }, opts)).toBe(0);
     expect(io.out.join('\n')).toContain('已装机：chain-pkg');
+    // 两步制文案（W8 装机文案批）：装机成功尾行给出具体启用第二步命令（装机 ≠ 启用）
+    expect(io.out.join('\n')).toContain('装机 ≠ 启用');
+    expect(io.out.join('\n')).toContain('berry plugins mount chain-pkg');
     const ledger = JSON.parse(readFileSync(join(dir, 'plugins', 'ledger.json'), 'utf8')) as { id: string }[];
     expect(ledger.map((e) => e.id)).toEqual(['chain-pkg']);
 

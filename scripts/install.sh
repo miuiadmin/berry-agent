@@ -9,37 +9,40 @@
 # 编舞：Node >= 24 检查 → npm 全局安装 → 双代名验证（berry / berry-agent
 # ——新名优先旧名回落）→ 欢迎横幅（引实测就位命令名）；失败出口给排查建议
 # （镜像建议保持中性——不钦点具体镜像源）。
+# 用户可见文案一律英文（W8 装机文案批——安装脚本是公开仓对外第一面）；
+# 代码注释留中文。
 set -eu
 
 # ---------- 工具函数 ----------
 warn() { printf '%s\n' "$*" >&2; }
-die() { warn "错误：$*"; exit 1; }
+die() { warn "Error: $*"; exit 1; }
 
 # ---------- Node >= 24 检查 ----------
 if ! command -v node >/dev/null 2>&1; then
-  die "未找到 node——请先安装 Node.js 24+（https://nodejs.org/ 或你的系统包管理器）"
+  die "node not found. Install Node.js 24+ first (https://nodejs.org/ or your system package manager)"
 fi
 node_major=$(node -p 'Number(process.versions.node.split(".")[0])')
 if [ "$node_major" -lt 24 ]; then
-  die "Node 版本过低（当前 $(node --version)，需要 >= 24）——请升级：https://nodejs.org/"
+  die "Node version too old (current $(node --version), need >= 24). Upgrade at https://nodejs.org/"
 fi
 if ! command -v npm >/dev/null 2>&1; then
-  die "未找到 npm——Node.js 标准发行版自带 npm，请检查 Node 安装"
+  die "npm not found. npm ships with the standard Node.js distribution - check your Node installation"
 fi
 
 # ---------- npm 全局安装 ----------
-printf '==> 安装 berry-agent（npm 全局）……\n'
+printf '==> Installing berry-agent (npm global)...\n'
 if ! npm install -g berry-agent; then
   warn ''
-  warn 'npm 全局安装失败。常见原因与自助排查：'
-  warn '  - 权限不足：建议改用 nvm / volta 等 Node 版本管理器（全局目录落在用户域，免提权），'
-  warn '    或参考 npm 官方文档处理全局安装前缀问题'
-  warn '  - 网络受限：可用 npm config set registry <你信任的镜像源> 配置后重试'
+  warn 'npm global install failed. Common causes and self-service fixes:'
+  warn '  - Insufficient permissions: prefer a Node version manager such as nvm or volta'
+  warn '    (the global prefix stays in user land, no sudo needed), or see the official'
+  warn '    npm docs on changing the global install prefix'
+  warn '  - Restricted network: set a registry you trust via `npm config set registry <registry>` and retry'
   exit 1
 fi
 
 # ---------- 安装验证 ----------
-printf '==> 验证安装……\n'
+printf '==> Verifying installation...\n'
 # 兼容两代命令名（与 uninstall.sh 同款语义）：改裁前的装机 bin 名是
 # berry-agent——registry 已发布版仍以旧名链出；升级到 bin 换代版本后
 # npm 自动换链为 berry。新名优先、旧名回落，过渡期两代装机都验证得过。
@@ -47,22 +50,22 @@ printf '==> 验证安装……\n'
 # 旧名装机不被指去敲不存在的 berry 命令）。
 if version=$(berry --version 2>/dev/null); then
   cmd=berry
-  printf '==> 已就位：berry %s\n' "$version"
+  printf '==> Ready: berry %s\n' "$version"
 elif version=$(berry-agent --version 2>/dev/null); then
   cmd=berry-agent
-  printf '==> 已就位：berry-agent %s（旧命令名——升级到 bin 换代版本后自动换链为 berry）\n' "$version"
+  printf '==> Ready: berry-agent %s (legacy command name - upgrading to a post-rename release relinks it to berry)\n' "$version"
 else
-  die "安装完成但验证失败（berry / berry-agent --version 均未正常返回）——请重开终端后重试（PATH 刷新）；仍失败请到仓库 issue 报告并附本脚本全部输出"
+  die "Install finished but verification failed (neither berry nor berry-agent --version returned). Try reopening your terminal (PATH refresh) and rerun; if it still fails, open a repo issue with the full script output"
 fi
 
 # ---------- 欢迎横幅 ----------
 printf '\n'
-printf '  %s 已安装。\n' "$cmd"
+printf '  %s installed.\n' "$cmd"
 printf '\n'
-printf '  快速上手：\n'
-printf '    %-22s %s\n' "$cmd" '直接进入 TUI 对话（说需求即可）'
-printf '    %-22s %s\n' "$cmd --help" '全部命令与旗标'
-printf '    文档：https://github.com/miuiadmin/berry-agent#readme\n'
+printf '  Quick start:\n'
+printf '    %-22s %s\n' "$cmd" 'jump into the TUI chat - just say what you need'
+printf '    %-22s %s\n' "$cmd --help" 'all commands and flags'
+printf '    Docs: https://github.com/miuiadmin/berry-agent#readme\n'
 printf '\n'
-printf '  首次启动自动创建数据目录 ~/.berry-agent/（BERRY_AGENT_DATA_DIR 可重定位）。\n'
+printf '  First launch creates the data directory ~/.berry-agent/ (relocatable via BERRY_AGENT_DATA_DIR).\n'
 printf '\n'

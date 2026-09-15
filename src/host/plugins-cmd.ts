@@ -473,6 +473,11 @@ async function runInstall(
       return 1;
     }
     writeOut(outcome.text);
+    // 两步制尾行（W8 装机文案批）：装机 ≠ 启用——装机只落账本+收割词汇，装载
+    // 生效惟走 mount。执行器文本只给动词指路，此处补具体第二步命令（可直接
+    // 复制执行）——「下次启动装载生效」只归属 mount 后语义（CLI 短命进程不装
+    // 配装载器；宿主运行中经会话 /reload 即时生效）。
+    writeOut(`装机 ≠ 启用——启用第二步：berry plugins mount ${outcome.entry.id}（mount 后下次启动装载生效）`);
     return 0;
   } finally {
     await audit.close();
