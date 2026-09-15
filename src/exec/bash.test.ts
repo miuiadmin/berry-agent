@@ -518,7 +518,17 @@ describe('createBashTool .git 拦截面（04 §252 两腿——成熟度缺口 #
     }).execute({ command: 'git status' }, CTX);
     expect(runs()).toBe(1);
     expect(policies[0]?.denyWritePaths).toBeUndefined();
-    expect(policies[0]?.writableRoots).toBeUndefined(); // 主仓形无 backing 授予
+    // 形态条件断言（2026-09-15 形态假设修：原「主仓形无 backing 授予」断言
+    // 只锁主仓检出形，本套件在 git worktree 场跑时 cwd 即 worktree 形——
+    // .git 是 gitdir 指针文件，产品行为 = backing gitdir 入可写根〔授予腿
+    // 产品真源〕，原断言在该场全量跑假红。修 = 用 worktreeGitDir 判形双锁：
+    // 主仓形无授予 / worktree 形授予 backing，两形皆锁真行为）
+    const backing = worktreeGitDir(process.cwd());
+    if (backing === undefined) {
+      expect(policies[0]?.writableRoots).toBeUndefined(); // 主仓形无 backing 授予
+    } else {
+      expect(policies[0]?.writableRoots).toContain(backing); // worktree 形授予 backing gitdir
+    }
   });
 
   it('腿二：展开形（git commit -m "$(cat f)"）失豁免 → deny 携带（诚实回执面）', async () => {
