@@ -1,16 +1,27 @@
 # 开发指南
 
-> **EN TL;DR**: Node.js ≥ 24. Make the four gates green before committing.
-> Cross-module imports go through the public surface only (`index.ts` /
-> `types.ts` / `events.ts`). New modules: contract first, then
-> implementation. PRs target `dev` — see [CONTRIBUTING.md](../CONTRIBUTING.md)
-> for the change-tier guide.
+> **EN TL;DR**: You need Node.js ≥ 24 (aggressive mainline tracking — LTS-only
+> users cannot install yet). The full suite is ~280 test files / 4800+ cases
+> and takes a few minutes on a normal laptop; CI covers Linux and macOS only,
+> Windows is untested. Make the four gates green before every PR, and target
+> the `dev` branch (`main` is the stable release line). Two vocabulary rules:
+> extensions are called plugins (never "app"), and lifecycle verbs are
+> install / uninstall / mount / unmount / toggle / update. Chinese comments
+> are required; English comments are acceptable — the maintainer translates
+> before merge. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the change-tier
+> guide and the AI-assistance disclosure policy.
 
 本文面向 berry-agent 仓库贡献者：环境搭建、四门禁、工程约定、测试纪律。使用面见[使用指南](./usage.md)，架构见[架构总览](./architecture.md)。
 
 ## 环境搭建
 
 要求 Node.js ≥ 24。
+
+**为什么 ≥24**：本仓随主流运行时激进跟进——跟踪当期主线版本、及时采用新语言与运行时特性，而不是等 LTS 排期。代价如实写明：仍在旧 LTS 线上的环境暂不可安装，属已知取舍而非疏漏。
+
+**平台支持**：CI 实测面 = Linux + macOS 双 OS。Windows 未测——`better-sqlite3` 原生模块在 Windows 侧的编译链未验证过，不承诺可装可跑；欢迎带诊断信息的 Windows issue，但修复不排优先级。
+
+**测试规模预期**：全量测试约 280 个测试文件、4800+ 用例——普通开发机（近几年主流配置的笔记本）本地全量数分钟；CI 在双 OS 上各完整跑一遍（以上为实测口径）。
 
 ```bash
 git clone https://github.com/miuiadmin/berry-agent.git
@@ -72,16 +83,22 @@ docs/                   公开文档面（本五册）
 
 ## 工程约定
 
-- **注释中文、标识符英文**：所有新写代码充分中文注释（JSDoc + 关键分支行内——写「为什么」不写「是什么」）；
+- **注释中文、标识符英文**：所有新写代码充分中文注释（JSDoc + 关键分支行内——写「为什么」不写「是什么」）。中文注释是硬要求；非中文使用者可提交英文注释，合并前维护者统一翻译落定。
 - **命名去品牌化**：代码标识符禁品牌词。品牌词只允许出现在 package.json name/keywords、bin 命令名、UI 文案/文档标题、对外声明值位（`~/.berry-agent`、`BERRY_AGENT_*`、`berry-agent-plugin` keyword、虚拟主键 `berry-agent`、值位 magic/格式串三件——memory 导出 `berry-agent-memory`、会话导入 `berry-agent/session`、cron marker `# berry-agent:<名>`）；
 - **词汇**：扩展单位一律叫「插件」（plugin）——「应用/app」是禁用词；生命周期动词 install/uninstall/mount/unmount/toggle/update；
 - **env 前缀**：一律 `BERRY_AGENT_*`；
-- **提交**：一个逻辑完整的变更 = 一次 commit，完成即提交不积攒；逐文件点名 `git add`、慎用 `git add -A`；commit 前核 `git status` 无未登记残留。
+- **提交**：commit 粒度——一个逻辑变更一批即可，合并时维护者 squash 整形；本地怎么分批不做要求。
 
 ## 契约先行与边界讨论
 
 - **contract-first**：新模块先定义契约（types / 错误码 / 事件词汇 + 测试），再写实现；
-- **边界讨论先行**：涉及基座接口（L3）或判据面（L4）的改动，先在 issue 中就边界达成一致再动手——改动分级表见[贡献指南](../CONTRIBUTING.md#改动分级先对号再动手)。仓内设计细则由维护者侧流程承载（涉及既有契约面的变更随批评审），外部贡献者以 issue 讨论为入口即可。
+- **边界讨论先行**：涉及宿主固定件行为、契约面（新扩展点/钩子）、事件词汇、错误码、API 面（L3），或新模块、新拓扑席位、边表新边、安全模型（L4）的改动，先在 issue 中就边界达成一致再动手——改动分级表见[贡献指南](../CONTRIBUTING.md#改动分级指南先对号再动手)；
+- **「规范先行」是维护者侧流程**：触及设计边界（模块边界、事件词汇、错误码、API 面、预算护栏等规范覆盖行为）的改动，由维护者在内部规范侧完成先行批之后再收 PR。外部贡献不走也不需要走这套流程，以 issue 讨论为入口即可——L3/L4 周期较长属正常流程。
+
+## 黑话翻译（读提交历史与源码时用得上）
+
+- **「规范先行」「冷读闸」**（提交历史常见）：维护者内部设计治理流程的环节名，外部贡献者无需也无法参与；你的 PR 涉及时由维护者收口并在 PR 中说明。
+- **「0X 篇 §Y」**（源码头注常见）：指内部设计规范（非公开文档）；以头注正文与 docs/ 公开文档为准即可。
 
 ## 测试纪律
 
@@ -104,7 +121,23 @@ docs/                   公开文档面（本五册）
 
 ## API 治理面
 
-`tools/check-api.mjs` 执法 API 面快照（`emit-api-decls` 随 build 链再生）——公开面变更须随批同步快照。
+公开 API 面（插件作者可见的导出面）受机器执法：快照真源 `src/contracts/api-surface.json`，`npm run lint:topology` 链中的 `tools/check-api.mjs` 将快照与代码抽取真值比对——**面漂移当场红**；`api-decls/` 派生声明与 `dist/api/` 随包产物同理（生成物 drift 另有一查）。
+
+**tier 三档**——每个公开符号必带 tier 标注：
+
+| tier           | 含义                                                             |
+| -------------- | ---------------------------------------------------------------- |
+| `stable`       | 稳定面——兼容性承诺在身，破坏性变更须走废弃登记而非直接改         |
+| `experimental` | 实验面——不承诺兼容、可无预告移除（现役 = testkit 测试工具域）    |
+| `deprecated`   | 已废弃面——新代码禁用，登记移除坐标后按版次摘除（现役为零）       |
+
+**since 坐标**——每个符号带 `since`（入册时的宿主 `apiVersion` 版本号），与废弃面的移除坐标共用一套版本坐标系；「面动号不动」是执法不变式：公开面变更须随批提版本号。
+
+**改公开面标准三步**（漏任一步 check-api 即红）：
+
+1. 改码（公开根直导出的 tier/description 从声明点 JSDoc 收割——标签别漏写）；
+2. 再生快照：`node tools/extract-api-surface.mjs --write`；
+3. 再生声明：`npm run build`（`emit-api-decls` 随 build 尾段产 `dist/api/` 与 `api-decls` 派生 `.d.ts`）。
 
 ## 发布流程（维护者）
 
@@ -124,10 +157,12 @@ docs/                   公开文档面（本五册）
 
 ## 贡献流程
 
-1. 按改动分级（[贡献指南](../CONTRIBUTING.md#改动分级先对号再动手)）确认前置要求——L3/L4 先开 issue 讨论边界；
+1. 按改动分级（[贡献指南](../CONTRIBUTING.md#改动分级指南先对号再动手)）确认前置要求——L3/L4 先开 issue 讨论边界（周期较长属正常流程）；
 2. fork + 分支；
-3. 改动前读相关模块头注（每件头注即该域的设计真源摘要）；
+3. 改动前读相关模块头注（每件头注即该域的设计真源摘要；头注中「0X 篇 §Y」指内部规范，以头注正文为准）；
 4. 四门禁全绿；
-5. PR 一律打 **`dev`** 分支；描述四段式：动机 / 改动面 / 测试证据 / 自检清单（含 AI 辅助披露）。
+5. PR 一律打 **`dev`** 分支——`main` 为稳定发布线，只随发布快进；描述四段式：动机 / 改动面 / 测试证据 / 自检清单（含 AI 辅助披露）。
+
+**AI 辅助**：不禁止 AI 辅助开发，人类必须是责任主体——PR 自检清单两勾（通读负责 + 用途披露），纯 AI 生成且未经人审的 PR 直接关闭；政策全文见[贡献指南](../CONTRIBUTING.md#ai-辅助贡献政策温和披露制)。
 
 行为准则：对事不对人；技术分歧以契约、公开文档与代码事实为准；不确定的先问再动手。
