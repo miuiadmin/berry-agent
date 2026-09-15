@@ -9,8 +9,17 @@
  *   演进在此红（红 = 重录信号，人工裁决后重跑录制器）。
  *
  * 纪律：禁断言 AI 生成的具体文本内容——只断形状（块型/序/计数/数值域）。
- * 内联合成金样一例保证零真金样时回放管线在 CI 恒有牙（真金样在场时
- * 照跑——管线对真/合成同管）。
+ * 内联合成金样一例保证回放管线零依赖真件也恒有牙（真金样在场时照跑——
+ * 管线对真/合成同管）。
+ *
+ * 零金样态契约（2026-09-15 收紧）：金样两件已随 15394ef 入库（task #59 首录），
+ * 本测试任何运行语境（单文件 / 全量 / CI）下 tools/golden 零件只可能是录制物
+ * 丢失（.gitignore 事故 / 半截 checkout / 误删）——fail-loud 红（重录信号），
+ * 恒不静默 skip。历史注记：曾用 it.skipIf(GOLDENS.length === 0) 兜「未录制态」，
+ * 该态在首录入库后成为死分支，且静默 skip 恰是「断言从未被执行」的隐身衣
+ * （四问评估挂账「金样全量 skip 半接线」经查为误归因——全量与 CI 的 1 skipped
+ * 真源是 skills/policy.test.ts 出厂目录占位 skip，golden 断言一直在跑；但该
+ * skipIf 分支确属该挂账所惧怕的静默形态，本笔一并闭死）。
  */
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -21,7 +30,7 @@ import type { AssistantMessage, AssistantStreamEvent } from '../contracts/index.
 
 /** 仓库根（src/llm 上两级） */
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
-/** 金样目录（可能不在场——未录制态） */
+/** 金样目录（零件 = 录制物丢失，见文件头「零金样态契约」——fail-loud 红） */
 const GOLDEN_DIR = join(REPO_ROOT, 'tools/golden');
 
 /** 事件 12 型闭集（contracts/llm.ts AssistantStreamEvent 单源） */
@@ -43,7 +52,7 @@ const EVENT_TYPES = [
 /** 内容块型闭集（AssistantMessage.content） */
 const BLOCK_TYPES = ['text', 'thinking', 'toolCall'] as const;
 
-/** 枚举真金样（目录不在场 = 未录制态，诚实空数组） */
+/** 枚举真金样（目录不在场 = 录制物丢失——诚实空数组，红由回放例 fail-loud 断言担） */
 function listGoldenFiles(): string[] {
   try {
     return readdirSync(GOLDEN_DIR).filter((name) => name.endsWith('.jsonl'));
@@ -124,8 +133,14 @@ describe('金样回放轨（07 §7.4 #4）', () => {
     expect(() => assertGolden(badTail)).toThrow();
   });
 
-  it.skipIf(GOLDENS.length === 0)('真金样逐件回放（it.each——红即重录信号）', async () => {
-    expect(GOLDENS.length).toBeGreaterThan(0);
+  it('真金样逐件回放（it.each——红即重录信号）', async () => {
+    // 零金样 fail-loud（2026-09-15 收紧——原 it.skipIf 静默形态闭死）：金样已
+    // 随 15394ef 入库，零件只可能是录制物丢失，红 = 重录信号（npm run
+    // golden:record），不得以 skip 隐身放行。
+    expect(
+      GOLDENS.length,
+      'tools/golden 零金样——录制物丢失（金样已入库 15394ef，正常 checkout 恒在场）：跑 npm run golden:record 重录',
+    ).toBeGreaterThan(0);
     for (const name of GOLDENS) {
       const text = readFileSync(join(GOLDEN_DIR, name), 'utf8');
       const { meta, events } = parseGolden(text);
