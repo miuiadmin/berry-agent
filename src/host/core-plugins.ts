@@ -40,6 +40,7 @@ import {
   createBrowserService,
   defaultDownloadFace,
   defaultWsFace,
+  engineEgressProxy,
   installBrowserEngine,
   normalizeBrowserConfig,
 } from '../browser/index.js';
@@ -253,8 +254,44 @@ const webPlugin: CorePluginReference = {
  * 覆盖不了的装配期事实经此入件（dataDir 是首位——skills user 层锚 /
  * memory 件数据面等后续件逐笔扩展）。工厂形 vs 静态数组：deps 装配期才
  * 定形（runtime.dataDir 先于装载），静态数组装不进运行时事实。
+ *
+ * W7 分片（2026-09-15 四问评估架构批落地）：41 位成员按消费 core 件拆
+ * 十二子接口（共享位 + 十一件专属位），本接口聚合 extends 形保持名字与
+ * 成员结构恒等（结构类型不变 ⇒ 消费位零改动——webui-bridge/issue-
+ * session 两处仅注释提及，assembly 为内联构造位、index 为类型再导出，
+ * 均不感知分片；core-plugins 内件工厂参数仍收本聚合型）。子接口序随
+ * 文件件工厂序；无专属位件不立子接口（web 零 deps；exec/skills/
+ * browser/lsp 需求全在共享位）。新成员落位纪律：件专属语义随件入子
+ * 接口、跨件共享入共享位，JSDoc 注明归属件与来源批——20+ 成员逐笔
+ * 扩位的合并冲突热点与认知瓶颈由此收口。
  */
-export interface CorePluginHostDeps {
+export interface CorePluginHostDeps
+  extends
+    SharedPluginHostDeps,
+    MemoryPluginHostDeps,
+    SubagentPluginHostDeps,
+    SchedulerPluginHostDeps,
+    GoalPluginHostDeps,
+    CheckpointPluginHostDeps,
+    SdkPluginHostDeps,
+    WebuiPluginHostDeps,
+    ObsPluginHostDeps,
+    IssuePluginHostDeps,
+    McpPluginHostDeps,
+    CredentialsPluginHostDeps {}
+
+/**
+ * 宿主真身注入面——共享位（W7 分片）：两件以上 core 件共同消费的装配期
+ * 宿主事实六位。逐位消费件账：dataDir 八件（exec/skills/memory/
+ * subagent/checkpoint/obs/issue/browser——:memory: 诊断形判据同源）；cwd
+ * 六件（skills/memory/subagent/goal/issue/lsp）；homeDir 三件（skills/
+ * subagent/browser）；notify 九件（memory/scheduler/goal/checkpoint/
+ * issue/mcp/browser/lsp/credentials——命令输出面单源）；sqlite 三件主闸
+ * （memory 原文注；scheduler/goal 同律复用——各件头注互见）；
+ * conversationStack 两件（scheduler 进程内推进 / goal 停靠唤醒）。件专属
+ * 语义成员随件入各自子接口，不入此。
+ */
+interface SharedPluginHostDeps {
   /** 数据目录（null = :memory: 诊断形——skills user 层跳过等件内分支判据） */
   readonly dataDir: string | null;
   /**
@@ -271,6 +308,28 @@ export interface CorePluginHostDeps {
    * 缺席律——测试替身形/:memory: 诊断形无库座即无记忆面，对话本体仍通）。
    */
   readonly sqlite?: () => SqliteDatabase;
+  /**
+   * 命令输出面（core 件命令结算文本投递——memory-export/import 与 /tick 共用；
+   * source = 归因字面〔命令域〕——呈现侧路由后端自决，语义面 = 可辨识命令
+   * 来源。缺席即静默，命令仍注册）。
+   */
+  readonly notify?: (source: string, message: string) => void;
+  /**
+   * 宿主对话栈（u-2 无人值守深化批——04 §12 定形注①进程内推进律）：在场 =
+   * 引擎 runner 换进程内实装（scheduler-tick——宿主进程内经 conversation-stack
+   * 起 headless run，fire 不 spawn）；缺席 = 测试替身形降级 process runner
+   * （spawn 诚实收场）。**生产装配根恒注入**（assembly 单源——本位缺席即
+   * 装配残缺，e2e 回归锁锁死生产可达形恒进程内）。
+   */
+  readonly conversationStack?: ConversationStack;
+}
+
+/**
+ * core:memory 件 deps 专属位（W7 分片；来源批 19b-2 + 2026-09-13 复盘
+ * 发现 ⑯）：周期腿（review 窗取源 / LLM 窄面）与工具族检索五 seam。
+ * 另消费共享位：sqlite（主闸一）+ cwd + dataDir + notify。
+ */
+interface MemoryPluginHostDeps {
   /**
    * 单会话收口订阅面（2026-09-13 复盘发现 ⑯——简报冻结缓存收口摘除）：
    * memory 件 apply 期订阅，feed(sessionId) 在该会话 retire 成功路调用
@@ -294,12 +353,14 @@ export interface CorePluginHostDeps {
    * 适配器归装配根。缺席 = 周期腿整体缺席（与 fetchEvents 同闸）。
    */
   readonly llm?: () => MemoryLlmFace;
-  /**
-   * 命令输出面（core 件命令结算文本投递——memory-export/import 与 /tick 共用；
-   * source = 归因字面〔命令域〕——呈现侧路由后端自决，语义面 = 可辨识命令
-   * 来源。缺席即静默，命令仍注册）。
-   */
-  readonly notify?: (source: string, message: string) => void;
+}
+
+/**
+ * core:subagent 件 deps 专属位（W7 分片；来源批 19c-1 + RP5 物化腿）：
+ * 委派服务 + 执行时会话语境解析 + 插件层物化钩子接收位三 seam。另消费
+ * 共享位：cwd/dataDir/homeDir（skills 三层锚同款注入形）。
+ */
+interface SubagentPluginHostDeps {
   /**
    * 子代理委派服务（批 19c-1——assembly 根建 createSubagentService 并接线
    * in-process 真工厂后传入）。缺席 = subagent 件整体零装载（诚实缺席律
@@ -322,22 +383,15 @@ export interface CorePluginHostDeps {
    * agentDirs 物化腿不接线（测试替身形——标准层物化照常）。
    */
   readonly subagentLayerResyncSink?: (hook: SubagentLayerResyncHook) => void;
-  /**
-   * 宿主对话栈（u-2 无人值守深化批——04 §12 定形注①进程内推进律）：在场 =
-   * 引擎 runner 换进程内实装（scheduler-tick——宿主进程内经 conversation-stack
-   * 起 headless run，fire 不 spawn）；缺席 = 测试替身形降级 process runner
-   * （spawn 诚实收场）。**生产装配根恒注入**（assembly 单源——本位缺席即
-   * 装配残缺，e2e 回归锁锁死生产可达形恒进程内）。
-   */
-  readonly conversationStack?: ConversationStack;
-  /**
-   * 宿主级 budget-extended 广播件（u-3——04 §5 定形注①：canAfford 恢复
-   * watcher 升格宿主件装配根单真身）。在场 = goal 停靠项登记广播面（预算
-   * 恢复时 enable 挂钟行 + submit 唤醒——§12 唤醒判定链同链）；缺席 = goal
-   * 停靠无自动唤醒腿（落词 + disable 挂钟行仍执法——与「硬停等人工」等价
-   * 的诚实降级，测试替身形零广播）。
-   */
-  readonly budgetBroadcast?: BudgetBroadcastFace;
+}
+
+/**
+ * core:scheduler 件 deps 专属位（W7 分片；来源批 19c-2 + 20c）：调度闸
+ * 事实收集器 + 真 bin + cron 乙案开关/执行器四位。另消费共享位：sqlite
+ * （主闸——同 memory 律）+ conversationStack（u-2 进程内推进）+ notify
+ * （/tick 归因 'tick'）。
+ */
+interface SchedulerPluginHostDeps {
   /**
    * 调度闸事实收集器（批 19c-2——04 §12 DiscoveryGates 装配位）：engine 到点
    * fire 前逐行求值（agentBusy/lastUserMessageAt/canAfford 从宿主面收集——
@@ -365,6 +419,23 @@ export interface CorePluginHostDeps {
    * 零真系统写。生产装配根不置位）。
    */
   readonly schedulerCronExec?: (args: string[], input?: string) => { stdout: string; stderr: string; code: number };
+}
+
+/**
+ * core:goal 件 deps 专属位（W7 分片；来源批 19c-3 / #99 / s 批 / u-3）：
+ * 预算广播 + 会话日志读面（主闸二）+ 沉淀摘要窄面 + 全环服务捕获位四位。
+ * 另消费共享位：sqlite（主闸一）+ cwd（gates workspaceRoot 锚）+ notify
+ * （/goal 归因 'goal'）+ conversationStack（u-3 停靠唤醒链）。
+ */
+interface GoalPluginHostDeps {
+  /**
+   * 宿主级 budget-extended 广播件（u-3——04 §5 定形注①：canAfford 恢复
+   * watcher 升格宿主件装配根单真身）。在场 = goal 停靠项登记广播面（预算
+   * 恢复时 enable 挂钟行 + submit 唤醒——§12 唤醒判定链同链）；缺席 = goal
+   * 停靠无自动唤醒腿（落词 + disable 挂钟行仍执法——与「硬停等人工」等价
+   * 的诚实降级，测试替身形零广播）。
+   */
+  readonly budgetBroadcast?: BudgetBroadcastFace;
   /**
    * goal 会话日志读面（批 19c-3——GoalSessionFace：goal 段 fold 重放面 +
    * 激活锚长度单源「位置类数值取宿主单源长度面」）。缺席 = goal 件整体零
@@ -387,6 +458,14 @@ export interface CorePluginHostDeps {
    * service 创建后、provide 前。
    */
   readonly goalServiceSink?: (service: GoalService) => void;
+}
+
+/**
+ * core:checkpoint 件 deps 专属位（W7 分片；来源批 19c-4——05 §5.3 词面
+ * 独立三 seam）：会话语境读面（主闸二）+ fork 面（主闸三）+ 焦点会话
+ * 取值器。另消费共享位：dataDir（主闸一）+ notify（/rewind 归因）。
+ */
+interface CheckpointPluginHostDeps {
   /**
    * checkpoint 会话语境读面（批 19c-4——05 §5.3 词面独立 seam：
    * contextOf(sessionId) → {末闭合边界, 工作区锚}——gate per-run 判据与
@@ -407,12 +486,14 @@ export interface CorePluginHostDeps {
    * 缺席 = /rewind 诚实拒（无焦点会话上下文），gate 不受影响。
    */
   readonly focusSessionId?: () => string | undefined;
-  /**
-   * 宿主版本（批 19d——mcp 件 initialize 握手 clientInfo.version 披露，
-   * 「装配批对齐 package.json」兑现位：装配根 options.version 单源）。
-   * 缺席 = mcp 桥内缺省 '0.1.0'。
-   */
-  readonly version?: string;
+}
+
+/**
+ * core:sdk 件 deps 专属位（W7 分片；来源批 19e + U5-2）：HTTP 面工厂
+ * （件主闸）+ 插件道路由受理器 kit 透传位两位（stdio JSONL 不依赖件
+ * 装载态〔F16〕归宿主 serve 子命令，不入件 deps）。
+ */
+interface SdkPluginHostDeps {
   /**
    * SDK HTTP 面工厂（批 19e——core:sdk 件主闸：HTTP 传输适配 + MCP 包装
    * 的件承载真身。stdio JSONL 不依赖件装载态〔F16〕归宿主 serve 子命令）。
@@ -429,6 +510,13 @@ export interface CorePluginHostDeps {
    * （此处只透传面开面消费位——两腿同真身）。
    */
   readonly sdkPluginRoutes?: PluginRouteRegistry;
+}
+
+/**
+ * core:webui 件 deps 专属位（W7 分片；来源批 19e）：webui 挂载 kit 一位
+ * （件主闸）。另消费共享位：无（路由挂载外零 deps）。
+ */
+interface WebuiPluginHostDeps {
   /**
    * webui 挂载 kit（批 19e——core:webui 件主闸：路由挂载闭包（面级
    * handle + 可选 staticDir → 挂载产物窄面）。件零自持监听（全库唯一
@@ -436,6 +524,13 @@ export interface CorePluginHostDeps {
    * 仍在（两件禁用语义族——03 §10.4/07 §4.2）。
    */
   readonly webuiFaceMount?: (face: SdkHttpFaceHandle, options?: { staticDir?: string }) => WebuiFaceMount;
+}
+
+/**
+ * core:obs 件 deps 专属位（W7 分片；来源批 19e）：事件读面（主闸二）+
+ * 告警通知面 + 观众探针三位。另消费共享位：dataDir（主闸一）。
+ */
+interface ObsPluginHostDeps {
   /**
    * obs 事件读面（批 19e——obs 件主闸二：durable 事件流摄取源 =
    * Store.queryEvents 真身直传〔结构兼容 ObsEventsFace——05 §3.4 宿主面
@@ -446,6 +541,16 @@ export interface CorePluginHostDeps {
   readonly obsNotify?: ObsNotifyFace;
   /** obs 观众探针（缺席 = 恒无观众——告警评估跳过且不耗冷却，07 §4.3 原句语义） */
   readonly obsAudience?: ObsAudienceFace;
+}
+
+/**
+ * core:issue 件 deps 专属位（W7 分片；来源批 19e + c-5 迁移 + 04 §7
+ * 补钉①）：headless 起会面（主闸三）+ 轮询水位读写 + 全局预算窄面 +
+ * GitHub token/webhook secret + worktree 共享位六位。另消费共享位：
+ * dataDir（主闸一）+ cwd（worktree 件内自建回落锚）+ notify（issue
+ * 人面命令输出归因）。
+ */
+interface IssuePluginHostDeps {
   /**
    * issue headless 起会面（批 19e——issue 件主闸三：IssueSessionFace
    * 装配位真身，host/issue-session.ts createIssueSessionFactory in-process
@@ -477,6 +582,36 @@ export interface CorePluginHostDeps {
    */
   readonly issueWebhookSecret?: string;
   /**
+   * worktree 服务共享注入位（04 §7 补钉① + 03 §10.7 六役定形注）：issue
+   * 件编排授予（create 自动授予 / grant 补授）与会话内工具消费（三工具
+   * 挂载 + fence grantedRoots 并入）必须同台账——装配根建单实例经本位与
+   * ConversationStackOptions.worktree 双注。**生产装配恒注入**；缺席 = issue
+   * 件内自建（件内真身构造——直接测试形保独立可跑，生产同源律由装配根
+   * 承担）。
+   */
+  readonly worktree?: WorktreeService;
+}
+
+/**
+ * core:mcp 件 deps 专属位（W7 分片；来源批 19d）：宿主版本披露一位。
+ * 另消费共享位：notify（mcp 命令输出归因）。
+ */
+interface McpPluginHostDeps {
+  /**
+   * 宿主版本（批 19d——mcp 件 initialize 握手 clientInfo.version 披露，
+   * 「装配批对齐 package.json」兑现位：装配根 options.version 单源）。
+   * 缺席 = mcp 桥内缺省 '0.1.0'。
+   */
+  readonly version?: string;
+}
+
+/**
+ * core:credentials 件 deps 专属位（W7 分片；来源批 c-5/c-6——03 §10.9）：
+ * 凭证存储窄面 + credentials/changed 审计 seam + oauth 流受局三位。
+ * 另消费共享位：notify（/credentials 人面命令输出归因）。
+ */
+interface CredentialsPluginHostDeps {
+  /**
    * 凭证存储窄面（c-5——03 §10.9 写入面：/credentials add|list|rm 人面
    * 命令读写真源。词面独立律：CredentialsCommandStore 结构兼容 persist
    * Store 凭证方法子集四法，assembly 直传 persistence.store）。缺席 = 件
@@ -504,15 +639,6 @@ export interface CorePluginHostDeps {
     readonly intervalMs?: number;
     readonly warn?: (message: string) => void;
   };
-  /**
-   * worktree 服务共享注入位（04 §7 补钉① + 03 §10.7 六役定形注）：issue
-   * 件编排授予（create 自动授予 / grant 补授）与会话内工具消费（三工具
-   * 挂载 + fence grantedRoots 并入）必须同台账——装配根建单实例经本位与
-   * ConversationStackOptions.worktree 双注。**生产装配恒注入**；缺席 = issue
-   * 件内自建（件内真身构造——直接测试形保独立可跑，生产同源律由装配根
-   * 承担）。
-   */
-  readonly worktree?: WorktreeService;
 }
 
 /**
@@ -2198,7 +2324,8 @@ function makeMcpPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * 单源——SSRF 红线与在飞门同一实例，web 件缺席 = 红线缺席 = 本件不装
  * fail-closed）+ dataDir 真值（纯 :memory: 诊断形零装载——引擎目录/截图
  * 落点/安装账本皆无归属地）。config 坏形 normalizeBrowserConfig 响亮拒
- * BROWSER_CONFIG_INVALID → 行级装载失败。
+ * BROWSER_CONFIG_INVALID → 行级装载失败。引擎出口代理单例随件传真身
+ * （03 §10.3 引擎网络栈出口钉死——engineEgressProxy 进程级惰性 listen）。
  */
 function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
@@ -2224,6 +2351,10 @@ function makeBrowserPlugin(deps: CorePluginHostDeps): CorePluginReference {
         dataDir,
         config: browserConfig,
         web,
+        // 引擎出口代理单例（03 §10.3 引擎网络栈出口钉死——dns-pin dispatcher
+        // 单例同律：进程级、惰性 listen、unref 不阻退出；装载零网络——首个
+        // 引擎启动才侦听）
+        proxy: engineEgressProxy(),
         notify: (message) => deps.notify?.('browser', message),
         register: { register: (def) => context.tools.register(def as ToolDefinition) },
         scope: scopeFaceOf(context),
