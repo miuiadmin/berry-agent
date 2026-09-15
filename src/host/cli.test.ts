@@ -292,8 +292,18 @@ describe('run 命令族', () => {
     }
   });
 
-  it('--output-schema 未实现：显式传入即用法错不静默忽略', () => {
-    expectUsage(['run', 'hi', '--output-schema', 'out.json'], '尚未实现');
+  it('--output-schema <file> 取值形收面（2026-09-15 落码批——07 §5 定形注兑现，原 boolean 闸翻除）', () => {
+    const r = parseCli(['run', 'hi', '--output-schema', 'out.json']);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.command.kind === 'run') {
+      expect(r.command.flags.outputSchema).toBe('out.json');
+    } else {
+      expect.unreachable('--output-schema 取值形解析应成功');
+    }
+  });
+
+  it('--output-schema 缺值即用法错（取值形 scanFlags 执法③）', () => {
+    expectUsage(['run', 'hi', '--output-schema'], '--output-schema 须带值');
   });
 
   it('--tick <名> 取值形收面（批 20a——15a runner argv 契约跟齐）', () => {

@@ -35,9 +35,12 @@
  * recordTurn 记账/agent_pre_step 预算复验/轮间沉淀全经 driver 层 seam，本
  * 入口零 goal 感知（三入口统一——TUI/webui/issue 同律零重复挂点）。
  */
-import { renameSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { cwd as processCwd, pid, stderr as processStderr, stdout as processStdout } from 'node:process';
 import type { Writable } from 'node:stream';
+
+import type { TSchema } from 'typebox';
+import { Value } from 'typebox/value';
 
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import type { AgentEvent, EventSource, UiBackend, Usage } from '../contracts/index.js';
@@ -166,6 +169,41 @@ export async function runRunEntry(options: RunEntryOptions): Promise<number> {
 async function executeRun(ctx: ExecuteContext): Promise<number> {
   const { options, outputFormat, out, err, runtime, stack, scope } = ctx;
   const flags = options.flags;
+
+  // —— ⓪' --output-schema 文件级坏形预检（07 §5 落码定形注②〔2026-09-15 批〕：
+  // 不可读 / 非合法 JSON / 根非「带 type 字段对象」三形 = 用法错退 2，执行前
+  // 拦——零会话创建零提交零 tick claim 残账（冷读②钉位：本段先于 ① tick 预
+  // 解析）。typebox Check 级失配不在此拦——那是模型输出的事，属收场校验档
+  // 退 1〔定形注④〕；根形收窄（Union/Intersect 根不做）见定形注⑦——
+  let schemaDoc: TSchema | undefined;
+  let schemaRaw: string | undefined;
+  if (flags.outputSchema !== undefined) {
+    try {
+      schemaRaw = readFileSync(flags.outputSchema, 'utf8');
+    } catch (error) {
+      err.write(
+        `--output-schema 文件不可读：${flags.outputSchema}（${error instanceof Error ? error.message : String(error)}）\n`,
+      );
+      return 2;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(schemaRaw);
+    } catch {
+      err.write(`--output-schema 文件非合法 JSON：${flags.outputSchema}\n`);
+      return 2;
+    }
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed) ||
+      typeof (parsed as { type?: unknown }).type !== 'string'
+    ) {
+      err.write(`--output-schema 根须为带 type 字段的 JSON 对象（schema 文档形——v1 根形收窄见 usage）\n`);
+      return 2;
+    }
+    schemaDoc = parsed as TSchema;
+  }
 
   // —— ⓪ tick settle 记账位（04 §12 无人值守执行链定形注律 3 乙案侧——
   // 2026-09-13 全面复盘修复批：乙案让位律原单向兑现——子进程读行让位而自跑
@@ -460,7 +498,21 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   // backgroundLane 声明与后台道记账同条件〔flags.background——04 §5 修复批：
   // 预警分族与记账同一车道判定〕）——
   const source: EventSource = flags.tick !== undefined ? 'schedule' : 'channel:cli';
-  const runPromise = stack.submitText(sessionId, message, {
+  // —— ⑥' --output-schema 约束块注入（07 §5 落码定形注③）：附本轮用户消息尾
+  // 的 fenced 自述块——schema 原文整嵌（单源：文件字节即注入字节，改写即失
+  // 真）；只约束「末条 assistant 文本整体须单一 JSON 文档」，模型侧生成纪律
+  // 靠此块传达，宿主侧收场校验兜底〔定形注④〕——
+  const submitMessage =
+    schemaDoc !== undefined && schemaRaw !== undefined
+      ? `${message}
+
+\`\`\`structured-output-constraint
+本轮收场时，你的最终回复必须是单个 JSON 文档（整体只能是该 JSON，前后不得有其他文本或代码围栏），且严格符合以下 JSON Schema：
+
+${schemaRaw}
+\`\`\``
+      : message;
+  const runPromise = stack.submitText(sessionId, submitMessage, {
     source,
     ...(flags.background ? { backgroundLane: true } : {}),
   });
@@ -516,6 +568,36 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
     }
   }
 
+  // —— ⑨½ --output-schema 收场校验（07 §5 落码定形注④⑤〔2026-09-15 批〕）：
+  // 仅 completed 档叠加（truncated/failed/aborted 不叠——run 本体已非成功态退 1
+  // 已定）；completed 而无末条文本 = 校验靶不存在，同档不叠加（零 assistant 文
+  // 本的 completed 收场如实退 0）。失败两档：退出码叠加 1、stderr 载码呈报、
+  // json 档 summary 与 tick settle outcome 各载码（三面同源）——loop 真态不
+  // 改写（status 仍 completed，只有退出码与错误位动）——
+  let schemaErrorCode: 'STRUCTURED_OUTPUT_PARSE_FAILED' | 'STRUCTURED_OUTPUT_SCHEMA_MISMATCH' | undefined;
+  let schemaErrorMessage: string | undefined;
+  if (schemaDoc !== undefined && finalStatus === 'completed' && lastAssistantText !== undefined) {
+    let parsedOutput: unknown;
+    try {
+      parsedOutput = JSON.parse(lastAssistantText);
+    } catch {
+      schemaErrorCode = 'STRUCTURED_OUTPUT_PARSE_FAILED';
+      schemaErrorMessage = '末条 assistant 文本非合法 JSON（要求：整体单一 JSON 文档——前后不得有其他文本）';
+    }
+    if (schemaErrorCode === undefined && !Value.Check(schemaDoc, parsedOutput)) {
+      schemaErrorCode = 'STRUCTURED_OUTPUT_SCHEMA_MISMATCH';
+      const firstError = [...Value.Errors(schemaDoc, parsedOutput)][0];
+      schemaErrorMessage =
+        firstError !== undefined
+          ? `输出不符合 schema（${firstError.instancePath || '(root)'}：${firstError.message}）`
+          : '输出不符合 schema';
+    }
+    if (schemaErrorCode !== undefined) {
+      exitCode = 1; // 叠加律：completed 档唯一可退 1 形（定形注⑤）
+      err.write(`${schemaErrorCode}：${schemaErrorMessage}\n`);
+    }
+  }
+
   // —— ⑨' tick settle（律 3 乙案侧收场腿——2026-09-13 修复批）：终态镜像落
   // jobs 行（completed→exit_code 0+preview / failed→exit_code 1+error /
   // truncated·aborted→killed；preview 帽 200 与 RunOutcome 契约同值）。崩溃/
@@ -523,7 +605,12 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   if (tickJob !== undefined) {
     const finishedAt = new Date().toISOString();
     if (finalStatus === 'completed') {
-      const outcome: RunOutcome = { trigger: 'cron', reason: 'exit_code', exitCode: 0, finishedAt };
+      // 冷读①（2026-09-15 批）：exitCode 用计算后变量——schema 失败叠加退 1
+      // 在 ⑨½ 落位，此前此处硬编码 0 即账实分离；error 位载码（200 帽同族）
+      const outcome: RunOutcome = { trigger: 'cron', reason: 'exit_code', exitCode, finishedAt };
+      if (schemaErrorCode !== undefined) {
+        outcome.error = `${schemaErrorCode}：${schemaErrorMessage ?? ''}`.slice(0, 200);
+      }
       if (lastAssistantText !== undefined) outcome.finalTextPreview = lastAssistantText.slice(0, 200);
       settleTick(outcome);
     } else if (finalStatus === 'truncated') {
@@ -556,6 +643,9 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       status: finalStatus,
       ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
       ...(result.status === 'failed' && result.errorMessage !== undefined ? { errorMessage: result.errorMessage } : {}),
+      // --output-schema 校验失败位（07 §5 定形注⑤：status 不改写——loop 真态
+      // 仍 completed，错误语义全在此两位 + 退出码叠加）
+      ...(schemaErrorCode !== undefined ? { errorCode: schemaErrorCode, errorMessage: schemaErrorMessage ?? '' } : {}),
       turns: turnsEnded,
       usage: usageSum,
       ...(lastAssistantText !== undefined ? { lastMessage: lastAssistantText } : {}),

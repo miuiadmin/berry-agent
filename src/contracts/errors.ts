@@ -73,6 +73,7 @@ export const ERROR_CODE_PREFIXES = [
   'CREDENTIALS_',
   'DANGER_',
   'UI_',
+  'STRUCTURED_OUTPUT_',
 ] as const;
 
 /**
@@ -261,6 +262,18 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     module: 'sdk',
     description:
       '插件道路由数帽 16 per-plugin 达帽拒——受理面计数、摘除 fn 释放后可再注册（03 §10.6 U5 收窄四件④；门检/窗外/查重三拒复用既有码零新立）',
+  },
+  {
+    code: 'STRUCTURED_OUTPUT_PARSE_FAILED',
+    module: 'host',
+    description:
+      'run --output-schema 收场校验：末条 assistant 文本整体非单一 JSON 文档（07 §5 落码定形注④⑤——loop 真态仍 completed，退出码叠加 1）',
+  },
+  {
+    code: 'STRUCTURED_OUTPUT_SCHEMA_MISMATCH',
+    module: 'host',
+    description:
+      'run --output-schema 收场校验：末条 assistant 文本为合法 JSON 但不符合所给 schema（07 §5 落码定形注④⑤——首错定位随 stderr 呈报）',
   },
 ];
 

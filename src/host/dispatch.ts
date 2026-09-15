@@ -98,6 +98,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   --plugin-file <path>  快速试件（插件目录或单文件入口 .js/.mjs/.ts——纯内存注入零落盘；TUI / run 收，dump-config 互斥拒）
   run 限定：--output-format <text|json|stream>  --output-last-message <file>  --ephemeral
             --max-turns <n>  --session <id>  --continue  --fork [id]  --read-only  --preset <名>  --tick <名>  --background
+            --output-schema <file>（收场校验末条回复须单一 JSON 且合 schema）
   run/serve 共收：--no-delta（线面退订流式增量）
   serve 限定：--daemon  --sdk-port <n>  --sdk-host <host>（后两旗标 daemon 形专属）
 

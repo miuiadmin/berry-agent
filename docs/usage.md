@@ -137,8 +137,9 @@ run 旗标族：
 | `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥）                                                |
 | `--background`                                  | 后台道预算记账入口                                                                                                   |
 | `--no-delta`                                    | 线面退订流式增量                                                                                                     |
+| `--output-schema <file>`                        | 结构化输出：JSON Schema 文件（根须为带 `type` 字段的对象——Union/Intersect 根形 v1 不收）注入约束，收场校验末条回复须整体单一 JSON 且合 schema |
 
-`--output-schema` 尚未实现：显式传入即用法错退 2（不静默忽略）。
+`--output-schema` 两档失败语义：文件本身坏形（不可读/非法 JSON/根非带 `type` 字段对象）= 用法错退 2（执行前拦——不跑模型）；收场校验失败（末条回复非单一 JSON 或不合 schema）= 退 1 并在 stderr 载 `STRUCTURED_OUTPUT_PARSE_FAILED` / `STRUCTURED_OUTPUT_SCHEMA_MISMATCH` 码（`--output-format json` 档终值对象另载 `errorCode`/`errorMessage` 位；truncated/失败/中止收场不叠加校验）。
 
 裸 `--` 之后的 argv 全字面（正当以 `--` 起头的消息内容保真送达）；未识别 `--` 词一律用法错退 2——防旗标语义静默并进消息正文送模型。
 

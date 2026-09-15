@@ -16,7 +16,7 @@
  * 断言只对行为与结构位（禁断言 AI 生成文本——'ok'/'例行巡检' 等均为测试
  * 自造常量经 faux 脚本原样透传）。
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -755,5 +755,138 @@ describe('runRunEntry --port 咬合 / provider 失败面', () => {
     expect(err.text).toContain('模型不可用'); // 产品级文案（非裸报文）
     expect(err.text).toContain('faux-x/m1'); // 点名模型标识
     expect(err.text).toContain('BERRY_AGENT_MODEL'); // 配置途径指路
+  });
+});
+
+/* ---------------- --output-schema 收场校验（07 §5 落码定形注——2026-09-15 批） ---------------- */
+
+/** 指定文本的 assistant 消息（--output-schema 校验靶直给——text 块单块形） */
+function textMessageOf(text: string): PiAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    usage: NO_USAGE,
+    stopReason: 'stop',
+    timestamp: 1,
+  } as unknown as PiAssistantMessage;
+}
+
+describe('runRunEntry --output-schema（收场校验退 1 / 文件级坏形退 2——07 §5 落码定形注）', () => {
+  /** 测试共用对象形 schema（required 单字段——mismatch 例确定性失配） */
+  const OBJECT_SCHEMA = JSON.stringify({
+    type: 'object',
+    properties: { answer: { type: 'string' } },
+    required: ['answer'],
+  });
+
+  /** 写临时 schema 文件（tmpDir 统一清账） */
+  function schemaFile(text: string): string {
+    const path = join(tmpDir('run-schema-'), 'schema.json');
+    writeFileSync(path, text);
+    return path;
+  }
+
+  it('合格：末条文本单一 JSON 且过 schema → 退 0（json 档无 errorCode）', async () => {
+    const run = await rigRun({
+      flags: { outputSchema: schemaFile(OBJECT_SCHEMA), outputFormat: 'json' },
+      responses: [textMessageOf('{"answer":"四十二"}')],
+    });
+    await expect(run.entry).resolves.toBe(0);
+    const summary = summaryOf(run.out);
+    expect(summary['status']).toBe('completed');
+    expect(summary['errorCode']).toBeUndefined();
+  });
+
+  it('非 JSON（修前红）：STRUCTURED_OUTPUT_PARSE_FAILED 退 1 + json 档 errorCode 载码', async () => {
+    const run = await rigRun({
+      flags: { outputSchema: schemaFile(OBJECT_SCHEMA), outputFormat: 'json' },
+      responses: [textMessageOf('答案是四十二——不是 JSON 文档')],
+    });
+    await expect(run.entry).resolves.toBe(1);
+    expect(run.err.text).toContain('STRUCTURED_OUTPUT_PARSE_FAILED');
+    const summary = summaryOf(run.out);
+    // loop 真态仍 completed（07 §5 定形注——退出码叠加而档不改写）
+    expect(summary['status']).toBe('completed');
+    expect(summary['errorCode']).toBe('STRUCTURED_OUTPUT_PARSE_FAILED');
+  });
+
+  it('合法 JSON 不合 schema：STRUCTURED_OUTPUT_SCHEMA_MISMATCH 退 1 + stderr 首错定位', async () => {
+    const run = await rigRun({
+      flags: { outputSchema: schemaFile(OBJECT_SCHEMA), outputFormat: 'json' },
+      responses: [textMessageOf('{"wrong":1}')], // required answer 缺席——确定性失配
+    });
+    await expect(run.entry).resolves.toBe(1);
+    expect(run.err.text).toContain('STRUCTURED_OUTPUT_SCHEMA_MISMATCH');
+    expect(run.err.text).toContain('answer'); // typebox 首错定位（required 路径点名）
+    const summary = summaryOf(run.out);
+    expect(summary['errorCode']).toBe('STRUCTURED_OUTPUT_SCHEMA_MISMATCH');
+  });
+
+  it('文件不可读（修前红）：用法错退 2——执行前拦（零会话零提交）', async () => {
+    const run = await rigRun({ flags: { outputSchema: '/nonexistent-摘/schema.json' } });
+    await expect(run.entry).resolves.toBe(2);
+    expect(run.err.text).toContain('--output-schema 文件不可读');
+  });
+
+  it('根非带 type 字段对象：合法 JSON 亦用法错退 2（v1 根形收窄——07 §5 定形注⑦）', async () => {
+    const arrayRoot = await rigRun({ flags: { outputSchema: schemaFile('[1,2]') } });
+    await expect(arrayRoot.entry).resolves.toBe(2);
+    expect(arrayRoot.err.text).toContain('type 字段');
+
+    const noTypeField = await rigRun({ flags: { outputSchema: schemaFile('{"noType":true}') } });
+    await expect(noTypeField.entry).resolves.toBe(2);
+  });
+
+  it('truncated 不叠加：--max-turns 到帽收场（run 本体已非成功态）无校验码', async () => {
+    const ws = tmpDir('run-ws-');
+    const run = await rigRun({
+      flags: { outputSchema: schemaFile(OBJECT_SCHEMA), maxTurns: 1, outputFormat: 'json' },
+      cwd: ws,
+      responses: [
+        toolCallOf('t-os', 'read', { path: join(ws, '缺席.txt') }), // toolUse → 必开第 2 轮 → 到帽截断
+        messageOf(), // 竞速兜底位（interrupt 先于模型调用——正常不消费）
+      ],
+    });
+    await expect(run.entry).resolves.toBe(1); // truncated 档本身的退出码
+    expect(run.err.text).not.toContain('STRUCTURED_OUTPUT_'); // 不叠加（07 §5 定形注④）
+    const summary = summaryOf(run.out);
+    expect(summary['status']).toBe('truncated');
+    expect(summary['errorCode']).toBeUndefined();
+  });
+
+  it('tick+schema 回归：completed 而 schema 失败 → settleFire exitCode 1 + outcome.error 载码', async () => {
+    // 冷读① 锁：tick settle completed 档此前硬编码 exitCode:0——schema 失败须
+    // 落计算后变量 + error 载码（账实分离修复的回归面）
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({
+      name: 'schema-job',
+      prompt: '例行巡检',
+      cwd: jobWs,
+      schedule: 'every:30m',
+      enabled: true,
+    });
+    await seed.shutdown();
+
+    const run = await rigRun({
+      message: '',
+      flags: { tick: 'schema-job', outputSchema: schemaFile(OBJECT_SCHEMA) },
+      dataDir,
+      cwd: jobWs,
+      responses: [textMessageOf('不是 JSON 的巡检汇报')],
+    });
+    await expect(run.entry).resolves.toBe(1);
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('schema-job');
+      expect(row?.lastOutcome?.reason).toBe('exit_code');
+      expect(row?.lastOutcome?.exitCode).toBe(1); // 计算后变量（修前硬编码 0）
+      expect(row?.lastOutcome?.error).toContain('STRUCTURED_OUTPUT_PARSE_FAILED'); // 载码
+      expect(row?.activePid).toBeNull();
+    } finally {
+      await audit.shutdown();
+    }
   });
 });

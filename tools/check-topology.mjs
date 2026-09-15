@@ -298,6 +298,10 @@ const MODULE_EXTERNALS = {
   // memory 的 typebox 主包 + value 子路径（工具面九件参数面 + 18c-5 周期路
   // review 候选/整理计划 schema 深校验——schema 层宿主件直用同律）
   memory: ['typebox', 'typebox/value'],
+  // host 的 typebox 主包（import type TSchema——校验参数型面）+ value 子路径
+  // （run --output-schema 收场校验——07 §5 落码定形注〔2026-09-15 批〕：末条
+  // assistant 文本单一 JSON 的 typebox 深校验；schema 层宿主件直用同律）
+  host: ['typebox', 'typebox/value'],
   // host 的装载器件（07 篇 §1/L122：jiti 免编译直载用户插件住 host；typebox/
   // value 子路径 = 启用行 config 值校验——schema 层宿主件直用同律，插件侧
   // 一律走虚拟键三转发；批 12d 落码起用）；yaml = 启用清单 enabled.yaml 读侧
