@@ -26,6 +26,9 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # job 级 timeout（与 ci.yml「job 级 timeout 全覆盖」纪律同源——挂死不烧满
+    # runner 缺省 6h 配额）：实测 2m51s~3m3s，30 定值给 npm publish 网络腿余量档
+    timeout-minutes: 30
     # job 级最小面：id-token = OIDC 必需 + contents 只读（tag checkout）——
     # 定形注第 2 款；GITHUB_TOKEN 无写面需求（tag 已由本机触发腿 push）
     permissions:
