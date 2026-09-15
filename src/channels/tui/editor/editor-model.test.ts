@@ -597,6 +597,55 @@ describe('EditorModel 粘贴标记化', () => {
     expect(m.isPasteMarkerLine(0)).toBe(false); // 登记已随展开注销
   });
 
+  it('标记内换行 = 原子换行（行后插空行、标记保全、submit 取回原文）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste); // lines [marker]，光标 (0,20)
+    m.insertText('尾部'); // 行尾守卫 → 后置空行：lines [marker, '尾部']
+    m.moveUp(); // sticky 列保持（显示列 4——'尾部' CJK 双宽）→ (0,4)——标记内部
+    expect(m.getCursor()).toEqual({ line: 0, col: 4 });
+    m.addNewLine(); // 标记内部换行——守卫：不劈标记，行后插空行、光标落新行首
+    expect(m.getCursor()).toEqual({ line: 1, col: 0 });
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '', '尾部']); // 标记恒完整
+    expect(m.isPasteMarkerLine(0)).toBe(true);
+    m.undo(); // 原子换行单步可撤——标记形回（登记随快照恢复）
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '尾部']);
+    expect(m.isPasteMarkerLine(0)).toBe(true);
+    m.addNewLine(); // 撤后再换行同律原子
+    const out = m.submit(); // 提交照常展开回原文——登记原文不丢
+    expect(out).toBe(`${bigPaste}\n\n尾部`);
+  });
+
+  it('jumpToChar 落标记内部换行：同律原子不劈标记', () => {
+    const m = new EditorModel();
+    m.insertText('头');
+    m.insertPaste(bigPaste); // 劈行独占 → lines ['头', marker]，光标 (1,20)
+    m.insertText('尾'); // 行尾守卫 → lines ['头', marker, '尾']，光标 (2,1)
+    m.jumpToChar('a', 'backward'); // 多行搜索无标记原子界——回搜 'a' 命中标记内 col 2
+    expect(m.getCursor()).toEqual({ line: 1, col: 2 });
+    m.addNewLine();
+    expect(m.getLines()).toEqual(['头', '[paste #1 +21 lines]', '', '尾']);
+    const out = m.submit(); // 登记原文经标记展开取回
+    expect(out).toBe(`头\n${bigPaste}\n\n尾`);
+  });
+
+  it('标记行首 / 行尾换行：劈点在标记外——标记恒完整（锁既有边界形）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste);
+    m.insertText('尾'); // lines [marker, '尾部']——'尾' 单 CJK 字
+    m.moveUp();
+    m.moveEnd(); // (0,20)——标记行尾
+    m.addNewLine();
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '', '尾']);
+    expect(m.getCursor()).toEqual({ line: 1, col: 0 });
+    m.undo(); // 回 [marker, '尾']（光标 (0,20)）
+    m.moveHome(); // (0,0)——标记行首
+    m.addNewLine();
+    expect(m.getLines()).toEqual(['', '[paste #1 +21 lines]', '尾']);
+    expect(m.getCursor()).toEqual({ line: 1, col: 0 }); // 光标落劈形的尾段行（标记行首）
+    const out = m.submit();
+    expect(out).toBe(`${bigPaste}\n尾`);
+  });
+
   it('标记行首 / 行尾插入守卫：前置换行 / 后置空行（标记恒独占）', () => {
     const m = new EditorModel();
     m.insertPaste(bigPaste);

@@ -548,10 +548,36 @@ export class EditorModel {
 
   /* ---------------- 换行 ---------------- */
 
-  /** 插入换行：当前行光标处劈开、光标落新行首 */
+  /**
+   * 插入换行：当前行光标处劈开、光标落新行首。
+   * 标记行守卫（R3——标记恒独占行）：光标可经 sticky 列 / jumpToChar 落标记
+   * **内部**（移动族原子界只覆盖 moveLeft/moveRight），无守卫直接劈行会把
+   * 标记劈成两段残片——parsePasteMarker 不再匹配、submit() 取不回登记原文
+   * （用户粘贴的大段静默丢失）。守卫式择「标记原子换行」（行后插空行、
+   * 光标落新行首）而非 insertText 路的「就地展开后劈」，理由：
+   * ① 换行是行级结构操作、无内容落位需求——insertText 的就地展开是为
+   *    「字符内容必须落在原文某处」设计的；换行只需行边界，循删除族六
+   *    原语的「标记行整行原子」律更同构；
+   * ② 标记化的目的就是大段粘贴不撑爆框面——展开会把折叠原文整段炸进
+   *    输入框，一次换行违背初衷；原子换行保全标记、框面恒紧凑；
+   * ③ 行首 / 行尾位普通劈行律的劈点本就在标记外（不劈标记），原子换行
+   *    使标记行上任意光标位产出连续——标记恒完整。
+   */
   addNewLine(): void {
     this.lastAction = null;
     this.exitHistoryBrowsing();
+    if (this.markerIdAt(this.state.cursorLine) !== null) {
+      const markerLine = this.state.lines[this.state.cursorLine] ?? '';
+      // 只拦标记内部（0 < col < 行长）——行首 / 行尾劈点在标记外，落普通劈行路
+      if (this.state.cursorCol > 0 && this.state.cursorCol < markerLine.length) {
+        this.pushUndo(); // 原子换行单步（undo 回标记形——登记随快照恢复）
+        this.state.lines.splice(this.state.cursorLine + 1, 0, ''); // 标记后插空行
+        this.state.cursorLine++;
+        this.setCursorCol(0); // 光标落新空行首
+        this.notify();
+        return;
+      }
+    }
     this.pushUndo();
     const line = this.state.lines[this.state.cursorLine] ?? '';
     this.state.lines[this.state.cursorLine] = line.slice(0, this.state.cursorCol);
