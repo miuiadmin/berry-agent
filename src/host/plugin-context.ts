@@ -28,9 +28,10 @@
  *
  * 挂账注记（消费面未齐暂缓，随各自消费腿定形）：registerRenderer（07 §4.1
  * 渲染签名未钉——随 TUI/SPA 消费腿）；ctx.sessions 服务面（03 §2.2 第八面
- * ——非注册动词，经 ctx.get("sessions") 消费；appendEvent 最小面已随 ag 批
- * cs-D2 fork 绑定落地〔归因闸/行籍闸〕，只读四件 + 受理制写完整面随 sessions
- * 完整受理面批）。ctx.host 已兑销（HostFace 物化注入 :1119 `host: { ...
+ * ——非注册动词，经 ctx.get("sessions") 消费；2026-09-15 勘正：原「appendEvent
+ * 最小面已落、完整面随受理面批」系待落时态残影——完整面已随 cs-D1 批落码
+ * 〔只读四件 + store_state 键值腿 + appendEvent 信封两参数位，真身
+ * sessions-face.ts + fork 绑定 bindSessionsForPlugin，归因闸/行籍闸〕）。ctx.host 已兑销（HostFace 物化注入 :1119 `host: { ...
  * hostFace, pluginId }`——§8.5 自省面，非挂账）。ctx.ui 七原语已随交互动词
  * 族批 ix-2 兑销（消费腿条款 07 §4.3——会话锚定档位表/钩子窗禁律/护栏增
  * 位）；tools 管道 waterfall 派发位已接线兑销（pipeline.ts 三发射位——tools_
