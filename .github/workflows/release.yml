@@ -50,7 +50,7 @@ jobs:
           esac
       # persist-credentials:false——checkout 后 GITHUB_TOKEN 凭证不落盘（job 面
       # 只剩 OIDC 面；零写面需求）
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_REF }}
           persist-credentials: false
