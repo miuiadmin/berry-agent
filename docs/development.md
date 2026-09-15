@@ -1,5 +1,11 @@
 # 开发指南
 
+> **EN TL;DR**: Node.js ≥ 24. Make the four gates green before committing.
+> Cross-module imports go through the public surface only (`index.ts` /
+> `types.ts` / `events.ts`). New modules: contract first, then
+> implementation. PRs target `dev` — see [CONTRIBUTING.md](../CONTRIBUTING.md)
+> for the change-tier guide.
+
 本文面向 berry-agent 仓库贡献者：环境搭建、四门禁、工程约定、测试纪律。使用面见[使用指南](./usage.md)，架构见[架构总览](./architecture.md)。
 
 ## 环境搭建
@@ -72,10 +78,10 @@ docs/                   公开文档面（本五册）
 - **env 前缀**：一律 `BERRY_AGENT_*`；
 - **提交**：一个逻辑完整的变更 = 一次 commit，完成即提交不积攒；逐文件点名 `git add`、慎用 `git add -A`；commit 前核 `git status` 无未登记残留。
 
-## 契约先行与文档先行
+## 契约先行与边界讨论
 
 - **contract-first**：新模块先定义契约（types / 错误码 / 事件词汇 + 测试），再写实现；
-- **文档先行**：凡改动规范已覆盖的行为（模块职责、事件词汇、错误码、API 面、预算护栏……），先改规范篇章再落码，commit 标题注明「规范先行」；规范没写的先补规范再写代码。
+- **边界讨论先行**：涉及基座接口（L3）或判据面（L4）的改动，先在 issue 中就边界达成一致再动手——改动分级表见[贡献指南](../CONTRIBUTING.md#改动分级先对号再动手)。仓内设计细则由维护者侧流程承载（涉及既有契约面的变更随批评审），外部贡献者以 issue 讨论为入口即可。
 
 ## 测试纪律
 
@@ -118,9 +124,10 @@ docs/                   公开文档面（本五册）
 
 ## 贡献流程
 
-1. fork + 分支；
-2. 改动前读相关模块头注（每件头注即该域的设计真源摘要）；
-3. 四门禁全绿；
-4. PR 描述含：动机 / 改动面 / 测试证据（新增或变更的测试点名）。
+1. 按改动分级（[贡献指南](../CONTRIBUTING.md#改动分级先对号再动手)）确认前置要求——L3/L4 先开 issue 讨论边界；
+2. fork + 分支；
+3. 改动前读相关模块头注（每件头注即该域的设计真源摘要）；
+4. 四门禁全绿；
+5. PR 一律打 **`dev`** 分支；描述四段式：动机 / 改动面 / 测试证据 / 自检清单（含 AI 辅助披露）。
 
-行为准则：对事不对人；技术分歧以规范与代码事实为准；不确定的先问再动手。
+行为准则：对事不对人；技术分歧以契约、公开文档与代码事实为准；不确定的先问再动手。
