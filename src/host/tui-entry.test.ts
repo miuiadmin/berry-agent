@@ -20,7 +20,7 @@ import type { Provider } from '../llm/index.js';
 import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
-import { runTuiEntry } from './tui-entry.js';
+import { exitCommandItems, runTuiEntry } from './tui-entry.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -126,6 +126,18 @@ async function rigEntry(dataDir: string, cwd: string) {
   await io.ready(); // 输入管线挂接（backend.start 已过）
   return { entry, io, faux };
 }
+
+describe('exitCommandItems 退出词补全源（07 §4.1 /exit 批）', () => {
+  it('空 query 出两词；前缀过滤；replacement/detail 形齐', () => {
+    expect(exitCommandItems('')).toEqual([
+      expect.objectContaining({ label: '/exit', replacement: '/exit' }),
+      expect.objectContaining({ label: '/quit', replacement: '/quit' }),
+    ]);
+    expect(exitCommandItems('ex').map((item) => item.label)).toEqual(['/exit']);
+    expect(exitCommandItems('qu').map((item) => item.label)).toEqual(['/quit']);
+    expect(exitCommandItems('zz')).toEqual([]); // 无关前缀零条目
+  });
+});
 
 describe('runTuiEntry 装配序', () => {
   it('空框 ctrl+d 直退 0（零模型调用）', async () => {

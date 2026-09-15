@@ -200,7 +200,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         return driver === undefined ? null : foldTodoTable(driver.session.events());
       },
       autocomplete: {
-        commands: (query) => commandItems(stack.channels.listCommands(), query),
+        // 通道核命令表 + TUI 本地退出词两源并流（07 §4.1 2026-09-15 /exit 批
+        // 定形注——退出词属前端生命周期动作不进通道命令表，补全源在此并入）
+        commands: (query) => [...commandItems(stack.channels.listCommands(), query), ...exitCommandItems(query)],
         mentions: (query) => mentions.get(query),
       },
       // 装配实测定值（07 §4.1）：编辑器可视行 = 终端高 30%（下钳 3）
@@ -281,4 +283,19 @@ function commandItems(
       ...(spec.description !== undefined ? { detail: spec.description } : {}),
       replacement: `/${spec.name}`,
     }));
+}
+
+/** TUI 本地退出词表（07 §4.1 2026-09-15 /exit 批——/exit 正名 + /quit 别名） */
+const EXIT_WORDS = ['exit', 'quit'] as const;
+
+/**
+ * 退出词 → 补全条目（与通道命令表分源——前端生命周期词不进通道核命令表，
+ * 装配位并流；query 已去斜杠，同 commandItems 契约）。
+ */
+export function exitCommandItems(query: string): readonly AutocompleteItem[] {
+  return EXIT_WORDS.filter((name) => name.startsWith(query)).map((name) => ({
+    label: `/${name}`,
+    detail: name === 'exit' ? '退出 TUI（与 Ctrl+D 同路优雅退出）' : '退出 TUI（/exit 别名）',
+    replacement: `/${name}`,
+  }));
 }

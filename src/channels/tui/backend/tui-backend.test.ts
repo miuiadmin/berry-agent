@@ -379,6 +379,54 @@ describe('TuiBackend 提交路由', () => {
     pump();
     expect(io.bytes).toContain('✖ 命令异常'); // error 档符号 + 兜底文案
   });
+
+  it("'/exit' // '/quit' 恰零参 → onQuit（先于通道命令分发终局，不落 onSubmit）", () => {
+    const { io, calls, pump } = makeInteractive({
+      dispatchCommand: async (input) => {
+        calls.dispatched.push(input);
+        return true;
+      },
+    });
+    io.emitInput('/exit\r');
+    pump();
+    expect(calls.quit).toBe(1);
+    expect(calls.dispatched).toEqual([]); // 退出词先于 dispatchCommand——不进通道命令面
+    expect(calls.submitted).toEqual([]); // 前端生命周期词永不兜底进模型消息
+    io.emitInput('/quit\r');
+    pump();
+    expect(calls.quit).toBe(2); // 别名同路
+  });
+
+  it('带参形 /exit xxx → warn 用法提示不退出；尾随空白 trim 后恰命中仍退出', () => {
+    const { io, calls, pump } = makeInteractive();
+    io.emitInput('/exit now\r');
+    pump();
+    expect(io.bytes).toContain('⚠'); // warn 档符号（用法 fail-loud）
+    expect(calls.quit).toBe(0);
+    expect(calls.submitted).toEqual([]); // 带参形也终局消费——不兜底
+    io.emitInput('/exit  \r');
+    pump();
+    expect(calls.quit).toBe(1); // trim 后恰 '/exit'——退出
+  });
+
+  it('input-ask 接管窗 /exit 是应答非命令（既有裁决——退出词此窗不拦）', async () => {
+    const { io, backend, calls, pump } = makeInteractive();
+    const p = backend.input('填啥？');
+    pump();
+    io.emitInput('/exit\r'); // ask 接管窗内提交 '/exit'——应答车
+    pump();
+    await expect(p).resolves.toBe('/exit'); // '/exit' 作为应答原文回填
+    expect(calls.quit).toBe(0); // 不退出
+  });
+
+  it('onQuit 柄缺席 → 诚实拒提示（不虚报律——不退出不兜底）', () => {
+    const { io, calls, pump } = makeInteractive({ onQuit: undefined });
+    io.emitInput('/exit\r');
+    pump();
+    expect(io.bytes).toContain('不支持退出命令'); // 诚实拒
+    expect(calls.quit).toBe(0);
+    expect(calls.submitted).toEqual([]);
+  });
 });
 
 describe('TuiBackend 补全弹层（三源路由）', () => {

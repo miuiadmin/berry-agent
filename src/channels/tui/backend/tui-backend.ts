@@ -11,7 +11,8 @@
  * - **路由四层**（07 §4.3 拦截链序）：①全局键（ctrl+c 打断 / ctrl+d 空框
  *   退出——overlay 在场或框有文时 ctrl+d 让路）→ ②overlay 模态独占（未消费
  *   键不穿透）→ ③补全弹层（非模态——未消费穿透）→ ④编辑器（未消费键终局
- *   丢弃）；提交路由：input-ask 应答优先 → '/' 起手命令柄（false 落
+ *   丢弃）；提交路由：input-ask 应答优先 → 退出词本地拦截（/exit//quit
+ *   ——07 §4.1 2026-09-15 /exit 批，先于通道命令分发）→ '/' 起手命令柄（false 落
  *   onSubmit 兜底——03 §2.2 驱动侧语义归 conversation）→ onSubmit；
  * - **固定区 v2 动态布局**（自上而下）：overlay 段（锚定注册表 = 本件
  *   renderFixed 行账——开层锚定闭包读注册表）→ todo 面板（件 4）→
@@ -734,7 +735,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.editor.handleEvent(ev)) this.touchFixed();
   }
 
-  /** 编辑器提交路由：input-ask 应答优先 → '/' 命令柄（false 兜底）→ onSubmit */
+  /**
+   * 编辑器提交路由：input-ask 应答优先 → 退出词本地拦截 → '/' 命令柄
+   * （false 兜底）→ onSubmit。
+   */
   private handleSubmit(text: string): void {
     const ask = this.inputAsk;
     if (ask !== null) {
@@ -742,6 +746,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       ask.resolve(text);
       this.popup.refresh(); // 应答期抑制的补全层此刻按空框重算自隐
       this.touchFixed();
+      return;
+    }
+    // 退出词先于通道命令分发（前端生命周期词不进通道核命令表——07 §4.1
+    // 2026-09-15 /exit 批定形注：本地终局消费，永不兜底进模型消息）
+    if (this.maybeHandleExitWord(text)) {
       return;
     }
     if (text.startsWith('/') && this.dispatchCommand !== undefined) {
@@ -756,6 +765,31 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       return;
     }
     this.onSubmit?.(this.sessionId, text);
+  }
+
+  /**
+   * 退出词拦截：`/exit`（正名）与 `/quit`（别名）恰零参命中即走 onQuit——
+   * 与 Ctrl+D 空框同一优雅退出路（07 §4.1 2026-09-15 定形注）。带参形 =
+   * 用法 fail-loud 提示不退出；onQuit 柄缺席 = 诚实拒（不虚报律）。
+   * 返回 true = 已终局消费（调用位不再下渗）。ask 接管窗由调用序天然
+   * 排除（应答优先——'/' 开头文本是应答非命令，既有裁决）。
+   */
+  private maybeHandleExitWord(text: string): boolean {
+    const trimmed = text.trim();
+    if (trimmed !== '/exit' && trimmed !== '/quit') {
+      // 带参形（/exit xxx）——用法提示后终局消费，不退不出也不兜底进消息
+      if (trimmed.startsWith('/exit ') || trimmed.startsWith('/quit ')) {
+        this.notify('/exit 不带参数（退出 TUI——与 Ctrl+D 同路优雅退出）', { level: 'warn' });
+        return true;
+      }
+      return false;
+    }
+    if (this.onQuit === undefined) {
+      this.notify('当前通道不支持退出命令（onQuit 柄未接线）', { level: 'warn' });
+      return true;
+    }
+    this.onQuit();
+    return true;
   }
 
   /** 编辑器内容变更：补全层重取（应答期抑制）+ 固定区脏位 */
