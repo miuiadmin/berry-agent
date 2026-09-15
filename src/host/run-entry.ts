@@ -166,14 +166,19 @@ export async function runRunEntry(options: RunEntryOptions): Promise<number> {
 }
 
 /** 执行体（装配成功后的全流程——一切 return 即本 run 的退出码） */
+
+/** --output-schema 根 type 值域（JSON Schema 基本类型七值——07 §5 定形注⑥值域笔） */
+const SCHEMA_ROOT_TYPE_VALUES = new Set(['object', 'array', 'string', 'number', 'integer', 'boolean', 'null']);
+
 async function executeRun(ctx: ExecuteContext): Promise<number> {
   const { options, outputFormat, out, err, runtime, stack, scope } = ctx;
   const flags = options.flags;
 
   // —— ⓪' --output-schema 文件级坏形预检（07 §5 落码定形注②〔2026-09-15 批〕：
-  // 不可读 / 非合法 JSON / 根非「带 type 字段对象」三形 = 用法错退 2，执行前
-  // 拦——零会话创建零提交零 tick claim 残账（冷读②钉位：本段先于 ① tick 预
-  // 解析）。typebox Check 级失配不在此拦——那是模型输出的事，属收场校验档
+  // 不可读 / 非合法 JSON / 根非「带 type 字段对象」/ 根 type 值域外（⑥值域笔
+  // 2026-09-15 补批——typebox 对未知 kind 恒真故须预拦）四形 = 用法错退 2，执
+  // 行前拦——零会话创建零提交零 tick claim 残账（冷读②钉位：本段先于 ① tick
+  // 预解析）。typebox Check 级失配不在此拦——那是模型输出的事，属收场校验档
   // 退 1〔定形注④〕；根形收窄（Union/Intersect 根不做）见定形注⑦——
   let schemaDoc: TSchema | undefined;
   let schemaRaw: string | undefined;
@@ -200,6 +205,16 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       typeof (parsed as { type?: unknown }).type !== 'string'
     ) {
       err.write(`--output-schema 根须为带 type 字段的 JSON 对象（schema 文档形——v1 根形收窄见 usage）\n`);
+      return 2;
+    }
+    // 根 type 值域执法（07 §5 定形注⑥值域笔——2026-09-15 补批）：typebox 对
+    // 未知 kind 的 Check 恒真——域外值（手误形如 "objekt"）会使收场校验空转
+    // 零告警，故文件级预检同用法错退 2 拦；嵌套层未知 type 深验不在 v1 射程
+    //（与根形收窄同理留界）
+    if (!SCHEMA_ROOT_TYPE_VALUES.has((parsed as { type: string }).type)) {
+      err.write(
+        `--output-schema 根 type 值域外："${(parsed as { type: string }).type}"（须为 object/array/string/number/integer/boolean/null 之一——手误形请核拼写）\n`,
+      );
       return 2;
     }
     schemaDoc = parsed as TSchema;
@@ -432,6 +447,10 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   let turnsEnded = 0;
   let truncated = false; // --max-turns 到帽收场语义位（CLI 级——run 本体仍 aborted）
   let lastAssistantText: string | undefined;
+  // 末条 assistant 消息是否含 ≥1 个 text 块（零 text 块收场 = 仅 thinking 块——
+  // --output-schema 校验靶不存在的判据位：文本过滤产物为空串 ''（非 undefined），
+  // 不能用 lastAssistantText !== undefined 简化判——07 §5 定形注④）
+  let lastAssistantHadText = false;
   const usageSum: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
 
   const backend: UiBackend<never> = {
@@ -469,11 +488,14 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       if (event.type === 'turn_end') turnsEnded += 1;
       if (event.type === 'message_end' && isStandardMessage(event.message) && event.message.role === 'assistant') {
         const assistant = event.message;
-        // 末条 assistant 文本（text 块拼接——thinking 不入人读产物）
-        lastAssistantText = assistant.content
-          .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-          .map((block) => block.text)
-          .join('');
+        // 末条 assistant 文本（text 块拼接——thinking 不入人读产物）；hadText 位
+        // 独立记「块在场」（空 text 块形块在而文本空——校验靶仍在场走 PARSE_FAILED，
+        // 与零 text 块的「靶不存在」分立——07 §5 定形注④）
+        const textBlocks = assistant.content.filter(
+          (block): block is { type: 'text'; text: string } => block.type === 'text',
+        );
+        lastAssistantHadText = textBlocks.length > 0;
+        lastAssistantText = textBlocks.map((block) => block.text).join('');
         addUsageInto(usageSum, assistant.usage);
       }
       // stream 档：AgentEvent NDJSON 直出（07 §5——与 serve 线协议同源事件面）
@@ -570,16 +592,20 @@ ${schemaRaw}
 
   // —— ⑨½ --output-schema 收场校验（07 §5 落码定形注④⑤〔2026-09-15 批〕）：
   // 仅 completed 档叠加（truncated/failed/aborted 不叠——run 本体已非成功态退 1
-  // 已定）；completed 而无末条文本 = 校验靶不存在，同档不叠加（零 assistant 文
-  // 本的 completed 收场如实退 0）。失败两档：退出码叠加 1、stderr 载码呈报、
-  // json 档 summary 与 tick settle outcome 各载码（三面同源）——loop 真态不
-  // 改写（status 仍 completed，只有退出码与错误位动）——
+  // 已定）；completed 而无末条文本 = 校验靶不存在，同档不叠加（零 text 块收场
+  // ——hadText 位判「块在场」：thinking-only 收场文本过滤产物是空串 ''（非
+  // undefined），修前误走 PARSE_FAILED 退 1——同批修；空 text 块形块在而文本
+  // 空仍属靶在场，照走 PARSE_FAILED）。失败两档：退出码叠加 1、stderr 载码呈
+  // 报、json 档 summary 与 tick settle outcome 各载码（三面同源）——loop 真态
+  // 不改写（status 仍 completed，只有退出码与错误位动）——
   let schemaErrorCode: 'STRUCTURED_OUTPUT_PARSE_FAILED' | 'STRUCTURED_OUTPUT_SCHEMA_MISMATCH' | undefined;
   let schemaErrorMessage: string | undefined;
-  if (schemaDoc !== undefined && finalStatus === 'completed' && lastAssistantText !== undefined) {
+  // 校验靶取值（hadText 联判收窄：零 text 块收场靶不存在——undefined 形语义）
+  const finalAssistantText = lastAssistantHadText ? lastAssistantText : undefined;
+  if (schemaDoc !== undefined && finalStatus === 'completed' && finalAssistantText !== undefined) {
     let parsedOutput: unknown;
     try {
-      parsedOutput = JSON.parse(lastAssistantText);
+      parsedOutput = JSON.parse(finalAssistantText);
     } catch {
       schemaErrorCode = 'STRUCTURED_OUTPUT_PARSE_FAILED';
       schemaErrorMessage = '末条 assistant 文本非合法 JSON（要求：整体单一 JSON 文档——前后不得有其他文本）';

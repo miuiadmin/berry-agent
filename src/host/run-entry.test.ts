@@ -771,6 +771,17 @@ function textMessageOf(text: string): PiAssistantMessage {
   } as unknown as PiAssistantMessage;
 }
 
+/** 仅 thinking 块的 assistant 消息（零 text 块收场形——thinking 模型实录） */
+function thinkingOnlyMessageOf(): PiAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'thinking', thinking: '内省……' }],
+    usage: NO_USAGE,
+    stopReason: 'stop',
+    timestamp: 1,
+  } as unknown as PiAssistantMessage;
+}
+
 describe('runRunEntry --output-schema（收场校验退 1 / 文件级坏形退 2——07 §5 落码定形注）', () => {
   /** 测试共用对象形 schema（required 单字段——mismatch 例确定性失配） */
   const OBJECT_SCHEMA = JSON.stringify({
@@ -835,6 +846,35 @@ describe('runRunEntry --output-schema（收场校验退 1 / 文件级坏形退 2
 
     const noTypeField = await rigRun({ flags: { outputSchema: schemaFile('{"noType":true}') } });
     await expect(noTypeField.entry).resolves.toBe(2);
+  });
+
+  it('根 type 值域外（手误形）：用法错退 2（修前红——07 §5 定形注⑥值域笔）', async () => {
+    // 未知 type 值使 typebox Check 对任意输出恒真——校验空转零告警（同批修：
+    // 值域执法补口，域外退 2 提示 typo 可能）
+    const typoRoot = await rigRun({ flags: { outputSchema: schemaFile('{"type":"objekt"}') } });
+    await expect(typoRoot.entry).resolves.toBe(2);
+    expect(typoRoot.err.text).toContain('type 值');
+
+    // 值域七值内的合法形照放行（object 无 required——空对象合格对照锁）
+    const okRoot = await rigRun({
+      flags: { outputSchema: schemaFile('{"type":"object"}') },
+      responses: [textMessageOf('{}')],
+    });
+    await expect(okRoot.entry).resolves.not.toBe(2);
+  });
+
+  it('零 text 块收场（thinking-only）：校验靶不存在同档退 0（修前红——07 §5 定形注④）', async () => {
+    // thinking 模型以仅 thinking 块的 assistant 消息收场：text 过滤产物为空串
+    // （非 undefined）——修前门槛只认 undefined 形，空串误走 PARSE_FAILED 退 1
+    const run = await rigRun({
+      flags: { outputSchema: schemaFile(OBJECT_SCHEMA), outputFormat: 'json' },
+      responses: [thinkingOnlyMessageOf()],
+    });
+    await expect(run.entry).resolves.toBe(0);
+    expect(run.err.text).not.toContain('STRUCTURED_OUTPUT_');
+    const summary = summaryOf(run.out);
+    expect(summary['status']).toBe('completed');
+    expect(summary['errorCode']).toBeUndefined();
   });
 
   it('truncated 不叠加：--max-turns 到帽收场（run 本体已非成功态）无校验码', async () => {
