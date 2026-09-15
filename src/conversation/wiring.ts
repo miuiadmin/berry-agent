@@ -224,6 +224,11 @@ export class DurableWiring {
         usage: assistant.usage,
         stopReason: assistant.stopReason,
         ...(assistant.errorMessage !== undefined ? { errorMessage: assistant.errorMessage } : {}),
+        // FX-4 兑现——05 §1.1 响应实录位：桥接路 ledgerModelOf 的实录供源，
+        // 网关改道场景（请求标识 ≠ 响应实录）计量账面不失真；可选带出形
+        // （errorMessage 同式——缺席不带，旧日志读侧同视零迁移）
+        ...(assistant.provider !== undefined ? { provider: assistant.provider } : {}),
+        ...(assistant.model !== undefined ? { model: assistant.model } : {}),
       });
       this.lastAssistantSeqValue = event.seq;
       // 工具调用分立落账：arguments 回写原始串（审计保真——读侧解析失败兜底 {}）；

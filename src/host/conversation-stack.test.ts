@@ -1489,10 +1489,35 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     }
     // 实录条：载荷自带 provider+model → 拼全形（修前红锚：当前恒 'faux-stack/m1'）
     expect(ledger.get(`run:${session.sessionId}:${synthetic.seq}`)).toBe('gw-x/actual');
-    // 缺席条（真响应落账不带 provider/model）→ 回落请求标识（05 §1.1 兜底律）
+    // 缺席条（真响应经 wiring 落实录 → 全形拼接 'faux-stack/m1'——与回落值
+    // 同串，两路在该断言上不可分；区分面在上一条实录锚）
     const others = [...ledger.entries()].filter(([callId]) => callId !== `run:${session.sessionId}:${synthetic.seq}`);
     expect(others).toHaveLength(1);
     expect(others[0]![1]).toBe('faux-stack/m1');
+    await rt.shutdown();
+  });
+
+  it('llm/usage model 实录优先：run 路桥接生产触达——wiring 落账带实录（FX-4 修前红——当前写位丢弃实录恒回落请求标识）', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    // 网关改道形 + 真 run 路（submitText 全链生产触达——区别于上例合成注入锁形）
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [gatewayRewriteProvider(faux, { provider: 'gw-x', model: 'actual' })],
+      model: 'faux-stack/m1',
+      env: {},
+    });
+    const session = stack.openStartupSession(rigWorkspace());
+    faux.setResponses([() => meteredMessage(15, 6)]);
+    await stack.submitText(session.sessionId, '问');
+    const usageEvents = stack
+      .driverOf(session.sessionId)!
+      .session.events()
+      .filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(1);
+    // 修前红锚：wiring 落账不带 provider/model → ledgerModelOf(undefined, undefined,
+    // 'faux-stack/m1') 回落请求标识——网关改道场景计量账面失真（实录 'gw-x/actual'）
+    expect((usageEvents[0]!.data as Record<string, unknown>)['model']).toBe('gw-x/actual');
     await rt.shutdown();
   });
 

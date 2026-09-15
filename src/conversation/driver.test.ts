@@ -188,6 +188,24 @@ describe('ConversationDriver durable 接线', () => {
     expect(userData[1]).not.toHaveProperty('dedupeKey');
   });
 
+  it('响应实录位透传落账：assistant 终值带 provider/model 则 data 携、不带则缺席（05 §1.1 FX-4 兑现）', async () => {
+    // 在场形：pi-ai 终值报文自带 provider/model（网关改道实录）→ wiring 落账
+    // 可选带出（修前红锚：写位只落 content/usage/stopReason/errorMessage 四键）
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '答一' }], provider: 'p-x', model: 'm-y' }),
+        assistant({ content: [{ type: 'text', text: '答二' }] }),
+      ],
+    });
+    await driver.submit('问一');
+    await driver.submit('问二');
+    const data = dataOf(driver, 'assistant/message');
+    expect(data[0]).toMatchObject({ provider: 'p-x', model: 'm-y' });
+    // 缺席锁（防「恒带空值」假阳）：脚本终值不带两字段 → data 不携（旧日志读侧同视零迁移）
+    expect(data[1]).not.toHaveProperty('provider');
+    expect(data[1]).not.toHaveProperty('model');
+  });
+
   it('工具批：一 durable turn 内 assistant/toolCall/toolResult/二 assistant（turn_end=toolUse 不闭）', async () => {
     const { driver, seen } = makeDriver({
       scripts: [

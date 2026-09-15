@@ -62,6 +62,15 @@ export interface AssistantMessageData {
   readonly interrupted?: boolean;
   /** 失败说明（stopReason=error 终态轮的错误文本——2KiB 小帽独立计帽，05 §1.1 表注） */
   readonly errorMessage?: string;
+  /**
+   * 响应实录位（05 §1.1〔2026-09-15 FX-4 兑现批〕）：pi-ai 终值报文必带
+   * provider/model（contracts AssistantMessage 收口为可选形），组装落账时随
+   * 事件可选带出——缺席不带，旧日志读侧同视零迁移。
+   * 审计位字段：不进投影白名单/模型上下文（§3.1 字段级白名单律——增字段默认审计位）。
+   */
+  readonly provider?: string;
+  /** 响应实录位（同上——provider 内模型 id）：消费位 = llm/usage run 路桥接的 model 实录供源 */
+  readonly model?: string;
 }
 
 /** tool/call 的 data（arguments 存原始未解析字符串——审计保真） */
