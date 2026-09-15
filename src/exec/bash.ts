@@ -348,7 +348,8 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
         }
         // ---- 腿二（04 §252）：静态洁净白名单分类 + 策略组装 ----
         // 非豁免形恒携 workspace .git 写 deny（任何档含 danger——底线不交档位；
-        // 运行时兜底关 tee/python/sed -i/dd/变量间接等全部非重定向向量）；
+        // 运行时兜底关 tee/python/sed -i/dd/变量间接等全部非重定向向量；wt 挂账
+        // 批：全部授予根的 .git 位同并入——授予扩「批了能成」的域不扩版本史面）；
         // 豁免形不携 deny，且 worktree 锚定时补 backing gitdir 可写根（修
         // worktree 会话 git 命令沙箱断链——backing 在 worktree 根外、缺省
         // 推导不可达；仅 workspace-write 档追加：danger 已全盘、read-only
@@ -376,6 +377,21 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
             ...grantedWritable,
           ]),
         ];
+        // 授予根 .git deny 并入（wt 挂账批——授予根 .git 同律遮蔽）：全部授予
+        // 根的 `.git` canonical 位与 workspace `.git` 同进 denyWritePaths（Set
+        // 去重保序——issue 流授予根 = workspaceRoot 时恒单条不回归）；**不随
+        // grantedWritable 的「仅 workspace-write」门**——deny 是 carve-out 面
+        // 非写权授予，danger/read-only 非豁免形同携（与 ws .git deny 全档同
+        // 律一致）。worktree 形产物根的 `.git` 是 gitdir 指针【文件】，非重定
+        // 向向量（tee/sed -i/python/mv 等）可写它 = 重定向该 worktree 全部 git
+        // 元数据面（间接改版本史）——重定向向量由腿一词法判拦截，本位补的是
+        // 沙箱内非重定向向量。
+        const gitDenyPaths = [
+          ...new Set([
+            canonicalPath(join(wsRoot, '.git')),
+            ...(deps.grantedRoots?.() ?? []).map((root) => canonicalPath(join(root, '.git'))),
+          ]),
+        ];
         const policy: SandboxPolicy = !gitExempt
           ? grantedWritable.length > 0
             ? // 授予在场：显式可写根（授予域可达），.git deny 位照走不因授予豁免
@@ -383,9 +399,9 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
                 mode,
                 workspaceRoot: wsRoot,
                 writableRoots: grantedWritableRoots(),
-                denyWritePaths: [canonicalPath(join(wsRoot, '.git'))],
+                denyWritePaths: gitDenyPaths,
               }
-            : { mode, workspaceRoot: wsRoot, denyWritePaths: [canonicalPath(join(wsRoot, '.git'))] }
+            : { mode, workspaceRoot: wsRoot, denyWritePaths: gitDenyPaths }
           : backing !== undefined
             ? { mode, workspaceRoot: wsRoot, writableRoots: grantedWritableRoots() }
             : grantedWritable.length > 0

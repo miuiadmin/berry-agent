@@ -602,8 +602,34 @@ describe('createBashTool .git 拦截面（04 §252 两腿——成熟度缺口 #
     // writableRoots 缺席 → toContain 断言失败）
     expect(policies[0]?.writableRoots).toContain(canonicalPath(grantedDir));
     // 非豁免形 .git deny 位不因授予在场而豁免（授予扩「批了能成」的域，
-    // carve-out 底线不交授予面）
-    expect(policies[0]?.denyWritePaths).toEqual([canonicalPath(join(process.cwd(), '.git'))]);
+    // carve-out 底线不交授予面）——wt 挂账批随真态翻档：授予根 .git 位同
+    // 并入（Set 保序：ws .git 位在前、授予根 .git 位在后）
+    expect(policies[0]?.denyWritePaths).toEqual([
+      canonicalPath(join(process.cwd(), '.git')),
+      canonicalPath(join(grantedDir, '.git')),
+    ]);
+  });
+
+  it('授予根 .git 同律遮蔽（wt 挂账批）：非豁免形 denyWritePaths 并入授予根 .git canonical 位', async () => {
+    // 授予目录取 HOME 下——避开缺省推导根（workspace + /tmp + tmpdir），使
+    // deny 并入与否可观察（tmpdir 路径不参与 deny 判定，无平凡化问题；此注
+    // 承接上方六役 A1 用例同款选择理由）
+    const grantedDir = mkdtempSync(join(homedir(), 'bash-granted-git-'));
+    wtDirs.push(grantedDir);
+    const { svc, policies } = recordingSandbox();
+    const { pipeline, runs } = countingPipeline();
+    await createBashTool({
+      pipeline,
+      workspaceRoot: () => process.cwd(),
+      currentMode: () => 'workspace-write',
+      sandboxService: svc,
+      grantedRoots: () => [grantedDir],
+    }).execute({ command: 'echo hi' }, CTX);
+    expect(runs()).toBe(1);
+    // 授予根的 .git（worktree 形 = gitdir 指针【文件】）与 workspace 锚 .git
+    // 同律恒 deny——篡改指针 = 重定向该 worktree 全部 git 元数据面（间接改
+    // 版本史）；修前红位：denyWritePaths 恒单条 [cwd/.git] → toContain 失败
+    expect(policies[0]?.denyWritePaths).toContain(canonicalPath(join(grantedDir, '.git')));
   });
 
   it('授予根档位律：read-only 空根不授予 / danger 全盘不变形（与 fence「仅 workspace-write」同律）', async () => {

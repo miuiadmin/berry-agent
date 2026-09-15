@@ -35,6 +35,7 @@
 import { TOOL_PRE_EXECUTE_EVENT } from '../contracts/index.js';
 import type { GateInput, ToolDefinition } from '../contracts/index.js';
 import type { EventDispatch } from '../context/events.js';
+import { join } from 'node:path';
 import { parseApplyPatch } from '../tools/index.js';
 import type { ApprovalService } from './approval.js';
 import type { SandboxMode } from './types.js';
@@ -45,6 +46,7 @@ import {
   deriveWritableRoots,
   resolveWritability,
   type CarveOutEntry,
+  type CarveOutNode,
 } from './roots.js';
 import { FS_WRITE_TOOLS, matchToolPolicy, policyHitNote, type ToolPolicyEntry } from './tool-policy.js';
 import { sandboxDenialMarker } from './sandbox.js';
@@ -83,6 +85,17 @@ export interface SafetyGateOptions {
    * 应传与 fs fence 完全同一的 createRootsProvider 产物（同闭包同 live 源）。
    */
   readonly writableRoots?: () => string[];
+  /**
+   * 会话授予根 live 取值器（wt 挂账批——授予根 `.git` 同律遮蔽）：worktree
+   * 产物根随会话 create/grant 动态到场，快照形会漏授予，故 live 现取。在场
+   * 时每次预检按授予根构造 `.git` 动态 carve-out 节点（canonical
+   * join(授予根, `.git`)）并入 (2)/(5) 判定表——worktree 形产物根的 `.git`
+   * 是 gitdir 指针**文件**（非目录），篡改指针 = 重定向该 worktree 全部 git
+   * 元数据面（间接改版本史），与 workspace 锚 `.git` 节点同律恒不可写（任何
+   * 档含 danger；授予扩「批了能成」的域、不扩版本史面）。缺省缺席 = 无授予
+   * 面行为不变（单会话测试形）。装配位应传与 fence/bash 工具同一 live 源。
+   */
+  readonly grantedRoots?: () => string[];
   /** carve-out 例外条目（缺省内置 .git/.env 条目；传 [] 显式关闭——只关例示面，数据目录条恒在） */
   readonly entries?: readonly CarveOutEntry[];
   /**
@@ -218,6 +231,35 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     }
 
     /* ---- (2) carve-out 判定（fs 族写路径；任何档含 danger 照走——硬拒） ---- */
+    // 授予根 .git 动态 carve-out 节点（wt 挂账批——授予根 .git 同律遮蔽）：
+    // 授予根随会话 grant 动态到场，装配期表不可见——每次预检 live 现取追加，
+    // (2) 硬拒位与 (5) fence 前核位同表消费（同一次预检一张表）。追加位安全
+    // 性两依据：① entries 模式恒 workspace 锚（相对 pattern 展开 / 绝对
+    // dataDir），而生产授予根 = worktree 服务「仓同级 <仓目录名>-worktrees/」
+    // 派生位——两锚域不相交，静态表不可能产生命中授予根 .git 的（更浅 allow）
+    // 节点把动态 deny 短路（resolveWritability 按数组序首命中——动态节点尾
+    // 追加不参与重排序，安全性以「静态表无同域节点」为前提而非排序位）；②
+    // 生产唯一装配位（conversation-stack → assembleOpenTools）不注入 entries
+    // ——entries 是测试/扩展预留面，生产恒缺席。两依据下无需参与
+    // buildCarveOutTable 的最具体优先重排序。缺省无授予面零变形（直接持静态表引用）。
+    const liveCarveTable: readonly CarveOutNode[] =
+      opts.grantedRoots !== undefined
+        ? [
+            ...carveTable,
+            ...opts.grantedRoots().map((root) => {
+              const gitPath = canonicalPath(join(root, '.git'));
+              return {
+                path: gitPath,
+                effect: 'deny' as const,
+                entry: {
+                  pattern: gitPath,
+                  effect: 'deny' as const,
+                  note: '授予根版本库元数据默认只读（worktree 形 = gitdir 指针文件）',
+                },
+              };
+            }),
+          ]
+        : carveTable;
     if (isFsFamily) {
       // 同源可写根（六役 A1——SafetyGateOptions.writableRoots 注）：与 fence
       // 同一 provider，授予根并入后两序判定同根集；缺省回落推导
@@ -226,7 +268,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
       for (const rawPath of extractWritePaths(tool.name, input.args)) {
         // 与 fence 同源的 canonical 化（相对锚 workspace、最近存在祖先解析符号链）
         const absPath = absolutize(workspace, rawPath);
-        const verdict = resolveWritability(absPath, roots, carveTable);
+        const verdict = resolveWritability(absPath, roots, liveCarveTable);
         if (!verdict.allowed && verdict.kind === 'carve-out') {
           const node = verdict.matched!;
           // 硬拒回执（04 §8 定形）：denial marker + 命中条目——无升权 hint
@@ -263,7 +305,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
       // 面 → 照走审批对（授予域写仍必问——根集并入只扩「批了能成」的域）
       const roots = opts.writableRoots !== undefined ? opts.writableRoots() : deriveWritableRoots(workspace, mode);
       const outside = canonicalWritePaths.some((p) => {
-        const verdict = resolveWritability(p, roots, carveTable);
+        const verdict = resolveWritability(p, roots, liveCarveTable);
         return !verdict.allowed && verdict.kind === 'outside-roots';
       });
       if (outside) return next(input); // fence 的拒绝面，本行不重复拦

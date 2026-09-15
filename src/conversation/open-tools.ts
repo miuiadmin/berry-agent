@@ -168,6 +168,11 @@ export function assembleOpenTools(opts: OpenToolsOptions): OpenToolsAssembly {
     dataDir: opts.dataDir,
     // 守门行与 fence 同根集（六役 A1——SafetyGateOptions.writableRoots 注）
     writableRoots,
+    // 授予根 live 透传（wt 挂账批——授予根 .git 同律遮蔽）：守门行按授予根
+    // 构造 .git 动态 carve-out 节点的数据源，与上方 provider / 下方 bash 工
+    // 具的 grantedRoots 同一 live 源——守门行/fence/bash 沙箱三面对授予根
+    // 同根集执法（快照形会漏会话起后 grant 的授予，故 live 现取）
+    ...(opts.grantedRoots !== undefined ? { grantedRoots: opts.grantedRoots } : {}),
     ...(opts.toolPolicy !== undefined ? { toolPolicy: opts.toolPolicy } : {}),
     ...(opts.entries !== undefined ? { entries: opts.entries } : {}),
   });

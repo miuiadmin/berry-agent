@@ -6,14 +6,14 @@
  * 者（注入行为非替身——粘性短路属 ApprovalService 自身，已在 approval.test
  * 锁定，此处用直通假件即可）；驱动 = 守门 waterfall 真派发 + 链尾触达旗。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventDispatch } from '../context/index.js';
 import { TOOL_EVENT_NAMES } from '../contracts/index.js';
 import type { GateInput, ToolDefinition, ToolEffect } from '../contracts/index.js';
-import { canonicalPath, type CarveOutEntry } from './roots.js';
+import { canonicalPath, createRootsProvider, type CarveOutEntry } from './roots.js';
 import type { ToolPolicyEntry } from './tool-policy.js';
 import { matchToolPolicy, policyHitNote } from './tool-policy.js';
 import { presetSuggestedEntries } from './presets.js';
@@ -26,11 +26,17 @@ import type { ApprovalAnswerEnvelope } from './approval.js';
 /** 每用例独立工作区（canonical 形） */
 let ws = '';
 
+/** 授予根用例的 HOME 下临时目录族（缺省推导根之外——见用例内注释；afterAll 统一清） */
+const grantedDirs: string[] = [];
+
 beforeEach(() => {
   ws = canonicalPath(mkdtempSync(join(tmpdir(), 'berry-gate-')));
 });
 afterEach(() => {
   rmSync(ws, { recursive: true, force: true });
+});
+afterAll(() => {
+  for (const d of grantedDirs) rmSync(d, { recursive: true, force: true });
 });
 
 /* ---------------- 测试构造件 ---------------- */
@@ -70,6 +76,13 @@ function makeRig(opts?: {
   policy?: ApprovalPolicyMode;
   /** 数据目录恒排除位覆写（缺省 tmp 下固定假路径——不与 workspace 交叠，隔离「根内遮罩」与「fence 根外」两面） */
   dataDir?: string;
+  /**
+   * 同源可写根 provider 注入（open-tools 装配同源形——createRootsProvider
+   * 产物；授予根并入 (2)/(5) 判定的测试接线位，缺省回落 deriveWritableRoots）
+   */
+  writableRoots?: () => string[];
+  /** 授予根 live 取值器（守门行授予根 .git 动态 carve-out 节点的数据源） */
+  grantedRoots?: () => string[];
   beforeInstall?: () => void;
 }) {
   const dispatch = new EventDispatch();
@@ -97,6 +110,8 @@ function makeRig(opts?: {
     dataDir: opts?.dataDir ?? join(tmpdir(), 'berry-gate-datadir'),
     ...(opts?.entries !== undefined ? { entries: opts.entries } : {}),
     ...(opts?.toolPolicy !== undefined ? { toolPolicy: opts.toolPolicy } : {}),
+    ...(opts?.writableRoots !== undefined ? { writableRoots: opts.writableRoots } : {}),
+    ...(opts?.grantedRoots !== undefined ? { grantedRoots: opts.grantedRoots } : {}),
   });
   // 链尾触达旗（守门行放行 = next 委托链下游到达；block = 短路不到达）
   let reached = false;
@@ -205,6 +220,32 @@ describe('carve-out 硬拒', () => {
     expect(result.blocked).toBe(true);
     expect(rig.asks).toHaveLength(0);
     expect(result.reason).toContain('数据目录');
+  });
+
+  /* ---- 授予根 .git 同律遮蔽（wt 挂账批——修前必红） ---- */
+
+  it('授予根 .git 同律遮蔽：write 目标授予根 .git → carve-out 硬拒不问（gitdir 指针文件不可篡改）', async () => {
+    // 授予目录取 HOME 下——避开缺省推导根（workspace + /tmp + tmpdir），使
+    // 「在根内只因授予」可观察（tmp 下授予会让根内判定平凡化）
+    const grantedDir = mkdtempSync(join(homedir(), 'berry-gate-granted-'));
+    grantedDirs.push(grantedDir);
+    // 与 open-tools 装配同源形：writableRoots = createRootsProvider 产物
+    // （授予根 live 并入），守门行 (2)/(5) 判定与 fence 同根集消费
+    const rig = makeRig({
+      writableRoots: createRootsProvider({
+        workspace: ws,
+        mode: () => 'workspace-write',
+        grantedRoots: () => [grantedDir],
+      }),
+      grantedRoots: () => [grantedDir],
+    });
+    // worktree 形 .git = gitdir 指针【文件】（非目录）——写该文件即重定向该
+    // worktree 全部 git 元数据面；修前红位：carve 表装配期锚 ws、无授予根
+    // 节点 → (2) 放过 → (5) 判根内 → 走审批对（缺省批准）→ blocked=false
+    const result = await rig.run(WRITE, { path: join(grantedDir, '.git') });
+    expect(result.blocked).toBe(true);
+    expect(rig.asks).toHaveLength(0); // 硬拒不产生审批交互（修前红：asks=1）
+    expect(result.reason).toContain('恒不可写'); // 同 .git 硬拒回执形
   });
 });
 

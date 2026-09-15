@@ -218,6 +218,31 @@ describe('assembleOpenTools 真管道执法', () => {
     expect((dataOf(made.session, 'gate/decision')[0] as { reason: string }).reason).toContain('carve-out');
   });
 
+  it('授予根 .git 装配级锁（wt 挂账批）：grantedRoots 经真三段管道写授予根 .git——恒不可写硬拒无审批', async () => {
+    // 授予根放 HOME 下（gate.test 同形——tmp 下授予会让「根内」判定平凡化：
+    // 缺省授予推导根已含 tmp，透传线删失与否不可分）；恒答 approve 使「删
+    // 透传线 → 落 in-roots 判可写 → 审批对 → approve → 写成功」成为可观察
+    // 的红路——本断言锁的正是 open-tools.ts 守门行 grantedRoots 透传线
+    const grantedDir = mkdtempSync(join(homedir(), 'berry-open-granted-'));
+    try {
+      const made = makeAssembly({ grantedRoots: () => [grantedDir], askApproval: answer('approve') });
+      await expect(
+        toolOf(made.assembly, 'write').execute('c-wt-git', {
+          path: join(grantedDir, '.git'),
+          content: 'x',
+        }),
+      ).rejects.toMatchObject({ code: 'TOOL_BLOCKED' });
+      // 硬拒在审批之前（授予根内写本可走审批对——.git 位例外恒硬拒）
+      expect(dataOf(made.session, 'approval/asked')).toHaveLength(0);
+      const gate = dataOf(made.session, 'gate/decision');
+      expect(gate).toHaveLength(1);
+      expect(gate[0]).toMatchObject({ toolCallId: 'c-wt-git', decision: 'block' });
+      expect((gate[0] as { reason: string }).reason).toContain('恒不可写');
+    } finally {
+      rmSync(grantedDir, { recursive: true, force: true });
+    }
+  });
+
   it('读侧 carve-out 装配 e2e：read 点名 dataDir/secret.key → FS_READ_PROTECTED（敏感集注入回归锁——漏注入即红）', async () => {
     const made = makeAssembly();
     writeFileSync(join(made.dataDir, 'secret.key'), 'k3y-material', 'utf8');
