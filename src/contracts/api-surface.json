@@ -1113,6 +1113,22 @@
       "kind": "interface"
     },
     {
+      "symbol": "UiAccount",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "ui 消费腿受局面记录账（W2——四问评估落地批：规范已定 ctx.ui.notify 无会话位恒可，testkit 假宿主补 channels-ui 受局面最小注入）",
+      "kind": "interface"
+    },
+    {
+      "symbol": "UiNotifyRecord",
+      "module": "berry-agent/testkit",
+      "tier": "experimental",
+      "since": "1.0",
+      "desc": "ui.notify 收件行（message + 可选 level——与 ctx.ui.notify 入参同形）",
+      "kind": "interface"
+    },
+    {
       "symbol": "createCommandAccount",
       "module": "berry-agent/testkit",
       "tier": "experimental",

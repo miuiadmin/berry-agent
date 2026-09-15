@@ -24,6 +24,9 @@ export type {
   HarnessInstallOutcome,
   CommandAccount,
   DispatchListenerProbe,
+  // ui 受局面两型（W2——作者侧断言 notify 收件行/受局面在场性时需要的账面形状）
+  UiAccount,
+  UiNotifyRecord,
 } from './harness.js';
 export { proveLifecycleMatrix, formatMatrixReceipt } from './matrix.js';
 export type { MatrixOptions, MatrixRowResult, LifecycleMatrixReport } from './matrix.js';
