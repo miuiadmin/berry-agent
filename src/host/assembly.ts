@@ -423,11 +423,28 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // —— 'sessions' 受理面基础面真身（ag 批 cs-D2——03 §4.5 定形注：共享根
     // provision 形态**废止**，本面改经 bootPlugins options.sessions 逐插件
     // fork 绑定〔bindSessionsForPlugin——caller 归因 plugin:<行id> 宿主单方
-    // 拼装 + 行籍闸绑换代死域；共享根结构性无此名〕）。活引用 driverOf
-    // （调用时点解析——/new 热切换安全）；无活体驱动 = undefined 降级（消费
-    // 方 core:memory 差分落账腿捕获降级——mirror 不锁步）；二道闸（核心词
-    // 拒写 + 未注册词拒写）+ 归因盖章在绑定面闭包内执法
-    const sessionsFace = createSessionsFace({ driverOf: (sessionId) => stack.driverOf(sessionId) });
+    // 拼装 + 行籍闸绑换代死域；共享根结构性无此名〕；cs-D1 sessions 完整
+    // 受理面批 2026-09-15 扩面：只读四件 + storeStateFor 五件全接——currentSessionId
+    // 判据 v1 = SessionManager 活体 Map 尾键〔listActive().at(-1)——最新首次
+    // 入册、幂等复开不移尾〕；queryEvents/store_state 裸动词经 persistence
+    // 透传〔帽/游标/LRU/ttl 治理单源在 persist〕；kv/written 审计面 = audit
+    // 单写者〔05 §9〕）。活引用 driverOf（调用时点解析——/new 热切换安全）；
+    // 无活体驱动 = undefined 降级（消费方 core:memory 差分落账腿捕获降级——
+    // mirror 不锁步）；二道闸（核心词拒写 + 未注册词拒写）+ 归因盖章在绑定面
+    // 闭包内执法。runtimeNow = let 联合型收窄入 const（闭包捕获用——原 :559
+    // 位前移，本面 deps 闭包同为消费方）
+    const runtimeNow = runtime;
+    const sessionsFace = createSessionsFace({
+      driverOf: (sessionId) => stack.driverOf(sessionId),
+      currentSessionId: () => stack.manager.listActive().at(-1)?.sessionId,
+      queryEvents: (filter) => runtimeNow.persistence.queryEvents(filter),
+      storeState: {
+        get: (key) => runtimeNow.persistence.store.getStoreState(key),
+        set: (key, value, options) => runtimeNow.persistence.store.setStoreState(key, value, options),
+        delete: (key) => runtimeNow.persistence.store.deleteStoreState(key),
+      },
+      onStateWritten: (payload) => audit.append('kv/written', { ...payload }),
+    });
 
     // —— Job 注册表 + 触发器注册表（C 批 C-3——第十一动词宿主侧真源）：
     // job_settled 总线词先注册（活体事件发射前置——04 §10 内存直推不落库，
@@ -556,7 +573,6 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 必填位适配器补（契约无时钟缺省）；priority 缺省 'background'（周期路属
     // 后台道——04 §5 预算闸门执法位）；result 结构超集直返（AssistantMessage
     // ⊇ {content}，文本面提取 llmTextOf 在件内）——
-    const runtimeNow = runtime; // let 联合型收窄入 const（闭包捕获用——直接捕 runtime 联合型不进闭包）
     const memoryLlm: MemoryLlmFace = {
       complete: (req) =>
         stack.llm.complete({

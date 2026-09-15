@@ -1388,8 +1388,8 @@
       "module": "services",
       "tier": "stable",
       "since": "1.0",
-      "desc": "会话事件受理面（ctx.get(\"sessions\") 消费——appendEventFor 单动词按会话取 appendEvent 活引用：核心事件词/未注册词汇二道闸拒写、surfaceOp 信封改道 appendWithSurfaceOp 正门、无活体驱动返 undefined 诚实降级；插件道恒经绑定面——归因键 source: plugin:<id> 由宿主闭包铸造（传入面无 caller 位防冒名），行不在活装载代即残句柄拒写）",
-      "sig": "9864ee30b0cb0f50"
+      "desc": "会话数据受理面（ctx.get(\"sessions\") 消费）：appendEventFor 按会话取 appendEvent 活引用（核心事件词/未注册词汇二道闸拒写、surfaceOp 信封改道 appendWithSurfaceOp 正门、无活体驱动返 undefined 诚实降级）+ 只读四件（currentSessionId 判据 = 活体 Map 尾键〔最新首次入册，幂等复开不移尾〕；eventsOfType/lastClosedBoundary 锚活体 SessionLog——无活体即 SESSION_NO_ACTIVE_SESSION 拒、-1 哨兵映射 undefined、返回快照拷贝；queryEvents 透传 durable store，帽与游标单源在 persist）+ storeStateFor(pluginId) 域绑定键值三动词（落库键 <pluginId>__<键名> 宿主单方拼装；kv/written 审计 set/delete 成功尾逐笔）；插件道恒经绑定面——归因键 source: plugin:<id> 与域前缀由宿主闭包铸造（传入面无 caller/pluginId 位防冒名），行不在活装载代即残句柄拒写（键值腿单拍形：set/delete 执行拍执法、get 读径无闸）",
+      "sig": "f0168e5faeeadd65"
     },
     {
       "symbol": "sessions-control",
@@ -1427,6 +1427,46 @@
       "since": "1.0",
       "desc": "按会话取 appendEvent 活引用：过二道闸后委派 SessionLog.append（同步落账）",
       "sig": "c5ebe16ceafdcab8"
+    },
+    {
+      "symbol": "sessions.currentSessionId",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "进程当前前台会话 id（03 §4.4 落码定形注——判据 v1：活体会话登记表最新首次入册者，装配根注入真身〔SessionManager 活体 Map 尾键〕；幂等复开不移尾；无活体 = undefined 诚实缺席",
+      "sig": "e302ede99a21537a"
+    },
+    {
+      "symbol": "sessions.eventsOfType",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "按类型读当前会话事件（锚 currentSessionId 所指会话的**活体** SessionLog ——write-behind 在飞尾事件照读；05 §3.2 同名原语零第二实现面）",
+      "sig": "8b6b44fffd089561"
+    },
+    {
+      "symbol": "sessions.lastClosedBoundary",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "最后一条完整 turn 边界的 seq（锚活体 SessionLog 同 eventsOfType）",
+      "sig": "1872d872cead36d5"
+    },
+    {
+      "symbol": "sessions.queryEvents",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "跨会话 durable 查询透传（05 §3.4 store 原语——帽 1000/10000 与游标分页单源在 persist，受理面零再帽零改写；含历史会话——durable 维跨活体",
+      "sig": "6562732326b3e84e"
+    },
+    {
+      "symbol": "sessions.storeStateFor",
+      "module": "services",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "store_state 域绑定三动词（03 §4.5 兑现注）：落库键 `<pluginId>__<键名>` 宿主单方拼装（域前缀与键建表 `<pluginId>__<表名>` 同形同律——插件结构性读不到兄弟插件键值）；kv/written 审计随 set/delete 成功尾逐笔（装配根注入审计面）",
+      "sig": "5f187d0943f10c8d"
     },
     {
       "symbol": "approval/asked",
@@ -1524,7 +1564,7 @@
       "module": "session-events",
       "tier": "stable",
       "since": "1.0",
-      "desc": "键值写历史（T9 案一批 2026-09-09——store_state LRU+ttl 只有终态、写无历史的 durable 归因）：载荷 {pluginId, key 裸键名, action: set|delete}（值与 ttl/kind 元数据恒不入载荷——credentials/changed 同律；读腿零落账；persist 层 LRU/ttl 治理写零落账〔治理/受理分层〕）；写点 = ctx.sessions store_state 受理面 set/delete 成功尾逐笔——**规范已裁、代码未落**（词先锚定，发射位随受理制写面落码批兑现，compaction/fallback 同律）；载体 = audit_events"
+      "desc": "键值写历史（T9 案一批 2026-09-09——store_state LRU+ttl 只有终态、写无历史的 durable 归因）：载荷 {pluginId, key 裸键名, action: set|delete}（值与 ttl/kind 元数据恒不入载荷——credentials/changed 同律；读腿零落账；persist 层 LRU/ttl 治理写零落账〔治理/受理分层〕）；写点 = ctx.sessions store_state 受理面 set/delete 成功尾逐笔〔2026-09-15 sessions 完整受理面批兑现：发射位已落 sessions-face storeStateFor 域绑定面——原「规范已裁、代码未落」句就此废止；delete 落账判据 = 实际移除行（no-op 删除零落账——账记状态变迁非调用意图）〕；载体 = audit_events"
     },
     {
       "symbol": "llm/retry",

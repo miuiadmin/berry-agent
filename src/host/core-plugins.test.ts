@@ -55,13 +55,27 @@ import { assembleOpenTools } from '../conversation/open-tools.js';
 import type { ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
 import { AGENT_PRE_STEP_EVENT, CONTEXT_TRANSFORM_EVENT } from '../conversation/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
-import { createSessionsFace, type SessionsFace } from './sessions-face.js';
+import { createSessionsFace, type SessionsFace, type SessionsDriverOf } from './sessions-face.js';
 
 /** 临时目录族（统一清） */
 const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
+
+/**
+ * 建面替身（cs-D1 批签名扩面后 memory 件注入位替身——appendEvent 域不触
+ * 新成员，新四依赖以不触达桩注入）。
+ */
+function sessionsFaceFor(driverOf: SessionsDriverOf): SessionsFace {
+  return createSessionsFace({
+    driverOf,
+    currentSessionId: () => undefined,
+    queryEvents: () => ({ events: [], nextCursor: null }),
+    storeState: { get: () => undefined, set: () => undefined, delete: () => false },
+    onStateWritten: () => undefined,
+  });
+}
 
 /** 内存 fs（装载读侧注入——enabled.yaml 缺席/禁用两形零真盘） */
 function memoryFs(files: Record<string, string> = {}): PluginBootFs {
@@ -627,7 +641,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
         fetchEvents: (sid) =>
           sid === 's-inj' ? [{ type: 'user/message', seq: 0, time: 0, data: { content: 'npm test' } }] : [],
         llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
-        sessionsFace: createSessionsFace({ driverOf: (sid) => (sid === 's-inj' ? { session: log } : undefined) }),
+        sessionsFace: sessionsFaceFor((sid) => (sid === 's-inj' ? { session: log } : undefined)),
       },
     );
     const dao = scope.tryGet<{ dao: MemoryDao }>('memory')!.dao;
@@ -723,7 +737,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
         fetchEvents: (sid) =>
           sid === 's-sov' ? [{ type: 'user/message', seq: 0, time: 0, data: { content: 'npm test' } }] : [],
         llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
-        sessionsFace: createSessionsFace({ driverOf: (sid) => (sid === 's-sov' ? { session: log } : undefined) }),
+        sessionsFace: sessionsFaceFor((sid) => (sid === 's-sov' ? { session: log } : undefined)),
       },
     );
     const dao = scope.tryGet<{ dao: MemoryDao }>('memory')!.dao;
@@ -810,10 +824,10 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
         sqlite: () => persistence2.store.sqlite(),
         fetchEvents: () => [],
         llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
-        sessionsFace: createSessionsFace({
-          // 会话表热切换形：拍 2 前「无活体驱动」、拍 3 前恢复在场
-          driverOf: (sid) => (sid === 's-deg2' && driverTable.has(sid) ? { session: log2 } : undefined),
-        }),
+        // 会话表热切换形：拍 2 前「无活体驱动」、拍 3 前恢复在场
+        sessionsFace: sessionsFaceFor((sid) =>
+          sid === 's-deg2' && driverTable.has(sid) ? { session: log2 } : undefined,
+        ),
       },
     );
     const driverTable = new Map<string, true>();

@@ -332,7 +332,7 @@ const CORE_EVENT_TYPES: readonly EventTypeMeta[] = [
     owner: 'host',
     tier: 'stable',
     description:
-      '键值写历史（T9 案一批 2026-09-09——store_state LRU+ttl 只有终态、写无历史的 durable 归因）：载荷 {pluginId, key 裸键名, action: set|delete}（值与 ttl/kind 元数据恒不入载荷——credentials/changed 同律；读腿零落账；persist 层 LRU/ttl 治理写零落账〔治理/受理分层〕）；写点 = ctx.sessions store_state 受理面 set/delete 成功尾逐笔——**规范已裁、代码未落**（词先锚定，发射位随受理制写面落码批兑现，compaction/fallback 同律）；载体 = audit_events',
+      '键值写历史（T9 案一批 2026-09-09——store_state LRU+ttl 只有终态、写无历史的 durable 归因）：载荷 {pluginId, key 裸键名, action: set|delete}（值与 ttl/kind 元数据恒不入载荷——credentials/changed 同律；读腿零落账；persist 层 LRU/ttl 治理写零落账〔治理/受理分层〕）；写点 = ctx.sessions store_state 受理面 set/delete 成功尾逐笔〔2026-09-15 sessions 完整受理面批兑现：发射位已落 sessions-face storeStateFor 域绑定面——原「规范已裁、代码未落」句就此废止；delete 落账判据 = 实际移除行（no-op 删除零落账——账记状态变迁非调用意图）〕；载体 = audit_events',
   },
   {
     type: 'preset/applied',

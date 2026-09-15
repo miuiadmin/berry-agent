@@ -59,6 +59,20 @@ function tableOf(): { table: Map<string, { session: SessionLogType }>; driverOf:
   return { table, driverOf: (sessionId) => table.get(sessionId) };
 }
 
+/**
+ * 建面调用面（cs-D1 批签名扩面后本文件 8 处替身——appendEvent 域不触新
+ * 成员，新四依赖以不触达桩注入）。
+ */
+function faceOf(driverOf: SessionsDriverOf) {
+  return createSessionsFace({
+    driverOf,
+    currentSessionId: () => undefined,
+    queryEvents: () => ({ events: [], nextCursor: null }),
+    storeState: { get: () => undefined, set: () => undefined, delete: () => false },
+    onStateWritten: () => undefined,
+  });
+}
+
 /** 内存 fs（boot 读侧注入） */
 function memoryFs(files: Record<string, string> = {}): PluginBootFs {
   const map = new Map(Object.entries(files));
@@ -109,7 +123,7 @@ describe('bindSessionsForPlugin 归因闸（单元——03 §4.5 cs-D2）', () =
     const { table, driverOf } = tableOf();
     const log = new SessionLog({ sessionId: 's-attr' });
     table.set('s-attr', { session: log });
-    const bound = bindSessionsForPlugin('demo', createSessionsFace({ driverOf }));
+    const bound = bindSessionsForPlugin('demo', faceOf(driverOf));
     const data = { note: '甲' };
     bound.appendEventFor('s-attr')!('sessions-bind.test/note', data);
     expect(log.events()).toHaveLength(1);
@@ -121,7 +135,7 @@ describe('bindSessionsForPlugin 归因闸（单元——03 §4.5 cs-D2）', () =
     const { table, driverOf } = tableOf();
     const log = new SessionLog({ sessionId: 's-forge' });
     table.set('s-forge', { session: log });
-    const bound = bindSessionsForPlugin('demo', createSessionsFace({ driverOf }));
+    const bound = bindSessionsForPlugin('demo', faceOf(driverOf));
     bound.appendEventFor('s-forge')!('sessions-bind.test/note', { note: '乙', source: 'plugin:core:memory' });
     expect(log.events()[0]!.data).toEqual({ note: '乙', source: 'plugin:demo' }); // 冒名键覆写
   });
@@ -130,7 +144,7 @@ describe('bindSessionsForPlugin 归因闸（单元——03 §4.5 cs-D2）', () =
     const { table, driverOf } = tableOf();
     const log = new SessionLog({ sessionId: 's-shape' });
     table.set('s-shape', { session: log });
-    const bound = bindSessionsForPlugin('demo', createSessionsFace({ driverOf }));
+    const bound = bindSessionsForPlugin('demo', faceOf(driverOf));
     const append = bound.appendEventFor('s-shape')!;
     expectCode(() => append('sessions-bind.test/note', ['数组']), 'SESSION_EVENT_DATA_INVALID');
     expectCode(() => append('sessions-bind.test/note', '字符串'), 'SESSION_EVENT_DATA_INVALID');
@@ -142,7 +156,7 @@ describe('bindSessionsForPlugin 归因闸（单元——03 §4.5 cs-D2）', () =
     const { table, driverOf } = tableOf();
     const log = new SessionLog({ sessionId: 's-cls' });
     table.set('s-cls', { session: log });
-    const bound = bindSessionsForPlugin('demo', createSessionsFace({ driverOf }));
+    const bound = bindSessionsForPlugin('demo', faceOf(driverOf));
     const append = bound.appendEventFor('s-cls')!;
     // Date/Map 类实例：typeof 'object' 且非数组——若放行，浅拷贝 {...data} 对零
     // 自有可枚举属性的类实例产出 {source} 单键、原数据净丢失不可恢复（宿主道
@@ -164,7 +178,7 @@ describe('bindSessionsForPlugin 归因闸（单元——03 §4.5 cs-D2）', () =
     const log = new SessionLog({ sessionId: 's-stale' });
     table.set('s-stale', { session: log });
     let active = true;
-    const bound = bindSessionsForPlugin('demo', createSessionsFace({ driverOf }), () => active);
+    const bound = bindSessionsForPlugin('demo', faceOf(driverOf), () => active);
     const append = bound.appendEventFor('s-stale')!; // 行活期取引用
     active = false; // 行回卷（scope dispose / 装载代翻死）
     expectCode(() => append('sessions-bind.test/note', { note: '残' }), 'PLUGIN_WINDOW_CLOSED');
@@ -176,7 +190,7 @@ describe('bindSessionsForPlugin 归因闸（单元——03 §4.5 cs-D2）', () =
     const { table, driverOf } = tableOf();
     const log = new SessionLog({ sessionId: 's-surf' });
     table.set('s-surf', { session: log });
-    const bound = bindSessionsForPlugin('demo', createSessionsFace({ driverOf }));
+    const bound = bindSessionsForPlugin('demo', faceOf(driverOf));
     // 底座两条真投影事件（测试即宿主位直 append）
     log.append('user/message', { content: '旧消息一' });
     log.append('user/message', { content: '旧消息二' });
@@ -197,7 +211,7 @@ describe('bindSessionsForPlugin 归因闸（单元——03 §4.5 cs-D2）', () =
     const { table, driverOf } = tableOf();
     const log = new SessionLog({ sessionId: 's-host' });
     table.set('s-host', { session: log });
-    const face = createSessionsFace({ driverOf }); // 基础面（宿主位）
+    const face = faceOf(driverOf); // 基础面（宿主位）
     face.appendEventFor('s-host')!('sessions-bind.test/note', { note: '宿主' });
     expect(log.events()[0]!.data).toEqual({ note: '宿主' }); // 无 source 键——零变
   });
@@ -220,7 +234,7 @@ describe('fork 级接线（bootPlugins options.sessions——03 §4.5 共享根�
     const { options, scope } = rigBoot('/data', {
       corePlugins: [probe],
       fs: memoryFs(),
-      sessions: createSessionsFace({ driverOf }),
+      sessions: faceOf(driverOf),
     });
     const boot = await bootPlugins(options);
     expect(boot.report.activated.map((a) => a.id)).toEqual(['core:probe-sessions']);
@@ -248,7 +262,7 @@ describe('fork 级接线（bootPlugins options.sessions——03 §4.5 共享根�
       runtime,
       corePlugins: [probe],
       fs: memoryFs(),
-      sessions: createSessionsFace({ driverOf }),
+      sessions: faceOf(driverOf),
     });
     await bootPlugins(options);
     captured!('sessions-bind.test/note', { note: '活期' }); // 回卷前正写

@@ -106,6 +106,12 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
     description: '线/接口面向已闭会话新发拒收（回放读面不受限——批 13b 随 SDK 请求面受理注册）',
   },
   {
+    code: 'SESSION_NO_ACTIVE_SESSION',
+    module: 'session',
+    description:
+      'sessions 受理面只读件（eventsOfType/lastClosedBoundary）无活体会话拒——fail-loud 非静默空数组（「读到 []」与「无会话可读」语义分立；03 §4.4 落码定形注，随 sessions 完整受理面批 2026-09-15 入册）',
+  },
+  {
     code: 'HOST_DATA_DIR_BUSY',
     module: 'host',
     description: '单活跃机拒启：同数据目录活跃标记在场且 pid 活（fail-loud 不降级）',

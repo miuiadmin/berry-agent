@@ -130,11 +130,12 @@ export const SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // fork 绑定真源 = plugin-boot fork.provide('sessions',
     // bindSessionsForPlugin(...))——归因闸 caller 宿主闭包铸造 + 行籍闸
     // 两拍执法；方法面 = host/sessions-face.ts SessionsFace 契约接口
-    // （appendEventFor 单动词）
+    // （appendEventFor + 只读四件 + storeStateFor——sessions 完整受理面批
+    // 2026-09-15 cs-D1 扩面）
     name: 'sessions',
     module: 'host',
     faceInterface: 'SessionsFace',
-    note: '会话事件受理面（ctx.get("sessions") 消费——appendEventFor 单动词按会话取 appendEvent 活引用：核心事件词/未注册词汇二道闸拒写、surfaceOp 信封改道 appendWithSurfaceOp 正门、无活体驱动返 undefined 诚实降级；插件道恒经绑定面——归因键 source: plugin:<id> 由宿主闭包铸造（传入面无 caller 位防冒名），行不在活装载代即残句柄拒写）',
+    note: '会话数据受理面（ctx.get("sessions") 消费）：appendEventFor 按会话取 appendEvent 活引用（核心事件词/未注册词汇二道闸拒写、surfaceOp 信封改道 appendWithSurfaceOp 正门、无活体驱动返 undefined 诚实降级）+ 只读四件（currentSessionId 判据 = 活体 Map 尾键〔最新首次入册，幂等复开不移尾〕；eventsOfType/lastClosedBoundary 锚活体 SessionLog——无活体即 SESSION_NO_ACTIVE_SESSION 拒、-1 哨兵映射 undefined、返回快照拷贝；queryEvents 透传 durable store，帽与游标单源在 persist）+ storeStateFor(pluginId) 域绑定键值三动词（落库键 <pluginId>__<键名> 宿主单方拼装；kv/written 审计 set/delete 成功尾逐笔）；插件道恒经绑定面——归因键 source: plugin:<id> 与域前缀由宿主闭包铸造（传入面无 caller/pluginId 位防冒名），行不在活装载代即残句柄拒写（键值腿单拍形：set/delete 执行拍执法、get 读径无闸）',
     tier: 'stable',
   },
   {
