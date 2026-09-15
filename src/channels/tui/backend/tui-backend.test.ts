@@ -104,6 +104,32 @@ describe('TuiBackend 直播呈现', () => {
     expect(io.bytes).toContain('\x1b[1m定稿标题\x1b[0m'); // markdown 渲染（H1 bold）
   });
 
+  it('流式帧字节帽超帽降档纯文本（批 10h R1 perf 护栏——streamFrameByteCap 注入面使触发路可测）', () => {
+    // 小帽注入（1 字节）：单字帧不超帽（1 > 1 假）；带 markdown 帧字节远超 1
+    // ——超帽帧本帧仍 markdown 直推（帧已落账不回改），present 后降档（弃 doc），
+    // 次帧起流式正文纯文本直推
+    const { io, backend } = makeBackend({ streamFrameByteCap: 1 });
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') }); // 1 字节不超帽
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题') });
+    expect(io.bytes).toContain('\x1b[1m标题'); // 超帽帧本帧仍 markdown（H1 bold——降档不回改已落帧）
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题\n乙') });
+    expect(io.bytes).toContain('# 标题'); // 降档纯文本：标题标记 '#' 原文在场（markdown 档会剥 # 走 bold）
+    expect(io.bytes).not.toContain('\x1b[1m'); // 零 bold——流式 markdown 直推档已降
+    // 对称面（缺省帽 256KB 生产定值不降档）：同序列次帧仍 markdown 直推——
+    // '#' 剥除 + H1 bold 在场（与降档帧互为分辨形，缺省行为不变即锁）
+    const ctl = makeBackend();
+    emit(ctl.backend, { type: 'message_start', role: 'assistant' });
+    emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
+    ctl.io.bytes = '';
+    emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题') });
+    emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题\n乙') });
+    expect(ctl.io.bytes).not.toContain('# 标题'); // '#' 被剥（H1 无标记原文）
+    expect(ctl.io.bytes).toContain('\x1b[1m标题'); // markdown 直推档（H1 bold）
+  });
+
   it('聚焦 user 消息：> 前缀行', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'message_end', message: { role: 'user', content: '帮我看下', timestamp: 1 } });

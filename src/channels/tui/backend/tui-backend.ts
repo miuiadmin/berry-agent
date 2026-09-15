@@ -148,6 +148,13 @@ export interface TuiBackendOptions {
    * （状态行旧形零扰动——确定性测试基线）。
    */
   readonly footer?: { readonly cwdLabel?: string; readonly modelLabel?: string };
+  /**
+   * 流式帧字节帽（批 10h R1 perf 护栏）：缺省 STREAM_FRAME_BYTE_CAP 定值
+   * 256KB（只拦病理性整档重排——常态帧为视口量级）。注入面 = 测试语义
+   * （生产帽量级下「超帽降档纯文本」触发路径结构性不可测——小帽注入使
+   * 降档路可证；缺省行为不变）。
+   */
+  readonly streamFrameByteCap?: number;
 }
 
 /** 主屏形进屏模式串：粘贴开 + kitty 推栈（disambiguate 最小位）+ 探测哨兵（无光标藏无 1049——与 Engine 全屏形分立） */
@@ -365,6 +372,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** footer 常驻段标签（R6 批 10k——cwd 短名/模型名；会话短 id 段随切焦联动） */
   private readonly footerCwd: string | undefined;
   private readonly footerModel: string | undefined;
+  /** 流式帧字节帽（选项注入面——缺省 STREAM_FRAME_BYTE_CAP 生产定值 256KB） */
+  private readonly streamFrameByteCap: number;
 
   constructor(io: TerminalIO, options: TuiBackendOptions = {}) {
     this.io = io;
@@ -379,6 +388,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.now = options.now ?? Date.now;
     this.minFrameMs = 1000 / (options.fpsCap ?? DEFAULT_FPS_CAP);
     this.escapeWindowMs = options.escapeWindowMs ?? DEFAULT_ESCAPE_WINDOW_MS;
+    // 流式帧字节帽：注入面（测试小帽证降档路）缺席 = 生产定值 256KB
+    this.streamFrameByteCap = options.streamFrameByteCap ?? STREAM_FRAME_BYTE_CAP;
     // 件 7：title 基线（version 注入缺席 = 裸名）；外显件复用本件调度注入
     // （schedule 缺席 = 保活缺位——同步测试语义，与渲染合并同构）
     this.titleBaseline = options.version ? `berry-agent ${options.version}` : 'berry-agent'; // 空串同缺席归裸名（无尾随空格脏基线）
@@ -1185,7 +1196,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         this.screen.present(op.blocks, op.offset);
         // 流式帧字节帽（批 10h R1 perf 护栏）：冻结编舞下常态帧为视口量级，
         // 超帽即病理性重排（巨表/超长开栏）——降档纯文本直推，下条消息重试
-        if (this.screen.lastSlotFrameBytes > STREAM_FRAME_BYTE_CAP) this.transcript.setStreamingPlain();
+        //（帽值经选项注入面可测——缺省生产定值，见 streamFrameByteCap）
+        if (this.screen.lastSlotFrameBytes > this.streamFrameByteCap) this.transcript.setStreamingPlain();
         // 关槽帧补吐槽期缓冲瞬时行（到达序保持——定稿块之后）
         if (frameBlocks.at(-1)?.kind !== 'streaming') this.drainSlotTransients();
       } else {
