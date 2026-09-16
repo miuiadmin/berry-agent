@@ -8,6 +8,10 @@
  * 注入/审批挂起通知归 11f；批 12 host 装配根消费。
  */
 export type {
+  AuthRefreshNotice,
+  AuthRefreshOutcome,
+  AuthRefreshSeam,
+  AuthRefreshUnavailableReason,
   ContextTransformInput,
   ConversationDriverOptions,
   ExecToolService,

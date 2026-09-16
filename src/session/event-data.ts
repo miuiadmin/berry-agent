@@ -122,6 +122,6 @@ export interface LlmRetryData {
   readonly errorMessage?: string;
   /** 重试决策者（批 E——agent_request_error 钩子落账面）：transient 腿（宿主判桶）落 'host'、钩子 retry 腿落 'hook'；overflow 腿不落；缺席只属批 E 前旧档会话，读面宽容 */
   readonly decidedBy?: 'host' | 'hook';
-  /** 重试类目：transient（瞬时错）/ overflow（溢出兜底复用本词作遮蔽信封）/ hook（钩子 retry 腿——救回 non-retryable/quota 桶时不误读 transient 缺省形）/ hook-stop（钩子 stop 终止——非达帽形）；缺省 transient 旧日志读侧同视 */
-  readonly reason?: 'transient' | 'overflow' | 'hook' | 'hook-stop';
+  /** 重试类目：transient（瞬时错）/ overflow（溢出兜底复用本词作遮蔽信封）/ hook（钩子 retry 腿——救回 non-retryable/quota 桶时不误读 transient 缺省形）/ hook-stop（钩子 stop 终止——非达帽形）/ auth-refresh（宿主凭证刷新联动腿的刷新重试——04 §3.3 条 8，B3 批；刷新失败/不可行不落本词——无重试行为发生）；缺省 transient 旧日志读侧同视 */
+  readonly reason?: 'transient' | 'overflow' | 'hook' | 'hook-stop' | 'auth-refresh';
 }

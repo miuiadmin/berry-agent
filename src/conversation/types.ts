@@ -48,6 +48,74 @@ export const DEFAULT_RETRY_POLICY: Readonly<RetryPolicyConfig> = {
 };
 
 /**
+ * refreshNow 不可行四形（04 §3.3 条 8 fail-closed 语义——四形一律不刷新
+ * 不重试，维持 non-retryable 终态 + notify 产品级指路）。
+ */
+export type AuthRefreshUnavailableReason =
+  /** env 静态 key 在场（host 域 env 优先律胜出——静态值无刷新面） */
+  | 'env-static'
+  /** 绑定行缺席（该 provider 无 modelProvider 绑定行——供血面不存在） */
+  | 'binding-absent'
+  /** 行无刷新面（行无 refreshName、有 refreshName 无 expiresAt〔N5 定形——无期限行不归链管〕、或对应 oauth 流未注册——无强刷对象） */
+  | 'no-refresh-face'
+  /** expired 告示位在案（三振收敛后授权态坏——重发起授权流是唯一出路） */
+  | 'expired';
+
+/**
+ * refreshNow 结局判别联合（03 §10.9 targeted 强刷位的返回形）：三态分明——
+ * 成功（联动腿续入重试）/ 不可行（未发起刷新——四形 fail-closed 见
+ * {@link AuthRefreshUnavailableReason}）/ 已发起但失败（三振账在链侧共账，
+ * 保留上次有效值律不破）。联动腿对非 'refreshed' 结局一律维持
+ * non-retryable 终态、不落 llm/retry（无重试行为发生——04 §3.3 条 8）。
+ */
+export type AuthRefreshOutcome =
+  /** 刷新成功（rotate 落位——联动腿续入重试，与 transient 腿同编舞） */
+  | { readonly status: 'refreshed' }
+  /** 不可行（未发起刷新——reason 见 AuthRefreshUnavailableReason 四形） */
+  | { readonly status: 'unavailable'; readonly reason: AuthRefreshUnavailableReason }
+  /** 刷新已发起但失败（上游错误文本可选随行——notify 文案附注供源） */
+  | { readonly status: 'failed'; readonly errorMessage?: string };
+
+/** notify 告警载荷（非成功结局的指路告警——provider 归因 + 结局分面供文案铸造） */
+export interface AuthRefreshNotice {
+  /** 归因 provider（refreshNow 同参——文案指路的凭证途径定位位） */
+  readonly provider: string;
+  /** 非成功结局（告警面只罩 unavailable/failed 两态——成功不告警） */
+  readonly outcome: Extract<AuthRefreshOutcome, { status: 'unavailable' | 'failed' }>;
+}
+
+/**
+ * 宿主凭证刷新联动腿 seam（04 §3.3 条 8——B3 批 contract-first：本面只钉
+ * 结构形状，编舞实现随落码批）。三面经 host 装配根闭包注入（classifyError
+ * 注入 04 §3.5 消费通路同族）——conversation 不 import llm/credentials
+ * （02 §4.1 边表不破，本面是纯结构类型；RunSlotGate 同形住本文件不进
+ * 公开面）。
+ */
+export interface AuthRefreshSeam {
+  /**
+   * auth 族判定位（04 §3.5 分面加判注——独立纯函数 authFamily，与
+   * classifyError 四桶分面分立、auth 桶语义仍 non-retryable）：message 文案
+   * + errorCode 两判位（errorCode 在场码优先——LLM_AUTH_INVALID 即判中；
+   * 文案位 AUTH_TEXT_PATTERN 同源复用）。唯一消费位 = 联动腿判据。
+   */
+  authFamily(message: string, errorCode?: string): boolean;
+  /**
+   * targeted 强刷执行（03 §10.9 refreshNow 条款）：参数携 provider 归因
+   * （provider→绑定行解析单源在 credentials 件——本面只传归因不传值）；
+   * per-flow 单飞（在飞并发窗与挂钟 tick 多路合流恰发一次 refresh POST
+   * ——RFC 6749 §6 refresh token 单次使用互废防护）；三振账与链共账。
+   */
+  refreshNow(provider: string): Promise<AuthRefreshOutcome>;
+  /**
+   * 产品级告警面（04 §3.3 条 8——fail-closed 四形与刷新失败形的指路
+   * notify）：diagnoseProviderFailure auth hint 同族文案铸造归装配位闭包
+   * （本面只递归因与结局）；notify 转换位律防刷屏归装配位（驱动只在非
+   * 'refreshed' 结局调用——成功不告警）。
+   */
+  notify(notice: AuthRefreshNotice): void;
+}
+
+/**
  * ConversationDriver 构造面。字段按「直接依赖（边表内件）」与「装配注入面
  * （跨边件，host 装配根闭包注入）」两组排列；可缺席注入的都在缺席侧定义
  * 保守行为（缺什么都不炸对话本体——降级语义见各字段 JSDoc）。
@@ -133,6 +201,14 @@ export interface ConversationDriverOptions {
    * import compaction）；缺席 = 溢出直接终态（05 §2.3 门三道第三道装配面）。
    */
   readonly compactForOverflow?: (log: SessionLog) => Promise<'compacted' | 'nothing' | 'failed'>;
+  /**
+   * 宿主凭证刷新联动腿（04 §3.3 条 8——B3 批）：authFamily 判定 +
+   * refreshNow 强刷 + notify 告警三面注入（host 装配根闭包——classifyError
+   * 注入同族；conversation 零 llm/credentials import，02 §4.1 边表不破）。
+   * **缺席 = 联动腿整体短路**（既有三腿行为逐字节不变——渐进增强零破口，
+   * 与 classifyError 缺席保守律同向：装配残缺不放大重试面）。
+   */
+  readonly authRefresh?: AuthRefreshSeam;
   /**
    * 环境披露段（04 §11 装配注入条款）：五件组装为单一文本块供给，驱动在
    * transformContext 最后关口追加；返回 null / 缺席 = 无披露段（零强求）。
@@ -334,7 +410,8 @@ export const AGENT_REQUEST_ERROR_EVENT = 'agent_request_error';
  * classifyError 判得值（注入缺席 = 'non-retryable' 保守）；attempt = 已耗
  * transient 重试数（首次 error settle = 0）、maxAttempts = retry.maxRetries。
  * 决策字段 = 输出可选平键：handler 置 decision 即表态（瀑布串行后位覆盖
- * 前位）；不设 = 不表态放行下游。
+ * 前位）；不设 = 不表态放行下游。归因位 provider/model = assistant 实录
+ * 预填（B3 批裁决六——在场才带，见各字段位）。
  */
 export interface AgentRequestErrorInput {
   /** 目标会话（插件绑会话判据位） */
@@ -343,6 +420,12 @@ export interface AgentRequestErrorInput {
   readonly errorMessage?: string;
   /** 结构化错误码（LLM_ 码族——AssistantMessage.errorCode 数据面） */
   readonly errorCode?: string;
+  /**
+   * provider 归因（B3 批裁决六）：assistant 实录位在场才带（FX-4「缺席不带」
+   * 同形——05 §1.1 assistant/message 响应实录位同源）；插件由此可自行 map
+   * 自家凭证走钩子腿救回，不靠 errorMessage 文案脆弱匹配。
+   */
+  readonly provider?: string;
   /** 错误 assistant 的 stopReason */
   readonly stopReason: string;
   /** classifyError 判得桶（04 §3.5 四桶） */
@@ -353,7 +436,15 @@ export interface AgentRequestErrorInput {
   readonly maxAttempts: number;
   /** 决策位：'retry'（重试续入——不限 transient 桶但 attempt 并 transient 分账）/ 'stop'（终止）；不设 = 不表态 */
   decision?: 'retry' | 'stop';
-  /** decision 'retry' 伴生：非空串生效——重试起新流换模型（非法模型名由下一次流 fail-loud 自证，attempt 帽兜底） */
+  /**
+   * 同键双职（B3 批裁决六扩形——既有决策伴生语义维持）：**入侧归因预填**
+   * （驱动预填 assistant 实录 model，在场才带——FX-4「缺席不带」同形，与
+   * provider 位成对）；**出侧决策伴生**：decision 'retry' 伴生——非空串
+   * 生效，重试起新流换模型（非法模型名由下一次流 fail-loud 自证，attempt
+   * 帽兜底）。判别律：handler 未覆写（值 === 驱动预填值）时按无 model
+   * 决策消费——重试沿用原模型，预填值不是决策（消费位以预填快照对比执法，
+   * 归落码批）。
+   */
   model?: string;
 }
 
