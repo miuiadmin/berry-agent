@@ -35,6 +35,9 @@ import {
   AGENT_REQUEST_ERROR_EVENT,
 } from './types.js';
 import type {
+  AuthRefreshNotice,
+  AuthRefreshOutcome,
+  AuthRefreshSeam,
   ContextTransformInput,
   SessionLifecycleEvent,
   PreStepInput,
@@ -2163,5 +2166,331 @@ describe('ConversationDriver agent_request_error 钩子', () => {
     expect(scheduled).toHaveLength(1);
     expect(scheduled[0]).toMatchObject({ reason: 'overflow' });
     expect((scheduled[0] as { decidedBy?: string }).decidedBy).toBeUndefined();
+  });
+});
+
+describe('ConversationDriver 宿主凭证刷新联动腿（04 §3.3 条 8——B3 批）', () => {
+  /**
+   * seam 结构桩（注入位即被测层——任务面明示合法）：三面全可观察
+   * （refreshCalls 记 provider 归因、notices 记告警载荷）；authFamily 判据
+   * 默认取「401 词面或 LLM_AUTH_INVALID 码」的判中面（authFamily 纯函数的
+   * 单元真身在 recovery.test.ts——此处不 import llm，保持 conversation 件界）。
+   */
+  function refreshSeam(options?: { outcome?: AuthRefreshOutcome; authFamily?: AuthRefreshSeam['authFamily'] }): {
+    seam: AuthRefreshSeam;
+    refreshCalls: string[];
+    notices: AuthRefreshNotice[];
+  } {
+    const refreshCalls: string[] = [];
+    const notices: AuthRefreshNotice[] = [];
+    const seam: AuthRefreshSeam = {
+      authFamily:
+        options?.authFamily ??
+        ((message: string, errorCode?: string) => errorCode === 'LLM_AUTH_INVALID' || message.includes('401')),
+      refreshNow: async (provider: string) => {
+        refreshCalls.push(provider);
+        return options?.outcome ?? { status: 'refreshed' };
+      },
+      notify: (notice: AuthRefreshNotice) => {
+        notices.push(notice);
+      },
+    };
+    return { seam, refreshCalls, notices };
+  }
+
+  /** 401 错误终值（实录位携 provider/model——联动腿归因与钩子预填的判据位） */
+  function authError(): AssistantMessage {
+    return assistant({
+      stopReason: 'error',
+      errorMessage: 'Request failed with status 401 Unauthorized',
+      errorCode: 'LLM_AUTH_INVALID',
+      provider: 'live',
+      model: 'probe-1',
+    });
+  }
+
+  /** 挂钩 dispatch 构造（agent_request_error describe 同形——此处 B3 块内自持） */
+  function hookedDispatch(decide: (input: AgentRequestErrorInput) => Partial<AgentRequestErrorInput> | undefined): {
+    dispatch: EventDispatch;
+    received: AgentRequestErrorInput[];
+  } {
+    const dispatch = new EventDispatch();
+    const received: AgentRequestErrorInput[] = [];
+    dispatch.registerEventNames([AGENT_REQUEST_ERROR_EVENT]);
+    dispatch.onWaterfall<AgentRequestErrorInput>(AGENT_REQUEST_ERROR_EVENT, (payload, next) => {
+      received.push(payload);
+      return next({ ...payload, ...decide(payload) });
+    });
+    return { dispatch, received };
+  }
+
+  it('全链（§五.2）：首流 401 → authFamily 判中 → refreshNow 成功 → 续入重试 → llm/retry reason auth-refresh + decidedBy host', async () => {
+    const { seam, refreshCalls, notices } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      scripts: [authError(), assistant({ content: [{ type: 'text', text: '刷新后好了' }] })],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed');
+    // provider 归因携带（AssistantMessage.provider 实录位 → refreshNow 同参）
+    expect(refreshCalls).toEqual(['live']);
+    // 落账面：scheduled 随 occlusion 信封——reason 'auth-refresh' + decidedBy 'host'
+    const scheduled = dataOf(driver, 'llm/retry').find((d) => (d as { phase: string }).phase === 'scheduled');
+    expect(scheduled).toMatchObject({
+      attempt: 1,
+      maxAttempts: 3,
+      phase: 'scheduled',
+      reason: 'auth-refresh',
+      decidedBy: 'host',
+    });
+    // 成功不告警 + 续入即新流（两代 header；首错误流被遮蔽——投影只剩成功 assistant）
+    expect(notices).toHaveLength(0);
+    expect(dataOf(driver, 'request/header')).toHaveLength(2);
+    expect(driver.session.projection().map((m) => m.type)).toEqual(['user', 'assistant']);
+  });
+
+  it('1/1 独立分账（§五.3）：刷新重试后再 401 → 不再刷新、终态 failed（exhausted reason auth-refresh attempt=1）', async () => {
+    const { seam, refreshCalls } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      scripts: [authError(), authError()],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    // 每 runTurns 恰一次刷新重试：第二回 401 不再 refreshNow（1/1 封死）
+    expect(refreshCalls).toEqual(['live']);
+    const retries = dataOf(driver, 'llm/retry');
+    expect(retries).toHaveLength(2); // scheduled ×1 + exhausted ×1——零 transient 分账混入
+    const exhausted = retries.find((d) => (d as { phase: string }).phase === 'exhausted');
+    // M3 定形：exhausted reason 显式 'auth-refresh'（attempt=1 照实、maxAttempts 报
+    // retry.maxRetries——overflow 腿报值先例）
+    expect(exhausted).toMatchObject({
+      attempt: 1,
+      maxAttempts: 3,
+      phase: 'exhausted',
+      reason: 'auth-refresh',
+    });
+  });
+
+  it('跨 runTurns 重获 1/1（§五.3 附面）：第二 run 再 401 → 再刷新再续入（token 可再被撤销）', async () => {
+    const { seam, refreshCalls } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      scripts: [authError(), authError(), authError(), assistant({ content: [{ type: 'text', text: '好了' }] })],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      authRefresh: seam,
+    });
+    const first = await driver.submit('q1');
+    expect(first.status).toBe('failed'); // 首 run：刷新重试后再 401 达 1/1 帽
+    const second = await driver.submit('q2');
+    expect(second.status).toBe('completed'); // 次 run：1/1 重获、刷新后成功
+    expect(refreshCalls).toEqual(['live', 'live']);
+  });
+
+  it('fail-closed 不可行四形（§五.4）：seam 表达 unavailable → 不刷新不重试零 llm/retry + notify 恰一次携归因与结局', async () => {
+    const reasons = ['env-static', 'binding-absent', 'no-refresh-face', 'expired'] as const;
+    for (const reason of reasons) {
+      const { seam, refreshCalls, notices } = refreshSeam({ outcome: { status: 'unavailable', reason } });
+      const { driver } = makeDriver({
+        scripts: [authError()],
+        classifyError: () => 'non-retryable',
+        retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+        authRefresh: seam,
+      });
+      const result = await driver.submit('q');
+      // 维持 non-retryable 终态 + 「quota/auth 零重试零事件」律维持
+      expect(result.status).toBe('failed');
+      expect(types(driver)).not.toContain('llm/retry');
+      // seam 被咨询（不可行由返回形表达——判据②供血面可行性单源在装配位）
+      expect(refreshCalls).toEqual(['live']);
+      // notify 恰一次（转换位去重归装配位闭包——驱动只在非 refreshed 结局调用）
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toMatchObject({ provider: 'live', outcome: { status: 'unavailable', reason } });
+    }
+  });
+
+  it('fail-closed 刷新失败形（§五.4）：refreshNow 返回 failed → 不落 llm/retry + notify 恰一次 + 终态 failed', async () => {
+    const { seam, refreshCalls, notices } = refreshSeam({
+      outcome: { status: 'failed', errorMessage: 'refresh POST failed upstream' },
+    });
+    const { driver } = makeDriver({
+      scripts: [authError()],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    // 无重试行为发生 → 不落 llm/retry（durable 痕 = 链侧 failures 计数 + 三振 notify）
+    expect(types(driver)).not.toContain('llm/retry');
+    expect(refreshCalls).toEqual(['live']);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ provider: 'live', outcome: { status: 'failed' } });
+  });
+
+  it('判据③ retry.enabled 总闸（条 7 F5 同律）：enabled=false → 联动腿整体不动作零 notify（可见性由错误文本 durable 承载）', async () => {
+    const { seam, refreshCalls, notices } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      scripts: [authError()],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: false, maxRetries: 3, baseDelayMs: 1 },
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    expect(refreshCalls).toHaveLength(0); // 总闸拦在 refreshNow 之前（判据③）
+    expect(notices).toHaveLength(0); // N3：enabled 形不发 notify
+    expect(types(driver)).not.toContain('llm/retry');
+  });
+
+  it('钩子优先序 retry 形（§五.6）：钩子 decision retry 在场 → 宿主腿不叠动作（零 refreshNow）+ attempt 并 transient 分账回归', async () => {
+    const { dispatch, received } = hookedDispatch(() => ({ decision: 'retry' }));
+    const { seam, refreshCalls } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      scripts: [authError(), assistant({ content: [{ type: 'text', text: '钩子救回' }] })],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch,
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed');
+    // 宿主腿不叠动作：钩子已表态即插件表达域优先
+    expect(refreshCalls).toHaveLength(0);
+    // 既有律回归：钩子腿落 hook（attempt 并 transient 分账）
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ attempt: 0 });
+    const scheduled = dataOf(driver, 'llm/retry').find((d) => (d as { phase: string }).phase === 'scheduled');
+    expect(scheduled).toMatchObject({ attempt: 1, reason: 'hook', decidedBy: 'hook' });
+  });
+
+  it('钩子优先序 stop 形（N6 回归完整性）：钩子 stop → 不刷新不重试 + exhausted hook-stop 既有收口', async () => {
+    const { dispatch } = hookedDispatch(() => ({ decision: 'stop' }));
+    const { seam, refreshCalls, notices } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      scripts: [authError()],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch,
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    expect(refreshCalls).toHaveLength(0);
+    expect(notices).toHaveLength(0);
+    const retries = dataOf(driver, 'llm/retry');
+    expect(retries).toHaveLength(1);
+    expect(retries[0]).toMatchObject({ phase: 'exhausted', reason: 'hook-stop', attempt: 0 });
+  });
+
+  it('钩子表态落空形（M2 定形）：钩子恒 retry 而 transient 帽满 → 落空视同已表态、宿主腿仍不叠动作（exhausted hook 既有收口）', async () => {
+    const { dispatch } = hookedDispatch(() => ({ decision: 'retry' }));
+    const { seam, refreshCalls } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      scripts: [authError(), authError(), authError()],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 },
+      dispatch,
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    // 落空形不越帽接管刷新续入（钩子语境已达重试帽）
+    expect(refreshCalls).toHaveLength(0);
+    const exhausted = dataOf(driver, 'llm/retry').find((d) => (d as { phase: string }).phase === 'exhausted');
+    expect(exhausted).toMatchObject({ attempt: 2, maxAttempts: 2, reason: 'hook', decidedBy: 'hook' });
+  });
+
+  it('authFamily 不判中（判据①）：非 auth 错误 seam 在场也不触发（分面判据先于供血咨询）', async () => {
+    const { seam, refreshCalls, notices } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      scripts: [assistant({ stopReason: 'error', errorMessage: 'hard param rejected', provider: 'live' })],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    expect(refreshCalls).toHaveLength(0); // 判据①先于 refreshNow——非 auth 族零咨询零告警
+    expect(notices).toHaveLength(0);
+    expect(types(driver)).not.toContain('llm/retry');
+  });
+
+  it('归因缺席形：assistant 实录 provider 缺席 → 无归因不可强刷（fail-closed 跳过——终态照旧零事件）', async () => {
+    const { seam, refreshCalls, notices } = refreshSeam({ outcome: { status: 'refreshed' } });
+    const { driver } = makeDriver({
+      // 401 语义在场但实录 provider 缺席（FX-4 缺席不带同形——无归因即无刷新对象）
+      scripts: [assistant({ stopReason: 'error', errorMessage: '401 unauthorized', errorCode: 'LLM_AUTH_INVALID' })],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      authRefresh: seam,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    expect(refreshCalls).toHaveLength(0);
+    expect(notices).toHaveLength(0); // 无归因连 notify 载荷都铸不出——不告警不重试
+    expect(types(driver)).not.toContain('llm/retry');
+  });
+
+  it('零监听回归锁（§五.8）：authRefresh 缺席 → 既有 non-retryable 终态逐字节不变（对拍既有 quota/auth 落账形状）', async () => {
+    // 不注入 authRefresh（生产缺席形）——与 quota 桶测试同形状断言面
+    const { driver } = makeDriver({
+      scripts: [authError()],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    expect(types(driver)).not.toContain('llm/retry');
+    expect(driver.session.projection().map((m) => m.type)).toEqual(['user', 'assistant']);
+  });
+
+  it('钩子载荷归因预填（裁决六）：assistant 实录 provider/model 在场才带（FX-4「缺席不带」同形）', async () => {
+    // 在场形：实录位随载荷（插件可自行 map 自家凭证走钩子腿救回）
+    const withAttribution = hookedDispatch(() => undefined);
+    const { driver: d1 } = makeDriver({
+      scripts: [authError()],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch: withAttribution.dispatch,
+    });
+    await d1.submit('q');
+    expect(withAttribution.received).toHaveLength(1);
+    expect(withAttribution.received[0]).toMatchObject({ provider: 'live', model: 'probe-1' });
+    // 缺席形：实录位不带（键缺席非空串）
+    const bare = hookedDispatch(() => undefined);
+    const { driver: d2 } = makeDriver({
+      scripts: [assistant({ stopReason: 'error', errorMessage: '401 unauthorized' })],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch: bare.dispatch,
+    });
+    await d2.submit('q');
+    expect(bare.received).toHaveLength(1);
+    expect(bare.received[0]!.provider).toBeUndefined();
+    expect(bare.received[0]!.model).toBeUndefined();
+  });
+
+  it('同键双职判别律（M1）：handler 未覆写 model（值===预填快照）→ 按无 model 决策消费、重试沿用原模型', async () => {
+    // 钩子只表态 retry 不触 model——载荷回传值逐字等于预填裸 id 'probe-1'
+    // （provider 内模型 id，与 runModelValue 全形 'provider/model' 不同域）
+    const { dispatch } = hookedDispatch(() => ({ decision: 'retry' }));
+    const { driver } = makeDriver({
+      scripts: [authError(), assistant({ content: [{ type: 'text', text: '救回' }] })],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed');
+    const headers = dataOf(driver, 'request/header');
+    expect(headers).toHaveLength(2);
+    // 修前红锚：预填裸 id 被误消费为换模型决策 → 续入流 header.model='probe-1'
+    // （裸 id 进 resolveModel fail-loud 白烧 attempt）；修后判别律按无 model 消费
+    expect((headers[1] as { config: { model: string } }).config.model).toBe('test/model');
   });
 });

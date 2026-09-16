@@ -34,6 +34,12 @@
  * 落账：host 腿 decidedBy 'host'、钩子腿 'hook'（reason 'hook'）——审计面
  * 「这次重试是谁决定的」；钩子 stop 落 exhausted reason 'hook-stop'（attempt
  * 照实可 0）。
+ * 宿主凭证刷新联动腿（04 §3.3 条 8——B3 批）：overflow 腿之后、终态块之前
+ * 的第四腿——钩子未表态 × retry.enabled × authFamily 判中（seam 注入）
+ * × provider 归因在场四判齐 → refreshNow 强刷；成功续入与 transient 腿同
+ * 编舞（reason 'auth-refresh' + decidedBy 'host' + 退避单源复用）；1/1
+ * 独立分账（跨 runTurns 重获）；非成功结局不重试不落 llm/retry + notify
+ * 指路（转换位去重归装配位）。seam 缺席 = 整腿短路零行为变。
  * 溢出兜底（04 §3.4）：遮蔽（llm/retry reason=overflow 复用遮蔽信封）→
  * compactForOverflow → compacted 则重播种续入；名额 1/1 独立分账；注入缺席 =
  * 溢出直接终态（05 §2.3 门三道第三道的装配面兑现）。
@@ -532,10 +538,16 @@ export class ConversationDriver {
     attempt: number,
     maxAttempts: number,
   ): Promise<{ action: 'retry'; model?: string } | { action: 'stop' } | undefined> {
+    // 归因预填（裁决六）：assistant 实录位在场才带（FX-4「缺席不带」同形）
+    // ——provider 供插件 map 自家凭证；model 是「入侧归因预填」非决策（同键
+    // 双职——消费判别律见下方快照对比，03 §2.5 B3 注）
+    const prefilledModel = assistant.model;
     const input: AgentRequestErrorInput = {
       sessionId: this.session.sessionId,
       ...(assistant.errorMessage !== undefined ? { errorMessage: assistant.errorMessage } : {}),
       ...(assistant.errorCode !== undefined ? { errorCode: assistant.errorCode } : {}),
+      ...(assistant.provider !== undefined ? { provider: assistant.provider } : {}),
+      ...(prefilledModel !== undefined ? { model: prefilledModel } : {}),
       stopReason: assistant.stopReason,
       bucket,
       attempt,
@@ -554,8 +566,13 @@ export class ConversationDriver {
     if (out.decision === 'retry') {
       // 裁决六：model 只做非空串校验——无效伴生键 warn 后按无 model 形重试
       // （decision 本身仍有效；非法模型名由下一流 fail-loud 自证，attempt 帽兜底）
-      const model = typeof out.model === 'string' && out.model !== '' ? out.model : undefined;
-      if (out.model !== undefined && model === undefined) {
+      // B3 同键双职判别律（03 §2.5 / 04 §3.3 条 7 修笔 M1）：model 位还有入侧
+      // 归因预填一职——handler 未覆写（值 === 驱动预填快照）按无 model 决策
+      // 消费（重试沿用原模型；预填值是裸 provider 内模型 id，误当决策全形
+      // 'provider/model' 消费会 resolveModel fail-loud 白烧 attempt）
+      const untouched = out.model === prefilledModel;
+      const model = !untouched && typeof out.model === 'string' && out.model !== '' ? out.model : undefined;
+      if (!untouched && out.model !== undefined && model === undefined) {
         this.warnFace('agent_request_error 钩子 model 伴生键无效（非非空串）——按无 model 形重试');
       }
       return { action: 'retry', ...(model !== undefined ? { model } : {}) };
@@ -883,6 +900,10 @@ export class ConversationDriver {
     const retry = this.options.retry ?? DEFAULT_RETRY_POLICY;
     let transientAttempt = 0;
     let overflowAttempt = 0;
+    // auth 刷新重试 1/1 独立分账（04 §3.3 条 8——overflow 腿同形）：不占
+    // transient 名额、不被 transient 占；跨 runTurns 重获（计数生命周期 =
+    // 本调用——token 可再被撤销，且刷新侧三振账持续收敛）
+    let authRefreshAttempt = 0;
     /** 终态结算值（finally 面的消费位——onRunSettled 订阅回调载荷） */
     let settled: RunResult | undefined;
     try {
@@ -965,7 +986,66 @@ export class ConversationDriver {
               this.appendExhausted('overflow', overflowAttempt, retry.maxRetries, outcome);
               break;
             }
-            // —— 达帽 / 不可重试：只在确有重试账面时落 exhausted（quota/auth 零重试零事件）——
+            // —— 宿主凭证刷新联动腿（04 §3.3 条 8——B3 批裁决一/五/七）：插
+            //    overflow 腿之后、达帽/终态块之前（auth 通常 non-retryable 桶
+            //    → transient/overflow 两腿自然跳过；腿序 = 钩子 → 宿主刷新 →
+            //    终态）。判据四面：seam 注入在场（缺席 = 整腿短路零行为变）
+            //    × retry.enabled 总闸（批 E F5 同律——用户显式禁重试不被任何
+            //    自动重试腿绕过）× 钩子未表态（hook === undefined——钩子已
+            //    表态 retry/stop 则宿主腿不叠动作；M2 落空形〔钩子 retry 且
+            //    transient 帽满〕同视同已表态走条 7 既有 exhausted 'hook'
+            //    收口；钩子管线失败返回 undefined 失联不丢自愈力）×
+            //    authFamily 判中 + provider 归因在场（实录位缺席无法定位
+            //    刷新对象——fail-closed 跳过）。1/1 分账帽在判据内 ——
+            const seam = this.options.authRefresh;
+            if (
+              seam !== undefined &&
+              retry.enabled &&
+              hook === undefined &&
+              authRefreshAttempt < 1 &&
+              assistant.provider !== undefined &&
+              seam.authFamily(errorTextOf(assistant), assistant.errorCode)
+            ) {
+              const provider = assistant.provider;
+              const outcome = await seam.refreshNow(provider);
+              if (outcome.status === 'refreshed') {
+                // 刷新成功：续入重试——与 transient 腿同编舞（裁决七）：
+                // 遮蔽 + 退避单源复用（不开放 backoff 改写）+ 重播种 + 起新流
+                authRefreshAttempt += 1;
+                const delayMs = retryDelay(retry, authRefreshAttempt);
+                this.occludeFailedTail('auth-refresh', authRefreshAttempt, retry.maxRetries, delayMs, 'host');
+                this.context.messages = this.reseededTimeline();
+                // 重试探针窗开（04 §3.3 seam——退避等待期可见）
+                this.retryProbeValue = {
+                  attempt: authRefreshAttempt,
+                  maxAttempts: retry.maxRetries,
+                  nextAt: Date.now() + delayMs,
+                };
+                if (!(await abortableSleep(delayMs, controller.signal))) {
+                  // 退避中被取消：phase=aborted 落账（reason 'auth-refresh' ——
+                  // 审计面区分中断归属腿）；run 终态保持已结算的 failed
+                  this.session.append('llm/retry', {
+                    attempt: authRefreshAttempt,
+                    maxAttempts: retry.maxRetries,
+                    delayMs,
+                    phase: 'aborted',
+                    reason: 'auth-refresh',
+                    decidedBy: 'host',
+                  });
+                  break;
+                }
+                // 窗关：续入即新流（供血面逐请求现取——刷新后新值结构性到位）
+                this.retryProbeValue = undefined;
+                result = await this.enterRun([], controller.signal);
+                continue;
+              }
+              // 非 refreshed 结局一律不重试不落 llm/retry（「quota/auth 零重试
+              // 零事件」律——无重试行为发生；durable 痕在链侧行内 failures
+              // 计数与 credentials/changed 词）+ notify 产品级指路（fail-closed
+              // 响亮非静默空转；M4 转换位去重归装配位闭包——驱动只递归因结局）
+              seam.notify({ provider, outcome });
+            }
+            // —— 达帽 / 不可重试：只在确有重试账面时落 exhausted (quota/auth 零重试零事件)——
             if (bucket === 'transient' && transientAttempt > 0) {
               this.appendExhausted(
                 'transient',
@@ -987,6 +1067,19 @@ export class ConversationDriver {
                 'exhausted',
                 assistant.errorMessage,
                 'hook',
+              );
+            } else if (authRefreshAttempt > 0) {
+              // 刷新重试后再 401（1/1 已耗）：刷新腿燃尽收口——reason 显式
+              // 'auth-refresh' + attempt 照实 1 + maxAttempts 报 retry.maxRetries
+              // （overflow 腿先例——M3 修笔定形）；decidedBy 'host'（刷新腿恒
+              // 宿主决策，与钩子腿两相落账同构）
+              this.appendExhausted(
+                'auth-refresh',
+                authRefreshAttempt,
+                retry.maxRetries,
+                'exhausted',
+                assistant.errorMessage,
+                'host',
               );
             }
           }
@@ -1125,7 +1218,7 @@ export class ConversationDriver {
    * fail-loud 上抛（正门即执法位——05 §2.4 retry 区间合法规约）。
    */
   private occludeFailedTail(
-    reason: 'transient' | 'overflow' | 'hook',
+    reason: 'transient' | 'overflow' | 'hook' | 'auth-refresh',
     attempt: number,
     maxAttempts: number,
     delayMs: number,
@@ -1163,12 +1256,14 @@ export class ConversationDriver {
 
   /**
    * exhausted 落账（达帽放弃——errorMessage 随行；delayMs=0：无实退避发生）。
-   * reason 四值（批 E 扩）：transient（宿主腿达帽）/ overflow（溢出腿收口）/
-   * hook（钩子腿达帽——救回 non-retryable/quota 桶燃尽）/ hook-stop（钩子
-   * stop 终止——attempt 照实可 0，非达帽形）。
+   * reason 五值（批 E 扩 'hook'/'hook-stop'、B3 扩 'auth-refresh'）：transient
+   * （宿主腿达帽）/ overflow（溢出腿收口）/ hook（钩子腿达帽——救回
+   * non-retryable/quota 桶燃尽）/ hook-stop（钩子 stop 终止——attempt 照实可
+   * 0，非达帽形）/ auth-refresh（刷新重试后再 401——1/1 已耗收口，attempt
+   * 照实 1、maxAttempts 报 retry.maxRetries〔overflow 腿先例〕，B3 批 M3）。
    */
   private appendExhausted(
-    reason: 'transient' | 'overflow' | 'hook' | 'hook-stop',
+    reason: 'transient' | 'overflow' | 'hook' | 'hook-stop' | 'auth-refresh',
     attempt: number,
     maxAttempts: number,
     outcome: string,
@@ -1218,4 +1313,16 @@ function lastErrorAssistant(messages: readonly AgentMessage[]): AssistantMessage
     return message.stopReason === 'error' ? message : undefined;
   }
   return undefined;
+}
+
+/**
+ * 错误文案取值（B3 批联动腿判据供源）：errorMessage 优先、缺席退 content
+ * 首文本块——与 llm classifyError 的 errorText 判定面同形（文案取值单源律：
+ * 同一错误经桶判定与 authFamily 分面判定读到同一文案），conversation 不可
+ * import llm 故本地镜像同形实现。
+ */
+function errorTextOf(assistant: AssistantMessage): string {
+  if (assistant.errorMessage !== undefined) return assistant.errorMessage;
+  const firstText = assistant.content.find((block) => block.type === 'text');
+  return firstText !== undefined && firstText.type === 'text' ? firstText.text : '';
 }
