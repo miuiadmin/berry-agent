@@ -3,7 +3,7 @@
  * 实装 → 承载位改注册）。
  *
  * **承载位改注册（18a-2'——03 §10.4 改形注记 + §10.6 路由扩展位段）**：
- * 件零自持 node:http 监听——mountWebui(deps) 把五撮 13 端点 + SPA fallback
+ * 件零自持 node:http 监听——mountWebui(deps) 把五撮 14 端点 + SPA fallback
  * 逐条注册进注入的注册器（sdk 面注册器结构兼容）。归面级的四块（原自持
  * 已删）：三防线（Host 白名单/Origin 硬防线——面级先行适用于一切路由，仅
  * TCP）/ token 鉴权执法（token-or-cookie 档 Bearer ∪ cookie 双通道、恒时
@@ -353,7 +353,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       .pipe(res);
   }
 
-  /* ---- 路由族注册（五撮 13 端点 + /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
+  /* ---- 路由族注册（五撮 14 端点 + /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
 
   /** API 族鉴权档（Bearer ∪ cookie 双通道——cookie 名单源） */
   const tokenOrCookie: WebuiRouteAuth = { mode: 'token-or-cookie', cookie: WEBUI_COOKIE_NAME };
@@ -430,6 +430,33 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     handler: (_req, res, ctx) => {
       const items = deps.read.todoOf?.(ctx.params.id!);
       sendJson(res, 200, { items: items ?? null }); // null = 无数据源（诚实不虚报）
+    },
+  });
+  // —— 会话族子路由：/export markdown 直出（2026-09-17 TUI 余量收官批②——
+  //    应答体 = markdown 正文直出 **不落盘**（web 面消费语义 = 浏览器/curl
+  //    直接取文；TUI /export 落盘形与 CLI 形不变）；拼装单源 = host 桥真身
+  //    注入的 exportMarkdown（renderSessionMarkdown 第三消费位）——
+  //    注入窄面缺席 = 501 诚实缺席；会话缺席 = 404 not_found 同族；已闭
+  //    会话 = 近史投影兜底照常返体（读面语义同 messages——只读腿不受闭态拦）——
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.sessionExport,
+    auth: tokenOrCookie,
+    handler: (_req, res, ctx) => {
+      // 注入窄面缺席（API-only 形——WebuiCompletionFace? 缺席诚实空同精神）
+      const exportMarkdown = deps.read.exportMarkdown;
+      if (exportMarkdown === undefined) {
+        sendError(res, 501, 'not_implemented', '会话导出面未装配（exportMarkdown 注入缺席）');
+        return;
+      }
+      const markdown = exportMarkdown(ctx.params.id!);
+      if (markdown === undefined) {
+        sendError(res, 404, 'not_found', '会话缺席');
+        return;
+      }
+      // markdown 正文直出（Content-Type 精确值钉规范位——text/markdown; charset=utf-8）
+      res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
+      res.end(markdown);
     },
   });
   add({

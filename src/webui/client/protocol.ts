@@ -26,6 +26,8 @@ export const WEBUI_ENDPOINTS = {
   sessionInterrupt: '/api/sessions/:id/interrupt',
   /** GET——todo 数据源（goal 计划态呈现投影） */
   sessionTodo: '/api/sessions/:id/todo',
+  /** GET——会话导出 markdown 直出（不落盘） */
+  sessionExport: '/api/sessions/:id/export',
   /** GET——审批清单（?sessionId= 过滤，缺省全量） */
   approvals: '/api/approvals',
   /** POST——审批应答（体 {answer, note?}——跨入口竞速回执） */

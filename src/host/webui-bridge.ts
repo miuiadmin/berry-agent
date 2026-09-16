@@ -34,11 +34,15 @@
  * submitPrompt 受理门前置（服务端已判 open——isOpen 真则驱动在册，
  * submitText 必达）；todoOf 无驱动回 undefined（服务端 `items ?? null`
  * 诚实空）。completion 面 v1 不接（诚实缺席——补全族接线挂账后续批）。
+ * exportMarkdown = renderSessionMarkdown 第三消费位（2026-09-17 TUI 余量
+ * 收官批②——exportSource seam 注入双事实源 + 行面元数据，拼装真源本件
+ * 单源；缺席 seam = 端点 501 诚实缺席）。
  */
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type { SessionEvent } from '../contracts/index.js';
 import { foldTodoTable } from '../conversation/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { SdkHttpFaceHandle } from '../sdk/index.js';
@@ -47,6 +51,8 @@ import type { WebuiDeps, WebuiMountHandle } from '../webui/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
 import { createServeBridge } from './serve-entry.js';
+import { renderSessionMarkdown } from './session-export.js';
+import type { SessionExportRowLike } from './session-export.js';
 import type { HostRuntime } from './runtime.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
 
@@ -177,6 +183,27 @@ export interface WebuiFaceMountOptions {
   readonly face: SdkHttpFaceHandle;
   /** 静态面目录覆盖（测试注入；缺省探测 dist/webui——缺席 API-only） */
   readonly staticDir?: string;
+  /**
+   * 会话导出源 seam（2026-09-17 TUI 余量收官批②——/export 端点拼装注入位）：
+   * 装配根注入双事实源取值器 + 行面元数据读（assembly webuiFaceMount 闭包
+   * 同构）；桥真身据此调 renderSessionMarkdown（拼装真源 host 单源——
+   * 第三消费位）。缺席 = exportMarkdown 键不注入（端点 501 诚实缺席——
+   * API-only 形，WebuiCompletionFace? 缺席诚实空同精神）。
+   */
+  readonly exportSource?: WebuiExportSource;
+}
+
+/**
+ * 会话导出源 seam（rowOf/eventsOf 两闭包 + 可选测试钟——shape 与 TUI /export
+ * 命令的 SessionExportCommandDeps 同族；装配根从 persistence 真源投影）。
+ */
+export interface WebuiExportSource {
+  /** 行面元数据读（SessionExportRowLike 结构子集——文档头行面投影） */
+  rowOf(sessionId: string): SessionExportRowLike | undefined;
+  /** 事件双事实源取值器（驱动活体优先〔write-behind 未 flush 也在场〕→ 库行回退 loadSession；undefined = 会话不在场 → 端点 404） */
+  eventsOf(sessionId: string): readonly SessionEvent[] | undefined;
+  /** 时钟（缺省 Date.now——测试确定性注入位） */
+  now?(): number;
 }
 
 /** 面挂载产物（共用挂载段——closer 接线归调用方） */
@@ -197,7 +224,7 @@ export interface WebuiFaceMount {
  * 接线；closer 注册与 token 披露归调用方按入口形各自编排。
  */
 export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount {
-  const deps = bridgeDeps(options.stack, options.staticDir);
+  const deps = bridgeDeps(options.stack, options.staticDir, options.exportSource);
   // 面注册器直注（WebuiRouteDescriptor → SdkRouteDescriptor 方向性结构兼容）
   const webui = mountWebui({ ...deps, register: options.face.register });
   // 通道挂接（UiBackend 第四实装 claim 桥）——12f-2c 期注记「addBackend 归
@@ -220,7 +247,7 @@ export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount
  * 桥真身：conversation 栈五动词 → WebuiDeps 三窄面（词面独立律——本侧
  * 只做映射不造新词；结构兼容由 face.register 直注与 e2e 双向互证）。
  */
-function bridgeDeps(stack: ConversationStack, staticDirOverride?: string): WebuiDeps {
+function bridgeDeps(stack: ConversationStack, staticDirOverride?: string, exportSource?: WebuiExportSource): WebuiDeps {
   return {
     sessions: {
       createSession: () => stack.manager.create().sessionId,
@@ -249,6 +276,32 @@ function bridgeDeps(stack: ConversationStack, staticDirOverride?: string): Webui
         const driver = stack.driverOf(sessionId);
         return driver === undefined ? undefined : foldTodoTable(driver.session.events());
       },
+      // /export markdown 拼装真身（2026-09-17 TUI 余量收官批②——renderSessionMarkdown
+      // 第三消费位：TUI /export 与 CLI berry sessions export 之外新增 web 直出腿；
+      // 不落盘——web 面消费语义 = 浏览器/curl 直接取文）。缺席语义双档：
+      // seam 缺席 = 键不注入（端点 501）；eventsOf undefined = 会话不在场
+      // （端点 404 not_found）。已闭会话近史兜底（loadSession 回退）在 seam
+      // 的 eventsOf 内——closed 照常返体（读面语义同 fetchMessages）。
+      ...(exportSource !== undefined
+        ? {
+            exportMarkdown: (sessionId: string): string | undefined => {
+              const events = exportSource.eventsOf(sessionId);
+              if (events === undefined) return undefined; // 会话不在场——404 归端点判
+              const row = exportSource.rowOf(sessionId);
+              return renderSessionMarkdown({
+                events,
+                meta: {
+                  sessionId,
+                  // 行面元数据缺席不造行（零事件新会话同形——title 空串视为缺席）
+                  ...(row?.title !== undefined && row.title !== '' ? { title: row.title } : {}),
+                  ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
+                  ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
+                },
+                now: exportSource.now?.() ?? Date.now(),
+              });
+            },
+          }
+        : {}),
     },
     // completion 面 v1 不接（可选面缺席合法——服务端诚实回空）
     ...(staticDirOverride !== undefined ? { staticDir: staticDirOverride } : { staticDir: resolveStaticDir() }),

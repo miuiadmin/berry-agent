@@ -22,10 +22,11 @@ import type { WebuiRouteDescriptor, WebuiRouteRegistrar } from '../webui/index.j
 import { createConversationStack } from './conversation-stack.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createServeBridge } from './serve-entry.js';
+import { renderSessionMarkdown } from './session-export.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { mountWebuiOnFace, openWebuiFace } from './webui-bridge.js';
-import type { WebuiFaceMount, WebuiMountKit } from './webui-bridge.js';
+import type { WebuiExportSource, WebuiFaceMount, WebuiMountKit } from './webui-bridge.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -71,10 +72,15 @@ function rigStack(rt: HostRuntime) {
  * 装配根同构 webui kit（批 19e——openWebuiFace 挂载改走 kit 分档；测试
  * 自组真身闭包 = assembly webuiFaceMount 同构，件在场形全覆盖）
  */
-function mountKitOf(stack: ConversationStack): WebuiMountKit {
+function mountKitOf(stack: ConversationStack, exportSource?: WebuiExportSource): WebuiMountKit {
   return {
     mountOnFace: (face, opts) =>
-      mountWebuiOnFace({ stack, face, ...(opts?.staticDir !== undefined ? { staticDir: opts.staticDir } : {}) }),
+      mountWebuiOnFace({
+        stack,
+        face,
+        ...(opts?.staticDir !== undefined ? { staticDir: opts.staticDir } : {}),
+        ...(exportSource !== undefined ? { exportSource } : {}),
+      }),
   };
 }
 
@@ -587,6 +593,140 @@ describe('openWebuiFace 开面失败（端口占用）——先摘挂载不留�
     } finally {
       await rt.shutdown(); // closer 内含（未注册的）stop 不在场——幂等收口
       await occupied.close();
+    }
+  });
+});
+
+/* ---------------- /export 端点全链（2026-09-17 TUI 余量收官批②——拼装单源第三消费位） ---------------- */
+
+describe('webui /export 端点（markdown 直出——host 装配桥真身）', () => {
+  /** 测试钟（文档头「导出时间」确定性——拼装单源对拍锚） */
+  const FIXED_NOW = 1_789_600_000_000;
+
+  /** 装配根同构导出源（assembly webuiFaceMount 闭包同构——双事实源 + 行面元数据 + 测试钟） */
+  function exportSourceOf(stack: ConversationStack, rt: HostRuntime, now?: () => number): WebuiExportSource {
+    return {
+      rowOf: (sessionId) => rt.persistence.store.getSessionRow(sessionId),
+      eventsOf: (sessionId) => {
+        const driver = stack.driverOf(sessionId);
+        if (driver !== undefined) return driver.session.events(); // 活体真源
+        try {
+          return rt.persistence.loadSession(sessionId).log.events(); // durable 回退（近史兜底）
+        } catch {
+          return undefined; // 行不在场——端点 404 not_found
+        }
+      },
+      ...(now !== undefined ? { now } : {}),
+    };
+  }
+
+  it('桥真身拼装单源：exportMarkdown(id) === renderSessionMarkdown(同会话输入) 逐字节 + HTTP 直出同体同型', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-export-data-') });
+    const { faux, stack } = rigStack(rt);
+    faux.setResponses([() => messageOf()]);
+    let opened: { port: number; token: string } | undefined;
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(
+        stack,
+        exportSourceOf(stack, rt, () => FIXED_NOW),
+      ),
+      disclose: () => undefined, // 测试态 stderr 静默（token 只进 onOpen 收账）
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    try {
+      const id = face.deps!.sessions.createSession();
+      stack.submitText(id, '导出对拍');
+      await until(async () => (await face.deps!.read.fetchMessages(id)).some((m) => m.role === 'assistant'));
+      await rt.persistence.flush(); // write-behind 排空——行面两读同一时点（对拍确定性）
+      // 对拍输入单源：同一事件数组 + 同一行面元数据投影 + 同钟（桥真身读同一行）
+      const events = stack.driverOf(id)!.session.events();
+      const row = rt.persistence.store.getSessionRow(id);
+      const expected = renderSessionMarkdown({
+        events,
+        meta: {
+          sessionId: id,
+          ...(row?.title !== undefined && row.title !== '' ? { title: row.title } : {}),
+          ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
+          ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
+        },
+        now: FIXED_NOW,
+      });
+      expect(face.deps!.read.exportMarkdown).toBeDefined();
+      expect(face.deps!.read.exportMarkdown!(id)).toBe(expected); // 拼装单源——逐字节恒等
+      // HTTP 直出：应答体 === 桥真身产物；Content-Type 精确值（03 §10.4 批注钉死）
+      const res = await fetch(`http://127.0.0.1:${opened!.port}/api/sessions/${id}/export`, {
+        headers: { authorization: `Bearer ${opened!.token}` },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+      expect(await res.text()).toBe(expected);
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('已闭近史兜底照返体 + 缺席 undefined（404 形判据）', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-export-closed-') });
+    const { faux, stack } = rigStack(rt);
+    faux.setResponses([() => messageOf()]);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(
+        stack,
+        exportSourceOf(stack, rt, () => FIXED_NOW),
+      ),
+      disclose: () => undefined,
+    });
+    try {
+      const id = face.deps!.sessions.createSession();
+      stack.submitText(id, '已闭兜底');
+      await until(async () => (await face.deps!.read.fetchMessages(id)).some((m) => m.role === 'assistant'));
+      await rt.persistence.flush(); // 拆驱动前排空——兜底腿读库行必有全量事件
+      const eventsBeforeClose = stack.driverOf(id)!.session.events(); // 关前活体快照（对拍锚）
+      const row = rt.persistence.store.getSessionRow(id);
+      stack.manager.dispose(); // 拆驱动 → 已闭（持久册可见）
+      expect(face.deps!.sessions.sessionStateOf(id)).toBe('closed');
+      // 近史兜底：closed 会话照常返体（读面语义同 GET messages——host 桥真身内兜底）
+      expect(face.deps!.read.exportMarkdown!(id)).toBe(
+        renderSessionMarkdown({
+          events: eventsBeforeClose,
+          meta: {
+            sessionId: id,
+            ...(row?.title !== undefined && row.title !== '' ? { title: row.title } : {}),
+            ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
+            ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
+          },
+          now: FIXED_NOW,
+        }),
+      );
+      // 缺席：未知 id → undefined（端点 404 not_found 同族判据）
+      expect(face.deps!.read.exportMarkdown!('不存在')).toBeUndefined();
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('注入窄面缺席：exportSource 未注入 → exportMarkdown 键不在（端点 501 诚实缺席的桥侧形）', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-export-bare-') });
+    const { stack } = rigStack(rt);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack), // 无导出源——装配缺席形（WebuiCompletionFace? 同精神）
+      disclose: () => undefined,
+    });
+    try {
+      expect(face.deps!.read.exportMarkdown).toBeUndefined();
+    } finally {
+      await rt.shutdown();
     }
   });
 });

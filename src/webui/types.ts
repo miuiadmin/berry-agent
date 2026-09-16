@@ -59,6 +59,8 @@ export const WEBUI_ENDPOINTS = {
   sessionInterrupt: '/api/sessions/:id/interrupt',
   /** GET——todo 数据源（goal 计划态呈现投影） */
   sessionTodo: '/api/sessions/:id/todo',
+  /** GET——会话导出 markdown 直出（不落盘——2026-09-17 TUI 余量收官批②） */
+  sessionExport: '/api/sessions/:id/export',
   /** GET——审批清单（?sessionId= 过滤，缺省全量） */
   approvals: '/api/approvals',
   /** POST——审批应答（体 {answer, note?}——跨入口竞速回执） */
@@ -139,6 +141,16 @@ export interface WebuiReadFace {
   fetchMessages(sessionId: string): Promise<readonly AgentMessage[]>;
   /** todo 数据源（缺席 = 无数据源——todo 端点诚实回 null 不虚报） */
   todoOf?(sessionId: string): readonly TodoItem[] | undefined;
+  /**
+   * 会话导出 markdown 拼装（2026-09-17 TUI 余量收官批②——第三消费位）：
+   * 拼装真源留 host session-export 单源（webui 边表 deps 仅 contracts+
+   * channels、无 session 边，纯函数不可直达——host 装配桥真身注入，
+   * ServeBridgeDeps 同族词面独立律）。undefined = 会话缺席（端点 404
+   * error 词 not_found 同族）；已闭会话 = 近史投影兜底照常返体（读面语义
+   * 同 GET messages——只读腿不受闭态拦，兜底在 host 桥真身内）。键缺席 =
+   * 端点 501 诚实缺席（API-only 形——WebuiCompletionFace? 缺席诚实空同精神）。
+   */
+  exportMarkdown?(sessionId: string): string | undefined;
 }
 
 /** 补全族注入面（两段——缺席诚实空，v1 装配批按需接线） */

@@ -15,7 +15,8 @@
  * ①三防线执法序（Host 403 / Origin 403·无 Origin 放行·同源过——面级先行）
  * ②鉴权门（无凭证/错 token 401 / Bearer 过 / auth cookie 桥 Set-Cookie 属性
  * 与 cookie 形复用）
- * ③微路由五撮（探活/会话族含 closed·missing 分账/补全族缺席诚实空）
+ * ③微路由五撮（探活/会话族含 closed·missing 分账/补全族缺席诚实空；/export
+ *   markdown 直出三态——2026-09-17 TUI 余量收官批②）
  * ④体限幅 413 且应答不早于收完（排空后应答——拿到应答即证无 RST 连坐）
  * ⑤SSE 信封分档（display 活体 / session 终结镜像 / asked 镜像）与按会话
  * 路由（status 定向 / notify 广播）
@@ -59,7 +60,11 @@ interface DepsStub {
   setSession(sessionId: string, state: WebuiSessionState): void;
 }
 
-function makeDeps(opts?: { readonly withoutTodo?: boolean; readonly withoutCompletion?: boolean }): DepsStub {
+function makeDeps(opts?: {
+  readonly withoutTodo?: boolean;
+  readonly withoutCompletion?: boolean;
+  readonly withoutExport?: boolean;
+}): DepsStub {
   const states = new Map<string, WebuiSessionState>([
     ['s-1', 'open'],
     ['s-closed', 'closed'],
@@ -67,6 +72,12 @@ function makeDeps(opts?: { readonly withoutTodo?: boolean; readonly withoutCompl
   const messages = new Map<string, AgentMessage[]>([
     ['s-1', [{ role: 'user', content: '问', timestamp: 1_690_000_000_000 }]],
     ['s-closed', [{ role: 'user', content: '旧账', timestamp: 1_680_000_000_000 }]],
+  ]);
+  // /export markdown 直出桩（renderSessionMarkdown 产出形的最小同构——内容
+  // 面为注入面 opaque，拼装单源对拍归 host 桥测试件）
+  const markdowns = new Map<string, string>([
+    ['s-1', '# 会话导出 `s-1`\n\n- 导出时间：2026-09-17T00:00:00.000Z\n- 事件数：1\n'],
+    ['s-closed', '# 会话导出 `s-closed`\n\n- 导出时间：2026-09-17T00:00:00.000Z\n- 事件数：1\n'],
   ]);
   const submitted: WebuiSubmitInput[] = [];
   const interrupted: string[] = [];
@@ -93,6 +104,7 @@ function makeDeps(opts?: { readonly withoutTodo?: boolean; readonly withoutCompl
     read: {
       fetchMessages: async (id) => messages.get(id) ?? [],
       ...(opts?.withoutTodo === true ? {} : { todoOf: () => [{ status: 'in-progress', content: '跑测' }] }),
+      ...(opts?.withoutExport === true ? {} : { exportMarkdown: (id: string) => markdowns.get(id) }),
     },
     ...(opts?.withoutCompletion === true ? {} : { completion: { workspaceFiles: (q) => [`a/${q}.ts`] } }),
   };
@@ -407,6 +419,42 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ items: null });
+    } finally {
+      bare.webui.detach();
+      await bare.face.stop();
+    }
+  });
+
+  it('export：markdown 直出三态——open 200（Content-Type 精确值）/ missing 404 not_found / closed 近史兜底 200', async () => {
+    // open 会话：markdown 正文直出（不落盘——web 面消费语义 = 浏览器/curl 直接取文）
+    const open = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/export`, { headers: authHeaders() });
+    expect(open.status).toBe(200);
+    expect(open.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect(await open.text()).toBe('# 会话导出 `s-1`\n\n- 导出时间：2026-09-17T00:00:00.000Z\n- 事件数：1\n');
+    // 缺席 404（error 词 not_found 同族；message 与 /api 兜底的「未知 API 路由」分立——锚真身非兜底）
+    const missing = await fetch(`http://127.0.0.1:${port}/api/sessions/nope/export`, { headers: authHeaders() });
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ error: 'not_found', message: '会话缺席' });
+    // 已闭会话 = 近史投影兜底照常返体（读面语义同 GET messages——只读腿不受闭态拦，host 桥真身内兜底）
+    const closed = await fetch(`http://127.0.0.1:${port}/api/sessions/s-closed/export`, { headers: authHeaders() });
+    expect(closed.status).toBe(200);
+    expect(closed.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect(await closed.text()).toBe('# 会话导出 `s-closed`\n\n- 导出时间：2026-09-17T00:00:00.000Z\n- 事件数：1\n');
+  });
+
+  it('export 鉴权缺拒：无凭证 401（鉴权随全 API 面——cookie 桥/Bearer 双受理族）', async () => {
+    const anon = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/export`);
+    expect(anon.status).toBe(401);
+  });
+
+  it('export 注入窄面缺席：501 诚实缺席（WebuiCompletionFace? 缺席诚实空同精神）', async () => {
+    const bare = await rig(makeDeps({ withoutExport: true }).deps);
+    try {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/export`, {
+        headers: { authorization: `Bearer ${bare.token}` },
+      });
+      expect(res.status).toBe(501);
+      expect(await res.json()).toMatchObject({ error: 'not_implemented' });
     } finally {
       bare.webui.detach();
       await bare.face.stop();
@@ -740,7 +788,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
 /* ---------------- ⑨ 双表对拍锁（词面单源执法——tests 不计边表账） ---------------- */
 
 describe('WEBUI_ENDPOINTS 双表对拍（客户端副本 vs 服务端单源）', () => {
-  it('整表恒等：键集 + 逐键值（12 路径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
+  it('整表恒等：键集 + 逐键值（13 路径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
     // client/protocol.ts 头注承诺「与服务端 WEBUI_ENDPOINTS 同形同词面」——
     // 承诺升为可执行锁；toStrictEqual 整表锁含键集/逐键值/键序三面，
     // 任一侧改词面（含增删键）四门禁即红
