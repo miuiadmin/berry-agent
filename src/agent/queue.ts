@@ -35,6 +35,12 @@ export interface PendingItem {
    * 普通件（submit/steer）无此位——withdraw 只对操控件有意义。
    */
   id?: string;
+  /**
+   * 候跑标记（04 §4 queueFollowUp——挂账解挂批 2026-09-15）：busy 期显式
+   * 排队位（alt+enter 形）——不入在飞 run 的 steer 取件集，候 run 终态由
+   * 候跑取件点种子新起 run。队列只承载不判定（取件过滤归消费侧 drain 判据）。
+   */
+  queueFollowUp?: boolean;
 }
 
 /** enqueue 回执：accepted=false 时 dropped 载被拒/被丢项（回执面可见，不静默） */
@@ -101,12 +107,14 @@ export class PendingMessageQueue {
    * @param message 待发消息 @param channel 通道判定结果（驱动侧已裁）
    * @param options.backgroundWake 后台唤醒标记位（随条目透传——消费侧合批/预算面）
    * @param options.id 撤回关联键（随条目透传——withdraw 消费面；e-4）
+   * @param options.queueFollowUp 候跑标记位（随条目透传——busy 期 alt+enter
+   * 显式排队；消费侧取件过滤判据，见 drain/takeWaiting）
    * @returns 回执：accepted=true 正常入列；false 时 dropped 载被丢/被拒项
    */
   enqueue(
     message: AgentMessage,
     channel: DeliverChannel,
-    options?: { backgroundWake?: boolean; id?: string },
+    options?: { backgroundWake?: boolean; id?: string; queueFollowUp?: boolean },
   ): EnqueueReceipt {
     const item: PendingItem = {
       message,
@@ -114,6 +122,7 @@ export class PendingMessageQueue {
       enqueuedAt: Date.now(),
       ...(options?.backgroundWake !== undefined ? { backgroundWake: options.backgroundWake } : {}),
       ...(options?.id !== undefined ? { id: options.id } : {}),
+      ...(options?.queueFollowUp !== undefined ? { queueFollowUp: options.queueFollowUp } : {}),
     };
     if (this.items.length < this.capacityValue) {
       this.items.push(item);
@@ -130,15 +139,42 @@ export class PendingMessageQueue {
   }
 
   /**
-   * 取件（按 mode：one-at-a-time 取队首一件；all 全取清空）。
-   * @returns 取出的条目（空队列返回空数组）
+   * 取件（按 mode：one-at-a-time 取满足判据的最早一件；all 取全部满足判据件）。
+   * @param options.skip 取件跳过判据（返回 true 的条目本次不取、留队保持原序）
+   * ——busy 在飞 run 的 steer 取件集以此滤除候跑件（候跑件堵队首时不遮蔽
+   * 后续 steer 件；缺省全纳——与既有取件形零差）。
+   * @returns 取出的条目（空队列 / 无满足件返回空数组）
    */
-  drain(): PendingItem[] {
+  drain(options?: { skip?: (item: PendingItem) => boolean }): PendingItem[] {
     if (this.items.length === 0) return [];
     if (this.modeValue === 'all') {
-      return this.items.splice(0, this.items.length);
+      // 全取形态：按判据分账——满足者全取（序保持），跳过者留队
+      if (options?.skip === undefined) return this.items.splice(0, this.items.length);
+      const taken: PendingItem[] = [];
+      const kept: PendingItem[] = [];
+      for (const item of this.items) (options.skip(item) ? kept : taken).push(item);
+      if (taken.length === 0) return [];
+      this.items.splice(0, this.items.length, ...kept);
+      return taken;
     }
-    return [this.items.shift()!];
+    // one-at-a-time：取满足判据的最早一件（跳过件不挡道）
+    if (options?.skip === undefined) return [this.items.shift()!];
+    const index = this.items.findIndex((item) => !options.skip!(item));
+    if (index === -1) return [];
+    return this.items.splice(index, 1);
+  }
+
+  /**
+   * 候跑批取（挂账解挂批 2026-09-15——run 终态种子批单源）：全取候跑标记件
+   * （跨 mode 恒全取——同批候跑件一并作新 run 种子，非逐件起 run）；
+   * 普通件留队不受累。空（无候跑件）返回空数组。
+   */
+  takeWaiting(): PendingItem[] {
+    const waiting = this.items.filter((item) => item.queueFollowUp === true);
+    if (waiting.length === 0) return [];
+    const kept = this.items.filter((item) => item.queueFollowUp !== true);
+    this.items.splice(0, this.items.length, ...kept);
+    return waiting;
   }
 
   /** 清空（run 收场/会话拆解用；返回被清条目供回执） */

@@ -1794,3 +1794,172 @@ describe('ConversationDriver lane 帽 seam（04 §4——m-2）', () => {
     expect(gate.released).toBe(2); // 首位取位即还 + 次位终态释放——零占位泄漏
   });
 });
+
+/* ---------------- 候跑通道 + 模型活读（挂账解挂批 2026-09-15——alt+enter / ctrl+p） ---------------- */
+
+describe('ConversationDriver 候跑通道（queueFollowUp——07 §4.1 R5 增册 alt+enter 排队）', () => {
+  it('busy 候跑分叉：候跑件不入本 run 取件集（首请求无候跑文）+ run 终态种子新起 run（第二请求才见）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '候跑答' }] }),
+      ],
+      gates: [gate],
+    });
+    const first = driver.submit('一问');
+    // busy 窗口内 alt+enter 形提交（queueFollowUp 标记）
+    const second = driver.submit('候跑问', { queueFollowUp: true });
+    // 语义分叉可观测：候跑回执 ≠ 在飞 run promise（enter 形 busy 搭车恒等——见上「队列通道」既有锁）
+    expect(second).not.toBe(first);
+    release();
+    const firstResult = await first;
+    expect(firstResult.status).toBe('completed');
+    const secondResult = await second;
+    expect(secondResult.status).toBe('completed');
+    // 键序可区分：首 run 请求不含候跑文（不顶注在飞 run）
+    const firstMessages = seen[0]!.messages as Array<{ role: string; content: unknown }>;
+    expect(firstMessages.some((m) => m.role === 'user' && m.content === '候跑问')).toBe(false);
+    // 候跑件种子新起 run——第二请求才含候跑文
+    expect(seen).toHaveLength(2);
+    const secondMessages = seen[1]!.messages as Array<{ role: string; content: unknown }>;
+    expect(secondMessages.some((m) => m.role === 'user' && m.content === '候跑问')).toBe(true);
+    // 两 run 各一枚 durable turn
+    expect(types(driver).filter((t) => t === 'turn/start')).toHaveLength(2);
+  });
+
+  it('多件候跑同批：run 终态一次取尽种子单 run（两候跑文同请求）', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '候跑答' }] }),
+      ],
+      gates: [gate],
+    });
+    const first = driver.submit('一问');
+    const q1 = driver.submit('候跑甲', { queueFollowUp: true });
+    const q2 = driver.submit('候跑乙', { queueFollowUp: true });
+    release();
+    await first;
+    await Promise.all([q1, q2]);
+    // 两次 LLM 调用：首 run 一问、种子 run 两候跑文同批
+    expect(seen).toHaveLength(2);
+    const seedMessages = seen[1]!.messages as Array<{ role: string; content: unknown }>;
+    const seedTexts = seedMessages.filter((m) => m.role === 'user').map((m) => m.content);
+    // 新 run 请求 = durable 全史重播种 + 候跑种子（同块「失败收场候跑搁浅」用例
+    // 同律：'一问' 是 run 1 落账的既有史）——断言核心 = 两候跑文同请求同批
+    expect(seedTexts).toEqual(['一问', '候跑甲', '候跑乙']);
+  });
+
+  it('idle 期候跑标记同形：直接起跑单 run（04 §4 idle 期与无标记同形）', async () => {
+    const { driver, seen } = makeDriver({ scripts: [assistant({ content: [{ type: 'text', text: '答' }] })] });
+    const result = await driver.submit('idle 候跑问', { queueFollowUp: true });
+    expect(result.status).toBe('completed');
+    expect(seen).toHaveLength(1); // 单请求单 run（不排队不等待）
+    expect(types(driver).filter((t) => t === 'turn/start')).toHaveLength(1);
+  });
+
+  it('失败收场候跑搁浅：候跑回执搭失败 run + 候跑件留队由下次 idle 消费带入', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver, seen } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'hard fail' }), // 不可重试 → failed 收场
+        assistant({ content: [{ type: 'text', text: '续答' }] }),
+      ],
+      gates: [gate],
+    });
+    const first = driver.submit('一问');
+    const queued = driver.submit('候跑问', { queueFollowUp: true });
+    release();
+    await expect(first).resolves.toMatchObject({ status: 'failed' });
+    // 候跑件未随失败 run 消费——回执搭失败 run（候跑不续败局）
+    await expect(queued).resolves.toMatchObject({ status: 'failed' });
+    expect(types(driver).filter((t) => t === 'user/message')).toHaveLength(1); // 候跑件未落账
+    // 下次 idle submit 带入候跑件（搁浅件同形）
+    const result = await driver.submit('新输入');
+    expect(result.status).toBe('completed');
+    const lastMessages = seen[1]!.messages as Array<{ role: string; content: unknown }>;
+    const userTexts = lastMessages.filter((m) => m.role === 'user').map((m) => m.content);
+    expect(userTexts).toEqual(['一问', '候跑问', '新输入']);
+  });
+});
+
+describe('ConversationDriver 模型活读（ctrl+p 模型循环数据路——07 §4.1 R5 增册）', () => {
+  it('模型取值器形：每 run 起跑现取（run 间换模型生效）+ run 内钉定（在飞 run 不中途换模型）', async () => {
+    let current = 'faux/m1';
+    let releaseSecond!: () => void;
+    const gateSecond = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ content: [{ type: 'text', text: '二答' }] }),
+        assistant({ content: [{ type: 'text', text: 'steer 答' }] }),
+      ],
+      gates: [undefined, gateSecond], // run 2 首 turn 门控在飞——busy 窗内换档 + steer 续 turn 的观测位
+      model: () => current, // 活体取值器形（stack.setModel 消费面）
+    });
+    // run 1：起跑钉定 faux/m1
+    await driver.submit('一问');
+    current = 'faux/m2';
+    // run 2：首 turn 门控在飞——起跑已钉定 faux/m2；busy 窗内换档 faux/m3 +
+    // steer 插话强制第二 turn（同 run）。若 run 内不钉定（每请求现取取值器），
+    // 第二 turn 请求模型 = faux/m3 → 落第三枚 change header（红判据）；
+    // 钉定正确则第二 turn 同键稳态零新 header。
+    const second = driver.submit('二问');
+    current = 'faux/m3'; // 在飞期换档——本 run 不受影响（消费 = 下一 run 起跑）
+    const steered = driver.submit('插话'); // busy steer → run 2 第二 turn
+    releaseSecond();
+    await Promise.all([second, steered]);
+    // headers 断言（终值一次取——dataOf 返回全史，分批 push 会重复计数）：
+    // initial(m1) + change(m2) 两枚恰尽；无 m3 第三枚 = run 内钉定实证
+    const headers = (dataOf(driver, 'request/header') as Array<{ config: { model: string } }>).map(
+      (h) => h.config.model,
+    );
+    expect(headers).toEqual(['faux/m1', 'faux/m2']); // 每 run 起跑现取新值 + run 内恒钉定
+  });
+
+  it('重试续入窗同钉定：transient 退避后再入仍用起跑钉定值（enterRun 级再取形红判据）', async () => {
+    let current = 'faux/m1';
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ content: [{ type: 'text', text: '一答' }] }),
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }), // run 2 首 turn 瞬时失败
+        assistant({ content: [{ type: 'text', text: '好了' }] }), // 重试续入成功
+      ],
+      gates: [undefined, gate],
+      model: () => current,
+      classifyError: (message) => (message.errorMessage?.includes('#transient') ? 'transient' : 'non-retryable'),
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+    });
+    await driver.submit('一问'); // run 1 钉定 faux/m1
+    current = 'faux/m2';
+    const second = driver.submit('二问'); // run 2 起跑钉定 faux/m2；首 turn 门控在飞
+    current = 'faux/m3'; // 在飞期（含退避窗）换档——重试续入若 enterRun 级再取即此处漏档
+    release();
+    await expect(second).resolves.toMatchObject({ status: 'completed' });
+    // 三枚 header：initial(m1) + change(run2 起跑 m2) + resume(退避遮蔽重播种后
+    // 重入)——resume 枚的 model 须仍是 m2（launch 钉定值），漏档形会读成 m3
+    const headers = dataOf(driver, 'request/header') as Array<{ config: { model: string }; reason: string }>;
+    expect(headers.map((h) => `${h.config.model}:${h.reason}`)).toEqual([
+      'faux/m1:initial',
+      'faux/m2:change',
+      'faux/m2:resume',
+    ]);
+  });
+});

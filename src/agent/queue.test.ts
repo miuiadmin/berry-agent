@@ -154,3 +154,41 @@ describe('PendingMessageQueue 在队快照（e-5——interrupt 回执 still_que
     expect(snap.map((i) => i.message.content)).toEqual(['m1']);
   });
 });
+
+describe('PendingMessageQueue 候跑位（挂账解挂批 2026-09-15——alt+enter follow-up 排队）', () => {
+  it('drain skip 判据：候跑件跳过取队后件（one-at-a-time 不被队首候跑件堵死）', () => {
+    const q = new PendingMessageQueue();
+    q.enqueue(msg(1), ch, { queueFollowUp: true }); // 队首候跑件
+    q.enqueue(msg(2), ch); // 普通 steer 件
+    const taken = q.drain({ skip: (item) => item.queueFollowUp === true });
+    expect(taken.map((i) => i.message.content)).toEqual(['m2']); // 跳过队首取后件
+    expect(q.size).toBe(1);
+    expect(q.snapshot()[0]!.message.content).toBe('m1'); // 候跑件留队
+    // 无可取件（全候跑）：空数组不抛
+    expect(q.drain({ skip: (item) => item.queueFollowUp === true })).toEqual([]);
+  });
+
+  it('drain skip 判据：all 合批形态只取非跳过件（序保持、跳过件留队）', () => {
+    const q = new PendingMessageQueue();
+    q.enqueue(msg(1), ch);
+    q.enqueue(msg(2), ch, { queueFollowUp: true });
+    q.enqueue(msg(3), ch, { queueFollowUp: true });
+    q.enqueue(msg(4), ch);
+    q.mode = 'all';
+    const taken = q.drain({ skip: (item) => item.queueFollowUp === true });
+    expect(taken.map((i) => i.message.content)).toEqual(['m1', 'm4']);
+    expect(q.snapshot().map((i) => i.message.content)).toEqual(['m2', 'm3']); // 候跑件留队
+  });
+
+  it('takeWaiting 候跑批取：全取候跑件（跨模式恒全取——run 终态种子批单源）', () => {
+    const q = new PendingMessageQueue(); // one-at-a-time 模式下也全取
+    q.enqueue(msg(1), ch);
+    q.enqueue(msg(2), ch, { queueFollowUp: true });
+    q.enqueue(msg(3), ch, { queueFollowUp: true });
+    const waiting = q.takeWaiting();
+    expect(waiting.map((i) => i.message.content)).toEqual(['m2', 'm3']);
+    expect(waiting.every((i) => i.queueFollowUp === true)).toBe(true);
+    expect(q.snapshot().map((i) => i.message.content)).toEqual(['m1']); // 普通件留队
+    expect(q.takeWaiting()).toEqual([]); // 无候跑件空数组
+  });
+});

@@ -254,6 +254,14 @@ export interface ConversationStack {
   readonly dispatch: EventDispatch;
   readonly model: string;
   /**
+   * 模型旋钮（07 §4.1 R5——挂账解挂批 2026-09-15 ctrl+p 模型循环数据路）：
+   * 会话级内存旋钮换档——不写盘（持久化不在此面，重启回落装配基线）。换档
+   * 后读面 {@link model} 即时随动；已开会话的下一 run 起跑现取新值（驱动
+   * 装配取值器形——run 内恒定不中途换）；per-session 显式覆盖会话不受栈级
+   * 旋钮影响（覆盖序既有律：sessionModel ?? 栈基线）。
+   */
+  setModel(id: string): void;
+  /**
    * 会话维视图（e-2 观测腿——SessionView 纯派生读面）：装配根消费位 =
    * 插件订阅 tree 档过滤（sessionLineage 注入 plugin-boot）。工具族装配在
    * 栈内 per-session 闭包（不经本面）。
@@ -312,6 +320,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const scope = options.scope ?? Scope.createRoot();
   const dispatch = options.dispatch ?? new EventDispatch();
   const model = options.model ?? resolveDefaultModelSpec(options.env ?? process.env);
+  // 模型旋钮基座（07 §4.1 R5 挂账解挂批——ctrl+p 模型循环）：可变持有与
+  // const 基线同源单变量族——读面/defaultModel 闭包/驱动装配取值器三消费位
+  // 活读同一持有（setModel 换档三面齐动，零第二事实源）。
+  let currentModel = model;
   // lane 帽（04 §4 宿主级 run 并发帽——channels 消息语义批 m-2）：全宿主
   // 单例信号量，driver 装配位 seam 注入（acquireRunSlot——kick 同步试位/
   // 排队段两面消费；steer/inject 腿不经闸）。容量解析序：显式覆盖位 > env > 缺省 16。
@@ -400,7 +412,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const llm = createLlmService({
     runtime: llmRuntime,
     tracker,
-    defaultModel: () => model,
+    defaultModel: () => currentModel,
     ...(options.hookDispatchGuard !== undefined ? { hookDispatch: options.hookDispatchGuard } : {}),
     backgroundSpentToday,
     ...(backgroundBudgetTokens !== undefined ? { backgroundBudgetTokens } : {}),
@@ -774,7 +786,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       streamFn,
       convertToLlm: (message: AgentMessage) =>
         isStandardMessage(message) ? message : (getMessageRoleDefinition(message.role)?.toLlm?.(message) ?? null),
-      model: sessionModel ?? model,
+      // 栈基线走取值器形（07 §4.1 R5）：每 run 起跑现取旋钮值——ctrl+p 换档
+      // 下一 run 生效；per-session 显式覆盖保持定值快照（覆盖序不变，旋钮
+      // 不越覆盖位）。
+      model: sessionModel ?? (() => currentModel),
       ...(tools !== undefined ? { tools } : {}),
       // tool/call 载荷 owner 位取数（T9 案一批 t-1——memory 形 undefined 不带）
       ...(resolveToolOwner !== undefined ? { resolveToolOwner } : {}),
@@ -802,7 +817,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // options.onRunSettled 消费者随后——批 #99 既有链不破）。session 直接
       // 取闭包本尊（settle 时点即本驱动日志——不经 manager 回查）
       onRunSettled: (receipt) => {
-        bridgeUsageLedger(session, sessionModel ?? model, receipt);
+        bridgeUsageLedger(session, sessionModel ?? currentModel, receipt);
         options.onRunSettled?.(sessionId, receipt);
       },
       classifyError,
@@ -873,7 +888,16 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     llmRuntime,
     scope,
     dispatch,
-    model,
+    // 读面 getter 活读（属性快照形不随旋钮换档——测试实证抓获）
+    get model() {
+      return currentModel;
+    },
+    // 模型旋钮（07 §4.1 R5 挂账解挂批）：内存换档——读面/驱动取值器/defaultModel
+    // 三消费位闭包活读同一持有，本面零广播零事件（纯拉取面——换档回执由
+    // 调用方（TUI ctrl+p）自行 notify）。
+    setModel(id: string) {
+      currentModel = id;
+    },
     sessionView,
     sessionsControl,
     compactionSlots,

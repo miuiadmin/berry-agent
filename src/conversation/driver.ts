@@ -100,6 +100,15 @@ export class ConversationDriver {
    * 器消费（前台 run 恒 false）。纯 run 级内存载体——不落 durable。
    */
   private runLaneValue = false;
+  /**
+   * 模型取值面原样持有（07 §4.1 R5——挂账解挂批 2026-09-15 ctrl+p 模型循环）：
+   * 构造面 model 的定值 string 或活体取值器 () => string。每 run 起跑现取
+   * 一次钉入 runModelValue（在飞 run 不中途换模型）；run 间取值器换档即
+   * 生效（消费 = 下一 run 起跑）。定值形与既有快照语义零差。
+   */
+  private readonly modelSource: string | (() => string);
+  /** 当前 run 钉定的模型 id（launch 置位、settled 链清位——run 级内存载体） */
+  private runModelValue: string | undefined;
   /** 当前 run 的协作中止控制器（abort() 触发——streamFn/工具执行/退避睡眠共挂） */
   private activeController: AbortController | undefined;
   /** 停摆旗标（02 §2.3 取消模型——会话级标记非 run 状态机成员；置位后一切投递转 inject） */
@@ -169,9 +178,12 @@ export class ConversationDriver {
       ...(this.fullTools !== undefined ? { tools: [...this.fullTools] } : {}),
       messages: this.reseededTimeline(),
     };
+    this.modelSource = options.model;
     this.baseConfig = {
       streamFn: options.streamFn,
-      model: options.model,
+      // 定值形态直接快照；取值器形态构造期求值一次作基座缺省（run 级真值
+      // 由 launch 钉定 runModelValue——enterRun 覆盖位，见下）
+      model: typeof options.model === 'function' ? options.model() : options.model,
       ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
       convertToLlm: options.convertToLlm,
       transformContext: this.onTransformContext,
@@ -207,8 +219,14 @@ export class ConversationDriver {
       ...(options?.dedupeKey !== undefined ? { dedupeKey: options.dedupeKey } : {}),
     };
     // 后台道声明位随起跑透传（04 §5 run 级后台性——busy steer 搭在飞 run
-    // 时本位被忽略：车道随起跑 submit，不随搭车件）
-    return this.routeMessage(message, options?.backgroundWake, options?.backgroundLane === true);
+    // 时本位被忽略：车道随起跑 submit，不随搭车件）；候跑位同透传（busy 期
+    // 分叉候跑腿——见 routeMessage）
+    return this.routeMessage(
+      message,
+      options?.backgroundWake,
+      options?.backgroundLane === true,
+      options?.queueFollowUp === true,
+    );
   }
 
   /**
@@ -216,7 +234,11 @@ export class ConversationDriver {
    *  - dismantled 停摆 → **inject**：只落 durable user/message 不唤醒（随下次
    *    启动 timeline 重播种带入——队列内存态崩即丢，durable 落账是唯一诚实承载）；
    *  - busy → **steer**：入待发队列（唤醒位随条目透传）+ 搭在飞 run 结算；
-   *  - idle → **followUp**：搁浅件合批消费 + 新输入作种子起跑。
+   *    候跑标记形（alt+enter）分叉**候跑腿**——入列携候跑位（在飞 run 的
+   *    steer 取件集跳过——不顶注不打断）+ 回执改搭「run 终态候跑种子批」
+   *    （seedQueuedFollowUps——候 run 收场作种子新起 run）；
+   *  - idle → **followUp**：搁浅件合批消费 + 新输入作种子起跑（候跑标记在
+   *    idle 期与无标记同形——直接起跑不排队）。
    * 唤醒预算（04 §4 maxConsecutiveWakes=3 批消费位记账）：超帽唤醒件拒收
    * （receipt + warn，不静默）；前台输入起跑即复位计数。
    */
@@ -224,6 +246,7 @@ export class ConversationDriver {
     message: UserMessage,
     backgroundWake: boolean | undefined,
     backgroundLane: boolean,
+    queueFollowUp = false,
   ): Promise<SubmitResult> {
     // a2a 链深更新律（03 §2.2 第十一面回合护栏——e-4）：人面输入归 0（用户
     // 在场即重置链深）、plugin: 源归 1（插件直唤即第一跳）；session: 源到不了
@@ -237,6 +260,17 @@ export class ConversationDriver {
       return Promise.resolve({ status: 'injected', seq: this.wiring.appendInjectedUser(message) });
     }
     if (this.currentRun !== undefined) {
+      // 候跑腿（04 §4 queueFollowUp——alt+enter 排队）：入列携候跑位（在飞
+      // run 的 steer 取件集跳过）+ 回执搭 run 终态后的候跑种子批（非在飞
+      // run 本体——与 enter 的 steer 搭车回执分叉可观测）
+      if (queueFollowUp) {
+        this.queue.enqueue(message, 'steer', {
+          ...(backgroundWake !== undefined ? { backgroundWake } : {}),
+          queueFollowUp: true,
+        });
+        const settledRun = this.currentRun;
+        return settledRun.then((result) => this.seedQueuedFollowUps(result));
+      }
       // busy：入列（steer 顶注——唤醒位随条目透传，消费位合批/预算执法）+ 搭车
       this.queue.enqueue(message, 'steer', backgroundWake !== undefined ? { backgroundWake } : undefined);
       return this.currentRun;
@@ -257,6 +291,29 @@ export class ConversationDriver {
     const seeds = [...consumed.items.map((item) => item.message), message];
     // 车道随起跑 submit 声明位（搁浅件批次级近似——04 §5 修复批定形注）
     return this.kick(seeds, newWake || consumed.wakeTriggered, backgroundLane);
+  }
+
+  /**
+   * 候跑种子批（04 §4 queueFollowUp 消费位——挂账解挂批 2026-09-15）：挂接
+   * 在候跑 submit 所搭的 run 终态（routeMessage 候跑腿 .then 链——结算清位
+   * 后本链才走，此处 currentRun 已空窗）。语义：
+   *  - 已有新 run 在飞（首条候跑链已起跑）——本链回执搭新 run（同批候跑件
+   *    已被首链一并种入）；
+   *  - 非 completed 收场（aborted/failed）——候跑件搁浅留队（用户叫停/失败
+   *    不续的既有律），回执搭已结算 run（不虚报候跑已跑）；
+   *  - completed——候跑批全取（takeWaiting 跨模式全取：同批候跑件一并作
+   *    种子）种子新起 run；空批（被 dismantle 清队等）诚实搭已结算 run。
+   */
+  private seedQueuedFollowUps(settled: RunResult): Promise<RunResult> {
+    if (this.currentRun !== undefined) return this.currentRun; // 首链已起跑——搭新车
+    if (settled.status !== 'completed') return Promise.resolve(settled); // 候跑不续败局
+    const waiting = this.queue.takeWaiting();
+    if (waiting.length === 0) return Promise.resolve(settled);
+    return this.kick(
+      waiting.map((item) => item.message),
+      waiting.some((item) => item.backgroundWake === true),
+      false, // 候跑批承前台提交语义——不设后台道
+    );
   }
 
   /**
@@ -550,7 +607,7 @@ export class ConversationDriver {
    * 复位 streak——复位只认前台 idle 起跑，用户在场才复位预算）。
    */
   private readonly consumeInRun = (): AgentMessage[] => {
-    const { items, wakeTriggered } = this.consumeBatch();
+    const { items, wakeTriggered } = this.consumeBatch({ skipWaiting: true });
     if (wakeTriggered) {
       this.wakeStreak += 1;
       this.applyToolFace(true);
@@ -671,6 +728,9 @@ export class ConversationDriver {
     // 后台道声明位随起跑置位（04 §5 run 级后台性——本 run 存续期请求组装的
     // 预警分族判据；结算链清位防跨 run 残留）
     this.runLaneValue = backgroundLane;
+    // 模型活读钉定（07 §4.1 R5）：run 起跑现取一次（取值器形支持 run 间
+    // 换档即生效）；在飞 run 全程用本钉定值——不中途换模型
+    this.runModelValue = typeof this.modelSource === 'function' ? this.modelSource() : this.modelSource;
     this.applyToolFace(wakeTriggered);
     // 记账窗锚（04 §5——批 #99）：settle 时窗扫 [seqAtLaunch, settle) 的
     // assistant/message 计数；捕获位在种子落账前（seeds 的 user/message 不入窗）
@@ -688,12 +748,14 @@ export class ConversationDriver {
       (result) => {
         if (this.currentRun === settled) this.currentRun = undefined;
         this.runLaneValue = false; // 车道随 run 结算清位（单 run 不变量下无跨 run 竞态）
+        this.runModelValue = undefined; // 模型钉定随 run 结算清位（run 级内存载体——防跨 run 陈值泄漏）
         this.noteRunSettled(seeds, seqAtLaunch, backgroundLane, result.status);
         return result;
       },
       (error: unknown) => {
         if (this.currentRun === settled) this.currentRun = undefined;
         this.runLaneValue = false;
+        this.runModelValue = undefined; // 崩溃路径同清（下一次 launch 现取新钉定）
         this.noteRunSettled(seeds, seqAtLaunch, backgroundLane); // 崩溃路径——status 缺席不虚构
         throw error;
       },
@@ -859,7 +921,19 @@ export class ConversationDriver {
 
   /** 单次入口 startRun（seeds 空数组 = 纯续入——04 §2 入口两式） */
   private async enterRun(seeds: readonly AgentMessage[], signal: AbortSignal): Promise<RunResult> {
-    const config: AgentLoopConfig = { ...this.baseConfig, signal };
+    const config: AgentLoopConfig = {
+      ...this.baseConfig,
+      signal,
+      // 模型钉定覆盖（07 §4.1 R5 模型循环数据路）：launch 已按 run 起跑现取
+      // 钉入 runModelValue——本 run 全程（含重试续入/搁浅续跑的再入）用同一
+      // 钉定值（在飞 run 不中途换模型）；run 间换档由下一次 launch 现取生效。
+      // 缺席位零覆盖（run 外无 enterRun——构造期基座缺省仅防御性在位）。
+      // 模型钉定覆盖（07 §4.1 R5 模型循环数据路）：launch 已按 run 起跑现取
+      // 钉入 runModelValue——本 run 全程（含重试续入/搁浅续跑的再入）用同一
+      // 钉定值（在飞 run 不中途换模型）；run 间换档由下一次 launch 现取生效。
+      // 缺席位零覆盖（run 外无 enterRun——构造期基座缺省仅防御性在位）。
+      ...(this.runModelValue !== undefined ? { model: this.runModelValue } : {}),
+    };
     this.activeConfig = config;
     try {
       return await startRun(this.context, config, [...seeds]);
@@ -873,13 +947,27 @@ export class ConversationDriver {
    * ——后续件不辨唤醒/前台全部并入）；首件前台位 → one-at-a-time 取一件。
    * 预算执法：超帽唤醒件在此拒收过滤（warn 不静默）——kept 空时调用方各自
    * 空消费防御（followUp 空即收 / 续跑段不起空 run）。
+   * @param options.skipWaiting true = 在飞 run 取件集滤除候跑件（候跑位件
+   * 留队候 run 终态种子批——idle 起跑消费位不滤〔搁浅候跑件随下次 idle
+   * 消费带入的既有搁浅律〕）
    */
-  private consumeBatch(): { items: PendingItem[]; wakeTriggered: boolean } {
+  private consumeBatch(options?: { skipWaiting?: boolean }): { items: PendingItem[]; wakeTriggered: boolean } {
     if (!this.queue.hasItems()) return { items: [], wakeTriggered: false };
-    const items = this.queue.drain();
+    // 候跑滤除判据（在飞 run 取件集专用）：skip 形透传 drain——候跑件不挡道
+    const skipOpts =
+      options?.skipWaiting === true ? { skip: (item: PendingItem) => item.queueFollowUp === true } : undefined;
+    const items = this.queue.drain(skipOpts);
+    // 滤除后无可取件（队内只剩候跑件）：空批收——醒帽判据读 items[0] 前必须
+    // 先判空（skip 形下 drain 空返是合法态，非空队列恒返一件的旧不变量已破）
+    if (items.length === 0) return { items: [], wakeTriggered: false };
     if (items[0]!.backgroundWake === true) {
-      // 唤醒头触发合批窗口：余件全量并入本批
-      while (this.queue.hasItems()) items.push(...this.queue.drain());
+      // 唤醒头触发合批窗口：余件全量并入本批（候跑滤除下无可取件即收——
+      // drain 空返作为窗尾判据，防「只剩候跑件」的空转循环）
+      for (;;) {
+        const more = this.queue.drain(skipOpts);
+        if (more.length === 0) break;
+        items.push(...more);
+      }
     }
     const kept = items.filter((item) => {
       if (item.backgroundWake === true && this.wakeStreak >= MAX_CONSECUTIVE_WAKES) {
@@ -896,7 +984,7 @@ export class ConversationDriver {
    * streak+1；前台批复原全量（不复位 streak——复位只认前台 idle 起跑）。
    */
   private continueConsumption(): AgentMessage[] {
-    const { items, wakeTriggered } = this.consumeBatch();
+    const { items, wakeTriggered } = this.consumeBatch({ skipWaiting: true });
     if (wakeTriggered) this.wakeStreak += 1;
     this.applyToolFace(wakeTriggered);
     return items.map((item) => item.message);

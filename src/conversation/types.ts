@@ -72,8 +72,14 @@ export interface ConversationDriverOptions {
    * 自定义角色分派定义的 toLlm。
    */
   readonly convertToLlm: AgentLoopConfig['convertToLlm'];
-  /** 模型 id（会话态——request/header 快照与每次请求共用） */
-  readonly model: string;
+  /**
+   * 模型 id（会话态——request/header 快照与每次请求共用）。两种形态：
+   * 定值 string（缺省——per-session 覆盖与测试注入形）；活体取值器
+   * `() => string`（挂账解挂批 2026-09-15——ctrl+p 模型循环的栈基线活读面：
+   * 每 run 起跑现取一次随 run 钉定〔在飞 run 不中途换模型〕，run 间换档
+   * 即生效〔消费 = 下一 run 起跑〕）。
+   */
+  readonly model: string | (() => string);
   /** 思考档位（会话态非 run 态——session/thinking-level 档位切换面） */
   readonly thinkingLevel?: ThinkingLevel;
   /**
@@ -229,6 +235,13 @@ export interface SubmitOptions {
    * 预警是软着陆层非记账面，精度足够）。
    */
   readonly backgroundLane?: boolean;
+  /**
+   * 候跑位（04 §4——挂账解挂批 2026-09-15，alt+enter 排队的发送方标记）：
+   * true = busy 期本条显式排队候跑——不入在飞 run 的 steer 取件集（不顶注
+   * 不打断），候 run 终态由候跑取件点消费种子新起 run；idle 期提交与无标记
+   * 同形。纯内存态不落 durable（`backgroundLane` 同形先例）。
+   */
+  readonly queueFollowUp?: boolean;
   /**
    * 幂等 admit 去重键（05 §3.5 第二腿——两词一字段两面）：调用方自选、
    * 随 user/message 落 durable data.dedupeKey。serve/SDK 线面受理时以

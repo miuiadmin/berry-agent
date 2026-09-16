@@ -1723,3 +1723,32 @@ describe('会话关闭收口穿线（六役 CL-C ④——04 §10 closeOwner 段
     void rt.shutdown();
   });
 });
+
+describe('模型循环基座（挂账解挂批 2026-09-15——ctrl+p 会话级旋钮数据路）', () => {
+  it('setModel 活写栈基线：读面随动 + 新 run 起跑现取新值（request/header 实证）', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }, { id: 'm2' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+    });
+    expect(stack.model).toBe('faux-stack/m1'); // 读面基线
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => messageOf('stop'), () => messageOf('stop')]);
+    await stack.submitText(session.sessionId, '一问');
+    // 旋钮换档（不写盘——会话级内存旋钮）
+    stack.setModel('faux-stack/m2');
+    expect(stack.model).toBe('faux-stack/m2'); // 读面随动
+    await stack.submitText(session.sessionId, '二问');
+    // 每 run 起跑现取：两枚 request/header 各携当时值（消费 = 下一 run 起跑）
+    const headers = session.driver.session
+      .events()
+      .filter((event) => event.type === 'request/header')
+      .map((event) => (event.data as { config: { model: string } }).config.model);
+    expect(headers).toEqual(['faux-stack/m1', 'faux-stack/m2']);
+    await rt.shutdown();
+  });
+});
