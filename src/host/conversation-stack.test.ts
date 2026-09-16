@@ -26,11 +26,18 @@ import type { EventWrite, SessionRegistration } from '../persist/store.js';
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import {
+  assertWatchdogHatOrder,
   createConversationStack,
   createRunLaneGate,
+  DEFAULT_LLM_IDLE_TIMEOUT_MS,
   DEFAULT_RUN_LANE_CAPACITY,
+  DEFAULT_SESSION_STALL_TIMEOUT_MS,
   lastUsageFactOf,
+  LLM_IDLE_TIMEOUT_MS_ENV,
+  resolveLlmIdleTimeoutMs,
   resolveRunLaneCapacity,
+  resolveSessionStallTimeoutMs,
+  SESSION_STALL_TIMEOUT_MS_ENV,
   startOfTodayMs,
   type ConversationStackOptions,
 } from './conversation-stack.js';
@@ -1116,6 +1123,140 @@ describe('lane 帽闸件（04 §4——m-2）', () => {
     await expect(runA).resolves.toMatchObject({ status: 'completed' });
     await expect(runB).resolves.toMatchObject({ status: 'completed' });
     await vi.waitFor(() => expect(faux.state.callCount).toBe(2));
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- 流活性 watchdog 双帽（04 §3.8——批 A 落码） ---------------- */
+
+describe('流活性 watchdog 双帽（04 §3.8——批 A）', () => {
+  it('resolveLlmIdleTimeoutMs 解析序：缺席/空串 = 缺省 300s、纯数字串放行（含 0 = 显式关）、坏形 fail-loud', () => {
+    expect(DEFAULT_LLM_IDLE_TIMEOUT_MS).toBe(300_000);
+    expect(LLM_IDLE_TIMEOUT_MS_ENV).toBe('BERRY_AGENT_LLM_IDLE_TIMEOUT_MS');
+    expect(resolveLlmIdleTimeoutMs({})).toBe(300_000); // 缺席档
+    expect(resolveLlmIdleTimeoutMs({ [LLM_IDLE_TIMEOUT_MS_ENV]: undefined })).toBe(300_000);
+    expect(resolveLlmIdleTimeoutMs({ [LLM_IDLE_TIMEOUT_MS_ENV]: '' })).toBe(300_000); // 空串 = 缺席
+    expect(resolveLlmIdleTimeoutMs({ [LLM_IDLE_TIMEOUT_MS_ENV]: '0' })).toBe(0); // 0 = 显式关（与缺席两态分明）
+    expect(resolveLlmIdleTimeoutMs({ [LLM_IDLE_TIMEOUT_MS_ENV]: '45000' })).toBe(45_000);
+    expect(() => resolveLlmIdleTimeoutMs({ [LLM_IDLE_TIMEOUT_MS_ENV]: 'abc' })).toThrow(RangeError);
+    expect(() => resolveLlmIdleTimeoutMs({ [LLM_IDLE_TIMEOUT_MS_ENV]: '-1' })).toThrow(RangeError);
+  });
+
+  it('resolveSessionStallTimeoutMs 解析律同族：缺席/空串 = 缺省 900s、0 = 显式关、坏形 fail-loud', () => {
+    expect(DEFAULT_SESSION_STALL_TIMEOUT_MS).toBe(900_000);
+    expect(SESSION_STALL_TIMEOUT_MS_ENV).toBe('BERRY_AGENT_SESSION_STALL_TIMEOUT_MS');
+    // 缺省 900s = 流层帽 300s × 3——须覆盖工具单跑上限（bash 600s）+ 余量（冷读定谳）
+    expect(DEFAULT_SESSION_STALL_TIMEOUT_MS).toBeGreaterThan(600_000);
+    expect(resolveSessionStallTimeoutMs({})).toBe(900_000);
+    expect(resolveSessionStallTimeoutMs({ [SESSION_STALL_TIMEOUT_MS_ENV]: '' })).toBe(900_000);
+    expect(resolveSessionStallTimeoutMs({ [SESSION_STALL_TIMEOUT_MS_ENV]: '0' })).toBe(0);
+    expect(resolveSessionStallTimeoutMs({ [SESSION_STALL_TIMEOUT_MS_ENV]: '120000' })).toBe(120_000);
+    expect(() => resolveSessionStallTimeoutMs({ [SESSION_STALL_TIMEOUT_MS_ENV]: 'abc' })).toThrow(RangeError);
+  });
+
+  it('两 resolver 字串形全串 /^\d+$/ 判（parseInt 截停放行堵死——尾随垃圾是坏帽死配置）', () => {
+    for (const raw of ['300x', '1.5', '0x10', '+300', ' 300', '300 ', '３00']) {
+      expect(
+        () => resolveLlmIdleTimeoutMs({ [LLM_IDLE_TIMEOUT_MS_ENV]: raw }),
+        `idle raw=${JSON.stringify(raw)}`,
+      ).toThrow(RangeError);
+      expect(
+        () => resolveSessionStallTimeoutMs({ [SESSION_STALL_TIMEOUT_MS_ENV]: raw }),
+        `stall raw=${JSON.stringify(raw)}`,
+      ).toThrow(RangeError);
+    }
+    // 纯数字串照常放行（全串判不收紧合法值域）
+    expect(resolveLlmIdleTimeoutMs({ [LLM_IDLE_TIMEOUT_MS_ENV]: '300000' })).toBe(300_000);
+    expect(resolveSessionStallTimeoutMs({ [SESSION_STALL_TIMEOUT_MS_ENV]: '900000' })).toBe(900_000);
+  });
+
+  it('assertWatchdogHatOrder 交叉校验：stall < idle 启动红、stall ≥ idle 放行、流层关时纵深独走不受约束', () => {
+    // 违例形：编排帽（60s）< 流层帽（300s）——分层序破防误杀不变式，fail-loud
+    expect(() => assertWatchdogHatOrder(300_000, 60_000)).toThrow(RangeError);
+    expect(() => assertWatchdogHatOrder(300_000, 299_999)).toThrow(RangeError);
+    // 合法形：相等与大于（缺省 900s > 300s 同形）
+    expect(() => assertWatchdogHatOrder(600_000, 600_000)).not.toThrow();
+    expect(() => assertWatchdogHatOrder(300_000, 900_000)).not.toThrow();
+    // 流层 0 = 关：纵深独立存在不受约束（主防缺席纵深在场合法）
+    expect(() => assertWatchdogHatOrder(0, 60_000)).not.toThrow();
+    // 纵深 0 = 关：主防在场纵深缺席同律合法（关也留痕在装配位 warn）
+    expect(() => assertWatchdogHatOrder(300_000, 0)).not.toThrow();
+    // 双关：全纵深缺席是显式选择，交叉校验不越权
+    expect(() => assertWatchdogHatOrder(0, 0)).not.toThrow();
+  });
+
+  it('装配面 watchdog 读面暴露：缺省双值 + env 双键覆盖真穿（04 §3.8——装配根单次解析单源）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt); // env {}——缺省档
+    expect(stack.watchdog).toEqual({ llmIdleTimeoutMs: 300_000, sessionStallTimeoutMs: 900_000 });
+    await rt.shutdown();
+    const { rt: rt2 } = rigRuntime();
+    const { stack: stack2 } = rigStack(rt2, {
+      env: { [LLM_IDLE_TIMEOUT_MS_ENV]: '45000', [SESSION_STALL_TIMEOUT_MS_ENV]: '120000' },
+    });
+    expect(stack2.watchdog).toEqual({ llmIdleTimeoutMs: 45_000, sessionStallTimeoutMs: 120_000 });
+    await rt2.shutdown();
+  });
+
+  it('装配面 fail-loud：交叉校验违例 env 与坏形 env 都是启动红（死配置当场可见）', async () => {
+    const { rt } = rigRuntime();
+    expect(() =>
+      rigStack(rt, {
+        env: { [LLM_IDLE_TIMEOUT_MS_ENV]: '600000', [SESSION_STALL_TIMEOUT_MS_ENV]: '120000' }, // stall < idle
+      }),
+    ).toThrow(RangeError);
+    await rt.shutdown();
+    const { rt: rt2 } = rigRuntime();
+    expect(() => rigStack(rt2, { env: { [LLM_IDLE_TIMEOUT_MS_ENV]: 'abc' } })).toThrow(RangeError);
+    await rt2.shutdown();
+    const { rt: rt3 } = rigRuntime();
+    expect(() => rigStack(rt3, { env: { [SESSION_STALL_TIMEOUT_MS_ENV]: '16x' } })).toThrow(RangeError);
+    await rt3.shutdown();
+  });
+
+  it('0 = 显式关 warn 留痕（关也留痕——不暗关）：双关两笔、单关恰一笔、在场无痕', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    rigStack(rt, {
+      env: { [LLM_IDLE_TIMEOUT_MS_ENV]: '0', [SESSION_STALL_TIMEOUT_MS_ENV]: '0' },
+      warn: (m) => warns.push(m),
+    });
+    expect(warns.some((m) => m.includes('流层 idle 帽显式关'))).toBe(true);
+    expect(warns.some((m) => m.includes('编排层时滞帽显式关'))).toBe(true);
+    await rt.shutdown();
+
+    const { rt: rt2 } = rigRuntime();
+    const warns2: string[] = [];
+    rigStack(rt2, { env: { [LLM_IDLE_TIMEOUT_MS_ENV]: '0' }, warn: (m) => warns2.push(m) });
+    expect(warns2.some((m) => m.includes('流层 idle 帽显式关'))).toBe(true);
+    expect(warns2.some((m) => m.includes('编排层时滞帽显式关'))).toBe(false); // 纵深在场无痕
+    await rt2.shutdown();
+
+    const { rt: rt3 } = rigRuntime();
+    const warns3: string[] = [];
+    rigStack(rt3, { warn: (m) => warns3.push(m) }); // 双值在场——零关停痕
+    expect(warns3.some((m) => m.includes('显式关'))).toBe(false);
+    await rt3.shutdown();
+  });
+
+  it('env 真穿全链：流层 idle 帽经装配到真流——挂死流超帽收口 transient 重试即恢复（04 §3.8 主防闭环）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt, { env: { [LLM_IDLE_TIMEOUT_MS_ENV]: '40' } }); // 40ms 帽——窄值驱动时序
+    const ws = rigWorkspace();
+    const session = stack.manager.create({ workspaceRoot: ws, origin: 'delegation' });
+    // 首响应永不 resolve（真 pi-ai streamSimple 路径上的流停滞形）；次响应立即终值
+    faux.setResponses([() => new Promise<PiAssistantMessage>(() => {}), () => messageOf('stop')]);
+    const receipt = await stack.submitText(session.sessionId, '问');
+    // 全链闭环：env → resolver → createStreamFn defaults → withIdleTimeout 包真流 →
+    // 挂死超帽合成 error 终值 → classifyError transient → driver 退避重试换新调用 → 恢复
+    expect(receipt).toMatchObject({ status: 'completed' });
+    expect(faux.state.callCount).toBe(2); // 挂死一次 + 恢复一次
+    // 重试落账留痕：llm/retry(phase=scheduled) 信封在场（transient 腿退避窗）
+    expect(
+      session.driver.session
+        .events()
+        .some((event) => event.type === 'llm/retry' && (event.data as { phase?: string })?.phase === 'scheduled'),
+    ).toBe(true);
     await rt.shutdown();
   });
 });

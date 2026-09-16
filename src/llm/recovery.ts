@@ -88,6 +88,9 @@ function errorText(message: AssistantMessage): string {
  * 正则兜底。判定步：
  * ① errorCode=LLM_INFLIGHT_LIMIT（在飞帽拒绝）→ transient——并发压力自解，
  *    退避后槽已释放；
+ * ①' errorCode=LLM_STREAM_IDLE_TIMEOUT（流停滞超帽）→ transient——流停滞
+ *    自愈路径是重试换新连接（04 §3.8 idle 帽合成码；码优先判定，不靠文案
+ *    正则撞词——④ transient 正则恰含 timeout 词面属巧合非判据）；
  * ② isContextOverflow → overflow（分类不消费）；
  * ③ 配额文案族 → quota（429/rate limit 不在此族——归 transient 桶；
  *    provider 真错误码归一挂 provider 钩子纵切，落码前 errorCode 无 provider
@@ -98,6 +101,8 @@ function errorText(message: AssistantMessage): string {
 export function classifyError(message: AssistantMessage): ErrorBucket {
   // ① 宿主合成码优先（errorCode 是机器判定位，摆脱 [CODE] 文本前缀约定）
   if (message.errorCode === 'LLM_INFLIGHT_LIMIT') return 'transient';
+  // ①' 流停滞超帽（04 §3.8）——同 transient 桶：停滞是瞬态，换新连接即恢复
+  if (message.errorCode === 'LLM_STREAM_IDLE_TIMEOUT') return 'transient';
   // ② 溢出分类位（provider 正则 + 静默溢出 + length 零输出）
   if (piIsContextOverflow(toPi(message))) return 'overflow';
   // ③ 配额族文案 → quota（在 isRetryable 之前测：insufficient_quota 在 pi-ai

@@ -19,7 +19,11 @@
  *    桶（重试治不了的诊断语义）；
  *  - 429 纯限流（无 quota 词）：归 transient 对照腿——证明不重试的断言不是
  *    「重试机制坏了」的假绿；
- *  - retryAssistantCall 对 401/quota 两腿零重试（produce 计数 = 1）。
+ *  - retryAssistantCall 对 401/quota 两腿零重试（produce 计数 = 1）；
+ *  - SSE 中段断供两形（批 A C2 契约回归锁）：硬 destroy（发一半事件后断
+ *    连接）与优雅 EOF（无 message_stop 提前收尾）——断言错误**终值**收场
+ *    （非挂死非 throw，错误是数据）+ 归 transient（正则词面 terminated /
+ *    stream ended before message_stop 两词真腿实证）。
  */
 import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -67,8 +71,59 @@ const SCENARIOS: Record<string, { status: number; body: string }> = {
 let server: Server;
 let baseUrl = '';
 
+/** Anthropic SSE 事件行（event: 名 + data: JSON 体 + 空行分隔——pi-ai 解析形） */
+function sseEvent(name: string, payload: object): string {
+  return `event: ${name}\ndata: ${JSON.stringify(payload)}\n\n`;
+}
+
 beforeAll(async () => {
   server = createServer((req, res) => {
+    // SSE 中段断供场景族（/stream-cut 硬断、/stream-eof 优雅收尾无终事件）——
+    // 动态应答不走静态 SCENARIOS 表（需流式分段写 + 定时断）
+    const cutMode = req.url?.startsWith('/stream-cut')
+      ? 'destroy'
+      : req.url?.startsWith('/stream-eof')
+        ? 'eof'
+        : undefined;
+    if (cutMode !== undefined) {
+      // Anthropic 真形 SSE 头（pi-ai iterateAnthropicEvents 依 event: 行过滤）
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(
+        sseEvent('message_start', {
+          type: 'message_start',
+          message: {
+            id: 'msg_cut',
+            type: 'message',
+            role: 'assistant',
+            model: 'probe-model',
+            content: [],
+            stop_reason: null,
+            usage: { input_tokens: 3, output_tokens: 1 },
+          },
+        }),
+      );
+      res.write(
+        sseEvent('content_block_start', {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: '' },
+        }),
+      );
+      res.write(
+        sseEvent('content_block_delta', {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: '断供前半句' },
+        }),
+      );
+      // 前段事件先 flush 抵达客户端（硬断不吞已发段），80ms 后收场
+      setTimeout(() => {
+        if (cutMode === 'destroy')
+          res.destroy(); // 硬断——传输层错误（undici terminated 形）
+        else res.end(); // 优雅 EOF——无 message_stop（pi-ai 早断检查形）
+      }, 80);
+      return;
+    }
     // 路径前缀选场景（SDK 会拼 /v1/messages 尾——前缀判即够）
     const scenario = Object.entries(SCENARIOS).find(([prefix]) => req.url?.startsWith(prefix))?.[1];
     if (scenario === undefined) {
@@ -226,5 +281,43 @@ describe('429 纯限流对照腿（transient——证明零重试断言非假绿
     );
     expect(calls).toBe(2);
     expect(settled.stopReason).toBe('error');
+  }, 20_000);
+});
+
+/* ---------------- SSE 中段断供两形（批 A C2 契约回归锁） ---------------- */
+
+describe('SSE 中段断供真腿（错误终值收场——非挂死非 throw + transient）', () => {
+  it('硬 destroy：发一半事件后断连接——流内 error 终值收口 + transient + 真重试', async () => {
+    const fn = makeStreamFn('/stream-cut');
+    const { final, events } = await runOnce(fn); // 挂死形此处即测试超时红——非挂死本身是断言
+    // 传输层中断进 pi-ai catch 路径：流内 error 终止事件在场（错误是数据不是异常）
+    expect(events.some((e) => e.type === 'error')).toBe(true);
+    expect(final.stopReason).toBe('error');
+    expect(final.errorMessage).toBeTruthy(); // 传输错误词面（undici 形）——只断在场不钉词
+    // 网络中断换连接即恢复 → transient 桶（正则 terminated / fetch 族词面）
+    expect(classifyError(final)).toBe('transient');
+    // transient 即真重试（对照断连不进 non-retryable 假桶）
+    let calls = 0;
+    const settled = await retryAssistantCall(
+      async () => {
+        calls++;
+        const { final: f } = await runOnce(fn);
+        return f;
+      },
+      { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+    );
+    expect(calls).toBe(2);
+    expect(settled.stopReason).toBe('error');
+  }, 20_000);
+
+  it('优雅 EOF：无 message_stop 提前收尾——同 error 终值收口 + transient（正则 #4433 词面真腿实证）', async () => {
+    const fn = makeStreamFn('/stream-eof');
+    const { final, events } = await runOnce(fn);
+    expect(events.some((e) => e.type === 'error')).toBe(true);
+    expect(final.stopReason).toBe('error');
+    // pi-ai 早断检查：sawMessageStart && !sawMessageEnd → throw → catch → 流内 error
+    expect(final.errorMessage).toContain('message_stop');
+    // 「Anthropic stream ended before message_stop」在 RETRYABLE 正则显式列名——真腿实证归桶
+    expect(classifyError(final)).toBe('transient');
   }, 20_000);
 });

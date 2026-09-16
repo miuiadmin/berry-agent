@@ -19,7 +19,11 @@
  * ⑤ 每 issue 消息帽：assistant 计数达帽 → abort → failed『每 issue 预算帽
  *    耗尽』（两层分账的 run 侧执法）；
  * ⑥ needs-human：completed 但存在被拒审批（无审批后端 notify 化到底自报
- *    unavailable——approval/decided 闭集载荷判定）。
+ *    unavailable——approval/decided 闭集载荷判定）；
+ * ⑦ 流停滞纵深（04 §3.8.3 第三判据）：零 durable 推进超帽 → hung →
+ *    failed『流停滞 watchdog 收口』（不停靠——停滞非预算语义）；
+ * ⑧ 时滞帽治停滞不治总时长：durable 逐段推进（段间隔 < 帽、总时长 >
+ *    帽）不误杀（帽停滞不帽时长的 durable 级锁）。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,7 +34,7 @@ import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-
 import type { ToolDefinition } from '../contracts/index.js';
 import { fauxProvider } from '../llm/index.js';
 
-import { createConversationStack } from './conversation-stack.js';
+import { createConversationStack, type ConversationStackOptions } from './conversation-stack.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { createIssueSessionFactory } from './issue-session.js';
@@ -107,8 +111,8 @@ function rigWorkspace(): string {
   return ws;
 }
 
-/** faux provider + 栈组装速记（工作区锚定隔离 ws） */
-function rigStack(rt: HostRuntime, ws: string) {
+/** faux provider + 栈组装速记（工作区锚定隔离 ws；overrides 补 toolPolicy 等面） */
+function rigStack(rt: HostRuntime, ws: string, overrides: Partial<ConversationStackOptions> = {}) {
   const faux = fauxProvider({ provider: 'faux-issue', models: [{ id: 'm1' }] });
   const stack = createConversationStack({
     runtime: rt,
@@ -116,6 +120,7 @@ function rigStack(rt: HostRuntime, ws: string) {
     model: 'faux-issue/m1',
     env: {},
     workspace: () => ws,
+    ...overrides,
   });
   return { faux, stack };
 }
@@ -363,6 +368,86 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     expect(result.status).toBe('failed');
     expect(result.status === 'failed' && result.reason).toContain('每 issue 预算帽耗尽');
     expect(result.status === 'failed' && result.messagesUsed).toBeGreaterThanOrEqual(1);
+    factory.dispose();
+    await rt.shutdown();
+  });
+
+  it('⑦ 流停滞纵深（04 §3.8.3 第三判据）：run 在飞零 durable 推进超帽 → abort 归因 hung → failed『流停滞 watchdog 收口』（不停靠）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const afford = mutableAfford(true);
+    // 时滞帽注窄值 60ms（流层 idle 帽装配缺省 5min——本景在毫秒尺度独走，
+    // 恰验纵深独立于主防的分层语义）；池恒 afford 隔离预算判据
+    const factory = createIssueSessionFactory({
+      stack,
+      canAfford: afford.canAfford,
+      warn: () => {},
+      pollMs: 5,
+      stallTimeoutMs: 60,
+    });
+
+    // 挂起响应（honor signal）：种子 user/message 落账后 run 停滞——零 durable
+    // 推进超 60ms → 第三判据 abort → hung 归因第四臂
+    faux.setResponses([hangHonoringSignal()]);
+    const { sessionId, outcome } = await factory.startHeadless({
+      cwd: ws,
+      prompt: '停滞任务',
+      budgetMessages: 50,
+      tools: [],
+    });
+    const driver = stack.manager.driverOf(sessionId)!; // 在飞期捕获（终态 retire 后 driverOf 缺席）
+    const result = await settle(outcome);
+    expect(result.status).toBe('failed');
+    expect(result.status === 'failed' && result.reason).toContain('流停滞 watchdog 收口');
+    // 不停靠律：终态 failed 非悬置，单会话收口 retire（与 budget 停靠臂分立）
+    expect(driver.dismantled).toBe(true);
+    expect(stack.manager.isOpen(sessionId)).toBe(false);
+    factory.dispose();
+    await rt.shutdown();
+  });
+
+  it('⑧ 时滞帽治停滞不治总时长：durable 事件逐段推进（每段 < 帽、总时长 > 帽）不误杀 → completed', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    // 整名族工具无策略表条目 = 照问（04 §9）——headless 无审批后端即答拒会把
+    // 本景误判 needs-human，故注 allow 条目免问（非 fs 族 pattern 忽略）
+    const { faux, stack } = rigStack(rt, ws, { toolPolicy: [{ tool: 'issue_slow_probe', decision: 'allow' }] });
+    const afford = mutableAfford(true);
+    const factory = createIssueSessionFactory({
+      stack,
+      canAfford: afford.canAfford,
+      warn: () => {},
+      pollMs: 5,
+      stallTimeoutMs: 120,
+    });
+
+    // 三段工具环（每段慢工具 60ms）：种子 → toolCall assistant（durable）→
+    // 60ms → tool/result（durable）→ toolCall → 60ms → tool/result → 终答。
+    // 总时长 ~180ms > 帽 120ms，但任意两 durable 事件间隔 ~60ms < 帽——
+    // 末位事件 time 逐段刷新钟，不误杀（帽停滞不帽时长的 durable 级锁）
+    const slowTool = (): ToolDefinition => ({
+      name: 'issue_slow_probe',
+      description: '慢探针（60ms——durable 推进间隔制造位）',
+      parameters: { type: 'object', properties: {} },
+      execute: async () => {
+        await sleep(60);
+        return { content: [{ type: 'text', text: 'ok' }] };
+      },
+    });
+    faux.setResponses([
+      () => toolCallOf('t-slow-1', 'issue_slow_probe', {}),
+      () => toolCallOf('t-slow-2', 'issue_slow_probe', {}),
+      () => messageOf('分段推进完成'),
+    ]);
+    const { outcome } = await factory.startHeadless({
+      cwd: ws,
+      prompt: '分段长活',
+      budgetMessages: 50,
+      tools: [slowTool()],
+    });
+    const result = await settle(outcome, 8000);
+    expect(result.status).toBe('completed'); // 总时长超帽不误杀（对照 ⑦ 零推进景）
     factory.dispose();
     await rt.shutdown();
   });

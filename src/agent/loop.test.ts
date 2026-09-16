@@ -296,6 +296,39 @@ describe('无 start 前导错误流', () => {
   });
 });
 
+/* ---------------- 永不抛契约反向锁（违约 throw 显形——批 A C2） ---------------- */
+
+describe('永不抛契约反向锁（违约 throw 显形）', () => {
+  // 04 §2 loop 零 try/catch 铁律的另一面：契约内失败（错误终值）→ run 终态
+  // failed（上簇已锁）；契约外违约（StreamFn throw）→ 无兜底、沿 await 链
+  // 上抛给调用方（driver kick 面 .catch 承接）。本簇钉住「即刻 reject 非挂死」
+  // 这一不变式——违约不得把消费面拖成假死（与 watchdog 治的挂死形同向）。
+
+  it('StreamFn 同步 throw：startRun 即刻 reject 非挂死（契约外违约沿 await 链上抛）', async () => {
+    const boom: StreamFn = () => {
+      throw new Error('违约同步抛（永不抛契约外）');
+    };
+    const { context, config } = rig({ streamFn: boom });
+    await expect(startRun(context, config, [user('q')])).rejects.toThrow('违约同步抛');
+  });
+
+  it('流迭代中 throw（体内异常）：同样即刻 reject——区别于流内 error 事件（那是数据，收 failed 终态）', async () => {
+    // 迭代器体内 throw：for-await 即刻上抛（不走 result() 终值路）——与
+    // noStartErrorStream 形（error 事件 → failed 终态）成对照：事件是数据、
+    // 异常是违约，两路消费行为分立
+    const throwingStream: AssistantStream = {
+      async *[Symbol.asyncIterator](): AsyncIterator<AssistantStreamEvent> {
+        yield { type: 'start', partial: assistant({}) };
+        throw new Error('违约迭代抛（体内异常）');
+      },
+      result: async () => assistant({}),
+    };
+    const streamFn: StreamFn = () => throwingStream;
+    const { context, config } = rig({ streamFn });
+    await expect(startRun(context, config, [user('q')])).rejects.toThrow('违约迭代抛');
+  });
+});
+
 /* ---------------- preModelRequest 刹车（03 §2.4 agent_pre_step 窗消费位） ---------------- */
 
 describe('preModelRequest 刹车', () => {

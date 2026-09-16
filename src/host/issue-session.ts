@@ -8,12 +8,13 @@
  *    canonical 路径——会话绑定 cwd 隔离执法）+ per-session extraTools 通道并入
  *    issue 工具面（真三段管道注册——守门/审计/消毒与驱动层同律）+ 首跑
  *    source 'plugin:core:issue'（provenance 盖章——plugin: 域谱系归 1 跳）；
- *  - 停靠腿（04 §5）：起跑前池检 + run 在飞 watchdog 轮询两执法——canAfford
+ *  - 停靠腿（04 §5）：起跑前池检 + run 在飞 watchdog 轮询执法——canAfford
  *    翻 false → driver.abort 协作中止 → 停靠（outcome 保持 pending：编排层
  *    await 悬停 = Job 不 settle、worktree/授予/在飞记账全保留；会话上下文
  *    跨停靠保留——唤醒走 followUp 通道续跑同会话）；assistant/message 计数
  *    达每 issue 帽 → abort → failed『每 issue 预算帽耗尽』（两层分账的
- *    run 侧执法）；
+ *    run 侧执法）；距上次 durable 事件时滞超帽（04 §3.8.3 第三判据——
+ *    流活性纵深）→ abort 归因 hung → failed『流停滞 watchdog 收口』；
  *  - 唤醒腿（04 §5 budget_extended）：宿主级广播件（u-3——04 §5 定形注①
  *    自本工厂私有 watcher 升格 budget-broadcast.ts 装配根单真身，三停靠面
  *    同播；缺席注入时工厂自建私有实例同一实现单源）——canAfford 恢复即对
@@ -28,7 +29,9 @@
  * 文本 summary）→ 若事件流存在被拒审批（approval/decided decision ∉
  * {approve, always}——无人应答收口与守门拒同面）改判 needs-human（保守偏向：
  * 成果需人审，与 auto 档危险闸缺席一律转人审同律）；failed；aborted 按
- * watchdog 归因分档（budget → 停靠 / cap → failed / 外部 → failed）。
+ * watchdog 归因分档（budget → 停靠 / cap → failed / hung → failed『流停滞
+ * watchdog 收口』〔04 §3.8.3 第四臂——不停靠：停滞非预算语义无可等〕/
+ * 外部 → failed）。
  *
  * 停机收口（dispose）：停靠项 resolve paused（03 §10.7 paused 分支的生产
  * 承载——retain 语义：worktree 归 orphanScan 标注、重轮询再入走让位序）；
@@ -42,6 +45,7 @@ import type { EventSource, ToolDefinition } from '../contracts/index.js';
 import type { IssueSessionFace, IssueSessionStartResult, IssueRunOutcome } from '../issue/index.js';
 
 import type { ConversationStack } from './conversation-stack.js';
+import { DEFAULT_SESSION_STALL_TIMEOUT_MS } from './conversation-stack.js';
 import { createBudgetBroadcast, type BudgetBroadcastFace } from './budget-broadcast.js';
 
 /** 首跑 source（03 §2.2 provenance 盖章——core:issue 件身份；plugin: 域谱系） */
@@ -72,6 +76,14 @@ export interface IssueSessionFactoryOptions {
    * dispose 不关广播件（归宿主停机序）。
    */
   readonly broadcast?: BudgetBroadcastFace;
+  /**
+   * 编排层时滞帽（04 §3.8.3——watchdog 第三判据纵深）：距上次 durable 事件
+   * 时滞超帽 → abort 归因 hung → failed『流停滞 watchdog 收口』（不停靠——
+   * 停滞非预算语义）。缺省 15min（conversation-stack 单源——「编排帽 ≥ 流层
+   * idle 帽」不变式在装配根交叉校验）；0 = 显式关（装配位 warn 留痕）。
+   * 测试注窄值驱动时序（与 pollMs 同族）。
+   */
+  readonly stallTimeoutMs?: number;
 }
 
 /** 工厂公开面（IssueSessionFace 超集——dispose 归宿主停机序消费） */
@@ -135,6 +147,9 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
   const { stack, canAfford } = options;
   const warn = options.warn ?? ((message: string) => console.error(message));
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
+  // 编排层时滞帽（04 §3.8.3 第三判据）：缺省 15min 单源在 conversation-stack
+  //（「编排 ≥ 流层」不变式装配根交叉校验）；0 = 显式关（纵深缺席）
+  const stallTimeoutMs = options.stallTimeoutMs ?? DEFAULT_SESSION_STALL_TIMEOUT_MS;
   /** 停靠登记表（唤醒 watcher 扫描面——跨 startHeadless 共享，进程生命周期） */
   const parked = new Set<ParkedEntry>();
   // 广播件解析（u-3——04 §5 定形注①升格）：注入形 = 宿主单真身（三停靠面
@@ -170,10 +185,21 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
 
     let finished = false; // 终局已收口（settle 幂等护栏）
     let running = false; // 在飞旗（watchdog 只在飞时执法——停靠/idle 期不误伤）
-    let abortCause: 'budget' | 'cap' | undefined; // watchdog abort 归因（外部 abort 缺席）
+    let abortCause: 'budget' | 'cap' | 'hung' | undefined; // watchdog abort 归因（外部 abort 缺席）
 
-    const eventsOf = () => driver.session.events() as readonly { type: string; data?: unknown }[];
+    // 事件投影读面（第三判据读 time——SessionEvent 信封恒携毫秒时间戳）
+    const eventsOf = () => driver.session.events() as readonly { type: string; data?: unknown; time: number }[];
     const messagesUsed = () => countAssistantMessages(eventsOf());
+    // 距上次 durable 推进的钟锚（04 §3.8.3）：读面 = 末位事件 time（任意
+    // durable 事件落账即推进——工具 result、llm/retry 退避窗都算）；锚取
+    // max(本轮起跑时刻, 末位事件 time)——零 durable 回落起跑锚，唤醒轮的
+    // 前朝事件（停靠期落词）也不把「停靠等待时长」误计为流停滞
+    let roundStartedAtMs = 0;
+    const lastAdvanceMs = (): number => {
+      const events = eventsOf();
+      const lastTime = events.length > 0 ? (events[events.length - 1]?.time ?? 0) : 0;
+      return Math.max(roundStartedAtMs, lastTime);
+    };
 
     let watchdog: ReturnType<typeof setInterval> | undefined;
     const stopWatchdog = (): void => {
@@ -220,8 +246,13 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
       }
       abortCause = undefined;
       running = true;
-      // watchdog 两执法（在飞期轮询——主 loop stream 道无预算闸，会话侧停靠
-      // 执法位在此；先帽后池序：每 issue 帽是编排纪律、日池是全局纪律）
+      // 起跑锚先记（04 §3.8.3——watchdog 先于 submit 启动与种子落账间有空窗，
+      // 空投影不可无锚悬判；本锚也是 max 锚的下界——前朝事件不计停滞）
+      roundStartedAtMs = Date.now();
+      // watchdog 三执法（在飞期轮询——主 loop stream 道无预算闸，会话侧停靠
+      // 执法位在此；先帽后池序：每 issue 帽是编排纪律、日池是全局纪律、
+      // 时滞帽是流活性纵深——04 §3.8.3 独立键独立缺省，durable 级迟钝但
+      // 流层主防失效时兜底）
       watchdog = setInterval(() => {
         if (!running || abortCause !== undefined) return;
         if (messagesUsed() >= req.budgetMessages) {
@@ -231,6 +262,11 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
         }
         if (!canAfford()) {
           abortCause = 'budget';
+          driver.abort();
+          return;
+        }
+        if (stallTimeoutMs > 0 && Date.now() - lastAdvanceMs() > stallTimeoutMs) {
+          abortCause = 'hung';
           driver.abort();
         }
       }, pollMs);
@@ -291,6 +327,16 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
             status: 'failed',
             messagesUsed: used,
             reason: `每 issue 预算帽耗尽（${req.budgetMessages} 条——04 §5 每 issue 帽与全局池两层分账）`,
+          });
+          return;
+        }
+        if (abortCause === 'hung') {
+          // 第四臂（04 §3.8.3）：hung → failed 不停靠——停滞非预算语义，
+          // 停靠是「等预算恢复」的悬置态，停滞无可等（无人值守域诚实收口）
+          finish({
+            status: 'failed',
+            messagesUsed: used,
+            reason: `流停滞 watchdog 收口（距上次 durable 事件超 ${stallTimeoutMs}ms——04 §3.8 编排层时滞帽）`,
           });
           return;
         }

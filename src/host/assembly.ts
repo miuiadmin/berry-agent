@@ -642,6 +642,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       canAfford: () => stack.llm.canAfford('background'),
       warn: (message) => logger.warn(message),
       broadcast: budgetBroadcast,
+      // 编排层时滞帽（04 §3.8.3——watchdog 第三判据）：装配根单次解析单源
+      //（stack.watchdog——「编排 ≥ 流层」不变式已在此前交叉校验）
+      stallTimeoutMs: stack.watchdog.sessionStallTimeoutMs,
     });
     runtime.registerCloser({ label: 'issue-session-face', fn: () => Promise.resolve(issueSessionFactory.dispose()) });
 

@@ -36,6 +36,13 @@ registerErrorCodes([
     module: 'llm',
     description: 'per-provider 在飞请求达帽（缺省 4）——显式拒绝不排队，退避后槽已释放可重试',
   },
+  // 04 §3.8 流停滞超帽（宿主合成码——idle watchdog 收口时流层自产，transient 桶：
+  // 停滞是瞬态，重试换新连接即恢复路径）
+  {
+    code: 'LLM_STREAM_IDLE_TIMEOUT',
+    module: 'llm',
+    description: '流停滞超 idle 帽（缺省 300s 无事件）——watchdog 合成 error 终值收口，turn 级 auto-retry 承担恢复',
+  },
   // 04 §3.5 non-retryable 桶码（鉴权败——即 failed 用户面修复）
   {
     code: 'LLM_AUTH_INVALID',

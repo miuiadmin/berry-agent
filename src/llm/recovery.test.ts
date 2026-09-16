@@ -47,6 +47,16 @@ describe('classifyError 判定序（04 §3.5 单源表）', () => {
     expect(classifyError(msg)).toBe('transient');
   });
 
+  it("①' errorCode=LLM_STREAM_IDLE_TIMEOUT → transient（04 §3.8 流停滞自愈——码优先，不靠文案正则撞词）", () => {
+    // 文案携 quota 族词在场：证明 ①\' 判在 ③ 之前（码优先）；且中文文案不撞
+    // ④ transient 正则——修前此消息落 ⑤ non-retryable（红）或 ③ quota（红）
+    const msg = messageOf({
+      errorCode: 'LLM_STREAM_IDLE_TIMEOUT',
+      errorMessage: '[LLM_STREAM_IDLE_TIMEOUT] 流停滞超帽（billing 词在场测先序）',
+    });
+    expect(classifyError(msg)).toBe('transient');
+  });
+
   it('② 溢出文案族 → overflow（provider 正则——Anthropic 实文）', () => {
     expect(classifyError(messageOf({ errorMessage: 'prompt is too long: 213462 tokens > 200000 maximum' }))).toBe(
       'overflow',

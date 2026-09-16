@@ -272,6 +272,16 @@ export interface ConversationStack {
    * onBeforeCompact 在栈内接线）。
    */
   readonly compactionSlots: CompactionSlotsHandle;
+  /**
+   * 流活性 watchdog 双帽读面（04 §3.8——批 A）：流层 idle 帽已闭包装进
+   * streamFn（本栈内部接线），编排层时滞帽由装配根经 issue 工厂注入第三
+   * 判据消费。0 = 显式关（装配位已 warn 留痕）；两值经 env 双键可调、
+   * 「编排 ≥ 流层」不变式装配期交叉校验 fail-loud。
+   */
+  readonly watchdog: {
+    readonly llmIdleTimeoutMs: number;
+    readonly sessionStallTimeoutMs: number;
+  };
   /** 投影拉取（焦点重画与 /history 同源——驱动活体优先，未开回库装载） */
   projectionOf(sessionId: string): Promise<readonly AgentMessage[]>;
   driverOf(sessionId: string): ConversationDriver | undefined;
@@ -327,7 +337,25 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   // 缺省 () => 0 空转，canAfford/预警三档/reserve 线三消费面生产恒判未超）。
   const llmRuntime = createLlmRuntime(options.providers !== undefined ? { providers: options.providers } : {});
   const tracker = new InFlightTracker();
-  const streamFn = createStreamFn(llmRuntime, {}, tracker, options.hookDispatchGuard);
+  // 流活性 watchdog 双帽（04 §3.8——批 A）：流层 idle 帽（主防，stream-fn
+  // 闭包装）+ 编排层时滞帽（纵深，issue-session watchdog 第三判据消费）。
+  // 0 = 显式关且关也留痕（warn 一笔不暗关）；「编排帽 ≥ 流层帽」不变式
+  // 交叉校验 fail-loud（错配是误杀面的合法配置回归形——死配置先例同律）
+  const llmIdleTimeoutMs = resolveLlmIdleTimeoutMs(options.env ?? process.env);
+  const sessionStallTimeoutMs = resolveSessionStallTimeoutMs(options.env ?? process.env);
+  assertWatchdogHatOrder(llmIdleTimeoutMs, sessionStallTimeoutMs);
+  if (llmIdleTimeoutMs === 0) {
+    warn(`流层 idle 帽显式关（${LLM_IDLE_TIMEOUT_MS_ENV}=0）——流停滞主防缺席，编排层时滞帽独走（04 §3.8）`);
+  }
+  if (sessionStallTimeoutMs === 0) {
+    warn(`编排层时滞帽显式关（${SESSION_STALL_TIMEOUT_MS_ENV}=0）——流停滞纵深缺席（04 §3.8）`);
+  }
+  const streamFn = createStreamFn(
+    llmRuntime,
+    llmIdleTimeoutMs > 0 ? { idleTimeoutMs: llmIdleTimeoutMs } : {},
+    tracker,
+    options.hookDispatchGuard,
+  );
   // 当日后台已耗读面：日键缓存 + 桥接增量（05 §1.1 口径——SUM(input+output)、
   // background 道过滤）。单写者进程（单活跃机收口）内首读聚合后只随本进程
   // 桥接落账增量推进；日翻转重聚合（昨账不跨日）。write-behind 未落盘窗内
@@ -849,6 +877,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     sessionView,
     sessionsControl,
     compactionSlots,
+    // watchdog 双帽读面（04 §3.8——装配根单次解析单源；issue-session 工厂
+    // 第三判据经 assembly 接线消费 stack.watchdog.sessionStallTimeoutMs）
+    watchdog: {
+      llmIdleTimeoutMs,
+      sessionStallTimeoutMs,
+    },
     projectionOf,
     driverOf: (sessionId) => manager.driverOf(sessionId),
     submitText(sessionId, text, submitOptions) {
@@ -988,6 +1022,70 @@ export function resolveBackgroundBudgetTokens(env: Record<string, string | undef
     );
   }
   return Number.parseInt(raw, 10);
+}
+
+/* ---------------- 流活性 watchdog 双帽（04 §3.8——批 A 落码） ---------------- */
+
+/** 流层 idle 帽 env 名（04 §3.8.1——主防线：流事件间隔监视） */
+export const LLM_IDLE_TIMEOUT_MS_ENV = 'BERRY_AGENT_LLM_IDLE_TIMEOUT_MS';
+
+/** 流层 idle 帽缺省 5 分钟（04 §3.8.1——正常流事件间隔毫秒-秒级，5min 零事件 = 网关半死/连接黑洞） */
+export const DEFAULT_LLM_IDLE_TIMEOUT_MS = 300_000;
+
+/** 编排层时滞帽 env 名（04 §3.8.3——纵深层：issue-session watchdog 第三判据） */
+export const SESSION_STALL_TIMEOUT_MS_ENV = 'BERRY_AGENT_SESSION_STALL_TIMEOUT_MS';
+
+/**
+ * 编排层时滞帽缺省 15 分钟（04 §3.8.3 冷读定谳——独立键独立缺省）：须 ≥ 流层
+ * 帽且 ≥ 工具单跑上限（§8 bash timeoutMs 上限 600s）+ 余量，保分层序恒立
+ * 「编排帽 > 流层帽——流层先响（delta 级灵敏），编排兜底（durable 级迟钝）」。
+ */
+export const DEFAULT_SESSION_STALL_TIMEOUT_MS = 900_000;
+
+/**
+ * 流层 idle 帽解析（04 §3.8.1 env 解析律）：缺席 = 缺省 5min；`0` = 显式关
+ * （「缺席」与「0」两态分明——关也留痕，warn 在装配位非本纯函数）；坏形
+ * fail-loud 启动红（死配置同律——旋钮写错须当场可见）。
+ */
+export function resolveLlmIdleTimeoutMs(env: Record<string, string | undefined>): number {
+  const raw = env[LLM_IDLE_TIMEOUT_MS_ENV];
+  if (raw === undefined || raw === '') return DEFAULT_LLM_IDLE_TIMEOUT_MS;
+  // 字串形全串 /^\d+$/ 判（同 resolveBackgroundBudgetTokens——parseInt 截停防）
+  if (!/^\d+$/.test(raw)) {
+    throw new RangeError(`流层 idle 帽须为非负整数字串，收到 "${raw}"——坏形是死配置（${LLM_IDLE_TIMEOUT_MS_ENV}）`);
+  }
+  return Number.parseInt(raw, 10);
+}
+
+/**
+ * 编排层时滞帽解析（04 §3.8.3——解析律与流层键同族）：缺席 = 缺省 15min；
+ * `0` = 显式关（纵深缺席，warn 留痕同款）；坏形 fail-loud 启动红。
+ */
+export function resolveSessionStallTimeoutMs(env: Record<string, string | undefined>): number {
+  const raw = env[SESSION_STALL_TIMEOUT_MS_ENV];
+  if (raw === undefined || raw === '') return DEFAULT_SESSION_STALL_TIMEOUT_MS;
+  if (!/^\d+$/.test(raw)) {
+    throw new RangeError(
+      `编排层时滞帽须为非负整数字串，收到 "${raw}"——坏形是死配置（${SESSION_STALL_TIMEOUT_MS_ENV}）`,
+    );
+  }
+  return Number.parseInt(raw, 10);
+}
+
+/**
+ * watchdog 双帽交叉校验（04 §3.8.3 执法点——装配根 fail-loud）：两键独立可调，
+ * 「编排帽 ≥ 流层帽」不变式在此执法——stall < idle 即启动红（resolveRunLaneCapacity
+ * 「死配置 fail-loud」先例同律：错配是误杀面的合法配置回归形）。流层帽 0 = 关
+ * 时编排帽独立存在不受交叉校验约束（纵深独走合法——主防缺席纵深在场）；两关
+ * 态各自由装配位 warn 留痕（§3.8.1 关也留痕同款）。
+ */
+export function assertWatchdogHatOrder(llmIdleTimeoutMs: number, sessionStallTimeoutMs: number): void {
+  if (llmIdleTimeoutMs > 0 && sessionStallTimeoutMs > 0 && sessionStallTimeoutMs < llmIdleTimeoutMs) {
+    throw new RangeError(
+      `编排层时滞帽（${sessionStallTimeoutMs}ms）须不小于流层 idle 帽（${llmIdleTimeoutMs}ms）` +
+        `——分层序恒立是防误杀不变式（${LLM_IDLE_TIMEOUT_MS_ENV} / ${SESSION_STALL_TIMEOUT_MS_ENV}，04 §3.8）`,
+    );
+  }
 }
 
 /** 当日零点毫秒（本地时区——「当日」语义随用户挂钟；04 §5 日池窗） */

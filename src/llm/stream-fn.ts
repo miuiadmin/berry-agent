@@ -22,7 +22,14 @@ import type {
 // 注意：AssistantMessageEventStream 类名被 pi-ai types 的 type-only 再输出遮蔽，
 // 值只能经官方工厂函数取得（该工厂即为此用途提供——"for use in extensions"）
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
-import type { AssistantMessage, AssistantStream, LlmContext, StreamFn, StreamFnOptions } from '../contracts/index.js';
+import type {
+  AssistantMessage,
+  AssistantStream,
+  AssistantStreamEvent,
+  LlmContext,
+  StreamFn,
+  StreamFnOptions,
+} from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
 import type { InFlightSlot, InFlightTracker } from './inflight.js';
 import type { LlmRuntime } from './runtime.js';
@@ -57,8 +64,16 @@ export interface StreamFnDefaults {
   maxTokens?: number;
   /** prompt 缓存保留偏好（pi-ai 统一表达，缺省 short） */
   cacheRetention?: CacheRetention;
-  /** HTTP 请求超时（毫秒） */
+  /** HTTP 请求超时（毫秒）——provider SDK 透传（连接级：响应头到达即撤钟） */
   timeoutMs?: number;
+  /**
+   * 流活性 idle 帽（毫秒，04 §3.8）：两次流事件间最大停滞——超帽合成
+   * error 终值（LLM_STREAM_IDLE_TIMEOUT，transient 桶）收口。帽停滞不帽
+   * 时长（事件到点刷新钟）；**本层自产键不透传 provider**（缺省 undefined
+   * = 不设帽；0 语义在装配层 resolver 收口为缺席）。SDK timeoutMs 是连接
+   * 级、本帽是流中段活性——两帽正交互补。
+   */
+  idleTimeoutMs?: number;
 }
 
 /** 零用量（错误合成消息用） */
@@ -113,7 +128,9 @@ export function createStreamFn(
           'LLM_INFLIGHT_LIMIT',
         );
       }
-      return withRelease(
+      // idle 帽在 withRelease 外层（04 §3.8）：超帽收口经底层 return 走内层
+      // withRelease 释放（§3.6 释放幂等律第四路径）
+      const released = withRelease(
         runtime.models.streamSimple(
           model,
           buildPiContext(context),
@@ -121,14 +138,20 @@ export function createStreamFn(
         ) as unknown as AssistantStream,
         slot,
       );
+      return defaults.idleTimeoutMs !== undefined && defaults.idleTimeoutMs > 0
+        ? withIdleTimeout(released, defaults.idleTimeoutMs)
+        : released;
     }
 
     // 事件流结构同构（12 型协议 + result()），超集兼容子集直通
-    return runtime.models.streamSimple(
+    const passthrough = runtime.models.streamSimple(
       model,
       buildPiContext(context),
       buildPiOptions(defaults, options, signal),
     ) as unknown as AssistantStream;
+    return defaults.idleTimeoutMs !== undefined && defaults.idleTimeoutMs > 0
+      ? withIdleTimeout(passthrough, defaults.idleTimeoutMs)
+      : passthrough;
   };
 }
 
@@ -147,8 +170,10 @@ function buildPiOptions(
   options: StreamFnOptions,
   signal: AbortSignal | undefined,
 ): SimpleStreamOptions {
+  // idleTimeoutMs 是本层自产键（04 §3.8 watchdog 实现位），不透传 provider 层
+  const { idleTimeoutMs: _watchdogKey, ...passthrough } = defaults;
   return {
-    ...defaults,
+    ...passthrough,
     reasoning:
       options.thinkingLevel !== undefined && options.thinkingLevel !== 'off' ? options.thinkingLevel : undefined,
     ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
@@ -188,6 +213,140 @@ function withRelease(stream: AssistantStream, slot: InFlightSlot): AssistantStre
         return await stream.result();
       } finally {
         slot.release(); // result() 兜底：流未被迭代（或已早 break）的终态取值形态
+      }
+    },
+  };
+}
+
+/** idle 竞速哨兵：symbol 唯一性保证不与任何真实事件对象混淆 */
+const HUNG_SENTINEL = Symbol('llm-stream-idle-hung');
+
+/**
+ * 流活性 watchdog 包装（04 §3.8 idle 帽）——**帽停滞不帽时长**：钟只在
+ * 「等待下一事件」期间走，事件到点即刷新；正常慢流不误杀，停滞流超帽收口。
+ *
+ * 收口形（hung 一次性位）：合成 error 终止事件 + 终值消息（errorCode=
+ * LLM_STREAM_IDLE_TIMEOUT，transient 桶——重试换新连接即恢复路径）；底层
+ * 迭代经 return() 收口（§3.6 释放幂等律第四路径：本包装在 withRelease
+ * 外层，底层 return 即内层 release）。底层 return **不 await**——挂死流
+ * （体内 await 悬置）的 return() 永不 settle，await 会假死；吞错尽力而为。
+ *
+ * 清钟点三路（04 §3.8.1）：真实事件到点（next 返回即撤）、消费面中途退出
+ * （return()/throw()）、result() 直取形 settle。result() 未迭代直取时自
+ * 调用起算兜底（不经迭代钟——那类消费形态没有事件刷新面）。消费面 return/
+ * throw 同样**不 await 底层**——挂死流的 return() 永不 settle，消费面的
+ * break（agent loop 收终值事件即 break）不能被底层拖死，转发尽力而为吞错。
+ * @param stream 底层流（通常已含 withRelease 释放包装）
+ * @param idleTimeoutMs idle 帽（毫秒）——调用方已判 >0
+ */
+export function withIdleTimeout(stream: AssistantStream, idleTimeoutMs: number): AssistantStream {
+  // hung 位一次性：铸一次合成终值后短路一切面（重复 next/result 不重复计时）
+  let hungMessage: AssistantMessage | undefined;
+
+  /** 触发收口（幂等）：铸合成错误消息 + 收口底层迭代（释放走内层 return） */
+  const fireHung = (close: () => void): AssistantMessage => {
+    if (hungMessage === undefined) {
+      hungMessage = {
+        role: 'assistant',
+        content: [],
+        usage: NO_USAGE,
+        stopReason: 'error',
+        errorMessage: `[LLM_STREAM_IDLE_TIMEOUT] 流停滞超帽（${idleTimeoutMs}ms 无事件）——idle watchdog 收口，重试换新连接即恢复`,
+        errorCode: 'LLM_STREAM_IDLE_TIMEOUT',
+        timestamp: Date.now(),
+      };
+      close();
+    }
+    return hungMessage;
+  };
+
+  /** 底层迭代收口：fire-and-forget 吞错（挂死流 return() 悬置——await 即假死） */
+  const closeIterator = (iterator: AsyncIterator<AssistantStreamEvent>): void => {
+    try {
+      const settled = iterator.return?.({ value: undefined, done: true as const });
+      if (settled !== undefined) void Promise.resolve(settled).catch(() => {});
+    } catch {
+      // 同步抛同样吞——收口是尽力而为，合成终值才是确定产物
+    }
+  };
+
+  return {
+    [Symbol.asyncIterator]() {
+      const iterator = stream[Symbol.asyncIterator]();
+      // hung 后待发合成事件队列（error 终止事件一枚，发毕即 done）
+      let syntheticQueue: AssistantStreamEvent[] = [];
+      // 本轮 next 的 idle 钟（事件到点刷新——帽停滞不帽时长）
+      let clock: ReturnType<typeof setTimeout> | null = null;
+      const clearClock = (): void => {
+        if (clock !== null) {
+          clearTimeout(clock);
+          clock = null;
+        }
+      };
+
+      return {
+        next: async (value?: unknown): Promise<IteratorResult<AssistantStreamEvent, undefined>> => {
+          // hung 短路面：合成事件发毕即终（不重复计时、不触底层）
+          if (hungMessage !== undefined) {
+            if (syntheticQueue.length > 0) {
+              return { value: syntheticQueue.shift()!, done: false };
+            }
+            return { value: undefined, done: true };
+          }
+          try {
+            const raced = await Promise.race([
+              iterator.next(value),
+              new Promise<typeof HUNG_SENTINEL>((resolve) => {
+                clock = setTimeout(() => resolve(HUNG_SENTINEL), idleTimeoutMs);
+              }),
+            ]);
+            if (raced === HUNG_SENTINEL) {
+              // 超帽收口：合成 error 终止事件入队即发 + 底层 return（释放第四路径）
+              const message = fireHung(() => closeIterator(iterator));
+              syntheticQueue = [{ type: 'error', reason: 'error', error: message }];
+              return { value: syntheticQueue.shift()!, done: false };
+            }
+            return raced;
+          } finally {
+            clearClock(); // 真实事件到点/异常路都撤钟——不留悬置定时器
+          }
+        },
+        return: (_value?: unknown): Promise<IteratorResult<AssistantStreamEvent, undefined>> => {
+          // 清钟点：消费面中途退出（break）即撤钟。底层 return **不 await**——
+          // 挂死流（体内 await 悬置）的 return() 永不 settle，await 会把消费面
+          // 的 break 卡成假死（agent loop 收终值事件即 break——04 §3 收口律在
+          // 消费面同向适用）；尽力而为转发吞错，本包装即刻 done。槽释放在内层
+          // withRelease.return 的同步段，转发即达成（§3.6 释放不依赖底层 settle）
+          clearClock();
+          closeIterator(iterator);
+          return Promise.resolve({ value: undefined, done: true as const });
+        },
+        throw: (error?: unknown): Promise<IteratorResult<AssistantStreamEvent, undefined>> => {
+          // 清钟点：throw 同 return（消费面异常退出）——底层转发同律不 await
+          clearClock();
+          closeIterator(iterator);
+          return Promise.reject(error);
+        },
+      };
+    },
+    result: async (): Promise<AssistantMessage> => {
+      if (hungMessage !== undefined) return hungMessage; // hung 短路面
+      // result() 直取形兜底：自调用起算的独立钟（此消费形态无事件刷新面）
+      let clock: ReturnType<typeof setTimeout> | null = null;
+      try {
+        const raced = await Promise.race([
+          stream.result(),
+          new Promise<typeof HUNG_SENTINEL>((resolve) => {
+            clock = setTimeout(() => resolve(HUNG_SENTINEL), idleTimeoutMs);
+          }),
+        ]);
+        if (raced === HUNG_SENTINEL) {
+          // 底层未迭代——经新开迭代的 return 走内层释放（§3.6 第四路径同律）
+          return fireHung(() => closeIterator(stream[Symbol.asyncIterator]()));
+        }
+        return raced;
+      } finally {
+        if (clock !== null) clearTimeout(clock); // 直取钟一次性——settle 即撤
       }
     },
   };
