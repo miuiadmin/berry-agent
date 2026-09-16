@@ -22,7 +22,8 @@
  * skipIf 分支确属该挂账所惧怕的静默形态，本笔一并闭死）。
  */
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,10 +53,30 @@ const EVENT_TYPES = [
 /** 内容块型闭集（AssistantMessage.content） */
 const BLOCK_TYPES = ['text', 'thinking', 'toolCall'] as const;
 
-/** 枚举真金样（目录不在场 = 录制物丢失——诚实空数组，红由回放例 fail-loud 断言担） */
-function listGoldenFiles(): string[] {
+/** 金样年龄线（批 D 成规）：90 天——模型静默换代的防过期线（软报告不硬红） */
+const GOLDEN_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * 金样 recordedAt 年龄态：'fresh'（线内）/ 'stale'（≥90 天，含边界——宁多报
+ * 不漏报）/ 'invalid'（非法时间戳——脏数据，回放例据此硬红 fail-loud）。
+ */
+function goldenAgeState(recordedAt: string, now: number): 'fresh' | 'stale' | 'invalid' {
+  const t = Date.parse(recordedAt);
+  if (Number.isNaN(t)) return 'invalid';
+  return now - t >= GOLDEN_MAX_AGE_MS ? 'stale' : 'fresh';
+}
+
+/**
+ * 枚举真金样（目录不在场 = 录制物丢失——诚实空数组，红由回放例 fail-loud 断言担）。
+ * dir 可注入（枚举排除律的单元测试用临时目录构造 .prev 件）；缺省真目录。
+ * `.prev.jsonl` = 重录前朝归档（录制器批 D 成规）非回放真源——排除（混入则
+ * 回放例 meta.scenario 对拍文件名必红）。
+ */
+function listGoldenFiles(dir: string = GOLDEN_DIR): string[] {
   try {
-    return readdirSync(GOLDEN_DIR).filter((name) => name.endsWith('.jsonl'));
+    return readdirSync(dir)
+      .filter((name) => name.endsWith('.jsonl') && !name.endsWith('.prev.jsonl'))
+      .sort();
   } catch {
     return [];
   }
@@ -133,6 +154,32 @@ describe('金样回放轨（07 §7.4 #4）', () => {
     expect(() => assertGolden(badTail)).toThrow();
   });
 
+  it('归档件不入回放枚举（.prev.jsonl 是重录前朝账——非回放真源，批 D 成规）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'golden-prev-'));
+    try {
+      writeFileSync(join(dir, 'plain-answer.jsonl'), 'x');
+      writeFileSync(join(dir, 'plain-answer.prev.jsonl'), 'x');
+      writeFileSync(join(dir, 'tool-call.jsonl'), 'x');
+      // 归档件在场时枚举恰取两真源——.prev 若混入，回放例 parseGolden 的
+      // meta.scenario 对拍文件名必红（'xxx.prev' 形）——排除即在防此红
+      expect(listGoldenFiles(dir)).toEqual(['plain-answer.jsonl', 'tool-call.jsonl']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('recordedAt 年龄线 90 天（批 D 成规：过期软报告催重录——数值线锁死防随手改）', () => {
+    const now = Date.parse('2026-09-16T00:00:00Z');
+    // 新鲜（89 天前）
+    expect(goldenAgeState('2026-06-19T00:00:00Z', now)).toBe('fresh');
+    // 恰在线上（90 天整——含边界计 stale：宁可多报不漏报）
+    expect(goldenAgeState('2026-06-18T00:00:00Z', now)).toBe('stale');
+    // 过线（92 天前——模型静默换代的防过期线）
+    expect(goldenAgeState('2026-06-16T00:00:00Z', now)).toBe('stale');
+    // 非法时间戳（录制器缺席/脏数据）——'invalid' 形（回放例据以硬红 fail-loud）
+    expect(goldenAgeState('not-a-date', now)).toBe('invalid');
+  });
+
   it('真金样逐件回放（it.each——红即重录信号）', async () => {
     // 零金样 fail-loud（2026-09-15 收紧——原 it.skipIf 静默形态闭死）：金样已
     // 随 15394ef 入库，零件只可能是录制物丢失，红 = 重录信号（npm run
@@ -148,6 +195,16 @@ describe('金样回放轨（07 §7.4 #4）', () => {
       expect(meta.scenario).toBe(name.replace(/\.jsonl$/, ''));
       expect(typeof meta.model).toBe('string');
       expect(typeof meta.recordedAt).toBe('string');
+      // 年龄线（批 D 成规）：脏时间戳硬红 fail-loud；过线软报告催重录——不硬红
+      //（90 天后无重录凭证/能力时硬红会卡 CI 门禁，软报告保留信号不断路）
+      const age = goldenAgeState(String(meta.recordedAt), Date.now());
+      expect(age, `${name} recordedAt 非法时间戳：${String(meta.recordedAt)}`).not.toBe('invalid');
+      if (age === 'stale') {
+        console.warn(
+          `[golden] ${name} 录制于 ${String(meta.recordedAt)}（≥90 天）——模型可能已换代，` +
+            `建议 npm run golden:record 重录（重录前朝自动归档 .prev.jsonl 供 diff）`,
+        );
+      }
       assertGolden(events);
     }
   });

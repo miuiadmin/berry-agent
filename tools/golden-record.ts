@@ -12,8 +12,14 @@
  * 回放腿（replay-deterministic）收在 `src/llm/golden.test.ts`——vitest
  * 零网络只读 JSONL；回放红 = 行为演进信号重录（人工裁决后重跑本脚本）。
  * 本脚本不进 vitest、不进 CI、不进发布物（tsconfig.build exclude 点名）。
+ *
+ * 重录成规（批 D）：既有金样在座时重录，先归档前朝为 `<场景名>.prev.jsonl`
+ * （只保一层——prev 恒为「本次重录前的那版」），写后对新旧打印机器 diff
+ * 摘要（事件数/事件型序首分歧/终值形状——只比形状不比文本内容，同回放腿
+ * 断言纪律）；回放腿枚举排除 .prev（前朝账非回放真源）+ recordedAt 过 90
+ * 天线软报告催重录（三面同源自洽）。
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,8 +47,7 @@ const SCENARIOS: { name: string; system: string; user: string; tools?: LlmTool[]
   },
   {
     name: 'tool-call',
-    system:
-      '你是测试助手。查天气必须调用 weather 工具（参数 {"city": string}），不要凭记忆编造天气。',
+    system: '你是测试助手。查天气必须调用 weather 工具（参数 {"city": string}），不要凭记忆编造天气。',
     user: '帮我看下北京的天气。',
     // 工具面必须注册——否则模型无从发 tool_use，场景退化为纯文本（首录实证
     // 模型自述「没有天气工具」）。此场景的存在意义 = 锁 tool_use 发射路径的事件序。
@@ -59,6 +64,57 @@ const SCENARIOS: { name: string; system: string; user: string; tools?: LlmTool[]
     ],
   },
 ];
+
+/** 事件形状提取（diff 面——只取型序与终值形状，禁文本内容比对，同回放腿纪律） */
+function shapeOfEvents(events: unknown[]): {
+  types: string[];
+  finalType: string;
+  stopReason: string;
+  blockTypes: string[];
+} {
+  const types = events.map((e) => String((e as { type?: unknown }).type));
+  const final = events[events.length - 1] as
+    | {
+        type?: unknown;
+        message?: { stopReason?: unknown; content?: { type: unknown }[] };
+        error?: { stopReason?: unknown; content?: { type: unknown }[] };
+      }
+    | undefined;
+  const finalBody = final?.message ?? final?.error ?? {};
+  return {
+    types,
+    finalType: String(final?.type),
+    stopReason: String(finalBody.stopReason),
+    blockTypes: (finalBody.content ?? []).map((b) => String(b.type)),
+  };
+}
+
+/** 机器 diff 摘要：事件数 / 型序首分歧位 / 终值形状（重录两版差异可见——人工裁决面） */
+function diffSummary(prevText: string, nextEvents: AssistantStreamEvent[]): string {
+  const prevLines = prevText.split('\n').filter((l) => l.trim().length > 0);
+  if (prevLines.length < 2) return '前朝归档形状异常（行数不足）——跳过 diff';
+  let prevShape: ReturnType<typeof shapeOfEvents>;
+  try {
+    prevShape = shapeOfEvents(prevLines.slice(1).map((l) => JSON.parse(l)));
+  } catch {
+    return '前朝归档解析失败——跳过 diff';
+  }
+  const nextShape = shapeOfEvents(nextEvents);
+  const parts: string[] = [`事件 ${prevShape.types.length}→${nextShape.types.length}`];
+  // 型序逐位比（首分歧位即止——摘要面向人工裁决，非逐行账）
+  const divergeAt = prevShape.types.findIndex((t, i) => nextShape.types[i] !== t);
+  if (divergeAt === -1 && prevShape.types.length === nextShape.types.length) {
+    parts.push('型序一致');
+  } else if (divergeAt === -1) {
+    parts.push(`型序前缀一致（${Math.min(prevShape.types.length, nextShape.types.length)} 位后长度分叉）`);
+  } else {
+    parts.push(`型序首分歧 @${divergeAt}（${prevShape.types[divergeAt]}→${nextShape.types[divergeAt] ?? '截短'}）`);
+  }
+  const prevFinal = `${prevShape.finalType}/${prevShape.stopReason}/[${prevShape.blockTypes.join(',')}]`;
+  const nextFinal = `${nextShape.finalType}/${nextShape.stopReason}/[${nextShape.blockTypes.join(',')}]`;
+  parts.push(prevFinal === nextFinal ? `终值形状同（${nextFinal}）` : `终值形状 ${prevFinal}→${nextFinal}`);
+  return parts.join('；');
+}
 
 async function main(): Promise<number> {
   // 双 env fail-loud——录制器是 record-once 人工动作，key/网关经环境供给零入仓
@@ -118,18 +174,27 @@ async function main(): Promise<number> {
     }
     const final = events[events.length - 1];
     if (!final || (final.type !== 'done' && final.type !== 'error')) {
-      console.error(`场景 ${scenario.name} 事件序未以 done/error 收尾（终事件 ${final?.type ?? '无'}）——不落盘半成品金样`);
+      console.error(
+        `场景 ${scenario.name} 事件序未以 done/error 收尾（终事件 ${final?.type ?? '无'}）——不落盘半成品金样`,
+      );
       return 1;
     }
     const outPath = join(GOLDEN_DIR, `${scenario.name}.jsonl`);
+    const prevPath = join(GOLDEN_DIR, `${scenario.name}.prev.jsonl`);
     mkdirSync(dirname(outPath), { recursive: true });
+    // 重录成规：既有金样在座先归档前朝（只保一层——prev 恒为本次重录前那版）
+    const hadPrev = existsSync(outPath);
+    if (hadPrev) copyFileSync(outPath, prevPath);
     const lines = [
-      JSON.stringify({ meta: { scenario: scenario.name, model: MODEL, recordedAt: new Date().toISOString(), source: 'golden-record' } }),
+      JSON.stringify({
+        meta: { scenario: scenario.name, model: MODEL, recordedAt: new Date().toISOString(), source: 'golden-record' },
+      }),
       ...events.map((event) => JSON.stringify(event)),
     ];
     writeFileSync(outPath, `${lines.join('\n')}\n`);
     const finalType = final.type;
     console.log(`金样落盘：${outPath}（${events.length} 事件，终事件 ${finalType}）`);
+    if (hadPrev) console.log(`重录 diff（${scenario.name}）：${diffSummary(readFileSync(prevPath, 'utf8'), events)}`);
   }
   console.log('全部场景录制完成——回放腿见 src/llm/golden.test.ts');
   return 0;

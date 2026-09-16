@@ -1,0 +1,52 @@
+# 金样重录腿（批 D 成规）——真模型凭证面，独立 workflow 与 CI 常规面隔离。
+#
+# - 只 workflow_dispatch 手动触发（push/PR 恒不跑——重录是人工裁决动作，
+#   不是回归门禁）；
+# - GLM_RELAY_* 双 secrets 缺席即 skip 退 0（不红不卡任何人——secrets 不能
+#   进 job if 条件，经 env 中转后在 step 内判）；
+# - 凭证只进 env 与进程内存，不 echo 不入日志（工具回放腿零凭证面）；
+# - 产物走 artifact 取回（30 天留存）——**不自动 commit 入库**：金样更替是
+#   人工裁决动作（对照 .prev 归档 diff 后点名提交），CI 自动改库越权。
+#   本地同谱：npm run golden:record（双 env 注入壳谱见维护者知识域）。
+name: golden-refresh
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GLM_RELAY_BASE_URL: ${{ secrets.GLM_RELAY_BASE_URL }}
+      GLM_RELAY_API_KEY: ${{ secrets.GLM_RELAY_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: 凭证在场性闸（缺席即 skip 退 0——真模型重录非门禁面）
+        run: |
+          if [ -z "$GLM_RELAY_BASE_URL" ] || [ -z "$GLM_RELAY_API_KEY" ]; then
+            echo "GLM_RELAY_* secrets 缺席——金样重录腿 skip（本地谱：双 env + npm run golden:record）"
+            echo "SKIP_RECORD=1" >> "$GITHUB_ENV"
+          fi
+      - name: 重录两场景（真模型 GLM 中转——重录前朝自动归档 .prev.jsonl 并打 diff 摘要）
+        if: env.SKIP_RECORD != '1'
+        run: npm run golden:record
+      - name: 回放腿即时复核（新金样须过协议层+终值结构层断言——录完即验，不待 CI）
+        if: env.SKIP_RECORD != '1'
+        run: npx vitest run src/llm/golden.test.ts
+      - name: 新金样产物上传（人工裁决取回——不自动 commit 入库）
+        if: env.SKIP_RECORD != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-fresh-${{ github.run_id }}
+          path: tools/golden/*.jsonl
+          if-no-files-found: error
+          retention-days: 30
