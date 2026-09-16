@@ -4,6 +4,7 @@
  * ↑/↓ 历史触发判据、jump 两态、IME / paste 路、release 相忽略。
  */
 import { describe, expect, it, vi } from 'vitest';
+import { InputDecoder } from '../../engine/index.js';
 import { Editor } from './editor.js';
 
 /** 键事件便捷构造 */
@@ -222,6 +223,43 @@ describe('Editor IME 与粘贴', () => {
     expect(editor.handleEvent({ kind: 'ime', text: '中文', committed: true })).toBe(true);
     expect(editor.model.pendingPreedit).toBeNull();
     expect(editor.getText()).toBe('中文');
+  });
+
+  it('I5 锁② IME 穿透回归锁：预编辑期非提交键先冲刷再派发（decoder 层 input.ts 冲刷执法 + editor 组合实证）', () => {
+    // 真解码器 → editor 全链（冲刷执法在 InputDecoder.emitKey——预编辑挂起时
+    // 键事件先冲刷为提交再入队，键效后达）。流式组字节拍：主流终端 CSI 0 首
+    // 发单发提交、跟随窗内再发构成前缀链 → 回溯开 session 转组字中。
+    const decoder = new InputDecoder();
+    const editor = new Editor();
+    const pump = (): void => {
+      for (const ev of decoder.take()) editor.handleEvent(ev);
+    };
+    // 一拍：单发提交「中」（无 session——立即交付零延迟）
+    decoder.feed('\x1b[0;;20013u');
+    pump();
+    expect(editor.getText()).toBe('中');
+    // 二拍：跟随窗内前缀链「中国」（20013=中 22269=国）→ 回溯开 session 组字中
+    decoder.feed('\x1b[0;;20013:22269u');
+    pump();
+    expect(decoder.composing).toBe(true); // 预编辑在途
+    expect(editor.model.pendingPreedit).toBe('中国'); // editor 侧挂起渲染
+    expect(editor.getText()).toBe('中'); // 组字不落正文
+    // 三拍：预编辑期到达非提交键（left）——冲刷先于键派发（事件序单源断言）
+    decoder.feed('\x1b[D');
+    const events = decoder.take();
+    expect(events).toEqual([
+      { kind: 'ime', text: '中国', committed: true }, // 先冲刷为提交
+      { kind: 'key', key: 'left', ctrl: false, alt: false, shift: false, meta: false, phase: 'press' }, // 键效后达
+    ]);
+    for (const ev of events) editor.handleEvent(ev);
+    expect(decoder.composing).toBe(false); // session 收口
+    // 已知边界（input.ts 注释在案）：流式首块「中」已交付不可撤，冲刷全文
+    // 「中国」致前缀重复——文档化行为，非缺陷
+    expect(editor.getText()).toBe('中中国');
+    expect(editor.model.pendingPreedit).toBeNull();
+    // 键效后达实证：冲刷插入后光标在 3，left 后到 → 2（若键先达则插入位点不同）
+    expect(editor.model.getCursor().col).toBe(2);
+    expect(editor.model.getCursor().line).toBe(0);
   });
 
   it('粘贴整段入正文（多行直接呈现）', () => {

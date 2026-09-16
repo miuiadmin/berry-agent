@@ -10,7 +10,10 @@
  * 循环（四态 + 头行注记 + 终态区客户端双过滤）、刷新重取与同 id 锚定
  * （跨分区跟随 / 锚缺席驻留原位就近）、光标模型（循环 / 零条目消隐 /
  * 溢出档顶对齐 / 滚动键不挪光标）、鼠标消费面（点行移光标 / 非条目行与
- * 模态零动作 / 滚轮）、退出键面（q/Esc 闭锁 / Ctrl+C 滤 release / Ctrl+D
+ * 模态零动作 / 滚轮）、拖选复制（挂账解挂批①——/history 件 8 细则全套
+ * 对齐：LF 拼 / 反向规范化 / CJK 半格归字素首 / 反相高亮与 press 清除 /
+ * 模态禁拖 / 视口外命中零动作 / 选区帽 64 KiB 拖选中滚动达帽 + 底行提示
+ * 常显至清除）、退出键面（q/Esc 闭锁 / Ctrl+C 滤 release / Ctrl+D
  * 先收副屏再退）。
  */
 import { describe, expect, it } from 'vitest';
@@ -126,6 +129,7 @@ function rig(
 ) {
   const log: string[] = [];
   const calls: string[] = [];
+  const copies: string[] = [];
   const store = [...rows];
   const dao = makeDao(store, calls);
   const viewer = new MemoryViewer({
@@ -136,13 +140,14 @@ function rig(
     onExit: () => log.push('exit'),
     onInterrupt: () => log.push('interrupt'), // 零参形——装配闭包已知目标会话
     onQuit: () => log.push('quit'),
+    onCopy: (t) => copies.push(t), // 拖选复制捕获（挂账解挂批①——件 8 细则）
   });
   const render = (): CellGrid => {
     const grid = new CellGrid(COLS, ROWS);
     viewer.render(grid, { row: 0, col: 0, width: COLS, height: ROWS });
     return grid;
   };
-  return { viewer, log, calls, dao, store, render };
+  return { viewer, log, calls, copies, dao, store, render };
 }
 
 /** key 事件便捷构造（kitty disambiguate 轨形） */
@@ -662,5 +667,124 @@ describe('退出键面（与主屏同键面）', () => {
     const { viewer, log } = rig();
     viewer.handleEvent(key('d', { ctrl: true }));
     expect(log).toEqual(['exit', 'quit']); // 顺序锁
+  });
+});
+
+/* ---------------- 鼠标拖选复制（挂账解挂批①——/history 件 8 细则对齐） ---------------- */
+
+/** 拖选三连便捷（press 锚定 → motion 扩展 → release 复制） */
+function drag(v: MemoryViewer, from: { row: number; col: number }, to: { row: number; col: number }): void {
+  v.handleEvent(mouse('left', from, 'press'));
+  v.handleEvent(mouse('left', to, 'motion'));
+  v.handleEvent(mouse('left', to, 'release'));
+}
+
+describe('拖选复制（挂账解挂批①——线性选区 / LF 拼 / 反相高亮 / 帽 64 KiB 同值）', () => {
+  // 行图（basicRows 无溢出无折行——屏行 = 1 + 逻辑行）：屏行 4 = 活体条目甲 /
+  // 屏行 6 = 冻结条目乙（✱ 首）/ 屏行 8 = 终态条目丙；屏行 1-2 投影、
+  // 屏行 3/5/7 分区头。
+  const L3 = '[m:maaaaaaa] [pref] 摘要甲  id=maaaaaaa  updated=2026-09-11T00:00:00Z';
+  const L5 = '✱ [m:fbbbbbbb] [fact] 摘要乙  id=fbbbbbbb  updated=2026-09-11T00:00:00Z';
+
+  it('拖选三连：release 行间拼 LF 经 onCopy（首行按列切 · 中间行全文 · 尾行按列切）', () => {
+    const { viewer, copies, render } = rig();
+    render(); // 行集进屏（屏行映射确立）
+    drag(viewer, { row: 4, col: 2 }, { row: 8, col: 4 });
+    expect(copies).toHaveLength(1);
+    const parts = copies[0]!.split('\n');
+    expect(parts).toHaveLength(5);
+    expect(parts[0]).toBe(L3.slice(2)); // 首行 = 条目甲按锚列切（前缀 ASCII 段——显示列即 UTF-16 下标）
+    expect(parts[1]).toBe('── 冻结（1）'); // 中间行全文（分区头也是可选正文）
+    expect(parts[2]).toBe(L5); // 中间行全文（条目行）
+    expect(parts[3]).toBe('── 终态（1）');
+    expect(parts[4]).toBe('[m:t'); // 尾行按焦点列切
+  });
+
+  it('反向拖选同文（锚/焦点规范化——升序两端点与拖动方向无关）', () => {
+    const { viewer, copies, render } = rig();
+    render();
+    drag(viewer, { row: 8, col: 4 }, { row: 4, col: 2 }); // 尾 → 首反向
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).toBe(`${L3.slice(2)}\n── 冻结（1）\n${L5}\n── 终态（1）\n[m:t`); // 与正向同文
+  });
+
+  it('CJK 半格命中归字素首（双宽字素中列 → 该字素 UTF-16 首下标）', () => {
+    const { viewer, copies, render } = rig();
+    render();
+    // 屏行 4 前缀 `[m:maaaaaaa] [pref]` 占列 0-18、空格 19、「摘要甲」占
+    // 20-25：press 列 21 = 摘右半格（归字素首 → UTF-16 下标 20）、motion 列
+    // 26 = 甲后首格（→ 下标 26）→ 选区恰为「摘要甲」三字素
+    drag(viewer, { row: 4, col: 21 }, { row: 4, col: 26 });
+    expect(copies).toEqual(['摘要甲']);
+  });
+
+  it('press 点条目行移光标保留（既有左键律）+ 零拖动 release 零复制', () => {
+    const { viewer, copies, render } = rig();
+    render();
+    // 纯点击（press 后原地 release = 零宽选区）：光标移至命中条目行、零复制
+    drag(viewer, { row: 6, col: 2 }, { row: 6, col: 2 });
+    expect(copies).toEqual([]); // 空选区零动作
+    expect(cursorRowText(render())).toContain('摘要乙'); // 已移光标（首条甲 → 乙）
+  });
+
+  it('选区反相高亮（release 后保留）+ 下次 press 清除', () => {
+    const { viewer, copies, render } = rig();
+    render();
+    // 锚在分区头行（非光标行——光标初始在首条目行，避免反相载体混淆）
+    viewer.handleEvent(mouse('left', { row: 3, col: 0 }, 'press'));
+    viewer.handleEvent(mouse('left', { row: 4, col: 2 }, 'motion'));
+    let grid = render();
+    expect(grid.getCell(3, 0)?.style.inverse).toBe(true); // 选区首行整行反相（叠加在 dim 上）
+    expect(grid.getCell(3, 6)?.style.inverse).toBe(true);
+    expect(grid.getCell(2, 0)?.style.inverse).toBeUndefined(); // 选区外的投影行不反相
+    viewer.handleEvent(mouse('left', { row: 4, col: 2 }, 'release'));
+    expect(copies).toEqual(['── 活体（1）\n[m']); // 分区头全文 + 条目甲首两列
+    grid = render();
+    expect(grid.getCell(3, 0)?.style.inverse).toBe(true); // release 后高亮保留
+    viewer.handleEvent(mouse('left', { row: 5, col: 0 }, 'press')); // 下次 press = 清除位
+    grid = render();
+    expect(grid.getCell(3, 0)?.style.inverse).toBeUndefined(); // 旧选区清除
+    expect(copies).toHaveLength(1); // 清除性 press 不复制
+  });
+
+  it('模态在场拖选禁用（确认态与输入态——输入模态优先）', () => {
+    const { viewer, copies, render } = rig();
+    render();
+    viewer.handleEvent(key('d')); // 光标在首条（活体甲）——确认态
+    drag(viewer, { row: 3, col: 0 }, { row: 4, col: 4 });
+    viewer.handleEvent(key('n')); // 收确认态
+    viewer.handleEvent(key('e')); // 输入态（导出行）
+    drag(viewer, { row: 3, col: 0 }, { row: 4, col: 4 });
+    expect(copies).toEqual([]); // 两模态在场全程零复制
+  });
+
+  it('视口外命中零动作：头行 / 底铬 / 滚动条列不建锚（后续零复制）', () => {
+    // 9 条活体 → 12 逻辑行 > 视口 10：溢出档末列 99 = 滚动条
+    const rows9 = Array.from({ length: 9 }, (_, i) => row(`e${i}`));
+    const { viewer, copies, render } = rig(rows9);
+    render();
+    drag(viewer, { row: 0, col: 2 }, { row: 1, col: 2 }); // 头行起手
+    drag(viewer, { row: ROWS - 1, col: 2 }, { row: 1, col: 2 }); // 底铬起手
+    drag(viewer, { row: 1, col: COLS - 1 }, { row: 1, col: 2 }); // 滚动条列起手
+    expect(copies).toEqual([]);
+  });
+
+  it('选区帽 64 KiB 同值：超帽拒复制 + 底行提示常显至选区清除（拖选中滚动达帽）', () => {
+    // 三条 30000 字符长摘要条目（各折 ~305 视觉行）——锚在尾屏、滚到顶再扩
+    // 焦点，两条整行全文计入 → 总量 ~90 KiB 越帽（纯视口内拖选受折宽约束达
+    // 不到帽——与 /history 帽测试同几何法）
+    const longRows = ['x', 'y', 'z'].map((ch, i) => row(`l${i}`, { summary: ch.repeat(30000) }));
+    const { viewer, copies, render } = rig(longRows);
+    render(); // 开屏顶对齐首条
+    for (let i = 0; i < 800; i++) viewer.handleEvent(mouse('wheel-down')); // 滚到尾
+    viewer.handleEvent(mouse('left', { row: 10, col: 0 }, 'press')); // 锚 = 末条目尾段
+    for (let i = 0; i < 800; i++) viewer.handleEvent(mouse('wheel-up')); // 拖选中滚到顶
+    viewer.handleEvent(mouse('left', { row: 8, col: 3 }, 'motion')); // 焦点 = 首条目头段
+    viewer.handleEvent(mouse('left', { row: 8, col: 3 }, 'release'));
+    expect(copies).toEqual([]); // 超帽拒复制
+    expect(readRow(render(), ROWS - 1)).toContain('选区过大未复制'); // 底行提示（SELECTION_CAP_NOTICE 单源）
+    viewer.handleEvent(mouse('left', { row: 1, col: 2 }, 'press')); // 下次 press = 清除位
+    expect(readRow(render(), ROWS - 1)).toContain('tab 筛选'); // 回常态键面提示
+    expect(copies).toEqual([]); // 全程零复制
   });
 });

@@ -86,10 +86,10 @@ const MATCH_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 常态底行键面提示 */
 const HINT_TEXT = 'q/esc 返回 · ctrl+shift+f 搜索 · ↑↓/pgup/pgdn/home/end 滚动 · 拖选复制';
-/** 选区帽（64 KiB——07 件 8 细则码面缺省参数；计量面 = 选中明文 UTF-8 字节数，与 xterm 100,000 解码后上限同基准） */
-const SELECTION_CAP_BYTES = 64 * 1024;
-/** 超帽底行提示（spec 定文——常显至选区清除） */
-const SELECTION_CAP_NOTICE = '选区过大未复制';
+/** 选区帽（64 KiB——07 件 8 细则码面缺省参数；计量面 = 选中明文 UTF-8 字节数，与 xterm 100,000 解码后上限同基准）。挂账解挂批①起 /memory 管理面同值单源引用（export——零重抄条款） */
+export const SELECTION_CAP_BYTES = 64 * 1024;
+/** 超帽底行提示（spec 定文——常显至选区清除；/memory 管理面同文单源引用） */
+export const SELECTION_CAP_NOTICE = '选区过大未复制';
 
 /** key 事件窄化（其他事件形归各分路——text/ime/paste） */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {

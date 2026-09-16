@@ -31,9 +31,16 @@
  * - **单源执法**（定形注⑥）：键面动词全走 DAO 既有族（零新 DAO 方法）、
  *   导出走注入的 /memory-export 处理器闭包（真身同一函数）、用户直发零
  *   审批对、零新审计词；
- * - **鼠标消费面**（07 篇屏模型双形态节同批回写）：滚轮滚动（ScrollView
- *   统一路）+ 左键点条目行 = 光标移至该行；头行/健康投影区/底铬/滚动条列
- *   命中零动作；拖选复制不进 v1（操作面非回看面——挂账随真实需求再裁）；
+ * - **鼠标消费面**（07 篇屏模型双形态节同批回写；挂账解挂批①拖选解挂
+ *   ——「管理面是操作面非回看面」排除理由随批退役）：滚轮滚动（ScrollView
+ *   统一路）+ 左键点条目行 = 光标移至该行（既有左键律保留——press 同拍
+ *   锚定选区，单内容件双能力并存）+ 拖选复制对齐 /history（件 8 鼠标选区
+ *   条款全套单源引用：线性选区 / 锚焦存逻辑行 + 行内 UTF-16 下标渲染无关
+ *   坐标系 / 反相高亮 / release 拼 LF 经 onCopy 注入柄 OSC 52 写出 / 选区
+ *   帽 64 KiB 同值〔SELECTION_CAP_BYTES 单源 import——零重抄〕）；确认
+ *   态/输入态在场拖选禁用（输入模态优先）；头行/健康投影区/底铬/滚动条列
+ *   命中零动作；动词/筛选重建后选区随内容换代清除（行集重建锚失效——
+ *   /history 无重建面故无此清位）；
  * - **退出键面**：q/Esc 退出（确认态/输入态在场时让位——Esc 先收模态）、
  *   Ctrl+C 打断（滤 kitty release）、Ctrl+D 退出进程（先收副屏再转退出柄；
  *   输入行有文不退——主屏空框闸同律）。
@@ -44,12 +51,14 @@
  * 命令经依赖倒置注入（装配面传真身——「同一函数」由装配保证）。
  */
 import type { CellBuffer, CellStyle, InputEvent, MouseEvent, Region } from '../../engine/index.js';
+import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
 import type { Keymap } from '../keys/registry.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
+import { SELECTION_CAP_BYTES, SELECTION_CAP_NOTICE } from '../history/history-viewer.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { tokenize } from '../../commands.js';
 
@@ -138,6 +147,12 @@ export interface MemoryViewerOptions extends MemoryViewerDataDeps {
    * 自建缺省册（单测语义）；装配位注入会话册——用户覆盖对子编辑器同样生效。
    */
   readonly keymap?: Keymap;
+  /**
+   * 选区复制写出柄（挂账解挂批①——对齐 /history 件 8 细则）：release 选区
+   * 行间拼 LF 到达 → 装配位铸 OSC 52 序列直写 io（终端支持不可探测——尽力
+   * 写出无反馈）。缺席 = 拖选高亮照常、release 零写出（测试语义）。
+   */
+  readonly onCopy?: (text: string) => void;
 }
 
 /* ---------------- 词面常量 ---------------- */
@@ -210,6 +225,12 @@ interface EntryDesc {
   readonly lineIndex: number;
 }
 
+/** 选区定位点（逻辑行 + 行内 UTF-16 下标——渲染无关坐标系：滚动/重折/resize 后仍指同一正文位；HistoryViewer SelPoint 同构） */
+interface SelPoint {
+  readonly line: number;
+  readonly col: number;
+}
+
 /**
  * 管理面内容件：ScrollView 子类（滚动/折叠/偏移算术继承）+ OverlayContent
  * （副屏 root——render 直收全屏 region）。
@@ -244,6 +265,16 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
   /** 退出闭锁（同批多事件只退一次——q 与 Esc 竞发的防御位） */
   private exited = false;
 
+  /* ---- 鼠标选区态（挂账解挂批①——HistoryViewer 同构移植） ---- */
+  /** 选区锚点（press 建锚；null = 无选区/视口外起手） */
+  private selAnchor: SelPoint | null = null;
+  /** 选区焦点（motion 扩展；release 定格） */
+  private selFocus: SelPoint | null = null;
+  /** 选区相关底行提示（超帽拒复制——常显至选区清除） */
+  private selectionNotice: string | null = null;
+  /** 选区复制写出柄（装配位注入——缺席 = release 零写出） */
+  private readonly onCopy: ((text: string) => void) | undefined;
+
   constructor(options: MemoryViewerOptions) {
     super(); // 无 maxHeight——副屏 root 直收 region 全高
     this.ownerKeys = options.ownerKeys;
@@ -253,6 +284,7 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.onCopy = options.onCopy;
     this.exportEditor = new Editor({ maxVisibleLines: 1, keymap: options.keymap }); // 单行档——导出参数行（同册注入）
     this.exportEditor.setFocused(false);
     this.rebuild(); // 开屏快照（光标落首条——顶部对齐）
@@ -291,10 +323,14 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       });
       return;
     }
+    // 底铬（优先序：选区超帽提示 > 确认态 > 一次性提示 > 动态键面提示——
+    // 超帽「常显至选区清除」故居最高档）
     const bottom =
-      this.confirmTarget !== null
-        ? `忘掉 [m:${shortIdOf(this.confirmTarget.id)}]？enter/y 确认 · esc/n 取消`
-        : (this.notice ?? hintText(this.cursorEntry()?.section ?? null));
+      this.selectionNotice !== null
+        ? this.selectionNotice
+        : this.confirmTarget !== null
+          ? `忘掉 [m:${shortIdOf(this.confirmTarget.id)}]？enter/y 确认 · esc/n 取消`
+          : (this.notice ?? hintText(this.cursorEntry()?.section ?? null));
     buffer.writeText(region.row + region.height - 1, region.col, bottom, DIM_STYLE);
   }
 
@@ -427,29 +463,117 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     return true;
   }
 
-  /* ---------------- 鼠标消费面（07 屏模型双形态节同批回写） ---------------- */
+  /* ---------------- 鼠标消费面（07 屏模型双形态节同批回写 + 挂账解挂批①拖选） ---------------- */
 
   /**
-   * mouse 事件路（终局消费——模态独占）：滚轮归 ScrollView（统一滚动路）；
-   * 左键点条目行 = 光标移至该行（点击反查经视口段映射到逻辑行，再对
-   * entries 锚比对——非条目行零动作）；头行/底铬/滚动条列/非左键零动作吞。
+   * mouse 事件路（终局消费——模态独占）：滚轮归 ScrollView（模态在场也照常
+   * 滚——禁的是拖选）；模态（确认态/输入态）在场拖选禁用全吞（输入模态
+   * 优先）；左键 press = 光标移至命中条目行（既有左键律）+ 选区起手锚定 →
+   * motion 扩展（拖出视口保焦点不扩）→ release 复制（行间拼 LF 经注入柄
+   * OSC 52 写出；release 后高亮保留，下次 press 清除/重锚）；头行/健康
+   * 投影区/底铬/滚动条列/非左键零动作吞。
    */
   private handleMouse(event: MouseEvent): boolean {
     if (event.button === 'wheel-up' || event.button === 'wheel-down') {
       super.handleEvent(event); // 滚轮消费路（±3 视觉行——显式滚动路）
       return true;
     }
-    if (event.phase !== 'press') return true; // motion/release 零动作（无拖选面 v1）
-    if (this.exportOpen || this.confirmTarget !== null) return true; // 模态在场零动作吞
-    if (event.button !== 'left') return true; // v1 只有左键消费——中/右零动作
-    const geo = this.viewportGeometry;
-    if (event.row < 1 || event.row >= 1 + geo.height) return true; // 头行/底铬命中零动作
-    if (this.hitScrollbar(event.col)) return true; // 滚动条列零动作
-    const seg = this.segmentAt(event.row - 1); // 视口首行 = region.row + 1
-    if (seg === null) return true;
-    const idx = this.entries.findIndex((e) => e.lineIndex === seg.line);
-    if (idx >= 0) this.cursor = idx; // 条目行命中——光标移至该行；分区头/投影行不指
+    if (this.exportOpen || this.confirmTarget !== null) return true; // 模态在场拖选禁用（输入模态优先）——吞
+    if (event.button !== 'left') return true; // v1 选区只有左键——中/右零动作吞
+    if (event.phase === 'press') {
+      // 既有左键律：条目行命中移光标（分区头/投影行不指——与拖选起手同拍，
+      // 单内容件双能力并存：点击即定位、拖动即选区）
+      const seg = this.screenToLogical(event.row, event.col);
+      if (seg !== null) {
+        const idx = this.entries.findIndex((e) => e.lineIndex === seg.line);
+        if (idx >= 0) this.cursor = idx;
+      }
+      // 新选区起手：旧选区与超帽提示随清（「常显至选区清除」的清除位）
+      this.selectionNotice = null;
+      this.selAnchor = seg; // 视口外起手 = null（无锚——motion/release 零动作）
+      this.selFocus = seg; // 零宽起手（拖动才扩）
+      return true;
+    }
+    if (this.selAnchor === null) return true; // 无锚——motion/release 零动作
+    if (event.phase === 'motion') {
+      const hit = this.screenToLogical(event.row, event.col);
+      if (hit !== null) this.selFocus = hit; // 拖出视口（头行/底铬/滚动条列）保焦点不扩
+      return true;
+    }
+    // release：空选区零动作（纯点击已移光标）；超帽拒复制 + 底行提示；在帽
+    // 行间拼 LF 经注入柄写出
+    const text = this.selectionText();
+    if (text.length === 0) return true;
+    if (Buffer.byteLength(text, 'utf8') > SELECTION_CAP_BYTES) {
+      this.selectionNotice = SELECTION_CAP_NOTICE;
+      return true;
+    }
+    this.onCopy?.(text);
     return true;
+  }
+
+  /* ---------------- 鼠标选区（挂账解挂批①——HistoryViewer 件 8 细则同构移植） ---------------- */
+
+  /**
+   * 屏幕坐标 → 选区定位点（逻辑行 + 行内 UTF-16 下标）：视口外命中（头行/
+   * 底铬/滚动条列/界外）返 null 零动作；列反查走字素宽累加（与折叠算术同源
+   * ——CJK 双宽对齐，命中字素含半格命中归该字素首）。
+   */
+  private screenToLogical(row: number, col: number): SelPoint | null {
+    const geo = this.viewportGeometry;
+    if (row < 1 || row >= 1 + geo.height) return null; // 头行 / 底铬（拖选禁用期底铬恒 1 行）
+    if (col < 0 || col >= geo.width) return null; // 界外防御位
+    if (this.hitScrollbar(col)) return null; // 滚动条列（溢出让列时末列）零动作
+    const seg = this.segmentAt(row - 1); // 视口首行 = region.row + 1
+    if (seg === null) return null;
+    const text = this.styledLines[seg.line]?.plain ?? '';
+    let index = seg.startCol;
+    let seen = 0;
+    for (const g of splitGraphemes(text.slice(seg.startCol, seg.startCol + seg.length))) {
+      if (seen + graphemeWidth(g) > col) break; // 命中字素（含双宽字素半格）归该字素首
+      seen += graphemeWidth(g);
+      index += g.length;
+    }
+    return { line: seg.line, col: index };
+  }
+
+  /** 选区规范化（锚/焦点 → 升序两端点；无选区 null） */
+  private selectionBounds(): readonly [SelPoint, SelPoint] | null {
+    if (this.selAnchor === null || this.selFocus === null) return null;
+    const flip =
+      this.selFocus.line < this.selAnchor.line ||
+      (this.selFocus.line === this.selAnchor.line && this.selFocus.col < this.selAnchor.col);
+    return flip ? [this.selFocus, this.selAnchor] : [this.selAnchor, this.selFocus];
+  }
+
+  /** 选区明文（行间拼 LF——release 复制与帽计量的单源；空选区空串） */
+  private selectionText(): string {
+    const bounds = this.selectionBounds();
+    if (bounds === null) return '';
+    const [from, to] = bounds;
+    const parts: string[] = [];
+    for (let line = from.line; line <= to.line; line++) {
+      const plain = this.styledLines[line]?.plain ?? '';
+      const start = line === from.line ? from.col : 0;
+      const end = line === to.line ? to.col : plain.length;
+      parts.push(plain.slice(start, end));
+    }
+    return parts.join('\n');
+  }
+
+  /**
+   * 本逻辑行的选中区间（端点含头不含尾；end = Infinity 表行尾开放——跨行尾
+   * 段；无选区/异行 null）。writeSlice 反相叠加与 selectionText 共用此规范化。
+   */
+  private selectionSpanFor(line: number): { start: number; end: number } | null {
+    const bounds = this.selectionBounds();
+    if (bounds === null) return null;
+    const [from, to] = bounds;
+    if (line < from.line || line > to.line) return null;
+    return {
+      start: line === from.line ? from.col : 0,
+      end: line === to.line ? to.col : Number.POSITIVE_INFINITY,
+    };
   }
 
   /* ---------------- 行动词（f/d/r——单源走 DAO 既有族） ---------------- */
@@ -582,6 +706,11 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
   private rebuild(anchorId?: string): void {
     // —— 取数三源（零新 DAO 方法——既有动词族单源）——
     this.health = this.dao.overview().health; // 恒全库口径（无参即正形）
+    // 选区随内容换代清除（挂账解挂批①）：行集重建后逻辑行锚失效——旧选区
+    // 高亮/超帽提示不再指任何真实正文位（/history 无重建面故无此清位）
+    this.selAnchor = null;
+    this.selFocus = null;
+    this.selectionNotice = null;
     // 管理形取数（批 ev-1 M2 拆形——未生效行在本面可见，行尾「N天后生效」标注）
     const visible = this.dao.listVisibleForManagement(this.ownerKeys);
     const frozenRows = visible.filter((r) => r.frozen); // 冻结区（滤出 frozen 位）
@@ -669,9 +798,9 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
 
   /**
    * 视口切片带样式写出：样式段（dim 分区头/投影行/终态行）按切片边界分段
-   * 落格 + 光标行整行反色叠加。列位经 prefixDisplayWidth 换算（CJK 双宽
-   * 对齐与折叠算术同源——HistoryViewer writeSlice 同构的简化形：无搜索
-   * 高亮/选区面）。
+   * 落格 + 光标行整行反色叠加 + 选区段反相叠加（挂账解挂批①——HistoryViewer
+   * 同载体）。列位经 prefixDisplayWidth 换算（CJK 双宽对齐与折叠算术同源
+   * ——HistoryViewer writeSlice 同构的简化形：无搜索高亮面）。
    */
   protected writeSlice(buffer: CellBuffer, region: Region, displayRow: number, seg: VisualSegment): void {
     const styled = this.styledLines[seg.line];
@@ -680,12 +809,18 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     const end = seg.startCol + seg.length;
     const cursorLine = this.cursorEntry()?.lineIndex;
     const isCursor = cursorLine === seg.line; // 光标行——整切片反色（叠加在样式段上）
-    // 分段边界：切片端点 ∪ 样式段端点（升序去重）
+    // 选区段（本切片所在逻辑行的选中区间——与光标行同 inverse 载体叠加）
+    const sel = this.selectionSpanFor(seg.line);
+    const selStart = sel !== null ? Math.max(sel.start, start) : end;
+    const selEnd = sel !== null ? Math.min(sel.end, end) : start;
+    // 分段边界：切片端点 ∪ 样式段端点 ∪ 选区端点（升序去重）
     const cuts = new Set<number>([start, end]);
     for (const run of styled.runs) {
       if (run.start > start && run.start < end) cuts.add(run.start);
       if (run.end > start && run.end < end) cuts.add(run.end);
     }
+    if (selStart > start && selStart < end) cuts.add(selStart);
+    if (selEnd > start && selEnd < end) cuts.add(selEnd);
     const bounds = [...cuts].sort((a, b) => a - b);
     const baseCols = prefixDisplayWidth(styled.plain, start);
     for (let i = 0; i + 1 < bounds.length; i++) {
@@ -699,6 +834,9 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
         }
       }
       if (isCursor) {
+        style = style === undefined ? CURSOR_STYLE : { ...style, inverse: true };
+      }
+      if (from >= selStart && from < selEnd) {
         style = style === undefined ? CURSOR_STYLE : { ...style, inverse: true };
       }
       buffer.writeText(

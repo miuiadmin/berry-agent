@@ -602,8 +602,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         ? { keybindings: themeLoad.settings.keybindings }
         : {}),
       // footer 常驻段（R6 批 10k）：cwd 短名 + 模型短名（provider/model 形取
-      // model 段）——会话短 id 段由 backend 每帧随 sessionId 现拼
-      footer: { cwdLabel: basename(session.workspaceRoot), modelLabel: modelShortName(stack.model) },
+      // model 段）——会话短 id 段由 backend 每帧随 sessionId 现拼；
+      // cwdPath（挂账解挂批②）：cwd 段 git 短支名后缀数据位（启动会话
+      // workspaceRoot——backend 构造期定值直读 .git/HEAD）
+      footer: {
+        cwdLabel: basename(session.workspaceRoot),
+        modelLabel: modelShortName(stack.model),
+        cwdPath: session.workspaceRoot,
+      },
       ...(options.version !== undefined ? { version: options.version } : {}),
       // 生产定时器注入（保活/帧帽真定时——缺省同步直出仅测试语义）
       schedule: (fn, ms) => setTimeout(fn, ms),

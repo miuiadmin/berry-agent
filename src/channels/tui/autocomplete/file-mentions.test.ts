@@ -2,7 +2,11 @@
  * @ 文件段补全源单测（07 §4.1 补全三合一第三源——实机行走件）：
  * 根列举与前缀过滤（大小写不敏感）/ 子目录段 / 目录优先排序 /
  * 引号形（空格文件 + 已引号前缀续补）/ .git 跳过 / 缺目录空集 /
- * 帽 / 绝对路径与 ~ 展开 / 符号链目录归类。
+ * 帽 / 绝对路径与 ~ 展开 / 符号链目录归类 /
+ * I5 锁① @ basePath 随焦锁（R7 批 10k——装配锚真源 = host/tui-entry.ts
+ * mentionSourceFor 闭包：per-query 新铸源、basePath 取聚焦会话工作区根；
+ * 焦点空悬/行缺席回退启动会话根。本组锁 FileMentionSource 的 basePath
+ * 语义底座——双根两形：换根列举随根、同根（回退形）列举稳定）。
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -146,6 +150,56 @@ describe('FileMentionSource 路径形态', () => {
     try {
       symlinkSync(path.join(root, 'src'), path.join(root, 'link-to-src'));
       expect(source.get('link').map((i) => i.replacement)).toEqual(['@link-to-src/']);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('I5 锁① @ basePath 随焦（R7 批 10k——装配锚 host/tui-entry.ts mentionSourceFor 闭包）', () => {
+  /**
+   * 双根 rig：rootA / rootB 各铸独有文件。mentionSourceFor 的 per-query 新铸
+   * 语义（每查询新 FileMentionSource、basePath 取当下聚焦根）在此以「换根 =
+   * 换源实例」形投影——锁的是 basePath 语义底座：列举严格随 basePath、
+   * 跨根零泄漏、同根（回退形）稳定。
+   */
+  function makeDualRoots(): { rootA: string; rootB: string; cleanup: () => void } {
+    const rootA = mkdtempSync(path.join(tmpdir(), 'berry-agent-lock-a-'));
+    const rootB = mkdtempSync(path.join(tmpdir(), 'berry-agent-lock-b-'));
+    writeFileSync(path.join(rootA, 'only-in-a.md'), '');
+    writeFileSync(path.join(rootB, 'only-in-b.md'), '');
+    return {
+      rootA,
+      rootB,
+      cleanup: () => {
+        rmSync(rootA, { recursive: true, force: true });
+        rmSync(rootB, { recursive: true, force: true });
+      },
+    };
+  }
+
+  it('切焦随新根：basePath rootA 的源列 rootA 独有且不含 rootB 独有（反向同理）', () => {
+    const { rootA, rootB, cleanup } = makeDualRoots();
+    try {
+      // 聚焦会话 A：mentionSourceFor 铸 basePath = A 工作区根的源
+      const fromA = new FileMentionSource({ basePath: rootA }).get('only-in-');
+      expect(fromA.map((i) => i.replacement)).toEqual(['@only-in-a.md']); // A 独有在场
+      // 切焦会话 B：per-query 新铸 basePath = B 根——列举随根换代（A 独有不残留）
+      const fromB = new FileMentionSource({ basePath: rootB }).get('only-in-');
+      expect(fromB.map((i) => i.replacement)).toEqual(['@only-in-b.md']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('焦点空悬回退：basePath = 启动会话根——同根两铸列举稳定（回退形不漂移）', () => {
+    const { rootA, cleanup } = makeDualRoots();
+    try {
+      // 空悬/行缺席两形都回退启动根——同根连续两铸（per-query 新铸不引入漂移）
+      const first = new FileMentionSource({ basePath: rootA }).get('');
+      const second = new FileMentionSource({ basePath: rootA }).get('');
+      expect(first.map((i) => i.label)).toEqual(['only-in-a.md']);
+      expect(second.map((i) => i.label)).toEqual(first.map((i) => i.label)); // 同根 = 同列举
     } finally {
       cleanup();
     }

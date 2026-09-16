@@ -44,7 +44,8 @@
  *
  * 批内边界：setWidget 不支撑（报 false）；主屏滚动帽实测定值挂装配批 12
  * 实机；件 8 副屏内容件已随批 10f-4 特性腿落（history-viewer.ts——本件只
- * 装配不复刻呈现）；鼠标滚轮 / 选区 OSC 52 随鼠标批。
+ * 装配不复刻呈现）；选区 OSC 52 复制已随 mu-2 批落（/history 与 /memory
+ * 副屏 onCopy 同柄装配——挂账解挂批①对齐补齐 memory 面）。
  */
 import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage, type Usage } from '../../../contracts/index.js';
@@ -65,7 +66,9 @@ import { CellGrid, InputDecoder, ProcessTerminalIO, type TerminalIO } from '../.
 import { MainScreen } from './main-screen.js';
 import { LiveTranscript, shortIdOf, type SummaryLine, type TranscriptBlock } from './transcript.js';
 import { OscDisplay, buildOsc52Copy } from './osc.js';
+import { allocateFixedBudget } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
+import { withGitBranchSuffix } from '../status/footer.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
 import {
@@ -193,8 +196,16 @@ export interface TuiBackendOptions {
    * footer 常驻段标签（R6 批 10k）：cwd 短名 / 模型名——缺席段缩位不虚报
    * （拼段执法）；会话短 id 段本件自持随切焦联动。注入缺席 = 无 footer
    * （状态行旧形零扰动——确定性测试基线）。
+   *
+   * cwdPath（挂账解挂批②）：cwd 短名段 git 短支名后缀的数据位——在场则
+   * cwd 段追加 ` ⎇ <支>`（直读 `.git/HEAD` 零子进程、detached/非库缺席不
+   * 虚报；构造期定值与 cwdLabel 同生命周期——跨焦 cwd 漂移同 R6 定值类）。
    */
-  readonly footer?: { readonly cwdLabel?: string; readonly modelLabel?: string };
+  readonly footer?: {
+    readonly cwdLabel?: string;
+    readonly modelLabel?: string;
+    readonly cwdPath?: string;
+  };
   /**
    * 流式帧字节帽（批 10h R1 perf 护栏）：缺省 STREAM_FRAME_BYTE_CAP 定值
    * 256KB（只拦病理性整档重排——常态帧为视口量级）。注入面 = 测试语义
@@ -434,6 +445,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly footerCwd: string | undefined;
   private footerModel: string | undefined;
   /**
+   * cwd 段 git 支名后缀数据位（挂账解挂批②）：cwdPath 在场才读支名——
+   * 构造期定值（与 cwdLabel 同生命周期——跨焦 cwd 漂移同 R6 定值类）。
+   */
+  private readonly footerCwdPath: string | undefined;
+  /**
    * footer 门控位（挂载解挂批 2026-09-15 显式化）：footer 选项注入在场才开
    * 常驻段——setFooterModel 活写的 no-op 判据（注入缺席 = 状态行旧形零扰动）。
    */
@@ -489,6 +505,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       options.footer?.modelLabel !== undefined && options.footer.modelLabel !== ''
         ? options.footer.modelLabel
         : undefined;
+    // cwd 段 git 支名后缀数据位（挂账解挂批②）：构造期定值（空串同缺席——不虚报）
+    this.footerCwdPath =
+      options.footer?.cwdPath !== undefined && options.footer.cwdPath !== '' ? options.footer.cwdPath : undefined;
     // footer 门控（R6 批 10k）：footer 选项注入在场才开常驻段（短 id 段恒在——
     // 缺席段缩位不虚报指两标签）；注入缺席 = 无 footer 状态行旧形（确定性测试
     // 基线零扰动）
@@ -745,6 +764,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         onExit: () => this.closeAlt(),
         onInterrupt: () => this.onInterrupt?.(this.sessionId), // 零参形——装配闭包已知目标会话
         onQuit: this.onQuit,
+        // OSC 52 复制写出柄（挂账解挂批①）：release 选区行间拼 LF 到达 → 铸
+        // 序列直写 io（与 openHistory 同柄同律——终端支持不可探测，尽力写出
+        // 无反馈，件 8 细则）
+        onCopy: (text) => this.io.write(buildOsc52Copy(text)),
         // 键位册同源注入（批 10k 遗漏修——导出行子编辑器同册，用户覆盖通效）
         keymap: this.keymap,
       }),
@@ -992,11 +1015,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * footer 常驻段重算（R6 批 10k）：cwd 短名 · 模型名 · 会话短 id 拼段
    * （缺席段缩位不虚报——两标签装配注入期定值、短 id 段随切焦联动）。
-   * footer 选项注入缺席时状态行无常驻段（refreshFooter 只在门控内被调）。
+   * cwd 段 git 短支名后缀（挂账解挂批②）：cwdPath 在场直读 `.git/HEAD` 追加
+   * ` ⎇ <支>`（同段一体非第四段；detached/非库缺席不虚报；每调现读——
+   * checkout 后随切焦/resize 重算收敛，不 watch 不轮询）。
+   * 门控（挂账解挂批②补漏）：footer 选项注入缺席时早退——此前无门控，
+   * onRepaint 切焦路无条件拼段致常驻段被漏开（违 R6「注入缺席回旧形零
+   * 扰动」——修前红在案）。
    */
   private refreshFooter(): void {
+    if (!this.footerEnabled) return;
     const parts: string[] = [];
-    if (this.footerCwd !== undefined) parts.push(this.footerCwd);
+    if (this.footerCwd !== undefined) parts.push(withGitBranchSuffix(this.footerCwd, this.footerCwdPath));
     if (this.footerModel !== undefined) parts.push(this.footerModel);
     parts.push(shortIdOf(this.sessionId));
     this.statusLine.setFooter(parts.join(' · '));
@@ -1069,6 +1098,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.pendingOps = [];
     this.needFixed = false;
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
+    // footer 支名重算（挂账解挂批②——resize 全量重画同收敛锚）。**必须后于
+    // screen.handleResize**：缺省同步 flush 档（scheduleFn null）下 refreshFooter
+    // 的 touchFixed 即触发 flush——Screen 几何若未先收敛，中途全量写出按旧行位
+    // 落杯 = 缩窗后越屏定位（挂账解挂批 C② 修前红实证——极小终端固定区截断测试
+    // 抓获：12 行屏杯位写上 5 行屏）。
+    this.refreshFooter();
     this.renderFixed();
   }
 
@@ -1689,22 +1724,32 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * → 补全弹层 → 编辑器（动态量高；聚焦态 = 无 overlay 占焦）→ 工具进度
    * 面板（件 5——与状态行分职互补相邻）→ 状态行。编辑光标经 EditorView
    * setCursor 声明 → MainScreen.setFixed 声明位落 cup。
+   *
+   * 段量高经固定区段优先级截断（07 §4.1 挂账解挂批 C②）：极小终端固定区
+   * 总高 > 视口时依优先级序截断（状态行恒保底 > 输入框收窄至下限 > 低段
+   * todo/工具进度先缩后隐）——分配律单源 fixed-budget.ts；生效锚即本件
+   * 段高重算既有路（touchFixed/requestRender 收敛 + repaint/resize 全量
+   * 重画同收敛）。
    */
   private renderFixed(): void {
     const columns = this.io.size().columns;
     const contents = this.stack.contents;
     const overlayHeights = contents.map((c) => c.measure(columns));
-    const overlayHeight = overlayHeights.reduce((sum, h) => sum + h, 0);
-    const todoHeight = this.todoPanel.measure(columns);
-    const askHeight = this.inputAsk !== null ? 1 : 0;
-    const popupHeight = this.popup.visible ? this.popup.measure(columns) : 0;
-    const editorHeight = this.editor.measure(columns);
-    const toolHeight = this.toolPanel.measure(columns);
-    const total = overlayHeight + todoHeight + askHeight + popupHeight + editorHeight + toolHeight + 1;
+    // 量高原值 → 优先级截断分配（预算 = 视口 - 1：正文滚动区至少 1 行）
+    const budget = allocateFixedBudget({
+      viewportRows: this.io.size().rows,
+      overlay: overlayHeights.reduce((sum, h) => sum + h, 0),
+      ask: this.inputAsk !== null ? 1 : 0,
+      popup: this.popup.visible ? this.popup.measure(columns) : 0,
+      editor: this.editor.measure(columns),
+      todo: this.todoPanel.measure(columns),
+      tool: this.toolPanel.measure(columns),
+    });
+    const total = budget.total;
     const grid = new CellGrid(columns, total);
     let row = 0;
 
-    // 段一：overlay 段（栈序自上而下叠放；锚定注册表即本段行账）
+    // 段一：overlay 段（栈序自上而下叠放；锚定注册表即本段行账——恒满高不截）
     for (let i = 0; i < contents.length; i++) {
       const height = overlayHeights[i]!;
       this.overlayLayout.set(contents[i]!, { row, col: 0, width: columns, height });
@@ -1712,36 +1757,37 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       row += height;
     }
 
-    // 段二：todo 面板（件 4——输入框上方紧凑面板；清板即零行）
-    if (todoHeight > 0) {
-      this.todoPanel.render(grid, { row, col: 0, width: columns, height: todoHeight });
-      row += todoHeight;
+    // 段二：todo 面板（件 4——输入框上方紧凑面板；清板即零行；截断隐 = 零高度）
+    if (budget.todo > 0) {
+      this.todoPanel.render(grid, { row, col: 0, width: columns, height: budget.todo });
+      row += budget.todo;
     }
 
-    // 段三：input-ask 提示行（应答期编辑器转应答车的引导位）
+    // 段三：input-ask 提示行（应答期编辑器转应答车的引导位——恒保不截）
     if (this.inputAsk !== null) {
       grid.writeText(row, 0, `? ${this.inputAsk.message}`, { dim: true });
       row += 1;
     }
 
-    // 段四：补全弹层（可见才占位——非模态浮层）
-    if (this.popup.visible) {
-      this.popup.render(grid, { row, col: 0, width: columns, height: popupHeight });
-      row += popupHeight;
+    // 段四：补全弹层（可见才占位——非模态浮层；截断隐 = 零高度）
+    if (budget.popup > 0) {
+      this.popup.render(grid, { row, col: 0, width: columns, height: budget.popup });
+      row += budget.popup;
     }
 
-    // 段五：编辑器（overlay 占焦期非聚焦——边框普通态 + 不抢光标声明）
+    // 段五：编辑器（overlay 占焦期非聚焦——边框普通态 + 不抢光标声明；
+    // 截断收窄至下限 3 = 边框 2 + 内容 1——EditorView innerH ≤ 0 防御在位）
     this.editor.setFocused(this.stack.size === 0);
-    this.editor.render(grid, { row, col: 0, width: columns, height: editorHeight });
-    row += editorHeight;
+    this.editor.render(grid, { row, col: 0, width: columns, height: budget.editor });
+    row += budget.editor;
 
     // 段六：工具进度面板（件 5——正在流 partial 的工具各占一行；清板即零行）
-    if (toolHeight > 0) {
-      this.toolPanel.render(grid, { row, col: 0, width: columns, height: toolHeight });
-      row += toolHeight;
+    if (budget.tool > 0) {
+      this.toolPanel.render(grid, { row, col: 0, width: columns, height: budget.tool });
+      row += budget.tool;
     }
 
-    // 段七：状态行（固定区末行）
+    // 段七：状态行（固定区末行——恒保底不截）
     this.statusLine.render(grid, { row, col: 0, width: columns, height: 1 });
     this.screen.setFixed(grid);
   }

@@ -28,6 +28,9 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import type { MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage, UiSessionSummary, UiUsageSummary } from '../../../contracts/index.js';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const COLS = 80;
 const ROWS = 10;
@@ -1434,6 +1437,56 @@ describe('TuiBackend /history 鼠标面 e2e（mu-2）', () => {
   });
 });
 
+/* ---------------- /memory 鼠标面 e2e（挂账解挂批①——选区复制 OSC 52 装配接线证） ---------------- */
+
+describe('TuiBackend /memory 鼠标面 e2e（挂账解挂批①）', () => {
+  /** SGR 报文便捷铸造（1 基坐标直书——与 /history 鼠标面同形） */
+  const sgr = (cb: number, col: number, row: number, final: 'M' | 'm' = 'M'): string =>
+    `\x1b[<${cb};${col};${row}${final}`;
+
+  it('拖选三连 → io 字节含 OSC 52;c;base64（onCopy → buildOsc52Copy 装配——与 /history 同柄单源）', () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION });
+    io.reset(); // start 编舞字节不计入
+    // 单活体条目材料（条目行 = 0 基屏行 4：头行 0 + 健康投影两行 + 分区头 3）
+    const rows = [
+      {
+        id: 'maaaaaaa',
+        ownerKey: 'global',
+        kind: 'pref',
+        summary: '摘要甲',
+        content: '',
+        status: 'active' as const,
+        supersededBy: null,
+        updatedAt: 0,
+        frozen: false,
+        validFrom: null,
+      },
+    ];
+    backend.setMemoryScreen({
+      ownerKeys: ['global'],
+      dao: {
+        listVisibleForManagement: () => rows,
+        listForExport: () => rows,
+        overview: () => ({ health: { active: 1, dismissed: 0, expired: 0, frozen: 0, total: 1 } }),
+        forget: () => rows[0]!,
+        restore: () => rows[0]!,
+        freeze: () => rows[0]!,
+        unfreeze: () => rows[0]!,
+      },
+      sanitize: () => ({ blocked: false, patterns: [], quoted: false }),
+      exportCommand: () => Promise.resolve('已导出'),
+    });
+    backend.openMemory();
+    io.reset(); // 进屏 / 首帧字节不计入——聚焦复制写出
+    // 条目行 `[m:maaaaaaa] [pref] 摘要甲 ...`：列 13-18 = `[pref]`（纯 ASCII
+    // 段——显示列即 UTF-16 下标，宽度算术不介入）
+    io.emitInput(sgr(0, 14, 5)); // 左键 press（1 基 col 14/row 5 → 0 基 13/4）
+    io.emitInput(sgr(32, 20, 5)); // 按住拖动（motion → 0 基 col 19）
+    io.emitInput(sgr(0, 20, 5, 'm')); // 释放——触发复制
+    expect(io.bytes).toContain(`\x1b]52;c;${Buffer.from('[pref]', 'utf8').toString('base64')}\x07`);
+  });
+});
+
 /* ================= /memory 副屏装配面（mm 批——06 §7 /memory 轻管理面） ================= */
 
 describe('TuiBackend /memory 副屏装配（setMemoryScreen / openMemory——mm 批）', () => {
@@ -2346,5 +2399,109 @@ describe('TuiBackend 候跑提交 + 模型循环键 + footer 模型段活写（�
     bare.io.reset();
     bare.backend.setFooterModel('glm-4.7');
     expect(bare.io.bytes).toBe('');
+  });
+});
+
+describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②——极小终端固定区溢出）', () => {
+  /** 极小形载荷：8 条 todo（量高 7 = 帽 6 + 溢出行）+ footer 注入（状态行常驻段可观测） */
+  const manyTodos = Array.from({ length: 8 }, (_, i) => ({ status: 'pending' as const, content: `任务零${i}` }));
+
+  it('rows 缩至 5：低段（todo）整段隐零高度——状态行钉屏底 + 编辑器下限在场 + 无越屏定位', () => {
+    const io = new MemoryTerminalIO(COLS, 12); // 先宽后窄：宽形（12 行）无截断全量进画，让 todo 7 行先进场
+    const backend = new TuiBackend(io, { sessionId: SESSION, footer: { cwdLabel: 'proj' }, todoFor: () => manyTodos });
+    backend.start();
+    // todo 进场锚点：tool_execution_end（refreshTodo 三时点之二——tool 未开档 end 无行，纯 todo 形）
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    io.bytes = ''; // 宽形中间帧不计——聚焦缩窗后的全量重画帧
+    io.rows = 5;
+    io.emitResize(); // 极小形：截断目标 = 固定区总高 ≤ 视口 - 1 = 4（正文滚动区至少 1 行）
+    // 截断后固定区 = 编辑器下限 3（边框 2 + 内容 1）+ 状态行 1：状态行钉屏底（0 基第 4 行）
+    expect(io.bytes).toContain('\x1b[5;1H\x1b[0mproj · sess-aaa'); // 状态行恒保底且钉屏底（修前钉在第 11 行）
+    expect(io.bytes).toContain('┌'); // 输入框高优段保序在场（随 R3 高度帽自适应收窄至下限）
+    expect(io.bytes).not.toContain('任务零0'); // 低段整段隐——零高度不虚报（修前 7 行全量进画）
+    expect(io.bytes).not.toContain('\x1b[6;1H'); // 无越屏定位（修前固定区 11 行越 5 行屏）
+  });
+
+  it('rows 缩至 8：低段先缩不隐——todo 收到 1 行 + 正文滚动区非退化', () => {
+    const io = new MemoryTerminalIO(COLS, 12); // 同上先宽（12 行全量 11 ≤ 预算 11 无截断）后窄
+    const backend = new TuiBackend(io, { sessionId: SESSION, footer: { cwdLabel: 'proj' }, todoFor: () => manyTodos });
+    backend.start();
+    emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
+    io.bytes = '';
+    io.rows = 8;
+    io.emitResize(); // 预算 7：todo 缩 1 + 编辑器 3 + 状态行 1 = 5 ≤ 7——「先缩后隐」之缩形
+    expect(io.bytes).toContain('任务零0'); // todo 缩到 1 行——首条在场（段在场）
+    expect(io.bytes).not.toContain('任务零1'); // 缩掉的不虚报（修前 6 条全量进画）
+    // 固定区总高 5 → 滚动区底 = 8 - 5 = 3（修前总高 11 → 退化 [1;1r + 越屏定位）
+    expect(io.bytes).toContain('\x1b[1;3r');
+    expect(io.bytes).not.toContain('\x1b[9;1H'); // 无越屏定位（修前写到第 11 行）
+  });
+});
+
+describe('TuiBackend footer git 短支名段（07 §4.1 挂账解挂批②——直读 .git/HEAD 零子进程）', () => {
+  /** 临时 git 库：.git 目录 + HEAD 定值（ref: 形传 `ref: refs/heads/<支>`、detached 形传 40hex） */
+  function makeRepo(head: string): string {
+    const root = mkdtempSync(join(tmpdir(), 'berry-git-'));
+    mkdirSync(join(root, '.git'), { recursive: true });
+    writeFileSync(join(root, '.git', 'HEAD'), `${head}\n`);
+    return root;
+  }
+  const ref = (branch: string): string => `ref: refs/heads/${branch}`;
+
+  it('注入 cwdPath：cwd 段带 ⎇ 短支名后缀（同段一体非第四段）', () => {
+    const root = makeRepo(ref('feature/tui-face'));
+    const { io } = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'proj', cwdPath: root } });
+    expect(io.bytes).toContain('proj ⎇ feature/tui-face · sess-aaa');
+  });
+
+  it('父级库命中：cwd 在子目录同样取到支名（cwd 起向上逐级定位 .git）', () => {
+    const root = makeRepo(ref('dev'));
+    const sub = join(root, 'src', 'inner');
+    mkdirSync(sub, { recursive: true });
+    const { io } = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'proj', cwdPath: sub } });
+    expect(io.bytes).toContain('proj ⎇ dev · sess-aaa');
+  });
+
+  it('detached HEAD：后缀缺席不虚报（cwd 段原样缩位）', () => {
+    const root = makeRepo('0123456789abcdef0123456789abcdef01234567');
+    const { io } = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'proj', cwdPath: root } });
+    expect(io.bytes).toContain('proj · sess-aaa');
+    expect(io.bytes).not.toContain('⎇');
+  });
+
+  it('非 git 目录：后缀缺席（同 detached 形——不虚报）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'berry-nogit-'));
+    const { io } = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'proj', cwdPath: root } });
+    expect(io.bytes).toContain('proj · sess-aaa');
+    expect(io.bytes).not.toContain('⎇');
+  });
+
+  it('checkout 收敛：改写 HEAD 后 onRepaint 重算换支名（刷新锚 = 切焦联动既有路）', () => {
+    const root = makeRepo(ref('old-branch'));
+    const { io, backend } = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'proj', cwdPath: root } });
+    expect(io.bytes).toContain('proj ⎇ old-branch · sess-aaa');
+    writeFileSync(join(root, '.git', 'HEAD'), `${ref('new-branch')}\n`); // 模拟 checkout
+    io.reset();
+    backend.onRepaint(SESSION, [], null);
+    expect(io.bytes).toContain('proj ⎇ new-branch · sess-aaa'); // 每调现读——重算取新值
+    expect(io.bytes).not.toContain('old-branch');
+  });
+
+  it('resize 收敛：改支名后 emitResize 重算（刷新锚 = resize 全量重画同收敛）', () => {
+    const root = makeRepo(ref('wip'));
+    const { io } = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'proj', cwdPath: root } });
+    writeFileSync(join(root, '.git', 'HEAD'), `${ref('release')}\n`); // 模拟 checkout
+    io.reset();
+    io.rows = 11;
+    io.emitResize();
+    expect(io.bytes).toContain('proj ⎇ release · sess-aaa');
+  });
+
+  it('onRepaint 无 footer 注入：常驻段不开（门控零扰动——修前红锚：refreshFooter 此前无门控）', () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION });
+    io.reset();
+    backend.onRepaint(SESSION, [], null);
+    // 修前：refreshFooter 无门控恒拼段 → 状态行被开常驻段（SGR 包裹的分栏 footer 行）
+    expect(io.bytes).not.toContain('\x1b[0msess-aaa\x1b[0m');
   });
 });

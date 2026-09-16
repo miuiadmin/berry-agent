@@ -45,7 +45,11 @@ export class TodoPanel implements Renderable {
 
   /** 落位：每条一行（记号 + 空格 + 内容截断）；溢出行收尾 */
   render(buffer: CellBuffer, region: Region): void {
-    const visible = this.items.slice(0, MAX_ITEMS);
+    // 段内夹取（挂账解挂批 C②——固定区段优先级截断）：分配到的段高可低于
+    // measure 原值（低段「缩」形）——可见条数按段高容量收，Renderable 契约
+    // 只写自己区域内（不越段写）；溢出行仅在有富余行时收尾
+    const capacity = Math.min(MAX_ITEMS, region.height);
+    const visible = this.items.slice(0, capacity);
     visible.forEach((item, i) => {
       const dimmed = DIM_STATUSES.has(item.status);
       // 进行中 activeForm 优先（缺席回落 content）
@@ -53,9 +57,11 @@ export class TodoPanel implements Renderable {
       const row = `${STATUS_MARKS[item.status]} ${truncateToWidth(content, region.width - 2)}`;
       buffer.writeText(region.row + i, region.col, row, dimmed ? { dim: true } : undefined);
     });
-    const overflow = this.items.length - MAX_ITEMS;
-    if (overflow > 0) {
-      buffer.writeText(region.row + MAX_ITEMS, region.col, `+ ${overflow} 更多`, { dim: true });
+    // 溢出行对截断几何诚实：+ N 更多数 = 帽/段高外未显条数（非截断几何下
+    // capacity = MAX_ITEMS——与既有行为逐字相同）
+    const overflow = this.items.length - capacity;
+    if (overflow > 0 && visible.length < region.height) {
+      buffer.writeText(region.row + visible.length, region.col, `+ ${overflow} 更多`, { dim: true });
     }
   }
 }
