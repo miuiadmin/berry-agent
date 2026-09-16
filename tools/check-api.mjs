@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * API 治理机器执法层（03 篇 §8.8 check-api 十查，2026-09-05 API 治理批 2 起——
- * 查 3/4 随 DEP 注册簿批充实、查 5 豁免节机制随首实验键批（生态启动批 eco-3
+ * API 治理机器执法层（03 篇 §8.8 check-api 十查 + 完备性两查，2026-09-05 API 治理
+ * 批 2 起——查 3/4 随 DEP 注册簿批充实、查 5 豁免节机制随首实验键批（生态启动批 eco-3
  * testkit 域）落、查 7 旧形态休眠腿随 2026-09-14 遗漏扫描四役批删除、真身
  * 同日随 ag 批激活（core: 注册表扫描形）、查 8 两生成物腿随批 4 增挂）。
  *
- * 进 lint:topology 链（CI 同一套）。十查形态（落码节奏——§8.10 批表）：
+ * 进 lint:topology 链（CI 同一套）。十查形态（落码节奏——§8.10 批表）+ 完备性
+ * 两查（查 11/12 随 2026-09-16 全面遗漏扫描修复批 F4 增——工程完备性执法，
+ * 非 03 §8.8 API 治理本体）：
  * 1. drift——快照 src/contracts/api-surface.json ≠ 抽取真值即红（面漂移当场抓）；
  * 2. tier 全标——快照逐条 tier 词汇合法 + since 坐标不变式（since > 当前
  *    apiVersion 未来版本号入册即红——版本坐标系双向，查 9 执法「面动号不动」
@@ -36,7 +38,13 @@
  *     件 + contracts 内 API_ 族错误码 message）不得指路知识域（「设计文档」
  *     「0N 篇 §N」等 gitignored 路径/篇名——第三方作者顺指路必撞不可达文档），
  *     指路改公开锚（COMPATIBILITY.md / docs 公开面）；产码注释引用规范不在
- *     此列（非公开产物面）。
+ *     此列（非公开产物面）；
+ * 11. 双包元数据五键比对——主包与 packages/berry-agent-sdk 包的
+ *     repository/engines/license/apiVersion 四键逐字相等（version 各自独立
+ *     不比对——发布节奏分立；repository.directory 子键同例剥除——npm 子包
+ *     坐标系字段），不等即红；
+ * 12. 工具测试件点名完备性——tools/*.test.mjs ⊆ vitest.config.ts include
+ *     点名录（新测试件漏登记 = 根本不被跑的沉默缝），漏点名即红。
  *
  * 出口：零问题静默过（门禁链惯例）；有问题 stderr 逐条 + exit 1。
  */
@@ -618,6 +626,82 @@ function baseErrorLiteralText(src, openIdx) {
         v(
           `[查 10] ${file} ${code[1]} 错误消息指路知识域（「${hit[0]}」）——运行时字符串对第三方插件作者不可达；` +
             `指路改公开锚（COMPATIBILITY.md / docs 公开面），§8.8 查 10`,
+        );
+      }
+    }
+  }
+}
+
+/* ---------------- 查 11：双包元数据五键比对（2026-09-16 F4 加固批增） ---------------- */
+
+{
+  // 双包五键：repository/engines/license/apiVersion 四键双包逐字相等——
+  // license 分叉 = 法务面漂移、engines 分叉 = 运行时要求分叉、apiVersion
+  // 分叉 = 插件生态坐标失锚、repository 分叉 = 溯源指路分叉；第五键 version
+  // 各自独立不比对（发布节奏分立——SDK 走独立 tag 域）。repository.directory
+  // 子键例外剥除（npm 子包坐标系字段：SDK 恒指本包目录、主包无此键，同
+  // version 各自独立），其余子键仍逐字相等。SDK 包册缺席 = fail-closed 红
+  // （结构性拒绝非静默放行——查 6 同律）。`CHECK_API_PKG_SDK` env 缝 =
+  // 回归锁换片位（CHECK_API_SNAPSHOT 同款纪律：测试注入漂移包册证红，不动
+  // 共享树文件；主包册恒真位不设缝——漂移注入单边即点亮红路）。
+  const sdkPkgPath =
+    process.env.CHECK_API_PKG_SDK !== undefined
+      ? resolve(REPO_ROOT, process.env.CHECK_API_PKG_SDK)
+      : join(REPO_ROOT, 'packages', 'berry-agent-sdk', 'package.json');
+  if (!existsSync(sdkPkgPath)) {
+    v(`[查 11] SDK 包册缺席（${sdkPkgPath}）——双包五键比对无对象（fail-closed；修路径或补包册）`);
+  } else {
+    const mainPkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+    const sdkPkg = JSON.parse(readFileSync(sdkPkgPath, 'utf8'));
+    // repository 规整：仅剥 directory 子键，其余子键原样入逐字比对
+    const repoOf = (p) =>
+      p.repository !== null && typeof p.repository === 'object' && !Array.isArray(p.repository)
+        ? Object.fromEntries(Object.entries(p.repository).filter(([k]) => k !== 'directory'))
+        : p.repository;
+    for (const key of ['repository', 'engines', 'license', 'apiVersion']) {
+      const pick = (p) => (key === 'repository' ? repoOf(p) : p[key]);
+      const mainText = JSON.stringify(pick(mainPkg));
+      const sdkText = JSON.stringify(pick(sdkPkg));
+      if (mainText !== sdkText) {
+        v(
+          `[查 11] 双包元数据 ${key} 不一致：主包 ${mainText} vs SDK 包 ${sdkText}——` +
+            `四键（repository/engines/license/apiVersion）双包逐字同步（version 与 repository.directory 各自独立），修齐两包册`,
+        );
+      }
+    }
+  }
+}
+
+/* ---------------- 查 12：工具测试件点名完备性（2026-09-16 F4 加固批增） ---------------- */
+
+{
+  // vitest node 轨对 tools/*.test.mjs 逐件点名收编（不开通配——宽通配杀
+  // coverage 面，vitest.config.ts 头注纪律）；新增工具测试件漏登记 include
+  // = 测试根本不被跑的沉默缝（CI 全绿假象），本查点名执法。磁盘侧 =
+  // SCAN_ROOT/tools（夹具树可证红；目录缺席容忍——夹具树不算布局红）；
+  // 点名册侧 = vitest.config.ts 文本提取 tools/ 点名条目（只认点名录：若
+  // 改回通配形则条目提不出、磁盘侧全红——点名纪律由本查反向执法）。
+  // `CHECK_API_VITEST_CONFIG` env 缝 = 回归锁换片位（注入夹具点名册证红/绿，
+  // 不动共享树真配置）；点名册缺席 = fail-closed 红。
+  const vitestConfigPath =
+    process.env.CHECK_API_VITEST_CONFIG !== undefined
+      ? resolve(REPO_ROOT, process.env.CHECK_API_VITEST_CONFIG)
+      : join(REPO_ROOT, 'vitest.config.ts');
+  const toolsDir = join(SCAN_ROOT, 'tools');
+  if (!existsSync(vitestConfigPath)) {
+    v(`[查 12] vitest 点名册缺席（${vitestConfigPath}）——工具测试件完备性无基准（fail-closed）`);
+  } else if (existsSync(toolsDir)) {
+    const named = new Set();
+    for (const m of readFileSync(vitestConfigPath, 'utf8').matchAll(/['"`](tools\/[^'"`\s]+\.test\.mjs)['"`]/g)) {
+      named.add(m[1]);
+    }
+    for (const name of readdirSync(toolsDir).sort()) {
+      if (!name.endsWith('.test.mjs') || !lstatSync(join(toolsDir, name)).isFile()) continue;
+      const rel = `tools/${name}`;
+      if (!named.has(rel)) {
+        v(
+          `[查 12] 工具测试件 ${rel} 未在 vitest.config.ts include 点名——测试根本不被跑（沉默缝）；` +
+            `node 轨 include 补 '${rel}'（逐件点名纪律，不开通配）`,
         );
       }
     }

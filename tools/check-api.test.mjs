@@ -282,6 +282,71 @@ describe(
       expect(out).not.toContain('inside.md'); // 豁免是定点开口——节内提及不红
     });
 
+    it('查 11：双包元数据漂移红（CHECK_API_PKG_SDK 换片——分叉键点名 + 一致键不误伤）', () => {
+      const dir = fixtureDir('check11');
+      // 真身 SDK 包册换片：license 与 apiVersion 双键漂移；repository（含
+      // directory 子键——npm 子包坐标系字段须例外剥除）与 engines 保持真值
+      // ——锁「分叉键逐个点名 + 一致键/例外子键零误伤」
+      const drifted = JSON.parse(readFileSync(join(REPO_ROOT, 'packages/berry-agent-sdk/package.json'), 'utf8'));
+      drifted.license = 'Apache-2.0';
+      drifted.apiVersion = '9.9';
+      const path = join(dir, 'sdk-package.json');
+      writeFileSync(path, JSON.stringify(drifted, null, 2));
+      const { status, out } = runCheck({ CHECK_API_PKG_SDK: path });
+      expect(status).toBe(1);
+      expect(out).toContain('[查 11]');
+      expect(out).toContain('license 不一致');
+      expect(out).toContain('Apache-2.0');
+      expect(out).toContain('apiVersion 不一致');
+      expect(out).toContain('9.9');
+      // 一致键不误伤：repository/engines 真值一致（directory 子键剥除后）——不红
+      expect(out).not.toContain('repository 不一致');
+      expect(out).not.toContain('engines 不一致');
+    });
+
+    it('查 11：真值双包绿（repository.directory 子键例外锁——逐字比对恒红形须不发生）', () => {
+      const dir = fixtureDir('check11-green');
+      // 真身 SDK 包册原样换片（零漂移）：真包 repository 带 directory 子键而主包
+      // 无——若比对未剥除该子键，净树恒绿测与本测双红（例外即规，非放水：其余
+      // 子键仍在比对面，check11 测已锁）
+      const pristine = readFileSync(join(REPO_ROOT, 'packages/berry-agent-sdk/package.json'), 'utf8');
+      const path = join(dir, 'sdk-package.json');
+      writeFileSync(path, pristine);
+      const { status, out } = runCheck({ CHECK_API_PKG_SDK: path });
+      expect(status).toBe(0);
+      expect(out).toBe('');
+    });
+
+    it('查 12：工具测试件漏点名红 + 点名完备绿（CHECK_API_ROOT 夹具树 + CHECK_API_VITEST_CONFIG 换片）', () => {
+      const dir = fixtureDir('check12');
+      // 夹具树最小形（查 5/查 10 同款）+ tools/ 下孤儿测试件（点名册不含它 → 红）
+      mkdirSync(join(dir, 'src', 'contracts'), { recursive: true });
+      mkdirSync(join(dir, 'api-decls'), { recursive: true });
+      writeFileSync(join(dir, 'src', 'contracts', 'index.ts'), 'export {};\n');
+      mkdirSync(join(dir, 'tools'), { recursive: true });
+      writeFileSync(join(dir, 'tools', 'orphan.test.mjs'), "import { it } from 'vitest';\nit('orphan', () => {});\n");
+      // 换片点名册（缺孤儿件）：只点名 src 域 → 孤儿件沉默缝被查 12 点名红
+      const rosterMissing = join(dir, 'vitest.config.missing.ts');
+      writeFileSync(
+        rosterMissing,
+        "export default { test: { projects: [{ test: { include: ['src/**/*.test.ts'] } }] } };\n",
+      );
+      const { status, out } = runCheck({ CHECK_API_ROOT: dir, CHECK_API_VITEST_CONFIG: rosterMissing });
+      expect(status).toBe(1);
+      expect(out).toContain('[查 12]');
+      expect(out).toContain('tools/orphan.test.mjs');
+      expect(out).toContain('vitest.config.ts include 点名');
+      // 点名册补上孤儿件 → 绿（沉默缝闭合——同树同盘只换点名册，单变量证归因）
+      const rosterFull = join(dir, 'vitest.config.full.ts');
+      writeFileSync(
+        rosterFull,
+        "export default { test: { projects: [{ test: { include: ['src/**/*.test.ts', 'tools/orphan.test.mjs'] } }] } };\n",
+      );
+      const green = runCheck({ CHECK_API_ROOT: dir, CHECK_API_VITEST_CONFIG: rosterFull });
+      expect(green.status).toBe(0);
+      expect(green.out).toBe('');
+    });
+
     it('查 10：夹具树公开产物指路知识域红（CHECK_API_ROOT 换树）', () => {
       const dir = fixtureDir('check10');
       // 夹具树最小形：查 2 barrel 扫描无条件读 src/contracts/index.ts——必须在场

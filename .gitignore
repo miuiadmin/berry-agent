@@ -21,6 +21,11 @@ coverage/
 # 承 berry 同律：gitignore 保护行入库存档，永不入公开史；禁 git add -f 强加）
 研究源码/
 
+# 私库镜像目录——双仓库形态的私有存档仓（berry-agent-private）镜像位本地自持。
+# 此前仅靠内层 设计文档/ 规则传递忽略（内层为空时 git 不显形）——巧合非结构，
+# 显式忽略行加固（2026-09-16 F4 加固批）：目录顶层直放文件也永不入公开史
+berry-agent-private/
+
 # 治理文档本地自持（AGENTS.local.md 真身 + CLAUDE.md symlink 指向它）——不入公开库；
 # 公开版 AGENTS.md（对外 AI 代理指引）入库不忽略（2026-09-15 贡献流程批）
 AGENTS.local.md
