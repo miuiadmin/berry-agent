@@ -10,7 +10,7 @@
  *
  * 断言只对线面帧与行为（禁断言 AI 生成文本——事件类型与结构位为准）。
  */
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -45,6 +45,17 @@ function messageOf(): PiAssistantMessage {
   } as unknown as PiAssistantMessage;
 }
 
+/** faux 响应脚本件（工具调用形——D1 审批链路的触发腿：驱动执行工具产生 ask） */
+function toolCallOf(id: string, name: string, args: Record<string, unknown>): PiAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'toolCall', id, name, arguments: args }],
+    usage: NO_USAGE,
+    stopReason: 'toolUse',
+    timestamp: 1,
+  } as unknown as PiAssistantMessage;
+}
+
 /** 线传输对（PassThrough 双向——出站行聚帧账） */
 class WireRig {
   readonly input = new PassThrough();
@@ -74,6 +85,11 @@ class WireRig {
     this.input.write(`${line}\n`);
   }
 
+  /** 发原始字节块（多字节字符跨 chunk 撕裂 / 无效 UTF-8 序列注入——传输环按字节进管道） */
+  sendBytes(chunk: Buffer): void {
+    this.input.write(chunk);
+  }
+
   /** 轮询直至谓词成立（行为断言统一等待位） */
   async until(pred: () => boolean, ms = 4_000): Promise<void> {
     const t0 = Date.now();
@@ -100,31 +116,109 @@ function rigServe(
   flags: Partial<ServeFlags> = {},
   heartbeatIntervalMs?: number,
   onWebuiOpen?: (info: { port: number; token: string }) => void,
+  /** faux 响应脚本覆盖位（缺省 4×messageOf 多轮余量；审批链路例注入 toolCall 序列） */
+  responses?: Array<() => PiAssistantMessage>,
 ) {
   const faux = fauxProvider({ provider: 'faux-serve', models: [{ id: 'm1' }] });
-  faux.setResponses([() => messageOf(), () => messageOf(), () => messageOf(), () => messageOf()]); // 多轮余量
+  faux.setResponses(responses ?? [() => messageOf(), () => messageOf(), () => messageOf(), () => messageOf()]); // 多轮余量
   const dataDir = mkdtempSync(join(tmpdir(), 'serve-data-'));
   dirs.push(dataDir);
   const rig = new WireRig();
   const providers: readonly Provider[] = [faux.provider];
+  const ws = mkdtempSync(join(tmpdir(), 'serve-ws-')); // 新会话工作区根锚（不追踪清场——数据目录已隔离）
   const entry = runServeEntry({
     flags: { debug: false, daemon: false, noDelta: false, ...flags },
     io: rig,
     dataDir,
-    cwd: mkdtempSync(join(tmpdir(), 'serve-ws-')), // 新会话工作区根锚（不追踪清场——数据目录已隔离）
+    cwd: ws,
     providers,
     model: 'faux-serve/m1', // faux-only 运行时必须点名模型（缺省解析 anthropic 档必失败）
     env: {},
     ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
     ...(onWebuiOpen !== undefined ? { onWebuiOpen } : {}),
   });
-  return { rig, entry, faux };
+  return { rig, entry, faux, ws };
 }
 
 /** 收场：EOF 后 entry 落 0（行为测试统一退出位——不留悬挂定时器） */
 async function closeExpect0(rig: WireRig, entry: Promise<number>): Promise<void> {
   rig.end();
   await expect(entry).resolves.toBe(0);
+}
+
+/* ---------------- webui SSE 读者（D1 双观众例——真 HTTP 面订阅腿） ---------------- */
+
+/** webui SSE 信封账项（面级流载荷恒 WebuiEnvelope 的件内不变式；unknown 域收敛在本类） */
+type FaceEnvelope = { kind: string; sessionId?: string; payload?: Record<string, unknown> };
+
+/** webui /api/sessions/:id/events 读者（行账聚帧 + until 轮询——与 WireRig 同律） */
+class FaceSseReader {
+  /** 已解析信封账（data: 行载荷按 `\\n\\n` 分块逐帧入账） */
+  readonly events: FaceEnvelope[] = [];
+  private text = '';
+  private done = false;
+
+  private constructor(
+    readonly res: Response,
+    private readonly controller: AbortController,
+  ) {}
+
+  /** 开流（Bearer 同面 token——/v1 与 /api 双族单 token） */
+  static async open(port: number, sessionId: string, token: string): Promise<FaceSseReader> {
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/events`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (res.status !== 200 || res.body === null) throw new Error(`SSE 开流非 200：${res.status}`);
+    const reader = new FaceSseReader(res, controller);
+    void reader.pump();
+    return reader;
+  }
+
+  /** 流泵（后台续读——块按 SSE 帧界 `\n\n` 切，data: 前缀行 JSON 解析入账） */
+  private async pump(): Promise<void> {
+    try {
+      const decoder = new TextDecoder();
+      for await (const chunk of this.res.body!) {
+        this.text += decoder.decode(chunk, { stream: true });
+        const blocks = this.text.split('\n\n');
+        this.text = blocks.pop() ?? ''; // 尾段 = 未完帧留待下轮
+        for (const block of blocks) {
+          for (const line of block.split('\n')) {
+            if (line.startsWith('data: ')) {
+              this.events.push(JSON.parse(line.slice(6)) as FaceEnvelope);
+            }
+          }
+        }
+      }
+    } catch {
+      // 流收口（abort/连接关）——账面即止，不视为错误
+    } finally {
+      this.done = true;
+    }
+  }
+
+  /** 轮询直至谓词成立（超时 throw 报账面 kind 序——与 WireRig.until 同诊断律） */
+  async until(pred: (events: FaceEnvelope[]) => boolean, ms = 4_000): Promise<void> {
+    const t0 = Date.now();
+    while (!pred(this.events)) {
+      if (Date.now() - t0 > ms) {
+        throw new Error(`SSE until 超时：信封序 ${JSON.stringify(this.events.map((e) => [e.kind, e.payload?.type]))}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  /** 摘流（读者侧主动收线——abort 请求即断连接，pump 收口入 catch 分支） */
+  abort(): void {
+    this.controller.abort();
+  }
+
+  /** 流已收口位（谓词辅助） */
+  get closed(): boolean {
+    return this.done;
+  }
 }
 
 /* ---------------- 测试面 ---------------- */
@@ -383,7 +477,192 @@ describe('传输环鲁棒位', () => {
   });
 });
 
-/* ---------------- serve 四桥会话键 canonical 统一（CL-A2） ---------------- */
+/* ---------------- 双真后端并发观众（D1——扇出与竞速装配序回归） ---------------- */
+
+describe('双真后端并发观众（D1）', () => {
+  it('信封双达：同一 run 的事件 stdio 线帧与 webui SSE 两观众都收到（同源时间戳锚）', async () => {
+    let opened: { port: number; token: string } | undefined;
+    const { rig, entry } = rigServe({ port: 0 }, undefined, (info) => {
+      opened = info;
+    });
+    try {
+      await rig.until(() => opened !== undefined); // 面起（webui backend 挂接在面装配内）
+      // 第一拍：新建会话跑完一轮（SSE 观众确定性开在下一轮前——首轮不要求在场）
+      rig.send({ verb: 'prompt', messageId: 'dual-open', content: '首问' });
+      await rig.until(() => rig.frames.some((f) => f.kind === 'event' && f.event.type === 'agent_end'));
+      const sid = (rig.frames.find((f) => f.kind === 'ack') as { sessionId: string }).sessionId;
+      // SSE 观众入场（订阅同会话——live-only 无重放，首轮事件不补推）
+      const sse = await FaceSseReader.open(opened!.port, sid, opened!.token);
+      try {
+        // 第二拍（显式会话续接）：双观众同看一轮
+        rig.send({ verb: 'prompt', sessionId: sid, messageId: 'dual-2', content: '再问' });
+        // stdio 侧：直播事件帧（第二轮 message_end 到位）
+        await rig.until(
+          () => rig.frames.filter((f) => f.kind === 'event' && f.event.type === 'message_end').length >= 2,
+        );
+        // SSE 侧：display 族活体（agent_start）+ session 族终结镜像（message_end）
+        await sse.until((evts) => evts.some((e) => e.kind === 'display' && e.payload?.type === 'agent_start'));
+        await sse.until((evts) => evts.some((e) => e.kind === 'session' && e.payload?.type === 'message_end'));
+        // 同源身份锚：第二轮的 message_end 帧对（流包装腿 + 终态腿——每轮两发）
+        // 在两侧时间戳序列逐一同一（单源事件扇出——断言结构位不比文本内容；
+        // stdio 账含首轮，取末两帧即第二轮对）
+        const wireTs = rig.frames
+          .filter((f) => f.kind === 'event' && f.event.type === 'message_end')
+          .slice(-2)
+          .map((f) => (f as { event: { message: { timestamp: number } } }).event.message.timestamp);
+        const sseTs = sse.events
+          .filter((e) => e.payload?.type === 'message_end')
+          .map((e) => (e.payload as unknown as { message: { timestamp: number } }).message.timestamp);
+        expect(sseTs).toEqual(wireTs);
+        // 首轮发生在 SSE 开流前——live-only 无重放（首轮事件不得出现在流上）
+        const sseStarts = sse.events.filter((e) => e.payload?.type === 'agent_start');
+        expect(sseStarts).toHaveLength(1); // 恰第二轮一轮量（若重放首轮则 ≥2 即红）
+      } finally {
+        sse.abort();
+      }
+    } finally {
+      await closeExpect0(rig, entry);
+    }
+  });
+
+  it('审批跨入口竞速：webui decide 先答 applied → stdio 后答 superseded；durable 落单源 decided（approve/user）', async () => {
+    let opened: { port: number; token: string } | undefined;
+    const { rig, entry, ws } = rigServe(
+      { port: 0 },
+      undefined,
+      (info) => {
+        opened = info;
+      },
+      // 响应脚本：首拍文本终态（开会话+订阅）→ 第二拍 write 工具调用（触发 ask）→ 末拍文本终态
+      [
+        () => messageOf(),
+        () => toolCallOf('d1-write', 'write', { path: 'd1-race.txt', content: 'D1 race' }),
+        () => messageOf(),
+      ],
+    );
+    try {
+      await rig.until(() => opened !== undefined);
+      // 第一拍：开会话 + 完赛（stdio 连接自动订阅该会话——SDK 腿 ask 可达）
+      rig.send({ verb: 'prompt', messageId: 'race-open', content: '首问' });
+      await rig.until(() => rig.frames.some((f) => f.kind === 'event' && f.event.type === 'agent_end'));
+      const sid = (rig.frames.find((f) => f.kind === 'ack') as { sessionId: string }).sessionId;
+      const sse = await FaceSseReader.open(opened!.port, sid, opened!.token);
+      try {
+        // 第二拍：write 工具（工作区内写 → 默认 workspace-write 档 → ask）
+        rig.send({ verb: 'prompt', sessionId: sid, messageId: 'race-2', content: '写文件' });
+        // stdio 侧：ask 外推帧（挂起审批身份 = ApprovalService 指派 UUID）
+        await rig.until(() => rig.frames.some((f) => f.kind === 'ask'));
+        const ask = rig.frames.find((f) => f.kind === 'ask') as { approvalId: string; summary: string };
+        expect(ask.approvalId).toMatch(/^[0-9a-f-]{36}$/); // randomUUID 形（跨入口同 id 竞速前提）
+        // webui 侧：asked 镜像同 id（同一 ApprovalAskRequest 扇出两后端）
+        await sse.until((evts) => evts.some((e) => e.payload?.type === 'approval/asked'));
+        const mirror = sse.events.find((e) => e.payload?.type === 'approval/asked')!.payload as unknown as {
+          approvalId: string;
+        };
+        expect(mirror.approvalId).toBe(ask.approvalId);
+        // webui 入口先答：decide applied
+        const first = await fetch(`http://127.0.0.1:${opened!.port}/api/approvals/${ask.approvalId}/decide`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${opened!.token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ answer: 'approve' }),
+        });
+        expect(first.status).toBe(200);
+        expect(await first.json()).toEqual({ outcome: 'applied' });
+        // stdio 入口后答：同 id superseded（竞速败者幂等回执）
+        rig.send({ verb: 'decide', approvalId: ask.approvalId, answer: 'reject' });
+        await rig.until(() => rig.frames.some((f) => f.kind === 'decide-result'));
+        const decided = rig.frames.find((f) => f.kind === 'decide-result') as {
+          approvalId: string;
+          outcome: string;
+        };
+        expect(decided.approvalId).toBe(ask.approvalId);
+        expect(decided.outcome).toBe('superseded');
+        // 竞速落定后工具真执行 + 第二轮 run 收口（approve 语义——不是 cancel；
+        // stdio 账取第二轮 agent_end——首轮帧已在账）
+        await rig.until(() => rig.frames.filter((f) => f.kind === 'event' && f.event.type === 'agent_end').length >= 2);
+        // 物理写达成（相对路径锚会话工作区根——rigServe 的 ws 临时目录）
+        expect(existsSync(join(ws, 'd1-race.txt'))).toBe(true);
+        // durable 审批对落单源：decided 恰一 {decision:'approve', source:'user'}
+        //（先答者落账；败腿 abort 不落第二行——工具一调用一结果）
+        rig.send({ verb: 'getEntries', sessionId: sid, since: -1 });
+        await rig.until(() => rig.frames.some((f) => f.kind === 'entries'));
+        const entries = (
+          rig.frames.find((f) => f.kind === 'entries') as {
+            entries: Array<{ type: string; data: Record<string, unknown> }>;
+          }
+        ).entries;
+        const decidedRows = entries.filter((e) => e.type === 'approval/decided');
+        expect(decidedRows).toHaveLength(1);
+        expect(decidedRows[0]?.data).toMatchObject({
+          approvalId: ask.approvalId,
+          decision: 'approve',
+          source: 'user',
+        });
+        const askedRows = entries.filter((e) => e.type === 'approval/asked');
+        expect(askedRows.map((r) => r.data.approvalId)).toEqual([ask.approvalId]);
+        // 工具一调用一结果（单次执行——竞速不引二次执行）
+        const toolCalls = entries.filter((e) => e.type === 'tool/call');
+        const toolResults = entries.filter((e) => e.type === 'tool/result');
+        expect(toolCalls).toHaveLength(1);
+        expect(toolResults).toHaveLength(1);
+      } finally {
+        sse.abort();
+      }
+    } finally {
+      await closeExpect0(rig, entry);
+    }
+  });
+});
+
+/* ---------------- 无效 UTF-8 字节注入（D4——stdio 传输环按字节安全） ---------------- */
+
+describe('无效 UTF-8 / 跨 chunk 多字节撕裂（D4①）', () => {
+  it('无效 UTF-8 序列行：跳过该行不杀连接（后续健康请求照常受理）', async () => {
+    const { rig, entry } = rigServe();
+    try {
+      // 0xff 0xfe 非法 UTF-8 引导 + 'A' + '\n'——setEncoding('utf8') 的
+      // StringDecoder 语义产出 U+FFFD 替换字符行，JSON 解码失败走坏行跳过
+      rig.sendBytes(Buffer.from([0xff, 0xfe, 0x41, 0x0a]));
+      // 连接仍活：健康请求照常应答
+      rig.send({ verb: 'sessions' });
+      await rig.until(() => rig.frames.some((f) => f.kind === 'sessions'));
+    } finally {
+      await closeExpect0(rig, entry);
+    }
+  });
+
+  it('多字节汉字跨 chunk 撕裂：分帧零丢失零半帧（拼回完整行照常受理）', async () => {
+    const { rig, entry } = rigServe();
+    try {
+      // 完整行 = {"verb":"prompt","messageId":"bytes-split","content":"中文"}\n
+      // 按「中文」首字节位劈开——'中' 的 3 字节序列横跨两 chunk（撕裂形）
+      const whole = Buffer.from(
+        `${JSON.stringify({ verb: 'prompt', messageId: 'bytes-split', content: '中文' })}\n`,
+        'utf8',
+      );
+      const splitAt = whole.indexOf(Buffer.from('中文', 'utf8')) + 1; // 「中」首字节后劈（3 字节序列中段）
+      rig.sendBytes(whole.subarray(0, splitAt));
+      rig.sendBytes(whole.subarray(splitAt));
+      // 撕裂拼回后整行受理：ack + 全程直播帧流
+      await rig.until(() => rig.frames.some((f) => f.kind === 'ack'));
+      await rig.until(() => rig.frames.some((f) => f.kind === 'event' && f.event.type === 'agent_end'));
+      // durable 侧：user/message 恰一 + 内容拼回完整（「中文」未被替换字符撕坏）
+      const sid = (rig.frames.find((f) => f.kind === 'ack') as { sessionId: string }).sessionId;
+      rig.send({ verb: 'getEntries', sessionId: sid, since: -1 });
+      await rig.until(() => rig.frames.some((f) => f.kind === 'entries'));
+      const entries = (
+        rig.frames.find((f) => f.kind === 'entries') as {
+          entries: Array<{ type: string; data: Record<string, unknown> }>;
+        }
+      ).entries;
+      const userMsgs = entries.filter((e) => e.type === 'user/message');
+      expect(userMsgs).toHaveLength(1);
+      expect(userMsgs[0]?.data).toMatchObject({ dedupeKey: 'bytes-split', content: '中文' }); // 载荷完整——撕裂形若被 U+FFFD 污染即红
+    } finally {
+      await closeExpect0(rig, entry);
+    }
+  });
+});
 
 /**
  * 非 canonical 形锚造法（symlink 别名——参考 safety/sensitive.test 先例）：

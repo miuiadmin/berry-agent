@@ -1,0 +1,16 @@
+{"kind":"event","seq":7,"sessionId":"s-1","event":{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"行分\u2028段分\u2029尾"}],"usage":{"input":1,"output":2,"cacheRead":0,"cacheWrite":0,"totalTokens":3},"stopReason":"stop","timestamp":1}}}
+{"kind":"hello","protocolVersion":1,"sessionId":"s-1","highWaterSeq":12}
+{"kind":"heartbeat","sessionId":"s-1","runState":"running","stage":{"type":"thinking"},"elapsedMs":1500}
+{"kind":"ack","sessionId":"s-1","messageId":"m-1","duplicate":false,"routedChannel":"followUp","highWaterSeq":3}
+{"kind":"replay-end","sessionId":"s-1","lastReplayedSeq":11}
+{"kind":"error","sessionId":"s-1","code":"SDK_OVERLOADED","message":"过载","willRetry":true,"retryAfterMs":500}
+{"kind":"entries","sessionId":"s-1","entries":[{"type":"user/message","seq":1,"time":1690000000000,"data":{"content":"问","dedupeKey":"m-1","source":"channel:sdk"}}],"nextCursor":"c-2"}
+{"kind":"sessions","sessions":[{"id":"s-1","title":null,"lastActivityAt":1690000000001}]}
+{"kind":"decide-result","approvalId":"a-1","outcome":"superseded"}
+{"kind":"ask","sessionId":"s-1","approvalId":"a-1","summary":"写文件 /tmp/x","reason":"外部源","toolName":"write","suggestedEntry":"allow-write:/tmp/x"}
+{"verb":"hello","protocolVersion":1,"sessionId":"s-1","after":-1,"noDelta":true}
+{"verb":"prompt","messageId":"m-1","content":"问","sessionId":"s-1"}
+{"verb":"interrupt","sessionId":"s-1"}
+{"verb":"decide","approvalId":"a-1","answer":"approve","note":"可以"}
+{"verb":"getEntries","sessionId":"s-1","since":-1,"cursor":"c-2"}
+{"verb":"sessions"}

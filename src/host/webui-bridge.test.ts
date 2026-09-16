@@ -7,6 +7,7 @@
  * 结构兼容双向互证）。mock 只停在模型层。
  */
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -24,7 +25,7 @@ import { createServeBridge } from './serve-entry.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { mountWebuiOnFace, openWebuiFace } from './webui-bridge.js';
-import type { WebuiMountKit } from './webui-bridge.js';
+import type { WebuiFaceMount, WebuiMountKit } from './webui-bridge.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -80,6 +81,27 @@ function mountKitOf(stack: ConversationStack): WebuiMountKit {
 /** 微任务推进（write-behind 落账等待） */
 function tick(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * 占位 TCP 端口（C4 开面失败形公共手法）：node:http 真监听 127.0.0.1 内核
+ * 指派口并保持占用——对被测开面即确定性 EADDRINUSE 拒形（sdk/http.ts tcp
+ * 绑定失败直上抛，无重试面）；调用方 finally 内 close 释放。
+ */
+async function occupyTcpPort(): Promise<{ port: number; close(): Promise<void> }> {
+  const server: Server = createServer();
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr === null || typeof addr === 'string') {
+        server.close();
+        reject(new Error('address 非 TCP 形（占位端口基建异常）'));
+        return;
+      }
+      resolve({ port: addr.port, close: () => new Promise<void>((r) => server.close(() => r())) });
+    });
+  });
 }
 
 /** 轮询至谓词真（有界；支持异步谓词——投影/HTTP 轮询） */
@@ -524,6 +546,47 @@ describe("18a-3' 三入口咬合：共用挂载段", () => {
       await face.stop();
     } finally {
       await rt.shutdown();
+    }
+  });
+});
+
+/* ---------------- 开面失败形（C4——端口占用先摘挂载不留半挂） ---------------- */
+
+describe('openWebuiFace 开面失败（端口占用）——先摘挂载不留半挂', () => {
+  it('EADDRINUSE 拒形：mount detach 恰一次 + 失败先于 closer 注册位（无半挂 backend 入退出序）', async () => {
+    const occupied = await occupyTcpPort();
+    const rt = createHostRuntime({ dataDir: rigDir('webui-busy-data-') });
+    try {
+      // registerCloser 计数包装（spread 委派真身——栈装配期的 closer 注册照走，
+      // 断言只比 openWebuiFace 前后的增量：失败形应先于 :168 注册位零新增）
+      let closerCount = 0;
+      const guarded: HostRuntime = {
+        ...rt,
+        registerCloser: (closer) => {
+          closerCount += 1;
+          rt.registerCloser(closer);
+        },
+      };
+      const { stack } = rigStack(guarded);
+      const beforeClosers = closerCount; // 栈装配已完成——此后增量全归 openWebuiFace
+      // detach 计数假挂载（批 19e 同构 mountKit——只数摘挂，不建真路由）
+      let detachCount = 0;
+      const kit: WebuiMountKit = {
+        mountOnFace: () =>
+          ({
+            detach: () => {
+              detachCount += 1;
+            },
+          }) as unknown as WebuiFaceMount,
+      };
+      await expect(
+        openWebuiFace({ stack, runtime: guarded, port: occupied.port, mountKit: kit, disclose: () => undefined }),
+      ).rejects.toMatchObject({ code: 'EADDRINUSE' }); // 确定性拒形（tcp 绑定失败直上抛——占位口非 flaky）
+      expect(detachCount).toBe(1); // 主断言：监听未成先摘挂载——不留半挂 backend
+      expect(closerCount).toBe(beforeClosers); // 失败先于注册位——半挂 stop 不入退出序
+    } finally {
+      await rt.shutdown(); // closer 内含（未注册的）stop 不在场——幂等收口
+      await occupied.close();
     }
   });
 });

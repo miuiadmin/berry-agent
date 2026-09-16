@@ -15,6 +15,7 @@ import {
   type SdkAskFrame,
   type SdkEventFrame,
 } from './protocol.js';
+import { decodeWireLine, encodeWireLine } from './jsonl.js';
 import { getErrorCodeInfo } from '../../contracts/index.js';
 
 describe('SDK 协议词汇闭集（03 §10.6）', () => {
@@ -103,5 +104,57 @@ describe('SDK_ 五码在册（02 §5.3——注册笔系并行会话先行落、
       expect(info, code).toBeDefined();
       expect(info?.module, code).toBe('sdk');
     }
+  });
+});
+
+/* ---------------- 线帧金样（D3——wire-frames.golden.jsonl 全集逐行锁） ---------------- */
+
+describe('线协议帧样金样（D3——16 行 NDJSON：十帧 kind + 六请求 verb）', () => {
+  /** 金样真源（由真源 encodeWireLine 产出——录制器一次性生成入库） */
+  const GOLDEN_URL = new URL('./wire-frames.golden.jsonl', import.meta.url);
+
+  /** 逐行账（尾行过滤——文件恰以 \n 收尾零残留空串） */
+  const goldenLines = readFileSync(GOLDEN_URL, 'utf8')
+    .split('\n')
+    .filter((line) => line.length > 0);
+
+  it('金样恰 16 行 = 十帧 + 六请求（全集覆盖数锁）', () => {
+    expect(goldenLines).toHaveLength(SDK_FRAME_KINDS.length + SDK_REQUEST_VERBS.length);
+  });
+
+  it('逐行 decode→encode 回环字节恒等（key order 保真——深校验同对象往返律 + 行尾恰一 \\n）', () => {
+    for (const line of goldenLines) {
+      const decoded = decodeWireLine(line); // 全行须可解码（fail-loud——金样零坏行）
+      // 回环字节恒等：JSON.parse 还原转义 → 再编码重转义 → 与金样同字节（键
+      // 序漂移/载荷改形/转义丢失任一即红——typebox 深校验返回同对象是前提）
+      expect(encodeWireLine(decoded)).toBe(`${line}\n`);
+    }
+  });
+
+  it('U+2028/U+2029 行安全转义锁：金样字节含转义形、零裸 LS/PS（撕行防线 gh-28405）', () => {
+    const raw = readFileSync(GOLDEN_URL, 'utf8');
+    // 转义形 = 反斜杠-u 四十六进制六字符序列（金样文件内的字面文本）
+    expect(raw).toContain('\\u2028');
+    expect(raw).toContain('\\u2029');
+    // 裸 LS/PS（真实码位字符——测试源用 fromCharCode 造，防编辑器吞隐形字符）
+    const LS = String.fromCharCode(0x2028);
+    const PS = String.fromCharCode(0x2029);
+    expect(raw.includes(LS)).toBe(false);
+    expect(raw.includes(PS)).toBe(false);
+  });
+
+  it('金样 hello 帧 protocolVersion === SDK_PROTOCOL_VERSION（版本换代忘更新金样即红）', () => {
+    const hello = goldenLines
+      .map((line) => decodeWireLine(line) as { kind?: string; protocolVersion?: number })
+      .find((f) => f.kind === 'hello');
+    expect(hello?.protocolVersion).toBe(SDK_PROTOCOL_VERSION);
+  });
+
+  it('金样判别词全集对拍：kind 集恰等 SDK_FRAME_KINDS、verb 集恰等 SDK_REQUEST_VERBS（增删词即红）', () => {
+    const decoded = goldenLines.map((line) => decodeWireLine(line) as { kind?: string; verb?: string });
+    const kinds = decoded.map((f) => f.kind).filter((k) => k !== undefined);
+    const verbs = decoded.map((f) => f.verb).filter((v) => v !== undefined);
+    expect([...new Set(kinds)].sort()).toEqual([...SDK_FRAME_KINDS].sort());
+    expect([...new Set(verbs)].sort()).toEqual([...SDK_REQUEST_VERBS].sort());
   });
 });

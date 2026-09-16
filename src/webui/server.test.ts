@@ -533,6 +533,44 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     }
   });
 
+  it('断线重连一致性（D2①）：close 销账 hasAudience 翻 false → 断线窗事件零滞留 → 新流只收后续帧（live-only）', async () => {
+    const r1 = await openSse(port, 's-1', token);
+    // 在场观众登记（订阅即入册）
+    expect(webui!.backend.hasAudience()).toBe(true);
+    // 终结帧先达（session 镜像族——重连前事件锚）
+    pushEnvelope({
+      sessionId: 's-1',
+      event: { type: 'message_end', message: { role: 'user', content: '一', timestamp: 2 } },
+    });
+    const f1 = await r1.next();
+    expect(f1?.kind).toBe('session');
+    // 断线：读者侧 abort → res close → 件侧销账（轮询至 hasAudience 翻 false——
+    // 件侧销账位挂 res close，撤销即永不销账：hasAudience 恒 true 即缺陷）
+    r1.abort();
+    const t0 = Date.now();
+    while (webui!.backend.hasAudience()) {
+      if (Date.now() - t0 > 2_000) throw new Error('close 销账超时：hasAudience 恒 true（流账未摘）');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    // 断线窗：事件照推不炸（无观众 = 按会话索引空集短路——零滞留零异常）
+    pushEnvelope({ sessionId: 's-1', event: { type: 'message_start', role: 'assistant' } });
+    // 重连：新流 live-only——断线前与断线窗的帧都不得补推（足额 2s 静默窗断言）
+    const r2 = await openSse(port, 's-1', token);
+    try {
+      await expectSilence(r2);
+      // 新流照常接收后续帧（重连不哑流）
+      pushEnvelope({
+        sessionId: 's-1',
+        event: { type: 'message_end', message: { role: 'user', content: '二', timestamp: 3 } },
+      });
+      const f2 = await r2.next();
+      expect(f2?.kind).toBe('session');
+      expect((f2 as { payload: { type: string } }).payload.type).toBe('message_end');
+    } finally {
+      r2.abort();
+    }
+  });
+
   it('status 定向：只达订阅会话的流；notify 广播：全流皆达', async () => {
     const r1 = await openSse(port, 's-1', token);
     const r2 = await openSse(port, 's-closed', token);

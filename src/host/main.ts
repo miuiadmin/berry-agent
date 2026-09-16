@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveDataDir } from '../persist/index.js';
 
 import { parseCli } from './cli.js';
+import type { ServeFlags } from './cli.js';
 import { dispatchCli } from './dispatch.js';
 import type { CommandHandlers } from './dispatch.js';
 import { appendCrashLog } from './runtime.js';
@@ -53,17 +54,44 @@ function readVersion(): string {
   return pkg.version ?? '0.0.0-unknown';
 }
 
-/** serve 分派三态：daemon child（env 标记）→ spawner（--daemon）→ stdio 前台 */
-function dispatchServe(flags: Parameters<NonNullable<CommandHandlers['serve']>>[0]): Promise<number> {
+/** serve 分派三态执行器族（注入面——测试记调用序与透传；缺省与产线接线逐字同形） */
+export interface ServeDispatchRunners {
+  /** daemon child 腿（env CHILD 标记形——HTTP 面常驻主体） */
+  readonly daemon: (flags: ServeFlags) => Promise<number>;
+  /** spawner 腿（`--daemon` 拉起者——spawn 自镜像后即退） */
+  readonly spawner: (flags: ServeFlags) => Promise<number>;
+  /** stdio 前台腿（缺省形态） */
+  readonly foreground: (flags: ServeFlags) => Promise<number>;
+}
+
+/**
+ * serve 分派三态：daemon child（env 标记）→ spawner（--daemon）→ stdio 前台。
+ *
+ * **env 标记恒胜 `--daemon`**（判序主序——防递归 fork 链）：daemon child 内
+ * 两判据恒同真（spawnDaemonServe argv 硬编码 '--daemon' 且 env 注 CHILD 标记）
+ * ——序颠倒即 child 误走 spawner 腿成链式 detached fork、HTTP 面永不立起。
+ *
+ * runners 注入位（贴仓内 faceFactory/spawnFn/self 先例，避模块 mock）：
+ * 缺省值与产线接线逐字同形（version/onRuntime 装配位保留在缺省闭包内）——
+ * 注入形只换三腿路由本体，行为零变更。
+ */
+export function dispatchServe(
+  flags: ServeFlags,
+  runners: ServeDispatchRunners = {
+    daemon: (f) => runDaemonServe({ flags: f, version: readVersion(), onRuntime: attachRuntime }),
+    spawner: (f) => spawnDaemonServe({ flags: f }),
+    foreground: (f) => runServeEntry({ flags: f, version: readVersion(), onRuntime: attachRuntime }),
+  },
+): Promise<number> {
   if (process.env[DAEMON_CHILD_ENV] === '1') {
     // child 形态：HTTP 面常驻主体（spawner 已 detached + stderr 重定向 log）
-    return runDaemonServe({ flags, version: readVersion(), onRuntime: attachRuntime });
+    return runners.daemon(flags);
   }
   if (flags.daemon) {
     // spawner 形态：spawn 自镜像后即退（起活确认窗内报结果；child 独立生命周期）
-    return spawnDaemonServe({ flags });
+    return runners.spawner(flags);
   }
-  return runServeEntry({ flags, version: readVersion(), onRuntime: attachRuntime });
+  return runners.foreground(flags);
 }
 
 /** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins / 20b run / 20d sessions / g-2 doors 已接线，upgrade 诚实退 1） */

@@ -17,6 +17,7 @@
  * 自造常量经 faux 脚本原样透传）。
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -107,6 +108,27 @@ function tmpDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   dirs.push(dir);
   return dir;
+}
+
+/**
+ * 占位 TCP 端口（C4 开面失败形公共手法）：node:http 真监听 127.0.0.1 内核
+ * 指派口并保持占用——对被测 `--port` 开面即确定性 EADDRINUSE 拒形；调用方
+ * finally 内 close 释放。
+ */
+async function occupyTcpPort(): Promise<{ port: number; close(): Promise<void> }> {
+  const server: Server = createServer();
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr === null || typeof addr === 'string') {
+        server.close();
+        reject(new Error('address 非 TCP 形（占位端口基建异常）'));
+        return;
+      }
+      resolve({ port: addr.port, close: () => new Promise<void>((r) => server.close(() => r())) });
+    });
+  });
 }
 
 /** 单 run 测试装配（faux provider + 新鲜 dataDir/ws + 行账出站对） */
@@ -755,6 +777,21 @@ describe('runRunEntry --port 咬合 / provider 失败面', () => {
     expect(err.text).toContain('模型不可用'); // 产品级文案（非裸报文）
     expect(err.text).toContain('faux-x/m1'); // 点名模型标识
     expect(err.text).toContain('BERRY_AGENT_MODEL'); // 配置途径指路
+  });
+
+  it('--port 端口占用：干净退 1 + 不写 crash.log（:438 注释承诺的回归锁）', async () => {
+    // 预期内环境态（EADDRINUSE）= 干净呈报档：abortTick('--port 开面失败') +
+    // stderr 一行 + 退 1——不落崩溃取证（对照 runRunEntry 外层 catch 的
+    // writeCrashLog 档：此路径若误吞到外层即 crash.log 落盘，本例即红）
+    const occupied = await occupyTcpPort();
+    try {
+      const run = await rigRun({ flags: { port: occupied.port } });
+      await expect(run.entry).resolves.toBe(1);
+      expect(run.err.text).toContain('--port 开面失败'); // 归一文案（固定串非 AI 文本）
+      expect(existsSync(join(run.dataDir, 'crash.log'))).toBe(false); // 干净退出档零崩溃取证
+    } finally {
+      await occupied.close();
+    }
   });
 });
 

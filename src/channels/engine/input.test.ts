@@ -322,6 +322,37 @@ describe('畸形流防御（宁丢不错）', () => {
   });
 });
 
+describe('无效 UTF-8 替换符 U+FFFD 三形穿透（D4②——上游解码已产替换符，解码器照可打印透传不特判不丢弃）', () => {
+  // 上游（serve-entry StringDecoder / pty 解码腿）对无效 UTF-8 字节产出 U+FFFD
+  // 替换符后才 feed 进本解码器——地面游程 / 粘贴体 / OSC 体三条积攒路径都必须
+  // 把它当普通可打印字符原样穿透：既不误判控制码、也不被「净化」丢弃（丢字符
+  // 即静默篡改用户输入）。三形逐路锁定（源码用 \uFFFD 转义写法——六字符可见
+  // 形，防编辑器吞码位）。
+
+  it('地面态裸替换符：入 text 游程原样穿透（不误判控制码、不滞留 esc 挂起）', () => {
+    const decoder = new InputDecoder();
+    decoder.feed('a\uFFFDb');
+    expect(decoder.take()).toEqual([{ kind: 'text', text: 'a\uFFFDb' }]);
+    expect(decoder.hasPendingEscape).toBe(false); // 未被误当转义起手滞留
+  });
+
+  it('粘贴体携带替换符：整段交付保形、终界后地面态续解不滞留', () => {
+    const decoder = new InputDecoder();
+    decoder.feed('\x1b[200~\uFFFDok\x1b[201~');
+    expect(decoder.take()).toEqual([{ kind: 'paste', text: '\uFFFDok' }]);
+    decoder.feed('\r'); // 终界后回地面——续解正常
+    expect(decoder.take()).toEqual([key('enter')]);
+  });
+
+  it('OSC 体携带替换符：原文上抛保形、零事件产出', () => {
+    const osc: string[] = [];
+    const decoder = new InputDecoder({ onOsc: (data) => osc.push(data) });
+    decoder.feed('\x1b]11;rgb:\uFFFD\x07');
+    expect(osc).toEqual(['11;rgb:\uFFFD']);
+    expect(decoder.take()).toEqual([]);
+  });
+});
+
 describe('协议探测落定（DA1 哨兵）', () => {
   it('kitty 应答先到：onProtocol(kitty) 一次', () => {
     const protocols: KeyboardProtocol[] = [];

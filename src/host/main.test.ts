@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { isMainModule } from './main.js';
+import { isMainModule, dispatchServe } from './main.js';
+import { DAEMON_CHILD_ENV } from './serve-daemon.js';
+import type { ServeFlags } from './cli.js';
 
 /**
  * 卫兵回归锁（2026-09-08 发布面收口批）：npm bin 符号链接与含链接环节的
@@ -74,5 +76,76 @@ describe('isMainModule（bin 直跑卫兵）', () => {
 
   it('argv[1] 缺席（非进程入口）≠ 主模块', () => {
     expect(isMainModule(undefined, 'file:///x/y.js')).toBe(false);
+  });
+});
+
+/* ---------------- dispatchServe 三态分派序 ---------------- */
+
+/**
+ * 记录柄族：每腿记调用次数与收到的 flags（透传断言）——不触任何真装配
+ * （daemon/spawner/foreground 三腿全注入记录形，贴仓内 faceFactory/spawnFn
+ * 注入先例——「mock 只停模型层」纪律下不用模块 mock）。
+ */
+function recordingRunners(): {
+  runners: Parameters<typeof dispatchServe>[1];
+  calls: Array<{ leg: 'daemon' | 'spawner' | 'foreground'; flags: ServeFlags }>;
+  count: (leg: 'daemon' | 'spawner' | 'foreground') => number;
+} {
+  const calls: Array<{ leg: 'daemon' | 'spawner' | 'foreground'; flags: ServeFlags }> = [];
+  const leg =
+    (name: 'daemon' | 'spawner' | 'foreground') =>
+    async (flags: ServeFlags): Promise<number> => {
+      calls.push({ leg: name, flags });
+      return 0;
+    };
+  return {
+    runners: { daemon: leg('daemon'), spawner: leg('spawner'), foreground: leg('foreground') },
+    calls,
+    count: (name) => calls.filter((c) => c.leg === name).length,
+  };
+}
+
+describe('dispatchServe 三态分派序（env CHILD 标记恒胜 --daemon——防递归 fork 链）', () => {
+  // env 标记是分派判据真源——用例内改写必须逐用例还原（防污染同文件其它例）
+  const savedChildEnv = process.env[DAEMON_CHILD_ENV];
+  afterEach(() => {
+    if (savedChildEnv === undefined) delete process.env[DAEMON_CHILD_ENV];
+    else process.env[DAEMON_CHILD_ENV] = savedChildEnv;
+  });
+
+  it('双在场（child 形）：env 标记 + --daemon 同真 → daemon 腿被选（序颠倒此例先红——防递归锁主例）', async () => {
+    // daemon child 内两判据恒同真（spawnDaemonServe argv 硬编码 '--daemon' 且
+    // env 注 CHILD 标记）：若分派序颠倒（先查 --daemon）child 会误走 spawner 腿
+    // 成链式 detached fork——HTTP 面永不立起。env 标记恒胜是防递归锁主序。
+    process.env[DAEMON_CHILD_ENV] = '1';
+    const flags: ServeFlags = { daemon: true, debug: false, noDelta: false };
+    const rig = recordingRunners();
+    await expect(dispatchServe(flags, rig.runners)).resolves.toBe(0);
+    expect(rig.count('daemon')).toBe(1); // daemon 腿恰调一次
+    expect(rig.count('spawner')).toBe(0);
+    expect(rig.count('foreground')).toBe(0);
+    expect(rig.calls[0]!.flags).toBe(flags); // 同一 flags 对象透传
+  });
+
+  it('仅 --daemon（spawner 形）：env 标记缺席 → spawner 腿被选', async () => {
+    delete process.env[DAEMON_CHILD_ENV];
+    const flags: ServeFlags = { daemon: true, debug: false, noDelta: false };
+    const rig = recordingRunners();
+    await expect(dispatchServe(flags, rig.runners)).resolves.toBe(0);
+    expect(rig.count('spawner')).toBe(1);
+    expect(rig.count('daemon')).toBe(0);
+    expect(rig.count('foreground')).toBe(0);
+    expect(rig.calls[0]!.flags).toBe(flags);
+  });
+
+  it('两者皆缺（stdio 前台）：foreground 腿被选', async () => {
+    delete process.env[DAEMON_CHILD_ENV];
+    const flags: ServeFlags = { daemon: false, debug: false, noDelta: false };
+    const rig = recordingRunners();
+    await expect(dispatchServe(flags, rig.runners)).resolves.toBe(0);
+    expect(rig.count('foreground')).toBe(1);
+    expect(rig.count('daemon')).toBe(0);
+    expect(rig.count('spawner')).toBe(0);
+    expect(rig.calls[0]!.flags).toBe(flags);
   });
 });

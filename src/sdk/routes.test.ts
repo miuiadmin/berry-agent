@@ -20,10 +20,11 @@ import { request as httpRequest, createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createSdkHttpFace, type SdkHttpFaceHandle, type SdkListenInfo } from './http.js';
 import type { SdkHttpBridge, SdkRouteDescriptor } from './types.js';
+import { SDK_SSE_PING_INTERVAL_MS } from './types.js';
 
 /** 桥桩最小同构（扩展路由测试不触核——八面惰性桩） */
 function makeBridge(): SdkHttpBridge {
@@ -471,6 +472,54 @@ describe('sdk/http 路由扩展位（18a-1）', () => {
     expect(res.status).toBe(200); // fetch 头到位 = flushHeaders 兑现
     controller.abort();
     detach();
+  });
+
+  it('SSE ping 保活（D2②）：静默流按 SDK_SSE_PING_INTERVAL_MS 拍点发 `: ping` 注释行', async () => {
+    // 面级 SSE 基建单源的保活腿（/v1/events 与 openSse helper 共用）：零载荷
+    // 静默流上唯一周期字节 = `: ping\n\n` 注释行（SSE 语义注释不产帧——消费
+    // 面跳过；保活使命 = 让中间盒/读侧不判死长连接）。
+    // 假钟纪律：vi.useFakeTimers 安在开流前——SseStream 构造期的 setInterval
+    // 落进假钟域，advanceTimersByTimeAsync 推进拍点；读腿是真 I/O（不受假钟
+    // 影响），await 推进后再 await 读 Promise 即可拿到真实写出。
+    // 覆盖界注记：90s 写看门狗 reap 腿需 res.write 返 false 的背压 seam
+    // （真网络下回环写不背压），本批不扩——ping 载荷与拍点先行锁死。
+    const detach = face.register({
+      method: 'GET',
+      path: '/api/ping-stream',
+      auth: { mode: 'open', purpose: 'static-shell' },
+      handler: (_req, res, ctx) => {
+        ctx.openSse(res); // 零写静默流——流上唯一字节来源即 ping 拍点
+      },
+    });
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    try {
+      const res = await fetch(`http://127.0.0.1:${port()}/api/ping-stream`, { signal: controller.signal });
+      expect(res.status).toBe(200);
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      // 读 Promise 先立（真 I/O 事件循环驱动——非定时器等待）
+      const firstBlock = (async (): Promise<string> => {
+        let buffer = '';
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) throw new Error('ping 未达而流已收线');
+          buffer += decoder.decode(value, { stream: true });
+          const idx = buffer.indexOf('\n\n');
+          if (idx !== -1) return buffer.slice(0, idx);
+        }
+      })();
+      // 拍点前静默（不足一拍不产字节——拍点驱动零漂移）
+      await vi.advanceTimersByTimeAsync(SDK_SSE_PING_INTERVAL_MS - 1);
+      // 整拍推进：pingTick 发 `: ping\n\n`（真实写出经事件循环达读腿）
+      await vi.advanceTimersByTimeAsync(1);
+      // 载荷钉死：注释行词面恰 ': ping'（保活词面漂移即红——消费面按注释跳过）
+      expect(await firstBlock).toBe(': ping');
+    } finally {
+      controller.abort();
+      vi.useRealTimers();
+      detach();
+    }
   });
 
   it('isClosed 后扩展路由 503 同律（新请求一律拒服务——含 open 档）', async () => {

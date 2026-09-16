@@ -22,6 +22,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +33,7 @@ import { fauxProvider } from '../llm/index.js';
 import type { Store } from '../persist/index.js';
 
 import { createCorePlugins } from './core-plugins.js';
+import { createHostRuntime } from './runtime.js';
 import {
   DAEMON_CHILD_ENV,
   clearDaemonFootprints,
@@ -399,6 +401,23 @@ function fakeChild(pid: number | undefined, exitCode: number | null = null): Dae
 
 /* ---------------- daemon child 主体（真件集成） ---------------- */
 
+/** 真占位 TCP 口（C4/E15 族——内核指派 0 口后持有不关：EADDRINUSE 确定性拒形） */
+async function occupyTcpPort(): Promise<{ port: number; close(): Promise<void> }> {
+  const server: Server = createServer();
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr === null || typeof addr === 'string') {
+        server.close();
+        reject(new Error('address 非 TCP 形（占位端口基建异常）'));
+        return;
+      }
+      resolve({ port: addr.port, close: () => new Promise<void>((r) => server.close(() => r())) });
+    });
+  });
+}
+
 describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
   const dirs: string[] = [];
   afterAll(() => {
@@ -533,6 +552,64 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     expect(code).toBe(2); // 与开面判定拒启同码族（配置档干净退出）
     expect(faceStarted).toBe(false);
     expect(lines.some((l) => l.includes('core:sdk 件未装载'))).toBe(true);
+  });
+
+  it('sdkPort 端口占用：干净退 1 +「HTTP 面启动失败」呈报 + pid 不登记（失败先于 writeDaemonPid 位）', async () => {
+    // C4③ 开面失败形回归锁：sdk TCP 口被占（真占位口——EADDRINUSE 确定性
+    // 拒形，非 flaky）→ face.start catch 路退 1 + writeErr 一行 + 优雅收
+    // runtime。主断言之一 pidPath 不在场：writeDaemonPid 在 face.start 之后
+    // （:483）——失败形不得登记 pid（登记即骗 spawner「起活」）。
+    // 注：sock 足迹不判（死迹自愈律——重试/EADDRINUSE 段 :952-959 自清，
+    // 非本例行为锚）；done 自然 resolve 即证 runtime.shutdown 收口完成。
+    const occupied = await occupyTcpPort();
+    const faux = fauxProvider({ provider: 'faux-daemon-busy', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-busy-data-'));
+    dirs.push(dataDir);
+    const paths = daemonPaths(dataDir);
+    const lines: string[] = [];
+    try {
+      const code = await runDaemonServe({
+        flags: { noDelta: false, sdkPort: occupied.port },
+        dataDir,
+        providers: [faux.provider],
+        model: 'faux-daemon-busy/m1',
+        env: {},
+        writeErr: (l) => lines.push(l),
+      });
+      expect(code).toBe(1); // face 启动失败档（干净退出——非 crash 形）
+      expect(lines.some((l) => l.includes('HTTP 面启动失败'))).toBe(true); // 归一文案（固定串非 AI 文本）
+      expect(existsSync(paths.pidPath)).toBe(false); // 失败先于登记位——不骗 spawner
+    } finally {
+      await occupied.close();
+    }
+  });
+
+  it('双开拒：既有 daemon 占标记在场 → 退 1 + stderr 含 BUSY 细目（spawner 尾行转述的真源闭环）', async () => {
+    // E15 单活跃机双开拒回归锁：真 createHostRuntime 持 active.json 标记
+    // （pid 活 = 本测试进程）→ 第二次 runDaemonServe 装配段 createHostRuntime
+    // 即 acquireActiveMarker 抛 HOST_DATA_DIR_BUSY → assembly 档归一呈报
+    // 「启动失败：数据目录已有活跃进程（pid …）」退 1。spawner 腿的尾行
+    // 转述（daemon.log 尾行即此 writeErr 面）——本例锁的就是被转述真源。
+    const faux = fauxProvider({ provider: 'faux-daemon-dbl', models: [{ id: 'm1' }] });
+    const dataDir = mkdtempSync(join(tmpdir(), 'daemon-dbl-data-'));
+    dirs.push(dataDir);
+    const first = createHostRuntime({ dataDir }); // 占标记方（启动序① acquireActiveMarker）
+    const lines: string[] = [];
+    try {
+      const code = await runDaemonServe({
+        flags: { noDelta: false },
+        dataDir, // 同数据目录——双开撞标记
+        providers: [faux.provider],
+        model: 'faux-daemon-dbl/m1',
+        env: {},
+        writeErr: (l) => lines.push(l),
+      });
+      expect(code).toBe(1); // 启动失败档退出码（非崩溃形不写 crash.log）
+      expect(lines.join('\n')).toContain('已有活跃进程'); // BUSY 细目真源（单活跃机 05 §6.6）
+      expect(lines.join('\n')).toContain(String(process.pid)); // 细目含占方 pid——转述可归因
+    } finally {
+      await first.shutdown(); // 释放标记（否则后续同 dataDir 例被本例卡死）
+    }
   });
 
   it('全环：face 起 → pid 登记 + token 披露 → shutdown 优雅停清足迹退 0', async () => {
