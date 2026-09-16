@@ -13,7 +13,7 @@
  *
  * ## CLI 契约（CI nightly 接线同形——勿改旗标面）
  * ```
- * node tools/soak.mjs [--rounds N] [--mode quick|mixed|long] [--rss-budget-mb N] [--kill-exercise] [--help]
+ * node tools/soak.mjs [--rounds N] [--mode quick|mixed|long] [--rss-budget-mb N] [--err-lines-cap N] [--kill-exercise] [--help]
  * ```
  * 缺省 `--rounds 3 --mode quick`。mode 配比：
  *  - quick：纯对话 ×2 + read 工具 ×1 轮换（承 12 轮 soak-driver 形），轮间隔 2s——CI 冒烟节律；
@@ -30,18 +30,24 @@
  * 正路装机。宿主全程真实：插件装载 / 会话栈 / durable 台账 / 工具执行 / SSE 解析 /
  * 进程编舞都走产品代码——唯模型应答是本地脚本。soak 考的是宿主韧性不是模型质量。
  *
- * ## 判收口径（四跑教训全继承——见原试件谱注释）
+ * ## 判收口径（四跑教训全继承——见原试件谱注释；批 B 起五判据单源 soak-verdict.mjs）
  *  - 判收词汇：durable 事件 type='turn/end' 且 reason!=='error'（error 轮 2s 假绿洞不得记 ok）；
  *  - 基线计数制：prompt 后 turn/end 计数较基线增长才算收场，取最新一条的 reason
  *    （防 find 首条假收场）；句柄只取自回执（不可凭空构造 sessionId）；
- *  - kill 演习判据：pid+token 双换代 + 断点会话续接收场 + durable entries 只增不减。
+ *  - kill 演习判据：pid+token 双换代 + 断点会话续接收场 + durable entries 只增不减；
+ *  - error 行帽（批 B）：daemon.log error 行数 ≤ --err-lines-cap（缺省 0 零容忍——
+ *    带病绿收口：错误行增长不再沉默）；
+ *  - seq 无洞（批 B）：收场逐会话校验 durable 事件 seq 从 0 起相邻差恰 1——
+ *    与 kill-recovery 进程内不变式（恢复前缀无洞 + 续写 seq=N 接续）同源的
+ *    驱动器侧投影，count-based 只增不减拦不住的中段丢条由此拦。
  *
  * ## RSS 与预算
  * 逐轮 `ps -o rss=` 采样 daemon 进程；`--rss-budget-mb N` 给帽即断言稳态峰值
  * （重启预热样本另计——kill 重启工作集峰值是已知正常态，非泄漏信号），超帽 exit 1。
  *
  * ## 退出码
- * 0 = 全轮 ok（+演练启用时演练 ok + 预算在场时预算内）；1 = 任一失败 / 用法错 / 起停失败。
+ * 0 = 五判据全过（轮次全 ok + 演练启用时 ok + 预算在场时预算内 + error 行 ≤ 帽 +
+ * 全会话 seq 无洞）；1 = 任一失败 / 用法错 / 起停失败。判据单源 tools/soak-verdict.mjs。
  *
  * ## 产物
  * stdout 逐轮行 + 末尾汇总表；`<临时目录>/soak-result.jsonl` 机读流（每轮落盘——
@@ -58,6 +64,7 @@ import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { computeVerdict, errLineCountOf, seqBreaksOf } from './soak-verdict.mjs';
 
 /* ---------------- 布景常量 ---------------- */
 
@@ -80,7 +87,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------------- CLI 解析 ---------------- */
 
-const USAGE = `用法：node tools/soak.mjs [--rounds N] [--mode quick|mixed|long] [--rss-budget-mb N] [--kill-exercise] [--help]
+const USAGE = `用法：node tools/soak.mjs [--rounds N] [--mode quick|mixed|long] [--rss-budget-mb N] [--err-lines-cap N] [--kill-exercise] [--help]
 
   --rounds N          轮数（缺省 3；正整数）
   --mode M            负载配比与轮间隔（缺省 quick）
@@ -88,13 +95,14 @@ const USAGE = `用法：node tools/soak.mjs [--rounds N] [--mode quick|mixed|lon
                         mixed  三混合（对话/read/bash 写），间隔 5s
                         long   三混合 + 间隔 40s（小时级节律；天级由 --rounds 拉长）
   --rss-budget-mb N   RSS 预算帽（MB；稳态峰值超帽 exit 1）
+  --err-lines-cap N   daemon.log error 行帽（缺省 0 零容忍——已知噪声源可放宽）
   --kill-exercise     中段 SIGKILL daemon + 现场恢复检查（双换代/续接/只增不减）
   --help              本帮助
 
-退出码：0 = 全绿；1 = 任一轮失败 / 演练失败 / 预算超帽 / 用法错。`;
+退出码：0 = 五判据全绿（轮次/演练/预算/error 行帽/seq 无洞）；1 = 任一失败。`;
 
 function parseArgs(argv) {
-  const out = { rounds: 3, mode: 'quick', rssBudgetMb: null, killExercise: false, help: false };
+  const out = { rounds: 3, mode: 'quick', rssBudgetMb: null, errLinesCap: 0, killExercise: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => {
@@ -114,6 +122,10 @@ function parseArgs(argv) {
       const v = Number(next());
       if (!Number.isFinite(v) || v <= 0) throw new Error('--rss-budget-mb 须为正数');
       out.rssBudgetMb = v;
+    } else if (a === '--err-lines-cap') {
+      const v = Number(next());
+      if (!Number.isInteger(v) || v < 0) throw new Error('--err-lines-cap 须为非负整数');
+      out.errLinesCap = v;
     } else if (a === '--kill-exercise') out.killExercise = true;
     else throw new Error(`未知旗标：${a}`);
   }
@@ -413,9 +425,26 @@ function daemonLogTail(ctx, lines = 10) {
 const isEnd = (e) => e.type === 'turn/end' || e.event?.type === 'turn/end';
 const reasonOf = (e) => e.data?.reason ?? e.event?.data?.reason ?? '?';
 
+/**
+ * 拉全会话 durable 条目（since -1 + 分页跟尽——协议.ts「跟尽义务在调用方」：
+ * nextCursor 在场即携 cursor 续读；单页即止 = 截断不报错系调用方违约）。
+ * since 取 -1 非 0：读面窗口是 (since, 高水位] **左开**（serve-entry queryEntries
+ * `e.seq > since`——重放游标语义），传 0 会漏首条 seq=0 使收场校验误报截头。
+ * 批 B 起收场 seq 无洞校验依赖全量——缺省帽 1000 断尾会让校验只见首段。
+ */
 async function entriesOf(ctx, sessionId) {
-  const en = await ctx.post('/v1/entries', { sessionId, since: 0 });
-  return en.entries ?? en.result?.entries ?? [];
+  const out = [];
+  let cursor;
+  for (let page = 0; page < 50; page++) {
+    // 页数硬帽 50（= 5 万条——防御服务端异常死循环；正常态远达不到）
+    const body = { sessionId, since: -1 };
+    if (cursor !== undefined) body.cursor = cursor;
+    const en = await ctx.post('/v1/entries', body);
+    out.push(...(en.entries ?? en.result?.entries ?? []));
+    cursor = en.nextCursor ?? en.result?.nextCursor;
+    if (cursor === undefined || cursor === null) break;
+  }
+  return out;
 }
 
 /**
@@ -665,15 +694,29 @@ async function main(opts) {
     const rssPeakSteady = Math.max(...steady, 0);
     let errLines = 0;
     try {
-      errLines = readFileSync(join(dataDir, 'serve', 'daemon.log'), 'utf8')
-        .split('\n')
-        .filter((l) => /error/i.test(l)).length;
+      errLines = errLineCountOf(readFileSync(join(dataDir, 'serve', 'daemon.log'), 'utf8'));
     } catch {
       /* 无档——0 */
+    }
+    // 逐会话 durable 事件序无洞校验（收场终态；daemon 已死则 entriesOf 抛错走
+    // 意外异常路径退 1——fail-loud，此时红因早已在轮结论里）
+    const seqBreaksBySession = {};
+    for (const sid of sessionIds) {
+      const entries = await entriesOf(ctx, sid);
+      seqBreaksBySession[sid] = seqBreaksOf(entries);
     }
     const totalSec = ((Date.now() - started) / 1000).toFixed(1);
     const capKb = opts.rssBudgetMb !== null ? opts.rssBudgetMb * 1024 : null;
     const budgetWithin = capKb !== null ? rssPeakSteady <= capKb : null;
+    const verdict = computeVerdict({
+      okCount,
+      rounds: opts.rounds,
+      drillOk,
+      budgetWithin,
+      errLines,
+      errLinesCap: opts.errLinesCap,
+      seqBreaksBySession,
+    });
 
     const summary = {
       rounds: opts.rounds,
@@ -690,7 +733,10 @@ async function main(opts) {
       budgetWithin,
       killExercise: opts.killExercise,
       drillOk,
+      errLinesCap: opts.errLinesCap,
       daemonLogErrorLines: errLines,
+      seqBreaksBySession,
+      verdictFails: verdict.fails,
       dataDir,
       resultFile,
     };
@@ -708,11 +754,16 @@ async function main(opts) {
       `  预算       ${capKb === null ? '未设（--rss-budget-mb 可设帽）' : `${opts.rssBudgetMb}MB 帽——${budgetWithin ? '内 ✓' : `超帽（稳态峰值 ${rssPeakSteady}KB > ${capKb}KB）`}`}`,
     );
     console.log(`  kill 演练  ${drillOk === null ? '未启用（--kill-exercise）' : drillOk ? 'PASS' : 'FAIL'}`);
-    console.log(`  daemon.log error 行 ${errLines}`);
+    const errOk = errLines <= opts.errLinesCap;
+    console.log(`  error 行   ${errLines}（帽 ${opts.errLinesCap}）${errOk ? ' ✓' : ' ✗ 超帽'}`);
+    const seqBad = Object.values(seqBreaksBySession).filter((b) => b.length > 0);
+    console.log(
+      `  seq 校验   ${sessionIds.length} 会话${seqBad.length === 0 ? '全无洞 ✓' : `断洞 ✗（${seqBad.length} 会话）`}`,
+    );
     console.log(`  产物       ${resultFile}（daemon.log 在 ${join(dataDir, 'serve')}）`);
 
-    exitCode =
-      okCount === opts.rounds && (drillOk === null || drillOk) && (budgetWithin === null || budgetWithin) ? 0 : 1;
+    exitCode = verdict.green ? 0 : 1;
+    if (!verdict.green) for (const f of verdict.fails) console.log(`  判据 FAIL  ${f}`);
     console.log(exitCode === 0 ? 'SOAK-ALL-GREEN' : 'SOAK-HAS-FAIL');
     return exitCode;
   } finally {

@@ -41,6 +41,7 @@ export default defineConfig({
             'tools/check-topology.test.mjs',
             'tools/check-vocab.test.mjs',
             'tools/release.test.mjs',
+            'tools/soak-verdict.test.mjs',
           ],
           environment: 'node',
           setupFiles: ['tools/vitest-setup.mjs'],

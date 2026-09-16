@@ -70,6 +70,7 @@ node tools/soak.mjs                                            # 缺省 3 轮 qu
 node tools/soak.mjs --rounds 72 --mode long                    # 小时级节律（40s 轮间隔）
 node tools/soak.mjs --rounds 8 --mode mixed --kill-exercise    # 三混合 + 中段 kill -9 恢复演练
 node tools/soak.mjs --rounds 50 --rss-budget-mb 512            # 带 RSS 预算帽
+node tools/soak.mjs --err-lines-cap 2                          # 放宽 daemon.log error 行帽（缺省 0 零容忍）
 ```
 
 看什么指标：
@@ -77,9 +78,10 @@ node tools/soak.mjs --rounds 50 --rss-budget-mb 512            # 带 RSS 预算�
 - **轮次**：全轮 `ok` = durable 事件 `turn/end` 且 reason≠error（error 轮/超时轮都记 fail）；
 - **RSS 首末与峰值**：泄漏判据——长窗净增长平或负为正常；kill 重启后的预热峰值是已知工作集常态（回落分钟级），汇总单列不计入预算；
 - **kill 演练**（`--kill-exercise`）：pid+token 双换代、断点会话续接收场、durable 台账只增不减，三项全过才 PASS；
-- **daemon.log error 行**：参考面（不参与退出码）。
+- **daemon.log error 行**：判收面——行数 ≤ `--err-lines-cap`（缺省帽 0：error 行增长即红，不再带病绿）；已知噪声源可传帽放宽；
+- **seq 无洞**：收场逐会话校验 durable 事件 seq 从 0 起相邻差恰 1（与恢复测试的进程内不变式同源——中段丢条/序号断线由此拦，count-based 只增不减拦不住）。
 
-预算含义：`--rss-budget-mb N` 是稳态 RSS 峰值帽，超帽退出码 1（CI nightly 防回归闸用）。退出码 0 = 全绿；1 = 任一轮失败 / 演练失败 / 预算超帽。产物（每轮 jsonl + daemon.log + 临时数据目录路径）收场打印，留档不清理。
+预算含义：`--rss-budget-mb N` 是稳态 RSS 峰值帽，超帽退出码 1（CI nightly 防回归闸用——nightly 实接 384MB 帽，红时自动收割三件套现场并开 issue 告警）。退出码 0 = 五判据全绿（轮次 / 演练 / 预算 / error 行帽 / seq 无洞）；1 = 任一失败。产物（每轮 jsonl + daemon.log + 临时数据目录路径）收场打印，留档不清理。
 
 历史取证档（160 轮 / 11.95h 天级长跑、判收律沿革）存于维护者私有知识域、不随仓库分发——本驱动器即该证据的可复跑轨道化，判收口径与其同源。
 

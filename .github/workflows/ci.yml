@@ -262,12 +262,18 @@ jobs:
   # nightly soak 档（四问评估「有证据无轨道 → 有轨道」件）——每日 19:23 UTC
   # 定时 + workflow_dispatch 手动；tools/soak.mjs（W6 同批入仓）src 真源直跑
   # （NODE_OPTIONS 注入 tsx loader——零 dist 消费，不跑 build）quick 三轮。
-  # RSS/延迟预算机器断言由 soak 驱动器自持；本档只跑 soak 不重复全量 CI
-  # （既有 job 以 if 钉 push/PR 事件——反向钉 schedule/dispatch）
+  # 批 B（soak 闭环——研究档 C3/C1'/C2'/C3' 收口）：RSS 帽 384MB（quick 形
+  # 冷启动稳态峰实测 ~220MB 的 1.7 倍余量——天级回落态 55-90MB，拦 GB 级
+  # 泄漏回归）+ kill 演练 + error 行帽 0 + seq 无洞全判据机器执法；红时
+  # 收割三件套现场（soak-result.jsonl / daemon.log / sessions.db——runner
+  # 用后即毁，不留即失）+ 自动开 issue（label 查重防刷屏——夜间巡检红了的
+  # 「有人收」闭环腿）。issues:write 权限只给本 job（最小面）。
   soak:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      issues: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -275,8 +281,52 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: soak quick 三轮（CLI 契约：--rounds N --mode quick）
-        run: node tools/soak.mjs --rounds 3 --mode quick
+      - name: soak quick 三轮 + kill 演练 + 全判据（RSS 帽 384MB / error 行帽 0 / seq 无洞）
+        run: node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384
+      - name: 红时收割三件套现场（临时根通配——路径含随机尾，逐件列举）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-failure-${{ github.run_id }}
+          path: |
+            /tmp/berry-soak-*/soak-result.jsonl
+            /tmp/berry-soak-*/data/serve/daemon.log
+            /tmp/berry-soak-*/data/sessions.db
+          if-no-files-found: warn
+          retention-days: 30
+      - name: 红时自动开 issue（label 查重——已开则评论续账，不刷屏）
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `nightly soak 红了（[run ${context.runId}](${runUrl})，触发：${context.eventName}）。`,
+              '',
+              '- 三件套现场（soak-result.jsonl / daemon.log / sessions.db）见本 run 的 **soak-failure-' + context.runId + '** artifact（30 天留存）。',
+              '- 判据五面：轮次全 ok / kill 演练 / RSS 预算 384MB / daemon.log error 行帽 0 / 全会话 seq 无洞——FAIL 行见 run 日志汇总表。',
+              '- 本地复现：`node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384`（离线自持——零网络零凭证）。',
+            ].join('\n');
+            const label = 'soak-failure';
+            const existing = await github.rest.issues.listForRepo({
+              ...context.repo,
+              state: 'open',
+              labels: label,
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: existing.data[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo,
+                title: 'nightly soak 失败（自动告警）',
+                body,
+                labels: [label],
+              });
+            }
 
   lint:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
