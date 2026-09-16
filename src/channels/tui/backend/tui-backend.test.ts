@@ -1885,6 +1885,190 @@ describe('TuiBackend /sessions · /usage · /help 副屏装配（R7 批 10k）',
   });
 });
 
+describe('TuiBackend 本地命令族拦截（07 §4.1 命令面增补批）', () => {
+  /** 本地命令族注入 rig：run 调用记录 */
+  function localRig() {
+    const runs: string[] = [];
+    const rig = makeInteractive({
+      localCommands: [
+        { name: 'status', description: '状态汇总副屏', run: () => runs.push('status') },
+        { name: 'debug', description: '调试信息副屏', run: () => runs.push('debug') },
+      ],
+      dispatchCommand: async (input) => {
+        rig.calls.dispatched.push(input);
+        return false; // 未命中兜底（真通道命令柄语义由既有组覆盖）
+      },
+    });
+    return { ...rig, runs };
+  }
+
+  it('恰零参命中 → run() 终局（先于通道命令分发、不落 onSubmit）', () => {
+    const { io, runs, calls, pump } = localRig();
+    io.emitInput('/status\r');
+    pump();
+    expect(runs).toEqual(['status']);
+    expect(calls.dispatched).toEqual([]); // 本地族先于通道命令面
+    expect(calls.submitted).toEqual([]); // 永不兜底进模型消息
+    io.emitInput('  /debug  \r'); // 尾随空白 trim 后恰命中
+    pump();
+    expect(runs).toEqual(['status', 'debug']);
+  });
+
+  it('带参形 → warn 用法提示终局（不执行不兜底）', () => {
+    const { io, runs, calls, pump } = localRig();
+    io.emitInput('/status now\r');
+    pump();
+    expect(io.bytes).toContain('不带参数'); // 用法 fail-loud（/exit 同律）
+    expect(io.bytes).toContain('⚠'); // warn 档符号
+    expect(runs).toEqual([]);
+    expect(calls.submitted).toEqual([]);
+  });
+
+  it('词干未命中 → 落通道命令柄（false 兜底进 onSubmit）；注入缺席 = 零拦截', async () => {
+    const { io, calls, pump } = localRig();
+    io.emitInput('/statusy\r'); // 前缀近似但非词干——不拦
+    pump();
+    await Promise.resolve(); // dispatch 异步链微任务排空
+    expect(calls.dispatched).toEqual(['/statusy']);
+    expect(calls.submitted).toEqual([['s1', '/statusy']]);
+    // 注入缺席：'/status' 是普通 '/' 文本（既有路由零扰动）
+    const bare = makeInteractive();
+    bare.io.emitInput('/status\r');
+    bare.pump();
+    expect(bare.calls.submitted).toEqual([['s1', '/status']]);
+  });
+
+  it('退出词优先级不降：本地族在场时 /exit 仍走 onQuit（调用序在前）', () => {
+    const { io, runs, calls, pump } = localRig();
+    io.emitInput('/exit\r');
+    pump();
+    expect(calls.quit).toBe(1); // 退出词先于本地族（handleSubmit 调用序）
+    expect(runs).toEqual([]);
+  });
+});
+
+describe('TuiBackend /status · /debug · /skills 副屏装配（07 §4.1 命令面增补批）', () => {
+  const STATUS_DATA = {
+    version: '0.2.0',
+    model: 'faux/test-model',
+    modelCount: 3,
+    sessionId: SESSION,
+    cwdLabel: 'berry-agent',
+    turns: 7,
+    dataDir: '/tmp/berry-home',
+    theme: 'dark',
+    env: [
+      { key: 'BERRY_AGENT_MODEL', value: null },
+      { key: 'BERRY_AGENT_DATA_DIR', value: '/tmp/berry-home' },
+      { key: 'BERRY_AGENT_LOG_LEVEL', value: 'debug' },
+    ],
+  };
+  const DEBUG_DATA = {
+    daemonLogPath: '/tmp/berry-home/serve/daemon.log',
+    daemonLogTail: ['daemon 启动', 'token 回执：Bearer tok_secret123'],
+    logLevel: 'debug',
+    settingsKeys: ['theme'],
+    settingsWarnings: ['theme 坏值 warn 样点'],
+    sqlitePath: '/tmp/berry-home/agent.db',
+    pluginIds: ['core:skills'],
+  };
+  const SKILLS = [
+    { name: 'commit-style', description: '提交信息风格', layer: 'project', hidden: false },
+    { name: 'dataviz', description: '图表建议', layer: 'user', hidden: true },
+  ];
+
+  /** 同步直出档装配（R7 组同形） */
+  function rig(options: Partial<TuiBackendOptions> = {}) {
+    const calls: RigCalls = { submitted: [], interrupted: [], quit: 0, dispatched: [] };
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      onInterrupt: (sessionId) => calls.interrupted.push(sessionId),
+      onQuit: () => {
+        calls.quit += 1;
+      },
+      ...options,
+    });
+    io.reset(); // start 编舞字节不计入
+    return { io, backend, calls };
+  }
+
+  it('openStatus 编舞：主屏出屏 → 副屏进 → 状态首帧；开屏锚顶（首段在场尾段缺席）', () => {
+    const { io, backend } = rig();
+    expect(backend.openStatus(STATUS_DATA)).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE); // 进序：主屏挂起出屏串在前
+    expect(io.frames[1]).toBe(ALT_ENTER); // 副屏 Engine 进屏
+    expect(io.bytes).toContain('◉ 状态汇总 · 会话 sess-aaa'); // 头行（短 id）
+    // 开屏锚顶：行集 14 行超视口（10 行终端）——首段「── 运行时 ──」在场而
+    // 尾行 env LOG_LEVEL 缺席（贴尾回看器语义会只显末段）
+    expect(io.bytes).toContain('── 运行时 ──');
+    expect(io.bytes).not.toContain('BERRY_AGENT_LOG_LEVEL');
+  });
+
+  it('openDebug 编舞：调试首帧；daemon.log 尾快照 token 形掩码（明文恒不在场）', () => {
+    // 行集 15 行超 10 行终端视口——高终端（24 行）使尾快照段入首帧（锚顶律
+    // 由 openStatus 组同形锁定，本组聚焦掩码呈现）
+    const io = new MemoryTerminalIO(COLS, 24);
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
+    io.reset();
+    expect(backend.openDebug(DEBUG_DATA)).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.bytes).toContain('⚙ 调试信息');
+    expect(io.bytes).toContain('serve/daemon.log'); // 路径行
+    expect(io.bytes).toContain('Bearer ****'); // 掩码形在场
+    expect(io.bytes).not.toContain('tok_secret123'); // 明文恒不入面（04 §7 敏感件纪律）
+    expect(io.bytes).toContain('core:skills'); // 插件清单行
+  });
+
+  it('openSkills 编舞：清单首帧（计数头 + 光标行 + 隐藏标记）', () => {
+    const { io, backend } = rig();
+    expect(backend.openSkills(SKILLS, () => 'BACKFILL')).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.bytes).toContain('✦ 技能清单 · 2 件');
+    expect(io.bytes).toContain('▸ commit-style'); // 首行光标
+    expect(io.bytes).toContain('隐 · user'); // 隐藏件标记（含入不滤）
+  });
+
+  it('openSkills enter 回填：先收副屏再回填输入框（不执行——无提交流）', () => {
+    const { io, backend, calls } = rig();
+    backend.openSkills(SKILLS, (index) => (index === 0 ? 'BACKFILL-FIRST' : 'BACKFILL-SECOND'));
+    io.emitInput('\x1b[B'); // ↓——光标到第二行（dataviz；可能产重绘帧）
+    io.reset(); // 只断言 enter 编舞
+    io.emitInput('\r'); // enter——选定回填
+    expect(io.frames[0]).toBe(ALT_LEAVE); // 先收副屏
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    expect(backend.lifecycle).toBe('running');
+    expect(io.bytes).toContain('BACKFILL-SECOND'); // 回填文本入编辑器（首帧固定区）
+    expect(calls.submitted).toEqual([]); // 回填不执行——提交与否归用户
+  });
+
+  it('三面与既有副屏互斥（单值备屏律）；收后可开', () => {
+    const { io, backend } = rig();
+    backend.openHelp([]);
+    io.reset();
+    expect(backend.openStatus(STATUS_DATA)).toBe(false);
+    expect(backend.openDebug(DEBUG_DATA)).toBe(false);
+    expect(backend.openSkills(SKILLS, () => '')).toBe(false);
+    expect(io.bytes).toBe(''); // 拒开零写出
+    backend.collapseAltScreen();
+    expect(backend.openStatus(STATUS_DATA)).toBe(true); // 收后可开
+  });
+
+  it('副屏内 Ctrl+C：打断目标 = 当前交互会话位（不退副屏）', () => {
+    const { io, backend, calls } = rig();
+    backend.openStatus(STATUS_DATA);
+    io.reset();
+    io.emitInput('\x03');
+    expect(calls.interrupted).toEqual([SESSION]);
+    expect(backend.lifecycle).toBe('suspended'); // 打断不退副屏
+  });
+});
+
 describe('TuiBackend footer 分栏（R6 批 10k——注入门控 + 切焦联动）', () => {
   it('footer 注入：常驻段首画在场（cwd 短名 · 模型名 · 会话短 id）', () => {
     const { io } = makeBackend({

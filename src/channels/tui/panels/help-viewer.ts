@@ -2,9 +2,11 @@
  * /help 帮助副屏件（07 §4.1 R7 批 10k——形态随 10k 定：副屏，命令册 + 键位册
  * 双源静态行集；ScrollView 装载滚动，HistoryViewer 同基建同键面）。
  *
- * - **双源内容**（R7 条款「内容源双册」）：命令册 = 通道核命令注册面 +
- *   TUI 本地退出词（装配位合流注入）；键位册 = Keymap.actions 投影
- *   （解析后当前键集——用户覆盖生效形随动，按域分组呈现）；
+ * - **双源内容**（R7 条款「内容源双册」；07 §4.1 命令面增补批扩读三源）：
+ *   命令册 = 通道核命令注册面 + TUI 本地命令族（/status /debug /skills 等
+ *   副屏/瞬时交互族——本地拦截不进通道核命令表）+ TUI 本地退出词（装配位
+ *   合流注入）；键位册 = Keymap.actions 投影（解析后当前键集——用户覆盖
+ *   生效形随动，按域分组呈现）；
  * - **静态行集**（快照档——同件 8 回看器快照律：构造后静态，返回主屏
  *   全帧补显；活体跟随挂账同源）；
  * - **退出键面**：q/Esc 退出、Ctrl+C 打断、Ctrl+D 退出进程（先收副屏再转
@@ -16,7 +18,7 @@ import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { ActionScope, ActionView } from '../keys/registry.js';
 
-/** 命令册条目（装配位合流注入——通道核命令表 + TUI 本地退出词） */
+/** 命令册条目（装配位合流注入——通道核命令表 + TUI 本地命令族 + TUI 本地退出词） */
 export interface HelpCommandEntry {
   readonly name: string;
   readonly description?: string;

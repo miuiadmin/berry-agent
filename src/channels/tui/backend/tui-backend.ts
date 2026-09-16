@@ -91,11 +91,28 @@ import { HistoryViewer } from '../history/history-viewer.js';
 import { SessionPicker } from '../history/session-picker.js';
 import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
 import { UsageViewer } from '../panels/usage-viewer.js';
+import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
+import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
+import { SkillsViewer, type SkillListEntry } from '../panels/skills-viewer.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import { ConfirmPanel, SelectPanel } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
 import { CombinedAutocompleteProvider, type AutocompleteSources } from '../autocomplete/autocomplete.js';
 import { AutocompleteCompleter } from '../autocomplete/async.js';
+
+/**
+ * TUI 本地命令注入件（07 §4.1 命令面增补批——装配根到达 UiBackend 实装层）：
+ * 一切边外面（skills registry / settings 读面 / daemon.log / 插件清单）经
+ * run 闭包现取——本件只认词干命中与终局消费，不触任何边外面。
+ */
+export interface TuiLocalCommand {
+  /** 命令名词干（词法同通道核 COMMAND_NAME_RE——^[a-z][a-z0-9-]*$） */
+  readonly name: string;
+  /** 说明（补全条目与 /help 命令册两消费面同文——装配位单源） */
+  readonly description: string;
+  /** 恰零参命中执行体（开副屏等——终局消费；带参形不达此位） */
+  readonly run: () => void;
+}
 
 /** 后端构造选项 */
 export interface TuiBackendOptions {
@@ -118,6 +135,14 @@ export interface TuiBackendOptions {
   readonly onQuit?: () => void;
   /** 命令柄（'/' 起手文本——03 §2.2 dispatch；false = 未命中落 onSubmit 兜底） */
   readonly dispatchCommand?: (input: string) => Promise<boolean>;
+  /**
+   * TUI 本地命令族（07 §4.1 命令面增补批——副屏/瞬时交互族本地拦截，/exit
+   * 批先例扩编）：词干恰零参命中即 run() 终局消费；带参形 = 用法 fail-loud
+   * 提示后终局（不执行也不兜底进模型消息）；未命中落通道命令柄。不进通道
+   * 核命令表（webui 零污染——六词在非 TUI 面未注册，落驱动侧普通消息路）；
+   * 一切边外面经装配根注入到达（run 闭包现取数据开副屏）。
+   */
+  readonly localCommands?: readonly TuiLocalCommand[];
   /** 补全三源注入（命令名源注入查询函数接 CommandRegistry.list()；@ 文件段源归装配批） */
   readonly autocomplete?: AutocompleteSources;
   /** todo 面板数据源（件 4——装配接 deps 同名面；注入缺席 = 面板缺席零变化） */
@@ -380,6 +405,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private readonly keymap: Keymap;
   /**
+   * TUI 本地命令族（07 §4.1 命令面增补批——/exit 批退出词扩编为通用族）：
+   * 提交路由在通道命令分发前按词干拦截（注入缺席 = 空表零扰动）。
+   */
+  private readonly localCommands: readonly TuiLocalCommand[];
+  /**
    * footer 常驻段标签（R6 批 10k——cwd 短名/模型名；会话短 id 段随切焦联动）。
    * 模型段可变（挂账解挂批 2026-09-15——ctrl+p 模型循环经 setFooterModel 活写）。
    */
@@ -401,6 +431,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.onQuit = options.onQuit;
     this.onModelCycle = options.onModelCycle;
     this.dispatchCommand = options.dispatchCommand;
+    this.localCommands = options.localCommands ?? [];
     this.todoFor = options.todoFor;
     this.scheduleFn = options.schedule ?? null;
     this.cancelFn = options.cancelSchedule ?? ((h) => clearTimeout(h as NodeJS.Timeout));
@@ -770,6 +801,76 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 开副屏状态汇总（07 §4.1 命令面增补批 /status——TUI 本地拦截族，不经
+   * 通道核流转）：数据快照装配位现取注入（开屏一次快照档）。返 boolean 同
+   * openHelp 律（副屏占用 false——装配位 notify 降级）。
+   */
+  openStatus(data: StatusPanelData): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new StatusViewer({
+        data,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏调试信息（07 §4.1 命令面增补批 /debug——TUI 本地拦截族）：日志
+   * 尾快照（掩码在 viewer 行集构造执法）+ 生效配置 + 插件清单。返 boolean
+   * 同 openHelp 律。
+   */
+  openDebug(data: DebugPanelData): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new DebugViewer({
+        data,
+        sessionId: this.sessionId, // 打断柄锚当前交互会话位（调试面 host 级、不呈会话段）
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏技能清单（07 §4.1 命令面增补批 /skills——TUI 本地拦截族）：enter
+   * = 回填调用形入输入框（不执行——提交与否归用户）；索引位回调经装配闭包
+   * 铸 formatSkillInvocation 文本（skills 域真身在 host 侧，本件收纯数据行；
+   * DAG 边表 channels 不入 skills——回填文本装配位单源）。选定先收副屏再
+   * 回填（SessionPicker 同序律），回填后 touchFixed 固定区脏位随帧落地。
+   * 返 boolean 同 openHelp 律。
+   */
+  openSkills(entries: readonly SkillListEntry[], invokeAt: (index: number) => string): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new SkillsViewer({
+        entries,
+        onSelect: (index) => {
+          const invocation = invokeAt(index);
+          this.editor.setText(invocation); // 回填调用形（不提交——提交路归用户 enter）
+          this.touchFixed();
+        },
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
    * 键位拒载观测面（R5 批 10k）：Keymap 构造期四形拒载清单——装配位逐条
    * notify warn 呈报（拒载键不生效但点名可见——fail-loud；缺省恒空）。
    */
@@ -1086,9 +1187,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 编辑器提交路由：input-ask 应答优先 → 退出词本地拦截 → '/' 命令柄
-   * （false 兜底）→ onSubmit。候跑标记随两落点透传（挂账解挂批
-   * 2026-09-15——alt+enter 提交形第三参）。
+   * 编辑器提交路由：input-ask 应答优先 → 退出词本地拦截 → TUI 本地命令族
+   * 拦截 → '/' 命令柄（false 兜底）→ onSubmit。候跑标记随两落点透传（挂账
+   * 解挂批 2026-09-15——alt+enter 提交形第三参）。
    */
   private handleSubmit(text: string, opts?: EditorSubmitOptions): void {
     const ask = this.inputAsk;
@@ -1103,6 +1204,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 退出词先于通道命令分发（前端生命周期词不进通道核命令表——07 §4.1
     // 2026-09-15 /exit 批定形注：本地终局消费，永不兜底进模型消息）
     if (this.maybeHandleExitWord(text)) {
+      return;
+    }
+    // TUI 本地命令族拦截（07 §4.1 命令面增补批——副屏/瞬时交互族同律：
+    // 通道命令分发前本地终局消费，webui 面零污染）
+    if (this.maybeHandleLocalCommand(text)) {
       return;
     }
     if (text.startsWith('/') && this.dispatchCommand !== undefined) {
@@ -1141,6 +1247,27 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       return true;
     }
     this.onQuit();
+    return true;
+  }
+
+  /**
+   * TUI 本地命令族拦截（07 §4.1 命令面增补批——/exit 同律不穿透）：`/name`
+   * 恰零参命中 → run() 终局；带参形 = 用法 fail-loud 提示后终局（不执行也
+   * 不兜底进模型消息）；未命中返 false 落通道命令柄。ask 应答窗由调用序
+   * 天然排除（退出词先行同判——'/' 开头文本是应答非命令）。
+   */
+  private maybeHandleLocalCommand(text: string): boolean {
+    const trimmed = text.trim();
+    if (this.localCommands.length === 0 || !trimmed.startsWith('/')) return false;
+    const stem = (trimmed.split(/\s+/, 1)[0] ?? '').slice(1); // 首 token 去斜杠（词干）
+    const spec = this.localCommands.find((command) => command.name === stem);
+    if (spec === undefined) return false;
+    if (trimmed !== `/${stem}`) {
+      // 带参形——用法提示后终局消费，不执行也不兜底进消息
+      this.notify(`/${spec.name} 不带参数（${spec.description}）`, { level: 'warn' });
+      return true;
+    }
+    spec.run();
     return true;
   }
 

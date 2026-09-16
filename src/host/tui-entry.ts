@@ -19,13 +19,15 @@
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
  */
 import { basename } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 import { editorHeightCap, FileMentionSource, fuzzyFilter, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
-import { foldTodoTable } from '../conversation/index.js';
+import { foldSessionUsage, foldTodoTable } from '../conversation/index.js';
 import { sanitizeEntryForReadout, type MemoryDao } from '../memory/index.js';
+import { formatSkillInvocation, type SkillsRegistry } from '../skills/index.js';
 import type { Provider } from '../llm/index.js';
 import { APPROVAL_PRESETS, type SandboxMode } from '../safety/index.js';
 import { REWIND_SUBVERBS, type CheckpointStore } from '../checkpoint/index.js';
@@ -38,6 +40,7 @@ import type { CorePluginReference } from './loader.js';
 import { runWithSessionAnchor } from './session-anchor.js';
 import { liveCommandArgumentItems, type LiveCompletionDeps } from './live-completions.js';
 import { readHostSettings } from './settings-store.js';
+import { daemonPaths } from './serve-daemon.js';
 import type { HostRuntime } from './runtime.js';
 import { APPROVAL_SUBVERBS } from './approval-cmd.js';
 import { DOORS_SUBVERBS } from './doors-cmd.js';
@@ -109,7 +112,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     process.stderr.write(`${assembly.crashed ? `TUI 运行失败：${assembly.message}` : assembly.message}\n`);
     return assembly.exitCode;
   }
-  const { runtime, stack, scope, logger }: AssemblySuccess = assembly;
+  const { runtime, stack, scope, logger, boot }: AssemblySuccess = assembly;
 
   let exitCode = 0;
   try {
@@ -234,6 +237,132 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       runtime.dataDir !== null ? readHostSettings(runtime.dataDir, { warn: (m) => logger.warn(m) }) : null;
     const env = options.env ?? process.env;
 
+    // —— TUI 本地命令族（07 §4.1 命令面增补批——/status /debug /skills 副屏
+    // 三件）：副屏/瞬时交互族 = UiBackend 实装层本地拦截（/exit 批先例——恰
+    // 零参命中 run() 终局、带参形用法 fail-loud、不进通道核命令表：webui
+    // 零污染）。一切边外面（skills registry / settings 读面 / daemon.log /
+    // 插件清单）经本装配根注入到达——run 闭包开面板时现取（新鲜数据快照
+    // 档；副屏占用时 open* false → notify 诚实降级，与 /help 同律）。闭包
+    // 捕获构造后 backend 柄——仅输入期触发无 TDZ（onSubmit 同先例）。
+    const openStatusPanel = (): void => {
+      // 聚焦会话（空悬回退启动会话）——短 id / cwd 短名 / 轮次行数据源
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      const row = runtime.persistence.store.getSessionRow(sid);
+      const root = canonicalWorkspaceRoot(row?.workspaceRoot ?? session.workspaceRoot);
+      const driver = stack.driverOf(sid);
+      const turns = driver === undefined ? 0 : foldSessionUsage(driver.session.events()).turns;
+      // 模型全集计数——ctrl+p 模型循环同数据源（providers × models 装配序）
+      let modelCount = 0;
+      for (const provider of stack.llmRuntime.models.getProviders()) {
+        modelCount += provider.getModels().length;
+      }
+      // env 白名单三键（04 §7 白名单制——凭证与 token 恒不入面；空串同未设）
+      const envValue = (key: string): string | null => {
+        const value = env[key];
+        return value !== undefined && value !== '' ? value : null;
+      };
+      if (
+        !backend.openStatus({
+          version: options.version ?? '0.0.0',
+          model: stack.model,
+          modelCount,
+          sessionId: sid,
+          cwdLabel: basename(root),
+          turns,
+          dataDir: runtime.dataDir,
+          theme: themeLoad?.settings.theme ?? 'auto',
+          env: [
+            { key: 'BERRY_AGENT_MODEL', value: envValue('BERRY_AGENT_MODEL') },
+            { key: 'BERRY_AGENT_DATA_DIR', value: envValue('BERRY_AGENT_DATA_DIR') },
+            { key: 'BERRY_AGENT_LOG_LEVEL', value: envValue('BERRY_AGENT_LOG_LEVEL') },
+          ],
+        })
+      ) {
+        backend.notify('状态面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
+    const openDebugPanel = (): void => {
+      const dataDir = runtime.dataDir;
+      // daemon.log 尾行快照——帽 50 行、开屏一次只读（活体跟随挂账——/history
+      // 快照档同律）；:memory: 无数据目录 = 路径缺席，文件不在 = 快照缺席
+      const logPath = dataDir !== null ? daemonPaths(dataDir).logPath : null;
+      let tail: readonly string[] | null = null;
+      if (logPath !== null) {
+        try {
+          const lines = readFileSync(logPath, 'utf8').split('\n');
+          if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop(); // 尾换行伪行去一
+          tail = lines.slice(-50);
+        } catch {
+          tail = null; // 读失败（文件未生成/权限）——同缺席形诚实呈现
+        }
+      }
+      // settings 解析态——开面板时收集 warn sink 重读（读侧幂等廉价；坏值/
+      // 拒载与键位拒载在此集中面呈现，不搅装配期 logger 流）
+      const settingsWarns: string[] = [];
+      const settingsLoad = dataDir !== null ? readHostSettings(dataDir, { warn: (m) => settingsWarns.push(m) }) : null;
+      if (
+        !backend.openDebug({
+          daemonLogPath: logPath,
+          daemonLogTail: tail,
+          logLevel:
+            env.BERRY_AGENT_LOG_LEVEL !== undefined && env.BERRY_AGENT_LOG_LEVEL !== ''
+              ? env.BERRY_AGENT_LOG_LEVEL
+              : options.flags.debug === true
+                ? 'debug（--debug 旗标）'
+                : 'info（缺省）',
+          settingsKeys: settingsLoad !== null ? Object.keys(settingsLoad.settings) : [],
+          settingsWarnings: [
+            ...settingsWarns,
+            ...backend.keybindingRejections.map((rejection) => `键位覆盖未生效：${rejection.detail}`),
+          ],
+          sqlitePath: runtime.persistence.store.dbPath,
+          pluginIds: boot.report.activated.map((activated) => activated.id),
+        })
+      ) {
+        backend.notify('调试面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
+    const openSkillsPanel = (): void => {
+      // skills 服务面（core:skills provide 'skills'）——件缺席 = 诚实拒不开屏
+      const registry = scope.tryGet<SkillsRegistry>('skills');
+      if (registry === undefined) {
+        backend.notify('skills 件未装载——无技能清单', { level: 'warn' });
+        return;
+      }
+      const skills = registry.list(); // 快照原样（含隐藏件——面板标记呈现；first-wins 胜者序）
+      if (
+        !backend.openSkills(
+          skills.map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+            layer: skill.providerId,
+            hidden: skill.disableModelInvocation,
+          })),
+          // 回填调用形单源（formatSkillInvocation——本批首个生产消费位）；回填
+          // 不执行——文本入输入框，提交与否归用户
+          (index) => formatSkillInvocation(skills[index]!),
+        )
+      ) {
+        backend.notify('技能清单暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
+    // 本地命令族单源（拦截表 / 补全源 / /help 命令册三消费面同文）
+    const localCommands = [
+      { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境旋钮）', run: () => openStatusPanel() },
+      { name: 'debug', description: '调试信息副屏（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },
+      { name: 'skills', description: '技能清单副屏（enter 回填调用形入输入框）', run: () => openSkillsPanel() },
+    ] as const;
+    /** 本地命令族 → 补全条目（query 已去斜杠——与 exitCommandItems 同契约） */
+    const localCommandItems = (query: string): readonly AutocompleteItem[] =>
+      fuzzyFilter(localCommands, (command) => command.name, query).map((command) => ({
+        label: `/${command.name}`,
+        detail: command.description,
+        replacement: `/${command.name}`,
+      }));
+
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
       onSubmit: (sessionId, text, opts) => {
@@ -289,14 +418,21 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         const sid = stack.channels.focusedId ?? session.sessionId;
         return runWithSessionAnchor(sid, () => stack.channels.dispatchCommand(input, sid));
       },
+      // TUI 本地命令族（07 §4.1 命令面增补批——本地拦截三词注入）
+      localCommands,
       todoFor: (sessionId) => {
         const driver = stack.driverOf(sessionId);
         return driver === undefined ? null : foldTodoTable(driver.session.events());
       },
       autocomplete: {
-        // 通道核命令表 + TUI 本地退出词两源并流（07 §4.1 2026-09-15 /exit 批
-        // 定形注——退出词属前端生命周期动作不进通道命令表，补全源在此并入）
-        commands: (query) => [...commandItems(stack.channels.listCommands(), query), ...exitCommandItems(query)],
+        // 通道核命令表 + TUI 本地命令族 + TUI 本地退出词三源并流（07 §4.1
+        // 2026-09-15 /exit 批定形注 + 命令面增补批扩编——本地族与退出词均不
+        // 进通道命令表，补全源在此并入）
+        commands: (query) => [
+          ...commandItems(stack.channels.listCommands(), query),
+          ...localCommandItems(query),
+          ...exitCommandItems(query),
+        ],
         // 参数段源（R6 批 10j 装配接线）：活体位先行（挂账解挂批 2026-09-15
         // ——plugins id / rewind id 两尾参位），null = 位外/依赖缺席归静态面
         // （四命令子动词首参 + 深位枚举——原行为零扰动）
@@ -360,10 +496,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       backend.notify(`键位覆盖未生效：${rejection.detail}`, { level: 'warn' });
     }
 
-    // —— /help 命令注册（R7 批 10k——host 装配侧直挂）：命令册双源合流 =
-    // 通道核命令表 + TUI 本地退出词（与补全源同两源，文案单源
-    // EXIT_DESCRIPTIONS）；键位册 = backend Keymap 投影（openHelp 内取）。
-    // 副屏占用时 openHelp false → notify 诚实降级（服务端 handler 同律）
+    // —— /help 命令注册（R7 批 10k——host 装配侧直挂）：命令册三源合流 =
+    // 通道核命令表 + TUI 本地命令族 + TUI 本地退出词（三源与补全源同面，
+    // 本地族文案单源 localCommands、退出词文案单源 EXIT_DESCRIPTIONS）；键位
+    // 册 = backend Keymap 投影（openHelp 内取）。副屏占用时 openHelp false
+    // → notify 诚实降级（服务端 handler 同律）
     stack.channels.registerCommand(
       'help',
       async () => {
@@ -372,6 +509,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             name: spec.name,
             ...(spec.description !== undefined ? { description: spec.description } : {}),
           })),
+          ...localCommands.map(({ name, description }) => ({ name, description })),
           ...EXIT_WORDS.map((name) => ({ name, description: EXIT_DESCRIPTIONS[name] })),
         ];
         if (!backend.openHelp(entries)) {
