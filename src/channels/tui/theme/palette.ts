@@ -1,18 +1,32 @@
 /**
  * 内置双主题色板（07 §4.1 引擎节件 3 R2——批 10g）。
  *
- * dark / light 两套（用户主题文件形已裁〔07 §4.1 R2 解挂批〕，落码随
- * /themes 命令批）。取值基调：GitHub Primer 明暗两系的低饱和工程色——三档降采
+ * dark / light 两套（自定义主题文件形随 /themes 命令批落码——custom 件
+ * 承载，缺键回退本件基板同位键）。取值基调：GitHub Primer 明暗两系的低饱和工程色——三档降采
  * 后仍可辨（256 cube 量化级距 > 阈值）、16 色最近邻落点集中（accent 例外
  * ——终端色板位直通，见 semantic 件注）。
  */
 import { ansiColor, colorRgb, rgbChannels } from '../../engine/index.js';
 import type { ExactColor, SemanticPalette } from './semantic.js';
 
-/** 内置色板元数据载体（id 参与主题解析的明暗裁定——ResolvedTheme.dark 单源） */
-export interface BuiltinPalette {
-  readonly id: 'dark' | 'light';
+/**
+ * 解析输入板形（resolveTheme / applyPalette 换装消费——/themes 批泛化）：
+ * 内置板与自定义板共形。`dark` 是 **ResolvedTheme.dark 的单源**（明暗旗标
+ * ——auto/自定义档经 OSC 11 探测基板裁定；自定义板 = 基板 dark 旗标 +
+ * 文件键级覆盖，缺键回退基板同位键）。
+ */
+export interface ThemeBoard {
+  /** 明暗旗标（ResolvedTheme.dark 单源） */
+  readonly dark: boolean;
   readonly colors: SemanticPalette;
+}
+
+/**
+ * 内置色板元数据载体（ThemeBoard 特化：`id` 是板身份位——builtinPalette
+ * 映射与 auto 档基板选择消费；明暗裁定走 `dark` 解析位与自定义板同律）。
+ */
+export interface BuiltinPalette extends ThemeBoard {
+  readonly id: 'dark' | 'light';
 }
 
 /** 色板源值简写（`#rrggbb` 构造校验 + 通道拆解——静态表错值启动即抛、测试直锁） */
@@ -40,6 +54,7 @@ function exact(hex: string, ansi16: number): ExactColor {
  */
 export const DARK_PALETTE: BuiltinPalette = {
   id: 'dark',
+  dark: true,
   colors: {
     accent: ansiColor(6),
     text: undefined,
@@ -72,6 +87,7 @@ export const DARK_PALETTE: BuiltinPalette = {
  */
 export const LIGHT_PALETTE: BuiltinPalette = {
   id: 'light',
+  dark: false,
   colors: {
     accent: ansiColor(4),
     text: undefined,

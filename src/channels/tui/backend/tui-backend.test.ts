@@ -18,6 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
+import { ansiColor } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { buildSgr } from './ansi-rows.js';
 import { sessionColor } from '../theme/index.js';
@@ -2066,6 +2067,182 @@ describe('TuiBackend /status · /debug · /skills 副屏装配（07 §4.1 命令
     io.emitInput('\x03');
     expect(calls.interrupted).toEqual([SESSION]);
     expect(backend.lifecycle).toBe('suspended'); // 打断不退副屏
+  });
+});
+
+describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes 批——R2 挂账解挂 + 命令面增补批）', () => {
+  const THEME_ENTRIES = [
+    { name: 'auto', detail: '跟随终端明暗（OSC 11 探测）', broken: false },
+    { name: 'dark', detail: '内置暗色', broken: false },
+    { name: 'light', detail: '内置亮色', broken: false },
+    { name: 'my-theme', detail: '自定义（themes/<名>.json 键级覆盖）', broken: true },
+  ];
+
+  const DIFF_MESSAGES = [
+    {
+      type: 'assistant',
+      toolCalls: [
+        {
+          type: 'toolCall',
+          toolCallId: 't1',
+          toolName: 'edit',
+          arguments: JSON.stringify({ patch: '*** Update File: src/a.ts\n+hi\n' }),
+        },
+      ],
+    },
+    { type: 'toolResult', toolCallId: 't1' },
+  ];
+
+  function rig(options: Partial<TuiBackendOptions> = {}) {
+    const calls: RigCalls = { submitted: [], interrupted: [], quit: 0, dispatched: [] };
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      onInterrupt: (sessionId) => calls.interrupted.push(sessionId),
+      onQuit: () => {
+        calls.quit += 1;
+      },
+      ...options,
+    });
+    io.reset();
+    return { io, backend, calls };
+  }
+
+  it('openThemes 编舞：主屏出屏 → 副屏进 → 主题首帧（计数头 + 当前档标记 + 坏文件 ⚠）', () => {
+    const { io, backend } = rig();
+    expect(backend.openThemes(THEME_ENTRIES, 'dark', () => {})).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.bytes).toContain('◆ 主题切换 · 4 档');
+    expect(io.bytes).toContain('● dark'); // 当前档标记
+    expect(io.bytes).toContain('⚠'); // 坏文件条目标注
+  });
+
+  it('openThemes enter 选定：先收副屏再回调（选定名透传——SessionPicker 同序律）', () => {
+    const { io, backend } = rig();
+    const selected: string[] = [];
+    backend.openThemes(THEME_ENTRIES, 'auto', (name) => selected.push(name));
+    io.emitInput('\x1b[B'); // ↓ → dark
+    io.reset();
+    io.emitInput('\r'); // enter 选定
+    expect(io.frames[0]).toBe(ALT_LEAVE); // 先收副屏
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    expect(backend.lifecycle).toBe('running');
+    expect(selected).toEqual(['dark']);
+  });
+
+  it('openDiff 编舞：改动总览首帧（组头路径 + 计数）；零 edit 投影 = 诚实空态', () => {
+    const { io, backend } = rig();
+    expect(backend.openDiff(DIFF_MESSAGES)).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.bytes).toContain('± 改动总览 · 1 文件');
+    expect(io.bytes).toContain('src/a.ts');
+    expect(io.bytes).toContain('+1');
+    backend.collapseAltScreen();
+    io.reset();
+    expect(backend.openDiff([{ type: 'user' }])).toBe(true); // 空投影收后可开
+    expect(io.bytes).toContain('± 改动总览 · 0 文件');
+    expect(io.bytes).toContain('零 edit 类改动');
+  });
+
+  it('两新面与既有副屏互斥（单值备屏律）：拒开零写出、收后可开', () => {
+    const { io, backend } = rig();
+    backend.openHelp([]);
+    io.reset();
+    expect(backend.openThemes(THEME_ENTRIES, 'dark', () => {})).toBe(false);
+    expect(backend.openDiff(DIFF_MESSAGES)).toBe(false);
+    expect(io.bytes).toBe('');
+    backend.collapseAltScreen();
+    expect(backend.openThemes(THEME_ENTRIES, 'dark', () => {})).toBe(true);
+  });
+
+  it('themeChoice 观测位：构造档直读；setThemeChoice 后即时更新', () => {
+    const { backend } = rig();
+    expect(backend.themeChoice).toBe('dark'); // makeBackend 缺省
+    backend.setThemeChoice('auto', null);
+    expect(backend.themeChoice).toBe('auto');
+  });
+
+  it('setThemeChoice OSC 编舞：显式→探测档开订阅 + 查询；探测→显式档关订阅（不重查）', () => {
+    const { io, backend } = rig(); // dark 显式——零探测
+    expect(io.bytes).not.toContain('\x1b]11;?');
+    backend.setThemeChoice('auto', null); // 开探测
+    expect(io.bytes).toContain('\x1b]11;?\x07');
+    expect(io.bytes).toContain('\x1b[?2031h');
+    io.reset();
+    backend.setThemeChoice('dark', null); // 关探测
+    expect(io.bytes).toContain('\x1b[?2031l');
+    expect(io.bytes).not.toContain('\x1b]11;?');
+  });
+
+  it('setThemeChoice auto→auto：补发重查（重选即重探——运行时切档重走下装同律）', () => {
+    const { io, backend } = rig({ theme: 'auto' });
+    io.reset();
+    backend.setThemeChoice('auto', null);
+    expect(io.bytes).toContain('\x1b]11;?\x07'); // 重查在场
+    expect(io.bytes).not.toContain('\x1b[?2031h'); // 已开不重开
+  });
+
+  it('setThemeChoice 换装即时落帧：dark → light accent 翻 ANSI 4（SGR 34）', () => {
+    const { io, backend } = rig(); // dark 基线
+    io.reset();
+    backend.setThemeChoice('light', null);
+    expect(io.bytes).toContain('\x1b[34m');
+    expect(io.bytes).not.toContain('\x1b[36m');
+  });
+
+  it('自定义档运行时切档：覆盖表随装 + 探测开（customOverlay 即探测档）', () => {
+    const { io, backend } = rig(); // dark 显式基线
+    io.reset();
+    backend.setThemeChoice('my-theme', { accent: ansiColor(3) });
+    expect(io.bytes).toContain('\x1b[33m'); // 覆盖键生效（accent → ANSI 3 yellow）
+    expect(io.bytes).toContain('\x1b[?2031h'); // 自定义档 = 键级回退探测恒在
+  });
+
+  it('自定义档 OSC 11 应答重合成：覆盖键恒胜（accent 3 不被基板明暗翻转冲掉）', () => {
+    // 裸帧可见色 = 编辑器边框 accent（secondary 无承载行——基板翻转另测）。
+    // 重合成后走脏格差分渲染：覆盖键保住 = 边框色不变 = 零色字节写出（若
+    // 覆盖丢失翻 light 裸 accent 4，差分必写 \x1b[34m——负断言即证据）
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      theme: 'custom-x',
+      customThemeOverlay: { accent: ansiColor(3) },
+    });
+    expect(io.bytes).toContain('\x1b[33m'); // 构造期：dark 基板 + 覆盖 accent 3
+    io.reset();
+    io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 亮底应答——重合成
+    expect(io.bytes).not.toBe(''); // 重画路过（换装四面重渲染发生了）
+    expect(io.bytes).not.toContain('\x1b[34m'); // 覆盖键未被冲掉（丢失则差分必现 4）
+    expect(io.bytes).not.toContain('\x1b[36m'); // 亦未回落 dark 裸 accent 6
+    io.reset();
+    io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 同板应答——零重画
+    expect(io.bytes).toBe('');
+    expect(backend.themeChoice).toBe('custom-x');
+  });
+
+  it('自定义档 OSC 11 应答重合成：缺键随基板（accent 未覆盖——dark 6 翻 light 4）', () => {
+    const { io } = makeBackend({
+      sessionId: SESSION,
+      theme: 'custom-x',
+      customThemeOverlay: { secondary: ansiColor(5) }, // 覆盖非 accent 键
+    });
+    expect(io.bytes).toContain('\x1b[36m'); // 构造期：dark 基板 accent 6
+    io.reset();
+    io.emitInput('\x1b]11;rgb:ffff/ffff/ffff\x07'); // 亮底应答
+    expect(io.bytes).toContain('\x1b[34m'); // 基板翻 light——缺键回退同位键（accent 4）
+    expect(io.bytes).not.toContain('\x1b[36m');
+  });
+
+  it('自定义档明暗翻转后同板零重画（dark 应答在 dark 基板期）', () => {
+    const { io } = rig({
+      theme: 'custom-x',
+      customThemeOverlay: { accent: ansiColor(3) },
+    });
+    io.reset();
+    io.emitInput('\x1b]11;rgb:0000/0000/0000\x07'); // 暗底 = 同板（dark 基板）
+    expect(io.bytes).toBe('');
   });
 });
 

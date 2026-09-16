@@ -11,9 +11,11 @@
  * 模型可读面不设防，恰四件敏感清单测试锁不动；2026-09-14 五役 CL-1 集员
  * 扩容 + 数组名自 BASENAMES 勘正后注笔随勘）。
  *
- * 第三键 `theme?`（批 10g——07 §4.1 R2 / 04 §9 ⑥ 注记）：TUI 主题档
- * dark/light/auto 三值，TUI 主入口装配消费（缺席 = auto 由 tui-entry 定
- * 缺省——本件零行为耦合，只存取与值域校验）。
+ * 第三键 `theme?`（批 10g——07 §4.1 R2 / 04 §9 ⑥ 注记；/themes 批值域扩）：
+ * TUI 主题档 dark/light/auto 三内置 + **自定义主题名**（数据目录 themes/
+ * `<名>.json` 文件名——07 §4.1 R2 挂账解挂批；合法形单源 isValidCustom
+ * ThemeName），TUI 主入口装配消费（缺席 = auto 由 tui-entry 定缺省——本件
+ * 零行为耦合，只存取与值域校验）。
  *
  * 第四键 `keybindings?`（批 10k——07 §4.1 R5）：TUI 键位用户覆盖（动作
  * id → 键串）。本面只做形校验（对象 + string→string），语义校验（未知
@@ -30,7 +32,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { ThemeSetting } from '../channels/index.js';
+import { isValidCustomThemeName, type ThemeSetting } from '../channels/index.js';
 import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 
 /** 配置文件名（数据目录单段——04 §9 ⑥「本批定名」） */
@@ -125,10 +127,12 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     }
   }
   if (theme !== undefined) {
-    if (typeof theme === 'string' && THEME_SETTINGS.includes(theme)) {
-      settings.theme = theme as ThemeSetting;
+    // 值域 = 三内置 + 自定义主题名（/themes 批——07 §4.1 R2 挂账解挂批：文件名
+    // 即主题名，合法形单源 isValidCustomThemeName；内置三值为保留词同合法）
+    if (typeof theme === 'string' && (THEME_SETTINGS.includes(theme) || isValidCustomThemeName(theme))) {
+      settings.theme = theme;
     } else {
-      warn(`配置键 theme 值域外（dark|light|auto）——忽略该键`);
+      warn(`配置键 theme 值域外（dark|light|auto|<自定义主题名>）——忽略该键`);
     }
   }
   // keybindings 形校验（本面只做形——语义归 Keymap fail-loud）：非对象忽略整键；

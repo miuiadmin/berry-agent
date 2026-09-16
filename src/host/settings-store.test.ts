@@ -86,12 +86,34 @@ describe('readHostSettings（读侧——缺席零负担 + 坏形降级）', () 
       writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme }));
       expect(readHostSettings(dir).settings).toEqual({ theme });
     }
-    // 值域外：忽略该键 + warn 点名（本面零行为耦合——只存取与值域校验）
-    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'blue', approvalPolicy: 'ask' }));
+    // 值域外：忽略该键 + warn 点名（本面零行为耦合——只存取与值域校验）。
+    // /themes 批值域扩后 'blue' 已属合法自定义主题名——值域外例改路径形
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'a/b', approvalPolicy: 'ask' }));
     const { warnings, warn } = captureWarn();
     const load = readHostSettings(dir, { warn });
     expect(load.settings).toEqual({ approvalPolicy: 'ask' });
     expect(warnings.some((w) => w.includes('theme 值域外'))).toBe(true);
+  });
+
+  it('theme 键自定义主题名读入（/themes 批——合法名收、非法名拒点名）', () => {
+    const dir = tmpDir('settings-theme-custom-');
+    // 合法自定义名（文件名即主题名——本面不探测文件在场，只验名合法形）
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'my-theme' }));
+    expect(readHostSettings(dir).settings).toEqual({ theme: 'my-theme' });
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'A1._-x' }));
+    expect(readHostSettings(dir).settings).toEqual({ theme: 'A1._-x' });
+    // 非法名（路径形/首点/空档/超帽）= 值域外同拒
+    for (const bad of ['a/b', '.hidden', '', 'x'.repeat(65)]) {
+      writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: bad }));
+      const { warnings, warn } = captureWarn();
+      const load = readHostSettings(dir, { warn });
+      expect(load.settings).toEqual({}); // 拒该键
+      expect(warnings.some((w) => w.includes('theme 值域外'))).toBe(true);
+    }
+    // 写侧自定义名往返（/themes 选定持久化路）
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
+    expect(writeHostSettings(dir, { theme: 'my-theme' })).toBe('written');
+    expect(JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')).theme).toBe('my-theme');
   });
 
   it('keybindings 好形读入（批 10k R5——string→string 条目全量）', () => {

@@ -47,8 +47,10 @@ export type { FileMentionSourceOptions, AutocompleteSources, AutocompleteItem } 
 export { editorHeightCap } from './tui/index.js';
 // fuzzy 子序列过滤（R6 批 10j——host 命令名补全源消费）
 export { fuzzyFilter } from './tui/index.js';
-// 主题档类型（批 10g——host settings theme 键值面消费位）
-export type { ColorEnv, ThemeSetting } from './tui/index.js';
+// 主题档类型（批 10g——host settings theme 键值面消费位；/themes 批扩自定义
+// 文件面——settings 值域校验与 tui-entry 装配下装消费）
+export type { ColorEnv, PartialSemanticPalette, ThemeSetting } from './tui/index.js';
+export { isValidCustomThemeName, listCustomThemeNames, loadCustomThemeColors } from './tui/index.js';
 // SDK 线协议（批 13a 契约先行——03 §10.6 件身份条：协议核心代码位与 channels
 // 通道核同体，SDK 通道后端 = UiBackend 第三后端；本面出协议词汇/信封 + NDJSON
 // 编解码 + admit/游标纯逻辑四件。后端实装（事件外推/请求受理/出站队列）随批

@@ -6,8 +6,8 @@
  * 「accent 无用户配置面」废止）。
  *
  * 键面清单（11 核心键批 10g 定值 + 高亮键族五键批 10h 定值——07 §4.1 R2
- * 「清单随落码批定值回填注记」兑现位；用户主题文件形已裁〔07 §4.1 R2
- * 解挂批〕，落码随 /themes 命令批）：
+ * 「清单随落码批定值回填注记」兑现位；自定义主题文件形随 /themes 命令批
+ * 落码——custom 件承载）：
  * - `accent` 焦点指示（输入件边框 / 状态行转轮 / overlay 占焦族 / 弹层空态）
  * - `text` 正文（undefined = 终端缺省前景——着色克制：正文恒随终端用户配置）
  * - `secondary` 次文（弱存在感段——工具卡中止态复用本键，专键不设：定稿形
@@ -23,10 +23,16 @@
  *   高亮键族五键（10h 定值——自研词法器五类 token 各一键；覆盖语言外诚实
  *   退单色不发明半高亮）
  */
-import type { AnsiColor, RgbChannels } from '../../engine/index.js';
+import type { AnsiColor, Color256, RgbChannels } from '../../engine/index.js';
 
-/** 主题档设置值（settings.json `theme` 键三值——dark / light / auto；auto = OSC 11 背景探测裁定） */
-export type ThemeSetting = 'dark' | 'light' | 'auto';
+/**
+ * 主题档设置值（settings.json `theme` 键值）：内置三值 dark / light / auto
+ * （auto = OSC 11 背景探测裁定）+ **自定义主题名**（/themes 批——07 §4.1
+ * 挂账解挂批值域扩名：`数据目录/themes/<名>.json` 文件名即主题名；自定义名
+ * 直指文件零探测〔文件选择面〕、键级缺键回退基板的探测恒在〔与文件选择
+ * 正交〕）。`(string & {})` 形保三内置值的字面量补全。
+ */
+export type ThemeSetting = 'dark' | 'light' | 'auto' | (string & {});
 
 /** 语义键全集（值面单源——遍历消费只认本表） */
 export const SEMANTIC_KEYS = [
@@ -63,11 +69,24 @@ export interface ExactColor {
 }
 
 /**
- * 语义色板（键 → 源色值）。源值四形：
+ * 语义色板（键 → 源色值）。源值五形：
  * - `RgbChannels` 自带色值——随终端色域档降采（truecolor 直出 / 256→16 降采）；
- * - `AnsiColor` 终端色板位——**全档直通不降采**（尊重终端用户自定义色板——
- *   dark accent 沿 ANSI 6 cyan 的载体形）；
+ * - `AnsiColor` 终端色板位（0-15）——**全档直通不降采**（尊重终端用户自定义
+ *   色板——dark accent 沿 ANSI 6 cyan 的载体形）；
+ * - `Color256` xterm 256 索引（16-255）——truecolor/256 档直通（38;5;n 两档
+ *   同受支持）、16 档展开回真彩走最近邻单源降采（/themes 批——自定义主题
+ *   文件「色值收 truecolor RGB 与 256 索引两形」条款；运行时与 AnsiColor 同
+ *   为 number，按值域 0-15 / 16-255 分档——engine color 件 isAnsi16 律）；
  * - `ExactColor` 精确对位——rgb 主值两档照常、16 档覆写位（塌缩修正形）；
  * - `undefined` 终端缺省（`text` 专用——正文恒随终端前景配置）。
  */
-export type SemanticPalette = Readonly<Record<SemanticKey, RgbChannels | AnsiColor | ExactColor | undefined>>;
+export type SemanticPalette = Readonly<
+  Record<SemanticKey, RgbChannels | AnsiColor | Color256 | ExactColor | undefined>
+>;
+
+/**
+ * 部分覆盖色板（自定义主题文件的键级覆盖载体——/themes 批）：文件只须覆盖
+ * 关心的键，**缺键回退基板同位键**（回退合成在消费位展开：`{...基板, ...覆盖}`
+ * ——undefined 值不进覆盖表，防展开时压掉基板键）。
+ */
+export type PartialSemanticPalette = Partial<SemanticPalette>;

@@ -71,14 +71,16 @@ import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
 import {
   builtinPalette,
   detectColorDepth,
+  overlayBoard,
   paletteForBackground,
   parseOsc11Reply,
   resolveTheme,
   sessionColor,
-  type BuiltinPalette,
   type ColorDepth,
   type ColorEnv,
+  type PartialSemanticPalette,
   type ResolvedTheme,
+  type ThemeBoard,
   type ThemeSetting,
 } from '../theme/index.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
@@ -94,6 +96,8 @@ import { UsageViewer } from '../panels/usage-viewer.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { SkillsViewer, type SkillListEntry } from '../panels/skills-viewer.js';
+import { ThemePicker, type ThemePickEntry } from '../panels/theme-picker.js';
+import { DiffViewer, type DiffProjectionMessage } from '../panels/diff-viewer.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import { ConfirmPanel, SelectPanel } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
@@ -162,11 +166,20 @@ export interface TuiBackendOptions {
   /** 宿主版本（件 7——title 基线 `berry-agent <版本>`；缺席或空串 = 无版本缀裸名。真值归批 12 host 装配传 HostFace.version） */
   readonly version?: string;
   /**
-   * 主题档（批 10g——07 R2）：dark / light / auto。auto = start 时 OSC 11
-   * 背景查询裁定（无应答自然维持缺省 dark 即超时语义）；显式档短路零探测。
-   * 缺省 dark（注入缺席的确定性测试基线——与批 10g 前 accent 字节同源）。
+   * 主题档（批 10g——07 R2 扩 /themes 批）：dark / light / auto 三内置 +
+   * 自定义主题名。auto = start 时 OSC 11 背景查询裁定（无应答自然维持缺省
+   * dark 即超时语义）；显式内置档短路零探测；自定义名探测照开（键级回退
+   * 基板明暗走探测——探测与文件选择正交）。缺省 dark（注入缺席的确定性
+   * 测试基线——与批 10g 前 accent 字节同源）。
    */
   readonly theme?: ThemeSetting;
+  /**
+   * 自定义主题覆盖表（/themes 批）：theme 值为自定义名时装配位载入注入
+   * （loadCustomThemeColors 产物；坏文件装配位 warn 后回退内置档——本键缺席
+   * 即内置形）。在场景 = 键级回退基板 OSC 重合成（handleOscReply）+ 探测
+   * 编舞照开（「键级回退探测恒在」）。
+   */
+  readonly customThemeOverlay?: PartialSemanticPalette;
   /** 色域探测 env 投影（COLORTERM/TERM——批 10g 三档降采判据；缺省 {} = 16 色档） */
   readonly colorEnv?: ColorEnv;
   /**
@@ -391,9 +404,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 进度态上次写出（忙闲迁移门——同态静默，周期重发归保活自持） */
   private progressBusy = false;
 
-  /* ---- 主题态（批 10g——07 R2 三档色域 + 语义键 + OSC 11 自动明暗） ---- */
-  /** 主题档（auto = start 时 OSC 11 探测裁定；显式档短路） */
-  private readonly themeSetting: ThemeSetting;
+  /* ---- 主题态（批 10g——07 R2 三档色域 + 语义键 + OSC 11 自动明暗；/themes 批运行时切档扩） ---- */
+  /** 主题档（auto = start 时 OSC 11 探测裁定；显式内置档短路；自定义名探测照开）——/themes 选定可运行时改 */
+  private themeSetting: ThemeSetting;
+  /**
+   * 自定义主题覆盖表（/themes 批）：theme 值为自定义名时在场——OSC 回执按
+   * 探测基板重合成（overlayBoard 单源）；null = 内置形。运行时切档可改。
+   */
+  private customOverlay: PartialSemanticPalette | null;
   /** 色域档（构造期一次探测——env 注入面，渲染路径零探测） */
   private readonly colorDepth: ColorDepth;
   /** 当前主题（构造期解析 auto 先 dark；probe 回执换装走整体换引用） */
@@ -453,12 +471,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       escapeWindowMs: this.escapeWindowMs,
       onOsc: (data) => this.handleOscReply(data), // OSC 11 应答上抛（批 10g——显式档回调内短路）
     });
-    // 主题基座（批 10g）：档位 + 色域构造期一次解析（显式档零探测；auto 先
-    // dark 缺省、probe 回执换装）；注入缺席缺省 = dark@16 与批 10g 前 accent
-    // 字节同源——既有确定性测试零扰动
+    // 主题基座（批 10g + /themes 批）：档位 + 色域构造期一次解析（显式内置档
+    // 零探测；auto 先 dark 缺省、probe 回执换装；自定义名 = dark 基板 + 覆盖
+    // 表合成、探测回执重合成换基板——「键级回退探测恒在」）；注入缺席缺省 =
+    // dark@16 与批 10g 前 accent 字节同源——既有确定性测试零扰动
     this.themeSetting = options.theme ?? 'dark';
+    this.customOverlay = options.customThemeOverlay ?? null;
     this.colorDepth = detectColorDepth(options.colorEnv ?? {});
-    this.theme = resolveTheme(builtinPalette(this.themeSetting === 'light' ? 'light' : 'dark'), this.colorDepth);
+    this.theme = resolveTheme(this.currentBoard(), this.colorDepth);
     // 键位注册表（批 10i R5 基座 + 10k 用户覆盖）：settings keybindings 键
     // 透传——四形拒载 fail-loud（拒载弃该键回退缺省，rejections 观测面呈报）
     this.keymap = new Keymap(options.keybindings);
@@ -559,7 +579,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 主题探测（批 10g）：auto 档发 OSC 11 背景查询 + 明暗变化通知订阅（2031
     // ——支持终端切换即时跟随）；显式档短路零写出。无应答超时降缺省 dark =
     // 自然维持构造期 dark 板（无钟不设窗——应答迟到照常换装，语义等价且免竞）
-    if (this.themeSetting === 'auto') {
+    if (this.probeActive) {
       this.io.write(OSC11_QUERY + THEME_CHANGE_ENABLE);
     }
     this.io.setRawMode(true);
@@ -581,7 +601,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 装配纪律恒「先收副屏再退出」，本闸是防御位非编舞路
     if (!this.suspendedMain) {
       this.io.write(LEAVE_MAIN);
-      if (this.themeSetting === 'auto') this.io.write(THEME_CHANGE_DISABLE); // 2031 复原（显式档从未开）
+      if (this.probeActive) this.io.write(THEME_CHANGE_DISABLE); // 2031 复原（显式内置档从未开）
     }
     this.unsubInput?.();
     this.unsubInput = null;
@@ -651,7 +671,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 明暗通知丢弃（v1 已知边界——副屏在场期即时跟随不做），复起重查即补偿。
     // 同板应答 handleOscReply 短路零重画（零噪声）、迟到照常换装（无钟不设窗
     // 语义同源）；2031 订阅挂起期未关（suspendMain 不写 disable）无须重开
-    if (this.themeSetting === 'auto') this.io.write(OSC11_QUERY);
+    if (this.probeActive) this.io.write(OSC11_QUERY);
     this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     this.io.resume(); // 显式放流（副屏 dispose 已 pause——共享 io 换防接缝）
@@ -859,6 +879,53 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.editor.setText(invocation); // 回填调用形（不提交——提交路归用户 enter）
           this.touchFixed();
         },
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏主题切换（07 §4.1 命令面增补批 /themes——TUI 本地拦截族）：条目与
+   * 当前档装配位现取注入（本件不触文件面——坏文件 ⚠ 标注在装配位合成）；
+   * 选定先收副屏再回调（SessionPicker 同序律），换装/持久化归装配闭包
+   * （setThemeChoice 单入口）。返 boolean 同 openHelp 律。
+   */
+  openThemes(entries: readonly ThemePickEntry[], current: string, onSelect: (name: string) => void): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new ThemePicker({
+        entries,
+        current,
+        onSelect,
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏改动总览（07 §4.1 命令面增补批 /diff——TUI 本地拦截族）：投影
+   * 快照装配位现取注入（foldSessionDiff 在 viewer 构造期一次聚合——快照档）；
+   * 词级高亮复用 R4 单源（viewer 内消费本件当前 theme——换装后开屏随新板）。
+   * 返 boolean 同 openHelp 律。
+   */
+  openDiff(messages: readonly DiffProjectionMessage[]): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new DiffViewer({
+        messages,
+        theme: this.theme,
         sessionId: this.sessionId,
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
@@ -1412,7 +1479,25 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     else this.escapeHandle = null;
   }
 
-  /* ---------------- 内部：主题面（批 10g） ---------------- */
+  /* ---------------- 内部：主题面（批 10g + /themes 批） ---------------- */
+
+  /**
+   * 探测档判（auto ∪ 自定义名——「键级回退探测恒在」）：探测 = OSC 11 查询
+   * + 2031 订阅两编舞的开关位。显式内置档（dark/light）恒 false 零写出。
+   */
+  private get probeActive(): boolean {
+    return this.themeSetting === 'auto' || this.customOverlay !== null;
+  }
+
+  /**
+   * 当前档基板解析（构造/切档/OSC 回执三消费单源）：内置档 = builtinPalette
+   * 按档名（light 显指、auto 缺省 dark）；自定义名 = dark 基板 + 覆盖表合成
+   * （overlayBoard——缺键回退基板同位键；基板明暗交 OSC 回执重合成裁定）。
+   */
+  private currentBoard(): ThemeBoard {
+    if (this.customOverlay !== null) return overlayBoard(builtinPalette('dark'), this.customOverlay);
+    return builtinPalette(this.themeSetting === 'light' ? 'light' : 'dark');
+  }
 
   /** 主题注入长存组件（editor 视图 / 状态行 / 补全弹层——accent 派生样式重建） */
   private injectTheme(): void {
@@ -1422,28 +1507,62 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 换板换装：整体换 theme 引用 + 组件重注入 + 固定区重画（accent 载体全在
-   * 固定区/浮层；durable 正文已交 scrollback 物理不可回改——零重排义务）。
+   * 换板换装（applyPalette 单入口换装单源路——07 §4.1 /themes 条款）：整体换
+   * theme 引用 + 组件重注入 + 固定区重画（transcript / popup / editor / 状态
+   * 行四面全集；accent 载体全在固定区/浮层；durable 正文已交 scrollback 物理
+   * 不可回改——零重排义务）。
    */
-  private applyPalette(palette: BuiltinPalette): void {
-    this.theme = resolveTheme(palette, this.colorDepth);
+  private applyPalette(board: ThemeBoard): void {
+    this.theme = resolveTheme(board, this.colorDepth);
     this.transcript.setTheme(this.theme); // 行集换装——后续新建 doc 生效（durable 已交 scrollback 不回改）
     this.injectTheme();
     this.touchFixed();
   }
 
   /**
+   * 运行时切档（/themes 批——装配闭包单入口，选定即换装）：换档值 + 换覆盖
+   * 表 + applyPalette 单入口换装一步。**运行时切档 = 重走下装同律**（07 §4.1
+   * /themes 条款）：入探测档（auto 或自定义名）补发 OSC 11 查询 + 订 2031
+   * 通知、出探测档复原对称（2031 disable——显式内置档从未订）；自定义名入
+   * 档先 dark 基板合成、探测回执重合成换基板（探测即重跑不沿用缓存）。
+   * 坏文件选定不达此位（装配位 loadCustomThemeColors null 即 warn 回退零切）。
+   */
+  setThemeChoice(setting: ThemeSetting, overlay: PartialSemanticPalette | null): void {
+    const priorProbe = this.probeActive;
+    this.themeSetting = setting;
+    this.customOverlay = overlay;
+    this.applyPalette(this.currentBoard());
+    if (!this.running) return; // 未启动零 OSC 编舞（start 下装路自带）
+    const probe = this.probeActive;
+    if (probe && !priorProbe) this.io.write(OSC11_QUERY + THEME_CHANGE_ENABLE);
+    else if (!probe && priorProbe) this.io.write(THEME_CHANGE_DISABLE);
+    else if (setting === 'auto') this.io.write(OSC11_QUERY); // auto 重选——探测即重跑（2031 已在无须重订）
+  }
+
+  /** 当前主题档观测面（/themes 副屏 ● 当前档标记的装配注入源） */
+  get themeChoice(): ThemeSetting {
+    return this.themeSetting;
+  }
+
+  /**
    * OSC 串上抛消费（decoder onOsc 接线）：OSC 11 背景色应答 → 明暗裁定换板。
-   * 显式档短路（2031 未开、查询未发——防御位）；非 11 码/畸形诚实忽略；同板
-   * 零换装（2031 通知的冗余应答与噪声不触发无谓重画）。
+   * 内置 auto 档 = 探测基板切换；自定义名档 = 探测基板 + 覆盖表重合成（键级
+   * 回退基板随探测翻转——「键级回退探测恒在」）。显式内置档短路（2031 未
+   * 开、查询未发——防御位）；非 11 码/畸形诚实忽略；同明暗零换装（2031 通知
+   * 的冗余应答与噪声不触发无谓重画）。
    */
   private handleOscReply(data: string): void {
-    if (this.themeSetting !== 'auto') return;
+    if (!this.probeActive) return;
     const bg = parseOsc11Reply(data);
     if (bg === null) return;
-    const palette = paletteForBackground(bg);
-    if (palette.id === (this.theme.dark ? 'dark' : 'light')) return;
-    this.applyPalette(palette);
+    const board = paletteForBackground(bg); // 探测基板（明暗裁定）
+    if (this.customOverlay !== null) {
+      if (board.dark === this.theme.dark) return; // 同明暗零换装
+      this.applyPalette(overlayBoard(board, this.customOverlay)); // 重合成——基板翻转覆盖恒在
+      return;
+    }
+    if (board.id === (this.theme.dark ? 'dark' : 'light')) return;
+    this.applyPalette(board);
   }
 
   /* ---------------- 内部：状态面与固定区 ---------------- */
@@ -1638,7 +1757,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 自复位，stop 既写关则硬退钩同写关、复原面不得留单边缺口。条件与
         // stop() 同形（auto 档才开过订阅）；挂起态本钩已解除（suspendMain
         // disarm——副屏自担其屏复原），无须 stop() 的 suspendedMain 分闸
-        if (this.themeSetting === 'auto') this.io.write(THEME_CHANGE_DISABLE);
+        if (this.probeActive) this.io.write(THEME_CHANGE_DISABLE);
         this.io.setRawMode(false);
         this.osc.restore(); // 件 7：硬退复原两写点（title 基线 + 进度清零——与 stop 同收口）
       } catch {

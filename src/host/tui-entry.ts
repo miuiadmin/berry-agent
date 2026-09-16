@@ -21,7 +21,15 @@
 import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 
-import { editorHeightCap, FileMentionSource, fuzzyFilter, ProcessTerminalIO, TuiBackend } from '../channels/index.js';
+import {
+  editorHeightCap,
+  FileMentionSource,
+  fuzzyFilter,
+  listCustomThemeNames,
+  loadCustomThemeColors,
+  ProcessTerminalIO,
+  TuiBackend,
+} from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
@@ -39,7 +47,7 @@ import { startSchedulerClock } from './core-plugins.js';
 import type { CorePluginReference } from './loader.js';
 import { runWithSessionAnchor } from './session-anchor.js';
 import { liveCommandArgumentItems, type LiveCompletionDeps } from './live-completions.js';
-import { readHostSettings } from './settings-store.js';
+import { readHostSettings, writeHostSettings } from './settings-store.js';
 import { daemonPaths } from './serve-daemon.js';
 import type { HostRuntime } from './runtime.js';
 import { APPROVAL_SUBVERBS } from './approval-cmd.js';
@@ -236,6 +244,18 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const themeLoad =
       runtime.dataDir !== null ? readHostSettings(runtime.dataDir, { warn: (m) => logger.warn(m) }) : null;
     const env = options.env ?? process.env;
+    // —— 自定义主题启动下装（/themes 批——07 §4.1 R2 挂账解挂批）：theme 值
+    // 域经 settings 校验 = 三内置或合法自定义名；自定义名 = themes/<名>.json
+    // 覆盖表现载（载入 null〔坏文件/缺席〕= 回退 auto 探测档——坏文件 warn 已
+    // 落 logger，诚实降级不炸启动）；内置三值/缺席 = 无覆盖直落。
+    const themeSetting = themeLoad?.settings.theme ?? 'auto';
+    const isCustomTheme = themeSetting !== 'dark' && themeSetting !== 'light' && themeSetting !== 'auto';
+    const customThemeOverlay =
+      isCustomTheme && runtime.dataDir !== null
+        ? loadCustomThemeColors(runtime.dataDir, themeSetting, { warn: (m) => logger.warn(m) })
+        : null;
+    // 坏自定义文件回退档（auto）——backend 下装位单值消费
+    const startupThemeSetting = isCustomTheme && customThemeOverlay === null ? 'auto' : themeSetting;
 
     // —— TUI 本地命令族（07 §4.1 命令面增补批——/status /debug /skills 副屏
     // 三件）：副屏/瞬时交互族 = UiBackend 实装层本地拦截（/exit 批先例——恰
@@ -270,7 +290,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           cwdLabel: basename(root),
           turns,
           dataDir: runtime.dataDir,
-          theme: themeLoad?.settings.theme ?? 'auto',
+          theme: backend.themeChoice,
           env: [
             { key: 'BERRY_AGENT_MODEL', value: envValue('BERRY_AGENT_MODEL') },
             { key: 'BERRY_AGENT_DATA_DIR', value: envValue('BERRY_AGENT_DATA_DIR') },
@@ -349,11 +369,74 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
+    // —— 主题选定闭包（/themes 批——选定即换装 + 持久化单点）：三内置 = 直落
+    // 档无覆盖；自定义名 = 现载覆盖表（null = 坏文件——warn 呈报保持既有档，
+    // 坏文件拒载律）；换装走 backend.setThemeChoice 单入口（OSC 11 探测开闭
+    // 编舞后端内执法）。持久化 = settings.json 只写 theme 键（写侧合并面保
+    // 留未知键）；坏形期拒写 'rejected' = 换装照做 + 诚实呈报暂离（运行态不
+    // 回滚——重启回落盘态）。
+    const selectTheme = (name: string): void => {
+      if (name === 'dark' || name === 'light' || name === 'auto') {
+        backend.setThemeChoice(name, null);
+      } else {
+        const overlay =
+          runtime.dataDir !== null
+            ? loadCustomThemeColors(runtime.dataDir, name, { warn: (m) => logger.warn(m) })
+            : null;
+        if (overlay === null) {
+          backend.notify(`主题 ${name} 载入失败——保持既有档（详见日志）`, { level: 'warn' });
+          return;
+        }
+        backend.setThemeChoice(name, overlay);
+      }
+      if (runtime.dataDir !== null && writeHostSettings(runtime.dataDir, { theme: name }) === 'rejected') {
+        backend.notify('主题已换装但持久化失败（settings.json 坏形——手改修复后可再写）', { level: 'warn' });
+      }
+    };
+
+    const openThemesPanel = (): void => {
+      // 条目 = 内置三档在前 + themes/ 目录清单字典序（装配拼接律——面板原样
+      // 呈现）；自定义条目现探坏文件标 ⚠（静默探测——选定路的 warn 呈报另在
+      // selectTheme）。当前档 = backend 活值（选定即时更新——观测位单源）。
+      const dataDir = runtime.dataDir;
+      const entries = [
+        { name: 'auto', detail: '跟随终端明暗（OSC 11 探测）', broken: false },
+        { name: 'dark', detail: '内置暗色', broken: false },
+        { name: 'light', detail: '内置亮色', broken: false },
+        ...(dataDir !== null
+          ? listCustomThemeNames(dataDir).map((name) => ({
+              name,
+              detail: '自定义（themes/<名>.json 键级覆盖）',
+              broken: loadCustomThemeColors(dataDir, name, { warn: () => {} }) === null,
+            }))
+          : []),
+      ];
+      if (!backend.openThemes(entries, backend.themeChoice, selectTheme)) {
+        backend.notify('主题面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
+    const openDiffPanel = (): void => {
+      // 数据源 = 聚焦会话投影快照（开屏一次现取——快照档；ProjectedMessage
+      // 结构兼容 DiffProjectionMessage 最小面，channels↛session 零新 DAG 边）
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      const driver = stack.driverOf(sid);
+      if (driver === undefined) {
+        backend.notify('会话驱动不在场——无改动可聚合', { level: 'warn' });
+        return;
+      }
+      if (!backend.openDiff(driver.session.projection())) {
+        backend.notify('改动总览暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
     // 本地命令族单源（拦截表 / 补全源 / /help 命令册三消费面同文）
     const localCommands = [
       { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境旋钮）', run: () => openStatusPanel() },
       { name: 'debug', description: '调试信息副屏（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },
       { name: 'skills', description: '技能清单副屏（enter 回填调用形入输入框）', run: () => openSkillsPanel() },
+      { name: 'themes', description: '主题切换副屏（选定即换装+持久化）', run: () => openThemesPanel() },
+      { name: 'diff', description: '会话改动总览副屏（edit 聚合按文件分组）', run: () => openDiffPanel() },
     ] as const;
     /** 本地命令族 → 补全条目（query 已去斜杠——与 exitCommandItems 同契约） */
     const localCommandItems = (query: string): readonly AutocompleteItem[] =>
@@ -445,8 +528,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       },
       // 高度帽公式单源（07 §4.1 R3 批 10j）：max(5, rows×0.3)——迟滞带归视图
       maxVisibleLines: editorHeightCap(rows),
-      // 主题档（批 10g）：settings 缺席 = auto 探测路；色域档由 env 两键裁定
-      theme: themeLoad?.settings.theme ?? 'auto',
+      // 主题档（批 10g + /themes 批）：settings 缺席 = auto 探测路；自定义名 =
+      // 覆盖表随装（坏文件已回退 auto——见 startupThemeSetting；色域档由 env
+      // 两键裁定）
+      theme: startupThemeSetting,
+      ...(customThemeOverlay !== null ? { customThemeOverlay } : {}),
       colorEnv: { COLORTERM: env.COLORTERM, TERM: env.TERM },
       // 键位用户覆盖（R5 批 10k）：settings.json keybindings 键——形校验在读
       // 侧、语义校验归 Keymap fail-loud（拒载清单 start 后逐条呈报，见下）
