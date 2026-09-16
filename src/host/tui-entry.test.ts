@@ -4,13 +4,14 @@
  *
  * 钉死：空框直退 0 / 提交流转全链（输入字节 → 编辑器 → 提交 → 驱动 → faux
  * 模型）/ 同 cwd 重启续接（resume 投影首画回读历史）/ 运行时组装失败退 1 /
- * `--port` webui 咬合（横幅走屏留痕面只带 URL、token 不入屏、退出收场面）。
+ * `--port` webui 咬合（横幅走屏留痕面只带 URL、token 不入屏、退出收场面）/
+ * `--no-plugins` 自救链入口腿（E14——坏插件现场锁死对照 + 安全模式起得来）。
  * 输入驱动走真 InputDecoder（'\r' 提交、'\x04' ctrl+d 空框退出）。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import type { TerminalIO } from '../channels/index.js';
@@ -20,6 +21,7 @@ import type { Provider } from '../llm/index.js';
 import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
+import type { HostRuntime } from './runtime.js';
 import { exitCommandItems, commandArgumentItems, runTuiEntry } from './tui-entry.js';
 
 /* ---------------- 测试基建 ---------------- */
@@ -504,5 +506,92 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     expect(await entry).toBe(0);
     expect(modelsByCall[0]).toContain('m1');
     expect(modelsByCall[1]).toContain('m2'); // 生效语义 = 下一 run 起跑
+  });
+});
+
+describe('--no-plugins 自救链入口腿（E14——坏插件现场锁死 → 安全模式起得来）', () => {
+  /**
+   * 坏插件现场速记：启用清单 yaml 坏形（fail-loud 拒启——装载读侧唯一
+   * 「锁死启动」形；行级隔离形〔清单坏/入口抛错〕不拦启动不属本链）。与
+   * assembly.test「启用清单损坏」/ serve-entry.test「坏形清单 fail-loud 退 1」
+   * 同款最轻构造——单文件一笔，覆盖前各层已有、入口层缺（E14 补口）。
+   */
+  function rigCorruptEnabledYaml(): string {
+    const dataDir = rigDir('entry-rescue-data-');
+    writeFileSync(join(dataDir, 'enabled.yaml'), 'plugins: [ Oops'); // yaml 坏形
+    return dataDir;
+  }
+
+  it('对照组（不带 flag）：坏插件现场锁死启动——退 1 + stderr 可见回执（修复指引）+ TUI 屏零输出', async () => {
+    const io = new FakeTerminalIO();
+    // stderr 收窄观察位（core-plugins.test console.error spy 同法——只截文本
+    // 不改语义面；恢复恒走 finally）。回执是宿主 fail-loud 文案非 AI 生成文本，
+    // 断言锚「启动失败」档前缀与现场文件名（结构标记非逐字全文）
+    let stderrText = '';
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: Uint8Array | string) => {
+      stderrText += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      return true;
+    });
+    try {
+      const faux = fauxProvider({ provider: 'faux-lock', models: [{ id: 'm1' }] });
+      const code = await runTuiEntry({
+        flags: { noPlugins: false, debug: false },
+        io,
+        cwd: rigDir('entry-rescue-ws-lock-'),
+        version: 'test',
+        dataDir: rigCorruptEnabledYaml(),
+        providers: [faux.provider],
+        model: 'faux-lock/m1',
+        env: {},
+      });
+      expect(code).toBe(1); // 锁死：非零退出——正常起跑被装载读侧拦死
+      expect(stderrText).toContain('启动失败'); // 可见回执（用户可自修档呈报）
+      expect(stderrText).toContain('enabled.yaml'); // 修复指引指向现场文件
+      expect(io.output).toBe(''); // TUI 屏从未起（backend.start 未达——锁死证据）
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('自救腿（--no-plugins）：同一坏现场起得来——插件零装载（披露段 0/0/0）+ 会话全链照跑 + 现场文件不被触碰', async () => {
+    const dataDir = rigCorruptEnabledYaml(); // 与对照组同一坏现场（自救起点）
+    const faux = fauxProvider({ provider: 'faux-rescue', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf(), () => messageOf()]);
+    const io = new FakeTerminalIO();
+    // 运行时捕获（入口注入面 onRuntime——披露段计数的读取位）
+    let runtimeRef: HostRuntime | undefined;
+    const entry = runTuiEntry({
+      flags: { noPlugins: true, debug: false }, // 安全模式：装载面整跳（读侧之前短路——坏清单不再拦）
+      io,
+      cwd: rigDir('entry-rescue-ws-live-'),
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-rescue/m1',
+      env: {},
+      onRuntime: (rt) => void (runtimeRef = rt),
+    });
+    // 起得来：装配序全通（含装载段旁路）——输入管线挂接即屏已起；与入口终态
+    // 竞速（旁路缺失形 = 入口先退 1，此处即快速红——不靠挂钟超时兜底）
+    await Promise.race([
+      io.ready(),
+      entry.then((code) => {
+        throw new Error(`自救失败：入口先终态（退出码 ${code}）——TUI 屏未起`);
+      }),
+    ]);
+    // 插件零装载的入口级证据：披露段插件计数行（04 §environment 钉形「插件 N
+    // 个（启用 M · 失败 F）」）——core: 与用户行都不装（io.ready 已过 = boot
+    // 完成点，计数匣为终值非初值）
+    expect(runtimeRef).toBeDefined();
+    expect(runtimeRef!.disclosure()).toContain('- 插件: 0 个（启用 0 · 失败 0）');
+    // 会话/入口正常起跑：提交流转全链照跑（零插件形态对话本体不受累）
+    io.send('自救探针\r');
+    await until(() => faux.state.callCount >= 1); // 全链达模型
+    await until(() => io.output.includes('ok')); // 应答上屏
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 自救 = 旁路不修盘：坏现场原样保留（用户退出安全模式后自行修复——本腿
+    // 不代写用户配置）
+    expect(readFileSync(join(dataDir, 'enabled.yaml'), 'utf8')).toBe('plugins: [ Oops');
   });
 });
