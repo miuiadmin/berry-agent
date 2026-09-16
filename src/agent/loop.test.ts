@@ -6,6 +6,9 @@
  * 其余（队列/工具批/事件流）全走真实现。工具用最小真执行体。
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   AssistantMessage,
   AssistantStream,
@@ -15,6 +18,7 @@ import type {
   StreamFn,
   StreamFnOptions,
   TextContent,
+  ThinkingContent,
   ToolCallBlock,
   ToolResultMessage,
   UserMessage,
@@ -552,5 +556,229 @@ describe('prepareNextTurn 换装', () => {
     });
     await startRun(context, config, [user('q')]);
     expect(seen[0]).toEqual({ systemPrompt: '+注入', apiKey: 'sk-test' });
+  });
+});
+
+/* ---------------- 金样喂 loop（批 C A3——文件头「金样 seam 同族」的落码） ---------------- */
+
+describe('金样喂 loop（真录制物重演 + 合成三场景——loop 流消费面 ↔ 金样事件序两面一致性）', () => {
+  /**
+   * 缺口背景（研究批 A3）：金样此前只在流层回放（src/llm/golden.test.ts 断
+   * 协议序 + 终值结构），loop 消费面（stream.ts 的 start 占位入列 → partial
+   * 就地替换尾 → 终值 result() 落位）从未吃过真录制事件序——两面漂移（loop
+   * 改流消费语义 / 录制器改事件产出）无测试可红。本簇把金样重演为 StreamFn
+   * seam 喂 startRun 真消费面：真录制物两件 + 合成三场景
+   * （multi-tool/mixed/abort——录制器 SCENARIOS 已扩对应定义，真录属
+   * record-once 人工动作待 GLM 凭证，合成夹具先锁消费面）。
+   */
+  /** 仓库根（src/agent 上两级——同 src/llm/golden.test.ts 布局） */
+  const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+  /** 金样目录（零件 = 录制物丢失 fail-loud 红非 skip——同 golden.test.ts 收紧纪律） */
+  const GOLDEN_DIR = join(REPO_ROOT, 'tools/golden');
+
+  /** 读金样 JSONL → 事件数组（首行 meta 头行跳过） */
+  function loadGoldenEvents(name: string): AssistantStreamEvent[] {
+    const lines = readFileSync(join(GOLDEN_DIR, `${name}.jsonl`), 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0);
+    if (lines.length < 2) {
+      throw new Error(`金样 ${name} 行数不足——录制物丢失？（金样已随 15394ef 入库，重录 = npm run golden:record）`);
+    }
+    if (typeof (JSON.parse(lines[0]!) as { meta?: unknown }).meta !== 'object') {
+      throw new Error(`金样 ${name} 首行不是 meta 头行`);
+    }
+    return lines.slice(1).map((line) => JSON.parse(line) as AssistantStreamEvent);
+  }
+
+  /**
+   * 金样重演 seam：事件数组 → AssistantStream（yield 全序 + result() 取终值）
+   * ——loop 真消费面吃的就是这个形状；「mock 只停 streamFn 注入位」纪律内
+   * 金样与 scripted 终值同族，但事件序是录制物真形非简化三事件形。
+   */
+  function replayGoldenStream(events: AssistantStreamEvent[]): AssistantStream {
+    return {
+      async *[Symbol.asyncIterator](): AsyncIterator<AssistantStreamEvent> {
+        for (const event of events) yield event;
+      },
+      result: async (): Promise<AssistantMessage> => {
+        const final = events[events.length - 1];
+        if (final?.type === 'done') return final.message;
+        if (final?.type === 'error') return final.error;
+        throw new Error('金样事件序未以 done/error 收尾（录制器契约违约——重录信号）');
+      },
+    };
+  }
+
+  /** 终事件收窄（真金样两件恒 done 形；非 done 即录制物形状漂移——fail-loud 重录信号） */
+  function doneFinal(events: AssistantStreamEvent[]): {
+    reason: 'stop' | 'length' | 'toolUse' | 'deferred';
+    message: AssistantMessage;
+  } {
+    const final = events[events.length - 1];
+    if (final?.type !== 'done')
+      throw new Error(`金样终事件非 done（${String(final?.type)}）——录制物形状漂移，重录信号`);
+    return final;
+  }
+
+  /**
+   * 合成事件序（真协议 12 型形）：外层 start → 逐块 start/delta×2/end → 终
+   * 事件（done 四 reason / error 二 reason）。partial 恒全量终值快照——真录
+   * 金样实证形（pi-ai 每事件 partial 携带完整累计快照），loop 尾替换语义对
+   * 任意合法快照成立。
+   */
+  function synthesizeEvents(final: AssistantMessage): AssistantStreamEvent[] {
+    const snapshot = (): AssistantMessage => ({ ...final, content: final.content.map((b) => ({ ...b })) });
+    const events: AssistantStreamEvent[] = [{ type: 'start', partial: snapshot() }];
+    final.content.forEach((block, index) => {
+      if (block.type === 'thinking') {
+        events.push({ type: 'thinking_start', contentIndex: index, partial: snapshot() });
+        events.push({ type: 'thinking_delta', contentIndex: index, delta: 'd1', partial: snapshot() });
+        events.push({ type: 'thinking_delta', contentIndex: index, delta: 'd2', partial: snapshot() });
+        events.push({ type: 'thinking_end', contentIndex: index, partial: snapshot() });
+      } else if (block.type === 'text') {
+        events.push({ type: 'text_start', contentIndex: index, partial: snapshot() });
+        events.push({ type: 'text_delta', contentIndex: index, delta: 'd1', partial: snapshot() });
+        events.push({ type: 'text_delta', contentIndex: index, delta: 'd2', partial: snapshot() });
+        events.push({ type: 'text_end', contentIndex: index, content: block.text, partial: snapshot() });
+      } else {
+        events.push({ type: 'toolcall_start', contentIndex: index, partial: snapshot() });
+        events.push({ type: 'toolcall_delta', contentIndex: index, delta: 'd1', partial: snapshot() });
+        events.push({ type: 'toolcall_end', contentIndex: index, toolCall: { ...block }, partial: snapshot() });
+      }
+    });
+    if (final.stopReason === 'error' || final.stopReason === 'aborted') {
+      events.push({ type: 'error', reason: final.stopReason, error: final });
+    } else {
+      // done 族四 reason 硬收窄（'pending' 是流中间态 partial 专用 stopReason
+      // ——合成终值恒 done 族，构造面已保证）
+      const reason = final.stopReason as 'stop' | 'length' | 'toolUse' | 'deferred';
+      events.push({ type: 'done', reason, message: final });
+    }
+    return events;
+  }
+
+  it('真金样 tool-call 重演喂 loop：thinking+toolCall 块序消费保真 → 工具真执行配对 → 二轮收场', async () => {
+    const events = loadGoldenEvents('tool-call');
+    const goldenFinal = doneFinal(events);
+    // 自引用对拍源：金样终值里的 toolCall 块（id/name/块序全从录制物取——禁臆断录制内容）
+    const goldenCall = goldenFinal.message.content.find((b): b is ToolCallBlock => b.type === 'toolCall');
+    if (goldenCall === undefined) throw new Error('金样 tool-call 终值无 toolCall 块——场景退化（重录信号）');
+    const executed: string[] = [];
+    const tool = makeTool(goldenCall.name, async (id) => {
+      executed.push(id);
+      return { content: [{ type: 'text', text: 'ok' satisfies string }] };
+    });
+    let round = 0;
+    const streamFn: StreamFn = () => {
+      round += 1;
+      // 首轮 = 金样重演（真录制事件序进 loop 流消费面）；二轮 = 既有 makeStream 简化形收场
+      return round === 1
+        ? replayGoldenStream(events)
+        : makeStream(assistant({ content: [{ type: 'text', text: 'done' }] }));
+    };
+    const { context, config } = rig({ streamFn });
+    context.tools = [tool];
+    const result = await startRun(context, config, [user('金样重演')]);
+    expect(result.status).toBe('completed');
+    // 金样 toolCall 真穿到执行面（id 自引用对拍）
+    expect(executed).toEqual([goldenCall.id]);
+    // 两面一致性本体断言：loop 消费（占位入列 + 逐事件尾替换 + 终值落位）后的
+    // 活消息终值与金样终值逐块同形
+    const live = context.messages.find(
+      (m) => m.role === 'assistant' && (m as AssistantMessage).stopReason === 'toolUse',
+    ) as AssistantMessage;
+    expect(live.content.map((b) => b.type)).toEqual(goldenFinal.message.content.map((b) => b.type));
+    // thinking 块携带 thinkingSignature 键（真录制物特有形状——合成件没有的键位面）
+    const think = live.content.find((b) => b.type === 'thinking');
+    expect(think !== undefined && 'thinkingSignature' in think).toBe(true);
+    // usage 真录非零形状
+    expect(live.usage.totalTokens).toBeGreaterThan(0);
+    // 配对：toolResult.toolCallId === 金样终值 toolCall.id
+    const tr = context.messages.find((m) => m.role === 'toolResult') as { toolCallId: string; isError: boolean };
+    expect(tr.toolCallId).toBe(goldenCall.id);
+    expect(tr.isError).toBe(false);
+  });
+
+  it('真金样 plain-answer 重演喂 loop：纯答一轮收场 completed + 终值保真', async () => {
+    const events = loadGoldenEvents('plain-answer');
+    const goldenFinal = doneFinal(events);
+    const streamFn: StreamFn = () => replayGoldenStream(events);
+    const { context, config } = rig({ streamFn });
+    const result = await startRun(context, config, [user('金样重演')]);
+    expect(result.status).toBe('completed');
+    expect(result.stopReason).toBe('stop');
+    expect(context.messages).toHaveLength(2); // 种子 + 终值（无工具轮）
+    const live = context.messages[1] as AssistantMessage;
+    expect(live.content.map((b) => b.type)).toEqual(goldenFinal.message.content.map((b) => b.type));
+    expect(live.usage.totalTokens).toBeGreaterThan(0);
+  });
+
+  it('合成 multi-tool：一消息两 toolCall → 批执行全配对（两 toolResult 非 error）→ 二轮收场', async () => {
+    const first = assistant({ stopReason: 'toolUse', content: [call('mt-1', 'probe'), call('mt-2', 'probe')] });
+    const callsDone: string[] = [];
+    const tool = makeTool('probe', async (id) => {
+      callsDone.push(id);
+      return { content: [] };
+    });
+    let round = 0;
+    const streamFn: StreamFn = () => {
+      round += 1;
+      return round === 1
+        ? replayGoldenStream(synthesizeEvents(first))
+        : makeStream(assistant({ content: [{ type: 'text', text: 'done' }] }));
+    };
+    const { context, config } = rig({ streamFn });
+    context.tools = [tool];
+    const result = await startRun(context, config, [user('multi-tool')]);
+    expect(result.status).toBe('completed');
+    expect(callsDone).toEqual(['mt-1', 'mt-2']); // 批内全执行
+    const trs = context.messages.filter((m) => m.role === 'toolResult') as { toolCallId: string; isError: boolean }[];
+    expect(trs.map((t) => t.toolCallId)).toEqual(['mt-1', 'mt-2']);
+    expect(trs.every((t) => t.isError === false)).toBe(true);
+  });
+
+  it('合成 mixed：thinking+text+toolCall 三块混合序 → 终值三块全保真 + 工具执行配对', async () => {
+    const first = assistant({
+      stopReason: 'toolUse',
+      content: [
+        { type: 'thinking', thinking: '思路', thinkingSignature: 'sig-x' } satisfies ThinkingContent,
+        { type: 'text', text: '先说明再动手' },
+        call('mx-1', 'probe'),
+      ],
+    });
+    let round = 0;
+    const streamFn: StreamFn = () => {
+      round += 1;
+      return round === 1
+        ? replayGoldenStream(synthesizeEvents(first))
+        : makeStream(assistant({ content: [{ type: 'text', text: 'done' }] }));
+    };
+    const { context, config } = rig({ streamFn });
+    context.tools = [makeTool('probe')];
+    const result = await startRun(context, config, [user('mixed')]);
+    expect(result.status).toBe('completed');
+    const live = context.messages.find(
+      (m) => m.role === 'assistant' && (m as AssistantMessage).stopReason === 'toolUse',
+    ) as AssistantMessage;
+    // 三块序消费保真（前块不被逐事件尾替换链吃掉——partial 替换语义对混合块序的正确性）
+    expect(live.content.map((b) => b.type)).toEqual(['thinking', 'text', 'toolCall']);
+    const tr = context.messages.find((m) => m.role === 'toolResult') as { toolCallId: string };
+    expect(tr.toolCallId).toBe('mx-1');
+  });
+
+  it('合成 abort：流中段 abort 收口（text 块后 error 事件 reason aborted）→ run 终态 aborted', async () => {
+    // abort 收口形 = error 事件（reason 'aborted'）+ 载荷 stopReason 'aborted'
+    // （contracts 12 型：done 四 reason 不含 aborted——中止恒走 error 事件腿）
+    const abortedFinal = assistant({ stopReason: 'aborted', content: [{ type: 'text', text: '部分输出' }] });
+    const streamFn: StreamFn = () => replayGoldenStream(synthesizeEvents(abortedFinal));
+    const { context, config, events } = rig({ streamFn });
+    const result = await startRun(context, config, [user('abort')]);
+    expect(result).toMatchObject({ status: 'aborted', stopReason: 'aborted' });
+    const end = events[events.length - 1]!;
+    expect(end.type === 'agent_end' && end.status).toBe('aborted');
+    // 流中段已产出的 text 块不被 abort 收口吞（活消息保真）
+    const live = context.messages.find((m) => m.role === 'assistant') as AssistantMessage;
+    expect(live.stopReason).toBe('aborted');
+    expect(live.content.map((b) => b.type)).toEqual(['text']);
   });
 });

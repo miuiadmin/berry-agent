@@ -13,6 +13,12 @@
  * 零网络只读 JSONL；回放红 = 行为演进信号重录（人工裁决后重跑本脚本）。
  * 本脚本不进 vitest、不进 CI、不进发布物（tsconfig.build exclude 点名）。
  *
+ * 场景面（批 C A3 扩容）：plain-answer / tool-call（首录两件已入库）+
+ * multi-tool / mixed / abort（扩三场景——loop 消费面已由合成夹具先锁
+ * 〔src/agent/loop.test.ts「金样喂 loop」〕，真录属 record-once 人工动作
+ * 待 GLM 凭证；abort 场景编排 = 首个增量事件到达即 abort，收口形录到什么
+ * 是什么）。
+ *
  * 重录成规（批 D）：既有金样在座时重录，先归档前朝为 `<场景名>.prev.jsonl`
  * （只保一层——prev 恒为「本次重录前的那版」），写后对新旧打印机器 diff
  * 摘要（事件数/事件型序首分歧/终值形状——只比形状不比文本内容，同回放腿
@@ -39,7 +45,14 @@ const MODEL = process.env.BERRY_AGENT_MODEL ?? 'glm-relay/glm-5.3-flash';
 const { createProvider, anthropicMessagesApi } = providerApiFace;
 
 /** 固定冒烟场景（system + user + tools 全定死——重录可比） */
-const SCENARIOS: { name: string; system: string; user: string; tools?: LlmTool[] }[] = [
+const SCENARIOS: {
+  name: string;
+  system: string;
+  user: string;
+  tools?: LlmTool[];
+  /** true = 首个增量事件（*_delta）到达即 abort——流中段确定性击杀点（进度驱动非 sleep 赌时序）；收口形录到什么是什么（error aborted / AbortError 文案皆合法终态，回放腿 assertGolden 容受） */
+  abortAfterFirstDelta?: boolean;
+}[] = [
   {
     name: 'plain-answer',
     system: '你是一个测试助手。始终用一句简短的中文回答。',
@@ -62,6 +75,54 @@ const SCENARIOS: { name: string; system: string; user: string; tools?: LlmTool[]
         },
       },
     ],
+  },
+  {
+    // 批 C A3 扩三场景之一：一条消息并行多 tool_use（批语义的事件序形——
+    // multi-tool 消费面已由合成夹具先锁〔src/agent/loop.test.ts〕，真录补真形）
+    name: 'multi-tool',
+    system:
+      '你是测试助手。用户要查多个城市天气时，必须在同一条回复里对每个城市各调用一次 weather 工具（参数 {"city": string}），不要逐城分多轮，也不要凭记忆编造。',
+    user: '帮我看下北京和上海的天气。',
+    tools: [
+      {
+        name: 'weather',
+        description: '查询指定城市的实时天气。',
+        parameters: {
+          type: 'object',
+          properties: { city: { type: 'string', description: '城市名（如「北京」）' } },
+          required: ['city'],
+        },
+      },
+    ],
+  },
+  {
+    // 批 C A3 扩三场景之二：thinking+text+toolCall 混合块序（loop 尾替换语义
+    // 对混合块序的正确性已由合成夹具锁，真录补真形——GLM 自动带 thinking 块）
+    name: 'mixed',
+    system:
+      '你是测试助手。回答时先用一句话说明你的查询思路，然后必须调用 weather 工具（参数 {"city": string}）查证，不要凭记忆编造。',
+    user: '查一下上海的天气，先说说你怎么查。',
+    tools: [
+      {
+        name: 'weather',
+        description: '查询指定城市的实时天气。',
+        parameters: {
+          type: 'object',
+          properties: { city: { type: 'string', description: '城市名（如「上海」）' } },
+          required: ['city'],
+        },
+      },
+    ],
+  },
+  {
+    // 批 C A3 扩三场景之三：流中段 abort 收口形（中止恒走 error 事件腿——
+    // contracts 12 型 done 四 reason 不含 aborted；loop 终态映射 aborted 已由
+    // 合成夹具锁，真录补真形。若 abort 后流不yield 终事件，录制器按既有
+    // 「未以 done/error 收尾不落盘」拒收——人工裁决面）
+    name: 'abort',
+    system: '你是测试助手。始终写一段三句话以上的中文回答。',
+    user: '介绍一下数组这种数据结构。',
+    abortAfterFirstDelta: true,
   },
 ];
 
@@ -164,9 +225,18 @@ async function main(): Promise<number> {
     const userMessage: UserMessage = { role: 'user', content: scenario.user, timestamp: 0 };
     const context: LlmContext = { systemPrompt: scenario.system, messages: [userMessage], tools: scenario.tools };
     const events: AssistantStreamEvent[] = [];
+    // abort 场景编排：控制器只在场景声明时铸（signal 透传 = streamFn 第三参）
+    const abortController = scenario.abortAfterFirstDelta === true ? new AbortController() : undefined;
     try {
-      const stream = await streamFn(context, { model: MODEL });
-      for await (const event of stream) events.push(event);
+      const stream = await streamFn(context, { model: MODEL }, abortController?.signal);
+      for await (const event of stream) {
+        events.push(event);
+        // 流中段确定性击杀点：首个增量事件到达即 abort（此时流确已产出——
+        // 非首事件前也非尾后；进度驱动非 sleep 赌时序，同 kill-recovery 谱）
+        if (abortController !== undefined && !abortController.signal.aborted && event.type.endsWith('_delta')) {
+          abortController.abort();
+        }
+      }
     } catch (error) {
       // StreamFn 契约是「错误是数据不是异常」——到达这里的异常属装配级失败
       console.error(`场景 ${scenario.name} 流装配失败：${error instanceof Error ? error.message : String(error)}`);

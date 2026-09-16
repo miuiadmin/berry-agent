@@ -43,6 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { Persistence } from './persistence.js';
+import { deriveMessages, recoverClosers, TOOL_OUTCOME_UNKNOWN } from '../session/index.js';
 
 /* ---------------- tsx 真子进程基建（engine-restore.pty.test.ts 同族） ---------------- */
 
@@ -295,6 +296,144 @@ describe('kill -9 进程级恢复（真子进程 + 生产恢复路径重开）',
       expect(after[after.length - 1]!.seq).toBe(recovered.length);
     } finally {
       // 恢复路径收口：关库（退出 checkpoint）+ env 复原（finally 保证异常路径不泄漏）
+      await persistence?.close();
+      if (savedDataDir === undefined) delete process.env.BERRY_AGENT_DATA_DIR;
+      else process.env.BERRY_AGENT_DATA_DIR = savedDataDir;
+      if (savedDbPath === undefined) delete process.env.BERRY_AGENT_DB_PATH;
+      else process.env.BERRY_AGENT_DB_PATH = savedDbPath;
+    }
+  }, 90_000);
+});
+
+/**
+ * 工具在飞相位脚本（批 C A2）：既有例的击杀点恒落在「纯 user/message 追加
+ * 中段」——从未落在 tool/call 已落账、tool/result 未落的在飞窗（真实 run 被
+ * 杀的最危险相位：孤儿 tool_use 会让 provider 拒续跑）。本脚本一轮 = 工具相
+ * 事件链缩形：user → assistant(toolUse) → tool/call → [偶数迭代 gate/decision
+ * 执行证据] → **在飞执行窗（ACK 后 1.2s 睡眠——击杀点确定性落此窗）** →
+ * tool/result。ACK 打印时 tool/call 及其执行证据已提交落定、tool/result 恒
+ * 缺席——相位由进度行协议钉死非赌时序。
+ */
+const TOOL_PHASE_SCRIPT = `// cfg 经末位 argv 注入（JSON 串）：总迭代数
+const cfg = JSON.parse(process.argv[process.argv.length - 1]);
+process.stdout.write('PID:' + process.pid + '\\n');
+const { Persistence } = await import(process.env.KILL_RECOVERY_PERSISTENCE_PATH);
+const persistence = Persistence.open();
+const log = persistence.createSession({ origin: 'conversation', workspaceRoot: '/kill-recovery-tool-phase' });
+process.stdout.write('SID:' + log.sessionId + '\\n');
+for (let i = 0; i < cfg.total; i++) {
+  log.append('user/message', { content: 'ask-' + i, source: 'user' });
+  log.append('assistant/message', { content: [], stopReason: 'toolUse' });
+  log.append('tool/call', { toolCallId: 'call-' + i, name: 'bash', arguments: JSON.stringify({ command: 'echo ' + i }) });
+  if (i % 2 === 0) {
+    // 执行证据位（recoverClosers 二分据）：在场 = 已开始执行 → OUTCOME_UNKNOWN
+    log.append('gate/decision', { toolCallId: 'call-' + i, decision: 'allow', reason: 'policy-allow:0' });
+  }
+  await persistence.flush(); // 至此已提交（tool/call 与执行证据落定）
+  process.stdout.write('ACK:' + i + '\\n');
+  // 在飞执行窗：父进程读到 ACK 即杀——1.2s 窗内 SIGKILL 恒先于 tool/result
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  log.append('tool/result', { toolCallId: 'call-' + i, content: 'out-' + i });
+  await persistence.flush();
+}
+process.stdout.write('DONE\\n');
+await persistence.close();
+`;
+
+describe('kill -9 工具在飞相位（孤儿 tool/call → open 合成 closer → 投影配对续接）', () => {
+  it('在飞窗击杀 → 恢复前缀尾为孤儿 tool/call → recoverClosers 合成 OUTCOME_UNKNOWN closer → 投影全配对 + 续写不撞', async () => {
+    const scriptDir = makeTmpDir('kill-recovery-tool-script-');
+    const scriptPath = join(scriptDir, 'child-tool.mts');
+    writeFileSync(scriptPath, TOOL_PHASE_SCRIPT);
+    const dataDir = makeTmpDir('kill-recovery-tool-data-');
+
+    // 击杀点 = 偶数迭代（gate/decision 在场 = 已开始执行形 → OUTCOME_UNKNOWN）
+    const KILL_AT = 2;
+    const TOTAL = 50;
+    const run = spawnAndKillAtAck(scriptPath, dataDir, TOTAL, KILL_AT);
+
+    await waitFor('子进程真身 pid（PID 行）', 45_000, () => run.lines().some((l) => l.startsWith('PID:')), run.output);
+    const scriptPid = Number.parseInt(
+      run
+        .lines()
+        .find((l) => l.startsWith('PID:'))!
+        .slice('PID:'.length),
+      10,
+    );
+    expect(Number.isInteger(scriptPid)).toBe(true);
+    await waitFor('子进程开库（SID 行）', 45_000, () => run.lines().some((l) => l.startsWith('SID:')), run.output);
+    const sessionId = run
+      .lines()
+      .find((l) => l.startsWith('SID:'))!
+      .slice('SID:'.length);
+    await waitFor(
+      `击杀点（ACK:${KILL_AT}）`,
+      30_000,
+      () => run.lines().some((l) => l === `ACK:${KILL_AT}`),
+      run.output,
+    );
+    await waitFor('脚本真身死亡（ESRCH）', 30_000, () => !isProcessAlive(scriptPid), run.output);
+    await Promise.race([run.exited, new Promise((resolve) => setTimeout(resolve, 10_000))]);
+
+    // 相位锚：击杀点生效（DONE 不在场 = 死在在飞窗）+ ACK 前缀在场
+    expect(run.lines()).not.toContain('DONE');
+    expect(run.lines()).toContain(`ACK:${KILL_AT}`);
+
+    // ── open 合成链（SessionManager.open 同两步：loadSession → recoverClosers
+    //    → appendSynthetic——05 §4 恢复协议的进程级实证）──
+    const savedDataDir = process.env.BERRY_AGENT_DATA_DIR;
+    const savedDbPath = process.env.BERRY_AGENT_DB_PATH;
+    process.env.BERRY_AGENT_DATA_DIR = dataDir;
+    delete process.env.BERRY_AGENT_DB_PATH;
+    let persistence: Persistence | undefined;
+    try {
+      persistence = Persistence.open();
+      const loaded = persistence.loadSession(sessionId);
+      const events = [...loaded.log.events()];
+
+      // 相位断言：末条 tool/call = call-K（在飞轮）在场，其 tool/result 缺席；
+      // 前两轮完整闭合（call-0/call-1 各有 result）——击杀窗内无半行无越轮
+      const calls = events.filter((e) => e.type === 'tool/call');
+      expect(calls.at(-1)!.data).toMatchObject({ toolCallId: `call-${KILL_AT}` });
+      const resultIds = new Set(
+        events.filter((e) => e.type === 'tool/result').map((e) => (e.data as { toolCallId: string }).toolCallId),
+      );
+      expect(resultIds.has(`call-${KILL_AT}`)).toBe(false); // 在飞轮 result 缺席
+      for (let i = 0; i < KILL_AT; i++) expect(resultIds.has(`call-${i}`)).toBe(true); // 已完轮全闭合
+      expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => i)); // seq 连续无洞
+
+      // 恢复合成：恰一枚孤儿 closer——执行证据在场（偶数迭代有 gate/decision）
+      // → OUTCOME_UNKNOWN 形（05 §4 二分的「已开始执行」腿）
+      const drafts = recoverClosers(loaded.log.events());
+      expect(drafts).toHaveLength(1);
+      expect(drafts[0]!.type).toBe('tool/result');
+      expect(drafts[0]!.data).toMatchObject({ toolCallId: `call-${KILL_AT}`, error: true });
+      expect((drafts[0]!.data as { content: string }).content).toContain(TOOL_OUTCOME_UNKNOWN);
+      for (const draft of drafts) loaded.log.appendSynthetic(draft);
+      await persistence.flush();
+
+      // 投影配对（恢复后模型上下文合法——provider 拒未配对 tool_use 的防线）：
+      // 每条 toolCall id 都有配对 toolResult 投影消息；call-K = 合成 error 腿
+      const projection = deriveMessages(loaded.log.events());
+      const toolResults = projection.filter((m) => m.type === 'toolResult');
+      const callIds = projection
+        .filter((m) => m.type === 'assistant')
+        .flatMap((m) => m.toolCalls.map((c) => c.toolCallId));
+      expect(callIds).toContain(`call-${KILL_AT}`);
+      for (const id of callIds) {
+        expect(toolResults.some((m) => m.toolCallId === id)).toBe(true);
+      }
+      const synthetic = toolResults.find((m) => m.toolCallId === `call-${KILL_AT}`)!;
+      expect(synthetic.isError).toBe(true);
+
+      // 续接不撞：合成 closer 落定后新 user 消息续写——seq 接续 + 读回对拍
+      loaded.log.append('user/message', { content: 'after-tool-recovery', source: 'user' });
+      await persistence.flush();
+      const after = persistence.store.loadEvents(sessionId);
+      expect(after).toHaveLength(events.length + 2); // +1 合成 closer +1 续写
+      expect(after.at(-1)!.seq).toBe(events.length + 1);
+      expect((after.at(-1)!.data as { content: string }).content).toBe('after-tool-recovery');
+    } finally {
       await persistence?.close();
       if (savedDataDir === undefined) delete process.env.BERRY_AGENT_DATA_DIR;
       else process.env.BERRY_AGENT_DATA_DIR = savedDataDir;

@@ -5,7 +5,7 @@
  * （mock 只停在模型层）。钉死：启动会话策略（新建/按 cwd 续接）/ 投影拉取
  * （活体优先 + 回库装载）/ 信封回流 / memory 形工具缺席降级 / 退出序接线。
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -20,7 +20,10 @@ import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../con
 import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { canonicalWorkspaceRoot, Scope } from '../context/index.js';
+import type { ExecSessionDeps } from '../conversation/types.js';
+import { createBashTool, createSpawnPipeline } from '../exec/index.js';
 import { fauxProvider } from '../llm/index.js';
+import { createSandboxService } from '../safety/index.js';
 import { SessionLog } from '../session/index.js';
 import type { EventWrite, SessionRegistration } from '../persist/store.js';
 
@@ -447,6 +450,144 @@ describe('审批 always 回写与策略表免问（批 12f-4——04 §9 粘性�
           (d as { decision: string; reason: string }).reason === 'policy-allow:0',
       ),
     ).toBe(true);
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- faux 发起工具面组合根穿线（批 C A1——研究批 P0-③ 主干环链） ---------------- */
+
+describe('faux 发起工具面组合根穿线（批 C A1——bash/edit 真执行全链）', () => {
+  /**
+   * 真 exec 服务供栈（core:exec 插件同形——core-plugins.ts :216 同款闭包）：
+   * 真 spawn 管道 + 真沙箱服务，仅省去插件装载层。裸栈 scope.tryGet('exec')
+   * 诚实缺席 = bash 静默缺席（02 §4.1 #16）——提供后 bash 工具经会话装配期
+   * 工厂真挂载，本组 bash 例即走真子进程全链。
+   */
+  function execScope(): Scope {
+    const scope = Scope.createRoot();
+    const pipeline = createSpawnPipeline();
+    const sandboxService = createSandboxService();
+    scope.provide('exec', {
+      // deps 显式注解（provide 宽收 object 无上下文推断——ExecToolService 同签名）
+      createBashTool: (deps: ExecSessionDeps) => createBashTool({ pipeline, sandboxService, ...deps }),
+    });
+    return scope;
+  }
+
+  it('bash 真执行：printf 词干免问 → 真子进程 stdout 回灌二轮上下文（toolResult 闭环）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const seenMessages: Array<Array<{ role: string; content: unknown }>> = [];
+    const { faux, stack } = rigStack(rt, {
+      workspace: () => ws,
+      scope: execScope(),
+      // bash 族 = 命令词干匹配（matchesCommandStem）：单词条目 printf 命中
+      // 「该命令 + 任意非 flag 形参」——printf batch-c-a1 即免问
+      toolPolicy: [{ tool: 'bash', pattern: 'printf', decision: 'allow' }],
+    });
+    // 若被问则恒答 approve（免问失效时本测零请求断言即红——不静默放水）
+    const backend = new ApprovalBackend('approve');
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+
+    faux.setResponses([
+      () => toolCallOf('t-b1', 'bash', { command: 'printf batch-c-a1' }),
+      (ctx) => {
+        seenMessages.push(ctx.messages as Array<{ role: string; content: unknown }>);
+        return messageOf('stop');
+      },
+    ]);
+    const receipt = await stack.submitText(session.sessionId, '跑命令');
+    expect(receipt).toMatchObject({ status: 'completed' }); // 工具批后二轮收口
+
+    // 免问全链：词干命中零审批交互 + 命中审计 reason=policy-allow:<条目序>
+    expect(backend.requests).toHaveLength(0);
+    expect(
+      dataOf(session.driver.session, 'gate/decision').some(
+        (d) =>
+          (d as { decision: string; reason: string }).decision === 'allow' &&
+          (d as { decision: string; reason: string }).reason === 'policy-allow:0',
+      ),
+    ).toBe(true);
+    // 工具环闭合锚：二轮上下文含 role=toolResult 消息，其内容是真子进程
+    // stdout（printf 输出）——执行产物回灌模型面，非只进审计
+    const second = seenMessages[0]!;
+    const toolResult = second.find((m) => m.role === 'toolResult');
+    expect(toolResult).toBeDefined();
+    expect(JSON.stringify(toolResult!.content)).toContain('batch-c-a1');
+    await rt.shutdown();
+  });
+
+  it('edit Add File 真执行：fs 前缀免问 → apply_patch 补丁真落盘', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, {
+      workspace: () => ws,
+      // fs 族 = 路径前缀 all-or-nothing（edit 写目标落 ws 内即命中）
+      toolPolicy: [{ tool: 'edit', pattern: ws, decision: 'allow' }],
+    });
+    const backend = new ApprovalBackend('approve');
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+
+    faux.setResponses([
+      () =>
+        toolCallOf('t-e1', 'edit', {
+          patch: '*** Begin Patch\n*** Add File: e1.txt\n+content-c-a1\n*** End Patch',
+        }),
+      () => messageOf('stop'),
+    ]);
+    const receipt = await stack.submitText(session.sessionId, '建文件');
+    expect(receipt).toMatchObject({ status: 'completed' });
+
+    expect(backend.requests).toHaveLength(0); // fs 前缀条目命中免问
+    // 真落盘（apply_patch Add File 段 → 工作区新文件——含尾换行，contain 断言不锁全串）
+    expect(readFileSync(join(ws, 'e1.txt'), 'utf8')).toContain('content-c-a1');
+    await rt.shutdown();
+  });
+
+  it('read→edit Update 四轮链：观察态守卫先拒盲改（error 数据面）→ read 观察 → Update 成功落盘', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    // 预置既有文件（Update 目标——从未 read 过即盲改形）
+    writeFileSync(join(ws, 'e2.txt'), 'old-c-a1\n', 'utf8');
+    const { faux, stack } = rigStack(rt, {
+      workspace: () => ws,
+      // edit = fs 族（前缀条目）；read = 整名族（pattern 忽略——工具名相等
+      // 即命中；无条目 = 照问 → headless 无审批后端答拒 → 误判 needs-human）
+      toolPolicy: [
+        { tool: 'edit', pattern: ws, decision: 'allow' },
+        { tool: 'read', decision: 'allow' },
+      ],
+    });
+    const backend = new ApprovalBackend('approve');
+    stack.channels.addBackend(backend);
+    const session = stack.openStartupSession(ws);
+
+    const updatePatch = '*** Begin Patch\n*** Update File: e2.txt\n-old-c-a1\n+new-c-a1\n*** End Patch';
+    faux.setResponses([
+      () => toolCallOf('t-e2', 'edit', { patch: updatePatch }), // 轮1：盲改被观察态守卫拒
+      () => toolCallOf('t-r1', 'read', { path: 'e2.txt' }), // 轮2：观察登记（present）
+      () => toolCallOf('t-e3', 'edit', { patch: updatePatch }), // 轮3：守卫满足真落盘
+      () => messageOf('stop'), // 轮4：收口
+    ]);
+    const receipt = await stack.submitText(session.sessionId, '改文件');
+    expect(receipt).toMatchObject({ status: 'completed' }); // 工具错误是数据面——run 不因守卫拒收场
+
+    // 轮1 拒形落账：tool/result 首行 error=true + FS_NOT_OBSERVED 词面
+    // （守卫拒是模型可见的错误结果，非异常——loop 续跑后续轮）
+    const toolResults = dataOf(session.driver.session, 'tool/result');
+    expect(toolResults).toHaveLength(3); // 拒 + read 成功 + update 成功
+    expect(toolResults[0]).toMatchObject({ toolCallId: 't-e2', error: true });
+    expect(JSON.stringify(toolResults[0])).toContain('FS_NOT_OBSERVED');
+    expect(toolResults[1]).toMatchObject({ toolCallId: 't-r1' });
+    expect(toolResults[2]).toMatchObject({ toolCallId: 't-e3' });
+    expect(toolResults[2]).not.toHaveProperty('error'); // 成功结果不带 error 键（缺席非 false）
+    expect(backend.requests).toHaveLength(0); // 三工具调用全免问（fs 前缀 + 整名两族条目各命中）
+    // 终态：更新后内容在盘（old 已被替换）
+    const finalContent = readFileSync(join(ws, 'e2.txt'), 'utf8');
+    expect(finalContent).toContain('new-c-a1');
+    expect(finalContent).not.toContain('old-c-a1');
     await rt.shutdown();
   });
 });
