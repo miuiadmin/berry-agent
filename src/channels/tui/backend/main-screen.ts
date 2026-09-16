@@ -250,6 +250,7 @@ export class MainScreen {
     this.frozenSlotLines = 0;
     this.slotEpoch = null;
     this.durableEndRow = 0;
+    this.prevFixed = null; // 差分基准随清屏失效（2026-09-17 收官批）：清屏抹掉屏上固定区而模型 grid 不变——基准不失效则同值 diff 零写出、屏恒空白（tmux e2e 抓获启动抹屏形：会话注册即 repaint 空 transcript + 调用方 renderFixed 同值 grid 再 diff；resize 同高度形同洞）
     this.io.write(CLEAR_SCREEN);
     this.applyScrollRegion();
     this.present(blocks, blocksOffset);
@@ -291,6 +292,15 @@ export class MainScreen {
 
   /** 固定区差分重画 + 光标落位（编辑光标外显的物理位） */
   private redrawFixed(): void {
+    // 几何失配守卫（2026-09-17 收官批）：缩窗后、调用方 renderFixed 重建前，
+    // fixedGrid 仍是旧几何的陈货（行数可超新屏）——写出即越屏废定位 + 闪烁，
+    // 权威截断重建随后由 renderFixed 全量落（onRepaint/handleResize 两路必跟）；
+    // toggles 路不跟但恒同几何不可达本守卫。失配即只归位不写
+    if (this.fixedGrid !== null && this.fixedGrid.rows > this.rows) {
+      this.io.write(cup(this.rows - 1, 0));
+      this.cursorRow = this.rows - 1;
+      return;
+    }
     if (this.fixedGrid !== null) {
       // baseRow 钳 0（畸形几何防御位——段总高 > 行数时固定区越屏顶，负行 cup
       // 是废字节；段优先级截断归装配层，此处只兜不产错位定位）

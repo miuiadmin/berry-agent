@@ -31,6 +31,23 @@ describe('三元网格与宽字符续格', () => {
     expect(grid.writeText(1, 0, '')).toBe(0); // 空串零推进
   });
 
+  // 2026-09-17 TUI 余量收官批（tmux e2e /help 副屏真缺陷回归锁）：多行
+  // description 的内嵌 \n 直穿 writeText 落 cell → diff 原样发射 → 终端把
+  // LF 当行进执行（pty ONLCR 再翻 \r\n）→ 行错位 + 底行滚屏、帧永久漂移。
+  // 锁：控制字素不落 cell、不占列宽（行模型拆分归面板语义层，本位只兜底）。
+  it('writeText 控制字素防御位：\\n/\\r 不入 cell 零占宽（grid 零控制字节律）', () => {
+    const grid = new CellGrid(10, 3);
+    expect(grid.writeText(0, 0, 'a\r\nb')).toBe(2); // CR/LF 均跳过——推进只算可呈现字素
+    expect(grid.getCell(0, 0)?.grapheme).toBe('a');
+    expect(grid.getCell(0, 1)?.grapheme).toBe('b');
+    // 全格扫描：grid 内零控制字素
+    for (let r = 0; r < 3; r++)
+      for (let c = 0; c < 10; c++) {
+        const g = grid.getCell(r, c)?.grapheme;
+        if (g !== undefined) expect(/[\x00-\x1f]/.test(g)).toBe(false);
+      }
+  });
+
   it('多码点字素整串入格（ZWJ 家庭 = 一格 + 一续格）', () => {
     const grid = new CellGrid(10, 3);
     grid.setCell(0, 0, '👨‍👩‍👧');

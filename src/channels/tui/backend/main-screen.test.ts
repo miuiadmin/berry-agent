@@ -225,6 +225,23 @@ describe('MainScreen 滚动与重建', () => {
     expect(io.bytes).not.toContain('旧'); // 全量重写不写卸载块
   });
 
+  // 2026-09-17 TUI 余量收官批（tmux e2e 抓获真缺陷回归锁）：启动抹屏形——
+  // 会话注册即 onRepaint（repaint 空 transcript + 调用方 renderFixed 同值
+  // grid 再 diff）。修复前 repaint 只清屏不失效 prevFixed → 空 transcript
+  // 零正文 + 差分对清屏前基准零写出 = 全屏空白（真终端上首绘被抹、直到下
+  // 一次 diff 变化才恢复局部）。锁：repaint 后固定区必全量重写在场。
+  it('repaint 空行集 + 同值固定区：清屏后固定区必全量重写（prevFixed 失效律）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    screen.setFixed(fixedGrid('编辑器')); // 首画全量（prevFixed 记账）
+    io.bytes = '';
+    // 启动注册形：repaint 空投影（滚动区零正文可写）+ 调用方以同值 grid 再 setFixed
+    screen.repaint([]);
+    screen.setFixed(fixedGrid('编辑器'));
+    expect(io.bytes).toContain('\x1b[2J\x1b[H'); // 清屏在场为前提
+    expect(io.bytes).toContain('编辑器'); // 清屏后固定区全量重写——不可零写出
+  });
+
   it('handleResize：几何重取 + 滚动区重设 + 全量重画', () => {
     const { io, screen } = makeScreen();
     screen.start();

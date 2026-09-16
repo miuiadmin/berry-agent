@@ -95,6 +95,12 @@ export class CellGrid implements CellBuffer {
   writeText(row: number, col: number, text: string, style?: CellStyle): number {
     let cursor = col;
     for (const g of splitGraphemes(text)) {
+      // 控制字素防御位（2026-09-17 TUI 余量收官批）：cell 是呈现面字素容器，
+      // 控制字节落 cell 会被差分发射器原样写出、终端误解执行（LF 落行、底行
+      // 触滚——tmux e2e /help 副屏真缺陷的物理载体）；跳过不写不占宽。行模型
+      // 的多行拆分归面板语义层（buildHelpLines 拆行律），本位只兜底不越权
+      const code = g.charCodeAt(0);
+      if (code < 0x20 || code === 0x7f) continue;
       this.setCell(row, cursor, g, style);
       cursor += graphemeWidth(g);
     }

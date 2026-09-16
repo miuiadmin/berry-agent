@@ -64,6 +64,33 @@ describe('buildHelpLines 行集构造（纯函数）', () => {
     const lines = buildHelpLines([{ name: 'usage' }], []);
     expect(lines[1]).toBe('/usage');
   });
+
+  // 2026-09-17 TUI 余量收官批（tmux e2e /help 副屏真缺陷回归锁）：/goal
+  // 用法 description 是五行 join('\n') 串——修前拼成单条行，内嵌 \n 字素
+  // 直穿 cell 落终端被执行（行错位 + 底行滚屏、标题行出屏）。锁：行集元素
+  // 零内嵌换行（每元素一视觉逻辑行——面板行模型契约）；首行挂 /name 名列、
+  // 续行独立成行（源自带缩进视觉形保留）。
+  it('多行描述拆行：行集零内嵌换行 + 首行挂名列 + 续行独立', () => {
+    const lines = buildHelpLines(
+      [
+        {
+          name: 'goal',
+          description: [
+            '用法：/goal create <schedule 串> —— 建续跑 goal',
+            '　　　/goal list —— 全部 goal',
+            '　　　/goal wake <goalId> —— 手动起闹',
+          ].join('\n'),
+        },
+      ],
+      [],
+    );
+    // 行集契约：任何元素不含裸换行
+    for (const line of lines) expect(line.includes('\n')).toBe(false);
+    const cmdIndex = lines.indexOf('── 命令 ──');
+    expect(lines[cmdIndex + 1]).toBe('/goal 用法：/goal create <schedule 串> —— 建续跑 goal');
+    expect(lines[cmdIndex + 2]).toBe('　　　/goal list —— 全部 goal');
+    expect(lines[cmdIndex + 3]).toBe('　　　/goal wake <goalId> —— 手动起闹');
+  });
 });
 
 describe('HelpViewer 副屏件', () => {

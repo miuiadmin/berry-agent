@@ -149,7 +149,13 @@ export function buildHelpLines(commands: readonly HelpCommandEntry[], actions: r
   if (commands.length === 0) lines.push('（无在册命令）');
   for (const cmd of commands) {
     const label = `/${cmd.name}`;
-    lines.push(`${label.padEnd(nameCol)}${cmd.description ?? ''}`.trimEnd());
+    // 多行描述拆行（2026-09-17 TUI 余量收官批）：description 源串可携内嵌
+    // 换行（/goal 用法五连形）——行集契约是每元素一视觉逻辑行，裸 \n 字素
+    // 直穿 cell 落终端被执行即行错位/滚屏（tmux e2e 抓获真缺陷）；首行挂
+    // 名列、续行独立成行（源自带缩进的视觉形保留）
+    const descLines = (cmd.description ?? '').split(/\r?\n/);
+    lines.push(`${label.padEnd(nameCol)}${descLines[0] ?? ''}`.trimEnd());
+    for (const cont of descLines.slice(1)) lines.push(cont.trimEnd());
   }
   // 键位册段：按域分组（册序内首见建组——ACTION_CATALOG 已按域聚集）
   lines.push('', '── 键位 ──');
