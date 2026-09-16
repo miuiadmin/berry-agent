@@ -38,6 +38,7 @@ import { runPluginsEntry } from './plugins-cmd.js';
 import { runSessionsEntry } from './sessions-cmd.js';
 import { runCredentialsEntry } from './credentials-cmd.js';
 import { runDoorsEntry } from './doors-cmd.js';
+import { runMarketplaceEntry } from './marketplace-cmd.js';
 
 /** 在飞运行时柄（组装后挂入——信号/崩溃编舞切运行时本体；前置窗口 null） */
 let activeRuntime: HostRuntime | null = null;
@@ -133,6 +134,9 @@ const handlers: CommandHandlers = {
       version: readVersion(),
       onRuntime: attachRuntime,
     }),
+  // marketplace 子命令族 CLI 面（03 §9.6 mp-3——装机编舞恒复用 installPlugin；
+  // update/upgrade 合法解析形执行层诚实拒退 1 留 mp-4，doors 先例同律）
+  marketplace: (sub) => runMarketplaceEntry(sub, {}),
   // sessions 子命令族 CLI 面（20d——list/search/reindex 读腿零装配、resume 进
   // TUI〔resumeSessionId 载体〕、fork 全装配同 run --fork 机；07 §5 定名）
   sessions: (sub) =>

@@ -21,6 +21,7 @@ import type {
   CredentialsSub,
   DoorsSub,
   DumpConfigFlags,
+  MarketplaceCommand,
   PluginsCommand,
   RunFlags,
   ServeFlags,
@@ -46,6 +47,8 @@ export interface CommandHandlers {
   readonly dumpConfig?: (flags: DumpConfigFlags) => Promise<number>;
   /** 插件生命周期命令族（12d 装载器装配批接线） */
   readonly plugins?: (sub: PluginsCommand) => Promise<number>;
+  /** 市场命令族（03 §9.6——mp-3 接线：装机编舞恒复用 installPlugin；update/upgrade 执行层诚实拒） */
+  readonly marketplace?: (sub: MarketplaceCommand) => Promise<number>;
   /** 会话管理命令族（conversation/持久面装配批接线） */
   readonly sessions?: (sub: SessionsCommand) => Promise<number>;
   /** 凭证人面命令族（03 §10.9——c-5 接线：零装配直开库） */
@@ -90,6 +93,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   mcp                     MCP server 包装形态
   dump-config             打印实际生效装配
   plugins <sub>           插件生命周期（list/install/uninstall/mount/unmount/toggle/update/check）
+  marketplace <sub>       插件市场（add/remove/list/discover/install/uninstall <name@market>；update/upgrade 待后续批）
   sessions <sub>          会话管理（list/resume <id>/fork <id>/search <query>/reindex）
   credentials <sub>       凭证人面管理（add <name> <value>/list/rm <name>；--namespace <ns> 指定域）
   doors <sub>             开门制人面（list 只读——六枚高危面清单与开态双源呈现；写动词 TUI /doors 专属）
@@ -165,6 +169,8 @@ export async function dispatchCli(
         return requireHandler(handlers.dumpConfig, 'dump-config')(command.flags);
       case 'plugins':
         return requireHandler(handlers.plugins, 'plugins')(command.sub);
+      case 'marketplace':
+        return requireHandler(handlers.marketplace, 'marketplace')(command.sub);
       case 'sessions':
         return requireHandler(handlers.sessions, 'sessions')(command.sub);
       case 'credentials':

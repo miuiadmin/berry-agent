@@ -355,3 +355,53 @@ describe('装载史共现计数（03 §5.5 ④——h-4 有源化）', () => {
     }
   });
 });
+
+describe('段② 判据锚 installPath 表示形（03 §9.6 mp-3 B2 定形注）', () => {
+  it('market 布局相对路径（source local）= 装机子树内必删——inspect true + execute 真删（修前红：source 词特判下恒 false）', async () => {
+    const stage = UninstallStage.open('market-local-delete');
+    try {
+      // B2 市场拷贝腿账本形：source 'local'（源真相）+ market 段相对 installPath
+      const marketPath = join('plugins', 'market', 'alpha', 'hello-plugin');
+      stage.seedEntry({
+        id: 'hello-plugin',
+        source: 'local',
+        ref: `local:${join(stage.dataDir, 'marketplaces', 'alpha')}`,
+        installPath: marketPath,
+      });
+      const dir = join(stage.dataDir, marketPath);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), '{}');
+      // inspect：相对表示形 = 装机子树内 → willDelete true
+      const inspect = inspectUninstall(stage.deps, 'hello-plugin');
+      expect(inspect.ok && inspect.report.installPaths[0]!.willDelete).toBe(true);
+      // execute：段②真删 market 段目录（缓存之外的装机物独立落位）
+      const outcome = executeUninstall(stage.deps, 'hello-plugin');
+      expect(outcome.ok).toBe(true);
+      expect(existsSync(dir)).toBe(false);
+      expect(stage.ledgerIds()).toEqual([]);
+    } finally {
+      await stage.close();
+    }
+  });
+
+  it('local 直引绝对路径不删（既有表示形零改绿回归位——market 注记在场不改直引语义）', async () => {
+    const stage = UninstallStage.open('direct-local-keep');
+    try {
+      const localDir = join(testRoot, 'direct-local-src');
+      mkdirSync(localDir, { recursive: true });
+      writeFileSync(join(localDir, 'package.json'), '{}');
+      stage.seedEntry({
+        id: 'direct-x',
+        source: 'local',
+        ref: `local:${localDir}`,
+        installPath: localDir,
+      });
+      const outcome = executeUninstall(stage.deps, 'direct-x');
+      expect(outcome.ok).toBe(true);
+      expect(existsSync(localDir)).toBe(true); // 子树外不删——只删账本条目
+      expect(stage.ledgerIds()).toEqual([]);
+    } finally {
+      await stage.close();
+    }
+  });
+});

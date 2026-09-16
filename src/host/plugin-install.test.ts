@@ -665,3 +665,191 @@ describe('git 执行器编舞（假 spawn——clone/checkout/rev-parse 零真�
     expect(existsSync(join(dataDir, 'plugins', 'git', 'github.com', 'o', 'r', 'package.json'))).toBe(true);
   });
 });
+
+describe('市场拷贝腿与 market 注记（03 §9.6 mp-3——装机咬合）', () => {
+  /** 拷贝腿专用：市场仓 fixture（子目录插件声明载荷形——零 jiti 收割） */
+  function marketRepoFixture(name: string): string {
+    const root = join(testRoot, `market-repo-${name}`);
+    const pluginDir = join(root, 'plugins', 'hello');
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      pluginPkgJson({ name: 'hello-plugin', berryAgent: { id: 'hello-plugin', skills: ['greet'] } }),
+    );
+    writeFileSync(join(root, 'README.md'), 'market repo');
+    return root;
+  }
+
+  const noopSpawn: SpawnRunner = { run: () => Promise.reject(new Error('拷贝腿缓存直拷不 spawn')) };
+  const market = { name: 'alpha', entry: 'hello-plugin' };
+
+  it('local ref + subdirCopy：market 段落位 + market 注记落账 + 账本读写往返保留（checkEntryShape 锁）', async () => {
+    const dataDir = dataDirOf('market-copy');
+    const repo = marketRepoFixture('a');
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${repo}`, {
+      market,
+      subdirCopy: { subpath: 'plugins/hello' },
+    });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.entry.installPath).toBe(join('plugins', 'market', 'alpha', 'hello-plugin')); // 相对表示形
+    expect(outcome.entry.source).toBe('local');
+    expect(outcome.entry.market).toEqual(market);
+    // 拷贝腿真拷贝：装机树在场（子目录内容），非直引
+    expect(existsSync(join(dataDir, 'plugins', 'market', 'alpha', 'hello-plugin', 'package.json'))).toBe(true);
+    expect(existsSync(join(dataDir, 'plugins', 'market', 'alpha', 'hello-plugin', 'README.md'))).toBe(false); // 只拷子目录
+    // 账本往返：market 字段经 checkEntryShape 重建保留（缺席 = 读写往返丢失）
+    const roundtrip = entriesOf(dataDir);
+    expect(roundtrip[0]!.market).toEqual(market);
+  });
+
+  it('拷贝腿幂等重装：目标在场先 rm 再落新树（无版本段布局）', async () => {
+    const dataDir = dataDirOf('market-reinstall');
+    const repo = marketRepoFixture('b');
+    const deps = depsOf(dataDir, noopSpawn);
+    const first = await installPlugin(deps, `local:${repo}`, { market, subdirCopy: { subpath: 'plugins/hello' } });
+    expect(first.ok).toBe(true);
+    // 源换代后重装：rm 重放（目录换新不叠残影）
+    writeFileSync(
+      join(repo, 'plugins', 'hello', 'package.json'),
+      pluginPkgJson({ name: 'hello-plugin', version: '2.0.0', berryAgent: { id: 'hello-plugin', skills: ['greet'] } }),
+    );
+    const second = await installPlugin(deps, `local:${repo}`, { market, subdirCopy: { subpath: 'plugins/hello' } });
+    expect(second.ok).toBe(true);
+    const after = entriesOf(dataDir).filter((e) => e.id === 'hello-plugin');
+    expect(after).toHaveLength(1); // 撞名律照旧——upsert 后见胜出
+    expect(after[0]!.version).toBe('2.0.0');
+  });
+
+  it('防御位拒谱：npm 源 + subdirCopy / 缺 market 注记 / subpath 逃逸 / 名段坏词法', async () => {
+    const dataDir = dataDirOf('market-defenses');
+    const repo = marketRepoFixture('c');
+    const deps = depsOf(dataDir, noopSpawn);
+    // npm 源与拷贝腿组合结构性不可达（翻译层恒 direct）——防御位拒
+    const npmRef = await installPlugin(deps, 'npm:any-pkg', {
+      market,
+      subdirCopy: { subpath: 'plugins/hello' },
+    });
+    expect(npmRef.ok).toBe(false);
+    if (!npmRef.ok) expect(npmRef.message).toContain('npm');
+    // 拷贝腿布局段需要 market 名段——缺席拒
+    const noMarket = await installPlugin(deps, `local:${repo}`, { subdirCopy: { subpath: 'plugins/hello' } });
+    expect(noMarket.ok).toBe(false);
+    if (!noMarket.ok) expect(noMarket.message).toContain('market');
+    // subpath 段逃逸（'..' 出界）拒——布局路径注入防线本件复验位
+    const escape = await installPlugin(deps, `local:${repo}`, {
+      market,
+      subdirCopy: { subpath: '../../etc' },
+    });
+    expect(escape.ok).toBe(false);
+    if (!escape.ok) expect(escape.message).toContain('逃逸');
+    // market 名段坏词法（路径注入）拒
+    const badName = await installPlugin(deps, `local:${repo}`, {
+      market: { name: '../evil', entry: 'hello-plugin' },
+      subdirCopy: { subpath: 'plugins/hello' },
+    });
+    expect(badName.ok).toBe(false);
+  });
+
+  it('拷贝源目录缺席 = 诚实拒（指路 remove 后重新 add——缓存坏形不猜）', async () => {
+    const dataDir = dataDirOf('market-src-gone');
+    const repo = marketRepoFixture('d');
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${repo}`, {
+      market,
+      subdirCopy: { subpath: 'plugins/not-exist' },
+    });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.message).toContain('not-exist');
+      expect(outcome.message).toContain('remove');
+    }
+  });
+
+  it('账本 market 字段坏形 = 整账本 fail-loud（readLedger invalid）', async () => {
+    const dataDir = dataDirOf('market-bad-ledger');
+    mkdirSync(join(dataDir, 'plugins'), { recursive: true });
+    // 手铸坏形账本：market 非对象形（词法纪律——新字段进坏形拒绝式）
+    writeFileSync(
+      ledgerPath(dataDir),
+      JSON.stringify([
+        {
+          id: 'x',
+          source: 'local',
+          ref: 'local:/x',
+          installedAt: '2026-09-16T00:00:00.000Z',
+          installPath: '/x',
+          declaredEvents: [],
+          market: 'not-an-object',
+        },
+      ]),
+    );
+    const read = readLedger(dataDir, createPluginStoreFs());
+    expect(read.ok).toBe(false);
+  });
+
+  it('update npm 腿 provenance 幸存：market 注记随重装透传（修前红——字段丢失形）', async () => {
+    const dataDir = dataDirOf('market-update-npm');
+    const rec = npmFakeSpawn(dataDir);
+    const deps = depsOf(dataDir, rec.spawn);
+    const installed = await installPlugin(deps, 'npm:demo-pkg', {
+      market: { name: 'alpha', entry: 'demo-pkg' },
+    });
+    expect(installed.ok && installed.entry.market).toEqual({ name: 'alpha', entry: 'demo-pkg' });
+    const updated = await updatePlugin(deps, 'demo-pkg');
+    expect(updated.ok).toBe(true);
+    const after = entriesOf(dataDir).find((e) => e.id === 'demo-pkg');
+    expect(after!.market).toEqual({ name: 'alpha', entry: 'demo-pkg' }); // 换装后 provenance 不丢
+  });
+
+  it('update local 市场条目 no-op 指路重装动词（marketplace install——非直引语义）', async () => {
+    const dataDir = dataDirOf('market-update-local');
+    const repo = marketRepoFixture('e');
+    const deps = depsOf(dataDir, noopSpawn);
+    const installed = await installPlugin(deps, `local:${repo}`, {
+      market,
+      subdirCopy: { subpath: 'plugins/hello' },
+    });
+    expect(installed.ok).toBe(true);
+    const updated = await updatePlugin(deps, 'hello-plugin');
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    // B2 拷贝腿非直引——no-op 文案指路 marketplace install（诚实面：直引语义不适用）
+    expect(updated.text).toContain('marketplace install');
+  });
+});
+
+describe('market 拷贝腿 update 分派（03 §9.6 mp-3——拷贝参数不入账本）', () => {
+  /** git-subdir 克隆假 spawn：clone 尾参位写子目录 fixture */
+  function subdirCloneSpawn(subpath: string): SpawnRunner {
+    return {
+      run: (cmd, args) => {
+        if (cmd !== 'git') return Promise.reject(new Error(`假 spawn 不受理 ${cmd}`));
+        if (args[0] === 'clone') {
+          const cloneDir = args[args.length - 1]!;
+          mkdirSync(join(cloneDir, ...subpath.split('/')), { recursive: true });
+          writeFileSync(
+            join(cloneDir, ...subpath.split('/'), 'package.json'),
+            pluginPkgJson({ berryAgent: { id: 'hello-plugin', skills: ['greet'] } }),
+          );
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+        if (args[2] === 'rev-parse') return Promise.resolve({ stdout: 'cafebabe77\n', stderr: '' });
+        return Promise.resolve({ stdout: '', stderr: '' });
+      },
+    };
+  }
+
+  it('git 拷贝腿装机物 update 拒——指路 marketplace install 重装（拷贝参数不可复算）', async () => {
+    const dataDir = dataDirOf('market-update-git-copy');
+    const deps = depsOf(dataDir, subdirCloneSpawn('packages/hello'));
+    const installed = await installPlugin(deps, 'git:https://example.com/o/monorepo.git#deadbeef', {
+      market: { name: 'sub', entry: 'hello-plugin' },
+      subdirCopy: { subpath: 'packages/hello' },
+    });
+    expect(installed.ok).toBe(true);
+    const updated = await updatePlugin(deps, 'hello-plugin');
+    expect(updated.ok).toBe(false);
+    if (updated.ok) return;
+    expect(updated.message).toContain('marketplace install');
+  });
+});

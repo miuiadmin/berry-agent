@@ -8,8 +8,9 @@
  * 继续，重跑收敛到全清）：
  *  ① 删启用行（行不在 = 跳过不报错）；
  *  ② 装机物必删——`assertInsideInstallSubtree` 防线（逃逸拒）+ 同包引用计数
- *    （多引用同物者最后引用删尽才删物）+ local 源不删用户目录；**连带** DROP
- *    该插件域前缀（`<id>__`）全部表——痕迹可清算（§5.5 段②连带清算条款）；
+ *    （多引用同物者最后引用删尽才删物）+ 直引不删用户目录（判据锚
+ *    installPath 表示形：相对 = 子树内必删〔含 market 拷贝腿布局〕/ 绝对 =
+ *    直引不删——03 §9.6 mp-3 B2 定形注）；**连带** DROP 该插件域前缀
  *  ③ 数据域处置 `dataAction: keep|purge` 缺省 keep（Docker 卷律）——purge 恒
  *    只删 `data/<id>/` 单插件子目录（`assertInsidePluginData` 防线）+ store_state
  *    本域前缀键连带删（keep 留待 LRU 自然逐出——§4.5 第四正门对称清算）；
@@ -23,6 +24,7 @@
  * sqlite() 注记）。短命进程与运行时同库同链，链尾单源防短链降级。
  */
 import { BaseError } from '../contracts/index.js';
+import { isAbsolute } from 'node:path';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
 
@@ -213,8 +215,12 @@ export function inspectUninstall(deps: UninstallDeps, id: string): UninstallOutc
         ledgerPath: entry.installPath,
         absolute,
         sharedWith,
-        // local 直引不删用户目录；共享引用在——物保留只删账（§5.5 段②）
-        willDelete: entry.source !== 'local' && sharedWith.length === 0,
+        // 段② 判据锚 installPath 表示形（03 §9.6 mp-3 B2 定形注）：相对表示
+        // = 装机子树内装机物必删（npm/git 常规布局 + market 拷贝腿布局
+        // plugins/market/...）；绝对表示 = local 直引不删用户目录（防线由
+        // 表示形承载，非 source 词特判——market 拷贝腿 source 亦为 local 而
+        // 装机物是拷贝产物必删）；共享引用在——物保留只删账（§5.5 段②）
+        willDelete: !isAbsolute(entry.installPath) && sharedWith.length === 0,
       },
     ],
     domainTables,

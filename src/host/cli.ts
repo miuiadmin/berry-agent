@@ -121,6 +121,28 @@ export type PluginsCommand =
   | { readonly sub: 'update'; readonly id: string }
   | { readonly sub: 'check' };
 
+/**
+ * marketplace 子命令族（03 §9.6 市场层 CLI 面；07 §5 命令族 berry marketplace
+ * 行——mp-3 装机咬合批）。install/uninstall 寻址形 = `name@marketplace`（词法
+ * 与缺位拒归执行层 marketInstall/resolveMarketLedgerId——本层只执法解析律）。
+ */
+export type MarketplaceCommand =
+  | { readonly sub: 'add'; readonly source: string }
+  | { readonly sub: 'remove'; readonly name: string }
+  | { readonly sub: 'list' }
+  | { readonly sub: 'discover'; readonly name?: string }
+  | { readonly sub: 'install'; readonly id: string }
+  | {
+      readonly sub: 'uninstall';
+      readonly id: string;
+      readonly confirm: boolean;
+      readonly dataAction?: 'keep' | 'purge';
+    }
+  /** update [<市场名>]：合法解析形、执行层诚实拒退 1（网络刷新真身留 mp-4——doors 先例同律） */
+  | { readonly sub: 'update'; readonly name?: string }
+  /** upgrade [<name@marketplace>]：同 update 合法解析形 + 执行层语义拒退 1 */
+  | { readonly sub: 'upgrade'; readonly id?: string };
+
 /** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/导出/重建） */
 export type SessionsCommand =
   | { readonly sub: 'list' }
@@ -140,6 +162,8 @@ export type CliCommand =
   | { readonly kind: 'mcp' }
   | { readonly kind: 'dump-config'; readonly flags: DumpConfigFlags }
   | { readonly kind: 'plugins'; readonly sub: PluginsCommand }
+  /** marketplace 子命令族（03 §9.6——装机编舞恒复用既有 installPlugin） */
+  | { readonly kind: 'marketplace'; readonly sub: MarketplaceCommand }
   | { readonly kind: 'sessions'; readonly sub: SessionsCommand }
   /** credentials 子命令族（03 §10.9 人面命令 CLI 对等——sub 形单源 credentials/commands.ts：解析〔cli〕与语义〔件〕共用同一 tagged union） */
   | { readonly kind: 'credentials'; readonly sub: CredentialsSub }
@@ -515,6 +539,109 @@ function parsePlugins(rest: readonly string[]): CliParseResult {
   }
 }
 
+/**
+ * marketplace 子命令族解析（03 §9.6 CLI 面——mp-3）：add/remove/list/discover/
+ * install/uninstall 六动词落地面 + update/upgrade 两合法解析形（执行层诚实拒
+ * 退 1 留 mp-4——doors 先例同律，用法错与语义拒两档分立）。uninstall 复用
+ * UNINSTALL_SCHEMAS（--confirm + --data keep|purge——§5.5 双相旗标全继承）；
+ * 寻址 id 词法（name@marketplace）归执行层单源，本层只执法解析律。
+ */
+function parseMarketplace(rest: readonly string[]): CliParseResult {
+  const [head, ...tail] = rest as string[];
+  if (head === undefined || head.startsWith('--')) {
+    return usageFail('marketplace 须带子命令（add/remove/list/discover/install/uninstall/update/upgrade）');
+  }
+  switch (head) {
+    case 'add': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      const args = expectArity(scan.literals, 1, 1, 'berry marketplace add <源（本地路径 / git 短手 / URL）>');
+      if ('exitCode' in args) return args;
+      return finish(scan, { kind: 'marketplace', sub: { sub: 'add', source: args[0] as string } });
+    }
+    case 'remove': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      const args = expectArity(scan.literals, 1, 1, 'berry marketplace remove <市场名>');
+      if ('exitCode' in args) return args;
+      return finish(scan, { kind: 'marketplace', sub: { sub: 'remove', name: args[0] as string } });
+    }
+    case 'list': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      const arity = expectArity(scan.literals, 0, 0, 'berry marketplace list');
+      if ('exitCode' in arity) return arity;
+      return finish(scan, { kind: 'marketplace', sub: { sub: 'list' } });
+    }
+    case 'discover': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      // 0-1 位参：零参 = 全源聚合；一参 = 单源过滤（查无 = 空聚合退 0）
+      const args = expectArity(scan.literals, 0, 1, 'berry marketplace discover [<市场名>]');
+      if ('exitCode' in args) return args;
+      return finish(scan, {
+        kind: 'marketplace',
+        sub: args.length > 0 ? { sub: 'discover', name: args[0] as string } : { sub: 'discover' },
+      });
+    }
+    case 'install': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      // 无参不开交互——usage 指路退 2（寻址形词法归执行层单源）
+      const args = expectArity(scan.literals, 1, 1, 'berry marketplace install <name@marketplace>');
+      if ('exitCode' in args) return args;
+      return finish(scan, { kind: 'marketplace', sub: { sub: 'install', id: args[0] as string } });
+    }
+    case 'uninstall': {
+      const scan = scanFlags(tail, UNINSTALL_SCHEMAS);
+      if (scan.error) return usageFail(scan.error);
+      const args = expectArity(
+        scan.literals,
+        1,
+        1,
+        'berry marketplace uninstall <name@marketplace> [--confirm] [--data keep|purge]',
+      );
+      if ('exitCode' in args) return args;
+      const dataRaw = scan.values.get('data');
+      return finish(scan, {
+        kind: 'marketplace',
+        sub: {
+          sub: 'uninstall',
+          id: args[0] as string,
+          confirm: scan.booleans.has('confirm'),
+          dataAction: dataRaw === undefined ? undefined : (dataRaw as 'keep' | 'purge'),
+        },
+      });
+    }
+    case 'update': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      // 0-1 位参：零参 = 全源；一参 = 点名市场（合法解析形——执行层语义拒退 1）
+      const args = expectArity(scan.literals, 0, 1, 'berry marketplace update [<市场名>]');
+      if ('exitCode' in args) return args;
+      return finish(scan, {
+        kind: 'marketplace',
+        sub: args.length > 0 ? { sub: 'update', name: args[0] as string } : { sub: 'update' },
+      });
+    }
+    case 'upgrade': {
+      const scan = scanFlags(tail, []);
+      if (scan.error) return usageFail(scan.error);
+      // 0-1 位参：零参 = 全装机面；一参 = 点名条目寻址形（合法解析形——执行层语义拒退 1）
+      const args = expectArity(scan.literals, 0, 1, 'berry marketplace upgrade [<name@marketplace>]');
+      if ('exitCode' in args) return args;
+      return finish(scan, {
+        kind: 'marketplace',
+        sub: args.length > 0 ? { sub: 'upgrade', id: args[0] as string } : { sub: 'upgrade' },
+      });
+    }
+    default:
+      return usageFail(
+        `未知 marketplace 子命令：${head}（合法：add/remove/list/discover/install/uninstall/update/upgrade）`,
+      );
+  }
+}
+
 /** 解析 sessions 子命令段 */
 function parseSessions(rest: readonly string[]): CliParseResult {
   const [head, ...tail] = rest as string[];
@@ -705,6 +832,8 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     }
     case 'plugins':
       return parsePlugins(rest);
+    case 'marketplace':
+      return parseMarketplace(rest);
     case 'sessions':
       return parseSessions(rest);
     case 'credentials':
@@ -720,7 +849,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     }
     default:
       return usageFail(
-        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/sessions/credentials/doors/upgrade；无参 = TUI 主入口）`,
+        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/marketplace/sessions/credentials/doors/upgrade；无参 = TUI 主入口）`,
       );
   }
 }

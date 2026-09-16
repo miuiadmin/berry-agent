@@ -103,7 +103,9 @@ function atomicWrite(fs: PluginStoreFs, path: string, text: string): void {
 /**
  * 装机账本完整条目（写侧单源——§5.4 示例全字段）。id/source/ref/
  * installedAt/installPath/declaredEvents 恒在；version/integrity（npm）与
- * commit（git）按源在场；local 源无凭证字段。
+ * commit（git）按源在场；local 源无凭证字段；market（§9.6 mp-3 装机咬合）
+ * = 市场装机溯源注记——marketplace install 编舞写入，字段缺席容错读（老账
+ * 本零迁移：非市场装机恒无此字段）。
  */
 export interface PluginLedgerEntry {
   readonly id: string;
@@ -121,6 +123,21 @@ export interface PluginLedgerEntry {
   readonly installPath: string;
   /** install 时收割入口模块 events 导出（§5.4 词表账本） */
   readonly declaredEvents: readonly string[];
+  /** 市场溯源（§9.6 mp-3）：name = 市场名、entry = catalog 条目名——uninstall 寻址与呈现用 */
+  readonly market?: PluginLedgerMarket;
+}
+
+/**
+ * 市场溯源注记（03 §9.6 mp-3——marketplace install 落账形）：name = 源清单
+ * 市场名（与缓存目录 `marketplaces/<name>/` 同名段）；entry = catalog 条目名
+ * （与拷贝腿布局叶段 `plugins/market/<name>/<entry>/` 同名段——寻址
+ * `entry@name` 与 CLI uninstall 解析单源）。两段皆过市场名段词法（同
+ * plugin-market isValidNameSegment 律——本件只做形状非空执法，词法单源在
+ * 翻译层与装机防御位）。
+ */
+export interface PluginLedgerMarket {
+  readonly name: string;
+  readonly entry: string;
 }
 
 /** 账本文件路径（数据目录 plugins/ 子树——与 boot 读侧/check 读侧同源） */
@@ -177,6 +194,18 @@ function checkEntryShape(entry: unknown): PluginLedgerEntry | null {
   if (typeof r['ref'] !== 'string' || r['ref'].length === 0) return null;
   if (typeof r['installedAt'] !== 'string') return null;
   if (typeof r['installPath'] !== 'string' || r['installPath'].length === 0) return null;
+  // market 溯源（§9.6 mp-3）：在场即严格形——对象 + name/entry 两非空串；
+  // 坏形整账本 invalid（重建对象只保留已知字段，此处必须显式携带否则读写
+  // 往返丢失——checkEntryShape 重建坑的 market 位执法）
+  let market: PluginLedgerMarket | undefined;
+  if (r['market'] !== undefined) {
+    const raw = r['market'];
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+    const m = raw as Record<string, unknown>;
+    if (typeof m['name'] !== 'string' || m['name'].length === 0) return null;
+    if (typeof m['entry'] !== 'string' || m['entry'].length === 0) return null;
+    market = { name: m['name'], entry: m['entry'] };
+  }
   return {
     id: r['id'],
     source: r['source'],
@@ -189,6 +218,7 @@ function checkEntryShape(entry: unknown): PluginLedgerEntry | null {
     declaredEvents: Array.isArray(r['declaredEvents'])
       ? r['declaredEvents'].filter((e): e is string => typeof e === 'string')
       : [],
+    ...(market !== undefined ? { market } : {}),
   };
 }
 

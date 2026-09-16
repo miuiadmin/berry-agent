@@ -16,6 +16,18 @@
  *  - **local**：直引不拷贝（installPath = canonical 绝对；§5.5 不删用户
  *    目录）——无凭证字段。
  *
+ * 市场拷贝腿（03 §9.6 mp-3 装机咬合——唯一物理面新增）：marketplace install
+ * 编舞经 opts.subdirCopy 进本执行器，落位 `plugins/market/<市场名>/<条目
+ * 名>/`（无版本段——幂等 rm 重放）。字节源三境分派：git 语境相对源带
+ * copyFrom = 市场缓存目录直拷（零 spawn，commit 取 ref 钉的 catalog sha）；
+ * local 语境相对源 = 缓存目录内子目录直拷（B2 定形——拷贝腿落位独立于缓存
+ * 目录，marketplace remove 清缓存不悬空装机物）；git-subdir 独立仓 = tmp
+ * 克隆抽拷（clone → checkout → rev-parse HEAD 收割 commit）。拷贝经 fs
+ * read/write 文本面——与 mp-2 缓存快照同限（v1 文本域；二进制资产市场分发
+ * 超出缓存保真域，保真增强留后续批）。市场名段词法与 subpath 段折叠在本件
+ * 自带本地小助手复验（§9.6 防线表同律——translate 层单源之外的第二执法
+ * 位；本件不 import plugin-market——防上层回指成环）。
+ *
  * 收割（§5.4 词表账本）：jiti 求值入口模块读 `events` 导出——「装机零生效」
  * 的唯一例外（仅模块求值，零 apply 零注册）；jiti 参数与装载器同形（虚拟面
  * 四键直注 + import 门禁 transform + fsCache 关——同律不因装机时点放宽）。
@@ -30,23 +42,25 @@
 import { execFile } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import { createJiti } from 'jiti';
 
 import { BaseError } from '../contracts/index.js';
 import {
+  assertInsideInstallSubtree,
   installPathForGit,
   installPathForLocal,
   installPathForNpm,
   ledgerPath,
   parentDir,
   readLedger,
+  removeLedgerEntry,
   resolveInstallPath,
   upsertLedgerEntry,
 } from './plugin-store.js';
-import type { LifecycleAuditSink, PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
+import type { LifecycleAuditSink, PluginLedgerEntry, PluginLedgerMarket, PluginStoreFs } from './plugin-store.js';
 import { parseManifest } from './manifest.js';
 import type { PluginManifest } from './manifest.js';
 import { createGateTransform } from './import-gate.js';
@@ -190,15 +204,36 @@ export type InstallOutcome =
  * 校验 → 收割 → 落账。执行器产出 installPath + 凭证字段；收割失败/清单坏形
  * = 回滚装机物再拒（不留半装机残影）。core: 前缀 id 拒（官方件身份——非
  * 装机物）。`replacingId` = update 分派的换装豁免位（npm 重装腿复用本编舞
- * 时旧条目尚在场——恰是被替换者，不构成撞名；其余 id 照拒）。
+ * 时旧条目尚在场——恰是被替换者，不构成撞名；其余 id 照拒）。市场换血豁免
+ * （§9.6 mp-3）：`market` 注记在场时同 provenance 旧条目自动充 replacingId
+ * ——`marketplace install` 即换血重装（updatePlugin 拒文指路终点）。
+ *
+ * 市场咬合 opts（§9.6 mp-3——装机编舞恒复用零新机制，本函数是唯一装机入
+ * 口）：`market` = 溯源注记落账位（direct/拷贝两腿皆落）；`subdirCopy` =
+ * 拷贝腿参数（在场分派 runSubdirCopyInstall——仅 marketplace install 编舞
+ * 传入，CLI `plugins install` 直装恒缺席）。
  */
 export async function installPlugin(
   deps: InstallExecutorDeps,
   ref: string,
-  opts: { readonly replacingId?: string } = {},
+  opts: {
+    readonly replacingId?: string;
+    /** 市场溯源注记（§9.6 mp-3）——名段词法本地复验后落账 */
+    readonly market?: PluginLedgerMarket;
+    /** 拷贝腿参数（§9.6 mp-3——subpath 段折叠本地复验；copyFrom = git 语境缓存目录） */
+    readonly subdirCopy?: { readonly subpath: string; readonly copyFrom?: string };
+  } = {},
 ): Promise<InstallOutcome> {
   const parsed = parsePluginRef(ref);
   if (!parsed.ok) return parsed;
+  // 市场溯源名段词法本地复验（§9.6 防线表——translate 层单源之外的第二执法
+  // 位：market 名段直进 installPath 布局段，词法坏 = 布局路径注入面）
+  if (opts.market !== undefined && !isValidMarketProvenance(opts.market)) {
+    return {
+      ok: false,
+      message: `market 注记坏词法（name="${opts.market.name}" entry="${opts.market.entry}"）——名段须小写字母数字连字符点、首尾字母数字、≤64 字符`,
+    };
+  }
   // 账本前置读（坏账本拒写防覆盖——与 upsertLedgerEntry 内防线双检）
   const ledgerRead = readLedger(deps.dataDir, deps.fs);
   if (!ledgerRead.ok) {
@@ -207,15 +242,44 @@ export async function installPlugin(
       message: `装机账本损坏（${ledgerPath(deps.dataDir)}）：${ledgerRead.reason}——拒写防覆盖（03 §5.4）`,
     };
   }
-  // 执行器先行（装机物落位 + manifest 读——失败红即拒，账面零动作）
+  // 市场换血豁免（§9.6 mp-3）：同 provenance（market.name + market.entry）旧条
+  // 目恰是被替换者——`marketplace install` 是 updatePlugin 两拒文的换血指路
+  // 终点，缺此豁免指路即死链。寻址键恒 provenance 非 id（装机 id 由清单承载
+  // 与条目名解耦——git-subdir 形可装出 id ≠ 条目名的产物）；其余 id 照撞名律拒
+  const marketReplacing =
+    opts.market === undefined
+      ? undefined
+      : ledgerRead.entries.find(
+          (e) => e.market !== undefined && e.market.name === opts.market!.name && e.market.entry === opts.market!.entry,
+        );
+  const replacingId = opts.replacingId ?? marketReplacing?.id;
+  // 执行器先行（装机物落位 + manifest 读——失败红即拒，账面零动作）；
+  // 拷贝腿在场优先分派（npm 源 + subdirCopy 组合结构性不可达——翻译层恒
+  // direct，防御位拒不猜）
   let product: InstallProduct;
   try {
-    product =
-      parsed.parsed.source === 'npm'
-        ? await runNpmInstall(deps, parsed.parsed)
-        : parsed.parsed.source === 'git'
-          ? await runGitInstall(deps, parsed.parsed)
-          : runLocalInstall(deps, parsed.parsed);
+    if (opts.subdirCopy !== undefined) {
+      if (parsed.parsed.source === 'npm') {
+        throw new BaseError(
+          'PLUGIN_INSTALL_FAILED',
+          `npm 源与拷贝腿组合不可达（${ref}）——npm 形条目恒 direct 腿，翻译层产物异常`,
+        );
+      }
+      if (opts.market === undefined) {
+        throw new BaseError(
+          'PLUGIN_INSTALL_FAILED',
+          '拷贝腿须带 market 注记——布局段 plugins/market/<市场名>/<条目名>/ 需要名段（§9.6 mp-3）',
+        );
+      }
+      product = await runSubdirCopyInstall(deps, parsed.parsed, opts.market, opts.subdirCopy);
+    } else {
+      product =
+        parsed.parsed.source === 'npm'
+          ? await runNpmInstall(deps, parsed.parsed)
+          : parsed.parsed.source === 'git'
+            ? await runGitInstall(deps, parsed.parsed)
+            : runLocalInstall(deps, parsed.parsed);
+    }
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
@@ -229,7 +293,7 @@ export async function installPlugin(
     rollbackInstall(deps, product.installPath);
     return { ok: false, message: `清单 id "${manifest.id}" 带官方前缀——core: 为官方插件保留（03 §1.2），装机拒` };
   }
-  if (ledgerRead.entries.some((e) => e.id === manifest.id && e.id !== opts.replacingId)) {
+  if (ledgerRead.entries.some((e) => e.id === manifest.id && e.id !== replacingId)) {
     rollbackInstall(deps, product.installPath);
     return {
       ok: false,
@@ -252,7 +316,8 @@ export async function installPlugin(
       message: `收割失败（${ref}）——装机回滚：${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  // 落账（条目数组形原子写——plugin-store 执法）
+  // 落账（条目数组形原子写——plugin-store 执法）；market 溯源在场即落
+  // （§9.6 mp-3——uninstall 寻址与呈现消费）
   const now = deps.now ?? (() => new Date()); // Date 构造子裸调用返 string（JS 遗留）——显式闭包归一
   const entry: PluginLedgerEntry = {
     id: manifest.id,
@@ -264,12 +329,35 @@ export async function installPlugin(
     installedAt: now().toISOString(),
     installPath: product.installPath,
     declaredEvents,
+    ...(opts.market !== undefined ? { market: opts.market } : {}),
   };
   upsertLedgerEntry(deps.dataDir, entry, deps.fs);
+  // 市场换血换代收尾（§9.6 mp-3）：装机 id 漂移（清单换代改名）时旧条目须撤
+  // 账——否则同 provenance 双条目并存，`marketplace uninstall` 寻址恒多中拒；
+  // 旧装机树为相对表示（装机子树内）且无他条目共享时连带清（引用计数判据与
+  // uninstall 段② 同源；新树落位已由执行器幂等 rm 重放承载，此处只清旧位差集）
+  if (marketReplacing !== undefined && marketReplacing.id !== manifest.id) {
+    const oldAbs = resolveInstallPath(deps.dataDir, marketReplacing.installPath);
+    const newAbs = resolveInstallPath(deps.dataDir, product.installPath);
+    removeLedgerEntry(deps.dataDir, marketReplacing.id, deps.fs);
+    if (
+      !isAbsolute(marketReplacing.installPath) &&
+      oldAbs !== newAbs &&
+      !ledgerRead.entries.some(
+        (e) =>
+          e.id !== marketReplacing.id &&
+          e.id !== manifest.id &&
+          resolveInstallPath(deps.dataDir, e.installPath) === oldAbs,
+      )
+    ) {
+      assertInsideInstallSubtree(deps.dataDir, oldAbs); // 逃逸防线（同 uninstall 段②）
+      deps.fs.rm(oldAbs, { recursive: true, force: true });
+    }
+  }
   // 生命周期归因账（05 §1.1）：装机成功事实落 audit_events——词形
   // {id, source, version}；version 位缺席不落键（git/local 源清单可能无
-  // 版本位）。replacingId 场景（update npm 重装腿）已在调用侧剥 sink，
-  // 到达此处的恒为首次装机
+  // 版本位）。update npm 重装腿已在调用侧剥 sink；市场换血腿（mp-3）动词即
+  // install——词形落 installed 属实（换装语义的 updated 词归 update 分派）
   deps.onLifecycleAudit?.('plugin/installed', {
     id: manifest.id,
     source: parsed.parsed.source,
@@ -445,6 +533,169 @@ function runLocalInstall(deps: InstallExecutorDeps, parsed: { readonly path: str
   return { installPath, manifest: readManifestAt(deps, installPath) };
 }
 
+/* ---------------- 市场拷贝腿执行器（§9.6 mp-3——唯一物理面新增） ---------------- */
+
+/** 市场名段词法（本地复验位——与 plugin-market isValidNameSegment 同律单源对拍） */
+const MARKET_SEGMENT_RE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+
+/** 市场名段长度帽（同 plugin-market MAX_NAME_SEGMENT_LENGTH=64） */
+const MAX_MARKET_SEGMENT_LENGTH = 64;
+
+/** 溯源注记两段词法复验（布局段拼接位——坏词法 = 路径注入面） */
+function isValidMarketProvenance(market: PluginLedgerMarket): boolean {
+  const ok = (s: string) => s.length > 0 && s.length <= MAX_MARKET_SEGMENT_LENGTH && MARKET_SEGMENT_RE.test(s);
+  return ok(market.name) && ok(market.entry);
+}
+
+/**
+ * subpath 段折叠（本地复验位——与 plugin-market foldRelativeSegments 同律）：
+ * '.' 段丢弃、'..' 段出界返 null（逃逸拒）、'..x' 等合法目录名不误伤；
+ * 折叠后空 = 拒（拷贝腿须指非根子目录）。
+ */
+function foldSubdirSegments(subpath: string): readonly string[] | null {
+  const folded: string[] = [];
+  for (const segment of subpath.split('/')) {
+    if (segment === '' || segment === '.') continue; // 空段（'//'）与自指段丢弃
+    if (segment === '..') {
+      if (folded.length === 0) return null; // 出界——逃逸拒
+      folded.pop();
+    } else {
+      folded.push(segment);
+    }
+  }
+  return folded.length > 0 ? folded : null;
+}
+
+/** sha 词法（本地复验位——copyFrom 腿 commit 取 ref 钉的 catalog sha 前校） */
+const COMMIT_SHA_RE = /^[0-9a-f]{7,40}$/;
+
+/** 市场布局段前缀（§9.6 布局：`plugins/market/<市场名>/<条目名>/`——无版本段） */
+const MARKET_SEGMENT_PREFIX = join('plugins', 'market');
+
+/** installPath 是否市场布局段（update 分派拷贝腿拒判据——布局签名单源） */
+function isMarketLayoutPath(installPath: string): boolean {
+  return installPath.startsWith(`${MARKET_SEGMENT_PREFIX}${sep}`);
+}
+
+/**
+ * 目录树拷贝（fs read/write 文本面——与 mp-2 缓存快照同限的 v1 文本域）：
+ * 眺空目录保形（mkdir）；非目录非文件的悬挂缺席物不拷（readdir 与 read 双
+ * null = 缺席——不造物不猜）。
+ */
+function copyTreeViaFs(fs: PluginStoreFs, src: string, dst: string): void {
+  fs.mkdir(dst, { recursive: true });
+  for (const name of fs.readdir(src) ?? []) {
+    const from = join(src, name);
+    const to = join(dst, name);
+    const children = fs.readdir(from);
+    if (children !== null && children.length > 0) {
+      copyTreeViaFs(fs, from, to); // 子目录——递归
+    } else {
+      const text = fs.read(from);
+      if (text !== null) {
+        fs.write(to, text); // 文件——拷贝
+      } else if (children !== null) {
+        fs.mkdir(to, { recursive: true }); // 空目录——保形
+      }
+    }
+  }
+}
+
+/**
+ * 市场拷贝腿执行（§9.6 mp-3）：字节源三境分派 → staging 拷贝 → rename 落
+ * 位 `plugins/market/<市场名>/<条目名>/`（目标在场先 rm——幂等重放；无版本
+ * 段）。三境：
+ *  - copyFrom 在场（git 语境相对源）：缓存目录直拷零 spawn；commit 取 ref
+ *    钉的 catalog sha（7-40 位十六进制校验通过才落）；
+ *  - local ref：源目录 = ref 路径内子目录（B2 定形——缓存目录即字节源）；
+ *  - git ref 无 copyFrom（git-subdir 独立仓）：tmp 克隆 → checkout →
+ *    rev-parse HEAD 收割 commit → 抽拷子目录。
+ * staging 同 runGitInstall 律（tmpRoot mkdtemp + rename；finally force rm
+ * 收尾幂等——rename 成功后 tmp 已不存在）。
+ */
+async function runSubdirCopyInstall(
+  deps: InstallExecutorDeps,
+  parsed: ParsedPluginRef,
+  market: PluginLedgerMarket,
+  subdirCopy: { readonly subpath: string; readonly copyFrom?: string },
+): Promise<InstallProduct> {
+  // subpath 段折叠复验（防线第二执法位——逃逸拒）
+  const folded = foldSubdirSegments(subdirCopy.subpath);
+  if (folded === null) {
+    throw new BaseError(
+      'PLUGIN_INSTALL_FAILED',
+      `拷贝腿 subpath 逃逸拒（"${subdirCopy.subpath}"）——'..' 段出装机源目录（§9.6 防线表）`,
+    );
+  }
+  // 布局段（名段词法已在 installPlugin 前置复验——此处仅拼接）
+  const installPath = join('plugins', 'market', market.name, market.entry);
+  const target = resolveInstallPath(deps.dataDir, installPath);
+
+  // —— 字节源三境分派 ——
+  let sourceDir: string;
+  let commit: string | undefined;
+  let cloneTmp: string | undefined; // 克隆境中转站（finally 清场锚）
+  if (subdirCopy.copyFrom !== undefined) {
+    // 境一：git 语境缓存直拷——ref 钉的 catalog sha 即 commit 凭证（缓存无
+    // .git 可收割，sha 由翻译层从源清单 commit 位钉入 ref）
+    if (parsed.source !== 'git') {
+      throw new BaseError(
+        'PLUGIN_INSTALL_FAILED',
+        `copyFrom 拷贝腿仅适用 git ref（得 "${parsed.source}"）——编舞参数错配`,
+      );
+    }
+    if (parsed.gitRef === undefined || !COMMIT_SHA_RE.test(parsed.gitRef)) {
+      throw new BaseError(
+        'PLUGIN_INSTALL_FAILED',
+        `copyFrom 拷贝腿 ref 须钉 sha（得 "${parsed.gitRef ?? '空'}"）——缓存直拷的 commit 凭证位`,
+      );
+    }
+    sourceDir = join(subdirCopy.copyFrom, ...folded);
+    commit = parsed.gitRef;
+  } else if (parsed.source === 'local') {
+    // 境二：B2 定形——local 缓存目录内子目录直拷（零 spawn 零凭证）
+    sourceDir = join(parsed.path, ...folded);
+  } else if (parsed.source === 'git') {
+    // 境三：git-subdir 独立仓——tmp 克隆抽拷（HEAD commit 收割）
+    cloneTmp = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), 'berry-market-clone-'));
+    await deps.spawn.run('git', ['clone', parsed.url, cloneTmp], {});
+    if (parsed.gitRef !== undefined) {
+      await deps.spawn.run('git', ['-C', cloneTmp, 'checkout', '--detach', parsed.gitRef], {});
+    }
+    const head = await deps.spawn.run('git', ['-C', cloneTmp, 'rev-parse', 'HEAD'], {});
+    commit = head.stdout.trim();
+    sourceDir = join(cloneTmp, ...folded);
+  } else {
+    // npm + subdirCopy 组合防御（分派位已拒——类型穷尽后的不可达防线，不静默）
+    throw new BaseError(
+      'PLUGIN_INSTALL_FAILED',
+      `拷贝腿不适用 npm ref（不可达防线——npm+subdirCopy 组合应已在分派位拒）`,
+    );
+  }
+
+  // 源缺席诚实拒（缓存失联/子目录漂移——不猜不静默空拷）
+  if (deps.fs.readdir(sourceDir) === null) {
+    if (cloneTmp !== undefined) deps.fs.rm(cloneTmp, { recursive: true, force: true });
+    throw new BaseError(
+      'PLUGIN_INSTALL_FAILED',
+      `拷贝源目录缺席（${sourceDir}）——市场缓存失联，先 marketplace remove 该源后重新 add`,
+    );
+  }
+
+  // staging 拷贝 → rename 落位（同 runGitInstall 律；目标在场先 rm 幂等）
+  const staging = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), 'berry-market-install-'));
+  try {
+    copyTreeViaFs(deps.fs, sourceDir, staging);
+    deps.fs.mkdir(parentDir(target), { recursive: true });
+    deps.fs.rm(target, { recursive: true, force: true }); // 幂等（在场旧树先清）
+    deps.fs.rename(staging, target);
+    return { installPath, manifest: readManifestAt(deps, installPath), commit, version: undefined };
+  } finally {
+    if (cloneTmp !== undefined) deps.fs.rm(cloneTmp, { recursive: true, force: true }); // 克隆中转站清场
+    deps.fs.rm(staging, { recursive: true, force: true }); // rename 成功后 staging 已不存在——force 幂等
+  }
+}
+
 /* ---------------- 清单读取（三源共用） ---------------- */
 
 /** 装机目录读 package.json 过清单校验（§1.2 拒绝式——官方位 false） */
@@ -535,6 +786,15 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     return { ok: false, message: `插件 ${id} 未装机——无可更新（装机清单见 plugins list）` };
   }
   if (current.source === 'local') {
+    // 市场拷贝腿装机物（§9.6 mp-3 B2）：非直引——「源动即生效」文案不适用，
+    // 换血走 marketplace install 重装（拷贝参数不入账本，no-op 腿不可复算）
+    if (current.market !== undefined) {
+      return {
+        ok: true,
+        entry: current,
+        text: `市场拷贝腿装机物不走 local 直引 no-op——换血重装：berry marketplace install ${current.market.entry}@${current.market.name}（03 §9.6）`,
+      };
+    }
     return { ok: true, entry: current, text: `local 源直引不拷贝——源目录变更下次装载即生效（03 §5.4 no-op 分派）` };
   }
   // local 之外的 ref 重解析（账本 ref 与 CLI 同词法——单源往返）
@@ -550,11 +810,16 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     // 重装：旧装机物先清（spec 无版本 = 拉最新满足窗龄；upsert 后见胜出）。
     // 换装豁免位传被替换 id——旧条目恰是替换目标不构成撞名（缺此豁免则
     // installPlugin 撞名检查恒拒自家重装腿）。sink 剥离后再传——防
-    // installPlugin 成功尾落错词 installed（本腿语义是 updated）
+    // installPlugin 成功尾落错词 installed（本腿语义是 updated）。market
+    // 溯源显式透传（§9.6 mp-3——installPlugin 落账以 opts 为准，缺此透传
+    // 市场装机物换版即丢 provenance）
     const { onLifecycleAudit, ...rest } = deps;
     const installPath = installPathForNpm(parsed.parsed.pkg);
     rest.fs.rm(resolveInstallPath(rest.dataDir, installPath), { recursive: true, force: true });
-    const outcome = await installPlugin(rest, current.ref, { replacingId: id });
+    const outcome = await installPlugin(rest, current.ref, {
+      replacingId: id,
+      ...(current.market !== undefined ? { market: current.market } : {}),
+    });
     if (outcome.ok && onLifecycleAudit !== undefined) {
       // 换装成功事实（05 §1.1）：from 缺席容许（旧账本无版本位）；npm 腿
       // version 恒在（lock 收割），to 缺席不设防（兜底与 git 腿同形）
@@ -566,7 +831,16 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     }
     return outcome;
   }
-  // git 重克隆（runGitInstall 目标在场先 rm——幂等腿复用）
+  // git 重克隆（runGitInstall 目标在场先 rm——幂等腿复用）。市场拷贝腿装机
+  // 物（布局段签名）拒：拷贝参数（subpath/copyFrom）不入账本，重克隆腿不可
+  // 复算重拷——诚实拒指路 marketplace install 重装（§9.6 mp-3）；git direct
+  // 腿市场装机物（plugins/git/ 布局）照走重克隆，provenance 经 ...current 展开幸存
+  if (current.market !== undefined && isMarketLayoutPath(current.installPath)) {
+    return {
+      ok: false,
+      message: `插件 ${id} 是市场拷贝腿装机物——拷贝参数不入账本，plugins update 不可复算重拷；重装走 berry marketplace install ${current.market.entry}@${current.market.name}（03 §9.6）`,
+    };
+  }
   let product: InstallProduct;
   try {
     product = await runGitInstall(deps, parsed.parsed);
