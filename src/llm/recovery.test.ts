@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AssistantMessage } from '../contracts/index.js';
 import {
+  authFamily,
   classifyError,
   diagnoseProviderFailure,
   isContextOverflow,
@@ -217,5 +218,49 @@ describe('diagnoseProviderFailure（07 §5 provider 产品级文案律——两�
     expect(diagnoseProviderFailure({ errorMessage: 'rate limit exceeded' }, 'acme/ultra-1')).toBeUndefined();
     expect(diagnoseProviderFailure({ errorMessage: 'insufficient_quota: billing' }, 'acme/ultra-1')).toBeUndefined();
     expect(diagnoseProviderFailure({}, 'acme/ultra-1')).toBeUndefined(); // 空文案不判 auth
+  });
+});
+
+describe('authFamily 分面判定（04 §3.5 分面加判注——B3 批裁决二）', () => {
+  it('码优先：errorCode=LLM_AUTH_INVALID 即判中（文案位任意/缺席均判中）', () => {
+    expect(authFamily('任意报文', 'LLM_AUTH_INVALID')).toBe(true);
+    expect(authFamily('', 'LLM_AUTH_INVALID')).toBe(true);
+  });
+
+  it('文案位 AUTH_TEXT_PATTERN 同源复用：401/403/invalid api key/unauthorized/permission denied 族判中', () => {
+    for (const text of [
+      'Request failed with status 401 Unauthorized',
+      'Error 403: permission denied',
+      'invalid x-api-key provided',
+      'incorrect api key',
+      'unauthorized: token expired',
+    ]) {
+      expect(authFamily(text)).toBe(true);
+    }
+  });
+
+  it('非 auth 文案不判中（transient/quota/overflow/未知族——分面与桶表互不侵蚀）', () => {
+    for (const text of [
+      '',
+      'rate limit exceeded, retry after 30s',
+      'insufficient_quota: billing',
+      'prompt is too long: 213462 tokens',
+      '某个未知错误',
+    ]) {
+      expect(authFamily(text)).toBe(false);
+    }
+  });
+
+  it('非 auth 错误码不判中（码位只认 LLM_AUTH_INVALID）', () => {
+    expect(authFamily('whatever', 'LLM_RATE_LIMITED')).toBe(false);
+    expect(authFamily('whatever', 'LLM_QUOTA_EXCEEDED')).toBe(false);
+    expect(authFamily('whatever', undefined)).toBe(false);
+  });
+
+  it('分面加判非改桶（桶表零改回归）：auth 文案 classifyError 仍落 non-retryable、authFamily 独立判中——两判分立两立', () => {
+    // recovery-live-401 既有锁的单元面：401 → non-retryable + 零盲重试不因分面加判而破
+    const msg = messageOf({ errorMessage: 'Request failed with status 401 Unauthorized' });
+    expect(classifyError(msg)).toBe('non-retryable');
+    expect(authFamily(msg.errorMessage ?? '')).toBe(true);
   });
 });

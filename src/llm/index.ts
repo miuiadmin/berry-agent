@@ -20,6 +20,7 @@ export { createLlmRuntime, type LlmRuntime, type LlmRuntimeOptions } from './run
 export { createStreamFn, type StreamFnDefaults } from './stream-fn.js';
 export { InFlightTracker, DEFAULT_MAX_INFLIGHT_PER_PROVIDER, type InFlightSlot } from './inflight.js';
 export {
+  authFamily,
   classifyError,
   diagnoseProviderFailure,
   isContextOverflow,

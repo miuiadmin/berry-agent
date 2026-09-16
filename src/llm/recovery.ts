@@ -136,6 +136,22 @@ export interface ProviderFailureDiagnostic {
 const AUTH_TEXT_PATTERN =
   /(\b401\b|\b403\b|invalid[^\n]{0,40}api.?key|incorrect api key|api key not (?:valid|found)|unauthorized|authentication|permission denied)/i;
 
+/**
+ * auth 族分面判定（04 §3.5 分面加判注——B3 批裁决二）：独立纯函数与
+ * classifyError 四桶分面分立、桶表零改零新桶（auth 桶语义仍 non-retryable
+ * ——同态盲重试无意义；「刷新后重试」是换凭证的新请求非同态重试）。
+ * 两判位：errorCode 在场码优先（LLM_AUTH_INVALID 即判中）；文案位
+ * AUTH_TEXT_PATTERN 同源复用（与 diagnoseProviderFailure 同一正则单源）。
+ * 唯一消费位 = 宿主凭证刷新联动腿判据（04 §3.3 条 8，经 AuthRefreshSeam
+ * 注入 driver——classifyError 注入同族）。
+ */
+export function authFamily(message: string, errorCode?: string): boolean {
+  // 码优先：结构化错误码是机器判定位（与 classifyError 判定步①同律）
+  if (errorCode === 'LLM_AUTH_INVALID') return true;
+  // 空文案不判中（与 diagnoseProviderFailure「空文案不判 auth」同律——防误伤）
+  return message !== '' && AUTH_TEXT_PATTERN.test(message);
+}
+
 /** 上游报文附注截断帽（与 RunOutcome.error 同幅——≤200 字符人读够用） */
 const UPSTREAM_NOTE_CAP = 200;
 
