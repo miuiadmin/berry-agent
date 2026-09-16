@@ -340,7 +340,31 @@ describe.skipIf(process.env.BERRY_AGENT_MP_REMOTE_E2E === undefined)(
       rmSync(fetched.cloneDir, { recursive: true, force: true });
     });
 
-    it('url 腿真仓：raw JSON 直答 + 解析同真身', async () => {
+    it('url 腿真仓：raw JSON 直答 + 解析同真身', async (ctx) => {
+      // fake-IP 代理环境前置探测：本机 DNS 把域名应答到 IANA 基准保留段
+      // （198.18.0.0/15——fake-IP 代理特征段）时，SSRF 守卫的保留段拒是
+      // 正确执法而非缺陷——本用例在该环境 skip（真绿验收以无代理环境/CI
+      // 为准；git 腿走系统 git 不经守卫不受影响）。探测失败不拦用例——
+      // 留给 fetch 阶段自然失败，归因更准。
+      const dns = await import('node:dns/promises');
+      try {
+        const addr = await dns.lookup('raw.githubusercontent.com', { all: true });
+        const inBenchmarkRange = addr.some((a) => {
+          const m = /^(\d+)\.(\d+)\./.exec(a.address);
+          if (!m) return false;
+          const hi = Number(m[1]);
+          return hi === 198 && (Number(m[2]) === 18 || Number(m[2]) === 19);
+        });
+        if (inBenchmarkRange) {
+          console.log(
+            `[skip] fake-IP 代理环境：DNS 应答 ${addr.map((a) => a.address).join(',')} 命中 198.18.0.0/15——SSRF 守卫正确拒，url 腿验收以无代理环境/CI 为准`,
+          );
+          ctx.skip();
+          return;
+        }
+      } catch {
+        // DNS 探测失败不拦——见上注
+      }
       const face = createMarketFetchFace({ tmpRoot: e2eRoot });
       const fetched = await face.fetchUrlCatalog(OFFICIAL_RAW);
       const parsed = parseMarketplaceCatalog(fetched.text, 'official-raw');

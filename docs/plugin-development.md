@@ -468,6 +468,8 @@ if (!report.ok) throw new Error(formatMatrixReceipt(report)); // 回执即失败
 3. **生命周期证明**：testkit 八行全绿，回执贴 README；
 4. **secret 零明文**：`configSchema` `secret` 型键不携明文值（package.json 与 enabled.yaml 双源均拒——装载即红）。
 
+**另入第三方市场仓（可选）**：npm 之外，插件也可经由任一自建市场仓聚合分发——市场仓即一份 catalog 索引（`marketplace.json` 条目表，每条目 `name` + `source` 源指针〔npm 包名/git url+sha/相对子目录〕），宿主侧 `berry marketplace add <仓址>` 后即可 `discover` / `install`（词法见 [usage.md](usage.md#marketplace-市场聚合)）。npm 包仍是装机物本体——市场仓只提供目录聚合，不改变三源分发纪律。
+
 ## 最小完整示例
 
 ```ts

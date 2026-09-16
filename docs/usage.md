@@ -209,18 +209,18 @@ berry run --preset open "重构这个模块"           # 权限预设逐次生�
 
 run 旗标族：
 
-| 旗标                                            | 作用                                                                                                                                          |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--output-format <text\|json\|stream>`          | 输出三档（缺省 text）                                                                                                                         |
-| `--output-last-message <file>`                  | 末条 assistant 文本原子写文件                                                                                                                 |
-| `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background` 互斥）                                                                                           |
-| `--max-turns <n>`                               | turn 数帽（到帽收场如实标 truncated）                                                                                                         |
-| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）                                                                                                                          |
-| `--read-only`                                   | read-only 沙箱单发                                                                                                                            |
-| `--preset <conservative\|balanced\|open>`       | 权限预设逐次生效不写盘（两旋钮：sandbox 档 + 审批 policy；与 `--read-only` 互斥；持久切换走 TUI `/approval preset`）                          |
-| `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥）                                                                         |
-| `--background`                                  | 后台道预算记账入口                                                                                                                            |
-| `--no-delta`                                    | 线面退订流式增量                                                                                                                              |
+| 旗标                                            | 作用                                                                                                                                                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--output-format <text\|json\|stream>`          | 输出三档（缺省 text）                                                                                                                                                                                                     |
+| `--output-last-message <file>`                  | 末条 assistant 文本原子写文件                                                                                                                                                                                             |
+| `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background` 互斥）                                                                                                                                                                       |
+| `--max-turns <n>`                               | turn 数帽（到帽收场如实标 truncated）                                                                                                                                                                                     |
+| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）                                                                                                                                                                                                      |
+| `--read-only`                                   | read-only 沙箱单发                                                                                                                                                                                                        |
+| `--preset <conservative\|balanced\|open>`       | 权限预设逐次生效不写盘（两旋钮：sandbox 档 + 审批 policy；与 `--read-only` 互斥；持久切换走 TUI `/approval preset`）                                                                                                      |
+| `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥）                                                                                                                                                     |
+| `--background`                                  | 后台道预算记账入口                                                                                                                                                                                                        |
+| `--no-delta`                                    | 线面退订流式增量                                                                                                                                                                                                          |
 | `--output-schema <file>`                        | 结构化输出：JSON Schema 文件（根须为带 `type` 字段的对象且 `type` 值属七基本类型之一 object/array/string/number/integer/boolean/null——Union/Intersect 根形 v1 不收）注入约束，收场校验末条回复须整体单一 JSON 且合 schema |
 
 `--output-schema` 两档失败语义：文件本身坏形（不可读/非法 JSON/根非带 `type` 字段对象/根 `type` 值域外——如拼写手误）= 用法错退 2（执行前拦——不跑模型）；收场校验失败（末条回复非单一 JSON 或不合 schema）= 退 1 并在 stderr 载 `STRUCTURED_OUTPUT_PARSE_FAILED` / `STRUCTURED_OUTPUT_SCHEMA_MISMATCH` 码（`--output-format json` 档终值对象另载 `errorCode`/`errorMessage` 位；truncated/失败/中止收场不叠加校验；收场末条回复无任何文本块〔如仅思考块收场〕= 校验靶不存在，同不叠加、如实退 0）。
@@ -380,6 +380,27 @@ berry plugins mount <id>      # 「下次启动装载生效」只归属 mount �
 
 开发态免装机试跑走 `--plugin-file`；写插件与生命周期证明矩阵（testkit）见[插件开发指南](./plugin-development.md)——仓内随包附两形模板（`examples/minimal-code-plugin` 代码插件 / `examples/pure-skill-pack` 纯技能包）。
 
+### marketplace 市场聚合
+
+外源市场仓的**只读聚合消费层**——`npm` 仍是主市场，市场仓只提供目录聚合（catalog）；一切装机动作塌缩为一次既有三源装机（供应链护栏全继承），不引入第四分发源。零源出厂：不预置任何市场，装不装、装哪个源全归用户。
+
+```bash
+berry marketplace add <source>        # 添加市场源（local 目录 / git 仓 / https catalog JSON）
+berry marketplace list                # 已添加源清单（各附缓存时点与 commit 锚）
+berry marketplace discover [<市场名>] # 条目聚合呈现（寻址形 name@market + 版本 + 描述）
+berry marketplace install <name@市场名>  # 装机（恒走既有 plugins install 四件套——只装不启，启用仍走 mount）
+berry marketplace uninstall <name@市场名> # 卸载（双相旗标全继承 plugins uninstall：--confirm / --data keep|purge）
+berry marketplace update [<市场名>]   # 手动刷新源缓存（up-to-date 即报不动；变化 = 整目录换血）
+berry marketplace upgrade [<name@市场名>] # 按最新 catalog 对拍换装（忠实于市场目录的「拉最新」）
+berry marketplace remove <市场名>     # 移除源（连同缓存目录清理；已装插件不受影响——账本仍在）
+```
+
+`add <source>` 四类源形：本地目录（`local:` 前缀或 `./`、`~/`、`/` 开头路径）/ git 仓 URL（`github.com/<owner>/<repo>` 短手可省协议）/ `git@` ssh 形 / https 直指 catalog JSON。marketplace 兼容目录约定（`.omp-plugin` / `.claude-plugin` 双路径读序）——catalog 坏形整仓拒、单条目坏形跳过并报行。
+
+**刷新语义（auto-update 不存在）**：源缓存 24h 过线仅作「下次操作前建议刷新」标记（stale 照用不阻塞）；拉最新唯经手动 `update`（刷缓存）与 `upgrade`（换装机物）——加载器永不自动安装。`upgrade` 与 `plugins update` 语义分立：前者对拍市场目录最新条目、后者忠于装机账本里的 ref。
+
+对已装市场条目重复 `install` = **换血重装**（同 `name@market` 溯源自动顶替旧装机条目并清旧树，非报错拒绝）；缓存换血原子（先备新树后整体替换，半拷贝永不复用）。远程抓取走与宿主 web 面同源的 SSRF/DNS 钉死防线（私网拒、重定向逐跳复检、超时与响应大小帽）。
+
 ## 环境变量
 
 前缀一律 `BERRY_AGENT_*`：
@@ -391,7 +412,7 @@ berry plugins mount <id>      # 「下次启动装载生效」只归属 mount �
 | `BERRY_AGENT_DB_PATH`                  | 库文件路径（独立梯子——重定向库文件而不动数据目录）                                                                           | `<数据目录>/sessions.db`    |
 | `BERRY_AGENT_LOG_LEVEL`                | 日志级别：error / warn / info / debug / silent                                                                               | `info`                      |
 | `BERRY_AGENT_BASH_PATH`                | bash 工具可执行路径（缺失 fail-loud）                                                                                        | PATH 发现序                 |
-| `BERRY_AGENT_FD_PATH`                  | `@` 文件补全的 fd 可执行路径（保留位——全库 fuzzy 发现挂真实需求再裁，当前仅内置遍历，设置无效）                             | —                           |
+| `BERRY_AGENT_FD_PATH`                  | `@` 文件补全的 fd 可执行路径（保留位——全库 fuzzy 发现挂真实需求再裁，当前仅内置遍历，设置无效）                              | —                           |
 | `BERRY_AGENT_BROWSER_PATH`             | 浏览器引擎可执行路径                                                                                                         | 引擎发现序                  |
 | `BERRY_AGENT_BIN`                      | scheduler 子进程 spawn 的宿主 bin 真值（cron 行单源）                                                                        | `berry`（PATH 名解析）      |
 | `BERRY_AGENT_CRON`                     | cron 可选后端开关/载体                                                                                                       | 进程内挂钟                  |
