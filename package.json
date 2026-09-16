@@ -55,6 +55,8 @@
     "build:webui": "vite build",
     "golden:record": "tsx tools/golden-record.ts",
     "soak": "node tools/soak.mjs",
+    "lint:mocks": "node tools/check-mock-targets.mjs",
+    "test:mutation": "node tools/mutation-smoke.mjs",
     "release": "node tools/release.mjs",
     "release:sdk": "node tools/release.mjs --package sdk"
   },
