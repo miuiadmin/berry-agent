@@ -52,6 +52,9 @@ import type { GoalFace, SubagentLayerResyncHook } from './core-plugins.js';
 import { createSessionsFace } from './sessions-face.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
+// B3 联动腿装配 seam 工厂（04 §3.3 条 8——authFamily/refreshNow/notify 三注入单点）
+import { createHostAuthRefreshSeam } from './auth-refresh-seam.js';
+import type { RefreshChainHandle } from '../credentials/index.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
@@ -310,6 +313,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 覆写语义：/reload 换代 boot 重跑、新 memory 件重订阅即顶替旧代 feed
     // （旧代缓存随旧件废弃，无累积无泄漏——槽消费懒取时点恒当前代）
     let sessionRetireFeed: ((sessionId: string) => void) | undefined;
+    // B3 联动腿链句柄槽（04 §3.3 条 8）：core:credentials 受局面在场链创建后
+    // 经 credentialsChainSink 填（装载期）；seam.refreshNow 运行期惰性取——
+    // stack 创建（下方）先于 core 件装载，闭包捕获变量绑定零时序倒挂。
+    // 换代重装载 = 末位胜出（新链覆写，旧链随件 dispose 停钟）
+    let credentialsChain: RefreshChainHandle | undefined;
     // worktree 服务装配根单真身（04 §7 补钉① + 03 §10.7 六役定形注）：
     // ConversationStack.worktree（会话内三工具挂载 + fence grantedRoots
     // live 并入）与 core 件 issue 编排授予共享同一实例——授予记账单源
@@ -319,6 +327,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtime,
       scope,
       dispatch,
+      // B3 宿主凭证刷新联动腿 seam 真值（04 §3.3 条 8——authFamily 真 import
+      // llm / refreshNow 桥链句柄〔env-static 前判 + 链缺席 no-refresh-face〕/
+      // notify 产品级指路 + per-provider×outcome 进程内一次去重〔M4〕）
+      authRefresh: createHostAuthRefreshSeam({
+        getChain: () => credentialsChain,
+        env,
+        notifyChannel: (source, message) => stack.channels.notify(source, message),
+      }),
       // 钩子派发段只读面（ca-3——llm 双入口 LLM_CALL_IN_HOOK 前置查）
       hookDispatchGuard,
       // worktree 消费接线（见上方单真身注——件/栈同源双注之一）
@@ -788,6 +804,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // 命令输出面（source = 归因字面——调用件自报：memory-export/import
               // 归因 'memory'、/tick 归因 'tick'；sessionId 位呈现侧路由后端自决）
               notify: (source, message) => stack.channels.notify(source, message),
+              // B3 联动腿链句柄外露（04 §3.3 条 8——受局面在场链创建后回填
+              // 上方槽位；seam.refreshNow 运行期惰性取）
+              credentialsChainSink: (handle) => {
+                credentialsChain = handle;
+              },
               // 子代理委派面两位（批 19c-1）：service 真身 + boot 全局层工具
               // 执行时语境解析闭包（上方提取位——程序化腿物化 toolDeps 同源）
               subagents,

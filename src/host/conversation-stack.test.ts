@@ -20,7 +20,7 @@ import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../con
 import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { canonicalWorkspaceRoot, Scope } from '../context/index.js';
-import type { ExecSessionDeps } from '../conversation/types.js';
+import type { AuthRefreshSeam, ConversationDriverOptions, ExecSessionDeps } from '../conversation/types.js';
 import { createBashTool, createSpawnPipeline } from '../exec/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { createSandboxService } from '../safety/index.js';
@@ -37,6 +37,7 @@ import {
   DEFAULT_SESSION_STALL_TIMEOUT_MS,
   lastUsageFactOf,
   LLM_IDLE_TIMEOUT_MS_ENV,
+  providerApiKeyEnvNames,
   resolveLlmIdleTimeoutMs,
   resolveRunLaneCapacity,
   resolveSessionStallTimeoutMs,
@@ -1891,6 +1892,219 @@ describe('模型循环基座（挂账解挂批 2026-09-15——ctrl+p 会话级�
       .map((event) => (event.data as { config: { model: string } }).config.model);
     expect(headers).toEqual(['faux-stack/m1', 'faux-stack/m2']);
     await rt.shutdown();
+  });
+});
+
+/* ---------------- streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面） ---------------- */
+
+/**
+ * B3 裁决三：llm 请求路供血面 = streamFn 外包「凭证现取」闭包——逐请求现查
+ * 绑定行（meta 绑定键 modelProvider = <providerId>，任意 namespace）经
+ * StreamFnOptions.apiKey 既有 seam 透传（无缓存即无陈值）。观测位 = faux
+ * 响应工厂的 options.apiKey（pi-ai models 层 overrides 直达 provider 流面
+ * ——mock 只停模型层，装配层被测的是 wrapper 编舞非流本身）。
+ */
+describe('streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面 + 03 §10.9 优先级律）', () => {
+  /** 供血观测 rig：捕获逐请求到达模型层的 apiKey + 每问一响应的速记 */
+  function rigSupply(rt: HostRuntime, overrides: Partial<ConversationStackOptions> = {}) {
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const seen: Array<string | undefined> = [];
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      ...overrides,
+    });
+    const session = stack.openStartupSession(rigWorkspace());
+    const ask = async (text: string) => {
+      faux.setResponses([
+        (_context: unknown, options: { apiKey?: string } | undefined) => {
+          seen.push(options?.apiKey);
+          return messageOf('stop');
+        },
+      ]);
+      return stack.submitText(session.sessionId, text);
+    };
+    return { stack, session, seen, ask };
+  }
+
+  /** 绑定行写速记（meta 绑定键 modelProvider → 供血目标 provider id） */
+  function bindRow(rt: HostRuntime, namespace: string, name: string, apiKey: string): void {
+    rt.persistence.store.setCredential(namespace, name, { apiKey, meta: { modelProvider: 'faux-stack' } });
+  }
+
+  it('providerApiKeyEnvNames：一般律 kebab→snake 大写 + _API_KEY；特例表覆盖 pi-ai 偏离键面', () => {
+    // 一般律（自定义/faux provider 的常规命名形）
+    expect(providerApiKeyEnvNames('faux-stack')).toEqual(['FAUX_STACK_API_KEY']);
+    expect(providerApiKeyEnvNames('openai')).toEqual(['OPENAI_API_KEY']);
+    expect(providerApiKeyEnvNames('deepseek')).toEqual(['DEEPSEEK_API_KEY']);
+    // 特例表（pi-ai env-api-keys 同款镜像——多键族与偏離一般律的键面）
+    expect(providerApiKeyEnvNames('anthropic')).toEqual([
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_OAUTH_TOKEN',
+      'ANTHROPIC_API_KEY',
+    ]);
+    expect(providerApiKeyEnvNames('google')).toEqual(['GEMINI_API_KEY']);
+    expect(providerApiKeyEnvNames('huggingface')).toEqual(['HF_TOKEN']);
+    expect(providerApiKeyEnvNames('github-copilot')).toEqual(['COPILOT_GITHUB_TOKEN']);
+  });
+
+  it('env 优先律（host 域行）：env 在场 env 胜——不透传行值走 ambient 既有形（保形半 + 静态无刷新面语义）', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    // host 域绑定行 + env 双在场（一般律键 FAUX_STACK_API_KEY）
+    bindRow(rt, 'host', 'faux-stack', 'row-key');
+    const { ask, seen } = rigSupply(rt, {
+      env: { FAUX_STACK_API_KEY: 'env-key' },
+      warn: (m) => warns.push(m),
+    });
+    await ask('一问');
+    // env 胜：wrapper 不透传行值（pi-ai env ambient 解析既有形零变）——401 后
+    // 无刷新面走 fail-closed（联动腿 seam 侧消费，供血面只保证 env 供血形态）
+    expect(seen).toEqual([undefined]);
+    expect(warns).toEqual([]); // 单行无撞绑零噪声
+    await rt.shutdown();
+  });
+
+  it('插件域绑定行库优先：不受 env 遮蔽——行值透传（03 §10.9「env 无 per-plugin 归属位」）', async () => {
+    const { rt } = rigRuntime();
+    bindRow(rt, 'plugin:demo', 'glm-key', 'plugin-row-key');
+    const { ask, seen } = rigSupply(rt, { env: { FAUX_STACK_API_KEY: 'env-key' } });
+    await ask('一问');
+    expect(seen).toEqual(['plugin-row-key']); // 库优先——env 在场不遮蔽插件域行
+    await rt.shutdown();
+  });
+
+  it('apiKey 现取断言（§五之 1 供血半）：绑定行 rotate 换值后下一次请求拿到新值——两代值可辨无缓存', async () => {
+    const { rt } = rigRuntime();
+    bindRow(rt, 'host', 'faux-stack', 'gen-1');
+    const { ask, seen } = rigSupply(rt);
+    await ask('一问');
+    expect(seen).toEqual(['gen-1']); // 第一代
+    // rotate 换值（模拟刷新链成功 rotate——同名行整体换）
+    bindRow(rt, 'host', 'faux-stack', 'gen-2');
+    await ask('二问');
+    expect(seen).toEqual(['gen-1', 'gen-2']); // 无缓存结构性保证：下一次请求现取新值
+    await rt.shutdown();
+  });
+
+  it('撞绑形一（host 行 + 插件行双在场同 providerId）：host 域行胜出 + warn 恰一次（两次请求不刷屏）', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    bindRow(rt, 'plugin:zeta', 'plug-row', 'plug-key');
+    bindRow(rt, 'host', 'host-row', 'host-key');
+    const { ask, seen } = rigSupply(rt, { warn: (m) => warns.push(m) });
+    await ask('一问');
+    await ask('二问');
+    expect(seen).toEqual(['host-key', 'host-key']); // host 域行优先（确定性优先链第二级）
+    expect(warns.filter((m) => m.includes('撞绑'))).toHaveLength(1); // 每 provider 恰一笔
+    await rt.shutdown();
+  });
+
+  it('撞绑形二（插件域两行撞）：namespace 字典序稳定首行——断言不随行插入序漂移', async () => {
+    // 顺序一：zeta 行先写、alpha 行后写
+    const rtA = rigRuntime().rt;
+    bindRow(rtA, 'plugin:zeta', 'k-z', 'zeta-key');
+    bindRow(rtA, 'plugin:alpha', 'k-a', 'alpha-key');
+    const rigA = rigSupply(rtA);
+    await rigA.ask('一问');
+    expect(rigA.seen).toEqual(['alpha-key']); // namespace 字典序首行（plugin:alpha < plugin:zeta）
+
+    // 顺序二（独立库独立栈）：插入序倒转——胜者不变（装载序/插入序零漂移）
+    const rtB = rigRuntime().rt;
+    bindRow(rtB, 'plugin:alpha', 'k-a', 'alpha-key');
+    bindRow(rtB, 'plugin:zeta', 'k-z', 'zeta-key');
+    const rigB = rigSupply(rtB);
+    await rigB.ask('一问');
+    expect(rigB.seen).toEqual(['alpha-key']); // 稳定全序 (namespace, 行名)——与写入序无关
+    await rtA.shutdown();
+    await rtB.shutdown();
+  });
+
+  it('撞绑形三（host 域两行撞）：行名字典序稳定首行 + warn 留痕（同域多名的稳定全序延伸）', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    bindRow(rt, 'host', 'b-row', 'key-b');
+    bindRow(rt, 'host', 'a-row', 'key-a');
+    const { ask, seen } = rigSupply(rt, { warn: (m) => warns.push(m) });
+    await ask('一问');
+    expect(seen).toEqual(['key-a']); // 同 namespace 下行名字典序首行
+    expect(warns.filter((m) => m.includes('撞绑'))).toHaveLength(1); // 撞绑留痕恰一笔
+    await rt.shutdown();
+  });
+
+  it('绑定行缺席：不透传走 pi-ai ambient 既有形零变（保形锁——无供血者时供血面恒透明）', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    const { ask, seen } = rigSupply(rt, { warn: (m) => warns.push(m) });
+    await ask('一问');
+    expect(seen).toEqual([undefined]); // 缺席不传——v1 现状形（host 域行皆静态、插件域无绑定行）
+    expect(warns).toEqual([]); // 零噪声
+    await rt.shutdown();
+  });
+
+  it('库读失败 fail-open：不透传不炸请求（StreamFn 永不抛）+ warn 首笔留痕后静默', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    const { ask, seen } = rigSupply(rt, { warn: (m) => warns.push(m) });
+    // 故障注入（持久层故障形——被测的是 wrapper 降级编舞非库本身）：全表扫
+    // 抛错 → 供血面 fail-open 不透传，请求路零损
+    const store = rt.persistence.store as unknown as {
+      listCredentialProviders: () => unknown;
+      getCredential: unknown;
+    };
+    const original = store.listCredentialProviders;
+    store.listCredentialProviders = () => {
+      throw new Error('db boom');
+    };
+    try {
+      await ask('一问');
+      await ask('二问');
+    } finally {
+      store.listCredentialProviders = original; // 恢复原型法——退场零残留
+    }
+    expect(seen).toEqual([undefined, undefined]); // fail-open——ambient 既有形（请求路零损）
+    expect(warns.filter((m) => m.includes('扫描失败'))).toHaveLength(1); // 首笔留痕后静默（live 读不刷屏）
+    await rt.shutdown();
+  });
+});
+
+/* ---------------- authRefresh 联动腿注入位（B3 批——04 §3.3 条 8 装配面骨架） ---------------- */
+
+/**
+ * B3 装配面骨架：ConversationStackOptions.authRefresh 注入位（形状 =
+ * AuthRefreshSeam 契约单源 conversation/types）透传进 driver options。
+ * 真值源三面（llm authFamily 导入 / credentials RefreshChainHandle 桥接 /
+ * 产品级 notify 文案闭包）归装配根收口位接线——本组以结构桩断言透传编排
+ *（注入位即被测层，桩合法）。白盒读 driver 私有 options（core-plugins.test
+ * 结构替身同体例——options 无公开读面，透传断言的唯一可观测位）。
+ */
+describe('authRefresh 联动腿注入位（B3 批——04 §3.3 条 8 装配面骨架）', () => {
+  /** 驱动装配 options 白盒读（私有位结构读——透传断言可观测位） */
+  function driverOptionsOf(stack: ReturnType<typeof createConversationStack>): ConversationDriverOptions {
+    const session = stack.manager.create();
+    return (session.driver as unknown as { options: ConversationDriverOptions }).options;
+  }
+
+  it('注入在场：driver options 收到同一 seam 引用（装配位透传不复制不包装——修前红）', () => {
+    const { rt } = rigRuntime(true);
+    // 结构桩 seam（authFamily/refreshNow/notify 三面——桩体零行为语义，只锚引用）
+    const seam: AuthRefreshSeam = {
+      authFamily: () => false,
+      refreshNow: async () => ({ status: 'unavailable', reason: 'binding-absent' }),
+      notify: () => {},
+    };
+    const { stack } = rigStack(rt, { authRefresh: seam });
+    expect(driverOptionsOf(stack).authRefresh).toBe(seam); // 同一引用——恒等断言
+    void rt.shutdown();
+  });
+
+  it('注入缺席：authRefresh undefined 透传——联动腿整体短路既有形零变（保形锁）', () => {
+    const { rt } = rigRuntime(true);
+    const { stack } = rigStack(rt);
+    expect(driverOptionsOf(stack).authRefresh).toBeUndefined(); // 渐进增强零破口（seam JSDoc 语义）
+    void rt.shutdown();
   });
 });
 

@@ -33,6 +33,7 @@ import type {
   AgentMessage,
   AgentTool,
   ApprovalAskRequest,
+  StreamFn,
   ThinkingLevel,
   ToolDefinition,
   Usage,
@@ -74,6 +75,8 @@ import type {
   SessionsControlFace,
 } from '../conversation/index.js';
 import type { UserMessage } from '../contracts/index.js';
+import { HOST_NAMESPACE } from '../credentials/index.js';
+import type { AuthRefreshSeam } from '../conversation/types.js';
 import {
   classifyError,
   createLlmRuntime,
@@ -149,6 +152,16 @@ export interface ConversationStackOptions {
    * ——guard 真身与 enter/exit 开合在装配根/boot 侧，本件只穿只读面）
    */
   readonly hookDispatchGuard?: HookDispatchGuardFace;
+  /**
+   * 宿主凭证刷新联动腿 seam 注入位（04 §3.3 条 8——B3 批）：形状单源 =
+   * conversation/types AuthRefreshSeam（authFamily 判定 / refreshNow 强刷 /
+   * notify 告警三面）。真值源三面（llm authFamily 导入、credentials 刷新链
+   * refreshNow 桥接、产品级 notify 文案闭包）归装配根收口位组装成整面后
+   * 注入——本栈**恒等透传**进 driver options（不复制不包装）；**缺席 =
+   * 联动腿整体短路**（既有三腿行为零变——渐进增强零破口，与 seam JSDoc
+   * 缺席语义同源）。
+   */
+  readonly authRefresh?: AuthRefreshSeam;
   /** 思考档位（会话态） */
   readonly thinkingLevel?: ThinkingLevel;
   /**
@@ -362,12 +375,100 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   if (sessionStallTimeoutMs === 0) {
     warn(`编排层时滞帽显式关（${SESSION_STALL_TIMEOUT_MS_ENV}=0）——流停滞纵深缺席（04 §3.8）`);
   }
-  const streamFn = createStreamFn(
+  // —— B3 裁决三供血面：streamFn 凭证现取 wrapper ——
+  // 每次请求现查绑定行（meta 绑定键 modelProvider = <providerId>，任意
+  // namespace——消毒腿全表 live 读同律）经 StreamFnOptions.apiKey 既有 seam
+  // 透传：无缓存即无陈值，刷新链 rotate 后重试拿到新值由结构性保证。
+  const credentialEnvFace = options.env ?? process.env;
+  // 撞绑 warn 每 provider 恰一笔（进程内不刷屏——配置歧义一次留痕即够）
+  const bindingCollisionWarned = new Set<string>();
+  // 库读失败 warn 首笔留痕后静默 fail-open（逐请求 live 读下重复 warn 只刷屏）
+  let bindingScanFailureWarned = false;
+
+  /**
+   * 逐请求现取绑定行供血值：撞绑裁决（B3 冷读 M5 落码批定形——host 域
+   * 优先、同域 namespace→行名字典序稳定全序，不随装载/插入序漂移）+
+   * env 优先律两分立执法（03 §10.9「env 与库的优先级」条忠实落地：host
+   * 域行 env 在场 env 胜〔静态值无刷新面——不透传走 pi-ai ambient 既有
+   * 形〕；插件域行库优先〔env 无 per-plugin 归属位——不受 env 遮蔽恒
+   * 透传〕）。绑定行缺席 → undefined 不透传（pi-ai env ambient 既有形
+   * 零变）。StreamFn 永不抛契约：库读失败 catch 后 fail-open 不透传。
+   */
+  const liveBindingApiKey = (modelSpec: string): string | undefined => {
+    // provider 前段宽松提取（无斜杠形透传原串查表——解析失败归 llm 层
+    // resolveModel fail-loud 既有执法，本层不放大）
+    const slash = modelSpec.indexOf('/');
+    const providerId = slash === -1 ? modelSpec : modelSpec.slice(0, slash);
+    // 全表 live 读（无缓存）：坏形 meta 行不参与绑定、空值行不供血（行级
+    // 隔离——单行解密失败跳过不连坐，消毒腿 :591 同律）
+    const hits: { readonly ns: string; readonly name: string; readonly apiKey: string }[] = [];
+    try {
+      for (const row of options.runtime.persistence.store.listCredentialProviders()) {
+        const meta = row.meta;
+        if (typeof meta !== 'object' || meta === null) continue;
+        if ((meta as Record<string, unknown>).modelProvider !== providerId) continue;
+        try {
+          const entry = options.runtime.persistence.store.getCredential(row.namespace, row.provider);
+          if (entry !== undefined && entry.apiKey.length > 0) {
+            hits.push({ ns: row.namespace, name: row.provider, apiKey: entry.apiKey });
+          }
+        } catch {
+          /* 单行坏跳过——供血面按行降级，不炸请求路 */
+        }
+      }
+    } catch (err) {
+      if (!bindingScanFailureWarned) {
+        bindingScanFailureWarned = true;
+        warn(
+          `凭证绑定行扫描失败（provider=${providerId}，供血面 fail-open 不透传，后续同类失败静默）：` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return undefined;
+    }
+    if (hits.length === 0) return undefined;
+    // 撞绑稳定全序：host 域 rank 0 → namespace 字典序 → 行名字典序
+    const rank = (ns: string): number => (ns === HOST_NAMESPACE ? 0 : 1);
+    hits.sort(
+      (a, b) =>
+        rank(a.ns) - rank(b.ns) ||
+        (a.ns < b.ns ? -1 : a.ns > b.ns ? 1 : 0) ||
+        (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+    );
+    if (hits.length > 1 && !bindingCollisionWarned.has(providerId)) {
+      bindingCollisionWarned.add(providerId);
+      // 括号句随胜者域分形（纯插件域撞绑不印「host 域优先」——通则句与
+      // 本例胜出原因分立，2026-09-16 装配簇核验微瑕修）
+      const ruleText = hits[0]!.ns === HOST_NAMESPACE ? 'host 域优先' : '插件域字典序首行';
+      warn(
+        `provider ${providerId} 绑定行撞绑（${hits.length} 行声明 modelProvider）——取 ${hits[0]!.ns}/${hits[0]!.name}` +
+          `（${ruleText}），其余行忽略`,
+      );
+    }
+    const winner = hits[0]!;
+    // env 优先律（host 域行）：env 键在场即 env 胜——静态无刷新面，401 后
+    // 联动腿走 fail-closed（seam 消费侧）；插件域行不受 env 遮蔽恒透传
+    if (winner.ns === HOST_NAMESPACE) {
+      const envOccupied = providerApiKeyEnvNames(providerId).some((name) => (credentialEnvFace[name] ?? '') !== '');
+      if (envOccupied) return undefined;
+    }
+    return winner.apiKey;
+  };
+
+  const baseStreamFn = createStreamFn(
     llmRuntime,
     llmIdleTimeoutMs > 0 ? { idleTimeoutMs: llmIdleTimeoutMs } : {},
     tracker,
     options.hookDispatchGuard,
   );
+  // 外包闭包：现取面在 04 §3.8 watchdog 包装之外（请求装配最先到位）；
+  // 上游显式 apiKey（complete 单发路/测试注入形）优先，不被绑定行改写
+  const streamFn: StreamFn = (context, reqOptions, signal) => {
+    if (reqOptions.apiKey !== undefined) return baseStreamFn(context, reqOptions, signal);
+    const apiKey = liveBindingApiKey(reqOptions.model);
+    if (apiKey === undefined) return baseStreamFn(context, reqOptions, signal);
+    return baseStreamFn(context, { ...reqOptions, apiKey }, signal);
+  };
   // 当日后台已耗读面：日键缓存 + 桥接增量（05 §1.1 口径——SUM(input+output)、
   // background 道过滤）。单写者进程（单活跃机收口）内首读聚合后只随本进程
   // 桥接落账增量推进；日翻转重聚合（昨账不跨日）。write-behind 未落盘窗内
@@ -822,6 +923,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       },
       classifyError,
       compactForOverflow: (log: SessionLog) => compaction.compactForOverflow(log),
+      // 宿主凭证刷新联动腿 seam（04 §3.3 条 8——B3 批）：装配根组装面恒等
+      // 透传；缺席不注入 = 联动腿整体短路（渐进增强零破口）
+      ...(options.authRefresh !== undefined ? { authRefresh: options.authRefresh } : {}),
       environmentDisclosure: options.runtime.disclosure,
       askApproval: askFace,
       ...(settleApprovals !== undefined ? { settleApprovals } : {}),
@@ -1117,6 +1221,41 @@ export function startOfTodayMs(now: number = Date.now()): number {
   const d = new Date(now);
   d.setHours(0, 0, 0, 0);
   return d.getTime();
+}
+
+/**
+ * pi-ai env 静态 key 键名镜像（B3 联动批——裁决三供血面 env 优先律判定位）。
+ *
+ * pi-ai 的 getApiKeyEnvVars 映射不在 package exports（不可 import）——此处
+ * 同源自写镜像（recovery.ts QUOTA_TEXT_PATTERN「模块内私有不导出，此处同款
+ * 自写」同律先例）。特例表钉定 pi-ai 钉定 commit env-api-keys 偏离一般律的
+ * 键面（anthropic 三键族 / github-copilot / gemini 缩名等）；一般律 =
+ * provider id kebab → snake 大写 + 后缀 `_API_KEY`（pi-ai 未知 provider 不
+ * 查 env，本镜像按宿主命名约定外推——03 §10.9「模型 key env 缺省位」的
+ * 自定义 provider 常规命名形）。消费位 = 供血 wrapper env 占位判 + 装配根
+ * seam refreshNow 的 env-static 前判（N2：env 面不在 credentials 件内注入）。
+ */
+const PROVIDER_API_KEY_ENV_SPECIALS: Readonly<Record<string, readonly string[]>> = {
+  'github-copilot': ['COPILOT_GITHUB_TOKEN'],
+  anthropic: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'],
+  google: ['GEMINI_API_KEY'],
+  'google-vertex': ['GOOGLE_CLOUD_API_KEY'],
+  'azure-openai-responses': ['AZURE_OPENAI_API_KEY'],
+  huggingface: ['HF_TOKEN'],
+  'vercel-ai-gateway': ['AI_GATEWAY_API_KEY'],
+  'moonshotai-cn': ['MOONSHOT_API_KEY'],
+  'opencode-go': ['OPENCODE_API_KEY'],
+  'kimi-coding': ['KIMI_API_KEY'],
+  'cloudflare-workers-ai': ['CLOUDFARE_API_KEY'],
+  'cloudflare-ai-gateway': ['CLOUDFARE_API_KEY'],
+  'qwen-token-plan-individual': ['QWEN_TOKEN_PLAN_API_KEY'],
+};
+
+/** provider → env 静态 key 键名族（占位判 = 任一键非空值在场） */
+export function providerApiKeyEnvNames(provider: string): readonly string[] {
+  const special = PROVIDER_API_KEY_ENV_SPECIALS[provider];
+  if (special !== undefined) return special;
+  return [`${provider.replace(/-/g, '_').toUpperCase()}_API_KEY`];
 }
 
 /**

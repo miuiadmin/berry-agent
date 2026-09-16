@@ -160,6 +160,7 @@ import type {
   CredentialsCommandStore,
   OAuthFetchLike,
   OAuthFlowRegistry,
+  RefreshChainHandle,
 } from '../credentials/index.js';
 
 import type { PluginContext } from './plugin-context.js';
@@ -639,6 +640,14 @@ interface CredentialsPluginHostDeps {
     readonly intervalMs?: number;
     readonly warn?: (message: string) => void;
   };
+  /**
+   * 刷新链句柄外露位（B3 联动批——04 §3.3 条 8 宿主凭证刷新联动腿）：
+   * 受局面在场链创建后回调一次（装配根收句柄桥 authRefresh seam 的
+   * refreshNow 面）；受局面缺席链未建 = 不回调（seam 侧链缺席恒
+   * unavailable/no-refresh-face——零刷新面如实）。换代重装载 = 末位胜出
+   * （新链句柄覆写旧代，旧链随件 dispose 停钟）。
+   */
+  readonly credentialsChainSink?: (handle: RefreshChainHandle) => void;
 }
 
 /**
@@ -2547,6 +2556,9 @@ function makeCredentialsPlugin(deps: CorePluginHostDeps): CorePluginReference {
         const intervalMs = oauth.intervalMs ?? 60_000;
         if (intervalMs > 0) chain.start(intervalMs);
         chainStop = () => chain.stop();
+        // B3 联动腿外露（04 §3.3 条 8）：装配根收句柄桥 authRefresh seam
+        // ——末位胜出（换代重装载新链覆写旧代，旧链随件 dispose 停钟）
+        deps.credentialsChainSink?.(chain);
       }
       return () => {
         chainStop?.();
