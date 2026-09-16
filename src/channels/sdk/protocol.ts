@@ -81,7 +81,7 @@ export interface SdkHelloFrame {
   highWaterSeq: number;
 }
 
-/** 心跳帧（②——idle 超阈值即发；间隔值随落码批实测定，13b 接装配定时） */
+/** 心跳帧（②——idle 超阈值即发；间隔缺省 5000ms——批 13b 落码定值，装配定时位 serve-entry） */
 export interface SdkHeartbeatFrame {
   kind: 'heartbeat';
   sessionId: string;

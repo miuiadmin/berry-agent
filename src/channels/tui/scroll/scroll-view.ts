@@ -9,7 +9,7 @@
  * - 键盘滚动 ↑/↓ 单行、PgUp/PgDn 翻页、Home/End 到首尾（press/repeat 动作、
  *   release 归上层）；滚轮 ±3 视觉行（vim mousescroll ver 缺省档——2026-09-11
  *   鼠标解码批 mu-2 接入，走显式滚动路：破随后即时夹取、复随判据同键盘）；
- * - 滚动条渐隐计时随组件批定形（07 挂账）——v1 溢出期间常显。
+ * - 滚动条渐隐计时挂真实需求再裁（07 同笔改裁）——v1 溢出期间常显。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region, Renderable } from '../../engine/index.js';
 import { buildVisualLineMap, findVisualLineAt, type VisualSegment } from '../editor/visual-lines.js';
