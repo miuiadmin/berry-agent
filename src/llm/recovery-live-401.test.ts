@@ -23,7 +23,13 @@
  *  - SSE 中段断供两形（批 A C2 契约回归锁）：硬 destroy（发一半事件后断
  *    连接）与优雅 EOF（无 message_stop 提前收尾）——断言错误**终值**收场
  *    （非挂死非 throw，错误是数据）+ 归 transient（正则词面 terminated /
- *    stream ended before message_stop 两词真腿实证）。
+ *    stream ended before message_stop 两词真腿实证）；
+ *  - 流中段 401（B3 行为锁半——在飞 token 失效形）：流先真走一段（start +
+ *    delta 已抵达消费面）后以流内 error 事件收 401 语义尾（HTTP 头已发 200
+ *    后网关撤销 token 的真形——pi-ai 对 SSE error 事件 throw → 流内 error
+ *    终值）。断言与断供两形**分立**：同是「流走了一段后失败」，断供归
+ *    transient（换连接即恢复），401 归 non-retryable + auth 诊断（重试只会
+ *    再 401——「401 静默语义响亮」的在飞形行为锁）。
  */
 import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -121,6 +127,55 @@ beforeAll(async () => {
         if (cutMode === 'destroy')
           res.destroy(); // 硬断——传输层错误（undici terminated 形）
         else res.end(); // 优雅 EOF——无 message_stop（pi-ai 早断检查形）
+      }, 80);
+      return;
+    }
+    // 流中段 401 场景（/stream-mid-401——在飞 token 失效形，B3 行为锁半）：
+    // 应答头已是 200（请求建立时 token 尚有效），流真走一段（start + delta
+    // 已抵达消费面）后 token 被上游撤销——网关此时只能以**流内 error 事件**
+    // 收 401 语义尾（HTTP 状态码位已不可用）。pi-ai iterateAnthropicEvents 对
+    // SSE error 事件 throw(sse.data 原文) → catch 路径编为流内 error 终值。
+    if (req.url?.startsWith('/stream-mid-401') === true) {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(
+        sseEvent('message_start', {
+          type: 'message_start',
+          message: {
+            id: 'msg_mid401',
+            type: 'message',
+            role: 'assistant',
+            model: 'probe-model',
+            content: [],
+            stop_reason: null,
+            usage: { input_tokens: 3, output_tokens: 1 },
+          },
+        }),
+      );
+      res.write(
+        sseEvent('content_block_start', {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: '' },
+        }),
+      );
+      res.write(
+        sseEvent('content_block_delta', {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: '撤销前已抵达的正常增量' },
+        }),
+      );
+      // 前段事件先 flush 抵达消费面（在飞形铁证——delta 已真消费），80ms 后
+      // token 撤销生效：流内 error 事件收尾（Anthropic 形错误载荷，401 语义
+      // 在 message 文案——状态码位已不可用是本场景的形态前提）
+      setTimeout(() => {
+        res.write(
+          sseEvent('error', {
+            type: 'error',
+            error: { type: 'authentication_error', message: '401 oauth token revoked mid-stream' },
+          }),
+        );
+        res.end();
       }, 80);
       return;
     }
@@ -319,5 +374,47 @@ describe('SSE 中段断供真腿（错误终值收场——非挂死非 throw + 
     expect(final.errorMessage).toContain('message_stop');
     // 「Anthropic stream ended before message_stop」在 RETRYABLE 正则显式列名——真腿实证归桶
     expect(classifyError(final)).toBe('transient');
+  }, 20_000);
+});
+
+/* ---------------- 流中段 401（在飞 token 失效——B3 行为锁半） ---------------- */
+
+describe('流中段 401 真腿（token 途中撤销——与断供 transient 分立）', () => {
+  it('delta 已抵达后流内 error 事件收尾：error 终值 + non-retryable + auth 诊断（401 静默语义响亮）', async () => {
+    const fn = makeStreamFn('/stream-mid-401');
+    const { final, events } = await runOnce(fn); // 挂死形此处即测试超时红——非挂死本身是断言
+    // 在飞形铁证：撤销前 delta 已真抵达消费面（流走了一段才失败——与请求
+    // 建立即失败的 /auth-401 形分立的前提）
+    expect(events.some((e) => e.type === 'text_delta')).toBe(true);
+    // 错误终值收口（永不抛契约——流内 error 终止事件在场，错误是数据不是异常）
+    expect(events.some((e) => e.type === 'error')).toBe(true);
+    expect(final.stopReason).toBe('error');
+    // 流内 error 事件载荷穿透 errorMessage（pi-ai throw(sse.data) 原文——含
+    // 401 语义与 authentication_error 错误型）
+    expect(final.errorMessage).toContain('401');
+    expect(final.errorMessage).toContain('authentication_error');
+    // 分立关键断言：同是「流走了一段后失败」，上节断供两形（destroy/EOF）归
+    // transient（换连接即恢复），token 撤销 401 归 non-retryable（重试只会再 401）
+    expect(classifyError(final)).toBe('non-retryable');
+    // 「401 静默语义响亮」：产品级 auth 诊断在场（识鉴权失败 + 指路凭证配置）
+    const diag = diagnoseProviderFailure(final, 'live-401-test-stream-mid-401/probe-model');
+    expect(diag?.kind).toBe('auth');
+    expect(diag?.hint).toContain('API');
+  }, 20_000);
+
+  it('retryAssistantCall 零重试（produce 恒 1 次——401 重试无意义不因中段形改变）', async () => {
+    const fn = makeStreamFn('/stream-mid-401');
+    let calls = 0;
+    const settled = await retryAssistantCall(
+      async () => {
+        calls++;
+        return (await runOnce(fn)).final;
+      },
+      { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+    );
+    // 中段形不改变桶判定：non-retryable 不消费重试（对照 /rate-429 腿 calls=2
+    // ——零重试是分类拦的不是机制坏的）
+    expect(calls).toBe(1);
+    expect(settled.stopReason).toBe('error');
   }, 20_000);
 });

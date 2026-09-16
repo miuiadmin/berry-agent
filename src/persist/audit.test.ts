@@ -168,3 +168,38 @@ describe('审计流读侧损坏行 fail-loud（宁崩不误读）', () => {
     }
   });
 });
+
+describe('CLI+daemon 双写者并存形（audit_events 跨连接不变式）', () => {
+  it('同库两连接交替 append：id 全局单调无重复 + listRecent 互见对方条目 + lastOf 跨连接一致读', () => {
+    const dbPath = join(dir, 'dual-writer.db');
+    // 两连接同库（daemon 常开连接 + CLI 惰性开库的结构形——plugins 命令
+    // lifecycleAuditOf 与常驻进程的 audit 写是结构性并存的第二写者窗口）
+    const storeDaemon = openStore({ dbPath, dataDir: join(dir, 'data'), migrations: [AUDIT_MIGRATION] });
+    stores.push(storeDaemon);
+    const storeCli = openStore({ dbPath, dataDir: join(dir, 'data'), migrations: [AUDIT_MIGRATION] });
+    stores.push(storeCli);
+    const faceDaemon = createAuditFace(storeDaemon.connection, () => 1_000);
+    const faceCli = createAuditFace(storeCli.connection, () => 1_000);
+    // 交替记账（daemon 记 opens、CLI 记 used，三轮交替；每次经「对方连接」
+    // 尾读取回刚落的 id——顺带即证跨连接立即可见）
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      faceDaemon.append('plugin/opens', { pluginId: 'daemon', opens: [`capability-${i}`] });
+      ids.push(faceCli.listRecent(1)[0]!.id);
+      faceCli.append('capability/used', { pluginId: 'cli', capability: `capability-${i}` });
+      ids.push(faceDaemon.listRecent(1)[0]!.id);
+    }
+    // id 全局单调严格递增（INTEGER PRIMARY KEY 自增跨连接不变式——无重复无回跳）
+    for (let i = 1; i < ids.length; i++) expect(ids[i]!).toBeGreaterThan(ids[i - 1]!);
+    expect(new Set(ids).size).toBe(ids.length);
+    // 两连接各读全量：互见对方全部条目（六条各半，id 集一致）
+    const fromDaemon = faceDaemon.listRecent();
+    const fromCli = faceCli.listRecent();
+    expect(fromDaemon).toHaveLength(6);
+    expect(fromCli).toHaveLength(6);
+    expect(new Set(fromDaemon.map((row) => row.id))).toEqual(new Set(fromCli.map((row) => row.id)));
+    // 尾读一致：各自 lastOf 能读到只有对方写过的词
+    expect(faceDaemon.lastOf('capability/used')?.data.pluginId).toBe('cli');
+    expect(faceCli.lastOf('plugin/opens')?.data.pluginId).toBe('daemon');
+  });
+});

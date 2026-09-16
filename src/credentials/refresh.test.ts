@@ -15,7 +15,12 @@
  *    不重复告警——wasExpired 守卫）；
  *  - 授权态坏直落三振：invalid_grant（EXPIRED 码）与 refresh 行缺席
  *    两形——首拍即 expired + notify（不空转三拍）；
- *  - 重入护栏：上一拍未收口跳过本拍；start/stop 自驱（假钟推进）。
+ *  - 重入护栏：上一拍未收口跳过本拍；start/stop 自驱（假钟推进）；
+ *  - 刷新窗与消费读交织（B3 行为锁半——竞态窗口锁）：deferred fetch 由
+ *    测试手动放行（全确定性，无 sleep），锁「refresh 在飞窗内消费面恒读
+ *    完整旧三元组 / rotate 收口即原子换新（一次读见旧一次读见新、无撕裂
+ *    中间态）/ 失败收口保持完整旧值 / 流在飞期间 rotate 收口后 401 时刻
+ *    读到的恒为完整新值或完整旧值」。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -101,6 +106,57 @@ function fakeClock(startMs = 0): { now: () => number; advance: (ms: number) => v
 }
 
 /**
+ * 手动放行 fetch（B3 竞态窗锁专用）：调用即入悬停（不自动 resolve），
+ * 应答由测试在任意时刻 settle——「refresh 在飞窗」的开与关全由测试驱动，
+ * 全确定性（无 sleep/无真挂钟等待；与 scriptedFetch 的 stall 形分立——
+ * stall 永不放行只能观察护栏，本件可放行可编舞收口相位）。
+ * 调用链同步性：refreshOne → refreshOAuthToken → fetchFn 全同步到达
+ * （首个 await 在 fetch 结果上），故 tick() 返回时 settle 句柄已就绪。
+ */
+function deferredFetch(): {
+  readonly fetch: OAuthFetchLike & { readonly calls: readonly unknown[] };
+  /** 放行本次应答（应答形体与 scriptedFetch 同构；未开窗调用即编舞错） */
+  readonly settle: (s: Scripted) => void;
+} {
+  const calls: unknown[] = [];
+  let release: ((s: Scripted) => void) | undefined;
+  const fn = (async (url: string) => {
+    return new Promise<{ ok: boolean; status: number; text: () => Promise<string> }>((resolvePromise) => {
+      calls.push(url);
+      // resolve 句柄交测试持有——settle 即放行（一次调用配一次放行）
+      release = (s: Scripted) =>
+        resolvePromise({
+          ok: s.ok,
+          status: s.status,
+          text: async () => (s.text !== undefined ? s.text : JSON.stringify(s.json ?? {})),
+        });
+    });
+  }) as OAuthFetchLike;
+  const fetch = Object.assign(fn, { calls });
+  return {
+    fetch,
+    settle: (s: Scripted) => {
+      if (release === undefined) throw new Error('settle 早于 fetch 调用——测试编舞错');
+      release(s);
+    },
+  };
+}
+
+/**
+ * 消费面读一致性断言（B3 竞态窗锁的判据单源）：行完整在场且恰为期望整行
+ * （值 + meta 全键 toEqual）——undefined/半刷新撕裂形（新值配旧 meta、
+ * meta 键丢失、值清空）任一都在此红。
+ */
+function expectRow(
+  row: { readonly apiKey: string; readonly meta?: unknown } | undefined,
+  expected: { readonly apiKey: string; readonly meta: CredentialMeta },
+): void {
+  expect(row).toBeDefined();
+  expect(row?.apiKey).toBe(expected.apiKey);
+  expect(row?.meta).toEqual(expected.meta);
+}
+
+/**
  * 装配速记：真库 + 单流域注册表 + 链（notify/warn 收集器内置）。
  * 返回 rig 全件供逐案驱动。
  */
@@ -108,11 +164,14 @@ function rig(opts?: {
   readonly aheadMs?: number;
   readonly maxFailures?: number;
   readonly script?: readonly Scripted[];
+  /** 外供 fetch（B3 竞态窗锁专用——deferredFetch 产物直入；与 script 互斥） */
+  readonly fetchFn?: OAuthFetchLike & { readonly calls: readonly unknown[] };
 }): {
   store: Store;
   registry: OAuthFlowRegistry;
   chain: RefreshChainHandle;
-  fetch: ReturnType<typeof scriptedFetch>;
+  /** fetch 面（scripted/外供同形——calls 只读面消费） */
+  fetch: OAuthFetchLike & { readonly calls: readonly unknown[] };
   clock: ReturnType<typeof fakeClock>;
   notifies: string[];
   warns: string[];
@@ -121,7 +180,7 @@ function rig(opts?: {
   const store = openTestStore();
   const registry = createOAuthFlowRegistry();
   registry.register('demo', { def: DEF, handler: async () => undefined }, () => () => undefined);
-  const fetch = scriptedFetch(opts?.script ?? []);
+  const fetch = opts?.fetchFn ?? scriptedFetch(opts?.script ?? []);
   const clock = fakeClock();
   const notifies: string[] = [];
   const warns: string[] = [];
@@ -331,5 +390,97 @@ describe('护栏与自驱', () => {
     expect(r.store.getCredential(pluginNamespace('demo'), 'github')?.apiKey).toBe('at-2');
     r.chain.stop();
     r.chain.stop(); // 幂等
+  });
+});
+
+/* ---------------- 刷新窗与消费读交织（B3 行为锁半——竞态窗口锁） ---------------- */
+
+describe('刷新窗与消费读交织（refresh 在飞期间消费面恒读完整行）', () => {
+  /** 旧三元组（在飞窗内消费面应恒读到的完整形——account 附加键加宽撕裂检测面） */
+  const OLD_META: CredentialMeta = {
+    source: 'oauth',
+    refreshName: 'github.refresh',
+    expiresAt: 1_000,
+    account: 'alice@example.com',
+  };
+  /** 新三元组（rotate 收口后的完整新形——source 换 refresh、到期位新、附加键保全） */
+  const NEW_META: CredentialMeta = {
+    source: 'refresh',
+    expiresAt: 3_600_000,
+    refreshName: 'github.refresh',
+    account: 'alice@example.com',
+  };
+  const NS = pluginNamespace('demo');
+
+  /** 造刷新到期形主行 + 刷新行（三案共用编舞底座） */
+  function seedDue(r: ReturnType<typeof rig>): void {
+    seedMain(r.store, { meta: OLD_META });
+    r.store.setCredential(NS, 'github.refresh', { apiKey: 'rt-old', meta: { source: 'oauth' } });
+  }
+
+  it('(a) refresh 在飞窗内消费读恒得完整旧值（无 undefined/无半刷新撕裂）', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDue(r);
+    const inflight = r.chain.tick(); // 开拍——挂停在 token 端点应答未决窗
+    expect(d.fetch.calls).toHaveLength(1); // 在飞窗已开（调用链同步到达 fetch）
+    // 窗内多次消费读（流式消费面此刻仍在用旧 token 的形态）：恒完整旧三元组
+    for (let i = 0; i < 3; i++) {
+      expectRow(r.store.getCredential(NS, 'github'), { apiKey: 'at-old', meta: OLD_META });
+    }
+    d.settle({ ok: true, status: 200, json: { access_token: 'at-new', expires_in: 3600 } });
+    await inflight; // 收口（防挂死——悬停应答不释放即红）
+  });
+
+  it('(b) rotate 收口后读取原子换新：一次读见完整新值——旧值/撕裂形不可见', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDue(r);
+    const inflight = r.chain.tick();
+    expect(d.fetch.calls).toHaveLength(1);
+    // 收口前读 = 完整旧值（换新只发生在收口点——收口前新值不可见）
+    expectRow(r.store.getCredential(NS, 'github'), { apiKey: 'at-old', meta: OLD_META });
+    d.settle({ ok: true, status: 200, json: { access_token: 'at-new', expires_in: 3600 } });
+    await inflight; // rotate 收口
+    // 收口后读 = 完整新值（整行原子换：值 + meta 全键——附加键保全、到期位新、
+    // failures 随整列换消失；新值配旧 meta/键丢失的撕裂形在 expectRow 红）
+    expectRow(r.store.getCredential(NS, 'github'), { apiKey: 'at-new', meta: NEW_META });
+    // 刷新行未动（端点未下发新 refresh token——复用旧值律不因交织形改变）
+    expect(r.store.getCredential(NS, 'github.refresh')?.apiKey).toBe('rt-old');
+  });
+
+  it('(c) refresh 失败收口后读取保持完整旧值（值不动 + failures durable 记一）', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDue(r);
+    const inflight = r.chain.tick();
+    expect(d.fetch.calls).toHaveLength(1);
+    d.settle({ ok: false, status: 500, json: { error: 'server_error' } });
+    await inflight; // 失败收口
+    // 保留上次有效值律：值保持旧值完整续用，meta 只多 failures 计数键
+    expectRow(r.store.getCredential(NS, 'github'), {
+      apiKey: 'at-old',
+      meta: { ...OLD_META, failures: 1 },
+    });
+  });
+
+  it('(d) 全交织：流在飞期间 rotate 收口——401 到达时刻读到的恒为完整新值或完整旧值', async () => {
+    const d = deferredFetch();
+    const r = rig({ fetchFn: d.fetch });
+    seedDue(r);
+    // 相位一：流起飞（在飞请求此刻带出 at-old）——消费面读 = 完整旧值
+    const readAtStreamStart = r.store.getCredential(NS, 'github');
+    const inflight = r.chain.tick(); // 流在飞期间刷新链开拍（fetch 未决窗）
+    expect(d.fetch.calls).toHaveLength(1);
+    const readInRefreshWindow = r.store.getCredential(NS, 'github'); // 刷新窗内读
+    d.settle({ ok: true, status: 200, json: { access_token: 'at-new', expires_in: 3600 } });
+    await inflight; // rotate 在流仍在飞期间收口（旧 token 随即被上游撤销）
+    // 相位二：流收 401 终值（at-old 已失效）——此刻消费面读 = 完整新值
+    const readAt401 = r.store.getCredential(NS, 'github');
+    // 竞态窗一致性锁：三相位读各自完整在场（无 undefined/撕裂），取值只
+    // ∈ {完整旧, 完整新} 且恰在收口点翻转一次（旧→旧→新）——无中间态可见
+    expectRow(readAtStreamStart, { apiKey: 'at-old', meta: OLD_META });
+    expectRow(readInRefreshWindow, { apiKey: 'at-old', meta: OLD_META });
+    expectRow(readAt401, { apiKey: 'at-new', meta: NEW_META });
   });
 });

@@ -54,14 +54,27 @@ function call(id: string, name: string): ToolCallBlock {
   return { type: 'toolCall', id, name, arguments: {} };
 }
 
-/** 最小真工具（可覆写 execute） */
-function makeTool(name: string, execute?: AgentTool['execute']): AgentTool {
+/**
+ * 最小真工具（可覆写 execute；effect 可选声明——读写批调度档位面，缺省不携带
+ * 字段：批次层在场未声明走屏障腿，同 tools-batch.test.ts gatedTool 的语义分立）。
+ */
+function makeTool(name: string, execute?: AgentTool['execute'], effect?: AgentTool['effect']): AgentTool {
   return {
     name,
     description: '测试工具',
     parameters: { type: 'object' },
+    ...(effect !== undefined ? { effect } : {}),
     execute: execute ?? (async () => ({ content: [{ type: 'text', text: 'ok' } satisfies TextContent] })),
   };
+}
+
+/** 受控门：release 前执行体挂起（读写批调度时序探针——同 tools-batch.test.ts gate 形） */
+function gate(): { promise: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
 }
 
 /** 单次流（终值事件序列：start → text_delta → done/error——真协议形状） */
@@ -475,6 +488,71 @@ describe('工具批语义', () => {
     expect(result.status).toBe('completed');
     const tr = context.messages.find((m) => m.role === 'toolResult') as { isError: boolean };
     expect(tr.isError).toBe(true);
+  });
+
+  it('混合 effect 批真调度：read 段重叠 + write 屏障经 startRun 全链（研究批 A5——缝合点集成锁）', async () => {
+    // 缺口背景（研究批 A5）：读写批调度的真断言此前只在单元直测域
+    // （tools-batch.test.ts 的 read 段重叠证明/write 屏障），loop 缝合点
+    // （loop.ts 的 toolCallsOf 保序提取 → executeToolBatch 零变换直传 +
+    // context.tools 披露 + loop 层 emit 事件时序）无集成锁——提取序破坏
+    // 或 effect 披露丢失时单元直测不红。本例经 startRun 全链锁三面：
+    // ① read 段内两件在飞重叠（并行档真调度）② write 屏障（read 段排干后
+    // 屏障腿才起跑）③ toolResult 按批原序配对。时序探针 = 受控门
+    // （不依赖真实时钟）：全链至 read 段挂门全走微任务，单个宏任务拍即到齐。
+    const readGate = gate(); // 共同屏障：两 reader 各自 await 才放行（重叠证明）
+    const started: string[] = []; // 起跑序探针（execute 体首拍记 id）
+    const reader = makeTool(
+      'reader',
+      async (id) => {
+        started.push(id);
+        await readGate.promise; // 挂共同门——另一 reader 未起跑则本件永不结算（并行档判别锚）
+        return { content: [{ type: 'text', text: 'read-done' }] };
+      },
+      'read',
+    );
+    const writer = makeTool(
+      'writer',
+      async (id) => {
+        started.push(id);
+        return { content: [{ type: 'text', text: 'write-done' }] };
+      },
+      'write',
+    );
+    const { context, config, events } = rig({
+      streamFn: scriptedStreamFn([
+        // 首轮终值：三块混合批（两 read + 一 write——批原序 r-1, r-2, w-1）
+        assistant({
+          stopReason: 'toolUse',
+          content: [call('r-1', 'reader'), call('r-2', 'reader'), call('w-1', 'writer')],
+        }),
+        assistant({ content: [{ type: 'text', text: 'done' }] }),
+      ]),
+    });
+    context.tools = [reader, writer];
+    const pending = startRun(context, config, [user('q')]); // 全链起跑（时序探针窗——不即 await）
+    await new Promise((resolve) => setTimeout(resolve, 0)); // 微任务排干：流消费毕 → read 段两件起跑挂门
+    // ①read 段重叠证明：两 reader 均已起跑在飞（r-1 仍挂门未结算）且 writer 零起跑
+    //（若 reader 未声明 read 走屏障腿串行：r-1 挂门不结算 → r-2 永不起跑——本断言必红）
+    expect([...started].sort()).toEqual(['r-1', 'r-2']);
+    readGate.release(); // 放行 → read 段 Promise.all 排干 → write 屏障腿起跑
+    const result = await pending;
+    // ②write 屏障：writer 的 tool_execution_start 严格晚于两 reader 的 start
+    //（事件收集序；两 reader 段内起跑序确定，但断言容交错只锁「均在 writer 前」）
+    const startIds = events
+      .filter((e): e is Extract<AgentEvent, { type: 'tool_execution_start' }> => e.type === 'tool_execution_start')
+      .map((e) => e.toolCallId);
+    expect(startIds).toHaveLength(3);
+    expect([...startIds.slice(0, 2)].sort()).toEqual(['r-1', 'r-2']); // 两 reader 先（序可交错）
+    expect(startIds[2]).toBe('w-1'); // writer 严格殿后（read 段排干后屏障腿才起跑）
+    // ③toolResult 按批原序 [r-1, r-2, w-1] 配对入列（全非 error——正常执行腿）
+    const trs = context.messages.filter((m) => m.role === 'toolResult') as {
+      toolCallId: string;
+      isError: boolean;
+    }[];
+    expect(trs.map((t) => t.toolCallId)).toEqual(['r-1', 'r-2', 'w-1']);
+    expect(trs.every((t) => t.isError === false)).toBe(true);
+    // ④二轮 stop 收场 completed
+    expect(result).toMatchObject({ status: 'completed', stopReason: 'stop' });
   });
 });
 

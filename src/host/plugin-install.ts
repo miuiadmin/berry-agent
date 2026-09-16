@@ -367,10 +367,21 @@ function buildMinReleaseAgeFlags(deps: InstallExecutorDeps): readonly string[] {
   return minutes <= 0 ? [] : ['--min-release-age', String(minutes)];
 }
 
-/** npm 失败增补指路（--min-release-age 旧版不识 → 指路升级） */
+/**
+ * npm 失败增补指路（两形分流——07 §5 provider 文案律落角）：
+ *  - 真拒装形：stderr 含 eligible 词面（npm ≥11.5 静置窗判据生效的正当拒绝
+ *    ——包龄不满窗，报文常伴 --min-release-age 字面）→ 指路等窗龄/调窗；
+ *  - 旗标不识形：stderr 含 min-release-age / Unknown cli flag / unknown
+ *    option（旧版 npm 不识旗标）→ 指路升级 npm ≥11.5 或 env 关窗。
+ * 判序真拒装形先于旗标不识形：两形词面可同现（真拒装报文含旗标名），若旗标
+ * 不识分支先判会给真拒装形「升级 npm」误诊（npm 已识旗标、判据正当生效）。
+ */
 function npmFailureMessage(err: unknown, flagText: string): string {
   const stderr = err instanceof Error ? ((err as Error & { stderr?: string }).stderr ?? '') : '';
   const message = err instanceof Error ? err.message : String(err);
+  if (stderr.toLowerCase().includes('eligible')) {
+    return `npm install 失败：${message}——包龄未满静置窗（真拒装非旗标不识）：等发布窗龄后再试，或设 ${MIN_RELEASE_AGE_ENV}=<分钟> 调窗（0 = 显式关窗）`;
+  }
   const ageHint =
     stderr.includes('min-release-age') || stderr.includes('Unknown cli flag') || stderr.includes('unknown option')
       ? `——npm 不识 ${flagText}：--min-release-age 须 npm ≥11.5（npm -v 自查），或设 ${MIN_RELEASE_AGE_ENV}=0 关窗`

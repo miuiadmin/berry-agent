@@ -9,6 +9,8 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BaseError, registerEventType, type SessionEvent } from '../contracts/index.js';
@@ -16,7 +18,10 @@ import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
 import { SessionLog } from '../session/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import type { MigrationSpec } from './migrations.js';
-import { openStore, type EventWrite, type SessionRegistration, type Store } from './store.js';
+import { openStore, prepareWal, type EventWrite, type SessionRegistration, type Store } from './store.js';
+
+/** 仓根目录（子进程 require('better-sqlite3') 的解析位——无需 tsx，只用到物理层依赖） */
+const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 // 测试用 surface 类别插件词（FTS 索引面样本——词汇注册表 category 判据）
 registerEventType({
@@ -661,5 +666,263 @@ describe('accountDropped 游标跳记账', () => {
     // seq 3 直写：游标已到 2，期望 3
     expect(() => store.writeEvents(writesFor('s-skip', [events[3]!]))).not.toThrow();
     expect(store.getSessionRow('s-skip')?.lastSeq).toBe(3);
+  });
+});
+
+describe('真库双连接竞争（WAL 并发窗）', () => {
+  /**
+   * 子进程持锁脚本（plain node + require——只碰物理层依赖无需 tsx）。
+   * 行协议：stdout 打 LOCKED 后持写锁 holdMs 毫秒再 COMMIT 退出——父进程
+   * 据此在「写锁确已被他连接持有」的窗口内发起同步竞争写。
+   */
+  const LOCK_HOLDER_SCRIPT = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.argv[1]);
+    db.pragma('busy_timeout = 5000');
+    db.exec('BEGIN IMMEDIATE');
+    console.log('LOCKED');
+    setTimeout(() => { db.exec('COMMIT'); db.close(); }, Number(process.argv[2]));
+  `;
+
+  /**
+   * 子进程持读锁脚本（BEGIN + SELECT → SHARED 在场——WAL 换模的占锁形）。
+   * 行协议同上：LOCKED 后持 holdMs 毫秒再 COMMIT 退出（子进程自己的事件
+   * 循环负责定时——父线程被同步阻塞时仍可释锁）。
+   */
+  const READ_HOLDER_SCRIPT = `
+    const Database = require('better-sqlite3');
+    const db = new Database(process.argv[1]);
+    db.pragma('busy_timeout = 5000');
+    db.exec('BEGIN');
+    db.prepare('SELECT count(*) AS c FROM probe').get();
+    console.log('LOCKED');
+    setTimeout(() => { db.exec('COMMIT'); db.close(); }, Number(process.argv[2]));
+  `;
+
+  /** 等子进程 stdout 出现指定词（持锁确认后才发竞争写——否则测的是无锁直过） */
+  function waitMarker(child: ChildProcess, marker: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let seen = false;
+      child.stdout!.setEncoding('utf8');
+      child.stdout!.on('data', (chunk: string) => {
+        if (chunk.includes(marker)) {
+          seen = true;
+          resolve();
+        }
+      });
+      child.on('error', reject);
+      child.on('exit', (code) => {
+        if (!seen) reject(new Error(`持锁子进程未打标先退（code=${code}）`));
+      });
+    });
+  }
+
+  it('双连接写锁窗：他连接 BEGIN IMMEDIATE 持写锁期内，writeEvents 在 busy_timeout 窗内等锁、锁释后续接落账（seq 连续无 BUSY 逃逸）', async () => {
+    const path = join(dir, 'race.db');
+    const store = open({ dbPath: path });
+    // 蓄底 seq 0..1（会话行在库 + 游标到 1）——竞争批 seq 2..3 续接
+    const events = makeEvents('seed-a', 'seed-b');
+    store.writeEvents(writesFor('s-race', events.slice(0, 2)));
+    // 真跨进程持锁：better-sqlite3 同步 API 下同线程持锁方永无机会提交——
+    // busy_timeout 退避等待只在真并发连接间可观测
+    const child = spawn(process.execPath, ['-e', LOCK_HOLDER_SCRIPT, path, '400'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      await waitMarker(child, 'LOCKED');
+      const t0 = Date.now();
+      // 同步竞争写：写锁被持 → busy_timeout 窗内阻塞重试 → 子进程 COMMIT 后落账
+      store.writeEvents(writesFor('s-race', events.slice(2)));
+      const waited = Date.now() - t0;
+      // 真等了持锁窗（≥300ms 余量——非无锁直过假绿）
+      expect(waited).toBeGreaterThanOrEqual(300);
+      // 落账完整：seq 0..3 连续、内容保真
+      expect(store.loadEvents('s-race').map((event) => event.seq)).toEqual([0, 1, 2, 3]);
+      expect(store.getSessionRow('s-race')?.lastSeq).toBe(3);
+    } finally {
+      child.kill();
+    }
+  });
+
+  it('prepareWal 三拍与降级腿：busy_timeout=5000 / journal_mode=wal / synchronous=FULL 生效；换模失败 warn 降级继续跑 + BUSY 重试环真走', async () => {
+    // 拍直证：干净库上三拍全生效
+    const clean = new Database(join(dir, 'wal-clean.db'));
+    clean.exec('CREATE TABLE probe (x INTEGER)');
+    prepareWal(clean, () => undefined);
+    expect(clean.pragma('busy_timeout', { simple: true })).toBe(5000);
+    expect(clean.pragma('journal_mode', { simple: true })).toBe('wal');
+    expect(clean.pragma('synchronous', { simple: true })).toBe(2); // FULL
+    clean.close();
+    // 降级腿（即断形）：readonly 连接上换模必败（非 BUSY 错）→ 不重试直接 warn
+    // 降级继续跑。注：真并发占锁的 BUSY 全穷尽形 = 6 拍 × busy_timeout 5000ms
+    // + 退避 ≈ 31s——成本不进常规套件；降级行为（warn + 卫生拍不跳 + 缺省
+    // 日志模式继续）由此即断形锁定，BUSY 分支的重试环由下一腿锁定。
+    const roPath = join(dir, 'wal-ro.db');
+    const roSeed = new Database(roPath);
+    roSeed.exec('CREATE TABLE probe (x INTEGER)');
+    roSeed.close();
+    const ro = new Database(roPath, { readonly: true });
+    const roWarns: string[] = [];
+    prepareWal(ro, (m) => roWarns.push(m));
+    expect(roWarns.join('\n')).toContain('journal_mode=WAL 设置失败');
+    expect(ro.pragma('journal_mode', { simple: true })).toBe('delete'); // 换模未成
+    // 卫生两拍不因换模失败跳过
+    expect(ro.pragma('busy_timeout', { simple: true })).toBe(5000);
+    expect(ro.pragma('synchronous', { simple: true })).toBe(2);
+    ro.close();
+    // BUSY 重试腿（真并发连接形·轻量）：delete 模式库 + 子进程持读事务跨过
+    // 首个 busy 窗（5500ms > 5000ms）→ 首拍 BUSY 退避后次拍锁释换模成功。
+    // 持锁方必须是子进程：prepareWal 同步阻塞主线程（busy 等待 + Atomics 退避
+    // 都不让出事件循环）——同线程 setTimeout 永无机会 COMMIT。
+    const busyPath = join(dir, 'wal-busy.db');
+    const seed = new Database(busyPath);
+    seed.exec('CREATE TABLE probe (x INTEGER)');
+    seed.close();
+    const holder = spawn(process.execPath, ['-e', READ_HOLDER_SCRIPT, busyPath, '5500'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    try {
+      await waitMarker(holder, 'LOCKED');
+      const contender = new Database(busyPath);
+      const busyWarns: string[] = [];
+      const t0 = Date.now();
+      prepareWal(contender, (m) => busyWarns.push(m));
+      const elapsed = Date.now() - t0;
+      // 首拍吃满一个 busy 窗（≥5000ms）后重试成功——重试环真走且不误报降级
+      expect(busyWarns).toHaveLength(0);
+      expect(elapsed).toBeGreaterThanOrEqual(5000);
+      expect(elapsed).toBeLessThan(15_000);
+      expect(contender.pragma('journal_mode', { simple: true })).toBe('wal');
+      contender.close();
+    } finally {
+      holder.kill();
+    }
+  });
+
+  it('同库双 Store 交替写：不同会话 seq 域互不冲突且跨连接互见；同会话撞号诚实抛（连续性断言 + 主键约束两形）', () => {
+    const path = join(dir, 'two.db');
+    const a = open({ dbPath: path });
+    const b = open({ dbPath: path }); // 第二 Store 同库（CLI 惰性开库与常驻进程并存的结构形）
+    // 交替写不同会话：per-session 游标各账各的，seq 域独立推进（每会话单 log
+    // 造 0..3 再分两批——seq 域跨批连续，写权在两连接间交替）
+    const eventsA = makeEvents('a0', 'a1'); // seq 0..3
+    const eventsB = makeEvents('b0', 'b1'); // seq 0..3
+    a.writeEvents(writesFor('sa', eventsA.slice(0, 2)));
+    b.writeEvents(writesFor('sb', eventsB.slice(0, 2)));
+    a.writeEvents(writesFor('sa', eventsA.slice(2)));
+    b.writeEvents(writesFor('sb', eventsB.slice(2)));
+    expect(a.loadEvents('sa')).toHaveLength(4);
+    expect(b.loadEvents('sb')).toHaveLength(4);
+    // WAL 下已提交事务跨连接立即可见（双连接互见）
+    expect(a.queryEvents({ sessionId: 'sb' }).events).toHaveLength(4);
+    expect(b.queryEvents({ sessionId: 'sa' }).events).toHaveLength(4);
+    // 同会话撞号形一：陈旧 seq 重放（b 的游标首遇从库 last_seq 初始化 → 期望续接位）
+    // → 连续性断言 fail-loud（PERSIST_DATA_CORRUPT）
+    a.writeEvents(writesFor('sc', makeEvents('c0', 'c1').slice(0, 1))); // sc seq0 经 a
+    expectCode(() => b.writeEvents(writesFor('sc', makeEvents('c0', 'c1').slice(0, 1))), 'PERSIST_DATA_CORRUPT');
+    // 同会话撞号形二：内存游标滞后于库（a 不知情 b 已写 seq1）→ 连续性断言通过
+    // 但行已在场 → 主键约束原样上抛（非吞非改写）
+    b.writeEvents(writesFor('sc', makeEvents('c0', 'c1').slice(1, 2))); // sc seq1 经 b
+    let thrown: unknown;
+    try {
+      a.writeEvents(writesFor('sc', makeEvents('c0', 'c1').slice(1, 2))); // a 的 sc 游标仍停在 0
+    } catch (err) {
+      thrown = err;
+    }
+    expect((thrown as { code?: string }).code).toMatch(/^SQLITE_CONSTRAINT/);
+  });
+});
+
+describe('迁移执行中失败（升级日现场）', () => {
+  /** 坏链：v2 合法（建 mig_ok 表）+ v3 坏 SQL（语法错）——失败点在链中段 */
+  const BAD_CHAIN: readonly MigrationSpec[] = [
+    { version: 2, name: 'test-mig-ok', sql: 'CREATE TABLE mig_ok (id INTEGER PRIMARY KEY) STRICT' },
+    { version: 3, name: 'test-mig-bad', sql: 'THIS IS NOT VALID SQL' },
+  ];
+
+  it('坏 SQL 原样上抛（非 BaseError 包装非吞）+ user_version 不半推进（v2 已落 v3 回滚）+ 迁移前备份在场', () => {
+    const path = join(dir, 'migfail.db');
+    // v1 基线库 + 升级前数据行（升级日现场的用户数据对照物）
+    const base = open({ dbPath: path });
+    base.writeEvents(writesFor('s-pre', makeEvents('pre-a', 'pre-b')));
+    base.close();
+    // 坏链开库：v2 事务已提交、v3 事务内坏 SQL 抛 SqliteError 上抛
+    let thrown: unknown;
+    try {
+      open({ dbPath: path, migrations: BAD_CHAIN });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(BaseError); // 原样 SqliteError——不吞不改写（fail-loud）
+    // 版本不半推进：v3 的 user_version 赋值随其事务回滚——重开 raw 断言停在 2
+    const probe = new Database(path);
+    expect(probe.pragma('user_version', { simple: true })).toBe(2);
+    // 迁移前备份在场（.bak-v1——升级行为先于任何迁移已拷）
+    expect(existsSync(`${path}.bak-v1`)).toBe(true);
+    probe.close();
+  });
+
+  it('bak-v1 手工回滚路径真实可用：v1 基线表全在 + 无 -wal 伴随（checkpoint 收卷快照）+ 升级前数据行全量可读', () => {
+    const path = join(dir, 'migrollback.db');
+    const base = open({ dbPath: path });
+    base.writeEvents(writesFor('s-pre', makeEvents('pre-a', 'pre-b')));
+    base.close();
+    expect(() => open({ dbPath: path, migrations: BAD_CHAIN })).toThrow();
+    expect(existsSync(`${path}.bak-v1`)).toBe(true);
+    // 拷贝件是 checkpoint 收卷后快照：无 -wal 伴随（独立可开——手工回滚的前置条件）
+    expect(existsSync(`${path}.bak-v1-wal`)).toBe(false);
+    const bak = new Database(`${path}.bak-v1`);
+    const tables = (
+      bak.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).all() as {
+        name: string;
+      }[]
+    ).map((row) => row.name);
+    // v1 基线核心七表全在 + 迁移对象不在（拷贝先于任何迁移——回滚后旧宿主可直开）
+    for (const table of [
+      'events',
+      'sessions',
+      'session_fts',
+      'store_state',
+      'credentials',
+      'model_catalog',
+      'persist_incidents',
+    ]) {
+      expect(tables).toContain(table);
+    }
+    expect(tables).not.toContain('mig_ok');
+    // 升级前写入的数据行全量可读（4 条 seq 连续 + 会话游标账同步）
+    const rows = bak.prepare(`SELECT seq FROM events WHERE session_id = 's-pre' ORDER BY seq`).all() as {
+      seq: number;
+    }[];
+    expect(rows.map((row) => row.seq)).toEqual([0, 1, 2, 3]);
+    expect(
+      (bak.prepare(`SELECT last_seq FROM sessions WHERE id = 's-pre'`).get() as { last_seq: number }).last_seq,
+    ).toBe(3);
+    bak.close();
+  });
+
+  it('修复宿主后重开续升：只带合法 v3 的换代链再开同库 → 升到 head 且 v2 成果保留、原数据不丢（升级日三段剧收口）', () => {
+    const path = join(dir, 'migrepair.db');
+    const base = open({ dbPath: path });
+    base.writeEvents(writesFor('s-pre', makeEvents('pre-a', 'pre-b')));
+    base.close();
+    expect(() => open({ dbPath: path, migrations: BAD_CHAIN })).toThrow();
+    // 修复形：换代宿主只带合法 v3（normalizeMigrations 无连续性要求——链头 3 合法）
+    const repaired = open({
+      dbPath: path,
+      migrations: [
+        { version: 3, name: 'test-mig-fixed', sql: 'CREATE TABLE mig_fixed (id INTEGER PRIMARY KEY) STRICT' },
+      ],
+    });
+    expect(repaired.headVersion).toBe(3);
+    expect(repaired.connection.pragma('user_version', { simple: true })).toBe(3);
+    // v2 成果保留（失败现场已落的部分迁移产物随库存活——续升不重跑已落版本）
+    expect(repaired.connection.prepare(`SELECT count(*) AS c FROM mig_ok`).get()).toEqual({ c: 0 });
+    expect(repaired.connection.prepare(`SELECT count(*) AS c FROM mig_fixed`).get()).toEqual({ c: 0 });
+    // 升级前数据全程不丢
+    expect(repaired.loadEvents('s-pre')).toHaveLength(4);
   });
 });

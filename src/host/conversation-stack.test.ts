@@ -1893,3 +1893,119 @@ describe('模型循环基座（挂账解挂批 2026-09-15——ctrl+p 会话级�
     await rt.shutdown();
   });
 });
+
+/* ---------------- retry/abort 编舞 × write-behind 落库跨进程（A4 补位） ---------------- */
+
+/**
+ * A4：driver 全家测试 SessionLog 恒纯内存——retry 遮蔽/abort 编舞与
+ * write-behind 异步批落/flush/重开的时序交互零覆盖。本组以组合根真库
+ * （rigRuntime 真库 dataDir + rigStack faux）补两例最小可行子集。
+ *
+ * transient 注入形（与 :1383 既有 env 旋钮路同源——rig 兼容的最小改）：
+ * 栈级装配的 classifyError/retry 均为真身硬接（组合根无注入 seam，走
+ * driver.test.ts:344 注入形须改产品码），而流层 idle 帽合成
+ * errorCode=LLM_STREAM_IDLE_TIMEOUT 经真分类器判定序 ①' 恒落 transient 桶
+ * ——首响应永不 resolve + 40ms 窄帽即得「确定性 transient 失败」。
+ */
+describe('retry/abort 编舞 × write-behind 落库跨进程（A4——时序交互补位）', () => {
+  /** transient 注入旋钮（40ms 流层 idle 帽——挂死流合成 transient 错误终值） */
+  const TRANSIENT_ENV = { [LLM_IDLE_TIMEOUT_MS_ENV]: '40' } as const;
+
+  it('A4 交互一：transient 失败 → llm/retry(scheduled) 信封经 write-behind 落库 → 重开信封保真 + 投影遮蔽跨进程生效', async () => {
+    // 第一段：真库 dataDir 起栈——首响应挂死（40ms idle 帽合成 transient 错误
+    // 终值）→ 驱动遮蔽 + 退避重试 → 次响应 stop 收场（全链同 :1383 先例）
+    const { dir, rt: rt1 } = rigRuntime();
+    const ws = rigWorkspace();
+    const rig1 = rigStack(rt1, { env: { ...TRANSIENT_ENV } });
+    const session = rig1.stack.manager.create({ workspaceRoot: ws, origin: 'delegation' });
+    rig1.faux.setResponses([() => new Promise<PiAssistantMessage>(() => {}), () => messageOf('stop')]);
+    const receipt = await rig1.stack.submitText(session.sessionId, '问');
+    expect(receipt).toMatchObject({ status: 'completed' }); // 遮蔽后重试恢复收场
+    expect(rig1.faux.state.callCount).toBe(2); // 挂死一次 + 恢复一次
+    // 退出序完整走（closer drain → write-behind flush → 关库）——重开前的落库屏障
+    await rt1.shutdown();
+
+    // 第二段：同 dataDir 新运行时重开——write-behind 已冲刷，事件全量可查
+    const rt2 = createHostRuntime({ dataDir: dir });
+    const rig2 = rigStack(rt2);
+    const page = rt2.persistence.queryEvents({ sessionId: session.sessionId, sinceMs: 0 });
+
+    // (a) 信封保真：重开 queryEvents 可见 llm/retry(scheduled)，surfaceOp
+    // {op:'replace',start,end} 与溯源全列区间 seq 往返无损（对照 store.test.ts
+    // 批写往返形——本例经 write-behind 真腿 + shutdown flush + 重开三段时序）
+    const scheduled = page.events.find(
+      (e) => e.type === 'llm/retry' && (e.data as { phase?: string }).phase === 'scheduled',
+    );
+    expect(scheduled).toBeDefined();
+    // 遮蔽区间锚定对账：start = 错误 assistant 锚 seq、end = 伴生 turn/end seq
+    const errorAssistant = page.events.find(
+      (e) => e.type === 'assistant/message' && (e.data as { stopReason?: string }).stopReason === 'error',
+    );
+    expect(errorAssistant).toBeDefined(); // 错误 assistant 确已落库（遮蔽 ≠ 删除）
+    const companionTurnEnd = page.events.find((e) => e.type === 'turn/end' && e.seq > errorAssistant!.seq);
+    expect(companionTurnEnd).toBeDefined();
+    expect(scheduled!.surfaceOp).toEqual({ op: 'replace', start: errorAssistant!.seq, end: companionTurnEnd!.seq });
+    const expectedSeqs: number[] = [];
+    for (let seq = errorAssistant!.seq; seq <= companionTurnEnd!.seq; seq += 1) expectedSeqs.push(seq);
+    expect(scheduled!.sourceEventSeqs).toEqual(expectedSeqs); // 溯源完整性：区间 seq 全列
+
+    // (b) 投影重建（跨进程 fold 对账本体）：重开侧 loadSession 腿从库事件
+    // 重 fold——被遮蔽的错误 assistant 不在投影、恢复后的 assistant 在场
+    //（对照上：错误 assistant 事件在库、投影无——遮蔽区间跨进程生效）
+    const projection = await rig2.stack.projectionOf(session.sessionId);
+    const assistants = projection.filter((m) => m.role === 'assistant');
+    expect(assistants).toHaveLength(1); // 恰一条（恢复后的）——错误 assistant 被遮蔽
+    expect((assistants[0] as { stopReason?: string }).stopReason).toBe('stop');
+    expect(projection.some((m) => m.role === 'user')).toBe(true); // 用户话语不受伤
+    await rt2.shutdown();
+  });
+
+  it('A4 交互二：退避窗内 interrupt → llm/retry(phase=aborted) 落库重开可见、零续跑事件泄漏', async () => {
+    const { dir, rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const rig = rigStack(rt, { env: { ...TRANSIENT_ENV } });
+    const session = rig.stack.manager.create({ workspaceRoot: ws, origin: 'delegation' });
+    // 次响应备而待消费——abort 后续跑不得发生（泄漏断言锚）
+    rig.faux.setResponses([() => new Promise<PiAssistantMessage>(() => {}), () => messageOf('stop')]);
+    const runP = rig.stack.submitText(session.sessionId, '问');
+    expect(runP).toBeDefined();
+    // scheduled 落账出现在活体日志即入退避窗：装配恒 DEFAULT_RETRY_POLICY
+    //（baseDelayMs=1000，抖动实延迟 ∈ [500,1000)ms——组合根无 retry 注入
+    // seam，缺省窗对「探测到 scheduled 即 interrupt」已足够确定）
+    await vi.waitFor(
+      () => {
+        expect(
+          session.driver.session
+            .events()
+            .some((e) => e.type === 'llm/retry' && (e.data as { phase?: string }).phase === 'scheduled'),
+        ).toBe(true);
+      },
+      { interval: 10, timeout: 3000 },
+    );
+    rig.stack.interrupt(session.sessionId); // 退避窗内协作中止（abort 编舞触发点）
+    const receipt = await runP!;
+    expect(receipt).toMatchObject({ status: 'failed' }); // run 终态保持已结算的 failed 收场
+    expect(rig.faux.state.callCount).toBe(1); // 次响应从未被消费——零续跑 LLM 调用
+    await rt.shutdown(); // closer drain + write-behind flush + 关库
+
+    // 重开对账：phase=aborted 的 llm/retry 在库可见；aborted 之后零续跑事件
+    const rt2 = createHostRuntime({ dataDir: dir });
+    const page = rt2.persistence.queryEvents({ sessionId: session.sessionId, sinceMs: 0 });
+    const scheduled = page.events.find(
+      (e) => e.type === 'llm/retry' && (e.data as { phase?: string }).phase === 'scheduled',
+    );
+    expect(scheduled).toBeDefined(); // 编舞完整性：scheduled 先行（遮蔽信封在场）
+    const aborted = page.events.find(
+      (e) => e.type === 'llm/retry' && (e.data as { phase?: string }).phase === 'aborted',
+    );
+    expect(aborted).toBeDefined();
+    expect((aborted!.data as { attempt?: number }).attempt).toBe(1); // 首次重试的退避被中止
+    expect(aborted!.seq).toBeGreaterThan(scheduled!.seq); // 编舞序：aborted 随 scheduled 之后
+    // 无续跑泄漏：aborted 之后无 turn/start / request/header（重试探针窗关闭即收口）
+    const after = page.events.filter((e) => e.seq > aborted!.seq);
+    expect(after.some((e) => e.type === 'turn/start' || e.type === 'request/header')).toBe(false);
+    // 全场恰一个 turn/start（首次失败轮）——无第二次起跑
+    expect(page.events.filter((e) => e.type === 'turn/start')).toHaveLength(1);
+    await rt2.shutdown();
+  });
+});

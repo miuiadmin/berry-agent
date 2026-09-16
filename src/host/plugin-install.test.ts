@@ -1,15 +1,27 @@
 /**
  * host/plugin-install 三源装机执行器测试（成熟度缺口 #10 装机面落码批 10b）。
  *
- * 覆盖四块：ref 词法全矩阵、min-release-age 三级解析（缺省/env/cliFlag 覆盖
+ * 覆盖：ref 词法全矩阵、min-release-age 三级解析（缺省/env/cliFlag 覆盖
  * + env 坏形 fail-loud）、npm 执行器假 spawn 编舞（argv 供应链四件套断言 +
  * 锚 package.json + lock 收割 + 失败指路 + 撞名拒 + core: 前缀拒 + 回滚）、
- * local 源与收割真跑（本地 fixture 零网络——declaredEvents 收割/纯声明包零码
- * 收割/events 坏形拒）、update 分派三态（local no-op/npm 重装换装豁免/查无拒）。
+ * npm 失败两形分流（非旗标失败零指路 + 真拒装等窗龄指路——修前红形）、
+ * git 执行器假 spawn 编舞（clone/checkout/rev-parse 三笔序 + tmp 清尾 +
+ * 坏 ref 拒 + update 幂等重克隆）、local 源与收割真跑（本地 fixture 零网络
+ * ——declaredEvents 收割/纯声明包零码收割/events 坏形拒）、update 分派三态
+ * （local no-op/npm 重装换装豁免/查无拒）、生命周期归因账落词（05 §1.1）。
  *
  * 真盘 tmp 数据目录 + 真 fs 注入；spawn 全假件——npm/git 两执行器零真网络。
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -85,6 +97,66 @@ function npmFakeSpawn(
 /** 执行器 deps 速记（真 fs + 注入 spawn） */
 function depsOf(dataDir: string, spawn: SpawnRunner, extra: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
   return { dataDir, fs: createPluginStoreFs(), spawn, ...extra };
+}
+
+/**
+ * git 假 spawn：按 argv 前缀分派（runGitInstall 三笔编舞的逐笔应答）——
+ * clone 在目标 tmp（argv 尾参）写真 fixture、checkout 记 argv 退 0、
+ * rev-parse 记 argv 回 headCommit。headCommit/fail 可变（update 换代与
+ * clone/checkout 失败用例注入）。git 腿 fixture 无 version 键——git 源账本
+ * commit 即版本标识（manifest version 位「git 源可缺席」）。
+ */
+interface GitRecorder {
+  readonly spawn: SpawnRunner;
+  readonly argvLog: string[][];
+  /** rev-parse 应答 commit（可变——update 用例换新值断言换代） */
+  headCommit: string;
+  /** 指定腿失败词面（clone/checkout 失败用例注入——message 承载词面） */
+  readonly fail: { clone?: string; checkout?: string };
+}
+
+function gitFakeSpawn(opts: { readonly pkgJson?: string } = {}): GitRecorder {
+  const argvLog: string[][] = [];
+  const rec: GitRecorder = {
+    argvLog,
+    headCommit: 'fake-commit-1111',
+    fail: {},
+    spawn: {
+      run: (cmd, args) => {
+        argvLog.push([cmd, ...args]);
+        if (cmd !== 'git') return Promise.reject(new Error(`假 spawn 不受理 ${cmd}`));
+        /** 按注入词面构造非 0 退错误（stderr 同形——git 腿错误原样上浮 message 面） */
+        const failErr = (stage: string, text: string): Error & { stderr: string } => {
+          const err = new Error(`git ${stage} 退出非 0：${text}`) as Error & { stderr: string };
+          err.stderr = text;
+          return err;
+        };
+        if (args[0] === 'clone') {
+          if (rec.fail.clone !== undefined) return Promise.reject(failErr('clone', rec.fail.clone));
+          // clone 目标 = argv 尾参（runGitInstall 的 mkdtemp tmp）——写真 fixture
+          const target = args[args.length - 1]!;
+          mkdirSync(target, { recursive: true });
+          writeFileSync(join(target, 'package.json'), opts.pkgJson ?? pluginPkgJson({ version: undefined }));
+          writeFileSync(join(target, 'index.js'), INDEX_WITH_EVENTS);
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+        if (args[2] === 'checkout') {
+          if (rec.fail.checkout !== undefined) return Promise.reject(failErr('checkout', rec.fail.checkout));
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+        if (args[2] === 'rev-parse') {
+          return Promise.resolve({ stdout: `${rec.headCommit}\n`, stderr: '' });
+        }
+        return Promise.reject(new Error(`假 spawn 不识别 git 子命令：${args.join(' ')}`));
+      },
+    },
+  };
+  return rec;
+}
+
+/** git 克隆中转站残影清点（tmpRoot 下 berry-git-install-* 目录——finally rm 回归锁的断言面） */
+function gitTmpResidue(root: string): string[] {
+  return readdirSync(root).filter((name) => name.startsWith('berry-git-install-'));
 }
 
 /** 账本 entries 窄化读 */
@@ -242,6 +314,77 @@ describe('npm 执行器编舞（假 spawn——argv 与落账可测，零真网�
     // 账本条目仍指路 update）
     expect(existsSync(join(dataDir, 'plugins', 'node_modules', 'dup-pkg'))).toBe(false);
     expect(entriesOf(dataDir).map((e) => e.id)).toContain('dup-pkg');
+  });
+});
+
+describe('npm 失败两形分流（非旗标失败零指路 + 真拒装等窗龄指路）', () => {
+  it('spawn 中途失败（非旗标形）：不给「升级 npm」指路 + 零落账；半装残影经重装收敛落账', async () => {
+    const dataDir = dataDirOf('data-half');
+    const pkg = 'half-pkg';
+    const pkgDir = join(dataDir, 'plugins', 'node_modules', pkg);
+    let fail = true; // 首发失败（网络中断形）→ 重试成功
+    const spawn: SpawnRunner = {
+      run: () => {
+        if (fail) {
+          const err = new Error('command failed') as Error & { stderr: string };
+          err.stderr = 'npm error network tunnel closed';
+          return Promise.reject(err);
+        }
+        // 成功形：仿真 npm 树替换语义（重装先清半装树再落全树——npm 幂等腿）
+        rmSync(pkgDir, { recursive: true, force: true });
+        mkdirSync(pkgDir, { recursive: true });
+        writeFileSync(join(pkgDir, 'package.json'), pluginPkgJson({ name: pkg }));
+        writeFileSync(join(pkgDir, 'index.js'), INDEX_WITH_EVENTS);
+        writeFileSync(
+          join(dataDir, 'plugins', '.package-lock.json'),
+          JSON.stringify({ packages: { [`node_modules/${pkg}`]: { version: '1.0.0', integrity: 'sha512-half' } } }),
+        );
+        return Promise.resolve({ stdout: '', stderr: '' });
+      },
+    };
+    const deps = depsOf(dataDir, spawn);
+    const failed = await installPlugin(deps, `npm:${pkg}`);
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    // 非旗标形失败：不命中 min-release-age 指路分支——零升级 hint（分流反断言）
+    expect(failed.message).toContain('npm install 失败');
+    expect(failed.message).not.toContain('≥11.5');
+    expect(failed.message).not.toContain('npm 不识');
+    expect(entriesOf(dataDir)).toHaveLength(0); // 失败零落账
+    // 半装残影（spawn 中断遗留半 node_modules 树——无清理腿的现状行为）：
+    // 重装成功后残影收敛（npm 树替换）+ 落账恰一条
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(join(pkgDir, 'half.txt'), '半装残影');
+    fail = false;
+    const retried = await installPlugin(deps, `npm:${pkg}`);
+    expect(retried.ok).toBe(true);
+    expect(entriesOf(dataDir).map((e) => e.id)).toEqual([pkg]);
+    expect(existsSync(join(pkgDir, 'half.txt'))).toBe(false); // 残影收敛
+    expect(existsSync(join(pkgDir, 'package.json'))).toBe(true); // 全树落位
+  });
+
+  it('npm 真拒装（窗龄未满）：等窗龄/调窗指路、不给「升级 npm」误诊（修前红——现实现同词面误走旗标不识分支）', async () => {
+    const dataDir = dataDirOf('data-eligible');
+    const spawn: SpawnRunner = {
+      run: () => {
+        // npm ≥11.5 真拒装报文：包龄不满静置窗——词面含 eligible 且常伴
+        // --min-release-age 字面（正是误诊源：旧分支按 min-release-age 字面
+        // 命中「npm 不识旗标」升级指路）
+        const err = new Error('command failed') as Error & { stderr: string };
+        err.stderr =
+          'npm error eligible-pkg@1.0.0 not yet eligible: published 2 hours ago is within --min-release-age 1440';
+        return Promise.reject(err);
+      },
+    };
+    const outcome = await installPlugin(depsOf(dataDir, spawn), 'npm:eligible-pkg');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('npm install 失败');
+    expect(outcome.message).toContain('等发布窗龄'); // 等窗龄指路
+    expect(outcome.message).toContain(MIN_RELEASE_AGE_ENV); // 调窗指路
+    expect(outcome.message).not.toContain('≥11.5'); // 分流反断言（修前红位）
+    expect(outcome.message).not.toContain('npm 不识');
+    expect(entriesOf(dataDir)).toHaveLength(0); // 拒装零落账
   });
 });
 
@@ -424,5 +567,101 @@ describe('生命周期归因账落词（05 §1.1 audit 落账批——install/up
     const src = localFixture('absent');
     const outcome = await installPlugin(depsOf(dataDirOf('data-audit-absent'), noopSpawn), `local:${src}`);
     expect(outcome.ok).toBe(true);
+  });
+});
+
+describe('git 执行器编舞（假 spawn——clone/checkout/rev-parse 零真网络）', () => {
+  /** 本 describe 专用：数据目录 + git 克隆中转站 tmpRoot（mkdtemp 前提父目录在场） */
+  function gitDirs(name: string): { readonly dataDir: string; readonly gitTmp: string } {
+    const dataDir = dataDirOf(`data-git-${name}`);
+    const gitTmp = join(testRoot, `git-tmp-${name}`);
+    mkdirSync(gitTmp, { recursive: true });
+    return { dataDir, gitTmp };
+  }
+
+  it('全链：clone→checkout --detach ref→rev-parse 三笔序 + commit 落账（version 位缺席）', async () => {
+    const { dataDir, gitTmp } = gitDirs('a');
+    const rec = gitFakeSpawn();
+    const outcome = await installPlugin(
+      depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }),
+      'git:https://github.com/o/r.git#v1.2.0',
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // argv 恰三笔且序为：clone url → -C <tmp> checkout --detach <ref> → -C <tmp> rev-parse HEAD
+    const tmp = rec.argvLog[0]?.[3];
+    expect(tmp).toBeDefined();
+    expect(tmp!.startsWith(join(gitTmp, 'berry-git-install-'))).toBe(true);
+    expect(rec.argvLog).toEqual([
+      ['git', 'clone', 'https://github.com/o/r.git', tmp],
+      ['git', '-C', tmp, 'checkout', '--detach', 'v1.2.0'],
+      ['git', '-C', tmp, 'rev-parse', 'HEAD'],
+    ]);
+    // 账本条目：git 源 commit 即版本标识（version/integrity 位缺席）
+    expect(outcome.entry).toMatchObject({
+      id: 'demo-pkg',
+      source: 'git',
+      ref: 'git:https://github.com/o/r.git#v1.2.0',
+      commit: 'fake-commit-1111',
+      installPath: join('plugins', 'git', 'github.com', 'o', 'r'),
+      declaredEvents: ['demo/event-a', 'demo/event-b'],
+    });
+    expect(outcome.entry.version).toBeUndefined();
+    // tmp 已随 rename 搬空 + 装机树落位（tmp→target 真目录搬家）
+    expect(gitTmpResidue(gitTmp)).toEqual([]);
+    expect(existsSync(join(dataDir, 'plugins', 'git', 'github.com', 'o', 'r', 'index.js'))).toBe(true);
+  });
+
+  it('clone 失败：拒（词面上浮）+ tmp 清尾（finally rm 回归锁）+ 零落账', async () => {
+    const { dataDir, gitTmp } = gitDirs('b');
+    const rec = gitFakeSpawn();
+    rec.fail.clone = 'fatal: repository https://github.com/o/missing.git/ not found';
+    const outcome = await installPlugin(
+      depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }),
+      'git:https://github.com/o/missing.git',
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('fatal: repository'); // git 腿错误原样上浮
+    expect(rec.argvLog).toHaveLength(1); // clone 即败——checkout/rev-parse 不发
+    expect(gitTmpResidue(gitTmp)).toEqual([]); // finally rm 清尾
+    expect(entriesOf(dataDir)).toHaveLength(0);
+  });
+
+  it('坏 ref：checkout 失败拒 + tmp 清尾 + 目标未建（mkdir 在 rev-parse 后）', async () => {
+    const { dataDir, gitTmp } = gitDirs('c');
+    const rec = gitFakeSpawn();
+    rec.fail.checkout = 'fatal: invalid reference: no-such-tag';
+    const outcome = await installPlugin(
+      depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }),
+      'git:https://github.com/o/r.git#no-such-tag',
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('invalid reference');
+    expect(rec.argvLog).toHaveLength(2); // clone 过、checkout 败——rev-parse 不发
+    expect(gitTmpResidue(gitTmp)).toEqual([]);
+    // 目标目录未建（runGitInstall 的 mkdir/rm/rename 全在 rev-parse 之后）
+    expect(existsSync(join(dataDir, 'plugins', 'git', 'github.com', 'o', 'r'))).toBe(false);
+    expect(entriesOf(dataDir)).toHaveLength(0);
+  });
+
+  it('幂等重克隆（update 腿）：目标在场先 rm 再落新树——账本恰一条且 commit 换新', async () => {
+    const { dataDir, gitTmp } = gitDirs('d');
+    const rec = gitFakeSpawn();
+    await installPlugin(depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }), 'git:https://github.com/o/r.git#v1.2.0');
+    rec.headCommit = 'fake-commit-2222'; // 上游前进（同一假仓 HEAD 换新）
+    const updated = await updatePlugin(depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }), 'demo-pkg');
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    // upsert 后见胜出：账本恰一条且 commit 为新值（旧树 rm + 新树 rename 换代）
+    const after = entriesOf(dataDir).filter((e) => e.id === 'demo-pkg');
+    expect(after).toHaveLength(1);
+    expect(after[0]!.commit).toBe('fake-commit-2222');
+    expect(updated.entry.commit).toBe('fake-commit-2222');
+    // 两轮各三笔编舞 + tmp 无残影 + 落位树在场
+    expect(rec.argvLog).toHaveLength(6);
+    expect(gitTmpResidue(gitTmp)).toEqual([]);
+    expect(existsSync(join(dataDir, 'plugins', 'git', 'github.com', 'o', 'r', 'package.json'))).toBe(true);
   });
 });

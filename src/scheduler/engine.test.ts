@@ -449,3 +449,44 @@ describe('start 僵行清扫（u-2 定形注③）', () => {
     expect(dao.get('self')?.activePid).toBe(processPid); // 清扫跳过
   });
 });
+
+/**
+ * 时钟回拨窗（注入假钟——先推进后回拨的确定性序列）。nextFireAt 层的回拨
+ * 语义已由 schedule.test.ts「every 回拨形」锁（锚起算不前移）；此处锁引擎
+ * 编舞面：回拨窗内 due 判定不重触发已 fire 行（在飞不抢占自家 + 结算后
+ * next 恒未来）、恢复前跳越过 next 后 sweep 正常补跑。
+ */
+describe('时钟回拨窗（注入假钟——回拨不重触发、恢复后 sweep 正常）', () => {
+  it('推进过到点 fire → 在飞窗内回拨 sweep 不重触 → 结算后回拨 next 不前移 → 恢复前跳补跑', async () => {
+    const { service, dao, engine, runner } = assemble();
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    engine.start();
+    advance(10 * 60_000 + 1000); // 过到点（建行 next=+10m）
+    engine.sweep();
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(1));
+    // 回拨 30m（在飞窗内）：行 next_fire_at（未来刻）在回拨后更未来——due
+    // 判定不含该行，sweep 不重触发不抢占自家实例
+    advance(-30 * 60_000);
+    engine.sweep();
+    engine.sweep();
+    expect(runner.requests).toHaveLength(1);
+    // 结算：next 从结算时刻（回拨后的 now）+10m 起算
+    runner.resolve(0);
+    await vi.waitFor(() => expect(engine.inFlightCount).toBe(0));
+    const settledNext = dao.get('j')?.nextFireAt;
+    expect(settledNext).toBe(new Date(nowMs + 600_000).toISOString());
+    // 再回拨 10m：next 不随回拨前移（仍是上一步落值）——sweep 零动作
+    advance(-10 * 60_000);
+    engine.sweep();
+    expect(runner.requests).toHaveLength(1);
+    expect(dao.get('j')?.nextFireAt).toBe(settledNext);
+    // 恢复前跳 60m（越过 next）：sweep 正常起跑第二轮 + 结算照写
+    advance(60 * 60_000);
+    engine.sweep();
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(2));
+    runner.resolve(1);
+    await vi.waitFor(() => expect(engine.inFlightCount).toBe(0));
+    expect(dao.get('j')?.lastOutcome?.reason).toBe('exit_code');
+    expect(dao.get('j')?.lastFireAt).not.toBeNull();
+  });
+});

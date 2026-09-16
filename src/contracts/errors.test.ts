@@ -144,8 +144,11 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
     const registered = new Set(listErrorCodes().map((info) => info.code));
     // 个案豁免集：Node errno 系统码域（ErrnoException.code 的桩构造与
     // 断言形——fs.test/single-instance.test 构造 EACCES/ENOENT 族错误对象）
-    // ——外来码域非本仓错误码族；新豁免须逐案点名注记（防豁免集长成后门）
-    const externalSystemCodes = new Set(['ENOENT']);
+    // ——外来码域非本仓错误码族；新豁免须逐案点名注记（防豁免集长成后门）。
+    // EADDRINUSE（2026-09-16 C4 开面失败锁批）：webui-bridge.test.ts:584 断言
+    // node listen 错误的 errno（occupyTcpPort 真占位后 tcp 绑定失败直上抛的
+    // 系统码）——与 ENOENT 同属 node errno 断言形，非错误码族发射面
+    const externalSystemCodes = new Set(['ENOENT', 'EADDRINUSE']);
     const patterns = [
       /new\s+BaseError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
       /\bcodedMessage\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
