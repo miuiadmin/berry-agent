@@ -540,9 +540,9 @@ function parsePlugins(rest: readonly string[]): CliParseResult {
 }
 
 /**
- * marketplace 子命令族解析（03 §9.6 CLI 面——mp-3）：add/remove/list/discover/
- * install/uninstall 六动词落地面 + update/upgrade 两合法解析形（执行层诚实拒
- * 退 1 留 mp-4——doors 先例同律，用法错与语义拒两档分立）。uninstall 复用
+ * marketplace 子命令族解析（03 §9.6 CLI 面）：八动词全形（mp-3 六动词
+ * add/remove/list/discover/install/uninstall + mp-4 update/upgrade 真身；
+ * 用法错与语义拒两档分立）。uninstall 复用
  * UNINSTALL_SCHEMAS（--confirm + --data keep|purge——§5.5 双相旗标全继承）；
  * 寻址 id 词法（name@marketplace）归执行层单源，本层只执法解析律。
  */

@@ -36,7 +36,7 @@ import {
   updatePlugin,
 } from './plugin-install.js';
 import type { InstallExecutorDeps, SpawnRunner } from './plugin-install.js';
-import { createPluginStoreFs, ledgerPath, readLedger } from './plugin-store.js';
+import { createPluginStoreFs, ledgerPath, mountRow, readEnabledRowsForEdit, readLedger } from './plugin-store.js';
 import type { LifecycleAuditSink, PluginLedgerEntry } from './plugin-store.js';
 
 /** 测试根 tmp（每文件钉数据目录纪律——BERRY_AGENT_DATA_DIR 之外的自管 tmp） */
@@ -94,9 +94,17 @@ function npmFakeSpawn(
   return { spawn, argvLog };
 }
 
-/** 执行器 deps 速记（真 fs + 注入 spawn） */
+/** 执行器 deps 速记（真 fs + 注入 spawn；DNS 位缺省公网桩——git 腿主机校验零真网络） */
 function depsOf(dataDir: string, spawn: SpawnRunner, extra: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
-  return { dataDir, fs: createPluginStoreFs(), spawn, ...extra };
+  return {
+    dataDir,
+    fs: createPluginStoreFs(),
+    spawn,
+    // git 腿 SSRF 主机校验的 DNS 解析位——缺省公网应答桩（93.184.216.34 非
+    // 私网非保留段；私网拒腿用例另注入私网应答覆盖）
+    resolveDns: () => Promise.resolve(['93.184.216.34']),
+    ...extra,
+  };
 }
 
 /**
@@ -664,6 +672,20 @@ describe('git 执行器编舞（假 spawn——clone/checkout/rev-parse 零真�
     expect(gitTmpResidue(gitTmp)).toEqual([]);
     expect(existsSync(join(dataDir, 'plugins', 'git', 'github.com', 'o', 'r', 'package.json'))).toBe(true);
   });
+
+  it('直装腿私网豁免锁（§9.6 market 腿裁决——market 注记缺席 = 用户手打显式动作，SSRF 守卫不辖）', async () => {
+    const { dataDir, gitTmp } = gitDirs('sec-exempt');
+    const rec = gitFakeSpawn();
+    // 私网字面 url：market 腿会拒（install.test.ts 守卫谱）；直装腿照发 clone
+    const outcome = await installPlugin(
+      depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }),
+      'git:http://169.254.169.254/a/b.git',
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(rec.argvLog[0]?.slice(0, 3)).toEqual(['git', 'clone', 'http://169.254.169.254/a/b.git']);
+    expect(outcome.entry).toMatchObject({ id: 'demo-pkg', source: 'git' });
+  });
 });
 
 describe('市场拷贝腿与 market 注记（03 §9.6 mp-3——装机咬合）', () => {
@@ -765,6 +787,190 @@ describe('市场拷贝腿与 market 注记（03 §9.6 mp-3——装机咬合）'
     }
   });
 
+  it('境三克隆失败：cloneTmp 失败位自清（berry-market-clone-* 零残影——修前红：三笔 spawn 在清场保护外）', async () => {
+    const dataDir = dataDirOf('market-clone-fail');
+    const cloneTmpRoot = join(testRoot, 'market-clone-tmp-root');
+    mkdirSync(cloneTmpRoot, { recursive: true });
+    // git 网络失败形：clone 首笔即拒（仓库 404 / 网络不可达 / 认证失败同族）
+    const failing: SpawnRunner = {
+      run: () => Promise.reject(new Error('fatal: 无法解析主机 missing.example.com')),
+    };
+    const outcome = await installPlugin(
+      depsOf(dataDir, failing, { tmpRoot: cloneTmpRoot }),
+      'git:https://missing.example.com/o/monorepo.git',
+      { market: { name: 'sub', entry: 'hello-plugin' }, subdirCopy: { subpath: 'packages/hello' } },
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('无法解析主机'); // git 腿错误原样上浮
+    // 克隆失败位 tmp 自清——与 runGitInstall finally 清场同律（每次失败泄一个即缺口）
+    expect(readdirSync(cloneTmpRoot).filter((name) => name.startsWith('berry-market-clone-'))).toEqual([]);
+  });
+
+  it('市场换血腿形切换（npm→拷贝腿·id 稳定）：旧装机位连带清零残影（修前红——installPath 落位变化形）', async () => {
+    const dataDir = dataDirOf('market-leg-switch');
+    // 先装 npm 腿（manifest id = demo-pkg）带市场溯源注记
+    const rec = npmFakeSpawn(dataDir);
+    const first = await installPlugin(depsOf(dataDir, rec.spawn), 'npm:demo-pkg', {
+      market: { name: 'legs', entry: 'demo-pkg' },
+    });
+    expect(first.ok).toBe(true);
+    // 市场 catalog 同名条目换源形（npm 对象源 → 相对串）：id 不漂移、装机腿换
+    // 拷贝腿、installPath 换位（node_modules → plugins/market 段）
+    const repo = join(testRoot, 'market-leg-switch-repo');
+    const pluginDir = join(repo, 'plugins', 'hello');
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(
+      join(pluginDir, 'package.json'),
+      pluginPkgJson({ name: 'demo-pkg', berryAgent: { id: 'demo-pkg', skills: ['greet'] } }),
+    );
+    const second = await installPlugin(depsOf(dataDir, noopSpawn), `local:${repo}`, {
+      market: { name: 'legs', entry: 'demo-pkg' },
+      subdirCopy: { subpath: 'plugins/hello' },
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    // 账本恰一条（id 稳定 → upsert 覆盖）且指向新拷贝腿落位
+    const after = entriesOf(dataDir).filter((e) => e.id === 'demo-pkg');
+    expect(after).toHaveLength(1);
+    expect(after[0]!.installPath).toBe(join('plugins', 'market', 'legs', 'demo-pkg'));
+    expect(after[0]!.market).toEqual({ name: 'legs', entry: 'demo-pkg' });
+    // 旧 npm 落位（plugins/node_modules/demo-pkg）连带清——按②同判据组清旧位差集（§9.6 mp 收尾批修笔）
+    expect(existsSync(join(dataDir, 'plugins', 'node_modules', 'demo-pkg'))).toBe(false);
+  });
+
+  it('换血豁免 id 漂移（拷贝腿同位）：撤账恰一条 + enabled 行随迁（修前红——旧行悬挂形）', async () => {
+    const dataDir = dataDirOf('market-id-drift');
+    const repo = marketRepoFixture('drift');
+    const deps = depsOf(dataDir, noopSpawn);
+    const first = await installPlugin(deps, `local:${repo}`, { market, subdirCopy: { subpath: 'plugins/hello' } });
+    expect(first.ok).toBe(true);
+    // 用户启用（mount 行落 enabled.yaml——随迁断言的意图锚）
+    expect(mountRow(dataDir, 'hello-plugin', undefined, createPluginStoreFs())).toMatchObject({ ok: true });
+    // 上游清单换代改名 id：hello-plugin → hello-plugin-next（同 provenance 换血）
+    writeFileSync(
+      join(repo, 'plugins', 'hello', 'package.json'),
+      pluginPkgJson({ name: 'hello-plugin-next', berryAgent: { id: 'hello-plugin-next', skills: ['greet'] } }),
+    );
+    const second = await installPlugin(deps, `local:${repo}`, { market, subdirCopy: { subpath: 'plugins/hello' } });
+    expect(second.ok).toBe(true);
+    // 账本恰一条且 id = 新名（撤账段兑现——同 provenance 换血非新增）
+    const after = entriesOf(dataDir);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.id).toBe('hello-plugin-next');
+    expect(after[0]!.market).toEqual(market);
+    // enabled 行随迁：行 id 改写为新 id——不随迁即旧行悬挂（boot 永续 warn +
+    // 静默停载 + 两 uninstall 动词均清不掉——§9.6 收尾批定形）
+    const rows = readEnabledRowsForEdit(dataDir, createPluginStoreFs());
+    expect(rows.ok && rows.rows.map((row) => row.id)).toEqual(['hello-plugin-next']);
+    // 同位换血（entry 名不变 → installPath 不变）：装机树内容为新清单
+    expect(readFileSync(join(dataDir, 'plugins', 'market', 'alpha', 'hello-plugin', 'package.json'), 'utf8')).toContain(
+      'hello-plugin-next',
+    );
+  });
+
+  it('换血豁免 id 漂移（npm 腿换包落位）：撤账 + 旧树连带清 + 行随迁（修前红）', async () => {
+    const dataDir = dataDirOf('market-id-drift-npm');
+    const legsMarket = { name: 'legs', entry: 'demo-pkg' };
+    // 首装：npm:old-pkg（manifest id = old-id）带市场溯源注记
+    const oldRec = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'old-pkg', berryAgent: { id: 'old-id' } }) });
+    const first = await installPlugin(depsOf(dataDir, oldRec.spawn), 'npm:old-pkg', { market: legsMarket });
+    expect(first.ok).toBe(true);
+    expect(mountRow(dataDir, 'old-id', undefined, createPluginStoreFs())).toMatchObject({ ok: true });
+    // 换代：catalog 同条目换 npm 包名（ref 变 → installPath 换位）且新包清单 id = new-id
+    const newRec = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'new-pkg', berryAgent: { id: 'new-id' } }) });
+    const second = await installPlugin(depsOf(dataDir, newRec.spawn), 'npm:new-pkg', { market: legsMarket });
+    expect(second.ok).toBe(true);
+    const after = entriesOf(dataDir);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.id).toBe('new-id');
+    expect(after[0]!.installPath).toBe(join('plugins', 'node_modules', 'new-pkg'));
+    // 旧树连带清（oldAbs ≠ newAbs 且无共享——撤账段 rm 分支的漂移形首锁）
+    expect(existsSync(join(dataDir, 'plugins', 'node_modules', 'old-pkg'))).toBe(false);
+    // 行随迁（修前红锚——旧行 id 悬挂）
+    const rows = readEnabledRowsForEdit(dataDir, createPluginStoreFs());
+    expect(rows.ok && rows.rows.map((row) => row.id)).toEqual(['new-id']);
+  });
+
+  it('id 漂移随迁边界两形 + 回执携带：未启用 no-op / 新 id 行在场防双行 / config 保形 + enabledCarried 注记（修前红——回执位缺席）', async () => {
+    // —— 形一：未启用物换代 = 无行可迁（no-op——不凭空造启用行） ——
+    const dirA = dataDirOf('market-drift-no-row');
+    const marketA = { name: 'legs-a', entry: 'demo-pkg' };
+    const recA = npmFakeSpawn(dirA, { pkgJson: pluginPkgJson({ name: 'old-pkg', berryAgent: { id: 'old-id' } }) });
+    expect(await installPlugin(depsOf(dirA, recA.spawn), 'npm:old-pkg', { market: marketA })).toMatchObject({
+      ok: true,
+    });
+    const recA2 = npmFakeSpawn(dirA, { pkgJson: pluginPkgJson({ name: 'new-pkg', berryAgent: { id: 'new-id' } }) });
+    const driftA = await installPlugin(depsOf(dirA, recA2.spawn), 'npm:new-pkg', { market: marketA });
+    expect(driftA.ok).toBe(true);
+    if (!driftA.ok) return;
+    expect(driftA.enabledCarried).not.toBe(true); // 未启用——无随迁（回执不携带）
+    expect(driftA.text).not.toContain('随换代迁移'); // 未随迁不注记
+    const rowsA = readEnabledRowsForEdit(dirA, createPluginStoreFs());
+    expect(rowsA.ok && rowsA.rows).toHaveLength(0); // 不凭空造行
+
+    // —— 形二：新 id 行已在场 = 旧行移除防双行（用户显式 mount 的既有意图不覆写） ——
+    const dirB = dataDirOf('market-drift-row-clash');
+    const marketB = { name: 'legs-b', entry: 'demo-pkg' };
+    const recB = npmFakeSpawn(dirB, { pkgJson: pluginPkgJson({ name: 'old-pkg', berryAgent: { id: 'old-id' } }) });
+    expect(await installPlugin(depsOf(dirB, recB.spawn), 'npm:old-pkg', { market: marketB })).toMatchObject({
+      ok: true,
+    });
+    expect(mountRow(dirB, 'old-id', undefined, createPluginStoreFs())).toMatchObject({ ok: true });
+    expect(mountRow(dirB, 'new-id', undefined, createPluginStoreFs())).toMatchObject({ ok: true });
+    const recB2 = npmFakeSpawn(dirB, { pkgJson: pluginPkgJson({ name: 'new-pkg', berryAgent: { id: 'new-id' } }) });
+    const driftB = await installPlugin(depsOf(dirB, recB2.spawn), 'npm:new-pkg', { market: marketB });
+    expect(driftB.ok).toBe(true);
+    if (!driftB.ok) return;
+    expect(driftB.enabledCarried).toBe(true); // 行面有动作（旧行清场）——回执携带
+    expect(driftB.text).toContain('启用行已随换代迁移'); // 回执诚实位（§9.6 mp 收尾批定形）
+    const rowsB = readEnabledRowsForEdit(dirB, createPluginStoreFs());
+    expect(rowsB.ok && rowsB.rows.map((row) => row.id)).toEqual(['new-id']); // 恰一行——防双行
+
+    // —— 形三：随迁保形——行内 config 字段原样迁走（启用意图跨换代连续） ——
+    const dirC = dataDirOf('market-drift-row-config');
+    const marketC = { name: 'legs-c', entry: 'demo-pkg' };
+    const recC = npmFakeSpawn(dirC, { pkgJson: pluginPkgJson({ name: 'old-pkg', berryAgent: { id: 'old-id' } }) });
+    expect(await installPlugin(depsOf(dirC, recC.spawn), 'npm:old-pkg', { market: marketC })).toMatchObject({
+      ok: true,
+    });
+    expect(mountRow(dirC, 'old-id', { greeting: 'hi' }, createPluginStoreFs())).toMatchObject({ ok: true });
+    const recC2 = npmFakeSpawn(dirC, { pkgJson: pluginPkgJson({ name: 'new-pkg', berryAgent: { id: 'new-id' } }) });
+    const driftC = await installPlugin(depsOf(dirC, recC2.spawn), 'npm:new-pkg', { market: marketC });
+    expect(driftC.ok).toBe(true);
+    if (!driftC.ok) return;
+    expect(driftC.enabledCarried).toBe(true);
+    const rowsC = readEnabledRowsForEdit(dirC, createPluginStoreFs());
+    expect(rowsC.ok && rowsC.rows[0]).toMatchObject({ id: 'new-id', config: { greeting: 'hi' } }); // 全字段保形
+  });
+
+  it('id 漂移撤账 + 旧树共享引用：树保留只撤账（引用计数判据——无主差集才清）', async () => {
+    const dataDir = dataDirOf('market-drift-shared-tree');
+    const legsMarket = { name: 'legs-shared', entry: 'demo-pkg' };
+    // 首装：npm:old-pkg（manifest id = old-id）带市场溯源注记
+    const oldRec = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'old-pkg', berryAgent: { id: 'old-id' } }) });
+    const first = await installPlugin(depsOf(dataDir, oldRec.spawn), 'npm:old-pkg', { market: legsMarket });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    // 手铸共享条目：另一装机物 installPath 指向同一段位（无 market 注记——
+    // 不进换血寻址键；形拷首装条目保账本形状合法），旧树即「他条目共享」，
+    // 连带清判据须放它过（§9.6 mp-3 定形注④：无主差集才清）
+    const { market: _dropped, ...shadowBase } = first.entry;
+    const shadow: PluginLedgerEntry = { ...shadowBase, id: 'shadow-pkg' };
+    writeFileSync(ledgerPath(dataDir), JSON.stringify([first.entry, shadow]));
+    // 换代：catalog 同条目换包（old-pkg → new-pkg）且新包清单 id = new-id——
+    // id 漂移触发撤账；oldAbs ≠ newAbs 但共享条目在场 → 旧树保留
+    const newRec = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'new-pkg', berryAgent: { id: 'new-id' } }) });
+    const second = await installPlugin(depsOf(dataDir, newRec.spawn), 'npm:new-pkg', { market: legsMarket });
+    expect(second.ok).toBe(true);
+    // 撤账兑现：old-id 出账，账本恰 new-id + shadow-pkg 两条
+    const after = entriesOf(dataDir);
+    expect(after.map((e) => e.id).sort()).toEqual(['new-id', 'shadow-pkg']);
+    // 共享旧树保留（他条目引用中——rm 分支被引用计数判据拦下）+ 新树在场
+    expect(existsSync(join(dataDir, 'plugins', 'node_modules', 'old-pkg', 'package.json'))).toBe(true);
+    expect(existsSync(join(dataDir, 'plugins', 'node_modules', 'new-pkg', 'package.json'))).toBe(true);
+  });
+
   it('账本 market 字段坏形 = 整账本 fail-loud（readLedger invalid）', async () => {
     const dataDir = dataDirOf('market-bad-ledger');
     mkdirSync(join(dataDir, 'plugins'), { recursive: true });
@@ -851,5 +1057,92 @@ describe('market 拷贝腿 update 分派（03 §9.6 mp-3——拷贝参数不入
     expect(updated.ok).toBe(false);
     if (updated.ok) return;
     expect(updated.message).toContain('marketplace install');
+  });
+});
+
+describe('git 克隆目标主机校验（03 §9.6 mp 收尾批安全硬化——SSRF 红线 + argv 选项位拒）', () => {
+  /** 记 argv 的假 spawn（任何 spawn 到达即红——三处校验位全须在 spawn 之前拒） */
+  function recordingSpawn(): { readonly spawn: SpawnRunner; readonly argvLog: string[][] } {
+    const argvLog: string[][] = [];
+    const spawn: SpawnRunner = {
+      run: (cmd, args) => {
+        argvLog.push([cmd, ...args]);
+        return Promise.resolve({ stdout: '', stderr: '' });
+      },
+    };
+    return { spawn, argvLog };
+  }
+
+  it('私网目标 spawn 前拒（market 装机腿守卫——http 元数据端点字面 / ssh 内网字面 / scp 短手 DNS 私网命中）——修前红', async () => {
+    // 三形覆盖：字面私网 IP（isPrivateHostLiteral 命中——零 DNS）×2 + scp 短手
+    // 形主机名走 DNS 腿（应答私网地址命中拒）。§9.6 裁决：market 腿设守卫；
+    // 用户手打直装腿（market 注记缺席）= 显式动作豁免——故用 market 注记腿驱动
+    const cases: readonly { readonly ref: string; readonly dir: string }[] = [
+      { ref: 'git:http://169.254.169.254/latest/meta-data', dir: 'ssrf-http-meta' },
+      { ref: 'git:ssh://git@10.0.0.5/internal/repo.git', dir: 'ssrf-ssh-literal' },
+      { ref: 'git:git@git.internal.example:owner/repo.git', dir: 'ssrf-scp-dns' },
+    ];
+    for (const { ref, dir } of cases) {
+      const { spawn, argvLog } = recordingSpawn();
+      const outcome = await installPlugin(
+        depsOf(dataDirOf(dir), spawn, { resolveDns: () => Promise.resolve(['10.1.2.3']) }),
+        ref,
+        { market: { name: 'sec', entry: 'e' } },
+      );
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.message).toContain('私网');
+      expect(argvLog).toEqual([]); // 拒在 spawn 之前——零外联（SSRF 红线断言面）
+    }
+  });
+
+  it('协议白名单 fail-closed（market 装机腿守卫）：file:// 本地路径 / ext:: 外传执行全拒——修前红', async () => {
+    // 白名单外不猜：file:// 直落本机协议面、ext:: 是 git 外传执行向量；裸
+    // owner/repo 形（不可解析 url）同拒——fail-closed 消息按命中位分形
+    const cases: readonly { readonly ref: string; readonly dir: string; readonly want: string }[] = [
+      { ref: 'git:file:///etc/passwd', dir: 'gate-file', want: '白名单' },
+      { ref: 'git:ext::sh -c id', dir: 'gate-ext', want: '白名单' },
+      { ref: 'git:owner/repo', dir: 'gate-bare', want: '不可解析' },
+    ];
+    for (const { ref, dir, want } of cases) {
+      const { spawn, argvLog } = recordingSpawn();
+      const outcome = await installPlugin(depsOf(dataDirOf(dir), spawn), ref, { market: { name: 'sec', entry: 'e' } });
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.message).toContain(want);
+      expect(argvLog).toEqual([]);
+    }
+  });
+
+  it("'-' 起头 url/ref 拒（argv 选项位混淆——翻译层词法拒之外的第二执法位）——修前红", async () => {
+    const cases: readonly { readonly ref: string; readonly dir: string }[] = [
+      { ref: 'git:-oProxy=x://y', dir: 'gate-dash-url' },
+      { ref: 'git:https://example.com/o/r.git#-b', dir: 'gate-dash-ref' },
+    ];
+    for (const { ref, dir } of cases) {
+      const { spawn, argvLog } = recordingSpawn();
+      const outcome = await installPlugin(depsOf(dataDirOf(dir), spawn), ref);
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.message).toContain('起头');
+      expect(argvLog).toEqual([]);
+    }
+  });
+
+  it('境三拷贝腿克隆目标同校验（私网拒——spawn 前零外联）——修前红', async () => {
+    const { spawn, argvLog } = recordingSpawn();
+    const outcome = await installPlugin(
+      depsOf(dataDirOf('gate-subdir-ssrf'), spawn),
+      'git:http://192.168.1.10/o/monorepo.git#deadbeef',
+      { market: { name: 'sub', entry: 'hello-plugin' }, subdirCopy: { subpath: 'packages/hello' } },
+    );
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.message).toContain('私网');
+    expect(argvLog).toEqual([]);
+  });
+
+  it("npm spec 槽位 '-' 起头拒：'--ignore-scripts=false' 不得进 spawn（nopt last-wins 掀旗标面）——修前红", async () => {
+    const { spawn, argvLog } = recordingSpawn();
+    const outcome = await installPlugin(depsOf(dataDirOf('gate-npm-dash'), spawn), 'npm:--ignore-scripts=false');
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.message).toContain('起头');
+    expect(argvLog).toEqual([]); // npm spawn 零到达——spec 槽位拒在 spawn 前
   });
 });

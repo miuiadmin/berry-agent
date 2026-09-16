@@ -47,7 +47,7 @@ export interface CommandHandlers {
   readonly dumpConfig?: (flags: DumpConfigFlags) => Promise<number>;
   /** 插件生命周期命令族（12d 装载器装配批接线） */
   readonly plugins?: (sub: PluginsCommand) => Promise<number>;
-  /** 市场命令族（03 §9.6——mp-3 接线：装机编舞恒复用 installPlugin；update/upgrade 执行层诚实拒） */
+  /** 市场命令族（03 §9.6——mp-3/mp-4 八动词全形接线：装机编舞恒复用 installPlugin；update/upgrade 真身在席） */
   readonly marketplace?: (sub: MarketplaceCommand) => Promise<number>;
   /** 会话管理命令族（conversation/持久面装配批接线） */
   readonly sessions?: (sub: SessionsCommand) => Promise<number>;

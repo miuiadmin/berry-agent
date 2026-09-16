@@ -73,6 +73,49 @@ describe('add 编舞——本地目录源全链（零网络）', () => {
     expect(doc.marketplaces).toHaveLength(1);
   });
 
+  it('同名竞态窗兜底：checkNameClash 通过后落账位撞名 → result 面诚实拒不裸抛（修前红）', async () => {
+    // 竞态窗复现：包装 fs 只在「第二次」读源清单（commitRecord 读位——前次
+    // 是 checkNameClash）注入他 add 已落账的同名 record，模拟前置检查通过
+    // 后、落账前的并发交错
+    const base = memFs({ ...LOCAL_MARKET });
+    let reads = 0;
+    const racingFs: MarketFs = {
+      ...base,
+      read: (path) => {
+        if (path === '/data/marketplaces.json') {
+          reads += 1;
+          if (reads === 2) {
+            // 落账读窗——他 lane 赢家已落同名源
+            return JSON.stringify({
+              version: 1,
+              marketplaces: [
+                {
+                  name: 'alpha',
+                  sourceType: 'local',
+                  sourceUri: '/other/mirror',
+                  catalogPath: '.claude-plugin/marketplace.json',
+                  addedAt: NOW.toISOString(),
+                  updatedAt: NOW.toISOString(),
+                },
+              ],
+            });
+          }
+        }
+        return base.read(path);
+      },
+    };
+    const result = await addMarketplaceSource({ dataDir: '/data', fs: racingFs, now }, '/src/alpha');
+    // 修前：addSourceRecord 同名 throw 裸逃出 result 面（rejects 形——CLI
+    // 呈现为未捕获异常）；修后：与 checkNameClash 同词面 {ok:false} 诚实拒
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('alpha');
+    expect(result.message).toContain('remove');
+    expect(reads).toBeGreaterThanOrEqual(2); // 注入确落在落账读位
+    // 拒时不落任何写——赢家的源清单不被覆写（坏形拒改同律，无 base=[] 静默洗）
+    expect(base.read('/data/marketplaces.json')).toBeNull();
+  });
+
   it('双路径读序参与 add（仅 .omp-plugin 在场同样可 add）', async () => {
     const fs = memFs({
       '/src/omp-mkt/.omp-plugin/marketplace.json': JSON.stringify({
@@ -135,7 +178,7 @@ describe('add 编舞——本地目录源全链（零网络）', () => {
 });
 
 describe('add 编舞——网络源 fetch 注入位（mp-2 零网络；mp-4 落真身）', () => {
-  it('git/url 源 + fetch 缺席 = 诚实拒（指路网络源支持随 mp-4）', async () => {
+  it('git/url 源 + fetch 缺席 = 诚实拒（真因 = 装配面未注入——报文不再指路已落地批次）', async () => {
     for (const source of [
       'https://github.com/anthropics/claude-plugins-official',
       'git@github.com:owner/repo.git',
@@ -145,7 +188,11 @@ describe('add 编舞——网络源 fetch 注入位（mp-2 零网络；mp-4 落�
       const result = await addMarketplaceSource({ dataDir: '/data', fs: memFs(), now }, source);
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.message).toContain('mp-4');
+      // 诚实拒报文描述当下真因（装配面未注入 MarketFetchFace——嵌入式宿主须自注）
+      expect(result.message).toContain('装配面未注入 MarketFetchFace');
+      expect(result.message).not.toContain('mp-4'); // 不再以已落地批次为词（修前红位）
+      // 指路当下可用替代（本地路径源）
+      expect(result.message).toContain('本地路径源');
     }
   });
 
@@ -272,5 +319,128 @@ describe('add 编舞——入口校验（classify 前置）', () => {
     });
     const result = await addMarketplaceSource({ dataDir: '/data', fs, now, home: '/home/u' }, '~/mkt');
     expect(result.ok && result.record.name).toBe('home-mkt');
+  });
+});
+
+describe('add 编舞——残留缓存前置清场（换血同律：缓存即真相，残留不与新快照混合）', () => {
+  /** 残留现场铸造：账本无此名 + 缓存目录有旧文件（remove 两步中断形/手删账本形） */
+  it('local 腿：残留缓存目录 re-add 同名源时先整目录清场（上游已删内容不复活）', async () => {
+    const fs = memFs({
+      ...LOCAL_MARKET,
+      // 残留：上次快照里有、当前源目录已删的插件子目录与文件
+      '/data/marketplaces/alpha/obsolete-plugin/package.json': '{"name":"gone"}',
+      '/data/marketplaces/alpha/stale-note.txt': '残留',
+    });
+    const result = await addMarketplaceSource({ dataDir: '/data', fs, now }, '/src/alpha');
+    expect(result.ok).toBe(true);
+    // 残留必须随换血消失——copyTree 合并语义（只写同名不删多余）不先 rm 即混合
+    expect(fs.read('/data/marketplaces/alpha/obsolete-plugin/package.json')).toBeNull();
+    expect(fs.read('/data/marketplaces/alpha/stale-note.txt')).toBeNull();
+    expect(fs.read('/data/marketplaces/alpha/.claude-plugin/marketplace.json')).toContain('alpha');
+  });
+
+  it('git 腿 promote：残留缓存目录 re-add 同名源时整目录换血（先 rm 后拷）', async () => {
+    const fs = memFs({
+      '/data/marketplaces/official/obsolete-entry.txt': '残留', // 账本无 official、缓存残留
+    });
+    const fetch: MarketFetchFace = {
+      fetchGitCatalog: async () => {
+        fs.write(
+          '/tmp/clone/.claude-plugin/marketplace.json',
+          JSON.stringify({ name: 'official', owner: { name: 'o' }, plugins: [] }),
+        );
+        return { cloneDir: '/tmp/clone', catalogPath: '.claude-plugin/marketplace.json', text: '', commit: 'c1' };
+      },
+      fetchUrlCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+    };
+    const result = await addMarketplaceSource(
+      { dataDir: '/data', fs, now, fetch },
+      'https://github.com/a/official.git',
+    );
+    expect(result.ok).toBe(true);
+    expect(fs.read('/data/marketplaces/official/obsolete-entry.txt')).toBeNull(); // 残留随换血消失
+    expect(fs.read('/data/marketplaces/official/.claude-plugin/marketplace.json')).toContain('official');
+  });
+
+  it('url 腿：残留缓存目录 re-add 同名源时清场（缓存只含新快照）', async () => {
+    const fs = memFs({ '/data/marketplaces/url-one/stale.json': '残留' });
+    const text = JSON.stringify({ name: 'url-one', owner: { name: 'o' }, plugins: [] });
+    const fetch: MarketFetchFace = {
+      fetchGitCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+      fetchUrlCatalog: async () => ({ text }),
+    };
+    const result = await addMarketplaceSource({ dataDir: '/data', fs, now, fetch }, 'https://example.com/cat.json');
+    expect(result.ok).toBe(true);
+    expect(fs.read('/data/marketplaces/url-one/stale.json')).toBeNull();
+    expect(fs.read('/data/marketplaces/url-one/marketplace.json')).toBe(text);
+  });
+});
+
+describe('add 编舞——缓存落位 IO 失败零残影（写位 try 包裹：result 面诚实拒 + 半缓存清除 + tmp 清场）', () => {
+  /** IO 故障注入 fs：写 marker 路径时抛（ENOSPC/EACCES 形——真身 MarketFs 裸 writeFileSync 直抛） */
+  function enospcOn(base: MarketFs, marker: string): MarketFs {
+    return {
+      ...base,
+      write: (path, text) => {
+        if (path.includes(marker)) throw new Error('ENOSPC: 磁盘满（注入）');
+        base.write(path, text);
+      },
+    };
+  }
+
+  it('local 腿拷贝中途 IO 失败 = ok:false 拒（不上抛）+ 不落账 + 半缓存目录清除', async () => {
+    const base = memFs({ ...LOCAL_MARKET });
+    const fs = enospcOn(base, '/data/marketplaces/alpha/plugins/'); // catalog 拷成功、插件子目录中途抛
+    const result = await addMarketplaceSource({ dataDir: '/data', fs, now }, '/src/alpha');
+    expect(result.ok).toBe(false); // 修前红：IO 异常上抛破 result 契约面
+    if (!result.ok) expect(result.message).toContain('ENOSPC');
+    expect(fs.read('/data/marketplaces.json')).toBeNull(); // 不落账
+    expect(fs.isDir('/data/marketplaces/alpha')).toBe(false); // 半缓存清除——零残影
+  });
+
+  it('git 腿 promote 中途 IO 失败 = ok:false 拒 + tmp 克隆场清场 + 半缓存清除', async () => {
+    const base = memFs();
+    const fs = enospcOn(base, '/data/marketplaces/official/');
+    const fetch: MarketFetchFace = {
+      fetchGitCatalog: async () => {
+        base.write(
+          '/tmp/clone/.claude-plugin/marketplace.json',
+          JSON.stringify({ name: 'official', owner: { name: 'o' }, plugins: [] }),
+        );
+        return { cloneDir: '/tmp/clone', catalogPath: '.claude-plugin/marketplace.json', text: '', commit: 'c1' };
+      },
+      fetchUrlCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+    };
+    const result = await addMarketplaceSource(
+      { dataDir: '/data', fs, now, fetch },
+      'https://github.com/a/official.git',
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('ENOSPC');
+    expect(fs.isDir('/tmp/clone')).toBe(false); // tmp 克隆场清场——零残影
+    expect(fs.isDir('/data/marketplaces/official')).toBe(false);
+    expect(fs.read('/data/marketplaces.json')).toBeNull();
+  });
+
+  it('url 腿写缓存 IO 失败 = ok:false 拒 + 不落账 + 缓存目录清除', async () => {
+    const base = memFs();
+    const fs = enospcOn(base, '/data/marketplaces/url-one/');
+    const fetch: MarketFetchFace = {
+      fetchGitCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+      fetchUrlCatalog: async () => ({ text: JSON.stringify({ name: 'url-one', owner: { name: 'o' }, plugins: [] }) }),
+    };
+    const result = await addMarketplaceSource({ dataDir: '/data', fs, now, fetch }, 'https://example.com/cat.json');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain('ENOSPC');
+    expect(fs.read('/data/marketplaces.json')).toBeNull();
+    expect(fs.isDir('/data/marketplaces/url-one')).toBe(false);
   });
 });

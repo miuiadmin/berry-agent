@@ -8,8 +8,10 @@
  *    解析 → **改名漂移拒**（新 catalog 自报名 ≠ 源清单名——腐蚀条目防线）→
  *    **up-to-date 判据**（git 同 commit / url 同文本 / local 同 catalog 文本
  *    ——已最新不换血但 updatedAt 刷新重置 24h TTL）→ 变化则**整目录换血
- *    promote**（先 rm 后拷——半拷贝永不复用）→ record 落账（commit/catalogPath
- *    /updatedAt 前进）。失败 = record 不动 + tmp 清场（不虚报刷新）。
+ *    promote**（staging 中转——拷完整才 rm 旧缓存 + rename 落位；中途失败
+ *    旧缓存原样不动，半拷贝永不 promote）→ record 落账（commit/catalogPath
+ *    /updatedAt 前进）。失败 = record 不动 + 旧缓存原样不动 + tmp/staging
+ *    中转清场（不虚报刷新；报文注记重跑 update 自愈）。
  *  - `updateMarketplaceSources`：单源（点名缺席 = missingName）或全量（逐源
  *    独立结局——一源失败不 brick 其余源）。
  *
@@ -58,7 +60,8 @@ function marketCacheDir(dataDir: string, marketplace: string): string {
 
 /**
  * 目录树快照拷贝（add.ts copyTree 同式——文件内复刻避免跨件私面导出；语义
- * = 整树物化，眺空目录保形）。换血调用方先 rm 目标目录再拷——半拷贝永不复用。
+ * = 整树物化，眺空目录保形）。换血调用方以 staging promote 消费——半拷贝
+ * 永不 promote（中转成或湮，见 promoteTree）。
  */
 function copyTree(fs: MarketFs, src: string, dst: string): void {
   fs.mkdir(dst);
@@ -80,6 +83,26 @@ function copyTree(fs: MarketFs, src: string, dst: string): void {
   }
 }
 
+/**
+ * 换血 promote（03 §9.6「换血 promote 故障防护」定形）：拷贝先落
+ * `<dst>.staging` 中转目录，**拷完整后**才 rm 旧缓存 + rename 落位（同卷
+ * rename 近原子）——任何中途失败 = 旧缓存原样不动（upgrade「刷新失败按既有
+ * 缓存对拍」降级律的故障防护前提：失败刷新不得自毁既有缓存，否则降级承诺
+ * 在正需兑现的失败位反而落空）；staging 中转 finally 清场（成或湮——半拷贝
+ * 永不 promote，既往失败残影亦先清；rm 契约 force 缺席不抛）。
+ */
+function promoteTree(fs: MarketFs, src: string, dst: string): void {
+  const staging = `${dst}.staging`;
+  try {
+    fs.rm(staging); // 既往失败残影清场（幂等）
+    copyTree(fs, src, staging);
+    fs.rm(dst); // 旧缓存退位——此刻新内容已完整落中转
+    fs.rename(staging, dst); // 同卷 rename 落位
+  } finally {
+    fs.rm(staging); // 成功路径 rename 后已不在场；失败路径半拷贝中转清场
+  }
+}
+
 /** 源清单 record 落账（读-改-写——同名替换保位序；失败位调用方已先行不落） */
 function commitRecordUpdate(
   dataDir: string,
@@ -88,8 +111,14 @@ function commitRecordUpdate(
   patch: Partial<Pick<MarketplaceSourceRecord, 'commit' | 'catalogPath' | 'updatedAt'>>,
 ): void {
   const read = readMarketplaceSources(dataDir, fs);
-  const base = read.ok ? read.sources : [];
-  const next = base.map((record) => (record.name === name ? { ...record, ...patch } : record));
+  // 坏账本拒写 fail-loud（防覆盖）：读-改-写位对坏读直接抛——空兜底落盘 =
+  // 单笔 patch 抹除全账本，且落出的合法形空账本比坏文件更隐蔽（后续读恒
+  // ok、零源、无报错指路）；与读侧「不静默空」、add 位 checkNameClash
+  // 「坏形拒改」同律。调用方 catch 收口 failed——诚实拒不掩盖
+  if (!read.ok) {
+    throw new Error(`源清单文件坏形：${read.message}——落账拒写（防覆盖）`);
+  }
+  const next = read.sources.map((record) => (record.name === name ? { ...record, ...patch } : record));
   writeMarketplaceSources(dataDir, next, fs);
 }
 
@@ -111,6 +140,17 @@ export async function refreshMarketplaceSource(
     message: `上游 catalog 自报名 "${catalogName}" 与源清单名 "${record.name}" 不符——市场疑似改名漂移，先 marketplace remove 后按新名重新 add`,
   });
   const fail = (message: string): SourceRefreshOutcome => ({ status: 'failed', name: record.name, message });
+  // git 腿 tmp 克隆中转站跟踪（catch 可达位）：fetch 成功返回后清场责任归调用
+  // 方（fetch.ts 契约）——promote 段（staging 拷贝/rm 缓存/rename 落位/落账写）
+  // 任一 throw 位都不能留下无主克隆；url/local 腿恒 undefined
+  let gitCloneDir: string | undefined;
+  // 换血进行位：三源分腿的 staging promote → 落账窗内置位。staging promote 律
+  // （§9.6 换血 promote 故障防护注）下窗内 throw 时两种形都无须清缓存——
+  // promote 未成 = 旧缓存原样不动（中转 finally 成或湮）；promote 已成而落账
+  // 未前进 = 已 promote 新内容在场、record 落后于内容的良性窗（下次 update
+  // commit 对拍不等自然收敛）；窗外的 throw（fetch/解析/点名拒）缓存未动——
+  // 清缓存反而会制造「记录在场 + 缓存缺席」——不清
+  let swapping = false;
 
   try {
     // —— local 腿：零网络重读源目录快照 ——
@@ -129,14 +169,18 @@ export async function refreshMarketplaceSource(
       // catalog 文本直读（load 契约只回 catalogPath + parse——文本以 fs 再读为准）
       const catalogText = fs.read(`${dir}/${loaded.catalogPath}`);
       const cached = fs.read(`${cacheDir}/${record.catalogPath}`);
-      if (catalogText !== null && cached === catalogText) {
-        // 已最新——不换血、TTL 窗重启
-        commitRecordUpdate(dataDir, fs, record.name, { catalogPath: loaded.catalogPath, updatedAt });
+      // up-to-date 判据补前提：catalogPath 未漂移。源目录 catalog 换位（双路径
+      // 读序换边/上游迁移形）时即便文本相同也必须走换血——否则账本 catalogPath
+      // 前进到缓存中不存在的位（缓存树一字未动），discover/install 随即读出
+      // 「缓存缺席」与本次「已最新」自相矛盾
+      if (loaded.catalogPath === record.catalogPath && catalogText !== null && cached === catalogText) {
+        // 已最新——不换血、TTL 窗重启（路径相等前提下 patch 只需刷 updatedAt）
+        commitRecordUpdate(dataDir, fs, record.name, { updatedAt });
         return { status: 'up-to-date', name: record.name };
       }
       if (catalogText === null) return fail(`catalog 读回落空（${dir}/${loaded.catalogPath}）`);
-      fs.rm(cacheDir); // 整目录换血——半拷贝永不复用
-      copyTree(fs, dir, cacheDir);
+      swapping = true; // 换血窗开——staging promote 起（失败位旧缓存原样不动）
+      promoteTree(fs, dir, cacheDir); // 整目录换血——staging 中转 promote
       commitRecordUpdate(dataDir, fs, record.name, { catalogPath: loaded.catalogPath, updatedAt });
       return {
         status: 'updated',
@@ -156,9 +200,19 @@ export async function refreshMarketplaceSource(
         commitRecordUpdate(dataDir, fs, record.name, { updatedAt });
         return { status: 'up-to-date', name: record.name };
       }
-      fs.rm(cacheDir);
-      fs.mkdir(cacheDir);
-      fs.write(cachedPath, fetched.text);
+      swapping = true; // 换血窗开——staging promote 起（失败位旧缓存原样不动）
+      // 换血 promote 同律（单文件腿直写中转，不借 copyTree）：写完整后 rm 旧
+      // 缓存 + rename 落位——中途失败旧缓存原样不动（三源同律）
+      const stagingDir = `${cacheDir}.staging`;
+      try {
+        fs.rm(stagingDir); // 既往失败残影清场（幂等）
+        fs.mkdir(stagingDir);
+        fs.write(`${stagingDir}/marketplace.json`, fetched.text);
+        fs.rm(cacheDir); // 旧缓存退位——此刻新内容已完整落中转
+        fs.rename(stagingDir, cacheDir); // 同卷 rename 落位
+      } finally {
+        fs.rm(stagingDir); // 成功路径 rename 后已不在场；失败路径中转清场
+      }
       commitRecordUpdate(dataDir, fs, record.name, { updatedAt });
       return { status: 'updated', name: record.name, entryCount: parse.catalog.plugins.length };
     }
@@ -167,6 +221,7 @@ export async function refreshMarketplaceSource(
     const expanded = expandGitUri(record.sourceUri);
     if (!expanded.ok) return fail(`git 源坏形（${expanded.message}）`);
     const fetched = await deps.fetch.fetchGitCatalog(expanded.url);
+    gitCloneDir = fetched.cloneDir; // 清场责任已归本函数——catch 位可清
     // catalog 文本以 fs 物化为准（fetch 契约：cloneDir 树物化在 MarketFs 上）
     const catalogText =
       fs.read(`${fetched.cloneDir}/${fetched.catalogPath}`) ?? (fetched.text !== '' ? fetched.text : null);
@@ -189,9 +244,9 @@ export async function refreshMarketplaceSource(
       commitRecordUpdate(dataDir, fs, record.name, { updatedAt });
       return { status: 'up-to-date', name: record.name, commit: fetched.commit };
     }
-    fs.rm(cacheDir); // 整目录换血
-    copyTree(fs, fetched.cloneDir, cacheDir);
-    fs.rm(fetched.cloneDir); // tmp 清场
+    swapping = true; // 换血窗开——staging promote 起（失败位旧缓存原样不动）
+    promoteTree(fs, fetched.cloneDir, cacheDir); // 整目录换血——staging 中转 promote
+    fs.rm(fetched.cloneDir); // tmp 清场（fetch 契约：成功返回后清场归调用方）
     commitRecordUpdate(dataDir, fs, record.name, {
       commit: fetched.commit,
       catalogPath: fetched.catalogPath,
@@ -204,9 +259,26 @@ export async function refreshMarketplaceSource(
       commit: fetched.commit,
     };
   } catch (error) {
-    // fetch/克隆异常 = failed 结局（record 不动——不虚报刷新；tmp 清场尽力）
+    // fetch/克隆异常 = failed 结局（record 不动——不虚报刷新）。fetch 已成功
+    // 返回的 tmp 克隆在此尽力清场（成功返回后清场归调用方——fetch.ts 契约）；
+    // 清场自身失败不再连环抛——主错误优先呈现
     const message = error instanceof Error ? error.message : String(error);
-    return fail(message);
+    // 换血窗内 throw（staging promote 律）：promote 未成 = 旧缓存原样不动；
+    // promote 已成而落账未前进 = 已 promote 新内容在场、record 落后于内容的
+    // 良性窗（下次 update commit 对拍不等自然收敛）——两种形都不清缓存（中转
+    // 由 promoteTree 自身 finally 清场）；窗外 throw 缓存未动——不清
+    let selfHeal = '';
+    if (swapping) {
+      selfHeal = `——record 未动（缓存原样未动或已 promote 在场——重跑 berry marketplace update ${record.name} 自愈）`;
+    }
+    if (gitCloneDir !== undefined) {
+      try {
+        fs.rm(gitCloneDir);
+      } catch {
+        // 尽力清场——失败不掩盖主错误
+      }
+    }
+    return fail(`${message}${selfHeal}`);
   }
 }
 
@@ -247,7 +319,14 @@ export interface UpgradeMarketplaceDeps extends UpdateMarketplaceDeps {
 
 /** 逐条换装结局（upgraded/current/skipped/failed 四态——CLI 呈现单源） */
 export type UpgradeEntryOutcome =
-  | { readonly status: 'upgraded'; readonly id: string; readonly from?: string; readonly to?: string }
+  | {
+      readonly status: 'upgraded';
+      readonly id: string;
+      readonly from?: string;
+      readonly to?: string;
+      /** 换血 id 漂移注记（装机 manifest id ≠ 账本 id——§9.6 定形）：旧 → 新，呈现面指路（启用行已随换代迁移） */
+      readonly idDrift?: { readonly from: string; readonly to: string };
+    }
   | { readonly status: 'current'; readonly id: string; readonly version?: string }
   | { readonly status: 'skipped'; readonly id: string; readonly reason: string }
   | { readonly status: 'failed'; readonly id: string; readonly message: string };
@@ -358,15 +437,27 @@ export async function upgradeMarketplacePlugins(deps: UpgradeMarketplaceDeps, id
     if (entry.market !== undefined) marketNames.add(entry.market.name);
   }
   if (targetMarket !== undefined) marketNames.add(targetMarket);
+  let refreshedAny = false; // 是否发生刷新动作（updated/up-to-date 均落盘 record；failed 不动）
   for (const name of marketNames) {
     const record = sourcesRead.sources.find((r) => r.name === name);
     if (record === undefined) continue; // 市场已不在册——逐条 skipped 承载
     if (!isCatalogStale(record.updatedAt, now().getTime())) continue; // 鲜缓存——零网络
+    refreshedAny = true;
     const outcome = await refreshMarketplaceSource(deps, record);
     if (outcome.status === 'failed') {
       // 刷新失败不拒整批——对拍降级走既有缓存（stale 照用，离线 OK）
       refreshFailures.push(`${name}：${outcome.message}`);
     }
+  }
+  // —— 刷新后重读源清单：commitRecordUpdate 会前进 catalogPath/commit（git
+  // 换血形上游 catalog 换位、local up-to-date 形 catalogPath 前进均达）——
+  // 对拍读缓存必须按新 record 走，旧快照的 catalogPath 读 null 会误报
+  // 「缓存缺席」跳过该市场全部条目；重读坏形理论不可达（只 patch 不增
+  // 删）——降级沿用旧快照（仅当刷新全 failed 的陈化形，语义等价旧缓存）
+  let sourcesCurrent = sourcesRead;
+  if (refreshedAny) {
+    const fresh = readMarketplaceSources(dataDir, fs);
+    if (fresh.ok) sourcesCurrent = fresh;
   }
 
   // —— 逐条对拍 + 换装 ——
@@ -377,7 +468,7 @@ export async function upgradeMarketplacePlugins(deps: UpgradeMarketplaceDeps, id
     if (marketName === undefined || entryName === undefined) {
       continue; // 对拍面 = market 注记装机——无注记直装物不在射程（前置过滤已保）
     }
-    const record = sourcesRead.sources.find((r) => r.name === marketName);
+    const record = sourcesCurrent.sources.find((r) => r.name === marketName);
     if (record === undefined) {
       outcomes.push({
         status: 'skipped',
@@ -449,6 +540,9 @@ export async function upgradeMarketplacePlugins(deps: UpgradeMarketplaceDeps, id
       ...(installed.entry.version !== undefined || declaredVersion !== undefined
         ? { to: installed.entry.version ?? declaredVersion }
         : {}),
+      // 换血 id 漂移注记：装机 manifest id ≠ 账本 id（marketInstall 换血豁免
+      // 已撤账 + 启用行随迁）——呈现面须指路，不能只报旧 id 假装没漂
+      ...(installed.entry.id !== entry.id ? { idDrift: { from: entry.id, to: installed.entry.id } } : {}),
     });
   }
   return { outcomes, rejected: null, refreshFailures };

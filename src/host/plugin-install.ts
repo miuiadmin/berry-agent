@@ -54,6 +54,7 @@ import {
   installPathForLocal,
   installPathForNpm,
   ledgerPath,
+  migrateEnabledRow,
   parentDir,
   readLedger,
   removeLedgerEntry,
@@ -65,6 +66,10 @@ import { parseManifest } from './manifest.js';
 import type { PluginManifest } from './manifest.js';
 import { createGateTransform } from './import-gate.js';
 import { loadDefaultVirtualFaces, resolvePkgMain } from './loader.js';
+// web 卫生件单源消费（market 腿 git 克隆守卫——§9.6 攻击表行；host→web 边
+// 既有〔assembly/core-plugins 同族〕，ssrf 判定不另起炉灶）
+import { assertPublicHost, defaultDnsResolver } from '../web/index.js';
+import type { DnsResolver } from '../web/types.js';
 
 /* ---------------- ref 词法（CLI 与账本同形单源——§5.4 ref 字段） ---------------- */
 
@@ -81,11 +86,27 @@ export type PluginRefParse =
  * ref 单源词法（CLI `plugins install <ref>` 与账本 ref 字段同一表示——
  * 无变换直通）：`npm:<pkg>[@<version>]` / `git:<url>[#<ref>]` /
  * `local:<abs-path>`。前缀三选一强制（无前缀 = 用法错——不猜默认源）。
+ *
+ * argv 选项位拒（mp 收尾批安全硬化——词法面单源，直装/市场两腿同执法）：
+ * spec/url/ref 任一 '-' 起头即拒——这些字段最终落子进程 argv 的**位置参数
+ * 位**（npm install `<spec>` / git clone `<url>` / git checkout `<ref>`），
+ * '-' 起头会被 npm（nopt last-wins——可掀 '--ignore-scripts'/'--prefix'）
+ * 或 git（'-oX://y' 解析为选项）按旗标解析，属 argv 注入面非坏词法豁免域
+ * （与 market 装机腿主机校验的「显式动作豁免」分立——用户手打 '-x://y'
+ * 同拒，因它从来不是合法 url/ref 形）。
  */
 export function parsePluginRef(ref: string): PluginRefParse {
   if (ref.startsWith('npm:')) {
     const spec = ref.slice('npm:'.length);
     if (spec.length === 0) return { ok: false, message: 'npm ref 缺包名（形如 npm:acme-widgets@1.2.0）' };
+    // '-' 起头拒：spec 整体落 npm install 位置参数位（'--ignore-scripts=false'
+    // 形会被 npm 按旗标解析——last-wins 掀执行器自带防线）
+    if (spec.startsWith('-')) {
+      return {
+        ok: false,
+        message: `npm spec '-' 起头拒（"${spec}"）——spec 落 npm install 位置参数位会被按旗标解析（nopt last-wins 可掀 --ignore-scripts/--prefix）`,
+      };
+    }
     const at = spec.lastIndexOf('@');
     // scoped 包 @scope/pkg：@ 在位 0 是 scope 前缀非版本分隔——只认 >0 的 @
     if (at > 0) {
@@ -97,10 +118,24 @@ export function parsePluginRef(ref: string): PluginRefParse {
     const spec = ref.slice('git:'.length);
     if (spec.length === 0)
       return { ok: false, message: 'git ref 缺 url（形如 git:https://github.com/o/r.git#v1.2.0）' };
+    // '-' 起头拒：url 头段落 git clone 位置参数位（'-oX://y' 形会被 git 解析为选项位）
+    if (spec.startsWith('-')) {
+      return {
+        ok: false,
+        message: `git url '-' 起头拒（"${spec}"）——url 落 git clone 位置参数位会被按选项解析`,
+      };
+    }
     const hash = spec.lastIndexOf('#');
     if (hash >= 0) {
       const gitRef = spec.slice(hash + 1);
       if (gitRef.length === 0) return { ok: false, message: 'git ref 的 # 后为空（分支/tag/commit）' };
+      // '-' 起头拒：ref 落 git checkout 位置参数位（'-b'/'--detach' 形选项位混淆）
+      if (gitRef.startsWith('-')) {
+        return {
+          ok: false,
+          message: `git ref '-' 起头拒（"${gitRef}"）——ref 落 git checkout 位置参数位会被按选项解析`,
+        };
+      }
       return { ok: true, parsed: { source: 'git', url: spec.slice(0, hash), gitRef } };
     }
     return { ok: true, parsed: { source: 'git', url: spec } };
@@ -181,6 +216,13 @@ export interface InstallExecutorDeps {
   readonly now?: () => Date;
   /** tmp 目录（git 克隆中转站；缺省系统 tmp） */
   readonly tmpRoot?: string;
+  /**
+   * DNS 解析位（market 腿 git url 克隆守卫的私网判定——web 卫生件
+   * assertPublicHost 消费；缺省 node:dns 真身，测试注桩零网络）。
+   */
+  readonly resolveDns?: DnsResolver;
+  /** git 克隆超时帽 ms（缺省 GIT_CLONE_TIMEOUT_MS——测试收紧用） */
+  readonly cloneTimeoutMs?: number;
   /** jiti 工厂注入位（收割腿测试替身；缺省真 jiti） */
   readonly jitiFactory?: (pluginDir: string, pluginId: string) => ReturnType<typeof createJiti>;
   /**
@@ -194,7 +236,13 @@ export interface InstallExecutorDeps {
 
 /** install 结果（ok = 落账条目；拒 = message 呈现 CLI 退 1） */
 export type InstallOutcome =
-  | { readonly ok: true; readonly entry: PluginLedgerEntry; readonly text: string }
+  | {
+      readonly ok: true;
+      readonly entry: PluginLedgerEntry;
+      readonly text: string;
+      /** 市场换血 id 漂移且旧 id 启用行随迁发生（§9.6 定形）——回执注记与 mount 指路行抑制的判定位 */
+      readonly enabledCarried?: boolean;
+    }
   | { readonly ok: false; readonly message: string };
 
 /* ---------------- 装机编舞主入口 ---------------- */
@@ -277,7 +325,7 @@ export async function installPlugin(
         parsed.parsed.source === 'npm'
           ? await runNpmInstall(deps, parsed.parsed)
           : parsed.parsed.source === 'git'
-            ? await runGitInstall(deps, parsed.parsed)
+            ? await runGitInstall(deps, parsed.parsed, opts.market !== undefined) // market 腿受 SSRF 守卫
             : runLocalInstall(deps, parsed.parsed);
     }
   } catch (err) {
@@ -335,11 +383,33 @@ export async function installPlugin(
   // 市场换血换代收尾（§9.6 mp-3）：装机 id 漂移（清单换代改名）时旧条目须撤
   // 账——否则同 provenance 双条目并存，`marketplace uninstall` 寻址恒多中拒；
   // 旧装机树为相对表示（装机子树内）且无他条目共享时连带清（引用计数判据与
-  // uninstall 段② 同源；新树落位已由执行器幂等 rm 重放承载，此处只清旧位差集）
-  if (marketReplacing !== undefined && marketReplacing.id !== manifest.id) {
+  // uninstall 段② 同源；新树落位已由执行器幂等 rm 重放承载，此处只清旧位差集）。
+  // mp 收尾批修笔（03 §9.6 mp-3 定形注④）：连带清判据放宽为「id 漂移 或
+  // installPath 落位变化」——市场条目换源形（npm↔拷贝腿）重装时 id 稳定而落位
+  // 换位（plugins/node_modules/<pkg> ↔ plugins/market/<市场名>/<条目名>/），旧位
+  // 无人清即成无主残影（账本已覆写指新位，uninstall/upgrade 恒走新位）；撤账
+  // （removeLedgerEntry）仍仅 id 漂移时执行——id 稳定时 upsert 已覆盖同一条目
+  let rowMigrateNote = ''; // 启用行随迁失败注记（空 = 无随迁失败或无漂移）
+  let enabledCarried = false; // 随迁是否发生（行面有动作）——回执尾行与 CLI mount 指路抑制的判定位
+  let carriedFromId = ''; // 漂移源 id（随迁发生时必在场——回执换代注记用）
+  if (marketReplacing !== undefined) {
     const oldAbs = resolveInstallPath(deps.dataDir, marketReplacing.installPath);
     const newAbs = resolveInstallPath(deps.dataDir, product.installPath);
-    removeLedgerEntry(deps.dataDir, marketReplacing.id, deps.fs);
+    if (marketReplacing.id !== manifest.id) {
+      removeLedgerEntry(deps.dataDir, marketReplacing.id, deps.fs);
+      // 启用行随迁（§9.6 mp 收尾批定形）：旧 id 启用行（若在场）改写 id 为
+      // 新 id（config/disabled/opens 全字段保形）——不随迁即悬空行（boot 对账
+      // 永续 warn + 插件静默停载 + marketplace/plugins 两 uninstall 动词均清
+      // 不掉）。随迁失败（enabled.yaml 坏形）不吞装机油——装机事实已落账，坏
+      // 形行编辑面 readEnabledRowsForEdit fail-loud 已辖，此处以结文注记呈现
+      const migrated = migrateEnabledRow(deps.dataDir, marketReplacing.id, manifest.id, deps.fs);
+      if (!migrated.ok) {
+        rowMigrateNote = `；注意：启用行随迁失败（${migrated.message}）`;
+      } else {
+        enabledCarried = migrated.carried;
+        carriedFromId = marketReplacing.id;
+      }
+    }
     if (
       !isAbsolute(marketReplacing.installPath) &&
       oldAbs !== newAbs &&
@@ -363,10 +433,16 @@ export async function installPlugin(
     source: parsed.parsed.source,
     ...(entry.version !== undefined ? { version: entry.version } : {}),
   });
+  // 回执尾行随迁分形（§9.6 mp 收尾批定形）：随迁发生 = 启用态跨换代连续——
+  // 尾行呈换代注记（指路 mount 会撞名拒，不再指）；未随迁 = 通用两步制尾行
+  const tail = enabledCarried
+    ? `——换血换代：${carriedFromId} → ${manifest.id}，启用行已随换代迁移（下次启动装载生效）`
+    : '——装机零生效，启用走 mount（下次启动装载生效）';
   return {
     ok: true,
     entry,
-    text: `已装机：${manifest.id}（源 ${parsed.parsed.source}，${product.installPath}）——装机零生效，启用走 mount（下次启动装载生效）`,
+    text: `已装机：${manifest.id}（源 ${parsed.parsed.source}，${product.installPath}）${tail}${rowMigrateNote}`,
+    ...(enabledCarried ? { enabledCarried: true } : {}),
   };
 }
 
@@ -480,6 +556,65 @@ function npmFailureMessage(err: unknown, flagText: string): string {
 /* ---------------- git 源执行器 ---------------- */
 
 /**
+ * git 克隆超时帽（ms）——与 plugin-market/fetch.ts MARKET_CLONE_TIMEOUT_MS
+ * 同值（300s，§9.6 mp-4 定值）。本地重复定值非漂移：本件不 import
+ * plugin-market（防上层回指成环——文件头注），跨文件同律单源以注释互指
+ * 承载（MARKET_SEGMENT_RE 本地复验同先例）。
+ */
+const GIT_CLONE_TIMEOUT_MS = 300_000;
+
+/** market 腿 git url 克隆协议白名单（http/https/git/ssh——file:// 等本地/特权协议拒） */
+const MARKET_CLONE_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:', 'git:', 'ssh:']);
+
+/**
+ * 竞速超时执法（注入位安全）：本件 SpawnRunner 面无 signal 通道（真子进程
+ * 与注桩假件同形），外层竞速保证帽值恒被执法（黑洞地址挂死也收口）；子进程
+ * 本体由 OS 自理（v1 不持 kill 句柄——与 plugin-market/fetch.ts 同律）。
+ */
+function withTimeoutMs<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} 超时帽（${ms}ms）触发——中止等待`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
+/**
+ * market 腿 git url 克隆守卫（SSRF 防线——§9.6 攻击表「market 装机腿 git
+ * clone 新外联面」行）：catalog 授权 url 的装机克隆前置受检——
+ *  1. 协议白名单 http/https/git/ssh（file:// 等本地/特权协议拒）；
+ *  2. 私网/保留段拒（字面 + DNS——web 卫生件 assertPublicHost 单源消费；
+ *     scp 短手形〔git@host:path〕无协议位，合成 ssh:// 伪 url 受检）。
+ * 用户手打直装腿（market 注记缺席）不经本守卫——显式动作豁免（add 源
+ * fetch 腿同裁决）；DNS 解析位全注入（测试零网络律）。
+ */
+async function assertClonableMarketGitUrl(deps: InstallExecutorDeps, url: string): Promise<void> {
+  // scp 短手形：git@host:path → ssh://git@host/path（new URL 不识 scp 形）
+  const candidate = /^git@[^/:]+:.+$/.test(url) ? `ssh://${url.replace(/^git@([^/:]+):/, 'git@$1/')}` : url;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new BaseError('PLUGIN_INSTALL_FAILED', `market 腿 git url 不可解析（${url}）`);
+  }
+  if (!MARKET_CLONE_PROTOCOLS.has(parsed.protocol)) {
+    throw new BaseError(
+      'PLUGIN_INSTALL_FAILED',
+      `market 腿 git url 协议拒（${parsed.protocol} 不在白名单 http/https/git/ssh）：${url}`,
+    );
+  }
+  await assertPublicHost(parsed, deps.resolveDns ?? defaultDnsResolver);
+}
+
+/**
  * git 源执行：tmp 克隆（默认 branch）→ checkout gitRef（detach——branch/
  * tag/commit 皆可）→ HEAD commit 收割 → 落位 `plugins/git/<host>/<首段>/
  * <repo>/`（目标在场先 rm——幂等重装/撞名目录收敛）。克隆浅化不启用
@@ -488,10 +623,17 @@ function npmFailureMessage(err: unknown, flagText: string): string {
 async function runGitInstall(
   deps: InstallExecutorDeps,
   parsed: { readonly url: string; readonly gitRef?: string },
+  guarded: boolean, // market 腿守卫位——catalog 授权 url 受检，用户手打直装显式动作豁免
 ): Promise<InstallProduct> {
+  // 守卫前置（mkdtemp 之前——拒形零 tmp 开销，clone 永不发出）
+  if (guarded) await assertClonableMarketGitUrl(deps, parsed.url);
   const tmp = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), 'berry-git-install-'));
   try {
-    await deps.spawn.run('git', ['clone', parsed.url, tmp], {});
+    await withTimeoutMs(
+      deps.spawn.run('git', ['clone', parsed.url, tmp], {}),
+      deps.cloneTimeoutMs ?? GIT_CLONE_TIMEOUT_MS,
+      'git clone',
+    );
     if (parsed.gitRef !== undefined) {
       await deps.spawn.run('git', ['-C', tmp, 'checkout', '--detach', parsed.gitRef], {});
     }
@@ -499,6 +641,10 @@ async function runGitInstall(
     const commit = head.stdout.trim();
     const installPath = installPathForGit(parsed.url); // 坏 url 抛 PLUGIN_INSTALL_FAILED——ref 前置已校，保底
     const target = resolveInstallPath(deps.dataDir, installPath);
+    // rm 前装机子树断言（防线双保险——§9.6 布局段四处全验）：installPathForGit
+    // 已点段拒，此处再拦 target 落装机子树外的任何形（与 uninstall 段②/
+    // installPlugin 换装位同防线）——无断言时下句 rm 递归可抹任意目录
+    assertInsideInstallSubtree(deps.dataDir, target);
     deps.fs.mkdir(parentDir(target), { recursive: true });
     deps.fs.rm(target, { recursive: true, force: true }); // 幂等（在场旧树先清）
     deps.fs.rename(tmp, target);
@@ -656,14 +802,29 @@ async function runSubdirCopyInstall(
     // 境二：B2 定形——local 缓存目录内子目录直拷（零 spawn 零凭证）
     sourceDir = join(parsed.path, ...folded);
   } else if (parsed.source === 'git') {
-    // 境三：git-subdir 独立仓——tmp 克隆抽拷（HEAD commit 收割）
+    // 境三：git-subdir 独立仓——tmp 克隆抽拷（HEAD commit 收割）。三笔 spawn
+    // 全程在清场保护内：克隆网络失败等任意 throw 位先自清中转站再上浮
+    //（fetch.ts「失败位 tmp 自清」同契约——mkdtemp 与 staging 落位间不得留
+    // 无主 berry-market-clone-* 残影；637 行「finally 清场锚」的完整兑现）
     cloneTmp = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), 'berry-market-clone-'));
-    await deps.spawn.run('git', ['clone', parsed.url, cloneTmp], {});
-    if (parsed.gitRef !== undefined) {
-      await deps.spawn.run('git', ['-C', cloneTmp, 'checkout', '--detach', parsed.gitRef], {});
+    try {
+      // market 腿守卫（拷贝腿恒市场 provenance——§9.6 攻击表 market 装机腿行；
+      // 拒形由本块 catch 位 tmp 自清承接）
+      await assertClonableMarketGitUrl(deps, parsed.url);
+      await withTimeoutMs(
+        deps.spawn.run('git', ['clone', parsed.url, cloneTmp], {}),
+        deps.cloneTimeoutMs ?? GIT_CLONE_TIMEOUT_MS,
+        'git clone',
+      );
+      if (parsed.gitRef !== undefined) {
+        await deps.spawn.run('git', ['-C', cloneTmp, 'checkout', '--detach', parsed.gitRef], {});
+      }
+      const head = await deps.spawn.run('git', ['-C', cloneTmp, 'rev-parse', 'HEAD'], {});
+      commit = head.stdout.trim();
+    } catch (err) {
+      deps.fs.rm(cloneTmp, { recursive: true, force: true }); // 克隆失败位 tmp 自清
+      throw err;
     }
-    const head = await deps.spawn.run('git', ['-C', cloneTmp, 'rev-parse', 'HEAD'], {});
-    commit = head.stdout.trim();
     sourceDir = join(cloneTmp, ...folded);
   } else {
     // npm + subdirCopy 组合防御（分派位已拒——类型穷尽后的不可达防线，不静默）
@@ -843,7 +1004,8 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
   }
   let product: InstallProduct;
   try {
-    product = await runGitInstall(deps, parsed.parsed);
+    // market 装机物（git direct 布局）照走守卫重克隆——provenance 在场即受检
+    product = await runGitInstall(deps, parsed.parsed, current.market !== undefined);
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }

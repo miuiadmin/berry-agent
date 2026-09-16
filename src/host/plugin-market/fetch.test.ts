@@ -312,6 +312,12 @@ describe('git 腿——git 执行腿同族复用（假 spawn 零真网络）', (
     await expect(face.fetchGitCatalog('https://example.com/huge.git')).rejects.toThrow(/超时/);
     expect(readdirSync(testRoot).filter((n) => n.startsWith('berry-market-clone-'))).toHaveLength(0);
   });
+
+  // 主机校验位注记（mp 收尾批 sec ②§9.6 裁决）：git 腿克隆目标 = 用户手打 add
+  // 源 url（market/用户两分裁决的用户侧——显式动作豁免，与直装腿同律）；恶
+  // 形协议/'-' 起头在 add 分类位 fail-closed 拒（classify 五规则序不识即拒），
+  // 不达本面。catalog 条目（攻击者可控 url）的克隆守卫在装机腿
+  // plugin-install.test.ts「git 克隆目标主机校验」describe 锁。
 });
 
 describe.skipIf(process.env.BERRY_AGENT_MP_REMOTE_E2E === undefined)(
@@ -380,7 +386,8 @@ describe.skipIf(process.env.BERRY_AGENT_MP_REMOTE_E2E === undefined)(
         OFFICIAL_REPO,
       );
       expect(added.ok).toBe(true);
-      const discovered = discoverMarketplaces(
+      // discover 已改 async（TTL 惰性刷新腿）——此处须 await；fetch 缺席 = 纯读
+      const discovered = await discoverMarketplaces(
         { dataDir, fs: createMarketFs(), now: () => new Date() },
         'claude-plugins-official',
       );

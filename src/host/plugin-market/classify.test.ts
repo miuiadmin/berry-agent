@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { classifyMarketplaceSource, expandHomePath, githubShorthandToUrl } from './classify.js';
+import { classifyMarketplaceSource, expandGitUri, expandHomePath, githubShorthandToUrl } from './classify.js';
 
 describe('源分类五规则序（首中即胜——协议/模式检查先于路径检查）', () => {
   it('规则 1：https/http + .json 尾 → url', () => {
@@ -66,5 +66,36 @@ describe('expandHomePath（~/ 展开——home 参数注入纯函数）', () => 
   it('非 ~/ 前缀原样直通（含绝对与相对）', () => {
     expect(expandHomePath('/abs/x', '/home/u')).toBe('/abs/x');
     expect(expandHomePath('./rel', '/home/u')).toBe('./rel');
+  });
+});
+
+describe('拒绝报文消毒（mp 收尾批 sec——拒文内插 raw 串剥控制字符，CLI 终端注入前置防线）', () => {
+  it('expandGitUri 拒文不携 ESC/BEL/换行（空白词法拒——报文内插 raw uri）——修前红', () => {
+    // 恶意 uri 带空白进词法拒 → 报文原样内插 raw（含 ESC/BEL）——构造位单出口消毒
+    const result = expandGitUri('a b\u001b]0;pwned://c');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).not.toContain('\u001b');
+      expect(result.message).not.toContain('\u0007');
+      expect(result.message).not.toContain('\n');
+    }
+  });
+
+  it('classifyMarketplaceSource 不识形拒文同律——修前红', () => {
+    const result = classifyMarketplaceSource('\u001b]0;?pwned');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).not.toContain('\u001b');
+      expect(result.message).not.toContain('\n');
+    }
+  });
+
+  it('正常拒形报文语义不变（回归锚——消毒不吞指路词）', () => {
+    const result = classifyMarketplaceSource('owner/repo/extra');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain('./');
+      expect(result.message).toContain('owner/repo');
+    }
   });
 });

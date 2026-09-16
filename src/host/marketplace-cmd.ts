@@ -10,7 +10,9 @@
  *    即真相零网络）；
  *  - **discover**：条目聚合呈现（`name@market` 寻址形；可选单源过滤）——
  *    自由文本（description/跳过原因）经控制字符消毒，防 catalog 提示注入
- *    行结构（条目名已被名段词法上游执法）；
+ *    行结构（条目名已被名段词法上游执法）；24h TTL 惰性刷新触发时点
+ *    （03 §9.6 + 07 §5——过龄源回源拿新 catalog、鲜缓存零网络、刷新
+ *    失败降级 stale 照用不拒呈现）；
  *  - **install**：装机咬合编舞（plugin-market/install——恒复用既有
  *    installPlugin 零新装机机制）+ 两步制尾行（装机 ≠ 启用——mount 指路）；
  *  - **uninstall**：双相映射（§5.5 语义全继承：无 --confirm = inspect /
@@ -76,6 +78,19 @@ function sanitizeLine(text: string): string {
   return text.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
 }
 
+/**
+ * 呈现消毒（多行报文版）：逐行剥控制字符、**保行结构**——install/uninstall
+ * 结局报文是宿主自组合的多行文本（换行属我方排版非外源数据），整串过
+ * sanitizeLine 会塌缩全部行；外源字段（id/version/路径段）可携 OSC 52 等
+ * 序列直达终端（§9.6 mp 收尾批呈现消毒全位收口修笔——逐行消毒与字段位消毒同律）。
+ */
+function sanitizeBlock(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => sanitizeLine(line))
+    .join('\n');
+}
+
 /** marketplace 子命令族主入口。返回进程退出码（0/1；用法错 2 归解析层） */
 export async function runMarketplaceEntry(sub: MarketplaceCommand, options: MarketplaceEntryOptions): Promise<number> {
   switch (sub.sub) {
@@ -115,7 +130,9 @@ async function runAdd(source: string, options: MarketplaceEntryOptions): Promise
     source,
   );
   if (!added.ok) {
-    writeErr(added.message);
+    // 报文皮带（§9.6 mp 收尾批呈现消毒全位收口修笔）：add 拒文可携 catalog 原始字节
+    // （如 catalog 名 parse 拒报文携带原文）——writeErr 前过 sanitizeLine
+    writeErr(sanitizeLine(added.message));
     return 1;
   }
   writeOut(
@@ -142,14 +159,26 @@ function runRemove(name: string, options: MarketplaceEntryOptions): number {
     writeErr(err instanceof Error ? err.message : String(err)); // 点名失败诚实（查无不静默幂等）
     return 1;
   }
-  writeMarketplaceSources(dataDir, next.marketplaces, fs);
-  fs.rm(join(dataDir, 'marketplaces', name)); // 缓存清场（force——幂等）
+  // 两步清场定序（03 §9.6 定形注③）：**先清缓存目录再落账**——两步间中断的
+  // 残留方向翻为「记录在场 + 缓存缺席」（良性态：discover 缺席指路、update
+  // 可自愈重物化）；反序的「记录已删 + 孤儿缓存目录」不可收口（读侧账本
+  // 驱动不可见，只能手工清）。任一步 IO 失败 = result 面诚实拒退 1（不裸
+  // 抛、不半报成功——原子写 rename 未达即账本原样）
+  try {
+    fs.rm(join(dataDir, 'marketplaces', name)); // 缓存清场（force——幂等）
+    writeMarketplaceSources(dataDir, next.marketplaces, fs);
+  } catch (error) {
+    writeErr(
+      `移除失败（${error instanceof Error ? error.message : String(error)}）——源清单与缓存可能已部分清理，请重试 berry marketplace remove ${name}`,
+    );
+    return 1;
+  }
   writeOut(`已移除市场源：${name}（缓存目录已清——装机物独立落位不受影响，溯源注记账本照旧）`);
   return 0;
 }
 
-/** list：源清单 + 逐源条目计数（聚合读侧——缓存即真相零网络） */
-function runList(options: MarketplaceEntryOptions): number {
+/** list：源清单 + 逐源条目计数（聚合读侧——缓存即真相；不传 fetch 恒零网络） */
+async function runList(options: MarketplaceEntryOptions): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const dataDir = options.dataDir ?? resolveDataDir();
@@ -165,26 +194,57 @@ function runList(options: MarketplaceEntryOptions): number {
   }
   const lines: string[] = ['市场源：'];
   for (const record of read.sources) {
-    // 逐源条目计数（单源聚合——skipped 源计 0 并注原因）
-    const result = discoverMarketplaces({ dataDir, fs, now: () => new Date() }, record.name);
+    // 逐源条目计数（单源聚合——skipped 源计 0 并注原因；fetch 缺席 = 纯读
+    // 零网络——07 §5 list 行无 TTL 刷新承诺，刷新触发时点唯 discover/upgrade）
+    const result = await discoverMarketplaces({ dataDir, fs, now: () => new Date() }, record.name);
     const row = result.sources[0];
     const count = row !== undefined && row.status !== 'skipped' ? row.entries.length : 0;
     const note =
       row !== undefined && row.status === 'skipped' ? `——跳过（${sanitizeLine(row.skippedReason ?? '')}）` : '';
-    lines.push(`  ${record.name}  ${record.sourceType}  ${sanitizeLine(record.sourceUri)}  条目 ${count}${note}`);
+    // 缓存时点与 commit 锚（usage.md 承诺面——07 §5 list 行）：updatedAt 全源
+    // 在场（registry 校验维护）；commit 仅 git/github 源有值（前 7 位短锚——
+    // TTL 过龄观测位，免翻 marketplaces.json 原文）
+    const anchor = record.commit !== undefined ? ` @${record.commit.slice(0, 7)}` : '';
+    lines.push(
+      `  ${record.name}  ${record.sourceType}  ${sanitizeLine(record.sourceUri)}  条目 ${count}${note}  缓存 ${record.updatedAt}${anchor}`,
+    );
   }
   lines.push('条目呈现走 berry marketplace discover [<市场名>]');
   writeOut(lines.join('\n'));
   return 0;
 }
 
-/** discover [<市场名>]：条目聚合呈现（寻址形 + 版本 + 描述——呈现消毒） */
-function runDiscover(name: string | undefined, options: MarketplaceEntryOptions): number {
+/**
+ * discover [<市场名>]：条目聚合呈现（寻址形 + 版本 + 描述——呈现消毒）。
+ * 24h TTL 惰性刷新触发时点（03 §9.6 + 07 §5）：fetch 真身注入——过龄源回源
+ * 拿新 catalog（鲜缓存零网络）；刷新失败降级 stale 照用不拒呈现（warn 注记）。
+ */
+async function runDiscover(name: string | undefined, options: MarketplaceEntryOptions): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
+  const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const dataDir = options.dataDir ?? resolveDataDir();
   const fs = createMarketFs();
-  const result = discoverMarketplaces({ dataDir, fs, now: () => new Date() }, name);
+  const result = await discoverMarketplaces(
+    {
+      dataDir,
+      fs,
+      now: () => new Date(),
+      // TTL 惰性刷新腿（§9.6 discover 触发时点——过龄才回源；与 update/upgrade 同源真身）
+      fetch: options.fetch ?? createMarketFetchFace(),
+      home: homedir(),
+    },
+    name,
+  );
+  // 刷新失败注记（降级走既有缓存——离线 OK，不拒呈现）
+  for (const note of result.refreshFailures) {
+    writeErr(`warn：市场刷新失败（${sanitizeLine(note)}）——按既有缓存呈现`);
+  }
   if (result.sources.length === 0) {
+    // 无参全量形零源 = 零源出厂——零源指路文案（name 缺席不得插值 undefined）
+    if (name === undefined) {
+      writeOut('零市场源——添加走 berry marketplace add <源（本地路径 / git 短手 / URL）>');
+      return 0;
+    }
     writeOut(`市场 "${name}" 不在源清单——在册清单见 berry marketplace list`);
     return 0;
   }
@@ -200,7 +260,8 @@ function runDiscover(name: string | undefined, options: MarketplaceEntryOptions)
     lines.push(`  ${source.marketplace}（${source.entries.length} 条目${freshness}）：`);
     for (const entry of source.entries) {
       const desc = entry.description !== undefined ? `  ${sanitizeLine(entry.description)}` : '';
-      lines.push(`    ${entry.id}  ${entry.version}${desc}`);
+      // version 同为 catalog 自由文本（parse 面零词法执法）——消毒与 description 同律
+      lines.push(`    ${entry.id}  ${sanitizeLine(entry.version)}${desc}`);
     }
     for (const skip of source.skippedEntries) {
       const who = skip.name !== undefined ? `条目 "${skip.name}"` : '条目';
@@ -269,12 +330,20 @@ async function runInstall(id: string, options: MarketplaceEntryOptions): Promise
     };
     const outcome = await marketInstall({ dataDir, fs: createMarketFs(), install }, id);
     if (!outcome.ok) {
-      writeErr(outcome.message);
+      // 报文皮带（§9.6 mp 收尾批 security ③）：拒文可携 catalog 字段/git stderr
+      // 原始字节——writeErr 前过 sanitizeLine（构造位消毒为主防线、此为纵深）
+      writeErr(sanitizeLine(outcome.message));
       return 1;
     }
-    writeOut(outcome.text);
-    // 两步制尾行（与 plugins install 同律）：装机 ≠ 启用——mount 指路（可直复制执行）
-    writeOut(`装机 ≠ 启用——启用第二步：berry plugins mount ${outcome.entry.id}（mount 后下次启动装载生效）`);
+    // 成功报文皮带（§9.6 mp 收尾批呈现消毒全位收口修笔·条目字段位）：装机物清单 version 等
+    // catalog 仓库侧自由文本可达报文——逐行消毒保行结构
+    writeOut(sanitizeBlock(outcome.text));
+    // 两步制尾行（与 plugins install 同律）：装机 ≠ 启用——mount 指路（可直复制
+    // 执行）。换血 id 漂移随迁形（enabledCarried——§9.6 定形）例外：启用行已随
+    // 换代迁移，指 mount 会撞名拒——不再指路（回执尾行已呈随迁注记）
+    if (outcome.enabledCarried !== true) {
+      writeOut(`装机 ≠ 启用——启用第二步：berry plugins mount ${outcome.entry.id}（mount 后下次启动装载生效）`);
+    }
     return 0;
   } finally {
     await audit.close();
@@ -329,10 +398,13 @@ async function runUninstall(
       ? executeUninstall(deps, resolved.id, dataAction ?? 'keep') // 缺省 keep——execute 不静默猜 purge
       : inspectUninstall(deps, resolved.id);
     if (!outcome.ok) {
-      writeErr(outcome.message);
+      // 报文皮带（§9.6 mp 收尾批呈现消毒全位收口修笔）：与 install 拒文同律——外源字段消毒
+      writeErr(sanitizeLine(outcome.message));
       return 1;
     }
-    writeOut(outcome.text);
+    // 报文皮带（多行版）：inspect/execute 报文嵌清单 version 等 catalog 仓库侧
+    // 自由文本（账本位直达）——逐行消毒保行结构
+    writeOut(sanitizeBlock(outcome.text));
     return 0;
   } finally {
     await persistence.close();
@@ -427,7 +499,8 @@ async function runUpgrade(id: string | undefined, options: MarketplaceEntryOptio
       id,
     );
     if (result.rejected !== null) {
-      writeErr(result.rejected);
+      // 拒文皮带（§9.6 mp 收尾批 security ③——同 install 位，纵深防线）
+      writeErr(sanitizeLine(result.rejected));
       return 1;
     }
     // 刷新失败注记（对拍降级走既有缓存——离线 OK，不拒整批）
@@ -442,11 +515,19 @@ async function runUpgrade(id: string | undefined, options: MarketplaceEntryOptio
     let failed = false;
     for (const outcome of result.outcomes) {
       if (outcome.status === 'upgraded') {
+        // from/to 同为外源串（catalog version / 清单 version——词法零执法域），
+        // 与 current 态 version 同字段两态同律消毒；缺席 '?' 占位不必包
         const versions =
           outcome.from !== undefined || outcome.to !== undefined
-            ? `（${outcome.from ?? '?'} → ${outcome.to ?? '?'}）`
+            ? `（${outcome.from !== undefined ? sanitizeLine(outcome.from) : '?'} → ${outcome.to !== undefined ? sanitizeLine(outcome.to) : '?'}）`
             : '';
-        lines.push(`  已升级：${outcome.id}${versions}`);
+        // id 漂移注记（§9.6 定形）：装机 manifest id ≠ 账本 id——呈现面指路漂移
+        // 与随迁（否则回执只报旧 id，用户以为没漂）；两 id 同为外源串同律消毒
+        const drift =
+          outcome.idDrift !== undefined
+            ? `（id 漂移：${sanitizeLine(outcome.idDrift.from)} → ${sanitizeLine(outcome.idDrift.to)}——启用行已随换代迁移，下次启动装载生效）`
+            : '';
+        lines.push(`  已升级：${outcome.id}${versions}${drift}`);
       } else if (outcome.status === 'current') {
         const version = outcome.version !== undefined ? `（${sanitizeLine(outcome.version)}）` : '';
         lines.push(`  已是最新：${outcome.id}${version}`);

@@ -24,7 +24,7 @@ import { createMarketFs } from './fs.js';
 import { marketInstall } from './install.js';
 import { readMarketplaceSources, writeMarketplaceSources } from './registry.js';
 import type { MarketFetchFace, MarketFs, MarketplaceSourceRecord } from './types.js';
-import { createPluginStoreFs, readLedger } from '../plugin-store.js';
+import { createPluginStoreFs, mountRow, readEnabledRowsForEdit, readLedger } from '../plugin-store.js';
 import type { PluginLedgerEntry } from '../plugin-store.js';
 import type { InstallExecutorDeps, SpawnRunner } from '../plugin-install.js';
 
@@ -45,9 +45,20 @@ function memFs(initial: Record<string, string> = {}): MarketFs {
     write: (path, text) => void files.set(path, text),
     rename: (from, to) => {
       const text = files.get(from);
-      if (text === undefined) throw new Error(`ENOENT: ${from}`);
-      files.delete(from);
-      files.set(to, text);
+      if (text !== undefined) {
+        // 文件形直移（registry 原子写消费）
+        files.delete(from);
+        files.set(to, text);
+        return;
+      }
+      // 目录形 rename（前缀整移——staging promote 落位消费；真身 renameSync 目录原生支持）
+      const under = [...files.keys()].filter((key) => key.startsWith(`${from}/`));
+      if (under.length === 0) throw new Error(`ENOENT: ${from}`);
+      for (const key of under) {
+        const body = files.get(key)!;
+        files.delete(key);
+        files.set(`${to}${key.slice(from.length)}`, body);
+      }
     },
     mkdir: () => undefined,
     rm: (path) => {
@@ -182,6 +193,37 @@ describe('update 服务面——git 源（memFs + 注假 fetch）', () => {
     const sources = readMarketplaceSources('/data', fs);
     expect(sources.ok && sources.sources[0]).toMatchObject({ commit: 'aaa1111', updatedAt: T0.toISOString() });
   });
+
+  it('promote 段写失败（磁盘 IO 形）= failed + tmp 克隆清场（修前红——catch 不清 cloneDir）', async () => {
+    const base = memFs({
+      '/data/marketplaces/official/.claude-plugin/marketplace.json': catalogText('official', []),
+    });
+    writeMarketplaceSources('/data', [baseRecord], base);
+    // 假 git fetch：物化克隆树（写进 base——fetch 产物不走包装面）+ 新 commit（进 promote 段）
+    const newText = catalogText('official', [{ name: 'p-one', source: './plugins/one' }]);
+    const fetch = gitFetchReturning(base, 'bbb2222', newText);
+    // 缓存目录写失败形（ENOSPC/EACCED 同族）：包装 fs 对缓存位写入抛——staging
+    // promote 律下拦截面前缀须盖 official/ 与 official.staging/ 两目录（中转
+    // 同源盘位，无尾斜杠前缀即双盖）
+    const fs: MarketFs = {
+      ...base,
+      write: (path, text) => {
+        if (path.startsWith('/data/marketplaces/official')) throw new Error('ENOSPC: 磁盘已满');
+        base.write(path, text);
+      },
+    };
+    const outcome = await refreshMarketplaceSource({ dataDir: '/data', fs, fetch, now: () => T1 }, baseRecord);
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.message).toContain('ENOSPC');
+    // tmp 克隆中转站清场——「成功返回后清场归调用方」契约对 promote 抛出位的兑现
+    expect(base.isDir('/tmp/clone')).toBe(false);
+    // 旧缓存原样不动（staging promote 律——失败刷新不得自毁既有缓存）+ 中转零残影
+    expect(base.read('/data/marketplaces/official/.claude-plugin/marketplace.json')).toBe(catalogText('official', []));
+    expect(base.readdir('/data/marketplaces/official.staging')).toBeNull();
+    // record 不动（不虚报刷新）
+    const sources = readMarketplaceSources('/data', base);
+    expect(sources.ok && sources.sources[0]).toMatchObject({ commit: 'aaa1111', updatedAt: T0.toISOString() });
+  });
 });
 
 describe('update 服务面——url 源与 local 源', () => {
@@ -268,6 +310,41 @@ describe('update 服务面——url 源与 local 源', () => {
     expect(fs.read('/data/marketplaces/local-mkt/stale-cache.txt')).toBeNull();
     expect(fs.read('/data/marketplaces/local-mkt/.claude-plugin/marketplace.json')).toBe(nextText);
     expect(fs.read('/data/marketplaces/local-mkt/plugins/added/package.json')).toContain('added');
+  });
+
+  it('local 腿 catalog 路径漂移（内容不变）= 换血非 up-to-date——账本不得指向缓存缺席位', async () => {
+    const T = catalogText('local-mkt', []);
+    // add 时锁定 .claude-plugin 路径；此后源目录 catalog 迁到 .omp-plugin（内容
+    // 不变）并删原路径；缓存快照仍是旧路径旧内容（remove 两步中断/换机残留形同族）
+    const fs = memFs({
+      '/src/local-mkt/.omp-plugin/marketplace.json': T,
+      '/data/marketplaces/local-mkt/.claude-plugin/marketplace.json': T,
+      '/data/marketplaces/local-mkt/stale-cache.txt': '换血必删锚',
+    });
+    writeMarketplaceSources('/data', [localRecord], fs);
+    const noFetch: MarketFetchFace = {
+      fetchGitCatalog: async () => {
+        throw new Error('local 源不消费网络腿');
+      },
+      fetchUrlCatalog: async () => {
+        throw new Error('local 源不消费网络腿');
+      },
+    };
+    const outcome = await refreshMarketplaceSource(
+      { dataDir: '/data', fs, fetch: noFetch, now: () => T1 },
+      localRecord,
+    );
+    // 修前红：内容相等即 up-to-date + 账本 catalogPath 前进到新路径——而缓存树
+    // 一字未动（无新路径文件）→ discover/install 随即报「缓存缺席」自相矛盾
+    expect(outcome.status).toBe('updated');
+    // 换血锁：缓存 = 源目录新快照（新路径在场、旧残留消失）
+    expect(fs.read('/data/marketplaces/local-mkt/.omp-plugin/marketplace.json')).toBe(T);
+    expect(fs.read('/data/marketplaces/local-mkt/stale-cache.txt')).toBeNull();
+    const sources = readMarketplaceSources('/data', fs);
+    expect(sources.ok && sources.sources[0]).toMatchObject({
+      catalogPath: '.omp-plugin/marketplace.json',
+      updatedAt: T1.toISOString(),
+    });
   });
 });
 
@@ -653,6 +730,56 @@ describe('upgrade 服务面——catalog 对拍 + 换装分派', () => {
     });
   });
 
+  it('刷新换 catalogPath + 同批 upgrade：对拍走新路径（上游 catalog 换位形不误报缓存缺席）', async () => {
+    const dataDir = dataDirOf('up-relocate');
+    // 种源即过龄（updatedAt = NOW0 - 25h）——同批 upgrade 必触发回源刷新
+    seedMarket(
+      dataDir,
+      [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '1.2.3' } }],
+      new Date(NOW0.getTime() - 25 * 60 * 60 * 1000),
+    );
+    const { spawn } = npmFakeSpawn(dataDir);
+    await installEntry(dataDir, 'demo-pkg@official', spawn);
+    const later = new Date(NOW0.getTime() + 25 * 60 * 60 * 1000);
+    // 上游 catalog 换位（.claude-plugin/ → .omp-plugin/）+ 新 commit + 版本推进 1.3.0
+    const fs = createMarketFs();
+    const relocated: MarketFetchFace = {
+      fetchGitCatalog: async () => {
+        const cloneDir = join(dataDir, 'clone-relocate');
+        fs.mkdir(join(cloneDir, '.omp-plugin'));
+        fs.write(
+          join(cloneDir, '.omp-plugin', 'marketplace.json'),
+          JSON.stringify({
+            name: 'official',
+            owner: { name: 'o' },
+            plugins: [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '1.3.0' } }],
+          }),
+        );
+        return {
+          cloneDir,
+          catalogPath: '.omp-plugin/marketplace.json',
+          text: '',
+          commit: 'cccc2222dddd3333eeee4444ffff5555aaaa6666',
+        };
+      },
+      fetchUrlCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+    };
+    const { spawn: spawn2, argvLog } = npmFakeSpawn(dataDir);
+    const result = await upgradeMarketplacePlugins({
+      ...upgradeDepsOf(dataDir, spawn2, relocated, ledgerOf(dataDir)),
+      now: () => later,
+    });
+    // 换位不误报「缓存缺席」——对拍按刷新后的新 catalogPath 走，版本推进真升级
+    expect(result.rejected).toBeNull();
+    expect(result.outcomes).toEqual([{ status: 'upgraded', id: 'demo-pkg', from: '1.2.3', to: '1.3.0' }]);
+    expect(argvLog.some((argv) => argv.includes('demo-pkg@1.3.0'))).toBe(true); // 换装真发生
+    // 源清单 record 已前进到新 catalogPath（刷新腿 commitRecordUpdate 落盘）
+    const sources = readMarketplaceSources(dataDir, createMarketFs());
+    expect(sources.ok && sources.sources[0]).toMatchObject({ catalogPath: '.omp-plugin/marketplace.json' });
+  });
+
   it('零市场装机物 = 空对拍面（outcomes 空、非拒）', async () => {
     const dataDir = dataDirOf('up-empty');
     seedMarket(dataDir, []);
@@ -660,5 +787,414 @@ describe('upgrade 服务面——catalog 对拍 + 换装分派', () => {
     const result = await upgradeMarketplacePlugins(upgradeDepsOf(dataDir, spawn, noFetch, []));
     expect(result.rejected).toBeNull();
     expect(result.outcomes).toHaveLength(0);
+  });
+});
+
+/* ---------------- mp 收尾批修复批回归锁（修前必红——correctness 五笔） ---------------- */
+
+/** 修复批用 git 源基准记录（与上文 git describe 的 baseRecord 同形） */
+const gitBaseRecord: MarketplaceSourceRecord = {
+  name: 'official',
+  sourceType: 'github',
+  sourceUri: 'owner/repo',
+  catalogPath: '.claude-plugin/marketplace.json',
+  addedAt: T0.toISOString(),
+  updatedAt: T0.toISOString(),
+  commit: 'aaa1111',
+};
+
+/** 修复批用 url 源基准记录 */
+const urlBaseRecord: MarketplaceSourceRecord = {
+  name: 'url-one',
+  sourceType: 'url',
+  sourceUri: 'https://example.com/cat.json',
+  catalogPath: 'marketplace.json',
+  addedAt: T0.toISOString(),
+  updatedAt: T0.toISOString(),
+};
+
+/** local 源刷新不消费网络腿——任何 fetch 调用即失败 */
+const noNetworkFetch: MarketFetchFace = {
+  fetchGitCatalog: async () => {
+    throw new Error('local 源不消费网络腿');
+  },
+  fetchUrlCatalog: async () => {
+    throw new Error('local 源不消费网络腿');
+  },
+};
+
+describe('mp 收尾批修复批——update 面回归锁', () => {
+  it('local 源 catalog 双路径搬移（同文本）= 有变化走换血——up-to-date 判据带路径前置条件', async () => {
+    // 源仓把 catalog 从 .claude-plugin 迁到 .omp-plugin（内容逐字节不变——纯
+    // 文件搬移；双路径读序 CATALOG_RELATIVE_PATHS 明确支持两形互迁）。若按
+    // 「文本相同即已最新」判，record.catalogPath 会被补丁到缓存中不存在的新
+    // 路径 → discover/install/upgrade 整体「缓存缺席」失读。
+    const sameText = catalogText('moved-mkt', []);
+    const fs = memFs({
+      '/src/moved-mkt/.omp-plugin/marketplace.json': sameText,
+      '/data/marketplaces/moved-mkt/.claude-plugin/marketplace.json': sameText,
+    });
+    const record: MarketplaceSourceRecord = {
+      name: 'moved-mkt',
+      sourceType: 'local',
+      sourceUri: '/src/moved-mkt',
+      catalogPath: '.claude-plugin/marketplace.json',
+      addedAt: T0.toISOString(),
+      updatedAt: T0.toISOString(),
+    };
+    writeMarketplaceSources('/data', [record], fs);
+    const outcome = await refreshMarketplaceSource(
+      { dataDir: '/data', fs, fetch: noNetworkFetch, now: () => T1 },
+      record,
+    );
+    // 路径搬移 = 有变化——换血而非「已是最新」（catalogPath 前进属换血分支）
+    expect(outcome).toEqual({ status: 'updated', name: 'moved-mkt', entryCount: 0 });
+    const sources = readMarketplaceSources('/data', fs);
+    expect(sources.ok && sources.sources[0]).toMatchObject({
+      catalogPath: '.omp-plugin/marketplace.json',
+      updatedAt: T1.toISOString(),
+    });
+    // 换血后缓存按新路径可读、旧路径清场（读位即恢复——不再「缓存缺席」）
+    expect(fs.read('/data/marketplaces/moved-mkt/.omp-plugin/marketplace.json')).toBe(sameText);
+    expect(fs.read('/data/marketplaces/moved-mkt/.claude-plugin/marketplace.json')).toBeNull();
+  });
+
+  it('换血失败位：copyTree 中途抛 = failed + 旧缓存原样不动 + staging/tmp 克隆场清场（record 不动——修前红：rm 先行自毁既有缓存）', async () => {
+    const fs = memFs({
+      '/data/marketplaces/official/.claude-plugin/marketplace.json': catalogText('official', []),
+    });
+    writeMarketplaceSources('/data', [gitBaseRecord], fs);
+    // fetch 物化克隆正常、promote 拷贝写位抛（模拟盘满 ENOSPC——真抛源为
+    // fs.write/mkdir/rm 侧；read/readdir 缺席语义返 null 不抛）。拦截面须盖
+    // official/ 与 official.staging/ 两目录（staging promote 中转同源盘位）
+    const flaky: MarketFs = {
+      ...fs,
+      write: (path, text) => {
+        if (path.startsWith('/data/marketplaces/official')) {
+          throw new Error('ENOSPC: mock disk full');
+        }
+        return fs.write(path, text);
+      },
+    };
+    const fetch = gitFetchReturning(flaky, 'bbb2222', catalogText('official', []));
+    const outcome = await refreshMarketplaceSource(
+      { dataDir: '/data', fs: flaky, fetch, now: () => T1 },
+      gitBaseRecord,
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.message).toContain('update'); // 自愈指路注记
+    // tmp 克隆场清场（fetch 契约「成功返回后清场归调用方」——换血失败位不漏清）
+    expect(flaky.isDir('/tmp/clone')).toBe(false);
+    // 旧缓存原样不动（03 §9.6 换血 promote 故障防护注——失败刷新不得自毁既有
+    // 缓存：upgrade「刷新失败按既有缓存对拍」降级律的故障防护前提）
+    expect(flaky.read('/data/marketplaces/official/.claude-plugin/marketplace.json')).toBe(catalogText('official', []));
+    // 半拷贝永不 promote——staging 中转清场（成或湮，无残影）
+    expect(flaky.readdir('/data/marketplaces/official.staging')).toBeNull();
+    // record 不动（不虚报刷新）
+    const sources = readMarketplaceSources('/data', flaky);
+    expect(sources.ok && sources.sources[0]).toMatchObject({
+      commit: 'aaa1111',
+      updatedAt: T0.toISOString(),
+    });
+  });
+
+  it('落账失败位：promote 已成而落账抛 = failed 注记自愈 + 已 promote 缓存保持在场 + tmp/staging 清场', async () => {
+    const fs = memFs({
+      '/data/marketplaces/official/.claude-plugin/marketplace.json': catalogText('official', []),
+    });
+    writeMarketplaceSources('/data', [gitBaseRecord], fs);
+    // 换血 promote 成功后、源清单原子写（tmp+rename）时抛——模拟账本写位盘满
+    const flaky: MarketFs = {
+      ...fs,
+      write: (path, text) => {
+        if (path.startsWith('/data/marketplaces.json')) {
+          throw new Error('ENOSPC: mock ledger full');
+        }
+        return fs.write(path, text);
+      },
+    };
+    const upstream = catalogText('official', [
+      { name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '9.9.9' } },
+    ]);
+    const fetch = gitFetchReturning(flaky, 'bbb2222', upstream);
+    const outcome = await refreshMarketplaceSource(
+      { dataDir: '/data', fs: flaky, fetch, now: () => T1 },
+      gitBaseRecord,
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.message).toContain('update'); // 自愈指路注记
+    // tmp 克隆场清场 + staging 中转清场（promote 已 rename 落位——中转不复在场）
+    expect(flaky.isDir('/tmp/clone')).toBe(false);
+    expect(flaky.readdir('/data/marketplaces/official.staging')).toBeNull();
+    // 已 promote 新内容保持在场（03 §9.6 修笔：record 落后于内容为良性窗——
+    // 下次 update commit 对拍不等自然收敛，不采「清场回缺席」形）
+    expect(flaky.read('/data/marketplaces/official/.claude-plugin/marketplace.json')).toBe(upstream);
+    // record 不动
+    const sources = readMarketplaceSources('/data', flaky);
+    expect(sources.ok && sources.sources[0]).toMatchObject({
+      commit: 'aaa1111',
+      updatedAt: T0.toISOString(),
+    });
+  });
+
+  it('local 腿换血失败位同律：拷贝中途抛 = 旧缓存原样不动 + staging 清场（修前红——rm 先行自毁）', async () => {
+    const upstream = catalogText('zeta', [
+      { name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '9.9.9' } },
+    ]);
+    const fs = memFs({
+      '/src/zeta/.claude-plugin/marketplace.json': upstream,
+      '/src/zeta/keep-me.txt': 'keep',
+      // 旧缓存在场（升级逃生门要保的既有内容——附属文件随缓存整树存活）
+      '/data/marketplaces/zeta/.claude-plugin/marketplace.json': catalogText('zeta', []),
+      '/data/marketplaces/zeta/keep-me.txt': 'old',
+    });
+    const record: MarketplaceSourceRecord = {
+      name: 'zeta',
+      sourceType: 'local',
+      sourceUri: '/src/zeta',
+      catalogPath: '.claude-plugin/marketplace.json',
+      addedAt: T0.toISOString(),
+      updatedAt: T0.toISOString(),
+    };
+    writeMarketplaceSources('/data', [record], fs);
+    // promote 拷贝到第二文件（keep-me.txt）写位抛——模拟盘满/EACCES（拦截面盖
+    // zeta/ 与 zeta.staging/ 两目录）
+    const flaky: MarketFs = {
+      ...fs,
+      write: (path, text) => {
+        if (path.startsWith('/data/marketplaces/zeta') && path.endsWith('keep-me.txt')) {
+          throw new Error('EACCES: mock write denied');
+        }
+        return fs.write(path, text);
+      },
+    };
+    const outcome = await refreshMarketplaceSource(
+      { dataDir: '/data', fs: flaky, fetch: noFetch, now: () => T1 },
+      record,
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.message).toContain('EACCES');
+    // 旧缓存原样不动（三腿同律——失败刷新不得自毁既有缓存）
+    expect(flaky.read('/data/marketplaces/zeta/keep-me.txt')).toBe('old');
+    expect(flaky.read('/data/marketplaces/zeta/.claude-plugin/marketplace.json')).toBe(catalogText('zeta', []));
+    // staging 中转清场（半拷贝永不 promote——中转成或湮）
+    expect(flaky.readdir('/data/marketplaces/zeta.staging')).toBeNull();
+    const sources = readMarketplaceSources('/data', flaky);
+    expect(sources.ok && sources.sources[0]).toMatchObject({ updatedAt: T0.toISOString() });
+  });
+
+  it('url 腿换血失败位同律：写入位抛 = 旧缓存原样不动（修前红——rm 先行自毁）', async () => {
+    const upstream = catalogText('url-two', [
+      { name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '9.9.9' } },
+    ]);
+    const fs = memFs({
+      '/data/marketplaces/url-two/marketplace.json': catalogText('url-two', []),
+    });
+    const record: MarketplaceSourceRecord = {
+      name: 'url-two',
+      sourceType: 'url',
+      sourceUri: 'https://example.com/marketplace.json',
+      catalogPath: 'marketplace.json',
+      addedAt: T0.toISOString(),
+      updatedAt: T0.toISOString(),
+    };
+    writeMarketplaceSources('/data', [record], fs);
+    const flaky: MarketFs = {
+      ...fs,
+      write: (path, text) => {
+        if (path.startsWith('/data/marketplaces/url-two')) {
+          throw new Error('ENOSPC: mock disk full');
+        }
+        return fs.write(path, text);
+      },
+    };
+    const outcome = await refreshMarketplaceSource(
+      {
+        dataDir: '/data',
+        fs: flaky,
+        fetch: { ...noFetch, fetchUrlCatalog: async () => ({ text: upstream }) },
+        now: () => T1,
+      },
+      record,
+    );
+    expect(outcome.status).toBe('failed');
+    // 旧缓存原样不动 + staging 中转清场
+    expect(flaky.read('/data/marketplaces/url-two/marketplace.json')).toBe(catalogText('url-two', []));
+    expect(flaky.readdir('/data/marketplaces/url-two.staging')).toBeNull();
+    const sources = readMarketplaceSources('/data', flaky);
+    expect(sources.ok && sources.sources[0]).toMatchObject({ updatedAt: T0.toISOString() });
+  });
+
+  it('源清单窗内坏形 = 刷新落账拒写防覆盖（fail-loud——不以空账本兜底抹除全账本）', async () => {
+    const fs = memFs({ '/data/marketplaces/url-one/marketplace.json': catalogText('url-one', []) });
+    // 两源在册——刷新窗内账本被写坏（并行 CLI 进程/手编：文件域账本人类可读可直查）
+    writeMarketplaceSources(
+      '/data',
+      [urlBaseRecord, { ...urlBaseRecord, name: 'other-mkt', sourceUri: 'https://example.com/other.json' }],
+      fs,
+    );
+    fs.write('/data/marketplaces.json', '{corrupted');
+    const outcome = await refreshMarketplaceSource(
+      {
+        dataDir: '/data',
+        fs,
+        fetch: {
+          fetchGitCatalog: async () => {
+            throw new Error('本用例不达');
+          },
+          fetchUrlCatalog: async () => ({ text: catalogText('url-one', []) }),
+        },
+        now: () => T1,
+      },
+      urlBaseRecord,
+    );
+    // 坏账本拒写——failed 而非「已是最新」静默落空账本
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.message).toContain('坏形');
+    // 坏账本原样保留——未被 {version:1,marketplaces:[]} 覆盖（其余源记录不抹除）
+    expect(fs.read('/data/marketplaces.json')).toBe('{corrupted');
+  });
+});
+
+describe('mp 收尾批修复批——upgrade 面回归锁', () => {
+  it('TTL 刷新搬移 catalog 路径后，对拍用落账后的新 record（陈化快照不假「缓存缺席」）', async () => {
+    const dataDir = dataDirOf('up-refresh-move');
+    seedMarket(dataDir, [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '1.2.3' } }]);
+    const { spawn } = npmFakeSpawn(dataDir);
+    await installEntry(dataDir, 'demo-pkg@official', spawn);
+    // 过龄回源：上游新 commit 把 catalog 搬到 .omp-plugin（版本推进 1.3.0）——
+    // 刷新换血会落新 catalogPath；逐条对拍若沿用刷新前内存快照（旧路径），
+    // 读换血后的新缓存树即 null → 全部条目假「缓存缺席」跳过
+    const cloneFs = createMarketFs();
+    const movedCommit = 'eeee1111ffff2222cccc3333dddd4444aaaa5555';
+    const movedFetch: MarketFetchFace = {
+      fetchGitCatalog: async () => {
+        const cloneDir = join(dataDir, 'clone-tmp');
+        cloneFs.mkdir(join(cloneDir, '.omp-plugin'));
+        cloneFs.write(
+          join(cloneDir, '.omp-plugin', 'marketplace.json'),
+          JSON.stringify({
+            name: 'official',
+            owner: { name: 'o' },
+            plugins: [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '1.3.0' } }],
+          }),
+        );
+        return { cloneDir, catalogPath: '.omp-plugin/marketplace.json', text: '', commit: movedCommit };
+      },
+      fetchUrlCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+    };
+    const { spawn: spawn2 } = npmFakeSpawn(dataDir);
+    const result = await upgradeMarketplacePlugins({
+      ...upgradeDepsOf(dataDir, spawn2, movedFetch, ledgerOf(dataDir)),
+      now: () => new Date(NOW0.getTime() + 25 * 60 * 60 * 1000), // 过龄——触发 TTL 惰性刷新
+    });
+    expect(result.rejected).toBeNull();
+    expect(result.refreshFailures).toHaveLength(0);
+    // 对拍继续（升级成功）而非 skipped「缓存缺席」
+    expect(result.outcomes).toEqual([{ status: 'upgraded', id: 'demo-pkg', from: '1.2.3', to: '1.3.0' }]);
+    // 落账 record 已随换血前进（catalogPath 搬移 + commit + updatedAt）
+    const sources = readMarketplaceSources(dataDir, createMarketFs());
+    expect(sources.ok && sources.sources[0]).toMatchObject({ catalogPath: '.omp-plugin/marketplace.json' });
+  });
+
+  it('刷新 promote 失败降级：旧缓存原样不动 → 对拍照走既有缓存（非「缓存缺席」空跑——修前红：rm 先行自毁降级承诺）', async () => {
+    const dataDir = dataDirOf('up-promote-fail-degrade');
+    seedMarket(dataDir, [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '1.2.3' } }]);
+    const { spawn } = npmFakeSpawn(dataDir);
+    await installEntry(dataDir, 'demo-pkg@official', spawn);
+    // 过龄源 + 刷新腿 promote 写位失败（armed 拦截面盖 official/ 与 official.staging/）
+    const real = createMarketFs();
+    let armed = false;
+    const flaky: MarketFs = {
+      ...real,
+      write: (path, text) => {
+        if (armed && path.includes(join(dataDir, 'marketplaces', 'official'))) {
+          throw new Error('EACCES: mock write denied');
+        }
+        return real.write(path, text);
+      },
+    };
+    const newCommit = 'ffff1111eeee2222dddd3333cccc4444bbbb5555';
+    const fetch: MarketFetchFace = {
+      fetchGitCatalog: async () => {
+        const cloneDir = join(dataDir, 'clone-tmp');
+        real.mkdir(join(cloneDir, '.claude-plugin'));
+        real.write(
+          join(cloneDir, '.claude-plugin', 'marketplace.json'),
+          JSON.stringify({
+            name: 'official',
+            owner: { name: 'o' },
+            plugins: [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '9.9.9' } }],
+          }),
+        );
+        return { cloneDir, catalogPath: '.claude-plugin/marketplace.json', text: '', commit: newCommit };
+      },
+      fetchUrlCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+    };
+    armed = true;
+    const result = await upgradeMarketplacePlugins(
+      {
+        ...upgradeDepsOf(dataDir, spawn, fetch, ledgerOf(dataDir)),
+        fs: flaky,
+        now: () => new Date(NOW0.getTime() + 25 * 60 * 60 * 1000), // 过龄——触发 TTL 惰性刷新
+      },
+      // 全量对拍（非单件点名——点名 = force 换血重装恒 upgraded，照不出对拍腿）
+    );
+    expect(result.rejected).toBeNull();
+    // 刷新失败不拒整批——warn 注记（降级承诺兑现的观测位）
+    expect(result.refreshFailures).toHaveLength(1);
+    expect(result.refreshFailures[0]).toContain('official');
+    // 对拍降级走既有缓存：旧 catalog 1.2.3 对账本 1.2.3 = current（rm 先行形
+    // 此处读 null → 整条假「缓存缺席」跳过——降级承诺自毁即本锁修前红形）
+    expect(result.outcomes).toEqual([{ status: 'current', id: 'demo-pkg', version: '1.2.3' }]);
+    // 旧缓存整树在场 + staging 中转零残影
+    expect(real.read(join(dataDir, 'marketplaces', 'official', '.claude-plugin', 'marketplace.json'))).toContain(
+      '1.2.3',
+    );
+    expect(real.readdir(join(dataDir, 'marketplaces', 'official.staging'))).toBeNull();
+  });
+
+  it('id 漂移换装：upgrade 回执 idDrift 注记 + 撤账 + 启用行随迁（修前红——回执旧 id 无漂移指路）', async () => {
+    const dataDir = dataDirOf('up-id-drift');
+    seedMarket(dataDir, [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg', version: '1.2.3' } }]);
+    const { spawn } = npmFakeSpawn(dataDir);
+    await installEntry(dataDir, 'demo-pkg@official', spawn);
+    // 用户启用（mount 行——随迁断言的意图锚）
+    expect(mountRow(dataDir, 'demo-pkg', undefined, createPluginStoreFs())).toMatchObject({ ok: true });
+    // 上游换代：catalog 同条目换 npm 包名 → 新包清单 id = demo-pkg-next（id 漂移）
+    const fs = createMarketFs();
+    fs.write(
+      join(dataDir, 'marketplaces', 'official', '.claude-plugin', 'marketplace.json'),
+      JSON.stringify({
+        name: 'official',
+        owner: { name: 'o' },
+        plugins: [{ name: 'demo-pkg', source: { source: 'npm', package: 'demo-pkg-next', version: '1.3.0' } }],
+      }),
+    );
+    const result = await upgradeMarketplacePlugins(
+      upgradeDepsOf(dataDir, spawn, noFetch, ledgerOf(dataDir)),
+      'demo-pkg@official', // 单件点名 = force 换血重装
+    );
+    expect(result.rejected).toBeNull();
+    // 回执诚实：upgraded 态携带 idDrift（旧 id → 新 id——呈现面指路「下次以新 id 寻址」）
+    expect(result.outcomes).toEqual([
+      {
+        status: 'upgraded',
+        id: 'demo-pkg',
+        from: '1.2.3',
+        to: '1.3.0',
+        idDrift: { from: 'demo-pkg', to: 'demo-pkg-next' },
+      },
+    ]);
+    // 撤账恰一条（旧 id 出账、market 溯源保形）+ 启用行随迁
+    const ledger = ledgerOf(dataDir);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ id: 'demo-pkg-next', market: { name: 'official', entry: 'demo-pkg' } });
+    const rows = readEnabledRowsForEdit(dataDir, createPluginStoreFs());
+    expect(rows.ok && rows.rows.map((row) => row.id)).toEqual(['demo-pkg-next']);
   });
 });

@@ -387,7 +387,7 @@ berry plugins mount <id>      # 「下次启动装载生效」只归属 mount �
 ```bash
 berry marketplace add <source>        # 添加市场源（local 目录 / git 仓 / https catalog JSON）
 berry marketplace list                # 已添加源清单（各附缓存时点与 commit 锚）
-berry marketplace discover [<市场名>] # 条目聚合呈现（寻址形 name@market + 版本 + 描述）
+berry marketplace discover [<市场名>] # 条目聚合呈现（寻址形 name@market + 版本 + 描述；缓存过龄触发时点惰性刷新——鲜缓存零网络）
 berry marketplace install <name@市场名>  # 装机（恒走既有 plugins install 四件套——只装不启，启用仍走 mount）
 berry marketplace uninstall <name@市场名> # 卸载（双相旗标全继承 plugins uninstall：--confirm / --data keep|purge）
 berry marketplace update [<市场名>]   # 手动刷新源缓存（up-to-date 即报不动；变化 = 整目录换血）
@@ -395,9 +395,9 @@ berry marketplace upgrade [<name@市场名>] # 按最新 catalog 对拍换装（
 berry marketplace remove <市场名>     # 移除源（连同缓存目录清理；已装插件不受影响——账本仍在）
 ```
 
-`add <source>` 四类源形：本地目录（`local:` 前缀或 `./`、`~/`、`/` 开头路径）/ git 仓 URL（`github.com/<owner>/<repo>` 短手可省协议）/ `git@` ssh 形 / https 直指 catalog JSON。marketplace 兼容目录约定（`.omp-plugin` / `.claude-plugin` 双路径读序）——catalog 坏形整仓拒、单条目坏形跳过并报行。
+`add <source>` 四类源形：本地目录（`./`、`~/`、`/` 开头路径）/ git 仓 URL（`github.com/<owner>/<repo>` 短手可省协议）/ `git@` ssh 形 / https 直指 catalog JSON。marketplace 兼容目录约定（`.omp-plugin` / `.claude-plugin` 双路径读序）——catalog 坏形整仓拒、单条目坏形跳过并报行。
 
-**刷新语义（auto-update 不存在）**：源缓存 24h 过线仅作「下次操作前建议刷新」标记（stale 照用不阻塞）；拉最新唯经手动 `update`（刷缓存）与 `upgrade`（换装机物）——加载器永不自动安装。`upgrade` 与 `plugins update` 语义分立：前者对拍市场目录最新条目、后者忠于装机账本里的 ref。
+**刷新语义（auto-update 不存在）**：源缓存 24h 过线时 `discover`（呈现）与 `upgrade`（对拍）在触发时点惰性回源刷新（鲜缓存零网络；刷新失败降级 stale 照用不阻塞——离线 OK）；立即无条件刷新走手动 `update`（刷缓存），装机物换装唯经 `upgrade`——加载器永不自动安装。`upgrade` 与 `plugins update` 语义分立：前者对拍市场目录最新条目、后者忠于装机账本里的 ref。
 
 对已装市场条目重复 `install` = **换血重装**（同 `name@market` 溯源自动顶替旧装机条目并清旧树，非报错拒绝）；缓存换血原子（先备新树后整体替换，半拷贝永不复用）。远程抓取走与宿主 web 面同源的 SSRF/DNS 钉死防线（私网拒、重定向逐跳复检、超时与响应大小帽）。
 

@@ -275,7 +275,11 @@ export interface DiscoveredMarketSource {
   readonly skippedReason?: string;
 }
 
-/** 聚合呈现结果（零源出厂 = 空数组——不报错） */
+/**
+ * 聚合呈现结果（零源出厂 = 空数组——不报错）。refreshFailures = TTL 惰性
+ * 刷新腿的逐源失败注记（fetch 注入位缺席的纯读路径恒空——CLI warn 呈现）。
+ */
 export interface DiscoveryResult {
   readonly sources: readonly DiscoveredMarketSource[];
+  readonly refreshFailures: readonly string[];
 }

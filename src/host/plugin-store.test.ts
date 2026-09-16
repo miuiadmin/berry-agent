@@ -473,6 +473,18 @@ describe('installPath 三源推导（§5.4 表示法单源）', () => {
     expect(() => installPathForGit('https://')).toThrowError(BaseError);
   });
 
+  it('git 点段穿越拒（§9.6 布局段四处全验——段值 `.`/`..` 拒，join 内折不得吞父树）', () => {
+    // 攻击形：url 拆段后 host/首段/repo 任一段值 `..` → join 内折出 plugins/ 本身
+    // （如 https://evil.com/../.. → 'plugins'）——direct 落位 rm 递归即整 plugins/ 树抹除面
+    expect(() => installPathForGit('https://evil.com/../..')).toThrowError(BaseError);
+    expect(() => installPathForGit('https://evil.com/../repo.git')).toThrowError(BaseError); // 首段 ..
+    expect(() => installPathForGit('https://../owner/repo.git')).toThrowError(BaseError); // host 段 ..
+    expect(() => installPathForGit('https://evil.com/owner/..')).toThrowError(BaseError); // repo 段 ..
+    expect(() => installPathForGit('https://evil.com/./repo.git')).toThrowError(BaseError); // 首段 . 同律
+    // 正常形不受影响（回归锚——段值恒非点形）
+    expect(installPathForGit('https://github.com/octocat/hello.git')).toBe('plugins/git/github.com/octocat/hello');
+  });
+
   it('local：绝对路径 canonical 化（realpath 归一——符号链随平台解析，断言落在段折叠语义上）', () => {
     expect(installPathForLocal('/tmp/a/b/../c')).toMatch(/\/a\/c$/); // b/.. 折叠
     const abs = realpathSync('/tmp'); // 平台真值（macOS /private/tmp）

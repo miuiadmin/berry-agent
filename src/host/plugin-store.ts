@@ -375,6 +375,44 @@ export function unmountRow(
 }
 
 /**
+ * 启用行随迁（03 §9.6 mp 收尾批定形）：换血豁免 id 漂移时，旧 id 启用行
+ * （若在场）改写 id 为新 id——行是用户既有启用意图的记录，行 id 是行对
+ * 装机物的引用，装机物换代改 id 则引用跟物走（随迁非新启用动作，§5.2
+ * 「装机零生效」辖新启用不辖既有意图随迁）。不随迁即悬空行——boot 对账
+ * 永续 warn + 插件静默停载 + 两 uninstall 动词均清不掉。
+ *  - 全字段保形：config/disabled/opens 原样迁走；
+ *  - 幂等两形：旧 id 行缺席 = 无动作（从未启用）；新 id 行已在场（用户
+ *    另行启用了同 id 的他装机物）= 只删旧行不覆写既有意图；
+ *  - 不落独立审计词：换装事实审计词 plugin/updated 已由分派腿承载——行侧
+ *    伴随面非用户显式动词，与 config 编辑同律。
+ */
+/**
+ * 启用行随迁结局：carried = 行面有动作（随迁改写或防撞名清旧行）——装机回执
+ * 「启用行已随换代迁移」注记与 CLI mount 指路行抑制的判定源；carried=false =
+ * 旧 id 无启用行（no-op）。失败形 = enabled.yaml 坏形（fail-loud 报文）。
+ */
+export type MigrateRowResult =
+  { readonly ok: true; readonly carried: boolean } | { readonly ok: false; readonly message: string };
+
+export function migrateEnabledRow(dataDir: string, fromId: string, toId: string, fs: PluginStoreFs): MigrateRowResult {
+  const read = readEnabledRowsForEdit(dataDir, fs);
+  if (!read.ok) return read;
+  const from = read.rows.find((row) => row.id === fromId);
+  if (from === undefined) {
+    return { ok: true, carried: false }; // 幂等——旧 id 无启用行（从未启用），无迁移动作
+  }
+  const rest = read.rows.filter((row) => row.id !== fromId);
+  if (rest.some((row) => row.id === toId)) {
+    // 新 id 行已在场——只清旧行（不覆写既有意图），doors 段照原样往返
+    writeEnabledRows(dataDir, rest, read.doors, fs);
+    return { ok: true, carried: true };
+  }
+  // 随迁：全字段保形、只改行 id（行位序保持——其余行原序）
+  writeEnabledRows(dataDir, [...rest, { ...from, id: toId }], read.doors, fs);
+  return { ok: true, carried: true };
+}
+
+/**
  * toggle：翻禁用旗标（§5.2 第三态）。行在场翻 disabled（absent ↔ true——
  * 无 false 态：行缺 disabled 键即启用）；行不在场写 `{id, disabled: true}`
  * 行（disable 内置 core: 件的主路径；用户插件同形）。成功尾落
@@ -548,6 +586,14 @@ export function installPathForGit(url: string): string {
   const repo = repoRaw.endsWith('.git') ? repoRaw.slice(0, -'.git'.length) : repoRaw;
   if (first.length === 0 || repo.length === 0) {
     throw new BaseError('PLUGIN_INSTALL_FAILED', `git url 坏形（${url}）——首段或仓段为空`);
+  }
+  // 点段穿越拒（§9.6 布局段四处全验）：进 join 的三段值任一为 '.'/'..' 即拒
+  // ——段值点形经 join 内折可吞父树（如 https://evil.com/../.. 折出 'plugins'
+  // 本身，direct 落位 rm 递归即整 plugins/ 树抹除面）；'..x' 等非点形段不误伤
+  for (const segment of [hostPart, first, repo]) {
+    if (segment === '.' || segment === '..') {
+      throw new BaseError('PLUGIN_INSTALL_FAILED', `git url 点段拒（${url}）——段值 '.'/'..' 内折吞父树面`);
+    }
   }
   return join('plugins', 'git', hostPart, first, repo);
 }

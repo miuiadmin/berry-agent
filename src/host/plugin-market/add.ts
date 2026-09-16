@@ -5,9 +5,9 @@
  *
  * 三源分腿：
  *  - local 源：全真跑零网络（目录快照拷贝进 `<dataDir>/marketplaces/<name>/`）；
- *  - git/github 源：经 MarketFetchFace 注入位（**mp-2 零网络**——fetch 缺席
- *    诚实拒指路 mp-4；mp-4 落真身）；产物整树 promote 进缓存 + commit 位
- *    落账（两次 fetch 漂移防线）；
+ *  - git/github 源：经 MarketFetchFace 注入位（mp-4 落真身——生产装配恒注；
+ *    缺席 = 装配面未注入的诚实拒，仅嵌入式/测试装配可达）；产物整树 promote
+ *    进缓存 + commit 位落账（两次 fetch 漂移防线）；
  *  - url 源：同 seam；只存 JSON 平铺（catalogPath='marketplace.json'、无
  *    仓结构、无 commit 位）。
  *
@@ -24,7 +24,7 @@ export interface AddMarketplaceDeps {
   readonly dataDir: string;
   readonly fs: MarketFs;
   readonly now: () => Date;
-  /** 网络抓取位（mp-4 落真身——mp-2 缺席诚实拒） */
+  /** 网络抓取位（mp-4 已落真身——生产装配恒注；缺席 = 装配面未注入诚实拒） */
   readonly fetch?: MarketFetchFace;
   /** `~` 展开基（真身 os.homedir()——注入位） */
   readonly home?: string;
@@ -92,8 +92,21 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
     const name = loaded.parse.catalog.name;
     const clash = checkNameClash(dataDir, fs, name);
     if (clash !== null) return { ok: false, message: clash };
-    // 目录快照拷贝进缓存（缓存即真相——后续读侧零回源）
-    copyTree(fs, dir, `${dataDir}/marketplaces/${name}`);
+    // 目录快照拷贝进缓存（缓存即真相——后续读侧零回源）。前置整目录清场
+    // （换血同律）：撞名只查账本——账本无此名而缓存目录有残留（remove 两步
+    // 中断/手删 marketplaces.json 形）时，copyTree 合并语义（只写同名不删
+    // 多余）会把残留与新快照混合、上游已删内容复活进装机字节——先 rm 保
+    // 「缓存 = 当前源快照」单一真相
+    const cacheDir = `${dataDir}/marketplaces/${name}`;
+    try {
+      fs.rm(cacheDir); // 残留前置清场（幂等——缺席形不抛）
+      fs.mkdir(cacheDir);
+      copyTree(fs, dir, cacheDir);
+    } catch (error) {
+      // 落位 IO 失败（ENOSPC/EACCES 族）= result 面诚实拒 + 半缓存清场——零残影
+      fs.rm(cacheDir);
+      return { ok: false, message: `缓存落位失败（${error instanceof Error ? error.message : String(error)}）` };
+    }
     const record: MarketplaceSourceRecord = {
       name,
       sourceType: 'local',
@@ -102,15 +115,18 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
       addedAt: stamp,
       updatedAt: stamp,
     };
-    commitRecord(dataDir, fs, record);
+    const clashAtCommit = commitRecord(dataDir, fs, record);
+    if (clashAtCommit !== null) return { ok: false, message: clashAtCommit };
     return { ok: true, record };
   }
 
-  // —— 网络腿（git/github/url）：fetch seam 缺席诚实拒（mp-2 零网络出厂）——
+  // —— 网络腿（git/github/url）：fetch seam 缺席诚实拒（真因 = 装配面未注入；
+  // mp 收尾批修笔：mp-4 真身已落地，生产 CLI 路径恒注 fetch——此腿只剩嵌入
+  // 式/测试装配省略 fetch 才可达，报文描述当下真因不再指路已落地批次）——
   if (deps.fetch === undefined) {
     return {
       ok: false,
-      message: `网络源（${classified.sourceType === 'url' ? 'url' : 'git/github'}）抓取位尚未装配——mp-4 批落真身后可用；当前版本请用本地路径源（"./" / "~/" / 绝对路径）`,
+      message: `网络源（${classified.sourceType === 'url' ? 'url' : 'git/github'}）抓取位缺席——装配面未注入 MarketFetchFace（嵌入式宿主须自注 fetch）；当前会话请用本地路径源（"./" / "~/" / 绝对路径）`,
     };
   }
 
@@ -126,10 +142,18 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
     if (parse.ok === false) return { ok: false, message: parse.message };
     const clash = checkNameClash(dataDir, fs, parse.name);
     if (clash !== null) return { ok: false, message: clash };
-    // 缓存平铺：marketplaces/<name>/marketplace.json
+    // 缓存平铺：marketplaces/<name>/marketplace.json（前置整目录清场同律
+    // ——残留 JSON 不与新快照混合）
     const cacheDir = `${dataDir}/marketplaces/${parse.name}`;
-    fs.mkdir(cacheDir);
-    fs.write(`${cacheDir}/marketplace.json`, fetched.text);
+    try {
+      fs.rm(cacheDir); // 残留前置清场（幂等——缺席形不抛）
+      fs.mkdir(cacheDir);
+      fs.write(`${cacheDir}/marketplace.json`, fetched.text);
+    } catch (error) {
+      // 写位 IO 失败 = 诚实拒 + 半缓存清场——零残影
+      fs.rm(cacheDir);
+      return { ok: false, message: `缓存落位失败（${error instanceof Error ? error.message : String(error)}）` };
+    }
     const record: MarketplaceSourceRecord = {
       name: parse.name,
       sourceType: 'url',
@@ -138,7 +162,8 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
       addedAt: stamp,
       updatedAt: stamp,
     };
-    commitRecord(dataDir, fs, record);
+    const clashAtCommit = commitRecord(dataDir, fs, record);
+    if (clashAtCommit !== null) return { ok: false, message: clashAtCommit };
     return { ok: true, record };
   }
 
@@ -175,9 +200,20 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
     fs.rm(fetched.cloneDir); // tmp 清场——零残影
     return { ok: false, message: clash };
   }
-  // promote：tmp 克隆整树 → 缓存（换血语义——缓存目录即该源快照真相）
-  copyTree(fs, fetched.cloneDir, `${dataDir}/marketplaces/${parse.name}`);
-  fs.rm(fetched.cloneDir); // tmp 清场
+  // promote：tmp 克隆整树 → 缓存（换血语义——缓存目录即该源快照真相）。前置
+  // 整目录清场同律：账本无此名的残留缓存不与克隆树混合；promote 中途 IO 失败
+  // = 诚实拒 + tmp 克隆场/半缓存双清场——零残影
+  const promoteDir = `${dataDir}/marketplaces/${parse.name}`;
+  try {
+    fs.rm(promoteDir); // 残留前置清场（幂等——缺席形不抛）
+    fs.mkdir(promoteDir);
+    copyTree(fs, fetched.cloneDir, promoteDir);
+  } catch (error) {
+    fs.rm(promoteDir); // 半缓存清场
+    fs.rm(fetched.cloneDir); // tmp 克隆场清场
+    return { ok: false, message: `缓存落位失败（${error instanceof Error ? error.message : String(error)}）` };
+  }
+  fs.rm(fetched.cloneDir); // tmp 清场（成功位）
   const record: MarketplaceSourceRecord = {
     name: parse.name,
     sourceType: classified.sourceType, // git | github（短手形入账 github——refresh 重放同展开）
@@ -187,7 +223,8 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
     updatedAt: stamp,
     commit: fetched.commit, // berry 增位——两次 fetch 漂移防线
   };
-  commitRecord(dataDir, fs, record);
+  const clashAtCommit = commitRecord(dataDir, fs, record);
+  if (clashAtCommit !== null) return { ok: false, message: clashAtCommit };
   return { ok: true, record };
 }
 
@@ -203,6 +240,11 @@ function parseForAdd(
   return { ok: true, name: parse.catalog.name };
 }
 
+/** 撞名报文单源（前置检查与落账位保底双检同词面——词面漂移即测试红） */
+function nameClashMessage(name: string): string {
+  return `市场 "${name}" 已在源清单——信任裁决是显式动作，请先 remove 再 add`;
+}
+
 /** 撞名检查（null = 无撞；报文含源名与 remove 指路）——信任裁决是显式动作 */
 function checkNameClash(dataDir: string, fs: MarketFs, name: string): string | null {
   const read = readMarketplaceSources(dataDir, fs);
@@ -210,15 +252,29 @@ function checkNameClash(dataDir: string, fs: MarketFs, name: string): string | n
     return `源清单文件坏形，拒改（${read.message}）`;
   }
   if (read.sources.some((existing) => existing.name === name)) {
-    return `市场 "${name}" 已在源清单——信任裁决是显式动作，请先 remove 再 add`;
+    return nameClashMessage(name);
   }
   return null;
 }
 
-/** 落账（源清单原子写——读-改-写全链在调用方串行域内） */
-function commitRecord(dataDir: string, fs: MarketFs, record: MarketplaceSourceRecord): void {
+/**
+ * 落账（源清单原子写——读-改-写全链在调用方串行域内）。返回 null = 落账
+ * 成功；非 null = result 面诚实拒报文（mp 收尾批修——同源并发 add 竞态窗
+ * 兜底）：checkNameClash 通过后、落账前他 add 并发插入同名 record 时，
+ * addSourceRecord 的同名 throw 会裸逃出 result 面（CLI 呈现为未捕获异常）
+ * ——落账位保底双检（与 mountRow 同律），撞名译为与前置检查同词面的拒。
+ * 读位坏形亦拒改不落（原先 base=[] 静默洗掉既有清单——同查不拒即丢账）。
+ * 拒时不回清缓存目录——竞态赢家可能已 owns 该缓存位（rm = 毁他源快照）。
+ */
+function commitRecord(dataDir: string, fs: MarketFs, record: MarketplaceSourceRecord): string | null {
   const read = readMarketplaceSources(dataDir, fs);
-  const base = read.ok ? read.sources : [];
-  const next = addSourceRecord({ version: 1, marketplaces: base }, record);
+  if (!read.ok) {
+    return `源清单文件坏形，拒改（${read.message}）`;
+  }
+  if (read.sources.some((existing) => existing.name === record.name)) {
+    return nameClashMessage(record.name); // 同名竞态窗兜底——前置检查与落账非原子
+  }
+  const next = addSourceRecord({ version: 1, marketplaces: read.sources }, record);
   writeMarketplaceSources(dataDir, next.marketplaces, fs);
+  return null;
 }

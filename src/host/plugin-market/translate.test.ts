@@ -207,6 +207,45 @@ describe('注入/逃逸必红（§9.6 供应链防线表——缓存/布局路�
     }
   });
 
+  it("npm '@' 位执法：package 非 scoped 前缀位含 @ 拒 + version 含 @ 拒（保 lastIndexOf 往返一致律）", () => {
+    // 形 a：version 含 '@' → ref 'npm:foo@1.0.0@x' 会被 parsePluginRef lastIndexOf
+    // 拆成 pkg='foo@1.0.0'/version='x'——pkg 位污染（往返一致律破），翻译位拒
+    expect(
+      translateEntrySource(gitCtx({ entrySource: { source: 'npm', package: 'foo', version: '1.0.0@x' } })).ok,
+    ).toBe(false);
+    // 形 b：package 中段 '@'（非 scoped 前缀）→ ref 'npm:foo@next' 静默漂移为
+    // 「包 foo 的 next dist-tag」语义装机成功——坏形包名拒
+    expect(translateEntrySource(gitCtx({ entrySource: { source: 'npm', package: 'foo@next' } })).ok).toBe(false);
+    expect(translateEntrySource(gitCtx({ entrySource: { source: 'npm', package: 'a@b/c' } })).ok).toBe(false);
+    // scoped 正常形不受影响（'@' 仅段 0 位 0 一枚）
+    expect(
+      translateEntrySource(gitCtx({ entrySource: { source: 'npm', package: '@scope/pkg', version: '1.0.0' } })).ok,
+    ).toBe(true);
+  });
+
+  it('scp 直通形（git@host:path 无 ://）direct 腿拒——指路 https/ssh 完整形（与布局层受理面对齐）；拷贝腿不受限', () => {
+    // direct 腿：装机布局层 installPathForGit 只识 <scheme>:// 形——scp 形克隆
+    // 成功后才抛「git url 坏形」（网络白花）；翻译位前置拒
+    const direct = translateEntrySource(
+      gitCtx({ entrySource: { source: 'url', url: 'git@github.com:owner/repo.git' } }),
+    );
+    expect(direct.ok).toBe(false);
+    if (!direct.ok) {
+      expect(direct.message).toContain('scp');
+      expect(direct.message).toContain('https://');
+    }
+    // ssh:// 完整形（带 ://）direct 照走
+    const ssh = translateEntrySource(
+      gitCtx({ entrySource: { source: 'url', url: 'ssh://git@github.com/owner/repo.git' } }),
+    );
+    expect(ssh.ok && ssh.target.ref).toBe('git:ssh://git@github.com/owner/repo.git');
+    // git-subdir 拷贝腿不经布局解析（布局恒 plugins/market/）——scp 形照走
+    const sub = translateEntrySource(
+      gitCtx({ entrySource: { source: 'git-subdir', url: 'git@github.com:owner/mono.git', path: 'plugins/foo' } }),
+    );
+    expect(sub.ok && sub.target.leg).toBe('subdir-copy');
+  });
+
   it('github repo 坏形拒（多段 / 逃逸段 / 空白 / #）', () => {
     for (const repo of ['a/b/c', '../evil', 'a b', 'a#b', '', 'a/']) {
       const result = translateEntrySource(gitCtx({ entrySource: { source: 'github', repo } }));
@@ -219,6 +258,22 @@ describe('注入/逃逸必红（§9.6 供应链防线表——缓存/布局路�
       const result = translateEntrySource(gitCtx({ entrySource: { source: 'url', url } }));
       expect(result.ok).toBe(false);
     }
+  });
+
+  it('git url 点段穿越拒（§9.6 布局段四处全验——url 拆段段值 `.`/`..` 翻译位前置拒）', () => {
+    // 攻击形：direct 腿 url 含 `..` 段 → 布局层 installPathForGit join 内折吞父树
+    // （https://evil.com/../.. → 'plugins' 本身）；翻译位前置拒省白花网络
+    for (const url of ['https://evil.com/../..', 'https://evil.com/../repo.git', 'https://evil.com/./repo.git']) {
+      const direct = translateEntrySource(gitCtx({ entrySource: { source: 'url', url } }));
+      expect(direct.ok).toBe(false);
+    }
+    // git-subdir 拷贝腿同律（url 同一守卫面——克隆目标与布局虽异，坏形一致拒）
+    const sub = translateEntrySource(
+      gitCtx({ entrySource: { source: 'git-subdir', url: 'https://evil.com/../..', path: 'plugins/foo' } }),
+    );
+    expect(sub.ok).toBe(false);
+    // 正常 url 形不受影响（回归锚）
+    expect(translateEntrySource(gitCtx({ entrySource: { source: 'url', url: 'https://a/b.git' } })).ok).toBe(true);
   });
 
   it('sha 坏词法拒（非 hex / 超长）；ref 坏词法拒（# / 空白 / .. / ~ 前缀）', () => {
@@ -254,5 +309,77 @@ describe('注入/逃逸必红（§9.6 供应链防线表——缓存/布局路�
       expect(result.ok).toBe(true);
       if (result.ok) expect(parsePluginRef(result.target.ref).ok).toBe(true);
     }
+  });
+});
+
+describe("argv 旗标/选项位注入拒（'-' 起头——mp 收尾批安全硬化·§9.6 防线表）", () => {
+  it("npm package '-' 起头拒：nopt last-wins 可掀 --ignore-scripts/--prefix（供应链④）——修前红", () => {
+    // '--ignore-scripts=false' 落 spec 槽位（argv 尾参）会被 npm 按旗标解析——
+    // last-wins 掀翻执行器自带的 --ignore-scripts；'--prefix=.' 重定向装机树
+    for (const pkg of ['--ignore-scripts=false', '--prefix=.', '-lead-pkg']) {
+      const result = translateEntrySource(gitCtx({ entrySource: { source: 'npm', package: pkg } }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.message).toContain('起头');
+    }
+    // 正常连字符包名不误伤（'-' 只在首位才是选项位）
+    expect(translateEntrySource(gitCtx({ entrySource: { source: 'npm', package: 'left-pad-cli' } })).ok).toBe(true);
+  });
+
+  it("git url '-' 起头拒：'-oX://y' 形落 clone 位置参数会被 git 解析为选项位——修前红", () => {
+    for (const url of ['-oProxy=x://y', '-c:x://y', '-upload-pack=x://y']) {
+      const result = translateEntrySource(gitCtx({ entrySource: { source: 'url', url } }));
+      expect(result.ok).toBe(false);
+    }
+    // git-subdir 拷贝腿同过 url 词法面——同拒
+    expect(translateEntrySource(gitCtx({ entrySource: { source: 'git-subdir', url: '-oX://y', path: 'p' } })).ok).toBe(
+      false,
+    );
+  });
+
+  it("git ref '-' 起头拒：checkout 位置参数的选项位混淆（'-b'/'--detach' 形）——修前红", () => {
+    for (const ref of ['-b', '--detach', '--upload-pack=x']) {
+      expect(translateEntrySource(gitCtx({ entrySource: { source: 'url', url: 'https://x/y.git', ref } })).ok).toBe(
+        false,
+      );
+    }
+    // 正常 tag 形不误伤（'v1-x' 连字符中位合法）
+    expect(
+      translateEntrySource(gitCtx({ entrySource: { source: 'url', url: 'https://x/y.git', ref: 'v1-x' } })).ok,
+    ).toBe(true);
+  });
+});
+
+describe('拒绝报文消毒（mp 收尾批 sec——catalog 原始字段内插位单出口剥控制字符）', () => {
+  it('恶意字段进拒绝报文：ESC/BEL/换行剥除（message 不携控制字符出函数）——修前红', () => {
+    // 恶意 catalog 字段经词法拒后进报文内插位：报文原样携带 \x1b/\x07/\n 经
+    // CLI writeErr 入终端 = OSC 52/标题/伪行注入面；构造位单出口消毒（CLI
+    // sanitizeLine 皮带是纵深非独扛位——§9.6 mp 收尾批 security 三笔 ③）
+    const cases: readonly MarketEntrySource[] = [
+      { source: 'npm', package: 'p\x1b]0;pwned\nX' }, // 包名域：空白拒 + 报文内插 raw
+      { source: 'npm', package: 'p', version: '1.0.0 \x07bell' }, // 版本域：空白拒
+      { source: 'github', repo: 'a/b', sha: 'deadbee\x1b[31m' }, // sha 域：hex 词法拒
+      { source: 'github', repo: 'a/b\x1bc' }, // repo 域：短手段词法拒（经 classify 报文链）
+      { source: 'git-subdir', url: 'https://x/y.git', path: '../../es\x1bcape' }, // path 域：逃逸拒
+    ];
+    for (const entrySource of cases) {
+      const result = translateEntrySource(gitCtx({ entrySource }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).not.toContain('\x1b');
+        expect(result.message).not.toContain('\x07');
+        expect(result.message).not.toContain('\n');
+      }
+    }
+    // 相对串坏形同律（catalog 层 sub.message 内插位随外层报文同过消毒）
+    const rel = translateEntrySource(gitCtx({ entrySource: './../../etc\nFAKE\x1b]0;pwned' }));
+    expect(rel.ok).toBe(false);
+    if (!rel.ok) {
+      expect(rel.message).not.toContain('\x1b');
+      expect(rel.message).not.toContain('\n');
+    }
+    // 正常拒形报文语义不变（回归锚——消毒不吞拒因词）
+    const normal = translateEntrySource(gitCtx({ entrySource: { source: 'github', repo: 'a/b/c' } }));
+    expect(normal.ok).toBe(false);
+    if (!normal.ok) expect(normal.message).toContain('github');
   });
 });

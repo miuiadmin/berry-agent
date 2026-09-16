@@ -49,13 +49,20 @@ const noSpawn: SpawnRunner = {
   run: (cmd) => Promise.reject(new Error(`拷贝腿不应 spawn（收到 ${cmd}）——缓存即字节源`)),
 };
 
-/** 市场安装 deps 速记（双 fs 真身 + 注入 spawn + 钉时钟） */
-function depsOf(dataDir: string, spawn: SpawnRunner): Parameters<typeof marketInstall>[0] {
+/** 市场安装 deps 速记（双 fs 真身 + 注入 spawn + 钉时钟）；市场腿克隆守卫的
+ * DNS 位缺省注公网桩（零网络律——真实 DNS 不得进测试），逐测试可覆写 */
+function depsOf(
+  dataDir: string,
+  spawn: SpawnRunner,
+  installOverrides: Partial<InstallExecutorDeps> = {},
+): Parameters<typeof marketInstall>[0] {
   const install: InstallExecutorDeps = {
     dataDir,
     fs: createPluginStoreFs(),
     spawn,
     now: () => new Date('2026-09-16T12:00:00.000Z'),
+    resolveDns: async () => ['93.184.216.34'], // 公网字面桩（example.com 族）
+    ...installOverrides,
   };
   return { dataDir, fs: createMarketFs(), install };
 }
@@ -398,6 +405,158 @@ describe('marketInstall 拷贝腿——三境字节源分境（03 §9.6 B2 定�
     if (outcome.ok) return;
     expect(outcome.message).toContain('remove');
     expect(outcome.message).toContain('add');
+  });
+});
+
+describe('market 腿 git 克隆守卫（§9.6 攻击表 market 装机腿 git clone 行——SSRF 拒 + 克隆帽）', () => {
+  /** direct 腿 git 假 spawn：clone 在目标根写 fixture（成功形——守卫缺席时的「装机成功」对照面） */
+  function gitRootFakeSpawn(): { readonly spawn: SpawnRunner; readonly argvLog: string[][] } {
+    const argvLog: string[][] = [];
+    const spawn: SpawnRunner = {
+      run: (cmd, args) => {
+        argvLog.push([cmd, ...args]);
+        if (cmd !== 'git') return Promise.reject(new Error(`假 spawn 不受理 ${cmd}`));
+        if (args[0] === 'clone') {
+          const cloneDir = args[args.length - 1]!;
+          mkdirSync(cloneDir, { recursive: true });
+          writeFileSync(join(cloneDir, 'package.json'), declaredPkgJson('direct-pkg'));
+          return Promise.resolve({ stdout: '', stderr: '' });
+        }
+        if (args[2] === 'rev-parse') return Promise.resolve({ stdout: 'fakecommit99\n', stderr: '' });
+        return Promise.resolve({ stdout: '', stderr: '' });
+      },
+    };
+    return { spawn, argvLog };
+  }
+
+  it('direct 腿私网字面拒（169.254 云元数据面）——拒在 spawn 前（零克隆）', async () => {
+    const dataDir = dataDirOf('sec-ssrf-literal');
+    const repo = seedMarketRepo(dataDir, 'evil', [
+      { name: 'pwn-plugin', source: { source: 'url', url: 'http://169.254.169.254/a/b.git' } },
+    ]);
+    const added = await addMarketplaceSource(
+      { dataDir, fs: createMarketFs(), now: () => new Date('2026-09-16T12:00:00.000Z') },
+      repo,
+    );
+    expect(added.ok).toBe(true);
+    const rec = gitRootFakeSpawn();
+    const outcome = await marketInstall(depsOf(dataDir, rec.spawn), 'pwn-plugin@evil');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('私网');
+    expect(rec.argvLog).toEqual([]); // 守卫前置——clone 永不发出
+  });
+
+  it('direct 腿协议白名单拒（file:// 本地协议面）', async () => {
+    const dataDir = dataDirOf('sec-ssrf-file');
+    const repo = seedMarketRepo(dataDir, 'evil', [
+      { name: 'local-plugin', source: { source: 'url', url: 'file:///tmp/evil-repo' } },
+    ]);
+    const added = await addMarketplaceSource(
+      { dataDir, fs: createMarketFs(), now: () => new Date('2026-09-16T12:00:00.000Z') },
+      repo,
+    );
+    expect(added.ok).toBe(true);
+    const rec = gitRootFakeSpawn();
+    const outcome = await marketInstall(depsOf(dataDir, rec.spawn), 'local-plugin@evil');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('协议');
+    expect(rec.argvLog).toEqual([]);
+  });
+
+  it('direct 腿 DNS 命中私网拒（域名解析进内网——解析位注桩零网络）', async () => {
+    const dataDir = dataDirOf('sec-ssrf-dns');
+    const repo = seedMarketRepo(dataDir, 'evil', [
+      { name: 'dns-plugin', source: { source: 'url', url: 'https://intranet-lookalike.example.com/a/b.git' } },
+    ]);
+    const added = await addMarketplaceSource(
+      { dataDir, fs: createMarketFs(), now: () => new Date('2026-09-16T12:00:00.000Z') },
+      repo,
+    );
+    expect(added.ok).toBe(true);
+    const rec = gitRootFakeSpawn();
+    const outcome = await marketInstall(
+      depsOf(dataDir, rec.spawn, { resolveDns: async () => ['10.0.0.5'] }), // 解析进内网
+      'dns-plugin@evil',
+    );
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('私网');
+    expect(rec.argvLog).toEqual([]);
+  });
+
+  it('ssh:// 内网 git 服务器拒（hostname 私网字面）', async () => {
+    const dataDir = dataDirOf('sec-ssrf-ssh');
+    const repo = seedMarketRepo(dataDir, 'evil', [
+      { name: 'ssh-plugin', source: { source: 'url', url: 'ssh://git@10.0.0.5:22/o/b.git' } },
+    ]);
+    const added = await addMarketplaceSource(
+      { dataDir, fs: createMarketFs(), now: () => new Date('2026-09-16T12:00:00.000Z') },
+      repo,
+    );
+    expect(added.ok).toBe(true);
+    const rec = gitRootFakeSpawn();
+    const outcome = await marketInstall(depsOf(dataDir, rec.spawn), 'ssh-plugin@evil');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('私网');
+  });
+
+  it('direct 腿克隆超时帽（黑洞地址挂死被帽收口——外层竞速执法）', async () => {
+    const dataDir = dataDirOf('sec-timeout');
+    const repo = seedMarketRepo(dataDir, 'slow', [
+      { name: 'slow-plugin', source: { source: 'url', url: 'https://example.com/o/slow.git' } },
+    ]);
+    const added = await addMarketplaceSource(
+      { dataDir, fs: createMarketFs(), now: () => new Date('2026-09-16T12:00:00.000Z') },
+      repo,
+    );
+    expect(added.ok).toBe(true);
+    const hangSpawn: SpawnRunner = { run: () => new Promise(() => {}) }; // 永不回包的黑洞
+    const outcome = await marketInstall(depsOf(dataDir, hangSpawn, { cloneTimeoutMs: 50 }), 'slow-plugin@slow');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('超时');
+  });
+
+  it('git-subdir 拷贝腿境三同守卫（克隆前置拒——零 spawn）', async () => {
+    const dataDir = dataDirOf('sec-ssrf-subdir');
+    const repo = seedMarketRepo(dataDir, 'evil', [
+      {
+        name: 'mono-plugin',
+        source: { source: 'git-subdir', url: 'http://169.254.169.254/o/mono.git', path: 'packages/foo' },
+      },
+    ]);
+    const added = await addMarketplaceSource(
+      { dataDir, fs: createMarketFs(), now: () => new Date('2026-09-16T12:00:00.000Z') },
+      repo,
+    );
+    expect(added.ok).toBe(true);
+    const rec = gitRootFakeSpawn();
+    const outcome = await marketInstall(depsOf(dataDir, rec.spawn), 'mono-plugin@evil');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('私网');
+    expect(rec.argvLog).toEqual([]);
+  });
+
+  it('公网 https direct 腿照走（守卫不误伤正道——绿路径回归锚）', async () => {
+    const dataDir = dataDirOf('sec-green');
+    const repo = seedMarketRepo(dataDir, 'good', [
+      { name: 'ok-plugin', source: { source: 'url', url: 'https://example.com/o/ok.git' } },
+    ]);
+    const added = await addMarketplaceSource(
+      { dataDir, fs: createMarketFs(), now: () => new Date('2026-09-16T12:00:00.000Z') },
+      repo,
+    );
+    expect(added.ok).toBe(true);
+    const rec = gitRootFakeSpawn();
+    const outcome = await marketInstall(depsOf(dataDir, rec.spawn), 'ok-plugin@good');
+    expect(outcome.ok).toBe(true);
+    expect(rec.argvLog[0]?.slice(0, 2)).toEqual(['git', 'clone']);
+    const entries = ledgerOf(dataDir);
+    expect(entries[0]).toMatchObject({ id: 'direct-pkg', market: { name: 'good', entry: 'ok-plugin' } });
   });
 });
 

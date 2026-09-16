@@ -17,6 +17,18 @@ import type { MarketplaceSourceType } from './types.js';
 export type ClassifyResult =
   { readonly ok: true; readonly sourceType: MarketplaceSourceType } | { readonly ok: false; readonly message: string };
 
+/**
+ * 拒文消毒单源（§9.6 mp 收尾批 security ③）：剥 C0/C1 控制字符（含换行、
+ * ESC/BEL——控制字符→空格，与 CLI 面 sanitizeLine 同语义）。拒绝报文内插的
+ * catalog 原始字段（url/repo/相对源串）可携控制字符，报文经 CLI writeErr 入
+ * 终端即 OSC 52/标题/伪行注入面——构造位单出口消毒（translate.ts 同律消费）。
+ */
+// eslint-disable-next-line no-control-regex -- 报文消毒恰是控制字符的执法位
+const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/g;
+export function sanitizeMarketText(text: string): string {
+  return text.replace(CONTROL_CHARS_RE, ' ');
+}
+
 /** http/https 协议前缀判（大小写宽容） */
 const HTTP_RE = /^https?:\/\//i;
 
@@ -54,10 +66,13 @@ export function classifyMarketplaceSource(source: string): ClassifyResult {
   if (source.startsWith('./') || source.startsWith('~/') || source.startsWith('/')) {
     return { ok: true, sourceType: 'local' };
   }
-  // 不识形 fail-loud——报文指路两候选（本地路径形 / 短手形）
+  // 不识形 fail-loud——报文指路两候选（本地路径形 / 短手形）；内插 raw 串过
+  // 消毒（sanitizeMarketText 单源——控制字符不随报文出函数）
   return {
     ok: false,
-    message: `无法识别的源形（"${source}"）——本地市场请用 "./" 相对路径、"~/" 或绝对路径；远端市场请用 owner/repo 短手或 git URL`,
+    message: sanitizeMarketText(
+      `无法识别的源形（"${source}"）——本地市场请用 "./" 相对路径、"~/" 或绝对路径；远端市场请用 owner/repo 短手或 git URL`,
+    ),
   };
 }
 
@@ -91,7 +106,11 @@ export function expandGitUri(
 ): { readonly ok: true; readonly url: string } | { readonly ok: false; readonly message: string } {
   if (uri.includes('://') || uri.startsWith('git@')) {
     if (/\s/.test(uri) || uri.includes('#')) {
-      return { ok: false, message: `git url 坏词法（"${uri}"）——空白与 # 拒（# 是 ref 分隔符位）` };
+      // 报文内插 raw uri——消毒后出函数（短手展开 throw 的报文经下方 catch 同律）
+      return {
+        ok: false,
+        message: sanitizeMarketText(`git url 坏词法（"${uri}"）——空白与 # 拒（# 是 ref 分隔符位）`),
+      };
     }
     return { ok: true, url: uri };
   }
@@ -99,7 +118,8 @@ export function expandGitUri(
   try {
     return { ok: true, url: githubShorthandToUrl(uri) };
   } catch (error) {
-    return { ok: false, message: (error as Error).message };
+    // githubShorthandToUrl 抛 Error.message 内插 raw repo 段——catch 位同过消毒
+    return { ok: false, message: sanitizeMarketText((error as Error).message) };
   }
 }
 

@@ -134,8 +134,8 @@ const handlers: CommandHandlers = {
       version: readVersion(),
       onRuntime: attachRuntime,
     }),
-  // marketplace 子命令族 CLI 面（03 §9.6 mp-3——装机编舞恒复用 installPlugin；
-  // update/upgrade 合法解析形执行层诚实拒退 1 留 mp-4，doors 先例同律）
+  // marketplace 子命令族 CLI 面（03 §9.6——mp-3/mp-4 八动词全形：装机编舞恒复用
+  // installPlugin；update 整源刷新/upgrade 对拍换装真身在席）
   marketplace: (sub) => runMarketplaceEntry(sub, {}),
   // sessions 子命令族 CLI 面（20d——list/search/reindex 读腿零装配、resume 进
   // TUI〔resumeSessionId 载体〕、fork 全装配同 run --fork 机；07 §5 定名）
