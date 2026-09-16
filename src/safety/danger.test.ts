@@ -14,7 +14,7 @@
  * - approve 三律（缺省 30 天/坏 ttlDays 拒/他 consumer 保留）；
  * - status 各态（链坏 cap.used=null、HALT 删后 latch 痕迹独立呈现）；
  * - dangerTargetMatches vs repoMatchesGlob 对拍矩阵（词面独立律漂移锁——
- *   webui/security 对拍同款先例）。
+ *   sdk/security 对拍同款先例）。
  */
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';

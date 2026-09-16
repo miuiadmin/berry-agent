@@ -6,7 +6,7 @@
  * 工具参数 > 会话策略 > CLI 旗标（逐次） > **本文件（持久缺省）** > 代码常量。
  * 持久位不覆盖逐次显式位（装配根做 gaps 填充，run-entry 只传显式胜者）。
  *
- * 键面（本批扩三键）：`sandboxMode?` / `approvalPolicy?`——预设展开的持久
+ * 键面（四键）：`sandboxMode?` / `approvalPolicy?`——预设展开的持久
  * 缺省位；**非敏感件**（两旋钮无秘密，不入 SENSITIVE_READ_DATA_PATHS——
  * 模型可读面不设防，恰四件敏感清单测试锁不动；2026-09-14 五役 CL-1 集员
  * 扩容 + 数组名自 BASENAMES 勘正后注笔随勘）。
@@ -96,8 +96,8 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     warn(`配置坏形（${path}，顶层须为对象）——视同缺席；手改修复前回写拒`);
     return { settings: {}, healthy: false };
   }
-  // 键级校验：三键值域闭集外忽略点名；未知键 warn 保留不动（读侧不区分
-  // 「保留在内存」与否——本面只产三键，未知键经写侧合并律存活）
+  // 键级校验：四键值域/形校验外忽略点名；未知键 warn 保留不动（读侧不区分
+  // 「保留在内存」与否——本面只产四键，未知键经写侧合并律存活）
   const record = doc as Record<string, unknown>;
   const { sandboxMode, approvalPolicy, theme, keybindings, ...rest } = record;
   const unknownKeys = Object.keys(rest);
@@ -168,7 +168,7 @@ export function writeHostSettings(
   const load = readHostSettings(dataDir, options);
   if (!load.healthy) return 'rejected';
   // 合并基 = 原文件解析出的全键形（含未知键——保留律）。重读一次拿未剥离
-  // 的原始对象（readHostSettings 产物只含两键，未知键需原始面承载）
+  // 的原始对象（readHostSettings 产物只含四键，未知键需原始面承载）
   const path = join(dataDir, SETTINGS_BASENAME);
   let base: Record<string, unknown> = {};
   if (existsSync(path)) {

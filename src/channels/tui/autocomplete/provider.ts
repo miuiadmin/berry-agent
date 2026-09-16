@@ -1,5 +1,5 @@
 /**
- * 补全协议件（07 §4.1 引擎节件 6（组件与呈现装配件））：多行坐标协议 + 候选条目 + 取补全接口。
+ * 补全协议件（07 §4.1 引擎节件 6（组件与呈现装配件））：多行坐标协议 + 候选条目 + 取补全结果形。
  *
  * 多行坐标协议（承 berry @-mention 协议签名）：上下文带 lines/cursorLine/
  * cursorCol——按多行输入件坐标定位光标 token，弹层与源都只认本协议。
@@ -42,9 +42,3 @@ export type AutocompleteItems = readonly AutocompleteItem[] | Promise<readonly A
 
 /** 取补全结果形（同 union 律——同步源同步交付、异步源微task 交付） */
 export type AutocompleteOutcome = AutocompleteResult | null | Promise<AutocompleteResult | null>;
-
-/** 补全源接口（组合件之外的独立源实现面） */
-export interface AutocompleteProvider {
-  /** 无补全返回 null（弹层不显）；signal = 取消在途（R6——源按需受理） */
-  getCompletions(context: AutocompleteContext, signal?: AbortSignal): AutocompleteOutcome;
-}

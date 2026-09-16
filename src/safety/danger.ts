@@ -171,7 +171,7 @@ function sha256Hex(input: string): string {
 /**
  * 单 pattern 判定：精确串全等 / 含 `*` 的 glob 段级通配锚定全配。
  * 与 issue 件 repoMatchesGlob 同算法独立持有（词面独立律——safety 与 issue
- * 零 DAG 边；漂移由对拍测试互证，webui/security 同款先例）。
+ * 零 DAG 边；漂移由对拍测试互证，sdk/security 同款先例）。
  */
 export function dangerTargetMatches(target: string, pattern: string): boolean {
   if (!pattern.includes('*')) return pattern === target;

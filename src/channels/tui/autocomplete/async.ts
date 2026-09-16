@@ -21,8 +21,8 @@ export const AUTOCOMPLETE_DEBOUNCE_MS = 20;
 /** 查询函数形（fire 时取上下文——同步或 Promise 双形） */
 export type CompleterQuery = (signal: AbortSignal) => AutocompleteResult | null | Promise<AutocompleteResult | null>;
 
-/** thenable 判（Promise 形源识别——跨 realm 安全） */
-function isThenable(value: unknown): value is Promise<unknown> {
+/** thenable 判（Promise 形源识别——跨 realm 安全；本目录单源，autocomplete 件 import 复用） */
+export function isThenable(value: unknown): value is Promise<unknown> {
   return typeof (value as Promise<unknown> | null)?.then === 'function';
 }
 

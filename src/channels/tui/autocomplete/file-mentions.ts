@@ -3,8 +3,8 @@
  *
  * 语义承 berry 蓝本 getFileSuggestions 的 v1 子集：
  * - **目录列举 + fuzzy 子序列过滤**（R6 批 10j——前缀命中置顶、子序列命中
- *   随后；全库 fuzzy 发现仍随 fd 批挂账，`BERRY_AGENT_FD_PATH` 环境变量是
- *   其消费点、本批不触）；
+ *   随后；全库 fuzzy 发现挂真实需求再裁，`BERRY_AGENT_FD_PATH` 环境变量是
+ *   其预留消费点、当前设置无效）；
  * - 路径段解析：`src/ap` → 列 `src` 滤 `ap`；尾 `/` = 列该目录；相对段
  *   对 basePath（装配注入 cwd）、`~/` 展开家目录、`/` 起绝对位列举；
  * - `.git` 跳过（版本库内脏）；符号链指目录归类为目录（label 尾 `/`

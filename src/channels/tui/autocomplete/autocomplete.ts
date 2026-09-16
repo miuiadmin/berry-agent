@@ -11,6 +11,7 @@
  * CommandRegistry.list()）、命令参数源注入条目（不发明注册面——03 §2.2
  * registerCommand 签名三参数无 schema）、@ 文件段源实机行走归装配批。
  */
+import { isThenable } from './async.js';
 import type { AutocompleteContext, AutocompleteItems, AutocompleteOutcome } from './provider.js';
 import { firstTokenRange, tokenAtCursor } from './token.js';
 
@@ -34,11 +35,6 @@ export interface AutocompleteSources {
   ) => AutocompleteItems;
   /** @-mention 源（query = 去 @ 前缀；文件段实机行走归装配批） */
   readonly mentions?: (query: string, signal: AbortSignal) => AutocompleteItems;
-}
-
-/** thenable 判（union 形源识别） */
-function isThenable(value: unknown): value is Promise<unknown> {
-  return typeof (value as Promise<unknown> | null)?.then === 'function';
 }
 
 /** 三源合一补全器 */
