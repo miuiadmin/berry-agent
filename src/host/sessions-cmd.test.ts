@@ -12,7 +12,7 @@
  * 纪律：mock 只停在模型层（faux provider）；库/装载/管理器全真。resume
  * 续接 happy path 归 tui-entry.test（FakeTerminalIO 全 harness 在彼）。
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -420,5 +420,56 @@ describe('sessions resume（进 TUI——resumeSessionId 载体）', () => {
     } finally {
       await persistence.close();
     }
+  });
+});
+
+/* ---------------- export（CLI 对等位——零装配直开库 + 拼装单源两消费） ---------------- */
+
+describe('sessions export（07 §4.1 命令面增补批 C2——CLI 对等位）', () => {
+  it('导出落盘 exports/<id>-<时间戳>.md；回执一行路径；内容 = 文档头 + 轮次', async () => {
+    const dataDir = rigDir('sess-exp-data-'); // 落盘目录恒随 dataDir（dbPath 梯子独立）
+    const dbPath = join(rigDir('sess-exp-db-'), 'sessions.db');
+    await seedSessionRows(dbPath, [
+      { id: 's-exp', title: '导出会话', origin: 'conversation', created: 1_700_000_000_000, updated: 2 },
+    ]);
+    await seedEventRows(dbPath, 's-exp', [
+      { seq: 0, type: 'user/message', data: JSON.stringify({ content: '导出探针问' }) },
+      {
+        seq: 1,
+        type: 'assistant/message',
+        data: JSON.stringify({ content: [{ type: 'text', text: '导出探针答' }], stopReason: 'end' }),
+      },
+    ]);
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'export', id: 's-exp' },
+      { version: 'test', dataDir, dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    // 回执一行路径（/memory-export 同形）——路径 = dataDir/exports/<id>-<时间戳>.md
+    const receipt = cap.out.join('\n');
+    expect(receipt).toContain('已导出 2 事件 → ');
+    const path = receipt.split(' → ')[1]!;
+    expect(path).toContain(join(dataDir, 'exports', 's-exp-'));
+    // 落盘内容 = 拼装单源全文（与 TUI /export 同一 renderSessionMarkdown）
+    const markdown = readFileSync(path, 'utf8');
+    expect(markdown).toContain('# 会话导出 `s-exp`');
+    expect(markdown).toContain('- 标题：导出会话');
+    expect(markdown).toContain('## 轮次 1');
+    expect(markdown).toContain('导出探针问');
+    expect(markdown).toContain('导出探针答');
+  });
+
+  it('缺席 id：SESSION_NOT_FOUND 干净退 1 不落盘', async () => {
+    const dataDir = rigDir('sess-exp-miss-data-');
+    const dbPath = join(rigDir('sess-exp-miss-db-'), 'sessions.db');
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'export', id: 'no-such-id' },
+      { version: 'test', dataDir, dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(1);
+    expect(cap.err.join('\n')).toContain('SESSION_NOT_FOUND：会话不存在（no-such-id）');
+    expect(existsSync(join(dataDir, 'exports'))).toBe(false); // 拒在落盘前——不造 exports 目录
   });
 });

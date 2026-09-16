@@ -15,6 +15,10 @@
  *  - **resume <id>——进 TUI**：直托 runTuiEntry（resumeSessionId 载体——
  *    「指定 id 续接」的 CLI 半边，与无参 TUI 的按 cwd 取最新互补〔07 §5〕）；
  *    非 TTY 卫兵同 TUI 主入口律（管道/CI 退 2 指引改 run --session）。
+ *  - **export <id>——零装配直开库**（07 §4.1 命令面增补批 CLI 对等位——
+ *    /export TUI 命令的 CLI 半边；markdown 拼装/落盘/回执文本与 TUI 同一
+ *    命令腿单源 session-export.ts〔05 §3.4 点名 CLI 导出为 queryEvents
+ *    宿主面消费者〕）。
  *
  * 退出码：0 成功（含空清单/零命中——诚实空非失败）/ 1 执行失败（会话不
  * 存在、fork 否决、装配失败）/ 2 环境态误用（resume 非 TTY——07 §5 三态）。
@@ -22,11 +26,13 @@
 import { stdin as processStdin, stdout as processStdout, stderr as processStderr } from 'node:process';
 
 import { Persistence } from '../persist/index.js';
+import { resolveDataDir } from '../persist/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
 
 import type { SessionsCommand, TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
+import { runSessionExportCommand } from './session-export.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { runTuiEntry } from './tui-entry.js';
@@ -77,6 +83,8 @@ export async function runSessionsEntry(sub: SessionsCommand, options: SessionsEn
       return runResume(options, sub.id);
     case 'fork':
       return runFork(options, sub.id);
+    case 'export':
+      return runExport(options, sub.id);
   }
 }
 
@@ -268,5 +276,39 @@ async function runFork(options: SessionsEntryOptions, id: string): Promise<numbe
     return 0;
   } finally {
     await assembly.runtime.shutdown();
+  }
+}
+
+/* ---------------- export（CLI 对等位——零装配直开库） ---------------- */
+
+/**
+ * export：会话导出 markdown（07 §4.1 命令面增补批 CLI 对等位——/export TUI
+ * 命令同腿：runSessionExportCommand 拼装/落盘/回执单源两消费）。CLI 零装配
+ * 形无驱动活体——事件真源 = durable 库行（loadSession 全量读）；行缺席 =
+ * SESSION_NOT_FOUND 干净退 1（打错 id 不落盘不造文件）。落盘目录 = 数据目录
+ * （dbPath 路径梯子独立——exports/ 恒随 dataDir）。
+ */
+async function runExport(options: SessionsEntryOptions, id: string): Promise<number> {
+  const out = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
+  const err = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
+  const persistence = openReadSide(options, err);
+  try {
+    const outcome = await runSessionExportCommand([id], id, {
+      dataDir: options.dataDir ?? resolveDataDir(),
+      rowOf: (sessionId) => persistence.store.getSessionRow(sessionId),
+      // CLI 零装配形：库行即全量（durable 面真源——另一进程 write-behind 未
+      // flush 的事件不在 CLI 可见面，属 durable 边界非缺陷）
+      eventsOf: (sessionId) =>
+        persistence.hasSession(sessionId) ? persistence.loadSession(sessionId).log.events() : undefined,
+      focusedId: () => null, // CLI 无焦点位——id 恒由解析层必带（显式参形）
+    });
+    if (!outcome.ok) {
+      err(outcome.text);
+      return 1;
+    }
+    out(outcome.text); // 回执一行路径（/memory-export 同形）
+    return 0;
+  } finally {
+    await persistence.close();
   }
 }

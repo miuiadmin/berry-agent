@@ -936,6 +936,104 @@ describe('/plugins TUI 命令面 e2e（03 §5.2 mount 族成功尾自动链 /rel
   });
 });
 
+/* ---------------- /export TUI 命令面 e2e（07 §4.1 命令面增补批 C2） ---------------- */
+
+describe('/export TUI 命令面 e2e（宿主级直注册 + 活体事件源 + 落盘回执）+ plugin-load-report 服务面', () => {
+  /** notify 捕获后端（/plugins e2e 同形） */
+  const captureBackend = (notified: string[]): UiBackend<never> => ({
+    id: 'export-probe',
+    capabilities: {
+      notify: true,
+      confirm: false,
+      select: false,
+      input: false,
+      approval: false,
+      setStatus: false,
+      setWidget: false,
+    },
+    hasAudience: () => true,
+    notify: (_message, opts) => void notified.push(`${opts?.level ?? 'info'}|${_message}`),
+  });
+
+  it('焦点会话导出全链：焦点空悬诚实拒 → 活体驱动事件源落盘 exports/ + notify 一行路径 → 缺席 id fail-loud', async () => {
+    const dir = tmpDir('host-asm-export-');
+    const faux = fauxProvider({ provider: 'faux-export-asm', models: [{ id: 'm1' }] });
+    faux.setResponses([() => fauxText('导出探针答')]);
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: true, // 命令注册在装配根（不随插件装载）——noPlugins 形照注册
+      debug: false,
+      version: '9.9.9-test',
+      providers: [faux.provider],
+      model: 'faux-export-asm/m1',
+      env: {},
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      const notified: string[] = [];
+      assembly.stack.channels.addBackend(captureBackend(notified));
+      // 焦点空悬 + 无锚：无参形（= 焦点会话）诚实拒——不落盘
+      expect(await assembly.stack.channels.dispatchCommand('/export')).toBe(true);
+      expect(notified.some((t) => t.includes('无焦点会话可导出'))).toBe(true);
+      // 建真会话 + 一轮对话 + 焦点在位：无参形导焦点会话
+      const session = assembly.stack.openStartupSession();
+      assembly.stack.channels.registerSession(session.sessionId);
+      await assembly.stack.channels.focus(session.sessionId);
+      const run = assembly.stack.submitText(session.sessionId, '导出探针问', { source: 'user' });
+      expect(run).toBeDefined();
+      await run;
+      expect(await assembly.stack.channels.dispatchCommand('/export')).toBe(true);
+      // 回执 notify 一行路径（/memory-export 同形）：exports/<id>-<时间戳>.md
+      const receipt = notified.find((t) => t.includes('已导出'))!;
+      expect(receipt).toContain(join(dir, 'exports', `${session.sessionId}-`));
+      const markdown = readFileSync(receipt.split(' → ')[1]!, 'utf8');
+      expect(markdown).toContain(`# 会话导出 \`${session.sessionId}\``);
+      expect(markdown).toContain('## 轮次 1');
+      expect(markdown).toContain('导出探针问');
+      expect(markdown).toContain('导出探针答');
+      // 指定 id 不在场 = fail-loud 回执（既有错误码族）
+      expect(await assembly.stack.channels.dispatchCommand('/export no-such-id')).toBe(true);
+      expect(notified.some((t) => t.includes('SESSION_NOT_FOUND：会话不存在（no-such-id）'))).toBe(true);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('plugin-load-report 服务面：boot 闭包取值器入 scope（挂账解挂批 R6 前段 deferred 兑现）', async () => {
+    const dir = tmpDir('host-asm-plreport-');
+    const mk = (name: string): CorePluginReference => ({
+      name,
+      apply: async () => () => undefined,
+    });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: '9.9.9-test',
+      corePlugins: [mk('demo1')],
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // scope 面取值器在场（owner host:assembly）；LoadReport 子集形——
+      // activated/skipped 即 /plugins 尾参补全可操作集（消费位 tui-entry）
+      const face = assembly.scope.tryGet<{
+        readonly report: () =>
+          | {
+              readonly activated: readonly { readonly id: string }[];
+              readonly skipped: readonly { readonly id: string }[];
+            }
+          | undefined;
+      }>('plugin-load-report');
+      expect(face).toBeDefined();
+      const report = face!.report();
+      expect(report).toBeDefined();
+      expect(report!.activated.map((entry) => entry.id)).toEqual(['core:demo1']);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
 /* ---------------- /doors TUI 命令面 e2e（03 §4.6 doors 段编辑腿——g-2） ---------------- */
 
 describe('/doors TUI 命令面 e2e（注册 + 段写回 + doors/updated origin tui-cmd + 门即时生效）', () => {

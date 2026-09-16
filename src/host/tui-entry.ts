@@ -34,7 +34,7 @@ import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { foldSessionUsage, foldTodoTable } from '../conversation/index.js';
-import { sanitizeEntryForReadout, type MemoryDao } from '../memory/index.js';
+import { sanitizeEntryForReadout, shortIdOf, type MemoryDao } from '../memory/index.js';
 import { formatSkillInvocation, type SkillsRegistry } from '../skills/index.js';
 import type { Provider } from '../llm/index.js';
 import { APPROVAL_PRESETS, type SandboxMode } from '../safety/index.js';
@@ -215,9 +215,20 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 经 core:checkpoint 服务面现取 manifest 清单（scope.tryGet——core-plugins
     // provide 'checkpoint' { store }），按聚焦会话工作区根过滤（与 /rewind list
     // 列点同判据——聚焦空悬/行缺席回退启动会话根）；件缺席 = 该活体位诚实
-    // 缺席。/plugins 尾参位的 pluginReport 依赖 boot 闭包（assembly 装配根
-    // 单源——LoadReport 不出 scope 面），接线归主 lane deferred。
+    // 缺席。/plugins 尾参位的 pluginReport 经 assembly 装配根 provide 的
+    // 'plugin-load-report' 服务面取值（命令面增补批 C2 前段 deferred 兑现——
+    // LoadReport 真源 = bootPlugins 回执闭包，/reload 换代即新代投影）；
+    // 装配序保序（本件后于 assembleHostStack 执行）在场恒真，tryGet 缺席 =
+    // 防御位诚实归静态面。
     const checkpointStore = scope.tryGet<{ readonly store: CheckpointStore }>('checkpoint')?.store;
+    const pluginLoadReport = scope.tryGet<{
+      readonly report: () =>
+        | {
+            readonly activated: readonly { readonly id: string }[];
+            readonly skipped: readonly { readonly id: string }[];
+          }
+        | undefined;
+    }>('plugin-load-report');
     const liveCompletionDeps: LiveCompletionDeps = {
       ...(checkpointStore !== undefined
         ? {
@@ -234,6 +245,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             },
           }
         : {}),
+      // /plugins 尾参位活体源（activated ∪ skipped——failed 不入可操作面；
+      // 结构子集形直赋——取值器每查询现取，与 rewind 位同族）
+      ...(pluginLoadReport !== undefined ? { pluginReport: () => pluginLoadReport.report() } : {}),
     };
     // —— TUI 主题档装配（批 10g——07 §4.1 R2 主题载体条 / 04 §9 ⑥ 注记）：
     // settings.json `theme` 键（dark/light/auto）经 TuiBackendOptions.theme
@@ -430,8 +444,40 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
+    // —— /new（07 §4.1 命令面增补批 C2——逐件语义 1）：同 cwd 建新会话即切焦。
+    // cwd 真源 = 聚焦会话工作区根（行面现读；空悬/行缺席回退启动会话根——
+    // 与 @ 补全锚/补开判据同律）；createSession 走 manager（零 I/O——行随首
+    // 事件落库）；切焦 = registry.focus() 既有权威路（/sessions 选定同路——
+    // 多会话信封分流/repaint 全链既有，本件零新编舞）。旧会话不动（/sessions
+    // 可回切）。notify 一行回执（新会话短 id）。已知边界（非缺陷——库行真源
+    // 律）：零事件新会话无库行、不在 /sessions 清单，footer 短 id 即其可见位。
+    const startNewSession = (): void => {
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      const row = runtime.persistence.store.getSessionRow(sid);
+      const root = canonicalWorkspaceRoot(row?.workspaceRoot ?? session.workspaceRoot);
+      const created = stack.manager.create({ workspaceRoot: root });
+      stack.channels.registerSession(created.sessionId);
+      // notify 必须排在 focus 落画之后：onRepaint 会作废全部 pendingOps（切焦
+      // 权威重建「旧帧作废」——先 notify 的瞬时行会被随后 repaint 清队丢行），
+      // 故链在 focus promise 尾——回执行随新焦 transcript 存活可见。focus 拒
+      // 绝（投影真源故障 fail-loud）诚实呈报不吞。
+      void stack.channels
+        .focus(created.sessionId)
+        .then(() =>
+          backend.notify(`新会话：${shortIdOf(created.sessionId)}（旧会话不动——/sessions 可回切）`, {
+            level: 'info',
+          }),
+        )
+        .catch((err: unknown) => backend.notify(`新会话切焦失败：${String(err)}`, { level: 'error' }));
+    };
+
     // 本地命令族单源（拦截表 / 补全源 / /help 命令册三消费面同文）
     const localCommands = [
+      {
+        name: 'new',
+        description: '新建会话并切焦（同 cwd——旧会话不动，/sessions 可回切）',
+        run: () => startNewSession(),
+      },
       { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境旋钮）', run: () => openStatusPanel() },
       { name: 'debug', description: '调试信息副屏（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },
       { name: 'skills', description: '技能清单副屏（enter 回填调用形入输入框）', run: () => openSkillsPanel() },
@@ -520,6 +566,22 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // ——plugins id / rewind id 两尾参位），null = 位外/依赖缺席归静态面
         // （四命令子动词首参 + 深位枚举——原行为零扰动）
         commandArguments: (command, query, priorArgs) => {
+          // —— /export 首参位活体值（07 §4.1 命令面增补批 C2 逐件语义 7——
+          // id 尾参补全挂接活体值源，挂账解挂批 R6 活体值条款同法）：会话 id
+          // 清单 = manager 全量行（/sessions 清单注入同一读面——库行真源；
+          // 零事件新会话无行不补——与 /sessions 清单同边界）。位裁留在本装配
+          // 闭包不进 live-completions 件（件域两活体位 plugins/rewind 之外的
+          // 本批注记位——消费面与 R6 两活体位同一 commandArguments 合流）。
+          // label 短形 + replacement 全 id 尾空格（/rewind 位同律——label 才
+          // 是截形，replacement 吃全 id）。
+          if (command === 'export' && priorArgs.length === 0) {
+            const sessionRows = stack.manager.list({});
+            return fuzzyFilter(sessionRows, (row) => row.id, query).map((row) => ({
+              label: row.id.length > 8 ? `${row.id.slice(0, 8)}…` : row.id,
+              ...(row.title !== undefined && row.title !== '' ? { detail: row.title } : {}),
+              replacement: `${row.id} `,
+            }));
+          }
           const live = liveCommandArgumentItems(command, query, priorArgs, liveCompletionDeps);
           if (live !== null) return live;
           return commandArgumentItems(command, query, priorArgs);

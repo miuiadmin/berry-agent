@@ -388,6 +388,60 @@ describe('runTuiEntry 装配序', () => {
     expect(await second.entry).toBe(0);
   });
 
+  it('/new 切焦全链（命令面增补批 C2——07 §4.1 逐件语义 1）：同 cwd 建新会话即切焦 + footer 短 id 更新 + 零事件不在 /sessions 清单', async () => {
+    const dataDir = rigDir('entry-new-data-');
+    const ws1 = rigDir('entry-new-ws1-');
+
+    // 首启：一轮对话落库（s1 有库行）退出
+    const first = await rigEntry(dataDir, ws1);
+    first.io.send('旧会话探针\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+
+    // 二启：同 cwd 续接 s1（按 cwd 取最新）；带参形用法 fail-loud（/exit 律不穿透）
+    const second = await rigEntry(dataDir, ws1);
+    await until(() => second.io.output.includes('> 旧会话探针')); // resume 历史回读（s1 在焦）
+    second.io.send('/new extra\r');
+    await until(() => second.io.output.includes('/new 不带参数')); // 用法 fail-loud（未切焦——零参命中才执行）
+    // /new：同 cwd 建新会话即切焦（registry.focus 既有权威路——/sessions 选定
+    // 同路）+ notify 回执一行（新会话短 id）
+    second.io.send('/new\r');
+    await until(() => second.io.output.includes('新会话：'));
+    const short = /新会话：([0-9a-f]{8})/.exec(second.io.output)?.[1]; // 回执短 id（uuid v7 首 8 位）
+    expect(short).toBeDefined();
+    await until(() => second.io.output.includes(` · m1 · ${short}`)); // footer 短 id 更新（切焦 repaint 驱动）
+    // 零事件新会话不在 /sessions 清单——库行真源律已知边界（createSession 零
+    // I/O、行随首事件落库——05 §1.2/§6.3 write-behind；footer 短 id 即其可见
+    // 位，非缺陷）：清单恰 1 行 = s1（旧会话不动可回切）
+    second.io.send('/sessions\r');
+    await until(() => second.io.output.includes('⇄ 会话切换 · 1 会话'));
+    second.io.send('q'); // q text 轨收副屏（独立 ESC 字节有序列等待窗——避并包歧义）
+    await until(() => second.io.output.includes('\x1b[?1049l'));
+    // 新会话可用（create 已开驱动——提交直达模型，首事件落库后清单即两行）
+    second.io.send('新会话探针\r');
+    await until(() => second.faux.state.callCount >= 1);
+    await until(() => second.io.output.includes('ok'));
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
+
+  it('/plugins 尾参位活体补全（命令面增补批 C2——plugin-load-report 接线兑现）：活体 id 列弹层', async () => {
+    const { entry, io } = await rigEntry(rigDir('entry-pl-id-data-'), rigDir('entry-pl-id-ws-'));
+    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
+    const before = io.output.length;
+    // 进 id 尾参位首字符（/plugins toggle c——tokenAtCursor 紧邻空白无 token，
+    // 弹层只在真 token 上起查）：接线前 pluginReport 缺席归静态面（id 位无静
+    // 态候选 = 零弹层）；接线后活体 id 列（activated ∪ skipped——装载面真源）
+    // 经 20ms 防抖落层呈现
+    io.send('/plugins toggle c');
+    await until(() => io.output.slice(before).includes('core:'));
+    io.send('\x15'); // ctrl+u 删至行首（弹层对带修饰键穿透——直达编辑器；清框后才过 ctrl+d 空框退出门；不用 escape——独立 ESC 字节在解码器有序列等待窗，会与后续字节并成 alt 形）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
   it("`--port` webui 咬合（18a-3'）：横幅走屏留痕面只带 URL，token 不入屏，ctrl+d 收场面", async () => {
     const faux = fauxProvider({ provider: 'faux-port', models: [{ id: 'm1' }] });
     const io = new FakeTerminalIO();

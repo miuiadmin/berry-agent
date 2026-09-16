@@ -67,6 +67,7 @@ import { bootPlugins, defaultFs, readEnabledRows } from './plugin-boot.js';
 import { createPluginReloader, emptyRollbackReceipt, rollbackFromReport } from './plugin-reload.js';
 import type { PluginReloader } from './plugin-reload.js';
 import { PLUGINS_CMD_USAGE, runPluginsCommand } from './plugins-command.js';
+import { runSessionExportCommand, SESSION_EXPORT_USAGE } from './session-export.js';
 import { runPluginConfigForm } from './plugins-config.js';
 import { DOORS_USAGE, parseDoorsArgv, runDoorsCommand } from './doors-cmd.js';
 import { createDefaultSpawnRunner, createPluginLifecycleTools } from './plugin-tools.js';
@@ -964,6 +965,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     }
     Object.assign(pluginCounts, boot.counts); // 披露匣回写（disclosure 后续请求即见）
 
+    // —— plugin-load-report 服务面（07 §4.1 命令面增补批 C2——挂账解挂批
+    // R6 前段 deferred 兑现）：装载报告取值器入 scope（owner 'host:assembly'
+    // ——装配级服务面，与 'checkpoint' 等同律；scope 是插件共享根作用域，
+    // tui-entry 装配段 tryGet 消费）。LoadReport 不出 scope 面的旧律维持
+    // ——本面只出「取值器」，真身仍 boot 闭包单源；取值器晚绑 boot 槽
+    // （/reload reapply 换代写回 boot 后即新代投影——与 /plugins list 读面
+    // `report: () => boot?.report` 同一闭包形），boot 槽空窗（结构上此刻
+    // 已 boot 完毕，防御位）返回 undefined = 诚实缺席。
+    scope.provide('plugin-load-report', { report: () => boot?.report }, 'host:assembly');
+
     // —— skills 桥 + 插件技能层重同步编舞（批 19 skills 销账 + /reload 批抽
     // 可重跑）：首次 boot 后与每轮 /reload 换入后同函数调用——桥挂接（ WeakSet
     // 防同 registry 重挂）+ 旧代 plugin: 层清场 + 新代层补注册。core:skills
@@ -1279,6 +1290,39 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         void stack.channels.notify('approval', outcome.text);
       },
       APPROVAL_USAGE,
+    );
+
+    // —— /export TUI 命令面（07 §4.1 命令面增补批 C2——I/O 族一件）：宿主级
+    // 直注册（与 /reload、/plugins、/doors、/approval 同位——03 篇 /plugins
+    // 定形注同位先例，机制宿主有不随插件换代卸除）；拼装/落盘/回执文本单源
+    // session-export.ts（CLI `sessions export` 同一命令腿两消费——05 §3.4
+    // 点名 CLI 导出为 queryEvents 宿主面消费者）。事件双事实源取值器：
+    // 驱动活体优先（write-behind 未 flush 事件也在场）→ 库行回退 loadSession
+    //（loadSession 缺席 throw 折 undefined = 会话不在场）；行面元数据 =
+    // sessions 行现读（零事件活体会话行缺席照导出——文档头元数据行缺席）。
+    // 回执经 notify 归因 'export'（与 'plugins'/'doors' 同律——一行路径，
+    // /memory-export 同形）。无参形会话解析序在命令腿内单源（显式 id 参 >
+    // args.sessionId 命令锚 > focusedId 现取）。
+    stack.channels.commands.register(
+      'export',
+      async (args) => {
+        const outcome = await runSessionExportCommand(args.argv, args.sessionId, {
+          dataDir,
+          rowOf: (sessionId) => runtimeNow.persistence.store.getSessionRow(sessionId),
+          eventsOf: (sessionId) => {
+            const driver = stack.driverOf(sessionId);
+            if (driver !== undefined) return driver.session.events(); // 活体真源
+            try {
+              return runtimeNow.persistence.loadSession(sessionId).log.events(); // durable 回退
+            } catch {
+              return undefined; // 行不在场——SESSION_NOT_FOUND 归命令腿呈报
+            }
+          },
+          focusedId: () => stack.channels.focusedId,
+        });
+        void stack.channels.notify('export', outcome.text);
+      },
+      SESSION_EXPORT_USAGE,
     );
 
     return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts, reloader };

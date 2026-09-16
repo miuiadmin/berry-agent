@@ -121,13 +121,14 @@ export type PluginsCommand =
   | { readonly sub: 'update'; readonly id: string }
   | { readonly sub: 'check' };
 
-/** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/重建） */
+/** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/导出/重建） */
 export type SessionsCommand =
   | { readonly sub: 'list' }
   | { readonly sub: 'resume'; readonly id: string }
   | { readonly sub: 'fork'; readonly id: string }
   | { readonly sub: 'search'; readonly query: string }
-  | { readonly sub: 'reindex' };
+  | { readonly sub: 'reindex' }
+  | { readonly sub: 'export'; readonly id: string };
 
 /** 命令 tagged union（07 §5 命令族全量） */
 export type CliCommand =
@@ -518,12 +519,12 @@ function parsePlugins(rest: readonly string[]): CliParseResult {
 function parseSessions(rest: readonly string[]): CliParseResult {
   const [head, ...tail] = rest as string[];
   if (head === undefined || head.startsWith('--')) {
-    return usageFail('sessions 须带子命令（list/resume/fork/search/reindex）');
+    return usageFail('sessions 须带子命令（list/resume/fork/search/export/reindex）');
   }
   const zeroArg = head === 'list' || head === 'reindex';
-  const oneArg = head === 'resume' || head === 'fork' || head === 'search';
+  const oneArg = head === 'resume' || head === 'fork' || head === 'search' || head === 'export';
   if (!zeroArg && !oneArg) {
-    return usageFail(`未知 sessions 子命令：${head}（合法：list/resume/fork/search/reindex）`);
+    return usageFail(`未知 sessions 子命令：${head}（合法：list/resume/fork/search/export/reindex）`);
   }
   const scan = scanFlags(tail, []);
   if (scan.error) return usageFail(scan.error);
@@ -536,7 +537,7 @@ function parseSessions(rest: readonly string[]): CliParseResult {
     sub:
       head === 'search'
         ? { sub: 'search', query: args[0] as string }
-        : { sub: head as 'resume' | 'fork', id: args[0] as string },
+        : { sub: head as 'resume' | 'fork' | 'export', id: args[0] as string },
   });
 }
 

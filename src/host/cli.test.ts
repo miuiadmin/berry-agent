@@ -498,7 +498,7 @@ describe('plugins 子命令族', () => {
 });
 
 describe('sessions 子命令族', () => {
-  it('list/reindex 零参 + resume/fork/search 恰一参', () => {
+  it('list/reindex 零参 + resume/fork/search/export 恰一参', () => {
     expect(expectCommand(['sessions', 'list'])).toMatchObject({ kind: 'sessions', sub: { sub: 'list' } });
     expect(expectCommand(['sessions', 'reindex'])).toMatchObject({ kind: 'sessions', sub: { sub: 'reindex' } });
     expect(expectCommand(['sessions', 'resume', 's-42'])).toMatchObject({
@@ -513,10 +513,16 @@ describe('sessions 子命令族', () => {
       kind: 'sessions',
       sub: { sub: 'search', query: 'grep 怎么写' },
     });
+    // export（07 §4.1 命令面增补批 C2——CLI 对等位：/export 的 CLI 半边）
+    expect(expectCommand(['sessions', 'export', 's-42'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'export', id: 's-42' },
+    });
   });
 
   it('缺参/未知子命令退 2', () => {
     expectUsage(['sessions', 'resume'], '位置参数数目不符');
+    expectUsage(['sessions', 'export'], '位置参数数目不符'); // export 同一参律（恰一 id）
     expectUsage(['sessions', 'rm', 'x'], '未知 sessions 子命令');
     expectUsage(['sessions'], '须带子命令');
   });
