@@ -28,8 +28,19 @@ import { SessionLog } from '../session/index.js';
 import type { AgentEvent } from '../agent/index.js';
 import { ConversationDriver } from './driver.js';
 import type { ConversationDriverOptions } from './types.js';
-import { CONTEXT_TRANSFORM_EVENT, SESSION_LIFECYCLE_EVENT, AGENT_PRE_STEP_EVENT } from './types.js';
-import type { ContextTransformInput, SessionLifecycleEvent, PreStepInput, RunSettledReceipt } from './types.js';
+import {
+  CONTEXT_TRANSFORM_EVENT,
+  SESSION_LIFECYCLE_EVENT,
+  AGENT_PRE_STEP_EVENT,
+  AGENT_REQUEST_ERROR_EVENT,
+} from './types.js';
+import type {
+  ContextTransformInput,
+  SessionLifecycleEvent,
+  PreStepInput,
+  AgentRequestErrorInput,
+  RunSettledReceipt,
+} from './types.js';
 import { provideAgentService } from './agent-service.js';
 import { createTodoTool } from './todo.js';
 
@@ -1961,5 +1972,196 @@ describe('ConversationDriver 模型活读（ctrl+p 模型循环数据路——07
       'faux/m2:change',
       'faux/m2:resume',
     ]);
+  });
+});
+
+/* ---------------- agent_request_error 钩子（批 E——03 §2.5 兑现 / 04 §3.3 条 7） ---------------- */
+
+describe('ConversationDriver agent_request_error 钩子', () => {
+  /** transient 分桶器（errorMessage 带 #transient 标记即 transient 桶） */
+  const transientBucket = (message: AssistantMessage): ErrorBucket =>
+    message.errorMessage?.includes('#transient') ? 'transient' : 'non-retryable';
+
+  /**
+   * 挂钩 dispatch 构造（装配根同形：预注册词汇 + waterfall 监听——ctx.on 的
+   * mode 路由在宿主层，此处直挂 onWaterfall 等价）。handler 兼任载荷观察面
+   * （received 收集每次 error settle 的输入——断言 attempt 递增与桶值）。
+   */
+  function hookedDispatch(decide: (input: AgentRequestErrorInput) => Partial<AgentRequestErrorInput> | undefined): {
+    dispatch: EventDispatch;
+    received: AgentRequestErrorInput[];
+  } {
+    const dispatch = new EventDispatch();
+    const received: AgentRequestErrorInput[] = [];
+    dispatch.registerEventNames([AGENT_REQUEST_ERROR_EVENT]);
+    dispatch.onWaterfall<AgentRequestErrorInput>(AGENT_REQUEST_ERROR_EVENT, (payload, next) => {
+      received.push(payload);
+      return next({ ...payload, ...decide(payload) });
+    });
+    return { dispatch, received };
+  }
+
+  it('钩子 retry 救回 non-retryable 桶：续入 completed + llm/retry 落 decidedBy hook + reason hook + 载荷 attempt 递增', async () => {
+    const { dispatch, received } = hookedDispatch(() => ({ decision: 'retry' }));
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'quota hard down', errorCode: 'LLM_QUOTA' }),
+        assistant({ stopReason: 'error', errorMessage: 'quota still down', errorCode: 'LLM_QUOTA' }),
+        assistant({ content: [{ type: 'text', text: '救回' }] }),
+      ],
+      // 分桶器恒 non-retryable（errorMessage 无 #transient）——缺省分层零重试
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed');
+    // 载荷观察面：两次 error settle 各一发，attempt 0→1 递增；桶/错误体三键随行
+    expect(received).toHaveLength(2);
+    expect(received[0]).toMatchObject({
+      sessionId: 's-driver',
+      errorMessage: 'quota hard down',
+      errorCode: 'LLM_QUOTA',
+      bucket: 'non-retryable',
+      attempt: 0,
+      maxAttempts: 3,
+    });
+    expect(received[1]).toMatchObject({ attempt: 1 });
+    // 落账面：两次 scheduled 均 hook 腿（decidedBy hook + reason hook——非 transient 缺省形）
+    const scheduled = dataOf(driver, 'llm/retry').filter((d) => (d as { phase: string }).phase === 'scheduled');
+    expect(scheduled).toHaveLength(2);
+    expect(scheduled[0]).toMatchObject({ attempt: 1, decidedBy: 'hook', reason: 'hook' });
+    expect(scheduled[1]).toMatchObject({ attempt: 2, decidedBy: 'hook', reason: 'hook' });
+    expect(scheduled.every((d) => (d as { decidedBy?: string }).decidedBy === 'hook')).toBe(true);
+  });
+
+  it('钩子 retry 带 model：重试起新流换模型（header config.model 断言）', async () => {
+    const { dispatch } = hookedDispatch(() => ({ decision: 'retry', model: 'backup/model' }));
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'down' }),
+        assistant({ content: [{ type: 'text', text: '好了' }] }),
+      ],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 },
+      dispatch,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed');
+    const headers = dataOf(driver, 'request/header');
+    expect(headers).toHaveLength(2);
+    expect((headers[0] as { config: { model: string } }).config.model).toBe('test/model');
+    // 钩子换档：续入流的 header 实录 backup/model（runModelValue 改写生效）
+    expect((headers[1] as { config: { model: string } }).config.model).toBe('backup/model');
+  });
+
+  it('钩子 stop 拦截 transient 桶：phase exhausted + reason hook-stop + attempt 0（首错即止非达帽）', async () => {
+    const { dispatch } = hookedDispatch(() => ({ decision: 'stop' }));
+    const { driver } = makeDriver({
+      // 单错误脚本：缺省会重试续入（脚本耗尽抛）——stop 决策下恒一次流即止
+      scripts: [assistant({ stopReason: 'error', errorMessage: 'net down #transient' })],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    const retries = dataOf(driver, 'llm/retry');
+    expect(retries).toHaveLength(1);
+    expect(retries[0]).toMatchObject({
+      attempt: 0,
+      maxAttempts: 3,
+      phase: 'exhausted',
+      reason: 'hook-stop',
+      errorMessage: 'net down #transient',
+    });
+  });
+
+  it('零监听放行（回归锁）：既有 transient 全链不变 + scheduled 落 decidedBy host', async () => {
+    // 预注册词汇零监听（装配根预注册 + 无插件消费的生产缺席形）
+    const dispatch = new EventDispatch();
+    dispatch.registerEventNames([AGENT_REQUEST_ERROR_EVENT]);
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }),
+        assistant({ content: [{ type: 'text', text: '好了' }] }),
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+      dispatch,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed'); // 缺省分层照旧执法（无 handler 落缺省）
+    const scheduled = dataOf(driver, 'llm/retry').find((d) => (d as { phase: string }).phase === 'scheduled');
+    expect(scheduled).toMatchObject({ attempt: 1, decidedBy: 'host' });
+    expect((scheduled as { reason?: string }).reason).toBeUndefined(); // host 腿 transient 缺省形不落 reason
+  });
+
+  it('钩子管线失败异常隔离：warn 留痕 + 缺省腿放行（non-retryable 直接终态零 llm/retry）', async () => {
+    const dispatch = new EventDispatch();
+    dispatch.registerEventNames([AGENT_REQUEST_ERROR_EVENT]);
+    dispatch.onWaterfall<AgentRequestErrorInput>(AGENT_REQUEST_ERROR_EVENT, async () => {
+      throw new Error('bad plugin handler');
+    });
+    const warns: string[] = [];
+    const { driver } = makeDriver({
+      scripts: [assistant({ stopReason: 'error', errorMessage: 'hard down' })],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch,
+      warn: (message) => void warns.push(message),
+    });
+    const result = await driver.submit('q');
+    // 咨询非关卡：钩子故障不夺宿主裁决权——non-retryable 缺省腿直接终态
+    expect(result.status).toBe('failed');
+    expect(types(driver)).not.toContain('llm/retry');
+    expect(warns.some((w) => w.includes('agent_request_error'))).toBe(true);
+  });
+
+  it('attempt 帽执法：钩子恒 retry → 帽满落 exhausted reason hook（防插件无限重试 + 达帽落账判据扩形）', async () => {
+    const { dispatch, received } = hookedDispatch(() => ({ decision: 'retry' }));
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'down 1' }),
+        assistant({ stopReason: 'error', errorMessage: 'down 2' }),
+        assistant({ stopReason: 'error', errorMessage: 'down 3' }),
+      ],
+      classifyError: () => 'non-retryable',
+      retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 },
+      dispatch,
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    // 钩子三次表态（attempt 0/1/2）——第三次帽满不续入
+    expect(received).toHaveLength(3);
+    const retries = dataOf(driver, 'llm/retry');
+    expect(retries).toHaveLength(3); // scheduled ×2 + exhausted ×1
+    const exhausted = retries.find((d) => (d as { phase: string }).phase === 'exhausted');
+    // 裁决七扩形：钩子救回 non-retryable 桶达帽也落 exhausted（reason hook 非旧 transient 判据漏账）
+    expect(exhausted).toMatchObject({ attempt: 2, maxAttempts: 2, phase: 'exhausted', reason: 'hook' });
+  });
+
+  it('overflow 桶 decision 不消费：钩子照发可读载荷、溢出腿自走 compact 续入（零 decidedBy hook 落账）', async () => {
+    const { dispatch, received } = hookedDispatch(() => ({ decision: 'retry' })); // 决策应被忽略
+    const { driver } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'context overflow', errorCode: 'LLM_CONTEXT_OVERFLOW' }),
+        assistant({ content: [{ type: 'text', text: '压后好了' }] }),
+      ],
+      classifyError: () => 'overflow',
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+      dispatch,
+      compactForOverflow: async () => 'compacted',
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed');
+    // 钩子照发（观测面可读载荷——bucket overflow 在场）
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ bucket: 'overflow', attempt: 0 });
+    // 决策不消费：溢出腿自走（reason overflow 落账、无 decidedBy——1/1 分账非重试决策）
+    const scheduled = dataOf(driver, 'llm/retry').filter((d) => (d as { phase: string }).phase === 'scheduled');
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]).toMatchObject({ reason: 'overflow' });
+    expect((scheduled[0] as { decidedBy?: string }).decidedBy).toBeUndefined();
   });
 });

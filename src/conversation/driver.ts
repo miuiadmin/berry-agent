@@ -25,6 +25,15 @@
  *  ④ 退避 = 指数 + 等比半幅抖动，sleep 挂 abort signal（打断即 aborted 落账）；
  *  ⑤ attempt 计数生命周期 = 单次 runTurns 调用（进入即零、成功返回即弃）；
  *  ⑥ 只 retry transient 桶（classifyError 注入缺席 = 一切 non-retryable 保守）。
+ *
+ * agent_request_error 钩子（04 §3.3 条 7——批 E）：error settle 位（判桶后、
+ * 腿分派前）瀑布分派一次——钩子 retry 决策可越 ⑥ 的桶闸（不限 transient），
+ * 但 attempt 并 ⑤ 的 transient 分账（帽共享防插件无限重试）且判据同含
+ * retry.enabled（重试总闸单源）；overflow 桶 decision 一律不消费（钩子照发
+ * 可读载荷记观测）；钩子管线失败/超时异常隔离 warn 放行缺省（咨询非关卡）。
+ * 落账：host 腿 decidedBy 'host'、钩子腿 'hook'（reason 'hook'）——审计面
+ * 「这次重试是谁决定的」；钩子 stop 落 exhausted reason 'hook-stop'（attempt
+ * 照实可 0）。
  * 溢出兜底（04 §3.4）：遮蔽（llm/retry reason=overflow 复用遮蔽信封）→
  * compactForOverflow → compacted 则重播种续入；名额 1/1 独立分账；注入缺席 =
  * 溢出直接终态（05 §2.3 门三道第三道的装配面兑现）。
@@ -38,6 +47,7 @@ import type {
   AgentMessage,
   AgentTool,
   AssistantMessage,
+  ErrorBucket,
   LlmContext,
   Message,
   RetryProbe,
@@ -49,6 +59,7 @@ import { abortableSleep, retryDelay } from './backoff.js';
 import { DurableWiring } from './wiring.js';
 import type { ControlSendReceipt } from './control.js';
 import type {
+  AgentRequestErrorInput,
   ContextTransformInput,
   ConversationDriverOptions,
   InjectedReceipt,
@@ -60,6 +71,7 @@ import type {
 } from './types.js';
 import {
   AGENT_PRE_STEP_EVENT,
+  AGENT_REQUEST_ERROR_EVENT,
   CONTEXT_TRANSFORM_EVENT,
   DEFAULT_RETRY_POLICY,
   MAX_CONSECUTIVE_WAKES,
@@ -165,6 +177,12 @@ export class ConversationDriver {
     // 兜底独立 stack 形（无 bootPlugins 的驱动也要能发射）
     if (!options.dispatch.isRegistered(AGENT_PRE_STEP_EVENT)) {
       options.dispatch.registerEventNames([AGENT_PRE_STEP_EVENT]);
+    }
+    // agent_request_error 词汇自举注册（03 §2.5 agent 层行——批 E 发射腿）：
+    // 同上幂等双源——插件装载期 ctx.on('agent_request_error') 可达在前，此处
+    // 兜底独立 stack 形（无 bootPlugins 的驱动也要能发射）
+    if (!options.dispatch.isRegistered(AGENT_REQUEST_ERROR_EVENT)) {
+      options.dispatch.registerEventNames([AGENT_REQUEST_ERROR_EVENT]);
     }
     // resolveToolOwner 透传（tool/call 载荷 owner 位取数 seam——T9 案一批 t-1）；
     // 缺席 = 载荷不带 owner（wiring 侧可选带出形）
@@ -499,6 +517,53 @@ export class ConversationDriver {
   };
 
   /**
+   * 模型请求失败钩子分派（03 §2.5 agent_request_error——批 E 发射腿）：
+   * error settle 位每次失败恰发一次（重试后再错再发，attempt 递增；overflow
+   * 桶照发——决策不消费在 runTurns 编舞位判）。**异常隔离律**（04 §3.3 条 7
+   * ——与 context_transform fail-closed 显式分歧）：本钩子语义是咨询非关卡
+   * （错误已发生、宿主缺省分层仍在场），管线失败/超时（plugin-context 5s
+   * 竞速钟超时按管线失败传播——两层各司其职）warn 留痕 + 视为不表态；
+   * fail-closed 上抛会让一个坏插件杀掉 auto-retry 自愈力。
+   * 返回 undefined = 不表态（含无监听器直通形——EventDispatch 空 chain 原样返回）。
+   */
+  private async dispatchRequestError(
+    bucket: ErrorBucket,
+    assistant: AssistantMessage,
+    attempt: number,
+    maxAttempts: number,
+  ): Promise<{ action: 'retry'; model?: string } | { action: 'stop' } | undefined> {
+    const input: AgentRequestErrorInput = {
+      sessionId: this.session.sessionId,
+      ...(assistant.errorMessage !== undefined ? { errorMessage: assistant.errorMessage } : {}),
+      ...(assistant.errorCode !== undefined ? { errorCode: assistant.errorCode } : {}),
+      stopReason: assistant.stopReason,
+      bucket,
+      attempt,
+      maxAttempts,
+    };
+    let out: AgentRequestErrorInput;
+    try {
+      out = await this.options.dispatch.waterfall<AgentRequestErrorInput>(AGENT_REQUEST_ERROR_EVENT, input);
+    } catch (err) {
+      this.warnFace(
+        `agent_request_error 钩子管线失败（${err instanceof Error ? err.message : String(err)}）——视为不表态，走缺省分层`,
+      );
+      return undefined;
+    }
+    if (out.decision === 'stop') return { action: 'stop' };
+    if (out.decision === 'retry') {
+      // 裁决六：model 只做非空串校验——无效伴生键 warn 后按无 model 形重试
+      // （decision 本身仍有效；非法模型名由下一流 fail-loud 自证，attempt 帽兜底）
+      const model = typeof out.model === 'string' && out.model !== '' ? out.model : undefined;
+      if (out.model !== undefined && model === undefined) {
+        this.warnFace('agent_request_error 钩子 model 伴生键无效（非非空串）——按无 model 形重试');
+      }
+      return { action: 'retry', ...(model !== undefined ? { model } : {}) };
+    }
+    return undefined;
+  }
+
+  /**
    * 请求组装最后关口：信封快照（边界制）在此落账——快照取原始 systemPrompt
    * （04 §11 快照序钉死：先快照后注入，瞬态注入体不入快照不落日志）。
    * 环境披露段（04 §11 迁层定形——2026-09-11 cache 经济批 RP1）：五件文本块
@@ -829,11 +894,40 @@ export class ConversationDriver {
           const assistant = lastErrorAssistant(this.context.messages);
           if (assistant !== undefined) {
             const bucket = this.options.classifyError?.(assistant) ?? 'non-retryable';
-            // —— transient 腿（04 §3.3）——
-            if (bucket === 'transient' && retry.enabled && transientAttempt < retry.maxRetries) {
+            // —— agent_request_error 钩子（04 §3.3 条 7——批 E）：判桶后、腿分派前 ——
+            // 每次失败恰发一次（重试后再错再发，attempt 递增）；overflow 桶照发
+            // 可读载荷（观测面）但 decision 一律不消费——溢出自愈归 §3.4 专腿
+            const hook = await this.dispatchRequestError(bucket, assistant, transientAttempt, retry.maxRetries);
+            const effective = bucket === 'overflow' ? undefined : hook;
+            // 钩子 stop：插件明示终止——exhausted 收口（reason hook-stop，attempt
+            // 照实可 0——首错即止非达帽形；不受帽限：帽防无限重试不防终止）
+            if (effective?.action === 'stop') {
+              this.appendExhausted(
+                'hook-stop',
+                transientAttempt,
+                retry.maxRetries,
+                'hook-stop',
+                assistant.errorMessage,
+              );
+              break;
+            }
+            const hookRetry = effective?.action === 'retry';
+            // —— transient 腿（04 §3.3）+ 钩子 retry 腿（条 7：不限桶，attempt
+            //    并 transient 分账 + retry.enabled 总闸同判）——
+            if ((bucket === 'transient' || hookRetry) && retry.enabled && transientAttempt < retry.maxRetries) {
               transientAttempt += 1;
               const delayMs = retryDelay(retry, transientAttempt);
-              this.occludeFailedTail('transient', transientAttempt, retry.maxRetries, delayMs);
+              this.occludeFailedTail(
+                hookRetry ? 'hook' : 'transient',
+                transientAttempt,
+                retry.maxRetries,
+                delayMs,
+                hookRetry ? 'hook' : 'host',
+              );
+              // 钩子换档（裁决六）：非空串 model 生效——重试起新流即新模型
+              // （error settle 是流终态，「在飞 run 不中途换」不破）；非法模型名
+              // 由下一流 fail-loud 自证、attempt 帽兜底——错误自证非静默回落
+              if (hookRetry && effective?.model !== undefined) this.runModelValue = effective.model;
               this.context.messages = this.reseededTimeline();
               // 重试探针窗开（04 §3.3 seam——退避等待期可见；心跳载荷唯一线面出口）
               this.retryProbeValue = {
@@ -879,9 +973,21 @@ export class ConversationDriver {
                 retry.maxRetries,
                 'exhausted',
                 assistant.errorMessage,
+                'host',
               );
             } else if (bucket === 'overflow' && overflowAttempt > 0) {
               this.appendExhausted('overflow', overflowAttempt, retry.maxRetries, 'exhausted', assistant.errorMessage);
+            } else if (transientAttempt > 0) {
+              // 钩子救回 non-retryable/quota 桶达帽（裁决七扩形）：燃尽即落
+              // exhausted（reason hook）——防钩子救回路径零落账（durable 红线）
+              this.appendExhausted(
+                'hook',
+                transientAttempt,
+                retry.maxRetries,
+                'exhausted',
+                assistant.errorMessage,
+                'hook',
+              );
             }
           }
           break;
@@ -1019,10 +1125,11 @@ export class ConversationDriver {
    * fail-loud 上抛（正门即执法位——05 §2.4 retry 区间合法规约）。
    */
   private occludeFailedTail(
-    reason: 'transient' | 'overflow',
+    reason: 'transient' | 'overflow' | 'hook',
     attempt: number,
     maxAttempts: number,
     delayMs: number,
+    decidedBy?: 'host' | 'hook',
   ): void {
     const start = this.wiring.lastAssistantSeq;
     const events = this.session.events();
@@ -1043,6 +1150,9 @@ export class ConversationDriver {
         delayMs,
         phase: 'scheduled',
         ...(reason !== 'transient' ? { reason } : {}),
+        // decidedBy（批 E——05 篇 llm/retry 增字段）：host 腿（宿主判桶重试）
+        // 落 'host'、钩子腿落 'hook'；overflow 腿不落（1/1 独立分账非重试决策）
+        ...(decidedBy !== undefined ? { decidedBy } : {}),
       },
       { op: 'replace', start, end },
       sourceEventSeqs,
@@ -1051,13 +1161,19 @@ export class ConversationDriver {
     this.wiring.markRebuildPending();
   }
 
-  /** exhausted 落账（达帽放弃——errorMessage 随行；delayMs=0：无实退避发生） */
+  /**
+   * exhausted 落账（达帽放弃——errorMessage 随行；delayMs=0：无实退避发生）。
+   * reason 四值（批 E 扩）：transient（宿主腿达帽）/ overflow（溢出腿收口）/
+   * hook（钩子腿达帽——救回 non-retryable/quota 桶燃尽）/ hook-stop（钩子
+   * stop 终止——attempt 照实可 0，非达帽形）。
+   */
   private appendExhausted(
-    reason: 'transient' | 'overflow',
+    reason: 'transient' | 'overflow' | 'hook' | 'hook-stop',
     attempt: number,
     maxAttempts: number,
     outcome: string,
     errorMessage?: string,
+    decidedBy?: 'host' | 'hook',
   ): void {
     this.session.append('llm/retry', {
       attempt,
@@ -1066,6 +1182,7 @@ export class ConversationDriver {
       phase: 'exhausted',
       errorMessage: errorMessage ?? `retry 放弃：${outcome}`,
       ...(reason !== 'transient' ? { reason } : {}),
+      ...(decidedBy !== undefined ? { decidedBy } : {}),
     });
   }
 

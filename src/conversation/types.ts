@@ -319,6 +319,45 @@ export const CONTEXT_TRANSFORM_EVENT = 'context_transform';
 export const AGENT_PRE_STEP_EVENT = 'agent_pre_step';
 
 /**
+ * agent_request_error 钩子事件词（03 §2.5 主表 agent 层行——mode waterfall；
+ * 批 E 兑现）。模型请求失败时发射（runTurns error settle 位——04 §3.3 条 7：
+ * 判桶之后、三腿分派之前）：驱动发射、插件经 ctx.on 挂瀑布监听器。决策消费
+ * 律（retry 不限 transient 桶但 attempt 并 transient 分账 / stop 终止 /
+ * overflow 桶 decision 不消费）单源归 04 §3.3 条 7。词汇注册双源幂等：
+ * bootPlugins 预注册在前，驱动构造器自举在后（AGENT_PRE_STEP_EVENT 同律）。
+ */
+export const AGENT_REQUEST_ERROR_EVENT = 'agent_request_error';
+
+/**
+ * agent_request_error 瀑布载荷（03 §2.5 签名「载荷含结构化错误体（LLM_ 码族）」
+ * 承载——批 E 定形）：错误体三键取自 lastErrorAssistant、bucket 取
+ * classifyError 判得值（注入缺席 = 'non-retryable' 保守）；attempt = 已耗
+ * transient 重试数（首次 error settle = 0）、maxAttempts = retry.maxRetries。
+ * 决策字段 = 输出可选平键：handler 置 decision 即表态（瀑布串行后位覆盖
+ * 前位）；不设 = 不表态放行下游。
+ */
+export interface AgentRequestErrorInput {
+  /** 目标会话（插件绑会话判据位） */
+  readonly sessionId: string;
+  /** 失败说明（取错误 assistant 的 errorMessage——可在场缺席） */
+  readonly errorMessage?: string;
+  /** 结构化错误码（LLM_ 码族——AssistantMessage.errorCode 数据面） */
+  readonly errorCode?: string;
+  /** 错误 assistant 的 stopReason */
+  readonly stopReason: string;
+  /** classifyError 判得桶（04 §3.5 四桶） */
+  readonly bucket: ErrorBucket;
+  /** 已耗 transient 重试数（首次 error settle = 0） */
+  readonly attempt: number;
+  /** 重试帽（retry.maxAttempts） */
+  readonly maxAttempts: number;
+  /** 决策位：'retry'（重试续入——不限 transient 桶但 attempt 并 transient 分账）/ 'stop'（终止）；不设 = 不表态 */
+  decision?: 'retry' | 'stop';
+  /** decision 'retry' 伴生：非空串生效——重试起新流换模型（非法模型名由下一次流 fail-loud 自证，attempt 帽兜底） */
+  model?: string;
+}
+
+/**
  * agent_pre_step 瀑布载荷（03 §2.4 签名「可注入提醒、检查目标」承载）。
  * 载荷对象整链固定；handler 就地 push 注入提醒 / 置 stop 即刹车（不调
  * next 也短路——管线语义）。reminders 由驱动暂存、于同请求的

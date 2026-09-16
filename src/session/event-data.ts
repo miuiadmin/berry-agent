@@ -110,7 +110,7 @@ export interface EndSeedData {
 
 /** llm/retry 的 data（owner=session——llm 模块不知道驱动存在，注册走核心词汇） */
 export interface LlmRetryData {
-  /** 第几次重试（1 起） */
+  /** 第几次重试（1 起；hook-stop 形可为 0——钩子首错即止非达帽形，05 篇批 E 同笔） */
   readonly attempt: number;
   /** 退避帽 */
   readonly maxAttempts: number;
@@ -120,6 +120,8 @@ export interface LlmRetryData {
   readonly phase: 'scheduled' | 'aborted' | 'exhausted';
   /** 失败说明（exhausted 随行末次错误） */
   readonly errorMessage?: string;
-  /** 重试类目：transient（瞬时错）/ overflow（溢出兜底复用本词作遮蔽信封；缺省 transient——旧日志读侧同视） */
-  readonly reason?: 'transient' | 'overflow';
+  /** 重试决策者（批 E——agent_request_error 钩子落账面）：transient 腿（宿主判桶）落 'host'、钩子 retry 腿落 'hook'；overflow 腿不落；缺席只属批 E 前旧档会话，读面宽容 */
+  readonly decidedBy?: 'host' | 'hook';
+  /** 重试类目：transient（瞬时错）/ overflow（溢出兜底复用本词作遮蔽信封）/ hook（钩子 retry 腿——救回 non-retryable/quota 桶时不误读 transient 缺省形）/ hook-stop（钩子 stop 终止——非达帽形）；缺省 transient 旧日志读侧同视 */
+  readonly reason?: 'transient' | 'overflow' | 'hook' | 'hook-stop';
 }
