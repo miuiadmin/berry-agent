@@ -7,6 +7,12 @@
 # SDK 不在本腿射程（sdk-v* 不匹配 v* glob——SDK 真发已走本机令牌道上架；
 # CI 腿随 npmjs.com 侧 OIDC trusted publishing 绑定与 SDK 包 publishMode
 # 翻转两依赖另裁，不随批自动接入）。
+#
+# 链尾 API 快照归档步（挂账 n4 拍板 = CI 发布腿——03 §8.2 快照双位定形注 +
+# 07 §8.3 API 治理子步时序位拍板注）：发布成功后把当版 API 面快照挂该版
+# GitHub Release（assets 形权威留档——归档件不进 git 史；dev 必需检查 strict
+# 下 GITHUB_TOKEN 回写结构性不可达，入仓形弃）。每 v* tag push 必经本腿 =
+# 归档全覆盖（令牌应急腿尾 tag push 触发的 run 同经此步兜底）。
 name: release
 
 on:
@@ -29,11 +35,14 @@ jobs:
     # job 级 timeout（与 ci.yml「job 级 timeout 全覆盖」纪律同源——挂死不烧满
     # runner 缺省 6h 配额）：实测 2m51s~3m3s，30 定值给 npm publish 网络腿余量档
     timeout-minutes: 30
-    # job 级最小面：id-token = OIDC 必需 + contents 只读（tag checkout）——
-    # 定形注第 2 款；GITHUB_TOKEN 无写面需求（tag 已由本机触发腿 push）
+    # job 级最小面：id-token = OIDC 必需 + contents = Release 归档件挂载位
+    #（2026-09-16 归档挂入位批起 read→write——07 §8.3 定形注第 2 款补笔；
+    # tag checkout 只需 read、write 涵盖之；写面扩张不破 tag 保护——GITHUB_TOKEN
+    # 非 owner 仍被 v* ruleset 拦〔定形注第 7 款〕）；persist-credentials:false
+    # ——checkout 后 GITHUB_TOKEN 凭证不落盘（gh 调用走 GH_TOKEN env 显式面）
     permissions:
       id-token: write
-      contents: read
+      contents: write
     steps:
       # 定形注第 5 款禁令机制化：非 refs/tags/v* 形即红（dispatch 直跑腿须钉
       # tag 名——防绕 tag 保护 ruleset 的发布物直跑）
@@ -95,3 +104,35 @@ jobs:
       - run: npm run release
         env:
           BERRY_AGENT_RELEASE_MODE: ci
+      # —— API 面快照归档步（挂账 n4 拍板 = CI 发布腿；条款权威 03 §8.2 快照
+      # 双位定形注、时序位 07 §8.3 API 治理子步拍板注）——发布成功后把当版
+      # API 面快照挂该版 GitHub Release（assets 形权威留档）：归档件不进 git
+      # 史（dev 必需检查 strict 下 GITHUB_TOKEN 回写结构性不可达——入仓形弃），
+      # 生成单源 = 抽取器 --archive 既有 CLI；查 9 开发树基线位（api/snapshots/）
+      # 不由此步填充，回流随纪元点火批。幂等：release 在场 clobber 覆盖
+      # （dispatch 复验形重跑无害）；令牌应急腿尾 tag push 触发的 run 同经此步
+      # 兜底——每 v* tag push 必经 CI 归档全覆盖。
+      - name: API 面快照归档（GitHub Release assets）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          ver="${RELEASE_REF#refs/tags/v}"
+          # 归档件生成（同版重跑幂等覆盖；抽取器自足声明发射——契约 1 刚跑
+          # build/npm ci 全在场，无需额外装配）
+          node tools/extract-api-surface.mjs --archive
+          # 后置自证：归档件 = 提交位快照逐字节同（查 1 已绿 ⇒ 真值=快照 ⇒
+          # 同源必同；异 = 抽取器环境断裂——fail-loud 不挂废档）
+          diff "api/snapshots/${ver}.json" src/contracts/api-surface.json
+          # asset 名带版本（下载件自描述）；就地上传名后传
+          asset="api/snapshots/api-surface-${ver}.json"
+          mv "api/snapshots/${ver}.json" "${asset}"
+          if gh release view "v${ver}" >/dev/null 2>&1; then
+            gh release upload "v${ver}" "${asset}" --clobber
+          else
+            # Release 缺席即建（交棒先打形首跑可无 release）；prerelease 判定
+            # = 版本串含 '-'（npm 语义同向）
+            args=(--title "v${ver}" --notes "版本归档：当版 API 面快照见附件 api-surface-${ver}.json（extract-api-surface --archive 生成）")
+            if [[ "${ver}" == *-* ]]; then args+=(--prerelease); fi
+            gh release create "v${ver}" "${asset}" "${args[@]}"
+          fi

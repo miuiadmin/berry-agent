@@ -190,7 +190,7 @@ docs/                   公开文档面（本五册）
 | 执行形                                                   | 谁跑                         | 语义                                                                                                                        |
 | -------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | 本机触发腿（主包缺省）                                   | 维护者本机 `npm run release` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 复探收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish |
-| CI 发布腿（`.github/workflows/release.yml`）             | tag `v*` push 触发           | OIDC 免令牌免 2FA publish；契约 5 只读断言 `next`、契约 6 只校验既有 tag                                                    |
+| CI 发布腿（`.github/workflows/release.yml`）             | tag `v*` push 触发           | OIDC 免令牌免 2FA publish；契约 5 只读断言 `next`、契约 6 只校验既有 tag；链尾归档当版 API 面快照挂该版 GitHub Release（assets——版本化 API 史） |
 | 令牌全本地旧序（SDK 缺省 / 主包 `--local-publish` 应急） | 本机 npm 凭证                | 六道契约原序全本地                                                                                                          |
 
 常规发版（主包）：改 `package.json` version → commit → `npm run release`——脚本完成交棒、等待 CI（gh CLI 轮询，30 分钟帽）、收口与 latest 挪位，全绿即发版完成。SDK：`npm run release:sdk`（令牌全本地形）。
