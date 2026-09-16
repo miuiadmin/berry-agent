@@ -26,8 +26,7 @@
  * apply 收口后 closeWindow；钩子词汇 registerEventNames 预注册归装配批（12f-2b），
  * 本件只按主表路由不注册词。
  *
- * 挂账注记（消费面未齐暂缓，随各自消费腿定形）：registerRenderer（07 §4.1
- * 渲染签名未钉——随 TUI/SPA 消费腿）；ctx.sessions 服务面（03 §2.2 第八面
+ * 挂账注记（消费面未齐暂缓，随各自消费腿定形）：ctx.sessions 服务面（03 §2.2 第八面
  * ——非注册动词，经 ctx.get("sessions") 消费；2026-09-15 勘正：原「appendEvent
  * 最小面已落、完整面随受理面批」系待落时态残影——完整面已随 cs-D1 批落码
  * 〔只读四件 + store_state 键值腿 + appendEvent 信封两参数位，真身
@@ -36,6 +35,11 @@
  * 族批 ix-2 兑销（消费腿条款 07 §4.3——会话锚定档位表/钩子窗禁律/护栏增
  * 位）；tools 管道 waterfall 派发位已接线兑销（pipeline.ts 三发射位——tools_
  * pre_execute/tools_execute/tools_post_execute，装配根共享 dispatch 单源）。
+ * **ctx.ui.registerRenderer 已兑销**（2026-09-17 TUI 余量收官批③——07 §4.1
+ * 「插件工具渲染钩子签名钉位」注：签名单源 channels/renderers.ts，受理委派
+ * 真源 registerToolRenderer〔后写胜出·受理不拒·回落恒在〕，消费两钉 = TUI
+ * 三态卡卡体〔renderResult〕/ 工具进度面板行〔renderCall〕；SPA 消费腿
+ * 维持挂账）。
  */
 import { BaseError, registerEventType, registerMessageRole } from '../contracts/index.js';
 // internal 桶机制符号深导（门检裁决核——03 §4.6；开门是宿主裁决面非插件 API）
@@ -55,7 +59,7 @@ import type {
   UiSelectChoice,
 } from '../contracts/index.js';
 import type { LlmRuntime } from '../llm/index.js';
-import type { CommandHandler } from '../channels/index.js';
+import type { CommandHandler, ToolRenderer } from '../channels/index.js';
 import { AGENT_TOOL_PREFIX } from '../subagent/types.js';
 import type { ToolRegistry } from '../tools/index.js';
 import type { Disposer, EventDispatch, Scope, WaterfallListener } from '../context/index.js';
@@ -244,10 +248,13 @@ export interface ChannelsUiFace {
 }
 
 /**
- * ctx.ui 七原语面（07 §4.3 签名块定稿形——缺省无会话位，本批增可选
+ * ctx.ui 七原语 + 渲染钩子注册面（07 §4.3 签名块定稿形——缺省无会话位，本批增可选
  * sessionId 显式位）：notify/hasAudience 无会话位恒可（档位 1）；阻塞三件
  * + setStatus/setWidget 携可选 sessionId（档位 2/3——显式位优先、ambient
- * 命令锚〔ALS〕回落）。
+ * 命令锚〔ALS〕回落）。registerRenderer（2026-09-17 收官批③——07 §4.1
+ * 渲染钩子钉位）= 注册动词族律（窗闸 + 频率护栏；受理委派真源在 channels
+ * 注册表——后写胜出/受理不拒/回落恒在，消费两钉 = TUI 三态卡卡体 +
+ * 工具进度面板行）。
  */
 export interface PluginUiFace {
   /** 一次性通知（'success' = 任务完成语义档）——无会话位恒可 */
@@ -268,6 +275,13 @@ export interface PluginUiFace {
   setWidget(node: unknown | null, opts?: { sessionId?: string }): void;
   /** 观众探针（无人值守降档判据——只读免护栏计数） */
   hasAudience(): boolean;
+  /**
+   * 工具渲染器注册（收官批③——07 §4.1 钉位注）：呈现扩展位（03 §2.7 后写
+   * 胜出表行——覆盖只换呈现不换数据，含对宿主内建工具名注册受理不拒）；
+   * 消费位回落恒在（渲染器缺席/抛错/空行集恒宿主缺省形）。disposer 撤注
+   * （现任守卫——不误注接任者）。
+   */
+  registerRenderer(toolName: string, renderer: ToolRenderer): Disposer;
 }
 
 /** 钩子超时上报面（缺省 stderr 直写——装配根接 logger） */
@@ -323,6 +337,13 @@ export interface PluginContextOptions {
    * 装载/不炸派发）。装配根恒注（fork 级联共享单真身）。
    */
   readonly channelsUi?: ChannelsUiFace;
+  /**
+   * 工具渲染器注册面受局面（收官批③——07 §4.1 渲染钩子钉位）：真身 =
+   * channels renderers 注册表（装配根注入模块单册函数对——同册两钉先例）；
+   * 缺席 = ctx.ui.registerRenderer 抛 CONTEXT_SERVICE_MISSING（装配缺陷
+   * 响亮——同 tools 先例）。
+   */
+  readonly renderers?: ToolRendererRegistryLike;
   /**
    * ctx.ui 降档 warn 出口（setStatus/setWidget 无锚 no-op、受局面缺席降档
    * 的呈现位）：缺省 console.warn（短命/测试形零依赖）；装配根接 logger.warn。
@@ -413,6 +434,15 @@ export interface SubagentRegistryLike {
  */
 export interface UiBackendRegistryLike {
   registerPluginBackend(backend: UiBackend<never>): Disposer;
+}
+
+/**
+ * 工具渲染器注册面受局面（收官批③——channels renderers 注册表的结构面；
+ * 后写胜出/受理不拒/disposer 现任守卫执法在注册表真源，本面只承载委派签名
+ * ——测试替身免 import 全量）。
+ */
+export interface ToolRendererRegistryLike {
+  registerToolRenderer(toolName: string, renderer: ToolRenderer): Disposer;
 }
 
 /**
@@ -1118,6 +1148,17 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
       // 档位 1：观众探针——只读免护栏计数（03 §3.4 免计清单）
       hasAudience(): boolean {
         return required(options.channelsUi, 'channels-ui', 'ctx.ui.hasAudience').hasAudience();
+      },
+      // 渲染钩子注册（收官批③——07 §4.1 钉位注）：注册动词族律全套（窗闸 +
+      // 频率护栏）；受理委派真源 channels 注册表（后写胜出/受理不拒——含内建
+      // 工具名；disposer 现任守卫透传）
+      registerRenderer(toolName: string, renderer: ToolRenderer): Disposer {
+        assertWindow('ctx.ui.registerRenderer');
+        countAction();
+        return required(options.renderers, 'renderers', 'ctx.ui.registerRenderer').registerToolRenderer(
+          toolName,
+          renderer,
+        );
       },
     },
     host: { ...hostFace, pluginId },

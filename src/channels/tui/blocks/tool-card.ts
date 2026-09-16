@@ -11,11 +11,21 @@
  * 相邻对走词级高亮（删行变更词红 / 增行变更词绿——word-diff 件 LCS），
  * 孤立删/增整行红/绿，'***' 头行 dim。纯函数：同一 (卡数据, columns) 恒同
  * 行集（repaint / 回看器同管线零漂移）。
+ *
+ * 插件卡体（2026-09-17 TUI 余量收官批③——07 §4.1 插件工具渲染钩子签名
+ * 钉位）：查表命中且 renderResult 钩子在场 → **每次渲染现调**（定稿渲染与
+ * repaint 投影重渲各一次——不缓存、不落 durable、不进事件流，直播路与
+ * repaint 恒一致律保持）；返回非空行集 = 插件卡体（tone → 批 10g 语义键
+ * 着色直取）。**卡头恒宿主单源形**（终态符号 + 工具名 + 参数简述——终态
+ * 判定/中止分档属宿主裁决面，插件不可覆写）。**回落恒在律**：渲染器缺席/
+ * 抛错/返回空行集/载荷缺席 → 宿主缺省卡体（插件渲染器结构性不可劣化呈现
+ * 面）。折叠预览 N=5 与卡体帽 200 行对插件行集同律。
  */
-import { truncateToWidth, wrapText, type CellStyle } from '../../engine/index.js';
+import { truncateToWidth, wrapText, type CellStyle, type ColorValue } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import type { StyledLine, StyleRun } from '../backend/ansi-rows.js';
 import { diffWords, parsePatchLines, type PatchLine } from './word-diff.js';
+import { lookupToolRenderer, type RendererLine, type ToolRenderResultInput } from '../../renderers.js';
 
 /** 卡终态（↔ ToolResultMessage isError / details.aborted 的呈现分档） */
 export type ToolCardStatus = 'success' | 'error' | 'aborted';
@@ -25,6 +35,13 @@ export const CARD_PREVIEW_LINES = 5;
 
 /** 卡体存账行帽（尾留——超帽截头保尾：预览取尾行、展开档亦不失最近输出） */
 export const CARD_BODY_MAX_LINES = 200;
+
+/**
+ * 插件渲染腿载荷（renderResult 现调事实——toolName 单源 = card.name 故载荷
+ * 不含名）。由 transcript 落卡时从 toolCall 参数与 toolResult 消息面铸入；
+ * 缺席 = 无插件腿走宿主缺省卡体。
+ */
+export type ToolCardRenderInput = Omit<ToolRenderResultInput, 'toolName'>;
 
 /** 卡渲染视图面（块数据与本件渲染的窄接口） */
 export interface ToolCardView {
@@ -37,6 +54,8 @@ export interface ToolCardView {
   readonly diff: boolean;
   readonly expanded: boolean;
   readonly theme: ResolvedTheme;
+  /** 插件渲染腿载荷（07 §4.1 钉位注——缺席 = 宿主缺省卡体） */
+  readonly renderInput?: ToolCardRenderInput;
 }
 
 /** 终态符号（卡头首段——状态分档可辨形） */
@@ -51,8 +70,10 @@ export function cardBodyOf(text: string): readonly string[] {
 }
 
 /**
- * 工具卡 → 带样式行集。卡头行恒在场（状态符号语义色 + 名/简述 dim）；卡体
- * 折叠 = 尾 CARD_PREVIEW_LINES 视觉行（dim），展开 = 全量行。
+ * 工具卡 → 带样式行集。卡头行恒在场（状态符号语义色 + 名/简述 dim——宿主
+ * 单源恒形）；卡体折叠 = 尾 CARD_PREVIEW_LINES 视觉行（dim），展开 = 全量行。
+ * 插件腿现调在卡体源选择之前（07 钉位注）——命中即插件卡体，回落形与宿主
+ * 缺省同走下方两档渲染（折叠/展开/预览对插件行集同律）。
  */
 export function renderToolCardStyledLines(card: ToolCardView, columns: number): StyledLine[] {
   const header = ` ${STATUS_SYMBOL[card.status]} ${card.name}${card.brief}`;
@@ -65,12 +86,73 @@ export function renderToolCardStyledLines(card: ToolCardView, columns: number): 
       { start: 2, end: header.length, style: DIM_STYLE }, // 名 + 参数简述段
     ],
   };
-  const bodyLines = card.diff
-    ? renderDiffBodyLines(card.body, columns, card.theme)
-    : renderPlainBodyLines(card.body, columns);
+  // 插件卡体现调（null = 回落——未命中/抛错/空行集/载荷缺席四形同落宿主缺省）
+  const pluginBody = renderPluginBodyLines(card, columns);
+  const bodyLines =
+    pluginBody ??
+    (card.diff ? renderDiffBodyLines(card.body, columns, card.theme) : renderPlainBodyLines(card.body, columns));
   const shown = card.expanded ? bodyLines : bodyLines.slice(-CARD_PREVIEW_LINES);
   const body = card.expanded ? shown : shown.map(addDim);
   return [headerLine, ...body];
+}
+
+/**
+ * 插件卡体行集（2026-09-17 TUI 余量收官批③——回落恒在律单源 try/catch）。
+ *
+ * 查表命中且 renderResult 在场 → 以卡面事实现调（toolName 单源 = card.name）；
+ * 返回非空行集 = 插件卡体（行集是呈现态非事实源——本函数每次渲染现调，
+ * 不缓存不落 durable）。抛错 / 空行集 / 未命中 / 载荷缺席 / 坏形返回 →
+ * null 走宿主缺省卡体（插件渲染器结构性不可劣化呈现面）。
+ */
+function renderPluginBodyLines(card: ToolCardView, columns: number): StyledLine[] | null {
+  // 载荷缺席 = 无定稿期事实（孤儿兜底 ↳ 形不携载荷、防御位直落宿主）
+  if (card.renderInput === undefined) return null;
+  const hook = lookupToolRenderer(card.name)?.renderResult;
+  if (hook === undefined) return null; // 未命中 / renderResult 钩子缺席
+  try {
+    const lines = hook({
+      toolCallId: card.renderInput.toolCallId,
+      toolName: card.name,
+      arguments: card.renderInput.arguments,
+      content: card.renderInput.content,
+      isError: card.renderInput.isError,
+      aborted: card.renderInput.aborted,
+    });
+    // 空行集回落 + 坏形返回（非数组/段非字符串文本）同回落档——渲染路径零崩
+    if (!Array.isArray(lines) || lines.length === 0) return null;
+    // 卡体帽同律（cardBodyOf 同语义：超帽截头保尾 + 截断标记首行——作用于行集）
+    const capped =
+      lines.length > CARD_BODY_MAX_LINES
+        ? [
+            [{ text: `⋯（前文已省 ${lines.length - CARD_BODY_MAX_LINES} 行）` }] as RendererLine,
+            ...lines.slice(-CARD_BODY_MAX_LINES),
+          ]
+        : lines;
+    return capped.map((line) => pluginLineToStyled(line, columns, card.theme));
+  } catch {
+    return null; // 抛错回落（含坏形段取值炸——整体降宿主缺省，不碎一行）
+  }
+}
+
+/**
+ * 插件行 → 带样式行（tone → 语义键直取；缺省与 'text' 档在 text 键 undefined
+ * 时无前景游程——正文恒随终端前景）。超宽截断不折行 + 游程钳制（diff 档同律
+ * ——游程几何保简）。
+ */
+function pluginLineToStyled(line: RendererLine, columns: number, theme: ResolvedTheme): StyledLine {
+  let plain = '';
+  const runs: StyleRun[] = [];
+  for (const seg of line) {
+    const start = plain.length;
+    plain += seg.text;
+    // tone 缺省 = 'text' 中性前景档；theme.text 可 undefined（无前景游程）
+    const fg: ColorValue | undefined = theme[seg.tone ?? 'text'];
+    if (fg !== undefined && seg.text !== '') {
+      runs.push({ start, end: plain.length, style: { fg } });
+    }
+  }
+  const clipped = truncateToWidth(plain, columns);
+  return { plain: clipped, runs: clampRuns(runs, clipped.length) };
 }
 
 /** 普通卡体行：折行续推（无缩进——正文态），无样式裸行 */

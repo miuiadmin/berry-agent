@@ -88,7 +88,7 @@ import type { DiskPluginSpec } from './loader.js';
 import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js';
 import type { EnabledRow, PluginManifest } from './manifest.js';
 import { PLUGIN_HOOK_VOCABULARY, createPluginContext } from './plugin-context.js';
-import type { ChannelsUiFace } from './plugin-context.js';
+import type { ChannelsUiFace, ToolRendererRegistryLike } from './plugin-context.js';
 import type {
   CommandRegistryLike,
   PluginContextHandle,
@@ -353,6 +353,12 @@ export interface PluginBootOptions {
    * 缺位、单向原语降档 no-op warn——诚实缺席律）。
    */
   readonly channelsUi?: ChannelsUiFace;
+  /**
+   * 工具渲染器注册面受局面（收官批③——07 §4.1 渲染钩子钉位）：真身 =
+   * channels renderers 模块单册函数对（assembly 注入）；缺席 = 直测/诊断形
+   * （ctx.ui.registerRenderer 响亮缺位——诚实缺席律）。
+   */
+  readonly renderers?: ToolRendererRegistryLike;
   /** ctx.ui 降档 warn 出口（缺省 console.warn；装配接 logger.warn） */
   readonly uiWarn?: (message: string) => void;
   /** 安全模式（--no-plugins——装载面整跳，07 §六） */
@@ -680,6 +686,8 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       // ctx.ui 消费腿通道核窄面 + 降档 warn 出口透传（ix-2——fork 级联共享
       // 单真身；缺席时阻塞三件/notify/hasAudience 响亮缺位、单向原语降档）
       ...(options.channelsUi !== undefined ? { channelsUi: options.channelsUi } : {}),
+      // 渲染器注册面受局面透传（收官批③——受理委派真源 channels 注册表；缺席时响亮缺位）
+      ...(options.renderers !== undefined ? { renderers: options.renderers } : {}),
       ...(options.uiWarn !== undefined ? { uiWarn: options.uiWarn } : {}),
       // ctx.provide 委派共享根（§2.2 表行——跨插件可见）。owner 恒 = 本插件 id
       // 由本包装闭包注入（owner 真源 = 装载器非自报——插件面签名不变仍两参；

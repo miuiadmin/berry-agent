@@ -51,6 +51,17 @@ export { fuzzyFilter } from './tui/index.js';
 // 文件面——settings 值域校验与 tui-entry 装配下装消费）
 export type { ColorEnv, PartialSemanticPalette, ThemeSetting } from './tui/index.js';
 export { isValidCustomThemeName, listCustomThemeNames, loadCustomThemeColors } from './tui/index.js';
+// 插件工具渲染器注册表（2026-09-17 TUI 余量收官批③——07 §4.1 渲染钩子钉位）：
+// host 受理面（plugin-context 装配注入 ctx.ui.registerRenderer）与 TUI 消费面
+// （三态卡卡体 / 工具面板行 lookupToolRenderer）同册两钉
+export type {
+  RendererSegment,
+  RendererLine,
+  ToolRenderer,
+  ToolRenderCallInput,
+  ToolRenderResultInput,
+} from './renderers.js';
+export { registerToolRenderer, lookupToolRenderer } from './renderers.js';
 // SDK 线协议（批 13a 契约先行——03 §10.6 件身份条：协议核心代码位与 channels
 // 通道核同体，SDK 通道后端 = UiBackend 第三后端；本面出协议词汇/信封 + NDJSON
 // 编解码 + admit/游标纯逻辑四件。后端实装（事件外推/请求受理/出站队列）随批

@@ -1534,11 +1534,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     return builtinPalette(this.themeSetting === 'light' ? 'light' : 'dark');
   }
 
-  /** 主题注入长存组件（editor 视图 / 状态行 / 补全弹层——accent 派生样式重建） */
+  /** 主题注入长存组件（editor 视图 / 状态行 / 补全弹层 / 工具面板——accent 派生样式重建） */
   private injectTheme(): void {
     this.editor.view.setTheme(this.theme);
     this.statusLine.setTheme(this.theme);
     this.popup.setTheme(this.theme);
+    this.toolPanel.setTheme(this.theme); // 插件面板行 tone 语义键直取——渲染时现取
   }
 
   /**
@@ -1626,7 +1627,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         break;
       case 'tool_execution_start':
         this.statusLine.setTool(event.name);
-        this.toolPanel.begin(event.toolCallId, event.name); // 件 5：建档不建行
+        this.toolPanel.begin(event.toolCallId, event.name, event.arguments); // 件 5：建档不建行（参数快照 = renderCall 在飞期载荷）
         this.touchFixed();
         break;
       case 'tool_execution_end':

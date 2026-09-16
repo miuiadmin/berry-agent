@@ -5,7 +5,7 @@ import type { UiBackend } from '../contracts/index.js';
 import { getErrorCodeInfo } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import type { Disposer } from '../context/index.js';
-import { CommandRegistry, createChannels } from '../channels/index.js';
+import { CommandRegistry, createChannels, registerToolRenderer, lookupToolRenderer } from '../channels/index.js';
 import { createToolRegistry } from '../tools/index.js';
 import { createJobRegistry, createSubagentService } from '../subagent/index.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
@@ -13,7 +13,13 @@ import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import { BEFORE_COMPACT_ATTRIB } from '../compaction/index.js';
 import type { BeforeCompactAttribution } from '../compaction/index.js';
 import { createPluginContext, PLUGIN_HOOK_VOCABULARY } from './plugin-context.js';
-import type { AuditSink, ChannelsUiFace, PluginContextHandle, PluginToolLedger } from './plugin-context.js';
+import type {
+  AuditSink,
+  ChannelsUiFace,
+  PluginContextHandle,
+  PluginToolLedger,
+  ToolRendererRegistryLike,
+} from './plugin-context.js';
 import { createHookDispatchGuard } from './hook-dispatch-guard.js';
 import { runWithSessionAnchor, withoutSessionAnchor, readSessionAnchor } from './session-anchor.js';
 import { PromptSectionRegistry } from './prompt-sections.js';
@@ -41,6 +47,8 @@ function assemble(overrides?: {
   toolLedger?: PluginToolLedger;
   subagentToolMaterializer?: (def: ProgrammaticSubagentDef) => Disposer;
   channelsUi?: ChannelsUiFace;
+  /** 渲染器注册面外注（收官批③——ctx.ui.registerRenderer 受理腿用例） */
+  renderers?: ToolRendererRegistryLike;
   hookDispatchGuard?: ReturnType<typeof createHookDispatchGuard>;
   uiWarn?: (message: string) => void;
   /** 通道核外注（ix-2 消费腿用例——channelsUi 适配闭包需先于 assemble 引用） */
@@ -95,6 +103,7 @@ function assemble(overrides?: {
       ? { subagentToolMaterializer: overrides.subagentToolMaterializer }
       : {}),
     ...(overrides?.channelsUi !== undefined ? { channelsUi: overrides.channelsUi } : {}),
+    ...(overrides?.renderers !== undefined ? { renderers: overrides.renderers } : {}),
     ...(overrides?.hookDispatchGuard !== undefined ? { hookDispatchGuard: overrides.hookDispatchGuard } : {}),
     ...(overrides?.uiWarn !== undefined ? { uiWarn: overrides.uiWarn } : {}),
   });
@@ -1512,6 +1521,68 @@ describe('ctx.ui 消费腿（ix-2——07 §4.3 会话锚定档位表）', () =>
     expect(await runWithSessionAnchor('s1', () => handle.ctx.ui.confirm('继续?'))).toBe(true);
     expect(await runWithSessionAnchor('s1', () => handle.ctx.ui.select('选', [{ value: 'a', label: 'A' }]))).toBe('a');
     expect(await runWithSessionAnchor('s1', () => handle.ctx.ui.input('输入'))).toBe('typed');
+  });
+});
+
+describe('ctx.ui.registerRenderer 受理（2026-09-17 收官批③——07 §4.1 插件工具渲染钩子钉位）', () => {
+  it('委派真源：受局面 registerToolRenderer 收同参、disposer 透传真身', () => {
+    const seen: Array<{ toolName: string; renderer: unknown }> = [];
+    let disposeCalls = 0;
+    const { handle } = assemble({
+      renderers: {
+        registerToolRenderer: (toolName: string, renderer: unknown) => {
+          seen.push({ toolName, renderer });
+          return () => {
+            disposeCalls++;
+          };
+        },
+      },
+    });
+    const renderer = { renderResult: () => [] };
+    const dispose = handle.ctx.ui.registerRenderer('plug_tool', renderer);
+    expect(seen).toEqual([{ toolName: 'plug_tool', renderer }]); // 同参委派（含内建工具名受理不拒——真源执法）
+    dispose();
+    expect(disposeCalls).toBe(1); // disposer 透传（不吞不改）
+  });
+
+  it('窗口律：关窗后拒 PLUGIN_WINDOW_CLOSED，回调窗内合法（§2.1 窗口延伸条款）', () => {
+    const { handle } = assemble({ renderers: { registerToolRenderer: () => () => undefined } });
+    handle.ctx.ui.registerRenderer('a', {}); // 装载窗内合法
+    handle.closeWindow();
+    expectCode(() => handle.ctx.ui.registerRenderer('b', {}), 'PLUGIN_WINDOW_CLOSED');
+    const restore = handle.enterHostCallback(); // 宿主回调窗豁免
+    expect(() => handle.ctx.ui.registerRenderer('c', {})).not.toThrow();
+    restore();
+    expectCode(() => handle.ctx.ui.registerRenderer('d', {}), 'PLUGIN_WINDOW_CLOSED'); // 恢复后窗外照拒
+  });
+
+  it('频率护栏：动作计入滑动窗（注册动词族——与 on/emit/provide 同池）', () => {
+    const { handle } = assemble({
+      renderers: { registerToolRenderer: () => () => undefined },
+      rateLimit: { windowMs: 60_000, max: 2 },
+    });
+    handle.ctx.ui.registerRenderer('a', {});
+    handle.ctx.ui.registerRenderer('b', {});
+    expectCode(() => handle.ctx.ui.registerRenderer('c', {}), 'PLUGIN_RATE_LIMITED');
+  });
+
+  it('受局面缺席响亮（CONTEXT_SERVICE_MISSING——装配缺陷不静默降档）', () => {
+    const { handle } = assemble(); // 未注 renderers
+    expectCode(() => handle.ctx.ui.registerRenderer('x', {}), 'CONTEXT_SERVICE_MISSING');
+  });
+
+  it('同册两钉集成锁：注入 channels 真源注册表——受理后 lookup 命中、后写胜出同律、dispose 撤注', () => {
+    const { handle } = assemble({ renderers: { registerToolRenderer } });
+    const first = { renderCall: () => [[{ text: '行' }]] };
+    const disposeFirst = handle.ctx.ui.registerRenderer('plug_int', first);
+    expect(lookupToolRenderer('plug_int')).toBe(first); // host 受理与 TUI 消费同册（模块级单册）
+    const next = { renderResult: () => [] };
+    const disposeNext = handle.ctx.ui.registerRenderer('plug_int', next); // 后写胜出（含接任）
+    expect(lookupToolRenderer('plug_int')).toBe(next);
+    disposeFirst(); // 旧 disposer 现任守卫——不误注接任者
+    expect(lookupToolRenderer('plug_int')).toBe(next);
+    disposeNext();
+    expect(lookupToolRenderer('plug_int')).toBeUndefined();
   });
 });
 

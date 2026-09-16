@@ -560,6 +560,31 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
     expect(card.body).toEqual(['-旧一行', '+新一行']); // 卡体 = patch 体非结果文本
     expect(card.status).toBe('success');
   });
+
+  it('插件渲染腿载荷铸入（收官批③）：renderInput 携 toolCall 参数 + 结果全量事实；aborted 同步', () => {
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'grep', arguments: { pattern: 'x' } }]),
+    });
+    apply(t, {
+      type: 'message_end',
+      message: toolResultMsg('中断', { toolCallId: 'tc1', details: { aborted: true }, isError: true }),
+    });
+    const card = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    // 载荷 = 调用侧参数 + 结果消息面（toolName 单源 = 卡名故载荷不含）
+    expect(card.renderInput).toEqual({
+      toolCallId: 'tc1',
+      arguments: { pattern: 'x' },
+      content: [{ type: 'text', text: '中断' }],
+      isError: true,
+      aborted: true,
+    });
+    // 未配对孤儿兜底 ↳ 简行不携载荷（无卡即无 renderInput 面）
+    const t2 = new LiveTranscript();
+    apply(t2, { type: 'message_end', message: toolResultMsg('野结果', { toolCallId: 'tc-x' }) });
+    expect(t2.snapshot[0]).toEqual({ kind: 'tool-result', brief: '野结果' });
+  });
 });
 
 describe('LiveTranscript 投影孤儿兜底与配对撤销（批 10i R4——repaint 路）', () => {

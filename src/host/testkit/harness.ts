@@ -32,7 +32,8 @@ import { bootPlugins } from '../plugin-boot.js';
 import type { PluginBootHandle, PluginBootOptions, PluginUnloadReceipt } from '../plugin-boot.js';
 import { mountRow, readEnabledRowsForEdit, toggleRow } from '../plugin-store.js';
 import type { PluginStoreFs, RowEditResult } from '../plugin-store.js';
-import type { CommandRegistryLike, ChannelsUiFace } from '../plugin-context.js';
+import type { CommandRegistryLike, ChannelsUiFace, ToolRendererRegistryLike } from '../plugin-context.js';
+import type { ToolRenderer } from '../../channels/index.js';
 import { EventDispatch, Scope } from '../../context/index.js';
 import type { AuditFace, AuditEventRow } from '../../persist/index.js';
 import type { LlmRuntime } from '../../llm/index.js';
@@ -116,6 +117,41 @@ export function createCommandAccount(): CommandAccount {
       },
     },
     counts: () => new Map(counts),
+  };
+}
+
+/** 渲染器注册账条目（净在册计数 + 末任渲染器——后写胜出可断言） */
+export interface RendererAccountEntry {
+  /** 净在册计数（register +1 / dispose -1——0 = 已出账） */
+  count: number;
+  /** 末任渲染器（后写胜出——末次 register 的 renderer 引用） */
+  renderer: ToolRenderer;
+}
+
+/** 渲染器注册账（注入式真注册表——ctx.ui.registerRenderer 受局面；2026-09-17 TUI 余量收官批③随 renderers 受局面跟进） */
+export interface RendererAccount {
+  /** 受局面（bootPlugins 直注） */
+  readonly registry: ToolRendererRegistryLike;
+  /** 在册快照（toolName → 条目——后写胜出与出账可断言的数据源） */
+  entries(): ReadonlyMap<string, RendererAccountEntry>;
+}
+
+/** 渲染器注册账铸造（dispose 出账——与命令注册账同律；后写胜出记末任） */
+export function createRendererAccount(): RendererAccount {
+  const entries = new Map<string, RendererAccountEntry>();
+  return {
+    registry: {
+      registerToolRenderer: (toolName, renderer) => {
+        const prev = entries.get(toolName);
+        entries.set(toolName, { count: (prev?.count ?? 0) + 1, renderer });
+        return () => {
+          const cur = entries.get(toolName);
+          // 出账只减计数（后写胜出下 renderer 引用保末任——出账断言看计数）
+          if (cur) entries.set(toolName, { count: cur.count - 1, renderer: cur.renderer });
+        };
+      },
+    },
+    entries: () => new Map(entries),
   };
 }
 
@@ -273,6 +309,8 @@ export interface PluginHarness {
   readonly audit: MemoryAuditSink;
   /** 命令注册账（跨换代共享——净计数出账可证） */
   readonly commands: CommandAccount;
+  /** 渲染器注册账（ctx.ui.registerRenderer 受局面——2026-09-17 收官批③跟进） */
+  readonly renderers: RendererAccount;
   /** ui 受局面记录账（channels-ui 假宿主最小形——notify 收件可断言） */
   readonly ui: UiAccount;
   /** 事件分派器（含监听器净计数探针） */
@@ -321,6 +359,7 @@ export function createPluginHarness(options: PluginHarnessOptions): PluginHarnes
   const storeFs = realStoreFs();
   const audit = new MemoryAuditSink();
   const commands = createCommandAccount();
+  const renderers = createRendererAccount();
   const ui = createUiAccount();
   const dispatch = new EventDispatch();
   const listeners = instrumentDispatchListeners(dispatch);
@@ -341,6 +380,7 @@ export function createPluginHarness(options: PluginHarnessOptions): PluginHarnes
     packageJson: pkgJson as Record<string, unknown>,
     audit,
     commands,
+    renderers,
     ui,
     dispatch,
     listeners,
@@ -381,6 +421,8 @@ export function createPluginHarness(options: PluginHarnessOptions): PluginHarnes
         scope,
         dispatch,
         commands: commands.registry,
+        // 渲染器受局面（收官批③——注册账注入，ctx.ui.registerRenderer 可断言）
+        renderers: renderers.registry,
         llm: createLlmAccount(),
         // ctx.ui 消费腿受局面（W2——假宿主最小形注入：notify 收件可断言、
         // hasAudience/hasSession 诚实假值；其余动词按 ctx 层真判序拒/降档）

@@ -58,6 +58,9 @@ import type { RefreshChainHandle } from '../credentials/index.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
+// 工具渲染器注册表受理真源（收官批③——ctx.ui.registerRenderer 委派位；与
+// TUI 消费位 lookupToolRenderer 同册两钉——channels 模块级单册）
+import { registerToolRenderer } from '../channels/index.js';
 import { createWorktreeService } from '../tools/index.js';
 import type { CorePluginReference } from './loader.js';
 import { createHookDispatchGuard } from './hook-dispatch-guard.js';
@@ -714,6 +717,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
           },
           // ctx.ui 降档 warn 出口（setStatus/setWidget 无锚 no-op 一行的呈现位）
           uiWarn: (message) => logger.warn(message),
+          // 渲染器注册面受局面（收官批③——ctx.ui.registerRenderer 受理委派
+          // channels renderers 模块单册；后写胜出/受理不拒/disposer 现任守卫
+          // 全在真源，装配只闭包注入——「装配根闭包注入」先例）
+          renderers: { registerToolRenderer },
           commands: stack.channels.commands,
           llm: stack.llmRuntime,
           triggers, // ctx.triggers.register 受局面（C 批——缺席时该动词响亮缺位）
@@ -881,6 +888,23 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                   stack,
                   face,
                   ...(mountOptions?.staticDir !== undefined ? { staticDir: mountOptions.staticDir } : {}),
+                  // /export 端点拼装源（2026-09-17 TUI 余量收官批②——第三
+                  // 消费位注入）：事件双事实源（驱动活体优先〔write-behind 未
+                  // flush 事件也在场〕→ 库行回退 loadSession——已闭会话近史
+                  // 兜底照常返体）+ 行面元数据现读；与 /export TUI 命令面
+                  // eventsOf 同式（:1312 域内既有先例——双事实源纪律单源同构）
+                  exportSource: {
+                    rowOf: (sessionId) => runtimeNow.persistence.store.getSessionRow(sessionId),
+                    eventsOf: (sessionId) => {
+                      const driver = stack.driverOf(sessionId);
+                      if (driver !== undefined) return driver.session.events(); // 活体真源
+                      try {
+                        return runtimeNow.persistence.loadSession(sessionId).log.events(); // durable 回退（近史兜底）
+                      } catch {
+                        return undefined; // 行不在场——端点 404 not_found
+                      }
+                    },
+                  },
                 }),
               // obs 三 seam：事件源 = Store 真身直传（结构兼容 ObsEventsFace——
               // 05 §3.4 宿主面消费位）；notify 走 channels 会话作用域（归因

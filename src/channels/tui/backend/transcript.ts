@@ -38,7 +38,12 @@ import { StreamingMarkdown } from '../markdown/streaming.js';
 import { gridRowToStyled, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import { renderThinkingStyledLines } from '../blocks/thinking.js';
-import { cardBodyOf, renderToolCardStyledLines, type ToolCardStatus } from '../blocks/tool-card.js';
+import {
+  cardBodyOf,
+  renderToolCardStyledLines,
+  type ToolCardRenderInput,
+  type ToolCardStatus,
+} from '../blocks/tool-card.js';
 import { ACTION_CATALOG } from '../keys/registry.js';
 import type { SessionEnvelope } from '../../types.js';
 
@@ -84,6 +89,8 @@ export type TranscriptBlock =
       readonly diff: boolean;
       readonly expanded: boolean;
       readonly theme: ResolvedTheme;
+      /** 插件渲染腿载荷（renderResult 现调事实——2026-09-17 收官批③；缺席 = 宿主缺省卡体） */
+      readonly renderInput?: ToolCardRenderInput;
     }
   | { readonly kind: 'tool-call'; readonly name: string; readonly brief: string; readonly toolCallId?: string }
   | { readonly kind: 'tool-result'; readonly brief: string }
@@ -157,6 +164,7 @@ export function renderBlockStyledLines(block: TranscriptBlock, columns: number):
           diff: block.diff,
           expanded: block.expanded,
           theme: block.theme,
+          renderInput: block.renderInput,
         },
         columns,
       );
@@ -633,6 +641,16 @@ export class LiveTranscript {
       diff: isEditPatch,
       expanded: this.toolCardsExpanded,
       theme: this.theme,
+      // 插件渲染腿载荷（收官批③）：toolCall 参数 + toolResult 消息面全量事实
+      // （toolName 单源 = 卡名故不含）；孤儿兜底 ↳ 形不携——renderInput 缺席
+      // 即消费位回落宿主缺省卡体
+      renderInput: {
+        toolCallId: message.toolCallId,
+        arguments: call.arguments,
+        content: message.content,
+        isError: message.isError,
+        aborted: isAbortedDetails(message.details),
+      },
     };
   }
   /** 帽卸载：超帽从头卸（保留帽内最近段——滚出视口交 scrollback 后内存上限语义；全量档 Infinity 恒不触发） */
