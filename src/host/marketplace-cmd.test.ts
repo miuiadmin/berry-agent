@@ -1,14 +1,15 @@
 /**
- * host/marketplace-cmd 测试——mp-3 CLI 子命令族（07 §5 berry marketplace 行；
- * 03 §9.6 装机咬合 CLI 面）。
+ * host/marketplace-cmd 测试——mp-3 CLI 子命令族 + mp-4 update/upgrade 接线
+ * （07 §5 berry marketplace 行；03 §9.6 装机咬合 CLI 面）。
  *
  * e2e 全链 = 真装配组合根（runMarketplaceEntry 真入口 + 真 tmp 数据目录 +
- * 真 fs 双面 + 真 Persistence 直开库；唯一注入 = writeOut/writeErr 收集器与
- * env 空面——mock 只停呈现位）：本地市场仓 add 源 → discover 列条目 →
- * install 装机（拷贝腿真拷 + market 字段落账）→ list 呈现 → uninstall 双相
- * 寻址清算 → remove 清缓存。另锁：呈现消毒（catalog 描述控制字符不注入行
- * 结构）、update/upgrade 诚实拒退 1（mp-4 落真身——doors 先例同律）、
- * parseCli marketplace 动词族解析面。
+ * 真 fs 双面 + 真 Persistence 直开库；注入 = writeOut/writeErr 收集器、env
+ * 空面与 fetch 假件〔网络源 add 零网络〕——mock 只停呈现位与传输位）：本地
+ * 市场仓 add 源 → discover 列条目 → install 装机（拷贝腿真拷 + market 字段
+ * 落账）→ list 呈现 → uninstall 双相寻址清算 → remove 清缓存；mp-4 增
+ * update 整源刷新（local 换血/up-to-date 两形）与 upgrade 换装（单件 force
+ * 缓存直拷 + 全量无 version 跳过）。另锁：呈现消毒（catalog 描述控制字符
+ * 不注入行结构）、拒形谱、parseCli marketplace 动词族解析面。
  */
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,6 +21,7 @@ import { parseCli } from './cli.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 import { createMarketFs } from './plugin-market/fs.js';
 import { readMarketplaceSources } from './plugin-market/registry.js';
+import type { MarketFetchFace } from './plugin-market/types.js';
 import { createPluginStoreFs, readLedger } from './plugin-store.js';
 
 /** 测试根 tmp（vitest 每文件钉数据目录纪律——自管 tmp 收尾自清） */
@@ -164,15 +166,98 @@ describe('e2e 全链（真装配组合根——本地 file 市场仓零网络）
   });
 });
 
+describe('e2e update/upgrade 全链（mp-4 真身——local 源零网络）', () => {
+  it('update：已最新退 0 不换血；源目录推进 → 整源换血 + discover 可见新条目', async () => {
+    const stage = stageOf('upd-e2e');
+    const repo = seedMarketRepo('gamma');
+    expect(await runMarketplaceEntry({ sub: 'add', source: repo }, stage.options)).toBe(0);
+
+    // 已最新（源目录未动）——点名形退 0、不换血
+    const same = stageOf('upd-same', stage.options.dataDir);
+    const sameCode = await runMarketplaceEntry({ sub: 'update', name: 'gamma' }, same.options);
+    expect(sameCode).toBe(0);
+    expect(same.out.join('\n')).toContain('已是最新：gamma');
+
+    // 源目录推进：catalog 增条目 + 新条目目录 → 全量形换血
+    mkdirSync(join(repo, 'plugins', 'extra'), { recursive: true });
+    writeFileSync(join(repo, 'plugins', 'extra', 'package.json'), declaredPkgJson('extra-plugin'));
+    writeFileSync(
+      join(repo, '.claude-plugin', 'marketplace.json'),
+      JSON.stringify({
+        name: 'gamma',
+        owner: { name: 'o' },
+        plugins: [
+          { name: 'hello-plugin', source: './plugins/hello' },
+          { name: 'extra-plugin', source: './plugins/extra' },
+        ],
+      }),
+    );
+    const upd = stageOf('upd-changed', stage.options.dataDir);
+    const updCode = await runMarketplaceEntry({ sub: 'update' }, upd.options);
+    expect(updCode).toBe(0);
+    expect(upd.out.join('\n')).toContain('已刷新：gamma（2 条目');
+
+    // 换血后缓存即真相——discover 呈现新条目
+    const disc = stageOf('upd-disc', stage.options.dataDir);
+    expect(await runMarketplaceEntry({ sub: 'discover' }, disc.options)).toBe(0);
+    expect(disc.out.join('\n')).toContain('extra-plugin@gamma');
+  });
+
+  it('upgrade：单件点名 force 换血重装（local 相对源缓存直拷零网络）+ 全量无 version 跳过退 0', async () => {
+    const stage = stageOf('upg-e2e');
+    const repo = seedMarketRepo('delta');
+    expect(await runMarketplaceEntry({ sub: 'add', source: repo }, stage.options)).toBe(0);
+    expect(await runMarketplaceEntry({ sub: 'install', id: 'hello-plugin@delta' }, stage.options)).toBe(0);
+
+    // 单件点名 = force 换血（相对源条目无 version 也重装——缓存直拷腿）
+    const single = stageOf('upg-single', stage.options.dataDir);
+    const singleCode = await runMarketplaceEntry({ sub: 'upgrade', id: 'hello-plugin@delta' }, single.options);
+    expect(singleCode).toBe(0);
+    expect(single.out.join('\n')).toContain('已升级：hello-plugin');
+    const ledger = readLedger(stage.options.dataDir, createPluginStoreFs());
+    expect(ledger.ok && ledger.entries).toHaveLength(1); // 换血非新增
+    expect(ledger.ok && ledger.entries[0]).toMatchObject({ market: { name: 'delta', entry: 'hello-plugin' } });
+
+    // 全量（在装条目 catalog 无 version 声明 → 跳过、退 0）
+    const all = stageOf('upg-all', stage.options.dataDir);
+    const allCode = await runMarketplaceEntry({ sub: 'upgrade' }, all.options);
+    expect(allCode).toBe(0);
+    expect(all.out.join('\n')).toContain('跳过：hello-plugin');
+    expect(all.out.join('\n')).toContain('未声明版本');
+  });
+});
+
 describe('CLI 动词面（拒形谱 + 诚实拒）', () => {
-  it('add 网络源诚实拒退 1（mp-2 零网络出厂——抓取位尚未装配）', async () => {
+  it('add 网络源真身接线（注假 fetch 零网络——CLI fetch 注入位全链）', async () => {
     const stage = stageOf('net-add');
+    // 假 git 腿：真盘物化克隆目录（CLI add 腿用真 MarketFs promote——产物须真实文件）
+    const cloneDir = join(testRoot, 'net-add-clone');
+    mkdirSync(join(cloneDir, '.claude-plugin'), { recursive: true });
+    const catalog = JSON.stringify({
+      name: 'remote-market',
+      owner: { name: 'o' },
+      plugins: [{ name: 'remote-plugin', source: './plugins/remote' }],
+    });
+    writeFileSync(join(cloneDir, '.claude-plugin', 'marketplace.json'), catalog);
+    const fetch: MarketFetchFace = {
+      fetchGitCatalog: async () => ({
+        cloneDir,
+        catalogPath: '.claude-plugin/marketplace.json',
+        text: catalog,
+        commit: 'aaaa1111bbbb2222cccc3333dddd4444eeee5555',
+      }),
+      fetchUrlCatalog: async () => {
+        throw new Error('本用例不达');
+      },
+    };
     const code = await runMarketplaceEntry(
       { sub: 'add', source: 'https://example.com/o/remote-market.git' },
-      stage.options,
+      { ...stage.options, fetch },
     );
-    expect(code).toBe(1);
-    expect(stage.err.join('\n')).toContain('尚未装配');
+    expect(code).toBe(0);
+    expect(stage.out.join('\n')).toContain('remote-market');
+    const sources = readMarketplaceSources(stage.options.dataDir, createMarketFs());
+    expect(sources.ok && sources.sources.some((r) => r.name === 'remote-market' && r.sourceType === 'git')).toBe(true);
   });
 
   it('add 不识形拒退 1（报文指路两候选形）', async () => {
@@ -213,18 +298,22 @@ describe('CLI 动词面（拒形谱 + 诚实拒）', () => {
     expect(stage.err.join('\n')).toContain('--data');
   });
 
-  it('update 诚实拒退 1（mp-4 网络批落真身——缓存即真相指路）', async () => {
-    const stage = stageOf('update-refuse');
-    const code = await runMarketplaceEntry({ sub: 'update' }, stage.options);
+  it('update 零源退 0 + 点名缺席退 1（指路 list）', async () => {
+    const empty = stageOf('update-empty');
+    const zeroCode = await runMarketplaceEntry({ sub: 'update' }, empty.options);
+    expect(zeroCode).toBe(0);
+    expect(empty.out.join('\n')).toContain('零市场源');
+    const miss = stageOf('update-missing');
+    const code = await runMarketplaceEntry({ sub: 'update', name: 'ghost' }, miss.options);
     expect(code).toBe(1);
-    expect(stage.err.join('\n')).toContain('尚未落地');
+    expect(miss.err.join('\n')).toContain('不在源清单');
   });
 
-  it('upgrade 诚实拒退 1（同 update——合法解析形执行层语义拒）', async () => {
-    const stage = stageOf('upgrade-refuse');
-    const code = await runMarketplaceEntry({ sub: 'upgrade', id: 'hello-plugin@alpha' }, stage.options);
+  it('upgrade 寻址硬拒退 1（市场不在源清单——mp-4 真身拒形）', async () => {
+    const stage = stageOf('upgrade-missing');
+    const code = await runMarketplaceEntry({ sub: 'upgrade', id: 'hello-plugin@nowhere' }, stage.options);
     expect(code).toBe(1);
-    expect(stage.err.join('\n')).toContain('尚未落地');
+    expect(stage.err.join('\n')).toContain('不在源清单');
   });
 
   it('list 零源出厂：退 0 + 零源呈现（不报错不造文件）', async () => {

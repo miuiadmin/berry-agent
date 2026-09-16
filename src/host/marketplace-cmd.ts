@@ -1,11 +1,11 @@
 /**
  * host/marketplace-cmd — `marketplace` 子命令族 CLI 入口（03 §9.6 市场层
- * CLI 面；07 §5 命令族 berry marketplace 行·mp-3 落码）。
+ * CLI 面；07 §5 命令族 berry marketplace 行·mp-3 落码、mp-4 网络源接线）。
  *
  * 六动词落地面 + 两合法解析形：
  *  - **add/remove**：源清单信任裁决（add 编舞复用 plugin-market/add——local
- *    源全真跑零网络、网络源 fetch 位 mp-4 落真身前诚实拒；remove 删源 +
- *    清缓存目录——装机物独立落位不受影响〔B2 定形〕）；
+ *    源零网络、git/url 源走 fetch 真身〔mp-4：ssrf-guard 消费律 + 传输帽〕；
+ *    remove 删源 + 清缓存目录——装机物独立落位不受影响〔B2 定形〕）；
  *  - **list**：源清单 + 逐源条目计数（聚合读侧 discoverMarketplaces——缓存
  *    即真相零网络）；
  *  - **discover**：条目聚合呈现（`name@market` 寻址形；可选单源过滤）——
@@ -16,11 +16,15 @@
  *  - **uninstall**：双相映射（§5.5 语义全继承：无 --confirm = inspect /
  *     --confirm = execute；--data 单独在场即拒）——寻址腿 resolveMarketLedgerId
  *    （entry@market → 装机 id）后走既有四段清算；
- *  - **update/upgrade**：合法解析形、执行层诚实拒退 1（网络刷新真身留
- *    mp-4——doors 先例同律；缓存即真相，刷新指路 remove + add）。
+ *  - **update**（mp-4）：手动档整源刷新（单源点名/全量；up-to-date 判据 +
+ *    updatedAt 重置 TTL——逐源独立结局，任一失败退 1）；
+ *  - **upgrade**（mp-4）：catalog 对拍 + 换装分派（单件点名 = force 换血
+ *    重装；全量 = market 注记装机逐件对拍 try 跳败；24h TTL 惰性门控——
+ *    鲜缓存零网络；rejected/任一 failed 退 1）。
  *
  * 退出码：0 成功 / 1 执行失败或语义拒 / 用法错 2 归解析层。
  */
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stdout as processStdout, stderr as processStderr } from 'node:process';
 
@@ -29,11 +33,14 @@ import { Persistence, createAuditFace, resolveDataDir } from '../persist/index.j
 import type { MarketplaceCommand } from './cli.js';
 import {
   addMarketplaceSource,
+  createMarketFetchFace,
   createMarketFs,
   discoverMarketplaces,
   parseMarketPluginId,
   readMarketplaceSources,
   removeSourceRecord,
+  updateMarketplaceSources,
+  upgradeMarketplacePlugins,
   writeMarketplaceSources,
 } from './plugin-market/index.js';
 import { marketInstall, resolveMarketLedgerId } from './plugin-market/install.js';
@@ -44,13 +51,19 @@ import type { UninstallDataAction, UninstallDeps } from './plugin-uninstall.js';
 import { createPluginStoreFs, readLedger } from './plugin-store.js';
 import type { LifecycleAuditSink } from './plugin-store.js';
 import { HOST_MIGRATION_TAIL } from './runtime.js';
+import type { MarketFetchFace } from './plugin-market/types.js';
 
-/** 入口选项（main 分派接线 + 测试注入面——e2e 唯一 mock 位即 writeOut/writeErr） */
+/** 入口选项（main 分派接线 + 测试注入面——e2e 唯一 mock 位即 writeOut/writeErr/fetch） */
 export interface MarketplaceEntryOptions {
   /** 数据目录（缺省 resolveDataDir()——env 梯子 BERRY_AGENT_DATA_DIR 由此接通） */
   readonly dataDir?: string;
   /** env 面（缺省 process.env——装机执行器 min-release-age 解析源之一） */
   readonly env?: Record<string, string | undefined>;
+  /**
+   * 网络抓取位注入（缺省 createMarketFetchFace 真身——git/url 源 add 与
+   * update/upgrade 刷新腿消费；测试注假件保 e2e 零网络）
+   */
+  readonly fetch?: MarketFetchFace;
   /** 输出面（缺省 process.stdout——测试注入） */
   readonly writeOut?: (text: string) => void;
   /** 错误面（缺省 process.stderr——测试注入） */
@@ -79,12 +92,13 @@ export async function runMarketplaceEntry(sub: MarketplaceCommand, options: Mark
     case 'uninstall':
       return runUninstall(sub.id, sub.confirm, sub.dataAction, options);
     case 'update':
+      return runUpdate(sub.name, options);
     case 'upgrade':
-      return runRefreshRefuse(sub.sub, options);
+      return runUpgrade(sub.id, options);
   }
 }
 
-/** add <源>：源清单信任裁决（local 源全真跑；网络源 fetch 位 mp-4 前诚实拒） */
+/** add <源>：源清单信任裁决（local 源零网络；git/url 源走 fetch 真身——mp-4） */
 async function runAdd(source: string, options: MarketplaceEntryOptions): Promise<number> {
   const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
@@ -94,7 +108,9 @@ async function runAdd(source: string, options: MarketplaceEntryOptions): Promise
       dataDir,
       fs: createMarketFs(),
       now: () => new Date(),
-      // fetch 注入位缺席——网络源诚实拒（mp-4 落真身）；env 面不参与 local 腿
+      // 网络抓取真身（mp-4：ssrf-guard 消费律 + 传输帽 + 克隆帽）；home 供 local `~` 展开
+      fetch: options.fetch ?? createMarketFetchFace(),
+      home: homedir(),
     },
     source,
   );
@@ -180,7 +196,7 @@ function runDiscover(name: string | undefined, options: MarketplaceEntryOptions)
       );
       continue;
     }
-    const freshness = source.status === 'stale' ? '，缓存偏旧（离线照用；刷新走 marketplace remove 后重新 add）' : '';
+    const freshness = source.status === 'stale' ? '，缓存偏旧（离线照用；刷新走 berry marketplace update）' : '';
     lines.push(`  ${source.marketplace}（${source.entries.length} 条目${freshness}）：`);
     for (const entry of source.entries) {
       const desc = entry.description !== undefined ? `  ${sanitizeLine(entry.description)}` : '';
@@ -323,11 +339,127 @@ async function runUninstall(
   }
 }
 
-/** update/upgrade：合法解析形、执行层诚实拒退 1（网络刷新真身留 mp-4——doors 先例同律） */
-function runRefreshRefuse(verb: 'update' | 'upgrade', options: MarketplaceEntryOptions): number {
+/**
+ * update [<市场名>]：手动档整源刷新（mp-4——auto-update 仅手动档拍板 P7）。
+ * 点名缺席退 1（指路 list）；全量逐源独立结局——任一 failed 退 1（其余源
+ * 照常呈现）；零源退 0。
+ */
+async function runUpdate(name: string | undefined, options: MarketplaceEntryOptions): Promise<number> {
+  const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
   const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
-  writeErr(
-    `marketplace ${verb} 尚未落地——当前版本缓存即真相：整源刷新走 marketplace remove 后重新 add，单件换血走 marketplace install <name@market>`,
-  );
-  return 1;
+  const dataDir = options.dataDir ?? resolveDataDir();
+  let result: Awaited<ReturnType<typeof updateMarketplaceSources>>;
+  try {
+    result = await updateMarketplaceSources(
+      {
+        dataDir,
+        fs: createMarketFs(),
+        fetch: options.fetch ?? createMarketFetchFace(),
+        now: () => new Date(),
+        home: homedir(),
+      },
+      name,
+    );
+  } catch (error) {
+    // 源清单文件坏形等清单级硬拒——拒猜（03 §9.6）
+    writeErr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+  if (result.missingName !== null) {
+    writeErr(`市场 "${result.missingName}" 不在源清单——在册清单见 berry marketplace list`);
+    return 1;
+  }
+  if (result.outcomes.length === 0) {
+    writeOut('零市场源——添加走 berry marketplace add <源（本地路径 / git 短手 / URL）>');
+    return 0;
+  }
+  const lines: string[] = [];
+  let failed = false;
+  for (const outcome of result.outcomes) {
+    if (outcome.status === 'updated') {
+      const commit = outcome.commit !== undefined ? `，commit ${outcome.commit.slice(0, 7)}` : '';
+      lines.push(`  已刷新：${outcome.name}（${outcome.entryCount} 条目${commit}）`);
+    } else if (outcome.status === 'up-to-date') {
+      lines.push(`  已是最新：${outcome.name}`);
+    } else {
+      failed = true;
+      lines.push(`  刷新失败：${outcome.name}——${sanitizeLine(outcome.message)}`);
+    }
+  }
+  writeOut(lines.join('\n'));
+  return failed ? 1 : 0;
+}
+
+/**
+ * upgrade [<name@marketplace>]：catalog 对拍 + 换装分派（mp-4——「拉最新」
+ * 唯经本动词）。单件点名 = force 换血重装；全量 = 逐件对拍 try 跳败（部分
+ * 成功语义）；rejected/任一 failed 退 1；零市场装机物退 0。刷新腿 24h TTL
+ * 惰性门控（鲜缓存零网络）；刷新失败不拒整批——warn 注记 + 既有缓存对拍。
+ */
+async function runUpgrade(id: string | undefined, options: MarketplaceEntryOptions): Promise<number> {
+  const writeOut = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
+  const writeErr = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
+  const dataDir = options.dataDir ?? resolveDataDir();
+  const ledgerRead = readLedger(dataDir, createPluginStoreFs());
+  if (!ledgerRead.ok) {
+    writeErr(`装机账本损坏：${ledgerRead.reason}——拒猜（03 §5.4）`);
+    return 1;
+  }
+  const audit = marketAuditOf(options, writeErr);
+  try {
+    const install: InstallExecutorDeps = {
+      dataDir,
+      fs: createPluginStoreFs(),
+      spawn: createDefaultSpawnRunner(),
+      env: options.env ?? process.env,
+      onLifecycleAudit: audit.sink,
+    };
+    const result = await upgradeMarketplacePlugins(
+      {
+        dataDir,
+        fs: createMarketFs(),
+        fetch: options.fetch ?? createMarketFetchFace(),
+        now: () => new Date(),
+        home: homedir(),
+        install,
+        ledger: ledgerRead.entries,
+      },
+      id,
+    );
+    if (result.rejected !== null) {
+      writeErr(result.rejected);
+      return 1;
+    }
+    // 刷新失败注记（对拍降级走既有缓存——离线 OK，不拒整批）
+    for (const note of result.refreshFailures) {
+      writeErr(`warn：市场刷新失败（${sanitizeLine(note)}）——按既有缓存对拍`);
+    }
+    if (result.outcomes.length === 0) {
+      writeOut('零市场装机物——装机走 berry marketplace install <name@market>');
+      return 0;
+    }
+    const lines: string[] = [];
+    let failed = false;
+    for (const outcome of result.outcomes) {
+      if (outcome.status === 'upgraded') {
+        const versions =
+          outcome.from !== undefined || outcome.to !== undefined
+            ? `（${outcome.from ?? '?'} → ${outcome.to ?? '?'}）`
+            : '';
+        lines.push(`  已升级：${outcome.id}${versions}`);
+      } else if (outcome.status === 'current') {
+        const version = outcome.version !== undefined ? `（${sanitizeLine(outcome.version)}）` : '';
+        lines.push(`  已是最新：${outcome.id}${version}`);
+      } else if (outcome.status === 'skipped') {
+        lines.push(`  跳过：${outcome.id}——${sanitizeLine(outcome.reason)}`);
+      } else {
+        failed = true;
+        lines.push(`  升级失败：${outcome.id}——${sanitizeLine(outcome.message)}`);
+      }
+    }
+    writeOut(lines.join('\n'));
+    return failed ? 1 : 0;
+  } finally {
+    await audit.close();
+  }
 }

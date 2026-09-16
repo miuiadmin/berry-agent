@@ -138,9 +138,9 @@ export type MarketplaceCommand =
       readonly confirm: boolean;
       readonly dataAction?: 'keep' | 'purge';
     }
-  /** update [<市场名>]：合法解析形、执行层诚实拒退 1（网络刷新真身留 mp-4——doors 先例同律） */
+  /** update [<市场名>]：手动档整源刷新（mp-4 真身——单源点名/全量逐源独立结局） */
   | { readonly sub: 'update'; readonly name?: string }
-  /** upgrade [<name@marketplace>]：同 update 合法解析形 + 执行层语义拒退 1 */
+  /** upgrade [<name@marketplace>]：catalog 对拍 + 换装分派（mp-4 真身——单件 force/全量对拍） */
   | { readonly sub: 'upgrade'; readonly id?: string };
 
 /** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/导出/重建） */

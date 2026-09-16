@@ -67,7 +67,7 @@ function discoverSource(
       status: 'skipped',
       entries: [],
       skippedEntries: [],
-      skippedReason: `源 ${record.name} 缓存缺席（${record.catalogPath} 读不到）——请 remove 后重新 add 或稍后刷新`,
+      skippedReason: `源 ${record.name} 缓存缺席（${record.catalogPath} 读不到）——刷新走 berry marketplace update ${record.name}`,
     };
   }
   const parse = parseMarketplaceCatalog(text, `${record.name}/${record.catalogPath}`);
