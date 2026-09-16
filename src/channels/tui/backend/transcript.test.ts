@@ -469,7 +469,7 @@ describe('LiveTranscript 思考流式前缀与定稿换装（批 10i R1）', () 
         { type: 'thinking', thinking: '又想' },
       ]),
     });
-    expect((t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>).thinkingSettled).toBe(false); // 后到思考翻回——冻结面收缩不破正确性
+    expect((t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>).thinkingSettled).toBe(false); // 后到思考翻回——已冻思考行变不稳内容，main-screen 冻结账让位重算（挂账解挂批让位形）
   });
 
   it('message_end 定稿换装块序：thinking 块先于 markdown 块（与槽渲染序一致——冻结跳行不漂移）', () => {

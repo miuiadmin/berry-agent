@@ -195,8 +195,12 @@ export function renderBlockStyledLines(block: TranscriptBlock, columns: number):
  * thinkingSettled（思考块全在末文本块前——标签字数与体行此后不再变，全行
  * 皆稳）+ doc 稳定面（既有三判）。**思考在场未定 → 冻结面整体为空**：槽行
  * 头是逐帧变的标签行，冻结是前缀连续操作（头行不可跳）——其后 doc 稳定面
- * 不得越过不稳头行先冻（交错形：末思考块在末文本块后——冻结面收缩到零，
- * 帧帧全量重写，正确性不破）。
+ * 不得越过不稳头行先冻（未冻起步形：settled 翻 false 即冻结面为零、帧帧
+ * 全量重写）。settled 非单调（思考/文本交错——后到思考翻回 false）：已冻
+ * 思考行随之变不稳内容，main-screen 冻结账按本值让位重算收缩、让位行回
+ * 换装重写域（终值标签随定稿换装收敛——2026-09-15 挂账解挂批勘正：原
+ * 「冻结面收缩到零、帧帧全量重写、正确性不破」句只述未冻起步形、漏
+ * frozen-then-flip 形，冻结账不清即陈旧字数永久呈现缺陷）。
  */
 export function stableSlotLineCount(slot: Extract<TranscriptBlock, { kind: 'streaming' }>, columns: number): number {
   if (slot.thinking !== '' && !slot.thinkingSettled) return 0; // 不稳头行止冻——前缀连续律
@@ -264,10 +268,13 @@ function joinThinkingBlocks(blocks: readonly { type: string; thinking?: string }
 }
 
 /**
- * 思考已定判据（批 10i）：末思考块先于末文本块（文本已起且其后无思考）——
- * 此后思考文不再变，思考行全量可冻。纯思考期（无文本块）恒未定——标签字数
- * 逐帧变；思考/文本交错的供应商形在此判据下保守（后到思考使 settled 翻回
- * false，冻结面收缩、正确性不破）。
+ * 思考已定判据（批 10i）：末思考块先于末文本块（文本已起且其后无思考）。
+ * 纯思考期（无文本块）恒未定——标签字数逐帧变。判据非单调（思考/文本交错
+ * 形：后到思考使 settled 翻回 false）——settled true 只是「此刻无后到思考」
+ * 的观察、非终态承诺（「此后思考文不再变」前提被交错形证伪——2026-09-15
+ * 挂账解挂批勘正：原句「冻结面收缩、正确性不破」与码行为不符，冻结账不清
+ * 时陈旧字数永久呈现），已冻思考行随之变不稳内容、由 main-screen 冻结账
+ * 让位重算兜底。
  */
 function thinkingSettledBeforeText(content: readonly { type: string }[]): boolean {
   let lastText = -1;

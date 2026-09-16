@@ -412,6 +412,42 @@ describe('MainScreen 思考前缀冻结', () => {
       expect(io.bytes.split(sg(n)).length - 1).toBe(1); // 未冻尾恰写一次
     }
   });
+
+  it('冻结后交错形终值标签（挂账解挂批让位形）：翻回 false 冻结账让位重画 → 再定终值 → 定稿换装收敛', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    // 帧一 settled 冻结（批 10i 稳态行为保持不变）：标签 2 字 + doc 前缀共 12 行入冻结账
+    const doc = new StreamingMarkdown();
+    doc.update(headingText(10));
+    screen.present([thinkSlot(headingText(10), doc, '想法', true)]);
+    // 帧二交错：后到思考使 settled 翻回 false——已冻标签行变不稳内容，冻结账
+    // 为不稳头行让位重算（收缩到稳定面 0）、让位行回换装重写域整面重画
+    io.bytes = '';
+    screen.present([thinkSlot(headingText(10), doc, '想法继续', false)]);
+    expect(io.bytes).toContain('✻ 思考 4 字'); // 新标签重写——交错期新思考文可见反馈（修前红：尾写恒自旧冻账起、标签永不被写）
+    expect(io.bytes).toContain(sg('一')); // 让位行含 doc 前缀——整面重画（修前红：doc 前缀同样被旧账跳过）
+    expect(io.bytes).not.toContain('✻ 思考 2 字'); // 旧字数标签不在让位重画帧
+    // 帧三再定终值（文本续推使 settled 翻回 true）：冻结面自让位账重建，标签携终值字数（6 字）入冻
+    io.bytes = '';
+    doc.update(headingText(11));
+    screen.present([thinkSlot(headingText(11), doc, '想法继续延伸', true)]);
+    expect(io.bytes).toContain('✻ 思考 6 字'); // 终值标签可见（修前红：旧冻账不清、终值标签永被跳过）
+    // 帧四定稿换装：thinking + markdown 块跳过帧三已冻前缀（含终值标签行——同函数两渲染不漂移）
+    io.bytes = '';
+    screen.present([
+      {
+        kind: 'thinking',
+        text: '想法继续延伸',
+        expanded: false,
+        theme: DEFAULT_THEME,
+        toggleHint: 'ctrl+t',
+        doc: MarkdownDoc.of('想法继续延伸'),
+      },
+      { kind: 'markdown', doc: MarkdownDoc.of(headingText(11)) },
+    ]);
+    expect(io.bytes).not.toContain('✻ 思考'); // 已冻终值标签不重写（换装收口——可见标签行字数 = 终态思考字数）
+    expect(io.bytes).toContain(sg('十一')); // 未冻尾恰写出
+  });
 });
 
 /* ---------------- 批 10k 遗漏修：块账绝对位与固定区越界防御 ---------------- */
