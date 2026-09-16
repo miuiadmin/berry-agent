@@ -15,7 +15,7 @@
 
 ## 环境搭建
 
-要求 Node.js ≥ 24。
+要求 Node.js ≥ 24。版本钉位单源：根 `.nvmrc`（内容 `24`）——`nvm use` 直接对齐；CI 全部 setup-node（十处）一律 `node-version-file: .nvmrc` 读同源。`engines` 的 `>=24` 是**安装下限**，CI 实测面钉 24.x——换大版本时只改 `.nvmrc` 一处。
 
 **为什么 ≥24**：本仓随主流运行时激进跟进——跟踪当期主线版本、及时采用新语言与运行时特性，而不是等 LTS 排期。代价如实写明：仍在旧 LTS 线上的环境暂不可安装，属已知取舍而非疏漏。
 
@@ -45,6 +45,49 @@ npm run build:sdk       # SDK 包独立构建（packages/berry-agent-sdk）
 ```
 
 注意构建链序制：**禁止单独倒跑 `build:webui`**（vite `emptyOutDir` 会抹掉 tsc 产物——必须整链 `npm run build`）。
+
+## CI 红归因对轨（本地复现哪个 job 红了）
+
+CI（`.github/workflows/ci.yml`）各 job 与本地命令对照——CI 红先在此表对号，本地复现定位，不开盲盒：
+
+| CI job                                   | 本地对轨命令                                                                                                                |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| repo-files（配套面在场锁）               | 逐件 `[ -s <文件> ]`（六件清单见 ci.yml repo-files 步——SECURITY.md / CODEOWNERS / issue 模板三件 / PR 模板）                |
+| install-script（语法 + 文案 + 真跑装机） | `sh -n scripts/install.sh` + 管道直灌 grep（正则见 ci.yml 同名步）                                                          |
+| audit                                    | `npm audit --omit=dev`                                                                                                      |
+| release-drill                            | `npm run release -- --dry-run`（CI 形另含临时 bump——本地直跑即近似）                                                        |
+| typecheck / lint / format                | 同名 npm script（`npm run typecheck` / `npm run lint:topology` / `npm run format:check`）                                   |
+| test（ubuntu 腿）                        | `npm test`（macOS 腿本地即本机平台）                                                                                        |
+| coverage                                 | `npx vitest run --coverage`                                                                                                 |
+| soak（nightly 19:23 UTC + 手动）         | `node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384 --unattended`（与 ci.yml soak 步同款单源） |
+| flaky-probe（nightly 双跑腿）            | 同 commit 连跑两次 `npm test`——任一红即 CI 同款告警形                                                                       |
+| coverage-weekly（周一序列留档）          | `npx vitest run --coverage`（读 `coverage/coverage-summary.json` 三百分比）                                                 |
+
+**Linux-only 红的本地复现谱**（macOS 开发机复现 CI ubuntu 面——bwrap 真跑腿/平台分支）：
+
+```bash
+docker run --rm -it -v "$PWD":/repo -w /repo node:24 bash
+# 容器内：装 bwrap + 放行 userns（与 CI 装腿同源——Ubuntu 24.04 起 AppArmor
+# 默认限制非特权 userns，bwrap 建命名空间会被拒；CI runner VM 一次性环境
+# 无虞，本机容器同理）
+apt-get update && apt-get install -y bubblewrap
+sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+npm ci && npm test
+```
+
+（seccomp/apparmor 注记：某些 Docker 桌面版默认 seccomp 配置挡 `clone(CLONE_NEWUSER)`——若 bwrap 报 `Operation not permitted`，须在 Docker Desktop 设置里放宽 seccomp 或换 `--security-opt seccomp=unconfined` 起容器；这是宿主容器面约束，不是本仓测试缺陷。）
+
+## 依赖更新 PR 处置（Dependabot）
+
+Dependabot 周检自动开更新 PR（`.github/dependabot.yml`——dev 依赖与 actions 引用整组收拢，生产依赖单开）。处置纪律：
+
+- **minor/patch 组 PR**：门禁绿即合并——批内清不积攒（与人工 PR 同一提交纪律：完成即处置）；
+- **major 升级 SOP**（无论组内单开）：
+  1. 读 changelog / release notes——确认破坏面与迁移步骤；
+  2. 全量四门禁 `npm run typecheck && npm test && npm run lint:topology && npm run format:check`；
+  3. 动到原生模块（`better-sqlite3`）或沙箱链（bwrap 相关）的，走上一节 docker Linux 复现谱真跑一遍 ubuntu 面；
+  4. 有破坏面的（API 改形、配置换代）在 PR 里写迁移说明再合，不在门禁绿后闷头合；
+- **积压巡检**：每周清点一次 Dependabot PR 队列——超两周未处置的升级呈维护者拍优先级（积压本身是信号：要么分组没圈住噪音面，要么升级链条有未解依赖冲突）。
 
 ## 模块拓扑（DAG 律）
 
@@ -117,6 +160,7 @@ docs/                   公开文档面（本五册）
 - vitest 吞 console——调试走 `appendFileSync` 到 `/tmp`（判别法：测试内 console.log 静默 ≠ 未执行）；
 - faux provider **恒实算 usage** 覆写脚本值——usage 断言按实算结果写，不按脚本注入值写；
 - exec spawn 截尾测试满载偶发 flake（单跑恒绿）——观察项：全量跑红时先单跑复核再定位；
+- nightly flaky-probe 双跑腿（CI `flaky-probe` job，label `flaky-nightly` issue 告警）：同 commit 推送 CI 绿而夜间双跑任一红 = 抖动信号（非回归定论）——处置序：先本地 `npm test` 单跑复核（登记册各行逐源判别）再定位；两次全绿的 commit 即 close 告警 issue；
 - macOS 开发机是 BSD grep/sed（不支持 GNU 的 `\|` 交替等）——仓内脚本与手工排查用 `grep -E`/`perl -pi -e`，勿照搬 GNU 语法。
 
 ## API 治理面
@@ -125,11 +169,11 @@ docs/                   公开文档面（本五册）
 
 **tier 三档**——每个公开符号必带 tier 标注：
 
-| tier           | 含义                                                             |
-| -------------- | ---------------------------------------------------------------- |
-| `stable`       | 稳定面——兼容性承诺在身，破坏性变更须走废弃登记而非直接改         |
-| `experimental` | 实验面——不承诺兼容、可无预告移除（现役 = testkit 测试工具域）    |
-| `deprecated`   | 已废弃面——新代码禁用，登记移除坐标后按版次摘除（现役为零）       |
+| tier           | 含义                                                          |
+| -------------- | ------------------------------------------------------------- |
+| `stable`       | 稳定面——兼容性承诺在身，破坏性变更须走废弃登记而非直接改      |
+| `experimental` | 实验面——不承诺兼容、可无预告移除（现役 = testkit 测试工具域） |
+| `deprecated`   | 已废弃面——新代码禁用，登记移除坐标后按版次摘除（现役为零）    |
 
 **since 坐标**——每个符号带 `since`（入册时的宿主 `apiVersion` 版本号），与废弃面的移除坐标共用一套版本坐标系；「面动号不动」是执法不变式：公开面变更须随批提版本号。
 
@@ -151,7 +195,9 @@ docs/                   公开文档面（本五册）
 
 常规发版（主包）：改 `package.json` version → commit → `npm run release`——脚本完成交棒、等待 CI（gh CLI 轮询，30 分钟帽）、收口与 latest 挪位，全绿即发版完成。SDK：`npm run release:sdk`（令牌全本地形）。
 
-- **演习**：`npm run release -- --dry-run`（CI 等待段不在演习射程——恒投影令牌道旧序）；
+- **演习两形**：
+  - 发布机器演习：`npm run release -- --dry-run`（CI 等待段不在演习射程——恒投影令牌道旧序）；
+  - release 工作流文件改动预演：改 `.github/workflows/release.yml` 的 PR，合流前在 Actions → release → Run workflow（ref=`dev`、tag=最新已发 tag）跑一次 dispatch 演习位——同 tag 重跑走幂等空转复验形（发布契约 6 只校验既有 tag 不重发），验证改动后的工作流链路本身可走通；run 链接附 PR（自检清单有对应勾位）。
 - **失败恢复（交棒后 CI 红）**：删远端与本地 tag → 修 commit → 重新交棒；树无恙的环境偶发红可 GitHub UI re-run failed jobs；
 - **tag 保护**：`v*` 创建/删除限 admin/维护者（push ruleset）——tag 即发布触发器，推 tag ≈ 发布。
 

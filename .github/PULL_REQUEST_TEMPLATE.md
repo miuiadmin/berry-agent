@@ -30,6 +30,7 @@ English is fine too — the maintainer translates before merge. See CONTRIBUTING
 - [ ] 本 PR 目标分支是 `dev`（不是 `main`——`main` 为稳定门面，只随发布快进）
 - [ ] 四门禁本地全绿（typecheck / test / lint:topology / format:check）
 - [ ] 若修 bug：带回归锁测试；若新模块：先契约（types/错误码/事件词汇 + 测试）再实现
+- [ ] 若本 PR 改动 `.github/workflows/release.yml`：已在 Actions → release → Run workflow（ref=dev、tag=最新已发 tag）跑 dispatch 演习位（幂等空转复验形）并附 run 链接
 - [ ] 新写代码中文注释、标识符英文；未引入禁用词（扩展单位一律「插件 plugin」，「应用/app」为禁用词；生命周期动词 install/uninstall/mount/unmount/toggle/update）
 - [ ] 公开文档面未引用其他项目作来源或比较（公开面只描述本项目自身）
 - [ ] **我已通读本 PR 的全部改动，并对其内容负责**

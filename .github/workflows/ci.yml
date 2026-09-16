@@ -14,8 +14,9 @@
 #   release-drill 限 push 事件（发布机器彩排与外部 PR 改动无关——fork PR
 #   全链彩排纯耗额度）；纯文档 PR paths-ignore 降级（涉码路径任一即全量跑；
 #   **精确列举**而非 '**/*.md' 通配——SECURITY.md 与 .github/ISSUE_TEMPLATE/
-#   刻意不在忽略列，repo-files 在场锁对纯文档 PR 仍执法，防「删配套面文件」
-#   从降级缝溜过）；concurrency 同 ref 新推取消旧跑（省公共仓额度）。
+#   与 .github/*.md（PR 模板——配套面在场锁六件之一）均已出忽略列：配套面
+#   文件被删被清空须有 CI 可见性，repo-files 在场锁对其执法，防「删配套面
+#   文件」从降级缝溜过）；concurrency 同 ref 新推取消旧跑（省公共仓额度）。
 #
 # - 四问评估落地三件（2026-09-15 W1 簇）：
 #   ① job 级 timeout-minutes 全覆盖——挂死不再烧满 runner 缺省 6h 配额；
@@ -33,6 +34,19 @@
 #      event_name 隔离（定时 soak 与在飞 push CI 互不取消）。if 判据一律
 #      内联平写（不用 YAML 锚点——服务端 schema 对锚点支持面窄，逐字面
 #      表达零风险）。
+#
+# Node 版本单源（研究档 E4）：全部 setup-node 一律 node-version-file: .nvmrc
+# （根 .nvmrc 内容 24；CI 治理批后共十处——原八处 + coverage-weekly/flaky-probe
+# 两新 job）——版本换代只改 .nvmrc 一处，CI 实测面与本地 nvm use
+# 同源；engines >=24 是安装下限，CI 实测面钉 24.x（docs/development.md 环境节）。
+#
+# - CI 治理批（2026-09-16，研究档 E2-E8/C4'/C5'）：
+#   coverage 周序列留档（周一 03:41 UTC 独立 cron——三百分比追加 pinned
+#   issue，只立趋势不动阈值）+ flaky-probe 夜间双跑腿（同 commit 连跑两次
+#   全量测试，红时 label 查重开 issue——抖动信号有人收）+ Node 版本单源
+#   .nvmrc（全部 setup-node node-version-file——十处）+ PR 模板入配套面在场锁六件
+#   （.github/*.md 出 paths-ignore——配套面删清须有 CI 可见性）+ soak
+#   --unattended 无人值守三腿（判据单源 tools/soak-verdict.mjs）。
 #
 # 平台注记：test 走双 OS 矩阵（ubuntu + macOS）——测试面平台分支均自适应
 # （sandbox 默认链按平台断言、PTY 用例按 python3 可用性探测跳过），Linux 上
@@ -67,11 +81,13 @@ on:
       - 'README*.md'
       - 'CONTRIBUTING.md'
       - 'AGENTS.md'
-      - '.github/*.md'
       - 'packages/**/*.md'
-  # nightly soak 档触发腿（19:23 UTC 每日——off-minute 律）
+  # nightly soak 档触发腿（19:23 UTC 每日——off-minute 律）+ coverage 周序列
+  # 留档腿（周一 03:41 UTC——off-minute 律；双 cron 并存，job 级 if 以
+  # github.event.schedule 判别触发条目，防周跑误触夜间档/反之）
   schedule:
     - cron: '23 19 * * *'
+    - cron: '41 3 * * 1'
   # 手动腿：soak 档可按需即时触发（不待定时）
   workflow_dispatch:
 
@@ -102,14 +118,16 @@ jobs:
         run: |
           set -eu
           fail=0
-          for f in SECURITY.md .github/CODEOWNERS .github/ISSUE_TEMPLATE/bug-report.yml .github/ISSUE_TEMPLATE/feature-request.yml .github/ISSUE_TEMPLATE/config.yml; do
+          # 六件：安全面两件 + issue 模板三件 + PR 模板（研究档 E6——PR 模板
+          # 纯文档面曾两不可见：paths-ignore 降级 + 在场锁未列，删清零 CI 信号）
+          for f in SECURITY.md .github/CODEOWNERS .github/ISSUE_TEMPLATE/bug-report.yml .github/ISSUE_TEMPLATE/feature-request.yml .github/ISSUE_TEMPLATE/config.yml .github/PULL_REQUEST_TEMPLATE.md; do
             if [ ! -s "$f" ]; then
               echo "::error file=$f::配套面文件缺席或为空：$f"
               fail=1
             fi
           done
           if [ "$fail" -eq 0 ]; then
-            echo "配套面五件齐（SECURITY.md / CODEOWNERS / issue 模板三件）"
+            echo "配套面六件齐（SECURITY.md / CODEOWNERS / issue 模板三件 / PR 模板）"
           fi
           exit $fail
 
@@ -122,7 +140,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
       - name: 安装脚本锁（POSIX 语法 + 文案禁管道直灌）
         run: |
           set -eu
@@ -171,7 +189,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
       # 同 test job 装腿：契约 1 门禁内跑全量测试（含 gate-exec bwrap 真跑腿）
       - name: Linux L3 沙箱依赖（bubblewrap + userns 放行）
@@ -206,7 +224,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run typecheck
@@ -225,7 +243,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
       # Linux L3 沙箱依赖：gate-exec 判据门真跑腿走 bwrap 后端（GH runner 无
       # 预装）；Ubuntu 24.04 起 AppArmor 默认限制非特权 userns——bwrap 建
@@ -255,7 +273,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
       - name: Linux L3 沙箱依赖（bubblewrap + userns 放行）
         run: |
@@ -266,12 +284,15 @@ jobs:
           bwrap --version
       - run: npm ci
       - run: npx vitest run --coverage
-      - name: 覆盖率产物归档（coverage/ 全目录——json-summary 在内）
+      - name: 覆盖率产物归档（coverage/ 全目录——json-summary 在内；180 天
+          留存 = 覆盖率阈值立线拍板日的回看序列源——逐周趋势对拍须回看历史
+          快照，30 天缺省窗不够远，研究档 E7）
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage/
           if-no-files-found: error
+          retention-days: 180
 
   # nightly soak 档（四问评估「有证据无轨道 → 有轨道」件）——每日 19:23 UTC
   # 定时 + workflow_dispatch 手动；tools/soak.mjs（W6 同批入仓）src 真源直跑
@@ -282,8 +303,12 @@ jobs:
   # 收割三件套现场（soak-result.jsonl / daemon.log / sessions.db——runner
   # 用后即毁，不留即失）+ 自动开 issue（label 查重防刷屏——夜间巡检红了的
   # 「有人收」闭环腿）。issues:write 权限只给本 job（最小面）。
+  # C4' 扩判据（2026-09-16）：--unattended 三腿（跨 tick 会话 / 跨压缩窗 /
+  # 停靠唤醒未启用容忍）——CI 时长约 +8min（5min 静默窗 + tick 粒度），
+  # timeout 30min 仍 2x+ 余量。双 cron 并存（夜间 + coverage 周跑），if 钉
+  # github.event.schedule 判别——周跑不误触本档。
   soak:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '23 19 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -292,11 +317,11 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: soak quick 三轮 + kill 演练 + 全判据（RSS 帽 384MB / error 行帽 0 / seq 无洞）
-        run: node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384
+      - name: soak quick 三轮 + kill 演练 + 无人值守三腿 + 全判据（RSS 帽 384MB / error 行帽 0 / seq 无洞）
+        run: node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384 --unattended
       - name: 红时收割三件套现场（临时根通配——路径含随机尾，逐件列举）
         if: failure()
         uses: actions/upload-artifact@v4
@@ -318,8 +343,8 @@ jobs:
               `nightly soak 红了（[run ${context.runId}](${runUrl})，触发：${context.eventName}）。`,
               '',
               '- 三件套现场（soak-result.jsonl / daemon.log / sessions.db）见本 run 的 **soak-failure-' + context.runId + '** artifact（30 天留存）。',
-              '- 判据五面：轮次全 ok / kill 演练 / RSS 预算 384MB / daemon.log error 行帽 0 / 全会话 seq 无洞——FAIL 行见 run 日志汇总表。',
-              '- 本地复现：`node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384`（离线自持——零网络零凭证）。',
+              '- 判据七面：轮次全 ok / kill 演练 / RSS 预算 384MB / daemon.log error 行帽 0 / 全会话 seq 无洞 / 无人值守三腿（tick 会话 + 压缩窗） / 延迟漂移——FAIL 行见 run 日志汇总表。',
+              '- 本地复现：`node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384 --unattended`（离线自持——零网络零凭证；含 5min 静默窗，全程约 10min）。',
             ].join('\n');
             const label = 'soak-failure';
             const existing = await github.rest.issues.listForRepo({
@@ -342,6 +367,138 @@ jobs:
               });
             }
 
+  # coverage 周序列留档（研究档 E7——纯增量：不动任何阈值，只立趋势轨道）。
+  # 每周一 03:41 UTC（off-minute 律）独立 cron；跑全量带插桩测试后从
+  # coverage/coverage-summary.json 抽 lines/functions/statements 三百分比，
+  # 追加一行（日期 + 三值）到 label 查重 pinned issue——逐周趋势一处可看，
+  # 立线拍板日（known_boundary「coverage 阈值未拍板」解绑时）回看本序列即
+  # 有据可依。周跑约 4min（test 面 + 插桩 2x 估）额度影响可忽略。仅 schedule
+  # 门（无 workflow_dispatch——dispatch 已是 soak 档腿，再加本腿会让手动
+  # 触发多跑一份全量测试）。issues:write 权限只给本 job（最小面）。
+  coverage-weekly:
+    if: github.event_name == 'schedule' && github.event.schedule == '41 3 * * 1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # 装腿同 coverage job：全量含 gate-exec bwrap 真跑腿
+      - name: Linux L3 沙箱依赖（bubblewrap + userns 放行）
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --version
+      - run: npm ci
+      - run: npx vitest run --coverage
+      - name: 追加周序列行到 pinned issue（label 查重——已开则评论续账）
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8')).total;
+            const pct = (k) => (summary[k] && typeof summary[k].pct === 'number' ? summary[k].pct.toFixed(2) : '?');
+            const date = new Date().toISOString().slice(0, 10);
+            const line = `${date} | lines ${pct('lines')} | functions ${pct('functions')} | statements ${pct('statements')}`;
+            const label = 'coverage-weekly';
+            const existing = await github.rest.issues.listForRepo({
+              ...context.repo,
+              state: 'open',
+              labels: label,
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: existing.data[0].number,
+                body: line,
+              });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo,
+                title: 'coverage 周序列留档（自动追加——阈值立线拍板日的回看序列源）',
+                body: [
+                  '每周一 03:41 UTC coverage 周跑自动追加一行（日期 | lines | functions | statements 百分比）。',
+                  '',
+                  line,
+                ].join('\n'),
+                labels: [label],
+              });
+            }
+
+  # flaky-probe 夜间双跑腿（研究档 E8——flaky 测试「只在 CI 红」的探测轨道）。
+  # 与 soak 同门（schedule 夜间 cron + workflow_dispatch——不撞 push/PR 组）：
+  # 同 commit 连跑两次全量 npm test，双绿 = 该夜无 flaky 信号；任一红 = 开
+  # issue（label 查重）——同 commit push CI 绿而夜间红 = 抖动信号，先本地
+  # 单跑复核再定位（失真源登记册纪律，docs/development.md）。不设 vitest
+  # retry——重试会吃掉 flaky 信号本身。timeout 15min = test 面 2 倍 + 装腿。
+  # 双 cron 并存，if 钉 github.event.schedule 判别——周跑不误触本档。夜间
+  # 每日 +1 次全量测试跑（约 2min ubuntu）额度影响可忽略。
+  flaky-probe:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '23 19 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Linux L3 沙箱依赖（bubblewrap + userns 放行）
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --version
+      - run: npm ci
+      - name: 全量测试第一跑
+        run: npm test
+      - name: 全量测试第二跑（同 commit 连跑——分隔标记供归因）
+        run: |
+          echo '===== flaky-probe: 第二跑（同 commit 同树）====='
+          npm test
+      - name: 红时自动开 issue（label 查重——已开则评论续账，不刷屏）
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `flaky-probe 红了（[run ${context.runId}](${runUrl})，触发：${context.eventName}；commit ${context.sha.slice(0, 8)}）。`,
+              '',
+              '- 轨道语义：同 commit 连跑两次全量测试，任一红即本告警。同 commit push CI 绿而夜间红 = 抖动信号。',
+              '- 处置序：先本地单跑复核（`npm test`——本地绿则 CI 环境形，本地红则真缺陷），再按失真源登记册纪律定位登记（docs/development.md）。',
+              '- 已知观察项（tui-backend 字节帽 flaky / exec spawn 截尾 flake）不在本轨道新立条目——先对表再开新。',
+            ].join('\n');
+            const label = 'flaky-nightly';
+            const existing = await github.rest.issues.listForRepo({
+              ...context.repo,
+              state: 'open',
+              labels: label,
+            });
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: existing.data[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo,
+                title: 'flaky-probe 夜间双跑失败（自动告警）',
+                body,
+                labels: [label],
+              });
+            }
+
   lint:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -350,7 +507,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run lint:topology
@@ -363,7 +520,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run format:check

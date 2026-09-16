@@ -5,6 +5,12 @@
 #   3. github-actions .github/workflows/——工作流中 action 引用的钉定版本抬升。
 # 更新 PR 恒以 dev 为目标分支（main 为稳定发布线只随发布快进——分支模型见
 # CONTRIBUTING.md），与人工 PR 同过四门禁、同走 squash 合并面。
+#
+# 分组收拢（CI 治理批 2026-09-16，研究档 E5）：dev 依赖整组 + actions 整组
+# 一 PR 收拢降噪（逐依赖一 PR 的噪音面与「批内清不积攒」纪律冲突）；生产
+# 依赖保持单开——better-sqlite3（原生模块）/ undici（网络栈钉死面）/
+# @anthropic-ai/sdk 等动一发即须单独过全量门禁 + 真跑腿复核，不与杂项合乘。
+# 处置 SOP 见 docs/development.md「依赖更新 PR 处置」。
 version: 2
 updates:
   # npm 生态——仓根 manifest
@@ -14,15 +20,30 @@ updates:
     target-branch: dev
     schedule:
       interval: weekly
+    groups:
+      # dev 依赖整组收拢（工具链抬升一 PR 过门禁——vitest/tsx/prettier 等联动换代天然同批）
+      dev-dependencies:
+        patterns: ['*']
+        dependency-type: development
   # npm 生态——SDK 子包（独立发布物，运行时依赖需独立巡检）
   - package-ecosystem: npm
     directory: /packages/berry-agent-sdk
     target-branch: dev
     schedule:
       interval: weekly
+    groups:
+      # SDK 子包 dev 依赖同样整组收拢（生产依赖 typebox 等保持单开——发布物运行时面）
+      sdk-dev-dependencies:
+        patterns: ['*']
+        dependency-type: development
   # GitHub Actions 生态——工作流 action 引用版本抬升
   - package-ecosystem: github-actions
     directory: /
     target-branch: dev
     schedule:
       interval: weekly
+    groups:
+      # actions 整组收拢（checkout/setup-node/upload-artifact/github-script 等配套
+      # 抬升一 PR——CI 面改动集中可复核，与 release.yml 演习 checkbox 联动）
+      github-actions:
+        patterns: ['*']

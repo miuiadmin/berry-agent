@@ -13,7 +13,7 @@
  *
  * ## CLI 契约（CI nightly 接线同形——勿改旗标面）
  * ```
- * node tools/soak.mjs [--rounds N] [--mode quick|mixed|long] [--rss-budget-mb N] [--err-lines-cap N] [--kill-exercise] [--help]
+ * node tools/soak.mjs [--rounds N] [--mode quick|mixed|long] [--rss-budget-mb N] [--err-lines-cap N] [--kill-exercise] [--unattended] [--drift-cap N] [--help]
  * ```
  * 缺省 `--rounds 3 --mode quick`。mode 配比：
  *  - quick：纯对话 ×2 + read 工具 ×1 轮换（承 12 轮 soak-driver 形），轮间隔 2s——CI 冒烟节律；
@@ -41,13 +41,32 @@
  *    与 kill-recovery 进程内不变式（恢复前缀无洞 + 续写 seq=N 接续）同源的
  *    驱动器侧投影，count-based 只增不减拦不住的中段丢条由此拦。
  *
+ * ## 扩判据（研究档 C4'/C5'——2026-09-16 落码；判据单源同 soak-verdict.mjs）
+ *  - 第六判据无人值守（--unattended 启用，三腿）：
+ *    ① 跨 tick 会话——echo 插件 apply 期注册 every:1m 巡检行（getJob 查重防
+ *       kill 重启 re-apply 撞名），前台轮全静默 5min（recent_user_msg 闸静默窗）
+ *       后等自治 fire；判据数 = 非驱动器会话中 turn/end 且 reason≠error 的会话数；
+ *    ② 跨压缩窗——echo usage 真实计量（上下文字符/4）+ 460KB 大块填充轮
+ *       （判据分母 = fallbackWindowTokens 200k 常量——lastUsageFactOf 不供
+ *       contextWindow，缩模型窗改不动分母；user/message 落库截 20.5k 故走
+ *       单轮过阈——当前轮足额入请求，单块即过阈 0.5）；专用会话打填充轮至
+ *       compaction/start 落账，压缩后同会话续接轮须收场 ok（双达标才计数）；
+ *    ③ 跨停靠唤醒——本批未启用：budget 为装配期常量捕获（llm/complete.ts:227），
+ *       全局池停靠进程内不可驱动至绿终态，且 wake-refused 三振 console.error
+ *       与 error 行帽 0 零容忍冲突——dockResumeOk 恒 null 容忍（判据单源语义）。
+ *  - 第七判据延迟漂移（--drift-cap，缺省 3.0；0 = 关闭）：末 1/3 整数轮 dt
+ *    中位数 ÷ 首 1/3 中位数 ≤ 帽（driftStatsOf 单源）。kill 演练重启预热轮
+ *    （killAt / killAt+1）剔样本；<6 样本恒豁免——quick 三轮天然不执法防
+ *    nightly 假红，长跑（--rounds ≥6）退化性慢化由此拦。
+ *
  * ## RSS 与预算
  * 逐轮 `ps -o rss=` 采样 daemon 进程；`--rss-budget-mb N` 给帽即断言稳态峰值
  * （重启预热样本另计——kill 重启工作集峰值是已知正常态，非泄漏信号），超帽 exit 1。
  *
  * ## 退出码
- * 0 = 五判据全过（轮次全 ok + 演练启用时 ok + 预算在场时预算内 + error 行 ≤ 帽 +
- * 全会话 seq 无洞）；1 = 任一失败 / 用法错 / 起停失败。判据单源 tools/soak-verdict.mjs。
+ * 0 = 七判据全过（轮次全 ok + 演练启用时 ok + 预算在场时预算内 + error 行 ≤ 帽 +
+ * 全会话 seq 无洞 + 无人值守启用时达标 + 延迟漂移在帽）；1 = 任一失败 /
+ * 用法错 / 起停失败。判据单源 tools/soak-verdict.mjs。
  *
  * ## 产物
  * stdout 逐轮行 + 末尾汇总表；`<临时目录>/soak-result.jsonl` 机读流（每轮落盘——
@@ -58,13 +77,13 @@
  * spawner 再自举时 loader 经 env 传导仍生效）。
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
 import { createServer as createTcpProbe } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { computeVerdict, errLineCountOf, seqBreaksOf } from './soak-verdict.mjs';
+import { computeVerdict, driftStatsOf, errLineCountOf, seqBreaksOf } from './soak-verdict.mjs';
 
 /* ---------------- 布景常量 ---------------- */
 
@@ -82,12 +101,21 @@ const PLUGIN_ID = 'soak-echo-provider';
 const SESSION_ROLLOVER = 12;
 /** daemon 起活等待窗（秒）——冷启动可 >90s（原驱动器 240s 窗同值） */
 const DAEMON_READY_WINDOW_SEC = 240;
+/** 无人值守腿②填充块字符数（用户消息与 echo 回执各一块，两处同源）。体积
+ *  由压缩判据真分母推导：判据分母 = compaction fallbackWindowTokens 200k 装配
+ *  常量（栈面 lastUsageFactOf 不供 contextWindow——缩模型窗声明改不动分母），
+ *  阈值 0.5 → 需末条 assistant usage.input ≥ 100k token ≈ 请求上下文 400k
+ *  字符。user/message 落库截 20.5k/条（历史累积路径被压死——每轮净增仅
+ * ~5k token），故走单轮过阈：当前轮消息足额到达模型（内存活体投影，实测
+ *  460k chars 原样入请求），单块 460k chars → usage.input ≈ 115k token ≥
+ *  100k 稳过阈（裕度 15%）。 */
+const FILLER_BLOCK_CHARS = 460_000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------------- CLI 解析 ---------------- */
 
-const USAGE = `用法：node tools/soak.mjs [--rounds N] [--mode quick|mixed|long] [--rss-budget-mb N] [--err-lines-cap N] [--kill-exercise] [--help]
+const USAGE = `用法：node tools/soak.mjs [--rounds N] [--mode quick|mixed|long] [--rss-budget-mb N] [--err-lines-cap N] [--kill-exercise] [--unattended] [--drift-cap N] [--help]
 
   --rounds N          轮数（缺省 3；正整数）
   --mode M            负载配比与轮间隔（缺省 quick）
@@ -97,12 +125,30 @@ const USAGE = `用法：node tools/soak.mjs [--rounds N] [--mode quick|mixed|lon
   --rss-budget-mb N   RSS 预算帽（MB；稳态峰值超帽 exit 1）
   --err-lines-cap N   daemon.log error 行帽（缺省 0 零容忍——已知噪声源可放宽）
   --kill-exercise     中段 SIGKILL daemon + 现场恢复检查（双换代/续接/只增不减）
+  --unattended        无人值守三腿（研究档 C4'）：① 跨 tick 会话（echo 插件注册
+                        every:1m 巡检行，前台轮后静默 5min 等自治 fire——recent_user_msg
+                        闸静默窗）② 跨压缩窗（专用会话打 460KB 填充轮至 compaction 触发
+                        ——判据分母 = fallbackWindowTokens 200k 常量、单轮过阈，
+                        压缩后续接轮须 ok）③ 跨停靠唤醒（本批未启用——budget 装配期常量形进程内不可驱动至绿终态，
+                        dockResumeOk 恒 null 容忍）
+  --drift-cap N       延迟漂移帽（缺省 3.0；末 1/3 逐轮 dt 中位数 ÷ 首 1/3 中位数
+                        超帽 exit 1。传 0 = 关闭。样本 <6 轮恒豁免——quick 三轮
+                        天然不执法，防 nightly 假红）
   --help              本帮助
 
-退出码：0 = 五判据全绿（轮次/演练/预算/error 行帽/seq 无洞）；1 = 任一失败。`;
+退出码：0 = 七判据全绿（轮次/演练/预算/error 行帽/seq 无洞/无人值守/延迟漂移）；1 = 任一失败。`;
 
 function parseArgs(argv) {
-  const out = { rounds: 3, mode: 'quick', rssBudgetMb: null, errLinesCap: 0, killExercise: false, help: false };
+  const out = {
+    rounds: 3,
+    mode: 'quick',
+    rssBudgetMb: null,
+    errLinesCap: 0,
+    killExercise: false,
+    unattended: false,
+    driftCap: 3.0,
+    help: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => {
@@ -127,7 +173,12 @@ function parseArgs(argv) {
       if (!Number.isInteger(v) || v < 0) throw new Error('--err-lines-cap 须为非负整数');
       out.errLinesCap = v;
     } else if (a === '--kill-exercise') out.killExercise = true;
-    else throw new Error(`未知旗标：${a}`);
+    else if (a === '--unattended') out.unattended = true;
+    else if (a === '--drift-cap') {
+      const v = Number(next());
+      if (!Number.isFinite(v) || v < 0) throw new Error('--drift-cap 须为非负数（0 = 关闭漂移判据）');
+      out.driftCap = v > 0 ? v : null; // 0 = 显式关闭（driftCap null 恒绿——判据单源语义）
+    } else throw new Error(`未知旗标：${a}`);
   }
   return out;
 }
@@ -202,11 +253,34 @@ function startEchoServer() {
         return;
       }
       callCount++;
+      // 请求侧取证（腿②诊断期）：每请求 messages 逐条角色/长度/前缀落 /tmp——
+      // 判腿不匹配时直接看 last 消息真身（vitest 吞 console 同律，走文件）
+      if (process.env.SOAK_ECHO_DEBUG) {
+        const lines = (body.messages ?? []).map(
+          (m) => `${m.role}:${JSON.stringify(m.content ?? '').length}:${JSON.stringify(m.content ?? '').slice(0, 60)}`,
+        );
+        appendFileSync(
+          '/tmp/soak-echo-req.log',
+          `call#${callCount} sys=${JSON.stringify(body.system ?? '').length}\n${lines.join('\n')}\n`,
+        );
+      }
       const blocks = scriptResponse(body);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       // SSE 单帧（event 名 = 事件 type——解析器按 type 分派）
       const sse = (obj) => res.write(`event: ${obj.type}\ndata: ${JSON.stringify(obj)}\n\n`);
-      const usage = { input_tokens: 16 * ((body.messages ?? []).length + 1), output_tokens: 8 };
+      // 真实计量（研究档 C4' 腿②）：input = 全上下文消息字符 / 4（anthropic
+      // input 语义 = 整个请求上下文——逐轮累积增长，喂 compaction 阈值判据的
+      // 「真 token 主判」路）；output = 应答块字符 / 4。原 16*(n+1) 恒小假值
+      // 使阈值路永不可触发。
+      const ctxChars = (body.messages ?? []).reduce(
+        (sum, m) => sum + JSON.stringify(m?.content ?? '').length + JSON.stringify(m?.role ?? '').length,
+        0,
+      );
+      const outChars = blocks.reduce((sum, b) => sum + (b.text?.length ?? JSON.stringify(b.input ?? '').length), 0);
+      const usage = {
+        input_tokens: Math.max(1, Math.ceil(ctxChars / 4)),
+        output_tokens: Math.max(1, Math.ceil(outChars / 4)),
+      };
       sse({ type: 'message_start', message: { id: `msg_soak_${callCount}`, model: 'soak-echo', usage } });
       blocks.forEach((block, index) => {
         if (block.kind === 'text') {
@@ -267,7 +341,18 @@ function scriptResponse(body) {
       .trim();
     return [{ kind: 'text', text: `工具回执已收：${receipt.slice(0, 80) || '(空)'}——soak 轮收场。` }];
   }
-  const userText = textOf(last.content);
+  // marker 判文取「最后一条真用户消息」：宿主每 prompt 后追加 <environment>
+  // 披露注入条（213 chars 环境面）为请求末条——读 last 会吞掉全部 marker 匹配
+  // （read/bash/填充三腿全退通用应答，2026-09-16 诊断实证）。倒扫跳过注入条。
+  let userText = '';
+  for (let i = (body.messages ?? []).length - 1; i >= 0; i--) {
+    const m = body.messages[i];
+    if (!m || m.role !== 'user') continue;
+    const t = textOf(m.content);
+    if (t.startsWith('<environment>')) continue; // 环境披露注入条——非用户输入
+    userText = t;
+    break;
+  }
   // read 工具腿：路径取自提示文（本驱动器生成的提示文锚「读取文件 <绝对路径>」）
   if (/请调用 read 工具/.test(userText)) {
     const m = userText.match(/读取文件\s+(\/[^\s，。,"']+)/);
@@ -292,6 +377,11 @@ function scriptResponse(body) {
       },
     ];
   }
+  // 无人值守填充轮腿（研究档 C4' 腿②）：大块文本回填（FILLER_BLOCK_CHARS
+  // 恒量块——专用会话逐轮累积，两轮即过判据阈 0.5；块体积推导见常量注）
+  if (/无人值守填充轮/.test(userText)) {
+    return [{ kind: 'text', text: `无人值守填充轮回执 ${'填'.repeat(FILLER_BLOCK_CHARS)}` }];
+  }
   // 纯对话腿：轮号照抄（无轮号 = 演练续接腿等——通用应答）
   const round = userText.match(/第\s*(\d+)\s*轮/);
   return [{ kind: 'text', text: round ? `第 ${round[1]} 轮就绪（soak echo）。` : 'soak echo 收场。' }];
@@ -299,8 +389,14 @@ function scriptResponse(body) {
 
 /* ---------------- echo provider 插件物化 + 装机 ---------------- */
 
-/** 在临时目录写插件包（镜像 glm 试件形——虚拟键 berry-agent/llm 取工厂面） */
-function materializeEchoPlugin(pluginDir, echoBaseUrl) {
+/** 在临时目录写插件包（镜像 glm 试件形——虚拟键 berry-agent/llm 取工厂面）。
+ *  unattended 形差异（研究档 C4'）：注册 every:1m tick 巡检行（daemon 起钟后
+ *  自治 fire——腿① 的自治负载源）。模型窗恒 400k：压缩判据分母 = compaction
+ *  fallbackWindowTokens 200k 装配常量（lastUsageFactOf 不供 contextWindow——
+ *  缩窗声明改不动分母，压缩触发由填充块体积驱动见 FILLER_BLOCK_CHARS 注），
+ *  而窗声明会进 complete 溢出检测（isContextOverflow——input ≥ 窗且正常停即
+ *  判溢出）：填充腿请求 token 峰值 ~115k（460k chars 单块），窗 400k 恒在其上防误判。 */
+function materializeEchoPlugin(pluginDir, echoBaseUrl, unattended) {
   writeFileSync(
     join(pluginDir, 'package.json'),
     JSON.stringify(
@@ -335,7 +431,7 @@ const echoModel = {
   reasoning: false,
   input: ['text'],
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-  contextWindow: 100000,
+  contextWindow: 400000,
   maxTokens: 4096,
 };
 
@@ -355,6 +451,30 @@ const provider = createProvider({
 
 export default async (ctx) => {
   ctx.effect(() => ctx.llm.registerProvider(provider));
+${
+  unattended
+    ? `
+  // 无人值守 tick 腿（--unattended 物化时注入）：注册每分钟巡检行——daemon
+  // 起钟后到点经 DiscoveryGates 自治 fire（用户行 = 新建会话 headless run）。
+  // getJob 查重防 kill 演练重启后 re-apply 撞名（SCHEDULER_NAME_EXISTS 亮拒）。
+  ctx.effect(() => {
+    const sched = ctx.tryGet('scheduler');
+    if (!sched) {
+      console.warn('soak 插件：scheduler 面缺席——tick 巡检行未注册');
+      return;
+    }
+    if (!sched.service.getJob('soak-unattended-tick')) {
+      sched.service.addJob({
+        name: 'soak-unattended-tick',
+        prompt: '无人值守 tick 巡检：请只回复一句话——tick 巡检完成。',
+        schedule: 'every:1m',
+        enabled: true,
+      });
+    }
+  });
+`
+    : ''
+}
 };
 `,
   );
@@ -510,7 +630,7 @@ async function main(opts) {
   const echoBaseUrl = `http://127.0.0.1:${echo.port}`;
   console.log(`[soak] 临时根 ${tempRoot}（echo 模型 ${echoBaseUrl}）`);
   mkdirSync(pluginDir, { recursive: true });
-  materializeEchoPlugin(pluginDir, echoBaseUrl);
+  materializeEchoPlugin(pluginDir, echoBaseUrl, opts.unattended);
   mkdirSync(join(dataDir, 'serve'), { recursive: true });
 
   const ctx = {
@@ -532,6 +652,11 @@ async function main(opts) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+    }).then((r) => r.json());
+  // GET 面（/v1/sessions 零载荷动词——无人值守腿①轮询会话清单用）
+  ctx.get = (path) =>
+    fetch(`http://127.0.0.1:${ctx.sdkPort}${path}`, {
+      headers: { Authorization: `Bearer ${ctx.token}`, 'x-sdk-protocol': '1' },
     }).then((r) => r.json());
 
   let exitCode = 0;
@@ -677,6 +802,116 @@ async function main(opts) {
       }
     }
 
+    /* —— 无人值守腿②（研究档 C4'）：跨压缩窗——专用会话打填充轮至 compaction
+       触发（200KB 恒量块 × 真实计量——两轮过阈 0.5，分母推导见
+       FILLER_BLOCK_CHARS 注），压缩后续接轮须收场 ok。compactions 判据数 =
+       「达标压缩窗」：事件 ≥1 且续接轮 ok 才计数——续接失败即 0（红），
+       fail-loud 归因行由判据单源打印。腿位在 kill 演练后（daemon 双换代
+       存活性已验，本腿考自治压缩面）。—— */
+    let unattendedCompactions = null;
+    let unattendedTickSessions = null;
+    if (opts.unattended) {
+      console.log('[unattended] 腿②跨压缩窗：专用会话打填充轮（460KB/轮块，单轮过阈——判据分母 200k token）…');
+      let fillerSession = '';
+      let compactionStarts = 0;
+      for (let fr = 1; fr <= 6 && compactionStarts === 0; fr++) {
+        // 填充轮：提示文带「无人值守填充轮」marker（echo 大块回填腿锚）
+        const payload = fillerSession
+          ? {
+              sessionId: fillerSession,
+              messageId: `soak-fill-${fr}-${Date.now()}`,
+              content: `无人值守填充轮 ${fr}：${'载'.repeat(FILLER_BLOCK_CHARS)}`,
+            }
+          : {
+              messageId: `soak-fill-${fr}-${Date.now()}`,
+              content: `无人值守填充轮 ${fr}：${'载'.repeat(FILLER_BLOCK_CHARS)}`,
+            };
+        const pr = await ctx.post('/v1/prompt', payload);
+        const gotSession = pr.sessionId ?? pr.result?.sessionId;
+        if (pr.error || !gotSession) {
+          console.log(`[unattended] 填充轮 ${fr} prompt 拒：${JSON.stringify(pr).slice(0, 160)}`);
+          break;
+        }
+        if (!fillerSession) {
+          fillerSession = gotSession;
+          sessionIds.push(gotSession); // 入 seq 校验域（surfaceOp append 形不改 seq 连续性）
+        }
+        const { done } = await awaitTurnEnd(ctx, fillerSession, 120);
+        if (!done) {
+          console.log(`[unattended] 填充轮 ${fr} 120s 未收场`);
+          break;
+        }
+        // 压缩事件计数（durable 落账词 compaction/start——run settle 后异步触发，
+        // 轮收场 ≠ 压缩已落账，逐轮重扫全量 entries）
+        const entries = await entriesOf(ctx, fillerSession);
+        compactionStarts = entries.filter((e) => (e.type ?? e.event?.type) === 'compaction/start').length;
+        console.log(`[unattended] 填充轮 ${fr} 收场 reason=${reasonOf(done)}——compaction/start × ${compactionStarts}`);
+      }
+      let continuationOk = false;
+      if (compactionStarts > 0 && fillerSession) {
+        // 压缩后续接轮：同会话继续提交一轮普通对话——压缩遮蔽后栈可续跑
+        const cr = await ctx.post('/v1/prompt', {
+          sessionId: fillerSession,
+          messageId: `soak-fill-cont-${Date.now()}`,
+          content: '压缩后续接验证：请只回复一句话——压缩后续接完成。',
+        });
+        const { done: cDone } = await awaitTurnEnd(ctx, fillerSession, 120);
+        continuationOk = !cr.error && !!cDone && reasonOf(cDone) !== 'error';
+        console.log(`[unattended] 压缩后续接轮 ${continuationOk ? 'ok' : 'FAIL'}（events ≥1：${compactionStarts}）`);
+      }
+      unattendedCompactions = continuationOk ? compactionStarts : 0;
+      results.push({
+        round: 'unattended-compaction',
+        ok: unattendedCompactions >= 1,
+        compactions: unattendedCompactions,
+        t: Date.now(),
+      });
+      writeFileSync(resultFile, results.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+      /* —— 无人值守腿①：跨 tick 会话——前台与填充轮全静默后等 every:1m 巡检行
+         自治 fire（DiscoveryGates：recent_user_msg 静默窗 5min + cooldown 60s——
+         巡检行由 echo 插件 apply 期注册，kill 重启 re-apply 查重免撞名）。判据
+         数 = 非驱动器会话中「turn/end 且 reason≠error」的会话数（有头无尾的卡
+         死 fire 不计数）。等待窗 540s = 5min 静默 + tick 粒度 + 引擎轮询余量。 —— */
+      console.log('[unattended] 腿①跨 tick：静默等自治 fire（5min 静默窗 + 1min tick 粒度）…');
+      const knownIds = new Set(sessionIds);
+      const tickSessionIds = [];
+      const quietDeadline = Date.now() + 540_000;
+      while (Date.now() < quietDeadline && tickSessionIds.length === 0) {
+        await sleep(10_000);
+        let list;
+        try {
+          list = await ctx.get('/v1/sessions');
+        } catch {
+          continue; // 瞬态网络抖动——下轮重试
+        }
+        const foreign = (list.sessions ?? []).filter((s) => !knownIds.has(s.id));
+        for (const s of foreign) {
+          if (tickSessionIds.includes(s.id)) continue;
+          try {
+            const entries = await entriesOf(ctx, s.id);
+            if (entries.some((e) => isEnd(e) && reasonOf(e) !== 'error')) tickSessionIds.push(s.id);
+          } catch {
+            /* 会话条目瞬态不可读——下轮重扫 */
+          }
+        }
+      }
+      unattendedTickSessions = tickSessionIds.length;
+      console.log(
+        `[unattended] tick 自治会话 ${unattendedTickSessions} 个${tickSessionIds.length > 0 ? `（首会话 ${tickSessionIds[0].slice(0, 8)}…）` : '（等待窗内未 fire——腿①红）'}`,
+      );
+      results.push({
+        round: 'unattended-tick',
+        ok: unattendedTickSessions >= 1,
+        tickSessions: unattendedTickSessions,
+        t: Date.now(),
+      });
+      writeFileSync(resultFile, results.map((r) => JSON.stringify(r)).join('\n') + '\n');
+      // 腿③跨停靠唤醒：本批未启用（budget 装配期常量形进程内不可驱动至绿终态
+      // ——llm/complete.ts:227 常量捕获；wake-refused 三振 console.error 与
+      // error 行帽 0 零容忍冲突）——dockResumeOk 恒 null 容忍（判据单源语义）
+    }
+
     /* —— 汇总 + 预算断言 + 退出码 —— */
     const drillRows = results.filter((r) => typeof r.round === 'string' && r.round.startsWith('drill-'));
     const drillOk = drillRows.length > 0 ? drillRows.every((r) => r.ok) : null; // null = 未启用
@@ -708,6 +943,32 @@ async function main(opts) {
     const totalSec = ((Date.now() - started) / 1000).toFixed(1);
     const capKb = opts.rssBudgetMb !== null ? opts.rssBudgetMb * 1024 : null;
     const budgetWithin = capKb !== null ? rssPeakSteady <= capKb : null;
+    // 延迟漂移统计（研究档 C5'）：整数轮 dt 序列（演练重启预热轮剔样本——
+    // killAt 轮收场后即演练、killAt+1 轮在冷缓存重启后跑，两端 dt 都非稳态形）
+    const driftSampleRounds = new Set();
+    if (opts.killExercise) {
+      driftSampleRounds.add(killAt);
+      driftSampleRounds.add(killAt + 1);
+    }
+    const driftDts = results
+      .filter(
+        (r) => Number.isInteger(r.round) && !driftSampleRounds.has(r.round) && typeof r.dt === 'number' && r.dt > 0,
+      )
+      .map((r) => r.dt);
+    const driftStats = driftStatsOf(driftDts); // <6 样本 → null（样本窗豁免）
+    const driftRatio = driftStats?.ratio ?? null;
+    const driftFirstMedianSec = driftStats?.firstMedianSec ?? null;
+    const driftLastMedianSec = driftStats?.lastMedianSec ?? null;
+    // 无人值守第六判据入参（--unattended 才设期望；dockResumeOk 恒 null = 腿③未启用容忍）
+    const unattended = opts.unattended
+      ? {
+          tickSessions: unattendedTickSessions ?? 0,
+          tickSessionsMin: 1,
+          compactions: unattendedCompactions ?? 0,
+          compactionsMin: 1,
+          dockResumeOk: null,
+        }
+      : null;
     const verdict = computeVerdict({
       okCount,
       rounds: opts.rounds,
@@ -716,6 +977,11 @@ async function main(opts) {
       errLines,
       errLinesCap: opts.errLinesCap,
       seqBreaksBySession,
+      unattended,
+      driftRatio,
+      driftCap: opts.driftCap,
+      driftFirstMedianSec,
+      driftLastMedianSec,
     });
 
     const summary = {
@@ -736,6 +1002,20 @@ async function main(opts) {
       errLinesCap: opts.errLinesCap,
       daemonLogErrorLines: errLines,
       seqBreaksBySession,
+      unattended: opts.unattended
+        ? {
+            enabled: true,
+            tickSessions: unattendedTickSessions ?? 0,
+            tickSessionsMin: 1,
+            compactions: unattendedCompactions ?? 0,
+            compactionsMin: 1,
+            dockResumeOk: null, // 腿③未启用（budget 装配期常量形不可驱动——见 soak.mjs 头注）
+          }
+        : null,
+      driftRatio,
+      driftCap: opts.driftCap,
+      driftFirstMedianSec,
+      driftLastMedianSec,
       verdictFails: verdict.fails,
       dataDir,
       resultFile,
@@ -759,6 +1039,22 @@ async function main(opts) {
     const seqBad = Object.values(seqBreaksBySession).filter((b) => b.length > 0);
     console.log(
       `  seq 校验   ${sessionIds.length} 会话${seqBad.length === 0 ? '全无洞 ✓' : `断洞 ✗（${seqBad.length} 会话）`}`,
+    );
+    if (opts.unattended) {
+      const tickOk = (unattendedTickSessions ?? 0) >= 1;
+      const compOk = (unattendedCompactions ?? 0) >= 1;
+      console.log(`  tick 会话  ${unattendedTickSessions ?? 0}（最低 1）${tickOk ? ' ✓' : ' ✗ 自治 fire 未达标'}`);
+      console.log(`  压缩窗    ${unattendedCompactions ?? 0}（最低 1——事件+续接双达标才计）${compOk ? ' ✓' : ' ✗'}`);
+      console.log('  停靠唤醒  未启用（腿③ budget 常量形不可驱动——dockResumeOk null 容忍）');
+    }
+    const driftText =
+      driftStats === null
+        ? `样本 ${driftDts.length} 轮不足 6——样本窗豁免`
+        : `${driftRatio.toFixed(2)}x（首段中位 ${driftFirstMedianSec}s / 末段中位 ${driftLastMedianSec}s）`;
+    // 汇总行绿红（与判据单源同语义：未设帽/样本窗不足恒绿；执法 = ratio ≤ 帽）
+    const driftOk = typeof opts.driftCap !== 'number' || driftRatio === null || driftRatio <= opts.driftCap;
+    console.log(
+      `  延迟漂移  ${driftText}${typeof opts.driftCap === 'number' ? `（帽 ${opts.driftCap}x）` : '（未设帽）'}${driftOk ? ' ✓' : ' ✗ 超帽'}`,
     );
     console.log(`  产物       ${resultFile}（daemon.log 在 ${join(dataDir, 'serve')}）`);
 

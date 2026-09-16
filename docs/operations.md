@@ -71,6 +71,8 @@ node tools/soak.mjs --rounds 72 --mode long                    # 小时级节律
 node tools/soak.mjs --rounds 8 --mode mixed --kill-exercise    # 三混合 + 中段 kill -9 恢复演练
 node tools/soak.mjs --rounds 50 --rss-budget-mb 512            # 带 RSS 预算帽
 node tools/soak.mjs --err-lines-cap 2                          # 放宽 daemon.log error 行帽（缺省 0 零容忍）
+node tools/soak.mjs --rounds 3 --kill-exercise --rss-budget-mb 384 --unattended    # CI nightly 同款全形（含无人值守三腿）
+node tools/soak.mjs --rounds 24 --drift-cap 2.5                # 收紧延迟漂移帽（缺省 3.0；0 = 关闭）
 ```
 
 看什么指标：
@@ -79,9 +81,11 @@ node tools/soak.mjs --err-lines-cap 2                          # 放宽 daemon.l
 - **RSS 首末与峰值**：泄漏判据——长窗净增长平或负为正常；kill 重启后的预热峰值是已知工作集常态（回落分钟级），汇总单列不计入预算；
 - **kill 演练**（`--kill-exercise`）：pid+token 双换代、断点会话续接收场、durable 台账只增不减，三项全过才 PASS；
 - **daemon.log error 行**：判收面——行数 ≤ `--err-lines-cap`（缺省帽 0：error 行增长即红，不再带病绿）；已知噪声源可传帽放宽；
-- **seq 无洞**：收场逐会话校验 durable 事件 seq 从 0 起相邻差恰 1（与恢复测试的进程内不变式同源——中段丢条/序号断线由此拦，count-based 只增不减拦不住）。
+- **seq 无洞**：收场逐会话校验 durable 事件 seq 从 0 起相邻差恰 1（与恢复测试的进程内不变式同源——中段丢条/序号断线由此拦，count-based 只增不减拦不住）；
+- **无人值守三腿**（`--unattended`，研究档 C4'）：① 跨 tick 会话——echo 插件注册 every:1m 巡检行，前台全静默过 5min 静默窗后自治 fire，非驱动器会话收场 ok 计数 ≥1；② 跨压缩窗——专用会话打 460KB 填充轮（判据分母 = fallbackWindowTokens 200k 常量、当前轮足额入请求故单轮过阈）至 `compaction/start` 落账 ≥1 且压缩后续接轮 ok（双达标才计）；③ 跨停靠唤醒——本轨道未启用（budget 为装配期常量、进程内不可驱动至绿终态），`dockResumeOk` 恒 null 容忍；
+- **延迟漂移**（`--drift-cap`，缺省 3.0）：末 1/3 逐轮 dt 中位数 ÷ 首 1/3 中位数 ≤ 帽——劣化趋势（如事件积压/投影重建变慢）由此拦；kill 重启预热轮剔样本；整数轮样本 <6 恒豁免（quick 三轮天然不执法，防 nightly 假红）。
 
-预算含义：`--rss-budget-mb N` 是稳态 RSS 峰值帽，超帽退出码 1（CI nightly 防回归闸用——nightly 实接 384MB 帽，红时自动收割三件套现场并开 issue 告警）。退出码 0 = 五判据全绿（轮次 / 演练 / 预算 / error 行帽 / seq 无洞）；1 = 任一失败。产物（每轮 jsonl + daemon.log + 临时数据目录路径）收场打印，留档不清理。
+预算含义：`--rss-budget-mb N` 是稳态 RSS 峰值帽，超帽退出码 1（CI nightly 防回归闸用——nightly 实接 384MB 帽，红时自动收割三件套现场并开 issue 告警）。退出码 0 = 七判据全绿（轮次 / 演练 / 预算 / error 行帽 / seq 无洞 / 无人值守三腿〔仅 `--unattended` 执法〕/ 延迟漂移〔样本足才执法〕）；1 = 任一失败。产物（每轮 jsonl + daemon.log + 临时数据目录路径）收场打印，留档不清理。
 
 历史取证档（160 轮 / 11.95h 天级长跑、判收律沿革）存于维护者私有知识域、不随仓库分发——本驱动器即该证据的可复跑轨道化，判收口径与其同源。
 
