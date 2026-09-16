@@ -92,11 +92,17 @@ function tableRows(
   }
   sep.push(...prefixCells('┤', rule));
 
-  // 表头（整格 bold 位；单行呈现——折行头形 v1 退化不折）+ 分隔 + 数据行
-  const headerCells = block.header.map(
-    (spans, j) => layoutSpans(spans ?? [], colWidths[j]!, theme, { bold: true })[0]!,
+  // 表头（整格 bold 位；头格同法 cell 级折行取前两行——两行仍超截断；任一
+  // 头格折行即表头区整体两行高·列头对齐律）+ 分隔 + 数据行
+  const laidHeader = block.header.map((spans, j) =>
+    layoutSpans(spans ?? [], colWidths[j]!, theme, { bold: true }).slice(0, 2),
   );
-  const rows: StyledGrapheme[][] = [renderLine(headerCells), sep];
+  const rows: StyledGrapheme[][] = [];
+  const headerHeight = Math.max(1, ...laidHeader.map((cells) => cells.length));
+  for (let r = 0; r < headerHeight; r++) {
+    rows.push(renderLine(laidHeader.map((cells) => cells[r] ?? [])));
+  }
+  rows.push(sep);
   for (const row of block.rows) {
     const laid = row.map((spans, j) => layoutSpans(spans ?? [], colWidths[j] ?? TABLE_MIN_COL, theme));
     const height = Math.max(1, ...laid.map((cells) => cells.length));

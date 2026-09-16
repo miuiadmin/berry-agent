@@ -45,11 +45,11 @@ describe('blockRows 表格渲染', () => {
     expect(rows[2]!.find((cell) => cell.grapheme === 'c')?.style?.fg).toBe(DEFAULT_THEME.codeInline);
   });
 
-  it('等分帽：窄宽列宽封帽 + 数据格折行（行高 = 行内最大；表头单行呈现 v1 边界）', () => {
+  it('等分帽：窄宽列宽封帽 + 数据格折行（行高 = 行内最大；头格宽内不折）', () => {
     const rows = blockRows(first('| aaaa |\n| --- |\n| bbbbbbbb |'), 10, DEFAULT_THEME);
     const lines = texts(rows);
     // avail = 10 - 2 - 2 = 6 < 自然宽 8 → 帽 6；数据格 8 字折两视行
-    expect(lines[0]).toBe('│ aaaa   │'); // 表头单行呈现（折行头形 v1 退化不折——头注边界）
+    expect(lines[0]).toBe('│ aaaa   │'); // 头格宽 4 ≤ 帽 6——不折单行呈现
     expect(lines).toHaveLength(4); // 头 + 分隔 + 数据格折两视行
     expect(lines[2]).toBe('│ bbbbbb │');
     expect(lines[3]).toBe('│ bb     │');
@@ -58,9 +58,34 @@ describe('blockRows 表格渲染', () => {
   it('等分帽触发：两列总自然宽超预算 → 列宽等分封帽', () => {
     const rows = blockRows(first('| aaaa | bbbb |\n| --- | --- |\n| 1 | 2 |'), 13, DEFAULT_THEME);
     const lines = texts(rows);
-    expect(lines[0]).toBe('│ aaa │ bbb │'); // 两列自然宽 4+4 > avail 6 → 帽 3（表头截断单行）
-    expect(lines[1]).toBe('├─────┬─────┤');
-    expect(lines[2]).toBe('│ 1   │ 2   │'); // 短数据格不折
+    // 两列自然宽 4+4 > avail 6 → 帽 3；头格 aaaa/bbbb 各折两行（头区整体两行高）
+    expect(lines[0]).toBe('│ aaa │ bbb │');
+    expect(lines[1]).toBe('│ a   │ b   │');
+    expect(lines[2]).toBe('├─────┬─────┤');
+    expect(lines[3]).toBe('│ 1   │ 2   │'); // 短数据格不折
+  });
+
+  it('头格折两行：超宽头格同法 cell 级折行，bold 位跨视行保持', () => {
+    const rows = blockRows(first('| aaaaaaaa |\n| --- |\n| 1 |'), 10, DEFAULT_THEME);
+    const lines = texts(rows);
+    // avail = 10 - 2 - 2 = 6 → 帽 6；头格 8 字折两视行（表头两行折行升格）
+    expect(lines).toEqual(['│ aaaaaa │', '│ aa     │', '├────────┤', '│ 1      │']);
+    // 折出的第二视行仍是表头——整格 bold 位跨折行保持
+    expect(rows[1]!.find((cell) => cell.grapheme === 'a')?.style?.bold).toBe(true);
+  });
+
+  it('头格两行仍超则截断：第三段不入场', () => {
+    const rows = blockRows(first('| aaaaaaaaaaaaa |\n| --- |\n| 1 |'), 10, DEFAULT_THEME);
+    const lines = texts(rows);
+    // 头格 13 字帽 6 → 折三段 [aaaaaa / aaaaaa / a]——取前两行，第三段截断不加高
+    expect(lines).toEqual(['│ aaaaaa │', '│ aaaaaa │', '├────────┤', '│ 1      │']);
+  });
+
+  it('任一头格折行即表头区整体两行高（列头对齐律）：不折头格第二行空补齐', () => {
+    const rows = blockRows(first('| aaaaaaaa | b |\n| --- | --- |\n| 1 | 2 |'), 13, DEFAULT_THEME);
+    const lines = texts(rows);
+    // 自然宽 [8,3] 总 11 > avail 6 → 帽 3；头格 aaaaaaaa 折两行、b 不折——头区整体两行高
+    expect(lines).toEqual(['│ aaa │ b   │', '│ aaa │     │', '├─────┬─────┤', '│ 1   │ 2   │']);
   });
 });
 
