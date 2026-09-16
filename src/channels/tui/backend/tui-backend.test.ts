@@ -1916,3 +1916,74 @@ describe('TuiBackend footer 分栏（R6 批 10k——注入门控 + 切焦联动
     expect(io.bytes).toContain('berry-agent · sess-aaa');
   });
 });
+
+describe('TuiBackend 候跑提交 + 模型循环键 + footer 模型段活写（挂账解挂批 2026-09-15）', () => {
+  /** 键位三件 rig：提交柄记录 opts 第三参 + 模型循环柄计次 */
+  function makeKeyRig(options: Partial<TuiBackendOptions> = {}) {
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const clock = new ManualClock();
+    const submitted: Array<[string, string, { queueFollowUp?: boolean } | undefined]> = [];
+    const modelCycles: number[] = [];
+    const backend = new TuiBackend(io, {
+      schedule: clock.schedule,
+      cancelSchedule: clock.cancel,
+      now: clock.now,
+      fpsCap: 1e6,
+      sessionId: 's1',
+      onSubmit: (sessionId, text, opts) => submitted.push([sessionId, text, opts]),
+      onModelCycle: () => modelCycles.push(1),
+      ...options,
+    });
+    backend.start();
+    io.bytes = '';
+    return { io, backend, clock, submitted, modelCycles, pump: () => clock.advance(1) };
+  }
+
+  it('alt+enter（kitty 13;3u）→ onSubmit 第三参携候跑标记；enter 提交无标记', () => {
+    const { io, submitted, pump } = makeKeyRig();
+    io.emitInput('候跑文');
+    pump();
+    io.emitInput('\x1b[13;3u'); // kitty 形 alt+enter
+    pump();
+    io.emitInput('普通文');
+    pump();
+    io.emitInput('\r');
+    pump();
+    // 键序可区分：两提交文本互异 + 标记位互异
+    expect(submitted).toEqual([
+      ['s1', '候跑文', { queueFollowUp: true }],
+      ['s1', '普通文', undefined],
+    ]);
+  });
+
+  it('ctrl+p → onModelCycle 柄（层③.5 应用动作路）；柄缺席不炸', () => {
+    const withHandle = makeKeyRig();
+    withHandle.io.emitInput('\x10'); // ctrl+p
+    withHandle.pump();
+    expect(withHandle.modelCycles).toHaveLength(1);
+
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const bare = new TuiBackend(io, { sessionId: 's1' }); // 柄缺席形
+    bare.start();
+    io.bytes = '';
+    io.emitInput('\x10'); // 不炸（缺席 = 键不劫持）
+    expect(io.bytes).toBe('');
+  });
+
+  it('setFooterModel 活写：footer 模型段即时换新（footer 门控内）；注入缺席零扰动', () => {
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      footer: { cwdLabel: 'berry-agent', modelLabel: 'glm-4.7' },
+    });
+    expect(io.bytes).toContain('berry-agent · glm-4.7 · sess-aaa');
+    io.reset();
+    backend.setFooterModel('claude-sonnet-5');
+    expect(io.bytes).toContain('berry-agent · claude-sonnet-5 · sess-aaa'); // 模型段已换
+    expect(io.bytes).not.toContain('glm-4.7');
+    // 注入缺席 = 无 footer 常驻段：活写 no-op（门控零扰动——旧形锚）
+    const bare = makeBackend({ sessionId: SESSION });
+    bare.io.reset();
+    bare.backend.setFooterModel('glm-4.7');
+    expect(bare.io.bytes).toBe('');
+  });
+});

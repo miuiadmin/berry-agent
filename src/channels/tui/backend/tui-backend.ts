@@ -83,7 +83,7 @@ import {
 } from '../theme/index.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
 import { Keymap, type KeybindingRejection } from '../keys/registry.js';
-import { Editor } from '../editor/editor.js';
+import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
 import { OverlayStack, type OverlayAnchor, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
@@ -101,10 +101,19 @@ import { AutocompleteCompleter } from '../autocomplete/async.js';
 export interface TuiBackendOptions {
   /** 当前交互会话位（提交/打断柄的 sessionId 机器位——装配焦点联动可改） */
   readonly sessionId?: string;
-  /** 装配向接线柄（07 §4.3 两柄）：提交（非命令形文本——驱动 conversation） */
-  readonly onSubmit?: (sessionId: string, text: string) => void;
+  /**
+   * 装配向接线柄（07 §4.3 两柄）：提交（非命令形文本——驱动 conversation）。
+   * 第三参候跑标记（挂账解挂批 2026-09-15——alt+enter 提交形）：随
+   * SubmitOptions.queueFollowUp 同义透传（busy 期排队候 run 终态种子新 run）。
+   */
+  readonly onSubmit?: (sessionId: string, text: string, opts?: EditorSubmitOptions) => void;
   /** 装配向接线柄：打断当前 run（ctrl+c——run 打断经装配侧折入 ask 链收口） */
   readonly onInterrupt?: (sessionId: string) => void;
+  /**
+   * 装配向接线柄：模型循环（挂账解挂批 2026-09-15——ctrl+p 层③.5 应用动作
+   * 路）。缺席 = 键不劫持不炸（透传编辑器——无绑定归终局丢弃）。
+   */
+  readonly onModelCycle?: () => void;
   /** 装配向接线柄：退出（ctrl+d 空框） */
   readonly onQuit?: () => void;
   /** 命令柄（'/' 起手文本——03 §2.2 dispatch；false = 未命中落 onSubmit 兜底） */
@@ -272,10 +281,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     OverlayContent,
     { row: number; col: number; width: number; height: number }
   >();
-  /** 装配柄（07 §4.3 两柄 + 命令柄） */
-  private readonly onSubmit: ((sessionId: string, text: string) => void) | undefined;
+  /** 装配柄（07 §4.3 两柄 + 命令柄 + 模型循环柄〔挂账解挂批 2026-09-15〕） */
+  private readonly onSubmit: ((sessionId: string, text: string, opts?: EditorSubmitOptions) => void) | undefined;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
+  private readonly onModelCycle: (() => void) | undefined;
   private readonly dispatchCommand: ((input: string) => Promise<boolean>) | undefined;
 
   /* ---- 输入管线态 ---- */
@@ -369,9 +379,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * keyText 单源下装 transcript（思考标签提示等显示面随册取键名）
    */
   private readonly keymap: Keymap;
-  /** footer 常驻段标签（R6 批 10k——cwd 短名/模型名；会话短 id 段随切焦联动） */
+  /**
+   * footer 常驻段标签（R6 批 10k——cwd 短名/模型名；会话短 id 段随切焦联动）。
+   * 模型段可变（挂账解挂批 2026-09-15——ctrl+p 模型循环经 setFooterModel 活写）。
+   */
   private readonly footerCwd: string | undefined;
-  private readonly footerModel: string | undefined;
+  private footerModel: string | undefined;
+  /**
+   * footer 门控位（挂载解挂批 2026-09-15 显式化）：footer 选项注入在场才开
+   * 常驻段——setFooterModel 活写的 no-op 判据（注入缺席 = 状态行旧形零扰动）。
+   */
+  private readonly footerEnabled: boolean;
   /** 流式帧字节帽（选项注入面——缺省 STREAM_FRAME_BYTE_CAP 生产定值 256KB） */
   private readonly streamFrameByteCap: number;
 
@@ -381,6 +399,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.onSubmit = options.onSubmit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.onModelCycle = options.onModelCycle;
     this.dispatchCommand = options.dispatchCommand;
     this.todoFor = options.todoFor;
     this.scheduleFn = options.schedule ?? null;
@@ -422,14 +441,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // footer 门控（R6 批 10k）：footer 选项注入在场才开常驻段（短 id 段恒在——
     // 缺席段缩位不虚报指两标签）；注入缺席 = 无 footer 状态行旧形（确定性测试
     // 基线零扰动）
-    if (options.footer !== undefined) this.refreshFooter();
+    this.footerEnabled = options.footer !== undefined;
+    if (this.footerEnabled) this.refreshFooter();
     // 直播行集（批 10h/10i）：主题随构造定着——流式 markdown 直推档与定稿块同源
     this.transcript = new LiveTranscript({ theme: this.theme, keyText: (id) => this.keymap.keyText(id) });
     // 编辑器高度帽单点解析（批 10k 遗漏修）：显式注入帽（测试语义）恒尊注入
     // 值；缺席 = 帽公式单源按构造期几何解析（resize 随动见 handleResize）
     this.fixedEditorCap = options.maxVisibleLines ?? null;
     this.editor = new Editor({
-      onSubmit: (text) => this.handleSubmit(text),
+      onSubmit: (text, opts) => this.handleSubmit(text, opts),
       onChange: () => this.handleEditorChange(),
       maxVisibleLines: this.fixedEditorCap ?? editorHeightCap(this.io.size().rows),
       // 键位注册表注入（批 10k 遗漏修——此前缺注 = 用户覆盖对编辑器不生效，
@@ -815,6 +835,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.touchFixed();
   }
 
+  /**
+   * footer 模型段活写（挂账解挂批 2026-09-15——ctrl+p 模型循环消费面）：
+   * 换名即时重画常驻段。footer 门控内才生效（注入缺席 = 无常驻段——活写
+   * no-op 零扰动）；空串同缺席缩位（与构造期同判据——不虚报空段）。
+   */
+  setFooterModel(model: string): void {
+    if (!this.footerEnabled) return;
+    this.footerModel = model !== '' ? model : undefined;
+    this.refreshFooter();
+  }
+
   /** 活体信封呈现：渲染归约 + 摘要行分叉 + 聚焦态状态面消费 */
   onEnvelope(env: SessionEnvelope, focused: boolean): void {
     const summary = this.transcript.applyEvent(env, focused);
@@ -1018,7 +1049,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       return;
     }
     // 层③.5 应用动作键（批 10i——思考块/工具卡会话级折叠展开；overlay 模态
-    // 已在上层独占、补全弹层未消费才达此，编辑器不绑 ctrl+t/ctrl+o 无争键）
+    // 已在上层独占、补全弹层未消费才达此，编辑器不绑 ctrl+t/ctrl+o 无争键）。
+    // 模型循环（挂账解挂批 2026-09-15——ctrl+p）同层入册：柄缺席不劫键不炸
+    // （透传编辑器——无绑定归终局丢弃）
     if (ev.kind === 'key' && ev.phase === 'press') {
       if (this.keymap.actionMatches(ev, 'thinking.toggle')) {
         this.toggleThinking();
@@ -1026,6 +1059,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       }
       if (this.keymap.actionMatches(ev, 'tools.toggle-expand')) {
         this.toggleToolCards();
+        return;
+      }
+      if (this.onModelCycle !== undefined && this.keymap.actionMatches(ev, 'global.model-cycle')) {
+        this.onModelCycle();
         return;
       }
     }
@@ -1050,9 +1087,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 编辑器提交路由：input-ask 应答优先 → 退出词本地拦截 → '/' 命令柄
-   * （false 兜底）→ onSubmit。
+   * （false 兜底）→ onSubmit。候跑标记随两落点透传（挂账解挂批
+   * 2026-09-15——alt+enter 提交形第三参）。
    */
-  private handleSubmit(text: string): void {
+  private handleSubmit(text: string, opts?: EditorSubmitOptions): void {
     const ask = this.inputAsk;
     if (ask !== null) {
       this.inputAsk = null;
@@ -1070,7 +1108,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (text.startsWith('/') && this.dispatchCommand !== undefined) {
       this.dispatchCommand(text)
         .then((handled) => {
-          if (!handled) this.onSubmit?.(this.sessionId, text); // 未命中兜底（03 §2.2 驱动侧语义）
+          if (!handled) this.onSubmit?.(this.sessionId, text, opts); // 未命中兜底（03 §2.2 驱动侧语义）
         })
         .catch((err: unknown) => {
           // 命令处理器异常不静默不崩进程——呈现面兜底（命令面纪律归命令面）
@@ -1078,7 +1116,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         });
       return;
     }
-    this.onSubmit?.(this.sessionId, text);
+    this.onSubmit?.(this.sessionId, text, opts);
   }
 
   /**

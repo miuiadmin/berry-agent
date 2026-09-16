@@ -244,3 +244,26 @@ describe('Editor 帽随几何重算（批 10k 遗漏修——resize 重接线）
     expect(editor.model.currentVisualLine(editor.model.visualLines())).toBe(1);
   });
 });
+
+describe('Editor 候跑提交（挂账解挂批——alt+enter follow-up 排队）', () => {
+  it('alt+enter 提交携候跑标记：onSubmit 第二参 opts.queueFollowUp=true；enter 提交无标记（键序分立）', () => {
+    const calls: Array<[string, { queueFollowUp?: boolean } | undefined]> = [];
+    const editor = new Editor({ onSubmit: (t, opts) => calls.push([t, opts]) });
+    editor.handleEvent(text('候跑文'));
+    expect(editor.handleEvent(key('enter', { alt: true }))).toBe(true);
+    editor.handleEvent(text('普通文'));
+    expect(editor.handleEvent(key('enter'))).toBe(true);
+    // 两提交互异可观测：候跑形带标记、普通形不带
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!).toEqual(['候跑文', { queueFollowUp: true }]);
+    expect(calls[1]!).toEqual(['普通文', undefined]);
+    expect(editor.getText()).toBe(''); // 两形都清框入册
+  });
+
+  it('空框 alt+enter：消费但不回调（与 enter 同判据）', () => {
+    const spy = vi.fn();
+    const editor = new Editor({ onSubmit: spy });
+    expect(editor.handleEvent(key('enter', { alt: true }))).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});

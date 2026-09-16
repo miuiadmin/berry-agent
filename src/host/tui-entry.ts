@@ -28,7 +28,7 @@ import { foldTodoTable } from '../conversation/index.js';
 import { sanitizeEntryForReadout, type MemoryDao } from '../memory/index.js';
 import type { Provider } from '../llm/index.js';
 import { APPROVAL_PRESETS, type SandboxMode } from '../safety/index.js';
-import { REWIND_SUBVERBS } from '../checkpoint/index.js';
+import { REWIND_SUBVERBS, type CheckpointStore } from '../checkpoint/index.js';
 
 import type { TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
@@ -36,6 +36,7 @@ import type { AssemblySuccess } from './assembly.js';
 import { startSchedulerClock } from './core-plugins.js';
 import type { CorePluginReference } from './loader.js';
 import { runWithSessionAnchor } from './session-anchor.js';
+import { liveCommandArgumentItems, type LiveCompletionDeps } from './live-completions.js';
 import { readHostSettings } from './settings-store.js';
 import type { HostRuntime } from './runtime.js';
 import { APPROVAL_SUBVERBS } from './approval-cmd.js';
@@ -199,6 +200,30 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       return new FileMentionSource({ basePath: root });
     };
     const rows = io.size().rows;
+    // —— 活体值补全依赖（挂账解挂批 2026-09-15——07 §4.1 R6）：/rewind 尾参位
+    // 经 core:checkpoint 服务面现取 manifest 清单（scope.tryGet——core-plugins
+    // provide 'checkpoint' { store }），按聚焦会话工作区根过滤（与 /rewind list
+    // 列点同判据——聚焦空悬/行缺席回退启动会话根）；件缺席 = 该活体位诚实
+    // 缺席。/plugins 尾参位的 pluginReport 依赖 boot 闭包（assembly 装配根
+    // 单源——LoadReport 不出 scope 面），接线归主 lane deferred。
+    const checkpointStore = scope.tryGet<{ readonly store: CheckpointStore }>('checkpoint')?.store;
+    const liveCompletionDeps: LiveCompletionDeps = {
+      ...(checkpointStore !== undefined
+        ? {
+            rewindManifests: async (): Promise<readonly { readonly id: string }[]> => {
+              const focused = stack.channels.focusedId;
+              const root =
+                focused === null
+                  ? session.workspaceRoot
+                  : canonicalWorkspaceRoot(
+                      runtime.persistence.store.getSessionRow(focused)?.workspaceRoot ?? session.workspaceRoot,
+                    );
+              const manifests = await checkpointStore.listManifests();
+              return manifests.filter((manifest) => manifest.workspaceRoot === root);
+            },
+          }
+        : {}),
+    };
     // —— TUI 主题档装配（批 10g——07 §4.1 R2 主题载体条 / 04 §9 ⑥ 注记）：
     // settings.json `theme` 键（dark/light/auto）经 TuiBackendOptions.theme
     // 下装；缺席 = auto（OSC 11 背景探测 + 明暗变化通知——后端内执法）。
@@ -211,7 +236,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
-      onSubmit: (sessionId, text) => {
+      onSubmit: (sessionId, text, opts) => {
         // /sessions 切焦补开（R7 批 10k）：切焦 repaint 只投影不开驱动，选定
         // 旧会话直接提交前补开（manager.open 幂等——existing 返既有 driver；
         // open 失败 = 行面已失理论不达防御位，弃单与 submitText 未开形同律）
@@ -222,9 +247,39 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             return;
           }
         }
-        void stack.submitText(sessionId, text); // fire-and-forget——回执经信封回流
+        // 候跑排队回执（挂账解挂批 2026-09-15——alt+enter 形）：busy 期排队才
+        // 上屏一行；busy 判据必须先于 submitText 读——idle 提交即起 run，
+        // 提交后再读恒真（首条误报排队）。notify 走 backend 直投（closure 捕
+        // 获构造后柄——仅输入期触发无 TDZ）
+        if (opts?.queueFollowUp === true && (stack.driverOf(sessionId)?.running ?? false)) {
+          backend.notify('已排队候跑（当前 run 终态后自动起跑）', { level: 'info' });
+        }
+        // 候跑标记透传（SubmitOptions.queueFollowUp——04 §4）：普通形不带 opts
+        // 保持旧调用形（undefined 与 {} 对驱动同义，零扰动）
+        if (opts?.queueFollowUp === true) {
+          void stack.submitText(sessionId, text, { queueFollowUp: true });
+        } else {
+          void stack.submitText(sessionId, text); // fire-and-forget——回执经信封回流
+        }
       },
       onInterrupt: (sessionId) => stack.interrupt(sessionId),
+      // 模型循环柄（挂账解挂批 2026-09-15——ctrl+p 层③.5 应用动作路）：循环
+      // 宇宙 = providers 装配序 × provider 内 model 序的 `provider/model` 串全列
+      // （07 §4.1 R5）；换档走栈级旋钮（内存态不落盘——重启回落装配基线），
+      // 消费 = 下一 run 起跑现取（在飞 run 不中途换）。回执 notify 一行 +
+      // footer 模型段活写；空目录零动作（无候选可换——诚实缺席）
+      onModelCycle: () => {
+        const specs: string[] = [];
+        for (const provider of stack.llmRuntime.models.getProviders()) {
+          for (const model of provider.getModels()) specs.push(`${provider.id}/${model.id}`);
+        }
+        if (specs.length === 0) return;
+        const index = specs.indexOf(stack.model);
+        const next = specs[(index + 1) % specs.length]!; // 不在册（-1+1=0）→ 装配序首位
+        stack.setModel(next);
+        backend.notify(`模型已切换：${next}（下一 run 起跑生效）`, { level: 'info' });
+        backend.setFooterModel(modelShortName(next));
+      },
       onQuit: () => quitResolve(),
       // 命令执行窗自动锚（ix-2——07 §4.3 档位 2）：发起会话 = 聚焦会话
       //（兜底启动会话——焦点空悬时命令仍属 TUI 主会话）；ALS 语境继承语义
@@ -242,8 +297,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // 通道核命令表 + TUI 本地退出词两源并流（07 §4.1 2026-09-15 /exit 批
         // 定形注——退出词属前端生命周期动作不进通道命令表，补全源在此并入）
         commands: (query) => [...commandItems(stack.channels.listCommands(), query), ...exitCommandItems(query)],
-        // 参数段源（R6 批 10j 装配接线）：四命令子动词首参 + 深位枚举
-        commandArguments: (command, query, priorArgs) => commandArgumentItems(command, query, priorArgs),
+        // 参数段源（R6 批 10j 装配接线）：活体位先行（挂账解挂批 2026-09-15
+        // ——plugins id / rewind id 两尾参位），null = 位外/依赖缺席归静态面
+        // （四命令子动词首参 + 深位枚举——原行为零扰动）
+        commandArguments: (command, query, priorArgs) => {
+          const live = liveCommandArgumentItems(command, query, priorArgs, liveCompletionDeps);
+          if (live !== null) return live;
+          return commandArgumentItems(command, query, priorArgs);
+        },
         mentions: (query) => mentionSourceFor().get(query),
       },
       // 高度帽公式单源（07 §4.1 R3 批 10j）：max(5, rows×0.3)——迟滞带归视图
@@ -424,10 +485,12 @@ const VERB_META: Readonly<Record<string, readonly [string, boolean]>> = {
 };
 
 /**
- * 命令参数源（R6 批 10j）：四命令子动词首参 + 深位枚举（approval preset
- * 预设名 / doors open·close 能力名——枚举单源 = safety 预设表与 contracts
- * 面目录）。插件 id、回退点 id 等活体值不在此面（装配位无现取通道——v1 裁，
- * 挂账）。query = 当前 token 原文、priorArgs = 已定参数序。
+ * 命令参数源（R6 批 10j）——**静态面**：四命令子动词首参 + 深位枚举
+ * （approval preset 预设名 / doors open·close 能力名——枚举单源 = safety
+ * 预设表与 contracts 面目录）。插件 id、回退点 id 活体位归
+ * {@link liveCommandArgumentItems}（挂账解挂批 2026-09-15 落地——装配位
+ * 两源并流：活体先行、null 回退本静态面）。query = 当前 token 原文、
+ * priorArgs = 已定参数序。
  */
 export function commandArgumentItems(
   command: string,

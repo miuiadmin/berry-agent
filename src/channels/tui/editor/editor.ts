@@ -19,10 +19,19 @@ import { EditorModel } from './editor-model.js';
 import { EditorView } from './editor-view.js';
 import { Keymap } from '../keys/registry.js';
 
+/** 提交选项（候跑位——挂账解挂批 2026-09-15） */
+export interface EditorSubmitOptions {
+  /**
+   * 候跑标记（alt+enter 提交形）：true = busy 期本条显式排队候 run 终态种子
+   * 新 run（04 §4 SubmitOptions.queueFollowUp 同名位）；idle 期与普通提交同形。
+   */
+  readonly queueFollowUp?: boolean;
+}
+
 /** 组件装配面 */
 export interface EditorOptions {
   /** 提交回调（trim 后非空才触发；历史入册在组件内先于回调完成） */
-  onSubmit?: (text: string) => void;
+  onSubmit?: (text: string, opts?: EditorSubmitOptions) => void;
   /** 内容变更通知（装配层接重绘请求） */
   onChange?: (text: string) => void;
   /** 最大可视行数（装配层按终端高 30% 注入；缺省 8） */
@@ -44,7 +53,7 @@ export class Editor implements Renderable {
   readonly view: EditorView;
   /** jump 待靶方向（null = 常态） */
   private jumpPending: 'forward' | 'backward' | null = null;
-  private readonly onSubmit: ((text: string) => void) | undefined;
+  private readonly onSubmit: ((text: string, opts?: EditorSubmitOptions) => void) | undefined;
   /** 翻页步幅（= 呈现帽——帽随 resize 重算时同步，见 setMaxVisibleLines） */
   private pageSize: number;
   private readonly keymap: Keymap;
@@ -148,6 +157,9 @@ export class Editor implements Renderable {
       }
     }
     if (e.ctrl && !e.alt && !e.shift && !e.meta && e.key === 'c') return false; // ctrl+c 透传上层 abort
+    // 候跑提交（alt+enter——挂账解挂批 2026-09-15）：与 enter 键序分立（规范键串
+    // 'alt+enter' ≠ 'enter'，两 hit 互不误触）；空框消费不回调与 submit 同判据
+    if (hit('editor.queue-followup')) return this.handleSubmit({ queueFollowUp: true });
     if (hit('editor.submit')) return this.handleSubmit();
     if (hit('editor.new-line')) {
       this.jumpPending = null;
@@ -274,13 +286,13 @@ export class Editor implements Renderable {
     return false; // 未绑定键归上层（escape / f 键 / tab…）
   }
 
-  /** 提交：模型全清取文、非空才入册 + 回调 */
-  private handleSubmit(): boolean {
+  /** 提交：模型全清取文、非空才入册 + 回调（候跑形携标记——调用方按键序分派） */
+  private handleSubmit(opts?: EditorSubmitOptions): boolean {
     this.jumpPending = null;
     const text = this.model.submit();
     if (text !== '') {
       this.model.addToHistory(text);
-      this.onSubmit?.(text);
+      this.onSubmit?.(text, opts);
     }
     return true;
   }

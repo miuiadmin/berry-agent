@@ -40,12 +40,23 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   // 全局键（路由层①——不可覆盖：中断与退出是会话生命线）
   { id: 'global.interrupt', scope: 'global', label: '中断当前 run', keys: ['ctrl+c'], overridable: false },
   { id: 'global.quit', scope: 'global', label: '退出（空框时）', keys: ['ctrl+d'], overridable: false },
+  // 模型循环（挂账解挂批 2026-09-15——ctrl+p 轮换会话模型；层③.5 应用动作路）
+  {
+    id: 'global.model-cycle',
+    scope: 'global',
+    label: '切换模型（下一 run 生效）',
+    keys: ['ctrl+p'],
+    overridable: true,
+  },
   // 思考块开关（批 10i——会话级折叠/展开）
   { id: 'thinking.toggle', scope: 'thinking', label: '思考块折叠/展开', keys: ['ctrl+t'], overridable: true },
   // 工具卡开关（批 10i——会话级展开/收起）
   { id: 'tools.toggle-expand', scope: 'tools', label: '工具卡展开/收起', keys: ['ctrl+o'], overridable: true },
   // 编辑器族（批 10j 迁册——dispatch 真源）
   { id: 'editor.submit', scope: 'editor', label: '提交输入', keys: ['enter'], overridable: true },
+  // 候跑提交（挂账解挂批 2026-09-15——alt+enter 提交携候跑标记：busy 期显式
+  // 排队候 run 终态种子新 run，不顶注不打断在飞 run；与 enter 键序分立）
+  { id: 'editor.queue-followup', scope: 'editor', label: '提交并排队候跑', keys: ['alt+enter'], overridable: true },
   { id: 'editor.new-line', scope: 'editor', label: '换行', keys: ['shift+enter', 'ctrl+j'], overridable: true },
   { id: 'editor.undo', scope: 'editor', label: '撤销', keys: ['ctrl+-', 'ctrl+_'], overridable: true },
   { id: 'editor.move-left', scope: 'editor', label: '光标左移', keys: ['left', 'ctrl+b'], overridable: true },

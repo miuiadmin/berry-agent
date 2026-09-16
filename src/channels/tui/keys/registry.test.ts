@@ -124,3 +124,35 @@ describe('Keymap.actions 投影（批 10k——/help 键位册消费源）', () 
     expect(interrupt.keys).toEqual(['ctrl+c']);
   });
 });
+
+describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
+  it('册数 29：候跑与模型循环两动作在册（缺省键位 + 可覆盖位 + 域归属）', () => {
+    expect(ACTION_CATALOG).toHaveLength(29);
+    const followUp = ACTION_CATALOG.find((d) => d.id === 'editor.queue-followup');
+    expect(followUp).toMatchObject({ scope: 'editor', keys: ['alt+enter'], overridable: true });
+    const modelCycle = ACTION_CATALOG.find((d) => d.id === 'global.model-cycle');
+    expect(modelCycle).toMatchObject({ scope: 'global', keys: ['ctrl+p'], overridable: true });
+  });
+
+  it('alt+enter 命中候跑动作（与 editor.submit 键序分立——enter 不误触）', () => {
+    const map = new Keymap();
+    expect(map.actionMatches(key('enter', { alt: true }), 'editor.queue-followup')).toBe(true);
+    expect(map.actionMatches(key('enter'), 'editor.queue-followup')).toBe(false); // 裸 enter 不属候跑
+    expect(map.actionMatches(key('enter'), 'editor.submit')).toBe(true); // 裸 enter 仍提交
+  });
+
+  it('ctrl+p 命中模型循环动作（可覆盖——不与全局两键同拒载面）', () => {
+    const map = new Keymap();
+    expect(map.actionMatches(key('p', { ctrl: true }), 'global.model-cycle')).toBe(true);
+    // 用户覆盖合法：迁走不冲突
+    const remapped = new Keymap({ 'global.model-cycle': 'ctrl+n' });
+    expect(remapped.rejections).toEqual([]);
+    expect(remapped.actionMatches(key('n', { ctrl: true }), 'global.model-cycle')).toBe(true);
+  });
+
+  it('他动作挪上 alt+enter 撞候跑缺省 → conflict 拒载（候跑缺省位不裸让）', () => {
+    const r = resolveKeybindings({ 'editor.submit': 'alt+enter' });
+    expect(r.rejections.some((x) => x.kind === 'conflict' && x.actionId === 'editor.submit')).toBe(true);
+    expect(r.keysByAction.get('editor.submit')).toEqual(['enter']); // 回退缺省
+  });
+});

@@ -423,3 +423,86 @@ describe('runTuiEntry 装配序', () => {
     expect(gone).toBeUndefined();
   });
 });
+
+describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
+  /** 双模型 rig（循环序可观测——m1 → m2 → m1） */
+  async function rigTwoModelEntry(dataDir: string, cwd: string) {
+    const faux = fauxProvider({ provider: 'faux-key3', models: [{ id: 'm1' }, { id: 'm2' }] });
+    const io = new FakeTerminalIO();
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io,
+      cwd,
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-key3/m1',
+      env: {},
+    });
+    await io.ready();
+    return { entry, io, faux };
+  }
+
+  it('alt+enter 候跑全链：busy 期排队回执上屏 + run 终态候跑文种子新 run', async () => {
+    const { entry, io, faux } = await rigTwoModelEntry(rigDir('entry-qf-'), rigDir('entry-ws-qf-'));
+    // 首 run 迟响应（Promise 工厂延迟——busy 窗口可控制）；次 run 即答
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const userTextsByCall: string[][] = [];
+    faux.setResponses([
+      async (context) => {
+        userTextsByCall.push(
+          context.messages.filter((m) => m.role === 'user').map((m) => String((m as { content: unknown }).content)),
+        );
+        await firstGate;
+        return messageOf();
+      },
+      (context) => {
+        userTextsByCall.push(
+          context.messages.filter((m) => m.role === 'user').map((m) => String((m as { content: unknown }).content)),
+        );
+        return messageOf();
+      },
+    ]);
+    io.send('一问\r');
+    await until(() => faux.state.callCount >= 1); // 首 run 在飞（响应挂起——busy 窗口）
+    io.send('候跑问');
+    io.send('\x1b[13;3u'); // alt+enter（kitty 形）——候跑提交
+    await until(() => io.output.includes('已排队候跑')); // 排队回执一行（notify 面）
+    expect(faux.state.callCount).toBe(1); // 候跑未顶注在飞 run（零新调用）
+    releaseFirst(); // 首 run 放行——候跑件种子新起 run
+    await until(() => faux.state.callCount >= 2);
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 第二请求才含候跑文（新 run 种子——与首 run 分叉）
+    expect(userTextsByCall[1]!.some((t) => t === '候跑问')).toBe(true);
+    expect(userTextsByCall[0]!.some((t) => t === '候跑问')).toBe(false);
+  });
+
+  it('ctrl+p 模型循环全链：notify 回执 + footer 模型段换新 + 下一 run 用新模型', async () => {
+    const { entry, io, faux } = await rigTwoModelEntry(rigDir('entry-mc-'), rigDir('entry-ws-mc-'));
+    const modelsByCall: string[] = [];
+    // 模型观测位 = faux 工厂第 4 参（pi-ai FauxResponseFactory 形参序——
+    // options 第 2 参无 model 键，实测 keys 仅 apiKey/headers/env；原断言位
+    // 恒红属测试自伤，随本批勘正——同段数据路批测试勘正先例）
+    const observeModel = (_c: unknown, _o: unknown, _s: unknown, model: unknown) => {
+      const m = model as { provider?: string; id?: string } | undefined;
+      modelsByCall.push(`${m?.provider ?? ''}/${m?.id ?? ''}`);
+      return messageOf();
+    };
+    faux.setResponses([observeModel, observeModel]);
+    io.send('一问\r'); // m1 run
+    await until(() => modelsByCall.length >= 1);
+    io.send('\x10'); // ctrl+p——模型循环（m1 → m2）
+    await until(() => io.output.includes('模型已切换')); // notify 回执行
+    expect(io.output).toContain('m2'); // footer 模型段已换新（常驻段活写）
+    io.send('二问\r'); // 下一 run 起跑消费新模型
+    await until(() => modelsByCall.length >= 2);
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    expect(modelsByCall[0]).toContain('m1');
+    expect(modelsByCall[1]).toContain('m2'); // 生效语义 = 下一 run 起跑
+  });
+});
