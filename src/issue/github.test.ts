@@ -158,9 +158,14 @@ describe('createPullRequest（04 §13 create-pr 执行腿）', () => {
 
 describe('折码（限额/不可达）', () => {
   it('403 → ISSUE_SOURCE_RATE_LIMITED，retryAfter 取 x-ratelimit-reset', async () => {
-    const reset = Math.floor(Date.now() / 1000) + 120;
+    // 时钟注入定稳秒边界：修前测试与实现两次独立读墙钟——两读间跨秒刻
+    // （首读落在秒尾最后几毫秒）即 120s 塌 119s（CI run 35209101559 实红形，
+    // ~0.1% 概率 flaky）。注入后 reset 与折算同源单钟，秒尾值（…999）也
+    // 确定性绿——边界形本身就此入锁。
+    const t = 1_700_000_000_999; // 秒尾——修前竞态形的高危位
+    const reset = Math.floor(t / 1000) + 120;
     const ff = fakeFetch({ '/repos': json({ message: 'rate' }, 403, { 'x-ratelimit-reset': String(reset) }) });
-    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch, now: () => t });
     const err = await backend.listIssues({ repo: 'o/r' }).catch((e) => e);
     expect(err.code).toBe('ISSUE_SOURCE_RATE_LIMITED');
     expect(err.message).toContain('120s');

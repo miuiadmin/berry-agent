@@ -21,6 +21,9 @@ export interface GithubBackendOptions {
   readonly fetchImpl?: typeof fetch;
   /** API 基址（缺省 https://api.github.com——GitHub Enterprise / 测试面覆写） */
   readonly apiBase?: string;
+  /** 时钟注入（缺省 Date.now——测试面定稳秒边界：reset 头折算的两次墙钟读
+   *  之间跨秒刻会使 120s 塌 119s——CI run 35209101559 实红形） */
+  readonly now?: () => number;
 }
 
 /** PR 归一形（createPullRequest 产物——危险闸 create-pr 执行腿的回执面） */
@@ -91,6 +94,7 @@ interface GhCommentRow {
 export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
   const apiBase = (opts.apiBase ?? 'https://api.github.com').replace(/\/+$/, '');
   const doFetch = opts.fetchImpl ?? fetch;
+  const now = opts.now ?? Date.now;
 
   /** 单请求（通用头 + JSON 解析；非 2xx/网络错折码上抛；POST 形携 body） */
   async function requestJson<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
@@ -116,8 +120,8 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
     }
     if (response.status === 403 || response.status === 429) {
       const reset = Number(response.headers.get('x-ratelimit-reset'));
-      // reset 头是 epoch 秒；缺席/坏值回 60s 缺省退避
-      const retryAfter = Number.isFinite(reset) && reset > 0 ? Math.max(1, reset - Math.floor(Date.now() / 1000)) : 60;
+      // reset 头是 epoch 秒；缺席/坏值回 60s 缺省退避（时钟走注入 seam——单源可测）
+      const retryAfter = Number.isFinite(reset) && reset > 0 ? Math.max(1, reset - Math.floor(now() / 1000)) : 60;
       throw new BaseError(
         'ISSUE_SOURCE_RATE_LIMITED',
         `[ISSUE_SOURCE_RATE_LIMITED] GitHub 限额（${path}，HTTP ${response.status}）——${retryAfter}s 后退避`,
