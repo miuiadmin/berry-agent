@@ -13,7 +13,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** 应答桩（手搓最小 Response 形——jsdom 轨不依赖真 Response 实现） */
+/**
+ * 应答桩（手搓最小 Response 形——jsdom 轨不依赖真 Response 实现）。
+ * text 腿：call 折叠腿走 res.text() 再 JSON.parse——桩以 JSON.stringify
+ * 回灌（json 缺席时给空串回体，非 JSON 错误形走 jsonThrows 触发折叠分支）。
+ */
 function resOf(options: { ok: boolean; status: number; blob?: Blob; json?: unknown; jsonThrows?: boolean }): Response {
   return {
     ok: options.ok,
@@ -23,6 +27,7 @@ function resOf(options: { ok: boolean; status: number; blob?: Blob; json?: unkno
       if (options.jsonThrows) throw new SyntaxError('非 JSON 应答');
       return options.json;
     },
+    text: async () => JSON.stringify(options.json ?? ''),
   } as unknown as Response;
 }
 
@@ -64,5 +69,53 @@ describe('api.exportSession（SPA /export 消费腿）', () => {
     // 回退词面：HTTP_<status>（服务端 markdown 直出腿的错误应答仍走 JSON 面，
     // 此形锁定回退分支的防御位）
     await expect(api.exportSession('s-1')).rejects.toMatchObject({ code: 'HTTP_501' });
+  });
+});
+
+describe('api.workspaceFiles（@ 文件段补全消费腿）', () => {
+  it('fetch 形：端点常量 + q encodeURIComponent + 同源 cookie 携行（走 call 折叠腿）', async () => {
+    const fetchMock = vi.fn(async () => resOf({ ok: true, status: 200, json: { items: ['@src/'] } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.workspaceFiles('src/ap');
+    // 端点词面单源（WEBUI_ENDPOINTS.workspaceFiles）+ query 编码拼装
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workspace/files?q=src%2Fap',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    );
+  });
+
+  it('回体解包：items 逐串直出（引号形整串透传不解包）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => resOf({ ok: true, status: 200, json: { items: ['@src/', '@"my file.txt"'] } })),
+    );
+    const out = await api.workspaceFiles('src');
+    // 条目 = 整 token 代换单位（含 @ 前缀与引号形）——客户端零路径/引号知识
+    expect(out).toEqual(['@src/', '@"my file.txt"']);
+  });
+
+  it('空 items 回体：解包为空数组（诚实空不弹层）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => resOf({ ok: true, status: 200, json: { items: [] } })),
+    );
+    await expect(api.workspaceFiles('zzz')).resolves.toEqual([]);
+  });
+
+  it('非 2xx JSON 折 ApiError：error 词面优先（500 internal 形）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => resOf({ ok: false, status: 500, json: { error: 'internal' } })),
+    );
+    await expect(api.workspaceFiles('x')).rejects.toMatchObject({ status: 500, code: 'internal' });
+  });
+
+  it('非 2xx 非 JSON 应答回退 HTTP 状态词（502 防御位）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => resOf({ ok: false, status: 502, jsonThrows: true })),
+    );
+    await expect(api.workspaceFiles('x')).rejects.toBeInstanceOf(ApiError);
+    await expect(api.workspaceFiles('x')).rejects.toMatchObject({ code: 'HTTP_502' });
   });
 });

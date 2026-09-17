@@ -507,6 +507,15 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     const files = await get('/api/workspace/files?q=src');
     expect(files.status).toBe(200);
     expect(files.json).toEqual({ items: ['a/src.ts'] });
+    // 面在场而 symbols 键缺席（恰 = host 桥生产形——completion 只含
+    // workspaceFiles）：symbols 路由键级缺省位回诚实空（与整面缺席分立锁）
+    const symbols = await get('/api/workspace/symbols?q=x');
+    expect(symbols.status).toBe(200);
+    expect(symbols.json).toEqual({ items: [] });
+    // q 缺参形：handler queryOf(req).get('q') ?? '' 缺省位——q='' 走桩的空查询腿
+    const noQuery = await get('/api/workspace/files');
+    expect(noQuery.status).toBe(200);
+    expect(noQuery.json).toEqual({ items: ['a/.ts'] });
     const bare = await rig(makeDeps({ withoutCompletion: true }).deps);
     try {
       const res = await fetch(`http://127.0.0.1:${bare.port}/api/workspace/symbols?q=x`, {

@@ -37,6 +37,9 @@ const apiMock = vi.hoisted(() => ({
   decide: vi.fn<(approvalId: string, answer: DecideAnswer) => Promise<'applied' | 'superseded'>>(),
   todo: vi.fn<(sessionId: string) => Promise<readonly unknown[] | null>>(),
   exportSession: vi.fn<(sessionId: string) => Promise<Blob>>(),
+  // @ 文件段补全消费腿（hygiene——App 挂点传参闭包踩此面；缺省诚实空
+  // 不弹层，实现钉在创建位经 clearAllMocks 不清除）
+  workspaceFiles: vi.fn<(query: string) => Promise<readonly string[]>>().mockImplementation(async () => []),
 }));
 
 vi.mock('./api.js', () => ({ api: apiMock }));

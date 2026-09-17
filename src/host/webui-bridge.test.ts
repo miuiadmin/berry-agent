@@ -72,7 +72,7 @@ function rigStack(rt: HostRuntime) {
  * 装配根同构 webui kit（批 19e——openWebuiFace 挂载改走 kit 分档；测试
  * 自组真身闭包 = assembly webuiFaceMount 同构，件在场形全覆盖）
  */
-function mountKitOf(stack: ConversationStack, exportSource?: WebuiExportSource): WebuiMountKit {
+function mountKitOf(stack: ConversationStack, exportSource?: WebuiExportSource, cwd?: string): WebuiMountKit {
   return {
     mountOnFace: (face, opts) =>
       mountWebuiOnFace({
@@ -80,6 +80,7 @@ function mountKitOf(stack: ConversationStack, exportSource?: WebuiExportSource):
         face,
         ...(opts?.staticDir !== undefined ? { staticDir: opts.staticDir } : {}),
         ...(exportSource !== undefined ? { exportSource } : {}),
+        ...(cwd !== undefined ? { cwd } : {}),
       }),
   };
 }
@@ -783,6 +784,101 @@ describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
       expect(hit, `canonical=${canonical} 键下未见会话 ${ack.sessionId}`).toBeDefined();
     } finally {
       await handle.stop(); // closer 幂等——rt.shutdown 内二次 stop 无害
+      await rt.shutdown();
+    }
+  });
+});
+
+/* ---------------- completion 面接线（@ 文件段补全——TUI 同源源真身注入） ---------------- */
+
+describe('completion 面接线：workspaceFiles = FileMentionSource replacement 直出', () => {
+  /**
+   * 隔离工作区造法（真目录真文件）：sub/ 目录（目录优先锚）+ 空白路径文件
+   * （引号形锚）+ .git/ 内脏（含一文件——跳过锚：内脏非空仍不可见）+ 两常
+   * 规文件（字典序锚）。realpath 起底——canonical 锚与真身同址（macOS
+   * /var → /private/var 符号链消歧）。
+   */
+  function filesRig(): string {
+    const root = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'webui-files-')));
+    dirs.push(root);
+    mkdirSync(join(root, 'sub'));
+    mkdirSync(join(root, '.git'));
+    writeFileSync(join(root, 'alpha.ts'), 'export {};\n');
+    writeFileSync(join(root, 'beta.md'), '# beta\n');
+    writeFileSync(join(root, 'my file.txt'), '空白路径文件\n');
+    writeFileSync(join(root, '.git', 'config'), '[core]\n');
+    return root;
+  }
+
+  it('e2e：GET /api/workspace/files 回 replacement 形条目（目录优先 + 引号形 + .git 跳过）；q=sub 前缀过滤', async () => {
+    const wsRoot = filesRig();
+    const rt = createHostRuntime({ dataDir: rigDir('webui-files-data-') });
+    const { stack } = rigStack(rt);
+    let opened: { port: number; token: string } | undefined;
+    await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack, undefined, wsRoot), // kit 透传补全锚——隔离工作区形
+      disclose: () => undefined, // 测试态 stderr 静默
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    try {
+      // 空查询（q=''——裸 '@' 触发形）：列工作区根——唯一目录置顶 + 尾斜杠
+      const root = await apiFetch(opened!.port, opened!.token, '/api/workspace/files?q=');
+      expect(root.status).toBe(200);
+      const items = (root.body as { items: string[] }).items;
+      expect(items[0]).toBe('@sub/'); // 目录优先置顶 + 尾斜杠（续深语义）
+      expect(items).toContain('@"my file.txt"'); // 空白路径引号形——整 token 直插单位
+      expect(items.some((it) => it.startsWith('@.git'))).toBe(false); // 版本库内脏跳过
+      // 前缀过滤（确定性全等）：q=sub → 恰 ['@sub/']
+      const sub = await apiFetch(opened!.port, opened!.token, '/api/workspace/files?q=sub');
+      expect(sub.status).toBe(200);
+      expect((sub.body as { items: string[] }).items).toEqual(['@sub/']);
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('deps 直锁：completion.workspaceFiles 函数形 + replacement 条目；workspaceSymbols 键级缺席', async () => {
+    const wsRoot = filesRig();
+    const rt = createHostRuntime({ dataDir: rigDir('webui-files-deps-') });
+    const { stack } = rigStack(rt);
+    // 面不起监听——路由注册与桥真身不依赖 start（deps 消费位直取）
+    const face = createSdkHttpFace({
+      config: { tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: createServeBridge(stack, rt, { cwd: process.cwd() }),
+    });
+    const mount = mountWebuiOnFace({ stack, face, cwd: wsRoot });
+    try {
+      // workspaceFiles 函数形（面在场）——真询回 replacement 形条目
+      expect(typeof mount.deps.completion!.workspaceFiles).toBe('function');
+      expect(mount.deps.completion!.workspaceFiles!('sub')).toEqual(['@sub/']);
+      // 键级诚实缺席（与整面缺席分立——全仓零实现零消费，不造符号索引）
+      expect(mount.deps.completion!.workspaceSymbols).toBeUndefined();
+    } finally {
+      mount.detach();
+      await rt.shutdown();
+    }
+  });
+
+  it('daemon 直挂形（无 cwd）：workspaceFiles 仍在场（process.cwd canonical 兜底恒接线）', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-files-daemon-') });
+    const { stack } = rigStack(rt);
+    const face = createSdkHttpFace({
+      config: { tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: createServeBridge(stack, rt, { cwd: process.cwd() }),
+    });
+    const mount = mountWebuiOnFace({ stack, face }); // daemon 形零参——缺省全局态锚
+    try {
+      expect(typeof mount.deps.completion!.workspaceFiles).toBe('function');
+      // 真询不炸即可（锚 = 宿主树 canonical 根——内容随树面，不锚具体条目）
+      expect(Array.isArray(mount.deps.completion!.workspaceFiles!(''))).toBe(true);
+      expect(mount.deps.completion!.workspaceSymbols).toBeUndefined();
+    } finally {
+      mount.detach();
       await rt.shutdown();
     }
   });

@@ -266,7 +266,13 @@ function Main(): ReactElement {
           />
         ) : null}
         <Transcript messages={state.messages} status={state.status} bottomRef={bottomRef} />
-        <Composer onSubmit={submit} onInterrupt={interrupt} />
+        {/* 输入区（@ 文件段补全源经闭包注入——api.workspaceFiles 消费腿；
+            prop 在场即启用弹层，失败由 Composer 静默收层不打扰通知条） */}
+        <Composer
+          onSubmit={submit}
+          onInterrupt={interrupt}
+          fetchFileCompletions={(query) => api.workspaceFiles(query)}
+        />
       </main>
       {/* 右栏：审批 */}
       <ApprovalPanel approvals={state.approvals} onDecide={decide} />

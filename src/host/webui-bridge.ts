@@ -33,7 +33,10 @@
  * 判据 = isOpen 内存册（open）∪ 持久 list（closed）∪ 余（missing）；
  * submitPrompt 受理门前置（服务端已判 open——isOpen 真则驱动在册，
  * submitText 必达）；todoOf 无驱动回 undefined（服务端 `items ?? null`
- * 诚实空）。completion 面 v1 不接（诚实缺席——补全族接线挂账后续批）。
+ * 诚实空）。completion 面 workspaceFiles 已接——TUI 同源 FileMentionSource
+ * 经 channels 公开面（@ 文件段补全；锚 = 挂载 cwd 缺省全局态，canonical 化
+ * .git 上溯同 TUI mention 源律）；workspaceSymbols 诚实缺席——全仓零实现
+ * 零消费、无规范语义，非欠账，有真实需求先立题再接线。
  * exportMarkdown = renderSessionMarkdown 第三消费位（2026-09-17 TUI 余量
  * 收官批②——exportSource seam 注入双事实源 + 行面元数据，拼装真源本件
  * 单源；缺席 seam = 端点 501 诚实缺席）。
@@ -42,7 +45,9 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { FileMentionSource } from '../channels/index.js';
 import type { SessionEvent } from '../contracts/index.js';
+import { canonicalWorkspaceRoot } from '../context/index.js';
 import { foldTodoTable } from '../conversation/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { SdkHttpFaceHandle } from '../sdk/index.js';
@@ -184,6 +189,13 @@ export interface WebuiFaceMountOptions {
   /** 静态面目录覆盖（测试注入；缺省探测 dist/webui——缺席 API-only） */
   readonly staticDir?: string;
   /**
+   * @ 文件段补全锚（缺省 process.cwd()——与浏览器会话 workspaceRoot 缺省
+   * 全局态同锚，本件头注既述）。canonical 化 .git 上溯取仓库根（TUI mention
+   * 源同律）；测试注入隔离工作区形。注意与 WebuiBridgeOptions.cwd（CL-A2
+   * 会话登记键锚）分立——两锚各自缺省全局态，互不串流。
+   */
+  readonly cwd?: string;
+  /**
    * 会话导出源 seam（2026-09-17 TUI 余量收官批②——/export 端点拼装注入位）：
    * 装配根注入双事实源取值器 + 行面元数据读（assembly webuiFaceMount 闭包
    * 同构）；桥真身据此调 renderSessionMarkdown（拼装真源 host 单源——
@@ -224,7 +236,7 @@ export interface WebuiFaceMount {
  * 接线；closer 注册与 token 披露归调用方按入口形各自编排。
  */
 export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount {
-  const deps = bridgeDeps(options.stack, options.staticDir, options.exportSource);
+  const deps = bridgeDeps(options.stack, options.staticDir, options.exportSource, options.cwd);
   // 面注册器直注（WebuiRouteDescriptor → SdkRouteDescriptor 方向性结构兼容）
   const webui = mountWebui({ ...deps, register: options.face.register });
   // 通道挂接（UiBackend 第四实装 claim 桥）——12f-2c 期注记「addBackend 归
@@ -247,7 +259,15 @@ export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount
  * 桥真身：conversation 栈五动词 → WebuiDeps 三窄面（词面独立律——本侧
  * 只做映射不造新词；结构兼容由 face.register 直注与 e2e 双向互证）。
  */
-function bridgeDeps(stack: ConversationStack, staticDirOverride?: string, exportSource?: WebuiExportSource): WebuiDeps {
+function bridgeDeps(
+  stack: ConversationStack,
+  staticDirOverride?: string,
+  exportSource?: WebuiExportSource,
+  cwd?: string,
+): WebuiDeps {
+  // @ 文件段补全源（挂载期单实例——锚随面恒定、源零状态、同步 IO 毫秒级；
+  // TUI per-query 新铸是因其锚随聚焦会话变，此处锚恒定不必仿）
+  const fileSource = new FileMentionSource({ basePath: canonicalWorkspaceRoot(cwd ?? process.cwd()) });
   return {
     sessions: {
       createSession: () => stack.manager.create().sessionId,
@@ -303,7 +323,12 @@ function bridgeDeps(stack: ConversationStack, staticDirOverride?: string, export
           }
         : {}),
     },
-    // completion 面 v1 不接（可选面缺席合法——服务端诚实回空）
+    // 补全族：workspaceFiles = TUI 同源 @ 文件段源（replacement 形直出——
+    // 条目即完整 token 代换单位，含 @ 前缀与引号形，客户端零路径知识零引号
+    // 知识）；workspaceSymbols 不注入（全仓零实现零消费——服务端 ?? [] 诚实空）
+    completion: {
+      workspaceFiles: (query) => fileSource.get(query).map((item) => item.replacement),
+    },
     ...(staticDirOverride !== undefined ? { staticDir: staticDirOverride } : { staticDir: resolveStaticDir() }),
   };
 }

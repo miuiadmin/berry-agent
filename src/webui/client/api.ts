@@ -122,6 +122,16 @@ export const api = {
   },
 
   /**
+   * 补全族：@ 文件段（?q= 前缀查询——q 为去 @ 前缀的 token 内文）。条目 =
+   * 整 token 代换单位（含 @ 前缀与引号形——源侧单源铸好），客户端零路径/
+   * 引号知识直显直插；面缺席或无命中时服务端诚实回 {items:[]}。
+   */
+  async workspaceFiles(query: string): Promise<readonly string[]> {
+    const body = await call<{ items: string[] }>(`${WEBUI_ENDPOINTS.workspaceFiles}?q=${encodeURIComponent(query)}`);
+    return body.items;
+  },
+
+  /**
    * 会话导出（markdown 直出——应答体非 JSON 故不走 call 折叠腿；blob 形
    * 交呈现面喂 URL.createObjectURL 原生下载）。鉴权同全 API 面：cookie 桥
    * 同源自动携行；非 2xx（404 缺席 / 501 面未装配 / 401 失桥）折 ApiError
