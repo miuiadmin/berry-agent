@@ -27,10 +27,38 @@ import { ApprovalPanel } from './components/ApprovalPanel.js';
 import { AuthGate } from './components/AuthGate.js';
 import { Composer } from './components/Composer.js';
 import { NoticeBar } from './components/NoticeBar.js';
+import { SessionHeader } from './components/SessionHeader.js';
 import { SessionList } from './components/SessionList.js';
 import { TodoPanel } from './components/TodoPanel.js';
 import { Transcript } from './components/Transcript.js';
 import type { ClientEnvelope } from './protocol.js';
+
+/**
+ * 浏览器原生下载（blob → 临时 object URL → 隐式 <a download> 点击）。
+ *
+ * fetch+blob 形（非 <a href> 直链）：鉴权在 fetch 腿完成（cookie 桥同源
+ * 自动携行），失败可折通知条（直链形的 401/404 会整页跳 JSON 错误——不可
+ * 控）；下载文件名由客户端定（同源 download 属性语义），object URL 用后
+ * 即回收。
+ */
+function triggerDownload(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * 下载文件名时间戳（ISO 压形——冒号/点替换连字符，文件名安全）。与 CLI
+ * `berry sessions export` / TUI `/export` 落盘腿 src/host/session-export.ts
+ * 的 fileStampOf 同形约定同步——客户端树隔离（零 host 依赖入 bundle），形
+ * 同步靠 app.test.tsx 正则锁执法。
+ */
+function fileStampOf(ms: number): string {
+  return new Date(ms).toISOString().replace(/[:.]/g, '-');
+}
 
 /** 根组件（main.tsx 挂载位——auth 探针门 + 主面二段） */
 export function App(): ReactElement {
@@ -165,6 +193,30 @@ function Main(): ReactElement {
     if (state.activeId !== null) void api.interrupt(state.activeId).catch(() => {});
   }, [state.activeId]);
 
+  /**
+   * 导出当前会话（markdown 下载——SPA /export 客户端消费腿）。文件名
+   * `<会话id>-<时间戳>.md` 与 CLI `berry sessions export` / TUI `/export`
+   * 落盘形对齐（跨入口同名族——CLI/TUI 时间戳防共享 exports/ 目录撞名，
+   * 浏览器下载目录归用户管理且重复下载自去重不覆盖，对齐纯为命名族一致）。
+   * 失败折通知条（同提交失败呈现形——错误不静默）。
+   */
+  const exportActive = useCallback(() => {
+    const sessionId = state.activeId;
+    if (sessionId === null) return;
+    void api
+      .exportSession(sessionId)
+      .then((blob) => {
+        triggerDownload(`${sessionId}-${fileStampOf(Date.now())}.md`, blob);
+      })
+      .catch(() => {
+        setState((prev) => ({
+          ...prev,
+          notices: [...prev.notices, { id: prev.seq + 1, message: '导出失败——请重试', level: 'error' }],
+          seq: prev.seq + 1,
+        }));
+      });
+  }, [state.activeId]);
+
   /** 审批应答（applied/superseded 同出清——异口已答同语义；失败回拉清单自愈） */
   const decide = useCallback(
     (approvalId: string, answer: 'approve' | 'reject' | 'cancel') => {
@@ -201,9 +253,18 @@ function Main(): ReactElement {
         <SessionList sessions={state.sessions} activeId={state.activeId} onSelect={switchSession} />
         <TodoPanel todo={state.todo} />
       </aside>
-      {/* 主列：通知条 + 正文 + 状态行 + 输入 */}
+      {/* 主列：通知条 + 会话详情头行 + 正文 + 状态行 + 输入 */}
       <main className="flex min-w-0 flex-1 flex-col bg-zinc-900">
         <NoticeBar notices={state.notices} />
+        {/* 会话详情头行（有活跃会话才在场——导出入口随行；清单未含新会话
+            的瞬窗标题回退 id 截断，同 SessionList 诚实回退律） */}
+        {state.activeId !== null ? (
+          <SessionHeader
+            title={state.sessions.find((s) => s.id === state.activeId)?.title ?? null}
+            sessionId={state.activeId}
+            onExport={exportActive}
+          />
+        ) : null}
         <Transcript messages={state.messages} status={state.status} bottomRef={bottomRef} />
         <Composer onSubmit={submit} onInterrupt={interrupt} />
       </main>

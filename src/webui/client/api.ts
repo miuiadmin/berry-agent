@@ -32,6 +32,18 @@ function withId(endpoint: string, id: string): string {
   return endpoint.replace(':id', encodeURIComponent(id));
 }
 
+/** 非 2xx 折 ApiError（JSON 应答优先取 error 词面；非 JSON 回退 HTTP 状态词） */
+async function foldError(res: Response): Promise<ApiError> {
+  let code = `HTTP_${res.status}`;
+  try {
+    const body = (await res.json()) as { error?: string };
+    if (typeof body.error === 'string') code = body.error;
+  } catch {
+    // 非 JSON 应答——保留 HTTP 状态词面
+  }
+  return new ApiError(res.status, code);
+}
+
 /** JSON 调用腿（同源 cookie 恒携；非 2xx 折 ApiError） */
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -39,16 +51,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'same-origin',
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   });
-  if (!res.ok) {
-    let code = `HTTP_${res.status}`;
-    try {
-      const body = (await res.json()) as { error?: string };
-      if (typeof body.error === 'string') code = body.error;
-    } catch {
-      // 非 JSON 应答——保留 HTTP 状态词面
-    }
-    throw new ApiError(res.status, code);
-  }
+  if (!res.ok) throw await foldError(res);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text === '' ? undefined : (JSON.parse(text) as T)) as T;
@@ -116,5 +119,19 @@ export const api = {
   async todo(sessionId: string): Promise<readonly ClientTodoItem[] | null> {
     const body = await call<{ items: ClientTodoItem[] | null }>(withId(WEBUI_ENDPOINTS.sessionTodo, sessionId));
     return body.items;
+  },
+
+  /**
+   * 会话导出（markdown 直出——应答体非 JSON 故不走 call 折叠腿；blob 形
+   * 交呈现面喂 URL.createObjectURL 原生下载）。鉴权同全 API 面：cookie 桥
+   * 同源自动携行；非 2xx（404 缺席 / 501 面未装配 / 401 失桥）折 ApiError
+   * 由调用面呈现。
+   */
+  async exportSession(sessionId: string): Promise<Blob> {
+    const res = await fetch(withId(WEBUI_ENDPOINTS.sessionExport, sessionId), {
+      credentials: 'same-origin',
+    });
+    if (!res.ok) throw await foldError(res);
+    return res.blob();
   },
 };

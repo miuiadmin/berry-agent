@@ -234,7 +234,7 @@ berry sessions list              # 清单：id/标题/时间/血缘（updated �
 berry sessions resume <id>       # 按 id 续接后进 TUI（与无参 TUI 的按目录取最新互补）
 berry sessions fork <id>         # 边界快照分叉（种子事件随种子走）
 berry sessions search "关键词"    # 跨会话全文检索（bm25 序，输出 id/标题/#seq/切窗摘录）
-berry sessions export <id>       # 会话导出 markdown 落盘（exports/<会话id>-<时间戳>.md——与 TUI /export 同源拼装）
+berry sessions export <id>       # 会话导出 markdown 落盘（exports/<会话id>-<时间戳>.md——与 TUI /export 同源拼装；Web 面「导出」键同源直出下载）
 berry sessions reindex           # 全文索引全量重建（派生物不修不补——重建即修复）
 ```
 

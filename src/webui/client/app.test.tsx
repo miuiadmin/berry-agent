@@ -2,7 +2,7 @@
  * webui/client/App 组件冒烟测试（批 18a-2；jsdom 轨）。
  *
  * api 全桩（vi.mock 到模块位）+ FakeEventSource（jsdom 无原生实现——
- * 桩挂 globalThis，可编程 open/emit）。锁四环——
+ * 桩挂 globalThis，可编程 open/emit）。锁五环——
  * ①鉴权门：未桥走 AuthGate（token 错 401 呈错因）→ 桥成进主面
  * ②主面装载：清单呈现 + 自动选首会话 + EventSource per 会话接线 +
  * onopen 恒重拉投影（正确性层真源执法锚）
@@ -10,6 +10,9 @@
  * 出清 + decide 回执
  * ④提交与打断：composer 发送走 submit（messageId 幂等位生成）→ 乐观
  * 回显；打断键走 interrupt
+ * ⑤会话导出：主面导出入口 → exportSession(activeId) → blob 下载锚
+ * （文件名 <会话id>-<时间戳>.md——CLI/TUI 落盘形对齐 + object URL 用后回收）；
+ * 失败走通知条
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -33,6 +36,7 @@ const apiMock = vi.hoisted(() => ({
   listApprovals: vi.fn<() => Promise<readonly ClientApprovalEntry[]>>(),
   decide: vi.fn<(approvalId: string, answer: DecideAnswer) => Promise<'applied' | 'superseded'>>(),
   todo: vi.fn<(sessionId: string) => Promise<readonly unknown[] | null>>(),
+  exportSession: vi.fn<(sessionId: string) => Promise<Blob>>(),
 }));
 
 vi.mock('./api.js', () => ({ api: apiMock }));
@@ -101,7 +105,7 @@ describe('App 鉴权门', () => {
     primeMain();
     fireEvent.change(input, { target: { value: 'right-token' } });
     fireEvent.click(screen.getByRole('button', { name: '进入' }));
-    await screen.findByText('测试会话');
+    await screen.findAllByText('测试会话');
     unmount();
   });
 });
@@ -111,7 +115,7 @@ describe('App 主面活体环', () => {
     primeMain();
     apiMock.fetchMessages.mockResolvedValue([{ role: 'user', content: '投影旧问', timestamp: 1 }]);
     render(<App />);
-    await screen.findByText('测试会话');
+    await screen.findAllByText('测试会话');
     await waitFor(() => {
       expect(FakeEventSource.instances).toHaveLength(1);
     });
@@ -148,7 +152,7 @@ describe('App 主面活体环', () => {
   it('asked 镜像入审批栏 → 应答出清 + decide 回执；superseded 同出清', async () => {
     primeMain();
     render(<App />);
-    await screen.findByText('测试会话');
+    await screen.findAllByText('测试会话');
     await waitFor(() => {
       expect(FakeEventSource.instances).toHaveLength(1);
     });
@@ -173,7 +177,7 @@ describe('App 主面活体环', () => {
     apiMock.submit.mockResolvedValue(undefined);
     apiMock.interrupt.mockResolvedValue(undefined);
     render(<App />);
-    await screen.findByText('测试会话');
+    await screen.findAllByText('测试会话');
     const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
     fireEvent.change(box, { target: { value: '你好呀' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
@@ -197,7 +201,7 @@ describe('App 主面活体环', () => {
     apiMock.todo.mockResolvedValue(null);
     apiMock.listApprovals.mockResolvedValue([]);
     render(<App />);
-    await screen.findByText('一会话');
+    await screen.findAllByText('一会话');
     await waitFor(() => {
       expect(FakeEventSource.instances).toHaveLength(1);
     });
@@ -207,5 +211,46 @@ describe('App 主面活体环', () => {
     });
     expect(FakeEventSource.instances[0]!.closed).toBe(true);
     expect(FakeEventSource.instances[1]!.url).toBe('/api/sessions/s-2/events');
+  });
+});
+
+describe('App 会话导出腿（SPA /export 客户端消费）', () => {
+  it('导出入口在主面：点击 → exportSession(activeId) → blob 下载锚（文件名 <会话id>-<时间戳>.md——CLI/TUI 落盘形对齐）+ object URL 用后回收', async () => {
+    primeMain();
+    // jsdom 无 URL.createObjectURL 实现（Not implemented）——桩化并回收校验复用
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock-url');
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    // 下载锚点击桩化：jsdom 不导航，锚属性即断言面
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    apiMock.exportSession.mockResolvedValue(new Blob(['# 会话'], { type: 'text/markdown' }));
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    fireEvent.click(screen.getByRole('button', { name: '导出' }));
+    await waitFor(() => {
+      expect(apiMock.exportSession).toHaveBeenCalledWith('s-1');
+    });
+    // 下载锚：客户端文件名 + blob object URL + 点击即回收（不留悬挂引用）
+    await waitFor(() => {
+      expect(anchorClick).toHaveBeenCalledTimes(1);
+    });
+    const anchor = anchorClick.mock.instances[0] as HTMLAnchorElement;
+    // 文件名形：`<会话id>-<ISO 时间戳(:.→-)>.md`——与 CLI `berry sessions
+    // export` / TUI `/export` 落盘形对齐（src/host/session-export.ts
+    // fileStampOf 同形约定；客户端树隔离不 import host 件，本正则即形锁）
+    expect(anchor.download).toMatch(/^s-1-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.md$/);
+    expect(anchor.href).toBe('blob:mock-url');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    createObjectURL.mockRestore();
+    revokeObjectURL.mockRestore();
+    anchorClick.mockRestore();
+  });
+
+  it('导出失败 → 通知条呈现（同提交失败呈现形——错误不静默）', async () => {
+    primeMain();
+    apiMock.exportSession.mockRejectedValue(new Error('API 404 not_found'));
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    fireEvent.click(screen.getByRole('button', { name: '导出' }));
+    await screen.findByText('导出失败——请重试');
   });
 });
