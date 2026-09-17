@@ -56,13 +56,15 @@
 # （2026-09-15 CI run 34852040696/34877836385 双红实证 spawn bwrap ENOENT）；
 # macOS 腿走 seatbelt 后端天然绿，无需装腿。
 #
-# 必检列治理注记（批 D E1）：分支保护真源在 GitHub 仓库设置
-# （branches/dev/protection），CI 文件改不动它。现状必检五 context
-# （typecheck / test (ubuntu-latest) / test (macos-latest) / lint / format，
-# strict 已开）；repo-files / install-script / audit 三 job 在场跑但未入
-# 必检列——红不拦合并。补齐须经 administration 写权 API（gh OAuth token
-# gho_ 对该写面恒 404——面不可见非拒绝，须 classic PAT repo 权或
-# fine-grained administration:write；或网页 Settings → Branches 手工加）。
+# 必检列治理注记（批 D E1 立项；2026-09-17 E1 落地终态）：分支保护真源
+# 在 GitHub 仓库设置（branches/dev/protection），CI 文件改不动它。必检列
+# 现为八 context（typecheck / test (ubuntu-latest) / test (macos-latest) /
+# lint / format / repo-files / install-script / audit，strict 已开）——
+# 覆盖 CI 全部 PR 阻断 job（soak / coverage / flaky-probe / coverage-weekly
+# 为 nightly/周检腿，有意不入必检）。后续改必检列经 administration 写权
+# API（gh OAuth token 对该写面可能恒 404——面不可见非拒绝，须 classic PAT
+# repo 权或 fine-grained administration:write；或网页 Settings → Branches
+# 手工改）。
 # 用 PUT 子资源端点（只覆写必检列一面，不碰 enforce_admins 等其余保护字段；
 # contexts 是整列覆写不是增量——漏列既有 context 即撤其必检，八件全列）：
 #   gh api -X PUT repos/<owner>/<repo>/branches/dev/protection/required_status_checks --input - <<'EOF'

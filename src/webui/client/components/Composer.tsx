@@ -13,7 +13,8 @@
  *   reject / token 失活三形都静默关层——补全是增强面非正确性面，失败
  *   不冒泡。
  * - 键盘分形：弹层开时 ArrowDown/ArrowUp 循环移选中项、Enter（无 shift）
- *   选中代换（不让位发送）、Escape 关层；弹层闭时原样（Enter 发送）。
+ *   与 Tab（无 shift——TUI 双键律 SPA 形）选中代换（不让位发送/移焦）、
+ *   Escape 关层；弹层闭时原样（Enter 发送）。
  * - 插入编舞：选中项原串代换 text[tokenStart, selectionStart) 区间
  *   （selectionStart 取选中时点输入框当下位——v1 简形，位点漂移随下次
  *   onChange 重算自愈）；光标复位走 useEffect + pendingCaretRef（不用
@@ -207,6 +208,13 @@ export function Composer({
                 return;
               }
               if (ev.key === 'Enter' && !ev.shiftKey) {
+                ev.preventDefault();
+                insertItem(activeIndex);
+                return;
+              }
+              // Tab 同 Enter 选中代换（TUI popup 选中双键律 enter|tab 的
+              // SPA 形——裸 Tab 拦截；Shift+Tab 保留浏览器反向移焦缺省）
+              if (ev.key === 'Tab' && !ev.shiftKey) {
                 ev.preventDefault();
                 insertItem(activeIndex);
                 return;

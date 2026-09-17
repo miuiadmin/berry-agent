@@ -167,6 +167,18 @@ describe('Composer @ 文件段补全弹层', () => {
     expect(onSubmit).not.toHaveBeenCalled(); // Enter 让位选中——不让位发送
   });
 
+  it('Tab 选中代换（TUI popup 双键律 enter|tab 的 SPA 形）：裸 Tab 同 Enter 代换关层', async () => {
+    const onSubmit = vi.fn();
+    const files = vi.fn(async () => ['@alpha.ts']);
+    render(<Composer onSubmit={onSubmit} onInterrupt={vi.fn()} fetchFileCompletions={files} />);
+    typeAppend('see @al');
+    await screen.findAllByRole('option');
+    fireEvent.keyDown(textarea(), { key: 'Tab' });
+    expect(textarea().value).toBe('see @alpha.ts'); // 同 Enter 区间代换
+    expect(screen.queryByRole('listbox')).toBeNull(); // 弹层关
+    expect(onSubmit).not.toHaveBeenCalled(); // Tab 让位选中——不触发发送
+  });
+
   it('Esc 关层不发送；随后 Enter 照发（原发送律零回归）', async () => {
     const onSubmit = vi.fn();
     const files = vi.fn(async () => ['@sub/']);

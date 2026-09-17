@@ -75,7 +75,10 @@ export interface WebuiBridgeOptions {
    * 新会话工作区根锚点（缺省 process.cwd()）。CL-A2 补位：与 serve/mcp/
    * daemon 三入口的 cwd 注入面同形——测试可注入非 canonical 形锚（symlink
    * 别名等）；登记键 canonical 化在 createServeBridge 内单源执法（本件只
-   * 透传 raw 锚，不自造 canonical 化）。
+   * 透传 raw 锚，不自造 canonical 化）。注意本键**只锚会话登记键**——@
+   * 补全列举锚不随本键、恒挂载缺省全局态（两锚分立律，见
+   * WebuiFaceMountOptions.cwd 注；openWebuiFace 有意不向 mountKit.mountOnFace
+   * 透传本键——分立律行为锁在测试件 CL-A2 describe）。
    */
   readonly cwd?: string;
   /** 开面披露行（缺省 stderr——token 一次性显示面） */

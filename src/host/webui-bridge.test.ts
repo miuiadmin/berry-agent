@@ -787,6 +787,45 @@ describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
       await rt.shutdown();
     }
   });
+
+  it('分立律：WebuiBridgeOptions.cwd 只透传 createServeBridge（会话登记键）——不流向 mountKit.mountOnFace（@ 补全锚恒挂载缺省全局态）', async () => {
+    // 锁「有意分立」为机器执法（f-2 验收批）：两锚各键各源——会话登记锚
+    // （本键，CL-A2）与补全列举锚（WebuiFaceMountOptions.cwd）互不串流。
+    // spy kit 捕 mountOnFace 实收 options：staticDir 在场形实参恰
+    // { staticDir } 单键——cwd 键不在（若未来统一两锚〔透传形〕本锁先红，
+    // 红即提醒同步更新两处 JSDoc/注释与本锁——有意/意外分立由此可区分）。
+    const rt = createHostRuntime({ dataDir: rigDir('a2-webui-split-') });
+    const { stack } = rigStack(rt);
+    const received: Array<{ staticDir?: string } | undefined> = [];
+    const mountKit: WebuiMountKit = {
+      mountOnFace: (face, opts) => {
+        received.push(opts);
+        // 真身照常挂（面 start/stop 全链不因 spy 而缺挂载）
+        return mountWebuiOnFace({
+          stack,
+          face,
+          ...(opts?.staticDir !== undefined ? { staticDir: opts.staticDir } : {}),
+        });
+      },
+    };
+    const handle = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      cwd: '/nondefault/registration/anchor', // 非缺省登记锚注入——若串流必现于 mountOnFace 实参
+      staticDir: '/tmp/webui-static-override', // 在场形：mountOnFace 实参当为恰 { staticDir } 单键
+      mountKit,
+      disclose: () => undefined, // 测试态 stderr 静默
+    });
+    try {
+      expect(received).toHaveLength(1);
+      // toEqual 精确键集匹配：实参多出 cwd 键即红（分立律核心断言）
+      expect(received[0]).toEqual({ staticDir: '/tmp/webui-static-override' });
+    } finally {
+      await handle.stop(); // closer 幂等——rt.shutdown 内二次 stop 无害
+      await rt.shutdown();
+    }
+  });
 });
 
 /* ---------------- completion 面接线（@ 文件段补全——TUI 同源源真身注入） ---------------- */

@@ -275,8 +275,10 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
           stack,
           runtime,
           port: options.flags.port,
-          // cwd 锚与 stdio 线同源（CL-A2——同进程两面登记键一致；缺省
-          // process.cwd() 维持既有全局态缺省）
+          // cwd 锚与 stdio 线同源（CL-A2——同进程两面〔stdio 线/webui 桥〕
+          // **会话登记键**一致；缺省 process.cwd() 维持既有全局态缺省）。
+          // 本键只锚会话登记——@ 补全列举锚不随本键、恒挂载缺省全局态
+          // （两锚分立律，见 webui-bridge WebuiFaceMountOptions.cwd 注）
           cwd: options.cwd ?? process.cwd(),
           ...(mountKit !== undefined ? { mountKit } : {}),
           // U5-2：插件道路由受理器经 core:sdk kit 透传（snapshot/attachFace）

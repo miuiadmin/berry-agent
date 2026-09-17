@@ -282,7 +282,7 @@ berry serve stop               # 停守护
 
 - **npm SDK**：`berry-agent-sdk`（类型化客户端，spawn stdio / 直连 HTTP 两传输）**已上 npm**（alpha 档，`npm install berry-agent-sdk` 可装，随主仓演进）——SDK 源码在仓内 `packages/berry-agent-sdk`，开发态仍可 `file:` 链本地消费；
 - **MCP 包装**：`berry mcp` 以 MCP server 形态暴露 `berry-agent` / `berry-agent-reply` 两工具，供任意 MCP 客户端接入；
-- **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。
+- **`--port` 统一 HTTP 面**：SPA Web 界面 + `/api/*`（Web 界面族）+ `/v1/*`（程序调用族）三族同面，恒回环，token 鉴权（令牌仅启动 stderr 一次性显示）。Web 界面输入框 `@` 同样触发文件路径补全——同 TUI 判据（工作区根锚定、引号感知、`@"带空格 路径"` 引号形、子序列模糊过滤），候选弹层 `↑`/`↓` 循环、`Enter` 整 token 代换、`Esc` 关层。
 
 ### 无人值守与预算停靠
 
