@@ -1,6 +1,6 @@
 /**
- * webui/client/components/SessionHeader — 会话详情头行（mp-5 SPA /export
- * 客户端腿）。
+ * webui/client/components/SessionHeader — 会话详情头行（TUI 余量收官
+ * 批②随批——SPA /export 客户端腿）。
  *
  * 纯呈现件：标题与导出入口由 App 注入；无标题会话诚实回退 id 截断呈现
  * （不造占位串——与服务端 title: null 语义对齐，截断律同 SessionList）。

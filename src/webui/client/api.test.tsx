@@ -1,5 +1,5 @@
 /**
- * webui/client/api 单件直锁（mp-5 SPA /export 客户端腿；jsdom 轨）。
+ * webui/client/api 单件直锁（TUI 余量收官批②随批——SPA /export 客户端腿；jsdom 轨）。
  *
  * app.test.tsx 对 api 模块整体 vi.mock——本件补「真身直锁」半边：exportSession
  * 的 fetch 形（端点词面 :id 代换 + 同源 cookie 携行 + blob 直出非 JSON 腿）
