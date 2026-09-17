@@ -147,6 +147,20 @@ describe('ThemePicker 键面', () => {
     expect(readRow(grid3, 1, width)).toContain('auto'); // 回锚顶
   });
 
+  it('首渲染前击键的过深视口在 render 回写真实窗高后回拉（maxOffset 上界）', () => {
+    // 修前红实证位：面板打开后、首渲染前发 end——此时 viewportHeight 还是
+    // 构造初值 1，offset 被夹到 cursor 4；首渲染回写真实窗高 2 后应回拉到
+    // 「尾行恰贴窗底」位（maxOffset = 5-2 = 3）。修前无上界分支：cursor=4
+    // 仍在 [4, 4+2) 窗内，offset=4 原样保持——首行 broken-one、第二行空窗。
+    const { picker } = makePicker();
+    const width = 72;
+    picker.handleEvent(k('end')); // 首渲染前击键（陈窗高夹深位）
+    const grid = new CellGrid(width, 4); // 头 + 2 行视口 + 提示
+    picker.render(grid, { row: 0, col: 0, width, height: 4 });
+    expect(readRow(grid, 1, width)).toContain('my-theme'); // 回拉后首行（offset=3）
+    expect(readRow(grid, 2, width)).toContain('broken-one'); // 尾条目恰贴窗底
+  });
+
   it('q 退出（key 轨 + text 轨两形）——闭锁单次', () => {
     const { picker, onExit } = makePicker();
     expect(picker.handleEvent(k('q'))).toBe(true);

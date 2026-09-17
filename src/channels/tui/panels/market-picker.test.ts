@@ -218,6 +218,19 @@ describe('MarketPicker 键面', () => {
     expect(readRow(grid2, 2, width)).toContain('long-desc@alpha');
   });
 
+  it('首渲染前击键的过深视口在 render 回写真实窗高后回拉（maxOffset 上界）', () => {
+    // 修前红实证位：同 theme-picker 家族缺陷——首渲染前 end 以构造初值
+    // viewportHeight=1 夹出 offset=2（真实窗高 2 的 maxOffset = 3-2 = 1），
+    // render 回写后无上界分支原样保持——首行 long-desc、第二行空窗。
+    const { picker } = makePicker();
+    const width = 72;
+    picker.handleEvent(k('end')); // 首渲染前击键（陈窗高夹深位）
+    const grid = new CellGrid(width, 4); // 头 + 2 行视口 + 提示
+    picker.render(grid, { row: 0, col: 0, width, height: 4 });
+    expect(readRow(grid, 1, width)).toContain('hello@beta'); // 回拉后首行（offset=1）
+    expect(readRow(grid, 2, width)).toContain('long-desc@alpha'); // 尾条目恰贴窗底
+  });
+
   it('enter 未装条目：先收副屏再回调 install（同序律）', () => {
     const calls: string[] = [];
     const { picker } = makePicker({
