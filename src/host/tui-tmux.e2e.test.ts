@@ -114,14 +114,19 @@ const STEP_TIMEOUT_MS = 10_000;
 /**
  * esc 腿收屏等待专用宽帽（按需调宽——不动 STEP_TIMEOUT_MS 全局值）。
  *
- * 实证（CI-only flaky 形，无修前红可证——本机恒绿）：GitHub Actions
- * run 35182004390（test ubuntu）间歇红「等待超时（/themes 收屏回主屏
- * （标题消失 + footer 复在场），10000ms）」，该用例总时长实测 12623ms
- * ——前段（tmux spawn + 起跑 + 副屏进屏）约 2.6s 完成，esc 收屏等待打满
- * 10s 帽判词仍未真（CI 慢机 CPU 饿死窗可超 10s）；同基底 dependabot
- * run 35182142621 绿。esc 收屏是本文件最重跃迁（tmux spawn + 副屏绘 +
- * lone-ESC 判定窗 settle 回返全链——q 腿为直接键无判定窗回合），按需
- * 调宽至 25s 给足恢复余量；STEP_TIMEOUT_MS 其余消费点实测离帽远
+ * 归因史（两 run 同一引擎根，前笔「CI 慢机 CPU 饿死窗」系误诊已勘正）：
+ * run 35182004390（test ubuntu）10s 帽红、调宽至 25s 后 run 35206555674
+ * （release-drill）同用例仍红且面板稳态未收——帽打满证明非时间问题。真根
+ * = lone-ESC 挂起窗内 tmux 迟到的 DA1 应答（`\x1b[?1;2;4c`——副屏进屏
+ * ENTER_COMMON 探测哨兵的回声，恒 ESC 起头）与用户 ESC 撞窗：旧「ESC ESC
+ * = alt+Escape」配对把退出键吞成带修饰形（面板 isPlainKey 键面永不匹配
+ * ——任何帽都红），应答残段 `[?1;2;4c` 走 text 渲染进屏（CI 失败 dump
+ * 实见该字面量）。同基底 dependabot run 35182142621 绿 = 负载时序未撞窗。
+ * 修法 = input.ts 迟答防御律（07 §4 件 4 规范先行批——修前红五例在
+ * input.test.ts「迟答防御律」节〔含本用例同序 CI 实红形〕+ engine.test.ts
+ * 引擎级孤儿形锁）。25s 帽保留作防御余量：引擎修后永久停滞形消灭，帽只
+ * 兜真实 CI 慢跃迁（esc 腿含 settle 判定窗回合、仍是最重跃迁）；真回归
+ * 在任何帽下都红——不遮蔽。STEP_TIMEOUT_MS 其余消费点实测离帽远
  * （resize 2238ms / exit 2440ms 量级）且无红史，维持 10s 不动。
  * 最坏叠加（startup 45s + 进屏 10s + 收屏 25s = 80.3s）仍在用例级 90s 帽内。
  */

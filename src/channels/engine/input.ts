@@ -230,10 +230,19 @@ export class InputDecoder {
             continue;
           }
           if (cp === 0x1b) {
-            // ESC ESC = alt+Escape（legacy alt 编码两字节形）
-            this.escPendingAt = null;
-            this.emitKey('escape', { ...NO_MODS, alt: true }, 'press');
-            this.mode = 'ground';
+            // 迟答防御律（07 §4 件 4——2026-09-17 CI 红族批规范先行）：lone-ESC
+            // 挂起窗内到达的第二枚 ESC 不与挂起枚配对——前枚立即判 Esc 键（无
+            // 修饰），当枚消费为新 lone-ESC 候选（mode 保持 esc）。旧「ESC ESC
+            // = alt+Escape」配对在迟到终端应答（DA1/OSC 探测回声——恒 ESC 起头，
+            // CI run 35206555674 实证）撞窗时把面板退出键吞成带修饰形（isPlainKey
+            // 键面永不匹配、25s 帽打满必红）+ 应答残段走 text 渲染进屏。
+            // escPendingAt 刻意不动（冷读闸改笔 a）：跨 chunk 形沿用原挂起时刻
+            // ——引擎已装定时器不重装即天然对齐（余量窗，第二窗截短 ≤30ms
+            // 无害）；同 chunk 形此处仍为 null、feed 尾统一落记。语义代价：
+            // legacy 轨 \x1b\x1b 相邻形 alt+Escape 降级为 Esc×2——kitty 轨
+            // alt+esc 有专码（CSI 27;3u）、出厂动作册无 alt+escape 绑定（零
+            // 消费面——降级只丢无人消费的形、换来面板全员消费的形）。
+            this.emitKey('escape', { ...NO_MODS }, 'press');
             i++;
             continue;
           }

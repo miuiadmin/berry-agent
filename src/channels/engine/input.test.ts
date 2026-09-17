@@ -73,9 +73,19 @@ describe('legacy 轨：C0 控制码与功能键', () => {
     expect(run(['\x1bOP'])).toEqual([key('f1')]);
   });
 
-  it('ESC 前缀 = alt：\\x1bx = alt+x、ESC ESC = alt+escape', () => {
+  it('ESC 前缀 = alt：\\x1bx = alt+x；ESC ESC 相邻形 = Esc×2（迟答防御律——legacy alt+escape 降级）', () => {
     expect(run(['\x1bx'])).toEqual([key('x', { alt: true })]);
-    expect(run(['\x1b\x1b'])).toEqual([key('escape', { alt: true })]);
+    // 相邻双 ESC：前枚立即判 Esc 键（无修饰）、当枚消费为新 lone-ESC 候选
+    // 重挂起——settle 窗到点再出一枚（legacy \x1b\x1b 形从 alt+escape 降级为
+    // Esc×2：kitty 轨 alt+esc 有专码、动作册无 alt+escape 绑定——零消费面）
+    const clock = new FakeClock();
+    const decoder = new InputDecoder({ now: clock.now });
+    decoder.feed('\x1b\x1b');
+    expect(decoder.take()).toEqual([key('escape')]);
+    expect(decoder.hasPendingEscape).toBe(true); // 当枚重挂起中
+    clock.t = 31;
+    decoder.settle();
+    expect(decoder.take()).toEqual([key('escape')]);
   });
 
   it('未知序列 / 私用应答 / CPR 形状：吞（零垃圾事件）', () => {
@@ -139,6 +149,63 @@ describe('lone-ESC 判定窗（30ms 只落 legacy 轨）', () => {
     clock.t = 30;
     decoder.settle();
     expect(decoder.take()).toEqual([key('escape')]);
+  });
+});
+
+describe('迟答防御律（ESC ESC 相邻形拆解——lone-ESC 挂起窗内迟到终端应答不吞键）', () => {
+  /**
+   * 根因实证（CI run 35206555674 release-drill /themes esc 收屏 25s 超时红）：
+   * 用户 lone-ESC 挂起窗内，tmux 迟到的 DA1 应答（\x1b[?1;2;4c——副屏进屏
+   * ENTER_COMMON 探测哨兵的回声，CI 负载下应答写回晚于用户按键写回）以 ESC
+   * 起头到达——旧「ESC ESC = alt+Escape」配对把 Esc 键吞成带修饰形（面板退出
+   * 键面不匹配、25s 打满必红），应答的 ESC 被吞后残段 [?1;2;4c 走 text 事件
+   * 渲染进屏（CI 失败现场屏面 dump 实见该字面量）。修法（07 §4 件 4 迟答
+   * 防御律）：前枚立即判 Esc 键、当枚消费为新 lone-ESC 候选重挂起——后续
+   * 字节构成 CSI/OSC 起手即由序列态接管，迟到应答整序正常消费。
+   */
+  it('迟答撞窗形（拆 chunk——CI 实红同序）：挂起窗内 DA1 应答到达 → Esc 键 + 应答整序消费零 text', () => {
+    const clock = new FakeClock();
+    const decoder = new InputDecoder({ now: clock.now });
+    decoder.feed('\x1b'); // 用户 lone-ESC 挂起
+    expect(decoder.take()).toEqual([]);
+    clock.t = 10; // 窗内
+    decoder.feed('\x1b[?1;2;4c'); // 迟到的 DA1 应答（ESC 起头）
+    // 前枚立即兑现 Esc 键（无修饰——面板退出键面匹配）；当枚被 '[' 续成 CSI
+    // 应答整序消费（协议面零键事件）；绝无 text 残段（修前红形：alt+escape
+    // + text '[?1;2;4c'）
+    expect(decoder.take()).toEqual([key('escape')]);
+    expect(decoder.hasPendingEscape).toBe(false); // '[' 起手已消解挂起
+    clock.t = 100;
+    decoder.settle();
+    expect(decoder.take()).toEqual([]);
+  });
+
+  it('迟答撞窗形（同 chunk——单 read 双 ESC 前缀同解）', () => {
+    expect(run(['\x1b\x1b[?1;2;4c'])).toEqual([key('escape')]);
+  });
+
+  it('OSC 11 迟答同族：挂起窗内 \\x1b]11;rgb:…\\x07 到达 → Esc 键 + OSC 整串上抛', () => {
+    const clock = new FakeClock();
+    const oscSeen: string[] = [];
+    const decoder = new InputDecoder({ now: clock.now, onOsc: (data) => oscSeen.push(data) });
+    decoder.feed('\x1b');
+    clock.t = 8;
+    decoder.feed('\x1b]11;rgb:1111/1111/1111\x07'); // 主题层 OSC 11 探测的迟到应答
+    expect(decoder.take()).toEqual([key('escape')]);
+    expect(oscSeen).toEqual(['11;rgb:1111/1111/1111']); // 整串正常上抛（明暗裁定消费面无损）
+  });
+
+  it('纯双 ESC（无续字节）：前枚立即 Esc + 当枚 settle 再 Esc（降级形完备性）', () => {
+    const clock = new FakeClock();
+    const decoder = new InputDecoder({ now: clock.now });
+    decoder.feed('\x1b');
+    clock.t = 5;
+    decoder.feed('\x1b'); // 第二枚后无任何字节
+    expect(decoder.take()).toEqual([key('escape')]); // 前枚立即兑现
+    expect(decoder.hasPendingEscape).toBe(true); // 当枚重挂起
+    clock.t = 40;
+    decoder.settle();
+    expect(decoder.take()).toEqual([key('escape')]); // 当枚窗到点兑现
   });
 });
 

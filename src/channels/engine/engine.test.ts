@@ -373,4 +373,23 @@ describe('输入接线与协议事件', () => {
     expect(inputs).toHaveLength(1);
     expect((inputs[0] as KeyEvent).key).toBe('escape');
   });
+
+  it('迟答防御律引擎级锁：跨 chunk 纯双 ESC 零丢键（定时器不重装 + 余量窗对齐）', () => {
+    // 冷读闸抓出的计划形回归靶：若 esc 态 ESC ESC 分支重记挂起时刻
+    // （escPendingAt = now），第二枚的 settle 窗起点后移而引擎定时器不重装
+    // （escapeHandle 门拒）——timer1 到点 elapsed=20<30 不出键且再无定时器，
+    // 第二枚 Esc 永丢。改笔 a（分支不动 escPendingAt）下 timer1 按原挂起
+    // 时刻判窗，T0+30 到点 elapsed=30≥30 如期交付——本测区分两实现。
+    const { io, clock, inputs } = rig();
+    io.emitInput('\x1b'); // T0：lone-ESC 挂起——引擎装 timer1（30ms 到 T0+30）
+    clock.advance(10); // T0+10：仍在窗内
+    io.emitInput('\x1b'); // 第二枚 ESC：前枚立即兑现（无修饰）、当枚续挂起
+    expect(inputs).toHaveLength(1);
+    expect((inputs[0] as KeyEvent).key).toBe('escape');
+    expect((inputs[0] as KeyEvent).alt).toBe(false);
+    clock.advance(31); // timer1 于 T0+30 到点（余量窗 elapsed=30≥30）
+    expect(inputs).toHaveLength(2);
+    expect((inputs[1] as KeyEvent).key).toBe('escape');
+    expect((inputs[1] as KeyEvent).alt).toBe(false);
+  });
 });
