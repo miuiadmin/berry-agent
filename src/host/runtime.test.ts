@@ -151,15 +151,21 @@ describe('退出序六步编舞（04 §1 全序有界）', () => {
     expect(closes).toBe(1);
   });
 
-  it('closer 超时强杀：帽 10ms + 慢 closer 100ms → shutdown 不挂死', async () => {
+  it('closer 超时强杀：帽 10ms + 慢 closer 500ms → shutdown 不挂死', async () => {
+    // CI 定稳谱（run 35210478385 release-drill 实红 101ms > 90ms 帽）：帽
+    // setTimeout(10) 在 CI 全量 suite 并行负载下发火延迟可达 ~90ms（本地恒绿
+    // + 同 run ubuntu test 腿绿排除恒 logic 回归——纯调度延迟形）。定稳 =
+    // 拉开区分窗：慢 closer 100→500ms、断言 90→400ms——「等满慢 closer」形
+    // （≥500ms）与「帽强杀后退出」形（帽 10 + CI 级延迟余量）之间 400ms 分界
+    // 仍零歧义，timer 延迟右尾拖到 390ms+ 的概率比拖到 90ms 低数个量级。
     const { rt } = rig({ exitBudget: { closersMs: 10 } });
     rt.registerCloser({
       label: 'slow',
-      fn: () => new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      fn: () => new Promise<void>((resolve) => setTimeout(resolve, 500)),
     });
     const t0 = Date.now();
     await rt.shutdown();
-    expect(Date.now() - t0).toBeLessThan(90); // 未等满慢 closer
+    expect(Date.now() - t0).toBeLessThan(400); // 未等满慢 closer（等满形 ≥500）
   });
 
   it('一步崩不阻后续：closer 抛错 → flush/标记释放照达', async () => {
