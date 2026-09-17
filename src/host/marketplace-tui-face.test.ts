@@ -7,7 +7,12 @@
  * + 核查失败短路）、refresh 恒回源（runEntry 恰收 {sub:'update'} 全源动词
  * ——修前红位：TTL 惰性腿/带名过滤形均红）、dataDir null 诚实拒、副屏占用
  * warn、真服务面集成（真 runMarketplaceEntry：install 真落账徽标翻转 +
- * update 真换血新条目可见——消费服务面零绕过的全链锁）。
+ * update 真换血新条目可见——消费服务面零绕过的全链锁）；
+ * 编舞①开跑行锁（修前红位：runEntry 未决期 notify 已收到开跑行——四动作
+ * 各一条 + uninstall 双相全程恰一行〔inspect 起跑位发、execute 相不重复〕）；
+ * 编舞④自动链提示行锁（修前红位：成功且 reload 形 notify 序列含「已自动链
+ * /reload」完整句——与 /plugins 写动词尾句单源同文；refresh/失败/异常形
+ * 零该词）。
  *
  * mock 边界：数据面全真（tmp 数据目录 + 真 createMarketFs + 真服务面），
  * fake 只停编舞柄（notify/confirm/reload/repaint/openPanel/runEntry〔假件
@@ -296,9 +301,14 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     expect(model.results.join('\n')).toContain('已装机：hello-plugin');
     expect(model.results.join('\n')).toContain('berry plugins mount hello-plugin');
     expect(rig.requestReload).toHaveBeenCalledTimes(1);
-    const last = rig.notify.mock.calls.at(-1)!;
-    expect(last[0]).toContain('marketplace install hello-plugin@alpha 完成');
-    expect(last[1]).toEqual({ level: 'info' });
+    // settle 双行（扩尾）：完成归因行在前 + 自动链提示行随后（编舞④——第二行）
+    const messages = rig.notify.mock.calls.map((call) => String(call[0]));
+    const doneIdx = messages.findIndex((m) => m.includes('marketplace install hello-plugin@alpha 完成'));
+    expect(doneIdx).toBeGreaterThanOrEqual(0);
+    expect(rig.notify.mock.calls[doneIdx]![1]).toEqual({ level: 'info' });
+    const chain = '已自动链 /reload（会话运行中自动排队，run 收场后执行）';
+    expect(messages).toContain(chain); // 与 /plugins 写动词尾句（plugins-command）单源同文
+    expect(messages.indexOf(chain)).toBeGreaterThan(doneIdx); // 序：完成行在前、链提示随后
   });
 
   it('busy 单槽并发拒：在飞窗第二动作 notify warn + runEntry 仍恰一次', async () => {
@@ -402,6 +412,123 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     // 行集重建观测：settle 后（无再开屏）徽标已翻——onSettle 里 rebuildRows 已跑
     expect(model.rows.find((row) => row.id === 'hello-plugin@alpha')!.installed).toBe(false);
   });
+
+  it('m1 编舞④自动链提示行（修前必红）：install 成功且 reload → notify 序列含「已自动链 /reload」完整句（完成行之后）', async () => {
+    const gate = deferred<number>();
+    const rig = await rigFace('chain-notify-install', {
+      runEntry: (_sub, capture) => {
+        capture.writeOut('已装机：hello-plugin 1.0.0');
+        return gate.promise;
+      },
+    });
+    await rig.face.open();
+    rig.actions().install('hello-plugin@alpha');
+    await flush(2);
+    gate.resolve(0);
+    await flush();
+    expect(rig.requestReload).toHaveBeenCalledTimes(1); // 链真身在先（既有律）
+    const messages = rig.notify.mock.calls.map((call) => String(call[0]));
+    const chain = '已自动链 /reload（会话运行中自动排队，run 收场后执行）';
+    expect(messages).toContain(chain); // 完整句同文（plugins-command 尾句单源——防漂移锚）
+    const doneIdx = messages.findIndex((m) => m.includes('marketplace install hello-plugin@alpha 完成'));
+    expect(doneIdx).toBeGreaterThanOrEqual(0);
+    expect(messages.indexOf(chain)).toBeGreaterThan(doneIdx); // 完成行在前、链提示随后
+    expect(rig.notify.mock.calls[messages.indexOf(chain)]![1]).toEqual({ level: 'info' });
+  });
+
+  it('m1 refresh（reload=false）成功：notify 全程无「已自动链」词（刷新不动装载面零链提示）', async () => {
+    const rig = await rigFace('chain-notify-refresh-absent', {});
+    await rig.face.open();
+    rig.actions().refresh();
+    await flush();
+    const messages = rig.notify.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((m) => m.includes('marketplace update 完成'))).toBe(true); // 成功确在
+    expect(messages.some((m) => m.includes('已自动链'))).toBe(false); // 零链提示词
+  });
+
+  it('m1 失败 / 内部异常形：notify 无「已自动链」词（失败尾零 reload 零链提示）', async () => {
+    const failed = await rigFace('chain-notify-failed', {
+      runEntry: (_sub, capture) => {
+        capture.writeErr('装机拒绝：条目不在场');
+        return Promise.resolve(1);
+      },
+    });
+    await failed.face.open();
+    failed.actions().install('hello-plugin@alpha');
+    await flush();
+    expect(failed.notify.mock.calls.some((call) => String(call[0]).includes('已自动链'))).toBe(false);
+
+    const crashed = await rigFace('chain-notify-crash', {
+      runEntry: () => Promise.reject(new Error('spawn 通道崩了')),
+    });
+    await crashed.face.open();
+    crashed.actions().install('hello-plugin@alpha');
+    await flush();
+    expect(crashed.notify.mock.calls.some((call) => String(call[0]).includes('已自动链'))).toBe(false);
+  });
+
+  it('m2 install 开跑行（修前必红）：runEntry 未决期开跑 notify 已到，结束行随后（序断言）', async () => {
+    const gate = deferred<number>();
+    const rig = await rigFace('start-notify-install', {
+      runEntry: () => gate.promise,
+    });
+    await rig.face.open();
+    rig.actions().install('hello-plugin@alpha');
+    await flush(2);
+    // 在飞窗（runEntry 未决）：开跑行已 notify——enter 路副屏已收，本行是 30s+ 等待期主屏唯一反馈
+    expect(rig.runEntry).toHaveBeenCalledTimes(1);
+    const inflight = rig.notify.mock.calls.map((call) => String(call[0]));
+    const startIdx = inflight.findIndex((m) => m.includes('marketplace install hello-plugin@alpha 开跑'));
+    expect(startIdx).toBeGreaterThanOrEqual(0);
+    expect(rig.notify.mock.calls[startIdx]![1]).toEqual({ level: 'info' });
+    expect(inflight.some((m) => m.includes('marketplace install hello-plugin@alpha 完成'))).toBe(false); // 结束行未到
+    gate.resolve(0);
+    await flush();
+    const settled = rig.notify.mock.calls.map((call) => String(call[0]));
+    const doneIdx = settled.findIndex((m) => m.includes('marketplace install hello-plugin@alpha 完成'));
+    expect(doneIdx).toBeGreaterThan(startIdx); // 开跑在先、结束随后
+  });
+
+  it('m2 upgrade 开跑行（修前必红）：runEntry 未决期开跑 notify 已到', async () => {
+    const gate = deferred<number>();
+    const rig = await rigFace('start-notify-upgrade', {
+      installedKeys: new Set(['hello-plugin@alpha']),
+      runEntry: () => gate.promise,
+    });
+    await rig.face.open();
+    rig.actions().upgrade('hello-plugin@alpha');
+    await flush(2);
+    expect(rig.runEntry).toHaveBeenCalledTimes(1);
+    const inflight = rig.notify.mock.calls.map((call) => String(call[0]));
+    const startIdx = inflight.findIndex((m) => m.includes('marketplace upgrade hello-plugin@alpha 开跑'));
+    expect(startIdx).toBeGreaterThanOrEqual(0);
+    expect(inflight.some((m) => m.includes('marketplace upgrade hello-plugin@alpha 完成'))).toBe(false);
+    gate.resolve(0);
+    await flush();
+    const settled = rig.notify.mock.calls.map((call) => String(call[0]));
+    expect(settled.findIndex((m) => m.includes('marketplace upgrade hello-plugin@alpha 完成'))).toBeGreaterThan(
+      startIdx,
+    );
+  });
+
+  it('m2 refresh 开跑行（修前必红）：runEntry 未决期开跑 notify 已到（动词归因 marketplace update）', async () => {
+    const gate = deferred<number>();
+    const rig = await rigFace('start-notify-refresh', {
+      runEntry: () => gate.promise,
+    });
+    await rig.face.open();
+    rig.actions().refresh();
+    await flush(2);
+    expect(rig.runEntry).toHaveBeenCalledTimes(1);
+    const inflight = rig.notify.mock.calls.map((call) => String(call[0]));
+    const startIdx = inflight.findIndex((m) => m.includes('marketplace update 开跑'));
+    expect(startIdx).toBeGreaterThanOrEqual(0);
+    expect(inflight.some((m) => m.includes('marketplace update 完成'))).toBe(false);
+    gate.resolve(0);
+    await flush();
+    const settled = rig.notify.mock.calls.map((call) => String(call[0]));
+    expect(settled.findIndex((m) => m.includes('marketplace update 完成'))).toBeGreaterThan(startIdx);
+  });
 });
 
 describe('MarketplaceTuiFace 双相 uninstall', () => {
@@ -441,8 +568,9 @@ describe('MarketplaceTuiFace 双相 uninstall', () => {
     expect(model.results.join('\n')).toContain('已卸载：hello-plugin');
     expect(model.results.join('\n')).toContain('数据目录保留');
     expect(rig.requestReload).toHaveBeenCalledTimes(1);
-    const last = rig.notify.mock.calls.at(-1)!;
-    expect(last[0]).toContain('marketplace uninstall hello-plugin@alpha 完成');
+    const messages = rig.notify.mock.calls.map((call) => String(call[0]));
+    expect(messages.some((m) => m.includes('marketplace uninstall hello-plugin@alpha 完成'))).toBe(true);
+    expect(messages).toContain('已自动链 /reload（会话运行中自动排队，run 收场后执行）'); // 编舞④第二行
   });
 
   it('purge 形：裁决值透传 dataAction（三分裁决位）', async () => {
@@ -515,6 +643,38 @@ describe('MarketplaceTuiFace 双相 uninstall', () => {
     const last = rig.notify.mock.calls.at(-1)!;
     expect(String(last[0])).toContain('核查失败');
   });
+
+  it('m2 uninstall 开跑行（修前必红）：inspect 起跑位一行——双相全程恰一行（execute 相不重复）', async () => {
+    // 双闸：inspect 相与 execute 相各自挂起——中窗断言「execute 在飞仍恰一行开跑」
+    const inspectGate = deferred<number>();
+    const executeGate = deferred<number>();
+    let call = 0;
+    const rig = await rigFace('start-notify-uninstall', {
+      runEntry: (_sub, capture) => {
+        capture.writeOut(call === 0 ? '将卸载：hello-plugin' : '已卸载：hello-plugin');
+        return (call++ === 0 ? inspectGate : executeGate).promise;
+      },
+      confirm: 'keep',
+    });
+    await rig.face.open();
+    rig.actions().uninstall('hello-plugin@alpha');
+    await flush(2);
+    // 第一相 inspect 未决期：开跑行已到（起跑位 = inspect——裁决窗也算在飞期）
+    const phase1 = rig.notify.mock.calls.map((c) => String(c[0]));
+    expect(phase1.some((m) => m.includes('marketplace uninstall hello-plugin@alpha 开跑'))).toBe(true);
+    inspectGate.resolve(0);
+    await flush();
+    // 第二相 execute 在飞窗：开跑行仍恰一行（execute 相不再发第二行）
+    expect(rig.runEntry).toHaveBeenCalledTimes(2);
+    const phase2 = rig.notify.mock.calls.map((c) => String(c[0]));
+    expect(phase2.filter((m) => m.includes('开跑'))).toHaveLength(1);
+    executeGate.resolve(0);
+    await flush();
+    // 全程收口：恰一行开跑 + 结束行（完成归因）随后
+    const phase3 = rig.notify.mock.calls.map((c) => String(c[0]));
+    expect(phase3.filter((m) => m.includes('开跑'))).toHaveLength(1);
+    expect(phase3.some((m) => m.includes('marketplace uninstall hello-plugin@alpha 完成'))).toBe(true);
+  });
 });
 
 describe('MarketplaceTuiFace 真服务面集成（runMarketplaceEntry 直装）', () => {
@@ -562,8 +722,9 @@ describe('MarketplaceTuiFace 真服务面集成（runMarketplaceEntry 直装）'
     // 真装机（拷贝腿真拷 + market 字段落账）→ 徽标翻转
     (openPanel.mock.calls[0]![1] as MarketPanelActions).install('hello-plugin@alpha');
     await flush();
-    const settle = notify.mock.calls.at(-1)!;
-    expect(String(settle[0])).toContain('marketplace install hello-plugin@alpha 完成');
+    const settled = notify.mock.calls.map((call) => String(call[0]));
+    expect(settled.some((m) => m.includes('marketplace install hello-plugin@alpha 完成'))).toBe(true);
+    expect(settled).toContain('已自动链 /reload（会话运行中自动排队，run 收场后执行）'); // 编舞④第二行
     await face.open();
     const secondModel = openPanel.mock.calls.at(-1)![0] as MarketPanelModel;
     expect(secondModel.rows.find((row) => row.id === 'hello-plugin@alpha')!.installed).toBe(true);

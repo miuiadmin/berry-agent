@@ -157,11 +157,20 @@ describe('文档策略闸（公开面机械子集）', () => {
     }
   });
 
-  it('架构册副屏族与压缩职责对拍（/memory 副屏 + CCR 职责行在场）', async ({ skip }) => {
+  it('架构册副屏族与压缩职责对拍（副屏族规模句 + /memory 词条 + CCR 职责行在场）', async ({ skip }) => {
     const path = 'docs/architecture.md';
     if (!existsSync(path)) skip('架构册缺席');
     const text = await readFile(path, 'utf8');
-    expect(text.includes('/memory'), '架构册副屏族漏 /memory').toBe(true);
+    // 副屏族锚 2026-09-17 终局清零役翻新：架构册改规模句去逐名枚举（防
+    // 「五→十」数字漂移再陈化——明细单源 usage.md）；/memory 词条在场锚
+    // 随迁 usage.md（架构册不再逐名，词条锁锚唯一在册面）
+    expect(text.includes('内建面板'), '架构册副屏族规模句缺席').toBe(true);
+    expect(text.includes('插件市场选装副屏'), '架构册 /marketplace 选装副屏句缺席').toBe(true);
     expect(text.includes('ccr_retrieve'), '架构册 compaction 职责行漏 CCR').toBe(true);
+    const usagePath = 'docs/usage.md';
+    if (existsSync(usagePath)) {
+      const usage = await readFile(usagePath, 'utf8');
+      expect(usage.includes('/memory'), '使用册副屏命令册漏 /memory').toBe(true);
+    }
   });
 });

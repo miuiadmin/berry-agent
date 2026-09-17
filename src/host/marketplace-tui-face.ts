@@ -19,10 +19,15 @@
  * - **双相 uninstall**：inspect（confirm:false，回执即核查清单）→ 用户裁决
  *   （channels select 三选 cancel/keep/purge——装配位接）→ execute
  *   （confirm:true + dataAction）；
+ * - **开跑 / 结束各一行 notify（编舞①）**：起跑位一行（enter 路副屏已收
+ *   ——npm/git 腿 30s+ 等待期主屏反馈位；与面板 busy 底行互补不重复——
+ *   notify 是瞬时行、busy 底行在副屏）+ settle 位一行归因；双相 uninstall
+ *   全程恰一行（inspect 起跑位发，execute 相不重复）；
  * - **settle 三件事**：results 结算块回填（保行结构逐行消毒——CLI 构造位已
  *   消毒，此处 sanitizeBlock 单源纵深再过）+ notify 归因（动词 + 退出码 +
  *   回执去向指路）+ 装机面变更自动链 requestReload（install/uninstall/
- *   upgrade 成功——refresh 不触发）。
+ *   upgrade 成功——refresh 不触发）+ 自动链提示行（编舞④——「已自动链
+ *   /reload」完成行之后的第二行，与 /plugins 写动词尾句单源同文）。
  *
  * 模型（rows/tail/results/busyLabel）host 拥有跨开屏持久：busy/results
  * 跨开屏存活（enter 收屏后动作在飞，重开 /marketplace 可见 busy 行与结算
@@ -32,6 +37,14 @@ import type { MarketEntryRow, MarketPanelActions, MarketPanelModel } from '../ch
 import type { MarketplaceCommand } from './cli.js';
 import { discoverMarketplaces, sanitizeBlock, sanitizeLine } from './plugin-market/index.js';
 import type { MarketFs } from './plugin-market/index.js';
+
+/**
+ * /reload 自动链提示句（编舞④）：与 /plugins 写动词成功尾句
+ * （plugins-command / plugins-config 两面）单源同文——三面各自诚实律的同文
+ * 腿；文案改动须三面同步（跨件抽公共常量归主会话统一处置——本件域内自持
+ * 同文，测试以完整句等值锚防漂移）。
+ */
+const RELOAD_AUTO_CHAIN_NOTIFY = '已自动链 /reload（会话运行中自动排队，run 收场后执行）';
 
 /** notify 级位（channels service notify 同词汇——结构兼容面） */
 export type FaceNotifyLevel = 'info' | 'warn' | 'error';
@@ -141,6 +154,8 @@ export class MarketplaceTuiFace {
       this.model.busyLabel = `卸载核查中（marketplace uninstall ${id}）`;
       this.model.results = [];
       this.deps.repaint(); // enter 路副屏已收 = no-op；重开屏（u/r 不闭屏）形即时见
+      // 编舞①开跑行：双相全程恰一行（inspect 起跑位发——裁决窗也算在飞期；execute 相不重复）
+      this.startNotify(`marketplace uninstall ${id}`);
       const inspect = await this.captureRun({ sub: 'uninstall', id, confirm: false });
       if (inspect.crashed || inspect.code !== 0) {
         this.model.busyLabel = null;
@@ -220,9 +235,9 @@ export class MarketplaceTuiFace {
   }
 
   /**
-   * 长动作编舞单源：busy 置位（清 results——上一笔回执让位于新动作）→ 执行
-   * （fire-and-forget）→ settle（onSettle 钩〔refresh 换行集〕→ busy 清 →
-   * results 回填 → notify 归因 → reload 自动链 → repaint）。
+   * 长动作编舞单源：busy 置位（清 results——上一笔回执让位于新动作）→ 开跑
+   * notify（编舞①）→ 执行（fire-and-forget）→ settle（onSettle 钩〔refresh
+   * 换行集〕→ busy 清 → results 回填 → notify 归因 + 自动链提示 → repaint）。
    */
   private async runLong(
     label: string,
@@ -232,12 +247,22 @@ export class MarketplaceTuiFace {
     this.model.busyLabel = label;
     this.model.results = [];
     this.deps.repaint(); // u/r 路面板在场即时见 busy 行；enter 路副屏已收 = no-op
+    this.startNotify(meta.verb);
     const outcome = await this.captureRun(sub);
     if (meta.onSettle !== undefined) await meta.onSettle();
     this.model.busyLabel = null;
     this.model.results = outcome.receipt;
     this.settleNotify(meta.verb, outcome.code, outcome.crashed, meta.reload === true);
     this.deps.repaint();
+  }
+
+  /**
+   * 编舞①开跑行（单源文案——runLong 三动作与 uninstall 双相共用）：结束前
+   * 的 30s+ 等待期主屏反馈位。enter 路副屏已收、面板 busy 底行不可见，本行
+   * 是该窗内唯一反馈（notify 瞬时行——回执文本归因 marketplace）。
+   */
+  private startNotify(verb: string): void {
+    this.deps.notify(`${verb} 开跑——结束另行通知（回执届时见 /marketplace 面板）`, { level: 'info' });
   }
 
   /**
@@ -267,15 +292,24 @@ export class MarketplaceTuiFace {
     return { code, crashed, receipt };
   }
 
-  /** settle 通知归因（动词 + 结局档 + 回执去向指路）+ 装机面变更 reload 自动链 */
+  /**
+   * settle 通知归因（动词 + 结局档 + 回执去向指路）+ 装机面变更 reload 自动链
+   * （链真身 requestReload + 提示行——编舞④：完成行之后第二行，与 /plugins
+   * 写动词成功尾句单源同文；失败 / 异常 / 非装载面动词零链零提示）。
+   */
   private settleNotify(verb: string, code: number, crashed: boolean, reload: boolean): void {
     if (crashed) {
       this.deps.notify(`${verb} 内部异常——回执已呈 /marketplace 面板`, { level: 'error' });
       return;
     }
     if (code === 0) {
-      if (reload) this.deps.requestReload(); // 装机面变更——装载面重载自动链（03 §5.2 同律）
-      this.deps.notify(`${verb} 完成——回执见 /marketplace 面板`, { level: 'info' });
+      if (reload) {
+        this.deps.requestReload(); // 装机面变更——装载面重载自动链（03 §5.2 同律）
+        this.deps.notify(`${verb} 完成——回执见 /marketplace 面板`, { level: 'info' });
+        this.deps.notify(RELOAD_AUTO_CHAIN_NOTIFY, { level: 'info' }); // 编舞④提示行——完成行后的第二行
+      } else {
+        this.deps.notify(`${verb} 完成——回执见 /marketplace 面板`, { level: 'info' });
+      }
       return;
     }
     this.deps.notify(`${verb} 失败（退出码 ${code}）——回执已呈 /marketplace 面板`, { level: 'warn' });

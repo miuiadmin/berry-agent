@@ -1,8 +1,9 @@
 # 开发指南
 
 > **EN TL;DR**: You need Node.js ≥ 24 (aggressive mainline tracking — LTS-only
-> users cannot install yet). The full suite is ~310 test files / 5000+ cases
-> and takes a few minutes on a normal laptop; CI covers Linux and macOS only,
+> users cannot install yet). The full suite is ~345 test files / 6000+ cases
+> (counts drift with each batch — CI is the source of truth) and takes a few
+> minutes on a normal laptop; CI covers Linux and macOS only,
 > Windows is untested. Make the four gates green before every PR, and target
 > the `dev` branch (`main` is the stable release line). Two vocabulary rules:
 > extensions are called plugins (never "app"), and lifecycle verbs are
@@ -21,7 +22,7 @@
 
 **平台支持**：CI 实测面 = Linux + macOS 双 OS。Windows 未测——`better-sqlite3` 原生模块在 Windows 侧的编译链未验证过，不承诺可装可跑；欢迎带诊断信息的 Windows issue，但修复不排优先级。
 
-**测试规模预期**：全量测试约 310 个测试文件、5000+ 用例——普通开发机（近几年主流配置的笔记本）本地全量数分钟；CI 在双 OS 上各完整跑一遍（以上为实测口径）。
+**测试规模预期**：全量测试约 345 个测试文件、6000+ 用例（数字随批漂移——以 CI 实测为准）——普通开发机（近几年主流配置的笔记本）本地全量数分钟；CI 在双 OS 上各完整跑一遍。
 
 ```bash
 git clone https://github.com/miuiadmin/berry-agent.git
@@ -187,11 +188,11 @@ docs/                   公开文档面（本五册）
 
 发布机器 = `tools/release.mjs`（六道契约编舞——门禁前置 / registry 探测 / 构建验收与安装冒烟 / publish 单点 / dist-tag 终态断言 / 尾件 git tag）。执行形三分（`resolveReleaseForm` 单源解析：`--local-publish` 旗标 > env `BERRY_AGENT_RELEASE_MODE=ci` > 包描述符 `publishMode` 缺省）：
 
-| 执行形                                                   | 谁跑                         | 语义                                                                                                                        |
-| -------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| 本机触发腿（主包缺省）                                   | 维护者本机 `npm run release` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 复探收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish |
+| 执行形                                                   | 谁跑                         | 语义                                                                                                                                            |
+| -------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本机触发腿（主包缺省）                                   | 维护者本机 `npm run release` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 复探收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish                     |
 | CI 发布腿（`.github/workflows/release.yml`）             | tag `v*` push 触发           | OIDC 免令牌免 2FA publish；契约 5 只读断言 `next`、契约 6 只校验既有 tag；链尾归档当版 API 面快照挂该版 GitHub Release（assets——版本化 API 史） |
-| 令牌全本地旧序（SDK 缺省 / 主包 `--local-publish` 应急） | 本机 npm 凭证                | 六道契约原序全本地                                                                                                          |
+| 令牌全本地旧序（SDK 缺省 / 主包 `--local-publish` 应急） | 本机 npm 凭证                | 六道契约原序全本地                                                                                                                              |
 
 常规发版（主包）：改 `package.json` version → commit → `npm run release`——脚本完成交棒、等待 CI（gh CLI 轮询，30 分钟帽）、收口与 latest 挪位，全绿即发版完成。SDK：`npm run release:sdk`（令牌全本地形）。
 
