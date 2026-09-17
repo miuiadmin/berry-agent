@@ -28,7 +28,7 @@ import { checkPluginId } from './manifest.js';
 import { mountRow, readLedger, toggleRow, unmountRow } from './plugin-store.js';
 import type { LifecycleAuditSink, PluginStoreFs } from './plugin-store.js';
 
-/** TUI 子动词册（R6 批 10j——补全源名集单源；install/uninstall/update 属 CLI 面不入册） */
+/** TUI 子动词册（R6 批 10j——补全源名集单源；install/uninstall/update 属 CLI 面不入册——市场寻址形的 TUI 载体是 /marketplace 副屏非本册） */
 export const PLUGINS_SUBVERBS = ['list', 'mount', 'unmount', 'toggle', 'config'] as const;
 
 /** 用法说明（命令描述位 + 未知动词回执共用单源） */
@@ -38,7 +38,7 @@ export const PLUGINS_CMD_USAGE = `/plugins list | mount <id> | unmount <id> | to
   unmount <id>        卸下（装机保留——成功尾自动链 /reload）
   toggle <id>         禁用态翻转（成功尾自动链 /reload）
   config <id>         配置表单（configSchema 逐字段问答——secret 入凭证盒）
-（install/uninstall/update 走 CLI：berry plugins <sub>——03 §5.8 三面同源）`;
+（市场选装形走 /marketplace 选装副屏或 CLI berry marketplace <sub>；ref 形 install/uninstall/update 维持 CLI berry plugins <sub>——03 §5.8 三面同源）`;
 
 /** 结算形（ok 位留 CLI 对等面/测试分档；TUI 装配面只消费 text） */
 export interface PluginsCommandOutcome {

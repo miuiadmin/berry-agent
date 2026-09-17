@@ -50,3 +50,5 @@ export type {
   UpgradeMarketplaceDeps,
   UpgradeResult,
 } from './update.js';
+// 呈现消毒单源（03 §9.6 消毒单源条·mp-5 迁出）——CLI 呈现位与 TUI 选装面同函数零第二实现
+export { sanitizeBlock, sanitizeLine } from './sanitize.js';

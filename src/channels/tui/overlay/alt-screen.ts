@@ -14,7 +14,8 @@
  *   补吐，07 屏模型 / 件 8 条款）→ onReturn 装配钩（树重建等附加动作）。
  *
  * 输入路由切换：共享 io 同一时刻只有一个在听（主屏 suspendMain 已卸监听、
- * 副屏 start 重装）——副屏 input 事件转发 content.handleEvent（回看器键盘滚动）。
+ * 副屏 start 重装）——副屏 input 事件转发 content.handleEvent（回看器键盘
+ * 滚动）后补请一帧（mp-5 家族修：光标/视口变更可见性）。
  *
  * 鼠标降级接线（2026-09-11 鼠标解码批）：open 组合 onMouseLegacy——X10 形首
  * 达（开了 1006 的会话里到达 ⟺ 终端无 SGR 能力，判据可靠）即写 DECRST
@@ -83,6 +84,17 @@ export class AltScreenHost {
   }
 
   /**
+   * 程序化重画请求（mp-5 TUI 选装面批）：转发在飞副屏 Engine 的
+   * requestRender（请求合并且经 FPS 帽）。输入路已由 open 监听统一补帧
+   * （mp-5 家族修），本面承接 host 侧模型变更路（busy/结算块换装——面板
+   * 只现读模型，host 变更后须经此请帧才可见）；副屏缺席时无帧可请，静默
+   * no-op（调用面无须自查 isOpen——避免竞窗期判态竞态）。
+   */
+  requestRepaint(): void {
+    this.alt?.requestRender();
+  }
+
+  /**
    * 进副屏：挂起主屏 → 副屏 Engine 进屏 → 输入转发接线。
    * 拒绝位：已在副屏 / 主屏不在 running 态（无挂起对象）返 null。
    */
@@ -104,6 +116,12 @@ export class AltScreenHost {
     alt.start(content); // 1049 备屏进 + 首帧（start 显式放流——共享 io 接缝）
     this.unsubAltInput = alt.on('input', (event: InputEvent) => {
       content.handleEvent(event); // 副屏内容终局消费（回看器键盘滚动）
+      // 输入补帧（mp-5 家族修）：副屏 Engine 仅在 start/setRoot/resize 出帧——
+      // 输入转发后若不请帧，内容件自持态（面板光标/视口）与键序驱动的模型
+      // 变更肉眼不可见。转发后无条件请一帧：请求合并 + FPS 帽；内容零变化
+      // 整帧零写出（未消费键的补帧无副作用）；收屏路（enter 选定 → close →
+      // dispose）后的迟到请求被 Engine suspended/disposed 闸门静默短路——无残帧。
+      alt.requestRender();
     });
     this.alt = alt;
     let closed = false;

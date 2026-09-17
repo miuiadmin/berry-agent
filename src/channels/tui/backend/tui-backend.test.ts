@@ -2184,6 +2184,15 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     expect(selected).toEqual(['dark']);
   });
 
+  it('副屏输入补帧（mp-5 家族修·修前红）：openThemes ↓ 后光标移动帧落地——修前输入零帧，光标变更肉眼不可见', () => {
+    const { io, backend } = rig();
+    backend.openThemes(THEME_ENTRIES, 'auto', () => {});
+    io.reset(); // 清进屏序与首帧（首帧已含 dark 行）——聚焦输入补帧
+    io.emitInput('\x1b[B'); // ↓ auto → dark（面板光标态变更）
+    expect(io.frames.length).toBeGreaterThan(0); // 修前红：输入只转发不请帧——零新帧
+    expect(io.frames.join('')).toContain('▸'); // 光标标记移上新行（diff 帧写变更格）
+  });
+
   it('openDiff 编舞：改动总览首帧（组头路径 + 计数）；零 edit 投影 = 诚实空态', () => {
     const { io, backend } = rig();
     expect(backend.openDiff(DIFF_MESSAGES)).toBe(true);
@@ -2296,6 +2305,140 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     io.reset();
     io.emitInput('\x1b]11;rgb:0000/0000/0000\x07'); // 暗底 = 同板（dark 基板）
     expect(io.bytes).toBe('');
+  });
+});
+
+describe('TuiBackend /marketplace 选装副屏（mp-5——03 §9.6 TUI 选装面）', () => {
+  /** 可变模型 rig（host 拥有形——字段替换式变更，readonly 投影给面板） */
+  function marketModel() {
+    return {
+      rows: [
+        {
+          id: 'hello-plugin@alpha',
+          name: 'hello-plugin',
+          version: '1.0.0',
+          market: 'alpha',
+          description: '问好插件',
+          installed: false,
+        },
+        {
+          id: 'demo-pkg@alpha',
+          name: 'demo-pkg',
+          version: '1.2.3',
+          market: 'alpha',
+          installed: true,
+        },
+      ],
+      tail: ['alpha 跳过：缓存缺 snapshot.json'],
+      results: [],
+      busyLabel: null as string | null,
+    };
+  }
+
+  /** rig 同 themes 段（calls 收集位非本面重点——只借进/出屏序锁） */
+  function rig() {
+    const { io, backend } = makeBackend({ sessionId: SESSION });
+    io.reset();
+    return { io, backend };
+  }
+
+  it('openMarketplace 编舞：主屏出屏 → 副屏进 → 选装首帧（头行计数 + ▸ 光标 + 已装徽标 + tail 尾行区）', () => {
+    const { io, backend } = rig();
+    expect(
+      backend.openMarketplace(marketModel(), {
+        install: () => {},
+        uninstall: () => {},
+        upgrade: () => {},
+        refresh: () => {},
+      }),
+    ).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.bytes).toContain('◆ 插件市场 · 2 条目（1 源）');
+    expect(io.bytes).toContain('▸ hello-plugin@alpha'); // 光标在首行
+    expect(io.bytes).toContain('demo-pkg@alpha 已装'); // 已装徽标
+    expect(io.bytes).toContain('alpha 跳过：'); // tail 尾行区
+    expect(io.bytes).toContain('↑↓ 移动 · enter 选装/卸载'); // 键面提示行
+  });
+
+  it('host 模型变更路（requestAltRepaint）：busyLabel 换装即时落帧 + busy 期动作键锁（enter 零回调 + warn 入挂起缓冲复起补吐）', () => {
+    const { io, backend } = rig();
+    const model = marketModel();
+    const calls: string[] = [];
+    backend.openMarketplace(model, {
+      install: (id) => calls.push(`install:${id}`),
+      uninstall: (id) => calls.push(`uninstall:${id}`),
+      upgrade: (id) => calls.push(`upgrade:${id}`),
+      refresh: () => calls.push('refresh'),
+    });
+    io.reset(); // 清进屏序与首帧——聚焦模型变更补帧
+    model.busyLabel = '装机在飞中（marketplace install hello-plugin@alpha）';
+    backend.requestAltRepaint();
+    expect(io.bytes).toContain('⏳ 装机在飞中'); // busy 底行上屏（host 侧变更经公开面请帧）
+    io.reset();
+    io.emitInput('\r'); // busy 期 enter——面板锁键第一道（fail-loud + 零回调）
+    expect(calls).toEqual([]);
+    io.emitInput('q'); // 收屏——复起补吐挂起期 warn（BUSY 锁文）
+    expect(backend.lifecycle).toBe('running');
+    expect(io.bytes).toContain('动作键锁定');
+  });
+
+  it('enter 选定：先收副屏再回调 install（07 §4.1 既有律）+ 未装→install / 已装→uninstall 分叉', () => {
+    const { io, backend } = rig();
+    const calls: string[] = [];
+    const model = marketModel();
+    backend.openMarketplace(model, {
+      install: (id) => calls.push(`install:${id}`),
+      uninstall: (id) => calls.push(`uninstall:${id}`),
+      upgrade: (id) => calls.push(`upgrade:${id}`),
+      refresh: () => calls.push('refresh'),
+    });
+    io.reset(); // 清进屏序与首帧——聚焦 enter 编舞
+    io.emitInput('\r'); // 光标在首行（hello-plugin 未装）→ install
+    expect(io.frames[0]).toBe(ALT_LEAVE); // 先收副屏
+    expect(backend.lifecycle).toBe('running');
+    expect(calls).toEqual(['install:hello-plugin@alpha']);
+    // 第二开屏：↓ 移到已装条目 → enter = uninstall 分叉
+    backend.openMarketplace(marketModel(), {
+      install: (id) => calls.push(`install:${id}`),
+      uninstall: (id) => calls.push(`uninstall:${id}`),
+      upgrade: (id) => calls.push(`upgrade:${id}`),
+      refresh: () => calls.push('refresh'),
+    });
+    io.emitInput('\x1b[B'); // ↓ → demo-pkg（已装）
+    io.reset();
+    io.emitInput('\r');
+    expect(calls.at(-1)).toBe('uninstall:demo-pkg@alpha');
+  });
+
+  it('u 换装 / r 刷新面板驻留不收屏 + 副屏占用如实拒（第二开 false）', () => {
+    const { io, backend } = rig();
+    const calls: string[] = [];
+    backend.openMarketplace(marketModel(), {
+      install: () => {},
+      uninstall: () => {},
+      upgrade: (id) => calls.push(`upgrade:${id}`),
+      refresh: () => calls.push('refresh'),
+    });
+    io.reset();
+    io.emitInput('\x1b[B'); // ↓ → demo-pkg（已装）
+    io.emitInput('u'); // 已装条目 u = 换装回调（驻留——不出屏）
+    expect(backend.lifecycle).toBe('suspended'); // 仍在副屏
+    expect(calls).toEqual(['upgrade:demo-pkg@alpha']);
+    io.emitInput('r'); // r = 刷新回调（驻留）
+    expect(calls.at(-1)).toBe('refresh');
+    expect(backend.lifecycle).toBe('suspended');
+    // 副屏在场再开 = 如实 false（openThemes 同律）
+    expect(
+      backend.openMarketplace(marketModel(), {
+        install: () => {},
+        uninstall: () => {},
+        upgrade: () => {},
+        refresh: () => {},
+      }),
+    ).toBe(false);
+    expect(backend.openThemes([{ name: 'dark', detail: '', broken: false }], 'dark', () => {})).toBe(false);
   });
 });
 

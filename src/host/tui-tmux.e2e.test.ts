@@ -31,19 +31,21 @@
  * 模型凭证无关性（E16 注记同律）：纯 TUI 起跑不发请求（模型标识只是
  * 字符串，resolveModel fail-loud 推迟到 LLM 调用边界）——本锁零凭证可跑。
  *
- * 验收六面（终端态可见行判据）：
+ * 验收七面（终端态可见行判据）：
  * 1. 起跑进屏：footer 三段（cwd 短名 · 模型名 · 会话短 id）与编辑器边框在场；
  * 2. 中文输入：字面中文 send-keys 后编辑器行回显在场（零模型依赖——不提交）；
  * 3. /help 副屏：命令册标题行呈现 → q 收屏回主屏（收屏后 footer 复在场）；
  * 4. /themes 副屏：主题条目行呈现 + esc 收屏；
- * 5. resize：resize-window 100→120 后 repaint 完整（边框行宽随几何更新 +
+ * 5. /marketplace 选装副屏（03 §9.6 mp-5）：本地市场源经 CLI 真身入册后
+ *    头行（条目/源计数）与条目行（寻址形 name@market）呈现 → q 收屏；
+ * 6. resize：resize-window 100→120 后 repaint 完整（边框行宽随几何更新 +
  *    footer 仍在场 + 边框行唯一无残行）；
- * 6. /exit：干净退出（会话消亡 + 壳层落盘退出码 0——send-keys /exit Enter 形）。
+ * 7. /exit：干净退出（会话消亡 + 壳层落盘退出码 0——send-keys /exit Enter 形）。
  *
  * 本件属**新验收面**：首跑绿 = 锁在；首跑红 = 抓到真缺陷（停手报告不擅修）。
  */
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -340,6 +342,66 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         STEP_TIMEOUT_MS,
         session.name,
         (lines) => !lines.some((line) => line.includes('主题切换')) && lines.some(isFooterLine),
+      );
+    },
+    90_000,
+  );
+
+  it.skipIf(!hasUsableTmux())(
+    '/marketplace 选装副屏（mp-5）：本地市场源 CLI 真身入册后头行与条目行呈现 → q 收屏',
+    async () => {
+      const session = startTuiSession();
+      // 本地市场仓 fixture（marketplace-tui-face.test.ts 同构·单条目形）：catalog
+      // 市场名 alpha + hello-plugin 本地源声明载荷（berryAgent.skills 在场 =
+      // declared-payload——catalog 描述只需可呈现，消毒锁已在单测层锁死）
+      const repo = makeTmpDir('tui-tmux-market-');
+      mkdirSync(join(repo, '.claude-plugin'), { recursive: true });
+      writeFileSync(
+        join(repo, '.claude-plugin', 'marketplace.json'),
+        JSON.stringify({
+          name: 'alpha',
+          owner: { name: 'o' },
+          plugins: [{ name: 'hello-plugin', source: './plugins/hello', description: '问好插件' }],
+        }),
+      );
+      mkdirSync(join(repo, 'plugins', 'hello'), { recursive: true });
+      writeFileSync(
+        join(repo, 'plugins', 'hello', 'package.json'),
+        `${JSON.stringify({ name: 'hello-plugin', version: '1.0.0', berryAgent: { id: 'hello-plugin', skills: ['greet'] } }, null, 2)}\n`,
+      );
+      // CLI 真身入册（tsx 起 bin 入口；与会话同一 dataDir + env 隔离键）：local
+      // 源零网络；add 只写源册与缓存目录不动主库——与在场 TUI 进程并存安全
+      // （这正是「TUI 开着、另一终端 add 源」的生产形态）
+      const added = spawnSync(process.execPath, [TSX_CLI, MAIN_TS, 'marketplace', 'add', repo], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          BERRY_AGENT_DATA_DIR: session.dataDir,
+          BERRY_AGENT_LOG_LEVEL: 'silent',
+          BERRY_AGENT_MODEL: MODEL_ID,
+        },
+      });
+      expect(added.status, `marketplace add 失败：${added.stderr ?? ''}`).toBe(0);
+      await waitForStartup(session.name);
+      sendLiteral(session.name, '/marketplace');
+      sendKey(session.name, 'Enter');
+      // 副屏进屏判据两锚：头行（◆ 插件市场 · 条目/源计数）+ 首条目行（寻址形
+      // name@market——开屏行集快照零网络，缓存即真相；local 源 add 即已落缓存）
+      await waitForScreen(
+        '/marketplace 副屏进屏',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          lines.some((line) => line.includes('插件市场 · 1 条目（1 源）')) &&
+          lines.some((line) => line.includes('hello-plugin@alpha')),
+      );
+      // q 收屏回主屏：面板头行消失 + footer 复在场（1049l 归位后固定区复显）
+      sendKey(session.name, 'q');
+      await waitForScreen(
+        '/marketplace 收屏回主屏（头行消失 + footer 复在场）',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) => !lines.some((line) => line.includes('插件市场 ·')) && lines.some(isFooterLine),
       );
     },
     90_000,

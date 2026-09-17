@@ -381,6 +381,54 @@ describe('AltScreenHost 副屏编舞', () => {
     expect(io.resumeCount).toBe(before2 + 1); // 主屏复起放流（对称半场）
   });
 
+  it('requestRepaint：副屏在场请求 → 新帧落地；输入已排帧请求但假钟不推进即不落地（请求 ≠ 落地互证）；未开副屏调用零抛零帧（mp-5 程序化重画路）', () => {
+    const { io, host, altClock } = rig();
+    expect(() => host.requestRepaint()).not.toThrow(); // 未 open——静默 no-op（调用面无须自查 isOpen）
+    // 每帧换全异文本（diff 帧写全变更格——帧内容互证第二帧确已渲染）
+    const texts = ['AAA-frame', 'BBB-frame'];
+    let n = 0;
+    const content: OverlayContent = {
+      measure: () => 1,
+      render: (buffer, region) => {
+        buffer.writeText(region.row, region.col, texts[Math.min(n++, texts.length - 1)]!);
+      },
+      handleEvent: () => true,
+    };
+    host.open(content);
+    altClock.advance(0); // 首帧落地
+    expect(io.frames.some((f) => f.includes('AAA-frame'))).toBe(true);
+    io.reset(); // 清进屏帧与首帧——聚焦请求帧
+    io.emitInput('a'); // 输入补帧（家族修）已排帧请求——假钟不推进即不落地（排请求 ≠ 出帧；帧账仍 0）
+    expect(io.frames).toHaveLength(0);
+    host.requestRepaint();
+    altClock.advance(100); // 帧定时器到期（FPS 帽余量内）
+    expect(io.frames.some((f) => f.includes('BBB-frame'))).toBe(true); // 程序化重画帧落地
+  });
+
+  it('输入补帧（mp-5 家族修·修前红）：内容态输入后变更 → 新帧自行落地（修前缺陷——输入只转发不请帧，面板光标/视口/换装肉眼不可见）', () => {
+    const { io, host, altClock } = rig();
+    const texts = ['row-zero', 'row-one'];
+    let cursor = 0; // 内容自持态（面板光标的最小保真）
+    const content: OverlayContent = {
+      measure: () => 1,
+      render: (buffer, region) => {
+        buffer.writeText(region.row, region.col, texts[cursor]!);
+      },
+      handleEvent: (event) => {
+        if (event.kind === 'key' && event.phase !== 'release' && event.key === 'down') cursor = 1;
+        return true;
+      },
+    };
+    host.open(content);
+    altClock.advance(0); // 首帧落地（row-zero）
+    expect(io.frames.some((f) => f.includes('row-zero'))).toBe(true);
+    io.reset(); // 清进屏序与首帧——聚焦输入补帧
+    io.emitInput('\x1b[B'); // ↓ 内容态变更（ThemePicker/MarketPicker 光标移动同形）
+    altClock.advance(100); // 让帧定时器到点（FPS 帽余量内）
+    // 修前红：输入零请帧——advance 后仍零帧，row-one 永不上屏
+    expect(io.frames.some((f) => f.includes('row-one'))).toBe(true);
+  });
+
   it('onReturn 钩在出副屏后调一次（主屏 resumeMain 之后）', () => {
     const io = new MemoryTerminalIO(40, 6);
     const primary = new FakePrimary(io);

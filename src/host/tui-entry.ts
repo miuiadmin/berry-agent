@@ -53,6 +53,11 @@ import type { HostRuntime } from './runtime.js';
 import { APPROVAL_SUBVERBS } from './approval-cmd.js';
 import { DOORS_SUBVERBS } from './doors-cmd.js';
 import { PLUGINS_SUBVERBS } from './plugins-command.js';
+import { runMarketplaceEntry } from './marketplace-cmd.js';
+import { MarketplaceTuiFace } from './marketplace-tui-face.js';
+import type { UninstallChoice } from './marketplace-tui-face.js';
+import { createMarketFs } from './plugin-market/index.js';
+import { createPluginStoreFs, readLedger } from './plugin-store.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
@@ -120,7 +125,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     process.stderr.write(`${assembly.crashed ? `TUI 运行失败：${assembly.message}` : assembly.message}\n`);
     return assembly.exitCode;
   }
-  const { runtime, stack, scope, logger, boot }: AssemblySuccess = assembly;
+  const { runtime, stack, scope, logger, boot, reloader }: AssemblySuccess = assembly;
 
   let exitCode = 0;
   try {
@@ -444,6 +449,68 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
+    // —— /marketplace（03 §9.6 mp-5 TUI 选装面——本地拦截族第七件）：编舞全
+    // 归 MarketplaceTuiFace（host 侧纯逻辑件——行集快照/四动作长编舞/busy 单槽
+    // /双相 uninstall），本闭包只做装配与依赖注入。面实例进程内单例（模型
+    // busy/results 跨开屏持久——enter 收屏后动作在飞，重开 /marketplace 可见
+    // busy 行与结算回执）；装机面变更成功尾自动链 /reload（reloader.request
+    // ——会话运行中自动排队，run 收场后执行）。
+    let marketFace: MarketplaceTuiFace | null = null;
+    const openMarketplacePanel = (): void => {
+      if (marketFace === null) {
+        marketFace = new MarketplaceTuiFace({
+          dataDir: runtime.dataDir,
+          fs: createMarketFs(),
+          now: () => new Date(),
+          // CLI 服务面单源直装（消费服务面零绕过——装机/卸载/换装/刷新八动词
+          // 不在此重实现）；回执经 writeOut/writeErr 注入捕获（不经 stdout）。
+          // dataDir null 形面 open 即诚实拒——runEntry 实际不可达，缺席形走
+          // runMarketplaceEntry 内部缺省（env 梯子）防御位
+          runEntry: (sub, capture) =>
+            runMarketplaceEntry(sub, {
+              ...(runtime.dataDir !== null ? { dataDir: runtime.dataDir } : {}),
+              env: options.env ?? process.env,
+              writeOut: capture.writeOut,
+              writeErr: capture.writeErr,
+            }),
+          notify: (message, opts) => backend.notify(message, opts),
+          // 双相第二相裁决：inspect 回执先呈主屏正文流（所见即所裁），再开
+          // 三选浮层（首项 = 取消——保守位缺省；Esc/收层保守值 '' 同归取消）
+          confirmUninstall: async (inspectText): Promise<UninstallChoice> => {
+            for (const line of inspectText.split('\n')) {
+              if (line.trim() !== '') backend.notify(line, { level: 'info' });
+            }
+            const answer = await backend.select('卸载裁决：数据目录处置', [
+              { value: 'cancel', label: '取消（不动装机物与数据）' },
+              { value: 'keep', label: '卸载并保留数据目录（--data keep 缺省形）' },
+              { value: 'purge', label: '卸载并清数据目录（--data purge——不可逆）' },
+            ]);
+            return answer === '' ? 'cancel' : (answer as UninstallChoice);
+          },
+          requestReload: () => reloader.request(),
+          repaint: () => backend.requestAltRepaint(),
+          // 已装徽标判据 = 真账本 market 注记键集现读（`entry@market` 与条目
+          // id 同形）；账本缺席/损坏 = 空集（无徽标呈现——动作寻址归服务面）
+          ledgerMarketKeys: () => {
+            if (runtime.dataDir === null) return new Set<string>();
+            const ledger = readLedger(runtime.dataDir, createPluginStoreFs());
+            if (!ledger.ok) return new Set<string>();
+            return new Set(
+              ledger.entries
+                .filter((entry) => entry.market !== undefined)
+                .map((entry) => `${entry.market!.entry}@${entry.market!.name}`),
+            );
+          },
+          openPanel: (model, actions) => backend.openMarketplace(model, actions),
+        });
+      }
+      // open 不抛（面内自吞）：异常形 = 源清单损坏等 discover 层拒——回执归
+      // tail/results；此处 catch 仅防御位（保持 fire-and-forget 零 unhandled）
+      void marketFace.open().catch((err: unknown) => {
+        backend.notify(`市场选装面异常：${String(err)}`, { level: 'error' });
+      });
+    };
+
     // —— /new（07 §4.1 命令面增补批 C2——逐件语义 1）：同 cwd 建新会话即切焦。
     // cwd 真源 = 聚焦会话工作区根（行面现读；空悬/行缺席回退启动会话根——
     // 与 @ 补全锚/补开判据同律）；createSession 走 manager（零 I/O——行随首
@@ -483,6 +550,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       { name: 'skills', description: '技能清单副屏（enter 回填调用形入输入框）', run: () => openSkillsPanel() },
       { name: 'themes', description: '主题切换副屏（选定即换装+持久化）', run: () => openThemesPanel() },
       { name: 'diff', description: '会话改动总览副屏（edit 聚合按文件分组）', run: () => openDiffPanel() },
+      {
+        name: 'marketplace',
+        description: '插件市场选装副屏（enter 选装/卸载 · u 换装 · r 刷新）',
+        run: () => openMarketplacePanel(),
+      },
     ] as const;
     /** 本地命令族 → 补全条目（query 已去斜杠——与 exitCommandItems 同契约） */
     const localCommandItems = (query: string): readonly AutocompleteItem[] =>

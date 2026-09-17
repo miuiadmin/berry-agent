@@ -41,6 +41,8 @@ import {
   parseMarketPluginId,
   readMarketplaceSources,
   removeSourceRecord,
+  sanitizeBlock,
+  sanitizeLine,
   updateMarketplaceSources,
   upgradeMarketplacePlugins,
   writeMarketplaceSources,
@@ -70,25 +72,6 @@ export interface MarketplaceEntryOptions {
   readonly writeOut?: (text: string) => void;
   /** 错误面（缺省 process.stderr——测试注入） */
   readonly writeErr?: (text: string) => void;
-}
-
-/** 呈现消毒：剥 C0/C1 控制字符（含换行与 ANSI 转义首字节）——防 catalog 自由文本注入行结构 */
-function sanitizeLine(text: string): string {
-  // eslint-disable-next-line no-control-regex -- 呈现面消毒恰是控制字符的执法位
-  return text.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
-}
-
-/**
- * 呈现消毒（多行报文版）：逐行剥控制字符、**保行结构**——install/uninstall
- * 结局报文是宿主自组合的多行文本（换行属我方排版非外源数据），整串过
- * sanitizeLine 会塌缩全部行；外源字段（id/version/路径段）可携 OSC 52 等
- * 序列直达终端（§9.6 mp 收尾批呈现消毒全位收口修笔——逐行消毒与字段位消毒同律）。
- */
-function sanitizeBlock(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => sanitizeLine(line))
-    .join('\n');
 }
 
 /** marketplace 子命令族主入口。返回进程退出码（0/1；用法错 2 归解析层） */

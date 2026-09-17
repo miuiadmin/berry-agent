@@ -23,3 +23,7 @@ export type { AutocompleteItem } from './autocomplete/provider.js';
 export { editorHeightCap } from './editor/height-cap.js';
 // fuzzy 子序列过滤（R6 批 10j——命令名 / @ 文件段两源装配消费）
 export { fuzzyFilter, isSubsequence, fuzzyMatchKind } from './autocomplete/fuzzy.js';
+// 市场选装面板模型三类型（03 §9.6 mp-5——openMarketplace 签名面：host 侧
+// 编舞 face（marketplace-tui-face）持模型/动作面构造注入；面板件本体仍件内
+// 消费不出面——本面只出类型三名）
+export type { MarketEntryRow, MarketPanelModel, MarketPanelActions } from './panels/market-picker.js';

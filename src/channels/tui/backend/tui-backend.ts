@@ -101,6 +101,7 @@ import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { SkillsViewer, type SkillListEntry } from '../panels/skills-viewer.js';
 import { ThemePicker, type ThemePickEntry } from '../panels/theme-picker.js';
 import { DiffViewer, type DiffProjectionMessage } from '../panels/diff-viewer.js';
+import { MarketPicker, type MarketPanelActions, type MarketPanelModel } from '../panels/market-picker.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import { ConfirmPanel, SelectPanel } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
@@ -958,6 +959,43 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (handle === null) return false;
     this.altHandle = handle;
     return true;
+  }
+
+  /**
+   * 开副屏插件市场选装面（03 §9.6 mp-5 TUI 选装面——/marketplace 本地拦截
+   * 族第七件）：可变模型（rows/tail/results/busyLabel）与动作面由 host 侧
+   * face 注入（本件零市场触感——装配位单源）；锁键/指路 warn 走 notify warn
+   * 位；程序化重画两路合一——面板自持态（光标/视口）经注入的 requestRepaint
+   * 自请、host 侧模型变更经 requestAltRepaint 公开面（同到 altHost）。返
+   * boolean 同 openThemes 律（副屏已占/主屏非 running 如实 false）。
+   */
+  openMarketplace(model: MarketPanelModel, actions: MarketPanelActions): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new MarketPicker({
+        model,
+        actions,
+        notifyWarn: (text) => this.notify(text, { level: 'warn' }),
+        requestRepaint: () => this.altHost.requestRepaint(),
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 副屏程序化重画公开面（mp-5）：host 侧 face 在模型变更（busy 置位/结算
+   * 块回填/刷新换行集）后请帧——面板只现读模型，host 变更须经此路才可见
+   * （面板自持态〔光标/视口〕已由 AltScreenHost 输入监听统一补帧——mp-5
+   * 家族修）。副屏缺席 no-op（调用面无须自查开屏态）。
+   */
+  requestAltRepaint(): void {
+    this.altHost.requestRepaint();
   }
 
   /**

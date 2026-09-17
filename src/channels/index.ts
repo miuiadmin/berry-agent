@@ -51,6 +51,9 @@ export { fuzzyFilter } from './tui/index.js';
 // 文件面——settings 值域校验与 tui-entry 装配下装消费）
 export type { ColorEnv, PartialSemanticPalette, ThemeSetting } from './tui/index.js';
 export { isValidCustomThemeName, listCustomThemeNames, loadCustomThemeColors } from './tui/index.js';
+// 市场选装面板模型三类型（03 §9.6 mp-5——openMarketplace 签名面：host 侧
+// 编舞 face 构造模型/动作面注入；面板件本体件内消费不出本面）
+export type { MarketEntryRow, MarketPanelModel, MarketPanelActions } from './tui/index.js';
 // 插件工具渲染器注册表（2026-09-17 TUI 余量收官批③——07 §4.1 渲染钩子钉位）：
 // host 受理面（plugin-context 装配注入 ctx.ui.registerRenderer）与 TUI 消费面
 // （三态卡卡体 / 工具面板行 lookupToolRenderer）同册两钉

@@ -8,7 +8,7 @@
  * `--no-plugins` 自救链入口腿（E14——坏插件现场锁死对照 + 安全模式起得来）。
  * 输入驱动走真 InputDecoder（'\r' 提交、'\x04' ctrl+d 空框退出）。
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -23,6 +23,7 @@ import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { exitCommandItems, commandArgumentItems, runTuiEntry } from './tui-entry.js';
+import { runMarketplaceEntry } from './marketplace-cmd.js';
 
 /* ---------------- 测试基建 ---------------- */
 
@@ -350,6 +351,51 @@ describe('runTuiEntry 装配序', () => {
     expect(io.output).toContain('/usage'); // 10k 用量面板在册
     io.send('q'); // q text 轨收副屏（独立 ESC 字节有序列等待窗——避并包歧义）
     await until(() => io.output.includes('\x1b[?1049l')); // ALT 收屏字节标记（回主屏）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('/marketplace 选装副屏全链（mp-5——03 §9.6 TUI 选装面）：/marketplace 开屏快照行集 → enter 真装机（服务面直装零绕过）→ 复开已装徽标 + 完成归因回执', async () => {
+    const dataDir = rigDir('entry-market-data-');
+    const ws = rigDir('entry-market-ws-');
+    // 本地市场仓 fixture（marketplace-tui-face.test 同构——零网络 local 源）+
+    // 真服务面 add 入册（源清单 + 缓存快照——面板 discover 纯读此缓存）
+    const repo = join(ws, 'market-repo');
+    mkdirSync(join(repo, '.claude-plugin'), { recursive: true });
+    writeFileSync(
+      join(repo, '.claude-plugin', 'marketplace.json'),
+      JSON.stringify({
+        name: 'alpha',
+        owner: { name: 'o' },
+        plugins: [{ name: 'hello-plugin', source: './plugins/hello', description: '问好插件' }],
+      }),
+    );
+    mkdirSync(join(repo, 'plugins', 'hello'), { recursive: true });
+    writeFileSync(
+      join(repo, 'plugins', 'hello', 'package.json'),
+      `${JSON.stringify({ name: 'hello-plugin', version: '1.0.0', berryAgent: { id: 'hello-plugin', skills: ['greet'] } }, null, 2)}\n`,
+    );
+    expect(await runMarketplaceEntry({ sub: 'add', source: repo }, { dataDir, env: {} })).toBe(0);
+
+    const { entry, io } = await rigEntry(dataDir, ws);
+    await until(() => io.output.includes(' · m1 · '));
+    // /marketplace 恰零参命中（本地拦截族第七件）→ 副屏开屏：快照行集首帧
+    io.send('/marketplace\r');
+    await until(() => io.output.includes('◆ 插件市场 · 1 条目（1 源）'));
+    expect(io.output).toContain('▸ hello-plugin@alpha'); // 光标在首行（未装——无徽标）
+    // enter 选装：先收副屏再回调 → 真服务面拷贝腿装机（busy 在主屏外飞——
+    // 回主屏可 busy 行不可见，完成归因 notify 兜底）
+    io.send('\r');
+    await until(() => io.output.includes('marketplace install hello-plugin@alpha 完成'));
+    expect(io.output).toContain('回执见 /marketplace 面板');
+    // 复开：已装徽标在场（真账本 market 注记对拍——ledgerMarketKeys 现读；
+    // 头行两处出现判据（split 三段）——io.output 累积，首次开屏同名段不可
+    // 复用为达成信号）
+    io.send('/marketplace\r');
+    await until(() => io.output.split('◆ 插件市场 · 1 条目（1 源）').length === 3);
+    expect(io.output).toContain('hello-plugin@alpha 已装');
+    io.send('q');
+    await until(() => io.output.includes('\x1b[?1049l'));
     io.send('\x04');
     expect(await entry).toBe(0);
   });
