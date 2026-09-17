@@ -32,6 +32,21 @@ function withId(endpoint: string, id: string): string {
   return endpoint.replace(':id', encodeURIComponent(id));
 }
 
+/**
+ * GET tiers 应答体（与 host 装配面 tiersOf 应答形对齐——客户端树隔离零
+ * host import）。词表与行文案单源服务端（SPA 零硬编码）；thinkingLevel
+ * 无锚（fold 与 boot 均缺席）= null——行集照常全量、呈现面零标记不虚标；
+ * sandboxMode 恒有锚（boot 解析值 fallback）。端点词面经 protocol 端点表
+ * 客户端副本消费（sessionTiers 族——与服务端 WEBUI_ENDPOINTS 整表对拍锁
+ * 执法，双表恒同步）。
+ */
+export interface TiersPayload {
+  readonly thinkingLevel: string | null;
+  readonly sandboxMode: string;
+  readonly thinkingLevels: readonly { readonly level: string; readonly detail: string }[];
+  readonly sandboxModes: readonly { readonly mode: string; readonly detail: string }[];
+}
+
 /** 非 2xx 折 ApiError（JSON 应答优先取 error 词面；非 JSON 回退 HTTP 状态词） */
 async function foldError(res: Response): Promise<ApiError> {
   let code = `HTTP_${res.status}`;
@@ -119,6 +134,40 @@ export const api = {
   async todo(sessionId: string): Promise<readonly ClientTodoItem[] | null> {
     const body = await call<{ items: ClientTodoItem[] | null }>(withId(WEBUI_ENDPOINTS.sessionTodo, sessionId));
     return body.items;
+  },
+
+  /**
+   * 档位面读（GET tiers——当前档 + 两行集）。挂载即读的消费位 =
+   * TierPopover（/thinking //sandbox 恰零参拦截呈现面）；501（面未装配）/
+   * 404（会话不在场或已闭）/500（fold 坏词）折 ApiError 由调用面透传呈现。
+   */
+  async getSessionTiers(sessionId: string): Promise<TiersPayload> {
+    return call<TiersPayload>(withId(WEBUI_ENDPOINTS.sessionTiers, sessionId));
+  },
+
+  /**
+   * 切 thinking 档（PUT + 体 {level}——单字符串体 SubmitSchema 先例形）。
+   * 应答 {receipt}：回执文案与 TUI setStatus 同文单源（host 侧拼装——
+   * 「下一 run 起生效 + 随模型能力诚实句」）；坏词 400 折 ApiError
+   * （THINKING_LEVEL_INVALID 词面呈现不吞码）。
+   */
+  async setThinkingLevel(sessionId: string, level: string): Promise<{ receipt: string }> {
+    return call<{ receipt: string }>(withId(WEBUI_ENDPOINTS.sessionThinkingLevel, sessionId), {
+      method: 'PUT',
+      body: JSON.stringify({ level }),
+    });
+  },
+
+  /**
+   * 切 sandbox 档（PUT + 体 {mode}——同律单字符串体）。应答 {receipt}
+   * （「即刻生效于后续工具调用」按档分拆语义另一半）；坏词 400 折
+   * ApiError（SANDBOX_MODE_INVALID）。
+   */
+  async setSandboxMode(sessionId: string, mode: string): Promise<{ receipt: string }> {
+    return call<{ receipt: string }>(withId(WEBUI_ENDPOINTS.sessionSandboxMode, sessionId), {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
+    });
   },
 
   /**

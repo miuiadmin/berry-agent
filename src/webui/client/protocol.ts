@@ -28,6 +28,12 @@ export const WEBUI_ENDPOINTS = {
   sessionTodo: '/api/sessions/:id/todo',
   /** GET——会话导出 markdown 直出（不落盘） */
   sessionExport: '/api/sessions/:id/export',
+  /** GET——档位面读（当前档 + 两行集——词表/行文案单源服务端；2026-09-18 webui 档位面受理批） */
+  sessionTiers: '/api/sessions/:id/tiers',
+  /** PUT——切 thinking 档（体 {level} → 应答 {receipt}；回执文案与 TUI setStatus 同文单源） */
+  sessionThinkingLevel: '/api/sessions/:id/thinking-level',
+  /** PUT——切 sandbox 档（体 {mode} → 应答 {receipt}；danger 行警示语 07 §4.1 钉死措辞在行文案表内） */
+  sessionSandboxMode: '/api/sessions/:id/sandbox-mode',
   /** GET——审批清单（?sessionId= 过滤，缺省全量） */
   approvals: '/api/approvals',
   /** POST——审批应答（体 {answer, note?}——跨入口竞速回执） */

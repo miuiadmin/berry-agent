@@ -32,7 +32,6 @@ import {
 } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
-import type { ThinkingLevel } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
   foldSessionSandboxMode,
@@ -65,6 +64,12 @@ import { PLUGINS_SUBVERBS } from './plugins-command.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 import { MarketplaceTuiFace } from './marketplace-tui-face.js';
 import type { UninstallChoice } from './marketplace-tui-face.js';
+import {
+  SANDBOX_MODE_DETAILS,
+  THINKING_LEVEL_DETAILS,
+  sandboxModeReceipt,
+  thinkingLevelReceipt,
+} from './session-tier-copy.js';
 import { createMarketFs } from './plugin-market/index.js';
 import { createPluginStoreFs, readLedger } from './plugin-store.js';
 import { openWebuiFace } from './webui-bridge.js';
@@ -73,31 +78,11 @@ import type { PluginRouteRegistry } from '../sdk/index.js';
 import type { StartupSession } from './conversation-stack.js';
 
 /**
- * 思考档位行说明（/thinking 副屏右段——2026-09-17 会话档位切换面批 F1）：
- * 七档词表单源 THINKING_LEVELS（conversation），本表只是呈现面文案；键集
- * 编译期锁七档全档（Record<ThinkingLevel, string> 面上缺一键即红）。
+ * 档位文案与回执单源已迁 host/session-tier-copy.ts（2026-09-18 webui 档位面
+ * 受理批——两装配面同源消费律：TUI picker 装配与 webui 桥共用 THINKING_LEVEL_
+ * DETAILS / SANDBOX_MODE_DETAILS 两表与两回执拼装函数；07 §4.1 danger 档
+ * 行说明位文案钉死句以规范面为唯一引证源）。
  */
-const THINKING_LEVEL_DETAILS: Readonly<Record<ThinkingLevel, string>> = {
-  off: '关闭思考',
-  minimal: '极简思考',
-  low: '低档思考',
-  medium: '中档思考',
-  high: '高档思考',
-  xhigh: '超高档思考',
-  max: '最大思考',
-};
-
-/**
- * 沙箱档位行说明（/sandbox 副屏右段——2026-09-17 会话档位切换面批 F2）：
- * 三档词表单源 SANDBOX_MODES（safety），本表只是呈现面文案；danger 行警
- * 示语规范钉死（07 §4.1「无沙箱——任何命令直跑宿主」——第三档语义不粉
- * 饰）；键集编译期锁三档全档（Record<SandboxMode, string> 面上缺一键即红）。
- */
-const SANDBOX_MODE_DETAILS: Readonly<Record<SandboxMode, string>> = {
-  'read-only': '只读——写与执行全拒',
-  'workspace-write': '工作区可写——越界写须审批',
-  danger: '无沙箱——任何命令直跑宿主',
-};
 
 /** TUI 入口选项（main 分派接线 + 测试注入面） */
 export interface TuiEntryOptions {
@@ -484,7 +469,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         return;
       }
       setSessionThinkingLevel(driver.session, level);
-      backend.setStatus(sid, `思考档位：${level}（下一 run 起生效；档位是否生效随模型能力）`);
+      // 回执单源（session-tier-copy——webui 桥 PUT 应答体同文消费）
+      backend.setStatus(sid, thinkingLevelReceipt(level));
     };
 
     const openThinkingPanel = (): void => {
@@ -527,7 +513,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         return;
       }
       setSessionMode(driver.session, mode);
-      backend.setStatus(sid, `沙箱档位：${mode}（即刻生效于后续工具调用）`);
+      // 回执单源（session-tier-copy——webui 桥 PUT 应答体同文消费）
+      backend.setStatus(sid, sandboxModeReceipt(mode));
     };
 
     const openSandboxPanel = (): void => {

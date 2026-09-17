@@ -14,8 +14,11 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import { canonicalWorkspaceRoot } from '../context/index.js';
+import { BaseError } from '../contracts/index.js';
+import { THINKING_LEVELS } from '../conversation/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
+import { SANDBOX_MODES } from '../safety/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { WebuiRouteDescriptor, WebuiRouteRegistrar } from '../webui/index.js';
 
@@ -23,6 +26,12 @@ import { createConversationStack } from './conversation-stack.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createServeBridge } from './serve-entry.js';
 import { renderSessionMarkdown } from './session-export.js';
+import {
+  SANDBOX_MODE_DETAILS,
+  THINKING_LEVEL_DETAILS,
+  sandboxModeReceipt,
+  thinkingLevelReceipt,
+} from './session-tier-copy.js';
 import { createHostRuntime } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { mountWebuiOnFace, openWebuiFace } from './webui-bridge.js';
@@ -727,6 +736,174 @@ describe('webui /export 端点（markdown 直出——host 装配桥真身）', 
     try {
       expect(face.deps!.read.exportMarkdown).toBeUndefined();
     } finally {
+      await rt.shutdown();
+    }
+  });
+});
+
+/* ---------------- 档位面桥真身（2026-09-18 webui 档位面受理批——tiers 注入） ---------------- */
+
+describe('webui 档位面桥真身（tiers 注入——/thinking //sandbox webui 受路）', () => {
+  /** 抓错误码（conversation 档位件测试同款——BaseError 码位断言形，不断言文案细节） */
+  function catchCode(fn: () => unknown): string | undefined {
+    try {
+      fn();
+    } catch (e) {
+      return e instanceof BaseError ? e.code : `非 BaseError：${String(e)}`;
+    }
+    return undefined;
+  }
+
+  /**
+   * setStatus 扇出 spy 后端（CR-TIER-3 裁决①观测位）：只声明 setStatus 能力，
+   * 其余能力全关——notify 静默。宿主域 addBackend 直挂（测试观测形）。
+   */
+  function tierSpyBackend(sink: Array<{ sessionId: string; status: string }>) {
+    return {
+      id: 'tier-fanout-spy',
+      capabilities: {
+        notify: true,
+        confirm: false,
+        select: false,
+        input: false,
+        approval: false,
+        setStatus: true,
+        setWidget: false,
+      },
+      hasAudience: () => false,
+      notify: () => undefined,
+      setStatus: (sessionId: string, status: string) => {
+        sink.push({ sessionId, status });
+      },
+    };
+  }
+
+  it('tiersOf 形状：行集两表单源（词表 × host 文案表）+ 新会话现值（thinking 无锚 null / sandbox 恒锚）+ 切档后 fold 现值 + 驱动缺席退栈基线', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-tiers-shape-') });
+    const { stack } = rigStack(rt);
+    // 面不起监听——桥真身 deps 直消费（completion 面同测试形）
+    const face = createSdkHttpFace({
+      config: { tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: createServeBridge(stack, rt, { cwd: process.cwd() }),
+    });
+    const mount = mountWebuiOnFace({ stack, face });
+    try {
+      const tiers = mount.deps.tiers;
+      expect(tiers).toBeDefined(); // 桥真身恒注入（stack 在场——非 seam 缺席形）
+      const id = stack.manager.create().sessionId; // 真开驱动
+      const shape = tiers!.tiersOf(id);
+      // 新会话零档位事件：thinking 无锚（fold 与栈基线均缺席）= null（行集照常全量）
+      expect(shape.thinkingLevel).toBeNull();
+      // sandbox 恒有锚——boot 解析值（rigStack 缺省 workspace-write）
+      expect(shape.sandboxMode).toBe('workspace-write');
+      // 行集 = 词表单源（conversation THINKING_LEVELS / safety SANDBOX_MODES）× host 文案表
+      expect(shape.thinkingLevels).toEqual(
+        THINKING_LEVELS.map((level) => ({ level, detail: THINKING_LEVEL_DETAILS[level] })),
+      );
+      expect(shape.thinkingLevels).toHaveLength(7);
+      expect(shape.thinkingLevels[0]).toEqual({ level: 'off', detail: '关闭思考' });
+      expect(shape.sandboxModes).toEqual(SANDBOX_MODES.map((mode) => ({ mode, detail: SANDBOX_MODE_DETAILS[mode] })));
+      // danger 行警示语 07 §4.1 钉死句（第三档语义不粉饰）
+      expect(shape.sandboxModes).toContainEqual({ mode: 'danger', detail: '无沙箱——任何命令直跑宿主' });
+      // 切档后现值 = fold 现值（append 即入账——tiersOf 每次现取）
+      tiers!.setThinkingLevel(id, 'high');
+      tiers!.setSandboxMode(id, 'read-only');
+      const after = tiers!.tiersOf(id);
+      expect(after.thinkingLevel).toBe('high');
+      expect(after.sandboxMode).toBe('read-only');
+      // 驱动缺席防御：现值退栈基线（thinking null / sandbox boot 值）——行集照常全量
+      const absent = tiers!.tiersOf('不存在');
+      expect(absent.thinkingLevel).toBeNull();
+      expect(absent.sandboxMode).toBe('workspace-write');
+      expect(absent.thinkingLevels).toHaveLength(7);
+      expect(absent.sandboxModes).toHaveLength(3);
+    } finally {
+      mount.detach();
+      await rt.shutdown();
+    }
+  });
+
+  it('setXxx 消费：append 落账 + setStatus 恒一笔（CR-TIER-3 扇出）+ 回执与单源函数同文（字面锁）', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-tiers-set-') });
+    const { stack } = rigStack(rt);
+    const face = createSdkHttpFace({
+      config: { tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: createServeBridge(stack, rt, { cwd: process.cwd() }),
+    });
+    const mount = mountWebuiOnFace({ stack, face });
+    const statuses: Array<{ sessionId: string; status: string }> = [];
+    try {
+      stack.channels.addBackend(tierSpyBackend(statuses));
+      const tiers = mount.deps.tiers!;
+      const id = stack.manager.create().sessionId;
+      // thinking 半边：回执 = 单源 helper 逐字符一致 + 字面锁（单元级快速位——
+      // tmux e2e 之外的第二道回执文案锁）
+      const receipt = tiers.setThinkingLevel(id, 'max');
+      expect(receipt).toBe(thinkingLevelReceipt('max'));
+      expect(receipt).toBe('思考档位：max（下一 run 起生效；档位是否生效随模型能力）');
+      // append 落账（conversation 单写者面——durable 事件恰一条）
+      const thinkingEvents = stack
+        .driverOf(id)!
+        .session.events()
+        .filter((e) => e.type === 'session/thinking-level');
+      expect(thinkingEvents).toHaveLength(1);
+      expect((thinkingEvents[0]!.data as { level: string }).level).toBe('max');
+      // setStatus 恒一笔（成功尾扇出——session-scoped，他通道观众可见）
+      expect(statuses).toEqual([{ sessionId: id, status: receipt }]);
+      // sandbox 半边同律（A4 分拆形另一半：即刻生效于后续工具调用）
+      const receipt2 = tiers.setSandboxMode(id, 'danger');
+      expect(receipt2).toBe(sandboxModeReceipt('danger'));
+      expect(receipt2).toBe('沙箱档位：danger（即刻生效于后续工具调用）');
+      const modeEvents = stack
+        .driverOf(id)!
+        .session.events()
+        .filter((e) => e.type === 'sandbox/mode');
+      expect(modeEvents).toHaveLength(1);
+      expect((modeEvents[0]!.data as { mode: string }).mode).toBe('danger');
+      expect(statuses).toEqual([
+        { sessionId: id, status: receipt },
+        { sessionId: id, status: receipt2 },
+      ]);
+    } finally {
+      mount.detach();
+      await rt.shutdown();
+    }
+  });
+
+  it('坏词与缺席 fail-loud：THINKING_LEVEL_INVALID/SANDBOX_MODE_INVALID 上抛（不扇出不入账）+ SESSION_NOT_FOUND（驱动缺席）+ fold 坏词上抛', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-tiers-bad-') });
+    const { stack } = rigStack(rt);
+    const face = createSdkHttpFace({
+      config: { tcp: { host: '127.0.0.1', port: 0 } },
+      bridge: createServeBridge(stack, rt, { cwd: process.cwd() }),
+    });
+    const mount = mountWebuiOnFace({ stack, face });
+    const statuses: Array<{ sessionId: string; status: string }> = [];
+    try {
+      stack.channels.addBackend(tierSpyBackend(statuses));
+      const tiers = mount.deps.tiers!;
+      const id = stack.manager.create().sessionId;
+      // 坏词上抛：append 面词法校验自然传播（BaseError 码族——服务端 400 呈现）
+      expect(() => tiers.setThinkingLevel(id, 'ultra')).toThrowError(BaseError);
+      expect(catchCode(() => tiers.setThinkingLevel(id, 'ultra'))).toBe('THINKING_LEVEL_INVALID');
+      expect(catchCode(() => tiers.setSandboxMode(id, 'full-access'))).toBe('SANDBOX_MODE_INVALID');
+      // 坏词不入账不扇出（校验在 append 之前；setStatus 只在成功尾）
+      expect(
+        stack
+          .driverOf(id)!
+          .session.events()
+          .filter((e) => e.type === 'session/thinking-level'),
+      ).toHaveLength(0);
+      expect(statuses).toHaveLength(0);
+      // 驱动缺席：BaseError（会话不在场——服务端前置 404 分账之外的桥侧防御位）
+      expect(catchCode(() => tiers.setThinkingLevel('不存在', 'high'))).toBe('SESSION_NOT_FOUND');
+      expect(catchCode(() => tiers.setSandboxMode('不存在', 'danger'))).toBe('SESSION_NOT_FOUND');
+      // fold 坏词上抛：tiersOf 不 catch（CR-TIER-2——GET 走面级 500，TUI 开屏
+      // notify 降级形分立如实）；坏行 = 直落事件模拟持久层异源写入形
+      stack.driverOf(id)!.session.append('session/thinking-level', { level: '幽灵档' });
+      expect(catchCode(() => tiers.tiersOf(id))).toBe('THINKING_LEVEL_INVALID');
+    } finally {
+      mount.detach();
       await rt.shutdown();
     }
   });

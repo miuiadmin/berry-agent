@@ -29,6 +29,7 @@ export type {
   WebuiSessionsFace,
   WebuiReadFace,
   WebuiCompletionFace,
+  WebuiSessionTierFace,
   WebuiDeps,
   WebuiRouteAuth,
   WebuiRouteSseStream,

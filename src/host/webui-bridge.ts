@@ -40,15 +40,26 @@
  * exportMarkdown = renderSessionMarkdown 第三消费位（2026-09-17 TUI 余量
  * 收官批②——exportSource seam 注入双事实源 + 行面元数据，拼装真源本件
  * 单源；缺席 seam = 端点 501 诚实缺席）。
+ * tiers = 会话档位面桥真身（2026-09-18 webui 档位面受理批——GET tiers
+ * 现值/行集 + 两 PUT 走 conversation append 单源；行文案/回执与 TUI 装配
+ * 面同源〔session-tier-copy〕；成功尾 setStatus 扇出 CR-TIER-3 两向对称）。
  */
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { FileMentionSource } from '../channels/index.js';
-import type { SessionEvent } from '../contracts/index.js';
+import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
-import { foldTodoTable } from '../conversation/index.js';
+import {
+  foldSessionSandboxMode,
+  foldSessionThinkingLevel,
+  foldTodoTable,
+  setSessionMode,
+  setSessionThinkingLevel,
+  THINKING_LEVELS,
+} from '../conversation/index.js';
+import { SANDBOX_MODES } from '../safety/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { SdkHttpFaceHandle } from '../sdk/index.js';
 import { WEBUI_DEFAULT_HOST, WEBUI_DEFAULT_PORT, mountWebui } from '../webui/index.js';
@@ -58,6 +69,12 @@ import type { ConversationStack } from './conversation-stack.js';
 import { createServeBridge } from './serve-entry.js';
 import { renderSessionMarkdown } from './session-export.js';
 import type { SessionExportRowLike } from './session-export.js';
+import {
+  SANDBOX_MODE_DETAILS,
+  THINKING_LEVEL_DETAILS,
+  sandboxModeReceipt,
+  thinkingLevelReceipt,
+} from './session-tier-copy.js';
 import type { HostRuntime } from './runtime.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
 
@@ -325,6 +342,74 @@ function bridgeDeps(
             },
           }
         : {}),
+    },
+    // 会话档位面（2026-09-18 webui 档位面受理批——/thinking //sandbox webui
+    // 受路）：WebuiSessionTierFace 桥真身（词面独立律的装配侧兑现）。写入
+    // 单源 = conversation 件档位切换面 append（setSessionThinkingLevel /
+    // setSessionMode——05 §1.1 两行单写者律，webui 侧零第二写入位）；行集 =
+    // 词表单源（THINKING_LEVELS / SANDBOX_MODES）× host 档位文案表
+    // （session-tier-copy——TUI picker 装配同源消费）；回执 = 单源拼装
+    // helper（PUT 应答体 receipt 与 TUI setStatus 回执同文）。stack 恒在场
+    // → 本面恒注入（501 缺席形只在件侧 deps 装配位产生，桥真身无缺席腿）。
+    tiers: {
+      tiersOf: (sessionId) => {
+        // 行集恒全量（驱动在否不影响——SPA 词表/文案零硬编码的服务端真源；
+        // 词序即 picker 行序）
+        const thinkingLevels = THINKING_LEVELS.map((level) => ({ level, detail: THINKING_LEVEL_DETAILS[level] }));
+        const sandboxModes = SANDBOX_MODES.map((mode) => ({ mode, detail: SANDBOX_MODE_DETAILS[mode] }));
+        const driver = stack.driverOf(sessionId);
+        if (driver === undefined) {
+          // 缺席防御：现值退栈基线（thinking 可无锚 null / sandbox 恒 boot 锚
+          // ——05 §1.1 落码注记同律）；会话存在性分账归服务端 404（open 态
+          // 恒有驱动，此形 = 边界防御位）
+          return {
+            thinkingLevel: stack.thinkingLevel ?? null,
+            sandboxMode: stack.sandboxMode,
+            thinkingLevels,
+            sandboxModes,
+          };
+        }
+        // fold 坏词直接上抛（冷读 CR-TIER-2：GET 走面级 500——TUI 开屏
+        // notify 降级形分立如实，此处不套 try/catch）；thinking 现值 =
+        // fold ?? 栈基线 ?? null（两级缺席 = 诚实无锚）；sandbox 现值 =
+        // fold（fallback 必填恒 boot 值——M2 裁决，tui-entry 同调用形）
+        return {
+          thinkingLevel: foldSessionThinkingLevel(driver.session.events()) ?? stack.thinkingLevel ?? null,
+          sandboxMode: foldSessionSandboxMode(driver.session.events(), stack.sandboxMode),
+          thinkingLevels,
+          sandboxModes,
+        };
+      },
+      setThinkingLevel: (sessionId, level) => {
+        const driver = stack.driverOf(sessionId);
+        if (driver === undefined) {
+          // 会话不在场 fail-loud（服务端前置 404 分账之外的桥侧防御位——
+          // 既有错误码族复用）
+          throw new BaseError('SESSION_NOT_FOUND', `会话不在场（${sessionId}）——档位切换需要会话驱动在册`);
+        }
+        // 坏词 BaseError 自然上抛（THINKING_LEVEL_INVALID——服务端 400 码族
+        // 词面呈现不吞码；校验在 append 之前坏词不入账）
+        setSessionThinkingLevel(driver.session, level);
+        const receipt = thinkingLevelReceipt(level);
+        // 成功尾 setStatus 扇出（冷读 CR-TIER-3 裁决①：session-scoped SSE
+        // status 帧达他通道观众——TUI 切档→webui 可见 / webui 切档→TUI 状态
+        // 行可见，两向对称；发起方 SPA 同时收应答体 receipt 与 status 帧，
+        // 两位呈现幂等）
+        stack.channels.setStatus(sessionId, receipt);
+        return receipt;
+      },
+      setSandboxMode: (sessionId, mode) => {
+        const driver = stack.driverOf(sessionId);
+        if (driver === undefined) {
+          throw new BaseError('SESSION_NOT_FOUND', `会话不在场（${sessionId}）——档位切换需要会话驱动在册`);
+        }
+        // 坏词 SANDBOX_MODE_INVALID 同律上抛（append 面词法校验单源）
+        setSessionMode(driver.session, mode);
+        const receipt = sandboxModeReceipt(mode);
+        // 成功尾扇出同 thinking 律（CR-TIER-3 两向对称）
+        stack.channels.setStatus(sessionId, receipt);
+        return receipt;
+      },
     },
     // 补全族：workspaceFiles = TUI 同源 @ 文件段源（replacement 形直出——
     // 条目即完整 token 代换单位，含 @ 前缀与引号形，客户端零路径知识零引号

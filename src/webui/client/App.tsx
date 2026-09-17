@@ -29,6 +29,7 @@ import { Composer } from './components/Composer.js';
 import { NoticeBar } from './components/NoticeBar.js';
 import { SessionHeader } from './components/SessionHeader.js';
 import { SessionList } from './components/SessionList.js';
+import { TierPopover } from './components/TierPopover.js';
 import { TodoPanel } from './components/TodoPanel.js';
 import { Transcript } from './components/Transcript.js';
 import type { ClientEnvelope } from './protocol.js';
@@ -91,6 +92,12 @@ export function App(): ReactElement {
 /** 主面（会话清单 + 正文 + 审批/todo/通知侧栏 + 输入） */
 function Main(): ReactElement {
   const [state, setState] = useState<AppState>(initialAppState);
+  /**
+   * 档位浮层开向（null = 闭）。/thinking //sandbox 恰零参命中即本地开层
+   * ——不进提交流（TUI 本地拦截族同归属律：不进通道核命令表、零 submitText
+   * 消费）；词面分立两值驱动 TierPopover 的 kind 半边。
+   */
+  const [tierPopover, setTierPopover] = useState<'thinking' | 'sandbox' | null>(null);
   /** 重拉投影腿（onopen 与会话切换共用——正确性层恒重拉） */
   const reloadProjection = useCallback((sessionId: string) => {
     void api.fetchMessages(sessionId).then((messages) => {
@@ -166,9 +173,42 @@ function Main(): ReactElement {
 
   /** 提交（乐观回显 + 失败撤回——messageId = crypto.randomUUID 幂等位） */
   const submit = useCallback(
-    (text: string) => {
+    (rawText: string) => {
       const sessionId = state.activeId;
       if (sessionId === null) return;
+      // ---- 档位词拦截（webui 档位面受理批——03 §10.4 SPA 受理面条款）----
+      const trimmed = rawText.trim();
+      // 首 token 词干切分（TUI maybeHandleLocalCommand 同律——/\s+/ 切分：
+      // 空格/tab/换行〔Shift+Enter 形〕分隔的参数一律算带参，零分立——
+      // 空格字面 startsWith 形会漏穿透 tab/换行形，禁用）
+      const stem = trimmed.split(/\s+/, 1)[0] ?? '';
+      if (stem === '/thinking' || stem === '/sandbox') {
+        if (trimmed === stem) {
+          // 恰零参命中——本地开档位浮层，不进提交流（浮层行集 = GET tiers
+          // 应答、选定走 PUT——见 TierPopover）
+          setTierPopover(stem === '/thinking' ? 'thinking' : 'sandbox');
+          return;
+        }
+        // 带参形 = 词干命中即本地用法错（fail-loud——与 TUI「带参 fail-loud
+        // 用法错不穿透」同律对齐，零分立）：折 NoticeBar error 不提交
+        setState((prev) => ({
+          ...prev,
+          notices: [
+            ...prev.notices,
+            {
+              id: prev.seq + 1,
+              message:
+                stem === '/thinking'
+                  ? '/thinking 不带参数使用——档位经面板选定'
+                  : '/sandbox 不带参数使用——档位经面板选定',
+              level: 'error',
+            },
+          ],
+          seq: prev.seq + 1,
+        }));
+        return;
+      }
+      const text = trimmed;
       const messageId = crypto.randomUUID();
       setState((prev) =>
         applyEnvelope(prev, {
@@ -276,6 +316,32 @@ function Main(): ReactElement {
       </main>
       {/* 右栏：审批 */}
       <ApprovalPanel approvals={state.approvals} onDecide={decide} />
+      {/* 档位浮层（/thinking //sandbox 恰零参拦截开层——fixed 定位浮于输入区
+          上方；onReceipt 走 info 档通知条、onError 走 error 档——NoticeBar
+          四档色表 info 在册）；onClose 全路清 null */}
+      {state.activeId !== null && tierPopover !== null ? (
+        <TierPopover
+          kind={tierPopover}
+          sessionId={state.activeId}
+          onClose={() => {
+            setTierPopover(null);
+          }}
+          onReceipt={(receipt) => {
+            setState((prev) => ({
+              ...prev,
+              notices: [...prev.notices, { id: prev.seq + 1, message: receipt, level: 'info' }],
+              seq: prev.seq + 1,
+            }));
+          }}
+          onError={(message) => {
+            setState((prev) => ({
+              ...prev,
+              notices: [...prev.notices, { id: prev.seq + 1, message, level: 'error' }],
+              seq: prev.seq + 1,
+            }));
+          }}
+        />
+      ) : null}
     </div>
   );
 }

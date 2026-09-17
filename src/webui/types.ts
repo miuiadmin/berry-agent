@@ -41,7 +41,11 @@ export const WEBUI_BODY_LIMIT_BYTES = 256 * 1024;
 /** auth cookie 桥 cookie 名（HttpOnly SameSite=Strict——EventSource 无头位；token-or-cookie 档位） */
 export const WEBUI_COOKIE_NAME = 'webui_token';
 
-/** 微路由端点表（五撮——03 §10.4 批 18a 落码定形注①定形；SPA fallback 承载位 = 单 `*` catch-all） */
+/**
+ * 微路由端点表（五撮——03 §10.4 批 18a 落码定形注①定形；SPA fallback 承载位 = 单 `*` catch-all）。
+ * 2026-09-18 webui 档位面受理批：会话族增档位三端点（GET tiers + 两 PUT）——
+ * 路径 13→16、端点计数（method×path）14→17（03 §10.4「端点计数口径」句以后注为准）。
+ */
 export const WEBUI_ENDPOINTS = {
   /** GET——探活（open/liveness；只回 ok 零敏感面） */
   health: '/api/health',
@@ -61,6 +65,12 @@ export const WEBUI_ENDPOINTS = {
   sessionTodo: '/api/sessions/:id/todo',
   /** GET——会话导出 markdown 直出（不落盘——2026-09-17 TUI 余量收官批②） */
   sessionExport: '/api/sessions/:id/export',
+  /** GET——档位面读（当前档 + 两行集——词表/行文案单源服务端，SPA 零硬编码；2026-09-18 webui 档位面受理批） */
+  sessionTiers: '/api/sessions/:id/tiers',
+  /** PUT——切 thinking 档（体 {level}——应答 {receipt}；回执文案与 TUI setStatus 同文单源） */
+  sessionThinkingLevel: '/api/sessions/:id/thinking-level',
+  /** PUT——切 sandbox 档（体 {mode}——应答 {receipt}；danger 行警示语 07 §4.1 钉死措辞在行文案表内） */
+  sessionSandboxMode: '/api/sessions/:id/sandbox-mode',
   /** GET——审批清单（?sessionId= 过滤，缺省全量） */
   approvals: '/api/approvals',
   /** POST——审批应答（体 {answer, note?}——跨入口竞速回执） */
@@ -159,11 +169,54 @@ export interface WebuiCompletionFace {
   workspaceSymbols?(query: string): readonly string[];
 }
 
+/**
+ * 会话档位注入面（2026-09-18 webui 档位面受理批——/thinking //sandbox 的
+ * webui 受路兑现；07 §4.1 挂账句销账）。结构兼容 host 装配桥真身（词面
+ * 独立律——WebuiReadFace.exportMarkdown 同族）：webui 只定形消费窄面，桥
+ * 真身内再落 conversation 件档位切换面 append 单源（setSessionThinkingLevel /
+ * setSessionMode——05 §1.1 两行写入者单源律，webui 侧零第二写入位）。
+ */
+export interface WebuiSessionTierFace {
+  /**
+   * 读当前档 + 两行集（GET tiers 执行体）。词表 = conversation THINKING_LEVELS
+   * 与 safety SANDBOX_MODES 既有单源；detail 行文案 = host 侧档位文案表
+   * （呈现面文案——TUI picker 装配与 webui 桥两装配面同源消费，danger 行
+   * 警示语 07 §4.1 钉死措辞在内），SPA 零硬编码。thinkingLevel 无锚（fold
+   * 与 boot 均缺席）= null（行集照常全量——sandboxMode 恒有锚）；fold 坏词
+   * 直接抛（服务端不 catch——上抛走面级 500，冷读 CR-TIER-2 钉死不静默吞）。
+   */
+  tiersOf(sessionId: string): {
+    readonly thinkingLevel: string | null;
+    readonly sandboxMode: string;
+    readonly thinkingLevels: readonly { readonly level: string; readonly detail: string }[];
+    readonly sandboxModes: readonly { readonly mode: string; readonly detail: string }[];
+  };
+  /**
+   * 切 thinking 档（PUT thinking-level 执行体）。返回回执文案（按档分拆
+   * 语义：thinking = 下一 run 起生效 + 随模型能力诚实句——与 TUI setStatus
+   * 回执同文单源，host 侧回执拼装 helper 两装配面消费）。词表外坏词抛
+   * BaseError（THINKING_LEVEL_INVALID——服务端 400 码族词面呈现不吞码）。
+   */
+  setThinkingLevel(sessionId: string, level: string): string;
+  /**
+   * 切 sandbox 档（PUT sandbox-mode 执行体）。回执 = 即刻生效于后续工具
+   * 调用（按档分拆语义另一半）。词表外坏词抛 BaseError（SANDBOX_MODE_INVALID
+   * ——同律 400 码族词面呈现不吞码）。
+   */
+  setSandboxMode(sessionId: string, mode: string): string;
+}
+
 /** webui 件全依赖（装配根闭包注入——02 §4.1 边形态「最窄边」） */
 export interface WebuiDeps {
   readonly sessions: WebuiSessionsFace;
   readonly read: WebuiReadFace;
   readonly completion?: WebuiCompletionFace;
+  /**
+   * 会话档位面（2026-09-18 webui 档位面受理批）。缺席 = 档位三端点 501
+   * 诚实缺席（API-only 形——exportMarkdown 缺席同精神；501 判先于会话态
+   * 404，冷读 CR-TIER-2 边缘三形之一）。
+   */
+  readonly tiers?: WebuiSessionTierFace;
   /** SPA 静态面目录（生产 dist/webui/；缺席 = API-only 形，/ 与未知路径 404） */
   readonly staticDir?: string;
 }

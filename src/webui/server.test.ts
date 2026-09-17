@@ -16,7 +16,9 @@
  * ②鉴权门（无凭证/错 token 401 / Bearer 过 / auth cookie 桥 Set-Cookie 属性
  * 与 cookie 形复用）
  * ③微路由五撮（探活/会话族含 closed·missing 分账/补全族缺席诚实空；/export
- *   markdown 直出三态——2026-09-17 TUI 余量收官批②）
+ *   markdown 直出三态——2026-09-17 TUI 余量收官批②；档位面三端点——2026-09-18
+ *   webui 档位面受理批：501 判先于会话态 404 / GET 全形状含无锚 null 形 /
+ *   fold 坏词面级 500 / PUT 坏词 400 码族词面 / 体帽显式 256KiB 位）
  * ④体限幅 413 且应答不早于收完（排空后应答——拿到应答即证无 RST 连坐）
  * ⑤SSE 信封分档（display 活体 / session 终结镜像 / asked 镜像）与按会话
  * 路由（status 定向 / notify 广播）
@@ -35,6 +37,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createSdkHttpFace, type SdkHttpFaceHandle } from '../sdk/http.js';
 import type { SdkHttpBridge } from '../sdk/types.js';
+import { BaseError } from '../contracts/index.js';
 import type { AgentMessage } from '../contracts/index.js';
 import type { SessionEnvelope } from '../channels/index.js';
 import type {
@@ -51,12 +54,16 @@ import { WEBUI_ENDPOINTS as WEBUI_ENDPOINTS_CLIENT } from './client/protocol.js'
 
 /* ---------------- 注入面桩（装配桥最小同构） ---------------- */
 
-/** 会话族/读面桩台账 */
+/** 会话族/读面/档位面桩台账 */
 interface DepsStub {
   readonly deps: WebuiDeps;
   readonly submitted: WebuiSubmitInput[];
   readonly interrupted: string[];
   readonly created: string[];
+  /** 档位面 PUT 受理记账（thinking 侧——回执与坏词形的对拍锚） */
+  readonly setLevels: Array<{ readonly sessionId: string; readonly level: string }>;
+  /** 档位面 PUT 受理记账（sandbox 侧） */
+  readonly setModes: Array<{ readonly sessionId: string; readonly mode: string }>;
   setSession(sessionId: string, state: WebuiSessionState): void;
 }
 
@@ -64,10 +71,17 @@ function makeDeps(opts?: {
   readonly withoutTodo?: boolean;
   readonly withoutCompletion?: boolean;
   readonly withoutExport?: boolean;
+  /** 档位面整面缺席（三端点 501 诚实缺席形） */
+  readonly withoutTiers?: boolean;
+  /** fold 坏词形（tiersOf 抛 BaseError——面级 500 路；冷读 CR-TIER-2 边缘三形之三） */
+  readonly foldBadWord?: boolean;
 }): DepsStub {
   const states = new Map<string, WebuiSessionState>([
     ['s-1', 'open'],
     ['s-closed', 'closed'],
+    // 档位面专用：thinking 无锚形会话（fold 与 boot 均缺席 → GET tiers 应答
+    // thinkingLevel: null——冷读 CR-TIER-2 边缘三形之二）
+    ['s-noanchor', 'open'],
   ]);
   const messages = new Map<string, AgentMessage[]>([
     ['s-1', [{ role: 'user', content: '问', timestamp: 1_690_000_000_000 }]],
@@ -82,7 +96,58 @@ function makeDeps(opts?: {
   const submitted: WebuiSubmitInput[] = [];
   const interrupted: string[] = [];
   const created: string[] = [];
+  const setLevels: Array<{ readonly sessionId: string; readonly level: string }> = [];
+  const setModes: Array<{ readonly sessionId: string; readonly mode: string }> = [];
   let seq = 0;
+  // 档位面桩（host 装配桥真身最小同构——2026-09-18 webui 档位面受理批）：
+  // 词表 = 七档/三档词汇（词法面与 conversation/safety 单源同形）；detail 行
+  // 文案透传（内容面为注入面 opaque，host 侧文案表对拍归 host 桥测试件——
+  // danger 行锚钉死措辞以证透传保真）；坏词抛 BaseError 码族（conversation
+  // append 面词法校验 fail-loud 同构——码面即 HTTP 应答 error 词对拍锚）
+  const tierLevels: readonly string[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+  const tierModes: readonly string[] = ['read-only', 'workspace-write', 'danger'];
+  const tiers = {
+    tiersOf: (id: string) => {
+      // fold 坏词形：上抛不静默吞（服务端不 catch——面级 500 路）
+      if (opts?.foldBadWord === true) {
+        throw new BaseError(
+          'SANDBOX_MODE_INVALID',
+          'sandbox/mode 事件档位非法："danger-full"（三档词汇：read-only / workspace-write / danger）',
+        );
+      }
+      return {
+        // s-noanchor = 无锚形会话（thinkingLevel: null——行集照常全量）
+        thinkingLevel: id === 's-noanchor' ? null : 'medium',
+        sandboxMode: 'workspace-write',
+        thinkingLevels: tierLevels.map((level) => ({ level, detail: `thinking 档 ${level}` })),
+        sandboxModes: tierModes.map((mode) => ({
+          mode,
+          // danger 行文案 = 07 §4.1 钉死措辞（透传保真锚——SPA 零硬编码）
+          detail: mode === 'danger' ? '无沙箱——任何命令直跑宿主' : `sandbox 档 ${mode}`,
+        })),
+      };
+    },
+    setThinkingLevel: (id: string, level: string) => {
+      if (!tierLevels.includes(level)) {
+        throw new BaseError(
+          'THINKING_LEVEL_INVALID',
+          `thinking 档位非法：${JSON.stringify(level)}（七档词汇：off / minimal / low / medium / high / xhigh / max）`,
+        );
+      }
+      setLevels.push({ sessionId: id, level });
+      return `thinking 已切 ${level}——下一 run 起生效（档位是否生效随模型能力）`;
+    },
+    setSandboxMode: (id: string, mode: string) => {
+      if (!tierModes.includes(mode)) {
+        throw new BaseError(
+          'SANDBOX_MODE_INVALID',
+          `sandbox 档位非法：${JSON.stringify(mode)}（三档词汇：read-only / workspace-write / danger）`,
+        );
+      }
+      setModes.push({ sessionId: id, mode });
+      return `sandbox 已切 ${mode}——即刻生效于后续工具调用`;
+    },
+  };
   const deps: WebuiDeps = {
     sessions: {
       createSession: () => {
@@ -107,12 +172,16 @@ function makeDeps(opts?: {
       ...(opts?.withoutExport === true ? {} : { exportMarkdown: (id: string) => markdowns.get(id) }),
     },
     ...(opts?.withoutCompletion === true ? {} : { completion: { workspaceFiles: (q) => [`a/${q}.ts`] } }),
+    // 档位面注入（缺席 = 三端点 501 诚实缺席——exportMarkdown 缺席同精神）
+    ...(opts?.withoutTiers === true ? {} : { tiers }),
   };
   return {
     deps,
     submitted,
     interrupted,
     created,
+    setLevels,
+    setModes,
     setSession: (id, state) => {
       if (state === 'missing') states.delete(id);
       else states.set(id, state);
@@ -316,6 +385,21 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     return { status: res.status, json: text === '' ? null : (JSON.parse(text) as unknown) };
   };
 
+  /** PUT 腿（档位面两切档端点专用——体校验/回执对拍与 get/post 同形） */
+  const put = async (
+    path: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<{ status: number; json: unknown }> => {
+    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+      method: 'PUT',
+      headers: authHeaders(headers),
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+    const text = await res.text();
+    return { status: res.status, json: text === '' ? null : (JSON.parse(text) as unknown) };
+  };
+
   /* ---- ① 三防线（面级先行——403 应答为面级 plain text，断状态码） ---- */
 
   it('探活开面：GET /api/health 无鉴权 200 只回 ok', async () => {
@@ -455,6 +539,189 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       });
       expect(res.status).toBe(501);
       expect(await res.json()).toMatchObject({ error: 'not_implemented' });
+    } finally {
+      bare.webui.detach();
+      await bare.face.stop();
+    }
+  });
+
+  /* ---- ③ 档位面三端点（2026-09-18 webui 档位面受理批——GET tiers + 两 PUT） ---- */
+
+  it('档位面鉴权缺拒：三端点无凭证 401（鉴权随全 API 面——token-or-cookie）', async () => {
+    const tiers = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/tiers`);
+    expect(tiers.status).toBe(401);
+    const thinking = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/thinking-level`, { method: 'PUT' });
+    expect(thinking.status).toBe(401);
+    const sandbox = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/sandbox-mode`, { method: 'PUT' });
+    expect(sandbox.status).toBe(401);
+  });
+
+  it('tiers：GET 200 全形状（四键齐 + 行集 detail 透传 + danger 钉死措辞）', async () => {
+    const r = await get('/api/sessions/s-1/tiers');
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({
+      thinkingLevel: 'medium',
+      sandboxMode: 'workspace-write',
+      thinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => ({
+        level,
+        detail: `thinking 档 ${level}`,
+      })),
+      sandboxModes: [
+        { mode: 'read-only', detail: 'sandbox 档 read-only' },
+        { mode: 'workspace-write', detail: 'sandbox 档 workspace-write' },
+        // danger 行 = 07 §4.1 钉死措辞透传（SPA 零硬编码的行文案单源证明）
+        { mode: 'danger', detail: '无沙箱——任何命令直跑宿主' },
+      ],
+    });
+  });
+
+  it('tiers 无锚形：thinkingLevel = null（fold 与 boot 均缺席——行集照常全量、sandboxMode 恒有锚）', async () => {
+    const r = await get('/api/sessions/s-noanchor/tiers');
+    expect(r.status).toBe(200);
+    const body = r.json as {
+      thinkingLevel: string | null;
+      sandboxMode: string;
+      thinkingLevels: unknown[];
+      sandboxModes: unknown[];
+    };
+    expect(body.thinkingLevel).toBeNull();
+    expect(body.sandboxMode).toBe('workspace-write');
+    expect(body.thinkingLevels).toHaveLength(7);
+    expect(body.sandboxModes).toHaveLength(3);
+  });
+
+  it('tiers 会话态分账：missing 404 not_found / closed 404 closed（读写不分——档位面是会话活体交互面）', async () => {
+    const missing = await get('/api/sessions/who-knows/tiers');
+    expect(missing.status).toBe(404);
+    expect(missing.json).toMatchObject({ error: 'not_found' });
+    // 已闭一律 404 closed：messages//export 的已闭放行系正文读面语义，tiers 非正文读面
+    const closed = await get('/api/sessions/s-closed/tiers');
+    expect(closed.status).toBe(404);
+    expect(closed.json).toMatchObject({ error: 'closed' });
+  });
+
+  it('档位面注入窄面缺席：三端点 501 诚实缺席且 501 判先于会话态 404（GET /export 先例同序——冷读 CR-TIER-2）', async () => {
+    const bare = await rig(makeDeps({ withoutTiers: true }).deps);
+    try {
+      // GET：missing 会话仍 501（面缺席优先于会话存在性分账——若序倒置则 404 即红）
+      const g = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/who-knows/tiers`, {
+        headers: { authorization: `Bearer ${bare.token}` },
+      });
+      expect(g.status).toBe(501);
+      expect(await g.json()).toMatchObject({ error: 'not_implemented' });
+      // 两 PUT 同序（501 先于会话态与体校验）
+      const p1 = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/who-knows/thinking-level`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${bare.token}` },
+        body: JSON.stringify({ level: 'high' }),
+      });
+      expect(p1.status).toBe(501);
+      expect(await p1.json()).toMatchObject({ error: 'not_implemented' });
+      const p2 = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/who-knows/sandbox-mode`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${bare.token}` },
+        body: JSON.stringify({ mode: 'read-only' }),
+      });
+      expect(p2.status).toBe(501);
+      expect(await p2.json()).toMatchObject({ error: 'not_implemented' });
+    } finally {
+      bare.webui.detach();
+      await bare.face.stop();
+    }
+  });
+
+  it('tiers fold 坏词：面级 500 不静默吞（冷读 CR-TIER-2 钉死——TUI 开屏 notify 降级形分立如实）', async () => {
+    const broken = await rig(makeDeps({ foldBadWord: true }).deps);
+    try {
+      // 面抛上抛 → sdk 面监听器 catch → 500（面级 plain text 应答——断状态码即可）
+      const res = await fetch(`http://127.0.0.1:${broken.port}/api/sessions/s-1/tiers`, {
+        headers: { authorization: `Bearer ${broken.token}` },
+      });
+      expect(res.status).toBe(500);
+    } finally {
+      broken.webui.detach();
+      await broken.face.stop();
+    }
+  });
+
+  it('thinking-level：PUT 200 {receipt} 透传 + 受理记账；坏词 400 码族词面（THINKING_LEVEL_INVALID 不吞码）', async () => {
+    const ok = await put('/api/sessions/s-1/thinking-level', { level: 'high' });
+    expect(ok.status).toBe(200);
+    expect(ok.json).toEqual({ receipt: 'thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）' });
+    expect(stub.setLevels).toEqual([{ sessionId: 's-1', level: 'high' }]);
+    // 坏词 fail-loud：400 + error 词 = 码族词面呈现（message 人读因透传）
+    const bad = await put('/api/sessions/s-1/thinking-level', { level: 'ultra' });
+    expect(bad.status).toBe(400);
+    expect(bad.json).toMatchObject({ error: 'THINKING_LEVEL_INVALID' });
+    expect((bad.json as { message: string }).message).toContain('ultra');
+    // 坏词不入账（词法校验在 append 前——受理记账长度不变）
+    expect(stub.setLevels).toHaveLength(1);
+  });
+
+  it('sandbox-mode：PUT 200 {receipt} 透传 + 受理记账；坏词 400 SANDBOX_MODE_INVALID', async () => {
+    const ok = await put('/api/sessions/s-1/sandbox-mode', { mode: 'read-only' });
+    expect(ok.status).toBe(200);
+    expect(ok.json).toEqual({ receipt: 'sandbox 已切 read-only——即刻生效于后续工具调用' });
+    expect(stub.setModes).toEqual([{ sessionId: 's-1', mode: 'read-only' }]);
+    const bad = await put('/api/sessions/s-1/sandbox-mode', { mode: 'yolo' });
+    expect(bad.status).toBe(400);
+    expect(bad.json).toMatchObject({ error: 'SANDBOX_MODE_INVALID' });
+    expect(stub.setModes).toHaveLength(1);
+  });
+
+  it('档位面 PUT 体校验：键缺失 / 未知字段 / 键错位 / 坏 JSON → 400（typebox 收窄律）', async () => {
+    expect((await put('/api/sessions/s-1/thinking-level', { value: 'high' })).status).toBe(400);
+    expect((await put('/api/sessions/s-1/thinking-level', { level: 'high', extra: 1 })).status).toBe(400);
+    // sandbox-mode 携 thinking 键 = 键错位（mode 键缺失）
+    expect((await put('/api/sessions/s-1/sandbox-mode', { level: 'read-only' })).status).toBe(400);
+    const bad = await fetch(`http://127.0.0.1:${port}/api/sessions/s-1/thinking-level`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: 'not-json',
+    });
+    expect(bad.status).toBe(400);
+    // 坏体不入账（校验先于执行体调用）
+    expect(stub.setLevels).toHaveLength(0);
+    expect(stub.setModes).toHaveLength(0);
+  });
+
+  it('档位面 PUT 会话态分账：missing 404 not_found / closed 404 closed（对照 submit 词面）', async () => {
+    const missing = await put('/api/sessions/who-knows/thinking-level', { level: 'high' });
+    expect(missing.status).toBe(404);
+    expect(missing.json).toMatchObject({ error: 'not_found' });
+    const closed = await put('/api/sessions/s-closed/sandbox-mode', { mode: 'read-only' });
+    expect(closed.status).toBe(404);
+    expect(closed.json).toMatchObject({ error: 'closed' });
+    // 两态均不入账
+    expect(stub.setLevels).toHaveLength(0);
+    expect(stub.setModes).toHaveLength(0);
+  });
+
+  it('档位面 PUT 体帽：描述符显式设值（sdk 面 10MiB 缺省不渗透——冷读 F2）超帽 413', async () => {
+    // 件级帽注到 32B 的 rig：PUT 路由描述符显式携 bodyLimitBytes 才吃到件级帽；
+    // 若描述符缺席该键则面级 10MiB 缺省渗透、本例不 413 即红——F2 防渗透牙
+    const bare = await rig(stub.deps, { bodyLimitBytes: 32 });
+    try {
+      const res = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/thinking-level`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${bare.token}`,
+        },
+        body: JSON.stringify({ level: 'x'.repeat(200) }),
+      });
+      expect(res.status).toBe(413);
+      expect(await res.json()).toMatchObject({ error: 'too_large' });
+      const res2 = await fetch(`http://127.0.0.1:${bare.port}/api/sessions/s-1/sandbox-mode`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${bare.token}`,
+        },
+        body: JSON.stringify({ mode: 'y'.repeat(200) }),
+      });
+      expect(res2.status).toBe(413);
+      expect(await res2.json()).toMatchObject({ error: 'too_large' });
     } finally {
       bare.webui.detach();
       await bare.face.stop();
@@ -797,7 +1064,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
 /* ---------------- ⑨ 双表对拍锁（词面单源执法——tests 不计边表账） ---------------- */
 
 describe('WEBUI_ENDPOINTS 双表对拍（客户端副本 vs 服务端单源）', () => {
-  it('整表恒等：键集 + 逐键值（13 路径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
+  it('整表恒等：键集 + 逐键值（16 路径 17 端点口径——服务端改词面则客户端静默 404 的漂移面本例即红）', () => {
     // client/protocol.ts 头注承诺「与服务端 WEBUI_ENDPOINTS 同形同词面」——
     // 承诺升为可执行锁；toStrictEqual 整表锁含键集/逐键值/键序三面，
     // 任一侧改词面（含增删键）四门禁即红

@@ -3,8 +3,9 @@
  * 实装 → 承载位改注册）。
  *
  * **承载位改注册（18a-2'——03 §10.4 改形注记 + §10.6 路由扩展位段）**：
- * 件零自持 node:http 监听——mountWebui(deps) 把五撮 14 端点 + SPA fallback
- * 逐条注册进注入的注册器（sdk 面注册器结构兼容）。归面级的四块（原自持
+ * 件零自持 node:http 监听——mountWebui(deps) 把五撮 17 端点（2026-09-18
+ * webui 档位面受理批 14→17——会话族档位三端点入册）+ SPA fallback 逐条
+ * 注册进注入的注册器（sdk 面注册器结构兼容）。归面级的四块（原自持
  * 已删）：三防线（Host 白名单/Origin 硬防线——面级先行适用于一切路由，仅
  * TCP）/ token 鉴权执法（token-or-cookie 档 Bearer ∪ cookie 双通道、恒时
  * 比对——面 token 唯一验换位 ctx.verifyToken）/ POST 体帽与排空纪律
@@ -29,6 +30,13 @@
  *   API-only 404 no_spa）；JSON 均 typebox 校验后消费。
  * - **decide 只 resolve pending resolver**（绝不直接写 durable——decided
  *   durable 写唯一保留在 ask() 汇流点；unknown/已决 → superseded 幂等回执）。
+ * - **档位面三端点**（2026-09-18 webui 档位面受理批——07 §4.1 挂账句销账）：
+ *   GET tiers（注入窄面 501 判先于会话态 404；thinkingLevel 无锚 null 形；
+ *   fold 坏词上抛面级 500 不静默吞——冷读 CR-TIER-2）+ 两 PUT（单字符串体
+ *   {level}/{mode}；bodyLimitBytes 显式设值防 sdk 面 10MiB 缺省渗透——冷读
+ *   F2；坏词 BaseError → 400 码族词面呈现不吞码；成功应答 {receipt}）；已
+ *   闭会话三端点一律 404 closed（读写不分——档位面是会话活体交互面，tiers
+ *   非正文读面，与 messages//export 的已闭放行射界分立）。
  *
  * 收场语义：detach() = 全路由摘除 + 全流收口 + 审批清槽（**丢弃性结算——
  * 不 resolve**：未决条目不凭空造值抢答；败腿 promise 悬挂由核 finish/队列
@@ -41,7 +49,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 
-import type { ApprovalAskAnswer } from '../contracts/index.js';
+import { BaseError, type ApprovalAskAnswer } from '../contracts/index.js';
 import type { NotifyLevel, SessionEnvelope, UiBackend } from '../channels/index.js';
 import {
   WEBUI_BODY_LIMIT_BYTES,
@@ -82,6 +90,13 @@ const DecideSchema = Type.Object(
   },
   strict,
 );
+
+/** thinking-level 体（档位面单字符串体——SubmitSchema 先例形；词法校验归
+ *  注入面 fail-loud〔THINKING_LEVEL_INVALID〕，schema 只锁体形） */
+const ThinkingLevelSchema = Type.Object({ level: Type.String() }, strict);
+
+/** sandbox-mode 体（同律单字符串体；词法校验归注入面 SANDBOX_MODE_INVALID） */
+const SandboxModeSchema = Type.Object({ mode: Type.String() }, strict);
 
 /** 深校验非抛型（fail-loud 可行动报因——首错定位） */
 function validate<T>(
@@ -353,7 +368,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       .pipe(res);
   }
 
-  /* ---- 路由族注册（五撮 14 端点 + /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
+  /* ---- 路由族注册（五撮 17 端点〔2026-09-18 档位面 14→17〕+ /api 兜底 + SPA fallback——全族 loopbackOnly） ---- */
 
   /** API 族鉴权档（Bearer ∪ cookie 双通道——cookie 名单源） */
   const tokenOrCookie: WebuiRouteAuth = { mode: 'token-or-cookie', cookie: WEBUI_COOKIE_NAME };
@@ -457,6 +472,110 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       // markdown 正文直出（Content-Type 精确值钉规范位——text/markdown; charset=utf-8）
       res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
       res.end(markdown);
+    },
+  });
+  // —— 会话族子路由：档位面三端点（2026-09-18 webui 档位面受理批——07 §4.1
+  //    挂账句销账；词表+行文案单源服务端、SPA 零硬编码；消费单源 = 注入面
+  //    落 conversation 件 append 面，webui 侧零第二写入位）——
+  add({
+    method: 'GET',
+    path: WEBUI_ENDPOINTS.sessionTiers,
+    auth: tokenOrCookie,
+    handler: (_req, res, ctx) => {
+      // 501 判先于会话态 404（GET /export 先例同序——冷读 CR-TIER-2 钉死：
+      // 注入窄面缺席〔API-only 形〕优先于会话存在性分账，序倒置则面装配
+      // 缺失被会话态遮蔽）
+      const tiers = deps.tiers;
+      if (tiers === undefined) {
+        sendError(res, 501, 'not_implemented', '档位面未装配（tiers 注入缺席）');
+        return;
+      }
+      const sessionId = ctx.params.id!;
+      const state = deps.sessions.sessionStateOf(sessionId);
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      // 已闭一律 404 closed（读写不分——档位面是会话活体交互面；messages/
+      // export 的已闭放行系正文读面语义，tiers 非正文读面）
+      if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
+      // fold 坏词不 catch：tiersOf 上抛走面级 500（冷读 CR-TIER-2 钉死——
+      // 不静默吞；TUI 开屏 notify 降级形分立如实，服务端只如实上抛）
+      sendJson(res, 200, tiers.tiersOf(sessionId));
+    },
+  });
+  add({
+    method: 'PUT',
+    path: WEBUI_ENDPOINTS.sessionThinkingLevel,
+    auth: tokenOrCookie,
+    // 体帽显式设值（与 submit 路由同常量——256KiB；防 sdk 面 10MiB 缺省
+    // 渗透，冷读 F2——描述符缺席该键则面级缺省帽悄悄放宽即缺陷）
+    bodyLimitBytes,
+    handler: async (req, res, ctx) => {
+      // 501 判先于会话态 404（与 GET tiers 同序）
+      const tiers = deps.tiers;
+      if (tiers === undefined) {
+        sendError(res, 501, 'not_implemented', '档位面未装配（tiers 注入缺席）');
+        return;
+      }
+      const sessionId = ctx.params.id!;
+      const state = deps.sessions.sessionStateOf(sessionId);
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
+      const body = await ctx.readBody(req);
+      if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
+      const parsed = parseJson(body.body);
+      if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
+      const levelBody = validate<{ level: string }>(ThinkingLevelSchema, parsed.value, 'thinking-level 体');
+      if (!levelBody.ok) return sendError(res, 400, 'bad_request', levelBody.reason);
+      try {
+        // 回执文案 = 注入面拼装单源（host 侧 helper 两装配面同源消费）；
+        // 成功尾调 setStatus 扇出归 host 桥真身（CR-TIER-3——webui 件内不代劳）
+        const receipt = tiers.setThinkingLevel(sessionId, levelBody.value.level);
+        sendJson(res, 200, { receipt });
+      } catch (err) {
+        // 坏词 fail-loud：BaseError 码族词面呈现不吞码（THINKING_LEVEL_INVALID
+        // ——HTTP 面不吞码，02 §5.3）；非 BaseError 异常如实上抛走面级 500
+        if (err instanceof BaseError) {
+          sendError(res, 400, err.code, err.message);
+          return;
+        }
+        throw err;
+      }
+    },
+  });
+  add({
+    method: 'PUT',
+    path: WEBUI_ENDPOINTS.sessionSandboxMode,
+    auth: tokenOrCookie,
+    // 体帽显式设值（同 thinking-level——256KiB，冷读 F2）
+    bodyLimitBytes,
+    handler: async (req, res, ctx) => {
+      // 501 判先于会话态 404（与 GET tiers 同序）
+      const tiers = deps.tiers;
+      if (tiers === undefined) {
+        sendError(res, 501, 'not_implemented', '档位面未装配（tiers 注入缺席）');
+        return;
+      }
+      const sessionId = ctx.params.id!;
+      const state = deps.sessions.sessionStateOf(sessionId);
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
+      const body = await ctx.readBody(req);
+      if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
+      const parsed = parseJson(body.body);
+      if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
+      const modeBody = validate<{ mode: string }>(SandboxModeSchema, parsed.value, 'sandbox-mode 体');
+      if (!modeBody.ok) return sendError(res, 400, 'bad_request', modeBody.reason);
+      try {
+        // sandbox 档回执 = 即刻生效于后续工具调用（按档分拆语义另一半）
+        const receipt = tiers.setSandboxMode(sessionId, modeBody.value.mode);
+        sendJson(res, 200, { receipt });
+      } catch (err) {
+        // 坏词 fail-loud：SANDBOX_MODE_INVALID 码族词面呈现（同 thinking 律）
+        if (err instanceof BaseError) {
+          sendError(res, 400, err.code, err.message);
+          return;
+        }
+        throw err;
+      }
     },
   });
   add({
