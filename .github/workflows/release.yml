@@ -75,7 +75,7 @@ jobs:
           fi
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
       # 「npm ≥11.5.1 随行」是断言非假设（OIDC publish 版本下限）
       - name: npm 版本下限断言（≥ 11.5.1）

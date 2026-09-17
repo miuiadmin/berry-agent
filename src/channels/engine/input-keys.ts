@@ -20,6 +20,7 @@ export const TILDE_KEYS: Record<number, string> = {
   1: 'home',
   2: 'insert',
   3: 'delete',
+  4: 'end', // xterm legacy 首尾键双形：tmux send-keys End 发 `\x1b[4~`（8~ 之外的第二形——缺席即 tmux 内层 End 死键）
   5: 'pageup',
   6: 'pagedown',
   7: 'home',

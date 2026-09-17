@@ -31,7 +31,7 @@
  * 模型凭证无关性（E16 注记同律）：纯 TUI 起跑不发请求（模型标识只是
  * 字符串，resolveModel fail-loud 推迟到 LLM 调用边界）——本锁零凭证可跑。
  *
- * 验收七面（终端态可见行判据）：
+ * 验收九面（终端态可见行判据）：
  * 1. 起跑进屏：footer 三段（cwd 短名 · 模型名 · 会话短 id）与编辑器边框在场；
  * 2. 中文输入：字面中文 send-keys 后编辑器行回显在场（零模型依赖——不提交）；
  * 3. /help 副屏：命令册标题行呈现 → q 收屏回主屏（收屏后 footer 复在场）；
@@ -40,7 +40,14 @@
  *    头行（条目/源计数）与条目行（寻址形 name@market）呈现 → q 收屏；
  * 6. resize：resize-window 100→120 后 repaint 完整（边框行宽随几何更新 +
  *    footer 仍在场 + 边框行唯一无残行）；
- * 7. /exit：干净退出（会话消亡 + 壳层落盘退出码 0——send-keys /exit Enter 形）。
+ * 7. /exit：干净退出（会话消亡 + 壳层落盘退出码 0——send-keys /exit Enter 形）；
+ * 8. /thinking 副屏（会话档位切换面批 F1）：头行（◆ 思考档位 · 七档计数）
+ *    与尾档条目行呈现 → end+enter 选定 max → footer 行右段回执
+ *    「思考档位：max（下一 run 起生效…）」+ 副屏收屏回主屏（首跑曾抓
+ *    end 键 tmux 内层死键真缺陷——TILDE_KEYS 补 4: 'end' 已修，end 消费在环）；
+ * 9. /sandbox 副屏（会话档位切换面批 F2 同构）：头行（◆ 沙箱档位 · 三档
+ *    计数）与 danger 档条目行呈现 → end+enter 选定 danger → footer 行右段
+ *    回执「沙箱档位：danger（即刻生效…）」+ 副屏收屏回主屏。
  *
  * 本件属**新验收面**：首跑绿 = 锁在；首跑红 = 抓到真缺陷（停手报告不擅修）。
  */
@@ -272,7 +279,7 @@ async function readExitCode(session: TmuxSession): Promise<string> {
   return readFileSync(session.exitFile, 'utf8');
 }
 
-/* ---------------- 验收六面 ---------------- */
+/* ---------------- 验收九面 ---------------- */
 
 describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵条款闭环）', () => {
   it.skipIf(!hasUsableTmux())(
@@ -423,6 +430,79 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         STEP_TIMEOUT_MS,
         session.name,
         (lines) => !lines.some((line) => line.includes('插件市场 ·')) && lines.some(isFooterLine),
+      );
+    },
+    90_000,
+  );
+
+  it.skipIf(!hasUsableTmux())(
+    '/thinking 副屏（F1）：七档头行与尾档条目呈现 → down+enter 选定 max → 回执 + 收屏回主屏',
+    async () => {
+      const session = startTuiSession();
+      await waitForStartup(session.name);
+      sendLiteral(session.name, '/thinking');
+      sendKey(session.name, 'Enter');
+      // 副屏进屏判据两锚：头行（◆ 思考档位 · 7 档——七档词表单源 THINKING_LEVELS）
+      // + 尾档条目行 xhigh（面板独有词——主屏/回执均不含，避免跨屏误锚）
+      await waitForScreen(
+        '/thinking 副屏进屏',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          lines.some((line) => line.includes('思考档位 · 7 档')) && lines.some((line) => line.includes('xhigh')),
+      );
+      // end 一步跳尾档（tmux send-keys End 发 ESC[4~——xterm legacy 双形，已由
+      // input-keys.ts TILDE_KEYS `4: 'end'` 收录；本面首跑曾抓该形死键真缺陷，
+      // 修位 input-keys.ts + input.test.ts 首尾键双形回归锁）→ enter 选定：
+      // 选定先收副屏再回调（件族同序律）——append durable 事件 + setStatus
+      // 回执归装配闭包。回执判据 = footer 行右段「思考档位：max（下一 run
+      // 起生效…）」（tui-entry selectThinking 回执文案形，StatusLine 分栏右
+      // 对齐）；与头行锚「思考档位 · 7 档」用全角冒号/计数段分形，两谓词互不
+      // 误匹配。回执落在 max（≠光标零位 off）即证 end 键真被引擎消费——
+      // ESC[4~ 解码链在环。
+      sendKey(session.name, 'End');
+      sendKey(session.name, 'Enter');
+      await waitForScreen(
+        '/thinking 选定收屏回主屏（头行消失 + footer 行回执在场）',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          !lines.some((line) => line.includes('思考档位 · 7 档')) &&
+          lines.some((line) => line.includes('思考档位：max（下一 run 起生效')),
+      );
+    },
+    90_000,
+  );
+
+  it.skipIf(!hasUsableTmux())(
+    '/sandbox 副屏（F2 同构）：三档头行与 danger 档条目呈现 → down+enter 选定 danger → 回执 + 收屏回主屏',
+    async () => {
+      const session = startTuiSession();
+      await waitForStartup(session.name);
+      sendLiteral(session.name, '/sandbox');
+      sendKey(session.name, 'Enter');
+      // 副屏进屏判据两锚：头行（◆ 沙箱档位 · 3 档——三档词表单源 SANDBOX_MODES）
+      // + danger 档条目行（面板独有词——警示语行右段另锚，此处只锚档名）
+      await waitForScreen(
+        '/sandbox 副屏进屏',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          lines.some((line) => line.includes('沙箱档位 · 3 档')) && lines.some((line) => line.includes('danger')),
+      );
+      // end 一步跳尾档 danger → enter 选定（即刻生效语义——回执文案与 thinking
+      // 「下一 run 起生效」分拆两形的 F2 形）；选档只 append 会话事件 +
+      // setStatus 回执，无工具调用触发——临时会话零副作用。ESC[4~ 解码链
+      // 同 /thinking 面（end 死键缺陷已修，end 键消费在环）
+      sendKey(session.name, 'End');
+      sendKey(session.name, 'Enter');
+      await waitForScreen(
+        '/sandbox 选定收屏回主屏（头行消失 + footer 行回执在场）',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          !lines.some((line) => line.includes('沙箱档位 · 3 档')) &&
+          lines.some((line) => line.includes('沙箱档位：danger（即刻生效')),
       );
     },
     90_000,

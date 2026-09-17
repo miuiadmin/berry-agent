@@ -2,7 +2,9 @@
  * /sandbox 沙箱档位选择副屏件测试（2026-09-17 会话档位切换面批 F2——立项档
  * 测试计划 10 picker 归约）：行集三档 / 当前档 ● 高亮锚 / danger 行警示语 /
  * 选中回调 / 「先收副屏再回调」序（SessionPicker 同序律）/ 退出族（q 双轨 /
- * Esc / Ctrl+C 打断 / Ctrl+D 先收屏再退柄）/ 闭锁单次。
+ * Esc / Ctrl+C 打断 / Ctrl+D 先收屏再退柄）/ 闭锁单次；矮窗滚动·夹取族（三
+ * 档视口 <3 时 end 提窗 / 首渲染前击键 maxOffset 回拉 / pageup·pagedown 翻
+ * 选——theme-picker 同形锁）。
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
@@ -129,6 +131,61 @@ describe('SandboxPicker 键面', () => {
     expect(readRow(paint(), 3, width).startsWith('▸')).toBe(true); // danger 行
     picker.handleEvent(k('up'));
     expect(readRow(paint(), 2, width).startsWith('▸')).toBe(true); // workspace-write 行
+  });
+
+  it('光标驱动滚动：矮窗 end 提窗（首行换 + 尾两档入窗）→ home 回锚顶', () => {
+    const { picker } = makePicker();
+    const width = 72;
+    const paint = (): CellGrid => {
+      const grid = new CellGrid(width, 4); // 头 + 2 行视口 + 提示（矮窗）
+      picker.render(grid, { row: 0, col: 0, width, height: 4 });
+      return grid;
+    };
+    expect(readRow(paint(), 1, width)).toContain('read-only'); // 首窗锚顶
+    picker.handleEvent(k('end')); // 光标到尾（danger）——提窗
+    const grid2 = paint();
+    expect(readRow(grid2, 1, width)).not.toContain('read-only'); // 首行换（窗已提，非首条目）
+    expect(readRow(grid2, 1, width)).toContain('workspace-write'); // 窗含尾两档之首（倒数第二档）
+    expect(readRow(grid2, 2, width)).toContain('danger'); // 尾条目在窗内
+    expect(readRow(grid2, 2, width).startsWith('▸')).toBe(true); // 光标随尾条目贴窗底
+    picker.handleEvent(k('home')); // 光标回首——压窗
+    expect(readRow(paint(), 1, width)).toContain('read-only'); // 回锚顶
+  });
+
+  it('首渲染前击键的过深视口在 render 回写真实窗高后回拉（maxOffset 上界）', () => {
+    // 补测锁位（实现 095baa1 出生自带 maxOffset 分支——锁此前缺席）：面板打开
+    // 后、首渲染前发 end——此时 viewportHeight 还是构造初值 1，offset 被夹到
+    // cursor 2；首渲染回写真实窗高 2 后应回拉到「尾行恰贴窗底」位（maxOffset
+    // = 3-2 = 1）。若无上界分支：cursor=2 仍在 [2, 2+2) 窗内，offset=2 原样
+    // 保持——首行越界空窗、danger 孤行。
+    const { picker } = makePicker();
+    const width = 72;
+    picker.handleEvent(k('end')); // 首渲染前击键（陈窗高夹深位）
+    const grid = new CellGrid(width, 4); // 头 + 2 行视口 + 提示（矮窗）
+    picker.render(grid, { row: 0, col: 0, width, height: 4 });
+    expect(readRow(grid, 1, width)).toContain('workspace-write'); // 回拉后首行（offset=1——倒数第二档）
+    expect(readRow(grid, 2, width)).toContain('danger'); // 尾条目恰贴窗底
+  });
+
+  it('pagedown/pageup 翻选：光标跳一屏夹取不越界 + 回跳（渲染面 ▸ 位）', () => {
+    const { picker } = makePicker();
+    const width = 72;
+    const paint = (): CellGrid => {
+      const grid = new CellGrid(width, 4); // 矮窗：2 行视口 = 页幅
+      picker.render(grid, { row: 0, col: 0, width, height: 4 });
+      return grid;
+    };
+    paint(); // 首渲染确立页幅（viewportHeight=2）
+    picker.handleEvent(k('pagedown')); // 跳一屏：read-only → danger（索引 2 封顶）
+    picker.handleEvent(k('pagedown')); // 尾夹取不越界——位不动（仍 danger）
+    let g = paint();
+    expect(readRow(g, 2, width).startsWith('▸')).toBe(true); // 光标贴窗底（danger）
+    expect(readRow(g, 2, width)).toContain('danger');
+    picker.handleEvent(k('pageup')); // 回跳一屏：danger → read-only（索引 0）
+    picker.handleEvent(k('pageup')); // 首夹取不越界——位不动（仍 read-only）
+    g = paint();
+    expect(readRow(g, 1, width).startsWith('▸')).toBe(true); // 回锚顶（read-only）
+    expect(readRow(g, 1, width)).toContain('read-only');
   });
 
   it('q / Esc 收屏零选定回调（q 双轨——kitty text 事件同收）', () => {

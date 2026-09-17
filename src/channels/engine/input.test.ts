@@ -67,6 +67,16 @@ describe('legacy 轨：C0 控制码与功能键', () => {
     expect(run(['\x1b[3;5~'])).toEqual([key('delete', { ctrl: true })]);
   });
 
+  it('CSI tilde 首尾键双形：home 1~/7~ 与 end 4~/8~ 全收（tmux 内层 End 死键回归锁）', () => {
+    // 修前红实证位：TILDE_KEYS 收了 home 双形（1/7）却漏 end 的 4~ 形（只有 8）——
+    // tmux send-keys End 发 `\x1b[4~`（xterm legacy），dispatchTilde 查表未中即整序
+    // 静默吞——07 §4.1 验证面矩阵明列的 tmux 内层里 End 全引擎死键（picker 跳尾档失效）。
+    expect(run(['\x1b[1~'])).toEqual([key('home')]);
+    expect(run(['\x1b[7~'])).toEqual([key('home')]);
+    expect(run(['\x1b[4~'])).toEqual([key('end')]);
+    expect(run(['\x1b[8~'])).toEqual([key('end')]);
+  });
+
   it('CSI Z = shift+tab / SS3 字母终点', () => {
     expect(run(['\x1b[Z'])).toEqual([key('tab', { shift: true })]);
     expect(run(['\x1bOA'])).toEqual([key('up')]);

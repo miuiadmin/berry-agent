@@ -197,6 +197,10 @@ export class SessionPicker implements OverlayContent {
 
   /** 视口夹取：光标行恒在窗内（下溢提窗 / 上溢压窗） */
   private clampOffset(): void {
+    // 窗高上界：视口长高时 offset 不得深于「尾行恰贴窗底」位（首渲染前击键
+    // 会以陈 viewportHeight=1 夹出过深 offset——render 回写真实窗高后回拉）
+    const maxOffset = Math.max(0, this.sessions.length - this.viewportHeight);
+    if (this.offset > maxOffset) this.offset = maxOffset;
     if (this.cursor < this.offset) this.offset = this.cursor;
     else if (this.cursor >= this.offset + this.viewportHeight) {
       this.offset = this.cursor - this.viewportHeight + 1;

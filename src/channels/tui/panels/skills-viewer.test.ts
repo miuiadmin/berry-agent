@@ -83,6 +83,20 @@ describe('SkillsViewer 副屏件', () => {
     expect(readRow(grid, 1, 60)).toContain('▸ commit-style');
   });
 
+  it('首渲染前击键的过深视口在 render 回写真实窗高后回拉（maxOffset 上界）', () => {
+    // 修前红实证位：同 theme-picker 家族缺陷——面板打开后、首渲染前发 end，
+    // viewportHeight 还是构造初值 1，offset 被夹到 cursor 3；首渲染回写真实
+    // 窗高 2 后应回拉到「尾行恰贴窗底」位（maxOffset = 4-2 = 2）。修前无上界
+    // 分支：cursor=3 仍在 [3, 3+2) 窗内，offset=3 原样保持——首行尾条目、
+    // 第二行空窗。
+    const four = [...ENTRIES, { name: 'writer', description: '写作风格', layer: 'project', hidden: false }];
+    const viewer = new SkillsViewer({ entries: four, onSelect: () => {}, sessionId: 's', onExit: () => {} });
+    viewer.handleEvent(k('end')); // 首渲染前击键（陈窗高夹深位）
+    const grid = render(viewer, 4); // 头 + 2 行视口 + 提示
+    expect(readRow(grid, 1, 60)).toContain('review'); // 回拉后首行（offset=2——倒数第二）
+    expect(readRow(grid, 2, 60)).toContain('writer'); // 尾条目恰贴窗底
+  });
+
   it('enter 选定：先收副屏再 onSelect（索引位透传——回填文本装配位铸）', () => {
     const calls: string[] = [];
     const viewer = new SkillsViewer({

@@ -92,6 +92,21 @@ describe('SessionPicker 光标与选择模型', () => {
     expect(onSelect).toHaveBeenCalledWith('id-8-00000000'); // 0 + 8 视口幅
   });
 
+  it('首渲染前击键的过深视口在 render 回写真实窗高后回拉（maxOffset 上界）', () => {
+    // 修前红实证位：同 theme-picker 家族缺陷——面板打开后、首渲染前发 end，
+    // viewportHeight 还是构造初值 1，offset 被夹到 cursor 3；首渲染回写真实
+    // 窗高 2 后应回拉到「尾行恰贴窗底」位（maxOffset = 4-2 = 2）。修前无上界
+    // 分支：cursor=3 仍在 [3, 3+2) 窗内，offset=3 原样保持——首行尾条目、
+    // 第二行空窗。
+    const four = Array.from({ length: 4 }, (_, i) => row({ id: `id-${i}-00000000`, title: `回拉${i}` }));
+    const { picker } = makePicker(four);
+    picker.handleEvent(k('end')); // 首渲染前击键（陈窗高夹深位）
+    const grid = new CellGrid(60, 4); // 头 + 2 行视口 + 提示
+    picker.render(grid, { row: 0, col: 0, width: 60, height: 4 });
+    expect(readRow(grid, 1, 60)).toContain('回拉2'); // 回拉后首行（offset=2——倒数第二）
+    expect(readRow(grid, 2, 60)).toContain('回拉3'); // 尾条目恰贴窗底
+  });
+
   it('q/Esc 取消退出（不 onSelect）+ 闭锁单次', () => {
     const { picker, onSelect, onExit } = makePicker(sessions);
     picker.handleEvent(k('escape'));
