@@ -161,6 +161,7 @@ docs/                   公开文档面（本五册）
 - vitest 吞 console——调试走 `appendFileSync` 到 `/tmp`（判别法：测试内 console.log 静默 ≠ 未执行）；
 - faux provider **恒实算 usage** 覆写脚本值——usage 断言按实算结果写，不按脚本注入值写；
 - exec spawn 截尾测试满载偶发 flake（单跑恒绿）——观察项：全量跑红时先单跑复核再定位；
+- tmux e2e `/themes` esc 收屏腿 ubuntu 慢机偶发 25s 帽红（失败 dump 尾恒见 DA1 应答残段 `^[[?1;2;4c` 泄屏——迟答防御律 ca7027c 修复面外的相位形）——判别法：rerun `--failed` 绿即定谳抖动（本地 macOS 干净树绿佐证）；再红才深挖引擎 CSI 迟答相位；
 - nightly flaky-probe 双跑腿（CI `flaky-probe` job，label `flaky-nightly` issue 告警）：同 commit 推送 CI 绿而夜间双跑任一红 = 抖动信号（非回归定论）——处置序：先本地 `npm test` 单跑复核（登记册各行逐源判别）再定位；两次全绿的 commit 即 close 告警 issue；
 - macOS 开发机是 BSD grep/sed（不支持 GNU 的 `\|` 交替等）——仓内脚本与手工排查用 `grep -E`/`perl -pi -e`，勿照搬 GNU 语法。
 
