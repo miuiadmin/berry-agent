@@ -24,7 +24,7 @@
  * git 元数据白名单（04 §8 桥条款——冷读挂账 #4 词面单源锚）：本件自身的 git
  * 调用是「工具内置受控路径」（封闭动词面则——不在 carve-out 拦截面）；
  * `GIT_METADATA_COMMANDS` 是经 bash 的 git 命令族受控放行的闭集动词表词汇
- * 源（执法位 = exec bash 拦截面，随该面落码批接线——先有词后有法）。
+ * 源（执法位 = exec bash 拦截面——git-guard 已接线；先有词后有法）。
  */
 import { execFile as execFileCallback } from 'node:child_process';
 import { existsSync } from 'node:fs';

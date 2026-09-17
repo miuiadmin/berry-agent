@@ -44,8 +44,9 @@ import { assertInodeNotProtected, rejectProtectedReadPath, type ProtectedReadFil
 export interface FsToolsOptions {
   /**
    * 可写根 provider（fence 数据源；返回绝对路径列表）。safety 件已落码——
-   * 装配层应注入 safety.createRootsProvider 产物（与沙箱 profile 同源；host
-   * 装配批接线）；缺省 = workspace 根 + 系统临时目录（过渡缺省，不随档位）。
+   * 装配层注入 safety.createRootsProvider 产物（与沙箱 profile 同源；host
+   * 装配已接线——open-tools 同源单源）；缺省 = workspace 根 + 系统临时目录
+   * （过渡缺省，不随档位）。
    */
   writableRoots?: () => string[];
   /** 工作区锚点（相对路径 resolve 基准；缺省 canonical 工作区根〔context 单源〕） */
@@ -109,7 +110,8 @@ export async function canonicalize(abs: string): Promise<string> {
 /**
  * child 是否位于 root 内：相等或隔分隔符的前缀（防 /root 与 /root-evil 误
  * 判）。root 为文件系统根 sep（全盘可写形态的根）时任意绝对路径皆命中——
- * 特判与 safety 件（未落）将来的同款判定同语义，不 cross-import 防成环。
+ * 特判与 safety 件同款判定（roots.ts isInsideRoot）同语义，不 cross-import
+ * 防成环。
  */
 function isInside(child: string, root: string): boolean {
   const prefix = root === sep ? sep : root + sep;

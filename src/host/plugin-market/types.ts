@@ -30,9 +30,6 @@ const NAME_SEGMENT_RE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
 /** 名段长度帽（adopt omp——64 字符） */
 export const MAX_NAME_SEGMENT_LENGTH = 64;
 
-/** 寻址 id（`name@marketplace`）总长帽（adopt omp——128 字符） */
-export const MAX_MARKET_PLUGIN_ID_LENGTH = 128;
-
 /**
  * 名段校验（市场名与条目名同律）。必拒例（omp docs Naming rules 全例收编）：
  * `-bad` / `bad-` / `.bad` / `Bad` / `under_score`；合法例：`my-plugin` /
@@ -40,26 +37,6 @@ export const MAX_MARKET_PLUGIN_ID_LENGTH = 128;
  */
 export function isValidNameSegment(name: string): boolean {
   return name.length > 0 && name.length <= MAX_NAME_SEGMENT_LENGTH && NAME_SEGMENT_RE.test(name);
-}
-
-/**
- * 构造寻址 id：`name@marketplace`（install/uninstall 寻址形——两段各自过
- * 名段词法 + 总长帽；拒即抛——调用方（CLI 解析层）前置 catch 呈现用法错）。
- */
-export function buildMarketPluginId(name: string, marketplace: string): string {
-  if (!isValidNameSegment(name)) {
-    throw new Error(`条目名坏词法（"${name}"）——小写字母数字连字符点、首尾字母数字、≤${MAX_NAME_SEGMENT_LENGTH} 字符`);
-  }
-  if (!isValidNameSegment(marketplace)) {
-    throw new Error(
-      `市场名坏词法（"${marketplace}"）——小写字母数字连字符点、首尾字母数字、≤${MAX_NAME_SEGMENT_LENGTH} 字符`,
-    );
-  }
-  const id = `${name}@${marketplace}`;
-  if (id.length > MAX_MARKET_PLUGIN_ID_LENGTH) {
-    throw new Error(`寻址 id 超 ${MAX_MARKET_PLUGIN_ID_LENGTH} 字符帽（"${id}"）`);
-  }
-  return id;
 }
 
 /** 寻址 id 解析（`name@marketplace` → 两段；lastIndexOf 兼容条目名含 @ 的容错边界——词法拒后 null） */

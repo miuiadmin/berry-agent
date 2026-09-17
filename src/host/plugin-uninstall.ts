@@ -16,7 +16,8 @@
  *    本域前缀键连带删（keep 留待 LRU 自然逐出——§4.5 第四正门对称清算）；
  *  ④ 落账回执——`plugin/uninstalled` durable 审计事件（audit_events 载体，
  *    载荷 = id/source/version/dataAction/affected）+ `affectedSessionCounts`
- *    诚实缺席（durable 装载史载体 v1 未落——§5.5 注记，不虚构计数 0）。
+ *    有源（装载史批 h-4——load_generations 世代快照时间窗 join 推算；
+ *    §5.5 注记措辞「装载过」共现语义）。
  *
  * 数据面接线（零装配直开库同款纪律）：本件不开运行时不装载插件——调用方
  * （plugins-cmd）以 Persistence 直开 + HOST_MIGRATION_TAIL 全链开库后传

@@ -196,10 +196,10 @@ export async function dispatchCli(
   }
 }
 
-/** 执行器缺席面（统一文案——「命令面已解析、执行面随后续批装配」诚实告知） */
+/** 执行器缺席面（统一文案——「命令面已解析、执行器本装配形缺席」诚实告知） */
 function requireHandler<Fn extends (...args: never[]) => Promise<number>>(handler: Fn | undefined, label: string): Fn {
   if (handler === undefined) {
-    throw new Error(`${label} 执行面尚未装配（随后续批次接线）——本命令解析与旗标面已就绪`);
+    throw new Error(`${label} 执行面尚未装配（本装配形缺席——嵌入式/测试装配可缺，完整装配恒在场）`);
   }
   return handler;
 }
