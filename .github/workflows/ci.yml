@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: 配套面在场锁（缺席或空即红）
         run: |
           set -eu
@@ -139,8 +139,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10 # 实测 12s——net 装机腿留注册表抖动余量
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
       - name: 安装脚本锁（POSIX 语法 + 文案禁管道直灌）
@@ -172,7 +172,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5 # 实测 7s
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: npm audit --omit=dev
 
   # 发布机器演习——release 六道契约 --dry-run 全真链彩排（build/pack 验收/安装冒烟真做，
@@ -188,8 +188,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20 # 实测 2m38s——内嵌四门禁全量彩排，余量给冷缓存 npm ci
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -223,8 +223,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10 # 实测 26s——tsc 三连
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -242,8 +242,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15 # 实测 ubuntu 1m47s / macos 1m39s——含 npm ci + apt 装腿
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -272,8 +272,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20 # test 面 1m47s + 插桩开销约 2x 估
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -289,7 +289,7 @@ jobs:
       - name: 覆盖率产物归档（coverage/ 全目录——json-summary 在内；180 天
           留存 = 覆盖率阈值立线拍板日的回看序列源——逐周趋势对拍须回看历史
           快照，30 天缺省窗不够远，研究档 E7）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/
@@ -316,8 +316,8 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -326,7 +326,7 @@ jobs:
         run: node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384 --unattended
       - name: 红时收割三件套现场（临时根通配——路径含随机尾，逐件列举）
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: soak-failure-${{ github.run_id }}
           path: |
@@ -337,7 +337,7 @@ jobs:
           retention-days: 30
       - name: 红时自动开 issue（label 查重——已开则评论续账，不刷屏）
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
@@ -384,8 +384,8 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -400,7 +400,7 @@ jobs:
       - run: npm ci
       - run: npx vitest run --coverage
       - name: 追加周序列行到 pinned issue（label 查重——已开则评论续账）
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -448,8 +448,8 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -469,7 +469,7 @@ jobs:
           npm test
       - name: 红时自动开 issue（label 查重——已开则评论续账，不刷屏）
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
@@ -506,8 +506,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10 # 实测 32s
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -519,8 +519,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10 # 实测 31s
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm

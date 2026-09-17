@@ -24,8 +24,8 @@ jobs:
       GLM_RELAY_BASE_URL: ${{ secrets.GLM_RELAY_BASE_URL }}
       GLM_RELAY_API_KEY: ${{ secrets.GLM_RELAY_API_KEY }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -44,7 +44,7 @@ jobs:
         run: npx vitest run src/llm/golden.test.ts
       - name: 新金样产物上传（人工裁决取回——不自动 commit 入库）
         if: env.SKIP_RECORD != '1'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: golden-fresh-${{ github.run_id }}
           path: tools/golden/*.jsonl
