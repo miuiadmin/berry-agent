@@ -28,6 +28,7 @@
     "dist",
     "examples",
     "skills",
+    "!examples/**/test",
     "README.md",
     "LICENSE"
   ],

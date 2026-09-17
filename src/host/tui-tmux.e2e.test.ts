@@ -111,6 +111,21 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 const STARTUP_TIMEOUT_MS = 45_000;
 /** 副屏开/收等屏面跃迁轮询帽 */
 const STEP_TIMEOUT_MS = 10_000;
+/**
+ * esc 腿收屏等待专用宽帽（按需调宽——不动 STEP_TIMEOUT_MS 全局值）。
+ *
+ * 实证（CI-only flaky 形，无修前红可证——本机恒绿）：GitHub Actions
+ * run 35182004390（test ubuntu）间歇红「等待超时（/themes 收屏回主屏
+ * （标题消失 + footer 复在场），10000ms）」，该用例总时长实测 12623ms
+ * ——前段（tmux spawn + 起跑 + 副屏进屏）约 2.6s 完成，esc 收屏等待打满
+ * 10s 帽判词仍未真（CI 慢机 CPU 饿死窗可超 10s）；同基底 dependabot
+ * run 35182142621 绿。esc 收屏是本文件最重跃迁（tmux spawn + 副屏绘 +
+ * lone-ESC 判定窗 settle 回返全链——q 腿为直接键无判定窗回合），按需
+ * 调宽至 25s 给足恢复余量；STEP_TIMEOUT_MS 其余消费点实测离帽远
+ * （resize 2238ms / exit 2440ms 量级）且无红史，维持 10s 不动。
+ * 最坏叠加（startup 45s + 进屏 10s + 收屏 25s = 80.3s）仍在用例级 90s 帽内。
+ */
+const ESC_DISMISS_TIMEOUT_MS = 25_000;
 /** 退出收口轮询帽（优雅退出序含排空/复原——E16 同值 30s） */
 const EXIT_TIMEOUT_MS = 30_000;
 
@@ -335,11 +350,12 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         session.name,
         (lines) => lines.some((line) => line.includes('主题切换')) && lines.some((line) => line.includes('auto')),
       );
-      // esc 收屏（q/esc 两退出键面的 esc 腿——legacy 轨 lone-ESC 判定窗路径）
+      // esc 收屏（q/esc 两退出键面的 esc 腿——legacy 轨 lone-ESC 判定窗路径）；
+      // 帽取 esc 腿专用宽值（CI 慢机饿死窗实证——常量注释处）
       sendKey(session.name, 'Escape');
       await waitForScreen(
         '/themes 收屏回主屏（标题消失 + footer 复在场）',
-        STEP_TIMEOUT_MS,
+        ESC_DISMISS_TIMEOUT_MS,
         session.name,
         (lines) => !lines.some((line) => line.includes('主题切换')) && lines.some(isFooterLine),
       );

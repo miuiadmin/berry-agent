@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -269,6 +270,42 @@ describe('judgePackList（契约 3 白名单机器验收）', () => {
     );
     expect(v.ok).toBe(false);
     expect(v.missing).toEqual(['skills/memory-tools/SKILL.md']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 真 pack 面对拍（CI 红根四收口 2026-09-17）——PACK_BASELINES 是 fixture 基线，
+// 与 npm pack 真实产物的漂移此前无本地锁：E12 批落 examples 测试文件实物后
+// files 含 examples 使其随包，MAIN_PACK_BANNED 咬住但本地门禁恒绿——CI
+// release-drill 连续 6 笔红才暴露（run 35134736108/35177782158 同报文
+// 「白名单外 [examples/minimal-code-plugin/test/lifecycle.test.ts]」）。
+// 本锁直跑 npm pack --dry-run --json 取真实清单喂 judgePackList：fixture
+// 基线与现实的任何漂移（必在件缺席/禁件混入/白名单外混入三类）在本地门禁
+// 即红，不再等 CI。package.json 无 prepack/prepare 钩子——dry-run 确定性。
+// 门控：dist/ 必在件缺席（fresh clone 未 build）时判不了完整契约 → skip
+// 如实注明（CI release-drill job build 后跑真形，本地常见已 build 态即活）。
+// ---------------------------------------------------------------------------
+describe('真 pack 面对拍（main 包 npm pack --dry-run 实清单过契约3）', () => {
+  it('真实产物清单恰过 judgePackList（禁件零混入 + 必在件齐 + 白名单零外溢）', { timeout: 30_000 }, () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+    if (!existsSync(join(repoRoot, 'dist/.build-meta.json'))) {
+      // fresh clone 未 build——必在件必缺，判不了完整契约；真形由 CI
+      // release-drill（build 后跑）承担，本锁在本地已 build 态活。
+      return; // vitest 无显式 skip-on-condition 面：门控形直接过 + 注明
+    }
+    const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    const realList = JSON.parse(out)[0].files.map((f) => f.path);
+    // 事故形点名对拍：examples 测试件实物在仓（E12 在场锁归 testkit 侧），
+    // 但包面必须排除（files 否定形 !examples/**/test——三禁全域执法不问目录）
+    expect(realList).not.toContain('examples/minimal-code-plugin/test/lifecycle.test.ts');
+    const v = judgePackList(realList);
+    if (!v.ok) {
+      throw new Error(`真 pack 面漂移：missing=${JSON.stringify(v.missing)} forbidden=${JSON.stringify(v.forbidden)}`);
+    }
+    expect(v.ok).toBe(true);
   });
 });
 

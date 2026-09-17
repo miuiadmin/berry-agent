@@ -62,8 +62,14 @@ function stubDeps(overrides: Partial<SweepDeps> = {}): SweepDeps & { killed: num
 }
 
 const cleanups: string[] = [];
+// 清理带 retries：持久化是容错 fire-and-forget（persistChain 承诺链），
+// 测试体返回后链上仍可能有在飞的 tmp 写+rename——与 rm(recursive) 并发时
+// node 的 rimraf 形末步 rmdir 会撞 ENOTEMPTY（macOS CI run 35180264294 偶发
+// 红实证；本机 2000 轮复现撞率 26%）。maxRetries/retryDelay 让目录删除对
+// 瞬态非空自动重试（node:fs rm 对 ENOTEMPTY/EBUSY/EPERM 目录错生效——键名
+// 是 retryDelay 非 retryAfter，RmOptions 无 after 键，笔误即 TS2353 红）。
 afterEach(async () => {
-  await Promise.all(cleanups.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(cleanups.map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })));
   cleanups.length = 0;
 });
 
@@ -101,6 +107,22 @@ describe('createProcessRegistry 登记簿', () => {
       expect.unreachable('持久化文件未落地');
     })();
     registry.remove(33);
+    // 再轮询终态空数组——remove 触发的末笔持久化也是 fire-and-forget，若不
+    // 排干就进 afterEach，迟到的 tmp 写+rename 会与目录清理并发（ENOTEMPTY
+    // 竞态主源——registry 无 close/flush 面，轮询终态即测试侧的确定性排干）；
+    // 兼作断言强化：出册同样走 tmp+rename 落正身
+    await (async () => {
+      for (let i = 0; i < 100; i++) {
+        try {
+          const parsed = JSON.parse(await readFile(file, 'utf8')) as ProcessEntry[];
+          if (parsed.length === 0) return;
+        } catch {
+          // 末笔未落地重试（写入竞态窗内可能读到中间态）
+        }
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect.unreachable('remove 的持久化终态未落地');
+    })();
   });
 
   it('写面容错：持久化失败降 warn 不抛（内存账仍准）', async () => {

@@ -34,6 +34,9 @@
  * 协议降级 legacy〔tmux 缺省 extended-keys off 不应答 kitty 探测〕/ OSC 11
  * 零应答或 `11;rgb:` 可解析形〔tmux ≥3.2 自答、旧版吞没——两形皆合法〕/ 256
  * 色索引保真）。本机不可验——注释标注版本漂移面。
+ * 值断言经 marker 读端剥 CSI 全族（stripCsi）：CI ubuntu 实红根——tmux 在客户端
+ * 首绘时机注入 CSI Home（\x1b[H）粘 TERM 值尾，环境注入的转义序列不该打断值
+ * 断言（单元级注入复现回归锁见「CSI 剥除纯逻辑回归锁」节）。
  *
  * SSH 腿：真 SSH 服务器在本环境不可得，不写假测（mock 违纪）——留真机件。
  */
@@ -310,10 +313,32 @@ function spawnWrapped(mux: 'screen' | 'tmux'): {
   return { output: () => chunks.join(''), exited: waitExit(child), session };
 }
 
-/** 标记提取（子脚本 `KEY=VALUE\r\n` 形——多路复用器重渲染保文本连续性，本机实证） */
+/**
+ * CSI 转义序列全族正则：ESC + `[` + 参数域（数字/分号/`?`）+ 字母终结字节。
+ * 覆盖多路复用器向输出流注入的同族序列——客户端首绘的 CSI Home（`\x1b[H`）、
+ * DA1 自答（`\x1b[?6c` / `\x1b[?1;2c`）等；全族剥除，非仅 `\x1b[H` 特判。
+ */
+const CSI_SEQ = /\x1b\[[0-9;?]*[A-Za-z]/g;
+
+/**
+ * 标记值读端剥 CSI 序列（纯函数——CI-only 红根的单元级回归锁靶）。
+ *
+ * 根因（CI ubuntu run 35170605787/35182004390/35182142621 实红）：tmux 在
+ * 客户端首绘时机注入 CSI Home（`\x1b[H`），粘在子脚本标记值尾——裸提取得
+ * `'tmux-256color\x1b[H'`，`expect(term).toBe('tmux-256color')` 红；本机
+ * macOS 时序不同恒绿（真环境测的观察盲区，以纯逻辑注入用例补锁）。环境注入
+ * 的转义序列本就不该打断值断言——文件头注已声明断言锚取跨版本稳的核心。
+ */
+function stripCsi(value: string): string {
+  return value.replace(CSI_SEQ, '');
+}
+
+/** 标记提取（子脚本 `KEY=VALUE\r\n` 形——多路复用器重渲染保文本连续性，本机实证）。
+ *  值经 stripCsi 剥 CSI 全族——多路复用器注入的转义序列（首绘 Home / DA1 自答
+ *  同族）不进断言面；缺席语义（null）不受剥除影响。 */
 function marker(out: string, key: string): string | null {
   const m = new RegExp(`${key}=([^\\r\\n]*)`).exec(out);
-  return m === null ? null : m[1]!;
+  return m === null ? null : stripCsi(m[1]!);
 }
 
 /** 终端序列计数（字节级判据） */
@@ -340,6 +365,36 @@ async function runWrappedOnce(mux: 'screen' | 'tmux'): Promise<string> {
     else spawnSync('screen', ['-S', run.session, '-X', 'quit'], { stdio: 'ignore' });
   }
 }
+
+/* ---------------- CSI 剥除纯逻辑回归锁（CI-only 红根单元级复现——零环境依赖全机真跑） ---------------- */
+
+describe('marker 读端 CSI 剥除：CI-only 红根回归锁（单元级注入复现）', () => {
+  it('CI 实红形：tmux 首绘注入 CSI Home 粘值尾——提取值恰 tmux-256color', () => {
+    // run 35170605787/35182004390 断言红实形：expected 'tmux-256color[H'
+    // to be 'tmux-256color'——注入形在值尾、行终符前（本机 macOS 时序不现，
+    // 纯逻辑注入形补锁）
+    const out = 'CHILD_TMUX=/tmp/mux\r\nCHILD_TERM=tmux-256color\x1b[H\r\n';
+    expect(marker(out, 'CHILD_TERM')).toBe('tmux-256color');
+  });
+
+  it('同族注入形：DA1 自答 \\x1b[?6c / \\x1b[?1;2c 粘值尾——同样剥净（全族非特判）', () => {
+    expect(marker('CHILD_TERM=tmux-256color\x1b[?6c\r\n', 'CHILD_TERM')).toBe('tmux-256color');
+    expect(marker('CHILD_TERM=tmux-256color\x1b[?1;2c\r\n', 'CHILD_TERM')).toBe('tmux-256color');
+  });
+
+  it('注入落在值中段（首绘重绘劈线形）——剥后拼回原值', () => {
+    expect(marker('CHILD_TERM=tmux-256\x1b[Hcolor\r\n', 'CHILD_TERM')).toBe('tmux-256color');
+  });
+
+  it('无注入裸值原样提取（剥除不扰动净流）', () => {
+    expect(marker('CHILD_TERM=tmux-256color\r\n', 'CHILD_TERM')).toBe('tmux-256color');
+    expect(marker('CHILD_STY=12345.d5-0\r\n', 'CHILD_STY')).toBe('12345.d5-0');
+  });
+
+  it('标记缺席仍 null（剥除不改变缺席语义）', () => {
+    expect(marker('OTHER=x\r\n', 'CHILD_TERM')).toBeNull();
+  });
+});
 
 /* ---------------- screen 腿（本机真跑——4.00.03 实测定锚） ---------------- */
 
