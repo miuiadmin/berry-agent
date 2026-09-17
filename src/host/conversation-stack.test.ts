@@ -21,6 +21,7 @@ import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { canonicalWorkspaceRoot, Scope } from '../context/index.js';
 import type { AuthRefreshSeam, ConversationDriverOptions, ExecSessionDeps } from '../conversation/types.js';
+import { setSessionMode } from '../conversation/index.js';
 import { createBashTool, createSpawnPipeline } from '../exec/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { createSandboxService } from '../safety/index.js';
@@ -749,6 +750,49 @@ describe('会话维观测装配（e2-4 观测腿接线）', () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.error).toBe(true); // 门拒 = 工具错面（run 不中断）
     expect(JSON.stringify(results[0]!.content)).toContain('SESSION_OBSERVE_DENIED');
+  });
+});
+
+/* ---------------- 会话档位切换面（2026-09-17 F2——组合根双会话隔离） ---------------- */
+
+describe('sandbox 档位 · 组合根双会话隔离（A3 锁——装配位真闭包面）', () => {
+  it('s1 切 read-only 写拒（error 工具面 + 零审批交互）/ s2 照写——两会话异档互不连坐', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, { workspace: () => ws });
+    const backend = new ApprovalBackend('approve');
+    stack.channels.addBackend(backend);
+    const s1 = stack.openStartupSession(ws);
+    const s2 = stack.openStartupSession(ws);
+    // s1 切 read-only（真写路径：conversation 单写者 append 面——TUI /sandbox
+    // 选定闭包同源调用的就是这个公开面）
+    setSessionMode(s1.driver.session, 'read-only');
+
+    faux.setResponses([
+      () => toolCallOf('t-a3-1', 'write', { path: 'a3-s1.txt', content: 'x' }),
+      () => messageOf('stop'),
+      () => toolCallOf('t-a3-2', 'write', { path: 'a3-s2.txt', content: 'y' }),
+      () => messageOf('stop'),
+    ]);
+    // s1：read-only 档 write 拒——fence 空根执法（error 工具面、run 不中断）
+    const r1 = await stack.submitText(s1.sessionId, 's1 写');
+    expect(r1).toMatchObject({ status: 'completed' });
+    const s1Results = s1.driver.session
+      .events()
+      .filter((event) => event.type === 'tool/result')
+      .map((event) => event.data as { content: unknown; error?: true });
+    expect(s1Results).toHaveLength(1);
+    expect(s1Results[0]!.error).toBe(true);
+    expect(JSON.stringify(s1Results[0]!.content)).toContain('FS_OUTSIDE_WRITABLE_ROOTS');
+    expect(existsSync(join(ws, 'a3-s1.txt'))).toBe(false); // 零落盘
+
+    // s2：boot 档照写（隔离不连坐——s1 的 read-only 只活在 s1 的事件流里）
+    const r2 = await stack.submitText(s2.sessionId, 's2 写');
+    expect(r2).toMatchObject({ status: 'completed' });
+    expect(readFileSync(join(ws, 'a3-s2.txt'), 'utf8')).toBe('y');
+    // 唯一审批对来自 s2（s1 的拒在 fence 位、先于审批——read-only 让棒 + 空根拒）
+    expect(backend.requests).toHaveLength(1);
+    await rt.shutdown();
   });
 });
 

@@ -2131,6 +2131,24 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     { name: 'my-theme', detail: '自定义（themes/<名>.json 键级覆盖）', broken: true },
   ];
 
+  /** /thinking 七档条目（2026-09-17 会话档位切换面批 F1——词序同 THINKING_LEVELS） */
+  const THINKING_ENTRIES = [
+    { level: 'off', detail: '关闭思考' },
+    { level: 'minimal', detail: '极简思考' },
+    { level: 'low', detail: '低档思考' },
+    { level: 'medium', detail: '中档思考' },
+    { level: 'high', detail: '高档思考' },
+    { level: 'xhigh', detail: '超高档思考' },
+    { level: 'max', detail: '最大思考' },
+  ];
+
+  /** /sandbox 三档条目（2026-09-17 会话档位切换面批 F2——词序同 SANDBOX_MODES） */
+  const SANDBOX_ENTRIES = [
+    { mode: 'read-only', detail: '只读——写与执行全拒' },
+    { mode: 'workspace-write', detail: '工作区可写——越界写须审批' },
+    { mode: 'danger', detail: '无沙箱——任何命令直跑宿主' },
+  ];
+
   const DIFF_MESSAGES = [
     {
       type: 'assistant',
@@ -2191,6 +2209,72 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     io.emitInput('\x1b[B'); // ↓ auto → dark（面板光标态变更）
     expect(io.frames.length).toBeGreaterThan(0); // 修前红：输入只转发不请帧——零新帧
     expect(io.frames.join('')).toContain('▸'); // 光标标记移上新行（diff 帧写变更格）
+  });
+
+  it('openThinking 编舞：主屏出屏 → 副屏进 → 档位首帧（计数头 + 当前档 ● + 底行「下一 run 起生效」提示）', () => {
+    const { io, backend } = rig();
+    expect(backend.openThinking(THINKING_ENTRIES, 'medium', () => {})).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.bytes).toContain('◆ 思考档位 · 7 档');
+    expect(io.bytes).toContain('● medium'); // 当前档标记
+    expect(io.bytes).toContain('下一 run 起生效'); // 生效语义提示（底行）
+    expect(io.bytes).toContain('随模型能力'); // 诚实句（S3——选定不等于生效：档位能力随 provider）
+  });
+
+  it('openThinking current 缺席 = 零 ● 锚（诚实无锚——boot 未设且无切档事件）', () => {
+    const { io, backend } = rig();
+    expect(backend.openThinking(THINKING_ENTRIES, undefined, () => {})).toBe(true);
+    expect(io.bytes).not.toContain('●');
+  });
+
+  it('openThinking enter 选定：先收副屏再回调（档位词透传——SessionPicker 同序律）+ 与主题面互斥', () => {
+    const { io, backend } = rig();
+    const selected: string[] = [];
+    backend.openThinking(THINKING_ENTRIES, 'off', (level) => selected.push(level));
+    io.emitInput('\x1b[B'); // ↓ → minimal
+    io.reset();
+    io.emitInput('\r'); // enter 选定
+    expect(io.frames[0]).toBe(ALT_LEAVE); // 先收副屏
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    expect(backend.lifecycle).toBe('running');
+    expect(selected).toEqual(['minimal']);
+    // 单值备屏律：收屏后可再开主题面（互斥位已释放）
+    expect(backend.openThemes(THEME_ENTRIES, 'dark', () => {})).toBe(true);
+  });
+
+  it('openSandbox 编舞：主屏出屏 → 副屏进 → 档位首帧（计数头 + 当前档 ● + danger 警示语 + 底行「即刻生效于后续工具调用」提示）', () => {
+    const { io, backend } = rig();
+    expect(backend.openSandbox(SANDBOX_ENTRIES, 'workspace-write', () => {})).toBe(true);
+    expect(backend.lifecycle).toBe('suspended');
+    expect(io.frames[0]).toBe(MAIN_LEAVE);
+    expect(io.frames[1]).toBe(ALT_ENTER);
+    expect(io.bytes).toContain('◆ 沙箱档位 · 3 档');
+    expect(io.bytes).toContain('● workspace-write'); // 当前档标记
+    expect(io.bytes).toContain('直跑宿主'); // danger 行警示语
+    expect(io.bytes).toContain('即刻生效于后续工具调用'); // 生效语义提示（底行——A4 分拆形：per 工具调用现取）
+  });
+
+  it('openSandbox current 缺席 = 零 ● 锚（诚实无锚——boot 未设且无切档事件）', () => {
+    const { io, backend } = rig();
+    expect(backend.openSandbox(SANDBOX_ENTRIES, undefined, () => {})).toBe(true);
+    expect(io.bytes).not.toContain('●');
+  });
+
+  it('openSandbox enter 选定：先收副屏再回调（档位词透传——SessionPicker 同序律）+ 与主题面互斥', () => {
+    const { io, backend } = rig();
+    const selected: string[] = [];
+    backend.openSandbox(SANDBOX_ENTRIES, 'read-only', (mode) => selected.push(mode));
+    io.emitInput('\x1b[B'); // ↓ → workspace-write
+    io.reset();
+    io.emitInput('\r'); // enter 选定
+    expect(io.frames[0]).toBe(ALT_LEAVE); // 先收副屏
+    expect(io.frames[1]).toBe(MAIN_ENTER);
+    expect(backend.lifecycle).toBe('running');
+    expect(selected).toEqual(['workspace-write']);
+    // 单值备屏律：收屏后可再开主题面（互斥位已释放）
+    expect(backend.openThemes(THEME_ENTRIES, 'dark', () => {})).toBe(true);
   });
 
   it('openDiff 编舞：改动总览首帧（组头路径 + 计数）；零 edit 投影 = 诚实空态', () => {

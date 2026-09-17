@@ -57,6 +57,7 @@ import type {
   LlmContext,
   Message,
   RetryProbe,
+  ThinkingLevel,
   UserMessage,
 } from '../contracts/index.js';
 import { isStandardMessage, parseEventSource } from '../contracts/index.js';
@@ -127,6 +128,16 @@ export class ConversationDriver {
   private readonly modelSource: string | (() => string);
   /** 当前 run 钉定的模型 id（launch 置位、settled 链清位——run 级内存载体） */
   private runModelValue: string | undefined;
+  /**
+   * 思考档位取值面原样持有（2026-09-17 会话档位切换面批 F1——modelSource
+   * 同构）：构造面 thinkingLevel 的定值或活体取值器（装配位闭包 =
+   * fold(sessionId) 现值 ?? 栈基线）。每 run 起跑现取一次钉入
+   * runThinkingValue（04 §5「run 内不可变」律——切档事件只改 fold 现值，
+   * 生效 = 下一 run 起跑）。定值形与既有快照语义零差。
+   */
+  private readonly thinkingSource: ConversationDriverOptions['thinkingLevel'];
+  /** 当前 run 钉定的思考档位（launch 置位、settled 链清位——run 级内存载体） */
+  private runThinkingValue: ThinkingLevel | undefined;
   /** 当前 run 的协作中止控制器（abort() 触发——streamFn/工具执行/退避睡眠共挂） */
   private activeController: AbortController | undefined;
   /** 停摆旗标（02 §2.3 取消模型——会话级标记非 run 状态机成员；置位后一切投递转 inject） */
@@ -203,12 +214,20 @@ export class ConversationDriver {
       messages: this.reseededTimeline(),
     };
     this.modelSource = options.model;
+    // 思考档位取值面持有（会话档位切换面批 F1——modelSource 同构位）
+    this.thinkingSource = options.thinkingLevel;
+    // 取值器形态的构造期基座缺席律（与 model 差异位）：baseConfig 只收定值
+    // 快照——取值器形构造期**不求值**（fold 坏词不阻止会话打开：fail-loud
+    // 炸点收敛在 run 起钉定位，经 submit 回执面回流，不连坐会话恢复与 host；
+    // model 取值器恒返 string 无此顾虑故构造期求值）。run 级真值由 launch
+    // 钉定 runThinkingValue——enterRun 覆盖位，见下
+    const baseThinking = typeof options.thinkingLevel === 'function' ? undefined : options.thinkingLevel;
     this.baseConfig = {
       streamFn: options.streamFn,
       // 定值形态直接快照；取值器形态构造期求值一次作基座缺省（run 级真值
       // 由 launch 钉定 runModelValue——enterRun 覆盖位，见下）
       model: typeof options.model === 'function' ? options.model() : options.model,
-      ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
+      ...(baseThinking !== undefined ? { thinkingLevel: baseThinking } : {}),
       convertToLlm: options.convertToLlm,
       transformContext: this.onTransformContext,
       preModelRequest: this.onPreModelRequest,
@@ -651,8 +670,10 @@ export class ConversationDriver {
     const reminders = this.pendingReminders;
     this.pendingReminders = [];
     const transientTail: Message[] = [];
-    // 披露段注入位（04 §11 迁层定形）：消息尾瞬态族首位——瀑布之后注入
-    const disclosure = this.options.environmentDisclosure?.() ?? null;
+    // 披露段注入位（04 §11 迁层定形）：消息尾瞬态族首位——瀑布之后注入。
+    // 会话键携带（F2 披露第六件）：沙箱行 per-session fold 现值——本 driver
+    // 所属会话的锚；闭包侧缺键消费 = boot 解析值（M2 fallback）
+    const disclosure = this.options.environmentDisclosure?.(this.session.sessionId) ?? null;
     if (disclosure !== null) {
       transientTail.push({ role: 'user', content: disclosure, timestamp: Date.now() });
     }
@@ -714,16 +735,40 @@ export class ConversationDriver {
   private kick(seeds: readonly AgentMessage[], wakeTriggered: boolean, backgroundLane: boolean): Promise<RunResult> {
     const gate = this.options.acquireRunSlot;
     // 缺席直通：零包装零排队（既有「busy 回执 === 在飞 run promise」引用恒等
-    // 与「受理即已落账」同步段不破——渐进增强零破口含同步段）
-    if (gate === undefined) return this.launch(seeds, wakeTriggered, backgroundLane);
+    // 与「受理即已落账」同步段不破——渐进增强零破口含同步段）；同步段抛
+    // （run 起档位取值坏词）同转拒绝——三路径（直通/快路/排队）崩溃投递形
+    // 统一（排队腿 async 形天然拒绝）
+    if (gate === undefined) {
+      try {
+        return this.launch(seeds, wakeTriggered, backgroundLane);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
     // 在场同步试位：帽内有位直通（tryAcquire 零微任务边界——受理回执时种子
     // 落账已完成，投影一致性同缺席形）；终态释放挂 settled 两路（run 回执
     // promise 引用不变——busy 恒等同律保持）
     const fast = gate.tryAcquire();
     if (fast !== undefined) {
-      const settled = this.launch(seeds, wakeTriggered, backgroundLane);
-      void settled.then(fast, fast);
-      return settled;
+      // 快路同步抛守卫（2026-09-17 会话档位切换面批——对抗验证 A2 真缺陷修复）：
+      // launch 同步段可抛（首点 = run 起思考档位取值器 fold 坏词
+      // THINKING_LEVEL_INVALID fail-loud；彼时 settled promise 尚未构造，
+      // fast 回调永不挂上）——不守卫则快路在飞位泄漏累计，帽 16 下坏词会话
+      // 提交 16 次即耗尽全宿主 run 帽（tsx 实证全宿主 run 排队死锁）。守卫 =
+      // 还位 + 转拒绝 promise（回执拒绝路回流，不连坐会话恢复与 host）。
+      // 排队腿无此缺口（acquire 后 launch 包 try/finally——:791 还位恒达）。
+      try {
+        const settled = this.launch(seeds, wakeTriggered, backgroundLane);
+        void settled.then(fast, fast);
+        return settled;
+      } catch (err) {
+        fast(); // 还位在先——同步抛位 settled 未构造，fast 永不挂上
+        // 转拒绝 promise（非原样同步上抛）：run 起跑崩溃的既有回执语义 =
+        // submit 回执拒绝路（driver.test 崩溃注入先例 rejects.toThrow 形；
+        // 装配 submitText 的 fire-and-forget run.catch 面只接 rejection——
+        // 同步上抛会穿回流面直达通道处理器）。
+        return Promise.reject(err);
+      }
     }
     // 排队段（不计在飞）：帽满挂起等位（宿主级 FIFO）；取位 promise 结算后
     // 才进起跑段——排队期 currentRun 未置位（冷读闸 M1 裁决执法位）
@@ -813,6 +858,13 @@ export class ConversationDriver {
     // 模型活读钉定（07 §4.1 R5）：run 起跑现取一次（取值器形支持 run 间
     // 换档即生效）；在飞 run 全程用本钉定值——不中途换模型
     this.runModelValue = typeof this.modelSource === 'function' ? this.modelSource() : this.modelSource;
+    // 思考档位活读钉定（2026-09-17 会话档位切换面批 F1——modelSource 同构）：
+    // run 起跑现取一次（装配位闭包 = fold(sessionId) 现值 ?? 栈基线）；04 §5
+    // 「run 内不可变」律——在飞 run 期切档事件只改 fold 现值，本钉定值不动
+    // （消费 = 下一 run 起跑）。取值器抛 THINKING_LEVEL_INVALID（fold 坏词）
+    // 在此位自然上抛：经 submit promise → 装配 catch → channels 回执面回流，
+    // 不连坐会话恢复与 host（构造期零求值律的代价收敛位）
+    this.runThinkingValue = typeof this.thinkingSource === 'function' ? this.thinkingSource() : this.thinkingSource;
     this.applyToolFace(wakeTriggered);
     // 记账窗锚（04 §5——批 #99）：settle 时窗扫 [seqAtLaunch, settle) 的
     // assistant/message 计数；捕获位在种子落账前（seeds 的 user/message 不入窗）
@@ -831,6 +883,7 @@ export class ConversationDriver {
         if (this.currentRun === settled) this.currentRun = undefined;
         this.runLaneValue = false; // 车道随 run 结算清位（单 run 不变量下无跨 run 竞态）
         this.runModelValue = undefined; // 模型钉定随 run 结算清位（run 级内存载体——防跨 run 陈值泄漏）
+        this.runThinkingValue = undefined; // 思考档位钉定同清（run 级内存载体——防跨 run 陈值泄漏）
         this.noteRunSettled(seeds, seqAtLaunch, backgroundLane, result.status);
         return result;
       },
@@ -838,6 +891,7 @@ export class ConversationDriver {
         if (this.currentRun === settled) this.currentRun = undefined;
         this.runLaneValue = false;
         this.runModelValue = undefined; // 崩溃路径同清（下一次 launch 现取新钉定）
+        this.runThinkingValue = undefined; // 崩溃路径同清
         this.noteRunSettled(seeds, seqAtLaunch, backgroundLane); // 崩溃路径——status 缺席不虚构
         throw error;
       },
@@ -1127,11 +1181,13 @@ export class ConversationDriver {
       // 钉入 runModelValue——本 run 全程（含重试续入/搁浅续跑的再入）用同一
       // 钉定值（在飞 run 不中途换模型）；run 间换档由下一次 launch 现取生效。
       // 缺席位零覆盖（run 外无 enterRun——构造期基座缺省仅防御性在位）。
-      // 模型钉定覆盖（07 §4.1 R5 模型循环数据路）：launch 已按 run 起跑现取
-      // 钉入 runModelValue——本 run 全程（含重试续入/搁浅续跑的再入）用同一
-      // 钉定值（在飞 run 不中途换模型）；run 间换档由下一次 launch 现取生效。
-      // 缺席位零覆盖（run 外无 enterRun——构造期基座缺省仅防御性在位）。
       ...(this.runModelValue !== undefined ? { model: this.runModelValue } : {}),
+      // 思考档位钉定覆盖（2026-09-17 会话档位切换面批 F1——model 覆盖同构）：
+      // launch 已按 run 起跑现取钉入 runThinkingValue（fold 现值 ?? 栈基线）
+      // ——04 §5「run 内不可变」律，run 期切档事件不改本值；缺席位零覆盖
+      // （getter 形 baseConfig 构造期缺席 + runThinkingValue undefined =
+      // llm 层走 provider 缺省——缺席档零注入语义）。
+      ...(this.runThinkingValue !== undefined ? { thinkingLevel: this.runThinkingValue } : {}),
     };
     this.activeConfig = config;
     try {

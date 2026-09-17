@@ -96,6 +96,13 @@ export interface HostRuntimeOptions {
   readonly gitSummaryProvider?: () => string | null;
   /** 插件装载计数真源（每请求重算——装载器批 12d 接线；缺席行省略） */
   readonly pluginsProvider?: () => { total: number; enabled: number; failed: number } | null;
+  /**
+   * 沙箱档位行真源（第六件——F2；每请求重算 per-session）：装配侧经
+   * createSandboxDisclosureSource 铸造（fold 复用 conversation
+   * foldSessionSandboxMode；坏词 warn 降级返 undefined 行省略）。晚绑定注入
+   * （stack 建后重赋值——会话事件读面装配在 runtime 之后）；缺席行省略。
+   */
+  readonly sandboxModeProvider?: (sessionId?: string) => string | undefined;
   /** 退出序时间帽注入（测试位） */
   readonly exitBudget?: ExitSequenceBudget;
 }
@@ -109,8 +116,9 @@ export interface HostRuntime {
   readonly persistence: Persistence;
   /** 在飞 run 打断信号（SIGINT① → abort；run 消费接线随 conversation 组装笔） */
   readonly abortSignal: AbortSignal;
-  /** 环境披露段（每请求重算——04 §environment 装配注入条款） */
-  readonly disclosure: () => string | null;
+  /** 环境披露段（每请求重算——04 §environment 装配注入条款；可选 sessionId =
+   * per-session 解档消费键〔F2 第六件——沙箱行按会话现值〕） */
+  readonly disclosure: (sessionId?: string) => string | null;
   /** 注册收口动作（drain 序 = 注册序，有界 5s） */
   readonly registerCloser: (closer: HostCloser) => void;
   /** 注册件级收口钩子（并行有界 2s） */
@@ -181,13 +189,16 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
     get abortSignal() {
       return abortController.signal;
     },
-    disclosure: () =>
+    disclosure: (sessionId?: string) =>
       renderEnvironmentDisclosure({
         platform: collectPlatform(() => osRelease(), process.platform),
         cwd: process.cwd(),
         date: collectDate(() => new Date()),
         gitSummary: options.gitSummaryProvider?.() ?? null,
         plugins: options.pluginsProvider?.() ?? null,
+        // 沙箱行第六件（F2）：provider 缺席（晚绑定前 / 注入缺席）= 行省略；
+        // provider 返 undefined（坏词 warn 降级）同省略——行面零强求
+        sandbox: options.sandboxModeProvider !== undefined ? (options.sandboxModeProvider(sessionId) ?? null) : null,
       }),
     registerCloser: (closer) => {
       closers.push(closer);

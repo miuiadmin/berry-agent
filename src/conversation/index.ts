@@ -73,6 +73,22 @@ export {
 // 会话用量折叠（R7 批 10k /usage——全 run 累计投影；装配注入通道核）
 export type { SessionUsageSummary } from './usage.js';
 export { foldSessionUsage, ZERO_SESSION_USAGE } from './usage.js';
+// 档位切换面 thinking 半边（2026-09-17 会话档位切换面批 F1——05 §1.1
+// session/thinking-level 行写入者兑现：append 面 + fold 读面 + 七档词表单源；
+// 单写者律 = 宿主装配独占，host 跨模块消费走本公开面）
+export type { ThinkingLevelEventData } from './thinking-level.js';
+export {
+  foldSessionThinkingLevel,
+  isThinkingLevel,
+  setSessionThinkingLevel,
+  THINKING_LEVELS,
+} from './thinking-level.js';
+// 档位切换面 sandbox 半边（2026-09-17 会话档位切换面批 F2——05 §1.1
+// sandbox/mode 行写入者兑现：append 面 + fold 读面〔委托 safety
+// resolveEffectiveMode 零新 fold〕；单写者律 = 宿主装配独占，host 跨模块
+// 消费走本公开面）
+export type { SandboxModeEventData } from './session-mode.js';
+export { foldSessionSandboxMode, setSessionMode } from './session-mode.js';
 // 审批三件 + open 域装配（11e：fresh 作用域审批 wiring + fs/检索/bash/todo 组装面）
 export type { SessionApprovalOptions, SessionApprovalWiring } from './approval-wiring.js';
 export { wireSessionApproval } from './approval-wiring.js';

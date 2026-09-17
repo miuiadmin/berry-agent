@@ -46,9 +46,11 @@ export interface FsToolsOptions {
    * 可写根 provider（fence 数据源；返回绝对路径列表）。safety 件已落码——
    * 装配层注入 safety.createRootsProvider 产物（与沙箱 profile 同源；host
    * 装配已接线——open-tools 同源单源）；缺省 = workspace 根 + 系统临时目录
-   * （过渡缺省，不随档位）。
+   * （过渡缺省，不随档位）。可选 sessionId 形参 = per-session 解档
+   * （2026-09-17 会话档位切换面批 F2 M1 穿线——provider 内部转
+   * mode(sessionId)；缺席 = boot 解析值 fallback〔M2〕）。
    */
-  writableRoots?: () => string[];
+  writableRoots?: (sessionId?: string) => string[];
   /** 工作区锚点（相对路径 resolve 基准；缺省 canonical 工作区根〔context 单源〕） */
   workspace?: () => string;
   /** read 文本截断上限字节（缺省 256 KiB；超限保头截断 + 注记） */
@@ -318,17 +320,19 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
   /**
    * 写路径 fence：canonical 化后必须在某可写根内（根同样 canonical 化后
    * 比对）。只拦写/删——读任意位置允许（coding 场景读系统文件是常态）。
+   * sessionId 形参 = per-session 解档穿线（F2 M1——write/edit 调用位携
+   * toolCtx.sessionId，provider 内部转 mode(sessionId)；缺席 = boot 解析值）。
    * @returns canonical 化后的写目标（链键 + 物理写目标同源）
    */
-  const assertWritable = async (abs: string): Promise<string> => {
+  const assertWritable = async (abs: string, sessionId?: string): Promise<string> => {
     const canonical = await canonicalize(abs);
-    for (const root of writableRoots()) {
+    for (const root of writableRoots(sessionId)) {
       const canonicalRoot = await canonicalize(resolvePath(root));
       if (isInside(canonical, canonicalRoot)) return canonical;
     }
     throw new BaseError(
       'FS_OUTSIDE_WRITABLE_ROOTS',
-      `[FS_OUTSIDE_WRITABLE_ROOTS] 写目标不在可写根内：${abs}（可写根：${writableRoots().join('、')}）`,
+      `[FS_OUTSIDE_WRITABLE_ROOTS] 写目标不在可写根内：${abs}（可写根：${writableRoots(sessionId).join('、')}）`,
     );
   };
 
@@ -410,12 +414,13 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
       path: Type.String({ description: '目标文件路径（相对路径锚工作区根）' }),
       content: Type.String({ description: '完整文件内容（整体替换，非追加）' }),
     }),
-    execute: async (args) => {
+    execute: async (args, toolCtx) => {
       const abs = resolveTarget(args.path as string);
       // 键推导先行：fence + canonical 化在链外完成——链键与物理写目标同为
       // 本操作定死的 canonical 路径（writeFile 落真实位置而非符号链拼写；
-      // 观察键维持用户拼写 abs——read/write 同拼写一致，跨拼写别名是既有语义）
-      const canonical = await assertWritable(abs);
+      // 观察键维持用户拼写 abs——read/write 同拼写一致，跨拼写别名是既有语义）。
+      // sessionId 穿线（F2 M1）——fence 按本会话档位解根
+      const canonical = await assertWritable(abs, toolCtx.sessionId);
       return serializeWrites([canonical], async () => {
         const current = await currentVersion(canonical);
         // CAS 分派：未读→create-if-absent；absent 观察→create；present→指纹守卫
@@ -451,18 +456,19 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
           'apply_patch 格式补丁文本，形如：\n*** Begin Patch\n*** Update File: path\n context\n-old\n+new\n*** Add File: new.txt\n+content\n*** Delete File: old.txt\n*** End Patch',
       }),
     }),
-    execute: async (args) => {
+    execute: async (args, toolCtx) => {
       const ops = parseApplyPatch(args.patch as string);
       // 键推导先行：逐 op fence + canonical 化在链外完成——本补丁涉及的全
       // 部 canonical 路径即链键全集（fence 每文件单独过——补丁夹带根外目
       // 标逐个暴露）。同 canonical 多段按序并入同键（04 §7 定形注——同文件
       // 多段按序生效；别名拼写〔a.txt 与 ./a.txt、符号链指同物〕经
       // resolveTarget/canonicalize 归一同键同并入——旧形 Map 存单 op、同键
-      // set 覆写致前段静默丢弃系缺陷，2026-09-14 批勘正为按序生效）
+      // set 覆写致前段静默丢弃系缺陷，2026-09-14 批勘正为按序生效）。
+      // sessionId 穿线（F2 M1）——fence 按本会话档位解根
       const targets = new Map<string, Array<{ op: PatchOperation; abs: string }>>();
       for (const op of ops) {
         const abs = resolveTarget(op.path);
-        const canonical = await assertWritable(abs);
+        const canonical = await assertWritable(abs, toolCtx.sessionId);
         // 读侧 carve-out 路径判（04 §7 定形⑤——2026-09-08 P0①）：edit 的隐式
         // 内容读（update 前置读）同过保护面；fence/canonicalize 先于内容读，
         // 路径判紧随 fence——三 op 全拒（update 隐式读 / add 造敏感件 / delete

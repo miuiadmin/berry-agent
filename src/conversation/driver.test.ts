@@ -26,6 +26,8 @@ import { isStandardMessage } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import { SessionLog } from '../session/index.js';
 import type { AgentEvent } from '../agent/index.js';
+import type { SessionEvent } from '../contracts/index.js';
+import { createSandboxDisclosureSource, renderEnvironmentDisclosure } from '../host/disclosure.js';
 import { ConversationDriver } from './driver.js';
 import type { ConversationDriverOptions } from './types.js';
 import {
@@ -1060,6 +1062,43 @@ describe('ConversationDriver 环境披露段注入（04 §11——cache 经济�
     expect(seen[0]!.systemPrompt).toBe('sys');
     expect(seen[0]!.messages).toHaveLength(1);
   });
+
+  it('沙箱行第六件双态（F2——host 真源接通）：切档下一请求披露行变（请求尾重算）+ 坏词 warn 降级省行不炸请求', async () => {
+    // host 真源直通（createSandboxDisclosureSource + renderEnvironmentDisclosure
+    // ——测试件豁免 topology 两账分离）：锁「seam 每请求携 sessionId 重取 +
+    // fold 现值随切档事件变」的 driver 级编舞（runtime 装配同构表达式）。
+    const warnings: string[] = [];
+    let eventsOf: () => readonly SessionEvent[] = () => [];
+    const source = createSandboxDisclosureSource({
+      boot: 'workspace-write',
+      eventsOf: (sessionId) => (sessionId === undefined ? [] : eventsOf()),
+      warn: (message) => warnings.push(message),
+    });
+    const { driver, seen } = makeDriver({
+      scripts: [assistant({}), assistant({}), assistant({})],
+      environmentDisclosure: (sessionId) => renderEnvironmentDisclosure({ sandbox: source(sessionId) }),
+    });
+    eventsOf = () => driver.session.events();
+    // ① 基线：boot 解析值进第六件（M2——无切档事件恒 boot）
+    await driver.submit('一');
+    expect(String((seen[0]!.messages.at(-1) as { content?: unknown }).content)).toContain('- 沙箱: workspace-write');
+    // ② 切档：append 即改 fold 现值——下一请求披露行变（请求尾派生重算语义；
+    //    与执法面同 fold 单源，回显与执法不漂移）
+    driver.session.append('sandbox/mode', { mode: 'read-only' });
+    await driver.submit('二');
+    expect(String((seen[1]!.messages.at(-1) as { content?: unknown }).content)).toContain('- 沙箱: read-only');
+    // ③ 坏词：披露位 warn 降级——第六件省略、请求照发不炸（m2 分位——
+    //    与工具位 fail-closed 分职：披露是回显、执行是执法）。最小台只喂
+    //    sandbox 一件 → 降级即整段 null 零注入（消息尾无披露追写）。
+    driver.session.append('sandbox/mode', { mode: 'ULTRA' });
+    await driver.submit('三');
+    expect(seen).toHaveLength(3); // 第三请求照发照答（降级不炸请求）
+    expect(
+      seen[2]!.messages.some((message) => String((message as { content?: unknown }).content).includes('沙箱')),
+    ).toBe(false); // 第六件省略（无沙箱行呈现）
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('SANDBOX_MODE_INVALID');
+  });
 });
 
 /* ---------------- 19a 消费腿：插件提示词段注入（03 §2.5 注册即生效面） ---------------- */
@@ -1607,6 +1646,64 @@ describe('ConversationDriver lane 帽 seam（04 §4——m-2）', () => {
     expect(result.status).toBe('completed');
     expect(gate.acquired).toBe(1); // tryAcquire 成功——同步直通恰一次
     expect(gate.released).toBe(1); // 终态释放恰一次（settled 两路挂——completed 路）
+  });
+
+  it('快路同步抛守卫：launch 同步段抛（run 起思考档位坏词）还位 + 转拒绝——帽不泄漏后续提交不死锁（A2 回归锁）', async () => {
+    // 帽 1 真形闸：tryAcquire 满位返 undefined、acquire 满位真挂起等还位
+    // ——泄漏形（守卫缺席）下第二次 submit 进排队腿永等，2s 竞速判死锁。
+    let inFlight = 0;
+    const waiters: Array<() => void> = [];
+    const release = (): void => {
+      inFlight -= 1;
+      const next = waiters.shift();
+      if (next !== undefined) next();
+    };
+    const gate = {
+      tryAcquire(): (() => void) | undefined {
+        if (inFlight >= 1) return undefined;
+        inFlight += 1;
+        return release;
+      },
+      acquire(): Promise<() => void> {
+        return new Promise((resolve) => {
+          const attempt = (): void => {
+            if (inFlight < 1) {
+              inFlight += 1;
+              resolve(release);
+            } else waiters.push(attempt);
+          };
+          attempt();
+        });
+      },
+      get inFlight(): number {
+        return inFlight;
+      },
+    };
+    // 坏词取值器：fold 坏词 fail-loud 的最小模拟（launch :855 首个同步抛点）
+    const badWord = (): never => {
+      throw new Error('THINKING_LEVEL_INVALID 坏词模拟');
+    };
+    const { driver } = makeDriver({
+      scripts: [assistant({ content: [{ type: 'text', text: '答' }] })],
+      acquireRunSlot: gate,
+      thinkingLevel: badWord,
+    });
+    // 第一次提交：坏词同步抛 → 回执拒绝路（非同步上抛——回流面只接 rejection）
+    // + 位即刻归还
+    await expect(driver.submit('一')).rejects.toThrow('坏词模拟');
+    expect(gate.inFlight).toBe(0); // 位已还——不泄漏
+    // 第二次提交：帽内仍有位（守卫缺席形此处排队腿永等 = 全宿主 run 死锁形）
+    const secondOutcome = await Promise.race([
+      driver.submit('二').then(
+        () => 'settled' as const,
+        () => 'rejected' as const,
+      ),
+      new Promise<'timeout'>((resolve) => {
+        setTimeout(() => resolve('timeout'), 2_000);
+      }),
+    ]);
+    expect(secondOutcome).toBe('rejected'); // 防帽耗尽死锁——修复前此处 timeout
+    expect(gate.inFlight).toBe(0);
   });
 
   it('受理即已落账（同步段保持）：试位直通形 submit 调用同步返回时种子已进 durable 事件流', () => {

@@ -13,7 +13,10 @@
  * 落码批 02 §5.3 同笔扩册，SESSION_OBSERVE_DENIED 同构先例）。第六码
  * SESSION_MANAGER_DISPOSED 管停机 drain 窗封印位（会话管理器已 dispose 后
  * create/fork 两动词拒——封印面 = 铸新会话全动词；04 §1 退出序六役补钉同批，
- * fork 面系 2026-09-15 六役挂账收口批补钉）。
+ * fork 面系 2026-09-15 六役挂账收口批补钉）。第七码 THINKING_LEVEL_INVALID
+ * 管 session/thinking-level 档位词汇 fail-loud（2026-09-17 会话档位切换面批
+ * F1——append 校验与 fold 正扫两抛出位，SANDBOX_MODE_INVALID 同律防
+ * fail-open）。
  *
  * module 段 conversation——SESSION_ 前缀系跨功能域共用前缀（session 模块
  * 既有码族/批 13b SDK 面裸码〔module 段 session〕/obs 观测两码〔module 段
@@ -56,5 +59,11 @@ registerErrorCodes([
     module: 'conversation',
     description:
       '会话管理器已 dispose 后 create/fork 拒——停机 drain 窗封印位（封印面 = 铸新会话全动词；04 §1 退出序六役补钉 + fork 面 02 §5.3 六役挂账收口批）',
+  },
+  {
+    code: 'THINKING_LEVEL_INVALID',
+    module: 'conversation',
+    description:
+      'session/thinking-level 事件档位非法（七档词表 off/minimal/low/medium/high/xhigh/max 之外）——append 词法校验与 fold 全量正扫两抛出位（SANDBOX_MODE_INVALID 同律：静默跳过坏事件会沿用旧档属 fail-open，宁响亮失败；02 §5.3 THINKING_ 族 2026-09-17 会话档位切换面批入册；语义真源 05 §1.1 该行 + 07 §4.1 该批批注）',
   },
 ]);

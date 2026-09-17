@@ -100,6 +100,8 @@ import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { SkillsViewer, type SkillListEntry } from '../panels/skills-viewer.js';
 import { ThemePicker, type ThemePickEntry } from '../panels/theme-picker.js';
+import { ThinkingPicker, type ThinkingPickEntry } from '../panels/thinking-picker.js';
+import { SandboxPicker, type SandboxPickEntry } from '../panels/sandbox-picker.js';
 import { DiffViewer, type DiffProjectionMessage } from '../panels/diff-viewer.js';
 import { MarketPicker, type MarketPanelActions, type MarketPanelModel } from '../panels/market-picker.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
@@ -924,6 +926,64 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
       new ThemePicker({
+        entries,
+        current,
+        onSelect,
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏思考档位切换（2026-09-17 会话档位切换面批 F1 /thinking——TUI 本地
+   * 拦截族）：七档条目与当前档装配位现取注入（词表单源在 conversation——
+   * 本件收纯数据行，DAG 边表 channels 不入 conversation）；选定先收副屏再
+   * 回调（SessionPicker 同序律），append durable 事件 + setStatus 回执归装配
+   * 闭包。返 boolean 同 openThemes 律。
+   */
+  openThinking(
+    entries: readonly ThinkingPickEntry[],
+    current: string | undefined,
+    onSelect: (level: string) => void,
+  ): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new ThinkingPicker({
+        entries,
+        current,
+        onSelect,
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏沙箱档位切换（2026-09-17 会话档位切换面批 F2 /sandbox——TUI 本地
+   * 拦截族第九枚）：三档条目与当前档装配位现取注入（词表单源在 safety
+   * SANDBOX_MODES——本件收纯数据行，DAG 边表 channels 不入 safety）；选定
+   * 先收副屏再回调（SessionPicker 同序律），append durable 事件 + setStatus
+   * 回执归装配闭包。返 boolean 同 openThemes 律。
+   */
+  openSandbox(
+    entries: readonly SandboxPickEntry[],
+    current: string | undefined,
+    onSelect: (mode: string) => void,
+  ): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new SandboxPicker({
         entries,
         current,
         onSelect,

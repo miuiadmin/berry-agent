@@ -32,12 +32,21 @@ import {
 } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
 import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
+import type { ThinkingLevel } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
-import { foldSessionUsage, foldTodoTable } from '../conversation/index.js';
+import {
+  foldSessionSandboxMode,
+  foldSessionThinkingLevel,
+  foldSessionUsage,
+  foldTodoTable,
+  setSessionMode,
+  setSessionThinkingLevel,
+  THINKING_LEVELS,
+} from '../conversation/index.js';
 import { sanitizeEntryForReadout, shortIdOf, type MemoryDao } from '../memory/index.js';
 import { formatSkillInvocation, type SkillsRegistry } from '../skills/index.js';
 import type { Provider } from '../llm/index.js';
-import { APPROVAL_PRESETS, type SandboxMode } from '../safety/index.js';
+import { APPROVAL_PRESETS, SANDBOX_MODES, type SandboxMode } from '../safety/index.js';
 import { REWIND_SUBVERBS, type CheckpointStore } from '../checkpoint/index.js';
 
 import type { TuiFlags } from './cli.js';
@@ -62,6 +71,33 @@ import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
 import type { StartupSession } from './conversation-stack.js';
+
+/**
+ * 思考档位行说明（/thinking 副屏右段——2026-09-17 会话档位切换面批 F1）：
+ * 七档词表单源 THINKING_LEVELS（conversation），本表只是呈现面文案；键集
+ * 编译期锁七档全档（Record<ThinkingLevel, string> 面上缺一键即红）。
+ */
+const THINKING_LEVEL_DETAILS: Readonly<Record<ThinkingLevel, string>> = {
+  off: '关闭思考',
+  minimal: '极简思考',
+  low: '低档思考',
+  medium: '中档思考',
+  high: '高档思考',
+  xhigh: '超高档思考',
+  max: '最大思考',
+};
+
+/**
+ * 沙箱档位行说明（/sandbox 副屏右段——2026-09-17 会话档位切换面批 F2）：
+ * 三档词表单源 SANDBOX_MODES（safety），本表只是呈现面文案；danger 行警
+ * 示语规范钉死（07 §4.1「无沙箱——任何命令直跑宿主」——第三档语义不粉
+ * 饰）；键集编译期锁三档全档（Record<SandboxMode, string> 面上缺一键即红）。
+ */
+const SANDBOX_MODE_DETAILS: Readonly<Record<SandboxMode, string>> = {
+  'read-only': '只读——写与执行全拒',
+  'workspace-write': '工作区可写——越界写须审批',
+  danger: '无沙箱——任何命令直跑宿主',
+};
 
 /** TUI 入口选项（main 分派接线 + 测试注入面） */
 export interface TuiEntryOptions {
@@ -435,6 +471,90 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
+    // —— 思考档位选定闭包（2026-09-17 会话档位切换面批 F1 /thinking）：append
+    // 走 conversation 公开面单写者（宿主装配独占——不注册 ctx.get，插件结构
+    // 性不可达）；回执 = setStatus「<档>（下一 run 起生效；档位是否生效随
+    // 模型能力）」形（07 §4.1 该批批注）。目标会话 = 聚焦位（/sessions 切焦
+    // 后随焦生效——openDiffPanel 同位律）。
+    const selectThinking = (level: string): void => {
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      const driver = stack.driverOf(sid);
+      if (driver === undefined) {
+        backend.notify('思考档位需要会话驱动在场（切焦后重试）', { level: 'warn' });
+        return;
+      }
+      setSessionThinkingLevel(driver.session, level);
+      backend.setStatus(sid, `思考档位：${level}（下一 run 起生效；档位是否生效随模型能力）`);
+    };
+
+    const openThinkingPanel = (): void => {
+      // 行集七档单源（THINKING_LEVELS——词序即面板行序；词表与 detail 在此
+      // 拼纯数据行，picker 不 import conversation——DAG 边表 channels 不入
+      // conversation）。当前档 = fold 现值 ?? 栈基线（undefined = 诚实无锚）
+      // ；fold 坏词 fail-loud（run 起钉定位的炸）在开屏面收为错误回执——
+      // 不让选择器开口即崩。
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      const driver = stack.driverOf(sid);
+      let current: string | undefined;
+      if (driver !== undefined) {
+        try {
+          current = foldSessionThinkingLevel(driver.session.events()) ?? stack.thinkingLevel;
+        } catch (err) {
+          backend.notify(`思考档位读失败：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
+          return;
+        }
+      } else {
+        current = stack.thinkingLevel;
+      }
+      const entries = THINKING_LEVELS.map((level) => ({ level, detail: THINKING_LEVEL_DETAILS[level] }));
+      if (!backend.openThinking(entries, current, selectThinking)) {
+        backend.notify('思考档位面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
+    // —— 沙箱档位选定闭包（2026-09-17 会话档位切换面批 F2 /sandbox）：append
+    // 走 conversation 公开面单写者 setSessionMode（宿主装配独占——不注册
+    // ctx.get，插件结构性不可达；05 §1.1 单写者律）；回执 = setStatus「当前
+    // 档 +（即刻生效于后续工具调用）」——与 thinking「下一 run 起」分拆两形
+    // （07 §4.1 A4 勘正注：执法闭包 per 工具调用现取 fold 现值，在飞 run 内
+    // 下一工具调用起生效——收紧向提前生效无害，回执与生效粒度一致）。目标
+    // 会话 = 聚焦位（/sessions 切焦后随焦生效——selectThinking 同位律）。
+    const selectSandbox = (mode: string): void => {
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      const driver = stack.driverOf(sid);
+      if (driver === undefined) {
+        backend.notify('沙箱档位需要会话驱动在场（切焦后重试）', { level: 'warn' });
+        return;
+      }
+      setSessionMode(driver.session, mode);
+      backend.setStatus(sid, `沙箱档位：${mode}（即刻生效于后续工具调用）`);
+    };
+
+    const openSandboxPanel = (): void => {
+      // 行集三档单源（SANDBOX_MODES——词序即面板行序；词表与 detail 在此拼
+      // 纯数据行，picker 不 import safety——DAG 边表 channels 不入 safety）。
+      // 当前档 = fold 现值（fallback 恒 boot 解析值 stack.sandboxMode——本面
+      // 恒有锚，与 /thinking 的可无锚分立）；fold 坏词 fail-loud 在开屏面收
+      // 为错误回执——不让选择器开口即崩（selectThinking 同律）。
+      const sid = stack.channels.focusedId ?? session.sessionId;
+      const driver = stack.driverOf(sid);
+      let current: string;
+      if (driver !== undefined) {
+        try {
+          current = foldSessionSandboxMode(driver.session.events(), stack.sandboxMode);
+        } catch (err) {
+          backend.notify(`沙箱档位读失败：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
+          return;
+        }
+      } else {
+        current = stack.sandboxMode;
+      }
+      const entries = SANDBOX_MODES.map((mode) => ({ mode, detail: SANDBOX_MODE_DETAILS[mode] }));
+      if (!backend.openSandbox(entries, current, selectSandbox)) {
+        backend.notify('沙箱档位面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
     const openDiffPanel = (): void => {
       // 数据源 = 聚焦会话投影快照（开屏一次现取——快照档；ProjectedMessage
       // 结构兼容 DiffProjectionMessage 最小面，channels↛session 零新 DAG 边）
@@ -549,6 +669,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       { name: 'debug', description: '调试信息副屏（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },
       { name: 'skills', description: '技能清单副屏（enter 回填调用形入输入框）', run: () => openSkillsPanel() },
       { name: 'themes', description: '主题切换副屏（选定即换装+持久化）', run: () => openThemesPanel() },
+      {
+        name: 'thinking',
+        description: '思考档位副屏（七档选定——下一 run 起生效，随模型能力）',
+        run: () => openThinkingPanel(),
+      },
+      {
+        name: 'sandbox',
+        description: '沙箱档位副屏（三档选定——即刻生效于后续工具调用，切会话各档独立）',
+        run: () => openSandboxPanel(),
+      },
       { name: 'diff', description: '会话改动总览副屏（edit 聚合按文件分组）', run: () => openDiffPanel() },
       {
         name: 'marketplace',

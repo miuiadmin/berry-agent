@@ -57,6 +57,7 @@ export const ERROR_CODE_PREFIXES = [
   'FS_',
   'SESSION_',
   'SANDBOX_',
+  'THINKING_',
   'LLM_',
   'EXEC_',
   'PROVIDER_',

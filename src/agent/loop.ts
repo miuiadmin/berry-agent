@@ -131,10 +131,11 @@ async function runLoop(context: AgentContext, config: AgentLoopConfig, emit: Emi
       if (followUps.length === 0) break;
       pushAll(context, followUps, emit, 'followUp');
     }
-    // turn 间准备窗：换 model/thinkingLevel 唯一时机（todo/goal 注入同窗）。
-    // 实况注记（2026-09-11 定形）：换档只改内存 config 不落 session/thinking-level
-    // durable 事件——该词 v1 词先锚定（05 §1.1 在册、写点随会话档位切换面立题；
-    // 冷启动恢复走栈级静态 options.thinkingLevel）
+    // turn 间准备窗（prepareNextTurn = agent 件通用缝，非档位切换专用）：
+    // adjustment 消费位在此（todo/goal 注入同窗）。档位切换面 2026-09-17 已落：
+    // 换档走 session/thinking-level durable 事件 + 驱动 run 起取值器钉定——
+    // 生效边界 = run 起（04 §5「run 内不可变」律），不经本缝（在飞 run 期
+    // 切档 = 下一 run 起跑生效，fold 现值随 run 起现取）。
     const adjustment = await config.prepareNextTurn?.(context);
     if (adjustment) {
       if (adjustment.model !== undefined) config.model = adjustment.model;

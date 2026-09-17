@@ -174,10 +174,13 @@ export function resolveWritability(
  * 不翻倍）；每次调用现取（授予起于装配后，快照形会漏授予）。授予不越档：
  * read-only 恒空根、danger 恒全盘 [sep]（已全可写，并入无意义不变形）。
  */
-export function createRootsProvider(input: WritableRootsInput): () => string[] {
+export function createRootsProvider(input: WritableRootsInput): (sessionId?: string) => string[] {
   const workspace = canonicalPath(input.workspace);
-  return () => {
-    const mode = input.mode();
+  return (sessionId?: string) => {
+    // per-session 解档（2026-09-17 会话档位切换面批 F2 M1）：fence 调用位
+    // 携 ToolContext.sessionId → 闭包侧 fold 本会话切档事件；缺席 = boot
+    // 解析值（M2 fallback——闭包内自处，本层零缺省误用面）
+    const mode = input.mode(sessionId);
     const roots = deriveWritableRoots(workspace, mode);
     // 授予只并入 workspace-write 可写面（越档授予无效——档位是裁决面）
     if (mode !== 'workspace-write' || input.grantedRoots === undefined) return roots;

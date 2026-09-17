@@ -42,8 +42,13 @@ export type {
 // 批 12b 装配序生命周期（单活跃机 + 开库 + 退出序六步编舞 + 披露段组装）
 export { acquireActiveMarker, ACTIVE_MARKER_BASENAME } from './single-instance.js';
 export type { ActiveMarkerRecord, ActiveMarkerLease, AcquireOptions } from './single-instance.js';
-export { renderEnvironmentDisclosure, collectPlatform, collectDate } from './disclosure.js';
-export type { DisclosureInputs } from './disclosure.js';
+export {
+  renderEnvironmentDisclosure,
+  collectPlatform,
+  collectDate,
+  createSandboxDisclosureSource,
+} from './disclosure.js';
+export type { DisclosureInputs, SandboxDisclosureSourceOptions } from './disclosure.js';
 export { createHostRuntime, appendCrashLog } from './runtime.js';
 export type { HostRuntime, HostRuntimeOptions, HostCloser, ExitSequenceBudget } from './runtime.js';
 // 批 12c CLI 分派面（退出码三态 + 非 TTY 卫兵 + help/version 短路）与进程编舞

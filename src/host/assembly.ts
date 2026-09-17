@@ -50,6 +50,7 @@ import { APPROVAL_USAGE, parseApprovalArgv, runApprovalCommand } from './approva
 import { createCorePlugins } from './core-plugins.js';
 import type { GoalFace, SubagentLayerResyncHook } from './core-plugins.js';
 import { createSessionsFace } from './sessions-face.js';
+import { createSandboxDisclosureSource } from './disclosure.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { createConversationStack } from './conversation-stack.js';
 // B3 联动腿装配 seam 工厂（04 §3.3 条 8——authFamily/refreshNow/notify 三注入单点）
@@ -185,6 +186,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
   // 两腿开合）、只读面随 conversation-stack 注入 llm 双入口前置查
   // （LLM_CALL_IN_HOOK）。同一真身保证「谁开窗谁可见」跨插件嵌套正确
   const hookDispatchGuard = createHookDispatchGuard();
+  // 披露第六件晚绑定槽（F2——2026-09-17 会话档位切换面批）：沙箱行数据源
+  // 依赖 stack（会话事件读面 driverOf）与 logger（warn 降级位）——两者均在
+  // runtime 之后创建，故闭包经本槽晚绑定（bootTools 同法先例）；runtime 的
+  // sandboxModeProvider 每请求重算现取槽内值，undefined = 行省略（boot 前请
+  // 求形）。坏词 fold 抛在源内 warn 降级返 undefined——披露位不炸请求。
+  let sandboxDisclosureSource: ((sessionId?: string) => string | undefined) | undefined;
   let runtime: HostRuntime | undefined;
   try {
     // —— 运行时组装（单活跃机 + 开库 fail-loud——干净退出档，非崩溃取证档）——
@@ -192,6 +199,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       runtime = createHostRuntime({
         ...options.runtime,
         pluginsProvider: () => ({ ...pluginCounts }),
+        // 沙箱行第六件真源（F2）：晚绑定槽取面（见上方槽注）——每请求重算
+        sandboxModeProvider: (sessionId?: string) => sandboxDisclosureSource?.(sessionId),
         // session/event 活体镜像桥（03 §146——批 19b-2）：durable append →
         // dispatch.emit。isRegistered 守卫 = 纯诊断形（noPlugins）词汇未注册
         // 零发射（41 词表在 bootPlugins 预注册——不装载即不注册）；观察者
@@ -437,6 +446,27 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         getOpensFor: createControlOpensFor(dataDir),
         onCapabilityUsed: (record) => void audit.append('capability/used', { ...record }),
       },
+      warn: (message) => logger.warn(message),
+    });
+
+    // —— 披露第六件铸造（F2——2026-09-17 会话档位切换面批）：stack 既建、
+    // logger/settingsMode 既得，晚绑定槽回填（runtime 侧 sandboxModeProvider
+    // 此后每请求重算即见）。boot 解析 = CLI 旗标 > settings.json > 代码常量
+    // workspace-write（M2：恒显式解析值传 fold fallback——settings 显式
+    // danger 属用户显式授权，非「非 danger」缺省；与 /approval status 快照
+    // 同序单源——effectiveMode 同法）。eventsOf = driverOf 活引用（未开会话
+    // / 缺键 = 空数组 → fold 落 boot）；坏词 warn 降级在源内执法（披露位不
+    // 炸请求——与工具位 fail-closed 分位）。
+    const bootSandboxMode: SandboxMode =
+      options.sandboxMode !== undefined
+        ? options.sandboxMode()
+        : settingsMode !== undefined
+          ? settingsMode
+          : 'workspace-write';
+    sandboxDisclosureSource = createSandboxDisclosureSource({
+      boot: bootSandboxMode,
+      eventsOf: (sessionId?: string) =>
+        sessionId !== undefined ? (stack.driverOf(sessionId)?.session.events() ?? []) : [],
       warn: (message) => logger.warn(message),
     });
 
@@ -1268,12 +1298,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // preset 写盘成功尾落 preset/applied 审计恰一笔（05 §1.1——落账失败
     // warn 不阻塞，写盘已生效；CLI --preset 逐次形零审计——不经本面）。
     // 回执经 notify 归因 'approval'（与 'doors' 同律）。
-    const effectiveMode: SandboxMode =
-      options.sandboxMode !== undefined
-        ? options.sandboxMode()
-        : settingsMode !== undefined
-          ? settingsMode
-          : 'workspace-write';
+    // boot 解析单源消费（F2）：与披露第六件 fallback 同 boot——上方
+    // bootSandboxMode 一处解析（CLI > settings > 代码常量），status 快照免二次
+    const effectiveMode: SandboxMode = bootSandboxMode;
     const modeSource =
       options.sandboxModeSource ??
       (options.sandboxMode !== undefined

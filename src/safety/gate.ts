@@ -74,8 +74,13 @@ export interface SafetyGateOptions {
   readonly sessionId?: string;
   /** 工作区根（会话不可变 cwd；相对路径锚点） */
   readonly workspace: string;
-  /** 当前生效档位取值器（三级解析产物；每次预检取最新——会话 override 即时生效） */
-  readonly mode: () => SandboxMode;
+  /**
+   * 当前生效档位取值器（三级解析产物；每次预检取最新——会话 override 即时
+   * 生效；可选 sessionId 形参 = per-session 解档〔2026-09-17 会话档位切换
+   * 面批 F2 M1 穿线——闭包侧 fold(input.sessionId)〕；缺席 = boot 解析值
+   * fallback〔M2〕。既有零参闭包经签名可选参继续可赋值——向后兼容）。
+   */
+  readonly mode: (sessionId?: string) => SandboxMode;
   /**
    * 同源可写根提供器（六役 A1 复核 blocker 收口——守门行与 fence 同根集
    * 单源）：在场时评估序 (2) carve-out 判定与 (5) fence 前核改走本提供器
@@ -83,8 +88,9 @@ export interface SafetyGateOptions {
    * 防误判 outside-roots 交棒后 fence 却放行的审批旁路）；缺省回落
    * deriveWritableRoots 推导（单会话测试形 / 无授予语境行为不变）。装配位
    * 应传与 fs fence 完全同一的 createRootsProvider 产物（同闭包同 live 源）。
+   * 可选 sessionId 形参同 mode 位（F2 M1 穿线——provider 内部转 mode(sessionId)）。
    */
-  readonly writableRoots?: () => string[];
+  readonly writableRoots?: (sessionId?: string) => string[];
   /**
    * 会话授予根 live 取值器（wt 挂账批——授予根 `.git` 同律遮蔽）：worktree
    * 产物根随会话 create/grant 动态到场，快照形会漏授予，故 live 现取。在场
@@ -170,7 +176,9 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     if (opts.sessionId !== undefined && input.sessionId !== undefined && input.sessionId !== opts.sessionId) {
       return next(input);
     }
-    const mode = opts.mode();
+    // per-session 解档（F2 M1）：本行归属过滤后按调用方会话锚取档——闭包侧
+    // fold(input.sessionId) 现值；缺席 = boot 解析值（M2 fallback 闭包内自处）
+    const mode = opts.mode(input.sessionId);
     const tool: ToolDefinition = input.tool;
     // read-only 档让棒沿旧（04 §9 定形块④：skip 位保持一切判定之前——fence
     // 拒全量写（空根），本行跳过不产生审批交互；策略表在 read-only 会话无
@@ -262,8 +270,10 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
         : carveTable;
     if (isFsFamily) {
       // 同源可写根（六役 A1——SafetyGateOptions.writableRoots 注）：与 fence
-      // 同一 provider，授予根并入后两序判定同根集；缺省回落推导
-      const roots = opts.writableRoots !== undefined ? opts.writableRoots() : deriveWritableRoots(workspace, mode);
+      // 同一 provider，授予根并入后两序判定同根集；缺省回落推导。
+      // sessionId 穿线（F2 M1）——provider 内部转 mode(sessionId) 同源解档
+      const roots =
+        opts.writableRoots !== undefined ? opts.writableRoots(input.sessionId) : deriveWritableRoots(workspace, mode);
       // 逐路径独立判定：任一 deny 命中即整调用硬拒（多文件补丁不部分放行）
       for (const rawPath of extractWritePaths(tool.name, input.args)) {
         // 与 fence 同源的 canonical 化（相对锚 workspace、最近存在祖先解析符号链）
@@ -302,8 +312,10 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
     // 审批对为可执行动作而设，防「批了又被 fence 拒」的空转交互）
     if (isFsFamily) {
       // 同源可写根（六役 A1——同 (2) 位）：授予根在根集内 = 不属 fence 拒绝
-      // 面 → 照走审批对（授予域写仍必问——根集并入只扩「批了能成」的域）
-      const roots = opts.writableRoots !== undefined ? opts.writableRoots() : deriveWritableRoots(workspace, mode);
+      // 面 → 照走审批对（授予域写仍必问——根集并入只扩「批了能成」的域）。
+      // sessionId 穿线（F2 M1）——(2) 位同源同参
+      const roots =
+        opts.writableRoots !== undefined ? opts.writableRoots(input.sessionId) : deriveWritableRoots(workspace, mode);
       const outside = canonicalWritePaths.some((p) => {
         const verdict = resolveWritability(p, roots, liveCarveTable);
         return !verdict.allowed && verdict.kind === 'outside-roots';

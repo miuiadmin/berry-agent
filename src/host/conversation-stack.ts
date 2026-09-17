@@ -60,6 +60,8 @@ import {
   CONTROL_CROSS_CAPABILITY,
   DEFAULT_RETRY_POLICY,
   ensureTodoRole,
+  foldSessionSandboxMode,
+  foldSessionThinkingLevel,
   foldSessionUsage,
   provideAgentService,
   reseedTimeline,
@@ -266,6 +268,22 @@ export interface ConversationStack {
   readonly scope: Scope;
   readonly dispatch: EventDispatch;
   readonly model: string;
+  /**
+   * 思考档位栈基线活读（2026-09-17 会话档位切换面批 F1）：装配面原始值的
+   * 透传读面——会话生效档以 `foldSessionThinkingLevel(session.events()) ??
+   * 本基线` 为准（驱动取值器闭包单源，run 起现取钉定），本面只供 picker
+   * 锚显等宿主位读栈基线；会话级切档事件改 fold 面不改本值。缺席 = undefined
+   * （无基线锚——picker 恰当诚实无锚显示）。
+   */
+  readonly thinkingLevel: ThinkingLevel | undefined;
+  /**
+   * 沙箱档位 boot 解析值活读（2026-09-17 会话档位切换面批 F2）：TUI
+   * /sandbox 副屏 current 锚（picker ● 标）的栈级读面——会话生效档以
+   * `foldSessionSandboxMode(session.events(), boot)` 为准（:850 三面单源
+   * 闭包——守门行/fence/bash 同源执法），本面只供宿主位读 boot 锚；会话级
+   * 切档事件改 fold 面不改本值（boot 恒定——settings 解析产物）。
+   */
+  readonly sandboxMode: SandboxMode;
   /**
    * 模型旋钮（07 §4.1 R5——挂账解挂批 2026-09-15 ctrl+p 模型循环数据路）：
    * 会话级内存旋钮换档——不写盘（持久化不在此面，重启回落装配基线）。换档
@@ -838,7 +856,20 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         dispatch,
         session,
         scope,
-        mode: sandboxMode,
+        // 三面取档单源 per-session 翻换（F2 核心——冷读 IMPL-F1 定谳「一处翻
+        // 三面齐动，禁只翻 bash 侧防执法分裂」）：mode 闭包是 assembleOpenTools
+        // 的取档真源，守门行 installSafetyGate / fs fence createRootsProvider /
+        // bash currentMode 三消费面同源同闭包。闭包捕获本会话 SessionLog——
+        // fold 现值 fallback 恒 boot 解析值（M2：settings 显式 danger 属用户
+        // 显式授权，非「非 danger」缺省）；_sessionId 形参 = 调用方会话锚
+        // （gate input.sessionId / bash toolCtx.sessionId / fs fence 第二参），
+        // per-session 装配下归属过滤保证与闭包会话一致，本形不另源查账（形参
+        // 在位承 seam——签名统一由 SafetyGateOptions.mode 定形）。切档事件
+        // append 即改 fold 现值：三面下一次调用齐动（「即刻生效于后续工具
+        // 调用」的机制真身 = 取值器每次调用现取——07 §4.1 A4 勘正注）。坏词 fold 抛：gate 守门异常 →
+        // TOOL_GATE_FAILED fail-closed；bash/fs 编码 isError
+        // [SANDBOX_MODE_INVALID]——同一坏词工具位三面同拒。
+        mode: (_sessionId?: string) => foldSessionSandboxMode(session.events(), sandboxMode()),
         dataDir: options.runtime.dataDir,
         // 会话锚（上文本工厂行锚——胜出栈级缺省；见 sessionWorkspace 注）
         workspace: sessionWorkspace,
@@ -898,7 +929,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // 取位、run 终态释放；排队不计在飞（冷读闸 M1 裁决）。栈级单 gate
       // 全会话共享——「宿主级」并发数的真源。
       acquireRunSlot: runLane,
-      ...(options.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
+      // 思考档位装配（2026-09-17 会话档位切换面批 F1）：取值器形无条件装——
+      // 每 run 起跑现取 fold(sessionId) 现值 ?? 栈基线（07 §4.1 该批批注；
+      // model 取值器同构先例）。切档事件 append 即改 fold 现值，生效 = 下一
+      // run 起跑；fold 坏词的 THINKING_LEVEL_INVALID 在 run 起钉定位上抛经
+      // submit 回执面回流（构造期零求值——不连坐会话打开）。返回 undefined =
+      // 本 run 不覆盖（缺席档零注入，llm 层走 provider 缺省）。
+      thinkingLevel: () => foldSessionThinkingLevel(session.events()) ?? options.thinkingLevel,
       // per-session 覆盖 ?? 栈基线（open/resume 不携带——回落基线同 model 律）
       ...((systemPrompt ?? options.systemPrompt) !== undefined
         ? { systemPrompt: systemPrompt ?? options.systemPrompt }
@@ -1001,6 +1038,18 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 调用方（TUI ctrl+p）自行 notify）。
     setModel(id: string) {
       currentModel = id;
+    },
+    // 思考档位栈基线活读（会话档位切换面批 F1——ConversationStack 面）：透传
+    // 装配面原始值；会话生效档读面 = 会话 fold（驱动取值器闭包单源）
+    get thinkingLevel() {
+      return options.thinkingLevel;
+    },
+    // 沙箱档位 boot 解析值活读（会话档位切换面批 F2——ConversationStack 面）：
+    // TUI /sandbox 副屏 current 锚（picker ● 标 = boot 值；切档回执的「当前
+    // 档」= 会话 fold 现值，tui-entry 侧取）。会话生效档读面 = 会话 fold
+    // （:850 三面单源闭包）——本 getter 只回 boot，不是执法面。
+    get sandboxMode() {
+      return sandboxMode();
     },
     sessionView,
     sessionsControl,

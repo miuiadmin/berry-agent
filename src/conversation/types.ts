@@ -148,8 +148,17 @@ export interface ConversationDriverOptions {
    * 即生效〔消费 = 下一 run 起跑〕）。
    */
   readonly model: string | (() => string);
-  /** 思考档位（会话态非 run 态——session/thinking-level 档位切换面） */
-  readonly thinkingLevel?: ThinkingLevel;
+  /**
+   * 思考档位（会话态非 run 态——session/thinking-level 档位切换面）。两种
+   * 形态：定值 ThinkingLevel（测试注入形）；活体取值器
+   * `() => ThinkingLevel | undefined`（2026-09-17 会话档位切换面批——
+   * conversation-stack 装配位注入 `fold(sessionId) 现值 ?? 栈基线` 闭包：
+   * 每 run 起跑现取一次随 run 钉定〔04 §5「run 内不可变」律维持——切档事件
+   * 只改 fold 现值〕，run 间换档即生效〔消费 = 下一 run 起跑〕——model 取值
+   * 器 :150 同构先例。返回 undefined = 本 run 不覆盖（缺席档零注入，llm 层
+   * 走 provider 缺省）。
+   */
+  readonly thinkingLevel?: ThinkingLevel | (() => ThinkingLevel | undefined);
   /**
    * 系统提示词（04 §11 快照序钉死）：取装配面原始值——环境披露段是
    * transformContext 关口的瞬态层，永不进本值（否则违反披露段「不落日志」
@@ -210,10 +219,12 @@ export interface ConversationDriverOptions {
    */
   readonly authRefresh?: AuthRefreshSeam;
   /**
-   * 环境披露段（04 §11 装配注入条款）：五件组装为单一文本块供给，驱动在
+   * 环境披露段（04 §11 装配注入条款）：六件组装为单一文本块供给，驱动在
    * transformContext 最后关口追加；返回 null / 缺席 = 无披露段（零强求）。
+   * 可选 sessionId 形参 = per-session 解档消费位（2026-09-17 会话档位切换
+   * 面批 F2——沙箱行按本会话 fold 现值；缺席 = boot 解析值〔M2〕）。
    */
-  readonly environmentDisclosure?: () => string | null;
+  readonly environmentDisclosure?: (sessionId?: string) => string | null;
   /**
    * 审批 ask 呈现面（07 §4.3 提问队列条款）：channels UiBackend.askApproval
    * 同构经装配注入；缺席 = 无应答者 fail-closed（审批不可静默通过）。
@@ -524,8 +535,12 @@ export interface RunSlotGate {
 export interface ExecSessionDeps {
   /** 工作区根取值器（cwd 缺省腿 + 沙箱策略锚——会话装配位单源） */
   readonly workspaceRoot: () => string;
-  /** 当前生效沙箱档（三级解析的会话档位腿——执行期每次调用求值） */
-  readonly currentMode: () => SandboxMode;
+  /**
+   * 当前生效沙箱档（三级解析的会话档位腿——执行期每次调用求值；可选
+   * sessionId 形参 = per-session 解档〔2026-09-17 会话档位切换面批 F2 M1——
+   * 装配位闭包按会话锚 fold 现值；缺席 = boot 解析值 fallback〔M2〕）。
+   */
+  readonly currentMode: (sessionId?: string) => SandboxMode;
   /** 沙箱服务（受限档包装；缺席则受限档 fail-closed 拒裸跑） */
   readonly sandboxService?: SandboxService;
   /** 升权审批面（缺席则升权请求 fail-closed 拒——不给「无审批静默放行」） */

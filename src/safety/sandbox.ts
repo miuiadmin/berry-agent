@@ -86,16 +86,21 @@ export interface ConfinedArgv {
 
 /* ------------------------------------------------------------------ */
 /* 三级解析的 fold 半边（04 §8 策略三级解析条）。                          */
-/* 实况注记（2026-09-11 遗漏扫描批定形）：本函数 = 词先锚定的读位半边—— */
-/* sandbox/mode 落账词在册（05 §1.1）而 v1 无会话中切档面（TUI/webui/CLI  */
-/* 均无切档命令），零 append 写点；生产生效档 = boot 闭包 CLI 旗标形      */
-/* （conversation-stack options.sandboxMode——run-entry --read-only 唯一 */
-/* 注入源）。会话策略中间档随切档面立题接线，届时本函数即 fold 读点。     */
+/* 实况注记（2026-09-17 会话档位切换面批 F2 销账改写）：词先锚定的读位     */
+/* 半边已接线——sandbox/mode 落账词在册（05 §1.1），本函数 = fold 读点     */
+/* （conversation foldSessionSandboxMode 预过滤后委托本函数；守门行/      */
+/* fs fence/bash currentMode 三面单源闭包 + 披露段第六件四消费位经        */
+/* ToolContext.sessionId 穿线 per-session 解档）；append 写点 =           */
+/* conversation 件档位切换面 setSessionMode（TUI /sandbox 副屏选定回调    */
+/* ——单写者律，插件零写入位）。                                          */
 /* ------------------------------------------------------------------ */
 
-/** 三档词汇守卫（fold 与配置解析共用；拼错档位必须响亮失败） */
+/** 三档词汇表单源（2026-09-17 会话档位切换面批 F2——picker 行集序同此；contracts SandboxMode 的运行期词法面） */
+export const SANDBOX_MODES: readonly SandboxMode[] = ['read-only', 'workspace-write', 'danger'];
+
+/** 三档词汇守卫（fold 与配置解析共用；拼错档位必须响亮失败）——词表单源派生 */
 export function isSandboxMode(value: string): value is SandboxMode {
-  return value === 'read-only' || value === 'workspace-write' || value === 'danger';
+  return (SANDBOX_MODES as readonly string[]).includes(value);
 }
 
 /**

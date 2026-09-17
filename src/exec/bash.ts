@@ -189,8 +189,13 @@ export interface BashToolDeps {
   readonly pipeline: SpawnPipeline;
   /** 工作区根（cwd 缺省腿 + 沙箱策略锚——运行时取值面） */
   readonly workspaceRoot: () => string;
-  /** 当前生效沙箱档（三级解析的会话档位腿——运行时取值面） */
-  readonly currentMode: () => SandboxMode;
+  /**
+   * 当前生效沙箱档（三级解析的会话档位腿——运行时取值面；可选 sessionId
+   * 形参 = per-session 解档〔2026-09-17 会话档位切换面批 F2 M1 穿线——
+   * 闭包侧 fold(toolCtx.sessionId) 现值〕；缺席 = boot 解析值 fallback〔M2〕。
+   * 既有零参闭包经签名可选参继续可赋值——向后兼容）。
+   */
+  readonly currentMode: (sessionId?: string) => SandboxMode;
   /** 沙箱服务（三档一律包装——04 §8 定形②；缺席恒 fail-closed 拒裸跑） */
   readonly sandboxService?: SandboxService;
   /** 升权审批面（缺席则升权请求 fail-closed 拒——不给「无审批静默放行」） */
@@ -288,7 +293,10 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
         const bash = resolveBash();
 
         // ---- 三级解析本调用腿（04 §8）：工具参数携带升权 → 校验 → 审批 ----
-        let mode = deps.currentMode();
+        // per-session 解档（F2 M1）：按本次调用会话锚现取——闭包侧 fold 现值；
+        // 缺席 = boot 解析值（M2 fallback 闭包内自处）。坏词 fold 抛经尾
+        // catch 编码 isError（SANDBOX_MODE_INVALID 携码拒执行——不裸跑）
+        let mode = deps.currentMode(toolCtx.sessionId);
         if (args.sandbox_permissions !== undefined || args.justification !== undefined) {
           const valid = validateEscalationArgs({
             current: mode,

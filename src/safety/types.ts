@@ -133,8 +133,14 @@ export interface SandboxBackend {
 export interface WritableRootsInput {
   /** 工作区根（会话锚定的工作目录） */
   readonly workspace: string;
-  /** 当前生效档位取值器（与守门行同款 getter 形态——每次 fence 检查取最新） */
-  readonly mode: () => SandboxMode;
+  /**
+   * 当前生效档位取值器（与守门行同款 getter 形态——每次 fence 检查取最新；
+   * 可选 sessionId 形参 = per-session 解档消费位〔2026-09-17 会话档位切换
+   * 面批 F2 M1 穿线——闭包侧 fold(sessionId)〕；缺席 = 调用方语境无会话
+   * 锚 = boot 解析值 fallback〔M2〕。既有零参闭包经签名可选参继续可赋值
+   * ——向后兼容）。
+   */
+  readonly mode: (sessionId?: string) => SandboxMode;
   /**
    * 会话授予根 live 取值器（04 §7 补钉①——worktree 产物可写根并入口）：
    * 每次可写根推导现取（授予起于装配后——issue 编排在会话起后才 grant，
