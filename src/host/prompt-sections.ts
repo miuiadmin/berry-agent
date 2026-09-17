@@ -23,7 +23,8 @@
  *    字符串值拒，与 slot 形状违例同走 `PLUGIN_PROMPT_SLOT_INVALID` 码分流）。
  *
  * 消费位：conversation-stack 装配（systemPrompt 组装尾拼接——段集在下一次
- * 组装点重取，注册即生效面）；`prompts_change` 观测事件随装配批接线。
+ * 组装点重取，注册即生效面）；`prompts_change` 观测事件经 onSectionsChange
+ * 观测面由 plugin-boot 装配位接宿主侧 dispatch 发射（2026-09-17 sweep 清账）。
  */
 import { createHash } from 'node:crypto';
 import { BaseError } from '../contracts/index.js';
@@ -53,10 +54,15 @@ export interface PromptSectionEntry {
 /** 漂移观测面（fail-open 性能纪律——装配位接 warn 日志，缺省零观测） */
 export type PromptSectionDriftReporter = (info: { slot: string; owner: string }) => void;
 
+/** 注册集变更观测面（03 §2.4 生命周期组 prompts_change——载荷 = 现行段 id 清单，回调内 slotList() 现取即真源；缺省零观测） */
+export type PromptSectionsChangeReporter = () => void;
+
 /** 注册表构造选项 */
 export interface PromptSectionRegistryOptions {
   /** 承诺稳定段的内容漂移上报（03 §2.5——性能事件非正确性事件，warn 承载） */
   readonly onDrift?: PromptSectionDriftReporter;
+  /** 注册集变更上报（03 §2.4 prompts_change 观测——装配位接宿主侧 dispatch，缺省零观测） */
+  readonly onSectionsChange?: PromptSectionsChangeReporter;
 }
 
 /** slot 域前缀归一（core: 件去前缀取 name 段比对——§2.7 同律） */
@@ -75,6 +81,9 @@ export class PromptSectionRegistry {
   /** 漂移上报面（缺省零观测——性能事件 fail-open，lib 形态不强制装配） */
   private readonly onDrift?: PromptSectionDriftReporter;
 
+  /** 注册集变更上报面（缺省零观测——03 §2.4 prompts_change 装配位接宿主 dispatch） */
+  private readonly onSectionsChange?: PromptSectionsChangeReporter;
+
   /**
    * 承诺稳定段的基线 hash（锚 = 装载代内上次物化单链；null = 基线未立
    * 〔首物化或注册集变更清基线后〕——下次物化重立不落 warn——03 §2.5
@@ -84,6 +93,7 @@ export class PromptSectionRegistry {
 
   constructor(options: PromptSectionRegistryOptions = {}) {
     this.onDrift = options.onDrift;
+    this.onSectionsChange = options.onSectionsChange;
   }
 
   /**
@@ -128,12 +138,15 @@ export class PromptSectionRegistry {
     this.sections.set(slot, { slot, owner, builder, volatileReason });
     // 注册集变更 = 清基线重立（下次物化重立不落 warn——装载面真变更非漂移）
     this.stableBaselines = null;
+    // 注册集变更观测（03 §2.4 prompts_change——拒绝式三闸全过才到本位，拒绝零观测）
+    this.onSectionsChange?.();
     return () => {
       // 注销幂等：仅当在册条目仍属本注册时摘除（防后注册覆盖后误摘他人条目——
       // 当前语义拒绝式无覆盖，防御位保持）；真摘除同样清基线（注册集变更）
       if (this.sections.get(slot)?.owner === owner) {
         this.sections.delete(slot);
         this.stableBaselines = null;
+        this.onSectionsChange?.(); // 真摘除才观测（幂等腿零触发）
       }
     };
   }

@@ -465,6 +465,13 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
       warn(
         `提示词段 ${slot}（${owner}）物化内容漂移——注册面缺省承诺会话内稳定，builder 输出跨请求变化即前缀缓存失效；若属可变内容请声明 volatile:{reason}（03 §2.5）`,
       ),
+    // prompts_change 观测事件接线（03 §2.4 生命周期组——2026-09-17 sweep 清账）：
+    // 注册集变更 → 全局词发射（词已在 bootPlugins 下文预注册——dispatch.emit 直用）；
+    // 桥落宿主侧不落件内，同 skills_change 域名律（全局词对插件 ctx.emit 结构性
+    // 不可达——宿主侧 dispatch 才是正口）；载荷 = 现行段 id 清单（§2.4）
+    onSectionsChange: () => {
+      void options.dispatch.emit('prompts_change', { slots: promptSections.slotList() });
+    },
   });
   // 宿主 API 面版本单源（测试注入面缺省 '1.0'——装配根恒传真值，见 options
   // 注记）：hostFace 物化位与装载门裁决坐标位共用（原两处字面量散拷——改

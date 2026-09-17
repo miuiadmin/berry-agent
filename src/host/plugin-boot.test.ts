@@ -503,6 +503,34 @@ describe('生命周期事件（§2.4 生命周期组——收口批量补发）'
     expect(boot.counts.enabled).toBe(2);
   });
 
+  it('prompts_change 观测事件：段注册经宿主侧 dispatch 发射（载荷 = 现行段 id 清单——03 §2.4 生命周期组）', async () => {
+    const payloads: Array<{ slots: string[] }> = [];
+    const observer: CorePluginReference = {
+      name: 'observer',
+      apply: async (ctx) => {
+        const c = ctx as { on: (name: string, handler: (data: unknown) => unknown) => () => void };
+        c.on('prompts_change', (data) => void payloads.push(data as { slots: string[] }));
+      },
+    };
+    const registrar: CorePluginReference = {
+      name: 'registrar',
+      apply: async (ctx) => {
+        const c = ctx as {
+          prompts: { registerSection: (slot: string, builder: () => string) => () => void };
+        };
+        c.prompts.registerSection('registrar/hints', () => '段文本');
+      },
+    };
+    const { options, dispatch } = rigBoot('/data', { corePlugins: [observer, registrar], fs: memoryFs() });
+    const boot = await bootPlugins(options);
+    // 词汇在册（boot 预注册腿）+ 发射到达（宿主侧 dispatch 正口——域名律下
+    // 全局词对插件 ctx.emit 结构性不可达，观测经宿主桥）
+    expect(dispatch.isRegistered('prompts_change')).toBe(true);
+    expect(payloads.length).toBeGreaterThanOrEqual(1);
+    expect(payloads[payloads.length - 1]?.slots).toContain('registrar/hints');
+    expect(boot.counts.enabled).toBe(2);
+  });
+
   it('disabled 行 → plugin/skipped（reason 随行）', async () => {
     const skipped: string[] = [];
     const observer: CorePluginReference = {

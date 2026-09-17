@@ -4,8 +4,9 @@
  *
  * 三道防线的关系（04 §7——三关全过才落盘）：
  * - fence（containment）：写/删目标 canonical 化后必须在可写根内。根经
- *   writableRoots provider 注入（safety 件的推导函数——本批未落，缺省
- *   workspace + 系统临时目录过渡）；进程内 canonicalize-then-contain 是
+ *   writableRoots provider 注入（safety.createRootsProvider 产物——host
+ *   装配已接线〔open-tools 同源单源〕；缺省 workspace + 系统临时目录仅
+ *   测试/独立消费形兜底）；进程内 canonicalize-then-contain 是
  *   防误操作护栏，非 security boundary；
  * - 观察态 CAS（observed.ts）：未读拒写 + 指纹守卫——「写的内容是否基于
  *   最新观察」；
@@ -285,7 +286,7 @@ function headUtf8(buf: Buffer, maxBytes: number): string {
  */
 export function createFsTools(opts: FsToolsOptions = {}): FsTools {
   const workspace = opts.workspace ?? (() => canonicalWorkspaceRoot());
-  const writableRoots = opts.writableRoots ?? (() => [workspace(), tmpdir()]); // 过渡缺省（不随档位）；host 装配批换 safety.createRootsProvider
+  const writableRoots = opts.writableRoots ?? (() => [workspace(), tmpdir()]); // 缺省兜底（不随档位）——host 装配已注入 safety.createRootsProvider 产物（open-tools 同源单源）
   const maxReadBytes = opts.maxReadBytes ?? 256 * 1024;
   const maxImageBytes = opts.maxImageBytes ?? 5 * 1024 * 1024;
   const protectedReadFiles: ProtectedReadFiles = opts.protectedReadFiles ?? (() => []);

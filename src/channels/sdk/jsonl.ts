@@ -79,7 +79,7 @@ function classify(value: unknown, rawLine: string): 'request' | 'frame' {
   throw new SdkDecodeError('判别字段缺席（verb/kind 均无）', rawLine);
 }
 
-/** 标量必填断言（结构性校验——深校验挂账见文件头） */
+/** 标量必填断言（结构性校验——逐动词深校验归 ./schema.ts，文件头「校验深度」段） */
 function requireString(shape: Record<string, unknown>, key: string, rawLine: string): string {
   const v = shape[key];
   if (typeof v !== 'string') throw new SdkDecodeError(`${key} 必填且须为 string`, rawLine);

@@ -120,3 +120,35 @@ describe('提示词段注册表节区稳定性纪律（03 §2.5——cache 经�
     expect(received).toEqual(['s1', undefined]);
   });
 });
+
+describe('prompts_change 观测面（03 §2.4 生命周期组——2026-09-17 sweep 清账）', () => {
+  it('注册成功/真注销各恰触发一次；回调内 slotList() 快照新鲜（载荷真源）', () => {
+    const snapshots: string[][] = [];
+    const registry = new PromptSectionRegistry({
+      onSectionsChange: () => snapshots.push([...registry.slotList()]),
+    });
+    const offHint = registry.register('widgets/hints', 'widgets', () => 'H');
+    registry.register('widgets/other', 'widgets', () => 'O');
+    // 每次注册后到、快照含新段（观测回调读现行清单 = §2.4 载荷真源）
+    expect(snapshots).toEqual([['widgets/hints'], ['widgets/hints', 'widgets/other']]);
+    offHint();
+    expect(snapshots).toHaveLength(3);
+    expect(snapshots[2]).toEqual(['widgets/other']);
+  });
+
+  it('拒绝式注册不触发（撞位/形状拒零观测）；幂等注销（非本主残留）不触发', () => {
+    const snapshots: string[][] = [];
+    const registry = new PromptSectionRegistry({
+      onSectionsChange: () => snapshots.push([...registry.slotList()]),
+    });
+    const off = registry.register('widgets/x', 'widgets', () => 'X');
+    expect(snapshots).toHaveLength(1);
+    // 撞位拒 + slot 形状拒：注册面拒绝零残留 → 零观测
+    expectCode(() => registry.register('widgets/x', 'widgets', () => 'Y'), 'PLUGIN_PROMPT_SECTION_CONFLICT');
+    expectCode(() => registry.register('badslot', 'widgets', () => 'Z'), 'PLUGIN_PROMPT_SLOT_INVALID');
+    expect(snapshots).toHaveLength(1);
+    off();
+    off(); // 幂等注销：条目已摘（非本主）零触发
+    expect(snapshots).toHaveLength(2);
+  });
+});
