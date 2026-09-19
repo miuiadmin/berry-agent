@@ -212,6 +212,10 @@ jobs:
           # SDK 包同款临时 bump（双包发布道——两包版本源独立，SDK 真发后
           # tag sdk-v<version> 已在且异 commit 会咬契约 6；bump 并入同一 drill commit）
           npm version 0.0.0-drill.${{ github.run_number }} --no-git-tag-version --prefix packages/berry-agent-sdk
+          # 版本切批忠实化（第十一役 CI 红收口）：真实版本切批 README 状态行
+          # 随版同笔（fd64815 实形），演习树同款——防「pkg=drill 版 vs README
+          # 陈版」树上任何 live 版本一致性锁假红（09085c9 CI 实红在案）
+          node tools/drill-version-switch.mjs 0.0.0-drill.${{ github.run_number }}
           git commit -am "drill: 临时演习版本（CI 彩排——不推送）"
       - name: 发布演习（--dry-run 全真链，DRILL-EXIT=0 即绿）
         run: npm run release -- --dry-run

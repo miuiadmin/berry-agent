@@ -351,8 +351,12 @@ export function judgeReadme(text) {
   return { ok: hits === 0, hits };
 }
 
-/** 反引号 semver 形 token（README 状态行版本位——`\`0.1.0-alpha.4\`` 形） */
-const README_BACKTICK_SEMVER_RE = /`(\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*[0-9A-Za-z])?)`/g;
+/**
+ * 反引号 semver 形 token（README 状态行版本位——`\`0.1.0-alpha.4\`` 形）。
+ * export 供 tools/drill-version-switch.mjs 单源复用（演习树 token 同刷与
+ * 本判据共用一词法锁面——两处正则漂移即锁面分叉，第十一役 CI 红收口笔）
+ */
+export const README_BACKTICK_SEMVER_RE = /`(\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*[0-9A-Za-z])?)`/g;
 
 /**
  * 契约 4 README 状态行版本一致性断言（07 §8.3 契约 4 2026-09-19 版本一致性

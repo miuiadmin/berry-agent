@@ -803,6 +803,35 @@ describe('描述符参数化收口（冒烟形 + build 链 + readme 读面入表
   });
 });
 
+// ---------------------------------------------------------------------------
+// drill 版本切批忠实化锁（第十一役 CI 红收口笔——09085c9 CI 实红在案）：
+// ci.yml drill 步 bump 双 package.json 后经 tools/drill-version-switch.mjs
+// 同刷 README token——本锁钉住两件：①token 重写语义（反引号形换版、裸串
+// 不动、幂等——词法锁面与判据门单源）；②同步面恰为六语族 + usage + SDK
+// README（缺件即演习树失配、版本一致性锁在 drill 上假红复发）
+// ---------------------------------------------------------------------------
+describe('drill 版本切批忠实化（演习树 README token 同刷）', () => {
+  it('rewriteReadmeTokens：反引号 token 全数换版、裸串不动、幂等', async () => {
+    const { rewriteReadmeTokens } = await import('./drill-version-switch.mjs');
+    const src = '状态：`0.1.0-alpha.4` 与 `1.2.3`；裸串 0.1.0-alpha.4 不属锁面不动。';
+    const out = rewriteReadmeTokens(src, '0.0.0-drill.9');
+    expect(out).toBe('状态：`0.0.0-drill.9` 与 `0.0.0-drill.9`；裸串 0.1.0-alpha.4 不属锁面不动。');
+    // 幂等：同版二刷不变形（drill 重跑安全位）
+    expect(rewriteReadmeTokens(out, '0.0.0-drill.9')).toBe(out);
+  });
+
+  it('drillReadmeFiles：同步面 = 六语族 + usage + SDK README（同源重算，缺件即红）', async () => {
+    const { drillReadmeFiles } = await import('./drill-version-switch.mjs');
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+    const readmes = readdirSync(repoRoot).filter((f) => /^README.*\.md$/.test(f));
+    expect(drillReadmeFiles(repoRoot)).toEqual([
+      ...readmes.map((f) => join(repoRoot, f)),
+      join(repoRoot, 'docs', 'usage.md'),
+      join(repoRoot, 'packages', 'berry-agent-sdk', 'README.md'),
+    ]);
+  });
+});
+
 describe('pack 失败契约式红（退出码检查——非裸栈/裸 ENOENT）', () => {
   it('pack 缝抛含 stderr 摘录的错 → [契约3] 红退 1，上传面未触', async () => {
     const s = fakeSeams({
