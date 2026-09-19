@@ -469,8 +469,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         return;
       }
       setSessionThinkingLevel(driver.session, level);
-      // 回执单源（session-tier-copy——webui 桥 PUT 应答体同文消费）
-      backend.setStatus(sid, thinkingLevelReceipt(level));
+      // 回执单源（session-tier-copy——webui 桥 PUT 应答体同文消费）+ 通道核
+      // 扇出（CR-TIER-3 裁决①两向对称——TUI 切档 webui SSE 观众同收；通道
+      // 核扇出含 TuiBackend 自身，TUI 状态行照常更新，第九役 C2 自单通道
+      // backend.setStatus 改道）
+      stack.channels.setStatus(sid, thinkingLevelReceipt(level));
     };
 
     const openThinkingPanel = (): void => {
@@ -513,8 +516,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         return;
       }
       setSessionMode(driver.session, mode);
-      // 回执单源（session-tier-copy——webui 桥 PUT 应答体同文消费）
-      backend.setStatus(sid, sandboxModeReceipt(mode));
+      // 回执单源 + 通道核扇出同 thinking 律（CR-TIER-3 两向对称——第九役 C2）
+      stack.channels.setStatus(sid, sandboxModeReceipt(mode));
     };
 
     const openSandboxPanel = (): void => {

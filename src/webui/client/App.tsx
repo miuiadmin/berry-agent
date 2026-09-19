@@ -199,8 +199,8 @@ function Main(): ReactElement {
               id: prev.seq + 1,
               message:
                 stem === '/thinking'
-                  ? '/thinking 不带参数使用——档位经面板选定'
-                  : '/sandbox 不带参数使用——档位经面板选定',
+                  ? '/thinking 不带参数使用——档位经浮层选定'
+                  : '/sandbox 不带参数使用——档位经浮层选定',
               level: 'error',
             },
           ],

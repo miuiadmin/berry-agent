@@ -147,7 +147,12 @@ async function apiFetch(
 /** SSE 帧形（kind + payload 投影——判帧只看这两位；message_end 的 role 嵌 message 内） */
 interface SseFrame {
   readonly kind: string;
-  readonly payload?: { readonly type?: string; readonly role?: string; readonly message?: { readonly role?: string } };
+  readonly payload?: {
+    readonly type?: string;
+    readonly role?: string;
+    readonly message?: { readonly role?: string };
+    readonly status?: string;
+  };
 }
 
 /** SSE 后台泵读取腿（Bearer 开流；next 顺序取帧——ping 注释行天然跳过；abort 收线） */
@@ -904,6 +909,44 @@ describe('webui 档位面桥真身（tiers 注入——/thinking //sandbox webui
       expect(catchCode(() => tiers.tiersOf(id))).toBe('THINKING_LEVEL_INVALID');
     } finally {
       mount.detach();
+      await rt.shutdown();
+    }
+  });
+
+  it('PUT 切档成功尾 → SSE status 帧达 webui 观众（通道核扇出×webui backend setStatus 能力位组合锁——第九役 C5；变异烟测锚：backend capabilities.setStatus 翻 false 本测必红）', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-tiers-sse-') });
+    const { stack } = rigStack(rt);
+    let opened: { port: number; token: string } | undefined;
+    await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined, // 测试态 stderr 静默
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    let sse: { next(timeoutMs?: number): Promise<SseFrame | undefined>; abort(): void } | undefined;
+    try {
+      const sessionId = stack.manager.create().sessionId; // 真开驱动（SSE 存在性先决）
+      // SSE 开流在 PUT 之前——status 帧不漏（连接即当下）
+      sse = await openSse(opened!.port, sessionId, opened!.token);
+      // webui 受路真身：PUT 切档 → 桥 tiers.setThinkingLevel（append 落账 +
+      // 成功尾通道核 setStatus 扇出）→ webui backend（能力位放行）→ SSE 帧体
+      const put = await apiFetch(opened!.port, opened!.token, `/api/sessions/${sessionId}/thinking-level`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ level: 'high' }),
+      });
+      expect(put.status).toBe(200);
+      expect(put.body).toEqual({ receipt: thinkingLevelReceipt('high') });
+      // 观众半边：status 帧经通道核扇出达 SSE（回执单源——payload.status 与
+      // PUT 应答 receipt 同文；capabilities.setStatus 缺位即此帧不达）
+      const statusFrame = await untilFrame(sse, (f) => f.kind === 'status');
+      expect(statusFrame.payload?.status).toBe(thinkingLevelReceipt('high'));
+    } finally {
+      sse?.abort();
       await rt.shutdown();
     }
   });

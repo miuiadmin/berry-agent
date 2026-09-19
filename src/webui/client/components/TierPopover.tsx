@@ -100,8 +100,9 @@ export function TierPopover({
     const pending = kind === 'thinking' ? api.setThinkingLevel(sessionId, value) : api.setSandboxMode(sessionId, value);
     pending
       .then(({ receipt }) => {
+        onClose(); // 选定先收层（theme-picker「选定先收副屏再回调」同律——若
+        // 未来 onReceipt 抛异常浮层已收，TUI 先收序的工程理由在 SPA 同形收益）
         onReceipt(receipt);
-        onClose(); // 选定先收层（theme-picker「选定先收副屏再回调」同律）
       })
       .catch((err: unknown) => {
         // 坏词 400 / 已闭 404 / 未装配 501——message 透传 onError 呈现；

@@ -142,6 +142,36 @@ describe('api 档位三函数（/thinking //sandbox webui 受路——2026-09-18
     });
   });
 
+  // 第九役遗漏扫描批 C7（2026-09-19）：服务端 sendError 特意双位透出
+  // （{error: 码词面, message: 人读因}——server.test 锁 message 含 'ultra'），
+  // foldError 修前只读 error 位 → err.message 恒 'API 400 …' 英文码串，人读
+  // 诊断位在呈现侧结构性死亡（TierPopover onError 直显 err.message）。修 =
+  // 兼读 body.message（全端点受益）。修前红：现 message 不含 'ultra'。
+  it('非 2xx 折 ApiError 兼读 message 位：服务端人读因透传 err.message（修前红——坏词 ultra 应达用户）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        resOf({
+          ok: false,
+          status: 400,
+          json: {
+            error: 'THINKING_LEVEL_INVALID',
+            message: '思考档位非法："ultra"（七档词汇：off / minimal / low / medium / high / xhigh / max）',
+          },
+        }),
+      ),
+    );
+    const err = await api.setThinkingLevel('s-1', 'ultra').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    // 码词面照旧（不吞码）+ message 位 = 服务端人读因（不再恒 'API 400 …' 码串）
+    expect(err).toMatchObject({
+      status: 400,
+      code: 'THINKING_LEVEL_INVALID',
+    });
+    expect((err as Error).message).toContain('ultra');
+    expect((err as Error).message).toContain('思考档位非法');
+  });
+
   it('GET tiers 501 形折 ApiError（面未装配——回退 HTTP 状态词防御位）', async () => {
     vi.stubGlobal(
       'fetch',

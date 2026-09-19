@@ -324,8 +324,9 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
     render(<App />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking high');
-    // 用法错通知（fail-loud——TUI「带参 fail-loud 用法错」同律对齐，零分立）
-    await screen.findByText('/thinking 不带参数使用——档位经面板选定');
+    // 用法错通知（fail-loud——TUI「带参 fail-loud 用法错」同律对齐，零分立；
+    // webui 呈现面定名浮层——第九役 U1 勘正「面板」TUI 语）
+    await screen.findByText('/thinking 不带参数使用——档位经浮层选定');
     expect(apiMock.submit).not.toHaveBeenCalled();
     expect(apiMock.getSessionTiers).not.toHaveBeenCalled();
     expect(screen.queryByText('thinking 档位')).toBeNull();
@@ -337,13 +338,13 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
     await screen.findAllByText('测试会话');
     // tab 分隔带参形：词干命中（thinking）+ 空白分隔参数——同用法错不穿透
     await openTierPopover('/thinking\thigh');
-    await screen.findByText('/thinking 不带参数使用——档位经面板选定');
+    await screen.findByText('/thinking 不带参数使用——档位经浮层选定');
     expect(apiMock.submit).not.toHaveBeenCalled();
     expect(apiMock.getSessionTiers).not.toHaveBeenCalled();
     expect(screen.queryByText('thinking 档位')).toBeNull();
     // 换行分隔带参形（Shift+Enter 插行——webui 输入框独有高频形）同律
     await openTierPopover('/sandbox\ndanger');
-    await screen.findByText('/sandbox 不带参数使用——档位经面板选定');
+    await screen.findByText('/sandbox 不带参数使用——档位经浮层选定');
     expect(apiMock.submit).not.toHaveBeenCalled();
     expect(screen.queryByText('sandbox 档位')).toBeNull();
   });
@@ -364,6 +365,37 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
     // receipt 呈现（回执文案与 TUI setStatus 同文单源——info 档通知条）
     await screen.findByText('thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）');
     // 浮层收（选定先收层）
+    await waitFor(() => {
+      expect(screen.queryByText('thinking 档位')).toBeNull();
+    });
+  });
+
+  it('慢 PUT 在途双击/换行点：恰发一次（在途守卫——提交期行禁用 + pick 早退双防线；第九役 C4）', async () => {
+    primeMain();
+    // 手动放行桩：点击后 promise 悬停（模拟慢 PUT 在途窗）
+    let release!: (value: { receipt: string }) => void;
+    apiMock.setThinkingLevel.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    await openTierPopover('/thinking');
+    await screen.findByText('高投入思考');
+    const highRow = screen.getByRole('button', { name: /high/ });
+    fireEvent.click(highRow); // 首击发起 PUT（在途窗开启）
+    await waitFor(() => {
+      expect(apiMock.setThinkingLevel).toHaveBeenCalledTimes(1);
+    });
+    // 在途窗内：同行再击 + 换行点击（off）——恰一次不重发
+    fireEvent.click(highRow);
+    fireEvent.click(screen.getByRole('button', { name: /off/ }));
+    expect(apiMock.setThinkingLevel).toHaveBeenCalledTimes(1);
+    // 放行 → receipt 呈现 + 浮层收（正常收层路径不被守卫影响）
+    release({ receipt: 'thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）' });
+    await screen.findByText('thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）');
     await waitFor(() => {
       expect(screen.queryByText('thinking 档位')).toBeNull();
     });
@@ -405,31 +437,70 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
     expect(apiMock.setThinkingLevel).not.toHaveBeenCalled();
   });
 
-  it('GET tiers 失败（501/404/500 全折同呈现位）：message 透传通知条 + 浮层失败行仍可关', async () => {
+  it('× 键与遮罩点击两收层路同 esc 律：收层且不调 PUT（第九役 C3——全收层路零 PUT 副作用锁）', async () => {
     primeMain();
-    apiMock.getSessionTiers.mockRejectedValueOnce(new Error('API 501 not_implemented'));
     render(<App />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
-    // 错误 message 透传 onError（NoticeBar error 呈现）——全失败形同呈现位
-    await screen.findByText('API 501 not_implemented');
+    await screen.findByText('高投入思考');
+    // 路① × 键（aria-label 具名——可及性收层路）
+    fireEvent.click(screen.getByRole('button', { name: '关闭档位浮层' }));
+    await waitFor(() => {
+      expect(screen.queryByText('thinking 档位')).toBeNull();
+    });
+    expect(apiMock.setThinkingLevel).not.toHaveBeenCalled();
+    // 路② 遮罩点击（fixed 全屏遮罩首子位——卡体 absolute bottom 锚不撞选择器）
+    await openTierPopover('/thinking');
+    await screen.findByText('高投入思考');
+    const mask = document.querySelector('div.absolute.inset-0');
+    expect(mask).not.toBeNull();
+    fireEvent.click(mask!);
+    await waitFor(() => {
+      expect(screen.queryByText('thinking 档位')).toBeNull();
+    });
+    expect(apiMock.setThinkingLevel).not.toHaveBeenCalled();
+  });
+
+  it('GET tiers 失败（501/404/500 全折同呈现位）：人读因透传通知条 + 浮层失败行仍可关', async () => {
+    primeMain();
+    // 桩拟真实服务端 501 应答折形（C7 后 err.message = 服务端信封 message 位
+    // 人读因——非 `API 501 not_implemented` 码串；server.ts:490 同文）
+    apiMock.getSessionTiers.mockRejectedValueOnce(new Error('档位面未装配（tiers 注入缺席）'));
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    await openTierPopover('/thinking');
+    // 错误人读因透传 onError（NoticeBar error 呈现）——全失败形同呈现位
+    await screen.findByText('档位面未装配（tiers 注入缺席）');
     // 浮层失败行 + 关闭键在场（呈现后仍可关）
     await screen.findByText('档位读取失败');
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     await waitFor(() => {
       expect(screen.queryByText('档位读取失败')).toBeNull();
     });
+    // 失败不缓存死态：重开浮层重发读档（挂载 effect 重跑——第二次走基桩
+    // 缺省 TIERS 成功，行集照常呈现；第九役 C6 重开重读锁）
+    expect(apiMock.getSessionTiers).toHaveBeenCalledTimes(1);
+    await openTierPopover('/thinking');
+    await waitFor(() => {
+      expect(apiMock.getSessionTiers).toHaveBeenCalledTimes(2);
+    });
+    expect(apiMock.getSessionTiers).toHaveBeenLastCalledWith('s-1');
+    await screen.findByText('高投入思考');
   });
 
-  it('PUT 失败：message 透传通知条 + 浮层不自动收（可重选可关）', async () => {
+  it('PUT 失败：人读因透传通知条 + 浮层不自动收（可重选可关）', async () => {
     primeMain();
-    apiMock.setThinkingLevel.mockRejectedValueOnce(new Error('API 400 thinking_level_invalid'));
+    // 桩拟真实服务端 400 坏词应答折形（C7 后 err.message = message 位人读因
+    // ——thinking-level.ts:79 同文；直引号 JSON.stringify 形）
+    apiMock.setThinkingLevel.mockRejectedValueOnce(
+      new Error('思考档位非法："ultra"（七档词汇：off / minimal / low / medium / high / xhigh / max）'),
+    );
     render(<App />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     await screen.findByText('高投入思考');
     fireEvent.click(screen.getByRole('button', { name: /high/ }));
-    await screen.findByText('API 400 thinking_level_invalid');
+    await screen.findByText('思考档位非法："ultra"（七档词汇：off / minimal / low / medium / high / xhigh / max）');
     // 浮层仍在（失败不自动收——可重选可 esc 关）
     expect(screen.getByText('thinking 档位')).toBeDefined();
     fireEvent.keyDown(document, { key: 'Escape' });

@@ -17,13 +17,19 @@ import {
 /** 应答回执（answer 四值闭集——与服务端 DecideSchema 同源词面） */
 export type DecideAnswer = 'approve' | 'reject' | 'cancel' | 'always';
 
-/** API 面 error 应答（HTTP 状态 + machine word——SPA 面无错误码族） */
+/**
+ * API 面 error 应答（HTTP 状态 + machine word——SPA 面无错误码族）。message
+ * 缺省 = `API <status> <code>` 码串；服务端 sendError 信封携人读因（{error,
+ * message} 双位）时 foldError 兼读 message 位透传——呈现侧（NoticeBar 直显
+ * err.message）用户见人读诊断因而非英文码串（第九役遗漏扫描批 C7）。
+ */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    message?: string,
   ) {
-    super(`API ${status} ${code}`);
+    super(message ?? `API ${status} ${code}`);
   }
 }
 
@@ -47,16 +53,22 @@ export interface TiersPayload {
   readonly sandboxModes: readonly { readonly mode: string; readonly detail: string }[];
 }
 
-/** 非 2xx 折 ApiError（JSON 应答优先取 error 词面；非 JSON 回退 HTTP 状态词） */
+/**
+ * 非 2xx 折 ApiError（JSON 应答优先取 error 词面；message 位 = 服务端人读
+ * 因兼读透传——无 message 位回退 `API <status> <code>` 缺省码串；非 JSON
+ * 回退 HTTP 状态词）
+ */
 async function foldError(res: Response): Promise<ApiError> {
   let code = `HTTP_${res.status}`;
+  let message: string | undefined;
   try {
-    const body = (await res.json()) as { error?: string };
+    const body = (await res.json()) as { error?: string; message?: string };
     if (typeof body.error === 'string') code = body.error;
+    if (typeof body.message === 'string') message = body.message;
   } catch {
     // 非 JSON 应答——保留 HTTP 状态词面
   }
-  return new ApiError(res.status, code);
+  return new ApiError(res.status, code, message);
 }
 
 /** JSON 调用腿（同源 cookie 恒携；非 2xx 折 ApiError） */

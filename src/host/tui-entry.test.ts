@@ -22,6 +22,7 @@ import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
+import { sandboxModeReceipt, thinkingLevelReceipt } from './session-tier-copy.js';
 import { exitCommandItems, commandArgumentItems, runTuiEntry } from './tui-entry.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 
@@ -523,6 +524,142 @@ describe('runTuiEntry 装配序', () => {
     // 退出即收面（closer 序：webui-server 在 tui-backend 之前——先网络后出屏）
     const gone = await fetch(`http://127.0.0.1:${opened!.port}/api/health`).catch(() => undefined);
     expect(gone).toBeUndefined();
+  });
+
+  // —— 档位装配面单源锁（第九役遗漏扫描批 C1——2026-09-19）：两表迁
+  // session-tier-copy 单源件后 webui 腿有三重对拍锁（webui-bridge.test 行集
+  // toEqual × 单源表 + 回执 === helper），TUI 装配闭包腿零锁（tui-backend
+  // 测试用本地自造夹具锁渲染器不锁装配、e2e 锚只到计数头 + 档位词 + 回执
+  // 前缀——detail 列垃圾 / 回执绕 helper 内联两形全不红）。本两测经真装配
+  // 闭包锁「行集 detail 列 + 回执全文」两形（03 §10.4「两装配面同源消费」
+  // 单源律的 TUI 腿断言真空收口）。
+  it('/thinking 装配单源锁：行集 detail 列单源表直出（关闭思考）+ 选定回执全文 = 单源 helper 逐字符', async () => {
+    const { entry, io } = await rigEntry(rigDir('entry-tier-t-data-'), rigDir('entry-tier-t-ws-'));
+    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
+    io.send('/thinking\r');
+    await until(() => io.output.includes('思考档位 · 7 档')); // 副屏开屏（头行锚）
+    // detail 列 = session-tier-copy 单源表直出（off 行独有词「关闭思考」——
+    // 装配闭包传垃圾列 / 两表错配时此词缺席即红）
+    expect(io.output).toContain('关闭思考');
+    // End 一步跳尾档 max（'\x1b[4~' xterm 双形——input-keys TILDE_KEYS 收录）
+    // + Enter 选定 → 回执全文上 footer 右段
+    io.send('\x1b[4~');
+    io.send('\r');
+    // 回执全文逐字符 = 单源 helper（绕 helper 内联模板漂移尾句即红——全文
+    // 只经 selectThinking → thinkingLevelReceipt 产出）
+    await until(() => io.output.includes(thinkingLevelReceipt('max')));
+    expect(io.output).toContain('思考档位：max（下一 run 起生效；档位是否生效随模型能力）');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('/sandbox 装配单源锁：danger 行警示语 07 §4.1 钉死句 + 选定回执全文 = 单源 helper 逐字符', async () => {
+    const { entry, io } = await rigEntry(rigDir('entry-tier-s-data-'), rigDir('entry-tier-s-ws-'));
+    await until(() => io.output.includes(' · m1 · '));
+    io.send('/sandbox\r');
+    await until(() => io.output.includes('沙箱档位 · 3 档'));
+    // danger 行警示语 = 07 §4.1 钦定措辞（07 §4.1 danger 档行说明位文案钉死
+    // 「无沙箱——任何命令直跑宿主」——第三档语义不粉饰）
+    expect(io.output).toContain('无沙箱——任何命令直跑宿主');
+    io.send('\x1b[4~'); // End → 尾档 danger
+    io.send('\r');
+    await until(() => io.output.includes(sandboxModeReceipt('danger')));
+    expect(io.output).toContain('沙箱档位：danger（即刻生效于后续工具调用）');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  // —— TUI 切档跨通道回执扇出锁（第九役遗漏扫描批 C2——2026-09-19）：
+  // CR-TIER-3 裁决①「TUI 切档→webui 可见 / webui 切档→TUI 状态行可见，
+  // 两向对称」（03 §10.4 webui 档位面受理批注）；修前 TUI selectThinking/
+  // selectSandbox 走 backend.setStatus 单通道直达（TuiBackend 状态行独收），
+  // webui 半边落空——双开形态下 webui SSE 观众永无 status 帧。修 = 改走
+  // stack.channels.setStatus（通道核扇出全部 capable 后端——TUI 状态行照常
+  // + webui SSE 观众同收）。修前红实证：本测 untilFrame 超时收不到 status 帧。
+  it('TUI 切档跨通道回执：webui 双开形态下 /thinking 选定 → SSE status 帧达 webui 观众（CR-TIER-3 两向对称 TUI→webui 半边）', async () => {
+    const faux = fauxProvider({ provider: 'faux-tier-fanout', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf()]);
+    const io = new FakeTerminalIO();
+    let opened: { host: string; port: number; token: string } | undefined;
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false, port: 0 },
+      io,
+      cwd: rigDir('entry-tier-f-ws-'),
+      version: 'test',
+      dataDir: rigDir('entry-tier-f-data-'),
+      providers: [faux.provider],
+      model: 'faux-tier-fanout/m1',
+      env: {},
+      onWebuiOpen: (info) => {
+        opened = info;
+      },
+    });
+    await io.ready();
+    await until(() => io.output.includes(' · m1 · ')); // footer 就绪（webui 已开面）
+    expect(opened).toBeDefined();
+    // 首事件落库（会话行进 /api/sessions 清单——SSE 订阅位取全量 id；
+    // footer 短 id 是 uuid 前 8 位非全量，故走清单端点取真源）
+    io.send('档位扇出探针\r');
+    await until(() => io.output.includes('ok'));
+    // 取全量会话 id（footer 短 id 是 uuid 前 8 位非全量——走清单端点取真源；
+    // 本文件 until 只收同步谓词，异步轮询手写有界循环）
+    let sessionId = '';
+    const listDeadline = Date.now() + 2000;
+    while (sessionId === '') {
+      if (Date.now() > listDeadline) throw new Error('sessions 清单未达（首事件落库超时）');
+      const res = await fetch(`http://127.0.0.1:${opened!.port}/api/sessions`, {
+        headers: { authorization: `Bearer ${opened!.token}` },
+      });
+      const body = (await res.json()) as { sessions: Array<{ id: string }> };
+      sessionId = body.sessions[0]?.id ?? '';
+      if (sessionId === '') await tick();
+    }
+    // SSE 开流在切档前（首帧不漏）；档位事件是 SessionEvent 不走信封族——
+    // 切档后流上唯一新帧即 status 帧（扇出半边的判据帧）
+    const controller = new AbortController();
+    const sseRes = await fetch(`http://127.0.0.1:${opened!.port}/api/sessions/${sessionId}/events`, {
+      headers: { authorization: `Bearer ${opened!.token}` },
+      signal: controller.signal,
+    });
+    expect(sseRes.status).toBe(200);
+    // TUI 侧切档（真装配闭包全链：/thinking 开副屏 → End 跳尾档 max →
+    // Enter 选定 → selectThinking → setStatus 扇出）
+    io.send('/thinking\r');
+    await until(() => io.output.includes('思考档位 · 7 档'));
+    io.send('\x1b[4~');
+    io.send('\r');
+    const reader = sseRes.body!.getReader();
+    const decoder = new TextDecoder();
+    let acc = '';
+    // 帧流读至 status 帧（有界 5s——修前单通道直达形在此超时红：流上永无
+    // status 帧；read 与 200ms 心跳 race 防无帧期挂死）
+    const deadline = Date.now() + 5000;
+    let statusPayload: string | undefined;
+    while (statusPayload === undefined) {
+      if (Date.now() > deadline) throw new Error('SSE 未达 status 帧（TUI→webui 跨通道扇出缺席）');
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 200)),
+      ]);
+      if (chunk === undefined) continue; // 心跳拍——回环重查期限
+      if (chunk.done) break;
+      acc += decoder.decode(chunk.value, { stream: true });
+      for (const block of acc.split('\n\n')) {
+        const dataLine = block.split('\n').find((line) => line.startsWith('data: '));
+        if (dataLine === undefined) continue; // ping 注释行
+        try {
+          const frame = JSON.parse(dataLine.slice(6)) as { kind?: string; payload?: { status?: string } };
+          if (frame.kind === 'status') statusPayload = frame.payload?.status;
+        } catch {
+          // 半帧尾——续读拼齐
+        }
+      }
+    }
+    // status 帧载荷 = 回执单源 helper 逐字符（TUI footer 右段与 webui SSE 两位同文）
+    expect(statusPayload).toBe(thinkingLevelReceipt('max'));
+    controller.abort();
+    io.send('\x04');
+    expect(await entry).toBe(0);
   });
 });
 
