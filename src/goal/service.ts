@@ -592,7 +592,16 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       if (opts.trigger === 'manual') {
         parkedForBudget.delete(goalId);
         dao.update(goalId, { stallStreak: 0, wakeStreak: 0, lastFingerprint: fingerprint }, now());
-        await jobsFace?.enable(goalId);
+        // 挂钟复活腿防御吞（06 §4——C6 终态停摆同族）：停滞复位与唤醒审计先
+        // 落库，enable 炸吞 warn 不回滚不阻回执（炸穿透 = 调用方 fire-and-forget
+        // 位 unhandledRejection 杀无人值守宿主）
+        try {
+          await jobsFace?.enable(goalId);
+        } catch (error) {
+          warn(
+            `goal 手动唤醒挂钟复活失败（防御吞——唤醒已落库）：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         dao.insertWake(goalId, now(), 'manual', opts.attribution, fingerprint, progressed);
         const fresh = dao.get(goalId)!;
         return { landed: true, reason: 'ok', message: `手动唤醒已落地（停滞计数复位）`, goal: fresh };
@@ -609,7 +618,15 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         // 停滞硬停：连续 N 轮无进展即停摆报告（不无限空转烧预算）——挂钟停摆
         // 留用户复位道（/goal wake 手动起闹 / resume 重绑），goal 行保持 active
         dao.update(goalId, { stallStreak, lastFingerprint: fingerprint }, now());
-        await jobsFace?.disable(goalId);
+        // 停摆腿防御吞（C6 终态停摆同律）：停滞计数已落库，disable 炸吞 warn
+        // 不阻停摆报告回执（行保持 active 复位道不受累）
+        try {
+          await jobsFace?.disable(goalId);
+        } catch (error) {
+          warn(
+            `goal 停滞硬停挂钟停摆失败（防御吞——停滞计数已落库）：${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         warn(`[goal] 停滞硬停：goal「${goalId}」连续 ${stallStreak} 轮唤醒无进展——挂钟停摆（/goal wake 可复位重跑）`);
         return {
           landed: false,
@@ -703,8 +720,16 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       if (parkedForBudget.has(goalId)) return true;
       parkedForBudget.add(goalId);
       // 挂钟行 disable（起停载体——行留史、广播恢复时 enable 复活；无行 = 静默
-      // no-op 既有律）。goal 行 status 三值 CHECK 不动（04 §5 定形注③）
-      await jobsFace?.disable(goalId);
+      // no-op 既有律）。防御吞（C6 同族）：停靠登记已落，disable 炸吞 warn 后
+      // 落词照走（半停靠不回滚——广播唤醒道与 /goal wake 人工道皆可收口）。
+      // goal 行 status 三值 CHECK 不动（04 §5 定形注③）
+      try {
+        await jobsFace?.disable(goalId);
+      } catch (error) {
+        warn(
+          `goal 预算停靠挂钟停摆失败（防御吞——停靠登记已落）：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       // 会话落停靠词（daemon 猝死后冷启动可恢复呈现——05 §1.1 词行；宿主侧
       // 真身幂等开驱动后 append，会话缺席由窄面真身诚实处置）
       deps.session.appendPaused(row.sessionId);
@@ -721,7 +746,16 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
     },
 
     async reviveClock(goalId) {
-      await jobsFace?.enable(goalId);
+      // 防御吞（C6 同族）：广播唤醒链在 void run.then 内调本道——enable 炸
+      // 穿透即 unhandledRejection 崩溃编舞 exit(1) 杀无人值守宿主；吞在
+      // service 层则所有调用方同安全（warn 留痕——/goal wake 手动复位道仍在）
+      try {
+        await jobsFace?.enable(goalId);
+      } catch (error) {
+        warn(
+          `goal 挂钟复活失败（防御吞——手动复位道 /goal wake 仍在）：${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     },
 
     depositFor(sessionId) {
@@ -775,7 +809,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         });
         if (!receipt.ok) {
           warn(
-            `[goal] 迟到挂钟注册失败：goal「${goalId}」${receipt.message}（挂钟缺席——schedule 坏串请修正后 resume）`,
+            `[goal] 迟到挂钟注册失败：goal「${goalId}」${receipt.message}（挂钟缺席——schedule 坏串请修正后 /goal wake 复位）`,
           );
         }
       }

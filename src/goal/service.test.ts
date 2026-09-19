@@ -365,6 +365,64 @@ describe('终态触发回调 onTerminal（五篇研究批 A——06 §4 周期�
     expect(warn.mock.calls[0]![0]).toContain('终态回调失败');
     expect(warn.mock.calls[0]![0]).toContain('下游炸了');
   });
+
+  it('防御吞族四腿：manual enable / 停滞 disable / 停靠 disable / reviveClock enable 炸皆吞 warn 不炸主流程（C6 同族漏网——炸穿透即 unhandledRejection 杀无人值守宿主）', async () => {
+    // 06 §4 防御吞律（C6 批修 complete/abandon 终态停摆两处后的同族漏网四处）：
+    // 各腿先落迁移/登记再调 jobsFace——炸了吞 warn 不回滚不阻回执
+    // （修前红：炸穿透 wake/parkForBudget/reviveClock 整体 reject）
+    warn.mockClear();
+    const throwing: GoalJobsFace = {
+      async register() {
+        return { ok: true, message: 'ok' };
+      },
+      async disable() {
+        throw new Error('scheduler 炸了');
+      },
+      async enable() {
+        throw new Error('scheduler 炸了');
+      },
+      async remove() {},
+    };
+    // 腿①：manual wake 的 enable（停滞复位与唤醒审计已落库——炸不阻落地回执）
+    {
+      const { service } = openService({ stallLimit: 2 });
+      await service.attachGoalJobsFace(throwing);
+      const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+      const manual = await service.wake(goal.id, { trigger: 'manual', attribution: '/goal wake' });
+      expect(manual).toMatchObject({ landed: true, reason: 'ok' }); // 不炸且落地
+      expect(warn).toHaveBeenCalled();
+    }
+    // 腿②：停滞硬停的 disable（stallStreak 已落库——炸不阻停摆报告回执）
+    {
+      const service = openService({ stallLimit: 1 }).service;
+      await service.attachGoalJobsFace(throwing);
+      const goal = await service.activate({ sessionId: 's2', objective: 'o', schedule: 'x' });
+      await service.wake(goal.id, { trigger: 'clock', attribution: 'job' }); // 基线（progressed 归零）
+      const halted = await service.wake(goal.id, { trigger: 'clock', attribution: 'job' }); // stall 1 ≥ 帽
+      expect(halted).toMatchObject({ landed: false, reason: 'stalled' });
+      expect(service.get(goal.id)).toMatchObject({ status: 'active', stallStreak: 1 }); // 计数已落不回滚
+      expect(warn).toHaveBeenCalled();
+    }
+    // 腿③：parkForBudget 的 disable（停靠登记已落——炸不阻落词与登记）
+    {
+      const { service, session } = openService();
+      await service.attachGoalJobsFace(throwing);
+      const goal = await service.activate({ sessionId: 's3', objective: 'o', schedule: 'x' });
+      expect(await service.parkForBudget(goal.id)).toBe(true);
+      expect(session.events('s3').some((e) => e.type === 'session/paused')).toBe(true); // 落词照走
+      expect(service.isParkedForBudget(goal.id)).toBe(true);
+      expect(warn).toHaveBeenCalled();
+    }
+    // 腿④：reviveClock 的 enable（广播唤醒链 void run.then 内调用——炸穿透
+    // 即 unhandledRejection 崩溃编舞 exit(1)；吞在 service 层所有调用方同安全）
+    {
+      const service4 = openService().service;
+      await service4.attachGoalJobsFace(throwing);
+      const goal4 = await service4.activate({ sessionId: 's4', objective: 'o', schedule: 'x' });
+      await expect(service4.reviveClock(goal4.id)).resolves.toBeUndefined(); // 不炸
+      expect(warn).toHaveBeenCalled();
+    }
+  });
 });
 
 describe('approve + commandGateStatus（f-1 needsWrite 批准链路——03 §10.5 定形注）', () => {
