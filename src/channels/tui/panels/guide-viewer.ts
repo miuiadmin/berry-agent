@@ -1,6 +1,7 @@
 /**
  * /guide 快速上手参考副屏件（07 §8.5 第 2 条——TUI 本地拦截族 2026-09-19
- * 启动版本检查批）：版本 + 核心命令清单 + 文档地图 + 升级/卸载一句。
+ * 启动版本检查批）：版本 + 核心命令清单 + 模型配置 + 文档地图 + 升级/卸载
+ * 一句（模型配置段 2026-09-19 P0 静默链修复批补）。
  *
  * - **本地拦截族**（/exit 批先例）：不进通道核命令表（webui 零污染），词干
  *   恰零参命中即开屏——内容行装配位（tui-entry）单源注入，本件收纯数据行；
@@ -22,7 +23,7 @@ export interface GuideSection {
 export interface GuidePanelData {
   /** 宿主版本（装配 options.version） */
   readonly version: string;
-  /** 段集（快速上手 / 核心命令 / 文档地图 / 升级与卸载——段序归装配位） */
+  /** 段集（快速上手 / 模型配置 / 核心命令 / 文档地图 / 升级与卸载——段序归装配位） */
   readonly sections: readonly GuideSection[];
 }
 
