@@ -12,7 +12,7 @@ import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from './migration.js';
 import { createGoalService, type GoalService } from './service.js';
-import type { GoalJobsFace, GoalSessionFace, GoalSummarizerFace } from './types.js';
+import type { GoalJobsFace, GoalRow, GoalSessionFace, GoalSummarizerFace } from './types.js';
 
 let dir: string;
 let store: Store | null = null;
@@ -61,6 +61,7 @@ function openService(
     wakeBudgetLimit?: number;
     statMap?: Record<string, { exists: boolean; size: number }>;
     summarizer?: GoalSummarizerFace;
+    onTerminal?: (goal: GoalRow) => void;
   } = {},
 ): { service: GoalService; session: FakeSession; face: GoalJobsFace; calls: string[]; registerFailFor: Set<string> } {
   store = openStore({
@@ -100,6 +101,7 @@ function openService(
     ...(options.stallLimit !== undefined ? { stallLimit: options.stallLimit } : {}),
     ...(options.wakeBudgetLimit !== undefined ? { wakeBudgetLimit: options.wakeBudgetLimit } : {}),
     ...(options.summarizer !== undefined ? { summarizer: options.summarizer } : {}),
+    ...(options.onTerminal !== undefined ? { onTerminal: options.onTerminal } : {}),
   });
   return { service, session, face, calls, registerFailFor };
 }
@@ -255,6 +257,64 @@ describe('complete（完成否决律机器面）', () => {
     expect(done.endedAt).toBe(nowIso);
     expect(calls).toContain(`disable:${goal.id}`);
     expect(service.activeFor('s1')).toBeUndefined();
+  });
+});
+
+describe('终态触发回调 onTerminal（五篇研究批 A——06 §4 周期路第三腿）', () => {
+  it('complete 全绿路：迁移成功后以 completed 终态行单发回调', async () => {
+    const fired: GoalRow[] = [];
+    const { service, session } = openService({
+      statMap: { '/ws/out.txt': { exists: true, size: 10 } },
+      onTerminal: (goal) => fired.push(goal),
+    });
+    const goal = await service.activate({ sessionId: 's1', objective: '写文档', schedule: 'every:10m' });
+    session.push('s1', 'todo/write', {
+      items: [
+        { status: 'completed', content: '产出文档', noFollowUp: true, gate: { kind: 'files', paths: ['out.txt'] } },
+      ],
+    });
+    await service.complete(goal.id, '已产出');
+    expect(fired).toHaveLength(1);
+    expect(fired[0]).toMatchObject({ id: goal.id, status: 'completed', sessionId: 's1' });
+  });
+
+  it('abandon：失败/放弃边界同拍——以 abandoned 终态行单发回调', async () => {
+    const fired: GoalRow[] = [];
+    const { service } = openService({ onTerminal: (goal) => fired.push(goal) });
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    await service.abandon(goal.id, '方向变了');
+    expect(fired).toHaveLength(1);
+    expect(fired[0]).toMatchObject({ id: goal.id, status: 'abandoned', endingNote: '方向变了' });
+  });
+
+  it('否决路径零回调：open 项在 → GOAL_TRANSITION_INVALID 抛出后 onTerminal 不发', async () => {
+    const fired: GoalRow[] = [];
+    const { service, session } = openService({ onTerminal: (goal) => fired.push(goal) });
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    session.push('s1', 'todo/write', { items: [{ status: 'pending', content: '待办' }] });
+    await expectCode(service.complete(goal.id, 'ev'), 'GOAL_TRANSITION_INVALID');
+    expect(fired).toHaveLength(0); // 迁移未落库即无终态事实——回调以成功迁移为前置
+  });
+
+  it('回调抛错防御吞：迁移已落库不反噬——complete 照常返回 + warn 落账', async () => {
+    warn.mockClear();
+    const { service, session } = openService({
+      statMap: { '/ws/out.txt': { exists: true, size: 10 } },
+      onTerminal: () => {
+        throw new Error('下游炸了');
+      },
+    });
+    const goal = await service.activate({ sessionId: 's1', objective: '写文档', schedule: 'every:10m' });
+    session.push('s1', 'todo/write', {
+      items: [
+        { status: 'completed', content: '产出文档', noFollowUp: true, gate: { kind: 'files', paths: ['out.txt'] } },
+      ],
+    });
+    const done = await service.complete(goal.id, '已产出'); // 不抛——假错防线
+    expect(done.status).toBe('completed');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('终态回调失败');
+    expect(warn.mock.calls[0]![0]).toContain('下游炸了');
   });
 });
 

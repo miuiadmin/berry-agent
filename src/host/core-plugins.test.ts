@@ -1321,6 +1321,110 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     await persistence.close();
   });
 
+  it('goal 终态即拍周期 review（五篇研究批 A——06 §4 第三腿）：memory-cycle-fire 服务面 + goal complete → fire → 审阅窗真入 review；周期腿缺席 = 诚实缺席', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal-cycle-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-goal-cycle' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal-cycle' ? session.events() : []),
+      length: (sid) => (sid === 's-goal-cycle' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-goal-cycle') session.append('session/paused', { reason: 'budget' });
+      },
+    };
+    let svc: GoalService | undefined;
+    /** llm.complete 桩调用面（user 消息 content 全记——review/consolidation 双腿混记不断腿数） */
+    const llmUserContents: string[] = [];
+    let fetchCalls = 0;
+    const { scope } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        goalSession,
+        goalServiceSink: (service) => {
+          svc = service;
+        },
+        fetchEvents: (sid: string) => {
+          fetchCalls++;
+          return sid === 's-goal-cycle'
+            ? [
+                {
+                  type: 'user/message',
+                  seq: 0,
+                  time: 0,
+                  data: { source: 'user', content: '把发布文档写完并核对六语 README' },
+                },
+              ]
+            : [];
+        },
+        llm: () => ({
+          complete: async (req: { messages: readonly { role: 'user'; content: string }[] }) => {
+            for (const message of req.messages) llmUserContents.push(message.content);
+            return { message: { content: '' } };
+          },
+          canAfford: () => true,
+        }),
+      },
+    );
+
+    // 第三腿接线在位：memory 件周期腿在场（llm+fetchEvents 双注入）→
+    // 'memory-cycle-fire' 窄面服务面在场
+    expect(typeof scope.tryGet<(sessionId: string) => void>('memory-cycle-fire')).toBe('function');
+
+    // goal 建行即完成（空 open 项 + 无 gate 声明 = 全绿）→ onTerminal →
+    // fire-and-forget fire → 微任务排空后 review 真跑
+    const goal = await svc!.activate({ sessionId: 's-goal-cycle', objective: '写发布文档', schedule: 'every:60s' });
+    await svc!.complete(goal.id, '发布文档已产出');
+    await new Promise((resolve) => setTimeout(resolve, 20)); // void 吞的 promise 排空
+    expect(fetchCalls).toBeGreaterThan(0); // 审阅窗切片真读了 goal 会话事件
+    expect(llmUserContents.length).toBeGreaterThan(0); // 周期拍真把转录交了模型
+    expect(llmUserContents.join('\n')).toContain('把发布文档写完并核对六语 README'); // goal 会话转录进审阅窗（任务边界提交）
+    await persistence.close();
+  });
+
+  it('goal 终态即拍周期 review——周期腿缺席形：llm 缺席 → 服务面缺席 + goal 环照常完整', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal-cycle2-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-goal-cycle2' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-goal-cycle2' ? session.events() : []),
+      length: (sid) => (sid === 's-goal-cycle2' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-goal-cycle2') session.append('session/paused', { reason: 'budget' });
+      },
+    };
+    let svc: GoalService | undefined;
+    const { scope } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        sqlite: () => persistence.store.sqlite(),
+        goalSession,
+        goalServiceSink: (service) => {
+          svc = service;
+        },
+        // llm 缺席 → 周期腿整体缺席（在场判双位缺一）
+      },
+    );
+    // 诚实缺席：服务面不在 + goal complete 照常成功（零回调不炸）
+    expect(scope.tryGet('memory-cycle-fire')).toBeUndefined();
+    const goal = await svc!.activate({ sessionId: 's-goal-cycle2', objective: 'o', schedule: 'every:60s' });
+    const done = await svc!.complete(goal.id, '空表全绿');
+    expect(done.status).toBe('completed');
+    await persistence.close();
+  });
+
   it('goal agent_pre_step 复验监听 + 沉淀摘要注入面（批 #99）：超帽置 stop、未超帽/无 goal/卸载后直通；goalSummarizer 透传单发', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-goal2-'));
     dirs.push(dataDir);

@@ -85,6 +85,15 @@ export interface GoalServiceDeps {
    * 根注入）。缺席 = depositFor 恒走确定性回退（零 LLM 依赖保底）。
    */
   summarizer?: GoalSummarizerFace;
+  /**
+   * 终态触发回调（五篇研究批 A——06 §4「周期路第三触发腿」定形注：
+   * complete/abandon 状态迁移成功后以终态行回调，装配面接线 memory 周期
+   * fire）。fire-and-forget 契约：回调失败不反噬终态迁移——迁移已落库，
+   * 回调抛错再上抛即把成功迁移报成失败（假错），本件侧防御吞 + warn。
+   * goal 席 DAG 无 memory 边（词面独立律同 lsp/exec gate 先例——本键只认
+   * 函数形状，适配恒在装配侧）；缺席 = 终态迁移零副作用照旧。
+   */
+  onTerminal?: (goal: GoalRow) => void;
 }
 
 /** goal 服务公开面 */
@@ -379,6 +388,19 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
   /** 预算停靠登记（u-3——04 §5 定形注③：parkForBudget 幂等判据 + 件侧唤醒收口现判面；进程内存位——durable 事实由挂钟行 disabled + 会话词承载，daemon 猝死后冷启动经挂钟停摆自然呈现） */
   const parkedForBudget = new Set<string>();
 
+  /**
+   * 终态回调（五篇研究批 A——06 §4 第三腿）：complete/abandon 迁移落库后
+   * 单发。防御吞——回调失败仅 warn（迁移已成功，不得报假错反噬调用方）。
+   */
+  function notifyTerminal(goalId: string): void {
+    if (deps.onTerminal === undefined) return;
+    try {
+      deps.onTerminal(dao.get(goalId)!);
+    } catch (error) {
+      warn(`goal 终态回调失败（防御吞——迁移已落库）：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   /** 单漏斗挂钟注册（activate 与 attach 冲洗共用；回执 {ok:false} 上抛响亮） */
   async function registerClock(goal: GoalRow): Promise<void> {
     if (jobsFace === null) {
@@ -521,6 +543,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       dao.update(goalId, { status: 'completed', endedAt: now(), endingNote: evidence }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
       await jobsFace?.disable(goalId); // 终态同笔停摆（行留史）
+      notifyTerminal(goalId); // 第三腿（06 §4——任务边界即拍一轮周期 review，fire-and-forget）
       return dao.get(goalId)!;
     },
 
@@ -533,6 +556,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       dao.update(goalId, { status: 'abandoned', endedAt: now(), endingNote: reason ?? 'abandoned' }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
       await jobsFace?.disable(goalId);
+      notifyTerminal(goalId); // 第三腿（06 §4——失败/放弃边界同拍，failure 候选审阅窗由此入）
       return dao.get(goalId)!;
     },
 

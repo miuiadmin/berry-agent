@@ -60,7 +60,14 @@ import {
   runGoalCommand,
   GOAL_USAGE,
 } from '../goal/index.js';
-import type { GateExecSeam, GoalService, GoalSessionFace, GoalSummarizerFace, GoalTodoItem } from '../goal/index.js';
+import type {
+  GateExecSeam,
+  GoalRow,
+  GoalService,
+  GoalSessionFace,
+  GoalSummarizerFace,
+  GoalTodoItem,
+} from '../goal/index.js';
 import type { ConversationStack } from './conversation-stack.js';
 import type { BudgetBroadcastEntry, BudgetBroadcastFace } from './budget-broadcast.js';
 import type { SqliteDatabase } from '../persist/index.js';
@@ -799,6 +806,15 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
         deps.llm !== undefined && deps.fetchEvents !== undefined
           ? createMemoryCycle({ dao, llm: deps.llm(), fetchEvents: deps.fetchEvents, warn })
           : undefined;
+      // 周期 fire 窄面入服务面（五篇研究批 A——06 §4 第三腿：goal 件 tryGet
+      // 序内前件消费，注册表序 memory 居 goal 前。void 吞 promise——fire 内部
+      // catch 全吞永不抛，goal 终态回调由此零反噬；周期腿缺席不 provide =
+      // goal 件 tryGet 诚实缺席，goal 环独立完整不因 memory 缺席降级）
+      if (cycle !== undefined) {
+        context.provide('memory-cycle-fire', (sessionId: string) => {
+          void cycle.fire(sessionId);
+        });
+      }
       // per-session 最近 assistant 文本回看缓存（§4 即时路第二动作——2026-09-08
       // 消化批；同一 session/event 消费点内喂入零新事件通道，LRU 帽族同 §6 epochs）
       const lastAssistant = createLastAssistantTextCache();
@@ -1464,6 +1480,10 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         execService?.createGateExec !== undefined
           ? execService.createGateExec(() => canonicalWorkspaceRoot(deps.cwd))
           : undefined;
+      // memory 周期 fire 窄面（五篇研究批 A——06 §4 第三腿：goal 终态即拍一轮
+      // 周期 review；memory 件注册表序居本件前、周期腿缺席不 provide——
+      // tryGet 诚实缺席 = onTerminal 不挂，goal 环独立完整）
+      const memoryCycleFire = context.tryGet<(sessionId: string) => void>('memory-cycle-fire');
       const service = createGoalService({
         db,
         now,
@@ -1479,6 +1499,10 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         },
         // 沉淀摘要窄面（批 #99——缺席 = depositFor 确定性回退，零 LLM 保底）
         ...(deps.goalSummarizer !== undefined ? { summarizer: deps.goalSummarizer } : {}),
+        // 终态回调（五篇研究批 A——06 §4 第三腿装配面适配：goal→memory 无
+        // DAG 边，窄 seam 经 tryGet 在此收口；fire-and-forget 契约由 goal 件
+        // 侧防御吞 + memory fire 永不抛双保险）
+        ...(memoryCycleFire !== undefined ? { onTerminal: (goal: GoalRow) => memoryCycleFire(goal.sessionId) } : {}),
       });
       // 全环捕获位单发（s 批——生产恒缺席；e2e rig lifecycle 通道，见
       // CorePluginHostDeps.goalServiceSink 注）
