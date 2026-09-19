@@ -2,7 +2,7 @@
 
 # berry-agent
 
-**A single, extensible personal agent for the AGI era — built to run unattended.**
+**The unattended, self-evolving personal agent for the AGI era — it stands watch, runs long, and knows you better with every session.**
 
 Chat and coding are the core. Every capability — shell, skills, browser, scheduler,
 memory, web UI — loads as a **plugin**. Official and community plugins mount through
@@ -36,17 +36,49 @@ the same surface; there is no first-class private lane.
 
 ---
 
+## Where we stand
+
+AGI — artificial general intelligence — is getting closer. Waiting behind it is RSI,
+recursive self-improvement: the feedback loop where a system's improvements make it
+better at improving still. berry-agent is neither of these things, and does not
+pretend to be. It is an engineering answer to the question this era actually asks:
+
+**When intelligence becomes cheap and general, who stands watch for you?**
+
+So we ship self-evolution as a product principle, not a manifesto. It starts with
+bounded loops you can verify today — sessions settle into memory, experience settles
+into skills, every run stays replayable and auditable — not with grand narratives
+about rewriting ourselves. The substrate owns the interfaces, plugins carry the
+capabilities, and evolution only ever touches data: the safety surface (capability
+doors, budget rails, the audit timeline) belongs to the host and stays outside
+evolution's reach, for good.
+
 ## Why berry-agent
 
 |                                 |                                                                                                                                                                                         |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Unattended by design**        | Goal-driven runs that keep going — soak-tested for hours and verified to recover after a hard `kill -9`. Less human intervention, full autonomy as the goal.                            |
+| **Knows you better every session** | A bounded self-evolution loop — sessions settle into memory, preferences and skills; behavior improves with use. Auditable and erasable: evolution only ever touches data, never the safety surface. |
 | **Everything is a plugin**      | Shell, skills, web fetch, cron, goals, sub-agents, checkpoints, memory, MCP, LSP, browser, web UI… all 16 official capabilities mount through the same surface your own extensions use. |
 | **Capability doors, not vibes** | Dangerous capabilities sit behind explicit doors — `berry doors list` shows each one's state. Installing a plugin never implies granting it permissions.                                |
 | **Model-agnostic**              | Anthropic, OpenAI, Google and more behind one interface. Switch with one env var, no code changes, no lock-in.                                                                          |
 | **Sessions you can trust**      | Every session lives in SQLite — fork, resume, search, reindex. A runtime assertion guarantees that what the model saw is exactly what got recorded.                                     |
 | **Three automation surfaces**   | Terminal UI for driving, Web UI + `/v1/*` HTTP for supervising, SDK & MCP for programs — one agent, every kind of consumer.                                                             |
 | **Zero telemetry** | No usage stats, no crash reports, zero bytes uploaded. Default network = model calls + your explicit actions + one bounded read-only update check on interactive TUI startup (throttled, one env var disables it) — nothing else. |
+
+## Self-evolution, bounded and auditable
+
+What "self-evolving" concretely means in berry-agent today:
+
+- **Memory that compounds** — `core:memory` persists what matters across sessions:
+  facts, preferences, working style. Every conversation makes the next one sharper.
+- **Experience becomes skill** — recurring playbooks settle into skill packs
+  (`SKILL.md`): what grows is a reusable craft, not just a longer context.
+- **Every step stays auditable** — sessions land in SQLite under a runtime assertion
+  that what the model saw is exactly what got recorded; rewind and replay are
+  first-class.
+- **Evolution stops at the data** — the agent never rewrites its own substrate or
+  its safety gates. `~/.berry-agent/` is yours: inspect it, back it up, wipe it.
 
 ## Quickstart
 

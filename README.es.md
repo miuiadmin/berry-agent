@@ -2,7 +2,7 @@
 
 # berry-agent
 
-**Un agente personal, único y extensible para la era de la AGI — hecho para funcionar sin supervisión.**
+**El agente personal autoevolutivo y sin supervisión para la era de la AGI — monta guardia por ti, corre largo y te conoce mejor en cada sesión.**
 
 La conversación y el código son el núcleo. Cada capacidad — shell, habilidades,
 navegador, planificador, memoria, interfaz web — se carga como un **plugin**.
@@ -37,17 +37,46 @@ existe ninguna vía privada de primer partido.
 
 ---
 
+## Dónde nos situamos
+
+La AGI — la inteligencia artificial general — se acerca. Y detrás espera el RSI, la
+mejora propia recursiva: el bucle de retroalimentación en el que las mejoras de un
+sistema lo hacen aún mejor para mejorar. berry-agent no es ninguna de las dos cosas,
+ni pretende serlo. Es una respuesta de ingeniería a la pregunta que esta época
+plantea de verdad:
+
+**Cuando la inteligencia sea barata y general, ¿quién monta guardia por ti?**
+
+Por eso entregamos la autoevolución como principio de producto, no como manifiesto.
+Empieza con bucles acotados y verificables hoy mismo — las sesiones se sedimentan en
+memoria, la experiencia se sedimenta en habilidades, cada ejecución queda reproducible
+y auditable — y no con narrativas grandiosas de reescribirnos a nosotros mismos. El
+sustrato posee las interfaces, los plugins aportan las capacidades, y la evolución
+solo toca datos: la superficie de seguridad (puertas de capacidades, barandillas de
+presupuesto, la línea de tiempo de auditoría) pertenece al anfitrión y queda fuera
+del alcance de la evolución, para siempre.
+
 ## Por qué berry-agent
 
 |                                          |                                                                                                                                                                                                                  |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Autónomo por diseño**                  | Ejecuciones guiadas por objetivos que no se detienen — probadas en soak durante horas y con recuperación verificada tras un `kill -9`. Menos intervención humana, autonomía total como meta.                     |
+| **Te conoce mejor en cada sesión**       | Un bucle de autoevolución acotado — las sesiones se sedimentan en memoria, preferencias y habilidades; el comportamiento mejora con el uso. Auditable y borrable: la evolución solo toca datos, jamás la superficie de seguridad. |
 | **Todo es un plugin**                    | Shell, habilidades, fetch web, cron, objetivos, subagentes, checkpoints, memoria, MCP, LSP, navegador, interfaz web… las 16 capacidades oficiales se montan por la misma superficie que tus propias extensiones. |
 | **Puertas de capacidad, no intuiciones** | Las capacidades peligrosas viven detrás de puertas explícitas — `berry doors list` muestra el estado de cada una. Instalar un plugin nunca implica concederle permisos.                                          |
 | **Agnóstico del modelo**                 | Anthropic, OpenAI, Google y más detrás de una sola interfaz. Cambia de modelo con una variable de entorno, sin tocar código, sin encerrarse.                                                                     |
 | **Sesiones de fiar**                     | Cada sesión vive en SQLite — fork, resume, search, reindex. Una aserción en tiempo de ejecución garantiza que lo que el modelo vio es exactamente lo que quedó registrado.                                       |
 | **Tres superficies de automatización**   | La terminal para conducir, la interfaz web + HTTP `/v1/*` para supervisar, SDK y MCP para programas — un solo agente para todo tipo de consumidores.                                                             |
 | **Cero telemetría** | Sin estadísticas de uso, sin informes de fallos, cero bytes enviados. Red por defecto: llamadas al modelo + tus acciones explícitas + una comprobación de versión de solo lectura al inicio interactivo del TUI (acotada, desactivable por variable de entorno) — nada más. |
+
+## Autoevolución: acotada y auditable
+
+Lo que «autoevolutivo» significa hoy, en concreto, en berry-agent:
+
+- **Memoria que capitaliza** — `core:memory` persiste lo que importa entre sesiones: hechos, preferencias, estilo de trabajo. Cada conversación afina la siguiente.
+- **La experiencia se vuelve habilidad** — los patrones recurrentes se sedimentan en paquetes de habilidades (`SKILL.md`): lo que crece es un oficio reutilizable, no solo un contexto más largo.
+- **Cada paso queda auditable** — las sesiones aterrizan en SQLite bajo la aserción en tiempo de ejecución de que lo que el modelo vio es exactamente lo que se registró; rebobinar y reproducir son operaciones de primer nivel.
+- **La evolución se detiene en los datos** — el agente jamás reescribe su propio sustrato ni sus puertas de seguridad. `~/.berry-agent/` es tuyo: inspecciónalo, respáldalo, bórralo.
 
 ## Inicio rápido
 
