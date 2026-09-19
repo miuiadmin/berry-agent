@@ -280,6 +280,33 @@ export function judgeDistTag(tags, version, prerelease) {
   return { ok: false, reason: `正式版 latest(${tags.latest}) 须指 ${version}（next 不动）` };
 }
 
+/** 契约 5 传播窗重试缺省参数（07 §8.3 契约 5 2026-09-19 传播窗重试定形注） */
+export const TAG_PROPAGATION_RETRIES = 12;
+export const TAG_PROPAGATION_DELAY_MS = 30_000;
+
+/**
+ * 契约 5 断言读回带传播窗重试（07 §8.3 契约 5 2026-09-19 定形注）：npm
+ * registry 写面（publish / dist-tag add）收执后读 replica 滞后可达分钟级
+ * （alpha.2/alpha.4 两发实测 3-7 分钟窗）——写已收执非失败，单次即时读回
+ * 必撞假红（契约 6 被跳过 = 半成功态误报 + tag 腿悬空须手工收口）。三读回
+ * 位（触发腿复断 / CI 形只读断 / 令牌旧序终态断）统一经此复读；窗尽仍不
+ * 等才红。sleep 注入缝：测试形缺席/即时（零挂钟），realSeams 真睡。
+ */
+export async function judgeDistTagWithPropagationRetry(seams, judge, logLine) {
+  const sleep = seams.sleep ?? (() => Promise.resolve());
+  const retries = seams.tagPropagationRetries ?? TAG_PROPAGATION_RETRIES;
+  const delayMs = seams.tagPropagationDelayMs ?? TAG_PROPAGATION_DELAY_MS;
+  let verdict = judge(seams.distTagLs());
+  for (let attempt = 1; !verdict.ok && attempt <= retries; attempt++) {
+    logLine(
+      `[契约5] 传播窗复读（${attempt}/${retries}，隔 ${delayMs}ms——npm 写后读 replica 滞后实测 3-7 分钟，写已收执非失败）`,
+    );
+    await sleep(delayMs);
+    verdict = judge(seams.distTagLs());
+  }
+  return verdict;
+}
+
 /** 契约 4 真发前 README 占位符检查（仓转公开日回填前禁发；dry-run 不拦） */
 export function judgeReadme(text) {
   const hits = (text.match(/^.*(PLACEHOLDER|安装占位|<!--\s*placeholder).*$/gim) ?? []).length;
@@ -779,9 +806,8 @@ export async function runRelease(seams, opts) {
       }
       log('[触发腿] preview latest 挪位完成（latest≡next 同指）');
     }
-    // 契约 5 本机复断（终态 latest≡next 原断言——judgeDistTag）
-    const tagsNow = seams.distTagLs();
-    const tagVerdict = judgeDistTag(tagsNow, version, prerelease);
+    // 契约 5 本机复断（终态 latest≡next 原断言——judgeDistTag；传播窗复读）
+    const tagVerdict = await judgeDistTagWithPropagationRetry(seams, (t) => judgeDistTag(t, version, prerelease), log);
     if (!tagVerdict.ok) {
       log(`[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见`);
       return { code: 1, report };
@@ -831,8 +857,9 @@ export async function runRelease(seams, opts) {
   // 断 next〔latest 挪位时序在 CI 终态后，npm/cli#8547 结构性外置〕、令牌旧序照
   // 原断言——07 §8.3 契约 5 尾注）——
   if (form === 'ci') {
-    const ciTags = seams.distTagLs();
-    const ciVerdict = judgeDistTagCi(ciTags, version, prerelease);
+    // 传播窗复读（07 §8.3 契约 5 定形注）：CI 形只读断同样吃 replica 滞后——
+    // 令牌腿先发、CI 随 tag 复跑时读回可能仍在传播窗内，统一走有界复读。
+    const ciVerdict = await judgeDistTagWithPropagationRetry(seams, (t) => judgeDistTagCi(t, version, prerelease), log);
     if (!ciVerdict.ok) {
       log(`[契约5] 红：${ciVerdict.reason}`);
       return { code: 1, report };
@@ -855,13 +882,15 @@ export async function runRelease(seams, opts) {
   // 之始）。CI 形不走本块（终态 latest≡next 复断归本机触发腿——定形注第 2 款，
   // CI 中间态 latest 未挪是设计内非分叉）。
   if (form !== 'ci') {
-    const tags =
-      !dryRun || probe.state === 'present'
-        ? seams.distTagLs()
-        : prerelease
-          ? { latest: version, next: version }
-          : { latest: version };
-    const tagVerdict = judgeDistTag(tags, version, prerelease);
+    // 真读形走传播窗复读（07 §8.3 契约 5 2026-09-19 定形注）；演习且首发
+    // （registry 缺席——ls 尚未移动）只调纯函数断言期望终态（零读零重试）。
+    let tagVerdict;
+    if (!dryRun || probe.state === 'present') {
+      tagVerdict = await judgeDistTagWithPropagationRetry(seams, (t) => judgeDistTag(t, version, prerelease), log);
+    } else {
+      const tags = prerelease ? { latest: version, next: version } : { latest: version };
+      tagVerdict = judgeDistTag(tags, version, prerelease);
+    }
     if (!tagVerdict.ok) {
       log(`[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见（人工干预 dist-tag 后不回写脚本 = 驯服失效之始）`);
       return { code: 1, report };
@@ -1139,6 +1168,8 @@ export function realSeams(pkgKey = 'main') {
       return tags;
     },
     distTagAdd: (v, tag) => cap('npm', ['dist-tag', 'add', `${pkg.name}@${v}`, tag], { stdio: 'inherit' }),
+    // 传播窗复读缝（07 §8.3 契约 5 定形注）：真睡实现；测试形注入即时缝零挂钟。
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     headCommit: () => cap('git', ['rev-parse', 'HEAD']).stdout.trim(),
     gitTagState: (tag) => {
       const exists = cap('git', ['tag', '--list', tag]).stdout.trim() !== '';

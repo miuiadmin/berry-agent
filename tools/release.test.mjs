@@ -11,6 +11,7 @@ import {
   PACKAGES,
   judgeDistTag,
   judgeDistTagCi,
+  judgeDistTagWithPropagationRetry,
   judgeEpochIgnitionDrill,
   judgePackList,
   judgeReadme,
@@ -805,6 +806,102 @@ describe('judgeDistTagCi（契约 5 CI 形只读断言）', () => {
   it('正式版：latest 指 version 过；不指红（next 不动）', () => {
     expect(judgeDistTagCi({ latest: '1.0.0', next: '0.9.0-beta.1' }, '1.0.0', false).ok).toBe(true);
     expect(judgeDistTagCi({ latest: '0.9.9', next: '0.9.0-beta.1' }, '1.0.0', false).ok).toBe(false);
+  });
+});
+
+describe('judgeDistTagWithPropagationRetry（契约 5 传播窗复读——07 §8.3 2026-09-19 定形注）', () => {
+  /** 序列化 distTagLs：按调用序吐 tags（窗内滞后 → 传播到位）+ 即时 sleep 缝计数 */
+  function propagationSeams(sequence, overrides = {}) {
+    const calls = { ls: 0, sleep: 0 };
+    const seams = {
+      distTagLs: () => sequence[Math.min(calls.ls++, sequence.length - 1)],
+      // 即时缝零挂钟（真实形 30s 真睡——缝注入只为测试提速，复读语义不变）
+      sleep: async () => {
+        calls.sleep++;
+      },
+      ...overrides,
+    };
+    return { seams, calls };
+  }
+
+  it('滞后→到位：窗内复读至绿（写已收执非失败——alpha.4 假红回归锁）', async () => {
+    const { seams, calls } = propagationSeams([
+      { latest: '0.1.0-alpha.3', next: '0.1.0-alpha.3' }, // 首读撞 replica 滞后
+      { latest: '0.1.0-alpha.3', next: '0.1.0-alpha.3' }, // 二读仍在窗内
+      { latest: '0.1.0-alpha.4', next: '0.1.0-alpha.4' }, // 传播到位
+    ]);
+    const verdict = await judgeDistTagWithPropagationRetry(
+      seams,
+      (t) => judgeDistTag(t, '0.1.0-alpha.4', true),
+      () => {},
+    );
+    expect(verdict.ok).toBe(true);
+    expect(calls.ls).toBe(3);
+    expect(calls.sleep).toBe(2);
+  });
+
+  it('首读即绿：零重试零睡（常规路径零额外读）', async () => {
+    const { seams, calls } = propagationSeams([{ latest: '0.1.0-alpha.4', next: '0.1.0-alpha.4' }]);
+    const verdict = await judgeDistTagWithPropagationRetry(
+      seams,
+      (t) => judgeDistTag(t, '0.1.0-alpha.4', true),
+      () => {},
+    );
+    expect(verdict.ok).toBe(true);
+    expect(calls.ls).toBe(1);
+    expect(calls.sleep).toBe(0);
+  });
+
+  it('窗尽仍不等才红：retries 帽打满即终态（防无限等——有界窗硬顶）', async () => {
+    const { seams, calls } = propagationSeams([{ latest: '0.1.0-alpha.3', next: '0.1.0-alpha.3' }], {
+      tagPropagationRetries: 2,
+    });
+    const verdict = await judgeDistTagWithPropagationRetry(
+      seams,
+      (t) => judgeDistTag(t, '0.1.0-alpha.4', true),
+      () => {},
+    );
+    expect(verdict.ok).toBe(false);
+    expect(calls.ls).toBe(3); // 首读 + 2 次复读，帽打满不再等
+    expect(calls.sleep).toBe(2);
+  });
+
+  it('CI 形断言同样入复读（judgeDistTagCi 经同一助手——三读回位统一）', async () => {
+    const { seams, calls } = propagationSeams([
+      { latest: '0.1.0-alpha.3', next: '0.1.0-alpha.3' },
+      { latest: '0.1.0-alpha.4', next: '0.1.0-alpha.4' },
+    ]);
+    const verdict = await judgeDistTagWithPropagationRetry(
+      seams,
+      (t) => judgeDistTagCi(t, '0.1.0-alpha.4', true),
+      () => {},
+    );
+    expect(verdict.ok).toBe(true);
+    expect(calls.sleep).toBe(1);
+  });
+
+  it('runRelease 集成：令牌旧序终态断吃复读——滞后一次后到位不红（修前恰红形）', async () => {
+    // 修前形：publish + dist-tag add 收执后单次即时读回撞 replica 滞后 → 契约5 红
+    // （契约 6 被跳过 = tag 腿悬空）。修后：复读窗内自愈。
+    const lsSequence = [
+      { latest: '0.1.0-alpha.1', next: '0.1.0-alpha.1' }, // 契约2 探测（probe 走 ls 之前——本形 absent 由 probe 吐）
+    ];
+    let lsCalls = 0;
+    const s = fakeSeams({
+      distTagLs: () => {
+        lsCalls++;
+        // 契约5 首读滞后（旧 replica），复读即到位
+        if (lsCalls === 1) return { latest: '0.1.0-alpha.3', next: '0.1.0-alpha.3' };
+        return { latest: '0.1.0-alpha.1', next: '0.1.0-alpha.1' };
+      },
+      sleep: async () => {},
+      tagPropagationRetries: 3,
+    });
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { localPublish: true });
+    expect(r.code).toBe(0);
+    expect(r.report.join('\n')).toContain('传播窗复读（1/3');
+    expect(r.report.join('\n')).toContain('[契约5] 绿');
+    expect(s.calls.gitTagCreate).toEqual(['v0.1.0-alpha.1']); // 契约6 未被跳过
   });
 });
 
