@@ -15,6 +15,7 @@ import {
   runUpgradeCommand,
   resolveRegistryRoot,
   TARGET_RE,
+  UPDATE_CHECK_MAX_BYTES,
   writeUpdateCheckState,
   type UpdateCheckFs,
 } from './upgrade.js';
@@ -35,19 +36,21 @@ function memoryFs(initial: Record<string, string> = {}): UpdateCheckFs & { files
   };
 }
 
-/** 假 fetch（按 URL 应答——json 形快捷 + 原始 Response 形） */
+/** 假 fetch（按 URL 应答——json 形快捷 + 原始 Response 形；init 全录供契约锁断言） */
 function fakeFetch(
   handler: (url: string) => { status: number; body?: string; headers?: Record<string, string> } | Error,
-): FetchLike & { calls: string[] } {
+): FetchLike & { calls: string[]; inits: (RequestInit | undefined)[] } {
   const calls: string[] = [];
+  const inits: (RequestInit | undefined)[] = [];
   return Object.assign(
-    (async (url: string) => {
+    (async (url: string, init?: RequestInit) => {
       calls.push(String(url));
+      inits.push(init);
       const plan = handler(String(url));
       if (plan instanceof Error) throw plan;
       return new Response(plan.body ?? '', { status: plan.status, headers: plan.headers });
     }) as FetchLike,
-    { calls },
+    { calls, inits },
   );
 }
 
@@ -198,6 +201,26 @@ describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
     expect(result.kind === 'failed' && result.message).toContain('越体帽');
   });
 
+  it('请求带 AbortSignal 超时帽 + 零请求体（传输帽契约面——帽不只落在体侧）', async () => {
+    const f = fakeFetch(() => ({ status: 200, body: tagsBody('1.0.0') }));
+    await fetchDistTags('https://r.example.com', { fetchImpl: f });
+    expect(f.calls).toHaveLength(1);
+    // init 契约锁：GET 只读 + AbortSignal 在场（5s 帽的承载形——变异冒烟位：
+    // 删 signal 后本锁必红）
+    const init = f.inits[0];
+    expect(init?.method).toBe('GET');
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(init?.body).toBeUndefined();
+  });
+
+  it('无 content-length 头 + 读回体越 64KiB 帽 → failed（读回复验腿）', async () => {
+    // 头缺席形（chunked 传输常态）——读回长度复验是唯一防线
+    const huge = fakeFetch(() => ({ status: 200, body: 'x'.repeat(UPDATE_CHECK_MAX_BYTES + 1) }));
+    const result = await fetchDistTags('https://r.example.com', { fetchImpl: huge });
+    expect(result).toMatchObject({ kind: 'failed' });
+    expect(result.kind === 'failed' && result.message).toContain('越体帽');
+  });
+
   it('网络错/超时 → failed 静默形（不 throw）', async () => {
     const dead = fakeFetch(() => new Error('fetch failed'));
     expect(await fetchDistTags('https://r.example.com', { fetchImpl: dead })).toMatchObject({ kind: 'failed' });
@@ -287,6 +310,33 @@ describe('runManualUpdateCheck（手动通道——恒走网络 + 写回缓存�
       latest: '0.1.0-alpha.5',
       notifiedVersion: '0.1.0-alpha.5',
     });
+  });
+
+  it('坏形覆写拒：新查值非 semver 而缓存值有效 → 保缓存值（只前进律对坏形同辖）', async () => {
+    // registry 坏响应形（latest 非空字符串即过 fetchDistTags 校验——坏形可达
+    // 写回位）：有效缓存 latest 不得被坏形覆写，否则后续低版本有效值再写回
+    // 即吞掉更高缓存值（只前进律被穿透）
+    const fs = memoryFs();
+    writeUpdateCheckState(fs, '/data', { lastCheckedAt: 1, latest: '0.1.0-alpha.5', notifiedVersion: null });
+    const bad = fakeFetch(() => ({ status: 200, body: tagsBody('garbage-not-semver') }));
+    const result = await runManualUpdateCheck(baseDeps(fs, bad));
+    // 回执照实呈报（调用方消费 fetched 值——坏形交由 TARGET_RE/判序各自拒）
+    expect(result).toEqual({ kind: 'ok', latest: 'garbage-not-semver', registryFallback: false });
+    // 写回防御位：缓存有效 latest 保住，lastCheckedAt 照前进
+    expect(readUpdateCheckState(fs, '/data')).toEqual({
+      lastCheckedAt: 1000,
+      latest: '0.1.0-alpha.5',
+      notifiedVersion: null,
+    });
+  });
+
+  it('缓存值本坏形 → 新查有效值照写（自愈形——prior 无效不构成保护位）', async () => {
+    // 旧版写下的坏 latest：新查有效值必须能覆写（防御位不得把坏值钉死）
+    const fs = memoryFs();
+    writeUpdateCheckState(fs, '/data', { lastCheckedAt: 1, latest: 'garbage-old', notifiedVersion: null });
+    const healed = fakeFetch(() => ({ status: 200, body: tagsBody('0.1.0-alpha.4') }));
+    await runManualUpdateCheck(baseDeps(fs, healed));
+    expect(readUpdateCheckState(fs, '/data')).toMatchObject({ latest: '0.1.0-alpha.4' });
   });
 
   it('失败不写缓存（网络瞬断不钉 24h 窗）+ 404 单列', async () => {
@@ -468,8 +518,6 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
 
   it('registry 解析失败回退官方源注记在案', async () => {
     const { deps, out } = cliDeps({});
-    // spawn 报错 → resolveRegistryRoot 回退官方源；fetch 照答
-    (deps.spawn as unknown as { calls: string[] }).calls.length = 0;
     const broken = fakeSpawn(new Error('no npm'));
     const code = await runUpgradeCommand({ ...deps, spawn: broken });
     expect(code).toBe(0);

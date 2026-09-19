@@ -49,6 +49,13 @@ export const UPDATE_CHECK_MAX_BYTES = 64 * 1024;
 /** 官方 registry 根（`npm config get registry` 解析失败的回退腿） */
 export const OFFICIAL_REGISTRY_ROOT = 'https://registry.npmjs.org';
 
+/**
+ * registry 解析失败回退官方源的注记文案（CLI `berry upgrade` 与 TUI `/upgrade`
+ * 两消费面单源——§8.5 两腿同源律的呈报位：镜像/私服形态下判版本的诚实披露，
+ * 不静默吞）。
+ */
+export const REGISTRY_FALLBACK_NOTE = '（注：npm config get registry 解析失败——已回退官方源 registry.npmjs.org）';
+
 /** 包名（对外声明值位——package.json name 同源；代码标识符不携品牌词） */
 const PACKAGE_NAME = 'berry-agent';
 
@@ -320,11 +327,19 @@ export type ManualCheckResult =
  * 写回合并律（§8.5 第 6 条「只前进」）：`lastCheckedAt` 取新查值；
  * `latest` 不回退——新查值比缓存值**低**（多窗并发下旧窗慢回执晚到的形）
  * 即弃新值保缓存值；`notifiedVersion` 恒保留缓存值（手动查看不动去重位）。
+ * 坏形覆写防御位（第十役 C7）：新查值非 semver 而**缓存值有效** → 同弃新值
+ * 保缓存值（registry 坏响应的 latest 是非空串即过读腿校验、可达写回位——
+ * 坏值入缓存后，后续低版本有效值因判序 null 穿透只前进律、吞掉更高缓存值）；
+ * 缓存值本坏/缺席时新值照写——防御位不得把坏值钉死（自愈形）。
  */
 function mergeStateForward(prior: UpdateCheckState | null, fetchedLatest: string, checkedAt: number): UpdateCheckState {
   if (prior !== null) {
     const cmp = compareSemverFull(fetchedLatest, prior.latest);
     if (cmp !== null && cmp < 0) {
+      return { lastCheckedAt: checkedAt, latest: prior.latest, notifiedVersion: prior.notifiedVersion };
+    }
+    // 新查值不可解析（cmp null）而缓存值可解析 → 保缓存值（坏形不覆写有效值）
+    if (cmp === null && parseSemver(prior.latest) !== null) {
       return { lastCheckedAt: checkedAt, latest: prior.latest, notifiedVersion: prior.notifiedVersion };
     }
   }
@@ -465,7 +480,7 @@ export async function runUpgradeCommand(deps: UpgradeCliDeps): Promise<number> {
     return 1;
   }
   if (check.registryFallback) {
-    deps.writeOut('（注：npm config get registry 解析失败——已回退官方源 registry.npmjs.org）');
+    deps.writeOut(REGISTRY_FALLBACK_NOTE);
   }
 
   // **白名单闸（契约级）**：目标版本进 spawn 插值位前必须过 semver 形状

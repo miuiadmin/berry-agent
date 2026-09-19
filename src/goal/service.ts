@@ -542,7 +542,13 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       }
       dao.update(goalId, { status: 'completed', endedAt: now(), endingNote: evidence }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
-      await jobsFace?.disable(goalId); // 终态同笔停摆（行留史）
+      // 终态同笔停摆（行留史）——防御吞（第三腿同律：迁移已落库，停摆腿炸
+      // 不回滚终态不阻第三腿，warn 留痕人工收口）
+      try {
+        await jobsFace?.disable(goalId);
+      } catch (error) {
+        warn(`goal 终态停摆失败（防御吞——迁移已落库）：${error instanceof Error ? error.message : String(error)}`);
+      }
       notifyTerminal(goalId); // 第三腿（06 §4——任务边界即拍一轮周期 review，fire-and-forget）
       return dao.get(goalId)!;
     },
@@ -555,7 +561,12 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       }
       dao.update(goalId, { status: 'abandoned', endedAt: now(), endingNote: reason ?? 'abandoned' }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
-      await jobsFace?.disable(goalId);
+      // 终态同笔停摆——防御吞（complete 同律：迁移已落库，停摆腿炸不回滚终态）
+      try {
+        await jobsFace?.disable(goalId);
+      } catch (error) {
+        warn(`goal 终态停摆失败（防御吞——迁移已落库）：${error instanceof Error ? error.message : String(error)}`);
+      }
       notifyTerminal(goalId); // 第三腿（06 §4——失败/放弃边界同拍，failure 候选审阅窗由此入）
       return dao.get(goalId)!;
     },

@@ -258,6 +258,55 @@ describe('complete（完成否决律机器面）', () => {
     expect(calls).toContain(`disable:${goal.id}`);
     expect(service.activeFor('s1')).toBeUndefined();
   });
+
+  it('终态停摆腿炸（disable 抛）→ 迁移已落库不回滚、第三腿照拍（防御吞——迁移已落库，报错即假错）', async () => {
+    // 06 §4 第三腿同律：终态迁移先落库，jobs 停摆腿属 fire-and-forget 附带
+    // 面——炸了吞 warn 不回滚终态、不阻 onTerminal（修前红：disable 抛穿透
+    // → complete 整体 reject，终态已落库却报错）
+    const { service, session, calls } = openService({
+      statMap: { '/ws/out.txt': { exists: true, size: 10 } },
+      onTerminal: (g) => calls.push(`terminal:${g.id}`),
+    });
+    const throwing: GoalJobsFace = {
+      async register() {
+        return { ok: true, message: 'ok' };
+      },
+      async disable() {
+        throw new Error('scheduler 炸了');
+      },
+      async enable() {},
+      async remove() {},
+    };
+    await service.attachGoalJobsFace(throwing);
+    const goal = await service.activate({ sessionId: 's1', objective: '写文档', schedule: 'every:10m' });
+    session.push('s1', 'todo/write', {
+      items: [
+        { status: 'completed', content: '产出文档', noFollowUp: true, gate: { kind: 'files', paths: ['out.txt'] } },
+      ],
+    });
+    const done = await service.complete(goal.id, 'docs/out.txt 已产出');
+    expect(done).toMatchObject({ status: 'completed' }); // 终态不回滚
+    expect(calls).toContain(`terminal:${goal.id}`); // 第三腿照拍（防御吞不吞第三腿）
+  });
+
+  it('abandon 同律：disable 抛防御吞、终态照落（两终态动词对称）', async () => {
+    const { service, calls } = openService({ onTerminal: (g) => calls.push(`terminal:${g.id}`) });
+    const throwing: GoalJobsFace = {
+      async register() {
+        return { ok: true, message: 'ok' };
+      },
+      async disable() {
+        throw new Error('scheduler 炸了');
+      },
+      async enable() {},
+      async remove() {},
+    };
+    await service.attachGoalJobsFace(throwing);
+    const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
+    const done = await service.abandon(goal.id, '收工');
+    expect(done).toMatchObject({ status: 'abandoned' });
+    expect(calls).toContain(`terminal:${goal.id}`);
+  });
 });
 
 describe('终态触发回调 onTerminal（五篇研究批 A——06 §4 周期路第三腿）', () => {

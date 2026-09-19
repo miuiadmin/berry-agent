@@ -853,6 +853,8 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
   async function rigUpdateEntry(
     dataDir: string,
     startupUpdateCheck: Parameters<typeof runTuiEntry>[0]['startupUpdateCheck'],
+    manualUpdateCheck?: Parameters<typeof runTuiEntry>[0]['manualUpdateCheck'],
+    version = 'test', // 判序腿要 semver 形版本时覆写（'test' 非 semver → 恒「已是最新」支）
   ) {
     const faux = fauxProvider({ provider: 'faux-upd', models: [{ id: 'm1' }] });
     const io = new FakeTerminalIO();
@@ -860,12 +862,15 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
       flags: { noPlugins: false, debug: false },
       io,
       cwd: rigDir('entry-upd-ws-'),
-      version: 'test',
+      version,
       dataDir,
       providers: [faux.provider],
       model: 'faux-upd/m1',
       env: {}, // 注桩腿不读 env——关断键不设（桩即真腿，别处关断形已有专测）
       startupUpdateCheck,
+      // 注入面缺省即真腿（?? 语义）——未注桩时不得传 undefined 键（显式
+      // undefined 同缺席，但条件展开零键更诚实：读 options 即知桩形）
+      ...(manualUpdateCheck !== undefined ? { manualUpdateCheck } : {}),
     });
     await io.ready();
     return { entry, io };
@@ -880,6 +885,9 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
       alreadyNotified: false,
     }));
     await until(() => io.output.includes('新版本 9.9.9 可用——/upgrade 查看详情'));
+    // 提示形完整句锁（§8.5 第 6 条）：notify 一行含指路与升级动作——
+    // 用户不看 /upgrade 也知道下一步
+    expect(io.output).toContain('退出后执行 berry upgrade');
     io.send('\x04');
     expect(await entry).toBe(0);
     // 落账走真实 fs 面（temp dataDir）：notifiedVersion = 提示过的那版
@@ -916,5 +924,37 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     expect(await entry).toBe(0);
     // 失败不落账（update-check.json 缺席——下次启动照查不被钉窗）
     expect(existsSync(join(dataDir, 'update-check.json'))).toBe(false);
+  });
+
+  it('/upgrade 薄壳：检查回执 + registryFallback 注记在场（回退官方源不静默吞——CLI 腿同句单源）', async () => {
+    const dataDir = rigDir('entry-upgrade-fb-');
+    const { entry, io } = await rigUpdateEntry(
+      dataDir,
+      async () => ({ kind: 'skipped' as const, reason: 'env-off' as const }),
+      async () => ({ kind: 'ok' as const, latest: '9.9.9', registryFallback: true }),
+      '0.1.0', // semver 版本——判序走「新版本」支（指引文案同锁）
+    );
+    io.send('/upgrade\r');
+    await until(() => io.output.includes('新版本 9.9.9'));
+    expect(io.output).toContain('退出后执行 berry upgrade'); // 指引支文案
+    // 回退官方源注记跟着回执走（注记单源在 upgrade.ts 常量——两腿同源律呈报位）
+    await until(() => io.output.includes('回退官方源'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('/upgrade 薄壳：已是最新如实说 + fallback 缺席零注记（两向锁）', async () => {
+    const dataDir = rigDir('entry-upgrade-ok-');
+    const { entry, io } = await rigUpdateEntry(
+      dataDir,
+      async () => ({ kind: 'skipped' as const, reason: 'env-off' as const }),
+      async () => ({ kind: 'ok' as const, latest: '0.1.0', registryFallback: false }),
+    );
+    io.send('/upgrade\r');
+    await until(() => io.output.includes('已是最新'));
+    expect(io.output).toContain('远端 latest 0.1.0');
+    expect(io.output).not.toContain('回退官方源'); // fallback 缺席不虚报注记
+    io.send('\x04');
+    expect(await entry).toBe(0);
   });
 });

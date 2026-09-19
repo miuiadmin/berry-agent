@@ -157,6 +157,19 @@ function readSdkReadmeText(pkgRoot) {
   return readFileSync(join(pkgRoot, 'README.md'), 'utf8');
 }
 
+/** 主包 README 语言变体族逐件读面（版本一致性断言输入——[件名, 文本] 对） */
+function readMainReadmeVariants(pkgRoot) {
+  return readdirSync(pkgRoot)
+    .filter((f) => /^README.*\.md$/.test(f))
+    .sort()
+    .map((f) => [f, readFileSync(join(pkgRoot, f), 'utf8')]);
+}
+
+/** SDK 包 README 单件变体（无语言变体族——差分①同源） */
+function readSdkReadmeVariants(pkgRoot) {
+  return [['README.md', readSdkReadmeText(pkgRoot)]];
+}
+
 /**
  * 包描述符单源表（--package 词面全集；07 §8.3 双包发布道定形块）。
  * tagPrefix 两包分立：主包 v<version> / SDK sdk-v<version>（版本号独立演进，
@@ -186,6 +199,7 @@ export const PACKAGES = {
     treeStrip: ['dist/.build-meta.json', 'dist/.api-emit.stamp'],
     buildScript: 'build',
     readmeText: readMainReadmeText,
+    readmeVariants: readMainReadmeVariants,
     smoke: async (tarballPath, version) => runSmoke(tarballPath, version, await loadCoreIds()),
   },
   sdk: {
@@ -200,6 +214,7 @@ export const PACKAGES = {
     treeStrip: [],
     buildScript: 'build:sdk',
     readmeText: readSdkReadmeText,
+    readmeVariants: readSdkReadmeVariants,
     smoke: async (tarballPath, version) => runSmokeSdk(tarballPath, version, await loadProtocolVersion()),
   },
 };
@@ -307,10 +322,55 @@ export async function judgeDistTagWithPropagationRetry(seams, judge, logLine) {
   return verdict;
 }
 
+/**
+ * 触发腿收口复探读回带传播窗重试（07 §8.3 契约 5 2026-09-19 收口复探补笔
+ * ——四读回位的第四读位）：CI publish 收执后本机复探同一 registry 读面、
+ * 同吃 replica 滞后，单次即时读回撞假红（CI 绿却报「复探非在场」）。与
+ * 契约 5 复读差异：**只 absent（E404）复读**——E404 是「publish 收执但
+ * replica 未追上」的可自愈形；fatal（网络/registry 错）非自愈形即时红不
+ * 空转窗。sleep 注入缝同 tag 复读：测试形缺席/即时，realSeams 真睡。
+ */
+export async function judgeProbeWithPropagationRetry(seams, version, logLine) {
+  const sleep = seams.sleep ?? (() => Promise.resolve());
+  const retries = seams.tagPropagationRetries ?? TAG_PROPAGATION_RETRIES;
+  const delayMs = seams.tagPropagationDelayMs ?? TAG_PROPAGATION_DELAY_MS;
+  let verdict = judgeRegistryProbe(seams.probe(version));
+  for (let attempt = 1; verdict.state === 'absent' && attempt <= retries; attempt++) {
+    logLine(
+      `[触发腿] 收口复探传播窗复读（${attempt}/${retries}，隔 ${delayMs}ms——CI publish 收执后读 replica 滞后实测 3-7 分钟，缺席可自愈）`,
+    );
+    await sleep(delayMs);
+    verdict = judgeRegistryProbe(seams.probe(version));
+  }
+  return verdict;
+}
+
 /** 契约 4 真发前 README 占位符检查（仓转公开日回填前禁发；dry-run 不拦） */
 export function judgeReadme(text) {
   const hits = (text.match(/^.*(PLACEHOLDER|安装占位|<!--\s*placeholder).*$/gim) ?? []).length;
   return { ok: hits === 0, hits };
+}
+
+/** 反引号 semver 形 token（README 状态行版本位——`\`0.1.0-alpha.4\`` 形） */
+const README_BACKTICK_SEMVER_RE = /`(\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*[0-9A-Za-z])?)`/g;
+
+/**
+ * 契约 4 README 状态行版本一致性断言（07 §8.3 契约 4 2026-09-19 版本一致性
+ * 补笔）：全语言族逐件判——各件内反引号 semver token 必恰等于本次发版
+ * version，任一件陈化即禁发（README 系 npm always-included 族随包走、
+ * registry 不可重写同版本——陈化即已发产物永久自述旧版，alpha.4 实发案例
+ * 在案〔npm view berry-agent@0.1.0-alpha.4 readme 实证〕）。无 token 形
+ * 不判违——禁发判据只收「在场且陈化」（六件状态行 token 是各件内唯一的
+ * 反引号 semver 位，词法锁面即状态行）。
+ */
+export function judgeReadmeStatusVersions(variants, version) {
+  const violations = [];
+  for (const [name, text] of variants) {
+    for (const m of text.matchAll(README_BACKTICK_SEMVER_RE)) {
+      if (m[1] !== version) violations.push(`${name}：\`${m[1]}\` ≠ ${version}`);
+    }
+  }
+  return { ok: violations.length === 0, violations };
 }
 
 /**
@@ -705,6 +765,17 @@ export async function runRelease(seams, opts) {
       log('[触发腿] 拒：发布物 README 含安装占位符——交棒前预检拦（仓转公开日回填前禁发）');
       return { code: 1, report };
     }
+    // 版本一致性门（契约 4 版本一致性补笔——占位符门同位同宽）：变体族经缝
+    // 面（seams.readmeVariants 缺席回落单件 readmeText——测试假缝零 token
+    // 恒过），任一件状态行陈化即拦在交棒前
+    const variants = seams.readmeVariants ? seams.readmeVariants() : [['README.md', seams.readmeText()]];
+    const readmeVersions = judgeReadmeStatusVersions(variants, version);
+    if (!readmeVersions.ok) {
+      log(
+        `[触发腿] 拒：README 状态行版本陈化（${readmeVersions.violations.join('；')}）——版本切批须同步六语公开面（registry 不可重写，陈化即已发物永久自述旧版）`,
+      );
+      return { code: 1, report };
+    }
     // 幂等判定：registry 已在场且等价 → 已发过，跳过交棒直收口（重跑幂等律）
     let skipHandoff = false;
     if (probe.state === 'present') {
@@ -765,8 +836,10 @@ export async function runRelease(seams, opts) {
       }
       log(`[触发腿] CI 绿：${ci.runUrl}`);
     }
-    // 收口：registry 复探（CI 的 publish 单点已上传）——缺席即异常态响亮拒
-    const reprobe = judgeRegistryProbe(seams.probe(version));
+    // 收口：registry 复探（CI 的 publish 单点已上传）——传播窗复读形（第四读
+    // 位：absent-only 复读——CI publish 收执后 replica 滞后可致 E404 假缺席，
+    // 12×30s 窗内缺席自愈；窗尽仍缺席即异常态响亮拒）
+    const reprobe = await judgeProbeWithPropagationRetry(seams, version, log);
     if (reprobe.state !== 'present') {
       log(
         `[触发腿] 拒：CI 绿但 registry 复探非在场（${reprobe.state === 'absent' ? 'E404 缺席' : reprobe.reason}）——异常态，人工核 CI 日志与 registry`,
@@ -839,6 +912,16 @@ export async function runRelease(seams, opts) {
       const readmeVerdict = judgeReadme(seams.readmeText());
       if (!readmeVerdict.ok) {
         log('[契约4] 拒：发布物 README 含安装占位符——仓转公开日回填前禁发');
+        return { code: 1, report };
+      }
+      // 版本一致性门（占位符门同位同宽——dry-run 不拦同款；SDK 单件/主包
+      // 六件经缝面逐件判）
+      const variants = seams.readmeVariants ? seams.readmeVariants() : [['README.md', seams.readmeText()]];
+      const readmeVersions = judgeReadmeStatusVersions(variants, version);
+      if (!readmeVersions.ok) {
+        log(
+          `[契约4] 拒：README 状态行版本陈化（${readmeVersions.violations.join('；')}）——版本切批须同步六语公开面（registry 不可重写，陈化即已发物永久自述旧版）`,
+        );
         return { code: 1, report };
       }
     }
@@ -1143,6 +1226,7 @@ export function realSeams(pkgKey = 'main') {
     // 契约 4 读面随描述符（主包 = 根 README 全语言族 glob 拼合 / SDK = 包目录
     // 单件——读面语义与来龙去脉见 readMainReadmeText / readSdkReadmeText 注）
     readmeText: () => pkg.readmeText(pkgRoot),
+    readmeVariants: () => pkg.readmeVariants(pkgRoot),
     // 冒烟形随描述符（主包 CLI 形 / SDK import 形——deps 懒装载见描述符 smoke 注）
     smoke: (tarballPath) => pkg.smoke(tarballPath, version),
     // 纪元彩排读面（W8 纪元彩排批）：提交位 API 面快照 + 查 9 归档族——两读

@@ -14,7 +14,9 @@ import {
   judgeDistTagWithPropagationRetry,
   judgeEpochIgnitionDrill,
   judgePackList,
+  judgeProbeWithPropagationRetry,
   judgeReadme,
+  judgeReadmeStatusVersions,
   judgeRegistryProbe,
   judgeTarballTrees,
   parseReleaseArgs,
@@ -363,6 +365,34 @@ describe('judgeReadme / isPrerelease', () => {
   });
 });
 
+describe('judgeReadmeStatusVersions（契约 4 版本一致性断言——2026-09-19 版本一致性补笔）', () => {
+  it('全件 token 恰等于发版 version → 过', () => {
+    const variants = [
+      ['README.md', '> Status: `0.1.0-alpha.4` — contract-first'],
+      ['README.zh.md', '> 状态：`0.1.0-alpha.4`——契约先行'],
+      ['README.ko.md', '> 상태: `0.1.0-alpha.4` — 계약 선행'],
+    ];
+    expect(judgeReadmeStatusVersions(variants, '0.1.0-alpha.4')).toEqual({ ok: true, violations: [] });
+  });
+
+  it('任一件陈化 → 拒且指名件名与两版本（六语逐件判）', () => {
+    const variants = [
+      ['README.md', '> Status: `0.1.0-alpha.4` — x'],
+      ['README.zh.md', '> 状态：`0.1.0-alpha.3`——x'],
+    ];
+    const verdict = judgeReadmeStatusVersions(variants, '0.1.0-alpha.4');
+    expect(verdict.ok).toBe(false);
+    expect(verdict.violations).toEqual(['README.zh.md：`0.1.0-alpha.3` ≠ 0.1.0-alpha.4']);
+  });
+
+  it('无 token 形不判违（禁发判据只收「在场且陈化」——假缝零 token 恒过）', () => {
+    expect(judgeReadmeStatusVersions([['README.md', '# plain']], '0.1.0-alpha.4')).toEqual({
+      ok: true,
+      violations: [],
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // argv 解析（用法错三档）
 // ---------------------------------------------------------------------------
@@ -576,6 +606,15 @@ describe('runRelease 令牌腿真发（--local-publish 应急形 / SDK 常轨—
     expect(s.calls.distTagAdd).toEqual([]);
     expect(s.calls.gitTagCreate).toEqual(['v1.0.0']);
   });
+
+  it('README 状态行版本陈化在真发前拦（契约 4 版本门——占位符门同位同宽，dry-run 不拦同款）', async () => {
+    const s = fakeSeams({ readmeVariants: () => [['README.md', '> Status: `0.8.0` — x']] });
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { localPublish: true });
+    expect(r.code).toBe(1);
+    const text = r.report.join('\n');
+    expect(text).toContain('版本陈化');
+    expect(s.calls.publish).toEqual([]); // 上传单点未触
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -708,11 +747,13 @@ describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
 // ---------------------------------------------------------------------------
 
 describe('描述符参数化收口（冒烟形 + build 链 + readme 读面入表）', () => {
-  it('描述符静态断言：buildScript 两包分立、readmeText/smoke 皆函数入表', () => {
+  it('描述符静态断言：buildScript 两包分立、readmeText/readmeVariants/smoke 皆函数入表', () => {
     expect(PACKAGES.main.buildScript).toBe('build');
     expect(PACKAGES.sdk.buildScript).toBe('build:sdk');
     expect(PACKAGES.main.readmeText).toBeInstanceOf(Function);
     expect(PACKAGES.sdk.readmeText).toBeInstanceOf(Function);
+    expect(PACKAGES.main.readmeVariants).toBeInstanceOf(Function);
+    expect(PACKAGES.sdk.readmeVariants).toBeInstanceOf(Function);
     expect(PACKAGES.main.smoke).toBeInstanceOf(Function);
     expect(PACKAGES.sdk.smoke).toBeInstanceOf(Function);
   });
@@ -740,6 +781,13 @@ describe('描述符参数化收口（冒烟形 + build 链 + readme 读面入表
     );
     const sdkRoot = join(repoRoot, 'packages', 'berry-agent-sdk');
     expect(PACKAGES.sdk.readmeText(sdkRoot)).toBe(readFileSync(join(sdkRoot, 'README.md'), 'utf8'));
+    // 变体族读面同源对拍（版本一致性门输入——件名/文本对恰收全族，排序同 glob 律）
+    expect(PACKAGES.main.readmeVariants(repoRoot)).toEqual(
+      readmes.map((f) => [f, readFileSync(join(repoRoot, f), 'utf8')]),
+    );
+    expect(PACKAGES.sdk.readmeVariants(sdkRoot)).toEqual([
+      ['README.md', readFileSync(join(sdkRoot, 'README.md'), 'utf8')],
+    ]);
   });
 });
 
@@ -978,6 +1026,29 @@ describe('runRelease 触发腿（主包缺省形——交棒/轮询/收口/挪�
     expect(s.calls.ciWait).toEqual([]);
   });
 
+  it('README 状态行版本陈化在交棒前拦（版本一致性门——占位符门同位同宽）', async () => {
+    // alpha.4 实发案例回归锁：README 六语状态行未随版本切批同步，发布物
+    // 永久自述旧版（registry 不可重写）——交棒前机器门承接同步义务
+    const s = triggerSeams({ readmeVariants: () => [['README.zh.md', '> 状态：`0.1.0-alpha.3`——x']] });
+    const r = await run(s, '0.1.0-alpha.9', false);
+    expect(r.code).toBe(1);
+    const text = r.report.join('\n');
+    expect(text).toContain('版本陈化');
+    expect(text).toContain('README.zh.md');
+    expect(s.calls.gitTagCreate).toEqual([]); // 拦在交棒前
+  });
+
+  it('README 状态行 token 恰等于发版 version → 门过（全族同版形全绿收口）', async () => {
+    const s = triggerSeams({
+      readmeVariants: () => [
+        ['README.md', '> Status: `0.1.0-alpha.1`'],
+        ['README.zh.md', '> 状态：`0.1.0-alpha.1`'],
+      ],
+    });
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(0);
+  });
+
   it('谱项 ci:fail → 响亮拒附 run URL + 恢复手续指路（交棒已成——失败在 CI 段）', async () => {
     const s = INJECT_SPECTRUM['ci:fail'].patch(triggerSeams());
     const r = await run(s, '0.1.0-alpha.1', false);
@@ -1002,6 +1073,47 @@ describe('runRelease 触发腿（主包缺省形——交棒/轮询/收口/挪�
     const r = await run(s, '0.1.0-alpha.1', false);
     expect(r.code).toBe(1);
     expect(r.report.join('\n')).toContain('复探非在场');
+    // 传播窗复读先于终态红（第四读位——窗尽才红，非首读即红）
+    expect(r.report.join('\n')).toContain('收口复探传播窗复读');
+  });
+
+  it('收口复探传播窗：E404 后 late-present 自愈（第四读位缺席复读形——CI 收执后 replica 滞后）', async () => {
+    const answers = [
+      { status: 1, stdout: '', stderr: 'npm error code E404' }, // 契约 2 探测（缺席=正常发）
+      { status: 1, stdout: '', stderr: 'npm error code E404' }, // 收口复探第 1 读（滞后假缺席）
+      { status: 0, stdout: '"3333333333333333333333333333333333333333"\n', stderr: '' }, // 复读第 2 读在场
+    ];
+    let n = 0;
+    const sleeps = [];
+    const s = triggerSeams({
+      probe: () => answers[Math.min(n++, 2)],
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(0); // 修前红：单次即时读回即「复探非在场」拒
+    expect(r.report.join('\n')).toContain('收口复探传播窗复读');
+    expect(sleeps).toHaveLength(1); // 缺席恰复读一次即自愈（present 即停）
+  });
+
+  it('收口复探 fatal（网络错）即时红——非自愈形不空转传播窗', async () => {
+    const answers = [
+      { status: 1, stdout: '', stderr: 'npm error code E404' }, // 契约 2
+      { status: 1, stdout: '', stderr: 'npm error code ECONNRESET' }, // 复探 fatal
+    ];
+    let n = 0;
+    let slept = 0;
+    const s = triggerSeams({
+      probe: () => answers[Math.min(n++, 1)],
+      sleep: async () => {
+        slept += 1;
+      },
+    });
+    const r = await run(s, '0.1.0-alpha.1', false);
+    expect(r.code).toBe(1);
+    expect(r.report.join('\n')).toContain('复探非在场');
+    expect(slept).toBe(0); // absent-only 复读——fatal 零复读零空转
   });
 });
 
