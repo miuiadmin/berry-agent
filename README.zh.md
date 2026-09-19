@@ -62,6 +62,13 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent
 sh install.sh
 ```
 
+npm 打出 `added N packages` 即安装成功——用 `berry --version` 验证（回显已装
+版本）。过程中出现的黄色 `npm warn` 是生态级提醒而非报错：一是 npm 的安装脚本
+审批策略，二是模型供应商依赖链深处久已废弃的包（如 `node-domexception`）。
+berry-agent 自身零安装脚本（SQLite 绑定为预编译产物，无需编译），用更严格的
+`npm install -g --ignore-scripts berry-agent` 安装行为完全一致，并可消掉脚本
+审批提醒。
+
 装好后的命令是 **`berry`**：
 
 ```bash

@@ -64,6 +64,15 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent
 sh install.sh
 ```
 
+npm이 `added N packages`를 출력하면 설치 성공입니다 — `berry --version`
+(설치된 버전 출력)으로 확인하세요. 설치 과정의 노란색 `npm warn`은 에러가
+아닌 생태계 전반의 권고입니다: npm의 설치 스크립트 승인 정책, 그리고 모델
+공급자 의존성 체인 깊은 곳의 오래전 폐기된 패키지(예: `node-domexception`).
+berry-agent 자체는 설치 스크립트가 전혀 없습니다(SQLite 바인딩은 사전
+빌드됨 — 컴파일 없음). 따라서 더 엄격한
+`npm install -g --ignore-scripts berry-agent`로 설치해도 동작이 완전히
+동일하며 스크립트 승인 경고가 사라집니다.
+
 설치 후 명령어는 **`berry`**입니다:
 
 ```bash

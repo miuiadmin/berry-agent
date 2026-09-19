@@ -41,6 +41,7 @@ export default defineConfig({
             'tools/check-mock-targets.test.mjs',
             'tools/check-topology.test.mjs',
             'tools/check-vocab.test.mjs',
+            'tools/install-scripts.test.mjs',
             'tools/release.test.mjs',
             'tools/soak-verdict.test.mjs',
           ],

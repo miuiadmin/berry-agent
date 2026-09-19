@@ -64,6 +64,15 @@ curl -fsSL -o install.sh https://raw.githubusercontent.com/miuiadmin/berry-agent
 sh install.sh
 ```
 
+The install succeeded when npm prints `added N packages` — verify with
+`berry --version` (it prints the installed version). Yellow `npm warn` lines
+along the way are ecosystem-wide advisories, not errors: npm's install-script
+approval policy, and packages deprecated long ago deep in the model-provider
+dependency chain (e.g. `node-domexception`). berry-agent itself ships zero
+install scripts (the SQLite binding is prebuilt — nothing compiles), so the
+stricter `npm install -g --ignore-scripts berry-agent` behaves identically and
+silences the script-policy warnings.
+
 Once installed, the command is **`berry`**:
 
 ```bash

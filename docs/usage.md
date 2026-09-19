@@ -26,6 +26,12 @@ sh install.sh
 npm install -g berry-agent
 ```
 
+npm 打出 `added N packages` 即安装成功，`berry --version` 可验证（回显已装
+版本）。过程中若出现黄色 `npm warn`（安装脚本审批策略、依赖链深处久已废弃的
+包如 `node-domexception`），属生态级提醒而非报错，不影响安装结果。berry-agent
+自身零安装脚本，`npm install -g --ignore-scripts berry-agent` 行为完全一致，
+且可消掉脚本审批提醒（CI 有回归锁钉住「依赖树零功能安装脚本」这一前提）。
+
 **路三：源码构建**：
 
 ```bash
