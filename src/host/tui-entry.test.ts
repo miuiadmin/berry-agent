@@ -957,4 +957,22 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     io.send('\x04');
     expect(await entry).toBe(0);
   });
+
+  it('/upgrade 薄壳：latest 非 semver 形诚实拒——白名单门先于判序不落「已是最新」诚实谎（第十一役 D——修前红：坏串直达判序 cmp null 落已是最新支）', async () => {
+    const dataDir = rigDir('entry-upgrade-bad-');
+    const { entry, io } = await rigUpdateEntry(
+      dataDir,
+      async () => ({ kind: 'skipped' as const, reason: 'env-off' as const }),
+      async () => ({ kind: 'ok' as const, latest: 'v99.0.0-beta+meta', registryFallback: false }),
+    );
+    io.send('/upgrade\r');
+    // 诚实拒支：非 semver latest 是坏应答不是「无更新」——修前 cmp null 落
+    // else 支报「已是最新」（诚实谎——与启动腿 upgrade.ts TARGET_RE 白名单
+    // 门同律：白名单先于判序，非 semver latest「已是最新」判据不成立）
+    await until(() => io.output.includes('版本检查失败'));
+    expect(io.output).toContain('非 semver');
+    expect(io.output).not.toContain('已是最新');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
 });

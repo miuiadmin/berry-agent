@@ -64,6 +64,7 @@ import {
   REGISTRY_FALLBACK_NOTE,
   runManualUpdateCheck,
   runStartupUpdateCheck,
+  TARGET_RE,
   type ManualCheckResult,
   type StartupCheckDecision,
   type UpdateCheckDeps,
@@ -692,6 +693,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       })
         .then((result) => {
           if (result.kind === 'ok') {
+            // 白名单门先于判序（第十一役 D——与启动腿 upgrade.ts 同律）：非
+            // semver latest 是坏应答不是「无更新」，cmp null 落「已是最新」
+            // 是诚实谎；诚实拒走 warn 支
+            if (!TARGET_RE.test(result.latest)) {
+              backend.notify(`版本检查失败：远端 latest「${result.latest}」非 semver 形（registry 坏应答）`, {
+                level: 'warn',
+              });
+              return;
+            }
             const cmp = compareSemverFull(result.latest, options.version ?? '0.0.0');
             if (cmp !== null && cmp > 0) {
               backend.notify(
@@ -717,7 +727,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     };
 
     // —— /guide 常驻快速上手参考（07 §8.5 第 2 条）：版本 + 核心命令清单 +
-    // 文档地图 + 升级/卸载一句——段集文案单源在本闭包（面板收纯数据行），
+    // 模型配置 + 文档地图 + 升级/卸载一句——段集文案单源在本闭包（面板收纯数据行），
     // 副屏占用时 notify 降级（openStatus 同律）。
     const openGuidePanel = (): void => {
       const ok = backend.openGuide({
@@ -802,7 +812,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       },
       {
         name: 'guide',
-        description: '快速上手参考副屏（版本/核心命令/文档地图/升级与卸载）',
+        description: '快速上手参考副屏（版本/模型配置/核心命令/文档地图/升级与卸载）',
         run: () => openGuidePanel(),
       },
     ] as const;
