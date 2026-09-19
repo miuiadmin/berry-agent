@@ -47,7 +47,7 @@ de montage ; il n'existe aucune voie privée de premier parti.
 | **Agnostique du modèle**                     | Anthropic, OpenAI, Google et d'autres derrière une seule interface. Changez de modèle avec une variable d'environnement, sans toucher au code, sans enfermement.                                                           |
 | **Des sessions fiables**                     | Chaque session vit dans SQLite — fork, resume, search, reindex. Une assertion à l'exécution garantit que ce que le modèle a vu est exactement ce qui a été enregistré.                                                     |
 | **Trois surfaces d'automatisation**          | L'interface terminale pour piloter, l'interface web + HTTP `/v1/*` pour superviser, SDK & MCP pour les programmes — un seul agent, tous les consommateurs.                                                                 |
-| **Zéro télémétrie**                          | Pas de statistiques d'usage, pas de rapports de plantage, pas d'appel de vérification de version. La surface réseau par défaut : les appels de modèle et ce que vous demandez explicitement — rien d'autre.                |
+| **Zéro télémétrie** | Pas de statistiques d’usage, pas de rapports de plantage, zéro octet envoyé. Réseau par défaut : appels de modèle + vos actions explicites + une vérification de version en lecture seule au démarrage interactif du TUI (bridée, désactivable par variable d’environnement) — rien d’autre. |
 
 ## Démarrage rapide
 

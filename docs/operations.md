@@ -138,4 +138,4 @@ berry sessions reindex   # 全量重建即修复
 
 ## 遥测立场
 
-**默认不发任何网络包**——无使用统计、无崩溃上报、无版本检查（不探测新版本）。出厂网络面 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开面 / 插件装机与更新 / upgrade 维护动词），此外零。若未来加任何回传：上线前按四段式模板公告（Why this exists / How it works / What data is collected / How to disable it）；默认值反转视为破坏性变更；disable 通道真实有效（关掉即零网络包，机器可验证）。
+**默认零数据外传（零遥测）**——无使用统计、无崩溃上报。出厂网络面 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开面 / 插件装机与更新 / upgrade 维护动词）+ **TUI 交互启动一次有界只读版本检查**（只读 GET dist-tags、上行零字节、24h 节流、`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即关、headless/daemon 形零 fire——07 §8.5 第 6 条），此外零。若未来加任何回传：上线前按四段式模板公告（Why this exists / How it works / What data is collected / How to disable it）；默认值反转视为破坏性变更；disable 通道真实有效（关掉即零网络包，机器可验证）。

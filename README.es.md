@@ -47,7 +47,7 @@ existe ninguna vía privada de primer partido.
 | **Agnóstico del modelo**                 | Anthropic, OpenAI, Google y más detrás de una sola interfaz. Cambia de modelo con una variable de entorno, sin tocar código, sin encerrarse.                                                                     |
 | **Sesiones de fiar**                     | Cada sesión vive en SQLite — fork, resume, search, reindex. Una aserción en tiempo de ejecución garantiza que lo que el modelo vio es exactamente lo que quedó registrado.                                       |
 | **Tres superficies de automatización**   | La terminal para conducir, la interfaz web + HTTP `/v1/*` para supervisar, SDK y MCP para programas — un solo agente para todo tipo de consumidores.                                                             |
-| **Cero telemetría**                      | Sin estadísticas de uso, sin informes de fallos, sin llamadas de comprobación de versión. La superficie de red por defecto: llamadas al modelo y lo que pidas explícitamente — nada más.                         |
+| **Cero telemetría** | Sin estadísticas de uso, sin informes de fallos, cero bytes enviados. Red por defecto: llamadas al modelo + tus acciones explícitas + una comprobación de versión de solo lectura al inicio interactivo del TUI (acotada, desactivable por variable de entorno) — nada más. |
 
 ## Inicio rápido
 

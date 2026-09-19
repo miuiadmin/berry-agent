@@ -328,6 +328,13 @@ describe('runStartupUpdateCheck（§8.5 第 6 条——启动腿编排）', () =
     expect(fetch.calls).toHaveLength(0);
   });
 
+  it('空串亦是置值（置值即关律——CI/export 形 `VAR=` 不当缺席）', async () => {
+    const { base, fetch } = deps({ env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '' } });
+    const decision = await runStartupUpdateCheck(base);
+    expect(decision).toEqual({ kind: 'skipped', reason: 'env-off' });
+    expect(fetch.calls).toHaveLength(0);
+  });
+
   it('缓存新鲜窗内 cache-fresh 零网络直读缓存', async () => {
     const { base, fetch, fs } = deps({ now: () => 5_000 } as never); // 距缓存 1000 仅 4000ms
     writeUpdateCheckState(fs, '/data', { lastCheckedAt: 1_000, latest: '0.1.0-alpha.5', notifiedVersion: null });

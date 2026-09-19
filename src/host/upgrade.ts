@@ -380,7 +380,9 @@ export type StartupCheckDecision =
 export async function runStartupUpdateCheck(
   deps: UpdateCheckDeps & { readonly env: { readonly [key: string]: string | undefined } },
 ): Promise<StartupCheckDecision> {
-  if (deps.env[SKIP_UPDATE_CHECK_ENV] !== undefined && deps.env[SKIP_UPDATE_CHECK_ENV] !== '') {
+  // 置值即关律（§8.5 第 6 条「关掉即零网络包，机器可验证」）：键在场即关——
+  // 空串亦算置值（CI `VAR=`/export 空值不当缺席），只有未设才走检查
+  if (deps.env[SKIP_UPDATE_CHECK_ENV] !== undefined) {
     return { kind: 'skipped', reason: 'env-off' };
   }
   const prior = readUpdateCheckState(deps.fs, deps.dataDir);

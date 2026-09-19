@@ -46,7 +46,7 @@ the same surface; there is no first-class private lane.
 | **Model-agnostic**              | Anthropic, OpenAI, Google and more behind one interface. Switch with one env var, no code changes, no lock-in.                                                                          |
 | **Sessions you can trust**      | Every session lives in SQLite — fork, resume, search, reindex. A runtime assertion guarantees that what the model saw is exactly what got recorded.                                     |
 | **Three automation surfaces**   | Terminal UI for driving, Web UI + `/v1/*` HTTP for supervising, SDK & MCP for programs — one agent, every kind of consumer.                                                             |
-| **Zero telemetry**              | No usage stats, no crash reports, no phone-home version checks. The default network surface is model calls plus what you explicitly ask for — nothing else.                             |
+| **Zero telemetry** | No usage stats, no crash reports, zero bytes uploaded. Default network = model calls + your explicit actions + one bounded read-only update check on interactive TUI startup (throttled, one env var disables it) — nothing else. |
 
 ## Quickstart
 
