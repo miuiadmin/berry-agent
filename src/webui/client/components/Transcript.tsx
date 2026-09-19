@@ -25,6 +25,10 @@ const MessageView = memo(function MessageView({ message }: { message: ViewMessag
     <div className={message.role === 'user' ? 'ml-16' : 'mr-16'}>
       <div className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">{message.role}</div>
       {body}
+      {/* 错误块（03 §10.4 SPA 呈现面终态条款①——✖ 前缀 + error 语义色，与 TUI 错误块同律） */}
+      {message.error !== undefined ? (
+        <p className="whitespace-pre-wrap text-[13px] leading-6 text-red-400">✖ {message.error}</p>
+      ) : null}
       {message.streaming ? <span className="animate-pulse text-zinc-500">▍</span> : null}
     </div>
   );

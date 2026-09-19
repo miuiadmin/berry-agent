@@ -17,6 +17,11 @@ export interface ViewMessage {
   readonly key: string;
   readonly role: string;
   readonly text: string;
+  /**
+   * 错误块文案（assistant errorMessage 在场时落位——正文列错误块呈现；
+   * 缺席无位。03 §10.4 SPA 呈现面终态条款①：与 TUI 错误块同律跨通道）
+   */
+  readonly error?: string;
   /** 活体流式位（true = 增量未定稿——流式尾巴呈现形） */
   readonly streaming: boolean;
 }
@@ -75,6 +80,15 @@ export function textOf(content: unknown): string {
     }
   }
   return parts.join('');
+}
+
+/** 消息错误位抽取（assistant errorMessage——非串/空串不落位，正文错误块判据） */
+function errorMessageOf(message: unknown): string | undefined {
+  if (typeof message === 'object' && message !== null && 'errorMessage' in message) {
+    const value = (message as { errorMessage: unknown }).errorMessage;
+    if (typeof value === 'string' && value !== '') return value;
+  }
+  return undefined;
 }
 
 /** 消息视图键（时间戳优先——无时间戳形用序发生器兜底） */
@@ -139,10 +153,12 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope): AppState {
         // 落稿替换流式尾巴（同 run 的尾巴被成稿覆盖；无尾巴直插）
         const messages = [...state.messages];
         const last = messages.length > 0 ? messages[messages.length - 1] : undefined;
+        const error = errorMessageOf(payload.message);
         const finalized: ViewMessage = {
           key,
           role: messageRole(payload.message),
           text: textOf(messageContent(payload.message)),
+          ...(error !== undefined ? { error } : {}),
           streaming: false,
         };
         if (last !== undefined && last.streaming) messages[messages.length - 1] = finalized;
@@ -170,7 +186,14 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope): AppState {
           ],
         };
       }
-      if (payload.type === 'agent_end') return { ...state, status: null };
+      if (payload.type === 'agent_end') {
+        // 终态分档（03 §10.4 SPA 呈现面终态条款②——07 §4.1 件 6 跨通道同律）：
+        // failed/aborted 显式呈现不伪装成功；completed/缺席归闲态
+        // （修前不分 status 恒归闲态——失败 run 状态行无痕伪收场）
+        if (payload.status === 'failed') return { ...state, status: '✖ 失败' };
+        if (payload.status === 'aborted') return { ...state, status: '⏹ 已中止' };
+        return { ...state, status: null };
+      }
       // agent_start / turn_* 不进正文视图（v1 呈现最小面）
       return state;
     }
@@ -196,10 +219,12 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
   let seq = state.seq;
   for (const message of messages) {
     seq += 1;
+    const error = errorMessageOf(message);
     views.push({
       key: `p#${seq}`,
       role: messageRole(message),
       text: textOf(messageContent(message)),
+      ...(error !== undefined ? { error } : {}),
       streaming: false,
     });
   }

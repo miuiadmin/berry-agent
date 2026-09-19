@@ -87,6 +87,30 @@ describe('frames 活体分档（display 尾巴 / session 落稿）', () => {
     expect(state.messages[0]).toMatchObject({ role: 'user', text: '问', streaming: false });
   });
 
+  it('message_end errorMessage 落稿进 error 位（P0 错误块判据的 SPA 消费半边——修前零消费）', () => {
+    let state = applyEnvelope(
+      initialAppState,
+      session({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: '半截' }],
+          timestamp: 5,
+          errorMessage: 'Provider is not configured: anthropic',
+        },
+      }),
+    );
+    // 正文半截 + 错误位并存（错误块分列呈现——与 TUI 错误块同律）
+    expect(state.messages[0]).toMatchObject({ role: 'assistant', text: '半截', streaming: false });
+    expect(state.messages[0]?.error).toBe('Provider is not configured: anthropic');
+    // 无 errorMessage 形不落位（缺省无 error 字段——不渲染空错误块）
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '问', timestamp: 6 } }),
+    );
+    expect(state.messages[1]?.error).toBeUndefined();
+  });
+
   it('update 无尾巴自开位（先 update 后 start 的乱序容错）', () => {
     let state = initialAppState;
     state = applyEnvelope(
@@ -147,6 +171,17 @@ describe('frames 工具族与状态行', () => {
     state = applyEnvelope(state, display({ type: 'turn_end', turn: 1, stopReason: 'end_turn' }));
     expect(state.messages).toHaveLength(0);
   });
+
+  it('agent_end 终态分档：failed ✖ / aborted ⏹ / completed 归闲态（修前不分 status 恒闲态伪收场）', () => {
+    // 07 §4.1 件 6 跨通道同律（TUI 侧 P0 批已修——失败/中止显式呈现不伪装成功）
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
+    expect(state.status).toBe('✖ 失败');
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'aborted' }));
+    expect(state.status).toBe('⏹ 已中止');
+    // completed 归闲态（成功不占状态行——SPA v1 无用量尾注面）
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }));
+    expect(state.status).toBeNull();
+  });
 });
 
 describe('frames 审批与通知', () => {
@@ -183,6 +218,13 @@ describe('frames 投影层（正确性层真源）', () => {
     expect(state.messages).toHaveLength(2);
     expect(state.messages.every((m) => !m.streaming)).toBe(true);
     expect(state.messages[1]).toMatchObject({ role: 'assistant', text: '旧答' });
+  });
+
+  it('loadedMessages 投影同源 error 位（断线重拉错误块不丢——与落稿两路同源律）', () => {
+    const state = loadedMessages(initialAppState, [
+      { role: 'assistant', content: [], timestamp: 1, errorMessage: '输出被上下文窗口截断' },
+    ]);
+    expect(state.messages[0]?.error).toBe('输出被上下文窗口截断');
   });
 
   it('setActiveSession 切换清场 / loadedSessions 清单落座', () => {

@@ -53,7 +53,7 @@ export type ClientDisplayEvent =
   | { readonly type: 'tool_execution_start'; readonly name: string }
   | { readonly type: 'tool_execution_update'; readonly toolCallId: string }
   | { readonly type: 'agent_start' }
-  | { readonly type: 'agent_end' }
+  | { readonly type: 'agent_end'; readonly status?: string }
   | { readonly type: 'turn_start'; readonly turn: number }
   | { readonly type: 'turn_end'; readonly turn: number };
 
