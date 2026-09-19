@@ -75,4 +75,4 @@ await client.close();
 
 ## 状态
 
-0.1.0-alpha.2——随主仓演进（版本真源 = 本包 `package.json` 的 `version` 字段）；npm 分发走主仓发布机器 `release:sdk`。
+`0.1.0-alpha.3`——随主仓演进（版本真源 = 本包 `package.json` 的 `version` 字段）；npm 分发走主仓发布机器 `release:sdk`。

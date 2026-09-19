@@ -789,6 +789,18 @@ describe('描述符参数化收口（冒烟形 + build 链 + readme 读面入表
       ['README.md', readFileSync(join(sdkRoot, 'README.md'), 'utf8')],
     ]);
   });
+
+  // SDK README 状态行版本反引号形（第十一役 E——防退形锁）：README_BACKTICK_
+  // SEMVER_RE 词法锁面只认反引号 semver token，裸串版本号永远不入判面（版本
+  // 陈化门对 SDK 面失效——alpha.2 陈化三月未拦即此形）。状态行必须以反引号形
+  // 携带本包 version，与主包 README 六语状态行同律
+  it('SDK README 状态行版本反引号形在场且等于 package.json version（防退形——裸串即红）', () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+    const sdkRoot = join(repoRoot, 'packages', 'berry-agent-sdk');
+    const pkgVersion = JSON.parse(readFileSync(join(sdkRoot, 'package.json'), 'utf8')).version;
+    const text = PACKAGES.sdk.readmeVariants(sdkRoot)[0][1];
+    expect(text).toContain(`\`${pkgVersion}\``);
+  });
 });
 
 describe('pack 失败契约式红（退出码检查——非裸栈/裸 ENOENT）', () => {
