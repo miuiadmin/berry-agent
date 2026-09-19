@@ -217,6 +217,35 @@ describe('迟答防御律（ESC ESC 相邻形拆解——lone-ESC 挂起窗内�
     decoder.settle();
     expect(decoder.take()).toEqual([key('escape')]); // 当枚窗到点兑现
   });
+
+  it('OSC 11 迟答 ST 终结形同族：\\x1b]11;rgb:…\\x1b\\\\ 到达 → Esc 键 + OSC 整串上抛', () => {
+    const clock = new FakeClock();
+    const oscSeen: string[] = [];
+    const decoder = new InputDecoder({ now: clock.now, onOsc: (data) => oscSeen.push(data) });
+    decoder.feed('\x1b');
+    clock.t = 8;
+    decoder.feed('\x1b]11;rgb:2222/2222/2222\x1b\\'); // ST 终结形（ESC '\'——与 BEL 形同律）
+    expect(decoder.take()).toEqual([key('escape')]);
+    expect(oscSeen).toEqual(['11;rgb:2222/2222/2222']); // 整串正常上抛（明暗裁定消费面无损）
+  });
+
+  it('跨 chunk 拆读残段形：窗过期兑现后裸续串按文本交付——本族恒留可见残段', () => {
+    const clock = new FakeClock();
+    const decoder = new InputDecoder({ now: clock.now });
+    decoder.feed('\x1b');
+    clock.t = 5;
+    decoder.feed('\x1b');
+    expect(decoder.take()).toEqual([key('escape')]); // 前枚立即兑现
+    clock.t = 40;
+    decoder.settle();
+    expect(decoder.take()).toEqual([key('escape')]); // 当枚窗到点兑现
+    expect(decoder.hasPendingEscape).toBe(false);
+    // 此后迟到主体（应答串去 ESC 前缀的裸续）无挂起可攀附——按普通文本交付。
+    // 意义：本防御族任何形都恒留可见残段（键或 text）——「零残段」的 CI 红
+    // 可据此整体排除本族（/themes ESC flake 归因谱 2026-09-19 的排障锚）
+    decoder.feed('[?1;2;4c');
+    expect(decoder.take()).toEqual([{ kind: 'text', text: '[?1;2;4c' }]);
+  });
 });
 
 describe('kitty 轨：CSI u 全形', () => {
