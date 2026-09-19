@@ -67,7 +67,7 @@ sh install.sh
 ```bash
 berry                    # TUI：直进对话（按当前目录续接最新会话）
 berry run "一句话单发"     # 单次执行 → stdout
-berry sessions list      # 会话管理：list / resume / fork / search / reindex
+berry sessions list      # 会话管理：list / resume / fork / search / reindex / export
 berry plugins list       # 插件装机：list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授权流）
 berry doors list         # 开门制门态只读（开/关走 TUI /doors open|close）
@@ -125,7 +125,7 @@ graph TD
     WEB["Web 界面 + /v1/* HTTP"]
     HOST["宿主——装配根<br/>开门制 · 审计时间线 · 预算护栏"]
     LOOP["Agent 循环——模型无关 StreamFn"]
-    PLUGINS["插件面<br/>18 扩展面 · 16 件内置插件"]
+    PLUGINS["插件面<br/>20 扩展面 · 16 件内置插件"]
     STORE[("SQLite<br/>会话 · 记忆 · 审计")]
     CLI --> HOST
     TUI --> HOST

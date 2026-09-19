@@ -428,6 +428,8 @@ berry marketplace remove <市场名>     # 移除源（连同缓存目录清理�
 | `BERRY_AGENT_GITHUB_TOKEN`             | core:issue 件 GitHub 凭证（`/credentials` 录入优先，本变量为回落）                                                           | 缺席                        |
 | `BERRY_AGENT_ISSUE_WEBHOOK_SECRET`     | core:issue 件 webhook 签名密钥（同回落律）                                                                                   | 缺席                        |
 | `BERRY_AGENT_PLUGIN_MIN_RELEASE_AGE`   | 插件装机供应链护栏：npm 源最小发布龄分钟数（`0` = 关窗不查）                                                                 | 1440                        |
+| `BERRY_AGENT_LLM_IDLE_TIMEOUT_MS`      | LLM 流层空闲帽毫秒数（流停滞主防线——流上无产出超帽即断；`0` = 显式关只剩编排层时滞帽；非法值 fail-loud 拒启）             | 300000                      |
+| `BERRY_AGENT_SESSION_STALL_TIMEOUT_MS` | 编排层会话时滞帽毫秒数（流停滞纵深防线——run 级无进展超帽收口；`0` = 显式关；非法值 fail-loud 拒启）                          | 900000                      |
 | `BERRY_AGENT_MAX_CONCURRENT_RUNS`      | 宿主级 run 并发帽（lane 帽——正整数必需，坏值 fail-loud 拒启；steer/inject 不经闸）                                           | 16                          |
 | `BERRY_AGENT_MAX_CONCURRENT_SUBAGENTS` | 单父在飞子代理扇出帽（per-父会话内存位——正整数必需，坏值 fail-loud 拒启；满帽排队非拒收，one-shot 与后台同池同帽）           | 8                           |
 | `BERRY_AGENT_BACKGROUND_BUDGET_TOKENS` | 当日后台道 token 日池限额（后台 run 记账对照面；非负整数字串，`0` = 显式关池，坏值 fail-loud 拒启；前台花销照入账不进闸门）  | 4000000                     |

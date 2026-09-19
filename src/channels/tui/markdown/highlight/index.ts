@@ -75,9 +75,3 @@ export function highlight(code: string, language: string | undefined): Highlight
   const spec = ALIASES[language.trim().toLowerCase()];
   return spec === undefined ? null : tokenize(code, spec);
 }
-
-/** 语言可高亮判据（消费方选路用——避免空 token 流试探） */
-export function isHighlightable(language: string | undefined): boolean {
-  if (language === undefined) return false;
-  return ALIASES[language.trim().toLowerCase()] !== undefined;
-}

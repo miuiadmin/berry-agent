@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME } from '../../theme/index.js';
-import { highlight, isHighlightable, tokenize, tokenStyle } from './index.js';
+import { highlight, tokenize, tokenStyle } from './index.js';
 import { JS_SPEC, PYTHON_SPEC, TS_SPEC, YAML_SPEC } from './languages.js';
 
 /** 精确文本找 token（非 plain 类断言用——plain 有弥合不在此断言） */
@@ -121,17 +121,14 @@ describe('highlight 自研高亮器', () => {
   });
 
   it('别名归一：大小写/空白/长名同达', () => {
-    expect(isHighlightable('TypeScript')).toBe(true);
-    expect(isHighlightable(' ts ')).toBe(true);
-    expect(isHighlightable('PY')).toBe(true);
     expect(highlight('x', 'TypeScript')).not.toBeNull();
+    expect(highlight('x', ' ts ')).not.toBeNull();
+    expect(highlight('x', 'PY')).not.toBeNull();
   });
 
   it('未知语言诚实 null（不发明半高亮）', () => {
     expect(highlight('x', 'brainfuck')).toBeNull();
     expect(highlight('x', undefined)).toBeNull();
-    expect(isHighlightable('brainfuck')).toBe(false);
-    expect(isHighlightable(undefined)).toBe(false);
   });
 
   it('tokenStyle 五类各映主题键（fg 单源 = ResolvedTheme 高亮键族）', () => {

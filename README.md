@@ -69,7 +69,7 @@ Once installed, the command is **`berry`**:
 ```bash
 berry                    # TUI: jump straight into a conversation (continues the latest session in the current directory)
 berry run "one shot"     # single execution → stdout
-berry sessions list      # sessions: list / resume / fork / search / reindex
+berry sessions list      # sessions: list / resume / fork / search / reindex / export
 berry plugins list       # plugins: list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # credentials: add / list / rm (the TUI also has an OAuth flow)
 berry doors list         # capability-door state (read-only)
@@ -140,7 +140,7 @@ graph TD
     WEB["Web UI + /v1/* HTTP"]
     HOST["Host — assembly root<br/>capability doors · audit timeline · budgets"]
     LOOP["Agent loop — model-agnostic StreamFn"]
-    PLUGINS["Plugin surface<br/>18 extension faces · 16 built-in plugins"]
+    PLUGINS["Plugin surface<br/>20 extension faces · 16 built-in plugins"]
     STORE[("SQLite<br/>sessions · memory · audit")]
     CLI --> HOST
     TUI --> HOST

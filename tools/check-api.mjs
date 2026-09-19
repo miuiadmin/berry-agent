@@ -128,8 +128,18 @@ function walkFiles(dirRel, suffixes, out = []) {
   return out;
 }
 
-/** 根 README 在到集（公开面第一入口；缺席容忍——镜像未建不算布局红） */
-const ROOT_READMES = ['README.md', 'README.en.md'].filter((f) => existsSync(join(SCAN_ROOT, f)));
+/** 根 README 在到集（公开面第一入口；缺席容忍——镜像未建不算布局红。
+ * 五语译文同收（第九役遗漏扫描：六语同源陈述,只扫主文则译文逃执法——
+ * 计数陈化/禁词漏检皆可潜伏在译文里） */
+const ROOT_READMES = [
+  'README.md',
+  'README.zh.md',
+  'README.ko.md',
+  'README.fr.md',
+  'README.es.md',
+  'README.ru.md',
+  'README.en.md',
+].filter((f) => existsSync(join(SCAN_ROOT, f)));
 
 /* ---------------- 查 1：drift（快照 ≠ 抽取真值红） ---------------- */
 

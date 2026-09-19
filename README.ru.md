@@ -70,7 +70,7 @@ sh install.sh
 ```bash
 berry                    # TUI: сразу в диалог (продолжает последнюю сессию текущего каталога)
 berry run "разовая задача"  # одиночный запуск → stdout
-berry sessions list      # сессии: list / resume / fork / search / reindex
+berry sessions list      # сессии: list / resume / fork / search / reindex / export
 berry plugins list       # плагины: list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # учётные данные: add / list / rm (в TUI есть и OAuth-поток)
 berry doors list         # состояние врат возможностей (только чтение)
@@ -142,7 +142,7 @@ graph TD
     WEB["Веб-интерфейс + HTTP /v1/*"]
     HOST["Хост — корень сборки<br/>врата возможностей · журнал аудита · бюджеты"]
     LOOP["Цикл агента — модель-независимый StreamFn"]
-    PLUGINS["Поверхность плагинов<br/>18 граней расширения · 16 встроенных плагинов"]
+    PLUGINS["Поверхность плагинов<br/>20 граней расширения · 16 встроенных плагинов"]
     STORE[("SQLite<br/>сессии · память · аудит")]
     CLI --> HOST
     TUI --> HOST

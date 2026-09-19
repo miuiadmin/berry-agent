@@ -9,7 +9,7 @@
 # 分组收拢（CI 治理批 2026-09-16，研究档 E5）：dev 依赖整组 + actions 整组
 # 一 PR 收拢降噪（逐依赖一 PR 的噪音面与「批内清不积攒」纪律冲突）；生产
 # 依赖保持单开——better-sqlite3（原生模块）/ undici（网络栈钉死面）/
-# @anthropic-ai/sdk 等动一发即须单独过全量门禁 + 真跑腿复核，不与杂项合乘。
+# typebox（契约校验面）等动一发即须单独过全量门禁 + 真跑腿复核，不与杂项合乘。
 # 处置 SOP 见 docs/development.md「依赖更新 PR 处置」。
 version: 2
 updates:

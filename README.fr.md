@@ -70,7 +70,7 @@ Une fois installé, la commande est **`berry`** :
 ```bash
 berry                    # TUI : plongez directement dans la conversation (reprend la dernière session du répertoire courant)
 berry run "one-shot"     # exécution unique → stdout
-berry sessions list      # sessions : list / resume / fork / search / reindex
+berry sessions list      # sessions : list / resume / fork / search / reindex / export
 berry plugins list       # plugins : list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # identifiants : add / list / rm (le TUI propose aussi un flux OAuth)
 berry doors list         # état des portes de capacité (lecture seule)
@@ -143,7 +143,7 @@ graph TD
     WEB["Interface web + HTTP /v1/*"]
     HOST["Hôte — racine d'assemblage<br/>portes de capacité · chronique d'audit · budgets"]
     LOOP["Boucle d'agent — StreamFn indépendant du modèle"]
-    PLUGINS["Surface de plugins<br/>18 facettes d'extension · 16 plugins intégrés"]
+    PLUGINS["Surface de plugins<br/>20 facettes d'extension · 16 plugins intégrés"]
     STORE[("SQLite<br/>sessions · mémoire · audit")]
     CLI --> HOST
     TUI --> HOST

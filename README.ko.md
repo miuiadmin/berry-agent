@@ -69,7 +69,7 @@ sh install.sh
 ```bash
 berry                    # TUI: 바로 대화 시작 (현재 디렉터리의 최신 세션 이어가기)
 berry run "원샷 실행"     # 단일 실행 → stdout
-berry sessions list      # 세션: list / resume / fork / search / reindex
+berry sessions list      # 세션: list / resume / fork / search / reindex / export
 berry plugins list       # 플러그인: list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # 자격증명: add / list / rm (TUI에는 OAuth 흐름도 있음)
 berry doors list         # 역량 게이트 상태 (읽기 전용)
@@ -138,7 +138,7 @@ graph TD
     WEB["웹 UI + /v1/* HTTP"]
     HOST["호스트 — 어셈블리 루트<br/>역량 게이트 · 감사 타임라인 · 예산 가드레일"]
     LOOP["에이전트 루프 — 모델 독립 StreamFn"]
-    PLUGINS["플러그인 표면<br/>18 확장 면 · 16 내장 플러그인"]
+    PLUGINS["플러그인 표면<br/>20 확장 면 · 16 내장 플러그인"]
     STORE[("SQLite<br/>세션 · 메모리 · 감사")]
     CLI --> HOST
     TUI --> HOST

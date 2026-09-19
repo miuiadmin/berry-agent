@@ -26,7 +26,9 @@
   // 第三腿——服务端码永不见 DOM 全局、客户端码永不见 node:* 类型。
   // tools/golden-record.ts 点名入列（金样录制器——§7.4 #4：import src/llm
   // 真 StreamFn 路径，类型检查不缺席；发布物侧由 tsconfig.build.json
-  // exclude 点名出局——rootDir 仍 src）。
-  "include": ["src", "tools/golden-record.ts"],
+  // exclude 点名出局——rootDir 仍 src）。根目录两测试/构建配置件（vite /
+  // vitest config）同点名入列（第九役遗漏扫描：此前三段 tsc 项目均不含
+  // 它们——format 门禁明文点名却在类型检查盲区，配置件类型漂移无人执法）。
+  "include": ["src", "tools/golden-record.ts", "vite.config.ts", "vitest.config.ts"],
   "exclude": ["src/webui/client"]
 }
