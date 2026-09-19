@@ -12,7 +12,7 @@ import type { AssistantMessage, StopReason, ToolResultMessage } from '../contrac
 import type { AgentToolCall } from '../contracts/index.js';
 import type { RunStatus } from './events.js';
 import type { AgentContext, AgentLoopConfig, EmitFn, RunResult } from './types.js';
-import { streamAssistantResponse } from './stream.js';
+import { LENGTH_TRUNCATED_MESSAGE, streamAssistantResponse } from './stream.js';
 import { executeToolBatch } from './tools-batch.js';
 
 /** 种子/续跑消息入列（steering 顶注与 followUp 续跑共用——channel 随事件披露） */
@@ -103,7 +103,7 @@ async function runLoop(context: AgentContext, config: AgentLoopConfig, emit: Emi
     if (assistant.stopReason === 'error' || assistant.stopReason === 'aborted') break;
     // 截断防御：length → 整批配对 isError 后收 failed（残缺批不进下一轮）
     if (assistant.stopReason === 'length') {
-      errorMessage = assistant.errorMessage ?? '输出被上下文窗口截断（stopReason=length）';
+      errorMessage = assistant.errorMessage ?? LENGTH_TRUNCATED_MESSAGE;
       pushAll(
         context,
         toolCallsOf(assistant).map((call): ToolResultMessage => ({

@@ -265,7 +265,7 @@ describe('run 终态三值', () => {
   });
 
   it('length → 整批配对 isError 后 failed（残缺批不进下一轮）', async () => {
-    const { context, config } = rig({
+    const { context, config, events } = rig({
       streamFn: scriptedStreamFn([
         assistant({ stopReason: 'length', content: [call('t1', 'probe'), call('t2', 'probe')] }),
       ]),
@@ -278,6 +278,15 @@ describe('run 终态三值', () => {
     const tail = context.messages.slice(-2) as ToolResultMessage[];
     expect(tail.every((m) => m.role === 'toolResult' && m.isError === true)).toBe(true);
     expect((tail[0] as { toolCallId: string }).toolCallId).toBe('t1');
+    // 截断兜底落消息本体（第十一役 finding 10——修前红锚：修前 errorMessage 只进
+    // agent_end 事件正文，assistant 消息本体缺席 → durable 落库/投影拉取/
+    // message_end 事件三路皆盲，TUI/webui 错误块判据全失收——兜底须在 stream
+    // 终值落位时写进消息本体，三路同源。种子 user 与截断配对 toolResult 各有
+    // message_end，按 assistant 角色定位）
+    const messageEnd = events.find(
+      (e) => e.type === 'message_end' && (e.message as { role?: string }).role === 'assistant',
+    ) as { message: { errorMessage?: string } } | undefined;
+    expect(messageEnd?.message.errorMessage).toBe('输出被上下文窗口截断（stopReason=length）');
   });
 });
 

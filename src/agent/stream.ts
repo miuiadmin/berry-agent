@@ -14,6 +14,14 @@ import type { AssistantMessage, LlmContext, LlmTool, Message } from '../contract
 import type { AgentContext, AgentLoopConfig, EmitFn } from './types.js';
 
 /**
+ * length 截断宿主兜底文案（单源——loop 截断防御腿同串消费）：
+ * 供应商 stopReason=length 且 errorMessage 缺席时写进消息本体，使 durable
+ * 落库/投影拉取/message_end 事件三路同源可见（第十一役 finding 10——修前
+ * 兜底只发生在 loop 局部变量，截断原因零持久呈现）。
+ */
+export const LENGTH_TRUNCATED_MESSAGE = '输出被上下文窗口截断（stopReason=length）';
+
+/**
  * 单轮流式请求：从 context 组装 LlmContext、消费流、终值落位并回推。
  *
  * @param config loop 配置（convertToLlm/transformContext/getApiKey/streamFn 消费面）
@@ -69,7 +77,14 @@ export async function streamAssistantResponse(
       emit({ type: 'message_update', role: 'assistant', partial: event.partial as AgentMessage });
     }
   }
-  const final = await stream.result();
+  const result = await stream.result();
+  // length 截断宿主兜底（第十一役 finding 10）：供应商报 length 而未给
+  // errorMessage 时补写消息本体——终值落位/落库/message_end 事件同一引用，
+  // 此处补一次即三路同源（loop 层防御腿消费同常量单源）
+  const final: AssistantMessage =
+    result.stopReason === 'length' && result.errorMessage === undefined
+      ? { ...result, errorMessage: LENGTH_TRUNCATED_MESSAGE }
+      : result;
   if (sawStart) {
     // 正常形：占位在场——终值就地替换占位
     context.messages[context.messages.length - 1] = final;
