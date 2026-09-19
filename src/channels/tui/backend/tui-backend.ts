@@ -1739,8 +1739,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         break;
       case 'agent_end':
         this.statusLine.stop();
-        // 件 6：落行（与 setStatus 同载体 last-writer-wins）
-        this.statusLine.setStatus(`✓ 用量 ${formatTokenCount(this.usageTotal.totalTokens)}`);
+        // 件 6：落行（与 setStatus 同载体 last-writer-wins）——终态分档
+        // （2026-09-19 P0 静默链修复批：failed ✖ / aborted ⏹ 不显用量成功形——
+        // 与件 9 摘要行「失败与中止显式分档、不得伪装成功」同律；修前形 =
+        // 不分 status 恒「✓ 用量 N」，失败 run 状态栏伪成功）
+        if (event.status === 'failed') this.statusLine.setStatus('✖ 失败');
+        else if (event.status === 'aborted') this.statusLine.setStatus('⏹ 已中止');
+        else this.statusLine.setStatus(`✓ 用量 ${formatTokenCount(this.usageTotal.totalTokens)}`);
         this.toolPanel.clear();
         this.refreshTodo(); // 件 4：刷新三时点之三
         this.touchFixed();

@@ -32,7 +32,7 @@
  */
 import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage } from '../../../contracts/index.js';
-import { CellGrid, truncateToWidth, wrapText, type Renderable } from '../../engine/index.js';
+import { CellGrid, truncateToWidth, wrapText, type ColorValue, type Renderable } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
 import { gridRowToStyled, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
@@ -94,6 +94,17 @@ export type TranscriptBlock =
     }
   | { readonly kind: 'tool-call'; readonly name: string; readonly brief: string; readonly toolCallId?: string }
   | { readonly kind: 'tool-result'; readonly brief: string }
+  | {
+      /**
+       * 错误块（2026-09-19 P0 静默链修复批——07 §4.1）：assistant 失败终态的
+       * errorMessage 正文落位（stopReason=error 形——模型调用失败是消息数据非
+       * 异常）；直播（message_end 定稿展开）与投影重建（loadProjection）两路
+       * 同源经 appendAssistantFinal 单点收敛。
+       */
+      readonly kind: 'error';
+      readonly text: string;
+      readonly theme: ResolvedTheme;
+    }
   | {
       readonly kind: 'streaming';
       /** 槽代次（每条 assistant message_start 递增——冻结账同一性判据） */
@@ -172,6 +183,16 @@ export function renderBlockStyledLines(block: TranscriptBlock, columns: number):
       return [dimStyledLine(` ⚙ ${block.name}${block.brief}`)];
     case 'tool-result':
       return [dimStyledLine(` ↳ ${block.brief}`)];
+    case 'error': {
+      // 错误块（P0 静默链修复批——07 §4.1）：行首 ✖ 前缀 + error 语义键前景
+      // 整行（与 tool-card.ts 语义色消费同源）；折行续行两空格缩进（user 块同律）
+      const lines = wrapText(block.text, columns - 2);
+      const style: Readonly<{ fg: ColorValue }> = Object.freeze({ fg: block.theme.error });
+      return lines.map((line, i) => {
+        const plain = (i === 0 ? '✖ ' : '  ') + line;
+        return { plain, runs: [{ start: 0, end: plain.length, style }] };
+      });
+    }
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线；降档（doc = null）纯文本直推；空文本零行
@@ -582,6 +603,13 @@ export class LiveTranscript {
       });
     }
     if (text !== '') target.push({ kind: 'markdown', doc: MarkdownDoc.of(text, this.theme) });
+    // 错误块（P0 静默链修复批——07 §4.1）：失败终态 errorMessage 非空时正文落位
+    // ——修前形 = errorMessage 在渲染层结构性零落位（transcript 只渲染非空 text，
+    // 报错静默链第 4 层）。thinking/text 照常渲染、错误块追加于其后（正文先行
+    // 错误收尾）；本函数是直播与投影重建的单点，加在此处即两路同源收敛
+    if (message.errorMessage !== undefined && message.errorMessage !== '') {
+      target.push({ kind: 'error', text: message.errorMessage, theme: this.theme });
+    }
     for (const block of message.content) {
       if (block.type === 'toolCall') {
         this.pendingCalls.set(block.id, {

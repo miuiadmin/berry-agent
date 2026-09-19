@@ -196,6 +196,20 @@ describe('diagnoseProviderFailure（07 §5 provider 产品级文案律——两�
     expect(byText?.kind).toBe('unconfigured'); // 文案 [CODE] 前缀兜底判位
   });
 
+  it('unconfigured：pi-ai 原生报文形 Provider is not configured → 凭证途径指路（P0 pattern-miss 修）', () => {
+    // pi-ai models 在 provider 凭证解析失败时抛出（非宿主合成码——文案判位兜底）；
+    // 修前该报文形既不判 unconfigured 也不判 auth（pattern-miss 裸原文直出）
+    const r = diagnoseProviderFailure(
+      { errorMessage: 'Provider is not configured: anthropic' },
+      'anthropic/claude-sonnet-5',
+    );
+    expect(r?.kind).toBe('unconfigured');
+    expect(r?.hint).toContain('anthropic'); // 点名 provider
+    expect(r?.hint).toContain('ANTHROPIC_API_KEY'); // env 凭证途径指路
+    expect(r?.hint).toContain('BERRY_AGENT_MODEL'); // 换模型途径
+    expect(r?.hint).toContain('Provider is not configured'); // 上游原文降附注
+  });
+
   it('auth：文案正则族（401/403/invalid api key）→ 点名 provider + 凭证途径', () => {
     const r1 = diagnoseProviderFailure({ errorMessage: 'Request failed with status 401 Unauthorized' }, 'acme/ultra-1');
     expect(r1?.kind).toBe('auth');

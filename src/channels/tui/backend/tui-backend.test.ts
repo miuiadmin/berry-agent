@@ -171,6 +171,20 @@ describe('TuiBackend 状态面', () => {
     expect(io.bytes).not.toContain('⠋');
   });
 
+  it('agent_end 终态分档：failed ✖ / aborted ⏹ 不伪装成功（P0 静默点②——不显 ✓ 用量成功形）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'failed' });
+    expect(io.bytes).toContain('✖ 失败');
+    expect(io.bytes).not.toContain('✓ 用量');
+    emit(backend, { type: 'agent_start' });
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'aborted' });
+    expect(io.bytes).toContain('⏹ 已中止');
+    expect(io.bytes).not.toContain('✓ 用量');
+  });
+
   it('tool_execution_start → ⚙ 工具名段优先；end → 清工具', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' });

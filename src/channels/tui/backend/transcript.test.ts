@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { ansiColor } from '../../engine/index.js';
 import type { AgentEvent } from '../../../agent/index.js';
-import type { AgentMessage } from '../../../contracts/index.js';
+import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js';
 import { LIGHT_PALETTE, resolveTheme, DEFAULT_THEME } from '../theme/index.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
@@ -49,7 +49,9 @@ function assistantMsg(
   text: string,
   toolCalls: Array<{ id: string; name: string; arguments: Record<string, unknown> }> = [],
   thinking = '',
-): AgentMessage {
+  /** 失败终态位（P0 静默链修复批）——在场时落 stopReason=error + errorMessage */
+  errorMessage?: string,
+): AssistantMessage {
   return {
     role: 'assistant',
     content: [
@@ -58,7 +60,8 @@ function assistantMsg(
       ...toolCalls.map((call) => ({ type: 'toolCall' as const, ...call })),
     ],
     usage,
-    stopReason: 'stop',
+    stopReason: errorMessage !== undefined ? 'error' : 'stop',
+    ...(errorMessage !== undefined ? { errorMessage } : {}),
     timestamp: 1,
   };
 }
@@ -128,6 +131,31 @@ describe('LiveTranscript 聚焦归约', () => {
     const t = new LiveTranscript();
     apply(t, { type: 'message_end', message: assistantMsg('', [{ id: 'tc1', name: 'ls', arguments: {} }]) });
     expect(t.snapshot).toEqual([]);
+  });
+
+  it('message_end errorMessage 非空 → 错误块落位（P0 静默点①——失败终态正文可见）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_start', role: 'assistant' });
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('半途文本', [], '', 'Provider is not configured: anthropic'),
+    });
+    const blocks = t.snapshot;
+    // 错误块在场（✖ 前缀 + error 语义色整行）；text 块照常渲染、错误块追加于其后
+    const err = blocks.find((b) => b.kind === 'error');
+    expect(err).toBeDefined();
+    const lines = renderBlockStyledLines(err!, 40);
+    expect(lines.some((line) => line.plain.includes('Provider is not configured'))).toBe(true);
+    expect(lines[0]!.runs.length).toBeGreaterThan(0); // 前景样式整行在场
+    expect(blocks.find((b) => b.kind === 'markdown')).toBeDefined();
+    // 块序：markdown 在前、error 收尾（正文先行错误收尾）
+    expect(blocks.findIndex((b) => b.kind === 'markdown')).toBeLessThan(blocks.indexOf(err!));
+  });
+
+  it('投影重建（repaint）：errorMessage 非空同样落错误块（直播/repaint 两路同源）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([userMsg('问'), assistantMsg('', [], '', 'Provider is not configured: anthropic')]);
+    expect(t.snapshot.some((b) => b.kind === 'error')).toBe(true);
   });
 
   it('流式单槽守卫：重开 message_start 先摘旧槽（占位不孤儿滞留——epoch 递增）', () => {

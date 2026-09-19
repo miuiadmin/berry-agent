@@ -357,6 +357,20 @@ describe('runTuiEntry 装配序', () => {
     expect(await entry).toBe(0);
   });
 
+  it('/guide 副屏模型配置段（P0 静默链修复批——07 §8.5 第 2 条补段）', async () => {
+    const { entry, io } = await rigEntry(rigDir('entry-guide-data-'), rigDir('entry-guide-ws-'));
+    await until(() => io.output.includes(' · m1 · '));
+    io.send('/guide\r');
+    // 模型配置段在场：段标题 + 供应商生态变量指路 + 换模型 env 键
+    await until(() => io.output.includes('── 模型配置 ──'));
+    expect(io.output).toContain('ANTHROPIC_API_KEY');
+    expect(io.output).toContain('BERRY_AGENT_MODEL');
+    io.send('q');
+    await until(() => io.output.includes('\x1b[?1049l'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
   it('/marketplace 选装副屏全链（mp-5——03 §9.6 TUI 选装面）：/marketplace 开屏快照行集 → enter 真装机（服务面直装零绕过）→ 复开已装徽标 + 完成归因回执', async () => {
     const dataDir = rigDir('entry-market-data-');
     const ws = rigDir('entry-market-ws-');

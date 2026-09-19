@@ -137,6 +137,16 @@ const AUTH_TEXT_PATTERN =
   /(\b401\b|\b403\b|invalid[^\n]{0,40}api.?key|incorrect api key|api key not (?:valid|found)|unauthorized|authentication|permission denied)/i;
 
 /**
+ * pi-ai 原生未配置报文形（2026-09-19 P0 静默链修复批——07 §5 第三判据）：
+ * provider 凭证解析失败时 pi-ai models 抛出 `Provider is not configured:
+ * <provider>`——非宿主合成码（无 [CODE] 前缀、无 errorCode）、非 auth 文案
+ * 族（不含 401/invalid 词面）。修前该报文形 pattern-miss 裸原文直出，用户
+ * 无从得知要配什么。文案判位兜底同 [CODE] 前缀判位律（provider 真错误码
+ * 归一挂钩子纵切落码前，文案正则是唯一现实判位）。
+ */
+const UNCONFIGURED_PROVIDER_PATTERN = /Provider is not configured/i;
+
+/**
  * auth 族分面判定（04 §3.5 分面加判注——B3 批裁决二）：独立纯函数与
  * classifyError 四桶分面分立、桶表零改零新桶（auth 桶语义仍 non-retryable
  * ——同态盲重试无意义；「刷新后重试」是换凭证的新请求非同态重试）。
@@ -168,13 +178,15 @@ function upstreamNote(text: string): string {
 
 /**
  * provider 失败形态识别（07 §5——与错误桶表同源居本模块；纯函数零 IO）。
- * 判据两形态：
+ * 判据三形态（P0 静默链修复批扩第三形）：
  * - unconfigured：宿主合成码 LLM_MODEL_NOT_FOUND / LLM_MODEL_SPEC_INVALID
  *   （stream-fn resolveModel 失败——provider 未注册或目录无此模型；errorCode
  *   与 `[CODE]` 文案前缀双在位，任一判位命中即识——run settle 只透传
  *   errorMessage 时文案判位兜底）；
+ * - unconfigured'：pi-ai 原生报文 `Provider is not configured: <provider>`
+ *   （凭证解析失败——pi-ai models 抛出非宿主合成码；文案判位兜底）；
  * - auth：错误文案正则。
- * 非两形态回 undefined——调用方原文直出（transient/quota 族已有桶语义，
+ * 非三形态回 undefined——调用方原文直出（transient/quota 族已有桶语义，
  * 不在本面越俎）。
  */
 export function diagnoseProviderFailure(
@@ -193,6 +205,18 @@ export function diagnoseProviderFailure(
       hint:
         `模型不可用：${modelSpec}——provider 未注册或目录中无此模型。` +
         `检查模型标识拼写（形如 provider/model-id）；更换缺省模型设 BERRY_AGENT_MODEL 环境变量。` +
+        `上游报文：${upstreamNote(text)}`,
+    };
+  }
+  // pi-ai 原生未配置报文形（P0 批第三判据）：凭证解析失败非模型缺席——
+  // hint 分立指凭证途径（与上面「模型不可用」形不共文案）
+  if (text !== '' && UNCONFIGURED_PROVIDER_PATTERN.test(text)) {
+    return {
+      kind: 'unconfigured',
+      hint:
+        `模型供应商未配置（${providerNameOf(modelSpec)}）：该 provider 无可用凭证。` +
+        `设置对应环境变量（如 ANTHROPIC_API_KEY / OPENAI_API_KEY）或写入数据目录凭证表；` +
+        `更换缺省模型设 BERRY_AGENT_MODEL 环境变量（详见 /guide 模型配置段）。` +
         `上游报文：${upstreamNote(text)}`,
     };
   }

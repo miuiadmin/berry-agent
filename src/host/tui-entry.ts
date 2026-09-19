@@ -717,6 +717,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             ],
           },
           {
+            // 模型配置段（2026-09-19 P0 静默链修复批——07 §8.5 第 2 条补段）：
+            // 首跑未配凭证用户的产品级指路（报错要诚实之外的「错了知道怎么改」面）
+            title: '模型配置',
+            lines: [
+              '对话需模型凭证：设置供应商生态变量（如 export ANTHROPIC_API_KEY=sk-… 或 OPENAI_API_KEY）',
+              '更换缺省模型设 BERRY_AGENT_MODEL=provider/model-id——详见 docs/usage.md「模型配置」节',
+            ],
+          },
+          {
             title: '核心命令',
             lines: [
               '/sessions 切会话 · /new 新建会话 · /usage 会话用量',
