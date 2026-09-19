@@ -168,10 +168,12 @@ let sessionCounter = 0;
  * 确定模型标识/TERM 色域档钉定）+ tsx 起 bin 入口；壳层在其退出后把真退出码
  * printf 落临时文件（不用 exec 替换壳——替换后无壳可落码）。
  *
- * env 隔离四键（E16 同族 + 模型确定值）：
+ * env 隔离五键（E16 同族 + 模型确定值）：
  * - BERRY_AGENT_DATA_DIR → 新临时数据目录（防污染真数据 + 单活跃机锁免撞）；
  * - BERRY_AGENT_LOG_LEVEL=silent（日志不入 pane——日志行会污染收屏判据面）；
  * - BERRY_AGENT_MODEL → footer 模型段确定锚（凭证无关——纯字符串标识）；
+ * - BERRY_AGENT_SKIP_UPDATE_CHECK=1（启动版本检查关断——e2e 零网络律，
+ *   07 §8.5 第 6 条）；
  * - TERM=xterm-256color + 解除 COLORTERM（色域档裁定确定性——不赌宿主环境）。
  */
 function startTuiSession(): TmuxSession {
@@ -183,7 +185,8 @@ function startTuiSession(): TmuxSession {
   // 子进程退出码透传——cd 失败形 $? 为 cd 的 1，同样非 0 可判）。
   const command =
     `cd '${wsDir}' && env -u COLORTERM BERRY_AGENT_DATA_DIR='${dataDir}' ` +
-    `BERRY_AGENT_LOG_LEVEL=silent BERRY_AGENT_MODEL='${MODEL_ID}' TERM=xterm-256color ` +
+    `BERRY_AGENT_LOG_LEVEL=silent BERRY_AGENT_MODEL='${MODEL_ID}' BERRY_AGENT_SKIP_UPDATE_CHECK=1 ` +
+    `TERM=xterm-256color ` +
     `'${process.execPath}' '${TSX_CLI}' '${MAIN_TS}'; printf %s "$?" > '${exitFile}'`;
   const created = tmux(['new-session', '-d', '-x', String(GEOM_W), '-y', String(GEOM_H), '-s', name, command]);
   if (created.status !== 0) {

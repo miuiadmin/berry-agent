@@ -98,6 +98,7 @@ import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
 import { UsageViewer } from '../panels/usage-viewer.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
+import { GuideViewer, type GuidePanelData } from '../panels/guide-viewer.js';
 import { SkillsViewer, type SkillListEntry } from '../panels/skills-viewer.js';
 import { ThemePicker, type ThemePickEntry } from '../panels/theme-picker.js';
 import { ThinkingPicker, type ThinkingPickEntry } from '../panels/thinking-picker.js';
@@ -905,6 +906,27 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.editor.setText(invocation); // 回填调用形（不提交——提交路归用户 enter）
           this.touchFixed();
         },
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏快速上手参考（07 §8.5 第 2 条 /guide——TUI 本地拦截族，2026-09-19
+   * 启动版本检查批）：版本 + 核心命令清单 + 文档地图 + 升级/卸载一句——段
+   * 集装配位单源注入（本件收纯数据行，静态快照档）。返 boolean 同 openHelp 律。
+   */
+  openGuide(data: GuidePanelData): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new GuideViewer({
+        data,
         sessionId: this.sessionId,
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,

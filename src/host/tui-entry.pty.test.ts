@@ -187,6 +187,8 @@ function spawnTuiEntry(): {
       ...process.env,
       BERRY_AGENT_DATA_DIR: dataDir,
       BERRY_AGENT_LOG_LEVEL: 'silent',
+      // 启动版本检查关断（07 §8.5 第 6 条——pty 真身测试零网络律）
+      BERRY_AGENT_SKIP_UPDATE_CHECK: '1',
       TERM: 'xterm-256color',
     },
     cwd: wsDir,

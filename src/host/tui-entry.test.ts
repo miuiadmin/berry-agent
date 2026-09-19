@@ -8,7 +8,7 @@
  * `--no-plugins` 自救链入口腿（E14——坏插件现场锁死对照 + 安全模式起得来）。
  * 输入驱动走真 InputDecoder（'\r' 提交、'\x04' ctrl+d 空框退出）。
  */
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -125,7 +125,8 @@ async function rigEntry(dataDir: string, cwd: string) {
     dataDir, // 真装配面（12f-3 起 runtime 注入面已除——装配序公共段唯一真源）
     providers,
     model: 'faux-entry/m1', // faux-only 运行时必须点名模型（缺省解析 anthropic 档必失败）
-    env: {},
+    // 启动版本检查关断（07 §8.5 第 6 条——单元测试零网络律；接线锁另有专测注桩）
+    env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
   });
   await io.ready(); // 输入管线挂接（backend.start 已过）
   return { entry, io, faux };
@@ -294,7 +295,7 @@ describe('runTuiEntry 装配序', () => {
       dataDir,
       providers: [faux.provider],
       model: 'faux-rid/m1',
-      env: {},
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
       resumeSessionId: id,
     });
     await io2.ready();
@@ -314,7 +315,7 @@ describe('runTuiEntry 装配序', () => {
       dataDir,
       providers: [faux.provider],
       model: 'faux-rid/m1',
-      env: {},
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
       resumeSessionId: 'no-such-id',
     });
     expect(await third).toBe(1);
@@ -333,7 +334,7 @@ describe('runTuiEntry 装配序', () => {
       io,
       cwd: rigDir('entry-ws3-'),
       dataDir, // 单活跃机拒入
-      env: {},
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
     });
     expect(code).toBe(1);
     await rt.shutdown();
@@ -501,7 +502,7 @@ describe('runTuiEntry 装配序', () => {
       dataDir: rigDir('entry-data-'),
       providers: [faux.provider],
       model: 'faux-port/m1',
-      env: {},
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
       onWebuiOpen: (info) => {
         opened = info;
       },
@@ -589,7 +590,7 @@ describe('runTuiEntry 装配序', () => {
       dataDir: rigDir('entry-tier-f-data-'),
       providers: [faux.provider],
       model: 'faux-tier-fanout/m1',
-      env: {},
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
       onWebuiOpen: (info) => {
         opened = info;
       },
@@ -676,7 +677,7 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
       dataDir,
       providers: [faux.provider],
       model: 'faux-key3/m1',
-      env: {},
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
     });
     await io.ready();
     return { entry, io, faux };
@@ -779,7 +780,7 @@ describe('--no-plugins 自救链入口腿（E14——坏插件现场锁死 → �
         dataDir: rigCorruptEnabledYaml(),
         providers: [faux.provider],
         model: 'faux-lock/m1',
-        env: {},
+        env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
       });
       expect(code).toBe(1); // 锁死：非零退出——正常起跑被装载读侧拦死
       expect(stderrText).toContain('启动失败'); // 可见回执（用户可自修档呈报）
@@ -805,7 +806,7 @@ describe('--no-plugins 自救链入口腿（E14——坏插件现场锁死 → �
       dataDir,
       providers: [faux.provider],
       model: 'faux-rescue/m1',
-      env: {},
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
       onRuntime: (rt) => void (runtimeRef = rt),
     });
     // 起得来：装配序全通（含装载段旁路）——输入管线挂接即屏已起；与入口终态
@@ -830,5 +831,76 @@ describe('--no-plugins 自救链入口腿（E14——坏插件现场锁死 → �
     // 自救 = 旁路不修盘：坏现场原样保留（用户退出安全模式后自行修复——本腿
     // 不代写用户配置）
     expect(readFileSync(join(dataDir, 'enabled.yaml'), 'utf8')).toBe('plugins: [ Oops');
+  });
+});
+
+describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启动版本检查批）', () => {
+  /** 接线测试速记（注入桩替换整腿——零网络零 spawn；faux provider + 假终端） */
+  async function rigUpdateEntry(
+    dataDir: string,
+    startupUpdateCheck: Parameters<typeof runTuiEntry>[0]['startupUpdateCheck'],
+  ) {
+    const faux = fauxProvider({ provider: 'faux-upd', models: [{ id: 'm1' }] });
+    const io = new FakeTerminalIO();
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io,
+      cwd: rigDir('entry-upd-ws-'),
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-upd/m1',
+      env: {}, // 注桩腿不读 env——关断键不设（桩即真腿，别处关断形已有专测）
+      startupUpdateCheck,
+    });
+    await io.ready();
+    return { entry, io };
+  }
+
+  it('有新版且未提示过 → notify 一行 + notifiedVersion 落账（去重基线）', async () => {
+    const dataDir = rigDir('entry-upd-data-');
+    const { entry, io } = await rigUpdateEntry(dataDir, async () => ({
+      kind: 'checked' as const,
+      latest: '9.9.9',
+      hasUpdate: true,
+      alreadyNotified: false,
+    }));
+    await until(() => io.output.includes('新版本 9.9.9 可用——/upgrade 查看详情'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 落账走真实 fs 面（temp dataDir）：notifiedVersion = 提示过的那版
+    const state = JSON.parse(readFileSync(join(dataDir, 'update-check.json'), 'utf8')) as {
+      notifiedVersion?: string;
+    };
+    expect(state.notifiedVersion).toBe('9.9.9');
+  });
+
+  it('该版已提示过（alreadyNotified）→ 零提示（按版本去重律）', async () => {
+    let decided = false;
+    const { entry, io } = await rigUpdateEntry(rigDir('entry-upd-dup-'), async () => {
+      decided = true;
+      return { kind: 'checked' as const, latest: '9.9.9', hasUpdate: true, alreadyNotified: true };
+    });
+    await until(() => decided); // 决策已出（notify 分支微任务随之冲完）
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(io.output).not.toContain('新版本');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('网络失败 → 零提示零噪音（失败静默律——决策不消费即无 notify 无落账）', async () => {
+    let decided = false;
+    const dataDir = rigDir('entry-upd-fail-');
+    const { entry, io } = await rigUpdateEntry(dataDir, async () => {
+      decided = true;
+      return { kind: 'failed' as const, message: 'offline' };
+    });
+    await until(() => decided);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(io.output).not.toContain('新版本');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 失败不落账（update-check.json 缺席——下次启动照查不被钉窗）
+    expect(existsSync(join(dataDir, 'update-check.json'))).toBe(false);
   });
 });

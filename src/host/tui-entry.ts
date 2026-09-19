@@ -57,6 +57,16 @@ import { runWithSessionAnchor } from './session-anchor.js';
 import { liveCommandArgumentItems, type LiveCompletionDeps } from './live-completions.js';
 import { readHostSettings, writeHostSettings } from './settings-store.js';
 import { daemonPaths } from './serve-daemon.js';
+import {
+  compareSemverFull,
+  createNodeUpdateCheckFs,
+  recordNotifiedVersion,
+  runManualUpdateCheck,
+  runStartupUpdateCheck,
+  type StartupCheckDecision,
+  type UpdateCheckDeps,
+} from './upgrade.js';
+import { createDefaultSpawnRunner } from './plugin-install.js';
 import type { HostRuntime } from './runtime.js';
 import { APPROVAL_SUBVERBS } from './approval-cmd.js';
 import { DOORS_SUBVERBS } from './doors-cmd.js';
@@ -114,6 +124,12 @@ export interface TuiEntryOptions {
   readonly onRuntime?: (runtime: HostRuntime) => void;
   /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
   readonly onWebuiOpen?: (info: { host: string; port: number; token: string }) => void;
+  /** 启动版本检查腿注入面（07 §8.5 第 6 条——缺省产线真身 runStartupUpdateCheck；
+   * 测试注桩零网络 + 接线锁。回执消费律单点在装配位：hasUpdate 且该版未提示过
+   * → notify + 落 notifiedVersion，其余结局零提示零噪音） */
+  readonly startupUpdateCheck?: (
+    deps: UpdateCheckDeps & { readonly env: { readonly [key: string]: string | undefined } },
+  ) => Promise<StartupCheckDecision>;
 }
 
 /**
@@ -648,6 +664,87 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         .catch((err: unknown) => backend.notify(`新会话切焦失败：${String(err)}`, { level: 'error' }));
     };
 
+    // —— /upgrade 薄壳（07 §8.5 第 2 条 + 第 6 条手动通道）：跑同一只读检查
+    // （强制刷新缓存——恒走网络，不受 24h 节流辖）→ notify 呈报本地/远端版本
+    // → 指引退出后执行 berry upgrade——**TUI 内不自动执行**（永不热换运行中
+    // 进程）。失败诚实呈报（手动通道非启动腿——用户敲了命令，静默反欺）。
+    const runUpgradeShell = (): void => {
+      if (runtime.dataDir === null) {
+        backend.notify('版本检查不可用（数据目录缺席——:memory: 诊断形）', { level: 'warn' });
+        return;
+      }
+      void runManualUpdateCheck({
+        dataDir: runtime.dataDir,
+        currentVersion: options.version ?? '0.0.0',
+        spawn: createDefaultSpawnRunner(),
+        fs: createNodeUpdateCheckFs(),
+        now: () => Date.now(),
+      })
+        .then((result) => {
+          if (result.kind === 'ok') {
+            const cmp = compareSemverFull(result.latest, options.version ?? '0.0.0');
+            if (cmp !== null && cmp > 0) {
+              backend.notify(
+                `新版本 ${result.latest} 可用（本地 ${options.version ?? '0.0.0'}）——退出后执行 berry upgrade（TUI 内不自动执行）`,
+                { level: 'info' },
+              );
+            } else {
+              backend.notify(`已是最新：${options.version ?? '0.0.0'}（远端 latest ${result.latest}）`, {
+                level: 'info',
+              });
+            }
+          } else if (result.kind === 'not-found') {
+            backend.notify('版本检查失败：registry 应答 404（包不在册——registry 指错或未发布态）', { level: 'warn' });
+          } else {
+            backend.notify(`版本检查失败：${result.message}——稍后再试或退出后执行 berry upgrade`, { level: 'warn' });
+          }
+        })
+        .catch((err: unknown) => backend.notify(`版本检查异常：${String(err)}`, { level: 'error' }));
+    };
+
+    // —— /guide 常驻快速上手参考（07 §8.5 第 2 条）：版本 + 核心命令清单 +
+    // 文档地图 + 升级/卸载一句——段集文案单源在本闭包（面板收纯数据行），
+    // 副屏占用时 notify 降级（openStatus 同律）。
+    const openGuidePanel = (): void => {
+      const ok = backend.openGuide({
+        version: options.version ?? '0.0.0',
+        sections: [
+          {
+            title: '快速上手',
+            lines: [
+              '直接说需求即对话（编码 / 问答 / 执行——能力随插件装载扩展）',
+              '/help 命令与键位帮助 · /guide 本参考',
+            ],
+          },
+          {
+            title: '核心命令',
+            lines: [
+              '/sessions 切会话 · /new 新建会话 · /usage 会话用量',
+              '/status 状态汇总 · /themes 主题 · /marketplace 插件市场',
+              '/upgrade 检查更新 · /exit 退出（Ctrl+D 同路）',
+            ],
+          },
+          {
+            title: '文档地图',
+            lines: [
+              'docs/usage.md 用法全册 · docs/architecture.md 架构',
+              'docs/plugin-development.md 插件开发 · docs/operations.md 运维 · docs/development.md 参与开发',
+            ],
+          },
+          {
+            title: '升级与卸载',
+            lines: [
+              '升级：退出后执行 berry upgrade（或 npm i -g berry-agent）——升级不热替换，重启生效',
+              '卸载：npm rm -g berry-agent + 清理数据目录 ~/.berry-agent（先导出记忆）',
+            ],
+          },
+        ],
+      });
+      if (!ok) {
+        backend.notify('引导面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
     // 本地命令族单源（拦截表 / 补全源 / /help 命令册三消费面同文）
     const localCommands = [
       {
@@ -674,6 +771,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         name: 'marketplace',
         description: '插件市场选装副屏（enter 选装/卸载 · u 换装 · r 刷新）',
         run: () => openMarketplacePanel(),
+      },
+      {
+        name: 'upgrade',
+        description: '检查更新（本地/远端版本——退出后执行 berry upgrade）',
+        run: () => runUpgradeShell(),
+      },
+      {
+        name: 'guide',
+        description: '快速上手参考副屏（版本/核心命令/文档地图/升级与卸载）',
+        run: () => openGuidePanel(),
       },
     ] as const;
     /** 本地命令族 → 补全条目（query 已去斜杠——与 exitCommandItems 同契约） */
@@ -882,6 +989,39 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         `HTTP 面已开面：http://${webuiOpen.host}:${webuiOpen.port}/（webui 件未装载——/v1/* 程序调用面在场，/api/* 404）`,
         { level: 'info' },
       );
+    }
+
+    // —— 启动版本检查（07 §8.5 第 6 条——2026-09-19 启动版本检查批）：TUI
+    // 交互启动异步后台一次——boot 完成（主循环起跑前）fire，不阻塞启动面；
+    // 有新版且该版未提示过 → notify 一行 + 落 notifiedVersion（按版本去重）；
+    // 其余一切结局**零提示零噪音**（失败静默律——更新检查自身永不打扰）。
+    // env BERRY_AGENT_SKIP_UPDATE_CHECK 置值即零网络；:memory: 诊断形（数据
+    // 目录缺席）无处落账——跳过。headless 形不达此位（装配位零调用）。
+    // 注入面（贴 dispatchServe runners 先例）：缺省与产线接线逐字同形——测试
+    // 注桩零网络，行为零变更；env 关断键由编排器自身消费（skipped 早退）。
+    const startupCheck = options.startupUpdateCheck ?? runStartupUpdateCheck;
+    if (runtime.dataDir !== null) {
+      void startupCheck({
+        dataDir: runtime.dataDir,
+        currentVersion: options.version ?? '0.0.0',
+        spawn: createDefaultSpawnRunner(),
+        fs: createNodeUpdateCheckFs(),
+        now: () => Date.now(),
+        env,
+      })
+        .then((decision) => {
+          if (
+            (decision.kind === 'checked' || decision.kind === 'cache-fresh') &&
+            decision.hasUpdate &&
+            !decision.alreadyNotified
+          ) {
+            recordNotifiedVersion(createNodeUpdateCheckFs(), runtime.dataDir as string, decision.latest, Date.now());
+            backend.notify(`新版本 ${decision.latest} 可用——/upgrade 查看详情`, { level: 'info' });
+          }
+        })
+        .catch(() => {
+          /* 失败静默律（防御位——编排器自身已内吞网络错，此处只防意外形） */
+        });
     }
 
     await quitDone; // 主循环——输入事件驱动，直至 ctrl+d 空框退出

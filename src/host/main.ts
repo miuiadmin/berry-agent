@@ -39,6 +39,8 @@ import { runSessionsEntry } from './sessions-cmd.js';
 import { runCredentialsEntry } from './credentials-cmd.js';
 import { runDoorsEntry } from './doors-cmd.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
+import { runUpgradeCommand, createNodeUpdateCheckFs } from './upgrade.js';
+import { createDefaultSpawnRunner } from './plugin-install.js';
 
 /** 在飞运行时柄（组装后挂入——信号/崩溃编舞切运行时本体；前置窗口 null） */
 let activeRuntime: HostRuntime | null = null;
@@ -95,7 +97,7 @@ export function dispatchServe(
   return runners.foreground(flags);
 }
 
-/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins / 20b run / 20d sessions / g-2 doors 已接线，upgrade 诚实退 1） */
+/** 执行器族（12c 空起——逐批充实；12e TUI / 13c serve stdio / 13e-3 daemon 编舞 + status/stop / 13f mcp 包装 / 12f-3 dump-config + plugins / 20b run / 20d sessions / g-2 doors / 07 §8.5 upgrade 三态已接线） */
 const handlers: CommandHandlers = {
   tui: (flags) =>
     runTuiEntry({
@@ -150,6 +152,20 @@ const handlers: CommandHandlers = {
   // doors 子命令族 CLI 面（g-2——03 §4.6 / 07 §5 定名：list 只读零装配零库
   // 纯文件读；open/close 合法解析形、执行层语义拒退 1——写动词 TUI /doors 专属）
   doors: (sub) => runDoorsEntry(sub, {}),
+  // 升级维护动词（07 §8.5 第 1 条三态——2026-09-19 启动版本检查批接线，原
+  // 诚实退 1 空席充实）：装机形态甄别（realpath 归一入口真身）→ npm 全局形
+  // 查 dist-tags → spawn npm i -g（stdio 继承）；其余形态指引不代执行
+  upgrade: () =>
+    runUpgradeCommand({
+      currentVersion: readVersion(),
+      realEntryPath: realpathSync(fileURLToPath(import.meta.url)),
+      spawn: createDefaultSpawnRunner(),
+      dataDir: resolveDataDir(),
+      fs: createNodeUpdateCheckFs(),
+      now: () => Date.now(),
+      writeOut: (text) => stdout.write(`${text}\n`),
+      writeErr: (text) => stderr.write(`${text}\n`),
+    }),
 };
 
 /** 主序：编舞装配 → 分派 → 终局 */
