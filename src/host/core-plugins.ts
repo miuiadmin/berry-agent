@@ -320,7 +320,8 @@ interface SharedPluginHostDeps {
    * 命令输出面（core 件命令结算文本投递——memory-export/import 与 /tick 共用；
    * source = 归因字面〔命令域〕——呈现侧路由后端自决，语义面 = 可辨识命令
    * 来源。缺席即静默，命令仍注册）。TUI 第四役 finding A 起另承件内失败诊断
-   * warn 的 transient 呈现腿（memory/subagent 两件——leveled logger 之外的
+   * warn 的 transient 呈现腿（memory/subagent 先例 + F1 收编批扫尾
+   * scheduler/goal/checkpoint/obs/issue 五件入列——leveled logger 之外的
    * 双发位；boot 期通道未挂时静默扇出零观众属常态）。
    */
   readonly notify?: (source: string, message: string) => void;
@@ -1254,7 +1255,15 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const db = deps.sqlite?.();
       if (db === undefined) return; // 主闸——库座缺席零装载（诚实缺席律）
 
-      const warn = (message: string) => console.error(message);
+      // 件内 warn 出口（F1 收编——第四役挂账① 扫尾）：同 core:memory 律——
+      // leveled logger（BERRY_AGENT_LOG_LEVEL 辖内；缺省 info 下 warn 可见）
+      // + 通道 notify 双发（transient 呈现；缺席纯 logger）。console.error
+      // 裸文本直落 TUI 屏的写出路根除（cron 对账跳过/僵行清扫/补推进诊断族）。
+      const warnLogger = createLogger('core:scheduler', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL));
+      const warn = (message: string) => {
+        warnLogger.warn(message);
+        deps.notify?.('scheduler', message);
+      };
       const now = () => new Date().toISOString();
       // 真 bin 单源（批 20c）：runner spawn 命令与 cron 行命令段共用——装配根
       // 解析 env BERRY_AGENT_BIN 注入；缺席 'berry' PATH 名解析
@@ -1489,7 +1498,16 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const sessionFace = deps.goalSession;
       if (db === undefined || sessionFace === undefined) return; // 主闸双位
 
-      const warn = (message: string) => console.error(message);
+      // 件内 warn 出口（F1 收编——第四役挂账① 扫尾）：同 core:memory 律——
+      // leveled logger（BERRY_AGENT_LOG_LEVEL 辖内；缺省 info 下 warn 可见）
+      // + 通道 notify 双发（transient 呈现；缺席纯 logger）。console.error
+      // 裸文本直落 TUI 屏的写出路根除（停靠/停滞/唤醒审计 warn 族——service
+      // 注入位单源；下方广播唤醒编舞内两处直写同 sink 同律收编）。
+      const warnLogger = createLogger('core:goal', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL));
+      const warn = (message: string) => {
+        warnLogger.warn(message);
+        deps.notify?.('goal', message);
+      };
       const now = () => new Date().toISOString();
       // lsp 诊断查询窄面（批 19d hasLsp 回补——注册表序 lsp 必居本件前，
       // tryGet 序内前件；lsp 件缺席/disabled = GateLspSeam 缺席 = diagnostics
@@ -1616,7 +1634,9 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
           backgroundLane: true,
         });
         if (run === undefined) {
-          console.error(`[goal] 广播唤醒提交失败：会话 ${sessionId} 无驱动在册——停靠保持，人工道 /goal wake`);
+          // F1 收编：直写改走件内 warn 出口（logger + notify 双发——停靠保持
+          // 人工道语义不变，只换呈现路）
+          warn(`[goal] 广播唤醒提交失败：会话 ${sessionId} 无驱动在册——停靠保持，人工道 /goal wake`);
           return;
         }
         void run.then(async (receipt) => {
@@ -1627,7 +1647,9 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
           // 挂钟行保持 disabled + 摘登记 + warn 人工路径（issue 面同律）
           if (receipt.status === 'wake-refused') {
             service.unparkForBudget(goalId);
-            console.error(
+            // F1 收编：直写改走件内 warn 出口（logger + notify 双发——自动唤醒
+            // 路尽语义不变，只换呈现路）
+            warn(
               `[goal] 连续后台唤醒超帽（04 §4 maxConsecutiveWakes=3）：goal「${goalId}」停自动唤醒——挂钟保持停摆，/goal wake 手动复位或提帽`,
             );
             return;
@@ -1754,7 +1776,15 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const forkFace = deps.checkpointFork;
       if (dataDir === null || sessionFace === undefined || forkFace === undefined) return; // 主闸三位
 
-      const warn = (message: string) => console.error(message);
+      // 件内 warn 出口（F1 收编——第四役挂账① 扫尾）：同 core:memory 律——
+      // leveled logger（BERRY_AGENT_LOG_LEVEL 辖内；缺省 info 下 warn 可见）
+      // + 通道 notify 双发（transient 呈现；缺席纯 logger）。console.error
+      // 裸文本直落 TUI 屏的写出路根除（gate 无工作区锚/边界诊断族）。
+      const warnLogger = createLogger('core:checkpoint', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL));
+      const warn = (message: string) => {
+        warnLogger.warn(message);
+        deps.notify?.('checkpoint', message);
+      };
       const store = openCheckpointStore(dataDir);
       const capture = createCapture(store);
       // 装载态可见性面（批 19e——issue 件 capabilities 预检 'checkpoint'
@@ -1914,7 +1944,15 @@ function makeObsPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const events = deps.obsEvents;
       if (dataDir === null || events === undefined) return; // 主闸双位
 
-      const warn = (message: string) => console.error(message);
+      // 件内 warn 出口（F1 收编——第四役挂账① 扫尾）：同 core:memory 律——
+      // leveled logger（BERRY_AGENT_LOG_LEVEL 辖内；缺省 info 下 warn 可见）
+      // + 通道 notify 双发（transient 呈现；缺席纯 logger）。console.error
+      // 裸文本直落 TUI 屏的写出路根除（坏条告警降级/自驱 refresh 失败诊断族）。
+      const warnLogger = createLogger('core:obs', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL));
+      const warn = (message: string) => {
+        warnLogger.warn(message);
+        deps.notify?.('obs', message);
+      };
       const alerts = normalizeObsAlerts((config as { alerts?: unknown } | undefined)?.alerts, warn);
       const service = createObsService({
         dbPath: join(dataDir, 'data', 'obs', 'rollup.db'),
@@ -2135,7 +2173,15 @@ function makeIssuePlugin(deps: CorePluginHostDeps): CorePluginReference {
         throw new BaseError('ISSUE_CONFIG_INVALID', `[ISSUE_CONFIG_INVALID] ${normalized.message}`);
       }
 
-      const warn = (message: string) => console.error(message);
+      // 件内 warn 出口（F1 收编——第四役挂账① 扫尾）：同 core:memory 律——
+      // leveled logger（BERRY_AGENT_LOG_LEVEL 辖内；缺省 info 下 warn 可见）
+      // + 通道 notify 双发（transient 呈现；缺席纯 logger）。console.error
+      // 裸文本直落 TUI 屏的写出路根除（轮询登记/受理/回执投递失败诊断族）。
+      const warnLogger = createLogger('core:issue', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL));
+      const warn = (message: string) => {
+        warnLogger.warn(message);
+        deps.notify?.('issue', message);
+      };
       // scheduler 适配（IssueSchedulerFace ← SchedulerService：builtin 行登记
       // + enabled 显式——轮询是件的主通道非用户手动任务，pi-tick
       // default-disabled 缺省不适用本行）

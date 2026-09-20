@@ -109,6 +109,28 @@ async function until(cond: () => boolean, ms = 4000): Promise<void> {
   }
 }
 
+/**
+ * 双 spy 观察窗（fx5 先例同形抽 helper——F1 收编批五处 sink 断言面单源）：
+ * 包裹触发段，取影 console.error 调用数（主锁——修前 sink 即 console.error
+ * 必红）+ stderr 写出全文（logger 腿收窄面）。mockRestore 清 mock.calls——
+ * 计数在还原前取影。
+ */
+async function observeNoConsoleError<T>(drive: () => Promise<T>): Promise<{ errorCalls: number; stderrText: string }> {
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  let stderrText = '';
+  const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+    stderrText += String(chunk);
+    return true;
+  });
+  try {
+    await drive();
+    return { errorCalls: errorSpy.mock.calls.length, stderrText };
+  } finally {
+    errorSpy.mockRestore();
+    writeSpy.mockRestore();
+  }
+}
+
 /** core 件 deps 注入面（批 19b-2 起——sqlite 主闸为 memory/scheduler/goal 共用；三 seam + 命令输出归 memory，scheduler 增闸事实位，goal 增会话读面主闸二；checkpoint 增语境/fork 两 seam + 焦点会话位——批 19c-4；19e 增 HTTP 面族十位——sdk/webui/obs/issue 四件） */
 interface DepsForTest {
   sqlite?: () => ReturnType<Persistence['store']['sqlite']>;
@@ -117,6 +139,13 @@ interface DepsForTest {
   fetchEvents?: (sessionId: string) => readonly SessionEvent[];
   llm?: () => MemoryLlmFace;
   notify?: (source: string, message: string) => void;
+  /**
+   * scheduler cron 乙案开启位 + 执行器注入面（CorePluginHostDeps 同形——
+   * F1 收编测「cron 对账跳过」warn 触达用；开启位是唯一闸、exec 是测试接缝
+   * 零真系统写）
+   */
+  schedulerCronEnabled?: boolean;
+  schedulerCronExec?: (args: string[], input?: string) => { stdout: string; stderr: string; code: number };
   goalSession?: GoalSessionFace;
   /** goal 沉淀摘要窄面（批 #99——GoalSummarizerFace 注入面） */
   goalSummarizer?: GoalSummarizerFace;
@@ -206,6 +235,8 @@ async function bootCore(
       ...(coreDeps.fetchEvents !== undefined ? { fetchEvents: coreDeps.fetchEvents } : {}),
       ...(coreDeps.llm !== undefined ? { llm: coreDeps.llm } : {}),
       ...(coreDeps.notify !== undefined ? { notify: coreDeps.notify } : {}),
+      ...(coreDeps.schedulerCronEnabled !== undefined ? { schedulerCronEnabled: coreDeps.schedulerCronEnabled } : {}),
+      ...(coreDeps.schedulerCronExec !== undefined ? { schedulerCronExec: coreDeps.schedulerCronExec } : {}),
       ...(coreDeps.goalSession !== undefined ? { goalSession: coreDeps.goalSession } : {}),
       ...(coreDeps.goalSummarizer !== undefined ? { goalSummarizer: coreDeps.goalSummarizer } : {}),
       ...(coreDeps.goalServiceSink !== undefined ? { goalServiceSink: coreDeps.goalServiceSink } : {}),
@@ -755,6 +786,288 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       expect(notified.some(([source, message]) => source === 'memory' && message.includes('review 拍失败'))).toBe(true);
       await persistence.close();
     } finally {
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
+  });
+
+  /* ---------------- F1 console.error sink 收编（第四役挂账① 扫尾） ----------------
+   * 五件八处活 sink（scheduler/goal×3/checkpoint/obs/issue）全迁 fx5 先例形
+   * （core:memory/subagent 同律）：leveled logger（BERRY_AGENT_LOG_LEVEL 辖内
+   * ——缺省 info 下 warn 可见）+ 通道 notify 双发（transient 呈现；缺席纯
+   * logger）。主锁一律 = 触发窗内零 console.error（修前 sink 即 console.error
+   * 必红）+ stderr 结构化 JSON 行 + notify 归因同文投递。 */
+
+  it('obs warn 出口零 console.error（F1 收编）：坏条告警降级 → logger 结构化行 + notify 双发', async () => {
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-f1-obs-'));
+    dirs.push(dataDir);
+    const events: ObsEventsFace = { queryEvents: () => ({ events: [], nextCursor: null }) };
+    const notified: Array<[string, string]> = [];
+    try {
+      // 坏形告警条（kind 非 token_spend_hourly）→ apply 期 normalizeObsAlerts
+      // warn 跳过（03 §10.8 坏规则降级律）——修前该 warn 即 console.error 直写
+      const { errorCalls, stderrText } = await observeNoConsoleError(() =>
+        bootCore(
+          dataDir,
+          memoryFs({
+            [join(dataDir, 'enabled.yaml')]:
+              'plugins:\n  - id: core:obs\n    config:\n      alerts:\n        - kind: bad_kind\n          thresholdTokens: -1\n',
+          }),
+          {},
+          { obsEvents: events, notify: (source, message) => notified.push([source, message]) },
+        ),
+      );
+      expect(errorCalls).toBe(0); // 主锁：零 console.error（修前 sink 必红）
+      expect(stderrText).toContain('config.alerts[0] 坏形跳过'); // 达岸核验（红因核验）
+      expect(stderrText).toContain('"level":"warn"'); // logger 腿：结构化 JSON 行
+      expect(stderrText).toContain('"module":"core:obs"');
+      // notify 腿（transient 呈现）：归因 'obs' 的同文投递
+      expect(notified.some(([source, message]) => source === 'obs' && message.includes('坏形跳过'))).toBe(true);
+    } finally {
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
+  });
+
+  it('goal warn 出口 + 广播唤醒直写零 console.error（F1 收编）：停靠 warn → 唤醒提交失败/超帽收口 → logger 行 + notify 双发', async () => {
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-f1-goal-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-f1-goal' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-f1-goal' ? session.events() : []),
+      length: (sid) => (sid === 's-f1-goal' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-f1-goal') session.append('session/paused', { reason: 'budget' });
+      },
+    };
+    // 可控假 stack：submitMode 'undefined' = submitText 返 undefined（无驱动在册
+    // 形——广播唤醒直写①触达）；'refused' = 返 wake-refused 回执（三帽兜底——
+    // 广播唤醒直写②触达）
+    let affordOk = true;
+    let submitMode: 'undefined' | 'refused' = 'undefined';
+    const submits: { sessionId: string; source?: string }[] = [];
+    const fakeConversationStack = {
+      llm: { canAfford: (_tier: string) => affordOk },
+      submitText: (sessionId: string, _text: string, opts?: { source?: string }) => {
+        submits.push({ sessionId, source: opts?.source });
+        return submitMode === 'undefined' ? undefined : Promise.resolve({ status: 'wake-refused' });
+      },
+    } as unknown as ConversationStack;
+    const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+    const notified: Array<[string, string]> = [];
+    let svc: GoalService | undefined;
+    try {
+      const { scope } = await bootCore(
+        dataDir,
+        memoryFs(),
+        {},
+        {
+          sqlite: () => persistence.store.sqlite(),
+          goalSession,
+          budgetBroadcast: broadcast,
+          conversationStack: fakeConversationStack,
+          goalServiceSink: (service) => {
+            svc = service;
+          },
+          notify: (source, message) => notified.push([source, message]),
+        },
+      );
+      const face = scope.tryGet<GoalFace>('goal')!;
+      const row = await svc!.activate({ sessionId: 's-f1-goal', objective: 'F1 收编停靠目标', schedule: 'every:60s' });
+
+      // 触发窗（双 spy 包裹）：停靠 warn（sink 位 ×2）→ 唤醒 submit 无驱动
+      // （直写①）→ 再停靠 → 唤醒 wake-refused 收口（直写②）——修前四笔
+      // console.error 全在窗内
+      const { errorCalls, stderrText } = await observeNoConsoleError(async () => {
+        affordOk = false;
+        if (!(await face.parkIfBudgetExhausted(row.id))) throw new Error('停靠未落地');
+        affordOk = true;
+        await until(() => submits.length === 1); // 广播唤醒 → submitText undefined → 直写①
+        affordOk = false;
+        if (!(await face.parkIfBudgetExhausted(row.id))) throw new Error('再停靠未落地');
+        submitMode = 'refused';
+        affordOk = true;
+        await until(() => submits.length === 2);
+        await new Promise((resolve) => void setTimeout(resolve, 20)); // refused 收口微任务窗
+      });
+      expect(submits).toHaveLength(2); // 两段唤醒真实达岸（红因核验）
+      expect(errorCalls).toBe(0); // 主锁：零 console.error（修前 4 笔必红）
+      expect(stderrText).toContain('"module":"core:goal"'); // logger 腿（leveled 可辖）
+      expect(stderrText).toContain('预算停靠'); // warn sink 位（停靠三动作尾 warn ×2）
+      expect(stderrText).toContain('广播唤醒提交失败'); // 直写①
+      expect(stderrText).toContain('连续后台唤醒超帽'); // 直写②
+      // notify 腿：归因 'goal' 的三文各自投递
+      expect(notified.some(([source, message]) => source === 'goal' && message.includes('预算停靠'))).toBe(true);
+      expect(notified.some(([source, message]) => source === 'goal' && message.includes('广播唤醒提交失败'))).toBe(
+        true,
+      );
+      expect(notified.some(([source, message]) => source === 'goal' && message.includes('连续后台唤醒超帽'))).toBe(
+        true,
+      );
+    } finally {
+      broadcast.dispose();
+      await persistence.close();
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
+  });
+
+  it('scheduler warn 出口零 console.error（F1 收编）：cron 对账坏形行跳过 → logger 行 + notify 双发', async () => {
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-f1-sched-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-f1-sched-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-f1-sched-home-'));
+    dirs.push(dataDir, workspace, home);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const db = persistence.store.sqlite();
+    // 预置启用行：every:90s 非 60 整除秒——cron 不可表达形（scheduleToCron 抛
+    // SCHEDULER_CRON_UNSUPPORTED，先于授权/exec——对账 catch warn 即 sink 触达）
+    db.prepare(
+      `INSERT INTO jobs (name, prompt, cwd, schedule, enabled, builtin, created_at, updated_at, next_fire_at)
+       VALUES ('seed-f1-cron', '巡检', NULL, '{"kind":"every","seconds":90}', 1, 0, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL)`,
+    ).run();
+    const cronCalls: { args: string[]; input?: string }[] = [];
+    const exec = (args: string[], input?: string) => {
+      cronCalls.push({ args, input });
+      return { stdout: '', stderr: '', code: 0 };
+    };
+    const notified: Array<[string, string]> = [];
+    try {
+      const { errorCalls, stderrText } = await observeNoConsoleError(() =>
+        bootCore(
+          dataDir,
+          memoryFs(),
+          { cwd: workspace, homeDir: home },
+          {
+            sqlite: () => db,
+            schedulerCronEnabled: true,
+            schedulerCronExec: exec,
+            notify: (source, message) => notified.push([source, message]),
+          },
+        ),
+      );
+      expect(cronCalls).toHaveLength(0); // 可表达性判先于 exec——零 OS 面触碰（触达位核验）
+      expect(errorCalls).toBe(0); // 主锁：零 console.error（修前 sink 必红）
+      expect(stderrText).toContain('cron 对账跳过'); // 达岸核验（红因核验）
+      expect(stderrText).toContain('"level":"warn"'); // logger 腿：结构化 JSON 行
+      expect(stderrText).toContain('"module":"core:scheduler"');
+      // notify 腿：归因 'scheduler' 的同文投递
+      expect(notified.some(([source, message]) => source === 'scheduler' && message.includes('cron 对账跳过'))).toBe(
+        true,
+      );
+    } finally {
+      await persistence.close();
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
+  });
+
+  it('checkpoint warn 出口零 console.error（F1 收编）：无工作区锚放行 warn → logger 行 + notify 双发', async () => {
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-f1-cp-'));
+    dirs.push(dataDir);
+    // 语境面：空工作区锚（gate 判据 3 配置缺口形）——write 效果过 gate 即 warn
+    // 放行（不拍快照不拦执行）
+    const checkpointSession: SessionContextFace = {
+      contextOf: (sid) => (sid === 's-f1-cp' ? { lastClosedBoundary: 3, workspaceRoot: '' } : undefined),
+    };
+    const checkpointFork: RewindForkFace = {
+      fork: async () => ({ status: 'forked', sessionId: 'fork-f1' }),
+    };
+    const notified: Array<[string, string]> = [];
+    try {
+      const { dispatch } = await bootCore(
+        dataDir,
+        memoryFs(),
+        {},
+        {
+          checkpointSession,
+          checkpointFork,
+          notify: (source, message) => notified.push([source, message]),
+        },
+      );
+      const { errorCalls, stderrText } = await observeNoConsoleError(async () => {
+        await dispatch.waterfall<GateInput>('tools_pre_execute', {
+          tool: { name: 'probe', effect: 'write' } as GateInput['tool'],
+          args: {},
+          toolCallId: 'c-f1-cp',
+          mutated: false,
+          sessionId: 's-f1-cp',
+        });
+      });
+      expect(errorCalls).toBe(0); // 主锁：零 console.error（修前 sink 必红）
+      expect(stderrText).toContain('无工作区锚'); // 达岸核验（红因核验）
+      expect(stderrText).toContain('"level":"warn"'); // logger 腿：结构化 JSON 行
+      expect(stderrText).toContain('"module":"core:checkpoint"');
+      // notify 腿：归因 'checkpoint' 的同文投递
+      expect(notified.some(([source, message]) => source === 'checkpoint' && message.includes('无工作区锚'))).toBe(
+        true,
+      );
+    } finally {
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
+  });
+
+  it('issue warn 出口零 console.error（F1 收编）：双 boot 轮询行重复登记 warn → logger 行 + notify 双发', async () => {
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-f1-issue-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session: IssueSessionFace = {
+      startHeadless: async () => ({
+        sessionId: 's-f1-issue',
+        outcome: Promise.resolve({ status: 'completed', messagesUsed: 1, summary: 'ok' }),
+      }),
+    };
+    const state: IssueStoreStateFace = {
+      getStoreState: () => undefined,
+      setStoreState: () => undefined,
+      deleteStoreState: () => false,
+    };
+    const budget: IssueBudgetFace = { canAffordIssue: () => ({ ok: true }) };
+    const issueYaml = 'plugins:\n  - id: core:issue\n    config:\n      repos:\n        - owner/repo\n';
+    const fs = memoryFs({ [join(dataDir, 'enabled.yaml')]: issueYaml });
+    const baseDeps = {
+      sqlite: () => persistence.store.sqlite(),
+      issueGithubToken: 'gh-token',
+      issueState: state,
+      issueBudget: budget,
+      issueSession: session,
+    };
+    const notified: Array<[string, string]> = [];
+    try {
+      await bootCore(dataDir, fs, {}, baseDeps); // 首 boot——轮询行落册（spy 窗外）
+      // 再 boot（同库）——issue 件 start() 撞 SCHEDULER_NAME_EXISTS 重复登记
+      // → 幂等 warn（不炸装配）——修前该 warn 即 console.error 直写
+      const { errorCalls, stderrText } = await observeNoConsoleError(() =>
+        bootCore(dataDir, fs, {}, { ...baseDeps, notify: (source, message) => notified.push([source, message]) }),
+      );
+      expect(errorCalls).toBe(0); // 主锁：零 console.error（修前 sink 必红）
+      expect(stderrText).toContain('轮询行登记失败'); // 达岸核验（红因核验）
+      expect(stderrText).toContain('"level":"warn"'); // logger 腿：结构化 JSON 行
+      expect(stderrText).toContain('"module":"core:issue"');
+      // notify 腿：归因 'issue' 的同文投递
+      expect(notified.some(([source, message]) => source === 'issue' && message.includes('轮询行登记失败'))).toBe(true);
+    } finally {
+      await persistence.close();
       if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
       else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
     }
