@@ -25,8 +25,7 @@
  */
 import { stdin as processStdin, stdout as processStdout, stderr as processStderr } from 'node:process';
 
-import { Persistence } from '../persist/index.js';
-import { resolveDataDir } from '../persist/index.js';
+import { Persistence, resolveDataDir, sanitizeTitleText } from '../persist/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
 
@@ -113,6 +112,17 @@ function lineageOf(origin: string, parentId: string | undefined): string {
   return parentId === undefined ? origin : `${origin}←${parentId}`;
 }
 
+/**
+ * 标题呈现形（存量行双保险）：写路物化已源头净化（firstQuestionSummaryOf 经
+ * sanitizeTitleText），此面兜旧码落库的脏 title——ANSI 逃逸序列/控制字节/
+ * 零宽字素剥除后才外发终端（防终端解释清屏/改窗题等伪控制）；净化归空
+ * （含 title 零宽-only 的不可见形态）诚实退无标题占位。
+ */
+function titleOf(title: string | undefined): string {
+  const cleaned = title === undefined ? '' : sanitizeTitleText(title);
+  return cleaned.length > 0 ? cleaned : '（无标题）';
+}
+
 /* ---------------- list ---------------- */
 
 /** list：会话清单（id/标题/时间/血缘；updated 倒序） */
@@ -129,7 +139,7 @@ async function runList(options: SessionsEntryOptions): Promise<number> {
     const lines: string[] = [`共 ${rows.length} 个会话（updated 倒序，帽 100）：`];
     for (const row of rows) {
       lines.push(
-        `  ${row.id}  ${row.title ?? '（无标题）'}  创建 ${isoOf(row.createdAt)}  更新 ${isoOf(row.updatedAt)}  ${lineageOf(row.origin, row.parentId)}`,
+        `  ${row.id}  ${titleOf(row.title)}  创建 ${isoOf(row.createdAt)}  更新 ${isoOf(row.updatedAt)}  ${lineageOf(row.origin, row.parentId)}`,
       );
     }
     out(lines.join('\n'));
@@ -170,7 +180,7 @@ async function runSearch(options: SessionsEntryOptions, query: string): Promise<
     const lines: string[] = [`命中 ${hits.length} 处（bm25 序，帽 50）：`];
     for (const hit of hits) {
       const meta = titles.get(hit.sessionId);
-      const head = `${hit.sessionId}  ${meta?.title ?? '（无标题）'}`;
+      const head = `${hit.sessionId}  ${titleOf(meta?.title)}`;
       lines.push(`  ${head}  #${hit.seq}  ${snippetOf(hit.body, query)}`);
     }
     out(lines.join('\n'));

@@ -574,6 +574,78 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
     store.writeEvents(writesFor('s-fq-l', log.events().slice(1)));
     expect(store.getSessionRow('s-fq-l')?.title).toBe('历史首问');
   });
+
+  it('firstQuestionSummaryOf 净化面：ANSI 序列/C0/DEL/C1 控制字节剥除（m10——title 零控制字节）', () => {
+    const summaryOf = (data: unknown) => firstQuestionSummaryOf({ type: 'user/message', data });
+    // CSI 形（色码）整段剥除——可打印残段（[31m 等）不残留（JS \s 不含 ESC，
+    // 修前 ESC 原样穿透物化进 title）
+    expect(summaryOf({ content: '\x1b[31m日志\x1b[0m 贴终端输出', source: 'user' })).toBe('日志 贴终端输出');
+    // OSC 形（改窗题）剥至 BEL——正文不误伤
+    expect(summaryOf({ content: '\x1b]0;窗题\x07正文', source: 'user' })).toBe('正文');
+    // C0（BEL/NUL）与 DEL 剥除——不引入空格（贴身剥除）
+    expect(summaryOf({ content: '警\x07报\x00与\x7f杂音', source: 'user' })).toBe('警报与杂音');
+    // C1（U+0085 NEL 等 0x80-0x9f 段）剥除——JS \s 不含 NEL（LineTerminator 只四值）
+    expect(summaryOf({ content: '左\u0085右', source: 'user' })).toBe('左右');
+    // 混合脏输入字节形总断言：返回值零控制字节（修前 ESC 在场必红）
+    const dirty = summaryOf({ content: '带\x1b[2J清屏\x1b]0;t\x07的输入', source: 'user' });
+    expect(dirty).toBe('带清屏的输入');
+    expect(/[\u0000-\u001f\u007f-\u009f]/.test(dirty ?? '')).toBe(false);
+  });
+
+  it('firstQuestionSummaryOf 零宽字素族剥除：零宽-only 归空不物化（i2——不可见标题）', () => {
+    const summaryOf = (data: unknown) => firstQuestionSummaryOf({ type: 'user/message', data });
+    // 零宽族不在 JS \s 类（修前折叠后非空照常物化为不可见标题）——剥除后归空。
+    // ZWSP/ZWNJ/ZWJ/BOM/SHY/WJ 六点（与 width.ts 孤立零宽码点集同源）
+    expect(summaryOf({ content: '\u200b\u200c\u200d', source: 'user' })).toBeUndefined();
+    expect(summaryOf({ content: '\ufeff', source: 'user' })).toBeUndefined();
+    expect(summaryOf({ content: '\u00ad\u2060', source: 'user' })).toBeUndefined();
+    // 零宽夹真文本——剥除不误伤正文（贴身剥除不引空格）
+    expect(summaryOf({ content: 'a\u200b\u200c\u200db', source: 'user' })).toBe('ab');
+  });
+
+  it('写路物化：含逃逸序列/控制字节首问落库 title 零控制字节（m10 存储级锁——字节形断言）', () => {
+    const store = open({ dbPath: join(dir, 'fq-ctrl.db') });
+    const log = new SessionLog({ sessionId: 'fq-ctrl' });
+    log.append('user/message', { content: '\x1b[31m日志\x1b[0m 贴终端输出', source: 'user' });
+    store.writeEvents(writesFor('s-fq-ctrl', log.events()));
+    const title = store.getSessionRow('s-fq-ctrl')?.title ?? '';
+    // 修前红：title 含 ESC 原样物化（每次 sessions list 复发外发终端）
+    expect(/[\u0000-\u001f\u007f-\u009f]/.test(title)).toBe(false);
+    expect(title).toBe('日志 贴终端输出');
+  });
+
+  it('已物化短路：title 在场后后续 user/message 写零重扫（i1——首问扫描语句计数形）', () => {
+    const store = open({ dbPath: join(dir, 'fq-short.db') });
+    // 拦截 Database：只包首问扫描语句（SQL 形唯一锚定）的 iterate 计数，
+    // 其余语句原样透传——写路语义零干扰
+    const db = store.connection;
+    let scanIterations = 0;
+    const rawPrepare = db.prepare.bind(db);
+    db.prepare = ((sql: string) => {
+      const statement = rawPrepare(sql);
+      if (sql.includes("AND type = 'user/message' ORDER BY seq")) {
+        const rawIterate = statement.iterate.bind(statement);
+        statement.iterate = ((...bindParameters: unknown[]) => {
+          scanIterations += 1;
+          return rawIterate(...(bindParameters as []));
+        }) as typeof statement.iterate;
+      }
+      return statement;
+    }) as typeof db.prepare;
+    // 同一新会话连写三条 user/message：修前每写全量重扫（计数 3），修后首写
+    // 物化即短路（计数 1——已物化 title 使 COALESCE 必保持现值，扫描无人消费）
+    const log = new SessionLog({ sessionId: 'fq-short' });
+    log.append('user/message', { content: '第一条真输入', source: 'user' });
+    store.writeEvents(writesFor('s-fq-short', log.events()));
+    expect(store.getSessionRow('s-fq-short')?.title).toBe('第一条真输入');
+    log.append('user/message', { content: '第二条', source: 'user' });
+    store.writeEvents(writesFor('s-fq-short', log.events().slice(1)));
+    log.append('user/message', { content: '第三条', source: 'user' });
+    store.writeEvents(writesFor('s-fq-short', log.events().slice(2)));
+    expect(scanIterations).toBe(1);
+    // 短路不得破首登为准语义（COALESCE 值面不变——title 恒首问）
+    expect(store.getSessionRow('s-fq-short')?.title).toBe('第一条真输入');
+  });
 });
 
 describe('queryEvents（05 §3.4 过滤维 + 游标）', () => {

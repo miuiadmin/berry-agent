@@ -225,6 +225,35 @@ describe('sessions list（读腿零装配）', () => {
     expect(code).toBe(0);
     expect(cap.out.join('\n')).toContain('无会话');
   });
+
+  it('标题净化双保险：存量脏 title（逃逸序列/控制字节/零宽-only）渲染剥除不外发终端', async () => {
+    // 存量行形态：旧码物化的脏 title 已在库（写路净化只保新写——此面兜旧账）
+    const dbPath = join(rigDir('sess-list-san-'), 'sessions.db');
+    await seedSessionRows(dbPath, [
+      // CSI 色码 + OSC 改窗题夹带：终端会解释的逃逸序列原样外发即伪控制
+      { id: 'san-esc', title: '\x1b[31m红\x1b[0m 标题', origin: 'conversation', created: 1, updated: 2 },
+      // 零宽-only title：不可见字符——净化归空须走（无标题）兜底（诚实呈现）
+      { id: 'san-zero', title: '\u200b\u200c\u200d', origin: 'conversation', created: 1, updated: 2 },
+      // 干净 title 原样（净化不误伤正常行）
+      { id: 'san-clean', title: '干净标题', origin: 'conversation', created: 1, updated: 2 },
+    ]);
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'list' },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    const text = cap.out.join('\n');
+    // 修前红①：ESC/C0 控制字节原样外发（终端可解释——清屏/改窗题复发）
+    expect(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(text)).toBe(false);
+    // 修前红②：序列剥除后可打印残段（[31m）不落行
+    expect(text).not.toContain('[31m');
+    expect(text).toContain('红 标题');
+    // 修前红③：零宽-only title 非空不走（无标题）——净化归空后兜底在场
+    expect(text).toContain('（无标题）');
+    expect(text).toContain('干净标题');
+    expect(text).toContain('san-zero');
+  });
 });
 
 /* ---------------- search（跨会话 FTS） ---------------- */
@@ -264,6 +293,26 @@ describe('sessions search（跨会话 FTS——bm25 序）', () => {
     );
     expect(code).toBe(0);
     expect(cap.out.join('\n')).toContain('无命中');
+  });
+
+  it('命中行标题同净化（list 双保险同律——脏 title 不经命中行外发）', async () => {
+    const dbPath = join(rigDir('sess-search-san-'), 'sessions.db');
+    await seedSessionRows(dbPath, [
+      { id: 's-dirty', title: '\x1b[31m脏\x1b[0m 命中会话', origin: 'conversation', created: 1, updated: 2 },
+    ]);
+    await seedFtsRows(dbPath, 's-dirty', [{ seq: 1, body: '藏着 needle 的正文' }]);
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'search', query: 'needle' },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    const text = cap.out.join('\n');
+    expect(text).toContain('s-dirty');
+    // 修前红：命中行标题原样外发（ESC 在场 + 残段 [31m 落行）
+    expect(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(text)).toBe(false);
+    expect(text).not.toContain('[31m');
+    expect(text).toContain('脏 命中会话');
   });
 });
 

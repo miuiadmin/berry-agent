@@ -178,6 +178,37 @@ function firstQuestionMarker(truncatedChars: number): string {
 }
 
 /**
+ * ANSI 逃逸序列形（整段剥除集）：CSI（ESC [ + 参数/中间码 + final 0x40–0x7E）/
+ * OSC（ESC ] + 至 BEL 或 ST，截尾无终止符吞到串尾）/ 传统式（ESC + 中间码
+ * 0x20–0x2F* + final 0x30–0x7E——字符集选择等）。三形覆盖对齐 TUI 呈现面
+ * 消毒单源（channels/engine/width.ts sanitizeDisplayText）的 ESC 三形。
+ */
+const ANSI_ESCAPE_PATTERN = /\x1b(?:\[[\x20-\x3f]*[\x40-\x7e]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[\x20-\x2f]*[\x30-\x7e])/g;
+
+/**
+ * 控制字节与零宽字素剥除集：C0 非空白段（0x00–0x08/0x0e–0x1f，含残余裸
+ * ESC）/ DEL（0x7f）/ C1（0x80–0x9f，JS \s 不含 NEL 等——LineTerminator 只
+ * 四值）+ 零宽族六点 ZWSP/ZWNJ/ZWJ/SHY/WJ/BOM（与 width.ts 孤立零宽码点集
+ * 同源）。空白类 C0（\t\n\v\f\r）不入此集——归第三步 \s 折叠（保「多行首问
+ * 折叠为单空格」的既有 join 语义不回退）。
+ */
+const CONTROL_AND_ZERO_WIDTH_PATTERN = /[\x00-\x08\x0e-\x1f\x7f-\x9f\u00ad\u200b-\u200d\u2060\ufeff]/g;
+
+/**
+ * 标题/快照文本净化纯函数（首问物化写路与 CLI 清单渲染位共消费的单一真源）：
+ *  1. 剥 ANSI 逃逸序列（三形整段——序列须先于控制字节剥除，ESC 标记在位才
+ *     认得出整段；先剥字节会毁标记漏出参数残段）；
+ *  2. 剥非空白 C0/C1/DEL 控制字节与零宽字素族（零宽-only 输入由此归空 →
+ *     不物化不可见标题）；
+ *  3. 空白折叠单空格去首尾（清单面单行承载）。
+ * 本地实现不 import channels（DAG 无此边——物理层与呈现面同律不同体；呈现
+ * 面 tab 有展开语义，物理层标题快照无列宽概念只剥除）。
+ */
+export function sanitizeTitleText(text: string): string {
+  return text.replace(ANSI_ESCAPE_PATTERN, '').replace(CONTROL_AND_ZERO_WIDTH_PATTERN, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
  * 真用户源判据（05 §9 字面 + §3.1 闭集用户侧）：source ∈ 'user' ∪ 'channel:<id>'。
  * schedule/budget-extended/subagent-* 等机器注入位与 plugin:/session: 受控注入
  * 位虽投影可能同视 user，均非「真用户输入」不入首问列；source 缺席同不入列
@@ -206,9 +237,10 @@ function userTextOf(content: unknown): string | undefined {
  * 真用户输入（user/message 且 source ∈ user/channel:*）的截断快照——
  *  - 200 字符帽，超长截头加尾标 `…[truncated N chars]`（§1.2 裁腿同式；
  *    截断界劈开 UTF-16 代理对时退一位切齐码点边界——防孤立代理落库成替换符）；
- *  - 空白折叠为单空格并去首尾（清单面单行承载 + TUI grid 零控制字节律——
- *    换行/制表符不进 title）；
- *  - 无文本可取（纯 image 消息 / 折叠后为空）→ undefined（快照无从截起）。
+ *  - 先经 sanitizeTitleText 净化（ANSI 逃逸序列/非空白控制字节/零宽字素剥除
+ *    + 空白折叠单空格去首尾——TUI grid 零控制字节律：控制字节与不可见字素
+ *    不进 title；零宽-only 输入归空即无快照）；
+ *  - 无文本可取（纯 image 消息 / 净化后为空）→ undefined（快照无从截起）。
  * 非真用户输入（非 user/message 词、机器源、受控注入源）→ undefined。
  */
 export function firstQuestionSummaryOf(event: Pick<SessionEvent, 'type' | 'data'>): string | undefined {
@@ -219,7 +251,7 @@ export function firstQuestionSummaryOf(event: Pick<SessionEvent, 'type' | 'data'
   if (!isRealUserSource(record.source)) return undefined;
   const text = userTextOf(record.content);
   if (text === undefined) return undefined;
-  const collapsed = text.replace(/\s+/g, ' ').trim();
+  const collapsed = sanitizeTitleText(text);
   if (collapsed.length === 0) return undefined;
   if (collapsed.length <= FIRST_QUESTION_SUMMARY_MAX_CHARS) return collapsed;
   // 截断界码点对齐：帽位恰劈开 UTF-16 代理对（head 末位高代理 + 帽位低代理）
@@ -553,10 +585,17 @@ export class Store implements WriteTarget {
    * 命中即本会话真首条：新会话 = 本事件；fork/导入 = 种子前缀内首条；存量库
    * （旧版不物化、title NULL）在下次用户消息写时惰性回填真首条（§9「可从
    * 日志重新派生回填」律的写路兑现）。机器源行（compaction 载体等）逐行跳过。
-   * 非用户消息事件短路零查（热路径只付 user/message 一查的代价）。
+   * 非用户消息事件短路零查；sessions.title 已在场（非 NULL）同样短路零扫——
+   * COALESCE 必保持现值，扫描结果无人消费（全机器源长存会话每写扫尽 O(n²)
+   * 的收口；title NULL 的存量行不受影响，惰性回填照常）。
    */
   private firstQuestionOfferOf(sessionId: string, event: SessionEvent): string | undefined {
     if (event.type !== 'user/message') return undefined;
+    // 已物化短路：行在场且 title 非 NULL（显式题已物化 / 首问已物化 / 人面
+    // 改名）即返回——与 COALESCE(sessions.title, ?) 语义等价（非 NULL 恒胜出）
+    const existing = this.stmt(`SELECT title FROM sessions WHERE id = ?`).get(sessionId) as
+      { title: string | null } | undefined;
+    if (existing !== undefined && existing.title !== null) return undefined;
     const rows = this.stmt(
       `SELECT data FROM events WHERE session_id = ? AND type = 'user/message' ORDER BY seq`,
     ).iterate(sessionId) as Iterable<{ data: string }>;
