@@ -108,6 +108,27 @@ describe('parseMarkdown 块解析', () => {
     expect(blocks).toEqual([{ type: 'code', lines: ['abc'], language: undefined, open: true }]);
   });
 
+  it('围栏内反引号起首行不闭栏（B-render 批——修前只查首字符与总长，`bold` 行误闭栏、后续行外泄成块）', () => {
+    // CommonMark 闭栏形：trim 后整行全为围栏字符——'`bold` means emphasis'
+    // 首字符同、总长 ≥3 但非全反引号，不得闭栏（markdown-about-markdown /
+    // 围栏内模板串场景高频）
+    const blocks = parseMarkdown('```markdown\n`bold` means emphasis\n| a | b |\n```');
+    expect(blocks).toEqual([{ type: 'code', lines: ['`bold` means emphasis', '| a | b |'], language: 'markdown' }]);
+  });
+
+  it('闭栏混合形不闭（``x 非全同字符）；更长同字符闭栏仍闭（````` ≥ ```)', () => {
+    // '``x'：首字符同、总长 3——修前误闭栏（块被截断丢 open 位）
+    expect(parseMarkdown('```\nabc\n``x')).toEqual([
+      { type: 'code', lines: ['abc', '``x'], language: undefined, open: true },
+    ]);
+    // 等长以上：5 个反引号闭 3 个反引号开栏
+    expect(parseMarkdown('```\nabc\n`````')).toEqual([{ type: 'code', lines: ['abc'], language: undefined }]);
+  });
+
+  it('异字符围栏不互闭（``` 体内 ~~~ 行不闭反栏——marker 首字符单源）', () => {
+    expect(parseMarkdown('```\n~~~\n```')).toEqual([{ type: 'code', lines: ['~~~'], language: undefined }]);
+  });
+
   it('引用连续行归块（行内解析入块）', () => {
     const blocks = parseMarkdown('> 引用一\n> 引用 *二*\n\n正文');
     expect(blocks[0]).toEqual({

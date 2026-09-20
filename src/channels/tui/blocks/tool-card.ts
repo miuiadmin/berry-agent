@@ -21,7 +21,7 @@
  * 抛错/返回空行集/载荷缺席 → 宿主缺省卡体（插件渲染器结构性不可劣化呈现
  * 面）。折叠预览 N=5 与卡体帽 200 行对插件行集同律。
  */
-import { truncateToWidth, wrapText, type CellStyle, type ColorValue } from '../../engine/index.js';
+import { sanitizeDisplayText, truncateToWidth, wrapText, type CellStyle, type ColorValue } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../backend/ansi-rows.js';
 import { diffWords, parsePatchLines, type PatchLine } from './word-diff.js';
@@ -78,7 +78,9 @@ export function cardBodyOf(text: string): readonly string[] {
  * 卡体，回落形与宿主缺省同走下方两档渲染（折叠/展开/预览对插件行集同律）。
  */
 export function renderToolCardStyledLines(card: ToolCardView, columns: number): StyledLine[] {
-  const header = ` ${STATUS_SYMBOL[card.status]} ${card.name}${card.brief}`;
+  // 卡头构造位消毒先行（B-render 批）：名/简述是模型生成面（tab 展开记宽 2
+  // ——消毒后测宽，帽不按 tab=1 误计放行超帽行）
+  const header = sanitizeLineText(` ${STATUS_SYMBOL[card.status]} ${card.name}${card.brief}`);
   const statusColor =
     card.status === 'success' ? card.theme.success : card.status === 'error' ? card.theme.error : card.theme.secondary;
   // 卡头屏宽帽（F6）：plain 整字截断 + 两段游程同步钳制（符号段/名段跨界收尾）
@@ -150,10 +152,13 @@ function pluginLineToStyled(line: RendererLine, columns: number, theme: Resolved
   const runs: StyleRun[] = [];
   for (const seg of line) {
     const start = plain.length;
-    plain += seg.text;
+    // 段文本先消毒再拼接（B-render 批）：游程锚消毒后 plain——tab 展开改长
+    // 后段几何仍一致（修前 plain 携 tab 记宽 1、发射展开 2 空格超帽）
+    const text = sanitizeLineText(seg.text);
+    plain += text;
     // tone 缺省 = 'text' 中性前景档；theme.text 可 undefined（无前景游程）
     const fg: ColorValue | undefined = theme[seg.tone ?? 'text'];
-    if (fg !== undefined && seg.text !== '') {
+    if (fg !== undefined && plain.length > start) {
       runs.push({ start, end: plain.length, style: { fg } });
     }
   }
@@ -192,11 +197,16 @@ function renderDiffBodyLines(body: readonly string[], columns: number, theme: Re
 
 /** 词级对行：删行（变更词红）+ 增行（变更词绿）——same 段裸、变段着色 */
 function renderWordDiffPair(del: PatchLine, add: PatchLine, columns: number, theme: ResolvedTheme): StyledLine[] {
-  const segs = diffWords(del.text, add.text);
+  // 构造位消毒先行（B-render 批）：词元切分与测宽截断都以消毒后文本为基
+  // （tab 展开记宽 2——修前 tab 记宽 1、发射展开 2 空格致超帽行 autowrap
+  // 漂移物理行账；游程进位 = 消毒后段长，段几何与 plain 一致）
+  const delBody = sanitizeLineText(del.text);
+  const addBody = sanitizeLineText(add.text);
+  const segs = diffWords(delBody, addBody);
   const delRuns = segRuns(segs, 'del', theme.diffRemoved, 1); // 偏移 1 = '-' 前缀
   const addRuns = segRuns(segs, 'add', theme.diffAdded, 1); // 偏移 1 = '+' 前缀
-  const delText = truncateToWidth(`-${del.text}`, columns);
-  const addText = truncateToWidth(`+${add.text}`, columns);
+  const delText = truncateToWidth(`-${delBody}`, columns);
+  const addText = truncateToWidth(`+${addBody}`, columns);
   return [
     { plain: delText, runs: clampRuns(delRuns, delText.length) },
     { plain: addText, runs: clampRuns(addRuns, addText.length) },
@@ -206,7 +216,8 @@ function renderWordDiffPair(del: PatchLine, add: PatchLine, columns: number, the
 /** 孤立行整行着色：删红 / 增绿 / meta dim / ctx 裸行（截断保宽帽） */
 function renderSinglePatchLine(line: PatchLine, columns: number, theme: ResolvedTheme): StyledLine {
   const prefix = line.kind === 'del' || line.kind === 'add' ? (line.kind === 'del' ? '-' : '+') : '';
-  const text = truncateToWidth(prefix + line.text, columns);
+  // 构造位消毒先行（B-render 批）——patch 体是模型生成真源码、tab 缩进日常
+  const text = truncateToWidth(sanitizeLineText(prefix + line.text), columns);
   if (line.kind === 'del') return { plain: text, runs: wholeRun(text, { fg: theme.diffRemoved }) };
   if (line.kind === 'add') return { plain: text, runs: wholeRun(text, { fg: theme.diffAdded }) };
   if (line.kind === 'meta') return { plain: text, runs: wholeRun(text, DIM_STYLE) };
@@ -245,6 +256,20 @@ function wholeRun(text: string, style: CellStyle): StyleRun[] {
 
 /** dim 样式（卡头简述段与折叠预览共用——SGR 2；与简行块 DIM_STYLE 字节同源） */
 const DIM_STYLE: Readonly<{ dim: true }> = Object.freeze({ dim: true });
+
+/**
+ * 单行构造位消毒（B-render 批）：sanitizeDisplayText 单源消毒（tab 语义展开
+ * 2 空格 / CR 与 ESC 序列剥除 / 其余 C0 与 DEL 剥除）+ LF 归一空格（单行
+ * 语义——消毒单源保留 LF 供折行族分段，本族单行构造 LF 落发射即未记账物理
+ * 行）。修前构造位以原始文本测宽截断：tab 记宽 1、发射位消毒展开 2 空格
+ * ——截断记宽放行的行实际发射宽超帽，终端 autowrap 产未记账物理行（物理
+ * 行账漂移族）。卡头 / diff 档 / 插件行构造位统一先经本消毒再测宽截断。
+ * 导出单源（backend/transcript 简行族 argsBrief/resultBrief 同律消费——
+ * 2026-09-21 补修批升格；依赖方向 backend→blocks 既有）。
+ */
+export function sanitizeLineText(text: string): string {
+  return sanitizeDisplayText(text).replace(/\n/g, ' ');
+}
 
 /** 折叠预览整面 dim（既有游程样式并入 dim——diff 色保留亮度降档） */
 function addDim(line: StyledLine): StyledLine {

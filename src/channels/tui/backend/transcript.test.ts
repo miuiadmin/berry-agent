@@ -5,7 +5,7 @@
  * （tool_execution_* 正文零渲染）、非聚焦摘要行分档、投影重建、帽卸载。
  */
 import { describe, expect, it } from 'vitest';
-import { ansiColor } from '../../engine/index.js';
+import { ansiColor, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js';
 import { LIGHT_PALETTE, resolveTheme, DEFAULT_THEME } from '../theme/index.js';
@@ -400,6 +400,32 @@ describe('renderBlockStyledLines 带样式行（零第二渲染器——与主�
     const toolResult = renderBlockStyledLines({ kind: 'tool-result', brief: '命中' }, 40);
     expect(toolResult[0]!.plain).toBe(' ↳ 命中');
     expect(toolResult[0]!.runs).toEqual([{ start: 0, end: ' ↳ 命中'.length, style: { dim: true } }]);
+  });
+
+  it('简行族构造位消毒律：argsBrief/resultBrief 先消毒再测宽（2026-09-21 修复批——tab 记宽 1 误过帽漂物理行账）', () => {
+    // resultBrief 腿：未配对 tool-result 兜底 ↳ 简行，brief 首行中置 tab（trim 剥
+    // 首尾空白故中置——工具输出首行含源码缩进 tab 是日常形）
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: toolResultMsg('x'.repeat(10) + '\t\t\t\t\t' + 'y'.repeat(25), { toolCallId: 'tc-x' }),
+    });
+    const block = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-result' }>;
+    // 构造位消毒：brief 不残留 tab（修前原样 5 tab——记宽 5 消毒后实宽 10，两帽均误计）
+    expect(block.brief).not.toMatch(/\t/);
+    // 发射语义宽（发射位 tab 展开 2 空格）≤ 帽——修前 BRIEF_WIDTH/出口帽均按 tab=1 记宽放行
+    for (const line of renderBlockStyledLines(block, 20)) {
+      expect(stringWidth(sanitizeDisplayText(line.plain))).toBeLessThanOrEqual(20);
+    }
+    // argsBrief 腿：参数键名含 tab（JSON 键任意字符串），配对卡 brief 同一构造位
+    const t2 = new LiveTranscript();
+    apply(t2, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'grep', arguments: { 'pa\tth': 'x' } }]),
+    });
+    apply(t2, { type: 'message_end', message: toolResultMsg('ok', { toolCallId: 'tc1' }) });
+    const card = t2.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(card.brief).not.toMatch(/\t/); // 键列简述已消毒（修前 '(pa\th)' 原样携带）
   });
 
   it('markdown 块：样式段提取（H1 bold 段在、无样式段不在）+ 空行保空行', () => {

@@ -5,11 +5,15 @@
  * dim）/ 展开全量、cardBodyOf 尾留帽与截断标记、edit diff 档（1 删 1 增词级
  * 红绿、孤立行整行红绿、meta dim、超宽截断游程钳制）、插件卡体（renderResult
  * 消费——2026-09-17 TUI 余量收官批③：命中/回落恒在/卡头恒宿主/tone 语义键
- * 着色/折叠预览与卡体帽同律/纯函数纪律）。
+ * 着色/折叠预览与卡体帽同律/纯函数纪律）、构造位消毒（B-render 批：tab 记宽
+ * 1 发射展开 2 空格——构造位先消毒再测宽截断）。
  */
 import { afterEach, describe, expect, it } from 'vitest';
+import { stringWidth } from '../../engine/index.js';
 import { DEFAULT_THEME } from '../theme/index.js';
 import { registerToolRenderer } from '../../renderers.js';
+import { styledLineToAnsi } from '../backend/ansi-rows.js';
+import { renderBlockLines, type TranscriptBlock } from '../backend/transcript.js';
 import {
   CARD_BODY_MAX_LINES,
   CARD_PREVIEW_LINES,
@@ -330,5 +334,72 @@ describe('卡头屏宽帽（2026-09-20 TUI 修复组 1 批 F6）', () => {
       { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
       { start: 2, end: 7, style: { dim: true } },
     ]);
+  });
+});
+
+/* ---------------- B-render 批：构造位消毒（tab 记宽 1 发射展开 2 空格） ---------------- */
+
+/** 发射行剥 SGR 后的显示宽（发射位消毒已展开 tab——剥样式后测真宽） */
+function emittedWidth(line: string): number {
+  return stringWidth(line.replace(/\x1b\[[0-9;]*m/g, ''));
+}
+
+describe('构造位消毒：tab 记宽 1 发射展开 2 空格（修前截断记宽放行超帽行）', () => {
+  // 模块级注册表——逐笔 dispose 防跨用例串扰
+  const disposers: Array<() => void> = [];
+  afterEach(() => {
+    for (const dispose of disposers.splice(0)) dispose();
+  });
+
+  it('edit 孤立增行含 tab：真管线发射行宽 ≤ 帽（修前 10 tab 记宽 10 恰放行、发射展开 20 空格宽 30 > 20）', () => {
+    // 修前形：truncateToWidth 按 tab=1 记宽，'+'+10 tab+9 数字恰记宽 20 通过
+    // 出口帽；发射位 styledLineToAnsi 消毒把 tab 展开 2 空格 → 实际发射 30
+    // 列，终端 autowrap 产未记账物理行（物理行账漂移族）
+    const block: Extract<TranscriptBlock, { kind: 'tool-card' }> = {
+      kind: 'tool-card',
+      name: 'edit',
+      brief: '(patch)',
+      status: 'success',
+      body: ['+' + '\t'.repeat(10) + '0123456789'],
+      diff: true,
+      expanded: true,
+      theme: DEFAULT_THEME,
+    };
+    for (const line of renderBlockLines(block, 20)) {
+      expect(emittedWidth(line)).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it('词级对行含 tab：发射宽 ≤ 帽（修前 4 tab 记宽 4 放行、发射展开 8 空格宽 9 > 6）', () => {
+    const lines = renderToolCardStyledLines(
+      card({ name: 'edit', diff: true, body: ['-' + '\t'.repeat(4), '+' + '\t'.repeat(4) + 'x'], expanded: true }),
+      6,
+    );
+    for (const line of lines) {
+      expect(emittedWidth(styledLineToAnsi(line))).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it('插件行段含 tab：发射宽 ≤ 帽（修前 15 tab 截到 10 记宽、发射展开 20 空格 > 10）', () => {
+    disposers.push(
+      registerToolRenderer('plug_tab', { renderResult: () => [[{ text: '\t'.repeat(15), tone: 'error' }]] }),
+    );
+    const lines = renderToolCardStyledLines(
+      card({ name: 'plug_tab', body: [], expanded: true, renderInput: renderInputOf() }),
+      10,
+    );
+    for (const line of lines) {
+      expect(emittedWidth(styledLineToAnsi(line))).toBeLessThanOrEqual(10);
+    }
+  });
+
+  it('卡头名含 tab：发射宽 ≤ 帽（修前帽按 tab=1 记宽、发射展开超帽）', () => {
+    const lines = renderToolCardStyledLines(card({ name: '\t'.repeat(30), brief: '' }), 10);
+    expect(emittedWidth(styledLineToAnsi(lines[0]!))).toBeLessThanOrEqual(10);
+  });
+
+  it('tab 语义展开为空格（构造位消毒先行——发射字节零 tab）', () => {
+    const lines = renderToolCardStyledLines(card({ name: 'edit', diff: true, body: ['+\tfoo'], expanded: true }), 40);
+    expect(lines[1]!.plain).toBe('+  foo'); // 1 tab → 2 空格
   });
 });

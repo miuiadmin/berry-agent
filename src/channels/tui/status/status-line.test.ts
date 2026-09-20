@@ -196,3 +196,21 @@ describe('StatusLine 忙态工具段剩余宽帽（2026-09-20 TUI 修复组 1 �
     expect(readRow(renderLine(line, 30), 0, 30)).toBe('berry          ⠋ ⚙ read_file …');
   });
 });
+
+describe('StatusLine 闲态右段剩余宽帽（B-render 批）', () => {
+  it('超宽 idleText 截断：无负列写（首字素不丢）且 footer 截断形在场（修前头部被网格吞 + footer 整段消失）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry');
+    line.setStatus('S'.repeat(15)); // 宽 15 > region 宽 10——修前右对齐起点 = 10 - 15 = -5
+    // 帽 = width - 2（间隔 1 列 + footer 至少留 1 列截断形）：右段截到 8 列
+    // （cols 2-9）、间隔 col 1、footer 截断形 '…' 落 col 0
+    expect(readRow(renderLine(line, 10), 0, 10)).toBe('… SSSSSSSS');
+  });
+
+  it('idleText 未超帽——既有分栏几何原样（帽是快路不扰）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry · glm · a1b2c3');
+    line.setStatus('✓ 完成');
+    expect(readRow(renderLine(line, 30), 0, 30)).toBe('berry · glm · a1b2c3    ✓ 完成');
+  });
+});

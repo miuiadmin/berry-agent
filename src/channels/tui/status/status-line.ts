@@ -100,9 +100,15 @@ export class StatusLine implements Renderable {
       buffer.writeText(region.row, region.col, this.fitFooter(region.width));
       return;
     }
-    const idleWidth = stringWidth(this.idleText);
+    // 闲态右段剩余宽帽（B-render 批——同忙态 F4 帽律）：idleText 无界时
+    // 右对齐起点 = col + width - idleWidth 可为负——writeText 逐字素被网格
+    // 边界静默吞头部（cell 面 col<0 吸收），且 footer 剩余宽 ≤ 0 整段消失。
+    // 帽 = width - 2：间隔 1 列 + footer 至少留 1 列截断形（忙态帽的 -1 是
+    // 给转轮列，闲态无转轮故让此列给 footer）——截断后起点恒 ≥ region.col
+    const idle = truncateToWidth(this.idleText, Math.max(0, region.width - 2));
+    const idleWidth = stringWidth(idle);
     buffer.writeText(region.row, region.col, this.fitFooter(region.width - idleWidth - 1));
-    buffer.writeText(region.row, region.col + region.width - idleWidth, this.idleText);
+    buffer.writeText(region.row, region.col + region.width - idleWidth, idle);
   }
 
   /** footer 适配剩余宽（超宽整字截断 + 省略号；非超宽原样） */

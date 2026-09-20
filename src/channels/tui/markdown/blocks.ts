@@ -53,9 +53,15 @@ const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 /** 表格定界行（:---: 形——仅 | : - 与空白、至少一杠一竖线） */
 const TABLE_SEP_RE = /^[\s|:-]+$/;
 
-/** 行闭栏判据（与主解析同律：同字符、等长以上——封段扫描共用单源） */
+/**
+ * 行闭栏判据（与主解析同律：同字符、等长以上——封段扫描共用单源）。
+ * CommonMark 闭栏形：trim 后**整行全为围栏字符**且长度 ≥ 开栏长度——
+ * 围栏体内 '`bold` means emphasis' 类反引号起首行（首字符同、总长 ≥3 但
+ * 非全围栏字符）不得误闭栏（B-render 批——修前只查首字符与总长）。
+ */
 function closesFence(line: string, marker: string): boolean {
-  return line.trimStart().startsWith(marker[0]!) && line.trim().length >= marker.length;
+  const t = line.trim();
+  return t.length >= marker.length && [...t].every((ch) => ch === marker[0]!);
 }
 
 /** 单元格切分（剥外缘竖线 + 竖线分位 + trim——`\|` 转义形 v1 不支撑） */

@@ -41,6 +41,7 @@ import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
   cardBodyOf,
   renderToolCardStyledLines,
+  sanitizeLineText,
   type ToolCardRenderInput,
   type ToolCardStatus,
 } from '../blocks/tool-card.js';
@@ -363,11 +364,14 @@ function isAbortedDetails(details: unknown): boolean {
  * 工具简述：参数键名序列（`path, content` 形——呈现面克制不倒参数值）。
  * BRIEF_WIDTH 帽（2026-09-20 TUI 修复组 1 批 F6——修前常量在案从未接线，
  * 超长键名/键列简述整段直写）：与 resultBrief 同律按显示宽截断。
+ * 构造位消毒律（2026-09-21 补修批）：键名是 JSON 任意字符串可含 tab/LF
+ * ——先 sanitizeLineText（tab 展开 2 空格 + LF 归一）再测宽截断（修前 tab
+ * 记宽 1 误过帽、简行发射位展开漂物理行账——物理行账漂移族）。
  */
 function argsBrief(args: Record<string, unknown>): string {
   const keys = Object.keys(args);
   if (keys.length === 0) return '';
-  return truncateToWidth(`(${keys.join(', ')})`, BRIEF_WIDTH);
+  return truncateToWidth(sanitizeLineText(`(${keys.join(', ')})`), BRIEF_WIDTH);
 }
 
 /** 行集选项（批 10f-4 帽参数化——主屏缺省帽之外的自定义档） */
@@ -722,10 +726,15 @@ export class LiveTranscript {
   }
 }
 
-/** ↳ 工具结果简述：文本块首行按显示宽截断（无文本块返占位） */
+/**
+ * ↳ 工具结果简述：文本块首行按显示宽截断（无文本块返占位）。
+ * 构造位消毒律（2026-09-21 补修批）：工具输出首行含源码缩进 tab 是日常形
+ * ——先 sanitizeLineText（tab 展开 2 空格 + LF 归一）再测宽截断（修前 tab
+ * 记宽 1 误过帽、简行发射位展开漂物理行账——物理行账漂移族）。
+ */
 function resultBrief(message: AgentMessage): string {
   const text = textOf(message);
   if (text === '') return '(无文本输出)';
   const firstLine = text.split('\n').find((line) => line.trim() !== '') ?? '';
-  return truncateToWidth(firstLine.trim(), BRIEF_WIDTH);
+  return truncateToWidth(sanitizeLineText(firstLine.trim()), BRIEF_WIDTH);
 }
