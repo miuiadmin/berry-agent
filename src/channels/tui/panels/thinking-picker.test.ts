@@ -8,7 +8,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
-import { CellGrid } from '../../engine/index.js';
+import { CellGrid, stringWidth } from '../../engine/index.js';
 import { ThinkingPicker } from './thinking-picker.js';
 import type { ThinkingPickerOptions } from './thinking-picker.js';
 
@@ -95,6 +95,23 @@ describe('ThinkingPicker 呈现', () => {
     for (let row = 1; row <= 7; row++) {
       expect(readRow(grid, row, width)).not.toContain('●');
     }
+  });
+
+  it('窄窗右段预算律：说明右段先按预算 … 截断再右对齐——负起列劈毁档名坏形封堵（修前红）', () => {
+    // 词表七档 detail 均窄（不触阈值）——注入长 detail 条目逼出坏形窗：
+    // 窗 20 << detail 宽 50——修前 rightCol 深负起列：CellGrid 吸收负列首段后
+    // 余段从行首覆写，档名 'medium' 全毁
+    const longDetail = '中等推理深度——平衡时延与质量，具体生效随模型能力';
+    const entries = TEST_ENTRIES.map((e) => (e.level === 'medium' ? { ...e, detail: longDetail } : e));
+    const { picker } = makePicker({ entries });
+    const width = 20;
+    const grid = new CellGrid(width, picker.measure(width));
+    picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    const line = readRow(grid, 4, width); // medium 行（光标在 off、● 在 medium）
+    expect(line.startsWith('  ')).toBe(true); // 非光标行缩进在位（行首不被右段尾覆写）
+    expect(line).toContain('medium'); // 档名存活（左段保留位 ≥ 半窗下限）
+    expect(line).toContain('…'); // 右段按预算 … 收口
+    expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
   });
 });
 

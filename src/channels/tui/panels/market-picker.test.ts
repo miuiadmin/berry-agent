@@ -352,3 +352,68 @@ describe('MarketPicker 键面', () => {
     expect(onExit).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('MarketPicker 模型换血缩行防御（光标随行集夹取）', () => {
+  /**
+   * host rebuildRows 换血同形：字段替换式变更行集（marketplace-tui-face.ts
+   * `this.model.rows = rows` 同形——host 侧变更不经面板任何夹取路径）。
+   */
+  const shrink = (model: MarketPanelModel, rows: readonly MarketEntryRow[]): void => {
+    (model as { rows: readonly MarketEntryRow[] }).rows = rows;
+  };
+
+  it('换血缩行后 enter：光标夹取入新集不抛 TypeError，动作按新集条目分派（修前红）', () => {
+    const { picker, model, actions, onExit } = makePicker();
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down')); // 光标 → 2（long-desc）
+    shrink(model, [ROWS[0]!]); // r 刷新换血：3 行 → 1 行（越界形 1 ≤ 新行长 ≤ cursor）
+    // 修前：rows[2] 为 undefined → 读 chosen.installed 抛 TypeError（生产链 stdin
+    // data listener 内无人接 → uncaughtException 整进程退出——finding 主张坏形）
+    expect(() => picker.handleEvent(k('enter'))).not.toThrow();
+    expect(onExit).toHaveBeenCalledTimes(1); // 选定照常先收屏
+    expect(actions.uninstall).toHaveBeenCalledWith('hello@alpha'); // 夹取后命中新集首行（已装 → uninstall 分派）
+  });
+
+  it('换血缩行后 u 键两轨（key + kitty text）：同防御不抛 + 夹取后命中新集条目', () => {
+    const keyLane = makePicker();
+    keyLane.picker.handleEvent(k('down'));
+    keyLane.picker.handleEvent(k('down'));
+    shrink(keyLane.model, [ROWS[0]!]);
+    expect(() => keyLane.picker.handleEvent(k('u'))).not.toThrow();
+    expect(keyLane.actions.upgrade).toHaveBeenCalledWith('hello@alpha');
+    const textLane = makePicker();
+    textLane.picker.handleEvent(k('down'));
+    textLane.picker.handleEvent(k('down'));
+    shrink(textLane.model, [ROWS[0]!]);
+    expect(() => textLane.picker.handleEvent({ kind: 'text', text: 'u' } as InputEvent)).not.toThrow();
+    expect(textLane.actions.upgrade).toHaveBeenCalledWith('hello@alpha');
+  });
+
+  it('render 期光标夹取：换血缩行后光标标记 ▸ 落在新集在位行（不再悬空）', () => {
+    const { picker, model } = makePicker();
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down'));
+    shrink(model, [ROWS[1]!]); // 缩到 1 行（未装条目）
+    const width = 72;
+    const grid = new CellGrid(width, picker.measure(width));
+    expect(() => picker.render(grid, { row: 0, col: 0, width, height: grid.rows })).not.toThrow();
+    expect(readRow(grid, 1, width).startsWith('▸')).toBe(true); // 光标标记在唯一在位行
+  });
+
+  it('换血到空表：enter/u/r（key 轨 + text 轨）全零回调不抛（空行防御）', () => {
+    const { picker, model, actions } = makePicker();
+    picker.handleEvent(k('down'));
+    shrink(model, []);
+    expect(() => {
+      picker.handleEvent(k('enter'));
+      picker.handleEvent(k('u'));
+      picker.handleEvent({ kind: 'text', text: 'u' } as InputEvent);
+      picker.handleEvent(k('r'));
+      picker.handleEvent({ kind: 'text', text: 'r' } as InputEvent);
+    }).not.toThrow();
+    expect(actions.install).not.toHaveBeenCalled();
+    expect(actions.uninstall).not.toHaveBeenCalled();
+    expect(actions.upgrade).not.toHaveBeenCalled();
+    expect(actions.refresh).not.toHaveBeenCalled();
+  });
+});

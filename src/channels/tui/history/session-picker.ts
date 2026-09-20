@@ -14,7 +14,7 @@
  *   再转退出柄）——副屏键面补丁三件套与件 8 同律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { stringWidth, truncateToWidth } from '../../engine/index.js';
+import { fitRowSegments } from '../row-segments.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiSessionSummary } from '../../../contracts/index.js';
@@ -117,16 +117,15 @@ export class SessionPicker implements OverlayContent {
   private renderRow(buffer: CellBuffer, row: number, col: number, width: number, index: number): void {
     const session = this.sessions[index]!;
     const right = `${formatStamp(session.updatedAt)} ${shortIdOf(session.id)}`;
-    const rightWidth = stringWidth(right);
-    const rightCol = col + width - rightWidth;
-    // 左段 = 光标标记 + 活跃位 + 标题；截断帽 = 剩余宽 - 间隔 1 列
+    // 左段 = 光标标记 + 活跃位 + 标题
     const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
     const title = session.title !== undefined && session.title !== '' ? session.title : '（无题）';
     const left = `${prefix}${session.active ? ACTIVE_MARK : ' '} ${title}`;
-    const maxLeft = width - rightWidth - 1;
-    const fitLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
-    buffer.writeText(row, col, fitLeft);
-    buffer.writeText(row, rightCol, right, HINT_STYLE);
+    // 右段预算律单源：时间/短 id 先按预算 … 截断再右对齐（窄窗不再负起列
+    // 劈毁标题——两段各自整字截断不撕宽字符）
+    const fit = fitRowSegments(left, right, width);
+    buffer.writeText(row, col, fit.left);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
   }
 
   /** 事件分发（副屏内容终局消费）：Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */

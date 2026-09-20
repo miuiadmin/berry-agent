@@ -20,7 +20,8 @@
  *   text 事件分派（theme-picker 'q' 先例同形坑——三键全补）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { stringWidth, truncateToWidth } from '../../engine/index.js';
+import { truncateToWidth } from '../../engine/index.js';
+import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 
 /**
@@ -166,6 +167,7 @@ export class MarketPicker implements OverlayContent {
     // 中段窗口化：光标驱动视口（条目区）+ 尾行区尾随——窗口高按剩余行实配
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
+    this.clampCursor(); // 模型换血缩行防御①：渲染期光标入界（r 刷新换行集后面板自愈）
     this.clampOffset();
     // 条目行优先占窗（光标可见性是选择器第一律——尾行区溢出被窗截断可接受）
     let line = region.row + 1;
@@ -201,23 +203,14 @@ export class MarketPicker implements OverlayContent {
     const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
     const badge = entry.installed ? ` ${INSTALLED_MARK}` : '';
     const left = `${prefix}${entry.name}@${entry.market}${badge}`;
-    // 右段预算先行：左段至多半窗（名@市场 + 徽标的可读下限），余宽归右段——
-    // 极长描述若按原宽右对齐会把 rightCol 推成负值（起点越窗），故先按预算
+    // 右段预算律单源（本律起源位——2026-09-20 战役后内联形收编单源）：左段
+    // 至多半窗（名@市场 + 徽标的可读下限），余宽归右段预算——极长描述若按
+    // 原宽右对齐会把起列推成负值（越窗吸收 + 行首覆写坏形），故先按预算
     // 截断右段再对齐；两段各自整字截断（… 截断形——不撕宽字符）。
-    const leftReserve = Math.max(0, Math.min(stringWidth(left), Math.floor(width / 2)));
-    const rightBudget = Math.max(0, width - 1 - leftReserve);
     const rightFull = `${entry.description !== undefined ? `${entry.description} · ` : ''}${entry.version}`;
-    const right =
-      rightFull === '' || stringWidth(rightFull) <= rightBudget
-        ? rightFull
-        : `${truncateToWidth(rightFull, Math.max(0, rightBudget - 1))}…`;
-    const rightWidth = stringWidth(right);
-    const rightCol = col + width - rightWidth;
-    // 左段帽 = 剩余宽 - 间隔 1 列（右段已按预算截断，此处 leftReserve 上限内通常已适）
-    const maxLeft = width - rightWidth - 1;
-    const fitLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
-    buffer.writeText(row, col, fitLeft);
-    if (rightWidth > 0) buffer.writeText(row, rightCol, right, HINT_STYLE);
+    const fit = fitRowSegments(left, rightFull, width);
+    buffer.writeText(row, col, fit.left);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
   }
 
   /**
@@ -226,6 +219,12 @@ export class MarketPicker implements OverlayContent {
    * disambiguate 轨 text 事件分派（三键全补——theme-picker 'q' 坑同形）。
    */
   handleEvent(event: InputEvent): boolean {
+    // 模型换血缩行防御②：事件入口光标入界（diff-viewer render 期夹取同族）。
+    // host 侧 rebuildRows 字段替换式缩行不经面板任何路径，光标可越出新集——
+    // enter/u（key 轨与 text 轨 dispatchLetter）取 rows[cursor] 前先夹取，
+    // 否则 undefined.installed 抛 TypeError 落 stdin data listener 无人接
+    // → uncaughtException 整进程退出（finding 主张坏形）。
+    this.clampCursor();
     const k = asKey(event);
     if (k !== null && k.phase !== 'release') {
       // Ctrl+C = 打断在飞 run（目标 = 当前交互会话位——不退屏，件族同律）
@@ -351,6 +350,17 @@ export class MarketPicker implements OverlayContent {
     this.cursor = Math.max(0, Math.min(this.model.rows.length - 1, this.cursor + delta));
     this.clampOffset();
     this.cursorRepaint();
+  }
+
+  /**
+   * 光标夹取（模型换血缩行——行下标入界；空表归 0）：模型 host 拥有且字段
+   * 替换式变更（rebuildRows `this.model.rows = rows`），缩行后 cursor 不经
+   * moveCursor 自夹——render 期与事件入口双位自愈（diff-viewer 同款律）。
+   */
+  private clampCursor(): void {
+    const length = this.model.rows.length;
+    if (length > 0) this.cursor = Math.max(0, Math.min(length - 1, this.cursor));
+    else this.cursor = 0;
   }
 
   /**

@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
-import { CellGrid } from '../../engine/index.js';
+import { CellGrid, stringWidth } from '../../engine/index.js';
 import { ThemePicker } from './theme-picker.js';
 import type { ThemePickEntry, ThemePickerOptions } from './theme-picker.js';
 
@@ -86,6 +86,20 @@ describe('ThemePicker 呈现', () => {
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
     expect(readRow(grid, 0, width)).toBe('◆ 主题切换 · 无条目');
     expect(readRow(grid, 1, width)).toContain('无主题条目');
+  });
+
+  it('窄窗右段预算律：右段先按预算 … 截断再右对齐——负起列劈毁档名坏形封堵（修前红）', () => {
+    const { picker } = makePicker();
+    // 窗 20 < auto 行右段宽 27——修前 rightCol = 20-27 = -7：CellGrid 吸收负列
+    // 首段后余段从行首覆写，光标标记与档名 'auto' 全毁（finding 实证坏形）
+    const width = 20;
+    const grid = new CellGrid(width, picker.measure(width));
+    picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    const line = readRow(grid, 1, width); // auto 行（光标行 + 最宽 detail）
+    expect(line.startsWith('▸')).toBe(true); // 行首光标标记不被右段尾覆写
+    expect(line).toContain('auto'); // 档名存活（左段保留位 ≥ 半窗下限）
+    expect(line).toContain('…'); // 右段按预算 … 收口（不再原宽右对齐）
+    expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
   });
 });
 

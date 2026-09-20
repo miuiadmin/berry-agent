@@ -14,7 +14,7 @@
  *   退出柄）——副屏键面补丁三件套与件 8 同律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { stringWidth, truncateToWidth } from '../../engine/index.js';
+import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 
 /** 技能清单条目（channels 侧窄面——skills 域真身在 host，装配位映射注入） */
@@ -123,15 +123,14 @@ export class SkillsViewer implements OverlayContent {
   private renderRow(buffer: CellBuffer, row: number, col: number, width: number, index: number): void {
     const entry = this.entries[index]!;
     const right = `${entry.hidden ? HIDDEN_MARK : ''}${entry.layer}`;
-    const rightWidth = stringWidth(right);
-    const rightCol = col + width - rightWidth;
-    // 左段 = 光标标记 + 名 + 描述；截断帽 = 剩余宽 - 间隔 1 列
+    // 左段 = 光标标记 + 名 + 描述
     const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
     const left = `${prefix}${entry.name}  ${entry.description}`;
-    const maxLeft = width - rightWidth - 1;
-    const fitLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
-    buffer.writeText(row, col, fitLeft);
-    buffer.writeText(row, rightCol, right, HINT_STYLE);
+    // 右段预算律单源：层名（插件 id 无界）先按预算 … 截断再右对齐（窄窗不再
+    // 负起列劈毁技能名）
+    const fit = fitRowSegments(left, right, width);
+    buffer.writeText(row, col, fit.left);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
   }
 
   /** 事件分发（副屏内容终局消费）：Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */

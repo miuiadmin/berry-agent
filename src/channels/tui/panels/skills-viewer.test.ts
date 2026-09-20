@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
-import { CellGrid } from '../../engine/index.js';
+import { CellGrid, stringWidth } from '../../engine/index.js';
 import { SkillsViewer } from './skills-viewer.js';
 import type { SkillListEntry } from './skills-viewer.js';
 
@@ -65,6 +65,23 @@ describe('SkillsViewer 副屏件', () => {
     expect(readRow(grid, 0, 60)).toBe('✦ 技能清单 · 无技能');
     expect(readRow(grid, 1, 60)).toContain('skills 件未装载');
     expect(readRow(grid, 3, 60)).toBe('q/esc 返回');
+  });
+
+  it('窄窗右段预算律：插件层 id 右段先按预算 … 截断再右对齐——负起列劈毁技能名坏形封堵（修前红）', () => {
+    // 层 id 无界（插件 id 自由文本）——窗 20 < 层 id 宽 31：修前 rightCol = -11，
+    // CellGrid 吸收负列首段后余段从行首覆写，光标标记与技能名全毁
+    const entries: readonly SkillListEntry[] = [
+      { name: 'commit-style', description: '提交信息风格', layer: 'plugin:demo-plugin-with-long-id', hidden: false },
+    ];
+    const viewer = new SkillsViewer({ entries, onSelect: () => {}, sessionId: 's', onExit: () => {} });
+    const width = 20;
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    const line = readRow(grid, 1, width);
+    expect(line.startsWith('▸')).toBe(true); // 行首光标标记不被右段尾覆写
+    expect(line).toContain('commit'); // 技能名前段存活（左段保留位 ≥ 半窗下限）
+    expect(line).toContain('…'); // 右段按预算 … 收口
+    expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
   });
 
   it('光标移动：↓ 下移、↑ 夹首、end 到尾 + 光标驱动视口夹取', () => {

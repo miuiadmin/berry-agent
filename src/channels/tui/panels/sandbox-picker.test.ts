@@ -8,7 +8,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
-import { CellGrid } from '../../engine/index.js';
+import { CellGrid, stringWidth } from '../../engine/index.js';
 import { SandboxPicker } from './sandbox-picker.js';
 import type { SandboxPickerOptions } from './sandbox-picker.js';
 
@@ -99,6 +99,20 @@ describe('SandboxPicker 呈现', () => {
     for (let row = 1; row <= 3; row++) {
       expect(readRow(grid, row, width)).not.toContain('●');
     }
+  });
+
+  it('窄窗右段预算律：警示语右段先按预算 … 截断再右对齐——负起列劈毁档名坏形封堵（修前红）', () => {
+    const { picker } = makePicker();
+    // 窗 20 < danger 警示语宽 24——修前 rightCol 负起列：CellGrid 吸收负列首段
+    // 后余段从行首覆写，档名 'danger' 全毁（finding 实证坏形）
+    const width = 20;
+    const grid = new CellGrid(width, picker.measure(width));
+    picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    const line = readRow(grid, 3, width); // danger 行（警示语最宽——首触阈值）
+    expect(line.startsWith('  ')).toBe(true); // 非光标行缩进在位（行首不被右段尾覆写）
+    expect(line).toContain('danger'); // 档名存活（左段保留位 ≥ 半窗下限）
+    expect(line).toContain('…'); // 右段按预算 … 收口
+    expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
   });
 });
 

@@ -14,7 +14,7 @@
  *   退出柄）——副屏键面件族律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { stringWidth, truncateToWidth } from '../../engine/index.js';
+import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 
 /** 主题条目（装配位合成：内置三档 + themes/ 目录文件名） */
@@ -126,16 +126,14 @@ export class ThemePicker implements OverlayContent {
   private renderRow(buffer: CellBuffer, row: number, col: number, width: number, index: number): void {
     const entry = this.entries[index]!;
     const right = `${entry.broken ? `${BROKEN_MARK} · ` : ''}${entry.detail}`;
-    const rightWidth = stringWidth(right);
-    const rightCol = col + width - rightWidth;
-    // 左段 = 光标标记 + 当前档标记 + 名；截断帽 = 剩余宽 - 间隔 1 列
+    // 左段 = 光标标记 + 当前档标记 + 名
     const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
     const mark = entry.name === this.current ? `${CURRENT_MARK} ` : '  ';
     const left = `${prefix}${mark}${entry.name}`;
-    const maxLeft = width - rightWidth - 1;
-    const fitLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
-    buffer.writeText(row, col, fitLeft);
-    buffer.writeText(row, rightCol, right, HINT_STYLE);
+    // 右段预算律单源：右段先按预算 … 截断再右对齐（窄窗不再负起列劈毁档名）
+    const fit = fitRowSegments(left, right, width);
+    buffer.writeText(row, col, fit.left);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
   }
 
   /** 事件分发（副屏内容终局消费）：Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */

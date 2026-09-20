@@ -154,17 +154,33 @@ describe('SessionPicker 行呈现', () => {
     expect(readRow(grid, 1, 60)).toContain('（无题）');
   });
 
-  it('超宽左段整字截断加省略号（CJK 不产半字）+ 右段右对齐不被截', () => {
+  it('超宽左段整字截断加省略号（CJK 不产半字）+ 右段超预算同样 … 收口后右对齐（随真态翻档）', () => {
     const longTitle = '很长'.repeat(20); // 80 列 >> 剩余宽
     const { picker } = makePicker([row({ id: 'ddd444444444', title: longTitle })]);
     const grid = new CellGrid(40, 4);
     picker.render(grid, { row: 0, col: 0, width: 40, height: 4 });
     const line = readRow(grid, 1, 40);
-    // 右段 20 列（时间 12 + 短 id 8）恒在行尾；左段截断帽 = 40-20-1
-    expect(line.endsWith('09-15 10:30 ddd44444')).toBe(true);
+    // 右段预算律（fx3 推全）：预算 = 40 - 1 - 左段保留位 20 = 19 < 右段宽 20——
+    // 右段同样 … 收口后右对齐在行尾（旧断言「右段不被截」是未修现状在 40 列
+    // 窗的锁面；宽 60 窗右段在预算内不截由上行测试锁）
+    expect(line.endsWith('09-15 10:30 ddd444…')).toBe(true);
     const left = line.slice(0, line.indexOf('09-15')).trimEnd(); // 剥截断段与右段间填充空格
-    expect(left.endsWith('…')).toBe(true); // 省略号收尾
-    expect(stringWidth(left) + 20 + 1).toBeLessThanOrEqual(40); // 总宽不越界
+    expect(left.endsWith('…')).toBe(true); // 左段省略号收尾（整字截断不撕宽字符）
+    expect(stringWidth(line)).toBeLessThanOrEqual(40); // 总宽不越界
+  });
+
+  it('窄窗右段预算律：时间/短 id 右段先按预算 … 截断再右对齐——负起列劈毁标题坏形封堵（修前红）', () => {
+    // 窗 18 < 右段宽 20（时间 12 + 短 id 8）——修前 rightCol = -2：CellGrid 吸收
+    // 负列首两字后余段从行首覆写，光标标记与标题全毁（finding 实证坏形）
+    const { picker } = makePicker([row({ id: 'aaa111111111', title: '调 TUI' })]);
+    const width = 18;
+    const grid = new CellGrid(width, 4);
+    picker.render(grid, { row: 0, col: 0, width, height: 4 });
+    const line = readRow(grid, 1, width);
+    expect(line.startsWith('▸')).toBe(true); // 行首光标标记不被右段尾覆写
+    expect(line).toContain('调'); // 标题前字存活（左段保留位 ≥ 半窗下限）
+    expect(line).toContain('…'); // 右段按预算 … 收口
+    expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
   });
 
   it('视口跟随：光标移出窗下沿 → 窗口下移（光标恒可见）', () => {
