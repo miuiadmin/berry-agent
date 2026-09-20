@@ -707,6 +707,34 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     await expect(p3).resolves.toBe('cancel'); // Esc 面板保守值映射 cancel
   });
 
+  it('主屏 lone-ESC 装排门换锚形自愈：旧定时器早到空转须重排——Esc 不丢、后键不误判 alt', async () => {
+    // 定谳回归靶（Engine 同款门的复制位——主屏自持输入管线）：T0 挂起装
+    // timer1 → T0+5 续段消解旧挂起（CSI ? u 应答完成）且 chunk 尾起新挂起
+    // （锚 T0+5）——装排被「在飞门」拒；timer1 于 T0+30 到点 settle 因
+    // elapsed=25<30 空转，修前无人重装 → 新挂起永失 Esc 裁决（confirm 层
+    // 永不关）且后续可打印键误判 alt+*（编辑器终局丢弃）。
+    const { io, backend, clock, calls, pump } = makeInteractive();
+    const p = backend.confirm('确认？');
+    pump(); // 层开帧落地
+    let closed = false;
+    void p.then(() => {
+      closed = true;
+    });
+    io.emitInput('\x1b'); // T0：lone-ESC 挂起——主屏装 timer1（T0+30 到点）
+    clock.advance(5); // T0+5
+    io.emitInput('[?u\x1b'); // kitty 探测应答消解旧挂起 + 尾起新挂起（锚 T0+5）——门拒装
+    clock.advance(26); // T0+31：timer1 于 T0+30 早到空转（elapsed=25<30）
+    expect(closed).toBe(false); // 窗仍未满——层不提前关（两实现同绿）
+    clock.advance(5); // T0+36 > 锚+窗（T0+35）——自愈重排定时器到点 settle 交 Esc
+    await Promise.resolve(); // 冲微任务——面板关层的 resolve 回调落 then 标记
+    expect(closed).toBe(true); // 修前红：新挂起永失 Esc 裁决——confirm 层永不关
+    await expect(p).resolves.toBe(false);
+    pump(); // 关层帧落地
+    io.emitInput('x\r'); // 挂起已清——后键落编辑器正文（修前 'x' 被吞成 alt+x 终局丢弃）
+    pump();
+    expect(calls.submitted).toEqual([['s1', 'x']]);
+  });
+
   it('input：提示行在场 → 提交应答；abort → 空串 + 残稿清框', async () => {
     const { io, backend, calls, pump } = makeInteractive();
     const p1 = backend.input('名字？');
@@ -1321,6 +1349,48 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     expect(io.bytes).toContain('> 复起后正文');
   });
 
+  it('挂起前已入队未落帧的瞬时行不丢（注入调度档：帧合并窗内挂起——suspendMain 转账 pendingOps）', () => {
+    const rig = makeInteractive();
+    // 生产竞窗复现：注入调度档下 notify 入 pendingOps + 排帧（fps 帽 60 合并窗
+    // ~16.7ms），suspendMain 抢在帧回调前（/history 命令链毫秒级 macrotask 后
+    // 即挂起）——不泵帧直接挂起即捕获该窗
+    rig.backend.notify('挂起前通知');
+    rig.backend.suspendMain();
+    rig.io.reset(); // 挂起编舞字节不计入
+    rig.clock.advance(100); // 在飞帧已被 cancelTimer('frame') 收口——挂起期零写出
+    expect(rig.io.bytes).toBe('');
+    rig.backend.notify('停屏期通知'); // 停屏期瞬时行入 suspendedTransients（既有缓冲路）
+    rig.backend.resumeMain();
+    // 修前红锚：挂起前通知永久丢失——pendingOps 被 resumeMain 无条件清空，
+    // 该行既不入 scrollback（screen.appendTransient 才入）也不入 suspendedTransients
+    expect(rig.io.bytes).toContain('· 挂起前通知');
+    expect(rig.io.bytes).toContain('· 停屏期通知');
+    // 到达序保持：挂起前行先于停屏期行（转账序 = 入队序）
+    expect(rig.io.bytes.indexOf('· 挂起前通知')).toBeLessThan(rig.io.bytes.indexOf('· 停屏期通知'));
+  });
+
+  it('复起先排空槽期缓冲——停屏前缓冲的 slotTransients 到达序在前（修前：延迟落地且序倒置）', () => {
+    const rig = makeInteractive();
+    // 流式槽在场：起流后泵帧（末块 streaming 确立）
+    emit(rig.backend, { type: 'message_start', role: 'assistant' });
+    emit(rig.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('流式正文') });
+    rig.pump();
+    rig.backend.notify('槽期旧通知'); // 末块 streaming → flush 缓冲进 slotTransients（破槽形防御让位）
+    rig.pump();
+    expect(rig.io.bytes).not.toContain('槽期旧通知'); // 前置自证：确入槽期缓冲未直写
+    rig.backend.suspendMain();
+    // 停屏期关槽：定稿 message_end（末块非 streaming）+ 停屏期瞬时行入缓冲
+    emit(rig.backend, { type: 'message_end', message: assistantMsg('定稿正文') });
+    rig.backend.notify('停屏期通知');
+    rig.backend.resumeMain();
+    // 修前红锚：resume 只补吐 suspendedTransients——槽期旧通知滞留 slotTransients
+    //（延迟到复起后下一次 flush 才落地且排在新行之后＝到达序倒置；会话静默期持续不可见）
+    expect(rig.io.bytes).toContain('· 槽期旧通知');
+    expect(rig.io.bytes).toContain('· 停屏期通知');
+    // 到达序：挂起前缓冲的旧行在前、停屏期新行在后
+    expect(rig.io.bytes.indexOf('· 槽期旧通知')).toBeLessThan(rig.io.bytes.indexOf('· 停屏期通知'));
+  });
+
   it('lifecycle 全程迁移 + 挂起 / 复起幂等', () => {
     const io = new MemoryTerminalIO(COLS, ROWS);
     const backend = new TuiBackend(io);
@@ -1825,6 +1895,36 @@ describe('主题面（批 10g——07 §4.1 R2 三档色域 + OSC 11 自动明�
     expect(io.captured).toContain(MAIN_LEAVE); // 出屏复原照常
     expect(io.captured).not.toContain('\x1b[?2031l'); // 显式档从未开订阅——不写关
     backend.stop();
+  });
+
+  it('挂起窗硬退复原：终端级写点收口（2031 关 + osc.restore——A2 复原对称律不留单边缺口）', () => {
+    // 副屏在场窗：副屏 Engine 的 exit 钩只复原其屏形（LEAVE_MODES[alt] + raw）
+    // ——2031 订阅 / OSC title 点缀 / OSC 9;4 忙态是挂起期特意保活的终端级写点，
+    // 修前 suspendMain disarm 自家钩后这些写点硬退无人收口
+    class CapturingProcessIO extends ProcessTerminalIO {
+      captured = '';
+      override write(data: string): void {
+        this.captured += data;
+      }
+    }
+    const io = new CapturingProcessIO();
+    const backend = new TuiBackend(io, { theme: 'auto' });
+    const before = new Set(process.listeners('exit'));
+    backend.start();
+    backend.onRepaint(SESSION, [], null); // title 点缀会话短 id（挂起期保活的终端级写点）
+    backend.suspendMain(); // 挂起（生产形随后开副屏——此处挂起态直测收口钩）
+    // 挂起窗仍恰一个本件 'exit' 钩（修前红锚：disarm 后为零——终端级写点残留）
+    const added = process.listeners('exit').filter((l) => !before.has(l));
+    expect(added).toHaveLength(1);
+    io.captured = ''; // 挂起编舞字节不计入
+    (added[0] as () => void)(); // 模拟挂起窗硬退——直调收口钩（零副作用）
+    expect(io.captured).toContain('\x1b[?2031l'); // 2031 订阅关（挂起期保活写点的对称复原）
+    expect(io.captured).toContain(PROGRESS_CLEAR); // OSC 9;4 进度清零（osc.restore）
+    expect(io.captured).toContain(oscTitle('berry-agent')); // title 复原基线（点缀让位）
+    // 挂起档不写主屏出屏串：主屏模式串已在 suspendMain 写出收口、副屏屏形归
+    // 副屏 Engine 自家钩——写出会污染在场副屏
+    expect(io.captured).not.toContain(MAIN_LEAVE);
+    backend.stop(); // 收尾：卸钩不泄漏到后续进程退出
   });
 
   it('resumeMain auto 档补发 OSC 11 重查（七役扫描批——副屏在场窗通知丢弃的复起补偿）', () => {

@@ -664,8 +664,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 出屏模式串 + 卸输入监听 + 在途转义一窗全丢 + 停流 + raw 复先验（Engine
    * suspend 三件套同形——共享 io 换防，副屏随后 start 重装重放流）；渲染请求
    * 安全 no-op（requestRender / flush 挂起闸——停屏期零写出）；帧合并 / tick /
-   * lone-ESC 窗定时器全收（防后台空转）；硬退复原钩解除（挂起期副屏自担其屏
-   * 的退出复原）。
+   * lone-ESC 窗定时器全收（防后台空转）；硬退复原钩换挂起档（屏形复原归副屏
+   * Engine 自家钩，本件挂起期特意保活的终端级写点〔2031 / OSC title / OSC
+   * 9;4〕硬退收口仍归本件——A2 复原对称律）。
    *
    * 件 7 osc 保活不停（批内裁）：外显态（title / 忙态 OSC 9;4）属终端级非
    * 主屏 cell 内容——停屏期终端标签页注意力语义照常（onEnvelope 照常归账），
@@ -674,7 +675,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 停屏期账不丢：durable 事件照常归约行集模型（复起全帧重画携带——树已含
    * 停屏期全部事件）；瞬时行（notify / 件 9 摘要行 / 撤销说明行）入
    * suspendedTransients 缓冲——复起补显射界含瞬时行（树按字面不含不入树的
-   * 瞬时行，2026-09-07 遗漏审计批补笔）。
+   * 瞬时行，2026-09-07 遗漏审计批补笔）；挂起前已入队未落帧的瞬时行（注入
+   * 调度档帧合并窗内挂起——生产竞窗）经转账同入缓冲，账不丢射界含帧合并窗。
    */
   suspendMain(): void {
     if (!this.running || this.suspendedMain) return; // 幂等 + 无挂起对象防御
@@ -690,10 +692,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 上屏）；「raw 复先验」射程 = 交终端给子进程的挂起形，终退 stop 自复。
     // 副屏 Engine start 记 priorRaw=true → dispose 复 true（no-op）——主副
     // 屏全换防周期 raw 恒持、ECHO 门全周期关闭
+    // 挂起前已入队未落帧的瞬时行转账（注入调度档帧合并窗内挂起可达）：
+    // transient op 已入 pendingOps 而帧回调未落地，在飞帧即将被
+    // cancelTimer('frame') 取消——这些行既不入 scrollback（screen.appendTransient
+    // 才入账）也不入 suspendedTransients，若不转账则唯一载体 pendingOps 被
+    // resumeMain 清空即永久丢失（本函数明示的瞬时行账不丢不变式破口）。只转
+    // transient op（按入队序并入，到达序保持）；present op 不转——复起全帧
+    // 重画按行集重建覆盖，丢弃无害
+    for (const op of this.pendingOps) {
+      if (op.kind === 'transient') this.suspendedTransients.push(...op.lines);
+    }
     this.cancelTimer('frame'); // 在飞帧收口（挂起期零写出的调度半边）
     this.cancelTimer('tick'); // 状态行转轮停摆（防后台空转——复起重摆）
     this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）
-    this.disarmExitRestore?.(); // 出屏解除硬退复原钩（挂起期副屏自担）
+    // 硬退复原钩换挂起档（不 disarm）：副屏 Engine 的 exit 钩只复原其屏形
+    //（LEAVE_MODES[alt] + raw），本件挂起期保活的终端级写点无人接管——挂起档
+    // 收口体见 armSuspendExitRestore
+    this.armSuspendExitRestore();
   }
 
   /**
@@ -729,13 +744,20 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.needFixed = false;
     // 全帧重画：几何真值重取（吸收停屏期 resize）+ 清屏 + 行集全量重写（含停屏期 durable 事件）
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
-    // 瞬时行缓冲补吐（复起补显射界含停屏期瞬时行——2026-09-07 勘正笔）；槽在
-    // 场（停屏期起流未收口）走槽期缓冲路（关槽帧补吐——同 flush 编舞）
+    // 瞬时行缓冲补吐（复起补显射界含停屏期瞬时行——2026-09-07 勘正笔；挂起前
+    // 已入队未落帧的瞬时行经 suspendMain 转账同在此账）；槽在场（停屏期起流
+    // 未收口）走槽期缓冲路（关槽帧补吐——同 flush 编舞）
     const transients = this.suspendedTransients;
     this.suspendedTransients = [];
-    if (transients.length > 0) {
-      if (this.transcript.snapshot.at(-1)?.kind === 'streaming') this.slotTransients.push(...transients);
-      else this.screen.appendTransient(transients);
+    if (this.transcript.snapshot.at(-1)?.kind === 'streaming') {
+      this.slotTransients.push(...transients);
+    } else {
+      // 槽已收：先排空挂起前槽期缓冲的瞬时行（到达序在停屏期行之前——先吐
+      // 保序；旧形只补吐 suspendedTransients，槽期缓冲滞留到复起后下一次
+      // flush 才落地且排在新行之后＝到达序倒置 + 会话静默期持续不可见）。
+      // drain 内防御再判槽态（此处已判非流式恒过——同 flush 调用位形）
+      this.drainSlotTransients();
+      if (transients.length > 0) this.screen.appendTransient(transients);
     }
     this.renderFixed();
     if (this.scheduleFn !== null) this.armTick(); // 状态行转轮复摆
@@ -1363,21 +1385,38 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly handleInput = (chunk: string): void => {
     if (!this.running) return; // stop 后残听防御
     this.decoder.feed(chunk);
-    if (this.decoder.hasPendingEscape) {
-      if (this.scheduleFn !== null) {
-        if (this.escapeHandle === null) {
-          this.escapeHandle = this.scheduleFn(() => {
-            this.escapeHandle = null;
-            this.decoder.settle();
-            this.flushDecoderEvents();
-          }, this.escapeWindowMs);
-        }
-      } else {
-        this.decoder.settle(); // 同步直出无窗即决（测试语义——单 chunk 喂入不拆序）
-      }
-    }
+    this.armEscapeWindow();
     this.flushDecoderEvents();
   };
+
+  /**
+   * lone-ESC 判定窗定时器装排（锚点剩余延时 + 到点自愈重排——2026-09-21
+   * 修复批，Engine armEscapeWindow 同款；主屏自持输入管线的门复制位同修）：
+   * - 同步直出档（schedule 无注入）无窗即决（测试语义——单 chunk 不拆序）。
+   * - 装排延时按 decoder 挂起锚点（escapePendingAt）算剩余量，非恒整窗；
+   *   定时器到点 settle 后仍挂起 = 挂起锚点被换新（「旧挂起被续段消解 +
+   *     chunk 尾起新挂起」形：装排被在飞门拒、旧定时器早到空转）→ 按当前
+   *   锚点差值重排到新窗点。修前该形无人重装——新挂起永失 Esc 裁决、后续
+   *   可打印键误判 alt+*（编辑器终局丢弃）。
+   */
+  private armEscapeWindow(): void {
+    if (!this.decoder.hasPendingEscape) return;
+    if (this.scheduleFn === null) {
+      this.decoder.settle(); // 同步直出无窗即决（测试语义——单 chunk 喂入不拆序）
+      return;
+    }
+    if (this.escapeHandle !== null) return; // 在飞门（自愈重排兜换锚形）
+    const anchor = this.decoder.escapePendingAt ?? this.now();
+    this.escapeHandle = this.scheduleFn(
+      () => {
+        this.escapeHandle = null;
+        this.decoder.settle();
+        this.flushDecoderEvents();
+        if (this.decoder.hasPendingEscape) this.armEscapeWindow(); // 窗未满——自愈重排
+      },
+      Math.max(0, anchor + this.escapeWindowMs - this.now()),
+    );
+  }
 
   /** 排空 decoder 事件队列并逐件路由 */
   private flushDecoderEvents(): void {
@@ -1971,8 +2010,37 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         this.io.write(LEAVE_MAIN);
         // 2031 复原（七役扫描批 A2——复原对称律）：终端私有模式不随进程退出
         // 自复位，stop 既写关则硬退钩同写关、复原面不得留单边缺口。条件与
-        // stop() 同形（auto 档才开过订阅）；挂起态本钩已解除（suspendMain
-        // disarm——副屏自担其屏复原），无须 stop() 的 suspendedMain 分闸
+        // stop() 同形（auto 档才开过订阅）；挂起态本钩已换挂起档收口体
+        //（armSuspendExitRestore——不写 LEAVE_MAIN），主屏在场态无须
+        // stop() 的 suspendedMain 分闸
+        if (this.probeActive) this.io.write(THEME_CHANGE_DISABLE);
+        this.io.setRawMode(false);
+        this.osc.restore(); // 件 7：硬退复原两写点（title 基线 + 进度清零——与 stop 同收口）
+      } catch {
+        // 复位尽力而为——退出路径不允许二次异常
+      }
+    };
+    process.on('exit', restore);
+    this.disarmExitRestore = () => {
+      process.removeListener('exit', restore);
+      this.disarmExitRestore = null;
+    };
+  }
+
+  /**
+   * 挂起档硬退复原钩（副屏在场窗终端级收口）：suspendMain 期主屏模式串已
+   * 写出收口、副屏屏形由副屏 Engine 自家 exit 钩复原——本档不写 LEAVE_MAIN
+   *（挂起期写出会污染在场副屏），只收口本件挂起期特意保活的终端级写点：
+   * 2031 订阅关（probeActive 条件与 stop 同形——显式档从未开不写关）+
+   * osc.restore（title 基线 + 进度清零）+ raw 交还（幂等——副屏 Engine 钩
+   * 同写）。仅真 ProcessTerminalIO 武装（注入 io 零污染）；resumeMain 经
+   * armExitRestore 换回全档体（arm 幂等——先解除旧钩再挂）。
+   */
+  private armSuspendExitRestore(): void {
+    if (!(this.io instanceof ProcessTerminalIO)) return;
+    this.disarmExitRestore?.();
+    const restore = (): void => {
+      try {
         if (this.probeActive) this.io.write(THEME_CHANGE_DISABLE);
         this.io.setRawMode(false);
         this.osc.restore(); // 件 7：硬退复原两写点（title 基线 + 进度清零——与 stop 同收口）
