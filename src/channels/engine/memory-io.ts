@@ -20,6 +20,12 @@ export class MemoryTerminalIO implements TerminalIO {
   public readonly rawModeHistory: boolean[] = [];
   /** 当前 raw 真值（isRaw 查询面——末次 setRawMode 结果） */
   public raw = false;
+  /**
+   * write / setRawMode 交错事件序（'write' / 'raw:true' / 'raw:false'——时序
+   * 断言用：raw 是否先于某次写出，独立数组不可比序；ECHO 窗封堵锁的消费面，
+   * 2026-09-20 TUI DA1 回显泄漏批）
+   */
+  public readonly ops: string[] = [];
   /** pause / resume 调用计数（挂起交出面断言用） */
   public pauseCount = 0;
   public resumeCount = 0;
@@ -36,6 +42,7 @@ export class MemoryTerminalIO implements TerminalIO {
   write(data: string): void {
     this.frames.push(data);
     this.bytes += data;
+    this.ops.push('write');
   }
 
   size(): { columns: number; rows: number } {
@@ -45,6 +52,7 @@ export class MemoryTerminalIO implements TerminalIO {
   setRawMode(enable: boolean): void {
     this.rawModeHistory.push(enable);
     this.raw = enable;
+    this.ops.push(`raw:${enable}`);
   }
 
   isRaw(): boolean {
@@ -88,5 +96,6 @@ export class MemoryTerminalIO implements TerminalIO {
   reset(): void {
     this.bytes = '';
     this.frames.length = 0;
+    this.ops.length = 0;
   }
 }

@@ -239,14 +239,20 @@ export class Engine {
   /**
    * 进屏启动：模式串写出 + raw 设定 + 输入 / resize 监听装上 + 全量首帧。
    * 幂等保护：仅 idle 可启（挂起复位走 resume）。
+   *
+   * 进屏序律（2026-09-20 TUI DA1 回显泄漏批——07 篇交出面换防例外注）：
+   * raw 设定**先于**进屏模式串写出。模式串含 DA1 / kitty 探测，终端应答在
+   * raw-off 窗内到达会被内核 ECHOCTL 回显上屏（tmux 实红：应答 `^[[?1;2;4c`
+   * 回显恰落备屏光标记忆位、首帧空行零写出不清洗）；raw 先设则应答无论多快
+   * 都不再受 ECHO——竞速结构性封堵，非时序赌博。
    */
   start(root: Renderable): void {
     if (this.state !== 'idle') return;
     this.priorRaw = this.io.isRaw();
     this.root = root;
+    this.io.setRawMode(true);
     this.io.write(ENTER_MODES[this.screen]);
     this.armExitRestore();
-    this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     this.unsubResize = this.io.onResize(this.handleResize);
     // 显式放流：已被显式 pause 的流（如副屏 Engine 复用主屏挂起后共享的 io）
@@ -331,9 +337,9 @@ export class Engine {
    */
   resume(): void {
     if (this.state !== 'suspended') return;
+    this.io.setRawMode(true); // 进屏序律（start 注同源）：raw 先于模式串写出——探测应答不落 ECHO 窗
     this.io.write(ENTER_MODES[this.screen]);
     this.armExitRestore(); // 复进屏重武装（arm 幂等——先解除旧钩子再挂）
-    this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     this.io.resume();
     this.state = 'running';

@@ -604,6 +604,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.running = true;
     this.startedOnce = true; // 一次性事实（stop 后 disposed——start 不再可回）
     this.priorRaw = this.io.isRaw();
+    // 进屏序律（2026-09-20 TUI DA1 回显泄漏批——07 篇交出面换防例外注）：raw
+    // 先于一切探测类写出（ENTER_MAIN 含 DA1 探测、OSC 11 主题查询）——应答
+    // 在 raw-off 窗内到达会被内核 ECHOCTL 回显上屏（tmux 实红在案）
+    this.io.setRawMode(true);
     this.io.write(ENTER_MAIN);
     this.armExitRestore();
     this.osc.setTitle(this.titleBaseline); // 件 7：起屏基线 title（OSC 0——值缓存首写）
@@ -613,7 +617,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.probeActive) {
       this.io.write(OSC11_QUERY + THEME_CHANGE_ENABLE);
     }
-    this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     // 显式放流（共享 io 换防接缝——副屏 Engine 复用同 io 场景；首启 no-op）
     this.io.resume();
@@ -645,7 +648,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.osc.restore(); // 件 7：复原两写点（title 基线 + 进度清零）+ 保活停针（名册语义）
     this.disarmExitRestore?.();
     this.io.pause();
-    if (!this.suspendedMain) this.io.setRawMode(this.priorRaw); // 挂起期 raw 已复先验——不二次复原
+    // 终退无条件复 raw 先验（挂起期不再复——换防恒 raw 律见 suspendMain 注；
+    // 从挂起态直接终退亦须交还，条件位随换防批删除）
+    this.io.setRawMode(this.priorRaw);
   }
 
   /**
@@ -674,7 +679,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.unsubInput = null;
     this.decoder.discardPending(); // 在途转义 / 粘贴 / 预编辑一窗全丢（Engine 换防同形）
     this.io.pause();
-    this.io.setRawMode(this.priorRaw); // raw 复先验（副屏随后自设 raw）
+    // 换防恒 raw（2026-09-20 TUI DA1 回显泄漏批——07 篇交出面换防例外注）：
+    // 不复 priorRaw——副屏同 tick 接管（AltScreenHost.open 紧跟 alt.start），
+    // 中途关 raw 只开内核 ECHO 窗（挂起瞬间在途应答 / 连击被 ECHOCTL 回显
+    // 上屏）；「raw 复先验」射程 = 交终端给子进程的挂起形，终退 stop 自复。
+    // 副屏 Engine start 记 priorRaw=true → dispose 复 true（no-op）——主副
+    // 屏全换防周期 raw 恒持、ECHO 门全周期关闭
     this.cancelTimer('frame'); // 在飞帧收口（挂起期零写出的调度半边）
     this.cancelTimer('tick'); // 状态行转轮停摆（防后台空转——复起重摆）
     this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）
@@ -696,6 +706,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   resumeMain(): void {
     if (!this.running || !this.suspendedMain) return; // 幂等 + 非挂起态防御
     this.suspendedMain = false;
+    // 进屏序律（start 注同源）：raw 先于 ENTER_MAIN（含 DA1 探测）与 OSC 11
+    // 重查写出——应答不落内核 ECHO 窗（换防关屏期副屏 dispose 已复 raw=true，
+    // 此处重设是防御位非翻转）
+    this.io.setRawMode(true);
     this.io.write(ENTER_MAIN); // 进屏模式串（与出屏对称）
     this.armExitRestore(); // 复进屏重武装（arm 幂等——先解除旧钩再挂）
     // OSC 11 重查（七役扫描批 A3）：挂起窗副屏 decoder 无 onOsc 透传、2031
@@ -703,7 +717,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 同板应答 handleOscReply 短路零重画（零噪声）、迟到照常换装（无钟不设窗
     // 语义同源）；2031 订阅挂起期未关（suspendMain 不写 disable）无须重开
     if (this.probeActive) this.io.write(OSC11_QUERY);
-    this.io.setRawMode(true);
     this.unsubInput = this.io.onInput(this.handleInput);
     this.io.resume(); // 显式放流（副屏 dispose 已 pause——共享 io 换防接缝）
     // 排队旧帧作废 + 固定区脏位重建（全帧重画是新真相——挂起期积压 op 合并无意义）

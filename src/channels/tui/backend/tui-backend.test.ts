@@ -1169,18 +1169,34 @@ function altLayer(text: string): OverlayContent {
 }
 
 describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4）', () => {
-  it('suspendMain 编舞：出屏串 + 停流 + raw 复先验 + 卸输入监听 + lifecycle 迁移', () => {
+  it('suspendMain 编舞：出屏串 + 停流 + 换防恒 raw + 卸输入监听 + lifecycle 迁移', () => {
     const { io, backend } = makeBackend();
     expect(backend.lifecycle).toBe('running');
     io.reset();
     backend.suspendMain();
     expect(io.frames[0]).toBe(MAIN_LEAVE); // 出屏模式串（与 start 进屏对称反序）
     expect(io.pauseCount).toBe(1); // 停流（共享 io 换防——副屏随后 start 放流）
-    expect(io.raw).toBe(false); // raw 复先验（MemoryTerminalIO 起始 false）
+    // 换防恒 raw（2026-09-20 DA1 回显泄漏批）：不复先验——副屏同 tick 接管，
+    // 关 raw 只开内核 ECHO 窗（挂起瞬间在途应答/连击被 ECHOCTL 回显上屏）；
+    // 「raw 复先验」射程 = 交终端给子进程的挂起形（07 篇交出面条款换防例外注）
+    expect(io.raw).toBe(true);
     expect(backend.lifecycle).toBe('suspended');
     io.reset();
     io.emitInput('x'); // 输入已卸订——编辑器不经手（无 echo 字节）
     expect(io.bytes).toBe('');
+  });
+
+  it('进屏 raw 先行：start / resumeMain 进屏串（含探测）写出前 raw 已设——应答永不落 ECHO 窗', () => {
+    const { io, backend } = makeBackend();
+    // start 段：ENTER_MAIN（含 DA1 探测）与 OSC 11 查询都在 raw 之后写出
+    expect(io.ops.indexOf('raw:true')).toBeGreaterThanOrEqual(0);
+    expect(io.ops.indexOf('raw:true')).toBeLessThan(io.ops.indexOf('write'));
+    backend.suspendMain();
+    io.reset();
+    backend.resumeMain();
+    // resumeMain 段同律（ENTER_MAIN 重发 + OSC 11 重查——应答竞速同受庇护）
+    expect(io.ops.indexOf('raw:true')).toBeGreaterThanOrEqual(0);
+    expect(io.ops.indexOf('raw:true')).toBeLessThan(io.ops.indexOf('write'));
   });
 
   it('挂起期零写出（同步直出档）：durable 事件 / notify / setStatus / resize 全 no-op', () => {

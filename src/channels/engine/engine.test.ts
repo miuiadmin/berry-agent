@@ -284,6 +284,28 @@ describe('挂起 / 复起交出面', () => {
   });
 });
 
+describe('进屏 raw 先行（ECHO 窗封堵——2026-09-20 DA1 回显泄漏批）', () => {
+  it('start：进屏模式串（含 DA1 探测）写出前 raw 已设——应答永不落内核 ECHO 窗', () => {
+    const { io } = rig();
+    // 交错序断言：首个 write（进屏模式串——探测应答的触发源）之前必已有
+    // raw:true。修前形 = write 先行，tmux 应答竞速落 raw-off 窗被内核
+    // ECHOCTL 回显 `^[[?1;2;4c` 上屏（tmux 实红：恰落备屏光标记忆位的
+    // 空行、首帧空行零写出不清洗——穿透可见）
+    expect(io.ops.indexOf('raw:true')).toBeGreaterThanOrEqual(0);
+    expect(io.ops.indexOf('raw:true')).toBeLessThan(io.ops.indexOf('write'));
+  });
+
+  it('resume：复起同律（复起探测应答同受庇护）', () => {
+    const { engine, io, clock } = rig();
+    clock.advance(0); // 首帧出
+    engine.suspend();
+    io.reset(); // ops 一并清——只看复起段
+    engine.resume();
+    expect(io.ops.indexOf('raw:true')).toBeGreaterThanOrEqual(0);
+    expect(io.ops.indexOf('raw:true')).toBeLessThan(io.ops.indexOf('write'));
+  });
+});
+
 describe('双形态模式串（单源常量严格对称反序）', () => {
   it('inline 缺省：无 1049 备屏进出', () => {
     const { engine, io } = rig();
