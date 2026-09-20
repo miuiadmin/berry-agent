@@ -59,6 +59,7 @@ import {
   setSessionThinkingLevel,
   THINKING_LEVELS,
 } from '../conversation/index.js';
+import { sanitizeTitleText } from '../persist/index.js';
 import { SANDBOX_MODES } from '../safety/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { SdkHttpFaceHandle } from '../sdk/index.js';
@@ -294,7 +295,10 @@ function bridgeDeps(
       listSessions: () =>
         stack.manager.list().map((row) => ({
           id: row.id,
-          title: row.title ?? null, // 无标题会话 null（不造占位串）
+          // 标题净化（第五役 G6 存量行双保险）：写路物化已源头净化，此面兜旧码
+          // 落库的脏 title——剥控制字节/逃逸序列后再外发 webui JSON 面；净化
+          // 归空（不可见形态）诚实退 null（不造占位串）
+          title: row.title === undefined ? null : sanitizeTitleText(row.title) || null,
           lastActivityAt: row.updatedAt,
         })),
       sessionStateOf: (sessionId) => {

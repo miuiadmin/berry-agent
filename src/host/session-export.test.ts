@@ -74,6 +74,28 @@ describe('renderSessionMarkdown 拼装单源', () => {
     expect(markdown).not.toContain('轮次');
   });
 
+  it('文档头标题净化（第五役 G6 存量脏 title 双保险）：逃逸序列/控制字节/零宽剥除，净化归空不落行', () => {
+    // 修前红：meta.title 原样落盘——markdown 是终端外又一落屏载体（编辑器/
+    //   less/cat 呈看导出文件时逃逸序列可被解释）；写路物化已源头净化，此面
+    //   兜旧码落库的脏 title
+    const markdown = renderSessionMarkdown({
+      events: [],
+      meta: { sessionId: 's-dirty', title: '\x1b]0;evil\x07实\x00际​标题' },
+      now: NOW,
+    });
+    expect(markdown).toContain('- 标题：实际标题');
+    expect(markdown).not.toContain('\x1b');
+    expect(markdown).not.toContain('\x00');
+    expect(markdown).not.toContain('​');
+    // 净化归空（不可见形态）诚实退行缺席——不落空标题行
+    const invisible = renderSessionMarkdown({
+      events: [],
+      meta: { sessionId: 's-invisible', title: '\x1b[2J​' },
+      now: NOW,
+    });
+    expect(invisible).not.toContain('标题');
+  });
+
   it('轮次 + thinking 折叠行 + 工具卡简行（投影真源驱动三呈现位）', () => {
     const markdown = renderSessionMarkdown({
       events: dialogueEvents(),

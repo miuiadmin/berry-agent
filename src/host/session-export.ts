@@ -23,6 +23,7 @@ import { join } from 'node:path';
 
 import type { SessionEvent } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
+import { sanitizeTitleText } from '../persist/index.js';
 import type { ContentBlock } from '../session/index.js';
 import { deriveMessages } from '../session/index.js';
 
@@ -63,7 +64,12 @@ export function renderSessionMarkdown(input: SessionExportInput): string {
   const lines: string[] = [];
   // —— 文档头骨架（行面元数据缺席不造行——零事件新会话同形）
   lines.push(`# 会话导出 \`${input.meta.sessionId}\``);
-  if (input.meta.title !== undefined && input.meta.title !== '') lines.push(`- 标题：${input.meta.title}`);
+  // 标题净化（第五役 G6 存量行双保险）：写路物化已源头净化（firstQuestionSummaryOf
+  // 经 sanitizeTitleText），此面兜旧码落库的脏 title——markdown 是终端外又一
+  // 落屏载体（less/cat 呈看导出文件时逃逸序列可被终端解释）；净化归空
+  //（不可见形态）诚实退行缺席（与 titleOf 兜底同族单源律）
+  const cleanTitle = input.meta.title === undefined ? '' : sanitizeTitleText(input.meta.title);
+  if (cleanTitle !== '') lines.push(`- 标题：${cleanTitle}`);
   if (input.meta.workspaceRoot !== undefined) lines.push(`- 工作区：${input.meta.workspaceRoot}`);
   if (input.meta.createdAt !== undefined) lines.push(`- 创建时间：${isoOf(input.meta.createdAt)}`);
   lines.push(`- 导出时间：${isoOf(input.now)}`);
