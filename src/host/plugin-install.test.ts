@@ -496,6 +496,111 @@ describe('update 分派（§5.4 按源）', () => {
   });
 });
 
+describe('npm 更新腿失败回迁旧树（修笔——先删后装失败 = 装机树尽失坏态）', () => {
+  /** 备份位残影清点（plugins/ 下 .npm-update-bak-* 目录——回迁/清场回归锁断言面） */
+  function backupResidue(dataDir: string): string[] {
+    return readdirSync(join(dataDir, 'plugins')).filter((n) => n.startsWith('.npm-update-bak-'));
+  }
+
+  /** 预装旧树速记：1.0.0 装机成功（返回旧树路径与旧 package.json 原文——回迁断言锚） */
+  async function seedOldTree(
+    dataDir: string,
+    pkgName: string,
+    seedPkgJson?: string,
+  ): Promise<{ tree: string; pkgJson: string }> {
+    const rec = npmFakeSpawn(dataDir, {
+      lockVersion: '1.0.0',
+      pkgJson: seedPkgJson ?? pluginPkgJson({ name: pkgName }),
+    });
+    const outcome = await installPlugin(depsOf(dataDir, rec.spawn), `npm:${pkgName}`);
+    expect(outcome.ok).toBe(true);
+    const tree = join(dataDir, 'plugins', 'node_modules', pkgName);
+    return { tree, pkgJson: readFileSync(join(tree, 'package.json'), 'utf8') };
+  }
+
+  it('npm 抛网络错（update 最常见失败形）：旧树回迁原位 + 账本自洽 + 备份零残影——修前红（旧树被 rm 尽失）', async () => {
+    const dataDir = dataDirOf('data-upd-fail-net');
+    const { tree, pkgJson } = await seedOldTree(dataDir, 'failnet-pkg');
+    // 假 npm spawn 网络断形（reject 带 stderr——npm 腿错误词面上浮面）
+    const netErr = new Error('npm ERR! network request failed') as Error & { stderr: string };
+    netErr.stderr = 'npm ERR! network request failed';
+    const outcome = await updatePlugin(depsOf(dataDir, { run: () => Promise.reject(netErr) }), 'failnet-pkg');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    // 修前红点：旧树 package.json 尽失（账本引用悬空 → 装载行级隔离降级）；
+    // 修后：旧树原文回迁（装载判据 package.json 在场——旧版继续可用）
+    expect(existsSync(join(tree, 'package.json')), '旧树应回迁在场').toBe(true);
+    expect(readFileSync(join(tree, 'package.json'), 'utf8')).toBe(pkgJson);
+    // 账本条目原样保留（引用旧树自洽——enabled 行/账本全程未动）
+    const after = entriesOf(dataDir).filter((e) => e.id === 'failnet-pkg');
+    expect(after).toHaveLength(1);
+    expect(after[0]!.version).toBe('1.0.0');
+    // 备份位零残影（回迁即清场）+ 回迁事实有呈现（message 尾注）
+    expect(backupResidue(dataDir)).toEqual([]);
+    expect(outcome.message).toContain('回迁');
+  });
+
+  it('新树清单拒：旧树回迁（同根三失败路径之二）——修前红', async () => {
+    const dataDir = dataDirOf('data-upd-fail-manifest');
+    const { tree, pkgJson } = await seedOldTree(dataDir, 'failman-pkg');
+    // 假 npm「成功」但写出坏形产物（无 berryAgent 块）→ 清单校验拒 + rollbackInstall
+    const badManifestSpawn: SpawnRunner = {
+      run: (_cmd, args) => {
+        const spec = args[args.length - 1]!;
+        const pkgDir = join(dataDir, 'plugins', 'node_modules', ...spec.split('/'));
+        mkdirSync(pkgDir, { recursive: true });
+        writeFileSync(join(pkgDir, 'package.json'), `${JSON.stringify({ name: 'failman-pkg', version: '9.9.9' })}\n`);
+        return Promise.resolve({ stdout: '', stderr: '' });
+      },
+    };
+    const outcome = await updatePlugin(depsOf(dataDir, badManifestSpawn), 'failman-pkg');
+    expect(outcome.ok).toBe(false);
+    expect(existsSync(join(tree, 'package.json')), '旧树应回迁在场').toBe(true);
+    expect(readFileSync(join(tree, 'package.json'), 'utf8')).toBe(pkgJson);
+    expect(backupResidue(dataDir)).toEqual([]);
+    expect(entriesOf(dataDir).some((e) => e.id === 'failman-pkg')).toBe(true);
+  });
+
+  it('收割失败（新入口求值抛）：旧树回迁（同根三失败路径之三）——修前红', async () => {
+    const dataDir = dataDirOf('data-upd-fail-harvest');
+    // seed 装纯声明包（零码收割——入口路径从未被求值，规避 jiti/Node 进程级
+    // 模块缓存命中旧模块的假形：收割缓存命中会静默成功，失败路径测不到）
+    const { tree, pkgJson } = await seedOldTree(
+      dataDir,
+      'failharv-pkg',
+      pluginPkgJson({ name: 'failharv-pkg', berryAgent: { skills: ['skills'] } }),
+    );
+    // 假 npm「成功」写合法清单（default-export 形）+ 求值即抛的入口 → 收割失败拒
+    const badHarvestSpawn: SpawnRunner = {
+      run: (_cmd, args) => {
+        const spec = args[args.length - 1]!;
+        const pkgDir = join(dataDir, 'plugins', 'node_modules', ...spec.split('/'));
+        mkdirSync(pkgDir, { recursive: true });
+        writeFileSync(join(pkgDir, 'package.json'), pluginPkgJson({ name: 'failharv-pkg', version: '9.9.9' }));
+        writeFileSync(join(pkgDir, 'index.js'), 'throw new Error("harvest-boom");\n');
+        return Promise.resolve({ stdout: '', stderr: '' });
+      },
+    };
+    const outcome = await updatePlugin(depsOf(dataDir, badHarvestSpawn), 'failharv-pkg');
+    expect(outcome.ok).toBe(false);
+    expect(existsSync(join(tree, 'package.json')), '旧树应回迁在场').toBe(true);
+    expect(readFileSync(join(tree, 'package.json'), 'utf8')).toBe(pkgJson);
+    expect(backupResidue(dataDir)).toEqual([]);
+  });
+
+  it('成功腿备份清场：update 成功后 plugins/ 无 .npm-update-bak-* 残影（修后锁）', async () => {
+    const dataDir = dataDirOf('data-upd-ok');
+    await seedOldTree(dataDir, 'updok-pkg');
+    const rec = npmFakeSpawn(dataDir, {
+      lockVersion: '2.0.0',
+      pkgJson: pluginPkgJson({ name: 'updok-pkg', version: '2.0.0' }),
+    });
+    const updated = await updatePlugin(depsOf(dataDir, rec.spawn), 'updok-pkg');
+    expect(updated.ok).toBe(true);
+    expect(backupResidue(dataDir)).toEqual([]);
+  });
+});
+
 describe('生命周期归因账落词（05 §1.1 audit 落账批——install/updated 两词）', () => {
   /** sink 收集器（词形断言面） */
   function collector(): {

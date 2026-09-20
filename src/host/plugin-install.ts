@@ -34,7 +34,9 @@
  * 纯声明包（declared-payload 态）零码收割（declaredEvents = []）。
  *
  * 失败回滚：装机物落位后清单校验/收割失败 = rm 装机物再拒（不留半装机残影
- * ——账本未落，回滚后两账一致空态）。
+ * ——账本未落，回滚后两账一致空态）；update npm 重装腿旧树装前 rename 备份
+ * （plugins/ 下点前缀同卷位），installPlugin 失败回迁归位——更新失败不坏
+ * 旧版（npm 腿修笔，与 git 腿 tmp 克隆后落位的旧树保全律对齐）。
  *
  * spawn 注入面：测试注假件零真网络（npm/git 两执行器的 argv 断言 + 落账
  * 编舞可测）；local 源与收割真跑（本地 fixture 零网络）。
@@ -931,11 +933,59 @@ async function harvestEvents(
 
 /* ---------------- update 分派（§5.4 按源） ---------------- */
 
+/** npm 重装腿备份位前缀（plugins/ 下点前缀目录——npm --prefix 不动未知点目录，同卷保 rename） */
+const NPM_UPDATE_BACKUP_PREFIX = '.npm-update-bak-';
+
+/**
+ * 旧装机树走位到备份（update npm 重装腿前置修笔——先 rm 后装失败即装机树
+ * 尽失坏态）：target 在场才动作——rename 到 plugins/ 下点前缀临时目录
+ * （与装机树同卷——rename 不跨设备；npm --prefix 装机不扫描点前缀未知
+ * 目录）；缺席返回 undefined（与旧 rm force 幂等语义等价——无旧树可失）。
+ * 顺带收敛历史残影（进程崩溃等遗留的备份位目录——幂等 rm，与「半装残影
+ * 经重装收敛」同律）。
+ */
+function stageOldNpmTreeForUpdate(deps: InstallExecutorDeps, target: string): string | undefined {
+  if (deps.fs.readdir(target) === null) return undefined; // 旧树缺席——无可备份
+  const pluginsDir = join(deps.dataDir, 'plugins');
+  for (const name of deps.fs.readdir(pluginsDir) ?? []) {
+    if (!name.startsWith(NPM_UPDATE_BACKUP_PREFIX)) continue;
+    try {
+      deps.fs.rm(join(pluginsDir, name), { recursive: true, force: true });
+    } catch {
+      // 残影收敛失败不挡本次 update（新备份 mkdtemp 唯一名不冲突）
+    }
+  }
+  const backupRoot = mkdtempSync(join(pluginsDir, NPM_UPDATE_BACKUP_PREFIX));
+  deps.fs.rename(target, join(backupRoot, 'tree'));
+  return backupRoot;
+}
+
+/**
+ * 备份回迁（update npm 重装腿失败路径——installPlugin 全部失败形统一辖）：
+ * 清 target 新装残影 → rename 旧树归位 → 清备份空壳。返回结文注记（空 =
+ * 无备份可回迁；非空 = 回迁结果呈现——回迁成功注记旧版继续可用，回迁失败
+ * 指路重试，均不吞主错误）。回迁后账本/启用行（失败路径本就未动）与旧树
+ * 自洽——插件保持可用（装载判据 package.json 在场）。
+ */
+function restoreStagedNpmTree(deps: InstallExecutorDeps, target: string, backup: string | undefined): string {
+  if (backup === undefined) return ''; // 装机树本就缺席——无回迁语义
+  try {
+    deps.fs.rm(target, { recursive: true, force: true }); // 新装残影清（rollbackInstall 多数路径已清——幂等）
+    deps.fs.rename(join(backup, 'tree'), target); // 旧树归位
+    deps.fs.rm(backup, { recursive: true, force: true }); // 备份空壳清
+    return '——旧版装机树已回迁原位（更新失败，旧版继续可用）';
+  } catch (err) {
+    return `——警告：旧版装机树回迁失败（${err instanceof Error ? err.message : String(err)}）——重试 update 或卸载重装`;
+  }
+}
+
 /**
  * update 编舞（§5.4 按源分派）：npm 重装（拉最新满足窗龄版——`--save-exact`
  * 锚树 + 无版本 spec = latest 受 min-release-age 窗检；新 integrity/version
- * 落账）；git 删目录按原 ref 重克隆（新 commit）；local no-op（源动了下次
- * 装载即新——§5.4 既有条款）。enabled 行不动（装机物换血、行引用 id 不变）。
+ * 落账；旧树装前 rename 备份、失败回迁——npm 腿修笔，网络断等失败不再
+ * 留文件缺失坏态）；git 删目录按原 ref 重克隆（新 commit）；local no-op
+ * （源动了下次装载即新——§5.4 既有条款）。enabled 行不动（装机物换血、
+ * 行引用 id 不变）。
  */
 export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promise<InstallOutcome> {
   const ledgerRead = readLedger(deps.dataDir, deps.fs);
@@ -968,7 +1018,10 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     return { ok: false, message: `账本 source 与 ref 前缀不一致（${current.ref}）——重装可重建` };
   }
   if (parsed.parsed.source === 'npm') {
-    // 重装：旧装机物先清（spec 无版本 = 拉最新满足窗龄；upsert 后见胜出）。
+    // 重装：旧装机树 rename 备份走位后再装（spec 无版本 = 拉最新满足窗龄；
+    // upsert 后见胜出）。修笔（npm 腿先删后装失败坏态）：此前 rm 先行——npm
+    // 网络断等失败即旧树尽失、账本/启用行悬空引用 → 装载行级隔离降级（坏态
+    // 直至重试成功或卸载重装）；staging 化后失败回迁旧树，旧版自洽可用。
     // 换装豁免位传被替换 id——旧条目恰是替换目标不构成撞名（缺此豁免则
     // installPlugin 撞名检查恒拒自家重装腿）。sink 剥离后再传——防
     // installPlugin 成功尾落错词 installed（本腿语义是 updated）。market
@@ -976,11 +1029,32 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     // 市场装机物换版即丢 provenance）
     const { onLifecycleAudit, ...rest } = deps;
     const installPath = installPathForNpm(parsed.parsed.pkg);
-    rest.fs.rm(resolveInstallPath(rest.dataDir, installPath), { recursive: true, force: true });
-    const outcome = await installPlugin(rest, current.ref, {
-      replacingId: id,
-      ...(current.market !== undefined ? { market: current.market } : {}),
-    });
+    const target = resolveInstallPath(rest.dataDir, installPath);
+    const backup = stageOldNpmTreeForUpdate(rest, target); // 旧树在场才备份
+    let outcome: InstallOutcome;
+    try {
+      outcome = await installPlugin(rest, current.ref, {
+        replacingId: id,
+        ...(current.market !== undefined ? { market: current.market } : {}),
+      });
+    } catch (err) {
+      // 防御位（installPlugin 内部全 catch 理论不 throw）——回迁后原样上浮
+      restoreStagedNpmTree(rest, target, backup);
+      throw err;
+    }
+    if (!outcome.ok) {
+      // 装失败（npm 抛错/清单拒/收割失败——installPlugin 全失败形统一辖）：
+      // 回迁旧树，账本/启用行全程未动即与旧树自洽；回迁结果尾注呈现
+      outcome = { ...outcome, message: `${outcome.message}${restoreStagedNpmTree(rest, target, backup)}` };
+    } else if (backup !== undefined) {
+      // 装成功——备份位清场（清场失败不吞装机成功：新树已落位落账，点前缀
+      // 残影由下次 staging 前置收敛位幂等回收）
+      try {
+        rest.fs.rm(backup, { recursive: true, force: true });
+      } catch {
+        // 幂等收敛位兜底（见 stageOldNpmTreeForUpdate 残影清扫）
+      }
+    }
     if (outcome.ok && onLifecycleAudit !== undefined) {
       // 换装成功事实（05 §1.1）：from 缺席容许（旧账本无版本位）；npm 腿
       // version 恒在（lock 收割），to 缺席不设防（兜底与 git 腿同形）

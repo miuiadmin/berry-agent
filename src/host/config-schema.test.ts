@@ -72,6 +72,41 @@ describe('parseConfigSchemaFields 深校验（PLUGIN_SHAPE_INVALID 面）', () =
     expect(parseConfigSchemaFields([{ key: 'a', type: 'boolean', default: 'x' }], { pluginId: 'p1' }).ok).toBe(false);
   });
 
+  it('select default 须在 options 值域内（自相矛盾声明拒——修前红：型对即静默放行）', () => {
+    // 修前红形：default 型对（string）但不在 options 值域——装载零报错，
+    // 合成序④直接注入绕过在场值的值域校验（同一坏串经用户行 config 位即被拒
+    // ——同一坏串因入口不同受不同辖，fail-loud 纪律缺口）
+    const bad = parseConfigSchemaFields(
+      [{ key: 'mode', type: 'select', default: 'x', options: [{ value: 'a', label: 'A' }] }],
+      { pluginId: 'p1' },
+    );
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(bad.message).toContain('不在 options 值域内');
+    // 合法形两支：default 恰在 options 内照过；default 缺席不受值域辖
+    expect(
+      parseConfigSchemaFields(
+        [
+          {
+            key: 'mode',
+            type: 'select',
+            default: 'a',
+            options: [
+              { value: 'a', label: 'A' },
+              { value: 'b', label: 'B' },
+            ],
+          },
+        ],
+        { pluginId: 'p1' },
+      ).ok,
+    ).toBe(true);
+    expect(
+      parseConfigSchemaFields([{ key: 'mode', type: 'select', options: [{ value: 'a', label: 'A' }] }], {
+        pluginId: 'p1',
+      }).ok,
+    ).toBe(true);
+  });
+
   it('四型合法齐备过（返回即声明面真身）', () => {
     const fields: readonly ConfigField[] = [
       { key: 'name', type: 'text', required: true },

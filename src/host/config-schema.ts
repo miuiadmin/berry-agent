@@ -78,6 +78,7 @@ const FIELD_KEYS = new Set(['key', 'type', 'label', 'description', 'required', '
  * 执法项：数组形 / 逐字段对象形 / key 必携且过词法 / type 四值闭集 /
  * select 必携非空 options（value/label 字符串）/ default 型匹配
  * （text·select 须字符串、boolean 须布尔、secret 携 default 拒）/
+ * select 的 default 须在 options 值域内（自相矛盾声明拒——修笔补口）/
  * key 重复拒。失败 message 自带指路（manifest 侧 shapeFail 包装消费）。
  */
 export function parseConfigSchemaFields(
@@ -144,6 +145,21 @@ export function parseConfigSchemaFields(
       if (!Array.isArray(options) || options.length === 0 || options.some(badOption)) {
         return fail(
           `configSchema select 型字段 "${key}" 必携非空 options: { value, label }[]（插件 ${opts.pluginId}）`,
+        );
+      }
+      // default 值域判（修笔——fail-loud 纪律补口）：default 型校验在下方通用
+      // 位只验 string，漏 options 值域——自相矛盾声明（default 不在 options
+      // 内）装载零报错、合成序④直接注入绕过在场值的值域校验（同一坏串经
+      // 用户行 config 位即被拒——入口不同受不同辖）。非 string 型交由下方
+      // 通用型判报文（判序：先型后值域）
+      const defaultValue = field['default'];
+      if (
+        defaultValue !== undefined &&
+        typeof defaultValue === 'string' &&
+        !options.some((o) => (o as Record<string, unknown>)['value'] === defaultValue)
+      ) {
+        return fail(
+          `configSchema select 型字段 "${key}" default "${defaultValue}" 不在 options 值域内（插件 ${opts.pluginId}）——改 default 为 options 之一，或扩 options 值域`,
         );
       }
     }
