@@ -164,6 +164,20 @@ describe('DiffViewer 副屏件', () => {
     expect(readRow(grid, 3, width)).toBe('↑↓ 移动 · enter 展开/收起 · q/esc 返回');
   });
 
+  it('组头右段预算（第五役 G8——极窄窗计数段整段丢弃）：起列不负、行首不覆写、左段 … 收口', () => {
+    const { viewer } = makeViewer();
+    const width = 4; // 首组右段 '+1 -0' 实占 5 > 窗宽——预算不足形
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    const row1 = readRow(grid, 1, width);
+    // 修前红：c = 4 - 5 = -1，writeText 负列首字素越界吸收、后续字素顺移落
+    // 0 列——行首被 '+1' 尾字覆写（'1 -0' 坏形）；修后右段整段丢弃（与
+    // fitRowSegments「预算 0 丢右段」负起列封堵律同族），左段光标符 + … 收口
+    expect(row1).toBe('▸ …');
+    expect(row1).not.toContain('+1');
+    expect(row1).not.toContain('-0');
+  });
+
   it('enter 展开光标组：组体行呈现（前缀 + 行文本）；再 enter 收起', () => {
     const { viewer } = makeViewer();
     const width = 64;

@@ -287,17 +287,26 @@ export class DiffViewer implements OverlayContent {
   ): void {
     const expanded = this.expanded.has(group.path);
     const left = `${index === this.cursor ? CURSOR_MARK : ' '} ${expanded ? EXPANDED_MARK : COLLAPSED_MARK} ${group.path}${group.orphan ? '  ⧗ 在飞' : ''}`;
-    // 右段三游程：+N（diffAdded）/ -M（diffRemoved）——计数着色即语义着色
+    // 右段三游程：+N（diffAdded）/ -M（diffRemoved）——计数着色即语义着色。
+    // 右段预算（第五役 G8——fitRowSegments 单源的形态学例外注记）：三游程
+    // 双色计数段非单串右段，不能整段走 row-segments 单源，本位等价收紧——
+    // 余宽不足（右段全宽 + 左段至少 '…' 帽 2）整段丢弃（同「预算 0 丢右段」
+    // 负起列封堵律）：极窄窗下 c = col+width-rightWidth 为负，writeText 负列
+    // 首字素越界吸收、后续字素顺移落行首——覆写左段（'1 -0' 坏形族）
     const addedText = `+${group.added}`;
     const removedText = `-${group.removed}`;
     const rightWidth = stringWidth(addedText) + 1 + stringWidth(removedText);
-    let c = col + width - rightWidth;
-    const maxLeft = c - col - 1;
+    const showRight = width - rightWidth >= 2;
+    const rightStart = col + width - rightWidth;
+    const maxLeft = (showRight ? rightStart : col + width) - col - 1;
     const fitLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
     buffer.writeText(row, col, fitLeft);
-    buffer.writeText(row, c, addedText, { fg: this.theme.diffAdded });
-    c += stringWidth(addedText) + 1;
-    buffer.writeText(row, c, removedText, { fg: this.theme.diffRemoved });
+    if (showRight) {
+      let c = rightStart;
+      buffer.writeText(row, c, addedText, { fg: this.theme.diffAdded });
+      c += stringWidth(addedText) + 1;
+      buffer.writeText(row, c, removedText, { fg: this.theme.diffRemoved });
+    }
   }
 
   /** 组体行：词级对行同段裸/变段着色（R4 单源呈现）；孤立 del/add 整行着色；ctx 裸行 */
