@@ -185,12 +185,15 @@ export class EditorModel {
    * 粘贴分阈（R3 批 10j）：超阈大段走**粘贴标记原子段**——标记恒独占行
    * （光标处劈行落位，行首/行尾免相邻换行）、原文入登记表、undo 单步；
    * 阈内小粘贴整段入框（原语义）。提交时展开回正文（见 submit）。
+   * 光标在标记行上 → 先过粘贴守卫防劈（guardPasteMarkerLine——两支路
+   * 共用位，直插会劈开 / 拼接标记文本致登记原文失配丢失）。
    */
   insertPaste(text: string): void {
     if (text === '') return;
     this.exitHistoryBrowsing();
-    this.pushUndo(); // 粘贴原子一步（标记化 / 整段同律）
+    this.pushUndo(); // 粘贴原子一步（标记化 / 整段同律——守卫改行集随本步可撤）
     this.lastAction = null;
+    this.guardPasteMarkerLine(); // 标记行防劈守卫（两支路共用位——R3 标记恒独占行）
     if (!shouldMarkerize(normalizeText(text))) {
       this.insertTextRaw(normalizeText(text));
       this.notify();
@@ -322,6 +325,36 @@ export class EditorModel {
     this.state.lines = [...this.state.lines.slice(0, lineNo), ...parts, ...this.state.lines.slice(lineNo + 1)];
     this.state.cursorLine = lineNo;
     this.setCursorCol(0);
+  }
+
+  /**
+   * 粘贴路的标记行防劈守卫（R3——标记恒独占行；insertPaste 两支路共用位）。
+   * 光标在标记行上时 insertTextRaw 直插会劈开（标记内部）或拼接（行首 / 行尾
+   * ——粘贴段并入标记行）标记文本——parsePasteMarker 严格形不再命中、
+   * submit 取不回登记原文（大段粘贴静默丢失）。守卫式循 addNewLine 的
+   * 标记原子律而非 insertText 的就地展开：
+   * ① 粘贴是整段入框 / 整段标记化的大块操作——展开会把既有折叠原文整段
+   *    炸进输入框（尤其自身走标记化的大段粘贴：为落一行新标记先炸开另一
+   *    标记的原文，自悖「大段不撑爆框面」初衷）；原子落位保全标记、框面
+   *    恒紧凑；
+   * ② 标记文本是渲染替身非用户内容——「标记内部」位是 sticky 列 /
+   *    jumpToChar 的落位副产物，无内容落位语义，落标记后新行即合位；
+   * ③ 行首 / 行尾位劈点本在标记外——与 guardMarkerInsert 同形（前置 /
+   *    后置空行、粘贴段落新行），粘贴落在光标位一侧（合光标位语义）。
+   */
+  private guardPasteMarkerLine(): void {
+    const lineNo = this.state.cursorLine;
+    if (this.markerIdAt(lineNo) === null) return;
+    const line = this.state.lines[lineNo] ?? '';
+    if (this.state.cursorCol > 0 && this.state.cursorCol < line.length) {
+      // 标记内部：行后插空行、光标落新行首——粘贴段（含新标记）落标记后
+      this.state.lines.splice(lineNo + 1, 0, '');
+      this.state.cursorLine = lineNo + 1;
+      this.setCursorCol(0);
+      return;
+    }
+    // 行首 / 行尾：劈点在标记外——守卫同形（前置 / 后置空行、光标落新行）
+    this.guardMarkerInsert();
   }
 
   /* ---------------- 删除族（字素算术 + 行合并） ---------------- */

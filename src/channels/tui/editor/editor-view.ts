@@ -9,6 +9,7 @@
  * - 聚焦时本帧光标声明（宽字素首列——显示列算术保证不落半字）。
  */
 import type { CellBuffer, Region, Renderable } from '../../engine/index.js';
+import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
 import { prefixDisplayWidth } from './visual-lines.js';
 import type { EditorModel } from './editor-model.js';
 import { presentedLineCount } from './height-cap.js';
@@ -157,6 +158,7 @@ export class EditorView implements Renderable {
     const lines = this.model.getLines();
     const preedit = this.model.pendingPreedit;
     const cursor = this.model.getCursor();
+    const innerW = innerWidth(region.width);
     const end = Math.min(map.length, this.scrollOffset + innerH);
     for (let vi = this.scrollOffset; vi < end; vi++) {
       const seg = map[vi]!;
@@ -172,9 +174,15 @@ export class EditorView implements Renderable {
       ) {
         const prefix = line.slice(seg.startCol, cursor.col);
         const suffix = line.slice(cursor.col, seg.startCol + seg.length);
-        const next = buffer.writeText(row, region.col + 1, prefix);
-        const afterPreedit = buffer.writeText(row, next, preedit, PREEDIT_STYLE);
-        buffer.writeText(row, afterPreedit, suffix);
+        // 组字三段钳内容区右界：预编辑不计入模型折行宽，三段合成宽（段宽 +
+        // 预编辑宽）可超 innerW——越界部分按右界整字截断（宽字素放不下整字
+        // 放弃，与引擎 truncateToWidth 同律），右边框列恒不被组字字素覆写、
+        // 行尾内容不被推出屏外。截断是组字期临时呈现取舍：提交 / 取消后
+        // 正文并入 / 还原，按模型折行自愈全量呈现
+        const rightEdge = region.col + 1 + innerW; // 越界位 = 最后内容格 + 1
+        const next = writeTextClamped(buffer, row, region.col + 1, prefix, rightEdge);
+        const afterPreedit = writeTextClamped(buffer, row, next, preedit, rightEdge, PREEDIT_STYLE);
+        writeTextClamped(buffer, row, afterPreedit, suffix, rightEdge);
         continue;
       }
       buffer.writeText(row, region.col + 1, plain);
@@ -196,13 +204,49 @@ export class EditorView implements Renderable {
     // 光标段内显示列（前缀宽差——宽字素边界由模型算术保证，落在首列）
     const displayCol = prefixDisplayWidth(line, cursor.col) - prefixDisplayWidth(line, seg.startCol);
     const preedit = this.model.pendingPreedit;
-    const preeditCols = preedit !== null ? prefixDisplayWidth(preedit, preedit.length) : 0;
-    buffer.setCursor(region.row + 1 + (cursorVL - this.scrollOffset), region.col + 1 + displayCol + preeditCols);
+    let col = region.col + 1 + displayCol;
+    if (preedit !== null) {
+      // 组字期光标在预编辑段尾：预编辑宽计入后可越内容区右界（三段呈现右界
+      // 截断的算术镜像）——钳到最后内容格，不压右边框列、不越网格右界
+      // （setCursor 不查界，越界列由发射层直写终端——视图层守门）
+      const preeditCols = prefixDisplayWidth(preedit, preedit.length);
+      col = Math.min(col + preeditCols, region.col + region.width - 2);
+    }
+    buffer.setCursor(region.row + 1 + (cursorVL - this.scrollOffset), col);
   }
 }
 
 /** 预编辑段样式（下划线——组字中的挂起提示） */
 const PREEDIT_STYLE: Readonly<CellStyle> = Object.freeze({ underline: true });
+
+/**
+ * 右界钳制写入（组字三段呈现专用）：从 col 起写 text，字素累计越过
+ * rightEdge（绝对列，不含）即整字截断——宽字素放不下整字放弃不产半字
+ * （与引擎 truncateToWidth 同律）。控制字素不占格亦不计宽（与
+ * CellGrid.writeText 跳过律同步——宽度账与落格账一致，返回值可续写）。
+ * 返回下一可用列（= 实写末格右邻；全截断时原样返回 col）。
+ */
+function writeTextClamped(
+  buffer: CellBuffer,
+  row: number,
+  col: number,
+  text: string,
+  rightEdge: number,
+  style?: CellStyle,
+): number {
+  let take = ''; // 可写前缀（按字素累宽拼接）
+  let used = 0; // 可写前缀显示宽
+  for (const g of splitGraphemes(text)) {
+    const code = g.charCodeAt(0);
+    if (code < 0x20 || code === 0x7f) continue; // 控制字素：writeText 同律跳过——宽度账同步不计
+    const w = graphemeWidth(g);
+    if (col + used + w > rightEdge) break; // 右界整字截断（宽字素不劈半）
+    take += g;
+    used += w;
+  }
+  buffer.writeText(row, col, take, style);
+  return col + used;
+}
 
 /** 内容区宽（左右边框各 1） */
 function innerWidth(width: number): number {

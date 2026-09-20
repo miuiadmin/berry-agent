@@ -187,3 +187,43 @@ describe('EditorView IME 预编辑', () => {
     expect(grid.cursor).toEqual({ row: 1, col: 3, visible: true }); // 1 边框 + 2 显示列
   });
 });
+
+describe('EditorView IME 预编辑宽度钳制', () => {
+  // 网格恒比 region 宽 2 列——右边框列（region 内）与边框外残迹（网格内）分别可读回
+  it('光标近满行尾组字：组字段不覆写右边框、不越内容区右界（右界整字截断）', () => {
+    // 内容区宽 8、正文恰满段 8 字符、光标归段尾——组字 '中'（宽 2）合成宽超界
+    const { view, model } = viewOf('abcdefgh');
+    model.setPreedit('中');
+    const grid = new CellGrid(12, 5);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
+    // 右边框列 col 9 恒为 '│'——组字字素不得覆写
+    expect(grid.getCell(1, 9)?.grapheme).toBe('│');
+    // 边框外（col 10-11）无组字残迹（续格/越界写均不得落）
+    expect(grid.getCell(1, 10)).toBeNull();
+    expect(grid.getCell(1, 11)).toBeNull();
+    expect(readRow(grid, 1, 12)).toBe('│abcdefgh│'); // 组字段放不下整字——整字截断
+  });
+
+  it('光标段中组字：prefix 完整 + 预编辑按剩余宽整字截断 + suffix 让位', () => {
+    const { view, model } = viewOf('abcdefgh');
+    model.moveHome();
+    for (let i = 0; i < 4; i++) model.moveRight(); // 光标 col 4（段中）
+    model.setPreedit('中中中'); // 宽 6——prefix 后剩余 4 列恰容 '中中'，第三字整字截断
+    const grid = new CellGrid(12, 5);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
+    expect(readRow(grid, 1, 12)).toBe('│abcd中中│');
+    expect(grid.getCell(1, 9)?.grapheme).toBe('│'); // 右边框保住
+    expect(grid.getCell(1, 5)?.style.underline).toBe(true); // 呈现的组字段仍是下划线样式
+    expect(grid.getCell(1, 7)?.style.underline).toBe(true);
+  });
+
+  it('组字期光标声明钳内容区右界（预编辑宽计入后不越界）', () => {
+    // 满段尾 + 组字宽 6：未钳制光标列 = 1 + 8 + 6 = 15——越网格右界（12 列）
+    const { view, model } = viewOf('abcdefgh');
+    model.setPreedit('中中中');
+    view.setFocused(true);
+    const grid = new CellGrid(12, 5);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
+    expect(grid.cursor).toEqual({ row: 1, col: 8, visible: true }); // 钳到最后内容格
+  });
+});

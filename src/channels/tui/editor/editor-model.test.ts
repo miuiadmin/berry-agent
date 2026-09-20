@@ -615,6 +615,50 @@ describe('EditorModel 粘贴标记化', () => {
     expect(out).toBe(`${bigPaste}\n\n尾部`);
   });
 
+  it('标记内粘贴（大段）= 标记原子落位（行后落新标记、旧标记保全、submit 双取回）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste); // lines [marker]，光标 (0,20)
+    m.insertText('尾部'); // 行尾守卫 → 后置空行：lines [marker, '尾部']
+    m.moveUp(); // sticky 列保持（显示列 4——'尾部' CJK 双宽）→ (0,4)——标记内部
+    expect(m.getCursor()).toEqual({ line: 0, col: 4 });
+    m.insertPaste(bigPaste); // 标记内部大粘贴——守卫：不劈标记，新标记落标记后新行
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '[paste #2 +21 lines]', '尾部']);
+    expect(m.isPasteMarkerLine(0)).toBe(true); // 旧标记恒完整（登记可取回）
+    expect(m.isPasteMarkerLine(1)).toBe(true);
+    m.undo(); // 粘贴原子一步可撤（守卫改行集随本步回退——回标记形）
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '尾部']);
+    expect(m.isPasteMarkerLine(0)).toBe(true);
+    m.insertPaste(bigPaste); // 撤后再粘贴同律原子
+    const out = m.submit();
+    expect(out).toBe(`${bigPaste}\n${bigPaste}\n尾部`); // 两段登记原文都取回——无静默丢失
+  });
+
+  it('标记内粘贴（小段）= 标记原子落位（粘贴落标记后新行、标记保全、submit 取回原文）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste);
+    m.insertText('尾部'); // lines [marker, '尾部']
+    m.moveUp(); // → (0,4)——标记内部
+    expect(m.getCursor()).toEqual({ line: 0, col: 4 });
+    m.insertPaste(smallPaste); // 标记内部小粘贴——守卫：粘贴段落标记后新行（不劈不拼标记）
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', 'a', 'b', 'c', '尾部']);
+    expect(m.isPasteMarkerLine(0)).toBe(true);
+    const out = m.submit();
+    expect(out).toBe(`${bigPaste}\na\nb\nc\n尾部`); // 登记原文经标记展开取回
+  });
+
+  it('标记行首 / 行尾粘贴守卫：粘贴落标记外新行（标记恒独占、不劈不拼）', () => {
+    const m = new EditorModel();
+    m.insertPaste(bigPaste); // lines [marker]，光标 (0,20)——标记行尾（最可达位：粘贴即落此）
+    m.insertPaste('追加'); // 单行小粘贴行尾守卫 → 后置空行：粘贴落标记后（直插会并成 '[paste #1 +21 lines]追加' 毁标记）
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '追加']);
+    m.undo(); // 回 [marker]（光标 (0,20)）
+    m.moveHome(); // (0,0)——标记行首
+    m.insertPaste(smallPaste); // 多行小粘贴行首守卫 → 前置空行：粘贴落标记前
+    expect(m.getLines()).toEqual(['a', 'b', 'c', '[paste #1 +21 lines]']);
+    const out = m.submit();
+    expect(out).toBe(`a\nb\nc\n${bigPaste}`);
+  });
+
   it('jumpToChar 落标记内部换行：同律原子不劈标记', () => {
     const m = new EditorModel();
     m.insertText('头');

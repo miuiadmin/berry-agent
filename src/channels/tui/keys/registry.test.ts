@@ -125,6 +125,26 @@ describe('Keymap.actions 投影（批 10k——/help 键位册消费源）', () 
   });
 });
 
+describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字符靶语义）', () => {
+  // 实装真源：editor/editor.ts 头注「jump 词向两态（ctrl+] / ctrl+alt+] 进入
+  // 待靶态、下一可打印字符为靶）」+ editor-model.ts jumpToChar（跳至靶字符的
+  // 下/上一出现）。册标签此前误写「跳至下一/上一空行」（与实装零交集——疑
+  // 段落跳转功能标签残拷）；/help 副屏键位册直取册 label 上屏（Keymap.actions
+  // 投影），用户按表操作会得到完全不同的行为。此锁防标签与实装再漂移。
+  it('jump-forward/backward 标签 = 字符靶两态语义（非「空行」漂移词）', () => {
+    const forward = ACTION_CATALOG.find((d) => d.id === 'editor.jump-forward');
+    const backward = ACTION_CATALOG.find((d) => d.id === 'editor.jump-backward');
+    expect(forward).toMatchObject({ label: '跳至下一指定字符', keys: ['ctrl+]'] });
+    expect(backward).toMatchObject({ label: '跳至上一指定字符', keys: ['ctrl+alt+]'] });
+  });
+
+  it('/help 投影随册——ActionView.label 原文上屏（失真面即此投影）', () => {
+    const views = new Keymap().actions;
+    const forward = views.find((v) => v.id === 'editor.jump-forward')!;
+    expect(forward.label).toBe('跳至下一指定字符');
+  });
+});
+
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
   it('册数 29：候跑与模型循环两动作在册（缺省键位 + 可覆盖位 + 域归属）', () => {
     expect(ACTION_CATALOG).toHaveLength(29);

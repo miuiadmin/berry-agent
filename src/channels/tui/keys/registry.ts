@@ -77,8 +77,11 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   },
   { id: 'editor.line-start', scope: 'editor', label: '行首', keys: ['home', 'ctrl+a'], overridable: true },
   { id: 'editor.line-end', scope: 'editor', label: '行尾', keys: ['end', 'ctrl+e'], overridable: true },
-  { id: 'editor.jump-forward', scope: 'editor', label: '跳至下一空行', keys: ['ctrl+]'], overridable: true },
-  { id: 'editor.jump-backward', scope: 'editor', label: '跳至上一空行', keys: ['ctrl+alt+]'], overridable: true },
+  // jump 族两态字符靶（editor.ts 头注语义同源——ctrl+] / ctrl+alt+] 先入待靶态、
+  // 下一可打印字符为靶、jumpToChar 跳至该字符下/上一出现；此前误标「跳至下一/
+  // 上一空行」与实装零交集，2026-09-20 TUI 战役定谳勘正——对拍锁在测试面）
+  { id: 'editor.jump-forward', scope: 'editor', label: '跳至下一指定字符', keys: ['ctrl+]'], overridable: true },
+  { id: 'editor.jump-backward', scope: 'editor', label: '跳至上一指定字符', keys: ['ctrl+alt+]'], overridable: true },
   { id: 'editor.page-up', scope: 'editor', label: '编辑器上翻页', keys: ['pageup'], overridable: true },
   { id: 'editor.page-down', scope: 'editor', label: '编辑器下翻页', keys: ['pagedown'], overridable: true },
   { id: 'editor.delete-backward', scope: 'editor', label: '向前删字符', keys: ['backspace'], overridable: true },
