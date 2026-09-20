@@ -238,6 +238,20 @@ describe('TuiBackend notify / repaint / resize', () => {
     expect(io.bytes).toContain('· 缺省档');
   });
 
+  it('多行 notify 回执不漂账（doors 帮助形——后续行落在物理末行之后，不覆写回执中段）', () => {
+    const { io, backend } = makeBackend();
+    // doors 失败回执形：message 本体多行（缺子命令 + usage 各行）。
+    // 物理行账漂移的旧形：writeLine 只按一次 +1 记账——4 行文本写出行 0..3
+    // 而账只到行 1，后续追加从行 1 起笔覆写回执第 2 行（tmux 实红 2026-09-20）
+    backend.notify('缺子命令。\n/doors list | open | close\n  list 用法甲\n  open 用法乙');
+    io.bytes = '';
+    backend.notify('后继行');
+    // 光标归位在编辑声明位（行 7）：gotoRow 的 CUU 距离 = 7 - 追加位行号。
+    // 物理真相 = 回执末行行 3 → 追加位行 4 → CUU 3；漂账形 = 追加位行 1 → CUU 6
+    expect(io.bytes).toContain('\x1b[3A\r· 后继行\n');
+    expect(io.bytes).not.toContain('\x1b[6A\r· 后继行\n');
+  });
+
   it('onRepaint：投影重建 + 清屏全量重写', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'message_end', message: { role: 'user', content: '旧问题', timestamp: 1 } });

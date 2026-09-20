@@ -62,7 +62,15 @@ import type {
   UiSessionSummary,
   UiUsageSummary,
 } from '../../types.js';
-import { CellGrid, InputDecoder, ProcessTerminalIO, type TerminalIO } from '../../engine/index.js';
+import {
+  CellGrid,
+  InputDecoder,
+  ProcessTerminalIO,
+  stringWidth,
+  truncateToWidth,
+  wrapText,
+  type TerminalIO,
+} from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
 import { LiveTranscript, shortIdOf, type SummaryLine, type TranscriptBlock } from './transcript.js';
 import { OscDisplay, buildOsc52Copy } from './osc.js';
@@ -1108,7 +1116,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 一次性通知：正文瞬时行直写（级别符号前缀——不进行集） */
   notify(message: string, opts?: { level?: NotifyLevel }): void {
     const symbol = NOTIFY_SYMBOLS[opts?.level ?? 'info'];
-    this.appendTransientLine(`${symbol} ${message}`);
+    // 多行/超宽回执折行后逐行入流（2026-09-20 TUI 混流修复）：单串整塞会让
+    // 内嵌 LF / 终端 autowrap 产超出 appendTransient 记账的物理行——后续
+    // durable 块从回执中段起笔覆写正文（doors 帮助形 tmux 实红）。首行带
+    // 档位符号、续行两空格缩进（user/error 块续行同律）；notify 面恒纯文本
+    // （样式面归 summaryToAnsi），wrapText 直用安全
+    const width = Math.max(1, this.io.size().columns - 2);
+    const lines = wrapText(message, width).map((line, i) => (i === 0 ? `${symbol} ${line}` : `  ${line}`));
+    this.appendTransientLines(lines);
   }
 
   /**
@@ -1118,11 +1133,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * （复起补显射界含瞬时行——批 10f-4）。
    */
   private appendTransientLine(line: string): void {
+    this.appendTransientLines([line]);
+  }
+
+  /** 多行瞬时行入流（notify 折行产物——逐元素一行契约由 wrapText 保证） */
+  private appendTransientLines(lines: readonly string[]): void {
     if (this.suspendedMain) {
-      this.suspendedTransients.push(line); // 停屏期瞬时行缓冲（不入 op 队列——复起不走合并直补吐）
+      this.suspendedTransients.push(...lines); // 停屏期瞬时行缓冲（不入 op 队列——复起不走合并直补吐）
       return;
     }
-    this.pendingOps.push({ kind: 'transient', lines: [line] });
+    this.pendingOps.push({ kind: 'transient', lines: [...lines] });
     this.requestRender();
   }
 
@@ -1167,8 +1187,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   onEnvelope(env: SessionEnvelope, focused: boolean): void {
     const summary = this.transcript.applyEvent(env, focused);
     if (summary !== null) {
-      // 摘要行统一走 appendTransientLine（挂起期入缓冲不丢——批 10f-4 改道）
-      this.appendTransientLine(summaryToAnsi(summary));
+      // 摘要行统一走 appendTransientLine（挂起期入缓冲不丢——批 10f-4 改道）；
+      // 屏宽截断随取（resize 后即席值——挂起期截宽略陈由复起全帧重画自愈）
+      this.appendTransientLine(summaryToAnsi(summary, this.io.size().columns));
     } else {
       this.enqueuePresent();
     }
@@ -1947,8 +1968,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 /**
  * 摘要行 ANSI 序列化：行首段（档位符号 + 会话短 id）着会话区分色——
  * 非 accent 家族的第二着色位（07 §4.1 呈现面件 9），label 段裸文本。
+ * 行尾按屏宽截断（2026-09-20 TUI 混流修复防漂位）：超宽行交终端 autowrap
+ * 产超记账物理行——截断丢尾是更轻的失败（覆写正文是重失败）；宽度算纯
+ * label 段（着色 head 恒短），转义不进截断面。
  */
-function summaryToAnsi(line: SummaryLine): string {
+function summaryToAnsi(line: SummaryLine, columns: number): string {
   const head = `${line.symbol} ${line.shortId}`;
-  return buildSgr({ fg: sessionColor(line.shortId) }) + head + SGR_RESET + ` ${line.label}`;
+  const budget = Math.max(1, columns - stringWidth(head) - 1);
+  const label = truncateToWidth(line.label, budget);
+  return buildSgr({ fg: sessionColor(line.shortId) }) + head + SGR_RESET + ` ${label}`;
 }

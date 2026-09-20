@@ -274,12 +274,20 @@ export class MainScreen {
     this.cursorRow = this.rows - 1;
   }
 
-  /** 写一行（CR 起笔 + LF 推进）并维护 cursorRow；区底 LF 触滚——内容整体上移一格、durableEndRow 同步减一（账不漂移） */
+  /**
+   * 写一行（CR 起笔 + LF 推进）并维护 cursorRow；区底 LF 触滚——内容整体上移一格、durableEndRow 同步减一（账不漂移）。
+   * 内嵌 LF 拆段逐行写（2026-09-20 TUI 混流修复）：调用方可能传入多行文本
+   * 单串（如 notify 多行回执——doors 帮助形），单次 io.write 产 N 个物理行
+   * 而账只 +1 即漂账——后续追加块从回执中段起笔覆写正文（tmux 实红在案）。
+   * 拆段后物理行账与终端一致；raw 模式 LF 纯行进不回列，每段显式 CR 起笔。
+   */
   private writeLine(text: string): void {
-    this.io.write(CR + text + LF);
     const regionBottom = this.rows - this.fixedHeight - 1;
-    if (this.cursorRow < regionBottom) this.cursorRow++;
-    else if (this.durableEndRow > 0) this.durableEndRow--; // 触滚：已写内容上移（B 段随后整账重赋、槽写路保持真值）
+    for (const line of text.split('\n')) {
+      this.io.write(CR + line + LF);
+      if (this.cursorRow < regionBottom) this.cursorRow++;
+      else if (this.durableEndRow > 0) this.durableEndRow--; // 触滚：已写内容上移（B 段随后整账重赋、槽写路保持真值）
+    }
   }
 
   /** 光标归行（present 入口光标在固定区末行——CUU 相对定位即可达全屏任意行） */
