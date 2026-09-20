@@ -526,6 +526,19 @@ describe('writeLine 控制字节兜底（2026-09-20 TUI 修复组 1 批 F2）', 
     screen.appendTransient(['n\x07o']);
     expect(io.bytes).toContain('\rno\n'); // BEL 剥除
   });
+
+  it('残余 tab 展开两空格（第五役 G7——发射面兜底对齐 tab 宽度单源模型）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    // 修前红：\t 不在剥除集原样过线——终端按制表位展开最宽 8 列，未记账
+    // 物理宽与 autowrap 漂账同族（capAnsiLine tab 零宽透传的潜伏分歧在此
+    // 收口）。展开两空格 = graphemeWidth 记 2 / CellGrid writeText /
+    // sanitizeDisplayText 消毒层三面同形的第四面（发射面）
+    screen.appendTransient(['a\tb']);
+    expect(io.bytes).toContain('\ra  b\n'); // tab → 两空格
+    expect(io.bytes).not.toContain('\t');
+  });
 });
 
 /* ================= TUI 第四役 fx2（后端组——陈宽守卫列维 + 收缩残影擦除） ================= */

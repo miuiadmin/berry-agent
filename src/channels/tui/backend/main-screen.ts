@@ -306,11 +306,15 @@ export class MainScreen {
   private writeLine(text: string): void {
     const regionBottom = this.rows - this.fixedHeight - 1;
     for (const line of text.split('\n')) {
-      // 控制字节兜底（2026-09-20 TUI 修复组 1 批 F2）：残余 C0/DEL 剥除——
-      // CR 落屏即回列覆写正文、其余 C0 终端误解执行；LF 已按段拆分入账、
-      // ESC 保留（appendTransient 调用方可携合法 SGR 配色序列——inline 面
-      // 落屏末道防线，构造位消毒后实践上恒空转）
-      const clean = line.replace(/[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]/g, '');
+      // 控制字节兜底（2026-09-20 TUI 修复组 1 批 F2；第五役 G7 扩 tab）：
+      // 残余 C0/DEL 剥除——CR 落屏即回列覆写正文、其余 C0 终端误解执行；LF
+      // 已按段拆分入账、ESC 保留（appendTransient 调用方可携合法 SGR 配色
+      // 序列——inline 面落屏末道防线，构造位消毒后实践上恒空转）。tab 展开
+      // 两空格（对齐 tab 宽度单源模型第四面〔发射面〕：graphemeWidth 记 2 /
+      // CellGrid writeText 展开 / sanitizeDisplayText 消毒层同形）：裸 tab
+      // 交终端按制表位展开最宽 8 列，未记账物理宽与 autowrap 漂账同族
+      //（capAnsiLine tab 零宽透传的潜伏分歧在此收口）
+      const clean = line.replace(/\t/g, '  ').replace(/[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]/g, '');
       this.io.write(CR + clean + LF);
       if (this.cursorRow < regionBottom) this.cursorRow++;
       else if (this.durableEndRow > 0) this.durableEndRow--; // 触滚：已写内容上移（B 段随后整账重赋、槽写路保持真值）
