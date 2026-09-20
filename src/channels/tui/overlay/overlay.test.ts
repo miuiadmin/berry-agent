@@ -1,5 +1,7 @@
 /**
- * 浮层基建单测：OverlayStack（栈序覆盖 / 模态独占 / 句柄幂等）+
+ * 浮层基建单测：OverlayStack（模态独占 / 句柄幂等 / contents 观测面——
+ * 渲染装配归 tui-backend renderFixed 直测，锚定自由定位路已整域清退〔第五役
+ * F3 一刀清——OverlayAnchor 型/字段/签名全删〕）+
  * SelectPanel / ConfirmPanel（保守值 / 单次语义 / 高亮循环 / 铺底遮蔽）+
  * AltScreenHost（副屏编舞序互证：1049 进出对称 + 主屏挂起 / 复起交出面调用
  * 序 + 共享 io 放流接缝回归锁）。
@@ -78,24 +80,13 @@ class FakeClock {
 /* ---------------- OverlayStack ---------------- */
 
 describe('OverlayStack', () => {
-  it('栈序渲染：栈顶覆盖栈底（后画赢）', () => {
-    const stack = new OverlayStack();
-    const grid = new CellGrid(20, 5);
-    grid.writeText(2, 0, 'main-tree'); // 主树先画
-    stack.open(textLayer('bottom'), () => ({ row: 1, col: 0, width: 10, height: 1 }));
-    stack.open(textLayer('top!!'), () => ({ row: 1, col: 0, width: 10, height: 1 }));
-    stack.renderAll(grid);
-    expect(readRow(grid, 1, 20)).toBe('top!!m'); // 栈顶覆盖栈顶区；col 5 透出栈底 'bottom' 的 'm'（浮层只写自己写的格）
-    expect(readRow(grid, 2, 20)).toBe('main-tree'); // 非浮层区不受扰
-  });
-
   it('contents 观测面：栈底→栈顶只读快照，开关联动（装配量高遍历消费）', () => {
     const stack = new OverlayStack();
     expect(stack.contents).toEqual([]);
     const a = textLayer('a');
     const b = textLayer('b');
-    const handleA = stack.open(a, () => ({ row: 0, col: 0, width: 1, height: 1 }));
-    stack.open(b, () => ({ row: 0, col: 0, width: 1, height: 1 }));
+    const handleA = stack.open(a);
+    stack.open(b);
     expect(stack.contents).toEqual([a, b]); // 栈底先、栈顶后
     handleA.close();
     expect(stack.contents).toEqual([b]); // 关联动
@@ -108,8 +99,8 @@ describe('OverlayStack', () => {
     expect(stack.routeEvent(key('x'))).toBe(false); // 空栈归常态路由
     const bottom = textLayer('bottom');
     const top = textLayer('top');
-    stack.open(bottom, () => ({ row: 0, col: 0, width: 5, height: 1 }));
-    stack.open(top, () => ({ row: 0, col: 0, width: 5, height: 1 }));
+    stack.open(bottom);
+    stack.open(top);
     const unhandled = key('f9'); // 两层都不绑的键——也不穿透
     expect(stack.routeEvent(unhandled)).toBe(true);
     expect(top.events).toEqual([unhandled]);
@@ -120,8 +111,8 @@ describe('OverlayStack', () => {
     const stack = new OverlayStack();
     const bottom = textLayer('bottom');
     const top = textLayer('top');
-    const h1 = stack.open(bottom, () => ({ row: 0, col: 0, width: 5, height: 1 }));
-    stack.open(top, () => ({ row: 0, col: 0, width: 5, height: 1 }));
+    const h1 = stack.open(bottom);
+    stack.open(top);
     expect(stack.size).toBe(2);
     h1.close(); // 非栈顶关闭
     expect(stack.size).toBe(1);
@@ -138,22 +129,10 @@ describe('OverlayStack', () => {
     const stack = new OverlayStack();
     const spy = vi.fn();
     stack.onChange = spy;
-    const handle = stack.open(textLayer('x'), () => ({ row: 0, col: 0, width: 5, height: 1 }));
+    const handle = stack.open(textLayer('x'));
     expect(spy).toHaveBeenCalledTimes(1);
     handle.close();
     expect(spy).toHaveBeenCalledTimes(2);
-  });
-
-  it('anchor 收帧几何（浮层按帧定位）', () => {
-    const stack = new OverlayStack();
-    let seen: { width: number; height: number } | null = null;
-    stack.open(textLayer('x'), (frame) => {
-      seen = frame;
-      return { row: 0, col: 0, width: 1, height: 1 };
-    });
-    const grid = new CellGrid(30, 12);
-    stack.renderAll(grid);
-    expect(seen).toEqual({ width: 30, height: 12 });
   });
 });
 

@@ -2,23 +2,20 @@
  * 主屏浮层基建（07 §4.1 引擎节件 6（组件与呈现装配件））：OverlayStack——cell 网格局部区浮层。
  *
  * 「overlay」专指主屏浮层（不进 1049 备屏——副屏另名 AltScreenHost）：
- * - 栈形多枚并存，栈底先画、栈顶最后画（覆盖序即栈序）；
- * - 锚定是函数（拿帧几何自由定位——select / confirm 挂输入框上方等），
- *   返回 region 须在屏内（越界写由缓冲吸收——缓冲兜底，锚定函数自律）；
+ * - 栈形多枚并存（栈序即叠放序——装配层经 contents 快照按栈底→栈顶序排段；
+ *   锚定自由定位路已整域清退〔renderAll + OverlayAnchor 一刀清——第五役
+ *   F3〕，浮层位形全归装配层栈序叠放）；
  * - 事件路由模态独占：栈非空时 routeEvent 恒返 true——占焦期间未消费键
  *   不穿透至 UiBackend 三序（07 §4.3 输入路由拦截链条款）；
  * - 进出栈经 onChange 通知装配层请求重绘（overlay 是主屏帧的组成段）。
  */
-import type { CellBuffer, InputEvent, Region, Renderable } from '../../engine/index.js';
+import type { InputEvent, Renderable } from '../../engine/index.js';
 
 /** 浮层内容协议：可渲染 + 可吃键（占焦模态件的两面） */
 export interface OverlayContent extends Renderable {
   /** 键 / 文本 / IME / 粘贴事件分发（返回是否消费——未消费也不穿透） */
   handleEvent(event: InputEvent): boolean;
 }
-
-/** 锚定函数（帧几何 → 浮层区域；返回 region 须在屏内——缓冲吸收越界兜底） */
-export type OverlayAnchor = (frame: { width: number; height: number }) => Region;
 
 /** 浮层句柄（两形态共用——主屏浮层与副屏同形接口） */
 export interface OverlayHandle {
@@ -31,14 +28,14 @@ export interface OverlayHandle {
 /** 栈条目（句柄闭包的持有体） */
 interface OverlayEntry {
   readonly content: OverlayContent;
-  readonly anchor: OverlayAnchor;
   closed: boolean;
 }
 
 /**
- * 浮层栈：主屏帧的「后画段」与输入路由的「先吃段」。
+ * 浮层栈：固定区首段的内容源与输入路由的「先吃段」。
  *
- * 装配序（每帧）：主树 render → renderAll（浮层覆盖其上）；
+ * 装配序（每帧）：tui-backend renderFixed 经 contents 快照将各层按栈序
+ * 自上而下叠放为固定区首段（各层量高 + 视口帽收口——与主树分域不覆盖）；
  * 路由序（每键）：routeEvent（栈非空短路三序）→ UiBackend 命令 / 队列 / 输入框。
  */
 export class OverlayStack {
@@ -57,8 +54,8 @@ export class OverlayStack {
   }
 
   /** 开层：压栈 + 返回句柄（幂等关闭归句柄） */
-  open(content: OverlayContent, anchor: OverlayAnchor): OverlayHandle {
-    const entry: OverlayEntry = { content, anchor, closed: false };
+  open(content: OverlayContent): OverlayHandle {
+    const entry: OverlayEntry = { content, closed: false };
     this.entries.push(entry);
     this.onChange?.();
     return {
@@ -73,14 +70,6 @@ export class OverlayStack {
         return entry.closed;
       },
     };
-  }
-
-  /** 浮层渲染（主树渲染后调用——栈底先画、栈顶覆盖） */
-  renderAll(buffer: CellBuffer): void {
-    for (const entry of this.entries) {
-      const region = entry.anchor({ width: buffer.columns, height: buffer.rows });
-      entry.content.render(buffer, region);
-    }
   }
 
   /**

@@ -3087,8 +3087,8 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
   });
 });
 
-describe('TuiBackend overlayLayout 死账双清（fx2-D——renderAll 生产零调用定谳）', () => {
-  it('select 开合两轮：anchor 死账零残留（修前 Map 只写不清——两轮后 size 2）', async () => {
+describe('TuiBackend overlay 锚定路残账锁（fx2-D 锚定注册表清退 + 第五役 F3 锚管线一刀清）', () => {
+  it('select 开合两轮：锚定残账零残留（修前 Map 只写不清——两轮后 size 2）', async () => {
     const { io, backend, clock, pump } = makeInteractive();
     const choices = [{ value: 'a', label: '甲' }];
     const p1 = backend.select('一', choices);

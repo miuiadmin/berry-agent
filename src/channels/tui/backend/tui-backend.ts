@@ -15,7 +15,7 @@
  *   ——07 §4.1 2026-09-15 /exit 批，先于通道命令分发）→ '/' 起手命令柄（false 落
  *   onSubmit 兜底——03 §2.2 驱动侧语义归 conversation）→ onSubmit；
  * - **固定区 v2 动态布局**（自上而下）：overlay 段（视口帽收口 fx2-B；
- *   锚定注册表已随 renderAll 死路双清 fx2-D——开层锚内联回退形）→
+ *   栈序叠放——锚定自由定位路已整域清退〔fx2-D + 第五役 F3 一刀清〕）→
  *   todo 面板（件 4）→ input-ask 提示行 → 补全弹层 → 编辑器（动态量高 +
  *   光标声明——setFixed 声明位落 cup）→ 工具进度面板（件 5——与状态行
  *   分职互补相邻）→ 状态行；
@@ -1643,15 +1643,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 列表死显在浮层段下、且 20ms 窗内已武装的在途查询迟到还会刷新死显列表
     this.autocompleteCompleter.cancel(); // 撤防抖窗 + 在途作废
     this.popup.applyResult(null); // 在场弹层即刻收层
-    // 开层锚（fx2-D：锚定注册表死路双清后内联回退形——anchor 唯一消费方
-    // renderAll 生产零调用〔grep 复核定谳，仅 overlay.test.ts 引用〕，
-    // OverlayStack.open 签名所需占位；原 anchorFor 读注册表首帧亦恒此形）
-    const handle = this.stack.open(content, (frame) => ({
-      row: 0,
-      col: 0,
-      width: frame.width,
-      height: content.measure(frame.width),
-    }));
+    // 开层（位形归装配层栈序叠放——锚定签名已随 OverlayAnchor 一刀清，第五役 F3）
+    const handle = this.stack.open(content);
     signal?.addEventListener(
       'abort',
       () => {
