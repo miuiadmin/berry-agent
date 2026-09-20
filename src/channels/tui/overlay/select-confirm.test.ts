@@ -128,3 +128,79 @@ describe('ConfirmPanel 呈现宽度预算（组 2 修前红）', () => {
     expect(readRow(grid, 1, 30)).toBe('enter 确认 · esc 取消');
   });
 });
+
+/* ================= TUI 第四役 fx2-B（SelectPanel 视口帽——滚动窗 + 指示行） ================= */
+
+describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
+  const opts = (n: number) => Array.from({ length: n }, (_, i) => ({ value: `v${i}`, label: `opt-${i}` }));
+
+  it('无帽注入恒满高（回归面——未接 renderFixed 的直用形零扰动）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(4) });
+    expect(panel.measure(80)).toBe(5); // 标题 1 + 4 选项
+  });
+
+  it('帽内适装零窗口化（恒满高原样——指示行不出场）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(4) });
+    panel.setMaxHeight(6); // 5 ≤ 6 适装
+    expect(panel.measure(80)).toBe(5);
+    const grid = new CellGrid(20, 5);
+    panel.render(grid, { row: 0, col: 0, width: 20, height: 5 });
+    expect(readRow(grid, 1, 20)).toBe('❯ opt-0');
+    expect(readRow(grid, 4, 20)).toBe('  opt-3'); // 全集在场
+  });
+
+  it('超帽窗口化：窗行 + 底部指示行（首帧光标贴顶——顶部无指示）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(10) });
+    panel.setMaxHeight(7); // full 11 > 7 → 窗行 = 7-1-2 = 4
+    expect(panel.measure(80)).toBe(6); // 标题 1 + 窗 4 + 底指示 1（顶 0 隐藏无行）
+    const grid = new CellGrid(20, 6);
+    panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
+    expect(readRow(grid, 0, 20)).toBe('T');
+    expect(readRow(grid, 1, 20)).toBe('❯ opt-0'); // 光标项窗首（居中钳 0）
+    expect(readRow(grid, 4, 20)).toBe('  opt-3'); // 窗尾
+    expect(readRow(grid, 5, 20)).toBe('↓ 6 more'); // 窗外 6 项隐藏
+  });
+
+  it('光标居中跟随：移到中部——两侧指示行齐显（窗 = 光标 - 半窗）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(10) });
+    panel.setMaxHeight(7);
+    for (let k = 0; k < 5; k++) panel.handleEvent(key('down')); // activeIndex 5
+    expect(panel.measure(80)).toBe(7); // 标题 + 双指示 + 窗 4
+    const grid = new CellGrid(20, 7);
+    panel.render(grid, { row: 0, col: 0, width: 20, height: 7 });
+    expect(readRow(grid, 1, 20)).toBe('↑ 3 more'); // start = 5-2 = 3
+    expect(readRow(grid, 4, 20)).toBe('❯ opt-5'); // 居中可视
+    expect(readRow(grid, 6, 20)).toBe('↓ 3 more');
+  });
+
+  it('末项沉底：底部指示消失、顶部指示在场（activeIndex 仍在全集——wrap 后值不漂）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(10) });
+    panel.setMaxHeight(7);
+    for (let k = 0; k < 9; k++) panel.handleEvent(key('down')); // activeIndex 9（末项）
+    expect(panel.measure(80)).toBe(6); // 标题 + 顶指示 + 窗 4（底 0 隐藏）
+    const grid = new CellGrid(20, 6);
+    panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
+    expect(readRow(grid, 1, 20)).toBe('↑ 6 more'); // start = 6（沉底钳）
+    expect(readRow(grid, 5, 20)).toBe('❯ opt-9'); // 末项窗尾可视
+  });
+
+  it('退化小帽防御：measure 恒 ≤ 帽、render 区域界内不越写（不抛不丢格）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(10) });
+    panel.setMaxHeight(2); // 窗行下限 1 兜底——量高钳帽
+    expect(panel.measure(80)).toBeLessThanOrEqual(2);
+    const grid = new CellGrid(20, 2);
+    panel.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    expect(readRow(grid, 0, 20)).toBe('T'); // 标题优先在场
+    expect(readRow(grid, 1, 20)).toBe('❯ opt-0'); // 光标行保底可视
+  });
+
+  it('窗口化不改选值语义（enter 应答高亮项全集值——呈现取景非数据截断）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(10) });
+    panel.setMaxHeight(7);
+    for (let k = 0; k < 9; k++) panel.handleEvent(key('down')); // 末项（窗外曾不可见域）
+    const got: string[] = [];
+    panel.onFinish = (v) => got.push(v);
+    panel.handleEvent(key('enter'));
+    expect(got).toEqual(['v9']); // 全集应答（窗口只是呈现取景）
+  });
+});

@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
-import { ansiColor } from '../../engine/index.js';
+import { ansiColor, stringWidth } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { buildSgr } from './ansi-rows.js';
 import { sessionColor } from '../theme/index.js';
@@ -2944,5 +2944,184 @@ describe('TuiBackend footer git 短支名段（07 §4.1 挂账解挂批②——
     backend.onRepaint(SESSION, [], null);
     // 修前：refreshFooter 无门控恒拼段 → 状态行被开常驻段（SGR 包裹的分栏 footer 行）
     expect(io.bytes).not.toContain('\x1b[0msess-aaa\x1b[0m');
+  });
+});
+
+/* ================= TUI 第四役 fx2（后端组——复起补吐/视口帽/残影/死路双清/复起附件） ================= */
+
+/**
+ * 剥 ANSI 序列后的显示宽（fx2-A 断言锚）：SGR/OSC 零宽（终端把 ESC 序列当
+ * 控制不占列）——与物理行落屏宽同算术。CSI 参数/中间字节类含 <>=（kitty
+ * 键盘推栈 \x1b[>1u 等私营形零宽同剥）。
+ */
+function displayWidth(text: string): number {
+  return stringWidth(text.replace(/\x1b\[[0-9;?<>=]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, ''));
+}
+
+/**
+ * 补吐行提取（fx2-A 断言形）：writeLine 每行 `CR + 行 + LF` 写出——取 LF 间
+ * 各段末次 CR 之后的内容即一条写行（行前若混入无 LF 的定位/固定区字节，末次
+ * CR 截断即剥）；只断言携内容标记（「宽」= notify 折行产物）的补吐行，排除
+ * 固定区/正文行（固定区差分整段无 LF 间隔，段宽 = 多行合计，不属本断言域）。
+ */
+function replayLinesMarked(bytes: string, marker: string): string[] {
+  const out: string[] = [];
+  for (const seg of bytes.split('\n')) {
+    const idx = seg.lastIndexOf('\r');
+    const line = idx >= 0 ? seg.slice(idx + 1) : seg;
+    if (line.includes(marker)) out.push(line);
+  }
+  return out;
+}
+
+describe('TuiBackend 复起补吐宽度收口（fx2-A——M2 残宽面）', () => {
+  it('挂起期 notify 折行产物按新列宽截宽——缩窗复起补吐段不超屏（修前 100 列行入 60 列屏必红）', () => {
+    const io = new MemoryTerminalIO(100, 30);
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
+    backend.suspendMain();
+    // 挂起期 notify：wrapText(·, 98) 折行产物首段 = '· ' + 49 全宽字 = 100 显示宽
+    backend.notify('宽'.repeat(60));
+    io.columns = 60; // 停屏期缩窗（挂起期 resize 安全 no-op——几何真值复起重取）
+    io.reset();
+    backend.resumeMain();
+    // 逐补吐行剥 SGR/OSC 后断言显示宽 ≤ 60——修前补吐首行实测 100 宽必红
+    // （终端 autowrap 占 2 物理行而账只 +1 → 后续 durable 起笔漂账）
+    const replayed = replayLinesMarked(io.bytes, '宽');
+    expect(replayed.length).toBeGreaterThan(0); // 前置自证：确有补吐行入断言域
+    for (const line of replayed) {
+      expect(displayWidth(line)).toBeLessThanOrEqual(60);
+    }
+    // 补吐内容在场为前提（截宽非丢行——保账优先但内容可见）
+    expect(io.bytes).toContain('· ');
+  });
+
+  it('复起排空槽期缓冲同律截宽（drainSlotTransients 补吐路——修前按挂起前宽度直写）', () => {
+    const io = new MemoryTerminalIO(80, 20);
+    const clock = new ManualClock();
+    const backend = new TuiBackend(io, {
+      schedule: clock.schedule,
+      cancelSchedule: clock.cancel,
+      now: clock.now,
+      fpsCap: 1e6,
+      sessionId: SESSION,
+    });
+    backend.start();
+    io.bytes = '';
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('流式正文') });
+    clock.advance(1);
+    // 槽在场期 notify 入槽期缓冲（80 列折行首段 = '· ' + 38 全宽字 = 80 显示宽）
+    backend.notify('宽'.repeat(45));
+    clock.advance(1);
+    expect(io.bytes).not.toContain('宽'); // 前置自证：确入槽期缓冲未直写
+    backend.suspendMain();
+    emit(backend, { type: 'message_end', message: assistantMsg('定稿正文') }); // 停屏期关槽
+    io.columns = 40;
+    io.reset();
+    backend.resumeMain();
+    const replayed = replayLinesMarked(io.bytes, '宽');
+    expect(replayed.length).toBeGreaterThan(0); // 前置自证：缓冲行确补吐入断言域
+    for (const line of replayed) {
+      expect(displayWidth(line)).toBeLessThanOrEqual(40);
+    }
+    expect(io.bytes).toContain('宽'); // 缓冲行补吐在场（截宽非丢行）
+  });
+});
+
+describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开滚动窗）', () => {
+  it('24 行屏 21 选项：面板窗口化入帽——标题与编辑器边框在场（修前固定区超高守卫整段不写必红）', () => {
+    const { io, backend, pump } = makeInteractive({}, 24);
+    const choices = Array.from({ length: 21 }, (_, i) => ({ value: `v${i}`, label: `opt-${i}` }));
+    backend.select('ZZQ', choices); // 21 选项 + 标题 1 = 22 行面板
+    pump();
+    // 修前红：面板 22 + 编辑器 3 + 状态行 1 = 26 > 24 行屏——MainScreen 陈货
+    // 守卫（行维）整段不写，面板与编辑器全部不可见（模态开屏即黑）
+    expect(io.bytes).toContain('ZZQ'); // 面板标题在场（窗口化非隐层）
+    expect(io.bytes).toContain('┌'); // 编辑器边框在场（固定区未超高）
+    // 窗口化面：首帧光标在首项 → 窗顶贴 0、底部溢出指示行在场（↓ N more）
+    expect(io.bytes).toContain('↓ ');
+    expect(io.bytes).not.toContain('↑ '); // 顶部无隐藏（光标居中钳 0）
+  });
+
+  it('窗口滚动跟随：↓ 到末项——底部指示消失、顶部指示在场（光标恒可视 + 选值随窗不漂）', async () => {
+    const { io, backend, pump } = makeInteractive({}, 24);
+    const choices = Array.from({ length: 21 }, (_, i) => ({ value: `v${i}`, label: `opt-${i}` }));
+    const p = backend.select('ZZQ', choices);
+    pump();
+    io.bytes = '';
+    // ↓ × 20 → 末项 opt-20（多序列单 chunk 可解——decoder 逐序发事件）
+    io.emitInput('\x1b[B'.repeat(20));
+    // 复位帧锚：overlay 占焦键无帧钩子（既有形——stack.routeEvent 消费即
+    // 返、touchFixed 只挂 onChange 开关层；忙态外 tick 零开销无自驱帧），
+    // 经 onRepaint 公开锚（切焦/登记路真源）落帧后断言窗口跟随
+    backend.onRepaint('s1', [], null);
+    pump();
+    // 终态窗块 = 末次 ↑ 指示之后的 diff 段（onRepaint 的 repaint 先陈货全量
+    // 重画再同帧 diff 收敛——流中旧窗字节是中间态非终态证据，同 fx2-A 谱）
+    const finalWindow = io.bytes.slice(io.bytes.lastIndexOf('↑'));
+    expect(finalWindow).toContain('❯ opt-20'); // 高亮末项——光标移动且窗沉底跟随
+    expect(finalWindow).not.toContain('↓ '); // 窗沉底——底部无隐藏（指示行消失）
+    io.emitInput('\r');
+    pump();
+    await expect(p).resolves.toBe('v20'); // 窗口化不改选值语义（高亮项 = 应答项）
+  });
+});
+
+describe('TuiBackend overlayLayout 死账双清（fx2-D——renderAll 生产零调用定谳）', () => {
+  it('select 开合两轮：anchor 死账零残留（修前 Map 只写不清——两轮后 size 2）', async () => {
+    const { io, backend, clock, pump } = makeInteractive();
+    const choices = [{ value: 'a', label: '甲' }];
+    const p1 = backend.select('一', choices);
+    pump();
+    io.emitInput('\r');
+    pump();
+    await expect(p1).resolves.toBe('a');
+    const p2 = backend.select('二', choices);
+    pump();
+    io.emitInput('\x1b');
+    escapePump(clock);
+    await expect(p2).resolves.toBe('');
+    // 修前红：overlayLayout 条目 renderFixed 每帧只写、close 不清——两轮后
+    // size 2 死账；其唯一读方 renderAll 生产零调用（fx2-D grep 复核定谳），
+    // 死路整域双清（Map + anchorFor + 写侧）后字段缺席恒 0
+    expect((backend as unknown as { overlayLayout?: { size: number } }).overlayLayout?.size ?? 0).toBe(0);
+  });
+});
+
+describe('TuiBackend resumeMain 复起附件（fx2-E——编辑器帽随动 + footer 支名重读）', () => {
+  it('编辑器高度帽随新几何重算：缩窗复起 DECSTBM 底按新帽（修前帽停挂起前旧值必红）', () => {
+    const io = new MemoryTerminalIO(80, 40);
+    const backend = new TuiBackend(io, { sessionId: SESSION });
+    backend.start();
+    // 注入 14 行内容（kitty shift+enter 换行 ×13——初始空行 1 + 13 = 14 行）：
+    // 帽 = editorHeightCap(40) = 12 → 呈现 12 + 边框 2 = 14 → 固定区 15（含状态行）
+    for (let i = 0; i < 13; i++) io.emitInput('\x1b[13;2u');
+    backend.suspendMain();
+    io.rows = 24; // 挂起期缩窗（挂起期 resize 安全 no-op——几何真值复起重取）
+    io.reset();
+    backend.resumeMain();
+    // 修后：帽 = editorHeightCap(24) = 7 → 呈现 7 + 边框 2 = 9 → 固定区 10 →
+    // DECSTBM 底 = 24 - 10 = 14；修前帽停 12 → 固定区 15 → 底 = 9（只写 1;9r）
+    expect(io.bytes).toContain('\x1b[1;14r');
+  });
+
+  it('footer 支名复起重读：挂起期 checkout 后复起常驻段换新支名（修前陈旧必红）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'berry-git-resume-'));
+    mkdirSync(join(root, '.git'), { recursive: true });
+    writeFileSync(join(root, '.git', 'HEAD'), 'ref: refs/heads/old-branch\n');
+    const { io, backend } = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'proj', cwdPath: root } });
+    expect(io.bytes).toContain('proj ⎇ old-branch · sess-aaa'); // 前置自证：挂起前常驻段在场
+    backend.suspendMain();
+    writeFileSync(join(root, '.git', 'HEAD'), 'ref: refs/heads/new-branch\n'); // 挂起期 checkout（副屏窗）
+    io.reset();
+    backend.resumeMain();
+    // 修前红：resumeMain 不重算 footer——常驻段停在 old-branch（resize 收敛锚
+    // 同款附件缺席，切焦/resize 前陈旧持续）；复起即重读 .git/HEAD（每调现读）。
+    // 终态块断言：流含 repaint 期陈货固定区中间态（旧 grid 先画、refreshFooter
+    // 后同帧 diff 收敛——同 fx2-A 谱，流中旧字节非终态证据），取末次 footer 写出
+    const finalFooter = io.bytes.slice(io.bytes.lastIndexOf('proj ⎇'));
+    expect(finalFooter).toContain('proj ⎇ new-branch · sess-aaa');
+    expect(finalFooter).not.toContain('old-branch');
   });
 });

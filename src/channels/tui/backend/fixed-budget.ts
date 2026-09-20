@@ -19,6 +19,15 @@
 /** 输入框（编辑器）截断下限：边框 2 + 内容 1——「内容最小高」的落码定值 */
 export const EDITOR_MIN_HEIGHT = 3;
 
+/**
+ * 截断预算（视口 - 1——正文滚动区至少 1 行；视口 1 行形下限兜 1）单源。
+ * 装配层 overlay 视口帽（fx2-B）与本件分配梯共用同一预算算术——两处
+ * 各自内联会漂（帽按旧预算放宽 = 固定区又可超高）。
+ */
+export function fixedBudgetRows(viewportRows: number): number {
+  return Math.max(1, viewportRows - 1);
+}
+
 /** 截断预算内的段量高输入（各段 measure 原值——分配前无预收窄） */
 export interface FixedBudgetInput {
   /** 视口总行数（截断预算 = 视口 - 1） */
@@ -58,7 +67,7 @@ export interface FixedBudget {
  */
 export function allocateFixedBudget(input: FixedBudgetInput): FixedBudget {
   // 截断目标：总高 ≤ 视口 - 1（正文滚动区至少 1 行；视口 1 行形下限兜 1）
-  const budget = Math.max(1, input.viewportRows - 1);
+  const budget = fixedBudgetRows(input.viewportRows);
   let { overlay, ask, popup, editor, todo, tool } = input;
   const status = 1;
   const sum = (): number => overlay + ask + popup + editor + todo + tool + status;

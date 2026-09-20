@@ -12,7 +12,8 @@
  * - 行级差分（固定区重画——变行重写、未变行零写出，行粒度复用 cellEquals）；
  * - 宽帽原语 clampRuns / capStyledLine（2026-09-20 TUI 修复组 1 批 F4——
  *   序列化单源层屏宽帽：plain 整字截断 + 游程同步钳制，主屏直写产出面
- *   超宽行 autowrap 物理行账漂移的收口位）。
+ *   超宽行 autowrap 物理行账漂移的收口位）+ capAnsiLine（TUI 第四役 fx2-A：
+ *   已序列化 ANSI 行的显示宽帽——补吐缓冲行宽收口，SGR 零宽透传不丢色）。
  */
 // width 三原语（sanitizeDisplayText/truncateToWidth）经 engine 聚合面（index）
 // 消费——TUI 第四役残腿收纳（子目录直达形撤除）
@@ -21,7 +22,9 @@ import {
   colorSgrBg,
   colorSgrFg,
   EMPTY_STYLE,
+  graphemeWidth,
   sanitizeDisplayText,
+  splitGraphemes,
   styleEquals,
   truncateToWidth,
   type CellGrid,
@@ -249,6 +252,116 @@ export function capStyledLine(line: StyledLine, columns: number): StyledLine {
   const plain = truncateToWidth(line.plain, columns);
   if (plain === line.plain) return line; // 未超帽——同引用快路
   return { plain, runs: clampRuns(line.runs, plain.length) };
+}
+
+/**
+ * ANSI 行显示宽帽（fx2-A——补吐位宽收口原语）：对**已序列化**（可携合法
+ * SGR 配色 / OSC 序列）的整行按显示宽整字截断。
+ *
+ * 与 capStyledLine（结构化 StyledLine 面）分立——补吐缓冲行（notify 折行
+ * 产物 / 摘要行 summaryToAnsi 产物）在 TuiBackend 侧已是 ANSI 串，无 plain
+ * 结构可截；盲走 sanitizeDisplayText + truncateToWidth 会把合法配色序列整段
+ * 剥掉（无条件丢色——非缩窗复起也中招），故本原语 ANSI 感知：
+ * - ESC 序列零宽**整段透传**（CSI/OSC/传统式镜像 engine consumeEscapeSequence
+ *   语义——截断永不撕半序列）；
+ * - 裸段按字素计显示宽（splitGraphemes + graphemeWidth——ESC 处切段不破
+ *   图素界），超帽**整字丢弃**（宽字跨界不产半字，与 truncateToWidth 同律）；
+ * - 截断时若终端处于着色态（已透传未复位的 SGR）补 SGR_RESET——行尾归零
+ *   不染后续写出；
+ * - 全量适装同引用返回（含 SGR 行字节零改动）。
+ */
+export function capAnsiLine(line: string, columns: number): string {
+  if (columns <= 0) return ''; // 帽 0 防御——空串（不产半序列）
+  const parts: string[] = [];
+  let used = 0; // 已计显示宽（ESC 序列零宽不占）
+  let styled = false; // 终端着色态跟踪（未复位的 SGR 已透传）
+  let fit = true;
+  let i = 0;
+  while (i < line.length && fit) {
+    if (line.charCodeAt(i) === 0x1b) {
+      // ESC 序列整段透传——零宽不占帽；SGR 形同步跟踪着色态
+      const end = consumeAnsiSequence(line, i);
+      const seq = line.slice(i, end);
+      if (isSgrReset(seq)) styled = false;
+      else if (isSgrSequence(seq)) styled = true;
+      parts.push(seq);
+      i = end;
+      continue;
+    }
+    // 连续非 ESC 裸段：ESC 处切段（控制字节自成图素界，段内 splitGraphemes
+    // 与整行切分等价），逐字素计宽——超帽整字丢弃
+    let j = i;
+    while (j < line.length && line.charCodeAt(j) !== 0x1b) j++;
+    for (const g of splitGraphemes(line.slice(i, j))) {
+      const w = graphemeWidth(g);
+      if (used + w > columns) {
+        fit = false;
+        break;
+      }
+      parts.push(g);
+      used += w;
+    }
+    i = j;
+  }
+  if (fit) return line; // 全量适装——同引用快路
+  return styled ? parts.join('') + SGR_RESET : parts.join('');
+}
+
+/**
+ * ESC 序列消费（返回序列末后位——整段透传用）：三形镜像 engine 件
+ * consumeEscapeSequence 语义（CSI / OSC / 传统式；截尾 malformed 吞到串尾），
+ * engine 未导出且 width 件不归本组，此处本地镜像（语义漂移以 engine 为准）。
+ */
+function consumeAnsiSequence(text: string, start: number): number {
+  let i = start + 1;
+  if (i >= text.length) return i;
+  const kind = text[i]!;
+  if (kind === '[') {
+    // CSI：参数码 0x30–0x3F 与中间码 0x20–0x2F 直到 final 0x40–0x7E
+    i++;
+    while (i < text.length) {
+      const c = text.charCodeAt(i);
+      if (c >= 0x40 && c <= 0x7e) return i + 1; // final——序列闭合
+      if (c >= 0x20 && c <= 0x3f) {
+        i++;
+        continue;
+      }
+      return i; // 非 CSI 语法字节——malformed 截断
+    }
+    return i;
+  }
+  if (kind === ']') {
+    // OSC：吞到 BEL（0x07）或 ST（ESC \）
+    i++;
+    while (i < text.length) {
+      const c = text.charCodeAt(i);
+      if (c === 0x07) return i + 1;
+      if (c === 0x1b && text[i + 1] === '\\') return i + 2; // ST
+      i++;
+    }
+    return i;
+  }
+  // 传统式：中间码 0x20–0x2F* + final 0x30–0x7E（如 ESC ( B 字符集选择）
+  while (i < text.length) {
+    const c = text.charCodeAt(i);
+    if (c >= 0x20 && c <= 0x2f) {
+      i++;
+      continue;
+    }
+    if (c >= 0x30 && c <= 0x7e) return i + 1; // final
+    return i; // 非法形——截断
+  }
+  return i;
+}
+
+/** SGR 形判据（CSI + 参数串 + 'm' final——仅着色序列参与状态跟踪） */
+function isSgrSequence(seq: string): boolean {
+  return /^\x1b[[0-9;]*m$/.test(seq);
+}
+
+/** SGR 全复位判据（显式 0 / 空参数缺省 0——归零即离开色态） */
+function isSgrReset(seq: string): boolean {
+  return seq === SGR_RESET || seq === '\x1b[m';
 }
 
 /**

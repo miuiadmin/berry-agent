@@ -2,6 +2,8 @@
  * 一次性问答面板两枚（07 §4.3）：select / confirm 的主屏浮层实装。
  *
  * - select：↑/↓ 移动高亮、Enter 选定、Esc 取消收 ''（与撤销面保守值同语义）；
+ *   选项数超视口帽时开滚动窗（fx2-B——光标居中 + 顶/底「↑/↓ N more」指示行，
+ *   ViewportCapAware——固定区总高恒 ≤ 截断预算，不触发主屏陈货守卫整段不写）；
  * - confirm：Enter/y 确认 true、Esc/n 取消 false（保守值 = 不动原状态）；
  * - 一次性问答不值得整屏切换——主屏浮层形态（挂 OverlayStack，不进 1049）；
  * - 面板底先铺空格再写内容（写格覆盖下层浮出内容——不写格的位置会透出
@@ -73,6 +75,17 @@ export interface SelectOption {
   readonly hint?: string;
 }
 
+/**
+ * 视口帽感知面板协议（fx2-B）：装配层（renderFixed）栈低到高逐层注入「本层
+ * 可用高帽」——支持本协议的面板在选项数超帽时开滚动窗自适收缩，固定区总高
+ * 恒 ≤ 截断预算（绝不让固定区超高触发 MainScreen 陈货守卫整段不写——模态
+ * 开屏即黑）。未实现本协议的面板（ConfirmPanel 等矮面板）不受扰恒满高。
+ */
+export interface ViewportCapAware {
+  /** 可用高帽（行——重复注入按最新值收敛；帽内恒满高原样呈现） */
+  setMaxHeight(rows: number): void;
+}
+
 /** select 面板选项集 */
 export interface SelectPanelOptions {
   readonly title?: string;
@@ -83,8 +96,12 @@ export interface SelectPanelOptions {
 
 /**
  * 选择面板：单选浮层。onFinish 后赋（装配在 open 句柄后接线——闭包里关层）。
+ *
+ * 视口帽（fx2-B——ViewportCapAware 实装）：选项数超帽时开滚动窗——光标
+ * 居中可视 + 顶/底「↑ N more」/「↓ N more」指示行（隐藏侧才显）；键面与
+ * 选值语义不变（窗口只是呈现取景，activeIndex 恒在全集上移动）。
  */
-export class SelectPanel implements Renderable {
+export class SelectPanel implements Renderable, ViewportCapAware {
   /** 完成回调（Enter 选定 value / Esc 取消收 ''）——装配接线 */
   onFinish?: (value: string) => void;
   private activeIndex = 0;
@@ -93,6 +110,8 @@ export class SelectPanel implements Renderable {
   private readonly options: readonly SelectOption[];
   /** 标题样式（accent 派生——构造期主题定值，一次性面板无换装面） */
   private readonly titleStyle: Readonly<CellStyle>;
+  /** 视口帽（null = 未注入——恒满高不窗口化；装配层逐帧注入最新值） */
+  private maxHeight: number | null = null;
 
   constructor(options: SelectPanelOptions) {
     this.title = options.title;
@@ -100,13 +119,42 @@ export class SelectPanel implements Renderable {
     this.titleStyle = Object.freeze({ fg: (options.theme ?? DEFAULT_THEME).accent });
   }
 
-  /** 量高：标题（有则 1）+ 选项行数（单行制——不折行，超宽截断归渲染） */
-  measure(width: number): number {
-    void width; // 高与宽无关（截断不折行）
-    return (this.title !== undefined ? 1 : 0) + this.options.length;
+  /** 帽注入（ViewportCapAware——renderFixed 栈低到高逐层调用） */
+  setMaxHeight(rows: number): void {
+    this.maxHeight = rows;
   }
 
-  /** 落位：铺底空格 → 标题 → 选项行（高亮反色 + 说明右对齐） */
+  /**
+   * 取景窗口（measure / render 单源）：未超帽恒全景；超帽开窗——窗行 =
+   * 帽 - 标题行 - 上下指示行 2（下限 1——光标行恒可视），窗顶 = 光标 -
+   * 半窗居中钳 [0, 末窗顶]；above/below = 窗外隐藏数（指示行渲染依据）。
+   */
+  private view(): { windowed: boolean; titleRows: number; start: number; count: number; above: number; below: number } {
+    const titleRows = this.title !== undefined ? 1 : 0;
+    const total = this.options.length;
+    const full = titleRows + total;
+    if (this.maxHeight === null || full <= this.maxHeight) {
+      return { windowed: false, titleRows, start: 0, count: total, above: 0, below: 0 };
+    }
+    const count = Math.max(1, this.maxHeight - titleRows - 2); // 1 = 光标行保底
+    // 光标居中（半窗偏移钳窗界——首项贴顶 / 末项沉底自然涌现）
+    const start = Math.min(Math.max(0, this.activeIndex - Math.floor(count / 2)), Math.max(0, total - count));
+    return { windowed: true, titleRows, start, count, above: start, below: Math.max(0, total - start - count) };
+  }
+
+  /** 量高：标题（有则 1）+ 选项行数（超帽窗口化——实显窗行 + 实显指示行） */
+  measure(width: number): number {
+    void width; // 高与宽无关（截断不折行）
+    const v = this.view();
+    if (!v.windowed) return v.titleRows + this.options.length;
+    // 帽内如实（实显指示行才计——above/below 隐藏侧为 0 时不占行）
+    return Math.min(
+      Math.max(1, this.maxHeight ?? 1),
+      v.titleRows + v.count + (v.above > 0 ? 1 : 0) + (v.below > 0 ? 1 : 0),
+    );
+  }
+
+  /** 落位：铺底空格 → 标题 →（窗口化时顶指示）→ 选项行（窗内切片）→（底指示） */
   render(buffer: CellBuffer, region: Region): void {
     // 铺底空格（写格覆盖——未写格会透出主树文字）
     for (let r = 0; r < region.height; r++) {
@@ -114,13 +162,20 @@ export class SelectPanel implements Renderable {
         buffer.setCell(region.row + r, region.col + c, ' ');
       }
     }
+    const v = this.view();
+    const bottom = region.row + region.height; // 区域界（防御——measure 钳帽后行数可少于内容需求）
     let row = region.row;
-    if (this.title !== undefined) {
+    if (this.title !== undefined && row < bottom) {
       // 标题超宽 … 收口（区域 = 全终端宽——无帽裸裁会静默丢失段尾）
       buffer.writeText(row, region.col, ellipsize(this.title, region.width), this.titleStyle);
       row += 1;
     }
-    for (let i = 0; i < this.options.length; i++, row++) {
+    if (v.windowed && v.above > 0 && row < bottom) {
+      buffer.writeText(row, region.col, `↑ ${v.above} more`, HINT_STYLE);
+      row += 1;
+    }
+    const end = v.start + v.count;
+    for (let i = v.start; i < end && row < bottom; i++, row++) {
       const active = i === this.activeIndex;
       const option = this.options[i]!;
       // 前缀 + label 段（高亮行整段反色）
@@ -133,6 +188,9 @@ export class SelectPanel implements Renderable {
       if (rightWidth > 0) {
         buffer.writeText(row, region.col + region.width - rightWidth, right, HINT_STYLE);
       }
+    }
+    if (v.windowed && v.below > 0 && row < bottom) {
+      buffer.writeText(row, region.col, `↓ ${v.below} more`, HINT_STYLE);
     }
   }
 

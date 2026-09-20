@@ -14,10 +14,11 @@
  *   丢弃）；提交路由：input-ask 应答优先 → 退出词本地拦截（/exit//quit
  *   ——07 §4.1 2026-09-15 /exit 批，先于通道命令分发）→ '/' 起手命令柄（false 落
  *   onSubmit 兜底——03 §2.2 驱动侧语义归 conversation）→ onSubmit；
- * - **固定区 v2 动态布局**（自上而下）：overlay 段（锚定注册表 = 本件
- *   renderFixed 行账——开层锚定闭包读注册表）→ todo 面板（件 4）→
- *   input-ask 提示行 → 补全弹层 → 编辑器（动态量高 + 光标声明——setFixed
- *   声明位落 cup）→ 工具进度面板（件 5——与状态行分职互补相邻）→ 状态行；
+ * - **固定区 v2 动态布局**（自上而下）：overlay 段（视口帽收口 fx2-B；
+ *   锚定注册表已随 renderAll 死路双清 fx2-D——开层锚内联回退形）→
+ *   todo 面板（件 4）→ input-ask 提示行 → 补全弹层 → 编辑器（动态量高 +
+ *   光标声明——setFixed 声明位落 cup）→ 工具进度面板（件 5——与状态行
+ *   分职互补相邻）→ 状态行；
  * - **渲染合并**：调度注入后 op 队列合并（连续 present 留末次、transient
  *   到达序保持、固定区脏位重建一帧一次）+ fps 帽 60 + tick 100ms 自重排
  *   驱动状态行转轮；**无注入调度 = 同步直出**（测试语义——合并与自驱 tick
@@ -74,7 +75,7 @@ import {
 import { MainScreen } from './main-screen.js';
 import { LiveTranscript, shortIdOf, type SummaryLine, type TranscriptBlock } from './transcript.js';
 import { OscDisplay, buildOsc52Copy } from './osc.js';
-import { allocateFixedBudget } from './fixed-budget.js';
+import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
 import { withGitBranchSuffix } from '../status/footer.js';
 import { TodoPanel } from '../panels/todo-panel.js';
@@ -94,11 +95,11 @@ import {
   type ThemeBoard,
   type ThemeSetting,
 } from '../theme/index.js';
-import { buildSgr, SGR_RESET } from './ansi-rows.js';
+import { buildSgr, capAnsiLine, SGR_RESET } from './ansi-rows.js';
 import { Keymap, type KeybindingRejection } from '../keys/registry.js';
 import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
-import { OverlayStack, type OverlayAnchor, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
+import { OverlayStack, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer } from '../history/history-viewer.js';
 import { SessionPicker } from '../history/session-picker.js';
@@ -114,7 +115,7 @@ import { SandboxPicker, type SandboxPickEntry } from '../panels/sandbox-picker.j
 import { DiffViewer, type DiffProjectionMessage } from '../panels/diff-viewer.js';
 import { MarketPicker, type MarketPanelActions, type MarketPanelModel } from '../panels/market-picker.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
-import { ConfirmPanel, SelectPanel } from '../overlay/select-confirm.js';
+import { ConfirmPanel, SelectPanel, type ViewportCapAware } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
 import { CombinedAutocompleteProvider, type AutocompleteSources } from '../autocomplete/autocomplete.js';
 import { AutocompleteCompleter } from '../autocomplete/async.js';
@@ -337,11 +338,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 补全防抖调度器（R6 批 10j：尾沿 20ms / AbortSignal / 错序丢弃三律） */
   private readonly autocompleteCompleter: AutocompleteCompleter;
   private readonly stack = new OverlayStack();
-  /** overlay 锚定注册表（content 身份键 → 本帧 region——renderFixed 行账重建） */
-  private readonly overlayLayout = new Map<
-    OverlayContent,
-    { row: number; col: number; width: number; height: number }
-  >();
   /** 装配柄（07 §4.3 两柄 + 命令柄 + 模型循环柄〔挂账解挂批 2026-09-15〕） */
   private readonly onSubmit: ((sessionId: string, text: string, opts?: EditorSubmitOptions) => void) | undefined;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
@@ -715,7 +711,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 主屏复起（AltScreenPrimary 交出半场的对称复位）：进屏模式串 + 硬退钩
    * 重武装 + raw 重设 + 输入重装 + 显式放流（已被 pause 的流再挂监听不自动回
    * flowing——Engine resume 同形）+ **全帧重画不走（通道）repaint**：主屏既有
-   * 权威全量重建路（几何真值重取 + 清屏 + 行集全量重写）+ 瞬时行缓冲补吐。
+   * 权威全量重建路（几何真值重取 + 清屏 + 行集全量重写）+ 瞬时行缓冲补吐 +
+   * resize 收敛锚同款两附件（fx2-E：编辑器高度帽随新几何重算 + footer 支名重读）。
    *
    * 不走（通道）repaint 的行为锁：通道 repaint 按投影重建行集，投影不含停屏
    * 期直写主屏的瞬时行——全帧重画以行集 + 瞬时缓冲为真相，瞬时行在场即补显
@@ -742,8 +739,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 排队旧帧作废 + 固定区脏位重建（全帧重画是新真相——挂起期积压 op 合并无意义）
     this.pendingOps = [];
     this.needFixed = false;
+    // 编辑器高度帽随新几何重算（fx2-E——handleResize 同款附件，序同其位）：
+    // 修前帽停挂起前旧值——缩窗复起编辑器量高虚胖 → 固定区超屏（陈货守卫
+    // 整段不写 / 编辑器内部滚动指示滥用）；显式注入帽恒尊注入值（同 handleResize）
+    this.editor.setMaxVisibleLines(this.fixedEditorCap ?? editorHeightCap(this.io.size().rows));
     // 全帧重画：几何真值重取（吸收停屏期 resize）+ 清屏 + 行集全量重写（含停屏期 durable 事件）
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
+    // footer 常驻段重算（fx2-E——resize 收敛锚同款附件，序同其位）：挂起期
+    // checkout 换支后复起重读 .git/HEAD（每调现读）；**后于 screen.handleResize**
+    // 同 handleResize 注——缺省同步 flush 档 touchFixed 即触发写出，Screen 几何
+    // 未先收敛则中途全量写出按旧行位落杯（缩窗后越屏定位）
+    this.refreshFooter();
     // 瞬时行缓冲补吐（复起补显射界含停屏期瞬时行——2026-09-07 勘正笔；挂起前
     // 已入队未落帧的瞬时行经 suspendMain 转账同在此账）；槽在场（停屏期起流
     // 未收口）走槽期缓冲路（关槽帧补吐——同 flush 编舞）
@@ -755,9 +761,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // 槽已收：先排空挂起前槽期缓冲的瞬时行（到达序在停屏期行之前——先吐
       // 保序；旧形只补吐 suspendedTransients，槽期缓冲滞留到复起后下一次
       // flush 才落地且排在新行之后＝到达序倒置 + 会话静默期持续不可见）。
-      // drain 内防御再判槽态（此处已判非流式恒过——同 flush 调用位形）
+      // drain 内防御再判槽态（此处已判非流式恒过——同 flush 调用位形）。
+      // 补吐位按当前列宽收口（fx2-A）：缓冲行是挂起期旧宽折行产物，缩窗后
+      // 直写超宽行会 autowrap 漂账——逐行截宽（保账优先，截宽非丢行）
       this.drainSlotTransients();
-      if (transients.length > 0) this.screen.appendTransient(transients);
+      if (transients.length > 0) this.appendTransientCapped(transients);
     }
     this.renderFixed();
     if (this.scheduleFn !== null) this.armTick(); // 状态行转轮复摆
@@ -1580,8 +1588,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /* ---------------- 内部：ask 浮层 ---------------- */
 
   /**
-   * 开 ask 浮层：锚定注册表锚 + signal abort 保守值收口 + 撤销说明行 + 重绘
-   * 请求。
+   * 开 ask 浮层：内联回退锚（fx2-D）+ signal abort 保守值收口 + 撤销说明行 +
+   * 重绘请求。
    *
    * 「曾在屏者」判据（07 §4.3 语义纪律撤销面——confirm / select / askApproval
    * 三路共用本层，统一处理）：abort 传播到后端呈现时层仍未关（在 overlay 栈
@@ -1601,7 +1609,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 列表死显在浮层段下、且 20ms 窗内已武装的在途查询迟到还会刷新死显列表
     this.autocompleteCompleter.cancel(); // 撤防抖窗 + 在途作废
     this.popup.applyResult(null); // 在场弹层即刻收层
-    const handle = this.stack.open(content, this.anchorFor(content));
+    // 开层锚（fx2-D：锚定注册表死路双清后内联回退形——anchor 唯一消费方
+    // renderAll 生产零调用〔grep 复核定谳，仅 overlay.test.ts 引用〕，
+    // OverlayStack.open 签名所需占位；原 anchorFor 读注册表首帧亦恒此形）
+    const handle = this.stack.open(content, (frame) => ({
+      row: 0,
+      col: 0,
+      width: frame.width,
+      height: content.measure(frame.width),
+    }));
     signal?.addEventListener(
       'abort',
       () => {
@@ -1614,12 +1630,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     );
     this.touchFixed();
     return handle;
-  }
-
-  /** 锚定闭包：读 renderFixed 行账（首帧前回退固定区顶整宽） */
-  private anchorFor(content: OverlayContent): OverlayAnchor {
-    return (frame) =>
-      this.overlayLayout.get(content) ?? { row: 0, col: 0, width: frame.width, height: content.measure(frame.width) };
   }
 
   /* ---------------- 内部：渲染合并 ---------------- */
@@ -1696,7 +1706,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.transcript.snapshot.at(-1)?.kind === 'streaming') return; // 槽又开（新消息起流）——续缓冲
     const lines = this.slotTransients;
     this.slotTransients = [];
-    this.screen.appendTransient(lines);
+    // 补吐位按当前列宽收口（fx2-A）：槽期缓冲行按缓冲时刻宽度折行序列化，
+    // 缩窗复起后直写超宽行会 autowrap 漂账——逐行截宽（保账优先，截宽非丢行）
+    this.appendTransientCapped(lines);
+  }
+
+  /**
+   * 瞬时行按当前列宽截宽后直写（fx2-A——M2 残宽面）：补吐缓冲行（notify
+   * 折行产物 / 摘要行）是**旧宽**（挂起/槽缓冲时刻）折行序列化产物，复起/
+   * 排空时几何可能已缩——超宽行直写交终端 autowrap 产未记账物理行
+   * （cursorRow 漂移 → 后续 durable 从中段起笔覆写正文）。逐行 capAnsiLine
+   * （ANSI 感知——合法 SGR 配色零宽透传不丢色）按当前列截宽。活跃路
+   * （flush 瞬时 op 直写位）不走此收口：live 行构造位即按当前宽折行，且
+   * handleResize 清 pendingOps——无陈宽行可达该位。
+   */
+  private appendTransientCapped(lines: readonly string[]): void {
+    const columns = this.io.size().columns;
+    this.screen.appendTransient(lines.map((line) => capAnsiLine(line, columns)));
   }
 
   /** 状态行转轮自驱定时器（注入调度后自重排；忙态外 tick 零开销） */
@@ -1928,8 +1954,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 固定区 v2 重建（自上而下段序）：overlay 段（各层量高叠放 + 锚定注册表
-   * 行账）→ todo 面板（件 4——todoFor 缺席/空表即零行）→ input-ask 提示行
+   * 固定区 v2 重建（自上而下段序）：overlay 段（各层量高叠放 + 视口帽收口
+   * fx2-B）→ todo 面板（件 4——todoFor 缺席/空表即零行）→ input-ask 提示行
    * → 补全弹层 → 编辑器（动态量高；聚焦态 = 无 overlay 占焦）→ 工具进度
    * 面板（件 5——与状态行分职互补相邻）→ 状态行。编辑光标经 EditorView
    * setCursor 声明 → MainScreen.setFixed 声明位落 cup。
@@ -1943,14 +1969,29 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private renderFixed(): void {
     const columns = this.io.size().columns;
     const contents = this.stack.contents;
-    const overlayHeights = contents.map((c) => c.measure(columns));
+    // 编辑器量高单次（fx2-B——帽计算与分配梯共用；measure 幂等无帧账副作用）
+    const editorMeasure = this.editor.measure(columns);
+    // overlay 视口帽（fx2-B）：一次性问答面板选项数超可用预算时开滚动窗——
+    // 固定区总高恒 ≤ 截断预算（绝不让固定区超高触发 MainScreen 陈货守卫
+    // 整段不写——修前 24 行屏 21 选项 = 面板 22 + 编辑器 3 + 状态 1 = 26 >
+    // 预算 23，守卫整段不写 = 模态开屏即黑）。帽 = 预算 - 状态行 1 - ask
+    // 行 - 编辑器下限（编辑器恒保底对话本体；todo/tool/popup 属更低优先级
+    // 段、分配梯先牺牲——按编辑器下限保守计算保证梯降到底 total 恰 ≤ 预算）
+    const overlayCap = Math.max(
+      0,
+      fixedBudgetRows(this.io.size().rows) -
+        1 -
+        (this.inputAsk !== null ? 1 : 0) -
+        Math.min(editorMeasure, EDITOR_MIN_HEIGHT),
+    );
+    const overlayHeights = this.measureOverlayStack(contents, columns, overlayCap);
     // 量高原值 → 优先级截断分配（预算 = 视口 - 1：正文滚动区至少 1 行）
     const budget = allocateFixedBudget({
       viewportRows: this.io.size().rows,
       overlay: overlayHeights.reduce((sum, h) => sum + h, 0),
       ask: this.inputAsk !== null ? 1 : 0,
       popup: this.popup.visible ? this.popup.measure(columns) : 0,
-      editor: this.editor.measure(columns),
+      editor: editorMeasure,
       todo: this.todoPanel.measure(columns),
       tool: this.toolPanel.measure(columns),
     });
@@ -1958,10 +1999,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const grid = new CellGrid(columns, total);
     let row = 0;
 
-    // 段一：overlay 段（栈序自上而下叠放；锚定注册表即本段行账——恒满高不截）
+    // 段一：overlay 段（栈序自上而下叠放；量高已按视口帽收口——fx2-B/D 注）
     for (let i = 0; i < contents.length; i++) {
       const height = overlayHeights[i]!;
-      this.overlayLayout.set(contents[i]!, { row, col: 0, width: columns, height });
       contents[i]!.render(grid, { row, col: 0, width: columns, height });
       row += height;
     }
@@ -1999,6 +2039,27 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 段七：状态行（固定区末行——恒保底不截）
     this.statusLine.render(grid, { row, col: 0, width: columns, height: 1 });
     this.screen.setFixed(grid);
+  }
+
+  /**
+   * overlay 各层量高 + 视口帽注入（fx2-B）：栈低到高逐层先注入「剩余帽」
+   * 再量高——支持 ViewportCapAware（SelectPanel 滚动窗）的层在帽内自适
+   * 收缩，未实现协议的层（ConfirmPanel 等矮面板）不受扰恒满高。返回各层
+   * 实际高（层高逐层扣减剩余帽——多层叠开时低位层优先、高位层吃残余）。
+   */
+  private measureOverlayStack(contents: readonly OverlayContent[], columns: number, cap: number): number[] {
+    const heights: number[] = [];
+    let remaining = cap;
+    for (const content of contents) {
+      const aware = content as Partial<ViewportCapAware>;
+      if (typeof aware.setMaxHeight === 'function') {
+        aware.setMaxHeight(remaining); // 剩余帽注入（层内窗口化自适）
+      }
+      const height = content.measure(columns);
+      heights.push(height);
+      remaining = Math.max(0, remaining - height);
+    }
+    return heights;
   }
 
   /** 硬退复原钩子（仅真 ProcessTerminalIO——注入 io 零污染；Engine 同形） */

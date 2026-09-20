@@ -34,7 +34,18 @@
  * 滚动（尾行样式陈旧不回改——开栏 fence 闭合高亮回翻即此形的代价注记）。
  */
 import { CellGrid, type TerminalIO } from '../../engine/index.js';
-import { CLEAR_SCREEN, CR, cud, cuu, EL_TO_EOL, LF, renderFixedRegionDiff, setScrollRegion, cup } from './ansi-rows.js';
+import {
+  CLEAR_SCREEN,
+  CR,
+  cud,
+  cuu,
+  EL_TO_EOL,
+  LF,
+  renderFixedRegionDiff,
+  setScrollRegion,
+  SGR_RESET,
+  cup,
+} from './ansi-rows.js';
 import { renderBlockLines, stableSlotLineCount, type TranscriptBlock } from './transcript.js';
 
 /** 主屏选项 */
@@ -230,6 +241,17 @@ export class MainScreen {
   /** 固定区网格更新（装配直呼——行级差分；几何变化时滚动区重设 + 差分基准失效） */
   setFixed(grid: CellGrid): void {
     if (grid.rows !== this.fixedHeight) {
+      if (grid.rows < this.fixedHeight) {
+        // 收缩残影擦除（fx2-C）：固定区钉屏底，新基行之上的旧行不再被新格
+        // 覆写（差分只写新格行集）——残影滞屏并入新滚动区正文域冒充正文。
+        // 逐行绝对 cup + SGR 复位 + EL 擦除（复位先行——旧行可携配色残留；
+        // EL 禁空格填充同律）。行区间 = [新基行, 旧基行)（0 基、旧首行起）
+        const firstStale = this.rows - this.fixedHeight;
+        const lastStale = this.rows - grid.rows - 1;
+        for (let row = firstStale; row <= lastStale; row++) {
+          this.io.write(cup(row, 0) + SGR_RESET + EL_TO_EOL);
+        }
+      }
       this.fixedHeight = grid.rows;
       this.applyScrollRegion();
       this.prevFixed = null; // 高度变化——差分基准失效全量重画；durable 末行按区底钳
@@ -305,11 +327,13 @@ export class MainScreen {
 
   /** 固定区差分重画 + 光标落位（编辑光标外显的物理位） */
   private redrawFixed(): void {
-    // 几何失配守卫（2026-09-17 收官批）：缩窗后、调用方 renderFixed 重建前，
-    // fixedGrid 仍是旧几何的陈货（行数可超新屏）——写出即越屏废定位 + 闪烁，
-    // 权威截断重建随后由 renderFixed 全量落（onRepaint/handleResize 两路必跟）；
-    // toggles 路不跟但恒同几何不可达本守卫。失配即只归位不写
-    if (this.fixedGrid !== null && this.fixedGrid.rows > this.rows) {
+    // 几何失配守卫（2026-09-17 收官批；fx2-A 扩列维）：缩窗后、调用方
+    // renderFixed 重建前，fixedGrid 仍是旧几何的陈货（行数可超新屏、列宽可
+    // 超新屏）——写出即越屏废定位 + 闪烁，或超宽行交终端 autowrap 产未记账
+    // 物理行（cursorRow 漂移族）；权威截断重建随后由 renderFixed 全量落
+    //（onRepaint/handleResize 两路必跟）；toggles 路不跟但恒同几何不可达本
+    // 守卫。失配即只归位不写
+    if (this.fixedGrid !== null && (this.fixedGrid.rows > this.rows || this.fixedGrid.columns !== this.columns)) {
       this.io.write(cup(this.rows - 1, 0));
       this.cursorRow = this.rows - 1;
       return;

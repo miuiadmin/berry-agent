@@ -527,3 +527,48 @@ describe('writeLine 控制字节兜底（2026-09-20 TUI 修复组 1 批 F2）', 
     expect(io.bytes).toContain('\rno\n'); // BEL 剥除
   });
 });
+
+/* ================= TUI 第四役 fx2（后端组——陈宽守卫列维 + 收缩残影擦除） ================= */
+
+describe('MainScreen 陈宽固定区守卫（fx2-A——resize 窗口陈货不写出）', () => {
+  it('缩窗后、setFixed 重建前：陈宽固定区只归位不写（陈货守卫扩列维）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    screen.setFixed(fixedGrid('固定区行')); // 80 列格入位
+    io.columns = 40; // 缩窗（fixedGrid 仍是 80 列陈货）
+    io.bytes = '';
+    screen.handleResize([]); // repaint → present → redrawFixed：陈货窗口
+    // 修前红：行维守卫不拦（陈货 2 行 ≤ 新屏 10 行）——80 列格行整段写出，
+    // 40 列屏 autowrap 占 2 物理行/格行、物理行账漂移（801bdb0 家族）
+    expect(io.bytes).not.toContain('固定区行');
+    // 守卫跳过不毒化差分基准：随后 setFixed 新宽格仍全量重画（prevFixed 已随
+    // repaint 清屏失效——与行维守卫同收敛）
+    const narrow = new CellGrid(40, FIXED);
+    narrow.writeText(0, 0, '新宽行');
+    screen.setFixed(narrow);
+    expect(io.bytes).toContain('新宽行');
+  });
+});
+
+describe('MainScreen 固定区收缩残影擦除（fx2-C——setFixed 旧行 cup+EL）', () => {
+  it('高度收缩：新基行之上的旧行逐行擦除（残影不滞滚动区正文域）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    // 高 3 格带内容入位（防空行 paint 形与擦除形字节同串——内容标记使
+    // 「旧格重写」与「残影擦除」两形可区分）
+    const tall = new CellGrid(COLS, 3);
+    tall.writeText(0, 0, '旧固定行A');
+    tall.writeText(1, 0, '旧固定行B');
+    tall.writeText(2, 0, '旧固定行C');
+    screen.setFixed(tall); // 固定区占 0 基行 7..9
+    io.bytes = '';
+    const short = new CellGrid(COLS, 1);
+    short.writeText(0, 0, '新固定行');
+    screen.setFixed(short); // 收缩 3 → 1：旧行 7..8 让位新滚动区——残影域
+    // 修前红：差分只写新格行集（行 9），行 7/8 旧内容滞屏并入滚动区（ghost）；
+    // 擦除形 = 绝对 cup + SGR 复位 + EL（行级擦除禁空格填充同律）
+    expect(io.bytes).toContain('\x1b[8;1H' + '\x1b[0m' + '\x1b[K'); // 0 基行 7
+    expect(io.bytes).toContain('\x1b[9;1H' + '\x1b[0m' + '\x1b[K'); // 0 基行 8
+    expect(io.bytes).toContain('新固定行'); // 新格行 9 正常入位
+  });
+});
