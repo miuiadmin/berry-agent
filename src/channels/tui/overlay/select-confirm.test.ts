@@ -100,6 +100,16 @@ describe('SelectPanel 呈现宽度预算（组 2 修前红）', () => {
     expect(readRow(grid, 2, 24)).toBe('  选项乙');
   });
 
+  it('极窄窗（宽 2）预算 0 丢右段：hint 不放行原宽（单源收紧位——私拷贝放行原宽右对齐起列为负、尾段从行首覆写行内容红）', () => {
+    // 宽 2：left = '❯ approve'（9 列）→ leftReserve = min(9, 1) = 1 →
+    // rightBudget = 2 - 1 - 1 = 0——单源 row-segments 收紧为丢弃右段
+    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口：'❯…'
+    const panel = new SelectPanel({ options: [{ value: 'a', label: 'approve', hint: 'hint-x' }] });
+    const grid = new CellGrid(2, 1);
+    panel.render(grid, { row: 0, col: 0, width: 2, height: 1 });
+    expect(readRow(grid, 0, 2)).toBe('❯…');
+  });
+
   it('键面与预算律互不扰动（截断呈现不影响应答值）', () => {
     const panel = new SelectPanel({ options: [{ value: 'ok', label: '甲', hint: 'h'.repeat(200) }] });
     const got: string[] = [];

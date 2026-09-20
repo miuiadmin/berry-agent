@@ -19,7 +19,7 @@
  *   与引号形）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region, Renderable } from '../../engine/index.js';
-import { stringWidth, truncateToWidth } from '../../engine/index.js';
+import { fitRowSegments } from '../row-segments.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { EditorModel } from '../editor/editor-model.js';
 import type { AutocompleteResult } from './provider.js';
@@ -34,32 +34,12 @@ const ACTIVE_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 const DETAIL_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 
 /**
- * 单行左右双段预算排版（market-picker renderRow 预算律同款——2026-09-20
- * TUI 视觉品质战役·组 2）：右段（detail）先按预算截成 … 省略形再右对齐——
- * 极长右段按原宽右对齐会把起列推成负值（首段被缓冲吸收、余段从行首覆写
- * 整行——label 被毁的同根坏形）；左段（前缀 + label）以右段实占后余宽为
- * 帽，超帽 … 收口。两段各自整字截断（truncateToWidth——不撕宽字符）。
+ * 单行左右双段预算排版已迁件外单源 row-segments（2026-09-21 TUI 第四役挂账②
+ * 私拷贝收尾——两处私拷贝删除，本件只消费）：detail 段先按预算截成 … 省略形
+ * 再右对齐、label 段以右段实占后余宽为帽 … 收口。单源较私拷贝收紧一处——
+ * 预算 0（窗宽 ≤ 2 且右段非空）由放行原宽（右对齐起列为负、尾段从行首
+ * 覆写整行）收紧为丢弃右段（负起列结构性封堵）。
  */
-function fitRowSegments(
-  left: string,
-  right: string | undefined,
-  width: number,
-): { left: string; right: string; rightWidth: number } {
-  // 左段保留位 = 左段宽与半窗取小（右段预算的下限保证——label 至多让半窗）
-  const leftReserve = Math.max(0, Math.min(stringWidth(left), Math.floor(width / 2)));
-  const rightBudget = right !== undefined && right.length > 0 ? Math.max(0, width - 1 - leftReserve) : 0;
-  const rightFull = right ?? '';
-  const fittedRight =
-    rightBudget === 0 || stringWidth(rightFull) <= rightBudget
-      ? rightFull
-      : `${truncateToWidth(rightFull, Math.max(0, rightBudget - 1))}…`;
-  const rightWidth = stringWidth(fittedRight);
-  // 左段帽 = 总宽 - 右段实占 - 间隔 1 列（无右段即总宽；右段已按预算截断，
-  // 此处帽内通常已适——label 自身极长时 … 收口）
-  const maxLeft = rightWidth > 0 ? width - rightWidth - 1 : width;
-  const fittedLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
-  return { left: fittedLeft, right: fittedRight, rightWidth };
-}
 
 /** 弹层件：结果落位面 + 模型代换原语调用（provider 归 backend 调度器持有） */
 export class AutocompletePopup implements Renderable {
@@ -132,8 +112,9 @@ export class AutocompletePopup implements Renderable {
       const item = items[i]!;
       const active = i === this.activeIndex;
       const prefix = active ? '❯ ' : '  ';
-      // 行预算排版：label 段（前缀 + label）与 detail 段各自 … 收口不交叠
-      // ——极长 detail 原宽右对齐会负起列覆写整行（组 2 修前坏形）
+      // 行预算排版（件外单源 row-segments）：label 段（前缀 + label）与
+      // detail 段各自 … 收口不交叠——极长 detail 原宽右对齐会负起列覆写
+      // 整行（组 2 修前坏形）；预算 0（窗宽 ≤ 2）丢右段不放行原宽
       const { left, right, rightWidth } = fitRowSegments(`${prefix}${item.label}`, item.detail, region.width);
       buffer.writeText(row, region.col, left, active ? ACTIVE_STYLE : undefined);
       if (rightWidth > 0) {

@@ -98,4 +98,20 @@ describe('AutocompletePopup 行预算排版（组 2 修前红）', () => {
     popup.render(grid, { row: 0, col: 0, width: 20, height: 1 });
     expect(readRow(grid, 0, 20)).toBe(`❯ ${'y'.repeat(17)}…`);
   });
+
+  it('极窄窗（宽 2）预算 0 丢右段：detail 不放行原宽（单源收紧位——私拷贝放行原宽右对齐起列为负、尾段从行首覆写行内容红）', () => {
+    // 宽 2：left = '❯ cmd'（5 列）→ leftReserve = min(5, 1) = 1 →
+    // rightBudget = 2 - 1 - 1 = 0——单源 row-segments 收紧为丢弃右段
+    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口：'❯…'
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({
+      items: [{ label: 'cmd', replacement: 'cmd', detail: 'info' }],
+      replaceStart: 0,
+      replaceEnd: 1,
+    });
+    const grid = new CellGrid(2, 1);
+    popup.render(grid, { row: 0, col: 0, width: 2, height: 1 });
+    expect(readRow(grid, 0, 2)).toBe('❯…');
+  });
 });
