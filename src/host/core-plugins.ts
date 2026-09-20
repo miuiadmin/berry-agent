@@ -30,7 +30,7 @@ import type { GateInput, SessionEvent, ToolDefinition } from '../contracts/index
 import { BaseError } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
-import { canonicalWorkspaceRoot } from '../context/index.js';
+import { canonicalWorkspaceRoot, createLogger, LogLevelState } from '../context/index.js';
 import type { SpawnPipeline } from '../exec/index.js';
 import { createMcpService, normalizeMcpConfig } from '../mcp/index.js';
 import type { McpConfig } from '../mcp/index.js';
@@ -319,7 +319,9 @@ interface SharedPluginHostDeps {
   /**
    * 命令输出面（core 件命令结算文本投递——memory-export/import 与 /tick 共用；
    * source = 归因字面〔命令域〕——呈现侧路由后端自决，语义面 = 可辨识命令
-   * 来源。缺席即静默，命令仍注册）。
+   * 来源。缺席即静默，命令仍注册）。TUI 第四役 finding A 起另承件内失败诊断
+   * warn 的 transient 呈现腿（memory/subagent 两件——leveled logger 之外的
+   * 双发位；boot 期通道未挂时静默扇出零观众属常态）。
    */
   readonly notify?: (source: string, message: string) => void;
   /**
@@ -777,7 +779,22 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const db = deps.sqlite?.();
       if (db === undefined) return; // 主闸——库座缺席零装载（诚实缺席律）
 
-      const warn = (message: string) => console.error(message);
+      // 件内 warn 出口（TUI 第四役 finding A 修复）：leveled logger 单源 +
+      // 通道 notify 双发。修前 console.error 裸文本直写 stderr——与 TUI
+      // 渲染共端子同 tty，落当前光标位 + \r\n 物理下移而 cursorRow 账不感知
+      // → durable 块按陈账定位整体错行、覆写编辑器盒边框（tmux 活体三复现
+      // 定谳）。两腿分立：
+      //  - logger 腿：BERRY_AGENT_LOG_LEVEL 辖内（silent 全静默；缺省 info
+      //    下 warn 可见——失败面默认可见级），结构化 JSON 行（07 §6 自写
+      //    logger；apply 期建盒读 env，与宿主 logger 同 env 单源）；
+      //  - notify 腿（在场时）：通道 transient 呈现（TUI 后端受控写出路/
+      //    webui 同扇出）——呈现面与日志面分立，不随日志级消音；notify
+      //    缺席（测试替身形）纯 logger。
+      const warnLogger = createLogger('core:memory', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL));
+      const warn = (message: string) => {
+        warnLogger.warn(message);
+        deps.notify?.('memory', message);
+      };
       const now = () => Date.now();
       // owner 并集（06 §3/§6）：global + project:<canonical 根 sha256 前 16 hex>。
       // 哈希公式属装配侧约定（spec 只钉根语义未钉公式——同根同键跨会话稳定
@@ -1085,7 +1102,15 @@ function makeSubagentPlugin(deps: CorePluginHostDeps): CorePluginReference {
       const service = deps.subagents;
       if (service === undefined) return; // 缺席零装载（诚实缺席律——assembly 未接线形）
 
-      const warn = (message: string) => console.error(message);
+      // 件内 warn 出口（TUI 第四役 finding A 同族位）：同 core:memory 律——
+      // leveled logger（BERRY_AGENT_LOG_LEVEL 辖内；缺省 info 下 warn 可见）
+      // + 通道 notify 双发（transient 呈现；缺席纯 logger）。console.error
+      // 裸文本直落 TUI 屏的写出路根除（坏 agent 文件诊断/resync 物化拒族）。
+      const warnLogger = createLogger('core:subagent', LogLevelState.fromEnv(process.env.BERRY_AGENT_LOG_LEVEL));
+      const warn = (message: string) => {
+        warnLogger.warn(message);
+        deps.notify?.('subagent', message);
+      };
       // 工具 deps：boot 全局层形只携 sessionContext（执行时解析——静态位
       // 全缺席；两源俱缺席时 resolveToolContext 诚实拒）
       const toolDeps: DelegationToolDeps = {

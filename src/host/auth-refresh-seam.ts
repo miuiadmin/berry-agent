@@ -25,19 +25,25 @@ export interface HostAuthRefreshDeps {
   readonly notifyChannel: (source: 'credentials', message: string) => void;
 }
 
-/** 不可行形产品级指路文案（diagnoseProviderFailure auth hint 同族——run 入口 stderr 消费先例） */
+/**
+ * 不可行形产品级指路文案（diagnoseProviderFailure auth hint 同族——run 入口
+ * stderr 消费先例）。措辞状态中立（TUI 第四役 finding B）：联动腿判据只看
+ * authFamily（401/403 及 permission denied 族同触发），文案不写死具体状态码
+ * ——403 实错提示「本次 401」属状态谎报误导排查；AuthRefreshOutcome 不增
+ * 状态字段（最小面），以状态中立措辞承载。
+ */
 function noticeText(notice: AuthRefreshNotice): string {
   const provider = notice.provider;
   switch (notice.outcome.status) {
     case 'unavailable':
       switch (notice.outcome.reason) {
         case 'env-static':
-          return `凭证 ${provider} 的 API key 由环境变量供血（静态无刷新面），本次 401 后不再自动重试——更新环境变量后重试`;
+          return `凭证 ${provider} 的 API key 由环境变量供血（静态无刷新面），本次失败后不再自动重试——更新环境变量后重试`;
         case 'binding-absent':
-          return `凭证 ${provider} 无绑定行（401 后无刷新面）——经 berry credentials 录入该 provider 凭证后可自动接管刷新`;
+          return `凭证 ${provider} 无绑定行（鉴权失败后无刷新面）——经 berry credentials 录入该 provider 凭证后可自动接管刷新`;
         default:
           // no-refresh-face：非 OAuth 可刷新凭证 / 流未注册 / 有 refreshName 无 expiresAt（N5）三形同归
-          return `凭证 ${provider} 绑定行无刷新面（非可刷新凭证或对应流未注册）——401 后不可自动刷新，请重新配置`;
+          return `凭证 ${provider} 绑定行无刷新面（非可刷新凭证或对应流未注册）——鉴权失败后不可自动刷新，请重新配置`;
       }
     case 'failed':
       return `凭证 ${provider} 自动刷新失败${notice.outcome.errorMessage ? `（${notice.outcome.errorMessage}）` : ''}——请检查凭证配置或重新授权`;

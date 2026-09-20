@@ -109,4 +109,28 @@ describe('createHostAuthRefreshSeam——notify M4 转换位去重', () => {
     expect(sent[0]![1]).toContain('invalid_grant');
     expect(sent[0]![1]).toContain('glm');
   });
+
+  // —— TUI 第四役 finding B（minor）：联动腿判据只看 authFamily（401/403 同族
+  // 同触发），文案却把触发状态写死「401」——403 实错（如 unsupported_country_
+  // region_territory）仍提示「本次 401」误导排查。修复 = 状态中立化措辞
+  // （AuthRefreshOutcome 不增字段——最小面）。断言对象是宿主固定模板文案。
+  it('unavailable 三 reason 文案状态中立（finding B）：不含写死的触发状态「401」', () => {
+    const { channel, sent } = stubChannel();
+    const seam = createHostAuthRefreshSeam({
+      getChain: () => undefined,
+      // env-static 形同生产触发位：env 在场前判（OPENAI_API_KEY 占位）
+      env: { OPENAI_API_KEY: 'sk-static' },
+      notifyChannel: channel,
+    });
+    seam.notify({ provider: 'openai', outcome: { status: 'unavailable', reason: 'env-static' } });
+    seam.notify({ provider: 'glm', outcome: { status: 'unavailable', reason: 'binding-absent' } });
+    seam.notify({ provider: 'kimi', outcome: { status: 'unavailable', reason: 'no-refresh-face' } });
+    expect(sent).toHaveLength(3);
+    for (const [source, text] of sent) {
+      expect(source).toBe('credentials');
+      expect(text).not.toContain('401'); // 修前三文案均含字面量 401 必红
+    }
+    // 去谎报不丢指路：env-static 形仍指路环境变量更新
+    expect(sent[0]![1]).toContain('环境变量');
+  });
 });

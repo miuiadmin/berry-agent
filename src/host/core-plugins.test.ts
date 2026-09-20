@@ -622,6 +622,144 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(boot.promptSections.materialize()).not.toContain('<!-- memory:core -->'); // 零简报段
   });
 
+  // —— TUI 第四役 finding A（major）：memory 周期路 warn 走 console.error 裸文本
+  // 直落 TUI 屏（与渲染共端子同 tty——光标账漂移腐蚀 durable 块）。修复 = 件内
+  // warn 出口改 leveled logger（BERRY_AGENT_LOG_LEVEL 辖内）+ 通道 notify 双发
+  // （transient 呈现）。主锁①：零 console.error（修前 sink 即 console.error 必红）。
+  it('memory 周期路 warn 出口零 console.error（finding A）：review 拍失败 → logger 结构化行 + notify 双发', async () => {
+    // apply 期建 logger 阈值盒读 env——本测辖 BERRY_AGENT_LOG_LEVEL（缺省档）
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-warn-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-warn-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-warn-home-'));
+    dirs.push(dataDir, workspace, home);
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    const notified: Array<[string, string]> = [];
+    try {
+      const { scope, dispatch } = await bootCore(
+        dataDir,
+        memoryFs(),
+        { cwd: workspace, homeDir: home },
+        {
+          sqlite: () => persistence.store.sqlite(),
+          // 审阅窗非空（user/message 机器源外文本行）——transcribeForReview 有料
+          fetchEvents: () => [
+            { type: 'user/message', seq: 0, time: 0, data: { content: '构建走 npm test', source: 'user' } },
+            { type: 'turn/end', seq: 1, time: 1, data: {} },
+          ],
+          // complete 恒抛错族（provider 未注册等——finding 触发枚举的主形）；
+          // canAfford 放行（预算不足是另路静默早退不发 warn）
+          llm: () => ({
+            complete: async () => {
+              throw new Error('provider 未注册：dummy');
+            },
+            canAfford: () => true,
+          }),
+          notify: (source, message) => notified.push([source, message]),
+        },
+      );
+      // 喂足阈值事件（10× turn/end 缺省阈值 → due 在册——run settle 拍点的替身直触形）
+      for (let i = 0; i < 10; i++) {
+        await dispatch.emit('session/event', {
+          sessionId: 's-warn',
+          event: { type: 'turn/end', seq: 2 + i, ts: 2 + i, data: {} },
+        });
+      }
+      const memoryService = scope.tryGet<{ dao: MemoryDao; cycle: MemoryCycle }>('memory')!;
+      // 观察面双 spy：console.error（主锁——修前 sink 必红）+ stderr 写出（logger 腿收窄）。
+      // mockRestore 清 mock.calls——先取影再还原，断言落在取影上
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      let stderrText = '';
+      const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        stderrText += String(chunk);
+        return true;
+      });
+      let fireOutcome: string | undefined;
+      let errorCalls = 0; // try 内取影（初始化防 TS2454——异常路径未赋值用）
+      try {
+        const result = await memoryService.cycle.fire('s-warn');
+        fireOutcome = result.outcome;
+        errorCalls = errorSpy.mock.calls.length;
+      } finally {
+        errorSpy.mockRestore();
+        writeSpy.mockRestore();
+      }
+      // 主锁①：零 console.error（裸文本直落 TUI 屏的写出路根除）
+      expect(errorCalls).toBe(0);
+      // review 拍失败如实达岸（complete 抛错 → skipped-error；fire 永不抛）
+      expect(fireOutcome).toBe('reviewed');
+      expect(stderrText).toContain('review 拍失败');
+      // logger 腿：结构化 JSON warn 行（module=core:memory——leveled 可辖）
+      expect(stderrText).toContain('"level":"warn"');
+      expect(stderrText).toContain('"module":"core:memory"');
+      // notify 腿（transient 呈现）：归因 'memory' 的同文投递
+      expect(notified.some(([source, message]) => source === 'memory' && message.includes('review 拍失败'))).toBe(true);
+      await persistence.close();
+    } finally {
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
+  });
+
+  // 主锁②（辖内律）：BERRY_AGENT_LOG_LEVEL=silent 辖 logger 腿全静默（修复前
+  // console.error 绕过 silent 直落屏——finding 的第二诉求面）；notify 腿是
+  // 呈现面非日志面，不随日志级静默。
+  it('memory warn 出口 silent 辖内（finding A）：logger 腿零 stderr 写出 + notify 腿照常呈现', async () => {
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    process.env.BERRY_AGENT_LOG_LEVEL = 'silent';
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-warn-s-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-warn-s-ws-'));
+    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-warn-s-home-'));
+    dirs.push(dataDir, workspace, home);
+    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+    const notified: Array<[string, string]> = [];
+    try {
+      const { scope } = await bootCore(
+        dataDir,
+        memoryFs(),
+        { cwd: workspace, homeDir: home },
+        {
+          sqlite: () => persistence.store.sqlite(),
+          fetchEvents: () => [
+            { type: 'user/message', seq: 0, time: 0, data: { content: '构建走 npm test', source: 'user' } },
+          ],
+          llm: () => ({
+            complete: async () => {
+              throw new Error('provider 未注册：dummy');
+            },
+            canAfford: () => true,
+          }),
+          notify: (source, message) => notified.push([source, message]),
+        },
+      );
+      const memoryService = scope.tryGet<{ dao: MemoryDao; cycle: MemoryCycle }>('memory')!;
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      let stderrText = '';
+      const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        stderrText += String(chunk);
+        return true;
+      });
+      let errorCalls = 0; // try 内取影（初始化防 TS2454——异常路径未赋值用）
+      try {
+        await memoryService.cycle.fire('s-warn-s');
+        errorCalls = errorSpy.mock.calls.length; // mockRestore 前取影
+      } finally {
+        errorSpy.mockRestore();
+        writeSpy.mockRestore();
+      }
+      expect(errorCalls).toBe(0); // 主锁同律（silent 下更不容裸写）
+      expect(stderrText).not.toContain('review 拍失败'); // logger 腿静默
+      expect(stderrText).not.toContain('"module":"core:memory"'); // 结构化行也零写出
+      // notify 腿照常（transient 呈现不随日志级消音——呈现面与日志面分立）
+      expect(notified.some(([source, message]) => source === 'memory' && message.includes('review 拍失败'))).toBe(true);
+      await persistence.close();
+    } finally {
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
+  });
+
   it('memory 两注入腿全环（批 19 销账笔）：context_transform 瀑布 → 差分懒立基线 → 变更拍绑会话落账 + 注入序 diff 先 recall 后 + 幂等零追写', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-inj-'));
     const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-inj-ws-'));
@@ -770,109 +908,122 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
   });
 
   it('memory 差分降级两形（批 19 销账笔）：sessions 服务缺席 = 只渲染不落账（mirror 不锁步）；无活体驱动拍 = 落账降级 warn + 恢复拍自续', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-deg-'));
-    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-deg-ws-'));
-    const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-deg-home-'));
-    dirs.push(dataDir, workspace, home);
-    const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
-    const { scope, dispatch } = await bootCore(
-      dataDir,
-      memoryFs(),
-      { cwd: workspace, homeDir: home },
-      {
-        sqlite: () => persistence.store.sqlite(),
-        fetchEvents: () => [],
-        llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
-        // sessions 服务缺席（assembly 不 provide 形）——差分只渲染不落账
-      },
-    );
-    const dao = scope.tryGet<{ dao: MemoryDao }>('memory')!.dao;
-    dao.ingest({
-      ownerKey: 'global',
-      kind: 'fact',
-      summary: 'baseline row',
-      content: 'baseline row',
-      confidence: 0.8,
-      sourceRefs: [],
-    });
-    // 拍 1 懒立基线 + 变更库
-    await dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, { sessionId: 's-deg', messages: [] });
-    dao.ingest({
-      ownerKey: 'global',
-      kind: 'fact',
-      summary: 'second row',
-      content: 'second row',
-      confidence: 0.7,
-      sourceRefs: [],
-    });
-    // 拍 2：appendEvent seam 缺席——commit 返回 false 不锁步；注入随 mirror 旧值（零差分视角）缺席
-    const out2 = await dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
-      sessionId: 's-deg',
-      messages: [],
-    });
-    expect(out2.messages).toHaveLength(0); // recall 零命中 + diff 降级（mirror 未锁步回零）= 零注入
-    await persistence.close();
+    // 件内 warn 走 leveled logger（finding A 修复）——拍 2 断言依赖 warn 可见
+    // 档：辖 BERRY_AGENT_LOG_LEVEL 定缺省（apply 期建盒读 env，全测程辖内）
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    try {
+      const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-deg-'));
+      const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-deg-ws-'));
+      const home = mkdtempSync(join(tmpdir(), 'berry-coreplug-deg-home-'));
+      dirs.push(dataDir, workspace, home);
+      const persistence = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+      const { scope, dispatch } = await bootCore(
+        dataDir,
+        memoryFs(),
+        { cwd: workspace, homeDir: home },
+        {
+          sqlite: () => persistence.store.sqlite(),
+          fetchEvents: () => [],
+          llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
+          // sessions 服务缺席（assembly 不 provide 形）——差分只渲染不落账
+        },
+      );
+      const dao = scope.tryGet<{ dao: MemoryDao }>('memory')!.dao;
+      dao.ingest({
+        ownerKey: 'global',
+        kind: 'fact',
+        summary: 'baseline row',
+        content: 'baseline row',
+        confidence: 0.8,
+        sourceRefs: [],
+      });
+      // 拍 1 懒立基线 + 变更库
+      await dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, { sessionId: 's-deg', messages: [] });
+      dao.ingest({
+        ownerKey: 'global',
+        kind: 'fact',
+        summary: 'second row',
+        content: 'second row',
+        confidence: 0.7,
+        sourceRefs: [],
+      });
+      // 拍 2：appendEvent seam 缺席——commit 返回 false 不锁步；注入随 mirror 旧值（零差分视角）缺席
+      const out2 = await dispatch.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
+        sessionId: 's-deg',
+        messages: [],
+      });
+      expect(out2.messages).toHaveLength(0); // recall 零命中 + diff 降级（mirror 未锁步回零）= 零注入
+      await persistence.close();
 
-    // —— 无活体驱动拍（sessions 在场但 driverOf 缺席）——
-    const persistence2 = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
-    const log2 = new SessionLog({ sessionId: 's-deg2' });
-    const { scope: scope2, dispatch: dispatch2 } = await bootCore(
-      dataDir,
-      memoryFs(),
-      { cwd: workspace, homeDir: home },
-      {
-        sqlite: () => persistence2.store.sqlite(),
-        fetchEvents: () => [],
-        llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
-        // 会话表热切换形：拍 2 前「无活体驱动」、拍 3 前恢复在场
-        sessionsFace: sessionsFaceFor((sid) =>
-          sid === 's-deg2' && driverTable.has(sid) ? { session: log2 } : undefined,
-        ),
-      },
-    );
-    const driverTable = new Map<string, true>();
-    const dao2 = scope2.tryGet<{ dao: MemoryDao }>('memory')!.dao;
-    dao2.ingest({
-      ownerKey: 'global',
-      kind: 'fact',
-      summary: 'baseline row 2',
-      content: 'baseline row 2',
-      confidence: 0.8,
-      sourceRefs: [],
-    });
-    // 拍 1 懒立基线（sessions 无该会话——零差分拍不触发射位）+ 变更库
-    await dispatch2.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, { sessionId: 's-deg2', messages: [] });
-    dao2.ingest({
-      ownerKey: 'global',
-      kind: 'fact',
-      summary: 'late row',
-      content: 'late row',
-      confidence: 0.7,
-      sourceRefs: [],
-    });
-    // 拍 2：差分非零但 appendEventFor undefined（无活体驱动）→ commit 降级 warn、mirror 不锁步
-    // （件内 warn 直写 console.error——spy 收窄断言「降级不静默」）
-    const stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    let stderrText = '';
-    stderrSpy.mockImplementation((msg) => void (stderrText += `${msg}\n`));
-    const outLate = await dispatch2.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
-      sessionId: 's-deg2',
-      messages: [],
-    });
-    stderrSpy.mockRestore();
-    expect(outLate.messages).toHaveLength(0); // 降级拍零注入（mirror 未锁步）
-    expect(log2.events().filter((e) => e.type === 'memory/diff')).toHaveLength(0);
-    expect(stderrText).toContain('差分落账'); // 降级 warn 不静默
-    // 拍 3：会话恢复在场——差分仍非零（不锁步语义），落账自续 + 注入在场
-    driverTable.set('s-deg2', true);
-    const out3 = await dispatch2.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
-      sessionId: 's-deg2',
-      messages: [],
-    });
-    expect(out3.messages).toHaveLength(1); // diff 注入补上（recall 零命中）
-    expect(out3.messages[0]!.content).toContain('记忆简报自本会话基线以来的变化');
-    expect(log2.events().filter((e) => e.type === 'memory/diff')).toHaveLength(1);
-    await persistence2.close();
+      // —— 无活体驱动拍（sessions 在场但 driverOf 缺席）——
+      const persistence2 = Persistence.open({ dbPath: MEMORY_DB_PATH, migrations: MEMORY_MIGRATIONS });
+      const log2 = new SessionLog({ sessionId: 's-deg2' });
+      const { scope: scope2, dispatch: dispatch2 } = await bootCore(
+        dataDir,
+        memoryFs(),
+        { cwd: workspace, homeDir: home },
+        {
+          sqlite: () => persistence2.store.sqlite(),
+          fetchEvents: () => [],
+          llm: () => ({ complete: async () => ({ message: { content: '' } }), canAfford: () => false }),
+          // 会话表热切换形：拍 2 前「无活体驱动」、拍 3 前恢复在场
+          sessionsFace: sessionsFaceFor((sid) =>
+            sid === 's-deg2' && driverTable.has(sid) ? { session: log2 } : undefined,
+          ),
+        },
+      );
+      const driverTable = new Map<string, true>();
+      const dao2 = scope2.tryGet<{ dao: MemoryDao }>('memory')!.dao;
+      dao2.ingest({
+        ownerKey: 'global',
+        kind: 'fact',
+        summary: 'baseline row 2',
+        content: 'baseline row 2',
+        confidence: 0.8,
+        sourceRefs: [],
+      });
+      // 拍 1 懒立基线（sessions 无该会话——零差分拍不触发射位）+ 变更库
+      await dispatch2.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, { sessionId: 's-deg2', messages: [] });
+      dao2.ingest({
+        ownerKey: 'global',
+        kind: 'fact',
+        summary: 'late row',
+        content: 'late row',
+        confidence: 0.7,
+        sourceRefs: [],
+      });
+      // 拍 2：差分非零但 appendEventFor undefined（无活体驱动）→ commit 降级 warn、mirror 不锁步
+      // （件内 warn 走 leveled logger——finding A 修复后断言面翻档：stderr 写出
+      //   spy 收窄结构化 JSON 行「降级不静默」；本测 bootCore 无 notify 位 = 纯 logger 形）
+      let stderrText = '';
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        stderrText += String(chunk);
+        return true;
+      });
+      const outLate = await dispatch2.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
+        sessionId: 's-deg2',
+        messages: [],
+      });
+      stderrSpy.mockRestore();
+      expect(outLate.messages).toHaveLength(0); // 降级拍零注入（mirror 未锁步）
+      expect(log2.events().filter((e) => e.type === 'memory/diff')).toHaveLength(0);
+      expect(stderrText).toContain('差分落账'); // 降级 warn 不静默（logger JSON 行）
+      expect(stderrText).toContain('"module":"core:memory"'); // 结构化行（leveled 可辖）
+      // 拍 3：会话恢复在场——差分仍非零（不锁步语义），落账自续 + 注入在场
+      driverTable.set('s-deg2', true);
+      const out3 = await dispatch2.waterfall<ContextTransformInput>(CONTEXT_TRANSFORM_EVENT, {
+        sessionId: 's-deg2',
+        messages: [],
+      });
+      expect(out3.messages).toHaveLength(1); // diff 注入补上（recall 零命中）
+      expect(out3.messages[0]!.content).toContain('记忆简报自本会话基线以来的变化');
+      expect(log2.events().filter((e) => e.type === 'memory/diff')).toHaveLength(1);
+      await persistence2.close();
+    } finally {
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
   });
 
   it('scheduler 件装载全环（批 19c-2）：sqlite 在场 → 服务面三柄 + /tick 注册 + goalJobs 第五槽委派真行', async () => {

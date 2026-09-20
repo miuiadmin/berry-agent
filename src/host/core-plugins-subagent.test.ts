@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -154,6 +154,54 @@ describe('core:subagent 声明式腿（标准层物化 + reload 撞名修复）'
       expect(failedIds).not.toContain('core:subagent');
       expect(boot2.tools.listFor('model').some((d) => d.name === 'agent_scout')).toBe(true);
     } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  // —— TUI 第四役 finding A 同族位（:1088 诊断 sink）：坏 agent 文件的
+  // invalid-metadata 诊断 warn 修前走 console.error 裸文本直落 TUI 屏（与
+  // memory 周期路 :780 同 sink 同族）。修复 = leveled logger
+  // （BERRY_AGENT_LOG_LEVEL 辖内）单源（本 rig 无 notify 位——纯 logger 形）。
+  it('诊断 warn 出口零 console.error（finding A 同族）：坏 agent 文件 → logger 结构化行不裸写', async () => {
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-subagent-warn-'));
+    try {
+      // 坏形标准层 def：frontmatter 无 description → parseAgentDef 拒 →
+      // collectAgentDefs 产出 invalid-metadata 诊断 → apply 期 warn
+      mkdirSync(join(workspace, '.agents', 'agents'), { recursive: true });
+      writeFileSync(
+        join(workspace, '.agents', 'agents', 'broken.md'),
+        '---\nname: broken\n---\n正文无 description 键。\n',
+      );
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      let stderrText = '';
+      const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
+        stderrText += String(chunk);
+        return true;
+      });
+      let report: Awaited<ReturnType<typeof bootSubagentRow>>['report'] | undefined; // 异常路径未赋值形（下行收窄）
+      let errorCalls = 0; // try 内取影（初始化防 TS2454——异常路径未赋值用）
+      try {
+        const row = await bootSubagentRow(workspace);
+        report = row.report;
+        errorCalls = errorSpy.mock.calls.length; // mockRestore 前取影
+      } finally {
+        errorSpy.mockRestore();
+        writeSpy.mockRestore();
+      }
+      // 主锁：零 console.error（修前 sink 即 console.error 必红）
+      expect(errorCalls).toBe(0);
+      // 诊断如实达岸（坏文件不炸装配——行级隔离）+ logger 腿结构化行收窄
+      expect(report).toBeDefined();
+      expect(report!.failed.map((f) => f.id)).not.toContain('core:subagent');
+      expect(stderrText).toContain('invalid-metadata');
+      expect(stderrText).toContain('"module":"core:subagent"');
+      expect(stderrText).toContain('"level":"warn"');
+      await report!.unload();
+    } finally {
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
       rmSync(workspace, { recursive: true, force: true });
     }
   });
