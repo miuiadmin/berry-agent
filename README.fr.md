@@ -30,7 +30,7 @@ de montage ; il n'existe aucune voie privée de premier parti.
 **16** plugins intégrés · DAG unidirectionnel de **28** modules · **5 000+** tests ·
 **6** contrats de publication vérifiés par la machine · **0** télémétrie
 
-> Statut : `0.1.0-alpha.8` — piloté par les contrats, construit par tranches
+> Statut : `0.1.0-alpha.9` — piloté par les contrats, construit par tranches
 > verticales ; la surface d'API peut encore évoluer avant la 1.0.
 
 </div>
