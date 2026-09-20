@@ -544,6 +544,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 态）；schedule 注入缺席 = 立即发（同步测试语义——既有确定性测试零扰动）
     this.autocompleteProvider = new CombinedAutocompleteProvider(options.autocomplete ?? {});
     this.popup = new AutocompletePopup(this.editor.model);
+    // escape 关层联动（组 2 修「闪回」）：弹层消费 escape 关本轮时撤防抖窗 +
+    // 作废在途——否则 kitty 轨 escape 即达即决后，20ms 窗内已武装的查询迟到
+    // fire 会重开刚关的弹层
+    this.popup.onDismiss = () => this.autocompleteCompleter.cancel();
     this.autocompleteCompleter = new AutocompleteCompleter({
       query: (signal) => {
         const cursor = this.editor.model.getCursor();
@@ -558,6 +562,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       },
       onResult: (result) => {
         if (this.inputAsk !== null) return; // 应答接管窗——迟到在途结果不落层
+        if (this.stack.size > 0) return; // 模态浮层占焦窗——迟到在途结果不落层（死显残留防线）
         this.popup.applyResult(result);
         this.touchFixed();
       },
@@ -1552,6 +1557,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     signal: AbortSignal | undefined,
     cancelLine: string,
   ): OverlayHandle {
+    // 模态浮层开层即收补全弹层（与 input() 路「应答期弹层抑制」同形——组 2
+    // 修死显残留）：overlay 占焦后弹层键面不可达（模态独占），不收层则建议
+    // 列表死显在浮层段下、且 20ms 窗内已武装的在途查询迟到还会刷新死显列表
+    this.autocompleteCompleter.cancel(); // 撤防抖窗 + 在途作废
+    this.popup.applyResult(null); // 在场弹层即刻收层
     const handle = this.stack.open(content, this.anchorFor(content));
     signal?.addEventListener(
       'abort',

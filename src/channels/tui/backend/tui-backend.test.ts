@@ -313,9 +313,9 @@ interface RigCalls {
   dispatched: string[];
 }
 
-/** 交互 rig：注入调度 + 高 fps 帧帽（帧间隔 ~0——advance 即泵帧） */
-function makeInteractive(options: Partial<TuiBackendOptions> = {}) {
-  const io = new MemoryTerminalIO(COLS, ROWS);
+/** 交互 rig：注入调度 + 高 fps 帧帽（帧间隔 ~0——advance 即泵帧）；rows 可调（overlay+弹层并陈的量高场景需高窗） */
+function makeInteractive(options: Partial<TuiBackendOptions> = {}, rows: number = ROWS) {
+  const io = new MemoryTerminalIO(COLS, rows);
   const clock = new ManualClock();
   const calls: RigCalls = { submitted: [], interrupted: [], quit: 0, dispatched: [] };
   const backend = new TuiBackend(io, {
@@ -549,6 +549,76 @@ describe('TuiBackend 补全弹层（三源路由）', () => {
     io.emitInput('\r');
     pump();
     await expect(p).resolves.toBe('/he'); // 应答原样落 promise
+  });
+
+  // —— ask 浮层开层收补全弹层（2026-09-20 TUI 视觉品质战役·组 2 修前红）：
+  // input() 路既做「应答期弹层抑制」（cancel + applyResult(null)——tui-backend
+  // 码内注释明言），confirm/select/askApproval 三路共用 openAskLayer 却无此
+  // 收口——修前形：弹层死显残留 overlay 段之下（overlay 模态独占收键不可
+  // 交互），且连打后在途查询迟到仍会刷新死弹层 ——
+
+  it('ask 浮层开层收在场弹层：confirm 开层即刻收层（修前死显残留红）', async () => {
+    const { io, backend, clock, pump } = autocompleteRig();
+    io.emitInput('/he');
+    completePump(clock); // 防抖窗到——弹层在场（'/help' + detail '帮助'）
+    expect(io.bytes).toContain('帮助');
+    io.bytes = '';
+    const p = backend.confirm('做吗？');
+    pump();
+    expect(io.bytes).toContain('做吗？'); // 浮层面板在场
+    expect(io.bytes).not.toContain('帮助'); // 修前红：弹层未被收——死显在 overlay 段之下
+    io.emitInput('\r');
+    pump();
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('ask 浮层开层撤防抖窗：连打后开层的在途查询不落层（askApproval——修前窗内 fire 落层红）', async () => {
+    // rows 加高：审批面板（5 行）+ 弹层（1）+ 编辑器（3）+ 状态行（1）在 10 行
+    // 窗会触发牺牲梯隐弹层——量高并陈需 14 行窗（预算 13）才呈修前坏形
+    const { io, backend, clock, pump } = makeInteractive(
+      {
+        autocomplete: {
+          commands: (query) => (query === 'he' ? [{ label: '/help', detail: '帮助', replacement: '/help ' }] : []),
+        },
+      },
+      14,
+    );
+    io.emitInput('/he'); // 防抖窗已排（20ms 尾沿）——弹层未开
+    const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
+    completePump(clock); // 推过窗位——修前：窗内 fire 落层，弹层死显 overlay 段下
+    expect(io.bytes).toContain('⚙ write：写文件'); // 浮层标题在场
+    expect(io.bytes).not.toContain('帮助'); // 修前红：开层不撤窗——在途查询迟到落层
+    io.emitInput('\r');
+    pump();
+    await expect(p).resolves.toBe('approve');
+  });
+
+  // —— escape 关层联动收防抖窗（组 2 修前红）：popup 消费 escape 关本轮但
+  // 不触 completer.cancel——20ms 防抖窗内在途/已排查询迟到 fire 会把刚关的
+  // 弹层重开（建议框「闪回」，与 popup「关本轮」注释意图相悖）。kitty 轨
+  // `\x1b[27u` escape 即达即决（生产主轨——backend 进屏推 kitty 协议），迟到
+  // fire 与关层的时序在手动钟下确定可演 ——
+
+  it('escape 关层撤防抖窗：窗内迟到 fire 不重开弹层（修前「闪回」红）', () => {
+    // sticky 源：'/he'、'/hel' 前缀均有候选——迟到 fire 携非空结果才能重开弹层
+    const { io, clock } = makeInteractive({
+      autocomplete: {
+        commands: (query) =>
+          ['/help', '/hello']
+            .filter((name) => name.slice(1).startsWith(query))
+            .map((name) => ({ label: name, detail: '帮助', replacement: `${name} ` })),
+      },
+    });
+    io.emitInput('/he');
+    completePump(clock); // 弹层在场（两候选）
+    io.bytes = ''; // 首开弹层帧字节不计——聚焦 escape 关层后的窗内迟到 fire
+    io.emitInput('l'); // 连打——防抖窗重置（弹层持上轮 result 仍可见）
+    io.emitInput('\x1b[27u'); // kitty 轨 escape：即达即决——popup 消费关本轮
+    clock.advance(1); // 泵掉关层帧
+    expect(io.bytes).not.toContain('帮助'); // 关层成立（本轮锚）
+    io.bytes = ''; // 关层帧字节不计——聚焦窗内迟到 fire
+    clock.advance(AUTOCOMPLETE_DEBOUNCE_MS + 1); // 推过防抖窗——修前窗内 fire 重开弹层
+    expect(io.bytes).not.toContain('帮助'); // 修前红：迟到 fire → onResult → 弹层重开
   });
 });
 

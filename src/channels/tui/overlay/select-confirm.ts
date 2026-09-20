@@ -12,7 +12,7 @@
 import type { CellBuffer, InputEvent, Region, Renderable } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { CellStyle } from '../../engine/index.js';
-import { prefixDisplayWidth } from '../editor/visual-lines.js';
+import { stringWidth, truncateToWidth } from '../../engine/index.js';
 
 /** 保守取消值（select——空串与撤销面同语义） */
 export const SELECT_CANCELLED = '';
@@ -21,6 +21,40 @@ export const SELECT_CANCELLED = '';
 const ACTIVE_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 /** 说明段样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+
+/**
+ * 单行左右双段预算排版（market-picker renderRow 预算律同款——2026-09-20
+ * TUI 视觉品质战役·组 2 修 finding C）：右段（hint）先按预算截成 … 省略形
+ * 再右对齐——极长右段按原宽右对齐会把起列推成负值（CellGrid 越界静默吸收
+ * 首段、余段从行首覆写整行——生产链 fs 写审批「总是批准」行 label 被路径
+ * hint 劈半灭失的同根坏形）；左段（前缀 + label）以右段实占后余宽为帽 …
+ * 收口。两段各自整字截断（truncateToWidth——不撕宽字符）。
+ */
+function fitRowSegments(
+  left: string,
+  right: string | undefined,
+  width: number,
+): { left: string; right: string; rightWidth: number } {
+  // 左段保留位 = 左段宽与半窗取小（右段预算的下限保证——label 至多让半窗）
+  const leftReserve = Math.max(0, Math.min(stringWidth(left), Math.floor(width / 2)));
+  const rightBudget = right !== undefined && right.length > 0 ? Math.max(0, width - 1 - leftReserve) : 0;
+  const rightFull = right ?? '';
+  const fittedRight =
+    rightBudget === 0 || stringWidth(rightFull) <= rightBudget
+      ? rightFull
+      : `${truncateToWidth(rightFull, Math.max(0, rightBudget - 1))}…`;
+  const rightWidth = stringWidth(fittedRight);
+  // 左段帽 = 总宽 - 右段实占 - 间隔 1 列（无右段即总宽；右段已按预算截断，
+  // 此处帽内通常已适——label 自身极长时 … 收口）
+  const maxLeft = rightWidth > 0 ? width - rightWidth - 1 : width;
+  const fittedLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
+  return { left: fittedLeft, right: fittedRight, rightWidth };
+}
+
+/** 单段超宽 … 收口（title / message 呈现帽——裸裁会静默丢失段尾无省略形） */
+function ellipsize(text: string, width: number): string {
+  return stringWidth(text) <= width ? text : `${truncateToWidth(text, Math.max(0, width - 1))}…`;
+}
 
 /** 无修饰单字符 / 命名键匹配 */
 function isPlainKey(e: InputEvent & { kind: 'key' }, key: string): boolean {
@@ -82,7 +116,8 @@ export class SelectPanel implements Renderable {
     }
     let row = region.row;
     if (this.title !== undefined) {
-      buffer.writeText(row, region.col, this.title, this.titleStyle);
+      // 标题超宽 … 收口（区域 = 全终端宽——无帽裸裁会静默丢失段尾）
+      buffer.writeText(row, region.col, ellipsize(this.title, region.width), this.titleStyle);
       row += 1;
     }
     for (let i = 0; i < this.options.length; i++, row++) {
@@ -90,11 +125,13 @@ export class SelectPanel implements Renderable {
       const option = this.options[i]!;
       // 前缀 + label 段（高亮行整段反色）
       const prefix = active ? '❯ ' : '  ';
-      buffer.writeText(row, region.col, `${prefix}${option.label}`, active ? ACTIVE_STYLE : undefined);
+      // 行预算排版：label 段与 hint 段各自 … 收口不交叠——极长 hint 原宽右
+      // 对齐会负起列覆写整行（生产链 fs 写审批路径 hint 的修前坏形）
+      const { left, right, rightWidth } = fitRowSegments(`${prefix}${option.label}`, option.hint, region.width);
+      buffer.writeText(row, region.col, left, active ? ACTIVE_STYLE : undefined);
       // 说明段右对齐（dim 恒态——不随高亮变脸；按显示宽——CJK 段宽 ≠ 码位数）
-      if (option.hint !== undefined && option.hint.length > 0) {
-        const hintCols = prefixDisplayWidth(option.hint, option.hint.length);
-        buffer.writeText(row, region.col + region.width - hintCols, option.hint, HINT_STYLE);
+      if (rightWidth > 0) {
+        buffer.writeText(row, region.col + region.width - rightWidth, right, HINT_STYLE);
       }
     }
   }
@@ -171,8 +208,14 @@ export class ConfirmPanel implements Renderable {
         buffer.setCell(region.row + r, region.col + c, ' ');
       }
     }
-    buffer.writeText(region.row, region.col, this.message);
-    buffer.writeText(region.row + 1, region.col, `${this.confirmHint} · ${this.cancelHint}`, HINT_STYLE);
+    // 消息与键提示行超宽 … 收口（区域 = 全终端宽——无帽裸裁静默丢段尾）
+    buffer.writeText(region.row, region.col, ellipsize(this.message, region.width));
+    buffer.writeText(
+      region.row + 1,
+      region.col,
+      ellipsize(`${this.confirmHint} · ${this.cancelHint}`, region.width),
+      HINT_STYLE,
+    );
   }
 
   /** 事件分发：Enter/y 确认、Esc/n 取消（保守值） */
