@@ -204,7 +204,8 @@ function userTextOf(content: unknown): string | undefined {
 /**
  * 事件 → 首问快照（05 §9 first_question_summary 的派生纯函数）：
  * 真用户输入（user/message 且 source ∈ user/channel:*）的截断快照——
- *  - 200 字符帽，超长截头加尾标 `…[truncated N chars]`（§1.2 裁腿同式）；
+ *  - 200 字符帽，超长截头加尾标 `…[truncated N chars]`（§1.2 裁腿同式；
+ *    截断界劈开 UTF-16 代理对时退一位切齐码点边界——防孤立代理落库成替换符）；
  *  - 空白折叠为单空格并去首尾（清单面单行承载 + TUI grid 零控制字节律——
  *    换行/制表符不进 title）；
  *  - 无文本可取（纯 image 消息 / 折叠后为空）→ undefined（快照无从截起）。
@@ -221,10 +222,28 @@ export function firstQuestionSummaryOf(event: Pick<SessionEvent, 'type' | 'data'
   const collapsed = text.replace(/\s+/g, ' ').trim();
   if (collapsed.length === 0) return undefined;
   if (collapsed.length <= FIRST_QUESTION_SUMMARY_MAX_CHARS) return collapsed;
-  return (
-    collapsed.slice(0, FIRST_QUESTION_SUMMARY_MAX_CHARS) +
-    firstQuestionMarker(collapsed.length - FIRST_QUESTION_SUMMARY_MAX_CHARS)
-  );
+  // 截断界码点对齐：帽位恰劈开 UTF-16 代理对（head 末位高代理 + 帽位低代理）
+  // 时退一位保整对——孤立高代理经 better-sqlite3 落库成 U+FFFD，内存派生值
+  // 与落库 title 不一致（清单标题呈现替换符）
+  let head = collapsed.slice(0, FIRST_QUESTION_SUMMARY_MAX_CHARS);
+  if (
+    isHighSurrogateUnit(head.charCodeAt(head.length - 1)) &&
+    isLowSurrogateUnit(collapsed.charCodeAt(FIRST_QUESTION_SUMMARY_MAX_CHARS))
+  ) {
+    head = head.slice(0, -1);
+  }
+  // 尾标 N = 实际截掉字符数（退位形 head 少一位——按 head 真长计，非名义帽值）
+  return head + firstQuestionMarker(collapsed.length - head.length);
+}
+
+/** UTF-16 高代理码元判据（0xd800..0xdbff——代理对劈界的左半） */
+function isHighSurrogateUnit(unit: number): boolean {
+  return unit >= 0xd800 && unit <= 0xdbff;
+}
+
+/** UTF-16 低代理码元判据（0xdc00..0xdfff——代理对劈界的右半） */
+function isLowSurrogateUnit(unit: number): boolean {
+  return unit >= 0xdc00 && unit <= 0xdfff;
 }
 
 /**
@@ -808,19 +827,21 @@ export class Store implements WriteTarget {
     ).all(literal, limit) as FtsGlobalHit[];
   }
 
-  /** 全量重建（派生物不修不补——重建即修复；CLI 手动命令与审计缺口共用腿） */
+  /** 全量重建（派生物不修不补——重建即修复；CLI 手动命令与审计缺口共用腿）。
+   *  遮蔽感知（与写路径「遮蔽指令同步删区间行」同律）：落入 surfaceOp 遮蔽
+   *  区间的行不入索引——被遮内容不因重建复活（遮蔽即不可检索不变式跨重建保持）。 */
   rebuildFts(): FtsRebuildResult {
     this.ensureOpen();
     let sessions = 0;
     let events = 0;
     const tx = this.db.transaction(() => {
       this.stmt(`DELETE FROM session_fts`).run();
-      const rows = this.stmt(`SELECT session_id, seq, type, data FROM events ORDER BY session_id, seq`).all() as {
-        session_id: string;
-        seq: number;
-        type: string;
-        data: string;
-      }[];
+      const rows = this.stmt(
+        `SELECT session_id, seq, type, data, surface_op FROM events ORDER BY session_id, seq`,
+      ).all() as FtsScanRow[];
+      // 先按会话累计遮蔽区间并集：遮蔽指令事件在区间行之后（seq 更大），
+      // 单遍前向扫描无法在命中被遮行时预知——两遍走（先并集、后重建）
+      const masked = maskedSpansBySession(rows);
       const insert = this.stmt(`INSERT INTO session_fts (session_id, seq, body) VALUES (?, ?, ?)`);
       let currentSession: string | undefined;
       for (const row of rows) {
@@ -828,6 +849,8 @@ export class Store implements WriteTarget {
           currentSession = row.session_id;
           sessions++;
         }
+        // 落入遮蔽区间的行跳过（写路径同批已删——重建不得复活）
+        if (seqMasked(masked.get(row.session_id), row.seq)) continue;
         const body = ftsBodyOfRaw(row.type, row.data);
         if (body !== null) {
           insert.run(row.session_id, row.seq, body);
@@ -839,7 +862,9 @@ export class Store implements WriteTarget {
     return { sessions, events };
   }
 
-  /** 启动抽样对账（随机 N 会话行数比对——发现缺口由调用方触发全量重建） */
+  /** 启动抽样对账（随机 N 会话行数比对——发现缺口由调用方触发全量重建）。
+   *  期望计数遮蔽感知（与 rebuildFts 同一模型）：落入 surfaceOp 遮蔽区间的行
+   *  不计入期望——被遮会话不报伪缺口（否则每次启动误触发全局重建）。 */
   auditFts(sampleCount = 8): FtsAuditResult {
     this.ensureOpen();
     const sampled = this.stmt(`SELECT DISTINCT session_id FROM events ORDER BY RANDOM() LIMIT ?`).all(sampleCount) as {
@@ -847,11 +872,18 @@ export class Store implements WriteTarget {
     }[];
     const mismatches: { sessionId: string; expected: number; actual: number }[] = [];
     for (const { session_id } of sampled) {
-      const rows = this.stmt(`SELECT seq, type, data FROM events WHERE session_id = ? ORDER BY seq`).all(
-        session_id,
-      ) as { seq: number; type: string; data: string }[];
+      const rows = this.stmt(
+        `SELECT session_id, seq, type, data, surface_op FROM events WHERE session_id = ? ORDER BY seq`,
+      ).all(session_id) as FtsScanRow[];
+      // 本会话遮蔽区间并集（surface_op 列随读——期望计数扣区间）
+      const spans: Array<[number, number]> = [];
+      for (const row of rows) {
+        const span = maskedSpanOf(row.surface_op);
+        if (span !== null) spans.push(span);
+      }
       let expected = 0;
       for (const row of rows) {
+        if (seqMasked(spans, row.seq)) continue; // 被遮行不入期望
         if (ftsBodyOfRaw(row.type, row.data) !== null) expected++;
       }
       const actual = (
@@ -1166,6 +1198,58 @@ function collectStringValues(value: unknown, out: string[], depth: number): void
   if (value !== null && typeof value === 'object') {
     for (const item of Object.values(value)) collectStringValues(item, out, depth + 1);
   }
+}
+
+// ── 遮蔽区间感知（重建/审计与写路径同律：遮蔽指令同步删区间行）────────────────
+//
+// 写路径 writeTuple 在事件携带 surfaceOp 时同批 DELETE 区间行——「遮蔽即
+// 不可检索」的执法语义。重建/审计若盲数全部 events 行（不读 surface_op 列），
+// 被遮会话在抽样审计时即报伪缺口 {expected > actual}，调用方（memory 件
+// ensureFtsIndex）随之触发全局 rebuildFts——重建把所有会话的被遮行整批
+// 复活回索引。故两腿与写路径同一模型：落入遮蔽区间并集的行不计期望、不入索引。
+
+/** 重建/审计的 FTS 扫描行形态（surface_op 列随读——遮蔽感知的判据源） */
+interface FtsScanRow {
+  session_id: string;
+  seq: number;
+  type: string;
+  data: string;
+  surface_op: string | null;
+}
+
+/** surface_op 列 JSON → 遮蔽区间 [start, end]；坏值/形状不全 → null（此处只
+ *  做感知不执法——坏行的 fail 域在 loadEvents/queryEvents） */
+function maskedSpanOf(surfaceOpJson: string | null): [number, number] | null {
+  if (surfaceOpJson === null) return null;
+  try {
+    const op = JSON.parse(surfaceOpJson) as { start?: unknown; end?: unknown };
+    if (typeof op.start === 'number' && typeof op.end === 'number') return [op.start, op.end];
+  } catch {
+    // 坏 JSON 视作无遮蔽（不阻断重建/审计主流程）
+  }
+  return null;
+}
+
+/** 按会话累计遮蔽区间表（重建的全库扫描腿——surfaceOp 区间并集） */
+function maskedSpansBySession(rows: readonly FtsScanRow[]): Map<string, Array<[number, number]>> {
+  const map = new Map<string, Array<[number, number]>>();
+  for (const row of rows) {
+    const span = maskedSpanOf(row.surface_op);
+    if (span === null) continue;
+    let spans = map.get(row.session_id);
+    if (spans === undefined) map.set(row.session_id, (spans = []));
+    spans.push(span);
+  }
+  return map;
+}
+
+/** seq 判属遮蔽区间并集（区间数 = 遮蔽指令事件数，量级远小于事件数——线性扫描即可） */
+function seqMasked(spans: ReadonlyArray<readonly [number, number]> | undefined, seq: number): boolean {
+  if (spans === undefined) return false;
+  for (const [start, end] of spans) {
+    if (seq >= start && seq <= end) return true;
+  }
+  return false;
 }
 
 // ── 游标编解码（queryEvents 分页令牌——不透明：base64url(JSON)）──────────────

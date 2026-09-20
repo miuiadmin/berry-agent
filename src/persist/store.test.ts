@@ -51,6 +51,24 @@ function expectCode(fn: () => unknown, code: string): void {
   }
 }
 
+/**
+ * 独立代理检测（高代理无低代理伴位 / 裸低代理均算独立——ES2023 lib 无
+ * isWellFormed 类型面，手扫 UTF-16 码元配对；断言「无独立代理」即 well-formed）。
+ */
+function hasLoneSurrogate(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      i++; // 成对——跳过低代理伴位
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return true; // 低代理不在成对第二位即独立
+    }
+  }
+  return false;
+}
+
 const REG: SessionRegistration = {
   origin: 'conversation',
   parentId: undefined,
@@ -483,6 +501,25 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
     expect(store.getSessionRow('s-fq-long')?.title).toBe('问'.repeat(200) + '…[truncated 53 chars]');
   });
 
+  it('截断界劈开代理对退一位：派生值 well-formed + 落库 title 无替换符（内存与落库一致）', () => {
+    // 199 个 a + emoji（代理对恰跨第 200/201 码元位）+ 尾串——缺陷形下
+    // slice(0,200) 末位劈出孤立高代理（0xd83d），经 better-sqlite3 落库成 U+FFFD
+    const text = 'a'.repeat(199) + '😀' + 'bbbbbbbb';
+    const summary = firstQuestionSummaryOf({ type: 'user/message', data: { content: text, source: 'user' } });
+    expect(summary).toBeDefined();
+    // 修前红①：返回值含孤立高代理（isWellFormed 等价断言——手扫码元配对）
+    expect(hasLoneSurrogate(summary!)).toBe(false);
+    // 修前红②：落库后 title 呈现替换符（Node 字符串绑定孤立代理 → U+FFFD），
+    // 内存派生值与落库值不一致
+    const store = open({ dbPath: join(dir, 'fq-surrogate.db') });
+    const log = new SessionLog({ sessionId: 'fq-s' });
+    log.append('user/message', { content: text, source: 'user' });
+    store.writeEvents(writesFor('s-fq-s', log.events()));
+    const title = store.getSessionRow('s-fq-s')?.title ?? '';
+    expect(title.includes('\u{fffd}')).toBe(false);
+    expect(title).toBe(summary);
+  });
+
   it('写路物化：多行首问空白折叠单行（清单面单行承载 + 零控制字节）', () => {
     const store = open({ dbPath: join(dir, 'fq-ws.db') });
     const log = new SessionLog({ sessionId: 'fq-ws' });
@@ -623,6 +660,37 @@ describe('session_fts 对账三档（05 §9）', () => {
     expect(result.events).toBeGreaterThanOrEqual(2);
     expect(reopened.auditFts(4).mismatches).toHaveLength(0);
     expect(reopened.searchSessionFts('s-rb', 'rebuildable-token-two')).toEqual([3]);
+  });
+
+  it('遮蔽×审计×重建交叉：auditFts 无伪缺口 + rebuildFts 不复活被遮行（会话内与跨会话两面）', () => {
+    const store = open({ dbPath: join(dir, 'fts-mask.db') });
+    const log = new SessionLog({ sessionId: 'm' });
+    log.append('turn/start', {});
+    log.append('user/message', { content: 'compacted-away-secret', source: 'user' }); // seq 1（将被遮）
+    log.append('turn/start', {});
+    log.append('user/message', { content: 'keep-visible-text', source: 'user' }); // seq 3
+    store.writeEvents(writesFor('s-mask', log.events()));
+    // 压缩遮蔽指令（surfaceOp replace [0,1]——写路径同批删区间 fts 行，写入档既有锁）
+    log.appendWithSurfaceOp(
+      'persist.test/note',
+      { text: 'replacement summary' },
+      { op: 'replace', start: 0, end: 1 },
+      [0, 1],
+    );
+    store.writeEvents(writesFor('s-mask', [log.events()[4]!]));
+    // 写路删行（既有执法语义——遮蔽即不可检索）
+    expect(store.searchSessionFts('s-mask', 'compacted-away-secret')).toEqual([]);
+    // 修前红①：审计期望计数不感知 surface_op 列 → 被遮会话报伪缺口 {expected:3, actual:2}
+    expect(store.auditFts(8).mismatches).toEqual([]);
+    // 修前红②：全量重建盲重放全部 events 行 → 被遮行复活（searchSessionFts 与 searchFtsGlobal 两读面）
+    store.rebuildFts();
+    expect(store.searchSessionFts('s-mask', 'compacted-away-secret')).toEqual([]);
+    expect(store.searchFtsGlobal('compacted-away-secret')).toEqual([]);
+    // 未遮蔽行照常在索引（重建修真缺口的职能不因遮蔽感知缺位）
+    expect(store.searchSessionFts('s-mask', 'keep-visible-text')).toEqual([3]);
+    expect(store.searchSessionFts('s-mask', 'replacement summary')).toEqual([4]);
+    // 重建后再审计仍零缺口（审计期望与重建产物同一遮蔽感知模型）
+    expect(store.auditFts(8).mismatches).toEqual([]);
   });
 
   it('检索式消毒：含 FTS5 语法字符的用户输入按子串匹配', () => {
