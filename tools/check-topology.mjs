@@ -7,7 +7,9 @@
  * 计数锚已随 W5 批维度 6 接入）：
  *   1. 相对导入跨模块必须走边表白名单——同模块内相对导入自由；
  *   2. 裸导入按模块分账白名单（node:* 全局；包依赖只准进指定模块——
- *      native 隔离律：better-sqlite3 只准 persist）；
+ *      native 隔离律：better-sqlite3 只准 persist；说明符形 = 静态两形 +
+ *      动态字面量 import('pkg') 形——I-infra 批 2026-09-21 第三支封动态
+ *      整类假绿缝，相对动态形不入账见 importSpecifiers 头注裁量）；
  *   3. 跨模块导入只准走公开面（index/types/events 三名）——
  *      深挖实现面即红（深挖面册机制随存量深挖出现再立）；
  *   4. 边表键集 ⊆ 在场模块 ∪ 显式占位清单（02 §4.3 #4）——未在场模块的
@@ -307,8 +309,11 @@ const MODULE_EXTERNALS = {
   // 主包 = 插件生命周期模型工具族参数面（03 §5.6 八件——task #89 笔三起用，
   // obs/memory 同律）+ import type TSchema 校验参数型面〔07 §5 定形注⑦同笔：
   // c924c16 起用——原注册笔误加重复 host 前键、被既存键整条遮蔽为死码，
-  // 2026-09-15 spec-align 批删并注释，值恒并集零行为变化〕
-  host: ['jiti', 'typebox', 'typebox/value', 'yaml'],
+  // 2026-09-15 spec-align 批删并注释，值恒并集零行为变化〕；typebox/compile
+  // 子路径 = 缺省虚拟面六键装载位（loader.ts loadDefaultVirtualFaces 动态
+  // import——批 12d 早于批 12f-2b 登记批、子路径漏册而门禁因不扫动态形从未
+  // 拦下；I-infra 批 2026-09-21 随动态形入扫补册——子路径逐一人册系本表惯例）
+  host: ['jiti', 'typebox', 'typebox/value', 'typebox/compile', 'yaml'],
 };
 
 /** 跨模块导入允许命中的公开面文件名（02 §4.3 #2 契约面三名——2026-09-07
@@ -395,11 +400,31 @@ function moduleOf(file) {
   return rel.length > 1 ? rel[0] : null;
 }
 
-/** 从源文本提取全部 import 说明符（静态 import/export-from 两形） */
+/** 从源文本提取全部 import 说明符（静态 import/export-from 两形 + 裸动态字面量
+ * 形 import('pkg')——I-infra 批 2026-09-21 第三支：动态形原整类零扫描，任何模块
+ * await import('better-sqlite3') 四门禁恒绿〔维度 2 假绿缝〕。动态形只入裸导入
+ * 账（维度 2 执法面）：相对动态形（值位跨模块 + 类型位 import('./x').T 注记
+ * 形——在场如 agent/types.ts 深挖用法）不入账，边表/面册维度的动态执法随
+ * 规范先行批另立。 */
 function importSpecifiers(text) {
   const specs = [];
   const re = /(?:^|\n)\s*(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
   for (const m of text.matchAll(re)) specs.push(m[1] ?? m[2]);
+  // 动态字面量形 import('pkg')：前导字符类与 host/import-gate 抽取器同款
+  // （await/return/= 等值位形态皆命中——行首锚定形会漏 `const x = await
+  // import('pkg')` 单行写法）；src 扫描与 SDK 扫描两消费位同享本函数。
+  const dynamicRe = /(?:^|[\s;[(!,:=])import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  for (const m of text.matchAll(dynamicRe)) {
+    const spec = m[1];
+    // 相对动态形不入账（. 开头——含类型位注记形，见函数头注裁量）
+    if (spec.startsWith('.')) continue;
+    // 行注释内命中剥除：匹配位之前同段文本含「//」即注释体（import-gate 侧
+    // 同形误伤由 fail-closed 保守面消化、本门禁侧真树须恒绿故须显式剥；块
+    // 注释/字符串内同形不剥——残差与字面量抽取器固有界同族）
+    const lineStart = text.lastIndexOf('\n', m.index) + 1;
+    if (text.slice(lineStart, m.index).includes('//')) continue;
+    specs.push(spec);
+  }
   return specs;
 }
 

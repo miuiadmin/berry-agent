@@ -168,6 +168,66 @@ describe('check-topology 守护炮自测（spawn 全闸形态）', () => {
   // host 键——被检对象即变异拷贝本体；CHECK_TOPOLOGY_ROOT 给可扫描最小
   // src 树（扫描腿不崩即可，红来自键账对拍）。
 
+  // ---- I-infra 批（2026-09-21）：动态 import 字面量形入裸导入账 ----
+  // 缘起：importSpecifiers 原只识别静态两形，`await import('better-sqlite3')`
+  // 整类假绿——头注维度 2「better-sqlite3 只准 persist」对动态形式失效；本批
+  // 第三支动态形（裸说明符入账）+ host 补册 typebox/compile（loader.ts 缺省
+  // 虚拟面装载位——登记批漏此子路径而门禁因不扫动态形从未拦下）。
+
+  it('动态裸导入越账 → 红（await import 单行形——静态两形扫描零命中的整类缝）', () => {
+    const root = fixture('dynamic-external-violation', {
+      'src/webui/index.ts': "export const db = await import('better-sqlite3');\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain("裸导入 'better-sqlite3'");
+  });
+
+  it('动态裸导入合法 → 绿（host 账 typebox 三子路径含补册的 typebox/compile——对照腿不误伤）', () => {
+    const root = fixture('dynamic-external-legal', {
+      'src/host/index.ts':
+        "export const faces = await Promise.all([import('typebox'), import('typebox/value'), import('typebox/compile')]);\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('lint:topology 绿');
+  });
+
+  it('SDK 动态裸导入越账 → 红（SDK 扫描段同享动态形——packages 产码动态 better-sqlite3 同拦）', () => {
+    const root = fixture('sdk-dynamic-external-violation', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'packages/berry-agent-sdk/src/client.ts': "export const db = await import('better-sqlite3');\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain("SDK 裸导入 'better-sqlite3'");
+  });
+
+  it('行注释内动态形不误伤 → 绿（注释体剥除——真树 import-gate.ts 头注/行尾注释两形的前提）', () => {
+    const root = fixture('dynamic-comment-guard', {
+      'src/host/index.ts':
+        "// 伪码示例：const db = await import('better-sqlite3');\nexport const ok = await import('typebox');\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('lint:topology 绿');
+  });
+
+  it('相对动态形不入账 → 绿（值位/类型位两形均本批执法面外——维度 2 裁量锁）', () => {
+    const root = fixture('dynamic-relative-scope', {
+      'src/contracts/index.ts': 'export const x = 1;\n',
+      'src/contracts/llm.ts': 'export type StopReason = string;\n',
+      // 值位形 + 类型位形：类型位 `import('../contracts/llm.js')` 静态等价形会
+      // 红（深挖面）——相对动态形不入账（在场类型位深挖用法先在，边表/面册
+      // 维度的动态执法随规范先行批另立，本批只封裸导入分账整类缝）
+      'src/agent/index.ts':
+        "export const c = import('../contracts/index.js');\nexport type S = import('../contracts/llm.js').StopReason;\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('lint:topology 绿');
+  });
+
   it('字面量键重复 → 红（MODULE_EXTERNALS 注入重复 host 键——后键覆盖前键的静默死码形态）', () => {
     const mutatedDir = join(FIXTURE_ROOT, 'dup-key-script');
     mkdirSync(mutatedDir, { recursive: true });
