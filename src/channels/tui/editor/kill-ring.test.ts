@@ -52,6 +52,20 @@ describe('KillRing 环语义', () => {
     const ring = new KillRing();
     expect(ring.step()).toBeNull();
   });
+
+  it('takeHead 恒取环头并归零游标（yank 取值面——pop 会话残留游标不复用）', () => {
+    const ring = new KillRing();
+    ring.push('旧条');
+    ring.push('新条'); // 环序 [新条, 旧条]
+    ring.step(); // 游标 →1（旧条）——pop 会话残留位
+    expect(ring.takeHead()).toBe('新条'); // 恒环头 + 游标归零
+    expect(ring.step()).toBe('旧条'); // 步进自环头起（0→1）——yank 后 pop 循环序一致
+  });
+
+  it('takeHead 空环返 null', () => {
+    const ring = new KillRing();
+    expect(ring.takeHead()).toBeNull();
+  });
 });
 
 describe('KillRing yank 区间账', () => {

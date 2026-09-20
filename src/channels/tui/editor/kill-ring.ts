@@ -2,8 +2,9 @@
  * emacs kill-ring（07 §4.1 R3 批 10j——批 10i 前挂账解挂）。
  *
  * 语义（规范定值）：kill 族动作（ctrl+w / alt+backspace 词删、ctrl+u / ctrl+k
- * 行删）被删段压环；ctrl+y yank 取环头插入；alt+y yankPop 环游标步进替换刚
- * yank 的段。环帽 32（最旧淘汰）；kill 入 undo（删除动作本身的 undo 编排归
+ * 行删）被删段压环；ctrl+y yank 取环头插入（取值即归零环游标——pop 会话
+ * 残留位不复用于新 yank）；alt+y yankPop 环游标步进替换刚 yank 的段。环帽
+ * 32（最旧淘汰）；kill 入 undo（删除动作本身的 undo 编排归
  * 模型原语——本件只管环），yank / yankPop 不入 undo（恢复非破坏）。
  *
  * yank 区间账 = 位置 + 文本自校验形：yankPop 前校验「区间现文本 === 记账
@@ -39,9 +40,20 @@ export class KillRing {
     this.cursor = 0;
   }
 
-  /** 游标位条目（yank 取值——空环 null） */
+  /** 游标位条目（步进后取值观测——空环 null；yank 取值不走此面） */
   current(): string | null {
     return this.entries[this.cursor] ?? null;
+  }
+
+  /**
+   * yank 取值面（件头规范句「ctrl+y yank 取环头插入」）：恒取环头并归零环
+   * 游标——yankPop 会话的残留游标不复用于新 yank（pop 终结后 ctrl+y 仍取
+   * 最近 kill）；归零使紧随的 yankPop 自环头起步进（entries[1]），与
+   * emacs C-y→M-y 循环序一致。空环 null。
+   */
+  takeHead(): string | null {
+    this.cursor = 0;
+    return this.entries[0] ?? null;
   }
 
   /** yankPop 步进（游标 +1 回绕）返回新条目（空环 null） */

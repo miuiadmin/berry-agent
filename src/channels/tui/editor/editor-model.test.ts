@@ -488,6 +488,27 @@ describe('EditorModel kill-ring 集成', () => {
     expect(m.getText()).toBe('threeone  ');
   });
 
+  it('yank 恒取环头：yankPop 会话残留游标不复用于新 yank', () => {
+    const m = new EditorModel();
+    m.insertText('beta');
+    m.moveHome();
+    m.deleteToLineEnd(); // kill 'beta' → 环 [beta]
+    m.insertText('alpha');
+    m.moveHome();
+    m.deleteToLineEnd(); // kill 'alpha' → 环 [alpha, beta]（环头 alpha）
+    m.yank(); // 插环头 'alpha'
+    expect(m.getText()).toBe('alpha');
+    m.yankPop(); // 替换为次条 'beta'（环游标步进到 1）
+    expect(m.getText()).toBe('beta');
+    m.insertText('X'); // 打断编辑（区间尾追加不改区间内文本——span 不因此失效；
+    // 真正兜底的是下一 yank 的 takeHead 归零环游标 + markYank 重记区间账）
+    m.yank(); // 新 yank 恒取环头——插 'alpha'（修前实得游标残留位 'beta'）
+    expect(m.getText()).toBe('betaXalpha');
+    // 紧随的 yankPop 自环头起步进（次条）——循环序与首 yank 后一致
+    m.yankPop();
+    expect(m.getText()).toBe('betaXbeta');
+  });
+
   it('yankPop 无在案 yank = no-op；区间被编辑后 = no-op（自校验）', () => {
     const m = modelWith('ab');
     m.deleteToLineStart(); // kill 'ab'
@@ -592,9 +613,9 @@ describe('EditorModel 粘贴标记化', () => {
     m.insertText('X'); // 就地展开：登记原文整行替换标记、光标落原文首行首再落字
     expect(m.getLines()).toEqual(['X行0', ...Array.from({ length: 20 }, (_, i) => `行${i + 1}`), '尾部']);
     expect(m.getCursor()).toEqual({ line: 0, col: 1 });
-    m.undo(); // 展开后快照——撤输入字，标记不回（劈开事实诚实记录）
-    expect(m.getLines()).toEqual([...Array.from({ length: 21 }, (_, i) => `行${i}`), '尾部']);
-    expect(m.isPasteMarkerLine(0)).toBe(false); // 登记已随展开注销
+    m.undo(); // 快照在展开前（守卫/undo 共位）——撤输入字并回标记形（登记随快照恢复）
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '尾部']);
+    expect(m.isPasteMarkerLine(0)).toBe(true); // 登记随快照恢复——submit 仍可取回原文
   });
 
   it('标记内换行 = 原子换行（行后插空行、标记保全、submit 取回原文）', () => {
@@ -696,6 +717,24 @@ describe('EditorModel 粘贴标记化', () => {
     m.moveEnd();
     m.insertText('尾'); // 行尾守卫——后置空行
     expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '尾']);
+  });
+
+  it('标记行键入 undo 不残留守卫空行（守卫/undo 共位——3ac74f4 insertPaste 形随迁）', () => {
+    // 行首键入：守卫前置空行——undo 须连同守卫空行一并撤回（修前快照拍在
+    // splice 之后：undo 只撤键入字、残留守卫空行，文本多出前导换行）
+    const m = new EditorModel();
+    m.insertPaste(bigPaste); // lines [marker]，光标 (0,20)——标记行尾
+    m.moveHome(); // (0,0)——标记行首
+    m.insertText('x'); // 守卫前置空行再落字 → ['x', marker]
+    m.undo();
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]']);
+    expect(m.isPasteMarkerLine(0)).toBe(true); // 登记随快照恢复——submit 仍可取回原文
+    // 行尾键入：守卫后置空行——同律一并可撤
+    m.moveEnd(); // (0,20)——标记行尾
+    m.insertText('尾'); // 守卫后置空行再落字 → [marker, '尾']
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '尾']);
+    m.undo();
+    expect(m.getLines()).toEqual(['[paste #1 +21 lines]']);
   });
 
   it('undo 恢复标记形：登记表随快照一致（再删可再 undo）', () => {

@@ -168,14 +168,19 @@ export class EditorModel {
   /**
    * 光标处插入文本（可多行——拆行落位、光标落插入段尾）。
    * undo 合并：连续非空白段合并一单元（打字游程）、空白段独立成步。
-   * 光标在标记内部 → 先展开标记（R3——防插入劈开标记文本）。
+   * 光标在标记行 → 先过防劈守卫（R3——防插入劈开/拼接标记文本）。
+   * 守卫/undo 共位（3ac74f4 insertPaste 形随迁）：pushUndo 先拍照——守卫改
+   * 的行集（前置/后置空行、标记就地展开）随本步可撤，undo 不残留守卫空行。
    */
   insertText(text: string): void {
     if (text === '') return;
     this.exitHistoryBrowsing();
-    this.guardMarkerInsert();
     const isWhitespace = text.trim().length === 0;
+    // 快照先于守卫（守卫 splice/展开改行集须随本步可撤）。合并步虽无新快照
+    // 亦安全：游程首步的快照早于游程内一切守卫改行（含游程内手敲出与在册
+    // 登记同形标记文本的 exotic 可达位）——undo 连游程带守卫改行一并回。
     if (isWhitespace || this.lastAction !== 'type-word') this.pushUndo();
+    this.guardMarkerInsert();
     this.lastAction = isWhitespace ? 'type-whitespace' : 'type-word';
     this.insertTextRaw(normalizeText(text));
     this.notify();
@@ -309,8 +314,9 @@ export class EditorModel {
 
   /**
    * 标记内编辑 = 就地展开（登记原文整行替换标记文本、光标落原文首行首）。
-   * undo 快照在展开后（劈开事实被诚实记录——undo 撤输入字，标记回不去
-   * 除非撤到更早）。
+   * insertText 路 undo 快照在展开前（守卫/undo 共位——展开改的行集随本步
+   * 可撤，undo 撤输入字并回标记形、登记随快照恢复）；yank 路无快照（yank
+   * 本不入 undo——守卫改行集随上一步快照兜底，undo 跳回该步即回标记形）。
    */
   private expandMarkerIfInside(): void {
     const lineNo = this.state.cursorLine;
@@ -522,11 +528,13 @@ export class EditorModel {
 
   /**
    * yank：环头条目插入光标处（R3 定值——**不入 undo**：恢复非破坏）。
-   * 插入段记 yank 区间账（yankPop 替换位）；含换行条目（合并形 '\n' kill）
-   * 插入后行结构变——单行区间账形不适用，不记账（其后 yankPop no-op）。
+   * 取值走 takeHead（恒环头 + 环游标归零）——yankPop 会话残留游标不复用，
+   * 紧随的 yankPop 自环头起步进。插入段记 yank 区间账（yankPop 替换位）；
+   * 含换行条目（合并形 '\n' kill）插入后行结构变——单行区间账形不适用，
+   * 不记账（其后 yankPop no-op）。
    */
   yank(): void {
-    const text = this.ring.current();
+    const text = this.ring.takeHead(); // 恒环头 + 游标归零（pop 残留位不复用）
     if (text === null || text === '') return;
     this.exitHistoryBrowsing();
     this.lastAction = null;
