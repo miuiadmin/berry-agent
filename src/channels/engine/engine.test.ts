@@ -414,4 +414,49 @@ describe('输入接线与协议事件', () => {
     expect((inputs[1] as KeyEvent).key).toBe('escape');
     expect((inputs[1] as KeyEvent).alt).toBe(false);
   });
+
+  it('lone-ESC 装排门换锚形自愈：旧定时器早到空转须重排——Esc 不丢、后键不误判 alt', () => {
+    // 定谳回归靶（2026-09-21 修复批）：T0 挂起装 timer1 → T0+5 续段把旧挂起
+    // 消解（CSI ? u 应答完成）且 chunk 尾起新挂起（锚 T0+5）——装排被「在飞
+    // 门」拒；timer1 于 T0+30 到点 settle 因 elapsed=25<30 空转，修前无人重
+    // 装 → 新挂起永失 Esc 裁决、后键 'q' 误判 alt+q（修前实测事件恰
+    // [{key:'q',alt:true}] 零 escape）。修后定时器到点仍挂起即按当前锚点差
+    // 值自愈重排，T0+35 到点交 Esc。
+    const { io, clock, inputs } = rig();
+    io.emitInput('\x1b'); // T0：lone-ESC 挂起——引擎装 timer1（T0+30 到点）
+    clock.advance(5); // T0+5
+    io.emitInput('[?u\x1b'); // kitty 探测应答消解旧挂起 + 尾起新挂起（锚 T0+5）——门拒装
+    expect(inputs).toEqual([]); // 应答整序吞 + 新挂起未决——零事件
+    clock.advance(26); // T0+31：timer1 于 T0+30 早到空转（elapsed=25<30）
+    expect(inputs).toEqual([]); // 窗仍未满——不提前决（两实现同绿）
+    clock.advance(5); // T0+36 > 锚+窗（T0+35）——自愈重排定时器到点 settle
+    expect(inputs).toEqual([
+      { kind: 'key', key: 'escape', ctrl: false, alt: false, shift: false, meta: false, phase: 'press' },
+    ]); // 修前红：新挂起永失 Esc 裁决——零事件
+    io.emitInput('q'); // 挂起已清、地面态——后键落文本（修前 esc 态误判 alt+q）
+    expect(inputs).toEqual([
+      { kind: 'key', key: 'escape', ctrl: false, alt: false, shift: false, meta: false, phase: 'press' },
+      { kind: 'text', text: 'q' },
+    ]);
+  });
+
+  it('suspend 收 lone-ESC 窗定时器（与 dispose 对称）——复起后装排门干净', () => {
+    // 定谳回归靶：suspend() 修前只 cancelFrame 不 cancelEscapeTimer——挂起窗
+    // 内旧定时器残飞；复起后新 Esc 同款被在飞门拒（配合上例自愈重排终可决，
+    // 但残飞定时器属交出面不对称）。dispose 双收（frame + escape）——suspend
+    // 须同形。
+    const { engine, io, clock, inputs } = rig();
+    clock.advance(0); // 首帧落地——帧定时器基线归零
+    io.emitInput('\x1b'); // lone-ESC 挂起——装判定窗定时器
+    expect(clock.pending()).toBe(1);
+    engine.suspend();
+    expect(clock.pending()).toBe(0); // 修前红：escape 定时器残飞（只收了 frame）
+    engine.resume();
+    clock.advance(0); // 复起首帧
+    io.emitInput('\x1b'); // 复起后新挂起——装排门须干净可装
+    clock.advance(31);
+    expect(inputs).toEqual([
+      { kind: 'key', key: 'escape', ctrl: false, alt: false, shift: false, meta: false, phase: 'press' },
+    ]);
+  });
 });

@@ -313,7 +313,8 @@ export class Engine {
   /**
    * 挂起（换防交出方——三件套）：出屏模式串 → 卸输入监听 → 丢在途转义 →
    * 停流 → raw 复原先验态。挂起后 requestRender 静默短路（闸门）；resize
-   * 监听保留（无副作用——复起几何核对兜住挂起期变更）。
+   * 监听保留（无副作用——复起几何核对兜住挂起期变更）。帧 / lone-ESC 窗
+   * 两定时器全收（decoder 在途已弃——与 dispose 收口对称，防残飞占位）。
    */
   suspend(): void {
     if (this.state !== 'running') return;
@@ -324,6 +325,7 @@ export class Engine {
     this.io.pause();
     this.io.setRawMode(this.priorRaw);
     this.cancelFrame();
+    this.cancelEscapeTimer(); // lone-ESC 窗收口（decoder 已弃在途态——与 dispose 对称）
     this.state = 'suspended';
     this.disarmExitRestore?.(); // 出屏解除硬退复原钩子（持屏窗闭合）
   }
@@ -433,15 +435,35 @@ export class Engine {
   private readonly handleInput = (chunk: string): void => {
     if (this.state !== 'running') return; // 挂起 / 终退后残听防御（闸门）
     this.decoder.feed(chunk);
-    if (this.decoder.hasPendingEscape && this.escapeHandle === null) {
-      this.escapeHandle = this.scheduleFn(() => {
+    this.armEscapeWindow();
+    this.flushDecoderEvents();
+  };
+
+  /**
+   * lone-ESC 判定窗定时器装排（锚点剩余延时 + 到点自愈重排——2026-09-21
+   * 修复批）：
+   * - 装排延时按 decoder 挂起锚点（escapePendingAt）算剩余量，非恒整窗。
+   * - 定时器到点 settle 后仍挂起 = 挂起锚点在本定时器装排后被换新（「旧挂
+   *   起被续段消解 + chunk 尾起新挂起」形：新挂起时刻晚于旧定时器装排时刻，
+   *   装排被「在飞门」拒、旧定时器到点 elapsed 恒 < 窗空转）→ 按当前锚点
+   *   差值重排到新窗点。修前该形无人重装——新挂起永失 Esc 裁决、后续可打
+   *   印键误判 alt+*。
+   * - ESC-ESC 跨 chunk 形锚点不动（迟答防御律改笔 a——余量窗截短无害）：
+   *   锚点未换新时 settle 到点即满窗，不进重排分支，行为与旧门形全同。
+   */
+  private armEscapeWindow(): void {
+    if (!this.decoder.hasPendingEscape || this.escapeHandle !== null) return;
+    const anchor = this.decoder.escapePendingAt ?? this.now();
+    this.escapeHandle = this.scheduleFn(
+      () => {
         this.escapeHandle = null;
         this.decoder.settle();
         this.flushDecoderEvents();
-      }, this.decoderEscapeWindowMs);
-    }
-    this.flushDecoderEvents();
-  };
+        if (this.decoder.hasPendingEscape) this.armEscapeWindow(); // 窗未满——自愈重排
+      },
+      Math.max(0, anchor + this.decoderEscapeWindowMs - this.now()),
+    );
+  }
 
   /** 排空 decoder 事件队列并上抛 emitter */
   private flushDecoderEvents(): void {

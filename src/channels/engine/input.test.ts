@@ -83,6 +83,27 @@ describe('legacy 轨：C0 控制码与功能键', () => {
     expect(run(['\x1bOP'])).toEqual([key('f1')]);
   });
 
+  it('SS3 态内 ESC 特判：后续转义序列起手不被吞（alt+O 驻留后箭头键整序可达）', () => {
+    // legacy 轨 alt+O（metaSendsEscape 整键 \x1bO）驻留 ss3 态——后续 \x1b[A
+    // 的首 ESC 修前被当 SS3 终点无条件消费、残段 '[A' 落地面态成文本（实测
+    // [{text:'[A'}]——LETTER_KEYS 无 ESC 位，终点查表必空）；修后当枚不消
+    // 费、交 esc 态重解（i 不进——OSC 态「当前字节回 esc 态重解」同款先例）
+    const decoder = new InputDecoder();
+    decoder.feed('\x1bO');
+    expect(decoder.take()).toEqual([]); // ss3 态驻留——零事件
+    decoder.feed('\x1b[A');
+    expect(decoder.take()).toEqual([key('up')]);
+  });
+
+  it('ESC 后 DEL = legacy alt+backspace（\\x1b\\x7f）——与键位册注册绑定契约一致', () => {
+    // option-as-meta 终端（无 kitty 的 macOS Terminal.app 等）alt+backspace
+    // 恒 \x1b\x7f 编码；出厂键位册注册该绑定（editor.delete-word-backward
+    // 消费面）——解码面修前整序吞零事件（契约不一致）。整 chunk 与劈 chunk
+    // 两形同修
+    expect(run(['\x1b\x7f'])).toEqual([key('backspace', { alt: true })]);
+    expect(run(['\x1b', '\x7f'])).toEqual([key('backspace', { alt: true })]);
+  });
+
   it('ESC 前缀 = alt：\\x1bx = alt+x；ESC ESC 相邻形 = Esc×2（迟答防御律——legacy alt+escape 降级）', () => {
     expect(run(['\x1bx'])).toEqual([key('x', { alt: true })]);
     // 相邻双 ESC：前枚立即判 Esc 键（无修饰）、当枚消费为新 lone-ESC 候选

@@ -180,6 +180,16 @@ export class InputDecoder {
     return this.escPendingAt !== null;
   }
 
+  /**
+   * lone-ESC 挂起锚点时刻（null = 无挂起）。引擎装排判定窗定时器按锚点算
+   * 剩余延时（2026-09-21 修复批）：挂起锚点可能晚于在飞定时器的装排锚点
+   * （「旧挂起被续段消解 + chunk 尾起新挂起」形）——恒整窗延时装排会使旧
+   * 定时器早到空转，须按锚点差值装排 / 自愈重排。
+   */
+  get escapePendingAt(): number | null {
+    return this.escPendingAt;
+  }
+
   /** 喂入一个 stdin chunk（字符串已按 UTF-8 解码完成） */
   feed(chunk: string): void {
     let i = 0;
@@ -246,9 +256,16 @@ export class InputDecoder {
             i++;
             continue;
           }
-          // ESC + 可打印 = legacy alt 编码（如 \x1bx → alt+x）；控制码罕见——吞
+          // ESC + 可打印 = legacy alt 编码（如 \x1bx → alt+x）。DEL（0x7f）是
+          // ESC 后控制码中唯一主流 alt 编码形（2026-09-21 修复批）：option-
+          // as-meta 终端（无 kitty 的 macOS Terminal.app 等）alt+backspace 恒
+          // \x1b\x7f 编码、出厂键位册注册该绑定（editor.delete-word-backward
+          // 消费面）——解码面与册契约一致；其余控制码罕见——吞
           this.escPendingAt = null;
-          if (cp >= 0x20 && cp !== 0x7f) {
+          if (cp === 0x7f) {
+            this.emitKey('backspace', { ...NO_MODS, alt: true }, 'press');
+            i++;
+          } else if (cp >= 0x20) {
             this.emitKey(String.fromCodePoint(cp), { ...NO_MODS, alt: true }, 'press');
             i += cp > 0xffff ? 2 : 1;
           } else {
@@ -279,7 +296,23 @@ export class InputDecoder {
           continue;
         }
         case 'ss3': {
-          // SS3 单字母终点（A/B/C/D/H/F/P/Q/R/S）
+          // ESC 特判（迟答防御对称补——2026-09-21 修复批）：SS3 态内到达的
+          // ESC 不是终点字节（LETTER_KEYS 无 ESC 位）。修前任意字节被当终点
+          // 无条件消费——legacy alt+O 整键（metaSendsEscape 形 \x1bO）驻留
+          // ss3 态后，后续转义序列（如箭头 \x1b[A）的首 ESC 被吞、残段落下
+          // 面态成文本。当枚不消费、回地面态重解（i 不进——地面态 ESC 分支
+          // 按新转义起手规范消费；不可直入 esc 态：迟答防御的 ESC-ESC 分支
+          // 会把当枚误配对成「窗内第二枚 ESC」发出多余 Esc 键）。escPendingAt
+          // 清位重记：入 ss3 态前的旧锚可能已隔任意久（alt+O 按下到后续序列
+          // 到达无界）——沿用旧锚会把新挂起的判定窗截到零、settle 即刻误决；
+          // feed 尾统一按新挂起记时（引擎按锚点差值装排 / 自愈重排，配合两
+          // 律无早到空转）。
+          if (cp === 0x1b) {
+            this.escPendingAt = null;
+            this.mode = 'ground';
+            continue;
+          }
+          // SS3 单字母终点（A/B/C/D/E/H/F/P/Q/R/S）
           const key = LETTER_KEYS[String.fromCodePoint(cp)];
           this.escPendingAt = null;
           if (key) this.emitKey(key, { ...NO_MODS }, 'press');
