@@ -4,9 +4,10 @@
 # （钉最新已发 tag ref 幂等空转复验形——禁 dev/main 直跑，首步 ref 断言
 # 机制化执法）。发布物从 tag 树在 CI 重建再验收（六道契约全量重跑），
 # publish 经 OIDC 免令牌免 2FA（npmjs.com 包设置已绑本仓 + workflow 三元组）。
-# SDK 不在本腿射程（sdk-v* 不匹配 v* glob——SDK 真发已走本机令牌道上架；
-# CI 腿随 npmjs.com 侧 OIDC trusted publishing 绑定与 SDK 包 publishMode
-# 翻转两依赖另裁，不随批自动接入）。
+# 双包同腿（2026-09-20 SDK CI 化批）：触发 glob v* + sdk-v* 两族——SDK 包
+# 自本批起经同一编舞 OIDC 发布（publishMode 翻 token→ci，两依赖〔npmjs.com
+# 侧绑定 + 翻转拍板〕同日兑现）；step 9 零参跑 `npm run release`，包键由
+# RELEASE_REF 前缀自推（release.mjs derivePkgKey——sdk-v*→sdk / v*→main）。
 #
 # 链尾 API 快照归档步（归档挂入位批 2026-09-16 拍板 = CI 发布腿——快照
 # 双位定形 + 治理子步时序位两笔拍板）：发布成功后把当版 API 面快照挂该版
@@ -17,7 +18,8 @@ name: release
 
 on:
   push:
-    tags: ['v*']
+    # 双包分立两族（2026-09-20 SDK CI 化批——glob 不吞：v* 不匹配 sdk-v* 前缀）
+    tags: ['v*', 'sdk-v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -33,7 +35,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     # job 级 timeout（与 ci.yml「job 级 timeout 全覆盖」纪律同源——挂死不烧满
-    # runner 缺省 6h 配额）：实测 2m51s~3m3s，30 定值给 npm publish 网络腿余量档
+    # runner 缺省 6h 配额）：实测 2m51s（等价跳发形）~7m05s（真 OIDC publish
+    # 网络腿——alpha.8 首绿实测），30 定值给 npm publish 网络腿余量档
     timeout-minutes: 30
     # job 级最小面：id-token = OIDC 必需 + contents = Release 归档件挂载位
     #（2026-09-16 归档挂入位批起 read→write〔归档件挂 Release 需写面〕；
@@ -44,18 +47,19 @@ jobs:
       id-token: write
       contents: write
     steps:
-      # 非 tag ref 禁令机制化：非 refs/tags/v* 形即红（dispatch 直跑腿须钉
-      # tag 名——防绕 tag 保护 ruleset 的发布物直跑）
-      - name: ref 断言（refs/tags/v* 形——非 tag ref 即红）
+      # 非 tag ref 禁令机制化：非 refs/tags/v*|sdk-v* 形即红（dispatch 直跑腿
+      # 须钉 tag 名——防绕 tag 保护 ruleset 的发布物直跑；双前缀并收 =
+      # 2026-09-20 SDK CI 化批——sdk-v tag 同受禁令覆盖）
+      - name: ref 断言（refs/tags/v*|sdk-v* 形——非 tag ref 即红）
         run: |
           set -eu
           ref="${{ github.ref }}"
-          if [ "$ref" != refs/tags/v* ] && [ -n "${{ inputs.tag }}" ]; then
+          if [ "$ref" != refs/tags/v* ] && [ "$ref" != refs/tags/sdk-v* ] && [ -n "${{ inputs.tag }}" ]; then
             ref="refs/tags/${{ inputs.tag }}"
           fi
           case "$ref" in
-            refs/tags/v*) echo "RELEASE_REF=$ref" >> "$GITHUB_ENV" ;;
-            *) echo "::error::GITHUB_REF 非 refs/tags/v* 形（禁 dev/main 直跑——发布道 CI 化定形的 ref 纪律）"; exit 1 ;;
+            refs/tags/v*|refs/tags/sdk-v*) echo "RELEASE_REF=$ref" >> "$GITHUB_ENV" ;;
+            *) echo "::error::GITHUB_REF 非 refs/tags/v*|sdk-v* 形（禁 dev/main 直跑——发布道 CI 化定形的 ref 纪律）"; exit 1 ;;
           esac
       # persist-credentials:false——checkout 后 GITHUB_TOKEN 凭证不落盘（job 面
       # 只剩 OIDC 面；零写面需求）
@@ -63,14 +67,25 @@ jobs:
         with:
           ref: ${{ env.RELEASE_REF }}
           persist-credentials: false
-      # tag↔version 一致性断言（乱打 tag 错位在此咬住）
-      - name: tag↔version 一致性断言
+      # tag↔version 一致性断言（乱打 tag 错位在此咬住）——按 tag 前缀判包
+      # （2026-09-20 SDK CI 化批：sdk-v 前缀读 SDK 包 package.json / v 前缀
+      # 读根 package.json；case 先试 sdk-v 分支——sdk-v* 不匹配 v* 模式，
+      # 双保险防 v 剥壳吞 sdk-v 头）
+      - name: tag↔version 一致性断言（按前缀判包）
         run: |
           set -eu
-          tag_ver="${RELEASE_REF#refs/tags/v}"
-          pkg_ver="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+          case "$RELEASE_REF" in
+            refs/tags/sdk-v*)
+              tag_ver="${RELEASE_REF#refs/tags/sdk-v}"
+              pkg_ver="$(node -p "JSON.parse(require('fs').readFileSync('packages/berry-agent-sdk/package.json','utf8')).version")"
+              ;;
+            refs/tags/v*)
+              tag_ver="${RELEASE_REF#refs/tags/v}"
+              pkg_ver="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+              ;;
+          esac
           if [ "$tag_ver" != "$pkg_ver" ]; then
-            echo "::error::tag v${tag_ver} ≠ 树 version ${pkg_ver}（乱打 tag 错位）"
+            echo "::error::tag ${RELEASE_REF#refs/tags/} ≠ 树 version ${pkg_ver}（乱打 tag 错位）"
             exit 1
           fi
       - uses: actions/setup-node@v7
@@ -111,8 +126,12 @@ jobs:
       # 生成单源 = 抽取器 --archive 既有 CLI；查 9 开发树基线位（api/snapshots/）
       # 不由此步填充，回流随纪元点火批。幂等：release 在场 clobber 覆盖
       # （dispatch 复验形重跑无害）；令牌应急腿尾 tag push 触发的 run 同经此步
-      # 兜底——每 v* tag push 必经 CI 归档全覆盖。
+      # 兜底——每 v*/sdk-v* tag push 必经 CI 腿全覆盖；归档本体 main-only
+      # （SDK 包无 API 面快照契约——2026-09-20 SDK CI 化批，见下 if 守卫）。
       - name: API 面快照归档（GitHub Release assets）
+        # main-only 守卫：RELEASE_REF 由首步注入（push/dispatch 两形齐覆盖），
+        # sdk-v* run 整步跳过（publish 已在上一步走完——跳的是归档不是发布）
+        if: ${{ !startsWith(env.RELEASE_REF, 'refs/tags/sdk-v') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -191,17 +191,17 @@ docs/                   公开文档面（本五册）
 
 | 执行形                                                   | 谁跑                         | 语义                                                                                                                                            |
 | -------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| 本机触发腿（主包缺省）                                   | 维护者本机 `npm run release` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 复探收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish                     |
-| CI 发布腿（`.github/workflows/release.yml`）             | tag `v*` push 触发           | OIDC 免令牌免 2FA publish；契约 5 只读断言 `next`、契约 6 只校验既有 tag；链尾归档当版 API 面快照挂该版 GitHub Release（assets——版本化 API 史） |
-| 令牌全本地旧序（SDK 缺省 / 主包 `--local-publish` 应急） | 本机 npm 凭证                | 六道契约原序全本地                                                                                                                              |
+| 本机触发腿（双包缺省）                                   | 维护者本机 `npm run release` / `npm run release:sdk` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 复探收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish                     |
+| CI 发布腿（`.github/workflows/release.yml`）             | tag `v*` / `sdk-v*` push 触发 | OIDC 免令牌免 2FA publish；契约 5 只读断言 `next`、契约 6 只校验既有 tag；链尾归档当版 API 面快照挂该版 GitHub Release（assets——版本化 API 史；归档步仅主包，SDK run 跳过） |
+| 令牌全本地旧序（`--local-publish` 显式应急）             | 本机 npm 凭证                | 六道契约原序全本地                                                                                                                              |
 
-常规发版（主包）：改 `package.json` version → commit → `npm run release`——脚本完成交棒、等待 CI（gh CLI 轮询，30 分钟帽）、收口与 latest 挪位，全绿即发版完成。SDK：`npm run release:sdk`（令牌全本地形）。
+常规发版（主包）：改 `package.json` version → commit → `npm run release`——脚本完成交棒、等待 CI（gh CLI 轮询，30 分钟帽）、收口与 latest 挪位，全绿即发版完成。SDK：改 `packages/berry-agent-sdk/package.json` version → `npm run release:sdk`——同一条编舞（交棒 `sdk-v*` tag、CI OIDC publish、本机 latest 挪位），差异全在包描述符。
 
 - **演习两形**：
   - 发布机器演习：`npm run release -- --dry-run`（CI 等待段不在演习射程——恒投影令牌道旧序）；
   - release 工作流文件改动预演：改 `.github/workflows/release.yml` 的 PR，合流前在 Actions → release → Run workflow（ref=`dev`、tag=最新已发 tag）跑一次 dispatch 演习位——同 tag 重跑走幂等空转复验形（发布契约 6 只校验既有 tag 不重发），验证改动后的工作流链路本身可走通；run 链接附 PR（自检清单有对应勾位）。
 - **失败恢复（交棒后 CI 红）**：删远端与本地 tag → 修 commit → 重新交棒；树无恙的环境偶发红可 GitHub UI re-run failed jobs；
-- **tag 保护**：`v*` 创建/删除限 admin/维护者（push ruleset）——tag 即发布触发器，推 tag ≈ 发布。
+- **tag 保护**：`v*` / `sdk-v*` 创建/删除限 admin/维护者（push ruleset）——tag 即发布触发器，推 tag ≈ 发布。
 
 ## 贡献流程
 

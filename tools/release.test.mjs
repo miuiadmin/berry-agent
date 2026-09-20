@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   INJECT_SPECTRUM,
   PACKAGES,
+  derivePkgKey,
   judgeDistTag,
   judgeDistTagCi,
   judgeDistTagWithPropagationRetry,
@@ -398,9 +399,10 @@ describe('judgeReadmeStatusVersions（契约 4 版本一致性断言——2026-0
 // ---------------------------------------------------------------------------
 
 describe('parseReleaseArgs', () => {
-  it('空参 = 真发 + 缺省主包；--dry-run = 演习', () => {
+  it('空参 = 真发 + 缺省主包；--dry-run = 演习（pkgExplicit 缺省 false——derivePkgKey 冲突判据）', () => {
     expect(parseReleaseArgs([])).toEqual({
       pkg: 'main',
+      pkgExplicit: false,
       dryRun: false,
       inject: undefined,
       localPublish: false,
@@ -408,6 +410,10 @@ describe('parseReleaseArgs', () => {
       errors: [],
     });
     expect(parseReleaseArgs(['--dry-run']).dryRun).toBe(true);
+    // --package 显式给出 → pkgExplicit 翻 true（零参缺省 main 不算显式）
+    const p = parseReleaseArgs(['--package', 'sdk']);
+    expect(p.pkg).toBe('sdk');
+    expect(p.pkgExplicit).toBe(true);
   });
 
   it('--local-publish 旗标解析（令牌腿应急）', () => {
@@ -441,6 +447,7 @@ describe('parseReleaseArgs', () => {
   it('--package sdk 合法；--package 缺参/未知包名 → 用法错', () => {
     expect(parseReleaseArgs(['--package', 'sdk'])).toEqual({
       pkg: 'sdk',
+      pkgExplicit: true,
       dryRun: false,
       inject: undefined,
       localPublish: false,
@@ -676,10 +683,11 @@ describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
     expect(v.diffs).toEqual(['dist/packages/berry-agent-sdk/src/index.js']);
   });
 
-  // 2026-09-15 CI 化批——publishMode 描述符锁（N4：枚举面随批扩入描述符定形块）
-  it('publishMode 描述符锁：main=ci（缺省形 = 本机触发腿）/ sdk=token（全本地旧序）', () => {
+  // 2026-09-15 CI 化批——publishMode 描述符锁（N4：枚举面随批扩入描述符定形块）；
+  // 2026-09-20 SDK CI 化批随迁：sdk 翻 token→ci（双包同形——本机零参缺省均 trigger）
+  it('publishMode 描述符锁：main=ci / sdk=ci（2026-09-20 SDK CI 化批翻转）', () => {
     expect(PACKAGES.main.publishMode).toBe('ci');
-    expect(PACKAGES.sdk.publishMode).toBe('token');
+    expect(PACKAGES.sdk.publishMode).toBe('ci');
   });
 
   it('runRelease SDK 演习全绿：tarball 名/tag 域/log 面随包分叉', async () => {
@@ -694,13 +702,32 @@ describe('双包发布道（PACKAGES 描述符 + SDK 差分面）', () => {
     expect(s.calls.gitTagCreate).toEqual([]);
   });
 
-  it('runRelease SDK 真发：打 sdk-v tag 推送 + dist-tag 同律', async () => {
-    const s = fakeSeams({}, 'sdk');
+  it('runRelease SDK 真发（2026-09-20 CI 化随迁：缺省形 = 触发腿——本机零 publish + 交棒 sdk-v tag + CI 绿 + latest 挪位）', async () => {
+    // 探测序两答：契约 2 先行探测 E404（absent 正常发）→ CI 绿后复探在场
+    // 记 shasum（深对照腿）——triggerSeams 的 SDK 参数化形（原函数 main 单包
+    // 硬锚 tarball 名，此处内联两答序列）
+    const answers = [
+      { status: 1, stdout: '', stderr: 'npm error code E404\nnpm error 404 Not Found' },
+      { status: 0, stdout: '"2222222222222222222222222222222222222222"\n', stderr: '' },
+    ];
+    let n = 0;
+    const s = fakeSeams(
+      {
+        probe: () => answers[Math.min(n++, 1)],
+        fetchTarball: () => '/tmp/fake/fetch/berry-agent-sdk-0.1.0-alpha.1.tgz',
+      },
+      'sdk',
+    );
     const r = await run(s, '0.1.0-alpha.1', false, 'sdk');
     expect(r.code).toBe(0);
-    expect(s.calls.gitTagCreate).toEqual(['sdk-v0.1.0-alpha.1']);
+    const text = r.report.join('\n');
+    expect(text).toContain('（执行形=本机触发腿）');
+    expect(text).toContain('交棒：tag sdk-v0.1.0-alpha.1 已打并 push');
+    expect(s.calls.publish).toEqual([]); // 本机零 publish——上传单点在 CI（OIDC）
+    expect(s.calls.gitTagCreate).toEqual(['sdk-v0.1.0-alpha.1']); // tag 域随包分立（差分③）
     expect(s.calls.gitTagPush).toEqual(['sdk-v0.1.0-alpha.1']);
-    expect(s.calls.distTagAdd).toEqual([['0.1.0-alpha.1', 'latest']]); // preview 期 latest 跟 prerelease 同律（契约 5 包无关）
+    expect(s.calls.ciWait).toEqual(['sdk-v0.1.0-alpha.1']);
+    expect(s.calls.distTagAdd).toEqual([['0.1.0-alpha.1', 'latest']]); // preview 期 latest 挪位仍本机令牌设计步（npm/cli#8547 双包同律）
   });
 
   it('注入谱 SDK 道同律：probe:network 拒发且不 build（谱项包无关）', async () => {
@@ -853,13 +880,14 @@ describe('pack 失败契约式红（退出码检查——非裸栈/裸 ENOENT）
 // publishing 常轨）。触发腿 = 本机预检→交棒 tag→gh 轮询 CI→registry 复探收口
 // →preview latest 挪位〔npm/cli#8547 结构性外置〕→契约 5 本机复断；CI 腿 =
 // release.yml 内 OIDC publish（契约 5 只读断言 next / 契约 6 只校验既有 tag）；
-// 令牌腿 = 全本地旧序（SDK 缺省 + --local-publish 应急）。
+// 令牌腿 = 全本地旧序（--local-publish 显式应急专属——2026-09-20 SDK CI 化
+// 批起 SDK 缺省同 trigger，token 形只剩旗标一入口）。
 // ---------------------------------------------------------------------------
 
 describe('resolveReleaseForm（执行形解析——旗标 > env > 描述符）', () => {
-  it('缺省：main→trigger（本机触发腿）/ sdk→token（全本地旧序）', () => {
+  it('缺省：双包均→trigger（本机触发腿——2026-09-20 SDK CI 化批随迁）', () => {
     expect(resolveReleaseForm({ pkgKey: 'main', env: {} })).toBe('trigger');
-    expect(resolveReleaseForm({ pkgKey: 'sdk', env: {} })).toBe('token');
+    expect(resolveReleaseForm({ pkgKey: 'sdk', env: {} })).toBe('trigger');
   });
 
   it('旗标压过 env 与描述符：--local-publish 恒 token（应急腿）', () => {
@@ -869,15 +897,51 @@ describe('resolveReleaseForm（执行形解析——旗标 > env > 描述符）'
     );
   });
 
-  it('env=ci + main → ci（release.yml 发布腿形）；env=ci + sdk → 用法错（无 CI 腿）', () => {
+  it('env=ci + 双包 → ci（release.yml 发布腿形——SDK CI 化随迁：原拒句退场）', () => {
     expect(resolveReleaseForm({ pkgKey: 'main', env: { BERRY_AGENT_RELEASE_MODE: 'ci' } })).toBe('ci');
-    expect(() => resolveReleaseForm({ pkgKey: 'sdk', env: { BERRY_AGENT_RELEASE_MODE: 'ci' } })).toThrow(/无 CI 腿/);
+    expect(resolveReleaseForm({ pkgKey: 'sdk', env: { BERRY_AGENT_RELEASE_MODE: 'ci' } })).toBe('ci');
   });
 
   it('env 非法取值 → 用法错（仅认 ci——fail-loud 不猜）', () => {
     expect(() => resolveReleaseForm({ pkgKey: 'main', env: { BERRY_AGENT_RELEASE_MODE: 'local' } })).toThrow(
       /取值非法/,
     );
+  });
+});
+
+describe('derivePkgKey（CI 零参形 pkgKey 自推律——07 §8.3 第 2 款 d 则）', () => {
+  it('ref 缺席 → explicitPkg 原样（本机腿/演习位走缺省 main 不变）', () => {
+    expect(derivePkgKey(undefined)).toBe('main');
+    expect(derivePkgKey('')).toBe('main'); // 空串按缺席处理（GITHUB_ENV 未注入形）
+    expect(derivePkgKey(undefined, { explicitPkg: 'sdk', pkgExplicit: true })).toBe('sdk');
+  });
+
+  it('前缀自推：refs/tags/sdk-v* → sdk / refs/tags/v* → main', () => {
+    expect(derivePkgKey('refs/tags/sdk-v0.1.0-alpha.5')).toBe('sdk');
+    expect(derivePkgKey('refs/tags/v0.1.0-alpha.8')).toBe('main');
+  });
+
+  it('零参形（pkgExplicit 缺省 false）：自推结论压过缺省 main', () => {
+    // release.yml step 9 零参跑 `npm run release`——explicitPkg 只是缺省 main，
+    // 不算显式冲突，自推结论生效（sdk tag 跑出 sdk 包 = CI 腿的真跑形）
+    expect(derivePkgKey('refs/tags/sdk-v0.1.0-alpha.5', { explicitPkg: 'main' })).toBe('sdk');
+    expect(derivePkgKey('refs/tags/v0.1.0-alpha.8', { explicitPkg: 'main' })).toBe('main');
+  });
+
+  it('显式 --package 与自推结论冲突 → 用法错响亮拒（防 CI 手改命令指错包）', () => {
+    expect(() => derivePkgKey('refs/tags/sdk-v0.1.0-alpha.5', { explicitPkg: 'main', pkgExplicit: true })).toThrow(
+      /冲突/,
+    );
+    expect(() => derivePkgKey('refs/tags/v0.1.0-alpha.8', { explicitPkg: 'sdk', pkgExplicit: true })).toThrow(/冲突/);
+  });
+
+  it('显式 --package 与自推一致 → 过（显式重申不冲突）', () => {
+    expect(derivePkgKey('refs/tags/sdk-v0.1.0-alpha.5', { explicitPkg: 'sdk', pkgExplicit: true })).toBe('sdk');
+  });
+
+  it('ref 非两前缀之任一 → 响亮拒（release.yml 首步断言前置失效的纵深防御位）', () => {
+    expect(() => derivePkgKey('refs/heads/dev')).toThrow(/非 refs\/tags\/v\*\|sdk-v\* 形/);
+    expect(() => derivePkgKey('refs/tags/x9.9.9')).toThrow(/非 refs\/tags\/v\*\|sdk-v\* 形/);
   });
 });
 
@@ -1220,11 +1284,17 @@ describe('runRelease CI 形（env BERRY_AGENT_RELEASE_MODE=ci——release.yml �
     expect(r.report.join('\n')).toContain('异 commit 响亮拒');
   });
 
-  it('env ci 撞 SDK → 用法错退 1（SDK 无 CI 腿）', async () => {
-    const s = fakeSeams({}, 'sdk');
+  it('env=ci + SDK → CI 形合法全绿（2026-09-20 SDK CI 化随迁：原拒句测试翻正形）', async () => {
+    const s = fakeSeams({ gitTagState: () => ({ commit: 'aaaa0000' }) }, 'sdk');
     const r = await run(s, '0.1.0-alpha.1', false, 'sdk', { env: ciEnv });
-    expect(r.code).toBe(1);
-    expect(r.report.join('\n')).toContain('无 CI 腿');
+    expect(r.code).toBe(0);
+    const text = r.report.join('\n');
+    expect(text).toContain('（执行形=CI 发布腿）');
+    expect(text).toContain('tag sdk-v0.1.0-alpha.1 在场且同 commit（CI 只校验不打）'); // tag 域随包分立
+    expect(s.calls.publish).toEqual([
+      { tarball: '/tmp/fake/berry-agent-sdk-0.1.0-alpha.1.tgz', next: true, dryRun: false },
+    ]);
+    expect(s.calls.distTagAdd).toEqual([]); // 同 main 律——latest 挪位外置本机腿
   });
 
   it('env 非法值 → 用法错退 1（fail-loud）', async () => {

@@ -8,7 +8,8 @@
  * 的 package.json `version`**（bump 走普通 commit；脚本不 bump 不自增——发布
  * 失败重跑同号无跳号）。
  *
- * 双包发布道：`--package <main|sdk>`（缺省 main 零参兼容）——六道编舞单源
+ * 双包发布道：`--package <main|sdk>`（缺省 main 零参兼容；CI 零参形按
+ * RELEASE_REF 前缀自推包键——derivePkgKey，07 §8.3 第 2 款 d 则）——六道编舞单源
  * 零分叉，全部包差异收进 PACKAGES 描述符单源表（07 §8.3 差分六则）；分立
  * 脚本与双包并跑一进程均否决（编舞复制 = 漂移面 / 一包失败另一包已传不可撤）。
  *
@@ -36,8 +37,9 @@
  * 交棒 tag → gh 轮询 CI run 终态 → registry 复探收口〔恒深对照——溯源戳跨机必
  * 不等〕→ preview 期本机 dist-tag set latest〔npm/cli#8547 结构性外置〕→ 契约 5
  * 本机复断）/ ci CI 发布腿（release.yml 内 OIDC publish；契约 5 只读断言 next、
- * 契约 6 只校验既有 tag）/ token 令牌全本地旧序（SDK 缺省 + 主包 --local-publish
- * 应急——六道契约原序不动）。--dry-run 独立于模式轴：任何形下演习投影的都是
+ * 契约 6 只校验既有 tag）/ token 令牌全本地旧序（--local-publish 显式应急
+ * 专属——2026-09-20 SDK CI 化批起 SDK publishMode 翻 token→ci，双包本机
+ * 零参缺省同走 trigger 交棒形；六道契约原序不动）。--dry-run 独立于模式轴：任何形下演习投影的都是
  * 令牌道旧序（CI 等待段不在演习射程）。
  *
  * 演习形态：--dry-run——契约 1/2 照跑；契约 3 真做；契约 4 幂等照判、publish
@@ -206,7 +208,9 @@ export const PACKAGES = {
     name: 'berry-agent-sdk',
     pkgDir: 'packages/berry-agent-sdk',
     tagPrefix: 'sdk-v',
-    publishMode: 'token',
+    // 2026-09-20 SDK CI 化批：token→ci 翻转（npmjs.com 侧 OIDC 绑定同日就位
+    // ——07 §8.3 第 2 款两依赖兑现；本机零参缺省自此走 trigger 交棒形）
+    publishMode: 'ci',
     tarballName: (version) => `berry-agent-sdk-${version}.tgz`,
     packAllowed: SDK_PACK_ALLOWED,
     packBanned: SDK_PACK_BANNED,
@@ -380,22 +384,45 @@ export function judgeReadmeStatusVersions(variants, version) {
 /**
  * 执行形解析（07 §8.3 末定形注第 1 款——模式轴单源）：
  * --local-publish 旗标 > env BERRY_AGENT_RELEASE_MODE=ci > 描述符 publishMode。
- * env 只认 'ci' 一值（release.yml 发布腿专属信号——本机不应自设）；env=ci 撞
- * token 包（SDK 无 CI 腿）= 用法错响亮拒，非法取值同拒——fail-loud 不猜。
- * 返回三态：'trigger'（本机触发腿——主包缺省）/ 'ci'（CI 发布腿）/
- * 'token'（令牌全本地旧序——SDK 缺省 + 旗标应急）。
+ * env 只认 'ci' 一值（release.yml 发布腿专属信号——本机不应自设）；非法取值
+ * 响亮拒——fail-loud 不猜。〔2026-09-20 SDK CI 化批随迁注：原「env=ci 撞
+ * token 包（SDK 无 CI 腿）= 用法错响亮拒」句随 SDK publishMode 翻转**退场**
+ * ——双包描述符均 ci 后该分支成死码删除；token 形自此只剩 --local-publish
+ * 显式应急一入口〕。返回三态：'trigger'（本机触发腿——双包缺省）/
+ * 'ci'（CI 发布腿）/ 'token'（令牌全本地旧序——旗标应急专属）。
  */
 export function resolveReleaseForm({ pkgKey = 'main', localPublish = false, env = process.env }) {
   if (localPublish) return 'token';
   const envMode = env.BERRY_AGENT_RELEASE_MODE;
   if (envMode !== undefined) {
     if (envMode !== 'ci') throw new Error(`BERRY_AGENT_RELEASE_MODE 取值非法：${envMode}（仅认 ci）`);
-    if (PACKAGES[pkgKey].publishMode !== 'ci') {
-      throw new Error(`env ci 撞无 CI 腿的包 ${PACKAGES[pkgKey].name}（SDK 走令牌全本地旧序）`);
-    }
     return 'ci';
   }
   return PACKAGES[pkgKey].publishMode === 'ci' ? 'trigger' : 'token';
+}
+
+/**
+ * CI 零参形 pkgKey 自推律（07 §8.3 末定形注第 2 款 d 则——2026-09-20 SDK
+ * CI 化批）：release.yml 发布腿零参跑 `npm run release`（step 无 --package），
+ * 包键按 RELEASE_REF 前缀自推——refs/tags/sdk-v* → sdk、refs/tags/v* →
+ * main；ref 缺席（本机腿/演习位）走 explicitPkg 缺省 main 不变。fail-loud
+ * 两形：ref 非两前缀之任一（release.yml 首步 ref 断言的前置失效——纵深
+ * 防御位）响亮拒；显式 --package 与自推结论冲突响亮拒（防 CI 手改命令
+ * 指错包真发——pkgExplicit 标记显式性，缺省 main 的零参形不算冲突）。
+ * @param {string|undefined} ref 环境变量 RELEASE_REF（release.yml 首步注入）
+ * @param {{explicitPkg?: string, pkgExplicit?: boolean}} opts 显式 --package 值与显式性标记
+ * @returns {string} 生效包键
+ */
+export function derivePkgKey(ref, { explicitPkg = 'main', pkgExplicit = false } = {}) {
+  if (!ref) return explicitPkg;
+  let derived;
+  if (ref.startsWith('refs/tags/sdk-v')) derived = 'sdk';
+  else if (ref.startsWith('refs/tags/v')) derived = 'main';
+  else throw new Error(`RELEASE_REF 非 refs/tags/v*|sdk-v* 形：${ref}`);
+  if (pkgExplicit && explicitPkg !== derived) {
+    throw new Error(`--package ${explicitPkg} 与 RELEASE_REF（${ref}）自推包键 ${derived} 冲突`);
+  }
+  return derived;
 }
 
 /**
@@ -572,9 +599,17 @@ export const INJECT_SPECTRUM = {
   },
 };
 
-/** argv 解析：{ pkg, dryRun, inject, localPublish, epochDrill, errors }——用法错聚齐由 CLI 层退 2 */
+/** argv 解析：{ pkg, pkgExplicit, dryRun, inject, localPublish, epochDrill, errors }——用法错聚齐由 CLI 层退 2（pkgExplicit 标记 --package 是否显式给出——derivePkgKey 冲突判据用，缺省 main 零参形不算显式） */
 export function parseReleaseArgs(argv) {
-  const out = { pkg: 'main', dryRun: false, inject: undefined, localPublish: false, epochDrill: false, errors: [] };
+  const out = {
+    pkg: 'main',
+    pkgExplicit: false,
+    dryRun: false,
+    inject: undefined,
+    localPublish: false,
+    epochDrill: false,
+    errors: [],
+  };
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
     if (tok === '--dry-run') out.dryRun = true;
@@ -590,6 +625,7 @@ export function parseReleaseArgs(argv) {
         out.errors.push(`未知包名：${key}（合法：${Object.keys(PACKAGES).join(' / ')}）`);
       } else {
         out.pkg = key;
+        out.pkgExplicit = true;
       }
       i++;
     } else if (tok === '--inject') {
@@ -1333,12 +1369,28 @@ if (isMain) {
     );
     process.exit(2);
   }
-  const base = realSeams(parsed.pkg);
+  // pkgKey 自推律接线（07 §8.3 第 2 款 d 则）：RELEASE_REF 在场（release.yml
+  // 发布腿零参形）按 tag 前缀自推包键；显式 --package 与自推冲突/非两前缀
+  // 形均响亮拒退 2（与 argv 用法错同出口同形）
+  let pkgKey = parsed.pkg;
+  try {
+    pkgKey = derivePkgKey(process.env.RELEASE_REF, {
+      explicitPkg: parsed.pkg,
+      pkgExplicit: parsed.pkgExplicit,
+    });
+  } catch (err) {
+    console.error(`用法错：${err.message}`);
+    console.error(
+      '用法：node tools/release.mjs [--package <main|sdk>] [--dry-run] [--local-publish] [--epoch-drill] [--inject <谱项>]',
+    );
+    process.exit(2);
+  }
+  const base = realSeams(pkgKey);
   const seams = parsed.inject !== undefined ? INJECT_SPECTRUM[parsed.inject].patch(base) : base;
-  const pkgJson = JSON.parse(readFileSync(join(REPO_ROOT, PACKAGES[parsed.pkg].pkgDir, 'package.json'), 'utf8'));
+  const pkgJson = JSON.parse(readFileSync(join(REPO_ROOT, PACKAGES[pkgKey].pkgDir, 'package.json'), 'utf8'));
   const result = await runRelease(seams, {
     version: pkgJson.version,
-    pkgKey: parsed.pkg,
+    pkgKey,
     dryRun: parsed.dryRun,
     localPublish: parsed.localPublish,
     epochDrill: parsed.epochDrill,
