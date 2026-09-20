@@ -27,7 +27,7 @@ export interface SessionRegistration {
   readonly seedLength: number;
   /** 工作区根（「按 cwd 取最新会话」选取键；无工作区会话 = undefined） */
   readonly workspaceRoot: string | undefined;
-  /** 标题（可空——auto-title 后经 updateSessionTitle 独立更新） */
+  /** 标题（可空——显式题优先〔headless 起源传入/人面 updateSessionTitle〕；缺席时写路物化首问快照〔05 §9，见 firstQuestionSummaryOf〕） */
   readonly title: string | undefined;
 }
 
@@ -163,6 +163,69 @@ const QUERY_LIMIT_MAX = 10000;
 
 /** store_state LRU 帽（05 §6.2） */
 const STORE_STATE_LRU_CAP = 256;
+
+// ── 首问快照派生（05 §9 档案列 first_question_summary——title 列过渡承载）──────
+
+/**
+ * 首问快照字符帽（05 §9 档案两列拍板〔2026-09-05 题 16〕：first_question_summary
+ * 首版 **200 字符**上限，超长截断加尾标记）。
+ */
+export const FIRST_QUESTION_SUMMARY_MAX_CHARS = 200;
+
+/** 截断尾标记（§1.2 裁腿同式——N = 截掉字符数） */
+function firstQuestionMarker(truncatedChars: number): string {
+  return `…[truncated ${truncatedChars} chars]`;
+}
+
+/**
+ * 真用户源判据（05 §9 字面 + §3.1 闭集用户侧）：source ∈ 'user' ∪ 'channel:<id>'。
+ * schedule/budget-extended/subagent-* 等机器注入位与 plugin:/session: 受控注入
+ * 位虽投影可能同视 user，均非「真用户输入」不入首问列；source 缺席同不入列
+ * （新写事件经 driver 归因恒带 source——缺席只出现在历史残卷，保守跳过）。
+ */
+function isRealUserSource(source: unknown): boolean {
+  return source === 'user' || (typeof source === 'string' && source.startsWith('channel:'));
+}
+
+/** user/message 载荷 → 拼接文本（块形态取 text 块以空格拼、image 块不入文字快照） */
+function userTextOf(content: unknown): string | undefined {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return undefined;
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block !== null && typeof block === 'object' && (block as { type?: unknown }).type === 'text') {
+      const text = (block as { text?: unknown }).text;
+      if (typeof text === 'string' && text.length > 0) parts.push(text);
+    }
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
+/**
+ * 事件 → 首问快照（05 §9 first_question_summary 的派生纯函数）：
+ * 真用户输入（user/message 且 source ∈ user/channel:*）的截断快照——
+ *  - 200 字符帽，超长截头加尾标 `…[truncated N chars]`（§1.2 裁腿同式）；
+ *  - 空白折叠为单空格并去首尾（清单面单行承载 + TUI grid 零控制字节律——
+ *    换行/制表符不进 title）；
+ *  - 无文本可取（纯 image 消息 / 折叠后为空）→ undefined（快照无从截起）。
+ * 非真用户输入（非 user/message 词、机器源、受控注入源）→ undefined。
+ */
+export function firstQuestionSummaryOf(event: Pick<SessionEvent, 'type' | 'data'>): string | undefined {
+  if (event.type !== 'user/message') return undefined;
+  const data = event.data;
+  if (data === null || typeof data !== 'object') return undefined;
+  const record = data as Record<string, unknown>;
+  if (!isRealUserSource(record.source)) return undefined;
+  const text = userTextOf(record.content);
+  if (text === undefined) return undefined;
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  if (collapsed.length === 0) return undefined;
+  if (collapsed.length <= FIRST_QUESTION_SUMMARY_MAX_CHARS) return collapsed;
+  return (
+    collapsed.slice(0, FIRST_QUESTION_SUMMARY_MAX_CHARS) +
+    firstQuestionMarker(collapsed.length - FIRST_QUESTION_SUMMARY_MAX_CHARS)
+  );
+}
 
 /**
  * 打开库（门禁序，05 §6.4/§6.5/§6.6）：
@@ -437,14 +500,21 @@ export class Store implements WriteTarget {
         event.surfaceOp.end,
       );
     }
-    // sessions 行：身份列首登为准（冲突只推进），updated_at/last_seq 批写推进
+    // sessions 行：身份列首登为准（冲突只推进），updated_at/last_seq 批写推进。
+    // title = 首问快照物化位（05 §9 档案列 first_question_summary 的本仓过渡
+    // 承载——真列须 schema 迁移腿〔schema.ts/runtime.ts 文件域〕留主会话收口）：
+    // 显式题（登记快照——headless 起源传入）优先；否则写路自「本会话最早真用户
+    // 输入」（含刚落账的本事件与种子前缀）派生物化。COALESCE 首登不回改——
+    // 已物化值/显式题/人面 updateSessionTitle 恒胜出，后续消息零覆盖。
+    const titleOffer = registration.title ?? this.firstQuestionOfferOf(sessionId, event);
     this.stmt(
       `INSERT INTO sessions (id, title, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, last_seq = MAX(last_seq, excluded.last_seq)`,
+       ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, last_seq = MAX(last_seq, excluded.last_seq),
+         title = COALESCE(sessions.title, ?)`,
     ).run(
       sessionId,
-      registration.title ?? null,
+      titleOffer ?? null,
       registration.origin,
       registration.parentId ?? null,
       registration.seedLength,
@@ -452,9 +522,36 @@ export class Store implements WriteTarget {
       now,
       now,
       event.seq,
+      titleOffer ?? null, // 冲突分支 COALESCE 补位参（offer 缺席 = NULL = 保持现值）
     );
     // 批内推进（局部批 Map——真推进 this.cursors 由调用方在事务成功后统一落）
     batchCursors.set(sessionId, event.seq);
+  }
+
+  /**
+   * 首问快照写路派生（05 §9 读模型物化的查询腿）：扫本会话 user/message 行
+   * 取**最早真用户输入**——events 行已在 writeTuple 先行落账（含本事件），故
+   * 命中即本会话真首条：新会话 = 本事件；fork/导入 = 种子前缀内首条；存量库
+   * （旧版不物化、title NULL）在下次用户消息写时惰性回填真首条（§9「可从
+   * 日志重新派生回填」律的写路兑现）。机器源行（compaction 载体等）逐行跳过。
+   * 非用户消息事件短路零查（热路径只付 user/message 一查的代价）。
+   */
+  private firstQuestionOfferOf(sessionId: string, event: SessionEvent): string | undefined {
+    if (event.type !== 'user/message') return undefined;
+    const rows = this.stmt(
+      `SELECT data FROM events WHERE session_id = ? AND type = 'user/message' ORDER BY seq`,
+    ).iterate(sessionId) as Iterable<{ data: string }>;
+    for (const row of rows) {
+      let data: unknown;
+      try {
+        data = JSON.parse(row.data);
+      } catch {
+        continue; // 坏行跳过（撕裂尾 heal 是 loadEvents 的执法域——此处只取首问不执法）
+      }
+      const summary = firstQuestionSummaryOf({ type: 'user/message', data });
+      if (summary !== undefined) return summary;
+    }
+    return undefined;
   }
 
   /** 毒丸记账：不落行但推进游标（后续事件 seq 续账不撞连续性断言） */

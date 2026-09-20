@@ -204,6 +204,37 @@ describe('透传面', () => {
   });
 });
 
+describe('首问快照物化（05 §9——/sessions 清单信息密度）', () => {
+  it('交互创建路：首条用户输入物化 title（flush 后 listSessions 可见）', async () => {
+    const p = open();
+    const log = p.createSession({ origin: 'conversation', workspaceRoot: '/ws/fq' });
+    oneTurn(log, '帮我看看构建为什么失败');
+    await p.flush();
+    const rows = p.listSessions();
+    expect(rows).toHaveLength(1);
+    // 修前红：交互路无人传题 + auto-title 链断裂——清单恒全员「（无题）」
+    expect(rows[0]!.title).toBe('帮我看看构建为什么失败');
+  });
+
+  it('channel:* 源同入列（webui/SDK 通道输入同视真用户——05 §3.1 用户侧）', async () => {
+    const p = open();
+    const log = p.createSession({ origin: 'conversation' });
+    log.append('user/message', { content: '来自网页的问题', source: 'channel:webui' });
+    await p.flush();
+    expect(p.listSessions()[0]!.title).toBe('来自网页的问题');
+  });
+
+  it('fork 种子路：亲代首问快照随种子物化（首条真用户输入含种子前缀）', async () => {
+    const p = open();
+    const src = p.createSession({ origin: 'conversation' });
+    oneTurn(src, '父会话的首个问题');
+    await p.flush();
+    const forked = p.createSeededSession(src.events(), { origin: 'fork', parentId: src.sessionId });
+    // 同步落库路（writeEvents 直写）同受物化覆盖——不依赖 write-behind 时序
+    expect(p.listSessions().find((r) => r.id === forked.sessionId)?.title).toBe('父会话的首个问题');
+  });
+});
+
 describe('durable 事件活体镜像（onDurableEvent——03 §146 发射位，批 19b-2）', () => {
   /** 开镜像面助手 */
   function openMirror(onDurableEvent: (payload: { sessionId: string; event: SessionEvent }) => void): Persistence {

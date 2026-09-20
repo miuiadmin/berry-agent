@@ -18,7 +18,15 @@ import { CREDENTIALS_MIGRATION } from '../credentials/index.js';
 import { SessionLog } from '../session/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import type { MigrationSpec } from './migrations.js';
-import { openStore, prepareWal, type EventWrite, type SessionRegistration, type Store } from './store.js';
+import {
+  FIRST_QUESTION_SUMMARY_MAX_CHARS,
+  firstQuestionSummaryOf,
+  openStore,
+  prepareWal,
+  type EventWrite,
+  type SessionRegistration,
+  type Store,
+} from './store.js';
 
 /** 仓根目录（子进程 require('better-sqlite3') 的解析位——无需 tsx，只用到物理层依赖） */
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -405,6 +413,129 @@ describe('sessions 行面', () => {
     expect(store.queryEvents({ sessionId: 's-del' }).events).toHaveLength(0);
     expect(store.searchSessionFts('s-del', 'findme')).toHaveLength(0);
     expect(store.deleteSession('s-del')).toBe(false);
+  });
+});
+
+describe('首问快照物化（05 §9 档案列 first_question_summary——title 列过渡承载）', () => {
+  it('firstQuestionSummaryOf 判据面：真用户源两形入列 / 机器源与缺席不入列', () => {
+    const summaryOf = (data: unknown) => firstQuestionSummaryOf({ type: 'user/message', data });
+    // 真用户源两形（05 §9 字面 + §3.1 闭集用户侧）
+    expect(summaryOf({ content: '你好', source: 'user' })).toBe('你好');
+    expect(summaryOf({ content: '来自网页', source: 'channel:webui' })).toBe('来自网页');
+    // 机器注入位（投影可同视 user 但非真用户输入）不入列
+    expect(summaryOf({ content: 'x', source: 'schedule' })).toBeUndefined();
+    expect(summaryOf({ content: 'x', source: 'budget-extended' })).toBeUndefined();
+    expect(summaryOf({ content: 'x', source: 'subagent-settled' })).toBeUndefined();
+    expect(summaryOf({ content: 'x', source: 'compaction' })).toBeUndefined();
+    // 受控/操控注入位不入列
+    expect(summaryOf({ content: 'x', source: 'plugin:demo' })).toBeUndefined();
+    expect(summaryOf({ content: 'x', source: 'session:s1' })).toBeUndefined();
+    // source 缺席不入列（判据字面：source ∈ user/channel:<id>——历史残卷保守跳过）
+    expect(summaryOf({ content: 'x' })).toBeUndefined();
+    // 非 user/message 词不入列
+    expect(firstQuestionSummaryOf({ type: 'turn/start', data: {} })).toBeUndefined();
+  });
+
+  it('firstQuestionSummaryOf 截断与块形态：200 字符帽恰界 + 尾标同式 + text 块拼接', () => {
+    const summaryOf = (data: unknown) => firstQuestionSummaryOf({ type: 'user/message', data });
+    expect(FIRST_QUESTION_SUMMARY_MAX_CHARS).toBe(200); // 05 §9 首版定值锁
+    // 帽下原文直通（恰 200 无尾标）
+    const exact = 'a'.repeat(200);
+    expect(summaryOf({ content: exact, source: 'user' })).toBe(exact);
+    // 超帽：头 200 字符 + 尾标（N = 截掉字符数——§1.2 裁腿同式）
+    expect(summaryOf({ content: 'b'.repeat(253), source: 'user' })).toBe('b'.repeat(200) + '…[truncated 53 chars]');
+    // 块形态：text 块空格拼接、image 块不入文字快照
+    expect(
+      summaryOf({
+        content: [
+          { type: 'text', text: '看这张图' },
+          { type: 'image', data: 'AAAA', mimeType: 'image/png' },
+          { type: 'text', text: '为什么失败' },
+        ],
+        source: 'user',
+      }),
+    ).toBe('看这张图 为什么失败');
+    // 纯 image 消息无文本可截 → 不入列
+    expect(summaryOf({ content: [{ type: 'image', data: 'AAAA' }], source: 'user' })).toBeUndefined();
+    // 折叠后为空 → 不入列
+    expect(summaryOf({ content: ' \n\t ', source: 'user' })).toBeUndefined();
+  });
+
+  it('写路物化：首条真用户输入落 title + 后续消息不回改（首登为准）', () => {
+    const store = open({ dbPath: join(dir, 'fq.db') });
+    const log = new SessionLog({ sessionId: 'fq' });
+    log.append('turn/start', {});
+    log.append('user/message', { content: '第一个问题', source: 'user' });
+    store.writeEvents(writesFor('s-fq', log.events()));
+    // 修前红：updateSessionTitle 零生产调用方 + 创建位不传题——title 恒 NULL
+    expect(store.getSessionRow('s-fq')?.title).toBe('第一个问题');
+    // 第二轮消息：首问已物化不回改（后续用户消息不覆盖）
+    log.append('turn/start', {});
+    log.append('user/message', { content: '第二个问题', source: 'user' });
+    store.writeEvents(writesFor('s-fq', log.events().slice(2)));
+    expect(store.getSessionRow('s-fq')?.title).toBe('第一个问题');
+  });
+
+  it('写路物化：超长首问 200 字符截断 + 尾标（§1.2 裁腿同式）', () => {
+    const store = open({ dbPath: join(dir, 'fq-long.db') });
+    const long = '问'.repeat(253);
+    store.writeEvents(writesFor('s-fq-long', makeEvents(long)));
+    expect(store.getSessionRow('s-fq-long')?.title).toBe('问'.repeat(200) + '…[truncated 53 chars]');
+  });
+
+  it('写路物化：多行首问空白折叠单行（清单面单行承载 + 零控制字节）', () => {
+    const store = open({ dbPath: join(dir, 'fq-ws.db') });
+    const log = new SessionLog({ sessionId: 'fq-ws' });
+    log.append('user/message', { content: '  第一行\n\t第二行\n\n  尾部  ', source: 'user' });
+    store.writeEvents(writesFor('s-fq-ws', log.events()));
+    expect(store.getSessionRow('s-fq-ws')?.title).toBe('第一行 第二行 尾部');
+  });
+
+  it('写路物化：机器注入 user/message 不入列（compaction/schedule/plugin），真用户输入随后物化', () => {
+    const store = open({ dbPath: join(dir, 'fq-machine.db') });
+    const log = new SessionLog({ sessionId: 'fq-machine' });
+    // compaction 摘要载体走 user/message 词形——非真用户输入不入列
+    log.append('user/message', { content: '[summary] 旧会话摘要正文', source: 'compaction' });
+    store.writeEvents(writesFor('s-fq-m', log.events()));
+    expect(store.getSessionRow('s-fq-m')?.title).toBeUndefined();
+    // schedule 机器注入同不入列
+    log.append('user/message', { content: '到点自动起跑', source: 'schedule' });
+    store.writeEvents(writesFor('s-fq-m', log.events().slice(1)));
+    expect(store.getSessionRow('s-fq-m')?.title).toBeUndefined();
+    // 真用户输入到达——首问物化（跳过机器注入行取真首条）
+    log.append('user/message', { content: '真问题', source: 'user' });
+    store.writeEvents(writesFor('s-fq-m', log.events().slice(2)));
+    expect(store.getSessionRow('s-fq-m')?.title).toBe('真问题');
+  });
+
+  it('写路物化：显式题优先（headless 登记题不被派生覆盖）+ updateSessionTitle 人面更新仍胜出', () => {
+    const store = open({ dbPath: join(dir, 'fq-title.db') });
+    const reg: SessionRegistration = { ...REG, title: 'issue #42 自动处理' };
+    const log = new SessionLog({ sessionId: 'fq-title' });
+    log.append('user/message', { content: 'headless 起跑输入', source: 'schedule' });
+    log.append('user/message', { content: '操作者的真输入', source: 'user' });
+    store.writeEvents(writesFor('s-fq-t', log.events(), reg));
+    expect(store.getSessionRow('s-fq-t')?.title).toBe('issue #42 自动处理');
+    // 人面显式改名（updateSessionTitle 独立面）不被后续物化回卷
+    expect(store.updateSessionTitle('s-fq-t', '人面改名')).toBe(true);
+    log.append('user/message', { content: '改名后的新消息', source: 'user' });
+    store.writeEvents(writesFor('s-fq-t', log.events().slice(2)));
+    expect(store.getSessionRow('s-fq-t')?.title).toBe('人面改名');
+  });
+
+  it('legacy 库惰性回填：存量行 title NULL（旧代码写入形）后续写真首条回填', () => {
+    const store = open({ dbPath: join(dir, 'fq-legacy.db') });
+    const log = new SessionLog({ sessionId: 'fq-legacy' });
+    log.append('user/message', { content: '历史首问', source: 'user' });
+    store.writeEvents(writesFor('s-fq-l', log.events()));
+    expect(store.getSessionRow('s-fq-l')?.title).toBe('历史首问');
+    // 模拟存量库形：旧版本代码不物化 title（直清列复现）
+    store.connection.exec(`UPDATE sessions SET title = NULL`);
+    expect(store.getSessionRow('s-fq-l')?.title).toBeUndefined();
+    // 新消息写：回填真首条（历史首问）而非本条——「可从日志重新派生回填」律
+    log.append('user/message', { content: '后来的消息', source: 'user' });
+    store.writeEvents(writesFor('s-fq-l', log.events().slice(1)));
+    expect(store.getSessionRow('s-fq-l')?.title).toBe('历史首问');
   });
 });
 

@@ -2267,3 +2267,21 @@ describe('retry/abort 编舞 × write-behind 落库跨进程（A4——时序交
     await rt2.shutdown();
   });
 });
+
+describe('首问快照物化全链（/sessions 恒「（无题）」修复——05 §9）', () => {
+  it('TUI 提交路：submitText 后 /sessions 数据源行 title 在场（sessions provider 映射位上游）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const ws = rigWorkspace();
+    const session = stack.openStartupSession(ws);
+    faux.setResponses([() => messageOf('stop')]);
+    await stack.submitText(session.sessionId, '帮我修 TUI 渲染错位');
+    await rt.persistence.flush();
+    const rows = stack.manager.list({});
+    expect(rows).toHaveLength(1);
+    // 修前红：交互创建位不传题 + updateSessionTitle 零生产调用方——provider
+    // 读到恒 NULL 的 row.title，/sessions 清单全员「（无题）」
+    expect(rows[0]!.title).toBe('帮我修 TUI 渲染错位');
+    await rt.shutdown();
+  });
+});

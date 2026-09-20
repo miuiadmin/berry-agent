@@ -411,7 +411,7 @@ describe('订阅重放与读面动词', () => {
     await closeExpect0(rig, entry);
   });
 
-  it('sessions 清单：含本连接会话（id/标题空档 null/末活动时间）', async () => {
+  it('sessions 清单：含本连接会话（id/首问快照题/末活动时间）', async () => {
     const { rig, entry } = rigServe();
     rig.send({ verb: 'prompt', messageId: 'm-1', content: '问' });
     await rig.until(() => rig.frames.some((f) => f.kind === 'event' && f.event.type === 'agent_end'));
@@ -423,7 +423,10 @@ describe('订阅重放与读面动词', () => {
     };
     const row = frame.sessions.find((s) => s.id === sid);
     expect(row).toBeDefined();
-    expect(row!.title).toBeNull(); // 无标题不造占位串
+    // 首问快照物化（2026-09-20 /sessions 无题修复批）：SDK prompt 是
+    // channel:* 用户侧消息——写路物化首条合格用户消息为 title，无题空档
+    // （null 不造占位串）只在无合格首问的会话出现
+    expect(row!.title).toBe('问');
     expect(row!.lastActivityAt).toBeGreaterThan(0);
     await closeExpect0(rig, entry);
   });
