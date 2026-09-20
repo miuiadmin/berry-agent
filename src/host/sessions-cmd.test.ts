@@ -314,6 +314,39 @@ describe('sessions search（跨会话 FTS——bm25 序）', () => {
     expect(text).not.toContain('[31m');
     expect(text).toContain('脏 命中会话');
   });
+
+  it('snippet 正文净化：投影原文的逃逸序列/控制字节/零宽字素不外发终端（title 面同族）', async () => {
+    const dbPath = join(rigDir('sess-search-body-san-'), 'sessions.db');
+    await seedSessionRows(dbPath, [
+      { id: 's-body', title: '正文会话', origin: 'conversation', created: 1, updated: 2 },
+    ]);
+    // 索引投影原文夹带（needle 保持空白定界——trigram 命中面与既有测同形）：
+    // CSI 色码 + OSC 改窗题 + NUL 控制字节 + 零宽字素——直发 processStdout
+    // 终端可解释（清屏/改窗题——snippet 面与 title 面（titleOf）同族）
+    await seedFtsRows(dbPath, 's-body', [
+      {
+        seq: 2,
+        body: '\x1b[31m红色\x1b[0m 前缀填充 needle 命中词 \x00零字节\u200b注入 \x1b]0;窗题注入\x07 结尾',
+      },
+    ]);
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'search', query: 'needle' },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    const text = cap.out.join('\n');
+    expect(text).toContain('命中 1 处');
+    expect(text).toContain('needle');
+    // 修前红①：ESC/C0/DEL/C1 控制字节原样外发（终端可解释——清屏/改窗题复发）
+    expect(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(text)).toBe(false);
+    // 修前红②：序列剥除后可打印残段不落行 + OSC 改窗题整段剥除
+    expect(text).not.toContain('[31m');
+    expect(text).not.toContain('窗题注入');
+    // 修前红③：零宽字素剥除后可见残文邻接成串（剥除前被零宽隔断）
+    expect(text).toContain('零字节注入');
+    expect(text).toContain('红色 前缀填充'); // 序列剥除后正文邻接保真
+  });
 });
 
 /* ---------------- reindex（FTS 全量重建） ---------------- */

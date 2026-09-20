@@ -151,9 +151,15 @@ async function runList(options: SessionsEntryOptions): Promise<number> {
 
 /* ---------------- search ---------------- */
 
-/** 命中行 snippet 切窗（首现位 ±30 字符；空白折叠单行——body 为索引投影原文，消费侧自切〔05 §9〕） */
+/**
+ * 命中行 snippet 切窗（首现位 ±30 字符；空白折叠单行——body 为索引投影原文，消费侧自切〔05 §9〕）。
+ * 净化属消费侧消毒不违自切语义：投影原文先经 sanitizeTitleText（与 title 面
+ * titleOf 同族单源——剥 ANSI 逃逸三形/非空白 C0/C1/DEL 控制字节/零宽字素六点，
+ * 末步 \s 折叠 + trim 兼做此前的 flat 折叠），先净化后切窗——控制字节不外发
+ * 终端（防终端解释清屏/改窗题等伪控制）。
+ */
 function snippetOf(body: string, query: string): string {
-  const flat = body.replace(/\s+/g, ' ').trim();
+  const flat = sanitizeTitleText(body);
   const at = flat.toLowerCase().indexOf(query.toLowerCase());
   if (at < 0) return flat.length > 64 ? `${flat.slice(0, 64)}…` : flat; // trigram 归一后首现位缺席——退头窗
   const start = Math.max(0, at - 30);
