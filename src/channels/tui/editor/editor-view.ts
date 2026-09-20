@@ -90,7 +90,7 @@ export class EditorView implements Renderable {
     this.scrollOffset = clampScroll(this.scrollOffset, cursorVL, innerH, map.length);
 
     this.drawBorder(buffer, region, map.length);
-    this.drawContent(buffer, region, map, innerH);
+    this.drawContent(buffer, region, map, innerH, cursorVL);
     this.drawCursor(buffer, region, map, cursorVL);
   }
 
@@ -154,10 +154,11 @@ export class EditorView implements Renderable {
     region: Region,
     map: ReturnType<EditorModel['visualLines']>,
     innerH: number,
+    cursorVL: number,
   ): void {
     const lines = this.model.getLines();
     const preedit = this.model.pendingPreedit;
-    const cursor = this.model.getCursor();
+    const cursor = this.model.getCursor(); // 组字三段切片位（prefix/suffix 界）
     const innerW = innerWidth(region.width);
     const end = Math.min(map.length, this.scrollOffset + innerH);
     for (let vi = this.scrollOffset; vi < end; vi++) {
@@ -165,13 +166,12 @@ export class EditorView implements Renderable {
       const row = region.row + 1 + (vi - this.scrollOffset);
       const line = lines[seg.line] ?? '';
       const plain = line.slice(seg.startCol, seg.startCol + seg.length);
-      // 光标在本段且组字中：前缀 + 预编辑（下划线）+ 后缀三段呈现
-      if (
-        preedit !== null &&
-        seg.line === cursor.line &&
-        cursor.col >= seg.startCol &&
-        cursor.col <= seg.startCol + seg.length
-      ) {
+      // 光标在本段且组字中：前缀 + 预编辑（下划线）+ 后缀三段呈现。
+      // 段归属单源走 findVisualLineAt 定位律（模型 currentVisualLine——渲染
+      // 入口已算就传入）：非行末段的末位（col = 段尾 = 次段首的折点）不收编
+      // 本段、恒归次段——组字呈现恰一行。若在此按 col 区间自算（`<=` 闭端）
+      // 会与定位律分叉：同折点命中相邻两段，预编辑双呈现两行
+      if (preedit !== null && vi === cursorVL) {
         const prefix = line.slice(seg.startCol, cursor.col);
         const suffix = line.slice(cursor.col, seg.startCol + seg.length);
         // 组字三段钳内容区右界：预编辑不计入模型折行宽，三段合成宽（段宽 +

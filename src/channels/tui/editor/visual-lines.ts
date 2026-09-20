@@ -33,8 +33,9 @@ export interface VisualSegment {
 
 /**
  * 单逻辑行按显示宽硬折（字素累宽超限整字下移——空行占一段零宽；
- * CJK 禁则回送与 wrapText 同律——闭合标点不可起行/开括号不可收行，
- * 当段末字素携下移计入下段段头，段映射随折点同规则）。
+ * CJK 禁则回送与 wrapText 三引擎同律——闭合标点不可起行/开括号不可收行，
+ * 当段末字素携下移计入下段段头，段映射随折点同规则；行首字素即超宽
+ * 〔width=1 遇双宽字素〕不产零长幽灵段——超宽字素随新段承载）。
  * 返回段的 UTF-16 与显示宽双坐标。
  */
 function foldLine(line: string, lineNo: number, width: number): VisualSegment[] {
@@ -65,8 +66,15 @@ function foldLine(line: string, lineNo: number, width: number): VisualSegment[] 
         carry.unshift(currentLast);
         carryW += headW;
       }
-      segments.push({ line: lineNo, startCol: start, length: segLen, width: usedCols });
-      start += segLen;
+      // 空段不收（幻影空行防线）：行首字素即超宽（width=1 遇行首 CJK/emoji
+      // 双宽字素）时段账恒零——零长零宽段 push 出去会占据一条幻影视觉行
+      // （渲染空行 / 垂直导航多一步 / 迟滞高账多一行），超宽字素自身随后
+      // push 入新段承载。判据取 segLen===0（段内无字素）：零宽字素段
+      // （segLen>0 而 usedCols=0，如组合符族）仍照常收段——内容不可丢
+      if (segLen > 0) {
+        segments.push({ line: lineNo, startCol: start, length: segLen, width: usedCols });
+        start += segLen;
+      }
       seg.length = 0; // 段收笔——累积账清零（回送字素随后回填）
       segLen = 0;
       usedCols = 0;

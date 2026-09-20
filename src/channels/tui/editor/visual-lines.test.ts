@@ -92,6 +92,23 @@ describe('buildVisualLineMap 硬折映射', () => {
     });
   });
 
+  it('行首字素即超宽（width=1 遇双宽 emoji）：零长段不占视觉行（幻影空行防线）', () => {
+    // 修前实测 4 段——首段 {0,0,0} 幽灵段占据一条幻影视觉行（渲染空行 /
+    // 垂直导航多一步 / 迟滞高账多一行）；修后 3 段，'😀' 自身随首轮折段承载
+    const map = buildVisualLineMap(['😀ab'], 1);
+    expect(map).toEqual([
+      { line: 0, startCol: 0, length: 2, width: 2 },
+      { line: 0, startCol: 2, length: 1, width: 1 },
+      { line: 0, startCol: 3, length: 1, width: 1 },
+    ]);
+    // 恒等分区不破：切片拼回原行
+    const text = '😀ab';
+    expect(map.map((seg) => text.slice(seg.startCol, seg.startCol + seg.length)).join('')).toBe(text);
+    // 光标定位同步：col 0 落 '😀' 段、col 2 落 'a' 段
+    expect(findVisualLineAt(map, 0, 0)).toBe(0);
+    expect(findVisualLineAt(map, 0, 2)).toBe(1);
+  });
+
   it('边界形：空文档、空行、width ≤ 0 防御不折不丢字', () => {
     expect(buildVisualLineMap([], 10)).toEqual([]);
     expect(buildVisualLineMap([''], 10)).toEqual([{ line: 0, startCol: 0, length: 0, width: 0 }]);

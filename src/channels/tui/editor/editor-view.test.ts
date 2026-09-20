@@ -188,6 +188,34 @@ describe('EditorView IME 预编辑', () => {
   });
 });
 
+describe('EditorView IME 预编辑折点归属（与 findVisualLineAt 同律）', () => {
+  it('折点光标组字：预编辑恰呈现一行（归后段视觉行——前段不双呈现）', () => {
+    // 'abcd中' 布局宽 5：'中'(2 列) 在段 0 放不下整字下移——段 0 'abcd'(宽 4
+    // 留白 1 列) + 段 1 '中'。光标 col 4 = 折点：定位律 findVisualLineAt 对
+    // 非行末段末位不收编（col 恒归后段视觉行）——组字分支须同律单源。
+    // 修前 `<=` 边界两段同命中：段 0 呈现 'abcd'+preedit（前段留白恰容
+    // 'x'——可见）+ 段 1 呈现 preedit+'中'，预编辑双呈现两行
+    const { view, model } = viewOf('abcd中', { layoutWidth: 5 });
+    model.moveHome();
+    for (let i = 0; i < 4; i++) model.moveRight(); // 光标 col 4（折点）
+    model.setPreedit('x');
+    const grid = new CellGrid(10, 5);
+    view.render(grid, { row: 0, col: 0, width: 7, height: 4 });
+    // 内容区（两视觉行 × 5 列）扫下划线字形——恰一处（后段行首），
+    // 修前 [{row:1,col:5},{row:2,col:1}] 双现
+    const hits: Array<{ row: number; col: number }> = [];
+    for (let r = 1; r <= 2; r++) {
+      for (let c = 1; c <= 5; c++) {
+        if (grid.getCell(r, c)?.style.underline) hits.push({ row: r, col: c });
+      }
+    }
+    expect(hits).toEqual([{ row: 2, col: 1 }]);
+    // 前段行 = 纯文本呈现（无组字混入）——修前 'abcdx'
+    expect(readRow(grid, 1, 10)).toBe('│abcd │');
+    expect(readRow(grid, 2, 10)).toBe('│x中  │');
+  });
+});
+
 describe('EditorView IME 预编辑宽度钳制', () => {
   // 网格恒比 region 宽 2 列——右边框列（region 内）与边框外残迹（网格内）分别可读回
   it('光标近满行尾组字：组字段不覆写右边框、不越内容区右界（右界整字截断）', () => {
