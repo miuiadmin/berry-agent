@@ -10,6 +10,9 @@
  * ④ notify 滚动帽 5 / status 直通 / agent_end 清状态
  * ⑤ 投影层：loadedMessages 整段重置（正确性层真源——活体尾巴清场）；
  * textOf 抽取三形（string/text 块数组/非 text 块跳过）
+ * ⑥ 修复批锁：审批投影复拉整段重置（loadedApprovals）/ 本地推播与
+ * notify 帧腿同帽（pushedNotice）/ 乐观回显撤回对偶（echoKeyOf +
+ * droppedMessage——键同源不靠位置）
  */
 import { describe, expect, it } from 'vitest';
 
@@ -18,9 +21,13 @@ import {
   appliedDecide,
   applyAsked,
   applyEnvelope,
+  droppedMessage,
+  echoKeyOf,
   initialAppState,
+  loadedApprovals,
   loadedMessages,
   loadedSessions,
+  pushedNotice,
   setActiveSession,
   textOf,
 } from './frames.js';
@@ -205,6 +212,59 @@ describe('frames 审批与通知', () => {
     expect(state.notices[4]?.message).toBe('通知7');
     state = applyEnvelope(state, { kind: 'status', sessionId: 's-1', payload: { status: '跑' } });
     expect(state.status).toBe('跑');
+  });
+
+  it('pushedNotice 与 notify 帧腿同帽 5——本地推播第 6 条滚动出清最旧（修前五处直追数组绕帽）', () => {
+    let state = initialAppState;
+    for (let i = 1; i <= 6; i += 1) {
+      state = pushedNotice(state, `本地通知${i}`, 'error');
+    }
+    expect(state.notices).toHaveLength(5);
+    expect(state.notices[0]?.message).toBe('本地通知2'); // 最旧一条出清
+    expect(state.notices[4]?.message).toBe('本地通知6');
+    // 帧腿与本地腿同执法位（同帽同形——id 序与 level 透传两形一致）
+    const mixed = applyEnvelope(pushedNotice(initialAppState, '本地一条', 'info'), {
+      kind: 'notify',
+      payload: { message: '帧一条', level: 'warn' },
+    });
+    expect(mixed.notices).toHaveLength(2);
+    expect(mixed.notices[0]).toMatchObject({ message: '本地一条', level: 'info' });
+    expect(mixed.notices[1]).toMatchObject({ message: '帧一条', level: 'warn', id: 2 });
+  });
+});
+
+describe('frames 审批投影复位与乐观回显撤回（修复批锁）', () => {
+  it('loadedApprovals 整段重置——异口已决条目随复拉出清（applyAsked 只增不减径仅留活体帧）', () => {
+    let state = initialAppState;
+    state = applyAsked(state, { approvalId: 'ap-1', sessionId: 's-1', summary: '留' });
+    state = applyAsked(state, { approvalId: 'ap-2', sessionId: 's-1', summary: '异口已决' });
+    // 复拉现行清单仅剩一条 → 幻影条目出清、在场条目保留
+    state = loadedApprovals(state, [{ approvalId: 'ap-1', sessionId: 's-1', summary: '留' }]);
+    expect(state.approvals).toHaveLength(1);
+    expect(state.approvals[0]?.approvalId).toBe('ap-1');
+    // 清单归空（全部已决）→ 整段重置至空
+    expect(loadedApprovals(state, []).approvals).toHaveLength(0);
+  });
+
+  it('echoKeyOf 与 message_end 落稿键同源；droppedMessage 按键撤回不误伤后续帧', () => {
+    // 乐观回显（数值时间戳键位）——键同源即撤回定位锚成立判据
+    let state = applyEnvelope(initialAppState, {
+      kind: 'session',
+      sessionId: 's-1',
+      payload: { type: 'message_end', message: { role: 'user', content: '乐观回显', timestamp: 42 } },
+    });
+    expect(state.messages[0]?.key).toBe(echoKeyOf(42));
+    // 撤回前有后续帧追加（撤回不靠尾部位置——中位过滤）
+    state = applyEnvelope(state, {
+      kind: 'session',
+      sessionId: 's-1',
+      payload: { type: 'message_end', message: { role: 'assistant', content: '后续帧', timestamp: 43 } },
+    });
+    state = droppedMessage(state, echoKeyOf(42));
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.text).toBe('后续帧');
+    // 撤回键不在场 = 无操作（幂等防御——重复撤回不炸）
+    expect(droppedMessage(state, 'm-404').messages).toHaveLength(1);
   });
 });
 

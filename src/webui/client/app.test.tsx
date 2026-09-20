@@ -217,6 +217,22 @@ describe('App 主面活体环', () => {
     });
   });
 
+  it('submit 失败撤回乐观回显：未被受理的消息不驻留正文（修前红：catch 只推通知无撤回——幻影驻留至刷新）', async () => {
+    primeMain();
+    // 桩拟真实服务端失败形（Once 形——不污染后续用例的 submit 桩）
+    apiMock.submit.mockRejectedValueOnce(new Error('API 500 internal'));
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '未被受理的消息' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('未被受理的消息'); // 乐观回显先在场（受理在飞窗）
+    // 失败通知落地——撤回与通知同帧生效（通知在场即撤回已完成的判据位）
+    await screen.findByText('提交失败——请重试');
+    // 未被受理的消息不以已送达形态驻留正文（现红：catch 体只追加 notices）
+    expect(screen.queryByText('未被受理的消息')).toBeNull();
+  });
+
   it('会话切换换流（旧流关、新流开）', async () => {
     apiMock.probeAuthed.mockResolvedValue(true);
     apiMock.listSessions.mockResolvedValue([
@@ -237,6 +253,35 @@ describe('App 主面活体环', () => {
     });
     expect(FakeEventSource.instances[0]!.closed).toBe(true);
     expect(FakeEventSource.instances[1]!.url).toBe('/api/sessions/s-2/events');
+  });
+});
+
+describe('App 审批清单投影复拉（服务端现行 pending 清单即真源）', () => {
+  it('复拉整段重置：异口已决条目随复拉出清，幻影卡不驻留（修前红：applyAsked 只增不减）', async () => {
+    // 两条现行 pending（审批栏跨会话全量呈现——清单不按会话过滤）
+    const kept = { approvalId: 'ap-1', sessionId: 's-1', summary: '仍在场的审批' };
+    const decided = { approvalId: 'ap-2', sessionId: 's-1', summary: '异口已决的审批' };
+    primeMain({ approvals: [kept, decided] });
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    // 首次 onopen 复拉：两条全入账
+    FakeEventSource.instances[0]!.open();
+    await screen.findByText('仍在场的审批');
+    await screen.findByText('异口已决的审批');
+    // 异口决出（另一标签/TUI 先答——服务端 GET /approvals 只回现行未决）→
+    // 断线重连 onopen 复拉，现行清单仅剩一条
+    apiMock.listApprovals.mockResolvedValue([kept]);
+    FakeEventSource.instances[0]!.open();
+    // 已决条目随复拉出清（现红：增量合并不移除已消失条目，幻影卡永挂
+    // 直至本口点选得 superseded 回执）
+    await waitFor(() => {
+      expect(screen.queryByText('异口已决的审批')).toBeNull();
+    });
+    // 现行清单条目保留（整段重置不误伤在场项）
+    expect(screen.getByText('仍在场的审批')).toBeDefined();
   });
 });
 
@@ -507,5 +552,21 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
     await waitFor(() => {
       expect(screen.queryByText('thinking 档位')).toBeNull();
     });
+  });
+
+  it('本地通知同帽 5：连发 6 次档位词带参用法错，早前计数至多 +4（修前红：本地推播绕过折叠器帽——计数虚胀 +5）', async () => {
+    primeMain();
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    for (let i = 0; i < 6; i += 1) {
+      fireEvent.change(box, { target: { value: '/thinking high' } });
+      fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    }
+    // 通知条在场（最新一条 = 第 6 次用法错）；帽 5 下早前计数至多 +4
+    // （修前 +5——本地推播直追数组绕过帧折叠器 slice(-5)，无界增长）
+    await screen.findByText(/条早前通知/);
+    expect(screen.queryByText('（+5 条早前通知）')).toBeNull();
+    expect(screen.getByText('（+4 条早前通知）')).toBeDefined();
   });
 });

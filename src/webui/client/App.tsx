@@ -16,10 +16,14 @@ import {
   appliedDecide,
   applyAsked,
   applyEnvelope,
+  droppedMessage,
+  echoKeyOf,
   initialAppState,
+  loadedApprovals,
   loadedMessages,
   loadedSessions,
   loadedTodo,
+  pushedNotice,
   setActiveSession,
   type AppState,
 } from './frames.js';
@@ -107,11 +111,9 @@ function Main(): ReactElement {
       setState((prev) => (prev.activeId === sessionId ? loadedTodo(prev, items) : prev));
     });
     void api.listApprovals().then((list) => {
-      setState((prev) => {
-        let next = prev;
-        for (const entry of list) next = applyAsked(next, entry);
-        return next;
-      });
+      // 整段重置（服务端现行 pending 清单即真源——与 loadedMessages 同模式）：
+      // 异口已决条目随复拉出清；applyAsked 的增量合并径只留给活体 asked 帧
+      setState((prev) => loadedApprovals(prev, list));
     });
   }, []);
 
@@ -171,7 +173,11 @@ function Main(): ReactElement {
     });
   }, [loadSessions]);
 
-  /** 提交（乐观回显 + 失败撤回——messageId = crypto.randomUUID 幂等位） */
+  /**
+   * 提交（乐观回显 + 失败撤回）：messageId = crypto.randomUUID 服务端幂等
+   * 位；撤回键 = echoKeyOf 同源落稿键（闭包持键——catch 按键撤回，不靠
+   * 尾部位置）。
+   */
   const submit = useCallback(
     (rawText: string) => {
       const sessionId = state.activeId;
@@ -191,38 +197,32 @@ function Main(): ReactElement {
         }
         // 带参形 = 词干命中即本地用法错（fail-loud——与 TUI「带参 fail-loud
         // 用法错不穿透」同律对齐，零分立）：折 NoticeBar error 不提交
-        setState((prev) => ({
-          ...prev,
-          notices: [
-            ...prev.notices,
-            {
-              id: prev.seq + 1,
-              message:
-                stem === '/thinking'
-                  ? '/thinking 不带参数使用——档位经浮层选定'
-                  : '/sandbox 不带参数使用——档位经浮层选定',
-              level: 'error',
-            },
-          ],
-          seq: prev.seq + 1,
-        }));
+        // （本地推播走 pushedNotice——与 notify 帧腿同帽同形不绕帽）
+        setState((prev) =>
+          pushedNotice(
+            prev,
+            stem === '/thinking' ? '/thinking 不带参数使用——档位经浮层选定' : '/sandbox 不带参数使用——档位经浮层选定',
+            'error',
+          ),
+        );
         return;
       }
       const text = trimmed;
       const messageId = crypto.randomUUID();
+      // 乐观回显 + 失败撤回：messageId = crypto.randomUUID 幂等位（服务端
+      // 幂等去重锚）；撤回键 = echoKeyOf 同源落稿键（闭包持键——失败撤回
+      // 按键定位，不靠尾部位置）
+      const echoTimestamp = Date.now();
       setState((prev) =>
         applyEnvelope(prev, {
           kind: 'session',
           sessionId,
-          payload: { type: 'message_end', message: { role: 'user', content: text, timestamp: Date.now() } },
+          payload: { type: 'message_end', message: { role: 'user', content: text, timestamp: echoTimestamp } },
         }),
       );
       void api.submit(sessionId, text, messageId).catch(() => {
-        setState((prev) => ({
-          ...prev,
-          notices: [...prev.notices, { id: prev.seq + 1, message: '提交失败——请重试', level: 'error' }],
-          seq: prev.seq + 1,
-        }));
+        // 失败撤回（契约兑现）：未被受理的乐观回显先出正文，再推失败通知
+        setState((prev) => pushedNotice(droppedMessage(prev, echoKeyOf(echoTimestamp)), '提交失败——请重试', 'error'));
       });
     },
     [state.activeId],
@@ -249,11 +249,8 @@ function Main(): ReactElement {
         triggerDownload(`${sessionId}-${fileStampOf(Date.now())}.md`, blob);
       })
       .catch(() => {
-        setState((prev) => ({
-          ...prev,
-          notices: [...prev.notices, { id: prev.seq + 1, message: '导出失败——请重试', level: 'error' }],
-          seq: prev.seq + 1,
-        }));
+        // 失败折通知条（本地推播走 pushedNotice——与 notify 帧腿同帽同形）
+        setState((prev) => pushedNotice(prev, '导出失败——请重试', 'error'));
       });
   }, [state.activeId]);
 
@@ -327,18 +324,12 @@ function Main(): ReactElement {
             setTierPopover(null);
           }}
           onReceipt={(receipt) => {
-            setState((prev) => ({
-              ...prev,
-              notices: [...prev.notices, { id: prev.seq + 1, message: receipt, level: 'info' }],
-              seq: prev.seq + 1,
-            }));
+            // 回执入通知条（info 呈现位——本地推播走 pushedNotice 同帽 5）
+            setState((prev) => pushedNotice(prev, receipt, 'info'));
           }}
           onError={(message) => {
-            setState((prev) => ({
-              ...prev,
-              notices: [...prev.notices, { id: prev.seq + 1, message, level: 'error' }],
-              seq: prev.seq + 1,
-            }));
+            // 切档错误入通知条（error 呈现位——同帽同形律）
+            setState((prev) => pushedNotice(prev, message, 'error'));
           }}
         />
       ) : null}

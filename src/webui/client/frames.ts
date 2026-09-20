@@ -91,10 +91,10 @@ function errorMessageOf(message: unknown): string | undefined {
   return undefined;
 }
 
-/** 消息视图键（时间戳优先——无时间戳形用序发生器兜底） */
+/** 消息视图键（时间戳优先——无时间戳形用序发生器兜底；数值时间戳键位与 echoKeyOf 同源） */
 function messageKey(state: AppState, timestamp: unknown): { key: string; seq: number } {
   const seq = state.seq + 1;
-  return { key: typeof timestamp === 'number' ? `m-${timestamp}` : `m#${seq}`, seq };
+  return { key: typeof timestamp === 'number' ? echoKeyOf(timestamp) : `m#${seq}`, seq };
 }
 
 /**
@@ -103,12 +103,9 @@ function messageKey(state: AppState, timestamp: unknown): { key: string; seq: nu
  */
 export function applyEnvelope(state: AppState, env: ClientEnvelope): AppState {
   switch (env.kind) {
-    case 'notify': {
-      // 通知条上限 5（旧条滚动出清——notify 无回放，超量即丢）
-      const seq = state.seq + 1;
-      const notices = [...state.notices, { id: seq, message: env.payload.message, level: env.payload.level }].slice(-5);
-      return { ...state, seq, notices };
-    }
+    case 'notify':
+      // 帧腿与本地推播共用同帽同形（pushedNotice——单源执法位）
+      return pushedNotice(state, env.payload.message, env.payload.level);
     case 'status':
       return { ...state, status: env.payload.status };
     case 'display':
@@ -208,9 +205,47 @@ export function applyAsked(state: AppState, entry: ClientApprovalEntry): AppStat
   return { ...state, approvals: [...state.approvals, entry] };
 }
 
+/**
+ * 通知入账（notify 帧腿与本地推播共用——同帽同形）：上限 5，旧条滚动出清
+ * （notify 无回放，超量即丢）。App 侧本地通知（用法错/提交失败/导出失败/
+ * 切档回执/切档错误）一律走本腿——修前五处直追数组绕帽，notices 无界
+ * 增长、NoticeBar 计数虚胀。
+ */
+export function pushedNotice(state: AppState, message: string, level?: string): AppState {
+  const seq = state.seq + 1;
+  // 帽 5：slice(-5) 滚动出清最旧（单源执法位——帧源与本地源同律）
+  const notices = [...state.notices, { id: seq, message, level }].slice(-5);
+  return { ...state, seq, notices };
+}
+
 /** decide 应答后本地出清（applied 与 superseded 同出清——异口已答） */
 export function appliedDecide(state: AppState, approvalId: string): AppState {
   return { ...state, approvals: state.approvals.filter((a) => a.approvalId !== approvalId) };
+}
+
+/**
+ * 审批清单投影落座（正确性层——整段重置，服务端现行 pending 清单即真源；
+ * 与 loadedMessages 同模式）。异口已决条目随复拉出清：applyAsked 的 dedupe
+ * 追加只适用于活体 asked 帧，投影复拉若同径只增不减——已决审批挂成幻影卡
+ * 直至本口点选得 superseded 回执。
+ */
+export function loadedApprovals(state: AppState, entries: readonly ClientApprovalEntry[]): AppState {
+  // 浅拷贝脱离调用方引用（api 层每响应新建——防御位）
+  return { ...state, approvals: [...entries] };
+}
+
+/**
+ * 乐观回显撤回键（= message_end 数值时间戳落稿键 m-<timestamp>——同源
+ * 铸出，键律单源）。submit 腿乐观回显先持键，失败撤回（droppedMessage）
+ * 按键定位，不靠尾部位置（撤回前可能有后续帧追加）。
+ */
+export function echoKeyOf(timestamp: number): string {
+  return `m-${timestamp}`;
+}
+
+/** 按视图键撤回消息（submit 失败撤回乐观回显——未被受理的消息不以已送达形态驻留正文） */
+export function droppedMessage(state: AppState, key: string): AppState {
+  return { ...state, messages: state.messages.filter((m) => m.key !== key) };
 }
 
 /** 投影拉取落座（正确性层——整段重置正文，活体尾巴清场） */
