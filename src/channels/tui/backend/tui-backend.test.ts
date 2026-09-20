@@ -929,6 +929,25 @@ describe('TuiBackend 渲染合并与 tick 自驱', () => {
     expect(rig.io.bytes.indexOf('定稿')).toBeLessThan(rig.io.bytes.indexOf('槽期通知'));
   });
 
+  it('权威清点抢救合并窗瞬时行：resize/repaint 清点不丢未落帧 notify（第五役 S1-a——修前裸清永失）', () => {
+    // 修前红：resize/repaint 的 pendingOps 裸清会丢弃合并窗内已入队未落帧的
+    // notify 行——既不入 scrollback（screen.appendTransient 未达）也不复显，
+    // pump 后 bytes 恒无此行即永失（与 suspendMain 挂起转账律不对称的破口）
+    const rig = makeInteractive();
+    rig.backend.notify('resize 前窗内通知', { level: 'info' });
+    expect(rig.io.bytes).toBe(''); // 合并窗持有——未落帧零写出
+    rig.io.emitResize(); // 权威清点路（handleResize）
+    rig.pump();
+    expect(rig.io.bytes).toContain('resize 前窗内通知'); // 修前红：清点丢弃——行永失
+
+    // onRepaint 同律（切焦权威重建路）
+    const rig2 = makeInteractive();
+    rig2.backend.notify('repaint 前窗内通知', { level: 'info' });
+    rig2.backend.onRepaint('s2', [], null);
+    rig2.pump();
+    expect(rig2.io.bytes).toContain('repaint 前窗内通知'); // 修前红：同裸清破口
+  });
+
   it('编辑器键位覆盖注入（批 10k 遗漏修——keymap 装配位缺注）', () => {
     const { io, calls, clock, pump } = makeInteractive({
       keybindings: { 'editor.new-line': 'alt+j' }, // 换行键改 alt+j——ctrl+j 缺省位让位
@@ -3083,8 +3102,9 @@ describe('TuiBackend overlayLayout 死账双清（fx2-D——renderAll 生产零
     escapePump(clock);
     await expect(p2).resolves.toBe('');
     // 修前红：overlayLayout 条目 renderFixed 每帧只写、close 不清——两轮后
-    // size 2 死账；其唯一读方 renderAll 生产零调用（fx2-D grep 复核定谳），
-    // 死路整域双清（Map + anchorFor + 写侧）后字段缺席恒 0
+    // size 2 死账；其唯一读方（锚定渲染路——已随 renderAll 删除）生产零
+    // 调用（fx2-D grep 复核定谳），死路整域双清（Map + anchorFor + 写侧）
+    // 后字段缺席恒 0；第五役 F3 再一刀清 OverlayAnchor 型/字段/签名
     expect((backend as unknown as { overlayLayout?: { size: number } }).overlayLayout?.size ?? 0).toBe(0);
   });
 });
