@@ -4,8 +4,25 @@
  * 字素级折行三规则承 width 件：宽字不产半字、不悬挂、行满开新行；折点后
  * 行首空格游程跳过。样式随字素携带（样式段跨折行保持）；相邻同样式游程
  * 由渲染位合并。
+ *
+ * 2026-09-20 TUI 修复组 1 批同律增两件（与 width 件 wrapText 同律单源）：
+ * - CJK 折行禁则（kinsoku）——折点行首禁则回送/行尾禁则推下，判据单源
+ *   消费 width 件 isLineStartProhibited / isLineEndProhibited（字集不在此
+ *   重复定义）；
+ * - 控制字符消毒——段文本先经 sanitizeDisplayText（tab 展开 2 空格 / CR 与
+ *   ESC 序列剥除）再折行，残余 LF 跳过（行模型拆分归调用方）。
  */
-import { graphemeWidth, splitGraphemes, type CellStyle } from '../../engine/index.js';
+// 禁则谓词与消毒未入 engine 聚合面（index 聚合面改动非本组文件集）——
+// 同模块子目录直达 width 件（lint:topology 件内子目录跳变放行，例注在案）；
+// CellStyle 类型面仍取聚合面（类型导入零运行时边）
+import {
+  graphemeWidth,
+  isLineEndProhibited,
+  isLineStartProhibited,
+  sanitizeDisplayText,
+  splitGraphemes,
+} from '../../engine/width.js';
+import type { CellStyle } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import type { InlineSpan } from './inline.js';
 
@@ -40,7 +57,10 @@ export function spanStyle(
   return Object.keys(style).length > 0 ? Object.freeze(style) : undefined;
 }
 
-/** 样式段序列按显示宽折行（行满开新行；折点后行首空格游程跳过） */
+/**
+ * 样式段序列按显示宽折行（行满开新行；折点后行首空格游程跳过；
+ * CJK 禁则回送携样式下移；段文本先消毒——tab 展开 / 控制字剥除）。
+ */
 export function layoutParts(parts: readonly StylePart[], width: number): StyledGrapheme[][] {
   const rows: StyledGrapheme[][] = [];
   let current: StyledGrapheme[] = [];
@@ -50,14 +70,42 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
     used = 0;
   };
   for (const part of parts) {
-    for (const g of splitGraphemes(part.text)) {
+    // 段文本源头消毒（单源 sanitizeDisplayText——tab 展开 2 空格 / CR 与 ESC 序列剥除）
+    for (const g of splitGraphemes(sanitizeDisplayText(part.text))) {
+      if (g === '\n') continue; // 残余 LF 跳过（多行拆分归行模型——布局只在行内折）
       if (g === ' ' && used === 0 && rows.length > 0) continue; // 折点后行首空格跳过
       const w = graphemeWidth(g);
       if (w > width) continue; // 防御位：比行宽还宽的字素丢弃（width 件三规则外的不可能格）
       if (used + w > width) {
+        // 折点恰为空格：收行不转行（空格不占新行行首）
+        if (g === ' ') {
+          rows.push(current);
+          openRow();
+          continue;
+        }
+        // CJK 禁则回送（与 wrapText 同律）：行首禁则（折点后字素不可起行）与
+        // 行尾禁则（当行末字素不可收行）同一操作——当行末字素弹出携下移
+        //（样式随图素原样携带）；回送后新行 [carry…+g] 越帽即放弃硬断
+        const carry: StyledGrapheme[] = [];
+        let carryWidth = 0;
+        while (current.length > 0) {
+          const nextFirst = carry.length > 0 ? carry[0]!.grapheme : g; // 新行行首候选
+          const currentLast = current[current.length - 1]!; // 当行行末候选
+          if (!isLineStartProhibited(nextFirst) && !isLineEndProhibited(currentLast.grapheme)) break;
+          const head = currentLast;
+          const headW = graphemeWidth(head.grapheme);
+          if (carryWidth + headW + w > width) break; // 回送无解——放弃硬断（原折点保持）
+          current.pop();
+          used -= headW;
+          carry.unshift(head);
+          carryWidth += headW;
+        }
         rows.push(current);
         openRow();
-        if (g === ' ') continue; // 恰在折点上的空格不进新行
+        for (const c of carry) {
+          current.push(c); // 回送图素回填新行头（宽度账同步）
+          used += graphemeWidth(c.grapheme);
+        }
       }
       current.push({ grapheme: g, style: part.style });
       used += w;

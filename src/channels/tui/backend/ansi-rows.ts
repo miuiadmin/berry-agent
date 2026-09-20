@@ -9,8 +9,14 @@
  * - 网格行 → 带样式行（StyleRun 段族——批 10f-4 件 8 回看器 cell 写出形的
  *   数据源；带样式行 → ANSI 序列化同件在位，主屏直写与回看器零第二渲染器）；
  * - 定位序列（绝对 CUP / 相对 CUU·CUD / CR / EL）与光标保存恢复；
- * - 行级差分（固定区重画——变行重写、未变行零写出，行粒度复用 cellEquals）。
+ * - 行级差分（固定区重画——变行重写、未变行零写出，行粒度复用 cellEquals）；
+ * - 宽帽原语 clampRuns / capStyledLine（2026-09-20 TUI 修复组 1 批 F4——
+ *   序列化单源层屏宽帽：plain 整字截断 + 游程同步钳制，主屏直写产出面
+ *   超宽行 autowrap 物理行账漂移的收口位）。
  */
+// sanitizeDisplayText 未入 engine 聚合面（index 聚合面改动非本组文件集）——
+// 同模块子目录直达 width 件（lint:topology 件内子目录跳变放行，例注在案）
+import { sanitizeDisplayText, truncateToWidth } from '../../engine/width.js';
 import {
   cellEquals,
   colorSgrBg,
@@ -176,40 +182,72 @@ export function gridRowToStyled(grid: CellGrid, row: number): StyledLine | null 
  * 带样式行 → ANSI 串（主屏直写形——与 gridRowToAnsi 同语义的行序列化：
  * 样式变化点复位再设、同样式零冗余、行尾归零不染后续写出）。
  * renderBlockLines 经本函数从带样式行导出 ANSI 形——两形零第二渲染器。
+ *
+ * 消毒兜底（2026-09-20 TUI 修复组 1 批 F2）：发射位逐切片经
+ * sanitizeDisplayText（tab 展开 2 空格 / CR 与 ESC 残留序列剥除）——游程
+ * 下标仍锚原 plain（消毒只在发射时改字节不改下标面，段几何零漂移）；
+ * 构造位（wrapText / layoutParts / 各块序列化）已源头消毒，本位实践上
+ * 恒空转，是 inline 面控制字节落屏的末道防线。
  */
 export function styledLineToAnsi(line: StyledLine): string {
   const { plain, runs } = line;
-  if (runs.length === 0) return plain;
+  if (runs.length === 0) return sanitizeDisplayText(plain);
   let out = '';
   let currentSgr = '';
   let pos = 0;
   for (const run of runs) {
     if (run.start > pos) {
-      // 段前空隙：在身样式先归零再写裸文本
+      // 段前空隙：在身样式先归零再写裸文本（切片发射位消毒）
       if (currentSgr !== '') {
         out += SGR_RESET;
         currentSgr = '';
       }
-      out += plain.slice(pos, run.start);
+      out += sanitizeDisplayText(plain.slice(pos, run.start));
     }
     const sgr = buildSgr(run.style);
     if (sgr !== currentSgr) {
       out += (currentSgr !== '' ? SGR_RESET : '') + sgr;
       currentSgr = sgr;
     }
-    out += plain.slice(run.start, run.end);
+    out += sanitizeDisplayText(plain.slice(run.start, run.end));
     pos = run.end;
   }
   if (pos < plain.length) {
-    // 段尾空隙：归零后写裸文本
+    // 段尾空隙：归零后写裸文本（切片发射位消毒）
     if (currentSgr !== '') {
       out += SGR_RESET;
       currentSgr = '';
     }
-    out += plain.slice(pos);
+    out += sanitizeDisplayText(plain.slice(pos));
   }
   if (currentSgr !== '') out += SGR_RESET;
   return out;
+}
+
+/**
+ * 超长截断后游程钳制（越界段丢弃、跨界段收尾——limit 即 plain 上限）。
+ * 2026-09-20 TUI 修复组 1 批自 tool-card.ts 升格单源导出——宽帽族
+ * （capStyledLine / 插件卡体行 / diff 对行）共用一钳。
+ */
+export function clampRuns(runs: readonly StyleRun[], limit: number): StyleRun[] {
+  const out: StyleRun[] = [];
+  for (const run of runs) {
+    if (run.start >= limit) continue;
+    out.push(run.end <= limit ? run : { ...run, end: limit });
+  }
+  return out;
+}
+
+/**
+ * 带样式行屏宽帽（F4——序列化单源层宽帽原语）：plain 按显示宽整字截断
+ * （truncateToWidth——宽字跨界整字丢弃不产半字）+ runs 同步钳制到截断后
+ * UTF-16 长。未超帽原样返回（同引用零分配快路）。产出面（主屏直写 /
+ * 回看器 cell 写出）超宽行交终端 autowrap 产未记账物理行的收口位。
+ */
+export function capStyledLine(line: StyledLine, columns: number): StyledLine {
+  const plain = truncateToWidth(line.plain, columns);
+  if (plain === line.plain) return line; // 未超帽——同引用快路
+  return { plain, runs: clampRuns(line.runs, plain.length) };
 }
 
 /**

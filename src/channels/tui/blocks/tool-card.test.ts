@@ -303,3 +303,32 @@ describe('插件卡体（renderResult 消费——回落恒在律）', () => {
     expect(lines[1]!.runs).toEqual([{ start: 0, end: 12, style: { fg: DEFAULT_THEME.error } }]);
   });
 });
+
+describe('卡头屏宽帽（2026-09-20 TUI 修复组 1 批 F6）', () => {
+  it('超长名：卡头整行截到屏宽、游程同步收尾', () => {
+    const lines = renderToolCardStyledLines(card({ name: 'n'.repeat(60), brief: '' }), 30);
+    const header = lines[0]!;
+    expect(header.plain).toBe(' ✓ ' + 'n'.repeat(27)); // 3 前缀 + 27 = 30 恰帽
+    expect(header.plain.length).toBe(30);
+    expect(header.runs).toEqual([
+      { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
+      { start: 2, end: 30, style: { dim: true } }, // 名段跨界收尾到截断长
+    ]);
+  });
+
+  it('未超帽卡头原样（同形不受帽影响）', () => {
+    const lines = renderToolCardStyledLines(card({}), 40);
+    expect(lines[0]!.plain).toBe(' ✓ read(path)');
+  });
+
+  it('帽内窄宽截断整字丢弃不产半字（宽字名末位）', () => {
+    // 名 = '中'×20（宽 2）+ 帽 12：前缀 ' ✓ ' 占 3，余 9 列容 4 个「中」+1 列丢
+    const lines = renderToolCardStyledLines(card({ name: '中'.repeat(20), brief: '' }), 12);
+    const header = lines[0]!;
+    expect(header.plain).toBe(' ✓ ' + '中'.repeat(4)); // 9 列 = 4 宽字（8 列）+ 1 列整字丢弃
+    expect(header.runs).toEqual([
+      { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
+      { start: 2, end: 7, style: { dim: true } },
+    ]);
+  });
+});

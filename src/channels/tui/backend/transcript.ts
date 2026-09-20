@@ -35,7 +35,7 @@ import { isStandardMessage, type AgentMessage } from '../../../contracts/index.j
 import { CellGrid, truncateToWidth, wrapText, type ColorValue, type Renderable } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
-import { gridRowToStyled, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
+import { gridRowToStyled, capStyledLine, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
@@ -58,6 +58,12 @@ export type { StyleRun, StyledLine } from './ansi-rows.js';
  * 正文不被截——perf-lock 全量档回归锁）。
  */
 export const TRANSCRIPT_BLOCK_CAP = 500;
+
+/**
+ * 错误块行数帽（2026-09-20 TUI 修复组 1 批 F5——首行摘要语义定值 5：
+ * 保 4 行详情 + 1 行截断标记；与工具卡折叠预览 CARD_PREVIEW_LINES=5 同档）。
+ */
+const ERROR_PREVIEW_LINES = 5;
 
 /** ⚙ 行 / ↳ 行的参数与结果简述显示宽帽（列） */
 const BRIEF_WIDTH = 40;
@@ -148,8 +154,19 @@ const DIM_STYLE: Readonly<{ dim: true }> = Object.freeze({ dim: true });
  * （gridRowToStyled 提段）、user 块折行续挂对齐（宽算术单源走 wrapText）、
  * 简行块整行 dim、streaming 降档纯文本零样式、markdown 无内容行保空行
  * （主屏空行直写形字节不变）。
+ *
+ * 出口屏宽帽（2026-09-20 TUI 修复组 1 批 F4——序列化单源层 choke）：本函数
+ * 是全部块类型的带样式行唯一出口，超宽行在此统一 capStyledLine 整字截断
+ * （游程同步钳制）——超宽行直写交终端 autowrap 产未记账物理行即漂账
+ * （801bdb0 同族）；折行族（user/error/streaming/网格管线）实践上恒不超帽
+ * 走同引用快路，帽真实咬合的是无折行简行族（tool-call ⚙ / tool-result ↳）。
  */
 export function renderBlockStyledLines(block: TranscriptBlock, columns: number): StyledLine[] {
+  return renderBlockStyledLinesUncapped(block, columns).map((line) => capStyledLine(line, columns));
+}
+
+/** 各块类型本体渲染（无帽——出口帽单点在 renderBlockStyledLines） */
+function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number): StyledLine[] {
   switch (block.kind) {
     case 'markdown':
       return renderDocLines(block.doc, columns);
@@ -185,13 +202,22 @@ export function renderBlockStyledLines(block: TranscriptBlock, columns: number):
       return [dimStyledLine(` ↳ ${block.brief}`)];
     case 'error': {
       // 错误块（P0 静默链修复批——07 §4.1）：行首 ✖ 前缀 + error 语义键前景
-      // 整行（与 tool-card.ts 语义色消费同源）；折行续行两空格缩进（user 块同律）
+      // 整行（与 tool-card.ts 语义色消费同源）；折行续行两空格缩进（user 块同律）。
+      // 行数帽（2026-09-20 TUI 修复组 1 批 F5）：网关 403 类错误体是整段裸
+      // JSON（单「行」折开后数十行噪声全量上屏）——首行摘要语义：保前
+      // ERROR_PREVIEW_LINES-1 行 + 截断标记行收口（剩余行数明示），error
+      // 前景同游程保持错误语义可辨
       const lines = wrapText(block.text, columns - 2);
       const style: Readonly<{ fg: ColorValue }> = Object.freeze({ fg: block.theme.error });
-      return lines.map((line, i) => {
+      const renderErrorLine = (line: string, i: number): StyledLine => {
         const plain = (i === 0 ? '✖ ' : '  ') + line;
         return { plain, runs: [{ start: 0, end: plain.length, style }] };
-      });
+      };
+      if (lines.length <= ERROR_PREVIEW_LINES) return lines.map(renderErrorLine);
+      const kept = lines.slice(0, ERROR_PREVIEW_LINES - 1).map(renderErrorLine);
+      const dropped = lines.length - (ERROR_PREVIEW_LINES - 1);
+      const marker = `  ⋯（错误详情已省 ${dropped} 行）`;
+      return [...kept, { plain: marker, runs: [{ start: 0, end: marker.length, style }] }];
     }
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
@@ -333,10 +359,15 @@ function isAbortedDetails(details: unknown): boolean {
   return typeof details === 'object' && details !== null && (details as { aborted?: unknown }).aborted === true;
 }
 
-/** 工具简述：参数键名序列（`path, content` 形——呈现面克制不倒参数值） */
+/**
+ * 工具简述：参数键名序列（`path, content` 形——呈现面克制不倒参数值）。
+ * BRIEF_WIDTH 帽（2026-09-20 TUI 修复组 1 批 F6——修前常量在案从未接线，
+ * 超长键名/键列简述整段直写）：与 resultBrief 同律按显示宽截断。
+ */
 function argsBrief(args: Record<string, unknown>): string {
   const keys = Object.keys(args);
-  return keys.length > 0 ? `(${keys.join(', ')})` : '';
+  if (keys.length === 0) return '';
+  return truncateToWidth(`(${keys.join(', ')})`, BRIEF_WIDTH);
 }
 
 /** 行集选项（批 10f-4 帽参数化——主屏缺省帽之外的自定义档） */

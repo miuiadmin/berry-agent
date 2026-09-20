@@ -284,7 +284,12 @@ export class MainScreen {
   private writeLine(text: string): void {
     const regionBottom = this.rows - this.fixedHeight - 1;
     for (const line of text.split('\n')) {
-      this.io.write(CR + line + LF);
+      // 控制字节兜底（2026-09-20 TUI 修复组 1 批 F2）：残余 C0/DEL 剥除——
+      // CR 落屏即回列覆写正文、其余 C0 终端误解执行；LF 已按段拆分入账、
+      // ESC 保留（appendTransient 调用方可携合法 SGR 配色序列——inline 面
+      // 落屏末道防线，构造位消毒后实践上恒空转）
+      const clean = line.replace(/[\x00-\x08\x0b-\x1a\x1c-\x1f\x7f]/g, '');
+      this.io.write(CR + clean + LF);
       if (this.cursorRow < regionBottom) this.cursorRow++;
       else if (this.durableEndRow > 0) this.durableEndRow--; // 触滚：已写内容上移（B 段随后整账重赋、槽写路保持真值）
     }

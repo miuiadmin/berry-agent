@@ -222,3 +222,39 @@ describe('字素边界算术（backspace / deleteForward 共用）', () => {
     expect(nextGraphemeBoundary('中文字', 2)).toBe(3);
   });
 });
+
+describe('buildVisualLineMap CJK 折行禁则（kinsoku——与 wrapText 三引擎同律）', () => {
+  it('行首禁则：闭合标点不可起行（回送前行末字素，段映射同步）', () => {
+    expect(buildVisualLineMap(['模型回答了问题（详见下文）'], 8)).toEqual([
+      { line: 0, startCol: 0, length: 4, width: 8 },
+      { line: 0, startCol: 4, length: 3, width: 6 },
+      { line: 0, startCol: 7, length: 4, width: 8 },
+      { line: 0, startCol: 11, length: 2, width: 4 },
+    ]);
+  });
+
+  it('行尾禁则：开括号不可收行（推下开行）', () => {
+    expect(buildVisualLineMap(['a（bc'], 3)).toEqual([
+      { line: 0, startCol: 0, length: 1, width: 1 },
+      { line: 0, startCol: 1, length: 2, width: 3 },
+      { line: 0, startCol: 3, length: 1, width: 1 },
+    ]);
+  });
+
+  it('禁则折点下段映射仍是恒等分区（切片拼回原行——光标算术无损）', () => {
+    const text = '模型回答了问题（详见下文）';
+    const map = buildVisualLineMap([text], 8);
+    expect(map.map((seg) => text.slice(seg.startCol, seg.startCol + seg.length)).join('')).toBe(text);
+    // 段宽恒 ≤ 帽（回送不产越帽段）
+    for (const seg of map) expect(seg.width).toBeLessThanOrEqual(8);
+  });
+
+  it('禁则让位硬断：回送后行宽超帽即放弃（窄帽原折点保持）', () => {
+    // cols=2 恰容一宽字——回送 b 得 [b,）]=3>2 放弃，纯宽折点原样
+    expect(buildVisualLineMap(['ab）c'], 2)).toEqual([
+      { line: 0, startCol: 0, length: 2, width: 2 },
+      { line: 0, startCol: 2, length: 1, width: 2 },
+      { line: 0, startCol: 3, length: 1, width: 1 },
+    ]);
+  });
+});

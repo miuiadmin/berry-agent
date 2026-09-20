@@ -177,3 +177,22 @@ describe('StatusLine footer 分栏（R6 批 10k）', () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('StatusLine 忙态工具段剩余宽帽（2026-09-20 TUI 修复组 1 批 F4）', () => {
+  it('超长工具名整字截断——转轮恒在屏内（修前 restWidth 无界 spinnerCol 负、转轮整段消失）', () => {
+    const line = new StatusLine();
+    line.setFooter('cwd·model·s');
+    line.start();
+    line.setTool('n'.repeat(20));
+    // 帽 = region.width - 1 = 11 列：rest ' ⚙ ' 3 列 + 8 个 n 恰满；转轮落 col 0
+    expect(readRow(renderLine(line, 12), 0, 12)).toBe('⠋ ⚙ nnnnnnnn');
+  });
+
+  it('工具段未超帽——右对齐原样（帽是快路不扰既有几何）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry');
+    line.start();
+    line.setTool('read_file');
+    expect(readRow(renderLine(line, 30), 0, 30)).toBe('berry          ⠋ ⚙ read_file …');
+  });
+});

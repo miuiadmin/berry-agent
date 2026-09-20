@@ -679,3 +679,48 @@ describe('LiveTranscript 展开态开关（批 10i——ctrl+t / ctrl+o 会话�
     expect((t.snapshot[2] as { expanded: boolean }).expanded).toBe(false);
   });
 });
+
+describe('宽帽/错误帽/参数简述帽（2026-09-20 TUI 修复组 1 批 F4/F5/F6）', () => {
+  it('F4：tool-call ⚙ 简行受屏宽帽（渲染出口单源 choke——修前超长名直写交 autowrap）', () => {
+    const styled = renderBlockStyledLines({ kind: 'tool-call', name: 'n'.repeat(100), brief: '' }, 80);
+    expect(styled).toHaveLength(1);
+    // ' ⚙ ' 3 列 + 77 n = 80 列恰满；游程收尾同步
+    expect(styled[0]!.plain).toBe(' ⚙ ' + 'n'.repeat(77));
+    expect(styled[0]!.runs).toEqual([{ start: 0, end: 80, style: { dim: true } }]);
+  });
+
+  it('F4：tool-result ↳ 简行同律受帽', () => {
+    const styled = renderBlockStyledLines({ kind: 'tool-result', brief: 'b'.repeat(100) }, 40);
+    expect(styled[0]!.plain).toBe(' ↳ ' + 'b'.repeat(37));
+  });
+
+  it('F4：帽为显示宽非 UTF-16 长（宽字整字丢弃不产半字）', () => {
+    // 38 列已满后 '中'（2 列）在 cols=39 放不下整字——丢弃，'中' 不上屏
+    const styled = renderBlockStyledLines({ kind: 'tool-result', brief: 'a'.repeat(36) + '中' + 'b'.repeat(10) }, 39);
+    expect(styled[0]!.plain).toBe(' ↳ ' + 'a'.repeat(36));
+  });
+
+  it('F5：error 块行数帽——首 4 行 + 截断标记行（修前全量裸上屏）', () => {
+    const text = Array.from({ length: 20 }, (_, i) => `L${String(i).padStart(2, '0')}`).join('\n');
+    const styled = renderBlockStyledLines({ kind: 'error', text, theme: DEFAULT_THEME }, 40);
+    expect(styled).toHaveLength(5);
+    expect(styled[0]!.plain).toBe('✖ L00');
+    expect(styled[3]!.plain).toBe('  L03');
+    // 标记行：两空格缩进 + 省略提示（20 - 4 = 16 行省略）、error 前景游程
+    expect(styled[4]!.plain).toBe('  ⋯（错误详情已省 16 行）');
+    expect(styled[4]!.runs).toEqual([{ start: 0, end: styled[4]!.plain.length, style: { fg: DEFAULT_THEME.error } }]);
+  });
+
+  it('F5：error 块行数在帽内——全量原样（无标记行）', () => {
+    const styled = renderBlockStyledLines({ kind: 'error', text: '网关 403：凭证失效', theme: DEFAULT_THEME }, 40);
+    expect(styled).toHaveLength(1);
+    expect(styled[0]!.plain).toBe('✖ 网关 403：凭证失效');
+  });
+
+  it('F6：argsBrief 参数简述受 BRIEF_WIDTH=40 帽（修前从未接线——超长键名直写）', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([assistantMsg('', [{ id: 'tc1', name: 'read', arguments: { ['k'.repeat(60)]: 1 } }])]);
+    const block = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-call' }>;
+    expect(block.brief).toBe('(' + 'k'.repeat(39));
+  });
+});

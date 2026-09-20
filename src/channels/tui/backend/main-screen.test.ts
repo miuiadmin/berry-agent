@@ -503,3 +503,27 @@ describe('MainScreen 块账绝对位与越界防御（批 10k 遗漏修）', () 
     expect(io.bytes).not.toMatch(/\x1b\[-\d+;\d+H/); // 负行 cup = 废字节（终端吃掉或错位）
   });
 });
+
+describe('writeLine 控制字节兜底（2026-09-20 TUI 修复组 1 批 F2）', () => {
+  it('appendTransient 残余 C0 剥除——CR 不落屏（回列即覆写正文）、调用方 SGR 序列保留', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    // 调用方（TuiBackend）序列化的瞬时行可能夹带残余控制字——writeLine 是
+    // inline 面落屏末道防线：CR/NUL/DEL 剥除；SGR 配色 ESC 序列是合法载荷保留
+    screen.appendTransient(['a\rb\x00', `x\x1b[31mred\x1b[0m`]);
+    expect(io.bytes).toContain('\rab\n'); // CR 在内容段内剥除（前导 \r 是 CR 起笔定位）
+    expect(io.bytes).not.toContain('a\rb');
+    expect(io.bytes).toContain('x\x1b[31mred\x1b[0m\n'); // SGR 序列原样过线
+  });
+
+  it('durable 块路径同律（writeLine 单点——present 追加直写同走兜底）', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    // user 块文本经 wrapText 已源头消毒——此处注入残余控制字验证 writeLine
+    // 兜底独立于上游（appendTransient 形直喂）
+    screen.appendTransient(['n\x07o']);
+    expect(io.bytes).toContain('\rno\n'); // BEL 剥除
+  });
+});

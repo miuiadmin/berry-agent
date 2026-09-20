@@ -23,7 +23,7 @@
  */
 import { truncateToWidth, wrapText, type CellStyle, type ColorValue } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
-import type { StyledLine, StyleRun } from '../backend/ansi-rows.js';
+import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../backend/ansi-rows.js';
 import { diffWords, parsePatchLines, type PatchLine } from './word-diff.js';
 import { lookupToolRenderer, type RendererLine, type ToolRenderResultInput } from '../../renderers.js';
 
@@ -71,21 +71,27 @@ export function cardBodyOf(text: string): readonly string[] {
 
 /**
  * 工具卡 → 带样式行集。卡头行恒在场（状态符号语义色 + 名/简述 dim——宿主
- * 单源恒形）；卡体折叠 = 尾 CARD_PREVIEW_LINES 视觉行（dim），展开 = 全量行。
- * 插件腿现调在卡体源选择之前（07 钉位注）——命中即插件卡体，回落形与宿主
- * 缺省同走下方两档渲染（折叠/展开/预览对插件行集同律）。
+ * 单源恒形）且**恒受屏宽帽**（2026-09-20 TUI 修复组 1 批 F6——超长名/简述
+ * 整行截断 capStyledLine，游程同步钳制；旧形无帽——超长工具名直写交终端
+ * autowrap 产未记账物理行）；卡体折叠 = 尾 CARD_PREVIEW_LINES 视觉行（dim），
+ * 展开 = 全量行。插件腿现调在卡体源选择之前（07 钉位注）——命中即插件
+ * 卡体，回落形与宿主缺省同走下方两档渲染（折叠/展开/预览对插件行集同律）。
  */
 export function renderToolCardStyledLines(card: ToolCardView, columns: number): StyledLine[] {
   const header = ` ${STATUS_SYMBOL[card.status]} ${card.name}${card.brief}`;
   const statusColor =
     card.status === 'success' ? card.theme.success : card.status === 'error' ? card.theme.error : card.theme.secondary;
-  const headerLine: StyledLine = {
-    plain: header,
-    runs: [
-      { start: 0, end: 2, style: { fg: statusColor } }, // 符号段（含首空格——符号色延至名前）
-      { start: 2, end: header.length, style: DIM_STYLE }, // 名 + 参数简述段
-    ],
-  };
+  // 卡头屏宽帽（F6）：plain 整字截断 + 两段游程同步钳制（符号段/名段跨界收尾）
+  const headerLine: StyledLine = capStyledLine(
+    {
+      plain: header,
+      runs: [
+        { start: 0, end: 2, style: { fg: statusColor } }, // 符号段（含首空格——符号色延至名前）
+        { start: 2, end: header.length, style: DIM_STYLE }, // 名 + 参数简述段
+      ],
+    },
+    columns,
+  );
   // 插件卡体现调（null = 回落——未命中/抛错/空行集/载荷缺席四形同落宿主缺省）
   const pluginBody = renderPluginBodyLines(card, columns);
   const bodyLines =
@@ -230,16 +236,6 @@ function segRuns(
     }
   }
   return runs;
-}
-
-/** 超长截断后游程钳制（越界段丢弃、跨界段收尾——plain 长度即上限） */
-function clampRuns(runs: readonly StyleRun[], limit: number): StyleRun[] {
-  const out: StyleRun[] = [];
-  for (const run of runs) {
-    if (run.start >= limit) continue;
-    out.push(run.end <= limit ? run : { ...run, end: limit });
-  }
-  return out;
 }
 
 /** 整行单游程助手（空行返零游程——裸行形） */

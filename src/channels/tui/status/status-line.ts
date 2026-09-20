@@ -77,7 +77,12 @@ export class StatusLine implements Renderable {
    */
   private renderSplit(buffer: CellBuffer, region: Region): void {
     if (this.busy) {
-      const rest = this.toolName !== null ? ` ⚙ ${this.toolName} …` : this.busyText !== '' ? ` ${this.busyText}` : '';
+      // 忙态右段剩余宽帽（2026-09-20 TUI 修复组 1 批 F4）：rest 无界时
+      // spinnerCol = col + width - 1 - restWidth 可为负——转轮写出被网格
+      // 边界吞掉、右段尾截断错位；帽 = width - 1（至少给转轮留 1 列），
+      // 整字截断后 spinnerCol 恒 ≥ region.col
+      const raw = this.toolName !== null ? ` ⚙ ${this.toolName} …` : this.busyText !== '' ? ` ${this.busyText}` : '';
+      const rest = raw === '' ? '' : truncateToWidth(raw, Math.max(0, region.width - 1));
       const restWidth = stringWidth(rest);
       const spinnerCol = region.col + region.width - 1 - restWidth;
       buffer.writeText(region.row, region.col, this.fitFooter(region.width - 1 - restWidth - 1));

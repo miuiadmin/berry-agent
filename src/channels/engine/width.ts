@@ -6,6 +6,14 @@
  * - 字素边界：运行时内建 Intl.Segmenter（零新依赖，模块级单例）；
  * - 列宽：EAW 分类**数据面**外包 get-east-asian-width（§2.1 精确锁 1.6.0），
  *   `ambiguous = 1` 的中西混排语境取舍**决策面自持**在本件（见 eawWidth 注释）。
+ *
+ * 2026-09-20 TUI 修复组 1 批增三面单源（禁则 / 控制字消毒 / 零宽记账）：
+ * - CJK 折行禁则（kinsoku）字集与谓词单源落本件——wrapText / markdown
+ *   layoutParts / editor foldLine 三引擎同律消费（禁则字集不在各引擎重复定义）；
+ * - sanitizeDisplayText 控制字符单源消毒——tab 语义展开 2 空格、CR 剥除、
+ *   ESC 序列剥除、其余 C0/DEL 剥除（与 cell.ts 网格面零控制字节律对齐，
+ *   inline 呈现面不再裸写控制字节产未记账物理行）；
+ * - graphemeWidth 增零宽字素分支——孤立 ZWSP/SHY/ZWJ/WJ/BOM 按 0 列记账。
  */
 import { eastAsianWidthType } from 'get-east-asian-width';
 
@@ -17,6 +25,45 @@ const VS16 = 0xfe0f;
 /** Regional Indicator 起止（旗帜 = 恰一对 RI 合成一字素） */
 const RI_FIRST = 0x1f1e6;
 const RI_LAST = 0x1f1ff;
+
+/**
+ * 行首禁则字集（kinsoku——不可起行的字素）：全角闭合标点 + 点类。
+ * 常用中文标点全覆盖（顿号/逗号/句号/叹号/问号/冒号/分号/省略号 + 各类
+ * 闭合括引号）；破折号「—」与省略号「⋯」二义（可居中成段）不收录——
+ * 收录面保守起步，扩集走本单源一处改。
+ */
+const LINE_START_PROHIBITED = new Set([
+  '）',
+  '】',
+  '」',
+  '』',
+  '〉',
+  '》',
+  '、',
+  '。',
+  '，',
+  '！',
+  '？',
+  '：',
+  '；',
+  '…',
+]);
+
+/**
+ * 行尾禁则字集（kinsoku——不可收行的字素）：全角开括引号。
+ * 开括号悬挂行尾则其配对内容起于次行、视觉断裂——折点须将其推下开行。
+ */
+const LINE_END_PROHIBITED = new Set(['（', '【', '「', '『', '〈', '《']);
+
+/** 行首禁则谓词（kinsoku 单源——折点回送判据，三引擎同律消费） */
+export function isLineStartProhibited(grapheme: string): boolean {
+  return LINE_START_PROHIBITED.has(grapheme);
+}
+
+/** 行尾禁则谓词（kinsoku 单源——折点推下判据，三引擎同律消费） */
+export function isLineEndProhibited(grapheme: string): boolean {
+  return LINE_END_PROHIBITED.has(grapheme);
+}
 
 /**
  * EAW 单码点分类宽（决策面自持位）。
@@ -34,11 +81,20 @@ function eawWidth(codePoint: number): 0 | 1 | 2 {
 }
 
 /**
+ * 孤立零宽字素码点集（单码点格式控制类，按 0 列记账）：
+ * ZWSP U+200B / ZWNJ U+200C / 孤立 ZWJ U+200D / SHY U+00AD / WJ U+2060 / BOM U+FEFF。
+ * 多码点字素（ZWJ 家族 emoji 等）不落此集——家族宽仍走规则②③①。
+ */
+const ZERO_WIDTH_CODE_POINTS = new Set([0x200b, 0x200c, 0x200d, 0x00ad, 0x2060, 0xfeff]);
+
+/**
  * 字素级宽度四规则（07 引擎节件 2）：
  * ① 字素内任一码点 EAW wide/fullwidth → 2；
  * ② 含 VS16 → 2（emoji 呈现形——窄基字符 + VS16 也占双列）；
  * ③ 恰一对 Regional Indicator → 2（旗帜——单码点 EAW 覆盖不到，孤立 RI 按 1）；
- * ④ 其余 → 1。
+ * ④ 孤立零宽字素（单码点格式控制）→ 0（2026-09-20 增——算术面与 cell.ts
+ *    网格面零宽防御位对齐，ZWSP 伪装可见字符占列的失真收口）；
+ * ⑤ 其余 → 1。
  */
 export function graphemeWidth(grapheme: string): 0 | 1 | 2 {
   const codePoints = [...grapheme].map((ch) => ch.codePointAt(0)!);
@@ -51,7 +107,9 @@ export function graphemeWidth(grapheme: string): 0 | 1 | 2 {
   for (const cp of codePoints) {
     if (eawWidth(cp) === 2) return 2;
   }
-  // 规则④：其余 → 1（含控制字符的占位语义不在此件发明——网格写入层拒收）
+  // 规则④：孤立零宽字素 → 0（多码点字素已在前三规则收口，不误伤 ZWJ 家族）
+  if (codePoints.length === 1 && ZERO_WIDTH_CODE_POINTS.has(codePoints[0]!)) return 0;
+  // 规则⑤：其余 → 1（含控制字符的占位语义不在此件发明——网格写入层拒收）
   return 1;
 }
 
@@ -88,33 +146,154 @@ export function truncateToWidth(text: string, cols: number): string {
 }
 
 /**
+ * 控制字符消毒（单源——inline 呈现面源头消毒，2026-09-20 TUI 修复组 1）：
+ * - tab → 2 空格（语义展开，非剥除——列对齐意图保留）；
+ * - LF 保留（段语义——调用方分段折行）、CR 剥除（CRLF 归一 LF）；
+ * - ESC 序列整段剥除：CSI（ESC [ … final 0x40–0x7E）/ OSC（ESC ] … BEL 或
+ *   ST）/ 传统式（ESC + 中间码 0x20–0x2F + final 0x30–0x7E）——呈现文本里
+ *   的 ESC 序列是模型输出或网关报文夹带的转义残留，落屏即伪控制；
+ * - 其余 C0（<0x20）与 DEL 剥除（与 cell.ts 网格面零控制字节律同律）。
+ */
+export function sanitizeDisplayText(text: string): string {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (code === 0x1b) {
+      // ESC 序列消费：整段剥除（截尾 malformed 序列一并吞——不外泄半个序列）
+      i = consumeEscapeSequence(text, i);
+      continue;
+    }
+    if (code === 0x09) {
+      out += '  '; // tab 语义展开 2 空格
+      i++;
+      continue;
+    }
+    if (code === 0x0a) {
+      out += '\n'; // LF 保留（段语义）
+      i++;
+      continue;
+    }
+    if (code < 0x20 || code === 0x7f) {
+      i++; // 其余 C0 / DEL 剥除（含 CR——CRLF 归一 LF）
+      continue;
+    }
+    out += text[i]!;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * ESC 转义序列消费（返回序列末后位——整段剥除用）。
+ * 三形：CSI（'[' + 参数/中间码 + final 0x40–0x7E）、OSC（']' + 至 BEL/ST）、
+ * 传统式（中间码 0x20–0x2F* + final 0x30–0x7E）。截尾 malformed 形吞到串尾。
+ */
+function consumeEscapeSequence(text: string, start: number): number {
+  let i = start + 1;
+  if (i >= text.length) return i;
+  const kind = text[i]!;
+  if (kind === '[') {
+    // CSI：参数码 0x30–0x3F 与中间码 0x20–0x2F 直到 final 0x40–0x7E
+    i++;
+    while (i < text.length) {
+      const c = text.charCodeAt(i);
+      if (c >= 0x40 && c <= 0x7e) return i + 1; // final——序列闭合
+      if (c >= 0x20 && c <= 0x3f) {
+        i++;
+        continue;
+      }
+      return i; // 非 CSI 语法字节——截断 malformed，吞到此为止
+    }
+    return i;
+  }
+  if (kind === ']') {
+    // OSC：吞到 BEL（0x07）或 ST（ESC \）
+    i++;
+    while (i < text.length) {
+      const c = text.charCodeAt(i);
+      if (c === 0x07) return i + 1;
+      if (c === 0x1b && text[i + 1] === '\\') return i + 2; // ST
+      i++;
+    }
+    return i;
+  }
+  // 传统式：中间码 0x20–0x2F* + final 0x30–0x7E（如 ESC ( B 字符集选择）
+  while (i < text.length) {
+    const c = text.charCodeAt(i);
+    if (c >= 0x20 && c <= 0x2f) {
+      i++;
+      continue;
+    }
+    if (c >= 0x30 && c <= 0x7e) return i + 1; // final
+    return i; // 非法形——截断
+  }
+  return i;
+}
+
+/**
  * 整字三原语之三·整字换行：按 cols 折行——
- * 行末剩一列遇双宽字素整字下移**第二列不悬挂**；ZWJ 家族**跨行不撕裂**
- * （字素切分在前、折行只动字素边界）；显式 \n 强制换行（段语义保留）。
+ * - 行末剩一列遇双宽字素整字下移**第二列不悬挂**；ZWJ 家族**跨行不撕裂**
+ *   （字素切分在前、折行只动字素边界）；
+ * - 显式 \n 强制换行（段语义保留，空行保留）；
+ * - **CJK 折行禁则（kinsoku，2026-09-20 增）**：折点行首不可为闭合标点
+ *   （回送当行末字素下移）、行尾不可悬挂开括号（推下开行）——两规则同一
+ *   操作「当行末字素携下移」；回送后新行越帽即放弃硬断（不无限回送）；
+ * - **折点空格处理**：折点字素为空格时吞掉不转行、续行行首空格跳过
+ *   （段首行缩进保留——与 markdown layoutParts 对齐）；
+ * - **源头消毒**：段文本先经 sanitizeDisplayText（tab 展开 / CR 与 ESC
+ *   序列剥除）再折行——控制字节不产未记账物理行。
  */
 export function wrapText(text: string, cols: number): string[] {
-  if (cols <= 0) return [text]; // 非法宽防御：不折行整段返回（坏参不丢字）
+  if (cols <= 0) return [sanitizeDisplayText(text)]; // 非法宽防御：不折行整段返回（坏参不丢字；消毒仍做）
   const lines: string[] = [];
-  // 先按显式换行分段（空段保留——空行语义），段内再按宽折行
-  for (const paragraph of text.split('\n')) {
+  // 先单源消毒再按显式换行分段（空段保留——空行语义），段内再按宽折行
+  for (const paragraph of sanitizeDisplayText(text).split('\n')) {
     if (paragraph === '') {
       lines.push('');
       continue;
     }
-    let current = '';
+    const paragraphStart = lines.length; // 段首行界（续行行首空格跳过只作用于折行产生的行——段首行缩进保留）
+    let current: string[] = []; // 当行字素累积（数组形——禁则回送要从未尾弹出）
     let used = 0;
     for (const g of splitGraphemes(paragraph)) {
+      // 续行行首空格跳过（折行产物不保留行首空格——段首行不受此律）
+      if (g === ' ' && current.length === 0 && lines.length > paragraphStart) continue;
       const w = graphemeWidth(g);
       if (used + w > cols) {
-        lines.push(current); // 当前行满——整字下移开新行（双宽字不悬挂第二列）
-        current = g;
-        used = w;
+        // 折点吞空格：折点字素是空格 → 当前行收笔、空格不转行不占下行行首
+        if (g === ' ') {
+          lines.push(current.join(''));
+          current = [];
+          used = 0;
+          continue;
+        }
+        // CJK 禁则回送（kinsoku）：行首禁则（折点后字素不可起行）与行尾禁则
+        // （当行末字素不可收行）同一操作——当行末字素弹出携下移；回送后新行
+        // [carry…+g] 越帽即放弃（禁则让位硬断——不无限回送，原折点保持）
+        const carry: string[] = [];
+        let carryWidth = 0;
+        while (current.length > 0) {
+          const nextFirst = carry.length > 0 ? carry[0]! : g; // 新行行首候选
+          const currentLast = current[current.length - 1]!; // 当行行末候选
+          if (!isLineStartProhibited(nextFirst) && !isLineEndProhibited(currentLast)) break;
+          const head = currentLast;
+          const headW = graphemeWidth(head);
+          if (carryWidth + headW + w > cols) break; // 回送无解——放弃硬断
+          current.pop();
+          used -= headW;
+          carry.unshift(head);
+          carryWidth += headW;
+        }
+        lines.push(current.join('')); // 当前行满——整字下移开新行（双宽字不悬挂第二列）
+        current = carry.length > 0 ? [...carry, g] : [g];
+        used = carryWidth + w;
       } else {
-        current += g;
+        current.push(g);
         used += w;
       }
     }
-    lines.push(current); // 段尾行（含整段未折情形）
+    lines.push(current.join('')); // 段尾行（含整段未折情形）
   }
   return lines;
 }

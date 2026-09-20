@@ -2,7 +2,16 @@
  * width 件测试（07 引擎节件 2——字素四规则 + 整字三原语）。
  */
 import { describe, expect, it } from 'vitest';
-import { graphemeWidth, splitGraphemes, stringWidth, truncateToWidth, wrapText } from './width.js';
+import {
+  graphemeWidth,
+  isLineEndProhibited,
+  isLineStartProhibited,
+  sanitizeDisplayText,
+  splitGraphemes,
+  stringWidth,
+  truncateToWidth,
+  wrapText,
+} from './width.js';
 
 describe('字素级宽度四规则', () => {
   it('规则①：EAW wide/fullwidth 码点 → 2（CJK / 全角标点）', () => {
@@ -80,5 +89,90 @@ describe('整字三原语', () => {
   it('整字换行：ZWJ 家族跨行不撕裂', () => {
     const zs = '👨‍👩‍👧';
     expect(wrapText(`x${zs}`, 1)).toEqual(['x', zs]); // 宽 2 字素不被切半
+  });
+});
+
+describe('CJK 折行禁则（kinsoku——三引擎同律单源）', () => {
+  it('行首禁则：全角闭合标点不可起行（回送前行末字素）', () => {
+    // 13 字素全 2 宽、cols=8：纯宽折点在「了」后，但「）」「。」等不可起行
+    expect(wrapText('模型回答了问题（详见下文）', 8)).toEqual(['模型回答', '了问题', '（详见下', '文）']);
+  });
+
+  it('行首禁则：半角尾随句号同律（a。不可拆尾字起行）', () => {
+    expect(wrapText('aaaaaaaaaa。', 10)).toEqual(['aaaaaaaaa', 'a。']);
+  });
+
+  it('行尾禁则：全角开括号不可收行（推下开行）', () => {
+    // 旧形 ['a（','bc']——开括号悬挂行尾；禁则后开括号随折点下移
+    expect(wrapText('a（bc', 3)).toEqual(['a', '（b', 'c']);
+  });
+
+  it('禁则谓词单源：行首禁则集 / 行尾禁则集', () => {
+    for (const ch of '）】」』、。，！？：；…') {
+      expect(isLineStartProhibited(ch)).toBe(true);
+    }
+    expect(isLineStartProhibited('a')).toBe(false);
+    expect(isLineStartProhibited('中')).toBe(false);
+    for (const ch of '（【「『') {
+      expect(isLineEndProhibited(ch)).toBe(true);
+    }
+    expect(isLineEndProhibited('b')).toBe(false);
+    expect(isLineEndProhibited('。')).toBe(false); // 闭合标点可收行（只禁起行）
+  });
+
+  it('禁则回送可让位：回送后行不越帽（回送 b 使 ）非行首）', () => {
+    // cols=3：折点在 b 后、）将起行——回送 b 下移后 [b,）] 恰 3 列容得下
+    expect(wrapText('ab）c', 3)).toEqual(['a', 'b）', 'c']);
+  });
+
+  it('禁则让位硬断：回送后行宽超帽即放弃（不无限回送）', () => {
+    // cols=2 恰容一禁则字：回送 b 得 [b,）]=3>2 放弃——硬断于原折点（原形保留）
+    expect(wrapText('ab）c', 2)).toEqual(['ab', '）', 'c']);
+    // 全禁则字序列：current 回空即放弃——不无限回送不挂死
+    expect(wrapText('）））', 2)).toEqual(['）', '）', '）']);
+  });
+});
+
+describe('折点空格处理（行首空格跳过）', () => {
+  it('折点吞空格 + 续行行首空格不占位', () => {
+    expect(wrapText('aaa bbb ccc', 3)).toEqual(['aaa', 'bbb', 'ccc']);
+  });
+});
+
+describe('控制字符消毒（sanitizeDisplayText 单源）', () => {
+  it('tab 按语义展开 2 空格、CR 剥除、C0/DEL 剥除', () => {
+    expect(sanitizeDisplayText('a\tb')).toBe('a  b');
+    expect(sanitizeDisplayText('a\rb')).toBe('ab');
+    expect(sanitizeDisplayText('a\r\nb')).toBe('a\nb'); // CRLF 归一 LF（段语义保留）
+    expect(sanitizeDisplayText('a\x00b\x7f')).toBe('ab');
+    expect(sanitizeDisplayText('plain\x1b[31mred\x1b[0m')).toBe('plainred'); // CSI 序列剥除
+    expect(sanitizeDisplayText('osc\x1b]0;title\x07tail')).toBe('osctail'); // OSC 剥除
+  });
+
+  it('wrapText 源头消毒：tab 展开后参与折行', () => {
+    expect(wrapText('col1\tcol2\tcol3', 8)).toEqual(['col1  co', 'l2  col3']);
+  });
+
+  it('wrapText 源头消毒：CR 剥除不产幻行', () => {
+    expect(wrapText('a\rb', 8)).toEqual(['ab']);
+  });
+});
+
+describe('零宽字素（孤立 ZWSP/SHY 等按 0 列记账）', () => {
+  it('graphemeWidth 孤立零宽字素 → 0', () => {
+    expect(graphemeWidth('\u200b')).toBe(0); // ZWSP
+    expect(graphemeWidth('\u00ad')).toBe(0); // SHY
+    expect(graphemeWidth('\u200d')).toBe(0); // 孤立 ZWJ（非家族内——字素层已切分）
+    expect(graphemeWidth('\ufeff')).toBe(0); // BOM U+FEFF
+  });
+
+  it('ZWJ 家族内码点不受影响（整字素仍 2 列）', () => {
+    expect(graphemeWidth('👨‍👩‍👧')).toBe(2); // 规则④原样——只裁孤立形
+    expect(stringWidth('a\u200bb')).toBe(2); // 1 + 0 + 1——零宽不占列但两侧字素照计
+  });
+
+  it('truncateToWidth / wrapText 跳零宽字素不占列', () => {
+    expect(stringWidth('aaaa\u200bbbbb')).toBe(8);
+    expect(wrapText('aaaa\u200bbbbb', 4)).toEqual(['aaaa\u200b', 'bbbb']);
   });
 });
