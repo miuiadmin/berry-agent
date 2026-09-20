@@ -265,8 +265,11 @@ describe('思考块窄宽收敛（1-8 列）', () => {
     expect(expanded.length).toBeGreaterThanOrEqual(2); // 标签 + 体
     expectRunsInBounds(expanded[0]!);
     for (const line of expanded) expectRunsInBounds(line);
-    // 体行经 CellGrid 落格提取（gridRowToStyled）——物理限宽恒 ≤ columns
-    for (const line of expanded.slice(1)) expect(stringWidth(line.plain)).toBeLessThanOrEqual(w);
+    // 体行经 CellGrid 落格提取（gridRowToStyled）——物理限宽 ≤ columns，
+    // 唯一例外 = 整字独行（1 列遇双宽字素不产半字——layoutParts 整字律
+    // 例外契约，2026-09-21 批二起 markdown 引擎同律）；经 expectWidthCapped
+    // 单源执法（修前 layoutParts 丢弃超宽字素、行恒 ≤ w——翻档随真态）
+    for (const line of expanded.slice(1)) expectWidthCapped(line.plain.trimEnd(), w);
   });
 });
 

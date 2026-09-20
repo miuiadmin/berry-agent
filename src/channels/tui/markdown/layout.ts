@@ -11,6 +11,10 @@
  *   重复定义）；
  * - 控制字符消毒——段文本先经 sanitizeDisplayText（tab 展开 2 空格 / CR 与
  *   ESC 序列剥除）再折行，残余 LF 跳过（行模型拆分归调用方）。
+ *
+ * 2026-09-21 TUI 第四役批二再增两律（仍与 wrapText 同律）：
+ * - 整字独行——比行宽还宽的字素（width=1 遇双宽字素）开新行整字承载不丢弃；
+ * - 禁则回送弹丢空格——被弹空格不入新行行首（空格不是排版内容）。
  */
 // 禁则谓词与消毒经 engine 聚合面（index）消费——TUI 第四役残腿收纳
 // （批内注释例注撤除：聚合面已收录，子目录直达形不复存在）
@@ -74,7 +78,20 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
       if (g === '\n') continue; // 残余 LF 跳过（多行拆分归行模型——布局只在行内折）
       if (g === ' ' && used === 0 && rows.length > 0) continue; // 折点后行首空格跳过
       const w = graphemeWidth(g);
-      if (w > width) continue; // 防御位：比行宽还宽的字素丢弃（width 件三规则外的不可能格）
+      if (w > width) {
+        // 整字独行例外（2026-09-21 TUI 第四役批二——与 wrapText/foldLine 同律）：
+        // 比行宽还宽的字素（width=1 遇 CJK/emoji 双宽字素）不丢弃——开新行整字
+        // 承载（数据不丢；narrow-width 整字律例外契约「行恰一个字素且其宽 >
+        // cols 整字独占一行」回归）。独行后 used 越帽记账，后继字素必然再折
+        // ——逐字素各成独行
+        if (current.length > 0) {
+          rows.push(current);
+          openRow();
+        }
+        current.push({ grapheme: g, style: part.style });
+        used += w;
+        continue;
+      }
       if (used + w > width) {
         // 折点恰为空格：收行不转行（空格不占新行行首）
         if (g === ' ') {
@@ -84,7 +101,9 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
         }
         // CJK 禁则回送（与 wrapText 同律）：行首禁则（折点后字素不可起行）与
         // 行尾禁则（当行末字素不可收行）同一操作——当行末字素弹出携下移
-        //（样式随图素原样携带）；回送后新行 [carry…+g] 越帽即放弃硬断
+        //（样式随图素原样携带）；回送后新行 [carry…+g] 越帽即放弃硬断；
+        // 被弹空格弹丢不入 carry（空格不是排版内容——不占新行行首，回送位
+        // 与迭代位两路同守行首空格跳过自规则，2026-09-21 批二）
         const carry: StyledGrapheme[] = [];
         let carryWidth = 0;
         while (current.length > 0) {
@@ -92,6 +111,13 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
           const currentLast = current[current.length - 1]!; // 当行行末候选
           if (!isLineStartProhibited(nextFirst) && !isLineEndProhibited(currentLast.grapheme)) break;
           const head = currentLast;
+          if (head.grapheme === ' ') {
+            // 空格弹丢：只出当行不入 carry——弹丢不耗 carry 宽、不受回送
+            // 越帽判据约束（丢字不占新行，无解风险不存在）
+            current.pop();
+            used -= 1;
+            continue;
+          }
           const headW = graphemeWidth(head.grapheme);
           if (carryWidth + headW + w > width) break; // 回送无解——放弃硬断（原折点保持）
           current.pop();

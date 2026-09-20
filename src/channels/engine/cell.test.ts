@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid, cellEquals, EMPTY_STYLE, styleEquals } from './cell.js';
+import { stringWidth } from './width.js';
 
 describe('三元网格与宽字符续格', () => {
   it('常规字素：单格三元（码点面 + 样式 + 列宽 1）', () => {
@@ -53,6 +54,31 @@ describe('三元网格与宽字符续格', () => {
     grid.setCell(0, 0, '👨‍👩‍👧');
     expect(grid.getCell(0, 0)?.grapheme).toBe('👨‍👩‍👧'); // 整素串入格
     expect(grid.getCell(0, 1)?.width).toBe(0);
+  });
+});
+
+describe('writeText tab 展开（模型账/落格账单源对齐——2026-09-21 TUI 第四役批二）', () => {
+  it('tab 展开两个空格格：推进 2 列、控制字节仍不落 cell', () => {
+    const grid = new CellGrid(10, 3);
+    // 修前 tab 与其余 C0 同跳过——推进 3、落格 'abc'（渲染宽与模型账差 2/tab）
+    expect(grid.writeText(0, 0, 'a\tbc')).toBe(5); // 1 + 2 + 1 + 1
+    expect(grid.getCell(0, 1)?.grapheme).toBe(' '); // 展开空格位 1
+    expect(grid.getCell(0, 2)?.grapheme).toBe(' '); // 展开空格位 2
+    expect(grid.getCell(0, 3)?.grapheme).toBe('b');
+    // 零控制字节律保持：tab 以空格呈现，控制字节本身不落 cell
+    for (let c = 0; c < 10; c++) {
+      const g = grid.getCell(0, c)?.grapheme;
+      if (g !== undefined) expect(/[\x00-\x1f]/.test(g)).toBe(false);
+    }
+  });
+
+  it('对拍锁：含 tab 串的模型宽度账（stringWidth）=== 落格推进（writeText 返回列）', () => {
+    // 编辑器粘贴路 tab 原样入模型——模型侧 stringWidth（graphemeWidth 记 2）
+    // 与落格推进在此对任意含 tab 串恒等（修前每 tab 差 1）
+    for (const t of ['a\tbc', '\t', 'x\ty\tz', 'ab\t\tcd', '  \t  ', '中\t文']) {
+      const grid = new CellGrid(40, 1);
+      expect(grid.writeText(0, 0, t), `t=${JSON.stringify(t)}`).toBe(stringWidth(t));
+    }
   });
 });
 

@@ -133,6 +133,46 @@ describe('CJK 折行禁则（kinsoku——三引擎同律单源）', () => {
   });
 });
 
+describe('TUI 第四役批二（tab 记宽 / 段尾尾推守卫 / 禁则扩集 / 回送弹丢空格）', () => {
+  it('tab 记宽 2：模型宽度账与落格展开面单源（sanitizeDisplayText / cell.writeText 同律）', () => {
+    // 编辑器粘贴路 tab 原样入模型（不经 sanitizeDisplayText），模型侧全部
+    // 宽度算术（折行/光标列/垂直移动）在此单源记 2——与展开为两空格的
+    // 落格面对齐（修前记 1 与落格跳过记 0 双账分歧）
+    expect(graphemeWidth('\t')).toBe(2);
+    expect(stringWidth('a\tbc')).toBe(5); // 1 + 2 + 1 + 1
+  });
+
+  it('段尾折点吞空格不产尾空行（尾推守卫——与 layoutParts 同律）', () => {
+    expect(wrapText('abc ', 3)).toEqual(['abc']); // 修前 ['abc','']——尾推空行
+    expect(wrapText('hello world! ', 12)).toEqual(['hello world!']); // 修前多一空行
+    expect(wrapText('ab ', 2)).toEqual(['ab']);
+    // 显式空段的空行语义不受尾推守卫影响（'\n\n' 空行保留）
+    expect(wrapText('abc \n\nb', 3)).toEqual(['abc', '', 'b']);
+  });
+
+  it('禁则回送弹丢空格：续行行首不悬挂空格（空格不是排版内容）', () => {
+    // 修前 ['ab',' 。']——被弹空格落新行行首，绕过「续行行首空格跳过」自规则
+    expect(wrapText('ab 。', 3)).toEqual(['a', 'b。']);
+    // 回送弹丢后无解（carry 越帽）即让位硬断——空格仍不占新行行首
+    expect(wrapText('a 。', 2)).toEqual(['a', '。']);
+    // 两个尾随空格逐个弹丢后再评估禁则回送（两空格均在行内、折点落在 。）
+    expect(wrapText('ab  。', 5)).toEqual(['a', 'b。']);
+  });
+
+  it('禁则字集扩全角方/花/龟甲括号：］｝〕不可起行、［｛〔不可收行', () => {
+    // 修前 ］ 不在集——行首悬挂闭合方括号（对集内在员 ） 回送护住的对照形）
+    expect(wrapText('一二三四五］', 10)).toEqual(['一二三四', '五］']); // 修前 ['一二三四五','］']
+    expect(wrapText('一二三四五）', 10)).toEqual(['一二三四', '五）']); // 在集对照（既有律）
+    // 行尾禁则侧：开方括号不可收行——推下开行
+    expect(wrapText('一二三四［五', 10)).toEqual(['一二三四', '［五']); // 修前 ［ 悬挂行尾
+    for (const ch of '］｝〕') expect(isLineStartProhibited(ch)).toBe(true);
+    for (const ch of '［｛〔') expect(isLineEndProhibited(ch)).toBe(true);
+    // 头注宣称对齐：全角方/花/龟甲闭合形可起行为假、开形可收行为假
+    expect(isLineStartProhibited('［')).toBe(false); // 开形可起行
+    expect(isLineEndProhibited('］')).toBe(false); // 闭形可收行
+  });
+});
+
 describe('折点空格处理（行首空格跳过）', () => {
   it('折点吞空格 + 续行行首空格不占位', () => {
     expect(wrapText('aaa bbb ccc', 3)).toEqual(['aaa', 'bbb', 'ccc']);

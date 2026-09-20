@@ -27,10 +27,12 @@ const RI_FIRST = 0x1f1e6;
 const RI_LAST = 0x1f1ff;
 
 /**
- * 行首禁则字集（kinsoku——不可起行的字素）：全角闭合标点 + 点类。
- * 常用中文标点全覆盖（顿号/逗号/句号/叹号/问号/冒号/分号/省略号 + 各类
- * 闭合括引号）；破折号「—」与省略号「⋯」二义（可居中成段）不收录——
- * 收录面保守起步，扩集走本单源一处改。
+ * 行首禁则字集（kinsoku——不可起行的字素）。
+ * 实收面（头注与集成员逐字对齐——2026-09-21 TUI 第四役批二勘正宣称）：
+ * 点类七（、。，！？：；）+ 省略号 … + 全角闭合括引九
+ * （）】」』〉》圆/方/双书名/尖/书名 + ］｝〕方/花/龟甲——括族三形齐）；
+ * 破折号「—」与省略号「⋯」二义（可居中成段）不收录、龟甲闭合以外的小
+ * 集合括号（〗〙〛 等）暂不收录——收录面保守起步，扩集走本单源一处改。
  */
 const LINE_START_PROHIBITED = new Set([
   '）',
@@ -39,6 +41,9 @@ const LINE_START_PROHIBITED = new Set([
   '』',
   '〉',
   '》',
+  '］', // 全角方括号闭合（2026-09-21 批二增——中文技术正文常用族）
+  '｝', // 全角花括号闭合
+  '〕', // 龟甲括号闭合
   '、',
   '。',
   '，',
@@ -51,9 +56,11 @@ const LINE_START_PROHIBITED = new Set([
 
 /**
  * 行尾禁则字集（kinsoku——不可收行的字素）：全角开括引号。
+ * 实收面九：（【「『〈《圆/方/双书名/尖/书名 + ［｛〔方/花/龟甲——括族
+ * 三形齐（2026-09-21 批二增后三员）。
  * 开括号悬挂行尾则其配对内容起于次行、视觉断裂——折点须将其推下开行。
  */
-const LINE_END_PROHIBITED = new Set(['（', '【', '「', '『', '〈', '《']);
+const LINE_END_PROHIBITED = new Set(['（', '【', '「', '『', '〈', '《', '［', '｛', '〔']);
 
 /** 行首禁则谓词（kinsoku 单源——折点回送判据，三引擎同律消费） */
 export function isLineStartProhibited(grapheme: string): boolean {
@@ -88,15 +95,22 @@ function eawWidth(codePoint: number): 0 | 1 | 2 {
 const ZERO_WIDTH_CODE_POINTS = new Set([0x200b, 0x200c, 0x200d, 0x00ad, 0x2060, 0xfeff]);
 
 /**
- * 字素级宽度四规则（07 引擎节件 2）：
+ * 字素级宽度规则（07 引擎节件 2）：
  * ① 字素内任一码点 EAW wide/fullwidth → 2；
  * ② 含 VS16 → 2（emoji 呈现形——窄基字符 + VS16 也占双列）；
  * ③ 恰一对 Regional Indicator → 2（旗帜——单码点 EAW 覆盖不到，孤立 RI 按 1）；
  * ④ 孤立零宽字素（单码点格式控制）→ 0（2026-09-20 增——算术面与 cell.ts
  *    网格面零宽防御位对齐，ZWSP 伪装可见字符占列的失真收口）；
- * ⑤ 其余 → 1。
+ * ⑤ tab（U+0009）→ 2（2026-09-21 TUI 第四役批二增——语义展开两空格，与
+ *    sanitizeDisplayText 的 tab→2 空格、cell.ts writeText 的落格展开三面
+ *    单源；编辑器粘贴路 tab 原样入模型不经消毒，模型侧全部宽度算术
+ *    〔折行/光标列/垂直移动〕在此记 2 使与落格账对齐）；
+ * ⑥ 其余 → 1。
  */
 export function graphemeWidth(grapheme: string): 0 | 1 | 2 {
+  // 规则⑤：tab 记 2（控制字素中唯一有呈现语义者——语义展开两空格；
+  // 其余控制字素不在此发明占位语义，仍落规则⑥由网格写入层拒收）
+  if (grapheme === '\t') return 2;
   const codePoints = [...grapheme].map((ch) => ch.codePointAt(0)!);
   // 规则③：恰一对 RI（两面旗恰好两个 RI 码点合成）判 2；单 RI / 三连 RI 落规则④
   const riCount = codePoints.filter((cp) => cp >= RI_FIRST && cp <= RI_LAST).length;
@@ -109,7 +123,7 @@ export function graphemeWidth(grapheme: string): 0 | 1 | 2 {
   }
   // 规则④：孤立零宽字素 → 0（多码点字素已在前三规则收口，不误伤 ZWJ 家族）
   if (codePoints.length === 1 && ZERO_WIDTH_CODE_POINTS.has(codePoints[0]!)) return 0;
-  // 规则⑤：其余 → 1（含控制字符的占位语义不在此件发明——网格写入层拒收）
+  // 规则⑥：其余 → 1（其余控制字符的占位语义不在此件发明——网格写入层拒收）
   return 1;
 }
 
@@ -270,7 +284,9 @@ export function wrapText(text: string, cols: number): string[] {
         }
         // CJK 禁则回送（kinsoku）：行首禁则（折点后字素不可起行）与行尾禁则
         // （当行末字素不可收行）同一操作——当行末字素弹出携下移；回送后新行
-        // [carry…+g] 越帽即放弃（禁则让位硬断——不无限回送，原折点保持）
+        // [carry…+g] 越帽即放弃（禁则让位硬断——不无限回送，原折点保持）；
+        // 被弹空格弹丢不入 carry（空格不是排版内容——不占新行行首，回送位
+        // 与迭代位两路同守「续行行首空格跳过」自规则，2026-09-21 批二）
         const carry: string[] = [];
         let carryWidth = 0;
         while (current.length > 0) {
@@ -278,6 +294,13 @@ export function wrapText(text: string, cols: number): string[] {
           const currentLast = current[current.length - 1]!; // 当行行末候选
           if (!isLineStartProhibited(nextFirst) && !isLineEndProhibited(currentLast)) break;
           const head = currentLast;
+          if (head === ' ') {
+            // 空格弹丢：只出当行不入 carry——弹丢不耗 carry 宽、不受回送
+            // 越帽判据约束（丢字不占新行，无解风险不存在）
+            current.pop();
+            used -= 1;
+            continue;
+          }
           const headW = graphemeWidth(head);
           if (carryWidth + headW + w > cols) break; // 回送无解——放弃硬断
           current.pop();
@@ -293,7 +316,10 @@ export function wrapText(text: string, cols: number): string[] {
         used += w;
       }
     }
-    lines.push(current.join('')); // 段尾行（含整段未折情形）
+    // 段尾行（含整段未折情形）——尾推守卫与 layoutParts 同律（2026-09-21 批二）：
+    // 段尾折点吞空格后 current 为空且已有前行时不推空行（恰满行空格收尾不产
+    // 多余空白行）；lines 仍空（首段整段折空——理论不可达的防御位）保底一行
+    if (current.length > 0 || lines.length === 0) lines.push(current.join(''));
   }
   return lines;
 }

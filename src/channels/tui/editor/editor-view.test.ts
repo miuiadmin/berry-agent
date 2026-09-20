@@ -186,6 +186,21 @@ describe('EditorView IME 预编辑', () => {
     view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
     expect(grid.cursor).toEqual({ row: 1, col: 3, visible: true }); // 1 边框 + 2 显示列
   });
+
+  it('组字三段路含粘贴 tab：tab 展开两空格——与正文路/模型账同律（cell 新 tab 律随迁）', () => {
+    // fx1 后模型账 graphemeWidth('\t')=2 + cell.writeText 把 tab 展开两空格格——
+    // 正文路 drawContent 直走 writeText 已同律；组字三段路 writeTextClamped
+    // 修前仍把 tab 随 C0 跳过（渲染 'abc' 每丢一 tab 2 列，光标声明
+    // prefixDisplayWidth 记 2 漂在渲染文本右侧）——同框两副面孔。修后
+    // tab 豁免吃进 take（宽 2 入账）走 writeText 展开，渲染与账合一
+    const { view, model } = viewOf('a\tbc');
+    model.setPreedit('x');
+    view.setFocused(true);
+    const grid = new CellGrid(12, 5);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
+    expect(readRow(grid, 1, 12)).toBe('│a  bcx  │'); // tab 两空格 + 组字段缀尾（修前 '│abcx    │'）
+    expect(grid.cursor).toEqual({ row: 1, col: 7, visible: true }); // 模型账 1 边框 + 5 显示列（a=1, tab=2, bc=2）+ 预编辑 1——恰缀组字段尾
+  });
 });
 
 describe('EditorView IME 预编辑折点归属（与 findVisualLineAt 同律）', () => {

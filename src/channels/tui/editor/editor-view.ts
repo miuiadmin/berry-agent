@@ -223,7 +223,9 @@ const PREEDIT_STYLE: Readonly<CellStyle> = Object.freeze({ underline: true });
  * 右界钳制写入（组字三段呈现专用）：从 col 起写 text，字素累计越过
  * rightEdge（绝对列，不含）即整字截断——宽字素放不下整字放弃不产半字
  * （与引擎 truncateToWidth 同律）。控制字素不占格亦不计宽（与
- * CellGrid.writeText 跳过律同步——宽度账与落格账一致，返回值可续写）。
+ * CellGrid.writeText 跳过律同步——宽度账与落格账一致，返回值可续写）；
+ * tab 例外豁免——cell.writeText 新 tab 律（展开两空格格、宽记 2）随迁，
+ * 组字三段路与正文路/模型账同律。
  * 返回下一可用列（= 实写末格右邻；全截断时原样返回 col）。
  */
 function writeTextClamped(
@@ -238,7 +240,10 @@ function writeTextClamped(
   let used = 0; // 可写前缀显示宽
   for (const g of splitGraphemes(text)) {
     const code = g.charCodeAt(0);
-    if (code < 0x20 || code === 0x7f) continue; // 控制字素：writeText 同律跳过——宽度账同步不计
+    // 控制字素：writeText 同律跳过——宽度账同步不计；tab 豁免（cell.writeText
+    // 新 tab 律展开两空格格、宽记 2）——跳过则组字三段路渲染每丢一 tab 2 列，
+    // 与正文路直写、模型账（graphemeWidth 记 2）两副面孔
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f) continue;
     const w = graphemeWidth(g);
     if (col + used + w > rightEdge) break; // 右界整字截断（宽字素不劈半）
     take += g;

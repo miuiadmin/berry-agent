@@ -100,6 +100,16 @@ export class CellGrid implements CellBuffer {
       // 触滚——tmux e2e /help 副屏真缺陷的物理载体）；跳过不写不占宽。行模型
       // 的多行拆分归面板语义层（buildHelpLines 拆行律），本位只兜底不越权
       const code = g.charCodeAt(0);
+      // tab 例外（2026-09-21 TUI 第四役批二）：语义展开两个空格格——与
+      // width 件 sanitizeDisplayText 的 tab→2 空格、graphemeWidth('\t')=2 的
+      // 模型宽度账三面单源；编辑器粘贴路 tab 原样入模型，落格面在此展开，
+      // 控制字节本身仍不落 cell（零控制字节律保持）
+      if (code === 0x09) {
+        this.setCell(row, cursor, ' ', style);
+        this.setCell(row, cursor + 1, ' ', style);
+        cursor += 2;
+        continue;
+      }
       if (code < 0x20 || code === 0x7f) continue;
       this.setCell(row, cursor, g, style);
       cursor += graphemeWidth(g);
