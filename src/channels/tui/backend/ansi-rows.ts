@@ -14,15 +14,16 @@
  *   序列化单源层屏宽帽：plain 整字截断 + 游程同步钳制，主屏直写产出面
  *   超宽行 autowrap 物理行账漂移的收口位）。
  */
-// sanitizeDisplayText 未入 engine 聚合面（index 聚合面改动非本组文件集）——
-// 同模块子目录直达 width 件（lint:topology 件内子目录跳变放行，例注在案）
-import { sanitizeDisplayText, truncateToWidth } from '../../engine/width.js';
+// width 三原语（sanitizeDisplayText/truncateToWidth）经 engine 聚合面（index）
+// 消费——TUI 第四役残腿收纳（子目录直达形撤除）
 import {
   cellEquals,
   colorSgrBg,
   colorSgrFg,
   EMPTY_STYLE,
+  sanitizeDisplayText,
   styleEquals,
+  truncateToWidth,
   type CellGrid,
   type CellStyle,
   type ColorValue,

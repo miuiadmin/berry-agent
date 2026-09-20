@@ -12,16 +12,15 @@
  * - 控制字符消毒——段文本先经 sanitizeDisplayText（tab 展开 2 空格 / CR 与
  *   ESC 序列剥除）再折行，残余 LF 跳过（行模型拆分归调用方）。
  */
-// 禁则谓词与消毒未入 engine 聚合面（index 聚合面改动非本组文件集）——
-// 同模块子目录直达 width 件（lint:topology 件内子目录跳变放行，例注在案）；
-// CellStyle 类型面仍取聚合面（类型导入零运行时边）
+// 禁则谓词与消毒经 engine 聚合面（index）消费——TUI 第四役残腿收纳
+// （批内注释例注撤除：聚合面已收录，子目录直达形不复存在）
 import {
   graphemeWidth,
   isLineEndProhibited,
   isLineStartProhibited,
   sanitizeDisplayText,
   splitGraphemes,
-} from '../../engine/width.js';
+} from '../../engine/index.js';
 import type { CellStyle } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import type { InlineSpan } from './inline.js';

@@ -37,7 +37,16 @@ export type {
 export { ansiColor, color256, colorRgb, colorRgbOf } from './types.js';
 export { colorSgrBg, colorSgrFg, relativeLuminance, rgbChannels, rgbTo16, rgbTo256 } from './color.js';
 export { MemoryTerminalIO } from './memory-io.js';
-export { graphemeWidth, splitGraphemes, stringWidth, truncateToWidth, wrapText } from './width.js';
+export {
+  graphemeWidth,
+  isLineEndProhibited,
+  isLineStartProhibited,
+  sanitizeDisplayText,
+  splitGraphemes,
+  stringWidth,
+  truncateToWidth,
+  wrapText,
+} from './width.js';
 export { CellGrid, cellEquals, EMPTY_STYLE, styleEquals } from './cell.js';
 export { renderFrameDiff } from './diff.js';
 export type { InputDecoderOptions } from './input.js';

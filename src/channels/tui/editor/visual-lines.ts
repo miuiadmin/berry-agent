@@ -15,9 +15,9 @@
  * 分区恒等性保持——切片拼回原行，光标算术无损）；编辑器 1:1 分区语义
  * 不做折点空格跳过（用户输入的空格是内容不是排版）。
  */
-// 禁则谓词未入 engine 聚合面（index 聚合面改动非本组文件集）——同模块
-// 子目录直达 width 件（lint:topology 件内子目录跳变放行，例注在案）
-import { graphemeWidth, isLineEndProhibited, isLineStartProhibited, splitGraphemes } from '../../engine/width.js';
+// 禁则谓词与度量经 engine 聚合面（index）消费——TUI 第四役残腿收纳
+// （子目录直达形撤除）
+import { graphemeWidth, isLineEndProhibited, isLineStartProhibited, splitGraphemes } from '../../engine/index.js';
 
 /** 视觉行段（一段 = 一条折行后的可视行） */
 export interface VisualSegment {
