@@ -26,8 +26,9 @@ import { SETTINGS_BASENAME } from './settings-store.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
 import { createAuditFace } from '../persist/index.js';
+import { openCheckpointStore } from '../checkpoint/index.js';
 import type { SkillsRegistry } from '../skills/index.js';
-import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest, GateInput } from '../contracts/index.js';
 import type { UiBackend } from '../channels/index.js';
 import type { GoalService } from '../goal/index.js';
 import type { JobRegistry } from '../subagent/index.js';
@@ -2152,6 +2153,74 @@ describe('sessions 受理面真身接线 e2e（cs-D1——03 §4.4：currentSess
       // 幂等复开不移尾：open A（已在册早退）→ 尾键仍 B
       assembly.stack.manager.open(a.sessionId);
       expect(face!.currentSessionId()).toBe(b.sessionId); // 「最新首次入册」非「最近触碰」
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+});
+
+/* ---------------- checkpoint 语境面真身接线（contextOf 活体锚单源） ---------------- */
+
+describe('checkpoint 语境面真身接线（contextOf——行反查截断窗缺陷回归锁）', () => {
+  it('活体会话行落 listSessions limit=100 截断窗外仍可解语境：gate 真拍 pre-mutation 快照；修前红：行反查落空误报「会话不存在」判据 2b 静默放行零 manifest', async () => {
+    const dir = tmpDir('host-asm-cpctx-');
+    const ws = tmpDir('host-asm-cpctx-ws-');
+    writeFileSync(join(ws, 'a.txt'), 'v1'); // capture 真 walk 有物可拍
+    // 假钟（Persistence 旋钮透传）：updated_at 严格受控——不依赖真实时钟毫秒竞速
+    let tick = 1000;
+    const faux = fauxProvider({ provider: 'faux-asm', models: [{ id: 'm1' }] });
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir, persistence: { clock: () => tick } },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      providers: [faux.provider],
+      model: 'faux-asm/m1',
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 活体会话（ws 锚）：闭合轮落行（updated_at = tick 1000）
+      const session = assembly.stack.openStartupSession(ws);
+      const log = session.driver.session;
+      log.append('turn/start', {});
+      log.append('user/message', { content: '写前一轮', source: 'user' });
+      log.append('assistant/message', {
+        content: [{ type: 'text', text: '答' }],
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+        stopReason: 'stop',
+      });
+      log.append('turn/end', { reason: 'completed' });
+      await assembly.runtime.persistence.flush();
+      // 预垫 101 行（单批同刻 2000 落库）——源行被挤出默认列表面（limit=100）前 100
+      tick += 1000;
+      for (let i = 0; i < 101; i++) {
+        assembly.runtime.persistence.createSession({ origin: 'conversation' }).append('turn/start', {});
+      }
+      await assembly.runtime.persistence.flush();
+      // 反证铺设到位：默认列表面不见源行（活体会话语境的行反查向量成立）
+      expect(assembly.runtime.persistence.listSessions().find((row) => row.id === session.sessionId)).toBeUndefined();
+      // 写意图 gate 事件（tools_pre_execute 瀑布——装载期 checkpoint 行真消费 contextOf；
+      // 不等待整链：下游 per-session 安全守门行可悬于审批 ask，快照在 checkpoint 行内已落）
+      void assembly.dispatch
+        .waterfall<GateInput>('tools_pre_execute', {
+          tool: { name: 'probe-write', effect: 'write' } as GateInput['tool'],
+          args: {},
+          toolCallId: 'c-cpctx',
+          mutated: false,
+          sessionId: session.sessionId,
+        })
+        .catch(() => undefined);
+      // pre-mutation 快照必拍（修前：contextOf undefined 判据 2b 静默放行零 manifest）
+      const store = openCheckpointStore(dir);
+      await vi.waitFor(
+        async () => {
+          expect(await store.listManifests()).toHaveLength(1);
+        },
+        { timeout: 5000 },
+      );
+      const manifests = await store.listManifests();
+      expect(manifests[0]!.trigger).toBe('mutation');
+      expect(manifests[0]!.workspaceRoot).toBe(session.workspaceRoot); // 活体镜像锚（canonical 形）
     } finally {
       await assembly.runtime.shutdown();
     }

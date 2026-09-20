@@ -385,7 +385,12 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
                   }),
               }
             : {}),
-          stopRequested: () => handle.entry.status === 'stopping',
+          // 协作停止观察（打断腿）：瞬时态 stopping 之外须并认终态 killed——
+          // closeOwner 归属收口在同一同步 tick 内 stopInternal（置 stopping）+
+          // finalize（覆写 killed）背靠背，run() 在飞期间轮询位永远观察不到
+          // 瞬态 stopping；killed 终态兜底同构停止信号（run 在飞期 killed 只能源
+          // 于 closeOwner，无他产源——不引入误打断）
+          stopRequested: () => handle.entry.status === 'stopping' || handle.entry.terminal?.status === 'killed',
         };
         // 后台收场编舞（fire-and-forget——回执只携 Job 身份）：register 先行
         // （m5 定形——Job 条目先落 running〔帽满排队期状态面可见〕、run() 回执

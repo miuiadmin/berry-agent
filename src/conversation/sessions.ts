@@ -273,9 +273,11 @@ export class SessionManager {
     let workspaceRoot: string | undefined;
     if (live !== undefined) {
       sourceLog = live.driver.session;
-      // 活体驱动不携带行信息——workspaceRoot 经公开列表面反查（不为内部
-      // 取值开新 persistence 读口）
-      workspaceRoot = this.persistence.listSessions().find((row) => row.id === sourceSessionId)?.workspaceRoot;
+      // workspaceRoot 直读 records 活体镜像（adopt 入册值——与 workspaceRootOf
+      // 同源零时差）。禁走 listSessions 行反查：默认 limit=100 截断窗 + 零 append
+      // 活体（createSession 零 I/O 行未落库）双形态下反查落空恒 undefined，
+      // 子会话静默丢工作区锚（03 §10.7「锚不能走库读」律）
+      workspaceRoot = live.workspaceRoot;
     } else {
       const loaded = this.persistence.loadSession(sourceSessionId);
       sourceLog = loaded.log;

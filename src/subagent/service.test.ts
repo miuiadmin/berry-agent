@@ -315,6 +315,62 @@ describe('background 收场编舞', () => {
     });
   });
 
+  it('closeOwner 归属收口的打断腿（谓词位）：killed 兜底终态同构停止信号——stopRequested 翻真；修前红：谓词只认瞬态 stopping，closeOwner 同一同步 tick 内已覆写终态永不可见', async () => {
+    const registry = createJobRegistry();
+    const provider = new FakeProvider();
+    const service = createSubagentService({ registry });
+    service.registerProvider('in-process', provider);
+    const outcome = await service.run({ ...BASE_INPUT, background: true });
+    if (outcome.mode !== 'background') return;
+    const request = provider.requests[0]!;
+    expect(typeof request.stopRequested).toBe('function');
+    expect(request.stopRequested!()).toBe(false); // running 期无停止信号
+    // 父会话关闭归属收口：stopInternal（置 stopping）+ finalize（killed）同一同步段背靠背
+    await registry.closeOwner('s1');
+    expect(registry.get(outcome.jobId)?.terminal?.status).toBe('killed'); // 条目立即终态（UI 已呈现 killed）
+    expect(request.stopRequested!()).toBe(true); // 打断腿可观察——子栈轮询据此 driver.abort()（修前恒 false）
+    provider.settle({ output: '', stopReason: 'aborted' }); // 测试台收口（推杆挂起 run）
+  });
+
+  it('closeOwner 归属收口的打断腿（全链）：轮询观察 provider（模拟工厂 500ms 轮询位——5ms 微轮询）以 aborted 收场；修前红：谓词恒 false 自然收场跑满全程', async () => {
+    const registry = createJobRegistry();
+    let stopped = false;
+    let resolveRun: ((result: SubagentResult) => void) | undefined;
+    const runDone = new Promise<SubagentResult>((resolve) => {
+      resolveRun = resolve;
+    });
+    const provider: SubagentProvider = {
+      capabilities: FULL_CAPS,
+      run: async (request) => {
+        // 有界微轮询（in-process 工厂 setInterval 500ms 观察位的测试替身；上界
+        // 防修前红形态挂死泄漏——自然收场即「跑满全程」的缺陷形态本尊）
+        for (let i = 0; i < 100; i++) {
+          if (request.stopRequested?.() === true) {
+            stopped = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        const result: SubagentResult = stopped
+          ? { output: '', stopReason: 'aborted' }
+          : { output: '', stopReason: 'stop' };
+        resolveRun!(result);
+        return result;
+      },
+    };
+    const service = createSubagentService({
+      registry,
+      notify: { notifySettled: async () => undefined, notifyApprovalPending: async () => undefined },
+    });
+    service.registerProvider('in-process', provider);
+    const outcome = await service.run({ ...BASE_INPUT, background: true });
+    expect(outcome.mode).toBe('background');
+    await registry.closeOwner('s1'); // 父会话关闭——归属围栏收口
+    const result = await runDone; // 修前 ~500ms 自然收场 / 修后毫秒级 aborted
+    expect(stopped).toBe(true); // 打断腿真打断（修前全程观察不到停止信号恒 false 必红）
+    expect(result.stopReason).toBe('aborted');
+  });
+
   it('terminalOf 三映射：stop→completed / aborted→killed / error→failed（detail=diagnostic）', async () => {
     for (const [stopReason, status] of [
       ['stop', 'completed'],

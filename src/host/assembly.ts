@@ -882,17 +882,30 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               // 全环捕获位透传（s 批——生产恒缺席；e2e rig lifecycle 通道）
               ...(options.goalServiceSink !== undefined ? { goalServiceSink: options.goalServiceSink } : {}),
               // checkpoint 两 seam + 焦点会话位（批 19c-4——05 §5.3 词面独立律）：
-              // 语境面 contextOf 活体日志优先（lastClosedBoundary 单源）+ 行
-              // workspaceRoot 锚经公开列表面反查（sessions.fork 同法——不为内部
-              // 取值开新读口）；fork 面 = SessionManager.fork 直赋（05 §5.0 判别
-              // 子集形；箭头包装保 this 绑定）；焦点会话 = channels.focusedId
-              // （/rewind 发起会话真源）
+              // 语境面 contextOf 活体双单源（lastClosedBoundary 取活体日志 +
+              // workspaceRoot 取 manager 活体镜像 workspaceRootOf——03 §10.7
+              // 「锚不能走库读」律）；活体缺席回退 loadSession 行值（undefined
+              // 语义保真：hasSession 判在场，不走 listSessions limit=100 截断窗
+              // 反查——行落窗外反查落空会误报「会话不存在」、gate 判据 2b 静默
+              // 放行 pre-mutation 快照安全网）；fork 面 = SessionManager.fork
+              // 直赋（05 §5.0 判别子集形；箭头包装保 this 绑定）；焦点会话 =
+              // channels.focusedId（/rewind 发起会话真源）
               checkpointSession: {
                 contextOf: (sessionId) => {
-                  const row = runtimeNow.persistence.listSessions().find((r) => r.id === sessionId);
-                  if (row === undefined) return undefined;
-                  const log = stack.driverOf(sessionId)?.session ?? runtimeNow.persistence.loadSession(sessionId).log;
-                  return { lastClosedBoundary: log.lastClosedBoundary(), workspaceRoot: row.workspaceRoot ?? '' };
+                  const liveLog = stack.driverOf(sessionId)?.session;
+                  if (liveLog !== undefined) {
+                    return {
+                      lastClosedBoundary: liveLog.lastClosedBoundary(),
+                      workspaceRoot: stack.manager.workspaceRootOf(sessionId) ?? '',
+                    };
+                  }
+                  // 冷会话（无在飞驱动）：id 直读判在场（无截断窗）+ 行值回退
+                  if (!runtimeNow.persistence.hasSession(sessionId)) return undefined;
+                  const loaded = runtimeNow.persistence.loadSession(sessionId);
+                  return {
+                    lastClosedBoundary: loaded.log.lastClosedBoundary(),
+                    workspaceRoot: loaded.row.workspaceRoot ?? '',
+                  };
                 },
               } satisfies SessionContextFace,
               checkpointFork: {

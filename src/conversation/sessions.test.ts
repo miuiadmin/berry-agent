@@ -279,6 +279,52 @@ describe('SessionManager fork', () => {
     expect(persistence.store.loadEvents(outcome.sessionId)).toHaveLength(3);
   });
 
+  it('活体源锚不经 listSessions 反查：行落 limit=100 截断窗外（长驻进程 resume 旧会话零 append 不 bump updated_at）fork 子会话仍承锚——修前红：反查落空恒 undefined 子会话静默丢工作区锚', async () => {
+    // 独立持久层 + 假钟：updated_at 严格受控（源行恒落窗外——不依赖真实时钟毫秒竞速）
+    const anchorDir = mkdtempSync(join(tmpdir(), 'berry-agent-fork-anchor-'));
+    let tick = 1000;
+    const clocked = Persistence.open({
+      dbPath: join(anchorDir, 'main.db'),
+      dataDir: join(anchorDir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      clock: () => tick,
+    });
+    try {
+      const dispatch = new EventDispatch();
+      const manager = new SessionManager({ persistence: clocked, dispatch, createDriver: makeFactory(dispatch) });
+      const source = manager.create({ workspaceRoot: '/ws' });
+      closedTurn(source.driver.session, '旧会话一轮'); // 行随首事件落库（updated_at = tick 1000）
+      await clocked.flush();
+      // 预垫 101 行（单批同刻 2000 落库——updated_at 全体晚于源行，源行被挤出前 100）
+      tick += 1000;
+      for (let i = 0; i < 101; i++) {
+        clocked.createSession({ origin: 'conversation' }).append('turn/start', {});
+      }
+      await clocked.flush();
+      // 反证铺设到位：默认列表面（limit=100）不见源行——活体源 fork 的反查向量成立
+      expect(clocked.listSessions().find((row) => row.id === source.sessionId)).toBeUndefined();
+      // 源会话活体在场（resume 旧会话形态：flush 后零新 append、updated_at 不 bump）
+      expect(manager.isOpen(source.sessionId)).toBe(true);
+      const outcome = await manager.fork(source.sessionId);
+      expect(outcome.status).toBe('forked');
+      if (outcome.status !== 'forked') return;
+      // 子会话行必承源锚（「/ws 传播」既有意图——修前反查落空恒丢锚）
+      expect(clocked.store.getSessionRow(outcome.sessionId)?.workspaceRoot).toBe('/ws');
+    } finally {
+      await clocked.close().catch(() => undefined);
+      rmSync(anchorDir, { recursive: true, force: true });
+    }
+  });
+
+  it('零 append 活体源（createSession 零 I/O——行未落库）fork 子会话仍承锚：修前红：行缺席反查同样落空', async () => {
+    const { manager } = makeManager();
+    const source = manager.create({ workspaceRoot: '/ws2' }); // 零 append——库中无行（「锚不能走库读」律的原生形态）
+    const outcome = await manager.fork(source.sessionId);
+    expect(outcome.status).toBe('forked');
+    if (outcome.status !== 'forked') return;
+    expect(persistence.store.getSessionRow(outcome.sessionId)?.workspaceRoot).toBe('/ws2');
+  });
+
   it('显式 upToSeq 中段切 + 越界 fail-loud', async () => {
     const { manager } = makeManager();
     const source = manager.create();
