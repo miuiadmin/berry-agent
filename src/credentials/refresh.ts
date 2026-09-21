@@ -184,9 +184,14 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
           apiKey: grant.accessToken,
           meta: { ...stripChainKeys(meta), source: 'refresh', expiresAt: grant.expiresAt ?? meta.expiresAt },
         });
-        // 新 refresh token 才动刷新行（不下发即复用——RFC 6749 §6）
+        // 新 refresh token 才动刷新行（不下发即复用——RFC 6749 §6）；刷新行
+        // meta 同主行律——读旧行 meta 经 stripChainKeys 展开（链管键整列换、
+        // 插件自记附加键保全——账号句柄等不因轮换链写抹掉），source 键覆新
         if (grant.refreshToken !== undefined && grant.refreshToken !== refreshRow.apiKey) {
-          store.setCredential(ns, refreshName, { apiKey: grant.refreshToken, meta: { source: 'refresh' } });
+          store.setCredential(ns, refreshName, {
+            apiKey: grant.refreshToken,
+            meta: { ...stripChainKeys((refreshRow.meta ?? {}) as CredentialMeta), source: 'refresh' },
+          });
         }
         // credentials/changed 审计 seam（值域 05 §1.1 单源：刷新轮换 = rotate/oauth-flow）
         deps.onCredentialChanged?.({ namespace: ns, name, action: 'rotate', origin: 'oauth-flow' });

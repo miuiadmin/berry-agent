@@ -9,7 +9,8 @@
  *  - 跳过族：行缺席 / 无 expiresAt（manual 静态形）/ 未到提前量 /
  *    单 token 形（无 refreshName——到期不自动续）；
  *  - 成功 rotate：主行换新（source 'refresh' + failures/expired 清位 +
- *    expiresAt 新值）+ 附加键保全 + 新 refresh token 才动刷新行 +
+ *    expiresAt 新值）+ 附加键保全（主行与刷新行同律——轮换动刷新行时插件
+ *    自记 meta 键不抹掉）+ 新 refresh token 才动刷新行 +
  *    审计 seam rotate/oauth-flow + 值不入 notify/warn 文本；
  *  - 失败保留旧值：值不动 failures++ durable；三振 notify-once（第四拍
  *    不重复告警——wasExpired 守卫）；
@@ -275,6 +276,26 @@ describe('成功 rotate（三律一）', () => {
     r.store.setCredential(pluginNamespace('demo'), 'github.refresh', { apiKey: 'rt-old', meta: { source: 'oauth' } });
     await r.chain.tick();
     expect(r.store.getCredential(pluginNamespace('demo'), 'github.refresh')?.apiKey).toBe('rt-rotated');
+  });
+
+  it('轮换动刷新行时附加键保全（主行同形——插件自记 meta 键不因链写抹掉）', async () => {
+    const r = rig({
+      script: [
+        { ok: true, status: 200, json: { access_token: 'at-2', refresh_token: 'rt-rotated', expires_in: 1800 } },
+      ],
+    });
+    seedMain(r.store, { meta: { source: 'oauth', refreshName: 'github.refresh', expiresAt: 1_000 } });
+    // 刷新行携带插件 oauth handler 自记附加键（写窗内 ctx.secrets.set 自决 meta
+    // ——SDK 契约不禁止附加键；RFC 6749 §6 轮换形端点常态触发刷新行换新）
+    r.store.setCredential(pluginNamespace('demo'), 'github.refresh', {
+      apiKey: 'rt-old',
+      meta: { source: 'oauth', account: 'alice@example.com' },
+    });
+    await r.chain.tick();
+    const refreshRow = r.store.getCredential(pluginNamespace('demo'), 'github.refresh');
+    expect(refreshRow?.apiKey).toBe('rt-rotated'); // token 值本身照换（轮换语义不变）
+    // 附加键保全：refresh 行 meta 只换链管 source 键，account 键不得被整列抹掉
+    expect(refreshRow?.meta).toEqual({ source: 'refresh', account: 'alice@example.com' });
   });
 
   it('端点未给 expires_in——保留旧到期位（?? 兜底）', async () => {
