@@ -45,7 +45,10 @@ const execFile = promisify(execFileCallback);
  * 执法位 = exec bash 拦截面（该面落码批接线——本常量先锚词汇）。
  * 〔2026-09-14 呈拍落定批勘正：push 移出——push 是网络外推非元数据写，
  * 腿三（git-guard isGitPushAttempt）恒截获任何形，「恒走危险闸」（04 §6
- * 预设条）的 bash 面执法兑现；pull/fetch 维持（拉入无发布动作）〕
+ * 预设条）的 bash 面执法兑现；pull/fetch 维持（拉入无发布动作）。
+ * 2026-09-21 第十三役 F 组修笔注：命令替换形（git $(…) push 等）已入
+ * 腿三截获面（保守残渣判——04 §8 腿三定形注）；诚实边界例示——env 赋值
+ * 词自身携替换的错位形（GIT_DIR=$(x) git push）与 sh -c 包装形仍同列不覆盖〕
  */
 export const GIT_METADATA_COMMANDS: readonly string[] = [
   'add',

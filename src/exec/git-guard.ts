@@ -10,7 +10,9 @@
  * 向量）；豁免形 + worktree 锚定补 backing gitdir 可写根。
  * 腿三（git push 外推截获）：词干判 push 子命令位 = `EXEC_GIT_PUSH_DENIED`
  * 硬拒（「git push 恒走危险闸」的 bash 面执法——沙箱 deny 不在推送路径上
- * 〔push 本地写发生在远端接受后、exit 0〕，本腿是唯一截获腿）。
+ * 〔push 本地写发生在远端接受后、exit 0〕，本腿是唯一截获腿）；命令替换形
+ * （`git $(echo push)`/反引号——token 化拆散替换域）由保守残渣判覆盖
+ * （子命令位不可静态解即拒，第十三役 mechanism-parts#1）。
  *
  * 纯逻辑件（零 spawn）；fs 面 = statSync/readFileSync（worktree 探测）与
  * canonicalPath（最近存在祖先回退形——符号链/大小写归一判）。词法诚实边界
@@ -80,9 +82,19 @@ function readWord(command: string, start: number): { word: string; next: number 
   return { word, next: i };
 }
 
-/** 段内 token 化（readWord 循环；算子字符段跳过——`2>&1` 形读出 2/1 不影响词干判） */
-function tokenizeWords(segment: string): readonly string[] {
-  const tokens: string[] = [];
+/** 词位（word = 词面；end = 词尾后位置——腿三保守残渣判的位置阈值用） */
+interface PositionedWord {
+  readonly word: string;
+  readonly end: number;
+}
+
+/**
+ * 段内词位发射（readWord 循环附位置；算子字符段跳过——`2>&1` 形读出 2/1
+ * 不影响词干判）。与 tokenizeWords 同步态单源——词序/词面一一对应（腿三
+ * 以本发射的词尾位置做阈值，两走法共用词面不变式由委托关系结构保证）。
+ */
+function tokenizeWordsAt(segment: string): readonly PositionedWord[] {
+  const words: PositionedWord[] = [];
   let i = 0;
   while (i < segment.length) {
     const ch = segment[i]!;
@@ -95,10 +107,15 @@ function tokenizeWords(segment: string): readonly string[] {
       i++;
       continue;
     }
-    tokens.push(word);
+    words.push({ word, end: next });
     i = next;
   }
-  return tokens;
+  return words;
+}
+
+/** 段内 token 化（tokenizeWordsAt 词面投影——单源委托，防两走法漂移） */
+function tokenizeWords(segment: string): readonly string[] {
+  return tokenizeWordsAt(segment).map((w) => w.word);
 }
 
 /** 虚拟 cwd 词法解析（`~` 形不可解保留原词——词面判照走；path.resolve 归一 `..`） */
@@ -476,19 +493,36 @@ export function findGitRedirectViolations(command: string, cwd: string): readonl
 /* 腿二：静态洁净白名单分类                                             */
 /* ------------------------------------------------------------------ */
 
+/** 段切分产物（text = 段文本；expansion = 段内单引号外 $/反引号在场——腿三按段消费） */
+interface ScannedSegment {
+  readonly text: string;
+  readonly expansion: boolean;
+}
+
 /**
  * 段切分与静态可判定旗（腿二/腿三共用基元）。
  *
  * 引号感知切分（未引号 `;` `&&` `||` `|` `&` 换行 为段界）；同时跟踪：
- * expansion = 单引号外 `$`/反引号在场（展开不可静态判定）；subshell =
+ * expansion = 单引号外 `$`/反引号在场（展开不可静态判定——全局旗归腿二
+ * 消费、按段旗归腿三消费：腿三的残渣判不得跨段殃及无关 git 段）；subshell =
  * 未引号 `(`/`)` 在场。重定向算子不切段（`git log > out.txt` 豁免面；
  * fd 复制形 `>&N` 的 & 一并消费——防 `2>&1` 误切段界）。
  */
-function segmentScan(command: string): { segments: readonly string[]; expansion: boolean; subshell: boolean } {
-  const segments: string[] = [];
-  const boundaries: Array<[number, number]> = []; // 段切片 [start, end)
-  let expansion = false; // 单引号外 $/反引号在场
+function segmentScan(command: string): {
+  segments: readonly ScannedSegment[];
+  expansion: boolean;
+  subshell: boolean;
+} {
+  const segments: ScannedSegment[] = [];
+  const boundaries: Array<[number, number, boolean]> = []; // 段切片 [start, end) + 段内展开旗
+  let expansion = false; // 单引号外 $/反引号在场（全局——腿二消费）
   let subshell = false; // 未引号括号在场
+  let segExpansion = false; // 当前段内单引号外 $/反引号在场（腿三按段消费）
+  /** 展开在场双记（全局 + 当前段） */
+  const flagExpansion = (): void => {
+    expansion = true;
+    segExpansion = true;
+  };
   let segStart = 0;
   let i = 0;
   const n = command.length;
@@ -508,7 +542,7 @@ function segmentScan(command: string): { segments: readonly string[]; expansion:
           i += 2;
           continue;
         }
-        if (c === '$' || c === '`') expansion = true; // 双引号内展开生效
+        if (c === '$' || c === '`') flagExpansion(); // 双引号内展开生效
         i++;
       }
       i++;
@@ -519,7 +553,7 @@ function segmentScan(command: string): { segments: readonly string[]; expansion:
       continue;
     }
     if (ch === '$' || ch === '`') {
-      expansion = true;
+      flagExpansion();
       i++;
       continue;
     }
@@ -547,15 +581,18 @@ function segmentScan(command: string): { segments: readonly string[]; expansion:
     }
     if (ch === ';' || ch === '\n' || ch === '&' || ch === '|') {
       const w = (ch === '&' || ch === '|') && command[i + 1] === ch ? 2 : 1;
-      boundaries.push([segStart, i]);
+      boundaries.push([segStart, i, segExpansion]);
+      segExpansion = false; // 新段展开旗重置
       i += w;
       segStart = i;
       continue;
     }
     i++;
   }
-  boundaries.push([segStart, n]);
-  for (const [start, end] of boundaries) segments.push(command.slice(start, end));
+  boundaries.push([segStart, n, segExpansion]);
+  for (const [start, end, segExp] of boundaries) {
+    segments.push({ text: command.slice(start, end), expansion: segExp });
+  }
   return { segments, expansion, subshell };
 }
 
@@ -583,7 +620,7 @@ export function isGitMetadataExempt(command: string): boolean {
   const { segments, expansion, subshell } = segmentScan(command);
   if (expansion || subshell) return false;
   for (const segment of segments) {
-    const tokens = tokenizeWords(segment);
+    const tokens = tokenizeWords(segment.text);
     if (tokens.length === 0) continue;
     if (tokens[0] === 'cd') {
       if (tokens.length !== 2) return false; // cd 多参/带旗形保守失豁
@@ -616,6 +653,47 @@ const GIT_VALUE_FLAGS = new Set([
 const ENV_ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /**
+ * 展开残渣位置探测（腿三保守命中辅助）：text[from..upto) 内存在未引号
+ * （或双引号内——展开生效）`$`/反引号即真。单引号段是字面量不计（不展开）；
+ * 未闭合单引号 = 余程皆字面量。语义与 segmentScan 的段内展开旗同源。
+ */
+function expansionResidueBetween(text: string, from: number, upto: number): boolean {
+  const n = Math.min(upto, text.length);
+  let i = Math.max(0, from);
+  while (i < n) {
+    const ch = text[i]!;
+    if (ch === "'") {
+      // 单引号段整段跳过（闭合缺席 = 余程字面量）
+      const close = text.indexOf("'", i + 1);
+      if (close === -1) return false;
+      i = close + 1;
+      continue;
+    }
+    if (ch === '"') {
+      i++;
+      while (i < n && text[i] !== '"') {
+        const c = text[i]!;
+        if (c === '\\' && i + 1 < n) {
+          i += 2;
+          continue;
+        }
+        if (c === '$' || c === '`') return true; // 双引号内展开生效
+        i++;
+      }
+      i++;
+      continue;
+    }
+    if (ch === '\\') {
+      i += 2;
+      continue;
+    }
+    if (ch === '$' || ch === '`') return true;
+    i++;
+  }
+  return false;
+}
+
+/**
  * git push 外推截获判（04 §8 腿三——「git push 恒走危险闸」（04 §6 预设条）
  * 的 bash 面执法兑现；呈拍落定批落码）。
  *
@@ -628,15 +706,32 @@ const ENV_ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
  * `git --git-dir=.git push` / `GIT_DIR=x git push` env 前缀形。
  * 不误伤：`git commit -m push`（`-m` 属子命令级旗——子命令位先判得
  * `commit`）、只读动词。
- * 诚实护栏边界：shell 包装形（`sh -c 'git push'`、脚本内嵌）不覆盖——
- * 与 assertNoBackgroundCommand（nohup/disown 检测族）同定位：护栏层非
+ *
+ * 命令替换保守残渣判（2026-09-21 第十三役 mechanism-parts#1 补）：token 化
+ * 把替换域拆散（`$(echo push)` 得 `$`/`echo`/`push` 三 token、反引号整字
+ * 丢弃），`git $(echo push)`/`` git `echo push` `` 形的子命令位静态解出
+ * 伪词不命中——替换展开后真子命令不可知。保守律：命令位为 git 的段，
+ * **旗区起点（命令词尾）至静态子命令词尾**（无子命令词则全段）存在未
+ * 引号/双引号内 `$`/反引号 = 子命令位不可静态解即拒。阈值界定的 bash
+ * 语义依据：词展开逐词独立、后词不改前词 argv 位——子命令词之后到场
+ * 的展开恒不可能改写子命令位，故 `git commit -m "$(cat f)"`、
+ * `git log --format=%h$(…)` 照常放行（该形在腿二面本就失豁免，由
+ * 运行时 .git 写 deny 兜底）。残渣判**按段**不按全串——他段（非 git 段）
+ * 的展开不殃及 `git status && echo $(date)` 的 git 段。括号不入残渣集：
+ * 裸 `( )` 子壳形 token 化天然透视（`(git push)` 直接命中、`(git status)`
+ * 不误伤），`$(` 之 `(` 已由 `$` 残渣覆盖；env 赋值词不拆词也不影响
+ * 子命令位（`GIT_DIR=$D git status` 放行、`GIT_DIR=$D git push` 直判）。
+ * 诚实护栏边界：shell 包装形（`sh -c 'git push'`、脚本内嵌）与 env 赋值
+ * 词自身携替换致词干解错位的形（`GIT_DIR=$(x) git push`）不覆盖——与
+ * assertNoBackgroundCommand（nohup/disown 检测族）同定位：护栏层非
  * 完美防线（04 §8 腿三定形注变形覆盖段——沙箱 .git deny 不在推送路径上
  * 〔push 本地写发生在远端接受后、exit 0〕，本判是唯一截获腿故自扩覆盖
  * 直接形与全局旗变形）。
  */
 export function isGitPushAttempt(command: string): boolean {
   for (const segment of segmentScan(command).segments) {
-    const tokens = tokenizeWords(segment);
+    const words = tokenizeWordsAt(segment.text);
+    const tokens = words.map((w) => w.word);
     // 段首 env 赋值词剥除（`GIT_DIR=… git push` 形——赋值前缀词逐个剥）
     let i = 0;
     while (i < tokens.length && ENV_ASSIGN_RE.test(tokens[i]!)) i++;
@@ -659,6 +754,14 @@ export function isGitPushAttempt(command: string): boolean {
       break;
     }
     if (subcommand === 'push') return true;
+    // ---- 命令替换保守残渣判（机制见函数注记） ----
+    // 快路：段内展开旗缺席（segmentScan 按段旗）直接跳过精确位置探测
+    if (segment.expansion) {
+      // 阈值 = 静态子命令词尾（无子命令词 = 全段——纯旗区携替换同不可解）；
+      // 起点滑过 env 赋值词与命令词（env 赋值不拆词、命令词已静态判得 git）
+      const upto = subcommand === undefined ? segment.text.length : words[j]!.end;
+      if (expansionResidueBetween(segment.text, words[i]!.end, upto)) return true;
+    }
   }
   return false;
 }

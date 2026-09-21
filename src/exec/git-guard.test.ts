@@ -1,11 +1,13 @@
 /**
- * exec/git-guard 测试——bash 侧 .git 拦截面两腿的纯词法矩阵（04 §252 桥
+ * exec/git-guard 测试——bash 侧 .git 拦截面三腿的纯词法矩阵（04 §252 桥
  * 条款，成熟度缺口 #9 落码批）。
  *
  * 腿一：scanRedirectionTargets 算子族/heredoc/嵌套替换矩阵 +
  * findGitRedirectViolations 三重判定（词面/词法解析漂移/canonical）；
  * 腿二：isGitMetadataExempt 静态洁净白名单分类矩阵 + worktreeGitDir
- * backing 探测。零 spawn 零真网络；fs 面仅 mkdtemp fixture。
+ * backing 探测；腿三：isGitPushAttempt 词干判矩阵（直接形/全局旗变形/
+ * 命令替换保守残渣形——消费位 bash/gate-exec 只锁「守门在场」，词干覆盖
+ * 面归本件辖）。零 spawn 零真网络；fs 面仅 mkdtemp fixture。
  */
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +16,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   findGitRedirectViolations,
   isGitMetadataExempt,
+  isGitPushAttempt,
   pathHasGitComponent,
   scanRedirectionTargets,
   worktreeGitDir,
@@ -220,6 +223,54 @@ describe('isGitMetadataExempt 白名单分类', () => {
   it('空串/空段豁免（无命令面）', () => {
     expect(isGitMetadataExempt('')).toBe(true);
     expect(isGitMetadataExempt('   ')).toBe(true);
+  });
+});
+
+/* ---------------- 腿三：git push 外推截获词干判 ---------------- */
+
+describe('isGitPushAttempt 词干判（04 §8 腿三——直接形/全局旗变形/命令替换保守残渣形）', () => {
+  it('直接形与全局旗/env 前缀变形命中（与 bash.test.ts 腿三硬拒矩阵同源）', () => {
+    expect(isGitPushAttempt('git push')).toBe(true);
+    expect(isGitPushAttempt('git push origin main')).toBe(true);
+    expect(isGitPushAttempt('git -C sub push')).toBe(true);
+    expect(isGitPushAttempt('git -c http.sslVerify=false push')).toBe(true);
+    expect(isGitPushAttempt('git --git-dir=.git push')).toBe(true);
+    expect(isGitPushAttempt('GIT_DIR=.git git push')).toBe(true);
+    expect(isGitPushAttempt('GIT_DIR=$D git push')).toBe(true); // env 词携变量不影响 env 剥除直判
+    expect(isGitPushAttempt('git status && git push')).toBe(true);
+    expect(isGitPushAttempt('git push --force origin main')).toBe(true);
+    expect(isGitPushAttempt('(git push)')).toBe(true); // 裸括号 token 化天然透视
+  });
+
+  it('命令替换形保守命中（git $(echo push) 与反引号形——子命令位不可静态解即拒；sweep13 mechanism-parts#1 修前红锚）', () => {
+    expect(isGitPushAttempt('git $(echo push) origin main')).toBe(true);
+    expect(isGitPushAttempt('git `echo push` origin main')).toBe(true);
+    expect(isGitPushAttempt('git "$(echo push)" origin main')).toBe(true); // 双引号内展开生效
+    expect(isGitPushAttempt('git pu$(echo sh) origin main')).toBe(true); // 词中替换拼接形
+  });
+
+  it('旗区命令替换形保守命中（取值旗参携替换——旗区跳词穿越 $( 拆词后静态子命令位不可信）', () => {
+    expect(isGitPushAttempt('git -C $(echo .) push')).toBe(true);
+    expect(isGitPushAttempt('git -C `pwd` push')).toBe(true);
+  });
+
+  it('不误伤：子命令位先于一切展开静态可解的形（bash 词展开逐词独立——后词不改前词 argv 位）', () => {
+    expect(isGitPushAttempt('git commit -m "$(cat msg)"')).toBe(false); // 腿二面失豁免由运行时 deny 兜底
+    expect(isGitPushAttempt('git log --format=%h$(git rev-parse HEAD)')).toBe(false);
+    expect(isGitPushAttempt('git commit -m push')).toBe(false);
+    expect(isGitPushAttempt('git status')).toBe(false);
+    expect(isGitPushAttempt('(git status)')).toBe(false); // 子壳只读形不因括号误拒
+  });
+
+  it('不误伤：展开在他段（非 git 段）不殃及 git 段（残渣判按段不按全串）', () => {
+    expect(isGitPushAttempt('git status && echo $(date)')).toBe(false);
+    expect(isGitPushAttempt('echo $(date) && git status')).toBe(false);
+    expect(isGitPushAttempt('GIT_DIR=$D git status')).toBe(false); // env 赋值词不拆词、不影响子命令位
+  });
+
+  it('护栏边界：shell 包装形（已裁不拦）与单引号字面量（不展开）', () => {
+    expect(isGitPushAttempt("sh -c 'git push'")).toBe(false);
+    expect(isGitPushAttempt("git '$(echo push)'")).toBe(false); // 单引号内是字面参非展开
   });
 });
 
