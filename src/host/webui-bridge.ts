@@ -281,6 +281,8 @@ export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount
  * 端点以进程内自增序号补生成〔契约注「无幂等」〕）。桥以形判别生成键：
  * 生成键不参与幂等 admit 也不落 dedupeKey 账——序号跨重启复位，落账会在
  * 重启后同键撞旧账误拒正当提交（SDK 线「缺席 messageId 不落账」同律）。
+ * 8572ccd 拍板收敛后件侧删补生成（缺席 undefined 透传）——本判别为过渡形，
+ * 收敛落地后会合批退役（undefined 判据单独成军）。
  */
 const SERVER_GENERATED_MESSAGE_ID = /^webui-\d+$/;
 
@@ -339,15 +341,19 @@ function bridgeDeps(
         // data.dedupeKey 同族查重（同键同内容幂等回执不重跑 / 同键异内容
         // fail-loud 拒收 SDK_MESSAGE_CONFLICT——判据族与 SDK 线 admit 同源）。
         // 生成键（webui-N 形）旁路 admit 与落账，见 SERVER_GENERATED_MESSAGE_ID 注。
+        // 容忍形（8572ccd 拍板收敛序）：messageId 选填化（件侧删补生成）落地后
+        // 缺席即 undefined 透传——无幂等不落账（SDK 线同律），形判别随之会合批
+        // 退役；本形先落保收敛提交树 typecheck 绿（零行为差——今日恒 string）。
         // ——
-        const idempotent = !SERVER_GENERATED_MESSAGE_ID.test(input.messageId);
+        const messageId = input.messageId;
+        const idempotent = messageId !== undefined && !SERVER_GENERATED_MESSAGE_ID.test(messageId);
         if (idempotent) {
-          const known = lookupDedupeContent(stack, input.sessionId, input.messageId);
+          const known = lookupDedupeContent(stack, input.sessionId, messageId);
           if (known !== undefined) {
             if (known !== input.content) {
               throw new BaseError(
                 'SDK_MESSAGE_CONFLICT',
-                `messageId=${input.messageId} 同键异内容（webui 幂等 admit 冲突档）`,
+                `messageId=${messageId} 同键异内容（webui 幂等 admit 冲突档）`,
               );
             }
             return { sessionId: input.sessionId }; // 幂等重收执——回执即既存受理态，不重跑
@@ -356,7 +362,7 @@ function bridgeDeps(
         void stack.submitText(input.sessionId, input.content, {
           // 具名通道归因（05 §3.1 channel: 前缀——投影同视 user）+ 幂等键落账
           source: 'channel:webui',
-          ...(idempotent ? { dedupeKey: input.messageId } : {}),
+          ...(idempotent ? { dedupeKey: messageId } : {}),
         }); // fire-and-forget——回执经信封回流
         return { sessionId: input.sessionId };
       },
