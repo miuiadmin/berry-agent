@@ -13,6 +13,7 @@ import { BaseError } from '../contracts/index.js';
 import type { SessionEvent } from '../contracts/index.js';
 import { ephemeralSecretKey } from './secret-box.js';
 import { Persistence } from './persistence.js';
+import { SESSION_ARCHIVE_MIGRATION, sessionDisplayTitleOf } from './store.js';
 
 /** 断言抛指定码 */
 function expectCode(fn: () => unknown, code: string): void {
@@ -44,6 +45,7 @@ function open(options: { dbPath?: string } = {}): Persistence {
     dbPath: options.dbPath ?? join(dir, 'main.db'),
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
+    migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
   });
   ps.push(p);
   return p;
@@ -82,12 +84,22 @@ describe('会话创建与装载', () => {
 
   it('跨 Persistence 重开：close 收卷后重开装载续写（WAL 落盘 + checkpoint）', async () => {
     const path = join(dir, 'reopen.db');
-    const a = Persistence.open({ dbPath: path, dataDir: join(dir, 'data'), secretKey: ephemeralSecretKey() });
+    const a = Persistence.open({
+      dbPath: path,
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION],
+    });
     ps.push(a);
     const log = a.createSession({ origin: 'conversation' });
     oneTurn(log, 'persisted turn');
     await a.close();
-    const b = Persistence.open({ dbPath: path, dataDir: join(dir, 'data'), secretKey: ephemeralSecretKey() });
+    const b = Persistence.open({
+      dbPath: path,
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION],
+    });
     ps.push(b);
     const loaded = b.loadSession(log.sessionId);
     expect(loaded.log.events()).toHaveLength(2);
@@ -166,14 +178,24 @@ describe('删除与退出序', () => {
 
   it('close：flush + checkpoint 收卷（close 后数据完整、再读拒用）', async () => {
     const path = join(dir, 'exit.db');
-    const p = Persistence.open({ dbPath: path, dataDir: join(dir, 'data'), secretKey: ephemeralSecretKey() });
+    const p = Persistence.open({
+      dbPath: path,
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION],
+    });
     ps.push(p);
     const log = p.createSession({ origin: 'conversation' });
     oneTurn(log, 'final turn');
     await p.close();
     expect(() => p.queryEvents({})).toThrowError(/已关闭/);
     // 重开验证完整
-    const b = Persistence.open({ dbPath: path, dataDir: join(dir, 'data'), secretKey: ephemeralSecretKey() });
+    const b = Persistence.open({
+      dbPath: path,
+      dataDir: join(dir, 'data'),
+      secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION],
+    });
     ps.push(b);
     expect(b.store.loadEvents(log.sessionId)).toHaveLength(2);
   });
@@ -186,6 +208,7 @@ describe('透传面', () => {
       dbPath: join(dir, 'passthrough.db'),
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
       clock: () => clock,
     });
     ps.push(p);
@@ -204,16 +227,19 @@ describe('透传面', () => {
   });
 });
 
-describe('首问快照物化（05 §9——/sessions 清单信息密度）', () => {
-  it('交互创建路：首条用户输入物化 title（flush 后 listSessions 可见）', async () => {
+describe('首问快照物化（05 §9——/sessions 清单信息密度；v13 专列分家后锁面翻档）', () => {
+  it('交互创建路：首条用户输入物化专列（title 缺席 + 合并单源取专列——flush 后 listSessions 可见）', async () => {
     const p = open();
     const log = p.createSession({ origin: 'conversation', workspaceRoot: '/ws/fq' });
     oneTurn(log, '帮我看看构建为什么失败');
     await p.flush();
     const rows = p.listSessions();
     expect(rows).toHaveLength(1);
-    // 修前红：交互路无人传题 + auto-title 链断裂——清单恒全员「（无题）」
-    expect(rows[0]!.title).toBe('帮我看看构建为什么失败');
+    // v13 分家（05 §9）：title = 显式题 only（交互路无显式题 → undefined）；
+    // 首问快照物化在专列；装配层合并单源 = sessionDisplayTitleOf
+    expect(rows[0]!.title).toBeUndefined();
+    expect(rows[0]!.firstQuestionSummary).toBe('帮我看看构建为什么失败');
+    expect(sessionDisplayTitleOf(rows[0]!)).toBe('帮我看看构建为什么失败');
   });
 
   it('channel:* 源同入列（webui/SDK 通道输入同视真用户——05 §3.1 用户侧）', async () => {
@@ -221,7 +247,7 @@ describe('首问快照物化（05 §9——/sessions 清单信息密度）', () 
     const log = p.createSession({ origin: 'conversation' });
     log.append('user/message', { content: '来自网页的问题', source: 'channel:webui' });
     await p.flush();
-    expect(p.listSessions()[0]!.title).toBe('来自网页的问题');
+    expect(p.listSessions()[0]!.firstQuestionSummary).toBe('来自网页的问题');
   });
 
   it('fork 种子路：亲代首问快照随种子物化（首条真用户输入含种子前缀）', async () => {
@@ -231,7 +257,7 @@ describe('首问快照物化（05 §9——/sessions 清单信息密度）', () 
     await p.flush();
     const forked = p.createSeededSession(src.events(), { origin: 'fork', parentId: src.sessionId });
     // 同步落库路（writeEvents 直写）同受物化覆盖——不依赖 write-behind 时序
-    expect(p.listSessions().find((r) => r.id === forked.sessionId)?.title).toBe('父会话的首个问题');
+    expect(p.listSessions().find((r) => r.id === forked.sessionId)?.firstQuestionSummary).toBe('父会话的首个问题');
   });
 });
 
@@ -242,6 +268,7 @@ describe('durable 事件活体镜像（onDurableEvent——03 §146 发射位，
       dbPath: join(dir, 'mirror.db'),
       dataDir: join(dir, 'data'),
       secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
       onDurableEvent,
     });
     ps.push(p);

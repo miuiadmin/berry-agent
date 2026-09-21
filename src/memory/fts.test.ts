@@ -13,6 +13,7 @@ import Database from 'better-sqlite3';
 import {
   ephemeralSecretKey,
   openStore,
+  SESSION_ARCHIVE_MIGRATION,
   type EventWrite,
   type SessionRegistration,
   type Store,
@@ -40,12 +41,14 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** 开真库（一 setup 一库文件——词面独立律 compat 互证用真 Store 本尊） */
+/** 开真库（一 setup 一库文件——词面独立律 compat 互证用真 Store 本尊；
+ * writeTuple 硬依赖 v13 专列（05 §9）——测试库基线带链，与 store.test.ts helper 同法） */
 function open(): Store {
   store = openStore({
     dbPath: join(dir, `test-${++dbSeq}.db`),
     dataDir: dir,
     secretKey: ephemeralSecretKey(),
+    migrations: [SESSION_ARCHIVE_MIGRATION],
   });
   return store;
 }
@@ -128,6 +131,7 @@ describe('ensureFtsIndex（激活期对账策略位——05 §9 对账第三档�
       dbPath,
       dataDir: dir,
       secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION], // 同 helper——writeTuple 硬依赖 v13 专列
     });
     store = reopened;
     const report = ensureFtsIndex({ face: reopened, warn });

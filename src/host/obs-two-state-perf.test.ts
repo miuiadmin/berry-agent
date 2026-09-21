@@ -30,7 +30,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Engine, MemoryTerminalIO, type Renderable } from '../channels/engine/index.js';
 import { TuiBackend } from '../channels/tui/index.js';
 import type { SessionEvent } from '../contracts/index.js';
-import { openStore, type Store } from '../persist/index.js';
+import { openStore, SESSION_ARCHIVE_MIGRATION, type Store } from '../persist/index.js';
 import { createObsService, type ObsService } from '../obs/index.js';
 
 /* ---------------- 帽值（码面定值——07 §4.1 回填落点） ---------------- */
@@ -92,7 +92,13 @@ function seedSession(store: Store, sessionId: string, count: number, baseTime: n
  * 零观测面——裁决②件可禁用的码面形）。
  */
 function bootAmbient(dir: string, withObs: boolean, opts: { refreshMs: number; clock?: () => number }): Ambient {
-  const store = openStore({ dataDir: dir, dbPath: join(dir, 'sessions.db'), warn: () => {} });
+  // writeTuple 硬依赖 v13 专列（05 §9）——测试库基线带链
+  const store = openStore({
+    dataDir: dir,
+    dbPath: join(dir, 'sessions.db'),
+    warn: () => {},
+    migrations: [SESSION_ARCHIVE_MIGRATION],
+  });
   const obs = withObs
     ? createObsService({
         dbPath: join(dir, 'data', 'obs', 'rollup.db'),

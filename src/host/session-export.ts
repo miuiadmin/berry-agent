@@ -23,7 +23,7 @@ import { join } from 'node:path';
 
 import type { SessionEvent } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
-import { sanitizeTitleText } from '../persist/index.js';
+import { sanitizeTitleText, sessionDisplayTitleOf } from '../persist/index.js';
 import type { ContentBlock } from '../session/index.js';
 import { deriveMessages } from '../session/index.js';
 
@@ -149,7 +149,10 @@ export function writeSessionExport(dataDir: string, input: SessionExportInput): 
 
 /** 行面读窄面（SessionRow 结构子集——装配位从各自真源投影） */
 export interface SessionExportRowLike {
+  /** 显式题（05 §9 v13——与 firstQuestionSummary 两列独立，消费位经 sessionDisplayTitleOf 合并） */
   readonly title?: string | undefined;
+  /** 首问快照档案列（05 §9 v13 专列） */
+  readonly firstQuestionSummary?: string | undefined;
   readonly workspaceRoot?: string | undefined;
   readonly createdAt?: number | undefined;
 }
@@ -206,11 +209,14 @@ export async function runSessionExportCommand(
     return { ok: false, text: '数据目录缺席（纯 memory 形）——导出需要落盘位，此形不可用' };
   }
   const row = deps.rowOf(sessionId);
+  // 展示题读路合并单源（05 §9 v13 分家③）：显式题优先、首问快照兜底——
+  // 空串/两列均缺席视缺席不造行（零事件新会话同形）
+  const displayTitle = row !== undefined ? sessionDisplayTitleOf(row) : undefined;
   const path = writeSessionExport(deps.dataDir, {
     events,
     meta: {
       sessionId,
-      ...(row?.title !== undefined && row.title !== '' ? { title: row.title } : {}),
+      ...(displayTitle !== undefined && displayTitle !== '' ? { title: displayTitle } : {}),
       ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
       ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
     },

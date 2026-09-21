@@ -39,9 +39,13 @@ CREATE INDEX idx_events_type ON events(type);
 
 -- ── sessions：会话登记行（血缘三元组 + 工作区选取键；无归属列——会话直归
 --    agent，05 §0；行由 write-behind 首写登记，血缘首登为准不回改）────────────
+--    档案两列 first_question_summary / model_summary **有意不折入本 DDL**：经
+--    v13 迁移加列（store.ts SESSION_ARCHIVE_MIGRATION——ALTER ADD COLUMN 首例），
+--    bootstrap 置 user_version=1 后新旧库同路逐跑迁移链获得；DDL 折列则新库
+--    首启撞 duplicate column name（05 §9 专列兑现注）。
 CREATE TABLE sessions (
   id             TEXT    PRIMARY KEY,
-  title          TEXT,                            -- 标题（缺省 NULL；会话列表呈现面消费）
+  title          TEXT,                            -- 显式题 only（headless 首登/人面改名；首问快照在 first_question_summary 专列）
   origin         TEXT    NOT NULL,                -- 'conversation' | 'delegation' | 'import' | 'fork' | 'trigger'
   parent_id      TEXT,                            -- 血缘父会话（根会话 NULL）
   seed_length    INTEGER NOT NULL DEFAULT 0,      -- 种子前缀长度（fork/导入切片）

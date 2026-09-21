@@ -147,10 +147,12 @@ export interface UiBackend<TProjection> {
 export interface UiSessionSummary {
   readonly id: string;
   /**
-   * 会话标题（在场即显示，缺席如实缺段）。值位语义（05 §9）：显式题优先
-   * （headless 起源传入 / 人面 updateSessionTitle），否则首条真用户输入
-   * （source ∈ user/channel:*）的 200 字符截断快照物化——首条用户消息截断
-   * 的契约承诺由 persist 写路物化兑现（firstQuestionSummaryOf）。
+   * 会话标题（在场即显示，缺席如实缺段）。值位语义（05 §9 v13 分家）：显式题
+   * 优先（headless 起源传入 / 人面 updateSessionTitle），否则首条真用户输入
+   * （source ∈ user/channel:*）的 200 字符截断快照物化——首条用户消息截断的
+   * 契约承诺由 persist 写路物化兑现（firstQuestionSummaryOf → 专列
+   * first_question_summary）；装配层合并单源 = sessionDisplayTitleOf
+   * （title ?? 专列——八装配位一律经此，禁各自手写）。
    */
   readonly title?: string;
   /** 工作区根（显示用——呈现侧取短名） */

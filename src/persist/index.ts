@@ -32,7 +32,11 @@ export {
   decryptSecret,
   ephemeralSecretKey,
 } from './secret-box.js';
-export { openStore, Store, sanitizeTitleText } from './store.js';
+export { openStore, Store, sanitizeTitleText, sessionDisplayTitleOf } from './store.js';
+// sessions 档案两列迁移项（05 §9 专列兑现注——v13，2026-09-21）：export-only
+// （宿主装配根 HOST_MIGRATION_TAIL 机械聚合——audit v8 / load-generations v10
+// 同形）；读路合并单源 sessionDisplayTitleOf 同批导出（八装配位消费）
+export { SESSION_ARCHIVE_MIGRATION } from './store.js';
 // 进程级 durable 审计流（05 §9 audit_events——U3 落码批 U3-2）：迁移项声明
 // export-only（宿主装配根 HOST_MIGRATION_TAIL 机械聚合——同 credentials v7
 // 形）；写入面经库句柄构造，单写者 = 宿主固定件（boot 幂等 diff/高危面记账）

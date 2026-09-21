@@ -30,7 +30,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ephemeralSecretKey, Persistence } from '../persist/index.js';
+import { ephemeralSecretKey, Persistence, SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
 import { deriveMessages, type ProjectedMessage, type SessionLog } from '../session/index.js';
 import { SUMMARY_PREFIX } from './policy.js';
 import { createCompactionService } from './service.js';
@@ -55,9 +55,15 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** 开库助手（同密钥注入——重开连接须能解同一凭证域；登记待关面） */
+/** 开库助手（同密钥注入——重开连接须能解同一凭证域；登记待关面；
+ * writeTuple 硬依赖 v13 专列〔05 §9〕——测试库基线带链） */
 function openPersistence(dbPath: string, secretKey: Buffer): Persistence {
-  const p = Persistence.open({ dbPath, dataDir: join(dir, 'data'), secretKey });
+  const p = Persistence.open({
+    dbPath,
+    dataDir: join(dir, 'data'),
+    secretKey,
+    migrations: [SESSION_ARCHIVE_MIGRATION],
+  });
   opened.push(p);
   return p;
 }

@@ -59,7 +59,7 @@ import {
   setSessionThinkingLevel,
   THINKING_LEVELS,
 } from '../conversation/index.js';
-import { sanitizeTitleText } from '../persist/index.js';
+import { sanitizeTitleText, sessionDisplayTitleOf } from '../persist/index.js';
 import { SANDBOX_MODES } from '../safety/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { SdkHttpFaceHandle } from '../sdk/index.js';
@@ -314,9 +314,13 @@ function bridgeDeps(
         stack.manager.list().map((row) => ({
           id: row.id,
           // 标题净化（第五役 G6 存量行双保险）：写路物化已源头净化，此面兜旧码
-          // 落库的脏 title——剥控制字节/逃逸序列后再外发 webui JSON 面；净化
-          // 归空（不可见形态）诚实退 null（不造占位串）
-          title: row.title === undefined ? null : sanitizeTitleText(row.title) || null,
+          // 落库的脏值——先读路合并（05 §9 v13 分家③：显式题优先/首问快照兜底）
+          // 再剥控制字节/逃逸序列外发 webui JSON 面；净化归空（不可见形态）
+          // 诚实退 null（不造占位串）
+          title: (() => {
+            const merged = sessionDisplayTitleOf(row);
+            return merged === undefined ? null : sanitizeTitleText(merged) || null;
+          })(),
           lastActivityAt: row.updatedAt,
         })),
       sessionStateOf: (sessionId) => {
@@ -378,12 +382,14 @@ function bridgeDeps(
               const events = exportSource.eventsOf(sessionId);
               if (events === undefined) return undefined; // 会话不在场——404 归端点判
               const row = exportSource.rowOf(sessionId);
+              // 展示题读路合并单源（05 §9 v13 分家③——与 /export 命令腿同律：
+              // 显式题优先/首问快照兜底；合并值空串或两列均缺席不造行）
+              const displayTitle = row !== undefined ? sessionDisplayTitleOf(row) : undefined;
               return renderSessionMarkdown({
                 events,
                 meta: {
                   sessionId,
-                  // 行面元数据缺席不造行（零事件新会话同形——title 空串视为缺席）
-                  ...(row?.title !== undefined && row.title !== '' ? { title: row.title } : {}),
+                  ...(displayTitle !== undefined && displayTitle !== '' ? { title: displayTitle } : {}),
                   ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
                   ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
                 },

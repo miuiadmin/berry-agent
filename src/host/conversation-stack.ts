@@ -91,6 +91,7 @@ import {
 } from '../llm/index.js';
 import type { LlmRuntime, LlmService, LlmUsageEventData, Provider } from '../llm/index.js';
 import type { QueryEventsFilter, QueryEventsResult } from '../persist/index.js';
+import { sessionDisplayTitleOf } from '../persist/index.js';
 import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft, ToolPolicyEntry } from '../safety/index.js';
 import { matchToolPolicy } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
@@ -740,7 +741,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .map((row) => ({
             id: row.id,
-            title: row.title,
+            // 读路合并单源（05 §9 v13 分家③）：显式题优先、首问快照兜底
+            title: sessionDisplayTitleOf(row),
             workspaceRoot: row.workspaceRoot,
             updatedAt: row.updatedAt,
             active: active.has(row.id),

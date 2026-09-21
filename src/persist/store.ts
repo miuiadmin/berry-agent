@@ -27,7 +27,7 @@ export interface SessionRegistration {
   readonly seedLength: number;
   /** 工作区根（「按 cwd 取最新会话」选取键；无工作区会话 = undefined） */
   readonly workspaceRoot: string | undefined;
-  /** 标题（可空——显式题优先〔headless 起源传入/人面 updateSessionTitle〕；缺席时写路物化首问快照〔05 §9，见 firstQuestionSummaryOf〕） */
+  /** 标题（可空——显式题 only〔05 §9 v13 分家：registration 首登（headless 起源）/ updateSessionTitle 人面；首问快照在专列 first_question_summary，见 firstQuestionSummaryOf〕） */
   readonly title: string | undefined;
 }
 
@@ -85,7 +85,10 @@ export interface QueryEventsResult {
 /** sessions 行读形态 */
 export interface SessionRow {
   readonly id: string;
+  /** 显式题 only（05 §9 v13 分家——registration.title 首登〔headless 起源〕/ updateSessionTitle 人面；首登不回改） */
   readonly title: string | undefined;
+  /** 首问快照档案列（05 §9——写路物化〔v13 专列承载〕；读面合并见 sessionDisplayTitleOf） */
+  readonly firstQuestionSummary: string | undefined;
   readonly origin: SessionOrigin;
   readonly parentId: string | undefined;
   readonly seedLength: number;
@@ -164,7 +167,28 @@ const QUERY_LIMIT_MAX = 10000;
 /** store_state LRU 帽（05 §6.2） */
 const STORE_STATE_LRU_CAP = 256;
 
-// ── 首问快照派生（05 §9 档案列 first_question_summary——title 列过渡承载）──────
+// ── 首问快照派生（05 §9 档案列 first_question_summary——v13 专列承载）──────
+
+/**
+ * sessions 档案两列迁移项（05 §9 专列兑现注——v13，2026-09-21）：
+ * `first_question_summary`（首问快照）+ `model_summary`（模型侧摘要——题 16
+ * 裁决列先占位，回填时点随 04 呈现面另批，本迁移只加列零读写逻辑）。
+ *
+ * **只经迁移加列、正典 DDL 有意不折此两列**：开库序（bootstrap 事务）对新库
+ * 先建正典七表并置 user_version=SCHEMA_VERSION(=1)，随即与旧库同路逐跑
+ * v2..head 迁移链——若 DDL 折列，新库首启跑到本项 ALTER 即撞 duplicate
+ * column name 炸库。两列只出现在本迁移项（新旧库同路获得），schema.ts
+ * sessions 段有对应不折列注。ALTER ADD COLUMN 系迁移链首例（正典表形变
+ * 先例 = credentials v7 重建四步舞，非 ADD COLUMN）。
+ */
+export const SESSION_ARCHIVE_MIGRATION: MigrationSpec = {
+  version: 13,
+  name: 'session-archive-columns',
+  sql: `
+    ALTER TABLE sessions ADD COLUMN first_question_summary TEXT;
+    ALTER TABLE sessions ADD COLUMN model_summary TEXT;
+  `,
+};
 
 /**
  * 首问快照字符帽（05 §9 档案两列拍板〔2026-09-05 题 16〕：first_question_summary
@@ -276,6 +300,27 @@ function isHighSurrogateUnit(unit: number): boolean {
 /** UTF-16 低代理码元判据（0xdc00..0xdfff——代理对劈界的右半） */
 function isLowSurrogateUnit(unit: number): boolean {
   return unit >= 0xdc00 && unit <= 0xdfff;
+}
+
+/**
+ * 会话展示题读路合并单源（05 §9 v13 分家③）：显式题优先、首问快照兜底——
+ * 装配位（channels/webui/serve/CLI/export/obs/tui 八面）一律经本函数合并，
+ * 禁各自手写 `??`（单源防漂移）。两列均缺席 → undefined（消费面自定兜底
+ * 呈现，如「无题会话」占位）。空串视同缺席（净化写路已保非空落库，此判
+ * 系历史残留防御）。
+ *
+ * 参数取结构可选形而非 `Pick<SessionRow, …>`：消费位结构不全等（obs 的
+ * ObsSessionRow 无专列键、export 的 RowLike 两键皆 optional）——本函数只
+ * 读两键的「在场与否」，缺键即缺席语义，天然兼容一切结构子集。
+ */
+export function sessionDisplayTitleOf(row: {
+  readonly title?: string | undefined;
+  readonly firstQuestionSummary?: string | undefined;
+}): string | undefined {
+  if (row.title !== undefined && row.title.length > 0) return row.title;
+  return row.firstQuestionSummary !== undefined && row.firstQuestionSummary.length > 0
+    ? row.firstQuestionSummary
+    : undefined;
 }
 
 /**
@@ -552,20 +597,26 @@ export class Store implements WriteTarget {
       );
     }
     // sessions 行：身份列首登为准（冲突只推进），updated_at/last_seq 批写推进。
-    // title = 首问快照物化位（05 §9 档案列 first_question_summary 的本仓过渡
-    // 承载——真列须 schema 迁移腿〔schema.ts/runtime.ts 文件域〕留主会话收口）：
-    // 显式题（登记快照——headless 起源传入）优先；否则写路自「本会话最早真用户
-    // 输入」（含刚落账的本事件与种子前缀）派生物化。COALESCE 首登不回改——
-    // 已物化值/显式题/人面 updateSessionTitle 恒胜出，后续消息零覆盖。
-    const titleOffer = registration.title ?? this.firstQuestionOfferOf(sessionId, event);
+    // title/first_question_summary 两列各自独立物化（05 §9 v13 分家①——2026-09-21）：
+    //  - title = 显式题 only（登记快照——headless 起源传入；updateSessionTitle
+    //    人面）；
+    //  - first_question_summary = 首问快照写路物化位（本仓派生 offer——
+    //    firstQuestionOfferOf 扫本会话最早真用户输入）。
+    // 冲突分支 title 取 COALESCE(sessions.title, excluded.title)：显式题晚到可
+    // 补位、已在场恒胜出（excluded.title 值域 = 显式题首登源 + loadSession 回传
+    // 库行现值——残留值回传恒等无害；防御性定形）。快照列同律首登不回改——已
+    // 物化值恒胜出，后续消息零覆盖。
+    const questionOffer = this.firstQuestionOfferOf(sessionId, event);
     this.stmt(
-      `INSERT INTO sessions (id, title, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO sessions (id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, last_seq = MAX(last_seq, excluded.last_seq),
-         title = COALESCE(sessions.title, ?)`,
+         title = COALESCE(sessions.title, excluded.title),
+         first_question_summary = COALESCE(sessions.first_question_summary, excluded.first_question_summary)`,
     ).run(
       sessionId,
-      titleOffer ?? null,
+      registration.title ?? null,
+      questionOffer ?? null,
       registration.origin,
       registration.parentId ?? null,
       registration.seedLength,
@@ -573,7 +624,6 @@ export class Store implements WriteTarget {
       now,
       now,
       event.seq,
-      titleOffer ?? null, // 冲突分支 COALESCE 补位参（offer 缺席 = NULL = 保持现值）
     );
     // 批内推进（局部批 Map——真推进 this.cursors 由调用方在事务成功后统一落）
     batchCursors.set(sessionId, event.seq);
@@ -583,19 +633,21 @@ export class Store implements WriteTarget {
    * 首问快照写路派生（05 §9 读模型物化的查询腿）：扫本会话 user/message 行
    * 取**最早真用户输入**——events 行已在 writeTuple 先行落账（含本事件），故
    * 命中即本会话真首条：新会话 = 本事件；fork/导入 = 种子前缀内首条；存量库
-   * （旧版不物化、title NULL）在下次用户消息写时惰性回填真首条（§9「可从
+   * （旧版不物化、专列 NULL）在下次用户消息写时惰性回填真首条（§9「可从
    * 日志重新派生回填」律的写路兑现）。机器源行（compaction 载体等）逐行跳过。
-   * 非用户消息事件短路零查；sessions.title 已在场（非 NULL）同样短路零扫——
-   * COALESCE 必保持现值，扫描结果无人消费（全机器源长存会话每写扫尽 O(n²)
-   * 的收口；title NULL 的存量行不受影响，惰性回填照常）。
+   * 非用户消息事件短路零查；first_question_summary 已在场（非 NULL）同样短路
+   * 零扫——COALESCE 必保持现值，扫描结果无人消费（全机器源长存会话每写扫尽
+   * O(n²) 的收口；v13 分家后 title 在场**不再阻断**扫描——显式题行照样待快照
+   * 回填，过渡期 title 残留（旧版快照物化）行同路回填真首问，专列值与残留值
+   * 同派生函数同真源恒同，双份同值零危害）。
    */
   private firstQuestionOfferOf(sessionId: string, event: SessionEvent): string | undefined {
     if (event.type !== 'user/message') return undefined;
-    // 已物化短路：行在场且 title 非 NULL（显式题已物化 / 首问已物化 / 人面
-    // 改名）即返回——与 COALESCE(sessions.title, ?) 语义等价（非 NULL 恒胜出）
-    const existing = this.stmt(`SELECT title FROM sessions WHERE id = ?`).get(sessionId) as
-      { title: string | null } | undefined;
-    if (existing !== undefined && existing.title !== null) return undefined;
+    // 已物化短路：行在场且专列非 NULL 即返回——与 COALESCE(专列, offer) 语义
+    // 等价（非 NULL 恒胜出）
+    const existing = this.stmt(`SELECT first_question_summary FROM sessions WHERE id = ?`).get(sessionId) as
+      { first_question_summary: string | null } | undefined;
+    if (existing !== undefined && existing.first_question_summary !== null) return undefined;
     const rows = this.stmt(
       `SELECT data FROM events WHERE session_id = ? AND type = 'user/message' ORDER BY seq`,
     ).iterate(sessionId) as Iterable<{ data: string }>;
@@ -783,7 +835,7 @@ export class Store implements WriteTarget {
   getSessionRow(sessionId: string): SessionRow | undefined {
     this.ensureOpen();
     const row = this.stmt(
-      `SELECT id, title, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
+      `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
        FROM sessions WHERE id = ?`,
     ).get(sessionId) as RawSessionRow | undefined;
     return row ? parseSessionRow(row) : undefined;
@@ -796,11 +848,11 @@ export class Store implements WriteTarget {
     const rows =
       options.workspaceRoot !== undefined
         ? (this.stmt(
-            `SELECT id, title, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
+            `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
              FROM sessions WHERE workspace_root = ? ORDER BY updated_at DESC LIMIT ?`,
           ).all(options.workspaceRoot, limit) as RawSessionRow[])
         : (this.stmt(
-            `SELECT id, title, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
+            `SELECT id, title, first_question_summary, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq
              FROM sessions ORDER BY updated_at DESC LIMIT ?`,
           ).all(limit) as RawSessionRow[]);
     return rows.map(parseSessionRow);
@@ -1148,6 +1200,7 @@ interface RawEventRow {
 interface RawSessionRow {
   id: string;
   title: string | null;
+  first_question_summary: string | null;
   origin: string;
   parent_id: string | null;
   seed_length: number;
@@ -1210,6 +1263,7 @@ function parseSessionRow(row: RawSessionRow): SessionRow {
   return {
     id: row.id,
     title: row.title ?? undefined,
+    firstQuestionSummary: row.first_question_summary ?? undefined,
     origin: row.origin as SessionOrigin,
     parentId: row.parent_id ?? undefined,
     seedLength: row.seed_length,

@@ -44,6 +44,7 @@ import {
   THINKING_LEVELS,
 } from '../conversation/index.js';
 import { sanitizeEntryForReadout, shortIdOf, type MemoryDao } from '../memory/index.js';
+import { sessionDisplayTitleOf } from '../persist/index.js';
 import { formatSkillInvocation, type SkillsRegistry } from '../skills/index.js';
 import type { Provider } from '../llm/index.js';
 import { APPROVAL_PRESETS, SANDBOX_MODES, type SandboxMode } from '../safety/index.js';
@@ -952,11 +953,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           // 是截形，replacement 吃全 id）。
           if (command === 'export' && priorArgs.length === 0) {
             const sessionRows = stack.manager.list({});
-            return fuzzyFilter(sessionRows, (row) => row.id, query).map((row) => ({
-              label: row.id.length > 8 ? `${row.id.slice(0, 8)}…` : row.id,
-              ...(row.title !== undefined && row.title !== '' ? { detail: row.title } : {}),
-              replacement: `${row.id} `,
-            }));
+            return fuzzyFilter(sessionRows, (row) => row.id, query).map((row) => {
+              // detail = 展示题读路合并单源（05 §9 v13 分家③——显式题优先/
+              // 首问快照兜底；合并值空串/缺席不造行）
+              const displayTitle = sessionDisplayTitleOf(row);
+              return {
+                label: row.id.length > 8 ? `${row.id.slice(0, 8)}…` : row.id,
+                ...(displayTitle !== undefined && displayTitle !== '' ? { detail: displayTitle } : {}),
+                replacement: `${row.id} `,
+              };
+            });
           }
           const live = liveCommandArgumentItems(command, query, priorArgs, liveCompletionDeps);
           if (live !== null) return live;

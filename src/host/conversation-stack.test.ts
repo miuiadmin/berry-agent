@@ -27,6 +27,7 @@ import { fauxProvider } from '../llm/index.js';
 import { createSandboxService } from '../safety/index.js';
 import { SessionLog } from '../session/index.js';
 import type { EventWrite, SessionRegistration } from '../persist/store.js';
+import { sessionDisplayTitleOf } from '../persist/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import {
@@ -2412,8 +2413,8 @@ describe('retry/abort 编舞 × write-behind 落库跨进程（A4——时序交
   });
 });
 
-describe('首问快照物化全链（/sessions 恒「（无题）」修复——05 §9）', () => {
-  it('TUI 提交路：submitText 后 /sessions 数据源行 title 在场（sessions provider 映射位上游）', async () => {
+describe('首问快照物化全链（/sessions 恒「（无题）」修复——05 §9；v13 专列分家后锁面翻档）', () => {
+  it('TUI 提交路：submitText 后首问快照物化专列（显式题缺席 + 合并单源取专列——sessions provider 映射位上游）', async () => {
     const { rt } = rigRuntime();
     const { faux, stack } = rigStack(rt);
     const ws = rigWorkspace();
@@ -2423,9 +2424,11 @@ describe('首问快照物化全链（/sessions 恒「（无题）」修复——
     await rt.persistence.flush();
     const rows = stack.manager.list({});
     expect(rows).toHaveLength(1);
-    // 修前红：交互创建位不传题 + updateSessionTitle 零生产调用方——provider
-    // 读到恒 NULL 的 row.title，/sessions 清单全员「（无题）」
-    expect(rows[0]!.title).toBe('帮我修 TUI 渲染错位');
+    // v13 分家（05 §9）：title = 显式题 only（submitText 不传题 → undefined）；
+    // 首问快照物化在专列 first_question_summary；装配层合并单源 = sessionDisplayTitleOf
+    expect(rows[0]!.title).toBeUndefined();
+    expect(rows[0]!.firstQuestionSummary).toBe('帮我修 TUI 渲染错位');
+    expect(sessionDisplayTitleOf(rows[0]!)).toBe('帮我修 TUI 渲染错位');
     await rt.shutdown();
   });
 });

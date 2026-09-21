@@ -29,6 +29,7 @@
  * 信封快照——wiring.noteRequest 写点）；防御读取缺席 undefined。
  */
 import type { SessionEvent } from '../contracts/index.js';
+import { sessionDisplayTitleOf } from '../persist/index.js';
 import type {
   ObsLiveSessionInfo,
   ObsSessionRow,
@@ -173,8 +174,9 @@ export function createSessionView(deps: SessionViewDeps): SessionView {
         const { row, live } = derivedState(info.sessionId);
         return {
           id: info.sessionId,
-          // 行缺席（零事件新会话）：origin 兜底进程内记录、updatedAt 兜底 0
-          title: row?.title,
+          // 行缺席（零事件新会话）：origin 兜底进程内记录、updatedAt 兜底 0；
+          // 展示题读路合并单源（05 §9 v13 分家③——显式题优先/首问快照兜底）
+          title: row === undefined ? undefined : sessionDisplayTitleOf(row),
           origin: row?.origin ?? info.origin,
           parentId: row?.parentId,
           live,

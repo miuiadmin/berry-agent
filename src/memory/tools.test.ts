@@ -7,7 +7,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ephemeralSecretKey, openStore, type SessionRegistration, type Store } from '../persist/index.js';
+import {
+  ephemeralSecretKey,
+  openStore,
+  SESSION_ARCHIVE_MIGRATION,
+  type SessionRegistration,
+  type Store,
+} from '../persist/index.js';
 import type { AgentToolResult, SessionEvent, ToolContext, ToolDefinition } from '../contracts/index.js';
 import { createMemoryDao, type MemoryDao } from './dao.js';
 import { MEMORY_MIGRATIONS } from './migration.js';
@@ -49,7 +55,8 @@ function setup(ownerKeys?: readonly string[]): { dao: MemoryDao; tools: ToolDefi
     dbPath: join(dir, `test-${++dbSeq}.db`),
     dataDir: dir,
     secretKey: ephemeralSecretKey(),
-    migrations: [...MEMORY_MIGRATIONS],
+    // writeTuple 硬依赖 v13 专列（05 §9）——memory 链尾追加会话档案迁移
+    migrations: [...MEMORY_MIGRATIONS, SESSION_ARCHIVE_MIGRATION],
   });
   const dao = createMemoryDao({
     db: store.sqlite(),

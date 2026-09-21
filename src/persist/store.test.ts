@@ -20,9 +20,11 @@ import { ephemeralSecretKey } from './secret-box.js';
 import type { MigrationSpec } from './migrations.js';
 import {
   FIRST_QUESTION_SUMMARY_MAX_CHARS,
+  SESSION_ARCHIVE_MIGRATION,
   firstQuestionSummaryOf,
   openStore,
   prepareWal,
+  sessionDisplayTitleOf,
   type EventWrite,
   type SessionRegistration,
   type Store,
@@ -96,6 +98,26 @@ function writesFor(
   return events.map((event) => ({ sessionId, event, registration }));
 }
 
+/**
+ * v1 旧版库数据对照物（旧宿主写形直插）：本版 writeTuple 的 sessions upsert
+ * 已依赖 v13 专列（05 §9——裸链库上不可写），而「升级日现场」的既有数据本就
+ * 是旧宿主写的——以旧 SQL 直插才是诚实模拟。产物形与 writeEvents 等价：
+ * events 4 行（seq 0..3）+ sessions 行（last_seq=3）。
+ */
+function seedLegacyRows(store: Store, sessionId: string): void {
+  const db = store.connection;
+  db.prepare(
+    `INSERT INTO sessions (id, title, origin, parent_id, seed_length, workspace_root, created_at, updated_at, last_seq)
+     VALUES (?, NULL, 'conversation', NULL, 0, NULL, 0, 0, 3)`,
+  ).run(sessionId);
+  const insert = db.prepare(
+    `INSERT INTO events (session_id, seq, time, type, data, ignorable) VALUES (?, ?, 0, ?, ?, 0)`,
+  );
+  for (let seq = 0; seq < 4; seq++) {
+    insert.run(sessionId, seq, 'persist.test/note', JSON.stringify({ text: `pre-${seq}` }));
+  }
+}
+
 let dir: string;
 let stores: Store[];
 
@@ -109,7 +131,11 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** 开库助手（登记待关面 + 固定密钥注入避免测试目录撒密钥文件——secret-box 自有专测） */
+/** 开库助手（登记待关面 + 固定密钥注入避免测试目录撒密钥文件——secret-box 自有专测）。
+ *  migrations 缺省带 SESSION_ARCHIVE_MIGRATION（v13）：writeTuple 的 sessions
+ *  upsert 硬依赖专列（05 §9 专列兑现注——只经迁移加列、DDL 有意不折，与
+ *  credentials v7 先例同形），件级测试库基线即含 v13；显式传参覆盖（BAD_CHAIN
+ *  /换代链等自有链测试不受影响）。 */
 function open(options: {
   dbPath: string;
   migrations?: readonly MigrationSpec[];
@@ -120,7 +146,7 @@ function open(options: {
     dbPath: options.dbPath,
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
-    migrations: options.migrations,
+    migrations: options.migrations ?? [SESSION_ARCHIVE_MIGRATION],
     warn: options.warn,
     clock: options.clock,
   });
@@ -130,7 +156,8 @@ function open(options: {
 
 describe('开库门禁序（05 §6.4/§6.5）', () => {
   it('全新库：单事务建链——七对象在场 + user_version=1 + application_id 印记', () => {
-    const store = open({ dbPath: join(dir, 'fresh.db') });
+    // 裸链基线（migrations: []）——本测断言 v1 直通形，不享 helper 缺省 v13
+    const store = open({ dbPath: join(dir, 'fresh.db'), migrations: [] });
     expect(store.headVersion).toBe(1);
     const names = (
       store.connection
@@ -159,9 +186,10 @@ describe('开库门禁序（05 §6.4/§6.5）', () => {
 
   it('重复打开：v=head 直通（无迁移无备份）', () => {
     const path = join(dir, 'reopen.db');
-    const a = open({ dbPath: path });
+    // 裸链基线（同上——v=head 直通断言锚 v1）
+    const a = open({ dbPath: path, migrations: [] });
     a.close();
-    const b = open({ dbPath: path });
+    const b = open({ dbPath: path, migrations: [] });
     expect(b.headVersion).toBe(1);
   });
 
@@ -183,7 +211,7 @@ describe('开库门禁序（05 §6.4/§6.5）', () => {
 
   it('缺口迁移：迁移前备份库文件 + 逐版升到 head（旧版库 → 升级 → 断言）', () => {
     const path = join(dir, 'migrate.db');
-    const first = open({ dbPath: path });
+    const first = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形（同三段剧 base）
     first.close();
     // 「v1 基线 + 迁移链头 2」模拟旧版库（v=1 < head=2 → 走迁移路）
     const migration = {
@@ -434,7 +462,7 @@ describe('sessions 行面', () => {
   });
 });
 
-describe('首问快照物化（05 §9 档案列 first_question_summary——title 列过渡承载）', () => {
+describe('首问快照物化（05 §9 档案列 first_question_summary——v13 专列承载 + title 显式题分家）', () => {
   it('firstQuestionSummaryOf 判据面：真用户源两形入列 / 机器源与缺席不入列', () => {
     const summaryOf = (data: unknown) => firstQuestionSummaryOf({ type: 'user/message', data });
     // 真用户源两形（05 §9 字面 + §3.1 闭集用户侧）
@@ -479,29 +507,30 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
     expect(summaryOf({ content: ' \n\t ', source: 'user' })).toBeUndefined();
   });
 
-  it('写路物化：首条真用户输入落 title + 后续消息不回改（首登为准）', () => {
+  it('写路物化：首条真用户输入落专列 + title 恒显式题位（v13 分家）+ 后续消息不回改（首登为准）', () => {
     const store = open({ dbPath: join(dir, 'fq.db') });
     const log = new SessionLog({ sessionId: 'fq' });
     log.append('turn/start', {});
     log.append('user/message', { content: '第一个问题', source: 'user' });
     store.writeEvents(writesFor('s-fq', log.events()));
-    // 修前红：updateSessionTitle 零生产调用方 + 创建位不传题——title 恒 NULL
-    expect(store.getSessionRow('s-fq')?.title).toBe('第一个问题');
+    // 修前红：v13 分家前快照物化进 title 承载位（title='第一个问题'、无专列）
+    expect(store.getSessionRow('s-fq')?.firstQuestionSummary).toBe('第一个问题');
+    expect(store.getSessionRow('s-fq')?.title).toBeUndefined();
     // 第二轮消息：首问已物化不回改（后续用户消息不覆盖）
     log.append('turn/start', {});
     log.append('user/message', { content: '第二个问题', source: 'user' });
     store.writeEvents(writesFor('s-fq', log.events().slice(2)));
-    expect(store.getSessionRow('s-fq')?.title).toBe('第一个问题');
+    expect(store.getSessionRow('s-fq')?.firstQuestionSummary).toBe('第一个问题');
   });
 
   it('写路物化：超长首问 200 字符截断 + 尾标（§1.2 裁腿同式）', () => {
     const store = open({ dbPath: join(dir, 'fq-long.db') });
     const long = '问'.repeat(253);
     store.writeEvents(writesFor('s-fq-long', makeEvents(long)));
-    expect(store.getSessionRow('s-fq-long')?.title).toBe('问'.repeat(200) + '…[truncated 53 chars]');
+    expect(store.getSessionRow('s-fq-long')?.firstQuestionSummary).toBe('问'.repeat(200) + '…[truncated 53 chars]');
   });
 
-  it('截断界劈开代理对退一位：派生值 well-formed + 落库 title 无替换符（内存与落库一致）', () => {
+  it('截断界劈开代理对退一位：派生值 well-formed + 落库专列无替换符（内存与落库一致）', () => {
     // 199 个 a + emoji（代理对恰跨第 200/201 码元位）+ 尾串——缺陷形下
     // slice(0,200) 末位劈出孤立高代理（0xd83d），经 better-sqlite3 落库成 U+FFFD
     const text = 'a'.repeat(199) + '😀' + 'bbbbbbbb';
@@ -509,15 +538,15 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
     expect(summary).toBeDefined();
     // 修前红①：返回值含孤立高代理（isWellFormed 等价断言——手扫码元配对）
     expect(hasLoneSurrogate(summary!)).toBe(false);
-    // 修前红②：落库后 title 呈现替换符（Node 字符串绑定孤立代理 → U+FFFD），
+    // 修前红②：落库后专列呈现替换符（Node 字符串绑定孤立代理 → U+FFFD），
     // 内存派生值与落库值不一致
     const store = open({ dbPath: join(dir, 'fq-surrogate.db') });
     const log = new SessionLog({ sessionId: 'fq-s' });
     log.append('user/message', { content: text, source: 'user' });
     store.writeEvents(writesFor('s-fq-s', log.events()));
-    const title = store.getSessionRow('s-fq-s')?.title ?? '';
-    expect(title.includes('\u{fffd}')).toBe(false);
-    expect(title).toBe(summary);
+    const archived = store.getSessionRow('s-fq-s')?.firstQuestionSummary ?? '';
+    expect(archived.includes('\u{fffd}')).toBe(false);
+    expect(archived).toBe(summary);
   });
 
   it('写路物化：多行首问空白折叠单行（清单面单行承载 + 零控制字节）', () => {
@@ -525,7 +554,7 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
     const log = new SessionLog({ sessionId: 'fq-ws' });
     log.append('user/message', { content: '  第一行\n\t第二行\n\n  尾部  ', source: 'user' });
     store.writeEvents(writesFor('s-fq-ws', log.events()));
-    expect(store.getSessionRow('s-fq-ws')?.title).toBe('第一行 第二行 尾部');
+    expect(store.getSessionRow('s-fq-ws')?.firstQuestionSummary).toBe('第一行 第二行 尾部');
   });
 
   it('写路物化：机器注入 user/message 不入列（compaction/schedule/plugin），真用户输入随后物化', () => {
@@ -534,18 +563,18 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
     // compaction 摘要载体走 user/message 词形——非真用户输入不入列
     log.append('user/message', { content: '[summary] 旧会话摘要正文', source: 'compaction' });
     store.writeEvents(writesFor('s-fq-m', log.events()));
-    expect(store.getSessionRow('s-fq-m')?.title).toBeUndefined();
+    expect(store.getSessionRow('s-fq-m')?.firstQuestionSummary).toBeUndefined();
     // schedule 机器注入同不入列
     log.append('user/message', { content: '到点自动起跑', source: 'schedule' });
     store.writeEvents(writesFor('s-fq-m', log.events().slice(1)));
-    expect(store.getSessionRow('s-fq-m')?.title).toBeUndefined();
+    expect(store.getSessionRow('s-fq-m')?.firstQuestionSummary).toBeUndefined();
     // 真用户输入到达——首问物化（跳过机器注入行取真首条）
     log.append('user/message', { content: '真问题', source: 'user' });
     store.writeEvents(writesFor('s-fq-m', log.events().slice(2)));
-    expect(store.getSessionRow('s-fq-m')?.title).toBe('真问题');
+    expect(store.getSessionRow('s-fq-m')?.firstQuestionSummary).toBe('真问题');
   });
 
-  it('写路物化：显式题优先（headless 登记题不被派生覆盖）+ updateSessionTitle 人面更新仍胜出', () => {
+  it('显式题与首问快照独立共存（v13 分家）+ updateSessionTitle 人面更新仍胜出', () => {
     const store = open({ dbPath: join(dir, 'fq-title.db') });
     const reg: SessionRegistration = { ...REG, title: 'issue #42 自动处理' };
     const log = new SessionLog({ sessionId: 'fq-title' });
@@ -553,29 +582,34 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
     log.append('user/message', { content: '操作者的真输入', source: 'user' });
     store.writeEvents(writesFor('s-fq-t', log.events(), reg));
     expect(store.getSessionRow('s-fq-t')?.title).toBe('issue #42 自动处理');
-    // 人面显式改名（updateSessionTitle 独立面）不被后续物化回卷
+    // 修前红：过渡承载期显式题互斥占先——快照被 COALESCE(title, offer) 丢弃不物化；
+    // v13 分家后两列独立物化（快照列恒 = 首问真值）
+    expect(store.getSessionRow('s-fq-t')?.firstQuestionSummary).toBe('操作者的真输入');
+    // 人面显式改名（updateSessionTitle 独立面——title 直写位）不被后续物化回卷
     expect(store.updateSessionTitle('s-fq-t', '人面改名')).toBe(true);
     log.append('user/message', { content: '改名后的新消息', source: 'user' });
     store.writeEvents(writesFor('s-fq-t', log.events().slice(2)));
     expect(store.getSessionRow('s-fq-t')?.title).toBe('人面改名');
+    // 快照恒首问（改名与新消息均不覆盖专列——首登为准）
+    expect(store.getSessionRow('s-fq-t')?.firstQuestionSummary).toBe('操作者的真输入');
   });
 
-  it('legacy 库惰性回填：存量行 title NULL（旧代码写入形）后续写真首条回填', () => {
+  it('专列 NULL 惰性回填：存量行（旧代码写入形）后续写真首条回填', () => {
     const store = open({ dbPath: join(dir, 'fq-legacy.db') });
     const log = new SessionLog({ sessionId: 'fq-legacy' });
     log.append('user/message', { content: '历史首问', source: 'user' });
     store.writeEvents(writesFor('s-fq-l', log.events()));
-    expect(store.getSessionRow('s-fq-l')?.title).toBe('历史首问');
-    // 模拟存量库形：旧版本代码不物化 title（直清列复现）
-    store.connection.exec(`UPDATE sessions SET title = NULL`);
-    expect(store.getSessionRow('s-fq-l')?.title).toBeUndefined();
+    expect(store.getSessionRow('s-fq-l')?.firstQuestionSummary).toBe('历史首问');
+    // 模拟存量未回填形：v13 迁移后专列 NULL 的等价形（直清列复现）
+    store.connection.exec(`UPDATE sessions SET first_question_summary = NULL`);
+    expect(store.getSessionRow('s-fq-l')?.firstQuestionSummary).toBeUndefined();
     // 新消息写：回填真首条（历史首问）而非本条——「可从日志重新派生回填」律
     log.append('user/message', { content: '后来的消息', source: 'user' });
     store.writeEvents(writesFor('s-fq-l', log.events().slice(1)));
-    expect(store.getSessionRow('s-fq-l')?.title).toBe('历史首问');
+    expect(store.getSessionRow('s-fq-l')?.firstQuestionSummary).toBe('历史首问');
   });
 
-  it('firstQuestionSummaryOf 净化面：ANSI 序列/C0/DEL/C1 控制字节剥除（m10——title 零控制字节）', () => {
+  it('firstQuestionSummaryOf 净化面：ANSI 序列/C0/DEL/C1 控制字节剥除（m10——专列零控制字节）', () => {
     const summaryOf = (data: unknown) => firstQuestionSummaryOf({ type: 'user/message', data });
     // CSI 形（色码）整段剥除——可打印残段（[31m 等）不残留（JS \s 不含 ESC，
     // 修前 ESC 原样穿透物化进 title）
@@ -608,13 +642,13 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
     const log = new SessionLog({ sessionId: 'fq-ctrl' });
     log.append('user/message', { content: '\x1b[31m日志\x1b[0m 贴终端输出', source: 'user' });
     store.writeEvents(writesFor('s-fq-ctrl', log.events()));
-    const title = store.getSessionRow('s-fq-ctrl')?.title ?? '';
-    // 修前红：title 含 ESC 原样物化（每次 sessions list 复发外发终端）
-    expect(/[\u0000-\u001f\u007f-\u009f]/.test(title)).toBe(false);
-    expect(title).toBe('日志 贴终端输出');
+    const archived = store.getSessionRow('s-fq-ctrl')?.firstQuestionSummary ?? '';
+    // 修前红：专列含 ESC 原样物化（每次 sessions list 复发外发终端）
+    expect(/[\u0000-\u001f\u007f-\u009f]/.test(archived)).toBe(false);
+    expect(archived).toBe('日志 贴终端输出');
   });
 
-  it('已物化短路：title 在场后后续 user/message 写零重扫（i1——首问扫描语句计数形）', () => {
+  it('已物化短路：专列在场后后续 user/message 写零重扫（i1——首问扫描语句计数形）', () => {
     const store = open({ dbPath: join(dir, 'fq-short.db') });
     // 拦截 Database：只包首问扫描语句（SQL 形唯一锚定）的 iterate 计数，
     // 其余语句原样透传——写路语义零干扰
@@ -632,19 +666,56 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——titl
       }
       return statement;
     }) as typeof db.prepare;
-    // 同一新会话连写三条 user/message：修前每写全量重扫（计数 3），修后首写
-    // 物化即短路（计数 1——已物化 title 使 COALESCE 必保持现值，扫描无人消费）
+    // 同一新会话连写三条 user/message：v13 分家后首写物化专列即短路（计数 1
+    // ——已物化专列使 COALESCE 必保持现值，扫描无人消费；修前形系看 title 短路）
     const log = new SessionLog({ sessionId: 'fq-short' });
     log.append('user/message', { content: '第一条真输入', source: 'user' });
     store.writeEvents(writesFor('s-fq-short', log.events()));
-    expect(store.getSessionRow('s-fq-short')?.title).toBe('第一条真输入');
+    expect(store.getSessionRow('s-fq-short')?.firstQuestionSummary).toBe('第一条真输入');
     log.append('user/message', { content: '第二条', source: 'user' });
     store.writeEvents(writesFor('s-fq-short', log.events().slice(1)));
     log.append('user/message', { content: '第三条', source: 'user' });
     store.writeEvents(writesFor('s-fq-short', log.events().slice(2)));
     expect(scanIterations).toBe(1);
-    // 短路不得破首登为准语义（COALESCE 值面不变——title 恒首问）
-    expect(store.getSessionRow('s-fq-short')?.title).toBe('第一条真输入');
+    // 短路不得破首登为准语义（COALESCE 值面不变——专列恒首问）
+    expect(store.getSessionRow('s-fq-short')?.firstQuestionSummary).toBe('第一条真输入');
+  });
+
+  it('过渡残留 title 不阻断专列回填（v13 惰性腿翻新——修前短路条件看 title 非 NULL 不扫描）', () => {
+    const store = open({ dbPath: join(dir, 'fq-residue.db') });
+    const log = new SessionLog({ sessionId: 'fq-r' });
+    log.append('user/message', { content: '第一个问题', source: 'user' });
+    store.writeEvents(writesFor('s-fq-r', log.events()));
+    // 模拟 title 承载期残留：快照曾物化进 title（直写复现）+ 专列未回填
+    //（v13 迁移后存量形——迁移只加列零搬数）
+    store.connection.exec(`UPDATE sessions SET title = '第一个问题'`);
+    store.connection.exec(`UPDATE sessions SET first_question_summary = NULL`);
+    // 新用户消息写：回填腿扫真源写专列（修前：title 非 NULL 短路零扫描——专列恒 NULL）
+    log.append('user/message', { content: '后续消息', source: 'user' });
+    store.writeEvents(writesFor('s-fq-r', log.events().slice(1)));
+    expect(store.getSessionRow('s-fq-r')?.firstQuestionSummary).toBe('第一个问题');
+    // title 残留不动（双份同值零危害——读面合并后恒显同值）
+    expect(store.getSessionRow('s-fq-r')?.title).toBe('第一个问题');
+  });
+
+  it('迁移链锁：SESSION_ARCHIVE_MIGRATION v13 开库即得两列（user_version=13 + model_summary 占位在场）', () => {
+    const store = open({ dbPath: join(dir, 'fq-v13.db'), migrations: [SESSION_ARCHIVE_MIGRATION] });
+    expect(store.headVersion).toBe(13);
+    expect(SESSION_ARCHIVE_MIGRATION.version).toBe(13);
+    const cols = (store.connection.pragma('table_info(sessions)') as Array<{ name: string }>).map((col) => col.name);
+    expect(cols).toContain('first_question_summary');
+    // model_summary 列先占位（题 16——回填时点随 04 呈现面另批）
+    expect(cols).toContain('model_summary');
+  });
+
+  it('读面合并单源：sessionDisplayTitleOf——显式题优先、专列兜底（八装配位共消费形）', () => {
+    expect(sessionDisplayTitleOf({ title: '显式题', firstQuestionSummary: '首问' })).toBe('显式题');
+    expect(sessionDisplayTitleOf({ title: undefined, firstQuestionSummary: '首问' })).toBe('首问');
+    expect(sessionDisplayTitleOf({ title: '显式题', firstQuestionSummary: undefined })).toBe('显式题');
+    expect(sessionDisplayTitleOf({ title: undefined, firstQuestionSummary: undefined })).toBeUndefined();
+    // 空串视同缺席（历史残留防御——净化写路已保非空落库）
+    expect(sessionDisplayTitleOf({ title: '', firstQuestionSummary: '首问' })).toBe('首问');
+    expect(sessionDisplayTitleOf({ title: undefined, firstQuestionSummary: '' })).toBeUndefined();
   });
 });
 
@@ -1173,8 +1244,8 @@ describe('迁移执行中失败（升级日现场）', () => {
   it('坏 SQL 原样上抛（非 BaseError 包装非吞）+ user_version 不半推进（v2 已落 v3 回滚）+ 迁移前备份在场', () => {
     const path = join(dir, 'migfail.db');
     // v1 基线库 + 升级前数据行（升级日现场的用户数据对照物）
-    const base = open({ dbPath: path });
-    base.writeEvents(writesFor('s-pre', makeEvents('pre-a', 'pre-b')));
+    const base = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形（不享 helper 缺省 v13 链）
+    seedLegacyRows(base, 's-pre');
     base.close();
     // 坏链开库：v2 事务已提交、v3 事务内坏 SQL 抛 SqliteError 上抛
     let thrown: unknown;
@@ -1195,8 +1266,8 @@ describe('迁移执行中失败（升级日现场）', () => {
 
   it('bak-v1 手工回滚路径真实可用：v1 基线表全在 + 无 -wal 伴随（checkpoint 收卷快照）+ 升级前数据行全量可读', () => {
     const path = join(dir, 'migrollback.db');
-    const base = open({ dbPath: path });
-    base.writeEvents(writesFor('s-pre', makeEvents('pre-a', 'pre-b')));
+    const base = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形（不享 helper 缺省 v13 链）
+    seedLegacyRows(base, 's-pre');
     base.close();
     expect(() => open({ dbPath: path, migrations: BAD_CHAIN })).toThrow();
     expect(existsSync(`${path}.bak-v1`)).toBe(true);
@@ -1234,8 +1305,8 @@ describe('迁移执行中失败（升级日现场）', () => {
 
   it('修复宿主后重开续升：只带合法 v3 的换代链再开同库 → 升到 head 且 v2 成果保留、原数据不丢（升级日三段剧收口）', () => {
     const path = join(dir, 'migrepair.db');
-    const base = open({ dbPath: path });
-    base.writeEvents(writesFor('s-pre', makeEvents('pre-a', 'pre-b')));
+    const base = open({ dbPath: path, migrations: [] }); // v1 基线旧版库形（不享 helper 缺省 v13 链）
+    seedLegacyRows(base, 's-pre');
     base.close();
     expect(() => open({ dbPath: path, migrations: BAD_CHAIN })).toThrow();
     // 修复形：换代宿主只带合法 v3（normalizeMigrations 无连续性要求——链头 3 合法）

@@ -25,12 +25,14 @@ import {
   Persistence,
   resolveDataDir,
   resolveDatabasePathIn,
+  SESSION_ARCHIVE_MIGRATION,
 } from '../persist/index.js';
 import type { PersistenceOptions } from '../persist/index.js';
 // core: 表族迁移声明（05 §6.4 机械聚合——声明来自插件、执行在宿主；host 行
 // 拓扑边在册）。版本升序：scheduler v2 → goal v3 → memory v4-6·9·11 →
-// credentials v7 → audit v8 → load-generations v10 → goal v12（audit v8 与
-// load-generations v10 = 宿主域表——persist export-only 声明，非 core: 表族）。
+// credentials v7 → audit v8 → load-generations v10 → goal v12 → session-archive
+// v13（audit v8 / load-generations v10 / session-archive v13 = 宿主域表——persist
+// export-only 声明，非 core: 表族）。
 import { MEMORY_MIGRATIONS } from '../memory/index.js';
 import { GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION } from '../goal/index.js';
 import { SCHEDULER_MIGRATION } from '../scheduler/index.js';
@@ -64,6 +66,10 @@ export const HOST_MIGRATION_TAIL: readonly MigrationSpec[] = [
   // ——05 §9；单写者 = 装配根〔boot 完成点 + /reload reapply 尾，h-3 接线〕，
   // persist export-only 声明同形）
   LOAD_GENERATIONS_MIGRATION,
+  // 2026-09-21 v13 聚合（sessions 档案两列 first_question_summary/model_summary
+  // ——05 §9 专列兑现注：title/专列分家，读路合并单源 sessionDisplayTitleOf；
+  // ALTER ADD COLUMN 迁移链首例，DDL 有意不折列）
+  SESSION_ARCHIVE_MIGRATION,
 ];
 
 /** closer 项（收口动作 + 标签——drain 超时强杀的 warn 载荷） */

@@ -20,6 +20,7 @@ import { isStandardMessage } from '../contracts/index.js';
 import { EventDispatch, Scope } from '../context/index.js';
 import type { SessionLog } from '../session/index.js';
 import { ephemeralSecretKey } from '../persist/secret-box.js';
+import { SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
 import { Persistence } from '../persist/persistence.js';
 import { SessionManager } from './sessions.js';
 import type { DriverFactory, SessionBeforeForkInput } from './sessions.js';
@@ -36,6 +37,7 @@ beforeEach(() => {
     dbPath: join(dir, 'main.db'),
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
+    migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
   });
 });
 
@@ -287,6 +289,7 @@ describe('SessionManager fork', () => {
       dbPath: join(anchorDir, 'main.db'),
       dataDir: join(anchorDir, 'data'),
       secretKey: ephemeralSecretKey(),
+      migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
       clock: () => tick,
     });
     try {

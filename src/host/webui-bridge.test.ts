@@ -18,6 +18,7 @@ import { BaseError } from '../contracts/index.js';
 import { THINKING_LEVELS } from '../conversation/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
+import { sessionDisplayTitleOf } from '../persist/index.js';
 import { SANDBOX_MODES } from '../safety/index.js';
 import { createSdkHttpFace } from '../sdk/index.js';
 import type { WebuiRouteDescriptor, WebuiRouteRegistrar } from '../webui/index.js';
@@ -846,14 +847,16 @@ describe('webui /export 端点（markdown 直出——host 装配桥真身）', 
       stack.submitText(id, '导出对拍');
       await until(async () => (await face.deps!.read.fetchMessages(id)).some((m) => m.role === 'assistant'));
       await rt.persistence.flush(); // write-behind 排空——行面两读同一时点（对拍确定性）
-      // 对拍输入单源：同一事件数组 + 同一行面元数据投影 + 同钟（桥真身读同一行）
+      // 对拍输入单源：同一事件数组 + 同一行面元数据投影 + 同钟（桥真身读同一行）；
+      // 展示题与桥真身同律（05 §9 v13——sessionDisplayTitleOf 合并：title 优先/首问快照专列兜底）
       const events = stack.driverOf(id)!.session.events();
       const row = rt.persistence.store.getSessionRow(id);
+      const displayTitle = row !== undefined ? sessionDisplayTitleOf(row) : undefined;
       const expected = renderSessionMarkdown({
         events,
         meta: {
           sessionId: id,
-          ...(row?.title !== undefined && row.title !== '' ? { title: row.title } : {}),
+          ...(displayTitle !== undefined && displayTitle !== '' ? { title: displayTitle } : {}),
           ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
           ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
         },
@@ -896,13 +899,15 @@ describe('webui /export 端点（markdown 直出——host 装配桥真身）', 
       const row = rt.persistence.store.getSessionRow(id);
       stack.manager.dispose(); // 拆驱动 → 已闭（持久册可见）
       expect(face.deps!.sessions.sessionStateOf(id)).toBe('closed');
-      // 近史兜底：closed 会话照常返体（读面语义同 GET messages——host 桥真身内兜底）
+      // 近史兜底：closed 会话照常返体（读面语义同 GET messages——host 桥真身内兜底）；
+      // 展示题合并单源同律（05 §9 v13——sessionDisplayTitleOf）
+      const displayTitle = row !== undefined ? sessionDisplayTitleOf(row) : undefined;
       expect(face.deps!.read.exportMarkdown!(id)).toBe(
         renderSessionMarkdown({
           events: eventsBeforeClose,
           meta: {
             sessionId: id,
-            ...(row?.title !== undefined && row.title !== '' ? { title: row.title } : {}),
+            ...(displayTitle !== undefined && displayTitle !== '' ? { title: displayTitle } : {}),
             ...(row?.workspaceRoot !== undefined ? { workspaceRoot: row.workspaceRoot } : {}),
             ...(row?.createdAt !== undefined ? { createdAt: row.createdAt } : {}),
           },

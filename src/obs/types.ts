@@ -197,6 +197,7 @@ export type SessionLiveState = 'idle' | 'running' | 'waiting-approval' | 'paused
 /** session_list 行（进程内清单 × durable 行元数据 join + 尾条推导） */
 export interface SessionSummaryRow {
   readonly id: string;
+  /** 展示题（05 §9 v13 读路合并——显式题优先/首问快照兜底，生产位经 sessionDisplayTitleOf） */
   readonly title: string | undefined;
   readonly origin: string;
   readonly parentId: string | undefined;

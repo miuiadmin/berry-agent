@@ -17,6 +17,7 @@ import { EventDispatch, Scope } from '../context/index.js';
 import type { AgentMessage, Message } from '../contracts/index.js';
 import { isStandardMessage } from '../contracts/index.js';
 import { Persistence } from '../persist/persistence.js';
+import { SESSION_ARCHIVE_MIGRATION } from '../persist/index.js';
 import { ephemeralSecretKey } from '../persist/secret-box.js';
 import { ConversationDriver } from '../conversation/driver.js';
 import { SessionManager } from '../conversation/sessions.js';
@@ -63,6 +64,7 @@ beforeEach(() => {
     dbPath: join(dir, 'main.db'),
     dataDir: join(dir, 'data'),
     secretKey: ephemeralSecretKey(),
+    migrations: [SESSION_ARCHIVE_MIGRATION], // writeTuple 硬依赖 v13 专列（05 §9）
   });
   store = openCheckpointStore(join(dir, 'cp-data'));
 });
