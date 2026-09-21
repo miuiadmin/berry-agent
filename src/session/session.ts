@@ -86,7 +86,14 @@ export class SessionLog {
     this.clock = options.clock ?? (() => Date.now());
     this.warn = options.warn ?? ((message) => console.error(message));
     if (options.seed && options.seed.length > 0) {
-      // 种子前缀：重放折叠（投影增量与日志同建）；seq 连续性顺带断言
+      // 种子前缀：重放折叠（投影增量与日志同建）；seq 连续性顺带断言。
+      // 遮蔽处置与 appendWithSurfaceOp 增量路同律（第十三役 session-compaction#1）：
+      // 重放遇携带 surfaceOp 的事件即 applyOcclusion 回溯摘除——否则经 seed
+      // 构造的日志（loadSession 重开 / createSeededSession fork）fold 投影会
+      // 重新包含已遮蔽消息（被遮整段原始历史重回模型上下文 + projectedChars
+      // 虚高误触阈值），与 deriveMessages 全量路（occludedSeqs 预滤）永久不一致。
+      // 区间内事件必先于指令事件重放（正门校验保证 surfaceOp 只引用更早 seq），
+      // 故按序摘除与全量预滤等价；重放不重验遮蔽合法性（宽容度与全量路对齐）。
       for (const event of options.seed) {
         if (event.seq !== this.log.length) {
           throw new BaseError(
@@ -96,6 +103,11 @@ export class SessionLog {
         }
         this.log.push(event);
         stepFold(this.fold, event);
+        // 指令事件自身在区间外（载体类型 stepFold 为 no-op）——摘除的是此前
+        // 已折入 fold 的被遮消息（messages 摘除 + openAssistant 清理 + chars 回退）
+        if (event.surfaceOp) {
+          applyOcclusion(this.fold, event.surfaceOp);
+        }
       }
     }
   }

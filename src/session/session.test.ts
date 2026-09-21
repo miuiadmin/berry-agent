@@ -181,6 +181,88 @@ describe('种子重放（fork/导入形态）', () => {
     ];
     expectCode(() => makeLog({ seed }), 'SESSION_SURFACE_OP_INVALID');
   });
+
+  it('重开形态纯逻辑面：无遮蔽种子投影照旧（对照锁——不含 surfaceOp 的种子不受本修影响）', () => {
+    const source = makeLog();
+    appendDialogue(source.log);
+    const { log: seeded } = makeLog({ seed: source.log.events() });
+    expect(seeded.projection()).toEqual(deriveMessages(source.log.events()));
+  });
+});
+
+describe('种子重放遮蔽处置（重开/fork 形态——遮蔽离投影回归锁）', () => {
+  /**
+   * 缺口背景（第十三役 session-compaction#1）：种子重放循环原只 push+stepFold，
+   * 对携带 surfaceOp 的事件不做摘除——经 seed 构造的 SessionLog（loadSession
+   * 重开 / createSeededSession fork）fold 投影重新包含已遮蔽消息，被遮整段
+   * 原始历史与摘要同时重回模型上下文（内容重复 + projectedChars 虚高误触
+   * 阈值）。修复律：种子重放与 appendWithSurfaceOp 增量路同律——重放遇
+   * surfaceOp 事件即 applyOcclusion 回溯摘除；fold 投影与 deriveMessages
+   * 全量路（occludedSeqs 预滤）对同一事件流必产出同一投影。
+   */
+  it('通用形：含压缩遮蔽的种子重放后 fold 投影深等于 deriveMessages（被遮段离投影 + chars 不虚高）', () => {
+    const source = makeLog();
+    appendDialogue(source.log); // seq0..6 完整轮
+    source.log.append('turn/start', {}); // seq7 第二轮开
+    source.log.append('user/message', { content: 'again' }); // seq8
+    source.log.append('turn/end', { reason: 'completed' }); // seq9
+    source.log.appendWithSurfaceOp(
+      'test/occlusion',
+      { note: 'compacted' },
+      { op: 'replace', start: 0, end: 5 },
+      [0, 1, 2, 3, 4, 5],
+    ); // seq10 遮蔽第一轮整段
+    const seed = source.log.events();
+    const { log: seeded } = makeLog({ seed });
+    // 核心断言（修前红——fold 含被遮第一轮消息，与派生路不一致）
+    expect(seeded.projection()).toEqual(deriveMessages(seed));
+    // 被遮段四消息（user@1/assistant@2/toolResult@4/assistant@5）离投影，仅第二轮 user@8 在场
+    expect(seeded.projection().map((m) => m.seq)).toEqual([8]);
+    // chars 与活体一致（阈值兜底判据不虚高误触）
+    expect(seeded.projectedChars()).toBe(source.log.projectedChars());
+  });
+
+  it('retry 形：llm/retry(scheduled) 携 surfaceOp 的种子同样处置（失败尾段不回投影）', () => {
+    const source = makeLog();
+    appendDialogue(source.log); // seq0..6 完整轮
+    source.log.append('turn/start', {}); // seq7
+    source.log.append('assistant/message', {
+      content: [{ type: 'text', text: '半截' }],
+      stopReason: 'error',
+      errorMessage: 'network reset',
+    }); // seq8 尸体起点
+    source.log.append('tool/call', { toolCallId: 'c9', name: 'bash', arguments: '{}' }); // seq9 流中断尸体
+    source.log.append('turn/end', { reason: 'error' }); // seq10
+    source.log.appendWithSurfaceOp(
+      'llm/retry',
+      { attempt: 1, maxAttempts: 3, delayMs: 1000, phase: 'scheduled', reason: 'transient' },
+      { op: 'replace', start: 8, end: 10 },
+      [8, 9, 10],
+    ); // seq11
+    const seed = source.log.events();
+    const { log: seeded } = makeLog({ seed });
+    expect(seeded.projection()).toEqual(deriveMessages(seed));
+    // 失败尾段（assistant@8 + 尸体 call@9）离投影，完整轮四消息保活
+    expect(seeded.projection().map((m) => m.seq)).toEqual([1, 2, 4, 5]);
+  });
+
+  it('重放后续写仍可增量执法：种子重放后新遮蔽（紧接上次遮蔽终点切点）+ 两路对账', () => {
+    const source = makeLog();
+    source.log.append('user/message', { content: 'a' }); // seq0
+    source.log.append('assistant/message', { content: [{ type: 'text', text: 'r1' }] }); // seq1
+    source.log.append('assistant/message', { content: [{ type: 'text', text: 'r2' }] }); // seq2
+    source.log.appendWithSurfaceOp('test/occlusion', {}, { op: 'replace', start: 0, end: 1 }, [0, 1]); // seq3 遮 [0,1]
+    const seed = source.log.events();
+    const { log: seeded } = makeLog({ seed });
+    // 重放态：被遮 [0,1] 离投影，仅 assistant@2 在场
+    expect(seeded.projection().map((m) => m.seq)).toEqual([2]);
+    // 续写后再遮蔽 [2,2]（切点紧接上次遮蔽终点 1——正门起点对齐判据放行）
+    seeded.append('user/message', { content: 'b' }); // seq4
+    seeded.append('turn/end', { reason: 'completed' }); // seq5
+    seeded.appendWithSurfaceOp('test/occlusion', {}, { op: 'replace', start: 2, end: 2 }, [2]); // seq6
+    expect(seeded.projection()).toEqual(deriveMessages(seeded.events()));
+    expect(seeded.projection().map((m) => m.seq)).toEqual([4]);
+  });
 });
 
 describe('appendSynthetic 恢复合成收形', () => {
