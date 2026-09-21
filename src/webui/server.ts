@@ -74,7 +74,8 @@ const strict = { additionalProperties: false } as const;
 /** auth 体（cookie 桥——token 必填） */
 const AuthSchema = Type.Object({ token: Type.String() }, strict);
 
-/** submit 体（text 必填；messageId 选填 = SPA 重试幂等位，缺席服务端生成） */
+/** submit 体（text 必填；messageId 选填 = SPA 重试幂等位——缺席即 undefined
+ * 透传、件侧不补生成〔8572ccd 拍板——与 SDK 线同律：undefined 无幂等不落账〕） */
 const SubmitSchema = Type.Object({ text: Type.String(), messageId: Type.Optional(Type.String()) }, strict);
 
 /** decide 体（answer 四值闭集 = ApprovalAskAnswer；note 选填） */
@@ -205,8 +206,6 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
   const pending = new Map<string, PendingApproval>();
   /** 后端内 ask 计数（调用方未指派 approvalId 时生成 `webui-N`） */
   let askSeq = 0;
-  /** 件内 submit 计数（SPA 未携 messageId 时生成 `webui-N`——无幂等） */
-  let submitSeq = 0;
 
   /** 流退订（终结回调——双索引摘除；挂点位 = res close〔连接 close/看门狗/
    *  面收场三路共用的真连接终结信号〕，与面级流账自摘并存不冲突） */
@@ -624,12 +623,27 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       if (!parsed.ok) return sendError(res, 400, 'bad_request', parsed.reason);
       const submit = validate<{ text: string; messageId?: string }>(SubmitSchema, parsed.value, 'submit 体');
       if (!submit.ok) return sendError(res, 400, 'bad_request', submit.reason);
-      const outcome = deps.sessions.submitPrompt({
-        sessionId,
-        content: submit.value.text,
-        messageId: submit.value.messageId ?? `webui-${++submitSeq}`,
-      });
-      sendJson(res, 200, { sessionId: outcome.sessionId });
+      try {
+        // messageId 缺席即 undefined 透传（8572ccd 拍板：件侧不再补生成——
+        // undefined = 无幂等不落账，桥侧容忍形 18a3cf8 已就位；生成键旁路
+        // 与 submitSeq 计数位随本收敛退役）
+        const outcome = deps.sessions.submitPrompt({
+          sessionId,
+          content: submit.value.text,
+          messageId: submit.value.messageId,
+        });
+        sendJson(res, 200, { sessionId: outcome.sessionId });
+      } catch (err) {
+        // 幂等冲突 fail-loud：SPA 重试携同 messageId 异内容时桥 admit 抛
+        // SDK_MESSAGE_CONFLICT——折 409 结构码（sdk 面 HTTP_STATUS_BY_CODE
+        // 码表同义跨面一致；BaseError 码不吞、message 人读因透传，tiers
+        // PUT catch 同形）；其余异常如实上抛走面级 500（未知码不误折 400）
+        if (err instanceof BaseError && err.code === 'SDK_MESSAGE_CONFLICT') {
+          sendError(res, 409, err.code, err.message);
+          return;
+        }
+        throw err;
+      }
     },
   });
   add({

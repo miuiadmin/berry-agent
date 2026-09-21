@@ -75,6 +75,8 @@ function makeDeps(opts?: {
   readonly withoutTiers?: boolean;
   /** fold 坏词形（tiersOf 抛 BaseError——面级 500 路；冷读 CR-TIER-2 边缘三形之三） */
   readonly foldBadWord?: boolean;
+  /** submit 幂等冲突形（桥 submitPrompt 抛 SDK_MESSAGE_CONFLICT——409 结构码路） */
+  readonly conflictSubmit?: boolean;
 }): DepsStub {
   const states = new Map<string, WebuiSessionState>([
     ['s-1', 'open'],
@@ -159,6 +161,11 @@ function makeDeps(opts?: {
       listSessions: () => [{ id: 's-1', title: null, lastActivityAt: 1_690_000_000_001 }],
       sessionStateOf: (id) => states.get(id) ?? 'missing',
       submitPrompt: (input) => {
+        // 幂等冲突形：同 messageId 异内容时桥 fail-loud 抛（admit 判据族与
+        // SDK 线同源——0dcf5c9 接线）；HTTP 面应折 409 结构码而非面级 500
+        if (opts?.conflictSubmit === true) {
+          throw new BaseError('SDK_MESSAGE_CONFLICT', `messageId=${input.messageId} 同键异内容（幂等 admit 冲突档）`);
+        }
         submitted.push(input);
         return { sessionId: input.sessionId };
       },
@@ -728,14 +735,16 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     }
   });
 
-  it('submit：受理 200 + messageId 缺席服务端生成 / 显式透传', async () => {
+  it('submit：受理 200 + messageId 缺席 undefined 透传 / 显式透传（8572ccd 拍板——件侧不补生成）', async () => {
     const noId = await post('/api/sessions/s-1/submit', { text: '问' });
     expect(noId.status).toBe(200);
     expect(noId.json).toEqual({ sessionId: 's-1' });
     const withId = await post('/api/sessions/s-1/submit', { text: '再问', messageId: 'm-spa-1' });
     expect(withId.status).toBe(200);
+    // 随真态翻档（原断言生成键 'webui-1'）：缺席形 = undefined 透传（无幂等
+    // 不落账，桥侧容忍形 18a3cf8 前置判据收口）
     expect(stub.submitted).toEqual([
-      { sessionId: 's-1', content: '问', messageId: 'webui-1' },
+      { sessionId: 's-1', content: '问', messageId: undefined },
       { sessionId: 's-1', content: '再问', messageId: 'm-spa-1' },
     ]);
   });
@@ -750,6 +759,25 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
       body: 'not-json',
     });
     expect(bad.status).toBe(400);
+  });
+
+  it('submit 幂等冲突：桥抛 SDK_MESSAGE_CONFLICT → 409 结构码不吞码（tiers PUT catch 同形）', async () => {
+    // SPA 重试携同 messageId 异内容时桥 admit fail-loud 抛（0dcf5c9 判据族
+    // 与 SDK 线同源）——HTTP 面须折 409 + error=码族词（sdk/http.ts 码表
+    // SDK_MESSAGE_CONFLICT→409 已有），修前无 catch 走面级 500 吞码
+    const rigged = await rig(makeDeps({ conflictSubmit: true }).deps);
+    try {
+      const res = await fetch(`http://127.0.0.1:${rigged.port}/api/sessions/s-1/submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${rigged.token}` },
+        body: JSON.stringify({ text: '问', messageId: 'm-spa-1' }),
+      });
+      expect(res.status).toBe(409); // 修前红：500
+      expect(await res.json()).toMatchObject({ error: 'SDK_MESSAGE_CONFLICT' }); // 修前红：面级 500 无结构码
+    } finally {
+      rigged.webui.detach();
+      await rigged.face.stop();
+    }
   });
 
   it('interrupt：204 + 受理记账', async () => {

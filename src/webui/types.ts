@@ -128,11 +128,12 @@ export interface WebuiSessionSummary {
 /** 会话状态三档（submit/events 受理门判据——装配桥映射真源） */
 export type WebuiSessionState = 'open' | 'closed' | 'missing';
 
-/** 提交载荷（messageId = SPA 重试幂等位——缺席服务端生成无幂等） */
+/** 提交载荷（messageId 选填 = SPA 重试幂等位——缺席即 undefined 透传、件侧
+ * 不再补生成；undefined = 无幂等不落账，与 SDK 线同律——8572ccd 拍板句） */
 export interface WebuiSubmitInput {
   readonly sessionId: string;
   readonly content: string;
-  readonly messageId: string;
+  readonly messageId: string | undefined;
 }
 
 /** 会话族注入面（结构兼容 host createServeBridge 产物子集——词面独立律） */
