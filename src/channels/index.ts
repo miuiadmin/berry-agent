@@ -41,6 +41,10 @@ export { TuiBackend } from './tui/index.js';
 // 面纪律的件外出口位：「本面随真实件外消费扩」先例；余组件仍件内消费）
 export { ProcessTerminalIO } from './engine/index.js';
 export type { TerminalIO } from './engine/index.js';
+// 启动动画件（07 §4.1 呈现面件 10 批D——tui-entry 装配位消费；先行件2
+// 供数面 hooks 的呈现侧落点）
+export { BootAnimation } from './tui/index.js';
+export type { BootAnimationOptions } from './tui/index.js';
 export { FileMentionSource } from './tui/index.js';
 export type { FileMentionSourceOptions, AutocompleteSources, AutocompleteItem } from './tui/index.js';
 // 高度帽公式（R3 批 10j——host 装配 maxVisibleLines 单源）

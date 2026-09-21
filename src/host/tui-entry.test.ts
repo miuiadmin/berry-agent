@@ -111,8 +111,10 @@ function rigDir(prefix: string): string {
   return d;
 }
 
-/** 入口速记（faux provider 预脚本 + 假终端；dataDir 注入——装配段在入口内自装） */
-async function rigEntry(dataDir: string, cwd: string) {
+/** 入口速记（faux provider 预脚本 + 假终端；dataDir 注入——装配段在入口内自装；
+ * overrides 选填覆盖面（批D——env 键合并其余直覆，补全注入不破既有两参调用点） */
+async function rigEntry(dataDir: string, cwd: string, overrides: Partial<Parameters<typeof runTuiEntry>[0]> = {}) {
+  const { env: extraEnv, ...rest } = overrides;
   const faux = fauxProvider({ provider: 'faux-entry', models: [{ id: 'm1' }] });
   faux.setResponses([() => messageOf(), () => messageOf(), () => messageOf()]); // 多轮余量
   const io = new FakeTerminalIO();
@@ -126,7 +128,8 @@ async function rigEntry(dataDir: string, cwd: string) {
     providers,
     model: 'faux-entry/m1', // faux-only 运行时必须点名模型（缺省解析 anthropic 档必失败）
     // 启动版本检查关断（07 §8.5 第 6 条——单元测试零网络律；接线锁另有专测注桩）
-    env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
+    env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1', ...(extraEnv ?? {}) },
+    ...rest,
   });
   await io.ready(); // 输入管线挂接（backend.start 已过）
   return { entry, io, faux };
@@ -608,6 +611,49 @@ describe('runTuiEntry 装配序', () => {
     expect(await entry).toBe(0);
   });
 
+  // —— 启动动画接线锁（三反馈批D——2026-09-21）：先行件2 供数面（onBootStage/
+  // onPluginLoadStart——assembly emitBootStage）经本件装配位接 BootAnimation；
+  // 进屏序 = cooked 窗动画行（零 CSI/OSC 纯文本）→ raw 窗屏本体（footer）——
+  // 两窗序由「io 先于装配构造 + 动画行直写 io」结构性保证（07 :204 射程分立）。
+  it('启动动画接线锁（批D）：阶段行先于 footer 进屏（cooked→raw 两窗序）', async () => {
+    const { entry, io } = await rigEntry(rigDir('entry-boot-a-data-'), rigDir('entry-boot-a-ws-'));
+    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门（raw 窗首帧）
+    const out = io.output;
+    expect(out).toContain('berry-agent vtest'); // 头行（版本 = 入口 options.version 透传）
+    expect(out).toContain('✓ 就绪'); // 六阶段收尾行
+    expect(out).toContain('▸ 装载 '); // 插件装载行（noPlugins:false——core 件在册）
+    // 两窗序：动画行全部先于 footer（raw 窗屏本体）
+    expect(out.indexOf('berry-agent vtest')).toBeLessThan(out.indexOf(' · m1 · '));
+    expect(out.indexOf('✓ 就绪')).toBeLessThan(out.indexOf(' · m1 · '));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('BERRY_AGENT_TIMING 打点门接线锁（批D）：门开 sink 收段汇总；门关零写出', async () => {
+    // 门开：env 置 '1' + bootTimingSink 注入面收账（测试零 stderr 污染）；
+    // finish 在装配返回点即收尾——footer 就绪时汇总已落 sink
+    const on: string[] = [];
+    const first = await rigEntry(rigDir('entry-boot-t1-data-'), rigDir('entry-boot-t1-ws-'), {
+      env: { BERRY_AGENT_TIMING: '1' },
+      bootTimingSink: (text) => on.push(text),
+    });
+    await until(() => first.io.output.includes(' · m1 · '));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    const diag = on.join('');
+    expect(diag).toContain('--- 启动计时 ---');
+    expect(diag).toContain('TOTAL: ');
+    // 门关（缺省 rig env 无 TIMING 键）：注入面在场也零写出（env 门 = 唯一开关）
+    const off: string[] = [];
+    const second = await rigEntry(rigDir('entry-boot-t2-data-'), rigDir('entry-boot-t2-ws-'), {
+      bootTimingSink: (text) => off.push(text),
+    });
+    await until(() => second.io.output.includes(' · m1 · '));
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+    expect(off).toEqual([]);
+  });
+
   // —— TUI 切档跨通道回执扇出锁（第九役遗漏扫描批 C2——2026-09-19）：
   // CR-TIER-3 裁决①「TUI 切档→webui 可见 / webui 切档→TUI 状态行可见，
   // 两向对称」（03 §10.4 webui 档位面受理批注）；修前 TUI selectThinking/
@@ -823,7 +869,10 @@ describe('--no-plugins 自救链入口腿（E14——坏插件现场锁死 → �
       expect(code).toBe(1); // 锁死：非零退出——正常起跑被装载读侧拦死
       expect(stderrText).toContain('启动失败'); // 可见回执（用户可自修档呈报）
       expect(stderrText).toContain('enabled.yaml'); // 修复指引指向现场文件
-      expect(io.output).toBe(''); // TUI 屏从未起（backend.start 未达——锁死证据）
+      // TUI 屏从未起（backend.start 未达——锁死证据）：批D 起动面后输出 =
+      // 纯文本动画行恰集（头行 + 已完成阶段行——失败路部分阶段留存语义），
+      // 屏本体（raw 窗首帧 CSI 面）零字节
+      expect(io.output).toBe('berry-agent vtest\n✓ 运行时\n✓ 会话栈\n');
     } finally {
       errSpy.mockRestore();
     }

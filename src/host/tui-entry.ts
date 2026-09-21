@@ -22,6 +22,7 @@ import { basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 
 import {
+  BootAnimation,
   editorHeightCap,
   FileMentionSource,
   fuzzyFilter,
@@ -140,12 +141,26 @@ export interface TuiEntryOptions {
    * 注入面先例。回执消费律单点在装配位：ok 三态呈现 + registryFallback
    * 注记不静默吞） */
   readonly manualUpdateCheck?: (deps: UpdateCheckDeps) => Promise<ManualCheckResult>;
+  /** 启动打点件 stderr 落点注入面（07 §4.1 呈现面件 10 批D——缺省
+   * process.stderr.write，测试收账零 stderr 污染；门开关 = env
+   * BERRY_AGENT_TIMING=1 与注入面正交——sink 在场门关零写出） */
+  readonly bootTimingSink?: (text: string) => void;
 }
 
 /**
  * TUI 主入口。阻塞至用户退出（ctrl+d 空框）或异常；返回进程退出码。
  */
 export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
+  // —— 启动动画件（三反馈批D——07 §4.1 呈现面件 10）：io 先于装配构造
+  // （构造态零副作用），动画行在 cooked 窗直写 io（零 CSI/OSC 纯文本——
+  // ONLCR 交驱动）；raw 窗（io.ready）在装配后才进——进屏序两窗分立
+  // （07 :204 射程分立：本件非探测类写出）。打点门 = BERRY_AGENT_TIMING=1。
+  const io = options.io ?? new ProcessTerminalIO();
+  const bootAnimation = new BootAnimation((text) => io.write(text), {
+    version: options.version ?? '0.0.0',
+    timingEnabled: (options.env ?? process.env).BERRY_AGENT_TIMING === '1',
+    ...(options.bootTimingSink !== undefined ? { stderr: options.bootTimingSink } : {}),
+  });
   // —— 装配序公共段（12f-3 抽件）：与 dump-config/plugins list 诊断命令同一
   // 合成代码路径（07 §5 :memory: 同构纪律——防侧门件 assembly.ts 唯一真源）；
   // TUI 形 = 真数据目录 + 真库（memory 组合形归诊断命令）——
@@ -165,7 +180,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     ...(options.sandboxMode !== undefined ? { sandboxMode: options.sandboxMode } : {}),
     ...(options.corePlugins !== undefined ? { corePlugins: options.corePlugins } : {}),
     ...(options.onRuntime !== undefined ? { onRuntime: options.onRuntime } : {}),
+    // 启动动画供数面（先行件2 83cd378——批D 消费位）：阶段事件 + 插件装载
+    // 前达钩子（诊断命令不注两柄 = 零动画零打点——同一装配真源正交于注入）
+    onBootStage: (event) => bootAnimation.stage(event.stage, event.phase, event.detail),
+    onPluginLoadStart: (pluginId, index, total) => bootAnimation.pluginLoad(pluginId, index, total),
   });
+  // 装配返回点收尾（成功/!ok 早退两路共经此点——失败路部分阶段行留存；
+  // 幂等 + 悬段入账 + 门开时 stderr 段计时汇总）
+  bootAnimation.finish();
   if (!assembly.ok) {
     // 两档呈报：crashed = 意外异常（crash.log 已在装配件内写——memory 形跳过）；
     // 干净退出档 = 启动失败（单活跃机/开库/启用清单损坏——不写 crash.log）
@@ -243,7 +265,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       session = stack.openStartupSession(options.cwd ?? process.cwd());
     }
 
-    const io = options.io ?? new ProcessTerminalIO();
+    // io 已于装配前构造（批D 启动动画直写窗——cooked 窗先于 raw 窗复用同件）
     let quitResolve: () => void = () => {};
     const quitDone = new Promise<void>((resolve) => {
       quitResolve = resolve;

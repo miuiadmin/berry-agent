@@ -10,6 +10,11 @@
  */
 export type { TuiBackendOptions } from './backend/tui-backend.js';
 export { TuiBackend } from './backend/tui-backend.js';
+
+// 启动动画件（07 §4.1 呈现面件 10 批D——tui-entry 装配位消费；host 经
+// channels 公开面取件）
+export type { BootAnimationOptions } from './boot/boot-animation.js';
+export { BootAnimation } from './boot/boot-animation.js';
 // 主题面（批 10g——host tui-entry 消费：settings.theme → TuiBackendOptions.theme；
 // /themes 批扩自定义文件面——tui-entry 装配下装与副屏条目两消费位）
 export type { ColorEnv, PartialSemanticPalette, ThemeSetting } from './theme/index.js';
