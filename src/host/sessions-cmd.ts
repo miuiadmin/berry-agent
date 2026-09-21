@@ -178,15 +178,17 @@ async function runSearch(options: SessionsEntryOptions, query: string): Promise<
       out(`无命中（${query}）`);
       return 0;
     }
-    // 标题面一次读齐（命中行带 session 归属——行面反查人读标题）
-    const titles = new Map<string, { title: string | undefined; origin: string; parentId: string | undefined }>();
-    for (const row of persistence.store.listSessions({ limit: 1000 })) {
-      titles.set(row.id, { title: row.title, origin: row.origin, parentId: row.parentId });
-    }
+    // 标题面逐命中点查（dedupe 缓冲——同会话多命中只查一行）：getSessionRow
+    // WHERE id=? 恒命中无窗。禁走 listSessions({limit:1000}) 批反查建表——
+    // updated_at 截断窗外的命中行落空，标题误呈「（无标题）」（56eb53e
+    // 「listSessions 反查反模式族」清剿位——本件与 webui-bridge sessionStateOf 同批）
+    const titles = new Map<string, string | undefined>();
     const lines: string[] = [`命中 ${hits.length} 处（bm25 序，帽 50）：`];
     for (const hit of hits) {
-      const meta = titles.get(hit.sessionId);
-      const head = `${hit.sessionId}  ${titleOf(meta?.title)}`;
+      if (!titles.has(hit.sessionId)) {
+        titles.set(hit.sessionId, persistence.store.getSessionRow(hit.sessionId)?.title);
+      }
+      const head = `${hit.sessionId}  ${titleOf(titles.get(hit.sessionId))}`;
       lines.push(`  ${head}  #${hit.seq}  ${snippetOf(hit.body, query)}`);
     }
     out(lines.join('\n'));

@@ -295,6 +295,36 @@ describe('sessions search（跨会话 FTS——bm25 序）', () => {
     expect(cap.out.join('\n')).toContain('无命中');
   });
 
+  it('窗外命中行标题点查——>1000 行 listSessions 批反查修前红锁（56eb53e 族第二清剿位）', async () => {
+    // 修前红：标题面原走 listSessions({limit:1000}) 批反查建表——updated_at
+    // 落窗外的命中行 titles.get 落空，标题误呈「（无标题）」。修形 = 逐命中
+    // getSessionRow 点查（WHERE id=? 恒命中，无窗）。
+    const dbPath = join(rigDir('sess-search-win-'), 'sessions.db');
+    const rows: {
+      id: string;
+      title: string | null;
+      origin: string;
+      created: number;
+      updated: number;
+    }[] = [{ id: 's-old', title: '窗外目标标题', origin: 'conversation', created: 1, updated: 1 }];
+    for (let i = 0; i < 1000; i++) {
+      rows.push({ id: `filler-${i}`, title: null, origin: 'conversation', created: 2, updated: 2 + i });
+    }
+    await seedSessionRows(dbPath, rows);
+    await seedFtsRows(dbPath, 's-old', [{ seq: 1, body: 'needle 在窗外目标行' }]);
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'search', query: 'needle' },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    const text = cap.out.join('\n');
+    expect(text).toContain('s-old');
+    // 修前红：窗外命中行标题误呈「（无标题）」
+    expect(text).toContain('窗外目标标题');
+    expect(text).not.toContain('（无标题）');
+  });
+
   it('命中行标题同净化（list 双保险同律——脏 title 不经命中行外发）', async () => {
     const dbPath = join(rigDir('sess-search-san-'), 'sessions.db');
     await seedSessionRows(dbPath, [

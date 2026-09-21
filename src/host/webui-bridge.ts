@@ -322,8 +322,11 @@ function bridgeDeps(
       sessionStateOf: (sessionId) => {
         if (stack.manager.isOpen(sessionId)) return 'open';
         // 持久册可见 = 已闭（open 态由内存册先判——零 I/O 承诺下新建未落库行
-        // 也在内存册，不漏判）
-        return stack.manager.list().some((row) => row.id === sessionId) ? 'closed' : 'missing';
+        // 也在内存册，不漏判）。点查经 manager.exists（records ∪ persistence
+        // .hasSession WHERE id=?——56eb53e「listSessions 反查反模式族」清剿位：
+        // 持久 list 默认 100 行截断窗外已闭会话会被误判 missing，/api 会话族
+        // 六门连锁错档）
+        return stack.manager.exists(sessionId) ? 'closed' : 'missing';
       },
       submitPrompt: (input) => {
         // —— 幂等 admit（第六役转交 webui-face#2 + 8572ccd 拍板收敛落地）：

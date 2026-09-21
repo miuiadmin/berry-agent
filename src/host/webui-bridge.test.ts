@@ -288,6 +288,41 @@ describe('openWebuiFace 桥单元', () => {
     expect(disclosed.some((l) => l.includes('仅此一次显示'))).toBe(true);
   });
 
+  it('sessionStateOf 窗外已闭会话判 closed——>100 行 listSessions 截断窗反查修前红锁', async () => {
+    // 修前红：sessionStateOf 原走 manager.list()（listSessions 默认 limit=100
+    // 截断窗反查）——updated_at 落窗外（最旧）的已闭会话误判 'missing'，/api
+    // 会话族六门连锁错档（closed 误报 not_found / SSE 误 404）。56eb53e
+    // 「listSessions 反查反模式族」webui-bridge 漏网位清剿锁。
+    const rt = createHostRuntime({ dataDir: rigDir('webui-bridge-win-') });
+    const { stack } = rigStack(rt);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => {},
+    });
+    try {
+      // 目标行恒最旧：先落一行（含一事件使行落库），垫 5ms 后再落 101 行——
+      // 后续 updated_at 严格更大，默认 100 行窗（updated_at DESC）必不含目标
+      const target = rt.persistence.createSession({ origin: 'conversation' });
+      target.append('turn/start', {});
+      await rt.persistence.flush();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      for (let i = 0; i < 101; i++) {
+        const log = rt.persistence.createSession({ origin: 'conversation' });
+        log.append('turn/start', {});
+      }
+      await rt.persistence.flush();
+      // 窗外实证（前置自检——不成立则本用例失去判力）
+      expect(stack.manager.list().some((row) => row.id === target.sessionId)).toBe(false);
+      // 目标从未 open（不在内存册）+ durable 行在场 = 已闭——修前误判 'missing'
+      expect(face.deps!.sessions.sessionStateOf(target.sessionId)).toBe('closed');
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
   it('listSessions title 净化（第五役 G6 双保险读位）：存量脏 title 剥逃逸/控制字节外发、归空退 null', async () => {
     // 双保险腿锁（与 serve-entry JSON 面同谱）：写路物化已源头净化，webui 读位
     // sanitizeTitleText 兜旧码/异源写落库的脏 title——读位简化回 row.title ?? null
