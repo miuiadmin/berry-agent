@@ -465,7 +465,7 @@ describe('TuiBackend 提交路由', () => {
     expect(io.bytes).toContain('✖ 命令异常'); // error 档符号 + 兜底文案
   });
 
-  it("'/exit' // '/quit' 恰零参 → onQuit（先于通道命令分发终局，不落 onSubmit）", () => {
+  it("'/exit' 恰零参 → onQuit（先于通道命令分发终局，不落 onSubmit）", () => {
     const { io, calls, pump } = makeInteractive({
       dispatchCommand: async (input) => {
         calls.dispatched.push(input);
@@ -477,9 +477,21 @@ describe('TuiBackend 提交路由', () => {
     expect(calls.quit).toBe(1);
     expect(calls.dispatched).toEqual([]); // 退出词先于 dispatchCommand——不进通道命令面
     expect(calls.submitted).toEqual([]); // 前端生命周期词永不兜底进模型消息
+  });
+
+  it("'/quit' 已退役（三反馈批A）——不再终局拦截，与未注册 /词 同路落 onSubmit", () => {
+    const { io, calls, pump } = makeInteractive();
     io.emitInput('/quit\r');
     pump();
-    expect(calls.quit).toBe(2); // 别名同路
+    expect(calls.quit).toBe(0); // 退役词不再走退出路（07 §4.1 批A 修订注）
+    expect(calls.submitted).toEqual([['s1', '/quit']]); // 驱动侧既有兜底语义——未注册 /词 落模型消息（07 §4.1 批A 退役注）
+    io.emitInput('/quit now\r'); // 带参形拦截分支同删——同路兜底
+    pump();
+    expect(calls.quit).toBe(0);
+    expect(calls.submitted).toEqual([
+      ['s1', '/quit'],
+      ['s1', '/quit now'],
+    ]);
   });
 
   it('带参形 /exit xxx → warn 用法提示不退出；尾随空白 trim 后恰命中仍退出', () => {

@@ -1084,13 +1084,12 @@ function commandItems(
   }));
 }
 
-/** TUI 本地退出词表（07 §4.1 2026-09-15 /exit 批——/exit 正名 + /quit 别名） */
-const EXIT_WORDS = ['exit', 'quit'] as const;
+/** TUI 本地退出词表（07 §4.1 /exit 批——单正名；/quit 别名已随 2026-09-21 三反馈批A 退役） */
+const EXIT_WORDS = ['exit'] as const;
 
 /** 退出词说明（单源——补全条目与 /help 命令册两消费面同文） */
 const EXIT_DESCRIPTIONS: Readonly<Record<(typeof EXIT_WORDS)[number], string>> = {
   exit: '退出 TUI（与 Ctrl+D 同路优雅退出）',
-  quit: '退出 TUI（/exit 别名）',
 };
 
 /**

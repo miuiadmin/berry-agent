@@ -11,8 +11,9 @@
  * - **路由四层**（07 §4.3 拦截链序）：①全局键（ctrl+c 打断 / ctrl+d 空框
  *   退出——overlay 在场或框有文时 ctrl+d 让路）→ ②overlay 模态独占（未消费
  *   键不穿透）→ ③补全弹层（非模态——未消费穿透）→ ④编辑器（未消费键终局
- *   丢弃）；提交路由：input-ask 应答优先 → 退出词本地拦截（/exit//quit
- *   ——07 §4.1 2026-09-15 /exit 批，先于通道命令分发）→ '/' 起手命令柄（false 落
+ *   丢弃）；提交路由：input-ask 应答优先 → 退出词本地拦截（/exit
+ *   ——07 §4.1 /exit 批，先于通道命令分发；/quit 别名已随 2026-09-21 三反馈
+ *   批A 退役）→ '/' 起手命令柄（false 落
  *   onSubmit 兜底——03 §2.2 驱动侧语义归 conversation）→ onSubmit；
  * - **固定区 v2 动态布局**（自上而下）：overlay 段（视口帽收口 fx2-B；
  *   栈序叠放——锚定自由定位路已整域清退〔fx2-D + 第五役 F3 一刀清〕）→
@@ -1575,17 +1576,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 退出词拦截：`/exit`（正名）与 `/quit`（别名）恰零参命中即走 onQuit——
-   * 与 Ctrl+D 空框同一优雅退出路（07 §4.1 2026-09-15 定形注）。带参形 =
-   * 用法 fail-loud 提示不退出；onQuit 柄缺席 = 诚实拒（不虚报律）。
+   * 退出词拦截：`/exit` 恰零参命中即走 onQuit——与 Ctrl+D 空框同一优雅
+   * 退出路（07 §4.1 /exit 批定形注；/quit 别名已随 2026-09-21 三反馈批A
+   * 退役——退役词与一切未注册 /词 同路，走 '/' 起手命令柄兜底语义）。
+   * 带参形 = 用法 fail-loud 提示不退出；onQuit 柄缺席 = 诚实拒（不虚报律）。
    * 返回 true = 已终局消费（调用位不再下渗）。ask 接管窗由调用序天然
    * 排除（应答优先——'/' 开头文本是应答非命令，既有裁决）。
    */
   private maybeHandleExitWord(text: string): boolean {
     const trimmed = text.trim();
-    if (trimmed !== '/exit' && trimmed !== '/quit') {
+    if (trimmed !== '/exit') {
       // 带参形（/exit xxx）——用法提示后终局消费，不退不出也不兜底进消息
-      if (trimmed.startsWith('/exit ') || trimmed.startsWith('/quit ')) {
+      if (trimmed.startsWith('/exit ')) {
         this.notify('/exit 不带参数（退出 TUI——与 Ctrl+D 同路优雅退出）', { level: 'warn' });
         return true;
       }
