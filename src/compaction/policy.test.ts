@@ -181,6 +181,119 @@ describe('planSegment', () => {
   });
 });
 
+/* ---------------- 遮蔽来源区分（llm/retry 遮蔽 ≠ 压缩前沿） ---------------- */
+
+describe('planSegment 遮蔽来源区分（llm/retry 不推前沿）', () => {
+  /**
+   * 中段 retry 遮蔽日志（真实 driver 落账序）：3 轮 + 第 2 轮失败尾经
+   * occludeFailedTail 遮蔽（llm/retry 载体正门 retry 形）+ 再 3 轮。返回遮蔽
+   * 区间与载体位供断言。seq 布局：t1=0..3；t2 失败形 ts4/u5/尸体a6/te7；
+   * retry 载体@8 遮 [6,7]；t3..t5 = 9..20。
+   */
+  function logWithMidRetryOcclusion(): { log: SessionLog; retryStart: number; retryEnd: number; carrierSeq: number } {
+    const log = makeLog();
+    addTurn(log, 't1');
+    log.append('turn/start', {});
+    log.append('user/message', { content: '会失败的指令', source: 'user' });
+    const corpse = log.append('assistant/message', {
+      content: [{ type: 'text', text: '半截输出' }],
+      stopReason: 'error',
+      errorMessage: 'network reset',
+    });
+    log.append('turn/end', { reason: 'error' });
+    const retryStart = corpse.seq;
+    const retryEnd = log.events().length - 1; // retry 形尾 = 追加时点高水位
+    const seqs: number[] = [];
+    for (let s = retryStart; s <= retryEnd; s++) seqs.push(s);
+    const carrier = log.appendWithSurfaceOp(
+      'llm/retry',
+      { attempt: 1, maxAttempts: 5, delayMs: 1000, phase: 'scheduled', reason: 'transient' },
+      { op: 'replace', start: retryStart, end: retryEnd },
+      seqs,
+    );
+    addTurn(log, 't3');
+    addTurn(log, 't4');
+    addTurn(log, 't5');
+    return { log, retryStart, retryEnd, carrierSeq: carrier.seq };
+  }
+
+  it('遮蔽前区段仍可规划：start 落 head 前沿（不推到 retry 区间后）、终点并集避让收在区间前（修前 start 跳到载体后 → 前段搁浅 null）', () => {
+    const { log, retryStart } = logWithMidRetryOcclusion();
+    const plan = planSegment({ events: log.events(), messages: log.projection(), tailKeep: 6 });
+    expect(plan).not.toBeNull(); // 修前：start 跳到载体@8 之后 → 区间 [9,9] 无投影消息 → null（红）
+    expect(plan!.start).toBe(4); // head 前沿 = 首 turn/end(3)+1——retry 遮蔽不推前沿
+    expect(plan!.end).toBe(retryStart - 1); // 终点收在 retry 遮蔽区间之前（并集避让）
+    expect(plan!.occludedMessages).toBe(1); // [4,5]：t2 的 turn/start + user 消息
+  });
+
+  it('规划产物过正门：plan 与 retry 遮蔽区间不相交 → appendWithSurfaceOp 放行（并集避让实证——若 plan 越进 retry 区间此处必炸）', () => {
+    const { log } = logWithMidRetryOcclusion();
+    const plan = planSegment({ events: log.events(), messages: log.projection(), tailKeep: 6 })!;
+    const summary = log.append('user/message', { content: `${SUMMARY_PREFIX} 补压摘要`, source: 'compaction' });
+    const seqs: number[] = [];
+    for (let s = plan.start; s <= plan.end; s++) seqs.push(s);
+    seqs.push(summary.seq);
+    // 正门执法（防嵌套/不二次遮蔽拒相交区间）：放行即证规划终点已避让 retry 区间
+    const surface = log.appendWithSurfaceOp(
+      'compaction/surface',
+      { summarySeq: summary.seq, occludedMessages: plan.occludedMessages, occludedChars: plan.occludedChars },
+      { op: 'replace', start: plan.start, end: plan.end },
+      seqs,
+    );
+    expect(surface.surfaceOp).toEqual({ op: 'replace', start: plan.start, end: plan.end });
+  });
+
+  it('压缩前沿续接不受 retry 遮蔽干扰：先真压缩、后 retry 遮蔽 → 再规划 start 紧接 compaction/surface 终点（终点收在前次载体前）', () => {
+    const log = sixTurnLog();
+    const first = planSegment({ events: log.events(), messages: log.projection(), tailKeep: 6 })!; // [4,12]
+    const summary = log.append('user/message', { content: `${SUMMARY_PREFIX} 首摘要`, source: 'compaction' });
+    const seqs: number[] = [];
+    for (let s = first.start; s <= first.end; s++) seqs.push(s);
+    seqs.push(summary.seq);
+    log.appendWithSurfaceOp(
+      'compaction/surface',
+      { summarySeq: summary.seq, occludedMessages: first.occludedMessages, occludedChars: first.occludedChars },
+      { op: 'replace', start: first.start, end: first.end },
+      seqs,
+    );
+    // 压缩后一轮失败 + retry 遮蔽（区间 [尸体a, 高水位]），再 3 轮累积
+    log.append('turn/start', {});
+    log.append('user/message', { content: '压缩后又失败', source: 'user' });
+    const corpse = log.append('assistant/message', {
+      content: [{ type: 'text', text: '又半截' }],
+      stopReason: 'error',
+      errorMessage: 'reset',
+    });
+    log.append('turn/end', { reason: 'error' });
+    const retryStart = corpse.seq;
+    const retryEnd = log.events().length - 1;
+    const retrySeqs: number[] = [];
+    for (let s = retryStart; s <= retryEnd; s++) retrySeqs.push(s);
+    log.appendWithSurfaceOp(
+      'llm/retry',
+      { attempt: 1, maxAttempts: 5, delayMs: 1000, phase: 'scheduled', reason: 'transient' },
+      { op: 'replace', start: retryStart, end: retryEnd },
+      retrySeqs,
+    );
+    for (let i = 1; i <= 3; i++) addTurn(log, `续 ${i}`);
+    const plan = planSegment({ events: log.events(), messages: log.projection(), tailKeep: 6 });
+    expect(plan).not.toBeNull(); // 修前：retry 区间终点（29）被当压缩前沿 → start 跳 31 > end 30 → null（红）
+    expect(plan!.start).toBe(first.end + 1); // 前沿只认 compaction/surface 终点（12）——紧接其后
+    expect(plan!.end).toBeLessThan(retryStart); // 终点避让 retry 区间
+  });
+});
+
+/* ---------------- tailKeep 数值域防御（配置槽 fail-loud 之外的双保险） ---------------- */
+
+describe('planSegment tailKeep 数值域防御', () => {
+  it('tailKeep 域外（0/负数/非整数/NaN）→ 诚实 null 非 TypeError（修前 messages[length-0]!.seq 越界崩溃）', () => {
+    const log = sixTurnLog();
+    for (const bad of [0, -3, 1.5, Number.NaN]) {
+      expect(planSegment({ events: log.events(), messages: log.projection(), tailKeep: bad })).toBeNull();
+    }
+  });
+});
+
 /* ---------------- 摘要预算（字符制） ---------------- */
 
 describe('summaryBudgetFor', () => {

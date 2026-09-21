@@ -123,6 +123,39 @@ describe('createCompactionSlots 席位容器', () => {
     expectCode(() => bind('p-second').setConfig({ tailKeep: 4 }), 'COMPACTION_CONFIG_TAKEN');
   });
 
+  it('数值域校验 fail-loud：tailKeep 域外（0/负数/非整数/NaN）拒 COMPACTION_CONFIG_INVALID 且不落席（修前来者不拒——落席后 planSegment 越界崩溃）', () => {
+    const { bind, slots } = makeRig();
+    const face = bind('p-a');
+    for (const bad of [0, -1, 1.5, Number.NaN]) {
+      expectCode(() => face.setConfig({ tailKeep: bad }), 'COMPACTION_CONFIG_INVALID');
+    }
+    expect(slots.getConfig()).toEqual(DEFAULT_COMPACTION_CONFIG); // 坏值拒于落席前——基线原样
+    face.setConfig({ tailKeep: 3 }); // 合法值照常占席
+    expect(slots.getConfig().tailKeep).toBe(3);
+  });
+
+  it('数值域校验 fail-loud：正数域字段（thresholdRatio/summaryRatio/fallbackWindowTokens）与 ≥0 域字段（cooldownMs/summary 两帽）域外拒', () => {
+    const { bind } = makeRig();
+    const face = bind('p-a');
+    // 正数域：0 与负数皆拒（thresholdRatio 0 = 永不触发——静默停用压缩的装配错误）
+    expectCode(() => face.setConfig({ thresholdRatio: 0 }), 'COMPACTION_CONFIG_INVALID');
+    expectCode(() => face.setConfig({ thresholdRatio: -0.5 }), 'COMPACTION_CONFIG_INVALID');
+    expectCode(() => face.setConfig({ summaryRatio: 0 }), 'COMPACTION_CONFIG_INVALID');
+    expectCode(() => face.setConfig({ fallbackWindowTokens: 0 }), 'COMPACTION_CONFIG_INVALID');
+    // ≥0 域：负数拒（0 合法——cooldownMs 0 = 测试常用无冷却形）
+    expectCode(() => face.setConfig({ cooldownMs: -1 }), 'COMPACTION_CONFIG_INVALID');
+    expectCode(() => face.setConfig({ summaryMinChars: -5 }), 'COMPACTION_CONFIG_INVALID');
+    expectCode(() => face.setConfig({ summaryMaxChars: -5 }), 'COMPACTION_CONFIG_INVALID');
+    face.setConfig({ cooldownMs: 0, summaryRatio: 0.3, fallbackWindowTokens: 1000 }); // 全域内合法
+  });
+
+  it('数值域校验 fail-loud：非有限数（Infinity）拒——防阈值换算恒真/恒假面', () => {
+    const { bind } = makeRig();
+    const face = bind('p-a');
+    expectCode(() => face.setConfig({ thresholdRatio: Number.POSITIVE_INFINITY }), 'COMPACTION_CONFIG_INVALID');
+    expectCode(() => face.setConfig({ tailKeep: Number.POSITIVE_INFINITY }), 'COMPACTION_CONFIG_INVALID');
+  });
+
   it('provider 槽同律四态：占席可读（pluginId + fn 原引用）/同席位者可换/他插件拒 SUMMARIZER_TAKEN/disposer 摘席', () => {
     const { bind, slots } = makeRig();
     const face = bind('p-a');

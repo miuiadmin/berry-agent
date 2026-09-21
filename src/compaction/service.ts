@@ -197,10 +197,20 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
     return state;
   }
 
-  /** 末条 compaction/end 的 seq（-1 = 从未压缩）——溢出路「他路已缩量」对账锚 */
+  /**
+   * 末条 reason=completed 的 compaction/end seq（-1 = 从未成功压缩）——溢出路
+   * 「他路已缩量」对账锚。只认 completed：failed（通道败）/vetoed（钩子否决）
+   * 闭段零遮蔽零缩量，若也推进锚即假阳性「坐享其成」——溢出腿白烧
+   * overflowAttempt 名额、窗口未缩立即再溢出；而 vetoed 形下溢出腿（恒宿主
+   * 算法、钩子不作用）本可亲自成功压缩。failed/vetoed 形须诚实走亲自压缩/
+   * 报败分支（对账锚收严——倒扫取末条 completed，跳过终因非 completed 的段）。
+   */
   function lastEndSeq(log: SessionLog): number {
     const ends = log.eventsOfType('compaction/end');
-    return ends.length > 0 ? ends[ends.length - 1]!.seq : -1;
+    for (let i = ends.length - 1; i >= 0; i--) {
+      if ((ends[i]!.data as { reason?: unknown }).reason === 'completed') return ends[i]!.seq;
+    }
+    return -1;
   }
 
   /** 宿主通道执行（直选路与回落位共用）：五段结构 prompt + 迭代链前次摘要 + 字符制预算 */
@@ -526,8 +536,9 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
     async compactForOverflow(log: SessionLog): Promise<OverflowOutcome> {
       // 门三道之三（归驱动执法面）：通道不可用直接终态——无摘要则无压缩
       if (channel === undefined) return 'failed';
-      // 入队锚：等待期间他路压缩若已落账，缩量已达成（归因不问路——恢复目标
-      // 是「缩了可续入」，谁压的不重要；FIFO 链保证本任务在他路之后执行）
+      // 入队锚：等待期间他路压缩若已落账（end reason=completed），缩量已达成
+      // （归因不问路——恢复目标是「缩了可续入」，谁压的不重要；FIFO 链保证本任务
+      // 在他路之后执行；failed/vetoed 闭段不算缩量达成——锚不动，见 lastEndSeq）
       const endSeqAtEntry = lastEndSeq(log);
       return enqueue(async () => {
         if (lastEndSeq(log) !== endSeqAtEntry) return 'compacted';

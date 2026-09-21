@@ -330,10 +330,46 @@ describe('compactForOverflow', () => {
     expect(log.eventsOfType('compaction/end')).toHaveLength(1); // 恰一次压缩
   });
 
+  it('对账锚只认 completed（failed 形）：等待期阈值路 end{failed} 不算他路已缩量——溢出腿诚实亲自尝试并报败（修前假阳性 compacted 烧掉重试名额）', async () => {
+    const rig = makeRig([new Error('阈值路通道败'), new Error('溢出路通道也败')]);
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE }); // T1 阈值任务先入队（FIFO——同步紧随，锚仍 -1）
+    const outcome = await rig.service.compactForOverflow(log); // T2 排 T1 后
+    expect(outcome).toBe('failed'); // 修前：T1 落 end{failed} 推进锚 → 假阳性 'compacted'（红）
+    expect(rig.calls).toHaveLength(2); // 修前 1——溢出腿亲自尝试压缩（非坐享其成）
+    expect(log.eventsOfType('compaction/surface')).toHaveLength(0); // 全程零遮蔽——缩量从未达成
+    const ends = log.eventsOfType('compaction/end');
+    expect(ends).toHaveLength(2); // T1/T2 各落一条 end{failed}
+    expect(ends.map((e) => (e.data as { reason: string }).reason)).toEqual(['failed', 'failed']);
+  });
+
+  it('对账锚只认 completed（vetoed 形）：钩子否决不推进锚——溢出腿（恒宿主算法、钩子不作用）本可成功压缩即真压（修前假 compacted 且零遮蔽）', async () => {
+    const rig = makeRig(['溢出腿摘要'], {
+      onBeforeCompact: async (input) => ({ value: { ...input, veto: { reason: '任务进行中不宜压' } } }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE }); // T1 → 钩子 veto 落 end{vetoed}
+    const outcome = await rig.service.compactForOverflow(log); // T2 排 T1 后（同步紧随，锚仍 -1）
+    expect(outcome).toBe('compacted'); // 两形同值——真伪判据在遮蔽与通道调用
+    expect(log.eventsOfType('compaction/surface')).toHaveLength(1); // 修前 0——假阳性零遮蔽、真压缩遮蔽在场（红）
+    expect(rig.calls).toHaveLength(1); // 修前 0——溢出腿亲自压缩（钩子只作用阈值路）
+    const ends = log.eventsOfType('compaction/end');
+    expect(ends.map((e) => (e.data as { reason: string }).reason)).toEqual(['vetoed', 'completed']);
+  });
+
   it('通道缺席：failed（门三道之三——无摘要则无压缩，直接终态）', async () => {
     const warns: string[] = [];
     const service = createCompactionService({ warn: (m) => warns.push(m) });
     expect(await service.compactForOverflow(sixTurnLog())).toBe('failed');
+  });
+
+  it('tailKeep 坏值（0）契约锁：compactForOverflow 恒 resolve 三值不 reject（修前 planSegment 越界 TypeError → rejected promise 违反 OverflowOutcome 消费前提）', async () => {
+    const rig = makeRig(['不应被调'], { config: { tailKeep: 0, cooldownMs: 0 } });
+    const log = sixTurnLog();
+    // 修前：messages[length-0]!.seq 越界 TypeError 直穿 enqueue 体 → await 即抛（红）
+    const outcome = await rig.service.compactForOverflow(log);
+    expect(outcome).toBe('nothing'); // 坏配置 = 诚实无可压段（resolve 非 reject）
+    expect(rig.calls).toHaveLength(0); // 通道零调用
   });
 });
 

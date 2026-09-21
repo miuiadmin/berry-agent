@@ -61,6 +61,10 @@ export function planSegment(input: {
   tailKeep: number;
 }): SegmentPlan | null {
   const { events, messages, tailKeep } = input;
+  // tailKeep 数值域防御（配置槽 fail-loud 之外的双保险）：域外值诚实 null 而非
+  // messages[length-0]!.seq 越界 TypeError——阈值路吞为 warn、溢出路拒 promise
+  // 违 OverflowOutcome 三值恒 resolve 契约（typecheck 拦不住运行时坏值）
+  if (!Number.isInteger(tailKeep) || tailKeep < 1) return null;
   // 终点界桩：最近完整 turn 边界（无闭合 turn = 无可压区间）
   let boundary = -1;
   for (let i = events.length - 1; i >= 0; i--) {
@@ -75,28 +79,23 @@ export function planSegment(input: {
   // tail 锚：末 tailKeep 条的首条消息 seq——遮蔽不得侵入
   const tailAnchor = messages[messages.length - tailKeep]!.seq;
   const end = Math.min(boundary, tailAnchor - 1);
-  // 起点两形：既有遮蔽 → 紧接上次遮蔽终点（正门对齐律第三形——连续压缩切点，
-  // 不论该位置事件类型）；无遮蔽 → head 保首个完整 turn（首个 turn/end + 1，
-  // 该位置须是 turn/start——正门对齐律第二形；无 turn 骨架的裸消息流诚实跳过）
+  // 起点两形：既有压缩 → 紧接上次压缩遮蔽终点（正门对齐律第三形——连续压缩
+  // 切点，不论该位置事件类型）；无压缩 → head 保首个完整 turn（首个 turn/end
+  // + 1，该位即 turn 单元首位；无 turn 骨架的裸消息流诚实跳过）。
+  // 前沿判据只认 compaction/surface 类遮蔽终点：llm/retry 类遮蔽是失败尾蒙布
+  // （driver occludeFailedTail——日志中段的临时遮蔽非压缩达成），若也推前沿，
+  // start 会跳到蒙布之后——蒙布前未压缩区段永搁浅（无法再被规划）
   let lastOcclusionEnd = -1;
   let firstTurnEnd = -1;
   for (const event of events) {
-    if (event.surfaceOp && event.surfaceOp.end > lastOcclusionEnd) lastOcclusionEnd = event.surfaceOp.end;
+    if (event.type === 'compaction/surface' && event.surfaceOp && event.surfaceOp.end > lastOcclusionEnd) {
+      lastOcclusionEnd = event.surfaceOp.end;
+    }
     if (firstTurnEnd < 0 && event.type === 'turn/end') firstTurnEnd = event.seq;
   }
   let start: number;
   if (lastOcclusionEnd >= 0) {
     start = lastOcclusionEnd + 1;
-    // 起点撞载体（连续压缩紧邻前指令事件的形态）→ 跳过载体链即止（载体是
-    // 结构指令事件非 turn 体；其后首位即 turn 单元首位——真实 driver 形为随
-    // turn 的 user/message。原「进到下一个 turn/start 对齐位」在真实形会把
-    // user/message 留在区间外拆散其 turn——U4-3 装配批集成勘正）
-    if (events[start]?.surfaceOp) {
-      let next = start;
-      while (next < events.length && events[next]!.surfaceOp) next++;
-      if (next >= events.length || next > end) return null;
-      start = next;
-    }
   } else {
     if (firstTurnEnd < 0) return null; // 防御（boundary ≥ 0 已保证存在——死码注明不删）
     // 起点对齐 turn 单元边界（05 §2.1 边缘纪律 5）：首 turn/end 后一位即次
@@ -106,12 +105,43 @@ export function planSegment(input: {
     // 路生产从未可规划——U4-3 装配批 e2e 抓获勘正）
     start = firstTurnEnd + 1;
   }
-  if (start > end) return null; // 中段空（tail 窗已压到头/仅单闭合 turn）
-  // 防嵌套律的规划面推论：区间须整段避开一切 surfaceOp 载体（载体永不可被遮——
-  // 正门防嵌套校验会拒写）。终点收在起点后最近载体之前（前次摘要载体恰在其前，
-  // 天然并入区间——迭代链承接面）
-  const carrierAbove = events.find((e) => e.seq > start && e.surfaceOp);
-  const effectiveEnd = carrierAbove !== undefined ? Math.min(end, carrierAbove.seq - 1) : end;
+  // 起点推进（不动点循环）：越过起点位的遮蔽载体链（载体是结构指令事件非
+  // turn 体、永不可被遮——连续压缩紧邻前指令载体的形态）与一切含起点的
+  // 遮蔽区间（正门防嵌套/不二次遮蔽拒相交区间——起点落在既有区间内的规划
+  // 案必被正门拒写）。两形交替推进至不再移动。原实现只跳载体链不查区间
+  // 含入——retry 蒙布把前沿后首位吞进区间时起点被推到蒙布后，遮蔽前区段
+  // 整段搁浅（本役修复主笔之一）
+  let cursor = start;
+  let moved = true;
+  while (moved) {
+    moved = false;
+    while (cursor < events.length && events[cursor]!.surfaceOp !== undefined) {
+      cursor += 1;
+      moved = true;
+    }
+    for (const event of events) {
+      const op = event.surfaceOp;
+      if (op !== undefined && cursor >= op.start && cursor <= op.end) {
+        cursor = op.end + 1;
+        moved = true;
+      }
+    }
+  }
+  if (cursor >= events.length || cursor > end) return null; // 推进越界/中段空（tail 窗已压到头）
+  start = cursor;
+  // 防嵌套律的规划面推论（并集避让）：区间须整段避开一切既有遮蔽——不仅
+  // 载体 seq 本身，还有遮蔽区间本体（原实现只避载体位；起点收了终点不收，
+  // 会在 retry 蒙布中段产生相交区间——正门「不二次遮蔽」校验拒写）。
+  // 终点收在起点之后最近的「遮蔽区间起点/载体 seq」之前；前次摘要载体恰
+  // 在起点之前的天然并入区间（迭代链承接面）
+  let forbidAbove = Infinity;
+  for (const event of events) {
+    const op = event.surfaceOp;
+    if (op === undefined) continue;
+    if (op.start > start) forbidAbove = Math.min(forbidAbove, op.start);
+    if (event.seq > start) forbidAbove = Math.min(forbidAbove, event.seq);
+  }
+  const effectiveEnd = Math.min(end, forbidAbove - 1);
   if (start > effectiveEnd) return null;
   // 区间内投影消息与字符量（字符尺与 fold.chars 同源：逐消息 JSON 长度和）
   const result = planFromRange(start, effectiveEnd, messages);

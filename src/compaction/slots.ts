@@ -79,6 +79,46 @@ export function forgeBeforeCompactIdentity(produced: unknown, received: unknown,
 /* ---------------- 席位容器（配置槽 + provider 槽） ---------------- */
 
 /**
+ * 数值配置字段域表（setConfig fail-loud 判据单源）：七字段两族——正数域
+ * （0 亦拒：thresholdRatio 0 = 永不触发即静默停用压缩的装配错误；比率族
+ * 同理）与 ≥0/≥1 域（0 合法位：cooldownMs 0 = 无冷却、summary 两帽 0 =
+ * 常量零；tailKeep 0 = messages[length-0] 越界崩溃位故 ≥1 整数）。
+ * 判据为结构域检查非策略调参——坏值拒于落席，防 planSegment 越界崩溃
+ * 与机制面行为静默异化（数值系宿主机制参数非策略算法，域不由插件定）。
+ */
+const CONFIG_FIELD_DOMAINS: ReadonlyArray<{
+  field: keyof CompactionConfig;
+  valid: (value: number) => boolean;
+  domain: string;
+}> = [
+  { field: 'thresholdRatio', valid: (v) => v > 0, domain: '正数' },
+  { field: 'tailKeep', valid: (v) => Number.isInteger(v) && v >= 1, domain: '≥1 整数' },
+  { field: 'cooldownMs', valid: (v) => v >= 0, domain: '≥0' },
+  { field: 'summaryRatio', valid: (v) => v > 0, domain: '正数' },
+  { field: 'summaryMinChars', valid: (v) => v >= 0, domain: '≥0' },
+  { field: 'summaryMaxChars', valid: (v) => v >= 0, domain: '≥0' },
+  { field: 'fallbackWindowTokens', valid: (v) => v > 0, domain: '正数' },
+];
+
+/**
+ * 数值域校验（setConfig 落席前置闸）：Partial 合并语义——未设字段不查
+ * （已落席旧值不因后到 partial 缺席而复审）；非有限数（NaN/Infinity）
+ * 一并拒。拒 = `COMPACTION_CONFIG_INVALID`（fail-loud 拒不落席）。
+ */
+function assertConfigDomain(pluginId: string, partial: Partial<CompactionConfig>): void {
+  for (const { field, valid, domain } of CONFIG_FIELD_DOMAINS) {
+    const value = partial[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value) || !valid(value)) {
+      throw new BaseError(
+        'COMPACTION_CONFIG_INVALID',
+        `数值配置槽字段 ${field} 域外值 ${String(value)}（插件 ${pluginId}——须为${domain}；坏值 fail-loud 拒不落席，防 planSegment 越界崩溃与机制面行为异化）`,
+      );
+    }
+  }
+}
+
+/**
  * 插件面（ctx.get("compaction") 消费形——03 §2.2 第十二面两动词）：两动词
  * 皆装载窗 only **严于通律**（回调窗延伸不适用——装配期配置/注册动作非回调
  * 场景动作，c-6 registerOAuthFlow 同形）+ 单席位先到占 + 返回摘槽 disposer。
@@ -87,7 +127,9 @@ export interface CompactionPluginFace {
   /**
    * 数值配置槽（Partial<CompactionConfig> 合并——字段射程 = 全七字段，两路同
    * 生效：数值是宿主机制参数非策略算法）。席位者重设 = 更新己方 partial；
-   * 他插件后到拒 `COMPACTION_CONFIG_TAKEN`。返回摘槽 disposer（幂等——只摘
+   * 他插件后到拒 `COMPACTION_CONFIG_TAKEN`；数值域外值拒
+   * `COMPACTION_CONFIG_INVALID`（判据单源 CONFIG_FIELD_DOMAINS——tailKeep
+   * ≥1 整数、比率族正数、毫秒/字符帽 ≥0）。返回摘槽 disposer（幂等——只摘
    * 自己的席位）。
    */
   setConfig(partial: Partial<CompactionConfig>): () => void;
@@ -151,6 +193,9 @@ export function createCompactionSlots(options: CompactionSlotsOptions = {}): Com
       return {
         setConfig(partial: Partial<CompactionConfig>): () => void {
           assertLoadWindow('ctx.compaction.setConfig');
+          // 域校验先于席位检查：域外值连己方席位都不给（坏值落席后 planSegment
+          // 越界崩溃/机制面静默异化——防线前移到装配面，策略面防御只作双保险）
+          assertConfigDomain(pluginId, partial);
           if (configSeat !== undefined && configSeat.pluginId !== pluginId) {
             throw new BaseError(
               'COMPACTION_CONFIG_TAKEN',

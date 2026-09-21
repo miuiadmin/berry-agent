@@ -15,7 +15,11 @@
  *  (b) compaction/surface 信封（surfaceOp/sourceEventSeqs）往返逐键保真；
  *  (c) source='compaction' 摘要行落库可见；
  *  (d) deriveMessages 全量 fold 重建与压缩后活体投影逐条相等——压缩后视图
- *      跨进程一致（A7 本体断言）。
+ *      跨进程一致（A7 本体断言）；
+ *  (d') 重开活体 fold 路（loadSession 种子重放构造的 SessionLog 投影——
+ *      reseededTimeline 真源）与活体投影逐条相等（第十三役 session-compaction#1
+ *      回归锁：被遮中段不得经种子重放重回模型上下文）；
+ *  (e) fork 形态（createSeededSession 同以种子重放构造）投影同律。
  *
  * 分层纪律：mock 只停模型层——SummaryChannel 是 complete 单发模型通道的结构
  * 注入面，以固定文本测试替身顶替；摘要正文为测试 fixture 非模型产物，断言
@@ -140,5 +144,17 @@ describe('压缩事件 durable 往返（write-behind 落库 → 重开可见 →
     expect(rebuilt.some((message) => message.seq === 4 || message.seq === 6)).toBe(false);
     const summaryMessage = rebuilt.find((message) => message.type === 'user' && message.source === 'compaction');
     expect(summaryMessage?.seq).toBe(liveSummary.seq);
+
+    // (d') 重开活体 fold 路回归锁（第十三役 session-compaction#1）：loadSession
+    // 以种子重放构造 SessionLog，其增量 fold 投影（reseededTimeline 的真源）须
+    // 与全量派生路逐条相等——被遮中段不得经种子重放重回模型上下文
+    expect(loaded.log.projection()).toEqual(liveProjection as ProjectedMessage[]);
+    expect(loaded.log.projectedChars()).toBe(log.projectedChars());
+
+    // (e) fork 形态回归锁：createSeededSession（fork 物理腿）同以种子重放构造
+    // ——fork 活体投影同样不含被遮中段（遮蔽随种子前缀原样拷贝而离投影）
+    const forked = p2.createSeededSession(reopened, { origin: 'fork', parentId: log.sessionId });
+    expect(forked.projection()).toEqual(liveProjection as ProjectedMessage[]);
+    expect(forked.projectedChars()).toBe(log.projectedChars());
   });
 });
