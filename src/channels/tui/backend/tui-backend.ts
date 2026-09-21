@@ -1273,6 +1273,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 状态行文案（last-writer-wins——StatusLine 件语义） */
   setStatus(_sessionId: string, status: string): void {
     this.statusLine.setStatus(status);
+    // 全域清扫 G1-#3 扇出锚：状态扇出面统一重拉常驻段（档位段/今日段随闭包
+    // 现值收敛——webui 双开切档的远端 setStatus 扇出修前只写右段文案不刷段；
+    // 本地 /thinking、/sandbox 切档点的显式 refreshFooter 并入本锚单源）
+    this.refreshFooter();
     this.touchFixed();
   }
 
@@ -1358,6 +1362,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 模型半场照常（repaint 是新真相——挂起期也不丢投影：复起全帧重画携带）
     this.transcript.loadProjection(projection);
     this.resetUsage(); // 件 6：清行并归零（切焦清账重计——尾注射界）
+    // 全域清扫 G2：repaint 清账面连清转轮与工具名——旧焦 run 的 agent_end 以
+    // 非聚焦态到达不触 applyFocusedEvent 的停帧（修前转轮/旧工具名跨会话永久
+    // 残留）；新焦在飞（trackProgress 按会话净计数——聚焦位不参账）重建忙态
+    this.statusLine.stop();
+    this.statusLine.setTool(null);
+    if ((this.inFlightBySession.get(sessionId) ?? 0) > 0) this.statusLine.start();
     this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
     this.refreshFooter(); // footer 会话短 id 段随切焦联动（R6 批 10k）
     this.osc.setTitle(`${this.titleBaseline} · ${shortIdOf(sessionId)}`); // 件 7：title 点缀会话短 id（终端级外显——挂起期照常，批 10f-4 裁）

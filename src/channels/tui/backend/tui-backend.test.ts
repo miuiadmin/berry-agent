@@ -3368,3 +3368,89 @@ describe('TuiBackend resumeMain 复起附件（fx2-E——编辑器帽随动 + f
     expect(finalFooter).not.toContain('old-branch');
   });
 });
+
+describe('TUI 全域清扫 G1/G2/G5/G6（扇出锚 + repaint 清账 + 速度段/兜底层断言补——2026-09-21）', () => {
+  it('G1-#3 setStatus 扇出锚：状态扇出统一重拉常驻段（今日段随闭包现值收敛）', () => {
+    let spent = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      footer: { cwdLabel: 'berry-agent', todaySpent: () => spent },
+    });
+    expect(io.bytes).not.toContain('今日'); // 零耗缩位（前置自证）
+    spent = 500;
+    io.bytes = '';
+    backend.setStatus(SESSION, '思考高（下一 run 起生效）');
+    // 修前红：setStatus 只写右段文案不重拉常驻段——webui 双开切档（远端
+    // setStatus 扇出面）今日段/档位段停旧值
+    expect(io.bytes).toContain('今日 500');
+  });
+
+  it('G2-#29 切焦 repaint 连清转轮：旧焦 agent_end 非聚焦态到达不触停帧（修前红——永久转轮）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' }); // 旧焦 run 起跑——转轮在转
+    io.bytes = '';
+    backend.onRepaint('sess-bbbbbbbbbbbb', [], null); // 切焦新会话（旧焦 run 仍在飞）
+    io.bytes = '';
+    backend.tick();
+    expect(io.bytes).not.toContain('⠙'); // 修前：忙态跨焦残留——tick 持续推帧
+  });
+
+  it('G2-#29 切焦 repaint 清工具名：旧焦工具段不跨会话残留', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'tool_execution_start', toolCallId: 'tc1', name: 'grep', arguments: {} });
+    io.bytes = '';
+    backend.onRepaint('sess-bbbbbbbbbbbb', [], null);
+    io.bytes = '';
+    backend.tick(); // 若工具名/忙态残留即在此写出
+    expect(io.bytes).not.toContain('⚙ grep');
+  });
+
+  it('G2-#29 新焦在飞重建忙态：repaint 后 trackProgress 净计数 >0 转轮照转', () => {
+    const { io, backend } = makeBackend();
+    // s2 在飞（信封到达即净计数 +1——聚焦位不参账，件 7 判据）
+    backend.onEnvelope({ sessionId: 'sess-bbbbbbbbbbbb', event: { type: 'agent_start' } }, false);
+    backend.onRepaint('sess-bbbbbbbbbbbb', [], null); // 切焦到在飞会话
+    io.bytes = '';
+    backend.tick();
+    expect(io.bytes).toContain('⠙'); // 重建忙态——第二帧在推
+  });
+
+  it('G5-#10 aborted 终态：状态行分档形不加段 + speedView 观测面照算终值', () => {
+    // 批C 诚实缺席三形的呈现面专属位——aborted 形此前零断言（failed 已锁）
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(100) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t += 4000;
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'aborted' });
+    expect(io.bytes).toContain('⏹ 已中止'); // 分档形（速度段系成功形专属）
+    expect(io.bytes).not.toContain('tok/s');
+    expect(backend.speedView).toBe(25); // 观测面照算终值（100/4s——终点时戳
+    // 冻结分母；呈现缺席 ≠ 数据缺席——观测面是宿主侧二次消费位）
+  });
+
+  it('G6-#8 批B fail-open 兜底：档位/今日闭包抛错整段缩位不炸渲染路', () => {
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      footer: {
+        cwdLabel: 'proj',
+        modelLabel: 'm1',
+        tiers: () => {
+          throw new Error('tiers fold boom');
+        },
+        todaySpent: () => {
+          throw new Error('today agg boom');
+        },
+      },
+    });
+    // 构造期首画即消费抛错闭包（基础段在场 = fail-open 生效的自证）；
+    // refreshFooter 再拉覆盖刷新锚路径，两路都不炸
+    expect(() => backend.refreshFooter()).not.toThrow(); // 双保兜底层直测
+    expect(io.bytes).toContain('proj'); // 基础段在场（异常段不连坐）
+    expect(io.bytes).toContain('m1');
+    expect(io.bytes).not.toContain('今日'); // 抛错段缩位不虚报
+  });
+});

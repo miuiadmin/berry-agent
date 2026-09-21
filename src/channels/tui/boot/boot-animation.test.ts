@@ -201,4 +201,40 @@ describe('BootAnimation 启动动画件（三反馈批D——案A cooked 逐行�
     expect(text).not.toContain('\x1b');
     expect(text).toContain('x[2Jy');
   });
+
+  it('未识阶段 id 控制字节剥除（全域清扫 #4 对称补——fallback 词同 pluginLoad 防御律）', () => {
+    const io = sink();
+    const anim = new BootAnimation(io.write, {});
+    anim.stage('we\x07ird', 'end'); // 未识 id 带 BEL——词汇表 miss 走 fallback
+    const text = io.writes.join('');
+    expect(text).toContain('✓ weird');
+    expect(text).not.toContain('\x07');
+    anim.stage('x\x1b[2Jy', 'end'); // ESC 序列形：ESC 剥除余纯文本直呈
+    const text2 = io.writes.join('');
+    expect(text2).not.toContain('\x1b');
+    expect(text2).toContain('✓ x[2Jy');
+  });
+
+  it('finish 悬段收口入账：开放段经 finish 结算入段账（全域清扫 #6——失败路中途段不丢面）', () => {
+    const io = sink();
+    const err = sink();
+    const clock = manualClock();
+    const anim = new BootAnimation(io.write, { now: clock.now, stderr: err.write, timingEnabled: true });
+    anim.stage('subagents', 'start'); // 开段后直接收尾（无 end 相位——悬段形态）
+    clock.advance(7);
+    anim.finish();
+    const diag = err.writes.join('');
+    expect(diag).toContain('子代理域: 7ms');
+    expect(diag).toContain('TOTAL: 7ms');
+  });
+
+  it('finish 防御早退：门开零段零汇总；收尾后事件零消费（全域清扫 #7）', () => {
+    const io = sink();
+    const err = sink();
+    const anim = new BootAnimation(io.write, { stderr: err.write, timingEnabled: true });
+    anim.finish(); // 零事件零段——segments 空早退分支
+    expect(err.writes).toEqual([]);
+    anim.stage('runtime', 'end'); // 收尾后事件零消费（头行也不出）
+    expect(io.writes.join('')).toBe('');
+  });
 });

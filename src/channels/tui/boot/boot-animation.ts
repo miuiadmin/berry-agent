@@ -119,7 +119,9 @@ export class BootAnimation {
     try {
       if (this.finished) return;
       this.ensureHeader();
-      const word = STAGE_WORDS[stage] ?? stage; // 未识 id fail-open 直用
+      // 未识 id fail-open 直用（词汇表前瞻兼容）；fallback 词过控制字节剥除
+      // （全域清扫 #4 对称补——pluginLoad 防御律同源，id 溢控制字节不透传终端）
+      const word = STAGE_WORDS[stage] ?? stripControl(stage);
       if (phase === 'start') {
         this.openSegment(word);
         return;
