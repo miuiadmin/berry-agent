@@ -32,7 +32,8 @@
  * 字符串，resolveModel fail-loud 推迟到 LLM 调用边界）——本锁零凭证可跑。
  *
  * 验收九面（终端态可见行判据）：
- * 1. 起跑进屏：footer 三段（cwd 短名 · 模型名 · 会话短 id）与编辑器边框在场；
+ * 1. 起跑进屏：footer 四段（cwd 短名 · 模型名 · 会话短 id · 沙箱档短词——
+ *    三反馈批B 扩容；thinking 无锚/当日零耗两段缩位）与编辑器边框在场；
  * 2. 中文输入：字面中文 send-keys 后编辑器行回显在场（零模型依赖——不提交）；
  * 3. /help 副屏：命令册标题行呈现 → q 收屏回主屏（收屏后 footer 复在场）；
  * 4. /themes 副屏：主题条目行呈现 + esc 收屏；
@@ -286,19 +287,23 @@ async function readExitCode(session: TmuxSession): Promise<string> {
 
 describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵条款闭环）', () => {
   it.skipIf(!hasUsableTmux())(
-    '起跑进屏：footer 三段（cwd · 模型 · 会话短 id）与编辑器边框在场',
+    '起跑进屏：footer 四段（cwd · 模型 · 会话短 id · 沙箱档）与编辑器边框在场',
     async () => {
       const session = startTuiSession();
       await waitForStartup(session.name);
-      // footer 三段已在就绪判据内——此处再钉「会话短 id 段」：footer 行须含
-      // 第三段（短 id = 8 位十六进制前缀；行内三段以 ` · ` 分隔）
+      // footer 四段已在就绪判据内——此处再钉「会话短 id 段」：footer 行须含
+      // 第三段（短 id = 8 位十六进制前缀；行内四段以 ` · ` 分隔——三反馈批B
+      // 扩容：三段后追加档位段〔本环境 thinking 无锚缩位、沙箱基线
+      // workspace-write → 短词「工作区写」入段〕与今日段〔当日零耗缩位〕）
       const footer = captureLines(session.name).find(isFooterLine);
       expect(footer).toBeDefined();
-      // 三段形 = 段间恰两枚 ` · ` 分隔符（cwd · model · shortId）
-      expect((footer ?? '').split(' · ').length).toBe(3);
+      // 四段形 = 段间恰三枚 ` · ` 分隔符（cwd · model · shortId · 沙箱档短词）
+      expect((footer ?? '').split(' · ').length).toBe(4);
       // 第三段 = 会话短 id（hex 短 id——与 cwd/model 段不同值的 8 位段）
       const third = (footer ?? '').split(' · ')[2] ?? '';
       expect(third).toMatch(/^[0-9a-f]{8}$/);
+      // 第四段 = 沙箱档短词（SANDBOX_MODE_SHORT 单源直出——基线 workspace-write）
+      expect((footer ?? '').split(' · ')[3]).toBe('工作区写');
     },
     90_000,
   );

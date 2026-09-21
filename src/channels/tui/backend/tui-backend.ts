@@ -219,6 +219,19 @@ export interface TuiBackendOptions {
     readonly cwdLabel?: string;
     readonly modelLabel?: string;
     readonly cwdPath?: string;
+    /**
+     * 档位段 pull 闭包（三反馈批B——思考档/沙箱档常驻段）：返回短词已解析形
+     * （单源映射在装配侧 session-tier-copy 短词键）；子段 null = 独立缩位
+     * （thinking 无锚诚实缺席）；闭包抛错 fail-open 整段缩位（呈现面不反噬
+     * 渲染路）。刷新锚拉取（构造期/切焦/resize/agent_end/档位切换点）。
+     */
+    readonly tiers?: () => { thinking: string | null; sandbox: string | null };
+    /**
+     * 今日段 pull 闭包（批B——当日全道 token 耗 `今日 N`）：数据面 =
+     * LlmService.allLanesSpentToday()（呈现口径与闸门口径分立——供数面定形
+     * 注 2026-09-21）；零耗不显段（冷启动零噪声）。
+     */
+    readonly todaySpent?: () => number;
   };
   /**
    * 流式帧字节帽（批 10h R1 perf 护栏）：缺省 STREAM_FRAME_BYTE_CAP 定值
@@ -472,6 +485,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private readonly footerCwdPath: string | undefined;
   /**
+   * 档位段 pull 闭包（三反馈批B——思考档/沙箱档常驻段）：null 子段独立缩位
+   * （thinking 无锚诚实缺席）；每刷新锚现拉（闭包内 fold 现值——档位切换点
+   * 经公开 refreshFooter 即时收敛）。
+   */
+  private readonly footerTiers: (() => { thinking: string | null; sandbox: string | null }) | undefined;
+  /**
+   * 今日段 pull 闭包（三反馈批B——当日全道 token 耗）：每刷新锚现拉，消费
+   * allLanesSpentToday()（O(1) 日键缓存——resize/重画频拉无害）；零耗缩位。
+   */
+  private readonly footerTodaySpent: (() => number) | undefined;
+  /**
    * footer 门控位（挂载解挂批 2026-09-15 显式化）：footer 选项注入在场才开
    * 常驻段——setFooterModel 活写的 no-op 判据（注入缺席 = 状态行旧形零扰动）。
    */
@@ -530,6 +554,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // cwd 段 git 支名后缀数据位（挂账解挂批②）：构造期定值（空串同缺席——不虚报）
     this.footerCwdPath =
       options.footer?.cwdPath !== undefined && options.footer.cwdPath !== '' ? options.footer.cwdPath : undefined;
+    // 档位段/今日段 pull 闭包（三反馈批B）：注入缺席缩位（老形选项零扰动——
+    // 既有测试不传新键常驻段不变）
+    this.footerTiers = options.footer?.tiers;
+    this.footerTodaySpent = options.footer?.todaySpent;
     // footer 门控（R6 批 10k）：footer 选项注入在场才开常驻段（短 id 段恒在——
     // 缺席段缩位不虚报指两标签）；注入缺席 = 无 footer 状态行旧形（确定性测试
     // 基线零扰动）
@@ -580,6 +608,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       cancelSchedule: this.scheduleFn !== null ? this.cancelFn : undefined,
     });
     this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
+    // 忙态速度段供字器（三反馈批B——批C speedView 的忙态消费接线）：每帧现拉
+    // running average；null（无起点/亚秒/零 token/清账后）回 '' 缩位；终态冻结
+    // 值由终点时戳律保形（runEndedAt 在场后 speedView 恒终值）
+    this.statusLine.attachSpeedText(() => {
+      const speed = this.speedView;
+      return speed === null ? '' : `${formatTokensPerSecond(speed)} tok/s`;
+    });
     this.stack.onChange = () => this.touchFixed();
     this.screen = new MainScreen(io, { fixedHeight: 4 }); // 初始高：编辑器 3 + 状态行 1（动态更新经 setFixed）
     // 副屏宿主（构造放 constructor 尾——io 与注入面已赋值；引擎选项与主屏同源：
@@ -1250,13 +1285,40 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 门控（挂账解挂批②补漏）：footer 选项注入缺席时早退——此前无门控，
    * onRepaint 切焦路无条件拼段致常驻段被漏开（违 R6「注入缺席回旧形零
    * 扰动」——修前红在案）。
+   *
+   * 三反馈批B 扩容：短 id 段后追加**三段**——档位段（思考档/沙箱档短词，
+   * pull 闭包 fold 现值，子段 null 独立缩位，闭包抛错 fail-open 整段缩位
+   * ——呈现面不反噬渲染路）+ 今日段（当日全道 token 耗 `今日 N`，零耗
+   * 缩位——冷启动零噪声）。**公开面**：档位切换点（装配侧选定闭包）经本
+   * 面即时收敛——刷新锚从「构造/切焦/resize」扩「agent_end + 档位切换」。
    */
-  private refreshFooter(): void {
+  refreshFooter(): void {
     if (!this.footerEnabled) return;
     const parts: string[] = [];
     if (this.footerCwd !== undefined) parts.push(withGitBranchSuffix(this.footerCwd, this.footerCwdPath));
     if (this.footerModel !== undefined) parts.push(this.footerModel);
     parts.push(shortIdOf(this.sessionId));
+    // 档位段（批B）：fail-open——闭包抛错两子段归 null（渲染路不因数据面
+    // 异常断流；装配侧闭包已自裹 try/catch，此处兜底防御层）
+    if (this.footerTiers !== undefined) {
+      let tiers: { thinking: string | null; sandbox: string | null } = { thinking: null, sandbox: null };
+      try {
+        tiers = this.footerTiers();
+      } catch {
+        // fail-open：缩位不虚报
+      }
+      if (tiers.thinking !== null) parts.push(tiers.thinking);
+      if (tiers.sandbox !== null) parts.push(tiers.sandbox);
+    }
+    // 今日段（批B）：零耗缩位（当日首 run 前不显段）；fail-open 同律
+    if (this.footerTodaySpent !== undefined) {
+      try {
+        const spent = this.footerTodaySpent();
+        if (spent > 0) parts.push(`今日 ${formatTokenCount(spent)}`);
+      } catch {
+        // fail-open：缩位不虚报
+      }
+    }
     this.statusLine.setFooter(parts.join(' · '));
     this.touchFixed();
   }
@@ -1923,6 +1985,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         }
         this.toolPanel.clear();
         this.refreshTodo(); // 件 4：刷新三时点之三
+        this.refreshFooter(); // 批B：今日段刷新锚（run 终点当日账已落——尾注与常驻段同帧收敛）
         this.touchFixed();
         break;
       case 'tool_execution_start':

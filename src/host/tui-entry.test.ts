@@ -581,6 +581,33 @@ describe('runTuiEntry 装配序', () => {
     expect(await entry).toBe(0);
   });
 
+  // —— footer 档位段装配锁（三反馈批B——2026-09-21）：tiers pull 闭包经本件
+  // 装配注入——常驻段拼沙箱短词（栈基线 workspace-write → SANDBOX_MODE_SHORT
+  // 单源「工作区写」）；thinking 无锚（tui-entry 不传档位 → stack.thinkingLevel
+  // undefined——诚实缩位不虚报）；选定档位经 backend.refreshFooter() 公开刷新
+  // 锚即时换段（拍板 #9：回执保留，footer 段即时收敛——两载体各司其职）。
+  it('footer 档位段装配锁（批B）：沙箱短词常驻 + thinking 无锚缩位 + 选定即时换段', async () => {
+    const { entry, io } = await rigEntry(rigDir('entry-tier-b-data-'), rigDir('entry-tier-b-ws-'));
+    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
+    // 沙箱段 = 短词表单源直出（分隔形锚——装配闭包传垃圾词/两表错配即红）
+    expect(io.output).toContain(' · 工作区写');
+    // thinking 无锚缩位：七档短词「思考X」形零出现（footer 段位只可能来自
+    // THINKING_LEVEL_SHORT——本测不开 /thinking 面无 detail 词族混入）
+    expect(io.output).not.toContain('思考关');
+    expect(io.output).not.toContain('思考高');
+    // 选定切换即时刷：/sandbox → End(danger) → Enter → 回执落定 + footer 段
+    // 翻「无沙箱」（' · ' 分隔形 = footer 段独有锚——面板 detail 行是「无沙箱
+    // ——」连缀形不撞此锚）
+    io.send('/sandbox\r');
+    await until(() => io.output.includes('沙箱档位 · 3 档'));
+    io.send('\x1b[4~');
+    io.send('\r');
+    await until(() => io.output.includes(sandboxModeReceipt('danger')));
+    await until(() => io.output.includes(' · 无沙箱'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
   // —— TUI 切档跨通道回执扇出锁（第九役遗漏扫描批 C2——2026-09-19）：
   // CR-TIER-3 裁决①「TUI 切档→webui 可见 / webui 切档→TUI 状态行可见，
   // 两向对称」（03 §10.4 webui 档位面受理批注）；修前 TUI selectThinking/

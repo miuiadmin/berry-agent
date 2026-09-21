@@ -2943,6 +2943,77 @@ describe('TuiBackend footer 分栏（R6 批 10k——注入门控 + 切焦联动
   });
 });
 
+describe('TuiBackend footer 扩容段（三反馈批B——档位段 + 今日段 + 忙态速度段）', () => {
+  it('档位/今日段拼入常驻段（短 id 段后追加——批B 段序）', () => {
+    const { io } = makeBackend({
+      sessionId: SESSION,
+      footer: {
+        cwdLabel: 'berry-agent',
+        modelLabel: 'glm-4.7',
+        tiers: () => ({ thinking: '思考高', sandbox: '只读' }),
+        todaySpent: () => 12_345,
+      },
+    });
+    expect(io.bytes).toContain('berry-agent · glm-4.7 · sess-aaa · 思考高 · 只读 · 今日 12,345');
+  });
+
+  it('缺席缩位：tiers 子段 null / 今日零耗不虚报；未注入新键 = 旧三段形零回归', () => {
+    const { io } = makeBackend({
+      sessionId: SESSION,
+      footer: {
+        cwdLabel: 'berry-agent',
+        modelLabel: 'glm-4.7',
+        tiers: () => ({ thinking: null, sandbox: '只读' }),
+        todaySpent: () => 0,
+      },
+    });
+    expect(io.bytes).toContain('berry-agent · glm-4.7 · sess-aaa · 只读'); // 思考子段缩位
+    expect(io.bytes).not.toContain('今日'); // 当日零耗不显段（冷启动零噪声）
+    // 未注入新键的 footer 选项 = 批B 前既有形（零回归锁）
+    const old = makeBackend({ sessionId: SESSION, footer: { cwdLabel: 'b', modelLabel: 'm' } });
+    expect(old.io.bytes).toContain('b · m · sess-aaa');
+  });
+
+  it('档位切换即时刷：公开刷新面拉取 pull 闭包现值（选定闭包消费位）', () => {
+    let tiers: { thinking: string | null; sandbox: string | null } = { thinking: '思考中', sandbox: '只读' };
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, { sessionId: SESSION, footer: { tiers: () => tiers } });
+    backend.start();
+    expect(io.bytes).toContain('思考中');
+    io.reset();
+    tiers = { thinking: '思考高', sandbox: '无沙箱' };
+    backend.refreshFooter(); // 公开刷新面（批B——档位切换点即时刷）
+    expect(io.bytes).toContain('思考高 · 无沙箱');
+    expect(io.bytes).not.toContain('思考中');
+  });
+
+  it('agent_end 刷今日段（run 落账后拉取现值）', () => {
+    let today = 0;
+    const { io, backend } = makeBackend({ sessionId: SESSION, footer: { todaySpent: () => today } });
+    expect(io.bytes).not.toContain('今日'); // 零耗不显段
+    io.reset();
+    today = 500;
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('今日 500'); // agent_end 拉取锚（批B）
+  });
+
+  it('忙态右段拼速度段（speedView 消费位——tick/重画时刻现算 running average）', () => {
+    const { io, backend, clock } = makeInteractive({
+      sessionId: 's1',
+      footer: { tiers: () => ({ thinking: '思考高', sandbox: '只读' }) },
+    });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(100) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    clock.advance(2000); // run 中 2s——running average 100/2s = 50
+    io.bytes = '';
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    clock.advance(1); // 泵帧
+    expect(io.bytes).toContain('⚙ grep … · 50 tok/s'); // 忙态工具段后拼速度段（' · ' 连接）
+  });
+});
+
 describe('TuiBackend 候跑提交 + 模型循环键 + footer 模型段活写（挂账解挂批 2026-09-15）', () => {
   /** 键位三件 rig：提交柄记录 opts 第三参 + 模型循环柄计次 */
   function makeKeyRig(options: Partial<TuiBackendOptions> = {}) {

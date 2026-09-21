@@ -79,7 +79,9 @@ import { MarketplaceTuiFace } from './marketplace-tui-face.js';
 import type { UninstallChoice } from './marketplace-tui-face.js';
 import {
   SANDBOX_MODE_DETAILS,
+  SANDBOX_MODE_SHORT,
   THINKING_LEVEL_DETAILS,
+  THINKING_LEVEL_SHORT,
   sandboxModeReceipt,
   thinkingLevelReceipt,
 } from './session-tier-copy.js';
@@ -498,6 +500,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 核扇出含 TuiBackend 自身，TUI 状态行照常更新，第九役 C2 自单通道
       // backend.setStatus 改道）
       stack.channels.setStatus(sid, thinkingLevelReceipt(level));
+      // 批B：档位切换点刷新锚——footer 档位段即时收敛（回执保留：时限定语
+      // 「下一 run 起」是回执独有信息，footer 段无此位——两载体各司其职）
+      backend.refreshFooter();
     };
 
     const openThinkingPanel = (): void => {
@@ -542,6 +547,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       setSessionMode(driver.session, mode);
       // 回执单源 + 通道核扇出同 thinking 律（CR-TIER-3 两向对称——第九役 C2）
       stack.channels.setStatus(sid, sandboxModeReceipt(mode));
+      // 批B：档位切换点刷新锚（selectThinking 同律——回执保留双载体各司其职）
+      backend.refreshFooter();
     };
 
     const openSandboxPanel = (): void => {
@@ -936,11 +943,36 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // footer 常驻段（R6 批 10k）：cwd 短名 + 模型短名（provider/model 形取
       // model 段）——会话短 id 段由 backend 每帧随 sessionId 现拼；
       // cwdPath（挂账解挂批②）：cwd 段 git 短支名后缀数据位（启动会话
-      // workspaceRoot——backend 构造期定值直读 .git/HEAD）
+      // workspaceRoot——backend 构造期定值直读 .git/HEAD）；
+      // tiers/todaySpent（三反馈批B）：档位段/今日段 pull 闭包——每刷新锚
+      // 现拉（档位 = 聚焦会话 fold 现值 ?? 栈基线，与 openThinkingPanel/
+      // openSandboxPanel 同律：thinking 可无锚诚实缩位、sandbox 恒有锚；
+      // 今日 = 全道聚合读面 allLanesSpentToday——呈现口径与闸门口径分立）
       footer: {
         cwdLabel: basename(session.workspaceRoot),
         modelLabel: modelShortName(stack.model),
         cwdPath: session.workspaceRoot,
+        tiers: () => {
+          const sid = stack.channels.focusedId ?? session.sessionId;
+          const driver = stack.driverOf(sid);
+          try {
+            const thinking =
+              driver !== undefined
+                ? (foldSessionThinkingLevel(driver.session.events()) ?? stack.thinkingLevel)
+                : stack.thinkingLevel;
+            const sandbox =
+              driver !== undefined
+                ? foldSessionSandboxMode(driver.session.events(), stack.sandboxMode)
+                : stack.sandboxMode;
+            return {
+              thinking: thinking !== undefined ? (THINKING_LEVEL_SHORT[thinking] ?? null) : null,
+              sandbox: SANDBOX_MODE_SHORT[sandbox] ?? null,
+            };
+          } catch {
+            return { thinking: null, sandbox: null }; // fail-open 缩位（backend 兜底同律——双保）
+          }
+        },
+        todaySpent: () => stack.llm.allLanesSpentToday(),
       },
       ...(options.version !== undefined ? { version: options.version } : {}),
       // 生产定时器注入（保活/帧帽真定时——缺省同步直出仅测试语义）

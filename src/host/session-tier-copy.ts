@@ -46,6 +46,33 @@ export const SANDBOX_MODE_DETAILS: Readonly<Record<SandboxMode, string>> = {
 };
 
 /**
+ * 思考档位短词（2026-09-21 TUI 三反馈批B——footer 常驻档位段呈现形）：七档
+ * 统一「思考X」紧凑形（3-4 显示列——常驻段宽度预算）；与 detail 行分立——
+ * detail 是选择器/浮层整行说明、短词是 footer 常驻段，同键集编译期锁七档
+ * 全档（单源律同上——词表单源在 conversation，本表只持呈现短词）。
+ */
+export const THINKING_LEVEL_SHORT: Readonly<Record<ThinkingLevel, string>> = {
+  off: '思考关',
+  minimal: '思考极简',
+  low: '思考低',
+  medium: '思考中',
+  high: '思考高',
+  xhigh: '思考超高',
+  max: '思考满',
+};
+
+/**
+ * 沙箱档位短词（三反馈批B——footer 常驻档位段呈现形）：三档紧凑形，自描述
+ * 不缩义（danger 档短词「无沙箱」保留警示义——与 detail 行「无沙箱——任何
+ * 命令直跑宿主」同义压缩非粉饰）；键集编译期锁三档全档。
+ */
+export const SANDBOX_MODE_SHORT: Readonly<Record<SandboxMode, string>> = {
+  'read-only': '只读',
+  'workspace-write': '工作区写',
+  danger: '无沙箱',
+};
+
+/**
  * 思考档位切换回执拼装（单源——TUI setStatus 回执与 webui PUT 应答体
  * receipt 同文）：按档分拆语义 thinking 半边 = 「下一 run 起生效」+ 随模型
  * 能力诚实句（provider 不支持 thinking 时静默无效不炸——07 §4.1 该批批注；

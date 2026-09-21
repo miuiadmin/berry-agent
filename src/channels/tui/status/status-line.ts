@@ -35,6 +35,11 @@ export class StatusLine implements Renderable {
   private spinnerStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
   /** 常驻 footer 段（R6 批 10k——装配注入 cwd 短名/模型名/会话短 id 拼段；空串 = 无 footer 旧形零扰动） */
   private footerText = '';
+  /**
+   * 忙态速度段供字器（三反馈批B——件 6 批C speedView 的忙态消费位）：每帧
+   * 现拉（'' = 缺席缩位）；backend 注入格式化闭包，本件零速度知识。
+   */
+  private speedText: (() => string) | null = null;
 
   /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */
   setTheme(theme: ResolvedTheme): void {
@@ -61,8 +66,9 @@ export class StatusLine implements Renderable {
     if (this.busy) {
       const frame = SPINNER_FRAMES[this.frameIndex % SPINNER_FRAMES.length]!;
       buffer.writeText(region.row, region.col, frame, this.spinnerStyle);
-      // 转轮后文案段（rest 自带前导空格——起点 = 转轮格 +1；工具名优先——件 3 语义）
-      const rest = this.toolName !== null ? ` ⚙ ${this.toolName} …` : this.busyText !== '' ? ` ${this.busyText}` : '';
+      // 转轮后文案段（rest 自带前导空格——起点 = 转轮格 +1；工具段优先 + 速度段
+      // 尾拼 ` · `——三反馈批B，两缺席段各自缩位）
+      const rest = this.busyRest();
       if (rest !== '') buffer.writeText(region.row, region.col + 1, rest);
     } else if (this.idleText !== '') {
       buffer.writeText(region.row, region.col, this.idleText);
@@ -81,7 +87,7 @@ export class StatusLine implements Renderable {
       // spinnerCol = col + width - 1 - restWidth 可为负——转轮写出被网格
       // 边界吞掉、右段尾截断错位；帽 = width - 1（至少给转轮留 1 列），
       // 整字截断后 spinnerCol 恒 ≥ region.col
-      const raw = this.toolName !== null ? ` ⚙ ${this.toolName} …` : this.busyText !== '' ? ` ${this.busyText}` : '';
+      const raw = this.busyRest();
       const rest = raw === '' ? '' : truncateToWidth(raw, Math.max(0, region.width - 1));
       const restWidth = stringWidth(rest);
       const spinnerCol = region.col + region.width - 1 - restWidth;
@@ -115,6 +121,26 @@ export class StatusLine implements Renderable {
   private fitFooter(max: number): string {
     if (max <= 0) return '';
     return stringWidth(this.footerText) <= max ? this.footerText : `${truncateToWidth(this.footerText, max - 1)}…`;
+  }
+
+  /**
+   * 忙态右段文案（自带前导空格；'' = 空）：基础段（工具段 `⚙ 名 …` 优先 /
+   * 活动文案让位）+ 速度段尾拼 ` · `（三反馈批B——speedView 现拉 running
+   * average，缺席 '' 缩位）。两形（旧形/分栏）单源消费本拼装。
+   */
+  private busyRest(): string {
+    const base = this.toolName !== null ? `⚙ ${this.toolName} …` : this.busyText !== '' ? this.busyText : '';
+    const speed = this.speedText !== null ? this.speedText() : '';
+    if (base === '' && speed === '') return '';
+    return ` ${[base, speed].filter((segment) => segment !== '').join(' · ')}`;
+  }
+
+  /**
+   * 忙态速度段供字器注入（三反馈批B——backend 消费位）：provider 返 '' =
+   * 缺席缩位；每帧渲染现拉（速度随 tick 推进 = running average 活值）。
+   */
+  attachSpeedText(provider: () => string): void {
+    this.speedText = provider;
   }
 
   /** 进入忙态（agent_start 驱动；text = 可选活动描述） */
