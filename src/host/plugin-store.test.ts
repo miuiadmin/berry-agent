@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 
+import { readEnabledRows } from './plugin-boot.js';
 import {
   assertInsideInstallSubtree,
   assertInsidePluginData,
@@ -202,6 +203,31 @@ describe('enabled.yaml 行编辑', () => {
     expect(toggleRow('/data', 'user-x', fs2).ok).toBe(true);
     rows2 = readEnabledRowsForEdit('/data', fs2);
     expect(rows2.ok && rows2.rows[0]).toEqual({ id: 'user-x', config: { k: 1 } });
+  });
+
+  it('toggle 造新行 id 词法闸：坏词法诚实拒不写盘不落账（防坏行落盘 brick 下次 boot 读侧）', () => {
+    const fs = memFs();
+    let audits = 0;
+    const result = toggleRow('/data', 'Bad_Id', fs, () => void audits++);
+    expect(result.ok).toBe(false); // 修前红：坏词法 id 写盘成功 ok:true
+    if (!result.ok) expect(result.message).toContain('词法');
+    expect(fs.read('/data/enabled.yaml')).toBeNull(); // 修前红：坏行已落盘
+    expect(audits).toBe(0); // 拒路径无变更不造账（修前红：成功尾已落 plugin/toggled）
+    // brick 链判据反证（本闸防的终局）：坏行一旦落盘，boot 读侧同判据 fail-loud 拒启
+    const poisoned = memFs({ '/data/enabled.yaml': 'plugins:\n  - id: Bad_Id\n    disabled: true\n' });
+    let code = '';
+    try {
+      readEnabledRows('/data', poisoned);
+    } catch (err) {
+      code = err instanceof BaseError ? err.code : '';
+    }
+    expect(code).toBe('PLUGIN_ROW_INVALID');
+    // 好词法两形回归锚：core: 前缀 overlay / 用户词法造行不受闸影响
+    const good = memFs();
+    expect(toggleRow('/data', 'core:webui', good).ok).toBe(true);
+    expect(toggleRow('/data', 'user-x', good).ok).toBe(true);
+    const read = readEnabledRowsForEdit('/data', good);
+    expect(read.ok && read.rows.map((r) => r.id)).toEqual(['core:webui', 'user-x']);
   });
 
   it('读侧：缺席 = 空集；坏 yaml/坏行 = fail-loud result 面（CLI 呈修复指引）', () => {
@@ -441,6 +467,18 @@ describe('setRowConfig 行 config 整值替换（ix-3b/c 表单腿写盘点）',
     const user = setRowConfig(dir, 'demo', { a: 1 }, fs);
     expect(user.ok).toBe(false);
     if (!user.ok) expect(user.message).toContain('先走 /plugins mount');
+  });
+
+  it('setRowConfig 造新行 id 词法闸：坏词法 core: 后段诚实拒不写盘（toggleRow 同判据——写侧造行通律）', () => {
+    const dir = '/dd-setrow-lex';
+    const fs = memFs();
+    const result = setRowConfig(dir, 'core:Bad_Id', { k: 1 }, fs);
+    expect(result.ok).toBe(false); // 修前红：坏词法 id 过 core: 前缀闸即写盘 ok:true
+    if (!result.ok) expect(result.message).toContain('词法');
+    expect(fs.read(`${dir}/enabled.yaml`)).toBeNull(); // 修前红：坏行已落盘——brick 下次 boot 读侧
+    // 好词法回归锚：合法 core: 后段照常造 overlay 行（本闸不伤表单预编主路）
+    const good = memFs();
+    expect(setRowConfig('/dd-setrow-lex-ok', 'core:exec', { limit: 5 }, good).ok).toBe(true);
   });
 
   it('config 非对象拒（防御位——表单腿产物恒对象）；整值替换非合并（旧键不残留）', () => {

@@ -10,7 +10,9 @@
  *    tmp+rename（§5.4 账本写面条款）。
  *  - **enabled.yaml 行编辑**（§5.3）：mount append / unmount 删行 / toggle
  *    翻 disabled——读-改-写整文件（yaml 序列化输出顶层 { plugins: [...] }），
- *    原子写同律。行校验复用 manifest.parseEnabledRows（拒绝式单源）。
+ *    原子写同律。行校验复用 manifest.parseEnabledRows（拒绝式单源）；toggle
+ *    造新行前过 checkPluginId 词法闸（同判据单源——防坏词法行落盘 brick
+ *    下次 boot 读侧，CLI/TUI/模型工具三面单源收口）。
  *  - **installPath 推导**（§5.4 归一路径载体——写侧执法）：npm 相对
  *    `plugins/node_modules/<包名>`、git 相对 `plugins/git/<host>/<首段>/<repo>`、
  *    local 绝对 canonical 化值；三源不产第二种表示。
@@ -30,7 +32,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { BaseError } from '../contracts/index.js';
 import { DOORS_SEGMENT_V1_DOMAIN } from '../contracts/api.js';
 import { canonicalPath } from '../safety/index.js';
-import { enabledYamlPath, parseEnabledRows } from './manifest.js';
+import { enabledYamlPath, checkPluginId, parseEnabledRows } from './manifest.js';
 import type { EnabledRow } from './manifest.js';
 
 /* ---------------- fs 注入面 ---------------- */
@@ -415,7 +417,11 @@ export function migrateEnabledRow(dataDir: string, fromId: string, toId: string,
 /**
  * toggle：翻禁用旗标（§5.2 第三态）。行在场翻 disabled（absent ↔ true——
  * 无 false 态：行缺 disabled 键即启用）；行不在场写 `{id, disabled: true}`
- * 行（disable 内置 core: 件的主路径；用户插件同形）。成功尾落
+ * 行（disable 内置 core: 件的主路径；用户插件同形）。造新行前过 id 词法闸
+ * （checkPluginId 单源——与读侧 parseEnabledRows/boot 读侧同判据）：坏词法
+ * 行一旦落盘，下次启动读侧即 PLUGIN_ROW_INVALID 全入口拒启、且行编辑面同
+ * 判据 fail-loud 连撤销动词自身全废（唯一出路手改/删文件）——与 mount 腿
+ * 防线同律，收口在库件单源位（CLI/TUI/模型工具三面同时覆盖）。成功尾落
  * plugin/toggled {id, disabled 终态}——审计词形双态 true|false 独立于
  * enabled.yaml 行形（行内无 false 键，翻回启用需 false 位表达）。
  */
@@ -431,6 +437,15 @@ export function toggleRow(
   const index = rows.findIndex((row) => row.id === id);
   let disabled: boolean;
   if (index === -1) {
+    // 造新行前 id 词法闸（防写死行 brick 下次 boot 读侧）：行不在场 = 本动词
+    // 即将把该 id 首次落盘，坏词法（大写/下划线 typo 等）诚实拒——不写盘
+    // 不落账；行在场分支无需重复校验（读侧 parseEnabledRows 已逐行把关）。
+    if (!checkPluginId(id, { official: true })) {
+      return {
+        ok: false,
+        message: `插件 id 词法违例（${id}——小写字母/数字/连字符，首字符非连字符；官方件 core:<name> 后段同判据）——拒造行：坏词法行落盘会使下次启动读侧拒启（03 §1.2/§5.3）`,
+      };
+    }
     rows.push({ id, disabled: true });
     disabled = true;
   } else {
@@ -473,6 +488,15 @@ export function setRowConfig(dataDir: string, id: string, config: unknown, fs: P
   if (index === -1) {
     if (!id.startsWith('core:')) {
       return { ok: false, message: `插件 ${id} 不在启用面——config 编辑先走 /plugins mount（不凭空造行）` };
+    }
+    // 造新行前 id 词法闸（toggleRow 同判据——写侧造行通律）：core: 后段坏
+    // 词法（大写/下划线 typo 等）诚实拒不写盘——坏行落盘 = 下次 boot 读侧
+    // PLUGIN_ROW_INVALID 全入口拒启，与行编辑面同判据 fail-loud 同锁死。
+    if (!checkPluginId(id, { official: true })) {
+      return {
+        ok: false,
+        message: `插件 id 词法违例（${id}——小写字母/数字/连字符，首字符非连字符；官方件 core:<name> 后段同判据）——拒造行：坏词法行落盘会使下次启动读侧拒启（03 §1.2/§5.3）`,
+      };
     }
     rows.push({ id, config });
   } else {
