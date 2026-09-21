@@ -123,7 +123,7 @@ interface GitRecorder {
   readonly fail: { clone?: string; checkout?: string };
 }
 
-function gitFakeSpawn(opts: { readonly pkgJson?: string } = {}): GitRecorder {
+function gitFakeSpawn(opts: { readonly pkgJson?: string; readonly indexJs?: string } = {}): GitRecorder {
   const argvLog: string[][] = [];
   const rec: GitRecorder = {
     argvLog,
@@ -142,10 +142,11 @@ function gitFakeSpawn(opts: { readonly pkgJson?: string } = {}): GitRecorder {
         if (args[0] === 'clone') {
           if (rec.fail.clone !== undefined) return Promise.reject(failErr('clone', rec.fail.clone));
           // clone 目标 = argv 尾参（runGitInstall 的 mkdtemp tmp）——写真 fixture
+          //（indexJs 可注入坏入口——收割失败腿构造真求值抛，非重写已缓存入口）
           const target = args[args.length - 1]!;
           mkdirSync(target, { recursive: true });
           writeFileSync(join(target, 'package.json'), opts.pkgJson ?? pluginPkgJson({ version: undefined }));
-          writeFileSync(join(target, 'index.js'), INDEX_WITH_EVENTS);
+          writeFileSync(join(target, 'index.js'), opts.indexJs ?? INDEX_WITH_EVENTS);
           return Promise.resolve({ stdout: '', stderr: '' });
         }
         if (args[2] === 'checkout') {
@@ -601,6 +602,67 @@ describe('npm 更新腿失败回迁旧树（修笔——先删后装失败 = 装
   });
 });
 
+describe('npm 更新腿直装清单 id 漂移拒（修笔——git 腿同款防线；市场注记腿换血不辖）', () => {
+  it('直装条目更新出新清单 id：拒 + 撤新账 + 旧树回迁 + 零审计词——修前红（ok:true 且账本双条目）', async () => {
+    const dataDir = dataDirOf('data-upd-npm-drift');
+    // CLI 直装（无 market 注记）首装：manifest id = drift-src-pkg
+    const rec1 = npmFakeSpawn(dataDir, {
+      lockVersion: '1.0.0',
+      pkgJson: pluginPkgJson({ name: 'drift-src-pkg' }),
+    });
+    await installPlugin(depsOf(dataDir, rec1.spawn), 'npm:drift-src-pkg');
+    const tree = join(dataDir, 'plugins', 'node_modules', 'drift-src-pkg');
+    const oldPkgJson = readFileSync(join(tree, 'package.json'), 'utf8');
+    // 上游新版清单 id 漂移（name → drift-new-pkg；账本 ref 不变 → 新树落同位）
+    const rec2 = npmFakeSpawn(dataDir, {
+      lockVersion: '2.0.0',
+      pkgJson: pluginPkgJson({ name: 'drift-new-pkg', version: '2.0.0' }),
+    });
+    const audit: Array<{ readonly type: string; readonly data: Record<string, unknown> }> = [];
+    const outcome = await updatePlugin(
+      depsOf(dataDir, rec2.spawn, { onLifecycleAudit: (type, data) => void audit.push({ type, data }) }),
+      'drift-src-pkg',
+    );
+    // 修前红点①：installPlugin 撞名检查对 replacingId 豁免 → 新 id 畅通 upsert、
+    // 回执「已更新」；修后：git 腿同款漂移拒
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.message).toContain('漂移拒');
+      expect(outcome.message).toContain('两步');
+    }
+    // 修前红点②：新 id upsert + 旧 id 条目残留 = 双条目同指同树（list 双计 +
+    // 陈旧条目可 mount + 审计 id 错位）；修后：撤新账、单条目（旧条目原样）
+    const after = entriesOf(dataDir);
+    expect(after.map((e) => e.id)).toEqual(['drift-src-pkg']);
+    expect(after[0]!.version).toBe('1.0.0');
+    // 旧树回迁原位（新树已清，内容 = 旧 package.json 原文——装载判据在场）
+    expect(readFileSync(join(tree, 'package.json'), 'utf8')).toBe(oldPkgJson);
+    // 漂移拒非换装成功——updated 审计词不落（修前落词且 id 错位：词面旧 id、
+    // 账本却是新 id）
+    expect(audit).toEqual([]);
+    // 备份位零残影（回迁即清场）
+    expect(readdirSync(join(dataDir, 'plugins')).filter((n) => n.startsWith('.npm-update-bak-'))).toEqual([]);
+  });
+
+  it('市场注记腿同形漂移照走换血（漂移拒仅辖直装腿——撤账随迁 sanctioned 的 gate 锁）', async () => {
+    const dataDir = dataDirOf('data-upd-npm-drift-market');
+    const m = { name: 'legs', entry: 'demo-pkg' };
+    const rec1 = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'mkt-drift-pkg' }) });
+    await installPlugin(depsOf(dataDir, rec1.spawn), 'npm:mkt-drift-pkg', { market: m });
+    // 同 provenance 换代：新版清单 id 漂移（mkt-drift-pkg → mkt-drift-next）——
+    // installPlugin 换血撤账位（marketReplacing）可达，漂移属 sanctioned 换血
+    const rec2 = npmFakeSpawn(dataDir, {
+      lockVersion: '2.0.0',
+      pkgJson: pluginPkgJson({ name: 'mkt-drift-next', version: '2.0.0' }),
+    });
+    const outcome = await updatePlugin(depsOf(dataDir, rec2.spawn), 'mkt-drift-pkg');
+    expect(outcome.ok).toBe(true);
+    const after = entriesOf(dataDir);
+    expect(after.map((e) => e.id)).toEqual(['mkt-drift-next']);
+    expect(after[0]!.market).toEqual(m); // provenance 幸存
+  });
+});
+
 describe('生命周期归因账落词（05 §1.1 audit 落账批——install/updated 两词）', () => {
   /** sink 收集器（词形断言面） */
   function collector(): {
@@ -790,6 +852,124 @@ describe('git 执行器编舞（假 spawn——clone/checkout/rev-parse 零真�
     if (!outcome.ok) return;
     expect(rec.argvLog[0]?.slice(0, 3)).toEqual(['git', 'clone', 'http://169.254.169.254/a/b.git']);
     expect(outcome.entry).toMatchObject({ id: 'demo-pkg', source: 'git' });
+  });
+});
+
+describe('git 更新腿失败回迁旧树（修笔——runGitInstall 克隆成功后 rm 旧树先行，校验期失败两树俱失；npm 腿 d661ed4 同律泛化）', () => {
+  /** 本 describe 专用：数据目录 + git 克隆中转站 tmpRoot（mkdtemp 前提父目录在场） */
+  function gitDirs(name: string): { readonly dataDir: string; readonly gitTmp: string } {
+    const dataDir = dataDirOf(`data-git-upd-${name}`);
+    const gitTmp = join(testRoot, `git-tmp-upd-${name}`);
+    mkdirSync(gitTmp, { recursive: true });
+    return { dataDir, gitTmp };
+  }
+
+  /** git 备份位残影清点（plugins/ 下 .git-update-bak-* 目录——回迁/清场回归锁断言面） */
+  function gitBackupResidue(dataDir: string): string[] {
+    return readdirSync(join(dataDir, 'plugins')).filter((n) => n.startsWith('.git-update-bak-'));
+  }
+
+  /**
+   * 预装健康旧树速记：git 直装成功（返回旧树路径与旧 package.json 原文——
+   * 回迁断言锚）。pkgJson 可注入纯声明包形（收割失败腿用——seed 零码收割，
+   * 规避 jiti/Node 进程级模块缓存：入口从未被求值即无缓存条目，新版坏入口
+   * 的求值抛才是真收割失败，非缓存命中的静默成功）。
+   */
+  async function seedGitOldTree(
+    dataDir: string,
+    gitTmp: string,
+    pkgJson?: string,
+  ): Promise<{ tree: string; pkgJson: string }> {
+    const rec = gitFakeSpawn(pkgJson === undefined ? {} : { pkgJson });
+    const outcome = await installPlugin(
+      depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }),
+      'git:https://github.com/o/r.git#v1.2.0',
+    );
+    expect(outcome.ok).toBe(true);
+    const tree = join(dataDir, 'plugins', 'git', 'github.com', 'o', 'r');
+    return { tree, pkgJson: readFileSync(join(tree, 'package.json'), 'utf8') };
+  }
+
+  it('更新后清单校验失败：旧树回迁原位 + 备份零残影——修前红（旧树被 rm 尽失）', async () => {
+    const { dataDir, gitTmp } = gitDirs('fail-manifest');
+    const { tree, pkgJson } = await seedGitOldTree(dataDir, gitTmp);
+    // 上游新 commit 清单改坏（berryAgent 块被删）→ 克隆成功、清单校验败
+    const bad = gitFakeSpawn({
+      pkgJson: `${JSON.stringify({ name: 'demo-pkg', version: '9.9.9', main: 'index.js' }, null, 2)}\n`,
+    });
+    const outcome = await updatePlugin(depsOf(dataDir, bad.spawn, { tmpRoot: gitTmp }), 'demo-pkg');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('清单校验失败');
+    // 修前红点：runGitInstall 克隆成功后先 rm 旧树（唯一可用副本）再 rename
+    // 新树，清单校验败只 rollbackInstall 删新树 → 两树俱失、账本悬空引用；
+    // 修后：旧树原文回迁（装载判据 package.json 在场——旧版继续可用）
+    expect(existsSync(join(tree, 'package.json')), '旧树应回迁在场').toBe(true);
+    expect(readFileSync(join(tree, 'package.json'), 'utf8')).toBe(pkgJson);
+    expect(outcome.message).toContain('回迁');
+    expect(gitBackupResidue(dataDir)).toEqual([]);
+    // 账本条目原样保留（引用旧树自洽——enabled 行/账本全程未动）
+    expect(entriesOf(dataDir).map((e) => e.id)).toEqual(['demo-pkg']);
+  });
+
+  it('更新后清单 id 漂移拒：旧树回迁原位——修前红（拒照拒但旧树尽失）', async () => {
+    const { dataDir, gitTmp } = gitDirs('drift');
+    const { tree, pkgJson } = await seedGitOldTree(dataDir, gitTmp);
+    // 上游清单换代改名（manifest id demo-pkg → drifted-pkg）→ 漂移拒路径
+    const drift = gitFakeSpawn({ pkgJson: pluginPkgJson({ name: 'drifted-pkg', version: undefined }) });
+    const outcome = await updatePlugin(depsOf(dataDir, drift.spawn, { tmpRoot: gitTmp }), 'demo-pkg');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('漂移拒');
+    expect(existsSync(join(tree, 'package.json')), '旧树应回迁在场').toBe(true);
+    expect(readFileSync(join(tree, 'package.json'), 'utf8')).toBe(pkgJson);
+    expect(gitBackupResidue(dataDir)).toEqual([]);
+  });
+
+  it('更新收割失败（坏入口求值抛）：旧树回迁——修前红；seed 纯声明包规避 jiti 进程级模块缓存', async () => {
+    const { dataDir, gitTmp } = gitDirs('fail-harvest');
+    const { tree, pkgJson } = await seedGitOldTree(
+      dataDir,
+      gitTmp,
+      pluginPkgJson({ name: 'demo-pkg', version: undefined, berryAgent: { skills: ['skills'] } }),
+    );
+    // 上游新版换执行入口形（berryAgent 空块 → default-export）+ 求值即抛 → 收割失败拒
+    const bad = gitFakeSpawn({
+      pkgJson: pluginPkgJson({ name: 'demo-pkg', version: '9.9.9' }),
+      indexJs: 'throw new Error("git-harvest-boom");\n',
+    });
+    const outcome = await updatePlugin(depsOf(dataDir, bad.spawn, { tmpRoot: gitTmp }), 'demo-pkg');
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.message).toContain('收割失败');
+    expect(existsSync(join(tree, 'package.json')), '旧树应回迁在场').toBe(true);
+    expect(readFileSync(join(tree, 'package.json'), 'utf8')).toBe(pkgJson);
+    expect(gitBackupResidue(dataDir)).toEqual([]);
+  });
+
+  it('克隆失败（staging 后）：旧树回迁不因 staging 引入新损失面——修后锁（修前 tmp 克隆先行本就不动旧树）', async () => {
+    const { dataDir, gitTmp } = gitDirs('clone-fail');
+    const { tree, pkgJson } = await seedGitOldTree(dataDir, gitTmp);
+    const failRec = gitFakeSpawn();
+    failRec.fail.clone = 'fatal: 无法访问仓库';
+    const outcome = await updatePlugin(depsOf(dataDir, failRec.spawn, { tmpRoot: gitTmp }), 'demo-pkg');
+    expect(outcome.ok).toBe(false);
+    // staging 把旧树走位到备份位后克隆才失败——回迁须归位（不归位 = 旧树搁浅
+    // 备份位，账本同悬空）
+    expect(existsSync(join(tree, 'package.json')), '旧树应回迁在场').toBe(true);
+    expect(readFileSync(join(tree, 'package.json'), 'utf8')).toBe(pkgJson);
+    expect(gitBackupResidue(dataDir)).toEqual([]);
+  });
+
+  it('成功腿备份清场：git update 成功后 plugins/ 无 .git-update-bak-* 残影 + 账本 commit 换新', async () => {
+    const { dataDir, gitTmp } = gitDirs('ok');
+    const rec = gitFakeSpawn();
+    await installPlugin(depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }), 'git:https://github.com/o/r.git#v1.2.0');
+    rec.headCommit = 'fake-commit-3333'; // 上游前进
+    const updated = await updatePlugin(depsOf(dataDir, rec.spawn, { tmpRoot: gitTmp }), 'demo-pkg');
+    expect(updated.ok).toBe(true);
+    expect(gitBackupResidue(dataDir)).toEqual([]);
+    expect(entriesOf(dataDir)[0]!.commit).toBe('fake-commit-3333');
   });
 });
 
