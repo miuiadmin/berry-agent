@@ -16,7 +16,7 @@
 
 ## 环境搭建
 
-要求 Node.js ≥ 24。版本钉位单源：根 `.nvmrc`（内容 `24`）——`nvm use` 直接对齐；CI 全部 setup-node（十处）一律 `node-version-file: .nvmrc` 读同源。`engines` 的 `>=24` 是**安装下限**，CI 实测面钉 24.x——换大版本时只改 `.nvmrc` 一处。
+要求 Node.js ≥ 24。版本钉位单源：根 `.nvmrc`（内容 `24`）——`nvm use` 直接对齐；CI 全部 setup-node（十二处——`ci.yml` 十 + `golden-refresh.yml`/`release.yml` 各一）一律 `node-version-file: .nvmrc` 读同源。`engines` 的 `>=24` 是**安装下限**，CI 实测面钉 24.x——换大版本时只改 `.nvmrc` 一处。
 
 **为什么 ≥24**：本仓随主流运行时激进跟进——跟踪当期主线版本、及时采用新语言与运行时特性，而不是等 LTS 排期。代价如实写明：仍在旧 LTS 线上的环境暂不可安装，属已知取舍而非疏漏。
 
@@ -56,7 +56,7 @@ CI（`.github/workflows/ci.yml`）各 job 与本地命令对照——CI 红先�
 | repo-files（配套面在场锁）               | 逐件 `[ -s <文件> ]`（六件清单见 ci.yml repo-files 步——SECURITY.md / CODEOWNERS / issue 模板三件 / PR 模板）                |
 | install-script（语法 + 文案 + 真跑装机） | `sh -n scripts/install.sh` + 管道直灌 grep（正则见 ci.yml 同名步）                                                          |
 | audit                                    | `npm audit --omit=dev`                                                                                                      |
-| release-drill                            | `npm run release -- --dry-run`（CI 形另含临时 bump——本地直跑即近似）                                                        |
+| release-drill                            | `npm run release -- --dry-run` + `npm run release:sdk -- --dry-run`（CI 形另含临时 bump——本地直跑即近似）                |
 | typecheck / lint / format                | 同名 npm script（`npm run typecheck` / `npm run lint:topology` / `npm run format:check`）                                   |
 | test（ubuntu 腿）                        | `npm test`（macOS 腿本地即本机平台）                                                                                        |
 | coverage                                 | `npx vitest run --coverage`                                                                                                 |

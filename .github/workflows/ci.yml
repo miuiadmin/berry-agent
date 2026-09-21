@@ -482,7 +482,7 @@ jobs:
               '',
               '- 轨道语义：同 commit 连跑两次全量测试，任一红即本告警。同 commit push CI 绿而夜间红 = 抖动信号。',
               '- 处置序：先本地单跑复核（`npm test`——本地绿则 CI 环境形，本地红则真缺陷），再按失真源登记册纪律定位登记（docs/development.md）。',
-              '- 已知观察项（tui-backend 字节帽 flaky / exec spawn 截尾 flake）不在本轨道新立条目——先对表再开新。',
+              '- 已知观察项（exec spawn 截尾 flake / tmux e2e /themes esc 收屏帽红——docs/development.md 失真源登记册在册两行）不在本轨道新立条目——先对表再开新。',
             ].join('\n');
             const label = 'flaky-nightly';
             const existing = await github.rest.issues.listForRepo({
