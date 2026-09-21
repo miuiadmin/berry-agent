@@ -5,7 +5,7 @@
  * 固定区钉行 8..9。断言收帧字节序（定位序列 + 内容行 + EL 擦除）。
  */
 import { describe, expect, it } from 'vitest';
-import { CellGrid, MemoryTerminalIO } from '../../engine/index.js';
+import { CellGrid, MemoryTerminalIO, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
 import type { TranscriptBlock } from './transcript.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
@@ -575,6 +575,36 @@ describe('writeLine 控制字节兜底（2026-09-20 TUI 修复组 1 批 F2）', 
     // sanitizeDisplayText 消毒层三面同形的第四面（发射面）
     screen.appendTransient(['a\tb']);
     expect(io.bytes).toContain('\ra  b\n'); // tab → 两空格
+    expect(io.bytes).not.toContain('\t');
+  });
+});
+
+describe('tab 四面互证（第五役 S2 建议①——跨面派生不变式）', () => {
+  // tab 豁免位四面各自有孤立字面量锁（width.test graphemeWidth 记 2 /
+  // sanitizeDisplayText 'a  b' / cell.test writeText 展开 + 两面对拍锁 /
+  // 本件 G7 '\ra  b\n'），但单面改动连同本面字面量一起改时其余面静默漂移
+  //（fx1-A 与 G7 两役连烧的同族缺陷即此漂移）——此处把同一输入在四面间做
+  // 派生恒等断言：任何一面独走（如 tab 改 4 空格只动消毒层、或 graphemeWidth
+  // 改记 1 只动模型账）必有至少一腿在此红。语料与 cell.test.ts 对拍锁同册
+  //（避 ESC/LF——writeLine 与 sanitizeDisplayText 在此域同形，可作派生锚）
+  const corpus = ['a\tbc', '\t', 'x\ty\tz', 'ab\t\tcd', '中\t文'];
+
+  it('同输入四面恒等：消毒展开宽 === 模型宽 === 落格推进，发射字节 === 消毒形', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    io.bytes = '';
+    for (const s of corpus) {
+      const label = `s=${JSON.stringify(s)}`;
+      // 消毒面 ↔ 模型面：tab 语义展开后总宽恰等于模型账（graphemeWidth 记 2）
+      expect(stringWidth(sanitizeDisplayText(s)), label).toBe(stringWidth(s));
+      // 落格面 ↔ 模型面：writeText 展开推进列恰等于模型宽（cell 对拍锁同式收入互证册）
+      const grid = new CellGrid(40, 1);
+      expect(grid.writeText(0, 0, s), label).toBe(stringWidth(s));
+      // 发射面 ↔ 消毒面：writeLine 落屏字节与消毒形逐字节同形（语料无 ESC/LF）
+      screen.appendTransient([s]);
+      expect(io.bytes, label).toContain('\r' + sanitizeDisplayText(s) + '\n');
+    }
+    // 发射面零裸 tab：语料全部过线后整帧无一处制表符（G7 兜底恒在的总账断言）
     expect(io.bytes).not.toContain('\t');
   });
 });

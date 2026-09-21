@@ -186,7 +186,9 @@ describe('控制字符消毒（sanitizeDisplayText 单源）', () => {
     expect(sanitizeDisplayText('a\r\nb')).toBe('a\nb'); // CRLF 归一 LF（段语义保留）
     expect(sanitizeDisplayText('a\x00b\x7f')).toBe('ab');
     expect(sanitizeDisplayText('plain\x1b[31mred\x1b[0m')).toBe('plainred'); // CSI 序列剥除
-    expect(sanitizeDisplayText('osc\x1b]0;title\x07tail')).toBe('osctail'); // OSC 剥除
+    expect(sanitizeDisplayText('osc\x1b]0;title\x07tail')).toBe('osctail'); // OSC 剥除（BEL 终止形）
+    expect(sanitizeDisplayText('a\x1b]8;;http://x\x1b\\b')).toBe('ab'); // OSC-ST 终止形剥除（第六役组外残隙收口——engine 侧两终止形齐）
+    expect(sanitizeDisplayText('a\x1b(Bb')).toBe('ab'); // 传统式序列剥除（第三形——ansi-rows 侧三形字节锁的同源面）
   });
 
   it('wrapText 源头消毒：tab 展开后参与折行', () => {

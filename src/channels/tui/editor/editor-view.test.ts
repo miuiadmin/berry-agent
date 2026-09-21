@@ -4,7 +4,7 @@
  * （聚焦独占）、IME 预编辑下划线段。
  */
 import { describe, expect, it } from 'vitest';
-import { CellGrid } from '../../engine/index.js';
+import { CellGrid, sanitizeDisplayText } from '../../engine/index.js';
 import { DEFAULT_THEME } from '../theme/index.js';
 import { EditorModel } from './editor-model.js';
 import { EditorView } from './editor-view.js';
@@ -198,7 +198,11 @@ describe('EditorView IME 预编辑', () => {
     view.setFocused(true);
     const grid = new CellGrid(12, 5);
     view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
-    expect(readRow(grid, 1, 12)).toBe('│a  bcx  │'); // tab 两空格 + 组字段缀尾（修前 '│abcx    │'）
+    // 派生锚（tab 四面互证——第五役 S2 建议①）：渲染行不孤立硬编码，tab 展开
+    // 段直锚消毒单源 sanitizeDisplayText（修前孤立字面量 '│a  bcx  │' 留此对照；
+    // 修前缺陷形 '│abcx    │'）——消毒层 tab 语义一动而 writeTextClamped 渲染
+    // 未随（四面漂移），此锁即红
+    expect(readRow(grid, 1, 12)).toBe('│' + sanitizeDisplayText('a\tbc') + 'x  │');
     expect(grid.cursor).toEqual({ row: 1, col: 7, visible: true }); // 模型账 1 边框 + 5 显示列（a=1, tab=2, bc=2）+ 预编辑 1——恰缀组字段尾
   });
 });
