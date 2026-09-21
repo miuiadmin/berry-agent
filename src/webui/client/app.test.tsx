@@ -270,6 +270,11 @@ describe('App 用户消息去重单源（回显与 kick 种子镜像——webui-
     apiMock.submit.mockResolvedValue(undefined);
     render(<App />);
     await screen.findAllByText('测试会话');
+    // EventSource 构造在会话列表渲染之后的异步链里（拉投影 → 开 SSE）——
+    // waitFor 守卫防渲染竞速下裸读 undefined（CI macos 单红实录，:154 同形）
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
     const es = FakeEventSource.instances[0]!;
     const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
     fireEvent.change(box, { target: { value: '你好呀' } });
@@ -296,6 +301,11 @@ describe('App 用户消息去重单源（回显与 kick 种子镜像——webui-
     apiMock.submit.mockResolvedValue(undefined);
     render(<App />);
     await screen.findAllByText('测试会话');
+    // EventSource 构造在会话列表渲染之后的异步链里（拉投影 → 开 SSE）——
+    // waitFor 守卫防渲染竞速下裸读 undefined（CI macos 单红实录，:154 同形）
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
     const es = FakeEventSource.instances[0]!;
     // a1 流式在飞（run 进行中）
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'message_start', role: 'assistant' } });
