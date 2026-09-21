@@ -290,6 +290,47 @@ describe('runDeviceCodeFlow（RFC 8628 编舞）', () => {
       '缺 access_token',
     );
   });
+
+  it('200 空 access_token 同拒 + 空 refresh_token 视同缺席（空串不落库成死凭证行）', async () => {
+    // token 端点 200 但 access_token 为空串——判形须拒（修前：'' 过闸产 grant，
+    // 落库即「写入侧被 secret-box 拒 / 无闸时代直接死行」的坏凭证）
+    const fetch = scriptedFetch([
+      {
+        ok: true,
+        status: 200,
+        json: { device_code: 'd', user_code: 'U', verification_uri: 'https://v', expires_in: 600 },
+      },
+      { ok: true, status: 200, json: { access_token: '', refresh_token: 'rt' } },
+    ]);
+    await expectCode(
+      () =>
+        runDeviceCodeFlow(DEF, {
+          fetchFn: fetch,
+          present: () => undefined,
+          now: fakeClock().now,
+          sleep: fakeClock().sleep,
+        }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      'access_token',
+    );
+    // refresh_token 空串 = 视同缺席（复用旧值链不动刷新行——空串落库即死刷新行）
+    const fetch2 = scriptedFetch([
+      {
+        ok: true,
+        status: 200,
+        json: { device_code: 'd', user_code: 'U', verification_uri: 'https://v', expires_in: 600 },
+      },
+      { ok: true, status: 200, json: { access_token: 'at', refresh_token: '' } },
+    ]);
+    const grant = await runDeviceCodeFlow(DEF, {
+      fetchFn: fetch2,
+      present: () => undefined,
+      now: fakeClock().now,
+      sleep: fakeClock().sleep,
+    });
+    expect(grant.accessToken).toBe('at');
+    expect(grant.refreshToken).toBeUndefined(); // 修前红：'' 过闸带出落库
+  });
 });
 
 describe('refreshOAuthToken（刷新换新）', () => {
@@ -313,6 +354,22 @@ describe('refreshOAuthToken（刷新换新）', () => {
       'CREDENTIALS_OAUTH_EXPIRED',
       'invalid_grant',
     );
+  });
+
+  it('200 空 access_token 同拒 + 空 refresh_token 视同缺席（device-code 流同律）', async () => {
+    // refresh 端点 200 但 access_token 空串——判形须拒（修前：'' 过闸，写入侧
+    // secret-box 拒收抛纯 Error 但源头报文失真——源头拒给准确端点归因）
+    const fetch = scriptedFetch([{ ok: true, status: 200, json: { access_token: '' } }]);
+    await expectCode(
+      () => refreshOAuthToken(DEF, 'rt-old', { fetchFn: fetch, now: () => 0 }),
+      'CREDENTIALS_OAUTH_FLOW_FAILED',
+      'access_token',
+    );
+    // 空 refresh_token 视同缺席（RFC 6749 §6 复用旧值——空串不落刷新行）
+    const fetch2 = scriptedFetch([{ ok: true, status: 200, json: { access_token: 'at-2', refresh_token: '' } }]);
+    const grant = await refreshOAuthToken(DEF, 'rt-old', { fetchFn: fetch2, now: () => 0 });
+    expect(grant.accessToken).toBe('at-2');
+    expect(grant.refreshToken).toBeUndefined(); // 修前红：'' 过闸带出
   });
 
   it('传输错与其他非 200 → CREDENTIALS_OAUTH_FLOW_FAILED', async () => {

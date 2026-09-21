@@ -79,4 +79,14 @@ describe('加密往返', () => {
     raw[last] = (raw[last] ?? 0) ^ 0xff;
     expectCode(() => decryptSecret(key, 'v1:' + raw.toString('base64')), 'PERSIST_SECRET_UNREADABLE');
   });
+
+  it('空明文拒收（写入侧拦截）——凡 encryptSecret 产物必可被 decryptSecret 解回', () => {
+    const key = loadOrCreateSecretKey(dir, () => undefined);
+    // 修前红：空明文产 iv+tag+0 字节 ct 的 28 字节密文可落库，但读侧长度
+    // 下限（须含 ≥1 字节 ct）使该行此后恒抛——往返不对称 = 死凭证行。
+    // 修后写入侧即拦（与人面 runAdd 空值拦截同判据）
+    expect(() => encryptSecret(key, '')).toThrowError(/为空/);
+    // 非空明文往返恒成立（含单字符短值——长度下限只拒空 ct）
+    expect(decryptSecret(key, encryptSecret(key, 'x'))).toBe('x');
+  });
 });

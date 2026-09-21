@@ -203,9 +203,16 @@ function safeJsonParse(text: string): Record<string, unknown> | null {
   }
 }
 
-/** 端点载荷字符串键提取（坏形/缺席 → undefined——调用面判形折错） */
+/**
+ * 端点载荷字符串键提取（坏形/缺席/空串 → undefined——调用面判形折错）。
+ * 空串折 undefined（2026-09-21 第十三役 B 组伴腿）：端点 200 + `"access_token": ""`
+ * 坏应答若空串过闸即落库死凭证行（secret-box 写入侧已 fail-loud 拒，此处源头
+ * 拒给准确端点归因）；空 refresh_token 同折缺席走 RFC 6749 §6 复用旧值。
+ */
 function strField(parsed: Record<string, unknown> | null, key: string): string | undefined {
-  return parsed !== null && typeof parsed[key] === 'string' ? (parsed[key] as string) : undefined;
+  if (parsed === null || typeof parsed[key] !== 'string') return undefined;
+  const value = parsed[key] as string;
+  return value === '' ? undefined : value;
 }
 
 /** 端点载荷数值键提取（同上——expires_in/interval 等） */

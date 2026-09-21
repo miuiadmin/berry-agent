@@ -6,7 +6,12 @@
  *  - 密钥 = 数据目录 secret.key（32 字节随机，0600，缺失自动生成——首启自举）；
  *  - 密文自描述 `v1:<base64(iv|tag|ct)>`（iv 12 字节随机 / tag 16 字节 / ct 明文等长）；
  *  - 解密失败（密钥丢失/不匹配/密文损坏）→ fail-loud `PERSIST_SECRET_UNREADABLE`
- *    ——重录凭证即恢复（旧密文作废，不静默降级为明文存储）。
+ *    ——重录凭证即恢复（旧密文作废，不静默降级为明文存储）；
+ *  - 空明文写入侧即拒（fail-loud）——空明文产 iv+tag+0 字节 ct 的密文可落库
+ *    但读侧长度下限恒拒，构成「写入侧接受、读取侧永久拒绝」的死凭证行
+ *    （外因链：OAuth 端点 200+空 access_token 经 strField 判形过闸直落库）；
+ *    与人面 runAdd 空值拦截同律——往返不变式「凡 encryptSecret 产物必可被
+ *    decryptSecret 解回」由写入侧保证。
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -58,10 +63,22 @@ export function loadOrCreateSecretKey(dataDir: string, warn: (message: string) =
 /**
  * 明文 → 自描述密文（`v1:<base64(iv|tag|ct)>`）。每次加密随机 iv——同明文
  * 两次加密密文不同（GCM nonce 复用是灾难，结构性排除）。
+ *  空明文拒绝（fail-loud 写入侧拦截）：不产 28 字节空 ct 密文——该形密文
+ *  decryptSecret 恒拒，落库即成死凭证行（只能 rm 重录且报错话术误导为
+ *  「密钥丢失或不匹配」）。外因可达链：病态 OAuth 端点 200+空 access_token
+ *  经 strField 判形过闸 → setCredential(apiKey:'')；本闸在加密原语层收口，
+ *  两腿（人面/机器面）判据同源。
  * @param key 32 字节密钥（loadOrCreateSecretKey 产物）
- * @param plaintext 凭证明文（api_key 等）
+ * @param plaintext 凭证明文（api_key 等——非空）
  */
 export function encryptSecret(key: Buffer, plaintext: string): string {
+  if (plaintext === '') {
+    // 空值 = 缺值形（与人面 runAdd 空值拦截同律；纯 Error 形同
+    // plugin-tools ISO 时间戳校验——服务面输入校验无码族归属）
+    throw new Error(
+      '凭证明文为空——拒绝加密落库（空明文密文读侧恒不可解，会铸成只写不读的死凭证行；请检查上游是否下发了空 token）',
+    );
+  }
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
@@ -85,6 +102,8 @@ export function decryptSecret(key: Buffer, boxed: string): string {
   } catch {
     throw fail('base64 损坏');
   }
+  // 长度下限含 ≥1 字节 ct：写侧（encryptSecret 空明文拒）后合法密文恒满足；
+  // 手工伪造/历史残留的 iv+tag+0 字节 ct 形在此拦——该形若放行即空凭证静默复活
   if (packed.length < IV_LENGTH + TAG_LENGTH + 1) throw fail('密文长度不足');
   const iv = packed.subarray(0, IV_LENGTH);
   const tag = packed.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH);

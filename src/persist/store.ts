@@ -764,9 +764,16 @@ export class Store implements WriteTarget {
         this.warn(`[persist] queryEvents 跳过坏行（${row.session_id}#${row.seq}）：${String(err)}`);
       }
     }
+    // 游标基行：整页坏行（last 未推进）时回退本页末原始行——hasMore 下游标
+    // 恒推进越过坏行，否则 nextCursor=null 被调用方视作流已尽，坏行后的完好
+    // 事件经本 API 永久不可达（违「坏行跳过 + warn 继续服务」自述契约）。
+    // 基行取 SQL 取回的原始行（含坏行）而非解析成功的 events；且只推进到
+    // 本页窗口内——多取的 hasMore 探针行留给下一页，不跳事件。末页
+    // （hasMore=false）仍诚实 null（无更多行）
+    const cursorRow = last ?? page[page.length - 1];
     return {
       events,
-      nextCursor: hasMore && last ? encodeCursor(last.time, last.session_id, last.seq) : null,
+      nextCursor: hasMore && cursorRow ? encodeCursor(cursorRow.time, cursorRow.session_id, cursorRow.seq) : null,
     };
   }
 
@@ -890,7 +897,8 @@ export class Store implements WriteTarget {
         }
         // 落入遮蔽区间的行跳过（写路径同批已删——重建不得复活）
         if (seqMasked(masked.get(row.session_id), row.seq)) continue;
-        const body = ftsBodyOfRaw(row.type, row.data);
+        // 坏 data 行 warn（含行定位）+ 视作无 body——不阻断重建主流程
+        const body = ftsBodyOfRaw(row.type, row.data, (m) => this.warn(`${m}（${row.session_id}#${row.seq}）`));
         if (body !== null) {
           insert.run(row.session_id, row.seq, body);
           events++;
@@ -923,7 +931,10 @@ export class Store implements WriteTarget {
       let expected = 0;
       for (const row of rows) {
         if (seqMasked(spans, row.seq)) continue; // 被遮行不入期望
-        if (ftsBodyOfRaw(row.type, row.data) !== null) expected++;
+        // 坏 data 行 warn（含行定位）+ 视作无 body——不阻断审计主流程（与
+        // 重建同一容忍模型，期望计数与重建产物一致才不报伪缺口）
+        if (ftsBodyOfRaw(row.type, row.data, (m) => this.warn(`${m}（${row.session_id}#${row.seq}）`)) !== null)
+          expected++;
       }
       const actual = (
         this.stmt(`SELECT count(*) AS n FROM session_fts WHERE session_id = ?`).get(session_id) as { n: number }
@@ -995,7 +1006,9 @@ export class Store implements WriteTarget {
   //    2026-09-08 c-2 扩容——03 §10.9/05 §9；'host' 宿主域 = 模型 key 与
   //    静态人面凭证，'plugin:<id>' 插件域经 c-3 读腿受理位写入）────────────
 
-  /** 凭证写（加密 upsert；meta 须纯 JSON；namespace 归属域显式传） */
+  /** 凭证写（加密 upsert；meta 须纯 JSON；namespace 归属域显式传）。
+   *  空明文 apiKey 在加密原语层即拒（secret-box encryptSecret——写入侧
+   *  拦截，不留「写入侧接受、读取侧永久拒绝」的死凭证行） */
   setCredential(namespace: string, provider: string, entry: { apiKey: string; meta?: unknown }): void {
     this.ensureOpen();
     const meta = entry.meta !== undefined ? snapshotJsonValue(entry.meta, 'credentials.meta') : null;
@@ -1214,12 +1227,25 @@ function ftsBodyOf(event: SessionEvent): string | null {
   return ftsBodyOfRaw(event.type, JSON.stringify(event.data));
 }
 
-/** 行形态直达抽取（重建/审计面复用——避免先 parse 整信封再 stringify） */
-function ftsBodyOfRaw(type: string, dataJson: string): string | null {
+/** 行形态直达抽取（重建/审计面复用——避免先 parse 整信封再 stringify）。
+ *  坏 JSON 与 maskedSpanOf 同律：warn + 视作无 body（不入索引、不入期望），
+ *  不阻断重建/审计主流程——rebuildFts 是坏库场景的唯一修复腿（CLI
+ *  sessions reindex），恰在唯一需要它的场景不得裸崩；ensureFtsIndex 的
+ *  启动对账同理（整体 catch 吞异常 = 对账永久静默降级）。触发面限于
+ *  surface 类别行（非 surface 类提前 return 不 parse）。
+ * @param warn 坏行告警面（可选——写路径 ftsBodyOf 消费内存事件，其 data
+ *  恒为合法 JSON 序列化产物，无坏形面） */
+function ftsBodyOfRaw(type: string, dataJson: string, warn?: (message: string) => void): string | null {
   const meta = getEventTypeMeta(type);
   if (!meta || meta.category !== 'surface') return null;
   const parts: string[] = [];
-  collectStringValues(JSON.parse(dataJson), parts, 0);
+  try {
+    collectStringValues(JSON.parse(dataJson), parts, 0);
+  } catch (err) {
+    // 坏 data 行视作无 body 继续主流程（与 maskedSpanOf「坏 JSON 视作无遮蔽」同律）
+    warn?.(`[persist] fts 抽体跳过坏 data 行（${type}）：${String(err)}`);
+    return null;
+  }
   return parts.length > 0 ? parts.join(' ') : null;
 }
 

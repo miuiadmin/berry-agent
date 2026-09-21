@@ -688,6 +688,30 @@ describe('queryEvents（05 §3.4 过滤维 + 游标）', () => {
     expect(mid.events).toHaveLength(1);
     expect((mid.events[0]!.data as { content: string }).content).toBe('mid');
   });
+
+  it('整页坏行时游标不静默归 null——回退页尾原始行推进，坏行后完好事件经翻页可达', () => {
+    const path = join(dir, 'badpage.db');
+    const store = open({ dbPath: path });
+    store.writeEvents(writesFor('s-bad', makeEvents('good-after-bad'))); // seq 0..1 两行
+    store.close();
+    // 外因坏行：首行 data 改坏（queryEvents 面 = 坏行跳过 + warn 继续服务契约）
+    const raw = new Database(path);
+    raw.exec(`UPDATE events SET data = 'not-json' WHERE session_id = 's-bad' AND seq = 0`);
+    raw.close();
+    const warns: string[] = [];
+    const reopened = open({ dbPath: path, warn: (m) => warns.push(m) });
+    // limit 1：取回 2 行（limit+1）、页窗恰为整页坏行——修前 last 未推进致
+    // nextCursor=null（调用方视流已尽），坏行后的完好事件经本 API 永久不可达
+    const page1 = reopened.queryEvents({ sessionId: 's-bad', limit: 1 });
+    expect(page1.events).toEqual([]);
+    expect(page1.nextCursor).not.toBeNull();
+    // 经游标续页：第 2 行完好事件可达（修前红位——修前到不了这一步）
+    const page2 = reopened.queryEvents({ sessionId: 's-bad', limit: 1, cursor: page1.nextCursor });
+    expect(page2.events).toHaveLength(1);
+    expect(page2.events[0]!.seq).toBe(1);
+    expect((page2.events[0]!.data as { content: string }).content).toBe('good-after-bad');
+    expect(warns.join('\n')).toContain('跳过坏行');
+  });
 });
 
 describe('session_fts 对账三档（05 §9）', () => {
@@ -763,6 +787,28 @@ describe('session_fts 对账三档（05 §9）', () => {
     expect(store.searchSessionFts('s-mask', 'replacement summary')).toEqual([4]);
     // 重建后再审计仍零缺口（审计期望与重建产物同一遮蔽感知模型）
     expect(store.auditFts(8).mismatches).toEqual([]);
+  });
+
+  it('坏 data 行不炸重建/审计——warn + 视作无 body（reindex 唯一修复腿恒可用）', () => {
+    const path = join(dir, 'ftsbad.db');
+    const store = open({ dbPath: path });
+    store.writeEvents(writesFor('s-ftsbad', makeEvents('fts-bad-row-token', 'fts-good-token'))); // seq 0..3
+    store.close();
+    // 外因坏行：surface 类事件行（user/message）data 改坏——与 maskedSpanOf
+    // 「坏 JSON 视作无遮蔽」同律处置：不阻断 rebuildFts/auditFts 主流程
+    const raw = new Database(path);
+    raw.exec(`UPDATE events SET data = 'not-json' WHERE session_id = 's-ftsbad' AND type = 'user/message' AND seq = 1`);
+    raw.close();
+    const warns: string[] = [];
+    const reopened = open({ dbPath: path, warn: (m) => warns.push(m) });
+    // 修前红：rebuildFts 裸 JSON.parse 即 SyntaxError——CLI sessions reindex
+    // 唯一修复腿恰在唯一需要它的场景崩溃；启动抽样对账（auditFts）同炸
+    expect(() => reopened.rebuildFts()).not.toThrow();
+    expect(() => reopened.auditFts(8)).not.toThrow();
+    // 坏行视作无 body：不入索引（好行照常）+ 不入期望（审计零缺口）
+    expect(reopened.searchSessionFts('s-ftsbad', 'fts-good-token')).toEqual([3]);
+    expect(reopened.auditFts(8).mismatches).toHaveLength(0);
+    expect(warns.join('\n')).toContain('坏 data 行');
   });
 
   it('检索式消毒：含 FTS5 语法字符的用户输入按子串匹配', () => {
@@ -896,6 +942,17 @@ describe('credentials 与 model_catalog 面', () => {
     expect(store.listCredentialProviders()).toEqual([
       { namespace: 'host', provider: 'gh', updatedAt: expect.any(Number) },
     ]);
+  });
+
+  it('空明文凭证写入即拒——不留「写入侧接受、读取侧永久拒绝」的死凭证行', () => {
+    const store = open({ dbPath: join(dir, 'emptycred.db'), migrations: [CREDENTIALS_MIGRATION] });
+    // 修前红：空 apiKey 落库成功（iv+tag+0 字节 ct 的 28 字节密文），此后
+    // getCredential 恒抛 PERSIST_SECRET_UNREADABLE（读侧长度下限拒空 ct）——
+    // 死凭证行 + 「重录凭证即恢复」话术误导（外因链：OAuth 端点 200+空
+    // access_token 经 strField 判形过闸）。修后写入侧即拦：行不落库
+    expect(() => store.setCredential('host', 'p', { apiKey: '' })).toThrowError(/为空/);
+    expect(store.getCredential('host', 'p')).toBeUndefined();
+    expect((store.connection.prepare(`SELECT count(*) AS n FROM credentials`).get() as { n: number }).n).toBe(0);
   });
 
   it('模型目录 CRUD', () => {
