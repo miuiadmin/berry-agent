@@ -45,6 +45,8 @@ interface Harness {
     decide: Array<{ approvalId: string; answer: string; note?: string }>;
     subscribed: string[];
     overload: number[];
+    /** durable 查面逐调账（[sessionId, messageId]——幂等账帽淘汰后兜底腿的观测位） */
+    dedupeLookups: Array<[string, string]>;
   };
   sessions: Map<string, SessionStub>;
   retryProbes: Map<string, RetryProbe | null>;
@@ -67,7 +69,7 @@ function createHarness(
   const h: Harness = {
     frames,
     attempted,
-    calls: { submit: [], interrupt: [], decide: [], subscribed: [], overload: [] },
+    calls: { submit: [], interrupt: [], decide: [], subscribed: [], overload: [], dedupeLookups: [] },
     sessions: new Map(),
     retryProbes: new Map(),
     clock: { now: 1_000_000 },
@@ -96,7 +98,10 @@ function createHarness(
         }
         return options?.submitOutcome ?? { sessionId: sid };
       },
-      lookupDedupeKey: (sessionId, messageId) => h.sessions.get(sessionId)?.dedupe.get(messageId),
+      lookupDedupeKey: (sessionId, messageId) => {
+        h.calls.dedupeLookups.push([sessionId, messageId]);
+        return h.sessions.get(sessionId)?.dedupe.get(messageId);
+      },
       interruptSession: (sessionId) => {
         h.calls.interrupt.push(sessionId);
       },
@@ -286,6 +291,62 @@ describe('prompt 腿（④ admit 三档 + 自动订阅 + 会话受理门）', ()
     h.core.handleRequest({ verb: 'hello', protocolVersion: 1, noDelta: false, sessionId: 's1' });
     h.core.pushEvent('s1', { type: 'message_update', role: 'assistant', partial: partialMsg() });
     expect(h.frames.filter((f) => f.kind === 'event')).toHaveLength(1);
+  });
+});
+
+describe('幂等账帽（sdk-wire#2——03 §10.6 ④ 定形注：两账 FIFO 淘汰 + durable 兜底零损失 + 反查账降级边界）', () => {
+  it('admit 账 FIFO 淘汰后 durable 档兜底：同键携 sessionId 重发仍 duplicate 不重跑（修前红——修前快速档无界不淘汰、durable 不被咨询）', () => {
+    const h = createHarness({ admitAccountCap: 2 });
+    seedS1(h);
+    h.core.handleRequest({ verb: 'prompt', sessionId: 's1', messageId: 'm-1', content: 'a' });
+    h.core.handleRequest({ verb: 'prompt', sessionId: 's1', messageId: 'm-2', content: 'b' });
+    // 第三条插满：m-1 自 admit 账 FIFO 出账（内层最旧键让位）
+    h.core.handleRequest({ verb: 'prompt', sessionId: 's1', messageId: 'm-3', content: 'c' });
+    expect(h.calls.submit).toHaveLength(3);
+    // durable 侧同账（真桥 fresh 受理即落账 dedupeKey——桩手工同步等价形）
+    h.sessions.get('s1')!.dedupe.set('m-1', 'a');
+    // m-1 携 sessionId 重发：快速档缓存 miss → durable 档直查命中 → duplicate 收执不重跑
+    h.core.handleRequest({ verb: 'prompt', sessionId: 's1', messageId: 'm-1', content: 'a' });
+    expect(h.calls.submit).toHaveLength(3); // 重发不重跑
+    // 修前红锚：修前 m-1 仍在快速档（duplicate 直收）、durable 查面不被咨询——
+    // 末次咨询恒为 m-3 首发档；修后 m-1 缓存 miss 落 durable 档（末次咨询翻为 m-1）
+    expect(h.calls.dedupeLookups.at(-1)).toEqual(['s1', 'm-1']);
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'ack', sessionId: 's1', messageId: 'm-1', duplicate: true });
+  });
+
+  it('反查账 FIFO 淘汰：sessionId 缺席重发退 fresh 新建（修前红——修前反查账无界恒命中 duplicate）', () => {
+    const h = createHarness({ admitAccountCap: 2 });
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a' });
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-2', content: 'b' });
+    // 第三条插满：m-1 自反查账 FIFO 出账
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-3', content: 'c' });
+    // m-1 sessionId 缺席重发：反查账已淘汰 → 无定位面 → 退 fresh 新建
+    //（连接级索引边界如实——与跨连接重发同形；durable 查面不触发〔sessionId 缺席〕）
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a' });
+    expect(h.calls.submit).toHaveLength(4); // 三首发 + 退 fresh 重发各一笔（修前：3——duplicate 不受理）
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'ack', messageId: 'm-1', duplicate: false });
+    // durable 查面全程未被咨询（sessionId 缺席档不触发——降级路径如实）
+    expect(h.calls.dedupeLookups).toEqual([]);
+  });
+
+  it('插满不淘汰边界：恰满帽时全员在账，重发仍 duplicate（护栏——溢出才淘汰）', () => {
+    const h = createHarness({ admitAccountCap: 2 });
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a' });
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-2', content: 'b' }); // 恰满帽零淘汰
+    h.core.handleRequest({ verb: 'prompt', messageId: 'm-1', content: 'a' });
+    expect(h.calls.submit).toHaveLength(2); // 两首发各一笔、重发 duplicate 零受理
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'ack', messageId: 'm-1', duplicate: true });
+  });
+
+  it('conflict 档经 durable 兜底不降级：淘汰后同键异内容重发仍 SDK_MESSAGE_CONFLICT（护栏）', () => {
+    const h = createHarness({ admitAccountCap: 1 });
+    seedS1(h, { dedupe: new Map([['m-1', '旧内容']]) });
+    h.core.handleRequest({ verb: 'prompt', sessionId: 's1', messageId: 'm-1', content: '旧内容' }); // durable 命中 duplicate 入快速账
+    h.core.handleRequest({ verb: 'prompt', sessionId: 's1', messageId: 'm-2', content: 'x' }); // fresh——m-1 出账（帽 1）
+    // 同键异内容重发：快速档 miss → durable 命中旧内容 → conflict 执法不降级（零损失腿另一半）
+    h.core.handleRequest({ verb: 'prompt', sessionId: 's1', messageId: 'm-1', content: '异内容' });
+    expect(h.frames.at(-1)).toMatchObject({ kind: 'error', code: 'SDK_MESSAGE_CONFLICT', sessionId: 's1' });
+    expect(h.calls.submit.map((c) => c.messageId)).toEqual(['m-2']); // m-1 两态均未重跑
   });
 });
 

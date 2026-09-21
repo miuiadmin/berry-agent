@@ -104,10 +104,20 @@ export interface SdkWireOptions {
    * 缺省——连接级 hello 显式携值胜出、缺席承本缺省）
    */
   initialConnectionNoDelta?: boolean;
+  /**
+   * 幂等账条目帽（④ 幂等 admit 定形注——03 §10.6 sdk-wire#2）：admit 已知
+   * 键账（按全连接内层条目合计计）与 messageId→sessionId 反查账（按条目直计）
+   * 各设帽，插满后续插即 FIFO 淘汰本账最旧。缺省
+   * {@link DEFAULT_ADMIT_ACCOUNT_CAP}；测试确定性注入位，不进 env 面。
+   */
+  admitAccountCap?: number;
 }
 
 /** 订阅相位（同步读面下 attaching/replaying 在单事务内瞬过——13e 异步腿扩用） */
 type SubPhase = 'live' | 'closed';
+
+/** 幂等账帽缺省（④ 定形注——03 §10.6：daemon 单核 / stdio / MCP 长连下连接级账有界） */
+const DEFAULT_ADMIT_ACCOUNT_CAP = 4_096;
 
 /** 单会话订阅态（活体外推 + 心跳推导账） */
 interface SubState {
@@ -218,6 +228,8 @@ export class SdkWireCore {
   private readonly now: () => number;
   private readonly heartbeatIntervalMs: number;
   private readonly overloadRetryAfterMs: number;
+  /** 幂等账条目帽（④ 定形注——两账各计，插满 FIFO 淘汰最旧） */
+  private readonly admitAccountCap: number;
   /** 连接级缺省 noDelta（连接级 hello 落定；prompt 自动订阅继承） */
   private connectionNoDelta: boolean;
   private closed = false;
@@ -229,6 +241,7 @@ export class SdkWireCore {
     this.now = options.now ?? Date.now;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 5_000;
     this.overloadRetryAfterMs = options.overloadRetryAfterMs ?? 1_000;
+    this.admitAccountCap = options.admitAccountCap ?? DEFAULT_ADMIT_ACCOUNT_CAP;
     this.connectionNoDelta = options.initialConnectionNoDelta ?? false;
     this.queue = new SdkOutboundQueue(deps.sink, options.queueCap ?? 512);
   }
@@ -368,6 +381,7 @@ export class SdkWireCore {
         sessionKnown ??= new Map();
         sessionKnown.set(messageId, durable);
         this.known.set(sessionId, sessionKnown);
+        this.trimAdmitAccounts(); // 种子亦占账（幂等账帽执法位一）
         verdict = admitMessage(sessionKnown, messageId, content);
       }
     }
@@ -378,6 +392,7 @@ export class SdkWireCore {
     if (verdict.status === 'duplicate') {
       const sid = sessionId!;
       this.messageIndex.set(messageId, sid);
+      this.trimAdmitAccounts(); // 重落亦过帽（幂等账帽执法位二——重设不增条目，恒无害）
       this.emit({
         kind: 'ack',
         sessionId: sid,
@@ -393,6 +408,7 @@ export class SdkWireCore {
     record.set(messageId, content);
     this.known.set(outcome.sessionId, record);
     this.messageIndex.set(messageId, outcome.sessionId);
+    this.trimAdmitAccounts(); // 双账齐插（幂等账帽执法位三——主插账点）
     // 自动订阅（13b 落码定形）：prompt 落定会话即挂直播（ack 携句柄 → 事件随后
     // 即流；只直播不重放——重放走显式 hello.after）。既有订阅不覆写（hello 订阅
     // 携 noDelta 等订阅参数胜出）；新会话无未决 ask，onSubscribed 只对新挂者发。
@@ -416,6 +432,38 @@ export class SdkWireCore {
       routedChannel: outcome.routedChannel,
       highWaterSeq: this.deps.highWaterOf(outcome.sessionId) ?? 0,
     });
+  }
+
+  /**
+   * 幂等账帽执法（④ 幂等 admit 定形注——03 §10.6 sdk-wire#2）：两账各设
+   * 条目帽，插满后续插即 FIFO 淘汰本账最旧（Map 插入序即淘汰序——真 LRU
+   * 不采，重发目标恒近期）。admit 账按全连接内层条目合计计帽（外层会话
+   * 插入序优先、内层键插入序继之；内层清空随删会话键——键不残留）；反查
+   * 账按条目直计。淘汰语义分级：admit 账零语义损失（同键携 sessionId 重发
+   * 落 durable 档直查——05 §3.5 durable 即真相，快速档本系其缓存）；反查
+   * 账淘汰 = 该键 sessionId 缺席重发退 fresh 新建（连接级索引边界，与跨
+   * 连接重发同形）。每次插账后调用；单次受理至多插一条，淘汰至多让位一条。
+   */
+  private trimAdmitAccounts(): void {
+    // admit 账：内层条目合计计帽，超帽自最旧会话的内层最旧键起让位
+    //（迭代中删当前项安全——Map 迭代序语义明文允许；刚插键恒最新、非淘汰对象）
+    let knownTotal = 0;
+    for (const record of this.known.values()) knownTotal += record.size;
+    for (const [sid, record] of this.known) {
+      if (knownTotal <= this.admitAccountCap) break;
+      for (const key of record.keys()) {
+        if (knownTotal <= this.admitAccountCap) break;
+        record.delete(key);
+        knownTotal--;
+      }
+      if (record.size === 0) this.known.delete(sid); // 空内层随删会话键
+    }
+    // 反查账：条目直计，FIFO 淘汰最旧
+    while (this.messageIndex.size > this.admitAccountCap) {
+      const oldest = this.messageIndex.keys().next().value;
+      if (oldest === undefined) break;
+      this.messageIndex.delete(oldest);
+    }
   }
 
   /** interrupt：受理经事件流可观察（turn/end reason='interrupted'）——无应答帧 */
