@@ -114,6 +114,15 @@ export interface LlmService {
    */
   backgroundUsage(): BackgroundBudgetUsage;
   /**
+   * 当日全道已耗 tokens（呈现专用读面——TUI 状态栏「今日」段消费）：口径 =
+   * foreground + background 两道合计 SUM(input+output) 主计费桶（05 §1.1
+   * 表注同律——cache 桶不进）。**与闸门口径分立**：canAfford / backgroundUsage
+   * / 预警三档 / reserve 线仍只认 backgroundSpentToday 注入位，本读面扩张
+   * 到全道不反噬任何执法面（呈现口径，非预算口径）。缺省无装配 = 0
+   * （lib 形态同 backgroundSpentToday 律）。
+   */
+  allLanesSpentToday(): number;
+  /**
    * 错误桶判定（04 §3.5——recovery.ts classifyError 单源表的服务面公开位）：
    * conversation 件等宿主内消费方经服务面取用（拓扑不含 llm 边时判定器经
    * 服务面注入驱动——「全仓无第二分类处」的执法前提是宿主面可得）。
@@ -177,6 +186,13 @@ export interface LlmServiceOptions {
    * 「最后一发可略超限额」同语义，预算是软闸门不是安全边界。
    */
   backgroundSpentToday?: () => number;
+  /**
+   * 当日全道已耗查询（呈现口径——allLanesSpentToday 服务读面的供数注入位；
+   * 缺省 () => 0——无装配即零值，与 backgroundSpentToday 同律）。生产由
+   * host 注入：对会话日志 llm/usage 事件的当日时间窗聚合、车道不过滤
+   * （前台笔照进——与闸门口径的差异位即在此）。
+   */
+  allLanesSpentToday?: () => number;
 }
 
 /** 缺省重试策略：开 1 次重试、500ms 起步指数退避（SDK 级重试之外的有界第二层） */
@@ -228,6 +244,8 @@ export function createLlmService(options: LlmServiceOptions): LlmService {
   const budget = options.backgroundBudgetTokens ?? DEFAULT_BACKGROUND_BUDGET;
   // 当日后台已耗 = 注入的聚合查询（底账 = llm/usage 事件投影，缺省无已耗）
   const spentToday = options.backgroundSpentToday ?? (() => 0);
+  // 当日全道已耗 = 注入的呈现口径聚合查询（缺省零值——lib 形态）
+  const allLanesSpent = options.allLanesSpentToday ?? (() => 0);
 
   /**
    * 预算闸门（04 §5 两维）：foreground 恒 true（用户可见请求永远优先——前台
@@ -285,6 +303,9 @@ export function createLlmService(options: LlmServiceOptions): LlmService {
       const spent = spentToday();
       return { spent, limit: budget, ratio: spent / budget };
     },
+
+    // 当日全道已耗（呈现专用——注入位直通，缺省零值；不进任何执法面）
+    allLanesSpentToday: (): number => allLanesSpent(),
 
     async complete(req: CompleteRequest): Promise<CompleteResult> {
       // 钩子派发段前置查（03 §3.4——02 §5.3 LLM_CALL_IN_HOOK）：钩子 handler

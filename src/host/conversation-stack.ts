@@ -509,6 +509,28 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     }
     return spentCached;
   };
+  // 当日全道已耗读面（呈现口径——TUI 状态栏「今日」段消费）：与上方闸门口径
+  // 分立成对（日键缓存 + 桥接增量同形），差异只在聚合不过滤车道（前台笔照进）。
+  // **只喂呈现**：allLanesSpentToday 服务读面的供数闭包，canAfford / 预警三档
+  // / reserve 线仍只认 backgroundSpentToday——全道扩张不反噬任何执法面。
+  let allSpentDayStart = -1;
+  let allSpentCached = 0;
+  const allLanesSpentToday = (): number => {
+    const dayStart = startOfTodayMs();
+    if (dayStart !== allSpentDayStart) {
+      allSpentDayStart = dayStart;
+      try {
+        allSpentCached = aggregateSpentToday(options.runtime.persistence.store, dayStart);
+      } catch (err) {
+        // 读面失败 fail-open + warn：呈现面更不反噬请求路（归既知值——观测精度
+        // 损失与闸门读面同语义，随下次日键重试/进程重启收口）
+        warn(
+          `当日全道已耗聚合失败（fail-open 归既知值 ${allSpentCached}）：${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return allSpentCached;
+  };
   // 计量写位粘滞持有（04 §5 mq 定形注补律——mq-3 收口锁批 + 四役 mq-2 勘正）：
   // 持有入位随会话驱动创建/开（createDriver 工厂 seam——manager create/open/fork
   // 共尾 adopt 均经此，创建即持）；settle 观测逐次刷新取最新活体；onUsage 解析序
@@ -534,6 +556,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     defaultModel: () => currentModel,
     ...(options.hookDispatchGuard !== undefined ? { hookDispatch: options.hookDispatchGuard } : {}),
     backgroundSpentToday,
+    allLanesSpentToday,
     ...(backgroundBudgetTokens !== undefined ? { backgroundBudgetTokens } : {}),
     // —— 单发计量装配单点（04 §5 mq 定形——2026-09-14）：complete 路 onUsage
     // 落 llm/usage（compaction/memory/goal 三调用位经三中间面 sessionId 穿线
@@ -572,6 +595,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         void backgroundSpentToday();
         if (spentDayStart === startOfTodayMs()) spentCached += result.usage.input + result.usage.output;
       }
+      // 全道呈现缓存同推（车道不过滤——前台单发笔也进「今日」段；先经读面
+      // 确保日键已初始化，同双计不生律）
+      void allLanesSpentToday();
+      if (allSpentDayStart === startOfTodayMs()) allSpentCached += result.usage.input + result.usage.output;
     },
     // onUsage 回调异常的观测交接（04 §3.7——丢账不静默；llm 件窄面回调落 ctx warn）
     onUsageError: (err, info) => {
@@ -611,6 +638,10 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         void backgroundSpentToday();
         if (spentDayStart === startOfTodayMs()) spentCached += usage.input + usage.output;
       }
+      // 全道呈现缓存增量（车道不过滤——前台 run 笔也进「今日」段；同双计
+      // 不生律）
+      void allLanesSpentToday();
+      if (allSpentDayStart === startOfTodayMs()) allSpentCached += usage.input + usage.output;
     }
   };
 
@@ -1308,15 +1339,18 @@ export function providerApiKeyEnvNames(provider: string): readonly string[] {
 }
 
 /**
- * 当日后台已耗聚合（04 §5 #44 聚合读面——05 §1.1 口径单源）：queryEvents
- * 当日窗 llm/usage · `priority === 'background'` 过滤 · SUM(input+output)
- * 主计费桶（cache 桶进观察面板不进闸门）。分页游标走满（页帽顶格 10000——
- * 当日调用密度远不及帽，走满是完整性防御非热路径）。读失败上抛由调用方
- * 定姿态（装配位 fail-open + warn——预算软闸门不反噬请求路）。
+ * 当日已耗聚合单源（04 §5 聚合读面——05 §1.1 口径）：queryEvents 当日窗
+ * llm/usage · SUM(input+output) 主计费桶（cache 桶进观察面板不进闸门/呈现）。
+ * 车道口径参数化：'background' = 闸门口径（priority 过滤——canAfford/预警三档
+ * /reserve 线消费）；'all' = 全道呈现口径（车道不过滤——TUI「今日」段消费，
+ * 前台笔照进）。分页游标走满（页帽顶格 10000——当日调用密度远不及帽，走满
+ * 是完整性防御非热路径）。读失败上抛由调用方定姿态（装配位 fail-open + warn
+ * ——预算软闸门/呈现面均不反噬请求路）。
  */
-export function aggregateBackgroundSpentToday(
+function aggregateSpentSince(
   store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
   sinceMs: number,
+  lane: 'background' | 'all',
 ): number {
   let sum = 0;
   let cursor: string | null | undefined = undefined;
@@ -1329,12 +1363,29 @@ export function aggregateBackgroundSpentToday(
     });
     for (const event of page.events) {
       const data = event.data as { priority?: string; usage?: { input?: number; output?: number } };
-      if (data.priority !== 'background') continue; // 前台照入账不进闸门
+      // 前台照入账不进闸门——仅 background 口径过滤；全道呈现口径照计
+      if (lane === 'background' && data.priority !== 'background') continue;
       sum += (data.usage?.input ?? 0) + (data.usage?.output ?? 0);
     }
     cursor = page.nextCursor ?? undefined;
   } while (cursor !== undefined);
   return sum;
+}
+
+/** 当日后台已耗聚合（闸门口径——canAfford/预警三档/reserve 线的读侧单源） */
+export function aggregateBackgroundSpentToday(
+  store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
+  sinceMs: number,
+): number {
+  return aggregateSpentSince(store, sinceMs, 'background');
+}
+
+/** 当日全道已耗聚合（呈现口径——allLanesSpentToday 读面的聚合腿：前台笔照进） */
+export function aggregateSpentToday(
+  store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
+  sinceMs: number,
+): number {
+  return aggregateSpentSince(store, sinceMs, 'all');
 }
 
 /** 宿主级 run 并发闸（04 §4 lane 帽）：计数信号量 + FIFO 等位队列 */

@@ -1883,6 +1883,42 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     await rt.shutdown();
   });
 
+  it('全道聚合变体：双口径分立——allLanesSpentToday 计前台、闸门口径不随动（呈现专用）', async () => {
+    const { rt } = rigRuntime();
+    const today = startOfTodayMs();
+    seedLedger(rt, 'seed-all-lanes', [
+      { at: today - 60_000, input: 900, output: 99, priority: 'background' }, // 昨日尾——不跨日
+      { at: today + 60_000, input: 50, output: 0, priority: 'foreground' }, // 前台——不入闸、进全道
+      { at: today + 120_000, input: 80, output: 20, priority: 'background' }, // 当日后台——两口径都进
+    ]);
+    const { stack } = rigStack(rt);
+    expect(stack.llm.allLanesSpentToday()).toBe(150); // 50+80+20——全道呈现口径（TUI「今日」段消费）
+    expect(stack.llm.backgroundUsage().spent).toBe(100); // 闸门口径不随动——双口径分立锁
+    await rt.shutdown();
+  });
+
+  it('全道读面随前台 run 桥接推进（增量不漏前台笔——呈现口径完整性）', async () => {
+    const { rt } = rigRuntime();
+    const today = startOfTodayMs();
+    seedLedger(rt, 'seed-bridge-all', [{ at: today + 60_000, input: 30, output: 10, priority: 'background' }]);
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    faux.setResponses([() => meteredMessage(15, 6)]);
+    const before = stack.llm.allLanesSpentToday(); // 首读聚合初始化日键（40 基线）
+    await stack.submitText(session.sessionId, '问');
+    // faux 计量动态取转抄值同源断言（:1580 既有律——run 路脚本 usage 被
+    // withUsageEstimate 按序列化上下文重算，硬编脚本值即假红）
+    const usageEvents = stack
+      .driverOf(session.sessionId)!
+      .session.events()
+      .filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(1); // 前台 run 桥接恰一笔
+    const ledger = usageEvents[0]!.data as { usage: { input: number; output: number } };
+    expect(stack.llm.allLanesSpentToday()).toBe(before + ledger.usage.input + ledger.usage.output); // 前台笔经桥接推进全道缓存（修前红：仅后台道推进）
+    expect(stack.llm.backgroundUsage().spent).toBe(40); // 同笔不入闸门口径——分立再证（seed 40 不动）
+    await rt.shutdown();
+  });
+
   it('env 旋钮：好形覆盖 / 零值显式关池 / 坏形 fail-loud 启动当场红', async () => {
     const { rt } = rigRuntime();
     const capped = rigStack(rt, { env: { BERRY_AGENT_BACKGROUND_BUDGET_TOKENS: '150' } });

@@ -210,6 +210,21 @@ describe('complete：预算两维（foreground 恒放行 / background 软闸门�
     const { service: bare } = makeService();
     expect(bare.backgroundUsage()).toEqual({ spent: 0, limit: 4_000_000, ratio: 0 });
   });
+
+  it('allLanesSpentToday 全道呈现读面：缺省零值 + 注入透传 + 不进闸门（与预算口径分立）', () => {
+    const { service: bare } = makeService();
+    expect(bare.allLanesSpentToday()).toBe(0); // lib 形零注入零值（呈现面无装配不炸）
+    const { service } = makeService({ allLanesSpentToday: () => 4242 });
+    expect(service.allLanesSpentToday()).toBe(4242); // 注入透传（host 聚合闭包供数）
+    // 全道读面不进预算闸门：全道已耗 4242 超小额预算，background 仍可跑
+    // （闸门口径只认 backgroundSpentToday——呈现口径扩张不反噬执法面）
+    const { service: mixed } = makeService({
+      backgroundBudgetTokens: 1000,
+      backgroundSpentToday: spent(0),
+      allLanesSpentToday: () => 4242,
+    });
+    expect(mixed.canAfford('background')).toBe(true);
+  });
 });
 
 /* ---------------- 预警三档（04 §5 软着陆层——遗漏审计批 H） ---------------- */
