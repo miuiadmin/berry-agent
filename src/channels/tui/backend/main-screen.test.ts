@@ -341,6 +341,44 @@ describe('MainScreen 超视口冻结提交', () => {
     expect(screen.lastSlotFrameBytes).toBe(0); // 无槽帧计量归零
   });
 
+  it('定稿块与下条新槽同帧（合并帧形）：epoch 复位后置于 B 段 skip 消费——已冻前缀不重写', () => {
+    const { io, screen } = makeScreen();
+    screen.start();
+    const text = headingText(10);
+    const doc = new StreamingMarkdown();
+    doc.update(text);
+    screen.present([docSlot(text, doc)]); // 冻结 11 行（标题一..六）
+    io.bytes = '';
+    // 合并帧形（装配层 enqueuePresent 连续 present 保末次快照——fps 帽合并窗
+    // 内 message_end 定稿与紧邻下条 message_start 新槽同 op）：blocks = [定稿
+    // 块, 新槽]。修前：present 入口的 epoch 复位先于 B 段取 skip → 冻结账被
+    // 清零、B 段 skip=0 → 定稿块连已冻前缀全量重写（scrollback 内容双份）
+    const doc2 = new StreamingMarkdown();
+    doc2.update('次条流式');
+    screen.present([
+      { kind: 'markdown', doc: MarkdownDoc.of(text) }, // 定稿块（同文同宽同行集）
+      {
+        kind: 'streaming',
+        epoch: 2,
+        text: '次条流式',
+        doc: doc2,
+        thinking: '',
+        thinkingDoc: null,
+        thinkingSettled: false,
+        thinkingExpanded: false,
+        theme: DEFAULT_THEME,
+        toggleHint: 'ctrl+t',
+      },
+    ]);
+    for (const n of ['一', '二', '三', '四', '五', '六']) {
+      expect(io.bytes).not.toContain(sg(n)); // 已冻前缀不重写（修前红锚：全量重写双显）
+    }
+    for (const n of ['七', '八', '九', '十']) {
+      expect(io.bytes.split(sg(n)).length - 1).toBe(1); // 未冻尾恰写一次
+    }
+    expect(io.bytes).toContain('次条流式'); // 新槽换装照常
+  });
+
   it('不稳定尾（段落回流形）不冻结：帧帧全量重写（v1 边界——接受滚动）', () => {
     const { io, screen } = makeScreen();
     screen.start();

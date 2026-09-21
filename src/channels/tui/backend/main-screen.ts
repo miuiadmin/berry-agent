@@ -123,11 +123,6 @@ export class MainScreen {
     // 末块为 streaming 时即流式槽（const 绑定经 kind 判别收窄）
     const last = blocks.length > 0 ? blocks[blocks.length - 1]! : null;
     const slot = last !== null && last.kind === 'streaming' ? last : null;
-    // 槽代次变更 = 新槽开账：冻结行数清零（旧槽冻结行已交 scrollback 不回收）
-    if (slot !== null && slot.epoch !== this.slotEpoch) {
-      this.slotEpoch = slot.epoch;
-      this.frozenSlotLines = 0;
-    }
     const durableCount = slot === null ? blocks.length : blocks.length - 1;
     // 余行清除上界：上次呈现的槽末行（= durable 末 + 槽行数 - 1——本帧前的账）
     const prevBottomRow = Math.min(this.rows - this.fixedHeight - 1, this.durableEndRow + this.slotLineCount - 1);
@@ -156,10 +151,19 @@ export class MainScreen {
       this.writtenAbsolute = newAbsolute;
       this.durableEndRow = this.cursorRow;
     }
-    // 槽不在场即冻结账收口（残值防御清——epoch 账只在槽在场期有意义）
+    // 冻结账开/收口（第六役 S4——复位后置于 B 段 skip 消费之后）：装配层
+    // enqueuePresent 连续 present 合并保末次快照，message_end 定稿块与下条
+    // message_start 新槽可同帧到达——B 段须先以旧槽冻结额跳过定稿块的已冻
+    // 前缀，开新账（清零）才不致定稿块全量重写（冻结行重写 = scrollback
+    // 内容双份，违反 append-only 物理律）
     if (slot === null) {
+      // 槽不在场即冻结账收口（残值防御清——epoch 账只在槽在场期有意义）
       this.frozenSlotLines = 0;
       this.slotEpoch = null;
+    } else if (slot.epoch !== this.slotEpoch) {
+      // 槽代次变更 = 新槽开账：冻结行数清零（旧槽冻结行已交 scrollback 不回收）
+      this.slotEpoch = slot.epoch;
+      this.frozenSlotLines = 0;
     }
 
     // C. 槽换装（光标已在槽尾段首 = durable 末；partial 是完整快照——逐行整写）
