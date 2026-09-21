@@ -2226,3 +2226,95 @@ describe('checkpoint 语境面真身接线（contextOf——行反查截断窗�
     }
   });
 });
+
+/* ---------------- 装配阶段回调（TUI 启动动画供数位——三反馈批 D 先行件2） ---------------- */
+
+describe('装配阶段回调（onBootStage/onPluginLoadStart——启动动画供数注入位）', () => {
+  it('六阶段 start/end 到达序 + ready 单 end + plugins 尾事件计数与披露匣同账（全真装配链）', async () => {
+    const dir = tmpDir('host-asm-stage-seq-');
+    const events: string[] = [];
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false, // core 内置态全装——plugins/skills/subagents 阶段真跑
+      debug: false,
+      version: 'x',
+      onBootStage: (e) => {
+        events.push(e.detail !== undefined ? `${e.stage}/${e.phase}(${e.detail})` : `${e.stage}/${e.phase}`);
+      },
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 到达序 = 装配序骨架刻度词汇化：runtime → stack → plugins → skills →
+      // subagents → ready；耗时阶段 start/end 成对（ready 瞬时相位只发 end）
+      expect(events).toEqual([
+        'runtime/start',
+        'runtime/end',
+        'stack/start',
+        'stack/end',
+        'plugins/start',
+        `plugins/end(enabled=${assembly.pluginCounts.enabled},total=${assembly.pluginCounts.total})`,
+        'skills/start',
+        'skills/end',
+        'subagents/start',
+        'subagents/end',
+        'ready/end',
+      ]);
+      expect(assembly.pluginCounts.total).toBeGreaterThan(0); // core 全装非空——序断言非空转
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('onPluginLoadStart 逐插件到达：序号 1..N 连续、total 恒初始待装数、与 boot 计数/skipped 对账', async () => {
+    const dir = tmpDir('host-asm-pstart-');
+    const starts: Array<{ id: string; index: number; total: number }> = [];
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      onPluginLoadStart: (id, index, total) => starts.push({ id, index, total }),
+    });
+    if (!assembly.ok) throw new Error(`装配意外失败：${assembly.message}`);
+    try {
+      // 每条非禁用计划行恰回一回（装载序即动画序——disabled 行不进动画；
+      // counts.total 含禁用行，对账须减 skipped——同 bootPlugins counts 口径注释）
+      expect(starts.length).toBe(assembly.boot.counts.total - assembly.boot.report.skipped.length);
+      expect(starts.length).toBeGreaterThan(0);
+      // total 恒同一初始待装数（Kahn 轮次推进不改分母）
+      expect(new Set(starts.map((s) => s.total)).size).toBe(1);
+      // 序号 1..N 连续（轮内单调递增无跳号）
+      expect(starts.map((s) => s.index)).toEqual(starts.map((_, i) => i + 1));
+      // core 内置态全装——core: 前缀行在场（真装载管线 Kahn 轮非合成断言）
+      expect(starts.some((s) => s.id.startsWith('core:'))).toBe(true);
+    } finally {
+      await assembly.runtime.shutdown();
+    }
+  });
+
+  it('回调抛错被隔离不反噬装配序（fail-open 降 warn）；缺省零注入零行为由既有缺省形测试同证', async () => {
+    const dir = tmpDir('host-asm-stage-throw-');
+    const warns: string[] = [];
+    const assembly = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      // logger 侧隔离 warn 静音（logger 已建期的回退腿）——只验 options.warn 腿
+      // （runtime/start 期 logger 未建，隔离 warn 落 options.warn——TDZ 规避设计）
+      env: { BERRY_AGENT_LOG_LEVEL: 'silent' },
+      warn: (m) => warns.push(m),
+      onBootStage: () => {
+        throw new Error('动画回调炸了');
+      },
+      onPluginLoadStart: () => {
+        throw new Error('逐插件回调炸了');
+      },
+    });
+    expect(assembly.ok).toBe(true); // 动画挂了启动照走（呈现面不反噬装配序）
+    if (assembly.ok) {
+      expect(warns.some((m) => m.includes('装配阶段回调异常'))).toBe(true); // 隔离可观测不静默
+      await assembly.runtime.shutdown();
+    }
+  });
+});

@@ -82,7 +82,14 @@ import type { DelegationToolDeps } from '../subagent/index.js';
 
 import { clearBootFailure, formatPluginFailureText, recordBootFailure } from './boot-failures.js';
 import type { ConfigField } from './config-schema.js';
-import type { CorePluginReference, FailedPlugin, LoaderPlanRow, LoadReport, ServiceBag } from './loader.js';
+import type {
+  CorePluginReference,
+  FailedPlugin,
+  LoaderPlanRow,
+  LoadPluginsOptions,
+  LoadReport,
+  ServiceBag,
+} from './loader.js';
 import { loadPlugins } from './loader.js';
 import type { DiskPluginSpec } from './loader.js';
 import { enabledYamlPath, parseEnabledRows, parseManifest } from './manifest.js';
@@ -389,6 +396,13 @@ export interface PluginBootOptions {
   readonly apiVersion?: string;
   /** 警示面（缺省 stderr 直写） */
   readonly warn?: (message: string) => void;
+  /**
+   * 逐插件装载起步回调透传位（启动动画供数——loader onPluginStart 直通）：
+   * 三参 = 行 id + 序号 1..N + 初始待装总数。loader 层不隔离回调异常
+   * （onBootFailure/onApplySettled 同 seam 惯例）——动画呈现方经装配根裹
+   * 隔离后注入。缺席 = 零行为变化（诊断形/测试替身不供动画）。
+   */
+  readonly onPluginStart?: LoadPluginsOptions['onPluginStart'];
   /** fs 注入（缺省真盘） */
   readonly fs?: PluginBootFs;
 }
@@ -827,6 +841,9 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
     services,
     createContext,
     warn,
+    // 逐插件装载起步回调透传（启动动画供数——loader Kahn 轮每行装载前达）；
+    // 缺席 = 零行为变化（条件透传形与 secrets/cron 位同惯例）
+    ...(options.onPluginStart !== undefined ? { onPluginStart: options.onPluginStart } : {}),
     // 插件配置 secret 读面（ix-3——03 §1.2 合成序⑤）：宿主装载序从凭证盒直取
     // plugin:<id> 域 config:<key> 注回合成 config（secrets 面缺席 = 诊断/替身形
     // secret 恒缺席，required secret 拒载照常——诚实缺席律）

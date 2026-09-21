@@ -94,6 +94,19 @@ import { HOST_NAMESPACE, createOAuthFlowRegistry } from '../credentials/index.js
 import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
 import { mountWebuiOnFace } from './webui-bridge.js';
 
+/** 装配阶段词汇（TUI 启动动画「加载 XXX」的骨架刻度——装配序既有边界词汇化） */
+export type HostBootStage = 'runtime' | 'stack' | 'plugins' | 'skills' | 'subagents' | 'ready';
+
+/** 装配阶段事件（start/end 两相位 + 可选 detail——如 plugins 尾事件携计数） */
+export interface HostBootStageEvent {
+  readonly stage: HostBootStage;
+  readonly phase: 'start' | 'end';
+  readonly detail?: string;
+}
+
+/** 装配阶段监听器（启动动画消费面；回调异常由装配根隔离不反噬装配序） */
+export type HostBootStageListener = (event: HostBootStageEvent) => void;
+
 /** 装配选项（TUI 入口与诊断命令共用面——runtime 子面透传 createHostRuntime） */
 export interface AssembleHostOptions {
   /** 运行时组装选项（dataDir/memory 组合形由此定形：memory+dataDir = 同构诊断形） */
@@ -144,6 +157,23 @@ export interface AssembleHostOptions {
   readonly goalServiceSink?: (service: GoalService) => void;
   /** 警示面（缺省 stderr 直写） */
   readonly warn?: (message: string) => void;
+  /**
+   * 装配阶段回调（TUI 启动动画供数位——三反馈批 D 先行件2）：装配序既有边界
+   * 发射六阶段（runtime/stack/plugins/skills/subagents/ready）start/end 两
+   * 相位事件（ready 瞬时相位只发 end）。回调异常被装配根 try/catch 隔离降
+   * warn（呈现面不反噬装配序——fail-open）。本面只覆盖 assembleHostStack
+   * 内段——openStartupSession/backend.start 等装配后段归入口层续调同一
+   * 回调（tui-entry 消费）。缺席 = 零行为变化。
+   */
+  readonly onBootStage?: HostBootStageListener;
+  /**
+   * 逐插件装载起步回调（loader onPluginStart 的装配根透传位——动画逐插件
+   * 行供数：pluginId + 序号 1..N + 初始待装总数）。经 bootPlugins →
+   * loadPlugins Kahn 轮每行装载前达；runBoot 每轮调用均供数（/reload 换代
+   * 重跑同达——换代期动画呈现属入口层决策）。回调异常同被隔离降 warn。
+   * 缺席 = 零行为变化。
+   */
+  readonly onPluginLoadStart?: (pluginId: string, index: number, total: number) => void;
 }
 
 /** 装配失败档（crashed = 意外异常——crash.log 已写，调用方只呈报不取证） */
@@ -193,8 +223,28 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
   // 求形）。坏词 fold 抛在源内 warn 降级返 undefined——披露位不炸请求。
   let sandboxDisclosureSource: ((sessionId?: string) => string | undefined) | undefined;
   let runtime: HostRuntime | undefined;
+  // logger 晚绑定槽（装配阶段回调隔离 warn 的落点）：const logger 在 'runtime'
+  // 阶段之后才创建——闭包直引在初始化前调用 = TDZ ReferenceError，故经本槽
+  // 间接（bootTools/sandboxDisclosureSource 晚绑同法先例）
+  let loggerRef: Logger | undefined;
+  // 装配阶段回调发射口（TUI 启动动画供数——三反馈批 D 先行件2）：异常
+  // try/catch 隔离降 warn（动画是呈现面，挂了启动照走——fail-open）。warn
+  // 落点先 loggerRef（已建期）回退 options.warn（logger 未建期）
+  const emitBootStage = (stage: HostBootStage, phase: 'start' | 'end', detail?: string): void => {
+    if (options.onBootStage === undefined) return;
+    try {
+      options.onBootStage({ stage, phase, ...(detail !== undefined ? { detail } : {}) });
+    } catch (err) {
+      const message = `装配阶段回调异常（${stage}/${phase}，已隔离不反噬装配序）：${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      if (loggerRef !== undefined) loggerRef.warn(message);
+      else options.warn?.(message);
+    }
+  };
   try {
     // —— 运行时组装（单活跃机 + 开库 fail-loud——干净退出档，非崩溃取证档）——
+    emitBootStage('runtime', 'start');
     try {
       runtime = createHostRuntime({
         ...options.runtime,
@@ -223,12 +273,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       };
     }
     options.onRuntime?.(runtime);
+    emitBootStage('runtime', 'end');
 
     // —— logger 装配：env 解析 + --debug 提级让位律（env 已设时让位）——
     const env = options.env ?? process.env;
     const logState = LogLevelState.fromEnv(env.BERRY_AGENT_LOG_LEVEL);
     if (options.debug && env.BERRY_AGENT_LOG_LEVEL === undefined) logState.setGlobalLevel('debug');
     const logger = createLogger('host', logState);
+    loggerRef = logger; // 阶段回调隔离 warn 落点回填（上方晚绑槽）
 
     // —— 跨会话工具策略表装配期载入（04 §9 粘性第 3 款定形块读侧律——
     // dataDir 在场即真读〔含同构诊断形：报告真实装载会走到的路〕；纯 memory
@@ -336,6 +388,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // live 并入）与 core 件 issue 编排授予共享同一实例——授予记账单源
     // （件侧 grant 与会话内 create 自动授予同台账）；仓根锚 canonical 单源
     const worktreeService = createWorktreeService({ repoRoot: canonicalWorkspaceRoot() });
+    emitBootStage('stack', 'start');
     const stack = createConversationStack({
       runtime,
       scope,
@@ -448,6 +501,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       },
       warn: (message) => logger.warn(message),
     });
+    emitBootStage('stack', 'end');
 
     // —— 披露第六件铸造（F2——2026-09-17 会话档位切换面批）：stack 既建、
     // logger/settingsMode 既得，晚绑定槽回填（runtime 侧 sandboxModeProvider
@@ -1016,7 +1070,26 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               ...(env.BERRY_AGENT_CRON === '1' ? { schedulerCronEnabled: true } : {}),
             }),
           warn: (message) => logger.warn(message),
+          // 逐插件装载起步回调透传（启动动画供数——三反馈批 D 先行件2）：装配
+          // 根裹异常隔离（loader 层不隔离——onBootFailure/onApplySettled 同 seam
+          // 惯例，调用方自裹）；runBoot 闭包定型晚于 logger 创建，直引无 TDZ
+          ...(options.onPluginLoadStart !== undefined
+            ? {
+                onPluginStart: (pluginId: string, index: number, total: number) => {
+                  try {
+                    options.onPluginLoadStart?.(pluginId, index, total);
+                  } catch (err) {
+                    logger.warn(
+                      `逐插件装载回调异常（${pluginId} ${index}/${total}，已隔离不反噬装载序）：${
+                        err instanceof Error ? err.message : String(err)
+                      }`,
+                    );
+                  }
+                },
+              }
+            : {}),
         });
+      emitBootStage('plugins', 'start');
       boot = await runBoot(options.noPlugins === true, options.pluginFile);
     } catch (err) {
       await runtime.shutdown(); // 已建资源先收口（幂等六步照走）
@@ -1031,6 +1104,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       throw err; // 余异常走下方崩溃取证档
     }
     Object.assign(pluginCounts, boot.counts); // 披露匣回写（disclosure 后续请求即见）
+    // plugins 尾事件携计数 detail（动画「N/M 插件」行供数——与披露匣同账）
+    emitBootStage('plugins', 'end', `enabled=${boot.counts.enabled},total=${boot.counts.total}`);
 
     // —— plugin-load-report 服务面（07 §4.1 命令面增补批 C2——挂账解挂批
     // R6 前段 deferred 兑现）：装载报告取值器入 scope（owner 'host:assembly'
@@ -1105,7 +1180,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         await registry.refresh();
       },
     });
+    emitBootStage('skills', 'start');
     await resyncPluginSkillLayers(boot);
+    emitBootStage('skills', 'end');
 
     // —— 插件声明子代理层重同步（RP5 物化腿——03 §6.3 兑现注）：镜像 skills
     // resync 时序位（boot 装载收口后首调 + /reload reapply 内重调）。钩子真身
@@ -1119,7 +1196,9 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         .map((row) => ({ id: row.id, agentDirs: [...row.agentDirs] }));
       await subagentLayerResyncHook?.(rows);
     };
+    emitBootStage('subagents', 'start');
     await resyncPluginAgentLayers(boot);
+    emitBootStage('subagents', 'end');
 
     // —— session/event 用户消息追踪（批 20c——GateFacts lastUserMessageAt 宿主
     // 源维护）：真用户输入（user/channel:*）才更新最近时刻——schedule（挂钟
@@ -1389,6 +1468,8 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       SESSION_EXPORT_USAGE,
     );
 
+    // ready 瞬时相位只发 end（start/end 成对落在耗时阶段——收尾行无起跑行）
+    emitBootStage('ready', 'end');
     return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts, reloader };
   } catch (err) {
     // 意外异常 = 崩溃取证档：crash.log 先写（memory 形内建跳过）→ 资源收口 → 归一失败档

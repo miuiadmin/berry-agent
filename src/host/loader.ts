@@ -171,6 +171,14 @@ export interface LoadPluginsOptions<TCtx = unknown> {
    */
   readonly onApplySettled?: (pluginId: string) => void;
   /**
+   * 逐插件装载起步回调（启动动画供数位——TUI 开机自检式逐行「加载 XXX」）：
+   * Kahn 轮内每条可满足行装载（loadRow）前达；三参 = 行 id + 本次序号（从
+   * 1 起递增）+ 初始待装行总数（disabled 过滤后——轮次推进不改分母）。只供
+   * 呈现，装载器不依赖回执，回调异常不在本层隔离（调用方自裹——
+   * onBootFailure/onApplySettled 同 seam 惯例）。缺席 = 零行为变化。
+   */
+  readonly onPluginStart?: (pluginId: string, index: number, total: number) => void;
+  /**
    * 官方件宿主面铸造位（2026-09-13 真模型四轮 C 组——03 §2.1 官方件异步
    * 续段通道）：core 行 apply 第三参由此铸造（按 pluginId 查本插件 handle
    * 铸开窗器）；磁盘行结构性不传。缺席 = core 行也不带宿主面（直调形——
@@ -289,12 +297,18 @@ export async function loadPlugins<TCtx = unknown>(options: LoadPluginsOptions<TC
     if (row.disabled) skipped.push({ id: row.id, reason: 'disabled（启用行禁用位）' });
     else pending.push(row);
   }
+  // 动画供数刻度（onPluginStart 供数）：total = 初始待装行数（disabled 行不
+  // 进动画）；startedCount 随装载序递增——Kahn 轮次推进不改分母
+  const totalToLoad = pending.length;
+  let startedCount = 0;
 
   // Kahn 轮次：每轮取首条 inject 可满足行装载（apply 落新服务解锁后续轮）
   while (pending.length > 0) {
     const index = pending.findIndex((row) => injectOf(row).every((name) => options.services.get(name) !== undefined));
     if (index === -1) break; // 不动点——余行 inject 不可达
     const [row] = pending.splice(index, 1) as [LoaderPlanRow];
+    // 装载前达（动画序 = 装载序）；异常不隔离——调用方自裹（seam 惯例）
+    options.onPluginStart?.(row.id, ++startedCount, totalToLoad);
     try {
       await loadRow(row, { options, virtualFaces, applyBudgetMs, disposeStack, activated });
     } catch (err) {

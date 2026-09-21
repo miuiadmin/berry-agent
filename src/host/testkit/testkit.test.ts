@@ -224,6 +224,7 @@ const HARNESS_ABSENT_WITH_REASON: Readonly<Record<string, string>> = {
   loadHistory: '装载史世代面（h-3）——假宿主数据面不落世代快照',
   noPlugins: '安全模式入口位（--no-plugins）——testkit 恒装载，非开关面',
   pluginFile: '快速试件路径位（--plugin-file）——testkit 走 pluginDir 构造非 CLI 位',
+  onPluginStart: '逐插件装载起步回调（启动动画供数——三反馈批 D 先行件2）——假宿主无动画呈现面',
   apiVersion: '装载门裁决坐标——测试注入面缺省 1.0 即本义（生产装配恒传真值）',
   fs: 'fs 注入位——harness 恒用真盘 realStoreFs（缺省即真盘）',
 };
