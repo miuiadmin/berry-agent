@@ -6,12 +6,12 @@ import { createRoot } from 'react-dom/client';
 
 import './app.css';
 
-import { App } from './App.js';
+import { WebUiRoot } from './App.js';
 
 const root = document.getElementById('root');
 if (root === null) throw new Error('SPA 挂载位缺席（index.html 缺 #root）');
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <WebUiRoot />
   </StrictMode>,
 );

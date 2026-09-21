@@ -1,5 +1,6 @@
 /**
- * webui/client/App — SPA 壳根组件（批 18a-2）。
+ * webui/client/App — SPA 壳根组件（批 18a-2；组件名 WebUiRoot——App 独立词
+ * 词汇合规退役，文件名沿 React 惯例保留）。
  *
  * 编舞三段：①鉴权探针（cookie 已桥直进 / 未桥走 AuthGate 换桥——auth
  * cookie 桥是浏览器侧唯一凭证通道）②会话清单装载与切换 ③活体流接线
@@ -71,8 +72,10 @@ function fileStampOf(ms: number): string {
   return new Date(ms).toISOString().replace(/[:.]/g, '-');
 }
 
-/** 根组件（main.tsx 挂载位——auth 探针门 + 主面二段） */
-export function App(): ReactElement {
+/** 根组件（main.tsx 挂载位——auth 探针门 + 主面二段；组件名 WebUiRoot
+ * 词汇合规更名〔check-vocab .tsx 扩面批〕——文件名 App.tsx 系 React 生态
+ * 惯例文件名保留，仅标识符退役「App」独立词） */
+export function WebUiRoot(): ReactElement {
   // null = 探针在飞；true = 已桥直进；false = 走换桥
   const [authed, setAuthed] = useState<boolean | null>(null);
   // 运行期失效旗（webui-face#3）：主面 401 路由置位——换桥位上方呈现失效

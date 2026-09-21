@@ -110,8 +110,9 @@ function report(file, line, word, source) {
   violations.push(`${file}:${line}: 「${word}」 | ${source.trim().slice(0, 72)}`);
 }
 
-// ── 查一 + 查二：代码面（src/**/*.ts） ──────────────────────────────────────
-for (const file of collect('src', ['.ts'])) {
+// ── 查一 + 查二：代码面（src/**/*.ts + .tsx——2026-09-21 #24 扩面：.tsx 随
+// React 根组件 App→WebUiRoot 更名批同步入射程，扩面先落即翻红卡全仓）──────
+for (const file of collect('src', ['.ts', '.tsx'])) {
   const text = readFileSync(join(ROOT, file), 'utf8');
   const stripped = stripCode(text);
   const lines = text.split('\n');
@@ -162,6 +163,6 @@ if (violations.length > 0) {
   for (const v of violations) console.error(`  ${v}`);
   process.exit(1);
 }
-const codeCount = collect('src', ['.ts']).length;
+const codeCount = collect('src', ['.ts', '.tsx']).length;
 const docCount = docFilesAll.length;
 console.log(`check-vocab 绿：代码面 ${codeCount} 件 + 公开文档面 ${docCount} 件零词汇违规`);

@@ -1,5 +1,6 @@
 /**
- * webui/client/App 组件冒烟测试（批 18a-2；jsdom 轨）。
+ * webui/client/App 组件冒烟测试（批 18a-2；jsdom 轨；组件名 WebUiRoot——
+ * App 独立词词汇合规退役）。
  *
  * api 全桩（vi.mock 到模块位）+ FakeEventSource（jsdom 无原生实现——
  * 桩挂 globalThis，可编程 open/emit）。锁五环——
@@ -21,7 +22,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ClientApprovalEntry, ClientSessionSummary } from './protocol.js';
-import { App } from './App.js';
+import { WebUiRoot } from './App.js';
 import { ApiError, type DecideAnswer, type TiersPayload } from './api.js';
 
 /** 档位读应答样例（与 GET tiers 应答四键形对齐——词表/行文案单源服务端，样例仅桩） */
@@ -61,7 +62,7 @@ const apiMock = vi.hoisted(() => ({
   getSessionTiers: vi.fn<(sessionId: string) => Promise<TiersPayload>>(),
   setThinkingLevel: vi.fn<(sessionId: string, level: string) => Promise<{ receipt: string }>>(),
   setSandboxMode: vi.fn<(sessionId: string, mode: string) => Promise<{ receipt: string }>>(),
-  // @ 文件段补全消费腿（hygiene——App 挂点传参闭包踩此面；缺省诚实空
+  // @ 文件段补全消费腿（hygiene——WebUiRoot 挂点传参闭包踩此面；缺省诚实空
   // 不弹层，实现钉在创建位经 clearAllMocks 不清除）
   workspaceFiles: vi.fn<(query: string) => Promise<readonly string[]>>().mockImplementation(async () => []),
 }));
@@ -124,10 +125,10 @@ function primeMain(options?: { readonly approvals?: readonly ClientApprovalEntry
   apiMock.getSessionTiers.mockResolvedValue(TIERS);
 }
 
-describe('App 鉴权门', () => {
+describe('WebUiRoot鉴权门', () => {
   it('未桥走 AuthGate；错 token 呈错因；桥成进主面', async () => {
     apiMock.probeAuthed.mockResolvedValue(false);
-    const { unmount } = render(<App />);
+    const { unmount } = render(<WebUiRoot />);
     const input = await screen.findByPlaceholderText('一次性 token');
     // 错 token → 401 呈错因（停留在换桥位）
     apiMock.auth.mockRejectedValueOnce(new Error('401'));
@@ -144,11 +145,11 @@ describe('App 鉴权门', () => {
   });
 });
 
-describe('App 主面活体环', () => {
+describe('WebUiRoot主面活体环', () => {
   it('清单呈现 + 自动选首会话 + onopen 恒重拉投影 + 活体帧落正文', async () => {
     primeMain();
     apiMock.fetchMessages.mockResolvedValue([{ role: 'user', content: '投影旧问', timestamp: 1 }]);
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await waitFor(() => {
       expect(FakeEventSource.instances).toHaveLength(1);
@@ -185,7 +186,7 @@ describe('App 主面活体环', () => {
 
   it('asked 镜像入审批栏 → 应答出清 + decide 回执；superseded 同出清', async () => {
     primeMain();
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await waitFor(() => {
       expect(FakeEventSource.instances).toHaveLength(1);
@@ -210,7 +211,7 @@ describe('App 主面活体环', () => {
     primeMain();
     apiMock.submit.mockResolvedValue(undefined);
     apiMock.interrupt.mockResolvedValue(undefined);
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
     fireEvent.change(box, { target: { value: '你好呀' } });
@@ -229,7 +230,7 @@ describe('App 主面活体环', () => {
     primeMain();
     // 桩拟真实服务端失败形（Once 形——不污染后续用例的 submit 桩）
     apiMock.submit.mockRejectedValueOnce(new Error('API 500 internal'));
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
     fireEvent.change(box, { target: { value: '未被受理的消息' } });
@@ -250,7 +251,7 @@ describe('App 主面活体环', () => {
     apiMock.fetchMessages.mockResolvedValue([]);
     apiMock.todo.mockResolvedValue(null);
     apiMock.listApprovals.mockResolvedValue([]);
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('一会话');
     await waitFor(() => {
       expect(FakeEventSource.instances).toHaveLength(1);
@@ -264,11 +265,11 @@ describe('App 主面活体环', () => {
   });
 });
 
-describe('App 用户消息去重单源（回显与 kick 种子镜像——webui-face#1）', () => {
+describe('WebUiRoot用户消息去重单源（回显与 kick 种子镜像——webui-face#1）', () => {
   it('提交后 kick 种子 user 镜像双帧被吸收：正文恰一份（修前红：回显 + 镜像键异双落两份）', async () => {
     primeMain();
     apiMock.submit.mockResolvedValue(undefined);
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     // EventSource 构造在会话列表渲染之后的异步链里（拉投影 → 开 SSE）——
     // waitFor 守卫防渲染竞速下裸读 undefined（CI macos 单红实录，:154 同形）
@@ -299,7 +300,7 @@ describe('App 用户消息去重单源（回显与 kick 种子镜像——webui-
   it('run 在飞提交：assistant 流式尾不被 user 回显顶替 + 镜像吸收 + 续流对位刷新（终稿序不倒置；修前红：流式尾被顶掉/双份/序倒置）', async () => {
     primeMain();
     apiMock.submit.mockResolvedValue(undefined);
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     // EventSource 构造在会话列表渲染之后的异步链里（拉投影 → 开 SSE）——
     // waitFor 守卫防渲染竞速下裸读 undefined（CI macos 单红实录，:154 同形）
@@ -363,11 +364,11 @@ describe('App 用户消息去重单源（回显与 kick 种子镜像——webui-
   });
 });
 
-describe('App 运行期凭证失效路由（webui-face#3——401 回换桥位）', () => {
+describe('WebUiRoot运行期凭证失效路由（webui-face#3——401 回换桥位）', () => {
   it('submit 401（宿主重启换 token——旧 cookie 永久失效）→ 回到换桥位 + 失效提示行（修前红：只出通用「提交失败——请重试」条永困）', async () => {
     primeMain();
     apiMock.submit.mockRejectedValueOnce(new ApiError(401, 'UNAUTHORIZED'));
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
     fireEvent.change(box, { target: { value: '失桥后首条' } });
@@ -380,13 +381,13 @@ describe('App 运行期凭证失效路由（webui-face#3——401 回换桥位�
   });
 });
 
-describe('App 审批清单投影复拉（服务端现行 pending 清单即真源）', () => {
+describe('WebUiRoot审批清单投影复拉（服务端现行 pending 清单即真源）', () => {
   it('复拉整段重置：异口已决条目随复拉出清，幻影卡不驻留（修前红：applyAsked 只增不减）', async () => {
     // 两条现行 pending（审批栏跨会话全量呈现——清单不按会话过滤）
     const kept = { approvalId: 'ap-1', sessionId: 's-1', summary: '仍在场的审批' };
     const decided = { approvalId: 'ap-2', sessionId: 's-1', summary: '异口已决的审批' };
     primeMain({ approvals: [kept, decided] });
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await waitFor(() => {
       expect(FakeEventSource.instances).toHaveLength(1);
@@ -409,7 +410,7 @@ describe('App 审批清单投影复拉（服务端现行 pending 清单即真源
   });
 });
 
-describe('App 会话导出腿（SPA /export 客户端消费）', () => {
+describe('WebUiRoot会话导出腿（SPA /export 客户端消费）', () => {
   it('导出入口在主面：点击 → exportSession(activeId) → blob 下载锚（文件名 <会话id>-<时间戳>.md——CLI/TUI 落盘形对齐）+ object URL 用后回收', async () => {
     primeMain();
     // jsdom 无 URL.createObjectURL 实现（Not implemented）——桩化并回收校验复用
@@ -418,7 +419,7 @@ describe('App 会话导出腿（SPA /export 客户端消费）', () => {
     // 下载锚点击桩化：jsdom 不导航，锚属性即断言面
     const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     apiMock.exportSession.mockResolvedValue(new Blob(['# 会话'], { type: 'text/markdown' }));
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     fireEvent.click(screen.getByRole('button', { name: '导出' }));
     await waitFor(() => {
@@ -443,14 +444,14 @@ describe('App 会话导出腿（SPA /export 客户端消费）', () => {
   it('导出失败 → 通知条呈现（同提交失败呈现形——错误不静默）', async () => {
     primeMain();
     apiMock.exportSession.mockRejectedValue(new Error('API 404 not_found'));
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     fireEvent.click(screen.getByRole('button', { name: '导出' }));
     await screen.findByText('导出失败——请重试');
   });
 });
 
-describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位面受理批）', () => {
+describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui 档位面受理批）', () => {
   /** 开档位浮层捷径（输入框敲词 + 发送——拦截面测试驱动位） */
   async function openTierPopover(word: string): Promise<void> {
     const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
@@ -460,7 +461,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
 
   it('恰零参 /thinking：本地开浮层 + GET tiers(activeId)；不进提交流；当前档 ● 标记恰一行', async () => {
     primeMain();
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     // 浮层在场（头行）+ 挂载即读档（词表/行文案单源服务端直显）
@@ -481,7 +482,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
   it('thinkingLevel 无锚（null 应答）：零 ● 标记不虚标', async () => {
     primeMain();
     apiMock.getSessionTiers.mockResolvedValueOnce({ ...TIERS, thinkingLevel: null });
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     await screen.findByText('高投入思考'); // 行集照常全量（无锚只影响标记位）
@@ -490,7 +491,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
 
   it('带参 /thinking high：词干命中即本地用法错——NoticeBar error + 不提交不开浮层', async () => {
     primeMain();
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking high');
     // 用法错通知（fail-loud——TUI「带参 fail-loud 用法错」同律对齐，零分立；
@@ -503,7 +504,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
 
   it('空白形带参（tab / 换行分隔——换行 = Shift+Enter 常形）同算词干带参用法错：不提交不开浮层（TUI /\\s+/ 切分同律——修前红：startsWith 空格字面形漏穿透）', async () => {
     primeMain();
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     // tab 分隔带参形：词干命中（thinking）+ 空白分隔参数——同用法错不穿透
     await openTierPopover('/thinking\thigh');
@@ -523,7 +524,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
     apiMock.setThinkingLevel.mockResolvedValueOnce({
       receipt: 'thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）',
     });
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     await screen.findByText('高投入思考');
@@ -549,7 +550,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
           release = resolve;
         }),
     );
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     await screen.findByText('高投入思考');
@@ -573,7 +574,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
   it('/sandbox 同构：恰零参开浮层 → 点 danger 行 → setSandboxMode(activeId, danger) → receipt 通知', async () => {
     primeMain();
     apiMock.setSandboxMode.mockResolvedValueOnce({ receipt: 'sandbox 已切 danger——即刻生效于后续工具调用' });
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/sandbox');
     await screen.findByText('sandbox 档位');
@@ -594,7 +595,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
 
   it('esc 收浮层（不调 PUT）', async () => {
     primeMain();
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     await screen.findByText('thinking 档位');
@@ -608,7 +609,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
 
   it('× 键与遮罩点击两收层路同 esc 律：收层且不调 PUT（第九役 C3——全收层路零 PUT 副作用锁）', async () => {
     primeMain();
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     await screen.findByText('高投入思考');
@@ -635,7 +636,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
     // 桩拟真实服务端 501 应答折形（C7 后 err.message = 服务端信封 message 位
     // 人读因——非 `API 501 not_implemented` 码串；server.ts:490 同文）
     apiMock.getSessionTiers.mockRejectedValueOnce(new Error('档位面未装配（tiers 注入缺席）'));
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     // 错误人读因透传 onError（NoticeBar error 呈现）——全失败形同呈现位
@@ -664,7 +665,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
     apiMock.setThinkingLevel.mockRejectedValueOnce(
       new Error('思考档位非法："ultra"（七档词汇：off / minimal / low / medium / high / xhigh / max）'),
     );
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/thinking');
     await screen.findByText('高投入思考');
@@ -680,7 +681,7 @@ describe('App 档位受理面（/thinking //sandbox SPA 拦截——webui 档位
 
   it('本地通知同帽 5：连发 6 次档位词带参用法错，早前计数至多 +4（修前红：本地推播绕过折叠器帽——计数虚胀 +5）', async () => {
     primeMain();
-    render(<App />);
+    render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
     for (let i = 0; i < 6; i += 1) {
