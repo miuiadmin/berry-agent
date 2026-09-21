@@ -42,6 +42,17 @@ function messageOf(): PiAssistantMessage {
   } as unknown as PiAssistantMessage;
 }
 
+/** 带计量的 faux 响应件（今日段结算锚测试——usage 非零可断言段在场） */
+function meteredEntryMessage(input: number, output: number): PiAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'ok' }],
+    usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output },
+    stopReason: 'stop',
+    timestamp: 1,
+  } as unknown as PiAssistantMessage;
+}
+
 /** 假终端（TerminalIO 最小实现——字节流收账 + 输入监听就绪门） */
 class FakeTerminalIO implements TerminalIO {
   output = '';
@@ -338,6 +349,20 @@ describe('runTuiEntry 装配序', () => {
     });
     expect(code).toBe(1);
     await rt.shutdown();
+  });
+
+  it('提交 run 结算锚：run 结算后今日段收敛（全域清扫 G1-#1——修前红：agent_end 锚滞后一 run）', async () => {
+    const { entry, io, faux } = await rigEntry(rigDir('entry-settle-data-'), rigDir('entry-settle-ws-'));
+    faux.setResponses([() => meteredEntryMessage(30, 12)]);
+    io.send('hello\r');
+    await until(() => faux.state.callCount >= 1); // 全链达模型
+    // 修前红：agent_end 信封同步扇出在桥接落账（结算微任务）之前——锚拉到的
+    // 今日值不含本 run token；结算后 TUI 侧无刷新锚 → 零耗缩位持续驻留。
+    // 修 = onSubmit 挂 settled promise（桥接落账后 resolve——promise 回调序
+    // 结构性保证）刷 footer。
+    await until(() => io.output.includes('今日'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
   });
 
   it('/help 副屏 + footer 常驻段（批 10k——R7 帮助面/R6 footer 落码装配位）', async () => {

@@ -875,11 +875,20 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         }
         // 候跑标记透传（SubmitOptions.queueFollowUp——04 §4）：普通形不带 opts
         // 保持旧调用形（undefined 与 {} 对驱动同义，零扰动）
-        if (opts?.queueFollowUp === true) {
-          void stack.submitText(sessionId, text, { queueFollowUp: true });
-        } else {
-          void stack.submitText(sessionId, text); // fire-and-forget——回执经信封回流
-        }
+        const run =
+          opts?.queueFollowUp === true
+            ? stack.submitText(sessionId, text, { queueFollowUp: true })
+            : stack.submitText(sessionId, text); // fire-and-forget——回执经信封回流
+        // 全域清扫 G1-#1 提交 run 结算锚：settled promise 在桥接落账
+        // （noteRunSettled → bridgeUsageLedger 推进全道缓存）之后 resolve——
+        // promise 回调序结构性保证本刷新读到含本 run 的今日值（agent_end 信封
+        // 同步扇出早于落账微任务——该锚滞后一 run，07 件 3 G1 勘正注）；failed
+        // 路同刷（结算链两分支均走桥接）。候跑形回执搭候跑种子批的新 run 结算
+        // （seedQueuedFollowUps 返回新 run 的 settled promise）——同锚覆盖。
+        void run?.then(
+          () => backend.refreshFooter(),
+          () => backend.refreshFooter(),
+        );
       },
       onInterrupt: (sessionId) => stack.interrupt(sessionId),
       // 模型循环柄（挂账解挂批 2026-09-15——ctrl+p 层③.5 应用动作路）：循环
