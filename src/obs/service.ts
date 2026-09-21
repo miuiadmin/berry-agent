@@ -5,7 +5,9 @@
  * 重算替换——幂等自愈）②闭日物化（日桶只在日闭合后从小时桶聚合落账，
  * 重算幂等）③告警评估（只通知不执法 + hasAudience 前置不耗冷却）。
  * 已知边界（如实注记，不虚构保证）：时钟回拨超 1h 重叠窗的旧事件不回补
- * ——单写者 append-only 事件流的 time 单调性使其实际不发生。
+ * ——单写者 append-only 事件流的 time 单调性使其实际不发生；页护栏耗尽
+ * （游标持续非空）= fail-loud warn + 水位只推进到已扫尾部断点（下一拍
+ * 断点续扫——不把部分计数当完整真值定谳）。
  *
  * 聚合呈现两维分立（07 §4.2）：本件数据面只有会话客观态聚合；用户已读
  * 游标不入观测库（住通道侧本地状态）。
@@ -36,6 +38,20 @@ const DEFAULT_COOLDOWN_MS = HOUR_MS;
 /** 扫描页参数（与 Store.queryEvents 硬帽一致；页数护栏防坏游标死循环） */
 const SCAN_PAGE_LIMIT = 10_000;
 const SCAN_PAGE_GUARD = 1_000;
+
+/**
+ * scanEvents 产物：小时聚合 + 页护栏截断面（fail-loud/断点续扫的判据位）。
+ * 事件流按 (time, session_id, seq) 序分页——截断时断点前的桶已是完整
+ * 真值、跨断点桶与未扫尾部留给下一拍重叠窗续扫回补。
+ */
+interface ScanOutcome {
+  /** 窗内已扫事件的小时聚合（截断时跨断点桶为部分计数） */
+  readonly aggregation: ReturnType<typeof aggregateHours>;
+  /** 页护栏耗尽而游标仍非空（03 §10.8「遍历至 nextCursor null」未达成） */
+  readonly truncated: boolean;
+  /** 已扫尾部断点（末条已扫事件 time；零事件截断 = undefined） */
+  readonly tailBreakpointMs: number | undefined;
+}
 
 /** 查询行帽（缺省 100、硬帽 1000——模型消费面） */
 const QUERY_LIMIT_DEFAULT = 100;
@@ -104,18 +120,36 @@ class ObsServiceImpl implements ObsService {
     // 完整重扫，产物即各桶完整真值（当前桶覆盖到 now 为止，恰为「事件
     // 至此」的正确计数；迟到在 1h 窗内的旧桶下一拍整窗重算自愈）
     const scanSince = hourBucketMs(Math.max(0, prevWatermark - OVERLAP_MS));
-    const aggregation = this.scanEvents(scanSince, now);
+    const scan = this.scanEvents(scanSince, now);
+
+    // 页护栏截断双动作（fail-loud + 断点续扫——静默截断会把部分计数当
+    // 完整真值落账，且水位直推 now 后护栏外尾部事件永不回补）：①经 warn
+    // 报备观测面；②水位只推进到已扫尾部断点（零事件截断不推进）——断
+    // 点前的桶已是完整真值照常落账，跨断点桶落在下一拍〔断点−1h 起〕
+    // 重叠窗内重算、未扫尾部事件（time ≥ 断点）亦全覆盖，续扫回补
+    if (scan.truncated) {
+      this.warn(
+        `[obs] 扫描窗超护栏截断（${SCAN_PAGE_GUARD} 页 × ${SCAN_PAGE_LIMIT} 事件而游标未耗尽）` +
+          `——水位仅推进至已扫尾部断点 ${String(scan.tailBreakpointMs)}，下一拍断点续扫`,
+      );
+    }
+    // 物化与水位都以「已摄取前沿」为基准：截断时 = 尾部断点（断点所在日
+    // 视作在飞不物化——其小时桶仍是部分计数），否则 = now；恒只进不退
+    // （时钟回拨不回吃扫描窗——下拍以旧水位+重叠窗续扫）
+    const frontier = scan.truncated
+      ? Math.max(prevWatermark, scan.tailBreakpointMs ?? 0)
+      : Math.max(prevWatermark, now);
 
     // ②③ 同事务落账（摄取替换 + 闭日物化 + 水位推进——单事务幂等）
     const write = this.db.transaction(() => {
-      this.replaceHourBuckets(aggregation);
-      this.materializeClosedDays(aggregation.touchedBuckets, prevWatermark, now);
-      // 水位只进不退（时钟回拨不回吃扫描窗——下拍以旧水位+重叠窗续扫）
-      this.setMeta(META_WATERMARK, String(Math.max(prevWatermark, now)));
+      this.replaceHourBuckets(scan.aggregation);
+      this.materializeClosedDays(scan.aggregation.touchedBuckets, prevWatermark, frontier);
+      this.setMeta(META_WATERMARK, String(frontier));
     });
     write();
 
-    // 告警评估挂 refresh 尾（03 §10.8——只通知不执法）
+    // 告警评估挂 refresh 尾（03 §10.8——只通知不执法；截断拍当前小时桶
+    // 可能部分计数——阈值评估偏保守（少报不虚报），下一拍回补后恢复）
     this.evaluateAlerts(now);
   }
 
@@ -207,9 +241,12 @@ class ObsServiceImpl implements ObsService {
   }
 
   /** 页游标遍历事件流（untilMs 含 now——不吞 now 时刻事件） */
-  private scanEvents(scanSince: number, now: number): ReturnType<typeof aggregateHours> {
+  private scanEvents(scanSince: number, now: number): ScanOutcome {
     const collected: SessionEvent[] = [];
     let cursor: string | null = null;
+    // 截断标记：护栏页数耗尽而末页游标仍非空（03 §10.8「遍历至
+    // nextCursor null」未达成——病态游标/超大窗形），不再静默退出
+    let truncated = false;
     for (let page = 0; page < SCAN_PAGE_GUARD; page++) {
       const result = this.events.queryEvents({
         sinceMs: scanSince,
@@ -219,9 +256,17 @@ class ObsServiceImpl implements ObsService {
       });
       collected.push(...result.events);
       if (result.nextCursor === null) break;
+      // 末页仍有后继游标 = 护栏耗尽（下一拍自断点续扫——refresh 消费）
+      if (page === SCAN_PAGE_GUARD - 1) truncated = true;
       cursor = result.nextCursor;
     }
-    return aggregateHours(collected);
+    return {
+      aggregation: aggregateHours(collected),
+      truncated,
+      // 尾部断点 = 末条已扫事件 time（事件流按 time 序分页——断点前已
+      // 扫尽、断点后未扫；零事件截断无断点 = 水位不推进）
+      tailBreakpointMs: collected.length > 0 ? collected[collected.length - 1]!.time : undefined,
+    };
   }
 
   /** 脏桶整体替换（DELETE+INSERT——幂等自愈的执法位） */

@@ -74,6 +74,65 @@ class FakeNotify implements ObsNotifyFace {
   }
 }
 
+/**
+ * 护栏耗尽形事件源（页护栏截断回归锁专用桩）：infiniteCursor = true 时
+ * 游标恒非空（坏游标/超大窗形——服务侧 1000 页护栏耗尽）；false 时真分页
+ * 尾页收 null。setRows 可编程改写（模拟「护栏外尾部事件」在回补拍现身）。
+ */
+class GuardExhaustingEvents implements ObsEventsFace {
+  infiniteCursor = true;
+  readonly seenSince: number[] = [];
+  private rows: SessionEvent[] = [];
+
+  setRows(rows: SessionEvent[]): void {
+    this.rows = [...rows];
+  }
+
+  queryEvents(filter: {
+    sinceMs?: number;
+    untilMs?: number;
+    types?: readonly string[];
+    limit?: number;
+    cursor?: string | null;
+  }): { events: SessionEvent[]; nextCursor: string | null } {
+    this.seenSince.push(filter.sinceMs ?? 0);
+    const filtered = this.rows.filter(
+      (event) =>
+        (filter.sinceMs === undefined || event.time >= filter.sinceMs) &&
+        (filter.untilMs === undefined || event.time <= filter.untilMs) &&
+        (filter.types === undefined || filter.types.includes(event.type)),
+    );
+    const limit = filter.limit ?? 1000;
+    let offset = 0;
+    if (filter.cursor !== null && filter.cursor !== undefined) {
+      offset = JSON.parse(Buffer.from(filter.cursor, 'base64url').toString('utf8')).offset as number;
+    }
+    const page = filtered.slice(offset, offset + limit);
+    const more = offset + limit < filtered.length;
+    // 无限游标形：即使无更多数据也谎报有后继（可解码真游标——空页恒续），
+    // 服务侧页护栏耗尽形即「游标永不 null」
+    const nextCursor =
+      more || this.infiniteCursor
+        ? Buffer.from(JSON.stringify({ offset: offset + limit }), 'utf8').toString('base64url')
+        : null;
+    return { events: page, nextCursor };
+  }
+}
+
+/** 快捷事件构造（护栏耗尽桩的行构造面） */
+function stubEvent(type: string, time: number): SessionEvent {
+  return { type, seq: time, time, data: {} } as SessionEvent;
+}
+
+/** 直读 obs_meta 水位（第二连接——与坏行注毒测试同法；缺席 null） */
+function readWatermark(root: string): number | null {
+  const probe = openAuxDatabase(join(root, 'rollup.db'));
+  const row = probe.prepare("SELECT value FROM obs_meta WHERE key = 'ingest_watermark_ms'").get() as
+    { value: string } | undefined;
+  probe.close();
+  return row === undefined ? null : Number(row.value);
+}
+
 /* ---------------- 夹具 ---------------- */
 
 let dir: string;
@@ -519,6 +578,83 @@ describe('⑥ 视图与自驱挂钟', () => {
       },
       { timeout: 2_000 },
     );
+    service.dispose();
+  });
+});
+
+describe('⑦ 页护栏截断：fail-loud 报备 + 断点续扫', () => {
+  /** 服务构造（护栏耗尽桩直注——手动驱动 refresh） */
+  function makeWithSource(source: GuardExhaustingEvents): ObsService {
+    return createObsService({
+      dbPath: join(dir, 'rollup.db'),
+      events: source,
+      notify,
+      audience: { hasAudience: () => false },
+      refreshMs: 0,
+      clock: () => nowMs,
+      warn,
+    });
+  }
+
+  it('护栏耗尽不静默：warn 报备截断 + 水位只推进到已扫尾部断点（不直推 now 定谳部分计数）', () => {
+    const h0 = Date.UTC(2026, 8, 7, 8);
+    const source = new GuardExhaustingEvents();
+    source.setRows([
+      stubEvent('user/message', h0 + 1000),
+      stubEvent('user/message', h0 + 2000),
+      stubEvent('user/message', h0 + 3000),
+    ]);
+    nowMs = h0 + 2 * H; // 断点（h0 桶内）与 now（h0+2h 桶）异桶——续扫窗可区分
+    const service = makeWithSource(source);
+    service.refresh();
+
+    // 修前红①：静默退出零 warn——截断不可见（修前此处即失败）
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('截断'));
+    // 修前红②：水位直推 now（h0+2H）把部分计数当完整真值定谳——修后只
+    // 推进到已扫尾部断点（末条已扫事件 time；事件流按 time 序分页）
+    expect(readWatermark(dir)).toBe(h0 + 3000);
+    service.dispose();
+  });
+
+  it('断点续扫：下一拍自断点−1h 重开窗——护栏外尾部事件回补入桶 + 水位恢复推进', () => {
+    const h0 = Date.UTC(2026, 8, 7, 8);
+    const source = new GuardExhaustingEvents();
+    source.setRows([
+      stubEvent('user/message', h0 + 1000),
+      stubEvent('user/message', h0 + 2000),
+      stubEvent('user/message', h0 + 3000),
+    ]);
+    nowMs = h0 + 2 * H;
+    const service = makeWithSource(source);
+    service.refresh(); // 截断拍：1000 页护栏耗尽（水位 = 断点 h0+3000、warn ×1）
+
+    // 回补拍：游标转真（尾页收 null）+「护栏外尾部」两条现身（截断拍游标未达）
+    source.infiniteCursor = false;
+    source.setRows([
+      stubEvent('user/message', h0 + 1000),
+      stubEvent('user/message', h0 + 2000),
+      stubEvent('user/message', h0 + 3000),
+      stubEvent('user/message', h0 + 4000),
+      stubEvent('user/message', h0 + 5000),
+    ]);
+    nowMs = h0 + 2 * H + 60_000;
+    service.refresh();
+
+    // 下一拍扫描窗自 hourFloor(断点−1h) = h0−H 起（截断拍恰 1000 页调用，
+    // 末拍首查即 seenSince[1000]）——修前水位 = 旧 now（h0+2H）→ 窗自
+    // h0+H 起、护栏外尾部桶在窗外永不回补
+    expect(source.seenSince[1000]).toBe(h0 - H);
+    // 断点桶整窗重算回补：护栏外尾部两条入桶（修前 = 截断拍部分计数 3 定谳）
+    expect(service.query({ granularity: 'hour', eventType: 'user/message' })).toEqual([
+      { bucket: h0, eventType: 'user/message', count: 5 },
+    ]);
+    // 水位恢复推进到本拍 now（截断只是该拍的降级，不永久卡死推进）
+    expect(readWatermark(dir)).toBe(h0 + 2 * H + 60_000);
+    // 回补拍无截断——不再追加截断 warn
+    const truncationWarns = warn.mock.calls.filter(
+      ([message]) => typeof message === 'string' && message.includes('截断'),
+    );
+    expect(truncationWarns).toHaveLength(1);
     service.dispose();
   });
 });
