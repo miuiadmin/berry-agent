@@ -24,6 +24,7 @@ import { randomUUID } from 'node:crypto';
 import type { LlmRuntime } from './runtime.js';
 import { formatModelId } from './model-id.js';
 import type { HookDispatchWindow, StreamFnDefaults } from './stream-fn.js';
+import { stripWatchdogDefaults } from './stream-fn.js';
 import type { InFlightTracker } from './inflight.js';
 import {
   classifyError,
@@ -317,9 +318,11 @@ export function createLlmService(options: LlmServiceOptions): LlmService {
         systemPrompt: req.systemPrompt,
         messages: req.messages as unknown as PiMessage[],
       };
-      // defaults 打底 → 具名 timeoutMs/signal 覆盖
+      // defaults 打底 → 具名 timeoutMs/signal 覆盖；idleTimeoutMs 经
+      // stripWatchdogDefaults 剥离（04 §3.8 自产键不透传 provider——stream
+      // 路同律单源 helper，两出口同形）
       const piOptions: SimpleStreamOptions = {
-        ...defaults,
+        ...stripWatchdogDefaults(defaults),
         ...(req.timeoutMs !== undefined ? { timeoutMs: req.timeoutMs } : {}),
         ...(req.signal !== undefined ? { signal: req.signal } : {}),
       };

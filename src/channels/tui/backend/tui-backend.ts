@@ -2157,11 +2157,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
  * 非 accent 家族的第二着色位（07 §4.1 呈现面件 9），label 段裸文本。
  * 行尾按屏宽截断（2026-09-20 TUI 混流修复防漂位）：超宽行交终端 autowrap
  * 产超记账物理行——截断丢尾是更轻的失败（覆写正文是重失败）；宽度算纯
- * label 段（着色 head 恒短），转义不进截断面。
+ * label 段（着色 head 恒短），转义不进截断面。head 亦入帽（2026-09-21 窄屏
+ * 补边）：head（符号 + 8 字短 id）10 列起，屏宽 < 12 时 head 独超帽——帽须
+ * 罩整行：head 先截至 columns-1（留分隔空格），label 吃余量（可归零）。
  */
 function summaryToAnsi(line: SummaryLine, columns: number): string {
-  const head = `${line.symbol} ${line.shortId}`;
-  const budget = Math.max(1, columns - stringWidth(head) - 1);
+  const head = truncateToWidth(`${line.symbol} ${line.shortId}`, Math.max(1, columns - 1));
+  const budget = Math.max(0, columns - stringWidth(head) - 1);
   const label = truncateToWidth(line.label, budget);
   return buildSgr({ fg: sessionColor(line.shortId) }) + head + SGR_RESET + ` ${label}`;
 }

@@ -158,6 +158,28 @@ describe('TuiBackend 直播呈现', () => {
     emit(backend, { type: 'message_end', message: { role: 'user', content: '后台', timestamp: 1 } }, false);
     expect(io.bytes).not.toContain('> 后台');
   });
+
+  it('窄屏摘要行全行入帽：head 段（符号+短 id）与 label 段同吃截断——修前红锁', () => {
+    // 修前红：summaryToAnsi 只截 label 段（budget = columns - head宽 - 1），
+    // head 自身（⧗ + 8 字短 id = 10 列起）零守卫——屏宽 8 时整行 12 列仍越帽，
+    // 交终端 autowrap 产超记账物理行（2026-09-20 混流修复族「截断丢尾是更轻
+    // 失败」的遗漏半边：帽只罩了 label）。
+    for (const columns of [8, 10, 12]) {
+      const io = new MemoryTerminalIO(columns, ROWS);
+      const backend = new TuiBackend(io, {});
+      backend.start();
+      io.bytes = '';
+      emit(backend, { type: 'agent_start' }, false);
+      // 摘要行 = 写出字节中含「⧗」的那一 \r\n 行；剥 ANSI 逃逸后量可见宽
+      const line = io.bytes
+        .split('\n')
+        .find((l) => l.includes('⧗'))
+        ?.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+        ?.replace(/[\r\n]/g, '');
+      expect(line, `columns=${columns}`).toBeDefined();
+      expect(stringWidth(line ?? ''), `columns=${columns} 可见宽`).toBeLessThanOrEqual(columns);
+    }
+  });
 });
 
 describe('TuiBackend 状态面', () => {

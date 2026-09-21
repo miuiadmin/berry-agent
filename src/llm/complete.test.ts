@@ -81,6 +81,21 @@ describe('complete：请求面组装与直通', () => {
     expect(seen.options?.timeoutMs).toBe(22222);
   });
 
+  it('defaults.idleTimeoutMs 不透传 provider 层（04 §3.8 自产键剥离——修前红锁）', async () => {
+    // 修前红：piOptions 组装原样展开 defaults——idleTimeoutMs（llm 层自产
+    // watchdog 键，stream-fn :173 剥离形同律）泄漏进 streamSimple options 面。
+    // JSDoc 明写 defaults「与 createStreamFn 共用同一份」，而装配面
+    // createStreamFn 的 defaults 恰携 { idleTimeoutMs }（conversation-stack
+    // :478）——照文档接线即触发，非虚构形。
+    const captures: Array<{ context: PiContext; options: SimpleStreamOptions | undefined }> = [];
+    const { faux, service } = makeService({ defaults: { idleTimeoutMs: 5000 } });
+    faux.setResponses([capturing(captures, messageOf('stop'))]);
+    const result = await service.complete({ systemPrompt: '', messages: [userMsg('x')] });
+    expect(result.message.stopReason).toBe('stop');
+    expect(captures.length).toBe(1);
+    expect('idleTimeoutMs' in (captures[0]!.options ?? {})).toBe(false);
+  });
+
   it('模型缺省继承 defaultModel()；req.model 显式覆盖优先', async () => {
     // defaultModel 指向不存在 m9；req.model 用 m2——成功即证明显式覆盖生效
     const { faux, service } = makeService({ defaultModel: () => 'faux-test/m9' });

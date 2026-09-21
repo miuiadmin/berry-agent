@@ -164,16 +164,25 @@ function buildPiContext(context: LlmContext): PiContext {
   };
 }
 
+/**
+ * defaults 透传剥离（04 §3.8）：idleTimeoutMs 是本层自产键（watchdog 实现
+ * 位），不透传 provider 层。两出口单源——stream 路本函数与 complete 单发
+ * 路（complete.ts piOptions 组装）同用，防「defaults 与 createStreamFn 共用
+ * 同一份」的接线形（JSDoc 明写）把 watchdog 键漏进 streamSimple options 面。
+ */
+export function stripWatchdogDefaults(defaults: StreamFnDefaults): Omit<StreamFnDefaults, 'idleTimeoutMs'> {
+  const { idleTimeoutMs: _watchdogKey, ...passthrough } = defaults;
+  return passthrough;
+}
+
 /** defaults 打底 + 具名覆盖 + signal 透传（reasoning 无 'off' 档——undefined 即关闭） */
 function buildPiOptions(
   defaults: StreamFnDefaults,
   options: StreamFnOptions,
   signal: AbortSignal | undefined,
 ): SimpleStreamOptions {
-  // idleTimeoutMs 是本层自产键（04 §3.8 watchdog 实现位），不透传 provider 层
-  const { idleTimeoutMs: _watchdogKey, ...passthrough } = defaults;
   return {
-    ...passthrough,
+    ...stripWatchdogDefaults(defaults),
     reasoning:
       options.thinkingLevel !== undefined && options.thinkingLevel !== 'off' ? options.thinkingLevel : undefined,
     ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
