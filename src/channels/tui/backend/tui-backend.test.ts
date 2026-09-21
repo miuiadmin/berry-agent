@@ -1200,6 +1200,107 @@ describe('TuiBackend usage 状态行（件 6）', () => {
     emit(backend, { type: 'agent_end', status: 'completed' });
     expect(io.bytes).not.toContain('✓ 用量 150');
   });
+
+  /* ---- 三反馈批C：token 速度段（run 级平均——件 6 扩段） ---- */
+
+  it('completed 落行扩速段「· N tok/s」（run 级平均——批C）', () => {
+    // 注入钟驱动确定性时长：100 token / 4s = 25 tok/s；150 / 4s = 37.5（一位小数形）
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(100) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t += 4000;
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('✓ 用量 100 · 25 tok/s');
+    // ≥100 千分位整数形：2,500 token / 1s = 2,500 tok/s
+    let t2 = 0;
+    const rig2 = makeBackend({ now: () => t2 });
+    emit(rig2.backend, { type: 'agent_start' });
+    emit(rig2.backend, { type: 'message_end', message: usageMsg(2_500) });
+    emit(rig2.backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t2 += 1000;
+    rig2.io.bytes = '';
+    emit(rig2.backend, { type: 'agent_end', status: 'completed' });
+    expect(rig2.io.bytes).toContain('✓ 用量 2,500 · 2,500 tok/s');
+    // 一位小数形：150 / 4s = 37.5
+    let t3 = 0;
+    const rig3 = makeBackend({ now: () => t3 });
+    emit(rig3.backend, { type: 'agent_start' });
+    emit(rig3.backend, { type: 'message_end', message: usageMsg(150) });
+    emit(rig3.backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t3 += 4000;
+    rig3.io.bytes = '';
+    emit(rig3.backend, { type: 'agent_end', status: 'completed' });
+    expect(rig3.io.bytes).toContain('✓ 用量 150 · 37.5 tok/s');
+  });
+
+  it('诚实缺席律：时长 <1s / 零 token / repaint 中途附着 / failed 终态——四形不显段（批C）', () => {
+    // ①时长 <1s：亚秒 run 平均速度无意义（用量行照常、零速段）
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(100) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t += 500;
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('✓ 用量 100');
+    expect(io.bytes).not.toContain('tok/s');
+    // ②零 token：无速度可言
+    let t2 = 0;
+    const rig2 = makeBackend({ now: () => t2 });
+    emit(rig2.backend, { type: 'agent_start' });
+    emit(rig2.backend, { type: 'message_end', message: usageMsg(0) });
+    emit(rig2.backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t2 += 4000;
+    rig2.io.bytes = '';
+    emit(rig2.backend, { type: 'agent_end', status: 'completed' });
+    expect(rig2.io.bytes).toContain('✓ 用量 0');
+    expect(rig2.io.bytes).not.toContain('tok/s');
+    // ③repaint 中途附着：清账连清起点时戳——无亲见 agent_start 的 run 不显速
+    let t3 = 0;
+    const rig3 = makeBackend({ now: () => t3 });
+    emit(rig3.backend, { type: 'agent_start' });
+    t3 += 2000;
+    emit(rig3.backend, { type: 'message_end', message: usageMsg(150) });
+    emit(rig3.backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    rig3.backend.onRepaint(SESSION, [], null); // 切焦清账（含时戳）
+    t3 += 2000;
+    rig3.io.bytes = '';
+    emit(rig3.backend, { type: 'agent_end', status: 'completed' });
+    expect(rig3.io.bytes).toContain('✓ 用量 0'); // 清账重计（repaint 后零轮）
+    expect(rig3.io.bytes).not.toContain('tok/s');
+    // ④failed 终态：维持分档形不加段（成功形专属）
+    let t4 = 0;
+    const rig4 = makeBackend({ now: () => t4 });
+    emit(rig4.backend, { type: 'agent_start' });
+    emit(rig4.backend, { type: 'message_end', message: usageMsg(100) });
+    emit(rig4.backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t4 += 4000;
+    rig4.io.bytes = '';
+    emit(rig4.backend, { type: 'agent_end', status: 'failed', errorMessage: '炸了' });
+    expect(rig4.io.bytes).toContain('✖ 失败');
+    expect(rig4.io.bytes).not.toContain('tok/s');
+  });
+
+  it('speedView 观测面：run 中现算 running average / 终态冻结终值 / 无起点 null（批B footer 消费位）', () => {
+    const idle = makeBackend();
+    expect(idle.backend.speedView).toBe(null); // 无 run 无速度
+    let t = 0;
+    const { backend } = makeBackend({ now: () => t });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(100) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t += 2000;
+    expect(backend.speedView).toBe(50); // run 中刷新锚时刻现算（100 / 2s）
+    emit(backend, { type: 'agent_end', status: 'completed' }); // 终点时戳冻结分母（agent_end 到达于 t=2000）
+    t += 2000;
+    expect(backend.speedView).toBe(50); // 终态后保持终值（分母冻结于 2s——不随墙钟漂移；未冻结将漂至 100/4s=25）
+    emit(backend, { type: 'agent_start' }); // 清账连清——新 run 起点重记
+    expect(backend.speedView).toBe(null); // 新 run 零 token（<1s 且零账双缺席）
+  });
 });
 
 /* ================= 呈现面件 7（终端外显 OSC） ================= */

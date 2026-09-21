@@ -309,6 +309,15 @@ function formatTokenCount(n: number): string {
 }
 
 /**
+ * 速度格式化（三反馈批C）：<100 tok/s 一位小数（尾零剥除——25.0 → 25，精度
+ * 帽一位不失信息）、≥100 千分位整数（2,500——与 token 数同形）。
+ */
+function formatTokensPerSecond(n: number): string {
+  if (n >= 100) return formatTokenCount(Math.round(n));
+  return n.toFixed(1).replace(/\.0$/, '');
+}
+
+/**
  * TUI 后端：单终端 inline 主屏 + 自持输入管线。构造后须 start()（模式串 +
  * 清屏 + 滚动区确立）再接核事件；stop() 对称出屏（模式串反序 + raw 复原）。
  */
@@ -409,6 +418,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 当前 turn 的 assistant 消息用量暂存（turn_end 累加——件 6 等价性条款） */
   private pendingUsage: Usage | null = null;
   private usageTotal: UsageAccumulation = ZERO_USAGE;
+  /** 当前 run 起点时戳（agent_start 落——三反馈批C 速度段分母；repaint/切焦清账连清，中途附着即无起点） */
+  private runStartedAt: number | null = null;
+  /** 当前 run 终点时戳（agent_end 落——分母冻结，终态后 speedView 保持终值不随墙钟漂移；resetUsage 清） */
+  private runEndedAt: number | null = null;
 
   /* ---- 呈现面件 7 态（终端外显） ---- */
   /** title 基线（`berry-agent` 或 `berry-agent <版本>`——起屏与复原落点） */
@@ -1315,6 +1328,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     return { ...this.usageTotal };
   }
 
+  /**
+   * run 级平均速度观测面（tok/s——三反馈批C，批B footer 段消费位）：run 中 =
+   * 刷新锚时刻现算 running average；终态后保持终值（终点时戳冻结分母）至下
+   * 次清账；无起点/亚秒/零 token 返 null（诚实缺席——消费面自行省段）。
+   */
+  get speedView(): number | null {
+    return this.runSpeedTokensPerSecond();
+  }
+
   /** resize 编舞：几何重取 + 主屏全量重画 + 固定区按新几何重建（权威重建不走队列） */
   handleResize(): void {
     if (this.suspendedMain) return; // 挂起闸：停屏期零写出（此刻写出污染在场副屏）——几何真值由复起全帧重画重取吸收
@@ -1879,19 +1901,26 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     switch (event.type) {
       case 'agent_start':
         this.statusLine.start();
-        this.resetUsage(); // 件 6：归零清行（上一 run 尾注不跨 run）
+        this.resetUsage(); // 件 6：归零清行（上一 run 尾注不跨 run；速度时戳连清）
+        this.runStartedAt = this.now(); // 批C：run 起点时戳（注入钟——速度段分母起点）
         this.toolPanel.clear(); // 件 5：瞬时面清板
         this.touchFixed();
         break;
       case 'agent_end':
         this.statusLine.stop();
+        this.runEndedAt = this.now(); // 批C：终点时戳冻结分母（终态后 speedView 保持终值不随墙钟漂移）
         // 件 6：落行（与 setStatus 同载体 last-writer-wins）——终态分档
         // （2026-09-19 P0 静默链修复批：failed ✖ / aborted ⏹ 不显用量成功形——
         // 与件 9 摘要行「失败与中止显式分档、不得伪装成功」同律；修前形 =
         // 不分 status 恒「✓ 用量 N」，失败 run 状态栏伪成功）
         if (event.status === 'failed') this.statusLine.setStatus('✖ 失败');
         else if (event.status === 'aborted') this.statusLine.setStatus('⏹ 已中止');
-        else this.statusLine.setStatus(`✓ 用量 ${formatTokenCount(this.usageTotal.totalTokens)}`);
+        else {
+          // 批C：completed 扩速段（run 级平均——诚实缺席形无段，见 runSpeedTokensPerSecond）
+          const speed = this.runSpeedTokensPerSecond();
+          const speedSegment = speed === null ? '' : ` · ${formatTokensPerSecond(speed)} tok/s`;
+          this.statusLine.setStatus(`✓ 用量 ${formatTokenCount(this.usageTotal.totalTokens)}${speedSegment}`);
+        }
         this.toolPanel.clear();
         this.refreshTodo(); // 件 4：刷新三时点之三
         this.touchFixed();
@@ -1926,11 +1955,27 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
   }
 
-  /** usage 归零清行（agent_start / repaint——件 6 清账重计条款） */
+  /** usage 归零清行（agent_start / repaint——件 6 清账重计条款；速度时戳连清） */
   private resetUsage(): void {
     this.pendingUsage = null;
     this.usageTotal = ZERO_USAGE;
+    this.runStartedAt = null; // 批C：清账连清起点（repaint/切焦中途附着即无起点——速度段诚实缺席）
+    this.runEndedAt = null;
     this.statusLine.setStatus('');
+  }
+
+  /**
+   * run 级平均速度（tok/s）——三反馈批C：run 累计 totalTokens ÷ run 时长（终点
+   * 缺席按当下墙钟现算 = run 中刷新锚的 running average）。诚实缺席四形返
+   * null：无起点时戳（repaint/切焦中途附着）、时长 <1s（亚秒 run 平均速度无
+   * 意义）、零 token、（呈现面专属）failed/aborted 终态不显段。
+   */
+  private runSpeedTokensPerSecond(): number | null {
+    if (this.runStartedAt === null) return null;
+    const elapsedMs = (this.runEndedAt ?? this.now()) - this.runStartedAt;
+    if (elapsedMs < 1000) return null;
+    if (this.usageTotal.totalTokens <= 0) return null;
+    return (this.usageTotal.totalTokens * 1000) / elapsedMs;
   }
 
   /** turn_end 累加（暂存的 assistant 用量并入 run 级账本；cost 在场累货币额） */
