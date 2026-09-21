@@ -697,6 +697,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 重画按行集重建覆盖，丢弃无害（收集件 collectPendingTransients——
     // onRepaint/handleResize 权威清点同律共用）
     this.suspendedTransients.push(...this.collectPendingTransients());
+    // 转账即清队（第六役 S1——双转账封口）：瞬时行唯一载体 pendingOps 若不
+    // 同刻清空，挂起位 onRepaint 的权威清点会把同一 transient op 再收再转一
+    // 遍（collectPendingTransients 只读不清）——复起补吐同一行写出两遍。队列
+    // 残余 present op 同刻丢弃无害：挂起期 flush/requestRender 全闸死、复起
+    // 全帧重画按行集重建覆盖（resumeMain 清队兜底同语义——此清使「挂起期
+    // onRepaint 队列理论空」成真）
+    this.pendingOps = [];
     this.cancelTimer('frame'); // 在飞帧收口（挂起期零写出的调度半边）
     this.cancelTimer('tick'); // 状态行转轮停摆（防后台空转——复起重摆）
     this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）

@@ -1388,6 +1388,23 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     expect(rig.io.bytes.indexOf('· 挂起前通知')).toBeLessThan(rig.io.bytes.indexOf('· 停屏期通知'));
   });
 
+  it('挂起位 onRepaint 不二次转账（suspendMain 转账后清队——复起补吐不双显）', () => {
+    const rig = makeInteractive();
+    // 竞窗形：挂起前通知已入 pendingOps 未落帧 → suspendMain 转账（载体须清）
+    // → 挂起期 onRepaint 权威清点。修前：suspendMain 转账不清 pendingOps，挂起
+    // 位 onRepaint 的 collectPendingTransients 把同一 transient op 再收一遍推入
+    // suspendedTransients——复起补吐同一行写出两遍（双显）
+    rig.backend.notify('挂起窗通知');
+    expect(rig.io.bytes).toBe(''); // 前置自证：合并窗持有未落帧
+    rig.backend.suspendMain(); // 转账 #1（修前 pendingOps 未清——瞬时 op 仍在队）
+    rig.backend.onRepaint('s2', [], null); // 挂起位权威清点（修前在此二次转账）
+    rig.io.reset(); // 挂起编舞 + onRepaint 的 OSC title 字节不计入
+    rig.backend.resumeMain();
+    rig.pump();
+    // 修前红锚：实得 2（同一行补吐两遍）；修后期望恰一次
+    expect(rig.io.bytes.split('挂起窗通知').length - 1).toBe(1);
+  });
+
   it('复起先排空槽期缓冲——停屏前缓冲的 slotTransients 到达序在前（修前：延迟落地且序倒置）', () => {
     const rig = makeInteractive();
     // 流式槽在场：起流后泵帧（末块 streaming 确立）
