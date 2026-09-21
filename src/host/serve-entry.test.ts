@@ -726,3 +726,43 @@ describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
     }
   });
 });
+
+describe('sessions 清单 title 净化（第五役 G6 双保险读位）', () => {
+  it('存量脏 title 剥逃逸/控制字节后外发 JSON 面、净化归空诚实退 null', async () => {
+    // 双保险腿锁：写路物化已源头净化，读位 sanitizeTitleText 兜旧码/异源写落库
+    // 的脏 title——若后世以「写路已净化」为由把读位简化回 row.title ?? null（即
+    // 修前形），存量脏行经 SDK JSON 面直印终端的逃逸序列复发且本测无红拦截。
+    // 读位 seam：updateSessionTitle 是同步裸写（store 层不净化——「人面显式
+    // 改名」独立面），manager.list 经 persistence.listSessions 活读无缓存。
+    const rt: HostRuntime = createHostRuntime({
+      dataDir: mkdtempSync(join(realpathSync(tmpdir()), 'g6-title-data-')),
+    });
+    const faux = fauxProvider({ provider: 'faux-g6-title', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf()]);
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider] as readonly Provider[],
+      model: 'faux-g6-title/m1',
+      env: {},
+    });
+    try {
+      const bridge = createServeBridge(stack, rt, { cwd: process.cwd() });
+      const { sessionId } = bridge.submitPrompt({ content: '标题净化', messageId: 'g6-t-1' });
+      // 行随首事件落库——先等清单见本会话（红因锁定在净化断言非时序；此后
+      // planted title 非空恒胜出——写路 COALESCE(sessions.title, ?) 零覆盖）
+      await pollUntil(() => rt.persistence.store.listSessions().some((row) => row.id === sessionId));
+      // plant 脏 title（模拟旧码/异源写）：OSC 逃逸段 + NUL + 可见题文混排
+      expect(rt.persistence.updateSessionTitle(sessionId, '\x1b]0;evil\x07题\x00')).toBe(true);
+      const dirty = bridge.listSessions().find((s) => s.id === sessionId);
+      expect(dirty).toBeDefined();
+      expect(dirty!.title).toBe('题'); // OSC 逃逸 + NUL 剥除外发——可见题文保留
+      // 净化归空（纯不可见形态：CSI 清屏段 + 零宽空格）：诚实退 null 不造占位
+      expect(rt.persistence.updateSessionTitle(sessionId, '\x1b[2J\u200b')).toBe(true);
+      const emptied = bridge.listSessions().find((s) => s.id === sessionId);
+      expect(emptied).toBeDefined();
+      expect(emptied!.title).toBeNull();
+    } finally {
+      await rt.shutdown();
+    }
+  });
+});

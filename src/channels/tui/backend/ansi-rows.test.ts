@@ -109,4 +109,26 @@ describe('capAnsiLine ANSI 行显示宽帽（fx2-A——补吐位宽收口原语
   it('帽 0 防御：空串（非半序列）', () => {
     expect(capAnsiLine('abc\x1b[31m', 0)).toBe('');
   });
+
+  it('OSC（BEL/ST 两终止形）与传统式序列零宽整段透传——字节面（第五役 S2 建议②残面）', () => {
+    // OSC 8 超链对（ST 终止形）：开段 ESC ] 8;;url ESC \ + 可见 'link' + 闭段
+    // ESC ] 8;; ESC \——consumeAnsiSequence OSC 分支（BEL/ST 两终止形）与传统式
+    // 分支此前零覆盖；本测字节级锁死镜像与 engine consumeEscapeSequence 同语义
+    //（OSC 载荷 0x5d ∈ 0x30–0x7e 若误落传统式 final 分支只吞 ESC ] 两字节，
+    // 载荷计入可见宽 → (a)(b)(e) 三面必红——回归判别面在位）
+    const osc = '\x1b]8;;http://x\x1b\\link\x1b]8;;\x1b\\';
+    // (a) 适装同引用快路：可见宽恰 a(1)+link(4)+b(1)=6=帽——OSC 两段字节零改动
+    expect(capAnsiLine(`a${osc}b`, 6)).toBe(`a${osc}b`);
+    // (b) 超帽截断：OSC 两段整段透传零占帽（link 占 4），其后全宽字整字截到帽
+    //     ——帽 8 = link 4 + 宽×2（4），第 3 个宽字放不下整字丢弃不撕序列
+    expect(capAnsiLine(`${osc}${'宽'.repeat(10)}`, 8)).toBe(`${osc}${'宽'.repeat(2)}`);
+    // (c) BEL 终止形 OSC（标题设置形）：适装零占帽原样透传（BEL 收进序列内）
+    expect(capAnsiLine('ab\x1b]0;t\x07c', 4)).toBe('ab\x1b]0;t\x07c');
+    // (d) 传统式（ESC ( B 字符集选择）：中间码 0x28 + final 0x42 整段零占帽——
+    //     适装（ab 2 + ' cd' 3 = 5 = 帽）原样透传
+    expect(capAnsiLine('ab\x1b(B cd', 5)).toBe('ab\x1b(B cd');
+    // (e) OSC 不参与 SGR 状态跟踪：着色段内 OSC 透传后截断仍补复位（isSgrReset
+    //     / isSgrSequence 均不认 OSC 形——styled 态跨 OSC 存续，行尾归零纪律不漏）
+    expect(capAnsiLine(`\x1b[31maa\x1b]0;t\x07${'a'.repeat(10)}`, 3)).toBe(`\x1b[31maa\x1b]0;t\x07a\x1b[0m`);
+  });
 });

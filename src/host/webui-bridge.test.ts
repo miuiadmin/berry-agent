@@ -288,6 +288,40 @@ describe('openWebuiFace 桥单元', () => {
     expect(disclosed.some((l) => l.includes('仅此一次显示'))).toBe(true);
   });
 
+  it('listSessions title 净化（第五役 G6 双保险读位）：存量脏 title 剥逃逸/控制字节外发、归空退 null', async () => {
+    // 双保险腿锁（与 serve-entry JSON 面同谱）：写路物化已源头净化，webui 读位
+    // sanitizeTitleText 兜旧码/异源写落库的脏 title——读位简化回 row.title ?? null
+    // （修前形）即无红拦截。seam：updateSessionTitle 同步裸写不净化 + manager.list
+    // 经 persistence.listSessions 活读无缓存
+    const rt = createHostRuntime({ dataDir: rigDir('webui-title-data-') });
+    const { stack } = rigStack(rt);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined,
+    });
+    try {
+      const id = face.deps!.sessions.createSession();
+      // 行随首事件落库（createSession 零 I/O 承诺——先落行再 plant）
+      stack.driverOf(id)!.session.append('turn/start', {});
+      await rt.persistence.flush();
+      // plant 脏 title（模拟旧码/异源写）：OSC 逃逸段 + NUL + 可见题文混排
+      expect(rt.persistence.updateSessionTitle(id, '\x1b]0;evil\x07题\x00')).toBe(true);
+      const dirty = face.deps!.sessions.listSessions().find((s) => s.id === id);
+      expect(dirty).toBeDefined();
+      expect(dirty!.title).toBe('题'); // OSC 逃逸 + NUL 剥除外发——可见题文保留
+      // 净化归空（纯不可见形态：CSI 清屏段 + 零宽空格）：诚实退 null 不造占位
+      expect(rt.persistence.updateSessionTitle(id, '\x1b[2J\u200b')).toBe(true);
+      const emptied = face.deps!.sessions.listSessions().find((s) => s.id === id);
+      expect(emptied).toBeDefined();
+      expect(emptied!.title).toBeNull();
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
   it('submitPrompt 全链 + fetchMessages 投影 + todoOf 两态', async () => {
     const rt = createHostRuntime({ dataDir: rigDir('webui-bridge-data-') });
     const { faux, stack } = rigStack(rt);
