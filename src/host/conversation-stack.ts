@@ -27,6 +27,7 @@
 import { join } from 'node:path';
 
 import { canonicalWorkspaceRoot, EventDispatch, Scope } from '../context/index.js';
+import type { Disposer } from '../context/index.js';
 import { createChannels } from '../channels/index.js';
 import type { ChannelsService } from '../channels/index.js';
 import type {
@@ -340,6 +341,15 @@ export interface ConversationStack {
   workspaceAnchor(): string;
   /** 启动会话策略（07 §5：cwd 归一根取最新会话——有则续接无则新建） */
   openStartupSession(cwd?: string): StartupSession;
+  /**
+   * 今日耗落账呈现订阅面（04 §5 定形注——TUI 全域清扫 #1-full/#2 残窗）：
+   * llm/usage 每笔入账（complete 单发路 + run 结算桥接路）后发零载荷信号，
+   * 订阅者经 `llm.allLanesSpentToday()` 现拉现值——推进先于通知（结构性
+   * 保证现拉必含本笔）。有笔才通知（无计量不造零信号）；handler 异常逐个
+   * 隔离不炸落账链（onRunSettled 订阅面同律——非总线词汇，订阅面服务形）。
+   * 射程 = 本进程落账通知；跨午夜日键翻转不在射程（07 §4.1 G1 ④有界陈旧律）。
+   */
+  onSpentTodayLedgered(handler: () => void): Disposer;
 }
 
 /**
@@ -531,6 +541,22 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     }
     return allSpentCached;
   };
+  // 今日耗落账通知私账（04 §5 定形注——呈现订阅面，TUI 全域清扫 #1-full/#2）：
+  // 零载荷信号形（消费位 pull 现拉模式不变）；两通知位（onUsage 回调全尾 +
+  // run 结算桥接循环外）都在缓存推进之后才通知——订阅者现拉必含本笔（时序
+  // 结构性保证）。handler 逐个 try/catch 隔离（onRunSettled 订阅面同律——
+  // 非总线词汇，订阅面服务形）。
+  const spentTodayLedgerHandlers = new Set<() => void>();
+  const notifySpentTodayLedgered = (): void => {
+    // 拷贝迭代防遍历中摘除（agent-service 订阅面先例形）
+    for (const handler of [...spentTodayLedgerHandlers]) {
+      try {
+        handler();
+      } catch (err) {
+        warn(`今日耗落账通知订阅者异常（隔离不炸落账链）：${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  };
   // 计量写位粘滞持有（04 §5 mq 定形注补律——mq-3 收口锁批 + 四役 mq-2 勘正）：
   // 持有入位随会话驱动创建/开（createDriver 工厂 seam——manager create/open/fork
   // 共尾 adopt 均经此，创建即持）；settle 观测逐次刷新取最新活体；onUsage 解析序
@@ -599,6 +625,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // 确保日键已初始化，同双计不生律）
       void allLanesSpentToday();
       if (allSpentDayStart === startOfTodayMs()) allSpentCached += result.usage.input + result.usage.output;
+      // 落账即通知（04 §5 呈现订阅面——锚本回调全尾：上方两段缓存推进之后，
+      // 订阅者现拉必含本笔；metering 缺席早退形不达此处 = 零信号自然成立）
+      notifySpentTodayLedgered();
     },
     // onUsage 回调异常的观测交接（04 §3.7——丢账不静默；llm 件窄面回调落 ctx warn）
     onUsageError: (err, info) => {
@@ -619,11 +648,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
    * scheduler-tick recordBackgroundUsage 两处旧扫已退役（同窗同键防双计）。
    */
   const bridgeUsageLedger = (log: SessionLog, modelSpec: string, receipt: RunSettledReceipt): void => {
+    let ledgered = false;
     for (const event of log.events()) {
       if (event.seq <= receipt.seqFromLaunch || event.type !== 'assistant/message') continue;
       const data = event.data as { usage?: Usage; provider?: string; model?: string };
       const usage = data.usage;
       if (usage === undefined) continue; // 无计量不造零账
+      ledgered = true; // 有笔标志（无计量 continue 形不置位——零账窗自然零信号）
       log.append('llm/usage', {
         callId: `run:${receipt.sessionId}:${event.seq}`,
         // model 实录优先（05 §1.1——与 complete 路 onUsage 同律）：载荷自带
@@ -643,6 +674,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       void allLanesSpentToday();
       if (allSpentDayStart === startOfTodayMs()) allSpentCached += usage.input + usage.output;
     }
+    // 有笔才通知（04 §5 呈现订阅面——本函数同步、循环收尾即通知，通知时点
+    // 后于全部缓存推进；多笔窗一次通知，订阅者现拉即窗终值）
+    if (ledgered) notifySpentTodayLedgered();
   };
 
   // ③ compaction：SummaryChannel 适配（maxChars 由 prompt 指令承载——complete
@@ -1120,6 +1154,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       }
       const created = manager.create({ workspaceRoot });
       return { ...created, resumed: false, workspaceRoot };
+    },
+    // 今日耗落账呈现订阅面（04 §5 定形注）：零载荷信号 + Disposer 退订
+    onSpentTodayLedgered(handler: () => void): Disposer {
+      spentTodayLedgerHandlers.add(handler);
+      return () => {
+        spentTodayLedgerHandlers.delete(handler);
+      };
     },
   };
 }

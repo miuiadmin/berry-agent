@@ -91,7 +91,7 @@ import { createPluginStoreFs, readLedger } from './plugin-store.js';
 import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
-import type { StartupSession } from './conversation-stack.js';
+import type { ConversationStack, StartupSession } from './conversation-stack.js';
 
 /**
  * 档位文案与回执单源已迁 host/session-tier-copy.ts（2026-09-18 webui 档位面
@@ -128,6 +128,9 @@ export interface TuiEntryOptions {
   readonly resumeSessionId?: string;
   /** 运行时组装后回调（main.ts attachRuntime——信号/崩溃编舞切运行时本体） */
   readonly onRuntime?: (runtime: HostRuntime) => void;
+  /** 装配栈回调（注入面——测试拿真装配栈：跨入口结算通知 e2e 位；与
+   * onRuntime/onWebuiOpen 注入面同族先例） */
+  readonly onStack?: (stack: ConversationStack) => void;
   /** webui 开面回执（`--port` 在场时开面后回调——测试拿实配端口与 token） */
   readonly onWebuiOpen?: (info: { host: string; port: number; token: string }) => void;
   /** 启动版本检查腿注入面（07 §8.5 第 6 条——缺省产线真身 runStartupUpdateCheck；
@@ -195,6 +198,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     return assembly.exitCode;
   }
   const { runtime, stack, scope, logger, boot, reloader }: AssemblySuccess = assembly;
+
+  // 装配栈回调（注入面——见 TuiEntryOptions.onStack 注）
+  options.onStack?.(stack);
 
   let exitCode = 0;
   try {
@@ -1013,6 +1019,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
     // 出屏复原进退出序 closer——quit 路径与信号路径（onGraceful→shutdown）同享
     runtime.registerCloser({ label: 'tui-backend', fn: () => backend.stop() });
+
+    // —— 全道结算总线呈现订阅（04 §5 定形注——TUI 全域清扫 #1-full/#2 残窗）：
+    // 后台道跨入口（scheduler/webui/issue）run 结算桥接与 complete 单发落账
+    // 即通知——footer「今日」段即时刷新（通知时点后于缓存推进，现拉必含本
+    // 笔）。提交路 settled promise 锚（onSubmit run?.then 刷新）仍盖本入口
+    // run——两锚叠加幂等刷新（refreshFooter 无害）；跨午夜日键翻转不在射程
+    // （07 §4.1 G1 ④有界陈旧律——下次刷新锚自愈）。
+    stack.onSpentTodayLedgered(() => backend.refreshFooter());
 
     // —— /memory 管理面材料注入（mm 批——06 §7 形态定形注）：boot 已完成
     //（assembleHostStack 内插件装载），core:memory 服务面在场（库座在位且件

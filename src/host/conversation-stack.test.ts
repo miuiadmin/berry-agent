@@ -1929,6 +1929,114 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     expect(() => rigStack(rt, { env: { BERRY_AGENT_BACKGROUND_BUDGET_TOKENS: '12x' } })).toThrow(RangeError); // 坏形死配置当场红
     await rt.shutdown();
   });
+
+  // 嵌套子面：呈现订阅面（meteredMessage 等 helper 同作用域复用）
+  describe('今日耗落账呈现订阅面（04 §5 定形注——TUI 全域清扫 #1-full/#2 残窗）', () => {
+    it('run 结算桥接落账即通知——订阅者现拉必含本笔（推进先于通知的结构性保证）', async () => {
+      const { rt } = rigRuntime();
+      const { faux, stack } = rigStack(rt);
+      const session = stack.openStartupSession(rigWorkspace());
+      faux.setResponses([() => meteredMessage(15, 6)]);
+      const seen: number[] = [];
+      stack.onSpentTodayLedgered(() => {
+        // 通知回调内现拉——时序锁锚：推进先于通知则现拉已含本笔（若通知抢先
+        // 于推进，此处拉到的是不含本笔的旧值——断言即红）
+        seen.push(stack.llm.allLanesSpentToday());
+      });
+      await stack.submitText(session.sessionId, '问');
+      const usageEvents = stack
+        .driverOf(session.sessionId)!
+        .session.events()
+        .filter((e) => e.type === 'llm/usage');
+      expect(usageEvents).toHaveLength(1); // faux 单响应恰一笔桥接 → 恰一次通知
+      const ledger = usageEvents[0]!.data as { usage: { input: number; output: number } };
+      const final = stack.llm.allLanesSpentToday();
+      expect(seen).toHaveLength(1); // 修前红锚：订阅面缺席零通知
+      expect(seen[0]).toBe(final); // 通知时点现拉已达终值（rigStack 纯栈无种子——final 即本笔全量）
+      expect(final).toBeGreaterThanOrEqual(ledger.usage.input + ledger.usage.output); // 本笔确在全道（faux 转抄值动态——弱断言锁在场不锁数值）
+      await rt.shutdown();
+    });
+
+    it('complete 单发落账即通知（onUsage 路——后台道跨入口结算的 TUI 侧信号残窗）', async () => {
+      const { rt } = rigRuntime();
+      const { faux, stack } = rigStack(rt);
+      const session = stack.openStartupSession(rigWorkspace());
+      faux.setResponses([() => meteredMessage(20, 10)]);
+      let calls = 0;
+      stack.onSpentTodayLedgered(() => {
+        calls += 1;
+      });
+      await stack.llm.complete({
+        messages: [{ role: 'user', content: '后台单发', timestamp: Date.now() }],
+        priority: 'background',
+        metering: { sessionId: session.sessionId },
+      });
+      expect(calls).toBe(1); // 修前红锚：单发路此前零通知
+      await rt.shutdown();
+    });
+
+    it('零账零信号：complete 缺 metering 早退形不通知（无计量不造零信号）', async () => {
+      const { rt } = rigRuntime();
+      const warns: string[] = [];
+      const { faux, stack } = rigStack(rt, { warn: (m) => warns.push(m) });
+      faux.setResponses([() => meteredMessage(5, 5)]);
+      let calls = 0;
+      stack.onSpentTodayLedgered(() => {
+        calls += 1;
+      });
+      await stack.llm.complete({
+        messages: [{ role: 'user', content: '无归因单发', timestamp: Date.now() }],
+        priority: 'background',
+        // metering 缺席——onUsage 早退（丢账 warn 在场、零落账零通知）
+      });
+      expect(calls).toBe(0);
+      expect(warns.some((w) => w.includes('丢账'))).toBe(true); // 早退路径确经（非静默旁路）
+      await rt.shutdown();
+    });
+
+    it('订阅者异常隔离不炸落账链——他订阅者仍收（自防炸）', async () => {
+      const { rt } = rigRuntime();
+      const { faux, stack } = rigStack(rt);
+      const session = stack.openStartupSession(rigWorkspace());
+      faux.setResponses([() => meteredMessage(15, 6)]);
+      const seen: number[] = [];
+      stack.onSpentTodayLedgered(() => {
+        throw new Error('订阅者 boom');
+      });
+      stack.onSpentTodayLedgered(() => {
+        seen.push(stack.llm.allLanesSpentToday());
+      });
+      await stack.submitText(session.sessionId, '问');
+      // boom 订阅者被隔离：落账照常 + 后注册订阅者仍收 + 测试进程不炸
+      const usageEvents = stack
+        .driverOf(session.sessionId)!
+        .session.events()
+        .filter((e) => e.type === 'llm/usage');
+      expect(usageEvents).toHaveLength(1);
+      expect(seen).toHaveLength(1);
+      await rt.shutdown();
+    });
+
+    it('Disposer 退订：退订后零信号、落账不受影响（订阅面是伴生通知位非记账路）', async () => {
+      const { rt } = rigRuntime();
+      const { faux, stack } = rigStack(rt);
+      const session = stack.openStartupSession(rigWorkspace());
+      faux.setResponses([() => meteredMessage(15, 6)]);
+      let calls = 0;
+      const dispose = stack.onSpentTodayLedgered(() => {
+        calls += 1;
+      });
+      dispose();
+      await stack.submitText(session.sessionId, '问');
+      expect(calls).toBe(0);
+      const usageEvents = stack
+        .driverOf(session.sessionId)!
+        .session.events()
+        .filter((e) => e.type === 'llm/usage');
+      expect(usageEvents).toHaveLength(1);
+      await rt.shutdown();
+    });
+  });
 });
 
 describe('会话关闭收口穿线（六役 CL-C ④——04 §10 closeOwner 段消费位接线）', () => {

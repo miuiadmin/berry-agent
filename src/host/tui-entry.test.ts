@@ -24,6 +24,7 @@ import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { sandboxModeReceipt, thinkingLevelReceipt } from './session-tier-copy.js';
 import { exitCommandItems, commandArgumentItems, runTuiEntry } from './tui-entry.js';
+import type { ConversationStack } from './conversation-stack.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 
 /* ---------------- 测试基建 ---------------- */
@@ -361,6 +362,32 @@ describe('runTuiEntry 装配序', () => {
     // 修 = onSubmit 挂 settled promise（桥接落账后 resolve——promise 回调序
     // 结构性保证）刷 footer。
     await until(() => io.output.includes('今日'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('后台道单发结算通知：非提交路落账后今日段即时呈现（#1-full 残窗——修前红：订阅面缺席零刷新锚）', async () => {
+    const stacks: ConversationStack[] = [];
+    const ws = rigDir('entry-ledger-sig-ws-');
+    const { entry, io, faux } = await rigEntry(rigDir('entry-ledger-sig-data-'), ws, {
+      onStack: (stack) => stacks.push(stack), // 注入面拿真装配栈
+    });
+    await until(() => io.output.includes(' · m1 · ')); // footer 首画在场（零耗——今日段缩位）
+    // 零提交路直接发后台道 complete（与 scheduler/webui/issue 跨入口结算同栈
+    // 同构）：修前红 = footer 无刷新锚（提交路 settled 锚不覆盖本路）→ 今日
+    // 段永不现；修 = onSpentTodayLedgered 订阅通知刷 footer（04 §5 定形注）。
+    // 会话面：openStartupSession 活体面取回（新会话行首事件未落库——库读
+    // list 不可见，走同 ws 归一根；今日段是全道跨会话聚合，落哪个会话与
+    // 断言无关）
+    faux.setResponses([() => meteredEntryMessage(30, 12)]);
+    const stack = stacks[0]!;
+    const session = stack.openStartupSession(ws);
+    await stack.llm.complete({
+      messages: [{ role: 'user', content: '后台单发结算', timestamp: Date.now() }],
+      priority: 'background',
+      metering: { sessionId: session.sessionId },
+    });
+    await until(() => io.output.includes('今日 ')); // 零耗缩位 → 落账通知刷新后有值现段
     io.send('\x04');
     expect(await entry).toBe(0);
   });
