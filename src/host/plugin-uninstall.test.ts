@@ -7,7 +7,9 @@
  * 覆盖：inspect 全字段（引用计数/域面清单/体量三源/诚实缺席面）、execute
  * keep 四段序（物删账删/域表 DROP/store_state 留/data 留/审计落账）、purge
  * 追加段（data/<id> 删 + 域键连带删/兄弟插件域不动）、防线档（installPath
- * 逃逸收口 ok:false 非裸崩）、core: 前缀/查无/坏账本各拒、local 源物不删。
+ * 逃逸收口 ok:false 非裸崩）、core: 前缀/查无/坏账本各拒、local 源物不删、
+ * npm 锚依赖记录剥除（package.json/.package-lock.json——已卸包不得经锚
+ * 记录被后续 npm 装机复活）。
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -400,6 +402,195 @@ describe('段② 判据锚 installPath 表示形（03 §9.6 mp-3 B2 定形注）
       expect(outcome.ok).toBe(true);
       expect(existsSync(localDir)).toBe(true); // 子树外不删——只删账本条目
       expect(stage.ledgerIds()).toEqual([]);
+    } finally {
+      await stage.close();
+    }
+  });
+});
+
+/* ---------------- 段② npm 锚依赖记录剥除（host-plugins#4 回归锁） ---------------- */
+
+/**
+ * npm 装机锚现场：runNpmInstall 以 `npm install --prefix --save-exact` 把
+ * 依赖记录写进 plugins/package.json（dependencies）+ plugins/.package-lock.json
+ * （packages/dependencies 两段）。锚记录含：目标包 demo、兄弟插件 other、
+ * scoped 形 @scope/pkg、demo 私有嵌套依赖与顶层传递依赖同名键（left-pad
+ * 两落位——剥除判据须只剥 demo 自身键与其私有嵌套键，顶层传递依赖键保留）。
+ */
+function seedNpmAnchorTree(dataDir: string): void {
+  const pluginsDir = join(dataDir, 'plugins');
+  mkdirSync(pluginsDir, { recursive: true });
+  writeFileSync(
+    join(pluginsDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'berry-agent-plugin-tree',
+        private: true,
+        dependencies: { demo: '1.0.0', other: '2.0.0', '@scope/pkg': '3.0.0' },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(
+    join(pluginsDir, '.package-lock.json'),
+    `${JSON.stringify(
+      {
+        name: 'berry-agent-plugin-tree',
+        lockfileVersion: 3,
+        packages: {
+          '': { name: 'berry-agent-plugin-tree' },
+          'node_modules/demo': { version: '1.0.0', integrity: 'sha512-demo' },
+          'node_modules/demo/node_modules/left-pad': { version: '1.3.0' },
+          'node_modules/other': { version: '2.0.0' },
+          'node_modules/left-pad': { version: '1.3.0' },
+          'node_modules/@scope/pkg': { version: '3.0.0' },
+        },
+        dependencies: {
+          demo: { version: '1.0.0', requires: { 'left-pad': '^1.3.0' } },
+          other: { version: '2.0.0' },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+/** 锚 package.json dependencies 键集（文件缺席抛——测试现场已 seed） */
+function anchorDependencyKeys(dataDir: string): string[] {
+  const text = readFileSync(join(dataDir, 'plugins', 'package.json'), 'utf8');
+  const parsed = JSON.parse(text) as { dependencies?: Record<string, string> };
+  return Object.keys(parsed.dependencies ?? {});
+}
+
+/** 锚 lock packages 段键集 */
+function anchorLockPackageKeys(dataDir: string): string[] {
+  const text = readFileSync(join(dataDir, 'plugins', '.package-lock.json'), 'utf8');
+  const parsed = JSON.parse(text) as { packages?: Record<string, unknown> };
+  return Object.keys(parsed.packages ?? {});
+}
+
+/** 锚 lock 旧版 dependencies 段键集（lockfileVersion 1 兼容段） */
+function anchorLockDependencyKeys(dataDir: string): string[] {
+  const text = readFileSync(join(dataDir, 'plugins', '.package-lock.json'), 'utf8');
+  const parsed = JSON.parse(text) as { dependencies?: Record<string, unknown> };
+  return Object.keys(parsed.dependencies ?? {});
+}
+
+describe('段② npm 锚依赖记录剥除（已卸包不得经锚记录被后续 npm 装机复活）', () => {
+  it('npm 布局卸载连带剥 package.json/.package-lock.json 该包记录；兄弟记录与顶层传递依赖键不动', async () => {
+    const stage = UninstallStage.open('exec-npm-anchor');
+    try {
+      seedFullStage(stage); // demo + other 双插件现场
+      seedNpmAnchorTree(stage.dataDir);
+      const outcome = executeUninstall(stage.deps, 'demo');
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      // 锚 package.json：demo 剥除；兄弟 other 与 scoped 形保留
+      const depKeys = anchorDependencyKeys(stage.dataDir);
+      expect(depKeys).not.toContain('demo');
+      expect(depKeys).toContain('other');
+      expect(depKeys).toContain('@scope/pkg');
+      // 锚 lock packages 段：包自身键 + 私有嵌套键剥除；兄弟/顶层传递依赖/scoped 键保留
+      const packageKeys = anchorLockPackageKeys(stage.dataDir);
+      expect(packageKeys).not.toContain('node_modules/demo');
+      expect(packageKeys).not.toContain('node_modules/demo/node_modules/left-pad');
+      expect(packageKeys).toContain('node_modules/other');
+      expect(packageKeys).toContain('node_modules/left-pad');
+      expect(packageKeys).toContain('node_modules/@scope/pkg');
+      // 锚 lock 旧版 dependencies 段：demo 剥（嵌套子树随父键整体走）；other 留
+      const legacyKeys = anchorLockDependencyKeys(stage.dataDir);
+      expect(legacyKeys).not.toContain('demo');
+      expect(legacyKeys).toContain('other');
+      // 回执面点名锚剥（痕迹可清算）
+      expect(outcome.text).toContain('锚依赖记录');
+    } finally {
+      await stage.close();
+    }
+  });
+
+  it('scoped 布局（plugins/node_modules/@scope/pkg）同剥——账本 id 与包名解耦，判据锚 installPath', async () => {
+    const stage = UninstallStage.open('exec-npm-anchor-scoped');
+    try {
+      stage.seedEntry({ id: 'scoped-x', installPath: join('plugins', 'node_modules', '@scope', 'pkg') });
+      const dir = join(stage.dataDir, 'plugins', 'node_modules', '@scope', 'pkg');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), '{}');
+      seedNpmAnchorTree(stage.dataDir);
+      const outcome = executeUninstall(stage.deps, 'scoped-x');
+      expect(outcome.ok).toBe(true);
+      expect(anchorDependencyKeys(stage.dataDir)).not.toContain('@scope/pkg');
+      expect(anchorDependencyKeys(stage.dataDir)).toContain('demo'); // 他人记录不动
+      expect(anchorLockPackageKeys(stage.dataDir)).not.toContain('node_modules/@scope/pkg');
+    } finally {
+      await stage.close();
+    }
+  });
+
+  it('共享引用在：锚记录随物保留（最后引用删尽才连带剥）', async () => {
+    const stage = UninstallStage.open('exec-npm-anchor-shared');
+    try {
+      stage.seedEntry({ id: 'demo' });
+      stage.seedEntry({ id: 'alias-x', installPath: join('plugins', 'node_modules', 'demo') });
+      stage.seedInstallDir('demo');
+      seedNpmAnchorTree(stage.dataDir);
+      // 首卸：物保留（共享引用在）——锚记录同保留（记录属物理树，物在锚在）
+      const first = executeUninstall(stage.deps, 'demo');
+      expect(first.ok).toBe(true);
+      expect(anchorDependencyKeys(stage.dataDir)).toContain('demo');
+      // 末卸（最后引用删尽）：物删 + 锚剥
+      const last = executeUninstall(stage.deps, 'alias-x');
+      expect(last.ok).toBe(true);
+      expect(existsSync(join(stage.dataDir, 'plugins', 'node_modules', 'demo'))).toBe(false);
+      expect(anchorDependencyKeys(stage.dataDir)).not.toContain('demo');
+    } finally {
+      await stage.close();
+    }
+  });
+
+  it('非 npm 布局（market 拷贝腿）零锚无作——锚两文件字节不动', async () => {
+    const stage = UninstallStage.open('exec-npm-anchor-market');
+    try {
+      const marketPath = join('plugins', 'market', 'alpha', 'hello-plugin');
+      stage.seedEntry({
+        id: 'hello-plugin',
+        source: 'local',
+        ref: `local:${join(stage.dataDir, 'marketplaces', 'alpha')}`,
+        installPath: marketPath,
+      });
+      const dir = join(stage.dataDir, marketPath);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), '{}');
+      seedNpmAnchorTree(stage.dataDir);
+      const anchorBefore = readFileSync(join(stage.dataDir, 'plugins', 'package.json'), 'utf8');
+      const lockBefore = readFileSync(join(stage.dataDir, 'plugins', '.package-lock.json'), 'utf8');
+      const outcome = executeUninstall(stage.deps, 'hello-plugin');
+      expect(outcome.ok).toBe(true);
+      expect(readFileSync(join(stage.dataDir, 'plugins', 'package.json'), 'utf8')).toBe(anchorBefore);
+      expect(readFileSync(join(stage.dataDir, 'plugins', '.package-lock.json'), 'utf8')).toBe(lockBefore);
+    } finally {
+      await stage.close();
+    }
+  });
+
+  it('锚 package.json 坏 JSON = fail-loud 拒（PLUGIN_UNINSTALL_REFUSED 收口；剥侧先行——装机物未动）', async () => {
+    const stage = UninstallStage.open('exec-npm-anchor-corrupt');
+    try {
+      stage.seedEntry({ id: 'demo' });
+      const dir = stage.seedInstallDir('demo');
+      const pluginsDir = join(stage.dataDir, 'plugins');
+      mkdirSync(pluginsDir, { recursive: true });
+      writeFileSync(join(pluginsDir, 'package.json'), 'not-json{');
+      const outcome = executeUninstall(stage.deps, 'demo');
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) {
+        expect(outcome.message).toContain('PLUGIN_UNINSTALL_REFUSED');
+        expect(outcome.message).toContain('坏 JSON');
+      }
+      // 剥侧先行于删物：拒后装机物原样（修锚/删锚文件后重跑收敛）
+      expect(existsSync(dir)).toBe(true);
+      expect(stage.ledgerIds()).toContain('demo');
     } finally {
       await stage.close();
     }

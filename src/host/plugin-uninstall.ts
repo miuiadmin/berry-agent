@@ -10,7 +10,10 @@
  *  ② 装机物必删——`assertInsideInstallSubtree` 防线（逃逸拒）+ 同包引用计数
  *    （多引用同物者最后引用删尽才删物）+ 直引不删用户目录（判据锚
  *    installPath 表示形：相对 = 子树内必删〔含 market 拷贝腿布局〕/ 绝对 =
- *    直引不删——03 §9.6 mp-3 B2 定形注）；**连带** DROP 该插件域前缀
+ *    直引不删——03 §9.6 mp-3 B2 定形注）+ npm 布局连带剥锚
+ *    package.json/.package-lock.json 依赖记录（已卸包不得经锚记录被后续
+ *    npm 装机全树和解复活回 node_modules——host-plugins#4）；
+ *    **连带** DROP 该插件域前缀
  *  ③ 数据域处置 `dataAction: keep|purge` 缺省 keep（Docker 卷律）——purge 恒
  *    只删 `data/<id>/` 单插件子目录（`assertInsidePluginData` 防线）+ store_state
  *    本域前缀键连带删（keep 留待 LRU 自然逐出——§4.5 第四正门对称清算）；
@@ -25,7 +28,7 @@
  * sqlite() 注记）。短命进程与运行时同库同链，链尾单源防短链降级。
  */
 import { BaseError } from '../contracts/index.js';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createAuditFace, createLoadHistoryFace } from '../persist/index.js';
 
@@ -175,6 +178,119 @@ function sharedReferrers(dataDir: string, entries: readonly PluginLedgerEntry[],
     .map((e) => e.id);
 }
 
+/* ---------------- 段② npm 锚依赖记录剥除（host-plugins#4） ---------------- */
+
+/**
+ * npm 布局包名推导：installPath 为 `plugins/node_modules/<包名>` 形（scoped
+ * 包 `@scope/pkg` 两段）时返包名，否则 null。判据锚物理布局而非 source 词
+ * ——该布局是 installPathForNpm 唯一写入位（git `plugins/git/…` 与 market
+ * 拷贝腿 `plugins/market/…` 布局不经锚树装机零依赖记录；账本 id 与包名
+ * 解耦，不能拿 id 当包名）。
+ */
+function npmPackageNameOf(installPath: string): string | null {
+  const parts = installPath.split(/[\\/]/);
+  if (parts.length < 3 || parts[0] !== 'plugins' || parts[1] !== 'node_modules') return null;
+  return parts.slice(2).join('/');
+}
+
+/** 普通对象判定（锚 JSON 段位形状守卫——非对象形按坏形拒） */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * 锚 JSON 解析（坏 JSON/坏形 fail-loud——`PLUGIN_UNINSTALL_REFUSED` 收口）：
+ * 锚树腐坏是需人修的真状态，静默跳过剥除会让已卸包经残记录在后续 npm 装机
+ * 中复活；报文直呈修法（修复或删除该文件后重跑——删锚 package.json 后下次
+ * npm 装机自重建最小锚）。
+ */
+function parseAnchorJson(text: string, path: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new BaseError(
+      'PLUGIN_UNINSTALL_REFUSED',
+      `npm 锚文件坏 JSON（${path}）：${err instanceof Error ? err.message : String(err)}——剥锚记录拒猜；修复或删除该文件后重跑`,
+    );
+  }
+  if (!isRecord(parsed)) {
+    throw new BaseError(
+      'PLUGIN_UNINSTALL_REFUSED',
+      `npm 锚文件坏形（${path}）：期望 JSON 对象——剥锚记录拒猜；修复或删除该文件后重跑`,
+    );
+  }
+  return parsed;
+}
+
+/** 锚 JSON 原子写回（tmp+rename 同目录同卷——半写 JSON 会断后续一切 npm 源装机） */
+function writeAnchorJson(fs: PluginStoreFs, path: string, value: unknown): void {
+  const tmp = `${path}.tmp-uninstall`;
+  fs.write(tmp, `${JSON.stringify(value, null, 2)}\n`);
+  fs.rename(tmp, path);
+}
+
+/**
+ * npm 锚依赖记录剥除（段② npm 布局连带）：npm 装机以
+ * `npm install --prefix <plugins> --save-exact` 把依赖记录写进锚
+ * package.json + .package-lock.json——装机物删除若留锚记录，之后任意 npm
+ * 源装机/update 按锚全树和解会把已卸包重装回 node_modules（零账本零装载
+ * 的无主残影——用户因不信任而卸载的插件代码被静默重下载）。
+ *
+ * 剥除边界：
+ *  - 仅 npm 布局有作（git/market 布局零锚记录）；
+ *  - 仅删物门内调用（willDelete 分支——共享引用在则物保留，锚记录随物
+ *    保留，最后引用删尽才连带剥）；
+ *  - 只剥包自身记录与其私有嵌套键（`node_modules/<pkg>` 与
+ *    `node_modules/<pkg>/node_modules/**`、旧版 dependencies 段父键——嵌套
+ *    子树随父键整体走）；顶层传递依赖键不动（是否仍被兄弟插件需要由 npm
+ *    下次全树和解自判，多剥会迫使兄弟插件传递依赖重新解析）；
+ *  - 锚文件缺席或记录已不在 = 无作（幂等残迹收尾式）；锚文件在场则坏
+ *    JSON/坏形 fail-loud 拒。
+ */
+function stripNpmAnchorRecords(deps: UninstallDeps, installPath: string): void {
+  const pkg = npmPackageNameOf(installPath);
+  if (pkg === null) return; // 非 npm 布局零锚记录无作
+  const pluginsDir = join(deps.dataDir, 'plugins');
+
+  // ① 锚 package.json——dependencies[<pkg>] 剥除（--save-exact 的记录位）
+  const anchorPath = join(pluginsDir, 'package.json');
+  const anchorText = deps.fs.read(anchorPath);
+  if (anchorText !== null) {
+    const anchor = parseAnchorJson(anchorText, anchorPath);
+    const dependencies = anchor['dependencies'];
+    if (isRecord(dependencies) && Object.hasOwn(dependencies, pkg)) {
+      delete dependencies[pkg];
+      writeAnchorJson(deps.fs, anchorPath, anchor);
+    }
+  }
+
+  // ② 锚 .package-lock.json——packages 段包自身键与私有嵌套键 + 旧版 dependencies 段父键
+  const lockPath = join(pluginsDir, '.package-lock.json');
+  const lockText = deps.fs.read(lockPath);
+  if (lockText !== null) {
+    const lock = parseAnchorJson(lockText, lockPath);
+    let changed = false;
+    const packages = lock['packages'];
+    if (isRecord(packages)) {
+      const rootKey = `node_modules/${pkg}`;
+      for (const key of Object.keys(packages)) {
+        // 精确前缀界：同头异名包（demo-extra）不误伤；私有嵌套子树随剥
+        if (key === rootKey || key.startsWith(`${rootKey}/node_modules/`)) {
+          delete packages[key];
+          changed = true;
+        }
+      }
+    }
+    const legacyDependencies = lock['dependencies'];
+    if (isRecord(legacyDependencies) && Object.hasOwn(legacyDependencies, pkg)) {
+      delete legacyDependencies[pkg];
+      changed = true;
+    }
+    if (changed) writeAnchorJson(deps.fs, lockPath, lock);
+  }
+}
+
 /* ---------------- inspect（只读零副作用） ---------------- */
 
 /**
@@ -246,7 +362,9 @@ function formatReport(deps: UninstallDeps, report: UninstallReport): string {
     } else if (!p.willDelete) {
       lines.push(`  装机物：${p.absolute}——local 直引源，不删用户目录（只删账本条目）`);
     } else {
-      lines.push(`  装机物：${relativizeAgainst(deps.dataDir, p.absolute)}（段②删）`);
+      // npm 布局知情面：锚依赖记录随装机物连带剥（host-plugins#4）
+      const anchorNote = npmPackageNameOf(p.ledgerPath) !== null ? ' + 连带剥 npm 锚依赖记录' : '';
+      lines.push(`  装机物：${relativizeAgainst(deps.dataDir, p.absolute)}（段②删${anchorNote}）`);
     }
   }
   lines.push(
@@ -293,6 +411,9 @@ export function executeUninstall(
     const [pathInfo] = report.installPaths;
     if (pathInfo !== undefined && pathInfo.willDelete) {
       assertInsideInstallSubtree(deps.dataDir, pathInfo.absolute); // 逃逸拒（防线档）
+      // npm 布局连带剥锚依赖记录（先剥后删物——剥侧失败零删物收口更净；
+      // 锚记录在则后续任意 npm 源装机按锚全树和解把已卸包复活回 node_modules）
+      stripNpmAnchorRecords(deps, entry.installPath);
       deps.fs.rm(pathInfo.absolute, { recursive: true, force: true });
     }
     for (const table of report.domainTables) {
@@ -347,7 +468,10 @@ function formatExecuteReceipt(
   } else if (!pathInfo.willDelete) {
     lines.push('  ② 装机物：保留（local 直引源不删用户目录）；账本条目已删');
   } else {
-    lines.push(`  ② 装机物：已删（${relativizeAgainst(deps.dataDir, pathInfo.absolute)}）`);
+    // npm 布局：锚依赖记录已连带剥（痕迹可清算的回执面点名）
+    const anchorNote =
+      npmPackageNameOf(entry.installPath) !== null ? '；npm 锚依赖记录已剥（package.json/.package-lock.json）' : '';
+    lines.push(`  ② 装机物：已删（${relativizeAgainst(deps.dataDir, pathInfo.absolute)}${anchorNote}）`);
   }
   lines.push(`  ②连带 域表：${report.domainTables.length > 0 ? `已 DROP ${report.domainTables.length} 张` : '无'}`);
   lines.push(
