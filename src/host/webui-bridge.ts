@@ -277,6 +277,32 @@ export function mountWebuiOnFace(options: WebuiFaceMountOptions): WebuiFaceMount
 }
 
 /**
+ * 件侧生成 messageId 形（`webui-<n>`——SPA 缺席 messageId 时 server 件 submit
+ * 端点以进程内自增序号补生成〔契约注「无幂等」〕）。桥以形判别生成键：
+ * 生成键不参与幂等 admit 也不落 dedupeKey 账——序号跨重启复位，落账会在
+ * 重启后同键撞旧账误拒正当提交（SDK 线「缺席 messageId 不落账」同律）。
+ */
+const SERVER_GENERATED_MESSAGE_ID = /^webui-\d+$/;
+
+/**
+ * durable 查重（serve 桥 lookupDedupeKey 同族判据——本桥局部复刻）：会话
+ * 日志扫 user/message 的 data.dedupeKey，命中回原内容串（admit 同键异内容
+ * 判定源）。在册驱动内存日志即权威源（含 write-behind 在飞——submit 端点
+ * 先决门已拦 missing/closed，驱动恒在场；防御位驱动缺席回 undefined 走原路）。
+ */
+function lookupDedupeContent(stack: ConversationStack, sessionId: string, messageId: string): string | undefined {
+  const events = stack.driverOf(sessionId)?.session.events();
+  if (events === undefined) return undefined;
+  for (const event of events) {
+    if (event.type !== 'user/message') continue;
+    const data = event.data as { dedupeKey?: string; content?: unknown };
+    if (data.dedupeKey !== messageId) continue;
+    return typeof data.content === 'string' ? data.content : (JSON.stringify(data.content) ?? '');
+  }
+  return undefined;
+}
+
+/**
  * 桥真身：conversation 栈五动词 → WebuiDeps 三窄面（词面独立律——本侧
  * 只做映射不造新词；结构兼容由 face.register 直注与 e2e 双向互证）。
  */
@@ -308,7 +334,30 @@ function bridgeDeps(
         return stack.manager.list().some((row) => row.id === sessionId) ? 'closed' : 'missing';
       },
       submitPrompt: (input) => {
-        void stack.submitText(input.sessionId, input.content); // fire-and-forget——回执经信封回流
+        // —— 幂等 admit（第六役转交 webui-face#2——03 §10.4 submit 体 messageId
+        // 选填位的桥侧接线）：SPA 重试以同 messageId 再发 → durable
+        // data.dedupeKey 同族查重（同键同内容幂等回执不重跑 / 同键异内容
+        // fail-loud 拒收 SDK_MESSAGE_CONFLICT——判据族与 SDK 线 admit 同源）。
+        // 生成键（webui-N 形）旁路 admit 与落账，见 SERVER_GENERATED_MESSAGE_ID 注。
+        // ——
+        const idempotent = !SERVER_GENERATED_MESSAGE_ID.test(input.messageId);
+        if (idempotent) {
+          const known = lookupDedupeContent(stack, input.sessionId, input.messageId);
+          if (known !== undefined) {
+            if (known !== input.content) {
+              throw new BaseError(
+                'SDK_MESSAGE_CONFLICT',
+                `messageId=${input.messageId} 同键异内容（webui 幂等 admit 冲突档）`,
+              );
+            }
+            return { sessionId: input.sessionId }; // 幂等重收执——回执即既存受理态，不重跑
+          }
+        }
+        void stack.submitText(input.sessionId, input.content, {
+          // 具名通道归因（05 §3.1 channel: 前缀——投影同视 user）+ 幂等键落账
+          source: 'channel:webui',
+          ...(idempotent ? { dedupeKey: input.messageId } : {}),
+        }); // fire-and-forget——回执经信封回流
         return { sessionId: input.sessionId };
       },
       interruptSession: (sessionId) => stack.interrupt(sessionId), // 未知 id 静默幂等（栈内建）

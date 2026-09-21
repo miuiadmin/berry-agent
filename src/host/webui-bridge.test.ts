@@ -354,6 +354,57 @@ describe('openWebuiFace 桥单元', () => {
       await rt.shutdown();
     }
   });
+
+  it('submitPrompt 幂等位（第六役转交 webui-face#2）：同 messageId 双发恰落一条 user 消息', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-bridge-data-') });
+    const { faux, stack } = rigStack(rt);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined,
+    });
+    try {
+      const id = face.deps!.sessions.createSession();
+      faux.setResponses([() => messageOf(), () => messageOf()]);
+      // 首发受理（SPA 携 UUID 形幂等键——03:938 ⑤ submit 体 messageId 选填位）
+      face.deps!.sessions.submitPrompt({ sessionId: id, content: '重试同文', messageId: 'spa-uuid-1' });
+      // 轮询至首笔 durable 可见（真重试形：响应丢失后重发——重发时首笔已在账）
+      await until(async () => (await face.deps!.read.fetchMessages(id)).some((m) => m.role === 'user'));
+      // 同 messageId 同内容再发（SPA 重试形）：受理即幂等回执不重跑
+      const receipt = face.deps!.sessions.submitPrompt({ sessionId: id, content: '重试同文', messageId: 'spa-uuid-1' });
+      expect(receipt).toEqual({ sessionId: id });
+      // 同 messageId 异内容（调用方 bug 形）：fail-loud 拒收（admit 冲突档——判据族与 SDK 线同源）
+      expect(() =>
+        face.deps!.sessions.submitPrompt({ sessionId: id, content: '异内容', messageId: 'spa-uuid-1' }),
+      ).toThrow('同键异内容');
+      // 终态断言：恰一条 user 消息（修前双发各落一条 = 2 条——幂等位断裂）
+      const settled = await face.deps!.read.fetchMessages(id);
+      expect(settled.filter((m) => m.role === 'user')).toHaveLength(1);
+      // 落账透传：durable user/message 载荷带 dedupeKey + 具名通道归因（channel: 前缀投影同视 user）
+      const firstUser = stack
+        .driverOf(id)!
+        .session.events()
+        .find((e) => e.type === 'user/message')!;
+      expect((firstUser.data as { dedupeKey?: string }).dedupeKey).toBe('spa-uuid-1');
+      expect((firstUser.data as { source?: string }).source).toBe('channel:webui');
+      // 件侧生成键（`webui-N` 形——SPA 缺席时 server 件补生成，契约注「无幂等」）：
+      // 不参与 admit 也不落账——进程内序号跨重启复位，落账会撞旧账误拒正当提交
+      face.deps!.sessions.submitPrompt({ sessionId: id, content: '生成键形', messageId: 'webui-1' });
+      await until(() => {
+        const events = stack.driverOf(id)!.session.events();
+        return events.filter((e) => e.type === 'user/message').length >= 2;
+      });
+      const secondUser = stack
+        .driverOf(id)!
+        .session.events()
+        .filter((e) => e.type === 'user/message')[1]!;
+      expect((secondUser.data as { dedupeKey?: string }).dedupeKey).toBeUndefined();
+    } finally {
+      await rt.shutdown();
+    }
+  });
 });
 
 /* ---------------- HTTP e2e（compat 互证——桥真身经服务端全链） ---------------- */
