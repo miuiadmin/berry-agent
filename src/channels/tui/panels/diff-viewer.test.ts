@@ -288,4 +288,33 @@ describe('DiffViewer 副屏件', () => {
     viewer.render(grid3, { row: 0, col: 0, width, height: 4 });
     expect(readRow(grid3, 1, width)).toContain('docs/two.md'); // 回锚顶
   });
+
+  /* ---- S2 宽度账族（2026-09-21 第六役修复组 2）：组体行构造位消毒（tool-card renderWordDiffPair 同源族标准） ---- */
+
+  /** 单组补丁渲染全行集（down+enter 展开首组——光标停在组体首行：组头 + 组体全量行） */
+  function renderExpandedRows(messages: readonly DiffProjectionMessage[]): string[] {
+    const { viewer } = makeViewer({ messages });
+    const width = 64;
+    viewer.handleEvent(k('down')); // 光标 → 组体首行（del 行——光标符稳定位，对拍确定性）
+    viewer.handleEvent(k('enter')); // 回溯首组展开（光标不动）
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    return Array.from({ length: grid.rows }, (_, r) => readRow(grid, r, width));
+  }
+
+  it('组体行构造位消毒：patch 体 ESC 序列剥除——修前红（writeText 只跳控制字节，ESC 后可打印载荷 [31m 落屏伪残留）', () => {
+    const patch = '*** Begin Patch\n*** Update File: src/x.ts\n-old\u001b[31m line\n+new line\n*** End Patch';
+    const rows = renderExpandedRows([assistant([editCall('t1', patch)]), result('t1')]);
+    // 词级对行 del 侧：修前 '  -old[31m line'（ESC 跳过、'[31m' 照写落屏）；
+    // 修后整段剥除。光标符在组头——构造期单组收起态 down 被钳 0（组头）
+    expect(rows[2]).not.toContain('[31m');
+    expect(rows[2]).toBe('  -old line');
+    expect(rows[3]).toBe('  +new line');
+  });
+
+  it('CRLF 补丁与 LF 补丁渲染逐行一致（行尾 \\r 构造位剥除——弱载体一致锁，修前修后同绿的回归锁）', () => {
+    const lf = renderExpandedRows([assistant([editCall('t1', PATCH_A)]), result('t1')]);
+    const crlf = renderExpandedRows([assistant([editCall('t1', PATCH_A.replaceAll('\n', '\r\n'))]), result('t1')]);
+    expect(crlf).toEqual(lf);
+  });
 });

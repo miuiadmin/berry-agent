@@ -16,6 +16,7 @@
 import type { CellBuffer, CellStyle, ColorValue, InputEvent, Region } from '../../engine/index.js';
 import { stringWidth, truncateToWidth } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
+import { sanitizeLineText } from '../blocks/tool-card.js';
 import { diffWords, parsePatchLines, type DiffSeg, type PatchLine } from '../blocks/word-diff.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 
@@ -140,15 +141,22 @@ function bodyRowsOf(lines: readonly PatchLine[]): readonly DiffBodyRow[] {
       i += 1; // 防御位：组体不应含 meta（fold 切组时已分流）——畸形输入跳过不炸
       continue;
     }
+    // 构造位消毒先行（2026-09-21 第六役修复组 2——S2 宽度账族，tool-card
+    // renderWordDiffPair/renderSinglePatchLine 同律单源）：patch 体是模型生成
+    // 真源码——CRLF 行尾 \r 计宽 1 落格 0（宽度模型分歧）、ESC 序列的可打印
+    // 载荷照写落屏。词元切分与测宽截断都以消毒后文本为基（sanitize 先于
+    // diffWords——段几何与落格账一致）。
     if (line.kind === 'del' && lines[i + 1]?.kind === 'add') {
       // 相邻对：词级 intra-line（R4 单源——两行共享段族，各取本侧变段着色）
-      const segs = diffWords(line.text, lines[i + 1]!.text);
-      rows.push({ kind: 'del', text: line.text, segs });
-      rows.push({ kind: 'add', text: lines[i + 1]!.text, segs });
+      const delBody = sanitizeLineText(line.text);
+      const addBody = sanitizeLineText(lines[i + 1]!.text);
+      const segs = diffWords(delBody, addBody);
+      rows.push({ kind: 'del', text: delBody, segs });
+      rows.push({ kind: 'add', text: addBody, segs });
       i += 2;
       continue;
     }
-    rows.push({ kind: line.kind, text: line.text, segs: null }); // 孤立行/上下文行
+    rows.push({ kind: line.kind, text: sanitizeLineText(line.text), segs: null }); // 孤立行/上下文行
     i += 1;
   }
   return rows;

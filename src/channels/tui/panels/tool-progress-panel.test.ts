@@ -53,6 +53,18 @@ describe('decodeUpdateText 宽容解码', () => {
     expect(decodeUpdateText({ content: [{ type: 'image', data: 'x' }] })).toBeNull();
     expect(decodeUpdateText({ content: [{ type: 'text', text: '  \n \n' }] })).toBeNull(); // 全空白行
   });
+
+  /* ---- S2 宽度账族（2026-09-21 第六役修复组 2）：构造位消毒单源收口 ---- */
+
+  it('string 形构造位消毒：CR 剥除 + ESC 序列整段剥除（修前仅 \\n 折叠——\\r 计宽 1 落格 0、ESC 后可打印载荷 [31m 落屏）', () => {
+    expect(decodeUpdateText('AB\r\nCD')).toBe('AB CD'); // CR 剥除 + LF 归空格（修前 'AB\r CD'）
+    expect(decodeUpdateText('扫\u001b[31m42%')).toBe('扫42%'); // 修前 ESC 序列原样存活
+    expect(decodeUpdateText('\u001b[0m')).toBeNull(); // 纯 ESC 序列 = 呈现文本缺席（修前原样返回）
+  });
+
+  it('AgentToolResult 形末条非空行同律消毒（ESC 序列剥除）', () => {
+    expect(decodeUpdateText({ content: [{ type: 'text', text: 'x\u001b[31m 完成' }] })).toBe('x 完成');
+  });
 });
 
 describe('ToolProgressPanel 行生命周期', () => {
@@ -246,5 +258,31 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     const panel = new ToolProgressPanel();
     panel.applyUpdate('t9', '迟到'); // 无档——名退 id（与注册表撞名的防御路径）
     expect(readRow(renderPanel(panel), 0)).toBe('命中');
+  });
+
+  /* ---- S2 宽度账族（2026-09-21 第六役修复组 2）：插件行段文本构造位消毒 ---- */
+
+  it('插件行段文本构造位消毒：LF 归空格——计宽 1/落格 0 的段间幽灵列封堵（tool-card pluginLineToStyled 同源族标准）', () => {
+    disposers.push(
+      registerToolRenderer('plug_ctrl', {
+        renderCall: () => [[{ text: 'AB\nCD' }, { text: 'Z', tone: 'accent' }]],
+      }),
+    );
+    const panel = new ToolProgressPanel();
+    panel.begin('t1', 'plug_ctrl', {});
+    panel.applyUpdate('t1', 'x');
+    const grid = renderPanel(panel);
+    // 族标准：LF → 空格位（修前红：LF 被 writeText 吞——C 落 col 2）
+    expect(grid.getCell(0, 2)?.grapheme).toBe(' ');
+    // 修前红：'ABCD Z'（LF 吞 + stringWidth 计入 LF 致 col 4 幽灵洞）；修后 'AB CDZ'
+    expect(readRow(grid, 0)).toBe('AB CDZ');
+  });
+
+  it('插件行段 ESC 序列整段剥除（修前红：writeText 只跳控制字节——ESC 后可打印载荷 [31m 落屏伪残留）', () => {
+    disposers.push(registerToolRenderer('plug_esc', { renderCall: () => [[{ text: 'A\u001b[31mB' }]] }));
+    const panel = new ToolProgressPanel();
+    panel.begin('t1', 'plug_esc', {});
+    panel.applyUpdate('t1', 'x');
+    expect(readRow(renderPanel(panel), 0)).toBe('AB'); // 修前 'A[31mB'
   });
 });

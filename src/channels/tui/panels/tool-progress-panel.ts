@@ -29,6 +29,7 @@ import {
 } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { lookupToolRenderer, type RendererLine } from '../../renderers.js';
+import { sanitizeLineText } from '../blocks/tool-card.js';
 
 /** 帽内行数（溢出行另计——spec 定形） */
 const MAX_ROWS = 4;
@@ -36,10 +37,14 @@ const MAX_ROWS = 4;
 /**
  * update 载荷宽容解码 → 末行输出文本（null = 文本缺席）。
  * 网格行是单行物理面——string 形内部换行折叠空格（直显语义的物理收口）。
+ * 构造位消毒（2026-09-21 第六役修复组 2——S2 宽度账族）：sanitizeLineText
+ * 单源（LF 归空格之外，CR/ESC 序列/其余 C0 同律剥除）——修前仅 \n 折叠，
+ * \r 计宽 1 落格 0（stringWidth 与 CellGrid.writeText 的宽度模型分歧）、
+ * ESC 序列的可打印载荷（如 '[31m'）照写落屏伪残留。
  */
 export function decodeUpdateText(update: unknown): string | null {
   if (typeof update === 'string') {
-    const collapsed = update.replaceAll('\n', ' ');
+    const collapsed = sanitizeLineText(update);
     return collapsed.trim() === '' ? null : collapsed;
   }
   // AgentToolResult 形：content 块数组——取文本块的行序列倒扫末条非空行
@@ -56,7 +61,7 @@ export function decodeUpdateText(update: unknown): string | null {
       }
     }
     for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i]!.trim();
+      const line = sanitizeLineText(lines[i]!.trim());
       if (line !== '') return line;
     }
   }
@@ -185,12 +190,18 @@ export class ToolProgressPanel implements Renderable {
         buffer.writeText(line, region.col, truncateToWidth(row.text, region.width));
         return;
       }
-      // 插件行：段序逐段写（tone → 当下主题语义键直取；text/缺省无前景）
+      // 插件行：段序逐段写（tone → 当下主题语义键直取；text/缺省无前景）。
+      // 段文本构造位消毒先行（2026-09-21 第六役修复组 2——S2 宽度账族）：
+      // renderCall 返回段文本是插件任意串（受理不拒），未经消毒时控制字素
+      // 计宽 1（width 规则⑥）落格 0（cell 零控制字节律）——LF 被吞相邻词
+      // 连排、col += stringWidth 超推致下一段起笔位留幽灵空列、ESC 序列的
+      // 可打印载荷照写落屏。与 tool-card pluginLineToStyled 同输入面同律
+      // （sanitizeLineText 单源：LF→空格 / tab→2 空格 / CR·ESC 序列剥除）。
       let col = region.col;
       for (const seg of row.line) {
         const budget = region.col + region.width - col;
         if (budget <= 0) break; // 行宽帽收口
-        const text = truncateToWidth(seg.text, budget);
+        const text = truncateToWidth(sanitizeLineText(seg.text), budget);
         if (text !== '') {
           const fg: ColorValue | undefined = this.theme[seg.tone ?? 'text'];
           buffer.writeText(line, col, text, fg !== undefined ? { fg } : undefined);
