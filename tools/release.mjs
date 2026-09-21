@@ -177,9 +177,10 @@ function readSdkReadmeVariants(pkgRoot) {
  * tagPrefix 两包分立：主包 v<version> / SDK sdk-v<version>（版本号独立演进，
  * 同号真发时同形 tag 必撞）；treeStrip = 契约 4 深对照剥离集（主包溯源戳
  * 两件 / SDK 纯 tsc 确定性编译空集——shasum 不等即实质差异）。publishMode =
- * 执行形缺省（07 §8.3 末定形注第 1 款——主包 ci〔缺省形 = 本机触发腿〕/
- * SDK token〔全本地旧序〕；CI 真发形由 release.yml 设 env
- * BERRY_AGENT_RELEASE_MODE=ci 判入，--local-publish 旗标强制 token 应急）。
+ * 执行形缺省（07 §8.3 末定形注第 1 款——2026-09-20 SDK CI 化批起两包缺省
+ * 皆 ci：主包 ci〔缺省形 = 本机触发腿交棒〕/ SDK ci〔本机零参缺省走 trigger
+ * 交棒形〕；CI 真发形由 release.yml 设 env BERRY_AGENT_RELEASE_MODE=ci
+ * 判入，--local-publish 旗标强制 token 应急）。
  * buildScript / readmeText / smoke = 差分面随表承载（07 §8.3 定形句把
  * 「冒烟形」列为描述符第 9 项，build 链与 readme 读面同款收口——2026-09-14
  * 扫描四役 idx 8：修前三者内联在 realSeams 的 pkgKey if 分叉系参数化遗漏，
@@ -299,8 +300,13 @@ export function judgeDistTag(tags, version, prerelease) {
   return { ok: false, reason: `正式版 latest(${tags.latest}) 须指 ${version}（next 不动）` };
 }
 
-/** 契约 5 传播窗重试缺省参数（07 §8.3 契约 5 2026-09-19 传播窗重试定形注） */
-export const TAG_PROPAGATION_RETRIES = 12;
+/**
+ * 契约 5 传播窗重试缺省参数（07 §8.3 契约 5 2026-09-19 传播窗重试定形注 +
+ * 2026-09-21 传播窗上界勘正〔规范先行〕）：实测传播最坏观测 7 分钟（alpha
+ * 期两发族），上界须盖最坏观测再留余量——12 次 ≈ 6 分钟窗已被越限，12→15
+ * （≈ 7.5 分钟窗）。
+ */
+export const TAG_PROPAGATION_RETRIES = 15;
 export const TAG_PROPAGATION_DELAY_MS = 30_000;
 
 /**

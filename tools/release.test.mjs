@@ -313,6 +313,38 @@ describe('真 pack 面对拍（main 包 npm pack --dry-run 实清单过契约3�
   });
 });
 
+// ---------------------------------------------------------------------------
+// 真 pack 面对拍 SDK 孪生（wf_7e3e5798 A2——main 面有锁 SDK 面裸奔不对称）：
+// SDK 包面契约（packAllowed/packBanned/packMust）此前只有 fixture 基线判，
+// 与 npm pack 真实产物的漂移本地无锁——alpha.5 期 dist 输出形调整（rootDir
+// 联动等）若致 files 落空，CI drill 红才暴露。本锁同法直跑包目录真 pack
+// --dry-run 喂 judgePackList(…, PACKAGES.sdk)，漂移在本地门禁即红。门控
+// 同律：包内 dist 必在件缺席（fresh clone 未 build）判不了契约 → skip 注明。
+// ---------------------------------------------------------------------------
+describe('真 pack 面对拍（SDK 包 npm pack --dry-run 实清单过契约3）', () => {
+  it('真实产物清单恰过 judgePackList sdk 描述符（必在件齐 + 禁件零混入）', { timeout: 30_000 }, () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+    const sdkDir = join(repoRoot, 'packages', 'berry-agent-sdk');
+    if (!existsSync(join(sdkDir, 'dist/packages/berry-agent-sdk/src/index.js'))) {
+      // fresh clone 未 build——必在件必缺，判不了完整契约；真形由 CI
+      // release-drill 承担（build 后跑），本锁在本地已 build 态活。
+      return; // vitest 无显式 skip-on-condition 面：门控形直接过 + 注明
+    }
+    const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+      cwd: sdkDir,
+      encoding: 'utf8',
+    });
+    const realList = JSON.parse(out)[0].files.map((f) => f.path);
+    const v = judgePackList(realList, PACKAGES.sdk);
+    if (!v.ok) {
+      throw new Error(
+        `SDK 真 pack 面漂移：missing=${JSON.stringify(v.missing)} forbidden=${JSON.stringify(v.forbidden)}`,
+      );
+    }
+    expect(v.ok).toBe(true);
+  });
+});
+
 describe('judgeTarballTrees（契约 4 深对照）', () => {
   it('仅溯源戳差异 → 等价跳', () => {
     const local = { 'package.json': 'a', 'dist/.build-meta.json': 'm1' };
@@ -826,6 +858,18 @@ describe('描述符参数化收口（冒烟形 + build 链 + readme 读面入表
     const sdkRoot = join(repoRoot, 'packages', 'berry-agent-sdk');
     const pkgVersion = JSON.parse(readFileSync(join(sdkRoot, 'package.json'), 'utf8')).version;
     const text = PACKAGES.sdk.readmeVariants(sdkRoot)[0][1];
+    expect(text).toContain(`\`${pkgVersion}\``);
+  });
+
+  // docs/usage.md 状态行版本 token 防退锁（wf_7e3e5798 A4——README 六语族
+  // 有 judgeReadmeStatusVersions 契约 4 门，usage.md 只在 drill 同步面
+  // 〔drillReadmeFiles〕而缺席判据面）：主包 bump 后 usage token 陈化不红——
+  // drill 红才暴露（本地四绿≠drill 绿谱）。本锁补判据腿：状态行必须以
+  // 反引号形携带主包 version（与六语 README 同律；裸串/陈化即红）
+  it('docs/usage.md 状态行版本反引号形在场且等于主包 package.json version（防陈化）', () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+    const pkgVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version;
+    const text = readFileSync(join(repoRoot, 'docs', 'usage.md'), 'utf8');
     expect(text).toContain(`\`${pkgVersion}\``);
   });
 });
