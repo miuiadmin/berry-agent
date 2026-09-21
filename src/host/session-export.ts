@@ -103,12 +103,13 @@ export function renderSessionMarkdown(input: SessionExportInput): string {
     if (message.type === 'assistant') {
       if (!sectionOpen) openSection('开头段（先导用户消息前）');
       lines.push('**助手**', '');
-      // 内容块按序：thinking 折叠行 / text 正文段
+      // 内容块按序：thinking 折叠行 / text 正文段（正文位同 title 消毒——见
+      // foldLine/textOf 注记；text 块经 sanitizeBodyText 剥逃逸序列/控制字节）
       for (const block of message.content) {
         if (block.type === 'thinking') {
           lines.push(foldNote('thinking', block.thinking), '');
         } else if (block.type === 'text') {
-          lines.push(block.text, '');
+          lines.push(sanitizeBodyText(block.text), '');
         } else {
           lines.push('（图像块——不落导出正文）', '');
         }
@@ -220,6 +221,36 @@ export async function runSessionExportCommand(
 
 /* ---------------- 私用工具 ---------------- */
 
+/**
+ * ANSI 逃逸序列形（整段剥除集）——与 persist/store.ts 消毒单源同形（CSI /
+ * OSC〔至 BEL 或 ST，截尾无终止符吞到串尾〕/ 传统式三形）。本地复制不共享
+ * 常量：persist 公开面只出 sanitizeTitleText（title 单行折叠形），正文保形
+ * 消毒是本件消费面——同律不同体（与 persist 件自注「物理层与呈现面同律
+ * 不同体」同族）。
+ */
+const ANSI_ESCAPE_PATTERN = /\x1b(?:\[[\x20-\x3f]*[\x40-\x7e]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[\x20-\x2f]*[\x30-\x7e])/g;
+
+/**
+ * 控制字节与零宽字素剥除集（非空白 C0/C1/DEL + 零宽族六点——与
+ * persist/store.ts 同形）：空白类 C0（\t\n\v\f\r）不入此集——正文多行保形
+ * （\n 段落结构保留），与 title 位的空白折叠语义分立。
+ */
+const CONTROL_AND_ZERO_WIDTH_PATTERN = /[\x00-\x08\x0e-\x1f\x7f-\x9f\u00ad\u200b-\u200d\u2060\ufeff]/g;
+
+/**
+ * 导出正文消毒（title 位 sanitizeTitleText 的正文保形对应位——markdown 是
+ * 终端外又一落屏载体，正文位与 title 位同载体同数据类：模型生成文本/用户
+ * 输入/工具输出读的任意文件内容皆可内嵌逃逸序列，cat/less 呈看导出文件时
+ * OSC 52 写剪贴板 / OSC 0 改窗题 / CSI 清屏可被终端解释）：
+ *  1. 剥 ANSI 逃逸序列（三形整段——序列先于控制字节剥除，ESC 标记在位才
+ *     认得出整段；先剥字节会毁标记漏出参数残段）；
+ *  2. 剥非空白 C0/C1/DEL 控制字节与零宽字素族。
+ * 空白全保形（不折叠）——正文是多行 markdown 段落，消毒只剥不可见形。
+ */
+function sanitizeBodyText(text: string): string {
+  return text.replace(ANSI_ESCAPE_PATTERN, '').replace(CONTROL_AND_ZERO_WIDTH_PATTERN, '');
+}
+
 /** ISO 时间形态（ms epoch → 确定性串——测试可断言） */
 function isoOf(ms: number): string {
   return new Date(ms).toISOString();
@@ -230,24 +261,36 @@ function fileStampOf(ms: number): string {
   return isoOf(ms).replace(/[:.]/g, '-');
 }
 
-/** 折叠行（空白折单行 + 帽 N 字符截断——thinking/错误说明/工具参数与结果简行共用） */
+/**
+ * 折叠行（消毒 → 空白折单行 + 帽 N 字符截断——thinking/错误说明/工具参数
+ * 与结果简行共用；JS \s 不含 ESC/BEL/NUL/C1，故消毒须在 \s 折叠前显式做——
+ * 帽也按消毒后可见字数计，隐形字节不占帽不计数）。
+ */
 function foldLine(text: string, cap: number): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
+  const flat = sanitizeBodyText(text).replace(/\s+/g, ' ').trim();
   return flat.length > cap ? `${flat.slice(0, cap)}…` : flat;
 }
 
-/** 折叠注记行（`> [标记] 折叠文本` + 截断时长度注记——内容帽外全隐藏的诚实呈现） */
+/**
+ * 折叠注记行（`> [标记] 折叠文本` + 截断时长度注记——内容帽外全隐藏的诚实
+ * 呈现；长度判据与注记数均按消毒后可见字数计——原始长含隐形字节时可见面
+ * 未超帽即不注记，不虚报隐藏量）。
+ */
 function foldNote(mark: string, text: string): string {
-  const folded = foldLine(text, 120);
-  return text.length > 120 ? `> [${mark}] ${folded}（共 ${text.length} 字）` : `> [${mark}] ${folded}`;
+  const clean = sanitizeBodyText(text);
+  const folded = foldLine(clean, 120);
+  return clean.length > 120 ? `> [${mark}] ${folded}（共 ${clean.length} 字）` : `> [${mark}] ${folded}`;
 }
 
-/** 内容块数组 → 正文文本（text 块逐段落、thinking/图像不入正文——导出正文 = 可读对话面） */
+/**
+ * 内容块数组 → 正文文本（text 块逐段消毒、thinking/图像不入正文——导出
+ * 正文 = 可读对话面；消毒保 \n\n 段落拼接形）。
+ */
 function textOf(content: string | readonly ContentBlock[]): string {
-  if (typeof content === 'string') return content;
+  if (typeof content === 'string') return sanitizeBodyText(content);
   const parts: string[] = [];
   for (const block of content) {
-    if (block.type === 'text') parts.push(block.text);
+    if (block.type === 'text') parts.push(sanitizeBodyText(block.text));
   }
   return parts.join('\n\n');
 }

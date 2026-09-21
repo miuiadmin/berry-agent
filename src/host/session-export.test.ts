@@ -96,6 +96,62 @@ describe('renderSessionMarkdown 拼装单源', () => {
     expect(invisible).not.toContain('标题');
   });
 
+  it('正文/折叠行控制字节消毒（title 位同威胁模型的正文面）：ESC/OSC/CSI/BEL/NUL 不入产物，可见文字与多行结构保形', () => {
+    // 修前红：user 正文 / assistant text / thinking·错误折叠行 / 工具参数与
+    //   结果简行原样落产物——markdown 是终端外又一落屏载体（less/cat 呈看
+    //   导出文件时逃逸序列可被终端解释：OSC 52 写剪贴板 / OSC 0 改窗题 /
+    //   CSI 清屏）；title 位已消毒（上文 G6 双保险），正文位同载体同数据类
+    //   （durable 事件含模型生成文本/用户输入/工具输出读的任意文件内容）。
+    //   实证：JS \s 不含 ESC(0x1b)/BEL(0x07)/NUL(0x00)/C1(0x80-0x9f)——
+    //   foldLine 的 \s+ 折叠对逃逸序列原样放行
+    const markdown = renderSessionMarkdown({
+      events: [
+        evt(0, 'turn/start'),
+        evt(1, 'user/message', { content: '净屏\x1b[2J与振铃\x07和空\x00字\n\n第二段' }),
+        evt(2, 'assistant/message', {
+          content: [
+            { type: 'thinking', thinking: '想\x1b]52;c;aGVsbG8=\x1b\\剪' },
+            { type: 'text', text: '答\x1b]0;pwn\x07复' },
+          ],
+          stopReason: 'toolUse',
+        }),
+        evt(3, 'tool/call', { toolCallId: 'c1', name: 'read', arguments: '参\x1b[31m数' }),
+        evt(4, 'tool/result', { toolCallId: 'c1', content: '出\x1b]0;pwn\x07果' }),
+        evt(5, 'assistant/message', {
+          content: [{ type: 'text', text: '终' }],
+          stopReason: 'error',
+          errorMessage: '错\x1b[2K误',
+        }),
+        evt(6, 'turn/end', { reason: 'completed' }),
+      ],
+      meta: { sessionId: 's-ctrl' },
+      now: NOW,
+    });
+    // 六呈现位（正文二 + 折叠行二 + 简行二）控制字节/逃逸序列全链不入产物
+    expect(markdown).not.toContain('\x1b');
+    expect(markdown).not.toContain('\x07');
+    expect(markdown).not.toContain('\x00');
+    // 消毒只剥不可见形——可见文字与正文多行结构保形（与 title 折叠单行语义不同）
+    expect(markdown).toContain('净屏与振铃和空字\n\n第二段');
+    expect(markdown).toContain('> [thinking] 想剪');
+    expect(markdown).toContain('答复');
+    expect(markdown).toContain('参数'); // 工具参数简行（CSI SGR 剥除后余可见字）
+    expect(markdown).toContain('结果：出果'); // 工具结果简行（OSC 0 剥除后余可见字）
+    expect(markdown).toContain('> [错误] 错误');
+  });
+
+  it('折叠行长度注记按消毒后可见字数计（隐形字节不计数不触发注记）', () => {
+    const visible = '思'.repeat(110); // 可见 110 < 120 帽
+    const dirty = visible + '\x1b]52;c;aaaa\x07'.repeat(3); // 原始长 158 > 120——可见不超帽
+    const markdown = renderSessionMarkdown({
+      events: [evt(0, 'assistant/message', { content: [{ type: 'thinking', thinking: dirty }] })],
+      meta: { sessionId: 's-count' },
+      now: NOW,
+    });
+    expect(markdown).toContain(`> [thinking] ${visible}`); // 折叠全文可见在场
+    expect(markdown).not.toContain('共'); // 可见字数未超帽——无截断不落长度注记
+  });
+
   it('轮次 + thinking 折叠行 + 工具卡简行（投影真源驱动三呈现位）', () => {
     const markdown = renderSessionMarkdown({
       events: dialogueEvents(),
