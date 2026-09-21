@@ -7,17 +7,23 @@
  *
  * 语义全在 frames.ts（纯折叠器）；本件只做接线与呈现。StrictMode 双挂载
  * 下 effect 先后启停——EventSource cleanup 对称关流，无泄漏双流。
+ *
+ * 运行期凭证失效路由（webui-face#3）：token 随宿主重启轮换——旧 cookie 永久
+ * 失效，重试不可能自愈。各调用面 401（isUnauthorized 单源判别）统一路由回
+ * 换桥位（Main 卸载整面重置 + AuthGate 上方失效提示）；EventSource onerror
+ * 探针腿同路由（死流 401 重连恒败的裁量收口）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
-import { api } from './api.js';
+import { api, isUnauthorized } from './api.js';
 import {
   appliedDecide,
   applyAsked,
   applyEnvelope,
   droppedMessage,
   echoKeyOf,
+  echoedUserMessage,
   initialAppState,
   loadedApprovals,
   loadedMessages,
@@ -69,6 +75,9 @@ function fileStampOf(ms: number): string {
 export function App(): ReactElement {
   // null = 探针在飞；true = 已桥直进；false = 走换桥
   const [authed, setAuthed] = useState<boolean | null>(null);
+  // 运行期失效旗（webui-face#3）：主面 401 路由置位——换桥位上方呈现失效
+  // 提示（区别于冷启动未桥：用户已入过主面，凭证是中途失效非从未换桥）
+  const [authLost, setAuthLost] = useState(false);
   useEffect(() => {
     let alive = true;
     api
@@ -84,17 +93,41 @@ export function App(): ReactElement {
     };
   }, []);
 
+  /**
+   * 失效路由（主面各调用面 401 共用回调）：回换桥位 + 立失效旗。useCallback
+   * 钉身份（Main 各 effect/callback 依赖它——匿名 prop 每渲染新身份会抖
+   * EventSource 重挂）。
+   */
+  const routeAuthLost = useCallback(() => {
+    setAuthLost(true);
+    setAuthed(false);
+  }, []);
+
   if (authed === null) {
     return <div className="p-4 text-sm text-zinc-500">连接中……</div>;
   }
   if (!authed) {
-    return <AuthGate onAuthed={() => setAuthed(true)} />;
+    return (
+      <div className="min-h-screen bg-zinc-900">
+        {authLost ? (
+          <p className="bg-red-950/60 px-4 py-2 text-center text-xs text-red-300">
+            凭证已失效——宿主重启后 token 已轮换，请输入新的一次性 token 重新换桥
+          </p>
+        ) : null}
+        <AuthGate
+          onAuthed={() => {
+            setAuthLost(false); // 换桥成功即撤失效提示（下次失效重新置位）
+            setAuthed(true);
+          }}
+        />
+      </div>
+    );
   }
-  return <Main />;
+  return <Main onAuthLost={routeAuthLost} />;
 }
 
 /** 主面（会话清单 + 正文 + 审批/todo/通知侧栏 + 输入） */
-function Main(): ReactElement {
+function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
   const [state, setState] = useState<AppState>(initialAppState);
   /**
    * 档位浮层开向（null = 闭）。/thinking //sandbox 恰零参命中即本地开层
@@ -103,31 +136,56 @@ function Main(): ReactElement {
    */
   const [tierPopover, setTierPopover] = useState<'thinking' | 'sandbox' | null>(null);
   /** 重拉投影腿（onopen 与会话切换共用——正确性层恒重拉） */
-  const reloadProjection = useCallback((sessionId: string) => {
-    void api.fetchMessages(sessionId).then((messages) => {
-      setState((prev) => (prev.activeId === sessionId ? loadedMessages(prev, messages) : prev));
-    });
-    void api.todo(sessionId).then((items) => {
-      setState((prev) => (prev.activeId === sessionId ? loadedTodo(prev, items) : prev));
-    });
-    void api.listApprovals().then((list) => {
-      // 整段重置（服务端现行 pending 清单即真源——与 loadedMessages 同模式）：
-      // 异口已决条目随复拉出清；applyAsked 的增量合并径只留给活体 asked 帧
-      setState((prev) => loadedApprovals(prev, list));
-    });
-  }, []);
+  const reloadProjection = useCallback(
+    (sessionId: string) => {
+      // 各腿 401 → 失效路由（webui-face#3）；其余错静默——onopen/重试自愈
+      void api
+        .fetchMessages(sessionId)
+        .then((messages) => {
+          setState((prev) => (prev.activeId === sessionId ? loadedMessages(prev, messages) : prev));
+        })
+        .catch((err: unknown) => {
+          if (isUnauthorized(err)) onAuthLost();
+        });
+      void api
+        .todo(sessionId)
+        .then((items) => {
+          setState((prev) => (prev.activeId === sessionId ? loadedTodo(prev, items) : prev));
+        })
+        .catch((err: unknown) => {
+          if (isUnauthorized(err)) onAuthLost();
+        });
+      void api
+        .listApprovals()
+        .then((list) => {
+          // 整段重置（服务端现行 pending 清单即真源——与 loadedMessages 同模式）：
+          // 异口已决条目随复拉出清；applyAsked 的增量合并径只留给活体 asked 帧
+          setState((prev) => loadedApprovals(prev, list));
+        })
+        .catch((err: unknown) => {
+          if (isUnauthorized(err)) onAuthLost();
+        });
+    },
+    [onAuthLost],
+  );
 
   // 会话清单装载（首载 + 手动刷新共用）
   const loadSessions = useCallback(() => {
-    void api.listSessions().then((sessions) => {
-      setState((prev) => {
-        const withSessions = loadedSessions(prev, sessions);
-        // 首载且无选中——自动选首会话（无会话则保持 null，SessionList 引导开新）
-        if (prev.activeId === null && sessions.length > 0) return setActiveSession(withSessions, sessions[0]!.id);
-        return withSessions;
+    void api
+      .listSessions()
+      .then((sessions) => {
+        setState((prev) => {
+          const withSessions = loadedSessions(prev, sessions);
+          // 首载且无选中——自动选首会话（无会话则保持 null，SessionList 引导开新）
+          if (prev.activeId === null && sessions.length > 0) return setActiveSession(withSessions, sessions[0]!.id);
+          return withSessions;
+        });
+      })
+      .catch((err: unknown) => {
+        // 401 → 失效路由；其余静默（清单刷新非关键路径——手动刷新可再试）
+        if (isUnauthorized(err)) onAuthLost();
       });
-    });
-  }, []);
+  }, [onAuthLost]);
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
@@ -139,6 +197,16 @@ function Main(): ReactElement {
     const source = new EventSource(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
     source.onopen = () => {
       reloadProjection(sessionId);
+    };
+    source.onerror = () => {
+      // 死流探测腿（webui-face#3 裁量）：EventSource 自动重连，但 cookie 失效
+      // 形的死流重连恒败（服务端 401 不建流）——探针定性，失效即路由换桥位
+      void api
+        .probeAuthed()
+        .then((ok) => {
+          if (!ok) onAuthLost();
+        })
+        .catch(() => {}); // 探针自身网络错（宿主暂不可达）按连接面处理——重连续命
     };
     source.onmessage = (ev: MessageEvent<string>) => {
       let env: ClientEnvelope;
@@ -158,7 +226,7 @@ function Main(): ReactElement {
     return () => {
       source.close();
     };
-  }, [state.activeId, reloadProjection]);
+  }, [state.activeId, reloadProjection, onAuthLost]);
 
   /** 会话切换（清单点击） */
   const switchSession = useCallback((sessionId: string) => {
@@ -210,28 +278,34 @@ function Main(): ReactElement {
       const text = trimmed;
       const messageId = crypto.randomUUID();
       // 乐观回显 + 失败撤回：messageId = crypto.randomUUID 幂等位（服务端
-      // 幂等去重锚）；撤回键 = echoKeyOf 同源落稿键（闭包持键——失败撤回
-      // 按键定位，不靠尾部位置）
+      // 幂等去重锚）；回显走 echoedUserMessage 入账（登记待配对账目——服务端
+      // kick/steer 的 user 种子镜像到达时由折叠器吸收保恰一份，webui-face#1）；
+      // 撤回键 = echoKeyOf 同源落稿键（闭包持键——失败撤回按键定位，不靠
+      // 尾部位置）
       const echoTimestamp = Date.now();
-      setState((prev) =>
-        applyEnvelope(prev, {
-          kind: 'session',
-          sessionId,
-          payload: { type: 'message_end', message: { role: 'user', content: text, timestamp: echoTimestamp } },
-        }),
-      );
-      void api.submit(sessionId, text, messageId).catch(() => {
+      setState((prev) => echoedUserMessage(prev, sessionId, text, echoTimestamp));
+      void api.submit(sessionId, text, messageId).catch((err: unknown) => {
+        // 401 → 失效路由（webui-face#3）：cookie 永久失效重试不可能自愈，
+        // 换桥是唯一出路——不折「请重试」谎提示（回显随 Main 卸载整面消散）
+        if (isUnauthorized(err)) {
+          onAuthLost();
+          return;
+        }
         // 失败撤回（契约兑现）：未被受理的乐观回显先出正文，再推失败通知
         setState((prev) => pushedNotice(droppedMessage(prev, echoKeyOf(echoTimestamp)), '提交失败——请重试', 'error'));
       });
     },
-    [state.activeId],
+    [state.activeId, onAuthLost],
   );
 
   /** 打断在飞 run */
   const interrupt = useCallback(() => {
-    if (state.activeId !== null) void api.interrupt(state.activeId).catch(() => {});
-  }, [state.activeId]);
+    if (state.activeId === null) return;
+    void api.interrupt(state.activeId).catch((err: unknown) => {
+      // 打断失败本静默（非关键路径）；401 仍路由（凭证失效面跨调用统一）
+      if (isUnauthorized(err)) onAuthLost();
+    });
+  }, [state.activeId, onAuthLost]);
 
   /**
    * 导出当前会话（markdown 下载——SPA /export 客户端消费腿）。文件名
@@ -248,21 +322,31 @@ function Main(): ReactElement {
       .then((blob) => {
         triggerDownload(`${sessionId}-${fileStampOf(Date.now())}.md`, blob);
       })
-      .catch(() => {
-        // 失败折通知条（本地推播走 pushedNotice——与 notify 帧腿同帽同形）
+      .catch((err: unknown) => {
+        // 401 → 失效路由（webui-face#3）；其余失败折通知条（本地推播走
+        // pushedNotice——与 notify 帧腿同帽同形）
+        if (isUnauthorized(err)) {
+          onAuthLost();
+          return;
+        }
         setState((prev) => pushedNotice(prev, '导出失败——请重试', 'error'));
       });
-  }, [state.activeId]);
+  }, [state.activeId, onAuthLost]);
 
   /** 审批应答（applied/superseded 同出清——异口已答同语义；失败回拉清单自愈） */
   const decide = useCallback(
     (approvalId: string, answer: 'approve' | 'reject' | 'cancel') => {
       setState((prev) => appliedDecide(prev, approvalId));
-      void api.decide(approvalId, answer).catch(() => {
+      void api.decide(approvalId, answer).catch((err: unknown) => {
+        // 401 → 失效路由（webui-face#3）；其余失败回拉清单自愈（真源复拉）
+        if (isUnauthorized(err)) {
+          onAuthLost();
+          return;
+        }
         if (state.activeId !== null) reloadProjection(state.activeId);
       });
     },
-    [state.activeId, reloadProjection],
+    [state.activeId, reloadProjection, onAuthLost],
   );
 
   /** 自动滚底（新帧/新消息到达——贴底跟随；手动上滚不打扰 v1 不做打断检测） */

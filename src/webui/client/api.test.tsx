@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { api, ApiError } from './api.js';
+import { api, ApiError, isUnauthorized } from './api.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -226,5 +226,18 @@ describe('api.workspaceFiles（@ 文件段补全消费腿）', () => {
     );
     await expect(api.workspaceFiles('x')).rejects.toBeInstanceOf(ApiError);
     await expect(api.workspaceFiles('x')).rejects.toMatchObject({ code: 'HTTP_502' });
+  });
+});
+
+describe('api.isUnauthorized（webui-face#3 失效凭证单源判别）', () => {
+  it('401 ApiError → true；非 401 ApiError / 非 ApiError / 网络面错 → false', () => {
+    expect(isUnauthorized(new ApiError(401, 'UNAUTHORIZED'))).toBe(true);
+    // 非 401 状态（404/500 等呈现形错误）不误路由换桥位
+    expect(isUnauthorized(new ApiError(404, 'session_not_found'))).toBe(false);
+    expect(isUnauthorized(new ApiError(500, 'internal'))).toBe(false);
+    // 网络面错（fetch 抛 TypeError 等）按连接面处理非凭证失效
+    expect(isUnauthorized(new TypeError('fetch failed'))).toBe(false);
+    expect(isUnauthorized('401')).toBe(false);
+    expect(isUnauthorized(null)).toBe(false);
   });
 });

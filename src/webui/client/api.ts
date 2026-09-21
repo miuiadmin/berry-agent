@@ -3,9 +3,10 @@
  *
  * 凭证通道恒 cookie 桥（/api/auth Set-Cookie HttpOnly SameSite=Strict——
  * fetch 与 EventSource 同源自动携行；本层零 token 状态，AuthGate 负责
- * 换桥，401 由调用面捕获回到换桥位）。端点词面单源 = WEBUI_ENDPOINTS
- * （./protocol 客户端线视界——服务端真源 src/webui/types.ts 同形镜像，
- * 树隔离纪律见该件头注）。
+ * 换桥，401 由调用面经 isUnauthorized 判别路由回换桥位——webui-face#3：
+ * token 随宿主重启轮换，旧 cookie 永久失效重试不可能自愈）。端点词面单源 =
+ * WEBUI_ENDPOINTS（./protocol 客户端线视界——服务端真源 src/webui/types.ts
+ * 同形镜像，树隔离纪律见该件头注）。
  */
 import {
   WEBUI_ENDPOINTS,
@@ -31,6 +32,15 @@ export class ApiError extends Error {
   ) {
     super(message ?? `API ${status} ${code}`);
   }
+}
+
+/**
+ * 失效凭证判别（webui-face#3 单源谓词）：401 = cookie 桥失效（token 随宿主
+ * 重启轮换——旧 cookie 永久失效，重试不可能自愈）。调用面据此路由回换桥位
+ * （App 的 onAuthLost 编舞）；非 401 错各调用面按既有呈现形处理。
+ */
+export function isUnauthorized(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
 }
 
 /** :id 位代换（端点表占位真源——路由词面不二次手写） */
@@ -92,7 +102,7 @@ export const api = {
       await call<unknown>(WEBUI_ENDPOINTS.sessions);
       return true;
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) return false;
+      if (isUnauthorized(err)) return false;
       throw err;
     }
   },

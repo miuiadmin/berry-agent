@@ -23,6 +23,7 @@ import {
   applyEnvelope,
   droppedMessage,
   echoKeyOf,
+  echoedUserMessage,
   initialAppState,
   loadedApprovals,
   loadedMessages,
@@ -130,6 +131,24 @@ describe('frames 活体分档（display 尾巴 / session 落稿）', () => {
     );
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]).toMatchObject({ text: '直接来', streaming: true });
+  });
+
+  it('user 终稿不顶替 assistant 流式尾（角色校验——run 在飞提交序倒置根因；修前红：异角色流式尾被 user 终稿直接换装顶掉）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'message_start', role: 'assistant' }));
+    state = applyEnvelope(
+      state,
+      display({ type: 'message_update', role: 'assistant', partial: { role: 'assistant', content: '流式中' } }),
+    );
+    expect(state.messages).toHaveLength(1);
+    // run 在飞时提交：user 终稿（乐观回显走同型 session message_end）到达——
+    // 直插不换装异角色流式尾（修前红：messages 只剩 1 条 user，assistant 尾被顶掉）
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '插队', timestamp: 9 } }),
+    );
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]).toMatchObject({ role: 'assistant', text: '流式中', streaming: true });
+    expect(state.messages[1]).toMatchObject({ role: 'user', text: '插队', streaming: false });
   });
 
   it('跨档帧静默丢：session 收 update / display 收 end 均无效果', () => {
@@ -295,6 +314,132 @@ describe('frames 投影层（正确性层真源）', () => {
     expect(state.messages).toHaveLength(0);
     expect(state.todo).toBeNull();
     expect(state.sessions).toHaveLength(1);
+  });
+});
+
+describe('frames 回显/镜像去重单源（webui-face#1 修复批锁）', () => {
+  it('echoedUserMessage 入账 → 同会话同文镜像吸收（正文恰一份 + 账目出清 + 空流式泡出清）', () => {
+    let state = echoedUserMessage(initialAppState, 's-1', '你好', 100);
+    expect(state.messages).toHaveLength(1);
+    expect(state.pendingEchoes).toHaveLength(1);
+    // 镜像双帧（pushAll 相邻发射）：display start 开空流式泡 + session end 镜像
+    state = applyEnvelope(state, display({ type: 'message_start', role: 'user' }));
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '你好', timestamp: 999 } }),
+    );
+    expect(state.messages).toHaveLength(1); // 恰一份（回显保留、镜像与空泡吸收）
+    expect(state.messages[0]).toMatchObject({ role: 'user', text: '你好', streaming: false });
+    expect(state.messages[0]?.key).toBe(echoKeyOf(100)); // 保留的是回显（客户端键）
+    expect(state.pendingEchoes).toHaveLength(0);
+  });
+
+  it('无配对面时同文镜像正常落正文（投影历史/他口同文不误吞）', () => {
+    // 投影历史同文消息在场 + 无 pending → 镜像直插不吸收
+    let state = loadedMessages(initialAppState, [{ role: 'user', content: '同文', timestamp: 1 }]);
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '同文', timestamp: 2 } }),
+    );
+    expect(state.messages).toHaveLength(2);
+  });
+
+  it('配对账会话域隔离：他会话同文镜像不吸收（跨会话残留不误吞）', () => {
+    let state = echoedUserMessage(initialAppState, 's-1', '跨会话同文', 10);
+    // s-2 的同文镜像（他口提交）到达——不吸收 s-1 的待配对账目
+    const other = applyEnvelope(state, {
+      kind: 'session',
+      sessionId: 's-2',
+      payload: { type: 'message_end', message: { role: 'user', content: '跨会话同文', timestamp: 11 } },
+    } as ClientEnvelope);
+    expect(other.messages).toHaveLength(2); // 镜像正常落正文
+    expect(other.pendingEchoes).toHaveLength(1); // s-1 账目不被他会话消耗
+    // s-1 自己的镜像仍能配对
+    const own = applyEnvelope(
+      other,
+      session({ type: 'message_end', message: { role: 'user', content: '跨会话同文', timestamp: 12 } }),
+    );
+    expect(own.messages).toHaveLength(2); // 吸收不追加（恰回显 + 他会话镜像两份）
+    expect(own.pendingEchoes).toHaveLength(0);
+  });
+
+  it('同文双提交 FIFO 配对（两次回显两次镜像各恰一份不串账）', () => {
+    let state = echoedUserMessage(initialAppState, 's-1', '再来一次', 20);
+    state = echoedUserMessage(state, 's-1', '再来一次', 21);
+    expect(state.messages).toHaveLength(2);
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '再来一次', timestamp: 30 } }),
+    );
+    expect(state.messages).toHaveLength(2);
+    expect(state.pendingEchoes).toHaveLength(1);
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '再来一次', timestamp: 31 } }),
+    );
+    expect(state.messages).toHaveLength(2);
+    expect(state.pendingEchoes).toHaveLength(0);
+  });
+
+  it('submit 失败撤回出账 → 迟到镜像正常落正文（服务端已受理形不零份）', () => {
+    let state = echoedUserMessage(initialAppState, 's-1', '会失败', 40);
+    state = droppedMessage(state, echoKeyOf(40));
+    expect(state.messages).toHaveLength(0);
+    expect(state.pendingEchoes).toHaveLength(0); // 账目随撤回出清
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '会失败', timestamp: 41 } }),
+    );
+    expect(state.messages).toHaveLength(1); // 镜像正常落正文
+  });
+
+  it('在飞插队后流式对位回溯（streamingSlotOf——update/end 刷原位不顶异角色）', () => {
+    // [assistant 流式尾] → 插队 user 回显 → assistant update 应刷 index 0 非自开
+    let state = applyEnvelope(initialAppState, display({ type: 'message_start', role: 'assistant' }));
+    state = applyEnvelope(
+      state,
+      display({ type: 'message_update', role: 'assistant', partial: { role: 'assistant', content: '半句' } }),
+    );
+    state = echoedUserMessage(state, 's-1', '插队', 50);
+    expect(state.messages).toHaveLength(2);
+    // 插队后的续流：回溯定位 index 0 的流式位原位刷新（不自开第三条）
+    state = applyEnvelope(
+      state,
+      display({ type: 'message_update', role: 'assistant', partial: { role: 'assistant', content: '半句成整' } }),
+    );
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]).toMatchObject({ role: 'assistant', text: '半句成整', streaming: true });
+    expect(state.messages[1]).toMatchObject({ role: 'user', text: '插队' });
+    // assistant 终稿同样回溯换装 index 0（终稿序不倒置——[q1, a1, q2] 保序）
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'assistant', content: '半句成整', timestamp: 51 } }),
+    );
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]).toMatchObject({ role: 'assistant', text: '半句成整', streaming: false });
+  });
+
+  it('异角色流式位不越位：user update 在 assistant 流式位在场时自开新位', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'message_start', role: 'assistant' }));
+    state = applyEnvelope(
+      state,
+      display({ type: 'message_update', role: 'assistant', partial: { role: 'assistant', content: '答中' } }),
+    );
+    // user 侧流（异角色）不得刷 assistant 尾——自开新位
+    state = applyEnvelope(
+      state,
+      display({ type: 'message_update', role: 'user', partial: { role: 'user', content: '插问' } }),
+    );
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]).toMatchObject({ role: 'assistant', text: '答中', streaming: true });
+    expect(state.messages[1]).toMatchObject({ role: 'user', text: '插问', streaming: true });
+  });
+
+  it('会话切换出清配对账（旧会话在飞回显不污染新会话）', () => {
+    let state = echoedUserMessage(initialAppState, 's-1', '切走前', 60);
+    state = setActiveSession(state, 's-2');
+    expect(state.pendingEchoes).toHaveLength(0);
+    expect(state.messages).toHaveLength(0);
   });
 });
 

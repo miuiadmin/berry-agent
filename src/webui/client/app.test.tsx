@@ -13,13 +13,16 @@
  * ⑤会话导出：主面导出入口 → exportSession(activeId) → blob 下载锚
  * （文件名 <会话id>-<时间戳>.md——CLI/TUI 落盘形对齐 + object URL 用后回收）；
  * 失败走通知条
+ * ⑥用户消息去重单源（webui-face#1）：回显与 kick 种子镜像恰一份 +
+ * 在飞提交流式尾不倒置（角色校验 + 续流对位刷新）
+ * ⑦运行期凭证失效路由（webui-face#3）：调用面 401 → 回换桥位 + 失效提示
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ClientApprovalEntry, ClientSessionSummary } from './protocol.js';
 import { App } from './App.js';
-import type { DecideAnswer, TiersPayload } from './api.js';
+import { ApiError, type DecideAnswer, type TiersPayload } from './api.js';
 
 /** 档位读应答样例（与 GET tiers 应答四键形对齐——词表/行文案单源服务端，样例仅桩） */
 const TIERS: TiersPayload = {
@@ -63,7 +66,12 @@ const apiMock = vi.hoisted(() => ({
   workspaceFiles: vi.fn<(query: string) => Promise<readonly string[]>>().mockImplementation(async () => []),
 }));
 
-vi.mock('./api.js', () => ({ api: apiMock }));
+// 桩只覆写 api 面；真源余出口透传（ApiError 类 / isUnauthorized 谓词——401
+// 失桥判别经真模块单源，测试构造 401 拒绝形用真类保 instanceof 同一性）。
+vi.mock('./api.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  api: apiMock,
+}));
 
 /* ---------------- FakeEventSource（jsdom 无原生实现） ---------------- */
 
@@ -253,6 +261,112 @@ describe('App 主面活体环', () => {
     });
     expect(FakeEventSource.instances[0]!.closed).toBe(true);
     expect(FakeEventSource.instances[1]!.url).toBe('/api/sessions/s-2/events');
+  });
+});
+
+describe('App 用户消息去重单源（回显与 kick 种子镜像——webui-face#1）', () => {
+  it('提交后 kick 种子 user 镜像双帧被吸收：正文恰一份（修前红：回显 + 镜像键异双落两份）', async () => {
+    primeMain();
+    apiMock.submit.mockResolvedValue(undefined);
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    const es = FakeEventSource.instances[0]!;
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '你好呀' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('你好呀'); // 乐观回显先在场
+    // 服务端受理 → driver kick 种子 pushAll：display message_start（user）+
+    // session message_end（user 镜像——服务端钟时间戳，与回显客户端钟不同源）。
+    // act 包裹令两帧状态更新同步落定（计数断言不因渲染竞速假绿）
+    act(() => {
+      es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'message_start', role: 'user' } });
+      es.emit({
+        kind: 'session',
+        sessionId: 's-1',
+        payload: { type: 'message_end', message: { role: 'user', content: '你好呀', timestamp: 9999999999999 } },
+      });
+    });
+    // 同一消息两源（回显 + 镜像）恰呈现一份——修前两份（键 m-<客户端钟> 与
+    // m-<服务端钟> 不同源不互覆，直至下次 onopen 整段重拉才自愈）
+    expect(screen.getAllByText('你好呀')).toHaveLength(1);
+  });
+
+  it('run 在飞提交：assistant 流式尾不被 user 回显顶替 + 镜像吸收 + 续流对位刷新（终稿序不倒置；修前红：流式尾被顶掉/双份/序倒置）', async () => {
+    primeMain();
+    apiMock.submit.mockResolvedValue(undefined);
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    const es = FakeEventSource.instances[0]!;
+    // a1 流式在飞（run 进行中）
+    es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'message_start', role: 'assistant' } });
+    es.emit({
+      kind: 'display',
+      sessionId: 's-1',
+      payload: { type: 'message_update', role: 'assistant', partial: { role: 'assistant', content: '半句' } },
+    });
+    await screen.findByText('半句');
+    // 在飞窗提交 q2：回显落 user——不得顶掉 a1 流式尾（修前：user 终稿经
+    // 「last.streaming 即换装尾泡」无角色校验直接顶掉 assistant 流式尾）
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '插队问' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('插队问');
+    expect(screen.getByText('半句')).toBeDefined(); // 流式尾在位（修前红：被顶掉）
+    // q2 种子镜像双帧到达（steer 顶注形同构）——恰一份（act 包裹令计数
+    // 断言不因渲染竞速假绿）
+    act(() => {
+      es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'message_start', role: 'user' } });
+      es.emit({
+        kind: 'session',
+        sessionId: 's-1',
+        payload: { type: 'message_end', message: { role: 'user', content: '插队问', timestamp: 9999999999998 } },
+      });
+    });
+    expect(screen.getAllByText('插队问')).toHaveLength(1);
+    expect(screen.getByText('半句')).toBeDefined(); // 镜像吸收不扰动流式尾
+    // a1 续流（partial 是完整快照直换）：对位刷新原流式位——不因 q2 插队
+    // 自开新泡（修前：尾位非流式即自开新泡，'半句' 冻结残留成双泡）
+    act(() => {
+      es.emit({
+        kind: 'display',
+        sessionId: 's-1',
+        payload: { type: 'message_update', role: 'assistant', partial: { role: 'assistant', content: '半句成整' } },
+      });
+    });
+    await screen.findByText('半句成整');
+    expect(screen.queryByText('半句')).toBeNull(); // 原位刷新（修前红：冻结残留）
+    // a1 落稿：对位换装原流式位（修前：直插尾部 → 终稿序倒置 [q1,q2,a1]）
+    act(() => {
+      es.emit({
+        kind: 'session',
+        sessionId: 's-1',
+        payload: { type: 'message_end', message: { role: 'assistant', content: '半句成整', timestamp: 2 } },
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByText('半句成整')).toBeDefined();
+    });
+    // 终稿序：a1（终稿）在 q2 前——真序 [a1, q2] 不倒置
+    const a1El = screen.getByText('半句成整');
+    const q2El = screen.getByText('插队问');
+    expect(a1El.compareDocumentPosition(q2El) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+});
+
+describe('App 运行期凭证失效路由（webui-face#3——401 回换桥位）', () => {
+  it('submit 401（宿主重启换 token——旧 cookie 永久失效）→ 回到换桥位 + 失效提示行（修前红：只出通用「提交失败——请重试」条永困）', async () => {
+    primeMain();
+    apiMock.submit.mockRejectedValueOnce(new ApiError(401, 'UNAUTHORIZED'));
+    render(<App />);
+    await screen.findAllByText('测试会话');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '失桥后首条' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    // 回到换桥位（token 输入框重现）+ 失效提示——按「请重试」提示重试恒 401
+    // 永不可能成功（token 每次开面新生成），须换新桥；修前停在主面只出通用条
+    await screen.findByPlaceholderText('一次性 token');
+    await screen.findByText(/凭证已失效/);
+    expect(screen.queryByText('提交失败——请重试')).toBeNull(); // 通用条让位于失效路由
   });
 });
 
