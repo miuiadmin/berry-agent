@@ -367,7 +367,8 @@ describe('openWebuiFace 桥单元', () => {
     });
     try {
       const id = face.deps!.sessions.createSession();
-      faux.setResponses([() => messageOf(), () => messageOf()]);
+      // 三跑应答：首发 + 缺席键 + 陈旧字面量（幂等重收执与冲突拒不耗应答）
+      faux.setResponses([() => messageOf(), () => messageOf(), () => messageOf()]);
       // 首发受理（SPA 携 UUID 形幂等键——03:938 ⑤ submit 体 messageId 选填位）
       face.deps!.sessions.submitPrompt({ sessionId: id, content: '重试同文', messageId: 'spa-uuid-1' });
       // 轮询至首笔 durable 可见（真重试形：响应丢失后重发——重发时首笔已在账）
@@ -389,9 +390,9 @@ describe('openWebuiFace 桥单元', () => {
         .find((e) => e.type === 'user/message')!;
       expect((firstUser.data as { dedupeKey?: string }).dedupeKey).toBe('spa-uuid-1');
       expect((firstUser.data as { source?: string }).source).toBe('channel:webui');
-      // 件侧生成键（`webui-N` 形——SPA 缺席时 server 件补生成，契约注「无幂等」）：
-      // 不参与 admit 也不落账——进程内序号跨重启复位，落账会撞旧账误拒正当提交
-      face.deps!.sessions.submitPrompt({ sessionId: id, content: '生成键形', messageId: 'webui-1' });
+      // messageId 缺席（undefined 透传——8572ccd 拍板收敛落地：件侧不补生成）：
+      // 无幂等不落账（SDK 线同律）——durable 载荷不带 dedupeKey
+      face.deps!.sessions.submitPrompt({ sessionId: id, content: '缺席键形', messageId: undefined });
       await until(() => {
         const events = stack.driverOf(id)!.session.events();
         return events.filter((e) => e.type === 'user/message').length >= 2;
@@ -401,6 +402,18 @@ describe('openWebuiFace 桥单元', () => {
         .session.events()
         .filter((e) => e.type === 'user/message')[1]!;
       expect((secondUser.data as { dedupeKey?: string }).dedupeKey).toBeUndefined();
+      // 陈旧字面量 'webui-N'（旧客户端形）：形判别已退役——任何非空 messageId
+      // 都是客户端自选幂等键，照常落账（修前形判别旁路 = 不落账，本断言即红）
+      face.deps!.sessions.submitPrompt({ sessionId: id, content: '陈旧字面量形', messageId: 'webui-5' });
+      await until(() => {
+        const events = stack.driverOf(id)!.session.events();
+        return events.filter((e) => e.type === 'user/message').length >= 3;
+      });
+      const thirdUser = stack
+        .driverOf(id)!
+        .session.events()
+        .filter((e) => e.type === 'user/message')[2]!;
+      expect((thirdUser.data as { dedupeKey?: string }).dedupeKey).toBe('webui-5');
     } finally {
       await rt.shutdown();
     }
@@ -466,6 +479,61 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
         headers: { authorization: `Bearer ${token}` },
       }).catch(() => undefined);
       expect(gone).toBeUndefined(); // 监听已关（连接拒绝）
+    } finally {
+      await rt.shutdown();
+    }
+  });
+
+  it('submit 幂等位 HTTP 会合验（messageId 收敛批）：同键重试 200 回执 / 同键异内容 409 结构码', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-idem-data-') });
+    const { faux, stack } = rigStack(rt);
+    let opened: { port: number; token: string } | undefined;
+    await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      onOpen: (info) => {
+        opened = info;
+      },
+    });
+    try {
+      const { port, token } = opened!;
+      const created = await apiFetch(port, token, '/api/sessions', { method: 'POST' });
+      const sessionId = (created.body as { sessionId: string }).sessionId;
+      faux.setResponses([() => messageOf()]);
+      const submitOf = (text: string, messageId: string) =>
+        apiFetch(port, token, `/api/sessions/${sessionId}/submit`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text, messageId }),
+        });
+      // 首发受理（messageId 携键——8572ccd 收敛后唯一形，件侧不补生成）
+      const first = await submitOf('HTTP 幂等首文', 'e2e-idem-1');
+      expect(first.status).toBe(200);
+      await until(async () => {
+        const res = await apiFetch(port, token, `/api/sessions/${sessionId}/messages`);
+        if (res.status !== 200) return false;
+        return ((res.body as { messages?: { role: string }[] }).messages ?? []).some((m) => m.role === 'user');
+      });
+      // 同键同内容重试（SPA 重发形）：幂等回执 200 不重跑（恰一条 user）
+      const retry = await submitOf('HTTP 幂等首文', 'e2e-idem-1');
+      expect(retry.status).toBe(200);
+      expect(retry.body).toEqual({ sessionId });
+      // 同键异内容（调用方 bug 形）：桥 admit 抛 SDK_MESSAGE_CONFLICT——
+      // server 件窄 catch 折 409 结构码（error 位带码、message 位人读因；
+      // 与 sdk 面 HTTP_STATUS_BY_CODE 码表跨面一致）
+      const conflict = await submitOf('异内容', 'e2e-idem-1');
+      expect(conflict.status).toBe(409);
+      expect((conflict.body as { error?: string }).error).toBe('SDK_MESSAGE_CONFLICT');
+      expect((conflict.body as { message?: string }).message).toContain('同键异内容');
+      // 终态：durable 恰一条 user（重试与冲突拒均不落账）
+      expect(
+        stack
+          .driverOf(sessionId)!
+          .session.events()
+          .filter((e) => e.type === 'user/message'),
+      ).toHaveLength(1);
     } finally {
       await rt.shutdown();
     }
