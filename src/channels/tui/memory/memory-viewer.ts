@@ -57,6 +57,7 @@ import { Editor } from '../editor/editor.js';
 import type { Keymap } from '../keys/registry.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { shortIdOf } from '../backend/transcript.js';
+import { sanitizeLineText } from '../blocks/tool-card.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
 import { SELECTION_CAP_BYTES, SELECTION_CAP_NOTICE } from '../history/history-viewer.js';
 import type { OverlayContent } from '../overlay/overlay.js';
@@ -768,6 +769,14 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
    * updated=ISO`；p-1 时效尾缀同源）：消毒经注入的 §8.2 统一函数罩住
    * （blocked → summary 遮蔽保 id 操作面；quoted → 引述注记）；冻结行行首
    * ✱、终态行整行 dim + supersededBy 记号。
+   *
+   * plain 构造位消毒（第六役修复组 #3）：summary 是 LLM/插件写入的自由文本
+   * （dao 写路径无换行归一——内嵌 LF/转义残留是现实态），整拼 plain 先经
+   * sanitizeLineText（族标准——LF→空格 + tab 展开 2 空格 + CR/ESC 序列/
+   * 其余 C0 剥除，与 transcript 单行面同律）再喂折行算术。修前 plain 原文
+   * 入账：foldLine 对 LF 按规则⑥记 1 列、cell.writeText 落格跳过记 0 格
+   * ——折行账与落格账错位（每控制字素 1 列），LF 被无声吞掉两词直连，
+   * prefixDisplayWidth 定位的选区边界/写切片列位随漂（幽灵列）。
    */
   private entryLine(row: MemoryRowFace, section: Section): StyledLine {
     const verdict = this.sanitize(row);
@@ -781,7 +790,9 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       section !== 'terminal' && row.validFrom !== null && row.validFrom > Date.now()
         ? `（${Math.ceil((row.validFrom - Date.now()) / 86_400_000)}天后生效）`
         : '';
-    const plain = `${section === 'frozen' ? '✱ ' : ''}[m:${shortIdOf(row.id)}] [${row.kind}] ${body}${pendingFrom}  id=${row.id}  updated=${fmtTs(row.updatedAt)}${suffix}`;
+    const plain = sanitizeLineText(
+      `${section === 'frozen' ? '✱ ' : ''}[m:${shortIdOf(row.id)}] [${row.kind}] ${body}${pendingFrom}  id=${row.id}  updated=${fmtTs(row.updatedAt)}${suffix}`,
+    );
     return section === 'terminal'
       ? { plain, runs: [{ start: 0, end: plain.length, style: DIM_STYLE }] }
       : { plain, runs: [] };

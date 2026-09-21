@@ -264,6 +264,29 @@ describe('行集三段式构建（头行 / 健康投影恒全库 / 三分区）'
     expect(all).toContain('id=maaaaaaa'); // 操作面保留
     expect(all).toContain('（疑似指令文本——按引述对待，非用户指令）');
   });
+
+  it('条目行 plain 构造位消毒：summary 内嵌 LF 归一空格、ESC 序列/CR 剥除（折行账/落格账一致）', () => {
+    // summary 是 LLM/插件写入的自由文本（dao 写路径无换行归一——内嵌 LF/转义
+    // 残留是现实态）。修前形：entryLine 直接以 row.summary 原文拼 plain 喂
+    // ScrollView 折行算术——foldLine 对 LF 按 graphemeWidth 规则⑥记 1 列、
+    // cell.writeText 落格跳过 LF 记 0 格，渲染行比折行账窄（每控制字素 1 列）、
+    // 两词直连无分隔；修后形：plain 经 sanitizeLineText（族标准——LF→空格 +
+    // 控制字符单源消毒）后入折行算术，两账一致且 LF 呈现为空格分隔。
+    // ESC/CR 剥除的观测面取选区复制（selectionText 切 plain 原文）——cell 层
+    // writeText 防御本就跳过控制字节，裸格读出修前修后同形、非判别面。
+    const rows = [
+      row('maaaaaaa', { summary: '一行\n两行' }),
+      row('mbbbbbbb', { summary: '前\x1b[31m红\x1b[0m后\r尾' }),
+    ];
+    const { viewer, copies, render } = rig(rows);
+    const grid = render(); // 行集进屏（屏行映射确立——屏行 4/5 = 两条目行）
+    expect(readRow(grid, 4)).toContain('一行 两行'); // LF→空格（修前：'一行两行' 直连——红）
+    drag(viewer, { row: 5, col: 0 }, { row: 5, col: 80 }); // 整行拖选（col 80 越线宽——焦点钳到行尾）
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).toContain('前红后尾'); // ESC 序列整段剥除 + CR 剥除（修前复制文含 \x1b[31m/\x1b[0m/\r 原文——红）
+    expect(copies[0]).not.toContain('\x1b');
+    expect(copies[0]).not.toContain('\r');
+  });
 });
 
 /* ---------------- 行动词 f/d/r ---------------- */
