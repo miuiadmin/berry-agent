@@ -10,7 +10,8 @@
  * 坏形两分（02 §5.3 批 15d 四码语义）：id 缺席/坏形 = CHECKPOINT_NOT_FOUND
  * （/rewind 作用目标守卫）；manifest JSON 坏形、blob 缺席或哈希不符 =
  * CHECKPOINT_STORE_CORRUPT（fail-loud 宁拒不误读）。id/hash 是路径段——
- * 白名单字符校验防路径注入（/rewind 的 id 来自用户输入面）。
+ * 白名单字符校验防路径注入（/rewind 的 id 来自用户输入面）；files[].path
+ * 直供 restore 的 join 消费——相对 posix 白名单防路径穿越越出 workspaceRoot。
  *
  * 裁剪（每次捕获后由 capture 侧调 prune）：per workspace 保最新
  * CHECKPOINT_RETENTION_PER_WORKSPACE 份 manifest（trigger 两形同计，capturedAt
@@ -28,6 +29,17 @@ const MANIFEST_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 /** blob 哈希合法形（sha256 小写 hex 64 位） */
 const BLOB_HASH_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * manifest 文件条目 path 合法形判据（工作区相对 posix 路径白名单——防路径
+ * 穿越）：非绝对（无前导 /）、无反斜杠（Windows 分隔符注入形）、逐段非空
+ * 且非 '.'/'..'（restore 的 join(workspaceRoot, ...path.split('/')) 消费零
+ * 归一歧义——'..' 段可越出 workspaceRoot 写任意位置）。walk 产物天然合规。
+ */
+function isSafeEntryPath(path: string): boolean {
+  if (path.startsWith('/') || path.includes('\\')) return false;
+  return path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
 
 /** 快照仓公开面（openCheckpointStore 产物） */
 export interface CheckpointStore {
@@ -90,7 +102,8 @@ function validateManifest(raw: unknown, source: string): CheckpointManifest {
   const entries = files.map((f, i) => {
     if (typeof f !== 'object' || f === null) throw corrupt(`${source} files[${i}] 非对象`);
     const e = f as Record<string, unknown>;
-    if (typeof e.path !== 'string' || e.path === '') throw corrupt(`${source} files[${i}].path 坏形`);
+    if (typeof e.path !== 'string' || !isSafeEntryPath(e.path))
+      throw corrupt(`${source} files[${i}].path 坏形（须为工作区相对 posix 路径——禁绝对形/'..'段/反斜杠）`);
     if (typeof e.hash !== 'string' || !BLOB_HASH_RE.test(e.hash)) throw corrupt(`${source} files[${i}].hash 坏形`);
     if (typeof e.bytes !== 'number' || !Number.isInteger(e.bytes) || e.bytes < 0)
       throw corrupt(`${source} files[${i}].bytes 坏形`);

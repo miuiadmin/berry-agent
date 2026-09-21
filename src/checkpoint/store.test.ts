@@ -100,6 +100,26 @@ describe('manifest CRUD', () => {
     await expect(store.loadManifest('../../secrets')).rejects.toMatchObject({ code: 'CHECKPOINT_NOT_FOUND' });
   });
 
+  it('files[].path 路径穿越形 = STORE_CORRUPT（白名单：禁绝对/..段/反斜杠/空段）', async () => {
+    await mkdir(join(store.baseDir, 'manifests'), { recursive: true });
+    const base = manifest({ id: 'evilpath' });
+    for (const bad of ['../../escape.txt', '/etc/passwd', 'a\\b.txt', '..', 'a//b.txt', './a.txt']) {
+      await writeFile(
+        join(store.baseDir, 'manifests', 'evilpath.json'),
+        JSON.stringify({ ...base, files: [{ path: bad, hash: 'a'.repeat(64), bytes: 1 }] }),
+        'utf8',
+      );
+      // 修前：仅查非空 string——四形全过校验（restore join 消费可越出 workspaceRoot）
+      await expect(store.loadManifest('evilpath')).rejects.toMatchObject({ code: 'CHECKPOINT_STORE_CORRUPT' });
+    }
+  });
+
+  it('files[].path 合法相对形仍过（嵌套目录 posix 相对——walk 产物形态）', async () => {
+    const m = manifest({ id: 'okpath', files: [{ path: 'sub/dir/a.txt', hash: 'b'.repeat(64), bytes: 3 }] });
+    await store.saveManifest(m);
+    expect((await store.loadManifest('okpath')).files[0]?.path).toBe('sub/dir/a.txt');
+  });
+
   it('坏 JSON = STORE_CORRUPT', async () => {
     await mkdir(join(store.baseDir, 'manifests'), { recursive: true });
     await writeFile(join(store.baseDir, 'manifests', 'bad.json'), '{not json', 'utf8');

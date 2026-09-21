@@ -2,7 +2,7 @@
  * command 测试——/rewind 处理器（/goal 同族 idiom：argv → 人读文本、
  * BaseError 折文本不抛；三动词 + 守卫错直呈）。
  */
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -144,6 +144,55 @@ describe('runRewindCommand', () => {
       deps({ contextOf: () => ({ lastClosedBoundary: 0, workspaceRoot: ws }) }),
     );
     expect(out).toContain('CHECKPOINT_NOT_FOUND');
+  });
+
+  it('restore：跨工作区回退点 = fail-loud 拒（发起会话锚 ≠ 回退点锚——防误靶）', async () => {
+    const wsA = await mkdtemp(join(tmpdir(), 'berry-rewind-cmd-wsA-'));
+    try {
+      // 工作区 A 的回退点 + 快照后变异（若误执行会被回写 v1）
+      await writeFile(join(wsA, 'a.txt'), 'v1', 'utf8');
+      await createCapture(store, { now: () => 1_000, newId: () => 'snapA' })({
+        sessionId: 'sA',
+        boundarySeq: 3,
+        workspaceRoot: wsA,
+        trigger: 'mutation',
+      });
+      await writeFile(join(wsA, 'a.txt'), 'v2', 'utf8');
+      // 工作区 B 的会话误贴 A 的 id 发起 restore
+      const out = await runRewindCommand(['restore', 'snapA'], {
+        store,
+        fork,
+        session: { contextOf: () => ({ lastClosedBoundary: 5, workspaceRoot: ws }) },
+        sessionId: 'sB',
+      });
+      expect(out).toContain('不属于当前会话工作区');
+      // A 的文件零触碰（误靶零执行——修前：被恢复回 v1 且回执「已回退」）
+      expect(await readFile(join(wsA, 'a.txt'), 'utf8')).toBe('v2');
+    } finally {
+      await rm(wsA, { recursive: true, force: true });
+    }
+  });
+
+  it('preview：跨工作区回退点同拒（只读面同判——预演也不越区对账）', async () => {
+    const wsA = await mkdtemp(join(tmpdir(), 'berry-rewind-cmd-wsA2-'));
+    try {
+      await writeFile(join(wsA, 'a.txt'), 'v1', 'utf8');
+      await createCapture(store, { now: () => 1_000, newId: () => 'snapA2' })({
+        sessionId: 'sA',
+        boundarySeq: 3,
+        workspaceRoot: wsA,
+        trigger: 'mutation',
+      });
+      const out = await runRewindCommand(['preview', 'snapA2'], {
+        store,
+        fork,
+        session: { contextOf: () => ({ lastClosedBoundary: 5, workspaceRoot: ws }) },
+        sessionId: 'sB',
+      });
+      expect(out).toContain('不属于当前会话工作区');
+    } finally {
+      await rm(wsA, { recursive: true, force: true });
+    }
   });
 
   it('缺 id = 用法提示', async () => {

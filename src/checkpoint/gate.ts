@@ -28,6 +28,14 @@ import type { GateInput } from '../contracts/index.js';
 import type { CaptureFn } from './capture.js';
 import type { CheckpointGateDeps } from './types.js';
 
+/**
+ * per-session 边界游标逐出帽（compaction/service.ts IDLE_STATES_CAP=256 同款
+ * 帽值纪律——04 篇 Job 注册表同源：防长开 serve 进程下大量短命会话进出致
+ * 游标 Map 无界累积）。超帽按插入序逐最旧；被逐会话的最坏后果 = 同 run 段
+ * 再触发写工具时重拍一份快照（per-workspace 保留帽天然收敛），无正确性损失。
+ */
+export const CHECKPOINT_SESSION_CURSOR_CAP = 256;
+
 /** 守门监听器形态（与 EventDispatch.onWaterfall 载荷形结构同构——不 import context，纯结构面） */
 export type CheckpointGateListener = (
   input: GateInput,
@@ -40,7 +48,8 @@ export type CheckpointGateListener = (
  */
 export function createCheckpointGate(deps: CheckpointGateDeps): CheckpointGateListener {
   const warn = deps.warn ?? ((message: string) => console.warn(message));
-  // per-session 上次捕获边界（per-run 判据的游标——turn 在飞边界不动即同 run）
+  // per-session 上次捕获边界（per-run 判据的游标——turn 在飞边界不动即同 run；
+  // 大小恒 ≤ CHECKPOINT_SESSION_CURSOR_CAP——入册超帽先逐最旧）
   const lastCapturedBoundary = new Map<string, number>();
 
   return async (input, next) => {
@@ -76,7 +85,15 @@ export function createCheckpointGate(deps: CheckpointGateDeps): CheckpointGateLi
       };
       return input; // 不调 next：短路整链（守门段 block 语义）
     }
-    // 成功：推进游标（后续同 run 写工具不再重拍）+ 放行交棒
+    // 成功：推进游标（后续同 run 写工具不再重拍）+ 放行交棒。新会话入册前
+    // 超帽逐最旧（插入序 FIFO——Map 迭代序即插入序，compaction 空闲态逐出
+    // 帽同形；既有会话只更新值不触逐出）
+    if (!lastCapturedBoundary.has(sessionId) && lastCapturedBoundary.size >= CHECKPOINT_SESSION_CURSOR_CAP) {
+      for (const oldest of lastCapturedBoundary.keys()) {
+        if (lastCapturedBoundary.size < CHECKPOINT_SESSION_CURSOR_CAP) break;
+        lastCapturedBoundary.delete(oldest);
+      }
+    }
     lastCapturedBoundary.set(sessionId, boundary);
     return next(input);
   };

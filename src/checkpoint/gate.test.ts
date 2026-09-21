@@ -5,7 +5,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GateInput, ToolDefinition } from '../contracts/index.js';
-import { createCheckpointGate } from './gate.js';
+import { CHECKPOINT_SESSION_CURSOR_CAP, createCheckpointGate } from './gate.js';
 import type { CheckpointManifest, CheckpointTrigger, SessionContextFace } from './types.js';
 
 /** 工具定义快捷形（effect 面） */
@@ -200,5 +200,25 @@ describe('createCheckpointGate 守门语义', () => {
     await gate(input('write', 's1'), pass);
     const second = await gate(input('write', 's1'), pass);
     expect(second.outcome).toMatchObject({ action: 'block' }); // 重试（游标未进）
+  });
+
+  it('per-session 游标逐出帽——超帽逐最旧，被逐会话同 run 再写重拍（防长开无界累积）', async () => {
+    const cap = fakeCapture();
+    const contexts = new Map<string, { lastClosedBoundary: number; workspaceRoot: string }>();
+    const face: SessionContextFace = { contextOf: (id) => contexts.get(id) };
+    const gate = createCheckpointGate({ capture: cap.fn, session: face });
+    // 填帽 + 1 个新会话——第 CAP+1 个入册时最旧的 s0 被逐（帽值单源 = gate.ts 常量）
+    const last = `s${CHECKPOINT_SESSION_CURSOR_CAP}`;
+    for (let i = 0; i <= CHECKPOINT_SESSION_CURSOR_CAP; i++) {
+      contexts.set(`s${i}`, { lastClosedBoundary: 1, workspaceRoot: '/ws' });
+      await gate(input('write', `s${i}`), pass);
+    }
+    expect(cap.calls).toHaveLength(CHECKPOINT_SESSION_CURSOR_CAP + 1);
+    // s0 已被逐（游标缺席）——同 run 段（边界不动）再触发写工具 = 重拍
+    await gate(input('write', 's0'), pass);
+    expect(cap.calls).toHaveLength(CHECKPOINT_SESSION_CURSOR_CAP + 2);
+    // 帽内最近会话不逐——同 run 段不重拍
+    await gate(input('write', last), pass);
+    expect(cap.calls).toHaveLength(CHECKPOINT_SESSION_CURSOR_CAP + 2);
   });
 });
