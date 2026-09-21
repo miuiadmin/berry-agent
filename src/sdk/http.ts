@@ -603,7 +603,18 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
       (data): boolean => isDroppableFrame(data as SdkWireFrame),
     );
     openStreams.add(stream);
+    // 受理判据 = 本次 hello 事务的受理结果（replay-end 界标是否入流）。不能用
+    // 核内全局 isSubscribed 判挂扇出：多观众形态（streamsBySession 一会话多流
+    // 是支持形态）下他观众的活跃订阅会令新流 hello 失败（会话不存在/游标非法
+    // 路径 emitError 后不动核内订阅）时误判已订阅——流不收线（ping 保活）、
+    // SDK 客户端 openLive 永久悬挂（resolve 仅 replay-end、reject 仅流终结）
+    // 且持续误收直播事件帧。
+    let helloAccepted = false;
     const collector = (frame: SdkWireFrame): boolean => {
+      // replay-end = 订阅三步（快照→重放→界标）走完的衔接界标——受理成功的
+      // 单源信号；错误路径（SESSION_NOT_FOUND/SDK_CURSOR_INVALID）与
+      // onSubscribed 重推的 ask 帧均非此形，不误触
+      if (frame.kind === 'replay-end' && frame.sessionId === sessionId) helloAccepted = true;
       stream.write(frame);
       return true;
     };
@@ -619,8 +630,9 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
     } finally {
       scopeStack.pop();
     }
-    // 订阅落定才挂扇出；error 档（会话不存在/游标非法）帧已入流——收流即终结
-    if (!core.isSubscribed(sessionId)) {
+    // 本次受理失败即收流：error 档（会话不存在/游标非法）帧已入流——EOF 收线
+    // 使调用方 openLive 走 reject（流终结档），不挂扇出、不误收直播帧
+    if (!helloAccepted) {
       stream.close();
       res.end();
       return;

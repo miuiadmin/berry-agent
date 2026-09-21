@@ -73,6 +73,12 @@ interface SseReader {
   next(): Promise<SdkWireFrame | undefined>;
   /** 顺序取至指定 kind（跳过心跳等中间帧——超时/流尽返 undefined） */
   nextOf(kind: SdkWireFrame['kind']): Promise<SdkWireFrame | undefined>;
+  /**
+   * 服务端收线侦测：应答体 EOF 达读者（res.end——服务端主动收流）= true；
+   * 读侧超时仍活 / 客户端 abort = false。区别于 next() 的超时 undefined 档
+   * （next 超时与流尽不可分辨——收线语义测试须用本面）。
+   */
+  ended(): Promise<boolean>;
   abort(): void;
 }
 
@@ -90,12 +96,21 @@ async function openSse(port: number, query: string, headers: Record<string, stri
   const waiters: Array<(frame: SdkWireFrame | undefined) => void> = [];
   let buffer = '';
   let done = false;
+  // 收线侦测位：泵正常读尽（服务端 EOF）resolve true；abort 异常路径 resolve false
+  let settleEnded: (ended: boolean) => void = () => {};
+  const endedPromise = new Promise<boolean>((resolve) => {
+    settleEnded = resolve;
+  });
+  let serverEnded = false;
   // 后台泵（IIFE 即起）：块切分 → data 行解析 → 等待者/暂存队列分发
   (async (): Promise<void> => {
     try {
       for (;;) {
         const { value, done: finished } = await reader.read();
-        if (finished) break;
+        if (finished) {
+          serverEnded = true; // 正常读尽 = 服务端收线（非读侧异常）
+          break;
+        }
         buffer += decoder.decode(value, { stream: true });
         for (;;) {
           const idx = buffer.indexOf('\n\n');
@@ -114,6 +129,7 @@ async function openSse(port: number, query: string, headers: Record<string, stri
       // abort 收线——泵终止
     }
     done = true;
+    settleEnded(serverEnded);
     for (const waiter of waiters.splice(0)) waiter(undefined);
   })();
   const next = (): Promise<SdkWireFrame | undefined> =>
@@ -141,6 +157,14 @@ async function openSse(port: number, query: string, headers: Record<string, stri
         if (frame.kind === kind) return frame;
       }
     },
+    // EOF 已达 = true；2s 读侧超时仍活 = false（流被服务端保持着——收线缺席的证据位）
+    ended: () =>
+      Promise.race([
+        endedPromise,
+        new Promise<boolean>((resolve) => {
+          setTimeout(() => resolve(false), 2_000);
+        }),
+      ]),
     abort: () => {
       controller.abort();
     },
@@ -346,6 +370,28 @@ describe('sdk/http 传输面（一核多流）', () => {
     const sse = await openSse(info.tcp[0]!.port, '?sessionId=nope', baseHeaders());
     expect(await sse.next()).toMatchObject({ kind: 'error', code: 'SESSION_NOT_FOUND' });
     expect(await sse.next()).toBeUndefined(); // 流收线
+  });
+
+  it('SSE hello 失败（游标非法）即收流：同会话他观众在场不误挂扇出', async () => {
+    stub.setSession('s-1', 'open', [entry(0), entry(1)]);
+    // 观众 A 先订阅成功——同会话多观众是支持形态（核内订阅态由 A 持有）
+    const viewerA = await openSse(info.tcp[0]!.port, '?sessionId=s-1', baseHeaders());
+    await viewerA.nextOf('replay-end');
+    expect(face.core.isSubscribed('s-1')).toBe(true);
+    // 观众 B 携越界 after（999 ≥ 高水位 2 → beyond-high-water）→ hello 失败
+    const viewerB = await openSse(info.tcp[0]!.port, '?sessionId=s-1&after=999', baseHeaders());
+    expect(await viewerB.next()).toMatchObject({ kind: 'hello', sessionId: 's-1' });
+    expect(await viewerB.next()).toMatchObject({ kind: 'error', code: 'SDK_CURSOR_INVALID' });
+    // B 的应答流应收线（服务端 res.end——EOF 达读者；核内全局订阅态因观众 A
+    // 在场恒 true，不能作收流判据——否则 B 流被误挂扇出不收线，调用方
+    // openLive 永久悬挂〔resolve 仅 replay-end、reject 仅流终结〕）
+    expect(await viewerB.ended()).toBe(true);
+    // B 不再收到 s-1 的直播事件帧（被拒订阅不得误收数据）
+    face.core.pushEvent('s-1', { type: 'agent_start' });
+    expect(await viewerB.nextOf('event')).toBeUndefined();
+    // 观众 A 不受影响——既订阅者照常收直播
+    expect(await viewerA.nextOf('event')).toMatchObject({ kind: 'event', sessionId: 's-1' });
+    viewerA.abort();
   });
 
   it('流撤即退订：abort → 核订阅随撤（订阅生命周期与真观众同步）', async () => {
