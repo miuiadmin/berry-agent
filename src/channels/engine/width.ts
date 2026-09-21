@@ -111,6 +111,10 @@ export function graphemeWidth(grapheme: string): 0 | 1 | 2 {
   // 规则⑤：tab 记 2（控制字素中唯一有呈现语义者——语义展开两空格；
   // 其余控制字素不在此发明占位语义，仍落规则⑥由网格写入层拒收）
   if (grapheme === '\t') return 2;
+  // 全域清扫 #12：单码点 ASCII 快路——编辑器逐字素测宽热路径在 ASCII 域
+  // 跳过码点展开/RI 过滤/VS16 查询全链（该域规则①-⑥退化恒 1：零宽集全
+  // 部 ≥U+0080、EAW wide 无 ASCII 位——等价性由 width/cell 既有测试面锁）
+  if (grapheme.length === 1 && grapheme.charCodeAt(0) < 0x80) return 1;
   const codePoints = [...grapheme].map((ch) => ch.codePointAt(0)!);
   // 规则③：恰一对 RI（两面旗恰好两个 RI 码点合成）判 2；单 RI / 三连 RI 落规则④
   const riCount = codePoints.filter((cp) => cp >= RI_FIRST && cp <= RI_LAST).length;
