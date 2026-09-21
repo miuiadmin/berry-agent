@@ -6,8 +6,9 @@
  * - **spawner**（`berry serve --daemon`）：spawn 自镜像 detached 子进程
  *   （POSIX setsid 族 = Node `detached: true`；stdio stdin/stdout ignore——
  *   daemon 与 stdio 传输互斥〔07 §5〕、stderr 追加重定向 daemon.log）后即退；
- *   起活确认窗内轮询 pid 登记（child 写 pid 才算起活）——child 秒死（撞
- *   HOST_DATA_DIR_BUSY 等）则转发其退出码并转述 daemon.log 尾行。child 身份
+ *   起活确认窗内轮询 pid 登记（child 写 pid 才算起活——登记 pid 与 child.pid
+ *   归属比对，旧 daemon 在场登记不冒认）——child 秒死（撞 HOST_DATA_DIR_BUSY
+ *   等）则转发其退出码并转述 daemon.log 尾行。child 身份
  *   经 env `BERRY_AGENT_SERVE_DAEMON_CHILD=1` 标记（不入 CLI 词面——env 双
  *   载体先例 BERRY_AGENT_SDK_TOKEN 同族），防 spawn 递归。
  * - **daemon child**（`runDaemonServe`）：组装 runtime + conversation 栈 +
@@ -657,7 +658,11 @@ export async function spawnDaemonServe(options: SpawnDaemonOptions): Promise<num
   });
   child.unref(); // spawner 即退——child 生命周期独立（setsid 脱离会话）
 
-  // 起活确认窗：pid 登记现 + 探活 = 成功；child 先退 = 转发退码 + log 尾行
+  // 起活确认窗：pid 登记现且归属本次 child（record.pid === child.pid）+ 探活
+  // = 成功；child 先退 = 转发退码 + log 尾行。归属比对是单活跃机掩盖防线
+  // （host-assembly#1）：旧 daemon 完整在跑时其登记在场且活，若只看
+  // probe.running 会首轮冒认「已起」退 0、吞掉新 child 的 BUSY 秒死——07 §1
+  // 「响亮拒绝优于静默双写」。
   const isAlive = options.isAlive ?? defaultIsAlive;
   const now = options.now ?? (() => Date.now());
   const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -672,7 +677,10 @@ export async function spawnDaemonServe(options: SpawnDaemonOptions): Promise<num
   const deadline = now() + SPAWN_CONFIRM_TIMEOUT_MS;
   for (;;) {
     const probe = probeDaemon(paths, isAlive, options.fs);
-    if (probe.running) {
+    // 只认「本次 spawn 的 child 写入的登记」——旧 daemon 在场登记（pid 活）
+    // 不算本次起活：child 侧写真 process.pid，spawner 侧 child.pid 同源，
+    // 一致方认。spawn 即败形（child.pid 缺席）恒不匹配 → 走转发路。
+    if (probe.running && probe.record?.pid === child.pid) {
       writeErr(`daemon 已起（pid ${probe.record?.pid}）——pid/sock 登记 ${paths.dir}；日志 ${paths.logPath}`);
       return 0;
     }

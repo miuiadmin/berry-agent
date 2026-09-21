@@ -295,9 +295,10 @@ describe('spawnDaemonServe（spawner 编舞——注入面）', () => {
       self: { execPath: 'node-bin', mainPath: 'main.js' }, // 自镜像注入（不触真进程）
       spawnFn: (cmd, args, opts) => {
         spawns.push({ cmd, args: [...args], opts });
-        // 假 child 即刻写 pid 登记（模拟 child 起活）
+        // 假 child 即刻写 pid 登记（模拟 child 起活——归属比对须同形：child
+        // 侧写真 process.pid，假件登记 pid 须与句柄 pid 一致）
         writeDaemonPid(paths, { pid: 999, startedAt: 0 }, fs);
-        return fakeChild(777);
+        return fakeChild(999);
       },
       isAlive: () => true,
       fs,
@@ -328,8 +329,9 @@ describe('spawnDaemonServe（spawner 编舞——注入面）', () => {
       self: { execPath: 'node-bin', mainPath: 'main.js' },
       spawnFn: (_cmd, args) => {
         spawns.push({ args: [...args] });
+        // 归属比对须同形：登记 pid 与句柄 pid 一致（承「正常拉起」例注）
         writeDaemonPid(paths, { pid: 999, startedAt: 0 }, fs);
-        return fakeChild(777);
+        return fakeChild(999);
       },
       isAlive: () => true,
       fs,
@@ -361,6 +363,59 @@ describe('spawnDaemonServe（spawner 编舞——注入面）', () => {
     expect(code).toBe(1);
     expect(lines[0]).toContain('码 1');
     expect(lines[1]).toContain('启动失败：数据目录已有活跃进程'); // 尾行转述（≤3 行）
+  });
+
+  it('旧 daemon 在场掩盖路：登记非本次 child 所写——child 撞 BUSY 秒死须转发退码 + 转述 log 尾行（修前误报「已起」退 0）', async () => {
+    // host-assembly#1 修前红：旧 daemon 完整在跑（serve/daemon.pid 登记在场且
+    // pid 活——writeDaemonPid 在 face.start 后写）时，第二调用方 `serve --daemon`
+    // spawn 的新 child 撞 active.json 单活跃机标记 HOST_DATA_DIR_BUSY 秒死——
+    // 修前起活循环首轮 probe.running 命中旧 pid 即报「已起」退 0，child 退码与
+    // daemon.log 尾行 BUSY 细目被静默吞（07 §1 进程模型「响亮拒绝优于静默双写」
+    // + §5「第二调用方 spawn serve 撞在场 daemon = 既有 HOST_DATA_DIR_BUSY」）。
+    const paths = daemonPaths('/data');
+    const fs = memFs({
+      [paths.pidPath]: '{"pid":123,"startedAt":1}\n', // 旧 daemon 登记（isAlive 恒 true → 活）
+      [paths.logPath]: 'daemon 运行失败：数据目录已有活跃进程（pid 123，启动于 2026-09-21T00:00:00.000Z）\n',
+    });
+    const lines: string[] = [];
+    const code = await spawnDaemonServe({
+      flags: { daemon: true, noDelta: false, debug: false },
+      dataDir: '/data',
+      env: baseEnv,
+      spawnFn: () => fakeChild(undefined, 1), // 新 child 即退 1（BUSY 秒死形）
+      isAlive: () => true,
+      fs,
+      now: () => 0,
+      sleep: async () => {},
+      writeErr: (l) => lines.push(l),
+    });
+    expect(code).toBe(1); // 转发 child 退码（修前 0——旧登记冒认起活）
+    expect(lines[0]).toContain('码 1');
+    expect(lines[1]).toContain('已有活跃进程'); // BUSY 细目经 log 尾行转述达调用方
+  });
+
+  it('起活归属判据：旧 daemon 登记在场而本次 child 未登记未退——不冒认已起，超窗退 1（修前误报退 0）', async () => {
+    // 归属判据另一半：登记在场且活、但非本次 child 所写、child 又没退（组装中/
+    // 挂起形）——不得把旧登记冒认成本次起活（修前首轮即「已起」退 0）。
+    const paths = daemonPaths('/data');
+    const fs = memFs({ [paths.pidPath]: '{"pid":123,"startedAt":1}\n' });
+    const lines: string[] = [];
+    let clock = 0;
+    const code = await spawnDaemonServe({
+      flags: { daemon: true, noDelta: false, debug: false },
+      dataDir: '/data',
+      env: baseEnv,
+      spawnFn: () => fakeChild(777), // child 活着但从不写自己的 pid 登记
+      isAlive: () => true,
+      fs,
+      now: () => clock,
+      sleep: async () => {
+        clock += 1_000; // 步进钟速过 10s 窗
+      },
+      writeErr: (l) => lines.push(l),
+    });
+    expect(code).toBe(1); // 超窗（修前 0——旧登记冒认）
+    expect(lines[0]).toContain('超窗');
   });
 
   it('起活确认超窗：pid 登记未现退 1', async () => {
