@@ -920,6 +920,81 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     }
   });
 
+  it('goal 唤醒链拒绝面（第六役转交 cross-cutting#2）：run 拒绝不逃逸 unhandledRejection——派生链尾 warn 出口接住', async () => {
+    // 修前红源：wakeGoalFromPark 的 void run.then(...) 派生 promise 无拒绝面
+    // ——栈内 catch 只兜原 run promise，.then 派生 rejection 无人接 →
+    // unhandledRejection → 崩溃编舞 exit(1) 杀整个 daemon（在飞会话连坐；
+    // 坏词形 launch 同步抛转 Promise.reject 等每次预算唤醒都崩）
+    const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
+    delete process.env.BERRY_AGENT_LOG_LEVEL;
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-wake-reject-'));
+    dirs.push(dataDir);
+    const persistence = Persistence.open({
+      dbPath: MEMORY_DB_PATH,
+      migrations: [SCHEDULER_MIGRATION, GOAL_MIGRATION, GOAL_APPROVAL_MIGRATION, ...MEMORY_MIGRATIONS],
+    });
+    const session = new SessionLog({ sessionId: 's-wake-reject' });
+    const goalSession: GoalSessionFace = {
+      events: (sid) => (sid === 's-wake-reject' ? session.events() : []),
+      length: (sid) => (sid === 's-wake-reject' ? session.events().length : 0),
+      appendPaused: (sid) => {
+        if (sid === 's-wake-reject') session.append('session/paused', { reason: 'budget' });
+      },
+    };
+    // 假 stack：submitText 返 rejected promise（run 拒绝形——launch 同步抛折
+    // Promise.reject / 异步错 re-throw / busy 腿在飞 run 可拒三源同面）
+    let affordOk = true;
+    const submits: { sessionId: string; source?: string }[] = [];
+    const fakeConversationStack = {
+      llm: { canAfford: (_tier: string) => affordOk },
+      submitText: (sessionId: string, _text: string, opts?: { source?: string }) => {
+        submits.push({ sessionId, source: opts?.source });
+        return Promise.reject(new Error('唤醒轮炸了（run 拒绝形）'));
+      },
+    } as unknown as ConversationStack;
+    const broadcast = createBudgetBroadcast({ canAfford: () => affordOk, pollMs: 5 });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    let svc: GoalService | undefined;
+    try {
+      const { scope } = await bootCore(
+        dataDir,
+        memoryFs(),
+        {},
+        {
+          sqlite: () => persistence.store.sqlite(),
+          goalSession,
+          budgetBroadcast: broadcast,
+          conversationStack: fakeConversationStack,
+          goalServiceSink: (service) => {
+            svc = service;
+          },
+        },
+      );
+      const face = scope.tryGet<GoalFace>('goal')!;
+      const row = await svc!.activate({
+        sessionId: 's-wake-reject',
+        objective: '唤醒拒绝面目标',
+        schedule: 'every:60s',
+      });
+      affordOk = false;
+      if (!(await face.parkIfBudgetExhausted(row.id))) throw new Error('停靠未落地');
+      affordOk = true;
+      await until(() => submits.length === 1); // 广播唤醒 → submitText 返 rejected run
+      // 派生链微任务窗（reject 传播 + unhandledRejection 判定窗）
+      await new Promise((resolve) => void setTimeout(resolve, 25));
+      expect(submits).toHaveLength(1); // 唤醒真实达岸（红因核验）
+      expect(unhandled).toHaveLength(0); // 主锁：零 unhandledRejection（修前必红）
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled); // 先解绑防污染其它例
+      broadcast.dispose();
+      await persistence.close();
+      if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
+      else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
+    }
+  });
+
   it('scheduler warn 出口零 console.error（F1 收编）：cron 对账坏形行跳过 → logger 行 + notify 双发', async () => {
     const prevLevel = process.env.BERRY_AGENT_LOG_LEVEL;
     delete process.env.BERRY_AGENT_LOG_LEVEL;

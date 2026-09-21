@@ -1639,24 +1639,33 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
           warn(`[goal] 广播唤醒提交失败：会话 ${sessionId} 无驱动在册——停靠保持，人工道 /goal wake`);
           return;
         }
-        void run.then(async (receipt) => {
-          // 再停靠检查先行：onRunSettled 收口现判（同步先于本 receipt）若已
-          // 复停靠（又超帽），挂钟行保持 disabled 不复活——复登记已由收口位完成
-          if (service.isParkedForBudget(goalId)) return;
-          // wake-refused 收口（三帽兜底——鲸鱼任务诚实边界）：自动唤醒路尽，
-          // 挂钟行保持 disabled + 摘登记 + warn 人工路径（issue 面同律）
-          if (receipt.status === 'wake-refused') {
-            service.unparkForBudget(goalId);
-            // F1 收编：直写改走件内 warn 出口（logger + notify 双发——自动唤醒
-            // 路尽语义不变，只换呈现路）
-            warn(
-              `[goal] 连续后台唤醒超帽（04 §4 maxConsecutiveWakes=3）：goal「${goalId}」停自动唤醒——挂钟保持停摆，/goal wake 手动复位或提帽`,
-            );
-            return;
-          }
-          // 正常收口：复活挂钟行（下轮 due 经 §12 唤醒判定链自然重入）
-          await service.reviveClock(goalId);
-        });
+        void run
+          .then(async (receipt) => {
+            // 再停靠检查先行：onRunSettled 收口现判（同步先于本 receipt）若已
+            // 复停靠（又超帽），挂钟行保持 disabled 不复活——复登记已由收口位完成
+            if (service.isParkedForBudget(goalId)) return;
+            // wake-refused 收口（三帽兜底——鲸鱼任务诚实边界）：自动唤醒路尽，
+            // 挂钟行保持 disabled + 摘登记 + warn 人工路径（issue 面同律）
+            if (receipt.status === 'wake-refused') {
+              service.unparkForBudget(goalId);
+              // F1 收编：直写改走件内 warn 出口（logger + notify 双发——自动唤醒
+              // 路尽语义不变，只换呈现路）
+              warn(
+                `[goal] 连续后台唤醒超帽（04 §4 maxConsecutiveWakes=3）：goal「${goalId}」停自动唤醒——挂钟保持停摆，/goal wake 手动复位或提帽`,
+              );
+              return;
+            }
+            // 正常收口：复活挂钟行（下轮 due 经 §12 唤醒判定链自然重入）
+            await service.reviveClock(goalId);
+          })
+          .catch((err: unknown) => {
+            // 唤醒链拒绝面（第六役转交 cross-cutting#2）：栈内 catch 只兜原
+            // run promise，.then 派生 promise 无人接 → unhandledRejection →
+            // 崩溃编舞 exit(1) 杀整个 daemon（在飞会话连坐——坏词形每次预算
+            // 唤醒都崩）。warn 走件内 warn 出口（logger + notify 双发——停靠
+            // 已摘，人工道 /goal wake 同唤醒失败形）
+            warn(`[goal] 广播唤醒轮失败：${err instanceof Error ? err.message : String(err)}`);
+          });
       };
 
       /** 预算停靠编舞包装：service 三动作 + 广播登记（复停靠同键换新） */
