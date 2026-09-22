@@ -1244,9 +1244,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 瞬时说明行入正文流（notify 与 ask 撤销说明行共用路——07 §4.3「曾在屏
-   * 者由通道上撤销说明行」）：op 入合并队列 + 渲染请求（同步直出模式立即
-   * 落地；注入调度随帧合并——transient 到达序保持）。挂起期入缓冲账不丢
-   * （复起补显射界含瞬时行——批 10f-4）。
+   * 者由通道上撤销说明行」）：槽判定按**到达时刻**真相分流（2026-09-22 修复）
+   * ——槽在场直推 slotTransients 让位（关槽帧排空，到达序保持），无槽入
+   * 合并队列 + 渲染请求（同步直出模式立即落地；注入调度随帧合并——transient
+   * 到达序保持）。挂起期入缓冲账不丢（复起补显射界含瞬时行——批 10f-4）。
    */
   private appendTransientLine(line: string): void {
     this.appendTransientLines([line]);
@@ -1256,6 +1257,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private appendTransientLines(lines: readonly string[]): void {
     if (this.suspendedMain) {
       this.suspendedTransients.push(...lines); // 停屏期瞬时行缓冲（不入 op 队列——复起不走合并直补吐）
+      return;
+    }
+    // 槽判定用到达时刻 snapshot（非 flush 期回看）：入队与 flush 之间 snapshot
+    // 可被同帧后续事件推进（[transient, present] 交错序两方向）——flush 期回看
+    // 未来态会双向判错（① 关槽 present 已定稿 → 误判无槽直写嵌槽首行位破槽形；
+    // ② 开槽 present 已起流 → 误判有槽入缓冲延迟到关槽帧、排到整条流式消息
+    // 之后）。槽在场（末块 streaming）直推 slotTransients 让位（与
+    // replayTransients 同判定形——既有编舞保序：关槽帧 flush 的 present 落地后
+    // drainSlotTransients 排空），不入 pendingOps；此路零屏面变化故不请帧
+    if (this.transcript.snapshot.at(-1)?.kind === 'streaming') {
+      if (lines.length > 0) this.slotTransients.push(...lines);
       return;
     }
     this.pendingOps.push({ kind: 'transient', lines: [...lines] });
@@ -1735,7 +1747,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.notify(`/${spec.name} 不带参数（${spec.description}）`, { level: 'warn' });
       return true;
     }
-    spec.run();
+    try {
+      spec.run();
+    } catch (err: unknown) {
+      // 执行体异常不静默不崩进程——呈现面兜底（dispatchCommand 路同句单源：
+      // 同为提交路由的命令执行体，错误面处理不分叉；真装配下无此包会升格
+      // uncaughtException 走崩溃编舞 exit(1)）
+      this.notify(`命令异常：${String(err)}`, { level: 'error' });
+    }
     return true;
   }
 
@@ -1826,25 +1845,24 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.lastFlushAt = this.now();
     const ops = this.pendingOps;
     this.pendingOps = [];
-    // 帧序真源：present op 的行集是当时的真相（transcript.snapshot 可能已前进）
-    let frameBlocks: readonly TranscriptBlock[] = this.transcript.snapshot;
+    // 帧序真源：present op 的行集是入队时的真相（transcript.snapshot 可能已前进
+    // ——本循环只按 op 自带快照判定，不回看 flush 时刻 snapshot）
     for (const op of ops) {
       if (op.kind === 'present') {
-        frameBlocks = op.blocks;
         this.screen.present(op.blocks, op.offset);
         // 流式帧字节帽（批 10h R1 perf 护栏）：冻结编舞下常态帧为视口量级，
         // 超帽即病理性重排（巨表/超长开栏）——降档纯文本直推，下条消息重试
         //（帽值经选项注入面可测——缺省生产定值，见 streamFrameByteCap）
         if (this.screen.lastSlotFrameBytes > this.streamFrameByteCap) this.transcript.setStreamingPlain();
-        // 关槽帧补吐槽期缓冲瞬时行（到达序保持——定稿块之后）
-        if (frameBlocks.at(-1)?.kind !== 'streaming') this.drainSlotTransients();
+        // 关槽帧（入队时真相末块非 streaming）补吐槽期缓冲瞬时行（到达序保持——定稿块之后）
+        if (op.blocks.at(-1)?.kind !== 'streaming') this.drainSlotTransients();
       } else {
-        // 槽在场（帧序真源末块）瞬时行缓冲让位（嵌入槽首行位会破槽形）
-        if (frameBlocks.at(-1)?.kind === 'streaming') this.slotTransients.push(...op.lines);
-        else {
-          this.screen.appendTransient(op.lines);
-          this.drainSlotTransients(); // 直写后无槽在场——缓冲清空（防御序）
-        }
+        // transient op 的槽判定已在入队时刻完成（appendTransientLines——到达时刻
+        // 真相）：op 在队即到达时无槽，此处无条件直写（到达序呈现位——同帧后续
+        // 开槽 present 在其下起笔）；drainSlotTransients 防御序保留（snapshot 现
+        // 判无槽时排空陈缓冲——replayTransients 同形）
+        this.screen.appendTransient(op.lines);
+        this.drainSlotTransients();
       }
     }
     if (this.needFixed) {

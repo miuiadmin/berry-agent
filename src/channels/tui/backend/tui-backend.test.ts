@@ -963,6 +963,46 @@ describe('TuiBackend 渲染合并与 tick 自驱', () => {
     expect(rig.io.bytes.indexOf('定稿')).toBeLessThan(rig.io.bytes.indexOf('槽期通知'));
   });
 
+  it('帧内交错序①：槽期入队 notify 与关槽 present 同帧——瞬时行落定稿块后非嵌槽首（到达时刻槽判定）', () => {
+    // 修前红：flush 的 transient 槽判定读 flush 开始时 snapshot（已被同帧 message_end
+    // 推进到定稿——未来态），[transient, present(关槽)] 帧内序判「无槽」直写——
+    // 瞬时行先于定稿块字节写出且落槽首行位（流式预览被原地覆写破槽形）。修后：
+    // 入队时刻（appendTransientLines）已按当时 snapshot 判槽在场 → slotTransients
+    // 让位，关槽帧 present 落地后排空——瞬时行出现在定稿块之后（关槽排空序）
+    const rig = makeInteractive();
+    emit(rig.backend, { type: 'message_start', role: 'assistant' });
+    emit(rig.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('流式预览') });
+    rig.pump(); // 前置：流式槽帧已落地、pendingOps 清空（notify 入队时队内无 present op）
+    rig.io.bytes = '';
+    // 同帧合并窗内到达序：notify（槽期）先、message_end 关槽 present 后
+    rig.backend.notify('槽期通知', { level: 'info' });
+    emit(rig.backend, { type: 'message_end', message: assistantMsg('定稿') });
+    rig.pump(); // 单帧落地：ops = [transient, present(关槽)]
+    expect(rig.io.bytes).toContain('定稿');
+    expect(rig.io.bytes).toContain('槽期通知');
+    // 关槽排空序：瞬时行在定稿块之后（修前：直写嵌槽首——先于定稿块字节）
+    expect(rig.io.bytes.indexOf('定稿')).toBeLessThan(rig.io.bytes.indexOf('槽期通知'));
+  });
+
+  it('帧内交错序②：无槽期入队 notify 与开槽 present 同帧——瞬时行先于流式块直写非延迟关槽（到达时刻槽判定）', () => {
+    // 修前红：flush 读 flush 开始时 snapshot（已被同帧 message_update 推进到开槽
+    // ——未来态），[transient, present(开槽)] 帧内序判「有槽」塞 slotTransients——
+    // 通知延迟到关槽帧、排到整条流式消息之后。修后：入队时刻判无槽 → pendingOps
+    // 入队，flush 无条件直写（到达序——流式块在其下起笔）
+    const rig = makeInteractive();
+    emit(rig.backend, { type: 'message_end', message: { role: 'user', content: '问', timestamp: 1 } });
+    rig.pump(); // 前置：user 块落地、无槽、pendingOps 清空
+    rig.io.bytes = '';
+    // 同帧合并窗内到达序：notify（无槽期）先、message_start/update 开槽 present 后
+    rig.backend.notify('无槽通知', { level: 'info' });
+    emit(rig.backend, { type: 'message_start', role: 'assistant' });
+    emit(rig.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('流式正文') });
+    rig.pump(); // 单帧落地：ops = [transient, present(开槽)]
+    expect(rig.io.bytes).toContain('无槽通知'); // 修前红：误判有槽入槽缓冲——本帧零写出
+    // 到达序直写：瞬时行先于流式块（修前：滞留槽缓冲延迟到关槽帧）
+    expect(rig.io.bytes.indexOf('· 无槽通知')).toBeLessThan(rig.io.bytes.indexOf('流式正文'));
+  });
+
   it('权威清点抢救合并窗瞬时行：resize/repaint 清点不丢未落帧 notify（第五役 S1-a——修前裸清永失）', () => {
     // 修前红：resize/repaint 的 pendingOps 裸清会丢弃合并窗内已入队未落帧的
     // notify 行——既不入 scrollback（screen.appendTransient 未达）也不复显，
@@ -1546,7 +1586,7 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     emit(rig.backend, { type: 'message_start', role: 'assistant' });
     emit(rig.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('流式正文') });
     rig.pump();
-    rig.backend.notify('槽期旧通知'); // 末块 streaming → flush 缓冲进 slotTransients（破槽形防御让位）
+    rig.backend.notify('槽期旧通知'); // 末块 streaming → 入队时刻（appendTransientLines）缓冲进 slotTransients（破槽形防御让位）
     rig.pump();
     expect(rig.io.bytes).not.toContain('槽期旧通知'); // 前置自证：确入槽期缓冲未直写
     rig.backend.suspendMain();
@@ -2361,6 +2401,27 @@ describe('TuiBackend 本地命令族拦截（07 §4.1 命令面增补批）', ()
     expect(io.bytes).toContain('⚠'); // warn 档符号
     expect(runs).toEqual([]);
     expect(calls.submitted).toEqual([]);
+  });
+
+  it('run() 异常 → notify error 兜底（不崩不静默——dispatchCommand 路同句单源）', () => {
+    // 修前红：maybeHandleLocalCommand 对 spec.run() 直调无 try/catch——异常经
+    // handleInput 同步上抛（真装配升格 uncaughtException 走崩溃编舞 exit(1)）
+    const rig = makeInteractive({
+      localCommands: [
+        {
+          name: 'boom',
+          description: '炸药',
+          run: () => {
+            throw new Error('炸了');
+          },
+        },
+      ],
+    });
+    expect(() => {
+      rig.io.emitInput('/boom\r');
+      rig.pump();
+    }).not.toThrow(); // 修前红：异常穿透输入管线到 emitInput 调用方
+    expect(rig.io.bytes).toContain('✖ 命令异常'); // error 档符号 + 兜底文案（与 dispatchCommand 同句）
   });
 
   it('词干未命中 → 落通道命令柄（false 兜底进 onSubmit）；注入缺席 = 零拦截', async () => {
