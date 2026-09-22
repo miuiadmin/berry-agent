@@ -1188,6 +1188,46 @@ describe('readSingleKeyFromIo lone-ESC 判定窗（产线单键读真身——SS
   });
 });
 
+describe('零事件会话锚活体镜像（三消费位——@ 补全 / /rewind 尾参 / /new；03 §10.7「锚不能走库读」律）', () => {
+  it('/rewind 尾参补全锚 = 活体镜像非启动根（修前红：零事件会话无库行 → 库读回退启动根 A 与活体锚 B 分叉、manifest 滤空）', async () => {
+    const dataDir = rigDir('entry-anchor-data-');
+    const wsA = rigDir('entry-anchor-wsA-'); // 启动根 A
+    const wsB = rigDir('entry-anchor-wsB-'); // 活体锚 B（与 A 分叉）
+    // 预置回退点 manifest：workspaceRoot = canonical(B)——/rewind list 与
+    // checkpoint gate 的判据真源 = manager 活体镜像（assembly contextOf）
+    mkdirSync(join(dataDir, 'data', 'checkpoint', 'manifests'), { recursive: true });
+    writeFileSync(
+      join(dataDir, 'data', 'checkpoint', 'manifests', 'cp-anchor-1.json'),
+      JSON.stringify({
+        id: 'cp-anchor-1',
+        sessionId: 'seed-session',
+        boundarySeq: 0,
+        workspaceRoot: canonicalWorkspaceRoot(wsB),
+        capturedAt: Date.now(),
+        trigger: 'mutation',
+        files: [],
+      }),
+    );
+    const stacks: ConversationStack[] = [];
+    const { entry, io } = await rigEntry(dataDir, wsA, { onStack: (stack) => stacks.push(stack) });
+    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
+    // 建零事件会话（活体锚 B——manager.create 零 I/O、行随首事件落库故无
+    // 库行）并注册切焦（/new 同路：registerSession → focus）
+    const stack = stacks[0]!;
+    const created = stack.manager.create({ workspaceRoot: wsB });
+    stack.channels.registerSession(created.sessionId);
+    await stack.channels.focus(created.sessionId);
+    // /rewind restore 尾参位补全：锚须取活体镜像 B（判据真源同 /rewind list）
+    // ——修前库读位行缺席回退启动根 A，manifest 滤空弹层永不现
+    const before = io.output.length;
+    io.send('/rewind restore c');
+    await until(() => io.output.slice(before).includes('cp-ancho')); // 短形 label（8 位截形）
+    io.send('\x15'); // ctrl+u 清框（弹层对带修饰键穿透——避 escape 并包歧义）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+});
+
 describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验证改裁注）', () => {
   it('零参开向导：intro 行落屏（faux provider 入清单）+ esc 中止收场（凭证表未改动）', async () => {
     const dataDir = rigDir('tui-setup-data-');

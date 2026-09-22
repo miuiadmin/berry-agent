@@ -342,25 +342,34 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       quitResolve = resolve;
     });
 
-    // 补全命令源：通道核命令表 → '/' 前缀条目；@ 文件段源动态锚（R7 批
-    // 10k）——切焦后锚随聚焦会话工作区根（行面现读；聚焦空悬/行缺席回退
-    // 启动会话根——FileMentionSource per-query 新铸，锚取当下真值）
-    const mentionSourceFor = (): FileMentionSource => {
+    // —— 聚焦会话工作区锚（三消费位单源：@ 补全 / /rewind 尾参 / /new）：
+    // 活体镜像优先（manager.workspaceRootOf——03 §10.7「锚不能走库读」律，
+    // /rewind list 与 checkpoint gate 判据真源同面）→ 库行回退（聚焦未补开
+    // 驱动窗——冷会话行值）→ 启动会话根兜底。零事件会话（/new 建后首事件
+    // 落库前）无库行、真锚只在活体镜像——库读直取会与真源分叉。
+    const focusedWorkspaceRoot = (): string => {
       const focused = stack.channels.focusedId;
-      const root =
-        focused === null
-          ? session.workspaceRoot
-          : canonicalWorkspaceRoot(
-              runtime.persistence.store.getSessionRow(focused)?.workspaceRoot ?? session.workspaceRoot,
-            );
-      return new FileMentionSource({ basePath: root });
+      if (focused === null) return session.workspaceRoot;
+      return canonicalWorkspaceRoot(
+        stack.manager.workspaceRootOf(focused) ??
+          runtime.persistence.store.getSessionRow(focused)?.workspaceRoot ??
+          session.workspaceRoot,
+      );
+    };
+
+    // 补全命令源：通道核命令表 → '/' 前缀条目；@ 文件段源动态锚（R7 批
+    // 10k）——切焦后锚随聚焦会话工作区根（锚取当下真值；FileMentionSource
+    // per-query 新铸）
+    const mentionSourceFor = (): FileMentionSource => {
+      return new FileMentionSource({ basePath: focusedWorkspaceRoot() });
     };
     const rows = io.size().rows;
     // —— 活体值补全依赖（挂账解挂批 2026-09-15——07 §4.1 R6）：/rewind 尾参位
     // 经 core:checkpoint 服务面现取 manifest 清单（scope.tryGet——core-plugins
     // provide 'checkpoint' { store }），按聚焦会话工作区根过滤（与 /rewind list
-    // 列点同判据——聚焦空悬/行缺席回退启动会话根）；件缺席 = 该活体位诚实
-    // 缺席。/plugins 尾参位的 pluginReport 经 assembly 装配根 provide 的
+    // 列点同判据——锚 = manager 活体镜像优先〔focusedWorkspaceRoot〕，聚焦
+    // 空悬回退启动会话根）；件缺席 = 该活体位诚实缺席。/plugins 尾参位的
+    // pluginReport 经 assembly 装配根 provide 的
     // 'plugin-load-report' 服务面取值（命令面增补批 C2 前段 deferred 兑现——
     // LoadReport 真源 = bootPlugins 回执闭包，/reload 换代即新代投影）；
     // 装配序保序（本件后于 assembleHostStack 执行）在场恒真，tryGet 缺席 =
@@ -378,13 +387,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       ...(checkpointStore !== undefined
         ? {
             rewindManifests: async (): Promise<readonly { readonly id: string }[]> => {
-              const focused = stack.channels.focusedId;
-              const root =
-                focused === null
-                  ? session.workspaceRoot
-                  : canonicalWorkspaceRoot(
-                      runtime.persistence.store.getSessionRow(focused)?.workspaceRoot ?? session.workspaceRoot,
-                    );
+              const root = focusedWorkspaceRoot(); // 活体镜像优先（/rewind list 判据真源同面）
               const manifests = await checkpointStore.listManifests();
               return manifests.filter((manifest) => manifest.workspaceRoot === root);
             },
@@ -748,16 +751,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     };
 
     // —— /new（07 §4.1 命令面增补批 C2——逐件语义 1）：同 cwd 建新会话即切焦。
-    // cwd 真源 = 聚焦会话工作区根（行面现读；空悬/行缺席回退启动会话根——
-    // 与 @ 补全锚/补开判据同律）；createSession 走 manager（零 I/O——行随首
+    // cwd 真源 = 聚焦会话工作区根（活体镜像优先——focusedWorkspaceRoot 三消费
+    // 位之一；空悬回退启动会话根）；createSession 走 manager（零 I/O——行随首
     // 事件落库）；切焦 = registry.focus() 既有权威路（/sessions 选定同路——
     // 多会话信封分流/repaint 全链既有，本件零新编舞）。旧会话不动（/sessions
-    // 可回切）。notify 一行回执（新会话短 id）。已知边界（非缺陷——库行真源
-    // 律）：零事件新会话无库行、不在 /sessions 清单，footer 短 id 即其可见位。
+    // 可回切）。notify 一行回执（新会话短 id）。已知边界（非缺陷——清单真源
+    // 律）：零事件新会话不在 /sessions 清单，footer 短 id 即其可见位。
     const startNewSession = (): void => {
-      const sid = stack.channels.focusedId ?? session.sessionId;
-      const row = runtime.persistence.store.getSessionRow(sid);
-      const root = canonicalWorkspaceRoot(row?.workspaceRoot ?? session.workspaceRoot);
+      const root = focusedWorkspaceRoot();
       const created = stack.manager.create({ workspaceRoot: root });
       stack.channels.registerSession(created.sessionId);
       // notify 必须排在 focus 落画之后：onRepaint 会作废全部 pendingOps（切焦
