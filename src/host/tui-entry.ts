@@ -8,7 +8,8 @@
  * openStartupSession（07 §5 启动会话策略：cwd 归一根取最新续接、无则新建；
  * resumeSessionId 在场 = 按 id 续接——sessions resume <id> 的 CLI 载体〔批 20d〕）
  * → TuiBackend 组装（提交/打断/退出/命令分发/todo 回看/补全三源/version
- * 基线/生产定时器/主题档）→ addBackend → start → registerSession → focus 首画 →
+ * 基线/生产定时器/主题档）→ 启动引导面板（ob-2——凭证态 unconfigured 才
+ * 进，cooked 窗一次性质询）→ addBackend → start → registerSession → focus 首画 →
  * 主循环 await 退出 → runtime.shutdown 六步退出序（closer 内含 backend.stop
  * 出屏复原）。
  *
@@ -28,7 +29,9 @@ import {
   fuzzyFilter,
   listCustomThemeNames,
   loadCustomThemeColors,
+  normalizeOnboardingKey,
   ProcessTerminalIO,
+  runOnboardingPanel,
   TuiBackend,
 } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
@@ -93,6 +96,7 @@ import { openWebuiFace } from './webui-bridge.js';
 import type { WebuiMountKit } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
 import type { ConversationStack, StartupSession } from './conversation-stack.js';
+import { providerApiKeyEnvNames } from './conversation-stack.js';
 
 /**
  * 档位文案与回执单源已迁 host/session-tier-copy.ts（2026-09-18 webui 档位面
@@ -149,6 +153,32 @@ export interface TuiEntryOptions {
    * process.stderr.write，测试收账零 stderr 污染；门开关 = env
    * BERRY_AGENT_TIMING=1 与注入面正交——sink 在场门关零写出） */
   readonly bootTimingSink?: (text: string) => void;
+  /** 启动引导面板单键读注入面（onboarding ob-2——缺省产线真身 = 产线 io
+   * raw 窗一键；注入 io 的既有测试与 CI 管道形不注入 = 面板缺席直进主屏
+   * ——键源在场律防注入测试死锁；注入键序列 = 面板行为锁测试面） */
+  readonly onboardingKey?: () => Promise<string>;
+}
+
+/**
+ * 产线单键读真身（onboarding ob-2 面板装配位消费）：cooked 窗面板行写出后
+ * raw 窗收一键（echo 关——键不入回显流），读后复原先验 raw 态（面板期恒
+ * cooked 进 cooked 还——backend 起屏自会再进 raw）。原始字节经
+ * normalizeOnboardingKey 归一（判据单源在面板件——转义序列不冒充 esc）。
+ */
+async function readSingleKeyFromIo(io: TerminalIO): Promise<string> {
+  const wasRaw = io.isRaw();
+  io.setRawMode(true);
+  try {
+    const data = await new Promise<string>((resolve) => {
+      const unsubscribe = io.onInput((chunk) => {
+        unsubscribe();
+        resolve(chunk);
+      });
+    });
+    return normalizeOnboardingKey(data);
+  } finally {
+    io.setRawMode(wasRaw);
+  }
 }
 
 /**
@@ -381,6 +411,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           version: options.version ?? '0.0.0',
           model: stack.model,
           modelCount,
+          // 模型凭证态（ob-2）：开屏现算注入——态可入面，值与凭证恒不入面
+          modelCredential: stack.modelCredentialStatus(),
           sessionId: sid,
           cwdLabel: basename(root),
           turns,
@@ -1054,10 +1086,52 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       });
     }
 
+    // —— 启动引导面板（onboarding ob-2 双层制第一层——07 §4.1 呈现面件 11）：
+    // boot ready 后、主屏起屏前 cooked 窗一次性引导。键源在场律：注入面
+    // onboardingKey 在场，或产线路径（io 未注入 + stdin 真 TTY——main.ts 非
+    // TTY 卫兵已保）才起面板；注入 io 的既有测试/CI 管道形 = 面板缺席直进
+    // 主屏（防注入测试死锁）。检测腿现算（modelCredentialStatus——派生态零
+    // 哨兵），unconfigured 才进；quit = 不起 TUI 干净退 0（finally shutdown
+    // 六步照走）；setup = 起屏后即开向导（ob-3 落 /setup 前 localCommands
+    // 无 setup 项 = 恒两选项降级形——hasSetupWizard 探测自动升全形）。
+    const onboardingKeySource =
+      options.onboardingKey !== undefined
+        ? options.onboardingKey
+        : options.io === undefined && process.stdin.isTTY === true
+          ? () => readSingleKeyFromIo(io)
+          : undefined;
+    let onboardingSetupPending = false;
+    if (onboardingKeySource !== undefined && stack.modelCredentialStatus() === 'unconfigured') {
+      const modelSpec = stack.model;
+      const slash = modelSpec.indexOf('/');
+      const providerId = slash === -1 ? modelSpec : modelSpec.slice(0, slash);
+      const envNames = providerApiKeyEnvNames(providerId);
+      // 探针名宽型（string）——防字面量联合窄化把「setup 暂不在册」误报成
+      // 恒假比较（ob-3 落 /setup 后本探针自动转真）
+      const setupName: string = 'setup';
+      const decision = await runOnboardingPanel({
+        write: (text) => io.write(text),
+        readKey: onboardingKeySource,
+        hasSetupWizard: localCommands.some((command) => command.name === setupName),
+        modelSpec,
+        providerId,
+        ...(envNames.length > 0 ? { envExample: envNames[0] } : {}),
+      });
+      if (decision === 'quit') {
+        return 0; // 面板期退出 = 不起 TUI 干净退（closer 内出屏复原 + shutdown 六步照走）
+      }
+      onboardingSetupPending = decision === 'setup';
+    }
+
     stack.channels.addBackend(backend);
     backend.start();
     stack.channels.registerSession(session.sessionId);
     await stack.channels.focus(session.sessionId); // 启动投影首画（含 resume 历史回读）
+    // setup 决策兑现（onboarding ob-2）：起屏首画后即开 /setup 向导——ob-3
+    // 落地前 localCommands 无 setup 项则静默不动作（降级形 enter 直 skip）
+    if (onboardingSetupPending) {
+      localCommands.find((command) => command.name === ('setup' as string))?.run();
+    }
 
     // —— 键位覆盖拒载呈报（R5 批 10k——Keymap fail-loud 装配位）：settings
     // 坏覆盖逐条 warn（不炸启动——坏项忽略、好项照常生效；首画后落屏可见）

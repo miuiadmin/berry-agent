@@ -26,6 +26,7 @@ const DATA: StatusPanelData = {
   version: '0.2.0',
   model: 'faux/test-model',
   modelCount: 3,
+  modelCredential: 'ready',
   sessionId: 'sess-1234567890abcdef',
   cwdLabel: 'berry-agent',
   turns: 7,
@@ -66,6 +67,21 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     const lines = buildStatusLines({ ...DATA, dataDir: null, modelCount: 0 });
     expect(lines.some((line) => line.startsWith('数据目录 dataDir') && line.includes(':memory:'))).toBe(true);
     expect(lines.find((line) => line.startsWith('模型 model'))!).toContain('模型目录空');
+  });
+
+  it('模型凭证态行（ob-2）：ready/unconfigured 两态呈现（态可入面——值与凭证恒不入面）', () => {
+    const readyLines = buildStatusLines(DATA);
+    expect(readyLines.some((line) => line.startsWith('模型凭证 credential') && line.includes('ready'))).toBe(true);
+    // unconfigured 态行 + 可行动指路半句
+    const unLines = buildStatusLines({ ...DATA, modelCredential: 'unconfigured' });
+    expect(unLines.some((line) => line.startsWith('模型凭证 credential') && line.includes('unconfigured'))).toBe(true);
+    // 态行随运行时段（模型行之后、会话段之前）
+    const readyIdx = readyLines.findIndex((line) => line.startsWith('模型 model'));
+    const credIdx = readyLines.findIndex((line) => line.startsWith('模型凭证 credential'));
+    const sessionIdx = readyLines.indexOf('── 会话 ──');
+    expect(readyIdx).toBeGreaterThan(-1);
+    expect(credIdx).toBeGreaterThan(readyIdx);
+    expect(credIdx).toBeLessThan(sessionIdx);
   });
 
   it('标签对齐按显示宽（CJK 双宽标签 + 值列同列起）', () => {

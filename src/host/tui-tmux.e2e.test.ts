@@ -187,6 +187,9 @@ function startTuiSession(): TmuxSession {
   const command =
     `cd '${wsDir}' && env -u COLORTERM BERRY_AGENT_DATA_DIR='${dataDir}' ` +
     `BERRY_AGENT_LOG_LEVEL=silent BERRY_AGENT_MODEL='${MODEL_ID}' BERRY_AGENT_SKIP_UPDATE_CHECK=1 ` +
+    // 模型凭证态 env 键 fixture（ob-2——tmux 真窗满足键源在场律，空数据目录
+    // 无凭证会让启动引导面板拦住主屏卡死本 e2e；dummy provider 走一般律键）
+    `DUMMY_API_KEY='e2e-ready' ` +
     `TERM=xterm-256color ` +
     `'${process.execPath}' '${TSX_CLI}' '${MAIN_TS}'; printf %s "$?" > '${exitFile}'`;
   const created = tmux(['new-session', '-d', '-x', String(GEOM_W), '-y', String(GEOM_H), '-s', name, command]);

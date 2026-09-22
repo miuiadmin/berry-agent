@@ -297,6 +297,15 @@ export interface ConversationStack {
    */
   setModel(id: string): void;
   /**
+   * 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据的纯读
+   * 投影非第二实现（env 键非空 ∨ 绑定行命中——liveBindingApiKey 同判据布尔
+   * 回投，含 env 遮蔽/撞绑全序/空值行不供血全执法）。派生态零哨兵——每次
+   * 现算，修配置即解锁（credentials/changed 订阅不设）；态可入面、值与凭证
+   * 恒不入面。消费位：TUI boot 启动面板判定、/status 呈现位。
+   * @param modelSpec 现算锚（缺省 = 栈当前 model——旋钮换档随动）
+   */
+  modelCredentialStatus(modelSpec?: string): 'ready' | 'unconfigured';
+  /**
    * 会话维视图（e-2 观测腿——SessionView 纯派生读面）：装配根消费位 =
    * 插件订阅 tree 档过滤（sessionLineage 注入 plugin-boot）。工具族装配在
    * 栈内 per-session 闭包（不经本面）。
@@ -1137,6 +1146,18 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // 调用方（TUI ctrl+p）自行 notify）。
     setModel(id: string) {
       currentModel = id;
+    },
+    // 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据纯读投影
+    // ——env 键非空（pi-ai ambient 供血位，与供血 wrapper env 优先律同判据面）
+    // ∨ liveBindingApiKey 布尔回投（绑定行命中含遮蔽/撞绑全判据——只取在场
+    // 不外泄值）。派生态零哨兵：每次现算，修配置即解锁。
+    modelCredentialStatus(modelSpec) {
+      const spec = modelSpec ?? currentModel;
+      const slash = spec.indexOf('/');
+      const providerId = slash === -1 ? spec : spec.slice(0, slash);
+      const envReady = providerApiKeyEnvNames(providerId).some((name) => (credentialEnvFace[name] ?? '') !== '');
+      if (envReady) return 'ready';
+      return liveBindingApiKey(spec) !== undefined ? 'ready' : 'unconfigured';
     },
     // 思考档位栈基线活读（会话档位切换面批 F1——ConversationStack 面）：透传
     // 装配面原始值；会话生效档读面 = 会话 fold（驱动取值器闭包单源）

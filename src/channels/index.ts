@@ -45,6 +45,11 @@ export type { TerminalIO } from './engine/index.js';
 // 供数面 hooks 的呈现侧落点）
 export { BootAnimation } from './tui/index.js';
 export type { BootAnimationOptions } from './tui/index.js';
+// 启动引导面板件（07 §4.1 呈现面件 11——onboarding ob-2；tui-entry 装配位
+// boot 后凭证态检测消费：runOnboardingPanel 主循环 + normalizeOnboardingKey
+// 产线单键读归一单源）
+export type { OnboardingDecision, OnboardingPanelOptions } from './tui/index.js';
+export { buildOnboardingLines, normalizeOnboardingKey, runOnboardingPanel } from './tui/index.js';
 export { FileMentionSource } from './tui/index.js';
 export type { FileMentionSourceOptions, AutocompleteSources, AutocompleteItem } from './tui/index.js';
 // 高度帽公式（R3 批 10j——host 装配 maxVisibleLines 单源）

@@ -189,6 +189,9 @@ function spawnTuiEntry(): {
       BERRY_AGENT_LOG_LEVEL: 'silent',
       // 启动版本检查关断（07 §8.5 第 6 条——pty 真身测试零网络律）
       BERRY_AGENT_SKIP_UPDATE_CHECK: '1',
+      // 模型凭证态 env 键 fixture（ob-2——pty 真 TTY 满足键源在场律，空
+      // 数据目录无凭证会让启动引导面板拦住主屏卡死本测试）
+      ANTHROPIC_API_KEY: 'e2e-ready',
       TERM: 'xterm-256color',
     },
     cwd: wsDir,

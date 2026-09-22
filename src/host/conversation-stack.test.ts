@@ -2141,6 +2141,54 @@ describe('streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面 +
     expect(providerApiKeyEnvNames('github-copilot')).toEqual(['COPILOT_GITHUB_TOKEN']);
   });
 
+  it('modelCredentialStatus（ob-2 检测腿）：供血判据纯读投影——裸栈/env/绑定行/遮蔽位四态现算', async () => {
+    // 态一：无 env 无绑定行 → unconfigured（裸栈——面板第一层判据位）
+    const bare = rigRuntime();
+    const bareSupply = rigSupply(bare.rt);
+    expect(bareSupply.stack.modelCredentialStatus()).toBe('unconfigured');
+    await bare.rt.shutdown();
+
+    // 态二：env 键非空 → ready（pi-ai ambient 供血位——与供血 wrapper env 胜同判据）；
+    // 空串键 = 未设（'' 非空判据的反面锁）
+    const envRt = rigRuntime();
+    const envSupply = rigSupply(envRt.rt, { env: { FAUX_STACK_API_KEY: 'env-key' } });
+    expect(envSupply.stack.modelCredentialStatus()).toBe('ready');
+    await envRt.rt.shutdown();
+    const emptyRt = rigRuntime();
+    const emptySupply = rigSupply(emptyRt.rt, { env: { FAUX_STACK_API_KEY: '' } });
+    expect(emptySupply.stack.modelCredentialStatus()).toBe('unconfigured');
+    await emptyRt.rt.shutdown();
+
+    // 态三：绑定行命中 → ready（manual --model-provider 行即供血——ob-1 地基兑现位）
+    const rowRt = rigRuntime();
+    bindRow(rowRt.rt, 'host', 'k-status', 'row-key');
+    const rowSupply = rigSupply(rowRt.rt);
+    expect(rowSupply.stack.modelCredentialStatus()).toBe('ready');
+    await rowRt.rt.shutdown();
+
+    // 态四：env 键在场（遮蔽 host 绑定行）仍 ready——供血位在 env 非行，
+    // 「遮蔽」≠「不可用」（投影与供血 wrapper env 胜语义同向）
+    const shadowRt = rigRuntime();
+    bindRow(shadowRt.rt, 'host', 'k-shadow', 'row-key');
+    const shadowSupply = rigSupply(shadowRt.rt, { env: { FAUX_STACK_API_KEY: 'env-key' } });
+    expect(shadowSupply.stack.modelCredentialStatus()).toBe('ready');
+    await shadowRt.rt.shutdown();
+  });
+
+  it('modelCredentialStatus：显式锚参数独立现算（缺省锚与指定 provider 各归各）', async () => {
+    const { rt } = rigRuntime();
+    // 缺省锚 faux-stack 无供血；另一 provider 带绑定行 → 显式锚命中
+    rt.persistence.store.setCredential('host', 'other-key', {
+      apiKey: 'k-other',
+      meta: { modelProvider: 'other-provider' },
+    });
+    const { stack } = rigSupply(rt);
+    expect(stack.modelCredentialStatus()).toBe('unconfigured'); // 缺省锚不受他 provider 行影响
+    expect(stack.modelCredentialStatus('other-provider/m1')).toBe('ready'); // 显式锚命中绑定行
+    expect(stack.modelCredentialStatus('nobody/m1')).toBe('unconfigured'); // 无行无 env
+    await rt.shutdown();
+  });
+
   it('env 优先律（host 域行）：env 在场 env 胜——不透传行值走 ambient 既有形（保形半 + 静态无刷新面语义）', async () => {
     const { rt } = rigRuntime();
     const warns: string[] = [];

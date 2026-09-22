@@ -1101,3 +1101,58 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     expect(await entry).toBe(0);
   });
 });
+
+describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第一层）', () => {
+  it('unconfigured：面板行落屏（provider 点名 + --model-provider 指路）+ s 跳过后主屏照常起', async () => {
+    const dataDir = rigDir('tui-onboard-skip-data-');
+    const ws = rigDir('tui-onboard-skip-ws-');
+    const keys = ['s'];
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      // 注入键源 = 面板测试形（产线真身 = io raw 窗一键——注入面先例族）
+      onboardingKey: async () => keys.shift() ?? 'q',
+    });
+    expect(io.output).toContain('模型凭证未配置'); // cooked 窗面板行
+    expect(io.output).toContain('--model-provider faux-entry'); // ob-1 录入位指路（provider 点名）
+    io.send('\x04'); // ctrl+d 空框退出
+    expect(await entry).toBe(0);
+  });
+
+  it('q 决策：不起 TUI 干净退 0（主屏零武装——无进屏字节；不经 rigEntry 因 io.ready 永不resolve）', async () => {
+    const dataDir = rigDir('tui-onboard-quit-data-');
+    const ws = rigDir('tui-onboard-quit-ws-');
+    const faux = fauxProvider({ provider: 'faux-entry', models: [{ id: 'm1' }] });
+    const io = new FakeTerminalIO();
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io,
+      cwd: ws,
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-entry/m1',
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
+      onboardingKey: async () => 'q',
+    });
+    expect(await entry).toBe(0); // 面板 q 直接收口（backend 未起）
+    expect(io.output).not.toContain('\x1b[?2004h'); // bracketed paste 进屏字节缺席 = 未起屏证
+    expect(io.output).toContain('模型凭证未配置'); // 面板行仍落屏（先写后读）
+  });
+
+  it('ready 态（env 键在场）：面板缺席直进主屏（键源零调用）', async () => {
+    const dataDir = rigDir('tui-onboard-ready-data-');
+    const ws = rigDir('tui-onboard-ready-ws-');
+    let keyCalled = false;
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' }, // 供血判据 env 位就绪（faux-entry 一般律键名）
+      onboardingKey: async () => {
+        keyCalled = true;
+        return 'q';
+      },
+    });
+    await io.ready(); // 主屏照常起（ready 态面板整段缺席）
+    expect(io.output).not.toContain('模型凭证未配置');
+    expect(keyCalled).toBe(false); // 键源零调用 = 面板零进入
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+});

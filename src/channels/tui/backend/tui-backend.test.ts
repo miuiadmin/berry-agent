@@ -2391,6 +2391,8 @@ describe('TuiBackend /status · /debug · /skills 副屏装配（07 §4.1 命令
     version: '0.2.0',
     model: 'faux/test-model',
     modelCount: 3,
+    // 模型凭证态（ob-2——StatusPanelData 新增必填位；态可入面锁样点）
+    modelCredential: 'ready' as const,
     sessionId: SESSION,
     cwdLabel: 'berry-agent',
     turns: 7,

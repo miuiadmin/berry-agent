@@ -15,6 +15,10 @@ export { TuiBackend } from './backend/tui-backend.js';
 // channels 公开面取件）
 export type { BootAnimationOptions } from './boot/boot-animation.js';
 export { BootAnimation } from './boot/boot-animation.js';
+// 启动引导面板件（07 §4.1 呈现面件 11——onboarding 立题批 ob-2；tui-entry
+// 装配位消费：boot 后现算模型凭证态，unconfigured 进 cooked 窗面板）
+export type { OnboardingDecision, OnboardingPanelOptions } from './boot/onboarding-panel.js';
+export { buildOnboardingLines, normalizeOnboardingKey, runOnboardingPanel } from './boot/onboarding-panel.js';
 // 主题面（批 10g——host tui-entry 消费：settings.theme → TuiBackendOptions.theme；
 // /themes 批扩自定义文件面——tui-entry 装配下装与副屏条目两消费位）
 export type { ColorEnv, PartialSemanticPalette, ThemeSetting } from './theme/index.js';

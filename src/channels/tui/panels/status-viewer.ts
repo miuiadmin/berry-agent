@@ -1,14 +1,16 @@
 /**
  * /status 状态汇总副屏件（07 §4.1 命令面增补批——TUI 本地拦截族）：版本 /
- * 模型位（当前 + 全集计数——ctrl+p 模型循环同数据源）/ 会话（短 id / cwd
- * 短名 / 轮次）/ 数据目录 / theme 生效档 / env 三键白名单。
+ * 模型位（当前 + 全集计数——ctrl+p 模型循环同数据源）/ 模型凭证态（ob-2——
+ * 态可入面，值与凭证恒不入面）/ 会话（短 id / cwd 短名 / 轮次）/ 数据目录 /
+ * theme 生效档 / env 三键白名单。
  *
  * - **本地拦截族**（/exit 批先例）：不进通道核命令表（webui 零污染），词干
  *   恰零参命中即开屏——数据快照装配位现取注入（开屏一次快照档）；
  * - **静态行集**（快照档——HelpViewer 同律：构造后静态，返回主屏全帧补显）；
  * - **凭证恒不入面**（04 §7 白名单制纪律）：env 行恒只 BERRY_AGENT_MODEL /
  *   BERRY_AGENT_DATA_DIR / BERRY_AGENT_LOG_LEVEL 三键——其余 env（含
- *   token 形）不在本面行集内；
+ *   token 形）不在本面行集内；模型凭证态行只入档位词（ready/unconfigured
+ *   ——检测函数 modelCredentialStatus 开屏现算，派生态零哨兵）；
  * - **退出键面**：q/Esc 退出、Ctrl+C 打断、Ctrl+D 退出进程（先收副屏再转
  *   退出柄）——副屏键面补丁三件套与件 8 同律。
  */
@@ -32,6 +34,8 @@ export interface StatusPanelData {
   readonly model: string;
   /** 模型全集计数（providers × models 装配序全列——ctrl+p 循环宇宙同源） */
   readonly modelCount: number;
+  /** 模型凭证态（ob-2——modelCredentialStatus 开屏现算注入；态可入面，值与凭证恒不入面） */
+  readonly modelCredential: 'ready' | 'unconfigured';
   /** 会话 id（短 id 呈现位——面板内 shortIdOf） */
   readonly sessionId: string;
   /** 工作区短名（cwd basename） */
@@ -159,6 +163,13 @@ export function buildStatusLines(data: StatusPanelData): string[] {
     row(
       '模型 model',
       data.modelCount > 0 ? `${data.model}（全集 ${data.modelCount} 档）` : `${data.model}（模型目录空）`,
+    ),
+    // 模型凭证态（ob-2）：态可入面——unconfigured 附可行动指路半句（ob-1 录入位）
+    row(
+      '模型凭证 credential',
+      data.modelCredential === 'ready'
+        ? 'ready'
+        : 'unconfigured（未配置——/credentials add --model-provider 或 /guide）',
     ),
     '',
     '── 会话 ──',
