@@ -254,6 +254,21 @@ describe('EditorModel 移动族', () => {
     m.jumpToChar('d', 'forward');
     expect(m.getCursor()).toEqual({ line: 1, col: 1 });
   });
+
+  it('jump 反向行首停滞：前行同字符可达（lastIndexOf 负位钳 0 防回归）', () => {
+    // 修前红实证位：cursorCol===0 时 from = -1，String.lastIndexOf(ch, -1) 按
+    // ECMAScript 把负 position 钳 0——当前行首字符等于靶字符时命中「光标当前
+    // 位置」原地停滞，前行同字符永不可达。修后反向在行首位当前行不做搜索直
+    // 接续 li-1（负 from 不进 lastIndexOf）；forward 向不动。
+    const m = modelWith('z1\nz2\nz3');
+    m.moveHome(); // 光标 (2,0)——行 3 首字符 'z' === 靶字符
+    m.jumpToChar('z', 'backward');
+    expect(m.getCursor()).toEqual({ line: 1, col: 0 }); // 修前：原地 (2,0) 停滞
+    m.jumpToChar('z', 'backward');
+    expect(m.getCursor()).toEqual({ line: 0, col: 0 }); // 再跳落行 1 的 z
+    m.jumpToChar('z', 'backward');
+    expect(m.getCursor()).toEqual({ line: 0, col: 0 }); // 首行行首——既有语义 no-op（无 wrap）
+  });
 });
 
 describe('EditorModel undo', () => {

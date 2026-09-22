@@ -675,7 +675,11 @@ export class InputDecoder {
     const fields = params.split(';');
     const keyParts = (fields[0] ?? '').split(':');
     const keyCode = Number(keyParts[0]);
-    if (!Number.isFinite(keyCode)) return;
+    // 键号界检（fail-closed，与文本子域同尺）：非整数（如 97.5）/ 负值 / 越
+    // 0x10FFFF 的键号整事件吞——kittyKeyName 内 String.fromCodePoint 对
+    // [0x20,0x10FFFF] 区间内非整数抛 RangeError，未捕获升格 uncaughtException
+    // 杀整进程；0 保留合法（IME 纯文本事件路径 keyCode 0）。
+    if (!Number.isInteger(keyCode) || keyCode < 0 || keyCode > 0x10ffff) return;
     // 修饰子域：值 = 1+位域；冒号后缀 = 事件型（1 press 缺省/2 repeat/3 release）
     const modParts = (fields[1] ?? '').split(':');
     const mods = decodeMods(modParts[0]);
@@ -683,7 +687,8 @@ export class InputDecoder {
     // 文本子域：冒号分隔码点列表。码点界检（fail-closed）：String.fromCodePoint
     // 对越界/负值/NaN 抛 RangeError——未捕获即杀整进程；Number(' ')===0 静默产
     // NUL。kitty 文本子域结构上只该是 1..0x10FFFF 整数码点，非法子域丢弃
-    // （全弃后 keyCode 0 无文本 → 整事件吞——fail-closed，键名码点界检同尺）
+    // （全弃后 keyCode 0 无文本 → 整事件吞——fail-closed；键号子域已前置同尺
+    // 整数+界检，键名码点界检自此同尺为事实而非宣称）
     const text = (fields[2] ?? '')
       .split(':')
       .filter((s) => s.length > 0)

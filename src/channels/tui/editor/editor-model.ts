@@ -741,6 +741,10 @@ export class EditorModel {
     for (let li = this.state.cursorLine; li !== end; li += step) {
       const line = this.state.lines[li] ?? '';
       const isCurrent = li === this.state.cursorLine;
+      // 反向在行首位：光标前本行已无字符——本行不做搜索直接续 li-1。若让
+      // from = -1 进 lastIndexOf，ECMAScript 会把负 position 钳 0——行首字符
+      // 等于靶字符时命中「光标当前位置」原地停滞，前行同字符永不可达。
+      if (!isForward && isCurrent && this.state.cursorCol === 0) continue;
       const from = isCurrent ? (isForward ? this.state.cursorCol + 1 : this.state.cursorCol - 1) : undefined;
       const idx = isForward ? line.indexOf(ch, from) : line.lastIndexOf(ch, from);
       if (idx !== -1) {

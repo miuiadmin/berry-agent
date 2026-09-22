@@ -310,6 +310,22 @@ describe('kitty 轨：CSI u 全形', () => {
   it('未知键号带文本：按提交交付', () => {
     expect(run(['\x1b[1;;65u'])).toEqual([ime('A', true)]);
   });
+
+  it('键号子域非整数 fail-closed 整事件吞（fromCodePoint RangeError 防回归）', () => {
+    // 修前红实证位：键号守卫只查 isFinite——97.5 有限非整过闸，kittyKeyName
+    // 内 String.fromCodePoint(97.5) 对 [0x20,0x10FFFF] 区间内非整数抛
+    // RangeError，经 feed → Engine.handleInput → stdin data 监听器未捕获升格
+    // uncaughtException 杀 TUI 进程。修后键号守卫与文本子域同尺（isInteger +
+    // 0..0x10FFFF 界检；0 保留合法——IME 纯文本事件路径 keyCode 0）。
+    expect(run(['\x1b[97.5u'])).toEqual([]); // 修前：RangeError 未捕获直抛
+    expect(run(['\x1b[97.5;5u'])).toEqual([]); // 带修饰子域同律
+    expect(run(['\x1b[1114112u'])).toEqual([]); // 键号越 0x10FFFF——键号子域同尺吞
+  });
+
+  it('键号界检升尺后合法形不回退：97 = a 键 / keyCode 0 = IME 纯文本路径', () => {
+    expect(run(['\x1b[97u'])).toEqual([key('a')]);
+    expect(run(['\x1b[0;;20013u'])).toEqual([ime('中', true)]); // keyCode 0 保留合法
+  });
 });
 
 describe('IME 组字态机（前缀增长检测 + 单发提交零延迟）', () => {
