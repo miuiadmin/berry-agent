@@ -2318,3 +2318,15 @@ describe('装配阶段回调（onBootStage/onPluginLoadStart——启动动画�
     }
   });
 });
+
+describe('凭证人面写 seam 单源词法锁（ob-3 收口——第四消费位并入）', () => {
+  it("audit.append('credentials/changed') 调用形在 assembly.ts 源码恰一处（seam 创建位单源——修前红：/plugins config 表单腿内联旧式共两处）", () => {
+    // 词法锁形（行为等价重构无法修前红——第十三役「python 锚句 count==1 断言」
+    // 同谱）：'credentials/changed' 的 audit.append **调用形**恰一处 = seam
+    // 创建位（:324 credentialsWrite.onCredentialChanged 真身）；注释提及不计
+    // 入（锁写路径调用，不锁文档面）。修前红 = /plugins config 表单腿
+    // （:1359 旧式内联闭包直连 audit）与 seam 创建位共两处调用形。
+    const source = readFileSync(new URL('./assembly.ts', import.meta.url), 'utf8');
+    expect(source.split("audit.append('credentials/changed'").length - 1).toBe(1);
+  });
+});

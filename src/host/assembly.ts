@@ -316,9 +316,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     const audit = createAuditFace(runtime.persistence.store.connection);
 
     // —— 凭证人面写 seam 单源（ob-3 /setup）：store + credentials/changed
-    // 审计回调一定义两消费——core:credentials 装配位与 AssemblySuccess
-    // .credentialsWrite（TUI 向导 saveBinding 路由 runCredentialsCommand 同
-    // 一审计面）——防双源漂移（凭证人面两写路径平权）——
+    // 审计回调一定义四消费——① runBoot secrets seam（core:credentials 插件
+    // 面 oauth 腿）、② core-plugins credentials 人面命令两 seam、③
+    // AssemblySuccess.credentialsWrite（TUI 向导 saveBinding 路由
+    // runCredentialsCommand 同一审计面）、④ /plugins config 表单腿（secret
+    // 写路径——2026-09-22 并入，此前内联旧式为 seam 建立前残留）——防双源
+    // 漂移（凭证人面写路径平权）——
     const credentialsWrite = {
       store: runtime.persistence.store,
       onCredentialChanged: (payload: CredentialChangedPayload) => audit.append('credentials/changed', { ...payload }),
@@ -1353,10 +1356,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                       select: (message, choices, opts) => stack.channels.select(sessionId, message, choices, opts),
                       input: (message, opts) => stack.channels.input(sessionId, message, opts),
                     },
-                    getCredential: (namespace, name) => runtimeNow.persistence.store.getCredential(namespace, name),
+                    getCredential: (namespace, name) => credentialsWrite.store.getCredential(namespace, name),
                     setCredential: (namespace, name, entry) =>
-                      runtimeNow.persistence.store.setCredential(namespace, name, entry),
-                    onCredentialChanged: (payload) => audit.append('credentials/changed', { ...payload }),
+                      credentialsWrite.store.setCredential(namespace, name, entry),
+                    onCredentialChanged: credentialsWrite.onCredentialChanged, // seam 单源（audit 创建位一定义）
                     requestReload: () => void reloader.request(),
                   });
                 },
