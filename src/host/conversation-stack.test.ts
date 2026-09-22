@@ -17,6 +17,7 @@ import {
 } from '@earendil-works/pi-ai';
 
 import type { AgentMessage, ApprovalAskAnswer, ApprovalAskRequest } from '../contracts/index.js';
+import type { AgentEvent } from '../agent/index.js';
 import { materializeHostFace } from '../contracts/api.js';
 import type { SessionEnvelope, UiBackend } from '../channels/index.js';
 import { canonicalWorkspaceRoot, Scope } from '../context/index.js';
@@ -33,6 +34,7 @@ import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './t
 import {
   assertWatchdogHatOrder,
   createConversationStack,
+  providerGuidanceForMessageEvent,
   createRunLaneGate,
   DEFAULT_LLM_IDLE_TIMEOUT_MS,
   DEFAULT_RUN_LANE_CAPACITY,
@@ -2430,5 +2432,43 @@ describe('首问快照物化全链（/sessions 恒「（无题）」修复——
     expect(rows[0]!.firstQuestionSummary).toBe('帮我修 TUI 渲染错位');
     expect(sessionDisplayTitleOf(rows[0]!)).toBe('帮我修 TUI 渲染错位');
     await rt.shutdown();
+  });
+});
+
+describe('provider 失败指路通道呈现面 enrich（07 §5 扩面笔——TUI ✖ 块/webui 转录同律）', () => {
+  /** message_end 失败终值事件构造（errorMessage 唯一位——终值载体） */
+  const failEnd = (errorMessage: string): AgentEvent =>
+    ({
+      type: 'message_end',
+      message: { role: 'assistant', content: [], errorMessage },
+    }) as unknown as AgentEvent;
+
+  it('unconfigured 形（pi-ai 原生报文）：errorMessage 换产品级指路副本——点名 provider + 环境变量途径 + 上游原文降附注', () => {
+    const raw = failEnd('Provider is not configured: anthropic');
+    const guided = providerGuidanceForMessageEvent(raw, 'anthropic/claude-sonnet-5');
+    expect(guided).toBeDefined();
+    const text = (guided as unknown as { message: { errorMessage: string } }).message.errorMessage;
+    expect(text).toContain('模型供应商未配置（anthropic）'); // 点名 provider
+    expect(text).toContain('ANTHROPIC_API_KEY'); // 配置途径
+    expect(text).toContain('Provider is not configured'); // 上游原文降附注在场
+    // 副本律——enrich 只及通道信封副本，原件（档案实录/投影重建路）原文不动
+    expect((raw as unknown as { message: { errorMessage: string } }).message.errorMessage).toBe(
+      'Provider is not configured: anthropic',
+    );
+  });
+
+  it('auth 族不入：auth-refresh seam 联动指路 + 去重已在——双指路即刷屏', () => {
+    const auth = failEnd('Request failed with status 401 unauthorized');
+    expect(providerGuidanceForMessageEvent(auth, 'anthropic/claude-sonnet-5')).toBeUndefined();
+  });
+
+  it('非 message_end 事件 / errorMessage 缺席形：原样透传（返回 undefined——调用位直发原件）', () => {
+    expect(providerGuidanceForMessageEvent({ type: 'agent_start' } as AgentEvent, 'm')).toBeUndefined();
+    expect(providerGuidanceForMessageEvent(failEnd(''), 'm')).toBeUndefined();
+    const plain = {
+      type: 'message_end',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+    } as unknown as AgentEvent;
+    expect(providerGuidanceForMessageEvent(plain, 'm')).toBeUndefined();
   });
 });

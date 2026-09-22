@@ -80,11 +80,13 @@ import type {
 import type { UserMessage } from '../contracts/index.js';
 import { HOST_NAMESPACE } from '../credentials/index.js';
 import type { AuthRefreshSeam } from '../conversation/types.js';
+import type { AgentEvent } from '../agent/index.js';
 import {
   classifyError,
   createLlmRuntime,
   createLlmService,
   createStreamFn,
+  diagnoseProviderFailure,
   InFlightTracker,
   resolveDefaultModelSpec,
   usageBucketsOf,
@@ -351,6 +353,31 @@ export interface ConversationStack {
    * 射程 = 本进程落账通知；跨午夜日键翻转不在射程（07 §4.1 G1 ④有界陈旧律）。
    */
   onSpentTodayLedgered(handler: () => void): Disposer;
+}
+
+/**
+ * provider 失败指路的通道呈现面 enrich（07 §5 扩面笔——`berry run` stderr 面
+ * 同律推及 TUI ✖ 错误块/webui 转录等通道信封消费位）。
+ *
+ * 判据与文案单源 = llm/recovery diagnoseProviderFailure（run 入口 stderr 消费
+ * 先例）；**只 enrich unconfigured 族**（模型缺席/pi-ai 原生「Provider is not
+ * configured」两形）——auth 族不入：auth-refresh seam 联动指路 + per-provider
+ * 去重已在（M4），通道面再附即双指路刷屏。
+ *
+ * 返回**副本**（message_end 消息 errorMessage 换产品级指路——点名 provider +
+ * 配置途径 + 上游原文降附注截断，指路前置保截断帽下可行动信息先见）；档案
+ * 实录与投影重建（切焦/回看）仍走原文——enrich 只发生在 onEvent 通道信封
+ * 适配位（与 auth seam 通知同律：即时指路非档案事实）。非命中形返 undefined
+ * ——调用位直发原件。
+ */
+export function providerGuidanceForMessageEvent(event: AgentEvent, modelSpec: string): AgentEvent | undefined {
+  if (event.type !== 'message_end') return undefined;
+  const message = event.message as { errorMessage?: string };
+  const raw = message.errorMessage;
+  if (raw === undefined || raw === '') return undefined;
+  const diagnostic = diagnoseProviderFailure({ errorMessage: raw }, modelSpec);
+  if (diagnostic === undefined || diagnostic.kind !== 'unconfigured') return undefined;
+  return { ...event, message: { ...message, errorMessage: diagnostic.hint } } as AgentEvent;
 }
 
 /**
@@ -1034,7 +1061,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       askApproval: askFace,
       ...(settleApprovals !== undefined ? { settleApprovals } : {}),
       warn,
-      onEvent: (event) => channels.emit({ sessionId, event }),
+      onEvent: (event) => {
+        // provider 失败指路呈现面 enrich（07 §5 扩面笔——见
+        // providerGuidanceForMessageEvent 头注；auth 族不入/档案实录原文同注）
+        const guided = providerGuidanceForMessageEvent(event, sessionModel ?? currentModel);
+        channels.emit({ sessionId, event: guided ?? event });
+      },
       retry: DEFAULT_RETRY_POLICY,
     });
     return driver;
