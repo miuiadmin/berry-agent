@@ -876,8 +876,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         prompter,
         providers: [...stack.llmRuntime.models.getProviders()].map((provider) => provider.id),
         currentProvider,
-        // 值只经流程「空录入沿用」位（bindingApiKeyOf 胜出行原值——遮蔽回 undefined）
-        currentApiKey: stack.bindingApiKeyOf(modelSpec),
+        // 值只经流程「空录入沿用」位（bindingApiKeyOf 胜出行原值——遮蔽回
+        // undefined）；薄包 providerId 形——流程件按**所选** provider 现取，
+        // 换 provider 改选不沿用当前模型 provider 的 key（跨 provider 沿用
+        // 错 key 防线在流程件，本位只供真源）
+        currentApiKeyOf: (providerId) => stack.bindingApiKeyOf(providerId),
         envShadowed: (providerId) => providerApiKeyEnvNames(providerId).some((name) => (env[name] ?? '') !== ''),
         saveBinding: (providerId, apiKey) =>
           runCredentialsCommand(
@@ -899,6 +902,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             sessionId: stack.channels.focusedId ?? session.sessionId,
           });
         },
+      }).catch((err: unknown) => {
+        // fire-and-forget 零 unhandled（openMarketplacePanel 同律防御位）：兜
+        // 流程件 saveBinding 折档之外的腿（如 probe reject）——异常 notify 呈
+        // 报不杀整个 TUI（installCrashChoreography 的 unhandledRejection exit(1)）
+        backend.notify(`配置向导异常：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
       });
     };
 

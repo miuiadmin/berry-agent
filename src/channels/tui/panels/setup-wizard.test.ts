@@ -224,6 +224,24 @@ describe('confirm 相', () => {
     panel.handleEvent(k('escape'));
     await expect(pending).resolves.toBeUndefined();
   });
+
+  it('提示行「enter 取」随切换态（与括号标记同源——非 req.defaultYes 初值）', () => {
+    // defaultYes:true 按 → 切否：括号标记 [否] + 提示行「enter 取 否」
+    const a = makePanel();
+    void a.panel.confirm({ title: '验证?', defaultYes: true });
+    a.panel.handleEvent(k('right'));
+    const gridA = paint(a.panel);
+    expect(readRow(gridA, 2, 72)).toContain(' 是 /[否]');
+    expect(readRow(gridA, 2, 72)).toContain('enter 取 否');
+
+    // 对称向：defaultYes:false 按 ← 切是——提示行「enter 取 是」
+    const b = makePanel();
+    void b.panel.confirm({ title: '验证?', defaultYes: false });
+    b.panel.handleEvent(k('left'));
+    const gridB = paint(b.panel);
+    expect(readRow(gridB, 2, 72)).toContain('[是]/ 否 ');
+    expect(readRow(gridB, 2, 72)).toContain('enter 取 是');
+  });
 });
 
 describe('outro / static 相与退出闭锁', () => {

@@ -226,7 +226,9 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       if (line < end) {
         const yesMark = phase.yes ? '[是]' : ' 是 ';
         const noMark = phase.yes ? ' 否 ' : '[否]';
-        buffer.writeText(line, region.col, `${yesMark}/${noMark} · enter 取 ${phase.req.defaultYes ? '是' : '否'}`);
+        // enter 结算当前切换态（←/→ 可切）——尾段与括号标记同源取 phase.yes，
+        // 非 req.defaultYes（readonly 请求缺省恒不变，切后屏示会失真）
+        buffer.writeText(line, region.col, `${yesMark}/${noMark} · enter 取 ${phase.yes ? '是' : '否'}`);
         line++;
       }
       hint = 'y 是 · n 否 · ←/→ 切换 · enter 确认 · esc 退出';

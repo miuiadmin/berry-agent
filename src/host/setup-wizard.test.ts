@@ -101,6 +101,14 @@ describe('maskKeyPreview（头4尾4预览）', () => {
     expect(maskKeyPreview('short')).toBe('…');
     expect(maskKeyPreview('12345678')).toBe('…');
   });
+  it('边界 9/11/12 全遮（等价被遮字符 ≥4——修前红：9 字符仍头4尾4拼接泄 8/9）', () => {
+    expect(maskKeyPreview('123456789')).toBe('…');
+    expect(maskKeyPreview('12345678901')).toBe('…');
+    expect(maskKeyPreview('123456789012')).toBe('…');
+  });
+  it('13 字符仍头4尾4（阈值之上恢复拼接形）', () => {
+    expect(maskKeyPreview('1234567890123')).toBe('1234…0123');
+  });
 });
 
 describe('stripExportPrefix（整行粘贴容错）', () => {
@@ -163,18 +171,40 @@ describe('runSetupWizard 主流程', () => {
     expect(saved).toEqual([{ providerId: 'anthropic', apiKey: 'sk-ant-tail' }]);
   });
 
-  it('重入默认值：currentApiKey 在场 → 预览呈 + 空录入沿用原值', async () => {
+  it('重入默认值：currentApiKeyOf(所选) 在场 → 预览呈 + 空录入沿用原值 + confirm 谎称位不触发（「沿用当前值」判据随 providerId 走）', async () => {
     const { prompter, recorded } = makePrompter({
       select: ['anthropic'],
       text: [''],
       confirm: [true],
     });
-    const { deps, saved } = makeDeps(prompter, { currentApiKey: 'sk-old-value-9999' });
+    const { deps, saved } = makeDeps(prompter, {
+      currentApiKeyOf: (providerId) => (providerId === 'anthropic' ? 'sk-old-value-9999' : undefined),
+    });
     await runSetupWizard(deps);
     // 预览呈头4尾4形（值不入面）
     expect(recorded.texts[0]?.preview).toBe(maskKeyPreview('sk-old-value-9999'));
-    // 空录入 = 沿用当前值
+    // 空录入 = 沿用当前值（同 provider）
     expect(saved).toEqual([{ providerId: 'anthropic', apiKey: 'sk-old-value-9999' }]);
+    // confirm 标题「沿用当前值」判据成立（apiKey === 所选 provider 现取值）
+    expect(recorded.confirms[0]?.title).toContain('沿用当前值');
+  });
+
+  it('换 provider 改选后空录入：不沿用他家 key、走「未配置」收场零保存（修前红形 = 旧 currentApiKey 一次性注入——现算形按所选 providerId 现取）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['anthropic'],
+      text: [''],
+      confirm: [true],
+    });
+    // 装配真源形：当前模型 provider（openai）有绑定行、改选 anthropic 无绑定行
+    const { deps, saved } = makeDeps(prompter, {
+      currentApiKeyOf: (providerId) => (providerId === 'openai' ? 'sk-openai-old-value' : undefined),
+    });
+    await runSetupWizard(deps);
+    // 所选 provider（anthropic）无绑定行 → 预览缺席（不呈他家 key 掩码）
+    expect(recorded.texts[0]?.preview).toBeUndefined();
+    // 空录入落「未配置」诚实收场——openai 的 key 不落 anthropic 绑定行
+    expect(saved).toEqual([]);
+    expect(recorded.outros.at(-1)?.lines.join('\n')).toContain('未录入');
   });
 
   it('currentProvider 在册 → select 预选（重入光标位）', async () => {
@@ -254,6 +284,44 @@ describe('runSetupWizard 主流程', () => {
     await runSetupWizard(deps);
     expect(recorded.outros.at(-1)?.title).toContain('失败');
     expect(probeCalls).toEqual([]);
+  });
+
+  it('手录斜杠首段空（/gpt-4 与 / 两形）→ 坏形诚实收场零保存（与 runAdd「斜杠首段空 = 坏形」单源同律——修前红：迟炸进保存失败档）', async () => {
+    for (const bad of ['/gpt-4', '/']) {
+      const { prompter, recorded } = makePrompter({
+        select: ['__manual_provider__'],
+        text: [bad, 'sk-v'],
+        confirm: [true],
+      });
+      const { deps, saved } = makeDeps(prompter);
+      await runSetupWizard(deps);
+      // 修前红：split 首段空串穿透到 saveBinding（回执走「保存失败」档且
+      // saved 记一笔空 providerId 行）；修 = 取首段后复检空串即收场
+      expect(saved).toEqual([]);
+      const outro = recorded.outros.at(-1)!;
+      expect(outro.title).toBe('已退出');
+      expect(outro.lines.join('\n')).toContain('斜杠首段不可空');
+      expect(outro.lines.join('\n')).toContain('凭证表未改动');
+    }
+  });
+
+  it('saveBinding 同步抛非 BaseError（better-sqlite3 原生错形）→ 折「保存失败」outro 不向上抛（修前红：runSetupWizard rejects）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['anthropic'],
+      text: ['sk-v'],
+      confirm: [true],
+    });
+    const { deps } = makeDeps(prompter, {
+      saveBinding: () => {
+        // commands.ts 只折 BaseError 余者 rethrow——原生 SqliteError 直达此形
+        throw new Error('SqliteError: database is locked');
+      },
+    });
+    await runSetupWizard(deps); // 修前红：本 await rejects（unhandled 杀 TUI 的流程侧根）
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.title).toContain('失败');
+    expect(outro.lines.join('\n')).toContain('database is locked');
+    expect(outro.lines.join('\n')).toContain('凭证表未改动');
   });
 });
 

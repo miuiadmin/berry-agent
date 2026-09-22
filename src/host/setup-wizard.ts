@@ -8,7 +8,8 @@
  *   （runAdd 同一纯函数——行名 = providerId、--model-provider 绑定、审计 seam
  *   在装配位接线，本件不触存储）；
  * - **重入默认值 = 当前值**：provider 预选（清单内在册时）+ key 空录入沿用
- *   （preview 头4尾4形——值恒不入面）；
+ *   （按**所选** providerId 现取——preview 头4尾4形，值恒不入面；换 provider
+ *   改选不沿用他家 key）；
  * - **粘贴容错**：剥 `export VAR=` 前缀与包裹引号（用户从 shell 配置整行
  *   粘贴的高频形）；
  * - **连通微探针（可选步——改裁注机制形）**：真供血路 StreamFn 1-token
@@ -38,8 +39,10 @@ export interface SetupWizardDeps {
   readonly providers: readonly string[];
   /** 重入默认值：当前 provider（清单内在册时预选） */
   readonly currentProvider?: string;
-  /** 重入默认值：当前绑定 key 原值（供血胜出行——预览呈 + 空录入沿用） */
-  readonly currentApiKey?: string;
+  /** 重入默认值取值器：按所选 providerId 现取该 provider 绑定行 key 原值
+   * （供血胜出行——预览呈 + 空录入沿用 + confirm「沿用当前值」判据三位随
+   * providerId 走；缺席/所选 provider 无绑定行回 undefined——不沿用他家 key） */
+  readonly currentApiKeyOf?: (providerId: string) => string | undefined;
   /** env 遮蔽判据（provider → env 键已设置）——遮蔽预警 confirm 判据 */
   readonly envShadowed: (providerId: string) => boolean;
   /** 落绑定行（runCredentialsCommand 单源路由——行名 = providerId） */
@@ -57,11 +60,12 @@ const MANUAL_PROVIDER_ID = '__manual_provider__';
 const ABORT_LINES = ['向导已退出——凭证表未改动（可 /setup 重开或 /credentials add 手录）'] as const;
 
 /**
- * 头4尾4预览（`sk-1…wxyz` 形）：短值（≤8 字符）全遮——头尾拼接近全长即
- * 泄值，短键全遮不泄（态可入面、值恒不入面）。
+ * 头4尾4预览（`sk-1…wxyz` 形）：短值（≤12 字符——等价被遮字符 ≥4）全遮
+ * ——头尾拼接可见字符近全长即泄值（9 字符泄 8/9 只遮 1 字符即此档），短键
+ * 全遮不泄（态可入面、值恒不入面）。
  */
 export function maskKeyPreview(value: string): string {
-  if (value.length <= 8) return '…';
+  if (value.length <= 12) return '…';
   return `${value.slice(0, 4)}…${value.slice(-4)}`;
 }
 
@@ -117,7 +121,17 @@ export async function runSetupWizard(deps: SetupWizardDeps): Promise<void> {
       await p.outro('已退出', ['未录入 provider id——凭证表未改动']);
       return;
     }
-    providerId = trimmed.split('/')[0] ?? trimmed;
+    // 斜杠整模型形取首段（绑定名是 provider——runAdd 归一同律）；split 恒返
+    // 非空数组，但首段可为空串（'/gpt-4'、'/' 形）——空串守卫须在取段后复检，
+    // 与 runAdd「斜杠首段空 = 坏形」判据单源同律（否则迟炸进保存失败档）
+    const firstSegment = trimmed.split('/')[0] ?? trimmed; // ?? 分支不可达（split 恒非空）——保形防御
+    if (firstSegment === '') {
+      await p.outro('已退出', [
+        'provider id 坏形（斜杠首段不可空——形如 anthropic 或 anthropic/model-id）——凭证表未改动',
+      ]);
+      return;
+    }
+    providerId = firstSegment;
   }
 
   // —— env 遮蔽预警（host 域行 env 优先——绑定行将被遮蔽的先验告知）——
@@ -129,35 +143,47 @@ export async function runSetupWizard(deps: SetupWizardDeps): Promise<void> {
     if (goOn !== true) return void (await abortOut(p));
   }
 
+  // —— 重入默认值现取（按**所选** providerId——换 provider 改选不沿用他家
+  // key：预览、空录入沿用、confirm「沿用当前值」判据三位同源此值）——
+  const currentApiKey = deps.currentApiKeyOf?.(providerId);
+
   // —— ② key 敏感录入（掩码 + 预览 + 粘贴容错）——
   const typed = await p.text({
     title: `${providerId} API key`,
     sensitive: true,
     hint: '整行粘贴可带 export VAR= 前缀（自动剥除）；预览在场时空录入 = 沿用当前值',
-    ...(deps.currentApiKey !== undefined ? { preview: maskKeyPreview(deps.currentApiKey) } : {}),
+    ...(currentApiKey !== undefined ? { preview: maskKeyPreview(currentApiKey) } : {}),
   });
   if (typed === undefined) return void (await abortOut(p));
   const stripped = stripExportPrefix(typed).trim();
   let apiKey: string;
   if (stripped === '') {
     // 空录入分叉：预览在场（当前值在场）= 沿用；否则未配置收场
-    if (deps.currentApiKey === undefined) {
+    if (currentApiKey === undefined) {
       await p.outro('未配置', ['未录入 API key——凭证表未改动（可 /setup 重开再试）']);
       return;
     }
-    apiKey = deps.currentApiKey;
+    apiKey = currentApiKey;
   } else {
     apiKey = stripped;
   }
 
   // —— ③ 落行 confirm → saveBinding（单源路由注入位）——
-  const keyNote = apiKey === deps.currentApiKey ? '沿用当前值' : `新值 ${maskKeyPreview(apiKey)}`;
+  const keyNote = apiKey === currentApiKey ? '沿用当前值' : `新值 ${maskKeyPreview(apiKey)}`;
   const yes = await p.confirm({
     title: `写入绑定行（/credentials add ${providerId} … --model-provider ${providerId}，${keyNote}）——${providerId} 供血即改？`,
     defaultYes: true,
   });
   if (yes !== true) return void (await abortOut(p));
-  const saved = deps.saveBinding(providerId, apiKey);
+  // saveBinding 同步抛防御（runCredentialsCommand 只折 BaseError 余者 rethrow
+  // ——better-sqlite3 原生 SqliteError 直达此形）：异常折 {ok:false} 走既有
+  // 「保存失败」outro 分档——不向上抛（fire-and-forget 调用位零 unhandled）
+  let saved: SetupWizardSaveResult;
+  try {
+    saved = deps.saveBinding(providerId, apiKey);
+  } catch (err) {
+    saved = { ok: false, text: `保存异常：${err instanceof Error ? err.message : String(err)}` };
+  }
   if (!saved.ok) {
     await p.outro('保存失败', [saved.text, '凭证表未改动（可 /setup 重开再试）']);
     return;
