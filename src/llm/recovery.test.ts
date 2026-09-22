@@ -206,6 +206,7 @@ describe('diagnoseProviderFailure（07 §5 provider 产品级文案律——两�
     expect(r?.kind).toBe('unconfigured');
     expect(r?.hint).toContain('anthropic'); // 点名 provider
     expect(r?.hint).toContain('ANTHROPIC_API_KEY'); // env 凭证途径指路
+    expect(r?.hint).toContain('--model-provider'); // 凭证表绑定行通路（ob-1 回填——manual 行带绑定即进供血面）
     expect(r?.hint).toContain('BERRY_AGENT_MODEL'); // 换模型途径
     expect(r?.hint).toContain('Provider is not configured'); // 上游原文降附注
   });

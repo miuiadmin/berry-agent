@@ -115,6 +115,47 @@ describe('add 动词', () => {
     expect(result.ok).toBe(false);
     expect(result.text).toContain('值不得为空');
   });
+
+  it('--model-provider 绑定（ob-1）：写 meta.modelProvider + 斜杠形取首段 + 回执点名（值仍不回显）', () => {
+    const store = openTestStore();
+    const { run } = rig(store);
+    // 斜杠形整透模型标识——归一取首段（与模型 spec 解析同律，绑定名是 provider id）
+    const result = run({
+      sub: 'add',
+      name: 'anthropic',
+      value: 'sk-secret-1a',
+      modelProvider: 'anthropic/claude-sonnet-5',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.text).toContain('模型绑定 anthropic');
+    expect(result.text).not.toContain('sk-secret-1a'); // 值永不呈现（铁律随绑定位扩面不改）
+    expect(store.getCredential('host', 'anthropic')?.meta).toEqual({ source: 'manual', modelProvider: 'anthropic' });
+  });
+
+  it('--model-provider 好形执法：纯空白/斜杠首段空折用法文本不落行（trim 后非空串判据）', () => {
+    const store = openTestStore();
+    const { run } = rig(store);
+    for (const bad of ['  ', '/anthropic']) {
+      const result = run({ sub: 'add', name: 'x', value: 'v', modelProvider: bad });
+      expect(result.ok).toBe(false);
+      expect(result.text).toContain('--model-provider 值坏形');
+      expect(store.getCredential('host', 'x')).toBeUndefined(); // 拒形不落行（好形先于写库）
+    }
+  });
+
+  it('改绑/解绑 = upsert 整行换律：re-add 带新旗标改绑、不带旗标解绑', () => {
+    const store = openTestStore();
+    const { run } = rig(store);
+    run({ sub: 'add', name: 'k', value: 'v1', modelProvider: 'anthropic' });
+    // 改绑（整行换——新绑定名覆写旧绑定名）
+    run({ sub: 'add', name: 'k', value: 'v2', modelProvider: 'openai' });
+    expect(store.getCredential('host', 'k')?.meta).toEqual({ source: 'manual', modelProvider: 'openai' });
+    // 解绑（不带旗标重录——meta 整列换后 modelProvider 位消失）
+    const unbound = run({ sub: 'add', name: 'k', value: 'v3' });
+    expect(unbound.ok).toBe(true);
+    expect(unbound.text).not.toContain('模型绑定');
+    expect(store.getCredential('host', 'k')?.meta).toEqual({ source: 'manual' });
+  });
 });
 
 describe('list 动词', () => {
@@ -145,6 +186,19 @@ describe('list 动词', () => {
     const result = runCredentialsCommand({ sub: 'list' }, { store });
     expect(result.ok).toBe(true);
     expect(result.text).toContain('legacy  来源 未记');
+  });
+
+  it('绑定列呈现（ob-1）：绑定行点名 + 缺席「—」（绑定名可入面——值恒不入面）', () => {
+    const store = openTestStore();
+    const { run } = rig(store);
+    run({ sub: 'add', name: 'bound', value: 'v-9c', modelProvider: 'anthropic' });
+    run({ sub: 'add', name: 'plain', value: 'v-2d' });
+    const result = run({ sub: 'list' });
+    expect(result.ok).toBe(true);
+    expect(result.text).toContain('bound  来源 manual  绑定 anthropic');
+    expect(result.text).toContain('plain  来源 manual  绑定 —');
+    expect(result.text).not.toContain('v-9c');
+    expect(result.text).not.toContain('v-2d');
   });
 
   it('空表诚实空', () => {
@@ -215,6 +269,30 @@ describe('parseCredentialsArgv（TUI 面解析律）', () => {
       [['oauth', 'demo', '--namespace', 'host'], 'oauth 不收 --namespace'],
       [['oauth'], 'oauth 须带 <pluginId>'],
       [['oauth', 'a', 'b', 'c'], 'oauth 须带 <pluginId>'],
+    ];
+    for (const [argv, keyword] of cases) {
+      const parsed = parseCredentialsArgv(argv);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.message).toContain(keyword);
+    }
+  });
+
+  it('--model-provider 旗标（ob-1）：add 成功形 + 须带值 + list/rm/oauth 拒（两面同律——CLI 面白名单制天然拒）', () => {
+    // 成功形：值原样透传（解析层零值域执法——归一单源在命令件 runAdd）
+    expect(parseCredentialsArgv(['add', 'n', 'v', '--model-provider', 'anthropic'])).toEqual({
+      ok: true,
+      sub: { sub: 'add', name: 'n', value: 'v', modelProvider: 'anthropic' },
+    });
+    // 与 --namespace 并存且可交错（宽容形随既有旗标同律）
+    expect(parseCredentialsArgv(['add', 'n', 'v', '--namespace', 'plugin:demo', '--model-provider', 'acme'])).toEqual({
+      ok: true,
+      sub: { sub: 'add', name: 'n', value: 'v', namespace: 'plugin:demo', modelProvider: 'acme' },
+    });
+    const cases: readonly [readonly string[], string][] = [
+      [['add', 'n', 'v', '--model-provider'], '--model-provider 须带值'],
+      [['list', '--model-provider', 'anthropic'], 'list 不收 --model-provider'],
+      [['rm', 'n', '--model-provider', 'anthropic'], 'rm 不收 --model-provider'],
+      [['oauth', 'demo', '--model-provider', 'anthropic'], 'oauth 不收 --model-provider'],
     ];
     for (const [argv, keyword] of cases) {
       const parsed = parseCredentialsArgv(argv);

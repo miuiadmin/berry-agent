@@ -670,6 +670,8 @@ function parseSessions(rest: readonly string[]): CliParseResult {
 
 /** credentials 子命令族解析（03 §10.9 人面命令 CLI 面——c-5；namespace 值域执法归命令件单源，本层只执法解析律） */
 const NAMESPACE_FLAG: FlagSchema = { name: 'namespace', kind: 'value' };
+/** 模型供应商绑定旗标（ob-1——add 专属；rm/list 白名单不含即天然拒，与 TUI 面显式拒同律） */
+const MODEL_PROVIDER_FLAG: FlagSchema = { name: 'model-provider', kind: 'value' };
 
 function parseCredentials(rest: readonly string[]): CliParseResult {
   const [head, ...tail] = rest as string[];
@@ -678,6 +680,8 @@ function parseCredentials(rest: readonly string[]): CliParseResult {
   }
   const namespaceOf = (scan: ScanOutcome): string | undefined =>
     scan.values.has('namespace') ? scan.values.get('namespace') : undefined;
+  const modelProviderOf = (scan: ScanOutcome): string | undefined =>
+    scan.values.has('model-provider') ? scan.values.get('model-provider') : undefined;
   switch (head) {
     case 'list': {
       const scan = scanFlags(tail, []);
@@ -687,11 +691,17 @@ function parseCredentials(rest: readonly string[]): CliParseResult {
       return finish(scan, { kind: 'credentials', sub: { sub: 'list' } });
     }
     case 'add': {
-      const scan = scanFlags(tail, [NAMESPACE_FLAG]);
+      const scan = scanFlags(tail, [NAMESPACE_FLAG, MODEL_PROVIDER_FLAG]);
       if (scan.error) return usageFail(scan.error);
-      const args = expectArity(scan.literals, 2, 2, 'berry credentials add <name> <value> [--namespace <ns>]');
+      const args = expectArity(
+        scan.literals,
+        2,
+        2,
+        'berry credentials add <name> <value> [--namespace <ns>] [--model-provider <providerId>]',
+      );
       if ('exitCode' in args) return args;
       const ns = namespaceOf(scan);
+      const mp = modelProviderOf(scan);
       return finish(scan, {
         kind: 'credentials',
         sub: {
@@ -699,6 +709,7 @@ function parseCredentials(rest: readonly string[]): CliParseResult {
           name: args[0] as string,
           value: args[1] as string,
           ...(ns !== undefined ? { namespace: ns } : {}),
+          ...(mp !== undefined ? { modelProvider: mp } : {}),
         },
       });
     }

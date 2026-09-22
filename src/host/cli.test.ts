@@ -545,6 +545,17 @@ describe('credentials 子命令族（c-5——03 §10.9 人面命令 CLI 面）'
     });
   });
 
+  it('--model-provider 旗标（ob-1）：add 受理 / 缺值退 2 / rm·list 白名单制天然拒', () => {
+    expect(expectCommand(['credentials', 'add', 'anthropic', 'sk-x', '--model-provider', 'anthropic'])).toMatchObject({
+      kind: 'credentials',
+      sub: { sub: 'add', name: 'anthropic', value: 'sk-x', modelProvider: 'anthropic' },
+    });
+    expectUsage(['credentials', 'add', 'n', 'v', '--model-provider'], '须带值');
+    // rm/list 旗标白名单不含 --model-provider——未识别旗标退 2（改绑走 add 重录）
+    expectUsage(['credentials', 'rm', 'n', '--model-provider', 'anthropic'], '未识别旗标');
+    expectUsage(['credentials', 'list', '--model-provider', 'anthropic'], '未识别旗标');
+  });
+
   it('缺子命令/未知动词/arity 错/未识别旗标退 2（解析律——值域执法归命令件不在此层）', () => {
     expectUsage(['credentials'], '须带子命令');
     expectUsage(['credentials', '--namespace', 'host'], '须带子命令');

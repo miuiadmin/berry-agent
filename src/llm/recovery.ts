@@ -213,12 +213,13 @@ export function diagnoseProviderFailure(
   if (text !== '' && UNCONFIGURED_PROVIDER_PATTERN.test(text)) {
     return {
       kind: 'unconfigured',
-      // 指路只写真通路：env 生态变量。不指 /credentials add——manual 录入行
-      // 无 modelProvider 绑定 meta、不进模型腿供血面（liveBindingApiKey 只认
-      // 绑定行）；绑定录入位 = onboarding 立题批，落地后此处回填凭证表通路
+      // 指路写真通路两途并列：env 生态变量 + 凭证表绑定行（ob-1 回填——
+      // manual 行须带 --model-provider 才进模型腿供血面：liveBindingApiKey
+      // 只认 meta.modelProvider 绑定行，不带绑定的裸 manual 行不供血）
       hint:
         `模型供应商未配置（${providerNameOf(modelSpec)}）：该 provider 无可用凭证。` +
-        `设置对应环境变量（如 ANTHROPIC_API_KEY / OPENAI_API_KEY）；` +
+        `设置对应环境变量（如 ANTHROPIC_API_KEY / OPENAI_API_KEY），` +
+        `或录入绑定凭证行：/credentials add <名> <值> --model-provider ${providerNameOf(modelSpec)}（CLI 形 berry credentials add 同参；录入即生效无需重启）；` +
         `更换缺省模型设 BERRY_AGENT_MODEL 环境变量（详见 /guide 模型配置段）。` +
         `上游报文：${upstreamNote(text)}`,
     };

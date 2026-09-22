@@ -2450,6 +2450,7 @@ describe('provider 失败指路通道呈现面 enrich（07 §5 扩面笔——TU
     const text = (guided as unknown as { message: { errorMessage: string } }).message.errorMessage;
     expect(text).toContain('模型供应商未配置（anthropic）'); // 点名 provider
     expect(text).toContain('ANTHROPIC_API_KEY'); // 配置途径
+    expect(text).toContain('--model-provider'); // 凭证表绑定行通路（ob-1 回填）
     expect(text).toContain('Provider is not configured'); // 上游原文降附注在场
     // 副本律——enrich 只及通道信封副本，原件（档案实录/投影重建路）原文不动
     expect((raw as unknown as { message: { errorMessage: string } }).message.errorMessage).toBe(

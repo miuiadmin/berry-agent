@@ -10,7 +10,7 @@
  *
  * 铁律（03 §10.9 模型可见性铁律）：
  *  - **值永不呈现在任何结算文本**——add/rm 只回执名与域，list 只列
- *    namespace/名/来源/更新时间（给值唯一路径 = 注入腿 env 引用形展开）；
+ *    namespace/名/来源/模型绑定/更新时间（给值唯一路径 = 注入腿 env 引用形展开）；
  *  - 人面命令恒可列示/撤销**一切域**（host + 全部 plugin:<id>——审计与
  *    治理面不随 namespace 分权；与 ctx.secrets 读腿的自域隔离分立两律）；
  *  - argv 传值不落 durable——channels 命令分派纯内存直达 handler（命令
@@ -26,8 +26,8 @@ import type { CredentialChangedPayload } from './secrets.js';
 
 /** 用法文案（TUI 命令 description 位与用法错指路共用单源；oauth 动词 TUI 面承载——CLI 零装配无注册表不载） */
 export const CREDENTIALS_USAGE = [
-  '用法：/credentials add <name> <value> [--namespace <ns>] —— 录入静态凭证（缺省 host 域；值含空格用引号包裹）',
-  '　　　/credentials list —— 全域列示（namespace/名/来源/更新时间——永不呈值）',
+  '用法：/credentials add <name> <value> [--namespace <ns>] [--model-provider <providerId>] —— 录入静态凭证（缺省 host 域；值含空格用引号包裹；--model-provider 写模型绑定行——录入即进模型腿供血面）',
+  '　　　/credentials list —— 全域列示（namespace/名/来源/模型绑定/更新时间——永不呈值）',
   '　　　/credentials rm <name> [--namespace <ns>] —— 撤销凭证（删除唯一路径）',
   '　　　/credentials oauth <pluginId> [<name>] —— 发起插件 oauth 授权流（device-code；域随流主人）',
 ].join('\n');
@@ -66,7 +66,14 @@ export interface CredentialsCommandDeps {
  * 拒），执行腿在 core-plugins（runCredentialsCommand 内为不可达退化档）。
  */
 export type CredentialsSub =
-  | { readonly sub: 'add'; readonly name: string; readonly value: string; readonly namespace?: string }
+  | {
+      readonly sub: 'add';
+      readonly name: string;
+      readonly value: string;
+      readonly namespace?: string;
+      /** 模型供应商绑定（ob-1——可选；原样透传，好形归一单源在 runAdd） */
+      readonly modelProvider?: string;
+    }
   | { readonly sub: 'list' }
   | { readonly sub: 'rm'; readonly name: string; readonly namespace?: string }
   | { readonly sub: 'oauth'; readonly pluginId: string; readonly name?: string };
@@ -88,9 +95,10 @@ export function parseCredentialsArgv(
   if (verb === undefined || verb.startsWith('--')) {
     return { ok: false, message: `缺子命令。\n${CREDENTIALS_USAGE}` };
   }
-  // 旗标扫描（本命令族唯一旗标 --namespace——宽容形：位置参数与旗标可交错）
+  // 旗标扫描（--namespace/--model-provider 两旗标——宽容形：位置参数与旗标可交错）
   const literals: string[] = [];
   let namespace: string | undefined;
+  let modelProvider: string | undefined;
   for (let i = 0; i < rest.length; i++) {
     const tok = rest[i] as string;
     if (tok === '--namespace') {
@@ -102,9 +110,22 @@ export function parseCredentialsArgv(
       i++;
       continue;
     }
+    if (tok === '--model-provider') {
+      const next = rest[i + 1];
+      if (next === undefined || next === '') {
+        return { ok: false, message: `--model-provider 须带值。\n${CREDENTIALS_USAGE}` };
+      }
+      modelProvider = next;
+      i++;
+      continue;
+    }
     literals.push(tok);
   }
   if (verb === 'list') {
+    if (modelProvider !== undefined) {
+      // 绑定列只读随行呈现——list 不收写位旗标（与 CLI 面白名单制天然拒同律）
+      return { ok: false, message: `list 不收 --model-provider（绑定列只读呈现）。\n${CREDENTIALS_USAGE}` };
+    }
     if (literals.length > 0) return { ok: false, message: `list 不收位置参数。\n${CREDENTIALS_USAGE}` };
     return { ok: true, sub: { sub: 'list' } };
   }
@@ -119,10 +140,15 @@ export function parseCredentialsArgv(
         name: literals[0] as string,
         value: literals[1] as string,
         ...(namespace !== undefined ? { namespace } : {}),
+        ...(modelProvider !== undefined ? { modelProvider } : {}),
       },
     };
   }
   if (verb === 'rm') {
+    if (modelProvider !== undefined) {
+      // 改绑/解绑走 add 重录（upsert 整行换）——rm 是删行不是改行
+      return { ok: false, message: `rm 不收 --model-provider（改绑/解绑走 add 重录——整行换）。\n${CREDENTIALS_USAGE}` };
+    }
     if (literals.length !== 1) {
       return { ok: false, message: `rm 须带 <name> 一参数。\n${CREDENTIALS_USAGE}` };
     }
@@ -135,6 +161,13 @@ export function parseCredentialsArgv(
     if (namespace !== undefined) {
       // 域随流主人（token 落插件自域）——oauth 不收 --namespace
       return { ok: false, message: `oauth 不收 --namespace（域随流主人——token 落插件自域）。\n${CREDENTIALS_USAGE}` };
+    }
+    if (modelProvider !== undefined) {
+      // oauth 流不产模型绑定（token 落插件自域非 host 域供血位）——与 --namespace 同拒
+      return {
+        ok: false,
+        message: `oauth 不收 --model-provider（流产物是插件 token 非模型绑定行）。\n${CREDENTIALS_USAGE}`,
+      };
     }
     if (literals.length < 1 || literals.length > 2) {
       return {
@@ -161,7 +194,7 @@ export function runCredentialsCommand(sub: CredentialsSub, deps: CredentialsComm
   try {
     switch (sub.sub) {
       case 'add':
-        return runAdd(sub.name, sub.value, sub.namespace, deps);
+        return runAdd(sub.name, sub.value, sub.namespace, sub.modelProvider, deps);
       case 'list':
         return runList(deps);
       case 'rm':
@@ -194,11 +227,13 @@ function resolveNamespace(namespace: string | undefined): string {
   return namespace;
 }
 
-/** add：录入（upsert——同名覆写整行含 meta；写 meta {source:'manual'}；值不回显） */
+/** add：录入（upsert——同名覆写整行含 meta；写 meta {source:'manual'}〔ob-1：可带
+ * modelProvider 绑定位——重录带新旗标=改绑、不带=解绑，整行换律天然承载〕；值不回显） */
 function runAdd(
   name: string,
   value: string,
   namespace: string | undefined,
+  modelProviderRaw: string | undefined,
   deps: CredentialsCommandDeps,
 ): CredentialsCommandResult {
   const ns = resolveNamespace(namespace);
@@ -206,7 +241,21 @@ function runAdd(
     // 空值 = 缺值形（CLI 空串经解析律已拦；TUI tokenize 可产空段——此处兜底）
     return { ok: false, text: `值不得为空。\n${CREDENTIALS_USAGE}` };
   }
-  const meta: CredentialMeta = { source: 'manual' };
+  // 绑定位好形归一（03 §10.9 ob-1 定形注单源）：trim 后非空串、斜杠形取首段
+  // （整模型标识形 anthropic/claude-sonnet-5 → anthropic——绑定名是 provider id）。
+  // 纯空白/斜杠首段空 = 人面用法错，折用法文本（与空值兜底同档——不立服务面码）
+  let modelProvider: string | undefined;
+  if (modelProviderRaw !== undefined) {
+    const normalized = modelProviderRaw.trim().split('/')[0] ?? '';
+    if (normalized === '') {
+      return {
+        ok: false,
+        text: `--model-provider 值坏形（trim 后为空或斜杠首段空——形如 anthropic 或 anthropic/model-id）。\n${CREDENTIALS_USAGE}`,
+      };
+    }
+    modelProvider = normalized;
+  }
+  const meta: CredentialMeta = { source: 'manual', ...(modelProvider !== undefined ? { modelProvider } : {}) };
   deps.store.setCredential(ns, name, { apiKey: value, meta });
   // credentials/changed 审计 seam（05 §1.1 值域单源：人面写 = action 'add' /
   // origin 'human'；值恒不入载荷；生产装配已接线 audit_events——assembly
@@ -214,7 +263,9 @@ function runAdd(
   deps.onCredentialChanged?.({ namespace: ns, name, action: 'add', origin: 'human' });
   return {
     ok: true,
-    text: `已录入凭证 ${ns}/${name}（来源 manual）——值不回显；注入用 env 引用形 '@credentials:${name}'。`,
+    text:
+      `已录入凭证 ${ns}/${name}（来源 manual${modelProvider !== undefined ? `，模型绑定 ${modelProvider}——录入即生效（供血面全表 live 读）` : ''}）` +
+      `——值不回显；注入用 env 引用形 '@credentials:${name}'。`,
   };
 }
 
@@ -228,7 +279,8 @@ function runRm(name: string, namespace: string | undefined, deps: CredentialsCom
   return { ok: true, text: `已撤销凭证 ${ns}/${name}。` };
 }
 
-/** list：全域列示（namespace/名/来源/更新时间——永不呈值；expired 位随来源列标注） */
+/** list：全域列示（namespace/名/来源/模型绑定/更新时间——永不呈值；expired 位随来源列标注；
+ * 绑定列缺席「——」ob-1：绑定名可入面〔provider id 非值〕，缺省非绑定行如实呈现） */
 function runList(deps: CredentialsCommandDeps): CredentialsCommandResult {
   const rows = deps.store.listCredentialProviders();
   if (rows.length === 0) {
@@ -239,8 +291,9 @@ function runList(deps: CredentialsCommandDeps): CredentialsCommandResult {
     const meta = (row.meta ?? {}) as CredentialMeta;
     const source = meta.source ?? '未记';
     const expired = meta.expired === true ? '（已过期——保留上次有效值）' : '';
+    const binding = typeof meta.modelProvider === 'string' && meta.modelProvider !== '' ? meta.modelProvider : '—';
     lines.push(
-      `  ${row.namespace}  ${row.provider}  来源 ${source}${expired}  更新 ${new Date(row.updatedAt).toISOString()}`,
+      `  ${row.namespace}  ${row.provider}  来源 ${source}${expired}  绑定 ${binding}  更新 ${new Date(row.updatedAt).toISOString()}`,
     );
   }
   return { ok: true, text: lines.join('\n') };

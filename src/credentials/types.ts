@@ -50,6 +50,13 @@ export function parsePluginNamespace(namespace: string): string | null {
 export interface CredentialMeta {
   /** 条目来源（缺省未记——历史行/迁移回填行可无此键） */
   readonly source?: 'manual' | 'oauth' | 'refresh';
+  /**
+   * 模型供应商绑定位（ob-1——manual 录入经 --model-provider 写入）：值为
+   * provider id（斜杠形录整模型标识时取首段归一）。模型腿供血面
+   * （liveBindingApiKey）只认本键 === providerId 的绑定行——不带本键的
+   * manual 行不进模型供血。绑定名非值（**meta 永不持值**律合规）。
+   */
+  readonly modelProvider?: string;
   /** 过期呈现位（true = 刷新三振后保留旧值的告示态——list 已标注） */
   readonly expired?: boolean;
   /** 到期 epoch ms（oauth 流写入；刷新链提前量判据——无此键 = 静态条目不归链管） */

@@ -95,7 +95,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   plugins <sub>           插件生命周期（list/install/uninstall/mount/unmount/toggle/update/check）
   marketplace <sub>       插件市场（add/remove/update/list/discover/install/uninstall/upgrade——装机寻址形 <name@market>）
   sessions <sub>          会话管理（list/resume <id>/fork <id>/search <query>/export <id>/reindex）
-  credentials <sub>       凭证人面管理（add <name> <value>/list/rm <name>；--namespace <ns> 指定域）
+  credentials <sub>       凭证人面管理（add <name> <value>/list/rm <name>；--namespace <ns> 指定域；--model-provider <id> 模型绑定行——add 专属）
   doors <sub>             开门制人面（list 只读——六枚高危面清单与开态双源呈现；写动词 TUI /doors 专属）
   upgrade                 升级维护动词
 
