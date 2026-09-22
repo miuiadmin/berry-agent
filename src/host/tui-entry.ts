@@ -162,27 +162,58 @@ export interface TuiEntryOptions {
   readonly onboardingKey?: () => Promise<string>;
 }
 
+/** lone-ESC 判定窗时长（对齐主屏管线 DEFAULT_ESCAPE_WINDOW_MS = 30ms——
+ * tui-backend.ts / engine.ts 两处模块私有不可导入〔通道公开面三名纪律〕，
+ * 本地常量同值指源；主屏 lone-ESC 消歧同窗防线） */
+const ONBOARDING_ESCAPE_WINDOW_MS = 30;
+
 /**
  * 产线单键读真身（onboarding ob-2 面板装配位消费）：cooked 窗面板行写出后
- * raw 窗收一键（echo 关——键不入回显流），读后复原先验 raw 态（面板期恒
+ * raw 窗收一键（echo 关——键不入回显流），读后复先后验 raw 态（面板期恒
  * cooked 进 cooked 还——backend 起屏自会再进 raw）。原始字节经
  * normalizeOnboardingKey 归一（判据单源在面板件——转义序列不冒充 esc）。
+ *
+ * lone-ESC 判定窗（主屏 30ms 窗同律）：恰单字符 '\x1b' 的首 chunk 可能是
+ * 转义序列被传输拆片的首片（SSH 高延迟/tmux passthrough——方向键 \x1b[A
+ * 分两 chunk 到达）——窗内收得续字节则并归整段按转义序列处 unknown（面板
+ * 对未知键忽略、循环再读下一键——normalizeOnboardingKey 判据面）；窗尽
+ * 无续才返回 'escape'（真单发 Esc，面板退出键）。非 ESC 形零等待直归一。
  */
 async function readSingleKeyFromIo(io: TerminalIO): Promise<string> {
   const wasRaw = io.isRaw();
   io.setRawMode(true);
   try {
-    const data = await new Promise<string>((resolve) => {
+    let data = await new Promise<string>((resolve) => {
       const unsubscribe = io.onInput((chunk) => {
         unsubscribe();
         resolve(chunk);
       });
     });
+    // 判定窗只对恰单字符 ESC 的 chunk 开（预读首片窗——raw 态保持窗全程）
+    if (data === '\x1b') {
+      const continuation = await new Promise<string | undefined>((resolve) => {
+        let settled = false;
+        let timer: NodeJS.Timeout | undefined;
+        const finish = (value: string | undefined): void => {
+          if (settled) return; // 先到者胜（续片/窗尽竞速——恰一笔结算）
+          settled = true;
+          if (timer !== undefined) clearTimeout(timer); // 定时器恒清（零泄漏）
+          unsubscribe();
+          resolve(value);
+        };
+        const unsubscribe = io.onInput((chunk) => finish(chunk));
+        timer = setTimeout(() => finish(undefined), ONBOARDING_ESCAPE_WINDOW_MS);
+      });
+      if (continuation !== undefined) {
+        data += continuation; // '\x1b[A' 整段并归——normalize 判 unknown（转义序列）
+      }
+    }
     return normalizeOnboardingKey(data);
   } finally {
     io.setRawMode(wasRaw);
   }
 }
+export { readSingleKeyFromIo }; // 测试消费面（exitCommandItems 同先例——单键读真身行为锁）
 
 /**
  * TUI 主入口。阻塞至用户退出（ctrl+d 空框）或异常；返回进程退出码。

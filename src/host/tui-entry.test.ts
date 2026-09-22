@@ -23,7 +23,7 @@ import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { sandboxModeReceipt, thinkingLevelReceipt } from './session-tier-copy.js';
-import { exitCommandItems, commandArgumentItems, runTuiEntry } from './tui-entry.js';
+import { exitCommandItems, commandArgumentItems, runTuiEntry, readSingleKeyFromIo } from './tui-entry.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 
@@ -1154,6 +1154,37 @@ describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第�
     expect(keyCalled).toBe(false); // 键源零调用 = 面板零进入
     io.send('\x04');
     expect(await entry).toBe(0);
+  });
+});
+
+describe('readSingleKeyFromIo lone-ESC 判定窗（产线单键读真身——SSH 高延迟/tmux 拆片防线）', () => {
+  it('分片转义序列（\\x1b 与 [A 两 chunk 相邻到达）→ unknown 归一不冒充 esc（修前红：首片即决回 escape 即踢出面板）', async () => {
+    const io = new FakeTerminalIO();
+    const read = readSingleKeyFromIo(io);
+    io.send('\x1b');
+    // 首片决议微任务冲完 + 续片窗订阅落位（真实传输两 data 事件本就异拍——
+    // 微任务间隔是物理保守形）
+    await tick();
+    io.send('[A'); // 窗内续片（30ms 判定窗内到达——方向键上 \x1b[A 拆片形）
+    expect(await read).toBe('unknown'); // 面板对 unknown 忽略继续等下一键——不退出
+    expect(io.isRaw()).toBe(false); // 读毕复先后验 raw 态（面板期恒 cooked 还）
+  });
+
+  it('真单发 \\x1b：窗尽无续 → escape（面板退出键照常）', async () => {
+    const io = new FakeTerminalIO();
+    const read = readSingleKeyFromIo(io);
+    io.send('\x1b');
+    await new Promise((resolve) => setTimeout(resolve, 60)); // 窗尽（30ms 判定窗 + 余量）
+    expect(await read).toBe('escape');
+    expect(io.isRaw()).toBe(false);
+  });
+
+  it('非 ESC 键零等待直归一（判定窗只对恰单字符 \\x1b 的 chunk 开）', async () => {
+    const io = new FakeTerminalIO();
+    const read = readSingleKeyFromIo(io);
+    io.send('q');
+    expect(await read).toBe('q');
+    expect(io.isRaw()).toBe(false);
   });
 });
 
