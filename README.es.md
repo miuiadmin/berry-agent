@@ -30,7 +30,7 @@ existe ninguna vía privada de primer partido.
 **16** plugins integrados · DAG unidireccional de **28** módulos · **5.000+** tests ·
 **6** contratos de publicación verificados por máquina · **0** telemetría
 
-> Estado: `0.1.0-alpha.12` — guiado por contratos, construido en porciones
+> Estado: `0.1.0-alpha.13` — guiado por contratos, construido en porciones
 > verticales; la superficie de API aún puede cambiar antes de la 1.0.
 
 </div>
