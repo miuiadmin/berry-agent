@@ -79,10 +79,11 @@ export function forgeBeforeCompactIdentity(produced: unknown, received: unknown,
 /* ---------------- 席位容器（配置槽 + provider 槽） ---------------- */
 
 /**
- * 数值配置字段域表（setConfig fail-loud 判据单源）：七字段两族——正数域
+ * 数值配置字段域表（setConfig fail-loud 判据单源）：八字段两族——正数域
  * （0 亦拒：thresholdRatio 0 = 永不触发即静默停用压缩的装配错误；比率族
- * 同理）与 ≥0/≥1 域（0 合法位：cooldownMs 0 = 无冷却、summary 两帽 0 =
- * 常量零；tailKeep 0 = messages[length-0] 越界崩溃位故 ≥1 整数）。
+ * 同理；materialBudgetChars 0 = 素材零预算即全折叠的装配错误）与 ≥0/≥1 域
+ * （0 合法位：cooldownMs 0 = 无冷却、summary 两帽 0 = 常量零；tailKeep 0 =
+ * messages[length-0] 越界崩溃位故 ≥1 整数）。
  * 判据为结构域检查非策略调参——坏值拒于落席，防 planSegment 越界崩溃
  * 与机制面行为静默异化（数值系宿主机制参数非策略算法，域不由插件定）。
  */
@@ -98,6 +99,7 @@ const CONFIG_FIELD_DOMAINS: ReadonlyArray<{
   { field: 'summaryMinChars', valid: (v) => v >= 0, domain: '≥0' },
   { field: 'summaryMaxChars', valid: (v) => v >= 0, domain: '≥0' },
   { field: 'fallbackWindowTokens', valid: (v) => v > 0, domain: '正数' },
+  { field: 'materialBudgetChars', valid: (v) => v > 0, domain: '正数' },
 ];
 
 /**
@@ -125,7 +127,7 @@ function assertConfigDomain(pluginId: string, partial: Partial<CompactionConfig>
  */
 export interface CompactionPluginFace {
   /**
-   * 数值配置槽（Partial<CompactionConfig> 合并——字段射程 = 全七字段，两路同
+   * 数值配置槽（Partial<CompactionConfig> 合并——字段射程 = 全八字段，两路同
    * 生效：数值是宿主机制参数非策略算法）。席位者重设 = 更新己方 partial；
    * 他插件后到拒 `COMPACTION_CONFIG_TAKEN`；数值域外值拒
    * `COMPACTION_CONFIG_INVALID`（判据单源 CONFIG_FIELD_DOMAINS——tailKeep

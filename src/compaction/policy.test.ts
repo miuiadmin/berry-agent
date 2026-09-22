@@ -13,6 +13,7 @@ import {
   evaluateThreshold,
   inCooldown,
   planSegment,
+  prepareTranscript,
   previousSummaryText,
   summaryBudgetFor,
 } from './policy.js';
@@ -346,11 +347,69 @@ describe('buildSummaryPrompt', () => {
     expect(prompt).toContain('前次摘要正文');
     expect(prompt).toContain('2000');
     expect(prompt).toContain('"type": "user"'); // 投影消息 JSON 在场
+    // 保真纪律行（行为纪律三条之①）：关键精确标识逐字保留
+    expect(prompt).toContain('逐字保留');
+    expect(prompt).toContain('不得意译');
   });
 
   it('无前次摘要时不落迭代链段', () => {
     const prompt = buildSummaryPrompt({ occluded: [], previousSummary: null, maxChars: 100 });
     expect(prompt).not.toContain('前次压缩摘要');
+  });
+});
+
+/* ---------------- 素材侧降级（05 §2.1 行为纪律三条之③） ---------------- */
+
+/** 三轮日志 + turn2 巨工具结果——降级夹具（output 双形：string / 块数组） */
+function bulkyLog(
+  output: string | ReadonlyArray<{ type: 'text'; text: string }> = 'A'.repeat(10_000) + '尾部哨兵',
+): SessionLog {
+  const log = makeLog();
+  addTurn(log, '任务指令 1');
+  log.append('turn/start', {});
+  log.append('user/message', { content: '读取大文件', source: 'user' });
+  log.append('assistant/message', { content: [{ type: 'text', text: '答:读取大文件' }] });
+  log.append('tool/call', { toolCallId: 'tc-big', name: 'read_file', arguments: { path: '/tmp/big.txt' } });
+  log.append('tool/result', { toolCallId: 'tc-big', content: output });
+  log.append('turn/end', { reason: 'completed' });
+  addTurn(log, '任务指令 3');
+  return log;
+}
+
+describe('prepareTranscript（素材侧降级——先削弱细节再折叠旧结果）', () => {
+  it('预算内零降级：stage=full、消息原引用透传', () => {
+    const before = bulkyLog().projection();
+    const r = prepareTranscript(before, 100_000);
+    expect(r.stage).toBe('full');
+    expect(r.messages).toEqual(before); // 原样（零克隆零改写）
+  });
+
+  it('Level 1 工具结果截断保头：超帽条保头 + 尾标记、stage=results-capped、不 mutate 入参', () => {
+    const before = bulkyLog().projection(); // 全量 ≈ 10.6k 字符
+    const r = prepareTranscript(before, 6_000); // 截后 ≈ 4.7k < 6k → Level 1 达标
+    expect(r.stage).toBe('results-capped');
+    const serialized = JSON.stringify(r.messages);
+    expect(serialized).toContain('工具结果超帽截断'); // 尾标记说明在场
+    expect(serialized).not.toContain('尾部哨兵'); // 尾部已截（修前红锚：全量透传则在场）
+    expect(serialized).toContain('AAAA'); // 保头（前 4000 字符）
+    // 不 mutate：入参数组的消息本体未被改写（原 output 仍 10k+）
+    const toolBefore = before.find((m) => m.type === 'toolResult')!;
+    expect((toolBefore as { output: string }).output.length).toBeGreaterThan(10_000);
+  });
+
+  it('Level 2 旧结果整体折叠：预算极小时最老 toolResult 占位、块数组形在此兜住', () => {
+    // 块数组形 output（Level 1 只截 string 形——块数组截不动留 Level 2 兜）
+    const before = bulkyLog([{ type: 'text', text: 'C'.repeat(6_000) }]).projection(); // 全量 ≈ 6.6k
+    const r = prepareTranscript(before, 1_000); // Level 1 够不着 → 折叠后 ≈ 0.7k < 1k
+    expect(r.stage).toBe('old-collapsed');
+    expect(JSON.stringify(r.messages)).toContain('工具结果折叠占位');
+    expect(JSON.stringify(r.messages)).not.toContain('CCCC');
+  });
+
+  it('折叠耗尽仍超 = exhausted 照发（降级素材优于拒绝压缩）', () => {
+    const r = prepareTranscript(bulkyLog().projection(), 100); // 连文本都装不下
+    expect(r.stage).toBe('exhausted');
+    expect(r.messages.length).toBe(7); // 消息数不减——照发
   });
 });
 

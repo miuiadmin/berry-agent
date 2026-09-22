@@ -99,6 +99,13 @@ export interface CompactionConfig {
   readonly summaryMaxChars: number;
   /** 兜底窗口 token 数：真 contextUsage 缺席时的换算分母（缺省 200_000） */
   readonly fallbackWindowTokens: number;
+  /**
+   * 宿主缺省算法摘要素材预算字符（缺省 200_000）：素材（遮蔽区间投影 JSON）
+   * 超此值先降级再进 prompt——先削弱细节（工具结果逐条截断）再折叠旧结果，
+   * 防重度溢出时自救压缩请求自身超窗。**属宿主缺省算法内政**：插件算法
+   * 素材自治，不受此约束（05 §2.1 行为纪律三条之③）。
+   */
+  readonly materialBudgetChars: number;
 }
 
 /** 缺省配置（05 §2.1「摘要参数」+「防抖三件」+「阈值」段定值——首版实测后调） */
@@ -110,6 +117,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   summaryMinChars: 2000,
   summaryMaxChars: 12000,
   fallbackWindowTokens: 200_000,
+  materialBudgetChars: 200_000,
 };
 
 /**

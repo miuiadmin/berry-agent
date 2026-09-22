@@ -1001,3 +1001,68 @@ describe('obs-b 压缩判据观测（compaction/skip 五门）', () => {
     expect(log.eventsOfType('compaction/end')).toHaveLength(1); // 复原即真压
   });
 });
+
+/* ---------------- 行为纪律三条（A2 产物防线 / A3 素材降级 / A4 溢出兜底实证） ---------------- */
+
+describe('行为纪律三条（05 §2.1 吸收批——产物收益防线 + 素材侧降级）', () => {
+  /** 六轮中 turn2 带巨工具结果（50k 字符）——投影 13 条，遮蔽区间内含巨 output */
+  function bulkyLog(sessionId = 's-1'): SessionLog {
+    const log = new SessionLog({ sessionId });
+    for (let i = 1; i <= 6; i++) {
+      log.append('turn/start', {});
+      log.append('user/message', { content: `任务指令 ${i}`, source: 'user' });
+      log.append('assistant/message', { content: [{ type: 'text', text: `回答 ${i}` }] });
+      if (i === 2) {
+        log.append('tool/call', { toolCallId: 'tc-big', name: 'read_file', arguments: { path: '/tmp/big.txt' } });
+        log.append('tool/result', { toolCallId: 'tc-big', content: 'B'.repeat(50_000) + '尾部哨兵串' });
+      }
+      log.append('turn/end', { reason: 'completed' });
+    }
+    return log;
+  }
+
+  it('A4 实证：素材超预算先降级再进 prompt——巨结果被截、warn 落降级档、照常 completed（重度溢出时自救调用不再自身溢出）', async () => {
+    const rig = makeRig(['压缩完成摘要'], { config: { materialBudgetChars: 6_000 } });
+    const log = bulkyLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    expect(rig.calls).toHaveLength(1);
+    // 修前红锚：原实现素材全量透传（prompt ≈ 50k+ 含尾部哨兵）
+    expect(rig.calls[0]!.prompt).not.toContain('尾部哨兵串');
+    expect(rig.calls[0]!.prompt.length).toBeLessThan(20_000);
+    expect(rig.calls[0]!.prompt).toContain('工具结果超帽截断');
+    // 降级档位走 warn 可观测面（不立 durable 位——触发低频审计价值低）
+    expect(rig.warns.join('\n')).toContain('COMPACTION_MATERIAL_DEGRADED');
+    expect(log.eventsOfType('compaction/end').at(-1)!.data).toMatchObject({ reason: 'completed' });
+  });
+
+  it('A2 宿主路：产物超预算两倍按通道失败拒收——end-failed（防「遮五千换一万二」负收益压缩落账）', async () => {
+    // sixTurnLog 区间 ≈ 1k 字符 → maxChars = min 帽 2000 → 两倍线 4000；产物 5000 超线
+    const rig = makeRig(['z'.repeat(5_000)]);
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    // 修前红锚：原实现超长产物照常落账 completed（压缩越压越长）
+    expect(log.eventsOfType('compaction/end').at(-1)!.data).toMatchObject({ reason: 'failed' });
+    expect(rig.warns.join('\n')).toContain('超预算两倍');
+    // 拒收即闭段：无 surface 遮蔽落账（原文保留——回落三律第 2 律）
+    expect(log.eventsOfType('compaction/surface')).toHaveLength(0);
+  });
+
+  it('A2 插件路：产物超线 fallback stage=rejected 计三振、回落宿主完成（全算法路执法）', async () => {
+    const rig = makeRig(['回落宿主摘要'], {
+      getProvider: () => ({
+        pluginId: 'p-x',
+        fn: async () => ({ text: 'y'.repeat(5_000) }), // 超两倍线（2000 × 2）
+      }),
+    });
+    const log = sixTurnLog();
+    rig.service.handleRunSettled({ log, usage: FIRE_USAGE });
+    await rig.service.drain();
+    // 修前红锚：原实现无产物长度检查——超长产物照常采信 summarizer=plugin:p-x
+    const fallback = log.eventsOfType('compaction/fallback').at(-1)!;
+    expect(fallback.data).toMatchObject({ source: 'plugin:p-x', stage: 'rejected' });
+    expect(log.eventsOfType('compaction/end').at(-1)!.data).toMatchObject({ reason: 'completed' });
+    expect(log.eventsOfType('compaction/start').at(-1)!.data).toMatchObject({ summarizer: 'host' }); // 回落直达宿主
+  });
+});

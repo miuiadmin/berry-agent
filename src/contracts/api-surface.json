@@ -1286,7 +1286,7 @@
       "module": "services",
       "tier": "stable",
       "since": "1.0",
-      "desc": "数值配置槽（Partial<CompactionConfig> 合并——字段射程 = 全七字段，两路同生效：数值是宿主机制参数非策略算法）",
+      "desc": "数值配置槽（Partial<CompactionConfig> 合并——字段射程 = 全八字段，两路同生效：数值是宿主机制参数非策略算法）",
       "sig": "eaed545e9db39e4a"
     },
     {

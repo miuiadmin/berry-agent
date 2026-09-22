@@ -35,6 +35,7 @@ import {
   evaluateThreshold,
   planFromRange,
   planSegment,
+  prepareTranscript,
   previousSummaryText,
   SUMMARY_PREFIX,
   summaryBudgetFor,
@@ -71,6 +72,9 @@ class AlgoTimeoutError extends Error {}
 
 /** 插件路空文本产物标记（fallback stage='rejected' 判型用——同宿主通道失败律计入三振） */
 class AlgoEmptyTextError extends Error {}
+
+/** 插件路产物超预算标记（05 §2.1 行为纪律三条之②——stage='rejected' 计三振，与空文本同族） */
+class AlgoOverrunError extends Error {}
 
 /** 组装选项（host 装配面） */
 export interface CompactionServiceOptions {
@@ -213,21 +217,39 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
     return -1;
   }
 
-  /** 宿主通道执行（直选路与回落位共用）：五段结构 prompt + 迭代链前次摘要 + 字符制预算 */
+  /**
+   * 宿主通道执行（直选路与回落位共用）：五段结构 prompt + 迭代链前次摘要 +
+   * 字符制预算。素材超预算先降级再进 prompt（行为纪律三条之③——宿主缺省
+   * 算法内政；降级档位走 warn 可观测面不立 durable 位，触发低频审计价值低）。
+   * 产物两查：空文本、显著超预算（超 maxChars 两倍——行为纪律三条之②防
+   * 「遮五千换一万二」负收益压缩）皆按通道失败收口。
+   */
   async function runHost(log: SessionLog, plan: SegmentPlan): Promise<string> {
+    const maxChars = summaryBudgetFor(plan.occludedChars, getConfig());
+    const material = prepareTranscript(plan.occluded, getConfig().materialBudgetChars);
+    if (material.stage !== 'full') {
+      warn(
+        `[COMPACTION_MATERIAL_DEGRADED] ${log.sessionId}: stage=${material.stage}（摘要素材超预算已降级——先削弱细节再折叠旧结果；重度溢出时防自救调用自身溢出）`,
+      );
+    }
     const response = await channel!.complete({
       prompt: buildSummaryPrompt({
-        occluded: plan.occluded,
+        occluded: material.messages,
         previousSummary: previousSummaryText(log.events()),
-        maxChars: summaryBudgetFor(plan.occludedChars, getConfig()),
+        maxChars,
       }),
-      maxChars: summaryBudgetFor(plan.occludedChars, getConfig()),
+      maxChars,
       // 归因穿线（04 §5 单发计量批 mq）：压缩会话 id 供通道真身落 llm/usage——
       // 「压缩本就是该会话的压缩」归因就近诚实
       sessionId: log.sessionId,
     });
     // 空摘要 = 通道质量异常——按通道失败收口（把内容遮在空摘要后是静默信息丢失）
     if (response.text.trim().length === 0) throw new Error('摘要通道返回空文本');
+    // 显著超预算 = 通道质量异常同族——负收益压缩拒收（遮蔽量 < 摘要量时照常
+    // 落账即「压缩越压越长」，两倍线是容忍带而非许可带）
+    if (response.text.length > maxChars * 2) {
+      throw new Error(`摘要产物超预算两倍（${response.text.length} > ${maxChars * 2} 字符）——按通道失败拒收`);
+    }
     return response.text;
   }
 
@@ -263,24 +285,34 @@ export function createCompactionService(options: CompactionServiceOptions = {}):
       return { text: await runHost(log, plan), summarizer: 'host' };
     }
     try {
+      const maxChars = summaryBudgetFor(plan.occludedChars, getConfig());
       const response = await withTimeout(
         algo.fn({
           sessionId: log.sessionId,
           occluded: plan.occluded,
           previousSummary: previousSummaryText(log.events()) ?? undefined,
-          maxChars: summaryBudgetFor(plan.occludedChars, getConfig()),
+          maxChars,
           plan,
         }),
         algoTimeoutMs,
       );
       // 空文本产物同宿主通道失败律（fiveStep 既有）——计入三振
       if (response.text.trim().length === 0) throw new AlgoEmptyTextError('插件算法返回空文本');
+      // 产物收益防线（行为纪律三条之②）全算法路执法：插件产物同查超线——
+      // 防插件「照抄原文」式超长产物绕过预算（素材自治 ≠ 产物无界）
+      if (response.text.length > maxChars * 2) {
+        throw new AlgoOverrunError(`插件算法产物超预算两倍（${response.text.length} > ${maxChars * 2} 字符）`);
+      }
       strikes.delete(algo.pluginId); // 复位：同 pluginId 任一路成功即清
       return { text: response.text, summarizer: `plugin:${algo.pluginId}` };
     } catch (err) {
-      // 失败三形态判型：超预算 / 空文本产物 / 抛错（stage 词面 05 §1.1）
+      // 失败三形态判型：超预算 / 空文本或超线产物（rejected 族）/ 抛错（stage 词面 05 §1.1）
       const stage =
-        err instanceof AlgoTimeoutError ? 'timeout' : err instanceof AlgoEmptyTextError ? 'rejected' : 'throw';
+        err instanceof AlgoTimeoutError
+          ? 'timeout'
+          : err instanceof AlgoEmptyTextError || err instanceof AlgoOverrunError
+            ? 'rejected'
+            : 'throw';
       const count = (strikes.get(algo.pluginId) ?? 0) + 1;
       const circuit = count >= STRIKE_LIMIT;
       strikes.set(algo.pluginId, count);

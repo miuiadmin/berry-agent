@@ -220,12 +220,59 @@ function plainTextOf(content: unknown): string | null {
   return null;
 }
 
+/* ---------------- 素材侧降级（05 §2.1 行为纪律三条之③） ---------------- */
+
+/** 素材降级档位：full 预算内零降级 → results-capped 工具结果逐条截断 → old-collapsed 旧结果整体折叠 → exhausted 折叠耗尽仍超（照发） */
+export type MaterialStage = 'full' | 'results-capped' | 'old-collapsed' | 'exhausted';
+
+/** Level 1 单条工具结果截断帽（保头字符数——超帽条截断保头 + 尾标记说明） */
+const RESULT_CAP_CHARS = 4_000;
+
+/** 素材总字符尺（与 planFromRange occludedChars 同源——逐消息 JSON 长度和） */
+function materialChars(messages: readonly ProjectedMessage[]): number {
+  return messages.reduce((sum, m) => sum + JSON.stringify(m, null, 2).length, 0);
+}
+
+/**
+ * 素材侧降级（宿主缺省算法内政——插件算法素材自治不受此约束）：素材超预算
+ * 先削弱细节再删除内容、先旧后新（降级序律）。两级：① results-capped——
+ * 超帽工具结果逐条截断保头（string 形；块数组形截不动留②兜）；②
+ * old-collapsed——仍超则从最老 toolResult 起整体折叠为占位说明（块数组形
+ * 在此兜住）。折叠耗尽仍超 = exhausted 照发（降级素材仍优于原文全量——比
+ * 拒绝压缩好）。纯函数：不 mutate 入参（克隆替换 output 字段）。
+ */
+export function prepareTranscript(
+  occluded: readonly ProjectedMessage[],
+  budgetChars: number,
+): { messages: ProjectedMessage[]; stage: MaterialStage } {
+  if (materialChars(occluded) <= budgetChars) return { messages: [...occluded], stage: 'full' };
+  // Level 1 工具结果逐条截断保头（string 形——本仓工具结果主形）
+  const capped = occluded.map((m) => {
+    if (m.type !== 'toolResult' || typeof m.output !== 'string' || m.output.length <= RESULT_CAP_CHARS) return m;
+    return {
+      ...m,
+      output: `${m.output.slice(0, RESULT_CAP_CHARS)}\n…[工具结果超帽截断：原 ${m.output.length} 字符，保留前 ${RESULT_CAP_CHARS}]`,
+    };
+  });
+  if (materialChars(capped) <= budgetChars) return { messages: capped, stage: 'results-capped' };
+  // Level 2 从最老 toolResult 起整体折叠占位（先旧后新——逐条折叠至达标或耗尽）
+  const folded = [...capped];
+  for (let i = 0; i < folded.length && materialChars(folded) > budgetChars; i++) {
+    const m = folded[i]!;
+    if (m.type !== 'toolResult') continue;
+    const omitted = JSON.stringify(m.output, null, 2).length;
+    folded[i] = { ...m, output: `[工具结果折叠占位：${m.toolName}，原 ${omitted} 字符]` };
+  }
+  return { messages: folded, stage: materialChars(folded) <= budgetChars ? 'old-collapsed' : 'exhausted' };
+}
+
 /* ---------------- 摘要提示词（05 §2.1「摘要参数」五段结构） ---------------- */
 
 /**
  * 摘要提示词组装：五段结构（任务概述/关键决策/未竟事项/工具与文件痕迹/下一步
- * 建议）+ 迭代链前次摘要并入 + 目标长度预算行。对话原文以 JSON 透传（complete
- * 通道对素材自行取舍——投影消息形即对话真身）。
+ * 建议）+ 迭代链前次摘要并入 + 目标长度预算行 + 保真纪律行。对话原文以 JSON
+ * 透传（素材降级由调用方先行——service 组装序 prepareTranscript → 本函数；
+ * complete 通道对素材自行取舍——投影消息形即对话真身）。
  */
 export function buildSummaryPrompt(input: {
   occluded: readonly ProjectedMessage[];
@@ -245,6 +292,9 @@ export function buildSummaryPrompt(input: {
     '3. 未竟事项：已开始未完成的工作、待验证的假设；',
     '4. 工具与文件痕迹：已用工具、已读写的关键文件路径与结果要点；',
     '5. 下一步建议：紧接着最该做的事。',
+    // 保真纪律（05 §2.1 行为纪律三条之①）：关键精确标识逐字保留——「差不多」
+    // 改写破坏后续执行（路径/错误码/行号错一个字符即不可用）
+    '保真纪律：摘要须逐字保留关键精确标识——文件路径、错误码与错误文本要点、行号、命令与参数、数字阈值/版本号/配置值；这些内容不得意译、不得改写成相近表述、不得省略。',
     '只输出摘要正文，不要输出其他说明。' + previous,
     '',
     '## 待压缩对话（投影消息 JSON）',
