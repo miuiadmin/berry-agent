@@ -56,6 +56,7 @@ import { createConversationStack } from './conversation-stack.js';
 // B3 联动腿装配 seam 工厂（04 §3.3 条 8——authFamily/refreshNow/notify 三注入单点）
 import { createHostAuthRefreshSeam } from './auth-refresh-seam.js';
 import type { RefreshChainHandle } from '../credentials/index.js';
+import type { CredentialChangedPayload, CredentialsCommandStore } from '../credentials/index.js';
 import { SESSION_LIFECYCLE_EVENT } from '../conversation/index.js';
 import type { AgentService, ControlCaller } from '../conversation/index.js';
 import { AGENT_SERVICE_NAME } from '../conversation/index.js';
@@ -200,6 +201,16 @@ export interface AssemblySuccess {
    * 命令面已在本装配根注册（'reload' 词）；本柄外露 = 测试与入口层直驱。
    */
   readonly reloader: PluginReloader;
+  /**
+   * 凭证人面写 seam（ob-3 /setup 向导 saveBinding 消费位）：store + 审计
+   * 回调与 core:credentials 装配位（credentialsStore/credentialsOnChanged）
+   * 同一定义（单源——credentials/changed 审计两写路径平权，03 §10.9 写入
+   * 面；audit 单写者律不破——同一闭包表达式）。
+   */
+  readonly credentialsWrite: {
+    readonly store: CredentialsCommandStore;
+    readonly onCredentialChanged: (payload: CredentialChangedPayload) => void;
+  };
 }
 
 /** 宿主装配序主入口（async——装载管线内含 jiti ESM 求值） */
@@ -303,6 +314,15 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     // 受理 seam + 高危面动词 auditSink——插件面零写入位）；:memory: 诊断形
     // 同构接线（载体即内存库——durable 性诚实于载体）
     const audit = createAuditFace(runtime.persistence.store.connection);
+
+    // —— 凭证人面写 seam 单源（ob-3 /setup）：store + credentials/changed
+    // 审计回调一定义两消费——core:credentials 装配位与 AssemblySuccess
+    // .credentialsWrite（TUI 向导 saveBinding 路由 runCredentialsCommand 同
+    // 一审计面）——防双源漂移（凭证人面两写路径平权）——
+    const credentialsWrite = {
+      store: runtime.persistence.store,
+      onCredentialChanged: (payload: CredentialChangedPayload) => audit.append('credentials/changed', { ...payload }),
+    };
 
     // —— 装载史世代面（05 §9 load_generations——装载史批 h-3 写点接线）：
     // boot 完成尾落行、/reload reapply 尾换代（写点收在 bootPlugins 完成尾
@@ -851,7 +871,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
             store: runtimeNow.persistence.store,
             oauthRegistry: oauthFlows,
             onCapabilityUsed: (payload) => audit.append('capability/used', { ...payload }),
-            onCredentialChanged: (payload) => audit.append('credentials/changed', { ...payload }),
+            onCredentialChanged: credentialsWrite.onCredentialChanged, // 单源（audit 创建位一定义）
           },
           // 进程级审计流面（U3 批 U3-5——auditSink 透传 + boot plugin/opens 幂等 diff）
           audit,
@@ -1028,11 +1048,10 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
               ...(issueToken !== undefined && issueToken !== '' ? { issueGithubToken: issueToken } : {}),
               ...(issueSecret !== undefined && issueSecret !== '' ? { issueWebhookSecret: issueSecret } : {}),
               // —— credentials 人面命令两 seam（c-5——03 §10.9 写入面）——
-              // store = persist 真身直传（CredentialsCommandStore 四法投影，
-              // 词面独立律 compat 面）；审计 seam 真接线（c-5 挂账 U3-5 兑现——
-              // 人面 add/rm 成功即落 credentials/changed，值恒不入载荷）
-              credentialsStore: runtimeNow.persistence.store,
-              credentialsOnChanged: (payload) => audit.append('credentials/changed', { ...payload }),
+              // 单源消费 credentialsWrite（audit 创建位一定义——ob-3 /setup
+              // 向导写路径同面平权）；词面独立律 compat 面直传
+              credentialsStore: credentialsWrite.store,
+              credentialsOnChanged: credentialsWrite.onCredentialChanged,
               // —— oauth 流受局面（c-6——03 §10.9 oauth 案）：注册表同真身 +
               // SSRF 守卫包裹 fetch（web 卫生单源——上方 oauthFetch 单源）+
               // 刷新链 60s 自驱缺省 + 单败 warn 走宿主 logger
@@ -1470,7 +1489,18 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
 
     // ready 瞬时相位只发 end（start/end 成对落在耗时阶段——收尾行无起跑行）
     emitBootStage('ready', 'end');
-    return { ok: true, runtime, logger, dispatch, scope, stack, boot, pluginCounts, reloader };
+    return {
+      ok: true,
+      runtime,
+      logger,
+      dispatch,
+      scope,
+      stack,
+      boot,
+      pluginCounts,
+      reloader,
+      credentialsWrite,
+    };
   } catch (err) {
     // 意外异常 = 崩溃取证档：crash.log 先写（memory 形内建跳过）→ 资源收口 → 归一失败档
     runtime?.writeCrashLog(err);

@@ -2189,6 +2189,112 @@ describe('streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面 +
     await rt.shutdown();
   });
 
+  // —— ob-3 连通微探针（07 ob-3 改裁注）：1-token 真供血路探活 + probe: 形落账 ——
+
+  /** 探针 rig：捕获到达模型层的 apiKey（显式位直供血断言——不经绑定行回读） */
+  function rigProbe(rt: HostRuntime, overrides: Partial<ConversationStackOptions> = {}) {
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const seen: Array<string | undefined> = [];
+    const stack = createConversationStack({
+      runtime: rt,
+      providers: [faux.provider],
+      model: 'faux-stack/m1',
+      env: {},
+      ...overrides,
+    });
+    const session = stack.openStartupSession(rigWorkspace());
+    const arm = (stopReason: 'stop' | 'error') =>
+      faux.setResponses([
+        (_context: unknown, options: { apiKey?: string } | undefined) => {
+          seen.push(options?.apiKey);
+          return probeMessage(stopReason);
+        },
+      ]);
+    return { stack, session, seen, arm };
+  }
+
+  /** 探针响应消息：带计量 stop 形（落账源）/ error 形（errorMessage 入回执） */
+  const probeMessage = (stopReason: 'stop' | 'error'): PiAssistantMessage =>
+    ({
+      role: 'assistant',
+      content: stopReason === 'stop' ? [{ type: 'text', text: 'ok' }] : [],
+      usage: stopReason === 'stop' ? { input: 2, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 3 } : NO_USAGE,
+      stopReason,
+      ...(stopReason === 'error' ? { errorMessage: '[401] invalid x-api-key' } : {}),
+      timestamp: 1,
+    }) as unknown as PiAssistantMessage;
+
+  it('probeModelConnectivity：新录 key 显式位直供血 + ok 回执 + probe: 形落账 foreground', async () => {
+    const { rt } = rigRuntime();
+    const { stack, session, seen, arm } = rigProbe(rt);
+    arm('stop');
+    const verdict = await stack.probeModelConnectivity('faux-stack/m1', 'probe-key', {
+      sessionId: session.sessionId,
+    });
+    // 供血：向导新录 key 直达模型层（录入前即可验证——不经绑定行回读）
+    expect(seen).toEqual(['probe-key']);
+    expect(verdict.ok).toBe(true);
+    expect(verdict.detail).toContain('faux-stack/m1'); // 实录模型入回执
+    // 落账：probe: 前缀唯一 callId + foreground + 有计量即真值（数额是 faux
+    // withUsageEstimate 估算面非锁面——「计量动态取转抄值律」不硬编同先例）
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const usageEvents = events.filter((e) => e.type === 'llm/usage');
+    expect(usageEvents).toHaveLength(1);
+    const pen = usageEvents[0]!.data as Record<string, unknown>;
+    expect(String(pen['callId'])).toMatch(/^probe:[0-9a-f-]{36}$/);
+    expect(pen['priority']).toBe('foreground');
+    const ledger = pen['usage'] as { input: number; output: number };
+    expect(ledger.input + ledger.output).toBeGreaterThan(0);
+    await rt.shutdown();
+  });
+
+  it('probeModelConnectivity：error 终态折失败数据 + 零用量不造零账（永不抛契约）', async () => {
+    const { rt } = rigRuntime();
+    const { stack, session, arm } = rigProbe(rt);
+    arm('error');
+    const verdict = await stack.probeModelConnectivity('faux-stack/m1', 'probe-key', {
+      sessionId: session.sessionId,
+    });
+    // 失败折数据：errorMessage 直落 detail（向导「连通性未验证」注记源）
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toContain('401');
+    // 落账若发生（faux withUsageEstimate 覆写脚本 usage——error 终态计量
+    // 非零属实况形）则恒 probe: 归因——账面零盲区；零用量造零账守卫由
+    // spent>0 守卫承担（faux 下零计量不可构造——prompt 估算恒非零）
+    const events = stack.driverOf(session.sessionId)!.session.events();
+    const usageEvents = events.filter((e) => e.type === 'llm/usage');
+    expect(usageEvents.every((e) => String((e.data as Record<string, unknown>)['callId']).startsWith('probe:'))).toBe(
+      true,
+    );
+    await rt.shutdown();
+  });
+
+  it('probeModelConnectivity：metering 缺席 = 有计量仍回执 + warn 丢账不静默（onUsage 同律）', async () => {
+    const { rt } = rigRuntime();
+    const warns: string[] = [];
+    const { stack, arm } = rigProbe(rt, { warn: (m) => warns.push(m) });
+    arm('stop');
+    const verdict = await stack.probeModelConnectivity('faux-stack/m1', 'probe-key');
+    expect(verdict.ok).toBe(true); // 探活回执与落账归因分立——缺归因不假失败
+    expect(warns.some((w) => w.includes('探针落账跳过'))).toBe(true);
+    await rt.shutdown();
+  });
+
+  it('bindingApiKeyOf（向导重入默认值腿）：胜出行原值回投 + env 遮蔽回 undefined', async () => {
+    const { rt } = rigRuntime();
+    bindRow(rt, 'host', 'k-wiz', 'row-key-9999');
+    const wizard = rigProbe(rt);
+    expect(wizard.stack.bindingApiKeyOf('faux-stack/m1')).toBe('row-key-9999'); // 值只进流程「空录入沿用」位
+    await rt.shutdown();
+
+    // env 遮蔽位：host 域行 env 在场 env 胜——同判据回 undefined（向导不误呈旧值）
+    const envRt = rigRuntime().rt;
+    bindRow(envRt, 'host', 'k-wiz2', 'shadowed-row-key');
+    const shadowed = rigProbe(envRt, { env: { FAUX_STACK_API_KEY: 'env-key' } });
+    expect(shadowed.stack.bindingApiKeyOf('faux-stack/m1')).toBeUndefined();
+    await envRt.shutdown();
+  });
+
   it('env 优先律（host 域行）：env 在场 env 胜——不透传行值走 ambient 既有形（保形半 + 静态无刷新面语义）', async () => {
     const { rt } = rigRuntime();
     const warns: string[] = [];

@@ -24,6 +24,7 @@
  * memory 形降级（05 §6.6/07 §5）：runtime.dataDir === null 时 open 域工具整面
  * 缺席（守门恒排除位必填真 dataDir）——纯对话 run，工具面类型可选的诚实降级。
  */
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 import { canonicalWorkspaceRoot, EventDispatch, Scope } from '../context/index.js';
@@ -306,6 +307,25 @@ export interface ConversationStack {
    */
   modelCredentialStatus(modelSpec?: string): 'ready' | 'unconfigured';
   /**
+   * 当前绑定行 key 原值读面（ob-3 向导重入默认值）：供血胜出行原值——
+   * env 遮蔽位/行缺席位回 undefined（与供血判据同执法双分立）；值只进
+   * 向导流程「空录入沿用」位，呈现面恒掩码预览（值不入面）。
+   */
+  bindingApiKeyOf(modelSpec: string): string | undefined;
+  /**
+   * 连通微探针（ob-3——07 ob-3 改裁注机制形）：与主对话同一 StreamFn 传输
+   * 路的 1-token 探针（专用工厂 maxTokens=1 帽支出 + 显式 apiKey 位携向导
+   * 新录 key——供血真路单源，非第二传输实现）；15s 双帽（AbortSignal 请求
+   * 级 + timeoutMs 连接级）；usage 入 llm/usage 账（priority foreground、
+   * callId `probe:` 形——账面零盲区；metering 缺席 = 丢账 warn 不静默）。
+   * 失败回 {ok:false, detail}——错误是数据（StreamFn 永不抛契约同守）。
+   */
+  probeModelConnectivity(
+    modelSpec: string,
+    apiKey: string,
+    metering?: { sessionId: string },
+  ): Promise<{ ok: boolean; detail: string }>;
+  /**
    * 会话维视图（e-2 观测腿——SessionView 纯派生读面）：装配根消费位 =
    * 插件订阅 tree 档过滤（sessionLineage 注入 plugin-boot）。工具族装配在
    * 栈内 per-session 闭包（不经本面）。
@@ -523,6 +543,16 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const baseStreamFn = createStreamFn(
     llmRuntime,
     llmIdleTimeoutMs > 0 ? { idleTimeoutMs: llmIdleTimeoutMs } : {},
+    tracker,
+    options.hookDispatchGuard,
+  );
+  // —— ob-3 连通微探针专用工厂（07 ob-3 改裁注）：maxTokens=1 帽支出 +
+  // 连接级 15s 帽——maxTokens 是 StreamFnDefaults 构造期键非 per-call，专用
+  // 工厂是唯一帽支出法；与主链路 baseStreamFn 分立 defaults 不相扰（同一
+  // createStreamFn 真供血路形，非第二传输实现）。消费位 probeModelConnectivity。
+  const probeStreamFn = createStreamFn(
+    llmRuntime,
+    { maxTokens: 1, timeoutMs: SETUP_PROBE_TIMEOUT_MS },
     tracker,
     options.hookDispatchGuard,
   );
@@ -1123,6 +1153,73 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     return reseedTimeline(deriveMessages(events), (seq) => events[seq]?.time ?? 0);
   }
 
+  // —— ob-3 连通微探针（07 ob-3 改裁注机制形）：真供血路 StreamFn 1-token
+  // 探针——专用工厂（maxTokens=1 + 连接级帽）+ 显式 apiKey 位（向导新录
+  // key 直供血，不经绑定行回读——录入前即可验证）。15s 请求级双帽由
+  // AbortSignal 承担；失败折 {ok:false, detail} 数据（StreamFn 永不抛契约
+  // 同守 + 迭代竞速防御位兜底）。usage 入 llm/usage 账（账面零盲区——
+  // callId `probe:` 形、foreground、实录模型优先；零用量不造零账〔错误
+  // 合成消息 NO_USAGE 形——bridgeUsageLedger 同律〕；metering 缺席 = 丢账
+  // warn 不静默〔onUsage 同律〕）。
+  async function probeModelConnectivity(
+    modelSpec: string,
+    apiKey: string,
+    metering?: { sessionId: string },
+  ): Promise<{ ok: boolean; detail: string }> {
+    const startedAt = Date.now();
+    const signal = AbortSignal.timeout(SETUP_PROBE_TIMEOUT_MS);
+    try {
+      const stream = await probeStreamFn(
+        { messages: [{ role: 'user', content: 'ping', timestamp: Date.now() }] },
+        { model: modelSpec, apiKey },
+        signal,
+      );
+      // 消费至终态（agent/stream.ts 同范式——for await 自然耗尽后 result() 终值）
+      for await (const _event of stream) void _event;
+      const result = await stream.result();
+      const spent = result.usage.input + result.usage.output;
+      if (spent > 0) {
+        if (metering === undefined) {
+          warn(
+            `llm/usage 探针落账跳过——probeModelConnectivity 未声明 metering 归因（model=${modelSpec}）：丢账不静默（04 §5）`,
+          );
+        } else {
+          // 写路径律同 onUsage：活体优先 + 粘滞持有 → detached 铸新（mq 定形注）
+          const live = manager.driverOf(metering.sessionId)?.session;
+          if (live !== undefined) meteringLogHold.set(metering.sessionId, live);
+          const log =
+            live ??
+            meteringLogHold.get(metering.sessionId) ??
+            options.runtime.persistence.loadSession(metering.sessionId).log;
+          log.append('llm/usage', {
+            callId: `probe:${randomUUID()}`,
+            // 实录优先（05 §1.1——网关改道场景请求标识与实录分叉）
+            model: ledgerModelOf(result.provider, result.model, modelSpec),
+            usage: usageBucketsOf(result.usage),
+            priority: 'foreground',
+            elapsedMs: Date.now() - startedAt,
+          } satisfies LlmUsageEventData);
+          // 全道呈现缓存同推 + 落账即通知（前台笔进「今日」段——onUsage 同律；
+          // 先经读面确保日键已初始化，双计不生）
+          void allLanesSpentToday();
+          if (allSpentDayStart === startOfTodayMs()) allSpentCached += spent;
+          notifySpentTodayLedgered();
+        }
+      }
+      if (result.stopReason === 'error' || result.stopReason === 'aborted') {
+        return { ok: false, detail: result.errorMessage ?? `stopReason=${result.stopReason}` };
+      }
+      // stop/length/toolUse 均 = 供血通——1-token 帽下 length 是正常收尾形
+      return {
+        ok: true,
+        detail: `${ledgerModelOf(result.provider, result.model, modelSpec)} 应答正常（${spent} tokens）`,
+      };
+    } catch (err) {
+      // 防御位：永不抛契约下的兜底（abort 竞速/底层异常一律折数据）
+      return { ok: false, detail: `探针异常：${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
   // 退出序接线：closer 注册序即 drain 序——先拆驱动（打断在飞 run）再排空压缩链
   options.runtime.registerCloser({ label: 'conversation-manager', fn: () => manager.dispose() });
   options.runtime.registerCloser({
@@ -1159,6 +1256,13 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       if (envReady) return 'ready';
       return liveBindingApiKey(spec) !== undefined ? 'ready' : 'unconfigured';
     },
+    // 当前绑定行 key 原值（ob-3 向导重入默认值）：liveBindingApiKey 公开薄包
+    // ——遮蔽/缺席同判据回 undefined，胜出行原值只进流程「空录入沿用」位
+    bindingApiKeyOf(modelSpec: string): string | undefined {
+      return liveBindingApiKey(modelSpec);
+    },
+    // 连通微探针（ob-3 改裁注机制形）——实装见上方函数体注释
+    probeModelConnectivity,
     // 思考档位栈基线活读（会话档位切换面批 F1——ConversationStack 面）：透传
     // 装配面原始值；会话生效档读面 = 会话 fold（驱动取值器闭包单源）
     get thinkingLevel() {
@@ -1426,6 +1530,12 @@ const PROVIDER_API_KEY_ENV_SPECIALS: Readonly<Record<string, readonly string[]>>
   'cloudflare-ai-gateway': ['CLOUDFARE_API_KEY'],
   'qwen-token-plan-individual': ['QWEN_TOKEN_PLAN_API_KEY'],
 };
+
+/**
+ * ob-3 连通微探针双帽值（毫秒）：AbortSignal 请求级（消费位铸）+
+ * timeoutMs 连接级（探针工厂 defaults）——07 ob-3 改裁注「15s 双帽」。
+ */
+export const SETUP_PROBE_TIMEOUT_MS = 15_000;
 
 /** provider → env 静态 key 键名族（占位判 = 任一键非空值在场） */
 export function providerApiKeyEnvNames(provider: string): readonly string[] {

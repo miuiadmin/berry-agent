@@ -1156,3 +1156,52 @@ describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第�
     expect(await entry).toBe(0);
   });
 });
+
+describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验证改裁注）', () => {
+  it('零参开向导：intro 行落屏（faux provider 入清单）+ esc 中止收场（凭证表未改动）', async () => {
+    const dataDir = rigDir('tui-setup-data-');
+    const ws = rigDir('tui-setup-ws-');
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' }, // ready 态：引导面板缺席，/setup 手开
+    });
+    io.send('/setup\r');
+    await until(() => io.output.includes('⚙ 配置向导'));
+    // 选择相呈现：faux provider 在清单 + 手录尾项在场
+    expect(io.output).toContain('faux-entry');
+    expect(io.output).toContain('手录自定义');
+    // esc 中止（选择步取消）→ outro 已退出收场 + 主屏照常（ctrl+d 可退）
+    io.send('\x1b');
+    await until(() => io.output.includes('向导已退出'));
+    expect(io.output).toContain('凭证表未改动');
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('带参形用法 fail-loud：不执行不兜底（/exit 同律——maybeHandleLocalCommand 执法）', async () => {
+    const dataDir = rigDir('tui-setup-arg-data-');
+    const ws = rigDir('tui-setup-arg-ws-');
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' },
+    });
+    io.send('/setup anthropic\r');
+    await until(() => io.output.includes('/setup 不带参数'));
+    expect(io.output).not.toContain('⚙ 配置向导'); // 未开面板 = 未执行证
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('补全源与命令册合流：/se 前缀补全含 setup 条目', async () => {
+    const dataDir = rigDir('tui-setup-fuzzy-data-');
+    const ws = rigDir('tui-setup-fuzzy-ws-');
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' },
+    });
+    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门（起屏完成）
+    const before = io.output.length;
+    io.send('/se');
+    await until(() => io.output.slice(before).includes('/setup'));
+    io.send('\x15'); // ctrl+u 清框（escape 独立字节有序列等待窗——与后续并 alt 形，弃用）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+});

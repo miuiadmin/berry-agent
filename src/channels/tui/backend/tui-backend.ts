@@ -115,6 +115,8 @@ import { ThinkingPicker, type ThinkingPickEntry } from '../panels/thinking-picke
 import { SandboxPicker, type SandboxPickEntry } from '../panels/sandbox-picker.js';
 import { DiffViewer, type DiffProjectionMessage } from '../panels/diff-viewer.js';
 import { MarketPicker, type MarketPanelActions, type MarketPanelModel } from '../panels/market-picker.js';
+import { SetupWizardPanel } from '../panels/setup-wizard.js';
+import type { WizardPrompter } from '../../wizard-prompter.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import { ConfirmPanel, SelectPanel, type ViewportCapAware } from '../overlay/select-confirm.js';
 import { AutocompletePopup } from '../autocomplete/popup.js';
@@ -1169,6 +1171,27 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (handle === null) return false;
     this.altHandle = handle;
     return true;
+  }
+
+  /**
+   * 开副屏配置向导（onboarding ob-3 /setup——TUI 本地拦截族第十件）：面板
+   * 本体实现 WizardPrompter（host 侧 runSetupWizard 流程件持本回值驱动五法
+   * 相态机——交互契约居 channels 公开面）。返回 prompter 面；副屏占用返
+   * null（调用位 notify 诚实降级——open* 族同律）。
+   */
+  openSetupWizard(): WizardPrompter | null {
+    if (this.altHandle !== null) return null;
+    const panel = new SetupWizardPanel({
+      sessionId: this.sessionId,
+      requestRepaint: () => this.altHost.requestRepaint(),
+      onExit: () => this.closeAlt(),
+      onInterrupt: this.onInterrupt,
+      onQuit: this.onQuit,
+    });
+    const handle = this.altHost.open(panel);
+    if (handle === null) return null;
+    this.altHandle = handle;
+    return panel;
   }
 
   /**

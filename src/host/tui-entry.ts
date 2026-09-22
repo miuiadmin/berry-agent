@@ -10,6 +10,7 @@
  * → TuiBackend 组装（提交/打断/退出/命令分发/todo 回看/补全三源/version
  * 基线/生产定时器/主题档）→ 启动引导面板（ob-2——凭证态 unconfigured 才
  * 进，cooked 窗一次性质询）→ addBackend → start → registerSession → focus 首画 →
+ * setup 决策兑现（/setup 向导——ob-3，与命令行同一本体）→
  * 主循环 await 退出 → runtime.shutdown 六步退出序（closer 内含 backend.stop
  * 出屏复原）。
  *
@@ -97,6 +98,8 @@ import type { WebuiMountKit } from './webui-bridge.js';
 import type { PluginRouteRegistry } from '../sdk/index.js';
 import type { ConversationStack, StartupSession } from './conversation-stack.js';
 import { providerApiKeyEnvNames } from './conversation-stack.js';
+import { runSetupWizard } from './setup-wizard.js';
+import { runCredentialsCommand } from '../credentials/index.js';
 
 /**
  * 档位文案与回执单源已迁 host/session-tier-copy.ts（2026-09-18 webui 档位面
@@ -846,6 +849,59 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
+    // —— /setup 配置向导编舞（onboarding ob-3——07 §4.1 定形注 + 连通验证
+    // 改裁注）：副屏 SetupWizardPanel 即 WizardPrompter 实装（backend
+    // .openSetupWizard——副屏占用返 null → notify 诚实降级与 /help 同律）；
+    // 流程件 runSetupWizard 纯逻辑零 TUI 依赖，deps 在此装配——saveBinding
+    // 走 runCredentialsCommand 公开路由（与 /credentials 人面动词同一单源；
+    // credentialsWrite seam 单源消费——credentials/changed 审计两写路径
+    // 平权）；探针 = stack.probeModelConnectivity 真供血路 1-token 微探活
+    //（metering 归因聚焦会话——落 llm/usage probe: 形账；失败不阻断只注记）。
+    // onboarding setup 决策兑现（ob-2 起屏 pending）= 同一 openSetupWizard——
+    // 重入非二形。
+    const openSetupWizard = (): void => {
+      const prompter = backend.openSetupWizard();
+      if (prompter === null) {
+        backend.notify('配置向导暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        return;
+      }
+      // 重入默认值：当前模型首斜杠段（清单内在册时预选）
+      const modelSpec = stack.model;
+      const slash = modelSpec.indexOf('/');
+      const currentProvider = slash === -1 ? modelSpec : modelSpec.slice(0, slash);
+      // 探针目标解析：provider 首模型（ModelInfo.id 全形；空目录 → undefined
+      // 流程侧跳过注记）
+      const firstModelSpecOf = (providerId: string): string | undefined => stack.llm.listModels(providerId)[0]?.id;
+      void runSetupWizard({
+        prompter,
+        providers: [...stack.llmRuntime.models.getProviders()].map((provider) => provider.id),
+        currentProvider,
+        // 值只经流程「空录入沿用」位（bindingApiKeyOf 胜出行原值——遮蔽回 undefined）
+        currentApiKey: stack.bindingApiKeyOf(modelSpec),
+        envShadowed: (providerId) => providerApiKeyEnvNames(providerId).some((name) => (env[name] ?? '') !== ''),
+        saveBinding: (providerId, apiKey) =>
+          runCredentialsCommand(
+            { sub: 'add', name: providerId, value: apiKey, modelProvider: providerId },
+            {
+              store: assembly.credentialsWrite.store,
+              onCredentialChanged: assembly.credentialsWrite.onCredentialChanged,
+            },
+          ),
+        probeModelOf: firstModelSpecOf,
+        probe: (providerId, apiKey) => {
+          const spec = firstModelSpecOf(providerId);
+          // 流程侧已保 probeModelOf 非 undefined 才达此位——spec 缺席属并发
+          // 换代窗防御（折失败数据不炸向导）
+          if (spec === undefined) {
+            return Promise.resolve({ ok: false, detail: '模型目录已换代（无注册模型可探）' });
+          }
+          return stack.probeModelConnectivity(spec, apiKey, {
+            sessionId: stack.channels.focusedId ?? session.sessionId,
+          });
+        },
+      });
+    };
+
     // 本地命令族单源（拦截表 / 补全源 / /help 命令册三消费面同文）
     const localCommands = [
       {
@@ -854,6 +910,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         run: () => startNewSession(),
       },
       { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境旋钮）', run: () => openStatusPanel() },
+      {
+        name: 'setup',
+        description: '模型凭证配置向导（选 provider → 录 key → 落绑定行，可选连通验证）',
+        run: () => openSetupWizard(),
+      },
       { name: 'debug', description: '调试信息副屏（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },
       { name: 'skills', description: '技能清单副屏（enter 回填调用形入输入框）', run: () => openSkillsPanel() },
       { name: 'themes', description: '主题切换副屏（选定即换装+持久化）', run: () => openThemesPanel() },
@@ -1092,8 +1153,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // TTY 卫兵已保）才起面板；注入 io 的既有测试/CI 管道形 = 面板缺席直进
     // 主屏（防注入测试死锁）。检测腿现算（modelCredentialStatus——派生态零
     // 哨兵），unconfigured 才进；quit = 不起 TUI 干净退 0（finally shutdown
-    // 六步照走）；setup = 起屏后即开向导（ob-3 落 /setup 前 localCommands
-    // 无 setup 项 = 恒两选项降级形——hasSetupWizard 探测自动升全形）。
+    // 六步照走）；setup = 起屏后即开向导（ob-3 /setup 已入册 localCommands
+    // ——hasSetupWizard 恒真全形）。
     const onboardingKeySource =
       options.onboardingKey !== undefined
         ? options.onboardingKey
@@ -1106,13 +1167,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const slash = modelSpec.indexOf('/');
       const providerId = slash === -1 ? modelSpec : modelSpec.slice(0, slash);
       const envNames = providerApiKeyEnvNames(providerId);
-      // 探针名宽型（string）——防字面量联合窄化把「setup 暂不在册」误报成
-      // 恒假比较（ob-3 落 /setup 后本探针自动转真）
-      const setupName: string = 'setup';
       const decision = await runOnboardingPanel({
         write: (text) => io.write(text),
         readKey: onboardingKeySource,
-        hasSetupWizard: localCommands.some((command) => command.name === setupName),
+        hasSetupWizard: localCommands.some((command) => command.name === 'setup'),
         modelSpec,
         providerId,
         ...(envNames.length > 0 ? { envExample: envNames[0] } : {}),
@@ -1127,10 +1185,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     backend.start();
     stack.channels.registerSession(session.sessionId);
     await stack.channels.focus(session.sessionId); // 启动投影首画（含 resume 历史回读）
-    // setup 决策兑现（onboarding ob-2）：起屏首画后即开 /setup 向导——ob-3
-    // 落地前 localCommands 无 setup 项则静默不动作（降级形 enter 直 skip）
+    // setup 决策兑现（onboarding ob-2 → ob-3）：起屏首画后即开 /setup 向导
+    //（与命令行 /setup 同一 openSetupWizard——重入非二形）
     if (onboardingSetupPending) {
-      localCommands.find((command) => command.name === ('setup' as string))?.run();
+      localCommands.find((command) => command.name === 'setup')?.run();
     }
 
     // —— 键位覆盖拒载呈报（R5 批 10k——Keymap fail-loud 装配位）：settings
