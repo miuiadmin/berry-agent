@@ -62,6 +62,38 @@ describe('parseInline 行内解析', () => {
       { text: 'd', bold: true },
     ]);
   });
+
+  /* -------- 翼判据回归锁（坏配对不吞标记——坏输入不丢字契约） -------- */
+
+  it('翼判据：开标记后空白不吞（a * b * c 无 italic、星号全保留拼接还原）', () => {
+    const spans = parseInline('a * b * c');
+    // 修前：纯 indexOf 配对命中 → ' b ' 成 italic 段、两个 '*' 被吞（丢字）
+    expect(spans.some((s) => s.italic === true)).toBe(false);
+    expect(spans.map((s) => s.text).join('')).toBe('a * b * c');
+  });
+
+  it('翼判据：闭标记前空白同不吞（a *b * c 全文还原）', () => {
+    const spans = parseInline('a *b * c');
+    expect(spans.some((s) => s.italic === true)).toBe(false);
+    expect(spans.map((s) => s.text).join('')).toBe('a *b * c');
+  });
+
+  it('翼判据：bold 两侧空白同不吞（a ** b ** c 全文还原）', () => {
+    const spans = parseInline('a ** b ** c');
+    expect(spans.some((s) => s.bold === true)).toBe(false);
+    expect(spans.map((s) => s.text).join('')).toBe('a ** b ** c');
+  });
+
+  it('翼判据：散文乘号形零丢字（总价 = 单价 * 3 * 数量）', () => {
+    const spans = parseInline('总价 = 单价 * 3 * 数量');
+    expect(spans.some((s) => s.italic === true)).toBe(false);
+    expect(spans.map((s) => s.text).join('')).toBe('总价 = 单价 * 3 * 数量');
+  });
+
+  it('翼判据：好形零扰动（**bold** / *em* 贴邻非空白仍成 span）', () => {
+    expect(parseInline('**b**')).toEqual([{ text: 'b', bold: true }]);
+    expect(parseInline('*e*')).toEqual([{ text: 'e', italic: true }]);
+  });
 });
 
 /* ---------------- parseMarkdown ---------------- */
@@ -101,6 +133,19 @@ describe('parseMarkdown 块解析', () => {
   it('围栏代码块（language 记名 + 多行体 + 行内标记不解析）', () => {
     const blocks = parseMarkdown('```ts\nconst a = 1;\nnot **bold**\n```');
     expect(blocks).toEqual([{ type: 'code', lines: ['const a = 1;', 'not **bold**'], language: 'ts' }]);
+  });
+
+  it('多词 info 围栏：首词记语言、行尾剩余忽略（修前整块退化段落 + 尾闭栏成空 open 块）', () => {
+    // '```python title=x' 旧 FENCE_RE 单词 + $ 行尾锚定不匹配 → 整代码块按段落
+    // 解析（软换行折叠 + 反引号裸露）；尾部真闭栏行反被解析成 lines=[] 的空
+    // open code 块。CommonMark 语义：info 串取首词为语言、其余忽略。
+    const blocks = parseMarkdown('```python title=x\nprint(1)\n```');
+    expect(blocks).toEqual([{ type: 'code', lines: ['print(1)'], language: 'python' }]);
+  });
+
+  it('多词 info 波浪围栏同律（~~~js foo=bar）', () => {
+    const blocks = parseMarkdown('~~~js foo=bar\nlet x;\n~~~');
+    expect(blocks).toEqual([{ type: 'code', lines: ['let x;'], language: 'js' }]);
   });
 
   it('未闭围栏收至文末（防御——open 标记位在场，高亮冻结判据消费）', () => {

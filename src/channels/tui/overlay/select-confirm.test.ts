@@ -139,6 +139,57 @@ describe('ConfirmPanel 呈现宽度预算（组 2 修前红）', () => {
   });
 });
 
+/* ================= ConfirmPanel y/n text 轨（死键修复回归锁） ================= */
+
+describe('ConfirmPanel text 轨 y/n（裸字母双轨应答）', () => {
+  /** text 事件便捷构造 */
+  function text(t: string): { kind: 'text'; text: string } {
+    return { kind: 'text', text: t };
+  }
+
+  it('text 轨 y 确认 true（修前 asKey 对 text 事件返回 null 即吞——裸字母死键）', () => {
+    const panel = new ConfirmPanel({ message: '确认？' });
+    const got: boolean[] = [];
+    panel.onFinish = (v) => got.push(v);
+    expect(panel.handleEvent(text('y'))).toBe(true); // 面板占焦恒 true
+    expect(got).toEqual([true]); // 修前：吞事件零应答（got = []）红
+  });
+
+  it('text 轨 n 取消 false', () => {
+    const panel = new ConfirmPanel({ message: '确认？' });
+    const got: boolean[] = [];
+    panel.onFinish = (v) => got.push(v);
+    panel.handleEvent(text('n'));
+    expect(got).toEqual([false]);
+  });
+
+  it('其它字母 text 吞不误触；完成态后续 text 静默（单次语义）', () => {
+    const panel = new ConfirmPanel({ message: '确认？' });
+    const got: boolean[] = [];
+    panel.onFinish = (v) => got.push(v);
+    expect(panel.handleEvent(text('q'))).toBe(true);
+    expect(got).toEqual([]); // 未消费 text 层内终局（模态独占）
+    panel.handleEvent(text('y'));
+    panel.handleEvent(text('n')); // 完成态静默——不改值
+    expect(got).toEqual([true]);
+  });
+
+  it('key 轨零扰动（Enter/y/escape 键事件仍应答——双轨同判）', () => {
+    const cases: Array<[string, boolean]> = [
+      ['enter', true],
+      ['y', true],
+      ['escape', false],
+    ];
+    for (const [k, expected] of cases) {
+      const panel = new ConfirmPanel({ message: 'm' });
+      const got: boolean[] = [];
+      panel.onFinish = (v) => got.push(v);
+      panel.handleEvent(key(k));
+      expect(got).toEqual([expected]);
+    }
+  });
+});
+
 /* ================= TUI 第四役 fx2-B（SelectPanel 视口帽——滚动窗 + 指示行） ================= */
 
 describe('SelectPanel 视口帽窗口化（fx2-B）', () => {

@@ -22,7 +22,19 @@ export interface InlineSpan {
  *
  * 优先序：`**` 先于 `*`（前缀撞车时 bold 赢）；`[` 用 `](` 连续判据（label
  * 内含 `]` 的罕见形不支撑——v1 已知边界）。
+ *
+ * 翼判据（CommonMark 朴素近似）：开标记后一字符与闭标记前一字符均须非
+ * 空白才吞标记成 span——散文乘号「a * b * c」的纯 indexOf 配对误吞星号
+ * 即丢字（坏输入不丢字契约）。翼判不过时该 '*' 落入 plain 继续扫描。
+ * 嵌套相邻形（'*a**b*'）按朴素近似处理（v1 词法子集——简化边界在案）。
+ * code 分支不设翼判据（CommonMark 反引号码段本无贴边判据）。
  */
+
+/** 空白判据（翼判据共用——CommonMark 左右翼空白排除） */
+function isWhitespace(ch: string | undefined): boolean {
+  return ch !== undefined && /\s/.test(ch);
+}
+
 export function parseInline(text: string): InlineSpan[] {
   const spans: InlineSpan[] = [];
   let plain = ''; // 普通文本累积（相邻同形合并——flush 才成段）
@@ -38,7 +50,9 @@ export function parseInline(text: string): InlineSpan[] {
     // **bold**（** 先试——命中即吞两字符，* 不会误抢）
     if (ch === '*' && text[i + 1] === '*') {
       const end = text.indexOf('**', i + 2);
-      if (end > i + 2) {
+      // 翼判据：开标记后（text[i+2]）与闭标记前（text[end-1]）均非空白
+      // ——翼判不过则落入 plain 继续扫描（星号不丢）
+      if (end > i + 2 && !isWhitespace(text[i + 2]) && !isWhitespace(text[end - 1])) {
         flush();
         spans.push({ text: text.slice(i + 2, end), bold: true });
         i = end + 2;
@@ -48,7 +62,8 @@ export function parseInline(text: string): InlineSpan[] {
     // *italic*
     if (ch === '*') {
       const end = text.indexOf('*', i + 1);
-      if (end > i + 1) {
+      // 翼判据：开标记后（text[i+1]）与闭标记前（text[end-1]）均非空白
+      if (end > i + 1 && !isWhitespace(text[i + 1]) && !isWhitespace(text[end - 1])) {
         flush();
         spans.push({ text: text.slice(i + 1, end), italic: true });
         i = end + 1;

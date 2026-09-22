@@ -257,8 +257,28 @@ export class ConfirmPanel implements Renderable {
     );
   }
 
-  /** 事件分发：Enter/y 确认、Esc/n 取消（保守值） */
+  /**
+   * 事件分发：Enter/y 确认、Esc/n 取消（保守值）。
+   *
+   * y/n 双轨同判：裸字母两轨都以 kind:'text' 事件到达（legacy 地面态
+   * textRun 冲刷；kitty flag 1 下纯文本键也不产 CSI u）——text 轨判先于
+   * asKey 短路（memory-viewer 确认态同形），否则 isPlainKey 分支永不可达
+   * 即死键。
+   */
   handleEvent(event: InputEvent): boolean {
+    // text 轨双判：单字符整串等值（y/n）应答；其余 text 层内终局（模态独占）
+    if (event.kind === 'text') {
+      if (this.done) return true; // 完成态静默（单次语义）
+      if (event.text === 'y') {
+        this.finish(true);
+        return true;
+      }
+      if (event.text === 'n') {
+        this.finish(false);
+        return true;
+      }
+      return true;
+    }
     const e = asKey(event);
     if (e === null) return true;
     if (e.phase === 'release' || this.done) return true;

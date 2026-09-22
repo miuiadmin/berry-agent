@@ -42,8 +42,12 @@ export type MarkdownBlock =
     }
   | { readonly type: 'hr' };
 
-/** 围栏开行（```/~~~ 可 repetitions——闭栏同字符等长以上） */
-const FENCE_RE = /^(`{3,}|~{3,})\s*(\S*)\s*$/;
+/**
+ * 围栏开行（```/~~~ 可 repetitions——闭栏同字符等长以上）。info 串取首词
+ * 为语言、行尾剩余忽略（CommonMark 语义）——「```python title=x」多词形
+ * 不得整块退化段落（修前单捕获组 + $ 行尾锚定只认单词形）。
+ */
+const FENCE_RE = /^(`{3,}|~{3,})[ \t]*([^`\s]*).*$/;
 /** 标题行（# 1-6 个 + 空格） */
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 /** 水平线（同字符 ≥3、容忍符间空格） */
