@@ -154,7 +154,7 @@ export class StatusViewer extends ScrollView implements OverlayContent {
  * ——CJK 双宽标签 padEnd 码元计量会错位 1 格）。
  */
 export function buildStatusLines(data: StatusPanelData): string[] {
-  const labelCol = 18; // 标签列宽（段内对齐——最长「数据目录 dataDir」+ 2）
+  const labelCol = 21; // 标签列宽（段内对齐——最长「模型凭证 credential」宽 19 + 2）
   const row = (label: string, value: string): string =>
     label + ' '.repeat(Math.max(0, labelCol - stringWidth(label))) + value;
   const lines: string[] = [

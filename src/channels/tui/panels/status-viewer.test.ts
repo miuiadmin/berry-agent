@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
-import { CellGrid } from '../../engine/index.js';
+import { CellGrid, stringWidth } from '../../engine/index.js';
 import { buildStatusLines, StatusViewer } from './status-viewer.js';
 import type { StatusPanelData } from './status-viewer.js';
 
@@ -90,6 +90,13 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     const themeLine = lines.find((line) => line.startsWith('主题 theme'))!;
     // 两标签同为「宽度 4 CJK + 空格 + ASCII」——值列起始列一致（码元 padEnd 会右凸 1 格）
     expect(versionLine.indexOf('0')).toBe(themeLine.indexOf('d'));
+    // 凭证行（宽 19 = 最长标签「模型凭证 credential」）值起点显示列与其余行一致：
+    // 期望列用 stringWidth 口径算（值前前缀显示宽 = 标签显示宽 + 2 分隔空格，
+    // dataDir 行同律）——CJK 行码元位与显示列不同尺，断言恒走显示宽
+    const valueColOf = (line: string, value: string): number => stringWidth(line.slice(0, line.indexOf(value)));
+    const credLine = lines.find((line) => line.startsWith('模型凭证 credential'))!;
+    expect(valueColOf(credLine, 'ready')).toBe(valueColOf(versionLine, '0'));
+    expect(valueColOf(credLine, 'ready')).toBe(stringWidth('模型凭证 credential') + 2);
   });
 });
 
