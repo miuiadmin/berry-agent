@@ -5,8 +5,10 @@
  * 单行块/回流形恒不稳）、渲染与定稿件同管线（同文同宽同行集）。
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { CellGrid } from '../../engine/index.js';
 import { MarkdownDoc } from './markdown.js';
+import { parseMarkdown } from './blocks.js';
 import { StreamingMarkdown } from './streaming.js';
 
 /** 两 doc 同文渲染行集对拍（同管线律断言助手） */
@@ -84,5 +86,94 @@ describe('StreamingMarkdown 流式直推', () => {
     const s = new StreamingMarkdown();
     expect(s.stableLineCount(40)).toBe(0);
     expect(s.measure(40)).toBe(0);
+  });
+});
+
+/* ---------------- 渲染热路径 D2：计数改算术 ---------------- */
+
+describe('StreamingMarkdown 计数算术（渲染热路径 D2——计数腿不装配行集）', () => {
+  /** 引用实现：镜像修前 stableLineCount 本体（MarkdownDoc.prefixRows 装配后取长） */
+  function referenceStable(text: string, width: number): number {
+    const blocks = parseMarkdown(text);
+    if (blocks.length === 0) return 0;
+    const tail = blocks[blocks.length - 1]!;
+    const tailSafe =
+      tail.type === 'code'
+        ? tail.open !== true
+        : text.endsWith('\n') &&
+          (tail.type === 'heading' || tail.type === 'list-item' || tail.type === 'quote' || tail.type === 'hr');
+    const stableBlocks = blocks.length - 1 + (tailSafe ? 1 : 0);
+    return MarkdownDoc.fromBlocks(blocks, null).prefixRows(width, stableBlocks).length;
+  }
+
+  /** 多形语料：七块型 + 零行块（空代码）+ 开栏尾 + 长折行 + 终态单行块尾 */
+  const CORPUS = [
+    '# 标\n\n段落一\n\n段落二\n\n```ts\nconst x = 1;\n```\n\n- 项一\n- 项二\n\n---',
+    '第一段\n\n> 引用一\n> 引用二\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |',
+    '段前\n\n```\n```', // 零行闭栏代码（块间空行算术非 B-1 形的判据样本）
+    '段前\n\n```\nline\n```',
+    '```\nline1\nline2', // 开栏尾块（恒不稳）
+    '中文长段落折行样本文本'.repeat(12),
+    '> q\n\n```\n```', // 零行块为尾（tailSafe 闭栏 → 全稳）
+    '# 仅标题\n',
+    '1. 有序\n2. 项\n',
+    '',
+  ];
+  const WIDTHS = [80, 40, 20, 7, 3, 1];
+
+  it('stableLineCount 对拍锁：逐语料逐宽与引用实现（修前行为）全等', () => {
+    for (const text of CORPUS) {
+      const s = new StreamingMarkdown();
+      s.update(text);
+      for (const w of WIDTHS) expect(s.stableLineCount(w)).toBe(referenceStable(text, w));
+    }
+  });
+
+  it('measure 对拍锁：逐语料逐宽与 MarkdownDoc.of(text).measure 全等', () => {
+    for (const text of CORPUS) {
+      const s = new StreamingMarkdown();
+      s.update(text);
+      for (const w of WIDTHS) expect(s.measure(w)).toBe(MarkdownDoc.of(text).measure(w));
+    }
+  });
+
+  it('流式多帧链：逐帧计数与一步到位直构全等（帧间承接零漂移）', () => {
+    const frames = [
+      '# 标\n',
+      '# 标\n\n段落起',
+      '# 标\n\n段落起\n\n```ts\nconst',
+      '# 标\n\n段落起\n\n```ts\nconst x = 1;\n```',
+      '# 标\n\n段落起\n\n```ts\nconst x = 1;\n```\n\n- 项\n',
+    ];
+    const stepwise = new StreamingMarkdown();
+    for (const frame of frames) {
+      stepwise.update(frame);
+      const direct = new StreamingMarkdown();
+      direct.update(frame);
+      for (const w of [40, 7]) {
+        expect(stepwise.stableLineCount(w)).toBe(direct.stableLineCount(w));
+        expect(stepwise.measure(w)).toBe(direct.measure(w));
+      }
+    }
+  });
+
+  it('硬钉值：修前绝对值面（零行块空行算术 / 开栏零稳面 / 段落排除）', () => {
+    const s1 = new StreamingMarkdown();
+    s1.update('段前\n\n```\n```');
+    expect(s1.stableLineCount(40)).toBe(2); // 段 1 行 + 块间空行 1 + 零行块 0——闭栏全稳
+    expect(s1.measure(40)).toBe(2);
+    const s2 = new StreamingMarkdown();
+    s2.update('# 标\n\n段落一');
+    expect(s2.stableLineCount(40)).toBe(2); // 尾块段落不稳——稳定面止于标题块（H1 = 标题行 + 尾线 2 行）
+    expect(s2.measure(40)).toBe(4); // 标题 2 行 + 空行 + 段落 1 行
+    const s3 = new StreamingMarkdown();
+    s3.update('```\nline1\nline2');
+    expect(s3.stableLineCount(40)).toBe(0); // 开栏尾块恒不稳——单块文档稳面恰空
+    expect(s3.measure(40)).toBe(2);
+  });
+
+  it('词法锁：逐块行数算术缓存位在场（源码标记恰一处）', () => {
+    const src = readFileSync(new URL('./streaming.ts', import.meta.url), 'utf8');
+    expect((src.match(/渲染热路径 D2——逐块行数算术缓存/g) ?? []).length).toBe(1);
   });
 });

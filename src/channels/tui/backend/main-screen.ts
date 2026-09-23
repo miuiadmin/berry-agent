@@ -46,7 +46,7 @@ import {
   SGR_RESET,
   cup,
 } from './ansi-rows.js';
-import { renderBlockLines, stableSlotLineCount, type TranscriptBlock } from './transcript.js';
+import { renderBlockLines, renderSlotTailLines, stableSlotLineCount, type TranscriptBlock } from './transcript.js';
 
 /** 主屏选项 */
 export interface MainScreenOptions {
@@ -167,7 +167,7 @@ export class MainScreen {
     }
 
     // C. 槽换装（光标已在槽尾段首 = durable 末；partial 是完整快照——逐行整写）
-    const slotLines = slot === null ? [] : this.renderSlotLines(slot);
+    let slotTotal = 0;
     if (slot !== null) {
       // 让位重算（2026-09-15 挂账解挂批——交错思考标签字数勘正）：稳定面前缀
       // 收缩（settled 非单调：后到思考使已冻思考行变不稳内容；doc 降档同形）
@@ -181,27 +181,34 @@ export class MainScreen {
         this.durableEndRow = Math.max(0, this.durableEndRow - (this.frozenSlotLines - stableNow));
         this.frozenSlotLines = stableNow;
       }
+      // 尾窗渲染（渲染热路径 D1——冻结前缀不重渲染）：只渲染 [冻结行, 总行)
+      // 段——已冻结行是升格 durable 的不可回改内容（此后永不重写），修前每
+      // 帧全量渲染整槽纯白算（且冻结面渲染不进 slotFrameBytes 帽不可观测）。
+      // startRow = 0 即全量渲染回退形：repaint/resize/新槽开账（冻结账清零）
+      // 与让位收缩（frozenSlotLines 回抬变小）天然经此回退，正确性优先。
+      const tail = renderSlotTailLines(slot, this.columns, this.frozenSlotLines);
+      slotTotal = tail.total;
       // 稳定面冻结：可视余量外的稳定前缀升格 durable 直写（写行即交
       // scrollback 不可回改——冻结额 = min(溢出量, 稳定行数 - 已冻结)）；
       // 稳定面含思考前缀行（批 10i——thinkingSettled 判据下思考行全稳，
       // stableSlotLineCount 单源；降档 doc = null 走 doc 面 0 + 思考行稳面）
       const regionBottom = this.rows - this.fixedHeight - 1;
       const capacity = regionBottom - this.durableEndRow + 1;
-      const overflow = slotLines.length - this.frozenSlotLines - capacity;
+      const overflow = tail.total - this.frozenSlotLines - capacity;
       const freezable = stableNow - this.frozenSlotLines;
       const freezeNow = Math.max(0, Math.min(overflow, freezable));
       if (freezeNow > 0) {
         this.gotoRow(this.durableEndRow);
-        for (let i = this.frozenSlotLines; i < this.frozenSlotLines + freezeNow; i++) {
-          this.writeSlotLine(slotLines[i]!);
+        for (let i = 0; i < freezeNow; i++) {
+          this.writeSlotLine(tail.lines[i]!);
         }
         this.frozenSlotLines += freezeNow;
         this.durableEndRow = this.cursorRow;
       }
       // 尾段整写（回流/开栏不稳定尾恒在此重绘；自身超视口时接受滚动）
       this.gotoRow(this.durableEndRow);
-      for (let i = this.frozenSlotLines; i < slotLines.length; i++) {
-        this.writeSlotLine(slotLines[i]!);
+      for (let i = freezeNow; i < tail.lines.length; i++) {
+        this.writeSlotLine(tail.lines[i]!);
       }
     }
 
@@ -214,7 +221,7 @@ export class MainScreen {
 
     // E. 固定区差分重画 + 光标归位（呈现不变式）
     this.redrawFixed();
-    this.slotLineCount = slot === null ? 0 : Math.max(0, slotLines.length - this.frozenSlotLines);
+    this.slotLineCount = slot === null ? 0 : Math.max(0, slotTotal - this.frozenSlotLines);
   }
 
   /** 本帧槽写出字节数（冻结 + 换装合计——装配层字节帽判据） */
@@ -371,10 +378,5 @@ export class MainScreen {
   private writeSlotLine(text: string): void {
     this.slotFrameBytes += text.length;
     this.writeLine(text);
-  }
-
-  /** 流式槽行（markdown 直推档与降档纯文本同源——renderBlockLines 单源；epoch/doc 随块型走） */
-  private renderSlotLines(slot: Extract<TranscriptBlock, { kind: 'streaming' }>): string[] {
-    return renderBlockLines(slot, this.columns);
   }
 }

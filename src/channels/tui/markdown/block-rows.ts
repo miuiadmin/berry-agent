@@ -116,6 +116,47 @@ function tableRows(
   return rows;
 }
 
+/**
+ * 开栏代码块折叠承接账（渲染热路径 D4——流式尾块逐帧增量承接）。
+ *
+ * 问题形：流式开栏尾块每帧文本增长，blockEquals 的 code 支路先比
+ * lines.length（blocks.ts）恒不相等 → MarkdownDoc 块级缓存每帧 miss →
+ * 每帧对全量源行逐行 layoutPlain 重折（尾块越长每帧白算越多）。
+ *
+ * 修法：layoutPlain 按源行独立——行折叠产出只依赖（该行文本, bodyWidth），
+ * 不随后续行增长变化，故按源行粒度承接：
+ * - 命中判据（内容键）= 记账 bodyWidth 相同 + 源行前缀逐行全等——跨块对象
+ *   成立（layoutPlain 纯函数确定性：同键同产出，引用复用即字节等价）；
+ * - 前缀行折叠结果按**引用复用**（零重折零分配——与 MarkdownDoc.fromBlocks
+ *   块级承接同律的引用复用），自分歧行起增量重折（缩量/中行改写同样自
+ *   分歧行起重折，不丢字不错位）；
+ * - 闭栏帧**不读不写**本账（闭栏 = 整体高亮重排全量重折——产出形与开栏
+ *   单色不同，互承即污染样式回翻）；换宽帧 bodyWidth 键失配自然全量重折；
+ * - 单条目记账：开栏围栏必吃到文末 → 每文档至多一个开栏块；多文档交错
+ *   渲染时键失配仅退化为全量重折（性能回退、无正确性风险）。
+ */
+interface CodeFoldCarry {
+  /** 记账时的 bodyWidth（换宽失配键） */
+  readonly bodyWidth: number;
+  /** 记账时的源行文本（前缀比对键——slice 防外側改写） */
+  readonly lines: readonly string[];
+  /** 每源行折叠产出的视觉行组（已含 │ 前缀——引用复用单元；外层账本不可改写，内层行集账面约定只读） */
+  readonly rowsByLine: readonly StyledGrapheme[][][];
+}
+
+/** 模块级单条目承接账（上次开栏路径折叠结果；闭栏路径不触碰） */
+let codeFoldCarry: CodeFoldCarry | null = null;
+
+/**
+ * 开栏单源行折叠 → │ 前缀贯通视觉行组（D4 承接的增量折叠单元——
+ * 每帧只对新增/分歧行调用，前缀行引用复用不经过本函数）。
+ */
+function foldOpenCodeLine(line: string, bodyWidth: number): StyledGrapheme[][] {
+  const lineRows: StyledGrapheme[][] = [];
+  for (const row of layoutPlain(line, bodyWidth)) lineRows.push([...prefixCells('│ '), ...row]);
+  return lineRows;
+}
+
 /** 代码块 → 渲染行集（闭栏 + 已知语言走五类高亮；开栏/未知退单色） */
 function codeRows(
   block: Extract<MarkdownBlock, { type: 'code' }>,
@@ -123,9 +164,40 @@ function codeRows(
   theme: Readonly<ResolvedTheme>,
 ): StyledGrapheme[][] {
   const bodyWidth = Math.max(1, width - 2);
-  // 每原文行的样式段序列（高亮 token 按换行位切块分发；串接恒等原文律）
+  // 开栏路径（流式半截尾块）：逐源行增量承接（D4）——见 codeFoldCarry 头注
+  if (block.open === true) {
+    const prev = codeFoldCarry !== null && codeFoldCarry.bodyWidth === bodyWidth ? codeFoldCarry : null;
+    // 前缀比对：与账目逐源行文本全等比对，首个分歧行前全部命中（纯增长
+    // 热路 = O(前缀行数) 字符串引用比对 + O(新增行) 折叠）
+    let reuse = 0;
+    if (prev !== null) {
+      const maxReuse = Math.min(prev.lines.length, block.lines.length);
+      while (reuse < maxReuse && prev.lines[reuse] === block.lines[reuse]) reuse++;
+    }
+    const rows: StyledGrapheme[][] = [];
+    const rowsByLine: StyledGrapheme[][][] = [];
+    if (prev !== null) {
+      for (let i = 0; i < reuse; i++) {
+        // 前缀行折叠结果引用直入——零重折零分配（消费面只读不改行数组）
+        const carried = prev.rowsByLine[i]!;
+        rows.push(...carried);
+        rowsByLine.push(carried);
+      }
+    }
+    for (let i = reuse; i < block.lines.length; i++) {
+      // 分歧行起增量重折（含纯增长的新增行——每帧只折新增/分歧行）
+      const lineRows = foldOpenCodeLine(block.lines[i] ?? '', bodyWidth);
+      rows.push(...lineRows);
+      rowsByLine.push(lineRows);
+    }
+    // 写回新账：承接段引用直入 + 新折段（下帧前缀比对的键与值）
+    codeFoldCarry = { bodyWidth, lines: block.lines.slice(), rowsByLine };
+    return rows;
+  }
+  // 闭栏路径：整体高亮重排（每原文行的样式段序列——token 按换行位切块
+  // 分发；串接恒等原文律）+ 全量重折；不读不写承接账（防闭开互承染样式）
   const partsByLine: StylePart[][] = [];
-  const tokens = block.open === true ? null : highlight(block.lines.join('\n'), block.language);
+  const tokens = highlight(block.lines.join('\n'), block.language);
   if (tokens !== null) {
     let current: StylePart[] = [];
     for (const token of tokens) {

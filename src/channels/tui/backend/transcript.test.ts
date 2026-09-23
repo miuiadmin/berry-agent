@@ -5,16 +5,19 @@
  * （tool_execution_* 正文零渲染）、非聚焦摘要行分档、投影重建、帽卸载。
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { ansiColor, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage, AssistantMessage } from '../../../contracts/index.js';
 import { LIGHT_PALETTE, resolveTheme, DEFAULT_THEME } from '../theme/index.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
+import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
   LiveTranscript,
   renderBlockLines,
   renderBlockStyledLines,
+  renderSlotTailLines,
   shortIdOf,
   stableSlotLineCount,
   TRANSCRIPT_BLOCK_CAP,
@@ -748,5 +751,173 @@ describe('宽帽/错误帽/参数简述帽（2026-09-20 TUI 修复组 1 批 F4/F
     t.loadProjection([assistantMsg('', [{ id: 'tc1', name: 'read', arguments: { ['k'.repeat(60)]: 1 } }])]);
     const block = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-call' }>;
     expect(block.brief).toBe('(' + 'k'.repeat(39));
+  });
+});
+
+/* ---------------- 渲染热路径 D1/D2/D3：尾窗渲染 / 计数算术 / 折叠期跳过 ---------------- */
+
+describe('renderSlotTailLines 尾窗渲染（渲染热路径 D1——冻结前缀不重渲染）', () => {
+  /** 直构槽块（D1 测试速构——字段族全数到场） */
+  const d1Slot = (
+    over: Partial<Extract<TranscriptBlock, { kind: 'streaming' }>>,
+  ): Extract<TranscriptBlock, { kind: 'streaming' }> => ({
+    kind: 'streaming',
+    epoch: 1,
+    text: '',
+    doc: null,
+    thinking: '',
+    thinkingDoc: null,
+    thinkingSettled: true,
+    thinkingExpanded: false,
+    theme: DEFAULT_THEME,
+    toggleHint: 'ctrl+t',
+    ...over,
+  });
+
+  /** 多形文档语料：七块型 + 零行块 + 开栏尾 + CJK 折行 + 表格对齐 */
+  const DOC_TEXTS = [
+    '# 大标题\n\n段落一正文\n\n> 引用行\n\n```ts\nconst x = 1;\n```\n\n- 项一\n- 项二\n\n---',
+    '| 左 | 右 |\n| :- | -: |\n| 长单元格内容折行 | 2 |',
+    '段前\n\n```\n```',
+    '```\nopen tail',
+    '中文段落'.repeat(20),
+    '# t\n\n> q\n',
+  ];
+  const START_ROWS = [0, 1, 2, 5];
+
+  it('对拍锁：尾窗输出与全量渲染切片逐字节一致（多形 × 多宽 × 多起点）', () => {
+    for (const docText of DOC_TEXTS) {
+      for (const w of [40, 20, 7, 3]) {
+        // 各形槽：纯 doc / 折叠思考 + doc / 展开思考 + doc / 纯文本降档
+        const doc = new StreamingMarkdown();
+        doc.update(docText);
+        const thinkingDoc = new StreamingMarkdown();
+        thinkingDoc.update('# 想法\n\n思考正文段落内容');
+        const shapes = [
+          d1Slot({ doc }),
+          d1Slot({ doc, thinking: '先想一步' }),
+          d1Slot({ doc, thinking: '# 想法\n\n思考正文段落内容', thinkingDoc, thinkingExpanded: true }),
+          d1Slot({ doc: null, text: '纯文本降档段落\n第二行继续' }),
+          d1Slot({ doc: null, text: '降档 + 思考', thinking: '折叠思考' }),
+        ];
+        for (const slot of shapes) {
+          const full = renderBlockLines(slot, w);
+          for (const k of [...START_ROWS, full.length - 1, full.length, full.length + 3]) {
+            const tail = renderSlotTailLines(slot, w, k);
+            expect(tail.total).toBe(full.length);
+            expect(tail.lines).toEqual(full.slice(k));
+          }
+        }
+      }
+    }
+  });
+
+  it('让位收缩形：起点回抬（小于上帧起点）仍与全量切片一致——收缩帧全渲染回退', () => {
+    const doc = new StreamingMarkdown();
+    doc.update('# 标\n\n段落两行\n\n```ts\nx\n```');
+    const slot = d1Slot({ doc, thinking: '思考标签' });
+    const full = renderBlockLines(slot, 40);
+    expect(renderSlotTailLines(slot, 40, 4).lines).toEqual(full.slice(4));
+    expect(renderSlotTailLines(slot, 40, 1).lines).toEqual(full.slice(1)); // 起点回抬
+    expect(renderSlotTailLines(slot, 40, 0).lines).toEqual(full); // 全量回退形
+  });
+});
+
+describe('stableSlotLineCount 展开档算术（渲染热路径 D2——thinking 腿不进网格）', () => {
+  it('展开档对拍：= renderThinkingStyledLines 行数 + doc 稳定面（含缺席 doc 即时构档形）', () => {
+    const doc = new StreamingMarkdown();
+    doc.update('# 标\n\n段落仍在流');
+    const thinkingDoc = new StreamingMarkdown();
+    thinkingDoc.update('# 想法\n\n思考正文');
+    const slot: Extract<TranscriptBlock, { kind: 'streaming' }> = {
+      kind: 'streaming',
+      epoch: 1,
+      text: '# 标\n\n段落仍在流',
+      doc,
+      thinking: '# 想法\n\n思考正文',
+      thinkingDoc,
+      thinkingSettled: true,
+      thinkingExpanded: true,
+      theme: DEFAULT_THEME,
+      toggleHint: 'ctrl+t',
+    };
+    const view = { text: slot.thinking, expanded: true, theme: slot.theme, toggleHint: slot.toggleHint };
+    for (const w of [60, 20, 7, 3]) {
+      expect(stableSlotLineCount(slot, w)).toBe(
+        renderThinkingStyledLines(view, w, slot.thinkingDoc).length + doc.stableLineCount(w),
+      );
+      // 体 doc 缺席形：即时构档回退（与渲染支路同形）
+      expect(stableSlotLineCount({ ...slot, thinkingDoc: null }, w)).toBe(
+        renderThinkingStyledLines(view, w, null).length + doc.stableLineCount(w),
+      );
+    }
+  });
+
+  it('词法锁：thinking 计数算术位在场（源码标记恰一处）', () => {
+    const src = readFileSync(new URL('./transcript.ts', import.meta.url), 'utf8');
+    expect((src.match(/渲染热路径 D2——思考行计数算术/g) ?? []).length).toBe(1);
+  });
+});
+
+describe('thinkingDoc 折叠期跳过更新（渲染热路径 D3——ctrl+t 展开时重建承接）', () => {
+  /** 单帧思考 partial */
+  const thinkingPartial = (thinking: string): AgentEvent => ({
+    type: 'message_update',
+    role: 'assistant',
+    partial: {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking },
+        { type: 'text', text: '正文' },
+      ],
+      usage,
+      stopReason: 'stop',
+      timestamp: 1,
+    },
+  });
+
+  it('折叠期跳过：逐帧 message_update 不换血 thinkingDoc（修前红锚——无条件 update 使账面随最新）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_start', role: 'assistant' });
+    apply(t, thinkingPartial('思考一'));
+    const slot1 = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    apply(t, thinkingPartial('思考一继续更长'));
+    const slot2 = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(slot2.thinking).toBe('思考一继续更长'); // 槽面思考文照常换新（标签行字数随动）
+    expect(slot2.thinkingDoc).toBe(slot1.thinkingDoc); // 同一实例（槽展开携带引用）
+    expect(slot2.thinkingDoc?.text).toBeNull(); // 体 doc 全程零换入——折叠档从起步就不布局它（修前红锚：无条件 update 使账面随最新 '思考一继续更长'）
+  });
+
+  it('ctrl+t 展开重建：翻转进展开档时 thinkingDoc 重建承接最新思考（展开渲染零陈旧）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_start', role: 'assistant' });
+    apply(t, thinkingPartial('思考一'));
+    apply(t, thinkingPartial('思考一继续更长'));
+    t.toggleThinking(); // 折叠 → 展开
+    const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(slot.thinkingExpanded).toBe(true);
+    expect(slot.thinkingDoc?.text).toBe('思考一继续更长'); // 重建承接最新——展开体行不陈旧
+    // 展开档后续帧照常增量（不再跳过）
+    apply(t, thinkingPartial('思考一继续更长再加长'));
+    const slot2 = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(slot2.thinkingDoc?.text).toBe('思考一继续更长再加长');
+    // 行为等价锁：展开渲染呈现最新思考全文
+    const lines = renderBlockStyledLines(slot2, 60);
+    expect(lines.some((l) => l.plain.includes('思考一继续更长再加长'))).toBe(true);
+  });
+
+  it('展开期折叠回跳过：toggle 回折叠后体 doc 再停更、再展开再重建（双向翻转零陈旧）', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_start', role: 'assistant' });
+    apply(t, thinkingPartial('阶段一'));
+    t.toggleThinking(); // 展开
+    apply(t, thinkingPartial('阶段一阶段二')); // 展开档——照常更新
+    t.toggleThinking(); // 折叠
+    apply(t, thinkingPartial('阶段一阶段二阶段三')); // 折叠档——跳过
+    const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(slot.thinkingDoc?.text).toBe('阶段一阶段二');
+    t.toggleThinking(); // 再展开——重建
+    const slot2 = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(slot2.thinkingDoc?.text).toBe('阶段一阶段二阶段三');
   });
 });

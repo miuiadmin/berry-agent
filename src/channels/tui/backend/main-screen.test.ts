@@ -5,6 +5,7 @@
  * 固定区钉行 8..9。断言收帧字节序（定位序列 + 内容行 + EL 擦除）。
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { CellGrid, MemoryTerminalIO, sanitizeDisplayText, stringWidth } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
 import type { TranscriptBlock } from './transcript.js';
@@ -651,5 +652,46 @@ describe('MainScreen 固定区收缩残影擦除（fx2-C——setFixed 旧行 cu
     expect(io.bytes).toContain('\x1b[8;1H' + '\x1b[0m' + '\x1b[K'); // 0 基行 7
     expect(io.bytes).toContain('\x1b[9;1H' + '\x1b[0m' + '\x1b[K'); // 0 基行 8
     expect(io.bytes).toContain('新固定行'); // 新格行 9 正常入位
+  });
+});
+
+/* ---------------- 渲染热路径 D1：槽呈现走尾窗 ---------------- */
+
+describe('槽呈现尾窗化（渲染热路径 D1——冻结前缀不重渲染）', () => {
+  it('冻结后续帧字节面零漂移：冻结前缀行只写一次、后续帧只写尾段（既有冻结测试族之上的双写负断言）', () => {
+    // 80×10、固定区 2 → 滚动区 8 行；超视口长 doc 触发冻结升格
+    const { io, screen } = makeScreen();
+    const longDoc = new StreamingMarkdown();
+    longDoc.update(Array.from({ length: 30 }, (_, i) => `第${i}行稳定段落`).join('\n\n'));
+    const slot: TranscriptBlock = {
+      kind: 'streaming',
+      epoch: 1,
+      text: '',
+      doc: longDoc,
+      thinking: '',
+      thinkingDoc: null,
+      thinkingSettled: true,
+      thinkingExpanded: false,
+      theme: DEFAULT_THEME,
+      toggleHint: 'ctrl+t',
+    };
+    screen.present([slot], 0);
+    const frame1 = io.bytes;
+    io.bytes = ''; // 收帧边界（逐帧记录语义——本文件同律）
+    // 冻结区内样本：块 10-19（行 20-38，深在首帧冻结前缀内部——非尾段过渡带）
+    expect((frame1.match(/第1[0-9]行稳定段落/g) ?? []).length).toBe(10); // 冻结确发生（非伪绿）
+    // 续帧：doc 再增长——已冻行不得再写（append-only 物理律：冻结行永不再写；
+    // 尾段行重写与「尾段新冻升格」是换装域正常语义，不在本负断言样本内）
+    longDoc.update(Array.from({ length: 31 }, (_, i) => `第${i}行稳定段落`).join('\n\n') + '\n\n尾段新行');
+    screen.present([slot], 0);
+    const frame2 = io.bytes;
+    expect((frame2.match(/第1[0-9]行稳定段落/g) ?? []).length).toBe(0); // 冻结前缀内部零重写
+    expect(frame2).toContain('尾段新行'); // 尾段照常整写
+  });
+
+  it('词法锁：present 槽渲染走尾窗单源（renderSlotTailLines 恰两处 = import + 唯一消费；旧全量私法除名）', () => {
+    const src = readFileSync(new URL('./main-screen.ts', import.meta.url), 'utf8');
+    expect((src.match(/renderSlotTailLines/g) ?? []).length).toBe(2);
+    expect((src.match(/renderSlotLines\(/g) ?? []).length).toBe(0); // 修前红锚：旧私法在场
   });
 });

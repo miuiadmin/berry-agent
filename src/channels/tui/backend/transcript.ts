@@ -32,11 +32,22 @@
  */
 import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage } from '../../../contracts/index.js';
-import { CellGrid, truncateToWidth, wrapText, type ColorValue, type Renderable } from '../../engine/index.js';
+import {
+  CellGrid,
+  EMPTY_STYLE,
+  graphemeWidth,
+  styleEquals,
+  truncateToWidth,
+  wrapText,
+  type CellStyle,
+  type ColorValue,
+  type Renderable,
+} from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
-import { gridRowToStyled, capStyledLine, styledLineToAnsi, type StyledLine } from './ansi-rows.js';
+import { gridRowToStyled, capStyledLine, styledLineToAnsi, type StyleRun, type StyledLine } from './ansi-rows.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
+import type { StyledGrapheme } from '../markdown/layout.js';
 import { renderThinkingStyledLines } from '../blocks/thinking.js';
 import {
   cardBodyOf,
@@ -260,15 +271,36 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
  */
 export function stableSlotLineCount(slot: Extract<TranscriptBlock, { kind: 'streaming' }>, columns: number): number {
   if (slot.thinking !== '' && !slot.thinkingSettled) return 0; // 不稳头行止冻——前缀连续律
+  // 渲染热路径 D2——思考行计数算术：修前经 renderThinkingStyledLines 全量
+  // 渲染（展开档 = CellGrid 整面分配 + 落格 + 逐行读回）只为取 .length；改
+  // 为行数算术（与渲染函数产出行数同源同律——见 thinkingRowCount 头注）
   const thinkingRows =
     slot.thinking !== ''
-      ? renderThinkingStyledLines(
-          { text: slot.thinking, expanded: slot.thinkingExpanded, theme: slot.theme, toggleHint: slot.toggleHint },
+      ? thinkingRowCount(
+          { text: slot.thinking, expanded: slot.thinkingExpanded, theme: slot.theme },
           columns,
           slot.thinkingDoc,
-        ).length
+        )
       : 0;
   return thinkingRows + (slot.doc !== null ? slot.doc.stableLineCount(columns) : 0);
+}
+
+/**
+ * thinking 前缀行数算术（D2 计数腿——与 stableSlotLineCount 注同役）：与
+ * renderThinkingStyledLines 的产出行数同源同律镜像——空文 0 行；折叠档 =
+ * 标签单行（体 doc 不触）；展开档 = 标签行 + max(1, 体 doc 量高)（体 doc
+ * 缺席即时构档与渲染支路同形；max(1) 镜像其空体网格保底行）。计数从此
+ * 不进网格管线——展开档大量高的网格分配/落格/读回从计数腿除名。
+ */
+function thinkingRowCount(
+  view: { readonly text: string; readonly expanded: boolean; readonly theme: ResolvedTheme },
+  columns: number,
+  doc?: Renderable | null,
+): number {
+  if (view.text === '') return 0;
+  if (!view.expanded) return 1; // 折叠档 = 单标签行（体 doc 缺席亦然——渲染支路折叠不触 doc）
+  const bodyDoc = doc ?? MarkdownDoc.of(view.text, view.theme);
+  return 1 + Math.max(1, bodyDoc.measure(columns));
 }
 
 /** Renderable doc → 带样式行集（markdown 定稿与流式 doc 共用——同管线律） */
@@ -280,6 +312,138 @@ function renderDocLines(doc: Renderable, columns: number): StyledLine[] {
     lines.push(gridRowToStyled(grid, r) ?? { plain: '', runs: [] }); // 无内容行保空行
   }
   return lines;
+}
+
+/**
+ * doc 装配行（StyledGrapheme[]）→ 带样式行（渲染热路径 D1——行集直转）：
+ * 忠实镜像「doc.render 落格 CellGrid + gridRowToStyled 读回」的净效果，
+ * 免去整面网格分配/落格/读回——逐行语义等价要点（与 cell.ts / ansi-rows.ts
+ * 两件的单源语义逐条对齐）：
+ * - 落格净效果：tab 展开两空格（携段样式）、其余 C0/DEL 跳过不占宽（行集
+ *   在 layout 件已源头消毒——本位防御镜像）、零宽字素 setCell 丢弃、越列
+ *   写静默吸收（col ≥ columns 截停；宽字素末列基格仍写——续格越界丢弃）；
+ * - 读回净效果（gridRowToStyled 同律）：行尾缺省空格修剪（写入的缺省空格
+ *   与未写格同判——尾部默认空格不入 plain）、缺省样式段不产段（gap 即裸
+ *   文本）、相邻同样式且端点连续的段合并、无内容行返空行。
+ */
+function docRowToStyledLine(row: readonly StyledGrapheme[], columns: number): StyledLine {
+  // 虚拟落格（dense 形——写入连续无洞：零宽/控制跳过不推进列位）
+  const cells: { grapheme: string; style: Readonly<CellStyle> | undefined }[] = [];
+  let col = 0;
+  for (const cell of row) {
+    const code = cell.grapheme.charCodeAt(0);
+    if (code === 0x09) {
+      // tab 展开两空格（writeText 同律——两格各自独立越界判定）
+      if (col < columns) cells.push({ grapheme: ' ', style: cell.style });
+      if (col + 1 < columns) cells.push({ grapheme: ' ', style: cell.style });
+      col += 2;
+      continue;
+    }
+    if (code < 0x20 || code === 0x7f) continue; // 控制字素落格跳过不占宽（防御镜像——行集已消毒）
+    const w = graphemeWidth(cell.grapheme);
+    if (w === 0) continue; // 零宽字素 setCell 丢弃（防御镜像——splitGraphemes 已合流）
+    if (col >= columns) break; // 越列写静默吸收（整字独行超帽形与网格兜底同律）
+    cells.push({ grapheme: cell.grapheme, style: cell.style });
+    col += w;
+  }
+  // 行尾缺省空格修剪（cellEquals 归一基准：' ' + EMPTY_STYLE + width 1）
+  let last = cells.length - 1;
+  while (last >= 0) {
+    const tailCell = cells[last]!;
+    if (tailCell.grapheme !== ' ') break;
+    if (tailCell.style !== undefined && !styleEquals(tailCell.style, EMPTY_STYLE)) break;
+    last--;
+  }
+  if (last < 0) return { plain: '', runs: [] }; // 无内容行（gridRowToStyled null 同构——调用面保空行）
+  let plain = '';
+  const runs: StyleRun[] = [];
+  for (let i = 0; i <= last; i++) {
+    const cell = cells[i]!;
+    const start = plain.length;
+    plain += cell.grapheme;
+    if (cell.style === undefined || styleEquals(cell.style, EMPTY_STYLE)) continue; // 缺省段不产段（gap 即裸文本）
+    // 相邻同样式紧邻续段合并（端点连续才并——中间缺省格即断开）
+    const prev = runs[runs.length - 1];
+    if (prev !== undefined && styleEquals(prev.style, cell.style) && prev.end === start) {
+      runs[runs.length - 1] = { start: prev.start, end: start + cell.grapheme.length, style: cell.style };
+    } else {
+      runs.push({ start, end: start + cell.grapheme.length, style: cell.style });
+    }
+  }
+  return { plain, runs };
+}
+
+/** 槽尾窗渲染产出（渲染热路径 D1——尾窗渲染） */
+export interface SlotTailLines {
+  /** 槽总行数（thinking 前缀 + doc 行——与全量渲染 renderBlockLines 同源计数） */
+  readonly total: number;
+  /** 尾窗行（ANSI 串；索引 0 = 槽第 startRow 行——与全量渲染切片逐字节一致） */
+  readonly lines: string[];
+}
+
+/**
+ * 流式槽尾窗渲染（渲染热路径 D1——尾窗渲染）：只渲染 [startRow, total) 段。
+ *
+ * 动机：修前 present() 每帧全量渲染整槽（含冻结前缀）——已冻结行是
+ * append-only 升格 durable 的不可回改内容（升格后永不再写），重渲染纯白算
+ * 且不进 slotFrameBytes 帽（冻结面白算不可观测）；3600 行槽实测 75ms/帧 =
+ * 60fps 预算 4.5 倍。
+ *
+ * 字节等价契约：`(total, lines) ≡ (renderBlockLines(slot, columns).length,
+ * renderBlockLines(slot, columns).slice(startRow))`——对拍锁在
+ * transcript.test.ts（多形语料 × 多宽 × 多起点）。legs：
+ * - thinking 腿：行数走 thinkingRowCount 算术；startRow 落思考区内才渲染
+ *   （折叠档 = 标签单行便宜；展开档 opt-in 走原渲染函数——ctrl+t 罕见路径，
+ *   仍经 renderThinkingStyledLines 保字节同源）；
+ * - doc 腿：doc.rowsFor 装配行集（块级缓存承接 + D4 尾块增量折叠）自
+ *   docStart = startRow − thinkingRows 起逐行 docRowToStyledLine 直转
+ *   （跳过 CellGrid 整面往返）+ 出口帽 capStyledLine + ANSI 序列化——
+ *   与 renderBlockStyledLines 出口同律；
+ * - 降档腿（doc = null）：纯文本 wrapText 切片（应急路径——字节帽超标回退
+ *   形，wrapText 纯文本无网格往返，成本可忍）。
+ *
+ * 回退形（正确性优先）：startRow = 0 即全量渲染——repaint/resize/新槽开账/
+ * 让位收缩后的首帧自然走全量（调用方 main-screen 注释在位）。
+ */
+export function renderSlotTailLines(
+  slot: Extract<TranscriptBlock, { kind: 'streaming' }>,
+  columns: number,
+  startRow: number,
+): SlotTailLines {
+  const thinkingRows =
+    slot.thinking !== ''
+      ? thinkingRowCount(
+          { text: slot.thinking, expanded: slot.thinkingExpanded, theme: slot.theme },
+          columns,
+          slot.thinkingDoc,
+        )
+      : 0;
+  const lines: string[] = [];
+  // thinking 尾窗段（startRow 落思考区内——超出则思考行全在冻结前缀，零渲染）
+  if (slot.thinking !== '' && startRow < thinkingRows) {
+    const thinkingLines = renderThinkingStyledLines(
+      { text: slot.thinking, expanded: slot.thinkingExpanded, theme: slot.theme, toggleHint: slot.toggleHint },
+      columns,
+      slot.thinkingDoc,
+    ).map((line) => styledLineToAnsi(capStyledLine(line, columns)));
+    for (let i = startRow; i < thinkingLines.length; i++) lines.push(thinkingLines[i]!);
+  }
+  // doc 尾窗段（行集直转——自 docStart 起逐行；出口帽 + 序列化与全量管线同律）
+  const docStart = Math.max(0, startRow - thinkingRows);
+  let docRowCount = 0;
+  if (slot.doc !== null) {
+    const rows = slot.doc.rowsFor(columns);
+    docRowCount = rows.length;
+    for (let r = docStart; r < rows.length; r++) {
+      lines.push(styledLineToAnsi(capStyledLine(docRowToStyledLine(rows[r]!, columns), columns)));
+    }
+  } else if (slot.text !== '') {
+    // 降档纯文本腿（零样式直推——切片同律）
+    const wrapped = wrapText(slot.text, columns);
+    docRowCount = wrapped.length;
+    for (let i = docStart; i < wrapped.length; i++) lines.push(wrapped[i]!);
+  }
+  return { total: thinkingRows + docRowCount, lines };
 }
 
 /** 简行块的带样式形（整行 dim——与 ANSI 形 dim() 字节同源） */
@@ -473,7 +637,16 @@ export class LiveTranscript {
     this.blocks = this.blocks.map((block) => {
       if (block.kind === 'thinking') return { ...block, expanded: this.thinkingExpanded };
       if (block.kind === 'tool-card') return { ...block, expanded: this.toolCardsExpanded };
-      if (block.kind === 'streaming') return { ...block, thinkingExpanded: this.thinkingExpanded };
+      if (block.kind === 'streaming') {
+        // D3 收口位：折叠期 thinkingDoc 停在旧快照（message_update 跳过更新）
+        // ——翻转进展开档时重建承接最新思考（展开渲染读体 doc，陈旧即失真；
+        // 重建一次性成本 = 单次解析，toggle 罕见路径可忍）。折叠向翻转不重建
+        // （体 doc 不再被读，留旧账无害）
+        if (!this.thinkingExpanded) return { ...block, thinkingExpanded: false };
+        const freshThinkingDoc = new StreamingMarkdown(block.theme);
+        freshThinkingDoc.update(block.thinking);
+        return { ...block, thinkingExpanded: true, thinkingDoc: freshThinkingDoc };
+      }
       return block;
     });
   }
@@ -581,11 +754,15 @@ export class LiveTranscript {
         if (slot === undefined || slot.kind !== 'streaming') return;
         // partial 是完整快照——直换非追加；markdown 档经 StreamingMarkdown
         // 增量装配（append-only 前提下块级缓存承接，布局只跑尾块）；思考文
-        // 同律增量（合并形 append-only——块间 '\n\n' 串接只增不改）
+        // 同律增量（合并形 append-only——块间 '\n\n' 串接只增不改）。
+        // 渲染热路径 D3——折叠期跳过 thinkingDoc 重建：折叠档渲染/计数两腿
+        // 的折叠支路都不触体 doc（renderThinkingStyledLines 折叠即返标签行、
+        // thinkingRowCount 折叠即 1），逐帧全量换入纯白算——跳过（体 doc 停
+        // 在旧快照无害）；翻转进展开档时 rewriteExpandedFlags 重建承接最新。
         const text = textOf(event.partial);
         const thinking = thinkingOf(event.partial);
         slot.doc?.update(text);
-        slot.thinkingDoc?.update(thinking);
+        if (slot.thinkingExpanded) slot.thinkingDoc?.update(thinking);
         this.blocks[this.blocks.length - 1] = {
           ...slot,
           text,
