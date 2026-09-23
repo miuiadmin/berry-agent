@@ -20,8 +20,8 @@ import { describe, expect, it } from 'vitest';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { ansiColor, stringWidth } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
-import { buildSgr } from './ansi-rows.js';
-import { sessionColor } from '../theme/index.js';
+import { buildSgr, SGR_RESET } from './ansi-rows.js';
+import { builtinPalette, detectColorDepth, resolveTheme, sessionColor } from '../theme/index.js';
 import { AltScreenHost } from '../overlay/alt-screen.js';
 import { AUTOCOMPLETE_DEBOUNCE_MS } from '../autocomplete/async.js';
 import type { OverlayContent } from '../overlay/overlay.js';
@@ -133,6 +133,62 @@ describe('TuiBackend 直播呈现', () => {
     emit(ctl.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲\n# 标题\n乙') });
     expect(ctl.io.bytes).not.toContain('# 标题'); // '#' 被剥（H1 无标记原文）
     expect(ctl.io.bytes).toContain('\x1b[1m标题'); // markdown 直推档（H1 bold）
+  });
+
+  it('流式帧字节锁·块型族（B4——H1 例之外的闭栏代码块/表格/CJK 三形；固定注入文本非 AI 生成物）', () => {
+    // 语义键 SGR 期望值按装配真源现算（dark@16 缺省档——与 rig 零 colorEnv 注入
+    // 对齐）：codeKeyword→ANSI 9 / codeNumber→ANSI 12 / tableRule→ANSI 8。
+    const darkTheme = resolveTheme(builtinPalette('dark'), detectColorDepth({}));
+    const kwSgr = buildSgr({ fg: darkTheme.codeKeyword });
+    const numSgr = buildSgr({ fg: darkTheme.codeNumber });
+    const ruleSgr = buildSgr({ fg: darkTheme.tableRule });
+
+    // 形一：闭栏代码块流式帧含高亮 SGR（闭栏才高亮——流式防闪烁律；keyword
+    // 与 number 两语义键段 + 代码栏 '│ ' 前缀同帧在场）
+    const code = makeBackend();
+    emit(code.backend, { type: 'message_start', role: 'assistant' });
+    emit(code.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
+    code.io.bytes = '';
+    emit(code.backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: assistantMsg('甲\n```ts\nconst x = 1;\n```'),
+    });
+    expect(code.io.bytes).toContain(`│ ${kwSgr}const${SGR_RESET} x = ${numSgr}1${SGR_RESET};`);
+
+    // 形二：GFM 表格流式帧含框线定界行（├─┬─┤ 分隔行整段 tableRule——数据
+    // 行 │ 前缀同键分立段）
+    const table = makeBackend();
+    emit(table.backend, { type: 'message_start', role: 'assistant' });
+    emit(table.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
+    table.io.bytes = '';
+    emit(table.backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: assistantMsg('甲\n| 甲 | 乙 |\n| --- | --- |\n| 1 | 2 |'),
+    });
+    expect(table.io.bytes).toContain(`${ruleSgr}├─────┬─────┤${SGR_RESET}`); // 定界行（列宽 = 头宽 2 + 两侧空格 2）
+    expect(table.io.bytes).toContain(`${ruleSgr}│${SGR_RESET} 1`); // 数据行框线前缀（tableRule 同键）
+
+    // 形三：CJK 双宽文本流式帧不截半字——折行走网格管线字素级：逐行可见宽
+    // ≤ 屏宽帽（截半即越帽 autowrap 或残宽）+ 折行拼接还原全文（半字即断链）
+    const cjkText = '中文测试'.repeat(30); // 120 字素 × 宽 2 = 240 列——80 列屏折 3 行
+    const cjk = makeBackend();
+    emit(cjk.backend, { type: 'message_start', role: 'assistant' });
+    emit(cjk.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
+    cjk.io.bytes = '';
+    emit(cjk.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg(`甲\n${cjkText}`) });
+    const cjkLines = cjk.io.bytes
+      .split('\n')
+      .filter((line) => /[中文测]/.test(line)) // CJK 段折行族（末行可恰为「测试」二字——不含「中文」串）
+      .map((line) => line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/[\r\n]/g, ''))
+      .map((line) => line.replace(/^甲 /, '')); // 首帧行残留的前段 '甲 ' 前缀剥除（同帧重写混排）
+    expect(cjkLines.length).toBeGreaterThanOrEqual(3); // 折 3 行（外加首帧甲行不计）
+    for (const line of cjkLines) {
+      expect(stringWidth(line), 'CJK 折行可见宽 ≤ 帽').toBeLessThanOrEqual(COLS);
+    }
+    expect(cjkLines.join('')).toBe(cjkText); // 折行零丢字零裂字——拼接还原全文
+    expect(cjk.io.bytes).toContain('中文测试中文测试'); // 双宽字素成串完整在场（帧字节非碎片段）
   });
 
   it('聚焦 user 消息：> 前缀行', () => {
@@ -426,6 +482,25 @@ describe('TuiBackend 输入管线（自持——不经 Engine）', () => {
     pump();
     expect(io.bytes).toContain('b'); // 层关后键回编辑器
   });
+
+  // B3（y/n 集成链锁）：36aa326 的 y/n 修复只有面板级直调锁（select-confirm
+  // .test.ts text 轨四例）——集成链（io chunk → InputDecoder 地面态 textRun
+  // 冲刷 → routeEvent 四层序 → overlay 栈模态路由 → 面板 text 轨应答）零锁。
+  // 本例经 backend 输入面发裸 'y'/'n' 字节流锁全链 promise 应答（'\r' 应答
+  // 测试同 rig 形——新增覆盖锁，无行为变更故无修前红态）。
+  it('y/n 集成链锁（B3）：裸字母字节流经 backend 输入面 → confirm promise 对应布尔应答', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const yes = backend.confirm('删吗？');
+    pump();
+    io.emitInput('y'); // 裸字母单字节 chunk——text 轨（地面态游程冲刷单 text 事件）
+    pump();
+    await expect(yes).resolves.toBe(true);
+    const no = backend.confirm('再想想？');
+    pump();
+    io.emitInput('n');
+    pump();
+    await expect(no).resolves.toBe(false);
+  });
 });
 
 describe('TuiBackend 提交路由', () => {
@@ -523,6 +598,24 @@ describe('TuiBackend 提交路由', () => {
     expect(io.bytes).toContain('不支持退出命令'); // 诚实拒
     expect(calls.quit).toBe(0);
     expect(calls.submitted).toEqual([]);
+  });
+
+  // B5（迟到续链 lifecycle 闸——修前红）：真实窄窗 = 同 stdin chunk 粘贴形
+  // quit 先行 + '/' 命令后随（'/exit\n/unknown\n' 单 chunk）：事件队列同批
+  // 路由（stop 后 decoder 队列已取走——续链不受 unsubInput 影响），'/exit'
+  // 提交同步调 onQuit → 真装配 quitResolve 的 shutdown 级联（closer 内
+  // backend.stop）是先排微任务；后随 '/unknown' 提交的 dispatchCommand
+  // .then 续链后到——在停机态（running=false、装配侧 manager 已 dispose）
+  // 触达 onSubmit 可启新 LLM run。本例注入微任务形 onQuit 复现窄窗。
+  it('迟到续链 lifecycle 闸（B5——修前红）：单 chunk 双命（quit 先行 + 命令后随）下停机态续链不触达 onSubmit', async () => {
+    const rig = makeInteractive({
+      dispatchCommand: async () => false, // 未注册 /词——false 兜底路（.then 续链形）
+      onQuit: () => queueMicrotask(() => rig.backend.stop()), // quitResolve 微任务级联（真装配 closer 同形）
+    });
+    rig.io.emitInput('/exit\r/unknown\r'); // 单 chunk 双命（粘贴形——decoder 一批产出两组 text+enter）
+    await Promise.resolve(); // 微任务排空：先排的 stop 先落、后随 dispatch .then 续链后到
+    expect(rig.backend.lifecycle).toBe('disposed'); // 停机态已达成（级联先排先执行）
+    expect(rig.calls.submitted).toEqual([]); // 修前红：续链在停机态触达 onSubmit——'/unknown' 落账
   });
 });
 

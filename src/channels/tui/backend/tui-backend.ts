@@ -105,7 +105,7 @@ import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer } from '../history/history-viewer.js';
 import { SessionPicker } from '../history/session-picker.js';
 import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
-import { UsageViewer } from '../panels/usage-viewer.js';
+import { formatCount, UsageViewer } from '../panels/usage-viewer.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { GuideViewer, type GuidePanelData } from '../panels/guide-viewer.js';
@@ -318,17 +318,13 @@ const ZERO_USAGE: UsageAccumulation = Object.freeze({
   currency: null,
 });
 
-/** token 数千位分组（1,234,567——usage 行「格式化」定形） */
-function formatTokenCount(n: number): string {
-  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-
 /**
  * 速度格式化（三反馈批C）：<100 tok/s 一位小数（尾零剥除——25.0 → 25，精度
- * 帽一位不失信息）、≥100 千分位整数（2,500——与 token 数同形）。
+ * 帽一位不失信息）、≥100 千分位整数（2,500——与 token 数同形；千位分组单源
+ * 已迁 usage-viewer formatCount，本件三消费位同 import）。
  */
 function formatTokensPerSecond(n: number): string {
-  if (n >= 100) return formatTokenCount(Math.round(n));
+  if (n >= 100) return formatCount(Math.round(n));
   return n.toFixed(1).replace(/\.0$/, '');
 }
 
@@ -1353,7 +1349,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.footerTodaySpent !== undefined) {
       try {
         const spent = this.footerTodaySpent();
-        if (spent > 0) parts.push(`今日 ${formatTokenCount(spent)}`);
+        if (spent > 0) parts.push(`今日 ${formatCount(spent)}`);
       } catch {
         // fail-open：缩位不虚报
       }
@@ -1669,6 +1665,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 编辑器提交路由：input-ask 应答优先 → 退出词本地拦截 → TUI 本地命令族
    * 拦截 → '/' 命令柄（false 兜底）→ onSubmit。候跑标记随两落点透传（挂账
    * 解挂批 2026-09-15——alt+enter 提交形第三参）。
+   *
+   * lifecycle 闸（迟到续链防——2026-09-23 B5）：onSubmit 两触达位（dispatch
+   * 兜底 .then 续链位 + '/' 外直落位）前置 this.running 闸。真实窄窗 = 同
+   * stdin chunk 粘贴形 quit 先行 + '/' 命令后随（如 '/exit\n/unknown\n' 单
+   * chunk）：事件队列同批已取走、路由不受 stop 卸订影响，'/exit' 提交同步
+   * onQuit → quitResolve 的 shutdown 级联（closer 内 backend.stop）是先排
+   * 微任务、先于后随 dispatch .then 续链落地——续链在停机态（running=false、
+   * 装配侧 manager 已 dispose）触达 onSubmit 可启新 LLM run。闸形 = 停机后
+   * 提交静默丢弃（终退不可复用语义：退出即停一切续链）。
    */
   private handleSubmit(text: string, opts?: EditorSubmitOptions): void {
     const ask = this.inputAsk;
@@ -1693,7 +1698,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (text.startsWith('/') && this.dispatchCommand !== undefined) {
       this.dispatchCommand(text)
         .then((handled) => {
-          if (!handled) this.onSubmit?.(this.sessionId, text, opts); // 未命中兜底（03 §2.2 驱动侧语义）
+          // lifecycle 闸（迟到续链防——头注窄窗形）：续链后到时已停机则不触
+          // 达 onSubmit（false 兜底与闸合判——两条件皆真才落）
+          if (!handled && this.running) this.onSubmit?.(this.sessionId, text, opts); // 未命中兜底（03 §2.2 驱动侧语义）
         })
         .catch((err: unknown) => {
           // 命令处理器异常不静默不崩进程——呈现面兜底（命令面纪律归命令面）
@@ -1701,7 +1708,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         });
       return;
     }
-    this.onSubmit?.(this.sessionId, text, opts);
+    // lifecycle 闸（同上——同步停机形防：onQuit 直停装配下第二命直落位同闸）
+    if (this.running) this.onSubmit?.(this.sessionId, text, opts);
   }
 
   /**
@@ -2032,7 +2040,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           // 批C：completed 扩速段（run 级平均——诚实缺席形无段，见 runSpeedTokensPerSecond）
           const speed = this.runSpeedTokensPerSecond();
           const speedSegment = speed === null ? '' : ` · ${formatTokensPerSecond(speed)} tok/s`;
-          this.statusLine.setStatus(`✓ 用量 ${formatTokenCount(this.usageTotal.totalTokens)}${speedSegment}`);
+          this.statusLine.setStatus(`✓ 用量 ${formatCount(this.usageTotal.totalTokens)}${speedSegment}`);
         }
         this.toolPanel.clear();
         this.refreshTodo(); // 件 4：刷新三时点之三

@@ -236,7 +236,9 @@ describe('ConfirmPanel', () => {
     grid.writeText(0, 0, 'underlying-tree-text');
     panel.render(grid, { row: 0, col: 0, width: 30, height: 2 });
     expect(readRow(grid, 0, 30)).toBe('删除这条记忆？');
-    expect(readRow(grid, 1, 30)).toBe('enter 确认 · esc 取消');
+    // B2 缺省翻档：y/n 双轨真可达（36aa326）后缺省提示明示双键（原断言
+    // 'enter 确认 · esc 取消' 随真态翻档——与 memory-viewer 确认态措辞对齐）
+    expect(readRow(grid, 1, 30)).toBe('enter/y 确认 · esc/n 取消');
     expect(grid.getCell(1, 0)?.style.dim).toBe(true);
   });
 
@@ -425,6 +427,26 @@ describe('AltScreenHost 副屏编舞', () => {
     expect(primary.calls).toEqual(['suspendMain', 'resumeMain']); // resumeMain 先于钩（编舞序）
     handle!.close(); // 句柄幂等——不再调
     expect(onReturn).toHaveBeenCalledTimes(1);
+  });
+
+  it('OverlayContent onClosed 钩（07 §4.1 2026-09-23 定形——修前红）：close 单源恰调一次 + 幂等不重调 + 收屏编舞序完整', () => {
+    const { primary, host, altClock } = rig();
+    const calls: string[] = [];
+    const content: OverlayContent = {
+      measure: () => 1,
+      render: () => {},
+      handleEvent: () => true,
+      onClosed: () => calls.push('onClosed'),
+    };
+    const handle = host.open(content);
+    altClock.advance(0);
+    expect(calls).toEqual([]); // 副屏在场不调
+    handle!.close();
+    // 修前红：外部收屏路不经内容件键面——onClosed 永不被调（悬垂泄漏根因）
+    expect(calls).toEqual(['onClosed']);
+    expect(primary.calls).toEqual(['suspendMain', 'resumeMain']); // 收屏编舞序照常（钩不扰序）
+    handle!.close(); // 句柄幂等——钩不重调（host.close 的 alt null 闸自守）
+    expect(calls).toEqual(['onClosed']);
   });
 
   /* ---------------- 鼠标降级接线（mu-2——X10 首达 DECRST + per-entry 闩） ---------------- */

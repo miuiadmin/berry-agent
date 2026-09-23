@@ -17,7 +17,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid, truncateToWidth } from '../../engine/index.js';
-import { ConfirmPanel, SelectPanel } from './select-confirm.js';
+import { ConfirmPanel, SELECT_CANCELLED, SelectPanel } from './select-confirm.js';
 
 /** 读回一行（未写格按空格、宽字素续格空串——trimEnd） */
 function readRow(grid: CellGrid, row: number, width: number): string {
@@ -135,7 +135,9 @@ describe('ConfirmPanel 呈现宽度预算（组 2 修前红）', () => {
     const grid = new CellGrid(30, 2);
     panel.render(grid, { row: 0, col: 0, width: 30, height: 2 });
     expect(readRow(grid, 0, 30)).toBe('删除这条记忆？');
-    expect(readRow(grid, 1, 30)).toBe('enter 确认 · esc 取消');
+    // B2 缺省翻档：y/n 双轨真可达（36aa326）后缺省提示明示双键——与
+    // memory-viewer 确认态措辞对齐（原断言 'enter 确认 · esc 取消' 随真态翻档）
+    expect(readRow(grid, 1, 30)).toBe('enter/y 确认 · esc/n 取消');
   });
 });
 
@@ -263,5 +265,96 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     panel.onFinish = (v) => got.push(v);
     panel.handleEvent(key('enter'));
     expect(got).toEqual(['v9']); // 全集应答（窗口只是呈现取景）
+  });
+});
+
+/* ================= SelectPanel 翻页键族（B1——pagedown/pageup/home/end） ================= */
+
+describe('SelectPanel 翻页键族（B1——pagedown/pageup/home/end）', () => {
+  const opts = (n: number) => Array.from({ length: n }, (_, i) => ({ value: `v${i}`, label: `opt-${i}` }));
+
+  it('home/end 直达首末项（修前死键红——handleEvent 键面仅 ↑/↓/enter/escape，view() 开窗设计长清单四键缺席）', () => {
+    const panel = new SelectPanel({ options: opts(10) });
+    const got: string[] = [];
+    panel.onFinish = (v) => got.push(v);
+    panel.handleEvent(key('end')); // 末项直达
+    panel.handleEvent(key('enter'));
+    expect(got).toEqual(['v9']); // 修前：end 不动作——仍在 v0 红
+    const panel2 = new SelectPanel({ options: opts(10) });
+    const got2: string[] = [];
+    panel2.onFinish = (v) => got2.push(v);
+    panel2.handleEvent(key('down'));
+    panel2.handleEvent(key('home')); // 离首后回首直达
+    panel2.handleEvent(key('enter'));
+    expect(got2).toEqual(['v0']); // 修前：home 不动作——仍在 v1 红
+  });
+
+  it('pagedown/pageup 按窗口化页幅移动（页幅 = 取景窗行数——view() 单源）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(10) });
+    panel.setMaxHeight(7); // 窗行 = 7 - 1（标题）- 2（指示行）= 4
+    const got: string[] = [];
+    panel.onFinish = (v) => got.push(v);
+    panel.handleEvent(key('pagedown')); // 0 → 4（恰一窗）
+    panel.handleEvent(key('enter'));
+    expect(got).toEqual(['v4']); // 修前：pagedown 不动作——仍在 v0 红
+    const panel2 = new SelectPanel({ title: 'T', options: opts(10) });
+    panel2.setMaxHeight(7);
+    const got2: string[] = [];
+    panel2.onFinish = (v) => got2.push(v);
+    panel2.handleEvent(key('end'));
+    panel2.handleEvent(key('pageup')); // 9 → 5（回退一窗）
+    panel2.handleEvent(key('enter'));
+    expect(got2).toEqual(['v5']); // 修前：pageup 不动作——仍在 v9 红
+  });
+
+  it('未窗口化页幅 = 全集行数（视口行数量级——无帽直用形一页即全集）', () => {
+    const panel = new SelectPanel({ options: opts(6) }); // 无帽注入恒满高——count = 6
+    const got: string[] = [];
+    panel.onFinish = (v) => got.push(v);
+    panel.handleEvent(key('down')); // 1
+    panel.handleEvent(key('pagedown')); // 1 + 6 = 7 → 钳末 5
+    panel.handleEvent(key('enter'));
+    expect(got).toEqual(['v5']);
+  });
+
+  it('翻页越界钳首末不循环（与 ↑/↓ 单步循环节律分立——翻页是直达键语义）', () => {
+    const panel = new SelectPanel({ options: opts(10) });
+    const got: string[] = [];
+    panel.onFinish = (v) => got.push(v);
+    panel.handleEvent(key('end'));
+    panel.handleEvent(key('pagedown')); // 已在末——停
+    panel.handleEvent(key('enter'));
+    expect(got).toEqual(['v9']);
+    const panel2 = new SelectPanel({ options: opts(10) });
+    const got2: string[] = [];
+    panel2.onFinish = (v) => got2.push(v);
+    panel2.handleEvent(key('pageup')); // 已在首——停（不循环到末）
+    panel2.handleEvent(key('enter'));
+    expect(got2).toEqual(['v0']);
+  });
+
+  it('翻页后 view() 居中取景自动跟随（end 沉底钳——末项窗尾可视、顶指示在场，渲染零改）', () => {
+    const panel = new SelectPanel({ title: 'T', options: opts(10) });
+    panel.setMaxHeight(7);
+    panel.handleEvent(key('end')); // 直达末项——取景随动
+    expect(panel.measure(80)).toBe(6); // 标题 + 顶指示 + 窗 4（底 0 隐藏——fx2-B 末项沉底同形）
+    const grid = new CellGrid(20, 6);
+    panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
+    expect(readRow(grid, 1, 20)).toBe('↑ 6 more'); // 顶指示（窗外 6 项）
+    expect(readRow(grid, 5, 20)).toBe('❯ opt-9'); // 末项窗尾可视（居中钳沉底）
+  });
+
+  it('空集防御：四键零选项不炸、enter 应答保守值（end = max(0, -1) = 0 钳位）', () => {
+    const panel = new SelectPanel({ options: [] });
+    const got: string[] = [];
+    panel.onFinish = (v) => got.push(v);
+    expect(() => {
+      panel.handleEvent(key('home'));
+      panel.handleEvent(key('end'));
+      panel.handleEvent(key('pagedown'));
+      panel.handleEvent(key('pageup'));
+    }).not.toThrow(); // 空集零选项——四键全钳位 0 无越界
+    panel.handleEvent(key('enter'));
+    expect(got).toEqual([SELECT_CANCELLED]); // options[0] 缺席 ?? 保守值（既有空集应答形）
   });
 });

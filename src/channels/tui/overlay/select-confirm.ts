@@ -1,7 +1,8 @@
 /**
  * 一次性问答面板两枚（07 §4.3）：select / confirm 的主屏浮层实装。
  *
- * - select：↑/↓ 移动高亮、Enter 选定、Esc 取消收 ''（与撤销面保守值同语义）；
+ * - select：↑/↓ 移动高亮（循环）、pagedown/pageup/home/end 翻页直达（钳首末
+ *   不循环）、Enter 选定、Esc 取消收 ''（与撤销面保守值同语义）；
  *   选项数超视口帽时开滚动窗（fx2-B——光标居中 + 顶/底「↑/↓ N more」指示行，
  *   ViewportCapAware——固定区总高恒 ≤ 截断预算，不触发主屏陈货守卫整段不写）；
  * - confirm：Enter/y 确认 true、Esc/n 取消 false（保守值 = 不动原状态）；
@@ -14,7 +15,7 @@
 import type { CellBuffer, InputEvent, Region, Renderable } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { CellStyle } from '../../engine/index.js';
-import { stringWidth, truncateToWidth } from '../../engine/index.js';
+import { ellipsize } from '../../engine/index.js';
 import { fitRowSegments } from '../row-segments.js';
 
 /** 保守取消值（select——空串与撤销面同语义） */
@@ -32,11 +33,6 @@ const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
  * 预算 0（窗宽 ≤ 2 且右段非空）由放行原宽（右对齐起列为负、尾段从行首
  * 覆写整行）收紧为丢弃右段（负起列结构性封堵）。
  */
-
-/** 单段超宽 … 收口（title / message 呈现帽——裸裁会静默丢失段尾无省略形） */
-function ellipsize(text: string, width: number): string {
-  return stringWidth(text) <= width ? text : `${truncateToWidth(text, Math.max(0, width - 1))}…`;
-}
 
 /** 无修饰单字符 / 命名键匹配 */
 function isPlainKey(e: InputEvent & { kind: 'key' }, key: string): boolean {
@@ -175,7 +171,7 @@ export class SelectPanel implements Renderable, ViewportCapAware {
     }
   }
 
-  /** 事件分发：完成态静默；↑/↓ 循环移动、Enter 选定、Esc 取消 */
+  /** 事件分发：完成态静默；↑/↓ 循环移动、pagedown/pageup/home/end 直达翻页、Enter 选定、Esc 取消 */
   handleEvent(event: InputEvent): boolean {
     const e = asKey(event);
     if (e === null) return true; // 面板占焦——非键事件（文本 / IME / 粘贴）层内终局
@@ -187,6 +183,25 @@ export class SelectPanel implements Renderable, ViewportCapAware {
     }
     if (e.key === 'down') {
       this.activeIndex = this.activeIndex === this.options.length - 1 ? 0 : this.activeIndex + 1;
+      return true;
+    }
+    // 翻页键族（pagedown/pageup/home/end——与 TUI 其余选择器键面对齐）：直达
+    // 键语义，越界钳首末不循环（循环节律保留在 ↑/↓ 单步键——两族分立）。
+    // 页幅 = 取景窗行数（view() 单源）：窗口化 = 窗行（视口一屏恰一翻）；
+    // 未窗口化 = 全集行数（无帽直用形恒满高——全集即一页的视口行数量级）。
+    // 取景跟随零改：view() 居中钳以 activeIndex 为锚——翻页后自动重取景。
+    if (e.key === 'pagedown' || e.key === 'pageup') {
+      const page = Math.max(1, this.view().count); // 空集窗行下限 1 兜底
+      const next = this.activeIndex + (e.key === 'pagedown' ? page : -page);
+      this.activeIndex = Math.min(Math.max(0, next), Math.max(0, this.options.length - 1));
+      return true;
+    }
+    if (e.key === 'home') {
+      this.activeIndex = 0;
+      return true;
+    }
+    if (e.key === 'end') {
+      this.activeIndex = Math.max(0, this.options.length - 1); // 空集防御（-1 → 0 钳位）
       return true;
     }
     if (e.key === 'enter') {
@@ -211,14 +226,18 @@ export class SelectPanel implements Renderable, ViewportCapAware {
 /** confirm 面板配置 */
 export interface ConfirmPanelOptions {
   readonly message: string;
-  /** 确认键提示文案（缺省 'enter 确认'） */
+  /** 确认键提示文案（缺省 'enter/y 确认'——双轨真可达后缺省明示 y） */
   readonly confirmHint?: string;
-  /** 取消键提示文案（缺省 'esc 取消'） */
+  /** 取消键提示文案（缺省 'esc/n 取消'——双轨真可达后缺省明示 n） */
   readonly cancelHint?: string;
 }
 
 /**
  * 确认面板：两键问答浮层（Enter/y → true、Esc/n → false——保守值 = 不动原状态）。
+ *
+ * 缺省键提示双轨明示（'enter/y 确认 · esc/n 取消'——2026-09-23 B2 翻档：
+ * y/n text 轨修复后裸字母双轨真可达，缺省单键提示隐藏了实际可用键面；措辞
+ * 与 memory-viewer 确认态行对齐）。显式传参覆盖能力保留（两 hint 各自可选）。
  */
 export class ConfirmPanel implements Renderable {
   /** 完成回调——装配接线（同 SelectPanel 形） */
@@ -230,8 +249,8 @@ export class ConfirmPanel implements Renderable {
 
   constructor(options: ConfirmPanelOptions) {
     this.message = options.message;
-    this.confirmHint = options.confirmHint ?? 'enter 确认';
-    this.cancelHint = options.cancelHint ?? 'esc 取消';
+    this.confirmHint = options.confirmHint ?? 'enter/y 确认';
+    this.cancelHint = options.cancelHint ?? 'esc/n 取消';
   }
 
   /** 量高：消息 1 + 键提示 1 */
