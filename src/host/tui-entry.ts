@@ -15,13 +15,14 @@
  * 出屏复原）。
  *
  * 退出码：0 = ctrl+d 空框优雅退出；1 = 运行时组装失败（单活跃机拒入/开库
- * 失败——干净退出不写 crash.log，非崩溃）、启用清单损坏（同干净退出档）或
- * 运行期异常（先 writeCrashLog 再退）。
+ * 失败——干净退出不写 crash.log，非崩溃）、启用清单损坏（同干净退出档）、
+ * --port 开面失败（EADDRINUSE 等预期内环境态——同干净退出档，run-entry
+ * :437 同律）或运行期异常（先 writeCrashLog 再退）。
  * 信号路径独立：SIGINT①/SIGTERM → onGraceful → runtime.shutdown → exit(0)
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
  */
 import { basename } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 
 import {
   BootAnimation,
@@ -36,7 +37,6 @@ import {
   TuiBackend,
 } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
-import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
   foldSessionSandboxMode,
@@ -51,8 +51,8 @@ import { sanitizeEntryForReadout, shortIdOf, type MemoryDao } from '../memory/in
 import { sessionDisplayTitleOf } from '../persist/index.js';
 import { formatSkillInvocation, type SkillsRegistry } from '../skills/index.js';
 import type { Provider } from '../llm/index.js';
-import { APPROVAL_PRESETS, SANDBOX_MODES, type SandboxMode } from '../safety/index.js';
-import { REWIND_SUBVERBS, type CheckpointStore } from '../checkpoint/index.js';
+import { SANDBOX_MODES, type SandboxMode } from '../safety/index.js';
+import type { CheckpointStore } from '../checkpoint/index.js';
 
 import type { TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
@@ -61,6 +61,14 @@ import { startSchedulerClock } from './core-plugins.js';
 import type { CorePluginReference } from './loader.js';
 import { runWithSessionAnchor } from './session-anchor.js';
 import { liveCommandArgumentItems, type LiveCompletionDeps } from './live-completions.js';
+import {
+  commandArgumentItems,
+  commandItems,
+  EXIT_DESCRIPTIONS,
+  EXIT_WORDS,
+  exitCommandItems,
+  modelShortName,
+} from './static-completions.js';
 import { readHostSettings, writeHostSettings } from './settings-store.js';
 import { daemonPaths } from './serve-daemon.js';
 import {
@@ -77,9 +85,6 @@ import {
 } from './upgrade.js';
 import { createDefaultSpawnRunner } from './plugin-install.js';
 import type { HostRuntime } from './runtime.js';
-import { APPROVAL_SUBVERBS } from './approval-cmd.js';
-import { DOORS_SUBVERBS } from './doors-cmd.js';
-import { PLUGINS_SUBVERBS } from './plugins-command.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 import { MarketplaceTuiFace } from './marketplace-tui-face.js';
 import type { UninstallChoice } from './marketplace-tui-face.js';
@@ -106,6 +111,13 @@ import { runCredentialsCommand } from '../credentials/index.js';
  * 受理批——两装配面同源消费律：TUI picker 装配与 webui 桥共用 THINKING_LEVEL_
  * DETAILS / SANDBOX_MODE_DETAILS 两表与两回执拼装函数；07 §4.1 danger 档
  * 行说明位文案钉死句以规范面为唯一引证源）。
+ */
+/**
+ * 静态补全源已迁 host/static-completions.ts（2026-09-23 host 编舞批——本件
+ * 尾部原纯补全源块三函数〔commandItems / exitCommandItems /
+ * commandArgumentItems〕+ 退出词表两枚 + modelShortName 整体外迁，与
+ * live-completions.ts 活体值源对称分立；本件装配位经 import 消费——消费处
+ * 零改动，EXIT_WORDS / EXIT_DESCRIPTIONS 供 /help 命令册同源并流）。
  */
 
 /** TUI 入口选项（main 分派接线 + 测试注入面） */
@@ -215,6 +227,59 @@ async function readSingleKeyFromIo(io: TerminalIO): Promise<string> {
 }
 export { readSingleKeyFromIo }; // 测试消费面（exitCommandItems 同先例——单键读真身行为锁）
 
+/** /debug 尾窗读初始窗字节（64KiB——开面板读成本钉 O(初始窗 + 扩窗)，不随日志总长增长） */
+const LOG_TAIL_INITIAL_WINDOW_BYTES = 64 * 1024;
+
+/**
+ * 日志尾行尾窗读（/debug 开面板数据源——E2 尾窗读批）：stat 定 size 后从文件
+ * 尾按窗偏移读（openSync + readSync(position)——结构上不触窗前字节），首窗
+ * 64KiB；窗内行数不足 maxLines 时窗翻倍扩读，直至盖全文件。
+ *
+ * **等价性**（与全读 split 形逐行相等——测试 fullReadTail 对照锁）：窗口起点
+ * 在文件头之后时首行可能是残行（起点落在行中间；多字节 UTF-8 跨窗边界同理
+ * ——替换符行），整行丢弃；丢后行集恒为全读行集的真后缀，行数足够时
+ * slice(-maxLines) 与全读尾 maxLines 逐行相同、不足时扩窗到文件头（start=0
+ * 首行完整不丢）。尾换行伪行去一与全读形同律。
+ *
+ * @param logPath 日志路径（open 失败〔未生成/权限〕→ null——开屏同缺席形呈现）
+ * @param maxLines 尾行帽（/debug 呈现帽 50）
+ * @param initialWindowBytes 初始窗字节（测试注入小窗逼扩窗重读形）
+ */
+export function readLogTailLines(
+  logPath: string,
+  maxLines = 50,
+  initialWindowBytes = LOG_TAIL_INITIAL_WINDOW_BYTES,
+): readonly string[] | null {
+  let fd: number | undefined;
+  try {
+    fd = openSync(logPath, 'r');
+    const size = fstatSync(fd).size;
+    let window = Math.max(1, initialWindowBytes);
+    for (;;) {
+      const length = Math.min(window, size);
+      const start = size - length; // 窗口起点（length === size 时 = 0 文件头）
+      const buf = Buffer.alloc(length);
+      // position 形偏移读——只触窗内字节（读中追加的尾部不影响既定窗完整性）
+      const bytesRead = readSync(fd, buf, 0, length, start);
+      const lines = buf.toString('utf8', 0, bytesRead).split('\n');
+      if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop(); // 尾换行伪行去一
+      if (start > 0) {
+        // 窗口起点在文件头之后——首行可能残（行中起点/UTF-8 跨界），整行丢弃；
+        // 丢后行集是全读行集的真后缀（等价性论证见头注），行数不足走扩窗
+        lines.shift();
+      }
+      if (lines.length >= maxLines || length === size) {
+        return lines.slice(-maxLines); // 盖全仍不足 = 文件本身行少（诚实全量）
+      }
+      window *= 2; // 窗内行数不足帽——翻倍扩窗重读
+    }
+  } catch {
+    return null; // 读失败（未生成/权限）——同缺席形诚实呈现
+  } finally {
+    if (fd !== undefined) closeSync(fd); // 描述符恒还（零泄漏）
+  }
+}
+
 /**
  * TUI 主入口。阻塞至用户退出（ctrl+d 空框）或异常；返回进程退出码。
  */
@@ -294,18 +359,26 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       } else {
         const mountKit = scope.tryGet<WebuiMountKit>('webui-face-mount');
         webuiMounted = mountKit !== undefined;
-        await openWebuiFace({
-          stack,
-          runtime,
-          port: options.flags.port,
-          ...(mountKit !== undefined ? { mountKit } : {}),
-          // U5-2：插件道路由受理器经 core:sdk kit 透传（snapshot/attachFace）
-          ...(sdkKit.pluginRoutes !== undefined ? { pluginRoutes: sdkKit.pluginRoutes } : {}),
-          onOpen: (info) => {
-            webuiOpen = info;
-            options.onWebuiOpen?.(info);
-          },
-        });
+        try {
+          await openWebuiFace({
+            stack,
+            runtime,
+            port: options.flags.port,
+            ...(mountKit !== undefined ? { mountKit } : {}),
+            // U5-2：插件道路由受理器经 core:sdk kit 透传（snapshot/attachFace）
+            ...(sdkKit.pluginRoutes !== undefined ? { pluginRoutes: sdkKit.pluginRoutes } : {}),
+            onOpen: (info) => {
+              webuiOpen = info;
+              options.onWebuiOpen?.(info);
+            },
+          });
+        } catch (error) {
+          // 开面失败（如端口占用 EADDRINUSE）= 预期内环境态——干净呈报退 1
+          // 不写 crash.log（run-entry :437-442 同档同文；此点尚未起 TUI 屏，
+          // finally 仍走 shutdown 六步收口——closer 出屏复原无害）
+          process.stderr.write(`--port 开面失败：${error instanceof Error ? error.message : String(error)}\n`);
+          return 1;
+        }
       }
     }
 
@@ -469,18 +542,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const openDebugPanel = (): void => {
       const dataDir = runtime.dataDir;
       // daemon.log 尾行快照——帽 50 行、开屏一次只读（活体跟随挂账——/history
-      // 快照档同律）；:memory: 无数据目录 = 路径缺席，文件不在 = 快照缺席
+      // 快照档同律）；尾窗偏移读（E2——读成本钉 O(64KiB+扩窗)，不随日志总长
+      // 无界）；:memory: 无数据目录 = 路径缺席，文件不在 = 快照缺席
       const logPath = dataDir !== null ? daemonPaths(dataDir).logPath : null;
-      let tail: readonly string[] | null = null;
-      if (logPath !== null) {
-        try {
-          const lines = readFileSync(logPath, 'utf8').split('\n');
-          if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop(); // 尾换行伪行去一
-          tail = lines.slice(-50);
-        } catch {
-          tail = null; // 读失败（文件未生成/权限）——同缺席形诚实呈现
-        }
-      }
+      const tail = logPath !== null ? readLogTailLines(logPath) : null;
       // settings 解析态——开面板时收集 warn sink 重读（读侧幂等廉价；坏值/
       // 拒载与键位拒载在此集中面呈现，不搅装配期 logger 流）
       const settingsWarns: string[] = [];
@@ -1325,118 +1390,4 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     await runtime.shutdown(); // 幂等六步：abort → closer（backend.stop 出屏）→ flush → …
   }
   return exitCode;
-}
-
-/** 命令表 → 补全条目（fuzzy 子序列过滤——query 已去斜杠，前缀命中置顶；R6 批 10j） */
-function commandItems(
-  specs: readonly { name: string; description?: string }[],
-  query: string,
-): readonly AutocompleteItem[] {
-  return fuzzyFilter(specs, (spec) => spec.name, query).map((spec) => ({
-    label: `/${spec.name}`,
-    ...(spec.description !== undefined ? { detail: spec.description } : {}),
-    replacement: `/${spec.name}`,
-  }));
-}
-
-/** TUI 本地退出词表（07 §4.1 /exit 批——单正名；/quit 别名已随 2026-09-21 三反馈批A 退役） */
-const EXIT_WORDS = ['exit'] as const;
-
-/** 退出词说明（单源——补全条目与 /help 命令册两消费面同文） */
-const EXIT_DESCRIPTIONS: Readonly<Record<(typeof EXIT_WORDS)[number], string>> = {
-  exit: '退出 TUI（与 Ctrl+D 同路优雅退出）',
-};
-
-/**
- * 退出词 → 补全条目（与通道命令表分源——前端生命周期词不进通道核命令表，
- * 装配位并流；query 已去斜杠，同 commandItems 契约）。
- */
-export function exitCommandItems(query: string): readonly AutocompleteItem[] {
-  return fuzzyFilter(EXIT_WORDS, (name) => name, query).map((name) => ({
-    label: `/${name}`,
-    detail: EXIT_DESCRIPTIONS[name],
-    replacement: `/${name}`,
-  }));
-}
-
-/** 模型短名（footer 常驻段呈现——provider/model 形取 model 段，裸名原样） */
-function modelShortName(model: string): string {
-  const slash = model.lastIndexOf('/');
-  return slash === -1 ? model : model.slice(slash + 1);
-}
-
-/* ---------------- 命令参数补全源（R6 批 10j 装配接线） ---------------- */
-
-/** 带参补全的四命令子动词名集（单源 = 各命令件 SUBVERBS 导出） */
-const SUBVERBS_BY_COMMAND: Readonly<Record<string, readonly string[]>> = {
-  approval: APPROVAL_SUBVERBS,
-  plugins: PLUGINS_SUBVERBS,
-  doors: DOORS_SUBVERBS,
-  rewind: REWIND_SUBVERBS,
-};
-
-/**
- * 子动词元数据（键 = 「命令 动词」；值 = [说明, 是否带尾参]——带参者补全
- * replacement 尾随空格，应用后直接进下一 token 位）。名集单源在各命令件，
- * 说明位与名集同文件可目检同步。
- */
-const VERB_META: Readonly<Record<string, readonly [string, boolean]>> = {
-  'approval status': ['当前态：sandbox 档 + 审批 policy + 预设一览', false],
-  'approval entries': ['策略表全列（活体现读）', false],
-  'approval explain': ['真裁决干跑（须带 <tool>）', true],
-  'approval preset': ['预设写盘（conservative|balanced|open）', true],
-  'plugins list': ['装载态清单三分区', false],
-  'plugins mount': ['挂载已装机插件 <id>', true],
-  'plugins unmount': ['卸下（装机保留）<id>', true],
-  'plugins toggle': ['禁用态翻转 <id>', true],
-  'plugins config': ['配置表单 <id>', true],
-  'doors list': ['高危面全清单 + 当前开态', false],
-  'doors open': ['开门 <capability>', true],
-  'doors close': ['关门 <capability>', true],
-  'rewind list': ['列当前工作区回退点', false],
-  'rewind preview': ['预演（零改动）<id>', true],
-  'rewind restore': ['回退并 fork 新会话 <id>', true],
-  'rewind help': ['用法说明', false],
-};
-
-/**
- * 命令参数源（R6 批 10j）——**静态面**：四命令子动词首参 + 深位枚举
- * （approval preset 预设名 / doors open·close 能力名——枚举单源 = safety
- * 预设表与 contracts 面目录）。插件 id、回退点 id 活体位归
- * {@link liveCommandArgumentItems}（挂账解挂批 2026-09-15 落地——装配位
- * 两源并流：活体先行、null 回退本静态面）。query = 当前 token 原文、
- * priorArgs = 已定参数序。
- */
-export function commandArgumentItems(
-  command: string,
-  query: string,
-  priorArgs: readonly string[],
-): readonly AutocompleteItem[] {
-  // 深位枚举：approval preset <名>——预设三档（名与描述 = safety 单源）
-  if (command === 'approval' && priorArgs.length === 1 && priorArgs[0] === 'preset') {
-    return fuzzyFilter(APPROVAL_PRESETS, (preset) => preset.name, query).map((preset) => ({
-      label: preset.name,
-      detail: preset.description,
-      replacement: `${preset.name} `,
-    }));
-  }
-  // 深位枚举：doors open|close <capability>——可授能力名（contracts 面目录派生）
-  if (command === 'doors' && priorArgs.length === 1 && (priorArgs[0] === 'open' || priorArgs[0] === 'close')) {
-    return fuzzyFilter(USER_GRANTABLE_CAPABILITIES, (name) => name, query).map((name) => ({
-      label: name,
-      replacement: `${name} `,
-    }));
-  }
-  // 首参子动词（非首参位不补——活体值不在静态面）
-  const verbs = SUBVERBS_BY_COMMAND[command];
-  if (verbs === undefined || priorArgs.length > 0) return [];
-  return fuzzyFilter(verbs, (verb) => verb, query).map((verb) => {
-    // 元数据缺席兜底：零说明 + 尾空格（带参安全缺省）
-    const [detail, takesArg] = VERB_META[`${command} ${verb}`] ?? ['', true];
-    return {
-      label: verb,
-      ...(detail !== '' ? { detail } : {}),
-      replacement: takesArg ? `${verb} ` : verb,
-    };
-  });
 }

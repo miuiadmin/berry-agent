@@ -11,6 +11,7 @@
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer, type Server } from 'node:http';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
@@ -23,7 +24,8 @@ import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
 import { sandboxModeReceipt, thinkingLevelReceipt } from './session-tier-copy.js';
-import { exitCommandItems, commandArgumentItems, runTuiEntry, readSingleKeyFromIo } from './tui-entry.js';
+import { exitCommandItems, commandArgumentItems } from './static-completions.js';
+import { runTuiEntry, readSingleKeyFromIo, readLogTailLines } from './tui-entry.js';
 import type { ConversationStack } from './conversation-stack.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 
@@ -187,6 +189,124 @@ describe('commandArgumentItems 命令参数补全源（R6 批 10j）', () => {
   it('未知命令 / 非首参位（活体 id 值）→ 零条目', () => {
     expect(commandArgumentItems('model', '', [])).toEqual([]); // 静态面未接的命令
     expect(commandArgumentItems('plugins', 'id', ['mount'])).toEqual([]); // 插件 id = 活体值不在静态面
+  });
+});
+
+describe('readLogTailLines /debug 尾窗读（行为等价锁——尾 50 行与全读 split 逐行相等）', () => {
+  /** 等价基准（旧实现全读形）：readFileSync 全文 split + 尾换行伪行去一 + slice(-50) */
+  const fullReadTail = (path: string): readonly string[] => {
+    const lines = readFileSync(path, 'utf8').split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    return lines.slice(-50);
+  };
+
+  /** 写临时文件并回填路径（rigDir 入清账族） */
+  const writeTempLog = (prefix: string, content: string): string => {
+    const dir = rigDir(prefix);
+    const path = join(dir, 'daemon.log');
+    writeFileSync(path, content);
+    return path;
+  };
+
+  it('大文件（> 初始 64KiB 窗）：尾 50 行与全读逐行相等——窗口跨残行首行丢弃', () => {
+    // 2000 行 × 每行 ~40 字节 ≈ 80KiB（超 64KiB 初始窗——窗口必跨残行）
+    const content = Array.from({ length: 2000 }, (_, i) => `2026-09-23 line-${i} 混排中文对齐宽\n`).join('');
+    const path = writeTempLog('entry-tail-big-', content);
+    expect(readLogTailLines(path, 50)).toEqual(fullReadTail(path));
+  });
+
+  it('行数不足 50（小文件）：全行相等', () => {
+    const path = writeTempLog('entry-tail-small-', 'a\nb\nc\n');
+    expect(readLogTailLines(path, 50)).toEqual(['a', 'b', 'c']);
+    expect(readLogTailLines(path, 50)).toEqual(fullReadTail(path));
+  });
+
+  it('空文件 → 空行集（与全读形一致）', () => {
+    const path = writeTempLog('entry-tail-empty-', '');
+    expect(readLogTailLines(path, 50)).toEqual([]);
+  });
+
+  it('无尾换行文件：末行不丢（伪行去一只吃尾换形）', () => {
+    const path = writeTempLog('entry-tail-noeol-', 'x\ny\nz（无尾换行）');
+    expect(readLogTailLines(path, 50)).toEqual(['x', 'y', 'z（无尾换行）']);
+  });
+
+  it('小窗注入形（扩窗重读）：50 长行 × 窗 256B——多轮扩窗至文件头产出仍等价', () => {
+    // 50 行 × 每行 ~60 字节 ≈ 3KB；初始窗 256B 只够 4 行 → 连续扩窗至全覆盖
+    const lines = Array.from({ length: 50 }, (_, i) => `row-${String(i).padStart(3, '0')}——padding-padding\n`);
+    const path = writeTempLog('entry-tail-grow-', lines.join(''));
+    expect(readLogTailLines(path, 50, 256)).toEqual(lines.map((l) => l.slice(0, -1)));
+    expect(readLogTailLines(path, 50, 256)).toEqual(fullReadTail(path));
+  });
+
+  it('小窗注入形（行数不足但窗已盖全文件）：首行完整不丢', () => {
+    const path = writeTempLog('entry-tail-cover-', 'l1\nl2\nl3\n');
+    // 窗 1024B > 文件——一次盖全，start === 0 首行完整保留
+    expect(readLogTailLines(path, 50, 1024)).toEqual(['l1', 'l2', 'l3']);
+  });
+
+  it('文件不存在 → null（诚实缺席形——开屏同缺席呈现）', () => {
+    expect(readLogTailLines(join(rigDir('entry-tail-miss-'), 'nope.log'))).toBeNull();
+  });
+});
+
+/* ---------------- --port 开面失败分档（E3——run-entry :437 干净退出档同律） ---------------- */
+
+/**
+ * 占位 TCP 端口（run-entry.test.ts 同形公共手法）：node:http 真监听
+ * 127.0.0.1 内核指派口并保持占用——对被测 `--port` 开面即确定性 EADDRINUSE
+ * 拒形；调用方 finally 内 close 释放。
+ */
+async function occupyTcpPort(): Promise<{ port: number; close(): Promise<void> }> {
+  const server: Server = createServer();
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr === null || typeof addr === 'string') {
+        server.close();
+        reject(new Error('address 非 TCP 形（占位端口基建异常）'));
+        return;
+      }
+      resolve({ port: addr.port, close: () => new Promise<void>((r) => server.close(() => r())) });
+    });
+  });
+}
+
+describe('runTuiEntry --port 开面失败分档', () => {
+  it('端口占用（EADDRINUSE）：干净退 1 + 呈报归一文案 + 不写 crash.log', async () => {
+    const occupied = await occupyTcpPort();
+    // stderr 收账（呈报走 process.stderr 直写——spy 收集后还原，零跨测试污染）
+    const stderrChunks: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+      stderrChunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+      return true;
+    }) as typeof process.stderr.write);
+    const dataDir = rigDir('entry-port-busy-');
+    const faux = fauxProvider({ provider: 'faux-entry', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf()]);
+    const io = new FakeTerminalIO();
+    // 不走 rigEntry 的 io.ready()——失败路 backend 不起屏（ready 永不 resolve）
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false, port: occupied.port },
+      io,
+      cwd: rigDir('entry-port-ws-'),
+      version: 'test',
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-entry/m1',
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
+    });
+    try {
+      await expect(entry).resolves.toBe(1); // 干净退 1（非崩溃档退码同值——分档看下两断言）
+      const stderrText = stderrChunks.join('');
+      expect(stderrText).toContain('--port 开面失败'); // 呈报锚词（run-entry :440 同文分档）
+      expect(stderrText).not.toContain('TUI 运行失败'); // 不落外层通用崩溃档文案
+      expect(existsSync(join(dataDir, 'crash.log'))).toBe(false); // 预期内环境态零崩溃取证
+    } finally {
+      stderrSpy.mockRestore();
+      await occupied.close();
+    }
   });
 });
 

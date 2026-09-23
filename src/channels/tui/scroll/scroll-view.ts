@@ -44,7 +44,7 @@ const WHEEL_LINES = 3;
 
 /** 滚动视口选项 */
 export interface ScrollViewOptions {
-  /** 量高帽（嵌入 Flex 布局时限制分配；缺省全量——副屏 root 直收全屏 region） */
+  /** 量高帽（呈现场景自设上限；缺省全量——副屏 root 直收全屏 region。原「嵌入 Flex 布局」提法随组合子注销〔07 §4.1 2026-09-23 注销笔〕勘正） */
   readonly maxHeight?: number;
 }
 
@@ -64,7 +64,7 @@ export class ScrollView implements Renderable {
   /** 折宽与视口高实测（render / measure 回写——显式滚动的即时夹取依据） */
   private lastWidth = DEFAULT_WIDTH;
   private viewportHeight = DEFAULT_PAGE_SIZE;
-  /** 量高帽（嵌入 Flex 布局时限制分配；缺省全量——副屏 root 直收全屏 region） */
+  /** 量高帽（呈现场景自设上限；缺省全量——副屏 root 直收全屏 region。原「嵌入 Flex 布局」提法随组合子注销〔07 §4.1 2026-09-23 注销笔〕勘正） */
   private readonly maxHeight: number | undefined;
   /** 滚动通知（装配层接重绘请求） */
   onScroll?: () => void;

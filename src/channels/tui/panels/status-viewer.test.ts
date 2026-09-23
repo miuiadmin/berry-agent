@@ -98,6 +98,35 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     expect(valueColOf(credLine, 'ready')).toBe(valueColOf(versionLine, '0'));
     expect(valueColOf(credLine, 'ready')).toBe(stringWidth('模型凭证 credential') + 2);
   });
+
+  it('行集不变式（E4——结构性锁，不挑行选样）：全部数据行值起点列一致 + 列宽 ≥ 最长标签/键 + 保留距', () => {
+    // 两夹具同扫：全设值形 + 长值缺席形（unconfigured 指路半句——值长不搅列结构）
+    for (const data of [DATA, { ...DATA, modelCredential: 'unconfigured' as const }]) {
+      const lines = buildStatusLines(data);
+      // 解析法（按渲染形）：数据行 = label + ≥2 空格填充 + 值——label 内部空格恒
+      // 单格（词间空格），首个 2+ 空格 run 即列填充；值起点显示列 = 标签宽 + 填充宽
+      const parsed = lines
+        .filter((line) => line !== '' && !line.startsWith('──'))
+        .map((line) => line.match(/^(.+?)( {2,})(.*)$/)!)
+        .map((m) => ({ label: m[1]!, pad: m[2]!, value: m[3]! }));
+      // 全部数据行可解析（无行因标签超宽而失去 ≥2 填充——超宽即此断言红）
+      expect(parsed).toHaveLength(lines.filter((line) => line !== '' && !line.startsWith('──')).length);
+      // 两组行集：env 白名单键行（键名即标签）与其余 label 段行——各值起点列恒一致
+      const envRows = parsed.filter((p) => p.label.startsWith('BERRY_AGENT_'));
+      const labelRows = parsed.filter((p) => !p.label.startsWith('BERRY_AGENT_'));
+      const valueCol = (p: { label: string; pad: string }): number => stringWidth(p.label) + p.pad.length;
+      const labelCols = new Set(labelRows.map(valueCol));
+      const envCols = new Set(envRows.map(valueCol));
+      expect(labelCols.size).toBe(1); // label 段值起点列全体一致（列对齐不变式）
+      expect(envCols.size).toBe(1); // env 段值起点列全体一致（值列对齐独立于 CJK 标签段）
+      // 列宽下界：最长标签显示宽 + 2 ≤ labelCol；最长 env 键宽 + 3 ≤ envKeyCol
+      //（件内注释承诺的保留距——新标签/键超宽挤掉保留空格即此断言红）
+      const labelCol = labelCols.values().next().value as number;
+      const envKeyCol = envCols.values().next().value as number;
+      expect(labelCol).toBeGreaterThanOrEqual(Math.max(...labelRows.map((p) => stringWidth(p.label))) + 2);
+      expect(envKeyCol).toBeGreaterThanOrEqual(Math.max(...envRows.map((p) => stringWidth(p.label))) + 3);
+    }
+  });
 });
 
 describe('StatusViewer 副屏件', () => {

@@ -1,13 +1,17 @@
 /**
  * 极窄宽（1-8 列）塌缩系统性锁——研究档条件 D6（纯呈现面专项）。
  *
- * 既有 text.test.ts 已有 width 0/3/5 点形；本件补「1-8 列全参数化扫」的
+ * 本件补「1-8 列全参数化扫」的
  * 结构性不变式：每个被扫宽度下**不炸 + 不越界 + 宽度约束被尊重**（或按
  * 契约取例外形）。覆盖五族：
  * - CellGrid 守卫（越界写静默吸收 + 全格不变式——续格无孤儿、末列双宽
  *   续格截断）；
- * - Text / Paragraph 段宽塌缩（截断整字前缀 + 折行两段协商单源）；
- * - 布局组合子（Row 零宽子 / Inset 内缩塌缩 / Column-Flex 嵌套）；
+ * - 整字原语窄宽（truncateToWidth 截断恒整字前缀 + wrapText 折行宽帽
+ *   ——2026-09-23 组合子注销批迁此：原 Text / Paragraph 组件载体注销，
+ *   断言语义〔整字律 + 每行宽帽〕在纯 width 件上保全）；
+ * - 面板窄宽塌缩（SelectPanel / ConfirmPanel——2026-09-23 组合子注销批
+ *   迁此：原 Row/Column/Flex/Inset 布局组合子注销，窄宽塌缩不炸 + 全格
+ *   不变式语义在真实浮层面板载体上保全）；
  * - blocks（工具卡普通档 + diff 档、思考块两档——含 markdown 全管线）；
  * - 状态行（legacy 忙态 / split footer 忙闲两态）与编辑器（1-2 列防御
  *   早退 + 3-5 列单列内容区）。
@@ -20,9 +24,15 @@
  * 几何界内，不锁行宽帽。
  */
 import { describe, expect, it } from 'vitest';
-import { CellGrid, splitGraphemes, stringWidth, wrapText, type CellGrid as Grid } from '../engine/index.js';
-import { Paragraph, Text } from './text.js';
-import { Column, Flex, Inset, Row } from './layout.js';
+import {
+  CellGrid,
+  splitGraphemes,
+  stringWidth,
+  truncateToWidth,
+  wrapText,
+  type CellGrid as Grid,
+} from '../engine/index.js';
+import { ConfirmPanel, SelectPanel } from './overlay/select-confirm.js';
 import { DEFAULT_THEME } from './theme/index.js';
 import { renderToolCardStyledLines, type ToolCardView } from './blocks/tool-card.js';
 import { renderThinkingStyledLines, type ThinkingView } from './blocks/thinking.js';
@@ -137,78 +147,52 @@ describe('CellGrid 极窄宽守卫（1-8 列）', () => {
   });
 });
 
-describe('Text / Paragraph 段宽塌缩（1-8 列）', () => {
-  it.each(NARROW)('Text：region 宽 %i——截断产出恒整字前缀 + 视觉宽 ≤ 帽', (w) => {
-    const grid = new CellGrid(8, 1); // 外网格恒 8 列（≥ 扫描域上界——读回面恒定）
-    const text = new Text({ content: 'ab中文xy' });
-    expect(text.measure(w)).toBe(1); // 单行制不随宽塌
-    expect(() => text.render(grid, { row: 0, col: 0, width: w, height: 1 })).not.toThrow();
-    const row = readRow(grid, 0, 8);
-    // 截断语义：产出是内容前缀（truncateToWidth 整字丢弃不产半字）
-    expect('ab中文xy'.startsWith(row)).toBe(true);
-    expect(stringWidth(row)).toBeLessThanOrEqual(w);
-    expectGridInvariants(grid);
+describe('整字原语窄宽塌缩（1-8 列）——原 Text/Paragraph 载体注销，语义迁纯 width 件', () => {
+  it.each(NARROW)('truncateToWidth：%i 帽——截断产出恒整字前缀 + 显示宽 ≤ 帽', (w) => {
+    // 原 Text 件语义（单行截断不产半字）：截断产出是内容前缀（truncateToWidth
+    // 整字丢弃）；1 列遇 'a'（首字素单宽恰容）等边界形由前缀 + 宽帽两断言合锁
+    const out = truncateToWidth('ab中文xy', w);
+    expect('ab中文xy'.startsWith(out)).toBe(true);
+    expect(stringWidth(out)).toBeLessThanOrEqual(w);
   });
 
-  it.each(NARROW)('Paragraph：%i 列折行——measure/render 与 wrapText 单源对照 + 每行宽帽', (w) => {
+  it.each(NARROW)('wrapText：%i 列折行——每行宽帽（整字例外单源执法）+ 显式段至少各一行', (w) => {
+    // 原 Paragraph 件语义（折行 = wrapText 单源 + 每行宽帽）：两显式段折后
+    // 至少各占一行；每行经 expectWidthCapped 执法（唯一例外 = 单字素整字独行）
     const content = 'abc 中文 def\n第二段';
-    const p = new Paragraph({ content });
-    // 折行单源直取（同函数两段共用——量高与落位同判的对照基准）
-    const expected = wrapText(content, w);
-    const m = p.measure(w);
-    expect(m).toBe(expected.length); // measure = wrapText 行数（含单字素超帽前置空行形）
-    expect(m).toBeGreaterThanOrEqual(2); // 两显式段——至少各一行
-    const grid = new CellGrid(8, m + 2);
-    expect(() => p.render(grid, { row: 0, col: 0, width: w, height: m + 2 })).not.toThrow();
-    // 两段协商单源：render 写出行逐行 === wrapText 产物（行尾空格按 readRow
-    // 同律 trimEnd 归一——视觉行等价；空行 = 未写行读回 ''）
-    const rows = Array.from({ length: m + 2 }, (_, r) => readRow(grid, r, 8));
-    expect(rows.slice(0, m)).toEqual(expected.map((line) => line.trimEnd()));
-    for (const line of rows) expectWidthCapped(line, w);
-    expectGridInvariants(grid);
+    const lines = wrapText(content, w);
+    expect(lines.length).toBeGreaterThanOrEqual(2); // 两显式段——至少各一行
+    for (const line of lines) expectWidthCapped(line, w);
   });
 });
 
-describe('布局组合子窄宽塌缩（1-8 列）', () => {
-  it.each(NARROW)('Row：%i 列——等权分配必有零宽子、render 不炸 + 全格不变式', (w) => {
-    const row = new Row({ children: [new Text({ content: 'AAAA' }), new Text({ content: 'BBBB' })] });
-    expect(row.measure(w)).toBeGreaterThanOrEqual(1); // 量高永不塌到 0
-    const grid = new CellGrid(8, 2);
-    expect(() => row.render(grid, { row: 0, col: 0, width: w, height: 2 })).not.toThrow();
+describe('面板窄宽塌缩（1-8 列）——原布局组合子载体注销，语义迁真实浮层面板', () => {
+  it.each(NARROW)('SelectPanel：%i 列——量高 ≥ 1、render 不炸 + 全格不变式', (w) => {
+    // 原 Row/Column/Flex/Inset 塌缩不炸语义迁此：真实浮层面板（标题 + 选项行
+    // + 指示行结构）在极窄宽下渲染不炸、落格不越界
+    const panel = new SelectPanel({
+      title: '选择',
+      options: [
+        { value: 'a', label: 'AAAA', hint: '说明段' },
+        { value: 'b', label: '中选项', hint: '右段说明' },
+      ],
+      theme: DEFAULT_THEME,
+    });
+    expect(panel.measure(w)).toBeGreaterThanOrEqual(1); // 量高永不塌到 0
+    const grid = new CellGrid(8, 6);
+    expect(() => panel.render(grid, { row: 0, col: 0, width: w, height: 6 })).not.toThrow();
     expectGridInvariants(grid);
   });
 
-  it('Row 单列确定性形：前子零宽静默、末子收全宽', () => {
+  it.each(NARROW)('ConfirmPanel：%i 列——恒高 2 行、render 不炸 + 全格不变式', (w) => {
+    const panel = new ConfirmPanel({
+      message: '确认执行？此操作不可撤销',
+      confirmHint: 'enter/y 确认',
+      cancelHint: 'esc/n 取消',
+    });
+    expect(panel.measure(w)).toBe(2); // 消息 1 + 键提示 1（高与宽无关）
     const grid = new CellGrid(8, 2);
-    new Row({ children: [new Text({ content: 'AAAA' }), new Text({ content: 'BBBB' })] }).render(grid, {
-      row: 0,
-      col: 0,
-      width: 1,
-      height: 2,
-    });
-    expect(readRow(grid, 0, 8)).toBe('B'); // 等权两子 1 列——前列 0 宽丢弃、末列 1 宽
-    const grid2 = new CellGrid(8, 2);
-    new Row({ children: [new Text({ content: 'AAAA' }), new Text({ content: 'BBBB' })] }).render(grid2, {
-      row: 0,
-      col: 0,
-      width: 2,
-      height: 2,
-    });
-    expect(readRow(grid2, 0, 8)).toBe('AB'); // 2 列各 1
-  });
-
-  it.each(NARROW)('Column + Flex + Inset 嵌套：%i 列——内缩塌缩（inner 宽 ≤ 0）不炸 + 量高 ≥ 1', (w) => {
-    const col = new Column({
-      children: [
-        // 内缩 2+2 列：w ≤ 4 时 inner 宽塌 0（intersect 夹空——子件不渲染）
-        new Inset({ child: new Text({ content: 'X' }), left: 2, right: 2, top: 1 }),
-        new Flex({ child: new Paragraph({ content: '一二三' }) }),
-        new Row({ children: [new Text({ content: 'a' }), new Text({ content: 'b' })] }),
-      ],
-    });
-    expect(col.measure(w)).toBeGreaterThanOrEqual(1);
-    const grid = new CellGrid(8, 12);
-    expect(() => col.render(grid, { row: 0, col: 0, width: w, height: 12 })).not.toThrow();
+    expect(() => panel.render(grid, { row: 0, col: 0, width: w, height: 2 })).not.toThrow();
     expectGridInvariants(grid);
   });
 });
