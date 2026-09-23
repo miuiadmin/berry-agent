@@ -12,7 +12,9 @@
  * 各一条 + uninstall 双相全程恰一行〔inspect 起跑位发、execute 相不重复〕）；
  * 编舞④自动链提示行锁（修前红位：成功且 reload 形 notify 序列含「已自动链
  * /reload」完整句——与 /plugins 写动词尾句单源同文；refresh/失败/异常形
- * 零该词）。
+ * 零该词）；
+ * fire-and-forget 兜底锁（修前红位：编舞柄异常〔裁决面 reject / settle 腿
+ * repaint 抛错〕不炸 unhandledRejection——busy 槽释放 + notify error 呈报）。
  *
  * mock 边界：数据面全真（tmp 数据目录 + 真 createMarketFs + 真服务面），
  * fake 只停编舞柄（notify/confirm/reload/repaint/openPanel/runEntry〔假件
@@ -97,6 +99,10 @@ interface RigOptions {
   readonly runEntry?: (sub: MarketplaceCommand, capture: EntryCapture) => Promise<number>;
   /** 双相第二相裁决值（缺席 = cancel） */
   readonly confirm?: UninstallChoice;
+  /** 双相第二相裁决面真身覆写（缺席 = 返回 confirm 选项值的假件——reject 形注入位） */
+  readonly confirmUninstallImpl?: (inspectText: string) => Promise<UninstallChoice>;
+  /** 副屏重画柄真身覆写（缺席 = no-op 假件——抛错形注入位） */
+  readonly repaintImpl?: () => void;
   /** 开副屏返值（缺席 = true） */
   readonly openPanelResult?: boolean;
   /** 已装键集初值（可变闭包——refresh 重建行集观测位） */
@@ -156,9 +162,12 @@ async function rigFace(
     installedKeys = next;
   };
   const notify = vi.fn();
-  const confirmUninstall = vi.fn(async (_inspectText: string): Promise<UninstallChoice> => options.confirm ?? 'cancel');
+  const confirmUninstall = vi.fn(
+    options.confirmUninstallImpl ??
+      (async (_inspectText: string): Promise<UninstallChoice> => options.confirm ?? 'cancel'),
+  );
   const requestReload = vi.fn();
-  const repaint = vi.fn();
+  const repaint = vi.fn(options.repaintImpl ?? (() => undefined));
   const openPanel = vi.fn(
     (_model: MarketPanelModel, _actions: MarketPanelActions): boolean => options.openPanelResult ?? true,
   );
@@ -744,5 +753,45 @@ describe('MarketplaceTuiFace 真服务面集成（runMarketplaceEntry 直装）'
     await face.open();
     const thirdModel = openPanel.mock.calls.at(-1)![0] as MarketPanelModel;
     expect(thirdModel.rows.map((row) => row.id)).toContain('third-plugin@alpha');
+  });
+});
+
+describe('MarketplaceTuiFace fire-and-forget 兜底（编舞柄异常零 unhandled——修前红位）', () => {
+  it('uninstall 裁决面 reject：busy 槽释放 + notify error 呈报（修前红——IIFE 无顶层 catch 即 unhandledRejection 杀 TUI）', async () => {
+    const rig = await rigFace('uninstall-confirm-crash', {
+      confirmUninstallImpl: async () => {
+        throw new Error('裁决通道崩了');
+      },
+    });
+    await rig.face.open();
+    const model = rig.model();
+    rig.actions().uninstall('hello-plugin@alpha');
+    await flush();
+    // 崩点在裁决腿（inspect 已收口）——零 execute
+    expect(rig.confirmUninstall).toHaveBeenCalledTimes(1);
+    expect(rig.runEntry).toHaveBeenCalledTimes(1);
+    expect(model.busyLabel).toBeNull(); // 修前红：reject 游离无人接——busy 槽卡死在「卸载核查中」
+    const last = rig.notify.mock.calls.at(-1)!;
+    expect(String(last[0])).toContain('marketplace uninstall hello-plugin@alpha 编舞异常');
+    expect(String(last[0])).toContain('裁决通道崩了');
+    expect(last[1]).toEqual({ level: 'error' });
+  });
+
+  it('runLong settle 段注入柄抛错（settle 腿 repaint 崩）：notify error 兜底呈报（修前红——settle 段游离在 captureRun try 外）', async () => {
+    let repaintCalls = 0;
+    const rig = await rigFace('runlong-settle-crash', {
+      repaintImpl: () => {
+        repaintCalls += 1;
+        if (repaintCalls >= 2) throw new Error('settle repaint 崩了'); // 首腿（busy 置位后）放行，settle 腿崩
+      },
+    });
+    await rig.face.open();
+    rig.actions().install('hello-plugin@alpha');
+    await flush();
+    expect(rig.runEntry).toHaveBeenCalledTimes(1); // settle 段已到达（captureRun 已收口——非 runEntry 腿）
+    const errorCalls = rig.notify.mock.calls.filter((call) => call[1]?.level === 'error');
+    expect(errorCalls).toHaveLength(1); // 修前红：无兜底——reject 游离 unhandled，error 级零调用
+    expect(String(errorCalls[0]![0])).toContain('marketplace install hello-plugin@alpha 编舞异常');
+    expect(String(errorCalls[0]![0])).toContain('settle repaint 崩了');
   });
 });

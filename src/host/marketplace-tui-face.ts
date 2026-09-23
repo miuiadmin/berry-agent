@@ -27,7 +27,10 @@
  *   消毒，此处 sanitizeBlock 单源纵深再过）+ notify 归因（动词 + 退出码 +
  *   回执去向指路）+ 装机面变更自动链 requestReload（install/uninstall/
  *   upgrade 成功——refresh 不触发）+ 自动链提示行（编舞④——「已自动链
- *   /reload」完成行之后的第二行，与 /plugins 写动词尾句单源同文）。
+ *   /reload」完成行之后的第二行，与 /plugins 写动词尾句单源同文）；
+ * - **fire-and-forget 零 unhandled**：runLong 与 uninstall 双相 IIFE 全身自吞
+ *   （captureRun 收 runEntry 腿；编舞级兜底收注入柄/裁决面/settle 段异常——
+ *   busy 槽释放 + notify error 呈报，tui-entry open() 同律防御位）。
  *
  * 模型（rows/tail/results/busyLabel）host 拥有跨开屏持久：busy/results
  * 跨开屏存活（enter 收屏后动作在飞，重开 /marketplace 可见 busy 行与结算
@@ -150,39 +153,53 @@ export class MarketplaceTuiFace {
   private uninstall(id: string): void {
     if (this.busyGate(`uninstall ${id}`)) return;
     void (async () => {
-      // 第一相 inspect（confirm:false）——回执即核查清单（将动清单 + --data 指路）
-      this.model.busyLabel = `卸载核查中（marketplace uninstall ${id}）`;
-      this.model.results = [];
-      this.deps.repaint(); // enter 路副屏已收 = no-op；重开屏（u/r 不闭屏）形即时见
-      // 编舞①开跑行：双相全程恰一行（inspect 起跑位发——裁决窗也算在飞期；execute 相不重复）
-      this.startNotify(`marketplace uninstall ${id}`);
-      const inspect = await this.captureRun({ sub: 'uninstall', id, confirm: false });
-      if (inspect.crashed || inspect.code !== 0) {
-        this.model.busyLabel = null;
-        this.model.results = inspect.receipt;
-        this.deps.notify(`marketplace uninstall ${id} 核查失败——回执已呈`, { level: 'warn' });
+      // fire-and-forget 兜底（runLong 同律——保持零 unhandled）：双相编舞的
+      // 游离腿（裁决面 confirmUninstall / notify / repaint——均在 captureRun
+      // 的 try 外）抛错即 unhandledRejection 杀 TUI 进程（installCrash-
+      // Choreography 的 exit(1)）；兜底收口 = busy 槽必释放（面板不永锁）+
+      // notify error 如实呈报（catch 内不再调 repaint——repaint 本身即可能是
+      // 崩点，重调即二次抛）。
+      try {
+        // 第一相 inspect（confirm:false）——回执即核查清单（将动清单 + --data 指路）
+        this.model.busyLabel = `卸载核查中（marketplace uninstall ${id}）`;
+        this.model.results = [];
+        this.deps.repaint(); // enter 路副屏已收 = no-op；重开屏（u/r 不闭屏）形即时见
+        // 编舞①开跑行：双相全程恰一行（inspect 起跑位发——裁决窗也算在飞期；execute 相不重复）
+        this.startNotify(`marketplace uninstall ${id}`);
+        const inspect = await this.captureRun({ sub: 'uninstall', id, confirm: false });
+        if (inspect.crashed || inspect.code !== 0) {
+          this.model.busyLabel = null;
+          this.model.results = inspect.receipt;
+          this.deps.notify(`marketplace uninstall ${id} 核查失败——回执已呈`, { level: 'warn' });
+          this.deps.repaint();
+          return;
+        }
+        // 第二相：用户裁决（inspect 回执全文入——裁决材料即所见回执；槽持续持有）
+        const inspectText = inspect.receipt.join('\n');
+        const choice = await this.deps.confirmUninstall(inspectText);
+        if (choice === 'cancel') {
+          this.model.busyLabel = null;
+          this.model.results = [...inspect.receipt, '已取消——未执行卸载（装机物与数据未动）'];
+          this.deps.notify(`已取消卸载 ${id}——未执行任何变更`, { level: 'info' });
+          this.deps.repaint();
+          return;
+        }
+        // 第三相 execute（confirm:true + dataAction 三分裁决入）——槽连续持有不断档
+        this.model.busyLabel = `卸载在飞中（marketplace uninstall ${id}）`;
+        this.model.results = [];
         this.deps.repaint();
-        return;
-      }
-      // 第二相：用户裁决（inspect 回执全文入——裁决材料即所见回执；槽持续持有）
-      const inspectText = inspect.receipt.join('\n');
-      const choice = await this.deps.confirmUninstall(inspectText);
-      if (choice === 'cancel') {
+        const execute = await this.captureRun({ sub: 'uninstall', id, confirm: true, dataAction: choice });
         this.model.busyLabel = null;
-        this.model.results = [...inspect.receipt, '已取消——未执行卸载（装机物与数据未动）'];
-        this.deps.notify(`已取消卸载 ${id}——未执行任何变更`, { level: 'info' });
+        this.model.results = execute.receipt;
+        this.settleNotify(`marketplace uninstall ${id}`, execute.code, execute.crashed, true);
         this.deps.repaint();
-        return;
+      } catch (error) {
+        this.model.busyLabel = null;
+        this.deps.notify(
+          `marketplace uninstall ${id} 编舞异常：${error instanceof Error ? error.message : String(error)}`,
+          { level: 'error' },
+        );
       }
-      // 第三相 execute（confirm:true + dataAction 三分裁决入）——槽连续持有不断档
-      this.model.busyLabel = `卸载在飞中（marketplace uninstall ${id}）`;
-      this.model.results = [];
-      this.deps.repaint();
-      const execute = await this.captureRun({ sub: 'uninstall', id, confirm: true, dataAction: choice });
-      this.model.busyLabel = null;
-      this.model.results = execute.receipt;
-      this.settleNotify(`marketplace uninstall ${id}`, execute.code, execute.crashed, true);
-      this.deps.repaint();
     })();
   }
 
@@ -244,16 +261,28 @@ export class MarketplaceTuiFace {
     sub: MarketplaceCommand,
     meta: { readonly verb: string; readonly reload?: boolean; readonly onSettle?: () => Promise<void> | void },
   ): Promise<void> {
-    this.model.busyLabel = label;
-    this.model.results = [];
-    this.deps.repaint(); // u/r 路面板在场即时见 busy 行；enter 路副屏已收 = no-op
-    this.startNotify(meta.verb);
-    const outcome = await this.captureRun(sub);
-    if (meta.onSettle !== undefined) await meta.onSettle();
-    this.model.busyLabel = null;
-    this.model.results = outcome.receipt;
-    this.settleNotify(meta.verb, outcome.code, outcome.crashed, meta.reload === true);
-    this.deps.repaint();
+    // fire-and-forget 兜底（uninstall IIFE 同律——保持零 unhandled）：settle 段
+    // （onSettle/receipt 回填/settleNotify/repaint）游离在 captureRun 的 try
+    // 外——注入柄或 onSettle 抛错即 unhandledRejection 杀 TUI 进程；兜底收口
+    // = busy 槽必释放（面板不永锁）+ notify error 如实呈报（catch 内不再调
+    // repaint——repaint 本身即可能是崩点，重调即二次抛）。
+    try {
+      this.model.busyLabel = label;
+      this.model.results = [];
+      this.deps.repaint(); // u/r 路面板在场即时见 busy 行；enter 路副屏已收 = no-op
+      this.startNotify(meta.verb);
+      const outcome = await this.captureRun(sub);
+      if (meta.onSettle !== undefined) await meta.onSettle();
+      this.model.busyLabel = null;
+      this.model.results = outcome.receipt;
+      this.settleNotify(meta.verb, outcome.code, outcome.crashed, meta.reload === true);
+      this.deps.repaint();
+    } catch (error) {
+      this.model.busyLabel = null;
+      this.deps.notify(`${meta.verb} 编舞异常：${error instanceof Error ? error.message : String(error)}`, {
+        level: 'error',
+      });
+    }
   }
 
   /**

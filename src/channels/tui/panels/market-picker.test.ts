@@ -2,13 +2,17 @@
  * /marketplace 插件市场选装副屏件测试（03 §9.6 mp-5 TUI 选装面）：条目呈现
  * （已装徽标/detail 右对齐/长描述整字截断）、键面（移动/翻页/home/end、
  * enter 选定先收副屏再回调 + 未装/已装动作分叉、u 未装指路/已装换装、r 刷新
- * 驻留不收屏、busy 三键锁 fail-loud + actions 零调用、q 双轨/esc/Ctrl+C/
- * Ctrl+D 退出族）、渲染面（busy 底行/results 结算块/空态两分文案由 host 注入）、
+ * 驻留不收屏 + **空态可达**〔修前红位：文案双处指路 r 而键被 rows 闸拦死——
+ * host refresh 不依赖行集〕、busy 三键锁 fail-loud + actions 零调用、q 双轨/
+ * esc/Ctrl+C/Ctrl+D 退出族）、**滚轮消费**（wheel ±3 行视口滚动 + 光标随视口
+ * ——ScrollView 族内一致；busy/空表零动作）、u/r 双轨单源词法锁（dispatchLetter
+ * 单源——编舞零手抄）、渲染面（busy 底行/results 结算块/空态两分文案由 host 注入）、
  * 渲染帧零控制字节（grid 零控制字节律——注入已消毒形再锁一道边界）、可变模型
  * host 拥有（每帧现读——busy 置位后渲染随动）。
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import type { InputEvent, KeyEvent } from '../../engine/index.js';
+import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid } from '../../engine/index.js';
 import { MarketPicker } from './market-picker.js';
 import type { MarketEntryRow, MarketPanelActions, MarketPanelModel, MarketPickerOptions } from './market-picker.js';
@@ -24,6 +28,12 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
   phase: 'press',
   ...mods,
 });
+
+/** mouse 事件便捷构造（滚轮以 press 相为主——终端只报此相；scroll-view 同形） */
+const m = (
+  button: 'left' | 'middle' | 'right' | 'wheel-up' | 'wheel-down',
+  phase: 'press' | 'motion' | 'release' = 'press',
+): MouseEvent => ({ kind: 'mouse', button, phase, col: 0, row: 0, ctrl: false, alt: false, shift: false, meta: false });
 
 /**
  * 条目夹具：两源三目（同名条目两源并呈 + 已装徽标一枚 + 长描述截断料）。
@@ -287,6 +297,24 @@ describe('MarketPicker 键面', () => {
     expect(onExit).not.toHaveBeenCalled(); // 刷新驻留不收屏
   });
 
+  it('空态 r 刷新可达（修前红）：源在册零条目形——键面提示行与 host 空态文案双处指路 r，两轨均触达 refresh；busy 锁保留', () => {
+    const { picker, actions, onExit } = makePicker({ model: makeModel({ rows: [] }) });
+    picker.handleEvent(k('r')); // key 轨
+    expect(actions.refresh).toHaveBeenCalledTimes(1); // 修前红：key 轨 r 闸在 rows.length>0 总闸内——零回调
+    picker.handleEvent({ kind: 'text', text: 'r' } as InputEvent); // kitty text 轨
+    expect(actions.refresh).toHaveBeenCalledTimes(2); // 修前红：text 轨 r 同条件静默吞
+    expect(onExit).not.toHaveBeenCalled(); // 刷新驻留不收屏
+    // busy 锁保留：空表 busy 期 r 两轨 fail-loud 零回调（busy 与 rows 两闸分立）
+    const busy = makePicker({ model: makeModel({ rows: [], busyLabel: '市场刷新在飞中（marketplace update）' }) });
+    busy.picker.handleEvent(k('r'));
+    busy.picker.handleEvent({ kind: 'text', text: 'r' } as InputEvent);
+    expect(busy.actions.refresh).not.toHaveBeenCalled();
+    expect(busy.notifyWarn).toHaveBeenCalledTimes(2);
+    for (const call of busy.notifyWarn.mock.calls) {
+      expect(call[0]).toContain('动作键锁定'); // busyLabel 原文嵌入（fail-loud 不猜语义）
+    }
+  });
+
   it('busy 锁键：enter/u/r 三键 fail-loud warn + actions 零调用（key 轨与 text 轨全形）', () => {
     const { picker, actions, notifyWarn } = makePicker({
       model: makeModel({ busyLabel: '装机在飞中（marketplace install hello@alpha）' }),
@@ -340,14 +368,15 @@ describe('MarketPicker 键面', () => {
     expect(calls).toEqual(['exit', 'quit']);
   });
 
-  it('未消费键终局吞（模态独占）；空表形移动/enter/r 零动作、q 照常', () => {
+  it('未消费键终局吞（模态独占）；空表形移动/enter 零动作、r 可达 refresh（翻档）、q 照常', () => {
     const { picker, actions, onExit } = makePicker({ model: makeModel({ rows: [] }) });
     expect(picker.handleEvent(k('x'))).toBe(true);
     picker.handleEvent(k('down'));
     picker.handleEvent(k('enter'));
-    picker.handleEvent(k('r'));
     expect(actions.install).not.toHaveBeenCalled();
-    expect(actions.refresh).not.toHaveBeenCalled();
+    expect(actions.refresh).not.toHaveBeenCalled(); // 移动/enter 在 r 之前零动作
+    picker.handleEvent(k('r'));
+    expect(actions.refresh).toHaveBeenCalledTimes(1); // 翻档断言（原「r 零动作」）：空态文案双处指路 r——键必达（host refresh 不依赖 rows）
     picker.handleEvent(k('q'));
     expect(onExit).toHaveBeenCalledTimes(1);
   });
@@ -400,7 +429,7 @@ describe('MarketPicker 模型换血缩行防御（光标随行集夹取）', () 
     expect(readRow(grid, 1, width).startsWith('▸')).toBe(true); // 光标标记在唯一在位行
   });
 
-  it('换血到空表：enter/u/r（key 轨 + text 轨）全零回调不抛（空行防御）', () => {
+  it('换血到空表：enter/u（key 轨 + text 轨）零回调不抛；r 两轨可达 refresh（翻档——刷新不依赖行集）', () => {
     const { picker, model, actions } = makePicker();
     picker.handleEvent(k('down'));
     shrink(model, []);
@@ -414,6 +443,89 @@ describe('MarketPicker 模型换血缩行防御（光标随行集夹取）', () 
     expect(actions.install).not.toHaveBeenCalled();
     expect(actions.uninstall).not.toHaveBeenCalled();
     expect(actions.upgrade).not.toHaveBeenCalled();
-    expect(actions.refresh).not.toHaveBeenCalled();
+    expect(actions.refresh).toHaveBeenCalledTimes(2); // 翻档断言（原「r 零回调」）：host refresh() 不依赖 rows——空表照常分派
+  });
+});
+
+describe('MarketPicker u/r 双轨单源（词法锁——行为等价重构锁形）', () => {
+  it('upgrade/refresh 回调分派在面板源码恰一处（dispatchLetter 单源——key 轨复用同分派，编舞零手抄）', () => {
+    // 词法锁形（assembly.test.ts credentialsWrite seam 同谱）：修前 key 轨
+    // u/r 分支与 dispatchLetter 两份手抄（upgrade/refresh 调用形各两处），
+    // 单源化后各恰一处——后续再手抄即本锁红。
+    const source = readFileSync(new URL('./market-picker.ts', import.meta.url), 'utf8');
+    expect(source.split('this.actions.upgrade(').length - 1).toBe(1);
+    expect(source.split('this.actions.refresh();').length - 1).toBe(1);
+  });
+});
+
+describe('MarketPicker 滚轮消费（picker 族补齐——ScrollView WHEEL_LINES=3 族内一致）', () => {
+  /** 六条目夹具（窄窗逼出滚动——viewHeight=2 下载 3 步滚轮可观测） */
+  const wheelRows: readonly MarketEntryRow[] = Array.from({ length: 6 }, (_, i) => ({
+    id: `w${i}@alpha`,
+    name: `w${i}`,
+    version: '1.0.0',
+    market: 'alpha',
+    installed: false,
+  }));
+
+  /** 矮窗渲染（高 4 = 头 + 2 行视口 + 键面提示——viewHeight 恒 2） */
+  const paintDwarf = (picker: MarketPicker, width = 72): CellGrid => {
+    const grid = new CellGrid(width, 4);
+    picker.render(grid, { row: 0, col: 0, width, height: 4 });
+    return grid;
+  };
+
+  it('wheel-down/up ±3 行视口滚动 + 光标随视口（修前红）；滚到边界零动作零重画', () => {
+    const { picker, requestRepaint } = makePicker({ model: makeModel({ rows: wheelRows }) });
+    const width = 72;
+    expect(readRow(paintDwarf(picker, width), 1, width)).toContain('w0@alpha'); // 首窗锚顶
+    expect(picker.handleEvent(m('wheel-down'))).toBe(true); // 消费（模态独占）
+    const g1 = paintDwarf(picker, width);
+    expect(readRow(g1, 1, width)).toContain('w3@alpha'); // offset 0→3（+3 夹取内）
+    expect(readRow(g1, 1, width).startsWith('▸')).toBe(true); // 光标随视口拉回窗顶
+    expect(readRow(g1, 2, width)).toContain('w4@alpha');
+    picker.handleEvent(m('wheel-up'));
+    const g2 = paintDwarf(picker, width);
+    expect(readRow(g2, 1, width)).toContain('w0@alpha'); // offset 3→0（-3 夹取内）
+    expect(readRow(g2, 2, width).startsWith('▸')).toBe(true); // 光标随视口拉回窗底
+    // 边界零动作：窗已在顶——wheel-up 零滚动零重画（首尾夹取静默同律）
+    const before = requestRepaint.mock.calls.length;
+    picker.handleEvent(m('wheel-up'));
+    expect(requestRepaint.mock.calls.length).toBe(before);
+  });
+
+  it('滚到尾界夹取：offset 不越 maxOffset（尾行恰贴窗底）', () => {
+    const { picker } = makePicker({ model: makeModel({ rows: wheelRows }) });
+    const width = 72;
+    picker.handleEvent(m('wheel-down'));
+    picker.handleEvent(m('wheel-down')); // 0→3→6 夹到 maxOffset=4（6 行 - 窗高 2）
+    const grid = paintDwarf(picker, width);
+    expect(readRow(grid, 1, width)).toContain('w4@alpha'); // offset=4 窗 [4,5]
+    expect(readRow(grid, 2, width)).toContain('w5@alpha');
+  });
+
+  it('busy 期滚轮零动作；非滚轮鼠标相终局吞零动作（模态独占）', () => {
+    const busy = makePicker({
+      model: makeModel({ rows: wheelRows, busyLabel: '装机在飞中（marketplace install w0@alpha）' }),
+    });
+    const width = 72;
+    const before = busy.requestRepaint.mock.calls.length;
+    busy.picker.handleEvent(m('wheel-down'));
+    expect(busy.requestRepaint.mock.calls.length).toBe(before); // 零重画
+    expect(readRow(paintDwarf(busy.picker, width), 1, width)).toContain('w0@alpha'); // 视口未动
+    // 非滚轮鼠标相（左键 press / 滚轮 release 相——终端不报此相，防御位）：
+    // 终局吞零动作零重画
+    const idle = makePicker({ model: makeModel({ rows: wheelRows }) });
+    const idleBefore = idle.requestRepaint.mock.calls.length;
+    expect(idle.picker.handleEvent(m('left'))).toBe(true);
+    expect(idle.picker.handleEvent(m('wheel-down', 'release'))).toBe(true);
+    expect(idle.requestRepaint.mock.calls.length).toBe(idleBefore);
+    expect(readRow(paintDwarf(idle.picker, width), 1, width)).toContain('w0@alpha');
+  });
+
+  it('空表滚轮零动作不抛（空行防御）', () => {
+    const { picker, requestRepaint } = makePicker({ model: makeModel({ rows: [] }) });
+    expect(() => picker.handleEvent(m('wheel-down'))).not.toThrow();
+    expect(requestRepaint).not.toHaveBeenCalled();
   });
 });

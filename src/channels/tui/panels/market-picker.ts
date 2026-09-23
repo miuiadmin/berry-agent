@@ -12,12 +12,16 @@
  *   results 结算块跨开屏持久、rows/tail 每次开屏现取）；
  * - **动作键三分**：enter = 选定（**先收副屏再回调**——07 §4.1 既有律；未装
  *   条目 install / 已装条目 uninstall）、u = 已装条目换装（未装指路）、
- *   r = 刷新（**面板驻留不收屏**——刷新换行集须在屏呈现）；busyLabel 非
- *   null 时三动作键一律锁（fail-loud 呈现 + 零回调——03 §9.6 编舞③）；
+ *   r = 刷新（**面板驻留不收屏**——刷新换行集须在屏呈现；**不依赖行集**——
+ *   空态文案双处指路 r〔键面提示行恒呈 + host 空态尾行〕，源在册零条目时
+ *   r 是唯一出路，key/text 两轨均在 rows 闸外直达）；busyLabel 非 null 时
+ *   三动作键一律锁（fail-loud 呈现 + 零回调——03 §9.6 编舞③）；
  * - **光标选择模型**（theme-picker 同基建）：↑/↓/PgUp/PgDn/Home/End +
- *   光标驱动视口夹取；退出键面 q/Esc 收屏、Ctrl+C 打断、Ctrl+D 先收屏再
- *   转退出柄——副屏键面件族律；裸字母键 q/u/r 补 kitty disambiguate 轨
- *   text 事件分派（theme-picker 'q' 先例同形坑——三键全补）。
+ *   光标驱动视口夹取 + 滚轮 ±3 行（ScrollView WHEEL_LINES 同档——picker 族
+ *   补齐族内一致；视口先行 + 光标随视口拉回窗缘）；退出键面 q/Esc 收屏、
+ *   Ctrl+C 打断、Ctrl+D 先收屏再转退出柄——副屏键面件族律；裸字母键
+ *   q/u/r 补 kitty disambiguate 轨 text 事件分派（theme-picker 'q' 先例
+ *   同形坑——三键全补；u/r 两轨经 dispatchLetter 单源分派零手抄）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
 import { truncateToWidth } from '../../engine/index.js';
@@ -98,6 +102,12 @@ const BUSY_MARK = '⏳';
 const BUSY_LOCK_HINT = (label: string): string => `${label}——动作键锁定，收场后再试`;
 /** u 键未装指路文案（面板静态文案——键面语义归呈现件） */
 const U_NOT_INSTALLED_HINT = '未装机——enter 选装（u 换装仅对已装条目）';
+
+/**
+ * 滚轮单步行数（ScrollView WHEEL_LINES=3 同档——vim mousescroll ver 缺省
+ * 档；picker 族补齐族内一致：副屏 ScrollView 族已消费滚轮，本件同档接入）。
+ */
+const WHEEL_LINES = 3;
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -215,8 +225,9 @@ export class MarketPicker implements OverlayContent {
 
   /**
    * 事件分发（副屏内容终局消费）：Ctrl+C/Ctrl+D 补丁 → 动作键三分（busy 锁
-   * 在前——长动作在飞期零回调）→ 移动键 → 退出。裸字母键 q/u/r 补 kitty
-   * disambiguate 轨 text 事件分派（三键全补——theme-picker 'q' 坑同形）。
+   * 在前——长动作在飞期零回调）→ 移动键 → 滚轮 → 退出。裸字母键 q/u/r 补
+   * kitty disambiguate 轨 text 事件分派（三键全补——theme-picker 'q' 坑同
+   * 形；u/r 两轨经 dispatchLetter 单源分派）。
    */
   handleEvent(event: InputEvent): boolean {
     // 模型换血缩行防御②：事件入口光标入界（diff-viewer render 期夹取同族）。
@@ -280,34 +291,39 @@ export class MarketPicker implements OverlayContent {
           else this.actions.install(chosen.id);
           return true;
         }
+        // u：key 轨复用 dispatchLetter 单源（空表守卫由外层 rows 闸保证——直调）
         if (isPlainKey(k, 'u')) {
-          const chosen = this.model.rows[this.cursor]!;
-          if (this.model.busyLabel !== null) {
-            this.notifyWarn(BUSY_LOCK_HINT(this.model.busyLabel));
-            return true;
-          }
-          // 未装条目 u = 指路（不回调——install 语义属 enter）
-          if (!chosen.installed) {
-            this.notifyWarn(U_NOT_INSTALLED_HINT);
-            return true;
-          }
-          this.actions.upgrade(chosen.id);
+          this.dispatchLetter('u');
           return true;
         }
-        if (isPlainKey(k, 'r')) {
-          if (this.model.busyLabel !== null) {
-            this.notifyWarn(BUSY_LOCK_HINT(this.model.busyLabel));
-            return true;
-          }
-          // 刷新面板驻留不收屏（刷新换行集须在屏呈现——host settle 后 repaint）
-          this.actions.refresh();
-          return true;
-        }
+      }
+      // r：刷新不依赖行集（host refresh() 只回源重取——空态文案双处指路 r：
+      // 键面提示行恒呈 + host「源在册但零条目——r 刷新重取」尾行），从 rows
+      // 总闸解出（busy 锁保留在 dispatchLetter 内）；修前形 = key 轨 r 闸在
+      // rows 闸内 + text 轨 r 同条件静默吞 = 空态死键（文案指路而键不可达）。
+      // 复用 dispatchLetter 单源（key/text 两轨零手抄）。
+      if (isPlainKey(k, 'r')) {
+        this.dispatchLetter('r');
+        return true;
       }
       if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) {
         this.exit();
         return true;
       }
+    }
+    // 滚轮消费（ScrollView 族内一致——WHEEL_LINES=3 同档）：wheel 无 release
+    // 相（终端不报，press 一相到达）；busy 期零动作（busy 行在屏恒可见优先）；
+    // 非滚轮鼠标相零动作终局吞（模态独占——本件无鼠标选职）。
+    if (event.kind === 'mouse') {
+      if (
+        event.phase === 'press' &&
+        this.model.busyLabel === null &&
+        this.model.rows.length > 0 &&
+        (event.button === 'wheel-up' || event.button === 'wheel-down')
+      ) {
+        this.wheelScroll(event.button === 'wheel-up' ? -WHEEL_LINES : WHEEL_LINES);
+      }
+      return true;
     }
     // kitty disambiguate 轨：裸字母纯键打字走 text 事件（q/u/r 三键全补）
     if (event.kind === 'text') {
@@ -315,22 +331,33 @@ export class MarketPicker implements OverlayContent {
         this.exit();
         return true;
       }
-      if (event.text === 'u' || event.text === 'r') {
-        if (this.model.rows.length > 0) this.dispatchLetter(event.text);
+      // u 语义绑条目（换装/未装指路都取 rows[cursor]）——空表零动作（rows 闸）
+      if (event.text === 'u') {
+        if (this.model.rows.length > 0) this.dispatchLetter('u');
+        return true;
+      }
+      // r 与 key 轨同律：不依赖行集（空态可达）——两轨单源 dispatchLetter
+      if (event.text === 'r') {
+        this.dispatchLetter('r');
         return true;
       }
     }
     return true; // 未消费键终局吞（模态独占）
   }
 
-  /** text 轨动作键分派（与 key 轨 u/r 同语义——busy 锁/未装指路同律） */
+  /**
+   * 动作键分派单源（key 轨与 kitty text 轨两轨共用——编舞零手抄）：u = 换装
+   * （busy 锁 + 未装指路；语义绑条目——**调用位保证 rows 非空**）、r = 刷新
+   * （busy 锁；**不依赖行集**——空态文案双处指路 r，两轨均在 rows 闸外直达）。
+   */
   private dispatchLetter(letter: 'u' | 'r'): void {
-    const chosen = this.model.rows[this.cursor]!;
     if (letter === 'u') {
+      const chosen = this.model.rows[this.cursor]!; // 调用位 rows 闸保证在位
       if (this.model.busyLabel !== null) {
         this.notifyWarn(BUSY_LOCK_HINT(this.model.busyLabel));
         return;
       }
+      // 未装条目 u = 指路（不回调——install 语义属 enter）
       if (!chosen.installed) {
         this.notifyWarn(U_NOT_INSTALLED_HINT);
         return;
@@ -342,12 +369,34 @@ export class MarketPicker implements OverlayContent {
       this.notifyWarn(BUSY_LOCK_HINT(this.model.busyLabel));
       return;
     }
+    // 刷新面板驻留不收屏（刷新换行集须在屏呈现——host settle 后 repaint）
     this.actions.refresh();
   }
 
   /** 光标移动（越界夹取——不循环；移动后光标恒可见 + 请求重画） */
   private moveCursor(delta: number): void {
     this.cursor = Math.max(0, Math.min(this.model.rows.length - 1, this.cursor + delta));
+    this.clampOffset();
+    this.cursorRepaint();
+  }
+
+  /**
+   * 滚轮滚动（±WHEEL_LINES 行——ScrollView 族内一致）：视口先行 + 光标随
+   * 视口（滚出窗的光标拉回同侧窗缘——moveCursor 是「光标驱动视口」，本件是
+   * 对偶的「视口拖动光标」；clampOffset 只拉视口回光标、不推光标，故光标
+   * 侧显式拉）；终经 clampCursor/clampOffset 双向夹取（行集边界 + 光标可见
+   * 两律同收）。已在边界零动作零重画（与移动键首尾夹取静默同律）。
+   */
+  private wheelScroll(delta: number): void {
+    const maxOffset = Math.max(0, this.model.rows.length - this.viewportHeight);
+    const next = Math.max(0, Math.min(maxOffset, this.offset + delta));
+    if (next === this.offset) return; // 边界夹尽——零动作零重画
+    this.offset = next;
+    if (this.cursor < this.offset) this.cursor = this.offset;
+    else if (this.cursor >= this.offset + this.viewportHeight) {
+      this.cursor = this.offset + this.viewportHeight - 1;
+    }
+    this.clampCursor();
     this.clampOffset();
     this.cursorRepaint();
   }
