@@ -4,7 +4,7 @@
  * （先收副屏再 onSelect——回填不执行）+ 副屏键面三件套。
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { InputEvent, KeyEvent } from '../../engine/index.js';
+import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, stringWidth } from '../../engine/index.js';
 import { SkillsViewer } from './skills-viewer.js';
 import type { SkillListEntry } from './skills-viewer.js';
@@ -19,6 +19,19 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
   meta: false,
   phase: 'press',
   ...mods,
+});
+
+/** mouse 滚轮事件夹具 */
+const wheel = (dir: 'wheel-up' | 'wheel-down'): MouseEvent => ({
+  kind: 'mouse',
+  phase: 'press',
+  button: dir,
+  col: 0,
+  row: 1,
+  ctrl: false,
+  alt: false,
+  shift: false,
+  meta: false,
 });
 
 /** 清单夹具（含隐藏件——含入不滤标记呈现） */
@@ -169,5 +182,27 @@ describe('SkillsViewer 副屏件', () => {
     const viewer = new SkillsViewer({ entries: ENTRIES, onSelect: () => {}, sessionId: 's', onExit: () => {} });
     expect(viewer.handleEvent(k('x'))).toBe(true);
     expect(viewer.handleEvent({ kind: 'text', text: 'x' } as InputEvent)).toBe(true);
+  });
+
+  it('滚轮 = 光标 ±3 行（经既有夹取与视口跟随——↑↓ 同路；修前红：wheel 零动作）+ 空清单零动作吞', () => {
+    const many: readonly SkillListEntry[] = Array.from({ length: 12 }, (_, i) => ({
+      name: `sk${i}`,
+      description: '描述',
+      layer: 'project',
+      hidden: false,
+    }));
+    const viewer = new SkillsViewer({ entries: many, onSelect: () => {}, sessionId: 's', onExit: () => {} });
+    let grid = render(viewer, 5); // 视口 3 行
+    expect(readRow(grid, 1, 60)).toContain('sk0'); // offset 0
+    viewer.handleEvent(wheel('wheel-down')); // 光标 0 → 3（夹取同 ↓×3）
+    grid = render(viewer, 5);
+    expect(readRow(grid, 1, 60)).toContain('sk1'); // 视口跟随 offset 1——修前零动作红锚
+    expect(readRow(grid, 3, 60)).toContain('▸ sk3'); // 光标行在窗内末行
+    viewer.handleEvent(wheel('wheel-up')); // 光标 3 → 0——回锚顶
+    grid = render(viewer, 5);
+    expect(readRow(grid, 1, 60)).toContain('sk0');
+    // 空清单滚轮零动作吞（不炸不动作）
+    const empty = new SkillsViewer({ entries: [], onSelect: () => {}, sessionId: 's', onExit: () => {} });
+    expect(empty.handleEvent(wheel('wheel-down'))).toBe(true);
   });
 });

@@ -7,7 +7,7 @@
  * 翻选——theme-picker 同形锁）。
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { InputEvent, KeyEvent } from '../../engine/index.js';
+import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, stringWidth } from '../../engine/index.js';
 import { ThinkingPicker } from './thinking-picker.js';
 import type { ThinkingPickerOptions } from './thinking-picker.js';
@@ -22,6 +22,19 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
   meta: false,
   phase: 'press',
   ...mods,
+});
+
+/** mouse 滚轮事件夹具 */
+const wheel = (dir: 'wheel-up' | 'wheel-down'): MouseEvent => ({
+  kind: 'mouse',
+  phase: 'press',
+  button: dir,
+  col: 0,
+  row: 1,
+  ctrl: false,
+  alt: false,
+  shift: false,
+  meta: false,
 });
 
 /** 读回一行（trimEnd） */
@@ -247,5 +260,29 @@ describe('ThinkingPicker 键面', () => {
   it('未消费键终局吞（模态独占——false 不外溢编辑器）', () => {
     const { picker } = makePicker();
     expect(picker.handleEvent(k('z'))).toBe(true);
+  });
+
+  it('滚轮 = 光标 ±3 行（经既有夹取与视口跟随——↑↓ 同路；修前红：wheel 零动作）+ 闭锁后滚轮零动作', () => {
+    const { picker, onSelect } = makePicker();
+    const width = 72;
+    const paint = (): CellGrid => {
+      const grid = new CellGrid(width, 4); // 头 + 2 行视口 + 提示（矮窗）
+      picker.render(grid, { row: 0, col: 0, width, height: 4 });
+      return grid;
+    };
+    expect(readRow(paint(), 1, width)).toContain('off'); // 首窗锚顶
+    picker.handleEvent(wheel('wheel-down')); // 光标 0 → 3（medium——夹取同 ↓×3）
+    const grid = paint();
+    expect(readRow(grid, 1, width)).toContain('low'); // 视口跟随提窗 offset 2——修前零动作红锚
+    expect(readRow(grid, 1, width)).not.toContain('off');
+    expect(readRow(grid, 2, width).startsWith('▸')).toBe(true); // 光标行（medium）贴窗底
+    expect(readRow(grid, 2, width)).toContain('medium');
+    picker.handleEvent(wheel('wheel-up')); // 光标 3 → 0——回锚顶
+    expect(readRow(paint(), 1, width)).toContain('off');
+    expect(onSelect).not.toHaveBeenCalled(); // 滚轮只挪光标不选定
+    // 闭锁后滚轮照吞零动作（残轮防御位同键面）
+    picker.handleEvent(k('q'));
+    expect(picker.handleEvent(wheel('wheel-down'))).toBe(true);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

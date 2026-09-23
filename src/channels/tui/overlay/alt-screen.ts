@@ -69,6 +69,8 @@ export class AltScreenHost {
   private readonly engineOptions: Omit<EngineOptions, 'io' | 'screen'> | undefined;
   private readonly onReturn: (() => void) | undefined;
   private alt: Engine | null = null;
+  /** 在场副屏内容件（close 单源位调 onClosed 的持有体——07 §4.1 定形钩） */
+  private content: OverlayContent | null = null;
   private unsubAltInput: (() => void) | null = null;
 
   constructor(primary: AltScreenPrimary, io: TerminalIO, options: AltScreenOptions = {}) {
@@ -124,6 +126,7 @@ export class AltScreenHost {
       alt.requestRender();
     });
     this.alt = alt;
+    this.content = content; // 收屏单源位 onClosed 的调用对象（与 alt 同置空——幂等自守）
     let closed = false;
     return {
       close: () => {
@@ -137,15 +140,27 @@ export class AltScreenHost {
     };
   }
 
-  /** 出副屏（幂等）：退订 → 副屏 dispose → 主屏 resume（全帧重画）→ onReturn 钩 */
+  /**
+   * 出副屏（幂等）：退订 → 副屏 dispose → 主屏 resume（全帧重画）→ onReturn
+   * 钩 → onClosed 钩（收屏终局位）。
+   *
+   * onClosed 是一切收屏路（ask 四原语入口收屏扇出 / collapseAltScreen /
+   * stop——均经句柄 close 或本位）的必经单源调用位（07 §4.1 2026-09-23
+   * 定形）：外部收屏路不经内容件键面，副屏内容件在飞异步编舞（向导在飞
+   * 问题 promise 等）靠本钩感知收屏、清算悬垂。置尾调（钩面所见 = 已收屏
+   * 态）；缺省无钩零行为变化（实现件 opt-in）。
+   */
   private close(): void {
     const alt = this.alt;
+    const content = this.content;
     if (alt === null) return;
     this.unsubAltInput?.(); // 先退订转发（防 dispose 过程竞发）
     this.unsubAltInput = null;
     this.alt = null;
+    this.content = null; // 与 alt 同置空——重复 close 零重调（幂等自守）
     alt.dispose(); // 备屏出 + raw 复原 + pause 流
     this.primary.resumeMain(); // 主屏复起 + 全帧重画不走 repaint（07 条款）+ 瞬时行补吐
     this.onReturn?.();
+    content?.onClosed?.(); // 收屏终局通知（单源位——悬垂清算钩）
   }
 }

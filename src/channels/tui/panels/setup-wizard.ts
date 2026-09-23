@@ -10,8 +10,13 @@
  * - **敏感录入掩码**：text sensitive 相键入只呈 ●（值只经回值出屏——态可
  *   入面、值恒不入面）；粘贴整段（paste 事件/多字 text）同律追加；
  * - **Ctrl+C = 打断在飞 run**（目标 = 当前交互会话位——不退屏，件族同律）、
- *   **Ctrl+D = 先撤悬题再退出柄**（退出闭锁后一切 prompter 法即时回值——
- *   流程侧自然收场）；
+ *   **Ctrl+D = 先撤悬题再退出柄**（text 相有文不退——主屏空框闸让路同律
+ *   〔07 §4.1 输入路由 2026-09-07 实装对账裁决①：退出判据含输入框空、
+ *   在场让路〕；空缓冲后照常退出（逃生舱不锁死）；退出闭锁后一切
+ *   prompter 法即时回值——流程侧自然收场）；
+ * - **外部收屏清算**（OverlayContent onClosed——AltScreenHost.close 单源
+ *   调）：cancelPending + exited 闭锁——在飞问题 promise 按取消收口，
+ *   流程侧零改动自然走 abortOut 诚实收场（悬垂泄漏封堵）；
  * - 程序化重画经注入 requestRepaint（面板自持态变更自请——host 侧无从而知）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
@@ -32,6 +37,8 @@ const CURSOR_MARK = '▸';
 const MASK_CHAR = '●';
 /** 面板头前缀 */
 const HEAD_PREFIX = '⚙ 配置向导';
+/** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
+const WHEEL_LINES = 3;
 
 /** 面板相（可变——prompter 法逐相切换） */
 type Phase =
@@ -246,11 +253,25 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   }
 
   /**
-   * 事件分发（副屏内容终局消费——模态独占）：Ctrl+C/Ctrl+D 补丁 → 相分发。
-   * kitty disambiguate 轨：裸字母/打字走 text 事件（选择器 q 取消 + 录入
-   * 追加两消费位）。
+   * 事件分发（副屏内容终局消费——模态独占）：滚轮相态分派 → Ctrl+C/Ctrl+D
+   * 补丁 → 相分发。kitty disambiguate 轨：裸字母/打字走 text 事件（选择器
+   * q 取消 + 录入追加两消费位）。
    */
   handleEvent(event: InputEvent): boolean {
+    if (event.kind === 'mouse') {
+      // 滚轮相态分派（mu-2 件族面）：select 相滚清单（光标 ±3 行——经既有
+      // 夹取，↑↓ 同路）；text/confirm/static/outro 相零动作（录入/确认态
+      // 滚轮无义）；wheel 无 release 相（终端不报——press 一相到达）；非
+      // 滚轮鼠标相零动作吞（模态独占）
+      if (event.phase === 'press' && (event.button === 'wheel-up' || event.button === 'wheel-down')) {
+        const phase = this.phase;
+        if (phase.kind === 'select') {
+          this.moveCursor(phase, event.button === 'wheel-up' ? -WHEEL_LINES : WHEEL_LINES);
+        }
+        return true;
+      }
+      return true;
+    }
     const k = asKey(event);
     if (k !== null && k.phase !== 'release') {
       // Ctrl+C = 打断在飞 run（目标 = 当前交互会话位——不退屏，件族同律）
@@ -258,8 +279,18 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
         this.onInterrupt?.(this.sessionId);
         return true;
       }
-      // Ctrl+D = 退出进程（撤悬题再转退出柄——闭锁后流程自然收场）
-      if (k.ctrl && !k.alt && !k.shift && !k.meta && k.key === 'd') {
+      // Ctrl+D = 退出进程（text 相有文不退——主屏空框闸让路同律〔07 §4.1
+      // 输入路由 2026-09-07 实装对账裁决①：在场让路、不发明「首按清缓冲」；
+      // 有文时落入相分发被吞（纯不退）〕；撤悬题再转退出柄——闭锁后流程
+      // 自然收场）
+      if (
+        k.ctrl &&
+        !k.alt &&
+        !k.shift &&
+        !k.meta &&
+        k.key === 'd' &&
+        (this.phase.kind !== 'text' || this.phase.buffer === '')
+      ) {
         this.cancelPending();
         this.exit();
         this.onQuit?.();
@@ -274,6 +305,18 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       return true;
     }
     return true; // 未消费键终局吞（模态独占）
+  }
+
+  /**
+   * 外部收屏通知（OverlayContent onClosed——AltScreenHost.close 单源位调，
+   * 07 §4.1 2026-09-23 定形）：外部收屏路（ask 收屏扇出 / collapseAltScreen）
+   * 不经键面，在飞问题 promise 在此清算（取消形收口——流程侧 abortOut 诚实
+   * 收场）+ exited 闭锁（此后一切 prompter 法即时回值）。已闭锁时幂等零动作。
+   */
+  onClosed(): void {
+    if (this.exited) return; // 已收口（outro 收屏 / Ctrl+D 已撤）——幂等
+    this.cancelPending(); // 悬题按取消收口（undefined 形）
+    this.exit(); // 闭锁（onExit 收副屏在调用位已先行置空——重入无害）
   }
 
   /* ---------------- 相分发 ---------------- */

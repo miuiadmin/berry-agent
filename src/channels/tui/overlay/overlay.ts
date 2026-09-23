@@ -15,6 +15,16 @@ import type { InputEvent, Renderable } from '../../engine/index.js';
 export interface OverlayContent extends Renderable {
   /** 键 / 文本 / IME / 粘贴事件分发（返回是否消费——未消费也不穿透） */
   handleEvent(event: InputEvent): boolean;
+  /**
+   * 收屏通知钩（07 §4.1 2026-09-23 TUI 优化役批定形——opt-in）：外部收屏路
+   * （ask 四原语入口收屏扇出 / collapseAltScreen / stop）直 closeAlt 不经
+   * 内容件键面，副屏内容件在飞异步编舞（/setup 向导在飞问题 promise 等）
+   * 无收屏感知面致悬垂泄漏——AltScreenHost.close 是一切收屏路的必经单源
+   * 位，在该位单源调用本钩。缺省无钩零行为变化（实现件 opt-in；stop()
+   * 进程退出路技术上同经此钩——闭包滞留实害≈0，主症载体是 collapse
+   * 路〔规范 07 §4.1 定形注原文〕）。
+   */
+  onClosed?(): void;
 }
 
 /** 浮层句柄（两形态共用——主屏浮层与副屏同形接口） */

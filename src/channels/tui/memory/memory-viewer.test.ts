@@ -8,7 +8,7 @@
  * （Enter/y·Esc/n 双轨同判 / 其余键终局吞 / 单次语义）、e 导出输入行
  * （argv 引号感知切分同源 / 回执折行 / 查询保留续打 / 空框闸）、Tab 筛选
  * 循环（四态 + 头行注记 + 终态区客户端双过滤）、刷新重取与同 id 锚定
- * （跨分区跟随 / 锚缺席驻留原位就近）、光标模型（循环 / 零条目消隐 /
+ * （跨分区跟随 / 锚缺席驻留原位就近）、光标模型（夹取不循环 / 零条目消隐 /
  * 溢出档顶对齐 / 滚动键不挪光标）、鼠标消费面（点行移光标 / 非条目行与
  * 模态零动作 / 滚轮）、拖选复制（挂账解挂批①——/history 件 8 细则全套
  * 对齐：LF 拼 / 反向规范化 / CJK 半格归字素首 / 反相高亮与 press 清除 /
@@ -567,17 +567,20 @@ describe('刷新重取与光标锚定（动词成功后整表重取）', () => {
 
 /* ---------------- 光标模型 ---------------- */
 
-describe('光标模型（条目间循环——非条目行不驻留）', () => {
-  it('↓↑ 循环移动 + 首末回绕', () => {
+describe('光标模型（条目间夹取——非条目行不驻留）', () => {
+  it('↓↑ 移动 + 越界夹取不循环（首末停驻——修前红：取模回绕）', () => {
     const { viewer, render } = rig();
+    viewer.handleEvent(key('up')); // 首条之上——夹取不动（修前回绕末条）
+    expect(cursorRowText(render())).toContain('maaaaaaa');
     viewer.handleEvent(key('down'));
     expect(cursorRowText(render())).toContain('fbbbbbbb');
     viewer.handleEvent(key('down'));
     expect(cursorRowText(render())).toContain('tccccccc');
-    viewer.handleEvent(key('down')); // 末条回绕首条
-    expect(cursorRowText(render())).toContain('maaaaaaa');
-    viewer.handleEvent(key('up')); // 首条回绕末条
+    viewer.handleEvent(key('down')); // 末条之下——夹取不动（修前回绕首条）
     expect(cursorRowText(render())).toContain('tccccccc');
+    viewer.handleEvent(key('up'));
+    viewer.handleEvent(key('up'));
+    expect(cursorRowText(render())).toContain('maaaaaaa'); // 回首条（途驻冻结行）
   });
 
   it('零条目可见：行动词消隐（提示无动词段）+ f/d/r 零副作用 + 全局动词仍在', () => {

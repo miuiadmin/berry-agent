@@ -4,7 +4,7 @@
  * （光标/活跃位/无题/截断/右段时间短 id）+ 副屏键面三件套。
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { KeyEvent } from '../../engine/index.js';
+import type { KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, stringWidth } from '../../engine/index.js';
 import type { UiSessionSummary } from '../../../contracts/index.js';
 import { SessionPicker } from './session-picker.js';
@@ -19,6 +19,19 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
   meta: false,
   phase: 'press',
   ...mods,
+});
+
+/** mouse 滚轮事件夹具 */
+const wheel = (dir: 'wheel-up' | 'wheel-down'): MouseEvent => ({
+  kind: 'mouse',
+  phase: 'press',
+  button: dir,
+  col: 0,
+  row: 1,
+  ctrl: false,
+  alt: false,
+  shift: false,
+  meta: false,
 });
 
 /** 本地时确定时间戳（formatStamp 本地时呈现——构造用本地分量保跨机确定） */
@@ -228,5 +241,33 @@ describe('SessionPicker 副屏键面三件套', () => {
     const { picker } = makePicker([row({ id: 'a' })]);
     expect(picker.handleEvent(k('x'))).toBe(true);
     expect(picker.handleEvent({ kind: 'text', text: 'z' })).toBe(true);
+  });
+});
+
+describe('SessionPicker 滚轮消费', () => {
+  it('滚轮 = 光标 ±3 行（经既有夹取与视口跟随——↑↓ 同路；修前红：wheel 零动作）', () => {
+    const many = Array.from({ length: 12 }, (_, i) => row({ id: `id-${i}-00000000`, title: `行${i}` }));
+    const { picker } = makePicker(many);
+    const grid = new CellGrid(40, 5); // 视口 3 行
+    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
+    expect(readRow(grid, 1, 40)).toContain('行0'); // offset 0
+    picker.handleEvent(wheel('wheel-down')); // 光标 0 → 3（夹取同 ↓×3）
+    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
+    expect(readRow(grid, 1, 40)).toContain('行1'); // 视口跟随 offset 1——修前零动作红锚
+    expect(readRow(grid, 1, 40)).not.toContain('行0');
+    expect(readRow(grid, 3, 40)).toContain('▸'); // 光标行（行3）在窗内末行
+    picker.handleEvent(wheel('wheel-up')); // 光标 3 → 0
+    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
+    expect(readRow(grid, 1, 40)).toContain('行0'); // 回锚顶
+    picker.handleEvent(wheel('wheel-up')); // 越界夹取——停首行不循环
+    picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
+    expect(readRow(grid, 1, 40)).toContain('行0');
+  });
+
+  it('空表滚轮零动作吞（不炸不动作）', () => {
+    const { picker, onSelect, onExit } = makePicker([]);
+    expect(picker.handleEvent(wheel('wheel-down'))).toBe(true);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onExit).not.toHaveBeenCalled();
   });
 });

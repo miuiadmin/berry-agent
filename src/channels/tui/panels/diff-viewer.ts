@@ -14,7 +14,7 @@
  * - 键面同副屏件族律（q / esc 返回、Ctrl+C 打断、Ctrl+D 先收屏再退）。
  */
 import type { CellBuffer, CellStyle, ColorValue, InputEvent, Region } from '../../engine/index.js';
-import { stringWidth, truncateToWidth } from '../../engine/index.js';
+import { ellipsize, stringWidth, truncateToWidth } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
 import { diffWords, parsePatchLines, type DiffSeg, type PatchLine } from '../blocks/word-diff.js';
@@ -182,9 +182,15 @@ export interface DiffViewerOptions {
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 光标行标记（在选行） */
 const CURSOR_MARK = '▸';
-/** 展开态标记（收起 ▸ / 展开 ▾——组头第二位） */
-const COLLAPSED_MARK = '▸';
+/** 收起态标记（组头第二位——与展开 ▾ 配对的窄形） */
+// 撞形修正（2026-09-23）：原同用 ▸ 与光标标记撞——缺省全收起 + 光标 0 时
+// 首屏即「▸ ▸ path」双记不可辨。改窄形 ›（stringWidth 1）；避 ▶ U+25B6
+//（stringWidth 计 2 且 emoji 化风险——宽度账与呈现双不稳）
+const COLLAPSED_MARK = '›';
 const EXPANDED_MARK = '▾';
+
+/** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
+const WHEEL_LINES = 3;
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -214,6 +220,12 @@ export class DiffViewer implements OverlayContent {
   private cursor = 0;
   /** 视口首行（光标驱动夹取） */
   private offset = 0;
+  /**
+   * 滚轮自由滚位（mu-2 件族面）：滚轮只滚视口（组折叠语义——展开组体长
+   * 清单自由翻阅，不挪光标）；置位后 render 夹取只守界（光标可暂出窗），
+   * 键盘光标动作族复位钉随（光标恒可见律回锚）。
+   */
+  private freeScroll = false;
   /** 视口高实测（render 回写——翻页的页幅依据） */
   private viewportHeight = 1;
   /** 退出闭锁（q/Esc 与 Ctrl+D 两路共闭——竞发防御位） */
@@ -284,7 +296,7 @@ export class DiffViewer implements OverlayContent {
     );
   }
 
-  /** 组头行：光标 ▸ + 展开位 ▸/▾ + 路径左段；+N（绿）/-M（红）/⧗（次文）右段 */
+  /** 组头行：光标 ▸ + 展开位 ›/▾ + 路径左段；+N（绿）/-M（红）/⧗（次文）右段 */
   private renderHead(
     buffer: CellBuffer,
     row: number,
@@ -307,7 +319,7 @@ export class DiffViewer implements OverlayContent {
     const showRight = width - rightWidth >= 2;
     const rightStart = col + width - rightWidth;
     const maxLeft = (showRight ? rightStart : col + width) - col - 1;
-    const fitLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
+    const fitLeft = ellipsize(left, maxLeft); // 省略形单源（width 件）
     buffer.writeText(row, col, fitLeft);
     if (showRight) {
       let c = rightStart;
@@ -352,12 +364,28 @@ export class DiffViewer implements OverlayContent {
     // 孤立行：前缀 + 整行着色（ctx 裸——fg undefined 时样式位即裸）
     const prefix = body.kind === 'del' ? '-' : body.kind === 'add' ? '+' : '';
     const text = `${index === this.cursor ? CURSOR_MARK : ' '} ${prefix}${body.text}`;
-    const fit = stringWidth(text) <= width ? text : `${truncateToWidth(text, Math.max(0, width - 1))}…`;
+    const fit = ellipsize(text, width); // 省略形单源（width 件——0 宽守卫在源）
     buffer.writeText(row, col, fit, fg === undefined ? undefined : { fg });
   }
 
-  /** 事件分发（副屏内容终局消费）：Ctrl+C/Ctrl+D 补丁 → 翻组 → 移动键 → 退出 */
+  /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 翻组 → 移动键 → 退出 */
   handleEvent(event: InputEvent): boolean {
+    if (event.kind === 'mouse') {
+      // 滚轮只滚视口（mu-2 件族面）：±3 行界夹取（展开组体长清单自由翻阅
+      // ——不挪光标）；wheel 无 release 相（终端不报——press 一相到达）；
+      // 非滚轮鼠标相零动作吞（v1 无选区/点击面，模态独占）
+      if (event.phase === 'press' && (event.button === 'wheel-up' || event.button === 'wheel-down')) {
+        if (this.groups.length > 0) {
+          const rows = this.flatRows();
+          const maxOffset = Math.max(0, rows.length - this.viewportHeight);
+          const delta = event.button === 'wheel-up' ? -WHEEL_LINES : WHEEL_LINES;
+          this.freeScroll = true; // 自由滚位（render 夹取只守界）
+          this.offset = Math.max(0, Math.min(maxOffset, this.offset + delta));
+        }
+        return true;
+      }
+      return true;
+    }
     const k = asKey(event);
     if (k !== null && k.phase !== 'release') {
       // Ctrl+C = 打断在飞 run（目标 = 当前交互会话位——不退屏，件族同律）
@@ -372,6 +400,8 @@ export class DiffViewer implements OverlayContent {
         return true;
       }
       if (this.groups.length > 0) {
+        // 键盘光标动作族（移动/翻组）复位钉随——滚轮自由滚位让位（光标恒可见律）
+        this.freeScroll = false;
         const rows = this.flatRows();
         if (isPlainKey(k, 'up')) {
           this.cursor = Math.max(0, this.cursor - 1);
@@ -435,15 +465,21 @@ export class DiffViewer implements OverlayContent {
     else this.cursor = 0;
   }
 
-  /** 视口夹取：光标行恒在窗内（下溢提窗 / 上溢压窗） */
+  /**
+   * 视口夹取：界夹取恒守（[0, maxOffset]——收起收缩后防空窗）；光标钉随
+   * （下溢提窗 / 上溢压窗）只在非自由滚位期——滚轮只滚视口期光标可暂出窗
+   * （键盘光标动作复位钉随）。
+   */
   private clampOffset(length: number): void {
+    // 尾窗不满则提窗（收起收缩后防空窗）+ 上界恒守（自由滚位同样不越界）
+    const maxOffset = Math.max(0, length - this.viewportHeight);
+    if (this.offset > maxOffset) this.offset = maxOffset;
+    if (this.offset < 0) this.offset = 0;
+    if (this.freeScroll) return; // 滚轮自由滚位——只守界（光标可暂出窗）
     if (this.cursor < this.offset) this.offset = this.cursor;
     else if (this.cursor >= this.offset + this.viewportHeight) {
       this.offset = this.cursor - this.viewportHeight + 1;
     }
-    // 尾窗不满则提窗（收起收缩后防空窗）
-    const maxOffset = Math.max(0, length - this.viewportHeight);
-    if (this.offset > maxOffset) this.offset = maxOffset;
   }
 
   /** 退出（闭锁——单次收口） */

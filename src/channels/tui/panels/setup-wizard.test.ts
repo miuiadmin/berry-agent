@@ -3,11 +3,16 @@
  * select（光标/翻选/enter 选定/esc 与 q 双轨取消）、text（敏感掩码/追加/
  * backspace/enter 回值/字母 q 可录入非捷键）、confirm（y/n 直答/enter 取
  * 缺省/esc 取消）、outro（任意键收屏）、Ctrl+C 打断不退屏、Ctrl+D 撤题退
- * 出、退出闭锁后 prompter 法即时回值、敏感值不入面（渲染帧无明文）。
+ * 出（text 相有文不退——主屏空框闸让路同律）、退出闭锁后 prompter 法即时
+ * 回值、敏感值不入面（渲染帧无明文）；外部收屏路（OverlayContent onClosed
+ * ——AltScreenHost.close 单源调）悬题 settle；滚轮相态分派（select 相滚
+ * 清单、text/confirm 相零动作）。
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { KeyEvent, TextInputEvent } from '../../engine/index.js';
+import type { KeyEvent, MouseEvent, TextInputEvent } from '../../engine/index.js';
 import { CellGrid } from '../../engine/index.js';
+import { MemoryTerminalIO } from '../../engine/memory-io.js';
+import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { SetupWizardPanel } from './setup-wizard.js';
 
 /** key 事件夹具 */
@@ -188,6 +193,28 @@ describe('text 相（key 录入）', () => {
     panel.handleEvent(k('escape'));
     await expect(pending).resolves.toBeUndefined();
   });
+
+  it('Ctrl+D 有文不退（主屏空框闸让路同律——修前红：无条件退出）——悬题仍在、缓冲不清', async () => {
+    const a = makePanel();
+    const pa = a.panel.text(TEXT_REQ);
+    a.panel.handleEvent(t('sk-live'));
+    a.panel.handleEvent(k('d', { ctrl: true })); // 录入有文——仅不退（不发明「首按清缓冲」）
+    expect(a.onExit).not.toHaveBeenCalled();
+    expect(a.onQuit).not.toHaveBeenCalled();
+    a.panel.handleEvent(k('enter'));
+    await expect(pa).resolves.toBe('sk-live'); // 悬题未被 Ctrl+D 撤——录入照常回值
+  });
+
+  it('Ctrl+D 空缓冲照常退出（逃生舱不锁死——修后锁：清空后退出路恒在）', async () => {
+    const b = makePanel();
+    const pb = b.panel.text(TEXT_REQ);
+    b.panel.handleEvent(t('x'));
+    b.panel.handleEvent(k('backspace')); // 清空缓冲
+    b.panel.handleEvent(k('d', { ctrl: true }));
+    expect(b.onExit).toHaveBeenCalled();
+    expect(b.onQuit).toHaveBeenCalled();
+    await expect(pb).resolves.toBeUndefined();
+  });
 });
 
 describe('confirm 相', () => {
@@ -271,5 +298,121 @@ describe('outro / static 相与退出闭锁', () => {
     const grid = paint(panel);
     expect(readRow(grid, 0, 72)).toContain('配置向导');
     expect(readRow(grid, 1, 72)).toContain('三步轻向导');
+  });
+});
+
+describe('外部收屏路（OverlayContent onClosed——AltScreenHost.close 单源调）', () => {
+  /** 悬挂 promise 判据（悬挂 promise 测试律——断言 settle 形而非 await 挂死） */
+  async function settleForm(p: Promise<unknown>): Promise<'pending' | 'fulfilled' | 'rejected'> {
+    const state = { s: 'pending' as 'pending' | 'fulfilled' | 'rejected' };
+    void p.then(
+      () => {
+        state.s = 'fulfilled';
+      },
+      () => {
+        state.s = 'rejected';
+      },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0)); // 宏任务一拍让 then 链跑
+    return state.s;
+  }
+
+  /** 主屏假件（AltScreenPrimary 窄介面最小替身——挂起/复起纯记账） */
+  class FakePrimary implements AltScreenPrimary {
+    state: 'idle' | 'running' | 'suspended' | 'disposed' = 'idle';
+    get lifecycle(): 'idle' | 'running' | 'suspended' | 'disposed' {
+      return this.state;
+    }
+    suspendMain(): void {
+      this.state = 'suspended';
+    }
+    resumeMain(): void {
+      this.state = 'running';
+    }
+  }
+
+  /** 副屏宿主 rig：共享 MemoryTerminalIO + 主屏假件（open 前置 running 态） */
+  function altRig() {
+    const io = new MemoryTerminalIO(40, 6);
+    const primary = new FakePrimary();
+    primary.state = 'running';
+    const host = new AltScreenHost(primary, io);
+    return { io, primary, host };
+  }
+
+  it('closeAlt 直调后悬题 settle（undefined 形）——修前永 pending（悬垂泄漏）', async () => {
+    const { host } = altRig();
+    const { panel } = makePanel();
+    const handle = host.open(panel);
+    expect(handle).not.toBeNull();
+    const pending = panel.select({
+      title: '选择模型 provider',
+      items: [
+        { id: 'anthropic', label: 'anthropic' },
+        { id: 'openai', label: 'openai' },
+      ],
+    });
+    expect(await settleForm(pending)).toBe('pending'); // 悬置基线（close 前）
+    handle!.close(); // 外部收屏路（ask 收屏扇出 / collapseAltScreen 同一 handle.close）
+    expect(await settleForm(pending)).toBe('fulfilled'); // 修前红锚：外部收屏后永 pending
+    await expect(pending).resolves.toBeUndefined(); // 取消形——流程侧 abortOut 诚实收场
+  });
+
+  it('外部收屏后闭锁——后续 prompter 法即时回值（流程自然收场）', async () => {
+    const { host } = altRig();
+    const { panel } = makePanel();
+    const handle = host.open(panel);
+    expect(handle).not.toBeNull();
+    handle!.close();
+    await expect(panel.select({ title: 'x', items: [{ id: 'a', label: 'a' }] })).resolves.toBeUndefined();
+    await expect(panel.text({ title: 'x' })).resolves.toBeUndefined();
+    await expect(panel.confirm({ title: 'x', defaultYes: true })).resolves.toBeUndefined();
+    await expect(panel.outro('x', [])).resolves.toBeUndefined();
+  });
+});
+
+describe('滚轮消费（C5——相态机内分派）', () => {
+  /** mouse 滚轮事件夹具 */
+  const wheel = (dir: 'wheel-up' | 'wheel-down'): MouseEvent => ({
+    kind: 'mouse',
+    phase: 'press',
+    button: dir,
+    col: 0,
+    row: 1,
+    ctrl: false,
+    alt: false,
+    shift: false,
+    meta: false,
+  });
+
+  it('select 相滚清单（±3 行光标路——经既有夹取；修前红：wheel 零动作）', async () => {
+    const { panel } = makePanel();
+    const pending = panel.select({
+      title: '选择模型 provider',
+      items: [
+        { id: 'anthropic', label: 'anthropic' },
+        { id: 'openai', label: 'openai' },
+        { id: '__manual_provider__', label: '✎ 手录自定义 provider id' },
+      ],
+    });
+    panel.handleEvent(wheel('wheel-down')); // ±3 夹取到尾项（3 条表）
+    panel.handleEvent(k('enter'));
+    await expect(pending).resolves.toBe('__manual_provider__');
+  });
+
+  it('text 相滚轮零动作（录入态滚动无义——缓冲不受扰）+ confirm 相零动作', async () => {
+    const a = makePanel();
+    const pa = a.panel.text({ title: 'provider id' });
+    a.panel.handleEvent(t('ab'));
+    a.panel.handleEvent(wheel('wheel-down'));
+    a.panel.handleEvent(wheel('wheel-up'));
+    a.panel.handleEvent(k('enter'));
+    await expect(pa).resolves.toBe('ab'); // 缓冲原样——滚轮零扰动
+
+    const b = makePanel();
+    const pb = b.panel.confirm({ title: '验证?', defaultYes: true });
+    b.panel.handleEvent(wheel('wheel-up')); // 确认态零动作（yes 态不被滚轮改写）
+    b.panel.handleEvent(k('enter'));
+    await expect(pb).resolves.toBe(true);
   });
 });

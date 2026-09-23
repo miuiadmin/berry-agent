@@ -48,6 +48,8 @@ const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 const CURSOR_MARK = '▸';
 /** 当前档标记 */
 const CURRENT_MARK = '●';
+/** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
+const WHEEL_LINES = 3;
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -136,9 +138,21 @@ export class SandboxPicker implements OverlayContent {
     if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
   }
 
-  /** 事件分发（副屏内容终局消费）：Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */
+  /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */
   handleEvent(event: InputEvent): boolean {
     if (this.exited) return true; // 闭锁后终局吞——选定/取消后残键零二次回调（生产位副屏已收、本位纯防御）
+    if (event.kind === 'mouse') {
+      // 滚轮 = 光标 ±3 行（mu-2 件族面——经 moveCursor 既有夹取与视口跟随，
+      // ↑↓ 同路）；wheel 无 release 相（终端不报——press 一相到达）；非滚轮
+      // 鼠标相零动作吞（v1 无选区/点击面，模态独占）
+      if (event.phase === 'press' && (event.button === 'wheel-up' || event.button === 'wheel-down')) {
+        if (this.entries.length > 0) {
+          this.moveCursor(event.button === 'wheel-up' ? -WHEEL_LINES : WHEEL_LINES);
+        }
+        return true;
+      }
+      return true;
+    }
     const k = asKey(event);
     if (k !== null && k.phase !== 'release') {
       // Ctrl+C = 打断在飞 run（目标 = 当前交互会话位——不退屏，件族同律）

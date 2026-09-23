@@ -37,6 +37,8 @@ const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 const CURSOR_MARK = '▸';
 /** 活跃位标记（进程内 driver 在场） */
 const ACTIVE_MARK = '●';
+/** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
+const WHEEL_LINES = 3;
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -128,8 +130,20 @@ export class SessionPicker implements OverlayContent {
     if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
   }
 
-  /** 事件分发（副屏内容终局消费）：Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */
+  /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */
   handleEvent(event: InputEvent): boolean {
+    if (event.kind === 'mouse') {
+      // 滚轮 = 光标 ±3 行（mu-2 件族面——经 moveCursor 既有夹取与视口跟随，
+      // ↑↓ 同路）；wheel 无 release 相（终端不报——press 一相到达）；非滚轮
+      // 鼠标相零动作吞（v1 无选区/点击面，模态独占）
+      if (event.phase === 'press' && (event.button === 'wheel-up' || event.button === 'wheel-down')) {
+        if (this.sessions.length > 0) {
+          this.moveCursor(event.button === 'wheel-up' ? -WHEEL_LINES : WHEEL_LINES);
+        }
+        return true;
+      }
+      return true;
+    }
     const k = asKey(event);
     if (k !== null && k.phase !== 'release') {
       if (k.ctrl && !k.alt && !k.shift && !k.meta && k.key === 'c') {

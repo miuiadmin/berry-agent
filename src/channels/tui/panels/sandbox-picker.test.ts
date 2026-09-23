@@ -7,7 +7,7 @@
  * 选——theme-picker 同形锁）。
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { InputEvent, KeyEvent } from '../../engine/index.js';
+import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid, stringWidth } from '../../engine/index.js';
 import { SandboxPicker } from './sandbox-picker.js';
 import type { SandboxPickerOptions } from './sandbox-picker.js';
@@ -22,6 +22,19 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
   meta: false,
   phase: 'press',
   ...mods,
+});
+
+/** mouse 滚轮事件夹具 */
+const wheel = (dir: 'wheel-up' | 'wheel-down'): MouseEvent => ({
+  kind: 'mouse',
+  phase: 'press',
+  button: dir,
+  col: 0,
+  row: 1,
+  ctrl: false,
+  alt: false,
+  shift: false,
+  meta: false,
 });
 
 /** 读回一行（trimEnd） */
@@ -238,5 +251,28 @@ describe('SandboxPicker 键面', () => {
   it('未消费键终局吞（模态独占——false 不外溢编辑器）', () => {
     const { picker } = makePicker();
     expect(picker.handleEvent(k('z'))).toBe(true);
+  });
+
+  it('滚轮 = 光标 ±3 行（三档夹尾——经既有夹取与视口跟随；修前红：wheel 零动作）+ 闭锁后滚轮零动作', () => {
+    const { picker, onSelect } = makePicker();
+    const width = 72;
+    const paint = (): CellGrid => {
+      const grid = new CellGrid(width, 4); // 头 + 2 行视口 + 提示（矮窗）
+      picker.render(grid, { row: 0, col: 0, width, height: 4 });
+      return grid;
+    };
+    expect(readRow(paint(), 1, width)).toContain('read-only'); // 首窗锚顶
+    picker.handleEvent(wheel('wheel-down')); // 光标 0 → 夹尾 2（danger——步 3 被夹）
+    const grid = paint();
+    expect(readRow(grid, 1, width)).toContain('workspace-write'); // 提窗 offset 1——修前零动作红锚
+    expect(readRow(grid, 2, width).startsWith('▸')).toBe(true); // 光标行（danger）贴窗底
+    expect(readRow(grid, 2, width)).toContain('danger');
+    picker.handleEvent(wheel('wheel-up')); // 光标 2 → 夹首 0——回锚顶
+    expect(readRow(paint(), 1, width)).toContain('read-only');
+    expect(onSelect).not.toHaveBeenCalled(); // 滚轮只挪光标不选定
+    // 闭锁后滚轮照吞零动作（残轮防御位同键面）
+    picker.handleEvent(k('q'));
+    expect(picker.handleEvent(wheel('wheel-down'))).toBe(true);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

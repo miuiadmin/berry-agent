@@ -18,8 +18,9 @@
  *   吞、冻结行零义吞 + 底行提示「先 f 解冻」）/ r（恢复——终态行免
  *   confirm，active 行零义吞）；全局动词 e（副屏内嵌输入行走 /memory-export
  *   真身同一函数——argv 引号感知切分与命令分发同源）/ Tab（筛选循环
- *   全部→活体→冻结→终态）。光标只在条目行间移动（↑/↓ 循环——分区头/
- *   投影行非可指行）；PgUp/PgDn/Home/End 与滚轮归 ScrollView 滚动路；
+ *   全部→活体→冻结→终态）。光标只在条目行间移动（↑/↓ 夹取不循环——
+ *   越界停驻首末，副屏 picker 族同律；分区头/投影行非可指行）；
+ *   PgUp/PgDn/Home/End 与滚轮归 ScrollView 滚动路；
  * - **confirm 副屏内嵌行**（定形注④）：主屏浮层在副屏在场时物理不可见 +
  *   走通道 ask 原语会触发 ask 强制收起先收副屏——故收口为副屏内嵌行
  *   （底行确认文案；键面语义同 ConfirmPanel：Enter/y 确认、Esc/n 取消、
@@ -680,15 +681,18 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     return this.cursor >= 0 ? this.entries[this.cursor] : undefined;
   }
 
-  /** 光标移动（条目间循环——非条目行不驻留；移动后视口对齐光标行） */
+  /** 光标移动（条目间夹取不循环——越界停驻首末，副屏 picker 族同律；移动后视口对齐光标行） */
   private moveCursor(delta: 1 | -1): void {
     if (this.entries.length === 0) return; // 零条目可见——光标无处可指
+    // cursor < 0 属消隐后复见防御位（rebuild 正常路不产）：正向落首条、
+    // 反向落末条；常态按 delta 界内夹取（越界不动——原取模回绕系族内唯一
+    // 异类，本批归一律）
     this.cursor =
       this.cursor < 0
         ? delta > 0
           ? 0
           : this.entries.length - 1
-        : (this.cursor + delta + this.entries.length) % this.entries.length;
+        : Math.max(0, Math.min(this.entries.length - 1, this.cursor + delta));
     this.ensureCursorVisible();
   }
 

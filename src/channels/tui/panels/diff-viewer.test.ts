@@ -4,7 +4,7 @@
  * 呈现（组头计数/enter 展开/收起缺省/空态/退出族）。
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { InputEvent, KeyEvent } from '../../engine/index.js';
+import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
 import { CellGrid } from '../../engine/index.js';
 import { DiffViewer, foldSessionDiff } from './diff-viewer.js';
 import type { DiffProjectionMessage, DiffViewerOptions } from './diff-viewer.js';
@@ -20,6 +20,19 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
   meta: false,
   phase: 'press',
   ...mods,
+});
+
+/** mouse 滚轮事件夹具 */
+const wheel = (dir: 'wheel-up' | 'wheel-down'): MouseEvent => ({
+  kind: 'mouse',
+  phase: 'press',
+  button: dir,
+  col: 0,
+  row: 1,
+  ctrl: false,
+  alt: false,
+  shift: false,
+  meta: false,
 });
 
 /** edit 调用夹具（arguments = 原始 JSON 串——审计保真形） */
@@ -269,6 +282,23 @@ describe('DiffViewer 副屏件', () => {
     expect(viewer.handleEvent(k('x'))).toBe(true);
   });
 
+  it('收起标记 › 与光标 ▸ 撞形修正（修前红：缺省全收起 + 光标 0 首屏「▸ ▸ path」）', () => {
+    const { viewer } = makeViewer();
+    const width = 64;
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    const row1 = readRow(grid, 1, width);
+    // 光标符 + 窄形收起标记 ›（与展开 ▾ 可配对；避 ▶ U+25B6——stringWidth
+    // 计 2 且 emoji 化风险）；修前两记同用 ▸ 撞形
+    expect(row1.startsWith('▸ › ')).toBe(true);
+    expect(row1).not.toContain('▸ ▸');
+    // 展开位换 ▾（enter 后同组头——配对形直锁）
+    viewer.handleEvent(k('enter'));
+    const grid2 = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid2, { row: 0, col: 0, width, height: grid2.rows });
+    expect(readRow(grid2, 1, width).startsWith('▸ ▾ ')).toBe(true);
+  });
+
   it('光标驱动滚动：视口夹取（光标行恒在窗内——首行随窗换断言）', () => {
     const { viewer } = makeViewer();
     const width = 64;
@@ -287,6 +317,35 @@ describe('DiffViewer 副屏件', () => {
     const grid3 = new CellGrid(width, 4);
     viewer.render(grid3, { row: 0, col: 0, width, height: 4 });
     expect(readRow(grid3, 1, width)).toContain('docs/two.md'); // 回锚顶
+  });
+
+  it('滚轮只滚视口（±3 行界夹取——不挪光标；修前红：wheel 零动作）+ 光标键复位钉随', () => {
+    const { viewer } = makeViewer();
+    const width = 64;
+    const paint = (): CellGrid => {
+      const grid = new CellGrid(width, 4); // 头 + 2 行视口 + 提示（矮窗）
+      viewer.render(grid, { row: 0, col: 0, width, height: 4 });
+      return grid;
+    };
+    viewer.handleEvent(k('down')); // → src/one.ts 组头
+    viewer.handleEvent(k('enter')); // 展开——扁平行 6（2 组头 + 4 组体）
+    expect(readRow(paint(), 1, width)).toContain('docs/two.md'); // 首窗锚顶
+    viewer.handleEvent(wheel('wheel-down')); // 视口滚 3 行（光标 0 不动——组折叠语义下只滚视口）
+    const grid2 = paint();
+    expect(readRow(grid2, 1, width)).not.toContain('docs/two.md'); // 提窗——修前零动作红锚
+    expect(readRow(grid2, 1, width)).toContain('-old line'); // offset 3 = 组体 del 行入顶
+    expect(readRow(grid2, 2, width)).toContain('+new line');
+    viewer.handleEvent(wheel('wheel-down')); // 再滚——界夹取停 maxOffset（6-2=4）
+    expect(readRow(paint(), 1, width)).toContain('+new line'); // offset 4 = +new 行入顶
+    viewer.handleEvent(k('up')); // 光标键复位钉随（顶夹取不动 + 钉随回锚）
+    expect(readRow(paint(), 1, width)).toContain('docs/two.md'); // 光标 0 恒可见——回锚顶
+  });
+
+  it('空集滚轮零动作吞（空态零组——不炸不动作）', () => {
+    const onExit = vi.fn();
+    const viewer = new DiffViewer({ messages: [{ type: 'user' }], theme: DEFAULT_THEME, sessionId: 'sess-x', onExit });
+    expect(viewer.handleEvent(wheel('wheel-down'))).toBe(true);
+    expect(onExit).not.toHaveBeenCalled();
   });
 
   /* ---- S2 宽度账族（2026-09-21 第六役修复组 2）：组体行构造位消毒（tool-card renderWordDiffPair 同源族标准） ---- */
