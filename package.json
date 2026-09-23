@@ -62,7 +62,7 @@
     "release:sdk": "node tools/release.mjs --package sdk"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-ai": "0.86.0",
     "better-sqlite3": "^13.0.3",
     "get-east-asian-width": "1.6.0",
     "ignore": "^7",
