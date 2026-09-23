@@ -42,8 +42,8 @@ function isPlainKey(e: InputEvent & { kind: 'key' }, key: string): boolean {
   return !e.ctrl && !e.alt && !e.shift && !e.meta && e.key === key;
 }
 
-/** token 数千位分组（tui-backend formatTokenCount 同形——分表行呈现） */
-function formatCount(n: number): string {
+/** token 数千位分组（单源——tui-backend 状态行 import 同消费；顺既有边 tui-backend→usage-viewer 无环） */
+export function formatCount(n: number): string {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 

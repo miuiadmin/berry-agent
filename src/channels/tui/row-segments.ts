@@ -14,7 +14,7 @@
  *   单源收紧为丢弃右段（预算 0 = 无位可放），右段实占恒 ≤ 预算，起列
  *   恒 ≥ 1（负起列结构性封堵——不只坏形窗封堵）。
  */
-import { stringWidth, truncateToWidth } from '../engine/index.js';
+import { ellipsize, stringWidth, truncateToWidth } from '../engine/index.js';
 
 /** 双段排版产出形（rightWidth 单出——消费位右对齐起列 = col + width - rightWidth） */
 export interface RowSegmentsFit {
@@ -47,6 +47,6 @@ export function fitRowSegments(left: string, right: string | undefined, width: n
   // 左段帽 = 总宽 - 右段实占 - 间隔 1 列（无右段即总宽；右段已按预算截断，
   // 此处帽内通常已适——label 自身极长时 … 收口）
   const maxLeft = rightWidth > 0 ? width - rightWidth - 1 : width;
-  const fittedLeft = stringWidth(left) <= maxLeft ? left : `${truncateToWidth(left, Math.max(0, maxLeft - 1))}…`;
+  const fittedLeft = ellipsize(left, maxLeft); // 省略形单源（width 件——0 宽守卫在源）
   return { left: fittedLeft, right: fittedRight, rightWidth };
 }

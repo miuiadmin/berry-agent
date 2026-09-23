@@ -38,6 +38,7 @@ export { ansiColor, color256, colorRgb, colorRgbOf } from './types.js';
 export { colorSgrBg, colorSgrFg, relativeLuminance, rgbChannels, rgbTo16, rgbTo256 } from './color.js';
 export { MemoryTerminalIO } from './memory-io.js';
 export {
+  ellipsize,
   graphemeWidth,
   isLineEndProhibited,
   isLineStartProhibited,

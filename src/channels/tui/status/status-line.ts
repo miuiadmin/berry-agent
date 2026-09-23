@@ -13,7 +13,7 @@
  *   接重绘请求。
  */
 import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
-import { stringWidth, truncateToWidth } from '../../engine/index.js';
+import { ellipsize, stringWidth, truncateToWidth } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 转轮帧序（braille 十帧——accent 呈现形态随组件批定形，本批定形） */
@@ -117,10 +117,9 @@ export class StatusLine implements Renderable {
     buffer.writeText(region.row, region.col + region.width - idleWidth, idle);
   }
 
-  /** footer 适配剩余宽（超宽整字截断 + 省略号；非超宽原样） */
+  /** footer 适配剩余宽（超宽整字截断 + 省略号；非超宽原样——0 宽早退由 ellipsize 单源守卫吸收） */
   private fitFooter(max: number): string {
-    if (max <= 0) return '';
-    return stringWidth(this.footerText) <= max ? this.footerText : `${truncateToWidth(this.footerText, max - 1)}…`;
+    return ellipsize(this.footerText, max);
   }
 
   /**

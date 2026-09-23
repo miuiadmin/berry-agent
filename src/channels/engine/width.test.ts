@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  ellipsize,
   graphemeWidth,
   isLineEndProhibited,
   isLineStartProhibited,
@@ -216,5 +217,21 @@ describe('零宽字素（孤立 ZWSP/SHY 等按 0 列记账）', () => {
   it('truncateToWidth / wrapText 跳零宽字素不占列', () => {
     expect(stringWidth('aaaa\u200bbbbb')).toBe(8);
     expect(wrapText('aaaa\u200bbbbb', 4)).toEqual(['aaaa\u200b', 'bbbb']);
+  });
+});
+
+describe('ellipsize 省略形截断单源（TUI 优化役 2026-09-23 收口——0 宽守卫形）', () => {
+  it('不超宽原样透传（含恰等宽）', () => {
+    expect(ellipsize('abc', 5)).toBe('abc');
+    expect(ellipsize('abc', 3)).toBe('abc');
+    expect(ellipsize('', 3)).toBe('');
+  });
+  it('超宽整字截断 + 省略号（截到 width-1 后缀 …）', () => {
+    expect(ellipsize('abcdef', 4)).toBe('abc…');
+    expect(ellipsize('中文测试', 4)).toBe('中…'); // 双宽整字——剩 1 列放不下第二字整字弃
+  });
+  it('0 宽守卫：width<=0 恒空串（消费位旧散形此态产 1 列 … 超帽——单源收口）', () => {
+    expect(ellipsize('abc', 0)).toBe('');
+    expect(ellipsize('abc', -1)).toBe('');
   });
 });
