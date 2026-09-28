@@ -130,8 +130,9 @@ describe('WebUiRoot鉴权门', () => {
     apiMock.probeAuthed.mockResolvedValue(false);
     const { unmount } = render(<WebUiRoot />);
     const input = await screen.findByPlaceholderText('一次性 token');
-    // 错 token → 401 呈错因（停留在换桥位）
-    apiMock.auth.mockRejectedValueOnce(new Error('401'));
+    // 错 token → 401 呈 token 不符错因（真 ApiError 401 形——AuthGate 错误
+    // 分档后泛型 Error 落服务异常档，锁须钉回 token 不符档）
+    apiMock.auth.mockRejectedValueOnce(new ApiError(401, 'unauthorized'));
     fireEvent.change(input, { target: { value: 'wrong-token' } });
     fireEvent.click(screen.getByRole('button', { name: '进入' }));
     await screen.findByText('token 不符——请核对后重试');
@@ -378,6 +379,27 @@ describe('WebUiRoot运行期凭证失效路由（webui-face#3——401 回换桥
     await screen.findByPlaceholderText('一次性 token');
     await screen.findByText(/凭证已失效/);
     expect(screen.queryByText('提交失败——请重试')).toBeNull(); // 通用条让位于失效路由
+  });
+});
+
+describe('WebUiRoot新建会话腿失败处置（全文件唯一裸调用腿收口——错误不静默）', () => {
+  it('非 401 失败 → 通知条呈现（修前红：无 catch 静默——点击后无任何反馈）', async () => {
+    primeMain();
+    apiMock.createSession.mockRejectedValueOnce(new ApiError(500, 'INTERNAL'));
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    fireEvent.click(screen.getByRole('button', { name: '+ 新会话' }));
+    await screen.findByText('新建会话失败——请重试');
+  });
+
+  it('401 失效形 → 路由回换桥位 + 失效提示行（修前红：无 catch 不路由——旧 cookie 重试永困主面）', async () => {
+    primeMain();
+    apiMock.createSession.mockRejectedValueOnce(new ApiError(401, 'UNAUTHORIZED'));
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    fireEvent.click(screen.getByRole('button', { name: '+ 新会话' }));
+    await screen.findByPlaceholderText('一次性 token');
+    await screen.findByText(/凭证已失效/);
   });
 });
 

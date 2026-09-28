@@ -29,6 +29,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ephemeralSecretKey, openStore, type Store } from '../persist/index.js';
+import type { CredentialsCommandStore } from './commands.js';
 import { CREDENTIALS_MIGRATION } from './migration.js';
 import { createOAuthFlowRegistry, type OAuthFetchLike, type OAuthFlowDef, type OAuthFlowRegistry } from './oauth.js';
 import { createRefreshChain, type RefreshChainHandle } from './refresh.js';
@@ -308,6 +309,68 @@ describe('成功 rotate（三律一）', () => {
   });
 });
 
+/* ---------------- rotate 两笔写序（03 §10.9 定形——先刷新行后主行） ---------------- */
+
+describe('rotate 两笔写序（先刷新行后主行——03 §10.9 定形补笔：第二笔失败可自愈）', () => {
+  const NS = pluginNamespace('demo');
+
+  it('第二笔（主行）写失败：新 refresh token 已 durable 落刷新行——下一拍自愈不落 EXPIRED（修前红：先主行序下主行写先抛，刷新行写永不达——新 refresh token 仅存内存即丢、旧 token 已被服务端作废，下一拍 invalid_grant 直落不可恢复）', async () => {
+    const real = openTestStore();
+    // 两拍应答：① 轮换形 grant（端点下发新 refresh token）② 自愈拍（经新
+    // refresh token 换得新 access token——不带 refresh_token 即不动刷新行）
+    const fetch = scriptedFetch([
+      { ok: true, status: 200, json: { access_token: 'at-new', refresh_token: 'rt-rotated', expires_in: 1800 } },
+      { ok: true, status: 200, json: { access_token: 'at-healed' } },
+    ]);
+    // 毒化写面：主行位写新 access token（'at-new'）即抛——模拟第二笔独立
+    // autocommit 失败（磁盘满/锁竞争/进程中断同族）。判别键 = 值（失败保留
+    // 旧值写的是 'at-old'、刷新行写的是 'rt-rotated'、自愈拍写的是
+    // 'at-healed'——均不触毒，毒恰只落在「rotate 主行写」这一笔上）
+    const poisoned: CredentialsCommandStore = {
+      getCredential: (ns, name) => real.getCredential(ns, name),
+      setCredential: (ns, name, entry) => {
+        if (entry.apiKey === 'at-new') throw new Error('模拟主行写失败（第二笔 autocommit 失败形）');
+        real.setCredential(ns, name, entry);
+      },
+      deleteCredential: (ns, name) => real.deleteCredential(ns, name),
+      listCredentialProviders: () => real.listCredentialProviders(),
+    };
+    const registry = createOAuthFlowRegistry();
+    registry.register('demo', { def: DEF, handler: async () => undefined }, () => () => undefined);
+    const notifies: string[] = [];
+    const chain = createRefreshChain({
+      store: poisoned,
+      registry,
+      fetchFn: fetch,
+      now: () => 0,
+      notify: (message) => notifies.push(message),
+      warn: () => undefined,
+    });
+    // 种子行走真库（毒化面只拦 'at-new' 写——种子 'at-old'/'rt-old' 直落）
+    seedMain(real, { meta: { source: 'oauth', refreshName: 'github.refresh', expiresAt: 1_000 } });
+    real.setCredential(NS, 'github.refresh', { apiKey: 'rt-old', meta: { source: 'oauth' } });
+
+    // 第一拍：轮换应答到达 → 第二笔（主行）写抛 → 失败保留旧值收拍
+    await chain.tick();
+    // 核心断言（写序定形执法）：新 refresh token 已 durable 落刷新行——修前
+    // 红（先主行序）：主行写先抛，刷新行写永不达，本读仍是旧值 'rt-old'
+    expect(real.getCredential(NS, 'github.refresh')?.apiKey).toBe('rt-rotated');
+    // 主行保留旧 access token（铁律）+ 记一败（可重试形——不落 EXPIRED 位）
+    const row = real.getCredential(NS, 'github');
+    expect(row?.apiKey).toBe('at-old');
+    expect((row?.meta as CredentialMeta).failures).toBe(1);
+    expect((row?.meta as CredentialMeta).expired).not.toBe(true);
+
+    // 第二拍自愈：新 refresh token 换得新 access token——不落「旧 token 已被
+    // 服务端作废 → invalid_grant 一拍直落 EXPIRED」的不可恢复形
+    await chain.tick();
+    const healed = real.getCredential(NS, 'github');
+    expect(healed?.apiKey).toBe('at-healed');
+    expect((healed?.meta as CredentialMeta).expired).not.toBe(true);
+    expect(notifies).toEqual([]); // 全程无三振告警（授权态未坏）
+  });
+});
+
 describe('失败保留旧值（三律二）与三振（三律三）', () => {
   it('单败：值不动 + failures durable 记一 + warn 一条 + 无 notify', async () => {
     const r = rig({ script: [{ ok: false, status: 500, json: { error: 'server_error' } }] });
@@ -411,6 +474,63 @@ describe('护栏与自驱', () => {
     expect(r.store.getCredential(pluginNamespace('demo'), 'github')?.apiKey).toBe('at-2');
     r.chain.stop();
     r.chain.stop(); // 幂等
+  });
+
+  it('挂钟拍异常折 warn 不外溢 unhandled rejection（修前红：失败记账写同步抛穿透 flight catch 体 → tick 整拍 reject——void tick() 丢弃 rejected promise 落 unhandled 形，崩溃编舞杀无人值守宿主）', async () => {
+    vi.useRealTimers(); // 真钟驱动（unref 钟不阻拍——测试在途即活）；防同文件 fake 钟泄漏
+    const real = openTestStore();
+    // 到期形主行 + 刷新行直种真库（毒化面只拦主行写位）
+    seedMain(real, { meta: { source: 'oauth', refreshName: 'github.refresh', expiresAt: 1_000 } });
+    real.setCredential(pluginNamespace('demo'), 'github.refresh', { apiKey: 'rt-old', meta: { source: 'oauth' } });
+    // 毒化写面：主行位写即抛——失败记账写（catch 体内的 setCredential）同步
+    // 抛洞穿 catch（catch 内再抛不被同 try 收）→ flight 破约 reject → tick 整拍 reject
+    const poisoned: CredentialsCommandStore = {
+      getCredential: (ns, name) => real.getCredential(ns, name),
+      setCredential: (ns, name, entry) => {
+        if (name === 'github') throw new Error('模拟记账写失败（磁盘满形）');
+        real.setCredential(ns, name, entry);
+      },
+      deleteCredential: (ns, name) => real.deleteCredential(ns, name),
+      listCredentialProviders: () => real.listCredentialProviders(),
+    };
+    const registry = createOAuthFlowRegistry();
+    registry.register('demo', { def: DEF, handler: async () => undefined }, () => () => undefined);
+    // 恒 500 应答（可重试形——逐拍走失败记账写位）
+    const fetchFn = (async () => ({
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ error: 'server_error' }),
+    })) as OAuthFetchLike;
+    const warns: string[] = [];
+    const chain = createRefreshChain({
+      store: poisoned,
+      registry,
+      fetchFn,
+      now: () => 0,
+      notify: () => undefined,
+      warn: (message) => warns.push(message),
+    });
+    // unhandled rejection 侦听面（判据一的真源）：process 级事件捕获——修前
+    // 每拍一条（void tick() 丢弃 rejected promise），修后零条
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown): void => {
+      unhandled.push(err);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      chain.start(10);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 60); // 真钟数拍（10ms 间隔——多拍全落同断言面）
+      });
+      chain.stop();
+      // 判据一：零 unhandled rejection（修前红——unhandled 数组非空）
+      expect(unhandled).toEqual([]);
+      // 判据二：异常折 warn 留痕（不静默吞——挂钟面可见性）
+      expect(warns.some((w) => w.includes('挂钟拍异常'))).toBe(true);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      chain.stop();
+    }
   });
 });
 

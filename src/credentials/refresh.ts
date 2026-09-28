@@ -11,7 +11,8 @@
  *  1. **成功 rotate**：主行换新 token（source 'refresh'、failures 清零、
  *     expired 位随整列换消失）；端点下发新 refresh token 才动刷新行
  *     （RFC 6749 §6 不下发即复用旧值）；附加键保全（账号句柄等插件自记
- *     meta 键不因链写抹掉）。
+ *     meta 键不因链写抹掉）；两笔写序 = **先刷新行后主行**（03 §10.9
+ *     定形——第二笔失败时新 refresh token 已 durable，下一拍自愈）。
  *  2. **失败保留旧值续用**：值不动只记 failures++（durable——连续计数）；
  *     单败走 warn（日志面）；invalid_grant（EXPIRED 码）= 授权态坏重试
  *     无益，直落三振语义。
@@ -178,21 +179,27 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
           );
         }
         const grant = await refreshOAuthToken(flow.def, refreshRow.apiKey, { fetchFn, now });
-        // 成功 rotate：主行换新（source 'refresh'、failures/expired 随整列换消失；
-        // 端点未给 expires_in 则保留旧到期位）
-        store.setCredential(ns, name, {
-          apiKey: grant.accessToken,
-          meta: { ...stripChainKeys(meta), source: 'refresh', expiresAt: grant.expiresAt ?? meta.expiresAt },
-        });
-        // 新 refresh token 才动刷新行（不下发即复用——RFC 6749 §6）；刷新行
-        // meta 同主行律——读旧行 meta 经 stripChainKeys 展开（链管键整列换、
-        // 插件自记附加键保全——账号句柄等不因轮换链写抹掉），source 键覆新
+        // 成功 rotate 两笔写序 = **先刷新行后主行**（03 §10.9 定形）：两笔独立
+        // autocommit 无跨行原子性——新 refresh token 是最不可再得密（access
+        // token 可经它再换），先落刷新行则第二笔（主行）失败时下一拍（提前量
+        // 巡检或 401 强刷）经已 durable 的新 refresh token 自愈；反序则第二笔
+        // 失败即新 refresh token 仅存内存而旧值已被服务端作废——invalid_grant
+        // 一拍直落 EXPIRED 授权态不可恢复。非轮换形（grant 不携新
+        // refreshToken）不写刷新行不受影响。
+        // 刷新行 meta 同主行律——读旧行 meta 经 stripChainKeys 展开（链管键
+        // 整列换、插件自记附加键保全——账号句柄等不因轮换链写抹掉），source 键覆新
         if (grant.refreshToken !== undefined && grant.refreshToken !== refreshRow.apiKey) {
           store.setCredential(ns, refreshName, {
             apiKey: grant.refreshToken,
             meta: { ...stripChainKeys((refreshRow.meta ?? {}) as CredentialMeta), source: 'refresh' },
           });
         }
+        // 主行换新（source 'refresh'、failures/expired 随整列换消失；端点未给
+        // expires_in 则保留旧到期位）
+        store.setCredential(ns, name, {
+          apiKey: grant.accessToken,
+          meta: { ...stripChainKeys(meta), source: 'refresh', expiresAt: grant.expiresAt ?? meta.expiresAt },
+        });
         // credentials/changed 审计 seam（值域 05 §1.1 单源：刷新轮换 = rotate/oauth-flow）
         deps.onCredentialChanged?.({ namespace: ns, name, action: 'rotate', origin: 'oauth-flow' });
         return { status: 'refreshed' };
@@ -346,7 +353,22 @@ export function createRefreshChain(deps: RefreshChainDeps): RefreshChainHandle {
     start(intervalMs?: number): void {
       this.stop(); // 幂等重启（重复 start 先清旧钟）
       const ms = intervalMs ?? 60_000;
-      timer = setInterval(() => void this.tick(), ms);
+      timer = setInterval(
+        () =>
+          // 挂钟拍收口 catch：flight 契约「永不 reject」只覆盖 try 体内——失败
+          // 记账写/notify 同步抛会洞穿 catch 体直穿 tick 整拍 reject；void 丢弃
+          // rejected promise 即 unhandled rejection，崩溃编舞杀无人值守宿主。
+          // 折 warn 留痕不外溢；warn 面自身抛再吞（catch 内再抛即新的 unhandled
+          // ——日志面不可反杀宿主）。
+          void this.tick().catch((err: unknown) => {
+            try {
+              warn(`凭证刷新挂钟拍异常：${errText(err)}`);
+            } catch {
+              // warn 注入形自身抛——终极吞
+            }
+          }),
+        ms,
+      );
       // 不阻进程退出（obs/service.ts 同律——挂钟是后台巡检非存活语义）
       (timer as unknown as { unref?: () => void }).unref?.();
     },

@@ -236,13 +236,25 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     setState((prev) => setActiveSession(prev, sessionId));
   }, []);
 
-  /** 开新会话（POST → 清单刷新 → 选中新 id） */
+  /** 开新会话（POST → 清单刷新 → 选中新 id；失败不静默——401 失效路由 / 其余通知条） */
   const createSession = useCallback(() => {
-    void api.createSession().then((sessionId) => {
-      setState((prev) => setActiveSession(prev, sessionId));
-      loadSessions();
-    });
-  }, [loadSessions]);
+    void api
+      .createSession()
+      .then((sessionId) => {
+        setState((prev) => setActiveSession(prev, sessionId));
+        loadSessions();
+      })
+      .catch((err: unknown) => {
+        // 401 → 失效路由（webui-face#3）：cookie 永久失效重试不可能自愈，
+        // 换桥是唯一出路（submit/export 族处置先例照搬）；其余失败折通知条
+        //（同导出失败呈现形——错误不静默）
+        if (isUnauthorized(err)) {
+          onAuthLost();
+          return;
+        }
+        setState((prev) => pushedNotice(prev, '新建会话失败——请重试', 'error'));
+      });
+  }, [loadSessions, onAuthLost]);
 
   /**
    * 提交（乐观回显 + 失败撤回）：messageId = crypto.randomUUID 服务端幂等
