@@ -134,3 +134,66 @@ describe('fetchChannelModels（三态回执 + 协议头分叉）', () => {
     expect(spy).not.toHaveBeenCalled(); // 守卫先拒——透传层零触达
   });
 });
+
+describe('R-2 加固批（体帽流式前置 + 外层 race 覆盖 DNS 腿 + 守卫拒人话化）', () => {
+  /** 越帽流桩：首 chunk 已越帽 + 后续 chunk 挂起（修前 text() 全量读挂在流尾——被 signal 超时打断折超时形非越帽形） */
+  function oversizedStream(firstChunkBytes: number): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(firstChunkBytes)); // 首块即越帽
+        // 后续 chunk 永不 enqueue（挂起——只有 cancel 能终止）
+      },
+    });
+  }
+
+  it('体帽流式前置：无 content-length 声明 + 首 chunk 越帽即拒（不等流尾）——修前红：text() 挂到 signal 超时折超时形（message 不含越体帽）', async () => {
+    const fetchImpl: FetchLike = async () => new Response(oversizedStream(300 * 1024), { status: 200 }); // 无 content-length 头
+    const result = await fetchChannelModels(
+      { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+      { fetchImpl, resolveDns: publicDns, timeoutMs: 3_000 }, // 帽远大于正常返回——修前挂满 3s 折超时形
+    );
+    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('越体帽') });
+  });
+
+  it('外层 race 覆盖 DNS 腿：DNS 解析挂死也在帽内折 failed（AbortSignal 只管 fetch 管线不管守卫 DNS 腿）——修前红：await assertPublicHost 挂死测试侧兜赢', async () => {
+    const hungDns: DnsResolver = () => new Promise(() => {}); // 永不 resolve
+    const spy = vi.fn();
+    const fetchImpl: FetchLike = spy as unknown as FetchLike;
+    const underTest = fetchChannelModels(
+      { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+      { fetchImpl, resolveDns: hungDns, timeoutMs: 80 },
+    );
+    // 测试侧兜（修前红可终止形——挂死由兜收为「挂死」字样 reject）
+    const guard = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('挂死：DNS 腿未被帽覆盖')), 1_000),
+    );
+    const result = await Promise.race([underTest, guard]);
+    expect(result.kind).toBe('failed');
+    expect(spy).not.toHaveBeenCalled(); // DNS 未过——透传层零触达
+  });
+
+  it('私网拒人话化：守卫拒含内网语境 + 手填指路——修前红：透传 WEB_ 原文无行动指引', async () => {
+    const spy = vi.fn();
+    const fetchImpl: FetchLike = spy as unknown as FetchLike;
+    const result = await fetchChannelModels(
+      { baseUrl: 'http://10.0.0.5:8080', protocol: 'openai-completions', apiKey: 'k' },
+      { fetchImpl, resolveDns: publicDns },
+    );
+    expect(result.kind).toBe('failed');
+    const message = result.kind === 'failed' ? result.message : '';
+    expect(message).toContain('私网'); // 守卫原文保留
+    expect(message).toContain('手填'); // 行动指引（内网网关仍可手填模型清单）
+  });
+
+  it('超时人话化：超时折「N 秒未应答」中文指引——修前红：TimeoutError 洋文技术句直透', async () => {
+    const fetchImpl: FetchLike = async () => {
+      await new Promise((r) => setTimeout(r, 200));
+      return new Response('{}', { status: 200 });
+    };
+    const result = await fetchChannelModels(
+      { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+      { fetchImpl, resolveDns: publicDns, timeoutMs: 30 },
+    );
+    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('未应答') });
+  });
+});

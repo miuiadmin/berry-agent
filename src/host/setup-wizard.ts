@@ -33,6 +33,8 @@
 import type { CustomProviderDef, CustomProviderProtocol } from '../llm/index.js'; // host → llm 既有边（工厂定义件类型真源）
 import type { WizardPrompter } from '../channels/index.js'; // 公开面三名纪律（index 直达）
 import type { ChannelModelsRequest, ChannelModelsResult } from './channel-models-fetch.js';
+// 渠道 id slug 规约单源（R-2 D4 裁决：host 域共享常量——settings 读侧同判据双消费）
+import { CUSTOM_CHANNEL_ID_RE } from './settings-store.js';
 
 /** 落绑定行注入位回执（saveBinding 结算——ok 位折向导回执分档） */
 export interface SetupWizardSaveResult {
@@ -122,9 +124,6 @@ const ENTRY_DELETE = '__entry_delete__';
 /** 模型清单步二选哨兵 */
 const MODELS_FETCH = '__models_fetch__';
 const MODELS_MANUAL = '__models_manual__';
-
-/** 渠道 id slug 规约（^[a-z][a-z0-9-]*$——模型前缀段安全形；内置目录 id 同形族） */
-const CHANNEL_SLUG_RE = /^[a-z][a-z0-9-]*$/;
 
 /** 协议人面标签（选单/回执呈现——枚举真源在 llm 域工厂） */
 function protocolLabel(protocol: CustomProviderProtocol): string {
@@ -351,7 +350,7 @@ async function customFormLeg(
       await p.outro('已退出', ['未录入渠道 id——未保存任何改动']);
       return;
     }
-    if (!CHANNEL_SLUG_RE.test(trimmedId)) {
+    if (!CUSTOM_CHANNEL_ID_RE.test(trimmedId)) {
       await p.outro('已退出', [
         `渠道 id 坏形（${trimmedId}）——须以小写字母开头，只含小写字母/数字/连字符。未保存任何改动`,
       ]);

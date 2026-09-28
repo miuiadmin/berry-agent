@@ -271,6 +271,28 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
     expect(warnings.some((w) => w.includes('customProviders 须为对象'))).toBe(true);
   });
 
+  it('R-2 渠道 id slug 读侧校验：坏形键丢条点名（04 §9 ⑥ 批注⑤），好键照常——修前红：键形零校验照收（含斜杠 id 全形 spec 解析错位根因）', () => {
+    const dir = tmpDir('settings-cp-slug-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          'ok-gw': GOOD['my-gw'],
+          'Bad-Upper': GOOD['my-gw'], // 大写坏形
+          '1st-num': GOOD['my-gw'], // 数字开头坏形
+          'slash/gw': GOOD['my-gw'], // 含斜杠坏形（spec 解析错位根因——修前红主证）
+          under_score: GOOD['my-gw'], // 下划线坏形
+        },
+      }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings.customProviders).toEqual({ 'ok-gw': GOOD['my-gw'] });
+    for (const id of ['Bad-Upper', '1st-num', 'slash/gw', 'under_score']) {
+      expect(warnings.some((w) => w.includes(`customProviders.${id}`) && w.includes('slug'))).toBe(true);
+    }
+  });
+
   it('写侧合并：patch 携带落盘、缺席键不动现状、往返保真（向导落库路径）', () => {
     const dir = tmpDir('settings-cp-write-');
     writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));

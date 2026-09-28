@@ -17,7 +17,11 @@
  * 卫生：恒经 SSRF 守卫（用户填 baseUrl 必经——catalog 拉取同律，无豁免；
  * 守卫内 redirect:'manual' 钉死不跟随——3xx 网关常见，按非 2xx 折 failed
  * 且回执含「不跟随重定向」提示，评审漏洞 #8）。
+ *
+ * R-2 加固（体帽流式前置 / 外层 race 覆盖 DNS 腿 / 守卫拒与超时人话化
+ * ——见 fetchChannelModels 头注三笔）。
  */
+import { BaseError } from '../contracts/index.js';
 import type { CustomProviderProtocol } from '../llm/index.js';
 import { createSsrfGuardedFetch, pinnedFetch, type DnsResolver, type FetchLike } from '../web/index.js';
 
@@ -58,24 +62,39 @@ function channelModelsHeaders(req: ChannelModelsRequest): Record<string, string>
 }
 
 /**
- * 拉取模型清单（守卫必经 + 8s 帽 + 体帽双闸 + 坏形折 failed）。
- * WEB_ 族守卫错（私网拒/协议白名单拒）折 failed 回执——向导呈现后走手填
- * 兜底（fail-closed 面向交互步，非 fail-stop 面）。
+ * 拉取模型清单（守卫必经 + 8s 帽 + 体帽流式前置 + 坏形折 failed）。
+ * WEB_ 族守卫错（私网拒/协议白名单拒）折 failed 回执人话化——向导呈现后
+ * 走手填兜底（fail-closed 面向交互步，非 fail-stop 面）。
+ *
+ * R-2 加固（07 §8.4 尾注细则同笔）：
+ * - **外层 race 同帽**：AbortSignal.timeout 只进 fetch init——守卫的 DNS
+ *   解析腿（assertPublicHost await）不受 signal 管，注入/异常解析器挂死
+ *   即整体挂死；外层 Promise.race 同帽兜全链（含 DNS 腿）。
+ * - **体帽流式前置**：无 content-length 声明的越帽流（恶意/异常网关）在
+ *   text() 全量读下先读满内存才拒——改 getReader() 分块累计越帽即
+ *   cancel（不读满不等流尾）。
+ * - **守卫拒/超时人话化**：私网拒补内网网关手填指路；超时折中文「N 秒
+ *   未应答」（TimeoutError 洋文技术句不直透人面）。
  */
 export async function fetchChannelModels(
   req: ChannelModelsRequest,
   deps: ChannelModelsFetchDeps = {},
 ): Promise<ChannelModelsResult> {
+  const timeoutMs = deps.timeoutMs ?? CHANNEL_MODELS_TIMEOUT_MS;
   // 守卫包裹（每次调用构造——闭包零状态；SSRF 两查 + 连接级钉死在守卫内；
   // resolveDns 缺省 node:dns 真解析——测试注入公网桩走通路径）
   const guardedFetch = createSsrfGuardedFetch(deps.fetchImpl ?? pinnedFetch, deps.resolveDns);
   const url = channelModelsEndpoint(req.baseUrl, req.protocol);
   try {
-    const response = await guardedFetch(url, {
-      method: 'GET',
-      headers: channelModelsHeaders(req),
-      signal: AbortSignal.timeout(deps.timeoutMs ?? CHANNEL_MODELS_TIMEOUT_MS),
-    });
+    // 外层 race 同帽（R-2——DNS 腿帽覆盖；fetch 管线内 signal 仍在=双保险）
+    const response = await Promise.race([
+      guardedFetch(url, {
+        method: 'GET',
+        headers: channelModelsHeaders(req),
+        signal: AbortSignal.timeout(timeoutMs),
+      }),
+      rejectAfter(timeoutMs, `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时帽）——网关慢或地址错，可重试或手填`),
+    ]);
     if (response.status >= 300 && response.status < 400) {
       // redirect:'manual' 钉死（守卫透传层）——3xx 即此分支；网关把 /models
       // 重定向到登录页/另域是中转站常见形态，提示用户填直连地址
@@ -87,14 +106,15 @@ export async function fetchChannelModels(
     if (!response.ok) {
       return { kind: 'failed', message: `端点应答 ${response.status}（鉴权头/地址请复核）` };
     }
-    // 体帽双闸（fetchDistTags 同形）
+    // 体帽闸一（先验声明——fetchDistTags 同形）
     const declared = response.headers?.get?.('content-length');
     if (declared !== undefined && declared !== null && Number(declared) > CHANNEL_MODELS_MAX_BYTES) {
       return { kind: 'failed', message: `清单文档越体帽（${declared} bytes）` };
     }
-    const text = await response.text();
-    if (text.length > CHANNEL_MODELS_MAX_BYTES) {
-      return { kind: 'failed', message: `清单文档越体帽（${text.length} bytes）` };
+    // 体帽闸二（流式前置——分块累计越帽即 cancel，不读满不等流尾）
+    const text = await readCapped(response, CHANNEL_MODELS_MAX_BYTES);
+    if (text === undefined) {
+      return { kind: 'failed', message: `清单文档越体帽（>${CHANNEL_MODELS_MAX_BYTES} bytes）` };
     }
     let parsed: unknown;
     try {
@@ -117,8 +137,56 @@ export async function fetchChannelModels(
     }
     return { kind: 'ok', models };
   } catch (err) {
-    // 超时/网络错/DNS 错/WEB_ 族守卫拒（私网/协议白名单）统一 failed 形
-    const message = err instanceof Error && err.message !== '' ? err.message : String(err);
-    return { kind: 'failed', message };
+    return { kind: 'failed', message: fetchFailureMessage(err, timeoutMs) };
   }
+}
+
+/** 帽后拒（外层 race 腿——超时人话句单源，race 输与 catch 折共用形） */
+function rejectAfter(ms: number, message: string): Promise<never> {
+  return new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms));
+}
+
+/** 流式读帽（R-2——分块累计越帽即 cancel 返回 undefined；正常读完解码文本） */
+async function readCapped(response: Response, maxBytes: number): Promise<string | undefined> {
+  if (response.body === null) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.byteLength;
+    if (total > maxBytes) {
+      void reader.cancel().catch(() => {}); // 越帽即断流（cancel 失败无害——连接随 GC）
+      return undefined;
+    }
+  }
+  return new TextDecoder().decode(concatChunks(chunks, total));
+}
+
+/** 分块拼接（总长已知——一次分配） */
+function concatChunks(chunks: readonly Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+/** 失败腿人话化（R-2——私网拒补手填指路 / 超时折中文 / 其余守卫原文保留） */
+function fetchFailureMessage(err: unknown, timeoutMs: number): string {
+  // 超时形（AbortSignal.timeout 的 TimeoutError / race 腿 Error 已人话直透）
+  if (err instanceof Error && err.name === 'TimeoutError') {
+    return `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时帽）——网关慢或地址错，可重试或手填`;
+  }
+  if (err instanceof Error && /aborted/i.test(err.message)) {
+    return `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时帽）——网关慢或地址错，可重试或手填`;
+  }
+  if (err instanceof BaseError && err.code === 'WEB_PRIVATE_ADDRESS') {
+    return `${err.message}——拉取腿只走公网；内网网关请手填模型清单`;
+  }
+  return err instanceof Error && err.message !== '' ? err.message : String(err);
 }

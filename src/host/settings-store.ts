@@ -87,6 +87,14 @@ const APPROVAL_POLICIES: readonly string[] = ['ask', 'never'];
 const THEME_SETTINGS: readonly string[] = ['dark', 'light', 'auto'];
 
 /**
+ * 自定义渠道 id 形（R-2——04 §9 ⑥ 批注⑤ slug 读侧校验判据；与向导录入步
+ * 同形〔D4 冷读闸裁决：host 域共享常量单源，向导与 settings 读侧双消费〕：
+ * 小写字母开头 + 小写字母/数字/连字符——模型 spec 前缀段安全形，含斜杠
+ * id 会使全形 spec 解析错位〔修前红主证〕；内置目录 id 同形族）。
+ */
+export const CUSTOM_CHANNEL_ID_RE = /^[a-z][a-z0-9-]*$/;
+
+/**
  * customProviders 单条目形校验（读侧丢条点名的判据单源）：返回坏形原因
  * （undefined = 好形）。字段集 = llm 域 CustomProviderDef 逐字段镜像校验
  * ——models 空数组放行（先建渠道后补模型的合法中间态），元素坏丢整条。
@@ -198,11 +206,17 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     }
   }
   // customProviders 条目级校验（keybindings 先例同形——丢条点名不殃及全键）：
-  // 渠道定义不完整即不可注册，诚实丢整条（models 元素坏同丢——半渠道无意义）
+  // 渠道定义不完整即不可注册，诚实丢整条（models 元素坏同丢——半渠道无意义）；
+  // R-2 键 slug 形校验前置（04 §9 ⑥ 批注⑤——坏形键同丢条点名：含斜杠 id
+  // 会使全形 spec 解析错位，大写/数字开头/下划线同拒）
   if (customProviders !== undefined) {
     if (typeof customProviders === 'object' && customProviders !== null && !Array.isArray(customProviders)) {
       const defs: Record<string, CustomProviderDef> = {};
       for (const [id, raw] of Object.entries(customProviders)) {
+        if (!CUSTOM_CHANNEL_ID_RE.test(id)) {
+          warn(`配置键 customProviders.${id} 渠道 id 坏形（slug 形 ^[a-z][a-z0-9-]*$）——丢该条`);
+          continue;
+        }
         const reason = customProviderEntryProblem(raw, CUSTOM_PROVIDER_PROTOCOLS);
         if (reason === undefined) {
           defs[id] = raw as CustomProviderDef;
