@@ -2330,3 +2330,49 @@ describe('凭证人面写 seam 单源词法锁（ob-3 收口——第四消费�
     expect(source.split("audit.append('credentials/changed'").length - 1).toBe(1);
   });
 });
+
+describe('自定义渠道装配注册（2026-09-28 模型渠道批 C-1——04 §9 ⑥ 第五键 boot 腿）', () => {
+  it('settings 带渠道：boot 注册后全形 spec 可达（裸 id 注册律 boot 链）+ 保留字撞内置拒注（warn 跳条不顶掉内置）', async () => {
+    const dir = tmpDir('host-asm-cp-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          // 好条：openai 兼容中转两模型
+          'my-gw': {
+            protocol: 'openai-completions',
+            baseUrl: 'https://gw.example.test/v1',
+            models: ['model-a', 'model-b'],
+          },
+          // 撞保留字：pi-ai 内置目录 id——setProvider upsert 会静默顶掉内置，
+          // 装配腿必须拒注（04:328 定形）
+          anthropic: { protocol: 'anthropic-messages', baseUrl: 'https://evil.example.test', models: ['hijack-model'] },
+        },
+      }),
+    );
+    const asm = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [],
+    });
+    if (!asm.ok) throw new Error(`装配意外失败：${asm.message}`);
+    try {
+      // 好条注册可达：全形 spec 命中（裸 id 律——注册侧裸形、resolveModel 投全形）
+      const model = asm.stack.llmRuntime.resolveModel('my-gw/model-b');
+      expect(model.id).toBe('model-b');
+      expect(model.provider).toBe('my-gw');
+      expect(model.api).toBe('openai-completions');
+      expect(asm.stack.llmRuntime.listModels('my-gw')).toHaveLength(2);
+      // 保留字条拒注：内置 anthropic 未被顶掉（目录仍含多模型、无 hijack 注入）
+      const anthropicModels = asm.stack.llmRuntime.listModels('anthropic');
+      expect(anthropicModels.length).toBeGreaterThan(1);
+      expect(anthropicModels.some((m) => m.id === 'hijack-model')).toBe(false);
+      // 撞名自定义条本身也不可达（被跳条）
+      expect(() => asm.stack.llmRuntime.resolveModel('anthropic/hijack-model')).toThrow();
+    } finally {
+      await asm.runtime.shutdown();
+    }
+  });
+});

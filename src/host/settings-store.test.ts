@@ -216,3 +216,78 @@ describe('writeHostSettings（写侧——合并保留 + 原子 + 坏形拒）',
     expect(existsSync(join(dir, SETTINGS_BASENAME))).toBe(true);
   });
 });
+
+describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目级校验丢条点名）', () => {
+  /** 好形两渠道（两协议腿各一） */
+  const GOOD = {
+    'my-gw': { protocol: 'anthropic-messages', baseUrl: 'https://a.example.test', models: ['m1', 'm2'] },
+    'oa-gw': {
+      protocol: 'openai-completions',
+      baseUrl: 'https://b.example.test/v1',
+      models: ['g1'],
+      name: '中转',
+      headers: { 'X-Custom': 'v1' },
+    },
+  } as const;
+
+  it('好形读入（两协议腿 + name/headers 可选位）', () => {
+    const dir = tmpDir('settings-cp-good-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ customProviders: GOOD }));
+    const load = readHostSettings(dir);
+    expect(load.settings.customProviders).toEqual(GOOD);
+    expect(load.healthy).toBe(true);
+  });
+
+  it('条目坏形 = 丢该条点名、好条目照常生效（keybindings 先例同形——04:328 定形）', () => {
+    const dir = tmpDir('settings-cp-badentry-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          'good-gw': GOOD['my-gw'],
+          'bad-proto': { protocol: 'grpc', baseUrl: 'https://x.test', models: ['m'] },
+          'bad-url': { protocol: 'openai-completions', baseUrl: '', models: ['m'] },
+          'bad-models': { protocol: 'openai-completions', baseUrl: 'https://x.test', models: ['m', 42] },
+          'bad-shape': 'not-an-object',
+        },
+      }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.healthy).toBe(true);
+    expect(load.settings.customProviders).toEqual({ 'good-gw': GOOD['my-gw'] });
+    // 四坏条逐一点名
+    for (const id of ['bad-proto', 'bad-url', 'bad-models', 'bad-shape']) {
+      expect(warnings.some((w) => w.includes(`customProviders.${id} 坏形`))).toBe(true);
+    }
+  });
+
+  it('整键非对象 = 忽略整键点名', () => {
+    const dir = tmpDir('settings-cp-badkey-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ customProviders: [1, 2] }));
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings.customProviders).toBeUndefined();
+    expect(warnings.some((w) => w.includes('customProviders 须为对象'))).toBe(true);
+  });
+
+  it('写侧合并：patch 携带落盘、缺席键不动现状、往返保真（向导落库路径）', () => {
+    const dir = tmpDir('settings-cp-write-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ theme: 'dark' }));
+    expect(writeHostSettings(dir, { customProviders: GOOD })).toBe('written');
+    let doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', customProviders: GOOD });
+    // 他键写不动 customProviders（缺席键不动现状律）
+    expect(writeHostSettings(dir, { sandboxMode: 'read-only' })).toBe('written');
+    doc = JSON.parse(readFileSync(join(dir, SETTINGS_BASENAME), 'utf8')) as Record<string, unknown>;
+    expect(doc).toEqual({ theme: 'dark', customProviders: GOOD, sandboxMode: 'read-only' });
+    // 读回往返保真
+    expect(readHostSettings(dir).settings.customProviders).toEqual(GOOD);
+  });
+
+  it('非敏感定性自证：customProviders 含 key 样值不触发任何敏感面（settings.json 不入敏感件集——04 §7 恰四件不动）', () => {
+    const dir = tmpDir('settings-cp-plain-');
+    writeHostSettings(dir, { customProviders: GOOD });
+    expect(existsSync(join(dir, SETTINGS_BASENAME))).toBe(true);
+  });
+});

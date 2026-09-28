@@ -27,7 +27,7 @@ import type { SessionEvent } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
-import { SUBAGENT_RESERVE_THRESHOLD } from '../llm/index.js';
+import { createCustomChannelProvider, SUBAGENT_RESERVE_THRESHOLD } from '../llm/index.js';
 import { llmTextOf } from '../memory/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
 import type { GoalSummarizerFace } from '../goal/index.js';
@@ -525,6 +525,28 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       warn: (message) => logger.warn(message),
     });
     emitBootStage('stack', 'end');
+
+    // —— 自定义模型渠道装配注册（2026-09-28 模型渠道批 C-1——04 §9 ⑥ 第五键
+    // 生效时点双路之手编腿：装配期单读、boot 注册一次；向导腿活注册另接
+    // tui-entry deps）。读侧已剔坏条（settings-store 条目级校验），此处只执
+    // 保留字：撞已注册 provider id（内置目录全集 + 先注册的自定义条）= 忽略
+    // 该条 + warn 点名（04:328 定形——setProvider 按 id upsert 会静默顶掉内置
+    // 注册，装配腿必须拒注）。resolveKey 走 stack.bindingApiKeyOf 单源（绑定
+    // 行命中判据〔遮蔽/撞绑全判据〕与供血/向导同源——不自造第二套凭证读；
+    // 无斜杠形即 provider 段查表，正合渠道 id）。boot 期同步执行无竞态——
+    // 首次 resolveModel 只在首请求。
+    const customProviderDefs = settingsLoad?.settings.customProviders;
+    if (customProviderDefs !== undefined) {
+      for (const [id, def] of Object.entries(customProviderDefs)) {
+        if (stack.llmRuntime.models.getProvider(id) !== undefined) {
+          logger.warn(
+            `自定义渠道 ${id} 撞已注册 provider id（保留字）——忽略该条（自定义渠道 id 不可撞内置目录，/setup 录入另有校验）`,
+          );
+          continue;
+        }
+        stack.llmRuntime.registerProvider(createCustomChannelProvider(id, def, () => stack.bindingApiKeyOf(id)));
+      }
+    }
 
     // —— 披露第六件铸造（F2——2026-09-17 会话档位切换面批）：stack 既建、
     // logger/settingsMode 既得，晚绑定槽回填（runtime 侧 sandboxModeProvider

@@ -21,6 +21,13 @@
  * id → 键串）。本面只做形校验（对象 + string→string），语义校验（未知
  * 动作/不可覆盖/冲突）归 Keymap fail-loud 呈报——见 HostSettings 头注。
  *
+ * 第五键 `customProviders?`（2026-09-28 模型渠道批 C-1——04 §9 ⑥ 键面扩容
+ * ）：自定义模型渠道定义件（id → {name?, protocol, baseUrl, models,
+ * headers?}；条目形真源 = llm 域 CustomProviderDef）。**非敏感件**（key 不入
+ * 此表、走凭证表绑定行单源；headers 不得含鉴权材料——定性条款归规范面）；
+ * 条目级坏形 = 丢该条点名不殃及全键（keybindings 先例同形——04:328 定形）；
+ * id 保留字执法（撞 pi-ai 内置目录 id 拒注）在装配注册腿，本面零 pi-ai 知识。
+ *
  * 读写纪律（与 tool-policy-store 同族——「文件即用户资产」律）：
  * - 读侧缺席 = {}（零负担首启）；文件级坏 JSON = warn 降级 {}（配置层坏形
  *   取缺省 = 现状常量，非 fail-stop 面）；键级坏值 = 忽略该键 + warn 点名
@@ -33,12 +40,14 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 
 import { isValidCustomThemeName, type ThemeSetting } from '../channels/index.js';
+import type { CustomProviderDef } from '../llm/index.js';
+import { CUSTOM_PROVIDER_PROTOCOLS } from '../llm/index.js';
 import type { ApprovalPolicyMode, SandboxMode } from '../safety/index.js';
 
 /** 配置文件名（数据目录单段——04 §9 ⑥「本批定名」） */
 export const SETTINGS_BASENAME = 'settings.json';
 
-/** 配置面形状（四键均可选——缺席走代码常量层） */
+/** 配置面形状（五键均可选——缺席走代码常量层） */
 export interface HostSettings {
   readonly sandboxMode?: SandboxMode;
   readonly approvalPolicy?: ApprovalPolicyMode;
@@ -51,6 +60,13 @@ export interface HostSettings {
    * （tui-entry 装配位呈报拒载清单）。非敏感件（键位无秘密）。
    */
   readonly keybindings?: Readonly<Record<string, string>>;
+  /**
+   * 自定义模型渠道定义件（2026-09-28 模型渠道批 C-1——id → 渠道定义）：
+   * 非敏感（key 走凭证表绑定行单源）；本面只做条目形校验（坏条目丢该条
+   * 点名、好条目照常生效），保留字/装配注册在 host 装配腿（本面零 pi-ai
+   * 依赖——类型从 llm 公开面 import type）。
+   */
+  readonly customProviders?: Readonly<Record<string, CustomProviderDef>>;
 }
 
 /** 读侧选项 */
@@ -69,6 +85,34 @@ export interface HostSettingsLoad {
 const SANDBOX_MODES: readonly string[] = ['read-only', 'workspace-write', 'danger'];
 const APPROVAL_POLICIES: readonly string[] = ['ask', 'never'];
 const THEME_SETTINGS: readonly string[] = ['dark', 'light', 'auto'];
+
+/**
+ * customProviders 单条目形校验（读侧丢条点名的判据单源）：返回坏形原因
+ * （undefined = 好形）。字段集 = llm 域 CustomProviderDef 逐字段镜像校验
+ * ——models 空数组放行（先建渠道后补模型的合法中间态），元素坏丢整条。
+ */
+function customProviderEntryProblem(raw: unknown, protocols: readonly string[]): string | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return '值须为对象';
+  const def = raw as Record<string, unknown>;
+  if (def.protocol === undefined || typeof def.protocol !== 'string' || !protocols.includes(def.protocol)) {
+    return 'protocol 须为 anthropic-messages|openai-completions';
+  }
+  if (typeof def.baseUrl !== 'string' || def.baseUrl === '') return 'baseUrl 须为非空字符串';
+  if (def.models === undefined || !Array.isArray(def.models) || def.models.some((m) => typeof m !== 'string')) {
+    return 'models 须为字符串数组';
+  }
+  if (def.name !== undefined && typeof def.name !== 'string') return 'name 须为字符串';
+  if (
+    def.headers !== undefined &&
+    (typeof def.headers !== 'object' ||
+      def.headers === null ||
+      Array.isArray(def.headers) ||
+      Object.values(def.headers).some((v) => typeof v !== 'string'))
+  ) {
+    return 'headers 须为 string→string 对象';
+  }
+  return undefined;
+}
 
 /**
  * 装配期读用户配置（缺席 {} 零负担；坏 JSON 降级 {} + unhealthy；键级坏值
@@ -101,7 +145,7 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
   // 键级校验：四键值域/形校验外忽略点名；未知键 warn 保留不动（读侧不区分
   // 「保留在内存」与否——本面只产四键，未知键经写侧合并律存活）
   const record = doc as Record<string, unknown>;
-  const { sandboxMode, approvalPolicy, theme, keybindings, ...rest } = record;
+  const { sandboxMode, approvalPolicy, theme, keybindings, customProviders, ...rest } = record;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
     warn(`配置含未知键 ${unknownKeys.join('、')}（${path}）——本面不消费、保留不动`);
@@ -111,6 +155,7 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     approvalPolicy?: ApprovalPolicyMode;
     theme?: ThemeSetting;
     keybindings?: Readonly<Record<string, string>>;
+    customProviders?: Readonly<Record<string, CustomProviderDef>>;
   } = {};
   if (sandboxMode !== undefined) {
     if (typeof sandboxMode === 'string' && SANDBOX_MODES.includes(sandboxMode)) {
@@ -152,6 +197,24 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
       warn('配置键 keybindings 须为对象（动作 id → 键串）——忽略该键');
     }
   }
+  // customProviders 条目级校验（keybindings 先例同形——丢条点名不殃及全键）：
+  // 渠道定义不完整即不可注册，诚实丢整条（models 元素坏同丢——半渠道无意义）
+  if (customProviders !== undefined) {
+    if (typeof customProviders === 'object' && customProviders !== null && !Array.isArray(customProviders)) {
+      const defs: Record<string, CustomProviderDef> = {};
+      for (const [id, raw] of Object.entries(customProviders)) {
+        const reason = customProviderEntryProblem(raw, CUSTOM_PROVIDER_PROTOCOLS);
+        if (reason === undefined) {
+          defs[id] = raw as CustomProviderDef;
+        } else {
+          warn(`配置键 customProviders.${id} 坏形（${reason}）——丢该条`);
+        }
+      }
+      settings.customProviders = defs;
+    } else {
+      warn('配置键 customProviders 须为对象（渠道 id → 渠道定义）——忽略该键');
+    }
+  }
   return { settings, healthy: true };
 }
 
@@ -184,6 +247,7 @@ export function writeHostSettings(
   if (patch.approvalPolicy !== undefined) next.approvalPolicy = patch.approvalPolicy;
   if (patch.theme !== undefined) next.theme = patch.theme;
   if (patch.keybindings !== undefined) next.keybindings = patch.keybindings;
+  if (patch.customProviders !== undefined) next.customProviders = patch.customProviders;
   mkdirSync(dataDir, { recursive: true });
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');

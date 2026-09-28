@@ -17,6 +17,13 @@ export {
   type ModelSpec,
 } from './model-id.js';
 export { createLlmRuntime, type LlmRuntime, type LlmRuntimeOptions } from './runtime.js';
+export {
+  createCustomChannelProvider,
+  CUSTOM_PROVIDER_PROTOCOLS,
+  type CustomProviderDef,
+  type CustomProviderProtocol,
+  type ResolveCustomProviderKey,
+} from './custom-provider-factory.js';
 export { createStreamFn, type StreamFnDefaults } from './stream-fn.js';
 export { InFlightTracker, DEFAULT_MAX_INFLIGHT_PER_PROVIDER, type InFlightSlot } from './inflight.js';
 export {
