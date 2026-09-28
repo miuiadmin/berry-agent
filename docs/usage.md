@@ -64,7 +64,7 @@ sh uninstall.sh
 
 缺省模型 `anthropic/claude-sonnet-5`。模型渠道三类：**官方渠道**（内置 provider 目录）、**自定义渠道**（中转站/兼容网关——`settings.json` `customProviders` 键持久，与官方模型同权）、**env 生态变量**（官方渠道供血位——env 键在场时优先于绑定行）。
 
-推荐用 `/setup` 向导（TUI 内零参，2026-09-28 v2）：分桶选单（官方渠道带 baseUrl 与已配置 ✓ 标记，当前渠道（当前）标记 + 重入预选）→ 录 API key（**明文回显**、空录入沿用当前值）→ 确认全值回执 → 保存即生效（可选连通验证）。自定义渠道七步表单：渠道 id → 协议（Anthropic 兼容 / OpenAI 兼容）→ Base URL → API key → 模型清单（自动拉取勾选，失败转手填逗号分隔——全角逗号容忍）→ 附加请求头（可选——空录入清除原值）→ 确认——落库后**当场注册生效**（无需重启），并可即时切换到该渠道模型（不切也指路 ctrl+p 随时可换）。id / 地址 / 密钥坏形**当场重问该步**（点名错因，不弃整场）；拉取与连通验证有 ⏳ 忙行即时反馈。
+推荐用 `/setup` 向导（TUI 内零参，2026-09-28 v2）：分桶选单（官方渠道带 baseUrl 与已配置 ✓ 标记，当前渠道（当前）标记 + 重入预选）→ 录 API key（**明文回显**、空录入沿用当前值）→ 确认全值回执 → 保存即生效（可选连通验证）。自定义渠道七步表单：渠道 id → 协议（Anthropic 兼容 / OpenAI 兼容）→ Base URL → API key → 模型清单（自动拉取勾选，失败转手填逗号分隔——全角逗号容忍）→ 附加请求头（可选——空录入清除原值）→ 确认——落库后**当场注册生效**（无需重启），并可即时切换到该渠道模型（不切也指路 ctrl+p 随时可换）。id / 地址 / 密钥坏形**当场重问该步**（点名错因，不弃整场）；拉取与连通验证有 ⏳ 忙行即时反馈。既有自定义渠道管理面：重入 `/setup` 选既有渠道 = 编辑（表单各步当前值回填、id 不可改；headers 步空录入 = 清除原值、确认答否 = 不动），选删除则三联动清偿——凭证行 → settings 条目 → 运行时除名（当前模型停在被删渠道时复位目录首条并回执点名）。
 
 ```bash
 export ANTHROPIC_API_KEY=sk-...   # env 供血（官方渠道——env 优先于绑定行）
@@ -75,7 +75,7 @@ export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 pr
 
 | 键 | 形 | 说明 |
 | --- | --- | --- |
-| `<渠道id>` | 小写字母开头 + 小写字母/数字/连字符 | 渠道 id（不可撞内置 provider 目录与既有渠道 id；坏形键读侧丢弃并 warn 点名） |
+| `<渠道id>` | 小写字母开头 + 小写字母/数字/连字符 | 渠道 id（占用判据三腿：内置 provider 目录 id ∨ 运行时在册插件渠道 id ∨ 既有 customProviders id——撞即拒注；坏形键读侧丢弃并 warn 点名） |
 | `name` | string（可选） | 人面显示名 |
 | `protocol` | `'anthropic-messages'` \| `'openai-completions'` | 协议两枚（与网关实现对应） |
 | `baseUrl` | string | 网关根址（openai 形含 `/v1`、anthropic 形不含——清单拉取按协议分叉拼接） |
@@ -96,7 +96,7 @@ export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 pr
 }
 ```
 
-API key 不入 `settings.json`——凭证行走凭证盒：`/setup` 向导录入，或 `berry credentials add <渠道id> <key> --model-provider <渠道id>`。手编 `settings.json` 下次启动生效；`/setup` 路径当场注册即生效（两层同写，缺一即有「重启丢配置」或「当场不可用」假象——向导路径两层都写）。
+API key 不入 `settings.json`——凭证行走凭证盒：`/setup` 向导录入，或 `berry credentials add <渠道id> <key> --model-provider <渠道id>`。手编 `settings.json` 下次启动生效（例外：渠道 id 撞插件注册的运行时 provider id 的条目重启同样拒注不生效——须换 id；占用判据三腿见上表）；`/setup` 路径当场注册即生效（两层同写，缺一即有「重启丢配置」或「当场不可用」假象——向导路径两层都写）。
 
 ## 入口命令族
 
@@ -475,7 +475,7 @@ berry marketplace remove <市场名>     # 移除源（连同缓存目录清理�
 
 ## 遥测立场
 
-**默认零数据外传（零遥测）**——无使用统计、无崩溃上报。出厂网络面 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开面 / 插件装机与更新 / upgrade 维护动词）+ TUI 交互启动一次有界只读版本检查（只读 GET dist-tags、上行零字节、24h 节流、`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即关、headless/daemon 形零 fire——07 §8.5 第 6 条），此外零。若未来加任何回传，将按四段式公告（Why / How / What / How to disable）披露且默认值反转视为破坏性变更。
+**默认零数据外传（零遥测）**——无使用统计、无崩溃上报。出厂网络面 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开面 / 插件装机与更新 / upgrade 维护动词 / `/setup` 自定义渠道的模型清单拉取腿——SSRF 守卫必经）+ TUI 交互启动一次有界只读版本检查（只读 GET dist-tags、上行零字节、24h 节流、`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即关、headless/daemon 形零 fire——07 §8.5 第 6 条），此外零。若未来加任何回传，将按四段式公告（Why / How / What / How to disable）披露且默认值反转视为破坏性变更。
 
 ## 技能与记忆
 
