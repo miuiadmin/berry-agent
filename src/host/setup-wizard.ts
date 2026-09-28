@@ -29,6 +29,11 @@
  * - **连通微探针（官方腿可选步）**：真供血路 1-token 微探针经注入 probe 位
  *   （缺席 = 跳过注记）；失败不阻断只建议（横切律 8）；
  * - **Esc 任意步中止**（保存前零改动——诚实收场）。
+ * - **评审修复役 Lane A 批（2026-09-29）**：拒注不问切模型（#1——切模型门
+ *   同门 registrationOk）/ headers 面三修（#4 无当前值不记清除 · #5 坏形重问
+ *   + hint 点名 · #27 全角逗号/冒号容忍）/ 自定义桶 ✓ 同锚（#15）/ 删除腿
+ *   别名行提醒（#16）/ 半应用指路可达（#24）/ 手填清单换行分隔（#28）/
+ *   key 内嵌换行拒（#29）/ Base URL try-parse 真校验（#31）。
  */
 import type { CustomProviderDef, CustomProviderProtocol } from '../llm/index.js'; // host → llm 既有边（工厂定义件类型真源）
 import type { WizardPrompter } from '../channels/index.js'; // 公开面三名纪律（index 直达）
@@ -202,7 +207,11 @@ export async function runSetupWizard(deps: SetupWizardDeps): Promise<void> {
   });
   const customItems = Object.entries(deps.customChannels).map(([id, def]) => ({
     id: `${CUSTOM_PREFIX}${id}`,
-    label: `${def.name !== undefined ? `${def.name}（${id}）` : id}${deps.currentProvider === id ? '（当前）' : ''}`,
+    // #15：✓ 判据与官方桶同锚（configuredOf 复用——credentialReadyOf 注入或
+    // 绑定行回退，修前自定义桶恒无标记与官方桶呈现不一致）
+    label: `${def.name !== undefined ? `${def.name}（${id}）` : id}${configuredOf(id) ? ' ✓' : ''}${
+      deps.currentProvider === id ? '（当前）' : ''
+    }`,
     desc: `${protocolLabel(def.protocol)} · ${def.baseUrl} · 模型 ${def.models.length} 个`,
   }));
   // 重入预选（R-3 扩自定义桶）：当前 provider 在官方桶或自定义桶任一命中即预选
@@ -441,33 +450,52 @@ async function customFormLeg(
       urlHint = '未录入——填网关地址（esc 退出）';
       continue;
     }
-    if (!/^https?:\/\//.test(candidate)) {
-      urlHint = `「${candidate}」须以 http:// 或 https:// 开头——重填或 esc 退出`;
+    // #31：前缀正则 → try-parse 真校验（空宿主「https://」与查询串形
+    // 「https://?q=1」的放行缝拔除：解析成功 + protocol 白名单 + hostname
+    // 非空三条件）
+    let urlOk = false;
+    try {
+      const parsedUrl = new URL(candidate);
+      urlOk = (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') && parsedUrl.hostname !== '';
+    } catch {
+      urlOk = false;
+    }
+    if (!urlOk) {
+      urlHint = `「${candidate}」须是完整 http(s) 地址，如 https://gw.example.com/v1——重填或 esc 退出`;
       continue;
     }
     baseUrl = candidate;
     break;
   }
 
-  // —— API key（全明文——空录入沿用当前值；R-3 无当前值空录入重问）——
+  // —— API key（全明文——空录入沿用当前值；R-3 无当前值空录入重问；#29 内嵌
+  // 换行拒——坏形重问循环兜底：含换行的 key 落凭证行后运行时炸英文 TypeError）——
   const currentApiKey = deps.currentApiKeyOf?.(id);
   let apiKey = '';
-  if (currentApiKey !== undefined) {
-    const keyTyped = await p.text({
-      title: `${id} API key`,
-      hint: '整行粘贴可带 export 前缀（自动剥除）；留空 = 沿用当前值',
-      preview: currentApiKey,
-    });
-    if (keyTyped === undefined) return void (await abortOut(p));
-    apiKey = stripExportPrefix(keyTyped).trim() === '' ? currentApiKey : stripExportPrefix(keyTyped).trim();
-  } else {
-    let keyHint = '整行粘贴可带 export 前缀（自动剥除）';
+  {
+    const hasCurrent = currentApiKey !== undefined;
+    let keyHint = hasCurrent
+      ? '整行粘贴可带 export 前缀（自动剥除）；留空 = 沿用当前值'
+      : '整行粘贴可带 export 前缀（自动剥除）';
     for (;;) {
-      const keyTyped = await p.text({ title: `${id} API key`, hint: keyHint });
+      const keyTyped = await p.text({
+        title: `${id} API key`,
+        hint: keyHint,
+        ...(hasCurrent ? { preview: currentApiKey } : {}),
+      });
       if (keyTyped === undefined) return void (await abortOut(p)); // esc 退出
       const strippedKey = stripExportPrefix(keyTyped).trim();
       if (strippedKey === '') {
+        if (hasCurrent) {
+          apiKey = currentApiKey; // 空录入沿用当前值（有当前值不重问——原语义）
+          break;
+        }
         keyHint = '未录入——填网关的 API key（esc 退出）';
+        continue;
+      }
+      if (/[\r\n]/.test(strippedKey)) {
+        // #29：key 值域拒内嵌换行（trim 只剥首尾——内嵌换行仍在，点名重输）
+        keyHint = 'key 不能含换行——去掉换行重输（esc 退出）';
         continue;
       }
       apiKey = strippedKey;
@@ -502,21 +530,32 @@ async function customFormLeg(
   let headers: Record<string, string> | undefined = currentHeaders !== undefined ? { ...currentHeaders } : undefined;
   let headersClearedFrom: number | undefined;
   if (wantHeaders) {
-    const headersTyped = await p.text({
-      title: '请求头（"头名: 值" 逗号分隔）',
-      hint:
-        currentHeaders !== undefined
-          ? '如 X-Upstream: beta, X-Region: eu——留空 = 清除全部请求头'
-          : '如 X-Upstream: beta, X-Region: eu',
-      ...(headersPreview !== undefined ? { preview: headersPreview } : {}),
-    });
-    if (headersTyped === undefined) return void (await abortOut(p));
-    if (headersTyped.trim() === '') {
-      headers = undefined; // 空录入 = 清除（R-3——confirm 回执可核）
-      headersClearedFrom = currentHeaders !== undefined ? Object.keys(currentHeaders).length : 0;
-    } else {
+    let headersHint =
+      currentHeaders !== undefined
+        ? '如 X-Upstream: beta, X-Region: eu——留空 = 清除全部请求头'
+        : '如 X-Upstream: beta, X-Region: eu';
+    for (;;) {
+      const headersTyped = await p.text({
+        title: '请求头（"头名: 值" 逗号分隔）',
+        hint: headersHint,
+        ...(headersPreview !== undefined ? { preview: headersPreview } : {}),
+      });
+      if (headersTyped === undefined) return void (await abortOut(p)); // esc 退出
+      if (headersTyped.trim() === '') {
+        headers = undefined; // 空录入 = 清除（R-3——confirm 回执可核）
+        // #4：无当前值不记「清除」——「清除（原 0 条）」误导行拔除（无从清除）
+        headersClearedFrom = currentHeaders !== undefined ? Object.keys(currentHeaders).length : undefined;
+        break;
+      }
       const parsed = parseHeaders(headersTyped);
-      headers = parsed !== undefined ? parsed : headers; // 坏形保持当前值（confirm 回执可核）
+      if (parsed === null) {
+        // #5：坏形重问当前步 + hint 点名格式错因（修前坏形静默折「保持当前
+        // 值」直进 confirm 无错因提示）
+        headersHint = '格式：K: V, K2: V2——每条须含冒号且键值非空（重输或 esc 退出）';
+        continue;
+      }
+      headers = parsed;
+      break;
     }
   } // confirm 答否 = 不动（保留当前值或缺席——R-3 裁决）
 
@@ -538,20 +577,29 @@ async function customFormLeg(
   return void (await confirmAndSaveCustom(deps, p, draft));
 }
 
-/** headers 解析（"K: V, K2: V2" 形——任一条目坏形整体折 undefined 不半采） */
-function parseHeaders(raw: string): Record<string, string> | undefined {
+/**
+ * headers 解析（"K: V, K2: V2" 形——语义分立三态）：
+ * - 空串 → undefined（清除/不设语义——调用步按清除处理）；
+ * - 非空坏形 → null 哨兵（#5——调用步重问当前步，不再静默折「保持当前值」）；
+ * - 好形 → 头对象（#27：分隔与冒号探测均扩全角「，」「：」——中文输入法容忍；
+ *   任一条目坏形整体拒 null 不半采）。
+ */
+function parseHeaders(raw: string): Record<string, string> | undefined | null {
   const trimmed = raw.trim();
   if (trimmed === '') return undefined; // 空录入 = 不设 headers
   const out: Record<string, string> = {};
-  for (const segment of trimmed.split(',')) {
-    const colon = segment.indexOf(':');
-    if (colon <= 0) return undefined; // 坏形（无冒号/空键）——整体拒
+  for (const segment of trimmed.split(/[,，]/)) {
+    // #27：冒号探测双形（半角 ':' / 全角 '：'——取实际命中位切片）
+    const colonHalf = segment.indexOf(':');
+    const colonFull = segment.indexOf('：');
+    const colon = colonHalf === -1 ? colonFull : colonFull === -1 ? colonHalf : Math.min(colonHalf, colonFull);
+    if (colon <= 0) return null; // 坏形（无冒号/空键）——哨兵拒（重问）
     const key = segment.slice(0, colon).trim();
     const value = segment.slice(colon + 1).trim();
-    if (key === '' || value === '') return undefined;
+    if (key === '' || value === '') return null;
     out[key] = value;
   }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /**
@@ -624,9 +672,11 @@ async function modelsStep(
   // 空录入沿用现有清单（preview「在场空录入 = 沿用」语义同律——重入不动清单零负担）
   if (trimmed === '') return existingModels ?? [];
   // R-3：全角逗号容忍（/[,，]/ 中文输入法高频）+ Set 去重保序（重复条目静默收编）
+  // #28：换行也是分隔符（粘贴一行一模型的多行清单——与逗号等价，修前结成
+  // 含内嵌换行的垃圾 id）
   const seen = new Set<string>();
   const models: string[] = [];
-  for (const segment of trimmed.split(/[,，]/)) {
+  for (const segment of trimmed.split(/[,，\n\r]+/)) {
     const model = segment.trim();
     if (model === '' || seen.has(model)) continue;
     seen.add(model);
@@ -675,7 +725,9 @@ async function confirmAndSaveCustom(
   if (!savedChannel.ok) {
     await p.outro('保存失败（半应用）', [
       savedChannel.text,
-      '凭证行已写入、渠道配置未落——重启不会生效。可 /setup 重入该渠道（编辑配置）补齐。',
+      // #24：指路可达（修前「重入该渠道（编辑配置）补齐」不可达——渠道未落
+      // 库、重入清单无此条）；改为重新配置或修复 settings 后重试
+      '凭证行已写入、渠道配置未落库（不在渠道清单）——重启不会生效。可 /setup 重新配置，或修复 settings.json 后重试。',
     ]);
     return;
   }
@@ -696,9 +748,10 @@ async function confirmAndSaveCustom(
     registerNote = `注册异常：${err instanceof Error ? err.message : String(err)}——配置已持久，重启后生效`;
   }
 
-  // —— 切模型问句（模型清单非空时——首模型直切或逐个选）——
+  // —— 切模型问句（#1：注册成功且模型清单非空才问——拒注渠道运行时目录无此
+  // 条、切了也选不到，修前「注册被拒」+「已切换模型」自相矛盾回执）——
   let switchNote = '';
-  if (def.models.length > 0) {
+  if (registrationOk && def.models.length > 0) {
     const wantSwitch = await p.confirm({
       title: `立即切换到 ${id} 的模型？`,
       defaultYes: false,
@@ -793,6 +846,9 @@ async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: str
       removedChannel.text,
       unregisterNote,
       ...(modelResetNote !== '' ? [modelResetNote] : []),
+      // #16：别名行提醒（行名 ≠ 渠道 id 的凭证行不随本删除清理——诚实指路手
+      // 清，防重建同名渠道旧 key 静默复活）
+      '若曾以别名行绑定该渠道 key（如 berry credentials add 自定义行名），该行不随本删除清理——可 berry credentials rm <行名> 手动清理。',
     ]);
   } else {
     await p.outro('删除未完全成功（半应用）', [

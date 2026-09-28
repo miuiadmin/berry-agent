@@ -460,7 +460,8 @@ describe('runSetupWizard 自定义渠道新建腿', () => {
     expect(log.registered).toEqual([]); // 不活注册
     const outro = recorded.outros.at(-1)!;
     expect(outro.title).toContain('半应用');
-    expect(outro.lines.join('\n')).toContain('编辑配置');
+    // #24 翻档：指路改可达形——渠道未落库、重入清单无此条，「编辑配置」指路退役
+    expect(outro.lines.join('\n')).toContain('重新配置');
   });
 
   it('保存 confirm 拒 → 中止零写（headers 问已在拒前——confirm 序：headers 拒?/保存允?）', async () => {
@@ -640,7 +641,8 @@ describe('删除腿三联动与回执诚实化（R-1 评审修复役——修前
 
   it('活注册拒注回执（R-1 执法单源消费位）→ 注册注记「注册被拒」+ 换 id 指路（修前红：void 回执无消费恒「已注册」）', async () => {
     // 新建腿全走脚本（headers 拒 / 保存允 / 切模型拒——与新建 describe 的
-    // NEW_SCRIPT 同形，本 describe 局部复制）
+    // NEW_SCRIPT 同形，本 describe 局部复制）。#1 后拒注不问切模型——第三答
+    // 不再被消费（冗余位保留无害）
     const { prompter, recorded } = makePrompter({
       select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a'],
       text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
@@ -837,5 +839,253 @@ describe('R-3 体验批（busy 可选法 + 坏形重问 + ✓ 判据同锚 + 可
     await runSetupWizard(deps);
     expect(log.switched).toEqual([]); // 答否未切
     expect(recorded.outros.at(-1)?.lines.join('\n')).toContain('ctrl+p'); // 指路行在场（修前：静默）
+  });
+});
+
+/* ---------------- 评审修复役 Lane A 批（#1/#4/#5/#9/#15/#16/#24/#27/#28/#29/#31 + 纯锁 #7/#8/#10） ---------------- */
+
+describe('评审修复役 Lane A：门与 ✓ 同锚（#1/#15）', () => {
+  it('#1 拒注不问切模型：registrationOk=false 且 models 非空 → 无「立即切换」题且 switchModel 零调用（修前红：切模型门只看 models 非空——「注册被拒」+「已切换模型」自相矛盾回执）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false /** headers 拒 */, true /** 保存允 */, true /** 切模型位（修后不消费） */],
+    });
+    const { deps, log } = makeDeps(prompter, {
+      registerCustomProvider: (id) => ({ ok: false, reason: `渠道 id「${id}」已被占用` }),
+    });
+    await runSetupWizard(deps);
+    expect(recorded.confirms.some((c) => c.title.includes('立即切换'))).toBe(false);
+    expect(log.switched).toEqual([]);
+    expect(recorded.outros.at(-1)?.lines.join('\n')).not.toContain('已切换'); // 拒注回执不再并存切换行
+  });
+
+  it('#15 自定义桶 ✓ 同锚：credentialReadyOf 真 → custom: 条目 label 含 ✓、假 → 无（修前红：自定义桶恒无标记——与官方桶判据呈现不一致）', async () => {
+    const { prompter, recorded } = makePrompter({ select: [undefined] });
+    const { deps } = makeDeps(prompter, {
+      customChannels: {
+        'my-gw': { protocol: 'openai-completions', baseUrl: 'https://x.test/v1', models: ['m1'] },
+        'other-gw': { protocol: 'anthropic-messages', baseUrl: 'https://y.test', models: [] },
+      },
+      credentialReadyOf: (providerId) => providerId === 'my-gw',
+    });
+    await runSetupWizard(deps);
+    const items = recorded.selects[0]!.items;
+    expect(items.find((item) => item.id === 'custom:my-gw')?.label).toContain('✓');
+    expect(items.find((item) => item.id === 'custom:other-gw')?.label).not.toContain('✓');
+  });
+});
+
+describe('评审修复役 Lane A：headers 面（#4/#5/#9/#27）', () => {
+  it('#4/#9 缺席分支：新建无 headers + 空录入 → 问句「添加」语义且保存回执无「清除」行（修前红：「清除（原 0 条）」误导行在场——无从清除）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-k', 'g1', ''],
+      confirm: [true /** headers 问允（空录入） */, true /** 保存允 */, false /** 切模型拒 */],
+    });
+    const { deps, log } = makeDeps(prompter);
+    await runSetupWizard(deps);
+    const headersConfirm = recorded.confirms.find((c) => c.title.includes('请求头'))!;
+    expect(headersConfirm.title).toContain('添加'); // 缺席分支「添加」语义
+    expect(headersConfirm.lines?.join('\n') ?? '').not.toContain('当前（'); // 无当前 N 条行
+    const saveConfirm = recorded.confirms.find((c) => c.title.includes('保存自定义渠道'))!;
+    expect(saveConfirm.lines?.join('\n') ?? '').not.toContain('清除'); // #4 修前红位
+    expect(log.savedChannels[0]?.def.headers).toBeUndefined();
+  });
+
+  it('#9 在场分支：问句「编辑/清除」语义 + 当前 N 条直呈（纯锁）', async () => {
+    const EXISTING_HEADERS: CustomProviderDef = {
+      protocol: 'openai-completions',
+      baseUrl: 'https://gw.test/v1',
+      models: ['m1'],
+      headers: { 'X-Upstream': 'beta', 'X-Region': 'eu' },
+    };
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_edit__', 'openai-completions', '__models_manual__'],
+      text: ['', '', '', ''],
+      confirm: [false, true, false, false],
+    });
+    const { deps } = makeDeps(prompter, {
+      customChannels: { 'my-gw': EXISTING_HEADERS },
+      currentApiKeyOf: () => 'sk-current',
+    });
+    await runSetupWizard(deps);
+    const headersConfirm = recorded.confirms.find((c) => c.title.includes('请求头'))!;
+    expect(headersConfirm.title).toContain('编辑/清除'); // 在场分支「编辑/清除」语义
+    const lines = headersConfirm.lines?.join('\n') ?? '';
+    expect(lines).toContain('当前（2 条）'); // 当前 N 条直呈
+    expect(lines).toContain('X-Upstream: beta, X-Region: eu');
+  });
+
+  it('#5 坏形重问：无冒号录入 → headers 题两次 + 第二次 hint 点名格式（修前红：坏形静默折「保持当前值」直进 confirm 无错因）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-k', 'g1', 'X-Upstream beta', 'X-Upstream: beta'],
+      confirm: [true, true, false],
+    });
+    const { deps, log } = makeDeps(prompter);
+    await runSetupWizard(deps);
+    const headersTexts = recorded.texts.filter((t) => t.title.includes('请求头'));
+    expect(headersTexts).toHaveLength(2); // 坏形重问当前步（修前：1 次）
+    expect(headersTexts[1]?.hint ?? '').toContain('格式'); // 错因点名
+    expect(log.savedChannels[0]?.def.headers).toEqual({ 'X-Upstream': 'beta' }); // 二次好形采
+  });
+
+  it('#27 全角逗号/全角冒号容忍：恰两条键值不污染（修前红：split 只半角——整串成一条、值被污染/坏形折 undefined 静默）', async () => {
+    // 全角逗号：修前 {'X-A': '1，X-B: 2'} 一条值污染
+    const comma = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-k', 'g1', 'X-A: 1，X-B: 2'],
+      confirm: [true, true, false],
+    });
+    const depsComma = makeDeps(comma.prompter);
+    await runSetupWizard(depsComma.deps);
+    expect(depsComma.log.savedChannels[0]?.def.headers).toEqual({ 'X-A': '1', 'X-B': '2' });
+
+    // 全角冒号：修前半角探测不中 → 坏形折 undefined 静默
+    const colon = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-k', 'g1', 'X-A：1, X-B: 2'],
+      confirm: [true, true, false],
+    });
+    const depsColon = makeDeps(colon.prompter);
+    await runSetupWizard(depsColon.deps);
+    expect(depsColon.log.savedChannels[0]?.def.headers).toEqual({ 'X-A': '1', 'X-B': '2' });
+  });
+});
+
+describe('评审修复役 Lane A：表单录入加固（#28/#29/#31）', () => {
+  it('#28 手填清单换行分隔：a\\nb，c → [a,b,c]（修前红：换行入 id 成含内嵌换行的垃圾条——粘贴一行一模型清单不可用）', async () => {
+    const { prompter } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-k', 'a\nb，c'],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = makeDeps(prompter);
+    await runSetupWizard(deps);
+    expect(log.savedChannels[0]?.def.models).toEqual(['a', 'b', 'c']);
+  });
+
+  it('#29 key 含内嵌换行拒：重问 + hint 点名「换行」（修前红：换行 key 直落凭证行——运行时请求头拼装炸英文 TypeError）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-a\nsk-b', 'sk-ok', 'g1'],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = makeDeps(prompter);
+    await runSetupWizard(deps);
+    const keyTexts = recorded.texts.filter((t) => t.title.includes('API key'));
+    expect(keyTexts).toHaveLength(2); // 换行拒重问当前步（修前：1 次）
+    expect(keyTexts[1]?.hint ?? '').toContain('换行'); // 错因点名
+    expect(log.savedBindings[0]?.apiKey).toBe('sk-ok'); // 二次好形采
+  });
+
+  it('#31 Base URL 真校验：空宿主（https://）与查询串形（https://?q=1）重问、完整地址过（修前红：^https?:// 前缀正则放行两形）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://', 'https://?q=1', 'https://gw.test/v1', 'sk-live', 'g1'],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = makeDeps(prompter);
+    await runSetupWizard(deps);
+    const urlTexts = recorded.texts.filter((t) => t.title === 'Base URL');
+    expect(urlTexts).toHaveLength(3); // 两坏形重问 + 一好形
+    expect(urlTexts[1]?.hint ?? '').toContain('完整'); // 错因点名
+    expect(log.savedChannels[0]?.def.baseUrl).toBe('https://gw.test/v1');
+  });
+});
+
+describe('评审修复役 Lane A：回执诚实面（#16/#24）', () => {
+  it('#16 删除腿别名行提醒：成功 outro 含「别名」与 credentials rm 指路（修前红：别名绑行成孤儿静默——重建同名渠道旧 key 复活）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_delete__'],
+      confirm: [true],
+    });
+    const { deps } = makeDeps(prompter, {
+      customChannels: { 'my-gw': { protocol: 'openai-completions', baseUrl: 'https://gw.test/v1', models: ['m1'] } },
+    });
+    await runSetupWizard(deps);
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.title).toBe('已删除');
+    expect(outro.lines.join('\n')).toContain('别名');
+    expect(outro.lines.join('\n')).toContain('credentials rm');
+  });
+
+  it('#24 半应用指路可达：settings 写败 → 「未落库」+「/setup 重新配置」（修前红：指路「重入该渠道（编辑配置）」不可达——渠道未落库重入清单无此条）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false, true],
+    });
+    const { deps, log } = makeDeps(prompter, {
+      saveCustomChannel: () => ({ ok: false, text: 'settings.json 写入被拒' }),
+    });
+    await runSetupWizard(deps);
+    expect(log.savedBindings).toHaveLength(1); // 凭证行已成（写序第一步）
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.title).toContain('半应用');
+    expect(outro.lines.join('\n')).toContain('未落库');
+    expect(outro.lines.join('\n')).toContain('重新配置');
+    expect(outro.lines.join('\n')).not.toContain('编辑配置'); // 不可达指路退役
+  });
+});
+
+describe('评审修复役 Lane A：补锁面（#7/#8/#10——既有行为零锁位纯锁）', () => {
+  it('#7 multiselect preselect = 既有清单 ∩ 拉取结果（gw-x 不在拉取结果被滤出 preselect）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_edit__', 'openai-completions', '__models_fetch__'],
+      text: ['', ''], // baseUrl/key 空录入全沿用
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps } = makeDeps(prompter, {
+      customChannels: {
+        'my-gw': { protocol: 'openai-completions', baseUrl: 'https://gw.test/v1', models: ['gw-a', 'gw-x'] },
+      },
+      currentApiKeyOf: () => 'sk-current',
+    });
+    await runSetupWizard(deps);
+    expect(recorded.multiselects[0]?.preselect).toEqual(['gw-a']); // 交集滤（gw-x 出局）
+  });
+
+  it('#8 ①currentProvider 命中官方桶 → label（当前）②不在任何桶（如已删渠道 id）→ preselect 缺席', async () => {
+    const current = makePrompter({ select: [undefined] });
+    const depsC = makeDeps(current.prompter, { currentProvider: 'anthropic' });
+    await runSetupWizard(depsC.deps);
+    expect(current.recorded.selects[0]!.items.find((item) => item.id === 'official:anthropic')?.label).toContain(
+      '（当前）',
+    );
+
+    const ghost = makePrompter({ select: [undefined] });
+    const depsG = makeDeps(ghost.prompter, { currentProvider: 'ghost-gone' });
+    await runSetupWizard(depsG.deps);
+    expect(ghost.recorded.selects[0]?.preselect).toBeUndefined(); // 三元链 undefined 分支
+  });
+
+  it('#10 探针门槛 false 分支：①拒注（registrationOk=false）不问 ②probe 注入缺席不问', async () => {
+    const rejected = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const depsR = makeDeps(rejected.prompter, {
+      registerCustomProvider: (id) => ({ ok: false, reason: `渠道 id「${id}」已被占用` }),
+    });
+    await runSetupWizard(depsR.deps);
+    expect(rejected.recorded.confirms.some((c) => c.title.includes('顺手探'))).toBe(false); // 拒注不问
+    expect(depsR.log.probeCalls).toEqual([]);
+
+    const noProbe = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const depsN = makeDeps(noProbe.prompter, { probe: undefined });
+    await runSetupWizard(depsN.deps);
+    expect(noProbe.recorded.confirms.some((c) => c.title.includes('顺手探'))).toBe(false); // probe 缺席不问
   });
 });
