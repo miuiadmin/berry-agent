@@ -2411,4 +2411,49 @@ describe('自定义渠道 env 豁免快照过滤（R-1 评审修复役——修�
     const source = readFileSync(new URL('./assembly.ts', import.meta.url), 'utf8');
     expect(source.split('手编 settings.json 删该条即清').length - 1).toBe(1);
   });
+
+  // #34（major——豁免集快照过滤第二腿）：撞运行时在册注入 provider id 的
+  // settings 条目（执法第二腿拒注）修前仍入豁免集——入集即双害：①「自己人
+  // upsert」放行顶掉注入本体；②注入本体的 env 供血判据被错误灭活恒
+  // unconfigured。修 = 快照滤两腿并集（内置目录 ∪ 运行时在册注入集）
+  it('撞注入 provider id 条目不入豁免集 + boot 拒注不顶掉注入本体（#34 修前红：快照只滤撞内置腿，plug-x 入集 env 判据灭活 + hijack-model 注入）', async () => {
+    const dir = tmpDir('host-asm-cp-plug-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          // 撞注入 provider id（非内置目录——faux 注入 plug-x）：执法第二腿
+          // 拒注的撞名条；豁免集若收其 id，注入本体 PLUG_X_API_KEY 判据被灭活
+          'plug-x': {
+            protocol: 'openai-completions',
+            baseUrl: 'https://gw.example.test/v1',
+            models: ['hijack-model'],
+          },
+        },
+      }),
+    );
+    const faux = fauxProvider({ provider: 'plug-x', models: [{ id: 'plug-model' }] });
+    const asm = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [],
+      providers: [faux.provider],
+      env: { BERRY_AGENT_LOG_LEVEL: 'silent', PLUG_X_API_KEY: 'sk-env-live' },
+    });
+    if (!asm.ok) throw new Error(`装配意外失败：${asm.message}`);
+    try {
+      // 面一（env 供血判据不被撞名条灭活）：注入本体任意模型 ready
+      // （修前红 = unconfigured——plug-x 入豁免集时 envApiKeyNamesOf 恒空）
+      expect(asm.stack.modelCredentialStatus('plug-x/plug-model')).toBe('ready');
+      // 面二（注册面不在册——执法第二腿拒注）：注入本体未被顶掉，settings
+      // 条目的模型不注入（修前红 = 豁免集自己人 upsert 放行、hijack-model 在册）
+      const models = asm.stack.llmRuntime.listModels('plug-x');
+      expect(models.some((m) => m.id === 'plug-model')).toBe(true); // 注入本体在册
+      expect(models.some((m) => m.id === 'hijack-model')).toBe(false); // 撞名条拒注
+    } finally {
+      await asm.runtime.shutdown();
+    }
+  });
 });

@@ -417,11 +417,14 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       scope,
       dispatch,
       // B3 宿主凭证刷新联动腿 seam 真值（04 §3.3 条 8——authFamily 真 import
-      // llm / refreshNow 桥链句柄〔env-static 前判 + 链缺席 no-refresh-face〕/
-      // notify 产品级指路 + per-provider×outcome 进程内一次去重〔M4〕）
+      // llm / refreshNow 桥链句柄〔自定义渠道短路 + env-static 前判 + 链缺席
+      // no-refresh-face〕/ notify 产品级指路 + per-provider×outcome 进程内一次
+      // 去重〔M4〕）。isCustomProvider 晚绑定闭包（notifyChannel 同形——stack
+      // 赋值后才有调用，#13 豁免同步：自定义渠道 env 不供血不谎报）
       authRefresh: createHostAuthRefreshSeam({
         getChain: () => credentialsChain,
         env,
+        isCustomProvider: (id) => stack.isCustomProvider(id),
         notifyChannel: (source, message) => stack.channels.notify(source, message),
       }),
       // 钩子派发段只读面（ca-3——llm 双入口 LLM_CALL_IN_HOOK 前置查）
@@ -432,11 +435,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // env 不合成不供血、绑定行唯一源；boot 快照——向导路活注册同步扩集）。
       // R-1 评审修复役：快照**过滤撞内置目录 id 的条目**（boot 拒注的撞名条
       // 不得残留豁免集——否则撞名内置 provider 的 env 供血判据被错误灭活恒
-      // unconfigured；04 §9 ⑥ 评审修复批注③——判据单源 = llm 域 builtinProviderIds）
+      // unconfigured；04 §9 ⑥ 评审修复批注③——判据单源 = llm 域 builtinProviderIds）。
+      // #34（第二腿）：撞运行时在册注入 provider id 的条目同滤——快照时点运行时
+      // 全集 = options.providers 注入集（生产缺席 = 内置全集已由第一腿覆盖）；
+      // 不滤双害：①豁免集在场使执法第二腿「自己人 upsert」放行、settings 撞名
+      // 条顶掉注入本体；②注入本体 env 供血判据被错误灭活
       ...(settingsLoad?.settings.customProviders !== undefined
         ? {
             customProviderIds: Object.keys(settingsLoad.settings.customProviders).filter(
-              (id) => !builtinProviderIds().includes(id),
+              (id) =>
+                !builtinProviderIds().includes(id) && !(options.providers ?? []).some((provider) => provider.id === id),
             ),
           }
         : {}),

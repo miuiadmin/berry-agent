@@ -23,6 +23,7 @@ import { Persistence, resolveDatabasePathIn } from '../persist/index.js';
 
 import { createHostRuntime, HOST_MIGRATION_TAIL } from './runtime.js';
 import type { HostRuntime } from './runtime.js';
+import { readRawCustomProviders } from './settings-store.js';
 import { sandboxModeReceipt, thinkingLevelReceipt } from './session-tier-copy.js';
 import { exitCommandItems, commandArgumentItems } from './static-completions.js';
 import { runTuiEntry, readSingleKeyFromIo, readLogTailLines } from './tui-entry.js';
@@ -1276,6 +1277,35 @@ describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第�
     io.send('\x04');
     expect(await entry).toBe(0);
   });
+
+  // #12（major——07 §8.4 豁免同步）：自定义渠道 unconfigured 时引导面板不得呈
+  // 「export <ID>_API_KEY=」例键——env 永不生效（绑定行唯一供血），指路即误导
+  it('#12 自定义渠道引导面板免呈 env 例键：绑定行途径独呈（修前红：MY_GW_API_KEY 例键行在场）', async () => {
+    const dataDir = rigDir('tui-onboard-custom-data-');
+    const ws = rigDir('tui-onboard-custom-ws-');
+    writeFileSync(
+      join(dataDir, 'settings.json'),
+      JSON.stringify({
+        customProviders: {
+          'my-gw': { protocol: 'openai-completions', baseUrl: 'https://gw.example.test/v1', models: ['m1'] },
+        },
+      }),
+    );
+    const keys = ['s'];
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      model: 'my-gw/m1', // 当前模型停自定义渠道（豁免集在场：env 判据不合成 + 绑定行无 → unconfigured）
+      onboardingKey: async () => keys.shift() ?? 'q',
+    });
+    expect(io.output).toContain('模型凭证未配置'); // 面板行（unconfigured 检测腿命中）
+    expect(io.output).toContain('provider my-gw'); // 供血目标点名
+    // 修前红：env 例键行在场（providerApiKeyEnvNames 无条件合成 MY_GW_API_KEY
+    // ——该指路对自定义渠道永不生效）
+    expect(io.output).not.toContain('MY_GW_API_KEY');
+    // envExample 缺席序号重排：途径首条（「1.」位）= 凭证表绑定行（唯一有效途径）
+    expect(io.output).toContain('1. 凭证表绑定行');
+    io.send('\x04'); // ctrl+d 空框退出
+    expect(await entry).toBe(0);
+  });
 });
 
 describe('readSingleKeyFromIo lone-ESC 判定窗（产线单键读真身——SSH 高延迟/tmux 拆片防线）', () => {
@@ -1350,7 +1380,7 @@ describe('零事件会话锚活体镜像（三消费位——@ 补全 / /rewind 
 });
 
 describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验证改裁注）', () => {
-  it('零参开向导：intro 行落屏（faux provider 入官方桶）+ esc 中止收场（零改动回执）', async () => {
+  it('零参开向导 + #3 官方桶 = 内置目录 ∩ 运行时在册：注入 id（faux-entry）不入官方桶 + esc 中止收场（零改动回执；修前红：运行时全集派生桶含 faux-entry 冒充官方渠道）', async () => {
     const dataDir = rigDir('tui-setup-data-');
     const ws = rigDir('tui-setup-ws-');
     const { entry, io } = await rigEntry(dataDir, ws, {
@@ -1358,8 +1388,11 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     });
     io.send('/setup\r');
     await until(() => io.output.includes('⚙ 配置向导'));
-    // 分桶选单呈现（v2）：faux provider 入官方桶 + 新建自定义渠道尾项
-    expect(io.output).toContain('faux-entry');
+    // 分桶选单相落屏（v2）：官方桶 = 内置目录（builtinProviderIds 单源）∩
+    // 运行时在册——孤儿/注入 id 两桶皆不入（#3：settings 已删仍在册、或注入
+    // 非内置 id 的渠道不得以官方渠道身份呈现）
+    await until(() => io.output.includes('选择模型渠道'));
+    expect(io.output).not.toContain('faux-entry'); // 修前红：faux-only rig 下官方桶含注入项
     expect(io.output).toContain('+ 新建自定义渠道'); // v1「手录自定义 provider」腿退役
     // esc 中止（选择步取消）→ outro 已退出收场 + 主屏照常（ctrl+d 可退）
     io.send('\x1b');
@@ -1416,8 +1449,9 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     });
     io.send('/setup\r');
     await until(() => io.output.includes('⚙ 配置向导'));
-    // 分桶选单稳定门（官方桶 faux-entry 行在场——注入全集派生）
-    await until(() => io.output.includes('faux-entry'));
+    // 分桶选单稳定门（「+ 新建」尾项恒在场；#3 后官方桶 = 内置 ∩ 在册——
+    // faux-only 注入 rig 下官方桶空桶，无注入本体行可断）
+    await until(() => io.output.includes('+ 新建自定义渠道'));
     await tick(); // 选单一次画出，让渲染微任务走完再收口断言
     // 撞名条不入自定义桶：其 baseUrl 永不呈现（修前红：撞名条入自定义桶，desc 呈 evil.example.test）
     expect(io.output).not.toContain('evil.example.test');
@@ -1436,5 +1470,144 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     expect(source.split('stack.unregisterCustomProvider(').length - 1).toBe(1);
     // settings 写侧拒撞名（纵深——防 settings 落撞名死条）
     expect(source.split('撞内置渠道（保留字）').length - 1).toBe(1);
+  });
+
+  // #14（minor）：deps.builtinProviderIds 第三形态（运行时表现算）与保留字执法
+  // 单源分叉——插件/注入 id 撞名时文案谎报「内置渠道」。修 = 传 llm 单源
+  // builtinProviderIds() 目录（id 步判据与 boot 执法同源）
+  it('#14 保留字判据单源：注入 id（faux-entry）非保留字——新建腿 id 步录 faux-entry 放行到协议步（修前红：第三形态判撞内置重问，永不达协议步）', async () => {
+    const dataDir = rigDir('tui-setup-resv-data-');
+    const ws = rigDir('tui-setup-resv-ws-');
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' },
+    });
+    io.send('/setup\r');
+    await until(() => io.output.includes('选择模型渠道'));
+    // 尾项导航（down 夹取——修前修后条目数异形同到「+ 新建自定义渠道」）
+    io.send('\x1b[B\r');
+    await until(() => io.output.includes('· 渠道 id'));
+    io.send('faux-entry\r'); // 注入 provider id——修前红：判「与内置渠道撞名」重问
+    await until(() => io.output.includes('· 协议（wire format')); // 放行证：id 步不拦直进协议步
+    io.send('\x1b'); // esc 收场（保存前零改动）
+    await until(() => io.output.includes('向导已退出'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  // #2 后半（major）：保存腿写侧合并基必须取原始文件（readRawCustomProviders
+  // 单源）——readHostSettings 投影基会丢坏形条目后整键覆写，手编坏形兄弟被静默清除
+  it('#2 保存腿合并基 = 原始文件：好形渠道 + 坏形兄弟（缺 protocol）预置 → 向导另存好渠道 → 坏形兄弟幸存（修前红：投影基覆写后 bad-sib 消失）', async () => {
+    const dataDir = rigDir('tui-setup-rawmerge-data-');
+    const ws = rigDir('tui-setup-rawmerge-ws-');
+    writeFileSync(
+      join(dataDir, 'settings.json'),
+      JSON.stringify({
+        customProviders: {
+          'my-gw': { protocol: 'openai-completions', baseUrl: 'https://gw.example.test/v1', models: ['m1'] },
+          // 坏形兄弟（缺 protocol）：读侧投影丢条点名——手编资产，写侧不得清除
+          'bad-sib': { baseUrl: 'https://half.example.test/v1', models: ['m1'] },
+        },
+      }),
+    );
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' },
+    });
+    io.send('/setup\r');
+    await until(() => io.output.includes('选择模型渠道'));
+    // 尾项导航（down×2 夹取——修前 3 项/修后 2 项同到「+ 新建自定义渠道」）
+    io.send('\x1b[B\x1b[B\r');
+    await until(() => io.output.includes('· 渠道 id'));
+    io.send('my-new\r');
+    await until(() => io.output.includes('· 协议（wire format'));
+    io.send('\r'); // 协议首项（Anthropic 兼容）
+    await until(() => io.output.includes('· Base URL'));
+    io.send('https://gw-save.example.test\r');
+    await until(() => io.output.includes('· my-new API key'));
+    io.send('sk-wizard-key\r');
+    await until(() => io.output.includes('· 模型清单'));
+    io.send('\x1b[B\r'); // 次项：手动填写（清单端点不可用兜底——零网络律）
+    await until(() => io.output.includes('· 模型 id（逗号分隔）'));
+    io.send('model-a\r');
+    await until(() => io.output.includes('添加自定义请求头？'));
+    io.send('n'); // 可选 headers 缺省否
+    await until(() => io.output.includes('保存自定义渠道 my-new？'));
+    io.send('y'); // 写序落库（凭证行先、settings 后）
+    await until(() => io.output.includes('立即切换到 my-new 的模型？'));
+    io.send('n'); // 不切模型
+    await until(() => io.output.includes('顺手探一下 my-new 的连通性？'));
+    io.send('n'); // 不探（单元测试零网络律）
+    await until(() => io.output.includes('· 渠道已保存'));
+    io.send('\r'); // outro 任意键收屏
+    await until(() => io.output.includes('\x1b[?1049l')); // 回主屏
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 写侧断言（原始面单源）：三键俱在——坏形兄弟幸存（修前红 = bad-sib 被清除）
+    const raw = readRawCustomProviders(dataDir);
+    expect(raw).toBeDefined();
+    expect(Object.keys(raw ?? {}).sort()).toEqual(['bad-sib', 'my-gw', 'my-new']);
+  });
+
+  // #11（纯锁）：删除腿三联动（凭证行 → settings → 运行时除名 + 模型复位）
+  // 在 tui-entry 装配组合根的行为锁——修法批（R-1）已有单元/词法锁，本件补
+  // 「向导删除腿走完 → 四联动齐达」全链锁。#25 同并入：settings 键删除对
+  // 坏形兄弟条目的保留面 = #2 删除腿侧半边（同一原始面合并基）。
+  it('#11+#25 删除腿三联动组合锁：预置好形渠道 + host 凭证行 + 当前模型 my-gw/m1 → 向导删除走完 → settings 键删（坏形兄弟幸存）/凭证行删/运行时除名/模型复位四联动', async () => {
+    const dataDir = rigDir('tui-setup-del-data-');
+    const ws = rigDir('tui-setup-del-ws-');
+    // 预置一：settings 好形渠道（boot 注册入运行时表）+ 坏形兄弟（缺 protocol
+    // ——读侧投影丢条；删除腿 settings 写侧合并基须保留之，#25 面）
+    writeFileSync(
+      join(dataDir, 'settings.json'),
+      JSON.stringify({
+        customProviders: {
+          'my-gw': { protocol: 'openai-completions', baseUrl: 'https://gw-del.example.test/v1', models: ['m1'] },
+          'bad-sib': { baseUrl: 'https://half.example.test/v1', models: ['m1'] },
+        },
+      }),
+    );
+    // 预置二：host 域凭证行（meta.modelProvider 绑 my-gw——供血面与删除腿第一
+    // 步同一行）；真库预置后关停（单活跃实例锁——同 dataDir 须先 shutdown 再起 TUI）
+    const rt = createHostRuntime({ dataDir });
+    rt.persistence.store.setCredential('host', 'my-gw', {
+      apiKey: 'sk-del-key',
+      meta: { modelProvider: 'my-gw' },
+    });
+    await rt.persistence.flush();
+    await rt.shutdown();
+    // 起入口：当前模型指到被删渠道（删除腿模型复位步的触发位）；栈注入面取
+    // 真装配栈（联动断言读面——凭证行供血真源，绑定行在场即 ready 无引导面板）
+    const stacks: ConversationStack[] = [];
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      model: 'my-gw/m1',
+      onStack: (stack) => stacks.push(stack),
+    });
+    const stack = stacks[0]!;
+    // 删前实态两门：渠道在册 + 凭证行供血（env 豁免集成员——绑定行唯一源）
+    expect(stack.llm.listModels('my-gw').length).toBeGreaterThan(0);
+    expect(stack.bindingApiKeyOf('my-gw/m1')).toBe('sk-del-key');
+    // 向导删除腿走完：桶选（my-gw 首项——#3 后官方桶空，自定义桶 [my-gw]，
+    // 坏形兄弟读侧已丢不入桶）→ 条目子选次项「删除渠道」→ confirm y
+    io.send('/setup\r');
+    await until(() => io.output.includes('选择模型渠道'));
+    io.send('\r');
+    await until(() => io.output.includes('自定义渠道 my-gw'));
+    io.send('\x1b[B\r'); // 次项：删除渠道
+    await until(() => io.output.includes('删除自定义渠道 my-gw？'));
+    io.send('y');
+    await until(() => io.output.includes('· 已删除'));
+    io.send('\r'); // outro 任意键收屏
+    await until(() => io.output.includes('\x1b[?1049l')); // 回主屏
+    io.send('\x04');
+    expect(await entry).toBe(0);
+    // 四联动断言：
+    // ① settings 键已删 + 坏形兄弟幸存（原始面单源——#25 = #2 删除腿侧合并基）
+    const raw = readRawCustomProviders(dataDir);
+    expect(Object.keys(raw ?? {})).toEqual(['bad-sib']);
+    // ② host 凭证行已删（绑定行供血面缺席回 undefined）
+    expect(stack.bindingApiKeyOf('my-gw/m1')).toBeUndefined();
+    // ③ 运行时 provider 已除名（目录查空——当场生效非重启生效）
+    expect(stack.llm.listModels('my-gw')).toEqual([]);
+    // ④ 当前模型已复位（目录首条——faux-only rig 下 faux-entry/m1）
+    expect(stack.model).toBe('faux-entry/m1');
   });
 });

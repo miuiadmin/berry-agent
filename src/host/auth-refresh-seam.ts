@@ -4,9 +4,11 @@
  * 三注入的单点装配（classifyError 注入同族——conversation 不 import
  * llm/credentials，02 §4.1 边表由装配根满足）：
  * - authFamily：llm recovery 纯函数真源直填（04 §3.5 分面加判注）；
- * - refreshNow：env-static 前判（N2——env 面不在 credentials 件内注入，
- *   判在装配根闭包）→ credentials 链句柄惰性取（受局面在场链装载期经
- *   credentialsChainSink 填入；链缺席 = 零刷新面如实 unavailable）；
+ * - refreshNow：自定义渠道短路（07 §8.4 豁免同步——env 不供血自定义渠道，
+ *   env-static 判据对其永不成立）→ env-static 前判（N2——env 面不在
+ *   credentials 件内注入，判在装配根闭包）→ credentials 链句柄惰性取
+ *   （受局面在场链装载期经 credentialsChainSink 填入；链缺席 = 零刷新面
+ *   如实 unavailable）；
  * - notify：产品级指路文案 + M4 转换位去重（per-provider×outcome 进程内
  *   一次；'expired' 形静默——链侧 wasExpired 三振 notify 已含指路不重发）。
  */
@@ -21,6 +23,13 @@ export interface HostAuthRefreshDeps {
   readonly getChain: () => RefreshChainHandle | undefined;
   /** env 面（与 stack 凭证现取 wrapper 同源：options.env ?? process.env） */
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * 自定义渠道豁免集成员判据（07 §8.4 豁免同步——#13）：stack.isCustomProvider
+   * 同集单源注入。自定义渠道 env 不供血（绑定行唯一源）——env-static 前判对
+   * 其是「由环境变量供血」谎报，判据前短路。必填位：缺席注入 = 装配缺口
+   * 编译期即拦（测试桩同形补 `() => false`）。
+   */
+  readonly isCustomProvider: (id: string) => boolean;
   /** 用户面通知通道（stack.channels.notify 同源——source 归因字面 'credentials'） */
   readonly notifyChannel: (source: 'credentials', message: string) => void;
 }
@@ -61,6 +70,14 @@ export function createHostAuthRefreshSeam(deps: HostAuthRefreshDeps): AuthRefres
   return {
     authFamily,
     async refreshNow(provider: string): Promise<AuthRefreshOutcome> {
+      // 自定义渠道短路（07 §8.4 豁免同步——#13）：env 不供血自定义渠道（绑定行
+      // 唯一源），env-static 判据对其永不成立——先于 env 前判放行至链（链缺席
+      // 由下方如实 no-refresh-face，不落「环境变量供血」谎报）
+      if (deps.isCustomProvider(provider)) {
+        const chain = deps.getChain();
+        if (chain === undefined) return { status: 'unavailable', reason: 'no-refresh-face' };
+        return chain.refreshNow(provider);
+      }
       // N2 前判先于链触达：env 静态 key = 刷新面结构性缺席（刷新成功也不会被采用）
       const envOccupied = providerApiKeyEnvNames(provider).some((name) => (deps.env[name] ?? '') !== '');
       if (envOccupied) return { status: 'unavailable', reason: 'env-static' };

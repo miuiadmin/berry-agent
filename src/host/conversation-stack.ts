@@ -335,6 +335,14 @@ export interface ConversationStack {
    */
   unregisterCustomProvider(id: string): void;
   /**
+   * env 豁免集成员判据（07 §8.4——#12 豁免同步）：id 是否以自定义渠道身份
+   * 在豁免集（装配快照源 + 活注册扩/活除名收缩，与 envApiKeyNamesOf 同集
+   * 单源）。消费位 = 呈现/指路面的「该渠道 env 是否供血」判断（如启动引导
+   * 面板对自定义渠道免呈 `${ID}_API_KEY` 例键——env 永不生效的指路即误导）；
+   * 官方渠道恒 false（env 合成键供血判据原样）。
+   */
+  isCustomProvider(id: string): boolean;
+  /**
    * 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据的纯读
    * 投影非第二实现（env 键非空 ∨ 绑定行命中——liveBindingApiKey 同判据布尔
    * 回投，含 env 遮蔽/撞绑全序/空值行不供血全执法）。派生态零哨兵——每次
@@ -347,10 +355,13 @@ export interface ConversationStack {
   modelCredentialStatus(modelSpec?: string): 'ready' | 'unconfigured';
   /**
    * 当前模型凭证完整值读面（C-4 全明文翻裁——/status 人面完整值入面）：
-   * env 供血值优先（官方 provider 合成键——豁免集 envApiKeyNamesOf 同判据
-   * 内化，custom 渠道恒走绑定行），否则绑定行胜出原值（liveBindingApiKey
-   * 透传）；两源皆缺席回 undefined（装配位折 null——面板只呈态）。只进人面
-   * 呈现行集；模型读侧 carve-out（04 §7）与注入腿净化分权维持不动。
+   * **值取序与供血判据同序同源**（#26——修前 env 先行，插件域行不受 env
+   * 遮蔽的供血真相被 env 值覆盖）：绑定行胜出值优先（liveBindingApiKey 供血
+   * 面透传——插件域行恒透传，host 域行 env 在场时供血面回 undefined），
+   * env 键回落（env 胜位——host 域行遮蔽形与无行形；envApiKeyNamesOf 豁免
+   * 判据同源内化，custom 渠道不合成假键恒走绑定行）；两源皆缺席回 undefined
+   * （装配位折 null——面板只呈态）。只进人面呈现行集；模型读侧 carve-out
+   * （04 §7）与注入腿净化分权维持不动。
    * @param modelSpec 现算锚（缺省 = 栈当前 model——与 modelCredentialStatus 同锚）
    */
   modelCredentialKeyOf(modelSpec?: string): string | undefined;
@@ -1328,6 +1339,11 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       customProviderIdSet.delete(id);
       llmRuntime.unregisterProvider(id);
     },
+    // env 豁免集成员判据（07 §8.4 豁免同步——#12）：与 envApiKeyNamesOf 同集
+    // 单源薄包——呈现/指路面「自定义渠道 env 不供血」判断不得各自重算。
+    isCustomProvider(id: string) {
+      return customProviderIdSet.has(id);
+    },
     // 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据纯读投影
     // ——env 键非空（pi-ai ambient 供血位，与供血 wrapper env 优先律同判据面）
     // ∨ liveBindingApiKey 布尔回投（绑定行命中含遮蔽/撞绑全判据——只取在场
@@ -1345,18 +1361,23 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     bindingApiKeyOf(modelSpec: string): string | undefined {
       return liveBindingApiKey(modelSpec);
     },
-    // 当前模型凭证完整值（C-4 全明文翻裁——人面呈现面专用）：env 供血值
-    // 优先（envApiKeyNamesOf 豁免判据同源——custom 渠道不合成假键恒走绑定
-    // 行），否则 liveBindingApiKey 胜出原值；两源皆缺席回 undefined
+    // 当前模型凭证完整值（C-4 全明文翻裁——人面呈现面专用）：**值取序与供血
+    // 判据同序同源**（#26——修前 env 先行：插件域行不受 env 遮蔽恒透传的供血
+    // 真相被 env 值覆盖，/status 呈 env 值而实际供血是绑定行值）。绑定行胜出
+    // 值优先（liveBindingApiKey 供血面透传——host 域行 env 在场时其回 undefined
+    // 即 env 胜位，自然落 env 回落）；env 键回落（envApiKeyNamesOf 豁免判据
+    // 同源——custom 渠道不合成假键恒走绑定行）；两源皆缺席回 undefined
     modelCredentialKeyOf(modelSpec) {
       const spec = modelSpec ?? currentModel;
+      const fromBinding = liveBindingApiKey(spec);
+      if (fromBinding !== undefined) return fromBinding;
       const slash = spec.indexOf('/');
       const providerId = slash === -1 ? spec : spec.slice(0, slash);
       for (const name of envApiKeyNamesOf(providerId)) {
         const value = credentialEnvFace[name];
         if (value !== undefined && value !== '') return value;
       }
-      return liveBindingApiKey(spec);
+      return undefined;
     },
     // 连通微探针（ob-3 改裁注机制形）——实装见上方函数体注释
     probeModelConnectivity,

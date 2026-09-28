@@ -38,7 +38,12 @@ function stubChannel(): { channel: (s: 'credentials', m: string) => void; sent: 
 describe('createHostAuthRefreshSeam——env-static 前判与链桥接', () => {
   it('authFamily 真源直填（llm 纯函数引用级透传——分面判定行为两立）', () => {
     const { channel } = stubChannel();
-    const seam = createHostAuthRefreshSeam({ getChain: () => undefined, env: {}, notifyChannel: channel });
+    const seam = createHostAuthRefreshSeam({
+      getChain: () => undefined,
+      env: {},
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+    });
     expect(seam.authFamily).toBe(authFamily);
     expect(seam.authFamily('x', 'LLM_AUTH_INVALID')).toBe(true);
     expect(seam.authFamily('unrelated text')).toBe(false);
@@ -52,6 +57,7 @@ describe('createHostAuthRefreshSeam——env-static 前判与链桥接', () => {
       env: { OPENROUTER_API_KEY: 'sk-static' },
       getChain: () => chain,
       notifyChannel: channel,
+      isCustomProvider: () => false,
     });
     await expect(seam.refreshNow('openrouter')).resolves.toEqual({ status: 'unavailable', reason: 'env-static' });
     expect(calls).toEqual([]);
@@ -59,7 +65,12 @@ describe('createHostAuthRefreshSeam——env-static 前判与链桥接', () => {
 
   it('链缺席（受局面不起链）→ unavailable/no-refresh-face（零刷新面如实）', async () => {
     const { channel } = stubChannel();
-    const seam = createHostAuthRefreshSeam({ getChain: () => undefined, env: {}, notifyChannel: channel });
+    const seam = createHostAuthRefreshSeam({
+      getChain: () => undefined,
+      env: {},
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+    });
     await expect(seam.refreshNow('any-provider')).resolves.toEqual({
       status: 'unavailable',
       reason: 'no-refresh-face',
@@ -69,19 +80,65 @@ describe('createHostAuthRefreshSeam——env-static 前判与链桥接', () => {
   it('env 未占 + 链在场 → 透传链产物（refreshed/failed/unavailable 窄形直返）', async () => {
     const { chain: okChain, calls } = stubChain({ status: 'refreshed' });
     const { channel } = stubChannel();
-    const seam = createHostAuthRefreshSeam({ getChain: () => okChain, env: {}, notifyChannel: channel });
+    const seam = createHostAuthRefreshSeam({
+      getChain: () => okChain,
+      env: {},
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+    });
     await expect(seam.refreshNow('glm')).resolves.toEqual({ status: 'refreshed' });
     expect(calls).toEqual(['glm']);
     const failed = stubChain({ status: 'failed', errorMessage: 'boom' });
-    const seam2 = createHostAuthRefreshSeam({ getChain: () => failed.chain, env: {}, notifyChannel: channel });
+    const seam2 = createHostAuthRefreshSeam({
+      getChain: () => failed.chain,
+      env: {},
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+    });
     await expect(seam2.refreshNow('glm')).resolves.toEqual({ status: 'failed', errorMessage: 'boom' });
+  });
+
+  // #13（minor——07 §8.4 豁免同步）：自定义渠道 env 不供血（绑定行唯一源），
+  // env-static 前判对自定义渠道是谎报（「由环境变量供血」永不成立）——刷新面
+  // 判据前加自定义渠道短路，链缺席时如实 no-refresh-face
+  it('自定义渠道短路 env-static 前判（#13）：env 同名键在场不入「环境变量供血」谎报——链触达照常；官方渠道前判原样（修前红：my-gw 回 env-static）', async () => {
+    const { chain, calls } = stubChain({ status: 'refreshed' });
+    const { channel } = stubChannel();
+    const seam = createHostAuthRefreshSeam({
+      // env 面：MY_GW_API_KEY / OPENAI_API_KEY 双占位（两判据各自的触发位）
+      env: { MY_GW_API_KEY: 'sk-env', OPENAI_API_KEY: 'sk-static' },
+      getChain: () => chain,
+      notifyChannel: channel,
+      // 装配根注入位：stack.isCustomProvider 豁免集成员判据（同集单源）
+      isCustomProvider: (id) => id === 'my-gw',
+    });
+    // 自定义渠道：env-static 不适用——链触达不受 env 前判拦截（修前红 = env-static 零链调用）
+    await expect(seam.refreshNow('my-gw')).resolves.toEqual({ status: 'refreshed' });
+    expect(calls).toEqual(['my-gw']);
+    // 官方渠道对照面：env-static 前判原样执法（豁免同步不外溢）
+    await expect(seam.refreshNow('openai')).resolves.toEqual({ status: 'unavailable', reason: 'env-static' });
+    expect(calls).toEqual(['my-gw']);
+    // 链缺席 + 自定义渠道 → 如实 no-refresh-face（诚实降级非 env 谎报）
+    const { channel: channel2 } = stubChannel();
+    const bare = createHostAuthRefreshSeam({
+      env: { MY_GW_API_KEY: 'sk-env' },
+      getChain: () => undefined,
+      notifyChannel: channel2,
+      isCustomProvider: (id) => id === 'my-gw',
+    });
+    await expect(bare.refreshNow('my-gw')).resolves.toEqual({ status: 'unavailable', reason: 'no-refresh-face' });
   });
 });
 
 describe('createHostAuthRefreshSeam——notify M4 转换位去重', () => {
   it('expired 形静默（链侧 wasExpired 三振 notify 已含指路——腿不重发）', () => {
     const { channel, sent } = stubChannel();
-    const seam = createHostAuthRefreshSeam({ getChain: () => undefined, env: {}, notifyChannel: channel });
+    const seam = createHostAuthRefreshSeam({
+      getChain: () => undefined,
+      env: {},
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+    });
     seam.notify({ provider: 'glm', outcome: { status: 'unavailable', reason: 'expired' } });
     seam.notify({ provider: 'glm', outcome: { status: 'unavailable', reason: 'expired' } });
     expect(sent).toEqual([]);
@@ -89,7 +146,12 @@ describe('createHostAuthRefreshSeam——notify M4 转换位去重', () => {
 
   it('三无位形 per-provider×reason 进程内恰一次（跨 runTurns 重复 401 不刷屏）', () => {
     const { channel, sent } = stubChannel();
-    const seam = createHostAuthRefreshSeam({ getChain: () => undefined, env: {}, notifyChannel: channel });
+    const seam = createHostAuthRefreshSeam({
+      getChain: () => undefined,
+      env: {},
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+    });
     for (let i = 0; i < 3; i++) {
       seam.notify({ provider: 'glm', outcome: { status: 'unavailable', reason: 'binding-absent' } });
     }
@@ -102,7 +164,12 @@ describe('createHostAuthRefreshSeam——notify M4 转换位去重', () => {
 
   it('failed 形带 errorMessage 尾注、同 provider 恰一次', () => {
     const { channel, sent } = stubChannel();
-    const seam = createHostAuthRefreshSeam({ getChain: () => undefined, env: {}, notifyChannel: channel });
+    const seam = createHostAuthRefreshSeam({
+      getChain: () => undefined,
+      env: {},
+      notifyChannel: channel,
+      isCustomProvider: () => false,
+    });
     seam.notify({ provider: 'glm', outcome: { status: 'failed', errorMessage: 'invalid_grant' } });
     seam.notify({ provider: 'glm', outcome: { status: 'failed', errorMessage: 'second-failure-tail' } });
     expect(sent).toHaveLength(1);
@@ -121,6 +188,7 @@ describe('createHostAuthRefreshSeam——notify M4 转换位去重', () => {
       // env-static 形同生产触发位：env 在场前判（OPENAI_API_KEY 占位）
       env: { OPENAI_API_KEY: 'sk-static' },
       notifyChannel: channel,
+      isCustomProvider: () => false,
     });
     seam.notify({ provider: 'openai', outcome: { status: 'unavailable', reason: 'env-static' } });
     seam.notify({ provider: 'glm', outcome: { status: 'unavailable', reason: 'binding-absent' } });

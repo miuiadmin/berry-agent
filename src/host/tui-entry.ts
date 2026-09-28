@@ -69,8 +69,8 @@ import {
   exitCommandItems,
   modelShortName,
 } from './static-completions.js';
-import { readHostSettings, writeHostSettings } from './settings-store.js';
-import { createCustomChannelProvider, builtinProviderIds } from '../llm/index.js';
+import { readHostSettings, readRawCustomProviders, writeHostSettings } from './settings-store.js';
+import { builtinProviderIds, createCustomChannelProvider, type CustomProviderDef } from '../llm/index.js';
 import { fetchChannelModels } from './channel-models-fetch.js';
 import { daemonPaths } from './serve-daemon.js';
 import {
@@ -280,6 +280,17 @@ export function readLogTailLines(
   } finally {
     if (fd !== undefined) closeSync(fd); // 描述符恒还（零泄漏）
   }
+}
+
+/**
+ * customProviders 写侧合并基（#2）：原始文件键集（readRawCustomProviders 单源）
+ * ——不得取 readHostSettings 投影（丢坏形条目后整键覆写会静默清除手编坏形
+ * 兄弟条目）。非对象形（数组/字符串——手编深坏形）不展开为合并基：数字键
+ * 展开会铸出垃圾条目；此形下读侧已整键忽略，写侧以空基处理。
+ */
+function rawCustomMergeBase(dataDir: string): Record<string, unknown> {
+  const raw = readRawCustomProviders(dataDir);
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {};
 }
 
 /**
@@ -995,10 +1006,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       };
       void runSetupWizard({
         prompter,
-        // 官方桶 = 运行时目录排除自定义渠道（boot 装配注册 + 向导活注册的自
-        // 定义渠道也在运行时表——归自定义桶不重复呈现）
+        // 官方桶 = 内置目录 ∩ 运行时在册（#3——修前只滤 customIds：settings 已删
+        // 仍在册的自定义渠道 id、注入的非内置 id 会以官方渠道身份呈现）。判据
+        // 单源 = llm 域 builtinProviderIds（boot 装配注册 + 向导活注册的自定义
+        // 渠道也在运行时表——归自定义桶不重复呈现；孤儿渠道两桶皆不入）
         providers: [...stack.llmRuntime.models.getProviders()]
-          .filter((provider) => !customIds.has(provider.id))
+          .filter((provider) => !customIds.has(provider.id) && builtinProviderIds().includes(provider.id))
           .map((provider) => ({
             id: provider.id,
             name: provider.name,
@@ -1010,9 +1023,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         customChannels: Object.fromEntries(
           Object.entries(customChannels).filter(([id]) => !builtinProviderIds().includes(id)),
         ),
-        builtinProviderIds: [...stack.llmRuntime.models.getProviders()]
-          .filter((provider) => !customIds.has(provider.id))
-          .map((provider) => provider.id),
+        // 保留字判据单源（#14——修前第三形态「运行时全集差集」与 boot 执法分叉：
+        // 注入/插件 id 被谎报「内置渠道」拒录）。id 步判据与执法同源 = llm 域
+        // builtinProviderIds 目录
+        builtinProviderIds: builtinProviderIds(),
         currentProvider,
         // R-3 ✓ 判据同锚：分桶 configured 标记与 /status 同一 modelCredentialStatus
         // 判据（env ∨ 绑定行——裸 providerId 即该判据的 provider 级入口）
@@ -1069,16 +1083,19 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         fetchModels: (req) => fetchChannelModels(req),
         // settings customProviders 合并写（保存腿内重读现值——同窗多写不陈化）。
         // R-1 写侧拒撞名（纵深——执法单源在 stack 注册口，本位保 settings 数据
-        // 面同判据：撞名条装配即拒注 + 向导全域不可见，落了即死条）
+        // 面同判据：撞名条装配即拒注 + 向导全域不可见，落了即死条）。
+        // #2 写侧合并基 = **原始文件**（readRawCustomProviders 单源）——不得取
+        // readHostSettings 投影（丢坏形条目后整键覆写会静默清除手编坏形兄弟
+        // 条目）；删除腿同律
         saveCustomChannel: (id, def) => {
           if (dataDir === null) return { ok: false, text: '数据目录不可用——无法持久化渠道配置' };
           if (builtinProviderIds().includes(id)) {
             return { ok: false, text: `渠道 id ${id} 撞内置渠道（保留字）——换个 id` };
           }
-          const existing = readHostSettings(dataDir, { warn: settingsWarn }).settings.customProviders ?? {};
+          const existing = rawCustomMergeBase(dataDir);
           const written = writeHostSettings(
             dataDir,
-            { customProviders: { ...existing, [id]: def } },
+            { customProviders: { ...existing, [id]: def } as Record<string, CustomProviderDef> },
             { warn: settingsWarn },
           );
           return written === 'written'
@@ -1087,10 +1104,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         },
         removeCustomChannel: (id) => {
           if (dataDir === null) return { ok: false, text: '数据目录不可用——无法修改渠道配置' };
-          const existing = readHostSettings(dataDir, { warn: settingsWarn }).settings.customProviders ?? {};
-          const next: Record<string, (typeof existing)[string]> = { ...existing };
+          const next: Record<string, unknown> = { ...rawCustomMergeBase(dataDir) };
           delete next[id];
-          const written = writeHostSettings(dataDir, { customProviders: next }, { warn: settingsWarn });
+          const written = writeHostSettings(
+            dataDir,
+            { customProviders: next as Record<string, CustomProviderDef> },
+            { warn: settingsWarn },
+          );
           return written === 'written'
             ? { ok: true, text: `渠道配置已移除（customProviders.${id}）` }
             : { ok: false, text: 'settings.json 写入被拒（文件坏形？——手工修复后重试）' };
@@ -1391,7 +1411,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const modelSpec = stack.model;
       const slash = modelSpec.indexOf('/');
       const providerId = slash === -1 ? modelSpec : modelSpec.slice(0, slash);
-      const envNames = providerApiKeyEnvNames(providerId);
+      // env 例键合成（07 §8.4 豁免同步——#12）：自定义渠道 env 不合成不供血
+      //（绑定行唯一源），对自定义渠道呈「export <ID>_API_KEY=」例键永不生效
+      // ——豁免集成员判据走 stack.isCustomProvider（同集单源），仅对非自定义
+      // 渠道合成例键
+      const envNames = stack.isCustomProvider(providerId) ? [] : providerApiKeyEnvNames(providerId);
       const decision = await runOnboardingPanel({
         write: (text) => io.write(text),
         readKey: onboardingKeySource,

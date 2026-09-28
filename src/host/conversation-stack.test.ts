@@ -2136,6 +2136,30 @@ describe('自定义渠道活注册/除名（R-1——保留字执法单源回执
     expect(stack.modelCredentialStatus('my-gw/m1')).toBe('ready'); // 豁免集收缩：env 判据恢复
     await rt.shutdown();
   });
+
+  // #12（major——07 §8.4 豁免同步）：env 豁免集成员判据公开读面——呈现/指路
+  // 面消费位（tui-entry 引导面板 env 例键免呈）需要「该 id 是否自定义渠道」
+  // 的单源判据，不得各自重算（快照源 + 活注册/除名同步双面都得跟真）
+  it('isCustomProvider 豁免集成员判据：快照成员/活注册 true，内置与未注册 false，除名同步收缩（修前红：栈面无此读面）', async () => {
+    const { rt } = rigRuntime();
+    // 面一：装配快照成员（settings 路注册的豁免集——boot 腿）
+    const seeded = createConversationStack({ runtime: rt, env: {}, customProviderIds: ['seeded-gw'] });
+    expect(seeded.isCustomProvider('seeded-gw')).toBe(true); // 快照成员
+    expect(seeded.isCustomProvider('anthropic')).toBe(false); // 内置目录恒非自定义
+    expect(seeded.isCustomProvider('nobody')).toBe(false); // 未注册
+    await rt.shutdown();
+
+    // 面二：活注册/除名同步（向导路——集随注册扩、随除名收缩）
+    const rt2 = rigRuntime();
+    const faux = fauxProvider({ provider: 'live-gw', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({ runtime: rt2.rt, env: {} });
+    expect(stack.isCustomProvider('live-gw')).toBe(false); // 注册前
+    expect(stack.registerCustomProvider(faux.provider)).toEqual({ ok: true });
+    expect(stack.isCustomProvider('live-gw')).toBe(true); // 活注册同步扩集
+    stack.unregisterCustomProvider('live-gw');
+    expect(stack.isCustomProvider('live-gw')).toBe(false); // 除名同步收缩
+    await rt2.rt.shutdown();
+  });
 });
 
 /* ---------------- streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面） ---------------- */
@@ -2371,6 +2395,31 @@ describe('streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面 +
     await ask('一问');
     expect(seen).toEqual(['plugin-row-key']); // 库优先——env 在场不遮蔽插件域行
     await rt.shutdown();
+  });
+
+  // #26（minor）：/status 凭证完整值呈现必须与供血判据同序同源——供血面
+  // （liveBindingApiKey）插件域行不受 env 遮蔽恒透传，值取面却 env 先行会把
+  // 「实际供血 = 绑定行值」的角落呈成 env 值（所呈非所供）
+  it('modelCredentialKeyOf 值呈现与供血同序（#26）：插件域行 + env 同设 → 呈绑定行值（修前红：env 先行呈 env 值）；host 域行遮蔽形 env 胜照呈 env 值', async () => {
+    // 主证面：插件域绑定行 + 同名 env 键双在场——供血真相 = 行值
+    const { rt } = rigRuntime();
+    bindRow(rt, 'plugin:demo', 'glm-key', 'plugin-row-key');
+    const supply = rigSupply(rt, { env: { FAUX_STACK_API_KEY: 'env-key' } });
+    // 供血判据锚（liveBindingApiKey 同源）：插件域行胜出不受遮蔽
+    expect(supply.stack.bindingApiKeyOf('faux-stack/m1')).toBe('plugin-row-key');
+    // 值呈现与供血同源（修前红 = 'env-key'——值取序 env 先行谎报供血位）
+    expect(supply.stack.modelCredentialKeyOf('faux-stack/m1')).toBe('plugin-row-key');
+    await rt.shutdown();
+
+    // 对照面：host 域行 + env 双在场——供血在 env（行被遮蔽 liveBindingApiKey
+    // 回 undefined），呈现同序回落 env 值（本形修前修后同值——锁「同序」不改
+    // env 胜语义）
+    const hostRt = rigRuntime();
+    bindRow(hostRt.rt, 'host', 'k-host', 'host-row-key');
+    const hostSupply = rigSupply(hostRt.rt, { env: { FAUX_STACK_API_KEY: 'env-key' } });
+    expect(hostSupply.stack.bindingApiKeyOf('faux-stack/m1')).toBeUndefined(); // 遮蔽位
+    expect(hostSupply.stack.modelCredentialKeyOf('faux-stack/m1')).toBe('env-key'); // env 供血照呈 env 值
+    await hostRt.rt.shutdown();
   });
 
   it('apiKey 现取断言（§五之 1 供血半）：绑定行 rotate 换值后下一次请求拿到新值——两代值可辨无缓存', async () => {
