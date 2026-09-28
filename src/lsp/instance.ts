@@ -96,12 +96,21 @@ export async function connectLspInstance(
   let closePromise: Promise<void> | undefined;
 
   let wire: LspWire | undefined;
+  // 注：diagWaiters 在下方「文档同步账」声明——markDown 仅经 onExit 事件晚绑
+  // 调用（同步装配段不触），TDZ 无窗。
   const markDown = (reason: string): void => {
     if (downReason !== undefined) return; // 幂等闸：一次进程事故恰计一败
     downReason = reason;
     for (const cb of [...downCallbacks]) cb(reason);
     for (const w of [...exitWaiters]) w();
     exitWaiters.length = 0;
+    // 诊断 waiter 同刻结清：连接死等价超钟——null 诚实降级即刻送达，不让
+    // 在飞 waiter 悬到竞速钟尽（≤3.5s）才收 null（与上两组结算同构）
+    for (const w of [...diagWaiters]) {
+      clearTimeout(w.timer);
+      w.resolve(null);
+    }
+    diagWaiters.length = 0;
   };
 
   child.onExit((info) => {

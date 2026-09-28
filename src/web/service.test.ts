@@ -242,6 +242,54 @@ describe('卫生件 4：重定向逐跳跟随', () => {
     const second = calls[1]?.init?.headers as Record<string, string>;
     expect(second.Authorization).toBe('Bearer sekrit');
   });
+
+  it('中间 3xx 体被 cancel（每跳重赋 response 前结清前跳——与 readBodyCapped 触帽取消同纪律）', async () => {
+    // 中间 3xx 携真实体流（ReadableStream cancel 回调记账——spy 形锁）
+    const cancelLog: string[] = [];
+    const intermediate = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('中间跳响应体'));
+          // 不 close——留待 cancel（真实 3xx 体从不被读）
+        },
+        cancel() {
+          cancelLog.push('intermediate');
+        },
+      }),
+      { status: 302, headers: { location: 'https://cdn.example.org/final' } },
+    );
+    const service = createWebFetchService({
+      ...baseInit,
+      fetchImpl: scriptedFetch([intermediate, new Response('landed')]),
+    });
+    const result = await service.fetch('https://example.com/start');
+    expect(result.body).toBe('landed'); // 产物面行为等价
+    expect(cancelLog).toEqual(['intermediate']); // 修前：中间体从不读也不 cancel——释连接纪律缺位
+  });
+
+  it('跳数触帽抛拒前末跳 3xx 体同律被 cancel（终态错误响应同纪律）', async () => {
+    const cancelLog: string[] = [];
+    const hop = (): Response =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('跳体'));
+          },
+          cancel() {
+            cancelLog.push('hop');
+          },
+        }),
+        { status: 302, headers: { location: 'https://example.com/next' } },
+      );
+    const service = createWebFetchService({
+      ...baseInit,
+      limits: { maxRedirects: 1 },
+      fetchImpl: scriptedFetch([hop(), hop()]),
+    });
+    const error = await service.fetch('https://example.com/').catch((e: unknown) => e);
+    expect((error as BaseError).code).toBe('WEB_REDIRECT_LIMIT');
+    expect(cancelLog).toEqual(['hop', 'hop']); // 修前：两跳体均悬挂（无人读无人 cancel）
+  });
 });
 
 describe('卫生件 5：字节上限（截断非拒）', () => {

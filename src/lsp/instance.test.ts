@@ -318,6 +318,21 @@ describe('crash 与载体级失败', () => {
     );
   });
 
+  it('crash 即刻结清在飞诊断 waiter（null 诚实降级——不等竞速钟）', async () => {
+    const child = new FakeLspChild();
+    defaultScript(child);
+    const inst = await connectLspInstance('s', CONFIG, 'file:///ws', { spawn: fakeSpawn(child) });
+    inst.syncDocument('file:///ws/a.ts', 'text', '/ws/a.ts');
+    let settled: readonly unknown[] | null | undefined;
+    void inst.waitDiagnostics('file:///ws/a.ts', 5, 3_500).then((items) => {
+      settled = items;
+    });
+    child.emitExit(1); // crash——markDown 应同刻结算在飞 waiter
+    await tick(); // 微任务排空（resolve 链送达）
+    expect(settled).toBeNull(); // 修前：undefined——挂到 3.5s 竞速钟尽才收 null
+    await inst.close();
+  });
+
   it('帧 fatal：封读 + 同步树杀（onFatal 收口位）', async () => {
     const child = new FakeLspChild();
     defaultScript(child);

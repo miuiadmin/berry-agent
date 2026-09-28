@@ -257,7 +257,17 @@ export async function createBrowserPage(deps: BrowserPageDeps): Promise<BrowserP
         logger?.debug?.(`导航预检普通失败（放行浏览器载体）：${err instanceof Error ? err.message : String(err)}`);
       }
       const waitLoad = deps.conn.waitEvent('Page.loadEventFired', sessionId, navTimeoutMs);
-      await send('Page.navigate', { url }, navTimeoutMs);
+      // 孤儿 rejection 防线：waitEvent 先建后用——send 失败路径无人 await 它，
+      // 其迟到 rejection（连接死快拒/超钟）会成 unhandledRejection 崩整宿主。
+      // 先挂静默消费 handler：失败路径 rejection 被吞；成功路径照常 await 原
+      // promise（多 handler 并存——rejection 仍照常传给下方 await 执法）。
+      void waitLoad.catch(() => {});
+      const nav = (await send('Page.navigate', { url }, navTimeoutMs)) as { errorText?: string };
+      // CDP 形：导航失败（net::ERR_*）命令仍应答成功但携 errorText——此时
+      // loadEventFired 永不来，白等钟只会报误导性超时；即时报失败携原文
+      if (nav.errorText !== undefined && nav.errorText !== '') {
+        throw new Error(`导航失败（${url}）：${nav.errorText}`);
+      }
       await waitLoad;
       // 终点 URL 从导航史读（服务端重定向落点——不信任请求原值）
       const hist = (await send('Page.getNavigationHistory')) as {
@@ -428,6 +438,8 @@ export async function createBrowserPage(deps: BrowserPageDeps): Promise<BrowserP
     const next = hist.entries[hist.currentIndex + delta];
     if (next === undefined) return { moved: false };
     const waitLoad = deps.conn.waitEvent('Page.loadEventFired', sessionId, navTimeoutMs);
+    // 孤儿 rejection 防线：同 navigate 位（send 拒时无人 await——静默结清防崩宿主）
+    void waitLoad.catch(() => {});
     await send('Page.navigateToHistoryEntry', { entryId: next.id }, navTimeoutMs);
     await waitLoad;
     return { moved: true, url: next.url };

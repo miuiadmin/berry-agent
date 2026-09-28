@@ -83,6 +83,47 @@ function choreo(then: Router = () => ({})): Router {
   };
 }
 
+/** 定向失败连接（指名 method 的 send 拒 + waitEvent 恒拒——失败路径卫生测试具） */
+function makeFailConn(failMethod: string) {
+  const sendError = new Error(`CDP 命令 ${failMethod} 快拒（测试注入）`);
+  const waitError = new Error(`等待 ${failMethod} 配对事件不可达（测试注入）`);
+  const base = choreo((method) => {
+    // back/forward 前置读导航史（有前史才走到 navigateToHistoryEntry）
+    if (method === 'Page.getNavigationHistory') {
+      return {
+        currentIndex: 1,
+        entries: [
+          { id: 11, url: 'https://a.example/' },
+          { id: 22, url: 'https://b.example/' },
+        ],
+      };
+    }
+    return {};
+  });
+  const conn: CdpConnection = {
+    isDead: false,
+    send(method, params = {}, opts = {}) {
+      if (method === failMethod) return Promise.reject(sendError);
+      return Promise.resolve(base(method, params as Record<string, unknown>, opts?.sessionId, () => {}));
+    },
+    onEvent() {
+      return () => {};
+    },
+    waitEvent() {
+      return Promise.reject(waitError);
+    },
+    onDown() {},
+    close() {},
+  };
+  return { conn, sendError, waitError };
+}
+
+/** 排空 unhandledRejection 检测窗（Node 于微任务检查点后发事件——隔两个宏任务轮） */
+async function drainUnhandledWindow(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 /** 内存 fs（mkdir/writeFile/readdir/unlink 记账） */
 function makeFs(existing: string[] = []) {
   const files = new Map<string, string | Uint8Array>();
@@ -476,5 +517,88 @@ describe('createBrowserPage', () => {
     ]);
     expect(sends.at(-2)!.params).toEqual({ targetId: 'T1' });
     expect(sends.at(-1)!.params).toEqual({ browserContextId: 'BC1' });
+  });
+
+  /* ---------------- 失败路径卫生（navigate/back/forward 在飞 wait 清理） ---------------- */
+
+  it('navigate：send 拒时在飞 wait 的 rejection 被消费——零 unhandledRejection，对外抛 send 错', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { conn, sendError } = makeFailConn('Page.navigate');
+      const page = await createBrowserPage({ conn, fs: makeFs().fs, dataDir: '/data', web: makeWeb().web });
+      await expect(page.navigate('https://example.com/x')).rejects.toBe(sendError);
+      await drainUnhandledWindow();
+      // 修前：waitEvent 先建后 send 拒——其 rejection 无人接成 unhandledRejection
+      // （崩溃编舞 exit(1) 杀整宿主）；修后：在飞 wait 被静默结清
+      expect(unhandled).toEqual([]);
+      await page.close();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('back：send 拒同律（goHistory 共体位）——wait rejection 被消费零 unhandled', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { conn, sendError } = makeFailConn('Page.navigateToHistoryEntry');
+      const page = await createBrowserPage({ conn, fs: makeFs().fs, dataDir: '/data', web: makeWeb().web });
+      await expect(page.back()).rejects.toBe(sendError);
+      await drainUnhandledWindow();
+      expect(unhandled).toEqual([]);
+      await page.close();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('navigate：应答携 errorText 即时失败（携原文）——不等 loadEventFired 白等钟', async () => {
+    // waitEvent 走真钟超时拒（对齐 cdp 件语义）——修前白等 40ms 报误导性超时
+    const waitTimeouts: string[] = [];
+    const router = choreo((method) => {
+      if (method === 'Page.navigate') {
+        // CDP 形：导航失败（net::ERR_*）命令仍应答成功但携 errorText——load 事件永不来
+        return { frameId: 'F1', errorText: 'net::ERR_NAME_NOT_RESOLVED' };
+      }
+      return {};
+    });
+    const conn: CdpConnection = {
+      isDead: false,
+      send(method, params = {}, opts = {}) {
+        return Promise.resolve(router(method, params as Record<string, unknown>, opts?.sessionId, () => {}));
+      },
+      onEvent() {
+        return () => {};
+      },
+      waitEvent(method, _sessionId, timeoutMs) {
+        return new Promise((_resolve, reject) => {
+          setTimeout(() => {
+            waitTimeouts.push(method);
+            reject(new Error(`CDP 事件 ${method} 等待超时（${timeoutMs}ms）`));
+          }, timeoutMs);
+        });
+      },
+      onDown() {},
+      close() {},
+    };
+    const page = await createBrowserPage({
+      conn,
+      fs: makeFs().fs,
+      dataDir: '/data',
+      web: makeWeb().web,
+      navTimeoutMs: 40,
+    });
+    const error = await page.navigate('https://no-such-host.example/').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('net::ERR_NAME_NOT_RESOLVED'); // 修前：等满钟报超时（错误原文被弃）
+    expect(waitTimeouts).toEqual([]); // 未走到 wait 超钟——errorText 即报不等 load
+    await page.close();
   });
 });

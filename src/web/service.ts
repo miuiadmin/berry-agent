@@ -182,6 +182,11 @@ export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService 
             if (!REDIRECT_STATUSES.has(response.status)) break;
             const location = response.headers.get('location');
             if (!location) break; // 3xx 无 Location——按终态返回（宽容不发明跳转）
+            // 此响应体从此必不被读（跟随下一跳 / 跳数触帽拒 / 跳目标卫生拒——
+            // 三出口皆弃读）——主动 cancel 释连接（与 readBodyCapped 触帽
+            // reader.cancel() 同纪律：边缘大体场景连接不悬挂）。cancel 失败
+            // 吞错不阻主路——连接由 undici 自理
+            void response.body?.cancel().catch(() => {});
             if (redirects >= limits.maxRedirects) {
               throw new BaseError(
                 'WEB_REDIRECT_LIMIT',
