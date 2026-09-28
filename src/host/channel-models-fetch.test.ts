@@ -1,0 +1,136 @@
+/**
+ * host — 模型清单拉取腿测试（2026-09-28 模型渠道批 C-2；07 §8.4 拉取腿）。
+ *
+ * 锁面：协议分叉拼接（URL/头两维——评审 #6 的 /v1/v1 回归锁）/ 三态回执
+ * （ok 去重保序、非 2xx、3xx 重定向提示——评审 #8）/ 坏形折叠 / SSRF 私网
+ * 拒（守卫必经——桩底层 fetch 不被触达）/ 超时帽（注入 timeoutMs）。
+ * 零网络（桩 fetch + 守卫真跑 DNS 位用字面私网段——assertPublicHost 字面
+ * 拒先于 DNS 解析）。
+ */
+import { describe, expect, it, vi } from 'vitest';
+
+import { channelModelsEndpoint, fetchChannelModels } from './channel-models-fetch.js';
+import type { DnsResolver, FetchLike } from '../web/index.js';
+
+/** 公网 DNS 桩（守卫测试同形——假域走通字面+DNS 两查；SSRF 拒锁用例字面拒先于 DNS，注入无害） */
+const publicDns: DnsResolver = async () => ['93.184.216.34'];
+
+/** 桩 fetch 捕获形（URL/init 断言位 + 可编程应答） */
+function stubFetch(
+  respond: (url: string) => { status: number; body?: string; headers?: Record<string, string> } = () => ({
+    status: 200,
+    body: JSON.stringify({ data: [{ id: 'm1' }] }),
+  }),
+): { fetchImpl: FetchLike; calls: { url: string; init: RequestInit }[] } {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fetchImpl: FetchLike = async (url, init) => {
+    calls.push({ url: String(url), init: init ?? {} });
+    const r = respond(String(url));
+    return new Response(r.body ?? '', { status: r.status, headers: r.headers });
+  };
+  return { fetchImpl, calls };
+}
+
+describe('channelModelsEndpoint（协议分叉拼接——评审 #6 回归锁）', () => {
+  it('openai 形：baseUrl 已含 /v1 只拼 /models（不重拼 /v1/v1/models）', () => {
+    expect(channelModelsEndpoint('https://gw.test/v1', 'openai-completions')).toBe('https://gw.test/v1/models');
+    expect(channelModelsEndpoint('https://gw.test/v1/', 'openai-completions')).toBe('https://gw.test/v1/models'); // 尾斜杠容错
+  });
+  it('anthropic 形：根地址拼 /v1/models', () => {
+    expect(channelModelsEndpoint('https://gw.test', 'anthropic-messages')).toBe('https://gw.test/v1/models');
+  });
+});
+
+describe('fetchChannelModels（三态回执 + 协议头分叉）', () => {
+  it('openai 腿：Bearer 头 + /models 端点 + ok 清单去重保序', async () => {
+    const { fetchImpl, calls } = stubFetch(() => ({
+      status: 200,
+      body: JSON.stringify({ data: [{ id: 'm1' }, { id: 'm2' }, { id: 'm1' }, { id: '' }, { noId: true }] }),
+    }));
+    const result = await fetchChannelModels(
+      { baseUrl: 'https://gw.test/v1', protocol: 'openai-completions', apiKey: 'sk-k' },
+      { fetchImpl, resolveDns: publicDns },
+    );
+    expect(result).toEqual({ kind: 'ok', models: ['m1', 'm2'] }); // 去重 + 空串/坏条目跳过
+    expect(calls[0]?.url).toBe('https://gw.test/v1/models');
+    const headers = calls[0]?.init.headers as Record<string, string>;
+    expect(headers.authorization).toBe('Bearer sk-k');
+  });
+
+  it('anthropic 腿：x-api-key + anthropic-version 头 + /v1/models 端点', async () => {
+    const { fetchImpl, calls } = stubFetch();
+    await fetchChannelModels(
+      { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'sk-ant' },
+      { fetchImpl, resolveDns: publicDns },
+    );
+    expect(calls[0]?.url).toBe('https://gw.test/v1/models');
+    const headers = calls[0]?.init.headers as Record<string, string>;
+    expect(headers['x-api-key']).toBe('sk-ant');
+    expect(headers['anthropic-version']).toBe('2023-06-01');
+  });
+
+  it('非 2xx 折 failed（含状态码提示）；非 JSON / data 缺席同折', async () => {
+    const { fetchImpl: f1 } = stubFetch(() => ({ status: 401, body: 'nope' }));
+    expect(
+      await fetchChannelModels(
+        { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+        { fetchImpl: f1, resolveDns: publicDns },
+      ),
+    ).toMatchObject({ kind: 'failed', message: expect.stringContaining('401') });
+    const { fetchImpl: f2 } = stubFetch(() => ({ status: 200, body: 'not-json' }));
+    expect(
+      await fetchChannelModels(
+        { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+        { fetchImpl: f2, resolveDns: publicDns },
+      ),
+    ).toMatchObject({ kind: 'failed', message: expect.stringContaining('非 JSON') });
+    const { fetchImpl: f3 } = stubFetch(() => ({ status: 200, body: JSON.stringify({ object: 'list' }) }));
+    expect(
+      await fetchChannelModels(
+        { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+        { fetchImpl: f3, resolveDns: publicDns },
+      ),
+    ).toMatchObject({ kind: 'failed', message: expect.stringContaining('data 键缺席') });
+  });
+
+  it('3xx 重定向折 failed + 不跟随提示（评审 #8——redirect:manual 钉死由守卫透传层）', async () => {
+    const { fetchImpl } = stubFetch(() => ({ status: 302, headers: { location: 'https://other.test/login' } }));
+    const result = await fetchChannelModels(
+      { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+      { fetchImpl, resolveDns: publicDns },
+    );
+    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('不跟随重定向') });
+  });
+
+  it('体帽双闸：content-length 越帽先拒（不下载）', async () => {
+    const { fetchImpl } = stubFetch(() => ({ status: 200, headers: { 'content-length': String(300 * 1024) } }));
+    const result = await fetchChannelModels(
+      { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+      { fetchImpl, resolveDns: publicDns },
+    );
+    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('越体帽') });
+  });
+
+  it('超时帽：应答慢于注入 timeoutMs 即折 failed（8s 缺省帽的注入位证明）', async () => {
+    const fetchImpl: FetchLike = async () => {
+      await new Promise((r) => setTimeout(r, 200));
+      return new Response('{}', { status: 200 });
+    };
+    const result = await fetchChannelModels(
+      { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
+      { fetchImpl, resolveDns: publicDns, timeoutMs: 30 },
+    );
+    expect(result.kind).toBe('failed');
+  });
+
+  it('SSRF 必经：字面私网 baseUrl 守卫拒（WEB_ 折 failed），底层桩不被触达', async () => {
+    const spy = vi.fn();
+    const fetchImpl: FetchLike = spy as unknown as FetchLike;
+    const result = await fetchChannelModels(
+      { baseUrl: 'http://127.0.0.1:8080', protocol: 'openai-completions', apiKey: 'k' },
+      { fetchImpl, resolveDns: publicDns },
+    );
+    expect(result.kind).toBe('failed');
+    expect(spy).not.toHaveBeenCalled(); // 守卫先拒——透传层零触达
+  });
+});
