@@ -228,7 +228,14 @@ export type MaterialStage = 'full' | 'results-capped' | 'old-collapsed' | 'exhau
 /** Level 1 单条工具结果截断帽（保头字符数——超帽条截断保头 + 尾标记说明） */
 const RESULT_CAP_CHARS = 4_000;
 
-/** 素材总字符尺（与 planFromRange occludedChars 同源——逐消息 JSON 长度和） */
+/**
+ * 素材总字符尺（按素材发出形态计量：逐消息 pretty JSON〔null, 2〕长度和——
+ * 素材实际以 pretty 形发模型，buildSummaryPrompt 同式）。与 planFromRange
+ * occludedChars（compact 形）有意分立——素材尺=发出形、预算尺=compact 形，
+ * 两尺口径不同非漂移：降级判据对齐模型实收体积，fold.chars 记账走 durable
+ * 紧凑口径。原注宣称与 occludedChars「同源」系假同源（G6 勘正——不搬实现，
+ * 搬动需同步校验预算档断言）。
+ */
 function materialChars(messages: readonly ProjectedMessage[]): number {
   return messages.reduce((sum, m) => sum + JSON.stringify(m, null, 2).length, 0);
 }

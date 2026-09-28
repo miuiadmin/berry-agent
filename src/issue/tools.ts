@@ -14,12 +14,24 @@
  * 上下文帽：正文 + 评论合计 ISSUE_CONTEXT_CAP_BYTES（64KiB）——外部不可信
  * 文本进模型上下文的总闸（出口治理④字段瘦身同律）；超帽截断尾部并注记
  * （截断标记让模型自知信息不全，不静默丢）。
+ *
+ * 反查/评论翻页（单页帽 100）：绑定 issue 在 open 长尾（open 数超 100 的仓）
+ * 时单页 newest-100 反查会假报「已关闭或删除」——反查满页续翻（帽 5 页防
+ * 深翻，达帽话术诚实区分射程）；评论超 100 条单页会静默丢最新段——升序跟
+ * 尽翻页（帽 10 页 = 1000 条，达帽附溢出注记不静默丢）。
  */
 import { Type } from 'typebox';
 import type { ToolDefinition } from '../contracts/index.js';
 import type { GithubBackend } from './github.js';
-import type { IssueEscalation } from './types.js';
+import type { IssueCommentRef, IssueEscalation, IssueRef } from './types.js';
 import { ISSUE_CONTEXT_CAP_BYTES } from './types.js';
+
+/** 单页帽（与后端 per_page=100 同值——满页判定 = 可能还有更深页） */
+const LIST_PAGE_SIZE = 100;
+/** issue 反查翻页帽（5 页——防深翻；达帽即诚实缺席注记不硬翻） */
+const ISSUE_LOOKUP_PAGE_CAP = 5;
+/** 评论跟尽翻页帽（10 页 = 1000 条——达帽附溢出注记不静默丢） */
+const COMMENTS_PAGE_CAP = 10;
 
 /** 工具依赖（service 组装注入——backend 经窄面；onEscalate = 编排层登记回调〔⑪ 裁决 4〕） */
 export interface IssueToolsDeps {
@@ -33,6 +45,33 @@ export interface IssueToolsDeps {
 
 /** 组 issue 工具族（issue_get + issue_escalate——两件 effect read 恒免审批） */
 export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
+  /**
+   * 反查绑定 issue：单页起查，未命中且满页（= 可能还有更旧 open issue）续翻
+   * 至列尽（短页）或帽（5 页）。已知窄化边界：后端 listIssues 会滤掉 PR 混
+   * 列（100 原始行滤后 < 100 时提前判列尽）——残界极窄（须首页恰混 PR 且
+   * 目标在更深处），达帽话术的射程注记兜底诚实性。
+   */
+  const findBoundIssue = async (): Promise<{ issue: IssueRef | undefined; hitCap: boolean }> => {
+    for (let page = 1; page <= ISSUE_LOOKUP_PAGE_CAP; page++) {
+      const issues = await deps.backend.listIssues({ repo: deps.repo, page });
+      const mine = issues.find((i) => i.number === deps.number);
+      if (mine !== undefined) return { issue: mine, hitCap: false };
+      if (issues.length < LIST_PAGE_SIZE) return { issue: undefined, hitCap: false }; // 短页 = 列尽
+    }
+    return { issue: undefined, hitCap: true }; // 恒满页达帽——缺席话术区分射程
+  };
+
+  /** 评论跟尽：升序翻页至列尽（短页）或帽（10 页）——达帽溢出注记不静默丢 */
+  const collectComments = async (): Promise<{ list: IssueCommentRef[]; overflow: boolean }> => {
+    const list: IssueCommentRef[] = [];
+    for (let page = 1; page <= COMMENTS_PAGE_CAP; page++) {
+      const batch = await deps.backend.listComments({ repo: deps.repo, number: deps.number, page });
+      list.push(...batch);
+      if (batch.length < LIST_PAGE_SIZE) return { list, overflow: false };
+    }
+    return { list, overflow: true }; // 恒满页达帽——最新段未收录（升序取旧段）
+  };
+
   return [
     {
       name: 'issue_get',
@@ -41,15 +80,20 @@ export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
         '取当前 issue 的正文与全部评论（时间升序）。无参数——本会话已绑定该 issue。输出超 64KiB 时尾部截断并注记。',
       parameters: Type.Object({}),
       execute: async () => {
-        const [issues, comments] = await Promise.all([
-          deps.backend.listIssues({ repo: deps.repo }),
-          deps.backend.listComments({ repo: deps.repo, number: deps.number }),
-        ]);
-        const mine = issues.find((i) => i.number === deps.number);
+        // 反查腿（可多页）与评论腿（可多页）并行——两腿互不阻塞
+        const [found, comments] = await Promise.all([findBoundIssue(), collectComments()]);
+        const mine = found.issue;
         if (mine === undefined) {
           return {
             content: [
-              { type: 'text' as const, text: `issue ${deps.repo}#${deps.number} 不在源返回集内（可能已关闭或删除）` },
+              {
+                type: 'text' as const,
+                // 达帽形区分射程（「不在最新 500 条内」）——恒满页时「列尽」
+                // 话术是假列尽（更深页存在只是不翻了），诚实注记翻页帽
+                text: found.hitCap
+                  ? `issue ${deps.repo}#${deps.number} 不在最新 ${ISSUE_LOOKUP_PAGE_CAP * 100} 条 open issue 内（可能已关闭或删除——或超出翻页帽，更深须人面直查）`
+                  : `issue ${deps.repo}#${deps.number} 不在源返回集内（可能已关闭或删除）`,
+              },
             ],
             isError: true,
           };
@@ -62,10 +106,17 @@ export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
           '',
           mine.body || '（正文为空）',
         ];
-        if (comments.length > 0) {
+        if (comments.list.length > 0) {
           sections.push('', '## 评论');
-          for (const c of comments) {
+          for (const c of comments.list) {
             sections.push(`— ${c.author}（${c.createdAt}）：`, c.body || '（空）');
+          }
+          if (comments.overflow) {
+            // 溢出注记（升序取旧段——最新段未收录）：模型自知信息不全
+            sections.push(
+              '',
+              `…（评论超 ${COMMENTS_PAGE_CAP * 100} 条帽——以上为最早的 ${comments.list.length} 条，更新段未收录）`,
+            );
           }
         }
         let text = sections.join('\n');
@@ -83,7 +134,7 @@ export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
           }
           text = `${kept.join('\n')}\n\n…（内容超 ${ISSUE_CONTEXT_CAP_BYTES} 字节帽已截断——评论可能不全）`;
         }
-        return { content: [{ type: 'text' as const, text }], details: { comments: comments.length } };
+        return { content: [{ type: 'text' as const, text }], details: { comments: comments.list.length } };
       },
     },
     {

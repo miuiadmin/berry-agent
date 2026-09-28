@@ -4,6 +4,7 @@
  *
  * 纪律：SessionLog 全真（session 件——纯内存缺省）；无 mock。
  */
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { SessionLog } from '../session/index.js';
 import { DEFAULT_COMPACTION_CONFIG } from './types.js';
@@ -418,5 +419,17 @@ describe('inCooldown', () => {
     expect(inCooldown(null, 0, CFG)).toBe(false);
     expect(inCooldown(1_000, 1_000 + CFG.cooldownMs - 1, CFG)).toBe(true);
     expect(inCooldown(1_000, 1_000 + CFG.cooldownMs, CFG)).toBe(false);
+  });
+});
+
+describe('materialChars 口径注记（G6 词法锁——行为等价注释勘正）', () => {
+  it('注释如实声明 pretty 计量与 compact 口径有意分立（关键句恰一处——再漂移即本锁红）', () => {
+    // 行为面自洽（素材以 pretty 形发模型——buildSummaryPrompt 同式），不改
+    // 实现；锁的是注记诚实性：宣称与 occludedChars「同源」是假同源（pretty
+    // vs compact 两把尺），勘正句在场且单源。
+    const source = readFileSync(new URL('./policy.ts', import.meta.url), 'utf8');
+    expect(source.split('素材尺=发出形、预算尺=compact 形').length - 1).toBe(1);
+    // 实现形仍单源 pretty（搬实现需同步校验预算档断言——风险大于收益，不搬）
+    expect(source.split('JSON.stringify(m, null, 2)').length - 1).toBe(1);
   });
 });

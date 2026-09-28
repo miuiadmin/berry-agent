@@ -36,7 +36,10 @@ const BOX_PREFIX = 'v1:';
 /**
  * 加载或生成数据密钥（幂等自举）：
  *  - 在场：读出并校验长度（长度异常 = 密钥文件损坏 → fail-loud，宁拒勿猜）；
- *  - 缺席：randomBytes(32) 落盘（0600——写入即带权限，勿先宽后收留窗口）。
+ *  - 缺席：randomBytes(32) 以 wx（O_EXCL）独占创建落盘（0600——写入即带权限，
+ *    勿先宽后收留窗口）。双进程并发首启的败者在 wx 收 EEXIST → 复读胜者钥
+ *    收敛（先到者赢）——无 wx 则后写者静默覆盖胜者钥，败者持异钥返回 = 其
+ *    密文永久 PERSIST_SECRET_UNREADABLE（check-then-write 竞态封堵）。
  * @param dataDir 数据目录（须已存在——ensureDataDir 前置）
  * @param warn 权限修复告警面（0600 自检修复 + warn，05 §6.6 同款纪律）
  * @returns 32 字节密钥
@@ -44,19 +47,31 @@ const BOX_PREFIX = 'v1:';
 export function loadOrCreateSecretKey(dataDir: string, warn: (message: string) => void): Buffer {
   const keyPath = dataFilePath(dataDir, SECRET_KEY_BASENAME);
   if (existsSync(keyPath)) {
-    const key = readFileSync(keyPath);
-    if (key.length !== SECRET_KEY_LENGTH) {
-      throw new BaseError(
-        'PERSIST_SECRET_UNREADABLE',
-        `密钥文件 ${keyPath} 长度 ${key.length} ≠ ${SECRET_KEY_LENGTH} 字节（损坏或手编）——移除该文件并重录凭证可恢复（旧密文作废）`,
-      );
-    }
-    repairFileMode(keyPath, '密钥文件', warn);
-    return key;
+    return readExistingKey(keyPath, warn);
   }
   const key = randomBytes(SECRET_KEY_LENGTH);
-  // mode 0600 在创建时即生效（open(2) O_CREAT 权限位——umask 只会收紧不会放宽）
-  writeFileSync(keyPath, key, { mode: 0o600 });
+  try {
+    // mode 0600 在创建时即生效（open(2) O_CREAT 权限位——umask 只会收紧不会放宽）
+    writeFileSync(keyPath, key, { mode: 0o600, flag: 'wx' });
+    return key;
+  } catch (err) {
+    // 败者收敛：EEXIST = check-then-write 间隙他进程已胜出——弃自钥复读胜者
+    // 钥（同在场路径的校验纪律）；其余写失败（EACCES/ENOSPC 等）原样上抛
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    return readExistingKey(keyPath, warn);
+  }
+}
+
+/** 在场密钥读取（胜者路径与竞态败者复读共用：读出 + 长度校验 + 权限自检） */
+function readExistingKey(keyPath: string, warn: (message: string) => void): Buffer {
+  const key = readFileSync(keyPath);
+  if (key.length !== SECRET_KEY_LENGTH) {
+    throw new BaseError(
+      'PERSIST_SECRET_UNREADABLE',
+      `密钥文件 ${keyPath} 长度 ${key.length} ≠ ${SECRET_KEY_LENGTH} 字节（损坏或手编）——移除该文件并重录凭证可恢复（旧密文作废）`,
+    );
+  }
+  repairFileMode(keyPath, '密钥文件', warn);
   return key;
 }
 

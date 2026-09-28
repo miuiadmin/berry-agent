@@ -2,8 +2,9 @@
  * GitHub 源后端（03 §10.7 触发面——轮询/webhook 两源共用的取数腿）。
  *
  * 只走 REST v3（议题/评论面够用——GraphQL 引入零必要）；fetch 注入式
- * （`fetchImpl` 缺省全局 fetch——测试注假件，零真网络纪律）；分页单页帽
- * 100、不翻页（轮询 since 增量窗内单页 100 通常覆盖；溢出诚实注记于
+ * （`fetchImpl` 缺省全局 fetch——测试注假件，零真网络纪律）；list 族单页帽
+ * 100、单页语义（每请求恰一页——翻页由调用方携 `page` 驱动：issue_get 反查
+ * 翻页/评论跟尽；轮询 since 增量窗内单页 100 通常覆盖，溢出诚实注记于
  * PollReport——不静默丢）。PR 混列：GitHub issues API 把 PR 计入 issues 列
  * 表，`pull_request` 字段在场即过滤。
  *
@@ -34,10 +35,10 @@ export interface GithubPullRequestRef {
 
 /** 源后端窄面（poll/webhook/tools/service 四消费方——service 组装注入） */
 export interface GithubBackend {
-  /** 列仓 issues（state=open；since 增量窗；单页帽 100） */
-  listIssues(req: { repo: string; since?: string }): Promise<IssueRef[]>;
-  /** 列 issue 评论（升序——issue_get 数据源） */
-  listComments(req: { repo: string; number: number }): Promise<IssueCommentRef[]>;
+  /** 列仓 issues（state=open；since 增量窗；单页帽 100——page 位驱动翻页〔issue_get 反查用〕） */
+  listIssues(req: { repo: string; since?: string; page?: number }): Promise<IssueRef[]>;
+  /** 列 issue 评论（升序——issue_get 数据源；单页帽 100——page 位驱动翻页〔issue_get 跟尽用〕） */
+  listComments(req: { repo: string; number: number; page?: number }): Promise<IssueCommentRef[]>;
   /** issue 评论投递（回执面——draft 贴补丁/终态回执；折码律同 list*） */
   postComment(req: { repo: string; number: number; body: string }): Promise<{ id: number }>;
   /** 开 PR（04 §13 create-pr 执行腿——REST `POST /repos/:o/:r/pulls`，postComment 同形 fetch-only 扩法） */
@@ -141,6 +142,8 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
       assertRepoValid(req.repo);
       const params = new URLSearchParams({ state: 'open', per_page: '100' });
       if (req.since !== undefined) params.set('since', req.since);
+      // page 位透传（调用方驱动翻页——缺省单页〔轮询语义〕）
+      if (req.page !== undefined) params.set('page', String(req.page));
       const rows = await requestJson<GhIssueRow[]>(`/repos/${req.repo}/issues?${params.toString()}`);
       // PR 混列过滤（pull_request 字段在场即 PR——issues API 语义）
       return rows
@@ -160,8 +163,11 @@ export function createGithubBackend(opts: GithubBackendOptions): GithubBackend {
 
     async listComments(req) {
       assertRepoValid(req.repo);
+      const params = new URLSearchParams({ per_page: '100', sort: 'created', direction: 'asc' });
+      // page 位透传（调用方驱动翻页——缺省单页）
+      if (req.page !== undefined) params.set('page', String(req.page));
       const rows = await requestJson<GhCommentRow[]>(
-        `/repos/${req.repo}/issues/${req.number}/comments?per_page=100&sort=created&direction=asc`,
+        `/repos/${req.repo}/issues/${req.number}/comments?${params.toString()}`,
       );
       return rows.map((r) => ({
         id: r.id,

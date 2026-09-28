@@ -40,7 +40,7 @@ class FakeTimers implements TimerSeam {
  * 假 runner：每 spawn 记请求；resolve(i, outcome) 手动收场第 i 枚；
  * kill 记 reason 并可 resolveWith 使 settled 收场。
  */
-function fakeRunner(): RunnerFactory & {
+function fakeRunner(spawnOverride?: RunnerFactory['spawn']): RunnerFactory & {
   requests: RunnerRequest[];
   kills: Array<{ index: number; reason: string }>;
   resolve: (index: number, outcome?: Partial<RunOutcome>) => void;
@@ -61,6 +61,8 @@ function fakeRunner(): RunnerFactory & {
       });
     },
     async spawn(req) {
+      // spawn 位覆写（G1 火种链防崩测试注拒绝形——绕过记录机制直注行为形）
+      if (spawnOverride) return spawnOverride(req);
       const index = requests.length;
       requests.push(req);
       let settledResolve!: (o: RunOutcome) => void;
@@ -108,6 +110,8 @@ function assemble(
     maxConcurrent?: number;
     wallTimeoutMs?: number;
     isPidAlive?: (pid: number) => boolean;
+    /** spawn 位覆写（火种链防崩测试注拒绝形——缺省 fakeRunner 记录形） */
+    spawnOverride?: RunnerFactory['spawn'];
   } = {},
 ): {
   service: SchedulerService;
@@ -129,7 +133,7 @@ function assemble(
     pathExists: () => true,
   });
   const timers = new FakeTimers();
-  const runner = fakeRunner();
+  const runner = fakeRunner(options.spawnOverride);
   const engine = createSchedulerEngine({
     dao,
     runner,
@@ -488,5 +492,68 @@ describe('时钟回拨窗（注入假钟——回拨不重触发、恢复后 swe
     await vi.waitFor(() => expect(engine.inFlightCount).toBe(0));
     expect(dao.get('j')?.lastOutcome?.reason).toBe('exit_code');
     expect(dao.get('j')?.lastFireAt).not.toBeNull();
+  });
+});
+
+/**
+ * 火种链防崩（G1 回归锁）：doSweep 对 fireRow 的 void 调用必须自带 catch——
+ * spawn / dao 结算腿任一拒绝穿透 void 即 unhandledRejection，生产形 = 崩溃
+ * 编舞 exit(1) 连杀在飞会话（无人值守宿主不可接受）。修前红：拒绝直穿
+ * process 级 unhandledRejection 且 warn 零呼；修后 warn 记账（行名+错误）不重抛。
+ */
+describe('sweep 火种链防崩（void fireRow 拒绝必接）', () => {
+  /** 微任务排空两轮（promise 链拒绝穿透 / catch 到位判定前先排干） */
+  async function drainMicrotasks(): Promise<void> {
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+  }
+
+  it('runner.spawn 拒绝：warn 记账（行名+错误）不穿透 unhandledRejection', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const boom = new Error('spawn-boom');
+      const { service, engine } = assemble({
+        spawnOverride: () => Promise.reject(boom),
+      });
+      service.addJob({ name: 'j', schedule: 'every:5s', prompt: 'p', enabled: true });
+      engine.start();
+      advance(10_000);
+      engine.sweep();
+      await drainMicrotasks();
+      // 修前红锚：void fireRow 无 catch——warn 零呼 + 拒绝进 unhandledRejection
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('spawn-boom'));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('j'));
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  it('handle.settled 拒绝同律：warn 记账不穿透（结算腿契约破约也不崩宿主）', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      // 真 runner 契约 settled 永不 reject——此处故意破约（防御面测试：接缝
+      // 实装可换，引擎侧对 void 调用不赌下游契约）
+      const { service, engine } = assemble({
+        spawnOverride: async () => ({
+          pid: 900099,
+          kill: () => undefined,
+          settled: Promise.reject(new Error('settled-boom')),
+        }),
+      });
+      service.addJob({ name: 'j', schedule: 'every:5s', prompt: 'p', enabled: true });
+      engine.start();
+      advance(10_000);
+      engine.sweep();
+      await drainMicrotasks();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('settled-boom'));
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 });

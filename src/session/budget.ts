@@ -29,15 +29,48 @@ export function escapedBytes(text: string): number {
  */
 export function budgetString(text: string, budget: number = EVENT_BUDGET_BYTES): string {
   if (escapedBytes(text) <= budget) return text;
-  // 转义只增不减：原文截到 budget 字节是安全上界（转义后 ≤ 原文 × 截点）
-  let sliced = Buffer.from(text, 'utf8').subarray(0, budget).toString('utf8');
-  // 收敛循环：截段+尾标记的转义体积压进预算。按超限比例收缩（几何收敛——
-  // 控制字符 6x 形态一轮即近界），近界后逐字符兜底（subarray 可能切在多字节
-  // 字符中间，toString 对坏尾替换 U+FFFD——可接受且不影响收敛）
-  while (escapedBytes(sliced) + escapedBytes(marker(text.length - sliced.length)) > budget) {
-    sliced = sliced.slice(0, Math.max(sliced.length - 1, 0));
-    if (sliced.length === 0) break;
+  // 转义只增不减：原文截到 budget 字节是安全上界（转义后 ≤ 原文 × 截点）。
+  // subarray 可能切在多字节字符中间，toString 对坏尾替换 U+FFFD——可接受
+  // 且不影响收敛（截段只会更短）
+  const initial = Buffer.from(text, 'utf8').subarray(0, budget).toString('utf8');
+  /** 截段前 len 字符 + 尾标记是否进预算（同尺判定——含标记自身转义体积） */
+  const fits = (len: number): boolean => {
+    const sliced = initial.slice(0, len);
+    return escapedBytes(sliced) + escapedBytes(marker(text.length - sliced.length)) <= budget;
+  };
+  if (!fits(0)) {
+    // 空段 + 尾标记仍超帽（预算小于标记体积的极端形）：照旧整段弃返回尾
+    // 标记（可观测降级不静默丢——与旧逐字符形边界一致）
+    return marker(text.length);
   }
+  if (fits(initial.length)) {
+    // 全段即进预算（编码期折损形：原文含孤立代理子时 UTF-8 编码逐个折
+    // U+FFFD，截段转义体积可反低于原文——转义膨胀超帽但截段不超）：整段
+    // 直过（旧逐字符形同此边界——首判即过零收缩）
+    return initial + marker(text.length - initial.length);
+  }
+  // 安全截位点（代理对不切断）：截段以孤立高代理子收尾的位点（恰切在代理
+  // 对中间）会破坏单调性——完整对的 JSON 原样 4 字节、切断后孤立代理子
+  // 转义 \udXXX 反升 2 字节，进预算长度集不再向下封闭（朴素二分会跳过更
+  // 大可行界——对拍锁实测抓获形）。最大可行界必在安全位：切断位体积恒高
+  // 于其 +1 邻位（补全对子净降），可行则邻位更可行且更大，矛盾。
+  const safeCuts: number[] = [0];
+  for (let i = 1; i <= initial.length; i++) {
+    const prev = initial.charCodeAt(i - 1);
+    if (prev < 0xd800 || prev > 0xdbff) safeCuts.push(i); // 前一字符非高代理子 = 不切对
+  }
+  // 几何收敛（对齐本函数历来宣称）：安全位上体积和随截段长度单调不增——
+  // 每短一字符截段转义体积至少减 1 字节（跨对子短两位减 ≥4 字节）、尾标记
+  // N 位数对数缓增——二分找最大进预算安全位。O(log n) 次探测替代旧逐字符
+  // O(n²) 收缩（60KiB 帽 × 控制字符 6x 形曾在超帽 append 热路径数百毫秒级空转）
+  let loIdx = 0; // 已知进预算（0 位——上方已验）
+  let hiIdx = safeCuts.length - 1; // 已知超预算（全段位——上方已验）
+  while (hiIdx - loIdx > 1) {
+    const midIdx = (loIdx + hiIdx) >> 1;
+    if (fits(safeCuts[midIdx]!)) loIdx = midIdx;
+    else hiIdx = midIdx;
+  }
+  const sliced = initial.slice(0, safeCuts[loIdx]!);
   return sliced + marker(text.length - sliced.length);
 }
 

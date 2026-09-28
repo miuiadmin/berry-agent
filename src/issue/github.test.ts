@@ -156,6 +156,27 @@ describe('createPullRequest（04 §13 create-pr 执行腿）', () => {
   });
 });
 
+describe('page 参数透传（G4/G5——单页语义 + 调用方驱动翻页）', () => {
+  it('listIssues 携 page 带 page=N query；缺省不带（轮询单页语义不变）', async () => {
+    // Response body 单次消费——两形各配独立假件
+    const withPage = fakeFetch({ '/repos/o/r/issues': json([]) });
+    const backend1 = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: withPage.fetch });
+    await backend1.listIssues({ repo: 'o/r', page: 2 });
+    expect(withPage.calls[0]!.path).toContain('page=2'); // 修前红锚：page 位未透传
+    const noPage = fakeFetch({ '/repos/o/r/issues': json([]) });
+    const backend2 = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: noPage.fetch });
+    await backend2.listIssues({ repo: 'o/r' });
+    expect(noPage.calls[0]!.path).not.toContain('&page='); // 缺省零翻页痕迹（&page= 锚避免 per_page= 误中）
+  });
+
+  it('listComments 携 page 同律', async () => {
+    const ff = fakeFetch({ '/repos/o/r/issues/7/comments': json([]) });
+    const backend = createGithubBackend({ token: 'tk', apiBase: API, fetchImpl: ff.fetch });
+    await backend.listComments({ repo: 'o/r', number: 7, page: 3 });
+    expect(ff.calls[0]!.path).toContain('page=3'); // 修前红锚：page 位未透传
+  });
+});
+
 describe('折码（限额/不可达）', () => {
   it('403 → ISSUE_SOURCE_RATE_LIMITED，retryAfter 取 x-ratelimit-reset', async () => {
     // 时钟注入定稳秒边界：修前测试与实现两次独立读墙钟——两读间跨秒刻

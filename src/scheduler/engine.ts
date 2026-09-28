@@ -301,7 +301,15 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
         if (active.has(row.name) || reserved.has(row.name)) continue;
         if (launched >= maxConcurrent) break; // 帽满留 due——下轮 sweep 补觉（定时夹取防自旋）
         launched += 1;
-        void fireRow(row, 'clock');
+        // 火种链防崩（G1）：fireRow 体内 runner.spawn / handle.settled / dao 结算
+        // 写库任一拒绝，void 调用无接即 unhandledRejection——崩溃编舞 exit(1)
+        // 会连杀在飞会话（无人值守宿主不可接受）。catch 记账（行名+火种）不
+        // 重抛：单行单次失败不阻轮询编舞（结算未推进的行下轮 sweep 照常补觉）。
+        void fireRow(row, 'clock').catch((err) => {
+          warn(
+            `[scheduler] fire 失败（任务 ${row.name}，clock 道）：${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
       }
     } finally {
       sweeping = false;
