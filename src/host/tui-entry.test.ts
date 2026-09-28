@@ -1349,7 +1349,7 @@ describe('零事件会话锚活体镜像（三消费位——@ 补全 / /rewind 
 });
 
 describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验证改裁注）', () => {
-  it('零参开向导：intro 行落屏（faux provider 入清单）+ esc 中止收场（凭证表未改动）', async () => {
+  it('零参开向导：intro 行落屏（faux provider 入官方桶）+ esc 中止收场（零改动回执）', async () => {
     const dataDir = rigDir('tui-setup-data-');
     const ws = rigDir('tui-setup-ws-');
     const { entry, io } = await rigEntry(dataDir, ws, {
@@ -1357,13 +1357,13 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     });
     io.send('/setup\r');
     await until(() => io.output.includes('⚙ 配置向导'));
-    // 选择相呈现：faux provider 在清单 + 手录尾项在场
+    // 分桶选单呈现（v2）：faux provider 入官方桶 + 新建自定义渠道尾项
     expect(io.output).toContain('faux-entry');
-    expect(io.output).toContain('手录自定义');
+    expect(io.output).toContain('+ 新建自定义渠道'); // v1「手录自定义 provider」腿退役
     // esc 中止（选择步取消）→ outro 已退出收场 + 主屏照常（ctrl+d 可退）
     io.send('\x1b');
     await until(() => io.output.includes('向导已退出'));
-    expect(io.output).toContain('凭证表未改动');
+    expect(io.output).toContain('未保存任何改动');
     io.send('\x04');
     expect(await entry).toBe(0);
   });

@@ -50,12 +50,14 @@ export type { BootAnimationOptions } from './tui/index.js';
 // 产线单键读归一单源）
 export type { OnboardingDecision, OnboardingPanelOptions } from './tui/index.js';
 export { buildOnboardingLines, normalizeOnboardingKey, runOnboardingPanel } from './tui/index.js';
-// 配置向导提问器契约（onboarding ob-3 /setup——三步轻向导交互接口）：host
-// 流程件（runSetupWizard）与 TUI 副屏实装（tui/panels/setup-wizard 相态机）
+// 配置向导提问器契约（onboarding ob-3 /setup 向导交互接口；2026-09-28 模型
+// 渠道批 C-3 v2：desc 位 + multiselect 法 + 录入明文翻裁）：host 流程件
+// （runSetupWizard）与 TUI 副屏实装（tui/panels/setup-wizard 相态机）
 // 两消费面同一契约——接口居本面（host → channels 既有边零新边）
 export type {
   WizardSelectItem,
   WizardSelectRequest,
+  WizardMultiselectRequest,
   WizardTextRequest,
   WizardConfirmRequest,
   WizardPrompter,

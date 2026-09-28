@@ -428,6 +428,11 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       hookDispatchGuard,
       // worktree 消费接线（见上方单真身注——件/栈同源双注之一）
       worktree: worktreeService,
+      // 自定义渠道 env 豁免集（2026-09-28 模型渠道批 C-3——07 §8.4 裁决：
+      // env 不合成不供血、绑定行唯一源；boot 快照——向导路活注册同步扩集）
+      ...(settingsLoad?.settings.customProviders !== undefined
+        ? { customProviderIds: Object.keys(settingsLoad.settings.customProviders) }
+        : {}),
       ...(options.providers !== undefined ? { providers: options.providers } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),

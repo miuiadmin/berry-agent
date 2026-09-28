@@ -1,12 +1,13 @@
 /**
- * /setup 配置向导副屏件测试（onboarding ob-3）：五相呈现与键路由直锁——
- * select（光标/翻选/enter 选定/esc 与 q 双轨取消）、text（敏感掩码/追加/
- * backspace/enter 回值/字母 q 可录入非捷键）、confirm（y/n 直答/enter 取
- * 缺省/esc 取消）、outro（任意键收屏）、Ctrl+C 打断不退屏、Ctrl+D 撤题退
- * 出（text 相有文不退——主屏空框闸让路同律）、退出闭锁后 prompter 法即时
- * 回值、敏感值不入面（渲染帧无明文）；外部收屏路（OverlayContent onClosed
- * ——AltScreenHost.close 单源调）悬题 settle；滚轮相态分派（select 相滚
- * 清单、text/confirm 相零动作）。
+ * /setup 配置向导副屏件测试（onboarding ob-3 + 2026-09-28 模型渠道批 C-3
+ * v2）：六相呈现与键路由直锁——select（光标/翻选/enter 选定/esc 与 q 双轨
+ * 取消/desc 次行）、multiselect（空格双轨勾选/enter 回保序清单/空选合法/
+ * preselect/q 取消）、text（**明文回显翻裁锁**、追加、backspace、enter 回值、
+ * 字母 q 可录入非捷键）、confirm（y/n 直答/enter 取缺省/esc 取消/lines 附呈
+ * 行）、outro（任意键收屏）、Ctrl+C 打断不退屏、Ctrl+D 撤题退出（text 相
+ * 有文不退——主屏空框闸让路同律）、退出闭锁后 prompter 法即时回值；外部
+ * 收屏路（OverlayContent onClosed——AltScreenHost.close 单源调）悬题
+ * settle；滚轮相态分派（select/multiselect 相滚清单、text/confirm 相零动作）。
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent, MouseEvent, TextInputEvent } from '../../engine/index.js';
@@ -96,6 +97,23 @@ describe('select 相（provider 选择）', () => {
     await expect(pending).resolves.toBe('openai');
   });
 
+  it('desc 次行渲染（v2 分桶选单渠道元信息位——baseUrl 次行 dim）', () => {
+    const { panel } = makePanel();
+    void panel.select({
+      title: '选择模型渠道',
+      items: [
+        { id: 'official:anthropic', label: 'Anthropic ✓', desc: '已配置 · https://api.anthropic.com' },
+        { id: '__new_custom__', label: '＋ 自定义网关' },
+      ],
+      note: '官方渠道 + 自定义渠道分桶',
+    });
+    const grid = paint(panel);
+    expect(readRow(grid, 1, 72)).toContain('Anthropic ✓');
+    expect(readRow(grid, 2, 72)).toContain('已配置 · https://api.anthropic.com'); // desc 次行
+    expect(readRow(grid, 3, 72)).toContain('自定义网关'); // 无 desc 不占次行
+    expect(readRow(grid, 4, 72)).toContain('分桶');
+  });
+
   it('esc 取消回 undefined；q 双轨同收（key 轨 + kitty text 轨）', async () => {
     const a = makePanel();
     const pa = a.panel.select(SELECT_REQ);
@@ -129,22 +147,112 @@ describe('select 相（provider 选择）', () => {
   });
 });
 
-describe('text 相（key 录入）', () => {
-  const TEXT_REQ = { title: 'anthropic API key', sensitive: true, hint: '整行粘贴可带前缀' } as const;
+describe('multiselect 相（v2——模型清单勾选）', () => {
+  const MULTI_REQ = {
+    title: '勾选该渠道要用的模型',
+    items: [
+      { id: 'gw-large', label: 'gw-large' },
+      { id: 'gw-small', label: 'gw-small' },
+      { id: 'gw-mini', label: 'gw-mini' },
+    ],
+    note: '空格勾选 · 全不选 = 转手填',
+  } as const;
 
-  it('敏感掩码呈现——明文不入帧', async () => {
+  it('空格双轨勾选（key 轨 space 命名形/字符形）+ ◉/○ 标记对生渲染', async () => {
+    const { panel } = makePanel();
+    const pending = panel.multiselect(MULTI_REQ);
+    panel.handleEvent(k('space')); // 光标在 gw-large——key 轨命名形勾选
+    panel.handleEvent(k('down'));
+    panel.handleEvent(k(' ')); // key 轨字符形勾 gw-small（引擎双形防御）
+    const grid = paint(panel);
+    expect(readRow(grid, 1, 72)).toContain('◉ gw-large'); // 勾选留痕（光标已下移）
+    expect(readRow(grid, 2, 72)).toContain('▸ ◉ gw-small'); // 光标 + 勾选同帧
+    expect(readRow(grid, 3, 72)).toContain('○ gw-mini'); // 未勾标记对生
+    panel.handleEvent(k('enter'));
+    await expect(pending).resolves.toEqual(['gw-large', 'gw-small']);
+  });
+
+  it('kitty text 轨空格同判（打字轨勾选——market-picker 双轨同形）', async () => {
+    const { panel } = makePanel();
+    const pending = panel.multiselect(MULTI_REQ);
+    panel.handleEvent(k('down'));
+    panel.handleEvent(t(' ')); // text 轨空格勾 gw-small
+    panel.handleEvent(k('enter'));
+    await expect(pending).resolves.toEqual(['gw-small']);
+  });
+
+  it('enter 回 items 序保序清单（勾选序无关——Set 无序，呈现序即回值序）', async () => {
+    const { panel } = makePanel();
+    const pending = panel.multiselect(MULTI_REQ);
+    panel.handleEvent(k('down'));
+    panel.handleEvent(k('down'));
+    panel.handleEvent(k('space')); // 先勾尾项 gw-mini
+    panel.handleEvent(k('up'));
+    panel.handleEvent(k('up'));
+    panel.handleEvent(k('space')); // 后勾首项 gw-large
+    panel.handleEvent(k('enter'));
+    await expect(pending).resolves.toEqual(['gw-large', 'gw-mini']); // items 序非勾选序
+  });
+
+  it('空清单合法（直接 enter 回 []——流程侧解释转手填）', async () => {
+    const { panel } = makePanel();
+    const pending = panel.multiselect(MULTI_REQ);
+    panel.handleEvent(k('enter'));
+    await expect(pending).resolves.toEqual([]);
+  });
+
+  it('preselect 预选集（编辑重入勾选初始态）', async () => {
+    const { panel } = makePanel();
+    const pending = panel.multiselect({ ...MULTI_REQ, preselect: ['gw-mini'] });
+    const grid = paint(panel);
+    expect(readRow(grid, 3, 72)).toContain('◉ gw-mini'); // 初始态即勾选渲染
+    panel.handleEvent(k('enter'));
+    await expect(pending).resolves.toEqual(['gw-mini']);
+  });
+
+  it('空格再按撤销勾选（Set 增删幂等）', async () => {
+    const { panel } = makePanel();
+    const pending = panel.multiselect(MULTI_REQ);
+    panel.handleEvent(k('space'));
+    panel.handleEvent(k('space')); // 再按撤销
+    panel.handleEvent(k('enter'));
+    await expect(pending).resolves.toEqual([]);
+  });
+
+  it('esc/q 取消回 undefined（key 轨 + kitty text 轨）', async () => {
+    const a = makePanel();
+    const pa = a.panel.multiselect(MULTI_REQ);
+    a.panel.handleEvent(k('escape'));
+    await expect(pa).resolves.toBeUndefined();
+
+    const b = makePanel();
+    const pb = b.panel.multiselect(MULTI_REQ);
+    b.panel.handleEvent(k('q'));
+    await expect(pb).resolves.toBeUndefined();
+
+    const c = makePanel();
+    const pc = c.panel.multiselect(MULTI_REQ);
+    c.panel.handleEvent(t('q'));
+    await expect(pc).resolves.toBeUndefined();
+  });
+});
+
+describe('text 相（key 录入——全明文翻裁 2026-09-28）', () => {
+  const TEXT_REQ = { title: 'anthropic API key', hint: '整行粘贴可带前缀' } as const;
+
+  it('明文回显（全明文翻裁锁——v1 掩码 ● 相退役，帧即所录）', async () => {
     const { panel } = makePanel();
     const pending = panel.text(TEXT_REQ);
     panel.handleEvent(t('sk-secret-value'));
     const grid = paint(panel);
     const frame = [1, 2, 3].map((row) => readRow(grid, row, 72)).join('\n');
-    expect(frame).not.toContain('sk-secret-value');
-    expect(frame).toContain('●');
+    expect(frame).toContain('sk-secret-value'); // 明文入帧（人面所见即所录——用户拍板翻裁）
+    expect(frame).not.toContain('●'); // 掩码符退役（修前红：v1 此帧为 ● 重复）
     panel.handleEvent(k('enter'));
-    await expect(pending).resolves.toBe('sk-secret-value'); // 值只经回值出屏
+    await expect(pending).resolves.toBe('sk-secret-value');
   });
 
-  it('非敏感原文呈现（自定义 id 步）', async () => {
+  it('普通文本同律原文呈现', async () => {
     const { panel } = makePanel();
     const pending = panel.text({ title: 'provider id' });
     panel.handleEvent(t('my-gateway'));
@@ -180,11 +288,11 @@ describe('text 相（key 录入）', () => {
     await expect(pending).resolves.toBe('export K=sk-p');
   });
 
-  it('preview 行呈现（头4尾4）', () => {
+  it('preview 行呈现（当前值完整显示——全明文同律）', () => {
     const { panel } = makePanel();
-    void panel.text({ ...TEXT_REQ, preview: 'sk-o…9999' });
+    void panel.text({ ...TEXT_REQ, preview: 'sk-old-value-9999' });
     const grid = paint(panel);
-    expect(readRow(grid, 2, 72)).toContain('sk-o…9999');
+    expect(readRow(grid, 2, 72)).toContain('sk-old-value-9999');
   });
 
   it('esc 取消回 undefined', async () => {
@@ -250,6 +358,20 @@ describe('confirm 相', () => {
     const pending = panel.confirm({ title: '写?', defaultYes: true });
     panel.handleEvent(k('escape'));
     await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('lines 附呈行（v2 全值回执位——confirm 前直呈所录值，明文翻裁同律）', () => {
+    const { panel } = makePanel();
+    void panel.confirm({
+      title: '保存自定义渠道？',
+      lines: ['渠道：my-gateway', 'key：sk-live-1234', '模型：gw-large, gw-small'],
+      defaultYes: true,
+    });
+    const grid = paint(panel);
+    expect(readRow(grid, 2, 72)).toContain('my-gateway');
+    expect(readRow(grid, 3, 72)).toContain('sk-live-1234'); // key 全值入帧（掩码符退役同律）
+    expect(readRow(grid, 4, 72)).toContain('gw-large, gw-small');
+    expect(readRow(grid, 5, 72)).toContain('[是]'); // 附呈行不挤选择行
   });
 
   it('提示行「enter 取」随切换态（与括号标记同源——非 req.defaultYes 初值）', () => {
@@ -398,6 +520,23 @@ describe('滚轮消费（C5——相态机内分派）', () => {
     panel.handleEvent(wheel('wheel-down')); // ±3 夹取到尾项（3 条表）
     panel.handleEvent(k('enter'));
     await expect(pending).resolves.toBe('__manual_provider__');
+  });
+
+  it('multiselect 相滚清单（与 select 同路 ±3 夹取——v2 相并入滚轮分派）', async () => {
+    const { panel } = makePanel();
+    const pending = panel.multiselect({
+      title: '勾选模型',
+      items: [
+        { id: 'm1', label: 'm1' },
+        { id: 'm2', label: 'm2' },
+        { id: 'm3', label: 'm3' },
+        { id: 'm4', label: 'm4' },
+      ],
+    });
+    panel.handleEvent(wheel('wheel-down')); // +3 夹取到尾项 m4
+    panel.handleEvent(k('space')); // 滚轮移位后光标位勾选
+    panel.handleEvent(k('enter'));
+    await expect(pending).resolves.toEqual(['m4']);
   });
 
   it('text 相滚轮零动作（录入态滚动无义——缓冲不受扰）+ confirm 相零动作', async () => {

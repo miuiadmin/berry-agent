@@ -70,6 +70,9 @@ import {
   modelShortName,
 } from './static-completions.js';
 import { readHostSettings, writeHostSettings } from './settings-store.js';
+import { BaseError } from '../contracts/index.js';
+import { createCustomChannelProvider } from '../llm/index.js';
+import { fetchChannelModels } from './channel-models-fetch.js';
 import { daemonPaths } from './serve-daemon.js';
 import {
   compareSemverFull,
@@ -946,14 +949,17 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
-    // —— /setup 配置向导编舞（onboarding ob-3——07 §4.1 定形注 + 连通验证
-    // 改裁注）：副屏 SetupWizardPanel 即 WizardPrompter 实装（backend
+    // —— /setup 配置向导编舞（onboarding ob-3 + 2026-09-28 模型渠道批 C-3 v2
+    // 分桶重做）：副屏 SetupWizardPanel 即 WizardPrompter 实装（backend
     // .openSetupWizard——副屏占用返 null → notify 诚实降级与 /help 同律）；
-    // 流程件 runSetupWizard 纯逻辑零 TUI 依赖，deps 在此装配——saveBinding
-    // 走 runCredentialsCommand 公开路由（与 /credentials 人面动词同一单源；
-    // credentialsWrite seam 单源消费——credentials/changed 审计两写路径
-    // 平权）；探针 = stack.probeModelConnectivity 真供血路 1-token 微探活
-    //（metering 归因聚焦会话——落 llm/usage probe: 形账；失败不阻断只注记）。
+    // 流程件 runSetupWizard 纯逻辑零 TUI 依赖，deps 在此装配——saveBinding/
+    // removeBinding 走 runCredentialsCommand 公开路由（与 /credentials 人面
+    // 动词同一单源；credentialsWrite seam 单源消费——credentials/changed
+    // 审计两写路径平权）；探针 = stack.probeModelConnectivity 真供血路
+    // 1-token 微探活（metering 归因聚焦会话——落 llm/usage probe: 形账）。
+    // v2 新接线：customProviders 读写（settings 单源）/ 拉取（C-2 件直包）/
+    // 活注册（stack.registerCustomProvider——透传 + env 豁免集同步扩，向导路
+    // 当场生效）/ 切模型（stack.setModel 内存旋钮）。
     // onboarding setup 决策兑现（ob-2 起屏 pending）= 同一 openSetupWizard——
     // 重入非二形。
     const openSetupWizard = (): void => {
@@ -962,23 +968,48 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         backend.notify('配置向导暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
         return;
       }
-      // 重入默认值：当前模型首斜杠段（清单内在册时预选）
+      // 重入默认值：当前模型首斜杠段（官方桶在册时预选）
       const modelSpec = stack.model;
       const slash = modelSpec.indexOf('/');
       const currentProvider = slash === -1 ? modelSpec : modelSpec.slice(0, slash);
       // 探针目标解析：provider 首模型（ModelInfo.id 全形；空目录 → undefined
       // 流程侧跳过注记）
       const firstModelSpecOf = (providerId: string): string | undefined => stack.llm.listModels(providerId)[0]?.id;
+      // 开向导即读 settings 快照（分桶/保留字/env 豁免判据基线——保存腿内
+      // 各自重读防陈化）
+      const dataDir = runtime.dataDir;
+      const settingsNow = dataDir !== null ? readHostSettings(dataDir, { warn: (m) => logger.warn(m) }) : null;
+      const customChannels = settingsNow?.settings.customProviders ?? {};
+      const customIds = new Set(Object.keys(customChannels));
+      const settingsWarn = (message: string): void => {
+        logger.warn(message);
+      };
       void runSetupWizard({
         prompter,
-        providers: [...stack.llmRuntime.models.getProviders()].map((provider) => provider.id),
+        // 官方桶 = 运行时目录排除自定义渠道（boot 装配注册 + 向导活注册的自
+        // 定义渠道也在运行时表——归自定义桶不重复呈现）
+        providers: [...stack.llmRuntime.models.getProviders()]
+          .filter((provider) => !customIds.has(provider.id))
+          .map((provider) => ({
+            id: provider.id,
+            name: provider.name,
+            ...(provider.baseUrl !== undefined ? { baseUrl: provider.baseUrl } : {}),
+          })),
+        customChannels,
+        builtinProviderIds: [...stack.llmRuntime.models.getProviders()]
+          .filter((provider) => !customIds.has(provider.id))
+          .map((provider) => provider.id),
         currentProvider,
         // 值只经流程「空录入沿用」位（bindingApiKeyOf 胜出行原值——遮蔽回
         // undefined）；薄包 providerId 形——流程件按**所选** provider 现取，
         // 换 provider 改选不沿用当前模型 provider 的 key（跨 provider 沿用
-        // 错 key 防线在流程件，本位只供真源）
+        // 错 key 防线在流程件，本位只供真源；全明文翻裁后预览即全值）
         currentApiKeyOf: (providerId) => stack.bindingApiKeyOf(providerId),
-        envShadowed: (providerId) => providerApiKeyEnvNames(providerId).some((name) => (env[name] ?? '') !== ''),
+        // 自定义渠道豁免（07 §8.4 裁决——env 不合成不供血）；官方腿判据原样
+        envShadowed: (providerId) =>
+          customIds.has(providerId)
+            ? false
+            : providerApiKeyEnvNames(providerId).some((name) => (env[name] ?? '') !== ''),
         saveBinding: (providerId, apiKey) =>
           runCredentialsCommand(
             { sub: 'add', name: providerId, value: apiKey, modelProvider: providerId },
@@ -987,6 +1018,24 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
               onCredentialChanged: assembly.credentialsWrite.onCredentialChanged,
             },
           ),
+        // 删除腿凭证行（写序第一步）：缺席 = 无需删（渠道建了没录 key 的合法
+        // 中间态）——CREDENTIALS_NOT_FOUND 折 ok 档非失败
+        removeBinding: (providerId) => {
+          try {
+            return runCredentialsCommand(
+              { sub: 'rm', name: providerId },
+              {
+                store: assembly.credentialsWrite.store,
+                onCredentialChanged: assembly.credentialsWrite.onCredentialChanged,
+              },
+            );
+          } catch (err) {
+            if (err instanceof BaseError && err.code === 'CREDENTIALS_NOT_FOUND') {
+              return { ok: true, text: `凭证行 ${providerId} 不在册（无需删）` };
+            }
+            return { ok: false, text: `凭证行删除异常：${err instanceof Error ? err.message : String(err)}` };
+          }
+        },
         probeModelOf: firstModelSpecOf,
         probe: (providerId, apiKey) => {
           const spec = firstModelSpecOf(providerId);
@@ -998,6 +1047,39 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           return stack.probeModelConnectivity(spec, apiKey, {
             sessionId: stack.channels.focusedId ?? session.sessionId,
           });
+        },
+        // 模型清单拉取（C-2 件——SSRF 守卫必经 + 协议分叉拼接单源）
+        fetchModels: (req) => fetchChannelModels(req),
+        // settings customProviders 合并写（保存腿内重读现值——同窗多写不陈化）
+        saveCustomChannel: (id, def) => {
+          if (dataDir === null) return { ok: false, text: '数据目录不可用——无法持久化渠道配置' };
+          const existing = readHostSettings(dataDir, { warn: settingsWarn }).settings.customProviders ?? {};
+          const written = writeHostSettings(
+            dataDir,
+            { customProviders: { ...existing, [id]: def } },
+            { warn: settingsWarn },
+          );
+          return written === 'written'
+            ? { ok: true, text: `渠道配置已持久化（settings.json customProviders.${id}——重启后仍在册）` }
+            : { ok: false, text: 'settings.json 写入被拒（文件坏形？——手工修复后重试）' };
+        },
+        removeCustomChannel: (id) => {
+          if (dataDir === null) return { ok: false, text: '数据目录不可用——无法修改渠道配置' };
+          const existing = readHostSettings(dataDir, { warn: settingsWarn }).settings.customProviders ?? {};
+          const next: Record<string, (typeof existing)[string]> = { ...existing };
+          delete next[id];
+          const written = writeHostSettings(dataDir, { customProviders: next }, { warn: settingsWarn });
+          return written === 'written'
+            ? { ok: true, text: `渠道配置已移除（customProviders.${id}）` }
+            : { ok: false, text: 'settings.json 写入被拒（文件坏形？——手工修复后重试）' };
+        },
+        // 活注册（向导路当场生效——透传 + env 豁免集同步扩；resolveKey 供血
+        // 真源 = 绑定行胜出行，与装配腿同律）
+        registerCustomProvider: (id, def) => {
+          stack.registerCustomProvider(createCustomChannelProvider(id, def, () => stack.bindingApiKeyOf(id)));
+        },
+        switchModel: (spec) => {
+          stack.setModel(spec);
         },
       }).catch((err: unknown) => {
         // fire-and-forget 零 unhandled（openMarketplacePanel 同律防御位）：兜
@@ -1017,7 +1099,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境旋钮）', run: () => openStatusPanel() },
       {
         name: 'setup',
-        description: '模型凭证配置向导（选 provider → 录 key → 落绑定行，可选连通验证）',
+        description: '模型配置向导（选渠道/自定义网关 → 录 key → 立即生效，可选连通验证）',
         run: () => openSetupWizard(),
       },
       { name: 'debug', description: '调试信息副屏（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },

@@ -1,14 +1,18 @@
 /**
- * /setup 配置向导副屏件（onboarding ob-3——07 §4.1 命令面 TUI 本地拦截族）：
- * 相态机面板实现 WizardPrompter 五法（接口居 channels 公开面——host 流程件
- * 纯函数化消费同一契约）。
+ * /setup 配置向导副屏件（onboarding ob-3——07 §4.1 命令面 TUI 本地拦截族；
+ * 2026-09-28 模型渠道批 C-3 v2）：相态机面板实现 WizardPrompter 六法（接口
+ * 居 channels 公开面——host 流程件纯函数化消费同一契约）。
  *
- * - **一屏五相**（intro/select/text/confirm/outro——market-picker 同基建：
- *   自持光标/视口 + kitty disambiguate 轨裸字母分派 + exit 闭锁防竞发）；
- * - **取消防收口**：select/text/confirm 的 esc/q = resolve(undefined)——流程
- *   侧解释中止（保存前零改动）；面板不闭（流程 outro 随即接管呈现）；
- * - **敏感录入掩码**：text sensitive 相键入只呈 ●（值只经回值出屏——态可
- *   入面、值恒不入面）；粘贴整段（paste 事件/多字 text）同律追加；
+ * - **一屏六相**（intro/select/multiselect/text/confirm/outro——market-picker
+ *   同基建：自持光标/视口 + kitty disambiguate 轨裸字母分派 + exit 闭锁防竞发）；
+ * - **取消防收口**：select/multiselect/text/confirm 的 esc/q = resolve(undefined)
+ *   ——流程侧解释中止（保存前零改动）；面板不闭（流程 outro 随即接管呈现）；
+ * - **录入回显全明文**（2026-09-28 全明文翻裁——用户拍板人面所见即所录；
+ *   v1 敏感掩码相整条退役：值经回值出屏的通道不变，呈现恒原文）；
+ * - **multiselect 相**（v2 新法——模型清单勾选）：空格切换勾选、enter 回
+ *   勾选 id 清单（空清单合法——流程侧解释）；q 取消同 select；
+ * - **select desc 次行**（v2 分桶选单渠道元信息位）：条目行下 dim 次行
+ *   （baseUrl 等）；视口溢出不硬挤（窗口化按条目粒度夹取）；
  * - **Ctrl+C = 打断在飞 run**（目标 = 当前交互会话位——不退屏，件族同律）、
  *   **Ctrl+D = 先撤悬题再退出柄**（text 相有文不退——主屏空框闸让路同律
  *   〔07 §4.1 输入路由 2026-09-07 实装对账裁决①：退出判据含输入框空、
@@ -24,6 +28,7 @@ import { truncateToWidth } from '../../engine/index.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type {
   WizardConfirmRequest,
+  WizardMultiselectRequest,
   WizardPrompter,
   WizardSelectRequest,
   WizardTextRequest,
@@ -33,8 +38,9 @@ import type {
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 光标行标记（在选行） */
 const CURSOR_MARK = '▸';
-/** 敏感录入掩码符 */
-const MASK_CHAR = '●';
+/** multiselect 勾选/未选标记（v2——模型清单勾选相） */
+const CHECKED_MARK = '◉';
+const UNCHECKED_MARK = '○';
 /** 面板头前缀 */
 const HEAD_PREFIX = '⚙ 配置向导';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
@@ -48,6 +54,14 @@ type Phase =
       readonly req: WizardSelectRequest;
       cursor: number;
       readonly resolve: (value: string | undefined) => void;
+    }
+  | {
+      readonly kind: 'multiselect';
+      readonly req: WizardMultiselectRequest;
+      cursor: number;
+      /** 勾选集（id 键——空格切换增删） */
+      readonly checked: Set<string>;
+      readonly resolve: (value: readonly string[] | undefined) => void;
     }
   | {
       readonly kind: 'text';
@@ -144,6 +158,22 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     });
   }
 
+  /** 多选（v2 法——勾选 id 清单；取消 = undefined） */
+  multiselect(req: WizardMultiselectRequest): Promise<readonly string[] | undefined> {
+    return new Promise((resolve) => {
+      if (this.exited) return resolve(undefined);
+      const checked = new Set(req.preselect ?? []);
+      this.phase = {
+        kind: 'multiselect',
+        req,
+        cursor: 0,
+        checked,
+        resolve,
+      };
+      this.requestRepaint();
+    });
+  }
+
   text(req: WizardTextRequest): Promise<string | undefined> {
     return new Promise((resolve) => {
       if (this.exited) return resolve(undefined);
@@ -175,9 +205,13 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     void width;
     const phase = this.phase;
     let body = 1;
-    if (phase.kind === 'select') body = Math.max(1, phase.req.items.length) + (phase.req.note !== undefined ? 1 : 0);
-    else if (phase.kind === 'text') body = 1 + (phase.req.preview !== undefined ? 1 : 0);
-    else if (phase.kind === 'confirm') body = 2;
+    if (phase.kind === 'select' || phase.kind === 'multiselect') {
+      // 条目行 + desc 次行（在场各 +1）+ 尾注行
+      body = Math.max(1, phase.req.items.length);
+      for (const item of phase.req.items) if (item.desc !== undefined) body += 1;
+      if (phase.req.note !== undefined) body += 1;
+    } else if (phase.kind === 'text') body = 1 + (phase.req.preview !== undefined ? 1 : 0);
+    else if (phase.kind === 'confirm') body = 2 + (phase.req.lines !== undefined ? phase.req.lines.length : 0);
     else body = Math.max(1, phase.lines.length);
     return 1 + body + 1;
   }
@@ -187,7 +221,9 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     if (region.height < 2) return; // 防御位（极小终端）
     const phase = this.phase;
     const title =
-      phase.kind === 'select' || phase.kind === 'text' || phase.kind === 'confirm' ? phase.req.title : phase.title;
+      phase.kind === 'select' || phase.kind === 'multiselect' || phase.kind === 'text' || phase.kind === 'confirm'
+        ? phase.req.title
+        : phase.title;
     buffer.writeText(region.row, region.col, truncateToWidth(`${HEAD_PREFIX} · ${title}`, region.width));
     const end = region.row + region.height - 1; // 键面提示行占位
     let line = region.row + 1;
@@ -207,16 +243,46 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
           truncateToWidth(`${index === phase.cursor ? `${CURSOR_MARK} ` : '  '}${item.label}`, region.width),
         );
         line++;
+        // desc 次行（v2——dim 渠道元信息；视口溢出不硬挤）
+        if (item.desc !== undefined && line < end) {
+          buffer.writeText(line, region.col, truncateToWidth(`    ${item.desc}`, region.width), HINT_STYLE);
+          line++;
+        }
       }
       if (phase.req.note !== undefined && line < end) {
         buffer.writeText(line, region.col, truncateToWidth(phase.req.note, region.width), HINT_STYLE);
         line++;
       }
       hint = '↑↓ 移动 · enter 选定 · esc 退出';
+    } else if (phase.kind === 'multiselect') {
+      this.viewportHeight = Math.max(1, end - line);
+      this.clampCursor(phase);
+      const viewHeight = this.viewportHeight;
+      const start = this.clampOffset(phase, viewHeight);
+      for (let i = 0; i < viewHeight && line < end; i++) {
+        const index = start + i;
+        if (index >= phase.req.items.length) break;
+        const item = phase.req.items[index]!;
+        const mark = phase.checked.has(item.id) ? CHECKED_MARK : UNCHECKED_MARK;
+        buffer.writeText(
+          line,
+          region.col,
+          truncateToWidth(`${index === phase.cursor ? `${CURSOR_MARK} ` : '  '}${mark} ${item.label}`, region.width),
+        );
+        line++;
+        if (item.desc !== undefined && line < end) {
+          buffer.writeText(line, region.col, truncateToWidth(`    ${item.desc}`, region.width), HINT_STYLE);
+          line++;
+        }
+      }
+      if (phase.req.note !== undefined && line < end) {
+        buffer.writeText(line, region.col, truncateToWidth(phase.req.note, region.width), HINT_STYLE);
+        line++;
+      }
+      hint = '↑↓ 移动 · space 勾选 · enter 确认 · esc 退出';
     } else if (phase.kind === 'text') {
-      // 敏感相掩码呈现（值不入面）；非敏感原文；尾随 _ 光标位
-      const shown = phase.req.sensitive === true ? MASK_CHAR.repeat([...phase.buffer].length) : phase.buffer;
-      buffer.writeText(line, region.col, truncateToWidth(`${shown}_`, region.width));
+      // 全明文回显（2026-09-28 翻裁——掩码相退役恒原文）；尾随 _ 光标位
+      buffer.writeText(line, region.col, truncateToWidth(`${phase.buffer}_`, region.width));
       line++;
       if (phase.req.preview !== undefined && line < end) {
         buffer.writeText(line, region.col, truncateToWidth(`当前：${phase.req.preview}`, region.width), HINT_STYLE);
@@ -230,6 +296,14 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     } else if (phase.kind === 'confirm') {
       buffer.writeText(line, region.col, truncateToWidth(phase.req.title, region.width));
       line++;
+      // 附呈行（v2 全值回执位——dim 直呈所录值）
+      if (phase.req.lines !== undefined) {
+        for (const text of phase.req.lines) {
+          if (line >= end) break;
+          buffer.writeText(line, region.col, truncateToWidth(text, region.width), HINT_STYLE);
+          line++;
+        }
+      }
       if (line < end) {
         const yesMark = phase.yes ? '[是]' : ' 是 ';
         const noMark = phase.yes ? ' 否 ' : '[否]';
@@ -265,7 +339,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       // 滚轮鼠标相零动作吞（模态独占）
       if (event.phase === 'press' && (event.button === 'wheel-up' || event.button === 'wheel-down')) {
         const phase = this.phase;
-        if (phase.kind === 'select') {
+        if (phase.kind === 'select' || phase.kind === 'multiselect') {
           this.moveCursor(phase, event.button === 'wheel-up' ? -WHEEL_LINES : WHEEL_LINES);
         }
         return true;
@@ -346,6 +420,32 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) return this.settleSelect(phase, undefined);
       return;
     }
+    if (phase.kind === 'multiselect') {
+      if (isPlainKey(k, 'up')) return this.moveCursor(phase, -1);
+      if (isPlainKey(k, 'down')) return this.moveCursor(phase, 1);
+      if (isPlainKey(k, 'pageup')) return this.moveCursor(phase, -this.viewportHeight);
+      if (isPlainKey(k, 'pagedown')) return this.moveCursor(phase, this.viewportHeight);
+      if (isPlainKey(k, 'home')) {
+        phase.cursor = 0;
+        this.requestRepaint();
+        return;
+      }
+      if (isPlainKey(k, 'end')) {
+        phase.cursor = Math.max(0, phase.req.items.length - 1);
+        this.requestRepaint();
+        return;
+      }
+      // 空格双形（key 轨 'space' 命名形 + ' ' 字符形——引擎双轨防御）；kitty
+      // text 轨 ' ' 在 handleTextRun 同判（打字走 text 事件）
+      if (isPlainKey(k, 'space') || isPlainKey(k, ' ')) return this.toggleChecked(phase);
+      if (isPlainKey(k, 'enter')) {
+        // 勾选清单按 items 序保序（Set 无序——呈现序即回值序）
+        const chosen = phase.req.items.filter((item) => phase.checked.has(item.id)).map((item) => item.id);
+        return this.settleMultiselect(phase, chosen);
+      }
+      if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) return this.settleMultiselect(phase, undefined);
+      return;
+    }
     if (phase.kind === 'text') {
       if (isPlainKey(k, 'enter')) {
         const value = phase.buffer;
@@ -400,6 +500,12 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       if (text === 'q') this.settleSelect(phase, undefined);
       return;
     }
+    if (phase.kind === 'multiselect') {
+      // kitty 轨空格（打字走 text 事件——与 key 轨双形同判）；q 取消
+      if (text === ' ') this.toggleChecked(phase);
+      else if (text === 'q') this.settleMultiselect(phase, undefined);
+      return;
+    }
     if (phase.kind === 'confirm') {
       if (text === 'y') this.settleConfirm(phase, true);
       else if (text === 'n') this.settleConfirm(phase, false);
@@ -427,6 +533,29 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     this.requestRepaint();
   }
 
+  /** 多选收口（确认/取消共尾——items 序保序清单或 undefined） */
+  private settleMultiselect(
+    phase: Extract<Phase, { kind: 'multiselect' }>,
+    value: readonly string[] | undefined,
+  ): void {
+    this.phase = {
+      kind: 'static',
+      title: value !== undefined ? (value.length > 0 ? `已选 ${value.length} 项` : '全不选') : '已取消',
+      lines: [],
+    };
+    phase.resolve(value);
+    this.requestRepaint();
+  }
+
+  /** 勾选切换（光标位条目——Set 增删幂等） */
+  private toggleChecked(phase: Extract<Phase, { kind: 'multiselect' }>): void {
+    const id = phase.req.items[phase.cursor]?.id;
+    if (id === undefined) return; // 空表防御（items ≥1 由流程侧保证）
+    if (phase.checked.has(id)) phase.checked.delete(id);
+    else phase.checked.add(id);
+    this.requestRepaint();
+  }
+
   /** 确认收口 */
   private settleConfirm(phase: Extract<Phase, { kind: 'confirm' }>, value: boolean | undefined): void {
     this.phase = { kind: 'static', title: '已答', lines: [] };
@@ -437,20 +566,23 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   /** 撤悬题（退出路——Ctrl+D：悬题按取消收口，流程侧自然收场） */
   private cancelPending(): void {
     const phase = this.phase;
-    if (phase.kind === 'select' || phase.kind === 'text') phase.resolve(undefined);
+    if (phase.kind === 'select' || phase.kind === 'multiselect' || phase.kind === 'text') phase.resolve(undefined);
     else if (phase.kind === 'confirm') phase.resolve(undefined);
     else if (phase.kind === 'outro') phase.resolve();
     this.phase = { kind: 'static', title: '', lines: [] };
   }
 
-  /** 光标夹取（条目下标入界；空表归 0） */
-  private clampCursor(phase: Extract<Phase, { kind: 'select' }>): void {
+  /** 光标夹取（条目下标入界；空表归 0——select/multiselect 共用） */
+  private clampCursor(phase: Extract<Phase, { kind: 'select' }> | Extract<Phase, { kind: 'multiselect' }>): void {
     const length = phase.req.items.length;
     phase.cursor = length > 0 ? Math.max(0, Math.min(length - 1, phase.cursor)) : 0;
   }
 
   /** 视口夹取：光标行恒在窗内（持久 offset 双向夹取防跳变——返回视口首行） */
-  private clampOffset(phase: Extract<Phase, { kind: 'select' }>, viewHeight: number): number {
+  private clampOffset(
+    phase: Extract<Phase, { kind: 'select' }> | Extract<Phase, { kind: 'multiselect' }>,
+    viewHeight: number,
+  ): number {
     const maxOffset = Math.max(0, phase.req.items.length - viewHeight);
     if (this.selectOffset > maxOffset) this.selectOffset = maxOffset;
     if (phase.cursor < this.selectOffset) this.selectOffset = phase.cursor;
@@ -458,8 +590,11 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     return this.selectOffset;
   }
 
-  /** 光标移动（越界夹取不循环；移动后重画） */
-  private moveCursor(phase: Extract<Phase, { kind: 'select' }>, delta: number): void {
+  /** 光标移动（越界夹取不循环；移动后重画——select/multiselect 共用） */
+  private moveCursor(
+    phase: Extract<Phase, { kind: 'select' }> | Extract<Phase, { kind: 'multiselect' }>,
+    delta: number,
+  ): void {
     phase.cursor = Math.max(0, Math.min(phase.req.items.length - 1, phase.cursor + delta));
     this.requestRepaint();
   }

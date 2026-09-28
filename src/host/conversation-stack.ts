@@ -160,6 +160,15 @@ export interface ConversationStackOptions {
    */
   readonly hookDispatchGuard?: HookDispatchGuardFace;
   /**
+   * 自定义渠道 id 集（2026-09-28 模型渠道批 C-3——07 §8.4 env 豁免裁决）：
+   * 在集 id = settings customProviders 注册的自定义渠道——**env 键不合成不
+   * 供血**（`${ID}_API_KEY` 合成判据对自定义渠道是假遮蔽/假 ready 源），绑定
+   * 行是其唯一供血源。装配根从 settingsLoad 供键集（boot 快照）；向导路
+   * 活注册经 {@link registerCustomProvider} 同步扩集（本会话即刻）。缺省
+   * 缺席 = 零豁免（无自定义渠道的常形态，判据面零变）。
+   */
+  readonly customProviderIds?: readonly string[];
+  /**
    * 宿主凭证刷新联动腿 seam 注入位（04 §3.3 条 8——B3 批）：形状单源 =
    * conversation/types AuthRefreshSeam（authFamily 判定 / refreshNow 强刷 /
    * notify 告警三面）。真值源三面（llm authFamily 导入、credentials 刷新链
@@ -298,6 +307,14 @@ export interface ConversationStack {
    */
   setModel(id: string): void;
   /**
+   * 自定义渠道活注册（2026-09-28 模型渠道批 C-3——07 §8.4 生效时点双路的
+   * 向导路）：llmRuntime.registerProvider 单源透传 + **env 豁免集同步扩**
+   * （本会话即刻生效——07 §8.4 裁决：自定义渠道 env 键不合成不供血，绑定行
+   * 唯一源；不扩集则环境同名 `${ID}_API_KEY` 键会假遮蔽真供血）。手编
+   * settings 路经装配期注册 + customProviderIds 快照——两路同判据。
+   */
+  registerCustomProvider(provider: Provider): void;
+  /**
    * 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据的纯读
    * 投影非第二实现（env 键非空 ∨ 绑定行命中——liveBindingApiKey 同判据布尔
    * 回投，含 env 遮蔽/撞绑全序/空值行不供血全执法）。派生态零哨兵——每次
@@ -308,8 +325,8 @@ export interface ConversationStack {
   modelCredentialStatus(modelSpec?: string): 'ready' | 'unconfigured';
   /**
    * 当前绑定行 key 原值读面（ob-3 向导重入默认值）：供血胜出行原值——
-   * env 遮蔽位/行缺席位回 undefined（与供血判据同执法双分立）；值只进
-   * 向导流程「空录入沿用」位，呈现面恒掩码预览（值不入面）。
+   * env 遮蔽位/行缺席位回 undefined（与供血判据同执法双分立）；值只进向导
+   * 流程（录入预览/回执——**全明文翻裁 2026-09-28**：人面所见即所存）。
    */
   bindingApiKeyOf(modelSpec: string): string | undefined;
   /**
@@ -415,6 +432,11 @@ export function providerGuidanceForMessageEvent(event: AgentEvent, modelSpec: st
  */
 export function createConversationStack(options: ConversationStackOptions): ConversationStack {
   const warn = options.warn ?? ((message: string) => process.stderr.write(`${message}\n`));
+  // 自定义渠道 env 豁免集（07 §8.4 裁决——env 不合成不供血，绑定行唯一源）
+  const customProviderIdSet = new Set(options.customProviderIds ?? []);
+  /** env 键名族（自定义渠道豁免形——回空数组 = env 判据恒缺席，绑定行唯一供血判据） */
+  const envApiKeyNamesOf = (providerId: string): readonly string[] =>
+    customProviderIdSet.has(providerId) ? [] : providerApiKeyEnvNames(providerId);
   const scope = options.scope ?? Scope.createRoot();
   const dispatch = options.dispatch ?? new EventDispatch();
   const model = options.model ?? resolveDefaultModelSpec(options.env ?? process.env);
@@ -534,7 +556,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // env 优先律（host 域行）：env 键在场即 env 胜——静态无刷新面，401 后
     // 联动腿走 fail-closed（seam 消费侧）；插件域行不受 env 遮蔽恒透传
     if (winner.ns === HOST_NAMESPACE) {
-      const envOccupied = providerApiKeyEnvNames(providerId).some((name) => (credentialEnvFace[name] ?? '') !== '');
+      const envOccupied = envApiKeyNamesOf(providerId).some((name) => (credentialEnvFace[name] ?? '') !== '');
       if (envOccupied) return undefined;
     }
     return winner.apiKey;
@@ -1244,6 +1266,11 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     setModel(id: string) {
       currentModel = id;
     },
+    // 自定义渠道活注册（C-3 向导路）：透传 + env 豁免集同步扩（本会话即刻）
+    registerCustomProvider(provider: Provider) {
+      customProviderIdSet.add(provider.id);
+      llmRuntime.registerProvider(provider);
+    },
     // 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据纯读投影
     // ——env 键非空（pi-ai ambient 供血位，与供血 wrapper env 优先律同判据面）
     // ∨ liveBindingApiKey 布尔回投（绑定行命中含遮蔽/撞绑全判据——只取在场
@@ -1252,7 +1279,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       const spec = modelSpec ?? currentModel;
       const slash = spec.indexOf('/');
       const providerId = slash === -1 ? spec : spec.slice(0, slash);
-      const envReady = providerApiKeyEnvNames(providerId).some((name) => (credentialEnvFace[name] ?? '') !== '');
+      const envReady = envApiKeyNamesOf(providerId).some((name) => (credentialEnvFace[name] ?? '') !== '');
       if (envReady) return 'ready';
       return liveBindingApiKey(spec) !== undefined ? 'ready' : 'unconfigured';
     },
