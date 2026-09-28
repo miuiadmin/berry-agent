@@ -7,7 +7,11 @@
  * 行）、outro（任意键收屏）、Ctrl+C 打断不退屏、Ctrl+D 撤题退出（text 相
  * 有文不退——主屏空框闸让路同律）、退出闭锁后 prompter 法即时回值；外部
  * 收屏路（OverlayContent onClosed——AltScreenHost.close 单源调）悬题
- * settle；滚轮相态分派（select/multiselect 相滚清单、text/confirm 相零动作）。
+ * settle；滚轮相态分派（select/multiselect 相滚清单、text/confirm 相零动作）；
+ * 评审修复三件（2026-09-29）：#21 视口窗口化物理行预算（desc 次行在场条目
+ * 占 2 行——尾条目含「＋ 新建」可达、光标条目+desc 完整入窗）、#22 paste
+ * 剥所有换行（单行字段无换行语义）、#23 confirm 相 q kitty text 轨取消
+ * （与 key 轨双轨同收——select/multiselect 同律）。
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent, MouseEvent, TextInputEvent } from '../../engine/index.js';
@@ -30,6 +34,21 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
 
 /** text 事件夹具 */
 const t = (text: string): TextInputEvent => ({ kind: 'text', text });
+
+/** promise 结算态判（悬挂 promise 测试律——断言 settle 形而非 await 挂死） */
+async function settleState(p: Promise<unknown>): Promise<'pending' | 'fulfilled' | 'rejected'> {
+  let s: 'pending' | 'fulfilled' | 'rejected' = 'pending';
+  void p.then(
+    () => {
+      s = 'fulfilled';
+    },
+    () => {
+      s = 'rejected';
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0)); // 宏任务一拍让 then 链跑
+  return s;
+}
 
 /** 面板夹具（repaint 计数 + 退出/打断/退出柄 spy） */
 function makePanel() {
@@ -288,6 +307,21 @@ describe('text 相（key 录入——全明文翻裁 2026-09-28）', () => {
     await expect(pending).resolves.toBe('export K=sk-p');
   });
 
+  it('粘贴内嵌换行全剥（#22——单行字段无换行语义；修前红：仅剥尾换行，内嵌 \\n 入值所见≠所录）', async () => {
+    const a = makePanel();
+    const pa = a.panel.text(TEXT_REQ);
+    a.panel.handleEvent({ kind: 'paste', text: 'sk-1\nsk-2' }); // 内嵌 \n——修前入 buffer
+    a.panel.handleEvent(k('enter'));
+    await expect(pa).resolves.toBe('sk-1sk-2'); // 无 \n（回显与存值同源）
+
+    // CRLF 形同律（Windows 复制整段）
+    const b = makePanel();
+    const pb = b.panel.text(TEXT_REQ);
+    b.panel.handleEvent({ kind: 'paste', text: 'sk-a\r\nsk-b\r\n' });
+    b.panel.handleEvent(k('enter'));
+    await expect(pb).resolves.toBe('sk-ask-b');
+  });
+
   it('preview 行呈现（当前值完整显示——全明文同律）', () => {
     const { panel } = makePanel();
     void panel.text({ ...TEXT_REQ, preview: 'sk-old-value-9999' });
@@ -358,6 +392,21 @@ describe('confirm 相', () => {
     const pending = panel.confirm({ title: '写?', defaultYes: true });
     panel.handleEvent(k('escape'));
     await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('q 双轨同收取消（#23——kitty text 轨 q 与 key 轨 q/esc 同律；修前红：text 轨 q 被吞悬置）', async () => {
+    // key 轨 q（既有面——绿锁防回退）
+    const a = makePanel();
+    const pa = a.panel.confirm({ title: '写?', defaultYes: true });
+    a.panel.handleEvent(k('q'));
+    await expect(pa).resolves.toBeUndefined();
+
+    // kitty text 轨 q（#23 修——与 select/multiselect 两键轨同收对齐）
+    const b = makePanel();
+    const pb = b.panel.confirm({ title: '写?', defaultYes: true });
+    b.panel.handleEvent(t('q'));
+    expect(await settleState(pb)).toBe('fulfilled'); // 修前红锚：q 被吞永 pending
+    await expect(pb).resolves.toBeUndefined();
   });
 
   it('lines 附呈行（v2 全值回执位——confirm 前直呈所录值，明文翻裁同律）', () => {
@@ -594,5 +643,81 @@ describe('busy 相（R-3 忙等指示——非阻塞 + 幂等清除）', () => {
     expect(requestRepaint).not.toHaveBeenCalled(); // exited：不呈现不重绘
     clear(); // 迟到清除：同样 no-op 不炸
     expect(requestRepaint).not.toHaveBeenCalled();
+  });
+});
+
+describe('视口窗口化物理行预算（#21——desc 次行在场条目占 2 物理行）', () => {
+  /** 定高渲染帧（区域高约束构行预算窗口——不按 measure 满高；宽 72 同 paint） */
+  function paintFixed(panel: SetupWizardPanel, height: number, width = 72): CellGrid {
+    const grid = new CellGrid(width, height);
+    panel.render(grid, { row: 0, col: 0, width, height });
+    return grid;
+  }
+
+  /** 4 条目全带 desc（每条目 2 物理行——分桶官方桶全带 baseUrl desc 主路径形） */
+  const DESC_ITEMS = [
+    { id: 'gw-a', label: '渠道 A', desc: 'https://a.example.com/v1' },
+    { id: 'gw-b', label: '渠道 B', desc: 'https://b.example.com/v1' },
+    { id: 'gw-c', label: '渠道 C', desc: 'https://c.example.com/v1' },
+    { id: 'gw-d', label: '渠道 D', desc: 'https://d.example.com/v1' },
+  ] as const;
+
+  it('select：区域高 5（行预算 3）光标到底——尾条目 label+desc 完整可见（修前红：条目数当行数，尾条目滚出屏不可见）', () => {
+    const { panel } = makePanel();
+    void panel.select({ title: '选择模型渠道', items: [...DESC_ITEMS] });
+    panel.handleEvent(k('down'));
+    panel.handleEvent(k('down'));
+    panel.handleEvent(k('down')); // 光标到尾条目 gw-d
+    const grid = paintFixed(panel, 5); // 头行 + 3 内容行 + 键面行 = 行预算 3
+    const frame = [1, 2, 3].map((row) => readRow(grid, row, 72)).join('\n');
+    expect(frame).toContain('▸ 渠道 D'); // 光标尾条目 label 入帧
+    expect(frame).toContain('https://d.example.com/v1'); // desc 次行同帧完整可见
+  });
+
+  it('select：「＋ 新建」尾条目可达（大量 desc 条目后 end 到底——修前红：尾段条目视觉不可达）', () => {
+    const { panel } = makePanel();
+    const items = [
+      { id: 'ch-1', label: '渠道 1', desc: 'https://1.example.com/v1' },
+      { id: 'ch-2', label: '渠道 2', desc: 'https://2.example.com/v1' },
+      { id: 'ch-3', label: '渠道 3', desc: 'https://3.example.com/v1' },
+      { id: 'ch-4', label: '渠道 4', desc: 'https://4.example.com/v1' },
+      { id: 'ch-5', label: '渠道 5', desc: 'https://5.example.com/v1' },
+      { id: 'ch-6', label: '渠道 6', desc: 'https://6.example.com/v1' },
+      { id: '__new_custom__', label: '＋ 新建自定义渠道', desc: '手录网关与 key' },
+    ];
+    void panel.select({ title: '选择模型渠道', items });
+    panel.handleEvent(k('end')); // 直达尾条目
+    const grid = paintFixed(panel, 6); // 头行 + 4 内容行 + 键面行 = 行预算 4
+    const frame = [1, 2, 3, 4].map((row) => readRow(grid, row, 72)).join('\n');
+    expect(frame).toContain('＋ 新建自定义渠道'); // 尾条目可达（label 入帧）
+    expect(frame).toContain('手录网关与 key'); // 其 desc 次行同帧完整可见
+  });
+
+  it('multiselect：同律（共用 clampOffset——行预算窗口化两相一致；修前红同形）', () => {
+    const { panel } = makePanel();
+    void panel.multiselect({ title: '勾选该渠道要用的模型', items: [...DESC_ITEMS] });
+    panel.handleEvent(k('down'));
+    panel.handleEvent(k('down'));
+    panel.handleEvent(k('down')); // 光标到尾条目 gw-d
+    const grid = paintFixed(panel, 5); // 行预算 3
+    const frame = [1, 2, 3].map((row) => readRow(grid, row, 72)).join('\n');
+    expect(frame).toContain('▸ ○ 渠道 D'); // 光标尾条目（未勾标记）label 入帧
+    expect(frame).toContain('https://d.example.com/v1'); // desc 次行同帧完整可见
+  });
+
+  it('无 desc 条目回退 1 行/条目（行预算窗口化对既有无 desc 选单零回退）', () => {
+    const { panel } = makePanel();
+    void panel.select({
+      title: '选择模型 provider',
+      items: [
+        { id: 'p1', label: 'provider-1' },
+        { id: 'p2', label: 'provider-2' },
+        { id: 'p3', label: 'provider-3' },
+      ],
+    });
+    const grid = paintFixed(panel, 5); // 行预算 3 恰容 3 条目
+    const frame = [1, 2, 3].map((row) => readRow(grid, row, 72)).join('\n');
+    expect(frame).toContain('provider-1');
+    expect(frame).toContain('provider-3');
   });
 });

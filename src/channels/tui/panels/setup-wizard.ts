@@ -12,7 +12,11 @@
  * - **multiselect 相**（v2 新法——模型清单勾选）：空格切换勾选、enter 回
  *   勾选 id 清单（空清单合法——流程侧解释）；q 取消同 select；
  * - **select desc 次行**（v2 分桶选单渠道元信息位）：条目行下 dim 次行
- *   （baseUrl 等）；视口溢出不硬挤（窗口化按条目粒度夹取）；
+ *   （baseUrl 等）；视口溢出不硬挤；**窗口化按物理行预算夹取**（#21 修——
+ *   desc 在场条目占 2 物理行，光标条目含 desc 恒完整入窗；与 measure 同源）；
+ * - **paste 剥所有换行**（#22 修——单行字段无换行语义，内嵌换行不入睡值）、
+ *   **confirm 相 q 双轨同收**（#23 修——kitty text 轨 q 同 esc 取消，
+ *   select/multiselect 两键轨同律；text 相字母 q 仍为合法录入）；
  * - **Ctrl+C = 打断在飞 run**（目标 = 当前交互会话位——不退屏，件族同律）、
  *   **Ctrl+D = 先撤悬题再退出柄**（text 相有文不退——主屏空框闸让路同律
  *   〔07 §4.1 输入路由 2026-09-07 实装对账裁决①：退出判据含输入框空、
@@ -122,7 +126,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   private phase: Phase = { kind: 'static', title: '', lines: [] };
   /** 视口高实测（render 回写——翻选的页幅依据） */
   private viewportHeight = 1;
-  /** 选择器视口首行（持久态——双向夹取防跳变，market-picker 同律） */
+  /** 选择器视口首条目下标（持久态——物理行预算双向夹取防跳变，#21 修） */
   private selectOffset = 0;
   /** 退出闭锁（竞发防御位——退出后一切 prompter 法即时回值） */
   private exited = false;
@@ -245,11 +249,10 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     if (phase.kind === 'select') {
       this.viewportHeight = Math.max(1, end - line);
       this.clampCursor(phase);
-      const viewHeight = this.viewportHeight;
-      const start = this.clampOffset(phase, viewHeight);
-      for (let i = 0; i < viewHeight && line < end; i++) {
-        const index = start + i;
-        if (index >= phase.req.items.length) break;
+      // 窗口化按物理行预算（#21）：从窗首条目起逐条占行（desc 次行在场 +1），
+      // line 预算尽即停——勿按条目数截窗（desc 在场时条目数 ≠ 物理行数）
+      const start = this.clampOffset(phase, this.viewportHeight);
+      for (let index = start; index < phase.req.items.length && line < end; index++) {
         const item = phase.req.items[index]!;
         buffer.writeText(
           line,
@@ -271,11 +274,9 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     } else if (phase.kind === 'multiselect') {
       this.viewportHeight = Math.max(1, end - line);
       this.clampCursor(phase);
-      const viewHeight = this.viewportHeight;
-      const start = this.clampOffset(phase, viewHeight);
-      for (let i = 0; i < viewHeight && line < end; i++) {
-        const index = start + i;
-        if (index >= phase.req.items.length) break;
+      // 窗口化按物理行预算（#21——与 select 相同律，共用 clampOffset）
+      const start = this.clampOffset(phase, this.viewportHeight);
+      for (let index = start; index < phase.req.items.length && line < end; index++) {
         const item = phase.req.items[index]!;
         const mark = phase.checked.has(item.id) ? CHECKED_MARK : UNCHECKED_MARK;
         buffer.writeText(
@@ -388,7 +389,9 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       return true;
     }
     if (event.kind === 'text' || event.kind === 'paste') {
-      const text = event.kind === 'paste' ? event.text.replace(/[\r\n]+$/, '') : event.text;
+      // paste 剥所有换行（#22——单行字段无换行语义：内嵌换行入 buffer 会致
+      // 回显（引擎跳控制字节拼连通顺）所见≠所录、存值经 trim 幸存坏 key）
+      const text = event.kind === 'paste' ? event.text.replace(/[\r\n]+/g, '') : event.text;
       if (text !== '') this.handleTextRun(text);
       return true;
     }
@@ -521,8 +524,11 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       return;
     }
     if (phase.kind === 'confirm') {
+      // y/n 直答；q 取消（#23——kitty text 轨与 key 轨 q/esc 双轨同收，
+      // select/multiselect 两键轨同律对齐——修前 text 轨 q 被吞不取消）
       if (text === 'y') this.settleConfirm(phase, true);
       else if (text === 'n') this.settleConfirm(phase, false);
+      else if (text === 'q') this.settleConfirm(phase, undefined);
       return;
     }
     if (phase.kind === 'outro') {
@@ -592,16 +598,53 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     phase.cursor = length > 0 ? Math.max(0, Math.min(length - 1, phase.cursor)) : 0;
   }
 
-  /** 视口夹取：光标行恒在窗内（持久 offset 双向夹取防跳变——返回视口首行） */
+  /**
+   * 视口夹取（物理行预算——#21 修）：光标条目（含其 desc 次行）恒完整入窗。
+   * 条目行高 = label 行 + desc 在场次行（与 measure 同源——desc 普遍在场时
+   * 条目数 ≠ 物理行数，按条目数夹取会把光标条目滚出屏）；持久 offset 双向
+   * 夹取防跳变（尾向步进最小滚动），返回视口首条目下标（select/multiselect 共用）。
+   */
   private clampOffset(
     phase: Extract<Phase, { kind: 'select' }> | Extract<Phase, { kind: 'multiselect' }>,
-    viewHeight: number,
+    rowBudget: number,
   ): number {
-    const maxOffset = Math.max(0, phase.req.items.length - viewHeight);
-    if (this.selectOffset > maxOffset) this.selectOffset = maxOffset;
-    if (phase.cursor < this.selectOffset) this.selectOffset = phase.cursor;
-    else if (phase.cursor >= this.selectOffset + viewHeight) this.selectOffset = phase.cursor - viewHeight + 1;
-    return this.selectOffset;
+    const items = phase.req.items;
+    if (items.length === 0) return (this.selectOffset = 0); // 空表防御
+    // 条目物理行高（desc 在场 = 2——与 measure() select 分支累加同源）
+    const rowsOf = (item: { readonly desc?: string }): number => (item.desc !== undefined ? 2 : 1);
+    // 尾向上界：最大可滚起点 = 从该起到表尾累计行 ≤ 预算（再往上滚尾后留空白
+    // 无义；尾条目独占作保底——预算不足单条目行高时仍可滚到尾条目 label 行）
+    let tailRows = rowsOf(items[items.length - 1]!);
+    let maxOffset = items.length - 1;
+    for (let i = items.length - 2; i >= 0; i--) {
+      const r = rowsOf(items[i]!);
+      if (tailRows + r > rowBudget) break; // 再纳前条超预算——上界定
+      tailRows += r;
+      maxOffset = i;
+    }
+    let start = Math.min(Math.max(0, this.selectOffset), maxOffset);
+    // 头向夹取：光标在窗首前——光标条目即新窗首
+    if (phase.cursor < start) start = phase.cursor;
+    // 尾向夹取：光标条目（含 desc）须完整入窗——从 start 累行预算，装不下则
+    // 窗首步进重试（最小滚动防跳变），直至光标完整入窗或窗首追上光标（退化
+    // 形：单条目行高超预算——窗首即光标，label 行独呈）
+    while (start < phase.cursor) {
+      let used = 0;
+      let cursorInView = false;
+      for (let i = start; i < items.length; i++) {
+        const r = rowsOf(items[i]!);
+        if (used + r > rowBudget) break; // 预算尽——条目 i 不完整入窗
+        used += r;
+        if (i === phase.cursor) {
+          cursorInView = true;
+          break;
+        }
+      }
+      if (cursorInView) break;
+      start++;
+    }
+    this.selectOffset = start;
+    return start;
   }
 
   /** 光标移动（越界夹取不循环；移动后重画——select/multiselect 共用） */
