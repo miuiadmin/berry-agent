@@ -64,7 +64,8 @@ export interface WizardConfirmRequest {
   readonly defaultYes: boolean;
 }
 
-/** 提问器六法（流程件唯一交互面——TUI 实装消费同一接口；v2 = 五法 + multiselect） */
+/** 提问器七法（流程件唯一交互面——TUI 实装消费同一接口；v2 = 五法 + multiselect，
+ * R-3 体验批 + busy） */
 export interface WizardPrompter {
   /** 开场（非阻塞——流程随即进入首问） */
   intro(title: string, lines: readonly string[]): void;
@@ -76,6 +77,13 @@ export interface WizardPrompter {
   text(req: WizardTextRequest): Promise<string | undefined>;
   /** 是非确认（undefined = 取消该步） */
   confirm(req: WizardConfirmRequest): Promise<boolean | undefined>;
+  /**
+   * 忙等指示（R-3 体验批——拉取/探针等短等步的即时反馈）：非阻塞呈现
+   * label，返回**清除函数**（幂等——调用侧 try/finally 恒调，防异常路径
+   * 状态行残留）。**可选法**：缺席（旧实装/假 prompter）时流程件 no-op
+   * 不炸（07:292 R-3 笔——busy 缺席 no-op 裁决）。
+   */
+  busy?(label: string): () => void;
   /** 收尾（阻塞至用户确认——任意键关屏；流程终局唯一出口） */
   outro(title: string, lines: readonly string[]): Promise<void>;
 }

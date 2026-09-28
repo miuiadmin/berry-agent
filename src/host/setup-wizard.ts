@@ -69,6 +69,12 @@ export interface SetupWizardDeps {
   readonly currentProvider?: string;
   /** 重入默认值取值器：按所选 providerId 现取绑定行 key 原值（全明文预览呈） */
   readonly currentApiKeyOf?: (providerId: string) => string | undefined;
+  /**
+   * 渠道配置就绪判据（R-3——分桶 ✓ 标记同锚注入）：与 /status 呈现同一
+   * modelCredentialStatus 判据（env 键非空 ∨ 绑定行命中——含遮蔽语义），
+   * 缺席回退 currentApiKeyOf 判据（绑定性近似——旧测试假 deps 零负担）。
+   */
+  readonly credentialReadyOf?: (providerId: string) => boolean;
   /** env 遮蔽判据（官方腿预警用——自定义腿不问：env 不供血自定义渠道） */
   readonly envShadowed: (providerId: string) => boolean;
   /** 落绑定行（runCredentialsCommand 单源路由——行名 = providerId） */
@@ -147,6 +153,15 @@ async function abortOut(p: WizardPrompter): Promise<void> {
   await p.outro('已退出', [...ABORT_LINES]);
 }
 
+/**
+ * 忙等指示消费单源（R-3 体验批——busy 可选法缺席 no-op）：返回清除函数，
+ * 调用侧 try/finally 恒调（D6 裁决——异常路径状态行不留残）。
+ */
+function showBusy(p: WizardPrompter, label: string): () => void {
+  if (p.busy === undefined) return () => {}; // 旧实装/假 prompter 无此法——no-op
+  return p.busy(label);
+}
+
 /** 注入位调用防御包（同步抛折 {ok:false}——fire-and-forget 零 unhandled） */
 function safeCall(action: () => SetupWizardSaveResult): SetupWizardSaveResult {
   try {
@@ -170,19 +185,35 @@ export async function runSetupWizard(deps: SetupWizardDeps): Promise<void> {
   ]);
 
   // —— ① 分桶选单（官方桶在前——内置目录装配序；自定义桶既有列表 + 新建尾项）——
+  // ✓ 判据 R-3 同锚：credentialReadyOf 注入位与 /status 同一 modelCredentialStatus
+  // 判据（env ∨ 绑定行——含遮蔽语义）；缺席回退 currentApiKeyOf 绑定性近似
+  const configuredOf = (providerId: string): boolean =>
+    deps.credentialReadyOf !== undefined
+      ? deps.credentialReadyOf(providerId)
+      : deps.currentApiKeyOf?.(providerId) !== undefined;
   const officialItems = deps.providers.map((info) => {
-    const configured = deps.currentApiKeyOf?.(info.id) !== undefined;
+    const configured = configuredOf(info.id);
+    const isCurrent = deps.currentProvider === info.id; // （当前）标记——重入光标位之外的可视锚
     return {
       id: `${OFFICIAL_PREFIX}${info.id}`,
-      label: configured ? `${info.name} ✓` : info.name,
+      label: `${info.name}${configured ? ' ✓' : ''}${isCurrent ? '（当前）' : ''}`,
       desc: info.baseUrl !== undefined ? (configured ? `已配置 · ${info.baseUrl}` : info.baseUrl) : undefined,
     };
   });
   const customItems = Object.entries(deps.customChannels).map(([id, def]) => ({
     id: `${CUSTOM_PREFIX}${id}`,
-    label: def.name !== undefined ? `${def.name}（${id}）` : id,
+    label: `${def.name !== undefined ? `${def.name}（${id}）` : id}${deps.currentProvider === id ? '（当前）' : ''}`,
     desc: `${protocolLabel(def.protocol)} · ${def.baseUrl} · 模型 ${def.models.length} 个`,
   }));
+  // 重入预选（R-3 扩自定义桶）：当前 provider 在官方桶或自定义桶任一命中即预选
+  const preselectId =
+    deps.currentProvider !== undefined
+      ? deps.providers.some((info) => info.id === deps.currentProvider)
+        ? `${OFFICIAL_PREFIX}${deps.currentProvider}`
+        : deps.customChannels[deps.currentProvider] !== undefined
+          ? `${CUSTOM_PREFIX}${deps.currentProvider}`
+          : undefined
+      : undefined;
   const selected = await p.select({
     title: '选择模型渠道',
     items: [
@@ -195,9 +226,7 @@ export async function runSetupWizard(deps: SetupWizardDeps): Promise<void> {
       },
     ],
     note: '官方渠道 = 内置目录；自定义渠道 = 中转站/兼容网关（settings.json 持久）',
-    ...(deps.currentProvider !== undefined && deps.providers.some((info) => info.id === deps.currentProvider)
-      ? { preselect: `${OFFICIAL_PREFIX}${deps.currentProvider}` }
-      : {}),
+    ...(preselectId !== undefined ? { preselect: preselectId } : {}),
   });
   if (selected === undefined) return void (await abortOut(p));
 
@@ -275,7 +304,14 @@ async function officialLeg(deps: SetupWizardDeps, p: WizardPrompter, info: Setup
       defaultYes: false,
     });
     if (wantVerify === true) {
-      const result = await deps.probe(providerId, apiKey);
+      // R-3 busy：探针短等步即时反馈（finally 恒清——D6）
+      const clearBusy = showBusy(p, `正在探测 ${providerId}…`);
+      let result: SetupWizardProbeResult;
+      try {
+        result = await deps.probe(providerId, apiKey);
+      } finally {
+        clearBusy();
+      }
       verifyNote = result.ok
         ? `连通验证通过（${probeModel} 应答正常）`
         : `连通性未验证：${result.detail}（配置已保存——可 /setup 重开复探或发首条消息检验）`;
@@ -314,6 +350,8 @@ interface CustomChannelDraft {
   readonly def: CustomProviderDef;
   readonly apiKey: string;
   readonly isNew: boolean;
+  /** 编辑腿清除 headers 的信号（原条数——confirm 回执诚实呈「已清除」） */
+  readonly headersClearedFrom?: number;
 }
 
 /**
@@ -340,31 +378,33 @@ async function customFormLeg(
       return;
     }
   } else {
-    const idTyped = await p.text({
-      title: '渠道 id',
-      hint: '小写字母/数字/连字符，如 my-relay——对话里模型前缀形 my-relay/model-a',
-    });
-    if (idTyped === undefined) return void (await abortOut(p));
-    const trimmedId = idTyped.trim();
-    if (trimmedId === '') {
-      await p.outro('已退出', ['未录入渠道 id——未保存任何改动']);
-      return;
+    // 渠道 id 步（R-3 体验批——坏形**重问当前步**不退出整向导：坏形/撞名/撞
+    // 既有动态 hint 点名再问；esc（undefined）仍是唯一退出径）
+    let idHint = '小写字母/数字/连字符，如 my-relay——对话里模型前缀形 my-relay/model-a';
+    id = '';
+    for (;;) {
+      const idTyped = await p.text({ title: '渠道 id', hint: idHint });
+      if (idTyped === undefined) return void (await abortOut(p)); // esc 退出
+      const trimmedId = idTyped.trim();
+      if (trimmedId === '') {
+        idHint = '未录入——输入渠道 id（esc 退出）';
+        continue;
+      }
+      if (!CUSTOM_CHANNEL_ID_RE.test(trimmedId)) {
+        idHint = `「${trimmedId}」坏形——须以小写字母开头，只含小写字母/数字/连字符；重输或 esc 退出`;
+        continue;
+      }
+      if (deps.builtinProviderIds.includes(trimmedId)) {
+        idHint = `「${trimmedId}」与内置渠道撞名（保留字）——换个 id；重输或 esc 退出`;
+        continue;
+      }
+      if (deps.customChannels[trimmedId] !== undefined) {
+        idHint = `「${trimmedId}」已存在——选单里可编辑该渠道，或换个 id；重输或 esc 退出`;
+        continue;
+      }
+      id = trimmedId;
+      break;
     }
-    if (!CUSTOM_CHANNEL_ID_RE.test(trimmedId)) {
-      await p.outro('已退出', [
-        `渠道 id 坏形（${trimmedId}）——须以小写字母开头，只含小写字母/数字/连字符。未保存任何改动`,
-      ]);
-      return;
-    }
-    if (deps.builtinProviderIds.includes(trimmedId)) {
-      await p.outro('已退出', [`渠道 id ${trimmedId} 与内置渠道撞名（保留字）——换个 id 即可。未保存任何改动`]);
-      return;
-    }
-    if (deps.customChannels[trimmedId] !== undefined) {
-      await p.outro('已退出', [`渠道 id ${trimmedId} 已存在——重入走选单「编辑配置」，或换个 id。未保存任何改动`]);
-      return;
-    }
-    id = trimmedId;
   }
 
   // —— 协议二选（wire format 与渠道正交——用户批评①兑现）——
@@ -375,50 +415,64 @@ async function customFormLeg(
       { id: 'anthropic-messages', label: 'Anthropic 兼容', desc: 'Claude 系端点——x-api-key 头；Base URL 填根地址' },
       { id: 'openai-completions', label: 'OpenAI 兼容', desc: 'GPT 系端点——Bearer 头；Base URL 通常填到 /v1' },
     ],
+    note: '不确定？多数中转站/网关是 OpenAI 兼容；Claude 系代理（如官方 API 反代）选 Anthropic 兼容',
     ...(currentProtocol !== undefined ? { preselect: currentProtocol } : {}),
   });
   if (proto !== 'anthropic-messages' && proto !== 'openai-completions') return void (await abortOut(p));
   const protocol = proto;
 
-  // —— Base URL（空录入沿用当前值——preview 语义同律）——
-  const urlTyped = await p.text({
-    title: 'Base URL',
-    hint:
-      protocol === 'anthropic-messages'
-        ? '根地址，如 https://gw.example.com（自动拼 /v1/models 拉清单）'
-        : '填到 /v1，如 https://gw.example.com/v1（自动拼 /models 拉清单）',
-    ...(existing?.def.baseUrl !== undefined ? { preview: existing.def.baseUrl } : {}),
-  });
-  if (urlTyped === undefined) return void (await abortOut(p));
-  const urlTrimmed = urlTyped.trim();
-  const baseUrl = urlTrimmed === '' && existing?.def.baseUrl !== undefined ? existing.def.baseUrl : urlTrimmed;
-  if (baseUrl === '') {
-    await p.outro('已退出', ['未录入 Base URL——未保存任何改动']);
-    return;
-  }
-  if (!/^https?:\/\//.test(baseUrl)) {
-    await p.outro('已退出', [`Base URL 须以 http:// 或 https:// 开头（${baseUrl}）——未保存任何改动`]);
-    return;
+  // —— Base URL（R-3 坏形重问；空录入沿用当前值——preview 语义同律）——
+  const currentBaseUrl = existing?.def.baseUrl;
+  let urlHint =
+    protocol === 'anthropic-messages'
+      ? '根地址，如 https://gw.example.com（自动拼 /v1/models 拉清单）'
+      : '填到 /v1，如 https://gw.example.com/v1（自动拼 /models 拉清单）';
+  let baseUrl = '';
+  for (;;) {
+    const urlTyped = await p.text({
+      title: 'Base URL',
+      hint: urlHint,
+      ...(currentBaseUrl !== undefined ? { preview: currentBaseUrl } : {}),
+    });
+    if (urlTyped === undefined) return void (await abortOut(p)); // esc 退出
+    const urlTrimmed = urlTyped.trim();
+    const candidate = urlTrimmed === '' && currentBaseUrl !== undefined ? currentBaseUrl : urlTrimmed;
+    if (candidate === '') {
+      urlHint = '未录入——填网关地址（esc 退出）';
+      continue;
+    }
+    if (!/^https?:\/\//.test(candidate)) {
+      urlHint = `「${candidate}」须以 http:// 或 https:// 开头——重填或 esc 退出`;
+      continue;
+    }
+    baseUrl = candidate;
+    break;
   }
 
-  // —— API key（全明文——空录入沿用当前值）——
+  // —— API key（全明文——空录入沿用当前值；R-3 无当前值空录入重问）——
   const currentApiKey = deps.currentApiKeyOf?.(id);
-  const keyTyped = await p.text({
-    title: `${id} API key`,
-    hint: '整行粘贴可带 export 前缀（自动剥除）；留空 = 沿用当前值',
-    ...(currentApiKey !== undefined ? { preview: currentApiKey } : {}),
-  });
-  if (keyTyped === undefined) return void (await abortOut(p));
-  const strippedKey = stripExportPrefix(keyTyped).trim();
-  let apiKey: string;
-  if (strippedKey === '') {
-    if (currentApiKey === undefined) {
-      await p.outro('未配置', ['未录入 API key——未保存任何改动（可 /setup 重开再试）']);
-      return;
-    }
-    apiKey = currentApiKey;
+  let apiKey = '';
+  if (currentApiKey !== undefined) {
+    const keyTyped = await p.text({
+      title: `${id} API key`,
+      hint: '整行粘贴可带 export 前缀（自动剥除）；留空 = 沿用当前值',
+      preview: currentApiKey,
+    });
+    if (keyTyped === undefined) return void (await abortOut(p));
+    apiKey = stripExportPrefix(keyTyped).trim() === '' ? currentApiKey : stripExportPrefix(keyTyped).trim();
   } else {
-    apiKey = strippedKey;
+    let keyHint = '整行粘贴可带 export 前缀（自动剥除）';
+    for (;;) {
+      const keyTyped = await p.text({ title: `${id} API key`, hint: keyHint });
+      if (keyTyped === undefined) return void (await abortOut(p)); // esc 退出
+      const strippedKey = stripExportPrefix(keyTyped).trim();
+      if (strippedKey === '') {
+        keyHint = '未录入——填网关的 API key（esc 退出）';
+        continue;
+      }
+      apiKey = strippedKey;
+      break;
+    }
   }
 
   // —— 模型清单（拉取/手填——拉取失败手填兜底不阻断；空清单可保存——合法
@@ -426,38 +480,52 @@ async function customFormLeg(
   const models = await modelsStep(deps, p, { baseUrl, protocol, apiKey }, existing?.def.models);
   if (models === undefined) return; // modelsStep 内已收场（取消/坏形各自 outro）
 
-  // —— 可选 headers（非标网关兜底——鉴权材料禁入警示）——
+  // —— 可选 headers（非标网关兜底——鉴权材料禁入警示；R-3 措辞随在场 +
+  // 空录入 = 清除、confirm 答否 = 不动）——
   const currentHeaders = existing?.def.headers;
+  const headersPreview =
+    currentHeaders !== undefined
+      ? Object.entries(currentHeaders)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(', ')
+      : undefined;
   const wantHeaders = await p.confirm({
-    title: '添加自定义请求头？',
+    title: currentHeaders !== undefined ? '编辑/清除自定义请求头？' : '添加自定义请求头？',
     lines: [
       '一般不需要——鉴权走上面的 API key（凭证表存值）。',
       '此面只给非标网关的额外头（如 X-Upstream）。值将明文存 settings.json——禁止填 API key 等鉴权材料。',
+      ...(currentHeaders !== undefined ? [`当前（${Object.keys(currentHeaders).length} 条）：${headersPreview}`] : []),
     ],
     defaultYes: false,
   });
   if (wantHeaders === undefined) return void (await abortOut(p));
   let headers: Record<string, string> | undefined = currentHeaders !== undefined ? { ...currentHeaders } : undefined;
+  let headersClearedFrom: number | undefined;
   if (wantHeaders) {
     const headersTyped = await p.text({
       title: '请求头（"头名: 值" 逗号分隔）',
-      hint: '如 X-Upstream: beta, X-Region: eu',
-      ...(currentHeaders !== undefined
-        ? {
-            preview: Object.entries(currentHeaders)
-              .map(([k, v]) => `${k}: ${v}`)
-              .join(', '),
-          }
-        : {}),
+      hint:
+        currentHeaders !== undefined
+          ? '如 X-Upstream: beta, X-Region: eu——留空 = 清除全部请求头'
+          : '如 X-Upstream: beta, X-Region: eu',
+      ...(headersPreview !== undefined ? { preview: headersPreview } : {}),
     });
     if (headersTyped === undefined) return void (await abortOut(p));
-    const parsed = parseHeaders(headersTyped);
-    headers = parsed !== undefined ? parsed : headers; // 坏形全忽略保当前值（confirm 回执可核）
-  }
+    if (headersTyped.trim() === '') {
+      headers = undefined; // 空录入 = 清除（R-3——confirm 回执可核）
+      headersClearedFrom = currentHeaders !== undefined ? Object.keys(currentHeaders).length : 0;
+    } else {
+      const parsed = parseHeaders(headersTyped);
+      headers = parsed !== undefined ? parsed : headers; // 坏形保持当前值（confirm 回执可核）
+    }
+  } // confirm 答否 = 不动（保留当前值或缺席——R-3 裁决）
 
   const draft: CustomChannelDraft = {
     id,
     def: {
+      // 编辑重入透传展示名（R-3——修前真缺陷：draft 构造丢 existing.def.name，
+      // 编辑保存后渠道展示名回落 id；手编 settings 的 name 在向导路同样幸存）
+      ...(existing?.def.name !== undefined ? { name: existing.def.name } : {}),
       protocol,
       baseUrl,
       models,
@@ -465,6 +533,7 @@ async function customFormLeg(
     },
     apiKey,
     isNew: existing === undefined,
+    ...(headersClearedFrom !== undefined ? { headersClearedFrom } : {}),
   };
   return void (await confirmAndSaveCustom(deps, p, draft));
 }
@@ -511,12 +580,23 @@ async function modelsStep(
   }
   let fetchNote = '';
   if (how === MODELS_FETCH) {
-    const result = await deps.fetchModels(req);
+    // R-3 busy：拉取短等步即时反馈（可选法缺席 no-op；finally 恒清——D6）
+    const clearBusy = showBusy(p, '正在拉取模型清单…');
+    let result: ChannelModelsResult;
+    try {
+      result = await deps.fetchModels(req);
+    } finally {
+      clearBusy();
+    }
     if (result.kind === 'ok' && result.models.length > 0) {
       const chosen = await p.multiselect({
         title: `拉到 ${result.models.length} 个模型——勾选要用的`,
         items: result.models.map((model) => ({ id: model, label: model })),
         note: '空格勾选 · 全不选 + enter = 改手填',
+        // R-3 preselect 接线：重入默认勾当前清单（在拉取结果内的条目）
+        ...(existingModels !== undefined && existingModels.length > 0
+          ? { preselect: existingModels.filter((model) => result.models.includes(model)) }
+          : {}),
       });
       if (chosen === undefined) {
         await abortOut(p);
@@ -543,10 +623,16 @@ async function modelsStep(
   const trimmed = typed.trim();
   // 空录入沿用现有清单（preview「在场空录入 = 沿用」语义同律——重入不动清单零负担）
   if (trimmed === '') return existingModels ?? [];
-  return trimmed
-    .split(',')
-    .map((model) => model.trim())
-    .filter((model) => model !== '');
+  // R-3：全角逗号容忍（/[,，]/ 中文输入法高频）+ Set 去重保序（重复条目静默收编）
+  const seen = new Set<string>();
+  const models: string[] = [];
+  for (const segment of trimmed.split(/[,，]/)) {
+    const model = segment.trim();
+    if (model === '' || seen.has(model)) continue;
+    seen.add(model);
+    models.push(model);
+  }
+  return models;
 }
 
 /** confirm 全值回执 → 写序落库（凭证行先、settings 后）→ 活注册 → 切模型问句 → outro */
@@ -555,10 +641,11 @@ async function confirmAndSaveCustom(
   p: WizardPrompter,
   draft: CustomChannelDraft,
 ): Promise<void> {
-  const { id, def, apiKey, isNew } = draft;
+  const { id, def, apiKey, isNew, headersClearedFrom } = draft;
   const yes = await p.confirm({
     title: `${isNew ? '保存' : '更新'}自定义渠道 ${id}？`,
     lines: [
+      ...(def.name !== undefined ? [`名称：${def.name}`] : []),
       `协议：${protocolLabel(def.protocol)}`,
       `Base URL：${def.baseUrl}`,
       `API key：${apiKey}`,
@@ -570,6 +657,8 @@ async function confirmAndSaveCustom(
               .join(', ')}`,
           ]
         : []),
+      // 编辑腿清除 headers 的诚实回执行（R-3——清除可核）
+      ...(headersClearedFrom !== undefined ? [`请求头：清除（原 ${headersClearedFrom} 条）`] : []),
       isNew ? '写入：凭证行（API key）+ settings.json（渠道定义）——保存后当场生效' : '',
     ].filter((line) => line !== ''),
     defaultYes: true,
@@ -593,10 +682,13 @@ async function confirmAndSaveCustom(
 
   // —— 活注册（两写皆成——当场进 llmRuntime 目录，向导路立即生效）——
   // R-1：注册口回执形（执法单源在 stack——拒注不抛，回执折注记分档；抛错
-  // 防御包保留：注入位测试形/换代窗异常不杀流程）。
+  // 防御包保留：注入位测试形/换代窗异常不杀流程）。registrationOk 位供
+  // R-3 可选探针门槛（拒注渠道无可探运行时目标）。
   let registerNote: string;
+  let registrationOk = false;
   try {
     const registration = deps.registerCustomProvider(id, def);
+    registrationOk = registration.ok;
     registerNote = registration.ok
       ? '已注册——当场生效（无需重启）'
       : `注册被拒：${registration.reason ?? '渠道 id 被占用'}——配置已持久，但重启后同样拒注；建议 /setup 换 id 重配`;
@@ -613,6 +705,7 @@ async function confirmAndSaveCustom(
     });
     if (wantSwitch === undefined) {
       // 收尾确认位取消 = 不切（渠道已保存——诚实完成收场，不按中止处理）
+      switchNote = '未切换——ctrl+p 随时可换';
     } else if (wantSwitch) {
       const chosen = await p.select({
         title: `选 ${id} 的模型`,
@@ -622,6 +715,32 @@ async function confirmAndSaveCustom(
         deps.switchModel(`${id}/${chosen}`);
         switchNote = `已切换模型：${id}/${chosen}`;
       }
+    } else {
+      // 答否指路（R-3——不当场切换也要知道怎么切）
+      switchNote = '未切换——ctrl+p 随时可换';
+    }
+  }
+
+  // —— 可选探针（R-3——保存后顺手验连通：与官方腿同一 probe 注入位）——
+  let probeNote = '';
+  if (registrationOk && deps.probe !== undefined && deps.probeModelOf?.(id) !== undefined) {
+    const wantProbe = await p.confirm({
+      title: `顺手探一下 ${id} 的连通性？`,
+      lines: ['向该渠道首个模型发一条最小请求——验地址/密钥是否真的可用。'],
+      defaultYes: true,
+    });
+    if (wantProbe === true) {
+      const spec = deps.probeModelOf?.(id);
+      if (spec !== undefined) {
+        const clearBusy = showBusy(p, `正在探测 ${id}…`);
+        let probeResult: SetupWizardProbeResult;
+        try {
+          probeResult = await deps.probe(id, apiKey);
+        } finally {
+          clearBusy();
+        }
+        probeNote = probeResult.ok ? '连通探针：通过 ✓' : `连通探针：未通——${probeResult.detail}`;
+      }
     }
   }
 
@@ -629,6 +748,7 @@ async function confirmAndSaveCustom(
     savedChannel.text,
     registerNote,
     ...(switchNote !== '' ? [switchNote] : []),
+    ...(probeNote !== '' ? [probeNote] : []),
     ...(def.models.length === 0 ? ['（模型清单为空——/setup 重入编辑配置可补）'] : []),
   ]);
 }

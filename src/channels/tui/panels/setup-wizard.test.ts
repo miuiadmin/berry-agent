@@ -555,3 +555,44 @@ describe('滚轮消费（C5——相态机内分派）', () => {
     await expect(pb).resolves.toBe(true);
   });
 });
+
+describe('busy 相（R-3 忙等指示——非阻塞 + 幂等清除）', () => {
+  it('busy 呈现 ⏳ 行非阻塞（立即返回清除函数）+ repaint 触发', () => {
+    const { panel, requestRepaint } = makePanel();
+    const clear = panel.busy('正在拉取模型清单...');
+    expect(typeof clear).toBe('function');
+    expect(requestRepaint).toHaveBeenCalled(); // 呈现即重绘
+    const grid = paint(panel);
+    expect(readRow(grid, 0, 72)).toContain('⏳ 正在拉取模型清单...'); // 头行位（⚙ 前缀 + 忙行）
+    // 非阻塞证明：busy 相上叠 select——相被下一步立即接管（无悬置）
+    const pending = panel.select({ title: '选模型', items: [{ id: 'm1', label: 'm1' }] });
+    panel.handleEvent(k('enter'));
+    return expect(pending).resolves.toBe('m1');
+  });
+
+  it('清除函数幂等（二次调零副作用）+ 清后空 static 相', () => {
+    const { panel, requestRepaint } = makePanel();
+    const clear = panel.busy('正在探测 my-gw…');
+    requestRepaint.mockClear();
+    clear();
+    expect(requestRepaint).toHaveBeenCalledTimes(1); // 清除即一次重绘
+    const grid = paint(panel);
+    expect(readRow(grid, 0, 72)).not.toContain('⏳'); // 头行清回常驻前缀——忙行不再呈
+    requestRepaint.mockClear();
+    clear(); // 二次调：幂等零副作用
+    expect(requestRepaint).not.toHaveBeenCalled();
+  });
+
+  it('退出闭锁后 busy no-op + 迟到清除函数 no-op（exited 短路）', async () => {
+    const { panel, requestRepaint } = makePanel();
+    // 引导退出：text 相 Ctrl+D 撤题（既有退出路）
+    const pending = panel.text({ title: '任意步' });
+    panel.handleEvent(k('d', { ctrl: true }));
+    await expect(pending).resolves.toBeUndefined();
+    requestRepaint.mockClear();
+    const clear = panel.busy('迟到的忙行');
+    expect(requestRepaint).not.toHaveBeenCalled(); // exited：不呈现不重绘
+    clear(); // 迟到清除：同样 no-op 不炸
+    expect(requestRepaint).not.toHaveBeenCalled();
+  });
+});

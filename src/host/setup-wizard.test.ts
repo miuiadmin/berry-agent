@@ -410,35 +410,44 @@ describe('runSetupWizard 自定义渠道新建腿', () => {
     expect(log.savedChannels[0]?.def.headers).toEqual({ 'X-Upstream': 'beta', 'X-Region': 'eu' });
   });
 
-  it('渠道 id 三坏形：非 slug / 撞内置保留字 / 撞既有自定义——各自诚实收场零写', async () => {
-    for (const [badId, expectWord] of [
-      ['My_Relay', '坏形'],
-      ['anthropic', '撞名'],
-      ['existing-gw', '已存在'],
+  it('渠道 id 三坏形 → 重问当前步（R-3 翻裁——坏形不退出整向导；动态 hint 点名错因，二次好形通过）', async () => {
+    for (const [badId, expectWord, secondId] of [
+      ['My_Relay', '坏形', 'my-relay'],
+      ['anthropic', '撞名', 'my-relay'],
+      ['existing-gw', '已存在', 'my-relay'],
     ] as const) {
       const { prompter, recorded } = makePrompter({
-        select: ['__new_custom__'],
-        text: [badId],
+        // 全流程：选新建 → id 坏形一次 → 好形 → 后续 NEW_SCRIPT 尾段（协议
+        // select 首答已耗——text 偏移补）
+        select: ['__new_custom__', 'openai-completions'],
+        text: [badId, secondId, 'https://gw.test/v1', 'sk-live', 'g1', ''],
+        confirm: [false, true, true, false, false],
       });
       const { deps, log } = makeDeps(prompter, {
         customChannels: { 'existing-gw': { protocol: 'openai-completions', baseUrl: 'https://x.test', models: [] } },
       });
       await runSetupWizard(deps);
-      expect(log.savedBindings).toEqual([]);
-      expect(log.savedChannels).toEqual([]);
-      expect(recorded.outros.at(-1)?.lines.join('\n')).toContain(expectWord);
+      // 坏形重问证据：text 调用 ≥2 次同 title「渠道 id」+ 第二次 hint 含错因词
+      const idTexts = recorded.texts.filter((t) => t.title === '渠道 id');
+      expect(idTexts.length).toBe(2);
+      expect(idTexts[1]?.hint ?? '').toContain(expectWord);
+      // 好形通过 → 流程继续到保存（零写由 confirm 拒保全——中断在 headers 问）
+      expect(log.savedBindings).toEqual([]); // confirm 全拒零写
     }
   });
 
-  it('Base URL 坏形（非 http(s) 开头）→ 诚实收场零写', async () => {
+  it('Base URL 坏形（非 http(s) 开头）→ 重问当前步（R-3 翻裁——hint 点名须 http(s)，二次好形通过）', async () => {
     const { prompter, recorded } = makePrompter({
       select: ['__new_custom__', 'openai-completions'],
-      text: ['my-relay', 'ftp://gw.test'],
+      text: ['my-relay', 'ftp://gw.test', 'https://gw.test/v1', 'sk-live', 'g1', ''],
+      confirm: [false, true, true, false, false],
     });
     const { deps, log } = makeDeps(prompter);
     await runSetupWizard(deps);
-    expect(log.savedChannels).toEqual([]);
-    expect(recorded.outros.at(-1)?.lines.join('\n')).toContain('http');
+    const urlTexts = recorded.texts.filter((t) => t.title === 'Base URL');
+    expect(urlTexts.length).toBe(2); // 坏形重问不退出
+    expect(urlTexts[1]?.hint ?? '').toContain('http');
+    expect(log.savedBindings).toEqual([]); // confirm 全拒零写
   });
 
   it('半应用：凭证行成、settings 败 → 诚实呈补齐路径且不活注册', async () => {
@@ -646,5 +655,187 @@ describe('删除腿三联动与回执诚实化（R-1 评审修复役——修前
     const outro = recorded.outros.at(-1)!;
     expect(outro.lines.join('\n')).toContain('注册被拒');
     expect(outro.lines.join('\n')).toContain('已被'); // 拒注原因在场
+  });
+});
+
+/* ---------------- R-3 体验批（busy/重问/同锚 ✓/探针/指路/标记/容忍/清除/name 透传） ---------------- */
+
+describe('R-3 体验批（busy 可选法 + 坏形重问 + ✓ 判据同锚 + 可选探针 + 指路 + （当前）标记 + 全角容忍 + headers 清除 + name 透传）', () => {
+  /** 带 busy 记录的假件（busy 调用/清除账面——showBusy 消费断言位） */
+  function makeBusyPrompter(script: ScriptedAnswers): {
+    prompter: WizardPrompter;
+    busyLog: { label: string; cleared: boolean }[];
+    recorded: ReturnType<typeof makePrompter>['recorded'];
+  } {
+    const base = makePrompter(script);
+    const busyLog: { label: string; cleared: boolean }[] = [];
+    const prompter: WizardPrompter = {
+      ...base.prompter,
+      busy(label: string): () => void {
+        const entry = { label, cleared: false };
+        busyLog.push(entry);
+        return () => {
+          entry.cleared = true;
+        };
+      },
+    };
+    return { prompter, busyLog, recorded: base.recorded };
+  }
+
+  it('busy 消费：拉取步呈现忙行 + finally 恒清（异常路径也清——D6 裁决）', async () => {
+    // 异常形：fetchModels 抛——busy 清除必须仍发生（finally 面）
+    const { prompter, busyLog } = makeBusyPrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
+      confirm: [],
+    });
+    const { deps } = makeDeps(prompter, {
+      fetchModels: () => Promise.reject(new Error('网络腿炸')),
+    });
+    // 流程件不捕 fetchModels 异常（safeCall 只包写腿）——向上抛出前 finally 已清
+    await expect(runSetupWizard(deps)).rejects.toThrow('网络腿炸');
+    expect(busyLog.length).toBe(1); // 拉取步恰一次忙行
+    expect(busyLog[0]?.label).toContain('拉取');
+    expect(busyLog[0]?.cleared).toBe(true); // 异常路径 finally 恒清（D6）
+  });
+
+  it('busy 可选法缺席 = no-op（假 prompter 无 busy 不炸——07:292 R-3 裁决）', async () => {
+    // makePrompter 假件不带 busy——NEW_SCRIPT 全流程直跑（拉取步 showBusy 无炸）
+    const { prompter } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key', 'g1'],
+      confirm: [false, true, false, false],
+    });
+    const { deps, log } = makeDeps(prompter);
+    await runSetupWizard(deps);
+    expect(log.savedChannels).toHaveLength(1); // 全流程走通零炸
+  });
+
+  it('✓ 判据同锚：credentialReadyOf 注入回 true 而 currentApiKeyOf undefined → 官方桶仍标 ✓（env 供血渠道诚实呈已配置）', async () => {
+    const { prompter, recorded } = makePrompter({ select: [undefined] }); // 首问取消即出
+    const { deps } = makeDeps(prompter, {
+      currentApiKeyOf: () => undefined, // 绑定性判据下不 configured
+      credentialReadyOf: (providerId) => providerId === 'anthropic', // env 供血同锚判据
+    });
+    await runSetupWizard(deps);
+    const bucketSelect = recorded.selects[0]!;
+    const anthropicItem = bucketSelect.items.find((item) => item.id === 'official:anthropic');
+    expect(anthropicItem?.label).toContain('✓'); // 同锚判据生效（修前：currentApiKeyOf undefined 不标）
+    const otherItem = bucketSelect.items.find((item) => item.id === 'official:openai');
+    expect(otherItem?.label).not.toContain('✓');
+  });
+
+  it('（当前）标记 + 自定义桶预选：currentProvider 命中自定义渠道 → label 标（当前）+ preselect 落自定义桶项', async () => {
+    const { prompter, recorded } = makePrompter({ select: [undefined] });
+    const { deps } = makeDeps(prompter, {
+      customChannels: { 'my-gw': { protocol: 'openai-completions', baseUrl: 'https://x.test/v1', models: ['m1'] } },
+      currentProvider: 'my-gw',
+    });
+    await runSetupWizard(deps);
+    const bucketSelect = recorded.selects[0]!;
+    expect(bucketSelect.preselect).toBe('custom:my-gw'); // 修前：仅官方桶命中才预选（custom 桶永落首项）
+    expect(bucketSelect.items.find((item) => item.id === 'custom:my-gw')?.label).toContain('（当前）');
+  });
+
+  it('手填全角逗号容忍 + Set 去重保序（R-3——中文输入法高频形）', async () => {
+    const { prompter } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_manual__'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key', 'a，b, a, c，b'],
+      confirm: [false, true, false, false],
+    });
+    const { deps, log } = makeDeps(prompter);
+    await runSetupWizard(deps);
+    expect(log.savedChannels[0]?.def.models).toEqual(['a', 'b', 'c']); // 全角分 + 去重保序
+  });
+
+  it('headers：编辑腿空录入 = 清除（confirm 回执「已清除」行）+ confirm 答否 = 不动（保留原值）', async () => {
+    const EXISTING_HEADERS: CustomProviderDef = {
+      protocol: 'openai-completions',
+      baseUrl: 'https://gw.test/v1',
+      models: ['m1'],
+      headers: { 'X-Upstream': 'beta', 'X-Region': 'eu' },
+    };
+    // 清除路：headers 问允 + 空录入
+    const cleared = makePrompter({
+      select: ['custom:my-gw', '__entry_edit__', 'openai-completions', '__models_manual__'],
+      text: ['', '', '', ''],
+      confirm: [true, true, false, false],
+    });
+    const depsC = makeDeps(cleared.prompter, {
+      customChannels: { 'my-gw': EXISTING_HEADERS },
+      currentApiKeyOf: () => 'sk-current',
+    });
+    await runSetupWizard(depsC.deps);
+    expect(depsC.log.savedChannels[0]?.def.headers).toBeUndefined(); // 清除落库
+    expect(
+      cleared.recorded.confirms.find((c) => c.title.includes('更新自定义渠道'))?.lines?.join('\n') ?? '',
+    ).toContain('清除（原 2 条）'); // 回执诚实呈
+    // 不动路：headers 问答否 → 原值保留
+    const kept = makePrompter({
+      select: ['custom:my-gw', '__entry_edit__', 'openai-completions', '__models_manual__'],
+      text: ['', '', '', ''],
+      confirm: [false, true, false, false],
+    });
+    const depsK = makeDeps(kept.prompter, {
+      customChannels: { 'my-gw': EXISTING_HEADERS },
+      currentApiKeyOf: () => 'sk-current',
+    });
+    await runSetupWizard(depsK.deps);
+    expect(depsK.log.savedChannels[0]?.def.headers).toEqual({ 'X-Upstream': 'beta', 'X-Region': 'eu' });
+  });
+
+  it('name 编辑重入透传（修前红：draft 构造丢 existing.def.name——保存后展示名回落 id）', async () => {
+    const EXISTING_NAMED: CustomProviderDef = {
+      name: '我的中转站',
+      protocol: 'openai-completions',
+      baseUrl: 'https://gw.test/v1',
+      models: ['m1'],
+    };
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_edit__', 'openai-completions', '__models_manual__'],
+      text: ['', '', '', ''],
+      confirm: [false, true, false, false],
+    });
+    const { deps, log } = makeDeps(prompter, {
+      customChannels: { 'my-gw': EXISTING_NAMED },
+      currentApiKeyOf: () => 'sk-current',
+    });
+    await runSetupWizard(deps);
+    expect(log.savedChannels[0]?.def.name).toBe('我的中转站'); // 修前红：name 丢失
+    // confirm 回执「名称」行在场（全值回执诚实面）
+    expect(recorded.confirms.find((c) => c.title.includes('更新自定义渠道'))?.lines?.join('\n') ?? '').toContain(
+      '我的中转站',
+    );
+  });
+
+  it('保存后可选探针：问句允 → probe 调用 + 回执行（拒绝注册渠道不问——无可探目标）', async () => {
+    // 允路：探针问句在切模型问句后（confirm 序：headers 拒/保存允/切模型拒/探针允）
+    const probed = makeBusyPrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a', 'gw-a'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false, true, false, true],
+    });
+    const depsP = makeDeps(probed.prompter, {
+      // 默认 probe 桩即 {ok:true, detail:'应答正常'} 且记 probeCalls——
+      // 勿覆写成不记 log 的裸桩（本锁首版即栽在此：probeCalls 恒空）
+      probeModelOf: (providerId) => `${providerId}/gw-a`,
+    });
+    await runSetupWizard(depsP.deps);
+    expect(depsP.log.probeCalls).toContainEqual(['my-relay', 'sk-gw-key']); // R-3 自定义腿探针调用
+    expect(probed.recorded.outros.at(-1)?.lines.join('\n')).toContain('连通探针：通过'); // 回执行
+  });
+
+  it('切模型答否指路 ctrl+p（R-3——不当场切也要知道怎么切）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false, true, false, false],
+    });
+    const { deps, log } = makeDeps(prompter);
+    await runSetupWizard(deps);
+    expect(log.switched).toEqual([]); // 答否未切
+    expect(recorded.outros.at(-1)?.lines.join('\n')).toContain('ctrl+p'); // 指路行在场（修前：静默）
   });
 });

@@ -198,6 +198,20 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     });
   }
 
+  /** 忙等指示（R-3——static 相呈现 ⏳ 行非阻塞；返回幂等清除函数） */
+  busy(label: string): () => void {
+    if (this.exited) return () => {};
+    this.phase = { kind: 'static', title: `⏳ ${label}`, lines: [] };
+    this.requestRepaint();
+    let cleared = false;
+    return () => {
+      if (cleared || this.exited) return;
+      cleared = true;
+      this.phase = { kind: 'static', title: '', lines: [] };
+      this.requestRepaint();
+    };
+  }
+
   /* ---------------- OverlayContent 面（副屏引擎消费） ---------------- */
 
   /** 量高：头行 + 相内容（相自量——选择器条目数等）+ 键面提示行 */

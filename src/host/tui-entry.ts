@@ -1014,6 +1014,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           .filter((provider) => !customIds.has(provider.id))
           .map((provider) => provider.id),
         currentProvider,
+        // R-3 ✓ 判据同锚：分桶 configured 标记与 /status 同一 modelCredentialStatus
+        // 判据（env ∨ 绑定行——裸 providerId 即该判据的 provider 级入口）
+        credentialReadyOf: (providerId) => stack.modelCredentialStatus(providerId) === 'ready',
         // 值只经流程「空录入沿用」位（bindingApiKeyOf 胜出行原值——遮蔽回
         // undefined）；薄包 providerId 形——流程件按**所选** provider 现取，
         // 换 provider 改选不沿用当前模型 provider 的 key（跨 provider 沿用
