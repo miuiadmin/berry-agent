@@ -48,18 +48,18 @@ describe('credentials CLI 入口全环', () => {
     expect(out[out.length - 1]).toContain('无凭证');
   });
 
-  it('add 退 0 → 跨入口 list 见名（真磁盘耐久）+ 值永不入输出', async () => {
+  it('add 退 0 → 跨入口 list 见名（真磁盘耐久）+ add 回执不回显值 / list 值列直呈（C-4 全明文翻裁）', async () => {
     const added = await runCli({ sub: 'add', name: 'anthropic', value: 'sk-cli-secret-31d' });
     expect(added.code).toBe(0);
     expect(added.out[added.out.length - 1]).toContain('host/anthropic');
-    expect(added.out.join('\n')).not.toContain('sk-cli-secret-31d'); // 铁律：值不回显
+    expect(added.out.join('\n')).not.toContain('sk-cli-secret-31d'); // add 回执维持不回显（07 §7 CLI 表）
 
     // 另起入口（独立开/关库）——落盘耐久铁证
     const listed = await runCli({ sub: 'list' });
     expect(listed.code).toBe(0);
     const text = listed.out.join('\n');
     expect(text).toContain('host  anthropic  来源 manual');
-    expect(text).not.toContain('sk-cli-secret-31d');
+    expect(text).toContain('值 sk-cli-secret-31d'); // 值列直呈（翻裁锁——修前红：v1「永不入输出」铁律相）
   });
 
   it('add plugin 域旗标 + rm 命中退 0 → list 归空', async () => {

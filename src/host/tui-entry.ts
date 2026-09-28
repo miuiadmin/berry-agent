@@ -524,8 +524,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           version: options.version ?? '0.0.0',
           model: stack.model,
           modelCount,
-          // 模型凭证态（ob-2）：开屏现算注入——态可入面，值与凭证恒不入面
+          // 模型凭证态 + 完整值（ob-2 态 + C-4 全明文翻裁值）：开屏现算注入
+          // ——人面所见即供血（env 供血值/绑定行胜出原值）；env 三键白名单
+          // 行集维持（04 §7——值只进凭证行不扩 env 键面）
           modelCredential: stack.modelCredentialStatus(),
+          modelCredentialKey: stack.modelCredentialKeyOf() ?? null,
           sessionId: sid,
           cwdLabel: basename(root),
           turns,
@@ -912,12 +915,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             ],
           },
           {
-            // 模型配置段（2026-09-19 P0 静默链修复批——07 §8.5 第 2 条补段）：
-            // 首跑未配凭证用户的产品级指路（报错要诚实之外的「错了知道怎么改」面）
+            // 模型配置段（2026-09-19 P0 静默链修复批——07 §8.5 第 2 条补段；
+            // 2026-09-28 模型渠道批 C-4 v2 文案）：首跑未配凭证用户的产品级
+            // 指路（报错要诚实之外的「错了知道怎么改」面）——/setup 向导是
+            // 主路（官方/自定义网关同场、当场生效），env 供血与换模型键为
+            // 手编路
             title: '模型配置',
             lines: [
-              '对话需模型凭证：设置供应商生态变量（如 export ANTHROPIC_API_KEY=sk-… 或 OPENAI_API_KEY）',
-              '更换缺省模型设 BERRY_AGENT_MODEL=provider/model-id——详见 docs/usage.md「模型配置」节',
+              '/setup 向导：选渠道（官方/自定义网关）→ 录 API key（明文）→ 立即生效',
+              'env 供血（如 export ANTHROPIC_API_KEY=sk-…）· BERRY_AGENT_MODEL=provider/model 换模型——详见 docs/usage.md「模型配置」节',
             ],
           },
           {

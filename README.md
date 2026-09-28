@@ -123,7 +123,9 @@ dual-name alias: the npm upgrade replaces the old `berry-agent` link with
 scripts over to `berry`.
 
 The first run creates `~/.berry-agent/`. The default model is `anthropic/claude-sonnet-5`
-(supply `ANTHROPIC_API_KEY`); override with `BERRY_AGENT_MODEL`. The full command,
+(supply `ANTHROPIC_API_KEY`, or run `/setup` in the TUI — a wizard that configures
+built-in providers and custom Anthropic/OpenAI-compatible gateways, and takes effect
+immediately); override with `BERRY_AGENT_MODEL`. The full command,
 flag and environment-variable reference lives in the [usage guide](./docs/usage.md) (Chinese).
 
 ## The 16 built-in plugins

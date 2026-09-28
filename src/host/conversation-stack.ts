@@ -318,11 +318,22 @@ export interface ConversationStack {
    * 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据的纯读
    * 投影非第二实现（env 键非空 ∨ 绑定行命中——liveBindingApiKey 同判据布尔
    * 回投，含 env 遮蔽/撞绑全序/空值行不供血全执法）。派生态零哨兵——每次
-   * 现算，修配置即解锁（credentials/changed 订阅不设）；态可入面、值与凭证
-   * 恒不入面。消费位：TUI boot 启动面板判定、/status 呈现位。
+   * 现算，修配置即解锁（credentials/changed 订阅不设）；态入面（值入面见
+   * modelCredentialKeyOf——**全明文翻裁 2026-09-28**：人面呈现面态+完整值
+   * 同入，模型读侧 carve-out 分权维持）。消费位：TUI boot 启动面板判定、
+   * /status 呈现位。
    * @param modelSpec 现算锚（缺省 = 栈当前 model——旋钮换档随动）
    */
   modelCredentialStatus(modelSpec?: string): 'ready' | 'unconfigured';
+  /**
+   * 当前模型凭证完整值读面（C-4 全明文翻裁——/status 人面完整值入面）：
+   * env 供血值优先（官方 provider 合成键——豁免集 envApiKeyNamesOf 同判据
+   * 内化，custom 渠道恒走绑定行），否则绑定行胜出原值（liveBindingApiKey
+   * 透传）；两源皆缺席回 undefined（装配位折 null——面板只呈态）。只进人面
+   * 呈现行集；模型读侧 carve-out（04 §7）与注入腿净化分权维持不动。
+   * @param modelSpec 现算锚（缺省 = 栈当前 model——与 modelCredentialStatus 同锚）
+   */
+  modelCredentialKeyOf(modelSpec?: string): string | undefined;
   /**
    * 当前绑定行 key 原值读面（ob-3 向导重入默认值）：供血胜出行原值——
    * env 遮蔽位/行缺席位回 undefined（与供血判据同执法双分立）；值只进向导
@@ -1287,6 +1298,19 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     // ——遮蔽/缺席同判据回 undefined，胜出行原值只进流程「空录入沿用」位
     bindingApiKeyOf(modelSpec: string): string | undefined {
       return liveBindingApiKey(modelSpec);
+    },
+    // 当前模型凭证完整值（C-4 全明文翻裁——人面呈现面专用）：env 供血值
+    // 优先（envApiKeyNamesOf 豁免判据同源——custom 渠道不合成假键恒走绑定
+    // 行），否则 liveBindingApiKey 胜出原值；两源皆缺席回 undefined
+    modelCredentialKeyOf(modelSpec) {
+      const spec = modelSpec ?? currentModel;
+      const slash = spec.indexOf('/');
+      const providerId = slash === -1 ? spec : spec.slice(0, slash);
+      for (const name of envApiKeyNamesOf(providerId)) {
+        const value = credentialEnvFace[name];
+        if (value !== undefined && value !== '') return value;
+      }
+      return liveBindingApiKey(spec);
     },
     // 连通微探针（ob-3 改裁注机制形）——实装见上方函数体注释
     probeModelConnectivity,

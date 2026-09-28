@@ -27,7 +27,7 @@ import type { CredentialChangedPayload } from './secrets.js';
 /** 用法文案（TUI 命令 description 位与用法错指路共用单源；oauth 动词 TUI 面承载——CLI 零装配无注册表不载） */
 export const CREDENTIALS_USAGE = [
   '用法：/credentials add <name> <value> [--namespace <ns>] [--model-provider <providerId>] —— 录入静态凭证（缺省 host 域；值含空格用引号包裹；--model-provider 写模型绑定行——录入即进模型腿供血面）',
-  '　　　/credentials list —— 全域列示（namespace/名/来源/模型绑定/更新时间——永不呈值）',
+  '　　　/credentials list —— 全域列示（namespace/名/来源/模型绑定/值/更新时间——值列直呈〔全明文〕）',
   '　　　/credentials rm <name> [--namespace <ns>] —— 撤销凭证（删除唯一路径）',
   '　　　/credentials oauth <pluginId> [<name>] —— 发起插件 oauth 授权流（device-code；域随流主人）',
 ].join('\n');
@@ -279,21 +279,32 @@ function runRm(name: string, namespace: string | undefined, deps: CredentialsCom
   return { ok: true, text: `已撤销凭证 ${ns}/${name}。` };
 }
 
-/** list：全域列示（namespace/名/来源/模型绑定/更新时间——永不呈值；expired 位随来源列标注；
- * 绑定列缺席「——」ob-1：绑定名可入面〔provider id 非值〕，缺省非绑定行如实呈现） */
+/** list：全域列示（namespace/名/来源/模型绑定/值/更新时间——**值列全明文
+ * 翻裁 2026-09-28**：人面所见即所存，07 §4.1 C-4 同笔；expired 位随来源列
+ * 标注；绑定列缺席「——」ob-1：绑定名可入面〔provider id 非值〕，缺省非
+ * 绑定行如实呈现） */
 function runList(deps: CredentialsCommandDeps): CredentialsCommandResult {
   const rows = deps.store.listCredentialProviders();
   if (rows.length === 0) {
     return { ok: true, text: '无凭证（数据目录凭证表空——/credentials add 录入首条）' };
   }
-  const lines: string[] = [`共 ${rows.length} 条凭证（全域列示，永不呈值）：`];
+  const lines: string[] = [`共 ${rows.length} 条凭证（全域列示，值列直呈——全明文）：`];
   for (const row of rows) {
     const meta = (row.meta ?? {}) as CredentialMeta;
     const source = meta.source ?? '未记';
     const expired = meta.expired === true ? '（已过期——保留上次有效值）' : '';
     const binding = typeof meta.modelProvider === 'string' && meta.modelProvider !== '' ? meta.modelProvider : '—';
+    // 值列（全明文翻裁）：list 面不载值（store 面纪律维持——模型读侧同面
+    // 零改动），逐行现取解密；坏行诚实呈现不连坐整表（行级隔离）
+    let value: string;
+    try {
+      const entry = deps.store.getCredential(row.namespace, row.provider);
+      value = entry !== undefined && entry.apiKey !== '' ? entry.apiKey : '（空值行）';
+    } catch {
+      value = '（读取失败）';
+    }
     lines.push(
-      `  ${row.namespace}  ${row.provider}  来源 ${source}${expired}  绑定 ${binding}  更新 ${new Date(row.updatedAt).toISOString()}`,
+      `  ${row.namespace}  ${row.provider}  来源 ${source}${expired}  绑定 ${binding}  值 ${value}  更新 ${new Date(row.updatedAt).toISOString()}`,
     );
   }
   return { ok: true, text: lines.join('\n') };

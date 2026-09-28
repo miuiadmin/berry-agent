@@ -122,8 +122,10 @@ automatiquement l'ancien lien `berry-agent` par `berry`, l'ancien nom de
 commande cesse de fonctionner ; adaptez vos scripts pour utiliser `berry`.
 
 Le premier lancement crée `~/.berry-agent/`. Le modèle par défaut est
-`anthropic/claude-sonnet-5` (fournissez `ANTHROPIC_API_KEY`) ; surchargez avec
-`BERRY_AGENT_MODEL`. La référence complète des commandes, drapeaux et variables
+`anthropic/claude-sonnet-5` (fournissez `ANTHROPIC_API_KEY`, ou lancez `/setup`
+dans la TUI — un assistant qui configure les fournisseurs intégrés et des
+passerelles personnalisées compatibles Anthropic/OpenAI, effet immédiat) ;
+surchargez avec `BERRY_AGENT_MODEL`. La référence complète des commandes, drapeaux et variables
 d'environnement se trouve dans le [guide d'utilisation](./docs/usage.md) (en chinois).
 
 ## Les 16 plugins intégrés

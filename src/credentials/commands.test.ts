@@ -11,7 +11,7 @@
  *  - add 覆写整行（meta 整列换非合并）；
  *  - add plugin:<id> 域 + 坏形 namespace 折文本 CREDENTIALS_NAMESPACE_DENIED
  *    （同码分流律——读腿同码）；
- *  - list 全域列示 + expired 标注 + **永不呈值** + 空表诚实空；
+ *  - list 全域列示 + expired 标注 + **值列直呈（全明文翻裁 2026-09-28——CLI 面同源翻；add 回执不回显维持 07 §7 CLI 表）** + 空表诚实空；
  *  - rm 命中（+审计 remove）与缺席（CREDENTIALS_NOT_FOUND 折文本 ok:false）；
  *  - parseCredentialsArgv 各失败形与成功形（TUI 面解析律）；
  *  - compat 互证：persist Store 结构可赋 CredentialsCommandStore（词面独立律）。
@@ -159,7 +159,7 @@ describe('add 动词', () => {
 });
 
 describe('list 动词', () => {
-  it('全域列示（host + plugin 域同行）+ expired 标注 + 永不呈值', () => {
+  it('全域列示（host + plugin 域同行）+ expired 标注 + 值列直呈（全明文翻裁 2026-09-28——人面所见即所存）', () => {
     const store = openTestStore();
     const { run } = rig(store);
     run({ sub: 'add', name: 'anthropic', value: 'sk-live-777c' });
@@ -174,10 +174,10 @@ describe('list 动词', () => {
     expect(result.text).toContain('plugin:demo  deploy-key  来源 manual');
     expect(result.text).toContain('github  来源 oauth（已过期——保留上次有效值）');
     expect(result.text).toMatch(/更新 \d{4}-\d{2}-\d{2}T/); // ISO 时间列在场
-    // 铁律：三条明文值全不入文本
-    expect(result.text).not.toContain('sk-live-777c');
-    expect(result.text).not.toContain('v-2');
-    expect(result.text).not.toContain('ghu_stale');
+    // 值列完整值锁（修前红：v1「永不呈值」铁律相）——三条明文值全入文本
+    expect(result.text).toContain('值 sk-live-777c');
+    expect(result.text).toContain('值 v-2');
+    expect(result.text).toContain('值 ghu_stale');
   });
 
   it('meta 缺席行来源列「未记」（历史行/迁移回填行容错）', () => {
@@ -188,7 +188,7 @@ describe('list 动词', () => {
     expect(result.text).toContain('legacy  来源 未记');
   });
 
-  it('绑定列呈现（ob-1）：绑定行点名 + 缺席「—」（绑定名可入面——值恒不入面）', () => {
+  it('绑定列呈现（ob-1）：绑定行点名 + 缺席「—」+ 值列随行（绑定名与值同入面——全明文同笔）', () => {
     const store = openTestStore();
     const { run } = rig(store);
     run({ sub: 'add', name: 'bound', value: 'v-9c', modelProvider: 'anthropic' });
@@ -197,8 +197,8 @@ describe('list 动词', () => {
     expect(result.ok).toBe(true);
     expect(result.text).toContain('bound  来源 manual  绑定 anthropic');
     expect(result.text).toContain('plain  来源 manual  绑定 —');
-    expect(result.text).not.toContain('v-9c');
-    expect(result.text).not.toContain('v-2d');
+    expect(result.text).toContain('值 v-9c'); // 值列直呈（翻裁锁）
+    expect(result.text).toContain('值 v-2d');
   });
 
   it('空表诚实空', () => {

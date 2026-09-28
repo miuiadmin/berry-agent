@@ -118,7 +118,9 @@ alpha.1에서 업그레이드한 사용자: bin 이름이 `berry`로 바뀌었�
 `berry`로 변경하세요.
 
 첫 실행 시 `~/.berry-agent/`가 생성됩니다. 기본 모델은
-`anthropic/claude-sonnet-5` (`ANTHROPIC_API_KEY` 제공), `BERRY_AGENT_MODEL`로
+`anthropic/claude-sonnet-5` (`ANTHROPIC_API_KEY` 제공, 또는 TUI에서 `/setup`
+마법사 실행 — 내장 공급자와 Anthropic/OpenAI 호환 사용자 게이트웨이를
+구성하고 즉시 적용), `BERRY_AGENT_MODEL`로
 덮어쓸 수 있습니다. 전체 명령·플래그·환경변수 참조는 [사용 가이드](./docs/usage.md)(중국어)에 있습니다.
 
 ## 내장 플러그인 16개

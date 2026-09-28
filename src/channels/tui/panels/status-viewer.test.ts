@@ -27,6 +27,7 @@ const DATA: StatusPanelData = {
   model: 'faux/test-model',
   modelCount: 3,
   modelCredential: 'ready',
+  modelCredentialKey: 'sk-status-full-9999',
   sessionId: 'sess-1234567890abcdef',
   cwdLabel: 'berry-agent',
   turns: 7,
@@ -69,12 +70,16 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     expect(lines.find((line) => line.startsWith('模型 model'))!).toContain('模型目录空');
   });
 
-  it('模型凭证态行（ob-2）：ready/unconfigured 两态呈现（态可入面——值与凭证恒不入面）', () => {
+  it('模型凭证行（ob-2 态 + C-4 全明文翻裁值）：ready 携完整供血值（人面所见即供血——修前红：v1 值恒不入面）', () => {
     const readyLines = buildStatusLines(DATA);
-    expect(readyLines.some((line) => line.startsWith('模型凭证 credential') && line.includes('ready'))).toBe(true);
-    // unconfigured 态行 + 可行动指路半句
+    const readyLine = readyLines.find((line) => line.startsWith('模型凭证 credential'))!;
+    expect(readyLine).toContain('ready');
+    expect(readyLine).toContain('sk-status-full-9999'); // 完整值入面（全明文翻裁锁）
+    // unconfigured 态行不携值 + 可行动指路半句
     const unLines = buildStatusLines({ ...DATA, modelCredential: 'unconfigured' });
-    expect(unLines.some((line) => line.startsWith('模型凭证 credential') && line.includes('unconfigured'))).toBe(true);
+    const unLine = unLines.find((line) => line.startsWith('模型凭证 credential'))!;
+    expect(unLine).toContain('unconfigured');
+    expect(unLine).not.toContain('sk-status-full-9999'); // 未配置态零值呈现
     // 态行随运行时段（模型行之后、会话段之前）
     const readyIdx = readyLines.findIndex((line) => line.startsWith('模型 model'));
     const credIdx = readyLines.findIndex((line) => line.startsWith('模型凭证 credential'));
@@ -82,6 +87,11 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     expect(readyIdx).toBeGreaterThan(-1);
     expect(credIdx).toBeGreaterThan(readyIdx);
     expect(credIdx).toBeLessThan(sessionIdx);
+  });
+
+  it('ready 供血值缺席防御形（开屏间隙配置变更——诚实缺席半句不空行）', () => {
+    const lines = buildStatusLines({ ...DATA, modelCredentialKey: null });
+    expect(lines.find((line) => line.startsWith('模型凭证 credential'))!).toContain('供血值缺席');
   });
 
   it('标签对齐按显示宽（CJK 双宽标签 + 值列同列起）', () => {

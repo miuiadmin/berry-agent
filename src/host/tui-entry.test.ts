@@ -529,12 +529,13 @@ describe('runTuiEntry 装配序', () => {
     expect(await entry).toBe(0);
   });
 
-  it('/guide 副屏模型配置段（P0 静默链修复批——07 §8.5 第 2 条补段）', async () => {
+  it('/guide 副屏模型配置段（P0 静默链修复批 + C-4 v2 文案——/setup 主路 + env 手编路双指路）', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-guide-data-'), rigDir('entry-guide-ws-'));
     await until(() => io.output.includes(' · m1 · '));
     io.send('/guide\r');
-    // 模型配置段在场：段标题 + 供应商生态变量指路 + 换模型 env 键
+    // 模型配置段在场：段标题 + /setup 向导主路 + env 供血与换模型键手编路
     await until(() => io.output.includes('── 模型配置 ──'));
+    expect(io.output).toContain('/setup 向导');
     expect(io.output).toContain('ANTHROPIC_API_KEY');
     expect(io.output).toContain('BERRY_AGENT_MODEL');
     io.send('q');

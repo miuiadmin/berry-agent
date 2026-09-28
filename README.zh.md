@@ -107,7 +107,8 @@ berry serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
 从 alpha.1 升级的用户：bin 已换代为 `berry`——净切、不留双名别名；npm 升级会把旧链 `berry-agent` 自动重链为 `berry`，旧命令名随之失效，脚本请改用 `berry`。
 
 首启自动创建 `~/.berry-agent/`。模型缺省 `anthropic/claude-sonnet-5`（凭证按
-provider 生态变量供给，如 `ANTHROPIC_API_KEY`），`BERRY_AGENT_MODEL` 可覆盖。
+provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向导——官方渠道
+与自定义 Anthropic/OpenAI 兼容网关同场配置、当场生效），`BERRY_AGENT_MODEL` 可覆盖。
 完整命令族、旗标、环境变量与 TUI 键位见[使用指南](./docs/usage.md)。
 
 ## 内置插件 16 件（随包出厂；15 件默认启用、可逐件禁用，core:issue 需配置后才装载）
