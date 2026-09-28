@@ -30,6 +30,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   DEFAULT_MIN_RELEASE_AGE_MINUTES,
   MIN_RELEASE_AGE_ENV,
+  createDefaultSpawnRunner,
   installPlugin,
   parsePluginRef,
   resolveMinReleaseAge,
@@ -37,7 +38,7 @@ import {
 } from './plugin-install.js';
 import type { InstallExecutorDeps, SpawnRunner } from './plugin-install.js';
 import { createPluginStoreFs, ledgerPath, mountRow, readEnabledRowsForEdit, readLedger } from './plugin-store.js';
-import type { LifecycleAuditSink, PluginLedgerEntry } from './plugin-store.js';
+import type { LifecycleAuditSink, PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
 
 /** 测试根 tmp（每文件钉数据目录纪律——BERRY_AGENT_DATA_DIR 之外的自管 tmp） */
 const testRoot = mkdtempSync(join(tmpdir(), 'berry-install-test-'));
@@ -454,6 +455,26 @@ describe('local 源与收割真跑（本地 fixture 零网络）', () => {
     expect(r2.ok).toBe(false);
     if (r2.ok) return;
     expect(r2.message).toContain('装机目录无 package.json');
+  });
+
+  it('自带 node_modules 裸说明符收割可达（装机腿与装载器同律——修前红：harvest 门禁未接 resolveBare 恒拒）', async () => {
+    const dataDir = dataDirOf('data-selfdep');
+    // npm 惯例形 fixture：入口裸说明符 import 自捆依赖（收割腿 jiti 真求值）
+    const src = localFixture(
+      'selfdep',
+      pluginPkgJson({ name: 'selfdep-pkg' }),
+      `import { tag } from 'tiny-dep';\nexport const events = ['selfdep/event'];\nexport default function apply() {}\n`,
+    );
+    mkdirSync(join(src, 'node_modules', 'tiny-dep'), { recursive: true });
+    writeFileSync(
+      join(src, 'node_modules', 'tiny-dep', 'package.json'),
+      '{"name":"tiny-dep","version":"1.0.0","main":"index.js"}',
+    );
+    writeFileSync(join(src, 'node_modules', 'tiny-dep', 'index.js'), `export const tag = 'tiny-dep-harvest';\n`);
+    const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
+    expect(outcome.ok).toBe(true); // 修前红：收割失败（PLUGIN_IMPORT_FORBIDDEN）→ 整装拒
+    if (!outcome.ok) return;
+    expect(outcome.entry.declaredEvents).toEqual(['selfdep/event']);
   });
 });
 
@@ -1229,6 +1250,43 @@ describe('市场拷贝腿与 market 注记（03 §9.6 mp-3——装机咬合）'
     expect(rowsC.ok && rowsC.rows[0]).toMatchObject({ id: 'new-id', config: { greeting: 'hi' } }); // 全字段保形
   });
 
+  it('换血收尾 IO 失败不翻转成败叙事（B3——修前红：异常带「已写账本」逃出 install 整体炸 + 审计词缺席）', async () => {
+    const dataDir = dataDirOf('market-cleanup-eacces');
+    const legsMarket = { name: 'legs-cl', entry: 'demo-pkg' };
+    // 首装：npm:old-pkg（manifest id = old-id）带市场溯源注记（真 fs——首装无收尾注入）
+    const oldRec = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'old-pkg', berryAgent: { id: 'old-id' } }) });
+    expect(await installPlugin(depsOf(dataDir, oldRec.spawn), 'npm:old-pkg', { market: legsMarket })).toMatchObject({
+      ok: true,
+    });
+    // 换代腿注入 EACCES 形 rm：旧树清理位（撤账/随迁已过，rm oldAbs 抛）——修前该异常
+    // 带「已写账本」逃出 installPlugin，CLI 面整体炸且审计词缺席
+    const audit: string[] = [];
+    const realFs = createPluginStoreFs();
+    const oldTree = join(dataDir, 'plugins', 'node_modules', 'old-pkg');
+    const fsEacces: PluginStoreFs = {
+      ...realFs,
+      rm: (path, options) => {
+        if (path === oldTree) {
+          throw Object.assign(new Error(`EACCES: permission denied, unlink '${path}'`), { code: 'EACCES' });
+        }
+        realFs.rm(path, options);
+      },
+    };
+    const newRec = npmFakeSpawn(dataDir, { pkgJson: pluginPkgJson({ name: 'new-pkg', berryAgent: { id: 'new-id' } }) });
+    const deps: InstallExecutorDeps = {
+      ...depsOf(dataDir, newRec.spawn, { onLifecycleAudit: (word) => void audit.push(word) }),
+      fs: fsEacces,
+    };
+    const second = await installPlugin(deps, 'npm:new-pkg', { market: legsMarket }); // 修前红：本行整炸
+    expect(second.ok).toBe(true); // 账本已成功——收尾失败不翻转成败叙事
+    if (!second.ok) return;
+    expect(second.text).toContain('警告'); // 告警注记在场（warn 叙事非 error）
+    expect(second.text).toContain('收尾失败');
+    expect(audit).toContain('plugin/installed'); // 审计词照落（修前红形：收尾炸后缺席）
+    // 账本自洽：撤账已兑现（old-id 出账），新条目在场
+    expect(entriesOf(dataDir).map((e) => e.id)).toEqual(['new-id']);
+  });
+
   it('id 漂移撤账 + 旧树共享引用：树保留只撤账（引用计数判据——无主差集才清）', async () => {
     const dataDir = dataDirOf('market-drift-shared-tree');
     const legsMarket = { name: 'legs-shared', entry: 'demo-pkg' };
@@ -1429,5 +1487,42 @@ describe('git 克隆目标主机校验（03 §9.6 mp 收尾批安全硬化——
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.message).toContain('起头');
     expect(argvLog).toEqual([]); // npm spawn 零到达——spec 槽位拒在 spawn 前
+  });
+});
+
+describe('execFile 型缺省 SpawnRunner 超时击杀（B4——修前红：无 timeout 通道，超时帽后子进程孤儿化存续）', () => {
+  it('timeoutMs 到点子进程被 kill（SIGTERM）后 promise 拒——修前红 = 观察窗内无收口（子进程满活）', async () => {
+    const runner = createDefaultSpawnRunner();
+    const startedAt = Date.now();
+    // 真子进程：8s 自然退的长活形（修前无击杀即满活孤儿——自退兜底防红态泄进程）
+    const run = runner.run(process.execPath, ['-e', 'setTimeout(() => process.exit(0), 8000);'], { timeoutMs: 400 });
+    const observed = await Promise.race([
+      run.then(
+        () => 'resolved' as const,
+        (err: unknown) => {
+          const e = err as { signal?: string; killed?: boolean };
+          return `rejected:${e.signal ?? (e.killed === true ? 'killed' : 'unknown')}`;
+        },
+      ),
+      new Promise<'no-settle'>((done) => setTimeout(() => done('no-settle'), 2500)),
+    ]);
+    expect(observed).toMatch(/^rejected:/); // 修前红：execFile 无 timeout 通道 → 2.5s 观察窗 no-settle
+    expect(observed).toMatch(/SIGTERM|killed/); // 击杀形收口（非自然退/非其它错）
+    expect(Date.now() - startedAt).toBeLessThan(2500); // 击杀快收口（非等 8s 自然退）
+  });
+
+  it('git clone 超时帽（黑洞挂死形——注桩永不 settle）：拒 + tmp 清尾不悬挂（settle 宽限帽上界锁）', async () => {
+    const dataDir = dataDirOf('git-clone-timeout');
+    const cloneTmpRoot = join(testRoot, 'git-clone-timeout-tmp');
+    mkdirSync(cloneTmpRoot, { recursive: true });
+    // 永不 settle 的假 spawn：验证超时路 rm 前的「等子进程收口」不因注桩假件悬挂
+    const hanging: SpawnRunner = { run: () => new Promise(() => {}) };
+    const outcome = await installPlugin(
+      depsOf(dataDir, hanging, { tmpRoot: cloneTmpRoot, cloneTimeoutMs: 50 }),
+      'git:https://example.com/o/never-clone.git',
+    );
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.message).toContain('超时');
+    expect(gitTmpResidue(cloneTmpRoot)).toEqual([]); // tmp 清尾回归锁（竞速帽 + 宽限帽都不悬挂）
   });
 });

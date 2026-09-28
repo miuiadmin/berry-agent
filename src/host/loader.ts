@@ -32,7 +32,7 @@ import type { ApiBlock } from '../contracts/api.js';
 import { providerApiFace } from '../llm/index.js';
 
 import { synthesizePluginConfig, type ConfigField } from './config-schema.js';
-import { createGateTransform } from './import-gate.js';
+import { createGateTransform, createTreeBareResolver } from './import-gate.js';
 import type { PluginManifest } from './manifest.js';
 import { withoutSessionAnchor } from './session-anchor.js';
 import { withTimeout } from './runtime.js';
@@ -491,7 +491,12 @@ async function loadDiskModule(
   const faces = { ...virtualFaces }; // 面快照（本插件 jiti 实例的直注集）
   const opts: LoadPluginJitiOptions = {
     virtualModules: faces,
-    transform: createGateTransform({ pluginId: row.id, pluginDir: row.pluginDir }),
+    // 裸说明符树内解析位接线（道③自带 node_modules——缺此位裸说明符恒 fail-closed 拒）
+    transform: createGateTransform({
+      pluginId: row.id,
+      pluginDir: row.pluginDir,
+      resolveBare: createTreeBareResolver(row.pluginDir),
+    }),
   };
   const jiti =
     jitiFactory?.(row.pluginDir, opts) ??

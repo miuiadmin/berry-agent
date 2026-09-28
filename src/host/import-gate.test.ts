@@ -5,12 +5,23 @@
  * + 越界 throw 形（error 通道不抛已实证——2026-09-07 探针，本组锁行为）+
  * node_modules 子树豁免辖域判定。
  */
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { afterAll, describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 
 import { BARE_BUILTINS } from './builtins.js';
 import { checkImportSpecifier, createGateTransform, extractImportSpecifiers, VIRTUAL_KEYS } from './import-gate.js';
+
+/** containment 测试临时目录族（统一清） */
+const containDirs: string[] = [];
+
+afterAll(() => {
+  for (const d of containDirs) rmSync(d, { recursive: true, force: true });
+});
 
 /** 拒载断言速记（码身份 + 报文含说明符——expectCode 形） */
 function expectForbidden(verdict: true | BaseError, specifier: string): void {
@@ -37,7 +48,7 @@ describe('checkImportSpecifier 三道白名单', () => {
     expectForbidden(checkImportSpecifier('typebox/extra'), 'typebox/extra');
   });
 
-  it('相对导入过（道③——树内 containment 由解析保证）', () => {
+  it('相对导入过（道③——谓词层放行；树内 containment 由 transform 腿执法）', () => {
     expect(checkImportSpecifier('./helper.js')).toBe(true);
     expect(checkImportSpecifier('../shared/util.js')).toBe(true);
   });
@@ -167,5 +178,55 @@ describe('createGateTransform 字面量腿', () => {
     });
     expect(result.code).not.toBe(`import os from 'node:os';\nexport default os.platform();`); // babel 实转（非原样）
     expect(result.code.length).toBeGreaterThan(0);
+  });
+});
+
+describe('createGateTransform 相对径 containment 执法（道③补腿——修前红：../ 链无条件放行可逃出插件树）', () => {
+  /** 真文件 containment fixture（jiti 只对存在文件调 transform——realpath 归一同产线形） */
+  function containFixture(files: readonly string[]): string {
+    const root = mkdtempSync(join(tmpdir(), 'berry-gate-contain-'));
+    containDirs.push(root);
+    const pluginDir = join(root, 'plug');
+    for (const rel of files) {
+      const target = join(pluginDir, rel);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, `export default 1;\n`);
+    }
+    return pluginDir;
+  }
+
+  it("'../' 链解析逃出插件树即拒——修前红（market 布局深层可达家目录形）", () => {
+    const pluginDir = containFixture(['deep/entry.js']);
+    const gate = createGateTransform({ pluginId: 'plug-esc', pluginDir, delegate: (o) => o.source });
+    try {
+      // deep/entry.js 起 '../../escape.js' 解析到插件树外（root/escape.js——目标缺席不缓判，归一后出界即拒）
+      gate({
+        source: `import x from '../../escape.js';\nexport default x;`,
+        filename: join(pluginDir, 'deep', 'entry.js'),
+      });
+      expect.unreachable('未拒载');
+    } catch (err) {
+      expect(err).toBeInstanceOf(BaseError);
+      expect((err as BaseError).code).toBe('PLUGIN_IMPORT_FORBIDDEN');
+      expect((err as BaseError).message).toContain('../../escape.js'); // 报文含说明符
+      expect((err as BaseError).message).toContain('逃逸'); // 因由词面
+    }
+  });
+
+  it('树内合法 ../ 引用不误伤（resolve 归一后仍在树内即放行——目标在场与缺席两形）', () => {
+    const pluginDir = containFixture(['deep/entry.js', 'util.js']);
+    const gate = createGateTransform({ pluginId: 'plug-in', pluginDir, delegate: (o) => o.source });
+    // 目标在场：deep/entry.js 起 '../util.js' 解析回插件根内；'./node_modules/dep/i.js' 相对自捆同律放行
+    const result = gate({
+      source: `import u from '../util.js';\nimport d from './node_modules/dep/i.js';\nexport default 1;`,
+      filename: join(pluginDir, 'deep', 'entry.js'),
+    });
+    expect(result.code).toContain("'../util.js'");
+    // 目标缺席（笔误形）：不误判逃逸——归一后仍在树内（缺席红归 jiti 解析失败，非门禁拒）
+    const missing = gate({
+      source: `import u from '../not-yet.js';\nexport default 1;`,
+      filename: join(pluginDir, 'deep', 'entry.js'),
+    });
+    expect(missing.code).toContain("'../not-yet.js'");
   });
 });

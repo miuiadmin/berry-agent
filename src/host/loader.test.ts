@@ -295,6 +295,25 @@ export default async function apply(ctx) { ctx.provide('depFs', dep); }
     expect(options.services.get('depFs')).toBe('function'); // 依赖内裸 fs 按惯例放行（语义等价 node: 形）
   });
 
+  it('自带 node_modules 裸说明符装载可达（文档承诺道③——修前红：装配位未接 resolveBare 恒 fail-closed 拒）', async () => {
+    const dir = makePluginDir({
+      'package.json': JSON.stringify({ name: 'plug-selfdep', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+      // npm 惯例形：裸说明符 import（文档承诺「自带 node_modules 依赖」的正道写法）
+      'entry.js': `
+import { tag } from 'tiny-dep';
+export default async function apply(ctx) { ctx.provide('depTag', tag); }
+`,
+      'node_modules/tiny-dep/package.json': JSON.stringify({ name: 'tiny-dep', version: '1.0.0', main: 'index.js' }),
+      'node_modules/tiny-dep/index.js': `export const tag = 'tiny-dep-loaded';\n`,
+    });
+    const options = rigOptions([
+      diskRow('plug-selfdep', dir, { name: 'plug-selfdep', version: '1.0.0', berryAgent: { entry: 'entry.js' } }),
+    ]);
+    const report = await loadPlugins(options);
+    expect(report.failed).toEqual([]); // 修前红：PLUGIN_IMPORT_FORBIDDEN（裸说明符缺 resolveBare 即拒）
+    expect(options.services.get('depTag')).toBe('tiny-dep-loaded'); // jiti 从 pluginDir/node_modules 真解析装载
+  });
+
   it('default-export 态：entry 缺席走包主入口（package.json main）', async () => {
     const dir = makePluginDir({
       'package.json': JSON.stringify({ name: 'plug-main', version: '1.0.0', main: './lib/start.js', berryAgent: {} }),

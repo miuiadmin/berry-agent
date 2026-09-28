@@ -67,7 +67,7 @@ import {
 import type { LifecycleAuditSink, PluginLedgerEntry, PluginLedgerMarket, PluginStoreFs } from './plugin-store.js';
 import { parseManifest } from './manifest.js';
 import type { PluginManifest } from './manifest.js';
-import { createGateTransform } from './import-gate.js';
+import { createGateTransform, createTreeBareResolver } from './import-gate.js';
 import { loadDefaultVirtualFaces, resolvePkgMain } from './loader.js';
 // web 卫生件单源消费（market 腿 git 克隆守卫——§9.6 攻击表行；host→web 边
 // 既有〔assembly/core-plugins 同族〕，ssrf 判定不另起炉灶）
@@ -190,16 +190,30 @@ export interface SpawnRunner {
   run(
     cmd: string,
     args: readonly string[],
-    options: { readonly cwd?: string },
+    options: {
+      readonly cwd?: string;
+      /**
+       * 超时帽 ms（B4——execFile timeout 通道）：到点以 killSignal 击杀子进程
+       * 后拒（真身承诺「拒时子进程已终止」——不孤儿化存续）；缺席 = 无帽。
+       * 注桩假件可忽略（外层 withTimeoutMs 竞速恒保证帽值——双执法分层）
+       */
+      readonly timeoutMs?: number;
+    },
   ): Promise<{ readonly stdout: string; readonly stderr: string }>;
 }
 
-/** 缺省真身（maxBuffer 放大——npm 安装输出可观；非零退出 = reject 带 stderr） */
+/** 缺省真身（maxBuffer 放大——npm 安装输出可观；非零退出 = reject 带 stderr；
+ * timeoutMs 在场即传 execFile timeout + SIGTERM 击杀——超时拒时子进程已死） */
 export function createDefaultSpawnRunner(): SpawnRunner {
   const runFile = promisify(execFile);
   return {
     run: (cmd, args, options) =>
-      runFile(cmd, [...args], { cwd: options.cwd, maxBuffer: 64 * 1024 * 1024 }) as Promise<{
+      runFile(cmd, [...args], {
+        cwd: options.cwd,
+        maxBuffer: 64 * 1024 * 1024,
+        // 超时击杀通道（B4）：execFile 到点 killSignal 击杀，exit 落地后回调拒
+        ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs, killSignal: 'SIGTERM' } : {}),
+      }) as Promise<{
         stdout: string;
         stderr: string;
       }>,
@@ -391,46 +405,56 @@ export async function installPlugin(
   // installPath 落位变化」——市场条目换源形（npm↔拷贝腿）重装时 id 稳定而落位
   // 换位（plugins/node_modules/<pkg> ↔ plugins/market/<市场名>/<条目名>/），旧位
   // 无人清即成无主残影（账本已覆写指新位，uninstall/upgrade 恒走新位）；撤账
-  // （removeLedgerEntry）仍仅 id 漂移时执行——id 稳定时 upsert 已覆盖同一条目
+  // （removeLedgerEntry）仍仅 id 漂移时执行——id 稳定时 upsert 已覆盖同一条目。
+  // 收尾异常收口：账本已成功落写（upsertLedgerEntry 已返），收尾段任何 IO 失败
+  // （撤账写/随迁写/旧树 rm）不翻转成败叙事——install 仍报成功 + 告警注记呈现
+  // 失败项（warn 叙事非 error——CLI 面不呈「启动失败」），审计词照落不受牵连
+  let cleanupNote = ''; // 换血收尾失败注记（空 = 收尾自洽或无换血）
   let rowMigrateNote = ''; // 启用行随迁失败注记（空 = 无随迁失败或无漂移）
   let enabledCarried = false; // 随迁是否发生（行面有动作）——回执尾行与 CLI mount 指路抑制的判定位
   let carriedFromId = ''; // 漂移源 id（随迁发生时必在场——回执换代注记用）
   if (marketReplacing !== undefined) {
-    const oldAbs = resolveInstallPath(deps.dataDir, marketReplacing.installPath);
-    const newAbs = resolveInstallPath(deps.dataDir, product.installPath);
-    if (marketReplacing.id !== manifest.id) {
-      removeLedgerEntry(deps.dataDir, marketReplacing.id, deps.fs);
-      // 启用行随迁（§9.6 mp 收尾批定形）：旧 id 启用行（若在场）改写 id 为
-      // 新 id（config/disabled/opens 全字段保形）——不随迁即悬空行（boot 对账
-      // 永续 warn + 插件静默停载 + marketplace/plugins 两 uninstall 动词均清
-      // 不掉）。随迁失败（enabled.yaml 坏形）不吞装机油——装机事实已落账，坏
-      // 形行编辑面 readEnabledRowsForEdit fail-loud 已辖，此处以结文注记呈现
-      const migrated = migrateEnabledRow(deps.dataDir, marketReplacing.id, manifest.id, deps.fs);
-      if (!migrated.ok) {
-        rowMigrateNote = `；注意：启用行随迁失败（${migrated.message}）`;
-      } else {
-        enabledCarried = migrated.carried;
-        carriedFromId = marketReplacing.id;
+    try {
+      const oldAbs = resolveInstallPath(deps.dataDir, marketReplacing.installPath);
+      const newAbs = resolveInstallPath(deps.dataDir, product.installPath);
+      if (marketReplacing.id !== manifest.id) {
+        removeLedgerEntry(deps.dataDir, marketReplacing.id, deps.fs);
+        // 启用行随迁（§9.6 mp 收尾批定形）：旧 id 启用行（若在场）改写 id 为
+        // 新 id（config/disabled/opens 全字段保形）——不随迁即悬空行（boot 对账
+        // 永续 warn + 插件静默停载 + marketplace/plugins 两 uninstall 动词均清
+        // 不掉）。随迁失败（enabled.yaml 坏形）不吞装机油——装机事实已落账，坏
+        // 形行编辑面 readEnabledRowsForEdit fail-loud 已辖，此处以结文注记呈现
+        const migrated = migrateEnabledRow(deps.dataDir, marketReplacing.id, manifest.id, deps.fs);
+        if (!migrated.ok) {
+          rowMigrateNote = `；注意：启用行随迁失败（${migrated.message}）`;
+        } else {
+          enabledCarried = migrated.carried;
+          carriedFromId = marketReplacing.id;
+        }
       }
-    }
-    if (
-      !isAbsolute(marketReplacing.installPath) &&
-      oldAbs !== newAbs &&
-      !ledgerRead.entries.some(
-        (e) =>
-          e.id !== marketReplacing.id &&
-          e.id !== manifest.id &&
-          resolveInstallPath(deps.dataDir, e.installPath) === oldAbs,
-      )
-    ) {
-      assertInsideInstallSubtree(deps.dataDir, oldAbs); // 逃逸防线（同 uninstall 段②）
-      deps.fs.rm(oldAbs, { recursive: true, force: true });
+      if (
+        !isAbsolute(marketReplacing.installPath) &&
+        oldAbs !== newAbs &&
+        !ledgerRead.entries.some(
+          (e) =>
+            e.id !== marketReplacing.id &&
+            e.id !== manifest.id &&
+            resolveInstallPath(deps.dataDir, e.installPath) === oldAbs,
+        )
+      ) {
+        assertInsideInstallSubtree(deps.dataDir, oldAbs); // 逃逸防线（同 uninstall 段②）
+        deps.fs.rm(oldAbs, { recursive: true, force: true });
+      }
+    } catch (err) {
+      // 账本已成功——收尾失败只注记不翻转成败（残项由重装/卸装收敛，装机事实为准）
+      cleanupNote = `；警告：换血收尾失败（${err instanceof Error ? err.message : String(err)}）——装机已成功落账，收尾残项经重装收敛`;
     }
   }
   // 生命周期归因账（05 §1.1）：装机成功事实落 audit_events——词形
   // {id, source, version}；version 位缺席不落键（git/local 源清单可能无
   // 版本位）。update npm 重装腿已在调用侧剥 sink；市场换血腿（mp-3）动词即
-  // install——词形落 installed 属实（换装语义的 updated 词归 update 分派）
+  // install——词形落 installed 属实（换装语义的 updated 词归 update 分派）。
+  // 落位在收尾 try/catch 之外：收尾失败（cleanupNote 非空）不吞审计词
   deps.onLifecycleAudit?.('plugin/installed', {
     id: manifest.id,
     source: parsed.parsed.source,
@@ -444,7 +468,7 @@ export async function installPlugin(
   return {
     ok: true,
     entry,
-    text: `已装机：${manifest.id}（源 ${parsed.parsed.source}，${product.installPath}）${tail}${rowMigrateNote}`,
+    text: `已装机：${manifest.id}（源 ${parsed.parsed.source}，${product.installPath}）${tail}${rowMigrateNote}${cleanupNote}`,
     ...(enabledCarried ? { enabledCarried: true } : {}),
   };
 }
@@ -570,9 +594,17 @@ const GIT_CLONE_TIMEOUT_MS = 300_000;
 const MARKET_CLONE_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:', 'git:', 'ssh:']);
 
 /**
- * 竞速超时执法（注入位安全）：本件 SpawnRunner 面无 signal 通道（真子进程
- * 与注桩假件同形），外层竞速保证帽值恒被执法（黑洞地址挂死也收口）；子进程
- * 本体由 OS 自理（v1 不持 kill 句柄——与 plugin-market/fetch.ts 同律）。
+ * 击杀收口宽限（ms）——超时路 rm tmp 前等待子进程 exit 落地的帽：缺省执行器
+ * 与外层竞速同帽值击杀（SIGTERM 落地毫秒级），宽限覆盖调度抖动；注桩假件
+ * 永不 settle 时由本帽收口（rm 照走——竞速拒已是主错误，不悬挂清尾）。
+ */
+const SPAWN_KILL_GRACE_MS = 1_000;
+
+/**
+ * 竞速超时执法（注入位安全）：本件 SpawnRunner 面可选 timeoutMs 通道（缺省
+ * 执行器到点 SIGTERM 击杀子进程——B4 修笔），注桩假件同形可忽略；外层竞速
+ * 恒保证帽值被执法（黑洞地址挂死也收口）——双执法分层：竞速管收口时序，
+ * timeoutMs 通道管子进程本体终止（不孤儿化存续）。
  */
 function withTimeoutMs<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -585,6 +617,28 @@ function withTimeoutMs<T>(promise: Promise<T>, ms: number, label: string): Promi
       (error: unknown) => {
         clearTimeout(timer);
         reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
+/**
+ * 等待竞速腿收口（超时路 rm tmp 前置——B4）：竞速帽先拒时子进程可能仍在击杀
+ * 途中，仍在写的目录不可 rm（market 超时路删活动 tmp 的竞态封堵）。已 settle
+ * 的 promise 即返（成功/普通失败路径零延迟）；SPAWN_KILL_GRACE_MS 帽收口防
+ * 注桩假件永不 settle 悬挂清尾。
+ */
+async function awaitSpawnSettled(promise: Promise<unknown>): Promise<void> {
+  await new Promise<void>((done) => {
+    const timer = setTimeout(() => done(), SPAWN_KILL_GRACE_MS);
+    promise.then(
+      () => {
+        clearTimeout(timer);
+        done();
+      },
+      () => {
+        clearTimeout(timer);
+        done();
       },
     );
   });
@@ -631,12 +685,13 @@ async function runGitInstall(
   // 守卫前置（mkdtemp 之前——拒形零 tmp 开销，clone 永不发出）
   if (guarded) await assertClonableMarketGitUrl(deps, parsed.url);
   const tmp = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), 'berry-git-install-'));
+  // clone 帽双执法（B4）：timeoutMs 通道（缺省执行器到点 SIGTERM 击杀——拒时
+  // 子进程已死不孤儿存续）+ 外层竞速（注桩假件同形保证帽值恒被执法）
+  const cloneMs = deps.cloneTimeoutMs ?? GIT_CLONE_TIMEOUT_MS;
+  let cloneRun: Promise<{ readonly stdout: string; readonly stderr: string }> | undefined;
   try {
-    await withTimeoutMs(
-      deps.spawn.run('git', ['clone', parsed.url, tmp], {}),
-      deps.cloneTimeoutMs ?? GIT_CLONE_TIMEOUT_MS,
-      'git clone',
-    );
+    cloneRun = deps.spawn.run('git', ['clone', parsed.url, tmp], { timeoutMs: cloneMs });
+    await withTimeoutMs(cloneRun, cloneMs, 'git clone');
     if (parsed.gitRef !== undefined) {
       await deps.spawn.run('git', ['-C', tmp, 'checkout', '--detach', parsed.gitRef], {});
     }
@@ -658,6 +713,9 @@ async function runGitInstall(
       version: undefined,
     };
   } finally {
+    // rm 前等 clone 腿收口（B4）：超时被击杀的 exit 落地后才动 tmp（仍在写的
+    // 目录不 rm）；已 settle 即返零延迟。宽限帽内未收口（注桩假件）也照清
+    if (cloneRun !== undefined) await awaitSpawnSettled(cloneRun);
     // rename 成功后 tmp 已不存在——force rm 幂等收尾
     deps.fs.rm(tmp, { recursive: true, force: true });
   }
@@ -810,21 +868,24 @@ async function runSubdirCopyInstall(
     //（fetch.ts「失败位 tmp 自清」同契约——mkdtemp 与 staging 落位间不得留
     // 无主 berry-market-clone-* 残影；637 行「finally 清场锚」的完整兑现）
     cloneTmp = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), 'berry-market-clone-'));
+    // clone 帽双执法（B4——runGitInstall 同律：timeoutMs 击杀通道 + 外层竞速）
+    const cloneMs = deps.cloneTimeoutMs ?? GIT_CLONE_TIMEOUT_MS;
+    let cloneRun: Promise<{ readonly stdout: string; readonly stderr: string }> | undefined;
     try {
       // market 腿守卫（拷贝腿恒市场 provenance——§9.6 攻击表 market 装机腿行；
       // 拒形由本块 catch 位 tmp 自清承接）
       await assertClonableMarketGitUrl(deps, parsed.url);
-      await withTimeoutMs(
-        deps.spawn.run('git', ['clone', parsed.url, cloneTmp], {}),
-        deps.cloneTimeoutMs ?? GIT_CLONE_TIMEOUT_MS,
-        'git clone',
-      );
+      cloneRun = deps.spawn.run('git', ['clone', parsed.url, cloneTmp], { timeoutMs: cloneMs });
+      await withTimeoutMs(cloneRun, cloneMs, 'git clone');
       if (parsed.gitRef !== undefined) {
         await deps.spawn.run('git', ['-C', cloneTmp, 'checkout', '--detach', parsed.gitRef], {});
       }
       const head = await deps.spawn.run('git', ['-C', cloneTmp, 'rev-parse', 'HEAD'], {});
       commit = head.stdout.trim();
     } catch (err) {
+      // rm 前等 clone 腿收口（B4）：超时被击杀的 exit 落地后才动 tmp——仍在写
+      // 的目录不 rm（竞速帽先拒与子进程终止间的小窗封堵）；已 settle 即返
+      if (cloneRun !== undefined) await awaitSpawnSettled(cloneRun);
       deps.fs.rm(cloneTmp, { recursive: true, force: true }); // 克隆失败位 tmp 自清
       throw err;
     }
@@ -905,7 +966,12 @@ async function harvestEvents(
   const jiti =
     deps.jitiFactory?.(pluginDir, manifest.id) ??
     createJiti(join(pluginDir, 'package.json'), {
-      transform: createGateTransform({ pluginId: manifest.id, pluginDir }),
+      // 裸说明符树内解析位接线（与装载器同律——装机时点不放宽）
+      transform: createGateTransform({
+        pluginId: manifest.id,
+        pluginDir,
+        resolveBare: createTreeBareResolver(pluginDir),
+      }),
       interopDefault: true,
       moduleCache: true,
       fsCache: false, // 与装载器同律（门禁身份不入缓存键）

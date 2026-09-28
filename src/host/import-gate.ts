@@ -23,6 +23,8 @@
  * 深层对齐（install 期记 realpath）归装机腿落码批收口。
  */
 import { realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve as resolvePath, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createJiti, type Jiti, type TransformOptions, type TransformResult } from 'jiti';
@@ -51,7 +53,8 @@ export interface ImportGateContext {
  * 单说明符白名单裁决（纯谓词——字面量腿的裁决核）。
  *
  * 判序：node: 前缀 → 虚拟键闭集（`berry-agent`/`typebox` 前缀但越出键表 =
- * 越界拒）→ 相对导入（./ ../——树内 containment 由解析保证）→ 绝对路径
+ * 越界拒）→ 相对导入（./ ../——白名单层放行，树内 containment 由 transform
+ * 腿以 filename 为基另行执法〔本谓词无文件语境〕）→ 绝对路径
  * （file: / 盘符——直拒：插件面无绝对径合法位）→ 裸说明符（resolveBare
  * 判，缺席即拒 fail-closed）。
  */
@@ -62,7 +65,9 @@ export function checkImportSpecifier(specifier: string, ctx: ImportGateContext =
     // 虚拟键域内越出键表（berry-agent/unknown、typebox/extra）——闭集外即拒
     return forbidden(specifier, '虚拟键域内未知子径（键表闭集外）');
   }
-  if (specifier.startsWith('./') || specifier.startsWith('../')) return true; // 道③：相对导入
+  // 道③：相对导入——白名单层放行（containment 执法在 transform 腿：filename
+  // 在手才能 resolve 判界，'../' 链解析逃出插件树在那里拒）
+  if (specifier.startsWith('./') || specifier.startsWith('../')) return true;
   if (/^(\/|[a-zA-Z]:[\\/]|file:)/.test(specifier)) {
     return forbidden(specifier, '绝对路径不在白名单（插件面合法径只有三道）');
   }
@@ -78,6 +83,32 @@ export function checkImportSpecifier(specifier: string, ctx: ImportGateContext =
 /** 越界裁决产物（携带码与因由——统一抛形） */
 function forbidden(specifier: string, reason: string): BaseError {
   return new BaseError('PLUGIN_IMPORT_FORBIDDEN', `import 越界拒载：${specifier}（${reason}——三道白名单见 03 §3.3）`);
+}
+
+/**
+ * 裸说明符树内解析位工厂（道③「自带 node_modules」的判定真源——装载腿与
+ * 装机收割腿两装配位共用的单源注入件）。
+ *
+ * 判定 = createRequire 以 pluginDir 为基做 node 解析（`resolve(specifier)` 从
+ * pluginDir 起向上找 node_modules——与 node/npm 惯例同解析律），命中后经
+ * normalizePath 前缀判须落在 pluginDir 树内：向上爬出的解析（数据目录根/宿主
+ * 依赖/全局）不算树内自带——fail-closed 拒。内建裸名（`fs` 等）在 require
+ * 解析下原样返回自身（非路径形），天然不过树内前缀判 → 仍走裸内建拒载分支。
+ * 解析失败（依赖未自捆）抛 ERR_MODULE_NOT_FOUND → false（拒）。
+ */
+export function createTreeBareResolver(pluginDir: string): (specifier: string) => boolean {
+  // createRequire 基须是文件路径——以包清单文件为锚（与装载器 jiti 基同源）
+  const requireFromPlugin = createRequire(join(pluginDir, 'package.json'));
+  const root = normalizePath(pluginDir); // 两侧同尺归一（realpath——macOS /var ↔ /private/var 同律）
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  return (specifier: string): boolean => {
+    try {
+      const resolved = requireFromPlugin.resolve(specifier);
+      return normalizePath(resolved).startsWith(prefix);
+    } catch {
+      return false; // 不可解析 = 未自捆——拒（fail-closed）
+    }
+  };
 }
 
 /** 说明符字面量抽取正则族（静态 + 动态字面量——注释/字符串内误伤由「越界即拒」的保守面消化） */
@@ -117,11 +148,32 @@ export interface GateTransformOptions {
 }
 
 /**
+ * 相对导入 containment 判定（transform 腿执法——filename 在手才能 resolve 判界）。
+ *
+ * 以 filename 目录为基 resolve 说明符，归一（realpath——符号链逃逸同拦）后经
+ * 前缀判须落在 pluginDir 树内；树内合法 `../`（如 `deep/../util.js` 归一回
+ * 插件根）不误伤。返回 true = 树内放行 / false = 解析逃逸；filename 缺席
+ * （eval 串）返回 undefined——无基可判，跳过 containment（文件基形才可执法）。
+ */
+function relativeEscape(specifier: string, filename: string | undefined, pluginRoot: string): boolean | undefined {
+  if (filename === undefined) return undefined;
+  // 基先归一（realpath）：jiti 只对存在文件调 transform，基可达 canonical 形
+  // ——此后目标缺席（尚未落盘的相对引用）仍留在同尺前缀空间，不因符号链径
+  // 差异（/var ↔ /private/var）误判逃逸（缺席目标归 jiti 解析失败红，非门禁拒）
+  const base = normalizePath(filename);
+  const resolved = normalizePath(resolvePath(dirname(base), specifier));
+  const prefix = pluginRoot.endsWith(sep) ? pluginRoot : `${pluginRoot}${sep}`;
+  return !(resolved === pluginRoot || resolved.startsWith(prefix));
+}
+
+/**
  * 字面量腿 transform：辖域内文件扫描说明符字面量 → 白名单裁决 → 越界即
  * **抛** `PLUGIN_IMPORT_FORBIDDEN`（jiti 把 transform 抛错直接传导给装载方
  * ——error 通道不抛已实证）；在道内则链委托 babel transform 产码（第二
  * jiti 实例的公开 `.transform()` 法，fsCache 关闭——委托自身缓存不受门禁
- * 影响但求确定性关闭）。
+ * 影响但求确定性关闭）。相对导入另有 containment 执法腿：`../` 链解析逃出
+ * 插件树即拒（market 布局深层 `../../…` 可达树外任意 JS——宿主源码模块
+ * 结构性不可达的机器保证在此兑现）。
  */
 export function createGateTransform(options: GateTransformOptions): (opts: TransformOptions) => TransformResult {
   let delegate = options.delegate;
@@ -140,6 +192,13 @@ export function createGateTransform(options: GateTransformOptions): (opts: Trans
         // 越界即拒——throw 直抛（唯一拒载通道；error 通道仅 debug 日志不抛）
         throw new BaseError(verdict.code, `[${options.pluginId}] ${verdict.message}`);
       }
+      // 相对径 containment 执法（道③补腿）：resolve 归一后出插件树 = 逃逸拒
+      if (spec.startsWith('./') || spec.startsWith('../')) {
+        if (relativeEscape(spec, opts.filename, pluginRoot) === true) {
+          const escaped = forbidden(spec, '相对导入解析逃逸插件目录树');
+          throw new BaseError(escaped.code, `[${options.pluginId}] ${escaped.message}`);
+        }
+      }
     }
     return { code: delegate(opts) };
   };
@@ -152,12 +211,16 @@ export function createGateTransform(options: GateTransformOptions): (opts: Trans
  * 链径差异会使裸前缀比对假阴性 → 好依赖被当树外保守全扫）；file: URL 形
  * 防御性归一（jiti 版本间 filename 形态差异）。符号链接形态的深层正规化
  * 归装机腿落码批对齐（install 期记录 realpath 后此处自然收口）。
+ *
+ * 树外文件「保守全扫」非多余位：transform 腿历史上可被相对径 '../' 链逃逸
+ * 后带到树外文件（该逃逸已由 relativeEscape 执法腿封堵——逃出者进不到
+ * jiti 求值），此处保守全扫是对一切残余到达形的防御位（纵深，非唯一防线）。
  */
 function isPluginOwnCode(filename: string | undefined, pluginRoot: string): boolean {
   if (filename === undefined) return true; // 无文件名（eval 串）——保守全扫
   const normalized = normalizePath(filename);
   const prefix = pluginRoot.endsWith('/') ? pluginRoot : `${pluginRoot}/`;
-  if (!normalized.startsWith(prefix) && !filename.startsWith(prefix)) return true; // 树外文件（理论不达）——保守全扫
+  if (!normalized.startsWith(prefix) && !filename.startsWith(prefix)) return true; // 树外文件（防御位全扫——见上注）
   const effective = normalized.startsWith(prefix) ? normalized : filename;
   return !effective.slice(prefix.length).includes('node_modules/');
 }
