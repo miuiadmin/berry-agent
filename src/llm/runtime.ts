@@ -62,6 +62,16 @@ export interface LlmRuntime {
 }
 
 /**
+ * 内置 provider 目录 id 全集（pi-ai builtinProviders 派生——R-1 评审修复役：
+ * 保留字执法与向导分桶的判据单源；pi-ai 知识不出生 llm 域，host 侧经本面取）。
+ * 每次调用现派（静态目录无换代——测试注入形经 LlmRuntimeOptions.providers
+ * 覆盖，不在此面）。
+ */
+export function builtinProviderIds(): readonly string[] {
+  return builtinProviders().map((provider) => provider.id);
+}
+
+/**
  * 创建 llm 运行时（宿主包装本体）。
  * 不做网络访问：createModels 只装配；目录刷新是显式 refresh 调用。
  */

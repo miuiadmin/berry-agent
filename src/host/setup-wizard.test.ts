@@ -89,6 +89,8 @@ interface CallLog {
   readonly savedChannels: { id: string; def: CustomProviderDef }[];
   readonly removedChannels: string[];
   readonly registered: { id: string; def: CustomProviderDef }[];
+  /** R-1 删除腿三联动第三步——运行时除名记录 */
+  readonly unregistered: string[];
   readonly switched: string[];
   readonly fetched: { baseUrl: string; protocol: string; apiKey: string }[];
   readonly probeCalls: string[][];
@@ -105,6 +107,7 @@ function makeDeps(
     savedChannels: [],
     removedChannels: [],
     registered: [],
+    unregistered: [],
     switched: [],
     fetched: [],
     probeCalls: [],
@@ -145,6 +148,12 @@ function makeDeps(
     },
     registerCustomProvider: (id, def) => {
       log.registered.push({ id, def });
+      return { ok: true };
+    },
+    // R-1 删除腿三联动第三步（装配位组合「运行时除名 + 模型复位」——本桩纯记录）
+    unregisterCustomProvider: (id) => {
+      log.unregistered.push(id);
+      return {};
     },
     switchModel: (spec) => {
       log.switched.push(spec);
@@ -528,5 +537,114 @@ describe('runSetupWizard 既有自定义渠道（编辑重入 / 删除）', () =
     await runSetupWizard(depsA.deps);
     expect(depsA.log.removedBindings).toEqual(['my-gw']);
     expect(depsA.log.removedChannels).toEqual(['my-gw']);
+  });
+});
+
+describe('删除腿三联动与回执诚实化（R-1 评审修复役——修前红族）', () => {
+  const EXISTING: CustomProviderDef = {
+    protocol: 'openai-completions',
+    baseUrl: 'https://gw.test/v1',
+    models: ['old-a', 'old-b'],
+  };
+
+  it('三联动：凭证行 → settings → 运行时除名同序 + outro 点名「当场生效」（修前红：删除只两写、运行时仍注册）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_delete__'],
+      confirm: [true],
+    });
+    const { deps, log } = makeDeps(prompter, { customChannels: { 'my-gw': EXISTING } });
+    await runSetupWizard(deps);
+    // 三步同序：凭证行 → settings → 运行时除名（数组序即调用序）
+    expect(log.removedBindings).toEqual(['my-gw']);
+    expect(log.removedChannels).toEqual(['my-gw']);
+    expect(log.unregistered).toEqual(['my-gw']);
+    // outro 诚实呈报：当场生效（与保存腿活注册对称的「当场失效」）
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.lines.join('\n')).toContain('当场生效');
+  });
+
+  it('模型复位回执：当前模型停在被删渠道 → unregister 回执 modelReset 透传 outro 点名（修前红：无复位呈报）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_delete__'],
+      confirm: [true],
+    });
+    const { deps } = makeDeps(prompter, {
+      customChannels: { 'my-gw': EXISTING },
+      unregisterCustomProvider: (id) => {
+        // 装配位组合形：当前模型停在被删渠道 → 复位运行时目录首条并回执点名
+        return { modelReset: id === 'my-gw' ? 'anthropic/claude-sonnet-5' : undefined };
+      },
+    });
+    await runSetupWizard(deps);
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.lines.join('\n')).toContain('anthropic/claude-sonnet-5');
+    expect(outro.lines.join('\n')).toContain('复位');
+  });
+
+  it('半应用诚实呈报：凭证行缺席（ok:false 透传）→ outro 呈未完全成功（修前红：恒「已删除」不查 ok 位）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_delete__'],
+      confirm: [true],
+    });
+    const { deps, log } = makeDeps(prompter, {
+      customChannels: { 'my-gw': EXISTING },
+      // 装配位折档缺席形（如 CREDENTIALS_NOT_FOUND 未折）——流程侧如实呈半应用
+      removeBinding: () => ({ ok: false, text: 'CREDENTIALS_NOT_FOUND：凭证行不在册' }),
+    });
+    await runSetupWizard(deps);
+    expect(log.removedChannels).toEqual(['my-gw']); // settings 照删（第二步不被首败拦）
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.title).not.toBe('已删除'); // 不再恒成功
+    expect(outro.lines.join('\n')).toContain('CREDENTIALS_NOT_FOUND'); // 失败原因在场
+  });
+
+  it('半应用诚实呈报：settings 写败 → outro 呈未完全成功 + 补齐路径（修前红：恒「已删除」）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:my-gw', '__entry_delete__'],
+      confirm: [true],
+    });
+    const { deps } = makeDeps(prompter, {
+      customChannels: { 'my-gw': EXISTING },
+      removeCustomChannel: () => ({ ok: false, text: 'settings.json 写入被拒' }),
+    });
+    await runSetupWizard(deps);
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.title).not.toBe('已删除');
+    expect(outro.lines.join('\n')).toContain('写入被拒');
+  });
+
+  it('编辑重入撞内置保留字（清单陈化窗防御）→ 表单前复验诚实收场 + 指路手编（修前红：existing 直取零校验）', async () => {
+    const { prompter, recorded } = makePrompter({
+      select: ['custom:anthropic', '__entry_edit__'],
+    });
+    const { deps, log } = makeDeps(prompter, {
+      // 分桶判据已排除撞名条入自定义桶——本测锁「清单陈化窗」纵深（开向导后
+      // settings 被外改的防御位）：撞内置 id 的 existing 条进表单前复验拒入
+      customChannels: { anthropic: EXISTING },
+    });
+    await runSetupWizard(deps);
+    expect(log.savedBindings).toEqual([]); // 零写
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.lines.join('\n')).toContain('内置渠道撞名');
+    expect(outro.lines.join('\n')).toContain('settings.json'); // 指路手编清除
+  });
+
+  it('活注册拒注回执（R-1 执法单源消费位）→ 注册注记「注册被拒」+ 换 id 指路（修前红：void 回执无消费恒「已注册」）', async () => {
+    // 新建腿全走脚本（headers 拒 / 保存允 / 切模型拒——与新建 describe 的
+    // NEW_SCRIPT 同形，本 describe 局部复制）
+    const { prompter, recorded } = makePrompter({
+      select: ['__new_custom__', 'openai-completions', '__models_fetch__', 'gw-a'],
+      text: ['my-relay', 'https://gw.test/v1', 'sk-gw-key'],
+      multiselect: [['gw-a'] as readonly string[]],
+      confirm: [false, true, false],
+    });
+    const { deps, log } = makeDeps(prompter, {
+      registerCustomProvider: (id) => ({ ok: false, reason: `渠道 id「${id}」已被内置渠道或其他渠道占用` }),
+    });
+    await runSetupWizard(deps);
+    expect(log.savedChannels).toHaveLength(1); // 两写已成（配置已持久）
+    const outro = recorded.outros.at(-1)!;
+    expect(outro.lines.join('\n')).toContain('注册被拒');
+    expect(outro.lines.join('\n')).toContain('已被'); // 拒注原因在场
   });
 });

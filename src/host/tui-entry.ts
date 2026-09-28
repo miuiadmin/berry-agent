@@ -70,8 +70,7 @@ import {
   modelShortName,
 } from './static-completions.js';
 import { readHostSettings, writeHostSettings } from './settings-store.js';
-import { BaseError } from '../contracts/index.js';
-import { createCustomChannelProvider } from '../llm/index.js';
+import { createCustomChannelProvider, builtinProviderIds } from '../llm/index.js';
 import { fetchChannelModels } from './channel-models-fetch.js';
 import { daemonPaths } from './serve-daemon.js';
 import {
@@ -986,7 +985,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const dataDir = runtime.dataDir;
       const settingsNow = dataDir !== null ? readHostSettings(dataDir, { warn: (m) => logger.warn(m) }) : null;
       const customChannels = settingsNow?.settings.customProviders ?? {};
-      const customIds = new Set(Object.keys(customChannels));
+      // R-1 分桶数据面判据：customIds = settings 键 − 内置目录 id（04 §9 ⑥
+      // 评审修复批注④——非运行时表差集〔展示集混源〕：撞内置 id 的撞名条不
+      // 入集〔官方桶内置本体胜出不消失 + 不误判 env 豁免〕；半保存渠道仍在
+      // 集归自定义桶）。判据单源 = llm 域 builtinProviderIds。
+      const customIds = new Set(Object.keys(customChannels).filter((id) => !builtinProviderIds().includes(id)));
       const settingsWarn = (message: string): void => {
         logger.warn(message);
       };
@@ -1001,7 +1004,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             name: provider.name,
             ...(provider.baseUrl !== undefined ? { baseUrl: provider.baseUrl } : {}),
           })),
-        customChannels,
+        // 自定义桶数据面 = customChannels 滤撞名条（两桶皆不入——重入/删除
+        // 面随呈现面同滤〔清除径唯一 = 手编〕；写侧 existing 合并保留原文
+        // 不静默清除，见 saveCustomChannel）
+        customChannels: Object.fromEntries(
+          Object.entries(customChannels).filter(([id]) => !builtinProviderIds().includes(id)),
+        ),
         builtinProviderIds: [...stack.llmRuntime.models.getProviders()]
           .filter((provider) => !customIds.has(provider.id))
           .map((provider) => provider.id),
@@ -1025,22 +1033,22 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             },
           ),
         // 删除腿凭证行（写序第一步）：缺席 = 无需删（渠道建了没录 key 的合法
-        // 中间态）——CREDENTIALS_NOT_FOUND 折 ok 档非失败
+        // 中间态）——runCredentialsCommand 内部已把 BaseError 折 {ok:false}
+        // 回执（:213——本位 try/catch 是死代码，R-1 改判回执文本码前缀折 ok
+        // 档；`CREDENTIALS_NOT_FOUND：` 前缀词法形 = credentials/commands 折
+        // 档产出 `${code}：${message}` 的锁面，测试锁两侧）
         removeBinding: (providerId) => {
-          try {
-            return runCredentialsCommand(
-              { sub: 'rm', name: providerId },
-              {
-                store: assembly.credentialsWrite.store,
-                onCredentialChanged: assembly.credentialsWrite.onCredentialChanged,
-              },
-            );
-          } catch (err) {
-            if (err instanceof BaseError && err.code === 'CREDENTIALS_NOT_FOUND') {
-              return { ok: true, text: `凭证行 ${providerId} 不在册（无需删）` };
-            }
-            return { ok: false, text: `凭证行删除异常：${err instanceof Error ? err.message : String(err)}` };
+          const receipt = runCredentialsCommand(
+            { sub: 'rm', name: providerId },
+            {
+              store: assembly.credentialsWrite.store,
+              onCredentialChanged: assembly.credentialsWrite.onCredentialChanged,
+            },
+          );
+          if (!receipt.ok && receipt.text.startsWith('CREDENTIALS_NOT_FOUND：')) {
+            return { ok: true, text: `凭证行 ${providerId} 不在册（无需删）` };
           }
+          return receipt;
         },
         probeModelOf: firstModelSpecOf,
         probe: (providerId, apiKey) => {
@@ -1056,9 +1064,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         },
         // 模型清单拉取（C-2 件——SSRF 守卫必经 + 协议分叉拼接单源）
         fetchModels: (req) => fetchChannelModels(req),
-        // settings customProviders 合并写（保存腿内重读现值——同窗多写不陈化）
+        // settings customProviders 合并写（保存腿内重读现值——同窗多写不陈化）。
+        // R-1 写侧拒撞名（纵深——执法单源在 stack 注册口，本位保 settings 数据
+        // 面同判据：撞名条装配即拒注 + 向导全域不可见，落了即死条）
         saveCustomChannel: (id, def) => {
           if (dataDir === null) return { ok: false, text: '数据目录不可用——无法持久化渠道配置' };
+          if (builtinProviderIds().includes(id)) {
+            return { ok: false, text: `渠道 id ${id} 撞内置渠道（保留字）——换个 id` };
+          }
           const existing = readHostSettings(dataDir, { warn: settingsWarn }).settings.customProviders ?? {};
           const written = writeHostSettings(
             dataDir,
@@ -1079,10 +1092,26 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             ? { ok: true, text: `渠道配置已移除（customProviders.${id}）` }
             : { ok: false, text: 'settings.json 写入被拒（文件坏形？——手工修复后重试）' };
         },
-        // 活注册（向导路当场生效——透传 + env 豁免集同步扩；resolveKey 供血
-        // 真源 = 绑定行胜出行，与装配腿同律）
-        registerCustomProvider: (id, def) => {
-          stack.registerCustomProvider(createCustomChannelProvider(id, def, () => stack.bindingApiKeyOf(id)));
+        // 活注册（向导路当场生效）：透传 stack 注册口（R-1 执法单源——拒注
+        // 回执原样透传，流程件折注册注记分档；resolveKey 供血真源 = 绑定行
+        // 胜出行，与装配腿同律）
+        registerCustomProvider: (id, def) =>
+          stack.registerCustomProvider(createCustomChannelProvider(id, def, () => stack.bindingApiKeyOf(id))),
+        // 活除名 + 模型复位（R-1 删除腿三联动第三步）：运行时除名（env 豁免
+        // 集同步收缩——stack 口）；当前模型停在被删渠道 = 复位运行时目录首条
+        // （「可用」= 目录首条即算〔含未配置——诚实死错优于静默〕；目录空 =
+        // 不复位仅流程侧点名——R-1 D2 定形）
+        unregisterCustomProvider: (id) => {
+          stack.unregisterCustomProvider(id);
+          const spec = stack.model;
+          if (spec.startsWith(`${id}/`)) {
+            const fallback = stack.llm.listModels()[0]?.id;
+            if (fallback !== undefined) {
+              stack.setModel(fallback);
+              return { modelReset: fallback };
+            }
+          }
+          return {};
         },
         switchModel: (spec) => {
           stack.setModel(spec);

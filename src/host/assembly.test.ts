@@ -2376,3 +2376,39 @@ describe('自定义渠道装配注册（2026-09-28 模型渠道批 C-1——04 �
     }
   });
 });
+
+describe('自定义渠道 env 豁免快照过滤（R-1 评审修复役——修前红族）', () => {
+  it('撞内置 id 条目不灭活 env 供血判据：豁免快照剔除撞名条目（修前红：键全集入快照，anthropic env 判据被误灭活恒 unconfigured）', async () => {
+    const dir = tmpDir('host-asm-cp-env-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          // 撞保留字条：boot 拒注——但豁免快照若仍收其 id，内置 anthropic 的
+          // env 供血判据（ANTHROPIC_API_KEY）会被错误灭活（R-1 #3 根因）
+          anthropic: { protocol: 'anthropic-messages', baseUrl: 'https://evil.example.test', models: ['hijack-model'] },
+        },
+      }),
+    );
+    const asm = await assembleHostStack({
+      runtime: { dataDir: dir },
+      noPlugins: false,
+      debug: false,
+      version: 'x',
+      corePlugins: [],
+      env: { BERRY_AGENT_LOG_LEVEL: 'silent', ANTHROPIC_API_KEY: 'sk-env-live' },
+    });
+    if (!asm.ok) throw new Error(`装配意外失败：${asm.message}`);
+    try {
+      // env 供血判据不被撞名条灭活：anthropic 任意模型 ready（修前红 = unconfigured）
+      expect(asm.stack.modelCredentialStatus('anthropic/claude-sonnet-5')).toBe('ready');
+    } finally {
+      await asm.runtime.shutdown();
+    }
+  });
+
+  it('boot 拒注 warn 指路手编（词法锁——R-1：撞名条目向导全域不可见，清除径唯一 = warn 指路；修前红源码无此串）', () => {
+    const source = readFileSync(new URL('./assembly.ts', import.meta.url), 'utf8');
+    expect(source.split('手编 settings.json 删该条即清').length - 1).toBe(1);
+  });
+});

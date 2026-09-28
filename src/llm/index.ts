@@ -16,7 +16,7 @@ export {
   resolveModel,
   type ModelSpec,
 } from './model-id.js';
-export { createLlmRuntime, type LlmRuntime, type LlmRuntimeOptions } from './runtime.js';
+export { createLlmRuntime, builtinProviderIds, type LlmRuntime, type LlmRuntimeOptions } from './runtime.js';
 export {
   createCustomChannelProvider,
   CUSTOM_PROVIDER_PROTOCOLS,

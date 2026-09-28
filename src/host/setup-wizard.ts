@@ -83,10 +83,32 @@ export interface SetupWizardDeps {
   readonly saveCustomChannel: (id: string, def: CustomProviderDef) => SetupWizardSaveResult;
   /** 删自定义渠道（settings customProviders 键删条——删除腿第二步） */
   readonly removeCustomChannel: (id: string) => SetupWizardSaveResult;
-  /** 活注册（落库成功后当场进 llmRuntime 目录——向导路立即生效） */
-  readonly registerCustomProvider: (id: string, def: CustomProviderDef) => void;
+  /**
+   * 活注册（落库成功后当场进 llmRuntime 目录——向导路立即生效）。R-1 评审
+   * 修复役：保留字执法单源在 stack 注册口——回执形透传（拒注不抛，ok 位折
+   * 注册注记分档）。
+   */
+  readonly registerCustomProvider: (id: string, def: CustomProviderDef) => SetupWizardRegisterResult;
+  /**
+   * 活除名 + 模型复位（R-1 删除腿三联动第三步——装配位组合：运行时除名；
+   * 当前模型停在被删渠道时复位目录首条并回执点名，目录空不复位）。
+   */
+  readonly unregisterCustomProvider: (id: string) => SetupWizardUnregisterResult;
   /** 切模型（切模型问句消费——spec 全形 `${渠道id}/${模型id}`） */
   readonly switchModel: (spec: string) => void;
+}
+
+/** 活注册回执（R-1——stack 注册口拒注回执的消费形：ok 位折注册注记分档） */
+export interface SetupWizardRegisterResult {
+  readonly ok: boolean;
+  /** 拒注原因（ok:false 时在场——注册注记点名） */
+  readonly reason?: string;
+}
+
+/** 活除名回执（R-1——装配位组合「运行时除名 + 模型复位」的产物面） */
+export interface SetupWizardUnregisterResult {
+  /** 当前模型停在被删渠道时的复位 spec（undefined = 无需复位或目录空） */
+  readonly modelReset?: string;
 }
 
 /** 分桶选单 id 前缀（命名空间——官方/自定义桶 id 撞名消解） */
@@ -309,6 +331,15 @@ async function customFormLeg(
   let id: string;
   if (existing !== undefined) {
     id = existing.id;
+    // R-1 编辑腿表单前复验（清单陈化窗纵深——开向导后 settings 被外改的防御
+    // 位）：撞内置目录 id 的条目防御性拒入表单（分桶判据已排除撞名条入桶，
+    // 本位零成本兜缝；指路手编清除——撞名条向导全域不可见的清除径唯一）。
+    if (deps.builtinProviderIds.includes(id)) {
+      await p.outro('已退出', [
+        `渠道 id ${id} 与内置渠道撞名（保留字）——该条配置已被装配忽略，手编 settings.json 删该条即清`,
+      ]);
+      return;
+    }
   } else {
     const idTyped = await p.text({
       title: '渠道 id',
@@ -562,9 +593,14 @@ async function confirmAndSaveCustom(
   }
 
   // —— 活注册（两写皆成——当场进 llmRuntime 目录，向导路立即生效）——
-  let registerNote = '已注册——当场生效（无需重启）';
+  // R-1：注册口回执形（执法单源在 stack——拒注不抛，回执折注记分档；抛错
+  // 防御包保留：注入位测试形/换代窗异常不杀流程）。
+  let registerNote: string;
   try {
-    deps.registerCustomProvider(id, def);
+    const registration = deps.registerCustomProvider(id, def);
+    registerNote = registration.ok
+      ? '已注册——当场生效（无需重启）'
+      : `注册被拒：${registration.reason ?? '渠道 id 被占用'}——配置已持久，但重启后同样拒注；建议 /setup 换 id 重配`;
   } catch (err) {
     registerNote = `注册异常：${err instanceof Error ? err.message : String(err)}——配置已持久，重启后生效`;
   }
@@ -598,9 +634,14 @@ async function confirmAndSaveCustom(
   ]);
 }
 
-/* ---------------- 删除腿（写序：凭证行先删、settings 后删） ---------------- */
+/* ---------------- 删除腿（三联动：凭证行 → settings → 运行时除名） ---------------- */
 
-/** 删除自定义渠道：confirm → removeBinding → removeCustomChannel → outro */
+/**
+ * 删除自定义渠道：confirm → 三联动删（凭证行 → settings → 运行时除名——
+ * R-1 评审修复役：与保存腿活注册对称的「当场失效」；unregister 组合模型
+ * 复位〔当前模型停在被删渠道时复位目录首条〕）→ outro 查各步 ok 位诚实
+ * 呈报（任一失败呈半应用态——修前恒「已删除」不诚实）。
+ */
 async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: string): Promise<void> {
   const def = deps.customChannels[id];
   const yes = await p.confirm({
@@ -608,12 +649,38 @@ async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: str
     lines: [
       `协议：${def !== undefined ? protocolLabel(def.protocol) : '（定义已缺——仍可清理）'}`,
       `Base URL：${def?.baseUrl ?? '（缺）'}`,
-      '凭证行与 settings 配置同删——不可恢复。',
+      '凭证行与 settings 配置同删，运行时当场除名——不可恢复。',
     ],
     defaultYes: false, // 破坏性操作缺省否——防误触
   });
   if (yes !== true) return void (await abortOut(p));
+  // 三联动同序（写序：凭证行先、settings 后 + 第三步运行时除名）
   const removedKey = safeCall(() => deps.removeBinding(id));
   const removedChannel = safeCall(() => deps.removeCustomChannel(id));
-  await p.outro('已删除', [removedKey.text, removedChannel.text]);
+  let unregisterNote = '运行时已除名——当场生效';
+  let modelResetNote = '';
+  try {
+    const { modelReset } = deps.unregisterCustomProvider(id);
+    if (modelReset !== undefined) {
+      modelResetNote = `当前模型已复位：${modelReset}（原渠道已删——ctrl+p 可换）`;
+    }
+  } catch (err) {
+    unregisterNote = `运行时除名异常：${err instanceof Error ? err.message : String(err)}——重启后失效`;
+  }
+  // outro 查 ok 位诚实分档（修前恒「已删除」）
+  if (removedKey.ok && removedChannel.ok && !unregisterNote.startsWith('运行时除名异常')) {
+    await p.outro('已删除', [
+      removedKey.text,
+      removedChannel.text,
+      unregisterNote,
+      ...(modelResetNote !== '' ? [modelResetNote] : []),
+    ]);
+  } else {
+    await p.outro('删除未完全成功（半应用）', [
+      removedKey.text,
+      removedChannel.text,
+      unregisterNote,
+      '——可 /setup 重开重删，或重启后按 settings 剩余配置生效',
+    ]);
+  }
 }

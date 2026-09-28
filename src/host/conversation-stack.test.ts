@@ -2086,6 +2086,58 @@ describe('模型循环基座（挂账解挂批 2026-09-15——ctrl+p 会话级�
   });
 });
 
+/* ---------------- 自定义渠道活注册执法与除名（R-1 评审修复役） ---------------- */
+
+describe('自定义渠道活注册/除名（R-1——保留字执法单源回执形 + 删除腿三联动底座）', () => {
+  it('registerCustomProvider 回执形：新 id 注册 ok:true + 运行时目录在场', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'my-gw', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({ runtime: rt, env: {} });
+    const receipt = stack.registerCustomProvider(faux.provider);
+    expect(receipt).toEqual({ ok: true });
+    expect(stack.llmRuntime.listModels('my-gw')).toHaveLength(1);
+    await rt.shutdown();
+  });
+
+  it('保留字执法单源：撞运行时在册 id（内置 anthropic）→ {ok:false} 拒注 + 内置目录不被顶掉（修前红：void 透传恒注册，setProvider upsert 顶掉内置）', async () => {
+    const { rt } = rigRuntime();
+    const hijack = fauxProvider({ provider: 'anthropic', models: [{ id: 'hijack-model' }] });
+    const stack = createConversationStack({ runtime: rt, env: {} });
+    const receipt = stack.registerCustomProvider(hijack.provider);
+    expect(receipt.ok).toBe(false);
+    if (!receipt.ok) expect(receipt.reason).toContain('anthropic'); // 回执点名
+    // 内置未被顶掉：目录无 hijack 注入
+    expect(stack.llmRuntime.listModels('anthropic').some((m) => m.id === 'hijack-model')).toBe(false);
+    await rt.shutdown();
+  });
+
+  it('自己人 upsert：豁免集在场（同 id 重注册）→ ok:true 更新合法（编辑重入路）', async () => {
+    const { rt } = rigRuntime();
+    const v1 = fauxProvider({ provider: 'my-gw', models: [{ id: 'm1' }] });
+    const v2 = fauxProvider({ provider: 'my-gw', models: [{ id: 'm1' }, { id: 'm2' }] });
+    const stack = createConversationStack({ runtime: rt, env: {} });
+    expect(stack.registerCustomProvider(v1.provider)).toEqual({ ok: true });
+    expect(stack.registerCustomProvider(v2.provider)).toEqual({ ok: true }); // upsert 合法
+    expect(stack.llmRuntime.listModels('my-gw')).toHaveLength(2);
+    await rt.shutdown();
+  });
+
+  it('unregisterCustomProvider：运行时除名 + env 豁免集同步收缩（除名后 env 判据恢复——修前红：无除名面，豁免集只增不减）', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'my-gw', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({
+      runtime: rt,
+      env: { MY_GW_API_KEY: 'sk-env' }, // env 同名键：豁免集在场期间不合成判据
+    });
+    expect(stack.registerCustomProvider(faux.provider)).toEqual({ ok: true });
+    expect(stack.modelCredentialStatus('my-gw/m1')).toBe('unconfigured'); // 豁免期：env 不算，绑定行无
+    stack.unregisterCustomProvider('my-gw');
+    expect(stack.llmRuntime.listModels('my-gw')).toHaveLength(0); // 目录除名
+    expect(stack.modelCredentialStatus('my-gw/m1')).toBe('ready'); // 豁免集收缩：env 判据恢复
+    await rt.shutdown();
+  });
+});
+
 /* ---------------- streamFn 凭证现取 wrapper（B3 联动批——裁决三供血面） ---------------- */
 
 /**

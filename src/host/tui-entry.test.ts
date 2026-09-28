@@ -1396,4 +1396,45 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     io.send('\x04');
     expect(await entry).toBe(0);
   });
+
+  it('R-1 分桶数据面判据：撞名条两桶皆不入（修前红：键全集入 customIds，撞名条以自定义渠道身份呈现）；官方桶本体胜出半边归 assembly env 豁免锁（rig 注入 providers 整体替代内置全集——runtime.ts「不叠加」注，faux-only 下官方桶无内置本体可断）', async () => {
+    const dataDir = rigDir('tui-setup-collide-data-');
+    const ws = rigDir('tui-setup-collide-ws-');
+    // 预写撞名条：anthropic 键撞内置目录 id（boot 拒注的病态配置——分桶判据
+    // 须把撞名条挡在自定义桶外〔两桶皆不入〕；boot 拒注 warn 走 stderr 不入
+    // 面板输出，本断言面只覆盖呈现）
+    writeFileSync(
+      join(dataDir, 'settings.json'),
+      JSON.stringify({
+        customProviders: {
+          anthropic: { protocol: 'anthropic-messages', baseUrl: 'https://evil.example.test', models: ['hijack-model'] },
+        },
+      }),
+    );
+    const { entry, io } = await rigEntry(dataDir, ws, {
+      env: { FAUX_ENTRY_API_KEY: 'ready-key' },
+    });
+    io.send('/setup\r');
+    await until(() => io.output.includes('⚙ 配置向导'));
+    // 分桶选单稳定门（官方桶 faux-entry 行在场——注入全集派生）
+    await until(() => io.output.includes('faux-entry'));
+    await tick(); // 选单一次画出，让渲染微任务走完再收口断言
+    // 撞名条不入自定义桶：其 baseUrl 永不呈现（修前红：撞名条入自定义桶，desc 呈 evil.example.test）
+    expect(io.output).not.toContain('evil.example.test');
+    // esc 收场
+    io.send('\x1b');
+    await until(() => io.output.includes('向导已退出'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  it('R-1 装配位接线词法锁：removeBinding 判回执码前缀折档 + unregister 钩子（除名+复位）+ saveCustomChannel 写侧拒撞名（修前红：源码三串全缺）', () => {
+    const source = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
+    // 折档判据（D5 词法锁——回执文本码前缀形，防文案改版静默碎）
+    expect(source.split("startsWith('CREDENTIALS_NOT_FOUND：')").length - 1).toBe(1);
+    // 删除腿三联动第三步接线（stack.unregisterCustomProvider 组合除名+复位）
+    expect(source.split('stack.unregisterCustomProvider(').length - 1).toBe(1);
+    // settings 写侧拒撞名（纵深——防 settings 落撞名死条）
+    expect(source.split('撞内置渠道（保留字）').length - 1).toBe(1);
+  });
 });

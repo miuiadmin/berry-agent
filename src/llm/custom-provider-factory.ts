@@ -67,8 +67,9 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } as const;
 /**
  * 造自定义渠道 Provider。
  *
- * @param id 渠道 id（settings customProviders 的 Record 键——保留字校验在
- *   装配腿，本工厂不重复执法〔撞内置目录 id 拒注 = host 侧 warn 跳条〕）
+ * @param id 渠道 id（settings customProviders 的 Record 键——保留字执法单源
+ *   在 stack.registerCustomProvider 注册口〔R-1 评审修复役——装配/向导/编辑
+ *   三腿同口；拒注回执 + host 侧 warn 跳条〕，本工厂不重复执法）
  * @param def 渠道定义件（protocol/baseUrl/models/headers）
  * @param resolveKey 凭证取值闭包（装配位接凭证表现算——缺席 = 未配置态）
  */

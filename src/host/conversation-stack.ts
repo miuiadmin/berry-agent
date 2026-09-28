@@ -85,6 +85,7 @@ import type { AgentEvent } from '../agent/index.js';
 import {
   classifyError,
   createLlmRuntime,
+  builtinProviderIds,
   createLlmService,
   createStreamFn,
   diagnoseProviderFailure,
@@ -272,6 +273,12 @@ export interface StartupSession {
   readonly workspaceRoot: string;
 }
 
+/**
+ * 自定义渠道注册回执（R-1 评审修复役——保留字执法单源化）：拒注不抛、回执
+ * 点名原因（消费位 = 装配 boot 腿 warn 跳条 + 向导活注册注记分档）。
+ */
+export type CustomProviderRegistration = { readonly ok: true } | { readonly ok: false; readonly reason: string };
+
 /** 对话栈面（TUI 入口的消费面） */
 export interface ConversationStack {
   readonly manager: SessionManager;
@@ -312,8 +319,21 @@ export interface ConversationStack {
    * （本会话即刻生效——07 §8.4 裁决：自定义渠道 env 键不合成不供血，绑定行
    * 唯一源；不扩集则环境同名 `${ID}_API_KEY` 键会假遮蔽真供血）。手编
    * settings 路经装配期注册 + customProviderIds 快照——两路同判据。
+   *
+   * R-1 评审修复役（2026-09-28）：**保留字执法单源下沉本口**——两腿并集：
+   * ① 内置目录 id（builtinProviderIds 单源——判据不依赖运行时装配形，注入
+   * 形下内置全集不在册仍是保留字）；② 运行时在册 id（插件/其他渠道）且非
+   * env 豁免集自己人（在场 = 同 id upsert 更新合法）——拒注回执不抛；装配
+   * boot 腿/向导活注册/编辑重入三腿同口（04 §9 ⑥ 评审修复批注①——
+   * setProvider 按 id upsert 会静默顶掉内置注册，执法不得只住装配腿单侧）。
    */
-  registerCustomProvider(provider: Provider): void;
+  registerCustomProvider(provider: Provider): CustomProviderRegistration;
+  /**
+   * 自定义渠道活除名（R-1 删除腿三联动第三步）：runtime 除名 + env 豁免集
+   * 同步收缩——与活注册对称的「当场失效」（删除后目录/env 判据两不见）。
+   * 当前模型停在被删渠道时的复位编排归装配位（运行时目录活读——本面纯除名）。
+   */
+  unregisterCustomProvider(id: string): void;
   /**
    * 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据的纯读
    * 投影非第二实现（env 键非空 ∨ 绑定行命中——liveBindingApiKey 同判据布尔
@@ -1277,10 +1297,36 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     setModel(id: string) {
       currentModel = id;
     },
-    // 自定义渠道活注册（C-3 向导路）：透传 + env 豁免集同步扩（本会话即刻）
-    registerCustomProvider(provider: Provider) {
+    // 自定义渠道活注册（C-3 向导路 + R-1 执法单源）——保留字判据两腿并集：
+    // ① 内置目录 id（builtinProviderIds 单源——判据不依赖运行时装配形：
+    // 注入形〔测试/诊断 providers 整体替代内置全集〕下内置全集不在册，
+    // 但内置 id 仍是保留字，撞名条不得借道注册冒充官方渠道）；
+    // ② 运行时在册且非豁免集自己人（在场 = 同 id upsert 更新合法——防撞
+    // 插件注册的其他渠道 id）。拒注回执——装配 boot 腿/向导活注册/编辑
+    // 重入三腿同口（04 §9 ⑥ 评审修复批注①）；透传 + env 豁免集同步扩
+    // （本会话即刻）。
+    registerCustomProvider(provider: Provider): CustomProviderRegistration {
+      if (builtinProviderIds().includes(provider.id)) {
+        return {
+          ok: false,
+          reason: `渠道 id「${provider.id}」撞内置渠道（保留字）——换个 id`,
+        };
+      }
+      if (llmRuntime.models.getProvider(provider.id) !== undefined && !customProviderIdSet.has(provider.id)) {
+        return {
+          ok: false,
+          reason: `渠道 id「${provider.id}」已被内置渠道或其他渠道占用`,
+        };
+      }
       customProviderIdSet.add(provider.id);
       llmRuntime.registerProvider(provider);
+      return { ok: true };
+    },
+    // 自定义渠道活除名（R-1 删除腿三联动）：runtime 除名 + env 豁免集同步收缩
+    // ——与活注册对称的「当场失效」（目录/env 判据两不见）。
+    unregisterCustomProvider(id: string) {
+      customProviderIdSet.delete(id);
+      llmRuntime.unregisterProvider(id);
     },
     // 模型凭证态现算（ob-2——07 §4.1 呈现面件 11 检测腿）：供血判据纯读投影
     // ——env 键非空（pi-ai ambient 供血位，与供血 wrapper env 优先律同判据面）

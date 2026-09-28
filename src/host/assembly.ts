@@ -27,7 +27,7 @@ import type { SessionEvent } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
-import { createCustomChannelProvider, SUBAGENT_RESERVE_THRESHOLD } from '../llm/index.js';
+import { createCustomChannelProvider, builtinProviderIds, SUBAGENT_RESERVE_THRESHOLD } from '../llm/index.js';
 import { llmTextOf } from '../memory/index.js';
 import type { MemoryLlmFace } from '../memory/index.js';
 import type { GoalSummarizerFace } from '../goal/index.js';
@@ -429,9 +429,16 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       // worktree 消费接线（见上方单真身注——件/栈同源双注之一）
       worktree: worktreeService,
       // 自定义渠道 env 豁免集（2026-09-28 模型渠道批 C-3——07 §8.4 裁决：
-      // env 不合成不供血、绑定行唯一源；boot 快照——向导路活注册同步扩集）
+      // env 不合成不供血、绑定行唯一源；boot 快照——向导路活注册同步扩集）。
+      // R-1 评审修复役：快照**过滤撞内置目录 id 的条目**（boot 拒注的撞名条
+      // 不得残留豁免集——否则撞名内置 provider 的 env 供血判据被错误灭活恒
+      // unconfigured；04 §9 ⑥ 评审修复批注③——判据单源 = llm 域 builtinProviderIds）
       ...(settingsLoad?.settings.customProviders !== undefined
-        ? { customProviderIds: Object.keys(settingsLoad.settings.customProviders) }
+        ? {
+            customProviderIds: Object.keys(settingsLoad.settings.customProviders).filter(
+              (id) => !builtinProviderIds().includes(id),
+            ),
+          }
         : {}),
       ...(options.providers !== undefined ? { providers: options.providers } : {}),
       ...(options.model !== undefined ? { model: options.model } : {}),
@@ -533,23 +540,23 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
 
     // —— 自定义模型渠道装配注册（2026-09-28 模型渠道批 C-1——04 §9 ⑥ 第五键
     // 生效时点双路之手编腿：装配期单读、boot 注册一次；向导腿活注册另接
-    // tui-entry deps）。读侧已剔坏条（settings-store 条目级校验），此处只执
-    // 保留字：撞已注册 provider id（内置目录全集 + 先注册的自定义条）= 忽略
-    // 该条 + warn 点名（04:328 定形——setProvider 按 id upsert 会静默顶掉内置
-    // 注册，装配腿必须拒注）。resolveKey 走 stack.bindingApiKeyOf 单源（绑定
-    // 行命中判据〔遮蔽/撞绑全判据〕与供血/向导同源——不自造第二套凭证读；
-    // 无斜杠形即 provider 段查表，正合渠道 id）。boot 期同步执行无竞态——
-    // 首次 resolveModel 只在首请求。
+    // tui-entry deps）。R-1 评审修复役：保留字执法**单源化**——经
+    // stack.registerCustomProvider 同口（撞运行时在册 id 且非豁免集自己人即
+    // 拒注回执；装配/向导/编辑三腿同口，04 §9 ⑥ 评审修复批注①）；拒注 →
+    // warn 点名 + 指路手编（撞名条目向导全域不可见〔分桶数据面判据排除〕，
+    // 清除径唯一 = 手编 settings）。resolveKey 走 stack.bindingApiKeyOf 单源
+    // （绑定行命中判据〔遮蔽/撞绑全判据〕与供血/向导同源——不自造第二套凭证
+    // 读；无斜杠形即 provider 段查表，正合渠道 id）。boot 期同步执行无竞态
+    // ——首次 resolveModel 只在首请求。
     const customProviderDefs = settingsLoad?.settings.customProviders;
     if (customProviderDefs !== undefined) {
       for (const [id, def] of Object.entries(customProviderDefs)) {
-        if (stack.llmRuntime.models.getProvider(id) !== undefined) {
-          logger.warn(
-            `自定义渠道 ${id} 撞已注册 provider id（保留字）——忽略该条（自定义渠道 id 不可撞内置目录，/setup 录入另有校验）`,
-          );
-          continue;
+        const registration = stack.registerCustomProvider(
+          createCustomChannelProvider(id, def, () => stack.bindingApiKeyOf(id)),
+        );
+        if (!registration.ok) {
+          logger.warn(`自定义渠道 ${id} 注册被拒：${registration.reason}——忽略该条；手编 settings.json 删该条即清`);
         }
-        stack.llmRuntime.registerProvider(createCustomChannelProvider(id, def, () => stack.bindingApiKeyOf(id)));
       }
     }
 
