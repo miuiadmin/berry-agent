@@ -91,14 +91,18 @@ describe('信封定形（03 §10.6「{seq, sessionId, event} 形随落码批定�
   });
 });
 
-describe('SDK_ 五码在册（02 §5.3——注册笔系并行会话先行落、本批收编）', () => {
-  it('五码 module 段 sdk 且可从 contracts 注册表查得', () => {
+describe('SDK_ 六码在册（02 §5.3——五码原锁随 SDK_TRANSPORT 补登翻六；13e-2 三码/U5 四码另有注册面，点名锁只锚规范立题批定名族）', () => {
+  it('六码 module 段 sdk 且可从 contracts 注册表查得', () => {
     for (const code of [
       'SDK_PROTOCOL_MISMATCH',
       'SDK_SESSION_BUSY',
       'SDK_MESSAGE_CONFLICT',
       'SDK_OVERLOADED',
       'SDK_CURSOR_INVALID',
+      // 第六码：传输终局（03 §10.6 遗漏扫描四役定形补笔钉名——2026-09-28 E1
+      // 补登入册：该批落码 14 抛出位〔packages/berry-agent-sdk 传输两实装〕而
+      // contracts 注册表漏登，本锁翻档即其回归面）
+      'SDK_TRANSPORT',
     ]) {
       const info = getErrorCodeInfo(code);
       expect(info, code).toBeDefined();

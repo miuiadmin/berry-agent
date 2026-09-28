@@ -282,6 +282,12 @@ const CORE_ERROR_CODES: readonly ErrorCodeInfo[] = [
       '插件道路由数帽 16 per-plugin 达帽拒——受理面计数、摘除 fn 释放后可再注册（03 §10.6 U5 收窄四件④；门检/窗外/查重三拒复用既有码零新立）',
   },
   {
+    code: 'SDK_TRANSPORT',
+    module: 'sdk',
+    description:
+      '传输终局：stdio 子进程 exit/error/close 时在飞事务 fail-loud 拒绝（串行链续走不挂死）、订阅建立期（replay-end 界标前）断流/流错误 reject 建流 Promise——已建立后的直播期流错误维持诊断 warn 不打回（03 §10.6 遗漏扫描四役定形补笔钉名；抛出位在 packages/berry-agent-sdk 传输两实装 14 处而注册表漏登——2026-09-28 E1 双件套补登，SDK 包码对拍锁同批入锁）',
+  },
+  {
     code: 'STRUCTURED_OUTPUT_PARSE_FAILED',
     module: 'host',
     description:

@@ -131,14 +131,20 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
     }
   });
 
-  it('src 全源文六形字面量码集 ⊆ listErrorCodes() 注册表（未注册字面量即红）', () => {
-    // 抛出/写入侧：六形静态字面量（new BaseError('…') / codedMessage('…') /
+  it('src + SDK 包源文七形字面量码集 ⊆ listErrorCodes() 注册表（未注册字面量即红）', () => {
+    // 抛出/写入侧：七形静态字面量（new BaseError('…') / codedMessage('…') /
     // code: '…' / toolError('…',…) 工厂首参 / emitError('…') 首参 /
-    // errorWithTail('[…]',…) 位置参数方括号前缀形——2026-09-14 第四役补后
-    // 三形：EXEC_ABORTED 即从 errorWithTail 缝漏网的实证）。注释行同样被抓
+    // errorWithTail('[…]',…) 位置参数方括号前缀形 / new SdkError('…') 客户端
+    // 载体首参——2026-09-14 第四役补中间三形：EXEC_ABORTED 即从 errorWithTail
+    // 缝漏网的实证；2026-09-28 E1 双件套补第七形并把扫描根扩到 SDK 包源树
+    // （packages/berry-agent-sdk/src 原结构性在锁面外——SDK_TRANSPORT 14 处
+    // 实抛未注册而 CI 长绿即实证；SdkError 与 BaseError 同构：类不是词汇、
+    // 码才是身份，构造首参即错误码身份位）。注释行同样被抓
     // ——特性非缺陷：注释里承诺的码也须在册（红证即用注释注入法）；动态拼
-    // 接形（模板串/变量传递）静态不可达，属本锁已知边界；跨行调用形（首参
-    // 换行书写）同为边界。行内逐正则多命中全收（一行多码不漏）。
+    // 接形（模板串/变量传递——SDK 包 new SdkError(frame.code, …) 线面错误帧
+    // 码透传形同此边界）静态不可达，属本锁已知边界；跨行调用形（首参
+    // 换行书写——http.ts 2xx 非帧形抛即此形，14 处中 1 处）同为边界。行内逐
+    // 正则多命中全收（一行多码不漏）。
     // 方括号前缀形收窄在 errorWithTail 首参：warn('[CODE] …') 类日志文案
     // （COMPACTION_NO_CHANNEL / SCHEDULER_*_MISSING——非错误码发射面）不入门
     const registered = new Set(listErrorCodes().map((info) => info.code));
@@ -148,7 +154,10 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
     // EADDRINUSE（2026-09-16 C4 开面失败锁批）：webui-bridge.test.ts:584 断言
     // node listen 错误的 errno（occupyTcpPort 真占位后 tcp 绑定失败直上抛的
     // 系统码）——与 ENOENT 同属 node errno 断言形，非错误码族发射面
-    const externalSystemCodes = new Set(['ENOENT', 'EADDRINUSE']);
+    // EACCES（2026-09-28 第十五役 B3 缝）：plugin-install.test.ts 换代腿注入
+    // errno 桩（rm 抛形构造 { code: 'EACCES' }——被 code:'…' 形扫中）——同
+    // ENOENT 桩构造族，非错误码族发射面
+    const externalSystemCodes = new Set(['ENOENT', 'EADDRINUSE', 'EACCES']);
     const patterns = [
       /new\s+BaseError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
       /\bcodedMessage\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
@@ -156,7 +165,22 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
       /\btoolError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
       /\bemitError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
       /\berrorWithTail\s*\(\s*'\[([A-Z][A-Z0-9_]+)\]/g,
+      // 第七形：SDK 客户端载体构造首参（packages/berry-agent-sdk——E1 入锁）
+      /\bnew\s+SdkError\s*\(\s*'([A-Z][A-Z0-9_]+)'/g,
     ];
+    // 扫描根双树：主仓 src/ + SDK 包源树（E1——原锁只扫 src/，npm SDK 包
+    // 结构性在锁面外）；双根并扫后位点报账改按仓根相对径（单根相对径失义）。
+    const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
+    const scanRoots = [
+      fileURLToPath(new URL('../', import.meta.url)),
+      fileURLToPath(new URL('../../packages/berry-agent-sdk/src/', import.meta.url)),
+    ];
+    // SDK 根哨值 8 = 当前实有 .ts 面数（与上方 codes.ts 哨 23 同律——净删面须
+    // 同步改此哨，防扫描根意外缩水/挪位成假绿）。
+    const sdkTree = scanRoots[1];
+    if (!sdkTree) throw new Error('SDK 包扫描根缺席——锁结构红');
+    const sdkTsFaces = readdirSync(sdkTree).filter((f) => f.endsWith('.ts')).length;
+    expect(sdkTsFaces).toBeGreaterThanOrEqual(8);
     const unregistered = new Map<string, string[]>(); // code -> 位点清单（文件:行）
     const scan = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -175,7 +199,7 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
               const code = m[1]!;
               if (!registered.has(code) && !externalSystemCodes.has(code)) {
                 const sites = unregistered.get(code) ?? [];
-                sites.push(`${relative(srcRoot, full)}:${i + 1}`);
+                sites.push(`${relative(repoRoot, full)}:${i + 1}`);
                 unregistered.set(code, sites);
               }
             }
@@ -183,7 +207,7 @@ describe('错误码字面量 ⊆ 注册表（02 §5.3 族规范 #2「CI 校验�
         });
       }
     };
-    scan(srcRoot);
+    for (const root of scanRoots) scan(root);
     const report = [...unregistered.entries()].map(([code, sites]) => `${code} @ ${sites.join(', ')}`);
     expect(report).toEqual([]);
   });
