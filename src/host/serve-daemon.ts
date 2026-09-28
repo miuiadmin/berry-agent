@@ -38,8 +38,8 @@
  * 自动生成档无凭证打 `n/a`（05 §6.6 豁免面 = 不动库，sock 面是唯一不动库
  * 的会话读径）。
  */
-import { spawn } from 'node:child_process';
-import { mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stderr as defaultStderr } from 'node:process';
 
@@ -61,6 +61,7 @@ import { createServeBridge } from './serve-entry.js';
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import { startSchedulerClock } from './core-plugins.js';
+import { defaultTryUnlink } from './single-instance.js';
 import type { CorePluginReference } from './loader.js';
 import type { HostRuntime } from './runtime.js';
 import type { WebuiMountKit } from './webui-bridge.js';
@@ -147,13 +148,9 @@ const DEFAULT_FS: Required<DaemonFs> = {
   ensureDir: (dir) => mkdirSync(dir, { recursive: true }),
   writeFile: (path, text) => writeFileSync(path, text),
   readFile: (path) => readFileSync(path, 'utf8'),
-  tryUnlink: (path) => {
-    try {
-      unlinkSync(path);
-    } catch {
-      // ENOENT 幂等；其余错上抛（数据目录病态 fail-loud）
-    }
-  },
+  // ENOENT 幂等；其余错上抛（数据目录病态 fail-loud）——第十五役 α4 双址
+  // 同修：single-instance 缺省实现单源复用
+  tryUnlink: defaultTryUnlink,
 };
 
 /** 进程探活缺省实现（信号 0——与 single-instance 同式） */
@@ -163,6 +160,32 @@ function defaultIsAlive(pid: number): boolean {
     return true;
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * daemon 身份判据（纯函数——第十五役 α3 pid 复用防线）：命令行双特征
+ * ——含 serve 子命令词 + 含宿主入口特征（bin 装机形 …/dist/host/main.js 与
+ * dev 形 …/src/host/main.ts 共 'host/main' 片；或路径含 berry-agent 包名
+ * ——值位 magic 串同 `~/.berry-agent` 族）。双特征齐方判真身；单特征不判
+ * （'npm run serve' 类无关进程不含入口特征——拒误认）。
+ */
+export function daemonCommandIsSelf(command: string): boolean {
+  return /\bserve\b/.test(command) && (command.includes('host/main') || command.includes('berry-agent'));
+}
+
+/**
+ * daemon 身份核验缺省实现（α3）：ps 读登记 pid 的命令行，判据走
+ * daemonCommandIsSelf。ps 不可达/非零退/超时 = 身份不可证 = 保守判非
+ * （宁漏停不误杀——漏停可重启兜底，误杀无辜进程不可逆）。
+ */
+export function defaultDaemonIdentityCheck(pid: number): boolean {
+  try {
+    const out = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 2000 });
+    if (out.error !== undefined || out.status !== 0 || typeof out.stdout !== 'string') return false;
+    return daemonCommandIsSelf(out.stdout);
+  } catch {
+    return false; // 保守判非（同上——身份不可证）
   }
 }
 
@@ -214,12 +237,14 @@ export function clearDaemonFootprints(paths: DaemonPaths, fs: DaemonFs = {}): vo
 
 /* ---------------- serve status（只读探活——05 §6.6 豁免面） ---------------- */
 
-/** status 选项（注入面：fs/时钟/探活/sock 会话查询/env） */
+/** status 选项（注入面：fs/时钟/探活/身份核验/sock 会话查询/env） */
 export interface ServeStatusOptions {
   readonly dataDir: string;
   readonly env?: Record<string, string | undefined>;
   readonly now?: () => number;
   readonly isAlive?: (pid: number) => boolean;
+  /** 身份核验（缺省 ps 命令行判据——pid 复用防线；测试注恒真/恒假） */
+  readonly identityCheck?: (pid: number) => boolean;
   readonly fs?: DaemonFs;
   /** 输出面（缺省 process.stderr 之外的报告行走 stdout——注入收行） */
   readonly write?: (line: string) => void;
@@ -236,7 +261,14 @@ export async function runServeStatus(options: ServeStatusOptions): Promise<numbe
   const paths = daemonPaths(options.dataDir);
   const write = options.write ?? ((line) => process.stdout.write(`${line}\n`));
   const probe = probeDaemon(paths, options.isAlive ?? defaultIsAlive, options.fs);
-  if (!probe.running) {
+  // pid 复用防线（第十五役 α3）：探活过 + 身份核验过才算在跑——登记 pid 被
+  // 系统复用给无关进程时如实报未运行（原 daemon 必已死，残留登记不构成
+  // 在跑证据）。
+  const running =
+    probe.running &&
+    probe.record !== undefined &&
+    (options.identityCheck ?? defaultDaemonIdentityCheck)(probe.record.pid);
+  if (!running) {
     write(probe.malformed ? '未运行（pid 登记损坏——serve stop 可清残留登记）' : '未运行');
     return 1;
   }
@@ -256,10 +288,12 @@ export async function runServeStatus(options: ServeStatusOptions): Promise<numbe
 
 /* ---------------- serve stop（SIGTERM → 待退出 → 清登记） ---------------- */
 
-/** stop 选项（注入面：信号/探活/时钟/等待——编舞全注入可测） */
+/** stop 选项（注入面：信号/探活/身份核验/时钟/等待——编舞全注入可测） */
 export interface ServeStopOptions {
   readonly dataDir: string;
   readonly isAlive?: (pid: number) => boolean;
+  /** 身份核验（缺省 ps 命令行判据——pid 复用防线；测试注恒真/恒假） */
+  readonly identityCheck?: (pid: number) => boolean;
   readonly fs?: DaemonFs;
   /** 发信号面（缺省 process.kill；测试收账） */
   readonly signal?: (pid: number, signal: NodeJS.Signals) => void;
@@ -279,12 +313,17 @@ export async function runServeStop(options: ServeStopOptions): Promise<number> {
   const paths = daemonPaths(options.dataDir);
   const write = options.write ?? ((line) => process.stdout.write(`${line}\n`));
   const isAlive = options.isAlive ?? defaultIsAlive;
+  const identityCheck = options.identityCheck ?? defaultDaemonIdentityCheck;
   const signal = options.signal ?? ((pid, sig) => process.kill(pid, sig));
   const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const now = options.now ?? (() => Date.now());
 
   const probe = probeDaemon(paths, isAlive, options.fs);
-  if (!probe.running || probe.record === undefined) {
+  // pid 复用防线（第十五役 α3）：探活过 + 身份核验过才动手——登记 pid 被
+  // 系统复用给无关进程时视同未跑（原 daemon 必已死，残留登记清掉即可，
+  // 宁漏停不误杀——漏停可重启兜底，误杀无辜进程不可逆）。
+  const running = probe.running && probe.record !== undefined && identityCheck(probe.record.pid);
+  if (!running || probe.record === undefined) {
     clearDaemonFootprints(paths, options.fs); // 幂等清残留（含坏登记清扫）
     write('未运行（登记已清）');
     return 0;
@@ -296,7 +335,12 @@ export async function runServeStop(options: ServeStopOptions): Promise<number> {
   while (isAlive(pid) && now() < deadline) {
     await sleep(100);
   }
-  if (isAlive(pid)) {
+  const stillAlive = isAlive(pid);
+  if (stillAlive && !identityCheck(pid)) {
+    // 复用竞速窗：daemon 已退、pid 被无关进程复用——SIGKILL 只会打向无辜
+    // 进程，跳过升格按已停收场（保守向同上：宁漏杀不误杀）。
+    write(`pid ${pid} 已易主（复用）——跳过 SIGKILL，清登记收场`);
+  } else if (stillAlive) {
     write(`优雅窗（10s）尽仍未退——升格 SIGKILL（pid ${pid}）`);
     signal(pid, 'SIGKILL');
     // SIGKILL 后短轮询收尸（内核异步收——不假设立即死）

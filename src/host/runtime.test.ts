@@ -5,7 +5,7 @@
  * 纪律：mock 只停在模型层，本组无模型调用）。单活跃机真路径、:memory: 同构、
  * shutdown 全序、closer 超时强杀逐路覆盖。
  */
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -184,6 +184,18 @@ describe('退出序六步编舞（04 §1 全序有界）', () => {
     const { rt } = rig();
     await rt.shutdown();
     expect(() => rt.persistence.createSession({ origin: 'conversation', workspaceRoot: '/w' })).toThrowError(/已关闭/);
+  });
+
+  // —— ⑥ 步容错（第十五役 α4 连带——release fail-loud 化后不截断关库）——
+  it('⑥ 容错：活跃标记释放抛错（目录只读形 EACCES）不截断关库——shutdown 仍收口', async () => {
+    const { dir, rt } = rig();
+    chmodSync(dir, 0o555); // 目录去写权 → release 的 unlink EACCES 上抛（α4 fail-loud 后的真抛形）
+    try {
+      await expect(rt.shutdown()).resolves.toBeUndefined(); // 容错承接——不 reject、关库仍达
+    } finally {
+      chmodSync(dir, 0o755); // 还原供 afterAll 清理
+    }
+    expect(existsSync(join(dir, ACTIVE_MARKER_BASENAME))).toBe(true); // 标记实清不掉（残留在场如实）
   });
 });
 

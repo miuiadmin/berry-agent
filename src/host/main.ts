@@ -170,6 +170,14 @@ const handlers: CommandHandlers = {
 
 /** 主序：编舞装配 → 分派 → 终局 */
 async function main(): Promise<number> {
+  // 主序收场码共享位（第十五役 α2——让位终局）：dispatchCli 返回即写——
+  // 信号序优雅完成后有界等此位，先到先用其码（终局码单源 = 命令收场码，
+  // 07 §5 三态：被中断 run 的 aborted→1 不被吞 0；帽到 = serve 长驻形
+  // 退 0 正常停机）
+  let resolveCliSettled: ((code: number) => void) | undefined;
+  const cliSettled = new Promise<number>((resolve) => {
+    resolveCliSettled = resolve;
+  });
   installCrashChoreography({
     // 前置窗口（运行时未组装）直写缺省数据目录；组装后走运行时本体（memory 形跳过语义在其内）
     writeCrashLog: (error) => {
@@ -182,15 +190,18 @@ async function main(): Promise<number> {
       await activeRuntime?.shutdown(); // 未组装 = 无优雅序可走，直退 0
       return 0;
     },
+    mainSettled: cliSettled,
   });
 
-  return dispatchCli(parseCli(argv.slice(2)), handlers, {
+  const code = await dispatchCli(parseCli(argv.slice(2)), handlers, {
     stdinIsTTY: stdin.isTTY === true,
     stdoutIsTTY: stdout.isTTY === true,
     writeOut: (text) => stdout.write(`${text}\n`),
     writeErr: (text) => stderr.write(`${text}\n`),
     version: readVersion(),
   });
+  resolveCliSettled?.(code);
+  return code;
 }
 
 // 自动执行卫兵：仅主模块直跑（进程入口）才走主序——被 import 零副作用。

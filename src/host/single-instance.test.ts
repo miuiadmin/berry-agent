@@ -4,11 +4,15 @@
  * fs/探活/时钟全注入（内存 Map 文件系统）——零真盘依赖纯逻辑覆盖；
  * 组合根级真盘路径由 runtime.test.ts 承（分层惯例）。
  */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { BaseError } from '../contracts/index.js';
 
-import { acquireActiveMarker, ACTIVE_MARKER_BASENAME } from './single-instance.js';
+import { acquireActiveMarker, ACTIVE_MARKER_BASENAME, defaultTryUnlink } from './single-instance.js';
 
 /** 内存文件系统（单用例新造——隔离） */
 function memFs(initial: Record<string, string> = {}) {
@@ -114,5 +118,20 @@ describe('acquireActiveMarker', () => {
       tryUnlink: () => {},
     });
     expect(calls).toEqual(['mkdir', 'write']); // 序执法——目录先在
+  });
+});
+
+describe('defaultTryUnlink（缺省实现 fail-loud——第十五役 α4 修）', () => {
+  it('ENOENT 幂等静默；非 ENOENT（目录路径 EPERM/EISDIR）上抛', () => {
+    // 缺省实现此前裸 catch 全吞、与注释「其余错上抛」相悖——吞 EACCES/EROFS
+    // 类错会把「标记清不掉」伪装成「已清」。真盘直测：缺席文件静默、
+    // 目录路径（unlink 恒抛非 ENOENT——darwin EPERM / linux EISDIR）上抛。
+    const dir = mkdtempSync(join(tmpdir(), 'berry-unlink-'));
+    try {
+      expect(() => defaultTryUnlink(join(dir, 'absent.json'))).not.toThrow(); // ENOENT 幂等
+      expect(() => defaultTryUnlink(dir)).toThrow(); // 非 ENOENT 上抛（修前裸吞 → 红）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -15,8 +15,19 @@
 
 /** 信号编舞选项 */
 export interface SignalChoreographyOptions {
-  /** 优雅序承载（SIGINT①/SIGTERM 触发；返回值 = 终局退出码，void = 0） */
+  /** 优雅序承载（SIGINT①/SIGTERM 触发；返回值 = 帽到时的终局退出码，void = 0） */
   readonly onGraceful: () => Promise<number | void>;
+  /**
+   * 主序收场码共享位（第十五役 α2——让位终局）：优雅序完成后有界等待此
+   * promise，主序先收场即用其码终局（**终局退码单源 = 命令收场码**，07 §5
+   * 三态——被中断 run 的 aborted→1 不被信号序吞成 0）；帽到仍未收场 = 主序
+   * 长驻形（serve——dispatchCli 恒不返），用 onGraceful 返回码终局（被停
+   * 非失败，0 语义保留）。缺席 = 旧形（优雅码直终局——编舞独立装配的
+   * 缩形测试/子进程形）。
+   */
+  readonly mainSettled?: Promise<number>;
+  /** 让位帽 ms（缺省 1000——serve 停机多等 1s 可吸收；测试可调小） */
+  readonly mainYieldMs?: number;
   /** 终局动作（缺省 process.exit；测试注收集） */
   readonly exit?: (code: number) => void;
   /** 信号注册面（缺省 process.on；测试注收集） */
@@ -40,13 +51,31 @@ export function installSignalChoreography(options: SignalChoreographyOptions): v
     terminated = true;
     exit(code);
   };
+  // 优雅码 → 终局（让位终局形：mainSettled 在场时有界等主序收场码）
+  const settle = async (code: number | void): Promise<void> => {
+    if (options.mainSettled === undefined) {
+      finish(code ?? 0); // 旧形：优雅码直终局（缩形装配无主序）
+      return;
+    }
+    // 主序与信号序同享 shutdown 收口后（α1 共享柄），主序链毫秒级到达
+    // 收场码；帽到 = serve 长驻形（被停非失败——优雅码终局）。计时器
+    // unref 不阻进程退出。
+    const settled = await Promise.race([
+      options.mainSettled,
+      new Promise<number>((resolve) => {
+        const timer = setTimeout(() => resolve(code ?? 0), options.mainYieldMs ?? 1000);
+        timer.unref?.();
+      }),
+    ]);
+    finish(settled);
+  };
 
   register('SIGINT', () => {
     if (!draining) {
       draining = true;
       void options
         .onGraceful()
-        .then((code) => finish(code ?? 0))
+        .then(settle)
         .catch(() => finish(1)); // 优雅序自身抛错 = 执行失败档收场
       return;
     }
@@ -58,7 +87,7 @@ export function installSignalChoreography(options: SignalChoreographyOptions): v
     draining = true;
     void options
       .onGraceful()
-      .then((code) => finish(code ?? 0))
+      .then(settle)
       .catch(() => finish(1));
   });
 }

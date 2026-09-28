@@ -37,6 +37,7 @@ import { createHostRuntime } from './runtime.js';
 import {
   DAEMON_CHILD_ENV,
   clearDaemonFootprints,
+  daemonCommandIsSelf,
   daemonPaths,
   probeDaemon,
   runDaemonServe,
@@ -126,6 +127,25 @@ describe('三足迹与 pid 登记原语', () => {
   });
 });
 
+describe('daemonCommandIsSelf（pid 复用防线判据——命令行双特征）', () => {
+  it('真身形：bin 装机路径 / dev tsx 路径均判真', () => {
+    // bin 装机形（npm 全局——路径含包名与 dist/host/main.js）
+    expect(daemonCommandIsSelf('node /usr/local/lib/node_modules/berry-agent/dist/host/main.js serve --daemon')).toBe(
+      true,
+    );
+    // dev 形（tsx——入口 src/host/main.ts，路径不含包名但含 host/main）
+    expect(daemonCommandIsSelf('node /repo/node_modules/tsx/dist/cli.mjs /repo/src/host/main.ts serve --daemon')).toBe(
+      true,
+    );
+  });
+
+  it('无关进程形：缺任一特征判非（拒误认）', () => {
+    expect(daemonCommandIsSelf('npm run serve')).toBe(false); // serve 词在、入口特征缺席
+    expect(daemonCommandIsSelf('nginx -c /etc/serve.conf')).toBe(false); // serve.conf 词界命中但非本宿主
+    expect(daemonCommandIsSelf('node /repo/src/host/main.js tui')).toBe(false); // 入口在但非 serve 子命令
+  });
+});
+
 describe('runServeStatus（只读探活——05 §6.6 豁免面）', () => {
   const paths = daemonPaths('/data');
 
@@ -137,6 +157,7 @@ describe('runServeStatus（只读探活——05 §6.6 豁免面）', () => {
       env: {},
       now: () => 61_000, // uptime 60s
       isAlive: () => true,
+      identityCheck: () => true,
       fs,
       write: (line) => lines.push(line),
     });
@@ -154,6 +175,7 @@ describe('runServeStatus（只读探活——05 §6.6 豁免面）', () => {
       env: { BERRY_AGENT_SDK_TOKEN: 'tok' },
       now: () => 0,
       isAlive: () => true,
+      identityCheck: () => true,
       fs,
       write: (line) => lines.push(line),
       fetchSessionCount: async (sockPath, token) => {
@@ -177,6 +199,23 @@ describe('runServeStatus（只读探活——05 §6.6 豁免面）', () => {
       await runServeStatus({ dataDir: '/data', env: {}, now: () => 0, fs: fsBad, write: (l) => lines.push(l) }),
     ).toBe(1);
     expect(lines[1]).toContain('损坏');
+  });
+
+  // —— pid 复用防线（第十五役 α3：探活过 ≠ 真身——身份核验）——
+  it('pid 复用形：探活过但命令行非本宿主 daemon → 如实报未运行退 1', async () => {
+    const fs = memFs({ [paths.pidPath]: '{"pid":123,"startedAt":0}\n' });
+    const lines: string[] = [];
+    const code = await runServeStatus({
+      dataDir: '/data',
+      env: {},
+      now: () => 0,
+      isAlive: () => true, // 登记的 pid 现在是个活进程——但已被系统复用给无关程序
+      identityCheck: () => false, // 身份核验不匹配（真跑形 = ps 命令行判据）
+      fs,
+      write: (l) => lines.push(l),
+    });
+    expect(code).toBe(1);
+    expect(lines[0]).toContain('未运行');
   });
 });
 
@@ -206,6 +245,7 @@ describe('runServeStop（SIGTERM → 待退出 → 清登记）', () => {
     const code = await runServeStop({
       dataDir: '/data',
       isAlive: () => alive,
+      identityCheck: () => true,
       fs,
       signal: (pid, sig) => {
         signals.push([pid, sig]);
@@ -228,6 +268,7 @@ describe('runServeStop（SIGTERM → 待退出 → 清登记）', () => {
     const code = await runServeStop({
       dataDir: '/data',
       isAlive: () => alive,
+      identityCheck: () => true,
       fs,
       signal: (_pid, sig) => {
         signals.push(sig);
@@ -241,6 +282,50 @@ describe('runServeStop（SIGTERM → 待退出 → 清登记）', () => {
     });
     expect(code).toBe(0);
     expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
+  });
+
+  // —— pid 复用防线（第十五役 α3：宁漏停不误杀）——
+  it('pid 复用形：探活过但身份不匹配 → 不发信号 + 清残留登记退 0', async () => {
+    const fs = memFs({ [paths.pidPath]: '{"pid":123,"startedAt":0}\n' });
+    const signals: string[] = [];
+    let clock = 0;
+    const code = await runServeStop({
+      dataDir: '/data',
+      isAlive: () => true, // pid 活——但已被复用给无关进程
+      identityCheck: () => false, // 身份不匹配 → 视同未跑（原 daemon 必已死）
+      fs,
+      signal: (_pid, sig) => signals.push(sig),
+      sleep: async () => {
+        clock += 2000; // 步进钟（修前跑红也要可终止——身份消费缺席时窗尽可达）
+      },
+      now: () => clock,
+      write: () => {},
+    });
+    expect(code).toBe(0);
+    expect(signals).toEqual([]); // 修前红：SIGTERM 已发向无辜进程
+    expect(fs.files.has(paths.pidPath)).toBe(false); // 残留登记仍清
+  });
+
+  it('升格再验：TERM 后 pid 易主（复用）→ 跳过 SIGKILL 只清登记退 0', async () => {
+    const fs = memFs({ [paths.pidPath]: '{"pid":123,"startedAt":0}\n' });
+    const signals: string[] = [];
+    let clock = 0;
+    let self = true; // 发 TERM 时还是真身；优雅窗尽时 daemon 已退、pid 被复用
+    const code = await runServeStop({
+      dataDir: '/data',
+      isAlive: () => true, // 复用进程恒活——探活面看不见 daemon 已死
+      identityCheck: () => self,
+      fs,
+      signal: (_pid, sig) => signals.push(sig),
+      sleep: async () => {
+        clock += 2000; // 快进过 10s 优雅窗
+        self = false; // 窗尽时刻身份翻非（pid 已易主）
+      },
+      now: () => clock,
+      write: () => {},
+    });
+    expect(code).toBe(0);
+    expect(signals).toEqual(['SIGTERM']); // 修前红：SIGKILL 打向复用进程
   });
 });
 

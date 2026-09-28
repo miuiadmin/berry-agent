@@ -63,6 +63,42 @@ describe('installSignalChoreography', () => {
     expect(rig.exits).toEqual([0]);
   });
 
+  // —— 让位终局（第十五役 α2：终局退码单源 = 命令收场码）——
+  it('mainSettled 在场：主序收场码先到即用其码（被中断 run 的 aborted→1 不被吞 0）', async () => {
+    // 修前红：无让位消费——优雅码 0 即时终局，主序 1 永不到场
+    const listeners = new Map<string, () => void>();
+    const exits: number[] = [];
+    // 主序 10ms 后收场（模拟 executeRun aborted 尾段在 shutdown 后毫秒级到达）
+    const mainSettled = new Promise<number>((resolve) => {
+      setTimeout(() => resolve(1), 10);
+    });
+    installSignalChoreography({
+      onGraceful: async () => 0, // 信号序自身码 0（旧语义「无条件 0」）
+      mainSettled,
+      mainYieldMs: 500,
+      exit: (code) => void exits.push(code),
+      register: (signal, listener) => listeners.set(signal, listener),
+    });
+    listeners.get('SIGINT')?.();
+    await new Promise((r) => setTimeout(r, 60)); // 让主序收场（10ms）先于帽（500ms）
+    expect(exits).toEqual([1]);
+  });
+
+  it('mainSettled 在场：主序长驻不返（serve 形）帽到用信号序码（被停非失败 0）', async () => {
+    const listeners = new Map<string, () => void>();
+    const exits: number[] = [];
+    installSignalChoreography({
+      onGraceful: async () => 0,
+      mainSettled: new Promise<number>(() => {}), // 永不 resolve（serve 长驻形）
+      mainYieldMs: 15,
+      exit: (code) => void exits.push(code),
+      register: (signal, listener) => listeners.set(signal, listener),
+    });
+    listeners.get('SIGTERM')?.();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(exits).toEqual([0]);
+  });
+
   it('优雅窗内 SIGTERM 幂等直返（不另起第二套停机）', async () => {
     let calls = 0;
     const rig = rigSignals(async () => {

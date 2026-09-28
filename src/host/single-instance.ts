@@ -46,6 +46,21 @@ function defaultIsAlive(pid: number): boolean {
   }
 }
 
+/**
+ * tryUnlink 缺省实现（第十五役 α4 修——对齐注释 fail-loud）：ENOENT 幂等
+ * 静默；其余错上抛。原实现裸 catch 全吞与注释宣称相悖——吞 EACCES/EROFS
+ * 类错会把「标记清不掉」伪装成「已清」，数据目录病态被静默掩盖。serve-daemon
+ * 的 pid/sock 清扫同律复用本实现（同句注释同缺陷双址同修）。
+ */
+export function defaultTryUnlink(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    // ENOENT 幂等（目标已是缺席态——并发清或未写过）
+  }
+}
+
 /** acquire 选项（测试注入位：pid/时钟/探活/fs 动作均注） */
 export interface AcquireOptions {
   readonly pid?: number;
@@ -81,15 +96,7 @@ export function acquireActiveMarker(dataDir: string, opts: AcquireOptions = {}):
   const ensureDir = opts.ensureDir ?? ((dir) => mkdirSync(dir, { recursive: true }));
   const writeFile = opts.writeFile ?? ((path, text) => writeFileSync(path, text));
   const readFile = opts.readFile ?? ((path) => readFileSync(path, 'utf8'));
-  const tryUnlink =
-    opts.tryUnlink ??
-    ((path) => {
-      try {
-        unlinkSync(path);
-      } catch {
-        // ENOENT 幂等；其他错上抛（fail-loud——标记不可清是数据目录病态）
-      }
-    });
+  const tryUnlink = opts.tryUnlink ?? defaultTryUnlink;
 
   const markerPath = join(dataDir, ACTIVE_MARKER_BASENAME);
   ensureDir(dataDir);

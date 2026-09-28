@@ -131,7 +131,7 @@ export interface HostRuntime {
   readonly registerShutdownHook: (hook: () => Promise<void> | void) => void;
   /** 注册作用域回卷（LIFO——dispose 全序） */
   readonly registerDisposer: (fn: () => void) => void;
-  /** 退出序编舞（六步全序有界；幂等——二次调用直返） */
+  /** 退出序编舞（六步全序有界；幂等——二调共享首调在飞 promise 等同一收口） */
   readonly shutdown: () => Promise<void>;
   /** 崩溃取证（数据目录 crash.log 同步追加——崩溃路径先写再退；memory 形跳过） */
   readonly writeCrashLog: (error: unknown) => void;
@@ -186,7 +186,9 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
   const disposers: Array<() => void> = [];
   const closersMs = options.exitBudget?.closersMs ?? 5000;
   const shutdownHooksMs = options.exitBudget?.shutdownHooksMs ?? 2000;
-  let shutDown = false;
+  // 在飞 shutdown promise 存柄（首调创建、二调共享——幂等的实体是同柄等待
+  // 而非布尔早返，详见 shutdown 位注释）
+  let shutdownInFlight: Promise<void> | null = null;
 
   const runtime: HostRuntime = {
     memory,
@@ -216,43 +218,63 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
       disposers.push(fn);
     },
     shutdown: async () => {
-      if (shutDown) return; // 幂等（SIGINT② 与优雅序并发到同一收口）
-      shutDown = true;
-      // ① abort 置位（在飞 run 收打断信号——不再收新输入）
-      abortController.abort();
-      // ② closer drain（注册序串行，有界 5s——超时强杀 = 放弃等待）
-      for (const closer of closers) {
-        try {
-          await withTimeout(Promise.resolve(closer.fn()), closersMs, `closer ${closer.label}`);
-        } catch (err) {
-          console.error(`[exit] closer ${closer.label} 超时或抛错（强杀继续）: ${describe(err)}`);
+      // 幂等 = 共享在飞 promise（第十五役 α1 修）：首调创建收口 promise、
+      // 一切二调 await 同柄——主序收尾（runRunEntry 尾段）与信号序（SIGINT①
+      // onGraceful）并发时，二调不再布尔早返拿到已解决 promise 而不等首调
+      // 收口（修前形：main().then(processExit) 在首调仍挂于 closer drain/
+      // flush 真异步腿时提前 process.exit——③-⑥ 后四步被截断，write-behind
+      // 尾批丢失、session_shutdown 钩子跳过）。SIGINT② 硬退语义不变（那路
+      // 直接 process.exit(130) 不经本柄）。
+      if (shutdownInFlight !== null) return shutdownInFlight;
+      shutdownInFlight = (async () => {
+        // ① abort 置位（在飞 run 收打断信号——不再收新输入）
+        abortController.abort();
+        // ② closer drain（注册序串行，有界 5s——超时强杀 = 放弃等待）
+        for (const closer of closers) {
+          try {
+            await withTimeout(Promise.resolve(closer.fn()), closersMs, `closer ${closer.label}`);
+          } catch (err) {
+            console.error(`[exit] closer ${closer.label} 超时或抛错（强杀继续）: ${describe(err)}`);
+          }
         }
-      }
-      // ③ write-behind flush（durable 落盘——退出序永达步）
-      try {
-        await persistence.flush();
-      } catch (err) {
-        console.error(`[exit] write-behind flush 抛错（继续收口）: ${describe(err)}`);
-      }
-      // ④ session_shutdown 并行有界 2s（件级收口钩子）
-      await Promise.allSettled(
-        shutdownHooks.map((hook) =>
-          withTimeout(Promise.resolve(hook()), shutdownHooksMs, 'session_shutdown 钩子').catch((err) => {
-            console.error(`[exit] shutdown 钩子超时或抛错（继续收口）: ${describe(err)}`);
-          }),
-        ),
-      );
-      // ⑤ 作用域 LIFO 回卷（dispose 全序——后注册先回卷）
-      for (const dispose of disposers.reverse()) {
+        // ③ write-behind flush（durable 落盘——退出序永达步）
         try {
-          dispose();
+          await persistence.flush();
         } catch (err) {
-          console.error(`[exit] disposer 抛错（继续回卷）: ${describe(err)}`);
+          console.error(`[exit] write-behind flush 抛错（继续收口）: ${describe(err)}`);
         }
-      }
-      // ⑥ 释放活跃标记 + 关库（close 内含 write-behind 终批落账）
-      lease?.release();
-      await persistence.close();
+        // ④ session_shutdown 并行有界 2s（件级收口钩子）
+        await Promise.allSettled(
+          shutdownHooks.map((hook) =>
+            withTimeout(Promise.resolve(hook()), shutdownHooksMs, 'session_shutdown 钩子').catch((err) => {
+              console.error(`[exit] shutdown 钩子超时或抛错（继续收口）: ${describe(err)}`);
+            }),
+          ),
+        );
+        // ⑤ 作用域 LIFO 回卷（dispose 全序——后注册先回卷）
+        for (const dispose of disposers.reverse()) {
+          try {
+            dispose();
+          } catch (err) {
+            console.error(`[exit] disposer 抛错（继续回卷）: ${describe(err)}`);
+          }
+        }
+        // ⑥ 释放活跃标记 + 关库（close 内含 write-behind 终批落账）——退出序
+        // 容错（04 §1「一步崩不阻后续步」对齐②-⑤）：两动作各自吞错续行。
+        // 第十五役 α4 起 release 的 tryUnlink fail-loud 化（EACCES 类数据目录
+        // 病态如实 warn，不再伪装已清）——本层承接其抛出不截断 close 终批。
+        try {
+          lease?.release();
+        } catch (err) {
+          console.error(`[exit] 活跃标记释放抛错（继续关库）: ${describe(err)}`);
+        }
+        try {
+          await persistence.close();
+        } catch (err) {
+          console.error(`[exit] 关库抛错（收口已尽）: ${describe(err)}`);
+        }
+      })();
+      return shutdownInFlight;
     },
     writeCrashLog: (error) => {
       if (memory || dataDir === null) return; // memory 形无真库归属地——跳过
