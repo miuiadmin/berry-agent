@@ -35,6 +35,9 @@
  * - 写侧**合并保留未知键**（预设写盘只动两键，用户手编的其他键原样存活）；
  *   原子替换（tmp + rename——防撕裂）；坏形期拒写（'rejected'——与
  *   appendToolPolicyEntry 同律，机器不在坏文件上覆写扩大破坏）。
+ * - customProviders 专设**原始面读位** readRawCustomProviders（#2——2026-09-29
+ *   笔「写侧合并基 = 原始文件」）：写侧合并基不得取读侧投影（丢坏形条目后
+ *   整键覆写会静默清除手编坏形兄弟条目），原始面零校验零 warn 供原文。
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -91,13 +94,18 @@ const THEME_SETTINGS: readonly string[] = ['dark', 'light', 'auto'];
  * 同形〔D4 冷读闸裁决：host 域共享常量单源，向导与 settings 读侧双消费〕：
  * 小写字母开头 + 小写字母/数字/连字符——模型 spec 前缀段安全形，含斜杠
  * id 会使全形 spec 解析错位〔修前红主证〕；内置目录 id 同形族）。
+ * 长度帽 64（#33——2026-09-29 笔：slug 正则无上界会使超长 id 直存
+ * settings/凭证行；尾段 {0,63} 即总长恰 64 封顶，读侧与向导共用单源自收紧）。
  */
-export const CUSTOM_CHANNEL_ID_RE = /^[a-z][a-z0-9-]*$/;
+export const CUSTOM_CHANNEL_ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
 /**
  * customProviders 单条目形校验（读侧丢条点名的判据单源）：返回坏形原因
  * （undefined = 好形）。字段集 = llm 域 CustomProviderDef 逐字段镜像校验
  * ——models 空数组放行（先建渠道后补模型的合法中间态），元素坏丢整条。
+ * baseUrl 除非空外补 URL 形三判据（#30——2026-09-29 笔：可解析 + 协议
+ * http(s) + 主机名非空；无协议形〔如 'gw.test/v1'〕读侧放行会让首请求才抛
+ * Invalid URL——注册即坏，读侧诚实丢条点名）。
  */
 function customProviderEntryProblem(raw: unknown, protocols: readonly string[]): string | undefined {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return '值须为对象';
@@ -106,8 +114,25 @@ function customProviderEntryProblem(raw: unknown, protocols: readonly string[]):
     return 'protocol 须为 anthropic-messages|openai-completions';
   }
   if (typeof def.baseUrl !== 'string' || def.baseUrl === '') return 'baseUrl 须为非空字符串';
+  // #30：URL 形三判据——解析失败（无协议相对形）即坏；可解析但协议越域
+  // （ftp: 等）或主机名空（'http:///path' 折叠形）同坏（warn 文案统一点名）
+  let parsedBaseUrl: URL;
+  try {
+    parsedBaseUrl = new URL(def.baseUrl);
+  } catch {
+    return 'baseUrl 须为 http(s) 完整 URL（含协议与主机名）';
+  }
+  if ((parsedBaseUrl.protocol !== 'http:' && parsedBaseUrl.protocol !== 'https:') || parsedBaseUrl.hostname === '') {
+    return 'baseUrl 须为 http(s) 完整 URL（含协议与主机名）';
+  }
   if (def.models === undefined || !Array.isArray(def.models) || def.models.some((m) => typeof m !== 'string')) {
     return 'models 须为字符串数组';
+  }
+  // #32：元素级校验（2026-09-29 笔——全形 spec 分割律）：空串元素使全形
+  // spec 尾斜杠非法（'gw/'——ctrl+p 循环/首模型探针路径 fail-loud）；含斜杠
+  // 元素使 '渠道/模型' 解析错位（模型 id 裸形不含斜杠）——任一即整条坏形
+  if (def.models.some((m) => m === '' || m.includes('/'))) {
+    return 'models 元素须为非空字符串且不含斜杠';
   }
   if (def.name !== undefined && typeof def.name !== 'string') return 'name 须为字符串';
   if (
@@ -214,7 +239,7 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
       const defs: Record<string, CustomProviderDef> = {};
       for (const [id, raw] of Object.entries(customProviders)) {
         if (!CUSTOM_CHANNEL_ID_RE.test(id)) {
-          warn(`配置键 customProviders.${id} 渠道 id 坏形（slug 形 ^[a-z][a-z0-9-]*$）——丢该条`);
+          warn(`配置键 customProviders.${id} 渠道 id 坏形（slug 形 ^[a-z][a-z0-9-]{0,63}$，长度 ≤64）——丢该条`);
           continue;
         }
         const reason = customProviderEntryProblem(raw, CUSTOM_PROVIDER_PROTOCOLS);
@@ -230,6 +255,40 @@ export function readHostSettings(dataDir: string, options: ReadHostSettingsOptio
     }
   }
   return { settings, healthy: true };
+}
+
+/**
+ * 读 `<dataDir>/settings.json` 的 customProviders 键**原始面**（#2 前半
+ * ——04 §9 ⑥ 2026-09-29 笔「写侧合并基 = 原始文件」）。
+ *
+ * 用途：tui-entry saveCustomChannel/removeCustomChannel 的**写侧合并基
+ * 单源**——写侧不得以 readHostSettings 投影（丢坏形条目后）为合并基整键
+ * 覆写，否则用户手编的坏形兄弟条目会被静默清除。写侧需要的是原文不是
+ * 判断，故本函数零校验零 warn：
+ * - 文件缺失/读失败/JSON 坏形/顶层非对象/键缺席 = undefined（无原始面可用）；
+ * - 键在场即**原样返回**——含非对象形（数组/字符串等照返；好坏形判断归
+ *   readHostSettings 投影面，两读位各司其职）。
+ */
+export function readRawCustomProviders(dataDir: string): Record<string, unknown> | undefined {
+  const path = join(dataDir, SETTINGS_BASENAME);
+  if (!existsSync(path)) return undefined;
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    // 读失败 = 原始面不可信——同文件缺失面（写侧自会走健康闸拒写）
+    return undefined;
+  }
+  let doc: unknown;
+  try {
+    doc = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return undefined;
+  const value = (doc as Record<string, unknown>).customProviders;
+  // 键缺席 = undefined；在场即原样返回（非对象形也照返——合并基要原文不要判断）
+  return value === undefined ? undefined : (value as Record<string, unknown>);
 }
 
 /** 写侧回执（与 appendToolPolicyEntry 同族三态） */

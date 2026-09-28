@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { readHostSettings, SETTINGS_BASENAME, writeHostSettings } from './settings-store.js';
+import { readHostSettings, readRawCustomProviders, SETTINGS_BASENAME, writeHostSettings } from './settings-store.js';
 
 /** 临时数据目录族（统一清） */
 const dirs: string[] = [];
@@ -262,6 +262,65 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
     }
   });
 
+  it('#30 baseUrl 零形校验：无协议/非 http(s) 形丢条点名（修前红：非空即过——首请求才抛 Invalid URL）', () => {
+    const dir = tmpDir('settings-cp-urlshape-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          'ok-gw': GOOD['my-gw'],
+          // 无协议形：读侧旧判据只查非空——注册通过、首请求 Invalid URL
+          'no-scheme': { protocol: 'openai-completions', baseUrl: 'gw.test/v1', models: ['m'] },
+          // 协议非 http(s)：URL 可解析但协议面越域
+          'ftp-scheme': { protocol: 'openai-completions', baseUrl: 'ftp://x.test/v1', models: ['m'] },
+        },
+      }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings.customProviders).toEqual({ 'ok-gw': GOOD['my-gw'] });
+    for (const id of ['no-scheme', 'ftp-scheme']) {
+      expect(warnings.some((w) => w.includes(`customProviders.${id} 坏形`) && w.includes('baseUrl'))).toBe(true);
+    }
+  });
+
+  it('#32 models 元素级校验：空串/含斜杠丢条点名（修前红：元素形零校验照收——全形 spec 尾斜杠非法路径 fail-loud）', () => {
+    const dir = tmpDir('settings-cp-models-elem-');
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({
+        customProviders: {
+          'ok-gw': GOOD['my-gw'],
+          // 空串元素：注册后全形 spec 尾斜杠非法（'gw/'），ctrl+p 循环/首模型探针路径炸
+          'empty-model': { protocol: 'openai-completions', baseUrl: 'https://x.test/v1', models: [''] },
+          // 含斜杠元素：全形 spec 分割律错位（模型 id 裸形不含斜杠）
+          'slash-model': { protocol: 'openai-completions', baseUrl: 'https://x.test/v1', models: ['a/b'] },
+        },
+      }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings.customProviders).toEqual({ 'ok-gw': GOOD['my-gw'] });
+    for (const id of ['empty-model', 'slash-model']) {
+      expect(warnings.some((w) => w.includes(`customProviders.${id} 坏形`) && w.includes('models'))).toBe(true);
+    }
+  });
+
+  it('#33 渠道 id 长度帽 64：超长 slug 键丢条点名（修前红：上界零校验照收——超长 id 直存 settings/凭证行）', () => {
+    const dir = tmpDir('settings-cp-slug-cap-');
+    // 65 字 = 首字母 + 64 个尾段字符（帽 64 恰越一档）；全形 slug 合字母/连字符
+    const longId = `a${'b'.repeat(64)}`;
+    const capId = `a${'b'.repeat(63)}`; // 恰 64 字 = 帽内放行
+    writeFileSync(
+      join(dir, SETTINGS_BASENAME),
+      JSON.stringify({ customProviders: { [longId]: GOOD['my-gw'], [capId]: GOOD['my-gw'] } }),
+    );
+    const { warnings, warn } = captureWarn();
+    const load = readHostSettings(dir, { warn });
+    expect(load.settings.customProviders).toEqual({ [capId]: GOOD['my-gw'] });
+    expect(warnings.some((w) => w.includes(`customProviders.${longId}`) && w.includes('slug'))).toBe(true);
+  });
+
   it('整键非对象 = 忽略整键点名', () => {
     const dir = tmpDir('settings-cp-badkey-');
     writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ customProviders: [1, 2] }));
@@ -311,5 +370,42 @@ describe('customProviders 第五键（2026-09-28 模型渠道批 C-1——条目
     const dir = tmpDir('settings-cp-plain-');
     writeHostSettings(dir, { customProviders: GOOD });
     expect(existsSync(join(dir, SETTINGS_BASENAME))).toBe(true);
+  });
+});
+
+describe('readRawCustomProviders（#2 前半——写侧合并基单源：原始文件原样供料，04 §9 ⑥ 2026-09-29 笔）', () => {
+  /** 好形条目（与上块 GOOD 同形——describe 作用域分立各自持样） */
+  const goodEntry = { protocol: 'anthropic-messages', baseUrl: 'https://a.example.test', models: ['m1', 'm2'] };
+
+  it('好形 + 坏形条目 + 坏 slug 键三键全在原样返回——对照 readHostSettings 投影只剩好形', () => {
+    const dir = tmpDir('settings-rawcp-');
+    const providers = {
+      'good-gw': goodEntry,
+      // 坏形条目：缺 protocol（读侧投影必丢）
+      'no-proto': { baseUrl: 'https://x.test/v1', models: ['m'] },
+      // 坏 slug 键：大写 + 下划线（读侧投影必丢）
+      Bad_Key: goodEntry,
+    };
+    writeFileSync(join(dir, SETTINGS_BASENAME), JSON.stringify({ customProviders: providers }));
+    // 原始面：三键全在（零校验零丢条——写侧合并基要的是原文不是判断）
+    expect(readRawCustomProviders(dir)).toEqual(providers);
+    // 对照：读侧投影只剩好形条目（两个读位各司其职）
+    expect(readHostSettings(dir).settings.customProviders).toEqual({ 'good-gw': goodEntry });
+  });
+
+  it('坏 JSON / 文件缺失 / 键缺席 = undefined；键非对象形也原样返回', () => {
+    // 坏 JSON = undefined
+    const dir = tmpDir('settings-rawcp-badjson-');
+    writeFileSync(join(dir, SETTINGS_BASENAME), '{not json');
+    expect(readRawCustomProviders(dir)).toBeUndefined();
+    // 文件缺失 = undefined（零负担首启位同判）
+    const dir2 = tmpDir('settings-rawcp-absent-');
+    expect(readRawCustomProviders(dir2)).toBeUndefined();
+    // 键缺席 = undefined（customProviders 未写）
+    writeFileSync(join(dir2, SETTINGS_BASENAME), JSON.stringify({ sandboxMode: 'read-only' }));
+    expect(readRawCustomProviders(dir2)).toBeUndefined();
+    // 键非对象形（数组）也原样返回——判断归投影面，本读位零校验
+    writeFileSync(join(dir2, SETTINGS_BASENAME), JSON.stringify({ customProviders: [1, 2] }));
+    expect(readRawCustomProviders(dir2)).toEqual([1, 2]);
   });
 });
