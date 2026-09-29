@@ -152,6 +152,16 @@ const STEP_TIMEOUT_MS = 10_000;
  * 在任何帽下都红——不遮蔽。STEP_TIMEOUT_MS 其余消费点实测离帽远
  * （resize 2238ms / exit 2440ms 量级）且无红史，维持 10s 不动。
  * 最坏叠加（startup 45s + 进屏 10s + 收屏 25s = 80.3s）仍在用例级 90s 帽内。
+ *
+ * 归因勘正（tmux flake 根因役 wf_9ceaaab6-3ff——2026-09-29）：①的 CI 级
+ * 归因**未闭合**——上段「失败 dump 实见该字面量」判别法已被四份干净 dump
+ * 证伪（25s 窗内 capture 持续回完整健康面板 = 服务端/会话/网格存活铁证，
+ * ①是 TUI 进程侧输入链路事件、与②不同根）；①最后一现 09-20、迟答防御律
+ * 落 09-21，此后零复发——「修复生效」与「环境窗关闭」双解并存不可归因
+ * （同窗 15+ 笔同路径弹幕 confound）。勿登记为①的「三现之修」。真身候选
+ * 收窄至：环境级停摆（统计缺口在）/投递侧丢失/未排除代码角——已挂超时
+ * 仪表化（flakeDiagnostics：CPU 对拍 + capture 退出码 + 屏动复采），等
+ * 一次复发在三族间一锤定音；ci.yml 夜间 flaky-probe 腿为天然观测面。
  */
 const ESC_DISMISS_TIMEOUT_MS = 25_000;
 /** 退出收口轮询帽（优雅退出序含排空/复原——E16 同值 30s） */
@@ -248,6 +258,49 @@ function captureLines(session: string): string[] {
   return capture(session).split('\n');
 }
 
+/**
+ * 超时现场仪表化（tmux flake 根因役——签名①「ESC 收屏 25s 超时」归因未闭合，
+ * 下次复发一锤定音用）：只动诊断面、超时路径 only、零常态污染。
+ *
+ * 三路证据并入超时消息：
+ * 1. TUI 进程 CPU 对拍——pane_pid 是壳层 sh，真身（env exec 形）为其子进程，
+ *    pgrep -P 顺藤取真身 pid 后 2s 双采样 CPU 时间/状态：增量≈0 且进程活着
+ *    ⇒ 事件循环超时窗内未运转（环境级停摆说）；CPU 前进而屏冻 ⇒ 代码角
+ *    （届时按「修前必红」在 input/engine 层造确定性锁——排除链已收窄候选面）。
+ * 2. capture-pane 退出码——capture() 吞错返 ''（会话亡/服务端扰动会伪装成
+ *    谓词永假超时），此处显式补报收伪装通道（W-2 的仪表化面）。
+ * 3. 屏动复采——2s 后复收一屏对拍：不动 ⇒ 面板冻结；动 ⇒ 慢跃迁非死停。
+ * 全程 try/catch 守卫（仪表化失败返占位串，不吞原始超时证据不炸自身）。
+ */
+async function flakeDiagnostics(session: string): Promise<string> {
+  try {
+    const parts: string[] = [];
+    const cap1 = tmux(['capture-pane', '-p', '-t', session]);
+    parts.push(`诊断·capture 退出码=${cap1.status}`);
+    // pane_pid = 壳层 sh；真身 = sh 的子进程（env exec node——不 fork 换身）
+    const shellPid = (tmux(['list-panes', '-t', session, '-F', '#{pane_pid}']).stdout ?? '').split('\n')[0]?.trim();
+    const tuiPid =
+      shellPid !== undefined && shellPid !== ''
+        ? (spawnSync('pgrep', ['-P', shellPid], { encoding: 'utf8' }).stdout ?? '').split('\n')[0]?.trim()
+        : undefined;
+    if (tuiPid !== undefined && tuiPid !== '') {
+      const cpu1 = spawnSync('ps', ['-o', 'time=', '-o', 'stat=', '-p', tuiPid], { encoding: 'utf8' });
+      await sleep(2_000);
+      const cpu2 = spawnSync('ps', ['-o', 'time=', '-o', 'stat=', '-p', tuiPid], { encoding: 'utf8' });
+      const cap2 = tmux(['capture-pane', '-p', '-t', session]);
+      parts.push(
+        `诊断·TUI pid=${tuiPid} CPU「${(cpu1.stdout ?? '?').trim()}」→2s→「${(cpu2.stdout ?? '?').trim()}」`,
+        `诊断·2s 屏动=${cap1.stdout !== cap2.stdout ? '有（慢跃迁——帽可能不够宽）' : '无（面板冻结——停摆/循环死候选）'}`,
+      );
+    } else {
+      parts.push(`诊断·TUI 进程不可得（shell=${shellPid ?? '?'} 无子——真身已退出，查退出码文件判因）`);
+    }
+    return `\n${parts.join('\n')}`;
+  } catch {
+    return '\n诊断·仪表化自身异常（不影响原始超时证据）';
+  }
+}
+
 /** 通用收屏轮询：判词转真或超时抛错（含现场可见屏尾段——诊断面） */
 async function waitForScreen(
   what: string,
@@ -259,7 +312,9 @@ async function waitForScreen(
   for (;;) {
     if (pred(captureLines(session))) return;
     if (Date.now() > deadline) {
-      throw new Error(`等待超时（${what}，${timeoutMs}ms）——当前可见屏尾段：\n${capture(session).slice(-1500)}`);
+      throw new Error(
+        `等待超时（${what}，${timeoutMs}ms）——当前可见屏尾段：\n${capture(session).slice(-1500)}${await flakeDiagnostics(session)}`,
+      );
     }
     await sleep(200);
   }
