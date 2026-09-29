@@ -27,8 +27,8 @@ de montage ; il n'existe aucune voie privée de premier parti.
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** fonctionnalités intégrées prêtes à l'emploi · **0** télémétrie — vos
-données restent sur votre machine
+**16** fonctionnalités intégrées livrées avec le paquet · **0** télémétrie —
+aucune statistique ni rapport de plantage
 
 > Statut : `0.1.0-alpha.18` — alpha précoce, évolution rapide ; l'API des
 > plugins peut encore évoluer avant la 1.0.

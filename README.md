@@ -26,8 +26,8 @@ the same surface; there is no first-class private lane.
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** built-in capabilities out of the box · **0** telemetry — your data
-stays on your machine
+**16** built-in capabilities ship with the package · **0** telemetry — no usage
+stats, no crash reports
 
 > Status: `0.1.0-alpha.18` — early alpha, moving fast; the plugin API may
 > still shift before 1.0.

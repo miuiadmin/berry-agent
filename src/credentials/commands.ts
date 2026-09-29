@@ -264,7 +264,7 @@ function runAdd(
   return {
     ok: true,
     text:
-      `已录入凭证 ${ns}/${name}（来源 manual${modelProvider !== undefined ? `，模型绑定 ${modelProvider}——录入即生效（供血面全表 live 读）` : ''}）` +
+      `已录入凭证 ${ns}/${name}（来源 manual${modelProvider !== undefined ? `，模型绑定 ${modelProvider}——录入即生效，无需重启` : ''}）` +
       `——值不回显；注入用 env 引用形 '@credentials:${name}'。`,
   };
 }

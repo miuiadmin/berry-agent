@@ -27,8 +27,8 @@ existe ninguna vía privada de primer partido.
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** funciones integradas listas para usar · **0** telemetría — tus datos
-se quedan en tu máquina
+**16** funciones integradas incluidas en el paquete · **0** telemetría — sin
+estadísticas ni informes de fallos
 
 > Estado: `0.1.0-alpha.18` — alpha temprana, evolución rápida; la API de
 > plugins aún puede cambiar antes de la 1.0.

@@ -1063,7 +1063,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             },
           );
           if (!receipt.ok && receipt.text.startsWith('CREDENTIALS_NOT_FOUND：')) {
-            return { ok: true, text: `凭证行 ${providerId} 不在册（无需删）` };
+            return { ok: true, text: `未找到 ${providerId} 保存的 API key（无需删除）` };
           }
           return receipt;
         },

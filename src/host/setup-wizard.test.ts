@@ -825,7 +825,7 @@ describe('R-3 体验批（busy 可选法 + 坏形重问 + ✓ 判据同锚 + 可
     });
     await runSetupWizard(depsP.deps);
     expect(depsP.log.probeCalls).toContainEqual(['my-relay', 'sk-gw-key']); // R-3 自定义腿探针调用
-    expect(probed.recorded.outros.at(-1)?.lines.join('\n')).toContain('连通探针：通过'); // 回执行
+    expect(probed.recorded.outros.at(-1)?.lines.join('\n')).toContain('连通验证：通过'); // 回执行（U4 话术：探针→验证，随真态翻档）
   });
 
   it('切模型答否指路 ctrl+p（R-3——不当场切也要知道怎么切）', async () => {

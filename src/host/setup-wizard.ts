@@ -792,7 +792,7 @@ async function confirmAndSaveCustom(
         } finally {
           clearBusy();
         }
-        probeNote = probeResult.ok ? '连通探针：通过 ✓' : `连通探针：未通——${probeResult.detail}`;
+        probeNote = probeResult.ok ? '连通验证：通过 ✓' : `连通验证：未通——${probeResult.detail}`;
       }
     }
   }
@@ -821,7 +821,7 @@ async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: str
     lines: [
       `协议：${def !== undefined ? protocolLabel(def.protocol) : '（定义已缺——仍可清理）'}`,
       `Base URL：${def?.baseUrl ?? '（缺）'}`,
-      '凭证行与 settings 配置同删，运行时当场除名——不可恢复。',
+      '保存的 API key 与 settings 配置同删，运行时当场除名——不可恢复。',
     ],
     defaultYes: false, // 破坏性操作缺省否——防误触
   });
@@ -848,7 +848,7 @@ async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: str
       ...(modelResetNote !== '' ? [modelResetNote] : []),
       // #16：别名行提醒（行名 ≠ 渠道 id 的凭证行不随本删除清理——诚实指路手
       // 清，防重建同名渠道旧 key 静默复活）
-      '若曾以别名行绑定该渠道 key（如 berry credentials add 自定义行名），该行不随本删除清理——可 berry credentials rm <行名> 手动清理。',
+      '若曾用别名保存过该渠道的 key（如 berry credentials add 自定义别名），别名不随本删除清理——可 berry credentials rm <别名> 手动清理。',
     ]);
   } else {
     await p.outro('删除未完全成功（半应用）', [
