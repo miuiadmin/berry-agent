@@ -9,9 +9,13 @@
  *
  * 坏形两分（02 §5.3 批 15d 四码语义）：id 缺席/坏形 = CHECKPOINT_NOT_FOUND
  * （/rewind 作用目标守卫）；manifest JSON 坏形、blob 缺席或哈希不符 =
- * CHECKPOINT_STORE_CORRUPT（fail-loud 宁拒不误读）。id/hash 是路径段——
- * 白名单字符校验防路径注入（/rewind 的 id 来自用户输入面）；files[].path
- * 直供 restore 的 join 消费——相对 posix 白名单防路径穿越越出 workspaceRoot。
+ * CHECKPOINT_STORE_CORRUPT（fail-loud 宁拒不误读）。清单面坏形隔离单列
+ * （05 §5.3 定形注——2026-09-29 十六役扫 #4）：listManifests 逐条隔离坏件
+ * 跳过+warn（按 id 进程内去重；隔离件不入引用面——blob 由 GC 回收、文件
+ * 留置不自动删），定点读（loadManifest/restore）维持 fail-loud。id/hash
+ * 是路径段——白名单字符校验防路径注入（/rewind 的 id 来自用户输入面）；
+ * files[].path 直供 restore 的 join 消费——相对 posix 白名单防路径穿越越出
+ * workspaceRoot。
  *
  * 裁剪（每次捕获后由 capture 侧调 prune）：per workspace 保最新
  * CHECKPOINT_RETENTION_PER_WORKSPACE 份 manifest（trigger 两形同计，capturedAt
@@ -53,7 +57,7 @@ export interface CheckpointStore {
   saveManifest(manifest: CheckpointManifest): Promise<void>;
   /** 读 manifest（缺席 = NOT_FOUND；坏形 = STORE_CORRUPT） */
   loadManifest(id: string): Promise<CheckpointManifest>;
-  /** 全部 manifest（capturedAt 降序；坏形 fail-loud 同 loadManifest） */
+  /** 全部 manifest（capturedAt 降序；坏件逐条隔离跳过+warn——见 05 §5.3 定形注） */
   listManifests(): Promise<CheckpointManifest[]>;
   /** 删 manifest 文件（幂等——缺席 no-op） */
   deleteManifest(id: string): Promise<void>;
@@ -129,11 +133,25 @@ async function atomicWrite(absPath: string, data: Buffer | string): Promise<void
 }
 
 /**
+ * 清单面坏件 warn 去重账（进程级——05 §5.3 定形注「按 id 去重」）：list 面
+ * 反复调用对同 id 坏件只报一次不刷屏。id 是坏件文件名（有界事件面——非
+ * 无界增长位）。
+ */
+const warnedManifestIds = new Set<string>();
+
+/**
  * 开快照仓（装配根/命令面一次性开——baseDir 惰性建：首次写 blob/manifest 时
  * mkdir recursive，空仓读面按空集处理不诊断）。
  */
-export function openCheckpointStore(dataDir: string): CheckpointStore {
+export function openCheckpointStore(
+  dataDir: string,
+  options?: {
+    /** 告警面（缺省 console.warn——清单面坏件隔离的上报位） */
+    readonly warn?: (message: string) => void;
+  },
+): CheckpointStore {
   const baseDir = join(dataDir, 'data', 'checkpoint');
+  const warn = options?.warn ?? ((message: string) => console.warn(message));
 
   return {
     baseDir,
@@ -195,7 +213,21 @@ export function openCheckpointStore(dataDir: string): CheckpointStore {
       const loaded: CheckpointManifest[] = [];
       for (const name of names) {
         if (!name.endsWith('.json')) continue;
-        loaded.push(await this.loadManifest(name.slice(0, -5)));
+        const id = name.slice(0, -5);
+        // 清单面坏形隔离（05 §5.3 定形注——十六役扫 #4）：逐条包住定点读，
+        // 坏件跳过不入清单（隔离件不入引用面——blob 由 GC 回收；文件留置
+        // 不自动删），warn 按 id 进程内去重。定点读（loadManifest/restore）
+        // 维持 fail-loud 宁拒不误读——修前清单坏一件全 list 抛
+        // CHECKPOINT_STORE_CORRUPT，capture→prune→listManifests 放大链使
+        // 全变异工具 fail-closed 拒（gate 域闸面被单坏件钉死）
+        try {
+          loaded.push(await this.loadManifest(id));
+        } catch (err) {
+          if (!warnedManifestIds.has(id)) {
+            warnedManifestIds.add(id);
+            warn(`[checkpoint] 清单面坏件已隔离（id ${id}）：${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
       // capturedAt 降序（同刻 id 决胜——确定性序；最新在前）
       loaded.sort((a, b) => b.capturedAt - a.capturedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

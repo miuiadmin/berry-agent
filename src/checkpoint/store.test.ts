@@ -162,6 +162,40 @@ describe('manifest CRUD', () => {
   });
 });
 
+describe('清单面坏件隔离（十六役扫 #4——05 §5.3 定形注）', () => {
+  it('坏件跳过不入清单 + warn 按 id 去重 + 定点读维持 fail-loud（修前红：坏一件全 list 抛 CORRUPT）', async () => {
+    await store.saveManifest(manifest({ id: 'good1', capturedAt: 2_000 }));
+    await store.saveManifest(manifest({ id: 'good2', capturedAt: 1_000 }));
+    await mkdir(join(store.baseDir, 'manifests'), { recursive: true });
+    // 坏件 id 测试内唯一（warnedManifestIds 进程级账跨测试存活——防互染）
+    await writeFile(join(store.baseDir, 'manifests', 'iso1.json'), '{not json', 'utf8');
+    const warned: string[] = [];
+    const s2 = openCheckpointStore(dir, { warn: (m) => warned.push(m) });
+    // 修前锚：s2.listManifests() 直接 reject CHECKPOINT_STORE_CORRUPT（坏一件钉死清单面）
+    expect((await s2.listManifests()).map((m) => m.id)).toEqual(['good1', 'good2']);
+    expect(warned.length).toBe(1);
+    expect(warned[0]).toContain('清单面坏件已隔离（id iso1）');
+    // 二次 list 同 id 不重复告警（进程级去重——反复调用不刷屏）
+    expect((await s2.listManifests()).map((m) => m.id)).toEqual(['good1', 'good2']);
+    expect(warned.length).toBe(1);
+    // 定点读维持 fail-loud 宁拒不误读（隔离只在清单面）
+    await expect(store.loadManifest('iso1')).rejects.toMatchObject({ code: 'CHECKPOINT_STORE_CORRUPT' });
+    // 隔离件文件留置不自动删（blob 由 GC 回收、manifest 文件人工处置）
+    expect(existsSync(join(store.baseDir, 'manifests', 'iso1.json'))).toBe(true);
+  });
+
+  it('prune 带坏件在场正常回执（修前红：capture→prune→listManifests 放大链抛 CORRUPT 拒全变异工具）', async () => {
+    await store.saveManifest(manifest({ id: 'keep0', capturedAt: 1_000 }));
+    await mkdir(join(store.baseDir, 'manifests'), { recursive: true });
+    await writeFile(join(store.baseDir, 'manifests', 'iso2.json'), '[]', 'utf8');
+    // 修前锚：prune 体内 listManifests 抛 CORRUPT——gate 域闸面被单坏件钉死（fail-closed 拒）
+    const receipt = await store.prune();
+    expect(receipt).toEqual({ removedManifests: 0, removedBlobs: 0 });
+    expect((await store.listManifests()).map((m) => m.id)).toEqual(['keep0']);
+    expect(existsSync(join(store.baseDir, 'manifests', 'iso2.json'))).toBe(true);
+  });
+});
+
 describe('prune（裁剪帽 + 引用计数 GC）', () => {
   it('per workspace 保最新 N（trigger 两形同计）——旧 manifest 删', async () => {
     // ws-a 造 N+2 份；ws-b 造 1 份（他工作区不受牵连）
