@@ -77,7 +77,7 @@ const SUBVERBS_BY_COMMAND: Readonly<Record<string, readonly string[]>> = {
  */
 const VERB_META: Readonly<Record<string, readonly [string, boolean]>> = {
   'approval status': ['当前态：sandbox 档 + 审批 policy + 预设一览', false],
-  'approval entries': ['策略表全列（活体现读）', false],
+  'approval entries': ['策略表全列（立即读取当前生效内容）', false],
   'approval explain': ['真裁决干跑（须带 <tool>）', true],
   'approval preset': ['预设写盘（conservative|balanced|open）', true],
   'plugins list': ['装载态清单三分区', false],

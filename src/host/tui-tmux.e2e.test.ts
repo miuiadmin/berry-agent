@@ -44,7 +44,7 @@
  * 7. /exit：干净退出（会话消亡 + 壳层落盘退出码 0——send-keys /exit Enter 形）；
  * 8. /thinking 副屏（会话档位切换面批 F1）：头行（◆ 思考档位 · 七档计数）
  *    与尾档条目行呈现 → end+enter 选定 max → footer 行右段回执
- *    「思考档位：max（下一 run 起生效…）」+ 副屏收屏回主屏（首跑曾抓
+ *    「思考档位：max（下一轮对话起生效…）」+ 副屏收屏回主屏（首跑曾抓
  *    end 键 tmux 内层死键真缺陷——TILDE_KEYS 补 4: 'end' 已修，end 消费在环）；
  * 9. /sandbox 副屏（会话档位切换面批 F2 同构）：头行（◆ 沙箱档位 · 三档
  *    计数）与 danger 档条目行呈现 → end+enter 选定 danger → footer 行右段
@@ -558,7 +558,7 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
       // input-keys.ts TILDE_KEYS `4: 'end'` 收录；本面首跑曾抓该形死键真缺陷，
       // 修位 input-keys.ts + input.test.ts 首尾键双形回归锁）→ enter 选定：
       // 选定先收副屏再回调（件族同序律）——append durable 事件 + setStatus
-      // 回执归装配闭包。回执判据 = footer 行右段「思考档位：max（下一 run
+      // 回执归装配闭包。回执判据 = footer 行右段「思考档位：max（下一轮对话起
       // 起生效…）」（tui-entry selectThinking 回执文案形，StatusLine 分栏右
       // 对齐）；与头行锚「思考档位 · 7 档」用全角冒号/计数段分形，两谓词互不
       // 误匹配。回执落在 max（≠光标零位 off）即证 end 键真被引擎消费——
@@ -571,7 +571,7 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         session.name,
         (lines) =>
           !lines.some((line) => line.includes('思考档位 · 7 档')) &&
-          lines.some((line) => line.includes('思考档位：max（下一 run 起生效')),
+          lines.some((line) => line.includes('思考档位：max（下一轮对话起生效')),
       );
     },
     90_000,
@@ -594,7 +594,7 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
           lines.some((line) => line.includes('沙箱档位 · 3 档')) && lines.some((line) => line.includes('danger')),
       );
       // end 一步跳尾档 danger → enter 选定（即刻生效语义——回执文案与 thinking
-      // 「下一 run 起生效」分拆两形的 F2 形）；选档只 append 会话事件 +
+      // 「下一轮对话起生效」分拆两形的 F2 形）；选档只 append 会话事件 +
       // setStatus 回执，无工具调用触发——临时会话零副作用。ESC[4~ 解码链
       // 同 /thinking 面（end 死键缺陷已修，end 键消费在环）
       sendKey(session.name, 'End');

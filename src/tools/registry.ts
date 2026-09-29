@@ -258,10 +258,7 @@ export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOp
       }
       const conflict = findConflict(def.name, driver);
       if (conflict !== undefined) {
-        throw new BaseError(
-          'TOOL_NAME_CONFLICT',
-          `工具名 ${def.name} 已被占用（${conflict}）——碰撞域内双向对称拒绝（03 §2.7）`,
-        );
+        throw new BaseError('TOOL_NAME_CONFLICT', `工具名 ${def.name} 已被占用（${conflict}）——碰撞域内双向对称拒绝`);
       }
       if (totalSize() >= totalLimit) {
         throw new BaseError(

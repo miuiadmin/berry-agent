@@ -44,7 +44,7 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   {
     id: 'global.model-cycle',
     scope: 'global',
-    label: '切换模型（下一 run 生效）',
+    label: '切换模型（下一轮对话起生效）',
     keys: ['ctrl+p'],
     overridable: true,
   },
@@ -56,7 +56,13 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
   { id: 'editor.submit', scope: 'editor', label: '提交输入', keys: ['enter'], overridable: true },
   // 候跑提交（挂账解挂批 2026-09-15——alt+enter 提交携候跑标记：busy 期显式
   // 排队候 run 终态种子新 run，不顶注不打断在飞 run；与 enter 键序分立）
-  { id: 'editor.queue-followup', scope: 'editor', label: '提交并排队候跑', keys: ['alt+enter'], overridable: true },
+  {
+    id: 'editor.queue-followup',
+    scope: 'editor',
+    label: '提交并排队（当前回复结束后自动开始）',
+    keys: ['alt+enter'],
+    overridable: true,
+  },
   { id: 'editor.new-line', scope: 'editor', label: '换行', keys: ['shift+enter', 'ctrl+j'], overridable: true },
   { id: 'editor.undo', scope: 'editor', label: '撤销', keys: ['ctrl+-', 'ctrl+_'], overridable: true },
   { id: 'editor.move-left', scope: 'editor', label: '光标左移', keys: ['left', 'ctrl+b'], overridable: true },

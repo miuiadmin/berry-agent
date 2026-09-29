@@ -74,12 +74,12 @@ export const SANDBOX_MODE_SHORT: Readonly<Record<SandboxMode, string>> = {
 
 /**
  * 思考档位切换回执拼装（单源——TUI setStatus 回执与 webui PUT 应答体
- * receipt 同文）：按档分拆语义 thinking 半边 = 「下一 run 起生效」+ 随模型
+ * receipt 同文）：按档分拆语义 thinking 半边 = 「下一轮对话起生效」+ 随模型
  * 能力诚实句（provider 不支持 thinking 时静默无效不炸——07 §4.1 该批批注；
  * 04 §5「run 内不可变」律维持，档位消费单一位 = run 起）。
  */
 export function thinkingLevelReceipt(level: string): string {
-  return `思考档位：${level}（下一 run 起生效；档位是否生效随模型能力）`;
+  return `思考档位：${level}（下一轮对话起生效；档位是否生效随模型能力）`;
 }
 
 /**

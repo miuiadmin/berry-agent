@@ -47,12 +47,12 @@ function noticeText(notice: AuthRefreshNotice): string {
     case 'unavailable':
       switch (notice.outcome.reason) {
         case 'env-static':
-          return `凭证 ${provider} 的 API key 由环境变量供血（静态无刷新面），本次失败后不再自动重试——更新环境变量后重试`;
+          return `凭证 ${provider} 的 API key 由环境变量提供（静态来源不支持自动刷新），本次失败后不再自动重试——更新环境变量后重试`;
         case 'binding-absent':
-          return `凭证 ${provider} 无绑定行（鉴权失败后无刷新面）——经 berry credentials 录入该 provider 凭证后可自动接管刷新`;
+          return `凭证 ${provider} 无模型绑定（鉴权失败后无自动刷新）——经 berry credentials 录入该 provider 凭证后可自动接管刷新`;
         default:
           // no-refresh-face：非 OAuth 可刷新凭证 / 流未注册 / 有 refreshName 无 expiresAt（N5）三形同归
-          return `凭证 ${provider} 绑定行无刷新面（非可刷新凭证或对应流未注册）——鉴权失败后不可自动刷新，请重新配置`;
+          return `凭证 ${provider} 的模型绑定不支持自动刷新（非可刷新凭证或对应流未注册）——鉴权失败后不可自动刷新，请重新配置`;
       }
     case 'failed':
       return `凭证 ${provider} 自动刷新失败${notice.outcome.errorMessage ? `（${notice.outcome.errorMessage}）` : ''}——请检查凭证配置或重新授权`;

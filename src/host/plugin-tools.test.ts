@@ -382,7 +382,7 @@ describe('plugin_uninstall_inspect（§5.5——模型面只到 inspect 为止�
       const text = textOf(result);
       expect(text).toContain('卸载预检（inspect）：user-x');
       expect(text).toContain('源：npm');
-      expect(text).toContain('execute 走 --confirm（人面独占）');
+      expect(text).toContain('execute 仅限用户在终端亲自执行');
     } finally {
       rig_.close();
     }

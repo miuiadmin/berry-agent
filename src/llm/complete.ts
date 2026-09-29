@@ -314,7 +314,7 @@ export function createLlmService(options: LlmServiceOptions): LlmService {
       if (hookDispatch?.inHookDispatch() === true) {
         throw new BaseError(
           'LLM_CALL_IN_HOOK',
-          '钩子执行段禁模型调用（03 §3.4——钩子 handler 内 await 单发补全即耦合；起异步任务不等结果合法）',
+          '钩子执行段禁模型调用（钩子 handler 内 await 单发补全即耦合；起异步任务不等结果合法）',
         );
       }
       // 预算闸门（04 §5 执法位点）：后台调用且当日已耗尽 → 拒在请求发出前

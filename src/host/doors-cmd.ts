@@ -35,7 +35,7 @@ export const DOORS_SUBVERBS = ['list', 'open', 'close'] as const;
 
 /** 用法说明（TUI 命令描述位 + 解析错回执共用单源） */
 export const DOORS_USAGE = `/doors list | open <capability> | close <capability>
-  list                 六枚高危面全清单 + 当前开态双源呈现（行 opens 按插件分组 + doors 段进程级一行）
+  list                 六枚高危面全清单 + 当前开态两处同时显示（行 opens 按插件分组 + doors 段进程级一行）
   open <capability>    开门（写回 enabled.yaml doors 段 + 落 doors/updated——门检即时生效）
   close <capability>   关门（撤位即收回；doors 段收口为显式空段）
 （CLI 面只读 list——写动词 TUI 专属；headless 经文件直编 doors 段 + boot diff 记账）`;

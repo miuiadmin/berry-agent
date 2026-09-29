@@ -204,7 +204,7 @@ describe('url 腿——SSRF 守卫消费律 + 传输帽（注桩零网络）', (
         ),
       resolveDns: PUBLIC_DNS,
     });
-    await expect(face.fetchUrlCatalog('https://example.com/cat.json')).rejects.toThrow(/大小帽/);
+    await expect(face.fetchUrlCatalog('https://example.com/cat.json')).rejects.toThrow(/超过大小上限/);
   });
 
   it('超时帽：传输悬挂在帽内中止（注入桩不响应 signal——外层竞速执法面）', async () => {

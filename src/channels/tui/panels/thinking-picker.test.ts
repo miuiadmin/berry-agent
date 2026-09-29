@@ -74,7 +74,7 @@ function makePicker(overrides: Partial<ThinkingPickerOptions> = {}) {
 }
 
 describe('ThinkingPicker 呈现', () => {
-  it('行集恰七档（off..max 序）+ 头行计数 + 底行提示（下一 run 起生效语义）', () => {
+  it('行集恰七档（off..max 序）+ 头行计数 + 底行提示（下一轮对话起生效语义）', () => {
     const { picker } = makePicker();
     const width = 72;
     const grid = new CellGrid(width, picker.measure(width));
@@ -84,7 +84,7 @@ describe('ThinkingPicker 呈现', () => {
     levels.forEach((level, index) => {
       expect(readRow(grid, 1 + index, width)).toContain(level);
     });
-    expect(readRow(grid, grid.rows - 1, width)).toContain('下一 run 起生效');
+    expect(readRow(grid, grid.rows - 1, width)).toContain('下一轮对话起生效');
   });
 
   it('当前档 ● 高亮锚：current 行带 ●，非当前行无 ●；光标 ▸ 首行', () => {

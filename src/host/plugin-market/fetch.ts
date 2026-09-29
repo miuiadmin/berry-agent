@@ -77,7 +77,7 @@ export interface MarketFetchOptions {
  */
 function withTimeoutMs<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} 超时帽（${ms}ms）触发——中止等待`)), ms);
+    const timer = setTimeout(() => reject(new Error(`${label} 超时（${ms}ms）——中止等待`)), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -110,7 +110,7 @@ async function readBodyToCap(response: Response, maxBytes: number): Promise<stri
       await reader.cancel().catch(() => {
         // cancel 失败不阻断——连接由 undici 自理
       });
-      throw new Error(`url 源响应体超大小帽（${maxBytes} bytes）——疑似非 catalog 的大响应，拒收`);
+      throw new Error(`url 源响应体超过大小上限（${maxBytes} bytes）——疑似非 catalog 的大响应，拒收`);
     }
     chunks.push(value);
     total += value.byteLength;
@@ -151,7 +151,7 @@ export function createMarketFetchFace(options: MarketFetchOptions = {}): MarketF
           const location = response.headers.get('location');
           if (location === null) break; // 3xx 无 Location——按终态处理（下文非成功态拒）
           if (redirects >= MARKET_FETCH_MAX_REDIRECTS) {
-            throw new Error(`url 源重定向跟随触帽（${MARKET_FETCH_MAX_REDIRECTS} 跳）：${url} → … → ${current}`);
+            throw new Error(`url 源重定向次数超限（${MARKET_FETCH_MAX_REDIRECTS} 跳）：${url} → … → ${current}`);
           }
           redirects += 1;
           current = new URL(location, current).toString(); // 相对 Location 以当前跳为基

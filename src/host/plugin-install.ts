@@ -304,7 +304,7 @@ export async function installPlugin(
   if (!ledgerRead.ok) {
     return {
       ok: false,
-      message: `装机账本损坏（${ledgerPath(deps.dataDir)}）：${ledgerRead.reason}——拒写防覆盖（03 §5.4）`,
+      message: `装机账本损坏（${ledgerPath(deps.dataDir)}）：${ledgerRead.reason}——拒写防覆盖`,
     };
   }
   // 市场换血豁免（§9.6 mp-3）：同 provenance（market.name + market.entry）旧条
@@ -356,13 +356,13 @@ export async function installPlugin(
   const manifest = product.manifest.manifest;
   if (manifest.id.startsWith('core:')) {
     rollbackInstall(deps, product.installPath);
-    return { ok: false, message: `清单 id "${manifest.id}" 带官方前缀——core: 为官方插件保留（03 §1.2），装机拒` };
+    return { ok: false, message: `清单 id "${manifest.id}" 带官方前缀——core: 为官方插件保留，装机拒` };
   }
   if (ledgerRead.entries.some((e) => e.id === manifest.id && e.id !== replacingId)) {
     rollbackInstall(deps, product.installPath);
     return {
       ok: false,
-      message: `插件 ${manifest.id} 已装机（源 ${ledgerRead.entries.find((e) => e.id === manifest.id)!.source}）——换版本走 update，先卸走 uninstall（03 §5.4）`,
+      message: `插件 ${manifest.id} 已装机（源 ${ledgerRead.entries.find((e) => e.id === manifest.id)!.source}）——换版本走 update，先卸走 uninstall`,
     };
   }
   // 收割（§5.4 词表账本——装机零生效唯一例外：仅模块求值读 events 导出）
@@ -608,7 +608,7 @@ const SPAWN_KILL_GRACE_MS = 1_000;
  */
 function withTimeoutMs<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} 超时帽（${ms}ms）触发——中止等待`)), ms);
+    const timer = setTimeout(() => reject(new Error(`${label} 超时（${ms}ms）——中止等待`)), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -1062,7 +1062,7 @@ function restoreStagedTree(deps: InstallExecutorDeps, target: string, backup: st
 export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promise<InstallOutcome> {
   const ledgerRead = readLedger(deps.dataDir, deps.fs);
   if (!ledgerRead.ok) {
-    return { ok: false, message: `装机账本损坏：${ledgerRead.reason}——拒写防覆盖（03 §5.4）` };
+    return { ok: false, message: `装机账本损坏：${ledgerRead.reason}——拒写防覆盖` };
   }
   const current = ledgerRead.entries.find((e) => e.id === id);
   if (current === undefined) {
@@ -1075,10 +1075,10 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
       return {
         ok: true,
         entry: current,
-        text: `市场拷贝腿装机物不走 local 直引 no-op——换血重装：berry marketplace install ${current.market.entry}@${current.market.name}（03 §9.6）`,
+        text: `市场拷贝腿装机物不走 local 直引 no-op——换血重装：berry marketplace install ${current.market.entry}@${current.market.name}`,
       };
     }
-    return { ok: true, entry: current, text: `local 源直引不拷贝——源目录变更下次装载即生效（03 §5.4 no-op 分派）` };
+    return { ok: true, entry: current, text: `local 源直引不拷贝——源目录变更下次装载即生效（no-op 分派）` };
   }
   // local 之外的 ref 重解析（账本 ref 与 CLI 同词法——单源往返）
   const parsed = parsePluginRef(current.ref);
@@ -1163,7 +1163,7 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
   if (current.market !== undefined && isMarketLayoutPath(current.installPath)) {
     return {
       ok: false,
-      message: `插件 ${id} 是市场拷贝腿装机物——拷贝参数不入账本，plugins update 不可复算重拷；重装走 berry marketplace install ${current.market.entry}@${current.market.name}（03 §9.6）`,
+      message: `插件 ${id} 是市场拷贝腿装机物——拷贝参数不入账本，plugins update 不可复算重拷；重装走 berry marketplace install ${current.market.entry}@${current.market.name}`,
     };
   }
   // 目标位前置推导（staging 锚）：坏 url 保底拒——修前经 runGitInstall 内

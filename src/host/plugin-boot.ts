@@ -477,7 +477,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
   const promptSections = new PromptSectionRegistry({
     onDrift: ({ slot, owner }) =>
       warn(
-        `提示词段 ${slot}（${owner}）物化内容漂移——注册面缺省承诺会话内稳定，builder 输出跨请求变化即前缀缓存失效；若属可变内容请声明 volatile:{reason}（03 §2.5）`,
+        `提示词段 ${slot}（${owner}）物化内容漂移——注册面缺省承诺会话内稳定，builder 输出跨请求变化即前缀缓存失效；若属可变内容请声明 volatile:{reason}`,
       ),
     // prompts_change 观测事件接线（03 §2.4 生命周期组——2026-09-17 sweep 清账）：
     // 注册集变更 → 全局词发射（词已在 bootPlugins 下文预注册——dispatch.emit 直用）；
@@ -1176,7 +1176,7 @@ export function readEnabledRows(
   } catch (err) {
     throw new BaseError(
       'PLUGIN_ROW_INVALID',
-      `启用清单损坏（${path}）：${err instanceof Error ? err.message : String(err)}——修复或删除该文件后重启（删除即回全 core: 内置态；03 §5.3 损坏 fail-loud）`,
+      `启用清单损坏（${path}）：${err instanceof Error ? err.message : String(err)}——修复或删除该文件后重启（删除即回全 core: 内置态）`,
       { cause: err },
     );
   }
@@ -1210,7 +1210,7 @@ function readLedger(
   const text = fs.read(path);
   if (text === null) return {};
   const degrade = (reason: string): Readonly<Record<string, LedgerEntryLike>> => {
-    warn(`装机账本损坏（${path}）：${reason}——空账本降级（03 §5.4：warn 不 brick 装机面）`);
+    warn(`装机账本损坏（${path}）：${reason}——空账本降级（仅告警不阻断装机面）`);
     return {};
   };
   let doc: unknown;
@@ -1399,7 +1399,7 @@ function resolveDiskRow(
       failure: {
         id: row.id,
         code: 'PLUGIN_LOAD_FAILED',
-        message: '装机账本无此 id（03 §5.4）——先 install 再启用，或从启用清单移除该行',
+        message: '装机账本无此 id——先 install 再启用，或从启用清单移除该行',
       },
     };
   }
@@ -1409,7 +1409,7 @@ function resolveDiskRow(
       failure: {
         id: row.id,
         code: 'PLUGIN_LOAD_FAILED',
-        message: '装机账本条目缺归一路径 installPath（03 §5.4）——账本坏形，重装修机可重建',
+        message: '装机账本条目缺归一路径 installPath——账本坏形，重装修机可重建',
       },
     };
   }

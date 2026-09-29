@@ -102,7 +102,7 @@ export function createStreamFn(
     // 模型解析（调用方违例与模型配置无关，最先判）
     if (hookDispatch?.inHookDispatch() === true) {
       return errorStream(
-        '钩子执行段禁模型调用（03 §3.4——钩子 handler 内 await 流式即耦合；起异步任务不等结果合法）',
+        '钩子执行段禁模型调用（钩子 handler 内 await 流式即耦合；起异步任务不等结果合法）',
         'LLM_CALL_IN_HOOK',
       );
     }

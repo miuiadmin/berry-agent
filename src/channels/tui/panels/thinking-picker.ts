@@ -117,7 +117,7 @@ export class ThinkingPicker implements OverlayContent {
       region.col,
       this.entries.length === 0
         ? 'q/esc 返回'
-        : '↑↓ 移动 · enter 选定（下一 run 起生效；档位是否生效随模型能力） · q/esc 返回',
+        : '↑↓ 移动 · enter 选定（下一轮对话起生效；档位是否生效随模型能力） · q/esc 返回',
       HINT_STYLE,
     );
   }

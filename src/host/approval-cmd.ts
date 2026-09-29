@@ -38,7 +38,7 @@ export const APPROVAL_SUBVERBS = ['status', 'entries', 'explain', 'preset'] as c
 /** 用法说明（TUI 命令描述位 + 解析错回执共用单源） */
 export const APPROVAL_USAGE = `/approval [status] | entries | explain <tool> [pattern] | preset <名>
   status                 当前态：sandbox 档 + 审批 policy（值 + 来源）+ 三档预设一览
-  entries                策略表全列（活体现读 tool-policy.json——装配期快照外的当前真身）
+  entries                策略表全列（立即读取当前生效的 tool-policy.json——启动时加载副本之外的实际内容）
   explain <tool> [pattern]  真裁决干跑（守门行同一 matchToolPolicy）：fs 族须带路径前缀参数、bash 须带命令原文、整名族三档并列
   preset <名>            预设写盘（conservative|balanced|open——settings.json 两键 + 建议集 append；下次启动/新装配生效）
 （CLI 面无本命令——「berry run --preset <名>」为逐次生效不写盘）`;
@@ -145,7 +145,7 @@ function renderStatus(deps: ApprovalCommandDeps): ApprovalCommandOutcome {
   lines.push('当前态（四层解析胜者——工具参数 > 会话策略 > CLI 旗标 > settings.json > 代码常量）：');
   lines.push(`  sandbox 档 = ${deps.status.mode}（来源：${deps.status.modeSource}）`);
   lines.push(`  审批 policy = ${deps.status.policy}（来源：${deps.status.policySource}）`);
-  lines.push(`  （本面为装配期快照——/approval entries 与 explain 现读策略表文件〔活体〕）`);
+  lines.push(`  （本面为启动时加载的副本——/approval entries 与 explain 立即读取策略表文件）`);
   lines.push('预设三档（preset <名> 写盘——下次启动/新装配生效，当前进程不变）：');
   for (const preset of APPROVAL_PRESETS) {
     lines.push(`  ${preset.name}: ${preset.description}`);
@@ -167,7 +167,7 @@ function renderEntries(deps: ApprovalCommandDeps): ApprovalCommandOutcome {
     return { ok: false, text: `策略表文件级坏形（${badPath}）——已降级视同空清单；手改修复前 preset 写动词同拒。` };
   }
   const lines: string[] = [];
-  lines.push(`策略表（活体现读 ${path}——装配期载入的是启动时快照，两时点可分立）：`);
+  lines.push(`策略表（立即读取 ${path} 的当前内容——启动时加载的是当时副本，两时点可能不同）：`);
   if (load.entries.length === 0) {
     lines.push('  （空——无任何条目）');
   } else {
@@ -203,7 +203,7 @@ function renderExplain(
   const workspaceRoot = deps.workspace();
   const lines: string[] = [];
   lines.push(
-    `explain ${sub.tool}${sub.pattern !== undefined ? ` ${sub.pattern}` : ''}（活体干跑——条目现读 ${join(deps.dataDir, TOOL_POLICY_BASENAME)}）：`,
+    `explain ${sub.tool}${sub.pattern !== undefined ? ` ${sub.pattern}` : ''}（干跑——条目立即读取 ${join(deps.dataDir, TOOL_POLICY_BASENAME)}）：`,
   );
 
   // fs 族：pattern 必填（写目标路径模拟——canonical 化同守门行语义）
@@ -299,7 +299,7 @@ function runPreset(name: string, deps: ApprovalCommandDeps): ApprovalCommandOutc
     const badPath = load.unhealthyPath ?? join(deps.dataDir, TOOL_POLICY_BASENAME);
     return {
       ok: false,
-      text: `策略表文件级坏形（${badPath}）——preset 全拒（防半应用态：不写 settings.json 亦不 append 条目）；手改修复后重试。`,
+      text: `策略表文件级坏形（${badPath}）——preset 全拒（防部分完成：不写 settings.json 亦不 append 条目）；手改修复后重试。`,
     };
   }
   // 两旋钮合并写（保留未知键——用户手编面不因预设切换损毁）
@@ -337,7 +337,7 @@ function runPreset(name: string, deps: ApprovalCommandDeps): ApprovalCommandOutc
   );
   lines.push('  切换不清不删既有条目（含从 open 切回——撤除建议条目归手删）；既有会话粘性与在身审批不受影响。');
   lines.push(
-    '生效时点（诚实）：sandbox 档与策略表均装配期快照——当前进程不变，下次启动/新装配生效；/approval entries 与 explain 现读文件（活体）即时可见。',
+    '生效时点（诚实）：sandbox 档与策略表均为启动时加载的副本——当前进程不变，下次启动/新装配生效；/approval entries 与 explain 立即读取文件，改动即时可见。',
   );
   return { ok: true, text: lines.join('\n') };
 }

@@ -2752,7 +2752,7 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     expect(io.frames.join('')).toContain('▸'); // 光标标记移上新行（diff 帧写变更格）
   });
 
-  it('openThinking 编舞：主屏出屏 → 副屏进 → 档位首帧（计数头 + 当前档 ● + 底行「下一 run 起生效」提示）', () => {
+  it('openThinking 编舞：主屏出屏 → 副屏进 → 档位首帧（计数头 + 当前档 ● + 底行「下一轮对话起生效」提示）', () => {
     const { io, backend } = rig();
     expect(backend.openThinking(THINKING_ENTRIES, 'medium', () => {})).toBe(true);
     expect(backend.lifecycle).toBe('suspended');
@@ -2760,7 +2760,7 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     expect(io.frames[1]).toBe(ALT_ENTER);
     expect(io.bytes).toContain('◆ 思考档位 · 7 档');
     expect(io.bytes).toContain('● medium'); // 当前档标记
-    expect(io.bytes).toContain('下一 run 起生效'); // 生效语义提示（底行）
+    expect(io.bytes).toContain('下一轮对话起生效'); // 生效语义提示（底行）
     expect(io.bytes).toContain('随模型能力'); // 诚实句（S3——选定不等于生效：档位能力随 provider）
   });
 
