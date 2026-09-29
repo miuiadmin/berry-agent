@@ -326,7 +326,7 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
           finish({
             status: 'failed',
             messagesUsed: used,
-            reason: `每 issue 预算帽耗尽（${req.budgetMessages} 条——04 §5 每 issue 帽与全局池两层分账）`,
+            reason: `每 issue 预算帽耗尽（${req.budgetMessages} 条）`,
           });
           return;
         }
@@ -336,7 +336,7 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
           finish({
             status: 'failed',
             messagesUsed: used,
-            reason: `流停滞 watchdog 收口（距上次 durable 事件超 ${stallTimeoutMs}ms——04 §3.8 编排层时滞帽）`,
+            reason: `流停滞 watchdog 收口（距上次 durable 事件超 ${stallTimeoutMs}ms）`,
           });
           return;
         }
@@ -349,7 +349,7 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
         finish({
           status: 'failed',
           messagesUsed: used,
-          reason: '连续后台唤醒超帽（04 §4 maxConsecutiveWakes=3——鲸鱼任务跨 4 个日池窗，需人工介入或提额）',
+          reason: '连续后台唤醒超帽（连续 3 次——跨过多日池窗的长任务，需人工介入或提额）',
         });
         return;
       }

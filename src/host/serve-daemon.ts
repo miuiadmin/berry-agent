@@ -487,7 +487,7 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   // 判定拒启同码族——配置档干净退出不写 crash.log，enabled.yaml 可修）——
   const sdkKit = scope.tryGet<SdkFaceKit>('sdk-http-face');
   if (sdkKit === undefined) {
-    writeErr('拒启：core:sdk 件未装载（daemon 接入面本体缺席——enabled.yaml 禁用即拒启，07 §5）');
+    writeErr('拒启：Web 服务组件未安装（daemon 的 HTTP 接入面缺席——enabled.yaml 禁用即拒启）');
     await runtime.shutdown().catch(() => {});
     return 2;
   }
@@ -541,7 +541,7 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     if (webuiKit !== undefined) {
       webuiMount = webuiKit.mountOnFace(face);
     } else {
-      writeErr('warn：core:webui 件未装载——人面 Web 界面与 /api/* 缺席（/v1/* 仍在场）');
+      writeErr('warn：Web 界面未安装——网页界面与 /api/* 不可用（/v1/* 仍在场）');
     }
   }
   // —— issue webhook 挂载（批 19e——core:issue 件 kit 晚绑）：件装载且

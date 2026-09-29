@@ -116,7 +116,7 @@ function renderDoorsList(dataDir: string | null, fs: PluginStoreFs): DoorsComman
     );
   }
   const lines: string[] = [];
-  lines.push(`高危面清单（${USER_GRANTABLE_CAPABILITIES.length} 枚——闭门附 adjudicateCapabilityDoor 同源 reason）：`);
+  lines.push(`高危面清单（${USER_GRANTABLE_CAPABILITIES.length} 枚）：`);
   for (const capability of USER_GRANTABLE_CAPABILITIES) {
     const openers = read.rows
       .filter((row) => row.disabled !== true && (row.opens ?? []).includes(capability))
@@ -131,7 +131,7 @@ function renderDoorsList(dataDir: string | null, fs: PluginStoreFs): DoorsComman
         : `closed——${closed.ok ? '未开门' : closed.message}`;
     lines.push(`  ${capability}=${state}`);
   }
-  lines.push('授予双源（03 §4.6——两源任一含即门开；受理时点现读现判，撤位即收回）：');
+  lines.push('授予来源（任一来源含即门开；每次即时判定，撤销即收回）：');
   lines.push('  行 opens（插件道——授予跟插件 id 走，换装零继承）：');
   lines.push(...(rowLines.length > 0 ? rowLines : ['    （无——未有任何插件行开位）']));
   lines.push('  doors 段（进程级——模型道两门值域，/doors open|close 编辑对象）：');
@@ -159,7 +159,7 @@ export function runDoorsCommand(sub: DoorsSub, deps: DoorsCommandDeps): DoorsCom
   }
   const result = editDoorsSegment(deps.dataDir, { verb: sub.sub, door: sub.door }, deps.fs, deps.onDoorsUpdated);
   if (!result.ok) return { ok: false, text: result.message };
-  const tail = '门检即时生效（受理时点现读现判）；装载面（boot 快照/审计基线）下次 /reload 或启动刷新';
+  const tail = '门检即时生效（每次使用时即时判定）；装载快照与审计基线下次 /reload 或启动刷新';
   return {
     ok: true,
     text:
@@ -194,7 +194,7 @@ export async function runDoorsEntry(sub: DoorsSub, options: DoorsEntryOptions): 
     // 错，执行层诚实指路（headless 正路 = 文件直编 + boot diff 记账覆盖）
     out(
       `doors ${sub.sub} 为 TUI /doors 专属动词——CLI 面只读 list。\n` +
-        `headless 场景经文件直编 enabled.yaml 顶层 doors 段（值域 v1：${DOORS_SEGMENT_V1_DOMAIN.join('、')}），boot diff 记账覆盖（origin 'boot-diff'）。`,
+        `headless 场景经文件直编 enabled.yaml 顶层 doors 段（值域 v1：${DOORS_SEGMENT_V1_DOMAIN.join('、')}），改动在下次启动时自动登记。`,
     );
     return 1;
   }

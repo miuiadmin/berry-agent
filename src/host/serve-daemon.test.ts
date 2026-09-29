@@ -691,7 +691,7 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
     });
     expect(code).toBe(2); // 与开面判定拒启同码族（配置档干净退出）
     expect(faceStarted).toBe(false);
-    expect(lines.some((l) => l.includes('core:sdk 件未装载'))).toBe(true);
+    expect(lines.some((l) => l.includes('Web 服务组件未安装'))).toBe(true);
   });
 
   it('sdkPort 端口占用：干净退 1 +「HTTP 面启动失败」呈报 + pid 不登记（失败先于 writeDaemonPid 位）', async () => {

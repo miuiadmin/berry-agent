@@ -683,7 +683,7 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
 
     const run = await rigRun({ message: '', flags: { tick: 'yield-job' }, dataDir, cwd: jobWs });
     await expect(run.entry).resolves.toBe(0); // 让位非失败
-    expect(run.err.text).toContain('让位退出');
+    expect(run.err.text).toContain('本实例退出');
     expect(run.out.lines).toEqual([]); // 零跑零产物
 
     // durable 断言：yielded 结局照记 + next 原样（不推进不重排）+ 占用面不动
@@ -714,7 +714,7 @@ describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿�
     const run = await rigRun({ message: '', flags: { tick: 'stale-job' }, dataDir, cwd: jobWs });
     await expect(run.entry).resolves.toBe(0); // 照跑收场（faux 单响应 'ok'）
     expect(run.out.lines).toEqual(['ok']);
-    expect(run.err.text).not.toContain('让位'); // 未让位
+    expect(run.err.text).not.toContain('本实例退出'); // 未让位
 
     // durable 断言：残账占用已清（activePid null——照跑腿自清他人死账）
     const audit = await seedAssembly(dataDir);
@@ -767,7 +767,7 @@ describe('runRunEntry --port 咬合 / provider 失败面', () => {
     const { entry, out, err } = await rigRun({ flags: { port: 7860, noPlugins: true } });
     await expect(entry).resolves.toBe(0); // run 本体收口
     expect(out.lines).toEqual(['ok']);
-    expect(err.text).toContain('core:sdk 件未装载'); // warn 披露（件禁用语义族）
+    expect(err.text).toContain('Web 界面组件未安装'); // warn 披露（件未装载语义族）
   });
 
   it('provider unconfigured：产品级文案点名模型 + 配置途径（07 §5）退 1', async () => {

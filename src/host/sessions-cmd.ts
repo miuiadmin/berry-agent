@@ -138,7 +138,7 @@ async function runList(options: SessionsEntryOptions): Promise<number> {
       out('无会话（数据目录尚无在册会话——首跑 run/TUI 即建）');
       return 0;
     }
-    const lines: string[] = [`共 ${rows.length} 个会话（updated 倒序，帽 100）：`];
+    const lines: string[] = [`共 ${rows.length} 个会话（按更新时间倒序，最多显示 100 个）：`];
     for (const row of rows) {
       lines.push(
         `  ${row.id}  ${titleOf(row)}  创建 ${isoOf(row.createdAt)}  更新 ${isoOf(row.updatedAt)}  ${lineageOf(row.origin, row.parentId)}`,
@@ -188,7 +188,7 @@ async function runSearch(options: SessionsEntryOptions, query: string): Promise<
       string,
       { title?: string | undefined; firstQuestionSummary?: string | undefined } | undefined
     >();
-    const lines: string[] = [`命中 ${hits.length} 处（bm25 序，帽 50）：`];
+    const lines: string[] = [`命中 ${hits.length} 处（按相关度排序，最多 50 处）：`];
     for (const hit of hits) {
       if (!rowsByHit.has(hit.sessionId)) {
         rowsByHit.set(hit.sessionId, persistence.store.getSessionRow(hit.sessionId));

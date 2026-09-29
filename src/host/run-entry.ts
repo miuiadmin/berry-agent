@@ -285,11 +285,11 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
         const outcome: RunOutcome = {
           trigger: 'cron',
           reason: 'yielded',
-          error: `他实例在飞（activePid ${row.activePid}）——诚实让位不双跑`,
+          error: `另一实例正在运行（PID ${row.activePid}）——本实例退出，不重复执行`,
           finishedAt: nowIso,
         };
         schedFace.dao.settleGated(row.name, outcome, row.nextFireAt, nowIso);
-        err.write(`--tick 行「${row.name}」他实例在飞（activePid ${row.activePid}）——让位退出\n`);
+        err.write(`--tick 行「${row.name}」另一实例正在运行（PID ${row.activePid}）——本实例退出\n`);
         return 0;
       }
       // 死残账/超钟残账：清占用照跑（引擎侧覆写自愈兜底）
@@ -423,7 +423,7 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   if (flags.port !== undefined) {
     const sdkKit = scope.tryGet<{ readonly createFace: unknown }>('sdk-http-face');
     if (sdkKit === undefined) {
-      err.write('warn：core:sdk 件未装载——--port 人面不开（run 本体不受累）\n');
+      err.write('warn：Web 界面组件未安装——--port 不生效（不影响本次运行）\n');
     } else {
       const mountKit = scope.tryGet<WebuiMountKit>('webui-face-mount');
       try {
@@ -574,7 +574,7 @@ ${schemaRaw}
   } else {
     exitCode = 1;
     if (finalStatus === 'truncated') {
-      err.write(`已到 --max-turns ${flags.maxTurns} 帽收场（truncated——到帽截断非终态失败，收场语义位如实标注）\n`);
+      err.write(`已到 --max-turns ${flags.maxTurns} 上限收场（truncated——因达上限截断，非失败）\n`);
     } else if (result.status === 'failed') {
       // provider 两形态产品级文案（07 §5 provider 产品级文案律）；其余失败原文直出
       const diagnostic = diagnoseProviderFailure({ errorMessage: result.errorMessage }, stack.model);
@@ -643,7 +643,7 @@ ${schemaRaw}
       settleTick({
         trigger: 'cron',
         reason: 'killed',
-        error: `--max-turns ${flags.maxTurns} 到帽截断（truncated）`,
+        error: `--max-turns ${flags.maxTurns} 达上限截断（truncated）`,
         finishedAt,
       });
     } else if (result.status === 'failed') {

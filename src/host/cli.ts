@@ -381,7 +381,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
   // argv（07 §5 定名）；arity 随形态分档（--tick 在场零位置参数、缺席恰一）
   const tickName = scan.values.get('tick');
   if (tickName !== undefined && scan.literals.length > 0) {
-    return usageFail('--tick 与 message 位置参数互斥（到点形态提示词在 jobs 行内不在 argv）');
+    return usageFail('--tick 与 message 位置参数互斥（定时任务的提示词写在 jobs 配置里，不放在命令行参数中）');
   }
   const msg = tickName !== undefined ? ([] as string[]) : expectArity(scan.literals, 1, 1, 'berry run "<message>"');
   if ('exitCode' in msg) return msg;
@@ -396,7 +396,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
       has('background');
     if (clash) {
       return usageFail(
-        '--ephemeral 与 --session/--continue/--fork/--tick/--background 互斥（零落盘会话不进续接/定时/后台复用）',
+        '--ephemeral 与 --session/--continue/--fork/--tick/--background 互斥（临时会话不保存，无法续接、定时或转后台）',
       );
     }
   }
@@ -826,7 +826,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       // 装载面——试件行注入即诊断保真差；收而互斥拒（非未识别拒——message
       // 指向互斥根因而非「拼错旗标」）
       if (scan.values.has('plugin-file')) {
-        return usageFail('--plugin-file 与 dump-config 互斥（诊断保真：:memory: 面须呈现真实装载形，不注入试件行）');
+        return usageFail('--plugin-file 与 dump-config 互斥（诊断输出须反映真实装载内容——不能混入临时试装插件）');
       }
       const arity = expectArity(scan.literals, 0, 0, 'berry dump-config');
       if ('exitCode' in arity) return arity;

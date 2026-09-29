@@ -205,7 +205,7 @@ async function collectDeprecationUsed(
       warn: (message) => warn(`[check] ${message}`),
     });
   } catch (err) {
-    warn(`warn：用废弃遥测库不可开（${err instanceof Error ? err.message : String(err)}）——本报告不含黄腿面`);
+    warn(`warn：用废弃遥测库不可开（${err instanceof Error ? err.message : String(err)}）——本报告不含「用废弃」部分`);
     return null;
   }
   try {
@@ -232,7 +232,7 @@ async function collectDeprecationUsed(
     }
     return counts;
   } catch (err) {
-    warn(`warn：用废弃遥测查询失败（${err instanceof Error ? err.message : String(err)}）——本报告不含黄腿面`);
+    warn(`warn：用废弃遥测查询失败（${err instanceof Error ? err.message : String(err)}）——本报告不含「用废弃」部分`);
     return null;
   } finally {
     await persistence.close();
@@ -279,7 +279,7 @@ async function runCheck(options: PluginsEntryOptions): Promise<number> {
   const ledgerRead = readLedger(dataDir, createPluginStoreFs());
   if (!ledgerRead.ok) {
     // 坏账本 fail-closed：兼容面无法判定——不静默绿也不猜（写动词同源拒因）
-    writeErr(`装机账本损坏：${ledgerRead.reason}——无法体检（03 §5.4，重装可重建）`);
+    writeErr(`装机账本损坏：${ledgerRead.reason}——无法体检（重装可重建）`);
     return 1;
   }
   if (ledgerRead.entries.length === 0) {
@@ -384,7 +384,7 @@ async function runCheck(options: PluginsEntryOptions): Promise<number> {
   if (yellow.length > 0) {
     lines.push(`用废弃（遥测 plugin/deprecation-used，${yellow.length}）：`);
     for (const y of yellow) {
-      lines.push(`  ${y.id}  ${y.count} 笔——替代指引与死期料源 = 废弃注册簿（随首个 deprecated 符号进 DEP 窗日到场）`);
+      lines.push(`  ${y.id}  ${y.count} 笔——替代方案与移除时间见废弃清单`);
     }
   }
   lines.push(
@@ -571,11 +571,11 @@ async function runRowVerb(
     if (!id.startsWith('core:')) {
       const ledgerRead = readLedger(dataDir, fs);
       if (!ledgerRead.ok) {
-        writeErr(`装机账本损坏：${ledgerRead.reason}——拒写防覆盖（03 §5.4）`);
+        writeErr(`装机账本损坏：${ledgerRead.reason}——拒写防覆盖`);
         return 1;
       }
       if (!ledgerRead.entries.some((e) => e.id === id)) {
-        writeErr(`插件 ${id} 未装机——mount 先走 install（未装机挂行会在下次启动读侧降级，03 §5.3）`);
+        writeErr(`插件 ${id} 未装机——mount 先走 install（未装机挂行会在下次启动时降级）`);
         return 1;
       }
     }
@@ -594,10 +594,10 @@ async function runRowVerb(
     }
     writeOut(
       verb === 'mount'
-        ? `已挂载：${id}——下次启动装载生效（CLI 短命进程不装配装载器；改行时点生效归 TUI /reload，03 §5.2）`
+        ? `已挂载：${id}——下次启动装载生效（命令行是一次性进程；改行在 TUI 里 /reload 后生效）`
         : verb === 'unmount'
-          ? `已卸下：${id}（装机保留）——下次启动生效（03 §5.3）`
-          : `已切换：${id} 禁用态翻转——下次启动生效（03 §5.2 三态语义）`,
+          ? `已卸下：${id}（装机保留）——下次启动生效`
+          : `已切换：${id} 禁用态翻转——下次启动生效`,
     );
     return 0;
   } finally {

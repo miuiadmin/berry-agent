@@ -196,7 +196,7 @@ describe('runDoorsEntry（CLI 面——list 受理 / 写动词语义拒）', () 
       const code = await runDoorsEntry(sub, { dataDir: '/data', writeOut: (t) => void lines.push(t) });
       expect(code).toBe(1);
       expect(lines.join('\n')).toContain('TUI /doors 专属');
-      expect(lines.join('\n')).toContain("origin 'boot-diff'");
+      expect(lines.join('\n')).toContain('自动登记');
     }
   });
 

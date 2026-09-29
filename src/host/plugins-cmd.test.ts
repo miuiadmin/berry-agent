@@ -390,7 +390,7 @@ describe('plugins check——三色体检面真身（03 §8.9 ag 批：绿/红 +
     expect(text).not.toContain('用废弃（遥测'); // 黄腿缺席（空段不渲染）
     const err = io.err.join('\n');
     expect(err).toContain('用废弃遥测库不可开'); // 降级 warn 在场（可见不静默）
-    expect(err).toContain('本报告不含黄腿面');
+    expect(err).toContain('本报告不含「用废弃」部分');
   });
 
   it('未知插件桶：载荷缺 pluginId 键的 deprecation 事件 → 「(未知插件) N 笔」黄行在场（读侧宽容不丢计数——§8.7 写点延迟触发期仿真）', async () => {

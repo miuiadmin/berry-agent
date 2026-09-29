@@ -156,7 +156,7 @@ function runRemove(name: string, options: MarketplaceEntryOptions): number {
     );
     return 1;
   }
-  writeOut(`已移除市场源：${name}（缓存目录已清——装机物独立落位不受影响，溯源注记账本照旧）`);
+  writeOut(`已移除市场源：${name}（缓存已清——已安装的插件不受影响，安装来源记录保留）`);
   return 0;
 }
 
@@ -359,7 +359,7 @@ async function runUninstall(
   const dataDir = options.dataDir ?? resolveDataDir();
   const ledgerRead = readLedger(dataDir, createPluginStoreFs());
   if (!ledgerRead.ok) {
-    writeErr(`装机账本损坏：${ledgerRead.reason}——拒猜（03 §5.4）`);
+    writeErr(`装机账本损坏：${ledgerRead.reason}——拒猜`);
     return 1;
   }
   const resolved = resolveMarketLedgerId(ledgerRead.entries, addr);
@@ -457,7 +457,7 @@ async function runUpgrade(id: string | undefined, options: MarketplaceEntryOptio
   const dataDir = options.dataDir ?? resolveDataDir();
   const ledgerRead = readLedger(dataDir, createPluginStoreFs());
   if (!ledgerRead.ok) {
-    writeErr(`装机账本损坏：${ledgerRead.reason}——拒猜（03 §5.4）`);
+    writeErr(`装机账本损坏：${ledgerRead.reason}——拒猜`);
     return 1;
   }
   const audit = marketAuditOf(options, writeErr);
