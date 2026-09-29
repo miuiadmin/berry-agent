@@ -27,11 +27,11 @@ de montage ; il n'existe aucune voie privée de premier parti.
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** plugins intégrés · DAG unidirectionnel de **28** modules · **5 000+** tests ·
-**6** contrats de publication vérifiés par la machine · **0** télémétrie
+**16** fonctionnalités intégrées prêtes à l'emploi · **0** télémétrie — vos
+données restent sur votre machine
 
-> Statut : `0.1.0-alpha.18` — piloté par les contrats, construit par tranches
-> verticales ; la surface d'API peut encore évoluer avant la 1.0.
+> Statut : `0.1.0-alpha.18` — alpha précoce, évolution rapide ; l'API des
+> plugins peut encore évoluer avant la 1.0.
 
 </div>
 

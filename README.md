@@ -26,11 +26,11 @@ the same surface; there is no first-class private lane.
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** built-in plugins · **28**-module one-way DAG · **5,000+** tests ·
-**6** machine-checked release contracts · **0** telemetry
+**16** built-in capabilities out of the box · **0** telemetry — your data
+stays on your machine
 
-> Status: `0.1.0-alpha.18` — contract-first, built in vertical slices; the API surface
-> may still shift before 1.0.
+> Status: `0.1.0-alpha.18` — early alpha, moving fast; the plugin API may
+> still shift before 1.0.
 
 </div>
 

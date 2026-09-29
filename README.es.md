@@ -27,11 +27,11 @@ existe ninguna vía privada de primer partido.
   <a href="README.ru.md">Русский</a>
 </p>
 
-**16** plugins integrados · DAG unidireccional de **28** módulos · **5.000+** tests ·
-**6** contratos de publicación verificados por máquina · **0** telemetría
+**16** funciones integradas listas para usar · **0** telemetría — tus datos
+se quedan en tu máquina
 
-> Estado: `0.1.0-alpha.18` — guiado por contratos, construido en porciones
-> verticales; la superficie de API aún puede cambiar antes de la 1.0.
+> Estado: `0.1.0-alpha.18` — alpha temprana, evolución rápida; la API de
+> plugins aún puede cambiar antes de la 1.0.
 
 </div>
 
