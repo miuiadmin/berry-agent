@@ -107,7 +107,7 @@ berry run "원샷 실행"     # 단일 실행 → stdout
 berry sessions list      # 세션: list / resume / fork / search / reindex / export
 berry plugins list       # 플러그인: list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # 자격증명: add / list / rm (TUI에는 OAuth 흐름도 있음)
-berry doors list         # 역량 게이트 상태 (읽기 전용)
+berry doors list         # 역량 게이트 상태 (읽기 전용; 열기/닫기는 TUI /doors open|close)
 berry serve --port 7860  # 상주 호스트: 웹 UI + /v1/* 프로그래밍 표면
 ```
 
@@ -194,7 +194,7 @@ graph TD
 | --------------------------------------------- | ---------------------------------------- |
 | [아키텍처](./docs/architecture.md)            | 계층, 모듈 토폴로지, 런타임, 안전 모델   |
 | [사용 가이드](./docs/usage.md)                | 설치, 명령, TUI, 환경변수                |
-| [플러그인 개발](./docs/plugin-development.md) | manifest, ctx 역량, 확장점               |
+| [플러그인 개발](./docs/plugin-development.md) | manifest, ctx 역량, 확장점, 게시      |
 | [개발 가이드](./docs/development.md)          | 게이트, 토폴로지 법칙, 테스트 규율, 기여 |
 | [운영 매뉴얼](./docs/operations.md)           | 데이터 디렉터리, 백업 & 복원, 문제 해결  |
 

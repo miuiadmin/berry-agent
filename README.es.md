@@ -112,7 +112,7 @@ berry run "tarea única"  # ejecución única → stdout
 berry sessions list      # sesiones: list / resume / fork / search / reindex / export
 berry plugins list       # plugins: list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # credenciales: add / list / rm (la TUI también tiene flujo OAuth)
-berry doors list         # estado de las puertas de capacidad (solo lectura)
+berry doors list         # estado de las puertas de capacidad (solo lectura; abrir/cerrar vía TUI /doors open|close)
 berry serve --port 7860  # host residente: interfaz web + superficie programática /v1/*
 ```
 
@@ -196,13 +196,13 @@ graph TD
 
 ## Documentación
 
-Los cinco volmenes están escritos actualmente en chino:
+Los cinco volúmenes están escritos actualmente en chino:
 
 | Volumen                                               | Cubre                                                              |
 | ----------------------------------------------------- | ------------------------------------------------------------------ |
 | [Arquitectura](./docs/architecture.md)                | capas, topología de módulos, ejecución, modelo de seguridad        |
 | [Guía de uso](./docs/usage.md)                        | instalación, comandos, TUI, variables de entorno                   |
-| [Desarrollo de plugins](./docs/plugin-development.md) | manifiesto, capacidades ctx, puntos de extensión                   |
+| [Desarrollo de plugins](./docs/plugin-development.md) | manifiesto, capacidades ctx, puntos de extensión, publicación |
 | [Guía de desarrollo](./docs/development.md)           | barreras, ley de topología, disciplina de tests, contribución      |
 | [Manual de operaciones](./docs/operations.md)         | directorio de datos, copia y restauración, resolución de problemas |
 

@@ -62,12 +62,12 @@ sh uninstall.sh
 
 ## 模型配置
 
-缺省模型 `anthropic/claude-sonnet-5`。模型渠道三类：**官方渠道**（内置 provider 目录）、**自定义渠道**（中转站/兼容网关——`settings.json` `customProviders` 键持久，与官方模型同权）、**env 生态变量**（官方渠道供血位——env 键在场时优先于绑定行）。
+缺省模型 `anthropic/claude-sonnet-5`。模型渠道三类：**官方渠道**（内置 provider 目录）、**自定义渠道**（中转站/兼容网关——`settings.json` `customProviders` 键持久，与官方模型同权）、**env 生态变量**（仅官方渠道生效——env 键在场时优先于模型绑定）。
 
 推荐用 `/setup` 向导（TUI 内零参，2026-09-28 v2）：分桶选单（官方渠道带 baseUrl 与已配置 ✓ 标记，当前渠道（当前）标记 + 重入预选）→ 录 API key（**明文回显**、空录入沿用当前值）→ 确认全值回执 → 保存即生效（可选连通验证）。自定义渠道七步表单：渠道 id → 协议（Anthropic 兼容 / OpenAI 兼容）→ Base URL → API key → 模型清单（自动拉取勾选，失败转手填逗号分隔——全角逗号容忍）→ 附加请求头（可选——空录入清除原值）→ 确认——落库后**当场注册生效**（无需重启），并可即时切换到该渠道模型（不切也指路 ctrl+p 随时可换）。id / 地址 / 密钥坏形**当场重问该步**（点名错因，不弃整场）；拉取与连通验证有 ⏳ 忙行即时反馈。既有自定义渠道管理面：重入 `/setup` 选既有渠道 = 编辑（表单各步当前值回填、id 不可改；headers 步空录入 = 清除原值、确认答否 = 不动），选删除则三联动清偿——凭证行 → settings 条目 → 运行时除名（当前模型停在被删渠道时复位目录首条并回执点名）。
 
 ```bash
-export ANTHROPIC_API_KEY=sk-...   # env 供血（官方渠道——env 优先于绑定行）
+export ANTHROPIC_API_KEY=sk-...   # env 提供凭证（官方渠道——env 优先于模型绑定）
 export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 provider/model
 ```
 
@@ -76,7 +76,7 @@ export BERRY_AGENT_MODEL=anthropic/claude-opus-5   # 或覆盖任意已注册 pr
 | 键 | 形 | 说明 |
 | --- | --- | --- |
 | `<渠道id>` | 小写字母开头 + 小写字母/数字/连字符 | 渠道 id（占用判据三腿：内置 provider 目录 id ∨ 运行时在册插件渠道 id ∨ 既有 customProviders id——撞即拒注；坏形键读侧丢弃并 warn 点名） |
-| `name` | string（可选） | 人面显示名 |
+| `name` | string（可选） | 界面显示名 |
 | `protocol` | `'anthropic-messages'` \| `'openai-completions'` | 协议两枚（与网关实现对应） |
 | `baseUrl` | string | 网关根址（openai 形含 `/v1`、anthropic 形不含——清单拉取按协议分叉拼接） |
 | `models` | string[] | 模型 id 清单（裸 id——全形 `<渠道id>/<model>` 由宿主投影） |
@@ -142,11 +142,11 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | ------ | ------------------------------------ | ----------------------------- | ------------------------------ |
 | 全局   | `ctrl+c`                             | `global.interrupt`            | 中断当前 run（不可覆盖）       |
 | 全局   | `ctrl+d`                             | `global.quit`                 | 退出（空框时）（不可覆盖）     |
-| 全局   | `ctrl+p`                             | `global.model-cycle`          | 切换模型（下一 run 生效）      |
+| 全局   | `ctrl+p`                             | `global.model-cycle`          | 切换模型（下一轮对话起生效）  |
 | 思考块 | `ctrl+t`                             | `thinking.toggle`             | 思考块折叠/展开                |
 | 工具卡 | `ctrl+o`                             | `tools.toggle-expand`         | 工具卡展开/收起                |
 | 编辑器 | `enter`                              | `editor.submit`               | 提交输入                       |
-| 编辑器 | `alt+enter`                          | `editor.queue-followup`       | 提交并排队候跑                 |
+| 编辑器 | `alt+enter`                          | `editor.queue-followup`       | 提交并排队（当前回复结束后自动开始） |
 | 编辑器 | `shift+enter` / `ctrl+j`             | `editor.new-line`             | 换行                           |
 | 编辑器 | `ctrl+-` / `ctrl+_`                  | `editor.undo`                 | 撤销                           |
 | 编辑器 | `left` / `ctrl+b`                    | `editor.move-left`            | 光标左移                       |
@@ -155,8 +155,8 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | 编辑器 | `alt+right` / `ctrl+right` / `alt+f` | `editor.move-word-right`      | 右移一词                       |
 | 编辑器 | `home` / `ctrl+a`                    | `editor.line-start`           | 行首                           |
 | 编辑器 | `end` / `ctrl+e`                     | `editor.line-end`             | 行尾                           |
-| 编辑器 | `ctrl+]`                             | `editor.jump-forward`         | 跳至下一空行                   |
-| 编辑器 | `ctrl+alt+]`                         | `editor.jump-backward`        | 跳至上一空行                   |
+| 编辑器 | `ctrl+]`                             | `editor.jump-forward`         | 跳至下一指定字符（按键后再输入目标字符） |
+| 编辑器 | `ctrl+alt+]`                         | `editor.jump-backward`        | 跳至上一指定字符（按键后再输入目标字符） |
 | 编辑器 | `pageup`                             | `editor.page-up`              | 编辑器上翻页                   |
 | 编辑器 | `pagedown`                           | `editor.page-down`            | 编辑器下翻页                   |
 | 编辑器 | `backspace`                          | `editor.delete-backward`      | 向前删字符                     |
@@ -170,7 +170,7 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | 编辑器 | `up`                                 | `editor.history-prev`         | 上一条历史                     |
 | 编辑器 | `down`                               | `editor.history-next`         | 下一条历史                     |
 
-全局两条（中断/退出）是会话生命线**不可覆盖**；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+c` 中断在飞 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 双绑（空框 = 退出 / 非空 = 向后删字）是缺省既定的分层消解形。`ctrl+p` 模型循环——切换即时登记、**下一 run 起跑生效**（在飞 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/缺省模型位。`alt+enter` 候跑提交——在飞 run 期不等待不打断：显式排队候当前 run 终态后作种子新起 run（`enter` 在 busy 期的顶注缺省不动——两键分职：`enter` 顶注 / `alt+enter` 候跑；idle 期同普通提交），排队成功回执一行。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
+全局两条（中断/退出）是会话生命线**不可覆盖**；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+c` 中断在飞 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 双绑（空框 = 退出 / 非空 = 向后删字）是缺省既定的分层消解形。`ctrl+p` 模型循环——切换即时登记、**下一轮对话起生效**（在飞 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/缺省模型位。`alt+enter` 排队提交——在飞 run 期不等待不打断：显式排队，当前 run 终态后作种子新起 run（`enter` 在 busy 期的顶注缺省不动——两键分职：`enter` 顶注 / `alt+enter` 排队〔当前回复结束后自动开始〕；idle 期同普通提交），排队成功回执一行。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
 
 触发前缀与鼠标（非键位册动作）：
 
@@ -182,7 +182,7 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 
 状态行（底部 footer）分栏呈现：左段常驻信息 `cwd 短名 · 模型名 · 会话短 id`（段缺席缩位不虚报、超宽整字截断），右段运行态（转轮 / 实时工具名 / 用量累计——插件 `setStatus` 写入同段）；run 收场按终态分档——失败 `✖ 失败`、已中止 `⏹ 已中止`（失败/中止不伪装成功收场），正常收场右段归闲态。cwd 段在 git 仓库内时附**短支名后缀**（直读 `.git/HEAD` 取支名——detached HEAD 与非 git 目录缺席不显占位；不轮询，checkout 后随切焦或重画收敛）。正文中的失败消息随附**错误块**（`✖` 前缀 + 错误语义色整行——供应商报错/上下文截断兜底等 errorMessage 在场即落块，Web 界面正文列同律）。
 
-TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；市场选装形走 `/marketplace` 副屏或 CLI `berry marketplace <sub>`，ref 形 install/uninstall/update 维持 CLI `berry plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见下文〔/tick 定时任务〕节；`--write` = needsWrite 申报非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停帽（前台计数 + 委派折叠合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申报〔判据门批准位——批准后 gate kind command 可申报并真跑评测（恒 workspace-write 档 + 30s 帽 + 无升权出路）；exec 件禁用形下申报照拒（诚实缺席），files/diagnostics 判据不受影响〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词，用法与 schedule 串形见下文〔/tick 定时任务〕节；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/setup`（模型配置向导——选渠道/自定义网关 → 录 key → 立即生效，可选连通验证；分桶选单/明文回显/全值回执见上文「模型配置」节）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/sessions`（会话切换器——副屏清单光标选定切焦）、`/usage`（会话用量面板——本会话全 run 累计分表）、`/help`（命令与键位帮助——命令册 + 键位册双源副屏）、`/new`（同 cwd 建新会话即切焦——回执一行新会话短 id，旧会话不动、`/sessions` 可回切；新会话首事件落库前暂不在 `/sessions` 清单——footer 短 id 即其可见位）、`/status`（状态汇总副屏）、`/debug`（调试信息副屏——日志路径/生效配置）、`/themes`（主题切换副屏 + 自定义主题——选定写 `theme` 键，见下文「用户设置」）、`/diff`（工作区改动总览副屏——本会话 edit 类工具改动按文件分组）、`/skills`（技能列表/回填副屏——`enter` 回填调用形入输入框，不直接执行）、`/marketplace`（插件市场选装副屏——`enter` 选装/卸载〔卸载双相：核查清单回执 → 三选裁决（取消/保留数据/清数据）〕· `u` 换装 · `r` 刷新〔恒回源强制重取——鲜缓存亦重取，非 `discover` 的 TTL 惰性腿〕；busy 单槽跨开屏持久——收屏后动作在飞重开可见回执；源管理〔`add`/`remove`〕留 CLI `berry marketplace`，见下文「marketplace 市场聚合」节）、`/thinking`（思考档位切换副屏——off~max 七档选定、当前档 ● 标记；下一 run 起生效，档位是否生效随模型能力——模型不支持思考时静默无效）、`/sandbox`（沙箱档位切换副屏——read-only / workspace-write / danger 三档选定、当前档 ● 标记；即刻生效于后续工具调用——在飞 run 内下一工具调用起按新档执法）、`/upgrade`（检查更新薄壳——本地 / 远端 dist-tags 对照回执一行：有新版即指引「退出后执行 berry upgrade」（TUI 内不代执行）、已是最新如实说、失败诚实报；启动另有 24h 节流的静默检查——有新版 notify 一行、按版本去重，`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即归零）、`/guide`（快速上手参考副屏——快速上手 / 模型配置 / 核心命令 / 文档地图 / 升级与卸载五段静态快照，版本居面板首行）（`/new` `/status` `/setup` `/debug` `/themes` `/diff` `/skills` `/marketplace` `/thinking` `/sandbox` `/upgrade` `/guide` 十二词为 TUI 本地命令——恰零参命中、带参即用法错，不进通道命令表，与 `/exit` 同律）、`/export`（会话导出 markdown 落盘——`~/.berry-agent/exports/<会话id>-<时间戳>.md` 并回执一行路径；无参 = 焦点会话、`/export <会话id>` 指定会话；空会话照落盘、指定 id 不在场诚实拒）、`/memory-export` `/memory-import`（记忆导入导出）、`/exit`（退出 TUI——与 Ctrl+D 同路优雅退出；TUI 本地退出词，不进通道命令表——`/quit` 别名已退役，输入与未注册命令同路）等。尾参活体补全三处：`/plugins` 的 `mount` / `unmount` / `toggle` / `config` 子动词收插件 id、`/rewind <id>` 收回退点 id、`/export <会话id>` 收会话 id——三尾参位按活体清单补全（每查询现取：插件集随装载面、回退点随会话、会话清单随库行——与 `/sessions` 清单同源，零事件新会话无行不补）。Web 界面输入框同词对等：`/thinking` / `/sandbox` 恰零参命中即开档位选择浮层（档位行集与当前档取自服务端、点击选定即切档并呈现回执），带参形同用法错——折 Web 界面既有错误通知条、不提交；档位面经会话族三端点承载：`GET /api/sessions/:id/tiers`（取档位词表与当前档）、`PUT /api/sessions/:id/thinking-level` / `PUT /api/sessions/:id/sandbox-mode`（切档，回执文案与 TUI 同源）。
+TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TUI 面——`list` 装载态三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；市场选装形走 `/marketplace` 副屏或 CLI `berry marketplace <sub>`，ref 形 install/uninstall/update 维持 CLI `berry plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 收场后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry doors list` 只读形）、`/approval`（审批分档人面——`status` 当前 sandbox 档与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表活体全列 / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 档七条建议集 append，下次启动生效〕），`/history`（副屏会话回看）、`/rewind`（边界快照回卷）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见下文〔/tick 定时任务〕节；`--write` = needsWrite 申报非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停帽（前台计数 + 委派折叠合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 挂钟复活〕、`list` 全部 goal 状态·挂钟·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申报〔判据门批准位——批准后 gate kind command 可申报并真跑评测（恒 workspace-write 档 + 30s 帽 + 无升权出路）；exec 件禁用形下申报照拒（诚实缺席），files/diagnostics 判据不受影响〕；预算帽尽自动停靠〔挂钟行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词，用法与 schedule 串形见下文〔/tick 定时任务〕节；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/setup`（模型配置向导——选渠道/自定义网关 → 录 key → 立即生效，可选连通验证；分桶选单/明文回显/全值回执见上文「模型配置」节）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理面副屏——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→活体→冻结→终态；memory 件装载时注册、通道不支持时降级提示）、`/sessions`（会话切换器——副屏清单光标选定切焦）、`/usage`（会话用量面板——本会话全 run 累计分表）、`/help`（命令与键位帮助——命令册 + 键位册双源副屏）、`/new`（同 cwd 建新会话即切焦——回执一行新会话短 id，旧会话不动、`/sessions` 可回切；新会话首事件落库前暂不在 `/sessions` 清单——footer 短 id 即其可见位）、`/status`（状态汇总副屏）、`/debug`（调试信息副屏——日志路径/生效配置）、`/themes`（主题切换副屏 + 自定义主题——选定写 `theme` 键，见下文「用户设置」）、`/diff`（工作区改动总览副屏——本会话 edit 类工具改动按文件分组）、`/skills`（技能列表/回填副屏——`enter` 回填调用形入输入框，不直接执行）、`/marketplace`（插件市场选装副屏——`enter` 选装/卸载〔卸载双相：核查清单回执 → 三选裁决（取消/保留数据/清数据）〕· `u` 换装 · `r` 刷新〔恒回源强制重取——鲜缓存亦重取，非 `discover` 的 TTL 惰性腿〕；busy 单槽跨开屏持久——收屏后动作在飞重开可见回执；源管理〔`add`/`remove`〕留 CLI `berry marketplace`，见下文「marketplace 市场聚合」节）、`/thinking`（思考档位切换副屏——off~max 七档选定、当前档 ● 标记；下一轮对话起生效，档位是否生效随模型能力——模型不支持思考时静默无效）、`/sandbox`（沙箱档位切换副屏——read-only / workspace-write / danger 三档选定、当前档 ● 标记；即刻生效于后续工具调用——在飞 run 内下一工具调用起按新档执法）、`/upgrade`（检查更新薄壳——本地 / 远端 dist-tags 对照回执一行：有新版即指引「退出后执行 berry upgrade」（TUI 内不代执行）、已是最新如实说、失败诚实报；启动另有 24h 节流的静默检查——有新版 notify 一行、按版本去重，`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即归零）、`/guide`（快速上手参考副屏——快速上手 / 模型配置 / 核心命令 / 文档地图 / 升级与卸载五段静态快照，版本居面板首行）（`/new` `/status` `/setup` `/debug` `/themes` `/diff` `/skills` `/marketplace` `/thinking` `/sandbox` `/upgrade` `/guide` 十二词为 TUI 本地命令——恰零参命中、带参即用法错，不进通道命令表，与 `/exit` 同律）、`/export`（会话导出 markdown 落盘——`~/.berry-agent/exports/<会话id>-<时间戳>.md` 并回执一行路径；无参 = 焦点会话、`/export <会话id>` 指定会话；空会话照落盘、指定 id 不在场诚实拒）、`/memory-export` `/memory-import`（记忆导入导出）、`/exit`（退出 TUI——与 Ctrl+D 同路优雅退出；TUI 本地退出词，不进通道命令表——`/quit` 别名已退役，输入与未注册命令同路）等。尾参活体补全三处：`/plugins` 的 `mount` / `unmount` / `toggle` / `config` 子动词收插件 id、`/rewind <id>` 收回退点 id、`/export <会话id>` 收会话 id——三尾参位按活体清单补全（每查询现取：插件集随装载面、回退点随会话、会话清单随库行——与 `/sessions` 清单同源，零事件新会话无行不补）。Web 界面输入框同词对等：`/thinking` / `/sandbox` 恰零参命中即开档位选择浮层（档位行集与当前档取自服务端、点击选定即切档并呈现回执），带参形同用法错——折 Web 界面既有错误通知条、不提交；档位面经会话族三端点承载：`GET /api/sessions/:id/tiers`（取档位词表与当前档）、`PUT /api/sessions/:id/thinking-level` / `PUT /api/sessions/:id/sandbox-mode`（切档，回执文案与 TUI 同源）。
 
 ### TUI 副屏面板
 
@@ -192,10 +192,10 @@ TUI 内建命令（随插件装载动态扩展）：`/plugins`（插件管理 TU
 - `/memory` —— 记忆管理：活体/冻结/终态三分区，`f` 冻结切换 / `d` 忘掉〔confirm 两段式〕/ `r` 恢复 / `e` 导出 / `Tab` 筛选循环（全部→活体→冻结→终态）；
 - `/sessions` —— 会话切换：会话清单光标选择（`↑`/`↓` 移动、`PgUp`/`PgDn`/`Home`/`End` 翻选、`Enter` 选定切焦）；
 - `/usage` —— 会话用量：本会话全 run 累计分表（轮次 + token 输入/输出/缓存读/缓存写四分 + 合计 + 费用——无费用上报时如实呈现）；
-- `/status` —— 状态汇总：版本 / 模型位（当前 provider/model + 全集计数——`ctrl+p` 模型循环同数据源）/ 模型凭证行（态 + **完整值**——全明文翻裁：人面所见即供血）/ 会话（短 id / cwd 短名 / 轮次）/ 数据目录 / theme 生效档 / env 旋钮生效值（MODEL / DATA_DIR / LOG_LEVEL 三键白名单维持——其余 env 恒不入面）；
+- `/status` —— 状态汇总：版本 / 模型位（当前 provider/model + 全集计数——`ctrl+p` 模型循环同数据源）/ 模型凭证行（态 + **完整值**——全明文翻裁：页面上所见即当前生效值）/ 会话（短 id / cwd 短名 / 轮次）/ 数据目录 / theme 生效档 / env 旋钮生效值（MODEL / DATA_DIR / LOG_LEVEL 三键白名单维持——其余 env 恒不入面）；
 - `/debug` —— 调试信息：daemon.log 路径与尾行快照（帽 50 行、token 明文行掩码；非 daemon 形缺席行如实呈现）/ log level 生效值 / settings 解析态（键位覆盖拒载与主题坏值警告的汇总面）/ sqlite 路径 / 已装载插件 id 清单——凭证值恒不入面；
 - `/themes` —— 主题切换：内置 `auto` / `dark` / `light` 三档 + `themes/` 自定义主题（坏文件条目 ⚠ 标注）的选择器（▸ 光标 + `Enter` 选定 + 当前档 ● 标记）；选定即时换装并写 `settings.json` 的 `theme` 键（见下文「用户设置」）；
-- `/thinking` —— 思考档位：off~max 七档选定（▸ 光标 + `Enter` 选定 + 当前档 ● 标记）；选定后下一 run 起生效，是否生效随模型能力——模型不支持思考时静默无效；
+- `/thinking` —— 思考档位：off~max 七档选定（▸ 光标 + `Enter` 选定 + 当前档 ● 标记）；选定后下一轮对话起生效，是否生效随模型能力——模型不支持思考时静默无效；
 - `/sandbox` —— 沙箱档位：read-only / workspace-write / danger 三档选定（▸ 光标 + `Enter` 选定 + 当前档 ● 标记）；选定即刻生效于后续工具调用（在飞 run 内下一工具调用起按新档执法），切会话各档独立；
 - `/diff` —— 工作区改动总览：本会话 edit 类工具的文件改动按文件分组（组头文件名 + 增删行计数、组体词级 diff；`Enter` 展开 / 收起）——数据源为会话事件投影、零 git 子进程（答「本会话改了什么」，工作树现状归 git 自查）；
 - `/skills` —— 技能列表：发现层胜者单行（标注来源层）；`Enter` 回填技能调用形入输入框并收副屏——不直接执行，技能执行走模型侧消费路；
@@ -240,7 +240,7 @@ hex 串（`#rrggbb` / `#rgb`）、数值（0-15 = 终端 16 色板位、16-255 =
 berry run "解释这段代码的作用"
 berry run --continue "继续刚才的话题"          # 取当前目录最新会话续接
 berry run --session <id> "继续指定会话"         # 按 id 续接
-berry run --fork "从这里分叉另起一路"           # 边界快照分叉后续跑
+berry run "从这里分叉另起一路" --fork           # 边界快照分叉续跑（省 id 取当前目录最新会话）
 berry run --ephemeral "一次性问题，零落盘"       # 零落盘单发
 berry run --read-only "只读分析这个仓库"         # 只读沙箱单发
 berry run --preset open "重构这个模块"           # 权限预设逐次生效（open 档）
@@ -254,7 +254,7 @@ run 旗标族：
 | `--output-last-message <file>`                  | 末条 assistant 文本原子写文件                                                                                                                                                                                             |
 | `--ephemeral`                                   | 零落盘单发（与续接族/`--tick`/`--background` 互斥）                                                                                                                                                                       |
 | `--max-turns <n>`                               | turn 数帽（到帽收场如实标 truncated）                                                                                                                                                                                     |
-| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）                                                                                                                                                                                                      |
+| `--session <id>` / `--continue` / `--fork [id]` | 续接族三选一（互斥）；`--fork` 带显式 id 时旗标可在消息前，省 id 时须置于消息之后（旗标在前会把消息文本吞作 fork id——用法错退 2）                                                        |
 | `--read-only`                                   | read-only 沙箱单发                                                                                                                                                                                                        |
 | `--preset <conservative\|balanced\|open>`       | 权限预设逐次生效不写盘（两旋钮：sandbox 档 + 审批 policy；与 `--read-only` 互斥；持久切换走 TUI `/approval preset`）                                                                                                      |
 | `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥）                                                                                                                                                     |
@@ -288,7 +288,7 @@ berry credentials list                                            # 全域列示
 berry credentials rm github-token                                 # 撤销（删除唯一路径）
 ```
 
-- **值列直呈（全明文翻裁 2026-09-28）**：`list` 列示含完整值——人面所见即所存（终端截屏/共享屏场景自负）；**录入回执维持不回显**（shell 历史里的 argv 仍属本机明文，敏感值建议改用 TUI `/credentials` 或 `/setup` 向导）；
+- **值列直呈（全明文翻裁 2026-09-28）**：`list` 列示含完整值——页面上所见即所存（终端截屏/共享屏场景自负）；**录入回执维持不回显**（shell 历史里的 argv 仍属本机明文，敏感值建议改用 TUI `/credentials` 或 `/setup` 向导）；
 - 域形两态：`host`（宿主域——core: 出厂件消费，如 issue 件的 `github-token` / `issue-webhook-secret` 两名；缺省）与 `plugin:<id>`（插件域）；插件经 `ctx.get("secrets")` 只读自己的域，跨域读需用户显式开门；
 
 ### doors 开门制门态只读
@@ -299,8 +299,8 @@ berry doors list   # 高危面门态清单（闭门附同源 reason；授予双�
 
 只读面——开/关动词 CLI 不受理（退 1），编辑走 TUI `/doors open <capability>` / `/doors close <capability>`（进程级 doors 段）；插件道开门走启用行 `opens` 位（两源任一含即门开）。
 
-- **模型 API key 走绑定行供血**（v2——2026-09-28 模型渠道批）：`/setup` 向导录入，或 `berry credentials add <provider> <key> --model-provider <provider>`——绑定行即时供血（env 生态变量〔如 `ANTHROPIC_API_KEY`〕在场时 env 优先）；不带 `--model-provider` 裸 `add` 的模型 key 不供血（绑定位缺席）；
-- **静态凭证人面唯写** = 本命令族；oauth 授权流（device-code）仅在 TUI `/credentials oauth`——CLI 不设此动词；
+- **模型 API key 走模型绑定提供**（v2——2026-09-28 模型渠道批）：`/setup` 向导录入，或 `berry credentials add <provider> <key> --model-provider <provider>`——带模型绑定的凭证即时生效用于模型调用（env 生态变量〔如 `ANTHROPIC_API_KEY`〕在场时 env 优先）；不带 `--model-provider` 裸 `add` 的模型 key 不会用于模型调用（缺模型绑定位）；
+- **静态凭证须由用户亲手录入**——命令行入口 = 本命令族；oauth 授权流（device-code）仅在 TUI `/credentials oauth`——CLI 不设此动词；
 - 零装配直开库（sessions 读腿同形）——不起运行时即用；退出码 0/1（用法错归解析层退 2）。
 
 ### serve 常驻宿主与自动化通道
@@ -354,11 +354,11 @@ TUI 内 `/tick` 六动词——用法错时 TUI 现场呈现同一份用法文�
 | --------------------- | --------------------------------------------------------- |
 | `every:<n>[s\|m\|h]`  | 间隔重复（n 正整数；总秒数下限 5s）                       |
 | `once@+<n>[s\|m\|h]`  | 一次性相对延迟（自建行时刻起）                            |
-| `once@<ISO>`          | 一次性绝对时刻                                            |
+| `once@<ISO>`          | 一次性绝对时刻（无时区后缀一律本地时区——纯日期按本地零点；带 `Z`/`±HH:MM` 按偏移） |
 | `daily@HH:MM`         | 每日（本地时区 24h 制）                                   |
 | `weekly@<days>@HH:MM` | 每周（days = 逗号分隔星期名——mon/tue/.../sun 全写或三写） |
 
-语义三条：`once` 触发后不再到点（行留表可见、不再 due）；错过不重放（宿主停机期错过的到点重启后直接跳下一刻）；`daily`/`weekly` 按本地时区解释（存储/比较恒 ISO UTC）。坏串拒 `SCHEDULER_SCHEDULE_INVALID`（message 载原因）。
+语义四条：`once` 触发后不再到点（行留表可见、不再 due）；错过不重放（宿主停机期错过的到点重启后直接跳下一刻）；`daily`/`weekly` 按本地时区解释（存储/比较恒 ISO UTC）；回执与列表中的到点时刻按本地时区呈现（标「（本地）」）。坏串拒 `SCHEDULER_SCHEDULE_INVALID`（message 载原因）。
 
 ### issue 驱动工作模式（core:issue）
 

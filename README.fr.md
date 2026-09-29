@@ -112,7 +112,7 @@ berry run "one-shot"     # exécution unique → stdout
 berry sessions list      # sessions : list / resume / fork / search / reindex / export
 berry plugins list       # plugins : list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # identifiants : add / list / rm (le TUI propose aussi un flux OAuth)
-berry doors list         # état des portes de capacité (lecture seule)
+berry doors list         # état des portes de capacité (lecture seule ; ouverture/fermeture via TUI /doors open|close)
 berry serve --port 7860  # hôte résident : interface web + surface programmatique /v1/*
 ```
 
@@ -203,7 +203,7 @@ Les cinq volumes sont actuellement rédigés en chinois :
 | -------------------------------------------------------- | ------------------------------------------------------------- |
 | [Architecture](./docs/architecture.md)                   | couches, topologie des modules, exécution, modèle de sûreté   |
 | [Guide d'utilisation](./docs/usage.md)                   | installation, commandes, TUI, variables d'environnement       |
-| [Développement de plugins](./docs/plugin-development.md) | manifeste, capacités ctx, points d'extension                  |
+| [Développement de plugins](./docs/plugin-development.md) | manifeste, capacités ctx, points d'extension, publication |
 | [Guide de développement](./docs/development.md)          | barrières, loi de topologie, discipline de test, contribution |
 | [Manuel d'exploitation](./docs/operations.md)            | répertoire de données, sauvegarde & restauration, dépannage   |
 

@@ -122,13 +122,13 @@ berry sessions reindex   # 全量重建即修复
 
 ### 模型调用失败
 
-模型凭证三源供血（2026-09-28 模型渠道批 v2），按供血源分档排查：
+模型凭证三个来源（2026-09-28 模型渠道批 v2），按来源分档排查：
 
-- **env 生态变量（官方渠道供血位）**：如 `ANTHROPIC_API_KEY`——官方渠道 env 键在场时优先于绑定行；自定义渠道 env 不供血（绑定行唯一供血源）；
-- **凭证行绑定**：`/setup` 向导录入，或 `berry credentials add <渠道id> <key> --model-provider <渠道id>`——绑定行即时供血；不带 `--model-provider` 的裸 `add` 不供血（绑定位缺席）；
-- **自定义渠道**：`settings.json` `customProviders` 键 + 凭证行绑定——手编下次启动生效、`/setup` 当场注册生效（渠道 id 撞占用判据的条目拒注不生效，判据见[使用指南](./usage.md#模型配置)）。
+- **env 生态变量（仅官方渠道生效）**：如 `ANTHROPIC_API_KEY`——官方渠道 env 键在场时优先于模型绑定；自定义渠道不读 env（模型绑定是其唯一凭证来源）；
+- **模型绑定**：`/setup` 向导录入，或 `berry credentials add <渠道id> <key> --model-provider <渠道id>`——录入即时生效用于模型调用；不带 `--model-provider` 的裸 `add` 不会用于模型调用（缺模型绑定位）；
+- **自定义渠道**：`settings.json` `customProviders` 键 + 模型绑定凭证——手编下次启动生效、`/setup` 当场注册生效（渠道 id 撞占用判据的条目拒注不生效，判据见[使用指南](./usage.md#模型配置)）。
 
-`BERRY_AGENT_MODEL` 覆盖缺省模型——值须是已注册 provider 的合法 `provider/model` 形；缺省解析 anthropic 档——faux-only/自定义 provider 运行时必须显式点名模型。排查指路：TUI `/status` 看模型凭证行当前判态与完整值（人面所见即供血），`/setup` 向导重配。凭证盒落数据目录加密存储——`secret.key`（0600）为加密钥本体。
+`BERRY_AGENT_MODEL` 覆盖缺省模型——值须是已注册 provider 的合法 `provider/model` 形；缺省解析 anthropic 档——faux-only/自定义 provider 运行时必须显式点名模型。排查指路：TUI `/status` 看模型凭证行当前判态与完整值（页面上所见即当前生效值），`/setup` 向导重配。凭证盒落数据目录加密存储——`secret.key`（0600）为加密钥本体。
 
 ### Web 面连不上
 
