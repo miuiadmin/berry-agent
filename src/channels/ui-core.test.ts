@@ -115,6 +115,22 @@ describe('ask 编舞单元边界', () => {
     expect(ui.pending('s1')).toEqual([]); // settled 幂等不双出队
   });
 
+  it('入参 signal 已中止：保守值直收 + 零呈现 + 队列零占用（修前红：只挂监听死挂——promise 永悬、浮层僵尸、后继问死排）', async () => {
+    const b = fakeBackend('tui');
+    const ui = makeCore([b.backend]);
+    const ac = new AbortController();
+    ac.abort(); // 先中止——bridgeApprovalSignal 同步 relay 的生产形（补扫 N1）
+    const p = ui.confirm('s1', 'Q', { signal: ac.signal });
+    expect(await p).toBe(false); // 保守值直收
+    expect(b.confirmAsks.length).toBe(0); // 零呈现——不弹僵尸浮层
+    expect(ui.pending('s1')).toEqual([]); // 队列零占用
+    // 后继问正常起跑（队首未被死挂件占位）
+    const p2 = ui.confirm('s1', 'Q2');
+    expect(b.confirmAsks.length).toBe(1);
+    b.confirmAsks[0]?.resolve(true);
+    expect(await p2).toBe(true);
+  });
+
   it('审批呈现异常折保守值 cancel（fail-closed——组合根只测过 confirm 族异常）', async () => {
     const b = fakeBackend('tui');
     const ui = makeCore([b.backend]);

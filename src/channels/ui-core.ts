@@ -238,7 +238,8 @@ export class UiCore {
    * 入口先收副屏（07 §4.1 件 8 条款：注意力优先级 ask > 回看——ask 到来时
    * 在场副屏先收起再入提问队列；能力缺席〔无副屏后端〕零义务跳过）。
    * 三条收口路（全部 once）：首答（含降级解析值）/ 呈现异常（保守值——
-   * fail-closed）/ 外部 signal abort 或队列取消（保守值）。
+   * fail-closed）/ 外部 signal abort 或队列取消（保守值）。入参 signal 已
+   * 中止 = 零呈现早退（保守值直收不入队——见 ask 体内注）。
    */
   private ask<T>(
     sessionId: string,
@@ -253,6 +254,18 @@ export class UiCore {
     const promise = new Promise<T>((r) => {
       resolve = r;
     });
+
+    // 入参 signal 已中止先检（abort 事件只发一次，只挂监听则死路——
+    // safety/approval.ts bridgeApprovalSignal 同律）。早退**不入队**：入队即
+    // 占队首而 settled 已被早收场消费（无对应件可出队）——后继问死排 + 后端
+    // 僵尸浮层。十六役补扫 N1：run 打断竞窗内 bridgeApprovalSignal 同步
+    // relay 使本件收到已中止 signal，修前只挂监听即死挂——run 到不了
+    // finally，settleApprovals 的 signal 链先收假定被打破
+    if (externalSignal?.aborted) {
+      resolve(conservative());
+      return promise;
+    }
+
     let done = false;
     // 内部 signal：败腿撤销 + 队列收口的统一传播位（后端只认这一个信号源——
     // 外部 signal 经本核折入 finish，不直传后端）
