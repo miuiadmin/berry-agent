@@ -259,7 +259,7 @@ async function officialLeg(deps: SetupWizardDeps, p: WizardPrompter, info: Setup
   // env 遮蔽预警（host 域行 env 优先——绑定行将被遮蔽的先验告知）
   if (deps.envShadowed(providerId)) {
     const goOn = await p.confirm({
-      title: `${providerId} 的环境变量键已设置——env 优先于绑定行，录入的 key 会被遮蔽。仍要录入？`,
+      title: `${providerId} 的 API key 环境变量已设置——环境变量优先，这里保存的 key 不会生效。仍要保存？`,
       defaultYes: true,
     });
     if (goOn !== true) return void (await abortOut(p));
@@ -291,7 +291,7 @@ async function officialLeg(deps: SetupWizardDeps, p: WizardPrompter, info: Setup
     lines: [
       `key：${apiKey}`,
       `渠道：${info.name}${info.baseUrl !== undefined ? `（${info.baseUrl}）` : ''}`,
-      apiKey === currentApiKey ? '（沿用当前值——绑定行原样）' : '（新值——录入即生效，供血面全表 live 读）',
+      apiKey === currentApiKey ? '（与已保存的值相同——不改动）' : '（新值——保存后立即生效，无需重启）',
     ],
     defaultYes: true,
   });
@@ -309,7 +309,7 @@ async function officialLeg(deps: SetupWizardDeps, p: WizardPrompter, info: Setup
     verifyNote = '连通性未验证（无注册模型可探——首条消息时自然检验）';
   } else {
     const wantVerify = await p.confirm({
-      title: `现在验证连通？（${probeModel} 发 1-token 微探针）`,
+      title: `现在验证连通？（向 ${probeModel} 发一条最小测试请求）`,
       defaultYes: false,
     });
     if (wantVerify === true) {
@@ -342,7 +342,7 @@ async function customEntryLeg(deps: SetupWizardDeps, p: WizardPrompter, id: stri
     title: `自定义渠道 ${def.name !== undefined ? `${def.name}（${id}）` : id}`,
     items: [
       { id: ENTRY_EDIT, label: '编辑配置', desc: '带当前值重走表单（改 key / 补模型清单等）' },
-      { id: ENTRY_DELETE, label: '删除渠道', desc: '凭证行与 settings 配置同删——不可恢复' },
+      { id: ENTRY_DELETE, label: '删除渠道', desc: '保存的 API key 与 settings 配置同删——不可恢复' },
     ],
   });
   if (action === undefined) return void (await abortOut(p));
@@ -520,7 +520,7 @@ async function customFormLeg(
   const wantHeaders = await p.confirm({
     title: currentHeaders !== undefined ? '编辑/清除自定义请求头？' : '添加自定义请求头？',
     lines: [
-      '一般不需要——鉴权走上面的 API key（凭证表存值）。',
+      '一般不需要——鉴权已由上面的 API key 负责。',
       '此面只给非标网关的额外头（如 X-Upstream）。值将明文存 settings.json——禁止填 API key 等鉴权材料。',
       ...(currentHeaders !== undefined ? [`当前（${Object.keys(currentHeaders).length} 条）：${headersPreview}`] : []),
     ],
@@ -709,7 +709,7 @@ async function confirmAndSaveCustom(
         : []),
       // 编辑腿清除 headers 的诚实回执行（R-3——清除可核）
       ...(headersClearedFrom !== undefined ? [`请求头：清除（原 ${headersClearedFrom} 条）`] : []),
-      isNew ? '写入：凭证行（API key）+ settings.json（渠道定义）——保存后当场生效' : '',
+      isNew ? '写入：API key + settings.json（渠道定义）——保存后当场生效' : '',
     ].filter((line) => line !== ''),
     defaultYes: true,
   });
@@ -718,7 +718,7 @@ async function confirmAndSaveCustom(
   // —— 写序定死：凭证行先（settings 语义上引用凭证供血）——
   const savedKey = safeCall(() => deps.saveBinding(id, apiKey));
   if (!savedKey.ok) {
-    await p.outro('保存失败', [savedKey.text, '凭证行未写入——未保存任何改动（可 /setup 重开再试）']);
+    await p.outro('保存失败', [savedKey.text, 'API key 未保存——本次零改动（可 /setup 重开再试）']);
     return;
   }
   const savedChannel = safeCall(() => deps.saveCustomChannel(id, def));
@@ -727,7 +727,7 @@ async function confirmAndSaveCustom(
       savedChannel.text,
       // #24：指路可达（修前「重入该渠道（编辑配置）补齐」不可达——渠道未落
       // 库、重入清单无此条）；改为重新配置或修复 settings 后重试
-      '凭证行已写入、渠道配置未落库（不在渠道清单）——重启不会生效。可 /setup 重新配置，或修复 settings.json 后重试。',
+      'API key 已保存，但渠道配置写入失败（未进渠道清单）——重启不会生效。可 /setup 重新配置，或修复 settings.json 后重试。',
     ]);
     return;
   }

@@ -235,8 +235,8 @@ describe('runSetupWizard 官方腿（明文 + 落行 + 探针）', () => {
     // 全明文锁：预览即全值（v1 头4尾4掩码断言翻档）
     expect(recorded.texts[0]?.preview).toBe('sk-old-value-9999');
     expect(log.savedBindings).toEqual([{ providerId: 'anthropic', apiKey: 'sk-old-value-9999' }]);
-    // 「沿用当前值」判据随 providerId 走（confirm 附呈行——非 title）
-    expect(recorded.confirms[0]?.lines?.join('\n')).toContain('沿用当前值');
+    // 「与已保存的值相同——不改动」判据随 providerId 走（confirm 附呈行——非 title）
+    expect(recorded.confirms[0]?.lines?.join('\n')).toContain('不改动');
   });
 
   it('换渠道改选后空录入：不沿用他家 key、走「未配置」收场零保存', async () => {
@@ -257,7 +257,7 @@ describe('runSetupWizard 官方腿（明文 + 落行 + 探针）', () => {
     const rejected = makePrompter({ select: ['official:anthropic'], confirm: [false] });
     const depsR = makeDeps(rejected.prompter, { envShadowed: () => true });
     await runSetupWizard(depsR.deps);
-    expect(rejected.recorded.confirms[0]?.title).toContain('遮蔽');
+    expect(rejected.recorded.confirms[0]?.title).toContain('不会生效');
     expect(depsR.log.savedBindings).toEqual([]);
 
     const allowed = makePrompter({ select: ['official:anthropic'], confirm: [true, true], text: ['sk-shadowed'] });
@@ -1026,7 +1026,7 @@ describe('评审修复役 Lane A：回执诚实面（#16/#24）', () => {
     expect(log.savedBindings).toHaveLength(1); // 凭证行已成（写序第一步）
     const outro = recorded.outros.at(-1)!;
     expect(outro.title).toContain('半应用');
-    expect(outro.lines.join('\n')).toContain('未落库');
+    expect(outro.lines.join('\n')).toContain('未进渠道清单');
     expect(outro.lines.join('\n')).toContain('重新配置');
     expect(outro.lines.join('\n')).not.toContain('编辑配置'); // 不可达指路退役
   });
