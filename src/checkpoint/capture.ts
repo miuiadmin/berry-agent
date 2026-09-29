@@ -20,6 +20,14 @@ export type CaptureFn = (input: {
   boundarySeq: number;
   workspaceRoot: string;
   trigger: CheckpointTrigger;
+  /**
+   * 尾部 prune 的保留帽豁免件（十六役补扫 N4——恢复目标保护）：pre-rewind
+   * 保底拍传入恢复目标 manifest id——满帽工作区（常态 10 份）下保底拍成为
+   * 第 11 份触发裁剪时，恢复中目标不被淘汰自毁（否则其独占 blob 被 GC
+   * 物理删除、②a readBlob 假报 STORE_CORRUPT 且重试 NOT_FOUND——回退点
+   * 永久丢失）。
+   */
+  protectId?: string;
 }) => Promise<CheckpointManifest>;
 
 /** 捕获构造选项（测试面注入时钟与 id 源——确定性断言） */
@@ -34,7 +42,7 @@ export interface CaptureOptions {
 export function createCapture(store: CheckpointStore, opts: CaptureOptions = {}): CaptureFn {
   const now = opts.now ?? Date.now;
   const newId = opts.newId ?? randomUUID;
-  return async ({ sessionId, boundarySeq, workspaceRoot, trigger }) => {
+  return async ({ sessionId, boundarySeq, workspaceRoot, trigger, protectId }) => {
     // 段一：枚举 + 单遍读哈希（IO 失败由 walk/readWorkspaceFile 折 CAPTURE_FAILED）
     const walked = await walkWorkspaceFiles(workspaceRoot);
     const entries: { path: string; hash: string; bytes: number }[] = [];
@@ -58,8 +66,9 @@ export function createCapture(store: CheckpointStore, opts: CaptureOptions = {})
     await store.saveManifest(manifest);
 
     // 段三：裁剪编舞（每次捕获后跑——保留帽 + 引用计数 GC；失败不回滚本次
-    // 落仓：prune 是维护面，异常上抛交调用方诊断，快照本体已原子在册）
-    await store.prune();
+    // 落仓：prune 是维护面，异常上抛交调用方诊断，快照本体已原子在册）。
+    // protectId 豁免集穿针（十六役补扫 N4——恢复目标保护，见 CaptureFn 注）
+    await store.prune(protectId !== undefined ? new Set([protectId]) : undefined);
     return manifest;
   };
 }

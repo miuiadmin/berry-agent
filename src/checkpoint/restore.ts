@@ -157,6 +157,11 @@ export async function restoreRewind(deps: RewindRestoreDeps, id: string): Promis
     boundarySeq: boundary,
     workspaceRoot: manifest.workspaceRoot,
     trigger: 'pre-rewind',
+    // 恢复目标保护（十六役补扫 N4）：满帽工作区（常态 10 份）下保底拍成为
+    // 第 11 份触发 prune 裁剪，目标（/rewind list 最旧行恰是 stale 首位）
+    // 会被淘汰自毁——独占 blob 随 GC 物理删除，②a readBlob 假报
+    // STORE_CORRUPT 且重试 NOT_FOUND（回退点永久丢失 + 部分恢复态）
+    protectId: id,
   });
 
   /* ---- ② 文件恢复（walk 域内真恢复：改/补 manifest 条目 + 删域外文件 + 清空目录） ---- */

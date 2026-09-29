@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCapture } from './capture.js';
 import { openCheckpointStore, type CheckpointStore } from './store.js';
 import { previewRewind, restoreRewind } from './restore.js';
+import { CHECKPOINT_RETENTION_PER_WORKSPACE } from './types.js';
 import type { RewindForkFace } from './types.js';
 
 let dataDir: string;
@@ -161,6 +162,28 @@ describe('restoreRewind（段二——三步序）', () => {
     expect(calls).toHaveLength(2);
     expect(await read('a.txt')).toBe('v1');
     expect(existsSync(join(ws, 'b.txt'))).toBe(false);
+  });
+
+  it('满帽工作区恢复最旧点：目标不被 pre-rewind 拍自毁（修前红：STORE_CORRUPT 假诊断 + 部分恢复 + 重试 NOT_FOUND——十六役补扫 N4）', async () => {
+    // 造满帽（帽 10 份逐代独占内容——每份 blob 唯一，最旧点的独占 blob 恰是恢复所需）
+    let oldest = '';
+    for (let i = 0; i < CHECKPOINT_RETENTION_PER_WORKSPACE; i++) {
+      await put('a.txt', `gen-${i}`);
+      clock = 1_000 + i;
+      const m = await capture()({ sessionId: 's1', boundarySeq: 0, workspaceRoot: ws, trigger: 'mutation' });
+      if (i === 0) oldest = m.id;
+    }
+    await put('a.txt', 'current-mutated');
+    const { fork } = fakeFork();
+    clock = 2_000;
+    // 修前锚：pre-rewind 拍成为第 11 份触发 prune 裁掉最旧（= 本恢复目标），
+    // 其独占 blob 被 GC 物理删除——②a readBlob 假报 CHECKPOINT_STORE_CORRUPT
+    const receipt = await restoreRewind({ store, fork }, oldest);
+    expect(await read('a.txt')).toBe('gen-0'); // 最旧内容真恢复（非部分恢复态）
+    expect(receipt).toMatchObject({ restoredCount: 1, deletedCount: 0, untouchedCount: 0 });
+    // 目标 manifest 幸存——重跑幂等（05 §5.3「重跑同 manifest 幂等补全」承诺）
+    const second = await restoreRewind({ store, fork }, oldest);
+    expect(second).toMatchObject({ restoredCount: 0, deletedCount: 0, untouchedCount: 1 });
   });
 
   it('回退到空 manifest：恢复到空工作区（删除全部）', async () => {

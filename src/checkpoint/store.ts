@@ -65,8 +65,13 @@ export interface CheckpointStore {
   listBlobHashes(): Promise<string[]>;
   /** 删 blob（幂等；GC 终步——仅无引用哈希可进） */
   deleteBlob(hash: string): Promise<void>;
-  /** 裁剪+GC（per workspace 保留帽 + 引用计数清扫）；回执删除计数 */
-  prune(): Promise<{ removedManifests: number; removedBlobs: number }>;
+  /**
+   * 裁剪+GC（per workspace 保留帽 + 引用计数清扫）；回执删除计数。
+   * protectedIds = 保留帽豁免集（十六役补扫 N4——恢复目标保护）：豁免件
+   * 不入 stale 淘汰（帽外多留，恢复窗的瞬态非稳态），且仍在引用面——其
+   * 独占 blob 不被段二 GC 误杀。
+   */
+  prune(protectedIds?: ReadonlySet<string>): Promise<{ removedManifests: number; removedBlobs: number }>;
 }
 
 /** 内容哈希（sha256 hex——内容寻址与一致性校验的单源） */
@@ -266,7 +271,7 @@ export function openCheckpointStore(
       await rm(blobPath(baseDir, hash), { force: true });
     },
 
-    async prune() {
+    async prune(protectedIds) {
       /* ---- 段一：per workspace 保留帽（trigger 两形同计） ---- */
       const all = await this.listManifests();
       const byWorkspace = new Map<string, CheckpointManifest[]>();
@@ -277,8 +282,10 @@ export function openCheckpointStore(
       }
       let removedManifests = 0;
       for (const [, bucket] of byWorkspace) {
-        // listManifests 已 capturedAt 降序——保前 N 删余
+        // listManifests 已 capturedAt 降序——保前 N 删余；豁免件不入淘汰
+        // （十六役补扫 N4 恢复目标保护：帽外多留是恢复窗瞬态，非稳态）
         for (const stale of bucket.slice(CHECKPOINT_RETENTION_PER_WORKSPACE)) {
+          if (protectedIds?.has(stale.id)) continue;
           await this.deleteManifest(stale.id);
           removedManifests += 1;
         }

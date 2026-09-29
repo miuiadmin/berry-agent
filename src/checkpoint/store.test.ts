@@ -215,6 +215,33 @@ describe('prune（裁剪帽 + 引用计数 GC）', () => {
     expect(left.some((m) => m.id === 'b0')).toBe(true);
   });
 
+  it('保留帽豁免集（十六役补扫 N4）：豁免件不入淘汰 + 独占 blob 不被 GC；无豁免对照自毁形', async () => {
+    // N+2 份（帽 10 + 2）：a0 最旧且持独占 blob（恢复目标形态）
+    const unique = Buffer.from('protected-unique');
+    const uniqueHash = contentHash(unique);
+    await store.writeBlob(uniqueHash, unique);
+    await store.saveManifest(
+      manifest({ id: 'a0', capturedAt: 1, files: [{ path: 'u.txt', hash: uniqueHash, bytes: unique.byteLength }] }),
+    );
+    for (let i = 1; i < CHECKPOINT_RETENTION_PER_WORKSPACE + 2; i++) {
+      await store.saveManifest(manifest({ id: `a${i}`, capturedAt: 1_000 + i }));
+    }
+    // 豁免 {a0}：12 份只删 a1（最旧非豁免件），a0 帽外多留
+    const receipt = await store.prune(new Set(['a0']));
+    expect(receipt.removedManifests).toBe(1);
+    const ids = (await store.listManifests()).map((m) => m.id);
+    expect(ids).not.toContain('a1');
+    expect(ids).toContain('a0');
+    expect(ids).toHaveLength(CHECKPOINT_RETENTION_PER_WORKSPACE + 1); // 帽 + 豁免件
+    // 豁免件独占 blob 不被段二 GC（豁免件仍在引用面）
+    expect(await store.listBlobHashes()).toContain(uniqueHash);
+    // 对照（修前自毁形）：无豁免 prune 裁掉 a0 → 独占 blob 被 GC
+    const receipt2 = await store.prune();
+    expect(receipt2.removedManifests).toBe(1);
+    expect((await store.listManifests()).map((m) => m.id)).not.toContain('a0');
+    expect(await store.listBlobHashes()).not.toContain(uniqueHash);
+  });
+
   it('blob 引用计数 GC：无引用删、在册引用留、跨 workspace 共享不误杀', async () => {
     // 共享内容（同哈希两 workspace manifest 各引一次）
     const shared = Buffer.from('shared-content');
