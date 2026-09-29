@@ -721,3 +721,67 @@ describe('视口窗口化物理行预算（#21——desc 次行在场条目占 2
     expect(frame).toContain('provider-3');
   });
 });
+
+describe('滚动溢出指示（窗上/下方被裁条目计数入键面行——用户真机反馈「光标看不到还有多少」）', () => {
+  /** 定高渲染帧（同 #21 段 paintFixed 形） */
+  function paintFixed(panel: SetupWizardPanel, height: number, width = 72): CellGrid {
+    const grid = new CellGrid(width, height);
+    panel.render(grid, { row: 0, col: 0, width, height });
+    return grid;
+  }
+
+  /** 20 条目全带 desc（行预算 4 = 2 条目/窗——远超视口的真实长清单形） */
+  const LONG_ITEMS = Array.from({ length: 20 }, (_, i) => ({
+    id: `ch-${i + 1}`,
+    label: `渠道 ${i + 1}`,
+    desc: `https://${i + 1}.example.com/v1`,
+  }));
+
+  it('select：窗下溢出计数入键面行（初始帧「↓18 项」；到底帧「↑18 项」无↓——修前红：键面行恒静态无计数）', () => {
+    const { panel } = makePanel();
+    void panel.select({ title: '选择模型渠道', items: LONG_ITEMS });
+    const first = paintFixed(panel, 6); // 头 1 + 内容 4（=2 条目）+ 键面 1
+    const firstHint = readRow(first, 5, 72);
+    expect(firstHint).toContain('↓18 项'); // 窗下还有 18 条目被裁
+    expect(firstHint).not.toMatch(/↑\d+ 项/); // 窗上无溢出（首帧窗在条目 0）
+    // 连按 down 到底（19 次）——窗口随滚，尾窗=条目 18+19，上方 18 条被裁
+    for (let i = 0; i < 19; i++) panel.handleEvent(k('down'));
+    const last = paintFixed(panel, 6);
+    const lastHint = readRow(last, 5, 72);
+    expect(lastHint).toContain('↑18 项');
+    expect(lastHint).not.toMatch(/↓\d+ 项/); // 到底无窗下溢出
+  });
+
+  it('select：逐键光标条目恒在帧内（用户操作序列——20 条连续 down 每帧光标 label 可见；#21 行为扩展锁）', () => {
+    const { panel } = makePanel();
+    void panel.select({ title: '选择模型渠道', items: LONG_ITEMS });
+    for (let step = 1; step <= 19; step++) {
+      panel.handleEvent(k('down'));
+      const grid = paintFixed(panel, 6); // 行预算 4
+      const frame = [1, 2, 3, 4].map((row) => readRow(grid, row, 72)).join('\n');
+      expect(frame).toContain(`▸ 渠道 ${step + 1}`); // 每步光标条目 label 恒可见
+    }
+  });
+
+  it('multiselect：同律（键面行含窗下溢出计数；修前红同形）', () => {
+    const { panel } = makePanel();
+    void panel.multiselect({ title: '勾选要用的模型', items: LONG_ITEMS });
+    const grid = paintFixed(panel, 6); // 行预算 4 = 2 条目
+    expect(readRow(grid, 5, 72)).toContain('↓18 项');
+  });
+
+  it('全清单入窗零指示（短清单键面行不掺溢出计数）', () => {
+    const { panel } = makePanel();
+    void panel.select({
+      title: '选择 provider',
+      items: [
+        { id: 'p1', label: 'provider-1' },
+        { id: 'p2', label: 'provider-2' },
+      ],
+    });
+    const grid = paintFixed(panel, 6);
+    const hint = readRow(grid, 5, 72);
+    expect(hint).not.toContain('项');
+    expect(hint).toContain('↑↓ 移动');
+  });
+});

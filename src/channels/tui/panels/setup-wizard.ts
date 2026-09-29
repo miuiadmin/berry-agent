@@ -252,6 +252,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       // 窗口化按物理行预算（#21）：从窗首条目起逐条占行（desc 次行在场 +1），
       // line 预算尽即停——勿按条目数截窗（desc 在场时条目数 ≠ 物理行数）
       const start = this.clampOffset(phase, this.viewportHeight);
+      let lastDrawn = start - 1; // 窗内最后绘到的条目（预算尽提前停即低于尾条）
       for (let index = start; index < phase.req.items.length && line < end; index++) {
         const item = phase.req.items[index]!;
         buffer.writeText(
@@ -265,17 +266,21 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
           buffer.writeText(line, region.col, truncateToWidth(`    ${item.desc}`, region.width), HINT_STYLE);
           line++;
         }
+        lastDrawn = index;
       }
       if (phase.req.note !== undefined && line < end) {
         buffer.writeText(line, region.col, truncateToWidth(phase.req.note, region.width), HINT_STYLE);
         line++;
       }
-      hint = '↑↓ 移动 · enter 选定 · esc 退出';
+      // 滚动溢出指示（用户真机反馈）：窗上/下方还有被裁条目时在键面行报计数，
+      // 让长清单「还有多少」可感知（并入键面行零几何耦合——不占行预算）
+      hint = this.overflowHint(phase.req.items, start, lastDrawn, '↑↓ 移动 · enter 选定 · esc 退出');
     } else if (phase.kind === 'multiselect') {
       this.viewportHeight = Math.max(1, end - line);
       this.clampCursor(phase);
       // 窗口化按物理行预算（#21——与 select 相同律，共用 clampOffset）
       const start = this.clampOffset(phase, this.viewportHeight);
+      let lastDrawn = start - 1; // 窗内最后绘到的条目（与 select 相同律）
       for (let index = start; index < phase.req.items.length && line < end; index++) {
         const item = phase.req.items[index]!;
         const mark = phase.checked.has(item.id) ? CHECKED_MARK : UNCHECKED_MARK;
@@ -289,12 +294,14 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
           buffer.writeText(line, region.col, truncateToWidth(`    ${item.desc}`, region.width), HINT_STYLE);
           line++;
         }
+        lastDrawn = index;
       }
       if (phase.req.note !== undefined && line < end) {
         buffer.writeText(line, region.col, truncateToWidth(phase.req.note, region.width), HINT_STYLE);
         line++;
       }
-      hint = '↑↓ 移动 · space 勾选 · enter 确认 · esc 退出';
+      // 滚动溢出指示（与 select 相同律——长模型清单勾选面同感知）
+      hint = this.overflowHint(phase.req.items, start, lastDrawn, '↑↓ 移动 · space 勾选 · enter 确认 · esc 退出');
     } else if (phase.kind === 'text') {
       // 全明文回显（2026-09-28 翻裁——掩码相退役恒原文）；尾随 _ 光标位
       buffer.writeText(line, region.col, truncateToWidth(`${phase.buffer}_`, region.width));
@@ -596,6 +603,26 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   private clampCursor(phase: Extract<Phase, { kind: 'select' }> | Extract<Phase, { kind: 'multiselect' }>): void {
     const length = phase.req.items.length;
     phase.cursor = length > 0 ? Math.max(0, Math.min(length - 1, phase.cursor)) : 0;
+  }
+
+  /**
+   * 滚动溢出指示（用户真机反馈「看不到还有多少」）：窗上/下方被裁条目数
+   * 前缀进键面行（形如「↑18 项 · ↓3 项 · ↑↓ 移动 · …」）；全清单入窗时
+   * 返回原键面文案零污染。并入键面行零几何耦合——不占行预算、不回流
+   * clampOffset（select/multiselect 共用）。
+   */
+  private overflowHint(
+    items: readonly { readonly label: string; readonly desc?: string }[],
+    start: number,
+    lastDrawn: number,
+    baseHint: string,
+  ): string {
+    const above = start; // 窗首前被裁条目数
+    const below = items.length - 1 - lastDrawn; // 窗尾后被裁条目数（预算尽提前停如实计）
+    const parts: string[] = [];
+    if (above > 0) parts.push(`↑${above} 项`);
+    if (below > 0) parts.push(`↓${below} 项`);
+    return parts.length > 0 ? `${parts.join(' · ')} · ${baseHint}` : baseHint;
   }
 
   /**
