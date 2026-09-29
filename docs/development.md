@@ -161,7 +161,8 @@ docs/                   公开文档面（本五册）
 - vitest 吞 console——调试走 `appendFileSync` 到 `/tmp`（判别法：测试内 console.log 静默 ≠ 未执行）；
 - faux provider **恒实算 usage** 覆写脚本值——usage 断言按实算结果写，不按脚本注入值写；
 - exec spawn 截尾测试满载偶发 flake（单跑恒绿）——观察项：全量跑红时先单跑复核再定位；
-- tmux e2e `/themes` esc 收屏腿 ubuntu 慢机偶发 25s 帽红（失败 dump 尾恒见 DA1 应答残段 `^[[?1;2;4c` 泄屏——迟答防御律 ca7027c 修复面外的相位形）——判别法：rerun `--failed` 绿即定谳抖动（本地 macOS 干净树绿佐证）；再红才深挖引擎 CSI 迟答相位；
+- tmux e2e `/themes` esc 收屏腿 CI 偶发 25s 帽红——**归因未闭合**（tmux flake 根因役勘正：早版「失败 dump 尾恒见 DA1 应答残段 `^[[?1;2;4c`」判别法已被四份干净 dump 证伪；25s 窗内 capture 持续回健康面板 = TUI 进程侧输入链路事件、与 server 换代〔下行〕不同根。迟答防御律 ca7027c 修掉的是引擎级真窗〔修前红在库〕，但本腿 CI 级停发与「修复生效/环境窗关闭」双解并存不可归因）——判别法：rerun `--failed` 绿即按抖动处置；再红时超时消息自带仪表化三证（TUI 进程 CPU 对拍 / capture 退出码 / 2s 屏动复采），按「CPU≈0=环境停摆说 / CPU 前进屏冻=代码角 / 屏动=慢跃迁」一锤定音；
+- tmux e2e「server exited unexpectedly」new-session 9ms 瞬死——根因已定谳并已修（84a447c keeper 保活会话结构修 + pid 单代锁 + 在场锁，修前红 9/9 实证；根因 = 套件曾把服务端生命周期悬空给 exit-empty 自灭，CI 重载把停机窗拉宽到测间 gap、下一测 new-session connect 进垂死服务端收 EOF）——判别法：错误串 + new-session 瞬死（9ms 量级非 15s 帽挂起形）+ rerun 绿；再红即 keeper 失效回潮（afterAll pid 锁应同步红——对表即定）；
 - nightly flaky-probe 双跑腿（CI `flaky-probe` job，label `flaky-nightly` issue 告警）：同 commit 推送 CI 绿而夜间双跑任一红 = 抖动信号（非回归定论）——处置序：先本地 `npm test` 单跑复核（登记册各行逐源判别）再定位；两次全绿的 commit 即 close 告警 issue；
 - macOS 开发机是 BSD grep/sed（不支持 GNU 的 `\|` 交替等）——仓内脚本与手工排查用 `grep -E`/`perl -pi -e`，勿照搬 GNU 语法。
 
