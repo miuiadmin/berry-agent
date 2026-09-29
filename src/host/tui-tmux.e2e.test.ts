@@ -95,14 +95,29 @@ function hasTmuxBinary(): boolean {
   return spawnSync('tmux', ['-V'], { stdio: 'ignore', timeout: 10_000 }).status === 0;
 }
 
-/** tmux 服务端可起探针（沙箱拦 unix socket 形在此现形——一次探测全程缓存） */
+/**
+ * tmux 服务端可起探针（沙箱拦 unix socket 形在此现形——一次探测全程缓存）。
+ *
+ * 探针会话 = **keeper 保活会话**（tmux flake 根因役 wf_9ceaaab6-3ff 结构修）：
+ * 根因（签名②「server exited unexpectedly」定谳）——套件曾把服务端生命周期
+ * 悬空给 exit-empty 惯性（每测恰一会话挂共享 socket、afterEach kill-session
+ * 后会话数归零即服务端自灭并 unlink socket），全套件 ~10 个零会话边界皆是无
+ * 保活竞速位；CI 重载（vitest forks 文件级并行打满核）把停机窗从 µs 拉宽到
+ * 测间 gap 尺度，下一测 new-session 客户端 connect 进垂死服务端的 accept
+ * backlog、服务端退出收 EOF → tmux 内建「server exited unexpectedly」→
+ * startTuiSession 抛出（9ms 瞬死形；本地 SIGSTOP+kill 实验复现同串实证）。
+ * 修法 = 结构修非遮蔽：探针成功即留一枚长睡会话（会话数全程 ≥1 ⇒ 服务端整套
+ * 件单代、只在 afterAll kill-server 死一次且死后无人再用）——全部死亡/重生
+ * 边界一次消失。keeper 不登记 liveSessions（afterEach 不杀它）；afterAll
+ * kill-server 天然兜杀——「无孤儿进程」律不变。
+ */
 let tmuxUsable: boolean | undefined;
+/** keeper 会话名（保活占位——见 hasUsableTmux 头注；测间不杀、afterAll 随服务端兜杀） */
+const KEEPER = `${SOCK}-keeper`;
 function hasUsableTmux(): boolean {
   if (tmuxUsable === undefined) {
     tmuxUsable =
-      hasTmuxBinary() && tmux(['new-session', '-d', '-x', '20', '-y', '5', '-s', `${SOCK}-probe`, 'true']).status === 0;
-    // 探针会话命令 `true` 即退——kill 失败（会话已亡）无害；服务端随末会话消亡自灭
-    tmux(['kill-session', '-t', `${SOCK}-probe`]);
+      hasTmuxBinary() && tmux(['new-session', '-d', '-x', '20', '-y', '5', '-s', KEEPER, 'sleep 3600']).status === 0;
   }
   return tmuxUsable;
 }
@@ -150,15 +165,31 @@ interface TmuxSession {
   readonly exitFile: string;
 }
 
-/** 活体会话登记簿（afterEach 逐名兜杀——失败路径不留活会话挂服务端） */
+/** 活体会话登记簿（afterEach 逐名兜杀——失败路径不留活会话挂服务端；keeper 不入册） */
 const liveSessions: string[] = [];
 afterEach(() => {
   for (const name of liveSessions.splice(0)) {
     tmux(['kill-session', '-t', name]); // 会话亡/服务端亡形失败皆无害
   }
+  // keeper 在场锁（防回退腿——tmux flake 根因役）：keeper 测间被杀/缺席即红，
+  // 防日后把它误登记进 liveSessions 或探针退回 `true` 即死形（任一发生 =
+  // 服务端换代竞速回潮）。修前红不可由本锁单独观察（修前无 keeper 概念），
+  // 修前红由下方 afterAll pid 结构锁承载。
+  if (tmuxUsable === true) {
+    expect(tmux(['has-session', '-t', KEEPER]).status, 'keeper 保活会话测间缺席（服务端换代竞速回潮）').toBe(0);
+  }
 });
+/** 服务端 pid 单代结构锁（tmux flake 根因役——修前红承载件）：首测记档、
+ * afterAll 对拍——修前（无 keeper）每 afterEach 边界服务端必死重生，pid 跨测
+ * 必变 = 必红；修后 keeper 保活单代恒绿。兼防外部杀服务端（OOM 等）。 */
+let serverPid: string | undefined;
 afterAll(() => {
-  tmux(['kill-server']); // 服务端级兜杀：pane 内 TUI 进程随服务端终结（无孤儿律）
+  if (serverPid !== undefined) {
+    const pidNow = tmux(['display-message', '-p', '-t', KEEPER, '#{pid}']);
+    expect(pidNow.status, 'keeper 会话缺席（服务端已换代或被外部杀——单代前提破坏）').toBe(0);
+    expect((pidNow.stdout ?? '').trim(), '服务端跨测换代（exit-empty 自灭竞速复发——keeper 保活失效）').toBe(serverPid);
+  }
+  tmux(['kill-server']); // 服务端级兜杀：pane 内 TUI 进程与 keeper 随服务端终结（无孤儿律）
 });
 
 /** 测间会话名唯一计数器（pid + 计数后缀防串——立项档①条款） */
@@ -195,6 +226,12 @@ function startTuiSession(): TmuxSession {
   const created = tmux(['new-session', '-d', '-x', String(GEOM_W), '-y', String(GEOM_H), '-s', name, command]);
   if (created.status !== 0) {
     throw new Error(`tmux new-session 失败（status=${created.status}）：${created.stderr ?? ''}`);
+  }
+  // 单代结构锁前半：首测记档服务端 pid（display-message '#{pid}' = 服务端 pid
+  // 非会话/pane pid——afterAll 位对拍断言跨测不变）
+  if (serverPid === undefined) {
+    const pid = tmux(['display-message', '-p', '-t', name, '#{pid}']);
+    if (pid.status === 0) serverPid = (pid.stdout ?? '').trim();
   }
   liveSessions.push(name);
   return { name, dataDir, wsDir, exitFile };
