@@ -187,6 +187,50 @@ describe('nextFireAt 语义三钉', () => {
 });
 
 /**
+ * once 无偏移形时区语义（十六役补扫 N28——TZ seam）。ECMA-262 对 offset
+ * 缺席形双语义：date-only 按 UTC 零点、datetime 按本地——同一语法档两种
+ * 隐式时区语义（美西 date-only 提前到前一天傍晚触发）。一致化：无偏移
+ * 一律本地。seam 机制与 DST describe 同（自证锚先行防假绿）。
+ */
+describe('once 无偏移形时区语义（TZ seam——America/New_York）', () => {
+  /** 进 describe 前的 TZ 原值（精确还原——原值缺席则删除键） */
+  const prevTz = process.env.TZ;
+
+  beforeEach(() => {
+    process.env.TZ = 'America/New_York';
+  });
+
+  afterEach(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+
+  it('自证锚：TZ seam 生效（EDT=UTC-4）', () => {
+    expect(new Date('2026-07-01T04:00:00Z').getHours()).toBe(0);
+  });
+
+  it('date-only 形按本地零点（修前红——此前按 UTC 零点，美西提前一天傍晚触发）', () => {
+    // 2026-10-15 本地零点（EDT=UTC-4）= 04:00Z；修前值为 00:00Z（= 当地
+    // 前日 20:00——日期/时刻双偏）
+    expect(parseSchedule('once@2026-10-15')).toEqual({ kind: 'once', at: '2026-10-15T04:00:00.000Z' });
+  });
+
+  it('datetime 无偏移形按本地（行为锚——与 date-only 同律一致化不回归）', () => {
+    expect(parseSchedule('once@2026-10-15T09:00:00')).toEqual({ kind: 'once', at: '2026-10-15T13:00:00.000Z' });
+  });
+
+  it('带偏移形按偏移（Z/显式 offset 维持原语义）', () => {
+    expect(parseSchedule('once@2026-10-15T00:00:00Z')).toEqual({ kind: 'once', at: '2026-10-15T00:00:00.000Z' });
+    expect(parseSchedule('once@2026-10-15T09:00:00+08:00')).toEqual({ kind: 'once', at: '2026-10-15T01:00:00.000Z' });
+  });
+
+  it('date-only 不存在历日拒（2026-02-30——本地构造回环校验）', () => {
+    expectBad('once@2026-02-30');
+    expectBad('once@2026-13-01');
+  });
+});
+
+/**
  * DST 边界与回拨形（TZ seam）。daily/weekly 按本地时区解释（schedule.ts 头注
  * 语义钉③），其落值形此前只有无 DST 时区（CI=UTC / 本地=Asia/Shanghai）下
  * 的前跳形——DST 切换日的「不存在本地时刻 / 双现时刻」与墙钟回拨形零覆盖。

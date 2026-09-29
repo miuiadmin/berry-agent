@@ -46,6 +46,24 @@ describe('scheduleToCron 映射', () => {
     expect(scheduleToCron({ kind: 'every', seconds: 7200 })).toBe('0 */2 * * *');
   });
 
+  it('every：整除形照放（60%n / 24%h 整除——步进节奏等价「每 n 单位」）', () => {
+    expect(scheduleToCron({ kind: 'every', seconds: 900 })).toBe('*/15 * * * *'); // 15m
+    expect(scheduleToCron({ kind: 'every', seconds: 1200 })).toBe('*/20 * * * *'); // 20m
+    expect(scheduleToCron({ kind: 'every', seconds: 43200 })).toBe('0 */12 * * *'); // 12h
+    expect(scheduleToCron({ kind: 'every', seconds: 28800 })).toBe('0 */8 * * *'); // 8h（16→0 亦 8h）
+  });
+
+  it('every：非整除步进形拒（修前红——*/n 域内重置产生错误节奏）', () => {
+    // every:45m→*/45 每小时 :00+:45 双发（日均 48 次 vs 配置语义 32 次）
+    expectCode(() => scheduleToCron({ kind: 'every', seconds: 2700 }), 'SCHEDULER_CRON_UNSUPPORTED');
+    expectCode(() => scheduleToCron({ kind: 'every', seconds: 1500 }), 'SCHEDULER_CRON_UNSUPPORTED'); // 25m 末段缩到 10m
+    expectCode(() => scheduleToCron({ kind: 'every', seconds: 420 }), 'SCHEDULER_CRON_UNSUPPORTED'); // 7m
+    // every:5h→0 */5 只在 0/5/10/15/20 时触发——20→0 间隔仅 4h
+    expectCode(() => scheduleToCron({ kind: 'every', seconds: 18000 }), 'SCHEDULER_CRON_UNSUPPORTED');
+    expectCode(() => scheduleToCron({ kind: 'every', seconds: 25200 }), 'SCHEDULER_CRON_UNSUPPORTED'); // 7h
+    expectCode(() => scheduleToCron({ kind: 'every', seconds: 172800 }), 'SCHEDULER_CRON_UNSUPPORTED'); // 48h 少发形
+  });
+
   it('every：sub-minute 与非 60 倍数拒（分钟粒度诚实）', () => {
     expectCode(() => scheduleToCron({ kind: 'every', seconds: 5 }), 'SCHEDULER_CRON_UNSUPPORTED');
     expectCode(() => scheduleToCron({ kind: 'every', seconds: 90 }), 'SCHEDULER_CRON_UNSUPPORTED');
@@ -111,9 +129,23 @@ describe('OS 注册器编舞（execCrontab 假件）', () => {
     reg.register(rowOf({ kind: 'daily', time: '09:30' }, 'daily-review'));
     expect(exec.writes).toHaveLength(1);
     expect(exec.writes[0]).toContain('0 9 * * * echo morning'); // 他人行保留
-    expect(exec.writes[0]).toContain('30 9 * * * /usr/local/bin/berry run --read-only --tick daily-review');
+    expect(exec.writes[0]).toContain(
+      '30 9 * * * /usr/local/bin/berry run --read-only --background --tick daily-review',
+    );
     expect(exec.writes[0]).toContain(cronMarker('daily-review'));
     expect(exec.writes[0]?.endsWith('\n')).toBe(true);
+  });
+
+  it('register：命令段带 --background（修前红——N8：乙案无头腿后台道记账入口）', () => {
+    // 缺该旗标则 run-entry 的 daily_budget 预检对 cron 腿恒为死条件、用量
+    // 按前台道记账永不入后台日池（04 §12 律 3 ③）。行级锚锁完整命令段形。
+    const exec = fakeCrontab({});
+    const reg = createOsCronRegistrar(depsWith(exec));
+    reg.register(rowOf({ kind: 'every', seconds: 3600 }, 'bg-lock'));
+    const line = exec.writes[0]?.split('\n').find((l) => l.includes(cronMarker('bg-lock'))) ?? '';
+    expect(line).toBe(
+      `0 * * * * /usr/local/bin/berry run --read-only --background --tick bg-lock ${cronMarker('bg-lock')}`,
+    );
   });
 
   it('register：缺省命令名 = berry（bin 改裁缺省锁——不注入 command 即走生产缺省）', () => {
@@ -123,7 +155,7 @@ describe('OS 注册器编舞（execCrontab 假件）', () => {
     // 缺省被误改回旧名或误拼时四门禁不红
     const reg = createOsCronRegistrar({ execCrontab: exec.execCrontab, authorize: () => true });
     reg.register(rowOf({ kind: 'daily', time: '09:30' }, 'default-cmd'));
-    expect(exec.writes[0]).toContain(' berry run --read-only --tick default-cmd');
+    expect(exec.writes[0]).toContain(' berry run --read-only --background --tick default-cmd');
     expect(exec.writes[0]).not.toContain('berry-agent run'); // marker `# berry-agent:` 是值位不受此断言影响
   });
 

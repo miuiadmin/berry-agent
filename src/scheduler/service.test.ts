@@ -222,13 +222,15 @@ describe('cron 联动「不半态」', () => {
   it('disable→OS 注销先行；rm 启用行注销后删行', () => {
     const reg = fakeRegistrar();
     const { service, getRow } = openService({ cronRegistrar: reg });
+    // add --enable 建行即挂 OS（N27 修后语义——既有锁随迁：建行位多一笔 register）
     service.addJob({ name: 'cronjob', schedule: 'daily@09:30', prompt: 'p', enabled: true });
+    expect(reg.calls).toEqual(['register:cronjob']);
     service.setJobEnabled('cronjob', false);
-    expect(reg.calls).toEqual(['unregister:cronjob']);
+    expect(reg.calls).toEqual(['register:cronjob', 'unregister:cronjob']);
     service.setJobEnabled('cronjob', true);
-    expect(reg.calls).toEqual(['unregister:cronjob', 'register:cronjob']);
+    expect(reg.calls).toEqual(['register:cronjob', 'unregister:cronjob', 'register:cronjob']);
     service.removeJob('cronjob');
-    expect(reg.calls).toEqual(['unregister:cronjob', 'register:cronjob', 'unregister:cronjob']);
+    expect(reg.calls).toEqual(['register:cronjob', 'unregister:cronjob', 'register:cronjob', 'unregister:cronjob']);
     expect(getRow('cronjob')).toBeUndefined();
   });
 
@@ -246,5 +248,78 @@ describe('cron 联动「不半态」', () => {
     const r = await goalJobs.register({ goalId: 'g9', sessionId: 's', schedule: 'daily@09:30', promptSnapshot: 'p' });
     expect(r.ok).toBe(true);
     expect(reg.calls).toEqual(['register:goal-g9']);
+  });
+
+  it('add --enable 建行即挂 OS（修前红——N27：此前只 insertRow 不触 OS 面，停机覆盖静默缺失到下次宿主重启）', () => {
+    const reg = fakeRegistrar();
+    const { service, getRow } = openService({ cronRegistrar: reg });
+    service.addJob({ name: 'on-add', schedule: 'daily@09:30', prompt: 'p', enabled: true });
+    expect(getRow('on-add')?.enabled).toBe(true);
+    expect(reg.calls).toEqual(['register:on-add']); // 建行即挂（goal 路径同律）
+  });
+
+  it('add --enable OS 写失败亮拒不半态（行不建）；add 缺省停用不触 OS', () => {
+    const failReg = fakeRegistrar(true);
+    const failSvc = openService({ cronRegistrar: failReg });
+    expectCode(
+      () => failSvc.service.addJob({ name: 'half', schedule: 'daily@09:30', prompt: 'p', enabled: true }),
+      'SCHEDULER_CRON_WRITE_FAILED',
+    );
+    expect(failSvc.getRow('half')).toBeUndefined(); // OS 先行——行不建
+    expect(failReg.calls).toEqual(['register:half']);
+
+    const reg = fakeRegistrar();
+    const { service } = openService({ cronRegistrar: reg });
+    service.addJob({ name: 'off-add', schedule: 'daily@09:30', prompt: 'p' }); // 缺省停用
+    expect(reg.calls).toEqual([]); // 无启用可挂——不触 OS
+  });
+
+  it('enable 对不可表达形 warn 跳过 OS、行照常启用（修前红——N9：此前致命拒把进程内挂钟一并封死）', () => {
+    const reg = fakeRegistrar();
+    const { service, getRow } = openService({ cronRegistrar: reg });
+    service.addJob({ name: 'once-cron', schedule: 'once@2099-01-01T00:00:00Z', prompt: 'p' });
+    // 真身对 once 形抛 UNSUPPORTED——假件同形复刻（可表达性判语义）
+    const originalRegister = reg.register.bind(reg);
+    reg.register = (row) => {
+      if (row.schedule.kind === 'once') {
+        throw new BaseError('SCHEDULER_CRON_UNSUPPORTED', 'cron 表达不了 once 单发形（单发归进程内挂钟独辖）');
+      }
+      originalRegister(row);
+    };
+    warn.mockClear();
+    expect(() => service.setJobEnabled('once-cron', true)).not.toThrow(); // 此前抛致行永停 disabled
+    expect(getRow('once-cron')?.enabled).toBe(true); // 行照常启用——进程内挂钟仍辖
+    expect(getRow('once-cron')?.nextFireAt).not.toBeNull(); // 排刻不受连坐
+    expect(warn).toHaveBeenCalledTimes(1); // warn 留痕（进程内挂钟照辖的披露）
+    expect(String(warn.mock.calls[0]?.[0])).toContain('once-cron');
+  });
+
+  it('goalJobs.register 不可表达形回执诚实 ok（修前红——N9：此前「报失败而行实活」）', async () => {
+    const calls: string[] = [];
+    // 真身对 once 形抛 UNSUPPORTED——假件同形复刻（可表达性判语义）
+    const reg: CronRegistrar = {
+      register(row) {
+        calls.push(`register:${row.name}`);
+        if (row.schedule.kind === 'once') {
+          throw new BaseError('SCHEDULER_CRON_UNSUPPORTED', 'cron 表达不了 once 单发形（单发归进程内挂钟独辖）');
+        }
+      },
+      unregister(name) {
+        calls.push(`unregister:${name}`);
+      },
+    };
+    const { goalJobs, getRow } = openService({ cronRegistrar: reg });
+    warn.mockClear();
+    const r = await goalJobs.register({
+      goalId: 'g10',
+      sessionId: 's',
+      schedule: 'once@2099-01-01T00:00:00Z', // 不可表达形
+      promptSnapshot: 'p',
+    });
+    expect(r.ok).toBe(true); // 行实活（已建已启用、进程内挂钟照辖）——回执不再谎报失败
+    expect(getRow('goal-g10')?.enabled).toBe(true);
+    expect(calls).toEqual(['register:goal-g10']); // OS 面尝试过（warn 跳过）
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('goal-g10');
   });
 });

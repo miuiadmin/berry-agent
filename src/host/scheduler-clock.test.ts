@@ -369,10 +369,13 @@ describe('cron 乙案开启位（批 20c——BERRY_AGENT_CRON env 形）', () =
     });
 
     // 对账回填：启用行恰一组读写（读 '-l' + 写 '-'）；条目形 = cron 表达式 +
-    // bin 命令段 + argv + 自有标记（命令段与 runner spawn 单源——test-bin）
+    // bin 命令段 + argv + 自有标记（命令段与 runner spawn 单源——test-bin；
+    // --background 系十六役补扫 N8 增位——乙案无头腿后台道记账入口）
     const writes = calls.filter((c) => c.args[0] === '-');
     expect(writes).toHaveLength(1);
-    expect(writes[0]!.input).toContain('0 9 * * * test-bin run --read-only --tick seed-on # berry-agent:seed-on');
+    expect(writes[0]!.input).toContain(
+      '0 9 * * * test-bin run --read-only --background --tick seed-on # berry-agent:seed-on',
+    );
     expect(writes[0]!.input).not.toContain('seed-off'); // 禁用行零动作
   });
 

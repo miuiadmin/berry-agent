@@ -76,6 +76,19 @@ async function dispatchTick(argv: readonly string[], deps: TickCommandDeps): Pro
   }
 }
 
+/**
+ * nextFireAt 呈现（本地时刻——十六役补扫 N29）：存储/比较一律 ISO UTC
+ * （schedule.ts 语义钉③），而 daily/weekly 排刻语义是本地时区——原始 UTC
+ * 串直出令「9 点的任务显示 1 点」，本地语义与呈现口径割裂、用户须心算
+ * 时区才能对表。渲染为本地时刻并标注；排刻行为本身不变（纯呈现面）。
+ */
+function renderFireAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso; // 坏值防御——原样呈现
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}（本地）`;
+}
+
 /** add 动词：位参 name/schedule/prompt + 可选 --cwd/--enable（选项须位参后） */
 function tickAdd(rest: readonly string[], deps: TickCommandDeps): string {
   const positional: string[] = [];
@@ -110,7 +123,7 @@ function tickAdd(rest: readonly string[], deps: TickCommandDeps): string {
     cwd: cwd ?? null,
     enabled: enable,
   });
-  const next = row.nextFireAt ? `下次到点 ${row.nextFireAt}` : '停用态（enable 后排刻）';
+  const next = row.nextFireAt ? `下次到点 ${renderFireAt(row.nextFireAt)}` : '停用态（enable 后排刻）';
   return `✓ 已建任务 ${row.name}（${formatSchedule(row.schedule)}）——${next}`;
 }
 
@@ -121,7 +134,7 @@ function tickList(deps: TickCommandDeps): string {
   const lines: string[] = [];
   for (const row of rows) {
     const state = row.enabled ? '启用' : '停用';
-    const next = row.nextFireAt ?? '—';
+    const next = row.nextFireAt ? renderFireAt(row.nextFireAt) : '—';
     const last = row.lastOutcome ? describeOutcome(row.lastOutcome) : '从未触发';
     const tags = [row.builtin ? '内置' : null].filter(Boolean).join('');
     lines.push(

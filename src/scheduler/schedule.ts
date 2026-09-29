@@ -5,7 +5,9 @@
  * 串形五写四形（once 有绝对/相对两写）：
  *   every:<n>[s|m|h]        间隔重复（n 正整数；总秒数下限 5s）
  *   once@+<n>[s|m|h]        一次性相对延迟（自建行时刻起）
- *   once@<ISO>              一次性绝对时刻
+ *   once@<ISO>              一次性绝对时刻（无偏移形一律本地时区——date-only
+ *                           即本地零点、datetime 即本地时刻；带 Z/±offset 形
+ *                           按偏移——十六役补扫 N28 一致化）
  *   daily@HH:MM             每日（本地时区 24h 制）
  *   weekly@<days>@HH:MM     每周（days = 逗号分隔 mon/tue/.../sun 全写或三写）
  *
@@ -86,6 +88,20 @@ export function parseSchedule(text: string): Schedule {
   const onceAbs = raw.match(/^once@(.+)$/);
   if (onceAbs) {
     const at = onceAbs[1] ?? '';
+    // date-only 形显式本地化（十六役补扫 N28）：ECMA-262 对 offset 缺席形双
+    // 语义——date-only 按 UTC 零点、datetime 按本地。同一语法档两种隐式
+    // 时区语义是坑（美西 date-only 提前到前一天傍晚触发）。无偏移一律本地
+    // （与 daily/weekly 用户面语义同律）；带偏移/Z 形维持 Date.parse 原语义。
+    if (/^\d{4}-\d{2}-\d{2}$/.test(at)) {
+      const [y, mo, d] = at.split('-').map(Number);
+      const local = new Date(y ?? 0, (mo ?? 1) - 1, d ?? 1);
+      // 历日回环校验：2026-02-30 类不存在日期本地构造会静默滚到 3 月——
+      // 诚实拒（与 ISO 解析的 NaN 拒同档）
+      if (local.getFullYear() !== y || local.getMonth() !== (mo ?? 1) - 1 || local.getDate() !== d) {
+        throw badSchedule(raw, 'once 绝对时刻非合法日期');
+      }
+      return { kind: 'once', at: local.toISOString() };
+    }
     const t = Date.parse(at);
     if (Number.isNaN(t)) throw badSchedule(raw, 'once 绝对时刻非合法 ISO');
     return { kind: 'once', at: new Date(t).toISOString() };

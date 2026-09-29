@@ -223,7 +223,11 @@ function fromDb(row: JobsDbRow): JobRow {
  * 与守卫——/tick 与 CLI 对等（07 §5）共用此单源。
  */
 export interface SchedulerService {
-  /** add：全守卫（名词法/名冲突/schedule 词法/payload/cwd 存在）→ 建行 */
+  /**
+   * add：全守卫（名词法/名冲突/schedule 词法/payload/cwd 存在）→ 建行；
+   * --enable 形建行即挂 OS cron（不可表达形 warn 跳过——进程内挂钟照辖；
+   * 写失败亮拒不半态）
+   */
   addJob(req: AddJobRequest): JobRow;
   /**
    * builtin 行建行（04 §12 归属列 builtin 标记的正门——core: 件挂钟行专用：
@@ -270,8 +274,36 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
   const pathExists = deps.pathExists ?? ((p: string) => statExists(p));
   const now = deps.now;
 
-  /** 建行共核（add 与 goalJobs.register 单源——守卫/next_fire 初值全同律） */
-  function insertRow(req: AddJobRequest, builtin: boolean): JobRow {
+  /**
+   * OS 注册（十六役补扫 N9 统一语义）：不可表达形（once/sub-minute/非整除
+   * 间隔）warn 跳过——行照常启用/照建，进程内挂钟照辖（与装载期对账回填
+   * 同语义）；写失败/未授权亮拒原样外抛（调用方「不半态」契约不变）。
+   */
+  function registerOsBestEffort(row: JobRow): void {
+    if (!deps.cronRegistrar) return;
+    try {
+      deps.cronRegistrar.register(row);
+    } catch (err) {
+      if (err instanceof BaseError && err.code === 'SCHEDULER_CRON_UNSUPPORTED') {
+        deps.warn(`OS cron 不挂「${row.name}」（${err.message}）——进程内挂钟仍辖该行`);
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * 建行共核（add 与 goalJobs.register 单源——守卫/next_fire 初值全同律）。
+   *
+   * @param osRegisterOnEnable 建行即启用时是否同步挂 OS cron（/tick add
+   * --enable 用户道 true——十六役补扫 N27：与 goal 挂钟路径、「add 停用 +
+   * /tick enable」路径同律，停机期不断保不在「建行到下次宿主重启装载对账」
+   * 间静默失效；builtin 正门/goal 路径 false——后者在 insertRow 后显式挂，
+   * 装载期对账另辖）。OS 先行（register 只消费行值不查库——行未建即可先写
+   * crontab）：写失败/未授权亮拒不半态（行不建）；不可表达形 warn 跳过
+   * （N9 同律——进程内挂钟照辖该行）。
+   */
+  function insertRow(req: AddJobRequest, builtin: boolean, osRegisterOnEnable = false): JobRow {
     if (!NAME_RE.test(req.name)) {
       throw new BaseError(
         'SCHEDULER_NAME_INVALID',
@@ -311,13 +343,16 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
       activePid: null,
       activeStartedAt: null,
     };
+    if (osRegisterOnEnable && enabled) {
+      registerOsBestEffort(row); // OS 先行——非 UNSUPPORTED 失败行不建（不半态同律）
+    }
     dao.insert(row);
     return row;
   }
 
   const service: SchedulerService = {
     addJob(req) {
-      return insertRow(req, false);
+      return insertRow(req, false, true);
     },
     addBuiltinJob(req) {
       return insertRow(req, true);
@@ -345,9 +380,13 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
         );
       }
       if (deps.cronRegistrar) {
-        if (enabled)
-          deps.cronRegistrar.register(row); // OS 注册失败抛——行不翻转
-        else deps.cronRegistrar.unregister(name);
+        if (enabled) {
+          // 不可表达形 warn 跳过、行照常翻转（N9——此前致命拒把进程内挂钟
+          // 一并封死，行停 disabled 永不再 due）；写失败/未授权亮拒不半态
+          registerOsBestEffort(row);
+        } else {
+          deps.cronRegistrar.unregister(name);
+        }
       }
       dao.setEnabled(name, enabled, now());
       // 启用即刻排 next_fire（禁用期未排；once 相对形建行已锚定、every/daily/weekly 从现在取下一刻）
@@ -379,7 +418,7 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
           { name, prompt: req.promptSnapshot, schedule: req.schedule, enabled: true, builtin: true },
           true,
         );
-        if (deps.cronRegistrar) deps.cronRegistrar.register(row); // 挂钟行启用即挂 OS（乙案形态）
+        registerOsBestEffort(row); // 挂钟行启用即挂 OS（乙案形态；不可表达形 warn 跳过——行实活则回执须诚实 ok）
         return { ok: true, message: `挂钟已挂：${name}（${formatSchedule(row.schedule)}）` };
       } catch (err) {
         // 响亮拒不炸装配——message 载码与原因（goal 件消费方落诊断面）

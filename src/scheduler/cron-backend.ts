@@ -7,9 +7,15 @@
  *   - 人面授权链（authorize 注入——写 crontab 是改用户系统态，授权缺席
  *     即未授权：亮拒 SCHEDULER_CRON_UNAUTHORIZED，不猜默认放行）；
  *   - win32 诚实拒（crontab 生态不在——SCHEDULER_CRON_UNSUPPORTED，不装能）；
- *   - schedule 可表达性：cron 分钟粒度——sub-minute 间隔与非 60 倍数分钟
- *     间隔拒（UNSUPPORTED）；once 形拒（cron 表达不了单发——单发归进程内
- *     挂钟独辖）；every/daily/weekly 可表达形全量映射；
+ *   - schedule 可表达性：cron 分钟粒度——sub-minute 间隔、非 60 倍数分钟
+ *     间隔与非整除步进形（分钟档 60%n≠0 / 小时档 24%h≠0——cron 步进语义
+ *     是「域内第 0,n,2n… 单位、每小时/每日重置」，非整除形产生 :00+:45
+ *     双发类的错误节奏）一律拒（UNSUPPORTED）；once 形拒（cron 表达不了
+ *     单发——单发归进程内挂钟独辖）；every 整除形/daily/weekly 可表达形
+ *     全量映射；
+ *   - 命令段形：`run --read-only --background --tick <名>`——--background
+ *     = 04 §5 无头编排 run 的后台道记账入口（daily_budget 起跑预检 +
+ *     backgroundLane 用量入后台日池；04 §12 律 3 ③）；
  *   - 写失败（crontab 非零退出）SCHEDULER_CRON_WRITE_FAILED。
  *
  * 联动契约（service 消费）：register/unregister **同步**亮拒——调用方（行
@@ -69,9 +75,30 @@ export function scheduleToCron(s: Schedule): string {
       }
       const minutes = s.seconds / 60;
       if (minutes === 1) return '* * * * *';
-      if (minutes < 60) return `*/${minutes} * * * *`;
+      if (minutes < 60) {
+        // 整除判据（十六役补扫 N7）：cron 步进 `*/n` 语义 = 「小时内第
+        // 0,n,2n… 分钟、每小时重置」——仅 60%n==0 时等价「每 n 分钟」。
+        // 非整除形（every:45m→*/45 每小时 :00+:45 双发、间隔 45/15 交替）
+        // 产生错误节奏，按本件「不可忠实表达即拒」哲学诚实拒。
+        if (60 % minutes !== 0) {
+          throw new BaseError(
+            'SCHEDULER_CRON_UNSUPPORTED',
+            `cron 表达不了 every:${s.seconds}s（${minutes} 分钟不整除 60——步进表达式每小时重置产生错误节奏；进程内挂钟可跑）`,
+          );
+        }
+        return `*/${minutes} * * * *`;
+      }
       if (minutes % 60 === 0) {
         const hours = minutes / 60;
+        // 小时档同律（N7）：`0 */h` 语义 = 「日内第 0,h,2h… 时、每日重置」
+        // ——仅 24%h==0 时等价「每 h 小时」（every:5h 末段 20→0 缩到 4h；
+        // >24h 形恒少发）。非整除形诚实拒。
+        if (24 % hours !== 0) {
+          throw new BaseError(
+            'SCHEDULER_CRON_UNSUPPORTED',
+            `cron 表达不了 every:${s.seconds}s（${hours} 小时不整除 24——步进表达式每日重置产生错误节奏；进程内挂钟可跑）`,
+          );
+        }
         return hours === 1 ? '0 * * * *' : `0 */${hours} * * *`;
       }
       throw new BaseError(
@@ -166,7 +193,10 @@ export function createOsCronRegistrar(deps: CronBackendDeps = {}): CronRegistrar
       assertAuthorized();
       const current = readCrontab();
       const [withoutSelf] = stripMarkerLines(current, row.name);
-      const entry = `${cron} ${command} run --read-only --tick ${row.name} ${cronMarker(row.name)}`;
+      // --background（十六役补扫 N8）：乙案无头腿的后台道记账入口——缺此
+      // 旗标则 run-entry 的 daily_budget 起跑预检成死条件、用量按前台道记
+      // 账永不入后台日池（04 §12 律 3 ③明文把乙案预算门定义为该旗标预检）。
+      const entry = `${cron} ${command} run --read-only --background --tick ${row.name} ${cronMarker(row.name)}`;
       const next = withoutSelf.trim() === '' ? entry : `${withoutSelf.trimEnd()}\n${entry}`;
       writeCrontab(next);
     },
