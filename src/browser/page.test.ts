@@ -249,6 +249,47 @@ describe('createBrowserPage', () => {
     await page.close();
   });
 
+  it('navigate 预检超时帽（十六役补扫 N15）：signal 在场——慢挂 HEAD 至预算到点放行不拖 300s', async () => {
+    // 修前红形：预检不带 signal——挂起 HEAD 只有 undici ~300s headersTimeout
+    // 兜底，4 席共享在飞门之一被占近 5 分钟（本测试无 signal 永不 settle，
+    // navigate 挂死即红）。穿针后预检同享导航预算，超时属普通失败——放行
+    // 浏览器载体，Page.navigate 照发
+    const signals: Array<AbortSignal | undefined> = [];
+    const web: BrowserWebFace = {
+      fetch: (_url, init) =>
+        new Promise((_resolve, reject) => {
+          signals.push(init?.signal);
+          // 慢挂应答：仅当调用方穿了 signal（AbortSignal.timeout）才到点自毙
+          // ——缺席形永不 settle（修前直透形）
+          init?.signal?.addEventListener('abort', () => reject(new Error('预检挂起至超时')));
+        }),
+    };
+    const { conn, sends, emit } = makeConn(
+      choreo((method) => {
+        if (method === 'Page.navigate') {
+          emit('Page.loadEventFired', {}, 'S1'); // 发送即达（waiter 已先注册——外层真身带 sessionId 位）
+          return { frameId: 'F1' };
+        }
+        if (method === 'Page.getNavigationHistory') {
+          return { currentIndex: 0, entries: [{ id: 1, url: 'https://example.com/slow' }] };
+        }
+        return {};
+      }),
+    );
+    const page = await createBrowserPage({
+      conn,
+      fs: makeFs().fs,
+      dataDir: '/data',
+      web,
+      navTimeoutMs: 50, // 预算注入位——预检 signal 同源（50ms 后自毙放行）
+    });
+    const r = await page.navigate('https://example.com/slow');
+    expect(signals[0]).toBeInstanceOf(AbortSignal); // 穿针契约锁
+    expect(sends.some((s) => s.method === 'Page.navigate')).toBe(true); // 超时放行——导航本体照发
+    expect(r.url).toBe('https://example.com/slow');
+    await page.close();
+  }, 1_500);
+
   it('navigate：WEB_ 族拦截 fail-closed 直传（Page.navigate 不发）', async () => {
     const { conn, sends } = makeConn(choreo());
     const web = makeWeb('blocked');

@@ -409,6 +409,59 @@ describe('installBrowserEngine', () => {
     // 中止在下载腿——零解压零账本
     expect(fsEnv.files.size).toBe(0);
   });
+
+  it('元数据体帽（十六役补扫 N14）：读侧增量计数越帽即停——慢滴不闭流不等全量即拒', async () => {
+    // 修前红形：裸串拼无帽消费全流——不闭的挂起流（慢滴形）让安装永久挂死
+    // （体帽形同虚设，巨型载荷全量吞入后无从拒绝）
+    const fsEnv = makeFs();
+    const download: BrowserDownloadFace = {
+      fetchBinary: async () => ({
+        status: 200,
+        bytes: (async function* () {
+          yield Buffer.alloc(64); // 单块即越注入帽（16）
+          await new Promise<void>(() => {}); // 不闭——慢滴/挂起形（帽外字节永不达）
+        })(),
+      }),
+    };
+    const deps: BrowserInstallDeps = {
+      fs: fsEnv.fs,
+      download,
+      platform: 'darwin',
+      arch: 'arm64',
+      dataDir: '/data',
+      metadataUrl: META_URL,
+      maxMetadataBytes: 16,
+    };
+    await expect(installBrowserEngine(deps)).rejects.toThrow('超体帽');
+    expect(fsEnv.files.size).toBe(0); // 零落盘（拒在读腿——解压/账本面未达）
+  }, 1_500);
+
+  it('下载腿超时帽穿针（十六役补扫 N14）：metadataTimeoutMs 注入 → fetchBinary 收到并执法', async () => {
+    // 修前红形：无超时穿针——挂起应答（连接建立但永不回体）让 /browser
+    // install 永久挂死（undici 块间兜底只卡块间隔，首字节挂起外不设防）
+    const fsEnv = makeFs();
+    const seen: Array<number | undefined> = [];
+    const download: BrowserDownloadFace = {
+      fetchBinary: async (_url, options) => {
+        seen.push(options?.timeoutMs);
+        return new Promise((_resolve, reject) => {
+          // 挂起直到注入帽到点——应用级超时帽的桩执法形
+          setTimeout(() => reject(new Error('下载腿超时中止（桩执法）')), options?.timeoutMs ?? 60_000);
+        });
+      },
+    };
+    const deps: BrowserInstallDeps = {
+      fs: fsEnv.fs,
+      download,
+      platform: 'darwin',
+      arch: 'arm64',
+      dataDir: '/data',
+      metadataUrl: META_URL,
+      metadataTimeoutMs: 50,
+    };
+    await expect(installBrowserEngine(deps)).rejects.toThrow('下载腿超时中止');
+    expect(seen).toEqual([50]); // 穿针契约锁：元数据腿收到的正是注入帽（缺省腿漏穿即红）
+  }, 1_500);
 });
 
 /** fetch 桩签名（Parameters 推导——DOM lib 型名不在主 tsconfig lib 面） */
@@ -446,6 +499,27 @@ describe('defaultDownloadFace', () => {
       expect(count).toBe(0);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('应用级超时帽穿针（十六役补扫 N14）：timeoutMs → 全局 fetch 收 AbortSignal（缺席形零变更）', async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: FetchArgs[0], init?: FetchArgs[1]) => {
+      signals.push(init?.signal ?? undefined);
+      return new Response('m');
+    }) as typeof fetch;
+    try {
+      // 帽注入形：signal 在场（AbortSignal.timeout 铸——覆盖头+体全程，慢滴
+      // 形不在 undici 块间兜底外挂死）
+      const r = await defaultDownloadFace().fetchBinary('https://storage.googleapis.com/cft/zip', { timeoutMs: 5_000 });
+      expect(r.status).toBe(200);
+      expect(signals[0]).toBeInstanceOf(AbortSignal);
+      // 缺席形：不注入帽 = 不造 signal（既有调用面零变更）
+      await defaultDownloadFace().fetchBinary('https://storage.googleapis.com/cft/zip');
+      expect(signals[1]).toBeUndefined();
+    } finally {
+      globalThis.fetch = realFetch;
     }
   });
 

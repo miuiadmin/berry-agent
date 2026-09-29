@@ -8,6 +8,10 @@
  *   的下载 URL 同样过白名单（元数据被改也出不了白名单域）；**重定向逐跳
  *   复检**（生产 face redirect 钉 manual 不自动跟随——3xx 逐跳解析 Location、
  *   跳目标重跑白名单后才手动前进，跳帽防环；十六役扫 #17）。
+ * - **应用级超时帽 + 元数据体帽（十六役补扫 N14）**：两下载腿经
+ *   AbortSignal.timeout 覆盖头+体全程（慢滴形——块间隔小于 undici 块间
+ *   兜底——可无限拖住显式命令）；元数据读侧增量计数 8MiB 帽（修前裸串
+ *   拼无帽——慢滴不闭流/巨型载荷全量吞入后无从拒绝）。
  * - **流式落盘 + 摘要账本 TOFU 锚定**：首装计算 zip sha256 锚进
  *   `dataDir/browser/engine/ledger.json`；同版本重装摘要不符即拒执行
  *   （BROWSER_DIGEST_MISMATCH——fail-loud 不动盘）。
@@ -41,6 +45,21 @@ export const BROWSER_LEDGER_NAME = 'ledger.json';
 /** zip 体积帽（1.5GiB——防元数据被改指向巨型载荷的 sanity 防线） */
 export const BROWSER_ZIP_MAX_BYTES = 1.5 * 1024 * 1024 * 1024;
 
+/**
+ * CfT 元数据体帽（8MiB sanity——真文档全平台下载位实测 ~1.5MiB；读侧增量
+ * 计数越帽即停，防元数据被改指向巨型载荷/坏形灌入——慢滴不闭流不等全量）。
+ */
+export const BROWSER_METADATA_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * 下载腿应用级超时帽（十六役补扫 N14）：undici 缺省 headersTimeout/bodyTimeout
+ * 只卡「首字节间/块间」等待，慢滴形（块间隔小于帽）可无限拖住 `/browser
+ * install`——应用级 AbortSignal.timeout 覆盖头+体全程。元数据 60s（市场抓取
+ * 腿同档）/ zip 300s（150MB 级大件慢链容忍——git 克隆/市场解包同档）。
+ */
+export const BROWSER_METADATA_TIMEOUT_MS = 60_000;
+export const BROWSER_ZIP_TIMEOUT_MS = 300_000;
+
 /** 重定向跟随跳帽（manual 循环上限——防重定向环/长链；web/service.ts maxRedirects 同律） */
 export const BROWSER_REDIRECT_HOP_CAP = 5;
 
@@ -51,9 +70,16 @@ export interface BrowserDownloadFace {
   /**
    * 流式取（状态码 + 字节流；首跳 URL 域白名单由 install 逻辑执法——face
    * 不重复；生产 face 另承载重定向纪律：redirect 钉 manual 逐跳白名单
-   * 复检后手动前进，跳帽防环——见 defaultDownloadFace）
+   * 复检后手动前进，跳帽防环——见 defaultDownloadFace）。
+   *
+   * 超时帽穿针（N14——**可选参**，既有单参桩结构兼容零改动）：注入时生产
+   * face 转 AbortSignal.timeout 覆盖该腿头+体全程；注入桩面可选择消费
+   * （挂起腿到点拒绝）或忽略。
    */
-  fetchBinary(url: string): Promise<{ status: number; bytes: AsyncIterable<Uint8Array> }>;
+  fetchBinary(
+    url: string,
+    options?: { readonly timeoutMs?: number },
+  ): Promise<{ status: number; bytes: AsyncIterable<Uint8Array> }>;
 }
 
 /** 安装依赖（全窄面注入） */
@@ -69,6 +95,12 @@ export interface BrowserInstallDeps {
   readonly metadataUrl?: string;
   /** zip 体积帽（缺省钉常量——测试注入位：真测超帽中止腿） */
   readonly maxZipBytes?: number;
+  /** 元数据体帽（缺省钉常量——测试注入位：真测越帽即停腿；N14） */
+  readonly maxMetadataBytes?: number;
+  /** 元数据腿超时帽 ms（缺省钉常量——测试注入位；N14） */
+  readonly metadataTimeoutMs?: number;
+  /** zip 腿超时帽 ms（缺省钉常量——测试注入位；N14） */
+  readonly zipTimeoutMs?: number;
 }
 
 /** 安装回执（命令面呈现 + 账本镜像） */
@@ -128,13 +160,18 @@ function executableRelOf(artifact: string): string {
  */
 export function defaultDownloadFace(): BrowserDownloadFace {
   return {
-    async fetchBinary(url) {
+    async fetchBinary(url, options) {
       let current = url;
       for (let hops = 0; ; hops += 1) {
         if (hops >= BROWSER_REDIRECT_HOP_CAP) {
           throw new Error(`下载重定向触跳帽（${BROWSER_REDIRECT_HOP_CAP} 跳）：${url} → … → ${current}`);
         }
-        const res = await fetch(current, { redirect: 'manual' });
+        // 应用级超时帽穿针（N14）：AbortSignal.timeout 覆盖本腿头+体全程
+        //（慢滴形 undici 块间兜底不设防）；缺席形零变更不造 signal
+        const res = await fetch(current, {
+          redirect: 'manual',
+          ...(options?.timeoutMs !== undefined ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
+        });
         if (res.status >= 300 && res.status < 400) {
           const location = res.headers.get('location');
           if (location !== null) {
@@ -367,15 +404,28 @@ export async function installBrowserEngine(deps: BrowserInstallDeps): Promise<Br
   const ledgerPath = `${engineDir}/${BROWSER_LEDGER_NAME}`;
   const executableRel = executableRelOf(artifact);
 
-  // 元数据取（域白名单第一执法位——常量本身钉白名单域）
+  // 元数据取（域白名单第一执法位——常量本身钉白名单域）；应用级超时帽 +
+  // 读侧体帽双防（N14）：慢滴挂死与巨型/坏形灌入都在此腿拦
   const metadataUrl = deps.metadataUrl ?? BROWSER_METADATA_URL;
   if (!BROWSER_DOWNLOAD_HOSTS.includes(hostOf(metadataUrl))) {
     throw new Error(`元数据 URL 域不在白名单：${metadataUrl}`);
   }
-  const metaRes = await deps.download.fetchBinary(metadataUrl);
+  const maxMetaBytes = deps.maxMetadataBytes ?? BROWSER_METADATA_MAX_BYTES;
+  const metaRes = await deps.download.fetchBinary(metadataUrl, {
+    timeoutMs: deps.metadataTimeoutMs ?? BROWSER_METADATA_TIMEOUT_MS,
+  });
   if (metaRes.status !== 200) throw new Error(`CfT 元数据取失败（HTTP ${metaRes.status}）`);
+  // 读侧增量计数（修前裸串拼无帽——慢滴不闭流/巨型载荷全量吞入后无从拒绝）
   let metaRaw = '';
-  for await (const chunk of metaRes.bytes) metaRaw += Buffer.from(chunk).toString('utf8');
+  let metaBytes = 0;
+  for await (const chunk of metaRes.bytes) {
+    const buf = Buffer.from(chunk);
+    metaBytes += buf.length;
+    if (metaBytes > maxMetaBytes) {
+      throw new Error(`CfT 元数据超体帽（> ${maxMetaBytes} 字节）——中止下载`);
+    }
+    metaRaw += buf.toString('utf8');
+  }
   const { version, url } = artifactUrlFromMetadata(metaRaw, artifact);
   // 元数据给出的工件 URL 同过白名单（元数据被改也出不了白名单域）
   if (!BROWSER_DOWNLOAD_HOSTS.includes(hostOf(url))) {
@@ -402,9 +452,9 @@ export async function installBrowserEngine(deps: BrowserInstallDeps): Promise<Br
     }
   }
 
-  // 流式下载 + 增量摘要（帽执法防巨型载荷）
+  // 流式下载 + 增量摘要（帽执法防巨型载荷）；zip 腿应用级超时帽同穿针（N14）
   const maxBytes = deps.maxZipBytes ?? BROWSER_ZIP_MAX_BYTES;
-  const res = await deps.download.fetchBinary(url);
+  const res = await deps.download.fetchBinary(url, { timeoutMs: deps.zipTimeoutMs ?? BROWSER_ZIP_TIMEOUT_MS });
   if (res.status !== 200) throw new Error(`引擎工件取失败（HTTP ${res.status}）`);
   const hash = createHash('sha256');
   const parts: Buffer[] = [];

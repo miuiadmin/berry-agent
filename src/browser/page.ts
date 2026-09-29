@@ -249,9 +249,12 @@ export async function createBrowserPage(deps: BrowserPageDeps): Promise<BrowserP
     sessionId,
 
     async navigate(url) {
-      // SSRF 卫生预检：web 件同一 execute 第三消费位（同在飞门同卫生件）
+      // SSRF 卫生预检：web 件同一 execute 第三消费位（同在飞门同卫生件）。
+      // 预检同享导航预算（十六役补扫 N15）：signal 缺席时仅 undici ~300s
+      // headersTimeout 兜底——慢挂 HEAD 占 4 席共享在飞门之一近 5 分钟；
+      // 超时/中止属普通失败（下方 catch 放行浏览器载体，不误伤导航本体）
       try {
-        await deps.web.fetch(url, { method: 'HEAD', consumer: 'navigate' });
+        await deps.web.fetch(url, { method: 'HEAD', consumer: 'navigate', signal: AbortSignal.timeout(navTimeoutMs) });
       } catch (err) {
         if (err instanceof BaseError) throw err; // WEB_ 族拦截——fail-closed 直传
         logger?.debug?.(`导航预检普通失败（放行浏览器载体）：${err instanceof Error ? err.message : String(err)}`);
