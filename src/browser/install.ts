@@ -5,7 +5,9 @@
  *   模型不可触发 150MB 级下载。
  * - **域白名单钉 Chromium for Testing 官方两域**：元数据
  *   googlechromelabs.github.io + 工件 storage.googleapis.com——元数据给出
- *   的下载 URL 同样过白名单（元数据被改也出不了白名单域）。
+ *   的下载 URL 同样过白名单（元数据被改也出不了白名单域）；**重定向逐跳
+ *   复检**（生产 face redirect 钉 manual 不自动跟随——3xx 逐跳解析 Location、
+ *   跳目标重跑白名单后才手动前进，跳帽防环；十六役扫 #17）。
  * - **流式落盘 + 摘要账本 TOFU 锚定**：首装计算 zip sha256 锚进
  *   `dataDir/browser/engine/ledger.json`；同版本重装摘要不符即拒执行
  *   （BROWSER_DIGEST_MISMATCH——fail-loud 不动盘）。
@@ -39,11 +41,18 @@ export const BROWSER_LEDGER_NAME = 'ledger.json';
 /** zip 体积帽（1.5GiB——防元数据被改指向巨型载荷的 sanity 防线） */
 export const BROWSER_ZIP_MAX_BYTES = 1.5 * 1024 * 1024 * 1024;
 
+/** 重定向跟随跳帽（manual 循环上限——防重定向环/长链；web/service.ts maxRedirects 同律） */
+export const BROWSER_REDIRECT_HOP_CAP = 5;
+
 /* ---------------- 窄面与结果 ---------------- */
 
 /** 流式下载窄面（生产 = 全局 fetch 包装；测试注入桩） */
 export interface BrowserDownloadFace {
-  /** 流式取（状态码 + 字节流；域白名单由 install 逻辑执法——face 只管字节） */
+  /**
+   * 流式取（状态码 + 字节流；首跳 URL 域白名单由 install 逻辑执法——face
+   * 不重复；生产 face 另承载重定向纪律：redirect 钉 manual 逐跳白名单
+   * 复检后手动前进，跳帽防环——见 defaultDownloadFace）
+   */
   fetchBinary(url: string): Promise<{ status: number; bytes: AsyncIterable<Uint8Array> }>;
 }
 
@@ -108,23 +117,53 @@ function executableRelOf(artifact: string): string {
 
 /* ---------------- 下载面（生产适配） ---------------- */
 
-/** 生产下载面（Node ≥22 全局 fetch——web 流转异步迭代） */
+/**
+ * 生产下载面（Node ≥22 全局 fetch——web 流转异步迭代）。重定向纪律（十六役
+ * 扫 #17）：redirect 钉 manual 不自动跟随——3xx 逐跳解析 Location、跳目标
+ * 重跑域白名单后才手动前进（跳帽防环）。修前全局 fetch 自动跟随：白名单域
+ * 应答 30x 即把字节流从白名单域外静默拉回（重定向是绕域主载体），头注
+ * 「元数据被改也出不了白名单域」承诺被结构性绕过、TOFU 首装锚到攻击者载荷。
+ * 首跳 URL 白名单仍由 install 逻辑执法（元数据 URL + 元数据给出的工件 URL
+ * 两读位——face 不重复该检查，注入桩面语义不变）。
+ */
 export function defaultDownloadFace(): BrowserDownloadFace {
   return {
     async fetchBinary(url) {
-      const res = await fetch(url);
-      if (res.body === null) {
-        // 无体应答（3xx 等）：空流形——状态码由调用方执法
-        return { status: res.status, bytes: (async function* () {})() };
+      let current = url;
+      for (let hops = 0; ; hops += 1) {
+        if (hops >= BROWSER_REDIRECT_HOP_CAP) {
+          throw new Error(`下载重定向触跳帽（${BROWSER_REDIRECT_HOP_CAP} 跳）：${url} → … → ${current}`);
+        }
+        const res = await fetch(current, { redirect: 'manual' });
+        if (res.status >= 300 && res.status < 400) {
+          const location = res.headers.get('location');
+          if (location !== null) {
+            // 跳转响应体从此必不被读——主动 cancel 释连接（service.ts 同纪律）
+            void res.body?.cancel().catch(() => {});
+            // 相对形 Location 以当前跳解析；非法形由 hostOf 折 '' 照样被白名单拒
+            const next = new URL(location, current).toString();
+            // 跳目标域复检（每跳重跑 hostOf 白名单——不自动跟随的执法位）
+            if (!BROWSER_DOWNLOAD_HOSTS.includes(hostOf(next))) {
+              throw new Error(`重定向目标域不在白名单：${next}（自 ${current}）`);
+            }
+            current = next;
+            continue;
+          }
+          // 3xx 无 Location——按终态返回（宽容不发明跳转——service.ts 同律）
+        }
+        if (res.body === null) {
+          // 无体应答（3xx 无 Location 等）：空流形——状态码由调用方执法
+          return { status: res.status, bytes: (async function* () {})() };
+        }
+        const body = res.body;
+        return {
+          status: res.status,
+          // web ReadableStream 在 Node ≥22 可异步迭代（for await 直读）
+          bytes: (async function* () {
+            for await (const chunk of body) yield chunk as Uint8Array;
+          })(),
+        };
       }
-      const body = res.body;
-      return {
-        status: res.status,
-        // web ReadableStream 在 Node ≥22 可异步迭代（for await 直读）
-        bytes: (async function* () {
-          for await (const chunk of body) yield chunk as Uint8Array;
-        })(),
-      };
     },
   };
 }

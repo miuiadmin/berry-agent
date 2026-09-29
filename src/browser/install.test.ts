@@ -8,7 +8,13 @@ import { describe, expect, it } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { defaultDownloadFace, installBrowserEngine, platformArtifact, unzipTo } from './install.js';
+import {
+  BROWSER_REDIRECT_HOP_CAP,
+  defaultDownloadFace,
+  installBrowserEngine,
+  platformArtifact,
+  unzipTo,
+} from './install.js';
 import type { BrowserDownloadFace, BrowserInstallDeps } from './install.js';
 import { discoverEngine } from './discover.js';
 import type { BrowserFsFace } from './types.js';
@@ -405,6 +411,9 @@ describe('installBrowserEngine', () => {
   });
 });
 
+/** fetch 桩签名（Parameters 推导——DOM lib 型名不在主 tsconfig lib 面） */
+type FetchArgs = Parameters<typeof fetch>;
+
 describe('defaultDownloadFace', () => {
   it('真进程回环腿：全局 fetch → 流式字节（localhost 真服务——零真网络先例）', async () => {
     const server = createServer((req, res) => {
@@ -437,6 +446,65 @@ describe('defaultDownloadFace', () => {
       expect(count).toBe(0);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('重定向逐跳 manual 跟随 + 跳目标恰白名单域（修前红：全局 fetch 自动跟随无逐跳执法）', async () => {
+    // fetch 桩：白名单域 302 → 白名单工件域 200（桩不模拟自动跟随——修前形
+    // 对 302 直返，逐跳纪律的缺席即红）
+    const calls: Array<{ url: string; redirect: string | undefined }> = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: FetchArgs[0], init?: FetchArgs[1]) => {
+      const url = String(input);
+      calls.push({ url, redirect: init?.redirect });
+      if (url.startsWith('https://googlechromelabs.github.io/')) {
+        return new Response(null, { status: 302, headers: { location: 'https://storage.googleapis.com/cft/hop.zip' } });
+      }
+      return new Response('zip-bytes');
+    }) as typeof fetch;
+    try {
+      const r = await defaultDownloadFace().fetchBinary('https://googlechromelabs.github.io/meta.json');
+      expect(r.status).toBe(200);
+      let text = '';
+      for await (const chunk of r.bytes) text += Buffer.from(chunk).toString('utf8');
+      expect(text).toBe('zip-bytes');
+      // 两跳都钉 manual（自动跟随禁律）+ 第二跳目标为白名单工件域
+      expect(calls.map((c) => c.redirect)).toEqual(['manual', 'manual']);
+      expect(calls[1]?.url).toBe('https://storage.googleapis.com/cft/hop.zip');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('跳目标白名单外拒——恶域连接零发起（修前红：30x 自动跟随把字节从白名单域外拉回）', async () => {
+    let evilFetched = false;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: FetchArgs[0]) => {
+      if (String(input).includes('evil.example')) evilFetched = true;
+      return new Response(null, { status: 302, headers: { location: 'https://evil.example/payload.zip' } });
+    }) as typeof fetch;
+    try {
+      await expect(defaultDownloadFace().fetchBinary('https://storage.googleapis.com/cft/zip')).rejects.toThrow(
+        '重定向目标域不在白名单',
+      );
+      expect(evilFetched).toBe(false); // 恶域连接零发起（拒在解析位不在连接位）
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('重定向环触跳帽拒（manual 循环上限防环——恰帽数跳后拒）', async () => {
+    let hops = 0;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      hops += 1; // 白名单域内自环——每跳仍 302（防环靠跳帽不靠域查）
+      return new Response(null, { status: 302, headers: { location: `https://storage.googleapis.com/next-${hops}` } });
+    }) as typeof fetch;
+    try {
+      await expect(defaultDownloadFace().fetchBinary('https://storage.googleapis.com/start')).rejects.toThrow('触跳帽');
+      expect(hops).toBe(BROWSER_REDIRECT_HOP_CAP); // 恰帽数跳（多一跳少一跳都是账目漂移）
+    } finally {
+      globalThis.fetch = realFetch;
     }
   });
 });
