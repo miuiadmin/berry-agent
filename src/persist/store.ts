@@ -324,6 +324,25 @@ export function sessionDisplayTitleOf(row: {
 }
 
 /**
+ * 读侧 JSON 列解码单源（十六役补扫 N11——05 §6.4「读侧 JSON 列解析失败 →
+ * fail-loud 拒误读」）：裸 JSON.parse 抛无码 SyntaxError（词面只剩
+ * "Unexpected token"——调用方无从分类、进程编舞无从折码），此处统一折
+ * PERSIST_DATA_CORRUPT 带 `where` 行定位（表.列 + 键位），store_state /
+ * credentials / model_catalog 四读位共用。宁拒勿猜——坏值不静默替默认
+ * （吞坏即误读：插件读回残卷 value 当 undefined 用是静默数据丢失形）。
+ */
+function parseJsonColumn(raw: string, where: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (err) {
+    throw new BaseError(
+      'PERSIST_DATA_CORRUPT',
+      `库内 JSON 列损坏（${where}）：${err instanceof Error ? err.message : String(err)}——宁拒勿猜，请人工检视`,
+    );
+  }
+}
+
+/**
  * 打开库（门禁序，05 §6.4/§6.5/§6.6）：
  * 目录确保（数据目录 0700 + 库父目录存在）→ 开库 → WAL 编舞（busy_timeout +
  * 探测 + 同步退避）→ 库文件 0600 自检修复 → 版本门禁（全新库单事务建链 /
@@ -355,6 +374,8 @@ export function openStore(options: OpenStoreOptions = {}): Store {
 
   // 版本门禁（先读后判；全新库单事务 = 建链原子性，05 §6.5）
   let version = readUserVersion(db);
+  // 全新库标记（十六役补扫 N10）：bootstrap 分支置位——备份腿据此豁免（见下）
+  let bootstrapped = false;
   if (version > headVersion) {
     db.close();
     throw new BaseError(
@@ -377,10 +398,15 @@ export function openStore(options: OpenStoreOptions = {}): Store {
     });
     bootstrap();
     version = SCHEMA_VERSION;
+    bootstrapped = true;
   }
   if (version < headVersion) {
-    // 低于 head：迁移前备份库文件（用户数据主权，05 §6.4）——内存库无从备份
-    if (!inMemory) {
+    // 低于 head：迁移前备份库文件（用户数据主权，05 §6.4）——内存库无从备份；
+    // 全新库豁免（十六役补扫 N10，05 §6.4 定形注）：bootstrap 刚建链置 v1，
+    // 库内无用户数据、备份对象只是空库（.bak-v1 残留纯噪音），「从 v1 升到
+    // head」warn 实为首次建库非升版（误导）。豁免仅及备份与 warn，迁移链
+    // 照跑——新库同路获得迁移项（正典 DDL 有意不折列，见链尾 v13 注）
+    if (!inMemory && !bootstrapped) {
       checkpointTruncate(db, warn);
       const backupPath = `${dbPath}.bak-v${version}`;
       copyFileSync(dbPath, backupPath);
@@ -1013,7 +1039,7 @@ export class Store implements WriteTarget {
     this.stmt(`UPDATE store_state SET last_accessed_at = ? WHERE key = ?`).run(this.clock(), key);
     return {
       key: row.key,
-      value: JSON.parse(row.value),
+      value: parseJsonColumn(row.value, `store_state.value[${row.key}]`),
       kind: row.kind,
       expiresAt: row.expires_at ?? undefined,
     };
@@ -1089,7 +1115,8 @@ export class Store implements WriteTarget {
       namespace: row.namespace,
       provider: row.provider,
       apiKey: decryptSecret(this.secretKey, row.api_key),
-      meta: row.meta === null ? undefined : JSON.parse(row.meta),
+      meta:
+        row.meta === null ? undefined : parseJsonColumn(row.meta, `credentials.meta[${row.namespace}/${row.provider}]`),
       updatedAt: row.updated_at,
     };
   }
@@ -1118,7 +1145,8 @@ export class Store implements WriteTarget {
     ).map((row) => ({
       namespace: row.namespace,
       provider: row.provider,
-      meta: row.meta === null ? undefined : JSON.parse(row.meta),
+      meta:
+        row.meta === null ? undefined : parseJsonColumn(row.meta, `credentials.meta[${row.namespace}/${row.provider}]`),
       updatedAt: row.updated_at,
     }));
   }
@@ -1151,7 +1179,7 @@ export class Store implements WriteTarget {
       id: row.id,
       provider: row.provider,
       label: row.label ?? undefined,
-      meta: row.meta === null ? undefined : JSON.parse(row.meta),
+      meta: row.meta === null ? undefined : parseJsonColumn(row.meta, `model_catalog.meta[${row.id}]`),
       updatedAt: row.updated_at,
     }));
   }

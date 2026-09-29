@@ -227,6 +227,23 @@ describe('开库门禁序（05 §6.4/§6.5）', () => {
     expect(existsSync(`${path}.bak-v1`)).toBe(true);
   });
 
+  it('全新库豁免迁移前备份（十六役补扫 N10）：带链首开零 .bak 残留零误导 warn，迁移链照跑', () => {
+    const path = join(dir, 'fresh-chain.db');
+    const warns: string[] = [];
+    // 全新库 + 迁移链首开 = 生产形（bootstrap 置 v1 → v1 < head=13）
+    const store = open({ dbPath: path, warn: (m) => warns.push(m) }); // 缺省链 = SESSION_ARCHIVE_MIGRATION v13
+    expect(store.headVersion).toBe(13);
+    // 迁移链照跑（豁免仅及备份与 warn）：user_version 到 head + v13 专列建就
+    expect(store.connection.pragma('user_version', { simple: true })).toBe(13);
+    const cols = store.connection.prepare(`SELECT name FROM pragma_table_info('sessions')`).all() as {
+      name: string;
+    }[];
+    expect(cols.map((c) => c.name)).toContain('first_question_summary');
+    // 零 .bak-v1 残留 + 零「迁移前备份」warn——刚建链的库无用户数据可备份
+    expect(existsSync(`${path}.bak-v1`)).toBe(false);
+    expect(warns.some((m) => m.includes('迁移前备份'))).toBe(false);
+  });
+
   it('数据跨开库存活（WAL 落盘语义 + 退出 checkpoint 收卷）', () => {
     const path = join(dir, 'durable.db');
     const a = open({ dbPath: path });
@@ -1040,6 +1057,26 @@ describe('credentials 与 model_catalog 面', () => {
     expect(store.listModels('anthropic')[0]!.meta).toEqual({ ctx: 200_000 });
     expect(store.deleteModel('openai/gpt-6')).toBe(true);
     expect(store.listModels()).toHaveLength(1);
+  });
+});
+
+describe('读侧 JSON 列 fail-loud（十六役补扫 N11——05 §6.4 PERSIST_DATA_CORRUPT）', () => {
+  it('四读位坏 JSON 列折码拒读——宁拒勿猜不静默替默认（修前裸 SyntaxError 无码裸抛）', () => {
+    const store = open({ dbPath: join(dir, 'corrupt.db'), migrations: [CREDENTIALS_MIGRATION] });
+    // 先写真值（行形合法——只脏 JSON 列），再直插坏 JSON 模拟残卷/外写形
+    store.setStoreState('k1', { a: 1 });
+    store.setCredential('host', 'anthropic', { apiKey: 'sk-x', meta: { r: 'us' } });
+    store.upsertModel({ id: 'p/m', provider: 'p', meta: { ctx: 1 } });
+    const db = store.connection;
+    db.prepare(`UPDATE store_state SET value = ? WHERE key = 'k1'`).run('{"a":');
+    db.prepare(`UPDATE credentials SET meta = ? WHERE namespace = 'host' AND provider = 'anthropic'`).run('[bad');
+    db.prepare(`UPDATE model_catalog SET meta = ? WHERE id = 'p/m'`).run('nope');
+    // 四读位统一折 PERSIST_DATA_CORRUPT（坏值不静默替 undefined/null——吞坏
+    // 即误读：插件读回残卷 value 当缺席用是静默数据丢失形）
+    expectCode(() => store.getStoreState('k1'), 'PERSIST_DATA_CORRUPT');
+    expectCode(() => store.getCredential('host', 'anthropic'), 'PERSIST_DATA_CORRUPT');
+    expectCode(() => store.listCredentialProviders(), 'PERSIST_DATA_CORRUPT');
+    expectCode(() => store.listModels(), 'PERSIST_DATA_CORRUPT');
   });
 });
 
