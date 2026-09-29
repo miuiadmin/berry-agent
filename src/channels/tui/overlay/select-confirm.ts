@@ -266,14 +266,22 @@ export class ConfirmPanel implements Renderable {
         buffer.setCell(region.row + r, region.col + c, ' ');
       }
     }
+    // 区域界守卫（同 SelectPanel 对称形——十六役扫 #1）：measureOverlayStack
+    // 逐层硬截后本面板可收到 height 0/1 的 region（极小终端/多层叠开余量耗
+    // 尽形），消息与键提示行不判高度会溢写越区行——键提示漏进编辑器框内
+    const bottom = region.row + region.height;
     // 消息与键提示行超宽 … 收口（区域 = 全终端宽——无帽裸裁静默丢段尾）
-    buffer.writeText(region.row, region.col, ellipsize(this.message, region.width));
-    buffer.writeText(
-      region.row + 1,
-      region.col,
-      ellipsize(`${this.confirmHint} · ${this.cancelHint}`, region.width),
-      HINT_STYLE,
-    );
+    if (region.row < bottom) {
+      buffer.writeText(region.row, region.col, ellipsize(this.message, region.width));
+    }
+    if (region.row + 1 < bottom) {
+      buffer.writeText(
+        region.row + 1,
+        region.col,
+        ellipsize(`${this.confirmHint} · ${this.cancelHint}`, region.width),
+        HINT_STYLE,
+      );
+    }
   }
 
   /**

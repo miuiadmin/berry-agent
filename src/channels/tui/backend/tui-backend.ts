@@ -421,6 +421,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /** input-ask 在飞体（null = 常态——提交落 onSubmit） */
   private inputAsk: InputAsk | null = null;
+  /** 排队问（异会话 FIFO——07 §4.3 定形注：在飞问未收场时新问入队不抢占） */
+  private inputQueue: InputAsk[] = [];
 
   /* ---- 呈现面件 4/5/6 态 ---- */
   private readonly todoFor: ((sessionId: string) => readonly TodoItem[] | null | undefined) | undefined;
@@ -1497,30 +1499,62 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 自由文本：input-ask 形——提示行入固定区 + 编辑器转应答车（提交即应答，
    * 弹层抑制）；signal abort → '' 保守值 + 残稿清框 + 撤销说明行（07 §4.3
    * 撤销面——提示行曾在固定区在屏，abort 收口正文流落 ⏹ 行）。
+   *
+   * 异会话 FIFO 队列化（07 §4.3 定形注——十六役扫 #2）：在飞问未收场时新问
+   * 入队候接（不抢占队首——修前直覆使先问 promise 永悬）；应答/取消收场后
+   * 队首自动晋升接续。排队问 abort = 静默出队保守值 ''（提示行从未上屏——
+   * 不落撤销说明行）。
    */
   input(message: string, opts?: UiInputOptions): Promise<string> {
     return new Promise<string>((resolve) => {
       const ask: InputAsk = { message, resolve };
-      this.inputAsk = ask;
-      this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
-      this.autocompleteCompleter.cancel(); // 应答期弹层抑制：撤窗 + 在途作废
-      this.popup.applyResult(null); // 在层即刻收层
+      // abort 分派按收场时态判（排队→激活两态同一监听——入队后才 abort 的
+      // 排队问仍走激活态撤销面，不因注册时态漏接）
       opts?.signal?.addEventListener(
         'abort',
         () => {
-          if (this.inputAsk !== ask) return; // 已应答收场——迟到 abort no-op（无说明行）
-          this.inputAsk = null;
-          this.appendTransientLine('⏹ 已取消提问');
-          this.editor.setText('');
-          this.autocompleteCompleter.cancel();
-          this.popup.applyResult(null);
-          resolve('');
-          this.touchFixed();
+          if (this.inputAsk === ask) {
+            // 激活态 abort：撤销说明行 + 残稿清框（07 §4.3 撤销面）
+            this.inputAsk = null;
+            this.appendTransientLine('⏹ 已取消提问');
+            this.editor.setText('');
+            this.autocompleteCompleter.cancel();
+            this.popup.applyResult(null);
+            resolve('');
+            this.continueInputQueue();
+          } else {
+            // 排队态 abort：静默出队（从未上屏——不落撤销说明行）
+            const idx = this.inputQueue.indexOf(ask);
+            if (idx === -1) return; // 已应答收场——迟到 abort no-op
+            this.inputQueue.splice(idx, 1);
+            resolve('');
+          }
+          this.touchFixed(); // 提示行排队数缀标随帧刷新
         },
         { once: true },
       );
-      this.touchFixed();
+      if (this.inputAsk !== null) {
+        this.inputQueue.push(ask); // 在飞问在场：入队候接（FIFO）
+        this.touchFixed(); // 提示行排队数缀标随帧刷新
+      } else {
+        this.activateInputAsk(ask);
+      }
     });
+  }
+
+  /** 队首问激活（首问直入与队列出队接续共用——清框 + 弹层抑制 + 请帧） */
+  private activateInputAsk(ask: InputAsk): void {
+    this.inputAsk = ask;
+    this.editor.setText(''); // 应答起始清框（草稿让位——提交路模型自清）
+    this.autocompleteCompleter.cancel(); // 应答期弹层抑制：撤窗 + 在途作废
+    this.popup.applyResult(null); // 在层即刻收层
+    this.touchFixed();
+  }
+
+  /** 出队接续（应答/取消收场后队首晋升——FIFO 串行链不断） */
+  private continueInputQueue(): void {
+    const next = this.inputQueue.shift();
+    if (next !== undefined) this.activateInputAsk(next);
   }
 
   /**
@@ -1688,6 +1722,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       ask.resolve(text);
       this.autocompleteCompleter.cancel(); // 应答收场：撤窗 + 在途作废（下轮 ask 重开）
       this.popup.applyResult(null); // 应答期抑制的补全层即刻收层
+      this.continueInputQueue(); // 队首晋升接续（FIFO——十六役扫 #2）
       this.touchFixed();
       return;
     }
@@ -2225,10 +2260,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 段三：input-ask 提示行（应答期编辑器转应答车的引导位——恒保不截）。
     // overlay 占焦期明示（件 3）：栈非空时键盘路由进栈顶面板、编辑器收不到
     // 字——裸问句呈现为「可作答」与路由矛盾，补「待收场」标注让「问不丢
-    // 但要等」对用户诚实（AskQueue 异会话并行形——串行化裁决另立题挂账）
+    // 但要等」对用户诚实。异会话 FIFO 队列化（十六役扫 #2——07 §4.3 定形
+    // 注）：排队问不上屏，队首提示行缀排队数明示「后面还有几问」
     if (this.inputAsk !== null) {
       const waiting = this.stack.size > 0 ? '（等上方面板收场后作答）' : '';
-      grid.writeText(row, 0, `? ${this.inputAsk.message}${waiting}`, { dim: true });
+      const queued = this.inputQueue.length > 0 ? `（后面还有 ${this.inputQueue.length} 问排队）` : '';
+      grid.writeText(row, 0, `? ${this.inputAsk.message}${waiting}${queued}`, { dim: true });
       row += 1;
     }
 

@@ -3511,6 +3511,10 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     // 编辑器/状态行全冻结（模态开屏即黑）；修后 overlay 收 0 行让位、编辑器
     // 与状态行照常渲染（confirm 文案在 5 行屏无预算可占属诚实取舍，键盘照答）
     expect(io.bytes).toContain('┌'); // 编辑器边框在场（固定区活着）
+    // 十六役扫 #1 追锁：0 行 region 下消息/键提示行不得溢写越区——修前
+    // 键提示整段漏进编辑器输入框内（'e' 被左边框覆写成 'nter/y …'）
+    expect(io.bytes).not.toContain('nter/y 确认');
+    expect(io.bytes).not.toContain('小屏确认');
     io.emitInput('\r');
     pump();
     await expect(pc).resolves.toBe(true); // 键盘照路由（0 行层仍可应答）
@@ -3530,6 +3534,48 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     io.emitInput('hello\r'); // 收场后编辑器复焦——应答乙提问
     pump();
     await expect(pi).resolves.toBe('hello'); // 问不丢（待收场后语义完整）
+  });
+
+  it('input 异会话 FIFO 队列（十六役扫 #2）：两问并发——队首独占、提示行缀排队数、提交后次问自动接续（修前红：第二问直覆第一问——首问 promise 永悬无收场路）', async () => {
+    const { io, backend, pump } = makeInteractive({}, 24);
+    const p1 = backend.input('第一问');
+    const p2 = backend.input('第二问');
+    pump();
+    // 修前：inputAsk 直覆——'? 第二问' 在屏、p1 永悬（无收场路也无人应答）
+    expect(io.bytes).toContain('? 第一问');
+    expect(io.bytes).not.toContain('? 第二问'); // 排队问不上屏
+    expect(io.bytes).toContain('后面还有 1 问排队'); // 排队数缀标
+    io.emitInput('甲\r'); // 队首应答
+    pump();
+    await expect(p1).resolves.toBe('甲');
+    expect(io.bytes).toContain('? 第二问'); // 次问自动晋升接续（FIFO 串行链）
+    io.emitInput('乙\r');
+    pump();
+    await expect(p2).resolves.toBe('乙');
+  });
+
+  it('input 排队问 abort 静默出队 + 队首 abort 接续（十六役扫 #2）：从未上屏不落撤销行、保守值收口；激活态取消后队首晋升', async () => {
+    const { io, backend, pump } = makeInteractive({}, 24);
+    const ac1 = new AbortController();
+    const ac2 = new AbortController();
+    const p1 = backend.input('第一问', { signal: ac1.signal });
+    const p2 = backend.input('第二问', { signal: ac2.signal });
+    const p3 = backend.input('第三问');
+    pump();
+    ac2.abort(); // 排队问取消——静默出队（提示行从未上屏）
+    pump();
+    await expect(p2).resolves.toBe(''); // 保守值收口
+    expect(io.bytes).not.toContain('已取消提问'); // 从未上屏——不落撤销说明行
+    expect(io.bytes).toContain('? 第一问'); // 队首不受扰
+    io.bytes = ''; // 清零——后续只认取消帧增量
+    ac1.abort(); // 队首 abort——激活态撤销面 + 第三问晋升接续
+    pump();
+    await expect(p1).resolves.toBe('');
+    expect(io.bytes).toContain('已取消提问'); // 撤销说明行（曾在屏者——07 §4.3 撤销面）
+    expect(io.bytes).toContain('? 第三问'); // 队首晋升（FIFO 链不断）
+    io.emitInput('丁\r');
+    pump();
+    await expect(p3).resolves.toBe('丁');
   });
 });
 
