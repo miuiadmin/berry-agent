@@ -968,7 +968,7 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     await until(() => faux.state.callCount >= 1); // 首 run 在飞（响应挂起——busy 窗口）
     io.send('候跑问');
     io.send('\x1b[13;3u'); // alt+enter（kitty 形）——候跑提交
-    await until(() => io.output.includes('已排队候跑')); // 排队回执一行（notify 面）
+    await until(() => io.output.includes('已排队（当前回复结束后自动开始）')); // 排队回执一行（notify 面）
     expect(faux.state.callCount).toBe(1); // 候跑未顶注在飞 run（零新调用）
     releaseFirst(); // 首 run 放行——候跑件种子新起 run
     await until(() => faux.state.callCount >= 2);
@@ -1302,7 +1302,7 @@ describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第�
     // ——该指路对自定义渠道永不生效）
     expect(io.output).not.toContain('MY_GW_API_KEY');
     // envExample 缺席序号重排：途径首条（「1.」位）= 凭证表绑定行（唯一有效途径）
-    expect(io.output).toContain('1. 凭证表绑定行');
+    expect(io.output).toContain('1. 绑定到模型渠道');
     io.send('\x04'); // ctrl+d 空框退出
     expect(await entry).toBe(0);
   });

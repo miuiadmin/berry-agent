@@ -130,7 +130,7 @@ describe('get 越域读——namespace 值域好形判（同码分流第一档�
     (ns) => {
       const { face } = rigFace({ store: openTestStore() });
       const err = expectCode(() => face.get('token', { namespace: ns }), 'CREDENTIALS_NAMESPACE_DENIED');
-      expect(err.message).toContain('坏形');
+      expect(err.message).toContain('不合法');
     },
   );
 });

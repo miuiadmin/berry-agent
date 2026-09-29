@@ -108,7 +108,7 @@ describe('fetchChannelModels（三态回执 + 协议头分叉）', () => {
       { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
       { fetchImpl, resolveDns: publicDns },
     );
-    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('越体帽') });
+    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('清单文档过大') });
   });
 
   it('超时帽：应答慢于注入 timeoutMs 即折 failed（8s 缺省帽的注入位证明）', async () => {
@@ -146,13 +146,13 @@ describe('R-2 加固批（体帽流式前置 + 外层 race 覆盖 DNS 腿 + 守�
     });
   }
 
-  it('体帽流式前置：无 content-length 声明 + 首 chunk 越帽即拒（不等流尾）——修前红：text() 挂到 signal 超时折超时形（message 不含越体帽）', async () => {
+  it('体帽流式前置：无 content-length 声明 + 首 chunk 超限即拒（不等流尾）——修前红：text() 挂到 signal 超时折超时形（message 不含过大提示）', async () => {
     const fetchImpl: FetchLike = async () => new Response(oversizedStream(300 * 1024), { status: 200 }); // 无 content-length 头
     const result = await fetchChannelModels(
       { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
       { fetchImpl, resolveDns: publicDns, timeoutMs: 3_000 }, // 帽远大于正常返回——修前挂满 3s 折超时形
     );
-    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('越体帽') });
+    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('清单文档过大') });
   });
 
   it('外层 race 覆盖 DNS 腿：DNS 解析挂死也在帽内折 failed（AbortSignal 只管 fetch 管线不管守卫 DNS 腿）——修前红：await assertPublicHost 挂死测试侧兜赢', async () => {

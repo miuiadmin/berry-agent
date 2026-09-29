@@ -176,7 +176,7 @@ export function createSecretsFace(options: SecretsFaceOptions): SecretsService {
       if (target !== 'host' && !isPluginNamespace(target)) {
         throw new BaseError(
           'CREDENTIALS_NAMESPACE_DENIED',
-          `namespace「${target}」坏形——值域 = 'host' | 'plugin:<id>'（03 §10.9 namespace 归属列值域单源，types.ts 判据）`,
+          `namespace「${target}」不合法——可用值：host 或 plugin:<插件id>`,
         );
       }
       // 门检（§4.6——credentials.read-cross 默认关）。core: 官方件直开豁免

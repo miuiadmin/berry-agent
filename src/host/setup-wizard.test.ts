@@ -357,7 +357,7 @@ describe('runSetupWizard 自定义渠道新建腿', () => {
     // 活注册（两写皆成后）+ 切模型拒零调用
     expect(log.registered.map((r) => r.id)).toEqual(['my-relay']);
     expect(log.switched).toEqual([]);
-    expect(recorded.outros.at(-1)?.lines.join('\n')).toContain('当场生效');
+    expect(recorded.outros.at(-1)?.lines.join('\n')).toContain('立即生效');
   });
 
   it('切模型允：select 模型 → switchModel 全形', async () => {
@@ -459,7 +459,7 @@ describe('runSetupWizard 自定义渠道新建腿', () => {
     expect(log.savedBindings).toHaveLength(1); // 凭证行已写（写序第一步）
     expect(log.registered).toEqual([]); // 不活注册
     const outro = recorded.outros.at(-1)!;
-    expect(outro.title).toContain('半应用');
+    expect(outro.title).toContain('部分完成');
     // #24 翻档：指路改可达形——渠道未落库、重入清单无此条，「编辑配置」指路退役
     expect(outro.lines.join('\n')).toContain('重新配置');
   });
@@ -570,7 +570,7 @@ describe('删除腿三联动与回执诚实化（R-1 评审修复役——修前
     expect(log.unregistered).toEqual(['my-gw']);
     // outro 诚实呈报：当场生效（与保存腿活注册对称的「当场失效」）
     const outro = recorded.outros.at(-1)!;
-    expect(outro.lines.join('\n')).toContain('当场生效');
+    expect(outro.lines.join('\n')).toContain('立即生效');
   });
 
   it('模型复位回执：当前模型停在被删渠道 → unregister 回执 modelReset 透传 outro 点名（修前红：无复位呈报）', async () => {
@@ -1025,7 +1025,7 @@ describe('评审修复役 Lane A：回执诚实面（#16/#24）', () => {
     await runSetupWizard(deps);
     expect(log.savedBindings).toHaveLength(1); // 凭证行已成（写序第一步）
     const outro = recorded.outros.at(-1)!;
-    expect(outro.title).toContain('半应用');
+    expect(outro.title).toContain('部分完成');
     expect(outro.lines.join('\n')).toContain('未进渠道清单');
     expect(outro.lines.join('\n')).toContain('重新配置');
     expect(outro.lines.join('\n')).not.toContain('编辑配置'); // 不可达指路退役

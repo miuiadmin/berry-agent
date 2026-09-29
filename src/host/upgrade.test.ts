@@ -198,7 +198,7 @@ describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
     }));
     const result = await fetchDistTags('https://r.example.com', { fetchImpl: oversized });
     expect(result).toMatchObject({ kind: 'failed' });
-    expect(result.kind === 'failed' && result.message).toContain('越体帽');
+    expect(result.kind === 'failed' && result.message).toContain('文档过大');
   });
 
   it('请求带 AbortSignal 超时帽 + 零请求体（传输帽契约面——帽不只落在体侧）', async () => {
@@ -218,7 +218,7 @@ describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
     const huge = fakeFetch(() => ({ status: 200, body: 'x'.repeat(UPDATE_CHECK_MAX_BYTES + 1) }));
     const result = await fetchDistTags('https://r.example.com', { fetchImpl: huge });
     expect(result).toMatchObject({ kind: 'failed' });
-    expect(result.kind === 'failed' && result.message).toContain('越体帽');
+    expect(result.kind === 'failed' && result.message).toContain('文档过大');
   });
 
   it('网络错/超时 → failed 静默形（不 throw）', async () => {

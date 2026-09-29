@@ -140,7 +140,7 @@ export class MarketplaceTuiFace {
   private install(id: string): void {
     if (this.busyGate(`install ${id}`)) return;
     void this.runLong(
-      `装机在飞中（marketplace install ${id}）`,
+      `正在安装（marketplace install ${id}）`,
       { sub: 'install', id },
       {
         verb: `marketplace install ${id}`,
@@ -185,7 +185,7 @@ export class MarketplaceTuiFace {
           return;
         }
         // 第三相 execute（confirm:true + dataAction 三分裁决入）——槽连续持有不断档
-        this.model.busyLabel = `卸载在飞中（marketplace uninstall ${id}）`;
+        this.model.busyLabel = `正在卸载（marketplace uninstall ${id}）`;
         this.model.results = [];
         this.deps.repaint();
         const execute = await this.captureRun({ sub: 'uninstall', id, confirm: true, dataAction: choice });
@@ -207,7 +207,7 @@ export class MarketplaceTuiFace {
   private upgrade(id: string): void {
     if (this.busyGate(`upgrade ${id}`)) return;
     void this.runLong(
-      `换装在飞中（marketplace upgrade ${id}）`,
+      `正在升级（marketplace upgrade ${id}）`,
       { sub: 'upgrade', id },
       {
         verb: `marketplace upgrade ${id}`,
@@ -228,7 +228,7 @@ export class MarketplaceTuiFace {
       return;
     }
     void this.runLong(
-      '市场刷新在飞中（marketplace update——恒回源强制重取）',
+      '正在刷新市场（marketplace update）',
       { sub: 'update' },
       {
         verb: 'marketplace update',
@@ -245,7 +245,7 @@ export class MarketplaceTuiFace {
    */
   private busyGate(verb: string): boolean {
     if (this.model.busyLabel === null) return false;
-    this.deps.notify(`marketplace ${verb} 未发——长动作在飞（${this.model.busyLabel}），收场后再试`, {
+    this.deps.notify(`marketplace ${verb} 未发——有操作进行中（${this.model.busyLabel}），完成后可重试`, {
       level: 'warn',
     });
     return true;
@@ -291,7 +291,7 @@ export class MarketplaceTuiFace {
    * 是该窗内唯一反馈（notify 瞬时行——回执文本归因 marketplace）。
    */
   private startNotify(verb: string): void {
-    this.deps.notify(`${verb} 开跑——结束另行通知（回执届时见 /marketplace 面板）`, { level: 'info' });
+    this.deps.notify(`${verb} 已开始——结束时通知（回执届时见 /marketplace 面板）`, { level: 'info' });
   }
 
   /**

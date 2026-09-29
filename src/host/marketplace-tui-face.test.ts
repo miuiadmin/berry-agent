@@ -298,7 +298,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     rig.actions().install('hello-plugin@alpha');
     await flush(2);
     // 段一：busy 置位 + 旧回执清 + repaint 已请（fire-and-forget 不阻塞调用面）
-    expect(model.busyLabel).toContain('装机在飞中');
+    expect(model.busyLabel).toContain('正在安装');
     expect(model.busyLabel).toContain('hello-plugin@alpha');
     expect(model.results).toEqual([]);
     expect(rig.repaint).toHaveBeenCalled();
@@ -338,7 +338,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     const rejects = rig.notify.mock.calls.filter((call) => String(call[0]).includes('未发'));
     expect(rejects).toHaveLength(3);
     for (const call of rejects) {
-      expect(String(call[0])).toContain('装机在飞中'); // busyLabel 原文嵌入（fail-loud 不猜语义）
+      expect(String(call[0])).toContain('正在安装'); // busyLabel 原文嵌入（fail-loud 不猜语义）
       expect(call[1]).toEqual({ level: 'warn' });
     }
     expect(model.busyLabel).not.toBeNull(); // 第一笔不受扰
@@ -391,7 +391,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     const model = rig.model();
     rig.actions().upgrade('hello-plugin@alpha');
     // busy 置位同步观察（runLong 首个 await 前已置——假件立即决议，flush 后即 settle）
-    expect(model.busyLabel).toContain('换装在飞中');
+    expect(model.busyLabel).toContain('正在升级');
     expect(rig.runEntry).toHaveBeenCalledWith({ sub: 'upgrade', id: 'hello-plugin@alpha' }, expect.anything());
     await flush();
     expect(model.busyLabel).toBeNull();
@@ -413,7 +413,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     rig.setInstalledKeys(new Set<string>());
     rig.actions().refresh();
     // busy 置位同步观察（runLong 首个 await 前已置——假件微任务决议，flush 后即 settle）
-    expect(model.busyLabel).toContain('市场刷新在飞中');
+    expect(model.busyLabel).toContain('正在刷新市场');
     await flush();
     expect(model.busyLabel).toBeNull();
     expect(model.results.join('\n')).toContain('alpha：已刷新');
@@ -487,7 +487,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     // 在飞窗（runEntry 未决）：开跑行已 notify——enter 路副屏已收，本行是 30s+ 等待期主屏唯一反馈
     expect(rig.runEntry).toHaveBeenCalledTimes(1);
     const inflight = rig.notify.mock.calls.map((call) => String(call[0]));
-    const startIdx = inflight.findIndex((m) => m.includes('marketplace install hello-plugin@alpha 开跑'));
+    const startIdx = inflight.findIndex((m) => m.includes('marketplace install hello-plugin@alpha 已开始'));
     expect(startIdx).toBeGreaterThanOrEqual(0);
     expect(rig.notify.mock.calls[startIdx]![1]).toEqual({ level: 'info' });
     expect(inflight.some((m) => m.includes('marketplace install hello-plugin@alpha 完成'))).toBe(false); // 结束行未到
@@ -509,7 +509,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     await flush(2);
     expect(rig.runEntry).toHaveBeenCalledTimes(1);
     const inflight = rig.notify.mock.calls.map((call) => String(call[0]));
-    const startIdx = inflight.findIndex((m) => m.includes('marketplace upgrade hello-plugin@alpha 开跑'));
+    const startIdx = inflight.findIndex((m) => m.includes('marketplace upgrade hello-plugin@alpha 已开始'));
     expect(startIdx).toBeGreaterThanOrEqual(0);
     expect(inflight.some((m) => m.includes('marketplace upgrade hello-plugin@alpha 完成'))).toBe(false);
     gate.resolve(0);
@@ -530,7 +530,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     await flush(2);
     expect(rig.runEntry).toHaveBeenCalledTimes(1);
     const inflight = rig.notify.mock.calls.map((call) => String(call[0]));
-    const startIdx = inflight.findIndex((m) => m.includes('marketplace update 开跑'));
+    const startIdx = inflight.findIndex((m) => m.includes('marketplace update 已开始'));
     expect(startIdx).toBeGreaterThanOrEqual(0);
     expect(inflight.some((m) => m.includes('marketplace update 完成'))).toBe(false);
     gate.resolve(0);
@@ -670,18 +670,18 @@ describe('MarketplaceTuiFace 双相 uninstall', () => {
     await flush(2);
     // 第一相 inspect 未决期：开跑行已到（起跑位 = inspect——裁决窗也算在飞期）
     const phase1 = rig.notify.mock.calls.map((c) => String(c[0]));
-    expect(phase1.some((m) => m.includes('marketplace uninstall hello-plugin@alpha 开跑'))).toBe(true);
+    expect(phase1.some((m) => m.includes('marketplace uninstall hello-plugin@alpha 已开始'))).toBe(true);
     inspectGate.resolve(0);
     await flush();
     // 第二相 execute 在飞窗：开跑行仍恰一行（execute 相不再发第二行）
     expect(rig.runEntry).toHaveBeenCalledTimes(2);
     const phase2 = rig.notify.mock.calls.map((c) => String(c[0]));
-    expect(phase2.filter((m) => m.includes('开跑'))).toHaveLength(1);
+    expect(phase2.filter((m) => m.includes('已开始'))).toHaveLength(1);
     executeGate.resolve(0);
     await flush();
     // 全程收口：恰一行开跑 + 结束行（完成归因）随后
     const phase3 = rig.notify.mock.calls.map((c) => String(c[0]));
-    expect(phase3.filter((m) => m.includes('开跑'))).toHaveLength(1);
+    expect(phase3.filter((m) => m.includes('已开始'))).toHaveLength(1);
     expect(phase3.some((m) => m.includes('marketplace uninstall hello-plugin@alpha 完成'))).toBe(true);
   });
 });

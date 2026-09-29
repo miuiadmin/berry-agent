@@ -368,7 +368,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         'sdk-http-face',
       );
       if (sdkKit === undefined) {
-        process.stderr.write('warn：core:sdk 件未装载——--port 人面不开（07 §5 daemon 拒启同族；TUI 屏不受累）\n');
+        process.stderr.write('warn：Web 界面组件未安装——--port 不生效（不影响 TUI 本身）\n');
       } else {
         const mountKit = scope.tryGet<WebuiMountKit>('webui-face-mount');
         webuiMounted = mountKit !== undefined;
@@ -645,13 +645,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // selectTheme）。当前档 = backend 活值（选定即时更新——观测位单源）。
       const dataDir = runtime.dataDir;
       const entries = [
-        { name: 'auto', detail: '跟随终端明暗（OSC 11 探测）', broken: false },
+        { name: 'auto', detail: '跟随终端明暗（自动检测）', broken: false },
         { name: 'dark', detail: '内置暗色', broken: false },
         { name: 'light', detail: '内置亮色', broken: false },
         ...(dataDir !== null
           ? listCustomThemeNames(dataDir).map((name) => ({
               name,
-              detail: '自定义（themes/<名>.json 键级覆盖）',
+              detail: '自定义（themes/<名>.json）',
               broken: loadCustomThemeColors(dataDir, name, { warn: () => {} }) === null,
             }))
           : []),
@@ -670,7 +670,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const sid = stack.channels.focusedId ?? session.sessionId;
       const driver = stack.driverOf(sid);
       if (driver === undefined) {
-        backend.notify('思考档位需要会话驱动在场（切焦后重试）', { level: 'warn' });
+        backend.notify('思考档位需要先进入一个会话（切换会话后重试）', { level: 'warn' });
         return;
       }
       setSessionThinkingLevel(driver.session, level);
@@ -720,7 +720,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const sid = stack.channels.focusedId ?? session.sessionId;
       const driver = stack.driverOf(sid);
       if (driver === undefined) {
-        backend.notify('沙箱档位需要会话驱动在场（切焦后重试）', { level: 'warn' });
+        backend.notify('沙箱档位需要先进入一个会话（切换会话后重试）', { level: 'warn' });
         return;
       }
       setSessionMode(driver.session, mode);
@@ -761,7 +761,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const sid = stack.channels.focusedId ?? session.sessionId;
       const driver = stack.driverOf(sid);
       if (driver === undefined) {
-        backend.notify('会话驱动不在场——无改动可聚合', { level: 'warn' });
+        backend.notify('当前没有活动会话——没有可展示的改动', { level: 'warn' });
         return;
       }
       if (!backend.openDiff(driver.session.projection())) {
@@ -933,7 +933,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             title: '模型配置',
             lines: [
               '/setup 向导：选渠道（官方/自定义网关）→ 录 API key（明文）→ 立即生效',
-              'env 供血（如 export ANTHROPIC_API_KEY=sk-…）· BERRY_AGENT_MODEL=provider/model 换模型——详见 docs/usage.md「模型配置」节',
+              '环境变量方式（如 export ANTHROPIC_API_KEY=sk-…）· BERRY_AGENT_MODEL=provider/model 换模型——详见 docs/usage.md「模型配置」节',
             ],
           },
           {
@@ -1073,7 +1073,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           // 流程侧已保 probeModelOf 非 undefined 才达此位——spec 缺席属并发
           // 换代窗防御（折失败数据不炸向导）
           if (spec === undefined) {
-            return Promise.resolve({ ok: false, detail: '模型目录已换代（无注册模型可探）' });
+            return Promise.resolve({ ok: false, detail: '模型列表已更新（当前无可用模型）' });
           }
           return stack.probeModelConnectivity(spec, apiKey, {
             sessionId: stack.channels.focusedId ?? session.sessionId,
@@ -1154,14 +1154,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         description: '新建会话并切焦（同 cwd——旧会话不动，/sessions 可回切）',
         run: () => startNewSession(),
       },
-      { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境旋钮）', run: () => openStatusPanel() },
+      { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境变量）', run: () => openStatusPanel() },
       {
         name: 'setup',
         description: '模型配置向导（选渠道/自定义网关 → 录 key → 立即生效，可选连通验证）',
         run: () => openSetupWizard(),
       },
       { name: 'debug', description: '调试信息副屏（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },
-      { name: 'skills', description: '技能清单副屏（enter 回填调用形入输入框）', run: () => openSkillsPanel() },
+      { name: 'skills', description: '技能清单副屏（enter 填入输入框）', run: () => openSkillsPanel() },
       { name: 'themes', description: '主题切换副屏（选定即换装+持久化）', run: () => openThemesPanel() },
       {
         name: 'thinking',
@@ -1216,7 +1216,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // 提交后再读恒真（首条误报排队）。notify 走 backend 直投（closure 捕
         // 获构造后柄——仅输入期触发无 TDZ）
         if (opts?.queueFollowUp === true && (stack.driverOf(sessionId)?.running ?? false)) {
-          backend.notify('已排队候跑（当前 run 终态后自动起跑）', { level: 'info' });
+          backend.notify('已排队（当前回复结束后自动开始）', { level: 'info' });
         }
         // 候跑标记透传（SubmitOptions.queueFollowUp——04 §4）：普通形不带 opts
         // 保持旧调用形（undefined 与 {} 对驱动同义，零扰动）
@@ -1250,7 +1250,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         const index = specs.indexOf(stack.model);
         const next = specs[(index + 1) % specs.length]!; // 不在册（-1+1=0）→ 装配序首位
         stack.setModel(next);
-        backend.notify(`模型已切换：${next}（下一 run 起跑生效）`, { level: 'info' });
+        backend.notify(`模型已切换：${next}（下一轮对话起生效）`, { level: 'info' });
         backend.setFooterModel(modelShortName(next));
       },
       onQuit: () => quitResolve(),
@@ -1466,7 +1466,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           backend.notify('帮助面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
         }
       },
-      '命令与键位帮助（命令册 + 键位册双源）',
+      '命令与键位帮助',
     );
 
     // webui 开面横幅（18a-3'）：TuiBackend 起屏后经 channels.notify 扇出——

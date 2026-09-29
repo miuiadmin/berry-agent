@@ -26,10 +26,10 @@ import type { CredentialChangedPayload } from './secrets.js';
 
 /** 用法文案（TUI 命令 description 位与用法错指路共用单源；oauth 动词 TUI 面承载——CLI 零装配无注册表不载） */
 export const CREDENTIALS_USAGE = [
-  '用法：/credentials add <name> <value> [--namespace <ns>] [--model-provider <providerId>] —— 录入静态凭证（缺省 host 域；值含空格用引号包裹；--model-provider 写模型绑定行——录入即进模型腿供血面）',
+  '用法：/credentials add <name> <value> [--namespace <ns>] [--model-provider <providerId>] —— 录入静态凭证（缺省 host 域；值含空格用引号包裹；--model-provider 把该凭证绑定到指定模型渠道——录入即可被该渠道使用）',
   '　　　/credentials list —— 全域列示（namespace/名/来源/模型绑定/值/更新时间——值列直呈〔全明文〕）',
   '　　　/credentials rm <name> [--namespace <ns>] —— 撤销凭证（删除唯一路径）',
-  '　　　/credentials oauth <pluginId> [<name>] —— 发起插件 oauth 授权流（device-code；域随流主人）',
+  '　　　/credentials oauth <pluginId> [<name>] —— 发起插件 oauth 授权（device-code；归属由发起授权的插件决定）',
 ].join('\n');
 
 /**
@@ -160,13 +160,13 @@ export function parseCredentialsArgv(
   if (verb === 'oauth') {
     if (namespace !== undefined) {
       // 域随流主人（token 落插件自域）——oauth 不收 --namespace
-      return { ok: false, message: `oauth 不收 --namespace（域随流主人——token 落插件自域）。\n${CREDENTIALS_USAGE}` };
+      return { ok: false, message: `oauth 不收 --namespace（令牌存在发起授权的插件名下）。\n${CREDENTIALS_USAGE}` };
     }
     if (modelProvider !== undefined) {
       // oauth 流不产模型绑定（token 落插件自域非 host 域供血位）——与 --namespace 同拒
       return {
         ok: false,
-        message: `oauth 不收 --model-provider（流产物是插件 token 非模型绑定行）。\n${CREDENTIALS_USAGE}`,
+        message: `oauth 不收 --model-provider（oauth 换来的是插件令牌，不是模型凭证）。\n${CREDENTIALS_USAGE}`,
       };
     }
     if (literals.length < 1 || literals.length > 2) {
@@ -204,7 +204,7 @@ export function runCredentialsCommand(sub: CredentialsSub, deps: CredentialsComm
         // 分流先取）——直入仍诚实回执不炸
         return {
           ok: false,
-          text: 'oauth 动词是运行时承载（需流注册表 + fetch）——TUI 内用 /credentials oauth；CLI 面不可用。',
+          text: 'oauth 仅 TUI 内可用——命令行不支持，请在 TUI 里用 /credentials oauth。',
         };
     }
   } catch (err) {
@@ -221,7 +221,7 @@ function resolveNamespace(namespace: string | undefined): string {
   if (namespace !== HOST_NAMESPACE && !isPluginNamespace(namespace)) {
     throw new BaseError(
       'CREDENTIALS_NAMESPACE_DENIED',
-      `namespace「${namespace}」坏形——值域 = 'host' | 'plugin:<id>'（03 §10.9 namespace 归属列值域单源）`,
+      `namespace「${namespace}」不合法——可用值：host 或 plugin:<插件id>`,
     );
   }
   return namespace;

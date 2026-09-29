@@ -217,11 +217,11 @@ export async function fetchDistTags(
     // 体帽双闸：content-length 头先验（在场越帽即拒不下载）+ 读回长度复验
     const declared = response.headers?.get?.('content-length');
     if (declared !== undefined && declared !== null && Number(declared) > UPDATE_CHECK_MAX_BYTES) {
-      return { kind: 'failed', message: `dist-tags 文档越体帽（${declared} bytes）` };
+      return { kind: 'failed', message: `dist-tags 文档过大（${declared} bytes）` };
     }
     const text = await response.text();
     if (text.length > UPDATE_CHECK_MAX_BYTES) {
-      return { kind: 'failed', message: `dist-tags 文档越体帽（${text.length} bytes）` };
+      return { kind: 'failed', message: `dist-tags 文档过大（${text.length} bytes）` };
     }
     const parsed = JSON.parse(text) as { latest?: unknown };
     if (typeof parsed.latest !== 'string' || parsed.latest === '') {

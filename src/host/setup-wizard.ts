@@ -709,7 +709,7 @@ async function confirmAndSaveCustom(
         : []),
       // 编辑腿清除 headers 的诚实回执行（R-3——清除可核）
       ...(headersClearedFrom !== undefined ? [`请求头：清除（原 ${headersClearedFrom} 条）`] : []),
-      isNew ? '写入：API key + settings.json（渠道定义）——保存后当场生效' : '',
+      isNew ? '写入：API key + settings.json（渠道定义）——保存后立即生效' : '',
     ].filter((line) => line !== ''),
     defaultYes: true,
   });
@@ -723,7 +723,7 @@ async function confirmAndSaveCustom(
   }
   const savedChannel = safeCall(() => deps.saveCustomChannel(id, def));
   if (!savedChannel.ok) {
-    await p.outro('保存失败（半应用）', [
+    await p.outro('保存失败（部分完成）', [
       savedChannel.text,
       // #24：指路可达（修前「重入该渠道（编辑配置）补齐」不可达——渠道未落
       // 库、重入清单无此条）；改为重新配置或修复 settings 后重试
@@ -742,7 +742,7 @@ async function confirmAndSaveCustom(
     const registration = deps.registerCustomProvider(id, def);
     registrationOk = registration.ok;
     registerNote = registration.ok
-      ? '已注册——当场生效（无需重启）'
+      ? '已注册——立即生效（无需重启）'
       : `注册被拒：${registration.reason ?? '渠道 id 被占用'}——配置已持久，但重启后同样拒注；建议 /setup 换 id 重配`;
   } catch (err) {
     registerNote = `注册异常：${err instanceof Error ? err.message : String(err)}——配置已持久，重启后生效`;
@@ -821,7 +821,7 @@ async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: str
     lines: [
       `协议：${def !== undefined ? protocolLabel(def.protocol) : '（定义已缺——仍可清理）'}`,
       `Base URL：${def?.baseUrl ?? '（缺）'}`,
-      '保存的 API key 与 settings 配置同删，运行时当场除名——不可恢复。',
+      '保存的 API key 与配置同删，并立即从当前运行中移除——不可恢复。',
     ],
     defaultYes: false, // 破坏性操作缺省否——防误触
   });
@@ -829,7 +829,7 @@ async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: str
   // 三联动同序（写序：凭证行先、settings 后 + 第三步运行时除名）
   const removedKey = safeCall(() => deps.removeBinding(id));
   const removedChannel = safeCall(() => deps.removeCustomChannel(id));
-  let unregisterNote = '运行时已除名——当场生效';
+  let unregisterNote = '已从当前运行中移除——立即生效';
   let modelResetNote = '';
   try {
     const { modelReset } = deps.unregisterCustomProvider(id);
@@ -837,10 +837,10 @@ async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: str
       modelResetNote = `当前模型已复位：${modelReset}（原渠道已删——ctrl+p 可换）`;
     }
   } catch (err) {
-    unregisterNote = `运行时除名异常：${err instanceof Error ? err.message : String(err)}——重启后失效`;
+    unregisterNote = `从当前运行中移除失败：${err instanceof Error ? err.message : String(err)}——重启后生效`;
   }
   // outro 查 ok 位诚实分档（修前恒「已删除」）
-  if (removedKey.ok && removedChannel.ok && !unregisterNote.startsWith('运行时除名异常')) {
+  if (removedKey.ok && removedChannel.ok && !unregisterNote.startsWith('从当前运行中移除失败')) {
     await p.outro('已删除', [
       removedKey.text,
       removedChannel.text,
@@ -851,7 +851,7 @@ async function deleteCustomLeg(deps: SetupWizardDeps, p: WizardPrompter, id: str
       '若曾用别名保存过该渠道的 key（如 berry credentials add 自定义别名），别名不随本删除清理——可 berry credentials rm <别名> 手动清理。',
     ]);
   } else {
-    await p.outro('删除未完全成功（半应用）', [
+    await p.outro('删除未完全成功（部分完成）', [
       removedKey.text,
       removedChannel.text,
       unregisterNote,

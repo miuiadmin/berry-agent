@@ -93,7 +93,7 @@ export async function fetchChannelModels(
         headers: channelModelsHeaders(req),
         signal: AbortSignal.timeout(timeoutMs),
       }),
-      rejectAfter(timeoutMs, `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时帽）——网关慢或地址错，可重试或手填`),
+      rejectAfter(timeoutMs, `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时）——网关慢或地址错，可重试或手填`),
     ]);
     if (response.status >= 300 && response.status < 400) {
       // redirect:'manual' 钉死（守卫透传层）——3xx 即此分支；网关把 /models
@@ -109,12 +109,12 @@ export async function fetchChannelModels(
     // 体帽闸一（先验声明——fetchDistTags 同形）
     const declared = response.headers?.get?.('content-length');
     if (declared !== undefined && declared !== null && Number(declared) > CHANNEL_MODELS_MAX_BYTES) {
-      return { kind: 'failed', message: `清单文档越体帽（${declared} bytes）` };
+      return { kind: 'failed', message: `清单文档过大（${declared} bytes）` };
     }
     // 体帽闸二（流式前置——分块累计越帽即 cancel，不读满不等流尾）
     const text = await readCapped(response, CHANNEL_MODELS_MAX_BYTES);
     if (text === undefined) {
-      return { kind: 'failed', message: `清单文档越体帽（>${CHANNEL_MODELS_MAX_BYTES} bytes）` };
+      return { kind: 'failed', message: `清单文档过大（>${CHANNEL_MODELS_MAX_BYTES} bytes）` };
     }
     let parsed: unknown;
     try {
@@ -180,13 +180,13 @@ function concatChunks(chunks: readonly Uint8Array[], total: number): Uint8Array 
 function fetchFailureMessage(err: unknown, timeoutMs: number): string {
   // 超时形（AbortSignal.timeout 的 TimeoutError / race 腿 Error 已人话直透）
   if (err instanceof Error && err.name === 'TimeoutError') {
-    return `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时帽）——网关慢或地址错，可重试或手填`;
+    return `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时）——网关慢或地址错，可重试或手填`;
   }
   if (err instanceof Error && /aborted/i.test(err.message)) {
-    return `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时帽）——网关慢或地址错，可重试或手填`;
+    return `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时）——网关慢或地址错，可重试或手填`;
   }
   if (err instanceof BaseError && err.code === 'WEB_PRIVATE_ADDRESS') {
-    return `${err.message}——拉取腿只走公网；内网网关请手填模型清单`;
+    return `${err.message}——自动拉取只走公网；内网网关请手填模型清单`;
   }
   return err instanceof Error && err.message !== '' ? err.message : String(err);
 }
