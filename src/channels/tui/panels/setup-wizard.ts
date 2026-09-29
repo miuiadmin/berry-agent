@@ -115,6 +115,9 @@ function plainChar(e: InputEvent & { kind: 'key' }): string | null {
 /**
  * 配置向导副屏内容件（OverlayContent + WizardPrompter 双面）：host 侧
  * runSetupWizard 流程持 prompter 面驱动，本件相态随问切换、键路由随相分发。
+ * 视口窗口化走 region 内 clampOffset（副屏路 region = 终端满高——物理
+ * 约束下的最大值，无需 ViewportCapAware 帽协议；该协议只服务主屏
+ * overlay 栈的截断预算恒等式）。
  */
 export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   private readonly sessionId: string;
@@ -218,7 +221,11 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
 
   /* ---------------- OverlayContent 面（副屏引擎消费） ---------------- */
 
-  /** 量高：头行 + 相内容（相自量——选择器条目数等）+ 键面提示行 */
+  /**
+   * 量高：头行 + 相内容（相自量——选择器条目数等）+ 键面提示行。
+   * 注：副屏路（Engine.renderNow）region = 终端满高、不消费本值——本面
+   * 仅为 OverlayContent 契约完整性与测试直测而设。
+   */
   measure(width: number): number {
     void width;
     const phase = this.phase;

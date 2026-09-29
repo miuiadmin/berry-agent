@@ -2033,7 +2033,7 @@ describe('TuiBackend /memory 副屏装配（setMemoryScreen / openMemory——mm
     expect(io.frames[0]).toBe(MAIN_LEAVE); // 进序：主屏挂起出屏串在前
     expect(io.frames[1]).toBe(ALT_ENTER); // 副屏 Engine 进屏
     expect(io.bytes).toContain('❄ 记忆管理 · global'); // 头行 owner 短显
-    expect(io.bytes).toContain('── 活体（1）'); // 三分区首帧
+    expect(io.bytes).toContain('── 生效中（1）'); // 三分区首帧
   });
 
   it('材料缺席（件未装载形）/ null 撤材料：openMemory 返 false 不进副屏', () => {
@@ -2666,10 +2666,10 @@ describe('TuiBackend /status · /debug · /skills 副屏装配（07 §4.1 命令
 
 describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes 批——R2 挂账解挂 + 命令面增补批）', () => {
   const THEME_ENTRIES = [
-    { name: 'auto', detail: '跟随终端明暗（OSC 11 探测）', broken: false },
+    { name: 'auto', detail: '跟随终端明暗（自动检测）', broken: false },
     { name: 'dark', detail: '内置暗色', broken: false },
     { name: 'light', detail: '内置亮色', broken: false },
-    { name: 'my-theme', detail: '自定义（themes/<名>.json 键级覆盖）', broken: true },
+    { name: 'my-theme', detail: '自定义（themes/<名>.json）', broken: true },
   ];
 
   /** /thinking 七档条目（2026-09-17 会话档位切换面批 F1——词序同 THINKING_LEVELS） */
@@ -2831,7 +2831,7 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     io.reset();
     expect(backend.openDiff([{ type: 'user' }])).toBe(true); // 空投影收后可开
     expect(io.bytes).toContain('± 改动总览 · 0 文件');
-    expect(io.bytes).toContain('零 edit 类改动');
+    expect(io.bytes).toContain('本会话没有文件改动');
   });
 
   it('两新面与既有副屏互斥（单值备屏律）：拒开零写出、收后可开', () => {
@@ -2998,15 +2998,15 @@ describe('TuiBackend /marketplace 选装副屏（mp-5——03 §9.6 TUI 选装�
       refresh: () => calls.push('refresh'),
     });
     io.reset(); // 清进屏序与首帧——聚焦模型变更补帧
-    model.busyLabel = '装机在飞中（marketplace install hello-plugin@alpha）';
+    model.busyLabel = '正在安装（marketplace install hello-plugin@alpha）';
     backend.requestAltRepaint();
-    expect(io.bytes).toContain('⏳ 装机在飞中'); // busy 底行上屏（host 侧变更经公开面请帧）
+    expect(io.bytes).toContain('⏳ 正在安装'); // busy 底行上屏（host 侧变更经公开面请帧）
     io.reset();
     io.emitInput('\r'); // busy 期 enter——面板锁键第一道（fail-loud + 零回调）
     expect(calls).toEqual([]);
     io.emitInput('q'); // 收屏——复起补吐挂起期 warn（BUSY 锁文）
     expect(backend.lifecycle).toBe('running');
-    expect(io.bytes).toContain('动作键锁定');
+    expect(io.bytes).toContain('操作进行中，完成后可重试');
   });
 
   it('enter 选定：先收副屏再回调 install（07 §4.1 既有律）+ 未装→install / 已装→uninstall 分叉', () => {
@@ -3450,10 +3450,9 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     io.bytes = '';
     // ↓ × 20 → 末项 opt-20（多序列单 chunk 可解——decoder 逐序发事件）
     io.emitInput('\x1b[B'.repeat(20));
-    // 复位帧锚：overlay 占焦键无帧钩子（既有形——stack.routeEvent 消费即
-    // 返、touchFixed 只挂 onChange 开关层；忙态外 tick 零开销无自驱帧），
-    // 经 onRepaint 公开锚（切焦/登记路真源）落帧后断言窗口跟随
-    backend.onRepaint('s1', [], null);
+    // 键后补帧（修前红实证：stack.routeEvent 消费即返不请帧——闲态零帧源
+    // 〔tick 有 busy 闸〕、↓×20 字节增量 0，须 onRepaint 强制帧才可见；修=
+    // 返 true 后 touchFixed 对齐弹层路/副屏路 mp-5 补帧——键即帧，锚退役）
     pump();
     // 终态窗块 = 末次 ↑ 指示之后的 diff 段（onRepaint 的 repaint 先陈货全量
     // 重画再同帧 diff 收敛——流中旧窗字节是中间态非终态证据，同 fx2-A 谱）
@@ -3463,6 +3462,74 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     io.emitInput('\r');
     pump();
     await expect(p).resolves.toBe('v20'); // 窗口化不改选值语义（高亮项 = 应答项）
+  });
+
+  it('吃键即帧（闲态冻结修）：无 run 在飞 select 按 ↓——字节增量非零（修前红：tick 有 busy 闸零帧源，↓×3 增量 0 光标纹丝不动）', async () => {
+    const { io, backend, pump } = makeInteractive({}, 24);
+    const choices = Array.from({ length: 5 }, (_, i) => ({ value: `v${i}`, label: `opt-${i}` }));
+    const p = backend.select('ZZQ', choices);
+    pump(); // 开层首帧
+    io.bytes = ''; // 清零——后续增量只认键驱帧
+    io.emitInput('\x1b[B\x1b[B\x1b[B'); // ↓×3 → opt-3
+    pump();
+    expect(io.bytes.length).toBeGreaterThan(0); // 键即帧（修前 0——面板态已变从未画出）
+    expect(io.bytes).toContain('❯ opt-3'); // 高亮随键可见
+    io.emitInput('\r');
+    pump();
+    await expect(p).resolves.toBe('v3');
+  });
+
+  it('多层叠开截断恒等式（fx2-B 缝修·形A）：满帽 select 上叠 confirm——底层收缩让位新层可见、总高恒 ≤ 预算（修前红：overlay 19+2 > 帽 19 → total 25 > 24 守卫整段不写、confirm 隐形盲层）', async () => {
+    const { io, backend, pump } = makeInteractive({}, 24);
+    const choices = Array.from({ length: 30 }, (_, i) => ({ value: `v${i}`, label: `opt-${i}` }));
+    const ps = backend.select('ZZQ', choices);
+    pump();
+    io.emitInput('\x1b[B'.repeat(15)); // ↓×15 至中段——双指示行齐 = measure 恰帽 19（首帧 above=0 只量 18）
+    pump();
+    io.bytes = '';
+    const pc = backend.confirm('第二层确认');
+    pump();
+    // 修前：select 吃满帽 19 + confirm 未截断 2 = 21 > 帽 19（24 − 状态 1 −
+    // 编辑器下限 3）→ total 25 > 24 行屏 → MainScreen 守卫整段不写（帧仅归位
+    // 序列，内容零写出——固定区全冻结）；修后 unaware 上层保留 → select 收缩
+    // 让位、confirm 文案可见
+    expect(io.bytes).toContain('第二层确认'); // 新开层可见（非盲层）
+    expect(io.bytes).toContain('↑ 8 more'); // 底层选单收缩让位（窗口 16→14 行、↑7→↑8——非全冻结；行级 diff 不重写未变行故标题/编辑器不在本帧字节）
+    io.emitInput('\r'); // 栈顶独占——应答 confirm
+    pump();
+    await expect(pc).resolves.toBe(true);
+    io.emitInput('\r');
+    pump();
+    await expect(ps).resolves.toBe('v15'); // 底层 select 存续可如常收场（光标位保留）
+  });
+
+  it('多层叠开截断恒等式（fx2-B 缝修·形B）：5 行屏单开 confirm——固定区仍渲染不全冻结（修前红：confirm 2 + 编辑器下限 3 + 状态 1 = 6 > 5 守卫整段不写、编辑器亦隐形）', async () => {
+    const { io, backend, pump } = makeInteractive({}, 5);
+    const pc = backend.confirm('小屏确认');
+    pump();
+    // 修前：total 6 > 5 行屏 → MainScreen 守卫整段不写——帧仅归位序列，连
+    // 编辑器/状态行全冻结（模态开屏即黑）；修后 overlay 收 0 行让位、编辑器
+    // 与状态行照常渲染（confirm 文案在 5 行屏无预算可占属诚实取舍，键盘照答）
+    expect(io.bytes).toContain('┌'); // 编辑器边框在场（固定区活着）
+    io.emitInput('\r');
+    pump();
+    await expect(pc).resolves.toBe(true); // 键盘照路由（0 行层仍可应答）
+  });
+
+  it('input 提问行 overlay 占焦期明示（件 3）：栈非空——提示行带待收场标注（修前红：裸问句呈现可作答、键全进栈顶面板不可答）', async () => {
+    const { io, backend, pump } = makeInteractive({}, 24);
+    const ps = backend.select('甲选单', [{ value: 'a', label: 'A' }]);
+    const pi = backend.input('乙提问');
+    pump();
+    // 修前红：'? 乙提问' 裸呈现——路由层（routeEvent 栈顶独占）把一切键终局
+    // 于选单、编辑器收不到字；修后标注「等上方面板收场后作答」明示先后
+    expect(io.bytes).toContain('? 乙提问（等上方面板收场后作答）');
+    io.emitInput('\r'); // 栈顶独占——先应答选单
+    pump();
+    await expect(ps).resolves.toBe('a');
+    io.emitInput('hello\r'); // 收场后编辑器复焦——应答乙提问
+    pump();
+    await expect(pi).resolves.toBe('hello'); // 问不丢（待收场后语义完整）
   });
 });
 

@@ -1619,7 +1619,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         return;
       }
     }
-    if (this.stack.routeEvent(ev)) return;
+    // 主屏 overlay 栈吃键即返——补帧对齐副屏路（mp-5 家族修同形）：SelectPanel
+    // 光标/滚动窗随键变更，不补帧则闲态零帧源（tick 有 busy 闸）光标纹丝不动、
+    // busy 态迟滞 ≤100ms；与弹层路 touchFixed/副屏路无条件请帧对称
+    if (this.stack.routeEvent(ev)) {
+      this.touchFixed(); // 面板态变更（光标/勾选/翻页）——固定区重建
+      return;
+    }
     if (this.popup.visible && this.popup.handleEvent(ev)) {
       this.touchFixed(); // 弹层高亮/隐层——固定区重建
       return;
@@ -2216,9 +2222,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       row += budget.todo;
     }
 
-    // 段三：input-ask 提示行（应答期编辑器转应答车的引导位——恒保不截）
+    // 段三：input-ask 提示行（应答期编辑器转应答车的引导位——恒保不截）。
+    // overlay 占焦期明示（件 3）：栈非空时键盘路由进栈顶面板、编辑器收不到
+    // 字——裸问句呈现为「可作答」与路由矛盾，补「待收场」标注让「问不丢
+    // 但要等」对用户诚实（AskQueue 异会话并行形——串行化裁决另立题挂账）
     if (this.inputAsk !== null) {
-      grid.writeText(row, 0, `? ${this.inputAsk.message}`, { dim: true });
+      const waiting = this.stack.size > 0 ? '（等上方面板收场后作答）' : '';
+      grid.writeText(row, 0, `? ${this.inputAsk.message}${waiting}`, { dim: true });
       row += 1;
     }
 
@@ -2249,19 +2259,40 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * overlay 各层量高 + 视口帽注入（fx2-B）：栈低到高逐层先注入「剩余帽」
    * 再量高——支持 ViewportCapAware（SelectPanel 滚动窗）的层在帽内自适
    * 收缩，未实现协议的层（ConfirmPanel 等矮面板）不受扰恒满高。返回各层
-   * 实际高（层高逐层扣减剩余帽——多层叠开时低位层优先、高位层吃残余）。
+   * 实际高。
+   *
+   * 逐层截断（不变量恢复——多层叠开/极小终端缝）：未实装协议层与帽 0 保底
+   * 层（aware 层光标行保底量 ≥1）可越剩余帽——若照单分配则固定区总高 >
+   * 截断预算，命中 MainScreen 陈货守卫整段不写（多层叠开瞬间固定区全冻结、
+   * 键盘路由进隐形层）。故逐层以剩余帽硬截：层高恒 ≤ 剩余帽 ⇒ 总高恒 ≤
+   * 预算（fx2-B 立法意图「绝不让固定区超高触发守卫」在多层形恢复成立）。
+   *
+   * 上层保留（多层可见性）：aware 层吃满帽后新开 unaware 层（ConfirmPanel
+   * 恒量 2）在硬截下得 0 行成盲层（键盘照路由、文案永不可见）。故 aware 层
+   * 注入帽先扣「上方 unaware 层自然高之和」——底层收缩让位、新开层在残余
+   * 预算内可见；余量不足时不变量优先（总高恒 ≤ 预算仍成立，盲层只退化为
+   * 极小终端形）。
    */
   private measureOverlayStack(contents: readonly OverlayContent[], columns: number, cap: number): number[] {
+    // 上方 unaware 层自然高累计（自顶向下预扫——unaware 量高与帽无关可先取）
+    const unawareAbove: number[] = new Array<number>(contents.length).fill(0);
+    let reserve = 0;
+    for (let i = contents.length - 1; i >= 0; i--) {
+      unawareAbove[i] = reserve;
+      const upper = contents[i] as Partial<ViewportCapAware>;
+      if (typeof upper.setMaxHeight !== 'function') reserve += contents[i]!.measure(columns);
+    }
     const heights: number[] = [];
     let remaining = cap;
-    for (const content of contents) {
+    for (let i = 0; i < contents.length; i++) {
+      const content = contents[i]!;
       const aware = content as Partial<ViewportCapAware>;
       if (typeof aware.setMaxHeight === 'function') {
-        aware.setMaxHeight(remaining); // 剩余帽注入（层内窗口化自适）
+        aware.setMaxHeight(Math.max(0, remaining - unawareAbove[i]!)); // 剩余帽扣上方保留（层内窗口化自适）
       }
-      const height = content.measure(columns);
-      heights.push(height);
-      remaining = Math.max(0, remaining - height);
+      const capped = Math.min(content.measure(columns), remaining); // 剩余帽硬截（不变量）
+      heights.push(capped);
+      remaining = Math.max(0, remaining - capped);
     }
     return heights;
   }
