@@ -37,11 +37,11 @@ const wheel = (dir: 'wheel-up' | 'wheel-down'): MouseEvent => ({
 
 /** 条目夹具：内置三档 + 自定义两枚（其一坏文件） */
 const ENTRIES: readonly ThemePickEntry[] = [
-  { name: 'auto', detail: '跟随终端明暗（OSC 11 探测）', broken: false },
+  { name: 'auto', detail: '跟随终端明暗（自动检测）', broken: false },
   { name: 'dark', detail: '内置暗色', broken: false },
   { name: 'light', detail: '内置亮色', broken: false },
-  { name: 'my-theme', detail: '自定义（themes/<名>.json 键级覆盖）', broken: false },
-  { name: 'broken-one', detail: '自定义（themes/<名>.json 键级覆盖）', broken: true },
+  { name: 'my-theme', detail: '自定义（themes/<名>.json）', broken: false },
+  { name: 'broken-one', detail: '自定义（themes/<名>.json）', broken: true },
 ];
 
 /** 读回一行（trimEnd） */
@@ -98,7 +98,7 @@ describe('ThemePicker 呈现', () => {
     const grid = new CellGrid(width, picker.measure(width));
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
     expect(readRow(grid, 0, width)).toBe('◆ 主题切换 · 无条目');
-    expect(readRow(grid, 1, width)).toContain('无主题条目');
+    expect(readRow(grid, 1, width)).toContain('（无条目）');
   });
 
   it('窄窗右段预算律：右段先按预算 … 截断再右对齐——负起列劈毁档名坏形封堵（修前红）', () => {

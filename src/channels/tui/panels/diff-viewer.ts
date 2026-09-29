@@ -270,7 +270,7 @@ export class DiffViewer implements OverlayContent {
       buffer.writeText(
         region.row + 1,
         region.col,
-        '（本会话零 edit 类改动——聚合会话事件真源，非 git 工作树态）',
+        '（本会话没有文件改动——这里展示的是本会话内的改动，不是 git 工作区状态）',
         HINT_STYLE,
       );
     } else {
@@ -306,7 +306,7 @@ export class DiffViewer implements OverlayContent {
     group: DiffFileGroup,
   ): void {
     const expanded = this.expanded.has(group.path);
-    const left = `${index === this.cursor ? CURSOR_MARK : ' '} ${expanded ? EXPANDED_MARK : COLLAPSED_MARK} ${group.path}${group.orphan ? '  ⧗ 在飞' : ''}`;
+    const left = `${index === this.cursor ? CURSOR_MARK : ' '} ${expanded ? EXPANDED_MARK : COLLAPSED_MARK} ${group.path}${group.orphan ? '  ⧗ 进行中' : ''}`;
     // 右段三游程：+N（diffAdded）/ -M（diffRemoved）——计数着色即语义着色。
     // 右段预算（第五役 G8——fitRowSegments 单源的形态学例外注记）：三游程
     // 双色计数段非单串右段，不能整段走 row-segments 单源，本位等价收紧——

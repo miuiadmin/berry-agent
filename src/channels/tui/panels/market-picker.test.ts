@@ -311,7 +311,7 @@ describe('MarketPicker 键面', () => {
     expect(busy.actions.refresh).not.toHaveBeenCalled();
     expect(busy.notifyWarn).toHaveBeenCalledTimes(2);
     for (const call of busy.notifyWarn.mock.calls) {
-      expect(call[0]).toContain('动作键锁定'); // busyLabel 原文嵌入（fail-loud 不猜语义）
+      expect(call[0]).toContain('操作进行中，完成后可重试'); // busyLabel 原文嵌入（fail-loud 不猜语义）
     }
   });
 
@@ -332,7 +332,7 @@ describe('MarketPicker 键面', () => {
     expect(notifyWarn).toHaveBeenCalledTimes(5);
     for (const call of notifyWarn.mock.calls) {
       expect(call[0]).toContain('装机在飞中');
-      expect(call[0]).toContain('动作键锁定');
+      expect(call[0]).toContain('操作进行中，完成后可重试');
     }
   });
 

@@ -177,7 +177,7 @@ export function buildStatusLines(data: StatusPanelData): string[] {
     row(
       '模型凭证 credential',
       data.modelCredential === 'ready'
-        ? `ready · ${data.modelCredentialKey ?? '（供血值缺席——env 与绑定行皆未设）'}`
+        ? `ready · ${data.modelCredentialKey ?? '（未设置——环境变量与模型绑定均未配置）'}`
         : 'unconfigured（未配置——/credentials add --model-provider 或 /guide）',
     ),
     '',
@@ -187,7 +187,7 @@ export function buildStatusLines(data: StatusPanelData): string[] {
     row('轮次 turns', `${data.turns}`),
     '',
     '── 环境 ──',
-    row('数据目录 dataDir', data.dataDir ?? '（:memory: 诊断形——数据目录缺席）'),
+    row('数据目录 dataDir', data.dataDir ?? '（:memory: 模式——未使用数据目录）'),
     row('主题 theme', data.theme),
   ];
   // env 三键（白名单制——键名本身即标签，值列对齐独立于 CJK 标签段）

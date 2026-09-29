@@ -104,7 +104,7 @@ export class ThinkingPicker implements OverlayContent {
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (this.entries.length === 0) {
-      buffer.writeText(region.row + 1, region.col, '（无档位条目——七档词表恒在，此形属装配防御位）', HINT_STYLE);
+      buffer.writeText(region.row + 1, region.col, '（无条目）', HINT_STYLE);
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;

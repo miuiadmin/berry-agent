@@ -129,7 +129,7 @@ export function buildUsageLines(summary: UiUsageSummary): string[] {
   const row = (label: string, value: string): string =>
     label + ' '.repeat(Math.max(0, labelCol - stringWidth(label))) + value;
   return [
-    '全 run 累计（含被遮蔽重试——token 已真实花费）',
+    '本会话累计（含未显示的重试——重试同样消耗 token）',
     '',
     row('轮次 turns', `${summary.turns}`),
     row('输入 input', formatCount(summary.input)),

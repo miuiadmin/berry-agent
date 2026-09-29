@@ -91,7 +91,9 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
 
   it('ready 供血值缺席防御形（开屏间隙配置变更——诚实缺席半句不空行）', () => {
     const lines = buildStatusLines({ ...DATA, modelCredentialKey: null });
-    expect(lines.find((line) => line.startsWith('模型凭证 credential'))!).toContain('供血值缺席');
+    expect(lines.find((line) => line.startsWith('模型凭证 credential'))!).toContain(
+      '未设置——环境变量与模型绑定均未配置',
+    );
   });
 
   it('标签对齐按显示宽（CJK 双宽标签 + 值列同列起）', () => {

@@ -108,7 +108,7 @@ export class ThemePicker implements OverlayContent {
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (this.entries.length === 0) {
-      buffer.writeText(region.row + 1, region.col, '（无主题条目——内置三档恒在，此形属装配防御位）', HINT_STYLE);
+      buffer.writeText(region.row + 1, region.col, '（无条目）', HINT_STYLE);
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;

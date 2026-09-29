@@ -39,7 +39,7 @@ describe('buildUsageLines 行集构造（纯函数）', () => {
   const label = (text: string): string => text + ' '.repeat(Math.max(0, 18 - stringWidth(text)));
   it('口径注记 + 分表行（标签列 18 显示宽对齐 + 千位分组）', () => {
     const lines = buildUsageLines(summary());
-    expect(lines[0]).toBe('全 run 累计（含被遮蔽重试——token 已真实花费）');
+    expect(lines[0]).toBe('本会话累计（含未显示的重试——重试同样消耗 token）');
     expect(lines[2]).toBe(`${label('轮次 turns')}3`);
     expect(lines[3]).toBe(`${label('输入 input')}12,345`);
     expect(lines[4]).toBe(`${label('输出 output')}6,789`);

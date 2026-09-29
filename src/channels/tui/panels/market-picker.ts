@@ -99,7 +99,7 @@ const INSTALLED_MARK = '已装';
 /** busy 前缀符 */
 const BUSY_MARK = '⏳';
 /** busy 期动作键锁文案（busyLabel 原样嵌入——面板不猜动作语义） */
-const BUSY_LOCK_HINT = (label: string): string => `${label}——动作键锁定，收场后再试`;
+const BUSY_LOCK_HINT = (label: string): string => `${label}——操作进行中，完成后可重试`;
 /** u 键未装指路文案（面板静态文案——键面语义归呈现件） */
 const U_NOT_INSTALLED_HINT = '未装机——enter 选装（u 换装仅对已装条目）';
 

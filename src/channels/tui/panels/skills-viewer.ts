@@ -105,7 +105,7 @@ export class SkillsViewer implements OverlayContent {
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (this.entries.length === 0) {
-      buffer.writeText(region.row + 1, region.col, '（无技能——skills 件未装载或各发现层为空）', HINT_STYLE);
+      buffer.writeText(region.row + 1, region.col, '（无技能——未安装提供技能的插件，或各来源目录为空）', HINT_STYLE);
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;
@@ -116,7 +116,7 @@ export class SkillsViewer implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.entries.length === 0 ? 'q/esc 返回' : '↑↓ 移动 · enter 回填调用形 · q/esc 返回',
+      this.entries.length === 0 ? 'q/esc 返回' : '↑↓ 移动 · enter 填入输入框 · q/esc 返回',
       HINT_STYLE,
     );
   }

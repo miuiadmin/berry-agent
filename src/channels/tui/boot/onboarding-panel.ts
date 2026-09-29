@@ -53,12 +53,12 @@ export function buildOnboardingLines(o: OnboardingPanelOptions): string[] {
     lines.push(`  1. 环境变量（如 ${o.envExample}）——设后重启生效`);
   }
   lines.push(
-    `  ${afterEnv}. 凭证表绑定行（录入即生效，无需重启）：/credentials add <名> <值> --model-provider ${o.providerId}`,
+    `  ${afterEnv}. 绑定到模型渠道（录入即生效，无需重启）：/credentials add <名> <值> --model-provider ${o.providerId}`,
     '',
   );
   if (o.hasSetupWizard) {
     lines.push(
-      '  [enter] 进入 /setup 配置向导（选 provider → 录 key → 落绑定行）',
+      '  [enter] 进入 /setup 配置向导（选渠道 → 录 key → 完成绑定）',
       '  [s]     跳过，进入主屏（可稍后 /setup 或 /credentials）',
       '  [q]     退出',
     );

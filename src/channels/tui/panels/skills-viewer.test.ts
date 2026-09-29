@@ -69,14 +69,14 @@ describe('SkillsViewer 副屏件', () => {
     expect(readRow(grid, 2, 60).startsWith('  dataviz')).toBe(true);
     expect(readRow(grid, 2, 60)).toContain('隐 · user');
     expect(readRow(grid, 3, 60)).toContain('plugin:demo'); // 插件层名原样
-    expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 回填调用形 · q/esc 返回');
+    expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 填入输入框 · q/esc 返回');
   });
 
   it('空清单：无技能行 + 提示缩位（q/esc 返回）', () => {
     const viewer = new SkillsViewer({ entries: [], onSelect: () => {}, sessionId: 's', onExit: () => {} });
     const grid = render(viewer, 4);
     expect(readRow(grid, 0, 60)).toBe('✦ 技能清单 · 无技能');
-    expect(readRow(grid, 1, 60)).toContain('skills 件未装载');
+    expect(readRow(grid, 1, 60)).toContain('未安装提供技能的插件');
     expect(readRow(grid, 3, 60)).toBe('q/esc 返回');
   });
 

@@ -230,7 +230,7 @@ describe('DiffViewer 副屏件', () => {
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
     expect(readRow(grid, 0, width)).toBe('± 改动总览 · 0 文件');
-    expect(readRow(grid, 1, width)).toContain('零 edit 类改动');
+    expect(readRow(grid, 1, width)).toContain('本会话没有文件改动');
     expect(readRow(grid, grid.rows - 1, width)).toBe('q/esc 返回');
     // 空集移动键不动作、enter 不炸
     expect(viewer.handleEvent(k('down'))).toBe(true);
@@ -248,7 +248,7 @@ describe('DiffViewer 副屏件', () => {
     const width = 64;
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 1, width)).toContain('⧗ 在飞');
+    expect(readRow(grid, 1, width)).toContain('⧗ 进行中');
   });
 
   it('q 退出（key 轨 + text 轨两形）——闭锁单次；Esc 同 q', () => {

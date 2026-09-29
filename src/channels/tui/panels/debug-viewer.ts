@@ -172,13 +172,13 @@ export function buildDebugLines(data: DebugPanelData): string[] {
   lines.push('', '── daemon.log ──');
   if (data.daemonLogPath === null) {
     // :memory: 诊断形——无数据目录即无 daemon 面
-    lines.push(row('路径 logPath', '（:memory: 诊断形——数据目录缺席）'));
+    lines.push(row('路径 logPath', '（:memory: 模式——未使用数据目录）'));
   } else {
     lines.push(row('路径 logPath', data.daemonLogPath));
     if (data.daemonLogTail === null) {
       lines.push('（非 daemon 跑法或文件尚未生成——daemon.log 缺席）');
     } else {
-      lines.push('尾行快照（帽 50 行——token 形行已掩码）：');
+      lines.push('日志末尾 50 行（令牌已打码）：');
       if (data.daemonLogTail.length === 0) {
         lines.push('│ （空文件——尚无日志行）');
       } else {
@@ -193,9 +193,9 @@ export function buildDebugLines(data: DebugPanelData): string[] {
     lines.push(row('有效键 keys', data.settingsKeys.join('、')));
   }
   if (data.settingsWarnings.length === 0) {
-    lines.push('坏值/拒载 warn：无');
+    lines.push('无效配置警告：无');
   } else {
-    lines.push('坏值/拒载 warn 汇总：');
+    lines.push('无效配置警告汇总：');
     for (const warning of data.settingsWarnings) lines.push(`⚠ ${warning}`);
   }
   return lines;

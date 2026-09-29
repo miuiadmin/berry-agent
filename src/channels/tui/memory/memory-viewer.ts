@@ -162,14 +162,14 @@ export interface MemoryViewerOptions extends MemoryViewerDataDeps {
 /** 分区三值（筛选循环面 + 条目归属） */
 type Section = 'active' | 'frozen' | 'terminal';
 
-/** 筛选四态循环序（全部→活体→冻结→终态→全部——Tab 单步右移） */
+/** 筛选四态循环序（全部→生效中→冻结→已结束→全部——Tab 单步右移） */
 const FILTER_CYCLE: readonly ('all' | Section)[] = ['all', 'active', 'frozen', 'terminal'];
 
 /** 分区呈现名（分区头 + 筛选注记共用单源） */
 const SECTION_LABEL: Readonly<Record<Section, string>> = Object.freeze({
-  active: '活体',
+  active: '生效中',
   frozen: '冻结',
-  terminal: '终态',
+  terminal: '已结束',
 });
 
 /** 提示行样式（dim——存在感弱于正文；分区头/投影行同载体） */
@@ -731,8 +731,8 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     const lines: StyledLine[] = [];
     const entries: EntryDesc[] = [];
     const dim = (plain: string): StyledLine => ({ plain, runs: [{ start: 0, end: plain.length, style: DIM_STYLE }] });
-    lines.push(dim(`记忆库 · 在册 ${this.health.active} · 冻结 ${this.health.frozen} · 共 ${this.health.total}`));
-    lines.push(dim(`终态 · 否决 ${this.health.dismissed} · 过期 ${this.health.expired}`));
+    lines.push(dim(`记忆库 · 生效 ${this.health.active} · 冻结 ${this.health.frozen} · 共 ${this.health.total}`));
+    lines.push(dim(`已结束 · 否决 ${this.health.dismissed} · 过期 ${this.health.expired}`));
     const sections: readonly { key: Section; rows: readonly MemoryRowFace[] }[] =
       this.filter === 'all'
         ? [

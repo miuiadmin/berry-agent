@@ -81,7 +81,7 @@ describe('buildDebugLines 行集构造（纯函数）', () => {
     const lines = buildDebugLines({ ...DATA, pluginIds: [], settingsKeys: [], settingsWarnings: [] });
     expect(lines).toContain('（无插件装载——--no-plugins 跑法或启用清单空）');
     expect(lines.some((line) => line.startsWith('有效键 keys') && line.includes('全走缺省'))).toBe(true);
-    expect(lines).toContain('坏值/拒载 warn：无');
+    expect(lines).toContain('无效配置警告：无');
   });
 });
 
