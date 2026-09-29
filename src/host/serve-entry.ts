@@ -276,7 +276,7 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
         'sdk-http-face',
       );
       if (sdkKit === undefined) {
-        stderr.write('warn：core:sdk 件未装载——--port 人面不开（07 §5 daemon 拒启同族；stdio 传输不受累）\n');
+        stderr.write('warn：Web 界面组件未安装——--port 不生效（不影响命令行传输本身）\n');
       } else {
         const mountKit = scope.tryGet<WebuiMountKit>('webui-face-mount');
         await openWebuiFace({
