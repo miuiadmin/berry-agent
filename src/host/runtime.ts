@@ -7,7 +7,9 @@
  * ② closer 队列 drain（有界 5s——在飞子代理/子进程结算，超时强杀）→
  * ③ write-behind flush（durable 落盘）→ ④ session_shutdown 并行有界 2s
  * （件级收口钩子）→ ⑤ 作用域 LIFO 回卷（dispose 全序）→ ⑥ 释放活跃标记 +
- * 关库。一步崩不阻后续步（退出序容错——落盘步永达）。SIGINT②→130 /
+ * 关库。一步崩不阻后续步（退出序容错——落盘步永达）；落盘两步（③ flush /
+ * ⑥ close）吞错续行但记入 shutdownFlushFailure 观测位——入口层折非零退出
+ * 码（05 §6.3#6「flush 失败 = 退出非零码」；十六役补扫 N3）。SIGINT②→130 /
  * SIGTERM 同① / crash.log 崩溃取证 = 进程编舞归 CLI 分派层（批 12c）——
  * 本件只提供编舞本体（不 process.exit，可测）。
  *
@@ -133,6 +135,13 @@ export interface HostRuntime {
   readonly registerDisposer: (fn: () => void) => void;
   /** 退出序编舞（六步全序有界；幂等——二调共享首调在飞 promise 等同一收口） */
   readonly shutdown: () => Promise<void>;
+  /**
+   * 退出序落盘失败态（十六役补扫 N3——05 §6.3#6「flush 失败 = 退出非零码」
+   * 的观测位）：③ flush 与 ⑥ close（内含 write-behind 终批）吞错续行后由
+   * 入口层读此位折非零退出码。undefined = 落盘两步皆净。**可选成员**——
+   * 结构兼容位（各测试件字面量桩免同步改；真身恒供给）。
+   */
+  readonly shutdownFlushFailure?: () => unknown;
   /** 崩溃取证（数据目录 crash.log 同步追加——崩溃路径先写再退；memory 形跳过） */
   readonly writeCrashLog: (error: unknown) => void;
 }
@@ -189,6 +198,10 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
   // 在飞 shutdown promise 存柄（首调创建、二调共享——幂等的实体是同柄等待
   // 而非布尔早返，详见 shutdown 位注释）
   let shutdownInFlight: Promise<void> | null = null;
+  // 落盘失败态（N3）：③ flush / ⑥ close 吞错续行时记首位失败——入口层经
+  // shutdownFlushFailure 读此位折非零退出码（05 §6.3#6）。??= 保首位
+  // （首因诊断——后续步失败不覆写）。
+  let exitFlushFailure: unknown;
 
   const runtime: HostRuntime = {
     memory,
@@ -237,10 +250,12 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
             console.error(`[exit] closer ${closer.label} 超时或抛错（强杀继续）: ${describe(err)}`);
           }
         }
-        // ③ write-behind flush（durable 落盘——退出序永达步）
+        // ③ write-behind flush（durable 落盘——退出序永达步）。吞错续行（落盘
+        // 步永达）但记失败态——入口层折非零退出码（05 §6.3#6，N3）。
         try {
           await persistence.flush();
         } catch (err) {
+          exitFlushFailure ??= err;
           console.error(`[exit] write-behind flush 抛错（继续收口）: ${describe(err)}`);
         }
         // ④ session_shutdown 并行有界 2s（件级收口钩子）
@@ -271,11 +286,17 @@ export function createHostRuntime(options: HostRuntimeOptions = {}): HostRuntime
         try {
           await persistence.close();
         } catch (err) {
+          // close 内含 write-behind 终批落账——同记失败态（N3：两步任一抛即
+          // 非零退出；??= 不覆写③首因）
+          exitFlushFailure ??= err;
           console.error(`[exit] 关库抛错（收口已尽）: ${describe(err)}`);
         }
       })();
       return shutdownInFlight;
     },
+    // 落盘失败观测位（N3——接口注释详）：入口层 `exitCode === 0 && failure
+    // !== undefined → exitCode = 1` 折码。恒供给（真身非可选）。
+    shutdownFlushFailure: () => exitFlushFailure,
     writeCrashLog: (error) => {
       if (memory || dataDir === null) return; // memory 形无真库归属地——跳过
       appendCrashLog(dataDir, error);

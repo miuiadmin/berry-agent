@@ -668,6 +668,49 @@ describe('runRunEntry --tick 用户任务行', () => {
   });
 });
 
+describe('runRunEntry --tick 行启停位（十六役补扫 N26——残留 OS cron 条目对停用行的触发）', () => {
+  it('cron 载体形（--read-only）：停用行诚实 gated 跳过退 0——零跑零模型调用 + 结局照记（修前红）', async () => {
+    // N26 病灶：registrar 缺席期（env 翻转/unset）disable 不摘 crontab，
+    // 残留条目按 cron 节奏继续 spawn `run --read-only --tick`——停用行被
+    // 复活执行。修后以 --read-only 辨 cron 载体形：gated 跳过（job_disabled）。
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({ name: 'off-job', prompt: '例行巡检', cwd: jobWs, schedule: 'every:30m' }); // 缺省停用
+    await seed.shutdown();
+
+    const run = await rigRun({ message: '', flags: { tick: 'off-job', readOnly: true }, dataDir, cwd: jobWs });
+    await expect(run.entry).resolves.toBe(0); // 诚实跳过非失败
+    expect(run.err.text).toContain('停用');
+    expect(run.err.text).toContain('/tick enable off-job'); // 恢复路径指路
+    expect(run.out.lines).toEqual([]); // 零跑零产物（修前：照常跑出 'ok'）
+
+    const audit = await seedAssembly(dataDir);
+    try {
+      const row = audit.scheduler.service.getJob('off-job');
+      expect(row?.lastOutcome?.reason).toBe('gated'); // 结局照记（每次残触可见）
+      expect((row?.lastOutcome as { gate?: string } | undefined)?.gate).toBe('job_disabled');
+      expect(row?.lastFireAt).toBeNull(); // 非真跑不动 last_fire_at
+      expect(row?.nextFireAt).toBeNull(); // 停用行不排刻（原样）
+      expect(row?.activePid).toBeNull(); // 零 claim
+    } finally {
+      await audit.shutdown();
+    }
+  });
+
+  it('纯手动形（无 --read-only）：停用行照跑——用户显式意图不走闸（判据锚）', async () => {
+    const dataDir = tmpDir('run-data-');
+    const jobWs = tmpDir('run-ws-');
+    const seed = await seedAssembly(dataDir);
+    seed.scheduler.service.addJob({ name: 'off-manual', prompt: '例行巡检', cwd: jobWs, schedule: 'every:30m' }); // 缺省停用
+    await seed.shutdown();
+
+    const run = await rigRun({ message: '', flags: { tick: 'off-manual' }, dataDir, cwd: jobWs });
+    await expect(run.entry).resolves.toBe(0);
+    expect(run.out.lines).toEqual(['ok']); // 照跑（手动道不判启停位——/tick run 同律）
+  });
+});
+
 describe('runRunEntry --tick 让位律（u-2 定形注③乙案子进程侧腿）', () => {
   it('activePid 活体未超钟（ppid 占用）：yielded 让位退 0 + 结局照记 + next 原样', async () => {
     const dataDir = tmpDir('run-data-');

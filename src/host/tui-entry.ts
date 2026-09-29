@@ -1165,7 +1165,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       { name: 'themes', description: '主题切换副屏（选定即换装+持久化）', run: () => openThemesPanel() },
       {
         name: 'thinking',
-        description: '思考档位副屏（七档选定——下一 run 起生效，随模型能力）',
+        description: '思考档位副屏（七档选定——下一轮对话起生效，随模型能力）',
         run: () => openThinkingPanel(),
       },
       {
@@ -1532,6 +1532,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     exitCode = 1;
   } finally {
     await runtime.shutdown(); // 幂等六步：abort → closer（backend.stop 出屏）→ flush → …
+    // 落盘失败折非零退出码（05 §6.3#6「flush 失败 = 退出非零码」；十六役补扫
+    // N3——③ flush / ⑥ close 吞错续行后由此位如实上报，不再零码假绿）
+    if (exitCode === 0 && runtime.shutdownFlushFailure?.() !== undefined) exitCode = 1;
   }
   return exitCode;
 }

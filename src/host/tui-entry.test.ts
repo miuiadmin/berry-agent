@@ -321,6 +321,21 @@ describe('runTuiEntry 装配序', () => {
     expect(io.output).toContain('berry-agent'); // 起屏 title 基线（version 注入）
   });
 
+  it('退出序落盘失败折非零（十六役补扫 N3）：flush 抛错 → ctrl+d 退 1 不再零码假绿', async () => {
+    // 05 §6.3#6「flush 失败 = 退出非零码」——正常退出档零码只在落盘两步皆净
+    // 时成立；onRuntime 注入位实例级遮蔽 flush（③⑥ 同失败——close 内含
+    // this.flush()），修前 ctrl+d 恒 0 = 吞错假绿形
+    const { entry, io } = await rigEntry(rigDir('entry-n3-'), rigDir('entry-ws-'), {
+      onRuntime: (rt) => {
+        (rt.persistence as { flush: () => Promise<void> }).flush = async () => {
+          throw new Error('disk full');
+        };
+      },
+    });
+    io.send('\x04');
+    await expect(entry).resolves.toBe(1);
+  });
+
   it('提交流转全链：输入字节 → 编辑器 → 提交 → 驱动 → faux 模型 → 应答上屏', async () => {
     const { entry, io, faux } = await rigEntry(rigDir('entry-data-'), rigDir('entry-ws-'));
     io.send('你好\r'); // 键入 + Enter 提交
@@ -737,7 +752,7 @@ describe('runTuiEntry 装配序', () => {
     // 回执全文逐字符 = 单源 helper（绕 helper 内联模板漂移尾句即红——全文
     // 只经 selectThinking → thinkingLevelReceipt 产出）
     await until(() => io.output.includes(thinkingLevelReceipt('max')));
-    expect(io.output).toContain('思考档位：max（下一 run 起生效；档位是否生效随模型能力）');
+    expect(io.output).toContain('思考档位：max（下一轮对话起生效；档位是否生效随模型能力）');
     io.send('\x04');
     expect(await entry).toBe(0);
   });

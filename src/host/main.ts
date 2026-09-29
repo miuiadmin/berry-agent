@@ -188,7 +188,9 @@ async function main(): Promise<number> {
   installSignalChoreography({
     onGraceful: async () => {
       await activeRuntime?.shutdown(); // 未组装 = 无优雅序可走，直退 0
-      return 0;
+      // 落盘失败折非零退出码（05 §6.3#6；十六役补扫 N3 余位接线——tui/serve/
+      // run 三入口同形，信号路径不豁免）
+      return activeRuntime !== null && activeRuntime.shutdownFlushFailure?.() !== undefined ? 1 : 0;
     },
     mainSettled: cliSettled,
   });

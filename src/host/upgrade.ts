@@ -192,6 +192,44 @@ export type DistTagsResult =
   | { readonly kind: 'failed'; readonly message: string };
 
 /**
+ * 流式限量读体（十六役补扫 N5——channel-models-fetch readCapped 同形复刻）：
+ * 读侧增量计数，越帽即 cancel 停读返 undefined（不缓冲全量）。对无
+ * content-length 的分块应答这是体帽的唯一执法位（`text()` 全量缓冲属
+ * 事后验长——读侧不设防）。
+ */
+async function readCapped(response: Response, maxBytes: number): Promise<string | undefined> {
+  const body = response.body;
+  if (body === null) return await response.text(); // 无体流形（测试桩/无体应答）——text() 兜底
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value !== undefined) {
+      total += value.byteLength;
+      if (total > maxBytes) {
+        void reader.cancel().catch(() => {}); // 触帽即停读——连接释放归 best-effort
+        return undefined;
+      }
+      chunks.push(value);
+    }
+  }
+  return concatChunks(chunks, total);
+}
+
+/** 字节块拼接（readCapped 配套——total 由调用方持有免二次累计） */
+function concatChunks(chunks: Uint8Array[], total: number): string {
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return Buffer.from(merged).toString('utf8');
+}
+
+/**
  * 只读 GET dist-tags（`<registry 根>/berry-agent/dist-tags`——npm registry
  * 标准端点，响应形 `{"latest":"1.2.3",...}`）：5s 超时帽 + 64KiB 体帽 +
  * latest 键字符串形校验。**零外传**（GET 无请求体、无本地数据随行）。
@@ -216,14 +254,19 @@ export async function fetchDistTags(
     if (!response.ok) {
       return { kind: 'failed', message: `registry 应答 ${response.status}` };
     }
-    // 体帽双闸：content-length 头先验（在场越帽即拒不下载）+ 读回长度复验
+    // 体帽双闸（十六役补扫 N5——读侧前置）：content-length 头先验（在场越帽
+    // 即拒不下载）+ 读侧流式增量计数（无 content-length 的 chunked 应答读期
+    // 触帽即 cancel 停读）。修前 `await response.text()` 全量缓冲后才验长——
+    // 对分块应答（无 content-length，registry 代理常态）64KiB 帽不约束内存，
+    // 坏形灌入多大读多大（readCapped 形与 channel-models-fetch R-2 谱同源，
+    // 07 §8.4 定域句由规范笔同步）。
     const declared = response.headers?.get?.('content-length');
     if (declared !== undefined && declared !== null && Number(declared) > UPDATE_CHECK_MAX_BYTES) {
       return { kind: 'failed', message: `dist-tags 文档过大（${declared} bytes）` };
     }
-    const text = await response.text();
-    if (text.length > UPDATE_CHECK_MAX_BYTES) {
-      return { kind: 'failed', message: `dist-tags 文档过大（${text.length} bytes）` };
+    const text = await readCapped(response, UPDATE_CHECK_MAX_BYTES);
+    if (text === undefined) {
+      return { kind: 'failed', message: `dist-tags 文档过大（> ${UPDATE_CHECK_MAX_BYTES} bytes）` };
     }
     const parsed = JSON.parse(text) as { latest?: unknown };
     if (typeof parsed.latest !== 'string' || parsed.latest === '') {

@@ -188,5 +188,19 @@ function fetchFailureMessage(err: unknown, timeoutMs: number): string {
   if (err instanceof BaseError && err.code === 'WEB_PRIVATE_ADDRESS') {
     return `${err.message}——自动拉取只走公网；内网网关请手填模型清单`;
   }
+  // undici 连接层包装（十六役补扫 N16）：TypeError message 恒 'fetch failed'
+  // ——零信息裸串直透人面即「拉取失败：fetch failed」，真实原因只在 .cause
+  //（ECONNREFUSED 连接拒绝 / ENETUNREACH 网络不可达 / EAI_AGAIN DNS 慢等）。
+  // 折因呈现（cause 文本带 host:port 可诊断）+ 检查指路 + 手填兜底。
+  if (err instanceof TypeError && err.message === 'fetch failed') {
+    const cause = (err as { cause?: unknown }).cause;
+    const causeText =
+      cause instanceof Error && cause.message !== ''
+        ? cause.message
+        : cause !== undefined && cause !== null
+          ? String(cause)
+          : '';
+    return `无法连接到端点${causeText !== '' ? `（${causeText}）` : ''}——地址或端口可能不对，可检查后重试或手填`;
+  }
   return err instanceof Error && err.message !== '' ? err.message : String(err);
 }

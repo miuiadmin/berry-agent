@@ -275,6 +275,32 @@ describe('runServeEntry 装配序与旗标', () => {
     await closeExpect0(rig, entry);
   });
 
+  it('退出序落盘失败折非零（十六役补扫 N3）：flush 抛错 → EOF 收线退 1 不再零码假绿', async () => {
+    // 05 §6.3#6「flush 失败 = 退出非零码」——EOF 优雅档零码只在落盘两步皆净
+    // 时成立；onRuntime 注入位实例级遮蔽 flush（③⑥ 同失败——close 内含
+    // this.flush()），修前 EOF 恒 0 = 吞错假绿形
+    const faux = fauxProvider({ provider: 'faux-n3', models: [{ id: 'm1' }] });
+    faux.setResponses([() => messageOf()]);
+    const dataDir = mkdtempSync(join(tmpdir(), 'serve-data-'));
+    dirs.push(dataDir);
+    const rig = new WireRig();
+    const entry = runServeEntry({
+      flags: { debug: false, daemon: false, noDelta: false },
+      io: rig,
+      dataDir,
+      providers: [faux.provider],
+      model: 'faux-n3/m1',
+      env: {},
+      onRuntime: (rt) => {
+        (rt.persistence as { flush: () => Promise<void> }).flush = async () => {
+          throw new Error('disk full');
+        };
+      },
+    });
+    rig.end();
+    await expect(entry).resolves.toBe(1);
+  });
+
   it('装载面活（批 19a-3 迁 assembly 公共段）：坏形清单 fail-loud 退 1——serve 无人值守主通道读侧与 TUI 同构', async () => {
     const faux = fauxProvider({ provider: 'faux-plug', models: [{ id: 'm1' }] });
     const dataDir = mkdtempSync(join(tmpdir(), 'serve-data-'));

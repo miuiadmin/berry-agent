@@ -337,7 +337,9 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
     }, heartbeatIntervalMs);
 
     // 收场序：清定时 → dispose（在飞 ask cancel + core.close）→ runtime 六步
-    // 退出序（幂等——EOF 路径与信号路径同享，closer 保证信号路径同样执行）
+    // 退出序（幂等——EOF 路径与信号路径同享，closer 保证信号路径同样执行）；
+    // 落盘失败折非零（05 §6.3#6「flush 失败 = 退出非零码」；十六役补扫 N3
+    // ——③ flush / ⑥ close 吞错续行后由失败态观测位如实上报）
     const shutdown = (code: number): void => {
       if (settled) return;
       settled = true;
@@ -346,7 +348,7 @@ export async function runServeEntry(options: ServeEntryOptions): Promise<number>
       void runtime
         .shutdown()
         .catch(() => {}) // 六步退出序内部已 fail-loud 记账——收场不二次抛
-        .then(() => resolveExit(code));
+        .then(() => resolveExit(code === 0 && runtime.shutdownFlushFailure?.() !== undefined ? 1 : code));
     };
     runtime.registerCloser({ label: 'serve-backend', fn: () => shutdown(0) }); // 信号路径优雅档（settled 门幂等——过载/坏死路径自带 1 不被覆写）
 

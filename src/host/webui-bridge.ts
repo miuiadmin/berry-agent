@@ -295,6 +295,14 @@ function lookupDedupeContent(stack: ConversationStack, sessionId: string, messag
 }
 
 /**
+ * 在飞幂等账帽（十六役补扫 N2）：在飞窗 admit 账条目总数上限——与 SDK 线
+ * known 账同值（wire-core DEFAULT_ADMIT_ACCOUNT_CAP）；插满 FIFO 最旧让位
+ * （连发 4096+ 幂等键不回失去重保护是可接受上界——重发窗是秒级，帽只防
+ * 长寿桥实例内存无界增长）。
+ */
+const WEBUI_INFLIGHT_DEDUPE_CAP = 4_096;
+
+/**
  * 桥真身：conversation 栈五动词 → WebuiDeps 三窄面（词面独立律——本侧
  * 只做映射不造新词；结构兼容由 face.register 直注与 e2e 双向互证）。
  */
@@ -307,6 +315,29 @@ function bridgeDeps(
   // @ 文件段补全源（挂载期单实例——锚随面恒定、源零状态、同步 IO 毫秒级；
   // TUI per-query 新铸是因其锚随聚焦会话变，此处锚恒定不必仿）
   const fileSource = new FileMentionSource({ basePath: canonicalWorkspaceRoot(cwd ?? process.cwd()) });
+  // —— 在飞幂等账（十六役补扫 N2）——
+  // durable 查重只覆盖已 append 的 user/message；busy/steer 窗口内消息先进
+  // 驱动内存队列、在飞 run 消费时才落账——此窗内同 messageId 重发（HTTP 编程
+  // 调用方 POST /api/sessions/:id/submit 的超时重试——05 §3.5「误判超时重试
+  // 零副作用」契约的目标场景）会 miss durable 而双发入模型。受理即记本账；
+  // durable 命中即淘汰（durable 是真相，本账只是其前置窗的缓存）；条目帽
+  // FIFO 让位与 SDK 线 known 账同式（trimAdmitAccounts 同语义）。桥实例级
+  // 生命周期（随 mountWebuiOnFace/openWebuiFace 铸）——非连接级（SPA 每次
+  // submit 新铸 UUID，重试面是编程调用方，连接级账盖不住 HTTP 层重发）。
+  const inflightDedupe = new Map<string, Map<string, string>>();
+  const trimInflightDedupe = (): void => {
+    let total = 0;
+    for (const record of inflightDedupe.values()) total += record.size;
+    for (const [ownerId, record] of inflightDedupe) {
+      if (total <= WEBUI_INFLIGHT_DEDUPE_CAP) break;
+      for (const key of record.keys()) {
+        if (total <= WEBUI_INFLIGHT_DEDUPE_CAP) break;
+        record.delete(key);
+        total -= 1;
+      }
+      if (record.size === 0) inflightDedupe.delete(ownerId);
+    }
+  };
   return {
     sessions: {
       createSession: () => stack.manager.create().sessionId,
@@ -333,10 +364,13 @@ function bridgeDeps(
         return stack.manager.exists(sessionId) ? 'closed' : 'missing';
       },
       submitPrompt: (input) => {
-        // —— 幂等 admit（第六役转交 webui-face#2 + 8572ccd 拍板收敛落地）：
-        // SPA 重试以同 messageId 再发 → durable data.dedupeKey 同族查重（同键
-        // 同内容幂等回执不重跑 / 同键异内容 fail-loud 拒收 SDK_MESSAGE_CONFLICT
-        // ——判据族与 SDK 线 admit 同源，HTTP 面经 server 件窄 catch 折 409）。
+        // —— 幂等 admit（第六役转交 webui-face#2 + 8572ccd 拍板收敛落地 +
+        // 十六役补扫 N2 两档化）：SPA 重试以同 messageId 再发 → durable
+        // data.dedupeKey 同族查重（同键同内容幂等回执不重跑 / 同键异内容
+        // fail-loud 拒收 SDK_MESSAGE_CONFLICT——判据族与 SDK 线 admit 同源，
+        // HTTP 面经 server 件窄 catch 折 409）。durable miss 后在飞窗查本桥
+        // 在飞账（busy/steer 队列窗：submit → 消费 append 前的重发 durable
+        // 不可见——两档 admit 与 SDK 线 known/durable 同构）。
         // messageId 选填：缺席（undefined 透传——件侧不补生成）= 无幂等不落账
         // （SDK 线同律）；任何非空 messageId 都是客户端自选键——生成键形判别
         // （webui-N 旁路）已随收敛退役（24001ef 件侧删生成，本批桥侧删判别）。
@@ -345,6 +379,9 @@ function bridgeDeps(
         if (idempotent) {
           const known = lookupDedupeContent(stack, input.sessionId, input.messageId);
           if (known !== undefined) {
+            // durable 已覆盖——在飞账淘汰（此后由 durable 档直查，账内旧键只
+            // 白占帽位）
+            inflightDedupe.get(input.sessionId)?.delete(input.messageId);
             if (known !== input.content) {
               throw new BaseError(
                 'SDK_MESSAGE_CONFLICT',
@@ -353,12 +390,30 @@ function bridgeDeps(
             }
             return { sessionId: input.sessionId }; // 幂等重收执——回执即既存受理态，不重跑
           }
+          const pending = inflightDedupe.get(input.sessionId)?.get(input.messageId);
+          if (pending !== undefined) {
+            // 在飞窗命中（durable 尚未见）——判据族与 durable 档同源
+            if (pending !== input.content) {
+              throw new BaseError(
+                'SDK_MESSAGE_CONFLICT',
+                `messageId=${input.messageId} 同键异内容（webui 幂等 admit 冲突档——在飞窗）`,
+              );
+            }
+            return { sessionId: input.sessionId }; // 在飞窗幂等重收执——不重入队不重跑
+          }
         }
         void stack.submitText(input.sessionId, input.content, {
           // 具名通道归因（05 §3.1 channel: 前缀——投影同视 user）+ 幂等键落账
           source: 'channel:webui',
           ...(idempotent ? { dedupeKey: input.messageId } : {}),
         }); // fire-and-forget——回执经信封回流
+        if (idempotent) {
+          // 受理即记在飞账（durable 落账前的重发窗由此账接住）+ 帽执法
+          const record = inflightDedupe.get(input.sessionId) ?? new Map<string, string>();
+          record.set(input.messageId, input.content);
+          inflightDedupe.set(input.sessionId, record);
+          trimInflightDedupe();
+        }
         return { sessionId: input.sessionId };
       },
       interruptSession: (sessionId) => stack.interrupt(sessionId), // 未知 id 静默幂等（栈内建）
@@ -439,9 +494,10 @@ function bridgeDeps(
       setThinkingLevel: (sessionId, level) => {
         const driver = stack.driverOf(sessionId);
         if (driver === undefined) {
-          // 会话不在场 fail-loud（服务端前置 404 分账之外的桥侧防御位——
-          // 既有错误码族复用）
-          throw new BaseError('SESSION_NOT_FOUND', `会话不在场（${sessionId}）——档位切换需要会话驱动在册`);
+          // 驱动缺席 fail-loud（服务端前置 open 检查与读体之间的退役竞速窗——
+          // 桥侧防御位，既有错误码族复用；文案直白化：用户动作 = 刷新或重开，
+          // 不透内部术语，十六役补扫 #16）
+          throw new BaseError('SESSION_NOT_FOUND', `会话已结束（${sessionId}）——请刷新页面或重新打开会话`);
         }
         // 坏词 BaseError 自然上抛（THINKING_LEVEL_INVALID——服务端 400 码族
         // 词面呈现不吞码；校验在 append 之前坏词不入账）
@@ -457,7 +513,7 @@ function bridgeDeps(
       setSandboxMode: (sessionId, mode) => {
         const driver = stack.driverOf(sessionId);
         if (driver === undefined) {
-          throw new BaseError('SESSION_NOT_FOUND', `会话不在场（${sessionId}）——档位切换需要会话驱动在册`);
+          throw new BaseError('SESSION_NOT_FOUND', `会话已结束（${sessionId}）——请刷新页面或重新打开会话`);
         }
         // 坏词 SANDBOX_MODE_INVALID 同律上抛（append 面词法校验单源）
         setSessionMode(driver.session, mode);

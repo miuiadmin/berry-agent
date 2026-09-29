@@ -133,6 +133,25 @@ describe('fetchChannelModels（三态回执 + 协议头分叉）', () => {
     expect(result.kind).toBe('failed');
     expect(spy).not.toHaveBeenCalled(); // 守卫先拒——透传层零触达
   });
+
+  it('连接层失败人话化（十六役补扫 N16）：undici「fetch failed」裸串折因呈现——零信息裸串不直透人面', async () => {
+    // 修前红：连接拒绝/网络不可达等传输错被 undici 包成 TypeError 且 message
+    // 恒 'fetch failed'（真实原因只在 .cause）——向导人面呈现「拉取失败：
+    // fetch failed——改手填」零主机零诊断零指路（本断言 not.toContain 即红）
+    const fetchImpl: FetchLike = async () => {
+      throw new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED 127.0.0.1:9000') });
+    };
+    const result = await fetchChannelModels(
+      { baseUrl: 'https://gw.test/v1', protocol: 'openai-completions', apiKey: 'sk-k' },
+      { fetchImpl, resolveDns: publicDns },
+    );
+    expect(result.kind).toBe('failed');
+    const message = result.kind === 'failed' ? result.message : '';
+    expect(message).toContain('无法连接到端点');
+    expect(message).toContain('ECONNREFUSED 127.0.0.1:9000'); // 折因在场（host:port 可诊断）
+    expect(message).toContain('手填'); // 兜底指路
+    expect(message).not.toContain('fetch failed'); // 零信息裸串不透人面
+  });
 });
 
 describe('R-2 加固批（体帽流式前置 + 外层 race 覆盖 DNS 腿 + 守卫拒人话化）', () => {

@@ -197,6 +197,25 @@ describe('退出序六步编舞（04 §1 全序有界）', () => {
     }
     expect(existsSync(join(dir, ACTIVE_MARKER_BASENAME))).toBe(true); // 标记实清不掉（残留在场如实）
   });
+
+  // —— 落盘失败观测位（十六役补扫 N3——05 §6.3#6「flush 失败 = 退出非零码」）——
+  it('③ flush 抛错：吞错续行六步照走 + shutdownFlushFailure 如实上报（入口层据此折非零）', async () => {
+    const { rt } = rig();
+    // 自有属性遮蔽原型法（close 内含 this.flush() 终批——③⑥ 两步同失败，
+    // ??= 保首因）；boom 引用断言 = 失败态带首因 err 可诊断
+    const boom = new Error('disk full');
+    (rt.persistence as { flush: () => Promise<void> }).flush = async () => {
+      throw boom;
+    };
+    await expect(rt.shutdown()).resolves.toBeUndefined(); // 容错承接——不 reject、后续步照走
+    expect(rt.shutdownFlushFailure?.()).toBe(boom);
+  });
+
+  it('净收口：flush/close 两步皆净 → shutdownFlushFailure undefined（缺省成功形不误伤退出码）', async () => {
+    const { rt } = rig();
+    await rt.shutdown();
+    expect(rt.shutdownFlushFailure?.()).toBeUndefined();
+  });
 });
 
 describe('崩溃取证与披露段', () => {

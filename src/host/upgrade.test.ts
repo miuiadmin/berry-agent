@@ -234,6 +234,26 @@ describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
     expect(result.kind === 'failed' && result.message).toContain('文档过大');
   });
 
+  it('分块应答读侧触帽即停（十六役补扫 N5）：无 content-length + 体流触帽不闭 → 不等全量即拒', async () => {
+    // 修前红形：`await response.text()` 等体流自然收尾——挂起不闭的体流
+    // （慢滴形）让 fetchDistTags 永不返回（事后验长对 chunked 帽形同虚设，
+    // 坏形灌入多大读多大）；读侧增量计数触帽即 cancel 停读（readCapped
+    // R-2 形），fail-loud 即返
+    const hanging = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(UPDATE_CHECK_MAX_BYTES + 1)); // 单块即越帽
+        // 不 close——体流保持开（慢滴/挂起形，帽外字节永不达）
+      },
+    });
+    const hangingFetch: FetchLike = async () => new Response(hanging, { status: 200 });
+    const result = await fetchDistTags('https://r.example.com', {
+      fetchImpl: hangingFetch,
+      resolveDns: publicDns,
+    });
+    expect(result).toMatchObject({ kind: 'failed' });
+    expect(result.kind === 'failed' && result.message).toContain('文档过大');
+  }, 1_500);
+
   it('网络错/超时 → failed 静默形（不 throw）', async () => {
     const dead = fakeFetch(() => new Error('fetch failed'));
     expect(await fetchDistTags('https://r.example.com', { fetchImpl: dead, resolveDns: publicDns })).toMatchObject({

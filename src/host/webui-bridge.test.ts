@@ -454,6 +454,78 @@ describe('openWebuiFace 桥单元', () => {
       await rt.shutdown();
     }
   });
+
+  it('submitPrompt 在飞窗幂等（十六役补扫 N2）：busy/steer 队列窗同 messageId 重发不双发入模型', async () => {
+    const rt = createHostRuntime({ dataDir: rigDir('webui-bridge-inflight-') });
+    const { faux, stack } = rigStack(rt);
+    const face = await openWebuiFace({
+      stack,
+      runtime: rt,
+      port: 0,
+      mountKit: mountKitOf(stack),
+      disclose: () => undefined,
+    });
+    try {
+      const id = face.deps!.sessions.createSession();
+      // 首响应挂起制造 busy 窗（异步响应工厂）；后续响应立即终值（steer 批
+      // 消费跑用）——conversation-stack 装配级 lane 帽测试同手法
+      let openGate!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        openGate = resolve;
+      });
+      faux.setResponses([
+        async () => {
+          await gate;
+          return messageOf();
+        },
+        () => messageOf(),
+        () => messageOf(),
+      ]);
+      // 首发受理（run A 在飞——busy 窗开启）
+      face.deps!.sessions.submitPrompt({ sessionId: id, content: '首条', messageId: 'm-1' });
+      await until(() => faux.state.callCount === 1); // 请求已发出（busy 判据位）
+      // M2 受理：busy 窗内先进 steer 队列、消费时才 append——窗存在性自证
+      // （确定性：gate 未释放 run A 不终态、steer 批不消费，M2 必不 append——
+      // 探针超时即前提成立，300ms 足盖 submitText 异步入队跳数）
+      face.deps!.sessions.submitPrompt({ sessionId: id, content: '第二条', messageId: 'm-2' });
+      await until(() => {
+        const events = stack.driverOf(id)!.session.events();
+        return events.some((e) => e.type === 'user/message' && (e.data as { dedupeKey?: string }).dedupeKey === 'm-2');
+      }, 300).then(
+        () => {
+          throw new Error('M2 已 durable——busy/steer 窗未成立（测试前提崩）');
+        },
+        () => undefined, // until 超时 = M2 未 append = steer 窗在——前提成立
+      );
+      // 同 messageId 同内容重发（HTTP 编程调用方超时重试形——05 §3.5「误判
+      // 超时重试零副作用」目标场景）：在飞窗幂等回执不重入队
+      const receipt = face.deps!.sessions.submitPrompt({ sessionId: id, content: '第二条', messageId: 'm-2' });
+      expect(receipt).toEqual({ sessionId: id });
+      // 同 messageId 异内容：fail-loud 拒收（在飞窗冲突档——判据族与 durable 档同源）
+      expect(() =>
+        face.deps!.sessions.submitPrompt({ sessionId: id, content: '第二条异文', messageId: 'm-2' }),
+      ).toThrow('同键异内容');
+      // 释放 busy 窗：run A 终态 → steer 批消费（M2 恰一次）→ run B 起跑落账
+      openGate();
+      await until(
+        () =>
+          stack
+            .driverOf(id)!
+            .session.events()
+            .filter((e) => e.type === 'turn/end').length >= 2,
+        4000,
+      );
+      // 终态断言：M2 恰落一条 user 消息（修前在飞窗 miss durable = 重发双入
+      // 队双 append → 2 条——本断言即修前红锁）
+      const m2Events = stack
+        .driverOf(id)!
+        .session.events()
+        .filter((e) => e.type === 'user/message' && (e.data as { dedupeKey?: string }).dedupeKey === 'm-2');
+      expect(m2Events).toHaveLength(1);
+    } finally {
+      await rt.shutdown();
+    }
+  });
 });
 
 /* ---------------- HTTP e2e（compat 互证——桥真身经服务端全链） ---------------- */
@@ -1038,7 +1110,7 @@ describe('webui 档位面桥真身（tiers 注入——/thinking //sandbox webui
       // tmux e2e 之外的第二道回执文案锁）
       const receipt = tiers.setThinkingLevel(id, 'max');
       expect(receipt).toBe(thinkingLevelReceipt('max'));
-      expect(receipt).toBe('思考档位：max（下一 run 起生效；档位是否生效随模型能力）');
+      expect(receipt).toBe('思考档位：max（下一轮对话起生效；档位是否生效随模型能力）');
       // append 落账（conversation 单写者面——durable 事件恰一条）
       const thinkingEvents = stack
         .driverOf(id)!

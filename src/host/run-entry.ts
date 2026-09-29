@@ -162,6 +162,9 @@ export async function runRunEntry(options: RunEntryOptions): Promise<number> {
   // 六步退出序（幂等——manager 拆解/write-behind flush 必达；信号路径已走
   // shutdown 时同调无副作用）
   await runtime.shutdown().catch(() => {});
+  // 落盘失败折非零退出码（05 §6.3#6「flush 失败 = 退出非零码」；十六役补扫
+  // N3 余位接线——③ flush / ⑥ close 吞错续行后由此位如实上报，不再零码假绿）
+  if (exitCode === 0 && runtime.shutdownFlushFailure?.() !== undefined) exitCode = 1;
   return exitCode;
 }
 
@@ -270,6 +273,32 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       // 行缺席 = 配置漂移档（add 过的行被删/改名——cron/引擎侧 argv 过期）
       err.write(`--tick 行缺席：jobs 表无「${flags.tick}」行（检查行是否被删改——/tick list 可查在册行）\n`);
       return 2;
+    }
+    // —— 行启停位判（十六役补扫 N26）：OS cron 命令段恒带 --read-only（新旧
+    // 世代条目同形）——以该旗标辨 cron 载体形。registrar 缺席期（env 翻转/
+    // unset 后的进程里 disable 不摘 crontab）残留条目按 cron 节奏继续起本
+    // 子进程，把用户明确停用的任务复活执行——此处诚实 gated 跳过记结局
+    // （引擎 job_disabled 闸同律：不动 last_fire_at、next 原样）。纯手动形
+    // （不带 --read-only 的 run --tick）不判——用户显式意图不走闸（/tick run
+    // 同律），恢复路径在 stderr 指路。
+    if (!row.enabled && flags.readOnly) {
+      const nowIso = new Date().toISOString();
+      schedFace.dao.settleGated(
+        row.name,
+        {
+          trigger: 'cron',
+          reason: 'gated',
+          gate: 'job_disabled',
+          error: '任务行处于停用态——残留 OS cron 条目触发，诚实跳过',
+          finishedAt: nowIso,
+        },
+        row.nextFireAt,
+        nowIso,
+      );
+      err.write(
+        `--tick 行「${row.name}」处于停用态——跳过执行（恢复：/tick enable ${row.name}；手动跑一次：/tick run ${row.name}）\n`,
+      );
+      return 0;
     }
     // —— 让位律（u-2 定形注③乙案并存窗子进程侧腿——与引擎 fire 前跨进程
     // 在飞判定双向对称）：行 activePid 非空非己且活体未超墙钟 = 宿主甲案/
