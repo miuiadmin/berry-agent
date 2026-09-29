@@ -288,6 +288,34 @@ describe('执行前抢占', () => {
     expect(o1.reason).toBe('preempted');
     expect(o2.reason).toBe('exit_code');
   });
+
+  it('kill 收场窗内双 manual 并发（十六役扫 #3）：同名恒串行不双跑——后到者排链等先到者注册再抢占（修前红：两条同挂 prev.settled、A 收场后 B/C 各自 spawn 双跑+账目互毁）', async () => {
+    const { service, engine, runner } = assemble();
+    service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
+    const first = engine.fireNow('j', 'manual'); // A 实例
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(1));
+    // A 在飞、kill 收场窗（秒级宽限）内连发两条：B 入关键段杀 A 等收场；
+    // C 修前与 B 同挂 A.settled（A 收场后同批微任务各自 spawn——双跑实证
+    // 3 spawns + 先收场者 finally 删后者注册清后者 durable 占用）；修后 C
+    // 排同名链——B 注册完成才入段、读到的是 B 新实例（抢占语义照常）
+    const second = engine.fireNow('j', 'manual');
+    const third = engine.fireNow('j', 'manual');
+    runner.resolve(0, { reason: 'preempted' }); // A 收场（真实 runner 由 close 事件自结）
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(2)); // B 接棒起跑；C 未起（修前直上 3）
+    await vi.waitFor(() =>
+      expect(runner.kills).toEqual([
+        { index: 0, reason: 'preempted' }, // B 杀 A
+        { index: 1, reason: 'preempted' }, // C 排链读新实例杀 B——先到者注册不被跳过
+      ]),
+    );
+    runner.resolve(1, { reason: 'preempted' }); // B 收场
+    await vi.waitFor(() => expect(runner.requests).toHaveLength(3)); // C 接棒（串行链不断）
+    runner.resolve(2, { reason: 'exit_code' });
+    const [o1, o2, o3] = await Promise.all([first, second, third]);
+    expect(o1.reason).toBe('preempted');
+    expect(o2.reason).toBe('preempted');
+    expect(o3.reason).toBe('exit_code');
+  });
 });
 
 describe('墙钟超时', () => {

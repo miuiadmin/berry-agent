@@ -118,11 +118,57 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
   /** 同名在飞注册表（键=行名——抢占判据面） */
   const active = new Map<string, RunnerHandle>();
   /**
-   * 同名起跑预留位（fireRow 入口同步置、收场清）——sweep 判 active ∪ 本位：
-   * active.set 落在首个 await（spawn）之后，无预留位时同步连呼 sweep 会
-   * 在微任务窗内重复起同名任务（在飞判据穿透）。manual 道不判本位（抢占语义）。
+   * 同名起跑预留位（fireRow 入口同步置、收场清——计数形）——sweep 判
+   * active ∪ 本位：active.set 落在首个 await（spawn）之后，无预留位时同步
+   * 连呼 sweep 会在微任务窗内重复起同名任务（在飞判据穿透）。manual 道不判
+   * 本位（抢占语义）。计数不交叠 Set：十六役扫 #3 修后同名 body 头尾可重叠
+   * （先到者收场尾与后到者关键段并存），Set 单票会被先到者 finally 误清——
+   * 计数各持各票，末位收场才真清。
    */
-  const reserved = new Set<string>();
+  const reserved = new Map<string, number>();
+  /**
+   * 同名关键段串行链（十六役扫 #3）：抢占检查→spawn→active.set 注册段按名
+   * 互斥（链尾 promise 接力）。修前双 manual /tick 在 kill 宽限窗（秒级）内
+   * 并发进入同挂同一 prev.settled、prev 收场后同批微任务先后恢复即各自
+   * spawn——同任务双跑 + activePid 账目互毁（先收场者 finally 按键删后者
+   * 注册、清后者 durable 占用——跨进程在飞判定失明可叠第三实例；sweep 道
+   * 有 reserved 拦、manual 道裸奔——修前假件实证 3 spawns）。互斥使后到者
+   * 整段排在先到者注册完成之后：读到的是先到者新实例、抢占语义照常（杀旧
+   * 起新），同任务恒串行；settled 序 = 注册序，finally 永远只删更旧实例。
+   */
+  const nameChains = new Map<string, Promise<unknown>>();
+
+  /** 预留位计数 +1（fireRow 入口同步置） */
+  function reserveName(name: string): void {
+    reserved.set(name, (reserved.get(name) ?? 0) + 1);
+  }
+
+  /** 预留位计数 -1（body 收场清——末位才真出册） */
+  function releaseName(name: string): void {
+    const n = (reserved.get(name) ?? 1) - 1;
+    if (n <= 0) reserved.delete(name);
+    else reserved.set(name, n);
+  }
+
+  /**
+   * 关键段按名入链：空链同步直入（段同步起跑——保 fireRow 原同步可见面：
+   * sweep 后同步断言、kill('preempted') 同步落账；段体 async，首个 await
+   * 前的执行仍同步）；有在飞段则排其收场后执行（成败都放行——段内自管
+   * 错误）。链尾吞错保序不传染。出册在段体 finally 同步落（beginInstance
+   * 尾调 stillOwn——promise 反应式出册晚一跳，会让紧随段收场的到达者误排
+   * 队丢同步面；被后继顶替则不出册，由后继自理。唯同步全完段〔gated 无
+   * await 形〕出册先于注册落——下到达者排一跳微任务后自愈，无同步断言面）。
+   */
+  function enqueueName<T>(name: string, section: (stillOwn: () => boolean) => Promise<T>): Promise<T> {
+    const prev = nameChains.get(name);
+    let settle!: Promise<unknown>;
+    const stillOwn = () => nameChains.get(name) === settle;
+    const run = () => section(stillOwn);
+    const next = prev === undefined ? run() : prev.then(run, run);
+    settle = next.catch(() => {});
+    nameChains.set(name, settle);
+    return next;
+  }
   let pollHandle: unknown = null;
   let running = false;
   let sweeping = false;
@@ -199,18 +245,75 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // 观察面诚实律：active.set 落在 spawn 的 await 之后，spawn 已发起但未上
       // 注册表的瞬态窗内单计 active 会给同步观察者假 0（fireRow 已在跑）——
       // 计 active ∪ reserved，「在飞 = 起跑中或已 spawn」。
-      return new Set([...active.keys(), ...reserved]).size;
+      return new Set([...active.keys(), ...reserved.keys()]).size;
     },
   };
 
   /**
-   * 单行触发共核（clock/manual/cron 三道同编舞）：
-   * 抢占同任务旧实例 → 闸评估（clock/cron 道；manual 直通）→ spawn →
-   * 墙钟守卫 → 结算回写（gated 走 settleGated 不动 last_fire_at）。
+   * 单行触发入口（三道共核经此并入）：同名在飞合并（十六役扫 #3）——修前
+   * 双 manual /tick 并发直入体内双跑 + activePid 账目互毁（先 settle 者清
+   * 账、后 spawn 者覆写）。收场即出册（finally 先于调用方 await 恢复）。
    */
-  async function fireRow(row: JobRow, trigger: TriggerKind): Promise<RunOutcome> {
+  function fireRow(row: JobRow, trigger: TriggerKind): Promise<RunOutcome> {
     const name = row.name;
-    reserved.add(name); // 同步占位（见 reserved 注释——防 sweep 微任务窗重触）
+    reserveName(name); // 同步占位（见 reserved 注释——防 sweep 微任务窗重触）
+    return fireRowTail(row, trigger, name);
+  }
+
+  /**
+   * 单行触发共核尾段（clock/manual/cron 三道同编舞）：关键段（抢占检查→
+   * 闸→spawn→注册）经同名串行链互斥（十六役扫 #3——见 nameChains 注释）；
+   * 结算/收场清账在链外——后到者关键段可与先到者收场尾并存（预留位计数
+   * 覆盖该重叠窗，sweep 判据不穿透）。
+   */
+  async function fireRowTail(row: JobRow, trigger: TriggerKind, name: string): Promise<RunOutcome> {
+    try {
+      const begun = await enqueueName(name, (stillOwn) => beginInstance(row, trigger, stillOwn));
+      if (begun.kind === 'done') return begun.outcome; // 闸拦/跨进程让位——已结算直收
+      const { handle, firedAt, wallHandle } = begun;
+      let outcome: RunOutcome;
+      try {
+        outcome = await handle.settled;
+      } finally {
+        timers.clear(wallHandle);
+        active.delete(name);
+        dao.setActive(name, null, null, now()); // durable 在飞占用面清账（claim 对偶）
+      }
+      // next 从结算时刻取下一刻（every 形锚 now——错过不重放同律）；
+      // runner 内零跑判定（gated——wake 未落地/分派处理器缺席）同走 settleGated
+      // 不动 last_fire_at（与闸拦同律：非真跑不污染冷却闸判据）
+      const next = nextFireAt(row.schedule, new Date(now()));
+      if (outcome.reason === 'gated') {
+        dao.settleGated(name, outcome, next, now());
+      } else {
+        dao.settleFire(name, firedAt, outcome, next, now());
+      }
+      return outcome;
+    } finally {
+      releaseName(name);
+    }
+  }
+
+  /** 关键段产物：起跑注册完（含墙钟守卫柄——随注册同步挂，盖住链跳窗）/ 闸拦·跨进程让位已结算（fireRowTail 直收） */
+  type BeginResult =
+    | {
+        readonly kind: 'spawned';
+        readonly handle: RunnerHandle;
+        readonly firedAt: string;
+        readonly wallHandle: unknown;
+      }
+    | { readonly kind: 'done'; readonly outcome: RunOutcome };
+
+  /**
+   * 关键段（同名链内互斥执行）：执行前抢占同任务旧实例 → 闸评估（clock/cron
+   * 道；manual 直通）→ 跨进程在飞判定 → spawn → active 注册 + claim 记账。
+   * 段内单次抢占检查即完整：注册在本段尾、持链期间无人能再注册——后来者
+   * 排在链上，恢复时读到的是本段新实例（杀旧起新——抢占语义不变）。
+   */
+  async function beginInstance(row: JobRow, trigger: TriggerKind, stillOwn: () => boolean): Promise<BeginResult> {
+    const name = row.name;
+    // try/finally 与段体同函数（收场出册零一跳——await 包装会把 finally 推迟
+    // 一个微任务，紧随段收场的到达者即丢同步可见面）
     try {
       // 执行前抢占：同任务旧实例在飞先杀再起（kill 幂等 + 等收场——同任务不并发双跑）
       const prev = active.get(name);
@@ -232,7 +335,7 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
             finishedAt: firedAt,
           };
           dao.settleGated(name, outcome, next, now());
-          return outcome;
+          return { kind: 'done', outcome };
         }
       }
       const firedAt = now();
@@ -253,7 +356,7 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
             finishedAt: firedAt,
           };
           dao.settleGated(name, outcome, next, now());
-          return outcome;
+          return { kind: 'done', outcome };
         }
       }
       const handle = await runner.spawn({ row, trigger, wallTimeoutMs });
@@ -261,28 +364,14 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
       // claim-then-advance 记账（定形注③）：fire 起跑落 activePid（runner 句柄
       // pid——甲案宿主 pid/乙案子进程 pid）+ 起跑墙钟；settle 清（对偶位）
       if (handle.pid !== null) dao.setActive(name, handle.pid, now(), now());
-      // 墙钟超时守卫（kill('timeout')——TERM→宽限→KILL 由 runner 实装升级）
+      // 墙钟超时守卫（kill('timeout')——TERM→宽限→KILL 由 runner 实装升级）。
+      // 随注册同步挂（段体内——不落 fireRowTail 的链返回 await 后一跳）：守卫
+      // 面更宽（盖住段收场到尾段接管间的链跳窗），同步可见面与旧 fireRow 齐
       const wallHandle = timers.set(wallTimeoutMs, () => handle.kill('timeout'));
-      let outcome: RunOutcome;
-      try {
-        outcome = await handle.settled;
-      } finally {
-        timers.clear(wallHandle);
-        active.delete(name);
-        dao.setActive(name, null, null, now()); // durable 在飞占用面清账（claim 对偶）
-      }
-      // next 从结算时刻取下一刻（every 形锚 now——错过不重放同律）；
-      // runner 内零跑判定（gated——wake 未落地/分派处理器缺席）同走 settleGated
-      // 不动 last_fire_at（与闸拦同律：非真跑不污染冷却闸判据）
-      const next = nextFireAt(row.schedule, new Date(now()));
-      if (outcome.reason === 'gated') {
-        dao.settleGated(name, outcome, next, now());
-      } else {
-        dao.settleFire(name, firedAt, outcome, next, now());
-      }
-      return outcome;
+      return { kind: 'spawned', handle, firedAt, wallHandle };
     } finally {
-      reserved.delete(name);
+      // 段体收场同步出册（仍是在飞段则让位后继自理——见 enqueueName 注释）
+      if (stillOwn()) nameChains.delete(name);
     }
   }
 
@@ -293,7 +382,7 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
     try {
       const due = dao.due(now());
       // 帽初值同观察面：起跑预留位（spawn 的 await 前瞬态）也占帽——同帽语义
-      let launched = new Set([...active.keys(), ...reserved]).size;
+      let launched = new Set([...active.keys(), ...reserved.keys()]).size;
       for (const row of due) {
         // 在飞/起跑预留不重触：settle 前 next_fire_at 仍 due，若重触会自踏
         // 活锁（重复抢占自家实例）——抢占只留给 manual 新实例道。在飞期间
