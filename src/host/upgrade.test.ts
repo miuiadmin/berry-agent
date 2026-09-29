@@ -20,7 +20,10 @@ import {
   type UpdateCheckFs,
 } from './upgrade.js';
 import type { SpawnRunner } from './plugin-install.js';
-import type { FetchLike } from '../web/types.js';
+import type { DnsResolver, FetchLike } from '../web/types.js';
+
+/** 公网 DNS 桩（守卫层 assertPublicHost 过审用——零真解析） */
+const publicDns: DnsResolver = async () => ['93.184.216.34'];
 
 // —— 测试基件 ——————————————————————————————————————————————
 
@@ -168,26 +171,36 @@ describe('resolveRegistryRoot（两腿同源律——用户 registry 解析）',
 describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
   it('200 → latest 键读出；URL 恰为 dist-tags 端点（GET 无请求体）', async () => {
     const fetch = fakeFetch(() => ({ status: 200, body: tagsBody('0.1.0-alpha.5') }));
-    const result = await fetchDistTags('https://registry.example.com', { fetchImpl: fetch });
+    const result = await fetchDistTags('https://registry.example.com', { fetchImpl: fetch, resolveDns: publicDns });
     expect(result).toEqual({ kind: 'ok', latest: '0.1.0-alpha.5' });
     expect(fetch.calls).toEqual(['https://registry.example.com/berry-agent/dist-tags']);
   });
 
   it('404 单列（未发布态判据位）', async () => {
-    const result = await fetchDistTags('https://r.example.com', { fetchImpl: fakeFetch(() => ({ status: 404 })) });
+    const result = await fetchDistTags('https://r.example.com', {
+      fetchImpl: fakeFetch(() => ({ status: 404 })),
+      resolveDns: publicDns,
+    });
     expect(result).toEqual({ kind: 'not-found' });
   });
 
   it('非 2xx 非 404 → failed 带状态', async () => {
-    const result = await fetchDistTags('https://r.example.com', { fetchImpl: fakeFetch(() => ({ status: 503 })) });
+    const result = await fetchDistTags('https://r.example.com', {
+      fetchImpl: fakeFetch(() => ({ status: 503 })),
+      resolveDns: publicDns,
+    });
     expect(result).toEqual({ kind: 'failed', message: 'registry 应答 503' });
   });
 
   it('latest 键缺席/非串 → failed（registry 响应不可信）', async () => {
     const bad = fakeFetch(() => ({ status: 200, body: JSON.stringify({ next: '1.0.0' }) }));
-    expect(await fetchDistTags('https://r.example.com', { fetchImpl: bad })).toMatchObject({ kind: 'failed' });
+    expect(await fetchDistTags('https://r.example.com', { fetchImpl: bad, resolveDns: publicDns })).toMatchObject({
+      kind: 'failed',
+    });
     const badType = fakeFetch(() => ({ status: 200, body: JSON.stringify({ latest: 42 }) }));
-    expect(await fetchDistTags('https://r.example.com', { fetchImpl: badType })).toMatchObject({ kind: 'failed' });
+    expect(await fetchDistTags('https://r.example.com', { fetchImpl: badType, resolveDns: publicDns })).toMatchObject({
+      kind: 'failed',
+    });
   });
 
   it('content-length 头越 64KiB 帽即拒（不下载）', async () => {
@@ -196,14 +209,14 @@ describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
       body: tagsBody('1.0.0'),
       headers: { 'content-length': String(1024 * 1024) },
     }));
-    const result = await fetchDistTags('https://r.example.com', { fetchImpl: oversized });
+    const result = await fetchDistTags('https://r.example.com', { fetchImpl: oversized, resolveDns: publicDns });
     expect(result).toMatchObject({ kind: 'failed' });
     expect(result.kind === 'failed' && result.message).toContain('文档过大');
   });
 
   it('请求带 AbortSignal 超时帽 + 零请求体（传输帽契约面——帽不只落在体侧）', async () => {
     const f = fakeFetch(() => ({ status: 200, body: tagsBody('1.0.0') }));
-    await fetchDistTags('https://r.example.com', { fetchImpl: f });
+    await fetchDistTags('https://r.example.com', { fetchImpl: f, resolveDns: publicDns });
     expect(f.calls).toHaveLength(1);
     // init 契约锁：GET 只读 + AbortSignal 在场（5s 帽的承载形——变异冒烟位：
     // 删 signal 后本锁必红）
@@ -216,14 +229,46 @@ describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
   it('无 content-length 头 + 读回体越 64KiB 帽 → failed（读回复验腿）', async () => {
     // 头缺席形（chunked 传输常态）——读回长度复验是唯一防线
     const huge = fakeFetch(() => ({ status: 200, body: 'x'.repeat(UPDATE_CHECK_MAX_BYTES + 1) }));
-    const result = await fetchDistTags('https://r.example.com', { fetchImpl: huge });
+    const result = await fetchDistTags('https://r.example.com', { fetchImpl: huge, resolveDns: publicDns });
     expect(result).toMatchObject({ kind: 'failed' });
     expect(result.kind === 'failed' && result.message).toContain('文档过大');
   });
 
   it('网络错/超时 → failed 静默形（不 throw）', async () => {
     const dead = fakeFetch(() => new Error('fetch failed'));
-    expect(await fetchDistTags('https://r.example.com', { fetchImpl: dead })).toMatchObject({ kind: 'failed' });
+    expect(await fetchDistTags('https://r.example.com', { fetchImpl: dead, resolveDns: publicDns })).toMatchObject({
+      kind: 'failed',
+    });
+  });
+
+  it('外联必经守卫（redirect 钉 manual + DNS 先校验入钉）——裸 pinnedFetch 生产确定性死亡修（十六役扫 #5）', async () => {
+    // 旧形 fetchImpl 裸透传：init 无 redirect 字段且 DNS 永不被咨询——生产
+    // 缺省腿裸 pinnedFetch 无钉即错 fail-closed（registry 域从未入钉），本锁
+    // 以守卫层可观察证据（redirect 钉死 + 解析被咨询）锚新形
+    let captured: RequestInit | undefined;
+    let dnsConsulted = false;
+    const base: FetchLike = async (_url, init) => {
+      captured = init;
+      return new Response(tagsBody('0.1.0-alpha.19'), { status: 200 });
+    };
+    const resolveDns: DnsResolver = async () => {
+      dnsConsulted = true;
+      return ['93.184.216.34'];
+    };
+    const result = await fetchDistTags('https://r.example.com', { fetchImpl: base, resolveDns });
+    expect(result).toEqual({ kind: 'ok', latest: '0.1.0-alpha.19' });
+    expect(dnsConsulted).toBe(true);
+    expect(captured?.redirect).toBe('manual');
+  });
+
+  it('私网 registry 根被守卫拒（用户可控 npm config 不豁免——failed 静默形）', async () => {
+    const base = fakeFetch(() => ({ status: 200, body: tagsBody('1.0.0') }));
+    const result = await fetchDistTags('http://127.0.0.1:4873', {
+      fetchImpl: base,
+      resolveDns: async () => ['127.0.0.1'],
+    });
+    expect(result).toMatchObject({ kind: 'failed' });
+    expect(base.calls).toHaveLength(0); // 底层 fetch 不被触达——拒在守卫层
   });
 });
 
@@ -277,6 +322,7 @@ describe('update-check.json 三键（读坏形容忍 + 只前进合并）', () =
 
 describe('runManualUpdateCheck（手动通道——恒走网络 + 写回缓存）', () => {
   const baseDeps = (fs: UpdateCheckFs, fetchImpl: FetchLike) => ({
+    resolveDns: publicDns,
     dataDir: '/data',
     currentVersion: '0.1.0-alpha.4',
     spawn: fakeSpawn('https://registry.example.com'),
@@ -361,6 +407,7 @@ describe('runStartupUpdateCheck（§8.5 第 6 条——启动腿编排）', () =
         currentVersion: '0.1.0-alpha.4',
         spawn: fakeSpawn('https://registry.example.com'),
         fetchImpl: fetch,
+        resolveDns: publicDns,
         fs,
         now: () => 10_000_000, // 距任一初始缓存远超 24h
         env: {} as Record<string, string | undefined>,
@@ -425,14 +472,14 @@ describe('runStartupUpdateCheck（§8.5 第 6 条——启动腿编排）', () =
     const { base } = deps();
     // fetch 返回与本地同版——判序 0 即无更新
     const same = fakeFetch(() => ({ status: 200, body: tagsBody('0.1.0-alpha.4') }));
-    const decision = await runStartupUpdateCheck({ ...base, fetchImpl: same });
+    const decision = await runStartupUpdateCheck({ ...base, fetchImpl: same, resolveDns: publicDns });
     expect(decision).toMatchObject({ kind: 'checked', hasUpdate: false });
   });
 
   it('网络失败 → failed（调用方零提示语义的锚——回执不含提示文案职责）且不写缓存', async () => {
     const { base, fs } = deps();
     const dead = fakeFetch(() => new Error('dns broke'));
-    const decision = await runStartupUpdateCheck({ ...base, fetchImpl: dead });
+    const decision = await runStartupUpdateCheck({ ...base, fetchImpl: dead, resolveDns: publicDns });
     expect(decision).toMatchObject({ kind: 'failed' });
     expect(readUpdateCheckState(fs, '/data')).toBeNull();
   });
@@ -444,6 +491,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
   const cliDeps = (overrides: {
     realEntryPath?: string;
     fetchImpl?: FetchLike;
+    resolveDns?: DnsResolver;
     runInstall?: (target: string) => Promise<boolean>;
   }) => {
     const out: string[] = [];
@@ -456,6 +504,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
         realEntryPath: overrides.realEntryPath ?? '/usr/local/lib/node_modules/berry-agent/dist/host/main.js',
         spawn: fakeSpawn('https://registry.example.com'),
         fetchImpl: fetch,
+        resolveDns: overrides.resolveDns ?? publicDns,
         dataDir: '/data',
         fs: memoryFs(),
         now: () => 1000,
@@ -499,6 +548,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
   it('npm 形已最新（latest 同版）：退 0 不装机', async () => {
     const { deps, out, installCalls } = cliDeps({
       fetchImpl: fakeFetch(() => ({ status: 200, body: tagsBody('0.1.0-alpha.4') })),
+      resolveDns: publicDns,
     });
     const code = await runUpgradeCommand(deps);
     expect(code).toBe(0);
@@ -526,7 +576,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
 
   it('latest 越形（非白名单 semver）→ 契约级拒——不达 spawn 插值位', async () => {
     const evil = fakeFetch(() => ({ status: 200, body: tagsBody('1.2.3; rm -rf /') }));
-    const { deps, err, installCalls } = cliDeps({ fetchImpl: evil });
+    const { deps, err, installCalls } = cliDeps({ fetchImpl: evil, resolveDns: publicDns });
     const code = await runUpgradeCommand(deps);
     expect(code).toBe(1);
     expect(err.join('\n')).toContain('拒执行装机');
@@ -534,7 +584,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
   });
 
   it('registry 404 → 未发布态诚实告知 + 源码指引，退 1', async () => {
-    const { deps, err } = cliDeps({ fetchImpl: fakeFetch(() => ({ status: 404 })) });
+    const { deps, err } = cliDeps({ fetchImpl: fakeFetch(() => ({ status: 404 })), resolveDns: publicDns });
     const code = await runUpgradeCommand(deps);
     expect(code).toBe(1);
     expect(err.join('\n')).toContain('404');
@@ -542,7 +592,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
   });
 
   it('网络失败 → 诚实报错退 1（含手动命令指引）', async () => {
-    const { deps, err } = cliDeps({ fetchImpl: fakeFetch(() => new Error('offline')) });
+    const { deps, err } = cliDeps({ fetchImpl: fakeFetch(() => new Error('offline')), resolveDns: publicDns });
     const code = await runUpgradeCommand(deps);
     expect(code).toBe(1);
     expect(err.join('\n')).toContain('版本检查失败');

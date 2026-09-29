@@ -27,8 +27,8 @@ import { spawn as childSpawn } from 'node:child_process';
 import { dirname } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-import { pinnedFetch } from '../web/index.js';
-import type { FetchLike } from '../web/types.js';
+import { createSsrfGuardedFetch, pinnedFetch } from '../web/index.js';
+import type { DnsResolver, FetchLike } from '../web/types.js';
 import type { SpawnRunner } from './plugin-install.js';
 
 /** 跳过启动版本检查的 env 键（§8.5 第 6 条——关掉即零网络包，机器可验证） */
@@ -194,15 +194,17 @@ export type DistTagsResult =
 /**
  * 只读 GET dist-tags（`<registry 根>/berry-agent/dist-tags`——npm registry
  * 标准端点，响应形 `{"latest":"1.2.3",...}`）：5s 超时帽 + 64KiB 体帽 +
- * latest 键字符串形校验。**零外传**（GET 无请求体、无本地数据随行）；
- * fetchImpl 缺省 pinnedFetch（同包单源律——fetch 与 dispatcher 恒同包
- * undici）。
+ * latest 键字符串形校验。**零外传**（GET 无请求体、无本地数据随行）。
+ * 外联必经 SSRF 守卫（校验→入钉→连接——十六役扫 #5：registry 根来自
+ * 用户可控的 npm config（http:// 亦放行），裸 pinnedFetch 无钉即错
+ * fail-closed 使本腿在生产确定性死亡；守卫同形三消费位 = oauth / 市场
+ * 抓取 / 模型清单拉取——plugin-market/fetch.ts:136 形）。
  */
 export async function fetchDistTags(
   registryRoot: string,
-  deps: { readonly fetchImpl?: FetchLike } = {},
+  deps: { readonly fetchImpl?: FetchLike; readonly resolveDns?: DnsResolver } = {},
 ): Promise<DistTagsResult> {
-  const fetchImpl = deps.fetchImpl ?? pinnedFetch;
+  const fetchImpl = createSsrfGuardedFetch(deps.fetchImpl ?? pinnedFetch, deps.resolveDns);
   const url = `${registryRoot}/${PACKAGE_NAME}/dist-tags`;
   try {
     const response = await fetchImpl(url, {
@@ -313,6 +315,7 @@ export interface UpdateCheckDeps {
   readonly currentVersion: string;
   readonly spawn: SpawnRunner;
   readonly fetchImpl?: FetchLike;
+  readonly resolveDns?: DnsResolver;
   readonly fs: UpdateCheckFs;
   readonly now: () => number;
 }
@@ -353,7 +356,7 @@ function mergeStateForward(prior: UpdateCheckState | null, fetchedLatest: string
  */
 export async function runManualUpdateCheck(deps: UpdateCheckDeps): Promise<ManualCheckResult> {
   const registry = await resolveRegistryRoot(deps.spawn);
-  const result = await fetchDistTags(registry.root, { fetchImpl: deps.fetchImpl });
+  const result = await fetchDistTags(registry.root, { fetchImpl: deps.fetchImpl, resolveDns: deps.resolveDns });
   if (result.kind === 'ok') {
     // 成功才落账（失败不写 lastCheckedAt——网络瞬断后下次启动照查，不被
     // 失败结果钉死 24h 窗）
@@ -432,6 +435,8 @@ export interface UpgradeCliDeps {
   readonly realEntryPath: string;
   readonly spawn: SpawnRunner;
   readonly fetchImpl?: FetchLike;
+  /** DNS 解析注入（SSRF 守卫供血——十六役扫 #5 CLI 腿同穿针） */
+  readonly resolveDns?: DnsResolver;
   readonly dataDir: string;
   readonly fs: UpdateCheckFs;
   readonly now: () => number;
