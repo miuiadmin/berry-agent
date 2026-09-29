@@ -210,7 +210,9 @@ export interface MemoryDao {
    * 内容面取导入行原值，版本行 id/created_at 用本库 now——本库时间线不自外来
    * 钟〕）。id 已在库 → 整行跳过返回 false（恢复式幂等零合并零覆写**含链**）。
    * 行形校验归 port.parseMemoryImportRow（词法判定单点）；写前 secret 扫描
-   * 在此单点执法（导入面即写入面——没有绕过扫描的写入方）。
+   * 在此单点执法（导入面即写入面——没有绕过扫描的写入方）；随包版本行 id
+   * 撞库（库内或文件内先行行重复）折 MEMORY_ENTRY_INVALID 行级坏形拒写
+   * （十六役补扫 N13——四账契约行级尽力而为，不整文件中断）。
    */
   importInsert(row: MemoryExportRow): boolean;
 }
@@ -479,6 +481,10 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
                                   confidence, evidence_count, cause, reason, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+  // 版本行 id 撞库预检（十六役补扫 N13——id 单列主键，库内或文件内先行行重复
+  // 属文件内容确定性坏形，非环境性 DB 错误：预检折行级坏形拒写，免裸
+  // SqliteError 整文件中断）
+  const stmtVersionIdExists = db.prepare('SELECT 1 FROM memory_versions WHERE id = ?');
   // 谱系前身反查（superseded_by 以 'llm:<本id>' 形指向本条的终态行——合并吸收
   // 面与搬家前身；audit 面不过滤 valid_from——未生效行谱系照可查）
   const stmtPredecessors = db.prepare(
@@ -993,6 +999,18 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       // 批 ev-1 随包链重建：按 revision 升序逐行原值直搬（id/revision/cause/
       // reason/快照六列/created_at 全原值——历史事实不自造钟；revision 原值是
       // restore 参数跨机互操作的前提）。解析面已保证升序与词法，此处排序兜底。
+      // —— 版本行 id 撞库预检（十六役补扫 N13）：库内先行行（含本文件已提交
+      // 各行）与本行内重复都属行级坏形——折 MEMORY_ENTRY_INVALID 单行拒写
+      // （事务回滚本行三写不留部分态），由 port 折 rejectedMalformed 计账；
+      // 不再让 UNIQUE 约束以裸 SqliteError 外炸整文件中断。
+      const seenVersionIds = new Set<string>();
+      for (const v of row.versions) {
+        if (seenVersionIds.has(v.id) || stmtVersionIdExists.get(v.id) !== undefined) {
+          warn(`[memory] 导入行版本链 id 撞库拒写（memory_versions.id 重复）：${v.id}（条目：${row.id}）`);
+          throw new BaseError('MEMORY_ENTRY_INVALID', `导入行坏形拒：版本行 id 重复（memory_versions.id）：${v.id}`);
+        }
+        seenVersionIds.add(v.id);
+      }
       for (const v of [...row.versions].sort((a, b) => a.revision - b.revision)) {
         stmtImportInsertVersion.run(
           v.id,
@@ -1180,6 +1198,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
                 SUM(CASE WHEN a.op = 'recall' THEN 1 ELSE 0 END) AS recall,
                 SUM(CASE WHEN a.op = 'search' THEN 1 ELSE 0 END) AS search,
                 SUM(CASE WHEN a.op = 'cite' THEN 1 ELSE 0 END) AS cite,
+                SUM(CASE WHEN a.op = 'corrected-cite' THEN 1 ELSE 0 END) AS corrected,
                 count(*) AS total
          FROM memory_access a JOIN memories m ON m.id = a.memory_id
          ${where}

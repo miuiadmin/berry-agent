@@ -315,12 +315,26 @@ describe('读面三件', () => {
     await run(byName(tools, 'memory_search'), { query: 'vitest' });
     const r = await run(byName(tools, 'memory_access_log'), {});
     expect(r.text).toContain('被用条目 top 2（总次数降序）：');
-    expect(r.text).toMatch(/recall=0 search=1 cite=0  total=1  id=m1/);
+    expect(r.text).toMatch(/recall=0 search=1 cite=0 corrected=0  total=1  id=m1/);
     expect(r.text).toContain('访问流水（2 行，时间降序）：');
     const scoped = await run(byName(tools, 'memory_access_log'), { memoryId: 'm1', op: 'search' });
     expect(scoped.text).toContain('访问流水（1 行，时间降序）：');
     const none = await run(byName(tools, 'memory_access_log'), { op: 'cite' });
     expect(none.text).toContain('（聚合面空——窗口内无访问记录）');
+  });
+
+  it('memory_access_log：corrected-cite 第四词全链（聚合补列对账 + op 过滤参位——十六役补扫 N12）', async () => {
+    const { dao, tools } = setup();
+    const id = seed(dao);
+    await run(byName(tools, 'memory_search'), { query: 'pnpm' }); // search 流水 1 行
+    dao.markCorrected([id], 's9'); // corrected-cite 流水 1 行（纠正负效用）
+    const r = await run(byName(tools, 'memory_access_log'), {});
+    // 聚合四列 + total 对账：缺省视图下 total ≡ recall+search+cite+corrected
+    expect(r.text).toMatch(/recall=0 search=1 cite=0 corrected=1  total=2  id=m1/);
+    // 第四词可作 op 过滤参位（旧 schema 三值 union 拒此形）
+    const correctedOnly = await run(byName(tools, 'memory_access_log'), { op: 'corrected-cite' });
+    expect(correctedOnly.text).toContain('访问流水（1 行，时间降序）：');
+    expect(correctedOnly.text).toContain('corrected-cite');
   });
 });
 

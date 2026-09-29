@@ -500,6 +500,37 @@ describe('批 ev-1 版本链随包导出与 v1 判读收', () => {
     expect(dao.versions(row.id)).toHaveLength(3); // 直搬 2 + rollback 1——跳过不追加
   });
 
+  it('版本链 id 撞库折 rejectedMalformed 单行跳过（十六役补扫 N13——不整文件中断不留部分行态）', () => {
+    const dao = setup();
+    // 第一行：正常导入带链（其版本行 id 先落库——跨行拼合撞库的「库内先行行」）
+    const rowA = wireRow({ versions: [versionRow({ id: 'ver-dup', revision: 1 })] });
+    // 第二行：随包链首行 id 撞库（手工编辑/跨文件拼合形）——应折行级坏形拒
+    const rowB = wireRow({
+      versions: [versionRow({ id: 'ver-dup', revision: 2 }), versionRow({ revision: 3 })],
+    });
+    // 第三行：行内重复版本行 id（同一 versions 数组两行同 id）
+    const rowC = wireRow({ versions: [versionRow({ id: 'ver-self' }), versionRow({ id: 'ver-self', revision: 2 })] });
+    // 第四行：好形行——坏行之后照常处理（行级尽力而为不中断）
+    const rowD = wireRow();
+    const text =
+      [headerLine(), JSON.stringify(rowA), JSON.stringify(rowB), JSON.stringify(rowC), JSON.stringify(rowD)].join(
+        '\n',
+      ) + '\n';
+    // 旧码在此以裸 SqliteError（UNIQUE constraint failed: memory_versions.id）整文件外炸
+    expect(runMemoryImport(text, dao)).toEqual({
+      inserted: 2,
+      skippedExisting: 0,
+      rejectedSecret: 0,
+      rejectedMalformed: 2,
+    });
+    // 坏行整行回滚（事务不留部分态：主表/FTS/链均缺席）
+    expect(dao.get(rowB.id)).toBeUndefined();
+    expect(dao.get(rowC.id)).toBeUndefined();
+    expect(dao.get(rowD.id)).toBeDefined();
+    expect(dao.versions(rowB.id)).toEqual([]);
+    expect(warns.join('\n')).toContain('memory_versions.id 重复');
+  });
+
   it('v1 旧件判读收：formatVersion=1 + 无 valid_from/versions 键不折坏形（首版快造用本库钟）', () => {
     const dao = setup();
     const v1Row = wireRow(); // wireRow 基形即 v1 18 列——无 valid_from/versions

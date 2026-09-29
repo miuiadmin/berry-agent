@@ -479,17 +479,20 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
     name: 'memory_access_log',
     description:
       '查询记忆访问日志（聚合 + 流水双面）：可按条目 id/前缀、时间窗（epoch 毫秒）、' +
-      '操作类型（recall 注入/search 检索/cite 引用）过滤；聚合面 = top-N 被用条目' +
-      '（总次数降序），流水面 = 时间降序访问记录。',
+      '操作类型（recall 注入/search 检索/cite 引用/corrected-cite 纠正引用）过滤；' +
+      '聚合面 = top-N 被用条目（总次数降序），流水面 = 时间降序访问记录。',
     parameters: Type.Object(
       {
         memoryId: Type.Optional(Type.String({ description: '条目 id 或 id 前缀（缺省 = 全库）' })),
         from: Type.Optional(Type.Number({ description: '时间窗下界（epoch 毫秒，含）' })),
         to: Type.Optional(Type.Number({ description: '时间窗上界（epoch 毫秒，含）' })),
         op: Type.Optional(
-          Type.Union([Type.Literal('recall'), Type.Literal('search'), Type.Literal('cite')], {
-            description: '操作类型过滤（缺省 = 全部）',
-          }),
+          Type.Union(
+            [Type.Literal('recall'), Type.Literal('search'), Type.Literal('cite'), Type.Literal('corrected-cite')],
+            {
+              description: '操作类型过滤（缺省 = 全部）',
+            },
+          ),
         ),
         limit: Type.Optional(Type.Number({ description: '流水行上限（缺省 50、硬帽 200）' })),
       },
@@ -502,7 +505,7 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
           ...(typeof args.memoryId === 'string' && args.memoryId !== '' ? { memoryIdPrefix: args.memoryId } : {}),
           ...(typeof args.from === 'number' ? { from: args.from } : {}),
           ...(typeof args.to === 'number' ? { to: args.to } : {}),
-          ...(args.op !== undefined ? { op: args.op as 'recall' | 'search' | 'cite' } : {}),
+          ...(args.op !== undefined ? { op: args.op as 'recall' | 'search' | 'cite' | 'corrected-cite' } : {}),
           ...(typeof args.limit === 'number' ? { limit: args.limit } : {}),
         });
         const lines: string[] = [];
@@ -510,7 +513,7 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
           lines.push(`被用条目 top ${result.aggregates.length}（总次数降序）：`);
           for (const agg of result.aggregates) {
             lines.push(
-              `[m:${shortIdOf(agg.memoryId)}] ${agg.summary}  recall=${agg.recall} search=${agg.search} cite=${agg.cite}  total=${agg.total}  id=${agg.memoryId}`,
+              `[m:${shortIdOf(agg.memoryId)}] ${agg.summary}  recall=${agg.recall} search=${agg.search} cite=${agg.cite} corrected=${agg.corrected}  total=${agg.total}  id=${agg.memoryId}`,
             );
           }
         } else {

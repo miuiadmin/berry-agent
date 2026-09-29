@@ -481,13 +481,15 @@ export interface MemoryAccessFlowRow {
   readonly ts: number;
 }
 
-/** 访问聚合行（条目 × 三 op 计数——「top-N 被用条目」面） */
+/** 访问聚合行（条目 × 四 op 计数——「top-N 被用条目」面；十六役补扫 N12：
+ * corrected 列补齐后 total ≡ recall+search+cite+corrected 四列之和） */
 export interface MemoryAccessAggregate {
   readonly memoryId: string;
   readonly summary: string;
   readonly recall: number;
   readonly search: number;
   readonly cite: number;
+  readonly corrected: number;
   readonly total: number;
 }
 
