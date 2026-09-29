@@ -170,7 +170,7 @@ describe('frames 活体分档（display 尾巴 / session 落稿）', () => {
 });
 
 describe('frames 工具族与状态行', () => {
-  it('start/update 走状态行 / end 落正文行并清状态', () => {
+  it('start/update 走状态行 / end 落正文行并清状态（update/end 按工具名呈现——修前红：退化为 toolCallId）', () => {
     let state = initialAppState;
     state = applyEnvelope(
       state,
@@ -178,11 +178,55 @@ describe('frames 工具族与状态行', () => {
     );
     expect(state.status).toBe('⚙ bash …');
     state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-1', update: '跑' }));
-    expect(state.status).toBe('⚙ t-1 …');
+    // update 帧只携 toolCallId——start 的 id→名映射按名呈现（TUI tool-progress
+    // -panel 同律；修前红：`⚙ t-1 …` 机器不透明 id）
+    expect(state.status).toBe('⚙ bash …');
     state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-1', result: {} }));
     expect(state.status).toBeNull();
     expect(state.messages[state.messages.length - 1]).toMatchObject({ role: 'tool', streaming: false });
-    expect(state.messages[state.messages.length - 1]?.text).toContain('t-1');
+    // 终结行按名呈现（修前红：`⚙ 工具 t-1 执行完成` 常驻不可辨）
+    expect(state.messages[state.messages.length - 1]?.text).toContain('bash');
+    expect(state.messages[state.messages.length - 1]?.text).not.toContain('t-1');
+    // 终结出账：同 id 迟到 update 映射缺席回退 id（有界 + 防御位）
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-1', update: '迟' }));
+    expect(state.status).toBe('⚙ t-1 …');
+  });
+
+  it('update/end 先于 start（乱序/重连丢 start）：映射缺席回退 toolCallId 不炸', () => {
+    let state = initialAppState;
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-x', update: '早' }));
+    expect(state.status).toBe('⚙ t-x …');
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-x', result: {} }));
+    expect(state.messages[state.messages.length - 1]?.text).toContain('t-x');
+  });
+
+  it('多工具并发：各自 id→名映射不串（end 只出账自己）', () => {
+    let state = initialAppState;
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-a', name: 'read', arguments: {} }),
+    );
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-b', name: 'bash', arguments: {} }),
+    );
+    expect(state.status).toBe('⚙ bash …'); // 状态行随最新 start
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-a', update: '读' }));
+    expect(state.status).toBe('⚙ read …'); // t-a 映射仍在场
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-a', result: {} }));
+    expect(state.messages[state.messages.length - 1]?.text).toContain('read');
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-b', update: '跑' }));
+    expect(state.status).toBe('⚙ bash …'); // t-b 不被 t-a 的 end 出账误伤
+  });
+
+  it('会话切换清工具名映射（旧会话 id 不污染新会话）', () => {
+    let state = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    state = setActiveSession(state, 's-2');
+    state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-1', update: '迟' }));
+    expect(state.status).toBe('⚙ t-1 …'); // 映射已清——回退 id
   });
 
   it('agent_end 清状态行 / agent_start·turn_* 不进正文', () => {

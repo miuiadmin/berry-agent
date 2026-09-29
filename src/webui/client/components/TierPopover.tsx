@@ -8,13 +8,15 @@
  * 点击行 → PUT 切档 → onReceipt（回执文案与 TUI setStatus 同文单源）→
  * onClose。GET/PUT 失败：错误 message 透传 onError（NoticeBar 呈现——
  * 501 未装配 / 404 已闭 / 400 坏词 / 500 fold 坏词全折同呈现位），浮层
- * 不自动收仍可关。esc 与遮罩点击收层；v1 不求焦点陷阱（document 级
+ * 不自动收仍可关；401 失效凭证例外——onAuthLost 路由回换桥位（重试恒不
+ * 可能自愈，机器码串不进通知条——webui-face#3 调用面统一律）。
+ * esc 与遮罩点击收层；v1 不求焦点陷阱（document 级
  * esc 监听——浮层卸载即解绑）。
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
-import { api, type TiersPayload } from '../api.js';
+import { api, isUnauthorized, type TiersPayload } from '../api.js';
 
 /** 浮层档族（两词面共享一件——行集与当前档按 kind 取应答对应半边） */
 export type TierKind = 'thinking' | 'sandbox';
@@ -26,6 +28,7 @@ export function TierPopover({
   onClose,
   onReceipt,
   onError,
+  onAuthLost,
 }: {
   readonly kind: TierKind;
   readonly sessionId: string;
@@ -35,6 +38,8 @@ export function TierPopover({
   readonly onReceipt: (receipt: string) => void;
   /** 错误呈现回调（message 透传——501/404/500/400 同呈现位） */
   readonly onError: (message: string) => void;
+  /** 失效凭证路由（GET/PUT 401——回换桥位；webui-face#3 调用面统一律） */
+  readonly onAuthLost: () => void;
 }): ReactElement {
   /** 行集（null = 未就绪——加载/失败态分立呈现） */
   const [tiers, setTiers] = useState<TiersPayload | null>(null);
@@ -46,6 +51,8 @@ export function TierPopover({
   // 内联箭头函数每渲染新造）不触发重拉。
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const onAuthLostRef = useRef(onAuthLost);
+  onAuthLostRef.current = onAuthLost;
 
   // 挂载即读档（GET tiers——alive 守卫防卸载后 setState；sessionId 随会话
   // 切换重发——浮层跨会话存活时行集随新会话刷新）
@@ -61,6 +68,12 @@ export function TierPopover({
       })
       .catch((err: unknown) => {
         if (!alive) return;
+        // 401 → 失效路由（webui-face#3）：死 cookie 重试恒不可能自愈，机器
+        // 码串不进通知条——主面整卸路由换桥位
+        if (isUnauthorized(err)) {
+          onAuthLostRef.current();
+          return;
+        }
         // 501（面未装配）/404（会话不在场或已闭）/500（fold 坏词）全折同
         // 呈现位：message 透传 onError（NoticeBar），浮层内只留失败行
         setFailed(true);
@@ -105,6 +118,12 @@ export function TierPopover({
         onReceipt(receipt);
       })
       .catch((err: unknown) => {
+        // 401 → 失效路由（同 GET 腿——webui-face#3 调用面统一律），机器码
+        // 串不进通知条；主面整卸路由换桥位（守卫不复位——浮层随之卸载）
+        if (isUnauthorized(err)) {
+          onAuthLostRef.current();
+          return;
+        }
         // 坏词 400 / 已闭 404 / 未装配 501——message 透传 onError 呈现；
         // 浮层不自动收（可重选可关），守卫复位
         setSubmitting(false);

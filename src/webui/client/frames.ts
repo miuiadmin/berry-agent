@@ -73,6 +73,15 @@ export interface AppState {
   readonly seq: number;
   /** 待配对乐观回显（见 PendingEcho——回显与镜像恰一份的配对账） */
   readonly pendingEchoes: readonly PendingEcho[];
+  /**
+   * 工具名映射（toolCallId → 工具名）：start 帧本携 name，而线协议 update/
+   * end 帧只携 toolCallId——折叠器在 start 时记账，update/end 按名呈现
+   * （TUI tool-progress-panel begin()/transcript pendingCalls 同律——07 §4.1
+   * 跨通道同律）；end 时出账，会话切换整段清（有界）。
+   */
+  readonly toolNames: Readonly<Record<string, string>>;
+  /** 会话清单装载失败旗（true = 空态呈现失败行——不与真空态混同假装「暂无会话」） */
+  readonly sessionsFailed: boolean;
 }
 
 /** 初始态（空态——auth 后由投影拉取逐段填充） */
@@ -86,6 +95,8 @@ export const initialAppState: AppState = {
   todo: null,
   seq: 0,
   pendingEchoes: [],
+  toolNames: {},
+  sessionsFailed: false,
 };
 
 /**
@@ -227,23 +238,30 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope): AppState {
       }
       if (payload.type === 'tool_execution_start') {
         if (env.kind !== 'display') return state;
-        return { ...state, status: `⚙ ${payload.name} …` };
+        // id→名记账（update/end 帧只携 id——按名呈现的映射真源）
+        return {
+          ...state,
+          status: `⚙ ${payload.name} …`,
+          toolNames: { ...state.toolNames, [payload.toolCallId]: payload.name },
+        };
       }
       if (payload.type === 'tool_execution_update') {
         if (env.kind !== 'display') return state;
-        return { ...state, status: `⚙ ${payload.toolCallId} …` };
+        // 名优先（start 已记账）；映射缺席（乱序/重连丢 start）回退 id 不炸
+        return { ...state, status: `⚙ ${state.toolNames[payload.toolCallId] ?? payload.toolCallId} …` };
       }
       if (payload.type === 'tool_execution_end') {
         if (env.kind !== 'session') return state;
         const { key, seq } = messageKey(state, undefined);
+        // 名优先同 update；终结出账（映射有界——同 id 迟到 update 回退 id）
+        const name = state.toolNames[payload.toolCallId] ?? payload.toolCallId;
+        const { [payload.toolCallId]: _removed, ...toolNames } = state.toolNames;
         return {
           ...state,
           seq,
           status: null,
-          messages: [
-            ...state.messages,
-            { key, role: 'tool', text: `⚙ 工具 ${payload.toolCallId} 执行完成`, streaming: false },
-          ],
+          toolNames,
+          messages: [...state.messages, { key, role: 'tool', text: `⚙ 工具 ${name} 执行完成`, streaming: false }],
         };
       }
       if (payload.type === 'agent_end') {
@@ -349,17 +367,31 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
   return { ...state, messages: views, seq, pendingEchoes: [] };
 }
 
-/** 会话清单落座 */
+/** 会话清单落座（成功即撤失败旗——失败行只随最新一次装载结果呈现） */
 export function loadedSessions(state: AppState, sessions: readonly ClientSessionSummary[]): AppState {
-  return { ...state, sessions };
+  return { ...state, sessions, sessionsFailed: false };
+}
+
+/** 会话清单装载失败落旗（空态呈现失败行——与真空态分立，不假声明「暂无会话」） */
+export function failedSessions(state: AppState): AppState {
+  return { ...state, sessionsFailed: true };
 }
 
 /**
- * 会话切换（正文/todo 归零——onopen 重拉投影回填；配对账同步出清：旧会话
- * 在飞回显的镜像随切换被 activeId 守卫丢弃，账目不滞留污染新会话配对）。
+ * 会话切换（正文/todo 归零——onopen 重拉投影回填；配对账与工具名映射同步
+ * 出清：旧会话在飞回显的镜像随切换被 activeId 守卫丢弃，账目不滞留污染新
+ * 会话配对；旧会话工具名映射对新会话 id 无意义，整段清）。
  */
 export function setActiveSession(state: AppState, sessionId: string | null): AppState {
-  return { ...state, activeId: sessionId, messages: [], todo: null, status: null, pendingEchoes: [] };
+  return {
+    ...state,
+    activeId: sessionId,
+    messages: [],
+    todo: null,
+    status: null,
+    pendingEchoes: [],
+    toolNames: {},
+  };
 }
 
 /** todo 投影落座 */

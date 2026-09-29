@@ -50,7 +50,7 @@ export const WEBUI_ENDPOINTS = {
 export type ClientDisplayEvent =
   | { readonly type: 'message_start'; readonly role: string }
   | { readonly type: 'message_update'; readonly role: string; readonly partial: unknown }
-  | { readonly type: 'tool_execution_start'; readonly name: string }
+  | { readonly type: 'tool_execution_start'; readonly toolCallId: string; readonly name: string }
   | { readonly type: 'tool_execution_update'; readonly toolCallId: string }
   | { readonly type: 'agent_start' }
   | { readonly type: 'agent_end'; readonly status?: string }

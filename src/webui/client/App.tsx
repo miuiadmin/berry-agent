@@ -2,9 +2,11 @@
  * webui/client/App — SPA 壳根组件（批 18a-2；组件名 WebUiRoot——App 独立词
  * 词汇合规退役，文件名沿 React 惯例保留）。
  *
- * 编舞三段：①鉴权探针（cookie 已桥直进 / 未桥走 AuthGate 换桥——auth
- * cookie 桥是浏览器侧唯一凭证通道）②会话清单装载与切换 ③活体流接线
- * （EventSource per 会话——onopen 恒重拉投影 + approvals 清单复拉）。
+ * 编舞四段：①鉴权探针（cookie 已桥直进 / 未桥走 AuthGate 换桥——auth
+ * cookie 桥是浏览器侧唯一凭证通道）②会话清单装载与切换（手动刷新 + 稳态
+ * 周期复拍）③活体流接线（EventSource per 会话——onopen 恒重拉投影 +
+ * approvals 清单复拉）④稳态周期复拉（审批/会话清单 10s 一拍——跨会话
+ * asked 可见性与外部开新呈现，见 Main 内注）。
  *
  * 语义全在 frames.ts（纯折叠器）；本件只做接线与呈现。StrictMode 双挂载
  * 下 effect 先后启停——EventSource cleanup 对称关流，无泄漏双流。
@@ -25,6 +27,7 @@ import {
   droppedMessage,
   echoKeyOf,
   echoedUserMessage,
+  failedSessions,
   initialAppState,
   loadedApprovals,
   loadedMessages,
@@ -172,7 +175,7 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     [onAuthLost],
   );
 
-  // 会话清单装载（首载 + 手动刷新共用）
+  // 会话清单装载（首载 + 手动刷新 + 周期复拍共用）
   const loadSessions = useCallback(() => {
     void api
       .listSessions()
@@ -185,13 +188,41 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
         });
       })
       .catch((err: unknown) => {
-        // 401 → 失效路由；其余静默（清单刷新非关键路径——手动刷新可再试）
+        // 401 → 失效路由；其余落失败旗（空态呈现失败行——拉不到清单不假
+        // 声明「暂无会话」；手动刷新与周期复拍可再试）
         if (isUnauthorized(err)) onAuthLost();
+        else setState((prev) => failedSessions(prev));
       });
   }, [onAuthLost]);
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
+
+  /**
+   * 稳态周期复拉（审批清单 + 会话清单，10s 一拍）：跨会话 asked 的活体
+   * 镜像只扇给订阅该会话的流（服务端 pushToSession 按会话隔离），SPA 仅
+   * 订阅活跃会话一条——他会话 run 到达工具审批时镜像帧无订阅者被静默丢弃，
+   * 而审批面板设计上跨会话全量呈现；REST 全量清单腿周期复拉补此可见性
+   * 缺口（挂起等人审批是设计语义，缺陷是「零信号」）。同拍刷新会话清单：
+   * 外部开新（SDK 线/他页签/scheduler 无头会话）运行期出现于侧栏。401 →
+   * 失效路由；其余静默（下一拍自愈——清单复拉非关键路径）。
+   */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void api
+        .listApprovals()
+        .then((list) => {
+          setState((prev) => loadedApprovals(prev, list));
+        })
+        .catch((err: unknown) => {
+          if (isUnauthorized(err)) onAuthLost();
+        });
+      loadSessions();
+    }, 10_000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [loadSessions, onAuthLost]);
 
   // 活体流接线（per 会话——切换即换流；onopen 恒重拉投影 = 正确性层真源）
   useEffect(() => {
@@ -257,60 +288,88 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
   }, [loadSessions, onAuthLost]);
 
   /**
-   * 提交（乐观回显 + 失败撤回）：messageId = crypto.randomUUID 服务端幂等
-   * 位；撤回键 = echoKeyOf 同源落稿键（闭包持键——catch 按键撤回，不靠
-   * 尾部位置）。
+   * 提交入定会话（档位词拦截 + 乐观回显 + 失败撤回）：messageId =
+   * crypto.randomUUID 服务端幂等位；撤回键 = echoKeyOf 同源落稿键（闭包
+   * 持键——catch 按键撤回，不靠尾部位置）。
+   */
+  const submitInto = (sessionId: string, rawText: string): void => {
+    // ---- 档位词拦截（webui 档位面受理批——03 §10.4 SPA 受理面条款）----
+    const trimmed = rawText.trim();
+    // 首 token 词干切分（TUI maybeHandleLocalCommand 同律——/\s+/ 切分：
+    // 空格/tab/换行〔Shift+Enter 形〕分隔的参数一律算带参，零分立——
+    // 空格字面 startsWith 形会漏穿透 tab/换行形，禁用）
+    const stem = trimmed.split(/\s+/, 1)[0] ?? '';
+    if (stem === '/thinking' || stem === '/sandbox') {
+      if (trimmed === stem) {
+        // 恰零参命中——本地开档位浮层，不进提交流（浮层行集 = GET tiers
+        // 应答、选定走 PUT——见 TierPopover）
+        setTierPopover(stem === '/thinking' ? 'thinking' : 'sandbox');
+        return;
+      }
+      // 带参形 = 词干命中即本地用法错（fail-loud——与 TUI「带参 fail-loud
+      // 用法错不穿透」同律对齐，零分立）：折 NoticeBar error 不提交
+      // （本地推播走 pushedNotice——与 notify 帧腿同帽同形不绕帽）
+      setState((prev) =>
+        pushedNotice(
+          prev,
+          stem === '/thinking' ? '/thinking 不带参数使用——档位经浮层选定' : '/sandbox 不带参数使用——档位经浮层选定',
+          'error',
+        ),
+      );
+      return;
+    }
+    const text = trimmed;
+    const messageId = crypto.randomUUID();
+    // 乐观回显 + 失败撤回：messageId = crypto.randomUUID 幂等位（服务端
+    // 幂等去重锚）；回显走 echoedUserMessage 入账（登记待配对账目——服务端
+    // kick/steer 的 user 种子镜像到达时由折叠器吸收保恰一份，webui-face#1）；
+    // 撤回键 = echoKeyOf 同源落稿键（闭包持键——失败撤回按键定位，不靠
+    // 尾部位置）
+    const echoTimestamp = Date.now();
+    setState((prev) => echoedUserMessage(prev, sessionId, text, echoTimestamp));
+    void api.submit(sessionId, text, messageId).catch((err: unknown) => {
+      // 401 → 失效路由（webui-face#3）：cookie 永久失效重试不可能自愈，
+      // 换桥是唯一出路——不折「请重试」谎提示（回显随 Main 卸载整面消散）
+      if (isUnauthorized(err)) {
+        onAuthLost();
+        return;
+      }
+      // 失败撤回（契约兑现）：未被受理的乐观回显先出正文，再推失败通知
+      setState((prev) => pushedNotice(droppedMessage(prev, echoKeyOf(echoTimestamp)), '提交失败——请重试', 'error'));
+    });
+  };
+
+  /**
+   * 提交（零会话态先自动开新再提交）：全新宿主首开 webui / 清单装载失败
+   * 时 activeId=null，而 Composer 发送即清空输入——静默 return 会吞掉用户
+   * 敲入的第一条（不可恢复的输入丢失、零反馈）。与 serve stdio
+   * submitPrompt sessionId 缺席即建会话的既有行为对齐：先开新会话再走正常
+   * 提交流；开新失败折通知条（错误不静默——输入虽已被清空，至少呈现因）。
    */
   const submit = useCallback(
     (rawText: string) => {
       const sessionId = state.activeId;
-      if (sessionId === null) return;
-      // ---- 档位词拦截（webui 档位面受理批——03 §10.4 SPA 受理面条款）----
-      const trimmed = rawText.trim();
-      // 首 token 词干切分（TUI maybeHandleLocalCommand 同律——/\s+/ 切分：
-      // 空格/tab/换行〔Shift+Enter 形〕分隔的参数一律算带参，零分立——
-      // 空格字面 startsWith 形会漏穿透 tab/换行形，禁用）
-      const stem = trimmed.split(/\s+/, 1)[0] ?? '';
-      if (stem === '/thinking' || stem === '/sandbox') {
-        if (trimmed === stem) {
-          // 恰零参命中——本地开档位浮层，不进提交流（浮层行集 = GET tiers
-          // 应答、选定走 PUT——见 TierPopover）
-          setTierPopover(stem === '/thinking' ? 'thinking' : 'sandbox');
-          return;
-        }
-        // 带参形 = 词干命中即本地用法错（fail-loud——与 TUI「带参 fail-loud
-        // 用法错不穿透」同律对齐，零分立）：折 NoticeBar error 不提交
-        // （本地推播走 pushedNotice——与 notify 帧腿同帽同形不绕帽）
-        setState((prev) =>
-          pushedNotice(
-            prev,
-            stem === '/thinking' ? '/thinking 不带参数使用——档位经浮层选定' : '/sandbox 不带参数使用——档位经浮层选定',
-            'error',
-          ),
-        );
+      if (sessionId === null) {
+        void api
+          .createSession()
+          .then((newId) => {
+            setState((prev) => setActiveSession(prev, newId));
+            loadSessions();
+            submitInto(newId, rawText);
+          })
+          .catch((err: unknown) => {
+            // 401 → 失效路由（同 createSession 腿）；其余折通知条
+            if (isUnauthorized(err)) {
+              onAuthLost();
+              return;
+            }
+            setState((prev) => pushedNotice(prev, '提交失败——自动开新会话未成功，请重试', 'error'));
+          });
         return;
       }
-      const text = trimmed;
-      const messageId = crypto.randomUUID();
-      // 乐观回显 + 失败撤回：messageId = crypto.randomUUID 幂等位（服务端
-      // 幂等去重锚）；回显走 echoedUserMessage 入账（登记待配对账目——服务端
-      // kick/steer 的 user 种子镜像到达时由折叠器吸收保恰一份，webui-face#1）；
-      // 撤回键 = echoKeyOf 同源落稿键（闭包持键——失败撤回按键定位，不靠
-      // 尾部位置）
-      const echoTimestamp = Date.now();
-      setState((prev) => echoedUserMessage(prev, sessionId, text, echoTimestamp));
-      void api.submit(sessionId, text, messageId).catch((err: unknown) => {
-        // 401 → 失效路由（webui-face#3）：cookie 永久失效重试不可能自愈，
-        // 换桥是唯一出路——不折「请重试」谎提示（回显随 Main 卸载整面消散）
-        if (isUnauthorized(err)) {
-          onAuthLost();
-          return;
-        }
-        // 失败撤回（契约兑现）：未被受理的乐观回显先出正文，再推失败通知
-        setState((prev) => pushedNotice(droppedMessage(prev, echoKeyOf(echoTimestamp)), '提交失败——请重试', 'error'));
-      });
+      submitInto(sessionId, rawText);
     },
-    [state.activeId, onAuthLost],
+    [state.activeId, loadSessions, onAuthLost],
   );
 
   /** 打断在飞 run */
@@ -378,15 +437,31 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
       <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
         <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
           <span className="font-semibold text-zinc-200">berry-agent</span>
-          <button
-            type="button"
-            className="rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-700"
-            onClick={createSession}
-          >
-            + 新会话
-          </button>
+          <div className="flex items-center gap-1">
+            {/* 手动刷新（清单装载失败/外部开新的即时恢复入口——与周期复拍互补） */}
+            <button
+              type="button"
+              aria-label="刷新会话清单"
+              className="rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-700"
+              onClick={loadSessions}
+            >
+              刷新
+            </button>
+            <button
+              type="button"
+              className="rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-700"
+              onClick={createSession}
+            >
+              + 新会话
+            </button>
+          </div>
         </div>
-        <SessionList sessions={state.sessions} activeId={state.activeId} onSelect={switchSession} />
+        <SessionList
+          sessions={state.sessions}
+          activeId={state.activeId}
+          onSelect={switchSession}
+          loadFailed={state.sessionsFailed}
+        />
         <TodoPanel todo={state.todo} />
       </aside>
       {/* 主列：通知条 + 会话详情头行 + 正文 + 状态行 + 输入 */}
@@ -430,6 +505,7 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
             // 切档错误入通知条（error 呈现位——同帽同形律）
             setState((prev) => pushedNotice(prev, message, 'error'));
           }}
+          onAuthLost={onAuthLost}
         />
       ) : null}
     </div>

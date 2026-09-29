@@ -17,6 +17,11 @@
  * ⑥用户消息去重单源（webui-face#1）：回显与 kick 种子镜像恰一份 +
  * 在飞提交流式尾不倒置（角色校验 + 续流对位刷新）
  * ⑦运行期凭证失效路由（webui-face#3）：调用面 401 → 回换桥位 + 失效提示
+ * ⑧零会话态提交不静默吞（十六役补扫 N6）：先自动开新再提交；失败折通知条
+ * ⑨稳态周期复拉（十六役补扫 N22/N23）：跨会话审批可见性 + 清单运行期
+ * 刷新（周期拍 + 手动刷新入口）
+ * ⑩清单装载失败与空态分立（十六役补扫 N24）：失败行不假声明「暂无会话」
+ * ⑪档位面 401 失效路由（十六役补扫 N21）：GET/PUT 401 回换桥位
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -715,5 +720,187 @@ describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui �
     await screen.findByText(/条早前通知/);
     expect(screen.queryByText('（+5 条早前通知）')).toBeNull();
     expect(screen.getByText('（+4 条早前通知）')).toBeDefined();
+  });
+});
+
+describe('WebUiRoot零会话态提交（十六役补扫 N6——输入不静默丢失）', () => {
+  /** 零会话态就绪桩（已桥 + 空清单——全新宿主首开 webui 形） */
+  function primeZeroSession(): void {
+    apiMock.probeAuthed.mockResolvedValue(true);
+    apiMock.listSessions.mockResolvedValue([]);
+    apiMock.fetchMessages.mockResolvedValue([]);
+    apiMock.todo.mockResolvedValue(null);
+    apiMock.listApprovals.mockResolvedValue([]);
+    apiMock.getSessionTiers.mockResolvedValue(TIERS);
+  }
+
+  it('零会话态发送：先自动开新会话再提交（serve stdio sessionId 缺席即建同律）——回显在场、SSE 接新会话流（修前红：submit 首行静默 return，输入被清空丢失零反馈）', async () => {
+    primeZeroSession();
+    apiMock.createSession.mockResolvedValue('s-new');
+    apiMock.submit.mockResolvedValue(undefined);
+    render(<WebUiRoot />);
+    await screen.findByText('暂无会话——点「+ 新会话」开一个'); // 零会话态确认
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '第一条消息' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    // 先开新再提交（Composer 发送即清空——静默吞形下输入不可恢复）
+    await waitFor(() => {
+      expect(apiMock.createSession).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(apiMock.submit).toHaveBeenCalledWith('s-new', '第一条消息', expect.stringMatching(/.+/));
+    });
+    await screen.findByText('第一条消息'); // 乐观回显（用户输入不丢）
+    // 活体流随自动选中接线新会话
+    await waitFor(() => {
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-new/events')).toBe(true);
+    });
+  });
+
+  it('自动开新失败（非 401）→ 通知条呈现失败因（修前红：静默吞——点击后无任何反馈）', async () => {
+    primeZeroSession();
+    apiMock.createSession.mockRejectedValueOnce(new ApiError(500, 'INTERNAL'));
+    render(<WebUiRoot />);
+    await screen.findByText('暂无会话——点「+ 新会话」开一个');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '会丢的消息' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('提交失败——自动开新会话未成功，请重试');
+  });
+
+  it('自动开新 401 → 路由回换桥位 + 失效提示（调用面统一律）', async () => {
+    primeZeroSession();
+    apiMock.createSession.mockRejectedValueOnce(new ApiError(401, 'UNAUTHORIZED'));
+    render(<WebUiRoot />);
+    await screen.findByText('暂无会话——点「+ 新会话」开一个');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '失桥态首条' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByPlaceholderText('一次性 token');
+    await screen.findByText(/凭证已失效/);
+  });
+});
+
+describe('WebUiRoot稳态周期复拉（十六役补扫 N22/N23——跨会话审批可见性 + 清单运行期刷新）', () => {
+  it('稳态连接期他会话审批可见：周期复拉清单入面板（修前红：清单腿零触发——卡片不出现，他会话 run 无声挂起零信号）', async () => {
+    // shouldAdvanceTime：waitFor 轮询与真实异步链在假钟下照常推进
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      primeMain();
+      render(<WebUiRoot />);
+      await screen.findAllByText('测试会话');
+      await waitFor(() => {
+        expect(FakeEventSource.instances).toHaveLength(1);
+      });
+      // 稳态窗（不切会话/无重连）：他会话 s-2 的 run 到达工具审批——活体
+      // asked 镜像只扇给订阅该会话的流（无订阅者被丢弃），唯一可见路径 =
+      // REST 全量清单周期复拉
+      const external = { approvalId: 'ap-x', sessionId: 's-2', summary: '他会话待审批' };
+      apiMock.listApprovals.mockResolvedValue([external]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000); // 一拍
+      });
+      await screen.findByText('他会话待审批');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('会话清单运行期刷新：外部开新（SDK 线/他页签/scheduler 无头会话）一拍内出现于侧栏，选中不漂移（修前红：F5 前恒不出现）', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      primeMain();
+      render(<WebUiRoot />);
+      await screen.findAllByText('测试会话');
+      // 外部开新（本口零操作）
+      apiMock.listSessions.mockResolvedValue([
+        { id: 's-ext', title: '外部新会话', lastActivityAt: 9 },
+        { id: 's-1', title: '测试会话', lastActivityAt: 1 },
+      ]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      await screen.findByText('外部新会话');
+      // activeId 已定——刷新只更新清单不夺选中（流仍是 s-1）
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-1/events')).toBe(true);
+      expect(FakeEventSource.instances.some((s) => s.url === '/api/sessions/s-ext/events')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('手动刷新入口：点击「刷新」即拉清单（外部开新即时出现——不待周期拍）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    apiMock.listSessions.mockResolvedValue([
+      { id: 's-1', title: '测试会话', lastActivityAt: 1 },
+      { id: 's-2', title: '第二会话', lastActivityAt: 2 },
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: '刷新会话清单' }));
+    await screen.findByText('第二会话');
+  });
+});
+
+describe('WebUiRoot清单装载失败分立（十六役补扫 N24——失败不假声明空态）', () => {
+  it('首载失败（非 401）→ 失败行呈现、不假声明「暂无会话」（修前红：失败与空态混同）', async () => {
+    apiMock.probeAuthed.mockResolvedValue(true);
+    apiMock.listSessions.mockRejectedValueOnce(new ApiError(500, 'INTERNAL'));
+    apiMock.fetchMessages.mockResolvedValue([]);
+    apiMock.todo.mockResolvedValue(null);
+    apiMock.listApprovals.mockResolvedValue([]);
+    render(<WebUiRoot />);
+    await screen.findByText('会话清单加载失败——点上方「刷新」重试');
+    expect(screen.queryByText('暂无会话——点「+ 新会话」开一个')).toBeNull();
+  });
+
+  it('刷新重试成功 → 失败行撤、会话入清单（恢复路径页内可达——修前红：注释承诺的手动刷新入口不存在）', async () => {
+    apiMock.probeAuthed.mockResolvedValue(true);
+    apiMock.listSessions.mockRejectedValueOnce(new ApiError(503, 'UNAVAILABLE'));
+    apiMock.listSessions.mockResolvedValue([{ id: 's-1', title: '迟到会话', lastActivityAt: 1 }]);
+    apiMock.fetchMessages.mockResolvedValue([]);
+    apiMock.todo.mockResolvedValue(null);
+    apiMock.listApprovals.mockResolvedValue([]);
+    render(<WebUiRoot />);
+    await screen.findByText('会话清单加载失败——点上方「刷新」重试');
+    fireEvent.click(screen.getByRole('button', { name: '刷新会话清单' }));
+    // 会话入清单且自动选中（侧栏行 + 详情头行两处呈现——复数查询容两处）
+    await screen.findAllByText('迟到会话');
+    await waitFor(() => {
+      expect(screen.queryByText('会话清单加载失败——点上方「刷新」重试')).toBeNull();
+    });
+    // 恢复后自动选首会话（activeId 落位——活体流接线整体复活）
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+  });
+});
+
+describe('WebUiRoot档位面 401 失效路由（十六役补扫 N21——调用面统一律补面）', () => {
+  it('GET tiers 401 → 回换桥位 + 失效提示（修前红：NoticeBar 直显机器串「API 401 HTTP_401」死胡同）', async () => {
+    primeMain();
+    // 路由级 401 回纯文本非 JSON——foldError 折不出 message 位（真形桩）
+    apiMock.getSessionTiers.mockRejectedValueOnce(new ApiError(401, 'HTTP_401'));
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '/thinking' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByPlaceholderText('一次性 token');
+    await screen.findByText(/凭证已失效/);
+  });
+
+  it('PUT 切档 401 → 回换桥位 + 失效提示（修前红：同 501/400 折 onError 机器串）', async () => {
+    primeMain();
+    apiMock.setThinkingLevel.mockRejectedValueOnce(new ApiError(401, 'HTTP_401'));
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    fireEvent.change(box, { target: { value: '/thinking' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('高投入思考');
+    fireEvent.click(screen.getByRole('button', { name: /high/ }));
+    await screen.findByPlaceholderText('一次性 token');
+    await screen.findByText(/凭证已失效/);
   });
 });

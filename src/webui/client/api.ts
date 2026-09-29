@@ -170,7 +170,7 @@ export const api = {
   /**
    * 切 thinking 档（PUT + 体 {level}——单字符串体 SubmitSchema 先例形）。
    * 应答 {receipt}：回执文案与 TUI setStatus 同文单源（host 侧拼装——
-   * 「下一 run 起生效 + 随模型能力诚实句」）；坏词 400 折 ApiError
+   * 「下一轮对话起生效 + 随模型能力诚实句」）；坏词 400 折 ApiError
    * （THINKING_LEVEL_INVALID 词面呈现不吞码）。
    */
   async setThinkingLevel(sessionId: string, level: string): Promise<{ receipt: string }> {

@@ -194,7 +194,7 @@ export interface WebuiSessionTierFace {
   };
   /**
    * 切 thinking 档（PUT thinking-level 执行体）。返回回执文案（按档分拆
-   * 语义：thinking = 下一 run 起生效 + 随模型能力诚实句——与 TUI setStatus
+   * 语义：thinking = 下一轮对话起生效 + 随模型能力诚实句——与 TUI setStatus
    * 回执同文单源，host 侧回执拼装 helper 两装配面消费）。词表外坏词抛
    * BaseError（THINKING_LEVEL_INVALID——服务端 400 码族词面呈现不吞码）。
    */
