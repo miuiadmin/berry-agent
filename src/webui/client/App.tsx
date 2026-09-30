@@ -312,7 +312,9 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
       setState((prev) =>
         pushedNotice(
           prev,
-          stem === '/thinking' ? '/thinking 不带参数使用——档位经浮层选定' : '/sandbox 不带参数使用——档位经浮层选定',
+          stem === '/thinking'
+            ? '/thinking 不带参数使用——深度思考级别经浮层选定'
+            : '/sandbox 不带参数使用——沙箱模式经浮层选定',
           'error',
         ),
       );

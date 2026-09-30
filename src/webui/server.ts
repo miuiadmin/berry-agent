@@ -486,7 +486,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       // 缺失被会话态遮蔽）
       const tiers = deps.tiers;
       if (tiers === undefined) {
-        sendError(res, 501, 'not_implemented', '档位面未装配（tiers 注入缺席）');
+        sendError(res, 501, 'not_implemented', '级别/模式设置未启用（当前运行形态不含此功能）');
         return;
       }
       const sessionId = ctx.params.id!;
@@ -511,7 +511,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       // 501 判先于会话态 404（与 GET tiers 同序）
       const tiers = deps.tiers;
       if (tiers === undefined) {
-        sendError(res, 501, 'not_implemented', '档位面未装配（tiers 注入缺席）');
+        sendError(res, 501, 'not_implemented', '级别/模式设置未启用（当前运行形态不含此功能）');
         return;
       }
       const sessionId = ctx.params.id!;
@@ -550,7 +550,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       // 501 判先于会话态 404（与 GET tiers 同序）
       const tiers = deps.tiers;
       if (tiers === undefined) {
-        sendError(res, 501, 'not_implemented', '档位面未装配（tiers 注入缺席）');
+        sendError(res, 501, 'not_implemented', '级别/模式设置未启用（当前运行形态不含此功能）');
         return;
       }
       const sessionId = ctx.params.id!;
@@ -589,7 +589,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       }
       // closed 会话放行（空流形——近史走 messages 兜底，流恒静默无假帧）
       if (streams.size >= maxConnections) {
-        sendError(res, 503, 'overloaded', `SSE 连接帽（${maxConnections}）已满`);
+        sendError(res, 503, 'overloaded', `SSE 连接数已达上限（上限 ${maxConnections}）`);
         return;
       }
       // 面级开流（帧形/ping/看门狗面单源；shedding 判据 = display 的 update

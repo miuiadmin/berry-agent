@@ -57,7 +57,7 @@ AGI（通用人工智能）正在逼近；它身后等着 RSI（递归自我改�
 | **模型无关**           | Anthropic、OpenAI、Google 等统一接入面。一个环境变量换模型，零代码改动、零锁定。                                                 |
 | **会话可信**           | 每场会话落 SQLite——fork / resume / search / reindex；运行时断言「模型可见 ≡ 已记录」，看到即存下。                               |
 | **三面自动化**         | TUI 驾驶、Web UI + `/v1/*` HTTP 监督、SDK 与 MCP 编程接入——一个 Agent，各类消费者通吃。                                          |
-| **零遥测**             | 无使用统计、无崩溃上报、外传零字节。缺省网络面 = 模型调用 + 你显式要的动作 + TUI 交互启动一次有界只读版本检查（24h 节流、env 一键归零），此外零。 |
+| **零遥测**             | 无使用统计、无崩溃上报、外传零字节。默认网络面 = 模型调用 + 你显式要的动作 + TUI 交互启动一次有界只读版本检查（24h 节流、env 一键归零），此外零。 |
 
 ## 自进化：有界、可审计
 
@@ -105,7 +105,7 @@ berry serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
 
 从 alpha.1 升级的用户：bin 已换代为 `berry`——净切、不留双名别名；npm 升级会把旧链 `berry-agent` 自动重链为 `berry`，旧命令名随之失效，脚本请改用 `berry`。
 
-首启自动创建 `~/.berry-agent/`。模型缺省 `anthropic/claude-sonnet-5`（凭证按
+首启自动创建 `~/.berry-agent/`。模型默认 `anthropic/claude-sonnet-5`（凭证按
 provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向导——官方渠道
 与自定义 Anthropic/OpenAI 兼容网关同场配置、当场生效），`BERRY_AGENT_MODEL` 可覆盖。
 完整命令族、旗标、环境变量与 TUI 键位见[使用指南](./docs/usage.md)。
@@ -142,7 +142,7 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向
 - **HTTP**——`berry serve` 起常驻宿主：Web 界面 + 版本化、Bearer 鉴权的
   `/v1/*` JSON API；`serve --daemon` 后台运行（`serve status` / `serve stop`）。
 - **SDK**——类型化 TypeScript 客户端（stdio spawn / 直连 HTTP 两传输）随仓库同源；
-  `berry-agent-sdk` npm 包 alpha 档已上 npm（`npm install berry-agent-sdk` 即装）、随主仓演进。
+  `berry-agent-sdk` npm 包 alpha 版已上 npm（`npm install berry-agent-sdk` 即装）、随主仓演进。
 - **MCP**——`berry mcp` 以 MCP server 形态暴露 Agent，任意 MCP 客户端可接入。
 
 ## 架构

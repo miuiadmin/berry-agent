@@ -62,7 +62,7 @@ CI（`.github/workflows/ci.yml`）各 job 与本地命令对照——CI 红先�
 | coverage                                 | `npx vitest run --coverage`                                                                                                 |
 | soak（nightly 19:23 UTC + 手动）         | `node tools/soak.mjs --rounds 3 --mode quick --kill-exercise --rss-budget-mb 384 --unattended`（与 ci.yml soak 步同款单源） |
 | flaky-probe（nightly 双跑腿）            | 同 commit 连跑两次 `npm test`——任一红即 CI 同款告警形                                                                       |
-| coverage-weekly（周一序列留档）          | `npx vitest run --coverage`（读 `coverage/coverage-summary.json` 三百分比）                                                 |
+| coverage-weekly（周一序列留存）          | `npx vitest run --coverage`（读 `coverage/coverage-summary.json` 三百分比）                                                 |
 
 **Linux-only 红的本地复现谱**（macOS 开发机复现 CI ubuntu 面——bwrap 真跑腿/平台分支）：
 
@@ -161,8 +161,8 @@ docs/                   公开文档面（本五册）
 - vitest 吞 console——调试走 `appendFileSync` 到 `/tmp`（判别法：测试内 console.log 静默 ≠ 未执行）；
 - faux provider **恒实算 usage** 覆写脚本值——usage 断言按实算结果写，不按脚本注入值写；
 - exec spawn 截尾测试满载偶发 flake（单跑恒绿）——观察项：全量跑红时先单跑复核再定位；
-- tmux e2e `/themes` esc 收屏腿 CI 偶发 25s 帽红——**归因未闭合**（tmux flake 根因役勘正：早版「失败 dump 尾恒见 DA1 应答残段 `^[[?1;2;4c`」判别法已被四份干净 dump 证伪；25s 窗内 capture 持续回健康面板 = TUI 进程侧输入链路事件、与 server 换代〔下行〕不同根。迟答防御律 ca7027c 修掉的是引擎级真窗〔修前红在库〕，但本腿 CI 级停发与「修复生效/环境窗关闭」双解并存不可归因）——判别法：rerun `--failed` 绿即按抖动处置；再红时超时消息自带仪表化三证（TUI 进程 CPU 对拍 / capture 退出码 / 2s 屏动复采），按「CPU≈0=环境停摆说 / CPU 前进屏冻=代码角 / 屏动=慢跃迁」一锤定音；
-- tmux e2e「server exited unexpectedly」new-session 9ms 瞬死——根因已定谳并已修（84a447c keeper 保活会话结构修 + pid 单代锁 + 在场锁，修前红 9/9 实证；根因 = 套件曾把服务端生命周期悬空给 exit-empty 自灭，CI 重载把停机窗拉宽到测间 gap、下一测 new-session connect 进垂死服务端收 EOF）——判别法：错误串 + new-session 瞬死（9ms 量级非 15s 帽挂起形）+ rerun 绿；再红即 keeper 失效回潮（afterAll pid 锁应同步红——对表即定）；
+- tmux e2e `/themes` esc 收屏腿 CI 偶发 25s 上限红——**归因未闭合**（tmux flake 根因役勘正：早版「失败 dump 尾恒见 DA1 应答残段 `^[[?1;2;4c`」判别法已被四份干净 dump 证伪；25s 窗内 capture 持续回健康面板 = TUI 进程侧输入链路事件、与 server 换代〔下行〕不同根。迟答防御律 ca7027c 修掉的是引擎级真窗〔修前红在库〕，但本腿 CI 级停发与「修复生效/环境窗关闭」双解并存不可归因）——判别法：rerun `--failed` 绿即按抖动处置；再红时超时消息自带仪表化三证（TUI 进程 CPU 对拍 / capture 退出码 / 2s 屏动复采），按「CPU≈0=环境停摆说 / CPU 前进屏冻=代码角 / 屏动=慢跃迁」一锤定音；
+- tmux e2e「server exited unexpectedly」new-session 9ms 瞬死——根因已定谳并已修（84a447c keeper 保活会话结构修 + pid 单代锁 + 在场锁，修前红 9/9 实证；根因 = 套件曾把服务端生命周期悬空给 exit-empty 自灭，CI 重载把停机窗拉宽到测间 gap、下一测 new-session connect 进垂死服务端收 EOF）——判别法：错误串 + new-session 瞬死（9ms 量级非 15s 上限挂起形）+ rerun 绿；再红即 keeper 失效回潮（afterAll pid 锁应同步红——对表即定）；
 - nightly flaky-probe 双跑腿（CI `flaky-probe` job，label `flaky-nightly` issue 告警）：同 commit 推送 CI 绿而夜间双跑任一红 = 抖动信号（非回归定论）——处置序：先本地 `npm test` 单跑复核（登记册各行逐源判别）再定位；两次全绿的 commit 即 close 告警 issue；
 - macOS 开发机是 BSD grep/sed（不支持 GNU 的 `\|` 交替等）——仓内脚本与手工排查用 `grep -E`/`perl -pi -e`，勿照搬 GNU 语法。
 
@@ -170,7 +170,7 @@ docs/                   公开文档面（本五册）
 
 公开 API 面（插件作者可见的导出面）受机器执法：快照真源 `src/contracts/api-surface.json`，`npm run lint:topology` 链中的 `tools/check-api.mjs` 将快照与代码抽取真值比对——**面漂移当场红**；`api-decls/` 派生声明与 `dist/api/` 随包产物同理（生成物 drift 另有一查）。
 
-**tier 三档**——每个公开符号必带 tier 标注：
+**tier 三类**——每个公开符号必带 tier 标注：
 
 | tier           | 含义                                                          |
 | -------------- | ------------------------------------------------------------- |
@@ -188,19 +188,19 @@ docs/                   公开文档面（本五册）
 
 ## 发布流程（维护者）
 
-发布机器 = `tools/release.mjs`（六道契约编舞——门禁前置 / registry 探测 / 构建验收与安装冒烟 / publish 单点 / dist-tag 终态断言 / 尾件 git tag）。执行形三分（`resolveReleaseForm` 单源解析：`--local-publish` 旗标 > env `BERRY_AGENT_RELEASE_MODE=ci` > 包描述符 `publishMode` 缺省）：
+发布机器 = `tools/release.mjs`（六道契约编舞——门禁前置 / registry 探测 / 构建验收与安装冒烟 / publish 单点 / dist-tag 终态断言 / 尾件 git tag）。执行形三分（`resolveReleaseForm` 单源解析：`--local-publish` 旗标 > env `BERRY_AGENT_RELEASE_MODE=ci` > 包描述符 `publishMode` 默认）：
 
 | 执行形                                                   | 谁跑                         | 语义                                                                                                                                            |
 | -------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| 本机触发腿（双包缺省）                                   | 维护者本机 `npm run release` / `npm run release:sdk` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 复探收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish                     |
+| 本机触发腿（双包默认）                                   | 维护者本机 `npm run release` / `npm run release:sdk` | 预检 → 打 tag push 交棒 → 轮询 CI run → registry 重新探测收口 → preview 期本机 `dist-tag set latest` → 终态复断。本机零 publish                     |
 | CI 发布腿（`.github/workflows/release.yml`）             | tag `v*` / `sdk-v*` push 触发 | OIDC 免令牌免 2FA publish；契约 5 只读断言 `next`、契约 6 只校验既有 tag；链尾归档当版 API 面快照挂该版 GitHub Release（assets——版本化 API 史；归档步仅主包，SDK run 跳过） |
 | 令牌全本地旧序（`--local-publish` 显式应急）             | 本机 npm 凭证                | 六道契约原序全本地                                                                                                                              |
 
-常规发版（主包）：改 `package.json` version → commit → `npm run release`——脚本完成交棒、等待 CI（gh CLI 轮询，30 分钟帽）、收口与 latest 挪位，全绿即发版完成。SDK：改 `packages/berry-agent-sdk/package.json` version → `npm run release:sdk`——同一条编舞（交棒 `sdk-v*` tag、CI OIDC publish、本机 latest 挪位），差异全在包描述符。
+常规发版（主包）：改 `package.json` version → commit → `npm run release`——脚本完成交棒、等待 CI（gh CLI 轮询，30 分钟上限）、收口与 latest 挪位，全绿即发版完成。SDK：改 `packages/berry-agent-sdk/package.json` version → `npm run release:sdk`——同一条编舞（交棒 `sdk-v*` tag、CI OIDC publish、本机 latest 挪位），差异全在包描述符。
 
 - **演习两形**：
   - 发布机器演习：`npm run release -- --dry-run`（CI 等待段不在演习射程——恒投影令牌道旧序）；
-  - release 工作流文件改动预演：改 `.github/workflows/release.yml` 的 PR，合流前在 Actions → release → Run workflow（ref=`dev`、tag=最新已发 tag）跑一次 dispatch 演习位——同 tag 重跑走幂等空转复验形（发布契约 6 只校验既有 tag 不重发），验证改动后的工作流链路本身可走通；run 链接附 PR（自检清单有对应勾位）。
+  - release 工作流文件改动预览：改 `.github/workflows/release.yml` 的 PR，合流前在 Actions → release → Run workflow（ref=`dev`、tag=最新已发 tag）跑一次 dispatch 演习位——同 tag 重跑走幂等空转复验形（发布契约 6 只校验既有 tag 不重发），验证改动后的工作流链路本身可走通；run 链接附 PR（自检清单有对应勾位）。
 - **失败恢复（交棒后 CI 红）**：删远端与本地 tag → 修 commit → 重新交棒；树无恙的环境偶发红可 GitHub UI re-run failed jobs；
 - **tag 保护**：`v*` / `sdk-v*` 创建/删除限 admin/维护者（push ruleset）——tag 即发布触发器，推 tag ≈ 发布。
 

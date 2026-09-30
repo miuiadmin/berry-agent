@@ -138,16 +138,16 @@ export function TierPopover({
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div
         role="dialog"
-        aria-label={kind === 'thinking' ? 'thinking 档位' : 'sandbox 档位'}
+        aria-label={kind === 'thinking' ? '深度思考级别' : '沙箱模式'}
         className="absolute bottom-32 left-1/2 z-30 w-[28rem] -translate-x-1/2 rounded border border-zinc-700 bg-zinc-900 shadow-lg"
       >
         <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
           <span className="text-xs font-semibold text-zinc-400">
-            {kind === 'thinking' ? 'thinking 档位' : 'sandbox 档位'}
+            {kind === 'thinking' ? '深度思考级别' : '沙箱模式'}
           </span>
           <button
             type="button"
-            aria-label="关闭档位浮层"
+            aria-label="关闭浮层"
             className="rounded px-1.5 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
             onClick={onClose}
           >
@@ -156,13 +156,13 @@ export function TierPopover({
         </div>
         {tiers === null && !failed ? (
           // 加载态一行（回环毫秒级——通常瞬过）
-          <p className="px-3 py-3 text-xs text-zinc-500">档位读取中……</p>
+          <p className="px-3 py-3 text-xs text-zinc-500">正在读取……</p>
         ) : null}
         {failed ? (
           // 失败态一行错误 + 关闭键（501/404/500 全折同呈现位——错误本体
           // 已透传 NoticeBar，此处只留可关的失败行）
           <div className="flex items-center justify-between gap-2 px-3 py-3">
-            <p className="text-xs text-red-300">档位读取失败</p>
+            <p className="text-xs text-red-300">读取失败</p>
             <button
               type="button"
               className="shrink-0 rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"

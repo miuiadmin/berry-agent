@@ -81,8 +81,8 @@ const TIERS_SAMPLE = {
   sandboxMode: 'read-only',
   thinkingLevels: [
     { level: 'off', detail: '关闭思考' },
-    { level: 'medium', detail: '中档思考' },
-    { level: 'high', detail: '高投入思考' },
+    { level: 'medium', detail: '中强度思考' },
+    { level: 'high', detail: '高强度思考' },
   ],
   sandboxModes: [
     { mode: 'read-only', detail: '只读——写操作被拒' },
@@ -156,7 +156,7 @@ describe('api 档位三函数（/thinking //sandbox webui 受路——2026-09-18
           status: 400,
           json: {
             error: 'THINKING_LEVEL_INVALID',
-            message: '思考档位非法："ultra"（七档词汇：off / minimal / low / medium / high / xhigh / max）',
+            message: '思考级别无效："ultra"（可选值：off / minimal / low / medium / high / xhigh / max）',
           },
         }),
       ),
@@ -169,7 +169,7 @@ describe('api 档位三函数（/thinking //sandbox webui 受路——2026-09-18
       code: 'THINKING_LEVEL_INVALID',
     });
     expect((err as Error).message).toContain('ultra');
-    expect((err as Error).message).toContain('思考档位非法');
+    expect((err as Error).message).toContain('思考级别无效');
   });
 
   it('GET tiers 501 形折 ApiError（面未装配——回退 HTTP 状态词防御位）', async () => {

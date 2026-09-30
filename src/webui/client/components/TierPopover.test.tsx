@@ -54,7 +54,7 @@ afterEach(() => {
 
 describe('TierPopover 选定序律（件族「先收层再回调」——TUI theme-picker 同律）', () => {
   it('PUT 成功腿：onClose 先于 onReceipt（序探针——修前红：先回调再收层形本断言红）', async () => {
-    apiMock.setThinkingLevel.mockResolvedValue({ receipt: '思考档位：max（…）' });
+    apiMock.setThinkingLevel.mockResolvedValue({ receipt: '思考级别：max（…）' });
     const order: string[] = [];
     render(
       <TierPopover

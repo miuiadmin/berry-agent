@@ -114,7 +114,7 @@ function makeDeps(opts?: {
       if (opts?.foldBadWord === true) {
         throw new BaseError(
           'SANDBOX_MODE_INVALID',
-          'sandbox/mode 事件档位非法："danger-full"（三档词汇：read-only / workspace-write / danger）',
+          'sandbox/mode 事件模式非法："danger-full"（三种取值：read-only / workspace-write / danger）',
         );
       }
       return {
@@ -133,7 +133,7 @@ function makeDeps(opts?: {
       if (!tierLevels.includes(level)) {
         throw new BaseError(
           'THINKING_LEVEL_INVALID',
-          `thinking 档位非法：${JSON.stringify(level)}（七档词汇：off / minimal / low / medium / high / xhigh / max）`,
+          `思考级别无效：${JSON.stringify(level)}（可选值：off / minimal / low / medium / high / xhigh / max）`,
         );
       }
       setLevels.push({ sessionId: id, level });
@@ -143,7 +143,7 @@ function makeDeps(opts?: {
       if (!tierModes.includes(mode)) {
         throw new BaseError(
           'SANDBOX_MODE_INVALID',
-          `sandbox 档位非法：${JSON.stringify(mode)}（三档词汇：read-only / workspace-write / danger）`,
+          `沙箱模式无效：${JSON.stringify(mode)}（可选值：read-only / workspace-write / danger）`,
         );
       }
       setModes.push({ sessionId: id, mode });

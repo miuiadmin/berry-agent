@@ -25,7 +25,7 @@
 | `llm`          | 模型运行时（provider 注册表、faux 测试 provider）                                    |
 | `persist`      | 持久化（SQLite 单库、迁移框架、durable 事件、FTS 检索；better-sqlite3 只准出现在此） |
 | `tools`        | 工具注册表与工具调用域                                                               |
-| `safety`       | 安全判据面（沙箱档位、审批 ask/decide、tool-policy 策略表）                          |
+| `safety`       | 安全判据面（沙箱模式、审批 ask/decide、tool-policy 策略表）                          |
 | `compaction`   | 上下文压缩（摘要折叠 + 压缩归档可逆回归——`ccr_retrieve` 原文检索服务面）             |
 | `channels`     | 呈现通道核（信封路由、backend 注册、TUI 引擎全套件族）                               |
 | `conversation` | 对话组合域（ConversationDriver、三通道路由、todo 机器）                              |
@@ -39,9 +39,9 @@
 | `core:skills`      | 技能装载（SKILL.md 双层结构、六位发现层、渐进披露、load_skill 按需装载〔节级寻址 / mode 行级过滤〕、skill_manage）                                                                                                            |
 | `core:web`         | 网络取数（fetch 工具 + ctx.fetch + SSRF 五卫生件）                                                                                                                                                                            |
 | `core:scheduler`   | 定时任务（jobs 表、抢占、`/tick`、cron 可选后端）                                                                                                                                                                             |
-| `core:goal`        | 目标续跑（goals 表族、计划态 fold、wake 双帽、预算双轨、帽尽停靠-唤醒）                                                                                                                                                       |
+| `core:goal`        | 目标续跑（goals 表族、计划态 fold、wake 双复位、预算双轨、达上限停靠-唤醒）                                                                                                                                                       |
 | `core:subagent`    | 子代理（Job 注册表、provider 面、声明式物化）                                                                                                                                                                                 |
-| `core:checkpoint`  | 边界快照（pre-mutation 拍摄、blob 仓、`/rewind`）                                                                                                                                                                             |
+| `core:checkpoint`  | 边界快照（修改前快照、blob 仓、`/rewind`）                                                                                                                                                                             |
 | `core:memory`      | 记忆（表族、合并/极性、注入两路、周期提取、导入导出）                                                                                                                                                                         |
 | `core:mcp`         | MCP 客户端桥（stdio JSON-RPC 手写最小桥）                                                                                                                                                                                     |
 | `core:lsp`         | LSP 客户端桥（Content-Length 帧、惰性实例、诊断回流）                                                                                                                                                                         |
@@ -49,8 +49,8 @@
 | `core:webui`       | Web 界面（SPA + `/api/*`，经 SDK HTTP 面路由扩展位挂载）                                                                                                                                                                      |
 | `core:sdk`         | 自动化通道（HTTP+SSE `/v1/*` 传输、daemon 编舞、路由扩展位）                                                                                                                                                                  |
 | `core:obs`         | 观测（rollup 表族、`obs_query`、告警通知；自管库）                                                                                                                                                                            |
-| `core:issue`       | issue 模式（GitHub 轮询 + webhook、worktree 隔离 + 前次分支指路、交付验证门〔verifyCommand 真跑、未过拒交付〕、escalation 登记转人审、编排定序〔验证门→escalation→档位〕、对账纪律句、needs-human 判词、draft/auto 交付映射） |
-| `core:credentials` | 凭证代管（加密存储、`ctx.get("secrets")` 受理制开面、`@credentials:` env 注入、oauth 流与刷新链、`/credentials` 界面）                                                                                                        |
+| `core:issue`       | issue 模式（GitHub 轮询 + webhook、worktree 隔离 + 前次分支指路、交付验证门〔verifyCommand 真跑、未过拒交付〕、escalation 登记转人审、编排定序〔验证门→escalation→模式〕、核对纪律句、needs-human 判词、draft/auto 交付映射） |
+| `core:credentials` | 凭证代管（加密存储、`ctx.get("secrets")` 受理制开启、`@credentials:` env 注入、oauth 流与刷新链、`/credentials` 界面）                                                                                                        |
 
 ## 运行时骨架
 
@@ -69,7 +69,7 @@ bin (berry) → host/main
 要点：
 
 - **单活跃机**：同一数据目录同一时刻恰一活跃进程（`active.json` 标记 + pid 判活，死 pid 自动接管）；
-- **插件装载**：core: 注册表内置全启（例外 `core:issue`——缺省无 `config` 即零装载）+ `enabled.yaml` 用户行覆盖；装载判据面含 API 版本治理门（manifest `api` 块 × 宿主 apiVersion 三色裁决——红即行级隔离拒载、core 件红即宿主 fail-loud 拒启）；Kahn 轮次按 `ctx.provide` 依赖解锁排序；装载失败三档（跳过 / 降级 / 拒启）分立；
+- **插件装载**：core: 注册表内置全启（例外 `core:issue`——默认无 `config` 即零装载）+ `enabled.yaml` 用户行覆盖；装载判据面含 API 版本治理门（manifest `api` 块 × 宿主 apiVersion 三色裁决——红即行级隔离拒载、core 件红即宿主 fail-loud 拒启）；Kahn 轮次按 `ctx.provide` 依赖解锁排序；装载失败三档（跳过 / 降级 / 拒启）分立；
 - **`:memory:` 同构纪律**：诊断命令与真实入口走同一装配序真源（`assembleHostStack`），防侧门件；
 - **退出码三态**：0 成功 / 1 执行失败 / 2 环境态误用（用法错、非 TTY）。
 
@@ -85,17 +85,17 @@ bin (berry) → host/main
 
 ## 呈现通道
 
-- **TUI（主界面）**：`channels` 内自研栈——渲染引擎（diff 帧管线、xterm oracle 互证）、输入解码（kitty 推栈、bracketed paste、鼠标 SGR 1006 + X10 降级链）、编辑器（fish 式 undo、IME）、Markdown 件、副屏族十三内建面板 + 插件市场选装副屏（明细见[使用指南](./usage.md#tui-副屏面板)；副屏滚轮滚动 + 线性选区 OSC 52 复制；主对话面 v1 不消费鼠标）；
-- **Web 界面（`--port` 开面）**：`core:webui` SPA + REST/SSE，经 `core:sdk` HTTP 面的路由扩展位挂载——恒回环、token 鉴权、三防线（Host/Origin/回环判定）；预算停靠态（`session/paused`）v1 不进 Web 呈现面——停靠/唤醒的可见位 = TUI 命令族与模型工具 `session_list`；
-- **SDK**：类型化 TypeScript 客户端（spawn stdio / 直连 HTTP 两传输）+ MCP 包装形态——自动化通道的完整契约面；SDK 源码在仓内 `packages/berry-agent-sdk`，`berry-agent-sdk` npm 包 alpha 档已上 npm（`npm install berry-agent-sdk` 即装）、随主仓演进；
+- **TUI（主界面）**：`channels` 内自研栈——渲染引擎（diff 帧管线、xterm oracle 互证）、输入解码（kitty 推栈、bracketed paste、鼠标 SGR 1006 + X10 降级链）、编辑器（fish 式 undo、IME）、Markdown 件、副屏族十六内建面板（明细见[使用指南](./usage.md#tui-副屏面板)；副屏滚轮滚动 + 线性选区 OSC 52 复制；主对话面 v1 不消费鼠标）；
+- **Web 界面（`--port` 开启）**：`core:webui` SPA + REST/SSE，经 `core:sdk` HTTP 面的路由扩展位挂载——恒回环、token 鉴权、三防线（Host/Origin/回环判定）；预算停靠态（`session/paused`）v1 不进 Web 呈现面——停靠/唤醒的可见位 = TUI 命令族与模型工具 `session_list`；
+- **SDK**：类型化 TypeScript 客户端（spawn stdio / 直连 HTTP 两传输）+ MCP 包装形态——自动化通道的完整契约面；SDK 源码在仓内 `packages/berry-agent-sdk`，`berry-agent-sdk` npm 包 alpha 版已上 npm（`npm install berry-agent-sdk` 即装）、随主仓演进；
 - **信封路由**：多 backend 并存（TUI + Web 同时在场），按 sessionId 各投各；审批（ask/decide）跨入口裁决，先 settle 者胜。
 
 ## 安全模型
 
-- **沙箱档位**：read-only / workspace-write / danger（升权 allowed-once 审批缺席即 fail-closed）；
-- **审批**：工具执行前 ask → 用户应答（allow / deny / always）——`always` 落 `tool-policy.json`（工具策略表）持久回写；用户手写同表 `deny` 条目 = 主权硬拒（先于一切审批面、不可翻转）。手写 `allow` 条目含 `git` 时请注意：git 命令可经 worktree 配置触及主仓版本史、可外推远端——含 git 的放行是信任边界外推，宜窄词干（如 `git status`）勿宽前缀；`git push` 在模型面任何档恒截获（EXEC_GIT_PUSH_DENIED——发布动作走宿主编排面），allow 条目放行不了它；
-- **权限预设**：conservative / balanced（缺省）/ open 三档打包（TUI `/approval preset` 写盘 `settings.json` 两键 + open 档建议集 append；CLI `--preset` 逐次生效不写盘）——四层解析：工具参数 > 会话策略 > CLI 旗标 > settings.json > 代码常量；
-- **SSRF 卫生**：URL 白名单 → 私网双查（字面 + DNS）→ 重定向逐跳复检 → 字节帽；校验通过地址集连接级钉死（DNS rebinding「校验时公网、连接时内网」TOCTOU 闭合）；
+- **沙箱模式**：read-only / workspace-write / danger（升权 allowed-once 审批缺席即 fail-closed）；
+- **审批**：工具执行前 ask → 用户应答（allow / deny / always）——`always` 落 `tool-policy.json`（工具策略表）持久回写；用户手写同表 `deny` 条目 = 主权硬拒（先于一切审批面、不可翻转）。手写 `allow` 条目含 `git` 时请注意：git 命令可经 worktree 配置触及主仓版本史、可外推远端——含 git 的放行是信任边界外推，宜窄词干（如 `git status`）勿宽前缀；`git push` 在模型面任何模式恒截获（EXEC_GIT_PUSH_DENIED——发布动作走宿主编排面），allow 条目放行不了它；
+- **权限预设**：conservative / balanced（默认）/ open 三预设打包（TUI `/approval preset` 写盘 `settings.json` 两键 + open 预设建议集 append；CLI `--preset` 逐次生效不写盘）——四层解析：工具参数 > 会话策略 > CLI 旗标 > settings.json > 代码常量；
+- **SSRF 卫生**：URL 白名单 → 私网双查（字面 + DNS）→ 重定向逐跳复检 → 字节上限；校验通过地址集连接级钉死（DNS rebinding「校验时公网、连接时内网」TOCTOU 闭合）；
 - **进程治理**：detached 进程组、树杀、登记簿孤儿清扫、pid 复用防线；
 - **默认零数据外传（零遥测）**：无使用统计、无崩溃上报；TUI 交互启动含一次有界只读版本检查（零外传——07 §8.5 第 6 条）——出厂网络面仅凭证供给的模型调用、用户显式动作（`/setup` 自定义渠道的模型清单拉取腿——`{baseUrl}/models` 按协议分叉拼接、SSRF 守卫必经）与该有界检查腿。
 
