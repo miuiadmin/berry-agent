@@ -132,7 +132,7 @@ export class GuideViewer extends ScrollView implements OverlayContent {
  * 分隔头 + 行集（段间空行）。段序与文案真源归装配位，本函数只做拼接形。
  */
 export function buildGuideLines(data: GuidePanelData): string[] {
-  const lines: string[] = [`版本 version    ${data.version}`, ''];
+  const lines: string[] = [`版本    ${data.version}`, ''];
   for (const section of data.sections) {
     lines.push(`── ${section.title} ──`);
     lines.push(...section.lines);

@@ -921,7 +921,7 @@ export default async function apply(ctx) {
     expect(report.failed).toHaveLength(2);
     for (const failure of report.failed) {
       expect(failure.code).toBe('PLUGIN_SHAPE_INVALID');
-      expect(failure.message).toContain('逃逸');
+      expect(failure.message).toContain('越出插件包根');
     }
     expect(report.failed.map((f) => f.id)).toEqual(['plug-esc-skills', 'plug-esc-agents']);
   });

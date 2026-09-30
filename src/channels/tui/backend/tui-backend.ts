@@ -1824,7 +1824,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (trimmed !== '/exit') {
       // 带参形（/exit xxx）——用法提示后终局消费，不退不出也不兜底进消息
       if (trimmed.startsWith('/exit ')) {
-        this.notify('/exit 不带参数（退出 TUI——与 Ctrl+D 同路优雅退出）', { level: 'warn' });
+        this.notify('/exit 不带参数（退出 TUI——效果同 Ctrl+D）', { level: 'warn' });
         return true;
       }
       return false;
@@ -2322,7 +2322,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 注）：排队问不上屏，队首提示行缀排队数明示「后面还有几问」
     if (this.inputAsk !== null) {
       const waiting = this.stack.size > 0 ? '（等上方面板关闭后作答）' : '';
-      const queued = this.inputQueue.length > 0 ? `（后面还有 ${this.inputQueue.length} 问排队）` : '';
+      const queued = this.inputQueue.length > 0 ? `（后面还有 ${this.inputQueue.length} 个提问在排队）` : '';
       grid.writeText(row, 0, `? ${this.inputAsk.message}${waiting}${queued}`, { dim: true });
       row += 1;
     }

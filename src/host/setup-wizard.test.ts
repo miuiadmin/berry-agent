@@ -140,7 +140,7 @@ function makeDeps(
     },
     saveCustomChannel: (id, def) => {
       log.savedChannels.push({ id, def });
-      return { ok: true, text: `渠道配置已持久化（customProviders.${id}）` } satisfies SetupWizardSaveResult;
+      return { ok: true, text: `渠道配置已保存（customProviders.${id}）` } satisfies SetupWizardSaveResult;
     },
     removeCustomChannel: (id) => {
       log.removedChannels.push(id);
@@ -602,7 +602,10 @@ describe('删除腿三联动与回执诚实化（R-1 评审修复役——修前
     const { deps, log } = makeDeps(prompter, {
       customChannels: { 'my-gw': EXISTING },
       // 装配位折档缺席形（如 CREDENTIALS_NOT_FOUND 未折）——流程侧如实呈半应用
-      removeBinding: () => ({ ok: false, text: 'CREDENTIALS_NOT_FOUND：凭证行不在册' }),
+      removeBinding: () => ({
+        ok: false,
+        text: 'CREDENTIALS_NOT_FOUND：凭证 my-gw 不在 global 域——运行 /credentials list 查看全部凭证。',
+      }),
     });
     await runSetupWizard(deps);
     expect(log.removedChannels).toEqual(['my-gw']); // settings 照删（第二步不被首败拦）

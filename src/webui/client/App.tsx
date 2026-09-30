@@ -117,7 +117,7 @@ export function WebUiRoot(): ReactElement {
       <div className="min-h-screen bg-zinc-900">
         {authLost ? (
           <p className="bg-red-950/60 px-4 py-2 text-center text-xs text-red-300">
-            凭证已失效——宿主重启后 token 已轮换，请输入新的一次性 token 重新换桥
+            凭证已失效——宿主重启后 token 已轮换，请输入新的一次性 token 重新登录
           </p>
         ) : null}
         <AuthGate

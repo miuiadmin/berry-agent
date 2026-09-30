@@ -168,28 +168,25 @@ export function buildStatusLines(data: StatusPanelData): string[] {
     label + ' '.repeat(Math.max(0, labelCol - stringWidth(label))) + value;
   const lines: string[] = [
     '── 运行时 ──',
-    row('版本 version', data.version),
-    row(
-      '模型 model',
-      data.modelCount > 0 ? `${data.model}（全集 ${data.modelCount} 档）` : `${data.model}（模型目录空）`,
-    ),
+    row('版本', data.version),
+    row('模型', data.modelCount > 0 ? `${data.model}（全集 ${data.modelCount} 个）` : `${data.model}（模型目录空）`),
     // 模型凭证行（ob-2 态 + C-4 全明文翻裁值）：ready 携完整值（人面所见即
     // 供血）；unconfigured 附可行动指路半句（ob-1 录入位）
     row(
-      '模型凭证 credential',
+      '模型凭证',
       data.modelCredential === 'ready'
         ? `ready · ${data.modelCredentialKey ?? '（未设置——环境变量与模型绑定均未配置）'}`
-        : 'unconfigured（未配置——/credentials add --model-provider 或 /guide）',
+        : '未配置——/credentials add --model-provider 或 /guide',
     ),
     '',
     '── 会话 ──',
-    row('会话 session', shortIdOf(data.sessionId)),
-    row('工作区 cwd', data.cwdLabel),
-    row('轮次 turns', `${data.turns}`),
+    row('会话', shortIdOf(data.sessionId)),
+    row('工作区', data.cwdLabel),
+    row('轮次', `${data.turns}`),
     '',
     '── 环境 ──',
-    row('数据目录 dataDir', data.dataDir ?? '（:memory: 模式——未使用数据目录）'),
-    row('主题 theme', data.theme),
+    row('数据目录', data.dataDir ?? '（:memory: 模式——未使用数据目录）'),
+    row('主题', data.theme),
   ];
   // env 三键（白名单制——键名本身即标签，值列对齐独立于 CJK 标签段）
   const envKeyCol = 24; // 最长键 BERRY_AGENT_LOG_LEVEL（21）+ 3

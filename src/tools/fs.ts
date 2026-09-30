@@ -268,7 +268,7 @@ function decodeUtf8Strict(raw: Buffer): string {
   } catch {
     throw new BaseError(
       'FS_DECODE_NON_UTF8',
-      '[FS_DECODE_NON_UTF8] 文件非 UTF-8 编码（严格解码 lossy）——本仓文本面只认 UTF-8；如需处理其他编码文件请在 bash 侧转档后读写',
+      '[FS_DECODE_NON_UTF8] 文件非 UTF-8 编码（严格解码 lossy）——文本只认 UTF-8；如需处理其他编码文件请在 bash 侧转码后读写',
     );
   }
   // BOM 剥离（首字符 U+FEFF）——BOM 是传输层标记不是内容
@@ -341,7 +341,7 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
     name: 'read',
     effect: 'read',
     description:
-      '读取文件内容。文本按 UTF-8 严格解码（带 BOM 自动剥离；非 UTF-8 报错，转档请走 bash）。图片文件（png/jpg/jpeg/gif/webp）返回 image 内容块可直接看图（上限 5MiB）。读取即登记观察态：后续 write/edit 必须基于本观察（文件被改动过会被版本守卫拒绝）。文件不存在时报错，但同样登记「不存在」观察（之后 write 创建该路径即合法）。',
+      '读取文件内容。文本按 UTF-8 严格解码（带 BOM 自动剥离；非 UTF-8 报错，转码请走 bash）。图片文件（png/jpg/jpeg/gif/webp）返回 image 内容块可直接看图（上限 5MiB）。读取即登记观察态：后续 write/edit 必须基于本观察（文件被改动过会被版本守卫拒绝）。文件不存在时报错，但同样登记「不存在」观察（之后 write 创建该路径即合法）。',
     parameters: Type.Object({
       path: Type.String({ description: '文件路径（相对路径锚工作区根）' }),
     }),

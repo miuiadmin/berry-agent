@@ -362,7 +362,7 @@ export function unmountRow(
   if (!read.ok) return read;
   if (!read.rows.some((row) => row.id === id)) {
     if (id.startsWith('core:')) {
-      return { ok: false, message: `官方件 ${id} 内置全启无启用行可删——临时停用走 toggle（03 §5.2 三态语义）` };
+      return { ok: false, message: `官方插件 ${id} 内置全启、无启用行可删——临时停用请用 toggle` };
     }
     return { ok: true }; // 幂等（已不在启用面）
   }
@@ -443,7 +443,7 @@ export function toggleRow(
     if (!checkPluginId(id, { official: true })) {
       return {
         ok: false,
-        message: `插件 id 词法违例（${id}——小写字母/数字/连字符，首字符非连字符；官方件 core:<name> 后段同判据）——拒造行：格式不对的行落盘会使下次启动读侧拒启`,
+        message: `插件 id 格式不对（${id}——小写字母/数字/连字符，首字符非连字符；官方插件 core:<name> 后段同规则）——拒绝写入：格式不对的行落盘会使下次启动读侧拒启`,
       };
     }
     rows.push({ id, disabled: true });
@@ -495,7 +495,7 @@ export function setRowConfig(dataDir: string, id: string, config: unknown, fs: P
     if (!checkPluginId(id, { official: true })) {
       return {
         ok: false,
-        message: `插件 id 词法违例（${id}——小写字母/数字/连字符，首字符非连字符；官方件 core:<name> 后段同判据）——拒造行：格式不对的行落盘会使下次启动读侧拒启`,
+        message: `插件 id 格式不对（${id}——小写字母/数字/连字符，首字符非连字符；官方插件 core:<name> 后段同规则）——拒绝写入：格式不对的行落盘会使下次启动读侧拒启`,
       };
     }
     rows.push({ id, config });

@@ -383,8 +383,8 @@ describe('serve 族 + 管理动词', () => {
   });
 
   it('--sdk-port/--sdk-host 为 daemon 形专属：前台 stdio 形传即退 2（防静默吞）', () => {
-    expectUsage(['serve', '--sdk-port', '8080'], '--daemon 形态专属');
-    expectUsage(['serve', '--sdk-host', '127.0.0.1'], '--daemon 形态专属');
+    expectUsage(['serve', '--sdk-port', '8080'], '只在 --daemon 时可用');
+    expectUsage(['serve', '--sdk-host', '127.0.0.1'], '只在 --daemon 时可用');
   });
 
   it('--sdk-port 值域：非正整数/超 65535 退 2（执法③）', () => {

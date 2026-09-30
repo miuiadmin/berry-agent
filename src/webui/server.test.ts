@@ -137,7 +137,7 @@ function makeDeps(opts?: {
         );
       }
       setLevels.push({ sessionId: id, level });
-      return `thinking 已切 ${level}——下一 run 起生效（档位是否生效随模型能力）`;
+      return `思考级别：${level}（下一轮对话起生效；该级别是否生效随模型能力）`;
     },
     setSandboxMode: (id: string, mode: string) => {
       if (!tierModes.includes(mode)) {
@@ -525,7 +525,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     // 缺席 404（error 词 not_found 同族；message 与 /api 兜底的「未知 API 路由」分立——锚真身非兜底）
     const missing = await fetch(`http://127.0.0.1:${port}/api/sessions/nope/export`, { headers: authHeaders() });
     expect(missing.status).toBe(404);
-    expect(await missing.json()).toMatchObject({ error: 'not_found', message: '会话缺席' });
+    expect(await missing.json()).toMatchObject({ error: 'not_found', message: '会话不存在' });
     // 已闭会话 = 近史投影兜底照常返体（读面语义同 GET messages——只读腿不受闭态拦，host 桥真身内兜底）
     const closed = await fetch(`http://127.0.0.1:${port}/api/sessions/s-closed/export`, { headers: authHeaders() });
     expect(closed.status).toBe(200);
@@ -654,7 +654,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   it('thinking-level：PUT 200 {receipt} 透传 + 受理记账；坏词 400 码族词面（THINKING_LEVEL_INVALID 不吞码）', async () => {
     const ok = await put('/api/sessions/s-1/thinking-level', { level: 'high' });
     expect(ok.status).toBe(200);
-    expect(ok.json).toEqual({ receipt: 'thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）' });
+    expect(ok.json).toEqual({ receipt: '思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）' });
     expect(stub.setLevels).toEqual([{ sessionId: 's-1', level: 'high' }]);
     // 坏词 fail-loud：400 + error 词 = 码族词面呈现（message 人读因透传）
     const bad = await put('/api/sessions/s-1/thinking-level', { level: 'ultra' });

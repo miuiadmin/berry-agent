@@ -155,11 +155,11 @@ describe('用法与 list 读面', () => {
 });
 
 describe('mount 前置两查（与 CLI 同律）', () => {
-  it('id 词法违例拒（大写）', async () => {
+  it('id 格式不对拒（大写）', async () => {
     const rig_ = rig();
     const out = await runPluginsCommand(['mount', 'Bad_Id'], rig_.deps);
     expect(out.ok).toBe(false);
-    expect(out.text).toContain('词法违例');
+    expect(out.text).toContain('格式不对');
     expect(rig_.reloads()).toBe(0);
     expect(rig_.audits).toEqual([]); // 零审计
   });

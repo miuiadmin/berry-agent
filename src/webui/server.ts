@@ -324,7 +324,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
 
   async function serveStatic(res: ServerResponse, wildcard: string): Promise<void> {
     if (deps.staticDir === undefined) {
-      sendError(res, 404, 'no_spa', 'SPA 静态面未装配（API-only 形态）');
+      sendError(res, 404, 'no_spa', '网页界面未启用（当前为 API-only 形态）');
       return;
     }
     const root = resolve(deps.staticDir);
@@ -342,7 +342,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     let target = resolve(join(root, rel));
     // 路径穿越防线：归一后须仍在根内（.. 段与编码形出根即拒）
     if (target !== root && !target.startsWith(root + sep)) {
-      sendError(res, 403, 'forbidden', '路径出静态面根');
+      sendError(res, 403, 'forbidden', '路径超出静态文件目录范围');
       return;
     }
     try {
@@ -355,7 +355,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       try {
         if (!(await stat(target)).isFile()) throw new Error('no index');
       } catch {
-        sendError(res, 404, 'no_spa', '静态面缺 index.html');
+        sendError(res, 404, 'no_spa', '网页界面缺 index.html（无法打开页面）');
         return;
       }
     }
@@ -460,12 +460,12 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       // 注入窄面缺席（API-only 形——WebuiCompletionFace? 缺席诚实空同精神）
       const exportMarkdown = deps.read.exportMarkdown;
       if (exportMarkdown === undefined) {
-        sendError(res, 501, 'not_implemented', '会话导出面未装配（exportMarkdown 注入缺席）');
+        sendError(res, 501, 'not_implemented', '会话导出未启用（当前运行形态不含此功能）');
         return;
       }
       const markdown = exportMarkdown(ctx.params.id!);
       if (markdown === undefined) {
-        sendError(res, 404, 'not_found', '会话缺席');
+        sendError(res, 404, 'not_found', '会话不存在');
         return;
       }
       // markdown 正文直出（Content-Type 精确值钉规范位——text/markdown; charset=utf-8）
@@ -491,7 +491,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       }
       const sessionId = ctx.params.id!;
       const state = deps.sessions.sessionStateOf(sessionId);
-      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话不存在');
       // 已闭一律 404 closed（读写不分——档位面是会话活体交互面；messages/
       // export 的已闭放行系正文读面语义，tiers 非正文读面）
       if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
@@ -516,7 +516,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       }
       const sessionId = ctx.params.id!;
       const state = deps.sessions.sessionStateOf(sessionId);
-      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话不存在');
       if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
       const body = await ctx.readBody(req);
       if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
@@ -555,7 +555,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
       }
       const sessionId = ctx.params.id!;
       const state = deps.sessions.sessionStateOf(sessionId);
-      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话不存在');
       if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
       const body = await ctx.readBody(req);
       if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
@@ -584,7 +584,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     handler: (_req, res, ctx) => {
       const sessionId = ctx.params.id!;
       if (deps.sessions.sessionStateOf(sessionId) === 'missing') {
-        sendError(res, 404, 'not_found', '会话缺席');
+        sendError(res, 404, 'not_found', '会话不存在');
         return;
       }
       // closed 会话放行（空流形——近史走 messages 兜底，流恒静默无假帧）
@@ -615,7 +615,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     handler: async (req, res, ctx) => {
       const sessionId = ctx.params.id!;
       const state = deps.sessions.sessionStateOf(sessionId);
-      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话不存在');
       if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
       const body = await ctx.readBody(req);
       if (!body.ok) return sendError(res, body.status, 'too_large', body.message);
@@ -653,7 +653,7 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     handler: (_req, res, ctx) => {
       const sessionId = ctx.params.id!;
       const state = deps.sessions.sessionStateOf(sessionId);
-      if (state === 'missing') return sendError(res, 404, 'not_found', '会话缺席');
+      if (state === 'missing') return sendError(res, 404, 'not_found', '会话不存在');
       if (state === 'closed') return sendError(res, 404, 'closed', '会话已闭（只读兜底）');
       deps.sessions.interruptSession(sessionId);
       res.writeHead(204).end();

@@ -76,7 +76,7 @@ export async function runPluginConfigForm(
 ): Promise<PluginsCommandOutcome> {
   const face = deps.configFaceOf(pluginId);
   if (face === undefined) {
-    return { ok: false, text: `插件 ${pluginId} 无声明配置面（configSchema 缺席）——无可编辑字段。` };
+    return { ok: false, text: `插件 ${pluginId} 未声明配置表单（无 configSchema）——没有可编辑的字段。` };
   }
   // 现行行读（未声明键透传源 + 行内现值）；损坏 = fail-loud 诚实拒（不写防覆盖）
   const read = readEnabledRowsForEdit(deps.dataDir, deps.fs);

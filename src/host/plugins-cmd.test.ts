@@ -512,7 +512,7 @@ describe('plugins 写侧六动词——local fixture 真链 e2e（装机面落�
     const opts = { version: 'x', dataDir: dir, ...io };
     const bad = (await runPluginsEntry({ sub: 'mount', id: 'Bad_Id' }, opts)) as number;
     expect(bad).toBe(1);
-    expect(io.err.join('\n')).toContain('词法违例');
+    expect(io.err.join('\n')).toContain('格式不对');
     io.err.length = 0;
     expect(await runPluginsEntry({ sub: 'mount', id: 'not-installed' }, opts)).toBe(1);
     expect(io.err.join('\n')).toContain('未安装');

@@ -50,7 +50,7 @@ function readRow(grid: CellGrid, row: number, width: number): string {
 const TEST_ENTRIES: readonly { id: string; line: string }[] = [
   { id: 'm-second0001', line: '- m-second… 2026-09-30 12:00:00〔修改前快照〕3 文件 · 回退点 seq=5' },
   { id: 'm-first00002', line: '- m-first0… 2026-09-30 11:00:00〔修改前快照〕1 文件 · 回退点 seq=2' },
-  { id: 'm-backup0003', line: '- m-backup… 2026-09-30 10:00:00〔回退保底拍〕2 文件 · 回退点 seq=1' },
+  { id: 'm-backup0003', line: '- m-backup… 2026-09-30 10:00:00〔回退前快照〕2 文件 · 回退点 seq=1' },
 ];
 
 /** 预演回执夹具 */

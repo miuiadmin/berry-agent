@@ -1290,7 +1290,7 @@ function synthesizePlan(input: {
       synthesisFailures.push({
         id: row.id,
         code: 'PLUGIN_LOAD_FAILED',
-        message: `官方件 ${row.id} 不在本构建 core: 注册表（版本不符或该件未编入）——移除该行或核对件名`,
+        message: `官方插件 ${row.id} 不在本版本内置清单（版本不符或未编入）——请移除该行或核对插件名`,
       });
       continue;
     }

@@ -45,7 +45,7 @@ export const APPROVAL_PRESETS: readonly ApprovalPreset[] = [
     name: 'conservative',
     sandboxMode: 'read-only',
     approvalPolicy: 'ask',
-    description: '只读沙箱——文件写/执行全走审批（最严档）',
+    description: '只读沙箱——文件写/执行全走审批（最严格）',
   },
   {
     name: 'balanced',

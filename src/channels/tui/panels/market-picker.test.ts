@@ -112,9 +112,9 @@ describe('MarketPicker 呈现', () => {
     const g1 = paint(zeroSource.picker);
     expect(readRow(g1, 0, 72)).toBe('◆ 插件市场 · 0 条目（0 源）');
     expect(readRow(g1, 1, 72)).toContain('无市场源');
-    const emptyCatalog = makePicker({ model: makeModel({ rows: [], tail: ['源在册但零条目'] }) });
+    const emptyCatalog = makePicker({ model: makeModel({ rows: [], tail: ['源已添加但没有条目——按 r 刷新重取'] }) });
     const g2 = paint(emptyCatalog.picker);
-    expect(readRow(g2, 1, 72)).toContain('源在册但零条目');
+    expect(readRow(g2, 1, 72)).toContain('源已添加但没有条目');
   });
 
   it('tail（skipped 原因/刷新结局）与 results（结算回执全文）逐行进尾行区', () => {

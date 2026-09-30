@@ -271,7 +271,7 @@ export class DiffViewer implements OverlayContent {
       buffer.writeText(
         region.row + 1,
         region.col,
-        '（本会话没有文件改动——这里展示的是本会话内的改动，不是 git 工作区状态）',
+        '（本会话没有文件改动——只统计本会话改动，非 git 工作区状态）',
         HINT_STYLE,
       );
     } else {

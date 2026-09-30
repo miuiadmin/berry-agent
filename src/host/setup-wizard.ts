@@ -240,7 +240,7 @@ export async function runSetupWizard(deps: SetupWizardDeps): Promise<void> {
       },
       ...officialItems,
     ],
-    note: '自定义渠道 = 中转站/兼容网关（settings.json 持久）；官方渠道 = 内置目录',
+    note: '自定义渠道 = 中转站/兼容网关（保存在 settings.json）；官方渠道 = 内置',
     ...(preselectId !== undefined ? { preselect: preselectId } : {}),
   });
   if (selected === undefined) return void (await abortOut(p));
@@ -312,7 +312,7 @@ async function officialLeg(deps: SetupWizardDeps, p: WizardPrompter, info: Setup
   const probeModel = deps.probeModelOf?.(providerId);
   let verifyNote: string;
   if (deps.probe === undefined || probeModel === undefined) {
-    verifyNote = '连通性未验证（无注册模型可探——首条消息时自然检验）';
+    verifyNote = '连通性未验证——暂无模型可试，发第一条消息即可验证';
   } else {
     const wantVerify = await p.confirm({
       title: `现在验证连通？（向 ${probeModel} 发一条最小测试请求）`,
@@ -393,7 +393,7 @@ async function customFormLeg(
   } else {
     // 渠道 id 步（R-3 体验批——坏形**重问当前步**不退出整向导：坏形/撞名/撞
     // 既有动态 hint 点名再问；esc（undefined）仍是唯一退出径）
-    let idHint = '小写字母/数字/连字符，如 my-relay——对话里模型前缀形 my-relay/model-a';
+    let idHint = '小写字母/数字/连字符，如 my-relay——之后用模型时写 my-relay/model-a';
     id = '';
     for (;;) {
       const idTyped = await p.text({ title: '渠道 id', hint: idHint });
@@ -423,7 +423,7 @@ async function customFormLeg(
   // —— 协议二选（wire format 与渠道正交——用户批评①兑现）——
   const currentProtocol = existing?.def.protocol;
   const proto = await p.select({
-    title: '协议（wire format——网关按哪种 API 格式返回）',
+    title: '协议（网关兼容哪家 API——Anthropic 还是 OpenAI）',
     items: [
       { id: 'anthropic-messages', label: 'Anthropic 兼容', desc: 'Claude 系端点——x-api-key 头；Base URL 填根地址' },
       { id: 'openai-completions', label: 'OpenAI 兼容', desc: 'GPT 系端点——Bearer 头；Base URL 通常填到 /v1' },
@@ -619,8 +619,8 @@ async function modelsStep(
   const how = await p.select({
     title: '模型清单',
     items: [
-      { id: MODELS_FETCH, label: '从端点拉取', desc: `GET 端点清单——只发鉴权头（8s 超时；失败转手填）` },
-      { id: MODELS_MANUAL, label: '手动填写', desc: '逗号分隔模型 id——网关清单端点不可用时兜底' },
+      { id: MODELS_FETCH, label: '从网关拉取', desc: `从网关拉取模型列表（只发鉴权头，8s 超时；失败转手填）` },
+      { id: MODELS_MANUAL, label: '手动填写', desc: '逗号分隔模型 id——拉取失败时手填' },
     ],
     ...(existingModels !== undefined && existingModels.length > 0
       ? { note: `当前清单：${existingModels.join(', ')}` }
@@ -703,7 +703,7 @@ async function confirmAndSaveCustom(
       `协议：${protocolLabel(def.protocol)}`,
       `Base URL：${def.baseUrl}`,
       `API key：${apiKey}`,
-      `模型（${def.models.length} 个）：${def.models.length > 0 ? def.models.join(', ') : '（空——/setup 重入可补）'}`,
+      `模型（${def.models.length} 个）：${def.models.length > 0 ? def.models.join(', ') : '（空——以后再运行 /setup 可以补填）'}`,
       ...(def.headers !== undefined
         ? [
             `请求头：${Object.entries(def.headers)
@@ -747,9 +747,9 @@ async function confirmAndSaveCustom(
     registrationOk = registration.ok;
     registerNote = registration.ok
       ? '已注册——立即生效（无需重启）'
-      : `注册被拒：${registration.reason ?? '渠道 id 被占用'}——配置已持久，但重启后同样拒注；建议 /setup 换 id 重配`;
+      : `注册被拒：${registration.reason ?? '渠道 id 被占用'}——配置已保存，但重启后也会被拒；建议 /setup 换 id 重配`;
   } catch (err) {
-    registerNote = `注册异常：${err instanceof Error ? err.message : String(err)}——配置已持久，重启后生效`;
+    registerNote = `注册异常：${err instanceof Error ? err.message : String(err)}——配置已保存，重启后生效`;
   }
 
   // —— 切模型问句（#1：注册成功且模型清单非空才问——拒注渠道运行时目录无此
@@ -806,7 +806,7 @@ async function confirmAndSaveCustom(
     registerNote,
     ...(switchNote !== '' ? [switchNote] : []),
     ...(probeNote !== '' ? [probeNote] : []),
-    ...(def.models.length === 0 ? ['（模型清单为空——/setup 重入编辑配置可补）'] : []),
+    ...(def.models.length === 0 ? ['（模型清单为空——以后再运行 /setup 可补填）'] : []),
   ]);
 }
 

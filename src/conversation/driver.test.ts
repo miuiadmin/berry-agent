@@ -1263,7 +1263,7 @@ describe('ConversationDriver goal 驱动侧接线（批 #99）', () => {
     });
     dispatch.onWaterfall<PreStepInput>(AGENT_PRE_STEP_EVENT, (payload, next) => {
       payloads.push(payload);
-      payload.stop = { reason: 'goal 前台预算帽已到' };
+      payload.stop = { reason: 'goal 前台预算上限已到（预算复验停止）' };
       return next(payload);
     });
     const result = await driver.submit('问');

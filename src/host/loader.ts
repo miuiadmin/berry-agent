@@ -231,7 +231,7 @@ function resolveDeclaredDirs(dirs: readonly string[] | undefined, base: string, 
     if (abs !== base && !abs.startsWith(base + sep)) {
       throw new BaseError(
         'PLUGIN_SHAPE_INVALID',
-        `声明载荷目录逃逸装载基（插件 ${pluginId}：${dir} 解析为 ${abs}、出界基 ${base}——须相对包根内路径）`,
+        `声明目录越出插件包根（插件 ${pluginId}：${dir} 解析为 ${abs}、包根为 ${base}——须为包根内的相对路径）`,
       );
     }
     return abs;

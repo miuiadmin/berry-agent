@@ -2463,8 +2463,8 @@ describe('TuiBackend 本地命令族拦截（07 §4.1 命令面增补批）', ()
     const runs: string[] = [];
     const rig = makeInteractive({
       localCommands: [
-        { name: 'status', description: '状态汇总副屏', run: () => runs.push('status') },
-        { name: 'debug', description: '调试信息副屏', run: () => runs.push('debug') },
+        { name: 'status', description: '状态汇总页（版本/模型/会话/环境变量）', run: () => runs.push('status') },
+        { name: 'debug', description: '调试信息页（日志尾快照/生效配置/插件清单）', run: () => runs.push('debug') },
       ],
       dispatchCommand: async (input) => {
         rig.calls.dispatched.push(input);

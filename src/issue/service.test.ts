@@ -114,7 +114,10 @@ function fakeWorktree(behavior?: {
     create: async (req) => {
       createCalls += 1;
       if (behavior?.existsFirst !== undefined && createCalls <= behavior.existsFirst) {
-        throw new BaseError('FS_WORKTREE_EXISTS', `[FS_WORKTREE_EXISTS] 撞名（第 ${createCalls} 次）`);
+        throw new BaseError(
+          'FS_WORKTREE_EXISTS',
+          `[FS_WORKTREE_EXISTS] worktree 已存在：${req.name}（第 ${createCalls} 次）`,
+        );
       }
       created.push({ name: req.name });
       return { name: req.name, path: `/wt/${req.name}`, branch: req.name };
@@ -520,10 +523,14 @@ describe('runOne 编舞（其余结局）', () => {
     expect(f.fj.settled[0]!.terminal.detail).not.toContain('push 已执行'); // 不 push——词面自证
   });
   it('failed 结局 → 评论贴原因 + settle failed + clean', async () => {
-    const { f } = await runWithOutcome({ status: 'failed', messagesUsed: 3, reason: '每 issue 预算帽耗尽' });
+    const { f } = await runWithOutcome({
+      status: 'failed',
+      messagesUsed: 3,
+      reason: 'issue 消息预算上限已用完（3 条）',
+    });
     await vi.waitFor(() => expect(f.fj.settled).toHaveLength(1));
-    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed', detail: '每 issue 预算帽耗尽' });
-    expect(f.fback.comments[0]!.body).toContain('每 issue 预算帽耗尽');
+    expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed', detail: 'issue 消息预算上限已用完（3 条）' });
+    expect(f.fback.comments[0]!.body).toContain('issue 消息预算上限已用完（3 条）');
     expect(f.fwd.cleaned).toEqual(['issue-7']);
   });
 
@@ -984,14 +991,14 @@ describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle de
 
   it('failed 路径：escalation 在场 → 回执与 settle detail 均附摘要段（detail 不再只剩 reason）', async () => {
     const f = await runToNonCompleted(
-      { status: 'failed', messagesUsed: 3, reason: '每 issue 预算帽耗尽' },
+      { status: 'failed', messagesUsed: 3, reason: 'issue 消息预算上限已用完（3 条）' },
       { escalate: true },
     );
     expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
     expect(f.fback.comments[0]!.body).toContain('## ⚠️ 模型上报待裁决（1 条');
     expect(f.fback.comments[0]!.body).toContain('**上报 1**');
     const detail = f.fj.settled[0]!.terminal.detail ?? '';
-    expect(detail).toContain('每 issue 预算帽耗尽'); // 原 reason 保持
+    expect(detail).toContain('issue 消息预算上限已用完（3 条）'); // 原 reason 保持
     expect(detail).toContain('escalation 存在 1 条');
     expect(detail).toContain('**上报 1**'); // 全量结构化段非仅计数
   });

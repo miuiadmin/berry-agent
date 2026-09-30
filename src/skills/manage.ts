@@ -180,7 +180,7 @@ async function executeCreate(deps: SkillManageDeps, args: Record<string, unknown
   if (!isWithinRoots(target, deps.writableRoots())) {
     return toolError(
       'SKILLS_WRITE_ROOT_DENIED',
-      `写点 ${target} 不在可写根内（read-only 档或根未授权）——技能创建需可写的工作区`,
+      `写点 ${target} 不在可写根内（read-only 模式或根未授权）——技能创建需可写的工作区`,
     );
   }
 
@@ -257,7 +257,7 @@ async function executePatch(deps: SkillManageDeps, args: Record<string, unknown>
   if (!isWithinRoots(skill.filePath, deps.writableRoots())) {
     return toolError(
       'SKILLS_WRITE_ROOT_DENIED',
-      `写点 ${skill.filePath} 不在可写根内（read-only 档或根未授权）——拒绝直写`,
+      `写点 ${skill.filePath} 不在可写根内（read-only 模式或根未授权）——拒绝直写`,
     );
   }
 

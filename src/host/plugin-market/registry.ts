@@ -116,7 +116,7 @@ export function writeMarketplaceSources(
  */
 export function addSourceRecord(file: MarketplaceSourcesFile, record: MarketplaceSourceRecord): MarketplaceSourcesFile {
   if (file.marketplaces.some((existing) => existing.name === record.name)) {
-    throw new Error(`市场 "${record.name}" 已在源清单——如需重新装载请先 remove 再 add`);
+    throw new Error(`市场 "${record.name}" 已在源清单——如需重新安装请先 remove 再 add`);
   }
   return { version: 1, marketplaces: [...file.marketplaces, record] };
 }

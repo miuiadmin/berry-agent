@@ -565,7 +565,7 @@ async function runRowVerb(
   const fs = createPluginStoreFs();
   if (verb === 'mount') {
     if (!checkPluginId(id, { official: true })) {
-      writeErr(`插件 id 词法违例（${id}——小写字母数字连字符，官方件 core: 前缀同律）`);
+      writeErr(`插件 id 格式不对（${id}——小写字母数字连字符；官方插件 core: 前缀同规则）`);
       return 1;
     }
     if (!id.startsWith('core:')) {
@@ -575,7 +575,7 @@ async function runRowVerb(
         return 1;
       }
       if (!ledgerRead.entries.some((e) => e.id === id)) {
-        writeErr(`插件 ${id} 未安装——mount 先走 install（未安装挂行会在下次启动时降级）`);
+        writeErr(`插件 ${id} 未安装——请先 berry plugins install 再 mount（未安装就挂载的行下次启动会被跳过）`);
         return 1;
       }
     }

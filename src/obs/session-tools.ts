@@ -275,7 +275,7 @@ const ARG_BOUND_TOOLS: ReadonlySet<string> = new Set(['write', 'edit', 'bash']);
  * 不假报无命中（诚实分形）。
  */
 function policyLines(policy: SessionToolPolicySnapshot): string[] {
-  const lines: string[] = [`tool-policy(${policy.entries.length}) [装配期快照 path=${policy.path}]:`];
+  const lines: string[] = [`tool-policy(${policy.entries.length}) [启动时快照 path=${policy.path}]:`];
   if (policy.entries.length === 0) {
     lines.push('  （空——无任何条目）');
     return lines;

@@ -269,7 +269,7 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
           throw new BaseError(
             'EXEC_GIT_REDIRECT_DENIED',
             `bash 重定向目标落在 .git 版本史内（${gitViolations.join('、')}）——carve-out 平台底线：` +
-              '任何档恒不可写、无升权出路（04 §252）；git 元数据操作请走 git 命令白名单形' +
+              '任何模式恒不可写、无升权出路（04 §252）；git 元数据操作请走 git 命令白名单形' +
               '（add/commit/branch 等直陈命令，不带命令替换/子壳）',
           );
         }
@@ -284,7 +284,7 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
         if (isGitPushAttempt(command)) {
           throw new BaseError(
             'EXEC_GIT_PUSH_DENIED',
-            'git push 外推动作在模型面全档截获（EXEC_GIT_PUSH_DENIED——04 §8 腿三）：' +
+            'git push 外推动作全模式截获（EXEC_GIT_PUSH_DENIED——04 §8 腿三）：' +
               '发布动作走宿主编排面（issue 场景经危险闸 deliver 腿预授权执法）或人面自跑；' +
               '本地工作（commit/branch 等）不受影响',
           );
@@ -308,7 +308,7 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
               content: [
                 {
                   type: 'text',
-                  text: `[SANDBOX_UNAVAILABLE] 升权审批面缺席——拒绝无审批的升权执行（${mode} → ${valid.target}）`,
+                  text: `[SANDBOX_UNAVAILABLE] 升权审批不可用——拒绝未经审批的升权执行（${mode} → ${valid.target}）`,
                 },
               ],
               isError: true,
@@ -348,7 +348,7 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
             content: [
               {
                 type: 'text',
-                text: `[SANDBOX_UNAVAILABLE] 沙箱服务缺席，拒绝以 ${mode} 档裸跑（不静默无沙箱执行）`,
+                text: `[SANDBOX_UNAVAILABLE] 沙箱服务缺席，拒绝以 ${mode} 模式直跑（不静默无沙箱执行）`,
               },
             ],
             isError: true,

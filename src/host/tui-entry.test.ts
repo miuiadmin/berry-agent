@@ -1524,7 +1524,7 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     io.send('\x1b[B\r');
     await until(() => io.output.includes('· 渠道 id'));
     io.send('faux-entry\r'); // 注入 provider id——修前红：判「与内置渠道撞名」重问
-    await until(() => io.output.includes('· 协议（wire format')); // 放行证：id 步不拦直进协议步
+    await until(() => io.output.includes('· 协议（网关兼容哪家 API')); // 放行证：id 步不拦直进协议步
     io.send('\x1b'); // esc 收场（保存前零改动）
     await until(() => io.output.includes('向导已退出'));
     io.send('\x04');
@@ -1555,7 +1555,7 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     io.send('\x1b[B\x1b[B\r');
     await until(() => io.output.includes('· 渠道 id'));
     io.send('my-new\r');
-    await until(() => io.output.includes('· 协议（wire format'));
+    await until(() => io.output.includes('· 协议（网关兼容哪家 API'));
     io.send('\r'); // 协议首项（Anthropic 兼容）
     await until(() => io.output.includes('· Base URL'));
     io.send('https://gw-save.example.test\r');

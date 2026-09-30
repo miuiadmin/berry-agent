@@ -208,7 +208,7 @@ export function createSandboxService(opts: SandboxServiceOptions = {}): SandboxS
         // danger 不豁免：换档不是绕后端的路）
         throw new BaseError(
           'SANDBOX_UNAVAILABLE',
-          `无可用沙箱后端，拒绝裸跑（后端链为空；${policy.mode} 档一律经沙箱——可安装沙箱后端）`,
+          `无可用沙箱后端，拒绝裸跑（后端链为空；${policy.mode} 模式一律经沙箱——可安装沙箱后端）`,
         );
       }
       // 单候选直接用；多候选按 probe 仲裁
@@ -216,7 +216,7 @@ export function createSandboxService(opts: SandboxServiceOptions = {}): SandboxS
       if (!backend) {
         throw new BaseError(
           'SANDBOX_UNAVAILABLE',
-          `后端链全部探测失败（${chain.map((b) => b.id).join(' → ')}），拒绝以 ${policy.mode} 档裸跑`,
+          `后端链全部探测失败（${chain.map((b) => b.id).join(' → ')}），拒绝以 ${policy.mode} 模式直跑`,
         );
       }
       return {
@@ -363,7 +363,7 @@ export function requestEscalation(
 ): Promise<{ outcome: ApprovalOutcome }> {
   return approval.ask({
     summary: `沙箱升权 ${input.current} → ${input.target}`,
-    reason: `目标档 ${input.target}；理由：${input.justification}`,
+    reason: `目标模式 ${input.target}；理由：${input.justification}`,
     toolName: input.toolName,
     toolCallId: input.toolCallId,
     // run 取消信号随 ask 载荷透传（undefined 不携带）

@@ -1673,7 +1673,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
               service.unparkForBudget(goalId);
               // F1 收编：直写改走件内 warn 出口（logger + notify 双发——自动唤醒
               // 路尽语义不变，只换呈现路）
-              warn(`[goal] 连续后台唤醒超帽（连续 3 次）：goal「${goalId}」停自动唤醒——/goal wake 手动复位或提额`);
+              warn(`[goal] 连续后台唤醒达上限（连续 3 次）：goal「${goalId}」停自动唤醒——/goal wake 手动复位或提额`);
               return;
             }
             // 正常收口：复活挂钟行（下轮 due 经 §12 唤醒判定链自然重入）

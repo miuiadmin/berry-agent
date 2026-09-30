@@ -282,7 +282,10 @@ describe('cron 联动「不半态」', () => {
     const originalRegister = reg.register.bind(reg);
     reg.register = (row) => {
       if (row.schedule.kind === 'once') {
-        throw new BaseError('SCHEDULER_CRON_UNSUPPORTED', 'cron 表达不了 once 单发形（单发归进程内挂钟独辖）');
+        throw new BaseError(
+          'SCHEDULER_CRON_UNSUPPORTED',
+          'cron 表达不了 once 单发形（单发归进程内定时独辖——行停机错过即跳过）',
+        );
       }
       originalRegister(row);
     };
@@ -301,7 +304,10 @@ describe('cron 联动「不半态」', () => {
       register(row) {
         calls.push(`register:${row.name}`);
         if (row.schedule.kind === 'once') {
-          throw new BaseError('SCHEDULER_CRON_UNSUPPORTED', 'cron 表达不了 once 单发形（单发归进程内挂钟独辖）');
+          throw new BaseError(
+            'SCHEDULER_CRON_UNSUPPORTED',
+            'cron 表达不了 once 单发形（单发归进程内定时独辖——行停机错过即跳过）',
+          );
         }
       },
       unregister(name) {

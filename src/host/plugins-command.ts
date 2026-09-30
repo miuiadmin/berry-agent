@@ -33,7 +33,7 @@ export const PLUGINS_SUBVERBS = ['list', 'mount', 'unmount', 'toggle', 'config']
 
 /** 用法说明（命令描述位 + 未知动词回执共用单源） */
 export const PLUGINS_CMD_USAGE = `/plugins list | mount <id> | unmount <id> | toggle <id> | config <id>
-  list                装载态清单三分区（启用/失败/禁用——内存读面零磁盘）
+  list                安装态清单三分区（启用/失败/禁用——内存读取、不读磁盘）
   mount <id>          挂载已装机插件（成功尾自动链 /reload）
   unmount <id>        卸下（装机保留——成功尾自动链 /reload）
   toggle <id>         禁用态翻转（成功尾自动链 /reload）
@@ -92,7 +92,7 @@ function renderList(report: LoadReport | undefined): string {
 /** mount 前置两查（CLI runRowVerb 同律单源复述——id 词法 + 装机在场） */
 function mountPreflight(id: string, deps: PluginsCommandDeps): string | undefined {
   if (!checkPluginId(id, { official: true })) {
-    return `插件 id 词法违例（${id}——小写字母数字连字符，官方件 core: 前缀同律）`;
+    return `插件 id 格式不对（${id}——小写字母数字连字符；官方插件 core: 前缀同规则）`;
   }
   if (!id.startsWith('core:')) {
     const ledgerRead = readLedger(deps.dataDir!, deps.fs);

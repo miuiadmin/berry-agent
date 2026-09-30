@@ -63,7 +63,7 @@ export const MCP_POLL_TOOL_NAME = 'berry-agent-reply';
 const MCP_TOOLS = [
   {
     name: MCP_PROMPT_TOOL_NAME,
-    description: '向 berry-agent 会话发起或续接一条消息（异步档：受理即回执——回复增量经 berry-agent-reply 轮询获取）',
+    description: '向 berry-agent 会话发起或续接一条消息（异步模式：受理即回执——回复增量经 berry-agent-reply 轮询获取）',
     inputSchema: {
       type: 'object',
       properties: {

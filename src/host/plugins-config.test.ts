@@ -153,11 +153,11 @@ function rig(
 }
 
 describe('声明面缺席与前置拒', () => {
-  it('无 configSchema → 诚实回执「无声明配置面」+ 零问询零写盘', async () => {
+  it('无 configSchema → 诚实回执「未声明配置表单」+ 零问询零写盘', async () => {
     const rig_ = rig();
     const out = await runPluginConfigForm('nope', rig_.deps);
     expect(out.ok).toBe(false);
-    expect(out.text).toContain('无声明配置面');
+    expect(out.text).toContain('未声明配置表单');
     expect(rig_.calls.inputs).toEqual([]);
     expect(rig_.reloads()).toBe(0);
   });

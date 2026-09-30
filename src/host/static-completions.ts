@@ -38,7 +38,7 @@ const EXIT_WORDS = ['exit'] as const;
 
 /** 退出词说明（单源——补全条目与 /help 命令册两消费面同文） */
 const EXIT_DESCRIPTIONS: Readonly<Record<(typeof EXIT_WORDS)[number], string>> = {
-  exit: '退出 TUI（与 Ctrl+D 同路优雅退出）',
+  exit: '退出 TUI（效果同 Ctrl+D）',
 };
 
 /**

@@ -329,7 +329,7 @@ async function runRename(options: SessionsEntryOptions, id: string, title: strin
   const err = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const clamped = clampTitleText(title);
   if (clamped === '') {
-    err('新名字只含不可见字符（控制字节/零宽字符剥光后无可见内容）——未保存，换一个再试');
+    err('新名字只含不可见字符（空格/零宽字符等看不见的内容）——未保存，换一个再试');
     return 1;
   }
   // 零装配直开库（openReadSide 形——短命写动词同读腿豁免族：不开运行时、

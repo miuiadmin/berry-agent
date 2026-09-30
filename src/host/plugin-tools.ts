@@ -315,7 +315,7 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
         '挂载生效需 /reload（模型面不自动链）。',
       parameters: Type.Object(
         {
-          id: Type.String({ description: '插件 id（小写字母数字连字符；官方件 core: 前缀）' }),
+          id: Type.String({ description: '插件 id（小写字母数字连字符；官方插件 core: 前缀）' }),
           config: Type.Optional(Type.Unknown({ description: '插件配置值（JSON——行内 config 字段；加载侧深校验）' })),
         },
         { additionalProperties: false },
@@ -329,7 +329,7 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
           const id = args.id as string;
           // 前置两查（与 TUI/CLI 同律——03 §5.8 三面同源单源复述）
           if (!checkPluginId(id, { official: true })) {
-            return textError(`插件 id 词法违例（${id}——小写字母数字连字符，官方件 core: 前缀同律）`);
+            return textError(`插件 id 格式不对（${id}——小写字母数字连字符；官方插件 core: 前缀同规则）`);
           }
           if (!id.startsWith('core:')) {
             const ledgerRead = readLedger(deps.dataDir, deps.fs);

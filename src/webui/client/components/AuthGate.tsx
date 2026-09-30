@@ -63,7 +63,7 @@ export function AuthGate({ onAuthed }: { onAuthed: () => void }): ReactElement {
           disabled={token === '' || busy}
           onClick={submit}
         >
-          {busy ? '换桥中……' : '进入'}
+          {busy ? '验证中……' : '进入'}
         </button>
       </div>
     </div>

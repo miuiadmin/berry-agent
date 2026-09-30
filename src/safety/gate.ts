@@ -164,7 +164,7 @@ export function installSafetyGate(dispatch: EventDispatch, opts: SafetyGateOptio
   // 为绝对路径（resolveDataDir 产物），buildCarveOutTable 内展开即其自身
   const entries: readonly CarveOutEntry[] = [
     ...(opts.entries ?? DEFAULT_CARVE_OUT_ENTRIES),
-    { pattern: opts.dataDir, effect: 'deny', note: '数据目录（04 §7——宿主状态根，任何档含 danger 恒不可写）' },
+    { pattern: opts.dataDir, effect: 'deny', note: '数据目录（04 §7——宿主状态根，任何模式含 danger 恒不可写）' },
   ];
   const carveTable = buildCarveOutTable(workspace, entries);
   const approval = opts.approval;

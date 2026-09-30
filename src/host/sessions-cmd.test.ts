@@ -638,7 +638,7 @@ describe('sessions rename（2026-09-30 人面改名批——CLI 第七动词；�
       { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
     );
     expect(code).toBe(1);
-    expect(cap.err.join('\n')).toContain('剥光后无可见内容');
+    expect(cap.err.join('\n')).toContain('空格/零宽字符等看不见的内容');
     expect(await titleOf(dbPath, 's-rn3')).toBe('原题'); // 未落库
   });
 

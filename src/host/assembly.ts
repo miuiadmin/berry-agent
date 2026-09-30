@@ -1419,7 +1419,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                   if (args.sessionId === undefined) {
                     return Promise.resolve({
                       ok: false,
-                      text: 'config 表单需会话锚（此命令面无发起会话——问询无法投递）——TUI 会话内执行 /plugins config',
+                      text: 'config 配置表单不可用（此入口无会话/问询界面）——TUI 会话内 /plugins config 或手编 enabled.yaml',
                     });
                   }
                   const sessionId = args.sessionId;

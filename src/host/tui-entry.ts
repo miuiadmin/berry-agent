@@ -945,7 +945,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           {
             title: '快速上手',
             lines: [
-              '直接说需求即对话（编码 / 问答 / 执行——能力随插件装载扩展）',
+              '直接说需求即对话（编码 / 问答 / 执行——能力可通过安装插件扩展）',
               '/help 命令与键位帮助 · /guide 本参考',
             ],
           },

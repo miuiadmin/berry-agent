@@ -91,7 +91,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   run "<message>"         单次执行：一轮对话 → stdout 输出结果
   serve                   常驻宿主（stdio JSONL；serve status / serve stop 管理动词）
   mcp                     MCP server 包装形态
-  dump-config             打印实际生效装配
+  dump-config             打印实际生效配置
   plugins <sub>           插件生命周期（list/install/uninstall/mount/unmount/toggle/update/check）
   marketplace <sub>       插件市场（add/remove/update/list/discover/install/uninstall/upgrade——装机寻址形 <name@market>）
   sessions <sub>          会话管理（list/resume <id>/fork <id>/rename <id> <title>/search <query>/export <id>/reindex）
@@ -105,7 +105,7 @@ export const HELP_TEXT = `berry — 单一可扩展的个人 Agent
   run 限定：--output-format <text|json|stream>  --output-last-message <file>  --ephemeral
             --max-turns <n>  --session <id>  --continue  --fork [id]  --read-only  --preset <名>  --tick <名>  --background
             --output-schema <file>（收场校验末条回复须单一 JSON 且合 schema）
-  run/serve 共收：--no-delta（线面退订流式增量）
+  run/serve 共收：--no-delta（关闭流式增量输出）
   serve 限定：--daemon  --sdk-port <n>  --sdk-host <host>（后两旗标 daemon 形专属）
 
 裸 -- 之后的 argv 全字面；未识别 -- 词一律用法错退 2。`;

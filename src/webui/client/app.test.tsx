@@ -549,7 +549,7 @@ describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui �
   it('点击行 → setThinkingLevel(activeId, level) → receipt 通知（info 呈现位）→ 浮层收', async () => {
     primeMain();
     apiMock.setThinkingLevel.mockResolvedValueOnce({
-      receipt: 'thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）',
+      receipt: '思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）',
     });
     render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
@@ -560,7 +560,7 @@ describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui �
       expect(apiMock.setThinkingLevel).toHaveBeenCalledWith('s-1', 'high');
     });
     // receipt 呈现（回执文案与 TUI setStatus 同文单源——info 档通知条）
-    await screen.findByText('thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）');
+    await screen.findByText('思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）');
     // 浮层收（选定先收层）
     await waitFor(() => {
       expect(screen.queryByText('深度思考级别')).toBeNull();
@@ -591,8 +591,8 @@ describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui �
     fireEvent.click(screen.getByRole('button', { name: /off/ }));
     expect(apiMock.setThinkingLevel).toHaveBeenCalledTimes(1);
     // 放行 → receipt 呈现 + 浮层收（正常收层路径不被守卫影响）
-    release({ receipt: 'thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）' });
-    await screen.findByText('thinking 已切 high——下一 run 起生效（档位是否生效随模型能力）');
+    release({ receipt: '思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）' });
+    await screen.findByText('思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）');
     await waitFor(() => {
       expect(screen.queryByText('深度思考级别')).toBeNull();
     });

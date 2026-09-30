@@ -251,7 +251,7 @@ function scanFlags(argv: readonly string[], schemas: readonly FlagSchema[]): Sca
       }
       const next = argv[i + 1];
       if (next === undefined || next === '' || next.startsWith('--')) {
-        return { booleans, values, literals, overreach, error: `--${name} 须带值（空串占位或缺失即用法错）` };
+        return { booleans, values, literals, overreach, error: `--${name} 须带值（后面要跟一个参数，空串不算）` };
       }
       if (schema.values && !schema.values.includes(next)) {
         return {
@@ -405,7 +405,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
   const resumePicks =
     (scan.values.has('session') ? 1 : 0) + (has('continue') ? 1 : 0) + (scan.values.has('fork') ? 1 : 0);
   if (resumePicks > 1) {
-    return usageFail('--session / --continue / --fork 三者互斥（续接显式 opt-in 单选）');
+    return usageFail('--session / --continue / --fork 三者互斥（只能用一个）');
   }
   // --read-only × --preset 互斥（ap-3）：同为 CLI 层 sandbox 档定值位——预设
   // 档已含沙箱档位（conservative=read-only/balanced|open=workspace-write），
@@ -457,7 +457,7 @@ function parseServe(rest: readonly string[]): CliParseResult {
   // daemon 形专属旗标互斥执法（执法⑤同族）：--sdk-port/--sdk-host 是 daemon 形
   // sdk HTTP 面 TCP 侧可选（07 §5 落码定名批）——前台 stdio 形传入即用法错
   if (!scan.booleans.has('daemon') && (scan.values.has('sdk-port') || scan.values.has('sdk-host'))) {
-    return usageFail('--sdk-port/--sdk-host 为 --daemon 形态专属（前台 stdio 形无 HTTP 面）');
+    return usageFail('--sdk-port/--sdk-host 只在 --daemon 时可用（前台 stdio 形态没有 HTTP 服务）');
   }
   const port = scan.values.get('port');
   const sdkPort = scan.values.get('sdk-port');
@@ -748,7 +748,7 @@ function parseCredentials(rest: readonly string[]): CliParseResult {
 function parseDoors(rest: readonly string[]): CliParseResult {
   const [head, ...tail] = rest as string[];
   if (head === undefined || head.startsWith('--')) {
-    return usageFail('doors 须带子命令（list/open/close——open/close 写动词 TUI /doors 专属，CLI 只读 list）');
+    return usageFail('doors 须带子命令（list——CLI 只能查看；open/close 在 TUI 里用 /doors 操作）');
   }
   switch (head) {
     case 'list': {
@@ -836,7 +836,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       // 装载面——试件行注入即诊断保真差；收而互斥拒（非未识别拒——message
       // 指向互斥根因而非「拼错旗标」）
       if (scan.values.has('plugin-file')) {
-        return usageFail('--plugin-file 与 dump-config 互斥（诊断输出须反映真实装载内容——不能混入临时试装插件）');
+        return usageFail('--plugin-file 与 dump-config 互斥（诊断输出须反映实际已安装的插件——不能混入临时试装插件）');
       }
       const arity = expectArity(scan.literals, 0, 0, 'berry dump-config');
       if ('exitCode' in arity) return arity;

@@ -225,7 +225,7 @@ export class WriteBehind {
     if (this.consecutiveFailures >= this.retryLimit) {
       throw new BaseError(
         'PERSIST_WRITE_EXHAUSTED',
-        `write-behind 批级重试耗尽（连续 ${this.consecutiveFailures} 次失败）——写不进库的会话继续跑 = 谎报持久化，进程 fail-loud`,
+        `write-behind 批级重试耗尽（连续 ${this.consecutiveFailures} 次失败）——写不进库的会话继续跑 = 谎称已保存，进程 fail-loud`,
         { cause: err },
       );
     }
