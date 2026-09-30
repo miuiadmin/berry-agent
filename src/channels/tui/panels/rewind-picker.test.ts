@@ -232,6 +232,52 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     picker.handleEvent(k('enter')); // errorText 在场 → Enter 零动作
     expect(onRestore).not.toHaveBeenCalled();
   });
+
+  it('迟到预演竞态：旧条目 onPreview 迟到 resolve 不错装新条目确认视图（守卫须校验 previewId）', async () => {
+    // 双 deferred：A 进 preview 后不决 → Esc 回列表 → down 选 B → 进 B preview
+    // → A 的迟到 resolve 到达——守卫必须比对 previewId 拒收（否则 A 的三账行
+    // 错装进 B 的确认视图：用户看着 A 的对账数确认 B 的破坏性 restore）
+    const deferreds: Array<{ resolve: (value: UiRewindPreview) => void }> = [];
+    const onPreview = vi.fn(
+      () =>
+        new Promise<UiRewindPreview>((resolve) => {
+          deferreds.push({ resolve });
+        }),
+    );
+    const { picker } = makePicker({ actions: { onPreview, onRestore: vi.fn(async () => undefined) } });
+    picker.handleEvent(k('enter')); // 条目 A（m-second0001）进 preview——不决
+    expect(deferreds).toHaveLength(1);
+    picker.handleEvent(k('escape')); // 回列表
+    picker.handleEvent(k('down')); // 光标移到 B（m-first00002）
+    picker.handleEvent(k('enter')); // B 进 preview——A 的 promise 仍悬挂
+    expect(deferreds).toHaveLength(2);
+    // A 迟到 resolve（大工作区 walk 慢形）——区分值：恢复 9（A 专属账目）
+    deferreds[0]!.resolve({ restoreCount: 9, deleteCount: 8, untouchedCount: 7 });
+    await Promise.resolve();
+    await Promise.resolve();
+    const stale = paint(picker);
+    const staleAll = Array.from({ length: stale.rows }, (_, i) => readRow(stale, i, 72)).join('\n');
+    expect(staleAll).toContain('m-first0'); // 确认视图锚 B
+    expect(staleAll).not.toContain('恢复 9'); // A 的账目不得错装（修前红位）
+    // B 自己的 resolve 照常回填
+    deferreds[1]!.resolve({ ...PREVIEW_OK });
+    await Promise.resolve();
+    await Promise.resolve();
+    const fresh = paint(picker);
+    const freshAll = Array.from({ length: fresh.rows }, (_, i) => readRow(fresh, i, 72)).join('\n');
+    expect(freshAll).toContain('恢复 2'); // B 的账目就位
+  });
+
+  it('过滤态 Enter：预演锚定 = 过滤后选中项（filtered() 集锚定——非全量首项）', async () => {
+    const { picker, onPreview } = makePicker();
+    for (const ch of '保底') picker.handleEvent(t(ch)); // 过滤到 m-backup0003 一条
+    picker.handleEvent(k('enter')); // 进 preview——锚定必须取过滤集选中项
+    expect(onPreview).toHaveBeenCalledWith('m-backup0003'); // 修前若锚定回退全量集则收 m-second0001
+    await Promise.resolve();
+    await Promise.resolve();
+    const grid = paint(picker);
+    expect(Array.from({ length: grid.rows }, (_, i) => readRow(grid, i, 72)).join('\n')).toContain('m-backup'); // 确认视图成品行同锚
+  });
 });
 
 describe('RewindPicker 退出族与闭锁', () => {

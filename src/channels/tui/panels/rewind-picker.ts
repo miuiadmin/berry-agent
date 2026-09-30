@@ -259,11 +259,16 @@ export class RewindPicker implements OverlayContent {
           void this.actions
             .onPreview(chosen.id)
             .then((data) => {
-              // 退出竞态防御：面板已收屏则丢弃（下一开屏重取）
-              if (!this.exited && this.view === 'preview') this.previewData = data;
+              // 退出竞态防御：面板已收屏则丢弃（下一开屏重取）；迟到竞态防御：
+              // 须仍锚定本次发起的条目——「Enter A（在飞）→ esc 回列表 → Enter B
+              // → A 迟到 resolve」时守卫拒收 A 的账目，否则 A 的三账行错装进
+              // B 的确认视图（用户看着 A 的对账数确认 B 的破坏性 restore）
+              if (!this.exited && this.view === 'preview' && this.previewId === chosen.id) {
+                this.previewData = data;
+              }
             })
             .catch(() => {
-              if (!this.exited && this.view === 'preview') {
+              if (!this.exited && this.view === 'preview' && this.previewId === chosen.id) {
                 this.previewData = {
                   restoreCount: 0,
                   deleteCount: 0,
