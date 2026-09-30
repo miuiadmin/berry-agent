@@ -302,11 +302,12 @@ export function judgeDistTag(tags, version, prerelease) {
 
 /**
  * 契约 5 传播窗重试缺省参数（07 §8.3 契约 5 2026-09-19 传播窗重试定形注 +
- * 2026-09-21 传播窗上界勘正〔规范先行〕）：实测传播最坏观测 7 分钟（alpha
- * 期两发族），上界须盖最坏观测再留余量——12 次 ≈ 6 分钟窗已被越限，12→15
- * （≈ 7.5 分钟窗）。
+ * 2026-09-21 传播窗上界勘正 + 2026-09-30 传播窗上界二次勘正〔规范先行——
+ * 私库 2ca0f27〕）：实测传播最坏观测持续抬升（alpha.2/alpha.4 两发 3-7 分钟
+ * → 2026-09-21 观测 7 分钟 → 2026-09-30 alpha.23 观测 7.5-8.5 分钟），上界
+ * 须盖最坏观测再留余量——15 次 ≈ 7.5 分钟窗已被再次越限，15→30（≈ 15 分钟窗）。
  */
-export const TAG_PROPAGATION_RETRIES = 15;
+export const TAG_PROPAGATION_RETRIES = 30;
 export const TAG_PROPAGATION_DELAY_MS = 30_000;
 
 /**
