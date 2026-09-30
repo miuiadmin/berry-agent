@@ -130,8 +130,13 @@ jobs:
       # （SDK 包无 API 面快照契约——2026-09-20 SDK CI 化批，见下 if 守卫）。
       - name: API 面快照归档（GitHub Release assets）
         # main-only 守卫：RELEASE_REF 由首步注入（push/dispatch 两形齐覆盖），
-        # sdk-v* run 整步跳过（publish 已在上一步走完——跳的是归档不是发布）
-        if: ${{ !startsWith(env.RELEASE_REF, 'refs/tags/sdk-v') }}
+        # sdk-v* run 整步跳过（publish 已在上一步走完——跳的是归档不是发布）。
+        # !cancelled() 兜底（2026-10-01 扫描处置批）：归档步不因前步红而 skipped——
+        # alpha.23 实录契约 5 传播窗假红使本步 skipped、rerun --failed 只重跑
+        # failed 步不救 skipped 步，绿后 Release 洞需手工确定性重建；publish
+        # 已收执而后续断言红的半成功态里快照归档照跑（归档件生成自本 run 树
+        # 真值，与断言红绿无耦合）；仅 cancelled 不跑（人为取消不产半档）
+        if: ${{ !cancelled() && !startsWith(env.RELEASE_REF, 'refs/tags/sdk-v') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
