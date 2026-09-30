@@ -138,6 +138,48 @@ export interface UiBackend<TProjection> {
    * 件 6 清账态）。返 boolean 同 openSessions 律。缺席 = 不支持面板的后端。
    */
   openUsage?(sessionId: string, summary: UiUsageSummary): boolean;
+  /**
+   * 开副屏回退点选择器（2026-09-30 会话管理命令批批3 `/rewind` 无参形的
+   * 呈现面——机制/事务真源 05 §5.3 该批翻案笔；命令处理器留 core:checkpoint
+   * 插件域，面板载荷经 host deps 注入流转——非通道核注册）。载荷 = manifest
+   * 成品行清单（行文本渲染单源 manifestLine——插件域组装，后端零 checkpoint
+   * 依赖）+ 两步确认回调组（onPreview 预演对账 / onRestore 确认回退——
+   * 选定先收屏再回调，回调内 busy 守卫→restore→adopt 编舞全闭包在插件域）。
+   * 返 boolean 同 openSessions 律：true = 已开；false = 不支持或已在副屏
+   * ——调用侧 usage 文本兜底（不虚报律）。缺席 = 不支持选择器的后端（serve 形）。
+   */
+  openRewindPicker?(entries: readonly UiRewindEntry[], actions: UiRewindActions): boolean;
+}
+
+/**
+ * 回退点选择器条目（批3 `/rewind` 副屏载荷——插件域 manifestLine 成品行）。
+ * id = manifest 全形 id（回调锚——preview/restore 直达）；line = 成品行文本
+ * （id 短形 + ISO 时刻 + 触发形中文 + 规模——渲染单源复用命令面 list 行，
+ * 呈现零重拼）。
+ */
+export interface UiRewindEntry {
+  readonly id: string;
+  readonly line: string;
+}
+
+/**
+ * 回退点预演对账（批3 两步确认段一——previewRewind 的面板呈现形）：三账
+ * 计数由面板渲染「恢复 N · 删除 M · 不动 U」行；errorText 在场 = 预演失败/
+ * 拒绝（面板只显该行、Enter 不进 restore——诚实拒零误执行）。
+ */
+export interface UiRewindPreview {
+  readonly restoreCount: number;
+  readonly deleteCount: number;
+  readonly untouchedCount: number;
+  readonly errorText?: string;
+}
+
+/** 回退点选择器回调组（批3——两步确认的异步数据面，闭包真源在插件域） */
+export interface UiRewindActions {
+  /** 段一预演（零改动对账——面板 Enter 触发、加载态面板自持） */
+  onPreview(id: string): Promise<UiRewindPreview>;
+  /** 段二确认回退（面板先收屏再回调——busy 守卫→restore→adopt→回执 notify 全闭包内） */
+  onRestore(id: string): Promise<void>;
 }
 
 /**

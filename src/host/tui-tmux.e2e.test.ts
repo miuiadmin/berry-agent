@@ -56,6 +56,9 @@
  *     起跑前 seed——开库不并发）→ 带参直通回执行（已续接）+ footer 短 id
  *     翻位（focus 权威路）+ /sessions 清单历史行在场带 ● 活跃位（切焦即
  *     活跃投影；零消息自开会话无行不现——既有两面）→ q 收屏回主屏。
+ * 12. /rewind 无参选择器（2026-09-30 会话管理命令批批3）：跨进程预置 manifest
+ *     （workspaceRoot 归一同源）→ 无参进屏（标题 ◆ 回退点 · 1 个 + manifestLine
+ *     成品行）→ esc 收屏回主屏。restore 全链不进 e2e（破坏性操作不彩排）。
  *
  * 本件属**新验收面**：首跑绿 = 锁在；首跑红 = 抓到真缺陷（停手报告不擅修）。
  */
@@ -297,6 +300,41 @@ function seedHistoryRow(dataDir: string, workspaceRoot: string, id: string, titl
     env: { ...process.env, BERRY_AGENT_DATA_DIR: dataDir },
   });
   expect(seeded.status, `历史行预置失败：${seeded.stderr ?? ''}`).toBe(0);
+}
+
+/**
+ * 预置回退点 manifest（/rewind 腿 rig——2026-09-30 会话管理命令批批3）：独立
+ * 子进程（tsx 转译真源码）经 openCheckpointStore.saveManifest 直写一条零文件
+ * manifest。workspaceRoot 在 seed 内经 canonicalWorkspaceRoot 归一——与 TUI
+ * 侧启动会话锚（tui-entry canonicalWorkspaceRoot 同源）等值，/rewind 无参
+ * 选择器的按工作区滤才命中。files: [] 合法形（manifestLine 渲染「0 文件」
+ * ——e2e 只锁开屏面不进 preview/restore）。
+ */
+function seedRewindManifest(dataDir: string, wsDir: string, id: string, trigger: 'mutation' | 'pre-rewind'): void {
+  const scriptPath = join(makeTmpDir('tui-tmux-seed-'), 'seed-rewind.mts');
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+  // argv 传参（repoRoot/dataDir/wsDir/id/trigger——零模板插值零转义面）
+  writeFileSync(
+    scriptPath,
+    [
+      `const root = process.argv[2];`,
+      `const { openCheckpointStore } = await import(root + '/src/checkpoint/index.js');`,
+      `const { canonicalWorkspaceRoot } = await import(root + '/src/context/index.js');`,
+      `const store = openCheckpointStore(process.argv[3]);`,
+      `await store.saveManifest({`,
+      `  id: process.argv[5], sessionId: 'e2e-seed', boundarySeq: -1,`,
+      `  workspaceRoot: canonicalWorkspaceRoot(process.argv[4]),`,
+      `  capturedAt: 1_700_000_000_000, trigger: process.argv[6], files: [],`,
+      `});`,
+    ].join('\n'),
+  );
+  const seeded = spawnSync(process.execPath, [TSX_CLI, scriptPath, repoRoot, dataDir, wsDir, id, trigger], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    // 库路径梯子律同 seedHistoryRow（env 注入 BERRY_AGENT_DATA_DIR 与 TUI 同梯）
+    env: { ...process.env, BERRY_AGENT_DATA_DIR: dataDir },
+  });
+  expect(seeded.status, `回退点预置失败：${seeded.stderr ?? ''}`).toBe(0);
 }
 
 /** 收屏（capture-pane -p 可见行——会话亡/瞬时不可得形返回空串，调用方按缺席判） */
@@ -738,6 +776,41 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         ESC_DISMISS_TIMEOUT_MS,
         session.name,
         (lines) => !lines.some((line) => line.includes('会话切换 ·')) && lines.some(isFooterLine),
+      );
+    },
+    90_000,
+  );
+
+  it.skipIf(!hasUsableTmux())(
+    '/rewind 无参选择器副屏（2026-09-30 会话管理命令批批3）：预置 manifest → 标题+条目行呈现 → esc 收屏',
+    async () => {
+      // 预置回退点先行（目录提前造 → seed → 再起 TUI 复用目录）；restore 全链
+      // 不进 e2e（破坏性操作不彩排）——本腿锁开屏面：无参分支清单组装 +
+      // manifestLine 成品行经面板渲染 + late-bound 槽回填全链
+      const dataDir = makeTmpDir('tui-tmux-data-');
+      const wsDir = makeTmpDir('tui-tmux-ws-');
+      seedRewindManifest(dataDir, wsDir, 'e2e-rewind-0001', 'mutation');
+      const session = startTuiSession({ dataDir, wsDir: wsDir });
+      await waitForStartup(session.name);
+      // 无参形进屏判据两锚：标题行（◆ 回退点 · 1 个）+ 条目行（id 截 8 位
+      // 短形 e2e-rew + 触发形中文变异前拍——manifestLine 单源成品行）
+      sendLiteral(session.name, '/rewind');
+      sendKey(session.name, 'Enter');
+      await waitForScreen(
+        '/rewind 副屏进屏（标题 + manifestLine 条目行）',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          lines.some((line) => line.includes('回退点 · 1 个')) &&
+          lines.some((line) => line.includes('e2e-rew') && line.includes('变异前拍')),
+      );
+      // esc 收屏回主屏（副屏退出族 esc 腿——标题消失 + footer 复在场）
+      sendKey(session.name, 'Escape');
+      await waitForScreen(
+        '/rewind 收屏回主屏（标题消失 + footer 复在场）',
+        ESC_DISMISS_TIMEOUT_MS,
+        session.name,
+        (lines) => !lines.some((line) => line.includes('回退点 ·')) && lines.some(isFooterLine),
       );
     },
     90_000,

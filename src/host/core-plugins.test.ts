@@ -158,6 +158,12 @@ interface DepsForTest {
   checkpointSession?: SessionContextFace;
   checkpointFork?: RewindForkFace;
   focusSessionId?: () => string | undefined;
+  /** 批3——openRewindPicker 开面板槽（无参选择器测试位） */
+  openRewindPicker?: (entries: readonly { id: string; line: string }[], actions: unknown) => boolean;
+  /** 批3——adopt 切前台柄（restore 切焦测试位） */
+  adoptSession?: (sessionId: string) => Promise<void>;
+  /** 批3——焦点在飞判据（busy 守卫测试位） */
+  focusRunning?: () => boolean;
   sdkFaceFactory?: typeof createSdkHttpFace;
   webuiFaceMount?: (face: SdkHttpFaceHandle, options?: { staticDir?: string }) => WebuiFaceMount;
   obsEvents?: ObsEventsFace;
@@ -245,6 +251,9 @@ async function bootCore(
       ...(coreDeps.checkpointSession !== undefined ? { checkpointSession: coreDeps.checkpointSession } : {}),
       ...(coreDeps.checkpointFork !== undefined ? { checkpointFork: coreDeps.checkpointFork } : {}),
       ...(coreDeps.focusSessionId !== undefined ? { focusSessionId: coreDeps.focusSessionId } : {}),
+      ...(coreDeps.openRewindPicker !== undefined ? { openRewindPicker: coreDeps.openRewindPicker } : {}),
+      ...(coreDeps.adoptSession !== undefined ? { adoptSession: coreDeps.adoptSession } : {}),
+      ...(coreDeps.focusRunning !== undefined ? { focusRunning: coreDeps.focusRunning } : {}),
       ...(coreDeps.sdkFaceFactory !== undefined ? { sdkFaceFactory: coreDeps.sdkFaceFactory } : {}),
       ...(coreDeps.webuiFaceMount !== undefined ? { webuiFaceMount: coreDeps.webuiFaceMount } : {}),
       ...(coreDeps.obsEvents !== undefined ? { obsEvents: coreDeps.obsEvents } : {}),
@@ -2267,6 +2276,66 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     const after = await store.listManifests();
     expect(after.some((m) => m.trigger === 'pre-rewind')).toBe(true);
     expect(after).toHaveLength(3);
+  });
+
+  it('checkpoint /rewind 无参（批3）：openRewindPicker 在场 = 开面板——entries 含 manifest 成品行且 actions 闭包真调（修前：无参恒 usage 文本）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-rwpick-'));
+    dirs.push(dataDir);
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-rwpick-ws-'));
+    dirs.push(workspace);
+    writeFileSync(join(workspace, 'a.txt'), 'v1');
+    const checkpointSession: SessionContextFace = {
+      contextOf: (sid) => (sid === 's-rw3' ? { lastClosedBoundary: 3, workspaceRoot: workspace } : undefined),
+    };
+    const checkpointFork: RewindForkFace = {
+      fork: async () => ({ status: 'forked', sessionId: 'fork-rw3' }),
+    };
+    // 开面板假件捕获位（修前：DepsForTest/bootCore 无此透传位——cast 保 tsc 干净）
+    const opens: Array<{ entries: readonly { id: string; line: string }[]; actions: unknown }> = [];
+    const extra = {
+      openRewindPicker: (entries: readonly { id: string; line: string }[], actions: unknown): boolean => {
+        opens.push({ entries, actions });
+        return true;
+      },
+    };
+    const notified: string[] = [];
+    const { dispatch, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        checkpointSession,
+        checkpointFork,
+        focusSessionId: () => 's-rw3',
+        notify: (source, message) => {
+          if (source === 'checkpoint') notified.push(message);
+        },
+        ...extra, // spread 进 coreDeps（excess 不触发——修前不透传即红）
+      },
+    );
+    // gate 真拍一个 manifest（fireGate 同上形——write 效果 + 工作区锚）
+    await dispatch.waterfall<GateInput>('tools_pre_execute', {
+      tool: { name: 'probe', effect: 'write' } as GateInput['tool'],
+      args: {},
+      toolCallId: 'c-rw3',
+      mutated: false,
+      sessionId: 's-rw3',
+    });
+    const rewindCmd = commandSpecs.find((spec) => spec.name === 'rewind');
+    if (rewindCmd === undefined) throw new Error('/rewind 命令不在捕获面');
+    await rewindCmd.handler({ raw: '', argv: [] }); // 无参形
+    // 主锁：开面板恰一次（修前红：无参恒 usage 文本 → opens 空）
+    expect(opens).toHaveLength(1);
+    // entries = manifestLine 成品行（id + 触发形中文 + 规模——渲染单源）
+    expect(opens[0]!.entries.some((e) => e.id.length > 0 && e.line.includes('变异前拍'))).toBe(true);
+    expect(notified.some((m) => m.includes('用法：/rewind'))).toBe(false); // 不落 usage 兜底
+    // actions 闭包真调：onPreview 回预演数据（插件域 store 真源）
+    const actions = opens[0]!.actions as {
+      onPreview: (id: string) => Promise<{ restoreCount: number; deleteCount: number; untouchedCount: number }>;
+    };
+    const manifestId = opens[0]!.entries[0]!.id;
+    const preview = await actions.onPreview(manifestId);
+    expect(preview.restoreCount + preview.deleteCount + preview.untouchedCount).toBeGreaterThan(0);
   });
 
   it('checkpoint 主闸三位：dataDir null 或任一 seam 缺席 = 件零装载（/rewind 不注册 + gate 零捕获）', async () => {

@@ -63,6 +63,8 @@ import type {
   UiSelectChoice,
   UiSessionSummary,
   UiUsageSummary,
+  UiRewindEntry,
+  UiRewindActions,
 } from '../../types.js';
 import {
   CellGrid,
@@ -113,6 +115,7 @@ import { SkillsViewer, type SkillListEntry } from '../panels/skills-viewer.js';
 import { ThemePicker, type ThemePickEntry } from '../panels/theme-picker.js';
 import { ThinkingPicker, type ThinkingPickEntry } from '../panels/thinking-picker.js';
 import { ModelPicker, type ModelPickEntry } from '../panels/model-picker.js';
+import { RewindPicker } from '../panels/rewind-picker.js';
 import { SandboxPicker, type SandboxPickEntry } from '../panels/sandbox-picker.js';
 import { DiffViewer, type DiffProjectionMessage } from '../panels/diff-viewer.js';
 import { MarketPicker, type MarketPanelActions, type MarketPanelModel } from '../panels/market-picker.js';
@@ -918,6 +921,31 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         columns: this.io.size().columns,
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏回退点选择器（UiBackend 可选能力面实装——2026-09-30 会话管理命令
+   * 批批3 `/rewind` 无参形；机制真源 05 §5.3 该批翻案笔）：manifest 成品行 +
+   * 两步确认回调组经 host deps 注入流转（openSessions 同律——本件呈现零
+   * checkpoint 依赖）；确认回退选定先收副屏再回调（SessionPicker 同序律——
+   * busy 守卫→restore→adopt 编舞全闭包在插件域）。已在副屏 / 主屏不在
+   * running 返 false（核侧 usage 文本兜底）。打断柄锚当前交互会话位。
+   */
+  openRewindPicker(entries: readonly UiRewindEntry[], actions: UiRewindActions): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new RewindPicker({
+        entries,
+        actions,
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: () => this.onInterrupt?.(this.sessionId),
         onQuit: this.onQuit,
       }),
     );

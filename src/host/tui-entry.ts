@@ -1458,6 +1458,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       onboardingSetupPending = decision === 'setup';
     }
 
+    // —— /rewind 无参选择器开面板槽回填（批3——2026-09-30 会话管理命令批）：
+    // backend 构造完成即回填（coreDeps 闭包读槽自此得真身——件装载期空窗
+    // 已过，/rewind 命令注册面在后无竞速）；副屏占用时 backend.openRewindPicker
+    // 返 false，件内 handler 落 usage 兜底（同 /help 降级律）
+    assembly.rewindOpener.current = (entries, actions) => backend.openRewindPicker(entries, actions);
+
     stack.channels.addBackend(backend);
     backend.start();
     stack.channels.registerSession(session.sessionId);

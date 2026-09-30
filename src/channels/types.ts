@@ -23,6 +23,9 @@ export type {
   UiBackend,
   UiSessionSummary,
   UiUsageSummary,
+  UiRewindEntry,
+  UiRewindPreview,
+  UiRewindActions,
 } from '../contracts/index.js';
 
 // 审批 ask 词汇归位 contracts（批 11b——conversation 消费同形而边表不可达

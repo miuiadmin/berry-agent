@@ -25,7 +25,8 @@ import type { SessionContextFace } from './types.js';
 export const REWIND_SUBVERBS = ['list', 'preview', 'restore', 'help'] as const;
 
 export const REWIND_USAGE = [
-  '用法：/rewind list —— 列当前工作区的回退点',
+  '用法：/rewind —— 副屏选择回退点（无参形；副屏不可用时落本用法文本）',
+  '　　　/rewind list —— 列当前工作区的回退点',
   '　　　/rewind preview <id> —— 预演（恢复 N/删除 M/不动 U，零改动）',
   '　　　/rewind restore <id> —— 回退（保底快照 → 文件恢复 → fork 新会话）',
 ].join('\n');
@@ -36,10 +37,34 @@ export interface RewindCommandDeps extends RewindRestoreDeps {
   session: SessionContextFace;
   /** 发起会话（list 按其工作区锚过滤——restore 保底快照归属同源） */
   sessionId: string;
+  /**
+   * 焦点会话在飞判据（2026-09-30 会话管理命令批批3——05 §5.3 翻案笔③
+   * busy 守卫：restore 三步序非事务原子，在飞 run 继续写文件会覆盖恢复
+   * 产物或被 walk 删腿误删在途产物）。缺席 = 无守卫放行（纯诊断形/测试
+   * 替身兼容——旧调用方零破坏）。
+   */
+  readonly focusRunning?: () => boolean;
+  /**
+   * fork 成功后的切前台回调（批3——05 §5.3 翻案笔① adopt 编舞：宿主侧
+   * registerSession + focus 权威路，notify 回执排在 focus 落画后由调用序
+   * 天然保证——本函数 resolve 后调用方才呈报回执）。缺席 = 纯回执不切焦
+   * （serve/诊断形——forkedSessionId 仍进回执文本）。
+   */
+  readonly adoptSession?: (sessionId: string) => Promise<void>;
 }
 
-/** manifest 行渲染（list 用——id 截 8 位短形 + 触发形中文 + 规模） */
-function manifestLine(id: string, capturedAt: number, trigger: string, files: number, boundarySeq: number): string {
+/**
+ * manifest 行渲染（list 用——id 截 8 位短形 + 触发形中文 + 规模）。
+ * 批3（2026-09-30 会话管理命令批）导出升单源：/rewind 副屏选择器条目行
+ * 同源复用本函数（插件域组装成品行——面板/后端零 checkpoint 依赖零重拼）。
+ */
+export function manifestLine(
+  id: string,
+  capturedAt: number,
+  trigger: string,
+  files: number,
+  boundarySeq: number,
+): string {
   const when = new Date(capturedAt).toISOString().replace('T', ' ').slice(0, 19);
   const kind = trigger === 'mutation' ? '变异前拍' : '回退保底拍';
   return `- ${id.slice(0, 8)}… ${when}〔${kind}〕${files} 文件 · 回退点 seq=${boundarySeq}`;
@@ -99,7 +124,19 @@ export async function runRewindCommand(argv: readonly string[], deps: RewindComm
         // 归属守卫先行（破坏性操作打错靶的唯一前置防线——见 guardRewindOwnership）
         const denied = await guardRewindOwnership(deps, id);
         if (denied !== undefined) return denied;
+        // busy 守卫（批3——05 §5.3 翻案笔③：焦点会话在飞拒——三步序非事务
+        // 原子，在飞 run 继续写文件会覆盖恢复产物或被 walk 删腿误删在途
+        // 产物；缺席位 = 无守卫放行〔诊断形兼容〕）
+        if (deps.focusRunning?.() === true) {
+          return '焦点会话运行中——先 Ctrl+C 停止再回退（在飞 run 继续写文件会覆盖恢复产物或被误删在途产物）。';
+        }
         const receipt = await restoreRewind(deps, id);
+        // adopt 切前台（批3——05 §5.3 翻案笔①：fork 成功即 registerSession+
+        // focus；resolve 后才 return 回执 = notify 排 focus 落画后的调用序
+        // 保证；缺席 = 纯回执不切焦）
+        if (receipt.forkedSessionId !== undefined && deps.adoptSession !== undefined) {
+          await deps.adoptSession(receipt.forkedSessionId);
+        }
         const forkLine =
           receipt.forkedSessionId !== undefined
             ? `已 fork 新会话 ${receipt.forkedSessionId}（旧史保留，自回退点净边界起跑）。`

@@ -199,4 +199,69 @@ describe('runRewindCommand', () => {
     const out = await runRewindCommand(['preview'], deps({ contextOf: () => undefined }));
     expect(out).toContain('缺回退点 id');
   });
+
+  // —— 批3（2026-09-30 会话管理命令批——05 §5.3 翻案笔）——
+
+  it('restore：fork 成功后 adoptSession 切前台（参数=forkedSessionId——修前：位缺席不被调）', async () => {
+    await writeFile(join(ws, 'a.txt'), 'v1', 'utf8');
+    await createCapture(store, { now: () => 1_000, newId: () => 'snap01' })({
+      sessionId: 's1',
+      boundarySeq: 3,
+      workspaceRoot: ws,
+      trigger: 'mutation',
+    });
+    await writeFile(join(ws, 'a.txt'), 'v2', 'utf8');
+    const adoptCalls: string[] = [];
+    // spread 形进 deps（excess-property 不触发——修前位缺席 vitest 可跑、tsc 干净）
+    const extra = { adoptSession: async (id: string) => void adoptCalls.push(id) };
+    const out = await runRewindCommand(['restore', 'snap01'], {
+      ...deps({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: ws }) }),
+      ...extra,
+    });
+    expect(out).toContain('恢复 1');
+    // 主锁：adopt 恰一次且参数=fork 回执 id（修前红：位不被读 → []）
+    expect(adoptCalls).toEqual(['new-session']);
+    // 回执仍完整（切焦不改回执面）
+    expect(out).toContain('保底快照');
+  });
+
+  it('restore：焦点会话在飞 = busy 守卫拒（零执行实证——修前：放行且文件被恢复）', async () => {
+    await writeFile(join(ws, 'a.txt'), 'v1', 'utf8');
+    await createCapture(store, { now: () => 1_000, newId: () => 'snap01' })({
+      sessionId: 's1',
+      boundarySeq: 3,
+      workspaceRoot: ws,
+      trigger: 'mutation',
+    });
+    await writeFile(join(ws, 'a.txt'), 'v2', 'utf8');
+    const adoptCalls: string[] = [];
+    const extra = { focusRunning: () => true, adoptSession: async (id: string) => void adoptCalls.push(id) };
+    const out = await runRewindCommand(['restore', 'snap01'], {
+      ...deps({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: ws }) }),
+      ...extra,
+    });
+    // 拒文本（05 §5.3 批3 翻案笔③——在飞 run 继续写会覆盖恢复产物）
+    expect(out).toContain('运行中');
+    expect(out).toContain('Ctrl+C');
+    // 零执行实证：三步序未跑（文件仍 v2 未被恢复回 v1）+ adopt 零调
+    expect(await readFile(join(ws, 'a.txt'), 'utf8')).toBe('v2');
+    expect(adoptCalls).toEqual([]);
+  });
+
+  it('restore：busy 守卫缺席位语义（focusRunning 未注入 = 无守卫放行——纯诊断形兼容）', async () => {
+    await writeFile(join(ws, 'a.txt'), 'v1', 'utf8');
+    await createCapture(store, { now: () => 1_000, newId: () => 'snap01' })({
+      sessionId: 's1',
+      boundarySeq: 3,
+      workspaceRoot: ws,
+      trigger: 'mutation',
+    });
+    await writeFile(join(ws, 'a.txt'), 'v2', 'utf8');
+    // focusRunning 缺席（旧调用方零破坏——serve/诊断形）
+    const out = await runRewindCommand(
+      ['restore', 'snap01'],
+      deps({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: ws }) }),
+    );
+    expect(out).toContain('恢复 1'); // 放行（守卫缺席不误拒）
+  });
 });

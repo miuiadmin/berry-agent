@@ -778,7 +778,7 @@
       "since": "1.0",
       "desc": "通道后端接口（通道核的呈现消费面）",
       "kind": "interface",
-      "sig": "ffcc0988408301b8"
+      "sig": "d4324d868a517350"
     },
     {
       "symbol": "UiCapabilities",
@@ -797,6 +797,33 @@
       "desc": "input 原语选项",
       "kind": "interface",
       "sig": "6a236cb87ddeac7b"
+    },
+    {
+      "symbol": "UiRewindActions",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "回退点选择器回调组（批3——两步确认的异步数据面，闭包真源在插件域）",
+      "kind": "interface",
+      "sig": "6bda8c03224dd6bc"
+    },
+    {
+      "symbol": "UiRewindEntry",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "回退点选择器条目（批3 `/rewind` 副屏载荷——插件域 manifestLine 成品行）",
+      "kind": "interface",
+      "sig": "331ecbedec6579dc"
+    },
+    {
+      "symbol": "UiRewindPreview",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "回退点预演对账（批3 两步确认段一——previewRewind 的面板呈现形）：三账计数由面板渲染「恢复 N · 删除 M · 不动 U」行；errorText 在场 = 预演失败/ 拒绝（面板只显该行、Enter 不进 restore——诚实拒零误执行）",
+      "kind": "interface",
+      "sig": "d265f9ee9a40f005"
     },
     {
       "symbol": "UiSelectChoice",

@@ -27,6 +27,7 @@ import * as fsp from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { GateInput, SessionEvent, ToolDefinition } from '../contracts/index.js';
+import type { UiRewindActions, UiRewindEntry, UiRewindPreview } from '../contracts/index.js';
 import { BaseError } from '../contracts/index.js';
 import { getEventTypeMeta } from '../contracts/index.js';
 import type { AgentService, ContextTransformInput, ExecToolService, PreStepInput } from '../conversation/index.js';
@@ -49,6 +50,8 @@ import {
   createCheckpointGate,
   openCheckpointStore,
   runRewindCommand,
+  manifestLine,
+  previewRewind,
   REWIND_USAGE,
 } from '../checkpoint/index.js';
 import type { RewindForkFace, SessionContextFace } from '../checkpoint/index.js';
@@ -497,6 +500,26 @@ interface CheckpointPluginHostDeps {
    * 缺席 = /rewind 诚实拒（无焦点会话上下文），gate 不受影响。
    */
   readonly focusSessionId?: () => string | undefined;
+  /**
+   * 回退点选择器开面板槽（2026-09-30 会话管理命令批批3——05 §5.3 翻案笔②
+   * 无参选择器形态）：late-bound mutable 槽（assembleHostStack 先于 TUI
+   * backend 构造——host stack 持槽、tui-entry 构造后回填；闭包读槽调用）。
+   * 缺席/槽空（serve/stdio 形）= 无参 usage 文本兜底（不虚报律）。
+   */
+  readonly openRewindPicker?: (entries: readonly UiRewindEntry[], actions: UiRewindActions) => boolean;
+  /**
+   * fork 成功后切前台柄（批3——05 §5.3 翻案笔① adopt 编舞：宿主侧
+   * registerSession + focus 权威路；ctx.channels 只露 registerCommand/
+   * registerUiBackend 不露 focus——切焦属宿主呈现域非插件能力面〔ΔA⇏ΔC〕，
+   * 必经 host deps 注入）。缺席 = restore 纯回执不切焦。
+   */
+  readonly adoptSession?: (sessionId: string) => Promise<void>;
+  /**
+   * 焦点会话在飞判据（批3——05 §5.3 翻案笔③ busy 守卫：driver running 真源
+   * 在 conversation，checkpoint 经 DAG 不可达，同上两律经 host deps 注入）。
+   * 缺席 = restore 无守卫放行（诊断形兼容）。
+   */
+  readonly focusRunning?: () => boolean;
 }
 
 /**
@@ -1817,13 +1840,71 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
             deps.notify?.('checkpoint', `当前无焦点会话——/rewind 需在会话上下文执行。\n${REWIND_USAGE}`);
             return;
           }
-          const text = await runRewindCommand(args.argv, {
+          // runRewindCommand 依赖（批3：busy 守卫 + adopt 切前台两位透传——
+          // 文本 restore 与面板 onRestore 共支同路，一致收益）
+          const rewindDeps = {
             store,
             session: sessionFace,
             fork: forkFace,
             sessionId,
             invokingSessionId: sessionId,
-          });
+            ...(deps.focusRunning !== undefined ? { focusRunning: deps.focusRunning } : {}),
+            ...(deps.adoptSession !== undefined ? { adoptSession: deps.adoptSession } : {}),
+          };
+          // 批3 无参分支（05 §5.3 翻案笔②无参选择器形态）：openRewindPicker
+          // 槽在场 = 开 RewindPicker 副屏（清单行 manifestLine 渲染单源——
+          // 插件域组装成品行；两步确认回调闭包真源留插件域——面板/后端零
+          // checkpoint 依赖）；槽缺席（serve/stdio 形）= 落 runRewindCommand
+          // 无参 usage 文本兜底（不虚报律）。带参各子动词维持既有文本形。
+          if (args.argv.length === 0 && deps.openRewindPicker !== undefined) {
+            const ctx = sessionFace.contextOf(sessionId);
+            if (ctx === undefined || ctx.workspaceRoot === '') {
+              deps.notify?.('checkpoint', '当前会话无工作区锚——无从列点（快照特性按工作区适用）。');
+              return;
+            }
+            // 清单快照档：开屏一次现取（ModelPicker 静态底单律同款——开屏后
+            // 新拍不进面板，重开面板重取）
+            const rows = (await store.listManifests()).filter((m) => m.workspaceRoot === ctx.workspaceRoot);
+            if (rows.length === 0) {
+              deps.notify?.('checkpoint', '本工作区暂无回退点（首个变异前拍在工作区内的写工具执行时落）。');
+              return;
+            }
+            const entries: readonly UiRewindEntry[] = rows.map((m) => ({
+              id: m.id,
+              line: manifestLine(m.id, m.capturedAt, m.trigger, m.files.length, m.boundarySeq),
+            }));
+            const actions: UiRewindActions = {
+              // 段一预演：previewRewind 零改动对账（清单已按工作区滤——归属
+              // 守卫天然过；守卫错折 errorText 面板诚实拒，不抛不炸通道）
+              onPreview: async (id): Promise<UiRewindPreview> => {
+                try {
+                  const result = await previewRewind(store, id);
+                  return {
+                    restoreCount: result.restoreCount,
+                    deleteCount: result.deleteCount,
+                    untouchedCount: result.untouchedCount,
+                  };
+                } catch (err) {
+                  const text = err instanceof BaseError ? `${err.code}：${err.message}` : `预演失败：${String(err)}`;
+                  return { restoreCount: 0, deleteCount: 0, untouchedCount: 0, errorText: text };
+                }
+              },
+              // 段二确认回退（面板已先收屏）：与文本 restore 共支同路——busy
+              // 守卫→restoreRewind→adopt 切焦→回执 notify（adopt resolve 后
+              // 才 return 文本 = notify 排 focus 落画后的调用序保证）
+              onRestore: async (id): Promise<void> => {
+                const text = await runRewindCommand(['restore', id], rewindDeps);
+                deps.notify?.('checkpoint', text);
+              },
+            };
+            const opened = deps.openRewindPicker(entries, actions);
+            if (!opened) {
+              // 副屏占用降级：usage 文本兜底（不虚报律同 /memory）
+              deps.notify?.('checkpoint', REWIND_USAGE);
+            }
+            return;
+          }
+          const text = await runRewindCommand(args.argv, rewindDeps);
           deps.notify?.('checkpoint', text);
         },
         REWIND_USAGE,

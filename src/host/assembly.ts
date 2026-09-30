@@ -24,6 +24,7 @@ import { parse as parseYaml } from 'yaml';
 
 import { BaseError, parseEventSource } from '../contracts/index.js';
 import type { SessionEvent } from '../contracts/index.js';
+import type { UiRewindActions, UiRewindEntry } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
 import type { Provider } from '../llm/index.js';
@@ -202,6 +203,14 @@ export interface AssemblySuccess {
    */
   readonly reloader: PluginReloader;
   /**
+   * /rewind 无参选择器开面板槽回填柄（批3——2026-09-30 会话管理命令批）：
+   * tui-entry 构造 TUI backend 后置 current（backend.openRewindPicker 绑定
+   * 形）；不回填 = 槽恒空（serve/诊断形——件内 handler 无参落 usage 兜底）。
+   */
+  readonly rewindOpener: {
+    current: ((entries: readonly UiRewindEntry[], actions: UiRewindActions) => boolean) | undefined;
+  };
+  /**
    * 凭证人面写 seam（ob-3 /setup 向导 saveBinding 消费位）：store + 审计
    * 回调与 core:credentials 装配位（credentialsStore/credentialsOnChanged）
    * 同一定义（单源——credentials/changed 审计两写路径平权，03 §10.9 写入
@@ -233,6 +242,13 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
   // sandboxModeProvider 每请求重算现取槽内值，undefined = 行省略（boot 前请
   // 求形）。坏词 fold 抛在源内 warn 降级返 undefined——披露位不炸请求。
   let sandboxDisclosureSource: ((sessionId?: string) => string | undefined) | undefined;
+  // /rewind 无参选择器开面板槽（批3——2026-09-30 会话管理命令批：late-bound
+  // mutable）。TUI backend 在本函数返回后才构造（tui-entry），件装载期经
+  // coreDeps 闭包读槽恒得 undefined；tui-entry 构造 backend 后回填 current。
+  // serve/诊断形不回填 = 槽恒空 → handler 无参落 usage 兜底（件内已内置降级）
+  const rewindOpener: {
+    current: ((entries: readonly UiRewindEntry[], actions: UiRewindActions) => boolean) | undefined;
+  } = { current: undefined };
   let runtime: HostRuntime | undefined;
   // logger 晚绑定槽（装配阶段回调隔离 warn 的落点）：const logger 在 'runtime'
   // 阶段之后才创建——闭包直引在初始化前调用 = TDZ ReferenceError，故经本槽
@@ -1031,6 +1047,23 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
                 fork: (sourceSessionId, options) => stack.manager.fork(sourceSessionId, options),
               } satisfies RewindForkFace,
               focusSessionId: () => stack.channels.focusedId ?? undefined,
+              // ——批3 三位（2026-09-30 会话管理命令批——05 §5.3 翻案笔①③）——
+              // openRewindPicker 经上方 late-bound 槽间接（backend 晚于装载
+              // 构造——回填前调即 false，件内落 usage 兜底）；adopt 切前台 =
+              // /new 编舞同款权威路（registerSession + focus；ctx.channels 只露
+              // registerCommand/registerUiBackend 不露 focus——切焦属宿主呈现
+              // 域，ΔA⇏ΔC 故经 deps 注入）；focusRunning = busy 守卫判据
+              //（driver running 真源在 conversation，经 DAG 从 checkpoint 域
+              // 不可达——deps 注入位）
+              openRewindPicker: (entries, actions) => rewindOpener.current?.(entries, actions) ?? false,
+              adoptSession: async (sessionId) => {
+                stack.channels.registerSession(sessionId);
+                await stack.channels.focus(sessionId);
+              },
+              focusRunning: () => {
+                const id = stack.channels.focusedId;
+                return id === null ? false : (stack.driverOf(id)?.running ?? false);
+              },
               // 宿主版本（批 19d——mcp 件 initialize 握手 clientInfo.version
               // 披露「对齐 package.json」单源位：装配选项 version 同源）
               version: options.version,
@@ -1544,6 +1577,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       boot,
       pluginCounts,
       reloader,
+      rewindOpener,
       credentialsWrite,
     };
   } catch (err) {
