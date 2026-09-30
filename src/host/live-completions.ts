@@ -3,7 +3,7 @@
  *
  * 静态参数源（commandArgumentItems）只覆盖编译期可知的枚举位（子动词首参
  * / 预设名 / 能力名）；插件 id、回退点 id 等**活体值**（装载面现态、库中
- * manifest 清单）不在静态面。本件提供两活体位的参数补全条目铸造：
+ * manifest 清单）不在静态面。本件提供三活体位的参数补全条目铸造：
  * - `/plugins mount|unmount|toggle|config <id>` 尾参位——已受理集 =
  *   activated ∪ skipped（failed 不入可操作面——四动词的操作对象是已受理
  *   插件）；每查询现取（换代表即新投影——不缓存）。
@@ -11,6 +11,9 @@
  *   协议 Promise 腿：库读天然异步）；label 呈现 8 位截形短 id（与 /rewind
  *   list 行渲染同判据——列表对齐），replacement 携全 id 尾空格（loadManifest
  *   吃全 id）。
+ * - `/export|/resume <id>` 首参位（2026-10-01 自 tui-entry 装配闭包迁入——
+ *   两命令同源合流）：会话清单 = manager 全量行（/sessions 清单同一读面）；
+ *   label 8 位截形 + replacement 全 id 尾空格 + detail 展示题合并单源。
  *
  * 返回协议（与补全源 union 契约对齐）：命中活体位 → 同步数组（plugins 位）
  * 或 Promise（rewind 位）；**位外 / 依赖缺席 → null**（诚实缺席——装配位
@@ -18,6 +21,7 @@
  * 与 FileMentionSource per-query 新铸同族）。
  */
 import { fuzzyFilter, type AutocompleteItem } from '../channels/index.js';
+import { sessionDisplayTitleOf } from '../persist/index.js';
 
 /**
  * 活体值补全依赖（装配位注入——两取值器均可缺席，缺席 = 对应活体位 null
@@ -40,6 +44,14 @@ export interface LiveCompletionDeps {
    * 返回 manifest 清单（CheckpointManifest 子集形——id 位即补全判据面）。
    */
   readonly rewindManifests?: () => Promise<readonly { readonly id: string }[]>;
+  /** 会话清单取值器（每查询现取——manager 全量行；缺席 = 会话 id 位诚实缺席）。
+   *  结构子集形：id 补全判据面 + 展示题读路两键（sessionDisplayTitleOf 结构
+   *  可选形天然兼容）。 */
+  readonly sessionRows?: () => readonly {
+    readonly id: string;
+    readonly title?: string | undefined;
+    readonly firstQuestionSummary?: string | undefined;
+  }[];
 }
 
 /** /plugins 尾参位动词集（四动词同一位——list/help 等无尾参动词不入） */
@@ -88,6 +100,24 @@ export function liveCommandArgumentItems(
         replacement: `${id} `, // 全 id 尾空格（loadManifest 吃全 id——label 才是截形）
       })),
     );
+  }
+  // 位判三：/export 与 /resume 首参会话 id 位（2026-10-01 自 tui-entry 装配闭包
+  // 迁入——两命令同源合流同一位；与 plugins/rewind 两活体位同族）。rows =
+  // manager 全量行（/sessions 清单注入同一读面——库行真源；零事件新会话无行
+  // 不补——与 /sessions 清单同边界）。label 短形（8 位截形与回退点 id 同判据）
+  // + replacement 全 id 尾空格；detail = 展示题读路合并单源（05 §9 v13 分家③
+  // ——显式题优先/首问快照兜底；合并值空串/缺席不造行）
+  if ((command === 'export' || command === 'resume') && priorArgs.length === 0) {
+    const fetchRows = deps.sessionRows;
+    if (fetchRows === undefined) return null; // 清单源缺席 = 诚实缺席（归静态面）
+    return fuzzyFilter(fetchRows(), (row) => row.id, query).map((row) => {
+      const displayTitle = sessionDisplayTitleOf(row);
+      return {
+        label: shortCheckpointId(row.id),
+        ...(displayTitle !== undefined && displayTitle !== '' ? { detail: displayTitle } : {}),
+        replacement: `${row.id} `,
+      };
+    });
   }
   return null; // 位外 = null 回退静态面（子动词首参 / list 尾参 / 深位 / 非两命令）
 }

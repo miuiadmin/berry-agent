@@ -48,7 +48,6 @@ import {
   THINKING_LEVELS,
 } from '../conversation/index.js';
 import { sanitizeEntryForReadout, shortIdOf, type MemoryDao } from '../memory/index.js';
-import { sessionDisplayTitleOf } from '../persist/index.js';
 import { formatSkillInvocation, type SkillsRegistry } from '../skills/index.js';
 import type { Provider } from '../llm/index.js';
 import { SANDBOX_MODES, type SandboxMode } from '../safety/index.js';
@@ -482,6 +481,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // /plugins 尾参位活体源（activated ∪ skipped——failed 不入可操作面；
       // 结构子集形直赋——取值器每查询现取，与 rewind 位同族）
       ...(pluginLoadReport !== undefined ? { pluginReport: () => pluginLoadReport.report() } : {}),
+      // /export|/resume 首参会话 id 位活体源（manager 全量行——/sessions 清单
+      // 同一读面；2026-10-01 位逻辑迁 live-completions 第三活体位，本位只注数）
+      sessionRows: () => stack.manager.list({}),
     };
     // —— TUI 主题档装配（批 10g——07 §4.1 R2 主题载体条 / 04 §9 ⑥ 注记）：
     // settings.json `theme` 键（dark/light/auto）经 TuiBackendOptions.theme
@@ -1309,29 +1311,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // ——plugins id / rewind id 两尾参位），null = 位外/依赖缺席归静态面
         // （四命令子动词首参 + 深位枚举——原行为零扰动）
         commandArguments: (command, query, priorArgs) => {
-          // —— /export 首参位活体值（07 §4.1 命令面增补批 C2 逐件语义 7——
-          // id 尾参补全挂接活体值源，挂账解挂批 R6 活体值条款同法）：会话 id
-          // 清单 = manager 全量行（/sessions 清单注入同一读面——库行真源；
-          // 零事件新会话无行不补——与 /sessions 清单同边界）。位裁留在本装配
-          // 闭包不进 live-completions 件（件域两活体位 plugins/rewind 之外的
-          // 本批注记位——消费面与 R6 两活体位同一 commandArguments 合流）。
-          // label 短形 + replacement 全 id 尾空格（/rewind 位同律——label 才
-          // 是截形，replacement 吃全 id）。
-          // 〔2026-09-30 会话管理命令批批2 /resume 首参扩词——与 /export 同源
-          // 合流（同 id 补全面，条件并集不复制清单逻辑）〕
-          if ((command === 'export' || command === 'resume') && priorArgs.length === 0) {
-            const sessionRows = stack.manager.list({});
-            return fuzzyFilter(sessionRows, (row) => row.id, query).map((row) => {
-              // detail = 展示题读路合并单源（05 §9 v13 分家③——显式题优先/
-              // 首问快照兜底；合并值空串/缺席不造行）
-              const displayTitle = sessionDisplayTitleOf(row);
-              return {
-                label: row.id.length > 8 ? `${row.id.slice(0, 8)}…` : row.id,
-                ...(displayTitle !== undefined && displayTitle !== '' ? { detail: displayTitle } : {}),
-                replacement: `${row.id} `,
-              };
-            });
-          }
+          // 活体值源三位合流（plugins id / rewind id / 会话 id——07 §4.1 R6 +
+          // 命令面增补批 C2 + 2026-09-30 会话管理命令批批2 /resume 扩词）：位裁
+          // 与条目铸造全在 live-completions 件，null = 位外/依赖缺席归静态面
+          // （四命令子动词首参 + 深位枚举——原行为零扰动）
           const live = liveCommandArgumentItems(command, query, priorArgs, liveCompletionDeps);
           if (live !== null) return live;
           return commandArgumentItems(command, query, priorArgs);

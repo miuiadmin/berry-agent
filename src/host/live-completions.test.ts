@@ -108,3 +108,55 @@ describe('liveCommandArgumentItems 回退点 id 位（/rewind preview|restore <i
     expect(outcome).toEqual([]);
   });
 });
+
+describe('liveCommandArgumentItems 会话 id 位（/export|/resume 首参——2026-10-01 自 tui-entry 装配闭包迁入）', () => {
+  /** 会话清单取值器速记（manager 全量行结构子集形——id + 展示题两键） */
+  function sessionDeps(
+    rows: readonly { id: string; title?: string; firstQuestionSummary?: string }[],
+  ): LiveCompletionDeps {
+    return { sessionRows: () => rows };
+  }
+
+  const rows = [
+    { id: 'sess-aaaaaaaaaa1', title: '显式题', firstQuestionSummary: '首问快照' },
+    { id: 'short1', firstQuestionSummary: '快照兜底题' },
+    { id: 'sess-aaaaaaaaaa3' }, // 两键全缺席——detail 不造行
+  ];
+
+  it('export 与 resume 同源同位：全 id replacement 尾空格 + 8 位截形 label + detail 合并单源', () => {
+    for (const command of ['export', 'resume']) {
+      const items = liveCommandArgumentItems(command, '', [], sessionDeps(rows)) as unknown as {
+        label: string;
+        detail?: string;
+        replacement: string;
+      }[];
+      // 全 id 尾空格（导出/续接消费面吃全 id——label 才是截形）
+      expect(items.map((x) => x.replacement)).toEqual(['sess-aaaaaaaaaa1 ', 'short1 ', 'sess-aaaaaaaaaa3 ']);
+      // 8 位截形（与回退点 id 同判据）；短 id 原样
+      expect(items.map((x) => x.label)).toEqual(['sess-aaa…', 'short1', 'sess-aaa…']);
+      // detail = 展示题读路合并单源（05 §9 v13 分家③——显式题优先/快照兜底/缺席不造键）
+      expect(items[0]!.detail).toBe('显式题');
+      expect(items[1]!.detail).toBe('快照兜底题');
+      expect('detail' in items[2]!).toBe(false);
+    }
+  });
+
+  it('fuzzy 过滤 + 活体现取（清单换代即新投影——不缓存）', () => {
+    let current = rows;
+    const deps = { sessionRows: () => current };
+    const filtered = liveCommandArgumentItems('export', 'short', [], deps) as unknown as {
+      replacement: string;
+    }[];
+    expect(filtered.map((x) => x.replacement)).toEqual(['short1 ']); // 子序列过滤
+    current = [{ id: 'new-only', title: '换代' }];
+    const after = liveCommandArgumentItems('resume', '', [], deps) as unknown as { replacement: string }[];
+    expect(after.map((x) => x.replacement)).toEqual(['new-only ']); // 每查询现取
+  });
+
+  it('位外与缺席：深位/非两命令 null 归静态面；清单源缺席诚实缺席；空清单诚实空', () => {
+    expect(liveCommandArgumentItems('export', 'x', ['leftover-arg'], sessionDeps(rows))).toBeNull(); // 深位（首参已定）不补
+    expect(liveCommandArgumentItems('sessions', '', [], sessionDeps(rows))).toBeNull(); // 非两命令（/sessions 无尾参补全）
+    expect(liveCommandArgumentItems('export', '', [], {})).toBeNull(); // 清单源缺席 = 诚实缺席
+    expect(liveCommandArgumentItems('resume', '', [], sessionDeps([]))).toEqual([]); // 空清单诚实空
+  });
+});
