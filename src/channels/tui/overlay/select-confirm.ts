@@ -16,6 +16,7 @@ import type { CellBuffer, InputEvent, Region, Renderable } from '../../engine/in
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { CellStyle } from '../../engine/index.js';
 import { ellipsize } from '../../engine/index.js';
+import { hintLine } from '../keys/hint.js';
 import { fitRowSegments } from '../row-segments.js';
 
 /** 保守取消值（select——空串与撤销面同语义） */
@@ -278,7 +279,8 @@ export class ConfirmPanel implements Renderable {
       buffer.writeText(
         region.row + 1,
         region.col,
-        ellipsize(`${this.confirmHint} · ${this.cancelHint}`, region.width),
+        // 键位提示行拼装走 hintLine 单源（07 §4.4 律三——串接符「 · 」不自写）
+        ellipsize(hintLine(this.confirmHint, this.cancelHint), region.width),
         HINT_STYLE,
       );
     }

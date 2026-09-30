@@ -35,6 +35,7 @@ import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
 import type { Keymap } from '../keys/registry.js';
+import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { LiveTranscript, renderBlockStyledLines, shortIdOf } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
@@ -84,8 +85,8 @@ interface SelPoint {
 const MATCH_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 /** 提示行样式（dim——存在感弱于正文） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 常态底行键面提示 */
-const HINT_TEXT = 'q/esc 返回 · ctrl+shift+f 搜索 · ↑↓/pgup/pgdn/home/end 滚动 · 拖选复制';
+/** 常态底行键面提示（拼装走 hintLine 单源——07 §4.4 律三全局统一形） */
+const HINT_TEXT = hintLine('q/esc 返回', 'ctrl+shift+f 搜索', '↑↓/pgup/pgdn/home/end 滚动', '拖选复制');
 /** 选区帽（64 KiB——07 件 8 细则码面缺省参数；计量面 = 选中明文 UTF-8 字节数，与 xterm 100,000 解码后上限同基准）。挂账解挂批①起 /memory 管理面同值单源引用（export——零重抄条款） */
 export const SELECTION_CAP_BYTES = 64 * 1024;
 /** 超帽底行提示（spec 定文——常显至选区清除；/memory 管理面同文单源引用） */

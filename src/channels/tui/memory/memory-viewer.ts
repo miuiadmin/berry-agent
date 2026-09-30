@@ -56,6 +56,7 @@ import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
 import type { Keymap } from '../keys/registry.js';
+import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
 import { shortIdOf } from '../backend/transcript.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
@@ -177,17 +178,13 @@ const DIM_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 光标行反色样式（整行最强存在感——SelectPanel 高亮行同载体） */
 const CURSOR_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 
-/** 常态底行键面提示（按光标行分区动态铸造——零条目可见时行动词消隐） */
+/** 常态底行键面提示（按光标行分区动态拼段——零条目可见时行动词消隐；
+ * 拼装走 hintLine 单源〔07 §4.4 律三——键位提示行全局统一形〕，
+ * 空段容忍承接按态消隐：行动词缺席传空串即无痕落位） */
 function hintText(section: Section | null): string {
   const verbs =
-    section === null
-      ? ''
-      : section === 'active'
-        ? 'f 冻结 · d 忘掉 · '
-        : section === 'frozen'
-          ? 'f 解冻 · '
-          : 'r 恢复 · ';
-  return `${verbs}e 导出 · tab 筛选 · q/esc 返回`;
+    section === null ? '' : section === 'active' ? 'f 冻结 · d 忘掉' : section === 'frozen' ? 'f 解冻' : 'r 恢复';
+  return hintLine(verbs, 'e 导出', 'tab 筛选', 'q/esc 返回');
 }
 
 /** owner 键短显（头行——project 键 16 hex 截前 8 位，引用短 id 同款 8 位惯例） */
@@ -331,7 +328,8 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       this.selectionNotice !== null
         ? this.selectionNotice
         : this.confirmTarget !== null
-          ? `忘掉 [m:${shortIdOf(this.confirmTarget.id)}]？enter/y 确认 · esc/n 取消`
+          ? // 确认态问句 + 键位段（键位拼装走 hintLine 单源——与常态行同律）
+            `忘掉 [m:${shortIdOf(this.confirmTarget.id)}]？${hintLine('enter/y 确认', 'esc/n 取消')}`
           : (this.notice ?? hintText(this.cursorEntry()?.section ?? null));
     buffer.writeText(region.row + region.height - 1, region.col, bottom, DIM_STYLE);
   }
