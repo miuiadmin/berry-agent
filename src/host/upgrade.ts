@@ -243,7 +243,13 @@ export async function fetchDistTags(
   deps: { readonly fetchImpl?: FetchLike; readonly resolveDns?: DnsResolver } = {},
 ): Promise<DistTagsResult> {
   const fetchImpl = createSsrfGuardedFetch(deps.fetchImpl ?? pinnedFetch, deps.resolveDns);
-  const url = `${registryRoot}/${PACKAGE_NAME}/dist-tags`;
+  // 端点形 = 现役标准形 /-/package/{escapedName}/dist-tags（npm CLI
+  // dist-tag.js 构造形；npmjs/npmmirror/Verdaccio 三家兼容——UX 对标批
+  // 2026-09-30 修：旧 CouchDB 形 /{pkg}/dist-tags 已死，npmjs 应答 404
+  // 「version not found: dist-tags」（dist-tags 被当版本段解析）——修前
+  // 404 根因即此。escapedName = 包名 `/`→`%2f` 转义（scoped 规则；本包
+  // unscoped 无差异，encodeURIComponent 一形覆盖两态）
+  const url = `${registryRoot}/-/package/${encodeURIComponent(PACKAGE_NAME)}/dist-tags`;
   try {
     const response = await fetchImpl(url, {
       method: 'GET',

@@ -173,7 +173,10 @@ describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
     const fetch = fakeFetch(() => ({ status: 200, body: tagsBody('0.1.0-alpha.5') }));
     const result = await fetchDistTags('https://registry.example.com', { fetchImpl: fetch, resolveDns: publicDns });
     expect(result).toEqual({ kind: 'ok', latest: '0.1.0-alpha.5' });
-    expect(fetch.calls).toEqual(['https://registry.example.com/berry-agent/dist-tags']);
+    // 端点形 = 现役标准形 /-/package/{name}/dist-tags（npm CLI dist-tag.js
+    // 构造形；旧 CouchDB 形 /{pkg}/dist-tags npmjs 实测 404——UX 对标批修前
+    // 红锚：断言新形，修前实现拼旧形必红）
+    expect(fetch.calls).toEqual(['https://registry.example.com/-/package/berry-agent/dist-tags']);
   });
 
   it('404 单列（未发布态判据位）', async () => {
