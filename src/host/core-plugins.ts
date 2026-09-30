@@ -1789,9 +1789,9 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
  * 对话本体仍通）。gate 单实例跨会话共享游标（per-session Map——「同一
  * dispatch 生命周期内复用一个实例」）。
  *
- * adopt 切前台编舞 v1 未落（restore 回执的新会话 id 先经命令输出面呈报
- * ——焦点切换是 channels/host 的事随 TUI adopt 命令立题，本件零越界；
- * 05 §5.3 命令面条款。原注指向已飞的 run 入口批，2026-09-11 勘正）。
+ * adopt 切前台已落（2026-09-30 会话管理命令批批3——deps.adoptSession 注入：
+ * registerSession+focus，resolve 后才 return 回执 = notify 排 focus 落画后；
+ * 切焦失败折降级行进回执保 fork id 与 /resume 手动续接路）。
  */
 function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
   return {
@@ -1891,10 +1891,17 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
               },
               // 段二确认回退（面板已先收屏）：与文本 restore 共支同路——busy
               // 守卫→restoreRewind→adopt 切焦→回执 notify（adopt resolve 后
-              // 才 return 文本 = notify 排 focus 落画后的调用序保证）
+              // 才 return 文本 = notify 排 focus 落画后的调用序保证）。
+              // 双保险：runRewindCommand 已折 BaseError，但非 BaseError 逃逸
+              // 会穿到面板 void 弃接位成 unhandledRejection 杀进程——与
+              // onPreview 同形就地折 notify（命令面是用户面不是异常面）
               onRestore: async (id): Promise<void> => {
-                const text = await runRewindCommand(['restore', id], rewindDeps);
-                deps.notify?.('checkpoint', text);
+                try {
+                  const text = await runRewindCommand(['restore', id], rewindDeps);
+                  deps.notify?.('checkpoint', text);
+                } catch (err) {
+                  deps.notify?.('checkpoint', `回退失败：${String(err)}`);
+                }
               },
             };
             const opened = deps.openRewindPicker(entries, actions);

@@ -133,19 +133,32 @@ export async function runRewindCommand(argv: readonly string[], deps: RewindComm
         const receipt = await restoreRewind(deps, id);
         // adopt 切前台（批3——05 §5.3 翻案笔①：fork 成功即 registerSession+
         // focus；resolve 后才 return 回执 = notify 排 focus 落画后的调用序
-        // 保证；缺席 = 纯回执不切焦）
+        // 保证；缺席 = 纯回执不切焦）。切焦失败不回滚已成的 restore（文件已
+        // 恢复 + fork 已建——破坏性步骤居前不可逆），折降级行进回执保 fork
+        // id 与手动续接路（/resume <id>）——回执通道是用户面不是异常面
+        let adoptFailed: string | undefined;
         if (receipt.forkedSessionId !== undefined && deps.adoptSession !== undefined) {
-          await deps.adoptSession(receipt.forkedSessionId);
+          try {
+            await deps.adoptSession(receipt.forkedSessionId);
+          } catch (err) {
+            adoptFailed = String(err);
+          }
         }
         const forkLine =
           receipt.forkedSessionId !== undefined
             ? `已 fork 新会话 ${receipt.forkedSessionId}（旧史保留，自回退点净边界起跑）。`
             : `fork 未成：${receipt.vetoReason}（文件已恢复——痕迹链完整，可重试或手动接续）`;
-        return [
+        const lines = [
           `已回退至 ${receipt.id.slice(0, 8)}…：恢复 ${receipt.restoredCount} · 删除 ${receipt.deletedCount} · 不动 ${receipt.untouchedCount}`,
           `保底快照 ${receipt.preRewindId.slice(0, 8)}…（本次回退自身可回退）。`,
           forkLine,
-        ].join('\n');
+        ];
+        if (adoptFailed !== undefined && receipt.forkedSessionId !== undefined) {
+          lines.push(
+            `切焦失败：${adoptFailed}（文件已恢复，fork 会话 ${receipt.forkedSessionId} 已建——可用 /resume ${receipt.forkedSessionId} 手动续接）。`,
+          );
+        }
+        return lines.join('\n');
       }
       case undefined:
       case 'help':

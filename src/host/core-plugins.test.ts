@@ -2338,6 +2338,144 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     expect(preview.restoreCount + preview.deleteCount + preview.untouchedCount).toBeGreaterThan(0);
   });
 
+  it('checkpoint /rewind 无参（批3）：onRestore 非 BaseError 逃逸折 notify 回执不弃接（修前：面板 void 位成 unhandledRejection）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-rwfail-'));
+    dirs.push(dataDir);
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-rwfail-ws-'));
+    dirs.push(workspace);
+    writeFileSync(join(workspace, 'a.txt'), 'v1');
+    const checkpointSession: SessionContextFace = {
+      contextOf: (sid) => (sid === 's-rwf' ? { lastClosedBoundary: 3, workspaceRoot: workspace } : undefined),
+    };
+    const checkpointFork: RewindForkFace = {
+      fork: async () => ({ status: 'forked', sessionId: 'fork-rwf' }),
+    };
+    const opens: Array<{ entries: readonly { id: string; line: string }[]; actions: unknown }> = [];
+    const extra = {
+      openRewindPicker: (entries: readonly { id: string; line: string }[], actions: unknown): boolean => {
+        opens.push({ entries, actions });
+        return true;
+      },
+      // busy 判据闭包同步抛非 BaseError → 穿 runRewindCommand 的 BaseError 折叠
+      // （catch 只折 BaseError 其余 rethrow）——onRestore 若无兜底即弃接逃逸
+      focusRunning: (): boolean => {
+        throw new Error('焦点态读取炸了');
+      },
+    };
+    const notified: string[] = [];
+    const { dispatch, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        checkpointSession,
+        checkpointFork,
+        focusSessionId: () => 's-rwf',
+        notify: (source, message) => {
+          if (source === 'checkpoint') notified.push(message);
+        },
+        ...extra,
+      },
+    );
+    await dispatch.waterfall<GateInput>('tools_pre_execute', {
+      tool: { name: 'probe', effect: 'write' } as GateInput['tool'],
+      args: {},
+      toolCallId: 'c-rwf',
+      mutated: false,
+      sessionId: 's-rwf',
+    });
+    const rewindCmd = commandSpecs.find((spec) => spec.name === 'rewind');
+    if (rewindCmd === undefined) throw new Error('/rewind 命令不在捕获面');
+    await rewindCmd.handler({ raw: '', argv: [] }); // 无参形开面板
+    const actions = opens[0]!.actions as { onRestore: (id: string) => Promise<void> };
+    // 修前红位：rethrow → rejects（面板 void 弃接位 = unhandledRejection 杀进程）
+    await expect(actions.onRestore(opens[0]!.entries[0]!.id)).resolves.toBeUndefined();
+    expect(notified.some((m) => m.includes('回退失败'))).toBe(true); // 兜底回执走 notify（用户面）
+  });
+
+  it('checkpoint /rewind 无参（批3）：无锚/空清单两降级路 notify（不开屏不虚报）', async () => {
+    const run = async (sessionFace: SessionContextFace) => {
+      const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-rwdeg-'));
+      dirs.push(dataDir);
+      let opened = 0;
+      const extra = {
+        openRewindPicker: (): boolean => {
+          opened++;
+          return true;
+        },
+      };
+      const notified: string[] = [];
+      const { commandSpecs } = await bootCore(
+        dataDir,
+        memoryFs(),
+        {},
+        {
+          checkpointSession: sessionFace,
+          checkpointFork: { fork: async () => ({ status: 'forked', sessionId: 'f-deg' }) },
+          focusSessionId: () => 's-deg',
+          notify: (source, message) => {
+            if (source === 'checkpoint') notified.push(message);
+          },
+          ...extra,
+        },
+      );
+      const rewindCmd = commandSpecs.find((spec) => spec.name === 'rewind');
+      if (rewindCmd === undefined) throw new Error('/rewind 命令不在捕获面');
+      await rewindCmd.handler({ raw: '', argv: [] }); // 无参形
+      return { opened, notified };
+    };
+    // 路①：会话无 context（无锚）——「无从列点」notify + 零开屏
+    const noAnchor = await run({ contextOf: () => undefined });
+    expect(noAnchor.notified.some((m) => m.includes('无工作区锚'))).toBe(true);
+    expect(noAnchor.opened).toBe(0);
+    // 路②：有锚但零 manifest——「暂无回退点」notify + 零开屏
+    const empty = await run({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: '/tmp/ws-deg-empty' }) });
+    expect(empty.notified.some((m) => m.includes('暂无回退点'))).toBe(true);
+    expect(empty.opened).toBe(0);
+  });
+
+  it('checkpoint /rewind 无参（批3）：副屏占用（open 返 false）= usage 文本兜底（不虚报）', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-rwbusy-'));
+    dirs.push(dataDir);
+    const workspace = mkdtempSync(join(tmpdir(), 'berry-coreplug-rwbusy-ws-'));
+    dirs.push(workspace);
+    writeFileSync(join(workspace, 'a.txt'), 'v1');
+    const checkpointSession: SessionContextFace = {
+      contextOf: (sid) => (sid === 's-rwb' ? { lastClosedBoundary: 3, workspaceRoot: workspace } : undefined),
+    };
+    const checkpointFork: RewindForkFace = {
+      fork: async () => ({ status: 'forked', sessionId: 'fork-rwb' }),
+    };
+    // 副屏占用形：open 槽返 false（alt-screen 被其他面板占住）
+    const extra = { openRewindPicker: (): boolean => false };
+    const notified: string[] = [];
+    const { dispatch, commandSpecs } = await bootCore(
+      dataDir,
+      memoryFs(),
+      {},
+      {
+        checkpointSession,
+        checkpointFork,
+        focusSessionId: () => 's-rwb',
+        notify: (source, message) => {
+          if (source === 'checkpoint') notified.push(message);
+        },
+        ...extra,
+      },
+    );
+    await dispatch.waterfall<GateInput>('tools_pre_execute', {
+      tool: { name: 'probe', effect: 'write' } as GateInput['tool'],
+      args: {},
+      toolCallId: 'c-rwb',
+      mutated: false,
+      sessionId: 's-rwb',
+    });
+    const rewindCmd = commandSpecs.find((spec) => spec.name === 'rewind');
+    if (rewindCmd === undefined) throw new Error('/rewind 命令不在捕获面');
+    await rewindCmd.handler({ raw: '', argv: [] }); // 无参形——清单在场但副屏占用
+    expect(notified.some((m) => m.includes('用法：/rewind'))).toBe(true); // usage 兜底（不虚报已开）
+  });
+
   it('checkpoint 主闸三位：dataDir null 或任一 seam 缺席 = 件零装载（/rewind 不注册 + gate 零捕获）', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'berry-coreplug-cpoff-'));
     dirs.push(dataDir);

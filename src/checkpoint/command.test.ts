@@ -225,6 +225,32 @@ describe('runRewindCommand', () => {
     expect(out).toContain('保底快照');
   });
 
+  it('restore：adopt 切焦失败折降级行进回执（文件已恢复+fork 已建不可逆——回执保 fork id 与手动续接路）', async () => {
+    await writeFile(join(ws, 'a.txt'), 'v1', 'utf8');
+    await createCapture(store, { now: () => 1_000, newId: () => 'snap01' })({
+      sessionId: 's1',
+      boundarySeq: 3,
+      workspaceRoot: ws,
+      trigger: 'mutation',
+    });
+    await writeFile(join(ws, 'a.txt'), 'v2', 'utf8');
+    const extra = {
+      adoptSession: async (_id: string) => {
+        throw new Error('focus 投影炸了');
+      },
+    };
+    // 修前红位：非 BaseError 直 rethrow → 本调用 rejects（回执通道整丢）
+    const out = await runRewindCommand(['restore', 'snap01'], {
+      ...deps({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: ws }) }),
+      ...extra,
+    });
+    expect(out).toContain('恢复 1'); // restore 本体已成的行进回执
+    expect(out).toContain('已 fork 新会话 new-session'); // fork 行仍在（id 不丢）
+    expect(out).toContain('切焦失败'); // 降级行
+    expect(out).toContain('/resume new-session'); // 手动续接路
+    expect(await readFile(join(ws, 'a.txt'), 'utf8')).toBe('v1'); // 文件已恢复实证（不回滚）
+  });
+
   it('restore：焦点会话在飞 = busy 守卫拒（零执行实证——修前：放行且文件被恢复）', async () => {
     await writeFile(join(ws, 'a.txt'), 'v1', 'utf8');
     await createCapture(store, { now: () => 1_000, newId: () => 'snap01' })({
@@ -263,5 +289,23 @@ describe('runRewindCommand', () => {
       deps({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: ws }) }),
     );
     expect(out).toContain('恢复 1'); // 放行（守卫缺席不误拒）
+  });
+
+  it('restore：busy 守卫在场但不在飞（() => false = 放行——判据恰为 true 才拒）', async () => {
+    await writeFile(join(ws, 'a.txt'), 'v1', 'utf8');
+    await createCapture(store, { now: () => 1_000, newId: () => 'snap01' })({
+      sessionId: 's1',
+      boundarySeq: 3,
+      workspaceRoot: ws,
+      trigger: 'mutation',
+    });
+    await writeFile(join(ws, 'a.txt'), 'v2', 'utf8');
+    const extra = { focusRunning: () => false, adoptSession: async (_id: string) => undefined };
+    const out = await runRewindCommand(['restore', 'snap01'], {
+      ...deps({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: ws }) }),
+      ...extra,
+    });
+    expect(out).toContain('恢复 1'); // 放行（不在飞不误拒——守卫判据恒等 true）
+    expect(await readFile(join(ws, 'a.txt'), 'utf8')).toBe('v1'); // 三步序真跑实证
   });
 });
