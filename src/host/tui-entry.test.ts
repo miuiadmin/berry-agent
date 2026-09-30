@@ -301,7 +301,7 @@ describe('runTuiEntry --port 开面失败分档', () => {
     try {
       await expect(entry).resolves.toBe(1); // 干净退 1（非崩溃档退码同值——分档看下两断言）
       const stderrText = stderrChunks.join('');
-      expect(stderrText).toContain('--port 开面失败'); // 呈报锚词（run-entry :440 同文分档）
+      expect(stderrText).toContain('--port 开启失败'); // 呈报锚词（run-entry :440 同文分档）
       expect(stderrText).not.toContain('TUI 运行失败'); // 不落外层通用崩溃档文案
       expect(existsSync(join(dataDir, 'crash.log'))).toBe(false); // 预期内环境态零崩溃取证
     } finally {
@@ -545,15 +545,16 @@ describe('runTuiEntry 装配序', () => {
     expect(await entry).toBe(0);
   });
 
-  it('/guide 副屏模型配置段（P0 静默链修复批 + C-4 v2 文案——/setup 主路 + env 手编路双指路）', async () => {
+  it('/guide 副屏模型配置段（P0 静默链修复批 + C-4 v2 文案——/setup 主路 + /model 选择器主路；env 手编路下沉 docs）', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-guide-data-'), rigDir('entry-guide-ws-'));
     await until(() => io.output.includes(' · m1 · '));
     io.send('/guide\r');
-    // 模型配置段在场：段标题 + /setup 向导主路 + env 供血与换模型键手编路
+    // 模型配置段在场：段标题 + /setup 向导主路 + /model 选择器主路（env 供血
+    // 与换模型键手编路下沉 docs/usage.md「模型配置」——UX 话术批 §五 23 条）
     await until(() => io.output.includes('── 模型配置 ──'));
     expect(io.output).toContain('/setup 向导');
-    expect(io.output).toContain('ANTHROPIC_API_KEY');
-    expect(io.output).toContain('BERRY_AGENT_MODEL');
+    expect(io.output).toContain('/model 打开选择器');
+    expect(io.output).toContain('docs/usage.md');
     io.send('q');
     await until(() => io.output.includes('\x1b[?1049l'));
     io.send('\x04');
@@ -715,7 +716,7 @@ describe('runTuiEntry 装配序', () => {
     try {
       // 横幅经 channels.notify 扇出上屏：URL 在场、token 不在（屏流可回滚——
       // 非披露通道；令牌仅 stderr 一次性）
-      await until(() => io.output.includes('Web 界面已开面'));
+      await until(() => io.output.includes('Web 界面已开启'));
       expect(io.output).toContain(`http://127.0.0.1:${opened!.port}/`);
       expect(io.output).not.toContain(opened!.token);
       // webui 探活位（open/liveness）无凭证可达——TUI 与 webui 双 backend 并存
@@ -741,7 +742,7 @@ describe('runTuiEntry 装配序', () => {
     const { entry, io } = await rigEntry(rigDir('entry-tier-t-data-'), rigDir('entry-tier-t-ws-'));
     await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
     io.send('/thinking\r');
-    await until(() => io.output.includes('思考档位 · 7 档')); // 副屏开屏（头行锚）
+    await until(() => io.output.includes('深度思考 · 7 级')); // 副屏开屏（头行锚）
     // detail 列 = session-tier-copy 单源表直出（off 行独有词「关闭思考」——
     // 装配闭包传垃圾列 / 两表错配时此词缺席即红）
     expect(io.output).toContain('关闭思考');
@@ -752,7 +753,7 @@ describe('runTuiEntry 装配序', () => {
     // 回执全文逐字符 = 单源 helper（绕 helper 内联模板漂移尾句即红——全文
     // 只经 selectThinking → thinkingLevelReceipt 产出）
     await until(() => io.output.includes(thinkingLevelReceipt('max')));
-    expect(io.output).toContain('思考档位：max（下一轮对话起生效；档位是否生效随模型能力）');
+    expect(io.output).toContain('思考级别：max（下一轮对话起生效；该级别是否生效随模型能力）');
     io.send('\x04');
     expect(await entry).toBe(0);
   });
@@ -761,14 +762,14 @@ describe('runTuiEntry 装配序', () => {
     const { entry, io } = await rigEntry(rigDir('entry-tier-s-data-'), rigDir('entry-tier-s-ws-'));
     await until(() => io.output.includes(' · m1 · '));
     io.send('/sandbox\r');
-    await until(() => io.output.includes('沙箱档位 · 3 档'));
+    await until(() => io.output.includes('沙箱 · 3 级'));
     // danger 行警示语 = 07 §4.1 钦定措辞（07 §4.1 danger 档行说明位文案钉死
     // 「无沙箱——任何命令直跑宿主」——第三档语义不粉饰）
     expect(io.output).toContain('无沙箱——任何命令直跑宿主');
     io.send('\x1b[4~'); // End → 尾档 danger
     io.send('\r');
     await until(() => io.output.includes(sandboxModeReceipt('danger')));
-    expect(io.output).toContain('沙箱档位：danger（即刻生效于后续工具调用）');
+    expect(io.output).toContain('沙箱模式：danger（即刻生效于后续工具调用）');
     io.send('\x04');
     expect(await entry).toBe(0);
   });
@@ -791,7 +792,7 @@ describe('runTuiEntry 装配序', () => {
     // 翻「无沙箱」（' · ' 分隔形 = footer 段独有锚——面板 detail 行是「无沙箱
     // ——」连缀形不撞此锚）
     io.send('/sandbox\r');
-    await until(() => io.output.includes('沙箱档位 · 3 档'));
+    await until(() => io.output.includes('沙箱 · 3 级'));
     io.send('\x1b[4~');
     io.send('\r');
     await until(() => io.output.includes(sandboxModeReceipt('danger')));
@@ -810,7 +811,7 @@ describe('runTuiEntry 装配序', () => {
     const out = io.output;
     expect(out).toContain('berry-agent vtest'); // 头行（版本 = 入口 options.version 透传）
     expect(out).toContain('✓ 就绪'); // 六阶段收尾行
-    expect(out).toContain('▸ 装载 '); // 插件装载行（noPlugins:false——core 件在册）
+    expect(out).toContain('▸ 加载 '); // 插件装载行（noPlugins:false——core 件在册）
     // 两窗序：动画行全部先于 footer（raw 窗屏本体）
     expect(out.indexOf('berry-agent vtest')).toBeLessThan(out.indexOf(' · m1 · '));
     expect(out.indexOf('✓ 就绪')).toBeLessThan(out.indexOf(' · m1 · '));
@@ -899,7 +900,7 @@ describe('runTuiEntry 装配序', () => {
     // TUI 侧切档（真装配闭包全链：/thinking 开副屏 → End 跳尾档 max →
     // Enter 选定 → selectThinking → setStatus 扇出）
     io.send('/thinking\r');
-    await until(() => io.output.includes('思考档位 · 7 档'));
+    await until(() => io.output.includes('深度思考 · 7 级'));
     io.send('\x1b[4~');
     io.send('\r');
     const reader = sseRes.body!.getReader();
@@ -1253,7 +1254,7 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     // else 支报「已是最新」（诚实谎——与启动腿 upgrade.ts TARGET_RE 白名单
     // 门同律：白名单先于判序，非 semver latest「已是最新」判据不成立）
     await until(() => io.output.includes('版本检查失败'));
-    expect(io.output).toContain('非 semver');
+    expect(io.output).toContain('格式不对');
     expect(io.output).not.toContain('已是最新');
     io.send('\x04');
     expect(await entry).toBe(0);
@@ -1269,7 +1270,7 @@ describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第�
       // 注入键源 = 面板测试形（产线真身 = io raw 窗一键——注入面先例族）
       onboardingKey: async () => keys.shift() ?? 'q',
     });
-    expect(io.output).toContain('模型凭证未配置'); // cooked 窗面板行
+    expect(io.output).toContain('还没配置 API key'); // cooked 窗面板行
     expect(io.output).toContain('--model-provider faux-entry'); // ob-1 录入位指路（provider 点名）
     io.send('\x04'); // ctrl+d 空框退出
     expect(await entry).toBe(0);
@@ -1293,7 +1294,7 @@ describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第�
     });
     expect(await entry).toBe(0); // 面板 q 直接收口（backend 未起）
     expect(io.output).not.toContain('\x1b[?2004h'); // bracketed paste 进屏字节缺席 = 未起屏证
-    expect(io.output).toContain('模型凭证未配置'); // 面板行仍落屏（先写后读）
+    expect(io.output).toContain('还没配置 API key'); // 面板行仍落屏（先写后读）
   });
 
   it('ready 态（env 键在场）：面板缺席直进主屏（键源零调用）', async () => {
@@ -1332,13 +1333,13 @@ describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第�
       model: 'my-gw/m1', // 当前模型停自定义渠道（豁免集在场：env 判据不合成 + 绑定行无 → unconfigured）
       onboardingKey: async () => keys.shift() ?? 'q',
     });
-    expect(io.output).toContain('模型凭证未配置'); // 面板行（unconfigured 检测腿命中）
-    expect(io.output).toContain('provider my-gw'); // 供血目标点名
+    expect(io.output).toContain('还没配置 API key'); // 面板行（unconfigured 检测腿命中）
+    expect(io.output).toContain('渠道 my-gw'); // 供血目标点名
     // 修前红：env 例键行在场（providerApiKeyEnvNames 无条件合成 MY_GW_API_KEY
     // ——该指路对自定义渠道永不生效）
     expect(io.output).not.toContain('MY_GW_API_KEY');
     // envExample 缺席序号重排：途径首条（「1.」位）= 凭证表绑定行（唯一有效途径）
-    expect(io.output).toContain('1. 绑定到模型渠道');
+    expect(io.output).toContain('1. 保存 API key 给该渠道用');
     io.send('\x04'); // ctrl+d 空框退出
     expect(await entry).toBe(0);
   });
@@ -1505,7 +1506,7 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     // 删除腿三联动第三步接线（stack.unregisterCustomProvider 组合除名+复位）
     expect(source.split('stack.unregisterCustomProvider(').length - 1).toBe(1);
     // settings 写侧拒撞名（纵深——防 settings 落撞名死条）
-    expect(source.split('撞内置渠道（保留字）').length - 1).toBe(1);
+    expect(source.split('与内置渠道重名').length - 1).toBe(1);
   });
 
   // #14（minor）：deps.builtinProviderIds 第三形态（运行时表现算）与保留字执法

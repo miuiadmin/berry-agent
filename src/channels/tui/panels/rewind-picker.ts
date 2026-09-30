@@ -18,6 +18,7 @@
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiRewindActions, UiRewindEntry, UiRewindPreview } from '../../../contracts/index.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 回退点选择器装配选项（载荷与回调组经 host deps 注入流转——openRewindPicker 面） */
 export interface RewindPickerOptions {
@@ -40,7 +41,7 @@ const CURSOR_MARK = '▸';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——件族面） */
 const WHEEL_LINES = 3;
 /** manifest 外改动不回退警告行（05 §5.3 批3 翻案笔②规范明文文案） */
-const WARN_LINE = '⚠ manifest 外的手工/bash 改动不回退（restore 只对账快照内文件）';
+const WARN_LINE = '⚠ 回退只还原 berry 记录的文件改动——你手动改的文件保持不动';
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -140,14 +141,14 @@ export class RewindPicker implements OverlayContent {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        `过滤：${this.query}_ · ↑↓ 移动 · enter 预演 · backspace 删词 · esc 返回`,
+        `过滤：${this.query}_ · ` + hintLine('↑↓ 移动', 'enter 预览', 'backspace 删词', 'esc 返回'),
         HINT_STYLE,
       );
     } else {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        '↑↓ 移动 · enter 预演（零改动对账） · 打字过滤 · esc/q 返回',
+        hintLine('↑↓ 移动', 'enter 预览（不改动任何文件）', '打字过滤', 'esc/q 返回'),
         HINT_STYLE,
       );
     }
@@ -155,11 +156,11 @@ export class RewindPicker implements OverlayContent {
 
   /** preview 段落位：选中成品行 → 三账行/错误行 → 警告行 → 底行段提示 */
   private renderPreview(buffer: CellBuffer, region: Region): void {
-    buffer.writeText(region.row, region.col, '◆ 回退点预演（零改动）');
+    buffer.writeText(region.row, region.col, '◆ 回退点预览（不改动文件）');
     buffer.writeText(region.row + 1, region.col, this.previewLine);
     const data = this.previewData;
     if (data === undefined) {
-      buffer.writeText(region.row + 2, region.col, '预演中…', HINT_STYLE);
+      buffer.writeText(region.row + 2, region.col, '预览中…', HINT_STYLE);
     } else if (data.errorText !== undefined) {
       // 诚实拒：只显错误行（Enter 零动作——不进 restore）
       buffer.writeText(region.row + 2, region.col, data.errorText);
@@ -173,7 +174,7 @@ export class RewindPicker implements OverlayContent {
     }
     const hint =
       data !== undefined && data.errorText === undefined
-        ? 'enter 确认回退（fork 新会话） · esc 返回列表'
+        ? hintLine('enter 确认回退（将新建分支会话）', 'esc 返回列表')
         : 'esc 返回列表';
     buffer.writeText(region.row + region.height - 1, region.col, hint, HINT_STYLE);
   }
@@ -273,7 +274,7 @@ export class RewindPicker implements OverlayContent {
                   restoreCount: 0,
                   deleteCount: 0,
                   untouchedCount: 0,
-                  errorText: '预演失败（回退点可能已被清理）——esc 返回列表',
+                  errorText: '预览失败（回退点可能已被清理）——esc 返回列表',
                 };
               }
             });

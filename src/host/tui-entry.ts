@@ -389,7 +389,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           // 开面失败（如端口占用 EADDRINUSE）= 预期内环境态——干净呈报退 1
           // 不写 crash.log（run-entry :437-442 同档同文；此点尚未起 TUI 屏，
           // finally 仍走 shutdown 六步收口——closer 出屏复原无害）
-          process.stderr.write(`--port 开面失败：${error instanceof Error ? error.message : String(error)}\n`);
+          process.stderr.write(`--port 开启失败：${error instanceof Error ? error.message : String(error)}\n`);
           return 1;
         }
       }
@@ -406,7 +406,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         opened = stack.manager.open(options.resumeSessionId);
       } catch {
         process.stderr.write(
-          `sessions resume 失败：会话不存在（${options.resumeSessionId}）——用 sessions list 查在册 id\n`,
+          `sessions resume 失败：会话不存在（${options.resumeSessionId}）——用 sessions list 查看现有 id\n`,
         );
         return 1;
       }
@@ -551,7 +551,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           ],
         })
       ) {
-        backend.notify('状态面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('状态页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -575,7 +575,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
               ? env.BERRY_AGENT_LOG_LEVEL
               : options.flags.debug === true
                 ? 'debug（--debug 旗标）'
-                : 'info（缺省）',
+                : 'info（默认）',
           settingsKeys: settingsLoad !== null ? Object.keys(settingsLoad.settings) : [],
           settingsWarnings: [
             ...settingsWarns,
@@ -585,7 +585,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           pluginIds: boot.report.activated.map((activated) => activated.id),
         })
       ) {
-        backend.notify('调试面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('调试页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -593,7 +593,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // skills 服务面（core:skills provide 'skills'）——件缺席 = 诚实拒不开屏
       const registry = scope.tryGet<SkillsRegistry>('skills');
       if (registry === undefined) {
-        backend.notify('skills 件未装载——无技能清单', { level: 'warn' });
+        backend.notify('skills 插件未安装——暂无技能清单', { level: 'warn' });
         return;
       }
       const skills = registry.list(); // 快照原样（含隐藏件——面板标记呈现；first-wins 胜者序）
@@ -610,7 +610,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           (index) => formatSkillInvocation(skills[index]!),
         )
       ) {
-        backend.notify('技能清单暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('技能清单暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -629,13 +629,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             ? loadCustomThemeColors(runtime.dataDir, name, { warn: (m) => logger.warn(m) })
             : null;
         if (overlay === null) {
-          backend.notify(`主题 ${name} 载入失败——保持既有档（详见日志）`, { level: 'warn' });
+          backend.notify(`主题 ${name} 加载失败——保持当前主题（详见日志）`, { level: 'warn' });
           return;
         }
         backend.setThemeChoice(name, overlay);
       }
       if (runtime.dataDir !== null && writeHostSettings(runtime.dataDir, { theme: name }) === 'rejected') {
-        backend.notify('主题已换装但持久化失败（settings.json 坏形——手改修复后可再写）', { level: 'warn' });
+        backend.notify('主题已切换，但保存失败：settings.json 格式有误——修好后可再保存', { level: 'warn' });
       }
     };
 
@@ -656,7 +656,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         }
       }
       if (!backend.openModelPicker(entries, stack.model, selectModel)) {
-        backend.notify('模型面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('模型页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -678,7 +678,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           : []),
       ];
       if (!backend.openThemes(entries, backend.themeChoice, selectTheme)) {
-        backend.notify('主题面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('主题页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -691,7 +691,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const sid = stack.channels.focusedId ?? session.sessionId;
       const driver = stack.driverOf(sid);
       if (driver === undefined) {
-        backend.notify('思考档位需要先进入一个会话（切换会话后重试）', { level: 'warn' });
+        backend.notify('先进入一个会话，再设置思考级别', { level: 'warn' });
         return;
       }
       setSessionThinkingLevel(driver.session, level);
@@ -718,7 +718,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         try {
           current = foldSessionThinkingLevel(driver.session.events()) ?? stack.thinkingLevel;
         } catch (err) {
-          backend.notify(`思考档位读失败：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
+          backend.notify(`思考级别读取失败：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
           return;
         }
       } else {
@@ -726,7 +726,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
       const entries = THINKING_LEVELS.map((level) => ({ level, detail: THINKING_LEVEL_DETAILS[level] }));
       if (!backend.openThinking(entries, current, selectThinking)) {
-        backend.notify('思考档位面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('思考级别页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -741,7 +741,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const sid = stack.channels.focusedId ?? session.sessionId;
       const driver = stack.driverOf(sid);
       if (driver === undefined) {
-        backend.notify('沙箱档位需要先进入一个会话（切换会话后重试）', { level: 'warn' });
+        backend.notify('先进入一个会话，再设置沙箱模式', { level: 'warn' });
         return;
       }
       setSessionMode(driver.session, mode);
@@ -764,7 +764,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         try {
           current = foldSessionSandboxMode(driver.session.events(), stack.sandboxMode);
         } catch (err) {
-          backend.notify(`沙箱档位读失败：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
+          backend.notify(`沙箱模式读取失败：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
           return;
         }
       } else {
@@ -772,7 +772,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
       const entries = SANDBOX_MODES.map((mode) => ({ mode, detail: SANDBOX_MODE_DETAILS[mode] }));
       if (!backend.openSandbox(entries, current, selectSandbox)) {
-        backend.notify('沙箱档位面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('沙箱模式页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -786,7 +786,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         return;
       }
       if (!backend.openDiff(driver.session.projection())) {
-        backend.notify('改动总览暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('改动总览暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -821,10 +821,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             for (const line of inspectText.split('\n')) {
               if (line.trim() !== '') backend.notify(line, { level: 'info' });
             }
-            const answer = await backend.select('卸载裁决：数据目录处置', [
-              { value: 'cancel', label: '取消（不动装机物与数据）' },
-              { value: 'keep', label: '卸载并保留数据目录（--data keep 缺省形）' },
-              { value: 'purge', label: '卸载并清数据目录（--data purge——不可逆）' },
+            const answer = await backend.select('卸载时如何处理插件数据？', [
+              { value: 'cancel', label: '取消（什么都不动）' },
+              { value: 'keep', label: '卸载并保留数据（--data keep，默认）' },
+              { value: 'purge', label: '卸载并删除数据（--data purge——不可恢复）' },
             ]);
             return answer === '' ? 'cancel' : (answer as UninstallChoice);
           },
@@ -848,7 +848,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // open 不抛（面内自吞）：异常形 = 源清单损坏等 discover 层拒——回执归
       // tail/results；此处 catch 仅防御位（保持 fire-and-forget 零 unhandled）
       void marketFace.open().catch((err: unknown) => {
-        backend.notify(`市场选装面异常：${String(err)}`, { level: 'error' });
+        backend.notify(`插件市场异常：${String(err)}`, { level: 'error' });
       });
     };
 
@@ -870,11 +870,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       void stack.channels
         .focus(created.sessionId)
         .then(() =>
-          backend.notify(`新会话：${shortIdOf(created.sessionId)}（旧会话不动——/sessions 可回切）`, {
+          backend.notify(`新会话：${shortIdOf(created.sessionId)}（旧会话不动——/sessions 可切回）`, {
             level: 'info',
           }),
         )
-        .catch((err: unknown) => backend.notify(`新会话切焦失败：${String(err)}`, { level: 'error' }));
+        .catch((err: unknown) => backend.notify(`切换到新会话失败：${String(err)}`, { level: 'error' }));
     };
 
     // —— /upgrade 薄壳（07 §8.5 第 2 条 + 第 6 条手动通道）：跑同一只读检查
@@ -886,7 +886,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const manualCheck = options.manualUpdateCheck ?? runManualUpdateCheck;
     const runUpgradeShell = (): void => {
       if (runtime.dataDir === null) {
-        backend.notify('版本检查不可用（数据目录缺席——:memory: 诊断形）', { level: 'warn' });
+        backend.notify('版本检查不可用（当前为内存模式，没有数据目录）', { level: 'warn' });
         return;
       }
       void manualCheck({
@@ -902,7 +902,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             // semver latest 是坏应答不是「无更新」，cmp null 落「已是最新」
             // 是诚实谎；诚实拒走 warn 支
             if (!TARGET_RE.test(result.latest)) {
-              backend.notify(`版本检查失败：远端 latest「${result.latest}」非 semver 形（registry 坏应答）`, {
+              backend.notify(`版本检查失败：远端版本号「${result.latest}」格式不对（registry 数据异常）`, {
                 level: 'warn',
               });
               return;
@@ -923,7 +923,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
               backend.notify(REGISTRY_FALLBACK_NOTE, { level: 'info' });
             }
           } else if (result.kind === 'not-found') {
-            backend.notify('版本检查失败：registry 应答 404（包不在册——registry 指错或未发布态）', { level: 'warn' });
+            backend.notify('版本检查失败：registry 返回 404（npm 源上找不到包——可能未发布或源配错）', {
+              level: 'warn',
+            });
           } else {
             backend.notify(`版本检查失败：${result.message}——稍后再试或退出后执行 berry update`, { level: 'warn' });
           }
@@ -954,7 +956,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             title: '模型配置',
             lines: [
               '/setup 向导：选渠道（官方/自定义网关）→ 录 API key（明文）→ 立即生效',
-              '/model 模型选择副屏（打字过滤 · ctrl+p 快速循环）· 环境变量方式（如 export ANTHROPIC_API_KEY=sk-…）· BERRY_AGENT_MODEL=provider/model 换模型——详见 docs/usage.md「模型配置」节',
+              '换模型：输入 /model 打开选择器（打字过滤，ctrl+p 快速切换）；更多方式见 docs/usage.md「模型配置」',
             ],
           },
           {
@@ -982,7 +984,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         ],
       });
       if (!ok) {
-        backend.notify('引导面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('引导页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
       }
     };
 
@@ -1002,7 +1004,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const openSetupWizard = (): void => {
       const prompter = backend.openSetupWizard();
       if (prompter === null) {
-        backend.notify('配置向导暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+        backend.notify('配置向导暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
         return;
       }
       // 重入默认值：当前模型首斜杠段（官方桶在册时预选）
@@ -1109,9 +1111,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         // readHostSettings 投影（丢坏形条目后整键覆写会静默清除手编坏形兄弟
         // 条目）；删除腿同律
         saveCustomChannel: (id, def) => {
-          if (dataDir === null) return { ok: false, text: '数据目录不可用——无法持久化渠道配置' };
+          if (dataDir === null) return { ok: false, text: '数据目录不可用——无法保存渠道配置' };
           if (builtinProviderIds().includes(id)) {
-            return { ok: false, text: `渠道 id ${id} 撞内置渠道（保留字）——换个 id` };
+            return { ok: false, text: `渠道 id ${id} 与内置渠道重名——换一个` };
           }
           const existing = rawCustomMergeBase(dataDir);
           const written = writeHostSettings(
@@ -1120,8 +1122,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             { warn: settingsWarn },
           );
           return written === 'written'
-            ? { ok: true, text: `渠道配置已持久化（settings.json customProviders.${id}——重启后仍在册）` }
-            : { ok: false, text: 'settings.json 写入被拒（文件坏形？——手工修复后重试）' };
+            ? { ok: true, text: `渠道配置已保存（settings.json customProviders.${id}——重启后仍可用）` }
+            : { ok: false, text: 'settings.json 写入失败（文件格式有误？）——修好后重试' };
         },
         removeCustomChannel: (id) => {
           if (dataDir === null) return { ok: false, text: '数据目录不可用——无法修改渠道配置' };
@@ -1134,7 +1136,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           );
           return written === 'written'
             ? { ok: true, text: `渠道配置已移除（customProviders.${id}）` }
-            : { ok: false, text: 'settings.json 写入被拒（文件坏形？——手工修复后重试）' };
+            : { ok: false, text: 'settings.json 写入失败（文件格式有误？）——修好后重试' };
         },
         // 活注册（向导路当场生效）：透传 stack 注册口（R-1 执法单源——拒注
         // 回执原样透传，流程件折注册注记分档；resolveKey 供血真源 = 绑定行
@@ -1172,13 +1174,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const localCommands = [
       {
         name: 'new',
-        description: '新建会话并切焦（同 cwd——旧会话不动，/sessions 可回切）',
+        description: '新建会话并切换（同 cwd——旧会话不动，/sessions 可切回）',
         run: () => startNewSession(),
       },
-      { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境变量）', run: () => openStatusPanel() },
+      { name: 'status', description: '状态汇总页（版本/模型/会话/环境变量）', run: () => openStatusPanel() },
       {
         name: 'model',
-        description: '模型选择副屏（↑↓ 选定/打字过滤——下一轮对话起生效；ctrl+p 快速循环）',
+        description: '模型选择页（↑↓ 选定/打字过滤——下一轮对话起生效；ctrl+p 快速循环）',
         run: () => openModelPanel(),
       },
       {
@@ -1186,23 +1188,23 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         description: '模型配置向导（选渠道/自定义网关 → 录 key → 立即生效，可选连通验证）',
         run: () => openSetupWizard(),
       },
-      { name: 'debug', description: '调试信息副屏（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },
-      { name: 'skills', description: '技能清单副屏（enter 填入输入框）', run: () => openSkillsPanel() },
-      { name: 'themes', description: '主题切换副屏（选定即换装+持久化）', run: () => openThemesPanel() },
+      { name: 'debug', description: '调试信息页（日志尾快照/生效配置/插件清单）', run: () => openDebugPanel() },
+      { name: 'skills', description: '技能清单页（enter 填入输入框）', run: () => openSkillsPanel() },
+      { name: 'themes', description: '选定主题（立即生效并保存）', run: () => openThemesPanel() },
       {
         name: 'thinking',
-        description: '思考档位副屏（七档选定——下一轮对话起生效，随模型能力）',
+        description: '选择思考级别（七级可选——下一轮对话起生效，随模型能力）',
         run: () => openThinkingPanel(),
       },
       {
         name: 'sandbox',
-        description: '沙箱档位副屏（三档选定——即刻生效于后续工具调用，切会话各档独立）',
+        description: '沙箱模式选择（选定后立即生效，各会话独立设置）',
         run: () => openSandboxPanel(),
       },
-      { name: 'diff', description: '会话改动总览副屏（edit 聚合按文件分组）', run: () => openDiffPanel() },
+      { name: 'diff', description: '会话改动总览页（edit 聚合按文件分组）', run: () => openDiffPanel() },
       {
         name: 'marketplace',
-        description: '插件市场选装副屏（enter 选装/卸载 · u 换装 · r 刷新）',
+        description: '插件市场（enter 安装/卸载 · u 更新 · r 刷新）',
         run: () => openMarketplacePanel(),
       },
       {
@@ -1212,7 +1214,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       },
       {
         name: 'guide',
-        description: '快速上手参考副屏（版本/模型配置/核心命令/文档地图/升级与卸载）',
+        description: '快速上手参考页（版本/模型配置/核心命令/文档地图/升级与卸载）',
         run: () => openGuidePanel(),
       },
     ] as const;
@@ -1497,7 +1499,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           ...EXIT_WORDS.map((name) => ({ name, description: EXIT_DESCRIPTIONS[name] })),
         ];
         if (!backend.openHelp(entries)) {
-          backend.notify('帮助面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+          backend.notify('帮助页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
         }
       },
       '命令与键位帮助',
@@ -1511,13 +1513,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     if (webuiOpen !== undefined && webuiMounted) {
       stack.channels.notify(
         session.sessionId,
-        `Web 界面已开面：http://${webuiOpen.host}:${webuiOpen.port}/（访问令牌见启动 stderr——仅此一次显示）`,
+        `Web 界面已开启：http://${webuiOpen.host}:${webuiOpen.port}/（访问令牌在启动时的输出里——只显示这一次）`,
         { level: 'info' },
       );
     } else if (webuiOpen !== undefined) {
       stack.channels.notify(
         session.sessionId,
-        `HTTP 面已开面：http://${webuiOpen.host}:${webuiOpen.port}/（webui 件未装载——/v1/* 程序调用面在场，/api/* 404）`,
+        `HTTP 服务已开启：http://${webuiOpen.host}:${webuiOpen.port}/（webui 插件未安装：/v1/* 接口可用，/api/* 返回 404）`,
         { level: 'info' },
       );
     }

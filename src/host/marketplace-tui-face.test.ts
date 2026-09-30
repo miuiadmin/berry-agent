@@ -247,7 +247,7 @@ describe('MarketplaceTuiFace 装配位（open）', () => {
     const empty = await rigFace('open-empty-repo', { emptyRepo: true });
     await empty.face.open();
     expect(empty.model().rows).toEqual([]);
-    expect(empty.model().tail.join('\n')).toContain('源在册但零条目');
+    expect(empty.model().tail.join('\n')).toContain('源已添加但没有条目');
   });
 
   it('dataDir null = 诚实拒（不开屏不炸）', async () => {
@@ -268,7 +268,7 @@ describe('MarketplaceTuiFace 装配位（open）', () => {
     await face.open();
     expect(openPanel).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify.mock.calls[0]![0]).toContain('数据目录不在场');
+    expect(notify.mock.calls[0]![0]).toContain('数据目录不可用');
   });
 
   it('副屏占用如实 warn（openPanel false——不排队不顶替）', async () => {
@@ -276,7 +276,7 @@ describe('MarketplaceTuiFace 装配位（open）', () => {
     await rig.face.open();
     expect(rig.openPanel).toHaveBeenCalledTimes(1); // 试过一次
     expect(rig.notify).toHaveBeenCalledTimes(1);
-    expect(rig.notify.mock.calls[0]![0]).toContain('副屏占用');
+    expect(rig.notify.mock.calls[0]![0]).toContain('暂不可用');
   });
 });
 
@@ -286,8 +286,8 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     const rig = await rigFace('install-choreo', {
       runEntry: (sub, capture) => {
         expect(sub).toEqual({ sub: 'install', id: 'hello-plugin@alpha' });
-        capture.writeOut('已装机：hello-plugin 1.0.0');
-        capture.writeOut('装机 ≠ 启用——启用第二步：berry plugins mount hello-plugin');
+        capture.writeOut('已安装：hello-plugin 1.0.0');
+        capture.writeOut('安装 ≠ 启用——启用第二步：berry plugins mount hello-plugin');
         return gate.promise;
       },
     });
@@ -307,7 +307,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     await flush();
     // 段三 settle：busy 清 + 回执全文逐行 + notify 完成归因 + reload 自动链
     expect(model.busyLabel).toBeNull();
-    expect(model.results.join('\n')).toContain('已装机：hello-plugin');
+    expect(model.results.join('\n')).toContain('已安装：hello-plugin');
     expect(model.results.join('\n')).toContain('berry plugins mount hello-plugin');
     expect(rig.requestReload).toHaveBeenCalledTimes(1);
     // settle 双行（扩尾）：完成归因行在前 + 自动链提示行随后（编舞④——第二行）
@@ -315,7 +315,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     const doneIdx = messages.findIndex((m) => m.includes('marketplace install hello-plugin@alpha 完成'));
     expect(doneIdx).toBeGreaterThanOrEqual(0);
     expect(rig.notify.mock.calls[doneIdx]![1]).toEqual({ level: 'info' });
-    const chain = '已自动链 /reload（会话运行中自动排队，run 收场后执行）';
+    const chain = '已自动链 /reload（会话运行中自动排队，当前回复结束后执行）';
     expect(messages).toContain(chain); // 与 /plugins 写动词尾句（plugins-command）单源同文
     expect(messages.indexOf(chain)).toBeGreaterThan(doneIdx); // 序：完成行在前、链提示随后
   });
@@ -426,7 +426,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     const gate = deferred<number>();
     const rig = await rigFace('chain-notify-install', {
       runEntry: (_sub, capture) => {
-        capture.writeOut('已装机：hello-plugin 1.0.0');
+        capture.writeOut('已安装：hello-plugin 1.0.0');
         return gate.promise;
       },
     });
@@ -437,7 +437,7 @@ describe('MarketplaceTuiFace 长动作编舞', () => {
     await flush();
     expect(rig.requestReload).toHaveBeenCalledTimes(1); // 链真身在先（既有律）
     const messages = rig.notify.mock.calls.map((call) => String(call[0]));
-    const chain = '已自动链 /reload（会话运行中自动排队，run 收场后执行）';
+    const chain = '已自动链 /reload（会话运行中自动排队，当前回复结束后执行）';
     expect(messages).toContain(chain); // 完整句同文（plugins-command 尾句单源——防漂移锚）
     const doneIdx = messages.findIndex((m) => m.includes('marketplace install hello-plugin@alpha 完成'));
     expect(doneIdx).toBeGreaterThanOrEqual(0);
@@ -579,7 +579,7 @@ describe('MarketplaceTuiFace 双相 uninstall', () => {
     expect(rig.requestReload).toHaveBeenCalledTimes(1);
     const messages = rig.notify.mock.calls.map((call) => String(call[0]));
     expect(messages.some((m) => m.includes('marketplace uninstall hello-plugin@alpha 完成'))).toBe(true);
-    expect(messages).toContain('已自动链 /reload（会话运行中自动排队，run 收场后执行）'); // 编舞④第二行
+    expect(messages).toContain('已自动链 /reload（会话运行中自动排队，当前回复结束后执行）'); // 编舞④第二行
   });
 
   it('purge 形：裁决值透传 dataAction（三分裁决位）', async () => {
@@ -733,7 +733,7 @@ describe('MarketplaceTuiFace 真服务面集成（runMarketplaceEntry 直装）'
     await flush();
     const settled = notify.mock.calls.map((call) => String(call[0]));
     expect(settled.some((m) => m.includes('marketplace install hello-plugin@alpha 完成'))).toBe(true);
-    expect(settled).toContain('已自动链 /reload（会话运行中自动排队，run 收场后执行）'); // 编舞④第二行
+    expect(settled).toContain('已自动链 /reload（会话运行中自动排队，当前回复结束后执行）'); // 编舞④第二行
     await face.open();
     const secondModel = openPanel.mock.calls.at(-1)![0] as MarketPanelModel;
     expect(secondModel.rows.find((row) => row.id === 'hello-plugin@alpha')!.installed).toBe(true);

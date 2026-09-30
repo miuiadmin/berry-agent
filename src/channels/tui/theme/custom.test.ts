@@ -108,7 +108,7 @@ describe('loadCustomThemeColors（四色形 + 坏文件处置律）', () => {
     const dir = tmpDataDir('theme-bad-');
     const absent = captureWarn();
     expect(loadCustomThemeColors(dir, 'ghost', { warn: absent.warn })).toBeNull();
-    expect(absent.warnings.join('\n')).toContain('主题文件缺席');
+    expect(absent.warnings.join('\n')).toContain('主题文件不存在');
     const { warnings, warn } = captureWarn();
     writeTheme(dir, 'broken', '{not json');
     expect(loadCustomThemeColors(dir, 'broken', { warn })).toBeNull();
@@ -122,7 +122,7 @@ describe('loadCustomThemeColors（四色形 + 坏文件处置律）', () => {
     writeTheme(dir, 'mixed', JSON.stringify({ accent: '#f80', secondary: 'not-a-color' }));
     const { warnings, warn } = captureWarn();
     expect(loadCustomThemeColors(dir, 'mixed', { warn })).toBeNull();
-    expect(warnings.join('\n')).toContain('键 secondary 非法色形');
+    expect(warnings.join('\n')).toContain('键 secondary 的色值格式不对');
   });
   it('未知键 warn 忽略照载（非坏值——与色值坏形分立）', () => {
     const dir = tmpDataDir('theme-unknown-');

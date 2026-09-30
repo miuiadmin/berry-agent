@@ -16,6 +16,7 @@
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
 import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 主题条目（装配位合成：内置三档 + themes/ 目录文件名） */
 export interface ThemePickEntry {
@@ -102,7 +103,7 @@ export class ThemePicker implements OverlayContent {
   /** 落位：头行 → 条目视口（光标 ▸ + 当前 ● + 名 / ⚠·说明右段）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = this.entries.length === 0 ? '◆ 主题切换 · 无条目' : `◆ 主题切换 · ${this.entries.length} 档`;
+    const head = this.entries.length === 0 ? '◆ 主题切换 · 无条目' : `◆ 主题切换 · ${this.entries.length} 个主题`;
     buffer.writeText(region.row, region.col, head);
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
@@ -119,7 +120,7 @@ export class ThemePicker implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.entries.length === 0 ? 'q/esc 返回' : '↑↓ 移动 · enter 选定（即时换装 + 持久化） · q/esc 返回',
+      this.entries.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 选定（立即生效并保存）', 'q/esc 返回'),
       HINT_STYLE,
     );
   }

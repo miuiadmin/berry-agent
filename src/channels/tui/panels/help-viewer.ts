@@ -17,6 +17,7 @@ import { ScrollView } from '../scroll/scroll-view.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { ActionScope, ActionView } from '../keys/registry.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 命令册条目（装配位合流注入——通道核命令表 + TUI 本地命令族 + TUI 本地退出词） */
 export interface HelpCommandEntry {
@@ -47,7 +48,7 @@ const SCOPE_LABELS: Readonly<Record<ActionScope, string>> = Object.freeze({
 /** 提示行样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 底行键面提示 */
-const HINT_TEXT = 'q/esc 返回 · ↑↓/pgup/pgdn/home/end 滚动';
+const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 
 /** key 事件窄化（text/ime/paste 归各分路） */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -146,7 +147,7 @@ export function buildHelpLines(commands: readonly HelpCommandEntry[], actions: r
   // 命令册段：名列对齐（最宽名 + 2，帽 24——超宽名独行列）
   const nameCol = Math.min(24, Math.max(...commands.map((c) => c.name.length), 0) + 2);
   lines.push('── 命令 ──');
-  if (commands.length === 0) lines.push('（无在册命令）');
+  if (commands.length === 0) lines.push('（暂无可用命令）');
   for (const cmd of commands) {
     const label = `/${cmd.name}`;
     // 多行描述拆行（2026-09-17 TUI 余量收官批）：description 源串可携内嵌

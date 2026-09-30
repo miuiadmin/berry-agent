@@ -75,7 +75,7 @@ describe('SandboxPicker 呈现', () => {
     const width = 72;
     const grid = new CellGrid(width, picker.measure(width));
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 0, width)).toBe('◆ 沙箱档位 · 3 档');
+    expect(readRow(grid, 0, width)).toBe('◆ 沙箱 · 3 级');
     const modes = ['read-only', 'workspace-write', 'danger'];
     modes.forEach((mode, index) => {
       expect(readRow(grid, 1 + index, width)).toContain(mode);

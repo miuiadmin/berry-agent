@@ -703,8 +703,8 @@ describe('openWebuiFace HTTP e2e（18a compat 互证）', () => {
       });
       expect(sdk.status).toBe(200);
       // 披露分档：诚实报 SDK 面形（不虚报 Web 界面）+ token 行照旧
-      expect(disclosed.some((l) => l.includes('webui 件未装载'))).toBe(true);
-      expect(disclosed.some((l) => l.includes('Web 界面已开面'))).toBe(false);
+      expect(disclosed.some((l) => l.includes('webui 插件未安装'))).toBe(true);
+      expect(disclosed.some((l) => l.includes('Web 界面已开启'))).toBe(false);
       expect(disclosed.some((l) => l.includes('仅此一次显示'))).toBe(true);
     } finally {
       await rt.shutdown();
@@ -1110,7 +1110,7 @@ describe('webui 档位面桥真身（tiers 注入——/thinking //sandbox webui
       // tmux e2e 之外的第二道回执文案锁）
       const receipt = tiers.setThinkingLevel(id, 'max');
       expect(receipt).toBe(thinkingLevelReceipt('max'));
-      expect(receipt).toBe('思考档位：max（下一轮对话起生效；档位是否生效随模型能力）');
+      expect(receipt).toBe('思考级别：max（下一轮对话起生效；该级别是否生效随模型能力）');
       // append 落账（conversation 单写者面——durable 事件恰一条）
       const thinkingEvents = stack
         .driverOf(id)!
@@ -1123,7 +1123,7 @@ describe('webui 档位面桥真身（tiers 注入——/thinking //sandbox webui
       // sandbox 半边同律（A4 分拆形另一半：即刻生效于后续工具调用）
       const receipt2 = tiers.setSandboxMode(id, 'danger');
       expect(receipt2).toBe(sandboxModeReceipt('danger'));
-      expect(receipt2).toBe('沙箱档位：danger（即刻生效于后续工具调用）');
+      expect(receipt2).toBe('沙箱模式：danger（即刻生效于后续工具调用）');
       const modeEvents = stack
         .driverOf(id)!
         .session.events()

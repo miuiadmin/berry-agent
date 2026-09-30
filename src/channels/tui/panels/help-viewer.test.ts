@@ -43,7 +43,7 @@ describe('buildHelpLines 行集构造（纯函数）', () => {
     expect(lines[2]).toBe('/exit 退出');
     // 空册形
     const empty = buildHelpLines([], []);
-    expect(empty[1]).toBe('（无在册命令）');
+    expect(empty[1]).toBe('（暂无可用命令）');
   });
 
   it('键位册段：按域分组头 + 全局域不可覆盖注记', () => {

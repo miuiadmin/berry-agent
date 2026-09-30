@@ -59,7 +59,7 @@ describe('SkillsViewer 副屏件', () => {
   it('落位：头行计数 + 首行光标标记 + 隐藏件层名前缀 + 底行提示', () => {
     const viewer = new SkillsViewer({ entries: ENTRIES, onSelect: () => {}, sessionId: 's', onExit: () => {} });
     const grid = render(viewer, 6);
-    expect(readRow(grid, 0, 60)).toBe('✦ 技能清单 · 3 件');
+    expect(readRow(grid, 0, 60)).toBe('✦ 技能清单 · 3 个');
     // 首行 = 光标（▸）+ 名 + 描述 + 右段层名
     expect(readRow(grid, 1, 60)).toContain('▸ commit-style');
     expect(readRow(grid, 1, 60)).toContain('提交信息风格');

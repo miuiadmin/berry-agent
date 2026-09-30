@@ -153,25 +153,27 @@ export function loadCustomThemeColors(
   const warn = options.warn ?? ((message) => process.stderr.write(`${message}\n`));
   const path = join(dataDir, CUSTOM_THEME_DIR, `${name}.json`);
   if (!existsSync(path)) {
-    warn(`主题文件缺席（${path}）——回退既有档`);
+    warn(`主题文件不存在（${path}）——保持当前主题`);
     return null;
   }
   let raw: string;
   try {
     raw = readFileSync(path, 'utf8');
   } catch (err) {
-    warn(`主题文件读取失败（${path}）：${err instanceof Error ? err.message : String(err)}——回退既有档`);
+    warn(`主题文件读取失败（${path}）：${err instanceof Error ? err.message : String(err)}——保持当前主题`);
     return null;
   }
   let doc: unknown;
   try {
     doc = JSON.parse(raw);
   } catch (err) {
-    warn(`主题文件坏形（${path}，JSON 解析失败：${err instanceof Error ? err.message : String(err)}）——回退既有档`);
+    warn(
+      `主题文件格式有误（${path}，JSON 解析失败：${err instanceof Error ? err.message : String(err)}）——保持当前主题`,
+    );
     return null;
   }
   if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) {
-    warn(`主题文件坏形（${path}，顶层须为对象）——回退既有档`);
+    warn(`主题文件格式有误（${path}，顶层须为对象）——保持当前主题`);
     return null;
   }
   const known = new Set<string>(SEMANTIC_KEYS);
@@ -184,7 +186,7 @@ export function loadCustomThemeColors(
     const color = parseColorValue(value);
     if (color === null) {
       // 任一色值坏形 = 整文件拒载（不捡拾好键——settings 键级坏值律同源不弃整板）
-      warn(`主题文件坏值（${path}，键 ${key} 非法色形）——回退既有档`);
+      warn(`主题文件色值无效（${path}，键 ${key} 的色值格式不对）——保持当前主题`);
       return null;
     }
     (overlay as Record<string, unknown>)[key] = color;

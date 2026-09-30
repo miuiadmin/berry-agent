@@ -24,10 +24,10 @@ import type { SandboxMode } from '../safety/index.js';
 export const THINKING_LEVEL_DETAILS: Readonly<Record<ThinkingLevel, string>> = {
   off: '关闭思考',
   minimal: '极简思考',
-  low: '低档思考',
-  medium: '中档思考',
-  high: '高档思考',
-  xhigh: '超高档思考',
+  low: '低强度思考',
+  medium: '中强度思考',
+  high: '高强度思考',
+  xhigh: '超高强度思考',
   max: '最大思考',
 };
 
@@ -79,7 +79,7 @@ export const SANDBOX_MODE_SHORT: Readonly<Record<SandboxMode, string>> = {
  * 04 §5「run 内不可变」律维持，档位消费单一位 = run 起）。
  */
 export function thinkingLevelReceipt(level: string): string {
-  return `思考档位：${level}（下一轮对话起生效；档位是否生效随模型能力）`;
+  return `思考级别：${level}（下一轮对话起生效；该级别是否生效随模型能力）`;
 }
 
 /**
@@ -89,5 +89,5 @@ export function thinkingLevelReceipt(level: string): string {
  * 07 §4.1 会话档位切换面批 A4 勘正注）。
  */
 export function sandboxModeReceipt(mode: string): string {
-  return `沙箱档位：${mode}（即刻生效于后续工具调用）`;
+  return `沙箱模式：${mode}（即刻生效于后续工具调用）`;
 }

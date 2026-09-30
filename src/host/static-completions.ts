@@ -76,21 +76,21 @@ const SUBVERBS_BY_COMMAND: Readonly<Record<string, readonly string[]>> = {
  * 不导出（导出面 = 消费承诺，无消费不承诺）。
  */
 const VERB_META: Readonly<Record<string, readonly [string, boolean]>> = {
-  'approval status': ['当前态：sandbox 档 + 审批 policy + 预设一览', false],
+  'approval status': ['当前态：sandbox 模式 + 审批 policy + 预设一览', false],
   'approval entries': ['策略表全列（立即读取当前生效内容）', false],
   'approval explain': ['真裁决干跑（须带 <tool>）', true],
   'approval preset': ['预设写盘（conservative|balanced|open）', true],
-  'plugins list': ['装载态清单三分区', false],
-  'plugins mount': ['挂载已装机插件 <id>', true],
-  'plugins unmount': ['卸下（装机保留）<id>', true],
+  'plugins list': ['安装态清单三分区', false],
+  'plugins mount': ['挂载已安装插件 <id>', true],
+  'plugins unmount': ['卸下（安装保留）<id>', true],
   'plugins toggle': ['禁用态翻转 <id>', true],
   'plugins config': ['配置表单 <id>', true],
   'doors list': ['高危面全清单 + 当前开态', false],
   'doors open': ['开门 <capability>', true],
   'doors close': ['关门 <capability>', true],
   'rewind list': ['列当前工作区回退点', false],
-  'rewind preview': ['预演（零改动）<id>', true],
-  'rewind restore': ['回退并 fork 新会话 <id>', true],
+  'rewind preview': ['预览（不改动文件）<id>', true],
+  'rewind restore': ['回退（新建分支会话）<id>', true],
   'rewind help': ['用法说明', false],
 };
 

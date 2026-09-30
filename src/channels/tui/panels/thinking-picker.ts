@@ -15,6 +15,7 @@
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
 import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 档位条目（装配位从 THINKING_LEVELS 单源合成——本件不 import conversation） */
 export interface ThinkingPickEntry {
@@ -98,7 +99,7 @@ export class ThinkingPicker implements OverlayContent {
   /** 落位：头行 → 条目视口（光标 ▸ + 当前 ● + 档名 / 说明右段）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = this.entries.length === 0 ? '◆ 思考档位 · 无条目' : `◆ 思考档位 · ${this.entries.length} 档`;
+    const head = this.entries.length === 0 ? '◆ 深度思考 · 无条目' : `◆ 深度思考 · ${this.entries.length} 级`;
     buffer.writeText(region.row, region.col, head);
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
@@ -117,7 +118,7 @@ export class ThinkingPicker implements OverlayContent {
       region.col,
       this.entries.length === 0
         ? 'q/esc 返回'
-        : '↑↓ 移动 · enter 选定（下一轮对话起生效；档位是否生效随模型能力） · q/esc 返回',
+        : hintLine('↑↓ 移动', 'enter 选定（下一轮对话起生效；部分模型不支持调思考级别）', 'q/esc 返回'),
       HINT_STYLE,
     );
   }

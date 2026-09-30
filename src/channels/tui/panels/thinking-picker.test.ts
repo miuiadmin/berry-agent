@@ -79,7 +79,7 @@ describe('ThinkingPicker 呈现', () => {
     const width = 72;
     const grid = new CellGrid(width, picker.measure(width));
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 0, width)).toBe('◆ 思考档位 · 7 档');
+    expect(readRow(grid, 0, width)).toBe('◆ 深度思考 · 7 级');
     const levels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
     levels.forEach((level, index) => {
       expect(readRow(grid, 1 + index, width)).toContain(level);

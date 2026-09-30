@@ -47,7 +47,7 @@ import type { MarketFs } from './plugin-market/index.js';
  * 腿；文案改动须三面同步（跨件抽公共常量归主会话统一处置——本件域内自持
  * 同文，测试以完整句等值锚防漂移）。
  */
-const RELOAD_AUTO_CHAIN_NOTIFY = '已自动链 /reload（会话运行中自动排队，run 收场后执行）';
+const RELOAD_AUTO_CHAIN_NOTIFY = '已自动链 /reload（会话运行中自动排队，当前回复结束后执行）';
 
 /** notify 级位（channels service notify 同词汇——结构兼容面） */
 export type FaceNotifyLevel = 'info' | 'warn' | 'error';
@@ -127,12 +127,12 @@ export class MarketplaceTuiFace {
    */
   async open(): Promise<void> {
     if (this.deps.dataDir === null) {
-      this.deps.notify('数据目录不在场——市场选装面不可用（诊断形无目录）', { level: 'warn' });
+      this.deps.notify('数据目录不可用——插件市场不可用（当前为内存模式，没有数据目录）', { level: 'warn' });
       return;
     }
     await this.rebuildRows();
     if (!this.deps.openPanel(this.model, this.actions)) {
-      this.deps.notify('市场选装面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      this.deps.notify('插件市场暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
     }
   }
 
@@ -179,7 +179,7 @@ export class MarketplaceTuiFace {
         const choice = await this.deps.confirmUninstall(inspectText);
         if (choice === 'cancel') {
           this.model.busyLabel = null;
-          this.model.results = [...inspect.receipt, '已取消——未执行卸载（装机物与数据未动）'];
+          this.model.results = [...inspect.receipt, '已取消——未执行卸载（安装文件与数据未动）'];
           this.deps.notify(`已取消卸载 ${id}——未执行任何变更`, { level: 'info' });
           this.deps.repaint();
           return;
@@ -224,7 +224,7 @@ export class MarketplaceTuiFace {
   private refresh(): void {
     if (this.busyGate('update')) return;
     if (this.deps.dataDir === null) {
-      this.deps.notify('数据目录不在场——无市场缓存可刷新', { level: 'warn' });
+      this.deps.notify('数据目录不可用——无市场缓存可刷新', { level: 'warn' });
       return;
     }
     void this.runLong(
@@ -386,7 +386,7 @@ export class MarketplaceTuiFace {
       }
       if (rows.length === 0) {
         // 空态其二：源在册但零可用条目（全部 skipped 或真空目录）
-        tail.push('源在册但零条目——r 刷新重取（源清单见 CLI berry marketplace list）');
+        tail.push('源已添加但没有条目——按 r 刷新重取（已添加的源见 berry marketplace list）');
       }
     }
     this.model.rows = rows;

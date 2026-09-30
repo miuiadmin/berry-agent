@@ -142,10 +142,10 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         }
         if (!opened) {
           // notify 非阻塞不分会话呈现位（service.notify 同律——uiCore 直扇出）
-          uiCore.notify('当前通道不支持记忆管理面（或 memory 件未装载）', { level: 'warn' });
+          uiCore.notify('当前界面不支持记忆管理页（或 memory 插件未安装）', { level: 'warn' });
         }
       },
-      '记忆管理面（冻结/忘掉/恢复/导出）',
+      '记忆管理页（冻结/忘掉/恢复/导出）',
     );
   }
 
@@ -172,7 +172,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
             .resumeSession(sessionId)
             .then((ok) => {
               if (ok) void registry.focus(sessionId);
-              else uiCore.notify(`会话不存在：${sessionId}——用 /sessions 查在册 id`, { level: 'warn' });
+              else uiCore.notify(`会话不存在：${sessionId}——输入 /sessions 查看会话列表`, { level: 'warn' });
             })
             .catch((err: unknown) => {
               uiCore.notify(`续接失败：${String(err)}`, { level: 'error' });
@@ -191,10 +191,10 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
           if (b.openSessions?.(sessions, selectSession) === true) opened = true;
         }
         if (!opened) {
-          uiCore.notify('当前通道不支持会话切换器', { level: 'warn' });
+          uiCore.notify('当前界面不支持会话切换', { level: 'warn' });
         }
       },
-      '会话切换器（副屏清单——选定切焦）',
+      '会话切换器（打开清单页——选定即切换）',
     );
   }
 
@@ -229,9 +229,9 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         if (result.status === 'ok') {
           uiCore.notify(`已改名：${result.title}`);
         } else if (result.status === 'empty') {
-          uiCore.notify('新名净化后为空——不落库', { level: 'warn' });
+          uiCore.notify('新名字只含不可见字符——换一个再试', { level: 'warn' });
         } else {
-          uiCore.notify(`会话不存在：${sessionId}——改名未落库`, { level: 'warn' });
+          uiCore.notify(`会话不存在：${sessionId}——改名未保存`, { level: 'warn' });
         }
       },
       '会话改名（无参弹输入框；带参 /rename <新名> 直通）',
@@ -260,7 +260,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
           void registry.focus(id); // 切焦不打断——in-flight run 跨切焦继续
           uiCore.notify(`已续接：${id}`);
         } else {
-          uiCore.notify(`会话不存在：${id}——用 /sessions 查在册 id`, { level: 'warn' });
+          uiCore.notify(`会话不存在：${id}——输入 /sessions 查看会话列表`, { level: 'warn' });
         }
       },
       '会话续接（无参开清单选定续接；带参 /resume <id> 直达）',
@@ -284,7 +284,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
           if (b.openUsage?.(sessionId, summary) === true) opened = true;
         }
         if (!opened) {
-          uiCore.notify('当前通道不支持用量面板', { level: 'warn' });
+          uiCore.notify('当前界面不支持用量面板', { level: 'warn' });
         }
       },
       '会话用量面板（全 run 累计分表）',
@@ -306,7 +306,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
       if (backends.some((b) => b.id === backend.id)) {
         throw new BaseError(
           'CHANNEL_BACKEND_RESERVED',
-          `后端 id「${backend.id}」是宿主域后端——插件结构性不可顶替（03 §2.7 分域律；07 §4 宿主后端恒在场），请换 id 注册`,
+          `后端 id「${backend.id}」是宿主保留的后端——插件不能顶替（03 §2.7 分域律），请换一个 id 注册`,
         );
       }
       // 插件域内按 id 后写胜出（upsert 原位顶替——扇出序稳定不移尾；同

@@ -25,7 +25,7 @@ const BASE: OnboardingPanelOptions = {
 describe('buildOnboardingLines 行集构造', () => {
   it('降级形（无向导——ob-3 落地前单发窗）：两选项（enter 跳过/q 退出）+ provider 点名 + 双途径指路', () => {
     const text = buildOnboardingLines(BASE).join('\n');
-    expect(text).toContain('模型凭证未配置');
+    expect(text).toContain('还没配置 API key');
     expect(text).toContain('anthropic/claude-sonnet-5'); // 模型标识点名
     expect(text).toContain('--model-provider anthropic'); // ob-1 凭证表录入位指路（provider 点名）
     expect(text).toContain('ANTHROPIC_API_KEY'); // env 途径例键

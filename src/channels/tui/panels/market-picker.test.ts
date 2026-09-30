@@ -281,7 +281,7 @@ describe('MarketPicker 键面', () => {
     picker.handleEvent(k('u'));
     expect(actions.upgrade).toHaveBeenCalledTimes(1); // 未装零回调
     expect(notifyWarn).toHaveBeenCalledTimes(1);
-    expect(notifyWarn.mock.calls[0]![0]).toContain('enter 选装');
+    expect(notifyWarn.mock.calls[0]![0]).toContain('enter 安装');
     // text 轨（kitty disambiguate 纯键打字走 text 事件）同语义
     picker.handleEvent(k('home'));
     picker.handleEvent({ kind: 'text', text: 'u' } as InputEvent);

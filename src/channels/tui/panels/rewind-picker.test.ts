@@ -48,8 +48,8 @@ function readRow(grid: CellGrid, row: number, width: number): string {
 
 /** 测试条目（manifestLine 成品行——插件域组装形） */
 const TEST_ENTRIES: readonly { id: string; line: string }[] = [
-  { id: 'm-second0001', line: '- m-second… 2026-09-30 12:00:00〔变异前拍〕3 文件 · 回退点 seq=5' },
-  { id: 'm-first00002', line: '- m-first0… 2026-09-30 11:00:00〔变异前拍〕1 文件 · 回退点 seq=2' },
+  { id: 'm-second0001', line: '- m-second… 2026-09-30 12:00:00〔修改前快照〕3 文件 · 回退点 seq=5' },
+  { id: 'm-first00002', line: '- m-first0… 2026-09-30 11:00:00〔修改前快照〕1 文件 · 回退点 seq=2' },
   { id: 'm-backup0003', line: '- m-backup… 2026-09-30 10:00:00〔回退保底拍〕2 文件 · 回退点 seq=1' },
 ];
 
@@ -87,10 +87,10 @@ describe('RewindPicker 呈现（list 段）', () => {
     expect(readRow(grid, 0, 72)).toContain('回退点');
     expect(readRow(grid, 0, 72)).toContain('3 个');
     expect(readRow(grid, 1, 72)).toContain('m-second…');
-    expect(readRow(grid, 1, 72)).toContain('变异前拍');
+    expect(readRow(grid, 1, 72)).toContain('修改前快照');
     expect(readRow(grid, 2, 72)).toContain('m-first0…');
     expect(readRow(grid, 3, 72)).toContain('回退保底拍');
-    expect(readRow(grid, grid.rows - 1, 72)).toContain('enter 预演');
+    expect(readRow(grid, grid.rows - 1, 72)).toContain('enter 预览');
     expect(readRow(grid, grid.rows - 1, 72)).toContain('打字过滤');
   });
 
@@ -160,8 +160,8 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     const grid = paint(picker);
     const all = Array.from({ length: grid.rows }, (_, i) => readRow(grid, i, 72)).join('\n');
     expect(all).toContain('恢复 2 · 删除 1 · 不动 0'); // 三账行标记位
-    expect(all).toContain('manifest 外'); // 警告行（规范明文）
-    expect(all).toContain('不回退');
+    expect(all).toContain('你手动改的文件保持不动'); // 警告行（警示语义完整——只还原 berry 记录的改动）
+    expect(all).toContain('回退只还原'); // 警示前半——还原范围点名（berry 记录的改动）
     expect(all).toContain('enter 确认回退'); // 段二提示
     expect(all).toContain('esc 返回'); // 返回路提示
   });
@@ -178,7 +178,7 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     picker.handleEvent(k('enter'));
     const grid = paint(picker);
     const all = Array.from({ length: grid.rows }, (_, i) => readRow(grid, i, 72)).join('\n');
-    expect(all).toContain('预演中');
+    expect(all).toContain('预览中');
     expect(all).not.toContain('恢复 2');
     resolvePreview({ ...PREVIEW_OK });
   });

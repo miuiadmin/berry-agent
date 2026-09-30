@@ -16,6 +16,7 @@
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
 import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 模型条目（装配位从 llmRuntime 目录合成——本件不 import llm） */
 export interface ModelPickEntry {
@@ -156,14 +157,14 @@ export class ModelPicker implements OverlayContent {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        `过滤：${this.query}_ · ↑↓ 移动 · enter 选定 · backspace 删词 · esc 返回`,
+        `过滤：${this.query}_ · ` + hintLine('↑↓ 移动', 'enter 选定', 'backspace 删词', 'esc 返回'),
         HINT_STYLE,
       );
     } else {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        `↑↓ 移动 · enter 选定（下一轮对话起生效） · 打字过滤 · esc/q 返回`,
+        hintLine('↑↓ 移动', 'enter 选定（下一轮对话起生效）', '打字过滤', 'esc/q 返回'),
         HINT_STYLE,
       );
     }

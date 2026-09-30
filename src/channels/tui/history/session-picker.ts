@@ -18,6 +18,7 @@ import { fitRowSegments } from '../row-segments.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiSessionSummary } from '../../../contracts/index.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 切换器装配选项 */
 export interface SessionPickerOptions {
@@ -99,7 +100,7 @@ export class SessionPicker implements OverlayContent {
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (this.sessions.length === 0) {
-      buffer.writeText(region.row + 1, region.col, '（无会话）', HINT_STYLE);
+      buffer.writeText(region.row + 1, region.col, '（暂无会话——esc 返回，输入 /new 新建）', HINT_STYLE);
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;
@@ -110,7 +111,7 @@ export class SessionPicker implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.sessions.length === 0 ? 'q/esc 返回' : '↑↓ 移动 · enter 切焦 · q/esc 返回',
+      this.sessions.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回'),
       HINT_STYLE,
     );
   }

@@ -19,6 +19,7 @@
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
 import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 档位条目（装配位从 SANDBOX_MODES 单源合成——本件不 import safety） */
 export interface SandboxPickEntry {
@@ -102,7 +103,7 @@ export class SandboxPicker implements OverlayContent {
   /** 落位：头行 → 条目视口（光标 ▸ + 当前 ● + 档名 / 说明右段）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = this.entries.length === 0 ? '◆ 沙箱档位 · 无条目' : `◆ 沙箱档位 · ${this.entries.length} 档`;
+    const head = this.entries.length === 0 ? '◆ 沙箱 · 无条目' : `◆ 沙箱 · ${this.entries.length} 级`;
     buffer.writeText(region.row, region.col, head);
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
@@ -119,7 +120,9 @@ export class SandboxPicker implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.entries.length === 0 ? 'q/esc 返回' : '↑↓ 移动 · enter 选定（即刻生效于后续工具调用） · q/esc 返回',
+      this.entries.length === 0
+        ? 'q/esc 返回'
+        : hintLine('↑↓ 移动', 'enter 选定（即刻生效于后续工具调用）', 'q/esc 返回'),
       HINT_STYLE,
     );
   }

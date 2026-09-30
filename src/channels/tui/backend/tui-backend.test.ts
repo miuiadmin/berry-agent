@@ -595,7 +595,7 @@ describe('TuiBackend 提交路由', () => {
     const { io, calls, pump } = makeInteractive({ onQuit: undefined });
     io.emitInput('/exit\r');
     pump();
-    expect(io.bytes).toContain('不支持退出命令'); // 诚实拒
+    expect(io.bytes).toContain('当前界面不支持 /exit'); // 诚实拒
     expect(calls.quit).toBe(0);
     expect(calls.submitted).toEqual([]);
   });
@@ -2624,7 +2624,7 @@ describe('TuiBackend /status · /debug · /skills 副屏装配（07 §4.1 命令
     expect(backend.lifecycle).toBe('suspended');
     expect(io.frames[0]).toBe(MAIN_LEAVE);
     expect(io.frames[1]).toBe(ALT_ENTER);
-    expect(io.bytes).toContain('✦ 技能清单 · 2 件');
+    expect(io.bytes).toContain('✦ 技能清单 · 2 个');
     expect(io.bytes).toContain('▸ commit-style'); // 首行光标
     expect(io.bytes).toContain('隐 · user'); // 隐藏件标记（含入不滤）
   });
@@ -2676,10 +2676,10 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
   const THINKING_ENTRIES = [
     { level: 'off', detail: '关闭思考' },
     { level: 'minimal', detail: '极简思考' },
-    { level: 'low', detail: '低档思考' },
-    { level: 'medium', detail: '中档思考' },
-    { level: 'high', detail: '高档思考' },
-    { level: 'xhigh', detail: '超高档思考' },
+    { level: 'low', detail: '低强度思考' },
+    { level: 'medium', detail: '中强度思考' },
+    { level: 'high', detail: '高强度思考' },
+    { level: 'xhigh', detail: '超高强度思考' },
     { level: 'max', detail: '最大思考' },
   ];
 
@@ -2725,7 +2725,7 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     expect(backend.lifecycle).toBe('suspended');
     expect(io.frames[0]).toBe(MAIN_LEAVE);
     expect(io.frames[1]).toBe(ALT_ENTER);
-    expect(io.bytes).toContain('◆ 主题切换 · 4 档');
+    expect(io.bytes).toContain('◆ 主题切换 · 4 个主题');
     expect(io.bytes).toContain('● dark'); // 当前档标记
     expect(io.bytes).toContain('⚠'); // 坏文件条目标注
   });
@@ -2758,10 +2758,10 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     expect(backend.lifecycle).toBe('suspended');
     expect(io.frames[0]).toBe(MAIN_LEAVE);
     expect(io.frames[1]).toBe(ALT_ENTER);
-    expect(io.bytes).toContain('◆ 思考档位 · 7 档');
+    expect(io.bytes).toContain('◆ 深度思考 · 7 级');
     expect(io.bytes).toContain('● medium'); // 当前档标记
     expect(io.bytes).toContain('下一轮对话起生效'); // 生效语义提示（底行）
-    expect(io.bytes).toContain('随模型能力'); // 诚实句（S3——选定不等于生效：档位能力随 provider）
+    expect(io.bytes).toContain('部分模型不支持'); // 诚实句（S3——选定不等于生效：档位能力随 provider）
   });
 
   it('openThinking current 缺席 = 零 ● 锚（诚实无锚——boot 未设且无切档事件）', () => {
@@ -2791,7 +2791,7 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     expect(backend.lifecycle).toBe('suspended');
     expect(io.frames[0]).toBe(MAIN_LEAVE);
     expect(io.frames[1]).toBe(ALT_ENTER);
-    expect(io.bytes).toContain('◆ 沙箱档位 · 3 档');
+    expect(io.bytes).toContain('◆ 沙箱 · 3 级');
     expect(io.bytes).toContain('● workspace-write'); // 当前档标记
     expect(io.bytes).toContain('直跑宿主'); // danger 行警示语
     expect(io.bytes).toContain('即刻生效于后续工具调用'); // 生效语义提示（底行——A4 分拆形：per 工具调用现取）
@@ -2984,7 +2984,7 @@ describe('TuiBackend /marketplace 选装副屏（mp-5——03 §9.6 TUI 选装�
     expect(io.bytes).toContain('▸ hello-plugin@alpha'); // 光标在首行
     expect(io.bytes).toContain('demo-pkg@alpha 已装'); // 已装徽标
     expect(io.bytes).toContain('alpha 跳过：'); // tail 尾行区
-    expect(io.bytes).toContain('↑↓ 移动 · enter 选装/卸载'); // 键面提示行
+    expect(io.bytes).toContain('↑↓ 移动 · enter 安装/卸载'); // 键面提示行
   });
 
   it('host 模型变更路（requestAltRepaint）：busyLabel 换装即时落帧 + busy 期动作键锁（enter 零回调 + warn 入挂起缓冲复起补吐）', () => {
@@ -3527,7 +3527,7 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     pump();
     // 修前红：'? 乙提问' 裸呈现——路由层（routeEvent 栈顶独占）把一切键终局
     // 于选单、编辑器收不到字；修后标注「等上方面板收场后作答」明示先后
-    expect(io.bytes).toContain('? 乙提问（等上方面板收场后作答）');
+    expect(io.bytes).toContain('? 乙提问（等上方面板关闭后作答）');
     io.emitInput('\r'); // 栈顶独占——先应答选单
     pump();
     await expect(ps).resolves.toBe('a');

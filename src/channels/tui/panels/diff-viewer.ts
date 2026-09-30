@@ -19,6 +19,7 @@ import type { ResolvedTheme } from '../theme/index.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
 import { diffWords, parsePatchLines, type DiffSeg, type PatchLine } from '../blocks/word-diff.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /**
  * 投影工具调用最小面（foldSessionDiff 消费子集）：arguments = **原始未解析
@@ -291,7 +292,7 @@ export class DiffViewer implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.groups.length === 0 ? 'q/esc 返回' : '↑↓ 移动 · enter 展开/收起 · q/esc 返回',
+      this.groups.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 展开/收起', 'q/esc 返回'),
       HINT_STYLE,
     );
   }

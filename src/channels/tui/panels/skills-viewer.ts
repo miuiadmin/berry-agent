@@ -16,6 +16,7 @@
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
 import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 技能清单条目（channels 侧窄面——skills 域真身在 host，装配位映射注入） */
 export interface SkillListEntry {
@@ -99,7 +100,7 @@ export class SkillsViewer implements OverlayContent {
   /** 落位：头行 → 清单视口（光标行标记 + 名/描述左段 / 隐藏标记·层名右段）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = this.entries.length === 0 ? '✦ 技能清单 · 无技能' : `✦ 技能清单 · ${this.entries.length} 件`;
+    const head = this.entries.length === 0 ? '✦ 技能清单 · 无技能' : `✦ 技能清单 · ${this.entries.length} 个`;
     buffer.writeText(region.row, region.col, head);
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
@@ -116,7 +117,7 @@ export class SkillsViewer implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.entries.length === 0 ? 'q/esc 返回' : '↑↓ 移动 · enter 填入输入框 · q/esc 返回',
+      this.entries.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 填入输入框', 'q/esc 返回'),
       HINT_STYLE,
     );
   }

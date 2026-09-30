@@ -28,7 +28,7 @@ const TOKEN_LINE = 'daemon token（自动生成——本地调用方接入凭证
 const DATA: DebugPanelData = {
   daemonLogPath: '/tmp/berry-home/serve/daemon.log',
   daemonLogTail: ['daemon 启动（pid 123）', TOKEN_LINE, '面开：127.0.0.1:8080'],
-  logLevel: 'info（缺省）',
+  logLevel: 'info（默认）',
   settingsKeys: ['theme', 'keybindings'],
   settingsWarnings: ['settings.json：theme 值「neon」不在档——回退 dark', '键位覆盖未生效：unknown-action foo'],
   sqlitePath: '/tmp/berry-home/agent.db',
@@ -53,10 +53,10 @@ describe('buildDebugLines 行集构造（纯函数）', () => {
   it('段序与行集：运行时（logLevel/sqlite）→ 插件清单 → daemon.log（路径+掩码尾快照）→ settings（键+warn）', () => {
     const lines = buildDebugLines(DATA);
     expect(lines[0]).toBe('── 运行时 ──');
-    expect(lines.some((line) => line.startsWith('日志级别 logLevel') && line.includes('info（缺省）'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('日志级别 logLevel') && line.includes('info（默认）'))).toBe(true);
     expect(lines.some((line) => line.startsWith('sqlite 库 dbPath') && line.includes('agent.db'))).toBe(true);
     // 插件清单段（计数头 + 逐 id 行）
-    expect(lines).toContain('── 已装载插件（2 件）──');
+    expect(lines).toContain('── 已安装插件（2 个）──');
     expect(lines).toContain('· core:skills');
     expect(lines).toContain('· plugin:demo');
     // daemon.log 段：路径 + 尾快照（token 行已掩码——行集构造内执法）
@@ -74,13 +74,13 @@ describe('buildDebugLines 行集构造（纯函数）', () => {
     const memoryForm = buildDebugLines({ ...DATA, daemonLogPath: null, daemonLogTail: null });
     expect(memoryForm.some((line) => line.startsWith('路径 logPath') && line.includes(':memory:'))).toBe(true);
     const absentForm = buildDebugLines({ ...DATA, daemonLogTail: null });
-    expect(absentForm).toContain('（非 daemon 跑法或文件尚未生成——daemon.log 缺席）');
+    expect(absentForm).toContain('（未以 daemon 方式运行或文件尚未生成——没有 daemon.log）');
   });
 
   it('空清单形：无插件 / 无配置键 / 无 warn 各自如实', () => {
     const lines = buildDebugLines({ ...DATA, pluginIds: [], settingsKeys: [], settingsWarnings: [] });
-    expect(lines).toContain('（无插件装载——--no-plugins 跑法或启用清单空）');
-    expect(lines.some((line) => line.startsWith('有效键 keys') && line.includes('全走缺省'))).toBe(true);
+    expect(lines).toContain('（无已安装插件——--no-plugins 启动或启用清单为空）');
+    expect(lines.some((line) => line.startsWith('有效键 keys') && line.includes('全用默认'))).toBe(true);
     expect(lines).toContain('无效配置警告：无');
   });
 });

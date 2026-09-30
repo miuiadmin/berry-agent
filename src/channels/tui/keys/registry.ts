@@ -266,7 +266,7 @@ export function resolveKeybindings(overrides?: Readonly<Record<string, string>>)
           kind: 'conflict',
           actionId,
           binding,
-          detail: `键 ${binding} 冲突：${actionId} 与 ${peer} 同键（非缺省册既有集）`,
+          detail: `键 ${binding} 冲突：${actionId} 与 ${peer} 同键（默认键位无此组合）`,
         });
       }
     }

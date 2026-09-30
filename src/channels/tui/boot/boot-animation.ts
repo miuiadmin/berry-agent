@@ -150,7 +150,7 @@ export class BootAnimation {
       this.ensureHeader();
       const id = stripControl(pluginId);
       this.openSegment(`插件 ${id}`);
-      this.write(`▸ 装载 ${id}（${index}/${total}）\n`);
+      this.write(`▸ 加载 ${id}（${index}/${total}）\n`);
     } catch {
       // 呈现件自保（同上）
     }

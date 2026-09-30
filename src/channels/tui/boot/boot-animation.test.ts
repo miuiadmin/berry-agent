@@ -77,14 +77,14 @@ describe('BootAnimation 启动动画件（三反馈批D——案A cooked 逐行�
     expect(text).toContain('✓ 子代理域');
     expect(text).toContain('✓ 就绪');
     // 插件装载行（装载前达——i/N 计数）+ plugins 尾计数行（detail 解析形）
-    expect(text).toContain('▸ 装载 core:memory（1/2）');
-    expect(text).toContain('▸ 装载 core:obs（2/2）');
+    expect(text).toContain('▸ 加载 core:memory（1/2）');
+    expect(text).toContain('▸ 加载 core:obs（2/2）');
     expect(text).toContain('✓ 插件（启用 2/共 2）');
     // 段序：头行 → 运行时 → 首插件行 → 插件计数 → 就绪（严格递增）
     const order = [
       text.indexOf('berry-agent'),
       text.indexOf('✓ 运行时'),
-      text.indexOf('▸ 装载 core:memory'),
+      text.indexOf('▸ 加载 core:memory'),
       text.indexOf('✓ 插件（'),
       text.indexOf('✓ 就绪'),
     ];

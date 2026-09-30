@@ -136,7 +136,7 @@ describe('SessionPicker 光标与选择模型', () => {
     const grid = new CellGrid(40, 5);
     picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
     expect(readRow(grid, 0, 40)).toBe('⇄ 会话切换 · 无会话');
-    expect(readRow(grid, 1, 40)).toBe('（无会话）');
+    expect(readRow(grid, 1, 40)).toBe('（暂无会话——esc 返回，输入 /new 新建）');
     expect(readRow(grid, 4, 40)).toBe('q/esc 返回');
     expect(picker.handleEvent(k('down'))).toBe(true); // 吞而不动
     picker.handleEvent(k('enter'));
@@ -157,7 +157,7 @@ describe('SessionPicker 行呈现', () => {
     // 左段 10 列 · 右段 20 列右对齐（col 40）→ 中间 30 空格
     expect(readRow(grid, 1, 60)).toBe('▸   调 TUI' + ' '.repeat(30) + '09-15 10:30 aaa11111');
     expect(readRow(grid, 2, 60)).toBe('  ● 旧会话' + ' '.repeat(30) + '09-15 09:05 bbb22222');
-    expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 切焦 · q/esc 返回');
+    expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 切换 · q/esc 返回');
   });
 
   it('标题缺席（undefined/空串）如实「（无题）」', () => {

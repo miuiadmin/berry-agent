@@ -43,8 +43,8 @@ export interface OnboardingPanelOptions {
  */
 export function buildOnboardingLines(o: OnboardingPanelOptions): string[] {
   const lines: string[] = [
-    '⚠ 模型凭证未配置——发消息将失败',
-    `  当前模型 ${o.modelSpec}（provider ${o.providerId}）无可用凭证。`,
+    '⚠ 还没配置 API key——发消息会失败',
+    `  当前模型 ${o.modelSpec}（渠道 ${o.providerId}）没有可用的 API key。`,
     '',
     '  配置途径（任选其一）：',
   ];
@@ -53,12 +53,12 @@ export function buildOnboardingLines(o: OnboardingPanelOptions): string[] {
     lines.push(`  1. 环境变量（如 ${o.envExample}）——设后重启生效`);
   }
   lines.push(
-    `  ${afterEnv}. 绑定到模型渠道（录入即生效，无需重启）：/credentials add <名> <值> --model-provider ${o.providerId}`,
+    `  ${afterEnv}. 保存 API key 给该渠道用（录入即生效，无需重启）：/credentials add <名> <值> --model-provider ${o.providerId}`,
     '',
   );
   if (o.hasSetupWizard) {
     lines.push(
-      '  [enter] 进入 /setup 配置向导（选渠道 → 录 key → 完成绑定）',
+      '  [enter] 进入 /setup 配置向导（选渠道 → 录 key → 完成保存）',
       '  [s]     跳过，进入主屏（可稍后 /setup 或 /credentials）',
       '  [q]     退出',
     );

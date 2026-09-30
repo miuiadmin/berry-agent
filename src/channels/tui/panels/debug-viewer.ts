@@ -18,6 +18,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { stringWidth } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /** 调试面板数据快照（装配位现取注入——面板收纯数据行，不触任何边外面） */
 export interface DebugPanelData {
@@ -49,7 +50,7 @@ export interface DebugViewerOptions {
 /** 提示行样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 底行键面提示 */
-const HINT_TEXT = 'q/esc 返回 · ↑↓/pgup/pgdn/home/end 滚动';
+const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
@@ -162,10 +163,10 @@ export function buildDebugLines(data: DebugPanelData): string[] {
     row('日志级别 logLevel', data.logLevel),
     row('sqlite 库 dbPath', data.sqlitePath),
     '',
-    `── 已装载插件（${data.pluginIds.length} 件）──`,
+    `── 已安装插件（${data.pluginIds.length} 个）──`,
   ];
   if (data.pluginIds.length === 0) {
-    lines.push('（无插件装载——--no-plugins 跑法或启用清单空）');
+    lines.push('（无已安装插件——--no-plugins 启动或启用清单为空）');
   } else {
     for (const id of data.pluginIds) lines.push(`· ${id}`);
   }
@@ -176,7 +177,7 @@ export function buildDebugLines(data: DebugPanelData): string[] {
   } else {
     lines.push(row('路径 logPath', data.daemonLogPath));
     if (data.daemonLogTail === null) {
-      lines.push('（非 daemon 跑法或文件尚未生成——daemon.log 缺席）');
+      lines.push('（未以 daemon 方式运行或文件尚未生成——没有 daemon.log）');
     } else {
       lines.push('日志末尾 50 行（令牌已打码）：');
       if (data.daemonLogTail.length === 0) {
@@ -188,7 +189,7 @@ export function buildDebugLines(data: DebugPanelData): string[] {
   }
   lines.push('', '── settings ──');
   if (data.settingsKeys.length === 0) {
-    lines.push(row('有效键 keys', '（无用户配置键——全走缺省）'));
+    lines.push(row('有效键 keys', '（无用户配置键——全用默认）'));
   } else {
     lines.push(row('有效键 keys', data.settingsKeys.join('、')));
   }

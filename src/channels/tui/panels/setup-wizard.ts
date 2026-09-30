@@ -30,6 +30,7 @@
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
 import { truncateToWidth } from '../../engine/index.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 import type {
   WizardConfirmRequest,
   WizardMultiselectRequest,
@@ -280,7 +281,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       }
       // 滚动溢出指示（用户真机反馈）：窗上/下方还有被裁条目时在键面行报计数，
       // 让长清单「还有多少」可感知（并入键面行零几何耦合——不占行预算）
-      hint = this.overflowHint(phase.req.items, start, lastDrawn, '↑↓ 移动 · enter 选定 · esc 退出');
+      hint = this.overflowHint(phase.req.items, start, lastDrawn, hintLine('↑↓ 移动', 'enter 选定', 'esc 退出'));
     } else if (phase.kind === 'multiselect') {
       this.viewportHeight = Math.max(1, end - line);
       this.clampCursor(phase);
@@ -307,7 +308,12 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
         line++;
       }
       // 滚动溢出指示（与 select 相同律——长模型清单勾选面同感知）
-      hint = this.overflowHint(phase.req.items, start, lastDrawn, '↑↓ 移动 · space 勾选 · enter 确认 · esc 退出');
+      hint = this.overflowHint(
+        phase.req.items,
+        start,
+        lastDrawn,
+        hintLine('↑↓ 移动', 'space 勾选', 'enter 确认', 'esc 退出'),
+      );
     } else if (phase.kind === 'text') {
       // 全明文回显（2026-09-28 翻裁——掩码相退役恒原文）；尾随 _ 光标位
       buffer.writeText(line, region.col, truncateToWidth(`${phase.buffer}_`, region.width));
@@ -320,7 +326,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
         buffer.writeText(line, region.col, truncateToWidth(phase.req.hint, region.width), HINT_STYLE);
         line++;
       }
-      hint = '键入后 enter 确认 · backspace 删尾 · esc 退出';
+      hint = hintLine('键入后 enter 确认', 'backspace 删尾', 'esc 退出');
     } else if (phase.kind === 'confirm') {
       buffer.writeText(line, region.col, truncateToWidth(phase.req.title, region.width));
       line++;
@@ -342,7 +348,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
         buffer.writeText(line, region.col, `${yesMark} 是 / ${noMark} 否（enter = ${def ? '是' : '否'}）`);
         line++;
       }
-      hint = 'y 是 · n 否 · enter 取默认 · esc 退出';
+      hint = hintLine('y 是', 'n 否', 'enter 取默认', 'esc 退出');
     } else {
       for (const text of phase.lines) {
         if (line >= end) break;
@@ -627,7 +633,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
     const parts: string[] = [];
     if (above > 0) parts.push(`↑${above} 项`);
     if (below > 0) parts.push(`↓${below} 项`);
-    return parts.length > 0 ? `${parts.join(' · ')} · ${baseHint}` : baseHint;
+    return parts.length > 0 ? hintLine(...parts, baseHint) : baseHint;
   }
 
   /**

@@ -189,10 +189,10 @@ export async function openWebuiFace(
   };
   const disclose = options.disclose ?? ((line) => process.stderr.write(`${line}\n`));
   if (mount !== undefined) {
-    disclose(`Web 界面已开面：http://${host}:${port}/`);
+    disclose(`Web 界面已开启：http://${host}:${port}/`);
   } else {
     disclose(
-      `HTTP 面已开面（webui 件未装载——Web 界面与 /api/* 缺席，/v1/* 程序调用面仍在场）：http://${host}:${port}/`,
+      `HTTP 服务已开启（webui 插件未安装——Web 界面与 /api/* 未提供，/v1/* 程序调用接口仍开放）：http://${host}:${port}/`,
     );
   }
   disclose(`访问令牌（仅此一次显示）：${face.token}`);

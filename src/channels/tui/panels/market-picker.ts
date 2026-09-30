@@ -27,6 +27,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { truncateToWidth } from '../../engine/index.js';
 import { fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /**
  * 市场条目行（host 侧合成注入）：寻址形 id = `name@market`；文本字段
@@ -101,7 +102,7 @@ const BUSY_MARK = '⏳';
 /** busy 期动作键锁文案（busyLabel 原样嵌入——面板不猜动作语义） */
 const BUSY_LOCK_HINT = (label: string): string => `${label}——操作进行中，完成后可重试`;
 /** u 键未装指路文案（面板静态文案——键面语义归呈现件） */
-const U_NOT_INSTALLED_HINT = '未装机——enter 选装（u 换装仅对已装条目）';
+const U_NOT_INSTALLED_HINT = '未安装——enter 安装（u 更新仅对已装条目）';
 
 /**
  * 滚轮单步行数（ScrollView WHEEL_LINES=3 同档——vim mousescroll ver 缺省
@@ -202,7 +203,7 @@ export class MarketPicker implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      '↑↓ 移动 · enter 选装/卸载 · u 换装 · r 刷新 · q/esc 返回',
+      hintLine('↑↓ 移动', 'enter 安装/卸载', 'u 更新', 'r 刷新', 'q/esc 返回'),
       HINT_STYLE,
     );
   }

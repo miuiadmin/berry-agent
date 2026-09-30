@@ -492,7 +492,7 @@ export class SdkWireCore {
     if (!check.ok) {
       this.emitError(
         'SDK_CURSOR_INVALID',
-        `对账游标非法（${check.reason}）：since=${since} 高水位=${highWater}`,
+        `游标无效（${check.reason}）：since=${since} 高水位=${highWater}`,
         sessionId,
       );
       return;

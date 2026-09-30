@@ -642,7 +642,7 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         STEP_TIMEOUT_MS,
         session.name,
         (lines) =>
-          lines.some((line) => line.includes('思考档位 · 7 档')) && lines.some((line) => line.includes('xhigh')),
+          lines.some((line) => line.includes('深度思考 · 7 级')) && lines.some((line) => line.includes('xhigh')),
       );
       // end 一步跳尾档（tmux send-keys End 发 ESC[4~——xterm legacy 双形，已由
       // input-keys.ts TILDE_KEYS `4: 'end'` 收录；本面首跑曾抓该形死键真缺陷，
@@ -660,8 +660,8 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         STEP_TIMEOUT_MS,
         session.name,
         (lines) =>
-          !lines.some((line) => line.includes('思考档位 · 7 档')) &&
-          lines.some((line) => line.includes('思考档位：max（下一轮对话起生效')),
+          !lines.some((line) => line.includes('深度思考 · 7 级')) &&
+          lines.some((line) => line.includes('思考级别：max（下一轮对话起生效')),
       );
     },
     90_000,
@@ -680,8 +680,7 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         '/sandbox 副屏进屏',
         STEP_TIMEOUT_MS,
         session.name,
-        (lines) =>
-          lines.some((line) => line.includes('沙箱档位 · 3 档')) && lines.some((line) => line.includes('danger')),
+        (lines) => lines.some((line) => line.includes('沙箱 · 3 级')) && lines.some((line) => line.includes('danger')),
       );
       // end 一步跳尾档 danger → enter 选定（即刻生效语义——回执文案与 thinking
       // 「下一轮对话起生效」分拆两形的 F2 形）；选档只 append 会话事件 +
@@ -694,8 +693,8 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         STEP_TIMEOUT_MS,
         session.name,
         (lines) =>
-          !lines.some((line) => line.includes('沙箱档位 · 3 档')) &&
-          lines.some((line) => line.includes('沙箱档位：danger（即刻生效')),
+          !lines.some((line) => line.includes('沙箱 · 3 级')) &&
+          lines.some((line) => line.includes('沙箱模式：danger（即刻生效')),
       );
     },
     90_000,
@@ -793,7 +792,7 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
       const session = startTuiSession({ dataDir, wsDir: wsDir });
       await waitForStartup(session.name);
       // 无参形进屏判据两锚：标题行（◆ 回退点 · 1 个）+ 条目行（id 截 8 位
-      // 短形 e2e-rew + 触发形中文变异前拍——manifestLine 单源成品行）
+      // 短形 e2e-rew + 触发形中文修改前快照——manifestLine 单源成品行）
       sendLiteral(session.name, '/rewind');
       sendKey(session.name, 'Enter');
       await waitForScreen(
@@ -802,7 +801,7 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         session.name,
         (lines) =>
           lines.some((line) => line.includes('回退点 · 1 个')) &&
-          lines.some((line) => line.includes('e2e-rew') && line.includes('变异前拍')),
+          lines.some((line) => line.includes('e2e-rew') && line.includes('修改前快照')),
       );
       // esc 收屏回主屏（副屏退出族 esc 腿——标题消失 + footer 复在场）
       sendKey(session.name, 'Escape');

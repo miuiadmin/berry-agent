@@ -1830,7 +1830,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       return false;
     }
     if (this.onQuit === undefined) {
-      this.notify('当前通道不支持退出命令（onQuit 柄未接线）', { level: 'warn' });
+      this.notify('当前界面不支持 /exit——可按 Ctrl+D 退出', { level: 'warn' });
       return true;
     }
     this.onQuit();
@@ -2321,7 +2321,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 但要等」对用户诚实。异会话 FIFO 队列化（十六役扫 #2——07 §4.3 定形
     // 注）：排队问不上屏，队首提示行缀排队数明示「后面还有几问」
     if (this.inputAsk !== null) {
-      const waiting = this.stack.size > 0 ? '（等上方面板收场后作答）' : '';
+      const waiting = this.stack.size > 0 ? '（等上方面板关闭后作答）' : '';
       const queued = this.inputQueue.length > 0 ? `（后面还有 ${this.inputQueue.length} 问排队）` : '';
       grid.writeText(row, 0, `? ${this.inputAsk.message}${waiting}${queued}`, { dim: true });
       row += 1;

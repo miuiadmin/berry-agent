@@ -565,7 +565,7 @@ describe('/memory 命令面（06 §7 形态定形注①——在场即注册、�
     s.addBackend(b.backend);
     expect(await s.dispatchCommand('/memory')).toBe(true); // 命令在场被消费
     expect(b.memoryOpens).toHaveLength(1); // 扇出照走——返值诚实
-    expect(b.notified).toEqual([{ message: '当前通道不支持记忆管理面（或 memory 件未装载）', level: 'warn' }]);
+    expect(b.notified).toEqual([{ message: '当前界面不支持记忆管理页（或 memory 插件未安装）', level: 'warn' }]);
   });
 
   it('无 openMemory 钩后端（如 web）：同为 falsy 位——notify 降级', async () => {
@@ -624,7 +624,7 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     const b = fakeBackend('web'); // 无钩后端
     s.addBackend(b.backend);
     expect(await s.dispatchCommand('/sessions')).toBe(true);
-    expect(b.notified).toEqual([{ message: '当前通道不支持会话切换器', level: 'warn' }]);
+    expect(b.notified).toEqual([{ message: '当前界面不支持会话切换', level: 'warn' }]);
   });
 
   it('sessions 注入缺席：不注册不虚报（/sessions 不在命令面，分发返 false）', async () => {
@@ -675,7 +675,7 @@ describe('/rename 命令面（07 §4.1 2026-09-30 会话管理命令批——ren
     const raw = `\x1b[2J${'甲'.repeat(210)}`;
     expect(await s.dispatchCommand(`/rename ${raw}`, 's1')).toBe(true);
     expect(rig.calls).toEqual([{ sessionId: 's1', title: raw }]); // 原样透传——净化+帽归注入侧
-    expect(b.notified).toEqual([{ message: '新名净化后为空——不落库', level: 'warn' }]);
+    expect(b.notified).toEqual([{ message: '新名字只含不可见字符——换一个再试', level: 'warn' }]);
   });
 
   it('无参：input ask 主屏输入框——回答直通改名；空输入=取消不落库', async () => {
@@ -704,7 +704,7 @@ describe('/rename 命令面（07 §4.1 2026-09-30 会话管理命令批——ren
     s.addBackend(b.backend);
     await s.dispatchCommand('/rename 新名', 's1');
     expect(rig.calls).toEqual([{ sessionId: 's1', title: '新名' }]);
-    expect(b.notified).toEqual([{ message: '会话不存在：s1——改名未落库', level: 'warn' }]);
+    expect(b.notified).toEqual([{ message: '会话不存在：s1——改名未保存', level: 'warn' }]);
   });
 
   it('无聚焦会话：warn 诚实拒 + 写面零调用（透传位空且 focusedId 空悬）', async () => {
@@ -780,7 +780,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     await s.focus('s1');
     await s.dispatchCommand('/resume no-such', 's1');
     expect(s.focusedId).toBe('s1'); // 切焦不达——open 失败焦点不动
-    expect(b.notified).toEqual([{ message: '会话不存在：no-such——用 /sessions 查在册 id', level: 'warn' }]);
+    expect(b.notified).toEqual([{ message: '会话不存在：no-such——输入 /sessions 查看会话列表', level: 'warn' }]);
   });
 
   it('无参：复用 /sessions 扇出（清单+副屏零新造）', async () => {
@@ -872,7 +872,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     await Promise.resolve();
     await Promise.resolve();
     expect(s.focusedId).toBe('s1'); // 修前红位：现实现无条件 focus（false 也切）
-    expect(b.notified).toEqual([{ message: '会话不存在：s2——用 /sessions 查在册 id', level: 'warn' }]);
+    expect(b.notified).toEqual([{ message: '会话不存在：s2——输入 /sessions 查看会话列表', level: 'warn' }]);
   });
 
   it('注入缺席：不注册不虚报（/resume 不在命令面，分发返 false）', async () => {
@@ -942,7 +942,7 @@ describe('/usage 命令面（07 §4.1 R7 批 10k——聚焦会话为真源；�
     s.registerSession('a');
     await s.focus('a');
     await s.dispatchCommand('/usage');
-    expect(b.notified).toEqual([{ message: '当前通道不支持用量面板', level: 'warn' }]);
+    expect(b.notified).toEqual([{ message: '当前界面不支持用量面板', level: 'warn' }]);
   });
 
   it('usage 注入缺席：不注册不虚报', async () => {

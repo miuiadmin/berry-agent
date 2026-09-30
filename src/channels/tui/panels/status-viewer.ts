@@ -21,6 +21,7 @@ import { stringWidth } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
+import { hintLine } from '../keys/hint.js';
 
 /** env 旋钮生效值条目（白名单三键——装配位定键序；null = 未设） */
 export interface StatusEnvEntry {
@@ -69,7 +70,7 @@ export interface StatusViewerOptions {
 /** 提示行样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 底行键面提示 */
-const HINT_TEXT = 'q/esc 返回 · ↑↓/pgup/pgdn/home/end 滚动';
+const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 
 /** key 事件窄化 */
 function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {

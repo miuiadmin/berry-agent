@@ -71,7 +71,7 @@ describe('ThemePicker 呈现', () => {
     const width = 72;
     const grid = new CellGrid(width, picker.measure(width));
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 0, width)).toBe('◆ 主题切换 · 5 档');
+    expect(readRow(grid, 0, width)).toBe('◆ 主题切换 · 5 个主题');
     expect(readRow(grid, 1, width)).toContain('auto');
     // dark = 当前档——● 标记位（非光标行前缀两空格 + ● 段）
     const darkRow = readRow(grid, 2, width);
