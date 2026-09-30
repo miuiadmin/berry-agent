@@ -95,6 +95,107 @@ const LIFECYCLE_RE = /\benablePlugin\b|\bdisablePlugin\b|\bpluginEnable\b|\bplug
 const ZH_VIOLATION_RE = /应用中心|应用型|应用商店|应用市场|应用列表/g;
 // 查三：谱系词（公开文档面）——豁免 -pi（perl 旗标）与 谱系闸（机制自产词）
 const LINEAGE_RE = /承自|对标|谱系|pi-ai|\bdsh\b|opencode|Emacs|\bpi\b/g;
+// 查四：用户面禁替词——字符串字面量扫描（07 §4.4 禁替表 21 行的特异形；
+// 2026-09-30 话术批查四扩展）。只咬高置信复合形，「件」「档」单义不扫
+// （对照语境合法态过多——中文违形复合谱：宁漏不误咬）。
+//   - 全词面：挂钟/变异前拍/保底拍/预演/切焦/回切/对账/委派折叠/判据门/
+//     复探/坏形/越形/在册/撞名/选装/换装/缺省/开面/副屏/档位/应答
+//   - 「帽」邻接中文形（X帽/帽X——产串中「帽」几乎全为「上限」禁义）
+//   - 数字档形（\d档 + 三档/七档/两档——「read-only 档」等分类词经豁免台账
+const USERFACE_RE =
+  /挂钟|变异前拍|保底拍|预演|切焦|回切|对账|委派折叠|判据门|复探|坏形|越形|在册|撞名|选装|换装|缺省|开面|副屏|档位|应答|[一-龥]帽|帽[一-龥]|\d\s*档|三档|七档|两档/g;
+
+/**
+ * 提取字符串字面量内容、保行号（查四专用——与 stripCode 互补：只看串内容，
+ * 注释/JSDoc 工程域不在射程）。模板串/单引号/双引号三形；剥离式近似——
+ * 嵌套模板形倾向漏报，宁漏不误咬（谱同 stripCode 头注）。
+ * @param {string} text 源文本
+ * @returns {{line: number, content: string}[]} 命中串段列表
+ */
+function extractStrings(text) {
+  /** @type {{line: number, content: string}[]} */
+  const out = [];
+  // 先按行占位剥离注释（块注释跨行占位 + 行注释抹空），再在余文中匹配串
+  const noComments = text
+    .replace(/\/\*[\s\S]*?\*\//g, (m) =>
+      m
+        .split('\n')
+        .map(() => '')
+        .join('\n'),
+    )
+    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+  const re = /`(?:\\.|[^`\\])*`|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/g;
+  for (const m of noComments.matchAll(re)) {
+    const before = noComments.slice(0, m.index ?? 0);
+    const startLine = before.split('\n').length;
+    out.push({ line: startLine, content: m[0] });
+  }
+  return out;
+}
+
+/**
+ * 查四诊断道特征（结构性豁免判据）：命中行或其上一行（跨行调用形——warn(
+ * 在串前一行）含 warn/logger/debug/console 族调用特征即诊断道射界外
+ * （07 §4.4 诊断道射界排除条款——logger./warn./debug 串不进用户面）。
+ * 不带 g 标志（无 lastIndex 状态——测试性优于复用 USERFACE_RE 的 g 形）。
+ */
+const DIAG_RE = /\bwarn\(|\bwarn\?\.\(|\bwarnFace\b|\blogger\b|\.debug\b|console\.(?:warn|error|log|info)\b/;
+
+/**
+ * 查四文件级豁免台账（07 §4.4——整文件工程目录面判定）。两类：
+ *   - codes.ts 错误码注册表族：description 是工程目录面（错误码语义目录
+ *     供开发者/规范对拍，非用户直读文案）。2026-09-30 话术批判定：词汇
+ *     替换已行者不回退（F 先例 11 行），未行者按本豁免保留——后续新增
+ *     code 的 description 一律用新词（台账头注纪律，不因豁免而放开）。
+ *   - 工程单源件：manifest 治理表（API 治理 desc）/ persist DDL（SQL
+ *     注释域）——字面串是工程规范真源非用户面。
+ * contracts 三件（errors/api/events）另被 api-surface.json 快照镜像
+ * 钉死——改 description 须动快照，故整文件豁免 + 快照不动。
+ */
+const USERFACE_FILE_EXEMPTS = [
+  { file: 'src/checkpoint/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/context/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/contracts/api.ts', reason: 'API 治理 note 面——api-surface.json 快照镜像钉死' },
+  { file: 'src/contracts/errors.ts', reason: '错误码注册表——api-surface.json 快照镜像钉死' },
+  { file: 'src/contracts/events.ts', reason: '事件词汇表——api-surface.json 快照镜像钉死' },
+  { file: 'src/conversation/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/credentials/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/goal/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/host/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/host/manifest.ts', reason: 'manifest 治理表 desc——API 治理工程单源' },
+  { file: 'src/lsp/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/mcp/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/memory/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/obs/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/persist/schema.ts', reason: 'CANONICAL_DDL SQL 注释域——工程真源' },
+  { file: 'src/safety/codes.ts', reason: '错误码注册表 description 工程目录面（F 先例已改 11 行不回退）' },
+  { file: 'src/session/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/subagent/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  { file: 'src/tools/codes.ts', reason: '错误码注册表 description 工程目录面' },
+];
+
+/**
+ * 查四点条豁免台账（出生即绿判定的合法保留位——三类：误咬/模型面指令/
+ * 工程占位）。锚形 = 文件 + 行内片段（行号漂移免疫——片段随文迁移仍豁免）。
+ * 台账增改须携判定理由（07 §4.4 双消费分立 + 模型面指令保留条款——B lane
+ * goal/todo-tool 先例：模型面既定机制词汇（挂钟/判据门）在指令语境保留，
+ * 改词破坏模型对既有指令词汇的连续认知）。
+ */
+const USERFACE_EXEMPTS = [
+  { file: 'src/safety/gate.ts', snippet: '无人应答', reason: '误咬——审批问句人答义（非传输应答）' },
+  {
+    file: 'src/host/core-plugins.ts',
+    snippet: 'goal 挂钟唤醒，请继续推进',
+    reason: '模型面指令——挂钟是 goal 纪律段既定机制词汇',
+  },
+  {
+    file: 'src/goal/todo-tool.ts',
+    snippet: '段·判据门',
+    reason: '模型面指令回执标记——判据门是 goal 纪律段既定机制词汇',
+  },
+  { file: 'src/issue/service.ts', snippet: '本 prompt 不发往任何模型', reason: '工程占位描述——轮询占位符不发往模型' },
+  { file: 'src/host/plugin-context.ts', snippet: '07 §4.3 档位', reason: '规范篇号条款引用——「档位 2/3」是编号非档词' },
+];
 
 /** 违规累积器（file:line:词 | 摘要 逐条点名；计数尾行汇总） */
 const violations = [];
@@ -131,6 +232,29 @@ for (const file of collect('src', ['.ts', '.tsx'])) {
     ZH_VIOLATION_RE.lastIndex = 0;
     for (const m of l.matchAll(ZH_VIOLATION_RE)) report(file, i + 1, m[0], l);
   });
+  // 查四：用户面禁替词——字符串字面量扫描（注释不在射程；豁免台账判定）。
+  // 执法面 = 产码文件——.test. 测试件跳过（describe/it 标题与 fixture 是
+  // 工程域字符串非用户面；产码-测试一致性由对拍锁自保证，不由本查执法）。
+  const isTest = file.includes('.test.');
+  const fileExempt = USERFACE_FILE_EXEMPTS.some((e) => e.file === file);
+  if (!isTest && !fileExempt) {
+    for (const { line, content } of extractStrings(text)) {
+      USERFACE_RE.lastIndex = 0;
+      for (const m of content.matchAll(USERFACE_RE)) {
+        const srcLine = lines[line - 1] ?? '';
+        // 结构性豁免一：诊断道——本行或上一行（跨行 warn( 调用形）含
+        // warn/logger/debug/console 族特征即射界外（07 §4.4 诊断道条款）
+        const prevLine = lines[line - 2] ?? '';
+        if (DIAG_RE.test(srcLine) || DIAG_RE.test(prevLine)) continue;
+        // 点条豁免：文件匹配 + 行内含豁免片段即放行（片段锚随文迁移仍豁免）
+        const exempt = USERFACE_EXEMPTS.some(
+          (e) => e.file === file && srcLine.includes(e.snippet) && (e.word === undefined || e.word === m[0]),
+        );
+        if (exempt) continue;
+        report(file, line, m[0], srcLine);
+      }
+    }
+  }
 }
 
 // ── 查二 + 查三：公开文档面 ────────────────────────────────────────────────
