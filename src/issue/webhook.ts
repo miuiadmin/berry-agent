@@ -91,7 +91,7 @@ export function parseWebhookPayload(event: string, rawBody: string): WebhookPayl
     if (typeof i.number !== 'number' || typeof i.title !== 'string' || typeof i.updated_at !== 'string') {
       throw new BaseError(
         'ISSUE_WEBHOOK_INVALID',
-        '[ISSUE_WEBHOOK_INVALID] issue 域字段坏形（number/title/updated_at）',
+        '[ISSUE_WEBHOOK_INVALID] issue 域字段格式不对（number/title/updated_at）',
       );
     }
     const asString = (v: unknown): string => (typeof v === 'string' ? v : '');

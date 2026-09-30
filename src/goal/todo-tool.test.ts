@@ -111,7 +111,7 @@ describe('GOAL_TODO_SCOPE 段内执法', () => {
       ]),
       'GOAL_TODO_SCOPE',
     );
-    expect(err.message).toContain('exec 执行面缺席');
+    expect(err.message).toContain('exec 执行器不可用');
     expect(err.message).not.toContain('/goal approve'); // not-approved 文案不可达（判序）
     // seam 缺席 + 未申报档：同一文案（双位文案均不可达——v1 生产真实形态）
     const { deps: d2 } = deps({ hasCommandExec: false });
@@ -122,7 +122,7 @@ describe('GOAL_TODO_SCOPE 段内执法', () => {
       ]),
       'GOAL_TODO_SCOPE',
     );
-    expect(err2.message).toContain('exec 执行面缺席');
+    expect(err2.message).toContain('exec 执行器不可用');
     expect(err2.message).not.toContain('未申报 needsWrite');
     expect(appended).toHaveLength(0); // 恒拒零落账
   });

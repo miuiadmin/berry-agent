@@ -97,9 +97,9 @@ const verifyTail = (tail: string, secrets: readonly string[]): string =>
 const DANGER_REMEDIES: Readonly<Record<string, string>> = {
   DANGER_CONSENT_ABSENT: 'consent 缺席——TUI 运行 /danger approve 签发授权后重跑',
   DANGER_CONSENT_INVALID: 'consent 过期或配置漂移——重跑 /danger approve 重签',
-  DANGER_HALTED: 'HALT 哨兵在场——删除数据目录下 HALT 文件即恢复',
+  DANGER_HALTED: 'HALT 哨兵存在——删除数据目录下 HALT 文件即恢复',
   DANGER_TARGET_DENIED: '目标不在危险闸值域——检查件配置 repos 后重签 consent',
-  DANGER_CAP_EXCEEDED: '当日交付帽已达——UTC 次日自动恢复，或提帽后重签 consent',
+  DANGER_CAP_EXCEEDED: '当日交付上限已达——UTC 次日自动恢复，或提高上限后重签 consent',
   DANGER_LEDGER_CORRUPT: '危险闸审计账本链损坏——人工检修（截断/重建是人工决策）',
 };
 
@@ -118,7 +118,7 @@ function escalationSection(escalations: readonly IssueEscalation[]): string {
     const lines = [`**上报 ${i + 1}**：${e.question}`];
     if (e.options !== undefined && e.options.length > 0) lines.push(`- 候选：${e.options.join(' ｜ ')}`);
     if (e.recommendation !== undefined) lines.push(`- 建议：${e.recommendation}`);
-    if (e.continueWithDefault !== undefined) lines.push(`- 建议缺省继续案（仅呈报不执行）：${e.continueWithDefault}`);
+    if (e.continueWithDefault !== undefined) lines.push(`- 建议默认继续案（仅呈报不执行）：${e.continueWithDefault}`);
     return lines.join('\n');
   });
   return [`## ⚠️ 模型上报待裁决（${escalations.length} 条——run 收口转人审）`, ...blocks].join('\n\n');
@@ -143,7 +143,7 @@ function appendEscalationReceipt(body: string, escalations: readonly IssueEscala
  */
 function appendEscalationDetail(detail: string, escalations: readonly IssueEscalation[]): string {
   if (escalations.length === 0) return detail;
-  return `${detail}；escalation 在场 ${escalations.length} 条\n\n${escalationSection(escalations)}`;
+  return `${detail}；escalation 存在 ${escalations.length} 条\n\n${escalationSection(escalations)}`;
 }
 
 /** builtin 轮询行的 prompt 占位（RunnerFactory 对该行名程序化分派 pollOnce 零 token——行 prompt 不入模型面） */
@@ -251,7 +251,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       `- 当前目录是为本次任务建的独立 git worktree（分支 ${branch}）——所有改动在此分支上做并本地提交。`,
       '- 严禁 push、严禁创建 PR、严禁对 issue 发评论（交付由编排层收口——越界动作将被拒）；需人裁决的问题用 issue_escalate 工具上报（run 收口时随回执转人审）。',
       `- 消息预算上限 ${deps.config.perIssueBudgetMessages} 条——聚焦最小可用改动，相关测试跑绿即算达成。`,
-      '- 完成前逐条对账 issue 正文与评论中的显式要求——全部覆盖，或在总结中明确说明未尽项。',
+      '- 完成前逐条核对 issue 正文与评论中的显式要求——全部覆盖，或在总结中明确说明未尽项。',
       '- 目标：完成 issue 所述改动（含测试）并在本地提交。',
     );
     return lines.join('\n');
@@ -414,7 +414,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
           handle.settle({
             status: 'failed',
             detail: appendEscalationDetail(
-              '需人审：验证执行面缺席（verifyCommand 在场而 IssueVerifyFace 未注入）',
+              '需人审：验证执行面缺席（verifyCommand 存在而 IssueVerifyFace 未注入）',
               escalations,
             ),
           });
@@ -499,10 +499,10 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
             warn(`补丁取数失败（${key}）：${err instanceof Error ? err.message : String(err)}`);
           }
           if (patch.length > ISSUE_RECEIPT_PATCH_CHARS) {
-            patch = `${patch.slice(0, ISSUE_RECEIPT_PATCH_CHARS)}\n…（补丁超 ${ISSUE_RECEIPT_PATCH_CHARS} 字符帽截断）`;
+            patch = `${patch.slice(0, ISSUE_RECEIPT_PATCH_CHARS)}\n…（补丁超 ${ISSUE_RECEIPT_PATCH_CHARS} 字符上限截断）`;
           }
           const receiptLines = [
-            `🤖 issue run 完成（draft 档）：分支 \`${created.branch}\`（本地——未 push）`,
+            `🤖 issue run 完成（draft 模式）：分支 \`${created.branch}\`（本地——未 push）`,
             outcome.summary,
             '',
             '```diff',
@@ -513,7 +513,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
           await postReceipt(issue, receiptLines.join('\n'));
           handle.settle({
             status: 'completed',
-            detail: `draft：分支 ${created.branch}（${outcome.messagesUsed} 条消息${escalations.length > 0 ? `；escalation 在场 ${escalations.length} 条` : ''}）`,
+            detail: `draft：分支 ${created.branch}（${outcome.messagesUsed} 条消息${escalations.length > 0 ? `；escalation 存在 ${escalations.length} 条` : ''}）`,
           });
         } else if (escalations.length > 0) {
           // auto 档 escalation 降级转人审（⑪ 裁决 4——不 push：与 needs-human 检测
@@ -522,7 +522,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
           await postReceipt(
             issue,
             [
-              `🤖 issue run 需人审：模型上报 escalation ${escalations.length} 条在身——auto 档不自动交付，分支 \`${created.branch}\` 已就绪（本地未 push），请人审后交付。`,
+              `🤖 issue run 需人审：模型上报 escalation ${escalations.length} 条在身——auto 模式不自动交付，分支 \`${created.branch}\` 已就绪（本地未 push），请人审后交付。`,
               outcome.summary,
               '',
               escalationSection(escalations),
@@ -530,7 +530,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
           );
           handle.settle({
             status: 'failed',
-            detail: `需人审：escalation 在场 ${escalations.length} 条（auto 档不 push）`,
+            detail: `需人审：escalation 存在 ${escalations.length} 条（auto 模式不 push）`,
           });
         } else {
           // auto 档：危险闸交付腿（04 §13——deliver = 闸包裹的 push/PR 执行闭包）。
@@ -539,13 +539,13 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
             await postReceipt(
               issue,
               [
-                `🤖 issue run 完成（auto 档）但不可逆外部写闸缺席——阻塞转人审：分支 \`${created.branch}\` 已就绪（本地未 push），请人工确认后交付。`,
+                `🤖 issue run 完成（auto 模式）但不可逆外部写闸缺席——阻塞转人审：分支 \`${created.branch}\` 已就绪（本地未 push），请人工确认后交付。`,
                 outcome.summary,
               ].join('\n'),
             );
             handle.settle({
               status: 'failed',
-              detail: '需人审：不可逆外部写闸缺席（auto 档成果已备，push/PR 需人工）',
+              detail: '需人审：不可逆外部写闸缺席（auto 模式成果已备，push/PR 需人工）',
             });
             return;
           }
@@ -581,7 +581,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
             await postReceipt(
               issue,
               [
-                `🤖 issue run 完成（auto 档——危险闸放行交付）：PR ${prRef} 已开（分支 \`${created.branch}\`）。`,
+                `🤖 issue run 完成（auto 模式——危险闸放行交付）：PR ${prRef} 已开（分支 \`${created.branch}\`）。`,
                 outcome.summary,
               ].join('\n'),
             );
@@ -683,7 +683,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
   function enqueue(issue: IssueRef): IssueEnqueueResult {
     for (const cap of REQUIRED_CAPABILITIES) {
       if (!deps.capabilities.includes(cap)) {
-        return { status: 'rejected', reason: `能力缺席：${cap}（issue 件依赖 goal/exec/checkpoint 三件在场）` };
+        return { status: 'rejected', reason: `能力缺席：${cap}（issue 插件依赖 goal/exec/checkpoint 三者存在）` };
       }
     }
     if (issue.state !== 'open') {
@@ -708,7 +708,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       );
       return {
         status: 'rejected',
-        reason: `issue 并行帽满（在飞 ${issueRunning.size} ≥ 帽 ${ISSUE_PARALLEL_LIMIT_DEFAULT}）——本轮拒收，issue 后续更新将自动重试入队`,
+        reason: `issue 并行上限已满（在飞 ${issueRunning.size} ≥ 上限 ${ISSUE_PARALLEL_LIMIT_DEFAULT}）——本轮拒收，issue 后续更新将自动重试入队`,
       };
     }
     const afford = deps.budget.canAffordIssue();

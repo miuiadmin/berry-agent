@@ -84,7 +84,7 @@ async function evaluateCommand(command: string, deps: GoalGateDeps): Promise<Gat
     return {
       ok: false,
       kind: 'command',
-      detail: 'goal 未申报 needsWrite（或未获批准）——command 判据门不可用（防模型自造命令免审批自跑）',
+      detail: 'goal 未申报 needsWrite（或未获批准）——command gate 不可用（防模型自造命令免审批自跑）',
     };
   }
   if (deps.exec === undefined) {
@@ -93,12 +93,12 @@ async function evaluateCommand(command: string, deps: GoalGateDeps): Promise<Gat
     return {
       ok: false,
       kind: 'command',
-      detail: 'exec 执行面缺席（exec 件未装载或被禁用——诚实缺席，fail-closed 不放行）',
+      detail: 'exec 执行器不可用（exec 插件未安装或被禁用——fail-closed 不放行）',
     };
   }
   const result = await deps.exec.execCommand(command);
   if (result.timedOut) {
-    return { ok: false, kind: 'command', detail: `命令超时（>${GATE_COMMAND_TIMEOUT_MS}ms）——判未过` };
+    return { ok: false, kind: 'command', detail: `命令超时（>${GATE_COMMAND_TIMEOUT_MS}ms）——未通过` };
   }
   if (result.exitCode !== 0) {
     const tail = result.stderrTail === '' ? '' : `（stderr 末行：${result.stderrTail}）`;
@@ -110,7 +110,7 @@ async function evaluateCommand(command: string, deps: GoalGateDeps): Promise<Gat
 /** files 源：全部存在且非空；stat 前归一判工作区根内 */
 function evaluateFiles(paths: readonly string[], deps: GoalGateDeps): GateOutcome {
   if (paths.length === 0) {
-    return { ok: false, kind: 'files', detail: '空目标集——空门即非门（申报位已拦，评测位双拦）' };
+    return { ok: false, kind: 'files', detail: '空目标集——空 gate 无效（申报位已拦，评测位双拦）' };
   }
   const root = deps.workspaceRoot;
   const stat = deps.statFile ?? statFileDefault;
@@ -134,14 +134,14 @@ function evaluateFiles(paths: readonly string[], deps: GoalGateDeps): GateOutcom
 /** diagnostics 源：目标文件集 LSP 诊断无 error 级 */
 async function evaluateDiagnostics(files: readonly string[], deps: GoalGateDeps): Promise<GateOutcome> {
   if (files.length === 0) {
-    return { ok: false, kind: 'diagnostics', detail: '空目标集——空门即非门（申报位已拦，评测位双拦）' };
+    return { ok: false, kind: 'diagnostics', detail: '空目标集——空 gate 无效（申报位已拦，评测位双拦）' };
   }
   if (deps.lsp === undefined) {
     // 同律缺席归因（四役勘正——03 §10.5）：lsp 件禁用/缺席即诚实缺席
     return {
       ok: false,
       kind: 'diagnostics',
-      detail: 'lsp 诊断查询面缺席（lsp 件未装载或被禁用——诚实缺席，fail-closed 不放行）',
+      detail: 'lsp 诊断查询不可用（lsp 插件未安装或被禁用——fail-closed 不放行）',
     };
   }
   const diags = await deps.lsp.queryDiagnostics([...files]);

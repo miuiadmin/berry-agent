@@ -155,14 +155,14 @@ export function resolveOAuthFlow(
   | { readonly flow?: undefined; readonly message: string } {
   const listFlows = (rows: readonly RegisteredOAuthFlow[]): string =>
     rows.length === 0
-      ? `（无——该插件未注册任何 oauth 流；装载期 ctx.secrets.registerOAuthFlow 注册）`
+      ? `（无——该插件未注册任何 oauth 流；由插件经 ctx.secrets.registerOAuthFlow 注册）`
       : rows.map((f) => `plugin:${f.pluginId}/${f.def.name}`).join('、');
   if (name !== undefined) {
     const flow = registry.get(pluginId, name);
     if (flow === undefined) {
       return {
         flow: undefined,
-        message: `oauth 流 ${name} 不在插件 ${pluginId} 名下（在册流：${listFlows(registry.flowsOf(pluginId))}）。`,
+        message: `oauth 流 ${name} 不在插件 ${pluginId} 名下（该插件已注册的流：${listFlows(registry.flowsOf(pluginId))}）。`,
       };
     }
     return { flow };
@@ -172,7 +172,7 @@ export function resolveOAuthFlow(
     return { flow: undefined, message: `插件 ${pluginId} 未注册任何 oauth 流。` };
   }
   if (flows.length > 1) {
-    return { flow: undefined, message: `插件 ${pluginId} 在册多流，须指名其一：${listFlows(flows)}。` };
+    return { flow: undefined, message: `插件 ${pluginId} 注册了多个 oauth 流，请指定其中一个：${listFlows(flows)}。` };
   }
   return { flow: flows[0]! };
 }
@@ -266,7 +266,7 @@ export async function runDeviceCodeFlow(def: OAuthFlowDef, io: DeviceCodeIo): Pr
     ) {
       throw new BaseError(
         'CREDENTIALS_OAUTH_FLOW_FAILED',
-        `设备授权端点载荷坏形（device_code/user_code/verification_uri/expires_in 四键须齐——现得 ${text.slice(0, 200)}）`,
+        `设备授权端点返回的数据格式不对（device_code/user_code/verification_uri/expires_in 四项必须齐全——实际收到 ${text.slice(0, 200)}）`,
       );
     }
     device = {
@@ -345,7 +345,7 @@ export async function runDeviceCodeFlow(def: OAuthFlowDef, io: DeviceCodeIo): Pr
     } else {
       throw new BaseError(
         'CREDENTIALS_OAUTH_FLOW_FAILED',
-        `token 端点非预期应答（${res.status}${error === undefined ? '' : ` error=${error}`}）：${text.slice(0, 200)}`,
+        `token 端点返回非预期内容（${res.status}${error === undefined ? '' : ` error=${error}`}）：${text.slice(0, 200)}`,
       );
     }
     await io.sleep(intervalMs);
@@ -379,7 +379,7 @@ export async function refreshOAuthToken(
     if (accessToken === undefined) {
       throw new BaseError(
         'CREDENTIALS_OAUTH_FLOW_FAILED',
-        `refresh 应答 200 但缺 access_token（${text.slice(0, 200)}）`,
+        `refresh 返回 200 但缺少 access_token（${text.slice(0, 200)}）`,
       );
     }
     // RFC 6749 §6：新 refresh_token 可选——不下发即复用旧值（链不动刷新行）
@@ -400,7 +400,7 @@ export async function refreshOAuthToken(
   }
   throw new BaseError(
     'CREDENTIALS_OAUTH_FLOW_FAILED',
-    `refresh 应答非预期（${res.status}${error === undefined ? '' : ` error=${error}`}）：${text.slice(0, 200)}`,
+    `refresh 返回非预期内容（${res.status}${error === undefined ? '' : ` error=${error}`}）：${text.slice(0, 200)}`,
   );
 }
 

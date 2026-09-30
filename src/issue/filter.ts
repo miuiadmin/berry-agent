@@ -60,9 +60,9 @@ export function normalizeIssueConfig(raw: unknown): { ok: true; config: IssueCon
       // glob 形：`*` 不越段（段级通配）——形如 owner/* 或 */name 或 */* 皆合法
       const globOk = r.split('/').length === 2 && r.split('/').every((seg) => seg.length > 0);
       if (!globOk)
-        return { ok: false, message: `issue 配置 repos glob 坏形：${r}（须 owner/name 两段、* 为段级通配）` };
+        return { ok: false, message: `issue 配置 repos glob 格式不对：${r}（须 owner/name 两段、* 为段级通配）` };
     } else if (!EXACT_REPO_RE.test(r)) {
-      return { ok: false, message: `issue 配置 repos 元素坏形：${r}（须 owner/name 或含 * 的 glob）` };
+      return { ok: false, message: `issue 配置 repos 元素格式不对：${r}（须 owner/name 或含 * 的 glob）` };
     }
     repos.push(r);
   }
@@ -101,7 +101,7 @@ export function normalizeIssueConfig(raw: unknown): { ok: true; config: IssueCon
     if (typeof obj.schedule !== 'string' || !SCHEDULE_PREFIX_RE.test(obj.schedule)) {
       return {
         ok: false,
-        message: `issue 配置 schedule 坏形：${JSON.stringify(obj.schedule)}（须 every:<n>[smh] / once@+<n>[smh] / once@<ISO> / daily@HH:MM / weekly@<days>@HH:MM——every 是冒号形，once/daily/weekly 是 @ 形）`,
+        message: `issue 配置 schedule 格式不对：${JSON.stringify(obj.schedule)}（须 every:<n>[smh] / once@+<n>[smh] / once@<ISO> / daily@HH:MM / weekly@<days>@HH:MM——every 是冒号形，once/daily/weekly 是 @ 形）`,
       };
     }
     schedule = obj.schedule;

@@ -180,7 +180,7 @@ describe('sandbox 档位 · 三面单源 per-session 翻换', () => {
     ).rejects.toMatchObject({
       code: 'TOOL_GATE_FAILED',
       // BaseError message 不含码前缀——锚 SANDBOX_MODE_INVALID 的人读文
-      message: expect.stringContaining('sandbox/mode 事件档位非法'),
+      message: expect.stringContaining('sandbox/mode 事件模式非法'),
     });
   });
 });

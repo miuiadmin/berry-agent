@@ -538,7 +538,7 @@ describe('批 ev-1 validFrom 呈现与 memory_lineage 第十件', () => {
     expect(gone.text).toContain('（本条知识已并入）'); // llm:<id> 可导航后继
     const fresh = seed(dao, { summary: 'fresh active entry', content: 'fresh body' });
     const active = await run(byName(tools, 'memory_lineage'), { id: fresh });
-    expect(active.text).toContain('后继：—（在册行无后继）');
+    expect(active.text).toContain('后继：—（现行行无后继）');
     const skilled = seed(dao, { summary: 'promoted skill entry', content: 'skill body' });
     dao.forget(skilled, { promotedToSkill: 'pnpm-rules' });
     const sk = await run(byName(tools, 'memory_lineage'), { id: skilled });

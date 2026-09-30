@@ -53,7 +53,7 @@ export function createControlTools(deps: ControlToolsDeps): readonly ToolDefinit
         '向另一会话发送消息（跨会话 a2a 协作）。回执三态：delivered（已投递起跑/停摆落账）、' +
         'queued（目标忙已入列——可经 session_withdraw 撤回）、dropped（拒收）。' +
         '需高危面 sessions.control-cross 开门（全域同门——同树目标同样要开门）。' +
-        'a2a 链深帽缺省 5（连续代理互搏拒 SESSION_ROUND_LIMIT——目标会话收到人面输入即重置）；' +
+        'a2a 链深上限默认 5（连续代理互搏拒 SESSION_ROUND_LIMIT——目标会话收到人面输入即重置）；' +
         'expectedTurnId 可选乐观并发位（= 目标最近 turn/start 事件 seq——不匹配拒 SESSION_TURN_STALE）；' +
         'dedupeKey 可选幂等位（重试场景携稳定键——同键重复发送返原回执不重复注入）。',
       parameters: Type.Object(

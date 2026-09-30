@@ -280,7 +280,7 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
       if (newDepth > roundLimit) {
         throw new BaseError(
           'SESSION_ROUND_LIMIT',
-          `跨会话 send 链深 ${newDepth} 超回合护栏帽 ${roundLimit}（a2a 互搏环——人面输入重置链深）`,
+          `跨会话 send 链深 ${newDepth} 超回合护栏上限 ${roundLimit}（a2a 互搏环——人面输入重置链深）`,
         );
       }
       // —— auto-open 投递腿：目标未 open 即 resume 打开（幂等 open——单焦点

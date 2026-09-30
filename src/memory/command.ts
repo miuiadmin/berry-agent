@@ -78,7 +78,7 @@ export async function runMemoryImportCommand(argv: readonly string[], deps: Memo
     }
     return [
       `导入完成：新插 ${r.inserted} 条 · 已在跳过 ${r.skippedExisting} 条`,
-      `　　　　secret 拒写 ${r.rejectedSecret} 条 · 坏形跳过 ${r.rejectedMalformed} 条（恢复式幂等——零合并零覆写）`,
+      `　　　　secret 拒写 ${r.rejectedSecret} 条 · 格式不对跳过 ${r.rejectedMalformed} 条`,
     ].join('\n');
   } catch (err) {
     if (err instanceof BaseError) return `${err.code}：${err.message}`;

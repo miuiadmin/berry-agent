@@ -68,7 +68,7 @@ export function setSessionMode(session: SessionLog, mode: string): SandboxMode {
   if (!isSandboxMode(mode)) {
     throw new BaseError(
       'SANDBOX_MODE_INVALID',
-      `沙箱档位非法：${JSON.stringify(mode)}（三档词汇：read-only / workspace-write / danger）`,
+      `沙箱模式无效：${JSON.stringify(mode)}（可选值：read-only / workspace-write / danger）`,
     );
   }
   session.append('sandbox/mode', { mode } satisfies SandboxModeEventData);

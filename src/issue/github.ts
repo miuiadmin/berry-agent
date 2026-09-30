@@ -59,7 +59,7 @@ export function assertRepoValid(repo: string): void {
   if (!REPO_RE.test(repo)) {
     throw new BaseError(
       'TOOL_INVALID_ARGS',
-      `[TOOL_INVALID_ARGS] repo 串坏形：${repo}（须 owner/name 两段、字符域限字母数字与 ._-'）`,
+      `[TOOL_INVALID_ARGS] repo 串格式不对：${repo}（须 owner/name 两段、字符域限字母数字与 ._-'）`,
     );
   }
 }

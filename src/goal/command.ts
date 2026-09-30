@@ -12,11 +12,11 @@ import { foldGoalTodos, openGoalItems } from './fold.js';
 import type { GoalService } from './service.js';
 
 export const GOAL_USAGE = [
-  '用法：/goal create <schedule 串> <objective 全文> [--write] [--budget <n>] —— 建续跑 goal（锚本会话；schedule 串形见 /tick 用法）',
-  '　　　/goal list —— 全部 goal（状态/挂钟/预算速览）',
-  '　　　/goal show <goalId> —— 单 goal 详情（计划态 + 归因唤醒审计）',
-  '　　　/goal wake <goalId> —— 手动起闹（停滞/预算双复位 + 挂钟复活）',
-  '　　　/goal approve <goalId> —— 人面批准 needsWrite（command 判据门放行链）',
+  '用法：/goal create <schedule 串> <objective 全文> [--write] [--budget <n>] —— 创建续跑 goal（绑定本会话；schedule 写法见 /tick 用法）',
+  '　　　/goal list —— 全部 goal（状态/定时/预算速览）',
+  '　　　/goal show <goalId> —— 单个 goal 详情（任务清单 + 唤醒记录）',
+  '　　　/goal wake <goalId> —— 手动唤醒（无进展与预算计数清零，恢复定时运行）',
+  '　　　/goal approve <goalId> —— 批准写入权限申请（批准后写入工具可用）',
 ].join('\n');
 
 /** 命令装配依赖 */
@@ -55,11 +55,11 @@ async function goalCreate(
       const raw = rest[++i];
       // 正整数必需（0/负数/非数字/缺值均用法错——命令层执法）
       if (raw === undefined || !/^\d+$/.test(raw) || Number(raw) <= 0) {
-        return usageErr(`--budget 须带正整数值（得「${raw ?? '缺席'}」）。`);
+        return usageErr(`--budget 须带正整数值（得「${raw ?? '未填'}」）。`);
       }
       budget = Number(raw);
     } else if (tok.startsWith('--')) {
-      return usageErr(`未知选项「${tok}」（/goal create 仅识 --write 与 --budget）。`);
+      return usageErr(`未知选项「${tok}」（/goal create 只支持 --write 与 --budget）。`);
     } else {
       positional.push(tok);
     }
@@ -69,11 +69,11 @@ async function goalCreate(
   // 不辖空白——命令层 trim 判，complete 的 evidence 同律）
   const objective = positional.slice(1).join(' ').trim();
   if (sessionId === undefined) {
-    return usageErr('缺会话锚——/goal create 须在会话内执行（goal 是本会话的无人值守延续）。');
+    return usageErr('当前没有会话——/goal create 须在会话内执行（goal 是本会话的无人值守延续）。');
   }
   if (!schedule || objective === '') {
     return usageErr(
-      'create 须带两段位参：<schedule 串> <objective 全文>（objective 含空格请整体引号；schedule 串形见 /tick 用法）。',
+      'create 须带两段参数：<schedule 串> <objective 全文>（objective 含空格请整体加引号；schedule 写法见 /tick 用法）。',
     );
   }
   const row = await deps.service.activate({
@@ -87,13 +87,13 @@ async function goalCreate(
   // 暂存系测试形，core 双件恒装载）；首跑 = schedule 首到点（不开 create 即
   // 起跑——立题档边界声明）
   const lines = [
-    `已建 goal「${row.id}」——挂钟行已排（schedule ${row.schedule}；首跑 = 首次到点，即刻续跑请直接发言）。`,
+    `已建 goal「${row.id}」——定时已排（schedule ${row.schedule}；首跑 = 首次到点，想立即推进请直接发言）。`,
   ];
   if (row.needsWrite) {
-    lines.push(`已申报 needsWrite（申报非授权）——/goal approve ${row.id} 批准后 command 判据门可用。`);
+    lines.push(`已申请写入权限（申请不等于授权）——/goal approve ${row.id} 批准后写入工具可用。`);
   }
   if (row.budgetMessagesCap !== null) {
-    lines.push(`预算帽 ${row.budgetMessagesCap}（前台计数 + 委派折叠合计对帽）。`);
+    lines.push(`预算上限 ${row.budgetMessagesCap} 条（本会话计数与后台代跑合计计入上限）。`);
   }
   return lines.join('\n');
 }
@@ -117,15 +117,15 @@ export async function runGoalCommand(
         if (!goalId) return `缺 goalId。\n${GOAL_USAGE}`;
         const decision = await deps.service.wake(goalId, { trigger: 'manual', attribution: '/goal wake' });
         return decision.landed
-          ? `已手动唤醒 goal「${goalId}」（停滞/唤醒预算双复位，挂钟复活）。${decision.message}`
-          : `唤醒未落地：${decision.message}`;
+          ? `已手动唤醒 goal「${goalId}」（无进展计数与唤醒预算已清零，恢复定时运行）。${decision.message}`
+          : `唤醒未执行：${decision.message}`;
       }
       case 'approve': {
         // 人面批准（f-1 定形注②——批准唯一写面；守卫错折文本同面）
         const goalId = rest[0];
         if (!goalId) return `缺 goalId。\n${GOAL_USAGE}`;
         await deps.service.approve(goalId);
-        return `已批准 goal「${goalId}」的 needsWrite 申报——command 判据门申报解锁（todo 工具 gate 声明即刻可用）。`;
+        return `已批准 goal「${goalId}」的写入权限申请——写入工具即刻可用。`;
       }
       case 'list': {
         const rows = deps.service.list();
@@ -133,10 +133,14 @@ export async function runGoalCommand(
         const lines = rows.map((row) => {
           const budget =
             row.budgetMessagesCap === null
-              ? '无预算帽'
+              ? '无预算上限'
               : `预算 ${row.budgetMessagesUsed + row.budgetFoldedUnits}/${row.budgetMessagesCap}`;
           const clock =
-            row.status === 'active' ? (row.stallStreak > 0 ? `挂钟（停滞 ${row.stallStreak}）` : '挂钟在跑') : '已停摆';
+            row.status === 'active'
+              ? row.stallStreak > 0
+                ? `定时运行中（连续 ${row.stallStreak} 次无进展）`
+                : '定时运行中'
+              : '已暂停';
           return `- ${row.id}〔${row.status}〕${row.objective.slice(0, 40)} —— ${clock} · ${budget}`;
         });
         return `共 ${rows.length} 个 goal：\n${lines.join('\n')}`;
@@ -153,8 +157,8 @@ export async function runGoalCommand(
             : [];
         const openLine =
           items.length === 0
-            ? 'open 项：0'
-            : `open 项：${items.length}（${items.map((i) => `[${i.status}] ${i.content}`).join('；')}）`;
+            ? '未完成项：0'
+            : `未完成项：${items.length}（${items.map((i) => `[${i.status}] ${i.content}`).join('；')}）`;
         const wakes = deps.service.wakes(goalId);
         const wakeLines =
           wakes.length === 0
@@ -163,19 +167,19 @@ export async function runGoalCommand(
                 .slice(-5)
                 .map(
                   (w) =>
-                    `- ${w.wokeAt} ${w.trigger} 道 · ${w.progressed ? '有进展' : '无进展'} · 归因 ${w.attribution}`,
+                    `- ${w.wokeAt} ${w.trigger} 触发 · ${w.progressed ? '有进展' : '无进展'} · 来源 ${w.attribution}`,
                 )
                 .join('\n');
         return [
           `goal「${goalId}」〔${row.status}〕`,
           `目标：${row.objective}`,
-          `挂钟：${row.schedule}（激活锚 seq=${row.activatedSeq}，会话 ${row.sessionId}）`,
-          `预算：前台 ${row.budgetMessagesUsed} + 委派折叠 ${row.budgetFoldedUnits}${row.budgetMessagesCap === null ? '（无帽）' : ` / 帽 ${row.budgetMessagesCap}`}`,
-          `needsWrite：${row.needsWrite ? (row.writeApproved ? '已申报·已批准（command 判据门可用）' : '已申报·未批准（/goal approve 后可用）') : '未申报（command 判据门不可用）'}`,
-          `停滞计数：${row.stallStreak}（帽内复位靠进展或手动）`,
+          `定时：${row.schedule}（自 seq=${row.activatedSeq} 起，会话 ${row.sessionId}）`,
+          `预算：本会话 ${row.budgetMessagesUsed} 条 + 后台代跑 ${row.budgetFoldedUnits} 条${row.budgetMessagesCap === null ? '（无上限）' : ` / 上限 ${row.budgetMessagesCap} 条`}`,
+          `needsWrite：${row.needsWrite ? (row.writeApproved ? '已申请·已批准（可使用写入工具）' : '已申请·未批准（/goal approve 后可用）') : '未申请写入权限（写入工具暂不可用）'}`,
+          `无进展计数：${row.stallStreak}（有进展或手动唤醒即清零）`,
           openLine,
           row.endingNote !== null ? `终态回执：${row.endingNote}` : '',
-          `唤醒审计（末 5 条）：\n${wakeLines}`,
+          `唤醒记录（末 5 条）：\n${wakeLines}`,
         ]
           .filter((line) => line !== '')
           .join('\n');

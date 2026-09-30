@@ -124,7 +124,7 @@ describe('真 scheduler goalJobs ↔ goal 服务互操作', () => {
     const { dao, goalJobs, goal } = openBoth();
     await goal.attachGoalJobsFace(goalJobs);
     const bad = goal.activate({ sessionId: 's1', objective: 'o', schedule: 'bogus-schedule' });
-    await expect(bad).rejects.toThrowError(/挂钟注册失败/);
+    await expect(bad).rejects.toThrowError(/定时任务注册失败/);
     expect(goal.list()).toEqual([]); // 回卷
     expect(dao.list().length).toBe(0); // jobs 表无半态行
     const created = await goal.activate({ sessionId: 's1', objective: 'o', schedule: 'every:30m' });

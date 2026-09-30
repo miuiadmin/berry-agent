@@ -917,7 +917,7 @@ describe('⑪ escalation 收口消费（issue_escalate 登记面——runOne 闭
     expect(body).toContain('**上报 2**：要不要顺带修相邻 typo？');
     expect(body).toContain('```diff'); // 交付照走——draft 档终态不因附段翻档
     expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'completed' });
-    expect(f.fj.settled[0]!.terminal.detail).toContain('escalation 在场 2 条');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('escalation 存在 2 条');
   });
 
   it('auto 档：escalation 在场降级转人审——不 push（danger 零触达）+ 回执附结构化段', async () => {
@@ -925,7 +925,7 @@ describe('⑪ escalation 收口消费（issue_escalate 登记面——runOne 闭
     const { f } = await runWithEscalation({ mode: 'auto', danger: fd.face });
     expect(fd.deliverCalls).toHaveLength(0); // 不 push——保守偏向
     expect(f.fj.settled[0]!.terminal).toMatchObject({ status: 'failed' });
-    expect(f.fj.settled[0]!.terminal.detail).toContain('需人审：escalation 在场 2 条');
+    expect(f.fj.settled[0]!.terminal.detail).toContain('需人审：escalation 存在 2 条');
     const body = f.fback.comments[0]!.body;
     expect(body).toContain('不自动交付');
     expect(body).toContain('**上报 1**');
@@ -978,7 +978,7 @@ describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle de
     expect(body).toContain('**上报 1**：API 形选 REST 还是 GraphQL？');
     const detail = f.fj.settled[0]!.terminal.detail ?? '';
     expect(detail).toContain('需人审：写动作无审批覆盖'); // 原 detail 面保持
-    expect(detail).toContain('escalation 在场 1 条'); // draft 注记同律
+    expect(detail).toContain('escalation 存在 1 条'); // draft 注记同律
     expect(detail).toContain('API 形选 REST 还是 GraphQL？'); // detail 含摘要（双面承诺）
   });
 
@@ -992,7 +992,7 @@ describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle de
     expect(f.fback.comments[0]!.body).toContain('**上报 1**');
     const detail = f.fj.settled[0]!.terminal.detail ?? '';
     expect(detail).toContain('每 issue 预算帽耗尽'); // 原 reason 保持
-    expect(detail).toContain('escalation 在场 1 条');
+    expect(detail).toContain('escalation 存在 1 条');
     expect(detail).toContain('**上报 1**'); // 全量结构化段非仅计数
   });
 
@@ -1006,7 +1006,7 @@ describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle de
     expect(f.fj.settled[0]!.terminal.detail).toContain('验证未过'); // 验证判据保持
     expect(f.fback.comments[0]!.body).toContain('## ⚠️ 模型上报待裁决（1 条');
     const detail = f.fj.settled[0]!.terminal.detail ?? '';
-    expect(detail).toContain('escalation 在场 1 条');
+    expect(detail).toContain('escalation 存在 1 条');
     expect(detail).toContain('API 形选 REST 还是 GraphQL？');
   });
 
@@ -1025,7 +1025,7 @@ describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle de
     expect(body).toContain('## ⚠️ 模型上报待裁决（1 条'); // appendEscalationReceipt 接入位
     expect(body).toContain('**上报 1**：API 形选 REST 还是 GraphQL？');
     const detail = f.fj.settled[0]!.terminal.detail ?? '';
-    expect(detail).toContain('escalation 在场 1 条'); // appendEscalationDetail 接入位
+    expect(detail).toContain('escalation 存在 1 条'); // appendEscalationDetail 接入位
     expect(detail).toContain('API 形选 REST 还是 GraphQL？'); // detail 含摘要（双面承诺）
   });
 
@@ -1043,7 +1043,7 @@ describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle de
     expect(body).toContain('## ⚠️ 模型上报待裁决（1 条'); // appendEscalationReceipt 接入位
     expect(body).toContain('**上报 1**：API 形选 REST 还是 GraphQL？');
     const detail = f.fj.settled[0]!.terminal.detail ?? '';
-    expect(detail).toContain('escalation 在场 1 条'); // appendEscalationDetail 接入位
+    expect(detail).toContain('escalation 存在 1 条'); // appendEscalationDetail 接入位
     expect(detail).toContain('API 形选 REST 还是 GraphQL？');
   });
 
@@ -1078,7 +1078,7 @@ describe('FX-1 并行帽诚实受理（两在飞 + 第三个——不谎报 star
       // 第三个：帽满（2 ≥ 帽 2）——诚实拒收回执（不谎报 started）
       const receipt = f.svc.enqueue(C);
       expect(receipt.status).toBe('rejected');
-      expect(receipt.status === 'rejected' ? receipt.reason : '').toContain('并行帽满');
+      expect(receipt.status === 'rejected' ? receipt.reason : '').toContain('并行上限已满');
       // 不发起 run：零注册（running 无 C）、零 worktree、零起跑、零回执评论
       // （帽满拒收不打 GitHub 评论——轮询每周期重见会刷屏，rejected 回执已
       // 是轮询报告/webhook 响应的调用方可见面）
@@ -1145,7 +1145,7 @@ describe('⑪ 前次分支指路与对账纪律（prompt 两笔）', () => {
     expect(prompt).toContain('`issue-7-r2`'); // 全列举——单指首撞位漏后续史
     expect(prompt).toContain('git log');
     expect(prompt).toContain('也可从头独立解决');
-    expect(prompt).toContain('逐条对账'); // 裁决 6 对账纪律句
+    expect(prompt).toContain('逐条核对'); // 裁决 6 对账纪律句
     expect(prompt).toContain('未尽项');
     expect(f.fwd.created.map((c) => c.name)).toEqual(['issue-7-r3']);
   });

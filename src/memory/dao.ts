@@ -496,18 +496,18 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     const problems: string[] = [];
     if (!MEMORY_KINDS.includes(candidate.kind)) problems.push(`kind 非七值闭集：${candidate.kind}`);
     if (candidate.ownerKey !== 'global' && !OWNER_KEY_RE.test(candidate.ownerKey)) {
-      problems.push(`owner_key 形违例（'global' | 'project:<根路径哈希>' 两形外）：${candidate.ownerKey}`);
+      problems.push(`owner_key 格式不对（应为 'global' 或 'project:<根路径哈希>'）：${candidate.ownerKey}`);
     }
     if (candidate.summary.trim() === '') problems.push('summary 空');
-    if (candidate.summary.length > MEMORY_SUMMARY_MAX_CHARS) problems.push('summary 超帽');
+    if (candidate.summary.length > MEMORY_SUMMARY_MAX_CHARS) problems.push('summary 超过长度上限');
     if (candidate.content.trim() === '') problems.push('content 空');
-    if (candidate.content.length > MEMORY_CONTENT_MAX_CHARS) problems.push('content 超帽');
+    if (candidate.content.length > MEMORY_CONTENT_MAX_CHARS) problems.push('content 超过长度上限');
     if (!Number.isFinite(candidate.confidence) || candidate.confidence < 0 || candidate.confidence > 1) {
       problems.push(`confidence 越界 [0,1]：${candidate.confidence}`);
     }
     for (const [i, ref] of candidate.sourceRefs.entries()) {
       if (typeof ref?.sessionId !== 'string' || ref.sessionId === '' || !Number.isInteger(ref.seq) || ref.seq < 0) {
-        problems.push(`source_refs[${i}] 坏形（{sessionId, seq} 形外）`);
+        problems.push(`source_refs[${i}] 格式不对（应为 {sessionId, seq} 形）`);
         break;
       }
     }
@@ -517,15 +517,15 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       candidate.ttlDays !== null &&
       (!Number.isInteger(candidate.ttlDays) || candidate.ttlDays < 1)
     ) {
-      problems.push(`ttl_days 形违例（正整数或 null）：${candidate.ttlDays}`);
+      problems.push(`ttl_days 格式不对（应为正整数或 null）：${candidate.ttlDays}`);
     }
     // valid_from 形（批 ev-1——Unix 毫秒整数或 null/缺席；ISO→毫秒转换在工具面，
     // 此处只收毫秒形。工具面坏 ISO 拒 MEMORY_ENTRY_INVALID 与本判定同码同判据族）
     if (candidate.validFrom !== undefined && candidate.validFrom !== null && !Number.isInteger(candidate.validFrom)) {
-      problems.push(`valid_from 形违例（Unix 毫秒整数或 null）：${String(candidate.validFrom)}`);
+      problems.push(`valid_from 格式不对（应为 Unix 毫秒整数或 null）：${String(candidate.validFrom)}`);
     }
     if (problems.length > 0) {
-      throw new BaseError('MEMORY_ENTRY_INVALID', `记忆候选坏形拒：${problems.join('；')}`);
+      throw new BaseError('MEMORY_ENTRY_INVALID', `记忆条目格式不对，已拒绝写入：${problems.join('；')}`);
     }
   }
 
@@ -762,7 +762,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     if (keep.status !== 'active' || drop.status !== 'active') {
       throw new BaseError(
         'MEMORY_ENTRY_INVALID',
-        `absorb 只作用在册行：keep=${keepId}(${keep.status}) drop=${dropId}(${drop.status})`,
+        `absorb 只接受 active 状态的条目：keep=${keepId}(${keep.status}) drop=${dropId}(${drop.status})`,
       );
     }
     const now = deps.now();
@@ -794,7 +794,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   /** decay：降权物化（confidence × factor + 版本 cause='decay'——不刷 updated_at） */
   const decayTx = db.transaction((id: string, factor: number, reason?: string | null): MemoryRow => {
     if (!Number.isFinite(factor) || factor <= 0 || factor > 1) {
-      throw new BaseError('MEMORY_ENTRY_INVALID', `decay factor 形违例（(0,1] 区间）：${factor}`);
+      throw new BaseError('MEMORY_ENTRY_INVALID', `decay factor 格式不对（应在 (0,1] 区间）：${factor}`);
     }
     const now = deps.now();
     const row = mustGet(id);
@@ -802,7 +802,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       throw new BaseError('MEMORY_FROZEN', `条目已冻结（frozen 免整理——decay 拒）：${id}`);
     }
     if (row.status !== 'active') {
-      throw new BaseError('MEMORY_ENTRY_INVALID', `decay 只作用在册行（${row.status}）：${id}`);
+      throw new BaseError('MEMORY_ENTRY_INVALID', `decay 只接受 active 状态的条目（当前 ${row.status}）：${id}`);
     }
     const next = row.confidence * factor;
     stmtDecay.run(next, id);
@@ -884,7 +884,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
   const setTtlTx = db.transaction((id: string, days: number | null): MemoryRow => {
     const now = deps.now();
     if (days !== null && (!Number.isInteger(days) || days < 1)) {
-      throw new BaseError('MEMORY_ENTRY_INVALID', `ttl days 形违例（正整数或 null）：${days}`);
+      throw new BaseError('MEMORY_ENTRY_INVALID', `ttl days 格式不对（应为正整数或 null）：${days}`);
     }
     const row = mustGet(id);
     if (row.frozen) {
@@ -960,14 +960,14 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     if (!MEMORY_KINDS.includes(row.kind)) problems.push(`kind 非七值闭集：${String(row.kind)}`);
     if (!MEMORY_STATUSES.includes(row.status)) problems.push(`status 非三值闭集：${String(row.status)}`);
     if (row.owner_key !== 'global' && !OWNER_KEY_RE.test(row.owner_key)) {
-      problems.push(`owner_key 形违例：${row.owner_key}`);
+      problems.push(`owner_key 格式不对：${row.owner_key}`);
     }
     if (row.summary.trim() === '' || row.content.trim() === '') problems.push('summary/content 空');
     if (!Number.isFinite(row.confidence) || row.confidence < 0 || row.confidence > 1) {
       problems.push(`confidence 越界 [0,1]：${row.confidence}`);
     }
     if (problems.length > 0) {
-      throw new BaseError('MEMORY_ENTRY_INVALID', `导入行坏形拒：${problems.join('；')}`);
+      throw new BaseError('MEMORY_ENTRY_INVALID', `导入行格式不对，已拒绝写入：${problems.join('；')}`);
     }
     // —— 幂等判定：id 已在库整行跳过（恢复式语义——零合并零覆写，**含链**：
     // 在库行的随包版本链不重放不覆盖）
@@ -1007,7 +1007,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
       for (const v of row.versions) {
         if (seenVersionIds.has(v.id) || stmtVersionIdExists.get(v.id) !== undefined) {
           warn(`[memory] 导入行版本链 id 撞库拒写（memory_versions.id 重复）：${v.id}（条目：${row.id}）`);
-          throw new BaseError('MEMORY_ENTRY_INVALID', `导入行坏形拒：版本行 id 重复（memory_versions.id）：${v.id}`);
+          throw new BaseError('MEMORY_ENTRY_INVALID', `导入行格式不对：版本行 id 重复（memory_versions.id）：${v.id}`);
         }
         seenVersionIds.add(v.id);
       }

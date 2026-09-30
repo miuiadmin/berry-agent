@@ -26,8 +26,8 @@ import type { CredentialChangedPayload } from './secrets.js';
 
 /** 用法文案（TUI 命令 description 位与用法错指路共用单源；oauth 动词 TUI 面承载——CLI 零装配无注册表不载） */
 export const CREDENTIALS_USAGE = [
-  '用法：/credentials add <name> <value> [--namespace <ns>] [--model-provider <providerId>] —— 录入静态凭证（缺省 host 域；值含空格用引号包裹；--model-provider 把该凭证绑定到指定模型渠道——录入即可被该渠道使用）',
-  '　　　/credentials list —— 全域列示（namespace/名/来源/模型绑定/值/更新时间——值列直呈〔全明文〕）',
+  '用法：/credentials add <名> <值> [--namespace <命名空间>] [--model-provider <渠道id>] —— 保存凭证；值含空格请加引号。--model-provider 指定这条凭证给哪个渠道用（保存后立即生效）',
+  '　　　/credentials list —— 列出全部凭证（含明文值）',
   '　　　/credentials rm <name> [--namespace <ns>] —— 撤销凭证（删除唯一路径）',
   '　　　/credentials oauth <pluginId> [<name>] —— 发起插件 oauth 授权（device-code；归属由发起授权的插件决定）',
 ].join('\n');
@@ -250,7 +250,7 @@ function runAdd(
     if (normalized === '') {
       return {
         ok: false,
-        text: `--model-provider 值坏形（trim 后为空或斜杠首段空——形如 anthropic 或 anthropic/model-id）。\n${CREDENTIALS_USAGE}`,
+        text: `--model-provider 的值无效——应形如 anthropic 或 anthropic/model-id。\n${CREDENTIALS_USAGE}`,
       };
     }
     modelProvider = normalized;
@@ -265,7 +265,7 @@ function runAdd(
     ok: true,
     text:
       `已录入凭证 ${ns}/${name}（来源 manual${modelProvider !== undefined ? `，模型绑定 ${modelProvider}——录入即生效，无需重启` : ''}）` +
-      `——值不回显；注入用 env 引用形 '@credentials:${name}'。`,
+      `——值不会显示；插件可用 @credentials:${name} 引用这条凭证。`,
   };
 }
 
@@ -273,7 +273,7 @@ function runAdd(
 function runRm(name: string, namespace: string | undefined, deps: CredentialsCommandDeps): CredentialsCommandResult {
   const ns = resolveNamespace(namespace);
   if (!deps.store.deleteCredential(ns, name)) {
-    throw new BaseError('CREDENTIALS_NOT_FOUND', `凭证 ${name} 不在 ${ns} 域——用 list 查在册名。`);
+    throw new BaseError('CREDENTIALS_NOT_FOUND', `凭证 ${name} 不在 ${ns} 域——运行 /credentials list 查看全部凭证。`);
   }
   deps.onCredentialChanged?.({ namespace: ns, name, action: 'remove', origin: 'human' });
   return { ok: true, text: `已撤销凭证 ${ns}/${name}。` };
@@ -288,7 +288,7 @@ function runList(deps: CredentialsCommandDeps): CredentialsCommandResult {
   if (rows.length === 0) {
     return { ok: true, text: '无凭证（数据目录凭证表空——/credentials add 录入首条）' };
   }
-  const lines: string[] = [`共 ${rows.length} 条凭证（全域列示，值列直呈——全明文）：`];
+  const lines: string[] = [`共 ${rows.length} 条凭证（全部显示，值为明文）：`];
   for (const row of rows) {
     const meta = (row.meta ?? {}) as CredentialMeta;
     const source = meta.source ?? '未记';

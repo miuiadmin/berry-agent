@@ -22,7 +22,7 @@ registerErrorCodes([
   {
     code: 'ISSUE_WEBHOOK_INVALID',
     module: 'issue',
-    description: 'webhook 请求坏形（签名不符/JSON 坏/载荷非 issue 域形——响亮拒不静默吞）',
+    description: 'webhook 请求格式不对（签名不符/JSON 坏/载荷非 issue 域形——响亮拒不静默吞）',
   },
   {
     code: 'ISSUE_JOB_DUPLICATE',
@@ -34,6 +34,7 @@ registerErrorCodes([
     // mount config 坏形响亮拒（行级装载失败 /reload 可修，MCP_CONFIG_INVALID 同律）
     code: 'ISSUE_CONFIG_INVALID',
     module: 'issue',
-    description: 'mount config 坏形（repos 缺席/非数组/glob 坏形等 normalizeIssueConfig 拒形——装载期响亮拒行级失败）',
+    description:
+      'mount config 格式不对（repos 缺席/非数组/glob 格式不对等 normalizeIssueConfig 拒形——挂载期响亮拒行级失败）',
   },
 ]);

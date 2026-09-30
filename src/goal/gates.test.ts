@@ -69,7 +69,7 @@ describe('command 源（exit 0 放行/30s 帽语义在 seam）', () => {
   it('exec seam 缺席：fail-closed 恒拒（不是 skip）', async () => {
     const [outcome] = await evaluateGoalGates([gi({ kind: 'command', command: 'x' })], deps());
     expect(outcome!.ok).toBe(false);
-    expect(outcome!.detail).toContain('缺席');
+    expect(outcome!.detail).toContain('不可用');
   });
 });
 
@@ -128,7 +128,7 @@ describe('diagnostics 源（无 error 级放行；lsp 缺席 fail-closed）', ()
   it('lsp seam 缺席：评测位亦拒（申报位拒之外的双拦防御）', async () => {
     const [outcome] = await evaluateGoalGates([gi({ kind: 'diagnostics', files: ['/ws/a.ts'] })], deps());
     expect(outcome!.ok).toBe(false);
-    expect(outcome!.detail).toContain('缺席');
+    expect(outcome!.detail).toContain('不可用');
   });
 
   it('纯 warning 面：无 error 级放行', async () => {

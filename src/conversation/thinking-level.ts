@@ -54,7 +54,7 @@ export function foldSessionThinkingLevel(events: readonly SessionEvent[]): Think
     if (!isThinkingLevel(value)) {
       throw new BaseError(
         'THINKING_LEVEL_INVALID',
-        `session/thinking-level 事件档位非法：${JSON.stringify(value)}（七档词汇：${THINKING_LEVELS.join(' / ')}）`,
+        `session/thinking-level 事件的思考级别无效：${JSON.stringify(value)}（可选值：${THINKING_LEVELS.join(' / ')}）`,
       );
     }
     level = value;
@@ -76,7 +76,7 @@ export function setSessionThinkingLevel(session: SessionLog, level: string): Thi
   if (!isThinkingLevel(level)) {
     throw new BaseError(
       'THINKING_LEVEL_INVALID',
-      `思考档位非法：${JSON.stringify(level)}（七档词汇：${THINKING_LEVELS.join(' / ')}）`,
+      `思考级别无效：${JSON.stringify(level)}（可选值：${THINKING_LEVELS.join(' / ')}）`,
     );
   }
   session.append('session/thinking-level', { level } satisfies ThinkingLevelEventData);

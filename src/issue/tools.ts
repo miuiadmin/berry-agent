@@ -91,7 +91,7 @@ export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
                 // 达帽形区分射程（「不在最新 500 条内」）——恒满页时「列尽」
                 // 话术是假列尽（更深页存在只是不翻了），诚实注记翻页帽
                 text: found.hitCap
-                  ? `issue ${deps.repo}#${deps.number} 不在最新 ${ISSUE_LOOKUP_PAGE_CAP * 100} 条 open issue 内（可能已关闭或删除——或超出翻页帽，更深须人面直查）`
+                  ? `issue ${deps.repo}#${deps.number} 不在最新 ${ISSUE_LOOKUP_PAGE_CAP * 100} 条 open issue 内（可能已关闭或删除——或超出翻页上限，更深须人工直查）`
                   : `issue ${deps.repo}#${deps.number} 不在源返回集内（可能已关闭或删除）`,
               },
             ],
@@ -115,7 +115,7 @@ export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
             // 溢出注记（升序取旧段——最新段未收录）：模型自知信息不全
             sections.push(
               '',
-              `…（评论超 ${COMMENTS_PAGE_CAP * 100} 条帽——以上为最早的 ${comments.list.length} 条，更新段未收录）`,
+              `…（评论超 ${COMMENTS_PAGE_CAP * 100} 条上限——以上为最早的 ${comments.list.length} 条，更新段未收录）`,
             );
           }
         }
@@ -132,7 +132,7 @@ export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
             kept.push(section);
             used += b;
           }
-          text = `${kept.join('\n')}\n\n…（内容超 ${ISSUE_CONTEXT_CAP_BYTES} 字节帽已截断——评论可能不全）`;
+          text = `${kept.join('\n')}\n\n…（内容超 ${ISSUE_CONTEXT_CAP_BYTES} 字节上限已截断——评论可能不全）`;
         }
         return { content: [{ type: 'text' as const, text }], details: { comments: comments.list.length } };
       },
@@ -141,12 +141,12 @@ export function createIssueTools(deps: IssueToolsDeps): ToolDefinition[] {
       name: 'issue_escalate',
       effect: 'read',
       description:
-        '向人上报需裁决的问题或决策请求（登记面——run 收口时随回执转人审，不中途发评论）。question 必填；可选附 options 候选清单 / recommendation 建议案 / continueWithDefault 建议的缺省继续案（仅呈报，不会自动执行）。',
+        '向人上报需裁决的问题或决策请求（登记面——run 收口时随回执转人审，不中途发评论）。question 必填；可选附 options 候选清单 / recommendation 建议案 / continueWithDefault 建议的默认继续案（仅呈报，不会自动执行）。',
       parameters: Type.Object({
         question: Type.String({ description: '要人裁决的问题' }),
         options: Type.Optional(Type.Array(Type.String(), { description: '候选案清单（可选）' })),
         recommendation: Type.Optional(Type.String({ description: '建议案（可选）' })),
-        continueWithDefault: Type.Optional(Type.String({ description: '建议的缺省继续案（可选——v1 仅呈报不执行）' })),
+        continueWithDefault: Type.Optional(Type.String({ description: '建议的默认继续案（可选——v1 仅呈报不执行）' })),
       }),
       execute: async (args) => {
         // 只登记不发评论（收口单链——评论投递是编排层收口动作 postReceipt 不破）。

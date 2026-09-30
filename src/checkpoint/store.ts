@@ -86,7 +86,7 @@ function blobPath(baseDir: string, hash: string): string {
 
 /** manifest 坏形折 STORE_CORRUPT（宁拒不误读——字段缺失/型不符全收） */
 function corrupt(detail: string): BaseError {
-  return new BaseError('CHECKPOINT_STORE_CORRUPT', `[CHECKPOINT_STORE_CORRUPT] 快照仓坏形：${detail}`);
+  return new BaseError('CHECKPOINT_STORE_CORRUPT', `[CHECKPOINT_STORE_CORRUPT] 快照仓格式异常：${detail}`);
 }
 
 /** manifest JSON 形校验（loadManifest/listManifests 共用判据） */
@@ -100,22 +100,24 @@ function validateManifest(raw: unknown, source: string): CheckpointManifest {
   const capturedAt = m.capturedAt;
   const trigger = m.trigger;
   const files = m.files;
-  if (typeof id !== 'string' || !MANIFEST_ID_RE.test(id)) throw corrupt(`${source} id 坏形`);
-  if (typeof sessionId !== 'string' || sessionId === '') throw corrupt(`${source} sessionId 坏形`);
+  if (typeof id !== 'string' || !MANIFEST_ID_RE.test(id)) throw corrupt(`${source} id 格式异常`);
+  if (typeof sessionId !== 'string' || sessionId === '') throw corrupt(`${source} sessionId 格式异常`);
   if (typeof boundarySeq !== 'number' || !Number.isInteger(boundarySeq) || boundarySeq < -1)
-    throw corrupt(`${source} boundarySeq 坏形`);
-  if (typeof workspaceRoot !== 'string' || workspaceRoot === '') throw corrupt(`${source} workspaceRoot 坏形`);
-  if (typeof capturedAt !== 'number' || !Number.isFinite(capturedAt)) throw corrupt(`${source} capturedAt 坏形`);
-  if (trigger !== 'mutation' && trigger !== 'pre-rewind') throw corrupt(`${source} trigger 坏形`);
+    throw corrupt(`${source} boundarySeq 格式异常`);
+  if (typeof workspaceRoot !== 'string' || workspaceRoot === '') throw corrupt(`${source} workspaceRoot 格式异常`);
+  if (typeof capturedAt !== 'number' || !Number.isFinite(capturedAt)) throw corrupt(`${source} capturedAt 格式异常`);
+  if (trigger !== 'mutation' && trigger !== 'pre-rewind') throw corrupt(`${source} trigger 格式异常`);
   if (!Array.isArray(files)) throw corrupt(`${source} files 非数组`);
   const entries = files.map((f, i) => {
     if (typeof f !== 'object' || f === null) throw corrupt(`${source} files[${i}] 非对象`);
     const e = f as Record<string, unknown>;
     if (typeof e.path !== 'string' || !isSafeEntryPath(e.path))
-      throw corrupt(`${source} files[${i}].path 坏形（须为工作区相对 posix 路径——禁绝对形/'..'段/反斜杠）`);
-    if (typeof e.hash !== 'string' || !BLOB_HASH_RE.test(e.hash)) throw corrupt(`${source} files[${i}].hash 坏形`);
+      throw corrupt(
+        `${source} files[${i}].path 格式异常（须为工作区相对 posix 路径——不允许绝对路径、'..' 段或反斜杠）`,
+      );
+    if (typeof e.hash !== 'string' || !BLOB_HASH_RE.test(e.hash)) throw corrupt(`${source} files[${i}].hash 格式异常`);
     if (typeof e.bytes !== 'number' || !Number.isInteger(e.bytes) || e.bytes < 0)
-      throw corrupt(`${source} files[${i}].bytes 坏形`);
+      throw corrupt(`${source} files[${i}].bytes 格式异常`);
     return { path: e.path, hash: e.hash, bytes: e.bytes };
   });
   return {
@@ -162,7 +164,7 @@ export function openCheckpointStore(
     baseDir,
 
     async writeBlob(hash, content) {
-      if (!BLOB_HASH_RE.test(hash)) throw corrupt(`blob 哈希坏形：${hash}`);
+      if (!BLOB_HASH_RE.test(hash)) throw corrupt(`blob 哈希格式异常：${hash}`);
       const target = blobPath(baseDir, hash);
       try {
         await readFile(target);
@@ -174,7 +176,7 @@ export function openCheckpointStore(
     },
 
     async readBlob(hash) {
-      if (!BLOB_HASH_RE.test(hash)) throw corrupt(`blob 哈希坏形：${hash}`);
+      if (!BLOB_HASH_RE.test(hash)) throw corrupt(`blob 哈希格式异常：${hash}`);
       let content: Buffer;
       try {
         content = await readFile(blobPath(baseDir, hash));
@@ -187,7 +189,7 @@ export function openCheckpointStore(
 
     async saveManifest(manifest) {
       // id 白名单校验（防路径注入——manifest id 亦是路径段）
-      if (!MANIFEST_ID_RE.test(manifest.id)) throw corrupt(`manifest id 坏形：${manifest.id}`);
+      if (!MANIFEST_ID_RE.test(manifest.id)) throw corrupt(`manifest id 格式异常：${manifest.id}`);
       await atomicWrite(join(baseDir, 'manifests', `${manifest.id}.json`), JSON.stringify(manifest, null, 2));
     },
 

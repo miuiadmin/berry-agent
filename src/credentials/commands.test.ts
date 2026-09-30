@@ -138,7 +138,7 @@ describe('add 动词', () => {
     for (const bad of ['  ', '/anthropic']) {
       const result = run({ sub: 'add', name: 'x', value: 'v', modelProvider: bad });
       expect(result.ok).toBe(false);
-      expect(result.text).toContain('--model-provider 值坏形');
+      expect(result.text).toContain('--model-provider 的值无效');
       expect(store.getCredential('host', 'x')).toBeUndefined(); // 拒形不落行（好形先于写库）
     }
   });

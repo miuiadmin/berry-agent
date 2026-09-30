@@ -414,7 +414,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       promptSnapshot: goal.promptSnapshot,
     });
     if (!receipt.ok) {
-      throw new BaseError('GOAL_TRANSITION_INVALID', `挂钟注册失败（goal ${goal.id}）：${receipt.message}`);
+      throw new BaseError('GOAL_TRANSITION_INVALID', `定时任务注册失败（goal ${goal.id}）：${receipt.message}`);
     }
   }
 
@@ -433,12 +433,12 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
     async activate(req) {
       const bytes = Buffer.byteLength(req.objective, 'utf8');
       if (req.objective.length === 0 || bytes > OBJECTIVE_MAX_BYTES) {
-        throw new BaseError('GOAL_GOAL_INVALID', `objective 须非空且 ≤16KiB（得 ${bytes} 字节）`);
+        throw new BaseError('GOAL_GOAL_INVALID', `objective 不能为空且不超过 16KiB（当前 ${bytes} 字节）`);
       }
       if (dao.activeFor(req.sessionId)) {
         throw new BaseError(
           'GOAL_TRANSITION_INVALID',
-          `会话 ${req.sessionId} 已有 active goal（单 active 守卫——先 complete/abandon 再建新）`,
+          `会话 ${req.sessionId} 已有 active goal——先完成或放弃它，再建新的`,
         );
       }
       const ts = now();
@@ -537,8 +537,8 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       });
       const failed = outcomes.filter((o) => !o.ok);
       if (failed.length > 0) {
-        const listing = failed.map((o) => `${o.kind} 门：${o.detail}`).join('；');
-        throw new BaseError('GOAL_TRANSITION_INVALID', `完成否决——判据门未全绿（${listing}）`);
+        const listing = failed.map((o) => `${o.kind} gate：${o.detail}`).join('；');
+        throw new BaseError('GOAL_TRANSITION_INVALID', `完成否决——声明的 gate 未全部通过（${listing}）`);
       }
       dao.update(goalId, { status: 'completed', endedAt: now(), endingNote: evidence }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
@@ -557,7 +557,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       const row = dao.get(goalId);
       if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（abandon 幽灵 id 零行守卫）`);
       if (row.status !== 'active') {
-        throw new BaseError('GOAL_TRANSITION_INVALID', `goal「${goalId}」已终态（${row.status}）——不可再迁转`);
+        throw new BaseError('GOAL_TRANSITION_INVALID', `goal「${goalId}」已终态（${row.status}）——不可再变更`);
       }
       dao.update(goalId, { status: 'abandoned', endedAt: now(), endingNote: reason ?? 'abandoned' }, now());
       parkedForBudget.delete(goalId); // 终态清停靠登记（广播面不再辖终态 goal）
@@ -573,13 +573,13 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
 
     async wake(goalId, opts) {
       const row = dao.get(goalId);
-      if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（wake 幽灵 id 零行守卫）`);
+      if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在`);
       // 重绑护栏：goal 关闭（终态）后旧唤醒不落地
       if (row.status !== 'active') {
         return {
           landed: false,
           reason: 'inactive',
-          message: `goal「${goalId}」已终态（${row.status}）——唤醒不落地（重绑护栏）`,
+          message: `goal「${goalId}」已终态（${row.status}）——唤醒未执行`,
           goal: row,
         };
       }
@@ -604,14 +604,14 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         }
         dao.insertWake(goalId, now(), 'manual', opts.attribution, fingerprint, progressed);
         const fresh = dao.get(goalId)!;
-        return { landed: true, reason: 'ok', message: `手动唤醒已落地（停滞计数复位）`, goal: fresh };
+        return { landed: true, reason: 'ok', message: `手动唤醒已执行（无进展计数已清零）`, goal: fresh };
       }
 
       // clock 道：wakeGate 双帽——进展即双复位直落；无进展走双帽判定
       if (progressed) {
         dao.update(goalId, { stallStreak: 0, wakeStreak: 0, lastFingerprint: fingerprint }, now());
         dao.insertWake(goalId, now(), 'clock', opts.attribution, fingerprint, true);
-        return { landed: true, reason: 'ok', message: '唤醒落地（计划态有进展）', goal: dao.get(goalId)! };
+        return { landed: true, reason: 'ok', message: '唤醒已执行（任务清单有进展）', goal: dao.get(goalId)! };
       }
       const stallStreak = row.stallStreak + 1;
       if (stallStreak >= stallLimit) {
@@ -631,7 +631,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         return {
           landed: false,
           reason: 'stalled',
-          message: `停滞硬停：连续 ${stallStreak} 轮唤醒无进展（帽 ${stallLimit}）——挂钟已停摆，/goal wake 手动复位`,
+          message: `连续 ${stallStreak} 轮唤醒无进展（上限 ${stallLimit} 轮）——定时已暂停，/goal wake 手动恢复`,
           goal: dao.get(goalId)!,
         };
       }
@@ -644,13 +644,13 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         return {
           landed: false,
           reason: 'wake_budget',
-          message: `唤醒预算拒收：连续 ${wakeStreak} 次无进展 clock 唤醒（帽 ${wakeBudgetLimit}）——本轮不起`,
+          message: `连续 ${wakeStreak} 次定时唤醒无进展（上限 ${wakeBudgetLimit} 次）——本轮不唤醒`,
           goal: dao.get(goalId)!,
         };
       }
       dao.update(goalId, { stallStreak, wakeStreak, lastFingerprint: fingerprint }, now());
       dao.insertWake(goalId, now(), 'clock', opts.attribution, fingerprint, false);
-      return { landed: true, reason: 'ok', message: '唤醒落地（无进展——停滞/唤醒计数 +1）', goal: dao.get(goalId)! };
+      return { landed: true, reason: 'ok', message: '唤醒已执行（无进展，计数 +1）', goal: dao.get(goalId)! };
     },
 
     get: (goalId) => dao.get(goalId),
@@ -660,17 +660,17 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
 
     async approve(goalId) {
       const row = dao.get(goalId);
-      if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在（approve 幽灵 id 零行守卫）`);
+      if (!row) throw new BaseError('GOAL_NOT_FOUND', `goal「${goalId}」不存在`);
       // 批准无对象两档：未申报 needsWrite（approve 前置语义缺位）/ 终态行
       // （生命周期已收口——f-1 定形注②守卫链）
       if (!row.needsWrite) {
         throw new BaseError(
           'GOAL_TRANSITION_INVALID',
-          `goal「${goalId}」未申报 needsWrite——无批准对象（activate 时申报后方可批准）`,
+          `goal「${goalId}」未申请写入权限——没有可批准的内容（创建时用 --write 申请后方可批准）`,
         );
       }
       if (row.status !== 'active') {
-        throw new BaseError('GOAL_TRANSITION_INVALID', `goal「${goalId}」已终态（${row.status}）——批准无对象`);
+        throw new BaseError('GOAL_TRANSITION_INVALID', `goal「${goalId}」已终态（${row.status}）——没有可批准的内容`);
       }
       if (row.writeApproved) return row; // 重复 approve 幂等回执（批准位已置）
       dao.update(goalId, { writeApproved: true }, now());

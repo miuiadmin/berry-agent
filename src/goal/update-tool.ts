@@ -23,7 +23,7 @@ export function createGoalUpdateTool(deps: GoalUpdateToolDeps): ToolDefinition {
     name: 'goal_update',
     description:
       '申报 goal 终态。status=completed 必附 evidence（完成证据——机器会独立核验：' +
-      '任务清单不得有 open 项〔一切非 completed 项，含 deferred〕、判据门须全绿，' +
+      '任务清单不得有 open 项〔一切非 completed 项，含 deferred〕、声明的 gate 须全部通过，' +
       '不符即拒并回执原因）；status=abandoned 可附 reason。当前会话的 active goal 作用。',
     parameters: Type.Object(
       {
@@ -51,7 +51,7 @@ export function createGoalUpdateTool(deps: GoalUpdateToolDeps): ToolDefinition {
             type: 'text',
             text:
               status === 'completed'
-                ? `goal 已完成（机器核验通过：open 项清零 + 判据门全绿）。证据：${note}`
+                ? `goal 已完成（机器核验通过：open 项清零 + 声明的 gate 全部通过）。证据：${note}`
                 : `goal 已放弃。理由：${note}`,
           },
         ],

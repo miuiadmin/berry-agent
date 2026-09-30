@@ -53,8 +53,8 @@ export function createGoalTodoTool(deps: GoalTodoToolDeps): ToolDefinition {
     description:
       '维护当前任务清单（全量快照式：每次调用提交完整清单覆盖旧表）。goal 段扩展语义：' +
       'deferred 项必携 resume_when（after@<ISO> 或 after@+<n>[mhd]）；completed 项必携后继二择一' +
-      '（follow_up 或 no_follow_up: true）；可选 gate 声明判据门（command/files/diagnostics）。' +
-      '清单跨对话轮与续跑轮持续存活（goal 生命周期段 fold——用户出手不重置）。',
+      '（follow_up 或 no_follow_up: true）；可选 gate 声明完成验证条件（command/files/diagnostics）。' +
+      '清单跨对话轮与续跑轮持续存活（goal 生命周期段 fold——用户发消息不重置）。',
     parameters: Type.Object(
       {
         items: Type.Array(
@@ -165,7 +165,7 @@ function enforceScope(
   if (item.resumeWhen !== undefined) {
     const parsed = parseResumeWhen(item.resumeWhen, anchorMs);
     if (!parsed.ok)
-      throw new BaseError('GOAL_TODO_SCOPE', `条目「${item.content}」resume_when 词法坏形：${parsed.error}`);
+      throw new BaseError('GOAL_TODO_SCOPE', `条目「${item.content}」resume_when 格式不对：${parsed.error}`);
   }
   if (item.status === 'completed' && item.followUp === undefined && item.noFollowUp !== true) {
     throw new BaseError(
@@ -183,7 +183,7 @@ function enforceScope(
         // 生产可达形 = exec 件禁用/缺席——词面如实指该方向（diagnostics 分支同律）
         throw new BaseError(
           'GOAL_TODO_SCOPE',
-          `条目「${item.content}」command 判据门不可申报——exec 执行面缺席（exec 件未装载或被禁用——诚实缺席，fail-closed 不放行）`,
+          `条目「${item.content}」command gate 不可申报——exec 执行器不可用（exec 插件未安装或被禁用——fail-closed 不放行）`,
         );
       }
       const status = deps.commandGateStatus(scope.goalId);
@@ -191,27 +191,27 @@ function enforceScope(
         throw new BaseError(
           'GOAL_TODO_SCOPE',
           status.reason === 'not-approved'
-            ? `条目「${item.content}」command 判据门不可申报——goal 已申报 needsWrite 但未获人面批准（/goal approve ${scope.goalId} 批准后方可申报）`
-            : `条目「${item.content}」command 判据门不可申报——goal 未申报 needsWrite（防模型自造命令免审批自跑）`,
+            ? `条目「${item.content}」command gate 不可申报——goal 已申报 needsWrite 但未获用户批准（/goal approve ${scope.goalId} 批准后方可申报）`
+            : `条目「${item.content}」command gate 不可申报——goal 未申报 needsWrite（防模型自造命令免审批自跑）`,
         );
       }
       if (item.gate.command.trim().length === 0) {
-        throw new BaseError('GOAL_TODO_SCOPE', `条目「${item.content}」command 判据门命令为空——空门即非门`);
+        throw new BaseError('GOAL_TODO_SCOPE', `条目「${item.content}」command gate 的命令为空——空 gate 无效`);
       }
     }
     if (item.gate.kind === 'diagnostics') {
       if (!deps.hasLsp) {
         throw new BaseError(
           'GOAL_TODO_SCOPE',
-          `条目「${item.content}」diagnostics 判据门不可申报——lsp 诊断查询面缺席（fail-closed 非静默跳过）`,
+          `条目「${item.content}」diagnostics gate 不可申报——lsp 诊断查询不可用（fail-closed 非静默跳过）`,
         );
       }
       if (item.gate.files.length === 0) {
-        throw new BaseError('GOAL_TODO_SCOPE', `条目「${item.content}」diagnostics 判据门目标集为空——空门即非门`);
+        throw new BaseError('GOAL_TODO_SCOPE', `条目「${item.content}」diagnostics gate 目标集为空——空 gate 无效`);
       }
     }
     if (item.gate.kind === 'files' && item.gate.paths.length === 0) {
-      throw new BaseError('GOAL_TODO_SCOPE', `条目「${item.content}」files 判据门目标集为空——空门即非门`);
+      throw new BaseError('GOAL_TODO_SCOPE', `条目「${item.content}」files gate 目标集为空——空 gate 无效`);
     }
   }
 }

@@ -29,7 +29,7 @@ describe('schedule 前缀粗校验（真语法对齐——every 冒号形 / once
     for (const schedule of pseudos) {
       const r = normalizeIssueConfig({ repos: ['o/r'], schedule });
       expect(r.ok === false, `伪形被放行：${schedule}`).toBe(true);
-      if (!r.ok) expect(r.message).toContain('schedule 坏形');
+      if (!r.ok) expect(r.message).toContain('schedule 格式不对');
     }
   });
 

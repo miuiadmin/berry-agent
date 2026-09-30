@@ -168,15 +168,15 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
         ),
         summary: Type.String({ description: '一句话摘要（合并与冲突判定的比较面）' }),
         content: Type.String({ description: '全文（注入用）' }),
-        confidence: Type.Optional(Type.Number({ description: '0..1 置信度（缺省 0.8；合并取 max）' })),
+        confidence: Type.Optional(Type.Number({ description: '0..1 置信度（默认 0.8；合并取 max）' })),
         scope: Type.Optional(
           Type.Union([Type.Literal('global'), Type.Literal('project')], {
-            description: '归属域：global 全局（缺省）/ project 当前项目',
+            description: '归属域：global 全局（默认）/ project 当前项目',
           }),
         ),
-        ttlDays: Type.Optional(Type.Number({ description: '留存天数（正整数；缺省 = 永久）' })),
+        ttlDays: Type.Optional(Type.Number({ description: '留存天数（正整数；默认 = 永久）' })),
         validFrom: Type.Optional(
-          Type.String({ description: '生效起点（ISO 8601 UTC 字符串，如 2026-10-01T00:00:00Z；缺省 = 即时生效）' }),
+          Type.String({ description: '生效起点（ISO 8601 UTC 字符串，如 2026-10-01T00:00:00Z；默认 = 即时生效）' }),
         ),
       },
       { additionalProperties: false },
@@ -259,12 +259,12 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
   const memoryRestore: ToolDefinition = {
     name: 'memory_restore',
     description:
-      '恢复一条记忆（复活为 active 并按留存策略重算过期钟）。缺省 = 状态复活（现行内容' +
+      '恢复一条记忆（复活为 active 并按留存策略重算过期钟）。默认 = 状态复活（现行内容' +
       '不变）；带 revision = 内容回滚到该版本快照（追加 rollback 版本；无链条目带版本拒）。',
     parameters: Type.Object(
       {
         id: Type.String({ description: '完整条目 id' }),
-        revision: Type.Optional(Type.Number({ description: '内容回滚到的版本号（正整数；缺省 = 仅状态复活）' })),
+        revision: Type.Optional(Type.Number({ description: '内容回滚到的版本号（正整数；默认 = 仅状态复活）' })),
       },
       { additionalProperties: false },
     ),
@@ -294,11 +294,11 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
   const memoryRead: ToolDefinition = {
     name: 'memory_read',
     description:
-      '读记忆面（轻量，不走全文检索）。缺省 = 常驻简报（冻结条目恒驻在前、其余按效用分' +
+      '读记忆面（轻量，不走全文检索）。默认 = 常驻简报（冻结条目恒驻在前、其余按效用分' +
       '降序）+ 最近变更 + 健康面；带 id = 单条现行值 + 版本链摘要（revision/时间/cause/' +
       'reason）+ 健康面（终态行也可读——历史审计面；未生效行同可读——管理面直读不过滤）。',
     parameters: Type.Object(
-      { id: Type.Optional(Type.String({ description: '完整条目 id（缺省 = 简报整面）' })) },
+      { id: Type.Optional(Type.String({ description: '完整条目 id（默认 = 简报整面）' })) },
       { additionalProperties: false },
     ),
     effect: 'read',
@@ -360,7 +360,7 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
             { description: '种类过滤（七值——只作用记忆条目段）' },
           ),
         ),
-        limit: Type.Optional(Type.Number({ description: '每段行上限（缺省 10、硬帽 50）' })),
+        limit: Type.Optional(Type.Number({ description: '每段行上限（默认 10、硬上限 50）' })),
       },
       { additionalProperties: false },
     ),
@@ -483,18 +483,18 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
       '聚合面 = top-N 被用条目（总次数降序），流水面 = 时间降序访问记录。',
     parameters: Type.Object(
       {
-        memoryId: Type.Optional(Type.String({ description: '条目 id 或 id 前缀（缺省 = 全库）' })),
+        memoryId: Type.Optional(Type.String({ description: '条目 id 或 id 前缀（默认 = 全库）' })),
         from: Type.Optional(Type.Number({ description: '时间窗下界（epoch 毫秒，含）' })),
         to: Type.Optional(Type.Number({ description: '时间窗上界（epoch 毫秒，含）' })),
         op: Type.Optional(
           Type.Union(
             [Type.Literal('recall'), Type.Literal('search'), Type.Literal('cite'), Type.Literal('corrected-cite')],
             {
-              description: '操作类型过滤（缺省 = 全部）',
+              description: '操作类型过滤（默认 = 全部）',
             },
           ),
         ),
-        limit: Type.Optional(Type.Number({ description: '流水行上限（缺省 50、硬帽 200）' })),
+        limit: Type.Optional(Type.Number({ description: '流水行上限（默认 50、硬上限 200）' })),
       },
       { additionalProperties: false },
     ),
@@ -568,7 +568,7 @@ export function createMemoryTools(deps: MemoryToolsDeps): ToolDefinition[] {
           lines.push(`  [m:${shortIdOf(p.id)}] [${p.kind}] ${p.summary}  退场于 ${fmt(p.updatedAt)}  id=${p.id}`);
         }
         if (lineage.successor === null) {
-          lines.push('后继：—（在册行无后继）');
+          lines.push('后继：—（现行行无后继）');
         } else if ('id' in lineage.successor) {
           const s = lineage.successor;
           lines.push(`后继：[m:${shortIdOf(s.id)}] [${s.kind}] ${s.summary}  id=${s.id}（本条知识已并入）`);

@@ -150,7 +150,7 @@ async function walkDir(
     if (files.length >= fileCap) {
       throw new BaseError(
         'CHECKPOINT_CAPTURE_FAILED',
-        `[CHECKPOINT_CAPTURE_FAILED] 工作区文件数超快照帽（>${fileCap}，根 ${root}）——疑似误指巨型目录，fail-closed 拒拍。`,
+        `[CHECKPOINT_CAPTURE_FAILED] 工作区文件数超快照上限（>${fileCap}，工作区 ${root}）——疑似误指巨型目录，已拒绝创建快照。`,
       );
     }
     files.push({ path: toPosix(relative(root, fullPath)), absPath: fullPath });

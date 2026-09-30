@@ -228,8 +228,8 @@ describe('complete（完成否决律机器面）', () => {
     expect(err.message).toContain('缓办乙');
   });
 
-  it('判据门未全绿否决（files 门缺席——fail-closed）', async () => {
-    const { service, session } = openService(); // statMap 空 → files 门恒 fail
+  it('声明的 gate 未全部通过否决（files gate seam 缺席——fail-closed）', async () => {
+    const { service, session } = openService(); // statMap 空 → files gate 恒 fail
     const goal = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
     session.push('s1', 'todo/write', {
       items: [
@@ -237,8 +237,8 @@ describe('complete（完成否决律机器面）', () => {
       ],
     });
     const err = await expectCode(service.complete(goal.id, 'ev'), 'GOAL_TRANSITION_INVALID');
-    expect(err.message).toContain('判据门未全绿');
-    expect(err.message).toContain('files 门');
+    expect(err.message).toContain('声明的 gate 未全部通过');
+    expect(err.message).toContain('files gate');
   });
 
   it('全绿路：落终态 + endingNote=evidence + 挂钟同笔停摆', async () => {
@@ -433,7 +433,7 @@ describe('approve + commandGateStatus（f-1 needsWrite 批准链路——03 §10
     // 未申报 needsWrite——批准无对象
     const plain = await service.activate({ sessionId: 's1', objective: 'o', schedule: 'x' });
     const err = await expectCode(service.approve(plain.id), 'GOAL_TRANSITION_INVALID');
-    expect(err.message).toContain('未申报 needsWrite');
+    expect(err.message).toContain('未申请写入权限');
     // 申报行可批准；重复 approve 幂等回执
     const declared = await service.activate({
       sessionId: 's2',
@@ -486,7 +486,7 @@ describe('approve + commandGateStatus（f-1 needsWrite 批准链路——03 §10
     // 批准后：合取 true、但 exec seam 缺席——红文案换档（证合取已在评测侧生效）
     await service.approve(goal.id);
     const after = await expectCode(service.complete(goal.id, 'ev'), 'GOAL_TRANSITION_INVALID');
-    expect(after.message).toContain('exec 执行面缺席');
+    expect(after.message).toContain('exec 执行器不可用');
     expect(after.message).not.toContain('未获批准');
     expect(service.commandGateStatus(goal.id)).toEqual({ allowed: true, reason: 'ok' });
   });

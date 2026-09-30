@@ -453,7 +453,7 @@ export class ConversationDriver {
     const reason = input.reason !== undefined ? `——${input.reason}` : '';
     const message: UserMessage = {
       role: 'user',
-      content: `子代理「${input.jobName}」等待审批：${input.toolName}${reason}（通知仅信息位——审批应答权在用户，请勿代答/代批）`,
+      content: `子代理「${input.jobName}」等待审批：${input.toolName}${reason}（这只是通知——是否批准由用户决定，请勿代答/代批）`,
       timestamp: Date.now(),
       source: 'subagent-approval-pending',
       dedupeKey,

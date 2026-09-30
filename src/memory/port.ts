@@ -119,7 +119,7 @@ export function serializeMemoryExport(
 
 /** header 坏形整文件拒（唯一 MEMORY_IMPORT_FORMAT_INVALID 抛点——判据：magic 不符或 formatVersion ∉ {1,2} 或 meta 字段坏形） */
 function invalidHeader(detail: string): BaseError {
-  return new BaseError('MEMORY_IMPORT_FORMAT_INVALID', `导入文件 header 坏形整文件拒（${detail}）`);
+  return new BaseError('MEMORY_IMPORT_FORMAT_INVALID', `导入文件首行 header 格式不对（${detail}）——整个文件未导入`);
 }
 
 /** formatVersion 可收值（批 ev-1——v1 旧件判读收；双收判定单源）。导出 = 错误码描述漂移锁的对拍真源（codes.ts 描述宣称的版本集须与本表一致） */
@@ -142,17 +142,17 @@ export function parseMemoryImportHeader(line: string): MemoryExportHeader {
     throw invalidHeader(`formatVersion ∉ {1,2}：${String(o['formatVersion'])}`);
   }
   if (!Number.isInteger(o['exportedAt']) || (o['exportedAt'] as number) < 0) {
-    throw invalidHeader(`exportedAt 坏形（非负整数）：${String(o['exportedAt'])}`);
+    throw invalidHeader(`exportedAt 格式不对（应为非负整数）：${String(o['exportedAt'])}`);
   }
   if (typeof o['ownerScope'] !== 'string' || o['ownerScope'] === '') {
-    throw invalidHeader(`ownerScope 坏形：${String(o['ownerScope'])}`);
+    throw invalidHeader(`ownerScope 格式不对：${String(o['ownerScope'])}`);
   }
   const roots = o['ownerRoots'];
   if (roots === null || typeof roots !== 'object' || Array.isArray(roots)) {
-    throw invalidHeader('ownerRoots 坏形（对象形）');
+    throw invalidHeader('ownerRoots 格式不对（应为对象）');
   }
   for (const [key, value] of Object.entries(roots)) {
-    if (typeof value !== 'string') throw invalidHeader(`ownerRoots[${key}] 坏形（字符串值）：${String(value)}`);
+    if (typeof value !== 'string') throw invalidHeader(`ownerRoots[${key}] 格式不对（应为字符串）：${String(value)}`);
   }
   return {
     format: MEMORY_EXPORT_MAGIC,
@@ -165,7 +165,7 @@ export function parseMemoryImportHeader(line: string): MemoryExportHeader {
 
 /** 行坏形（MEMORY_ENTRY_INVALID——行级宽容分账 rejectedMalformed，不弃批） */
 function invalidRow(lineNo: number, problems: string): BaseError {
-  return new BaseError('MEMORY_ENTRY_INVALID', `导入行坏形（第 ${lineNo} 行）：${problems}`);
+  return new BaseError('MEMORY_ENTRY_INVALID', `第 ${lineNo} 行格式不对：${problems}`);
 }
 
 /** 非负整数判定（时间戳/计数字段共用） */
@@ -194,7 +194,7 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
   const str = (key: string): string | undefined => {
     const v = o[key];
     if (typeof v !== 'string' || v === '') {
-      problems.push(`${key} 坏形（非空字符串）`);
+      problems.push(`${key} 格式不对（应为非空字符串）`);
       return undefined;
     }
     return v;
@@ -217,15 +217,15 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
   }
   const evidence = o['evidence_count'];
   if (!isNonNegInt(evidence) || (evidence as number) < 1)
-    problems.push(`evidence_count 坏形（≥1 整数）：${String(evidence)}`);
+    problems.push(`evidence_count 格式不对（应为 ≥1 的整数）：${String(evidence)}`);
   const supersededBy = o['superseded_by'];
   if (supersededBy !== null && typeof supersededBy !== 'string') {
-    problems.push('superseded_by 坏形（字符串或 null）');
+    problems.push('superseded_by 格式不对（应为字符串或 null）');
   }
   const refs = o['source_refs'];
   let sourceRefs: readonly MemorySourceRef[] = [];
   if (!Array.isArray(refs)) {
-    problems.push('source_refs 坏形（数组）');
+    problems.push('source_refs 格式不对（应为数组）');
   } else {
     for (const [i, ref] of refs.entries()) {
       if (
@@ -235,59 +235,59 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
         (ref as Record<string, unknown>)['sessionId'] === '' ||
         !isNonNegInt((ref as Record<string, unknown>)['seq'])
       ) {
-        problems.push(`source_refs[${i}] 坏形（{sessionId, seq} 形外）`);
+        problems.push(`source_refs[${i}] 格式不对（应为 {sessionId, seq} 形）`);
         break;
       }
     }
     sourceRefs = refs as MemorySourceRef[];
   }
-  if (!isNonNegInt(o['created_at'])) problems.push(`created_at 坏形（非负整数）：${String(o['created_at'])}`);
-  if (!isNonNegInt(o['updated_at'])) problems.push(`updated_at 坏形（非负整数）：${String(o['updated_at'])}`);
+  if (!isNonNegInt(o['created_at'])) problems.push(`created_at 格式不对（应为非负整数）：${String(o['created_at'])}`);
+  if (!isNonNegInt(o['updated_at'])) problems.push(`updated_at 格式不对（应为非负整数）：${String(o['updated_at'])}`);
   const usage = o['usage_count'];
-  if (!isNonNegInt(usage)) problems.push(`usage_count 坏形（非负整数）：${String(usage)}`);
+  if (!isNonNegInt(usage)) problems.push(`usage_count 格式不对（应为非负整数）：${String(usage)}`);
   const lastUsed = o['last_used_at'];
   if (lastUsed !== null && !isNonNegInt(lastUsed))
-    problems.push(`last_used_at 坏形（非负整数或 null）：${String(lastUsed)}`);
+    problems.push(`last_used_at 格式不对（应为非负整数或 null）：${String(lastUsed)}`);
   // corrected_count 容错位（2026-09-08 消化批——冷读闸 major 销账）：缺席 = 旧
   // 17 列文件按 DEFAULT 0 收（缺席不折坏形）；在场须非负整数
   const corrected = o['corrected_count'];
   if (corrected !== undefined && corrected !== null && !isNonNegInt(corrected)) {
-    problems.push(`corrected_count 坏形（非负整数）：${String(corrected)}`);
+    problems.push(`corrected_count 格式不对（应为非负整数）：${String(corrected)}`);
   }
   const frozen = o['frozen'];
-  if (typeof frozen !== 'boolean') problems.push(`frozen 坏形（布尔）：${String(frozen)}`);
+  if (typeof frozen !== 'boolean') problems.push(`frozen 格式不对（应为布尔值）：${String(frozen)}`);
   const ttlDays = o['ttl_days'];
   if (ttlDays !== null && (!Number.isInteger(ttlDays) || (ttlDays as number) < 1)) {
-    problems.push(`ttl_days 坏形（正整数或 null）：${String(ttlDays)}`);
+    problems.push(`ttl_days 格式不对（应为正整数或 null）：${String(ttlDays)}`);
   }
   const expiresAt = o['expires_at'];
   if (expiresAt !== null && !isNonNegInt(expiresAt)) {
-    problems.push(`expires_at 坏形（非负整数或 null）：${String(expiresAt)}`);
+    problems.push(`expires_at 格式不对（应为非负整数或 null）：${String(expiresAt)}`);
   }
   // valid_from 容错位（批 ev-1——v1/早期 v2 旧件缺席按 NULL 收、不折坏形；在场须非负整数或 null）
   const validFrom = o['valid_from'];
   if (validFrom !== undefined && validFrom !== null && !isNonNegInt(validFrom)) {
-    problems.push(`valid_from 坏形（非负整数或 null）：${String(validFrom)}`);
+    problems.push(`valid_from 格式不对（应为非负整数或 null）：${String(validFrom)}`);
   }
   // versions 随包链（批 ev-1——v1 旧件无此键缺席收；在场须数组且逐行词法全检）
   const rawVersions = o['versions'];
   let versions: readonly MemoryExportVersionRow[] | undefined;
   if (rawVersions !== undefined) {
     if (!Array.isArray(rawVersions)) {
-      problems.push('versions 坏形（数组）');
+      problems.push('versions 格式不对（应为数组）');
     } else {
       const parsedVersions: MemoryExportVersionRow[] = [];
       const seenRevisions = new Set<number>();
       for (const [i, raw] of rawVersions.entries()) {
         if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-          problems.push(`versions[${i}] 坏形（对象形）`);
+          problems.push(`versions[${i}] 格式不对（应为对象）`);
           break;
         }
         const v = raw as Record<string, unknown>;
         const vProblems: string[] = [];
-        if (typeof v['id'] !== 'string' || v['id'] === '') vProblems.push('id 坏形（非空字符串）');
+        if (typeof v['id'] !== 'string' || v['id'] === '') vProblems.push('id 格式不对（应为非空字符串）');
         if (!Number.isInteger(v['revision']) || (v['revision'] as number) < 1) {
-          vProblems.push(`revision 坏形（正整数）：${String(v['revision'])}`);
+          vProblems.push(`revision 格式不对（应为正整数）：${String(v['revision'])}`);
         } else if (seenRevisions.has(v['revision'] as number)) {
           vProblems.push(`revision 重复：${String(v['revision'])}`);
         } else {
@@ -297,14 +297,17 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
           vProblems.push(`cause 非四值闭集：${String(v['cause'])}`);
         }
         if (v['reason'] !== null && v['reason'] !== undefined && typeof v['reason'] !== 'string') {
-          vProblems.push(`reason 坏形（字符串或 null）：${String(v['reason'])}`);
+          vProblems.push(`reason 格式不对（应为字符串或 null）：${String(v['reason'])}`);
         }
-        if (typeof v['owner_key'] !== 'string' || v['owner_key'] === '') vProblems.push('owner_key 坏形（非空字符串）');
+        if (typeof v['owner_key'] !== 'string' || v['owner_key'] === '')
+          vProblems.push('owner_key 格式不对（应为非空字符串）');
         if (typeof v['kind'] !== 'string' || !MEMORY_KINDS.includes(v['kind'] as MemoryExportRow['kind'])) {
           vProblems.push(`kind 非七值闭集：${String(v['kind'])}`);
         }
-        if (typeof v['summary'] !== 'string' || v['summary'] === '') vProblems.push('summary 坏形（非空字符串）');
-        if (typeof v['content'] !== 'string' || v['content'] === '') vProblems.push('content 坏形（非空字符串）');
+        if (typeof v['summary'] !== 'string' || v['summary'] === '')
+          vProblems.push('summary 格式不对（应为非空字符串）');
+        if (typeof v['content'] !== 'string' || v['content'] === '')
+          vProblems.push('content 格式不对（应为非空字符串）');
         if (
           typeof v['confidence'] !== 'number' ||
           !Number.isFinite(v['confidence']) ||
@@ -314,9 +317,10 @@ export function parseMemoryImportRow(line: string, lineNo: number): MemoryExport
           vProblems.push(`confidence 越界 [0,1]：${String(v['confidence'])}`);
         }
         if (!isNonNegInt(v['evidence_count']) || (v['evidence_count'] as number) < 1) {
-          vProblems.push(`evidence_count 坏形（≥1 整数）：${String(v['evidence_count'])}`);
+          vProblems.push(`evidence_count 格式不对（应为 ≥1 的整数）：${String(v['evidence_count'])}`);
         }
-        if (!isNonNegInt(v['created_at'])) vProblems.push(`created_at 坏形（非负整数）：${String(v['created_at'])}`);
+        if (!isNonNegInt(v['created_at']))
+          vProblems.push(`created_at 格式不对（应为非负整数）：${String(v['created_at'])}`);
         if (vProblems.length > 0) {
           problems.push(`versions[${i}]：${vProblems.join('；')}`);
           break;

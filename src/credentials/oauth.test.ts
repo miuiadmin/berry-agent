@@ -236,7 +236,7 @@ describe('runDeviceCodeFlow（RFC 8628 编舞）', () => {
           sleep: fakeClock().sleep,
         }),
       'CREDENTIALS_OAUTH_FLOW_FAILED',
-      '坏形',
+      '格式不对',
     );
     // 非 JSON 载荷
     const fetchC = scriptedFetch([{ ok: true, status: 200, text: '<html>not json</html>' }]);
@@ -249,7 +249,7 @@ describe('runDeviceCodeFlow（RFC 8628 编舞）', () => {
           sleep: fakeClock().sleep,
         }),
       'CREDENTIALS_OAUTH_FLOW_FAILED',
-      '坏形',
+      '格式不对',
     );
   });
 
@@ -469,7 +469,7 @@ describe('resolveOAuthFlow（人面流解析）', () => {
     expect(resolveOAuthFlow(registry, 'solo').message).toContain('未注册');
     const ambiguous = resolveOAuthFlow(registry, 'demo'); // 两流在册
     expect(ambiguous.flow).toBeUndefined();
-    expect(ambiguous.message).toContain('指名其一');
+    expect(ambiguous.message).toContain('指定其中一个');
     // 单流域：registry 分键天然成
     const soloReg = createOAuthFlowRegistry();
     soloReg.register('solo', { def: DEF, handler: async () => undefined }, win.opener);

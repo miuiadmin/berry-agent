@@ -46,12 +46,12 @@ describe('runRewindCommand', () => {
     expect(out).toContain(REWIND_USAGE);
   });
 
-  it('list：无工作区锚的诚实回执', async () => {
+  it('list：未绑定工作区的诚实回执', async () => {
     const out = await runRewindCommand(
       ['list'],
       deps({ contextOf: () => ({ lastClosedBoundary: 0, workspaceRoot: '' }) }),
     );
-    expect(out).toContain('无工作区锚');
+    expect(out).toContain('未绑定工作区');
   });
 
   it('list：列本工作区回退点（新在前）且过滤他工作区', async () => {
@@ -75,7 +75,7 @@ describe('runRewindCommand', () => {
     expect(out).toContain('m-second');
     expect(out).toContain('m-first');
     expect(out).not.toContain('m-other');
-    expect(out).toContain('变异前拍');
+    expect(out).toContain('修改前快照');
   });
 
   it('preview：对账三账 + 确认指引', async () => {
@@ -113,7 +113,7 @@ describe('runRewindCommand', () => {
     );
     expect(out).toContain('恢复 1 · 删除 0 · 不动 0');
     expect(out).toContain('new-session');
-    expect(out).toContain('保底快照');
+    expect(out).toContain('回退前快照');
     // 文件真恢复
     expect(await import('node:fs/promises').then((fs) => fs.readFile(join(ws, 'a.txt'), 'utf8'))).toBe('v1');
   });
@@ -134,7 +134,7 @@ describe('runRewindCommand', () => {
       session: { contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: ws }) },
       sessionId: 's1',
     });
-    expect(out).toContain('fork 未成');
+    expect(out).toContain('新建分支会话失败');
     expect(out).toContain('在飞');
   });
 
@@ -221,8 +221,8 @@ describe('runRewindCommand', () => {
     expect(out).toContain('恢复 1');
     // 主锁：adopt 恰一次且参数=fork 回执 id（修前红：位不被读 → []）
     expect(adoptCalls).toEqual(['new-session']);
-    // 回执仍完整（切焦不改回执面）
-    expect(out).toContain('保底快照');
+    // 回执仍完整（切换会话不改回执面）
+    expect(out).toContain('回退前快照');
   });
 
   it('restore：adopt 切焦失败折降级行进回执（文件已恢复+fork 已建不可逆——回执保 fork id 与手动续接路）', async () => {
@@ -245,8 +245,8 @@ describe('runRewindCommand', () => {
       ...extra,
     });
     expect(out).toContain('恢复 1'); // restore 本体已成的行进回执
-    expect(out).toContain('已 fork 新会话 new-session'); // fork 行仍在（id 不丢）
-    expect(out).toContain('切焦失败'); // 降级行
+    expect(out).toContain('已新建分支会话 new-session'); // fork 行仍在（id 不丢）
+    expect(out).toContain('切换到新会话失败'); // 降级行
     expect(out).toContain('/resume new-session'); // 手动续接路
     expect(await readFile(join(ws, 'a.txt'), 'utf8')).toBe('v1'); // 文件已恢复实证（不回滚）
   });
