@@ -148,7 +148,7 @@ configurado (consulta la guía de uso).
 | `core:lsp`         | cliente LSP — inteligencia de servidores de lenguaje        |
 | `core:browser`     | automatización del navegador                                |
 | `core:webui`       | panel web                                                   |
-| `core:sdk`         | el canal de automatización para programas                   |
+| `core:sdk`         | el acceso programático para programas                   |
 | `core:obs`         | observabilidad                                              |
 | `core:issue`       | modo de trabajo guiado por issues                           |
 | `core:credentials` | bóveda de credenciales — inyección env y flujo OAuth device |
@@ -157,7 +157,7 @@ Escribe el tuyo: un plugin es un manifiesto más un archivo de entrada — consu
 [guía de desarrollo de plugins](./docs/plugin-development.md) (en chino) y los
 [ejemplos](./examples) incluidos en el repositorio.
 
-## Canales de automatización
+## Acceso programático
 
 - **HTTP** — `berry serve` arranca un host residente con la interfaz web y
   una API JSON `/v1/*` versionada y autenticada por bearer; `serve --daemon` lo

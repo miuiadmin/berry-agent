@@ -148,7 +148,7 @@ désactivé individuellement — `core:issue` ne se charge qu'une fois configur�
 | `core:lsp`         | client LSP — intelligence des serveurs de langage         |
 | `core:browser`     | automatisation du navigateur                              |
 | `core:webui`       | tableau de bord web                                       |
-| `core:sdk`         | le canal d'automatisation pour les programmes             |
+| `core:sdk`         | l'accès programmatique pour les programmes             |
 | `core:obs`         | observabilité                                             |
 | `core:issue`       | mode de travail piloté par les tickets                    |
 | `core:credentials` | coffre d'identifiants — injection env & flux OAuth device |
@@ -157,7 +157,7 @@ désactivé individuellement — `core:issue` ne se charge qu'une fois configur�
 [guide de développement de plugins](./docs/plugin-development.md) (en chinois) et les
 [exemples](./examples) livrés dans le dépôt.
 
-## Canaux d'automatisation
+## Accès programmatique
 
 - **HTTP** — `berry serve` démarre un hôte résident avec l'interface web et
   une API JSON `/v1/*` versionnée et authentifiée par bearer ; `serve --daemon`

@@ -16,7 +16,7 @@
 | `plugins/<id>/`       | 装机树         | 磁盘插件包体                                                                                                                                                                                                                                                          |
 | `skills/`             | 用户技能层     | SKILL.md 目录（六位发现层第二位）                                                                                                                                                                                                                                     |
 | `agents/`             | 用户子代理层   | frontmatter 子代理定义目录（四位子代理发现层第二位）                                                                                                                                                                                                                  |
-| `tool-policy.json`    | 工具策略表     | 审批选 always 的工具+参数条目持久回写 + 用户手写 `deny` 主权硬拒条目（用户资产，非配置）；更名前的旧审批清单文件在场时自动升格读入、旧文件留置不动（机器永不写旧名）                                                                                                  |
+| `tool-policy.json`    | 工具策略表     | 审批选 always 的工具+参数条目持久回写 + 用户手写 `deny` 主权硬拒条目（用户资产，非配置）；更名前的旧审批清单文件存在时自动升格读入、旧文件留置不动（机器永不写旧名）                                                                                                  |
 | `data/obs/rollup.db`  | 观测自管库     | core:obs 派生观测数据（可删——重建即恢复）                                                                                                                                                                                                                             |
 | `crash.log`           | 崩溃取证       | 崩溃路径先写一行再退；排障第一站                                                                                                                                                                                                                                      |
 | `serve/`              | 常驻宿主足迹   | daemon 形三件：`daemon.pid`（pid 登记——status/stop 消费）/ `daemon.sock`（unix sock 默认接入点）/ `daemon.log`（stderr 重定向日志——**daemon 形自动生成 token 的明文披露位**，敏感读集成员）；目录常态可缺席、`berry serve --daemon` 启动才建、`berry serve stop` 清除 |
@@ -26,7 +26,7 @@
 冷备（推荐——退出所有进程后）：
 
 ```bash
-# 停常驻宿主（如在场）
+# 停常驻宿主（如在运行）
 berry serve stop
 
 # 整目录打包（主库 + 密钥 + 清单 + 技能一次全备）
@@ -95,7 +95,7 @@ node tools/soak.mjs --rounds 24 --drift-cap 2.5                # 收紧延迟漂
 
 单活跃机执法：同一数据目录同一时刻恰一活跃进程。处置序：
 
-1. `berry serve status` 看是否真有守护在场；
+1. `berry serve status` 看是否真有守护在运行；
 2. 确认报错中的 pid 是否存活（`ps -p <pid>`）；
 3. pid 已死 → 直接重启（自动接管，无需清标记）；
 4. 确需双实例并存 → 用 `BERRY_AGENT_DATA_DIR` 分离数据目录。
@@ -124,7 +124,7 @@ berry sessions reindex   # 全量重建即修复
 
 模型凭证三个来源（2026-09-28 模型渠道批 v2），按来源分类排查：
 
-- **env 生态变量（仅官方渠道生效）**：如 `ANTHROPIC_API_KEY`——官方渠道 env 键在场时优先于模型绑定；自定义渠道不读 env（模型绑定是其唯一凭证来源）；
+- **env 生态变量（仅官方渠道生效）**：如 `ANTHROPIC_API_KEY`——官方渠道 env 键存在时优先于模型绑定；自定义渠道不读 env（模型绑定是其唯一凭证来源）；
 - **模型绑定**：`/setup` 向导录入，或 `berry credentials add <渠道id> <key> --model-provider <渠道id>`——录入即时生效用于模型调用；不带 `--model-provider` 的裸 `add` 不会用于模型调用（缺模型绑定位）；
 - **自定义渠道**：`settings.json` `customProviders` 键 + 模型绑定凭证——手编下次启动生效、`/setup` 当场注册生效（渠道 id 已被占用的条目拒注不生效，判据见[使用指南](./usage.md#模型配置)）。
 
@@ -142,4 +142,4 @@ berry sessions reindex   # 全量重建即修复
 
 ## 遥测立场
 
-**默认零数据外传（零遥测）**——无使用统计、无崩溃上报。出厂网络面 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开启 / 插件装机与更新 / upgrade 维护动词 / `/setup` 自定义渠道的模型清单拉取腿——SSRF 守卫必经）+ **TUI 交互启动一次有界只读版本检查**（只读 GET dist-tags、上行零字节、24h 节流、`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即关、headless/daemon 形零 fire——07 §8.5 第 6 条），此外零。若未来加任何回传：上线前按四段式模板公告（Why this exists / How it works / What data is collected / How to disable it）；默认值反转视为破坏性变更；disable 通道真实有效（关掉即零网络包，机器可验证）。
+**默认零数据外传（零遥测）**——无使用统计、无崩溃上报。出厂网络行为 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开启 / 插件装机与更新 / upgrade 维护动词 / `/setup` 自定义渠道的模型清单拉取腿——SSRF 守卫必经）+ **TUI 交互启动一次有界只读版本检查**（只读 GET dist-tags、上行零字节、24h 节流、`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即关、headless/daemon 形零 fire——07 §8.5 第 6 条），此外零。若未来加任何回传：上线前按四段式模板公告（Why this exists / How it works / What data is collected / How to disable it）；默认值反转视为破坏性变更；disable 开关真实有效（关掉即零网络包，机器可验证）。

@@ -57,13 +57,13 @@ AGI（通用人工智能）正在逼近；它身后等着 RSI（递归自我改�
 | **模型无关**           | Anthropic、OpenAI、Google 等统一接入面。一个环境变量换模型，零代码改动、零锁定。                                                 |
 | **会话可信**           | 每场会话落 SQLite——fork / resume / search / reindex；运行时断言「模型可见 ≡ 已记录」，看到即存下。                               |
 | **三面自动化**         | TUI 驾驶、Web UI + `/v1/*` HTTP 监督、SDK 与 MCP 编程接入——一个 Agent，各类消费者通吃。                                          |
-| **零遥测**             | 无使用统计、无崩溃上报、外传零字节。默认网络面 = 模型调用 + 你显式要的动作 + TUI 交互启动一次有界只读版本检查（24h 节流、env 一键归零），此外零。 |
+| **零遥测**             | 无使用统计、无崩溃上报、外传零字节。默认网络行为 = 模型调用 + 你显式要的动作 + TUI 交互启动一次有界只读版本检查（24h 节流、env 一键归零），此外零。 |
 
 ## 自进化：有界、可审计
 
 「自进化」在今天的 berry-agent 里具体指什么：
 
-- **记忆复利**——`core:memory` 跨会话持久化要紧的事：事实、偏好、工作风格。每场对话让下一场更利。
+- **记忆复利**——`core:memory` 跨会话记住要紧的事：事实、偏好、工作风格。每场对话让下一场更利。
 - **经验成技能**——反复出现的工作套路沉淀为技能包（`SKILL.md`）：长出来的是可复用的手艺，而不只是更长的上下文。
 - **步步可审计**——会话落 SQLite，运行时断言「模型可见 ≡ 已记录」；rewind 与重放是一等公民。
 - **进化止于数据**——Agent 永不重写自己的基座与安全判据面。`~/.berry-agent/` 是你的：可检视、可备份、可清零。
@@ -129,7 +129,7 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向
 | `core:lsp`         | LSP 客户端——语言服务器智能        |
 | `core:browser`     | 浏览器自动化                      |
 | `core:webui`       | Web 界面                          |
-| `core:sdk`         | 程序自动化通道                    |
+| `core:sdk`         | 程序自动化接入                    |
 | `core:obs`         | 观测                              |
 | `core:issue`       | issue 驱动工作模式                |
 | `core:credentials` | 凭证代管——env 注入与 OAuth 授权流 |
@@ -137,7 +137,7 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向
 写你自己的插件：一份 manifest 加一个入口文件——见
 [插件开发指南](./docs/plugin-development.md)与仓库随附的 [examples](./examples)。
 
-## 自动化通道
+## 自动化接入
 
 - **HTTP**——`berry serve` 起常驻宿主：Web 界面 + 版本化、Bearer 鉴权的
   `/v1/*` JSON API；`serve --daemon` 后台运行（`serve status` / `serve stop`）。

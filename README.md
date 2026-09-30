@@ -148,7 +148,7 @@ usage guide).
 | `core:lsp`         | LSP client — language-server intelligence            |
 | `core:browser`     | browser automation                                   |
 | `core:webui`       | web dashboard                                        |
-| `core:sdk`         | the automation channel for programs                  |
+| `core:sdk`         | programmatic access                  |
 | `core:obs`         | observability                                        |
 | `core:issue`       | issue-driven work mode                               |
 | `core:credentials` | credential vault — env injection & OAuth device flow |
@@ -157,7 +157,7 @@ Writing your own: a plugin is a manifest plus one entry file — see the
 [plugin development guide](./docs/plugin-development.md) (Chinese) and the
 [examples](./examples) shipped in the repository.
 
-## Automation channels
+## Programmatic access
 
 - **HTTP** — `berry serve` starts a resident host with the Web UI and a
   versioned, bearer-authenticated `/v1/*` JSON API; `serve --daemon` runs it in the

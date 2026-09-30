@@ -141,7 +141,7 @@ alpha.1에서 업그레이드한 사용자: bin 이름이 `berry`로 바뀌었�
 | `core:lsp`         | LSP 클라이언트 — 언어 서버 지능                |
 | `core:browser`     | 브라우저 자동화                                |
 | `core:webui`       | 웹 대시보드                                    |
-| `core:sdk`         | 프로그램용 자동화 채널                         |
+| `core:sdk`         | 프로그램용 자동화 연동                         |
 | `core:obs`         | 관측 가능성                                    |
 | `core:issue`       | 이슈 기반 작업 모드                            |
 | `core:credentials` | 자격증명 금고 — env 주입 & OAuth 디바이스 흐름 |
@@ -150,7 +150,7 @@ alpha.1에서 업그레이드한 사용자: bin 이름이 `berry`로 바뀌었�
 [플러그인 개발 가이드](./docs/plugin-development.md)(중국어)와 저장소에 포함된
 [examples](./examples)를 참고하세요.
 
-## 자동화 채널
+## 자동화 연동
 
 - **HTTP** — `berry serve`는 웹 UI와 버전 관리되는 Bearer 인증 `/v1/*`
   JSON API를 갖춘 상주 호스트를 시작합니다; `serve --daemon`으로 백그라운드
