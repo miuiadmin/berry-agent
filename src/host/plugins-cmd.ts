@@ -273,18 +273,18 @@ async function runCheck(options: PluginsEntryOptions): Promise<number> {
     raw = null; // 缺席 = 零装机（ENOENT 同义——首启零文件零负担）
   }
   if (raw === null || raw.trim() === '' || raw.trim() === '{}') {
-    writeOut('装机账本缺席或为空——无可体检项（通过）');
+    writeOut('安装记录缺失或为空——无可体检项（通过）');
     return 0;
   }
   const ledgerRead = readLedger(dataDir, createPluginStoreFs());
   if (!ledgerRead.ok) {
     // 坏账本 fail-closed：兼容面无法判定——不静默绿也不猜（写动词同源拒因）
-    writeErr(`装机账本损坏：${ledgerRead.reason}——无法体检（重装可重建）`);
+    writeErr(`安装记录损坏：${ledgerRead.reason}——无法体检（重装可重建）`);
     return 1;
   }
   if (ledgerRead.entries.length === 0) {
     // 非空原文但零条目（如空数组形 '[]'）——语义同空账本
-    writeOut('装机账本缺席或为空——无可体检项（通过）');
+    writeOut('安装记录缺失或为空——无可体检项（通过）');
     return 0;
   }
   const hostApiVersion = readHostApiVersion();
@@ -303,7 +303,7 @@ async function runCheck(options: PluginsEntryOptions): Promise<number> {
       rows.push({
         kind: 'red',
         id: entry.id,
-        message: `装机目录 package.json 不可读（${abs}）：${detail}——装机记录悬空，兼容面无法判定；重装可重建（plugins install ${entry.ref}）`,
+        message: `安装目录 package.json 不可读（${abs}）：${detail}——安装记录悬空，兼容面无法判定；重装可重建（plugins install ${entry.ref}）`,
         matrix: undefined,
       });
       continue;
@@ -311,7 +311,7 @@ async function runCheck(options: PluginsEntryOptions): Promise<number> {
     const parsed = parseManifest(pkg);
     if (!parsed.ok) {
       // 清单坏形——boot 装载同判据拒载，check 面同真相归红
-      rows.push({ kind: 'red', id: entry.id, message: `清单坏形：${parsed.message}`, matrix: undefined });
+      rows.push({ kind: 'red', id: entry.id, message: `清单格式异常：${parsed.message}`, matrix: undefined });
       continue;
     }
     const api = parsed.manifest.api;
@@ -377,7 +377,7 @@ async function runCheck(options: PluginsEntryOptions): Promise<number> {
     lines.push(`legacy（api 块未声明，${legacy.length}——不计断裂）：`);
     for (const l of legacy) {
       lines.push(
-        `  ${l.id}  api 块缺席——点火前容忍（与装载门出口 4 同口径）；建议补声明：package.json berryAgent.api.minApiVersion`,
+        `  ${l.id}  api 块缺失——点火前容忍（与启动检查出口 4 同口径）；建议补声明：package.json berryAgent.api.minApiVersion`,
       );
     }
   }
@@ -477,7 +477,7 @@ async function runInstall(
     // 生效惟走 mount。执行器文本只给动词指路，此处补具体第二步命令（可直接
     // 复制执行）——「下次启动装载生效」只归属 mount 后语义（CLI 短命进程不装
     // 配装载器；宿主运行中经会话 /reload 即时生效）。
-    writeOut(`装机 ≠ 启用——启用第二步：berry plugins mount ${outcome.entry.id}（mount 后下次启动装载生效）`);
+    writeOut(`安装 ≠ 启用——启用第二步：berry plugins mount ${outcome.entry.id}（mount 后下次启动生效）`);
     return 0;
   } finally {
     await audit.close();
@@ -571,11 +571,11 @@ async function runRowVerb(
     if (!id.startsWith('core:')) {
       const ledgerRead = readLedger(dataDir, fs);
       if (!ledgerRead.ok) {
-        writeErr(`装机账本损坏：${ledgerRead.reason}——拒写防覆盖`);
+        writeErr(`安装记录损坏：${ledgerRead.reason}——拒写防覆盖`);
         return 1;
       }
       if (!ledgerRead.entries.some((e) => e.id === id)) {
-        writeErr(`插件 ${id} 未装机——mount 先走 install（未装机挂行会在下次启动时降级）`);
+        writeErr(`插件 ${id} 未安装——mount 先走 install（未安装挂行会在下次启动时降级）`);
         return 1;
       }
     }
@@ -594,9 +594,9 @@ async function runRowVerb(
     }
     writeOut(
       verb === 'mount'
-        ? `已挂载：${id}——下次启动装载生效（命令行是一次性进程；改行在 TUI 里 /reload 后生效）`
+        ? `已挂载：${id}——下次启动生效（命令行是一次性进程；改行在 TUI 里 /reload 后生效）`
         : verb === 'unmount'
-          ? `已卸下：${id}（装机保留）——下次启动生效`
+          ? `已卸下：${id}（安装保留）——下次启动生效`
           : `已切换：${id} 禁用态翻转——下次启动生效`,
     );
     return 0;

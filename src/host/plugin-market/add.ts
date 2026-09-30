@@ -170,7 +170,7 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
   // —— git/github 腿：克隆到 tmp → 解析 → promote 整树进缓存 + commit 落账 ——
   const expanded = expandGitUri(source); // github 短手展开（git 直通）
   if (!expanded.ok) {
-    return { ok: false, message: `git 源坏形（${expanded.message}）` };
+    return { ok: false, message: `git 源格式不对（${expanded.message}）` };
   }
   let fetched: {
     readonly cloneDir: string;
@@ -249,7 +249,7 @@ function nameClashMessage(name: string): string {
 function checkNameClash(dataDir: string, fs: MarketFs, name: string): string | null {
   const read = readMarketplaceSources(dataDir, fs);
   if (!read.ok) {
-    return `源清单文件坏形，拒改（${read.message}）`;
+    return `源清单文件格式异常，已拒绝修改（${read.message}）`;
   }
   if (read.sources.some((existing) => existing.name === name)) {
     return nameClashMessage(name);
@@ -269,7 +269,7 @@ function checkNameClash(dataDir: string, fs: MarketFs, name: string): string | n
 function commitRecord(dataDir: string, fs: MarketFs, record: MarketplaceSourceRecord): string | null {
   const read = readMarketplaceSources(dataDir, fs);
   if (!read.ok) {
-    return `源清单文件坏形，拒改（${read.message}）`;
+    return `源清单文件格式异常，已拒绝修改（${read.message}）`;
   }
   if (read.sources.some((existing) => existing.name === record.name)) {
     return nameClashMessage(record.name); // 同名竞态窗兜底——前置检查与落账非原子

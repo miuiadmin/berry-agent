@@ -339,7 +339,7 @@ export async function runServeStop(options: ServeStopOptions): Promise<number> {
   if (stillAlive && !identityCheck(pid)) {
     // 复用竞速窗：daemon 已退、pid 被无关进程复用——SIGKILL 只会打向无辜
     // 进程，跳过升格按已停收场（保守向同上：宁漏杀不误杀）。
-    write(`pid ${pid} 已易主（复用）——跳过 SIGKILL，清登记收场`);
+    write(`pid ${pid} 已易主（复用）——跳过 SIGKILL，清理登记`);
   } else if (stillAlive) {
     write(`优雅窗（10s）尽仍未退——升格 SIGKILL（pid ${pid}）`);
     signal(pid, 'SIGKILL');
@@ -541,7 +541,7 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
     if (webuiKit !== undefined) {
       webuiMount = webuiKit.mountOnFace(face);
     } else {
-      writeErr('warn：Web 界面未安装——网页界面与 /api/* 不可用（/v1/* 仍在场）');
+      writeErr('warn：Web 界面未安装——网页界面与 /api/* 不可用（/v1/* 仍可用）');
     }
   }
   // —— issue webhook 挂载（批 19e——core:issue 件 kit 晚绑）：件装载且
@@ -561,12 +561,12 @@ export async function runDaemonServe(options: DaemonServeOptions): Promise<numbe
   // 分档（批 19e）：kit 缺席形诚实报 SDK 面形不虚报 Web 界面
   if (webuiMount !== undefined) {
     const face0 = info.tcp[0]!;
-    writeErr(`Web 界面已开面：http://${face0.host}:${face0.port}/`);
+    writeErr(`Web 界面已开启：http://${face0.host}:${face0.port}/`);
     writeErr('访问令牌即 daemon token（同面单 token——见 daemon token 披露行）');
   } else if (options.flags.port !== undefined) {
     const face0 = info.tcp[0]!;
     writeErr(
-      `HTTP 人面已开面（webui 件未装载）：http://${face0.host}:${face0.port}/（/v1/* 程序调用面在场，/api/* 404）`,
+      `HTTP 界面已开启（webui 插件未安装）：http://${face0.host}:${face0.port}/（/v1/* 程序调用接口可用，/api/* 404）`,
     );
   }
 

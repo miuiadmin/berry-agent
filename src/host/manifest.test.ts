@@ -101,11 +101,11 @@ describe('parseManifest id 判据', () => {
     if (!er.ok) expect(er.message).toContain('非空字符串');
   });
 
-  it('缺省 id（= name）不合字符集拒 + 指路显式声明（无隐式映射变换）', () => {
+  it('默认 id（= name）不合字符集拒 + 指路显式声明（无隐式映射变换）', () => {
     const r = parseManifest({ name: '@scope/Demo.Pkg', berryAgent: {} });
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.message).toContain('缺省 id');
+      expect(r.message).toContain('默认 id');
       expect(r.message).toContain('显式声明');
     }
   });

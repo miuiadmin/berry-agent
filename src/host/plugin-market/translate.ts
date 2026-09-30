@@ -84,13 +84,13 @@ function pinSuffix(
 ): { readonly ok: true; readonly suffix: string } | { readonly ok: false; readonly message: string } {
   if (sha !== undefined) {
     if (!SHA_RE.test(sha)) {
-      return { ok: false, message: `sha 坏词法（"${sha}"）——须 7-40 位十六进制` };
+      return { ok: false, message: `sha 格式不对（"${sha}"）——须 7-40 位十六进制` };
     }
     return { ok: true, suffix: `#${sha}` };
   }
   if (ref !== undefined) {
     if (!isValidGitRefTag(ref)) {
-      return { ok: false, message: `git ref 坏词法（"${ref}"）——空白/#/../空串/'-'起头拒` };
+      return { ok: false, message: `git ref 格式不对（"${ref}"）——空白/#/../空串/'-'起头拒` };
     }
     return { ok: true, suffix: `#${ref}` };
   }
@@ -130,13 +130,13 @@ function translateEntrySourceInner(input: TranslateInput): TranslateResult {
       if (!isValidNpmPackage(entrySource.package)) {
         return {
           ok: false,
-          message: `npm 包名坏词法（"${entrySource.package}"）——'..'段/#/空白/空段/'-'起头拒（spec 槽位落 argv 尾参位会被 npm 按旗标解析——last-wins 掀 '--ignore-scripts'/'--prefix'）；'@' 位错拒（仅首段首位许 @scope 作用域前缀）`,
+          message: `npm 包名格式不对（"${entrySource.package}"）——'..'段/#/空白/空段/'-'起头拒（spec 槽位落 argv 尾参位会被 npm 按旗标解析——last-wins 掀 '--ignore-scripts'/'--prefix'）；'@' 位错拒（仅首段首位许 @scope 作用域前缀）`,
         };
       }
       if (entrySource.version !== undefined && !isValidNpmVersion(entrySource.version)) {
         return {
           ok: false,
-          message: `npm 版本坏词法（"${entrySource.version}"）——空白/#/../'.'或'-'起头拒；'@' 全位拒（ref 分隔位）`,
+          message: `npm 版本格式不对（"${entrySource.version}"）——空白/#/../'.'或'-'起头拒；'@' 全位拒（ref 分隔位）`,
         };
       }
       const ref =
@@ -171,12 +171,12 @@ function translateEntrySourceInner(input: TranslateInput): TranslateResult {
     // url 展开/直通（含词法防线）+ 钉位（sha 优先）
     const expanded = expandGitUri(rawUrl);
     if (!expanded.ok) {
-      return { ok: false, message: `git url 坏形（${expanded.message}）` };
+      return { ok: false, message: `git url 格式不对（${expanded.message}）` };
     }
     if (!isValidGitUrl(expanded.url)) {
       return {
         ok: false,
-        message: `git url 坏词法（"${expanded.url}"）——空白/#/'-'起头拒（'-oX://y' 形落 clone 位置参数会被 git 解析为选项位）`,
+        message: `git url 格式不对（"${expanded.url}"）——空白/#/'-'起头拒（'-oX://y' 形落 clone 位置参数会被 git 解析为选项位）`,
       };
     }
     const pin = pinSuffix(entrySource.sha, entrySource.ref);
@@ -202,7 +202,7 @@ function translateEntrySourceInner(input: TranslateInput): TranslateResult {
   // —— 字符串形：相对串（市场仓内子目录）——语境分叉 ——
   const sub = resolveRelativeSubpath(entrySource, pluginRoot);
   if (!sub.ok) {
-    return { ok: false, message: `相对源坏形（${sub.message}）` };
+    return { ok: false, message: `相对源格式不对（${sub.message}）` };
   }
   if (input.marketplaceSourceType === 'url') {
     // URL 源只存 catalog 单文件、无仓结构——相对串结构性不可解析
@@ -220,14 +220,14 @@ function translateEntrySourceInner(input: TranslateInput): TranslateResult {
   }
   // git/github 语境：锁 catalog commit（ref 可独立复算——一致性红利）
   if (input.catalogCommit === undefined) {
-    return { ok: false, message: 'git 语境相对源须 catalog commit 锁定——源清单 commit 位缺席（坏形）' };
+    return { ok: false, message: 'git 语境相对源须 catalog commit 锁定——源清单 commit 位缺失（格式异常）' };
   }
   if (!SHA_RE.test(input.catalogCommit)) {
-    return { ok: false, message: `catalog commit 坏词法（"${input.catalogCommit}"）——须 7-40 位十六进制` };
+    return { ok: false, message: `catalog commit 格式不对（"${input.catalogCommit}"）——须 7-40 位十六进制` };
   }
   const expanded = expandGitUri(input.marketplaceUri);
   if (!expanded.ok) {
-    return { ok: false, message: `市场仓 url 坏形（${expanded.message}）` };
+    return { ok: false, message: `市场仓 url 格式不对（${expanded.message}）` };
   }
   return {
     ok: true,

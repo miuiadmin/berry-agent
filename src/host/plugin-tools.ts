@@ -43,7 +43,7 @@ import { mountRow, readEnabledRowsForEdit, readLedger, toggleRow, unmountRow } f
 import type { LifecycleAuditSink, PluginLedgerEntry, PluginStoreFs } from './plugin-store.js';
 
 /** 装载生效指路句（模型面回执统一尾——§5.2 模型面不自动链 reload） */
-const RELOAD_HINT = '装载生效需 /reload（模型面不自动链 reload——03 §5.2；人面 / TUI 命令面可代跑）';
+const RELOAD_HINT = '挂载生效需 /reload（模型面不自动链 reload——03 §5.2；人面 / TUI 命令面可代跑）';
 
 /** events_query data 摘要截断帽（§5.6——~300 字符归模型面） */
 const DATA_SUMMARY_LIMIT = 300;
@@ -134,7 +134,7 @@ function renderPluginsList(deps: PluginLifecycleToolsDeps): string {
   }
   const report = deps.report();
   if (report === undefined) {
-    lines.push('装载面未装配（noPlugins 诊断形）——装载态三分区缺席，仅呈装机面。');
+    lines.push('挂载信息不可用（noPlugins 诊断形）——挂载态三分区缺失，仅呈现安装分区。');
   } else {
     lines.push(`mounted（${report.activated.length}）：`);
     for (const item of report.activated) {
@@ -154,11 +154,11 @@ function renderPluginsList(deps: PluginLifecycleToolsDeps): string {
   // 未 reload 的窗内行已在、报告未含，不误报「已装机未挂载」）
   if (deps.dataDir !== null) {
     if (ledgerNote !== undefined) {
-      lines.push(`installed-unmounted：缺席（装机账本读取失败：${ledgerNote}）`);
+      lines.push(`installed-unmounted：缺失（安装记录读取失败：${ledgerNote}）`);
     } else {
       const rowsRead = readEnabledRowsForEdit(deps.dataDir, deps.fs);
       if (!rowsRead.ok) {
-        lines.push(`installed-unmounted：缺席（启用清单读取失败：${rowsRead.message}）`);
+        lines.push(`installed-unmounted：缺失（启用清单读取失败：${rowsRead.message}）`);
       } else {
         const rowIds = new Set(rowsRead.rows.map((row) => row.id));
         for (const id of report?.activated ?? []) rowIds.add(id.id);
@@ -199,10 +199,10 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
     {
       name: 'plugins_list',
       description:
-        '插件装载态一览（四态：mounted 已挂载 / mounted-disabled 挂载但禁用 / ' +
-        'installed-unmounted 已装机未挂载 / failed 装载失败；每项带 source 徽标 ' +
-        'core|npm|git|local）。装载态分区读内存装载报告（/reload 后即新代），' +
-        '装机分区读磁盘账本。装机/启用的完整动词面见 plugin_install / plugin_mount 族。',
+        '插件挂载态一览（四态：mounted 已挂载 / mounted-disabled 挂载但禁用 / ' +
+        'installed-unmounted 已安装未挂载 / failed 挂载失败；每项带 source 徽标 ' +
+        'core|npm|git|local）。挂载态分区读内存挂载报告（/reload 后即新代），' +
+        '安装分区读磁盘安装记录。安装/启用的完整动词族见 plugin_install / plugin_mount。',
       parameters: Type.Object({}, { additionalProperties: false }),
       effect: 'read',
       execute: async (): Promise<AgentToolResult> => guard(() => Promise.resolve(textResult(renderPluginsList(deps)))),
@@ -218,13 +218,13 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
         '时还有更多——原样回传续页。',
       parameters: Type.Object(
         {
-          session_id: Type.Optional(Type.String({ description: '会话 id 过滤维（缺省 = 跨会话全量）' })),
+          session_id: Type.Optional(Type.String({ description: '会话 id 过滤维（默认 = 跨会话全量）' })),
           types: Type.Optional(
             Type.Array(Type.String(), { description: '事件类型过滤维（如 turn/end、llm/usage——本流核心词）' }),
           ),
           since: Type.Optional(Type.String({ description: 'ISO 8601 起时窗（含）' })),
           until: Type.Optional(Type.String({ description: 'ISO 8601 止时窗（含）' })),
-          limit: Type.Optional(Type.Number({ description: '页帽（缺省 1000，硬帽 10000）' })),
+          limit: Type.Optional(Type.Number({ description: '每页上限（默认 1000，最大 10000）' })),
           cursor: Type.Optional(Type.String({ description: '分页游标（上页 nextCursor 原样回传）' })),
         },
         { additionalProperties: false },
@@ -261,11 +261,11 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
       name: 'plugin_uninstall_inspect',
       description:
         '插件卸载预检（只读零副作用——§5.5 UninstallReport 全量呈报将删项：启用' +
-        '行/装机物/域表/store_state 域键/数据域体量）。卸载执行（--confirm 两段式）' +
+        '行/安装文件/域表/store_state 域键/数据域体量）。卸载执行（--confirm 两段式）' +
         '是人面独占动词——模型面只到 inspect 为止，执行指路 CLI：' +
         'berry plugins uninstall <id> --confirm [--data purge]。',
       parameters: Type.Object(
-        { id: Type.String({ description: '装机插件 id（core: 前缀非 uninstall 对象）' }) },
+        { id: Type.String({ description: '已安装插件 id（core: 前缀非 uninstall 对象）' }) },
         { additionalProperties: false },
       ),
       effect: 'read',
@@ -282,9 +282,9 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
     {
       name: 'plugin_install',
       description:
-        '三源装机（写类——需审批）。ref 自含源前缀：npm:<pkg>[@<version>] / ' +
+        '三源安装（写类——需审批）。ref 自含源前缀：npm:<pkg>[@<version>] / ' +
         'git:<url>[#<ref>] / local:<abs-path>。供应链四件套执法（钉版/禁 dev/' +
-        '静置窗缺省 24h/安装期脚本禁跑）；装机零生效（词表账本收割但不装载）——' +
+        '静置窗默认 24h/安装期脚本禁跑）；安装零生效（词表登记但不挂载）——' +
         '启用走 plugin_mount。uninstall 的执行面是人面独占（CLI --confirm）。',
       parameters: Type.Object(
         {
@@ -300,7 +300,7 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
         guard(async () => {
           const executorDeps = installDeps();
           if (executorDeps === undefined) {
-            return textError('纯 memory 诊断形无数据目录——装机动词不可用');
+            return textError('纯 memory 诊断形无数据目录——安装动词不可用');
           }
           const outcome = await installPlugin(executorDeps, args.ref as string);
           return outcome.ok ? textResult(outcome.text) : textError(outcome.message);
@@ -309,14 +309,14 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
     {
       name: 'plugin_mount',
       description:
-        '挂载已装机插件（写类——需审批）：写启用行。已有行（含禁用行）即撞名拒' +
+        '挂载已安装插件（写类——需审批）：写启用行。已有行（含禁用行）即重名拒' +
         '——改配置 = 先 plugin_unmount 再重 mount（§5.3 后写胜出，无独立 configure ' +
-        '动词）。core: 前缀官方件天然在场免装机查；用户件须先 plugin_install。' +
-        '装载生效需 /reload（模型面不自动链）。',
+        '动词）。core: 前缀官方插件内置可用、免安装查；用户插件须先 plugin_install。' +
+        '挂载生效需 /reload（模型面不自动链）。',
       parameters: Type.Object(
         {
           id: Type.String({ description: '插件 id（小写字母数字连字符；官方件 core: 前缀）' }),
-          config: Type.Optional(Type.Unknown({ description: '插件配置值（JSON——行内 config 字段；装载侧深校验）' })),
+          config: Type.Optional(Type.Unknown({ description: '插件配置值（JSON——行内 config 字段；加载侧深校验）' })),
         },
         { additionalProperties: false },
       ),
@@ -334,10 +334,10 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
           if (!id.startsWith('core:')) {
             const ledgerRead = readLedger(deps.dataDir, deps.fs);
             if (!ledgerRead.ok) {
-              return textError(`装机账本损坏：${ledgerRead.reason}——拒写防覆盖（03 §5.4）`);
+              return textError(`安装记录损坏：${ledgerRead.reason}——拒写防覆盖（03 §5.4）`);
             }
             if (!ledgerRead.entries.some((entry) => entry.id === id)) {
-              return textError(`插件 ${id} 未装机——先走 plugin_install（未装机挂行会在下次启动读侧降级，03 §5.3）`);
+              return textError(`插件 ${id} 未安装——先走 plugin_install（未安装挂行会在下次启动读侧降级，03 §5.3）`);
             }
           }
           const result = mountRow(deps.dataDir, id, args.config, deps.fs, deps.auditSink);
@@ -348,9 +348,9 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
     {
       name: 'plugin_unmount',
       description:
-        '卸下插件（写类——需审批）：删启用行保装机（重挂走 plugin_mount）。' +
-        'core: 官方件内置全启无行可删——临时停用走 plugin_toggle。' +
-        '装载生效需 /reload（模型面不自动链）。',
+        '卸下插件（写类——需审批）：删启用行保留安装（重挂走 plugin_mount）。' +
+        'core: 官方插件内置全启无行可删——临时停用走 plugin_toggle。' +
+        '挂载生效需 /reload（模型面不自动链）。',
       parameters: Type.Object({ id: Type.String({ description: '插件 id' }) }, { additionalProperties: false }),
       effect: 'write',
       execute: async (args): Promise<AgentToolResult> =>
@@ -360,14 +360,14 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
           }
           const result = unmountRow(deps.dataDir, args.id as string, deps.fs, deps.auditSink);
           if (!result.ok) return textError(result.message);
-          return textResult(`已卸下：${args.id as string}（装机保留）——${RELOAD_HINT}`);
+          return textResult(`已卸下：${args.id as string}（安装保留）——${RELOAD_HINT}`);
         }),
     },
     {
       name: 'plugin_toggle',
       description:
-        '翻转插件禁用旗标（写类——需审批；非幂等——重放翻回）。行在场翻旗标、' +
-        '行不在场写禁用行（临时停用内置 core: 件的主路径）。装载生效需 /reload' +
+        '翻转插件禁用旗标（写类——需审批；非幂等——重放翻回）。行已存在翻旗标、' +
+        '行不存在写禁用行（临时停用内置 core: 插件的主路径）。挂载生效需 /reload' +
         '（模型面不自动链）。',
       parameters: Type.Object({ id: Type.String({ description: '插件 id' }) }, { additionalProperties: false }),
       effect: 'write',
@@ -394,12 +394,12 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
     {
       name: 'plugin_update',
       description:
-        '按源分派更新已装机插件（写类——需审批）：npm 重装拉最新满足窗龄版 / ' +
-        'git 按原 ref 重克隆（新 commit）/ local 直引 no-op（源目录变更下次装载' +
-        '即生效）。更新后清单 id 变更拒（装机身份漂移）。运行中装载面换血同样' +
+        '按源分派更新已安装插件（写类——需审批）：npm 重装拉最新满足窗龄版 / ' +
+        'git 按原 ref 重克隆（新 commit）/ local 直引 no-op（源目录变更下次加载' +
+        '即生效）。更新后清单 id 变更拒（安装身份漂移）。运行中挂载面换血同样' +
         '需 /reload（模型面不自动链）。',
       parameters: Type.Object(
-        { id: Type.String({ description: '已装机插件 id（装机清单见 plugins_list）' }) },
+        { id: Type.String({ description: '已安装插件 id（已安装列表见 plugins_list）' }) },
         { additionalProperties: false },
       ),
       effect: 'write',
@@ -412,7 +412,7 @@ export function createPluginLifecycleTools(deps: PluginLifecycleToolsDeps): read
           }
           const outcome = await updatePlugin(executorDeps, args.id as string);
           if (!outcome.ok) return textError(outcome.message);
-          return textResult(`${outcome.text}\n（运行中装载面换血同样走 /reload——模型面不自动链，03 §5.2）`);
+          return textResult(`${outcome.text}\n（运行中挂载面换血同样走 /reload——模型面不自动链，03 §5.2）`);
         }),
     },
   ];

@@ -116,7 +116,7 @@ function commitRecordUpdate(
   // ok、零源、无报错指路）；与读侧「不静默空」、add 位 checkNameClash
   // 「坏形拒改」同律。调用方 catch 收口 failed——诚实拒不掩盖
   if (!read.ok) {
-    throw new Error(`源清单文件坏形：${read.message}——落账拒写（防覆盖）`);
+    throw new Error(`源清单文件格式异常：${read.message}——为防覆盖未写入`);
   }
   const next = read.sources.map((record) => (record.name === name ? { ...record, ...patch } : record));
   writeMarketplaceSources(dataDir, next, fs);
@@ -160,11 +160,11 @@ export async function refreshMarketplaceSource(
       }
       const dir = expandHomePath(record.sourceUri, deps.home ?? '');
       if (!fs.isDir(dir)) {
-        return fail(`源目录缺席（${dir}）——请核对路径或 remove 该源`);
+        return fail(`源目录缺失（${dir}）——请核对路径或 remove 该源`);
       }
       const loaded = loadCatalogFromRoot(dir, fs);
       if (!loaded.ok) return fail(loaded.reason);
-      if (!loaded.parse.ok) return fail(`catalog 坏形：${loaded.parse.reason}`);
+      if (!loaded.parse.ok) return fail(`catalog 格式异常：${loaded.parse.reason}`);
       if (loaded.parse.catalog.name !== record.name) return driftReject(loaded.parse.catalog.name);
       // catalog 文本直读（load 契约只回 catalogPath + parse——文本以 fs 再读为准）
       const catalogText = fs.read(`${dir}/${loaded.catalogPath}`);
@@ -193,7 +193,7 @@ export async function refreshMarketplaceSource(
     if (record.sourceType === 'url') {
       const fetched = await deps.fetch.fetchUrlCatalog(record.sourceUri);
       const parse = parseMarketplaceCatalog(fetched.text, `${record.name}/marketplace.json`);
-      if (!parse.ok) return fail(`catalog 坏形：${parse.reason}`);
+      if (!parse.ok) return fail(`catalog 格式异常：${parse.reason}`);
       if (parse.catalog.name !== record.name) return driftReject(parse.catalog.name);
       const cachedPath = `${cacheDir}/marketplace.json`;
       if (fs.read(cachedPath) === fetched.text) {
@@ -219,7 +219,7 @@ export async function refreshMarketplaceSource(
 
     // —— git/github 腿：重克隆 + commit 对拍 ——
     const expanded = expandGitUri(record.sourceUri);
-    if (!expanded.ok) return fail(`git 源坏形（${expanded.message}）`);
+    if (!expanded.ok) return fail(`git 源格式不对（${expanded.message}）`);
     const fetched = await deps.fetch.fetchGitCatalog(expanded.url);
     gitCloneDir = fetched.cloneDir; // 清场责任已归本函数——catch 位可清
     // catalog 文本以 fs 物化为准（fetch 契约：cloneDir 树物化在 MarketFs 上）
@@ -227,12 +227,12 @@ export async function refreshMarketplaceSource(
       fs.read(`${fetched.cloneDir}/${fetched.catalogPath}`) ?? (fetched.text !== '' ? fetched.text : null);
     if (catalogText === null) {
       fs.rm(fetched.cloneDir); // tmp 清场
-      return fail(`git 源 catalog 缺席（${fetched.catalogPath}）`);
+      return fail(`git 源没有 catalog 文件（${fetched.catalogPath}）`);
     }
     const parse = parseMarketplaceCatalog(catalogText, `${record.name}/${fetched.catalogPath}`);
     if (!parse.ok) {
       fs.rm(fetched.cloneDir);
-      return fail(`catalog 坏形：${parse.reason}`);
+      return fail(`catalog 格式异常：${parse.reason}`);
     }
     if (parse.catalog.name !== record.name) {
       fs.rm(fetched.cloneDir);
@@ -269,7 +269,7 @@ export async function refreshMarketplaceSource(
     // 由 promoteTree 自身 finally 清场）；窗外 throw 缓存未动——不清
     let selfHeal = '';
     if (swapping) {
-      selfHeal = `——record 未动（缓存原样未动或已 promote 在场——重跑 berry marketplace update ${record.name} 自愈）`;
+      selfHeal = `——源记录未动（缓存原样未动或新内容已就位——重跑 berry marketplace update ${record.name} 可自动完成）`;
     }
     if (gitCloneDir !== undefined) {
       try {
@@ -292,7 +292,7 @@ export async function updateMarketplaceSources(
 ): Promise<{ readonly outcomes: readonly SourceRefreshOutcome[]; readonly missingName: string | null }> {
   const read = readMarketplaceSources(deps.dataDir, deps.fs);
   if (!read.ok) {
-    throw new Error(`源清单文件坏形：${read.message}——刷新拒猜（03 §9.6）`);
+    throw new Error(`源清单文件格式异常：${read.message}——为避免误判已停止刷新`);
   }
   if (name !== undefined) {
     const record = read.sources.find((r) => r.name === name);
@@ -396,7 +396,7 @@ export async function upgradeMarketplacePlugins(deps: UpgradeMarketplaceDeps, id
   if (!sourcesRead.ok) {
     return {
       outcomes: [],
-      rejected: `源清单文件坏形：${sourcesRead.message}——upgrade 拒猜（03 §9.6）`,
+      rejected: `源清单文件格式异常：${sourcesRead.message}——为避免误判已停止 upgrade`,
       refreshFailures,
     };
   }
@@ -409,7 +409,7 @@ export async function upgradeMarketplacePlugins(deps: UpgradeMarketplaceDeps, id
     if (addr === null) {
       return {
         outcomes: [],
-        rejected: `市场寻址形坏（"${id}"）——形如 name@marketplace（条目名@市场名）`,
+        rejected: `市场寻址格式不对（"${id}"）——形如 name@marketplace（条目名@市场名）`,
         refreshFailures,
       };
     }
@@ -418,7 +418,7 @@ export async function upgradeMarketplacePlugins(deps: UpgradeMarketplaceDeps, id
     if (record === undefined) {
       return {
         outcomes: [],
-        rejected: `市场 "${addr.marketplace}" 不在源清单——在册清单见 berry marketplace list`,
+        rejected: `市场 "${addr.marketplace}" 不在源清单——已添加的源见 berry marketplace list`,
         refreshFailures,
       };
     }
@@ -473,7 +473,7 @@ export async function upgradeMarketplacePlugins(deps: UpgradeMarketplaceDeps, id
       outcomes.push({
         status: 'skipped',
         id: entry.id,
-        reason: `市场 "${marketName}" 已不在源清单——remove 后重 add 或 uninstall 该装机物`,
+        reason: `市场 "${marketName}" 已不在源清单——remove 后重 add 或 uninstall 该插件`,
       });
       continue;
     }
@@ -484,13 +484,17 @@ export async function upgradeMarketplacePlugins(deps: UpgradeMarketplaceDeps, id
       outcomes.push({
         status: 'skipped',
         id: entry.id,
-        reason: `市场 "${marketName}" 缓存缺席（${record.catalogPath} 读不到）`,
+        reason: `市场 "${marketName}" 缓存缺失（${record.catalogPath} 读不到）`,
       });
       continue;
     }
     const parsed = parseMarketplaceCatalog(catalogText, `${marketName}/${record.catalogPath}`);
     if (!parsed.ok) {
-      outcomes.push({ status: 'skipped', id: entry.id, reason: `市场 "${marketName}" catalog 坏形：${parsed.reason}` });
+      outcomes.push({
+        status: 'skipped',
+        id: entry.id,
+        reason: `市场 "${marketName}" catalog 格式异常：${parsed.reason}`,
+      });
       continue;
     }
     if (parsed.catalog.name !== record.name) {

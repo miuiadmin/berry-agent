@@ -631,7 +631,7 @@ export function createPluginContext(options: PluginContextOptions): PluginContex
     if (sessionId === undefined) {
       throw new BaseError(
         'UI_ASK_UNANCHORED',
-        `ctx.ui ${verb} 无会话锚（插件 ${pluginId}——07 §4.3 档位 2：装载期/无锚后台语境 opts.sessionId 缺席且无 ambient 命令锚；命令 handler 内自动锚、尾链继承）`,
+        `ctx.ui ${verb} 无会话锚（插件 ${pluginId}——07 §4.3 档位 2：装载期/无锚后台语境 opts.sessionId 缺失且无 ambient 命令锚；命令 handler 内自动锚、尾链继承）`,
       );
     }
     if (!ui.hasSession(sessionId)) {

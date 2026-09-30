@@ -83,14 +83,14 @@ describe('fetchChannelModels（三态回执 + 协议头分叉）', () => {
         { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
         { fetchImpl: f2, resolveDns: publicDns },
       ),
-    ).toMatchObject({ kind: 'failed', message: expect.stringContaining('非 JSON') });
+    ).toMatchObject({ kind: 'failed', message: expect.stringContaining('不是 JSON') });
     const { fetchImpl: f3 } = stubFetch(() => ({ status: 200, body: JSON.stringify({ object: 'list' }) }));
     expect(
       await fetchChannelModels(
         { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
         { fetchImpl: f3, resolveDns: publicDns },
       ),
-    ).toMatchObject({ kind: 'failed', message: expect.stringContaining('data 键缺席') });
+    ).toMatchObject({ kind: 'failed', message: expect.stringContaining('缺少 data 键') });
   });
 
   it('3xx 重定向折 failed + 不跟随提示（评审 #8——redirect:manual 钉死由守卫透传层）', async () => {
@@ -204,7 +204,7 @@ describe('R-2 加固批（体帽流式前置 + 外层 race 覆盖 DNS 腿 + 守�
     expect(message).toContain('手填'); // 行动指引（内网网关仍可手填模型清单）
   });
 
-  it('超时人话化：超时折「N 秒未应答」中文指引——修前红：TimeoutError 洋文技术句直透', async () => {
+  it('超时人话化：超时折「N 秒未返回」中文指引——修前红：TimeoutError 洋文技术句直透', async () => {
     const fetchImpl: FetchLike = async () => {
       await new Promise((r) => setTimeout(r, 200));
       return new Response('{}', { status: 200 });
@@ -213,6 +213,6 @@ describe('R-2 加固批（体帽流式前置 + 外层 race 覆盖 DNS 腿 + 守�
       { baseUrl: 'https://gw.test', protocol: 'anthropic-messages', apiKey: 'k' },
       { fetchImpl, resolveDns: publicDns, timeoutMs: 30 },
     );
-    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('未应答') });
+    expect(result).toMatchObject({ kind: 'failed', message: expect.stringContaining('未返回') });
   });
 });

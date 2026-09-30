@@ -171,7 +171,7 @@ export function readLedger(dataDir: string, fs: PluginStoreFs): LedgerReadResult
   if (Array.isArray(doc)) {
     for (const entry of doc) {
       const checked = checkEntryShape(entry);
-      if (checked === null) return invalid('数组条目形含坏形条目');
+      if (checked === null) return invalid('数组条目中存在格式异常条目');
       out.push(checked);
     }
     return { ok: true, entries: dedupeById(out) };
@@ -179,7 +179,7 @@ export function readLedger(dataDir: string, fs: PluginStoreFs): LedgerReadResult
   if (typeof doc === 'object' && doc !== null) {
     for (const [, entry] of Object.entries(doc as Record<string, unknown>)) {
       const checked = checkEntryShape(entry);
-      if (checked === null) return invalid('键映射形条目坏形');
+      if (checked === null) return invalid('键映射形条目格式异常');
       out.push(checked);
     }
     return { ok: true, entries: dedupeById(out) };
@@ -242,7 +242,7 @@ export function upsertLedgerEntry(dataDir: string, entry: PluginLedgerEntry, fs:
   const read = readLedger(dataDir, fs);
   // 写前置读已由调用方核过 ok（install/update 编舞先查撞名/查在场）——此处
   // fail-loud 防双检竞速残影（坏账本拒写不覆盖）
-  if (!read.ok) throw new BaseError('PLUGIN_INSTALL_FAILED', `装机账本损坏，拒写防覆盖：${read.reason}`);
+  if (!read.ok) throw new BaseError('PLUGIN_INSTALL_FAILED', `安装记录损坏，拒写防覆盖：${read.reason}`);
   const rest = read.entries.filter((e) => e.id !== entry.id);
   writeLedger(dataDir, [...rest, entry], fs);
 }
@@ -250,7 +250,7 @@ export function upsertLedgerEntry(dataDir: string, entry: PluginLedgerEntry, fs:
 /** 删条目（uninstall 段②后账面收口；id 查无 = no-op 幂等） */
 export function removeLedgerEntry(dataDir: string, id: string, fs: PluginStoreFs): void {
   const read = readLedger(dataDir, fs);
-  if (!read.ok) throw new BaseError('PLUGIN_UNINSTALL_REFUSED', `装机账本损坏，拒写防覆盖：${read.reason}`);
+  if (!read.ok) throw new BaseError('PLUGIN_UNINSTALL_REFUSED', `安装记录损坏，拒写防覆盖：${read.reason}`);
   writeLedger(
     dataDir,
     read.entries.filter((e) => e.id !== id),
@@ -338,7 +338,7 @@ export function mountRow(
   const read = readEnabledRowsForEdit(dataDir, fs);
   if (!read.ok) return read;
   if (read.rows.some((row) => row.id === id)) {
-    return { ok: false, message: `插件 ${id} 启用行已在场——mount 拒撞名（改配置 = unmount 后重 mount；03 §5.6）` };
+    return { ok: false, message: `插件 ${id} 的启用行已存在——mount 拒绝重名（改配置 = 先 unmount 再 mount）` };
   }
   const row: EnabledRow = { id, ...(config !== undefined ? { config } : {}) };
   writeEnabledRows(dataDir, [...read.rows, row], read.doors, fs);
@@ -443,7 +443,7 @@ export function toggleRow(
     if (!checkPluginId(id, { official: true })) {
       return {
         ok: false,
-        message: `插件 id 词法违例（${id}——小写字母/数字/连字符，首字符非连字符；官方件 core:<name> 后段同判据）——拒造行：坏词法行落盘会使下次启动读侧拒启（03 §1.2/§5.3）`,
+        message: `插件 id 词法违例（${id}——小写字母/数字/连字符，首字符非连字符；官方件 core:<name> 后段同判据）——拒造行：格式不对的行落盘会使下次启动读侧拒启`,
       };
     }
     rows.push({ id, disabled: true });
@@ -495,7 +495,7 @@ export function setRowConfig(dataDir: string, id: string, config: unknown, fs: P
     if (!checkPluginId(id, { official: true })) {
       return {
         ok: false,
-        message: `插件 id 词法违例（${id}——小写字母/数字/连字符，首字符非连字符；官方件 core:<name> 后段同判据）——拒造行：坏词法行落盘会使下次启动读侧拒启（03 §1.2/§5.3）`,
+        message: `插件 id 词法违例（${id}——小写字母/数字/连字符，首字符非连字符；官方件 core:<name> 后段同判据）——拒造行：格式不对的行落盘会使下次启动读侧拒启`,
       };
     }
     rows.push({ id, config });
@@ -603,13 +603,13 @@ export function installPathForGit(url: string): string {
   const stripped = url.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, ''); // ssh:// 或 https:// 形
   const [hostPart, ...pathParts] = stripped.split('/');
   if (hostPart === undefined || hostPart.length === 0 || pathParts.length < 2) {
-    throw new BaseError('PLUGIN_INSTALL_FAILED', `git url 坏形（${url}）——期望 https://<host>/<首段>/<repo> 形`);
+    throw new BaseError('PLUGIN_INSTALL_FAILED', `git url 格式不对（${url}）——应为 https://<host>/<首段>/<repo> 形`);
   }
   const first = pathParts[0]!;
   const repoRaw = pathParts[pathParts.length - 1]!;
   const repo = repoRaw.endsWith('.git') ? repoRaw.slice(0, -'.git'.length) : repoRaw;
   if (first.length === 0 || repo.length === 0) {
-    throw new BaseError('PLUGIN_INSTALL_FAILED', `git url 坏形（${url}）——首段或仓段为空`);
+    throw new BaseError('PLUGIN_INSTALL_FAILED', `git url 格式不对（${url}）——首段或仓段为空`);
   }
   // 点段穿越拒（§9.6 布局段四处全验）：进 join 的三段值任一为 '.'/'..' 即拒
   // ——段值点形经 join 内折可吞父树（如 https://evil.com/../.. 折出 'plugins'
@@ -643,7 +643,7 @@ export function assertInsideInstallSubtree(dataDir: string, target: string): voi
   if (resolved !== subtree && !resolved.startsWith(`${subtree}${sep}`)) {
     throw new BaseError(
       'PLUGIN_UNINSTALL_REFUSED',
-      `清算防线：删除目标 ${target}（解析 ${resolved}）逸出装机子树 ${subtree}——账本坏形，拒删（03 §5.5 段②）`,
+      `卸载安全防线：删除目标 ${target}（解析为 ${resolved}）不在插件安装目录 ${subtree} 内——安装记录异常，已拒绝删除`,
     );
   }
 }

@@ -328,8 +328,8 @@ async function officialLeg(deps: SetupWizardDeps, p: WizardPrompter, info: Setup
         clearBusy();
       }
       verifyNote = result.ok
-        ? `连通验证通过（${probeModel} 应答正常）`
-        : `连通性未验证：${result.detail}（配置已保存——可 /setup 重开复探或发首条消息检验）`;
+        ? `连通验证通过（${probeModel} 返回正常）`
+        : `连通性未验证：${result.detail}（配置已保存——可 /setup 重新检测，或发首条消息检验）`;
     } else {
       verifyNote = '连通性未验证（已跳过）';
     }
@@ -387,9 +387,7 @@ async function customFormLeg(
     // 位）：撞内置目录 id 的条目防御性拒入表单（分桶判据已排除撞名条入桶，
     // 本位零成本兜缝；指路手编清除——撞名条向导全域不可见的清除径唯一）。
     if (deps.builtinProviderIds.includes(id)) {
-      await p.outro('已退出', [
-        `渠道 id ${id} 与内置渠道撞名（保留字）——该条配置已被装配忽略，手编 settings.json 删该条即清`,
-      ]);
+      await p.outro('已退出', [`渠道 id ${id} 与内置渠道重名，这条配置不会生效——在 settings.json 里删掉它即可清除`]);
       return;
     }
   } else {
@@ -406,11 +404,11 @@ async function customFormLeg(
         continue;
       }
       if (!CUSTOM_CHANNEL_ID_RE.test(trimmedId)) {
-        idHint = `「${trimmedId}」坏形——须以小写字母开头，只含小写字母/数字/连字符；重输或 esc 退出`;
+        idHint = `「${trimmedId}」格式不对——须以小写字母开头，只含小写字母/数字/连字符；重输或 esc 退出`;
         continue;
       }
       if (deps.builtinProviderIds.includes(trimmedId)) {
-        idHint = `「${trimmedId}」与内置渠道撞名（保留字）——换个 id；重输或 esc 退出`;
+        idHint = `「${trimmedId}」与内置渠道重名——换一个；重输或 esc 退出`;
         continue;
       }
       if (deps.customChannels[trimmedId] !== undefined) {
@@ -425,7 +423,7 @@ async function customFormLeg(
   // —— 协议二选（wire format 与渠道正交——用户批评①兑现）——
   const currentProtocol = existing?.def.protocol;
   const proto = await p.select({
-    title: '协议（wire format——网关按哪家 API 方言应答）',
+    title: '协议（wire format——网关按哪种 API 格式返回）',
     items: [
       { id: 'anthropic-messages', label: 'Anthropic 兼容', desc: 'Claude 系端点——x-api-key 头；Base URL 填根地址' },
       { id: 'openai-completions', label: 'OpenAI 兼容', desc: 'GPT 系端点——Bearer 头；Base URL 通常填到 /v1' },
@@ -526,8 +524,8 @@ async function customFormLeg(
   const wantHeaders = await p.confirm({
     title: currentHeaders !== undefined ? '编辑/清除自定义请求头？' : '添加自定义请求头？',
     lines: [
-      '一般不需要——鉴权已由上面的 API key 负责。',
-      '此面只给非标网关的额外头（如 X-Upstream）。值将明文存 settings.json——禁止填 API key 等鉴权材料。',
+      '一般不需要——上面填的 API key 已负责鉴权。',
+      '这里只填网关要求的额外请求头（如 X-Upstream）——别填 API key；内容会明文存进 settings.json。',
       ...(currentHeaders !== undefined ? [`当前（${Object.keys(currentHeaders).length} 条）：${headersPreview}`] : []),
     ],
     defaultYes: false,

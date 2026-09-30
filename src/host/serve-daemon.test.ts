@@ -817,7 +817,7 @@ describe('runDaemonServe（真 runtime + 真 face 全环）', () => {
       let webuiLine: string | undefined;
       for (let i = 0; i < 200 && webuiLine === undefined; i++) {
         await new Promise((resolve) => setTimeout(resolve, 50));
-        webuiLine = lines.find((l) => l.startsWith('Web 界面已开面：http://'));
+        webuiLine = lines.find((l) => l.startsWith('Web 界面已开启：http://'));
       }
       expect(webuiLine, `披露行：${lines.join(' / ')}`).toBeDefined();
       const port = Number(webuiLine!.match(/http:\/\/[^:]+:(\d+)\//)![1]);
@@ -891,7 +891,7 @@ describe('serve 四桥会话键 canonical 统一（CL-A2）', () => {
       let webuiLine: string | undefined;
       for (let i = 0; i < 200 && webuiLine === undefined; i++) {
         await new Promise((resolve) => setTimeout(resolve, 50));
-        webuiLine = lines.find((l) => l.startsWith('Web 界面已开面：http://'));
+        webuiLine = lines.find((l) => l.startsWith('Web 界面已开启：http://'));
       }
       expect(webuiLine, `披露行：${lines.join(' / ')}`).toBeDefined();
       const port = Number(webuiLine!.match(/http:\/\/[^:]+:(\d+)\//)![1]);

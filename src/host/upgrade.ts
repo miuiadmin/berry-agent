@@ -258,7 +258,7 @@ export async function fetchDistTags(
     });
     if (response.status === 404) return { kind: 'not-found' };
     if (!response.ok) {
-      return { kind: 'failed', message: `registry 应答 ${response.status}` };
+      return { kind: 'failed', message: `registry 返回 ${response.status}` };
     }
     // 体帽双闸（十六役补扫 N5——读侧前置）：content-length 头先验（在场越帽
     // 即拒不下载）+ 读侧流式增量计数（无 content-length 的 chunked 应答读期
@@ -276,7 +276,7 @@ export async function fetchDistTags(
     }
     const parsed = JSON.parse(text) as { latest?: unknown };
     if (typeof parsed.latest !== 'string' || parsed.latest === '') {
-      return { kind: 'failed', message: 'dist-tags 文档坏形（latest 键缺席或非串）' };
+      return { kind: 'failed', message: 'dist-tags 数据格式异常（latest 键缺失或非字符串）' };
     }
     return { kind: 'ok', latest: parsed.latest };
   } catch (err) {
@@ -473,7 +473,7 @@ export async function runStartupUpdateCheck(
     };
   }
   return manual.kind === 'not-found'
-    ? { kind: 'failed', message: 'registry 404——包不在册（未发布态）' }
+    ? { kind: 'failed', message: 'registry 返回 404——npm 源上找不到 berry-agent（可能未发布）' }
     : { kind: 'failed', message: manual.message };
 }
 
@@ -516,7 +516,7 @@ export async function runUpgradeCommand(deps: UpgradeCliDeps): Promise<number> {
       yarn: 'yarn global add berry-agent',
       bun: 'bun add -g berry-agent',
     };
-    deps.writeOut(`检出 ${form} 全局管理器装机形态——请用原管理器升级（npm i -g 会装出第二份）：`);
+    deps.writeOut(`检测到 berry 是用 ${form} 安装的——请继续用 ${form} 升级（用 npm i -g 会装出第二份）：`);
     deps.writeOut(`  ${guide[form]}`);
     return 0;
   }
@@ -524,7 +524,7 @@ export async function runUpgradeCommand(deps: UpgradeCliDeps): Promise<number> {
   // —— npm 全局形：查 dist-tags（手动检查路——强制刷新缓存同源） ——
   const check = await runManualUpdateCheck(deps);
   if (check.kind === 'not-found') {
-    deps.writeErr('registry 应答 404——berry-agent 不在该 registry 上（未发布态或 registry 指错）。');
+    deps.writeErr('registry 返回 404：npm 源上找不到 berry-agent（可能尚未发布，或源地址配错）。');
     deps.writeErr('源码形态升级指引：git pull → npm install → npm run build → npm link。');
     return 1;
   }
@@ -543,9 +543,7 @@ export async function runUpgradeCommand(deps: UpgradeCliDeps): Promise<number> {
   // 坏响应诚实拒，不保守装作无事）。
   if (!TARGET_RE.test(check.latest)) {
     // 越形值经 JSON.stringify 回显（控制字可见转义——坏响应不直灌终端）
-    deps.writeErr(
-      `远端 latest 越形（${JSON.stringify(check.latest)} 非 semver 白名单形）——拒执行装机（registry 响应不可信）。`,
-    );
+    deps.writeErr(`远端版本号 ${JSON.stringify(check.latest)} 格式异常，已停止升级（registry 返回了不可信数据）。`);
     return 1;
   }
 
@@ -562,11 +560,11 @@ export async function runUpgradeCommand(deps: UpgradeCliDeps): Promise<number> {
   const runInstall = deps.runInstall ?? defaultRunInstall;
   const installed = await runInstall(check.latest);
   if (!installed) {
-    deps.writeErr('装机失败（npm 非零退出）——可手动执行：npm i -g berry-agent@latest');
+    deps.writeErr('升级失败（npm 退出码非 0）——可手动执行：npm i -g berry-agent@latest');
     return 1;
   }
   deps.writeOut(`升级完成：${deps.currentVersion} → ${check.latest}。`);
-  deps.writeOut('重启 berry 后生效（运行中进程持旧码——升级不热替换内存）。');
+  deps.writeOut('重启 berry 后生效。');
   return 0;
 }
 

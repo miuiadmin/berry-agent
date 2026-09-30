@@ -51,20 +51,20 @@ export async function marketInstall(deps: MarketInstallDeps, id: string): Promis
   if (addr === null) {
     return {
       ok: false,
-      message: `市场寻址形坏（"${id}"）——形如 name@marketplace（条目名@市场名，两段各过名段词法）`,
+      message: `市场寻址格式不对（"${id}"）——形如 name@marketplace（条目名@市场名，两段各过名段词法）`,
     };
   }
 
   // ② 源清单查市场（零网络——缓存即真相）
   const sourcesRead = readMarketplaceSources(deps.dataDir, deps.fs);
   if (!sourcesRead.ok) {
-    return { ok: false, message: `源清单文件坏形：${sourcesRead.message}——装机拒猜（03 §9.6）` };
+    return { ok: false, message: `源清单文件格式异常：${sourcesRead.message}——已停止安装以避免误装` };
   }
   const record = sourcesRead.sources.find((r) => r.name === addr.marketplace);
   if (record === undefined) {
     return {
       ok: false,
-      message: `市场 "${addr.marketplace}" 不在源清单——先 berry marketplace add <源>（在册清单见 berry marketplace list）`,
+      message: `市场 "${addr.marketplace}" 不在源清单——先运行 berry marketplace add <源>（已添加的源见 berry marketplace list）`,
     };
   }
 
@@ -74,14 +74,14 @@ export async function marketInstall(deps: MarketInstallDeps, id: string): Promis
   if (catalogText === null) {
     return {
       ok: false,
-      message: `市场 "${addr.marketplace}" 缓存缺席（${record.catalogPath} 读不到）——先 berry marketplace remove ${addr.marketplace} 后重新 add`,
+      message: `市场 "${addr.marketplace}" 缓存缺失（${record.catalogPath} 读不到）——先 berry marketplace remove ${addr.marketplace} 后重新 add`,
     };
   }
   const parsed = parseMarketplaceCatalog(catalogText, `${addr.marketplace}/${record.catalogPath}`);
   if (!parsed.ok) {
     return {
       ok: false,
-      message: `市场 "${addr.marketplace}" catalog 坏形：${parsed.reason}——先 marketplace remove 后重新 add`,
+      message: `市场 "${addr.marketplace}" catalog 格式异常：${parsed.reason}——先 marketplace remove 后重新 add`,
     };
   }
   if (parsed.catalog.name !== record.name) {
@@ -148,14 +148,14 @@ export function resolveMarketLedgerId(
   if (matches.length === 0) {
     return {
       ok: false,
-      message: `市场寻址 "${addr.name}@${addr.marketplace}" 无装机条目——装机走 berry marketplace install ${addr.name}@${addr.marketplace}`,
+      message: `市场寻址 "${addr.name}@${addr.marketplace}" 无已安装条目——安装走 berry marketplace install ${addr.name}@${addr.marketplace}`,
     };
   }
   if (matches.length > 1) {
     const ids = matches.map((e) => e.id).join('、');
     return {
       ok: false,
-      message: `市场寻址 "${addr.name}@${addr.marketplace}" 命中多个装机条目（${ids}）——按装机 id 点名走 berry plugins uninstall <id>`,
+      message: `市场寻址 "${addr.name}@${addr.marketplace}" 命中多个已安装条目（${ids}）——按安装 id 点名走 berry plugins uninstall <id>`,
     };
   }
   return { ok: true, id: matches[0]!.id };

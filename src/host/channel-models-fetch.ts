@@ -93,18 +93,18 @@ export async function fetchChannelModels(
         headers: channelModelsHeaders(req),
         signal: AbortSignal.timeout(timeoutMs),
       }),
-      rejectAfter(timeoutMs, `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时）——网关慢或地址错，可重试或手填`),
+      rejectAfter(timeoutMs, `${Math.round(timeoutMs / 100) / 10} 秒未返回（超时）——网关慢或地址错，可重试或手填`),
     ]);
     if (response.status >= 300 && response.status < 400) {
       // redirect:'manual' 钉死（守卫透传层）——3xx 即此分支；网关把 /models
       // 重定向到登录页/另域是中转站常见形态，提示用户填直连地址
       return {
         kind: 'failed',
-        message: `端点应答重定向 ${response.status}（不跟随重定向——请填直连 baseUrl）`,
+        message: `端点返回重定向 ${response.status}（不跟随重定向——请填直连 baseUrl）`,
       };
     }
     if (!response.ok) {
-      return { kind: 'failed', message: `端点应答 ${response.status}（鉴权头/地址请复核）` };
+      return { kind: 'failed', message: `端点返回 ${response.status}（请检查 API key 与地址）` };
     }
     // 体帽闸一（先验声明——fetchDistTags 同形）
     const declared = response.headers?.get?.('content-length');
@@ -120,11 +120,11 @@ export async function fetchChannelModels(
     try {
       parsed = JSON.parse(text);
     } catch {
-      return { kind: 'failed', message: '清单文档坏形（非 JSON）' };
+      return { kind: 'failed', message: '清单格式异常（不是 JSON）' };
     }
     const data = (parsed as { data?: unknown }).data;
     if (!Array.isArray(data)) {
-      return { kind: 'failed', message: '清单文档坏形（data 键缺席或非数组）' };
+      return { kind: 'failed', message: '清单格式异常（缺少 data 键或不是数组）' };
     }
     // id 串形过滤 + 去重保序（网关清单偶见重复条目）
     const seen = new Set<string>();
@@ -180,10 +180,10 @@ function concatChunks(chunks: readonly Uint8Array[], total: number): Uint8Array 
 function fetchFailureMessage(err: unknown, timeoutMs: number): string {
   // 超时形（AbortSignal.timeout 的 TimeoutError / race 腿 Error 已人话直透）
   if (err instanceof Error && err.name === 'TimeoutError') {
-    return `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时）——网关慢或地址错，可重试或手填`;
+    return `${Math.round(timeoutMs / 100) / 10} 秒未返回（超时）——网关慢或地址错，可重试或手填`;
   }
   if (err instanceof Error && /aborted/i.test(err.message)) {
-    return `${Math.round(timeoutMs / 100) / 10} 秒未应答（超时）——网关慢或地址错，可重试或手填`;
+    return `${Math.round(timeoutMs / 100) / 10} 秒未返回（超时）——网关慢或地址错，可重试或手填`;
   }
   if (err instanceof BaseError && err.code === 'WEB_PRIVATE_ADDRESS') {
     return `${err.message}——自动拉取只走公网；内网网关请手填模型清单`;

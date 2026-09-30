@@ -241,7 +241,7 @@ describe('plugins_list 四态（装载真源 = 内存报告；装机真源 = 磁
     const rig_ = rig({ dir, report: () => undefined });
     try {
       const text = textOf(await run(toolOf(rig_.tools, 'plugins_list')));
-      expect(text).toContain('装载面未装配');
+      expect(text).toContain('挂载信息不可用');
       expect(text).toContain('installed-unmounted（1）');
       expect(text).toContain('user-x  [npm]');
     } finally {
@@ -269,7 +269,7 @@ describe('plugins_list 四态（装载真源 = 内存报告；装机真源 = 磁
       const text = textOf(await run(toolOf(rig_.tools, 'plugins_list')));
       expect(text).toContain('core:demo  [core]');
       expect(text).toContain('user-x  [?]');
-      expect(text).toContain('installed-unmounted：缺席');
+      expect(text).toContain('installed-unmounted：缺失');
     } finally {
       rig_.close();
     }
@@ -393,7 +393,7 @@ describe('plugin_uninstall_inspect（§5.5——模型面只到 inspect 为止�
     try {
       const result = await run(toolOf(rig_.tools, 'plugin_uninstall_inspect'), { id: 'user-ghost' });
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain('未装机');
+      expect(textOf(result)).toContain('未安装');
     } finally {
       rig_.close();
     }
@@ -408,8 +408,8 @@ describe('plugin_install（三源装机——执行件单源复用，此处锁�
     try {
       const result = await run(toolOf(rig_.tools, 'plugin_install'), { ref: `local:${src}` });
       expect(result.isError).not.toBe(true);
-      expect(textOf(result)).toContain('已装机');
-      expect(textOf(result)).toContain('装机零生效');
+      expect(textOf(result)).toContain('已安装');
+      expect(textOf(result)).toContain('安装零生效');
       expect(result.addedToolNames).toEqual([]); // 通道在位值诚实空（§5.4 装机零生效）
       expect(rig_.audits).toEqual([
         ['plugin/installed', { id: 'inst-demo-pkg', source: 'local', version: '1.0.0' }], // id 缺省 = name
@@ -461,7 +461,7 @@ describe('plugin_mount（前置两查 + 撞名拒 + 指路 /reload）', () => {
       await run(toolOf(rig_.tools, 'plugin_mount'), { id: 'user-x' });
       const again = await run(toolOf(rig_.tools, 'plugin_mount'), { id: 'user-x' });
       expect(again.isError).toBe(true);
-      expect(textOf(again)).toContain('撞名');
+      expect(textOf(again)).toContain('重名');
       expect(textOf(again)).toContain('unmount');
     } finally {
       rig_.close();
@@ -476,7 +476,7 @@ describe('plugin_mount（前置两查 + 撞名拒 + 指路 /reload）', () => {
       expect(textOf(bad)).toContain('词法违例');
       const ghost = await run(toolOf(rig_.tools, 'plugin_mount'), { id: 'user-ghost' });
       expect(ghost.isError).toBe(true);
-      expect(textOf(ghost)).toContain('未装机');
+      expect(textOf(ghost)).toContain('未安装');
       expect(textOf(ghost)).toContain('plugin_install'); // 模型面指路词
       const core = await run(toolOf(rig_.tools, 'plugin_mount'), { id: 'core:demo' });
       expect(core.isError).not.toBe(true); // core: 豁免查账
@@ -525,7 +525,7 @@ describe('plugin_update（按源分派——执行件单源复用）', () => {
     try {
       const result = await run(toolOf(rig_.tools, 'plugin_update'), { id: 'user-ghost' });
       expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain('未装机');
+      expect(textOf(result)).toContain('未安装');
     } finally {
       rig_.close();
     }

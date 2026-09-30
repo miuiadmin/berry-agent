@@ -333,7 +333,7 @@ function describe(err: unknown): string {
 /** 有界等待（超时抛——超时后底层 promise 不取消，仅放弃等待 = 强杀语义）；导出共用于装载器三时钟（批 12d） */
 export function withTimeout(p: Promise<void>, ms: number, label: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} 超时（${ms}ms 帽——放弃等待）`)), ms);
+    const timer = setTimeout(() => reject(new Error(`${label} 超时（上限 ${ms}ms——放弃等待）`)), ms);
     p.then(
       () => {
         clearTimeout(timer);

@@ -215,8 +215,8 @@ export async function runPluginConfigForm(
     const undeclaredLine =
       undeclared.length === 0 ? '' : `\n未声明键透传 ${undeclared.length} 个：${undeclared.join('、')}`;
     const head = changed
-      ? `已更新 ${pluginId} 配置（行 config 整值替换 + secret 入凭证盒）——已自动链 /reload（会话运行中自动排队，run 收场后执行）`
-      : `无变更——全随缺省（值等于缺省源不落行，行是覆盖仓不烙缺省）`;
+      ? `已更新 ${pluginId} 配置（行 config 整值替换 + secret 入凭证盒）——已自动链 /reload（会话运行中自动排队，当前回复结束后执行）`
+      : `无变更——全部保持默认（值与默认相同不写入，行只存覆盖值）`;
     return {
       ok: true,
       text: `${head}\n${receipt.join('\n')}${undeclaredLine}`,

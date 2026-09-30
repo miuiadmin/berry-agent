@@ -148,7 +148,7 @@ async function runList(options: SessionsEntryOptions): Promise<number> {
   try {
     const rows = persistence.store.listSessions({ limit: 100 });
     if (rows.length === 0) {
-      out('无会话（数据目录尚无在册会话——首跑 run/TUI 即建）');
+      out('无会话（数据目录还没有会话——首次运行 run/TUI 时自动创建）');
       return 0;
     }
     const lines: string[] = [`共 ${rows.length} 个会话（按更新时间倒序，最多显示 100 个）：`];
@@ -291,7 +291,7 @@ async function runFork(options: SessionsEntryOptions, id: string): Promise<numbe
     // CORRUPT）——CLI 人面把打错 id 呈报为干净失败档
     const row = assembly.runtime.persistence.store.getSessionRow(id);
     if (row === undefined) {
-      err(`会话不存在：${id}——用 sessions list 查在册 id`);
+      err(`会话不存在：${id}——用 sessions list 查现有 id`);
       return 1;
     }
     let forked: Awaited<ReturnType<typeof assembly.stack.manager.fork>>;
@@ -329,7 +329,7 @@ async function runRename(options: SessionsEntryOptions, id: string, title: strin
   const err = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
   const clamped = clampTitleText(title);
   if (clamped === '') {
-    err('新名净化后为空——不落库（控制字节/零宽字素剥光后无可见内容）');
+    err('新名字只含不可见字符（控制字节/零宽字符剥光后无可见内容）——未保存，换一个再试');
     return 1;
   }
   // 零装配直开库（openReadSide 形——短命写动词同读腿豁免族：不开运行时、
@@ -337,7 +337,7 @@ async function runRename(options: SessionsEntryOptions, id: string, title: strin
   const persistence = openReadSide(options, err);
   try {
     if (!persistence.updateSessionTitle(id, clamped)) {
-      err(`会话不存在：${id}——用 sessions list 查在册 id`);
+      err(`会话不存在：${id}——用 sessions list 查现有 id`);
       return 1;
     }
     out(`已改名：${id} → ${clamped}`);

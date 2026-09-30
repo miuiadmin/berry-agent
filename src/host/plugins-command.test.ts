@@ -116,7 +116,7 @@ describe('用法与 list 读面', () => {
     const rig_ = rig();
     const out = await runPluginsCommand(['list'], rig_.deps);
     expect(out.ok).toBe(true);
-    expect(out.text).toContain('装载面未装配');
+    expect(out.text).toContain('挂载信息不可用');
   });
 
   it('list：启用行子代理目录尾注与 CLI 同串形（两面同源回归锁——cecd6b0 CLI 面补齐 agentDirs 而 TUI 面漏跟，修前本例红）', async () => {
@@ -169,7 +169,7 @@ describe('mount 前置两查（与 CLI 同律）', () => {
     const rig_ = rig({ dir });
     const out = await runPluginsCommand(['mount', 'user-x'], rig_.deps);
     expect(out.ok).toBe(false);
-    expect(out.text).toContain('未装机');
+    expect(out.text).toContain('未安装');
     expect(out.text).toContain('install');
     expect(rig_.reloads()).toBe(0);
   });
@@ -247,7 +247,7 @@ describe('写动词成功尾三面（自动链/审计/回执）', () => {
     await runPluginsCommand(['mount', 'core:demo'], rig_.deps);
     const out = await runPluginsCommand(['unmount', 'core:demo'], rig_.deps);
     expect(out.ok).toBe(true);
-    expect(out.text).toContain('已卸下：core:demo（装机保留）');
+    expect(out.text).toContain('已卸下：core:demo（安装保留）');
     expect(rig_.audits).toEqual([
       ['plugin/mounted', { id: 'core:demo' }],
       ['plugin/unmounted', { id: 'core:demo' }],
@@ -294,7 +294,7 @@ describe('config 动词分流（ix-3b/c 表单腿）', () => {
     const rig_ = rig();
     const out = await runPluginsCommand(['config', 'demo'], rig_.deps);
     expect(out.ok).toBe(false);
-    expect(out.text).toContain('表单腿未装配');
+    expect(out.text).toContain('配置表单不可用');
     expect(rig_.reloads()).toBe(0);
     expect(rig_.audits).toEqual([]);
   });

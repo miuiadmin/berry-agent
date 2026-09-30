@@ -112,8 +112,8 @@ describe('e2e 全链（真装配组合根——本地 file 市场仓零网络）
     const instCode = await runMarketplaceEntry({ sub: 'install', id: 'hello-plugin@alpha' }, inst.options);
     expect(instCode).toBe(0);
     const instText = inst.out.join('\n');
-    expect(instText).toContain('已装机：hello-plugin');
-    expect(instText).toContain('装机 ≠ 启用');
+    expect(instText).toContain('已安装：hello-plugin');
+    expect(instText).toContain('安装 ≠ 启用');
     expect(instText).toContain('berry plugins mount hello-plugin');
     const ledger = readLedger(stage.options.dataDir, createPluginStoreFs());
     expect(ledger.ok && ledger.entries).toHaveLength(1);
@@ -241,7 +241,7 @@ describe('e2e update/upgrade 全链（mp-4 真身——local 源零网络）', (
     expect(await runMarketplaceEntry({ sub: 'update' }, failed.options)).toBe(1);
     const text = failed.out.join('\n');
     expect(text).toContain('刷新失败：eps'); // 失败行 = 源名 + 消息（呈现面锁）
-    expect(text).toContain('源目录缺席');
+    expect(text).toContain('源目录缺失');
   });
 
   it('update 坏源清单：清单级硬拒 → stderr 报文 + 退 1（拒猜）', async () => {
@@ -250,8 +250,8 @@ describe('e2e update/upgrade 全链（mp-4 真身——local 源零网络）', (
     writeFileSync(join(stage.options.dataDir, 'marketplaces.json'), '{'); // 坏 JSON
     expect(await runMarketplaceEntry({ sub: 'update' }, stage.options)).toBe(1);
     const err = stage.err.join('\n');
-    expect(err).toContain('源清单文件坏形');
-    expect(err).toContain('拒猜');
+    expect(err).toContain('源清单文件格式异常');
+    expect(err).toContain('已停止刷新');
   });
 
   it('upgrade 刷新失败降级：warn 注记 stderr + 既有缓存对拍跳过退 0（不拒整批）', async () => {
@@ -328,7 +328,7 @@ describe('e2e update/upgrade 全链（mp-4 真身——local 源零网络）', (
     expect(await runMarketplaceEntry({ sub: 'install', id: 'hello-plugin@iota' }, re.options)).toBe(0);
     const reText = re.out.join('\n');
     expect(reText).toContain('启用行已随换代迁移'); // 随迁注记（回执诚实位——§9.6 定形）
-    expect(reText).not.toContain('装机 ≠ 启用'); // 行已随迁——mount 指路行不复呈现（指路会撞名拒）
+    expect(reText).not.toContain('安装 ≠ 启用'); // 行已随迁——mount 指路行不复呈现（指路会撞名拒）
     // 再推进一代 v3：upgrade 单件点名的 id 漂移呈现 + 行随迁到底
     bumpRepoGeneration('3', 'hello-plugin-v3');
     const upd2 = stageOf('cli-id-drift-upd2', stage.options.dataDir);

@@ -658,7 +658,7 @@ describe('runRunEntry --tick 用户任务行', () => {
   it('行缺席：配置漂移档退 2（jobs 表无此行）', async () => {
     const { entry, err } = await rigRun({ message: '', flags: { tick: 'ghost-job' } });
     await expect(entry).resolves.toBe(2);
-    expect(err.text).toContain('行缺席');
+    expect(err.text).toContain('找不到任务');
   });
 
   it('件缺席形：--no-plugins 下 --tick 退 2（core:scheduler 不在场）', async () => {
@@ -830,7 +830,7 @@ describe('runRunEntry --port 咬合 / provider 失败面', () => {
     try {
       const run = await rigRun({ flags: { port: occupied.port } });
       await expect(run.entry).resolves.toBe(1);
-      expect(run.err.text).toContain('--port 开面失败'); // 归一文案（固定串非 AI 文本）
+      expect(run.err.text).toContain('--port 开启失败'); // 归一文案（固定串非 AI 文本）
       expect(existsSync(join(run.dataDir, 'crash.log'))).toBe(false); // 干净退出档零崩溃取证
     } finally {
       await occupied.close();

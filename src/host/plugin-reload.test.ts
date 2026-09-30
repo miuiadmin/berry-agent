@@ -98,7 +98,7 @@ describe('busy 排队与 coalesce（单槽——读盘为准无参数）', () =>
     rig_.setBusy(true);
     reloader.request();
     expect(rig_.calls).toEqual([]); // 编舞零启动
-    expect(rig_.reports).toEqual(['会话运行中——/reload 已排队，本轮收场后执行']);
+    expect(rig_.reports).toEqual(['会话运行中——/reload 已排队，当前回复结束后执行']);
     expect(reloader.hasPending()).toBe(true);
   });
 

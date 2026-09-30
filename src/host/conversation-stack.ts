@@ -1305,7 +1305,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // stop/length/toolUse 均 = 供血通——1-token 帽下 length 是正常收尾形
       return {
         ok: true,
-        detail: `${ledgerModelOf(result.provider, result.model, modelSpec)} 应答正常（${spent} tokens）`,
+        detail: `${ledgerModelOf(result.provider, result.model, modelSpec)} 返回正常（${spent} tokens）`,
       };
     } catch (err) {
       // 防御位：永不抛契约下的兜底（abort 竞速/底层异常一律折数据）
@@ -1552,7 +1552,7 @@ export function resolveRunLaneCapacity(override: number | undefined, env: Record
   }
   if (!Number.isInteger(value) || value < 1) {
     throw new RangeError(
-      `lane 帽容量须为正整数，收到 ${String(raw)}——空帽/坏帽是死配置（BERRY_AGENT_MAX_CONCURRENT_RUNS / maxConcurrentRuns）`,
+      `lane 并发容量须为正整数，收到 ${String(raw)}——空值/坏值是死配置（BERRY_AGENT_MAX_CONCURRENT_RUNS / maxConcurrentRuns）`,
     );
   }
   return value;
@@ -1573,7 +1573,7 @@ export function resolveBackgroundBudgetTokens(env: Record<string, string | undef
   // 字串形全串 /^\d+$/ 判（同 resolveRunLaneCapacity——parseInt 截停防）
   if (!/^\d+$/.test(raw)) {
     throw new RangeError(
-      `当日后台预算限额须为非负整数字串，收到 "${raw}"——坏形是死配置（${BACKGROUND_BUDGET_TOKENS_ENV}）`,
+      `当日后台预算限额须为非负整数字串，收到 "${raw}"——格式不对，已停止启动（${BACKGROUND_BUDGET_TOKENS_ENV}）`,
     );
   }
   return Number.parseInt(raw, 10);
@@ -1607,7 +1607,9 @@ export function resolveLlmIdleTimeoutMs(env: Record<string, string | undefined>)
   if (raw === undefined || raw === '') return DEFAULT_LLM_IDLE_TIMEOUT_MS;
   // 字串形全串 /^\d+$/ 判（同 resolveBackgroundBudgetTokens——parseInt 截停防）
   if (!/^\d+$/.test(raw)) {
-    throw new RangeError(`流层 idle 帽须为非负整数字串，收到 "${raw}"——坏形是死配置（${LLM_IDLE_TIMEOUT_MS_ENV}）`);
+    throw new RangeError(
+      `流式空闲超时须为非负整数字串（毫秒），收到 "${raw}"——格式不对，已停止启动（${LLM_IDLE_TIMEOUT_MS_ENV}）`,
+    );
   }
   return Number.parseInt(raw, 10);
 }
@@ -1621,7 +1623,7 @@ export function resolveSessionStallTimeoutMs(env: Record<string, string | undefi
   if (raw === undefined || raw === '') return DEFAULT_SESSION_STALL_TIMEOUT_MS;
   if (!/^\d+$/.test(raw)) {
     throw new RangeError(
-      `编排层时滞帽须为非负整数字串，收到 "${raw}"——坏形是死配置（${SESSION_STALL_TIMEOUT_MS_ENV}）`,
+      `会话停滞超时须为非负整数字串（毫秒），收到 "${raw}"——格式不对，已停止启动（${SESSION_STALL_TIMEOUT_MS_ENV}）`,
     );
   }
   return Number.parseInt(raw, 10);
@@ -1637,8 +1639,8 @@ export function resolveSessionStallTimeoutMs(env: Record<string, string | undefi
 export function assertWatchdogHatOrder(llmIdleTimeoutMs: number, sessionStallTimeoutMs: number): void {
   if (llmIdleTimeoutMs > 0 && sessionStallTimeoutMs > 0 && sessionStallTimeoutMs < llmIdleTimeoutMs) {
     throw new RangeError(
-      `编排层时滞帽（${sessionStallTimeoutMs}ms）须不小于流层 idle 帽（${llmIdleTimeoutMs}ms）` +
-        `——分层序恒立是防误杀不变式（${LLM_IDLE_TIMEOUT_MS_ENV} / ${SESSION_STALL_TIMEOUT_MS_ENV}，04 §3.8）`,
+      `会话停滞超时（${sessionStallTimeoutMs}ms）须不小于流式空闲超时（${llmIdleTimeoutMs}ms）` +
+        `——此序为防误杀设计，不可颠倒（${LLM_IDLE_TIMEOUT_MS_ENV} / ${SESSION_STALL_TIMEOUT_MS_ENV}）`,
     );
   }
 }
@@ -1765,7 +1767,7 @@ export interface RunLaneGate {
  */
 export function createRunLaneGate(capacity: number): RunLaneGate {
   if (!Number.isInteger(capacity) || capacity < 1) {
-    throw new RangeError(`lane 帽容量须为正整数，收到 ${capacity}——空帽是死配置`);
+    throw new RangeError(`lane 并发容量须为正整数，收到 ${capacity}——空值是死配置`);
   }
   let inFlight = 0;
   /** FIFO 等位队列（帽满时的挂起取位——resolve 载释放器） */

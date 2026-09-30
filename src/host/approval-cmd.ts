@@ -37,10 +37,10 @@ export const APPROVAL_SUBVERBS = ['status', 'entries', 'explain', 'preset'] as c
 
 /** 用法说明（TUI 命令描述位 + 解析错回执共用单源） */
 export const APPROVAL_USAGE = `/approval [status] | entries | explain <tool> [pattern] | preset <名>
-  status                 当前态：sandbox 档 + 审批 policy（值 + 来源）+ 三档预设一览
+  status                 当前态：sandbox 模式 + 审批 policy（值 + 来源）+ 三种预设一览
   entries                策略表全列（立即读取当前生效的 tool-policy.json——启动时加载副本之外的实际内容）
-  explain <tool> [pattern]  真裁决干跑（守门行同一 matchToolPolicy）：fs 族须带路径前缀参数、bash 须带命令原文、整名族三档并列
-  preset <名>            预设写盘（conservative|balanced|open——settings.json 两键 + 建议集 append；下次启动/新装配生效）
+  explain <tool> [pattern]  真裁决干跑（守门行同一 matchToolPolicy）：fs 族须带路径前缀参数、bash 须带命令原文、整名族三种并列
+  preset <名>            预设写盘（conservative|balanced|open——settings.json 两键 + 建议集 append；下次启动或新会话时生效）
 （CLI 面无本命令——「berry run --preset <名>」为逐次生效不写盘）`;
 
 /** 子命令形（TUI parseApprovalArgv 产物——tagged union） */
@@ -143,10 +143,10 @@ function renderEntry(entry: ToolPolicyEntry, index: number): string {
 function renderStatus(deps: ApprovalCommandDeps): ApprovalCommandOutcome {
   const lines: string[] = [];
   lines.push('当前态（四层解析胜者——工具参数 > 会话策略 > CLI 旗标 > settings.json > 代码常量）：');
-  lines.push(`  sandbox 档 = ${deps.status.mode}（来源：${deps.status.modeSource}）`);
+  lines.push(`  sandbox 模式 = ${deps.status.mode}（来源：${deps.status.modeSource}）`);
   lines.push(`  审批 policy = ${deps.status.policy}（来源：${deps.status.policySource}）`);
   lines.push(`  （本面为启动时加载的副本——/approval entries 与 explain 立即读取策略表文件）`);
-  lines.push('预设三档（preset <名> 写盘——下次启动/新装配生效，当前进程不变）：');
+  lines.push('预设三种（preset <名> 写盘——下次启动或新会话时生效，当前进程不变）：');
   for (const preset of APPROVAL_PRESETS) {
     lines.push(`  ${preset.name}: ${preset.description}`);
   }
@@ -156,7 +156,7 @@ function renderStatus(deps: ApprovalCommandDeps): ApprovalCommandOutcome {
 /** entries 渲染（活体现读——装配期快照外的当前真身；含命中序说明） */
 function renderEntries(deps: ApprovalCommandDeps): ApprovalCommandOutcome {
   if (deps.dataDir === null) {
-    return { ok: true, text: '纯 memory 诊断形无数据目录——策略表缺席（空清单）。' };
+    return { ok: true, text: '纯 memory 诊断形无数据目录——策略表缺失（空清单）。' };
   }
   const load = readToolPolicy(deps.dataDir);
   const path = join(deps.dataDir, TOOL_POLICY_BASENAME);
@@ -164,7 +164,7 @@ function renderEntries(deps: ApprovalCommandDeps): ApprovalCommandOutcome {
     // 坏形真源随载（发现 #26）：升格语境下真源可以是旧名 allowlist.json——
     // 指错文件会把用户引去修一个不存在的新名文件
     const badPath = load.unhealthyPath ?? path;
-    return { ok: false, text: `策略表文件级坏形（${badPath}）——已降级视同空清单；手改修复前 preset 写动词同拒。` };
+    return { ok: false, text: `策略表文件格式异常（${badPath}）——本次按空策略表处理；修复该文件前 preset 拒绝执行。` };
   }
   const lines: string[] = [];
   lines.push(`策略表（立即读取 ${path} 的当前内容——启动时加载的是当时副本，两时点可能不同）：`);
@@ -191,13 +191,13 @@ function renderExplain(
   deps: ApprovalCommandDeps,
 ): ApprovalCommandOutcome {
   if (deps.dataDir === null) {
-    return { ok: true, text: '纯 memory 诊断形无数据目录——策略表缺席（空清单），无条目可判。' };
+    return { ok: true, text: '纯 memory 诊断形无数据目录——策略表缺失（空清单），无条目可判。' };
   }
   const load = readToolPolicy(deps.dataDir);
   if (!load.healthy) {
     // 坏形真源随载（发现 #26——同 renderEntries 注）
     const badPath = load.unhealthyPath ?? join(deps.dataDir, TOOL_POLICY_BASENAME);
-    return { ok: false, text: `策略表文件级坏形（${badPath}）——已降级视同空清单，干跑不可判。` };
+    return { ok: false, text: `策略表文件格式异常（${badPath}）——已按空策略表处理，干跑判定不可用。` };
   }
   const now = Date.now();
   const workspaceRoot = deps.workspace();
@@ -225,8 +225,8 @@ function renderExplain(
     );
     lines.push(
       hit === undefined
-        ? `  write 档（写目标 ${target}）：无命中——照问照审（回落审批）`
-        : `  write 档（写目标 ${target}）：命中 ${policyHitNote(hit)} → ${hit.entry.decision === 'deny' ? '硬拒（用户主权，任何面不可翻转）' : '免问放行（advisory——fence/可写根照走）'}`,
+        ? `  write 级别（写目标 ${target}）：无命中——照问照审（回落审批）`
+        : `  write 级别（写目标 ${target}）：命中 ${policyHitNote(hit)} → ${hit.entry.decision === 'deny' ? '硬拒（用户主权，任何面不可翻转）' : '免问放行（advisory——fence/可写根照走）'}`,
     );
     if (hit !== undefined) lines.push(renderEntry(hit.entry, hit.index));
     return { ok: true, text: lines.join('\n') };
@@ -247,8 +247,8 @@ function renderExplain(
     );
     lines.push(
       hit === undefined
-        ? `  exec 档（命令「${sub.pattern}」）：无命中——照问照审（回落审批）`
-        : `  exec 档（命令「${sub.pattern}」）：命中 ${policyHitNote(hit)} → ${hit.entry.decision === 'deny' ? '硬拒（用户主权，任何面不可翻转）' : '免问放行（advisory——confine/沙箱面照走）'}`,
+        ? `  exec 级别（命令「${sub.pattern}」）：无命中——照问照审（回落审批）`
+        : `  exec 级别（命令「${sub.pattern}」）：命中 ${policyHitNote(hit)} → ${hit.entry.decision === 'deny' ? '硬拒（用户主权，任何面不可翻转）' : '免问放行（advisory——confine/沙箱面照走）'}`,
     );
     if (hit !== undefined) lines.push(renderEntry(hit.entry, hit.index));
     return { ok: true, text: lines.join('\n') };
@@ -262,12 +262,12 @@ function renderExplain(
   for (const effect of ['read', 'write', 'exec'] as const) {
     const hit = matchToolPolicy(load.entries, { tool: sub.tool, effect, workspace: workspaceRoot }, now);
     if (hit === undefined) {
-      lines.push(`  ${effect} 档：无命中`);
+      lines.push(`  ${effect} 级别：无命中`);
       continue;
     }
     any = true;
     lines.push(
-      `  ${effect} 档：命中 ${policyHitNote(hit)} → ${hit.entry.decision === 'deny' ? '硬拒（用户主权，任何面不可翻转）' : '免问放行（advisory）'}`,
+      `  ${effect} 级别：命中 ${policyHitNote(hit)} → ${hit.entry.decision === 'deny' ? '硬拒（用户主权，任何面不可翻转）' : '免问放行（advisory）'}`,
     );
     lines.push(renderEntry(hit.entry, hit.index));
   }
@@ -299,7 +299,7 @@ function runPreset(name: string, deps: ApprovalCommandDeps): ApprovalCommandOutc
     const badPath = load.unhealthyPath ?? join(deps.dataDir, TOOL_POLICY_BASENAME);
     return {
       ok: false,
-      text: `策略表文件级坏形（${badPath}）——preset 全拒（防部分完成：不写 settings.json 亦不 append 条目）；手改修复后重试。`,
+      text: `策略表文件格式异常（${badPath}）——preset 整体拒绝（防改到一半：settings.json 未写、条目也未追加）；修复该文件后重试。`,
     };
   }
   // 两旋钮合并写（保留未知键——用户手编面不因预设切换损毁）
@@ -308,7 +308,7 @@ function runPreset(name: string, deps: ApprovalCommandDeps): ApprovalCommandOutc
     approvalPolicy: preset.approvalPolicy,
   });
   if (write === 'rejected') {
-    return { ok: false, text: 'settings.json 坏形期拒写——preset 全败（手改修复后重试）。' };
+    return { ok: false, text: 'settings.json 格式异常期间拒绝写入——preset 未完成（修复该文件后重试）。' };
   }
   // 建议集展开 append（写侧唯一正门——幂等去重；conservative/balanced 空集零写入）
   const drafts = presetSuggestedEntries(preset.name, deps.workspace());
@@ -319,7 +319,7 @@ function runPreset(name: string, deps: ApprovalCommandDeps): ApprovalCommandOutc
     if (result === 'rejected') {
       return {
         ok: false,
-        text: `条目追加被拒（策略表坏形期拒写）——settings.json 两键已写（${preset.sandboxMode}/${preset.approvalPolicy}）、条目追加 ${appended} 条后中止；手改修复 tool-policy.json 后重试补齐。`,
+        text: `条目追加被拒（策略表格式异常期间拒写）——settings.json 两键已写（${preset.sandboxMode}/${preset.approvalPolicy}）、已追加 ${appended} 条后中止；修复 tool-policy.json 后重试补齐。`,
       };
     }
   }
@@ -337,7 +337,7 @@ function runPreset(name: string, deps: ApprovalCommandDeps): ApprovalCommandOutc
   );
   lines.push('  切换不清不删既有条目（含从 open 切回——撤除建议条目归手删）；既有会话粘性与在身审批不受影响。');
   lines.push(
-    '生效时点（诚实）：sandbox 档与策略表均为启动时加载的副本——当前进程不变，下次启动/新装配生效；/approval entries 与 explain 立即读取文件，改动即时可见。',
+    '生效时点（诚实）：sandbox 模式与策略表均为启动时加载的副本——当前进程不变，下次启动或新会话时生效；/approval entries 与 explain 立即读取文件，改动即时可见。',
   );
   return { ok: true, text: lines.join('\n') };
 }

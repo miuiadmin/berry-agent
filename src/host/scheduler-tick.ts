@@ -195,7 +195,7 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
       warn(`[SCHEDULER_GOAL_MISSING] goal 挂钟行「${row.name}」在册而 core:goal 件未装载——配置漂移，本轮诚实拒`);
       return settledHandle(trigger, {
         reason: 'gated',
-        error: 'goal 件未装载——挂钟行配置漂移（wake 判定链不可用）',
+        error: 'goal 插件未安装——定时行配置漂移（wake 判定链不可用）',
       });
     }
     const decision = await goal.wake(goalId, {
@@ -217,7 +217,7 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
     if (park !== undefined && (await park(goalId))) {
       return settledHandle(trigger, {
         reason: 'gated',
-        error: `goal「${goalId}」唤醒落地而起跑前日池尽——预算停靠（挂钟停摆 + session/paused 落词，待 budget_extended 广播唤醒）`,
+        error: `goal「${goalId}」唤醒落地而起跑前日池尽——预算停靠（定时行停摆 + session/paused 落词，待 budget_extended 广播唤醒）`,
       });
     }
     // 落地：goal 绑定会话幂等开驱动后提交 promptSnapshot（与 run-entry tick 形同链）
@@ -243,7 +243,7 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
         return {
           trigger,
           reason: 'gated',
-          error: 'issue 件未装载——轮询处理器缺席（pollOnce 不可达）',
+          error: 'issue 插件未安装——轮询处理器缺席（pollOnce 不可达）',
           finishedAt: now(),
         } satisfies RunOutcome;
       }
@@ -280,7 +280,7 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
         return {
           trigger,
           reason: 'gated',
-          error: 'memory-review 编排入口未装载（v1 前瞻分派位）',
+          error: 'memory-review 编排入口不可用（v1 前瞻分派位）',
           finishedAt: now(),
         } satisfies RunOutcome;
       }
@@ -314,7 +314,7 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
       // 驱动缺席（open/create 与提交间被拆——理论不达防御，诚实失败）
       return settledHandle(trigger, {
         reason: 'spawn',
-        error: `会话 ${sessionId} 无驱动在册——提交序不可达`,
+        error: `会话 ${sessionId} 无可用驱动——提交序不可达`,
       });
     }
     return inflightHandle(sessionId, async () => {

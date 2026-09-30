@@ -415,8 +415,8 @@ describe('runSetupWizard 自定义渠道新建腿', () => {
 
   it('渠道 id 三坏形 → 重问当前步（R-3 翻裁——坏形不退出整向导；动态 hint 点名错因，二次好形通过）', async () => {
     for (const [badId, expectWord, secondId] of [
-      ['My_Relay', '坏形', 'my-relay'],
-      ['anthropic', '撞名', 'my-relay'],
+      ['My_Relay', '格式不对', 'my-relay'],
+      ['anthropic', '重名', 'my-relay'],
       ['existing-gw', '已存在', 'my-relay'],
     ] as const) {
       const { prompter, recorded } = makePrompter({
@@ -638,7 +638,7 @@ describe('删除腿三联动与回执诚实化（R-1 评审修复役——修前
     await runSetupWizard(deps);
     expect(log.savedBindings).toEqual([]); // 零写
     const outro = recorded.outros.at(-1)!;
-    expect(outro.lines.join('\n')).toContain('内置渠道撞名');
+    expect(outro.lines.join('\n')).toContain('内置渠道重名');
     expect(outro.lines.join('\n')).toContain('settings.json'); // 指路手编清除
   });
 

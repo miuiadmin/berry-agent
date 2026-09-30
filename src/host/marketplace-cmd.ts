@@ -132,7 +132,7 @@ function runRemove(name: string, options: MarketplaceEntryOptions): number {
   const fs = createMarketFs();
   const read = readMarketplaceSources(dataDir, fs);
   if (!read.ok) {
-    writeErr(`源清单文件坏形，拒改：${read.message}`);
+    writeErr(`源清单文件格式异常，已拒绝修改：${read.message}`);
     return 1;
   }
   let next: ReturnType<typeof removeSourceRecord>;
@@ -168,7 +168,7 @@ async function runList(options: MarketplaceEntryOptions): Promise<number> {
   const fs = createMarketFs();
   const read = readMarketplaceSources(dataDir, fs);
   if (!read.ok) {
-    writeErr(`源清单文件坏形：${read.message}`);
+    writeErr(`源清单文件格式异常：${read.message}`);
     return 1;
   }
   if (read.sources.length === 0) {
@@ -228,7 +228,7 @@ async function runDiscover(name: string | undefined, options: MarketplaceEntryOp
       writeOut('零市场源——添加走 berry marketplace add <源（本地路径 / git 短手 / URL）>');
       return 0;
     }
-    writeOut(`市场 "${name}" 不在源清单——在册清单见 berry marketplace list`);
+    writeOut(`市场 "${name}" 不在源清单——已添加的源见 berry marketplace list`);
     return 0;
   }
   const lines: string[] = ['市场条目（寻址形 name@market）：'];
@@ -325,7 +325,7 @@ async function runInstall(id: string, options: MarketplaceEntryOptions): Promise
     // 执行）。换血 id 漂移随迁形（enabledCarried——§9.6 定形）例外：启用行已随
     // 换代迁移，指 mount 会撞名拒——不再指路（回执尾行已呈随迁注记）
     if (outcome.enabledCarried !== true) {
-      writeOut(`装机 ≠ 启用——启用第二步：berry plugins mount ${outcome.entry.id}（mount 后下次启动装载生效）`);
+      writeOut(`安装 ≠ 启用——启用第二步：berry plugins mount ${outcome.entry.id}（mount 后下次启动生效）`);
     }
     return 0;
   } finally {
@@ -359,7 +359,7 @@ async function runUninstall(
   const dataDir = options.dataDir ?? resolveDataDir();
   const ledgerRead = readLedger(dataDir, createPluginStoreFs());
   if (!ledgerRead.ok) {
-    writeErr(`装机账本损坏：${ledgerRead.reason}——拒猜`);
+    writeErr(`安装记录损坏：${ledgerRead.reason}——为避免误判已停止`);
     return 1;
   }
   const resolved = resolveMarketLedgerId(ledgerRead.entries, addr);
@@ -421,7 +421,7 @@ async function runUpdate(name: string | undefined, options: MarketplaceEntryOpti
     return 1;
   }
   if (result.missingName !== null) {
-    writeErr(`市场 "${result.missingName}" 不在源清单——在册清单见 berry marketplace list`);
+    writeErr(`市场 "${result.missingName}" 不在源清单——已添加的源见 berry marketplace list`);
     return 1;
   }
   if (result.outcomes.length === 0) {
@@ -457,7 +457,7 @@ async function runUpgrade(id: string | undefined, options: MarketplaceEntryOptio
   const dataDir = options.dataDir ?? resolveDataDir();
   const ledgerRead = readLedger(dataDir, createPluginStoreFs());
   if (!ledgerRead.ok) {
-    writeErr(`装机账本损坏：${ledgerRead.reason}——拒猜`);
+    writeErr(`安装记录损坏：${ledgerRead.reason}——为避免误判已停止`);
     return 1;
   }
   const audit = marketAuditOf(options, writeErr);
@@ -491,7 +491,7 @@ async function runUpgrade(id: string | undefined, options: MarketplaceEntryOptio
       writeErr(`warn：市场刷新失败（${sanitizeLine(note)}）——按既有缓存对拍`);
     }
     if (result.outcomes.length === 0) {
-      writeOut('零市场装机物——装机走 berry marketplace install <name@market>');
+      writeOut('市场暂无可用插件——安装走 berry marketplace install <name@market>');
       return 0;
     }
     const lines: string[] = [];
@@ -508,7 +508,7 @@ async function runUpgrade(id: string | undefined, options: MarketplaceEntryOptio
         // 与随迁（否则回执只报旧 id，用户以为没漂）；两 id 同为外源串同律消毒
         const drift =
           outcome.idDrift !== undefined
-            ? `（id 漂移：${sanitizeLine(outcome.idDrift.from)} → ${sanitizeLine(outcome.idDrift.to)}——启用行已随换代迁移，下次启动装载生效）`
+            ? `（id 漂移：${sanitizeLine(outcome.idDrift.from)} → ${sanitizeLine(outcome.idDrift.to)}——启用行已随换代迁移，下次启动生效）`
             : '';
         lines.push(`  已升级：${outcome.id}${versions}${drift}`);
       } else if (outcome.status === 'current') {

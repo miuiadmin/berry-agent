@@ -201,7 +201,7 @@ describe('core: 装载与 Kahn provide（03 §1.3/§2.2 表行）', () => {
       },
     };
     await expect(bootPlugins(rigBoot('/data', { corePlugins: [bad], fs: memoryFs() }).options)).rejects.toThrow(
-      'core: 官方件装载失败拒启',
+      'core: 官方插件挂载失败拒启',
     );
   });
 });
@@ -282,14 +282,14 @@ describe('装机账本读侧（03 §5.4——warn 降级与 installPath 解析�
     const boot = await bootPlugins(options);
     expect(boot.report.failed).toHaveLength(1);
     expect(boot.report.failed[0]!.id).toBe('acme');
-    expect(boot.report.failed[0]!.message).toContain('装机账本无此 id');
+    expect(boot.report.failed[0]!.message).toContain('安装记录无此 id');
     // 记账面：boot-failures.json 落失败行（obs-a——含 lastError 错误文本与
     // lastFailedAt 时点；合成失败行同批扩形）
     const failures = readBootFailures('/data/boot-failures.json', { read: fs.read, write: fs.write });
     expect(failures.failures['acme']).toEqual({
       version: '',
       count: 1,
-      lastError: expect.stringContaining('装机账本无此 id'),
+      lastError: expect.stringContaining('安装记录无此 id'),
       lastFailedAt: expect.any(String),
     });
   });
@@ -1287,7 +1287,7 @@ describe('registerUiBackend 全链 e2e（U3 批 U3-6——opens→门检→注�
     const boot = await bootPlugins(options);
     expect(boot.report.failed).toHaveLength(1);
     expect(boot.report.failed[0]!.code).toBe('PLUGIN_APPLY_FAILED');
-    expect(boot.report.failed[0]!.message).toContain('宿主域'); // 分域律指路（换 id 注册）
+    expect(boot.report.failed[0]!.message).toContain('宿主保留的后端'); // 分域律指路（换 id 注册）
     // 插件域零注册；宿主域后端原位（顶替拒的对称面）
     expect(channels.listPluginBackendIds()).toEqual([]);
     expect(face.listRecent().some((r) => r.type === 'capability/used')).toBe(false); // 受理败不记使用

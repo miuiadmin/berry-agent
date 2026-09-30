@@ -762,7 +762,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
                     if (generationDead) {
                       throw new BaseError(
                         'PLUGIN_WINDOW_CLOSED',
-                        `oauth 流开窗被拒：插件 ${pluginId} 所属装载代已卸载/已换代（03 §10.9——域已死即窗恒闭）`,
+                        `oauth 流开窗被拒：插件 ${pluginId} 所属加载代已卸载/已换代（03 §10.9——域已死即窗恒闭）`,
                       );
                     }
                     return handle.enterHostCallback();
@@ -875,7 +875,7 @@ export async function bootPlugins(options: PluginBootOptions): Promise<PluginBoo
               if (generationDead) {
                 throw new BaseError(
                   'PLUGIN_WINDOW_CLOSED',
-                  `官方件宿主面开窗被拒：插件 ${pluginId} 所属装载代已卸载/已换代（03 §10.1——域已死即窗恒闭，防 owner 归已死代的幽灵注册行）`,
+                  `官方件宿主面开窗被拒：插件 ${pluginId} 所属加载代已卸载/已换代（03 §10.1——域已死即窗恒闭，防 owner 归已死代的幽灵注册行）`,
                 );
               }
               return handle.enterHostCallback();
@@ -1335,7 +1335,7 @@ function resolveQuickTestRow(pluginFile: string, plan: readonly LoaderPlanRow[],
     }
     const parsed = parseManifest(pkg, { official: false });
     if (!parsed.ok) {
-      throw new BaseError('PLUGIN_ROW_INVALID', `--plugin-file 试件清单坏形（${abs}）：${parsed.message}`);
+      throw new BaseError('PLUGIN_ROW_INVALID', `--plugin-file 插件清单格式不对（${abs}）：${parsed.message}`);
     }
     const manifest = parsed.manifest;
     const takenIds = new Set<string>([
@@ -1345,7 +1345,7 @@ function resolveQuickTestRow(pluginFile: string, plan: readonly LoaderPlanRow[],
     if (takenIds.has(manifest.id)) {
       throw new BaseError(
         'PLUGIN_ROW_INVALID',
-        `--plugin-file 试件撞名：清单声明 id "${manifest.id}" 撞已装/内置插件（装载计划在场同 id）——改 package.json 的 name/berryAgent.id 后重试（冒名顶替拒启）`,
+        `--plugin-file 插件重名：清单声明 id "${manifest.id}" 与已安装或内置插件重名（加载计划中已有同 id）——请修改 package.json 的 name/berryAgent.id 后重试`,
       );
     }
     return { kind: 'disk', id: QUICK_TEST_ROW_ID, manifest, pluginDir: abs };
@@ -1389,7 +1389,7 @@ function resolveDiskRow(
       failure: {
         id: row.id,
         code: 'PLUGIN_LOAD_FAILED',
-        message: 'memory 形无装机账本——用户磁盘行不可解析（:memory: 诊断同构只装 core:）',
+        message: 'memory 形无安装记录——用户磁盘行不可解析（:memory: 诊断同构只装 core:）',
       },
     };
   }
@@ -1399,7 +1399,7 @@ function resolveDiskRow(
       failure: {
         id: row.id,
         code: 'PLUGIN_LOAD_FAILED',
-        message: '装机账本无此 id——先 install 再启用，或从启用清单移除该行',
+        message: '安装记录无此 id——先 install 再启用，或从启用清单移除该行',
       },
     };
   }
@@ -1409,7 +1409,7 @@ function resolveDiskRow(
       failure: {
         id: row.id,
         code: 'PLUGIN_LOAD_FAILED',
-        message: '装机账本条目缺归一路径 installPath——账本坏形，重装修机可重建',
+        message: '安装记录缺少路径 installPath——记录格式异常，重新安装可修复',
       },
     };
   }
@@ -1421,7 +1421,7 @@ function resolveDiskRow(
       failure: {
         id: row.id,
         code: 'PLUGIN_LOAD_FAILED',
-        message: `装机目录不可读（${pluginDir} 无 package.json）——重装可修复`,
+        message: `安装目录不可读（${pluginDir} 无 package.json）——重装可修复`,
       },
     };
   }
@@ -1433,7 +1433,7 @@ function resolveDiskRow(
       failure: {
         id: row.id,
         code: 'PLUGIN_LOAD_FAILED',
-        message: `装机目录 package.json 坏 JSON（${pluginDir}）：${err instanceof Error ? err.message : String(err)}`,
+        message: `安装目录 package.json 格式异常（${pluginDir}）：${err instanceof Error ? err.message : String(err)}`,
       },
     };
   }

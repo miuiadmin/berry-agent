@@ -617,7 +617,7 @@ describe('upgrade 服务面——catalog 对拍 + 换装分派', () => {
     // ref 注入拒：npm 包名 '..' 段注入形——翻译拒
     const inject = byId.get('inject-pkg');
     expect(inject?.status).toBe('failed');
-    if (inject?.status === 'failed') expect(inject.message).toContain('npm 包名坏词法');
+    if (inject?.status === 'failed') expect(inject.message).toContain('npm 包名格式不对');
   });
 
   it('单件点名 = force 换血重装（版本未变也重装——「拉最新」唯经 upgrade）', async () => {
@@ -655,7 +655,7 @@ describe('upgrade 服务面——catalog 对拍 + 换装分派', () => {
       upgradeDepsOf(dataDir, spawn, noFetch, ledgerOf(dataDir)),
       'ghost-entry@official',
     );
-    expect(notInstalled.rejected).toContain('无装机条目');
+    expect(notInstalled.rejected).toContain('无已安装条目');
   });
 
   it('24h TTL 惰性门控：鲜缓存零网络、过龄才回源刷新', async () => {
@@ -1050,7 +1050,7 @@ describe('mp 收尾批修复批——update 面回归锁', () => {
     );
     // 坏账本拒写——failed 而非「已是最新」静默落空账本
     expect(outcome.status).toBe('failed');
-    if (outcome.status === 'failed') expect(outcome.message).toContain('坏形');
+    if (outcome.status === 'failed') expect(outcome.message).toContain('格式异常');
     // 坏账本原样保留——未被 {version:1,marketplaces:[]} 覆盖（其余源记录不抹除）
     expect(fs.read('/data/marketplaces.json')).toBe('{corrupted');
   });

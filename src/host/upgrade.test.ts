@@ -192,7 +192,7 @@ describe('fetchDistTags（只读 GET——零外传 + 帽两件）', () => {
       fetchImpl: fakeFetch(() => ({ status: 503 })),
       resolveDns: publicDns,
     });
-    expect(result).toEqual({ kind: 'failed', message: 'registry 应答 503' });
+    expect(result).toEqual({ kind: 'failed', message: 'registry 返回 503' });
   });
 
   it('latest 键缺席/非串 → failed（registry 响应不可信）', async () => {
@@ -602,7 +602,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
     const { deps, err, installCalls } = cliDeps({ fetchImpl: evil, resolveDns: publicDns });
     const code = await runUpgradeCommand(deps);
     expect(code).toBe(1);
-    expect(err.join('\n')).toContain('拒执行装机');
+    expect(err.join('\n')).toContain('格式异常');
     expect(installCalls).toHaveLength(0);
   });
 
@@ -626,7 +626,7 @@ describe('runUpgradeCommand（§8.5 第 1 条三态——CLI 维护动词）', (
     const { deps, err } = cliDeps({ runInstall: async () => false });
     const code = await runUpgradeCommand(deps);
     expect(code).toBe(1);
-    expect(err.join('\n')).toContain('装机失败');
+    expect(err.join('\n')).toContain('升级失败');
   });
 
   it('成功查后写回缓存（主动查强制刷新语义）', async () => {

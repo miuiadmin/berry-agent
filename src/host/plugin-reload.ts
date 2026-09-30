@@ -113,7 +113,7 @@ export function createPluginReloader(options: PluginReloadOptions): PluginReload
       options.preflight();
     } catch (err) {
       options.report(
-        `重载已拒（启用清单校验失败——旧装载态继续运行）：${err instanceof Error ? err.message : String(err)}`,
+        `重载已拒（启用清单校验失败——旧挂载态继续运行）：${err instanceof Error ? err.message : String(err)}`,
       );
       return;
     }
@@ -151,7 +151,7 @@ export function createPluginReloader(options: PluginReloadOptions): PluginReload
       options.report(lines.join('\n'));
     } catch (err) {
       options.report(
-        `重载失败（旧装载面已回卷、新代未立）：${err instanceof Error ? err.message : String(err)}——修复后可再 /reload；仍失败可用 --no-plugins 启动排查`,
+        `重载失败（旧挂载面已回卷、新代未立）：${err instanceof Error ? err.message : String(err)}——修复后可再 /reload；仍失败可用 --no-plugins 启动排查`,
       );
     }
   };
@@ -177,7 +177,7 @@ export function createPluginReloader(options: PluginReloadOptions): PluginReload
     request: () => {
       if (options.isBusy()) {
         // busy 期并槽 coalesce——连发只跑最后态（读盘为准，单槽即完备）
-        if (!pending) options.report('会话运行中——/reload 已排队，本轮收场后执行');
+        if (!pending) options.report('会话运行中——/reload 已排队，当前回复结束后执行');
         pending = true;
         return;
       }

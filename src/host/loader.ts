@@ -266,7 +266,7 @@ export class CorePluginBootError extends BaseError {
     readonly failure: FailedPlugin,
     options?: { cause?: unknown },
   ) {
-    super(failure.code, `core: 官方件装载失败拒启（${failure.id}）：${failure.message}`, options);
+    super(failure.code, `core: 官方插件挂载失败拒启（${failure.id}）：${failure.message}`, options);
   }
 }
 
@@ -568,7 +568,7 @@ function mapJitiError(pluginId: string, err: unknown): BaseError {
       cause: err,
     });
   }
-  return new BaseError('PLUGIN_LOAD_FAILED', `jiti 装载失败（插件 ${pluginId}）：${message}`, { cause: err });
+  return new BaseError('PLUGIN_LOAD_FAILED', `jiti 挂载失败（插件 ${pluginId}）：${message}`, { cause: err });
 }
 
 /** apply 三态包装：时钟帽 + disposer 收栈 + 错误归一 PLUGIN_APPLY_FAILED */
@@ -599,7 +599,7 @@ async function invokeApply(
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new BaseError('PLUGIN_APPLY_FAILED', `apply 抛错/超时（插件 ${id}，帽 ${applyBudgetMs}ms）：${message}`, {
+    throw new BaseError('PLUGIN_APPLY_FAILED', `apply 抛错/超时（插件 ${id}，上限 ${applyBudgetMs}ms）：${message}`, {
       cause: err,
     });
   }

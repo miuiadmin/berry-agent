@@ -204,7 +204,7 @@ export function createMarketFetchFace(options: MarketFetchOptions = {}): MarketF
           }
         }
         throw new Error(
-          `git 源 catalog 缺席（候选读序 ${CATALOG_RELATIVE_PATHS.join(' → ')} 全不在场，末查 ${missReason}）`,
+          `git 源没有 catalog 文件（候选路径 ${CATALOG_RELATIVE_PATHS.join(' → ')} 均不存在，最后查找 ${missReason}）`,
         );
       } catch (error) {
         // 失败位 tmp 自清——清场归调用方的契约只在成功返回后生效

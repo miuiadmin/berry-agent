@@ -223,7 +223,7 @@ describe('min-release-age 三级解析', () => {
 
   it('env 坏形 fail-loud（非数字/负数/小数——当场红优于静默降级）', () => {
     for (const bad of ['x', '-5', '1.5']) {
-      expect(() => resolveMinReleaseAge({ env: { [MIN_RELEASE_AGE_ENV]: bad } })).toThrowError(/坏形/);
+      expect(() => resolveMinReleaseAge({ env: { [MIN_RELEASE_AGE_ENV]: bad } })).toThrowError(/格式不对/);
     }
     // ' 60' 经 Number 归一合法（前后空白剥离）——非坏形面
     expect(resolveMinReleaseAge({ env: { [MIN_RELEASE_AGE_ENV]: ' 60' } })).toBe(60);
@@ -309,7 +309,7 @@ describe('npm 执行器编舞（假 spawn——argv 与落账可测，零真网�
     const again = await installPlugin(depsOf(dataDir, rec.spawn), 'npm:dup-pkg');
     expect(again.ok).toBe(false);
     if (again.ok) return;
-    expect(again.message).toContain('已装机');
+    expect(again.message).toContain('已安装');
     expect(again.message).toContain('update');
     // core: 前缀：清单 id 带官方前缀 → 拒 + 回滚（node_modules 目录被 rm）
     const recCore = npmFakeSpawn(dataDir, {
@@ -435,7 +435,7 @@ describe('local 源与收割真跑（本地 fixture 零网络）', () => {
     const outcome = await installPlugin(depsOf(dataDir, noopSpawn), `local:${src}`);
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
-    expect(outcome.message).toContain('词表账本容不得坏形');
+    expect(outcome.message).toContain('事件词表不容格式异常');
     expect(existsSync(join(src, 'index.js'))).toBe(true); // local 直引永不删
     expect(entriesOf(dataDir).some((e) => e.id === 'badev-pkg')).toBe(false); // 坏形不落账
   });
@@ -454,7 +454,7 @@ describe('local 源与收割真跑（本地 fixture 零网络）', () => {
     const r2 = await installPlugin(depsOf(dataDir, noopSpawn), `local:${empty}`);
     expect(r2.ok).toBe(false);
     if (r2.ok) return;
-    expect(r2.message).toContain('装机目录无 package.json');
+    expect(r2.message).toContain('安装目录无 package.json');
   });
 
   it('自带 node_modules 裸说明符收割可达（装机腿与装载器同律——修前红：harvest 门禁未接 resolveBare 恒拒）', async () => {
@@ -495,7 +495,7 @@ describe('update 分派（§5.4 按源）', () => {
     const missing = await updatePlugin(depsOf(dataDir, noopSpawn), 'ghost-pkg');
     expect(missing.ok).toBe(false);
     if (missing.ok) return;
-    expect(missing.message).toContain('未装机');
+    expect(missing.message).toContain('未安装');
   });
 
   it('npm 重装：换装豁免（旧条目在场不构成撞名）+ 新版本/integrity 落账 upsert 后见胜出', async () => {

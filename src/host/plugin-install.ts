@@ -148,7 +148,7 @@ export function parsePluginRef(ref: string): PluginRefParse {
     if (spec.length === 0) return { ok: false, message: 'local ref 缺路径（形如 local:/abs/path/to/plugin）' };
     return { ok: true, parsed: { source: 'local', path: spec } };
   }
-  return { ok: false, message: `ref 须自含源前缀 npm:/git:/local:（得 "${ref}"）——与装机账本 ref 字段同形` };
+  return { ok: false, message: `ref 须自含源前缀 npm:/git:/local:（得 "${ref}"）——与安装记录 ref 字段同形` };
 }
 
 /* ---------------- min-release-age 配置解析（§5.4 供应链③） ---------------- */
@@ -175,7 +175,7 @@ export function resolveMinReleaseAge(input: {
     if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
       throw new BaseError(
         'PLUGIN_INSTALL_FAILED',
-        `${MIN_RELEASE_AGE_ENV}="${raw}" 坏形——须为非负整数分钟数（0 = 显式关窗）`,
+        `${MIN_RELEASE_AGE_ENV}="${raw}" 格式不对——须为非负整数分钟数（0 = 显式关闭该限制）`,
       );
     }
     return n;
@@ -296,7 +296,7 @@ export async function installPlugin(
   if (opts.market !== undefined && !isValidMarketProvenance(opts.market)) {
     return {
       ok: false,
-      message: `market 注记坏词法（name="${opts.market.name}" entry="${opts.market.entry}"）——名段须小写字母数字连字符点、首尾字母数字、≤64 字符`,
+      message: `market 注记格式不对（name="${opts.market.name}" entry="${opts.market.entry}"）——名段须小写字母数字连字符点、首尾字母数字、≤64 字符`,
     };
   }
   // 账本前置读（坏账本拒写防覆盖——与 upsertLedgerEntry 内防线双检）
@@ -304,7 +304,7 @@ export async function installPlugin(
   if (!ledgerRead.ok) {
     return {
       ok: false,
-      message: `装机账本损坏（${ledgerPath(deps.dataDir)}）：${ledgerRead.reason}——拒写防覆盖`,
+      message: `安装记录损坏（${ledgerPath(deps.dataDir)}）：${ledgerRead.reason}——拒写防覆盖`,
     };
   }
   // 市场换血豁免（§9.6 mp-3）：同 provenance（market.name + market.entry）旧条
@@ -356,13 +356,13 @@ export async function installPlugin(
   const manifest = product.manifest.manifest;
   if (manifest.id.startsWith('core:')) {
     rollbackInstall(deps, product.installPath);
-    return { ok: false, message: `清单 id "${manifest.id}" 带官方前缀——core: 为官方插件保留，装机拒` };
+    return { ok: false, message: `清单 id "${manifest.id}" 带官方前缀——core: 为官方插件保留，安装拒` };
   }
   if (ledgerRead.entries.some((e) => e.id === manifest.id && e.id !== replacingId)) {
     rollbackInstall(deps, product.installPath);
     return {
       ok: false,
-      message: `插件 ${manifest.id} 已装机（源 ${ledgerRead.entries.find((e) => e.id === manifest.id)!.source}）——换版本走 update，先卸走 uninstall`,
+      message: `插件 ${manifest.id} 已安装（源 ${ledgerRead.entries.find((e) => e.id === manifest.id)!.source}）——换版本走 update，先卸走 uninstall`,
     };
   }
   // 收割（§5.4 词表账本——装机零生效唯一例外：仅模块求值读 events 导出）
@@ -378,7 +378,7 @@ export async function installPlugin(
     rollbackInstall(deps, product.installPath);
     return {
       ok: false,
-      message: `收割失败（${ref}）——装机回滚：${err instanceof Error ? err.message : String(err)}`,
+      message: `收割失败（${ref}）——安装回滚：${err instanceof Error ? err.message : String(err)}`,
     };
   }
   // 落账（条目数组形原子写——plugin-store 执法）；market 溯源在场即落
@@ -447,7 +447,7 @@ export async function installPlugin(
       }
     } catch (err) {
       // 账本已成功——收尾失败只注记不翻转成败（残项由重装/卸装收敛，装机事实为准）
-      cleanupNote = `；警告：换血收尾失败（${err instanceof Error ? err.message : String(err)}）——装机已成功落账，收尾残项经重装收敛`;
+      cleanupNote = `；警告：换血收尾失败（${err instanceof Error ? err.message : String(err)}）——安装已成功记录，收尾残项经重装收敛`;
     }
   }
   // 生命周期归因账（05 §1.1）：装机成功事实落 audit_events——词形
@@ -463,12 +463,12 @@ export async function installPlugin(
   // 回执尾行随迁分形（§9.6 mp 收尾批定形）：随迁发生 = 启用态跨换代连续——
   // 尾行呈换代注记（指路 mount 会撞名拒，不再指）；未随迁 = 通用两步制尾行
   const tail = enabledCarried
-    ? `——换血换代：${carriedFromId} → ${manifest.id}，启用行已随换代迁移（下次启动装载生效）`
-    : '——装机零生效，启用走 mount（下次启动装载生效）';
+    ? `——换血换代：${carriedFromId} → ${manifest.id}，启用行已随换代迁移（下次启动生效）`
+    : '——安装零生效，启用走 mount（下次启动生效）';
   return {
     ok: true,
     entry,
-    text: `已装机：${manifest.id}（源 ${parsed.parsed.source}，${product.installPath}）${tail}${rowMigrateNote}${cleanupNote}`,
+    text: `已安装：${manifest.id}（源 ${parsed.parsed.source}，${product.installPath}）${tail}${rowMigrateNote}${cleanupNote}`,
     ...(enabledCarried ? { enabledCarried: true } : {}),
   };
 }
@@ -731,7 +731,7 @@ function runLocalInstall(deps: InstallExecutorDeps, parsed: { readonly path: str
   } catch (err) {
     throw new BaseError(
       'PLUGIN_INSTALL_FAILED',
-      `local 路径坏形（${parsed.path}）：${err instanceof Error ? err.message : String(err)}`,
+      `local 路径格式不对（${parsed.path}）：${err instanceof Error ? err.message : String(err)}`,
       {
         cause: err,
       },
@@ -831,7 +831,7 @@ async function runSubdirCopyInstall(
   if (folded === null) {
     throw new BaseError(
       'PLUGIN_INSTALL_FAILED',
-      `拷贝腿 subpath 逃逸拒（"${subdirCopy.subpath}"）——'..' 段出装机源目录（§9.6 防线表）`,
+      `拷贝腿 subpath 逃逸拒（"${subdirCopy.subpath}"）——'..' 段出安装源目录（§9.6 防线表）`,
     );
   }
   // 布局段（名段词法已在 installPlugin 前置复验——此处仅拼接）
@@ -931,7 +931,7 @@ function readManifestAt(deps: InstallExecutorDeps, installPath: string): ReturnT
     return {
       ok: false,
       code: 'PLUGIN_SHAPE_INVALID',
-      message: `装机目录无 package.json（${pluginDir}）——三源执行产物异常`,
+      message: `安装目录无 package.json（${pluginDir}）——三源执行产物异常`,
     };
   }
   try {
@@ -992,7 +992,7 @@ async function harvestEvents(
   if (!Array.isArray(events) || events.some((e) => typeof e !== 'string' || e.length === 0)) {
     throw new BaseError(
       'PLUGIN_SHAPE_INVALID',
-      `入口 events 导出须字符串数组（插件 ${manifest.id}）——词表账本容不得坏形`,
+      `入口 events 导出须为字符串数组（插件 ${manifest.id}）——事件词表不容格式异常`,
     );
   }
   return events as readonly string[];
@@ -1045,9 +1045,9 @@ function restoreStagedTree(deps: InstallExecutorDeps, target: string, backup: st
     deps.fs.rm(target, { recursive: true, force: true }); // 新装残影清（rollbackInstall 多数路径已清——幂等）
     deps.fs.rename(join(backup, 'tree'), target); // 旧树归位
     deps.fs.rm(backup, { recursive: true, force: true }); // 备份空壳清
-    return '——旧版装机树已回迁原位（更新失败，旧版继续可用）';
+    return '——旧版安装树已回迁原位（更新失败，旧版继续可用）';
   } catch (err) {
-    return `——警告：旧版装机树回迁失败（${err instanceof Error ? err.message : String(err)}）——重试 update 或卸载重装`;
+    return `——警告：旧版安装树回迁失败（${err instanceof Error ? err.message : String(err)}）——重试 update 或卸载重装`;
   }
 }
 
@@ -1062,11 +1062,11 @@ function restoreStagedTree(deps: InstallExecutorDeps, target: string, backup: st
 export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promise<InstallOutcome> {
   const ledgerRead = readLedger(deps.dataDir, deps.fs);
   if (!ledgerRead.ok) {
-    return { ok: false, message: `装机账本损坏：${ledgerRead.reason}——拒写防覆盖` };
+    return { ok: false, message: `安装记录损坏：${ledgerRead.reason}——拒写防覆盖` };
   }
   const current = ledgerRead.entries.find((e) => e.id === id);
   if (current === undefined) {
-    return { ok: false, message: `插件 ${id} 未装机——无可更新（装机清单见 plugins list）` };
+    return { ok: false, message: `插件 ${id} 未安装——无可更新（已安装列表见 plugins list）` };
   }
   if (current.source === 'local') {
     // 市场拷贝腿装机物（§9.6 mp-3 B2）：非直引——「源动即生效」文案不适用，
@@ -1075,19 +1075,19 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
       return {
         ok: true,
         entry: current,
-        text: `市场拷贝腿装机物不走 local 直引 no-op——换血重装：berry marketplace install ${current.market.entry}@${current.market.name}`,
+        text: `市场安装的文件不走 local 直引 no-op——需更新时重新安装：berry marketplace install ${current.market.entry}@${current.market.name}`,
       };
     }
-    return { ok: true, entry: current, text: `local 源直引不拷贝——源目录变更下次装载即生效（no-op 分派）` };
+    return { ok: true, entry: current, text: `local 源直引不拷贝——源目录变更后重新加载即生效（no-op 分派）` };
   }
   // local 之外的 ref 重解析（账本 ref 与 CLI 同词法——单源往返）
   const parsed = parsePluginRef(current.ref);
   if (!parsed.ok) {
-    return { ok: false, message: `账本 ref 坏形（${current.ref}）：${parsed.message}——重装可重建` };
+    return { ok: false, message: `安装记录 ref 格式异常（${current.ref}）：${parsed.message}——重新安装可修复` };
   }
   if (parsed.parsed.source === 'local') {
     // 病理态保底（local 已在上方 no-op 返回——账本 source 与 ref 前缀不一致）
-    return { ok: false, message: `账本 source 与 ref 前缀不一致（${current.ref}）——重装可重建` };
+    return { ok: false, message: `安装记录 source 与 ref 前缀不一致（${current.ref}）——重新安装可修复` };
   }
   if (parsed.parsed.source === 'npm') {
     // 重装：旧装机树 rename 备份走位后再装（spec 无版本 = 拉最新满足窗龄；
@@ -1129,7 +1129,7 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
       removeLedgerEntry(rest.dataDir, outcome.entry.id, rest.fs); // 撤新账（installPlugin 已落）
       return {
         ok: false,
-        message: `更新后清单 id 变更（${id} → ${outcome.entry.id}）——装机身份漂移拒（卸后重装走两步）${restoreStagedTree(rest, target, backup)}`,
+        message: `更新后清单 id 变更（${id} → ${outcome.entry.id}）——安装身份漂移拒（卸后重装走两步）${restoreStagedTree(rest, target, backup)}`,
       };
     } else if (backup !== undefined) {
       // 装成功——备份位清场（清场失败不吞装机成功：新树已落位落账，点前缀
@@ -1163,7 +1163,7 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
   if (current.market !== undefined && isMarketLayoutPath(current.installPath)) {
     return {
       ok: false,
-      message: `插件 ${id} 是市场拷贝腿装机物——拷贝参数不入账本，plugins update 不可复算重拷；重装走 berry marketplace install ${current.market.entry}@${current.market.name}`,
+      message: `插件 ${id} 是市场拷贝安装的插件——拷贝参数不入安装记录，plugins update 不可复算重拷；重装走 berry marketplace install ${current.market.entry}@${current.market.name}`,
     };
   }
   // 目标位前置推导（staging 锚）：坏 url 保底拒——修前经 runGitInstall 内
@@ -1201,7 +1201,7 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     rollbackInstall(deps, product.installPath);
     return {
       ok: false,
-      message: `更新后清单 id 变更（${id} → ${manifest.id}）——装机身份漂移拒（卸后重装走两步）${restoreStagedTree(deps, gitTarget, backup)}`,
+      message: `更新后清单 id 变更（${id} → ${manifest.id}）——安装身份漂移拒（卸后重装走两步）${restoreStagedTree(deps, gitTarget, backup)}`,
     };
   }
   let declaredEvents: readonly string[];
@@ -1216,7 +1216,7 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
     rollbackInstall(deps, product.installPath);
     return {
       ok: false,
-      message: `更新收割失败（${id}）——装机回滚：${err instanceof Error ? err.message : String(err)}${restoreStagedTree(deps, gitTarget, backup)}`,
+      message: `更新收割失败（${id}）——安装回滚：${err instanceof Error ? err.message : String(err)}${restoreStagedTree(deps, gitTarget, backup)}`,
     };
   }
   // 成功腿备份清场（npm 腿同律——清场失败不吞更新成功，点前缀残影由下次
@@ -1249,6 +1249,6 @@ export async function updatePlugin(deps: InstallExecutorDeps, id: string): Promi
   return {
     ok: true,
     entry,
-    text: `已更新：${id}（源 git，commit ${product.commit?.slice(0, 7) ?? '?'}）——下次启动装载生效`,
+    text: `已更新：${id}（源 git，commit ${product.commit?.slice(0, 7) ?? '?'}）——下次启动生效`,
   };
 }

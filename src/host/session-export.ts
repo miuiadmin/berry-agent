@@ -201,7 +201,7 @@ export async function runSessionExportCommand(
     // fail-loud 回执（既有错误码族——BaseError 码与人读原因直呈）
     const err = new BaseError(
       'SESSION_NOT_FOUND',
-      `会话不存在（${sessionId}）——用 /sessions 查在册 id；零事件新会话首条消息后才落库行`,
+      `会话不存在（${sessionId}）——用 /sessions 查现有 id；新会话发出首条消息后才会保存`,
     );
     return { ok: false, text: `${err.code}：${err.message}` };
   }

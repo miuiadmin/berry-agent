@@ -97,7 +97,7 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     expect(readdirSync(dir).filter((name) => name.endsWith('.db'))).toEqual([]);
   });
 
-  it('同构真读（核心回归锁）：enabled.yaml 磁盘行无账本 → failed 面见「装机账本无此 id」', async () => {
+  it('同构真读（核心回归锁）：enabled.yaml 磁盘行无账本 → failed 面见「安装记录无此 id」', async () => {
     const dir = tmpDir('dump-cfg-read-');
     // 真盘启用清单：用户磁盘行（非 core: 前缀）——纯 memory 形下此读侧缺席同义，
     // 诊断形必须真读（07 §5「禁侧门」：报告真实装载会走到的路）
@@ -113,7 +113,7 @@ describe('runDumpConfigEntry 同构诊断（07 §5 :memory: 纪律）', () => {
     const failedRow = doc.plugins.failed[0];
     if (failedRow === undefined) throw new Error('failed 行缺席');
     expect(failedRow.id).toBe('user-demo');
-    expect(failedRow.message).toContain('装机账本无此 id'); // 账本读侧真达（读真盘 ledger.json 缺席）
+    expect(failedRow.message).toContain('安装记录无此 id'); // 安装记录读侧真达（读真盘 ledger.json 缺失）
     // core 注册表非空（批 19a—19e——exec/web/skills/memory/subagent/scheduler/
     // mcp/browser/lsp/goal/checkpoint/sdk/webui/obs/issue 十五件 + c-3
     // credentials 增席十六件齐册）与

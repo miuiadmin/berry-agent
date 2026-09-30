@@ -203,7 +203,7 @@ describe('inspect（只读零副作用）', () => {
       if (!core.ok) expect(core.message).toContain('非 uninstall 对象');
       const missing = inspectUninstall(stage.deps, 'ghost');
       expect(missing.ok).toBe(false);
-      if (!missing.ok) expect(missing.message).toContain('未装机');
+      if (!missing.ok) expect(missing.message).toContain('未安装');
       // local 直引：物不删
       const localDir = join(testRoot, 'local-src');
       mkdirSync(localDir, { recursive: true });
@@ -262,7 +262,7 @@ describe('execute（四段清算）', () => {
       // 幂等重跑：查无拒（残迹收尾式——重跑不造错误面）
       const again = executeUninstall(stage.deps, 'demo', 'purge');
       expect(again.ok).toBe(false);
-      if (!again.ok) expect(again.message).toContain('未装机');
+      if (!again.ok) expect(again.message).toContain('未安装');
     } finally {
       await stage.close();
     }
@@ -315,7 +315,7 @@ describe('execute（四段清算）', () => {
       expect(outcome.ok).toBe(false);
       if (!outcome.ok) {
         expect(outcome.message).toContain('PLUGIN_UNINSTALL_REFUSED');
-        expect(outcome.message).toContain('逸出装机子树');
+        expect(outcome.message).toContain('不在插件安装目录');
       }
       // 收口后账本原样（拒删不改真相面）
       expect(stage.ledgerIds()).toContain('evil');
@@ -347,7 +347,7 @@ describe('装载史共现计数（03 §5.5 ④——h-4 有源化）', () => {
       });
       const outcome = inspectUninstall(stage.deps, 'demo');
       expect(outcome.ok && outcome.report.affectedSessionCounts).toEqual({ available: true, count: 1 });
-      expect(outcome.ok && outcome.text).toContain('装载过该插件的会话 1 个');
+      expect(outcome.ok && outcome.text).toContain('安装过该插件的会话 1 个');
       // execute 后世代行不随 uninstall 删（立题档裁决 4——已卸插件回执同源可考）
       const done = executeUninstall(stage.deps, 'demo');
       expect(done.ok).toBe(true);
@@ -586,7 +586,7 @@ describe('段② npm 锚依赖记录剥除（已卸包不得经锚记录被后�
       expect(outcome.ok).toBe(false);
       if (!outcome.ok) {
         expect(outcome.message).toContain('PLUGIN_UNINSTALL_REFUSED');
-        expect(outcome.message).toContain('坏 JSON');
+        expect(outcome.message).toContain('格式异常');
       }
       // 剥侧先行于删物：拒后装机物原样（修锚/删锚文件后重跑收敛）
       expect(existsSync(dir)).toBe(true);

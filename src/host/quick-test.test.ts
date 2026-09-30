@@ -186,7 +186,7 @@ describe('quick-test 八不变式（03 §7——测试先行，落码前必红�
       if (err instanceof BaseError) {
         expect(err.code).toBe('PLUGIN_ROW_INVALID');
         expect(err.message).toContain('acme-dup');
-        expect(err.message).toContain('撞名');
+        expect(err.message).toContain('重名');
         return;
       }
       throw err;

@@ -99,7 +99,7 @@ export async function proveLifecycleMatrix(options: MatrixOptions): Promise<Life
     } catch (err) {
       // 构造即红（缺清单/坏清单）——install 行收面，矩阵不整体炸
       rows.push({
-        row: 'install（装机 + pack 完整性）',
+        row: 'install（安装 + pack 完整性）',
         status: 'fail',
         detail: err instanceof Error ? err.message : String(err),
       });
@@ -108,10 +108,10 @@ export async function proveLifecycleMatrix(options: MatrixOptions): Promise<Life
     const h = harness;
 
     /* ---------------- install（必进） ---------------- */
-    await runRow('install（装机 + pack 完整性）', async () => {
+    await runRow('install（安装 + pack 完整性）', async () => {
       const outcome = await h.install();
-      if (!outcome.ok) throw new Error(`装机拒：${outcome.message}`);
-      if (outcome.id !== h.pluginId) throw new Error(`装机账本 id（${outcome.id}）≠ 清单 id（${h.pluginId}）`);
+      if (!outcome.ok) throw new Error(`安装拒：${outcome.message}`);
+      if (outcome.id !== h.pluginId) throw new Error(`安装记录 id（${outcome.id}）≠ 清单 id（${h.pluginId}）`);
       // default-export 陷阱正向探针（纯声明包 main 带 default export 函数 = 永不执行的死代码作者陷阱）
       const mainFile = resolvePackageMain(h.pluginDir, h.packageJson);
       if (h.manifest.entryPlan.kind === 'declared-payload' && mainFile !== null) {
@@ -137,13 +137,13 @@ export async function proveLifecycleMatrix(options: MatrixOptions): Promise<Life
       const missing = referenced.filter((ref) => !packed.includes(ref));
       if (missing.length > 0) {
         throw new Error(
-          `npm pack 产物缺插件引用文件（files 白名单漏收）：${missing.join('、')}——发布物将不含装载必需文件`,
+          `npm pack 产物缺插件引用文件（files 白名单漏收）：${missing.join('、')}——发布物将不含加载所需文件`,
         );
       }
     });
 
     /* ---------------- mount（必进） ---------------- */
-    await runRow('mount（真装载 activated + 注册账在场）', async () => {
+    await runRow('mount（真实挂载 activated + 注册账可用）', async () => {
       const mounted = h.mountRow();
       if (!mounted.ok) throw new Error(`启用行拒：${mounted.message}`);
       const boot = await h.boot();
@@ -152,14 +152,14 @@ export async function proveLifecycleMatrix(options: MatrixOptions): Promise<Life
         const failed = boot.report.failed.find((f) => f.id === h.pluginId);
         throw new Error(
           failed === undefined
-            ? `装载计划面缺席（activated/failed 皆无 ${h.pluginId}）`
-            : `装载失败（${failed.code}）：${failed.message}`,
+            ? `挂载计划面缺失（activated/failed 皆无 ${h.pluginId}）`
+            : `挂载失败（${failed.code}）：${failed.message}`,
         );
       }
       // 注册账在场（作者声明面）：命令名净计数 ≥ 1
       for (const name of expectCommands) {
         const count = h.commands.counts().get(name) ?? 0;
-        if (count < 1) throw new Error(`期望命令 /${name} 未注册（注册账缺席）`);
+        if (count < 1) throw new Error(`期望命令 /${name} 未注册（注册账缺失）`);
       }
       // 纯声明形：技能/agents 目录账与清单声明同长
       if (h.manifest.entryPlan.kind === 'declared-payload') {
@@ -179,7 +179,7 @@ export async function proveLifecycleMatrix(options: MatrixOptions): Promise<Life
     });
 
     /* ---------------- 幂等/负向（顺手进） ---------------- */
-    await runRow('幂等/负向（换代不双注 + mountRow 撞名拒）', async () => {
+    await runRow('幂等/负向（换代不双注 + mountRow 重名拒）', async () => {
       await h.boot(); // 换代（harness 内先卸旧代再起新代——/reload 同语义）
       const mountedCount = h.audit.countOf('plugin/mounted', (data) => data['id'] === h.pluginId);
       if (mountedCount !== 1) throw new Error(`换代后 plugin/mounted 笔数 = ${mountedCount}（期 1——幂等 diff 不重放）`);
@@ -188,7 +188,7 @@ export async function proveLifecycleMatrix(options: MatrixOptions): Promise<Life
         if (count !== 1) throw new Error(`换代后命令 /${name} 净计数 = ${count}（期 1——旧代出账后新代单注）`);
       }
       const dup = h.mountRow();
-      if (dup.ok) throw new Error('mountRow 重复调用未被拒（撞名拒缺席——幂等执法失守）');
+      if (dup.ok) throw new Error('mountRow 重复调用未被拒（重名拒缺失——幂等执法失守）');
     });
 
     /* ---------------- toggle（顺手进——行翻转两断言） ---------------- */
@@ -229,12 +229,12 @@ export async function proveLifecycleMatrix(options: MatrixOptions): Promise<Life
     });
 
     /* ---------------- unmount（必进——absent 与 present 同重） ---------------- */
-    await runRow('unmount（disposer 回卷 + 注册账缺席）', async () => {
+    await runRow('unmount（disposer 回卷 + 注册账缺失）', async () => {
       const receipt = await h.unloadCurrent();
       // 回执两查：有在飞代可回卷（null = 无代可卸——装载从未成）+ 回卷零失败
       //（receipt.disposed 只列 apply 返回清理函数的插件——ctx.effect 形注册
       // 走 fork dispose 腿不进 disposed 清单，故「已卸载」的真证明在下方账面）
-      if (receipt === null) throw new Error('回卷回执 null（无在飞代可卸——装载从未成）');
+      if (receipt === null) throw new Error('回卷回执 null（无在飞代可卸——挂载从未成功）');
       if (receipt.failed.length > 0) {
         throw new Error(`回卷失败面非空：${receipt.failed.map((f) => f.id).join('、')}`);
       }
@@ -274,7 +274,7 @@ function packReferencedFiles(pluginDir: string, manifest: PluginManifest): reado
   }
   for (const dir of [...(manifest.skills ?? []), ...(manifest.agents ?? [])]) {
     const abs = join(pluginDir, dir);
-    if (!statSync(abs).isDirectory()) throw new Error(`声明载荷目录缺席：${dir}`);
+    if (!statSync(abs).isDirectory()) throw new Error(`声明载荷目录缺失：${dir}`);
     // 基 = 包根（npm pack 产物路径相对包根——目录基会推成目录内相对形比对永错）
     collectFiles(pluginDir, abs, refs);
   }

@@ -14,7 +14,7 @@
  * ③ run 中日池尽 watchdog 协作中止 → 停靠（outcome 悬置）+ 落词 → dispose
  *    收口 paused（retain 语义）+ 终态 dismantle；
  * ④ 鲸鱼循环：连三唤醒后再唤醒 → driver 三帽 wake-refused → failed
- *    『连续后台唤醒超帽』（诚实边界）+ 逐轮落词恰 4 条（第 5 次唤醒被拒
+ *    『连续后台唤醒超上限』（诚实边界）+ 逐轮落词恰 4 条（第 5 次唤醒被拒
  *    未起跑不落词）；
  * ⑤ 每 issue 消息帽：assistant 计数达帽 → abort → failed『每 issue 预算帽
  *    耗尽』（两层分账的 run 侧执法）；
@@ -303,7 +303,7 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     await rt.shutdown();
   });
 
-  it('④ 鲸鱼循环：连三唤醒后再唤醒 → driver 三帽拒收 wake-refused → failed『连续后台唤醒超帽』', async () => {
+  it('④ 鲸鱼循环：连三唤醒后再唤醒 → driver 三帽拒收 wake-refused → failed『连续后台唤醒超上限』', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();
     const { faux, stack } = rigStack(rt, ws);
@@ -333,7 +333,7 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     }
     const result = await settle(outcome);
     expect(result.status).toBe('failed');
-    expect(result.status === 'failed' && result.reason).toContain('连续后台唤醒超帽');
+    expect(result.status === 'failed' && result.reason).toContain('连续后台唤醒超上限');
     expect(result.status === 'failed' && result.reason).toContain('人工介入');
     // 逐轮落词恰 4 条：四轮起跑-停靠各落一笔（第 4 次唤醒仍成功起跑——
     // 三帽拒的是循环结束后的第 5 次 submit）；wake-refused 收口未起跑不
@@ -343,7 +343,7 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     await rt.shutdown();
   });
 
-  it('⑤ 每 issue 消息帽：assistant 计数达帽 → abort → failed『每 issue 预算帽耗尽』', async () => {
+  it('⑤ 每 issue 消息上限：assistant 计数达上限 → abort → failed『issue 消息预算上限已用完』', async () => {
     const { rt } = rigRuntime();
     const ws = rigWorkspace();
     const { faux, stack } = rigStack(rt, ws);
@@ -366,7 +366,7 @@ describe('createIssueSessionFactory（成熟度缺口 #5——真工厂全环）
     });
     const result = await settle(outcome);
     expect(result.status).toBe('failed');
-    expect(result.status === 'failed' && result.reason).toContain('每 issue 预算帽耗尽');
+    expect(result.status === 'failed' && result.reason).toContain('issue 消息预算上限已用完');
     expect(result.status === 'failed' && result.messagesUsed).toBeGreaterThanOrEqual(1);
     factory.dispose();
     await rt.shutdown();

@@ -829,11 +829,11 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
         ),
       );
       expect(errorCalls).toBe(0); // 主锁：零 console.error（修前 sink 必红）
-      expect(stderrText).toContain('config.alerts[0] 坏形跳过'); // 达岸核验（红因核验）
+      expect(stderrText).toContain('config.alerts[0] 格式异常，已跳过'); // 达岸核验（红因核验）
       expect(stderrText).toContain('"level":"warn"'); // logger 腿：结构化 JSON 行
       expect(stderrText).toContain('"module":"core:obs"');
       // notify 腿（transient 呈现）：归因 'obs' 的同文投递
-      expect(notified.some(([source, message]) => source === 'obs' && message.includes('坏形跳过'))).toBe(true);
+      expect(notified.some(([source, message]) => source === 'obs' && message.includes('格式异常，已跳过'))).toBe(true);
     } finally {
       if (prevLevel === undefined) delete process.env.BERRY_AGENT_LOG_LEVEL;
       else process.env.BERRY_AGENT_LOG_LEVEL = prevLevel;
@@ -911,11 +911,11 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       expect(errorCalls).toBe(0); // 主锁：零 console.error（修前 4 笔必红）
       expect(stderrText).toContain('"module":"core:goal"'); // logger 腿（leveled 可辖）
       expect(stderrText).toContain('预算停靠'); // warn sink 位（停靠三动作尾 warn ×2）
-      expect(stderrText).toContain('广播唤醒提交失败'); // 直写①
+      expect(stderrText).toContain('自动唤醒提交失败'); // 直写①
       expect(stderrText).toContain('连续后台唤醒超帽'); // 直写②
       // notify 腿：归因 'goal' 的三文各自投递
       expect(notified.some(([source, message]) => source === 'goal' && message.includes('预算停靠'))).toBe(true);
-      expect(notified.some(([source, message]) => source === 'goal' && message.includes('广播唤醒提交失败'))).toBe(
+      expect(notified.some(([source, message]) => source === 'goal' && message.includes('自动唤醒提交失败'))).toBe(
         true,
       );
       expect(notified.some(([source, message]) => source === 'goal' && message.includes('连续后台唤醒超帽'))).toBe(
@@ -1044,11 +1044,11 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       );
       expect(cronCalls).toHaveLength(0); // 可表达性判先于 exec——零 OS 面触碰（触达位核验）
       expect(errorCalls).toBe(0); // 主锁：零 console.error（修前 sink 必红）
-      expect(stderrText).toContain('cron 对账跳过'); // 达岸核验（红因核验）
+      expect(stderrText).toContain('cron 核对跳过'); // 达岸核验（红因核验）
       expect(stderrText).toContain('"level":"warn"'); // logger 腿：结构化 JSON 行
       expect(stderrText).toContain('"module":"core:scheduler"');
       // notify 腿：归因 'scheduler' 的同文投递
-      expect(notified.some(([source, message]) => source === 'scheduler' && message.includes('cron 对账跳过'))).toBe(
+      expect(notified.some(([source, message]) => source === 'scheduler' && message.includes('cron 核对跳过'))).toBe(
         true,
       );
     } finally {
@@ -1685,7 +1685,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     const credBare = noOauth.commandSpecs.find((spec) => spec.name === 'credentials');
     if (credBare === undefined) throw new Error('/credentials 命令不在捕获面（noOauth）');
     await credBare.handler({ raw: '', argv: ['oauth', 'demo'] });
-    expect(noOauthNotified[noOauthNotified.length - 1]).toContain('oauth 流面未装配');
+    expect(noOauthNotified[noOauthNotified.length - 1]).toContain('oauth 授权当前不可用');
     await persistence.close();
   });
 
@@ -1783,7 +1783,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     await goalCmd.handler({ raw: '', argv: ['create', 'every:60s', '测试目标——装载全环'], sessionId: 's-goal' });
     const createdText = notified[notified.length - 1]!;
     expect(createdText).toContain('已建 goal「');
-    expect(createdText).toContain('挂钟行已排');
+    expect(createdText).toContain('定时已排');
     const row = svc!.activeFor('s-goal')!;
     const schedFace = scope.tryGet<SchedulerFace>('scheduler')!;
     expect(schedFace.service.getJob(`goal-${row.id}`)?.builtin).toBe(true);
@@ -2031,7 +2031,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       sessionId: 's-goal2',
       reminders: [],
     });
-    expect(braked.stop).toMatchObject({ reason: expect.stringContaining('预算帽') });
+    expect(braked.stop).toMatchObject({ reason: expect.stringContaining('预算上限已到') });
 
     // 沉淀摘要注入面：deps.goalSummarizer 透传 depositFor（回退先承载 → 后台单发落地缓存）
     expect(face.service.depositFor('s-goal2')).toContain('目标：复验目标');
@@ -2263,13 +2263,13 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
 
     // preview：零改动对账（当前 v2 vs 快照 v1 → 恢复 1）
     await rewindCmd.handler({ raw: `preview ${first.id}`, argv: ['preview', first.id] });
-    expect(notified[notified.length - 1]!).toContain('预演对账（零改动）：恢复 1');
+    expect(notified[notified.length - 1]!).toContain('预览结果（不改动文件）：恢复 1');
 
     // restore：保底拍 + 文件真恢复 v1 + fork 面（upToSeq = 回退点 seq）
     await rewindCmd.handler({ raw: `restore ${first.id}`, argv: ['restore', first.id] });
     const restoreText = notified[notified.length - 1]!;
     expect(restoreText).toContain('已回退至');
-    expect(restoreText).toContain('已 fork 新会话 fork-1');
+    expect(restoreText).toContain('已新建分支会话 fork-1');
     expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('v1');
     expect(forkCalls).toEqual([{ source: 's-rew', upToSeq: 3 }]);
     // 保底拍在场（trigger 'pre-rewind'——rewind 自身可回退）+ 计 3 份
@@ -2327,7 +2327,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     // 主锁：开面板恰一次（修前红：无参恒 usage 文本 → opens 空）
     expect(opens).toHaveLength(1);
     // entries = manifestLine 成品行（id + 触发形中文 + 规模——渲染单源）
-    expect(opens[0]!.entries.some((e) => e.id.length > 0 && e.line.includes('变异前拍'))).toBe(true);
+    expect(opens[0]!.entries.some((e) => e.id.length > 0 && e.line.includes('修改前快照'))).toBe(true);
     expect(notified.some((m) => m.includes('用法：/rewind'))).toBe(false); // 不落 usage 兜底
     // actions 闭包真调：onPreview 回预演数据（插件域 store 真源）
     const actions = opens[0]!.actions as {
@@ -2426,7 +2426,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     };
     // 路①：会话无 context（无锚）——「无从列点」notify + 零开屏
     const noAnchor = await run({ contextOf: () => undefined });
-    expect(noAnchor.notified.some((m) => m.includes('无工作区锚'))).toBe(true);
+    expect(noAnchor.notified.some((m) => m.includes('未绑定工作区'))).toBe(true);
     expect(noAnchor.opened).toBe(0);
     // 路②：有锚但零 manifest——「暂无回退点」notify + 零开屏
     const empty = await run({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: '/tmp/ws-deg-empty' }) });
@@ -2720,7 +2720,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       .catch((e: unknown) => e);
     expect(rejected).toBeInstanceOf(BaseError);
     expect((rejected as BaseError).code).toBe('GOAL_TODO_SCOPE');
-    expect((rejected as BaseError).message).toContain('lsp 诊断查询面缺席'); // fail-closed 非静默跳过
+    expect((rejected as BaseError).message).toContain('lsp 诊断查询不可用'); // fail-closed 非静默跳过
     await persistence.close();
   });
 

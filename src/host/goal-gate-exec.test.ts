@@ -166,7 +166,7 @@ describe('goal command gate 真接线 e2e（ex 批——03 §10.5）', () => {
         {} as never,
       );
       const err = await expectCode(rig.service.complete(goalId, '证据'), 'GOAL_TRANSITION_INVALID');
-      expect(err.message).toContain('判据门未全绿');
+      expect(err.message).toContain('未全部通过');
       expect(err.message).toContain('退出码 3');
     } finally {
       rig.shutdown();
@@ -247,7 +247,7 @@ describe('goal command gate 真接线 e2e（ex 批——03 §10.5）', () => {
       );
       // 词面锁（四役勘正——03 §10.5）：缺席归因新词面 = exec 件未装载或被禁用
       // （诚实缺席）；旧词「组合根未接线」在 ex 批真接线后指错方向，断言其废止
-      expect(err.message).toContain('exec 执行面缺席（exec 件未装载或被禁用——诚实缺席，fail-closed 不放行）');
+      expect(err.message).toContain('exec 执行器不可用（exec 插件未安装或被禁用——fail-closed 不放行）');
       expect(err.message).not.toContain('组合根未接线');
       expect(err.message).not.toContain('/goal approve'); // 判序先于双位文案
     } finally {

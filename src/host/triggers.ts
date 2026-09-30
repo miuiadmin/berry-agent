@@ -140,7 +140,7 @@ export class TriggerRegistry {
     if (existing !== undefined) {
       throw new BaseError(
         'TRIGGER_NAME_EXISTS',
-        `触发器 ${def.name} 已在册（注册方 ${existing.owner}）——词法身份面拒绝式，重影即审计归因歧义（03 §2.7）`,
+        `触发器 ${def.name} 已注册（注册方 ${existing.owner}）——重名即拒（重复注册会造成审计归因歧义）`,
       );
     }
     // 闸三：名词法（域名两段式 + 域前缀 == 本插件 id——core: 件去前缀比对）
@@ -148,7 +148,7 @@ export class TriggerRegistry {
     if (!TRIGGER_NAME_RE.test(def.name) || slash <= 0 || def.name.slice(0, slash) !== domainOf(pluginId)) {
       throw new BaseError(
         'TRIGGER_NAME_INVALID',
-        `触发器名 ${def.name} 非域名两段式或域前缀 ≠ 本插件 id（须 ${domainOf(pluginId)}/名——恰含一个 / 且两段均小写字母数字连字符；core: 件去前缀取 name 段比对——防跨插件冒名，03 §2.7）`,
+        `触发器名 ${def.name} 非域名两段式或域前缀 ≠ 本插件 id（须 ${domainOf(pluginId)}/名——恰含一个 / 且两段均小写字母数字连字符；core: 插件去前缀取 name 段比对——防跨插件冒名）`,
       );
     }
     const entry: TriggerEntry = { name: def.name, owner: pluginId, description: def.description };
@@ -346,7 +346,7 @@ export function createTriggerStarterFactory(
               detail: `run 未起——输入落 inject 通道（durable seq ${result.seq}，随下次启动带入）`,
             });
           } else {
-            job.settle({ status: 'failed', detail: 'run 未起——连续后台唤醒超帽拒收（wake-refused）' });
+            job.settle({ status: 'failed', detail: 'run 未起——连续后台唤醒超上限拒收（wake-refused）' });
           }
         },
         (err) => {

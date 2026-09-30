@@ -265,13 +265,13 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
   if (flags.tick !== undefined) {
     const schedFace = scope.tryGet<SchedulerFace>('scheduler');
     if (schedFace === undefined) {
-      err.write('--tick 需要 core:scheduler 件在场（--no-plugins 或件禁用形态不可用）\n');
+      err.write('--tick 需要 core:scheduler 插件（--no-plugins 或插件被禁用时不可用）\n');
       return 2;
     }
     const row = schedFace.service.getJob(flags.tick);
     if (row === undefined) {
       // 行缺席 = 配置漂移档（add 过的行被删/改名——cron/引擎侧 argv 过期）
-      err.write(`--tick 行缺席：jobs 表无「${flags.tick}」行（检查行是否被删改——/tick list 可查在册行）\n`);
+      err.write(`--tick 找不到任务「${flags.tick}」（jobs 表无此行——可能已被删改；/tick list 可查看现有任务）\n`);
       return 2;
     }
     // —— 行启停位判（十六役补扫 N26）：OS cron 命令段恒带 --read-only（新旧
@@ -329,11 +329,11 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
       // 单源裁决）；goal 会话由裁决选取——续接族旗标显式拒（不静默忽略）
       const goalFace = scope.tryGet<GoalFace>('goal');
       if (goalFace === undefined) {
-        err.write('goal 挂钟行在场而 core:goal 件未装载——配置漂移（goal 唤醒不可用）\n');
+        err.write('goal 定时行存在但 core:goal 插件未安装——配置不一致（goal 唤醒不可用）\n');
         return 2;
       }
       if (flags.session !== undefined || flags.continueLatest || flags.fork !== undefined) {
-        err.write('--tick goal 挂钟行与 --session/--continue/--fork 不兼容（goal 会话由 wake 裁决选取）\n');
+        err.write('--tick goal 定时行与 --session/--continue/--fork 不兼容（goal 会话由唤醒机制自动选定）\n');
         return 2;
       }
       const goalId = row.name.slice('goal-'.length);
@@ -465,8 +465,8 @@ async function executeRun(ctx: ExecuteContext): Promise<number> {
         });
       } catch (error) {
         // 开面失败（如端口占用 EADDRINUSE）= 预期内环境态——干净呈报不写 crash.log
-        abortTick('--port 开面失败');
-        err.write(`--port 开面失败：${error instanceof Error ? error.message : String(error)}\n`);
+        abortTick('--port 开启失败');
+        err.write(`--port 开启失败：${error instanceof Error ? error.message : String(error)}\n`);
         return 1;
       }
     }
@@ -569,7 +569,7 @@ ${schemaRaw}
   });
   if (runPromise === undefined) {
     // 理论不达防御：③四形必落驱动——到达即装配 bug，fail-loud（经外层崩溃档）
-    throw new Error(`会话 ${sessionId} 无驱动在册——提交序不可达`);
+    throw new Error(`会话 ${sessionId} 无驱动——提交不可达`);
   }
   let result: SubmitResult;
   try {
@@ -603,7 +603,7 @@ ${schemaRaw}
   } else {
     exitCode = 1;
     if (finalStatus === 'truncated') {
-      err.write(`已到 --max-turns ${flags.maxTurns} 上限收场（truncated——因达上限截断，非失败）\n`);
+      err.write(`已达 --max-turns ${flags.maxTurns} 上限，本次运行结束（truncated——因达到上限而截断，非失败）\n`);
     } else if (result.status === 'failed') {
       // provider 两形态产品级文案（07 §5 provider 产品级文案律）；其余失败原文直出
       const diagnostic = diagnoseProviderFailure({ errorMessage: result.errorMessage }, stack.model);

@@ -63,7 +63,7 @@ describe('dispatchCli 用法错与短路', () => {
     const { code, env: e } = await run(['--debug', '--help']);
     expect(code).toBe(0);
     expect(e.out[0]).toBe(HELP_TEXT);
-    expect(e.err.join('\n')).toContain('不再落位置参数');
+    expect(e.err.join('\n')).toContain('不会当作消息内容');
   });
 });
 
@@ -114,7 +114,7 @@ describe('dispatchCli 执行器派发', () => {
     for (const argv of [['run', 'hi'], ['serve'], ['serve', 'status'], ['mcp'], ['dump-config'], ['upgrade']]) {
       const { code, env: e } = await run(argv);
       expect(code, argv.join(' ')).toBe(1);
-      expect(e.err.join('\n'), argv.join(' ')).toContain('尚未装配');
+      expect(e.err.join('\n'), argv.join(' ')).toContain('未接入');
     }
   });
 

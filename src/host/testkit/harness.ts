@@ -187,7 +187,7 @@ function createUiAccount(): UiAccount {
   const rows: UiNotifyRecord[] = [];
   // 防御位：四法被委派即说明 ctx 层判序漂移（假宿主零在册会话恒不该过锚闸）
   const unreachable = (method: string): never => {
-    throw new Error(`testkit：假受局面 ${method} 不可达（ctx 层锚解析应在委派前收口——判序漂移即红）`);
+    throw new Error(`testkit：假受局面 ${method} 不可达（ctx 层锚解析应在转发前收口——判序漂移即红）`);
   };
   return {
     face: {
@@ -340,7 +340,7 @@ export function createPluginHarness(options: PluginHarnessOptions): PluginHarnes
   const pluginDir = options.pluginDir;
   const pkgText = realStoreFs().read(join(pluginDir, 'package.json'));
   if (pkgText === null) {
-    throw new Error(`testkit：${pluginDir} 缺 package.json（插件清单缺席——非插件目录）`);
+    throw new Error(`testkit：${pluginDir} 缺 package.json（插件清单缺失——非插件目录）`);
   }
   let pkgJson: unknown;
   try {
@@ -448,7 +448,7 @@ export function createPluginHarness(options: PluginHarnessOptions): PluginHarnes
       // 手编 enabled.yaml 形（03 §5.3 用户可编辑面的文档形——行级 opens 授予
       // 无 CLI 动词，宿主真源路径即手编；此处以同形 yaml 重写全文件）
       const read = readEnabledRowsForEdit(dataDir, storeFs);
-      if (!read.ok) throw new Error(`testkit：enabled.yaml 坏形（${read.message}）`);
+      if (!read.ok) throw new Error(`testkit：enabled.yaml 格式异常（${read.message}）`);
       const rows = read.rows.map((row) =>
         row.id === parsedManifest.manifest.id ? { ...row, opens: [...opens] } : row,
       );

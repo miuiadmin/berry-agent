@@ -132,7 +132,7 @@ export async function dispatchCli(
   // help/version 统一短路（执法位在未识别旗标闸之后——此处到达的必是干净解析）
   if (command.kind === 'help') {
     if (command.overreach !== undefined) {
-      env.writeErr(`注记：${command.overreach} 之后的词不再落位置参数（分派层短路）`);
+      env.writeErr(`提示：${command.overreach} 之后的词不会当作消息内容`);
     }
     env.writeOut(HELP_TEXT);
     return 0;
@@ -199,7 +199,7 @@ export async function dispatchCli(
 /** 执行器缺席面（统一文案——「命令面已解析、执行器本装配形缺席」诚实告知） */
 function requireHandler<Fn extends (...args: never[]) => Promise<number>>(handler: Fn | undefined, label: string): Fn {
   if (handler === undefined) {
-    throw new Error(`${label} 执行面尚未装配（本装配形缺席——嵌入式/测试装配可缺，完整装配恒在场）`);
+    throw new Error(`${label} 执行器未接入（嵌入式/测试安装可缺——完整安装不会出现）`);
   }
   return handler;
 }

@@ -194,7 +194,7 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
   if (!checkPluginId(id, { official })) {
     return shapeFail(
       manifest['id'] === undefined
-        ? `缺省 id（= package.json name "${name}"）不合插件 id 字符集${official ? '' : '（含冒号或 core: 前缀保留）'}——在清单 berryAgent.id 显式声明合法 id（小写字母/数字/连字符，首字符非连字符；无隐式映射变换）`
+        ? `默认 id（= package.json name "${name}"）不合插件 id 字符集${official ? '' : '（含冒号或 core: 前缀保留）'}——在清单 berryAgent.id 显式声明合法 id（小写字母/数字/连字符，首字符非连字符；无隐式映射变换）`
         : `berryAgent.id "${id}" 不合插件 id 字符集（小写字母/数字/连字符，首字符非连字符${official ? '；core: 前缀后段同判据' : '；冒号仅许官方前缀位——core: 为官方插件保留'}）`,
     );
   }
@@ -276,13 +276,13 @@ export function parseManifest(pkg: unknown, opts: { official?: boolean } = {}): 
     }
     if (typeof apiRecord['minApiVersion'] !== 'string' || !isValidApiVersion(apiRecord['minApiVersion'])) {
       return shapeFail(
-        `berryAgent.api.minApiVersion 缺席或坏形（插件 ${id}——应为 MAJOR.MINOR 整数点分两段，如 "1.0"）`,
+        `berryAgent.api.minApiVersion 缺失或格式不对（插件 ${id}——应为 MAJOR.MINOR 整数点分两段，如 "1.0"）`,
       );
     }
     let targetApiVersion: string | undefined;
     if (apiRecord['targetApiVersion'] !== undefined) {
       if (typeof apiRecord['targetApiVersion'] !== 'string' || !isValidApiVersion(apiRecord['targetApiVersion'])) {
-        return shapeFail(`berryAgent.api.targetApiVersion 坏形（插件 ${id}——应为 MAJOR.MINOR 整数点分两段）`);
+        return shapeFail(`berryAgent.api.targetApiVersion 格式不对（插件 ${id}——应为 MAJOR.MINOR 整数点分两段）`);
       }
       targetApiVersion = apiRecord['targetApiVersion'];
       if (versionPairLt(targetApiVersion, apiRecord['minApiVersion'] as string)) {
@@ -486,12 +486,12 @@ export function parseEnabledRows(doc: unknown): EnabledRowsResult {
       }
     }
     if (typeof record['id'] !== 'string' || record['id'].length === 0) {
-      return rowFail(`第 ${i + 1} 行 id 缺席或非非空字符串——id 即装机账本键`);
+      return rowFail(`第 ${i + 1} 行 id 缺失或非非空字符串——id 即安装记录键`);
     }
     const id = record['id'];
     // 用户行 id 过基础字符集（含 core: 前缀——覆盖官方行合法；校验 = 官方式前缀豁免）
     if (!checkPluginId(id, { official: true })) {
-      return rowFail(`第 ${i + 1} 行 id "${id}" 坏形（小写字母/数字/连字符；官方前缀 core:<name> 后段同判据）`);
+      return rowFail(`第 ${i + 1} 行 id "${id}" 格式不对（小写字母/数字/连字符；官方前缀 core:<name> 后段同判据）`);
     }
     if (seen.has(id)) {
       return rowFail(`插件 ${id} 多行——单行 per id（行 schema 无多行载体）`);

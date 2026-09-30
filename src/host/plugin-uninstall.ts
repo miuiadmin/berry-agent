@@ -211,13 +211,13 @@ function parseAnchorJson(text: string, path: string): Record<string, unknown> {
   } catch (err) {
     throw new BaseError(
       'PLUGIN_UNINSTALL_REFUSED',
-      `npm 锚文件坏 JSON（${path}）：${err instanceof Error ? err.message : String(err)}——剥锚记录拒猜；修复或删除该文件后重跑`,
+      `npm 锚文件格式异常（${path}）：${err instanceof Error ? err.message : String(err)}——为避免误改已停止；修复或删除该文件后重跑`,
     );
   }
   if (!isRecord(parsed)) {
     throw new BaseError(
       'PLUGIN_UNINSTALL_REFUSED',
-      `npm 锚文件坏形（${path}）：期望 JSON 对象——剥锚记录拒猜；修复或删除该文件后重跑`,
+      `npm 锚文件格式异常（${path}）：应为 JSON 对象——为避免误改已停止；修复或删除该文件后重跑`,
     );
   }
   return parsed;
@@ -302,16 +302,16 @@ export function inspectUninstall(deps: UninstallDeps, id: string): UninstallOutc
   if (id.startsWith(CORE_PREFIX)) {
     return {
       ok: false,
-      message: `官方件 ${id} 非 uninstall 对象（uninstall 吃装机 id；官方件停用走 toggle——03 §5.5）`,
+      message: `官方插件 ${id} 非 uninstall 对象（uninstall 只接受已安装插件 id；官方插件停用走 toggle——03 §5.5）`,
     };
   }
   const ledgerRead = readLedger(deps.dataDir, deps.fs);
   if (!ledgerRead.ok) {
-    return { ok: false, message: `装机账本损坏：${ledgerRead.reason}——inspect 拒猜（03 §5.4）` };
+    return { ok: false, message: `安装记录损坏：${ledgerRead.reason}——为避免误判已停止 inspect` };
   }
   const entry = ledgerRead.entries.find((e) => e.id === id);
   if (entry === undefined) {
-    return { ok: false, message: `插件 ${id} 未装机——装机清单见 plugins list（uninstall 吃装机 id，非启用行 id）` };
+    return { ok: false, message: `插件 ${id} 未安装——已安装的插件见 plugins list（uninstall 用安装 id，非启用行 id）` };
   }
   const rowsRead = readEnabledRowsForEdit(deps.dataDir, deps.fs);
   if (!rowsRead.ok) {
@@ -353,18 +353,18 @@ function formatReport(deps: UninstallDeps, report: UninstallReport): string {
   const lines: string[] = [];
   lines.push(`卸载预检（inspect）：${report.id}`);
   lines.push(`  源：${report.source}${report.version !== undefined ? `（version ${report.version}）` : ''}`);
-  lines.push(`  启用行：${report.enabledRows > 0 ? '在场（段①删）' : '不在场（段①跳过）'}`);
+  lines.push(`  启用行：${report.enabledRows > 0 ? '已存在（第①段删除）' : '不存在（第①段跳过）'}`);
   for (const p of report.installPaths) {
     if (p.sharedWith.length > 0) {
       lines.push(
-        `  装机物：${relativizeAgainst(deps.dataDir, p.absolute)}——共享引用（${p.sharedWith.join('、')}）在，物保留只删账`,
+        `  安装文件：${relativizeAgainst(deps.dataDir, p.absolute)}——共享引用（${p.sharedWith.join('、')}）仍在，保留文件只删记录`,
       );
     } else if (!p.willDelete) {
-      lines.push(`  装机物：${p.absolute}——local 直引源，不删用户目录（只删账本条目）`);
+      lines.push(`  安装文件：${p.absolute}——local 直引源，不删用户目录（只删安装记录）`);
     } else {
       // npm 布局知情面：锚依赖记录随装机物连带剥（host-plugins#4）
-      const anchorNote = npmPackageNameOf(p.ledgerPath) !== null ? ' + 连带剥 npm 锚依赖记录' : '';
-      lines.push(`  装机物：${relativizeAgainst(deps.dataDir, p.absolute)}（段②删${anchorNote}）`);
+      const anchorNote = npmPackageNameOf(p.ledgerPath) !== null ? ' + 一并移除 npm 锚依赖记录' : '';
+      lines.push(`  安装文件：${relativizeAgainst(deps.dataDir, p.absolute)}（第②段删除${anchorNote}）`);
     }
   }
   lines.push(
@@ -372,9 +372,9 @@ function formatReport(deps: UninstallDeps, report: UninstallReport): string {
   );
   lines.push(`  store_state：${report.storeStateKeys} 个域键（purge 连带删 / keep 留待 LRU）`);
   lines.push(
-    `  数据域：${report.dataSizeBytes !== undefined ? `${report.dataSizeBytes} 字节（文件域 + 域表页量 + 域键值）` : '无可测面（缺席非 0）'}——--data keep（缺省）保留 / purge 清除`,
+    `  数据域：${report.dataSizeBytes !== undefined ? `${report.dataSizeBytes} 字节（文件域 + 域表页量 + 域键值）` : '无可测量数据（未知，不代表 0）'}——--data keep（默认）保留 / purge 清除`,
   );
-  lines.push(`  受影响会话：装载过该插件的会话 ${report.affectedSessionCounts.count} 个`);
+  lines.push(`  受影响会话：安装过该插件的会话 ${report.affectedSessionCounts.count} 个`);
   lines.push('execute 仅限用户在终端亲自执行：berry plugins uninstall <id> --confirm [--data purge]');
   return lines.join('\n');
 }
@@ -398,7 +398,7 @@ export function executeUninstall(
   const report = pre.report;
   try {
     const ledgerRead = readLedger(deps.dataDir, deps.fs);
-    if (!ledgerRead.ok) throw new BaseError('PLUGIN_UNINSTALL_REFUSED', `装机账本损坏：${ledgerRead.reason}`);
+    if (!ledgerRead.ok) throw new BaseError('PLUGIN_UNINSTALL_REFUSED', `安装记录损坏：${ledgerRead.reason}`);
     const entry = ledgerRead.entries.find((e) => e.id === id)!; // inspect 已核在场
 
     // ① 删启用行（行不在 = 跳过不报错——幂等腿）
@@ -460,27 +460,31 @@ function formatExecuteReceipt(
 ): string {
   const lines: string[] = [];
   lines.push(`已卸载：${report.id}（源 ${entry.source}）`);
-  lines.push(`  ① 启用行：${report.enabledRows > 0 ? '已删' : '不在场（跳过）'}`);
+  lines.push(`  ① 启用行：${report.enabledRows > 0 ? '已删' : '不存在（跳过）'}`);
   if (pathInfo === undefined) {
-    lines.push('  ② 装机物：账本条目已删（无物面）');
+    lines.push('  ② 安装文件：安装记录已删（无文件）');
   } else if (pathInfo.sharedWith.length > 0) {
-    lines.push(`  ② 装机物：保留（共享引用 ${pathInfo.sharedWith.join('、')} 在——最后引用删尽才删物）；账本条目已删`);
+    lines.push(
+      `  ② 安装文件：保留（共享引用 ${pathInfo.sharedWith.join('、')} 仍在——最后引用删尽才删文件）；安装记录已删`,
+    );
   } else if (!pathInfo.willDelete) {
-    lines.push('  ② 装机物：保留（local 直引源不删用户目录）；账本条目已删');
+    lines.push('  ② 安装文件：保留（local 直引源不删用户目录）；安装记录已删');
   } else {
     // npm 布局：锚依赖记录已连带剥（痕迹可清算的回执面点名）
     const anchorNote =
-      npmPackageNameOf(entry.installPath) !== null ? '；npm 锚依赖记录已剥（package.json/.package-lock.json）' : '';
-    lines.push(`  ② 装机物：已删（${relativizeAgainst(deps.dataDir, pathInfo.absolute)}${anchorNote}）`);
+      npmPackageNameOf(entry.installPath) !== null
+        ? '；npm 锚依赖记录已一并移除（package.json/.package-lock.json）'
+        : '';
+    lines.push(`  ② 安装文件：已删（${relativizeAgainst(deps.dataDir, pathInfo.absolute)}${anchorNote}）`);
   }
   lines.push(`  ②连带 域表：${report.domainTables.length > 0 ? `已 DROP ${report.domainTables.length} 张` : '无'}`);
   lines.push(
     dataAction === 'purge'
-      ? `  ③ 数据域：已清除（${report.dataSizeBytes !== undefined ? `${report.dataSizeBytes} 字节` : '无可测面'} + store_state 域键 ${report.storeStateKeys} 个）`
-      : `  ③ 数据域：保留（keep 缺省——Docker 卷律；store_state 域键 ${report.storeStateKeys} 个留待 LRU）`,
+      ? `  ③ 数据域：已清除（${report.dataSizeBytes !== undefined ? `${report.dataSizeBytes} 字节` : '无可测量数据'} + store_state 域键 ${report.storeStateKeys} 个）`
+      : `  ③ 数据域：保留（keep 为默认——数据可再利用；store_state 域键 ${report.storeStateKeys} 个留待自动清理）`,
   );
   lines.push(
-    `  ④ 痕迹：plugin/uninstalled 已落审计流；受影响会话——装载过该插件的会话 ${report.affectedSessionCounts.count} 个`,
+    `  ④ 痕迹：plugin/uninstalled 已落审计流；受影响会话——安装过该插件的会话 ${report.affectedSessionCounts.count} 个`,
   );
   return lines.join('\n');
 }

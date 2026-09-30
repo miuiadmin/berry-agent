@@ -132,7 +132,7 @@ function renderDoorsList(dataDir: string | null, fs: PluginStoreFs): DoorsComman
     lines.push(`  ${capability}=${state}`);
   }
   lines.push('授予来源（任一来源含即门开；每次即时判定，撤销即收回）：');
-  lines.push('  行 opens（插件道——授予跟插件 id 走，换装零继承）：');
+  lines.push('  行 opens（插件方式——授予跟插件 id 走，插件更新后不自动继承）：');
   lines.push(...(rowLines.length > 0 ? rowLines : ['    （无——未有任何插件行开位）']));
   lines.push('  doors 段（进程级——模型道两门值域，/doors open|close 编辑对象）：');
   lines.push(
@@ -159,7 +159,7 @@ export function runDoorsCommand(sub: DoorsSub, deps: DoorsCommandDeps): DoorsCom
   }
   const result = editDoorsSegment(deps.dataDir, { verb: sub.sub, door: sub.door }, deps.fs, deps.onDoorsUpdated);
   if (!result.ok) return { ok: false, text: result.message };
-  const tail = '门检即时生效（每次使用时即时判定）；装载快照与审计基线下次 /reload 或启动刷新';
+  const tail = '门检即时生效（每次使用时即时判定）；挂载快照与审计基线下次 /reload 或启动刷新';
   return {
     ok: true,
     text:

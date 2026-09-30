@@ -130,7 +130,7 @@ export function parseConfigSchemaFields(
     if (type === 'secret') {
       if (field['default'] !== undefined) {
         return fail(
-          `configSchema secret 型字段 "${key}" 不得携 default（插件 ${opts.pluginId}——敏感值缺省走凭证盒，不落清单明文）`,
+          `configSchema secret 型字段 "${key}" 不得携 default（插件 ${opts.pluginId}——敏感值默认走凭证盒，不落清单明文）`,
         );
       }
       continue; // secret 无 options/default 两判位

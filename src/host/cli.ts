@@ -413,7 +413,7 @@ function parseRun(rest: readonly string[]): CliParseResult {
   const preset = scan.values.get('preset') as RunFlags['preset'];
   if (preset !== undefined && has('read-only')) {
     return usageFail(
-      '--read-only 与 --preset 互斥（预设档已含沙箱档位——单选：conservative=read-only / balanced|open=workspace-write）',
+      '--read-only 与 --preset 互斥（--preset 已含沙箱设置：conservative=只读，balanced/open=可写工作区）',
     );
   }
   const port = scan.values.get('port');

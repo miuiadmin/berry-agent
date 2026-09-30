@@ -971,7 +971,7 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
               appendEvent: (type: string, data: MemoryDiffData) => {
                 const append = sessions.appendEventFor(appendSession!);
                 if (append === undefined) {
-                  throw new Error(`会话 ${appendSession} 无活体驱动——差分落账本拍降级`);
+                  throw new Error(`会话 ${appendSession} 无可用驱动——差分落账已降级`);
                 }
                 append(type, data);
               },
@@ -1354,7 +1354,7 @@ function makeSchedulerPlugin(deps: CorePluginHostDeps): CorePluginReference {
           try {
             cron.register(row);
           } catch (error) {
-            warn(`scheduler cron 对账跳过「${row.name}」：${error instanceof Error ? error.message : String(error)}`);
+            warn(`scheduler cron 核对跳过「${row.name}」：${error instanceof Error ? error.message : String(error)}`);
           }
         }
       }
@@ -1616,7 +1616,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         const input = value as PreStepInput;
         const goalScope = service.goalScopeFor(input.sessionId);
         if (goalScope !== undefined && service.budgetExceeded(goalScope.goalId)) {
-          input.stop = { reason: 'goal 前台预算帽已到（budgetExceeded 复验刹停）' };
+          input.stop = { reason: 'goal 前台预算上限已到（预算复验停止）' };
         }
         return next(input) as Promise<PreStepInput>;
       });
@@ -1659,7 +1659,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         if (run === undefined) {
           // F1 收编：直写改走件内 warn 出口（logger + notify 双发——停靠保持
           // 人工道语义不变，只换呈现路）
-          warn(`[goal] 广播唤醒提交失败：会话 ${sessionId} 无驱动在册——停靠保持，人工道 /goal wake`);
+          warn(`[goal] 自动唤醒提交失败：会话 ${sessionId} 无可用驱动——目标保持暂停，可手动 /goal wake`);
           return;
         }
         void run
@@ -1859,14 +1859,14 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
           if (args.argv.length === 0 && deps.openRewindPicker !== undefined) {
             const ctx = sessionFace.contextOf(sessionId);
             if (ctx === undefined || ctx.workspaceRoot === '') {
-              deps.notify?.('checkpoint', '当前会话无工作区锚——无从列点（快照特性按工作区适用）。');
+              deps.notify?.('checkpoint', '当前会话未绑定工作区——无法列出回退点（回退点按工作区记录）。');
               return;
             }
             // 清单快照档：开屏一次现取（ModelPicker 静态底单律同款——开屏后
             // 新拍不进面板，重开面板重取）
             const rows = (await store.listManifests()).filter((m) => m.workspaceRoot === ctx.workspaceRoot);
             if (rows.length === 0) {
-              deps.notify?.('checkpoint', '本工作区暂无回退点（首个变异前拍在工作区内的写工具执行时落）。');
+              deps.notify?.('checkpoint', '本工作区暂无回退点——berry 修改此工作区文件时会自动创建。');
               return;
             }
             const entries: readonly UiRewindEntry[] = rows.map((m) => ({
@@ -1885,7 +1885,7 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
                     untouchedCount: result.untouchedCount,
                   };
                 } catch (err) {
-                  const text = err instanceof BaseError ? `${err.code}：${err.message}` : `预演失败：${String(err)}`;
+                  const text = err instanceof BaseError ? `${err.code}：${err.message}` : `预览失败：${String(err)}`;
                   return { restoreCount: 0, deleteCount: 0, untouchedCount: 0, errorText: text };
                 }
               },
@@ -1991,7 +1991,7 @@ function makeWebuiPlugin(deps: CorePluginHostDeps): CorePluginReference {
 function normalizeObsAlerts(raw: unknown, warn: (message: string) => void): ObsAlertRule[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
-    warn('[obs] config.alerts 须为数组——告警面按空装载（坏形降级律，摄取/查询面不受累）');
+    warn('[obs] config.alerts 须为数组——告警按空清单处理（不影响其他功能）');
     return [];
   }
   const rules: ObsAlertRule[] = [];
@@ -2010,7 +2010,7 @@ function normalizeObsAlerts(raw: unknown, warn: (message: string) => void): ObsA
         ...(cooldown !== undefined ? { cooldownMs: cooldown } : {}),
       });
     } else {
-      warn(`[obs] config.alerts[${index}] 坏形跳过（kind/thresholdTokens/cooldownMs 形不符——03 §10.8 坏规则降级律）`);
+      warn(`[obs] config.alerts[${index}] 格式异常，已跳过（kind/thresholdTokens/cooldownMs 不符）`);
     }
   });
   return rules;
@@ -2071,8 +2071,7 @@ function makeObsPlugin(deps: CorePluginHostDeps): CorePluginReference {
 /* ---------------- 危险闸装配位三件（04 §13——/danger 呈现与 push 执行腿） ---------------- */
 
 /** /danger 用法文案（命令注册面 description——两动词一闸面） */
-const DANGER_CMD_USAGE =
-  '用法：/danger approve [ttlDays]（缺省 30 天）签发危险闸 consent；/danger status 查看闸状态五呈';
+const DANGER_CMD_USAGE = '用法：/danger approve [ttlDays]（默认 30 天）签发危险操作授权；/danger status 查看危险闸状态';
 
 /**
  * 交付验证执行腿（⑪ 裁决 5——IssueVerifyFace 真身，host spawn 家族：danger
@@ -2142,7 +2141,7 @@ function runIssueVerify(req: { cwd: string; command: string; timeoutMs: number }
       // 路 B——击杀即直收口：不候 'close'（逃组孙进程〔自 setsid 的守护形〕
       // 仍持管道写端时 close 可能悬到自然退出）。resolve 幂等先到先得：超时
       // 形由 timer 腿直落 finish，close 晚到自然落空、finish 幂等不变。
-      finish(null, `超时击杀：时帽 ${req.timeoutMs}ms 到，进程组整体 SIGKILL（输出尾截于击杀时刻）`);
+      finish(null, `超时击杀：时限 ${req.timeoutMs}ms 到，进程组整体 SIGKILL（输出尾截于击杀时刻）`);
     }, req.timeoutMs);
     const finish = (exitCode: number | null, extraTail: string): void => {
       clearTimeout(timer);
@@ -2204,13 +2203,13 @@ function renderDangerStatus(s: IssueDangerStatusFace): string {
     s.consent.state === 'valid'
       ? `有效（到期 ${new Date(s.consent.expiresAt ?? 0).toISOString()}）`
       : s.consent.state === 'absent'
-        ? '缺席（须 /danger approve 签发）'
+        ? '未签发（须 /danger approve 签发）'
         : s.consent.state === 'expired'
           ? '已过期（重跑 /danger approve 重签）'
           : '配置漂移（mandate 变过——重跑 /danger approve 重签）';
   const haltText = s.halt.tripped
-    ? `在场（kill switch 拉闸——首触发 ${s.halt.firstFiredAt ?? '未知时间'}，删 HALT 文件恢复）`
-    : '不在场';
+    ? `已拉闸（kill switch 触发——首次 ${s.halt.firstFiredAt ?? '未知时间'}，删除 HALT 文件恢复）`
+    : '未拉闸';
   const capText =
     s.cap.used === null
       ? '不可派生（账本链坏）'
@@ -2218,10 +2217,10 @@ function renderDangerStatus(s: IssueDangerStatusFace): string {
   return [
     `危险闸状态（consumer ${s.consumer}）：`,
     `- mandate 哈希：${s.mandateHash}`,
-    `- 值域：actions [${s.mandate.actions.join(', ')}] × targets [${s.mandate.targets.join(', ')}] × 日帽 ${s.mandate.maxPerDay}`,
+    `- 值域：actions [${s.mandate.actions.join(', ')}] × targets [${s.mandate.targets.join(', ')}] × 每日上限 ${s.mandate.maxPerDay}`,
     `- consent：${consentText}`,
     `- HALT：${haltText}`,
-    `- 日帽：${capText}`,
+    `- 每日上限：${capText}`,
     `- 账本：${s.ledger.total} 笔（链${s.ledger.healthy ? '健康' : '损坏——DANGER_LEDGER_CORRUPT 拒续写'}）`,
   ].join('\n');
 }
@@ -2664,7 +2663,10 @@ function makeCredentialsPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // io 返回值内存过手（宿主不落值、回执永不呈值——模型可见性铁律同源）
       const runOAuth = async (pluginId: string, name: string | undefined): Promise<void> => {
         if (oauth === undefined) {
-          deps.notify?.('credentials', 'oauth 流面未装配（运行时承载——CLI/零装配面不可用；TUI 面须流注册表在场）。');
+          deps.notify?.(
+            'credentials',
+            'oauth 授权当前不可用——该功能只在 TUI 会话中提供（命令行环境不支持；TUI 中需已安装提供 oauth 流程的插件）。',
+          );
           return;
         }
         const resolved = resolveOAuthFlow(oauth.registry, pluginId, name);

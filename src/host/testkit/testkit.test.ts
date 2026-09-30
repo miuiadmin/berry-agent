@@ -50,13 +50,13 @@ describe('testkit 生命周期证明矩阵——examples 真模板全绿', () =>
     expect(report.ok).toBe(true);
     // 首版矩阵行集完整性锁（八行——行集漂移即红）
     expect(report.rows.map((r) => r.row)).toEqual([
-      'install（装机 + pack 完整性）',
-      'mount（真装载 activated + 注册账在场）',
+      'install（安装 + pack 完整性）',
+      'mount（真实挂载 activated + 注册账可用）',
       '事件面（plugin/mounted 恰一笔）',
-      '幂等/负向（换代不双注 + mountRow 撞名拒）',
+      '幂等/负向（换代不双注 + mountRow 重名拒）',
       'toggle（行翻转两断言）',
       '开门面（plugin/opens 幂等 diff）',
-      'unmount（disposer 回卷 + 注册账缺席）',
+      'unmount（disposer 回卷 + 注册账缺失）',
       '残留检查（审计词 + 数据面双白名单）',
     ]);
     expect(report.pluginId).toBe('berry-agent-example-minimal-code');
@@ -161,7 +161,7 @@ describe('testkit 矩阵——坏样本必红（03 §9.5 default-export 陷阱 +
     expect(receipt).toContain('berry-agent-example-minimal-code');
     expect(receipt).toContain('❌');
     expect(receipt).toContain('never-registered');
-    expect(receipt).toContain('unmount（disposer 回卷 + 注册账缺席）');
+    expect(receipt).toContain('unmount（disposer 回卷 + 注册账缺失）');
   });
 });
 

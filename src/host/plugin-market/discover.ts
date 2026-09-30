@@ -58,7 +58,7 @@ export async function discoverMarketplaces(deps: DiscoverDeps, only?: string): P
       status: 'skipped',
       entries: [],
       skippedEntries: [],
-      skippedReason: `源清单文件 marketplaces.json 坏形——${read.message}`,
+      skippedReason: `源清单文件 marketplaces.json 格式异常——${read.message}`,
     };
     return { sources: [row], refreshFailures };
   }
@@ -125,7 +125,7 @@ function discoverSource(
       status: 'skipped',
       entries: [],
       skippedEntries: [],
-      skippedReason: `源 ${record.name} 缓存缺席（${record.catalogPath} 读不到）——刷新走 berry marketplace update ${record.name}`,
+      skippedReason: `源 ${record.name} 缓存缺失（${record.catalogPath} 读不到）——刷新走 berry marketplace update ${record.name}`,
     };
   }
   const parse = parseMarketplaceCatalog(text, `${record.name}/${record.catalogPath}`);
@@ -135,7 +135,7 @@ function discoverSource(
       status: 'skipped',
       entries: [],
       skippedEntries: [],
-      skippedReason: `源 ${record.name} catalog 坏形——${parse.reason}`,
+      skippedReason: `源 ${record.name} catalog 格式异常——${parse.reason}`,
     };
   }
   // 改名漂移拒：缓存 catalog 自报名 ≠ 源清单名——该源不呈现（防腐蚀条目冒名）

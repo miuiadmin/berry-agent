@@ -927,7 +927,7 @@ describe('/plugins TUI 命令面 e2e（03 §5.2 mount 族成功尾自动链 /rel
       const notified: string[] = [];
       assembly.stack.channels.addBackend(captureBackend(notified));
       expect(await assembly.stack.channels.dispatchCommand('/plugins mount user-ghost')).toBe(true);
-      expect(notified.some((t) => t.includes('未装机'))).toBe(true);
+      expect(notified.some((t) => t.includes('未安装'))).toBe(true);
       expect(notified.some((t) => t.includes('已自动链'))).toBe(false); // 拒路径零链
       expect(await assembly.reloader.hasPending()).toBe(false);
       expect(assembly.pluginCounts).toEqual({ total: 0, enabled: 0, failed: 0 }); // 装载态原封
@@ -1157,10 +1157,10 @@ describe('审批分档收口锁 e2e（ap-4——§8 四层解析装配执法 + /
       const notified0: string[] = [];
       asm0.stack.channels.addBackend(captureBackend(notified0));
       expect(await asm0.stack.channels.dispatchCommand('/approval')).toBe(true);
-      expect(notified0.some((t) => t.includes('sandbox 档 = workspace-write') && t.includes('缺省（代码常量）'))).toBe(
-        true,
-      );
-      expect(notified0.some((t) => t.includes('审批 policy = ask') && t.includes('缺省（代码常量）'))).toBe(true);
+      expect(
+        notified0.some((t) => t.includes('sandbox 模式 = workspace-write') && t.includes('默认（代码内置）')),
+      ).toBe(true);
+      expect(notified0.some((t) => t.includes('审批 policy = ask') && t.includes('默认（代码内置）'))).toBe(true);
     } finally {
       await asm0.runtime.shutdown();
     }
@@ -1181,11 +1181,11 @@ describe('审批分档收口锁 e2e（ap-4——§8 四层解析装配执法 + /
       assembly.stack.channels.addBackend(captureBackend(notified));
       expect(await assembly.stack.channels.dispatchCommand('/approval')).toBe(true);
       expect(
-        notified.some((t) => t.includes('sandbox 档 = read-only') && t.includes('settings.json（持久缺省）')),
+        notified.some((t) => t.includes('sandbox 模式 = read-only') && t.includes('settings.json（保存的默认值）')),
       ).toBe(true);
-      expect(notified.some((t) => t.includes('审批 policy = never') && t.includes('settings.json（持久缺省）'))).toBe(
-        true,
-      );
+      expect(
+        notified.some((t) => t.includes('审批 policy = never') && t.includes('settings.json（保存的默认值）')),
+      ).toBe(true);
     } finally {
       await assembly.runtime.shutdown();
     }
@@ -1209,10 +1209,10 @@ describe('审批分档收口锁 e2e（ap-4——§8 四层解析装配执法 + /
       assembly2.stack.channels.addBackend(captureBackend(notified2));
       expect(await assembly2.stack.channels.dispatchCommand('/approval')).toBe(true);
       expect(
-        notified2.some((t) => t.includes('sandbox 档 = workspace-write') && t.includes('CLI --preset balanced')),
+        notified2.some((t) => t.includes('sandbox 模式 = workspace-write') && t.includes('CLI --preset balanced')),
       ).toBe(true);
-      expect(notified2.some((t) => t.includes('sandbox 档 = read-only'))).toBe(false);
-      expect(notified2.some((t) => t.includes('审批 policy = ask') && t.includes('缺省（代码常量）'))).toBe(true);
+      expect(notified2.some((t) => t.includes('sandbox 模式 = read-only'))).toBe(false);
+      expect(notified2.some((t) => t.includes('审批 policy = ask') && t.includes('默认（代码内置）'))).toBe(true);
     } finally {
       await assembly2.runtime.shutdown();
     }
@@ -1257,9 +1257,9 @@ describe('审批分档收口锁 e2e（ap-4——§8 四层解析装配执法 + /
         },
       ]);
       // 回执诚实句（生效时点）+ 当前进程不变（装配期快照——status 仍缺省档）
-      expect(notified.some((t) => t.includes('下次启动/新装配生效'))).toBe(true);
+      expect(notified.some((t) => t.includes('下次启动或新会话时生效'))).toBe(true);
       expect(await assembly.stack.channels.dispatchCommand('/approval')).toBe(true);
-      expect(notified.some((t) => t.includes('sandbox 档 = workspace-write（来源：缺省（代码常量）'))).toBe(true);
+      expect(notified.some((t) => t.includes('sandbox 模式 = workspace-write（来源：默认（代码内置）'))).toBe(true);
     } finally {
       await assembly.runtime.shutdown();
     }

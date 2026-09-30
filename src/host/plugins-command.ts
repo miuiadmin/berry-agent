@@ -38,7 +38,7 @@ export const PLUGINS_CMD_USAGE = `/plugins list | mount <id> | unmount <id> | to
   unmount <id>        卸下（装机保留——成功尾自动链 /reload）
   toggle <id>         禁用态翻转（成功尾自动链 /reload）
   config <id>         配置表单（configSchema 逐字段问答——secret 入凭证盒）
-（市场选装形走 /marketplace 选装副屏或 CLI berry marketplace <sub>；ref 形 install/uninstall/update 维持 CLI berry plugins <sub>——03 §5.8 三面同源）`;
+（市场安装走 /marketplace 市场面板或 CLI berry marketplace <sub>；ref 形 install/uninstall/update 维持 CLI berry plugins <sub>——03 §5.8 三面同源）`;
 
 /** 结算形（ok 位留 CLI 对等面/测试分档；TUI 装配面只消费 text） */
 export interface PluginsCommandOutcome {
@@ -72,7 +72,7 @@ export interface PluginsCommandDeps {
  */
 function renderList(report: LoadReport | undefined): string {
   if (report === undefined) {
-    return '装载面未装配（noPlugins 诊断形）——无装载态可列。';
+    return '挂载信息不可用（noPlugins 诊断形）——无挂载态可列。';
   }
   const lines: string[] = [];
   lines.push(`启用（${report.activated.length}）：`);
@@ -97,10 +97,10 @@ function mountPreflight(id: string, deps: PluginsCommandDeps): string | undefine
   if (!id.startsWith('core:')) {
     const ledgerRead = readLedger(deps.dataDir!, deps.fs);
     if (!ledgerRead.ok) {
-      return `装机账本损坏：${ledgerRead.reason}——拒写防覆盖（03 §5.4）`;
+      return `安装记录损坏：${ledgerRead.reason}——拒写防覆盖`;
     }
     if (!ledgerRead.entries.some((e) => e.id === id)) {
-      return `插件 ${id} 未装机——mount 先走 install（未装机挂行会在下次启动读侧降级，03 §5.3）`;
+      return `插件 ${id} 未安装——mount 先走 install（未安装挂行会在下次启动读侧降级）`;
     }
   }
   return undefined; // 两查全过
@@ -131,7 +131,7 @@ export async function runPluginsCommand(
     if (deps.configForm === undefined) {
       return {
         ok: false,
-        text: 'config 表单腿未装配（此命令面无发起会话/问询通道）——TUI 会话内 /plugins config 或手编 enabled.yaml',
+        text: 'config 配置表单不可用（此入口无会话/问询界面）——TUI 会话内 /plugins config 或手编 enabled.yaml',
       };
     }
     return deps.configForm(id);
@@ -159,14 +159,14 @@ export async function runPluginsCommand(
     }
     // 成功尾：自动链 /reload（fire-and-forget——busy 期 reloader 自排队）
     deps.requestReload();
-    const tail = '已自动链 /reload（会话运行中自动排队，run 收场后执行）';
+    const tail = '已自动链 /reload（会话运行中自动排队，当前回复结束后执行）';
     return {
       ok: true,
       text:
         verb === 'mount'
           ? `已挂载：${id}——${tail}`
           : verb === 'unmount'
-            ? `已卸下：${id}（装机保留）——${tail}`
+            ? `已卸下：${id}（安装保留）——${tail}`
             : `已切换：${id} 禁用态翻转——${tail}`,
     };
   }

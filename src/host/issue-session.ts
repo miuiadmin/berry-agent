@@ -306,7 +306,7 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
           finish({
             status: 'needs-human',
             messagesUsed: used,
-            reason: `审批被拒 ${denied} 次（无人应答收口/守门拒——04 §9 fail-closed），成果需人审`,
+            reason: `审批被拒 ${denied} 次（无人响应或策略拒绝——失败即停），结果需人工审查`,
           });
           return;
         }
@@ -326,7 +326,7 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
           finish({
             status: 'failed',
             messagesUsed: used,
-            reason: `每 issue 预算帽耗尽（${req.budgetMessages} 条）`,
+            reason: `issue 消息预算上限已用完（${req.budgetMessages} 条）`,
           });
           return;
         }
@@ -349,7 +349,7 @@ export function createIssueSessionFactory(options: IssueSessionFactoryOptions): 
         finish({
           status: 'failed',
           messagesUsed: used,
-          reason: '连续后台唤醒超帽（连续 3 次——跨过多日池窗的长任务，需人工介入或提额）',
+          reason: '连续后台唤醒超上限（连续 3 次——跨过多日池窗的长任务，需人工介入或提额）',
         });
         return;
       }

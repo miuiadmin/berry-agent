@@ -36,8 +36,8 @@ function baseDirs(overrides: Partial<ApprovalCommandDeps> = {}): ApprovalCommand
   const status: ApprovalStatusFace = {
     mode: 'workspace-write',
     policy: 'ask',
-    modeSource: '缺省（代码常量）',
-    policySource: '缺省（代码常量）',
+    modeSource: '默认（代码内置）',
+    policySource: '默认（代码内置）',
   };
   return {
     dataDir: null,
@@ -81,8 +81,8 @@ describe('status（当前态呈现——两旋钮 + 来源 + 预设一览）', (
   it('值与来源同面呈现 + 预设三档全列', () => {
     const outcome = runApprovalCommand({ sub: 'status' }, baseDirs());
     expect(outcome.ok).toBe(true);
-    expect(outcome.text).toContain('sandbox 档 = workspace-write');
-    expect(outcome.text).toContain('缺省（代码常量）');
+    expect(outcome.text).toContain('sandbox 模式 = workspace-write');
+    expect(outcome.text).toContain('默认（代码内置）');
     expect(outcome.text).toContain('审批 policy = ask');
     for (const name of ['conservative', 'balanced', 'open']) {
       expect(outcome.text).toContain(name);
@@ -137,7 +137,7 @@ describe('entries（活体现读全列）', () => {
     writeFileSync(join(dir, TOOL_POLICY_BASENAME), '{broken');
     const outcome = runApprovalCommand({ sub: 'entries' }, baseDirs({ dataDir: dir }));
     expect(outcome.ok).toBe(false);
-    expect(outcome.text).toContain('坏形');
+    expect(outcome.text).toContain('格式异常');
   });
   it('升格语境坏形指名真源（2026-09-13 复盘发现 #26）：唯旧 allowlist.json 坏形 → 回执点名旧名文件，不指错 tool-policy.json', () => {
     // 修前病灶：坏形回执一律手拼 join(dataDir, tool-policy.json)——升格语境
@@ -153,7 +153,7 @@ describe('entries（活体现读全列）', () => {
   it('memory 形 = 空面诚实（dataDir null）', () => {
     const outcome = runApprovalCommand({ sub: 'entries' }, baseDirs());
     expect(outcome.ok).toBe(true);
-    expect(outcome.text).toContain('策略表缺席');
+    expect(outcome.text).toContain('策略表缺失');
   });
 });
 
@@ -180,9 +180,9 @@ describe('explain（真裁决干跑——与守门行同一 matchToolPolicy/poli
     expect(outcome.text).toContain('policy-deny:0');
     expect(outcome.text).toContain('硬拒');
     // 三档并列各占行
-    expect(outcome.text).toContain('read 档');
-    expect(outcome.text).toContain('write 档');
-    expect(outcome.text).toContain('exec 档');
+    expect(outcome.text).toContain('read 级别');
+    expect(outcome.text).toContain('write 级别');
+    expect(outcome.text).toContain('exec 级别');
   });
 
   it('bash 命令原文词干命中 allow：policy-allow:<序>（与 gate allowReason 同源串）', () => {
@@ -263,7 +263,7 @@ describe('preset（写盘动词——两旋钮 + 建议集 + 审计恰一笔）'
     // 审计恰一笔 + 载荷
     expect(applied).toEqual([{ preset: 'open', sandboxMode: 'workspace-write', approvalPolicy: 'ask', appended: 7 }]);
     // 回执诚实句
-    expect(outcome.text).toContain('下次启动/新装配生效');
+    expect(outcome.text).toContain('下次启动或新会话时生效');
   });
 
   it('重复切 open：幂等去重 appended=0 + 审计仍一笔', () => {
@@ -299,7 +299,7 @@ describe('preset（写盘动词——两旋钮 + 建议集 + 审计恰一笔）'
       baseDirs({ dataDir: dir, onPresetApplied: (_p, _m, _pol, a) => void applied.push(a) }),
     );
     expect(outcome.ok).toBe(false);
-    expect(outcome.text).toContain('全拒');
+    expect(outcome.text).toContain('整体拒绝');
     expect(applied).toEqual([]); // 失败零落账
   });
 

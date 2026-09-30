@@ -82,7 +82,7 @@ export function parseMarketplaceCatalog(text: string, label: string): CatalogPar
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { ok: false, reason: `${label}：catalog JSON 坏形（无法解析）` };
+    return { ok: false, reason: `${label}：catalog JSON 格式异常（无法解析）` };
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { ok: false, reason: `${label}：catalog 顶层须 JSON 对象` };
@@ -91,7 +91,7 @@ export function parseMarketplaceCatalog(text: string, label: string): CatalogPar
 
   // —— catalog 级：必填最小集缺席 = 整仓拒（name / owner.name / plugins[]）——
   if (typeof doc['name'] !== 'string' || !isValidNameSegment(doc['name'])) {
-    return { ok: false, reason: `${label}：catalog name 缺席或坏词法（"${String(doc['name'])}"）` };
+    return { ok: false, reason: `${label}：catalog name 缺失或格式不对（"${String(doc['name'])}"）` };
   }
   const owner = doc['owner'];
   if (
@@ -101,7 +101,7 @@ export function parseMarketplaceCatalog(text: string, label: string): CatalogPar
     typeof (owner as Record<string, unknown>)['name'] !== 'string' ||
     (owner as Record<string, unknown>)['name'] === ''
   ) {
-    return { ok: false, reason: `${label}：catalog owner.name 缺席或坏形` };
+    return { ok: false, reason: `${label}：catalog owner.name 缺失或格式异常` };
   }
   if (!Array.isArray(doc['plugins'])) {
     return { ok: false, reason: `${label}：catalog plugins 须数组` };
@@ -119,7 +119,7 @@ export function parseMarketplaceCatalog(text: string, label: string): CatalogPar
     // 条目名词法（市场名域——多允许点号的 omp 律；装机侧 berry id 词法由插件清单自身承载）
     if (typeof entry['name'] !== 'string' || !isValidNameSegment(entry['name'])) {
       const note: { name?: string; reason: string } = {
-        reason: `条目名缺席或坏词法（"${String(entry['name'])}"）——跳过`,
+        reason: `条目名缺失或格式不对（"${String(entry['name'])}"）——已跳过`,
       };
       if (typeof entry['name'] === 'string') note.name = entry['name'];
       skipped.push(note);
@@ -127,7 +127,7 @@ export function parseMarketplaceCatalog(text: string, label: string): CatalogPar
     }
     const shapeError = entrySourceShapeError(entry['source']);
     if (shapeError !== null) {
-      skipped.push({ name: entry['name'], reason: `条目 source 坏形：${shapeError}` });
+      skipped.push({ name: entry['name'], reason: `条目 source 格式异常：${shapeError}` });
       continue;
     }
     // 原对象直通——未知字段（strict/commands 等）保留随行

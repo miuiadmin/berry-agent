@@ -56,7 +56,7 @@ describe('plugins list——同构装载态清单（三分区）', () => {
     expect(text).toContain('disabled（启用行禁用位）'); // 禁用 reason 字面量（loader 真源）
     expect(text).toContain('失败（1）：');
     expect(text).toContain('user-x');
-    expect(text).toContain('装机账本无此 id'); // 失败行诊断信息透出
+    expect(text).toContain('安装记录无此 id'); // 失败行诊断信息透出
   });
 
   it('启用行双目录段：report 带 skillDirs+agentDirs → id→技能目录→子代理目录三段同现（与 TUI renderList 5a11f3c 同源形——两面同源承诺 CLI 侧补执法）', async () => {
@@ -116,8 +116,8 @@ describe('plugins list——同构装载态清单（三分区）', () => {
       const code = await runPluginsEntry({ sub: 'list' }, { version: 'x', corePlugins: [one], ...io });
       expect(code).toBe(0);
       const text = io.out.join('\n');
-      expect(text).toContain('user-env-x'); // env 位磁盘行照呈——失败区（装机账本无此 id）
-      expect(text).toContain('装机账本无此 id');
+      expect(text).toContain('user-env-x'); // env 位磁盘行照呈——失败区（安装记录无此 id）
+      expect(text).toContain('安装记录无此 id');
       expect(text).toContain('失败（1）：');
     } finally {
       if (prev === undefined) delete process.env.BERRY_AGENT_DATA_DIR;
@@ -350,7 +350,7 @@ describe('plugins check——三色体检面真身（03 §8.9 ag 批：绿/红 +
     writeFileSync(join(dir2, 'plugins', 'ledger.json'), '{"plugins":{"user-x":{"installPath":"/tmp/x"}}}');
     const io2 = capture();
     expect(await runPluginsEntry({ sub: 'check' }, { version: 'x', dataDir: dir2, ...io2 })).toBe(1);
-    expect(io2.err.join('\n')).toContain('装机账本损坏');
+    expect(io2.err.join('\n')).toContain('安装记录损坏');
   });
 
   it('清单坏形红：可读 package.json 缺 berryAgent 字段 → 断裂行「清单坏形」+ exit 1（boot 装载同判据拒载——check 面同真相归红）', async () => {
@@ -371,7 +371,7 @@ describe('plugins check——三色体检面真身（03 §8.9 ag 批：绿/红 +
     const text = io.out.join('\n');
     expect(text).toContain('红（断裂，1）');
     expect(text).toContain('badshape-pkg');
-    expect(text).toContain('清单坏形');
+    expect(text).toContain('清单格式异常');
     expect(text).toContain('无 berryAgent 字段'); // parseManifest 消息直呈（判据单源）
   });
 
@@ -458,9 +458,9 @@ describe('plugins 写侧六动词——local fixture 真链 e2e（装机面落�
 
     // install：local 直引真收割 + 落账
     expect(await runPluginsEntry({ sub: 'install', ref: `local:${fixture}` }, opts)).toBe(0);
-    expect(io.out.join('\n')).toContain('已装机：chain-pkg');
+    expect(io.out.join('\n')).toContain('已安装：chain-pkg');
     // 两步制文案（W8 装机文案批）：装机成功尾行给出具体启用第二步命令（装机 ≠ 启用）
-    expect(io.out.join('\n')).toContain('装机 ≠ 启用');
+    expect(io.out.join('\n')).toContain('安装 ≠ 启用');
     expect(io.out.join('\n')).toContain('berry plugins mount chain-pkg');
     const ledger = JSON.parse(readFileSync(join(dir, 'plugins', 'ledger.json'), 'utf8')) as { id: string }[];
     expect(ledger.map((e) => e.id)).toEqual(['chain-pkg']);
@@ -515,7 +515,7 @@ describe('plugins 写侧六动词——local fixture 真链 e2e（装机面落�
     expect(io.err.join('\n')).toContain('词法违例');
     io.err.length = 0;
     expect(await runPluginsEntry({ sub: 'mount', id: 'not-installed' }, opts)).toBe(1);
-    expect(io.err.join('\n')).toContain('未装机');
+    expect(io.err.join('\n')).toContain('未安装');
     expect(existsSync(join(dir, 'enabled.yaml'))).toBe(false); // 拒路径零落盘
   });
 
@@ -527,7 +527,7 @@ describe('plugins 写侧六动词——local fixture 真链 e2e（装机面落�
     expect(io.err.join('\n')).toContain('源前缀');
     io.err.length = 0;
     expect(await runPluginsEntry({ sub: 'update', id: 'ghost' }, opts)).toBe(1);
-    expect(io.err.join('\n')).toContain('未装机');
+    expect(io.err.join('\n')).toContain('未安装');
   });
   // npm 执行器失败档/argv 族由 plugin-install.test.ts 假 spawn 覆盖（零真网络纪律）
 });

@@ -526,7 +526,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
         });
         if (turn.braked) {
           logger.warn(
-            `goal「${goalScope.goalId}」前台预算帽已到（已用 ${turn.used}/${turn.cap ?? '∞'} 轮）——recordTurn 刹停（后续 agent_pre_step 复验拒新请求）`,
+            `goal「${goalScope.goalId}」前台预算上限已到（已用 ${turn.used}/${turn.cap ?? '∞'} 轮）——recordTurn 刹停（后续 agent_pre_step 复验拒新请求）`,
           );
         }
       },
@@ -1382,7 +1382,7 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     stack.channels.commands.register(
       'reload',
       async () => reloader.request(),
-      '重载插件装载态（会话运行中自动排队，run 收场后执行）',
+      '重载插件挂载态（会话运行中自动排队，当前回复结束后执行）',
     );
 
     // —— /plugins TUI 命令面（03 §5.8 三面同源之 TUI 面——task #88 笔二）：
@@ -1493,18 +1493,18 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     const modeSource =
       options.sandboxModeSource ??
       (options.sandboxMode !== undefined
-        ? 'CLI 旗标（逐次）'
+        ? 'CLI 参数（仅本次）'
         : settingsMode !== undefined
-          ? 'settings.json（持久缺省）'
-          : '缺省（代码常量）');
+          ? 'settings.json（保存的默认值）'
+          : '默认（代码内置）');
     const effectivePolicy: ApprovalPolicyMode = options.approvalPolicy ?? settingsPolicy ?? 'ask';
     const policySource =
       options.approvalPolicySource ??
       (options.approvalPolicy !== undefined
-        ? 'CLI --preset/旗标（逐次）'
+        ? 'CLI --preset/参数（仅本次）'
         : settingsPolicy !== undefined
-          ? 'settings.json（持久缺省）'
-          : '缺省（代码常量）');
+          ? 'settings.json（保存的默认值）'
+          : '默认（代码内置）');
     stack.channels.commands.register(
       'approval',
       async (args) => {

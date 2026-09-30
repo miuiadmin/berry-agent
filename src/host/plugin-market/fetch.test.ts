@@ -292,7 +292,7 @@ describe('git 腿——git 执行腿同族复用（假 spawn 零真网络）', (
   it('catalog 双路径全缺席 = 拒 + tmp 自清（失败位不残留克隆目录）', async () => {
     const { spawn } = gitFakeSpawn({ headCommit: 'abc0002', writeCatalog: () => undefined });
     const face = createMarketFetchFace({ spawn, tmpRoot: testRoot });
-    await expect(face.fetchGitCatalog('https://example.com/empty.git')).rejects.toThrow(/catalog 缺席/);
+    await expect(face.fetchGitCatalog('https://example.com/empty.git')).rejects.toThrow(/没有 catalog 文件/);
     // tmp 自清锁：testRoot 下无克隆目录残留
     expect(readdirSync(testRoot).some((n) => n.startsWith('berry-market-clone-'))).toBe(false);
   });
