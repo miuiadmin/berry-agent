@@ -257,7 +257,7 @@ describe('写动词成功尾三面（自动链/审计/回执）', () => {
     // 行不在场的 core: 卸下 → 指路 toggle（内置态不可删）
     const again = await runPluginsCommand(['unmount', 'core:demo'], rig_.deps);
     expect(again.ok).toBe(false);
-    expect(again.text).toContain('内置全启无启用行可删');
+    expect(again.text).toContain('内置全启、无启用行可删');
     expect(again.text).toContain('toggle');
   });
 });

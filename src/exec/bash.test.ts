@@ -335,7 +335,7 @@ describe('createBashTool 升权面（allowed-once 语义）', () => {
       currentMode: () => 'read-only',
     }).execute(escalationArgs, CTX);
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain('升权审批面缺席');
+    expect(textOf(result)).toContain('升权审批不可用');
   });
 
   it('非严格变宽（同档请求）→ SANDBOX_ESCALATION_INVALID 前置拒', async () => {

@@ -473,7 +473,7 @@ describe('plugin_mount（前置两查 + 撞名拒 + 指路 /reload）', () => {
     try {
       const bad = await run(toolOf(rig_.tools, 'plugin_mount'), { id: 'Bad_Id' });
       expect(bad.isError).toBe(true);
-      expect(textOf(bad)).toContain('词法违例');
+      expect(textOf(bad)).toContain('格式不对');
       const ghost = await run(toolOf(rig_.tools, 'plugin_mount'), { id: 'user-ghost' });
       expect(ghost.isError).toBe(true);
       expect(textOf(ghost)).toContain('未安装');

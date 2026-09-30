@@ -210,7 +210,7 @@ describe('enabled.yaml 行编辑', () => {
     let audits = 0;
     const result = toggleRow('/data', 'Bad_Id', fs, () => void audits++);
     expect(result.ok).toBe(false); // 修前红：坏词法 id 写盘成功 ok:true
-    if (!result.ok) expect(result.message).toContain('词法');
+    if (!result.ok) expect(result.message).toContain('格式不对');
     expect(fs.read('/data/enabled.yaml')).toBeNull(); // 修前红：坏行已落盘
     expect(audits).toBe(0); // 拒路径无变更不造账（修前红：成功尾已落 plugin/toggled）
     // brick 链判据反证（本闸防的终局）：坏行一旦落盘，boot 读侧同判据 fail-loud 拒启
@@ -474,7 +474,7 @@ describe('setRowConfig 行 config 整值替换（ix-3b/c 表单腿写盘点）',
     const fs = memFs();
     const result = setRowConfig(dir, 'core:Bad_Id', { k: 1 }, fs);
     expect(result.ok).toBe(false); // 修前红：坏词法 id 过 core: 前缀闸即写盘 ok:true
-    if (!result.ok) expect(result.message).toContain('词法');
+    if (!result.ok) expect(result.message).toContain('格式不对');
     expect(fs.read(`${dir}/enabled.yaml`)).toBeNull(); // 修前红：坏行已落盘——brick 下次 boot 读侧
     // 好词法回归锚：合法 core: 后段照常造 overlay 行（本闸不伤表单预编主路）
     const good = memFs();

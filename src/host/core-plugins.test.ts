@@ -912,13 +912,13 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       expect(stderrText).toContain('"module":"core:goal"'); // logger 腿（leveled 可辖）
       expect(stderrText).toContain('预算停靠'); // warn sink 位（停靠三动作尾 warn ×2）
       expect(stderrText).toContain('自动唤醒提交失败'); // 直写①
-      expect(stderrText).toContain('连续后台唤醒超帽'); // 直写②
+      expect(stderrText).toContain('连续后台唤醒达上限'); // 直写②
       // notify 腿：归因 'goal' 的三文各自投递
       expect(notified.some(([source, message]) => source === 'goal' && message.includes('预算停靠'))).toBe(true);
       expect(notified.some(([source, message]) => source === 'goal' && message.includes('自动唤醒提交失败'))).toBe(
         true,
       );
-      expect(notified.some(([source, message]) => source === 'goal' && message.includes('连续后台唤醒超帽'))).toBe(
+      expect(notified.some(([source, message]) => source === 'goal' && message.includes('连续后台唤醒达上限'))).toBe(
         true,
       );
     } finally {

@@ -127,7 +127,7 @@ describe('testkit 矩阵——坏样本必红（03 §9.5 default-export 陷阱 +
     expect(report.ok).toBe(false);
     const mount = rowOf(report, 'mount');
     expect(mount.status).toBe('fail');
-    expect(mount.detail).toContain('逃逸');
+    expect(mount.detail).toContain('越出插件包根');
   });
 
   it('缺 package.json（非插件目录）→ install 行红（构造即红收面）', async () => {

@@ -89,7 +89,7 @@ describe('RewindPicker 呈现（list 段）', () => {
     expect(readRow(grid, 1, 72)).toContain('m-second…');
     expect(readRow(grid, 1, 72)).toContain('修改前快照');
     expect(readRow(grid, 2, 72)).toContain('m-first0…');
-    expect(readRow(grid, 3, 72)).toContain('回退保底拍');
+    expect(readRow(grid, 3, 72)).toContain('回退前快照');
     expect(readRow(grid, grid.rows - 1, 72)).toContain('enter 预览');
     expect(readRow(grid, grid.rows - 1, 72)).toContain('打字过滤');
   });
@@ -118,15 +118,14 @@ describe('RewindPicker 呈现（list 段）', () => {
 describe('RewindPicker 打字过滤', () => {
   it('打字即时过滤（CJK 多字符 chunk 全串入词）+ backspace 逐字符删词回全量', () => {
     const { picker } = makePicker();
-    picker.handleEvent(t('保底'));
+    picker.handleEvent(t('退前'));
     let grid = paint(picker);
     expect(readRow(grid, 0, 72)).toContain('1 个');
-    expect(readRow(grid, 1, 72)).toContain('回退保底拍');
-    picker.handleEvent(k('backspace')); // 「保底」→「保」（UTF-16 单位删——'保' 仍匹配）
+    expect(readRow(grid, 1, 72)).toContain('回退前快照');
+    picker.handleEvent(k('backspace')); // 「退前」→「退」（UTF-16 单位删——'退' 三条共有即回全量）
     grid = paint(picker);
-    expect(readRow(grid, 0, 72)).toContain('1 个');
-    expect(readRow(grid, 1, 72)).toContain('回退保底拍');
-    picker.handleEvent(k('backspace')); // 「保」→ 空 = 回全量
+    expect(readRow(grid, 0, 72)).toContain('3 个');
+    picker.handleEvent(k('backspace')); // 「退」→ 空（全量保持）
     grid = paint(picker);
     expect(readRow(grid, 0, 72)).toContain('3 个');
   });
@@ -348,7 +347,7 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
 
   it('过滤态 Enter：预演锚定 = 过滤后选中项（filtered() 集锚定——非全量首项）', async () => {
     const { picker, onPreview } = makePicker();
-    for (const ch of '保底') picker.handleEvent(t(ch)); // 过滤到 m-backup0003 一条
+    for (const ch of '退前') picker.handleEvent(t(ch)); // 过滤到 m-backup0003 一条
     picker.handleEvent(k('enter')); // 进 preview——锚定必须取过滤集选中项
     expect(onPreview).toHaveBeenCalledWith('m-backup0003'); // 修前若锚定回退全量集则收 m-second0001
     await Promise.resolve();
@@ -372,15 +371,16 @@ describe('RewindPicker 退出族与闭锁', () => {
 
   it('q 退出捷键与过滤面共存（有过滤词时 q 入词——无匹配诚实零条不退出）', () => {
     const { picker, onExit } = makePicker();
-    picker.handleEvent(t('保'));
+    picker.handleEvent(t('退前'));
     let grid = paint(picker);
     expect(readRow(grid, 0, 72)).toContain('1 个');
-    picker.handleEvent(t('q')); // 有过滤词 → 入词（'保q' 无匹配 = 诚实零条）
+    picker.handleEvent(t('q')); // 有过滤词 → 入词（'退前q' 无匹配 = 诚实零条）
     expect(onExit).not.toHaveBeenCalled();
     grid = paint(picker);
     expect(readRow(grid, 0, 72)).toContain('0 个');
     picker.handleEvent(k('backspace'));
     picker.handleEvent(k('backspace'));
+    picker.handleEvent(k('backspace')); // '退前q' 三字符逐字删尽
     picker.handleEvent(t('q')); // 无过滤词 → 退出
     expect(onExit).toHaveBeenCalledTimes(1);
     void grid;

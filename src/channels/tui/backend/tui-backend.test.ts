@@ -3544,7 +3544,7 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     // 修前：inputAsk 直覆——'? 第二问' 在屏、p1 永悬（无收场路也无人应答）
     expect(io.bytes).toContain('? 第一问');
     expect(io.bytes).not.toContain('? 第二问'); // 排队问不上屏
-    expect(io.bytes).toContain('后面还有 1 问排队'); // 排队数缀标
+    expect(io.bytes).toContain('后面还有 1 个提问在排队'); // 排队数缀标
     io.emitInput('甲\r'); // 队首应答
     pump();
     await expect(p1).resolves.toBe('甲');

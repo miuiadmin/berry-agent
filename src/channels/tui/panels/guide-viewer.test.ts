@@ -35,7 +35,7 @@ const DATA: GuidePanelData = {
 describe('buildGuideLines 行集构造（纯函数）', () => {
   it('版本行居首 + 各段「── 标题 ──」分隔头 + 行集 + 段间空行', () => {
     const lines = buildGuideLines(DATA);
-    expect(lines[0]).toBe('版本 version    0.2.0'); // 首行契约位（版本行先于一切段）
+    expect(lines[0]).toBe('版本    0.2.0'); // 首行契约位（版本行先于一切段）
     expect(lines[1]).toBe('');
     expect(lines[2]).toBe('── 快速上手 ──');
     expect(lines[3]).toBe('输入提问，回车提交。');
@@ -47,7 +47,7 @@ describe('buildGuideLines 行集构造（纯函数）', () => {
 
   it('空段集容受（版本行 + 空行即全集——装配位缺段形不炸）', () => {
     const lines = buildGuideLines({ version: '1.0.0', sections: [] });
-    expect(lines).toEqual(['版本 version    1.0.0', '']);
+    expect(lines).toEqual(['版本    1.0.0', '']);
   });
 });
 
@@ -64,7 +64,7 @@ describe('GuideViewer 副屏件', () => {
     const grid = new CellGrid(60, Math.max(3, viewer.measure(60)));
     viewer.render(grid, { row: 0, col: 0, width: 60, height: grid.rows });
     expect(readRow(grid, 0, 60)).toBe('◉ 快速上手 /guide');
-    expect(readRow(grid, 1, 60)).toBe('版本 version    0.2.0'); // 开屏锚顶——版本行是第一行
+    expect(readRow(grid, 1, 60)).toBe('版本    0.2.0'); // 开屏锚顶——版本行是第一行
     expect(readRow(grid, grid.rows - 1, 60)).toBe('q/esc 返回 · ↑↓/pgup/pgdn/home/end 滚动');
     expect(viewer.scrollOffset).toBe(0);
   });

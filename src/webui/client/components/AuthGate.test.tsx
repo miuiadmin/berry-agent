@@ -39,7 +39,7 @@ afterEach(() => {
 /** 取进入键（文案随 busy 态切换——两词面都收） */
 function enterButton(): HTMLButtonElement {
   return (screen.queryByRole('button', { name: '进入' }) ??
-    screen.getByRole('button', { name: '换桥中……' })) as HTMLButtonElement;
+    screen.getByRole('button', { name: '验证中……' })) as HTMLButtonElement;
 }
 
 /** token 输入框 */
@@ -74,7 +74,7 @@ describe('AuthGate 提交通路', () => {
     fireEvent.click(enterButton());
     expect(apiMock.auth).toHaveBeenCalledWith('tok-9');
     // 在飞期：文案切「换桥中……」且 disabled（重复提交不可达）
-    const busy = screen.getByRole('button', { name: '换桥中……' }) as HTMLButtonElement;
+    const busy = screen.getByRole('button', { name: '验证中……' }) as HTMLButtonElement;
     expect(busy.disabled).toBe(true);
     resolveAuth!();
   });
