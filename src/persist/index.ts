@@ -32,7 +32,7 @@ export {
   decryptSecret,
   ephemeralSecretKey,
 } from './secret-box.js';
-export { openStore, Store, sanitizeTitleText, sessionDisplayTitleOf } from './store.js';
+export { openStore, Store, sanitizeTitleText, clampTitleText, sessionDisplayTitleOf } from './store.js';
 // sessions 档案两列迁移项（05 §9 专列兑现注——v13，2026-09-21）：export-only
 // （宿主装配根 HOST_MIGRATION_TAIL 机械聚合——audit v8 / load-generations v10
 // 同形）；读路合并单源 sessionDisplayTitleOf 同批导出（八装配位消费）

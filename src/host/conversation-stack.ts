@@ -95,7 +95,7 @@ import {
 } from '../llm/index.js';
 import type { LlmRuntime, LlmService, LlmUsageEventData, Provider } from '../llm/index.js';
 import type { QueryEventsFilter, QueryEventsResult } from '../persist/index.js';
-import { sessionDisplayTitleOf } from '../persist/index.js';
+import { clampTitleText, sessionDisplayTitleOf } from '../persist/index.js';
 import type { ApprovalPolicyMode, SandboxMode, ToolPolicyDraft, ToolPolicyEntry } from '../safety/index.js';
 import { matchToolPolicy } from '../safety/index.js';
 import { deriveMessages } from '../session/index.js';
@@ -884,6 +884,22 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     usage: (sessionId) => {
       const log = manager.driverOf(sessionId)?.session ?? options.runtime.persistence.loadSession(sessionId).log;
       return Promise.resolve(foldSessionUsage(log.events()));
+    },
+    // /rename 写面注入（07 §4.1 2026-09-30 会话管理命令批）：净化+200 帽
+    // 组合单源 clampTitleText（与 CLI `sessions rename` 第七动词同源——通道
+    // 核只透传原始名，写面数据律归装配侧）；净化归空拒不落库；行在库即
+    // updateSessionTitle 直写（changes>0），零消息活体会话（createSession
+    // 零 I/O 行首事件才落库——TUI 刚开的新会话）走 stageSessionTitle 兜底
+    // （活体挂题+行即预落），两路皆 miss 才诚实拒 missing
+    renameSession: (sessionId, rawTitle) => {
+      const clamped = clampTitleText(rawTitle);
+      if (clamped === '') return Promise.resolve({ status: 'empty' } as const);
+      return Promise.resolve(
+        options.runtime.persistence.updateSessionTitle(sessionId, clamped) ||
+          options.runtime.persistence.stageSessionTitle(sessionId, clamped)
+          ? ({ status: 'ok', title: clamped } as const)
+          : ({ status: 'missing' } as const),
+      );
     },
   });
 

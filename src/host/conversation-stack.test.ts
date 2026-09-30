@@ -2728,3 +2728,38 @@ describe('provider 失败指路通道呈现面 enrich（07 §5 扩面笔——TU
     expect(providerGuidanceForMessageEvent(plain, 'm')).toBeUndefined();
   });
 });
+
+describe('/rename 写面注入（2026-09-30 人面改名批——净化+帽归装配侧；真库 updateSessionTitle 三态）', () => {
+  it('全链：dispatch 带参 → 净化落库 title 列（显式题位）→ 读路合并单源显式题优先', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    // 带参直通——核透传原始名，净化（ANSI/控制字节剥除）+帽组合在注入侧
+    const ok = await stack.channels.dispatchCommand('/rename \x1b[2J显式题\x07', session.sessionId);
+    expect(ok).toBe(true);
+    const row = stack.manager.list({}).find((r) => r.id === session.sessionId)!;
+    expect(row.title).toBe('显式题'); // 控制字节剥除后落库（显式题位——title 列）
+    expect(sessionDisplayTitleOf(row)).toBe('显式题'); // 读路合并单源：显式题优先
+    await rt.shutdown();
+  });
+
+  it('净化归空：empty 态拒不落库（行不落——零 I/O 承诺下空会话行不造）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    const ok = await stack.channels.dispatchCommand('/rename \x1b[2J\x07\u200b', session.sessionId);
+    expect(ok).toBe(true); // 命令受理成功（净化归空是写面拒——非分发失败）
+    // 零消息会话行首事件才落库——改名拒后行仍在库外（stage 路未触、不造空行）
+    expect(stack.manager.list({}).find((r) => r.id === session.sessionId)).toBeUndefined();
+    await rt.shutdown();
+  });
+
+  it('缺席 id：missing 态不 throw（updateSessionTitle changes=0 诚实拒）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const ok = await stack.channels.dispatchCommand('/rename 新名', 'no-such-id');
+    expect(ok).toBe(true);
+    expect(stack.manager.list({})).toHaveLength(0); // 未造行——裸 UPDATE 缺席即零行
+    await rt.shutdown();
+  });
+});

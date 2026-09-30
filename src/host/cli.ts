@@ -143,13 +143,14 @@ export type MarketplaceCommand =
   /** upgrade [<name@marketplace>]：catalog 对拍 + 换装分派（mp-4 真身——单件 force/全量对拍） */
   | { readonly sub: 'upgrade'; readonly id?: string };
 
-/** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/导出/重建） */
+/** sessions 子命令族（07 §5——CLI 对等律射界：列表/续接/分叉/检索/改名/导出/重建） */
 export type SessionsCommand =
   | { readonly sub: 'list' }
   | { readonly sub: 'resume'; readonly id: string }
   | { readonly sub: 'fork'; readonly id: string }
   | { readonly sub: 'search'; readonly query: string }
   | { readonly sub: 'reindex' }
+  | { readonly sub: 'rename'; readonly id: string; readonly title: string }
   | { readonly sub: 'export'; readonly id: string };
 
 /** 命令 tagged union（07 §5 命令族全量） */
@@ -646,17 +647,24 @@ function parseMarketplace(rest: readonly string[]): CliParseResult {
 function parseSessions(rest: readonly string[]): CliParseResult {
   const [head, ...tail] = rest as string[];
   if (head === undefined || head.startsWith('--')) {
-    return usageFail('sessions 须带子命令（list/resume/fork/search/export/reindex）');
+    return usageFail('sessions 须带子命令（list/resume/fork/search/rename/export/reindex）');
   }
   const zeroArg = head === 'list' || head === 'reindex';
   const oneArg = head === 'resume' || head === 'fork' || head === 'search' || head === 'export';
-  if (!zeroArg && !oneArg) {
-    return usageFail(`未知 sessions 子命令：${head}（合法：list/resume/fork/search/export/reindex）`);
+  // rename 两位参起（<id> <title...>）——title 多词裸接（argv 重拼，与 TUI
+  // /rename 同律；含空格名走 shell 引号成单词亦并回）
+  const twoArg = head === 'rename';
+  if (!zeroArg && !oneArg && !twoArg) {
+    return usageFail(`未知 sessions 子命令：${head}（合法：list/resume/fork/search/rename/export/reindex）`);
   }
   const scan = scanFlags(tail, []);
   if (scan.error) return usageFail(scan.error);
-  const usage = zeroArg ? `berry sessions ${head}` : `berry sessions ${head} <${head === 'search' ? 'query' : 'id'}>`;
-  const args = expectArity(scan.literals, zeroArg ? 0 : 1, zeroArg ? 0 : 1, usage);
+  const usage = zeroArg
+    ? `berry sessions ${head}`
+    : twoArg
+      ? 'berry sessions rename <id> <title>'
+      : `berry sessions ${head} <${head === 'search' ? 'query' : 'id'}>`;
+  const args = expectArity(scan.literals, twoArg ? 2 : zeroArg ? 0 : 1, twoArg ? Infinity : zeroArg ? 0 : 1, usage);
   if ('exitCode' in args) return args;
   if (zeroArg) return finish(scan, { kind: 'sessions', sub: { sub: head as 'list' | 'reindex' } });
   return finish(scan, {
@@ -664,7 +672,9 @@ function parseSessions(rest: readonly string[]): CliParseResult {
     sub:
       head === 'search'
         ? { sub: 'search', query: args[0] as string }
-        : { sub: head as 'resume' | 'fork' | 'export', id: args[0] as string },
+        : head === 'rename'
+          ? { sub: 'rename', id: args[0] as string, title: args.slice(1).join(' ') }
+          : { sub: head as 'resume' | 'fork' | 'export', id: args[0] as string },
   });
 }
 

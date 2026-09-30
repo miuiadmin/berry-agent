@@ -21,6 +21,7 @@ import type { MigrationSpec } from './migrations.js';
 import {
   FIRST_QUESTION_SUMMARY_MAX_CHARS,
   SESSION_ARCHIVE_MIGRATION,
+  clampTitleText,
   firstQuestionSummaryOf,
   openStore,
   prepareWal,
@@ -564,6 +565,25 @@ describe('首问快照物化（05 §9 档案列 first_question_summary——v13 
     const archived = store.getSessionRow('s-fq-s')?.firstQuestionSummary ?? '';
     expect(archived.includes('\u{fffd}')).toBe(false);
     expect(archived).toBe(summary);
+  });
+
+  it('clampTitleText 人面显式题组合（2026-09-30 人面改名批）：净化 + 200 帽硬截无尾标 + 码点对齐 + 归空判据', () => {
+    // 净化组合：ANSI 逃逸/控制字节剥除 + 空白折叠单空格 trim（与 sanitizeTitleText 同律）
+    expect(clampTitleText('\x1b[2J  甲\x07  ')).toBe('甲');
+    expect(clampTitleText('第一行\n\t第二行')).toBe('第一行 第二行');
+    // 帽下直通（恰 200 无截断）
+    expect(clampTitleText('a'.repeat(200))).toBe('a'.repeat(200));
+    // 超帽硬截 200——不加截断尾标（人给的显式名直接截；首问快照尾标形分立两消费面）
+    expect(clampTitleText('b'.repeat(253))).toBe('b'.repeat(200));
+    // 截断界码点对齐：帽位劈开代理对退一位（与 firstQuestionSummaryOf 同一
+    // clampHead 截断界——退位形 dropped=201 亦同源）
+    const text = 'a'.repeat(199) + '😀' + 'bbbbbbbb';
+    const clamped = clampTitleText(text);
+    expect(clamped).toBe('a'.repeat(199)); // 帽 200 劈开 😀 对——退一位保整对，全弃尾串
+    expect(hasLoneSurrogate(clamped)).toBe(false);
+    // 净化归空返空串（/rename 与 CLI rename 拒绝落库的判据——零宽-only 同归空）
+    expect(clampTitleText('\x1b[2J\x07\u200b')).toBe('');
+    expect(clampTitleText(' \n\t ')).toBe('');
   });
 
   it('写路物化：多行首问空白折叠单行（清单面单行承载 + 零控制字节）', () => {

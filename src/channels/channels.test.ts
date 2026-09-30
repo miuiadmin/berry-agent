@@ -637,6 +637,97 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
   });
 });
 
+describe('/rename 命令面（07 §4.1 2026-09-30 会话管理命令批——renameSession 注入在场即注册；核透传原始名、三态回执路由）', () => {
+  /**
+   * 改名注入记录 rig：calls 收核透传的 (sessionId, rawTitle)——核不懂净化
+   * （写面数据律归注入侧装配层），原始名原样透传；result 编程三态（ok 态
+   * title 字段即注入侧净化+帽后的回传名）。
+   */
+  function renameRig(result: 'ok' | 'empty' | 'missing', okTitle = '净化后新名') {
+    const calls: { sessionId: string; title: string }[] = [];
+    return {
+      calls,
+      renameSession: async (sessionId: string, title: string) => {
+        calls.push({ sessionId, title });
+        return result === 'ok' ? ({ status: 'ok', title: okTitle } as const) : ({ status: result } as const);
+      },
+    };
+  }
+
+  it('注入在场：注册 + 带参直通（argv 重拼多词名）+ ok 回执呈净化后名', async () => {
+    const rig = renameRig('ok', '新名 甲乙');
+    const s = createChannels({ renameSession: rig.renameSession });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    s.registerSession('s1');
+    await s.focus('s1');
+    expect(s.listCommands().map((c) => c.name)).toContain('rename'); // 在场即注册
+    expect(await s.dispatchCommand('/rename 新名 甲乙', 's1')).toBe(true);
+    expect(rig.calls).toEqual([{ sessionId: 's1', title: '新名 甲乙' }]); // argv 重拼——引号感知已拆
+    expect(b.notified).toEqual([{ message: '已改名：新名 甲乙', level: undefined }]); // 回执名=注入回传净化后名
+  });
+
+  it('核不懂净化：ANSI/超长原始名原样透传；empty 态 warn 拒落库回执', async () => {
+    const rig = renameRig('empty');
+    const s = createChannels({ renameSession: rig.renameSession });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    const raw = `\x1b[2J${'甲'.repeat(210)}`;
+    expect(await s.dispatchCommand(`/rename ${raw}`, 's1')).toBe(true);
+    expect(rig.calls).toEqual([{ sessionId: 's1', title: raw }]); // 原样透传——净化+帽归注入侧
+    expect(b.notified).toEqual([{ message: '新名净化后为空——不落库', level: 'warn' }]);
+  });
+
+  it('无参：input ask 主屏输入框——回答直通改名；空输入=取消不落库', async () => {
+    const rig = renameRig('ok', '回答名');
+    const s = createChannels({ renameSession: rig.renameSession });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    const first = s.dispatchCommand('/rename', 's1');
+    b.inputAsks[0]!.resolve('回答名');
+    expect(await first).toBe(true);
+    expect(rig.calls).toEqual([{ sessionId: 's1', title: '回答名' }]);
+    const second = s.dispatchCommand('/rename', 's1');
+    b.inputAsks[1]!.resolve('   '); // 全空白输入=取消（注入不触）
+    expect(await second).toBe(true);
+    expect(rig.calls).toHaveLength(1); // 未再写入
+    expect(b.notified).toEqual([
+      { message: '已改名：回答名', level: undefined },
+      { message: '已取消改名（未输入新名）', level: undefined },
+    ]);
+  });
+
+  it('missing 态（会话不存在）：诚实拒 warn notify 不静默', async () => {
+    const rig = renameRig('missing');
+    const s = createChannels({ renameSession: rig.renameSession });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/rename 新名', 's1');
+    expect(rig.calls).toEqual([{ sessionId: 's1', title: '新名' }]);
+    expect(b.notified).toEqual([{ message: '会话不存在：s1——改名未落库', level: 'warn' }]);
+  });
+
+  it('sessionId 缺席兜底 focusedId：透传位空且焦点在 s2——写面收 s2', async () => {
+    const rig = renameRig('ok');
+    const s = createChannels({ renameSession: rig.renameSession });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    s.registerSession('s2');
+    await s.focus('s2');
+    expect(await s.dispatchCommand('/rename 新名')).toBe(true); // 无 sessionId 透传
+    expect(rig.calls).toEqual([{ sessionId: 's2', title: '新名' }]); // focusedId 兜底
+  });
+
+  it('注入缺席：不注册不虚报（/rename 不在命令面，分发返 false）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(s.listCommands().map((c) => c.name)).not.toContain('rename');
+    expect(await s.dispatchCommand('/rename x')).toBe(false);
+    expect(b.notified).toEqual([]);
+  });
+});
+
 describe('/usage 命令面（07 §4.1 R7 批 10k——聚焦会话为真源；焦点空悬静默）', () => {
   const summary = {
     turns: 2,

@@ -585,3 +585,71 @@ describe('sessions export（07 §4.1 命令面增补批 C2——CLI 对等位）
     expect(existsSync(join(dataDir, 'exports'))).toBe(false); // 拒在落盘前——不造 exports 目录
   });
 });
+
+describe('sessions rename（2026-09-30 人面改名批——CLI 第七动词；净化+200 帽与 TUI /rename 同一 clampTitleText 单源）', () => {
+  /** 种子后重开库读 title 列（裸 SQL——写面真形态验证） */
+  async function titleOf(dbPath: string, id: string): Promise<string | null> {
+    const persistence = Persistence.open({ dbPath, migrations: HOST_MIGRATION_TAIL });
+    try {
+      return (
+        (
+          persistence.store.sqlite().prepare('SELECT title FROM sessions WHERE id = ?').get(id) as
+            { title: string | null } | undefined
+        )?.title ?? null
+      );
+    } finally {
+      await persistence.close();
+    }
+  }
+
+  it('改名成功：回执 + 库行 title 真改', async () => {
+    const dbPath = join(rigDir('sess-rn-db-'), 'sessions.db');
+    await seedSessionRows(dbPath, [
+      { id: 's-rn', title: '旧名', origin: 'conversation', created: 1_700_000_000_000, updated: 2 },
+    ]);
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'rename', id: 's-rn', title: '新名' },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    expect(cap.out.join('\n')).toContain('已改名：s-rn → 新名');
+    expect(await titleOf(dbPath, 's-rn')).toBe('新名'); // 库行真改
+  });
+
+  it('净化+200 帽：控制字节剥除 + 超长硬截（码点对齐——与首问快照同帽）', async () => {
+    const dbPath = join(rigDir('sess-rn-cap-db-'), 'sessions.db');
+    await seedSessionRows(dbPath, [{ id: 's-rn2', title: null, origin: 'conversation', created: 1, updated: 2 }]);
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'rename', id: 's-rn2', title: `\x1b[2J${'甲'.repeat(210)}` },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    expect(await titleOf(dbPath, 's-rn2')).toBe('甲'.repeat(200)); // ANSI 剥除 + 200 帽
+  });
+
+  it('净化归空：拒不落库退 1（库行原值不动）', async () => {
+    const dbPath = join(rigDir('sess-rn-empty-db-'), 'sessions.db');
+    await seedSessionRows(dbPath, [{ id: 's-rn3', title: '原题', origin: 'conversation', created: 1, updated: 2 }]);
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'rename', id: 's-rn3', title: '\x1b[2J\x07\u200b' },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(1);
+    expect(cap.err.join('\n')).toContain('净化后为空');
+    expect(await titleOf(dbPath, 's-rn3')).toBe('原题'); // 未落库
+  });
+
+  it('缺席 id：会话不存在干净退 1', async () => {
+    const dbPath = join(rigDir('sess-rn-miss-db-'), 'sessions.db');
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'rename', id: 'no-such-id', title: '新名' },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(1);
+    expect(cap.err.join('\n')).toContain('会话不存在：no-such-id');
+  });
+});

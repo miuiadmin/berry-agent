@@ -225,6 +225,27 @@ describe('透传面', () => {
     expect(p.updateSessionTitle(inWs.sessionId, '起名了')).toBe(true);
     expect(p.listSessions({ workspaceRoot: '/ws/x' })[0]!.title).toBe('起名了');
   });
+
+  it('stageSessionTitle：零消息活体挂题行即预落 + 队列旧 registration 不回写新题（2026-09-30 人面改名批竞态锁）', async () => {
+    const p = open({ dbPath: join(dir, 'stage-title.db') });
+    const log = p.createSession({ origin: 'conversation', workspaceRoot: '/ws/st' });
+    // 零持久化承诺下：未发事件行不在——updateSessionTitle misses
+    expect(p.updateSessionTitle(log.sessionId, '新题')).toBe(false);
+    // 活体在册：stage 改挂 registration + 行立即预落（新题随行）
+    expect(p.stageSessionTitle(log.sessionId, '新题')).toBe(true);
+    expect(p.store.getSessionRow(log.sessionId)?.title).toBe('新题');
+    // 竞态锁：首事件入队（attach 时 enqueue 的 registration 引用无题）后 flush
+    // ——行已在（ON CONFLICT DO NOTHING），旧 registration 不回写、新题保持
+    oneTurn(log, '首问');
+    await p.flush();
+    const row = p.store.getSessionRow(log.sessionId);
+    expect(row?.title).toBe('新题'); // flush 落首问快照不覆盖显式题位
+    expect(row?.firstQuestionSummary).toBe('首问');
+    // 不在册 id（跨进程/未知）诚实 miss + 重复 stage 幂等（行已在仍 DO NOTHING）
+    expect(p.stageSessionTitle('no-such-id', 'x')).toBe(false);
+    expect(p.stageSessionTitle(log.sessionId, '新题')).toBe(true);
+    expect(p.store.getSessionRow(log.sessionId)?.title).toBe('新题');
+  });
 });
 
 describe('首问快照物化（05 §9——/sessions 清单信息密度；v13 专列分家后锁面翻档）', () => {

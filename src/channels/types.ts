@@ -122,4 +122,21 @@ export interface ChannelsOptions<TProjection> {
    * 件 6 清账态。真源 = 聚焦会话 → 拉汇总 → 扇出后端 openUsage。
    */
   readonly usage?: (sessionId: string) => Promise<UiUsageSummary>;
+  /**
+   * 会话显式题改名注入（07 §4.1 2026-09-30 会话管理命令批 `/rename`——
+   * 注册面律同 sessions：注入在场即注册、缺席不注册不虚报）。写面净化+200
+   * 帽不属通道核（核不懂净化——呈现编排者只透传原始名，净化组合单源
+   * clampTitleText 归注入侧装配层；CLI `sessions rename` 动词同源）；
+   * 返值三态归核统一回执路由。
+   */
+  readonly renameSession?: (sessionId: string, rawTitle: string) => Promise<RenameSessionResult>;
 }
+
+/**
+ * `/rename` 改名写面结果三态（注入面 → 通道核回执路由）：
+ *  - `ok`——写入成功（title = 净化+帽后的落库名，回执呈显用）；
+ *  - `empty`——净化归空（控制字节/零宽字素剥光——拒不落库）；
+ *  - `missing`——目标会话不存在（诚实拒，不虚报成功）。
+ */
+export type RenameSessionResult =
+  { readonly status: 'ok'; readonly title: string } | { readonly status: 'empty' } | { readonly status: 'missing' };

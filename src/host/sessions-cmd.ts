@@ -2,7 +2,7 @@
  * host/sessions-cmd — `sessions` 子命令族 CLI 入口（07 §5 会话管理命令族；
  * CLI 对等律射界 02 §2.3 多会话面；批 20d）。
  *
- * 五子动词分账（开库形态两分）：
+ * 七子动词分账（开库形态两分）：
  *  - **读腿（list/search）+ 维护动词（reindex）——零装配直开库**：不开运行
  *    时、不占单活跃机标记、不装载插件（同 serve status 只读豁免族——短命
  *    查询/维护动词不是第二宿主实例）。开库走 Persistence 直开 + 宿主迁移链
@@ -19,13 +19,24 @@
  *    /export TUI 命令的 CLI 半边；markdown 拼装/落盘/回执文本与 TUI 同一
  *    命令腿单源 session-export.ts〔05 §3.4 点名 CLI 导出为 queryEvents
  *    宿主面消费者〕）。
+ *  - **rename <id> <title>——零装配直开库**（2026-09-30 人面改名批第七
+ *    动词——/rename TUI 命令的 CLI 半边；净化+200 帽单源 clampTitleText
+ *    与 TUI 注入侧同源〔05 §9 写面硬律〕，updateSessionTitle 裸写薄层——
+ *    净化责任在人面入口非存储层）。
  *
  * 退出码：0 成功（含空清单/零命中——诚实空非失败）/ 1 执行失败（会话不
- * 存在、fork 否决、装配失败）/ 2 环境态误用（resume 非 TTY——07 §5 三态）。
+ * 存在、fork 否决、装配失败、净化归空拒不落库）/ 2 环境态误用（resume
+ * 非 TTY——07 §5 三态）。
  */
 import { stdin as processStdin, stdout as processStdout, stderr as processStderr } from 'node:process';
 
-import { Persistence, resolveDataDir, sanitizeTitleText, sessionDisplayTitleOf } from '../persist/index.js';
+import {
+  Persistence,
+  clampTitleText,
+  resolveDataDir,
+  sanitizeTitleText,
+  sessionDisplayTitleOf,
+} from '../persist/index.js';
 import type { Provider } from '../llm/index.js';
 import type { SandboxMode } from '../safety/index.js';
 
@@ -82,6 +93,8 @@ export async function runSessionsEntry(sub: SessionsCommand, options: SessionsEn
       return runResume(options, sub.id);
     case 'fork':
       return runFork(options, sub.id);
+    case 'rename':
+      return runRename(options, sub.id, sub.title);
     case 'export':
       return runExport(options, sub.id);
   }
@@ -299,6 +312,38 @@ async function runFork(options: SessionsEntryOptions, id: string): Promise<numbe
     return 0;
   } finally {
     await assembly.runtime.shutdown();
+  }
+}
+
+/* ---------------- rename（CLI 第七动词——零装配直开库） ---------------- */
+
+/**
+ * rename：会话显式题改名（2026-09-30 人面改名批——/rename TUI 命令的 CLI
+ * 半边；净化+200 帽单源 clampTitleText 与 TUI 注入侧同源〔05 §9 写面硬律
+ * ——必经净化组合，两载体共享〕）。updateSessionTitle 裸写薄层（净化责任
+ * 在人面入口非存储层）；净化归空拒不落库退 1（库行原值不动）；缺席 id
+ * 干净退 1（runFork 同形文案）。
+ */
+async function runRename(options: SessionsEntryOptions, id: string, title: string): Promise<number> {
+  const out = options.writeOut ?? ((text) => processStdout.write(`${text}\n`));
+  const err = options.writeErr ?? ((text) => processStderr.write(`${text}\n`));
+  const clamped = clampTitleText(title);
+  if (clamped === '') {
+    err('新名净化后为空——不落库（控制字节/零宽字素剥光后无可见内容）');
+    return 1;
+  }
+  // 零装配直开库（openReadSide 形——短命写动词同读腿豁免族：不开运行时、
+  // 不占单活跃机标记、不装载插件；title 单列 UPDATE 非事件路径同步小写）
+  const persistence = openReadSide(options, err);
+  try {
+    if (!persistence.updateSessionTitle(id, clamped)) {
+      err(`会话不存在：${id}——用 sessions list 查在册 id`);
+      return 1;
+    }
+    out(`已改名：${id} → ${clamped}`);
+    return 0;
+  } finally {
+    await persistence.close();
   }
 }
 

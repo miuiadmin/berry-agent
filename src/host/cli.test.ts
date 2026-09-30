@@ -524,11 +524,22 @@ describe('sessions 子命令族', () => {
       kind: 'sessions',
       sub: { sub: 'export', id: 's-42' },
     });
+    // rename（2026-09-30 人面改名批第七动词）——两位参起，title 多词裸接
+    // argv 重拼（与 TUI /rename 同律；含空格名走 shell 引号成单词亦并回）
+    expect(expectCommand(['sessions', 'rename', 's-42', '新名'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'rename', id: 's-42', title: '新名' },
+    });
+    expect(expectCommand(['sessions', 'rename', 's-42', '新名', '多词', '接尾'])).toMatchObject({
+      kind: 'sessions',
+      sub: { sub: 'rename', id: 's-42', title: '新名 多词 接尾' },
+    });
   });
 
   it('缺参/未知子命令退 2', () => {
     expectUsage(['sessions', 'resume'], '位置参数数目不符');
     expectUsage(['sessions', 'export'], '位置参数数目不符'); // export 同一参律（恰一 id）
+    expectUsage(['sessions', 'rename', 's-42'], '位置参数数目不符'); // rename 缺 title
     expectUsage(['sessions', 'rm', 'x'], '未知 sessions 子命令');
     expectUsage(['sessions'], '须带子命令');
   });

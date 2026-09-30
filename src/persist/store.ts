@@ -277,10 +277,24 @@ export function firstQuestionSummaryOf(event: Pick<SessionEvent, 'type' | 'data'
   if (text === undefined) return undefined;
   const collapsed = sanitizeTitleText(text);
   if (collapsed.length === 0) return undefined;
-  if (collapsed.length <= FIRST_QUESTION_SUMMARY_MAX_CHARS) return collapsed;
-  // 截断界码点对齐：帽位恰劈开 UTF-16 代理对（head 末位高代理 + 帽位低代理）
-  // 时退一位保整对——孤立高代理经 better-sqlite3 落库成 U+FFFD，内存派生值
-  // 与落库 title 不一致（清单标题呈现替换符）
+  // 帽截断共核（clampHead——与 clampTitleText 同一截断界）；首问快照独有尾标
+  // `…[truncated N chars]`（§1.2 裁腿同式）；N = 实际截掉字符数（退位形按
+  // head 真长计，非名义帽值）
+  const { head, dropped } = clampHead(collapsed);
+  return dropped === 0 ? head : head + firstQuestionMarker(dropped);
+}
+
+/**
+ * 帽截断共核（05 §9 2026-09-30 人面改名批提取）：净化后文本超
+ * FIRST_QUESTION_SUMMARY_MAX_CHARS 帽时截头，截断界劈开 UTF-16 代理对
+ * （head 末位高代理 + 帽位低代理）时退一位保整对——孤立高代理经
+ * better-sqlite3 落库成 U+FFFD，内存派生值与落库 title 不一致（清单标题
+ * 呈现替换符）。返回截头与截掉字符数（未超帽 dropped=0）——首问快照
+ * （firstQuestionSummaryOf，加尾标）与人面显式题（clampTitleText，硬截）
+ * 两消费面共享同一截断界。
+ */
+function clampHead(collapsed: string): { head: string; dropped: number } {
+  if (collapsed.length <= FIRST_QUESTION_SUMMARY_MAX_CHARS) return { head: collapsed, dropped: 0 };
   let head = collapsed.slice(0, FIRST_QUESTION_SUMMARY_MAX_CHARS);
   if (
     isHighSurrogateUnit(head.charCodeAt(head.length - 1)) &&
@@ -288,8 +302,19 @@ export function firstQuestionSummaryOf(event: Pick<SessionEvent, 'type' | 'data'
   ) {
     head = head.slice(0, -1);
   }
-  // 尾标 N = 实际截掉字符数（退位形 head 少一位——按 head 真长计，非名义帽值）
-  return head + firstQuestionMarker(collapsed.length - head.length);
+  return { head, dropped: collapsed.length - head.length };
+}
+
+/**
+ * 人面显式题净化+帽组合单源（05 §9 2026-09-30 人面改名批——/rename 通道
+ * 命令与 CLI `sessions rename` 第七动词两载体共享）：sanitizeTitleText 净化
+ * （ANSI 逃逸序列/非空白控制字节/零宽字素剥除 + 空白折叠单空格去首尾——
+ * TUI grid 零控制字节律）+ 200 帽码点对齐硬截（与首问快照同帽同界、不加
+ * 截断尾标——人给的显式名直接截）。净化归空返回空串（拒绝落库的判据）。
+ */
+export function clampTitleText(text: string): string {
+  const { head } = clampHead(sanitizeTitleText(text));
+  return head;
 }
 
 /** UTF-16 高代理码元判据（0xd800..0xdbff——代理对劈界的左半） */

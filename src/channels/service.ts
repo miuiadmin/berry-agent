@@ -172,6 +172,46 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
     );
   }
 
+  // /rename 注册面（07 §4.1 2026-09-30 会话管理命令批——renameSession 注入
+  // 在场即注册、缺席不注册不虚报；注册面律同 /sessions）：codex 双形态——
+  // 带参 argv 重拼直通改名、无参走 uiCore.input 主屏输入框（空输入=取消不
+  // 落库）；写面净化+200 帽不属核（核透传原始名——净化组合单源
+  // clampTitleText 归注入侧），返值三态归核统一回执路由（ok 回执新名 /
+  // empty warn 拒落库 / missing warn 诚实拒）；会话锚 = args.sessionId
+  // 透传位 ?? registry.focusedId（CLI 面命令无会话语境的兜底）
+  if (opts.renameSession !== undefined) {
+    const renameSession = opts.renameSession;
+    commands.register(
+      'rename',
+      async (args) => {
+        const sessionId = args.sessionId ?? registry.focusedId ?? undefined;
+        if (sessionId === undefined) {
+          uiCore.notify('无聚焦会话——先选定会话再改名', { level: 'warn' });
+          return;
+        }
+        let rawTitle = args.argv.join(' ').trim();
+        if (rawTitle === '') {
+          // 无参形态：input ask（codex 形——预填现名挂账批4，读现名需注入拉面）
+          const answer = await uiCore.input(sessionId, '新会话名（留空回车=取消）');
+          rawTitle = answer.trim();
+          if (rawTitle === '') {
+            uiCore.notify('已取消改名（未输入新名）');
+            return;
+          }
+        }
+        const result = await renameSession(sessionId, rawTitle);
+        if (result.status === 'ok') {
+          uiCore.notify(`已改名：${result.title}`);
+        } else if (result.status === 'empty') {
+          uiCore.notify('新名净化后为空——不落库', { level: 'warn' });
+        } else {
+          uiCore.notify(`会话不存在：${sessionId}——改名未落库`, { level: 'warn' });
+        }
+      },
+      '会话改名（无参弹输入框；带参 /rename <新名> 直通）',
+    );
+  }
+
   // /usage 注册面（07 §4.1 R7 批 10k——usage 注入在场即注册；数据源 = 件 6
   // 同数据源但独立聚合——会话全 run 累计，非复用清账态）：真源 = 聚焦会话 →
   // 拉汇总 → 扇出后端 openUsage；焦点空悬静默返回（无汇总对象不虚报）；

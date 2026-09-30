@@ -295,6 +295,26 @@ export class Persistence {
     return this.store.updateSessionTitle(sessionId, title);
   }
 
+  /**
+   * 活体会话待落题更新（2026-09-30 人面改名批——/rename 零消息会话兜底）：
+   * createSession 零 I/O（行首事件才落库），TUI 刚开的新会话行尚不在库——
+   * updateSessionTitle 对其 misses。本面在活体 registration 在册时：①改挂
+   * 活体 registration.title（后续 enqueue 现取新值）；②registerSessionRow
+   * 立即预落行（幂等 ON CONFLICT DO NOTHING——写队列已排队的旧 registration
+   * 项 flush 落行时行已在、不回写旧题，pending 窗竞态结构性关死）。显式
+   * 改名才走此面——「createSession 零 I/O」承诺不破（无人改名的空会话行
+   * 仍不落）。不在册（跨进程/未知 id）返 false 诚实 miss。
+   */
+  stageSessionTitle(sessionId: string, title: string): boolean {
+    this.ensureOpen();
+    const registration = this.registrations.get(sessionId);
+    if (registration === undefined) return false;
+    const next = { ...registration, title };
+    this.registrations.set(sessionId, next);
+    this.store.registerSessionRow(sessionId, next);
+    return true;
+  }
+
   /** 会话列表透传（「按 cwd 取最新会话」选取面） */
   listSessions(options: { workspaceRoot?: string; limit?: number } = {}): SessionRow[] {
     this.ensureOpen();

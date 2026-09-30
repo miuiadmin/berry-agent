@@ -31,7 +31,7 @@
  * 模型凭证无关性（E16 注记同律）：纯 TUI 起跑不发请求（模型标识只是
  * 字符串，resolveModel fail-loud 推迟到 LLM 调用边界）——本锁零凭证可跑。
  *
- * 验收九面（终端态可见行判据）：
+ * 验收十面（终端态可见行判据）：
  * 1. 起跑进屏：footer 四段（cwd 短名 · 模型名 · 会话短 id · 沙箱档短词——
  *    三反馈批B 扩容；thinking 无锚/当日零耗两段缩位）与编辑器边框在场；
  * 2. 中文输入：字面中文 send-keys 后编辑器行回显在场（零模型依赖——不提交）；
@@ -48,7 +48,10 @@
  *    end 键 tmux 内层死键真缺陷——TILDE_KEYS 补 4: 'end' 已修，end 消费在环）；
  * 9. /sandbox 副屏（会话档位切换面批 F2 同构）：头行（◆ 沙箱档位 · 三档
  *    计数）与 danger 档条目行呈现 → end+enter 选定 danger → footer 行右段
- *    回执「沙箱档位：danger（即刻生效…）」+ 副屏收屏回主屏。
+ *    回执「沙箱档位：danger（即刻生效…）」+ 副屏收屏回主屏；
+ * 10. /rename 改名（2026-09-30 人面改名批）：带参直通回执行（已改名+新名）
+ *     + /sessions 切换器清单显式题呈现（零消息会话 stage 待落题路真链）
+ *     → q 收屏回主屏。
  *
  * 本件属**新验收面**：首跑绿 = 锁在；首跑红 = 抓到真缺陷（停手报告不擅修）。
  */
@@ -378,7 +381,7 @@ async function readExitCode(session: TmuxSession): Promise<string> {
   return readFileSync(session.exitFile, 'utf8');
 }
 
-/* ---------------- 验收九面 ---------------- */
+/* ---------------- 验收十面 ---------------- */
 
 describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵条款闭环）', () => {
   it.skipIf(!hasUsableTmux())(
@@ -606,6 +609,40 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         (lines) =>
           !lines.some((line) => line.includes('沙箱档位 · 3 档')) &&
           lines.some((line) => line.includes('沙箱档位：danger（即刻生效')),
+      );
+    },
+    90_000,
+  );
+
+  it.skipIf(!hasUsableTmux())(
+    '/rename 改名（2026-09-30 人面改名批）：带参直通回执行含新名 + /sessions 清单显式题呈现 → q 收屏',
+    async () => {
+      const session = startTuiSession();
+      await waitForStartup(session.name);
+      // 带参直通（codex 形）——零消息会话（行首事件才落库）走 stage 待落题路
+      // 预落行，真 TUI 进程 + 真库全链验收
+      sendLiteral(session.name, '/rename e2e改名测试');
+      sendKey(session.name, 'Enter');
+      await waitForScreen('/rename 回执行在场（已改名 + 净化后新名）', STEP_TIMEOUT_MS, session.name, (lines) =>
+        lines.some((line) => line.includes('已改名：e2e改名测试')),
+      );
+      // /sessions 切换器清单行显式题呈现（读路合并单源——title 列直读生效）
+      sendLiteral(session.name, '/sessions');
+      sendKey(session.name, 'Enter');
+      await waitForScreen(
+        '/sessions 清单显式题呈现',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          lines.some((line) => line.includes('会话切换 · 1 会话')) &&
+          lines.some((line) => line.includes('e2e改名测试')),
+      );
+      sendKey(session.name, 'q');
+      await waitForScreen(
+        '/sessions 收屏回主屏（头行消失 + footer 复在场）',
+        ESC_DISMISS_TIMEOUT_MS,
+        session.name,
+        (lines) => !lines.some((line) => line.includes('会话切换 ·')) && lines.some(isFooterLine),
       );
     },
     90_000,
