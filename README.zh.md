@@ -5,7 +5,7 @@
 **AGI 时代的无人值守自进化 Agent——替你值守、替你长跑、越用越懂你。**
 
 对话与编码即本体。一切能力——shell、技能、浏览器、定时任务、记忆、Web 界面——
-皆以**插件**装载；官方件与社区件走同一装载面，第一方无私有车道。
+皆以**插件**形式提供；官方插件与社区插件走同一套机制，第一方无私有车道。
 
 <p>
   <a href="https://www.npmjs.com/package/berry-agent"><img alt="npm version" src="https://img.shields.io/npm/v/berry-agent?style=flat-square&color=cb3837"></a>
@@ -52,8 +52,8 @@ AGI（通用人工智能）正在逼近；它身后等着 RSI（递归自我改�
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | **为无人值守而生**     | 目标驱动的续跑——小时级 soak 实测、`kill -9` 硬杀后验证可恢复。降低人工干预，以 AI 全自动化为目标。                               |
 | **越用越懂你**         | 有界自进化闭环——会话沉淀为记忆、偏好与技能，行为随使用变好；可审计、可清除：进化只碰数据，永不碰安全判据面。                     |
-| **一切皆插件**         | shell、技能、网络取数、定时任务、目标续跑、子代理、快照、记忆、MCP、LSP、浏览器、Web 界面……16 件官方能力与你的扩展走同一装载面。 |
-| **开门制，不靠默契**   | 危险能力一律坐在显式门后——`berry doors list` 逐门可见态；装得进不隐含权限，插件装机永不默认授权。                                |
+| **一切皆插件**         | shell、技能、网络取数、定时任务、目标续跑、子代理、快照、记忆、MCP、LSP、浏览器、Web 界面……16 项官方能力与你的扩展走同一套机制。 |
+| **开门制，不靠默契**   | 危险能力一律坐在显式门后——`berry doors list` 逐门可见态；装得进不隐含权限，安装插件永不默认授权。                                |
 | **模型无关**           | Anthropic、OpenAI、Google 等统一接入面。一个环境变量换模型，零代码改动、零锁定。                                                 |
 | **会话可信**           | 每场会话落 SQLite——fork / resume / search / reindex；运行时断言「模型可见 ≡ 已记录」，看到即存下。                               |
 | **三面自动化**         | TUI 驾驶、Web UI + `/v1/*` HTTP 监督、SDK 与 MCP 编程接入——一个 Agent，各类消费者通吃。                                          |
@@ -97,7 +97,7 @@ berry-agent 自身零安装脚本（SQLite 绑定为预编译产物，无需编�
 berry                    # TUI：直进对话（按当前目录续接最新会话）
 berry run "一句话单发"     # 单次执行 → stdout
 berry sessions list      # 会话管理：list / resume / fork / rename / search / reindex / export
-berry plugins list       # 插件装机：list / check / install / uninstall / mount / unmount / toggle / update
+berry plugins list       # 插件管理：list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # 凭证管理：add / list / rm（TUI 另有 oauth 授权流）
 berry doors list         # 开门制门态只读（开/关走 TUI /doors open|close）
 berry serve --port 7860  # 常驻宿主（Web 界面 + /v1/* 程序调用面）
@@ -110,9 +110,9 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向
 与自定义 Anthropic/OpenAI 兼容网关同场配置、当场生效），`BERRY_AGENT_MODEL` 可覆盖。
 完整命令族、旗标、环境变量与 TUI 键位见[使用指南](./docs/usage.md)。
 
-## 内置插件 16 件
+## 内置插件 16 个
 
-全部随包出厂；15 件默认启用、可逐件禁用——`core:issue` 需配置后才装载
+全部随包出厂；15 个默认启用、可逐个禁用——`core:issue` 需配置后才启用
 （见[使用指南](./docs/usage.md)）。
 
 | 插件               | 带来                              |
@@ -156,9 +156,9 @@ graph TD
     CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["终端 UI"]
     WEB["Web 界面 + /v1/* HTTP"]
-    HOST["宿主——装配根<br/>开门制 · 审计时间线 · 预算护栏"]
+    HOST["宿主——组装中枢<br/>开门制 · 审计时间线 · 预算护栏"]
     LOOP["Agent 循环——模型无关 StreamFn"]
-    PLUGINS["插件面<br/>20 扩展面 · 16 件内置插件"]
+    PLUGINS["插件层<br/>20 扩展点 · 16 个内置插件"]
     STORE[("SQLite<br/>会话 · 记忆 · 审计")]
     CLI --> HOST
     TUI --> HOST

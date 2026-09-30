@@ -137,4 +137,32 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
     const { status } = runCheck(root);
     expect(status).toBe(0);
   });
+
+  // —— 查四文档腿红绿锁（2026-10-01 补翻批扩射程——修前红形：旧炮对用户面
+  //    文档的禁替词全量漏报，扩射程后夹具即红）———
+
+  it('查四文档腿：usage.md 用户面禁替词 → 红（缺省）', () => {
+    const root = fixture('doc-userface-red', {
+      'docs/usage.md': '# 使用指南\n\n端口缺省 7860。\n',
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain('「缺省」');
+  });
+
+  it('查四文档腿：工程域文档不在射程 → 夹具绿（development.md 应答）', () => {
+    const root = fixture('doc-userface-scope', {
+      'docs/development.md': '# 开发\n\nSDK 应答帧说明（工程域文档）。\n',
+    });
+    const { status } = runCheck(root);
+    expect(status).toBe(0);
+  });
+
+  it('查四文档腿：链接锚段豁免 → 夹具绿（锚随目标标题走）', () => {
+    const root = fixture('doc-userface-anchor', {
+      'docs/usage.md': '# 使用指南\n\n见 [面板说明](./x.md#tui-副屏)。\n',
+    });
+    const { status } = runCheck(root);
+    expect(status).toBe(0);
+  });
 });

@@ -34,8 +34,8 @@ export const PLUGINS_SUBVERBS = ['list', 'mount', 'unmount', 'toggle', 'config']
 /** 用法说明（命令描述位 + 未知动词回执共用单源） */
 export const PLUGINS_CMD_USAGE = `/plugins list | mount <id> | unmount <id> | toggle <id> | config <id>
   list                安装态清单三分区（启用/失败/禁用——内存读取、不读磁盘）
-  mount <id>          挂载已装机插件（成功尾自动链 /reload）
-  unmount <id>        卸下（装机保留——成功尾自动链 /reload）
+  mount <id>          挂载已安装插件（成功尾自动链 /reload）
+  unmount <id>        卸下（安装保留——成功尾自动链 /reload）
   toggle <id>         禁用态翻转（成功尾自动链 /reload）
   config <id>         配置表单（configSchema 逐字段问答——secret 入凭证盒）
 （市场安装走 /marketplace 市场面板或 CLI berry marketplace <sub>；ref 形 install/uninstall/update 维持 CLI berry plugins <sub>——03 §5.8 三面同源）`;

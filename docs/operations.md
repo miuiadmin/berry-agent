@@ -12,8 +12,8 @@
 | `secret.key`          | 加密钥         | 凭证加密钥——**与主库同备份或都不备**（钥失配即旧凭证不可解）                                                                                                                                                                                                          |
 | `active.json`         | 单活跃机标记   | `{ pid, startedAt }`；启动即写，pid 死自动接管                                                                                                                                                                                                                        |
 | `enabled.yaml`        | 启用清单       | 插件启用面（见[下文](#启用清单-enabledyaml)）                                                                                                                                                                                                                         |
-| `plugins/ledger.json` | 装机账本       | 装了什么（与 enabled.yaml「要什么」两账两名对仗）                                                                                                                                                                                                                     |
-| `plugins/<id>/`       | 装机树         | 磁盘插件包体                                                                                                                                                                                                                                                          |
+| `plugins/ledger.json` | 安装账本       | 装了什么（与 enabled.yaml「要什么」两账两名对仗）                                                                                                                                                                                                                     |
+| `plugins/<id>/`       | 插件文件         | 磁盘插件包体                                                                                                                                                                                                                                                          |
 | `skills/`             | 用户技能层     | SKILL.md 目录（六位发现层第二位）                                                                                                                                                                                                                                     |
 | `agents/`             | 用户子代理层   | frontmatter 子代理定义目录（四位子代理发现层第二位）                                                                                                                                                                                                                  |
 | `tool-policy.json`    | 工具策略表     | 审批选 always 的工具+参数条目持久回写 + 用户手写 `deny` 主权硬拒条目（用户资产，非配置）；更名前的旧审批清单文件存在时自动升格读入、旧文件留置不动（机器永不写旧名）                                                                                                  |
@@ -47,9 +47,9 @@ plugins:
     opens: [...] # 可选，高危面开门授予集（默认全关）
 ```
 
-- **缺席 = 全 core: 内置态**：首启零文件零负担，官方 16 件随包出厂、15 件默认全启（`core:issue` 需行配 `config` 才装载——见[使用指南](./usage.md)）；
+- **缺席 = 全 core: 内置态**：首启零文件零负担，官方 16 个随包出厂、15 个默认全启（`core:issue` 需行配 `config` 才启用——见[使用指南](./usage.md)）；
 - **损坏 = fail-loud 拒启**：报错附修复指引；删除该文件即回全内置态；
-- 用户行与 `core:` 同名行字段级后写胜出（可禁用单个官方件或覆盖其 config）。
+- 用户行与 `core:` 同名行字段级后写胜出（可禁用单个官方插件或覆盖其 config）。
 
 ## 常驻宿主管理
 
@@ -82,10 +82,10 @@ node tools/soak.mjs --rounds 24 --drift-cap 2.5                # 收紧延迟漂
 - **kill 演练**（`--kill-exercise`）：pid+token 双换代、断点会话续接完成、durable 台账只增不减，三项全过才 PASS；
 - **daemon.log error 行**：判收面——行数 ≤ `--err-lines-cap`（默认上限 0：error 行增长即红，不再带病绿）；已知噪声源可传上限放宽；
 - **seq 无洞**：结束时逐会话校验 durable 事件 seq 从 0 起相邻差恰 1（与恢复测试的进程内不变式同源——中段丢条/序号断线由此拦，count-based 只增不减拦不住）；
-- **无人值守三腿**（`--unattended`，研究项 C4'）：① 跨 tick 会话——echo 插件注册 every:1m 巡检行，前台全静默过 5min 静默窗后自治 fire，非驱动器会话结束 ok 计数 ≥1；② 跨压缩窗——专用会话打 460KB 填充轮（判据分母 = fallbackWindowTokens 200k 常量、当前轮足额入请求故单轮过阈）至 `compaction/start` 落账 ≥1 且压缩后续接轮 ok（双达标才计）；③ 跨停靠唤醒——本轨道未启用（budget 为装配期常量、进程内不可驱动至绿终态），`dockResumeOk` 恒 null 容忍；
+- **无人值守三腿**（`--unattended`，研究项 C4'）：① 跨 tick 会话——echo 插件注册 every:1m 巡检行，前台全静默过 5min 静默窗后自治 fire，非驱动器会话结束 ok 计数 ≥1；② 跨压缩窗——专用会话打 460KB 填充轮（判据分母 = fallbackWindowTokens 200k 常量、当前轮足额入请求故单轮过阈）至 `compaction/start` 落账 ≥1 且压缩后续接轮 ok（双达标才计）；③ 跨停靠唤醒——本轨道未启用（budget 为启动定值、进程内不可驱动至绿终态），`dockResumeOk` 恒 null 容忍；
 - **延迟漂移**（`--drift-cap`，默认 3.0）：末 1/3 逐轮 dt 中位数 ÷ 首 1/3 中位数 ≤ 上限——劣化趋势（如事件积压/投影重建变慢）由此拦；kill 重启预热轮剔样本；整数轮样本 <6 恒豁免（quick 三轮天然不执法，防 nightly 假红）。
 
-预算含义：`--rss-budget-mb N` 是稳态 RSS 峰值上限，超上限退出码 1（CI nightly 防回归闸用——nightly 实接 384MB 上限，红时自动收割三件套现场并开 issue 告警）。退出码 0 = 七判据全绿（轮次 / 演练 / 预算 / error 行上限 / seq 无洞 / 无人值守三腿〔仅 `--unattended` 执法〕/ 延迟漂移〔样本足才执法〕）；1 = 任一失败。产物（每轮 jsonl + daemon.log + 临时数据目录路径）结束时打印，留存不清理。
+预算含义：`--rss-budget-mb N` 是稳态 RSS 峰值上限，超上限退出码 1（CI nightly 防回归闸用——nightly 实接 384MB 上限，红时自动收集现场产物并开 issue 告警）。退出码 0 = 七判据全绿（轮次 / 演练 / 预算 / error 行上限 / seq 无洞 / 无人值守三腿〔仅 `--unattended` 执法〕/ 延迟漂移〔样本足才执法〕）；1 = 任一失败。产物（每轮 jsonl + daemon.log + 临时数据目录路径）结束时打印，留存不清理。
 
 历史取证记录（160 轮 / 11.95h 天级长跑、判收律沿革）存于维护者私有知识域、不随仓库分发——本驱动器即该证据的可复跑轨道化，判收口径与其同源。
 
@@ -134,7 +134,7 @@ berry sessions reindex   # 全量重建即修复
 
 - `--port` 面恒回环（127.0.0.1）——远程访问需自行加 SSH 隧道，进程不绑非回环；
 - 访问令牌披露分两形：前台形（TUI `--port` / 前台 `serve`）启动 stderr **一次性**显示，丢失即重启进程重新生成；daemon 形（`serve --daemon`）token 落数据目录 `serve/daemon.log`（自动生成文件唯一披露位——事后可查、不再复现）；
-- `core:webui` 件被禁用时面仍开但 `/api/*` 404（SDK 程序调用面 `/v1/*` 不受累）。
+- `core:webui` 插件被禁用时面仍开但 `/api/*` 404（SDK 程序调用面 `/v1/*` 不受累）。
 
 ### 数据库升级降级
 
@@ -142,4 +142,4 @@ berry sessions reindex   # 全量重建即修复
 
 ## 遥测立场
 
-**默认零数据外传（零遥测）**——无使用统计、无崩溃上报。出厂网络行为 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开启 / 插件装机与更新 / upgrade 维护动词 / `/setup` 自定义渠道的模型清单拉取腿——SSRF 守卫必经）+ **TUI 交互启动一次有界只读版本检查**（只读 GET dist-tags、上行零字节、24h 节流、`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即关、headless/daemon 形零 fire——07 §8.5 第 6 条），此外零。若未来加任何回传：上线前按四段式模板公告（Why this exists / How it works / What data is collected / How to disable it）；默认值反转视为破坏性变更；disable 开关真实有效（关掉即零网络包，机器可验证）。
+**默认零数据外传（零遥测）**——无使用统计、无崩溃上报。出厂网络行为 = 凭证供给的模型调用 + 用户显式动作（fetch 工具 / `--port` 开启 / 插件安装与更新 / upgrade 维护动词 / `/setup` 自定义渠道的模型清单拉取腿——SSRF 守卫必经）+ **TUI 交互启动一次有界只读版本检查**（只读 GET dist-tags、上行零字节、24h 节流、`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即关、headless/daemon 形零 fire——07 §8.5 第 6 条），此外零。若未来加任何回传：上线前按四段式模板公告（Why this exists / How it works / What data is collected / How to disable it）；默认值反转视为破坏性变更；disable 开关真实有效（关掉即零网络包，机器可验证）。

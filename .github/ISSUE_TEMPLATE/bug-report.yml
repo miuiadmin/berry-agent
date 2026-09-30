@@ -67,7 +67,7 @@ body:
     attributes:
       label: 诊断信息（可选）
       description: >-
-        数据目录（缺省 `~/.berry-agent/`，可用 `BERRY_AGENT_DATA_DIR` 重定位）中的报错现场：崩溃类问题附
+        数据目录（默认 `~/.berry-agent/`，可用 `BERRY_AGENT_DATA_DIR` 重定位）中的报错现场：崩溃类问题附
         `crash.log` 末行；涉及插件时附 `berry plugins list` 输出与 `enabled.yaml`
         手改历史（如有）。敏感信息（令牌、路径中的用户名）请先抹除。
     validations:

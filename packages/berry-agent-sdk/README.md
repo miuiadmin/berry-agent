@@ -20,13 +20,13 @@ npm install berry-agent-sdk
 import { createSdkClient, spawnServeTransport } from 'berry-agent-sdk';
 
 const transport = spawnServeTransport({
-  // 缺省 command = process.execPath（node 直跑形）；args 由调用方知悉安装布局
+  // 默认 command = process.execPath（node 直跑形）；args 由调用方知悉安装布局
   args: ['<berry-agent 包路径>/dist/host/main.js', 'serve'],
 });
 
 const client = createSdkClient(transport);
 
-// 发起会话（sessionId 缺席即新建；messageId 缺省客户端计数器形 sdk-N）
+// 发起会话（sessionId 缺席即新建；messageId 默认客户端计数器形 sdk-N）
 const ack = await client.prompt({ content: '帮我看看这个仓库' });
 
 // 直播订阅：重放段（entries → replay-end）与直播段（event/heartbeat/ask）
@@ -51,7 +51,7 @@ const transport = httpSdkTransport({
 const client = createSdkClient(transport);
 const sessions = await client.sessions(); // 会话清单
 const first = sessions[0]!;
-const page = await client.getEntries({ sessionId: first.id }); // 断线对账（since 缺省从头）
+const page = await client.getEntries({ sessionId: first.id }); // 断线补齐（since 默认从头）
 const handle = await client.subscribe(
   { sessionId: first.id, after: 41 }, // after = 已收末条 seq（重放窗口 (after, 高水位]）
   (frame) => {
@@ -67,8 +67,8 @@ await client.close();
   `interrupt` / `decide` / `subscribe` / `close`；错误帧统一投形
   `SdkError`（`code` / `message` / `sessionId?`）。
 - `spawnServeTransport({ args, … })` / `httpSdkTransport({ socketPath | host+port, token })`
-  —— 两实装同 `SdkTransport` 三档抽象：请求档（单帧应答）、无应答档
-  （interrupt）、直播档（SSE / 线内 hello，replay-end 后建立）。
+  —— 两实装同 `SdkTransport` 三种抽象：请求形（单帧返回）、无返回形
+  （interrupt）、直播形（SSE / 线内 hello，replay-end 后建立）。
 - 类型面：`AgentEvent` / `ApprovalAskAnswer` / `SdkRequest` / `SdkWireFrame` /
   `SdkAckFrame` / `SdkEntriesFrame` / `SdkSessionSummary` / `SdkDurableEntry` /
   `SdkEventFrame` / `SdkHelloFrame` / `SdkErrorFrame` / `SDK_PROTOCOL_VERSION`。

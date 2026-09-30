@@ -3,7 +3,7 @@
  * 词汇门禁 v0（07 篇 §7.4 续件 4——2026-09-15 贡献流程批；承 07 §7.4 #3
  * 时态/词汇门禁规划的首批查项落地，从零自建）。
  *
- * 三查（词表真源 02 §5.2 禁用词表 + 07 §7.4 续件 4 查项定形 + 「公开面禁谱系暴露」用户令 2026-09-14）：
+ * 四查（词表真源 02 §5.2 禁用词表 + 07 §7.4 续件 4 查项定形 + 「公开面禁谱系暴露」用户令 2026-09-14）：
  *   1. 「应用/app」标识符位——剥离注释与字符串后查独立词与驼峰形
  *      （`\bapp\b` 族 + `enablePlugin/disablePlugin` 插件语境复合形）。
  *      剥离法天然豁免外部真值：`Google Chrome.app` 路径串、CDP 协议名
@@ -18,6 +18,10 @@
  *      opencode / Emacs / 独立词 pi / 谱系。豁免两形：`-pi`（perl 旗标）、
  *      「谱系闸」（本仓 Job 归属机制自产词——非项目谱系叙事）。
  *      知识域（设计文档/等 gitignore 面）与 AGENTS.local.md 不在管辖面。
+ *   4. 用户面禁替词（07 §4.4 禁替表）——产码字符串字面量（2026-09-30
+ *      话术批查四）+ 用户面文档腿（2026-10-01 补翻批扩射程：usage/
+ *      operations/README 六语/packages README/issue 表单——正向清单执法，
+ *      工程域文档与 skills//examples/ 模型面不在射程）。
  *
  * 测试豁免缝：CHECK_VOCAB_ROOT env 注入夹具根（守护炮自测用，07 §7.4 #10）。
  */
@@ -281,6 +285,33 @@ for (const file of docFilesAll) {
   });
 }
 
+// ── 查四文档腿：用户面文档 USERFACE 扫描（2026-10-01 补翻批扩射程——07
+// §4.4 射界含用户直读文档）。正向清单执法：README 六语 / docs/usage /
+// docs/operations / packages README / issue 表单。工程域文档
+// （development / plugin-development / architecture / CONTRIBUTING /
+// AGENTS / SECURITY / PR 模板——机制词在工程语境是术语）与 skills/ +
+// examples/（模型面指令）不在射程；锚段豁免：markdown 链接 `(#锚)` 内
+// 禁词随目标标题走——改标题必同步改锚、单改锚即断链，故锚段保留
+// verbatim（07 §4.4 既定处置，断链比旧词伤更大）──────────────────────────
+const DOC_USERFACE_FILES = docFilesAll.filter(
+  (f) =>
+    /^README(\.[a-z]{2})?\.md$/.test(f) ||
+    f === 'docs/usage.md' ||
+    f === 'docs/operations.md' ||
+    /^packages\/[^/]+\/README\.md$/.test(f) ||
+    f.startsWith('.github/ISSUE_TEMPLATE/'),
+);
+for (const file of DOC_USERFACE_FILES) {
+  const lines = readFileSync(join(ROOT, file), 'utf8').split('\n');
+  lines.forEach((l, i) => {
+    // 锚段抹除后扫（行号/列位不守恒无妨——报告仍取原行；`(...#锚)` 含
+    // 相对/绝对路径形——纯 URL 括号段无 # 不匹配）
+    const scanLine = l.replace(/\([^)#]*#[^)]*\)/g, '(…)');
+    USERFACE_RE.lastIndex = 0;
+    for (const m of scanLine.matchAll(USERFACE_RE)) report(file, i + 1, m[0], l);
+  });
+}
+
 // ── 收口：违规即 exit 1 逐条点名；净树打计数行（消费位：守护炮自测断言） ────
 if (violations.length > 0) {
   console.error(`check-vocab 红：${violations.length} 处词汇违规（词表真源 02 §5.2 + 公开面禁谱系令）`);
@@ -289,4 +320,6 @@ if (violations.length > 0) {
 }
 const codeCount = collect('src', ['.ts', '.tsx']).length;
 const docCount = docFilesAll.length;
-console.log(`check-vocab 绿：代码面 ${codeCount} 件 + 公开文档面 ${docCount} 件零词汇违规`);
+console.log(
+  `check-vocab 绿：代码面 ${codeCount} 件 + 公开文档面 ${docCount} 件（用户面文档 ${DOC_USERFACE_FILES.length} 件含查四）零词汇违规`,
+);
