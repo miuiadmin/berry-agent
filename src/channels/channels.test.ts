@@ -785,7 +785,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     await new Promise((r) => setTimeout(r, 0)); // 冲净 focus 拒绝微任务链
     expect(b.notified).toEqual([
       { message: '已续接：s2' },
-      { message: '切焦失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' },
+      { message: '切换会话失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' },
     ]);
   });
 
@@ -907,7 +907,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     await s.dispatchCommand('/sessions');
     b.sessionsOpens[0]!.onSelect('s2');
     await new Promise((r) => setTimeout(r, 0)); // 冲净 focus 拒绝微任务链（macrotask 边界排空）
-    expect(b.notified).toEqual([{ message: '切焦失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
+    expect(b.notified).toEqual([{ message: '切换会话失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
   });
 
   it('选定回调纯 focus 路（resume 缺席）focus 拒绝：折「切焦失败」notify 不成 unhandledRejection', async () => {
@@ -922,7 +922,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     await s.dispatchCommand('/sessions');
     b.sessionsOpens[0]!.onSelect('s2');
     await new Promise((r) => setTimeout(r, 0));
-    expect(b.notified).toEqual([{ message: '切焦失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
+    expect(b.notified).toEqual([{ message: '切换会话失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
   });
 
   it('选定回调 false 回执：焦点不动 + warn 诚实拒（true 才走 focus——契约对齐文本路）', async () => {

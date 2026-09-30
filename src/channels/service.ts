@@ -179,7 +179,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
             .then((ok) => {
               if (ok)
                 void registry.focus(sessionId).catch((err: unknown) => {
-                  uiCore.notify(`切焦失败：${foldErrorText(err)}`, { level: 'error' });
+                  uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' });
                 });
               else uiCore.notify(`会话不存在：${sessionId}——输入 /sessions 查看会话列表`, { level: 'warn' });
             })
@@ -191,7 +191,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         }
       } else
         void registry.focus(sessionId).catch((err: unknown) => {
-          uiCore.notify(`切焦失败：${foldErrorText(err)}`, { level: 'error' }); // 纯 focus 查看器路同防
+          uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' }); // 纯 focus 查看器路同防
         });
     };
     commands.register(
@@ -273,7 +273,7 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
           // error 回执：续接已成功但切焦失败须诚实告知，void 弃接会让 rejection
           // 逃出成 unhandledRejection 经崩溃编舞 exit(1)
           void registry.focus(id).catch((err: unknown) => {
-            uiCore.notify(`切焦失败：${foldErrorText(err)}`, { level: 'error' });
+            uiCore.notify(`切换会话失败：${foldErrorText(err)}`, { level: 'error' });
           });
           uiCore.notify(`已续接：${id}`);
         } else {
