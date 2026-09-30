@@ -76,7 +76,6 @@ type Phase =
   | {
       readonly kind: 'confirm';
       readonly req: WizardConfirmRequest;
-      yes: boolean;
       readonly resolve: (value: boolean | undefined) => void;
     }
   | {
@@ -192,7 +191,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   confirm(req: WizardConfirmRequest): Promise<boolean | undefined> {
     return new Promise((resolve) => {
       if (this.exited) return resolve(undefined);
-      this.phase = { kind: 'confirm', req, yes: req.defaultYes, resolve };
+      this.phase = { kind: 'confirm', req, resolve };
       this.requestRepaint();
     });
   }
@@ -334,14 +333,16 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
         }
       }
       if (line < end) {
-        const yesMark = phase.yes ? '[是]' : ' 是 ';
-        const noMark = phase.yes ? ' 否 ' : '[否]';
-        // enter 结算当前切换态（←/→ 可切）——尾段与括号标记同源取 phase.yes，
-        // 非 req.defaultYes（readonly 请求缺省恒不变，切后屏示会失真）
-        buffer.writeText(line, region.col, `${yesMark}/${noMark} · enter 取 ${phase.yes ? '是' : '否'}`);
+        // Y/n 大写默认形（UX 对标批 2026-09-30——[y/N] 大写默认 = CLI 层清一色
+        // 惯例；默认项大写前置 + 括注 enter 归宿；[是]/[否] 方括号与 ←/→ 切换
+        // 轨双自创形退役——enter 恒取 req.defaultYes）
+        const def = phase.req.defaultYes;
+        const yesMark = def ? 'Y' : 'y';
+        const noMark = def ? 'n' : 'N';
+        buffer.writeText(line, region.col, `${yesMark} 是 / ${noMark} 否（enter = ${def ? '是' : '否'}）`);
         line++;
       }
-      hint = 'y 是 · n 否 · ←/→ 切换 · enter 确认 · esc 退出';
+      hint = 'y 是 · n 否 · enter 取默认 · esc 退出';
     } else {
       for (const text of phase.lines) {
         if (line >= end) break;
@@ -498,14 +499,11 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       return;
     }
     if (phase.kind === 'confirm') {
+      // y/n 单键即时结算（clack/codex/Claude Code/hermes 广泛先例）；enter 恒
+      // 取缺省（req.defaultYes——箭头切换轨退役后屏示与结算同源无失真位）
       if (isPlainKey(k, 'y')) return this.settleConfirm(phase, true);
       if (isPlainKey(k, 'n')) return this.settleConfirm(phase, false);
-      if (isPlainKey(k, 'left') || isPlainKey(k, 'right')) {
-        phase.yes = isPlainKey(k, 'left');
-        this.requestRepaint();
-        return;
-      }
-      if (isPlainKey(k, 'enter')) return this.settleConfirm(phase, phase.yes);
+      if (isPlainKey(k, 'enter')) return this.settleConfirm(phase, phase.req.defaultYes);
       if (isPlainKey(k, 'escape') || isPlainKey(k, 'q')) return this.settleConfirm(phase, undefined);
       return;
     }

@@ -183,15 +183,18 @@ describe('runSetupWizard 分桶选单', () => {
     });
     await runSetupWizard(deps);
     const items = recorded.selects[0]?.items.map((item) => item.id) ?? [];
-    expect(items).toEqual(['official:anthropic', 'official:openai', 'custom:my-gw', '__new_custom__']);
-    // 官方桶 desc 位：已配置键带 ✓ + baseUrl；未配置键裸 baseUrl
-    const first = recorded.selects[0]!.items[0]!;
-    expect(first.label).toContain('✓');
-    expect(first.desc).toContain('https://api.anthropic.com');
-    expect(recorded.selects[0]!.items[1]!.label).not.toContain('✓');
+    // UX 对标批：自定义桶（+ 新建尾项）提前第一、官方桶退居其后（用户令
+    // 2026-09-30——修前红锚：修前顺序 official 在前）
+    expect(items).toEqual(['custom:my-gw', '__new_custom__', 'official:anthropic', 'official:openai']);
     // 自定义桶 desc：协议 · baseUrl · 模型数
-    expect(recorded.selects[0]!.items[2]!.desc).toContain('OpenAI 兼容');
-    expect(recorded.selects[0]!.items[2]!.desc).toContain('模型 1 个');
+    expect(recorded.selects[0]!.items[0]!.desc).toContain('OpenAI 兼容');
+    expect(recorded.selects[0]!.items[0]!.desc).toContain('模型 1 个');
+    // 官方桶：label 冠「官方 ·」标注 + desc 位 baseUrl；已配置键带 ✓、未配置裸
+    expect(recorded.selects[0]!.items[2]!.label).toContain('官方 · ');
+    expect(recorded.selects[0]!.items[2]!.label).toContain('✓');
+    expect(recorded.selects[0]!.items[2]!.desc).toContain('https://api.anthropic.com');
+    expect(recorded.selects[0]!.items[3]!.label).toContain('官方 · ');
+    expect(recorded.selects[0]!.items[3]!.label).not.toContain('✓');
   });
 
   it('currentProvider 官方桶在册 → 预选 official: 前缀形', async () => {

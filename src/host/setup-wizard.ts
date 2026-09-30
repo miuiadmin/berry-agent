@@ -5,9 +5,11 @@
  *
  * - **纯流程件（零 TUI 依赖）**：一切交互经 WizardPrompter 接口注入（接口居
  *   channels 公开面）——流程分支假 prompter 直锁测试，TUI 副屏实装同接口；
- * - **分桶选单**：官方渠道（内置目录——id/name/baseUrl 对象源 + 已配置标记）
- *   与自定义渠道（customProviders 既有列表 + 「+ 新建」）分立——v1 裸 id 平铺
- *   「选 anthropic 不知官方还是自定义」的混淆源拔除；
+ * - **分桶选单**：自定义渠道桶（customProviders 既有列表 + 「+ 新建」）在
+ *   前、官方渠道桶（内置目录——id/name/baseUrl 对象源 + 已配置标记 + 「官方 ·」
+ *   标注）在后分立（UX 对标批 2026-09-30——用户令自定义第一；参考集 8/8 官方
+ *   在前无先例、官方标注先例 CodePilot/opencode）——v1 裸 id 平铺「选
+ *   anthropic 不知官方还是自定义」的混淆源拔除；
  * - **自定义渠道腿**（六步表单）：渠道 id（slug 规约 + 保留字/撞名校验）→
  *   协议二选（wire format 与渠道正交——Anthropic 兼容/OpenAI 兼容）→
  *   Base URL → API key → 模型清单（端点拉取〔C-2 件供数〕/手填兜底）→
@@ -201,7 +203,9 @@ export async function runSetupWizard(deps: SetupWizardDeps): Promise<void> {
     const isCurrent = deps.currentProvider === info.id; // （当前）标记——重入光标位之外的可视锚
     return {
       id: `${OFFICIAL_PREFIX}${info.id}`,
-      label: `${info.name}${configured ? ' ✓' : ''}${isCurrent ? '（当前）' : ''}`,
+      // 「官方 ·」标注（UX 对标批——官方渠道辨识位；自定义桶在前后排语境
+      // 下官方桶各行点名官方，CodePilot 分组标题先例的行内形）
+      label: `官方 · ${info.name}${configured ? ' ✓' : ''}${isCurrent ? '（当前）' : ''}`,
       desc: info.baseUrl !== undefined ? (configured ? `已配置 · ${info.baseUrl}` : info.baseUrl) : undefined,
     };
   });
@@ -225,16 +229,18 @@ export async function runSetupWizard(deps: SetupWizardDeps): Promise<void> {
       : undefined;
   const selected = await p.select({
     title: '选择模型渠道',
+    // 桶序（UX 对标批 2026-09-30）：自定义桶（既有 + 新建尾项）第一、官方桶
+    // 在后——用户令；官方桶各行带「官方 ·」标注补辨识
     items: [
-      ...officialItems,
       ...customItems,
       {
         id: NEW_CUSTOM_ID,
         label: '+ 新建自定义渠道',
         desc: 'Anthropic/OpenAI 兼容网关——Base URL + API key + 模型清单',
       },
+      ...officialItems,
     ],
-    note: '官方渠道 = 内置目录；自定义渠道 = 中转站/兼容网关（settings.json 持久）',
+    note: '自定义渠道 = 中转站/兼容网关（settings.json 持久）；官方渠道 = 内置目录',
     ...(preselectId !== undefined ? { preselect: preselectId } : {}),
   });
   if (selected === undefined) return void (await abortOut(p));

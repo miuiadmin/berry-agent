@@ -379,12 +379,12 @@ describe('confirm 相', () => {
     await expect(pending).resolves.toBe(false);
   });
 
-  it('← 切是 → 切否 + enter 回切换态', async () => {
+  it('←/→ 退役零动作（UX 对标批——箭头定向赋值自创形退役；吞键不改默认，enter 仍取缺省）', async () => {
     const { panel } = makePanel();
     const pending = panel.confirm({ title: '验证?', defaultYes: false });
     panel.handleEvent(k('left'));
     panel.handleEvent(k('enter'));
-    await expect(pending).resolves.toBe(true);
+    await expect(pending).resolves.toBe(false); // 修前红锚：← 切换态被 enter 结算为 true（箭头轨退役后恒取缺省）
   });
 
   it('esc 取消回 undefined', async () => {
@@ -420,25 +420,25 @@ describe('confirm 相', () => {
     expect(readRow(grid, 2, 72)).toContain('my-gateway');
     expect(readRow(grid, 3, 72)).toContain('sk-live-1234'); // key 全值入帧（掩码符退役同律）
     expect(readRow(grid, 4, 72)).toContain('gw-large, gw-small');
-    expect(readRow(grid, 5, 72)).toContain('[是]'); // 附呈行不挤选择行
+    expect(readRow(grid, 5, 72)).toContain('Y 是 / n 否'); // 附呈行不挤选择行（默认大写前置——UX 对标批形）
   });
 
-  it('提示行「enter 取」随切换态（与括号标记同源——非 req.defaultYes 初值）', () => {
-    // defaultYes:true 按 → 切否：括号标记 [否] + 提示行「enter 取 否」
+  it('呈现恒随 defaultYes（UX 对标批——箭头切换轨退役后屏示静态；默认项大写前置）', () => {
+    // defaultYes:true → Y 大写前置 + 括注 enter = 是；箭头键零动作不改呈现
     const a = makePanel();
     void a.panel.confirm({ title: '验证?', defaultYes: true });
     a.panel.handleEvent(k('right'));
     const gridA = paint(a.panel);
-    expect(readRow(gridA, 2, 72)).toContain(' 是 /[否]');
-    expect(readRow(gridA, 2, 72)).toContain('enter 取 否');
+    expect(readRow(gridA, 2, 72)).toContain('Y 是 / n 否');
+    expect(readRow(gridA, 2, 72)).toContain('enter = 是');
 
-    // 对称向：defaultYes:false 按 ← 切是——提示行「enter 取 是」
+    // 对称向：defaultYes:false → N 大写 + enter = 否
     const b = makePanel();
     void b.panel.confirm({ title: '验证?', defaultYes: false });
     b.panel.handleEvent(k('left'));
     const gridB = paint(b.panel);
-    expect(readRow(gridB, 2, 72)).toContain('[是]/ 否 ');
-    expect(readRow(gridB, 2, 72)).toContain('enter 取 是');
+    expect(readRow(gridB, 2, 72)).toContain('y 是 / N 否');
+    expect(readRow(gridB, 2, 72)).toContain('enter = 否');
   });
 });
 
