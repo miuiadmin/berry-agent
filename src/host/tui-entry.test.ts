@@ -1146,10 +1146,10 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
       hasUpdate: true,
       alreadyNotified: false,
     }));
-    await until(() => io.output.includes('新版本 9.9.9 可用——/upgrade 查看详情'));
+    await until(() => io.output.includes('新版本 9.9.9 可用——/update 查看详情'));
     // 提示形完整句锁（§8.5 第 6 条）：notify 一行含指路与升级动作——
-    // 用户不看 /upgrade 也知道下一步
-    expect(io.output).toContain('退出后执行 berry upgrade');
+    // 用户不看 /update 也知道下一步
+    expect(io.output).toContain('退出后执行 berry update');
     io.send('\x04');
     expect(await entry).toBe(0);
     // 落账走真实 fs 面（temp dataDir）：notifiedVersion = 提示过的那版
@@ -1188,7 +1188,7 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     expect(existsSync(join(dataDir, 'update-check.json'))).toBe(false);
   });
 
-  it('/upgrade 薄壳：检查回执 + registryFallback 注记在场（回退官方源不静默吞——CLI 腿同句单源）', async () => {
+  it('/update 薄壳：检查回执 + registryFallback 注记在场（回退官方源不静默吞——CLI 腿同句单源）', async () => {
     const dataDir = rigDir('entry-upgrade-fb-');
     const { entry, io } = await rigUpdateEntry(
       dataDir,
@@ -1196,23 +1196,23 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
       async () => ({ kind: 'ok' as const, latest: '9.9.9', registryFallback: true }),
       '0.1.0', // semver 版本——判序走「新版本」支（指引文案同锁）
     );
-    io.send('/upgrade\r');
+    io.send('/update\r');
     await until(() => io.output.includes('新版本 9.9.9'));
-    expect(io.output).toContain('退出后执行 berry upgrade'); // 指引支文案
+    expect(io.output).toContain('退出后执行 berry update'); // 指引支文案
     // 回退官方源注记跟着回执走（注记单源在 upgrade.ts 常量——两腿同源律呈报位）
     await until(() => io.output.includes('回退官方源'));
     io.send('\x04');
     expect(await entry).toBe(0);
   });
 
-  it('/upgrade 薄壳：已是最新如实说 + fallback 缺席零注记（两向锁）', async () => {
+  it('/update 薄壳：已是最新如实说 + fallback 缺席零注记（两向锁）', async () => {
     const dataDir = rigDir('entry-upgrade-ok-');
     const { entry, io } = await rigUpdateEntry(
       dataDir,
       async () => ({ kind: 'skipped' as const, reason: 'env-off' as const }),
       async () => ({ kind: 'ok' as const, latest: '0.1.0', registryFallback: false }),
     );
-    io.send('/upgrade\r');
+    io.send('/update\r');
     await until(() => io.output.includes('已是最新'));
     expect(io.output).toContain('远端 latest 0.1.0');
     expect(io.output).not.toContain('回退官方源'); // fallback 缺席不虚报注记
@@ -1220,14 +1220,14 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     expect(await entry).toBe(0);
   });
 
-  it('/upgrade 薄壳：latest 非 semver 形诚实拒——白名单门先于判序不落「已是最新」诚实谎（第十一役 D——修前红：坏串直达判序 cmp null 落已是最新支）', async () => {
+  it('/update 薄壳：latest 非 semver 形诚实拒——白名单门先于判序不落「已是最新」诚实谎（第十一役 D——修前红：坏串直达判序 cmp null 落已是最新支）', async () => {
     const dataDir = rigDir('entry-upgrade-bad-');
     const { entry, io } = await rigUpdateEntry(
       dataDir,
       async () => ({ kind: 'skipped' as const, reason: 'env-off' as const }),
       async () => ({ kind: 'ok' as const, latest: 'v99.0.0-beta+meta', registryFallback: false }),
     );
-    io.send('/upgrade\r');
+    io.send('/update\r');
     // 诚实拒支：非 semver latest 是坏应答不是「无更新」——修前 cmp null 落
     // else 支报「已是最新」（诚实谎——与启动腿 upgrade.ts TARGET_RE 白名单
     // 门同律：白名单先于判序，非 semver latest「已是最新」判据不成立）

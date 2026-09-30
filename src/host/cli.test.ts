@@ -422,11 +422,17 @@ describe('mcp / dump-config / upgrade', () => {
     }
   });
 
-  it('upgrade 只收 --debug', () => {
-    const r = parseCli(['upgrade', '--debug']);
+  it('update 主名与 upgrade 别名同收 --debug（UX 对标批——Claude Code 双别名先例）', () => {
+    // 主名 update（UX 对标批 2026-09-30：CLI 主名翻 update、upgrade 转别名——
+    // 修前红锚：`berry update` 修前报未知子命令）
+    const r = parseCli(['update', '--debug']);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.command.kind).toBe('upgrade');
-    expectUsage(['upgrade', '--port', '8080'], '未识别旗标');
+    expectUsage(['update', '--port', '8080'], '未识别旗标');
+    // 别名 upgrade 同义同行为（kind 单一——解析层别名、内部类型零分叉）
+    const r2 = parseCli(['upgrade', '--debug']);
+    expect(r2.ok).toBe(true);
+    if (r2.ok) expect(r2.command.kind).toBe('upgrade');
   });
 });
 

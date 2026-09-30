@@ -858,7 +858,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
     // —— /upgrade 薄壳（07 §8.5 第 2 条 + 第 6 条手动通道）：跑同一只读检查
     // （强制刷新缓存——恒走网络，不受 24h 节流辖）→ notify 呈报本地/远端版本
-    // → 指引退出后执行 berry upgrade——**TUI 内不自动执行**（永不热换运行中
+    // → 指引退出后执行 berry update——**TUI 内不自动执行**（永不热换运行中
     // 进程）。失败诚实呈报（手动通道非启动腿——用户敲了命令，静默反欺）。
     // 检查腿经注入面（manualUpdateCheck——测试注桩零网络，缺省产线真身）；
     // registryFallback 注记单源在 upgrade.ts（CLI 腿同句——两腿同源律呈报位）。
@@ -889,7 +889,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             const cmp = compareSemverFull(result.latest, options.version ?? '0.0.0');
             if (cmp !== null && cmp > 0) {
               backend.notify(
-                `新版本 ${result.latest} 可用（本地 ${options.version ?? '0.0.0'}）——退出后执行 berry upgrade（TUI 内不自动执行）`,
+                `新版本 ${result.latest} 可用（本地 ${options.version ?? '0.0.0'}）——退出后执行 berry update（TUI 内不自动执行）`,
                 { level: 'info' },
               );
             } else {
@@ -904,7 +904,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           } else if (result.kind === 'not-found') {
             backend.notify('版本检查失败：registry 应答 404（包不在册——registry 指错或未发布态）', { level: 'warn' });
           } else {
-            backend.notify(`版本检查失败：${result.message}——稍后再试或退出后执行 berry upgrade`, { level: 'warn' });
+            backend.notify(`版本检查失败：${result.message}——稍后再试或退出后执行 berry update`, { level: 'warn' });
           }
         })
         .catch((err: unknown) => backend.notify(`版本检查异常：${String(err)}`, { level: 'error' }));
@@ -941,7 +941,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             lines: [
               '/sessions 切会话 · /new 新建会话 · /usage 会话用量',
               '/status 状态汇总 · /themes 主题 · /marketplace 插件市场',
-              '/upgrade 检查更新 · /exit 退出（Ctrl+D 同路）',
+              '/update 检查更新 · /exit 退出（Ctrl+D 同路）',
             ],
           },
           {
@@ -954,7 +954,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           {
             title: '升级与卸载',
             lines: [
-              '升级：退出后执行 berry upgrade（或 npm i -g berry-agent）——升级不热替换，重启生效',
+              '升级：退出后执行 berry update（或 npm i -g berry-agent）——升级不热替换，重启生效',
               '卸载：npm rm -g berry-agent + 清理数据目录 ~/.berry-agent（先导出记忆）',
             ],
           },
@@ -1180,8 +1180,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         run: () => openMarketplacePanel(),
       },
       {
-        name: 'upgrade',
-        description: '检查更新（本地/远端版本——退出后执行 berry upgrade）',
+        name: 'update',
+        description: '检查更新（本地/远端版本——退出后执行 berry update）',
         run: () => runUpgradeShell(),
       },
       {
@@ -1514,8 +1514,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           ) {
             recordNotifiedVersion(createNodeUpdateCheckFs(), runtime.dataDir as string, decision.latest, Date.now());
             // 提示形完整句（§8.5 第 6 条：notify 一行 + 指引退出后执行——
-            // 用户不看 /upgrade 也知道下一步动作）
-            backend.notify(`新版本 ${decision.latest} 可用——/upgrade 查看详情；退出后执行 berry upgrade`, {
+            // 用户不看 /update 也知道下一步动作）
+            backend.notify(`新版本 ${decision.latest} 可用——/update 查看详情；退出后执行 berry update`, {
               level: 'info',
             });
           }

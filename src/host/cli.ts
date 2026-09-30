@@ -851,16 +851,20 @@ export function parseCli(argv: readonly string[]): CliParseResult {
       return parseCredentials(rest);
     case 'doors':
       return parseDoors(rest);
+    // update 主名 + upgrade 别名（UX 对标批 2026-09-30——Claude Code
+    // `command('update').alias('upgrade')` 双别名先例；应用型 agent CLI
+    // 11/13 主流 update。内部 kind 单一 'upgrade' 零分叉——解析层别名）
+    case 'update':
     case 'upgrade': {
       const scan = scanFlags(rest, [DEBUG_FLAG]);
       if (scan.error) return usageFail(scan.error);
-      const arity = expectArity(scan.literals, 0, 0, 'berry upgrade');
+      const arity = expectArity(scan.literals, 0, 0, 'berry update');
       if ('exitCode' in arity) return arity;
       return finish(scan, { kind: 'upgrade' });
     }
     default:
       return usageFail(
-        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/marketplace/sessions/credentials/doors/upgrade；无参 = TUI 主入口）`,
+        `未知子命令：${head}（合法：run/serve/mcp/dump-config/plugins/marketplace/sessions/credentials/doors/update/upgrade；无参 = TUI 主入口）`,
       );
   }
 }

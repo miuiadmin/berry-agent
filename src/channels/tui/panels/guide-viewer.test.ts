@@ -27,8 +27,8 @@ const DATA: GuidePanelData = {
   version: '0.2.0',
   sections: [
     { title: '快速上手', lines: ['输入提问，回车提交。'] },
-    { title: '核心命令', lines: ['/upgrade 检查更新', '/exit 退出'] },
-    { title: '升级与卸载', lines: ['berry upgrade 升级到最新版。'] },
+    { title: '核心命令', lines: ['/update 检查更新', '/exit 退出'] },
+    { title: '升级与卸载', lines: ['berry update 升级到最新版。'] },
   ],
 };
 
@@ -41,7 +41,7 @@ describe('buildGuideLines 行集构造（纯函数）', () => {
     expect(lines[3]).toBe('输入提问，回车提交。');
     expect(lines[4]).toBe(''); // 段间空行
     expect(lines).toContain('── 核心命令 ──');
-    expect(lines).toContain('/upgrade 检查更新');
+    expect(lines).toContain('/update 检查更新');
     expect(lines[lines.length - 1]).toBe(''); // 尾段后收空行（快照末行锚）
   });
 
