@@ -87,6 +87,11 @@ export interface ChannelsService<TProjection> {
   listCommands(): readonly CommandSpec[];
 }
 
+/** 未知异常折用户面串：Error 走 message（免 String 的「Error: 」前缀噪音），裸值保底 String */
+function foldErrorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /** 通道核工厂（投影类型 TProjection 由装配侧钉——不 import session 的边表执法） */
 export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> = {}): ChannelsService<TProjection> {
   const backends: UiBackend<TProjection>[] = [];
@@ -166,21 +171,28 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         // 同步抛 PERSIST_DATA_CORRUPT）与异步 reject 都就地折 error notify——
         // 直穿会沿 onSelect→alt-screen→engine 成 uncaughtException 杀整个 TUI；
         // false 回执（会话不在场）焦点不动 + warn 诚实拒（true 才走 focus——
-        // 与 /resume 文本路回执路由同律）
+        // 与 /resume 文本路回执路由同律）；focus 本身拒绝（拉投影失败）同折
+        // 「切焦失败」——void 弃接会让 rejection 逃出成 unhandledRejection
         try {
           void opts
             .resumeSession(sessionId)
             .then((ok) => {
-              if (ok) void registry.focus(sessionId);
+              if (ok)
+                void registry.focus(sessionId).catch((err: unknown) => {
+                  uiCore.notify(`切焦失败：${foldErrorText(err)}`, { level: 'error' });
+                });
               else uiCore.notify(`会话不存在：${sessionId}——输入 /sessions 查看会话列表`, { level: 'warn' });
             })
             .catch((err: unknown) => {
-              uiCore.notify(`续接失败：${String(err)}`, { level: 'error' });
+              uiCore.notify(`续接失败：${foldErrorText(err)}`, { level: 'error' });
             });
         } catch (err) {
-          uiCore.notify(`续接失败：${String(err)}`, { level: 'error' });
+          uiCore.notify(`续接失败：${foldErrorText(err)}`, { level: 'error' });
         }
-      } else void registry.focus(sessionId);
+      } else
+        void registry.focus(sessionId).catch((err: unknown) => {
+          uiCore.notify(`切焦失败：${foldErrorText(err)}`, { level: 'error' }); // 纯 focus 查看器路同防
+        });
     };
     commands.register(
       'sessions',
@@ -257,7 +269,12 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         }
         const resumed = await resumeSession(id);
         if (resumed) {
-          void registry.focus(id); // 切焦不打断——in-flight run 跨切焦继续
+          // 切焦不打断——in-flight run 跨切焦继续；focus 拒绝（拉投影失败）折
+          // error 回执：续接已成功但切焦失败须诚实告知，void 弃接会让 rejection
+          // 逃出成 unhandledRejection 经崩溃编舞 exit(1)
+          void registry.focus(id).catch((err: unknown) => {
+            uiCore.notify(`切焦失败：${foldErrorText(err)}`, { level: 'error' });
+          });
           uiCore.notify(`已续接：${id}`);
         } else {
           uiCore.notify(`会话不存在：${id}——输入 /sessions 查看会话列表`, { level: 'warn' });

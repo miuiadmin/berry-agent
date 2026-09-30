@@ -771,6 +771,24 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     expect(b.notified.map((n) => n.message)).toContain('已续接：s2');
   });
 
+  it('带参直通后 focus 拒绝：折「切焦失败」notify 不成 unhandledRejection', async () => {
+    // 修前红位：`void registry.focus(id)`（切焦不打断注释位）弃接——拉投影失败
+    // 沿 void 逃出成 unhandledRejection 经崩溃编舞 exit(1)；续接回执已发、切焦
+    // 失败须诚实补 error 回执（焦点位已同步翻但重画未达——用户面不静默）
+    const s = createChannels({
+      resumeSession: async () => true,
+      fetchProjection: () => Promise.reject(new Error('PERSIST_DATA_CORRUPT：会话库损坏')),
+    });
+    const b = fakeBackend('tui');
+    s.addBackend(b.backend);
+    expect(await s.dispatchCommand('/resume s2', 's1')).toBe(true);
+    await new Promise((r) => setTimeout(r, 0)); // 冲净 focus 拒绝微任务链
+    expect(b.notified).toEqual([
+      { message: '已续接：s2' },
+      { message: '切焦失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' },
+    ]);
+  });
+
   it('带参缺席 id：注入返 false 诚实拒 warn（焦点不动不虚报）', async () => {
     const rig = resumeRig(false);
     const s = createChannels({ resumeSession: rig.resumeSession });
@@ -839,7 +857,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     await s.dispatchCommand('/sessions');
     expect(() => b.sessionsOpens[0]!.onSelect('s2')).not.toThrow(); // 修前红位：同步抛直穿
     expect(calls).toEqual(['s2']);
-    expect(b.notified).toEqual([{ message: '续接失败：Error: PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
+    expect(b.notified).toEqual([{ message: '续接失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]); // Error 折 message（无 String 的 Error: 前缀）
   });
 
   it('选定回调注入拒绝态（异步 reject）：折 notify 不成 unhandledRejection', async () => {
@@ -856,7 +874,55 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     b.sessionsOpens[0]!.onSelect('s2');
     await Promise.resolve();
     await Promise.resolve();
-    expect(b.notified).toEqual([{ message: '续接失败：Error: PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
+    expect(b.notified).toEqual([{ message: '续接失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]); // Error 折 message（同上随迁）
+  });
+
+  it('选定回调抛非 Error 值（裸串）：String 保底折叠不虚标', async () => {
+    // instanceof Error 双腿之保底腿——裸值/裸串走 String()，不许因折叠改形而丢信息
+    const s = createChannels({
+      sessions: async () => list,
+      resumeSession: () => {
+        throw '读面预检裸串';
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    expect(() => b.sessionsOpens[0]!.onSelect('s2')).not.toThrow();
+    expect(b.notified).toEqual([{ message: '续接失败：读面预检裸串', level: 'error' }]);
+  });
+
+  it('选定回调 open 成功后 focus 拒绝：折「切焦失败」notify 不成 unhandledRejection', async () => {
+    // 修前红位：`if (ok) void registry.focus(...)` 弃接——focus 拒绝（拉投影失败）
+    // 沿 void 逃出成 unhandledRejection；用户面须诚实回执（续接已成功、切焦失败）
+    const s = createChannels({
+      sessions: async () => list,
+      resumeSession: async () => true,
+      fetchProjection: () => Promise.reject(new Error('PERSIST_DATA_CORRUPT：会话库损坏')),
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('s2');
+    await new Promise((r) => setTimeout(r, 0)); // 冲净 focus 拒绝微任务链（macrotask 边界排空）
+    expect(b.notified).toEqual([{ message: '切焦失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
+  });
+
+  it('选定回调纯 focus 路（resume 缺席）focus 拒绝：折「切焦失败」notify 不成 unhandledRejection', async () => {
+    // 修前红位：`else void registry.focus(...)` 同一弃接洞——查看器路同防
+    const s = createChannels({
+      sessions: async () => list,
+      fetchProjection: () => Promise.reject(new Error('PERSIST_DATA_CORRUPT：会话库损坏')),
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('s2');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(b.notified).toEqual([{ message: '切焦失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
   });
 
   it('选定回调 false 回执：焦点不动 + warn 诚实拒（true 才走 focus——契约对齐文本路）', async () => {
