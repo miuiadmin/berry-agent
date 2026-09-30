@@ -852,7 +852,7 @@ export function parseCli(argv: readonly string[]): CliParseResult {
     case 'doors':
       return parseDoors(rest);
     // update 主名 + upgrade 别名（UX 对标批 2026-09-30——Claude Code
-    // `command('update').alias('upgrade')` 双别名先例；应用型 agent CLI
+    // `command('update').alias('upgrade')` 双别名先例；agent CLI 工具面
     // 11/13 主流 update。内部 kind 单一 'upgrade' 零分叉——解析层别名）
     case 'update':
     case 'upgrade': {

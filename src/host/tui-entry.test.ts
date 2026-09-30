@@ -1018,6 +1018,27 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     expect(modelsByCall[0]).toContain('m1');
     expect(modelsByCall[1]).toContain('m2'); // 生效语义 = 下一 run 起跑
   });
+
+  it('/model 面板全链：命令开屏 + 分组头/当前 ● + ↓ enter 选定回执 + footer 模型段随切', async () => {
+    // 2026-09-30 UX 对标批 ux-4：/model 命令 → ModelPicker 副屏 → 选定回调
+    // 装配闭包（setModel + notify 回执 + footer 活写）整链锁——面板件单测
+    // （model-picker.test）锁件内键路，本测锁「命令拦截 → openModelPicker →
+    // 装配闭包」三段接线（缺一段即红：命令不拦截无开屏头锚、回调未接无回执）。
+    const { entry, io } = await rigTwoModelEntry(rigDir('entry-mp-'), rigDir('entry-ws-mp-'));
+    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门（当前模型 m1）
+    io.send('/model\r');
+    await until(() => io.output.includes('切换模型 · 2 个')); // 副屏开屏（头行锚——两模型全列）
+    // provider 分组头 + 条目全列（面板呈现两件——ctrl+p 循环宇宙同清单单源）
+    expect(io.output).toContain('── faux-key3 ──');
+    expect(io.output).toContain('faux-key3/m1');
+    expect(io.output).toContain('faux-key3/m2');
+    io.send('\x1b[B'); // ↓ 光标至 m2
+    io.send('\r'); // enter 选定——先收副屏再回调（回执 + footer 活写归装配闭包）
+    await until(() => io.output.includes('模型已切换：faux-key3/m2'));
+    await until(() => io.output.includes(' · m2 · ')); // footer 模型段随切（常驻段活写）
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
 });
 
 describe('--no-plugins 自救链入口腿（E14——坏插件现场锁死 → 安全模式起得来）', () => {

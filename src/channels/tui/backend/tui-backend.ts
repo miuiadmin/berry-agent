@@ -112,6 +112,7 @@ import { GuideViewer, type GuidePanelData } from '../panels/guide-viewer.js';
 import { SkillsViewer, type SkillListEntry } from '../panels/skills-viewer.js';
 import { ThemePicker, type ThemePickEntry } from '../panels/theme-picker.js';
 import { ThinkingPicker, type ThinkingPickEntry } from '../panels/thinking-picker.js';
+import { ModelPicker, type ModelPickEntry } from '../panels/model-picker.js';
 import { SandboxPicker, type SandboxPickEntry } from '../panels/sandbox-picker.js';
 import { DiffViewer, type DiffProjectionMessage } from '../panels/diff-viewer.js';
 import { MarketPicker, type MarketPanelActions, type MarketPanelModel } from '../panels/market-picker.js';
@@ -1078,6 +1079,35 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
       new ThinkingPicker({
+        entries,
+        current,
+        onSelect,
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
+   * 开副屏模型选择器（2026-09-30 UX 对标批 ux-4 /model——TUI 本地拦截族）：
+   * 条目 = providers × models 全列 spec 与当前模型装配位现取注入（清单单源
+   * = ctrl+p 循环同一读面——本件收纯数据行，DAG 边表 channels 不入 llm）；
+   * 打字过滤 + provider 分组头件内自持；选定先收副屏再回调（件族同序律），
+   * setModel/回执/footer 活写归装配闭包。返 boolean 同 openThemes 律。
+   */
+  openModelPicker(
+    entries: readonly ModelPickEntry[],
+    current: string | undefined,
+    onSelect: (spec: string) => void,
+  ): boolean {
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new ModelPicker({
         entries,
         current,
         onSelect,

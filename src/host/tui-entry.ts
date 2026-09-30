@@ -639,6 +639,27 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
+    // —— 模型选定与面板装配闭包（UX 对标批 ux-4 /model——TUI 本地拦截族）：
+    // 动作与 ctrl+p 循环同源（setModel + 回执 + footer 活写）——两入口一动
+    // 作；清单单源 = llmRuntime 目录现取（ctrl+p 宇宙同一读面不造第二清单）
+    const selectModel = (spec: string): void => {
+      stack.setModel(spec);
+      backend.notify(`模型已切换：${spec}（下一轮对话起生效）`, { level: 'info' });
+      backend.setFooterModel(modelShortName(spec));
+    };
+    const openModelPanel = (): void => {
+      // 条目 = providers 装配序 × model 序全列（ctrl+p onModelCycle 同构展开）
+      const entries = [];
+      for (const provider of stack.llmRuntime.models.getProviders()) {
+        for (const model of provider.getModels()) {
+          entries.push({ spec: `${provider.id}/${model.id}`, provider: provider.id, model: model.id });
+        }
+      }
+      if (!backend.openModelPicker(entries, stack.model, selectModel)) {
+        backend.notify('模型面暂不可用（副屏占用中——退出当前副屏后重试）', { level: 'warn' });
+      }
+    };
+
     const openThemesPanel = (): void => {
       // 条目 = 内置三档在前 + themes/ 目录清单字典序（装配拼接律——面板原样
       // 呈现）；自定义条目现探坏文件标 ⚠（静默探测——选定路的 warn 呈报另在
@@ -933,14 +954,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             title: '模型配置',
             lines: [
               '/setup 向导：选渠道（官方/自定义网关）→ 录 API key（明文）→ 立即生效',
-              '环境变量方式（如 export ANTHROPIC_API_KEY=sk-…）· BERRY_AGENT_MODEL=provider/model 换模型——详见 docs/usage.md「模型配置」节',
+              '/model 模型选择副屏（打字过滤 · ctrl+p 快速循环）· 环境变量方式（如 export ANTHROPIC_API_KEY=sk-…）· BERRY_AGENT_MODEL=provider/model 换模型——详见 docs/usage.md「模型配置」节',
             ],
           },
           {
             title: '核心命令',
             lines: [
               '/sessions 切会话 · /new 新建会话 · /usage 会话用量',
-              '/status 状态汇总 · /themes 主题 · /marketplace 插件市场',
+              '/status 状态汇总 · /model 切模型 · /themes 主题 · /marketplace 插件市场',
               '/update 检查更新 · /exit 退出（Ctrl+D 同路）',
             ],
           },
@@ -1155,6 +1176,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         run: () => startNewSession(),
       },
       { name: 'status', description: '状态汇总副屏（版本/模型/会话/环境变量）', run: () => openStatusPanel() },
+      {
+        name: 'model',
+        description: '模型选择副屏（↑↓ 选定/打字过滤——下一轮对话起生效；ctrl+p 快速循环）',
+        run: () => openModelPanel(),
+      },
       {
         name: 'setup',
         description: '模型配置向导（选渠道/自定义网关 → 录 key → 立即生效，可选连通验证）',
