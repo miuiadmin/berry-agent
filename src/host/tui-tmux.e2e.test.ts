@@ -31,7 +31,7 @@
  * 模型凭证无关性（E16 注记同律）：纯 TUI 起跑不发请求（模型标识只是
  * 字符串，resolveModel fail-loud 推迟到 LLM 调用边界）——本锁零凭证可跑。
  *
- * 验收十面（终端态可见行判据）：
+ * 验收十一面（终端态可见行判据）：
  * 1. 起跑进屏：footer 四段（cwd 短名 · 模型名 · 会话短 id · 沙箱档短词——
  *    三反馈批B 扩容；thinking 无锚/当日零耗两段缩位）与编辑器边框在场；
  * 2. 中文输入：字面中文 send-keys 后编辑器行回显在场（零模型依赖——不提交）；
@@ -52,6 +52,10 @@
  * 10. /rename 改名（2026-09-30 人面改名批）：带参直通回执行（已改名+新名）
  *     + /sessions 切换器清单显式题呈现（零消息会话 stage 待落题路真链）
  *     → q 收屏回主屏。
+ * 11. /resume 续接（2026-09-30 会话管理命令批批2）：跨进程预置历史行（TUI
+ *     起跑前 seed——开库不并发）→ 带参直通回执行（已续接）+ footer 短 id
+ *     翻位（focus 权威路）+ /sessions 清单历史行在场带 ● 活跃位（切焦即
+ *     活跃投影；零消息自开会话无行不现——既有两面）→ q 收屏回主屏。
  *
  * 本件属**新验收面**：首跑绿 = 锁在；首跑红 = 抓到真缺陷（停手报告不擅修）。
  */
@@ -221,10 +225,12 @@ let sessionCounter = 0;
  *   07 §8.5 第 6 条）；
  * - TERM=xterm-256color + 解除 COLORTERM（色域档裁定确定性——不赌宿主环境）。
  */
-function startTuiSession(): TmuxSession {
+function startTuiSession(dirs?: { dataDir: string; wsDir: string }): TmuxSession {
   const name = `${SOCK}-s${++sessionCounter}`;
-  const dataDir = makeTmpDir('tui-tmux-data-');
-  const wsDir = makeTmpDir('tui-tmux-ws-');
+  // 可选目录复用（/resume 腿——预置历史行须在 TUI 开库前落库，目录提前造好
+  // 由调用方 seed 后再起 TUI，避开「预置脚本开库 vs TUI 开库」同库竞窗）
+  const dataDir = dirs?.dataDir ?? makeTmpDir('tui-tmux-data-');
+  const wsDir = dirs?.wsDir ?? makeTmpDir('tui-tmux-ws-');
   const exitFile = join(makeTmpDir('tui-tmux-meta-'), 'exit-code');
   // 壳层编舞：cd 工作区 → 起真身 → 落退出码。$? 即真身退出码（env 命令的
   // 子进程退出码透传——cd 失败形 $? 为 cd 的 1，同样非 0 可判）。
@@ -248,6 +254,49 @@ function startTuiSession(): TmuxSession {
   }
   liveSessions.push(name);
   return { name, dataDir, wsDir, exitFile };
+}
+
+/**
+ * 预置在库历史行（/resume 腿 rig——2026-09-30 会话管理命令批批2）：独立
+ * 子进程（tsx 转译真源码）向同 dataDir 库直写一行零事件会话（registerSession
+ * Row 预落面——行在库即合法续接目标，与 /sessions 清单读面同源）。调用序 =
+ * TUI 起跑**前**（目录提前造好经 startTuiSession(dirs) 复用——预置开库与
+ * TUI 开库不并发，同库竞窗结构性关死）。
+ */
+function seedHistoryRow(dataDir: string, workspaceRoot: string, id: string, title: string): void {
+  const scriptPath = join(makeTmpDir('tui-tmux-seed-'), 'seed.mts');
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+  // argv 传参（repoRoot/dataDir/workspaceRoot/id/title——零模板插值零转义面；
+  // 序与脚本读取位严格对齐：argv[4]=id、argv[5]=workspaceRoot——首跑曾序倒
+  // 置把 workspaceRoot 写成行 id，回执 warn 会话不存在（库行实证归因）
+  writeFileSync(
+    scriptPath,
+    [
+      `const root = process.argv[2];`,
+      `const { Persistence } = await import(root + '/src/persist/index.js');`,
+      `const { HOST_MIGRATION_TAIL } = await import(root + '/src/host/runtime.js');`,
+      `const persistence = Persistence.open({ dataDir: process.argv[3], migrations: HOST_MIGRATION_TAIL });`,
+      `try {`,
+      `  persistence.store.registerSessionRow(process.argv[4], {`,
+      `    origin: 'conversation', parentId: undefined, seedLength: 0,`,
+      `    workspaceRoot: process.argv[5], title: process.argv[6],`,
+      `  });`,
+      `} finally {`,
+      `  await persistence.close();`,
+      `}`,
+    ].join('\n'),
+  );
+  const seeded = spawnSync(process.execPath, [TSX_CLI, scriptPath, repoRoot, dataDir, id, workspaceRoot, title], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    // 库路径梯子律（05 §6.6）：options.dataDir 不重定位库文件——
+    // resolveDatabasePath() 读 env。子进程 env 注入 BERRY_AGENT_DATA_DIR
+    // 与 TUI 进程同一梯子（首跑曾因缺此键把行误写测试钉扎库——真缺陷实证；
+    // 另 vitest setup 钉扎 DATA_DIR 到 berry-agent-test-* 临时根，不覆盖
+    // 会继承钉扎值写错库）
+    env: { ...process.env, BERRY_AGENT_DATA_DIR: dataDir },
+  });
+  expect(seeded.status, `历史行预置失败：${seeded.stderr ?? ''}`).toBe(0);
 }
 
 /** 收屏（capture-pane -p 可见行——会话亡/瞬时不可得形返回空串，调用方按缺席判） */
@@ -381,7 +430,7 @@ async function readExitCode(session: TmuxSession): Promise<string> {
   return readFileSync(session.exitFile, 'utf8');
 }
 
-/* ---------------- 验收十面 ---------------- */
+/* ---------------- 验收十一面 ---------------- */
 
 describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵条款闭环）', () => {
   it.skipIf(!hasUsableTmux())(
@@ -636,6 +685,52 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
         (lines) =>
           lines.some((line) => line.includes('会话切换 · 1 会话')) &&
           lines.some((line) => line.includes('e2e改名测试')),
+      );
+      sendKey(session.name, 'q');
+      await waitForScreen(
+        '/sessions 收屏回主屏（头行消失 + footer 复在场）',
+        ESC_DISMISS_TIMEOUT_MS,
+        session.name,
+        (lines) => !lines.some((line) => line.includes('会话切换 ·')) && lines.some(isFooterLine),
+      );
+    },
+    90_000,
+  );
+
+  it.skipIf(!hasUsableTmux())(
+    '/resume 续接（2026-09-30 会话管理命令批批2）：带参 open+focus → 回执行 + footer 短 id 翻位 + /sessions 清单 2 会话 → q 收屏',
+    async () => {
+      // 预置历史行先行（目录提前造 → seed → 再起 TUI 复用目录——预置开库与
+      // TUI 开库不并发）；e2ehist 7 字符不触发 8 位短 id 截断（footer 第三段
+      // 全显可锚）
+      const dataDir = makeTmpDir('tui-tmux-data-');
+      const wsDir = makeTmpDir('tui-tmux-ws-');
+      seedHistoryRow(dataDir, wsDir, 'e2ehist', 'e2e历史会话');
+      const session = startTuiSession({ dataDir, wsDir: wsDir });
+      await waitForStartup(session.name);
+      // 带参直通：open（驱动落位——可写活体）+ registry.focus 权威路切焦
+      sendLiteral(session.name, '/resume e2ehist');
+      sendKey(session.name, 'Enter');
+      await waitForScreen(
+        '/resume 回执行 + footer 短 id 翻位（焦点切达 e2ehist）',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          lines.some((line) => line.includes('已续接：e2ehist')) &&
+          lines.some((line) => isFooterLine(line) && line.includes('e2ehist')),
+      );
+      // /sessions 清单单会话（TUI 自开新会话零消息无行——「零消息会话清单
+      // 不可见」既有两面〔批1〕；历史行唯一在册）+ ● 活跃位（resume 切焦
+      // 后 e2ehist 即活跃——listActive 投影随焦点达）
+      sendLiteral(session.name, '/sessions');
+      sendKey(session.name, 'Enter');
+      await waitForScreen(
+        '/sessions 清单历史行在场 + 活跃位（切焦即活跃投影）',
+        STEP_TIMEOUT_MS,
+        session.name,
+        (lines) =>
+          lines.some((line) => line.includes('会话切换 · 1 会话')) &&
+          lines.some((line) => line.includes('● e2e历史会话') && line.includes('e2ehist')),
       );
       sendKey(session.name, 'q');
       await waitForScreen(

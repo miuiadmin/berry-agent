@@ -1315,7 +1315,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           // 本批注记位——消费面与 R6 两活体位同一 commandArguments 合流）。
           // label 短形 + replacement 全 id 尾空格（/rewind 位同律——label 才
           // 是截形，replacement 吃全 id）。
-          if (command === 'export' && priorArgs.length === 0) {
+          // 〔2026-09-30 会话管理命令批批2 /resume 首参扩词——与 /export 同源
+          // 合流（同 id 补全面，条件并集不复制清单逻辑）〕
+          if ((command === 'export' || command === 'resume') && priorArgs.length === 0) {
             const sessionRows = stack.manager.list({});
             return fuzzyFilter(sessionRows, (row) => row.id, query).map((row) => {
               // detail = 展示题读路合并单源（05 §9 v13 分家③——显式题优先/

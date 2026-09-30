@@ -901,6 +901,19 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           : ({ status: 'missing' } as const),
       );
     },
+    // /resume 续接注入（07 §4.1 2026-09-30 会话管理命令批批2）：manager.open
+    // 幂等续接（已 open 直达活体零成本——切焦即续接可写）。缺席判定走读面
+    // 预检（store.getSessionRow）——open 的 loadSession 缺席抛 PERSIST_
+    // DATA_CORRUPT（存储层 fail-loud 调用序 bug 语义，非本面词），不吞码折
+    // false：真数据腐坏仍上抛呈报、不误报「会话不存在」；预检缺席才诚实拒
+    // （零消息新会话行未落库——无可续接内容，拒与 /sessions 清单同口径）
+    resumeSession: (sessionId) => {
+      if (options.runtime.persistence.store.getSessionRow(sessionId) === undefined) {
+        return Promise.resolve(false);
+      }
+      manager.open(sessionId);
+      return Promise.resolve(true);
+    },
   });
 
   // ④½ 会话维视图（e-2 观测腿——SessionView 纯派生读面）：数据三窄面全结构

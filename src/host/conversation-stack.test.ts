@@ -2763,3 +2763,40 @@ describe('/rename 写面注入（2026-09-30 人面改名批——净化+帽归�
     await rt.shutdown();
   });
 });
+
+describe('/resume 续接注入（2026-09-30 会话管理命令批批2——manager.open 幂等续接；读面预检缺席拒）', () => {
+  it('真链：dispatch 带参 → open 落位驱动 + 焦点切达 + 幂等重续同一活体', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    // 造在册历史行（registerSessionRow 预落面——零事件行即合法库行；/resume
+    // 读面预检认行即续接，loadSession 空事件流装载合法）
+    rt.persistence.store.registerSessionRow('hist-1', {
+      origin: 'conversation',
+      parentId: undefined,
+      seedLength: 0,
+      workspaceRoot: rigWorkspace(),
+      title: undefined,
+    });
+    const ok = await stack.channels.dispatchCommand('/resume hist-1', session.sessionId);
+    expect(ok).toBe(true);
+    expect(stack.channels.focusedId).toBe('hist-1'); // 焦点切达（registry.focus 权威路）
+    expect(stack.manager.driverOf('hist-1')).toBeDefined(); // open 落位驱动（可写活体——submitText 机器路）
+    const first = stack.manager.driverOf('hist-1');
+    await stack.channels.dispatchCommand('/resume hist-1', session.sessionId); // 幂等重续
+    expect(stack.manager.driverOf('hist-1')).toBe(first); // 同一活体（单焦点不造第二附着）
+    await rt.shutdown();
+  });
+
+  it('缺席 id：预检拒（焦点不动、无驱动落位、不 throw）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    await stack.channels.focus(session.sessionId); // 定锚（openStartupSession 只登记不聚焦）
+    const ok = await stack.channels.dispatchCommand('/resume no-such', session.sessionId);
+    expect(ok).toBe(true); // 命令受理（缺席拒是回执态非分发失败）
+    expect(stack.channels.focusedId).toBe(session.sessionId); // 焦点不动
+    expect(stack.manager.driverOf('no-such')).toBeUndefined(); // 未落位驱动
+    await rt.shutdown();
+  });
+});

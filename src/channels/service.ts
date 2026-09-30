@@ -154,15 +154,24 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
   // openSessions（返 boolean——任一 true 即成功）；选定回调核内铸 =
   // registry.focus() 既有权威路（未注册会话 focus 视同注册——焦点即活跃
   // 声明）；全体 falsy 时 notify 降级提示（不静默）
+  // 〔2026-09-30 会话管理命令批批2选定回调升级：resumeSession 注入在场时
+  // 选定回调 = open+focus（选定即续接可写——submitText 未开会话返
+  // undefined 的「理论不达」防御位补上机器路；open 幂等使已开会话零成本
+  // 直达）；注入缺席保持纯 focus 查看器（零行为变）〕
   if (opts.sessions !== undefined) {
     const fetchSessions = opts.sessions;
+    const selectSession = (sessionId: string) => {
+      if (opts.resumeSession !== undefined)
+        void opts.resumeSession(sessionId).then(() => void registry.focus(sessionId));
+      else void registry.focus(sessionId);
+    };
     commands.register(
       'sessions',
       async () => {
         const sessions = await fetchSessions();
         let opened = false;
         for (const b of allBackends()) {
-          if (b.openSessions?.(sessions, (sessionId) => void registry.focus(sessionId)) === true) opened = true;
+          if (b.openSessions?.(sessions, selectSession) === true) opened = true;
         }
         if (!opened) {
           uiCore.notify('当前通道不支持会话切换器', { level: 'warn' });
@@ -209,6 +218,35 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
         }
       },
       '会话改名（无参弹输入框；带参 /rename <新名> 直通）',
+    );
+  }
+
+  // /resume 注册面（07 §4.1 2026-09-30 会话管理命令批批2——resumeSession 注入
+  // 在场即注册、缺席不注册不虚报；注册面律同上）：带参 = 首词即会话 id 直通
+  // 注入（true → registry.focus 权威路切焦 + 回执；false → warn 诚实拒焦点
+  // 不动）；无参 = 转发 /sessions 命令（选定回调已升级为 open+focus——选定
+  // 即续接可写；dispatch 返 false 说明 sessions 注入缺席，降级提示直达形）
+  if (opts.resumeSession !== undefined) {
+    const resumeSession = opts.resumeSession;
+    commands.register(
+      'resume',
+      async (args) => {
+        const id = args.argv[0]?.trim() ?? '';
+        if (id === '') {
+          // 无参形态：复用 /sessions 扇出（选定即续接——codex 同款清单形）
+          const handled = await commands.dispatch('/sessions');
+          if (!handled) uiCore.notify('无会话清单可开——用 /resume <id> 直达续接', { level: 'warn' });
+          return;
+        }
+        const resumed = await resumeSession(id);
+        if (resumed) {
+          void registry.focus(id); // 切焦不打断——in-flight run 跨切焦继续
+          uiCore.notify(`已续接：${id}`);
+        } else {
+          uiCore.notify(`会话不存在：${id}——用 /sessions 查在册 id`, { level: 'warn' });
+        }
+      },
+      '会话续接（无参开清单选定续接；带参 /resume <id> 直达）',
     );
   }
 

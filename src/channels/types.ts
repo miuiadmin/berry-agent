@@ -130,6 +130,16 @@ export interface ChannelsOptions<TProjection> {
    * 返值三态归核统一回执路由。
    */
   readonly renameSession?: (sessionId: string, rawTitle: string) => Promise<RenameSessionResult>;
+  /**
+   * 会话续接注入（2026-09-30 会话管理命令批批2 `/resume`——注册面律同上：
+   * 注入在场即注册、缺席不注册不虚报）。机器路 = manager.open 幂等续接
+   * （装配侧——已 open 直达活体零成本；open 的 SESSION_NOT_FOUND 折
+   * false 诚实拒，其他错误上抛）。true 时核走 registry.focus 权威路切焦
+   * （切焦不打断——in-flight run 跨切焦继续）。双消费位：`/resume` 带参
+   * 直通 + `/sessions` 选定回调升级（在场时选定即续接可写；缺席保持纯
+   * focus 查看器——零行为变）。
+   */
+  readonly resumeSession?: (sessionId: string) => Promise<boolean>;
 }
 
 /**

@@ -728,6 +728,96 @@ describe('/rename 命令面（07 §4.1 2026-09-30 会话管理命令批——ren
   });
 });
 
+describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSession 注入在场即注册；带参 open+focus 续接 / 无参复用 /sessions 扇出）', () => {
+  const list = [
+    { id: 's2', title: '乙', updatedAt: 1, active: false },
+    { id: 's1', updatedAt: 2, active: true },
+  ];
+
+  /** 续接注入记录 rig（calls 收 id；returnValue 编程 open 成败） */
+  function resumeRig(returnValue: boolean) {
+    const calls: string[] = [];
+    return {
+      calls,
+      resumeSession: async (sessionId: string) => {
+        calls.push(sessionId);
+        return returnValue;
+      },
+    };
+  }
+
+  it('注入在场：注册 + 带参直通（open → focus 切焦翻位 + 回执 notify）', async () => {
+    const rig = resumeRig(true);
+    const s = createChannels({ resumeSession: rig.resumeSession });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    s.registerSession('s1');
+    await s.focus('s1');
+    expect(s.listCommands().map((c) => c.name)).toContain('resume'); // 在场即注册
+    expect(await s.dispatchCommand('/resume s2', 's1')).toBe(true);
+    expect(rig.calls).toEqual(['s2']); // 首词即 id（带参直通）
+    expect(s.focusedId).toBe('s2'); // open 成功 → registry.focus 权威路切焦
+    expect(b.notified.map((n) => n.message)).toContain('已续接：s2');
+  });
+
+  it('带参缺席 id：注入返 false 诚实拒 warn（焦点不动不虚报）', async () => {
+    const rig = resumeRig(false);
+    const s = createChannels({ resumeSession: rig.resumeSession });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    s.registerSession('s1');
+    await s.focus('s1');
+    await s.dispatchCommand('/resume no-such', 's1');
+    expect(s.focusedId).toBe('s1'); // 切焦不达——open 失败焦点不动
+    expect(b.notified).toEqual([{ message: '会话不存在：no-such——用 /sessions 查在册 id', level: 'warn' }]);
+  });
+
+  it('无参：复用 /sessions 扇出（清单+副屏零新造）', async () => {
+    const rig = resumeRig(true);
+    const s = createChannels({ resumeSession: rig.resumeSession, sessions: async () => list });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    expect(await s.dispatchCommand('/resume', 's1')).toBe(true);
+    expect(b.sessionsOpens).toHaveLength(1); // 同一副屏扇出
+    expect(b.sessionsOpens[0]!.sessions).toEqual(list);
+  });
+
+  it('/sessions 选定回调升级：resumeSession 在场 → open+focus（选定即续接可写）', async () => {
+    const rig = resumeRig(true);
+    const s = createChannels({ resumeSession: rig.resumeSession, sessions: async () => list });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('s2');
+    expect(rig.calls).toEqual(['s2']); // 选定回调走续接路（open 被调——升级锁）
+    await Promise.resolve(); // open.then(focus) 微任务冲刷（异步真源正确等待）
+    expect(s.focusedId).toBe('s2');
+  });
+
+  it('resumeSession 缺席：/sessions 选定回调保持纯 focus（零行为变）', async () => {
+    const rig = resumeRig(true);
+    const s = createChannels({ sessions: async () => list }); // 无 resume 注入
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('s2');
+    expect(rig.calls).toEqual([]); // open 不触——查看器语义原样
+    expect(s.focusedId).toBe('s2'); // focus 仍达
+  });
+
+  it('注入缺席：不注册不虚报（/resume 不在命令面，分发返 false）', async () => {
+    const s = createChannels();
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    expect(s.listCommands().map((c) => c.name)).not.toContain('resume');
+    expect(await s.dispatchCommand('/resume s2')).toBe(false);
+    expect(b.notified).toEqual([]);
+  });
+});
+
 describe('/usage 命令面（07 §4.1 R7 批 10k——聚焦会话为真源；焦点空悬静默）', () => {
   const summary = {
     turns: 2,
