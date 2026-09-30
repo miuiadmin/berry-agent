@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 import {
   INJECT_SPECTRUM,
   PACKAGES,
+  TAG_PROPAGATION_DELAY_MS,
+  TAG_PROPAGATION_RETRIES,
   derivePkgKey,
   judgeDistTag,
   judgeDistTagCi,
@@ -1007,6 +1009,14 @@ describe('judgeDistTagCi（契约 5 CI 形只读断言）', () => {
 });
 
 describe('judgeDistTagWithPropagationRetry（契约 5 传播窗复读——07 §8.3 2026-09-19 定形注）', () => {
+  it('缺省常数锁：45 次 × 30s ≈ 22.5 分钟窗盖最坏观测 21 分钟（alpha.24 收执≠落库——07 §8.3 三次勘正）', () => {
+    // 规范-代码双源漂移防御：07 §8.3 台账改窗（勘正笔）而本常数未随迁 = 窗
+    // 越限假红复发（alpha.23 二勘笔曾遭 16cef63 陈化基线覆写丢失——常数锁
+    // 使该面漂移在测试道即红）
+    expect(TAG_PROPAGATION_RETRIES).toBe(45);
+    expect(TAG_PROPAGATION_DELAY_MS).toBe(30_000);
+    expect(TAG_PROPAGATION_RETRIES * TAG_PROPAGATION_DELAY_MS).toBeGreaterThanOrEqual(21 * 60 * 1000); // 窗 ≥ 最坏观测（21 分钟）
+  });
   /** 序列化 distTagLs：按调用序吐 tags（窗内滞后 → 传播到位）+ 即时 sleep 缝计数 */
   function propagationSeams(sequence, overrides = {}) {
     const calls = { ls: 0, sleep: 0 };

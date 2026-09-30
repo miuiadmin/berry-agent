@@ -302,12 +302,17 @@ export function judgeDistTag(tags, version, prerelease) {
 
 /**
  * 契约 5 传播窗重试缺省参数（07 §8.3 契约 5 2026-09-19 传播窗重试定形注 +
- * 2026-09-21 传播窗上界勘正 + 2026-09-30 传播窗上界二次勘正〔规范先行——
- * 私库 2ca0f27〕）：实测传播最坏观测持续抬升（alpha.2/alpha.4 两发 3-7 分钟
- * → 2026-09-21 观测 7 分钟 → 2026-09-30 alpha.23 观测 7.5-8.5 分钟），上界
- * 须盖最坏观测再留余量——15 次 ≈ 7.5 分钟窗已被再次越限，15→30（≈ 15 分钟窗）。
+ * 2026-09-21 传播窗上界勘正 + 2026-09-30 二次勘正〔私库 2ca0f27——后遭
+ * 16cef63 陈化基线覆写丢失，规范侧随三勘恢复〕+ 2026-10-01 三次勘正〔规范
+ * 先行——私库 8ca96c6〕）：实测传播最坏观测持续抬升（alpha.2/alpha.4 两发
+ * 3-7 分钟 → 2026-09-21 观测 7 分钟 → 2026-09-30 alpha.23 观测 7.5-8.5 分钟
+ * → 2026-10-01 alpha.24 实录 **21 分钟收执≠落库第三态**〔npm publish 收执
+ * ≠ 版本落库——npm 侧异步处理队列迟到，13:50:08Z 收执 → 14:11:27Z 落库〕），
+ * 上界须盖最坏观测再留余量——30→45（≈ 22.5 分钟窗）。红处置配套：半态判
+ * 定法（主档直读 versions 席判「队列在飞 vs 写面滞后」）+ rerun 两世界收敛
+ * 见 07 §8.3 三态谱。
  */
-export const TAG_PROPAGATION_RETRIES = 30;
+export const TAG_PROPAGATION_RETRIES = 45;
 export const TAG_PROPAGATION_DELAY_MS = 30_000;
 
 /**
@@ -325,7 +330,7 @@ export async function judgeDistTagWithPropagationRetry(seams, judge, logLine) {
   let verdict = judge(seams.distTagLs());
   for (let attempt = 1; !verdict.ok && attempt <= retries; attempt++) {
     logLine(
-      `[契约5] 传播窗复读（${attempt}/${retries}，隔 ${delayMs}ms——npm 写后读 replica 滞后实测 3-7 分钟，写已收执非失败）`,
+      `[契约5] 传播窗复读（${attempt}/${retries}，隔 ${delayMs}ms——npm 写后读 replica 滞后常态 3-7 分钟、最坏观测 21 分钟（alpha.24 收执≠落库），写已收执非失败）`,
     );
     await sleep(delayMs);
     verdict = judge(seams.distTagLs());
@@ -348,7 +353,7 @@ export async function judgeProbeWithPropagationRetry(seams, version, logLine) {
   let verdict = judgeRegistryProbe(seams.probe(version));
   for (let attempt = 1; verdict.state === 'absent' && attempt <= retries; attempt++) {
     logLine(
-      `[触发腿] 收口复探传播窗复读（${attempt}/${retries}，隔 ${delayMs}ms——CI publish 收执后读 replica 滞后实测 3-7 分钟，缺席可自愈）`,
+      `[触发腿] 收口复探传播窗复读（${attempt}/${retries}，隔 ${delayMs}ms——CI publish 收执后读 replica 滞后常态 3-7 分钟、最坏 21 分钟（收执≠落库），缺席可自愈）`,
     );
     await sleep(delayMs);
     verdict = judgeRegistryProbe(seams.probe(version));
@@ -885,11 +890,11 @@ export async function runRelease(seams, opts) {
     }
     // 收口：registry 复探（CI 的 publish 单点已上传）——传播窗复读形（第四读
     // 位：absent-only 复读——CI publish 收执后 replica 滞后可致 E404 假缺席，
-    // 12×30s 窗内缺席自愈；窗尽仍缺席即异常态响亮拒）
+    // 45×30s 窗内缺席自愈；窗尽仍缺席即异常态响亮拒）
     const reprobe = await judgeProbeWithPropagationRetry(seams, version, log);
     if (reprobe.state !== 'present') {
       log(
-        `[触发腿] 拒：CI 绿但 registry 复探非在场（${reprobe.state === 'absent' ? 'E404 缺席' : reprobe.reason}）——异常态，人工核 CI 日志与 registry`,
+        `[触发腿] 拒：CI 绿但 registry 复探非在场（${reprobe.state === 'absent' ? 'E404 缺席' : reprobe.reason}）——异常态，人工核 CI 日志与 registry；处置见 07 §8.3 三态谱：主档直读 versions 席（缺席 = 收执≠落库队列在飞——等待或 rerun 两世界收敛；席在场 = 写面滞后——本机收口）`,
       );
       return { code: 1, report };
     }
@@ -929,7 +934,9 @@ export async function runRelease(seams, opts) {
     // 契约 5 本机复断（终态 latest≡next 原断言——judgeDistTag；传播窗复读）
     const tagVerdict = await judgeDistTagWithPropagationRetry(seams, (t) => judgeDistTag(t, version, prerelease), log);
     if (!tagVerdict.ok) {
-      log(`[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见`);
+      log(
+        `[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见；处置见 07 §8.3 三态谱（主档直读判态：席缺席 = 队列在飞等待/rerun 收敛，席在场 tag 未翻 = 本机 dist-tag add 收口）`,
+      );
       return { code: 1, report };
     }
     log('[契约5] 绿：dist-tag 终态断言过（触发腿复断）');
@@ -991,7 +998,7 @@ export async function runRelease(seams, opts) {
     // 令牌腿先发、CI 随 tag 复跑时读回可能仍在传播窗内，统一走有界复读。
     const ciVerdict = await judgeDistTagWithPropagationRetry(seams, (t) => judgeDistTagCi(t, version, prerelease), log);
     if (!ciVerdict.ok) {
-      log(`[契约5] 红：${ciVerdict.reason}`);
+      log(`[契约5] 红：${ciVerdict.reason}——处置见 07 §8.3 三态谱（主档直读判态后 rerun 收敛或本机收口）`);
       return { code: 1, report };
     }
     log('[契约5] 绿：CI 形只读断言过（latest 挪位不在 CI 射程——本机触发腿收口段复断）');
