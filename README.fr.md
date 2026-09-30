@@ -109,7 +109,7 @@ Une fois installé, la commande est **`berry`** :
 ```bash
 berry                    # TUI : plongez directement dans la conversation (reprend la dernière session du répertoire courant)
 berry run "one-shot"     # exécution unique → stdout
-berry sessions list      # sessions : list / resume / fork / search / reindex / export
+berry sessions list      # sessions : list / resume / fork / rename / search / reindex / export
 berry plugins list       # plugins : list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # identifiants : add / list / rm (le TUI propose aussi un flux OAuth)
 berry doors list         # état des portes de capacité (lecture seule ; ouverture/fermeture via TUI /doors open|close)

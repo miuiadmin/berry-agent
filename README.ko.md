@@ -104,7 +104,7 @@ berry-agent 자체는 설치 스크립트가 전혀 없습니다(SQLite 바인�
 ```bash
 berry                    # TUI: 바로 대화 시작 (현재 디렉터리의 최신 세션 이어가기)
 berry run "원샷 실행"     # 단일 실행 → stdout
-berry sessions list      # 세션: list / resume / fork / search / reindex / export
+berry sessions list      # 세션: list / resume / fork / rename / search / reindex / export
 berry plugins list       # 플러그인: list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # 자격증명: add / list / rm (TUI에는 OAuth 흐름도 있음)
 berry doors list         # 역량 게이트 상태 (읽기 전용; 열기/닫기는 TUI /doors open|close)

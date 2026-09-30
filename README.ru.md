@@ -107,7 +107,7 @@ berry-agent не содержит установочных скриптов (SQL
 ```bash
 berry                    # TUI: сразу в диалог (продолжает последнюю сессию текущего каталога)
 berry run "разовая задача"  # одиночный запуск → stdout
-berry sessions list      # сессии: list / resume / fork / search / reindex / export
+berry sessions list      # сессии: list / resume / fork / rename / search / reindex / export
 berry plugins list       # плагины: list / check / install / uninstall / mount / unmount / toggle / update
 berry credentials list   # учётные данные: add / list / rm (в TUI есть и OAuth-поток)
 berry doors list         # состояние врат возможностей (только чтение; открытие/закрытие через TUI /doors open|close)
