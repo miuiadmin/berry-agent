@@ -72,7 +72,7 @@ export function parseSchedule(text: string): Schedule {
   const every = raw.match(/^every:(\d+[smh])$/);
   if (every) {
     const seconds = parseDuration(every[1] ?? '');
-    if (seconds === null) throw badSchedule(raw, 'every 时长段坏形');
+    if (seconds === null) throw badSchedule(raw, 'every 时长段格式不对');
     if (seconds < MIN_INTERVAL_SECONDS) {
       throw badSchedule(raw, `间隔下限 ${MIN_INTERVAL_SECONDS}s（得 ${seconds}s）`);
     }
@@ -82,7 +82,7 @@ export function parseSchedule(text: string): Schedule {
   if (onceRel) {
     // 相对延迟的锚定时刻由建行方落 at（parse 只验词法——纯函数不触时钟）
     const seconds = parseDuration(onceRel[1] ?? '');
-    if (seconds === null) throw badSchedule(raw, 'once 相对时长段坏形');
+    if (seconds === null) throw badSchedule(raw, 'once 相对时长段格式不对');
     return { kind: 'once', at: `+${seconds}` };
   }
   const onceAbs = raw.match(/^once@(.+)$/);
@@ -113,7 +113,7 @@ export function parseSchedule(text: string): Schedule {
   const weekly = raw.match(/^weekly@([a-z,]+)@(\d{2}:\d{2})$/);
   if (weekly && TIME_RE.test(weekly[2] ?? '')) {
     const days = parseDays(weekly[1] ?? '');
-    if (!days) throw badSchedule(raw, 'weekly 星期段坏形');
+    if (!days) throw badSchedule(raw, 'weekly 星期段格式不对');
     return { kind: 'weekly', days, time: weekly[2] ?? '' };
   }
   throw badSchedule(raw, '须为 every:<n>[smh] / once@+<n>[smh] / once@<ISO> / daily@HH:MM / weekly@<days>@HH:MM 之一');
@@ -133,7 +133,7 @@ function parseDays(text: string): number[] | null {
 
 /** 坏串抛手（message 前缀统一——含原串便于诊断） */
 function badSchedule(raw: string, reason: string): BaseError {
-  return new BaseError('SCHEDULER_SCHEDULE_INVALID', `schedule 串「${raw}」坏形：${reason}`);
+  return new BaseError('SCHEDULER_SCHEDULE_INVALID', `schedule 串「${raw}」格式不对：${reason}`);
 }
 
 /** canonical 形 → 人读串（/tick list 渲染与日志面；往返 parse(format(x)) 恒等） */

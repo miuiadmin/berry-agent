@@ -99,8 +99,11 @@ export class LspWire {
     const { frames, fatal } = this.decoder.feed(chunk);
     if (fatal) {
       this.die(
-        new BaseError('LSP_FRAME_INVALID', 'Content-Length 帧坏形或双帽超限（攒头 16KiB / 攒正文 16MiB）——载体级失败'),
-        '帧双帽超限/坏头',
+        new BaseError(
+          'LSP_FRAME_INVALID',
+          'Content-Length 帧格式不对或双上限超限（攒头 16KiB / 攒正文 16MiB）——载体级失败',
+        ),
+        '帧双上限超限/坏头',
       );
       return;
     }

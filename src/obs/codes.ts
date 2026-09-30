@@ -38,6 +38,6 @@ registerErrorCodes([
     code: 'SESSION_OBSERVE_SCOPE_INVALID',
     module: 'obs',
     description:
-      '活体订阅作用域坏形拒（04 §6 e-2——ctx.events.subscribeSessionLifecycle 的 scope self/tree 档缺 sessionId 锚、或 scope 非三值词面；fail-loud 拒不静默降档——静默升 all 档等价于绕门）',
+      '活体订阅作用域格式不对拒（04 §6 e-2——ctx.events.subscribeSessionLifecycle 的 scope self/tree 档缺 sessionId 锚、或 scope 非三值词面；fail-loud 拒不静默降档——静默升 all 档等价于绕门）',
   },
 ]);

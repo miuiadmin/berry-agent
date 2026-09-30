@@ -63,7 +63,7 @@ export function discoverBash(env: NodeJS.ProcessEnv = process.env): string {
   }
   throw new BaseError(
     'EXEC_SPAWN_FAILED',
-    'bash 不在场（PATH 全链无 X_OK 命中；不降级 cmd）——可经 BERRY_AGENT_BASH_PATH 显式指名',
+    'bash 不存在（PATH 全链无 X_OK 命中；不降级 cmd）——可经 BERRY_AGENT_BASH_PATH 显式指名',
   );
 }
 
@@ -225,11 +225,11 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
   return {
     name: 'bash',
     description:
-      '在工作区执行 bash 命令（login shell：profile 级工具链在场）。默认 120 秒' +
+      '在工作区执行 bash 命令（login shell：profile 级工具链可用）。默认 120 秒' +
       '超时（上限 600 秒，到点进程组树杀）；输出保尾 60KiB 合计截断。工作目录' +
-      '缺省为工作区根。不支持后台化（尾部/中位单 &、子 shell 后台形与 nohup ' +
-      '被拒）。受限沙箱档下写' +
-      '工作区外会被拒；确需越档时同调用携带 sandbox_permissions（目标档）与' +
+      '默认为工作区根。不支持后台化（尾部/中位单 &、子 shell 后台形与 nohup ' +
+      '被拒）。受限沙箱模式下写' +
+      '工作区外会被拒；确需更高权限时同调用携带 sandbox_permissions（目标模式）与' +
       'justification（理由）发起升权审批。',
     parameters: Type.Object(
       {
@@ -238,12 +238,12 @@ export function createBashTool(deps: BashToolDeps): ToolDefinition {
           Type.Integer({
             minimum: 1,
             maximum: BASH_TIMEOUT_MAX_MS,
-            description: `超时预算毫秒（缺省 ${BASH_TIMEOUT_DEFAULT_MS}，上限 ${BASH_TIMEOUT_MAX_MS}）`,
+            description: `超时预算毫秒（默认 ${BASH_TIMEOUT_DEFAULT_MS}，上限 ${BASH_TIMEOUT_MAX_MS}）`,
           }),
         ),
-        cwd: Type.Optional(Type.String({ description: '工作目录（缺省工作区根）' })),
+        cwd: Type.Optional(Type.String({ description: '工作目录（默认工作区根）' })),
         sandbox_permissions: Type.Optional(
-          Type.String({ description: '升权目标档（workspace-write / danger）——须与 justification 成对' }),
+          Type.String({ description: '升权目标模式（workspace-write / danger）——须与 justification 成对' }),
         ),
         justification: Type.Optional(Type.String({ description: '升权理由——须与 sandbox_permissions 成对' })),
       },

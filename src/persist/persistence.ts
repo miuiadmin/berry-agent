@@ -174,7 +174,7 @@ export class Persistence {
     this.ensureOpen();
     const row = this.store.getSessionRow(sessionId);
     if (!row) {
-      throw new BaseError('PERSIST_DATA_CORRUPT', `会话 ${sessionId} 不存在（读未落库 id 或已删除——调用序检视）`);
+      throw new BaseError('PERSIST_DATA_CORRUPT', `会话 ${sessionId} 不存在（读未保存 id 或已删除——调用序检视）`);
     }
     const events = this.store.loadEvents(sessionId);
     const registration: SessionRegistration = {

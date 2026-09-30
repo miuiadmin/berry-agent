@@ -204,7 +204,7 @@ export function diagnoseProviderFailure(
       kind: 'unconfigured',
       hint:
         `模型不可用：${modelSpec}——provider 未注册或目录中无此模型。` +
-        `检查模型标识拼写（形如 provider/model-id）；更换缺省模型设 BERRY_AGENT_MODEL 环境变量。` +
+        `检查模型标识拼写（形如 provider/model-id）；更换默认模型设 BERRY_AGENT_MODEL 环境变量。` +
         `上游报文：${upstreamNote(text)}`,
     };
   }
@@ -220,7 +220,7 @@ export function diagnoseProviderFailure(
         `模型供应商未配置（${providerNameOf(modelSpec)}）：该 provider 无可用凭证。` +
         `设置对应环境变量（如 ANTHROPIC_API_KEY / OPENAI_API_KEY），` +
         `或录入绑定凭证行：/credentials add <名> <值> --model-provider ${providerNameOf(modelSpec)}（CLI 形 berry credentials add 同参；录入即生效无需重启）；` +
-        `更换缺省模型设 BERRY_AGENT_MODEL 环境变量（详见 /guide 模型配置段）。` +
+        `更换默认模型设 BERRY_AGENT_MODEL 环境变量（详见 /guide 模型配置段）。` +
         `上游报文：${upstreamNote(text)}`,
     };
   }

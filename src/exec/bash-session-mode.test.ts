@@ -78,7 +78,7 @@ function modeClosure(map: Record<string, string>, boot: SandboxMode): (sessionId
     if (value !== 'read-only' && value !== 'workspace-write' && value !== 'danger') {
       throw new BaseError(
         'SANDBOX_MODE_INVALID',
-        `sandbox/mode 事件档位非法：${JSON.stringify(value)}（三档词汇：read-only / workspace-write / danger）`,
+        `sandbox/mode 事件模式非法：${JSON.stringify(value)}（三种取值：read-only / workspace-write / danger）`,
       );
     }
     return value;

@@ -11,7 +11,7 @@
  * - 链坏拒续写的零追加半面（字节快照全等）+ 记账/落盘失败 warn 降级四例族
  *   （步 6 两腿 + deny 腿 + latch 腿——04:426 全域对称律）；
  * - 并发互斥（maxPerDay=1 双 deliver 恰一过——串行段回归锁）；
- * - approve 三律（缺省 30 天/坏 ttlDays 拒/他 consumer 保留）；
+ * - approve 三律（默认 30 天/坏 ttlDays 拒/他 consumer 保留）；
  * - status 各态（链坏 cap.used=null、HALT 删后 latch 痕迹独立呈现）；
  * - dangerTargetMatches vs repoMatchesGlob 对拍矩阵（词面独立律漂移锁——
  *   sdk/security 对拍同款先例）。
@@ -481,7 +481,7 @@ describe('并发互斥（串行段回归锁——防并发双过步 5）', () =>
 });
 
 describe('approve 三律（人面唯写）', () => {
-  it('缺省 30 天（expiresAt - approvedAt = 30 * 86400000）', async () => {
+  it('默认 30 天（expiresAt - approvedAt = 30 * 86400000）', async () => {
     const gate = makeGate();
     const r = await gate.approve();
     expect(r.ok).toBe(true);

@@ -190,7 +190,7 @@ export function createWebFetchService(deps: WebFetchDeps = {}): WebFetchService 
             if (redirects >= limits.maxRedirects) {
               throw new BaseError(
                 'WEB_REDIRECT_LIMIT',
-                `重定向跟随触帽（${limits.maxRedirects} 跳）：${rawUrl} → … → ${url.toString()}`,
+                `重定向跟随达上限（${limits.maxRedirects} 跳）：${rawUrl} → … → ${url.toString()}`,
               );
             }
             // 跳目标经同一卫生单源复检（协议/私网/DNS——重定向是 SSRF 主载体）

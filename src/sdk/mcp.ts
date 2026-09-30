@@ -199,7 +199,7 @@ export function runMcpFace(options: McpFaceOptions): McpFaceHandle {
   /** 应答帧 → MCP 工具结果翻译（ack/entries/error 三投影位——两动词共用） */
   const translate = (frame: SdkWireFrame | undefined, id: unknown, sinceDefault = -1): void => {
     if (frame === undefined) {
-      writeError(id, JSONRPC_INTERNAL_ERROR, '协议核应答缺席（内部不变式破）');
+      writeError(id, JSONRPC_INTERNAL_ERROR, '协议核返回缺席（内部不变式破）');
       return;
     }
     if (frame.kind === 'error') {
@@ -227,7 +227,7 @@ export function runMcpFace(options: McpFaceOptions): McpFaceHandle {
       return;
     }
     // 其余应答帧形理论不达（两动词只产 ack/entries/error）——内部错如实出
-    writeError(id, JSONRPC_INTERNAL_ERROR, `意外应答帧形 ${String(frame.kind)}`);
+    writeError(id, JSONRPC_INTERNAL_ERROR, `意外返回帧形 ${String(frame.kind)}`);
   };
 
   /** 工具参数 → 深校验请求（同源校验器单源——stdio 解码位/HTTP 体校验位同款） */

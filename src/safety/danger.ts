@@ -132,7 +132,7 @@ export function normalizeDangerMandate(
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 100_000) {
       return {
         ok: false,
-        message: `danger mandate maxPerDay 须 1..100000 正整数（得 ${JSON.stringify(n)}——彻底关停走 HALT 哨兵或撤 consent，不走空帽）`,
+        message: `danger mandate maxPerDay 须 1..100000 正整数（得 ${JSON.stringify(n)}——彻底关停走 HALT 哨兵或撤 consent，不走空值）`,
       };
     }
     maxPerDay = n;
@@ -546,7 +546,7 @@ export function createDangerGate(opts: DangerGateOptions): DangerGate {
           records,
           req,
           'DANGER_HALTED',
-          `[DANGER_HALTED] 危险闸 HALT 哨兵在场——全部危险动作拒（存在性执法：删除 ${join(dataDirNote, DANGER_HALT_FILE)} 文件即恢复）`,
+          `[DANGER_HALTED] 危险闸 HALT 哨兵存在——全部危险动作拒（存在性执法：删除 ${join(dataDirNote, DANGER_HALT_FILE)} 文件即恢复）`,
           nowMs,
           { latch: true },
         );
@@ -561,7 +561,7 @@ export function createDangerGate(opts: DangerGateOptions): DangerGate {
           records,
           req,
           'DANGER_CONSENT_ABSENT',
-          '[DANGER_CONSENT_ABSENT] 危险闸 consent 缺席（fail-closed 缺省）——TUI 运行 /danger approve 签发后重试（「全自动」双层显式 opt-in：mode auto + consent 各自独立拒）',
+          '[DANGER_CONSENT_ABSENT] 危险闸 consent 缺席（fail-closed 默认）——TUI 运行 /danger approve 签发后重试（「全自动」双层显式 opt-in：mode auto + consent 各自独立拒）',
           nowMs,
         );
       } else if (consent.mandateHash !== mandateHash) {
@@ -609,7 +609,7 @@ export function createDangerGate(opts: DangerGateOptions): DangerGate {
           records,
           req,
           'DANGER_CAP_EXCEEDED',
-          `[DANGER_CAP_EXCEEDED] 当日成功帽已满（${used}/${mandate.maxPerDay}，UTC 日界恢复）——次日重试或提帽后重签 consent`,
+          `[DANGER_CAP_EXCEEDED] 当日成功次数已达上限（${used}/${mandate.maxPerDay}，UTC 日界恢复）——次日重试或提额后重签 consent`,
           nowMs,
         );
       }

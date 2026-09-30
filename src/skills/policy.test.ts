@@ -132,12 +132,12 @@ describe('文档策略闸（公开面机械子集）', () => {
     }
   });
 
-  it('插件开发册 effect 契约对拍（三值 + 缺省 exec——04 §9 定形块②）', async ({ skip }) => {
+  it('插件开发册 effect 契约对拍（三值 + 默认 exec——04 §9 定形块②）', async ({ skip }) => {
     const path = 'docs/plugin-development.md';
     if (!existsSync(path)) skip('插件开发册缺席');
     const text = await readFile(path, 'utf8');
-    // 缺省 exec（未知缺省最危律）必须在册；旧「'read'（缺省）」措辞即失真
-    expect(text.includes('缺省 exec'), 'effect 缺省档失真——须明示缺省 exec').toBe(true);
+    // 默认 exec（未知默认最危律）必须在册；旧「'read'（缺省）」措辞即失真
+    expect(text.includes('默认 exec'), 'effect 默认档失真——须明示默认 exec').toBe(true);
     expect(text.includes("'read'（缺省）"), 'effect 缺省 read 旧契约残句').toBe(false);
   });
 
@@ -162,10 +162,11 @@ describe('文档策略闸（公开面机械子集）', () => {
     if (!existsSync(path)) skip('架构册缺席');
     const text = await readFile(path, 'utf8');
     // 副屏族锚 2026-09-17 终局清零役翻新：架构册改规模句去逐名枚举（防
-    // 「五→十」数字漂移再陈化——明细单源 usage.md）；/memory 词条在场锚
+    // 「五→十」数字漂移再陈化——明细单源 usage.md）；2026-09-30 话术批随
+    // 迁：旧「插件市场选装副屏」分列已并入规模句（16 实数口径），市场分列
+    // 锚退役，「内建面板」子串锚独扛在场判定；/memory 词条在场锚
     // 随迁 usage.md（架构册不再逐名，词条锁锚唯一在册面）
     expect(text.includes('内建面板'), '架构册副屏族规模句缺席').toBe(true);
-    expect(text.includes('插件市场选装副屏'), '架构册 /marketplace 选装副屏句缺席').toBe(true);
     expect(text.includes('ccr_retrieve'), '架构册 compaction 职责行漏 CCR').toBe(true);
     const usagePath = 'docs/usage.md';
     if (existsSync(usagePath)) {

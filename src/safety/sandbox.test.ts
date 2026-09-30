@@ -222,7 +222,7 @@ describe('validateEscalationArgs / WIDER_MODES', () => {
   it('目标档必须是合法升权目标（read-only 非目标；拼错词面拒）', () => {
     expect(() =>
       validateEscalationArgs({ current: 'read-only', sandboxPermissions: 'read-only', justification: 'x' }),
-    ).toThrowError(/升权目标档非法/);
+    ).toThrowError(/升权目标模式非法/);
     expect(() =>
       validateEscalationArgs({ current: 'read-only', sandboxPermissions: 'ultra', justification: 'x' }),
     ).toThrow(BaseError);

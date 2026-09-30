@@ -62,7 +62,7 @@ export function createSkillManageTool(deps: SkillManageDeps): ToolDefinition {
   return {
     name: 'skill_manage',
     description:
-      '管理技能（渐进披露清单的来源文件）：list 列出在册技能（含来源层与溯源）；' +
+      '管理技能（渐进披露清单的来源文件）：list 列出已注册技能（含来源层与溯源）；' +
       'create 在 project 层 .agents/skills/<名>/ 下新建 SKILL.md（同名亮拒不覆写）；' +
       'patch 对 project 层技能正文做单点 find-replace（零/多匹配均拒；user/出厂层' +
       '只读）。写后自动刷新技能面。',
@@ -106,7 +106,7 @@ function executeList(deps: SkillManageDeps): AgentToolResult {
       diagnostics.length > 0
         ? `\n诊断 ${diagnostics.length} 条：\n${diagnostics.map((d) => `- [${d.type}] ${d.message}`).join('\n')}`
         : '';
-    return toolText(`在册技能 0 件。${diagNote}`);
+    return toolText(`已注册技能 0 件。${diagNote}`);
   }
   const rows = skills.map((skill) => {
     const flags = [
@@ -122,7 +122,7 @@ function executeList(deps: SkillManageDeps): AgentToolResult {
     diagnostics.length > 0
       ? `\n诊断 ${diagnostics.length} 条：\n${diagnostics.map((d) => `- [${d.type}] ${d.message}`).join('\n')}`
       : '';
-  return toolText(`在册技能 ${skills.length} 件：\n${rows.join('\n')}${diagNote}`);
+  return toolText(`已注册技能 ${skills.length} 件：\n${rows.join('\n')}${diagNote}`);
 }
 
 /** create：project 层新建（校验链 → 同名亮拒 → 可写根断言 → 写盘 → 刷新） */
@@ -164,14 +164,14 @@ async function executeCreate(deps: SkillManageDeps, args: Record<string, unknown
   if (deps.registry.get(name) !== undefined) {
     return toolError(
       'SKILLS_NAME_EXISTS',
-      `技能 ${name} 已在册（${deps.registry.get(name)?.providerId} 层）——create 不覆写，改内容走 patch 或先人面清理`,
+      `技能 ${name} 已注册（${deps.registry.get(name)?.providerId} 层）——create 不覆写，改内容走 patch 或先人面清理`,
     );
   }
   for (const root of deps.registry.scanRoots()) {
     if (existsSync(join(root, name, 'SKILL.md'))) {
       return toolError(
         'SKILLS_NAME_EXISTS',
-        `盘上已有 ${join(root, name, 'SKILL.md')}（可能未入册——坏 frontmatter 文件同算占用）——create 不覆写`,
+        `盘上已有 ${join(root, name, 'SKILL.md')}（可能未注册——坏 frontmatter 文件同算占用）——create 不覆写`,
       );
     }
   }
@@ -195,7 +195,7 @@ async function executeCreate(deps: SkillManageDeps, args: Record<string, unknown
 
   await deps.registry.refresh(); // 写后自动技能面刷新 + 清单重物化（同径）
   return toolText(
-    `已创建技能 ${name}：${target}\n（project 层；技能面已刷新，在册 ${deps.registry.list().length} 件）`,
+    `已创建技能 ${name}：${target}\n（project 层；技能面已刷新，已注册 ${deps.registry.list().length} 件）`,
   );
 }
 
@@ -213,7 +213,7 @@ async function executePatch(deps: SkillManageDeps, args: Record<string, unknown>
   if (skill === undefined) {
     return toolError(
       'SKILLS_NOT_FOUND',
-      `技能 ${name} 不在册（先刷新；盘上坏 frontmatter 文件不入册者同报——修坏文件走人面）`,
+      `技能 ${name} 未注册（先刷新；盘上坏 frontmatter 文件不入注册表者同报——修坏文件走人面）`,
     );
   }
   const provider = deps.registry.getProvider(skill.providerId);

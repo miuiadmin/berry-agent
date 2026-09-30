@@ -91,7 +91,7 @@ export function encryptSecret(key: Buffer, plaintext: string): string {
     // 空值 = 缺值形（与人面 runAdd 空值拦截同律；纯 Error 形同
     // plugin-tools ISO 时间戳校验——服务面输入校验无码族归属）
     throw new Error(
-      '凭证明文为空——拒绝加密落库（空明文密文读侧恒不可解，会铸成只写不读的死凭证行；请检查上游是否下发了空 token）',
+      '凭证明文为空——拒绝加密保存（空明文密文读侧恒不可解，会铸成只写不读的死凭证行；请检查上游是否下发了空 token）',
     );
   }
   const iv = randomBytes(IV_LENGTH);

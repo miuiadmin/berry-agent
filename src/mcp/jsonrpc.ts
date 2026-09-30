@@ -189,9 +189,9 @@ export class JsonRpcConnection {
       this.die(
         new BaseError(
           'MCP_CONNECT_FAILED',
-          `server stdout 单行超 ${this.options.lineLimitBytes ?? MCP_LINE_LIMIT_BYTES} 字节帽——载体级失败`,
+          `server stdout 单行超 ${this.options.lineLimitBytes ?? MCP_LINE_LIMIT_BYTES} 字节上限——载体级失败`,
         ),
-        '行帧超帽',
+        '行帧超上限',
       );
       return;
     }

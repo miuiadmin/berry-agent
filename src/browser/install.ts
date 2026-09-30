@@ -164,7 +164,7 @@ export function defaultDownloadFace(): BrowserDownloadFace {
       let current = url;
       for (let hops = 0; ; hops += 1) {
         if (hops >= BROWSER_REDIRECT_HOP_CAP) {
-          throw new Error(`下载重定向触跳帽（${BROWSER_REDIRECT_HOP_CAP} 跳）：${url} → … → ${current}`);
+          throw new Error(`下载重定向跳数达上限（${BROWSER_REDIRECT_HOP_CAP} 跳）：${url} → … → ${current}`);
         }
         // 应用级超时帽穿针（N14）：AbortSignal.timeout 覆盖本腿头+体全程
         //（慢滴形 undici 块间兜底不设防）；缺席形零变更不造 signal
@@ -251,7 +251,7 @@ function readCentralDirectory(zip: Buffer): ZipEntry[] {
   let off = cdOffset;
   for (let i = 0; i < entryCount; i++) {
     if (off + 46 > zip.length || u32(zip, off) !== CD_SIG) {
-      throw new Error(`引擎 zip 中央目录坏形（第 ${i + 1} 条签名不符）`);
+      throw new Error(`引擎 zip 中央目录格式不对（第 ${i + 1} 条签名不符）`);
     }
     const method = u16(zip, off + 10);
     const compressedSize = u32(zip, off + 20);
@@ -282,7 +282,7 @@ function safeEntryName(name: string): string {
 function extractEntry(zip: Buffer, entry: ZipEntry): Buffer {
   const off = entry.localHeaderOffset;
   if (off + 30 > zip.length || u32(zip, off) !== LFH_SIG) {
-    throw new Error(`引擎 zip 本地头坏形：${entry.name}`);
+    throw new Error(`引擎 zip 本地头格式不对：${entry.name}`);
   }
   const nameLen = u16(zip, off + 26);
   const extraLen = u16(zip, off + 28);
@@ -422,7 +422,7 @@ export async function installBrowserEngine(deps: BrowserInstallDeps): Promise<Br
     const buf = Buffer.from(chunk);
     metaBytes += buf.length;
     if (metaBytes > maxMetaBytes) {
-      throw new Error(`CfT 元数据超体帽（> ${maxMetaBytes} 字节）——中止下载`);
+      throw new Error(`CfT 元数据超上限（> ${maxMetaBytes} 字节）——中止下载`);
     }
     metaRaw += buf.toString('utf8');
   }
@@ -463,7 +463,7 @@ export async function installBrowserEngine(deps: BrowserInstallDeps): Promise<Br
     const buf = Buffer.from(chunk);
     bytes += buf.length;
     if (bytes > maxBytes) {
-      throw new Error(`引擎 zip 超体积帽（> ${maxBytes} 字节）——中止下载`);
+      throw new Error(`引擎 zip 超体积上限（> ${maxBytes} 字节）——中止下载`);
     }
     hash.update(buf);
     parts.push(buf);

@@ -26,7 +26,7 @@ export function createFetchTool(service: WebFetchService): ToolDefinition {
   return {
     name: 'fetch',
     description:
-      '发起 HTTP(S) 请求取回文本响应（GET 缺省；可 POST/PUT/PATCH/DELETE/HEAD）。' +
+      '发起 HTTP(S) 请求取回文本响应（GET 默认；可 POST/PUT/PATCH/DELETE/HEAD）。' +
       '自动跟随重定向（上限 5 跳）；响应体上限 1 MiB、超限截断并在回执标注；' +
       '仅接受 UTF-8 文本（二进制/非 UTF-8 拒）。内网地址（私网/环回段）被' +
       '安全卫生件拒绝。回执含最终 URL、状态码、Content-Type 与字节数。',

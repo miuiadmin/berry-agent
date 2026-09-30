@@ -70,7 +70,7 @@ export function scheduleToCron(s: Schedule): string {
       if (s.seconds % 60 !== 0) {
         throw new BaseError(
           'SCHEDULER_CRON_UNSUPPORTED',
-          `cron 分钟粒度：every:${s.seconds}s 非 60 整除秒不可表达（进程内挂钟可跑——OS 后端不挂）`,
+          `cron 分钟粒度：every:${s.seconds}s 非 60 整除秒不可表达（进程内定时可跑——OS 后端不挂）`,
         );
       }
       const minutes = s.seconds / 60;
@@ -83,7 +83,7 @@ export function scheduleToCron(s: Schedule): string {
         if (60 % minutes !== 0) {
           throw new BaseError(
             'SCHEDULER_CRON_UNSUPPORTED',
-            `cron 表达不了 every:${s.seconds}s（${minutes} 分钟不整除 60——步进表达式每小时重置产生错误节奏；进程内挂钟可跑）`,
+            `cron 表达不了 every:${s.seconds}s（${minutes} 分钟不整除 60——步进表达式每小时重置产生错误节奏；进程内定时可跑）`,
           );
         }
         return `*/${minutes} * * * *`;
@@ -96,14 +96,14 @@ export function scheduleToCron(s: Schedule): string {
         if (24 % hours !== 0) {
           throw new BaseError(
             'SCHEDULER_CRON_UNSUPPORTED',
-            `cron 表达不了 every:${s.seconds}s（${hours} 小时不整除 24——步进表达式每日重置产生错误节奏；进程内挂钟可跑）`,
+            `cron 表达不了 every:${s.seconds}s（${hours} 小时不整除 24——步进表达式每日重置产生错误节奏；进程内定时可跑）`,
           );
         }
         return hours === 1 ? '0 * * * *' : `0 */${hours} * * *`;
       }
       throw new BaseError(
         'SCHEDULER_CRON_UNSUPPORTED',
-        `cron 表达不了 every:${s.seconds}s（非整分钟/整小时间隔——进程内挂钟可跑）`,
+        `cron 表达不了 every:${s.seconds}s（非整分钟/整小时间隔——进程内定时可跑）`,
       );
     }
     case 'daily': {
@@ -118,7 +118,7 @@ export function scheduleToCron(s: Schedule): string {
     case 'once':
       throw new BaseError(
         'SCHEDULER_CRON_UNSUPPORTED',
-        'cron 表达不了 once 单发形（单发归进程内挂钟独辖——行停机错过即跳过）',
+        'cron 表达不了 once 单发形（单发归进程内定时独辖——行停机错过即跳过）',
       );
   }
 }
@@ -134,7 +134,7 @@ export function createOsCronRegistrar(deps: CronBackendDeps = {}): CronRegistrar
     if (platform === 'win32') {
       throw new BaseError(
         'SCHEDULER_CRON_UNSUPPORTED',
-        'win32 无 crontab 生态——OS cron 后端不支持（缺省进程内挂钟形态不受影响）',
+        'win32 无 crontab 生态——OS cron 后端不支持（默认进程内定时形态不受影响）',
       );
     }
   }

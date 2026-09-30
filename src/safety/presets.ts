@@ -51,7 +51,7 @@ export const APPROVAL_PRESETS: readonly ApprovalPreset[] = [
     name: 'balanced',
     sandboxMode: 'workspace-write',
     approvalPolicy: 'ask',
-    description: '工作区可写 + 审批如常（缺省档 = 现状打包，零行为变化）',
+    description: '工作区可写 + 审批如常（默认 = 现状打包，零行为变化）',
   },
   {
     name: 'open',

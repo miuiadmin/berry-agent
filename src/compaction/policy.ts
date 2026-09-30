@@ -258,7 +258,7 @@ export function prepareTranscript(
     if (m.type !== 'toolResult' || typeof m.output !== 'string' || m.output.length <= RESULT_CAP_CHARS) return m;
     return {
       ...m,
-      output: `${m.output.slice(0, RESULT_CAP_CHARS)}\n…[工具结果超帽截断：原 ${m.output.length} 字符，保留前 ${RESULT_CAP_CHARS}]`,
+      output: `${m.output.slice(0, RESULT_CAP_CHARS)}\n…[工具结果超上限截断：原 ${m.output.length} 字符，保留前 ${RESULT_CAP_CHARS}]`,
     };
   });
   if (materialChars(capped) <= budgetChars) return { messages: capped, stage: 'results-capped' };

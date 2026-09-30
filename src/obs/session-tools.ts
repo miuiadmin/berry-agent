@@ -101,7 +101,7 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
       description:
         '列出本进程在管会话清单（id/标题/血缘 origin·parentId/在飞粗状态/近次模型/updatedAt）。' +
         '默认只列本会话血缘树内会话；跨树/全会话维枚举需高危面 sessions.observe-cross 开门（未开门时跨树会话不呈现）。' +
-        '在飞粗状态由事件流尾条推导（idle = 回合闭合 / running = 回合进行中 / waiting-approval = 等待用户审批 / paused = 预算停靠——预算帽尽停靠、回充唤醒）。',
+        '在飞粗状态由事件流尾条推导（idle = 回合闭合 / running = 回合进行中 / waiting-approval = 等待用户审批 / paused = 预算停靠——预算上限尽停靠、回充唤醒）。',
       parameters: Type.Object({}, { additionalProperties: false }),
       effect: 'read',
       execute: async (): Promise<AgentToolResult> =>
@@ -124,14 +124,14 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
     {
       name: 'session_read',
       description:
-        '读取指定会话事件流尾部窗口（有帽有界——缺省 50 条、上限 200 条，含事件类型/序号/摘要）。' +
+        '读取指定会话事件流尾部窗口（有上限有界——默认 50 条、上限 200 条，含事件类型/序号/摘要）。' +
         '树内会话（本会话及其血缘树）直接可读；跨树会话需高危面 sessions.observe-cross 开门。' +
         '行为律：判断隔壁会话当前在做什么，优先直接向当事会话发消息确认（对话协作同人类）；' +
         '本工具面向历史档案核查与事后回溯。',
       parameters: Type.Object(
         {
           sessionId: Type.String({ description: '目标会话 id' }),
-          limit: Type.Optional(Type.Number({ description: '尾窗条数（缺省 50、硬帽 200）' })),
+          limit: Type.Optional(Type.Number({ description: '尾窗条数（默认 50、硬上限 200）' })),
         },
         { additionalProperties: false },
       ),

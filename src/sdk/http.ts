@@ -508,7 +508,7 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
         return;
       }
       // 应答帧缺席 = 核闭合态静默档（宿主 close() 后无因残行）——不留半开档
-      sendError(res, 503, 'SDK_OVERLOADED', '协议核已闭合——请求不受理（面将随宿主收场）');
+      sendError(res, 503, 'SDK_OVERLOADED', '协议核已闭合——请求不受理（接口将随宿主关闭）');
       return;
     }
     if (first.kind === 'error') {
@@ -834,7 +834,7 @@ export function createSdkHttpFace(options: SdkHttpFaceOptions): SdkHttpFaceHandl
         return;
       }
       if (core.isClosed) {
-        sendError(res, 503, 'SDK_OVERLOADED', '协议核已闭合——请求不受理（面将随宿主收场）');
+        sendError(res, 503, 'SDK_OVERLOADED', '协议核已闭合——请求不受理（接口将随宿主关闭）');
         return;
       }
       switch (routeKey) {

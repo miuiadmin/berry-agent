@@ -19,7 +19,7 @@ registerErrorCodes([
     code: 'SKILLS_NAME_EXISTS',
     module: 'skills',
     description:
-      'skill_manage create 同名亮拒不覆写——判据 = 注册表在册名 ∪ 盘上文件在场（坏 frontmatter 文件对 get() 隐身，只查在册名会静默毁文件，06 §12.1）',
+      'skill_manage create 同名亮拒不覆写——判据 = 注册表已注册名 ∪ 盘上文件存在（坏 frontmatter 文件对 get() 隐身，只查已注册名会静默毁文件，06 §12.1）',
   },
   {
     code: 'SKILLS_CONTENT_INVALID',
@@ -30,7 +30,7 @@ registerErrorCodes([
     code: 'SKILLS_NOT_FOUND',
     module: 'skills',
     description:
-      '注册表查无该名——skill_manage patch 目标不在册（先刷新后改；盘上坏文件不入册者同报，修坏文件走人面）与 load_skill name 未命中（指路 <available_skills> 清单）两消费面（06 §12.1/§11.5）',
+      '注册表查无该名——skill_manage patch 目标未注册（先刷新后改；盘上坏文件不入注册表者同报，修坏文件走人面）与 load_skill name 未命中（指路 <available_skills> 清单）两消费面（06 §12.1/§11.5）',
   },
   {
     code: 'SKILLS_LAYER_READONLY',
@@ -52,6 +52,6 @@ registerErrorCodes([
     code: 'SKILLS_PROVIDER_CONFLICT',
     module: 'skills',
     description:
-      '技能 provider 撞名拒——同 id 两方注册属装配期错误 fail-loud（03 skills_change 载荷 = provider id 清单，id 即身份）',
+      '技能 provider 重名拒——同 id 两方注册属装配期错误 fail-loud（03 skills_change 载荷 = provider id 清单，id 即身份）',
   },
 ]);

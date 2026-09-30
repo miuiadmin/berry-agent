@@ -82,14 +82,14 @@ export function createLoadSkillTool(deps: LoadSkillDeps): ToolDefinition {
     effect: 'read',
     description:
       '按名装载技能内容（注册表具名通道——与 read 按 location 直读等价，另承节级寻址与' +
-      '行级过滤两细化）：name 必填；section 缺省装载全文、给祖先路径（"A > B" 式）只装' +
+      '行级过滤两细化）：name 必填；section 默认装载全文、给祖先路径（"A > B" 式）只装' +
       '命中节；mode 按双形词表行级过滤正文（词表由内容自身的强度表行与带引号示例行' +
       '交集推导）。回执为具名技能块。',
     parameters: Type.Object(
       {
         name: Type.String({ description: '技能名（<available_skills> 清单 name 位）' }),
-        section: Type.Optional(Type.String({ description: '节祖先路径（"Mode 3 > Workflow" 式；缺省 = 全文）' })),
-        mode: Type.Optional(Type.String({ description: '行级过滤模式名（缺省 = 不过滤）' })),
+        section: Type.Optional(Type.String({ description: '节祖先路径（"Mode 3 > Workflow" 式；默认 = 全文）' })),
+        mode: Type.Optional(Type.String({ description: '行级过滤模式名（默认 = 不过滤）' })),
       },
       { additionalProperties: false },
     ),
@@ -102,7 +102,7 @@ export function createLoadSkillTool(deps: LoadSkillDeps): ToolDefinition {
       if (skill === undefined) {
         return toolError(
           'SKILLS_NOT_FOUND',
-          `技能「${name}」不在册——核对 <available_skills> 清单的 name 位（同名以高优先层为准）`,
+          `技能「${name}」未注册——核对 <available_skills> 清单的 name 位（同名以高优先层为准）`,
         );
       }
       // 清单滤除律配套执法：隐藏件不在模型装载面，指路用户显式通道

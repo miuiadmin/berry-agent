@@ -419,7 +419,7 @@ export function createSchedulerService(deps: SchedulerServiceDeps): {
           true,
         );
         registerOsBestEffort(row); // 挂钟行启用即挂 OS（乙案形态；不可表达形 warn 跳过——行实活则回执须诚实 ok）
-        return { ok: true, message: `挂钟已挂：${name}（${formatSchedule(row.schedule)}）` };
+        return { ok: true, message: `定时已设置：${name}（${formatSchedule(row.schedule)}）` };
       } catch (err) {
         // 响亮拒不炸装配——message 载码与原因（goal 件消费方落诊断面）
         const message = err instanceof BaseError ? `${err.code}: ${err.message}` : String(err);

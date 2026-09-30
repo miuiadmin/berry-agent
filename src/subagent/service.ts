@@ -78,7 +78,7 @@ export function resolveSubagentFanoutLimit(
   }
   if (!Number.isInteger(value) || value < 1) {
     throw new RangeError(
-      `子代理扇出帽须为正整数，收到 ${String(raw)}——空帽/坏帽是死配置（${ENV_MAX_CONCURRENT_SUBAGENTS} / maxConcurrentPerParent）`,
+      `子代理扇出上限须为正整数，收到 ${String(raw)}——空值/坏值是死配置（${ENV_MAX_CONCURRENT_SUBAGENTS} / maxConcurrentPerParent）`,
     );
   }
   return value;
@@ -264,7 +264,7 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
       if (providers.has(name)) {
         throw new BaseError(
           'SUBAGENT_PROVIDER_EXISTS',
-          `named provider「${name}」已注册（注册方 ${providers.get(name)?.owner}）——撞名拒（静态绑定面）`,
+          `named provider「${name}」已注册（注册方 ${providers.get(name)?.owner}）——重名拒（静态绑定面）`,
         );
       }
       const entry: ProviderEntry = { provider, owner: opts?.owner ?? 'declarative' };
@@ -322,7 +322,7 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
       if (input.depth > SUBAGENT_DEPTH_MAX) {
         throw new BaseError(
           'SUBAGENT_DEPTH_EXCEEDED',
-          `委派深度 ${input.depth} 超帽 ${SUBAGENT_DEPTH_MAX}——拒自嵌套爆栈（04 §10 委派边界③）`,
+          `委派深度 ${input.depth} 超上限 ${SUBAGENT_DEPTH_MAX}——拒自嵌套爆栈（04 §10 委派边界③）`,
         );
       }
       // ── 静态绑定路由：provider 缺席拒（模型不可见动态选择器） ──
@@ -346,7 +346,7 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
       if (input.background === true && provider.capabilities.background !== true) {
         throw new BaseError(
           'SUBAGENT_PRECHECK_FAILED',
-          `provider「${providerName}」不支持后台收场（capabilities.background=false）——预检拒`,
+          `provider「${providerName}」不支持后台运行（capabilities.background=false）——预检拒`,
         );
       }
       // ── 派生工具面 + 白名单交集（04 §10：父面 − 五名 ∩ 白名单） ──

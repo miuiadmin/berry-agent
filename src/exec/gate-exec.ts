@@ -125,8 +125,8 @@ export function createGateExec(deps: GateExecFactoryDeps): GateExecHandle {
         if (isGitPushAttempt(command)) {
           throw new BaseError(
             'EXEC_GIT_PUSH_DENIED',
-            'gate 命令 git push 外推全档截获（EXEC_GIT_PUSH_DENIED——03 :823 六役）：' +
-              '远端史不可逆写不因档位放行；发布动作走宿主编排面或人面自跑，' +
+            'gate 命令 git push 外推全模式截获（EXEC_GIT_PUSH_DENIED——03 :823 六役）：' +
+              '远端史不可逆写不因沙箱模式放行；发布动作走宿主编排面或人面自跑，' +
               '本地评测工作（commit/branch 等只读与本地动词）不受影响',
           );
         }

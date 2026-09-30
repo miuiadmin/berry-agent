@@ -118,7 +118,7 @@ export function resolveEffectiveMode(
     if (!isSandboxMode(event.mode)) {
       throw new BaseError(
         'SANDBOX_MODE_INVALID',
-        `sandbox/mode 事件档位非法：${JSON.stringify(event.mode)}（三档词汇：read-only / workspace-write / danger）`,
+        `sandbox/mode 事件模式非法：${JSON.stringify(event.mode)}（三种取值：read-only / workspace-write / danger）`,
       );
     }
     mode = event.mode;
@@ -312,14 +312,14 @@ export function validateEscalationArgs(args: EscalationArgs): ValidEscalation {
   if (!isSandboxMode(perm) || !ESCALATION_TARGETS.includes(perm)) {
     throw new BaseError(
       'SANDBOX_ESCALATION_INVALID',
-      `升权目标档非法：${perm}（合法目标：${ESCALATION_TARGETS.join(' / ')}）`,
+      `升权目标模式非法：${perm}（合法目标：${ESCALATION_TARGETS.join(' / ')}）`,
     );
   }
   if (!WIDER_MODES[args.current].includes(perm)) {
     // 非严格变宽（变窄或同档）：不问询直接拒——变窄绕行与无意义重试都不进审批
     throw new BaseError(
       'SANDBOX_ESCALATION_INVALID',
-      `升权请求非严格变宽：${args.current} → ${perm}（当前档只可升至 ${WIDER_MODES[args.current].join(' / ') || '（已是最高档）'}）`,
+      `升权请求非严格变宽：${args.current} → ${perm}（当前模式只可升至 ${WIDER_MODES[args.current].join(' / ') || '（已是最高模式）'}）`,
     );
   }
   return { target: perm, justification: just };

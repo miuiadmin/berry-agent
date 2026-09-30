@@ -31,7 +31,7 @@ registerErrorCodes([
     code: 'DANGER_CONSENT_ABSENT',
     module: 'safety',
     description:
-      '危险闸 consent 缺席（fail-closed 缺省——缺席 = 闸落地零配置零行为变化，deny 路径即原「阻塞转人审」语义；指路 /danger approve 签发）',
+      '危险闸 consent 缺席（fail-closed 默认——缺席 = 闸落地零配置零行为变化，deny 路径即原「阻塞转人审」语义；指路 /danger approve 签发）',
   },
   {
     code: 'DANGER_CONSENT_INVALID',
@@ -43,7 +43,7 @@ registerErrorCodes([
     code: 'DANGER_HALTED',
     module: 'safety',
     description:
-      '危险闸 HALT 哨兵在场（存在性判内容不解析、stat 不可达按在场——touch 即全停；指路删除数据目录下 HALT 文件恢复）',
+      '危险闸 HALT 哨兵存在（存在性判内容不解析、stat 不可达按存在——touch 即全停；指路删除数据目录下 HALT 文件恢复）',
   },
   {
     code: 'DANGER_TARGET_DENIED',

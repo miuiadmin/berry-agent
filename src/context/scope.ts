@@ -91,7 +91,7 @@ export class Scope {
       if (owner === undefined || prevOwner === undefined || owner !== prevOwner) {
         throw new BaseError(
           'CONTEXT_SERVICE_DUPLICATE',
-          `服务名 ${name} 在本作用域已被提供（fork 子作用域重提供 = 遮蔽合法，同层撞名 = 装配 bug；同主重供 = 原位刷新）`,
+          `服务名 ${name} 在本作用域已被提供（fork 子作用域重提供 = 遮蔽合法，同层重名 = 装配 bug；同主重供 = 原位刷新）`,
         );
       }
       // 同主原位刷新——非新增（serviceNames 名册零重复）
@@ -153,7 +153,7 @@ export class Scope {
     if (this.disposers.length >= SCOPE_EFFECT_CAPACITY) {
       throw new BaseError(
         'SCOPE_EFFECT_CAPACITY',
-        `effect 总注册帽（${SCOPE_EFFECT_CAPACITY}）已满——本作用域登记数已达上限（失控登记防线，宿主/插件同帽一视）`,
+        `effect 总注册数已达上限（${SCOPE_EFFECT_CAPACITY}）——本作用域登记不再受理（失控登记防线，宿主/插件同限一视）`,
       );
     }
     const disposer = register();

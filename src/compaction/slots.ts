@@ -214,7 +214,7 @@ export function createCompactionSlots(options: CompactionSlotsOptions = {}): Com
           if (providerSeat !== undefined && providerSeat.pluginId !== pluginId) {
             throw new BaseError(
               'COMPACTION_SUMMARIZER_TAKEN',
-              `摘要 provider 槽已被插件 ${providerSeat.pluginId} 占据（插件 ${pluginId} 后到拒——单席位先到占；溢出兜底恒宿主缺省算法，槽不可及）`,
+              `摘要 provider 槽已被插件 ${providerSeat.pluginId} 占据（插件 ${pluginId} 后到拒——单席位先到占；溢出兜底恒宿主默认算法，槽不可及）`,
             );
           }
           providerSeat = { pluginId, fn };

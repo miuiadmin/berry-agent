@@ -121,9 +121,9 @@ export function createCcrRetrieveTool(deps: CcrToolsDeps): readonly ToolDefiniti
       parameters: Type.Object(
         {
           hash: Type.Optional(
-            Type.String({ description: '归档哈希（<<ccr:…>> 标记内的 16 位十六进制串；缺省返回目录）' }),
+            Type.String({ description: '归档哈希（<<ccr:…>> 标记内的 16 位十六进制串；默认返回目录）' }),
           ),
-          fromMessage: Type.Optional(Type.Number({ description: '续取位（区间内消息 0 基序——分窗续取用；缺省 0）' })),
+          fromMessage: Type.Optional(Type.Number({ description: '续取位（区间内消息 0 基序——分窗续取用；默认 0）' })),
         },
         { additionalProperties: false },
       ),

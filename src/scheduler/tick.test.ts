@@ -162,7 +162,7 @@ describe('run 收场渲染', () => {
       finalTextPreview: '任务完成总结',
     });
     const out = await runTickCommand(['run', 'j'], deps(fakeService(), engine));
-    expect(out).toContain('任务 j 收场');
+    expect(out).toContain('任务 j 结束');
     expect(out).toContain('manual 道 exit_code');
     expect(out).toContain('退出码 3');
     expect(out).toContain('任务完成总结');

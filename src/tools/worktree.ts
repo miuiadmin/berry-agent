@@ -135,7 +135,7 @@ function assertNameValid(name: string): void {
   if (!WORKTREE_NAME_RE.test(name)) {
     throw new BaseError(
       'TOOL_INVALID_ARGS',
-      `[TOOL_INVALID_ARGS] worktree 名字坏形：${name}（词法 ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$——名即分支名即目录段，禁分隔符）`,
+      `[TOOL_INVALID_ARGS] worktree 名字格式不对：${name}（词法 ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$——名即分支名即目录段，禁分隔符）`,
     );
   }
 }
@@ -192,13 +192,13 @@ export function createWorktreeService(opts: WorktreeServiceOptions): WorktreeSer
       if (existsSync(path)) {
         throw new BaseError(
           'FS_WORKTREE_EXISTS',
-          `[FS_WORKTREE_EXISTS] worktree 已存在：${req.name}（路径 ${path} 在场）`,
+          `[FS_WORKTREE_EXISTS] worktree 已存在：${req.name}（路径 ${path} 已存在）`,
         );
       }
       if (await branchExists(req.name)) {
         throw new BaseError(
           'FS_WORKTREE_EXISTS',
-          `[FS_WORKTREE_EXISTS] 分支已存在：${req.name}（名字即分支名——分支与 worktree 同名域撞名）`,
+          `[FS_WORKTREE_EXISTS] 分支已存在：${req.name}（名字即分支名——分支与 worktree 同名域重名）`,
         );
       }
       // 树级入链（占位键取派生路径的最近在场祖先 canonical——建后路径才在场）
@@ -365,7 +365,7 @@ export function createWorktreeTools(service: WorktreeService): ToolDefinition[] 
         '在当前仓旁建独立 git worktree + 同名新分支（名字即分支名）。产物路径由工具派生（仓同级 <仓目录名>-worktrees/<名字>），建成功即自动加入本会话可写根（后续 fs 写/bash 以该 worktree 为锚）。适合并行开一条独立工作线（如同时改两个特性互不踩踏）。',
       parameters: Type.Object({
         name: Type.String({ description: 'worktree 名（= 新分支名；字母数字开头，可含 ._-,禁斜杠,≤64 字符）' }),
-        baseRef: Type.Optional(Type.String({ description: '基线提交/分支（缺省 HEAD）' })),
+        baseRef: Type.Optional(Type.String({ description: '基线提交/分支（默认 HEAD）' })),
       }),
       execute: async (args, toolCtx) => {
         const created = await service.create({

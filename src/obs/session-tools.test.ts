@@ -126,7 +126,7 @@ describe('工具族形制', () => {
       idle: 'idle = 回合闭合',
       running: 'running = 回合进行中',
       'waiting-approval': 'waiting-approval = 等待用户审批',
-      paused: 'paused = 预算停靠——预算帽尽停靠、回充唤醒',
+      paused: 'paused = 预算停靠——预算上限尽停靠、回充唤醒',
     };
     const description = tool(toolsFor(), 'session_list').description;
     for (const anchor of Object.values(WORDS)) {

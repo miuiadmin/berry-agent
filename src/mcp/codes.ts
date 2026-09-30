@@ -18,6 +18,6 @@ registerErrorCodes([
   {
     code: 'MCP_CONFIG_INVALID',
     module: 'mcp',
-    description: 'config.servers 行载荷坏（键词法违例 / command 非绝对路径 / 字段类型坏形——响亮拒不静默吞）',
+    description: 'config.servers 行载荷坏（键词法违例 / command 非绝对路径 / 字段类型格式不对——响亮拒不静默吞）',
   },
 ]);

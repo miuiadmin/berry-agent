@@ -15,12 +15,12 @@ registerErrorCodes([
   {
     code: 'SCHEDULER_NAME_INVALID',
     module: 'scheduler',
-    description: '任务名词法违例——须匹配 ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$（goal 挂钟行名 goal-<goalId> 同型合法）',
+    description: '任务名词法违例——须匹配 ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$（goal 定时行名 goal-<goalId> 同型合法）',
   },
   {
     code: 'SCHEDULER_NAME_EXISTS',
     module: 'scheduler',
-    description: '名冲突守卫——add/挂钟 register 撞既有行拒（jobs 表行即唯一事实源）',
+    description: '名冲突守卫——add/定时 register 撞既有行拒（jobs 表行即唯一事实源）',
   },
   {
     code: 'SCHEDULER_NOT_FOUND',
@@ -31,7 +31,7 @@ registerErrorCodes([
     code: 'SCHEDULER_SCHEDULE_INVALID',
     module: 'scheduler',
     description:
-      'schedule 串词法/语义坏形——四形 every:/once@+相对/once@绝对/daily@/weekly@ 之外，含 interval 下限 5s 违反与 cron 后端 sub-minute/非 60 倍数拒',
+      'schedule 串词法/语义格式不对——四形 every:/once@+相对/once@绝对/daily@/weekly@ 之外，含 interval 下限 5s 违反与 cron 后端 sub-minute/非 60 倍数拒',
   },
   {
     code: 'SCHEDULER_JOB_INVALID',

@@ -17,7 +17,7 @@ registerErrorCodes([
   {
     code: 'SUBAGENT_DEPTH_EXCEEDED',
     module: 'subagent',
-    description: '委派深度超帽 3 拒——防自嵌套爆栈（04 §10 委派边界③）',
+    description: '委派深度超上限 3 拒——防自嵌套爆栈（04 §10 委派边界③）',
   },
   {
     code: 'SUBAGENT_PRECHECK_FAILED',
@@ -28,13 +28,13 @@ registerErrorCodes([
   {
     code: 'SUBAGENT_PROVIDER_UNKNOWN',
     module: 'subagent',
-    description: '委派路由命中未注册 provider 拒——委派面静态绑定（通用 agent 工具缺省路由 in-process）',
+    description: '委派路由命中未注册 provider 拒——委派面静态绑定（通用 agent 工具默认路由 in-process）',
   },
   {
     code: 'SUBAGENT_PROVIDER_EXISTS',
     module: 'subagent',
     description:
-      'named provider 撞名拒——服务面注册（声明式子代理每文件一 named provider，扫描序 first-wins 由发现层表达、注册面撞名响亮拒）',
+      'named provider 重名拒——服务面注册（声明式子代理每文件一 named provider，扫描序 first-wins 由发现层表达、注册面重名响亮拒）',
   },
   {
     code: 'JOB_KIND_UNKNOWN',
@@ -45,13 +45,13 @@ registerErrorCodes([
     code: 'JOB_LIMIT_REACHED',
     module: 'subagent',
     description:
-      'Job 并行帽拒——同刻在飞 Job 数达按 kind 分帽上限（缺省无帽；缺省值随 issue 件落码批定——04 §10 issue 立题批钉位）',
+      'Job 并行上限拒——同刻在飞 Job 数达按 kind 分设上限（默认无上限；默认值随 issue 插件落码批定——04 §10 issue 立题批钉位）',
   },
   {
     code: 'SUBAGENT_NAME_INVALID',
     module: 'subagent',
     description:
-      '程序化注册槽 name 词法违例拒——非裸词（06 §11.6 声明式 name 同形、词法承 §11.2「小写连字符与数字」——词法真源 06 §11.2 frontmatter name 行）；执法序同 AGENT_ROLE 注记：撞名闸前置格式闸（03 §2.7「撞名闸前置格式闸」句；2026-09-07 冷读闸 blocker 修复批拍板案 a 改形——原「非域名两段式」弃）',
+      '程序化注册槽 name 词法违例拒——非裸词（06 §11.6 声明式 name 同形、词法承 §11.2「小写连字符与数字」——词法真源 06 §11.2 frontmatter name 行）；执法序同 AGENT_ROLE 注记：重名闸前置格式闸（03 §2.7「撞名闸前置格式闸」句；2026-09-07 冷读闸 blocker 修复批拍板案 a 改形——原「非域名两段式」弃）',
   },
   {
     code: 'JOB_DEF_INVALID',

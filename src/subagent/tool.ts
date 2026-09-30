@@ -90,11 +90,11 @@ export function createAgentTool(deps: DelegationToolDeps): ToolDefinition {
   return {
     name: AGENT_TOOL_NAME,
     description:
-      '委派一个子代理执行任务（黑盒——只见结果不见过程；缺省同步等待，background=true 后台起跑终态注入结算通知）',
+      '委派一个子代理执行任务（黑盒——只见结果不见过程；默认同步等待，background=true 后台起跑终态注入结算通知）',
     effect: 'read',
     parameters: Type.Object({
       prompt: Type.String({ description: '委派目标提示（子代理的唯一任务输入）' }),
-      background: Type.Optional(Type.Boolean({ description: '后台收场（缺省 false = 父同步等结果）' })),
+      background: Type.Optional(Type.Boolean({ description: '后台运行（默认 false = 父同步等结果）' })),
       name: Type.Optional(Type.String({ description: '诊断名（Job 名与通知文案显示位）' })),
     }),
     async execute(args, toolCtx) {
@@ -146,7 +146,7 @@ export function createDeclarativeAgentTool(
     effect: 'read',
     parameters: Type.Object({
       prompt: Type.String({ description: '委派目标提示' }),
-      background: Type.Optional(Type.Boolean({ description: '后台收场（缺省 false = 父同步等结果）' })),
+      background: Type.Optional(Type.Boolean({ description: '后台运行（默认 false = 父同步等结果）' })),
     }),
     async execute(args, toolCtx) {
       // 执行时语境解析（两装载形合流——boot 形 toolCtx.sessionId 胜出）

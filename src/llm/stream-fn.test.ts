@@ -108,7 +108,7 @@ describe('永不抛契约（在飞帽达帽 → 错误流，transient 桶）', (
     expect(events.map((e) => e.type)).toEqual(['start', 'error']);
     const final = await stream.result();
     expect(final.errorCode).toBe('LLM_INFLIGHT_LIMIT');
-    expect(final.errorMessage).toContain('在飞请求达帽');
+    expect(final.errorMessage).toContain('在飞请求达上限');
     expect(classifyError(final)).toBe('transient');
     // 我方持有的名额不受影响（拒绝路径不碰计数）
     expect(tracker.inFlight('faux-test')).toBe(1);

@@ -245,7 +245,7 @@ export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOp
       if (def.timeoutMs !== undefined && def.timeoutMs <= 0) {
         throw new BaseError(
           'TOOL_INVALID_ARGS',
-          `工具 ${def.name} timeoutMs <= 0（${def.timeoutMs}）——不设预算请省略该字段（走管道缺省 60s）`,
+          `工具 ${def.name} timeoutMs <= 0（${def.timeoutMs}）——不设预算请省略该字段（走管道默认 60s）`,
         );
       }
       const driver = registerOpts?.driver;
@@ -263,7 +263,7 @@ export function createToolRegistry(dispatch: EventDispatch, opts: ToolRegistryOp
       if (totalSize() >= totalLimit) {
         throw new BaseError(
           'TOOL_REGISTRY_CAPACITY',
-          `注册表两层合计达总量帽 ${totalLimit}（当前 ${totalSize()}）——超限拒新注册：${def.name}`,
+          `注册表两层合计达总量上限 ${totalLimit}（当前 ${totalSize()}）——超限拒新注册：${def.name}`,
         );
       }
       // 归一副本：effect 缺省 exec（未知缺省最危律——04 §9 定形块②反转：

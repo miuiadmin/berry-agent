@@ -28,12 +28,12 @@ registerErrorCodes([
   {
     code: 'WEB_REDIRECT_LIMIT',
     module: 'web',
-    description: '重定向跟随跳数触帽拒（缺省 5 跳）——每跳目标经同一卫生单源复检',
+    description: '重定向跟随跳数触上限拒（默认 5 跳）——每跳目标经同一卫生单源复检',
   },
   {
     code: 'WEB_RATE_LIMITED',
     module: 'web',
     description:
-      '在飞门满拒（缺省并发 4）——fetch 与 browser 导航共享同一门实例（03 §10.3「同一在飞门第三消费位」）；可重试档',
+      '在飞门满拒（默认并发 4）——fetch 与 browser 导航共享同一门实例（03 §10.3「同一在飞门第三消费位」）；可重试档',
   },
 ]);

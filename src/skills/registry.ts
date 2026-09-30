@@ -104,7 +104,7 @@ export function createSkillsRegistry(options: SkillsRegistryOptions = {}): Skill
       const kept = [...merged.entries()].slice(0, cap);
       diagnostics.push({
         type: 'capacity',
-        message: `技能快照超帽 ${cap}——按优先序裁尾 ${droppedByCap} 件（低优先层先出局；同名覆盖或精简低优先层）`,
+        message: `技能快照超上限 ${cap}——按优先序裁尾 ${droppedByCap} 件（低优先层先出局；同名覆盖或精简低优先层）`,
       });
       snapshot = kept.map(([, skill]) => skill);
     } else {
@@ -126,7 +126,7 @@ export function createSkillsRegistry(options: SkillsRegistryOptions = {}): Skill
       if (providerById.has(provider.id)) {
         throw new BaseError(
           'SKILLS_PROVIDER_CONFLICT',
-          `[SKILLS_PROVIDER_CONFLICT] 技能 provider 撞名：${provider.id} 已注册——provider id 即层身份（skills_change 载荷成员），装配序须唯一`,
+          `[SKILLS_PROVIDER_CONFLICT] 技能 provider 重名：${provider.id} 已注册——provider id 即层身份（skills_change 载荷成员），装配序须唯一`,
         );
       }
       providerById.set(provider.id, provider);

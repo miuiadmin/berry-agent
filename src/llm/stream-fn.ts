@@ -124,7 +124,7 @@ export function createStreamFn(
       const slot = tracker.tryAcquire(model.provider);
       if (slot === null) {
         return errorStream(
-          `在飞请求达帽（provider=${model.provider}）：并发压力自解，会话层退避后重试`,
+          `在飞请求达上限（provider=${model.provider}）：并发压力自解，会话层退避后重试`,
           'LLM_INFLIGHT_LIMIT',
         );
       }
@@ -260,7 +260,7 @@ export function withIdleTimeout(stream: AssistantStream, idleTimeoutMs: number):
         content: [],
         usage: NO_USAGE,
         stopReason: 'error',
-        errorMessage: `[LLM_STREAM_IDLE_TIMEOUT] 流停滞超帽（${idleTimeoutMs}ms 无事件）——idle watchdog 收口，重试换新连接即恢复`,
+        errorMessage: `[LLM_STREAM_IDLE_TIMEOUT] 流停滞超上限（${idleTimeoutMs}ms 无事件）——idle watchdog 收口，重试换新连接即恢复`,
         errorCode: 'LLM_STREAM_IDLE_TIMEOUT',
         timestamp: Date.now(),
       };

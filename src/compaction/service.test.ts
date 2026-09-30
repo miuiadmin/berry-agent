@@ -1030,7 +1030,7 @@ describe('行为纪律三条（05 §2.1 吸收批——产物收益防线 + 素�
     // 修前红锚：原实现素材全量透传（prompt ≈ 50k+ 含尾部哨兵）
     expect(rig.calls[0]!.prompt).not.toContain('尾部哨兵串');
     expect(rig.calls[0]!.prompt.length).toBeLessThan(20_000);
-    expect(rig.calls[0]!.prompt).toContain('工具结果超帽截断');
+    expect(rig.calls[0]!.prompt).toContain('工具结果超上限截断');
     // 降级档位走 warn 可观测面（不立 durable 位——触发低频审计价值低）
     expect(rig.warns.join('\n')).toContain('COMPACTION_MATERIAL_DEGRADED');
     expect(log.eventsOfType('compaction/end').at(-1)!.data).toMatchObject({ reason: 'completed' });

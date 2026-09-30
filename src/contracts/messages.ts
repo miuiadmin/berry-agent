@@ -76,7 +76,10 @@ export function registerMessageRole(role: string, definition: MessageRoleDefinit
   // 撞名检查前置于格式检查：标准角色名（user 等单段）先撞此闸——「名字已被
   // 占用」比「格式违例」更指向根因（03 §2.7：撞标准角色或在册角色均 AGENT_ROLE_EXISTS）
   if (STANDARD_MESSAGE_ROLES.has(role) || roleRegistry.has(role)) {
-    throw new BaseError('AGENT_ROLE_EXISTS', `消息角色 ${role} 已在册（标准角色或在册自定义角色），重影即消息转写分叉`);
+    throw new BaseError(
+      'AGENT_ROLE_EXISTS',
+      `消息角色 ${role} 已存在（标准角色或已注册的自定义角色）——重名会导致消息转换分叉`,
+    );
   }
   if (!CUSTOM_ROLE_RE.test(role)) {
     throw new BaseError(

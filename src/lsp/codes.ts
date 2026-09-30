@@ -19,7 +19,7 @@ registerErrorCodes([
     code: 'LSP_FRAME_INVALID',
     module: 'lsp',
     description:
-      'Content-Length 帧坏形或帧资源双帽超限（攒头 16KiB / 攒正文 16MiB——声明值即缓冲吸收上界）——连接死归因 + 同步树杀，计熔断一败（坏帧 crash 与 close 事件经幂等闸不双计）',
+      'Content-Length 帧格式不对或帧资源双上限超限（攒头 16KiB / 攒正文 16MiB——声明值即缓冲吸收上界）——连接死归因 + 同步树杀，计熔断一败（坏帧 crash 与 close 事件经幂等闸不双计）',
   },
   {
     code: 'LSP_CIRCUIT_OPEN',
@@ -31,6 +31,6 @@ registerErrorCodes([
     code: 'LSP_CONFIG_INVALID',
     module: 'lsp',
     description:
-      '行 config 坏形装载期归一响亮拒——servers 对象形/command 绝对路径/languages 非空/超时正数域逐一校验，坏形 = 行级装载失败 /reload 时刻可修（03 §10.2 config 坏形条，2026-09-13 f-2 批增列）',
+      '行 config 格式不对挂载期归一响亮拒——servers 对象形/command 绝对路径/languages 非空/超时正数域逐一校验，格式不对 = 行级挂载失败 /reload 时刻可修（03 §10.2 config 坏形条，2026-09-13 f-2 批增列）',
   },
 ]);

@@ -390,7 +390,7 @@ describe('prepareTranscript（素材侧降级——先削弱细节再折叠旧�
     const r = prepareTranscript(before, 6_000); // 截后 ≈ 4.7k < 6k → Level 1 达标
     expect(r.stage).toBe('results-capped');
     const serialized = JSON.stringify(r.messages);
-    expect(serialized).toContain('工具结果超帽截断'); // 尾标记说明在场
+    expect(serialized).toContain('工具结果超上限截断'); // 尾标记说明在场
     expect(serialized).not.toContain('尾部哨兵'); // 尾部已截（修前红锚：全量透传则在场）
     expect(serialized).toContain('AAAA'); // 保头（前 4000 字符）
     // 不 mutate：入参数组的消息本体未被改写（原 output 仍 10k+）

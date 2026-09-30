@@ -93,14 +93,14 @@ export function renderAvailableSkills(
   const omitted = visible.length - listed;
   if (listed === 0) {
     // 头脚即超帽的极端形态：空清单 + 披露注释仍是完整反馈面
-    const disclosure = `<!-- 清单超 ${byteCap} 字节帽——${visible.length} 件全部未列（精简低优先层或拆分技能） -->`;
+    const disclosure = `<!-- 清单超 ${byteCap} 字节上限——${visible.length} 件全部未列（精简低优先层或拆分技能） -->`;
     const text = [...header, disclosure, footer].join('\n');
     return { text, omitted, truncated: true };
   }
   if (omitted === 0) {
     return { text: [...header, ...blocks.slice(0, listed), footer].join('\n'), omitted: 0, truncated: false };
   }
-  const disclosure = `<!-- 清单超 ${byteCap} 字节帽——另有 ${omitted} 件未列（read 对应 location 或精简低优先层） -->`;
+  const disclosure = `<!-- 清单超 ${byteCap} 字节上限——另有 ${omitted} 件未列（read 对应 location 或精简低优先层） -->`;
   return {
     text: [...header, ...blocks.slice(0, listed), disclosure, footer].join('\n'),
     omitted,

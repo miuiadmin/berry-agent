@@ -28,17 +28,17 @@ registerErrorCodes([
   {
     code: 'TOOL_TIMEOUT',
     module: 'tools',
-    description: '执行段单工具预算超时（def.timeoutMs 或缺省 60s）——竞速先到即拒',
+    description: '执行段单工具预算超时（def.timeoutMs 或默认 60s）——竞速先到即拒',
   },
   {
     code: 'TOOL_NAME_CONFLICT',
     module: 'tools',
-    description: '注册撞名拒绝式（03 §2.7——碰撞域内双向对称：宿主内建/官方件/兄弟插件）',
+    description: '注册重名拒绝式（03 §2.7——碰撞域内双向对称：宿主内建/官方插件/兄弟插件）',
   },
   {
     code: 'TOOL_DESCRIPTION_REJECTED',
     module: 'tools',
-    description: '描述注入模式扫描命中拒注册（03 §2.8——任何来源同一防线，官方件同受管）',
+    description: '描述注入模式扫描命中拒注册（03 §2.8——任何来源同一防线，官方插件同受管）',
   },
   {
     code: 'TOOL_REGISTRY_CAPACITY',
@@ -89,7 +89,7 @@ registerErrorCodes([
   {
     code: 'FS_PATCH_FAILED',
     module: 'tools',
-    description: 'apply_patch 补丁格式解析失败或 update 定位失败（context 行锚不在场即拒）',
+    description: 'apply_patch 补丁格式解析失败或 update 定位失败（context 行锚不存在即拒）',
   },
   {
     code: 'FS_READ_PROTECTED',
@@ -100,7 +100,7 @@ registerErrorCodes([
   {
     code: 'FS_WORKTREE_EXISTS',
     module: 'tools',
-    description: 'worktree/同名分支已存在拒建（名字即分支名——双域撞名同码）',
+    description: 'worktree/同名分支已存在拒建（名字即分支名——双域重名同码）',
   },
   {
     code: 'FS_WORKTREE_DIRTY',

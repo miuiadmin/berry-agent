@@ -16,7 +16,7 @@ registerErrorCodes([
   {
     code: 'EVENT_DUPLICATE',
     module: 'context',
-    description: '事件词汇撞名拒静默覆盖（注册表单源执法）',
+    description: '事件词汇重名拒静默覆盖（注册表单源执法）',
   },
   {
     code: 'SCOPE_STALE',
@@ -37,6 +37,6 @@ registerErrorCodes([
   {
     code: 'CONTEXT_SERVICE_DUPLICATE',
     module: 'context',
-    description: '同作用域 provide 撞名拒（两方抢一名即装配 bug；fork 子遮蔽父合法）',
+    description: '同作用域 provide 重名拒（两方抢一名即装配 bug；fork 子遮蔽父合法）',
   },
 ]);

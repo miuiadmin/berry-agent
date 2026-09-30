@@ -333,7 +333,7 @@ export function createSearchTools(opts: SearchToolsOptions = {}): SearchTools {
       '按 glob 模式查找文件路径（`*` 匹配段内任意字符、`**` 跨任意层目录、`?` 单字符，如 "**/*.ts"、"src/**"）。遍历尊重 .gitignore（逐目录规则），不进 node_modules 与 .git，不跟随符号链。返回按路径排序的相对路径列表，最多 200 条（达限截断注记）。',
     parameters: Type.Object({
       pattern: Type.String({ description: 'glob 模式（匹配相对遍历根的路径）' }),
-      path: Type.Optional(Type.String({ description: '遍历起点目录（缺省工作区根；相对路径锚工作区根）' })),
+      path: Type.Optional(Type.String({ description: '遍历起点目录（默认工作区根；相对路径锚工作区根）' })),
     }),
     execute: async (args) => {
       const root = resolveTarget((args.path as string | undefined) ?? '.');
@@ -375,13 +375,13 @@ export function createSearchTools(opts: SearchToolsOptions = {}): SearchTools {
     name: 'grep',
     effect: 'read',
     description:
-      '按正则表达式搜索文件内容（JavaScript RegExp 语法）。目标可以是目录（递归遍历，尊重 .gitignore、跳过 node_modules/.git、二进制与非 UTF-8 文件）或单个文件（用户意图直扫，不做过滤）。output_mode=files_with_matches 返回命中文件路径列表（缺省）；content 返回「路径:行号:命中行」。单文件超 256 KiB 只扫前段。最多 200 条命中（达限截断注记）。',
+      '按正则表达式搜索文件内容（JavaScript RegExp 语法）。目标可以是目录（递归遍历，尊重 .gitignore、跳过 node_modules/.git、二进制与非 UTF-8 文件）或单个文件（用户意图直扫，不做过滤）。output_mode=files_with_matches 返回命中文件路径列表（默认）；content 返回「路径:行号:命中行」。单文件超 256 KiB 只扫前段。最多 200 条命中（达限截断注记）。',
     parameters: Type.Object({
       pattern: Type.String({ description: '正则表达式（JavaScript RegExp 语法）' }),
-      path: Type.Optional(Type.String({ description: '搜索目标：目录（递归）或文件；缺省工作区根' })),
+      path: Type.Optional(Type.String({ description: '搜索目标：目录（递归）或文件；默认工作区根' })),
       output_mode: Type.Optional(
         Type.Union([Type.Literal('files_with_matches'), Type.Literal('content')], {
-          description: '输出模式：files_with_matches（命中文件列表，缺省）| content（带行号命中行）',
+          description: '输出模式：files_with_matches（命中文件列表，默认）| content（带行号命中行）',
         }),
       ),
       glob: Type.Optional(

@@ -508,7 +508,7 @@ function formatDiagnosticsSegment(
     bytes += Buffer.byteLength(line, 'utf8');
     used += 1;
   }
-  if (truncated) lines.push(`  …（条目上限 ${budget.itemsCap}/段字节帽——截断）`);
+  if (truncated) lines.push(`  …（条目上限 ${budget.itemsCap}/段字节上限——截断）`);
   return { text: lines.join('\n'), usedItems: used };
 }
 

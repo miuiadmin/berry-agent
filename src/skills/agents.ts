@@ -211,7 +211,7 @@ export function createAgentLayerProvider(options: AgentLayerOptions): AgentDefsP
           if (seenNames.has(parsed.name)) {
             diagnostics.push({
               type: 'collision',
-              message: `同层子代理撞名「${parsed.name}」——后到文件跳过（first-wins）`,
+              message: `同层子代理重名「${parsed.name}」——后到文件跳过（first-wins）`,
               path: filePath,
             });
             continue;

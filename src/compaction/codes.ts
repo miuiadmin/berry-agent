@@ -22,12 +22,12 @@ registerErrorCodes([
     code: 'COMPACTION_CONFIG_INVALID',
     module: 'compaction',
     description:
-      '数值配置槽域外值拒（03 §2.7 ctx.compaction.setConfig——数值系宿主机制参数非策略算法，域判据单源 slots.ts CONFIG_FIELD_DOMAINS：tailKeep ≥1 整数〔messages[length-tailKeep] 越界防线〕、thresholdRatio/summaryRatio/fallbackWindowTokens 正数〔0 = 永不触发/零兜底的静默停用形〕、cooldownMs/summary 两字符帽 ≥0；坏值 fail-loud 拒不落席，防 planSegment 越界崩溃与机制面行为静默异化）',
+      '数值配置槽域外值拒（03 §2.7 ctx.compaction.setConfig——数值系宿主机制参数非策略算法，域判据单源 slots.ts CONFIG_FIELD_DOMAINS：tailKeep ≥1 整数〔messages[length-tailKeep] 越界防线〕、thresholdRatio/summaryRatio/fallbackWindowTokens 正数〔0 = 永不触发/零兜底的静默停用形〕、cooldownMs/summary 两字符上限 ≥0；坏值 fail-loud 拒不落席，防 planSegment 越界崩溃与机制面行为静默异化）',
   },
   {
     code: 'COMPACTION_SUMMARIZER_TAKEN',
     module: 'compaction',
     description:
-      '摘要 provider 槽席位已占拒（03 §2.7 ctx.compaction.registerSummarizer——单席位先到占；溢出兜底恒宿主缺省算法系既有立法，槽不可及）',
+      '摘要 provider 槽席位已占拒（03 §2.7 ctx.compaction.registerSummarizer——单席位先到占；溢出兜底恒宿主默认算法系既有立法，槽不可及）',
   },
 ]);

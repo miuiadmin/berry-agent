@@ -103,13 +103,13 @@ function expandEnvRefValue(value: string, resolveEnvRef: ((name: string) => stri
   if (parsed.kind === 'invalid') {
     throw new BaseError(
       'CREDENTIALS_ENV_REF_INVALID',
-      `env 引用形坏形：${JSON.stringify(value)}——@credentials: 后须有凭证名（03 §10.9 注入腿；词面单源 contracts/env-ref.ts）`,
+      `env 引用形格式不对：${JSON.stringify(value)}——@credentials: 后须有凭证名（03 §10.9 注入腿；词面单源 contracts/env-ref.ts）`,
     );
   }
   if (resolveEnvRef === undefined) {
     throw new BaseError(
       'CREDENTIALS_NOT_FOUND',
-      `env 引用形 ${value} 在场而凭证展开面缺席（core:credentials 未装载/禁用）——fail-closed 拒以字面值注入（03 §10.9 注入腿席位缺席律）`,
+      `env 引用形 ${value} 存在而凭证展开功能缺席（core:credentials 未挂载/禁用）——fail-closed 拒以字面值注入（03 §10.9 注入腿席位缺席律）`,
     );
   }
   // 展开器自带缺席拒（credentials 侧 CREDENTIALS_NOT_FOUND——message 指路人面）

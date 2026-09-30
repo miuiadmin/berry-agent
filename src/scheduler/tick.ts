@@ -32,7 +32,7 @@ export const TICK_USAGE = `用法：
   /tick enable <名>
   /tick disable <名>
 schedule 串形：every:<n>[s|m|h] / once@+<n>[s|m|h] / once@<ISO> / daily@HH:MM / weekly@<days>@HH:MM
-（add 缺省建行停用——「存在 ≠ 启用」，enable 显式开跑）`;
+（add 默认建行停用——「存在 ≠ 启用」，enable 显式开跑）`;
 
 /** /tick 处理入口（argv = 引号感知词切分产物；错误折文本不抛） */
 export async function runTickCommand(argv: readonly string[], deps: TickCommandDeps): Promise<string> {
@@ -60,7 +60,7 @@ async function dispatchTick(argv: readonly string[], deps: TickCommandDeps): Pro
     case 'run': {
       const name = requireName(argv.slice(1), 'run');
       const outcome = await deps.engine.fireNow(name, deps.defaultTrigger === 'cron' ? 'cron' : 'manual');
-      return `□ 任务 ${name} 收场：${describeOutcome(outcome)}`;
+      return `□ 任务 ${name} 结束：${describeOutcome(outcome)}`;
     }
     case 'enable':
     case 'disable': {

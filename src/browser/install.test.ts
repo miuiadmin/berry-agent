@@ -405,7 +405,7 @@ describe('installBrowserEngine', () => {
       metadataUrl: META_URL,
       maxZipBytes: 100,
     };
-    await expect(installBrowserEngine(deps)).rejects.toThrow('超体积帽');
+    await expect(installBrowserEngine(deps)).rejects.toThrow('超体积上限');
     // 中止在下载腿——零解压零账本
     expect(fsEnv.files.size).toBe(0);
   });
@@ -432,7 +432,7 @@ describe('installBrowserEngine', () => {
       metadataUrl: META_URL,
       maxMetadataBytes: 16,
     };
-    await expect(installBrowserEngine(deps)).rejects.toThrow('超体帽');
+    await expect(installBrowserEngine(deps)).rejects.toThrow('元数据超上限');
     expect(fsEnv.files.size).toBe(0); // 零落盘（拒在读腿——解压/账本面未达）
   }, 1_500);
 
@@ -575,7 +575,7 @@ describe('defaultDownloadFace', () => {
       return new Response(null, { status: 302, headers: { location: `https://storage.googleapis.com/next-${hops}` } });
     }) as typeof fetch;
     try {
-      await expect(defaultDownloadFace().fetchBinary('https://storage.googleapis.com/start')).rejects.toThrow('触跳帽');
+      await expect(defaultDownloadFace().fetchBinary('https://storage.googleapis.com/start')).rejects.toThrow('跳数达上限');
       expect(hops).toBe(BROWSER_REDIRECT_HOP_CAP); // 恰帽数跳（多一跳少一跳都是账目漂移）
     } finally {
       globalThis.fetch = realFetch;

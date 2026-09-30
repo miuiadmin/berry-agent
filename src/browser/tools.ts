@@ -187,13 +187,13 @@ export function buildBrowserTools(source: BrowserToolPageSource): ToolDefinition
     },
     {
       name: 'scroll',
-      description: '滚动页面（缺省向下 600 像素）。direction 二值 up/down；amount 为像素量（1~10000）。',
+      description: '滚动页面（默认向下 600 像素）。direction 二值 up/down；amount 为像素量（1~10000）。',
       parameters: Type.Object(
         {
           direction: Type.Optional(
-            Type.Union([Type.Literal('up'), Type.Literal('down')], { description: '方向（缺省 down）' }),
+            Type.Union([Type.Literal('up'), Type.Literal('down')], { description: '方向（默认 down）' }),
           ),
-          amount: Type.Optional(Type.Integer({ minimum: 1, maximum: 10_000, description: '像素量（缺省 600）' })),
+          amount: Type.Optional(Type.Integer({ minimum: 1, maximum: 10_000, description: '像素量（默认 600）' })),
         },
         { additionalProperties: false },
       ),
@@ -222,7 +222,7 @@ export function buildBrowserTools(source: BrowserToolPageSource): ToolDefinition
       name: 'console',
       description: '读取页面 console 回流（log/warn/error 与未捕获异常，本页面上下文创建以来累积，环形上限 200 条）。',
       parameters: Type.Object(
-        { limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200, description: '取最近 N 条（缺省 50）' })) },
+        { limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200, description: '取最近 N 条（默认 50）' })) },
         { additionalProperties: false },
       ),
       effect: 'read',

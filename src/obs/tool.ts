@@ -49,7 +49,7 @@ export function createObsQueryTool(service: ObsService): ToolDefinition {
       '非任意 glob）；metric=usage 返回 LLM token 用量聚合（input/output 主计费桶与 cache 桶' +
       '分列，token 原始值——不折算货币；hit_rate = 缓存命中率派生列 cacheRead/' +
       '(input+cacheRead+cacheWrite) 桶内聚合比值，n/a = 桶内无 token 流）。桶时刻 ' +
-      'UTC 对齐。窗口 from/to 为 epoch 毫秒（含边界）；行上限缺省 100、硬帽 1000，' +
+      'UTC 对齐。窗口 from/to 为 epoch 毫秒（含边界）；行上限默认 100、硬上限 1000，' +
       '按时间正序返回。',
     parameters: Type.Object(
       {
@@ -58,7 +58,7 @@ export function createObsQueryTool(service: ObsService): ToolDefinition {
         }),
         metric: Type.Optional(
           Type.Union([Type.Literal('events'), Type.Literal('usage')], {
-            description: '指标：events = 事件计数（缺省）；usage = LLM 用量聚合',
+            description: '指标：events = 事件计数（默认）；usage = LLM 用量聚合',
           }),
         ),
         from: Type.Optional(Type.Number({ description: '窗口下界（epoch 毫秒，含）' })),
@@ -73,7 +73,7 @@ export function createObsQueryTool(service: ObsService): ToolDefinition {
               '事件类型过滤（仅 metric=events 有效）：精确匹配或尾通配 <族前缀>/*（如 compaction/* 族计数一次可达；非任意 glob）',
           }),
         ),
-        limit: Type.Optional(Type.Number({ description: '行上限（缺省 100、硬帽 1000）' })),
+        limit: Type.Optional(Type.Number({ description: '行上限（默认 100、硬上限 1000）' })),
       },
       { additionalProperties: false },
     ),

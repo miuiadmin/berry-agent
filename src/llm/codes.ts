@@ -34,14 +34,14 @@ registerErrorCodes([
   {
     code: 'LLM_INFLIGHT_LIMIT',
     module: 'llm',
-    description: 'per-provider 在飞请求达帽（缺省 4）——显式拒绝不排队，退避后槽已释放可重试',
+    description: 'per-provider 在飞请求达上限（默认 4）——显式拒绝不排队，退避后槽已释放可重试',
   },
   // 04 §3.8 流停滞超帽（宿主合成码——idle watchdog 收口时流层自产，transient 桶：
   // 停滞是瞬态，重试换新连接即恢复路径）
   {
     code: 'LLM_STREAM_IDLE_TIMEOUT',
     module: 'llm',
-    description: '流停滞超 idle 帽（缺省 300s 无事件）——watchdog 合成 error 终值收口，turn 级 auto-retry 承担恢复',
+    description: '流停滞超 idle 上限（默认 300s 无事件）——watchdog 合成 error 终值收口，turn 级 auto-retry 承担恢复',
   },
   // 04 §3.5 non-retryable 桶码（鉴权败——即 failed 用户面修复）
   {
@@ -71,7 +71,7 @@ registerErrorCodes([
   {
     code: 'LLM_COMPLETE_FAILED',
     module: 'llm',
-    description: 'complete 单发补全失败（stopReason=error/aborted 终态或达帽拒绝上抛）',
+    description: 'complete 单发补全失败（stopReason=error/aborted 终态或达上限拒绝上抛）',
   },
   // 03 §3.4 钩子段禁模型调用执法码（guard 前置查命中——双入口同码：stream 路
   // errorStream 携带、complete 路 BaseError 抛；词面 02 §5.3 LLM_ 前缀族早已

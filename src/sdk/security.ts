@@ -48,7 +48,7 @@ export function judgeHostHeader(
   bindHost: string,
 ): { ok: true } | { ok: false; reason: string } {
   if (hostHeader === undefined || hostHeader === '') {
-    return { ok: false, reason: 'Host 头缺席（HTTP/1.1 必在场）' };
+    return { ok: false, reason: 'Host 头缺席（HTTP/1.1 必须存在）' };
   }
   const part = hostPartOf(hostHeader);
   if (isLoopbackHost(bindHost)) {

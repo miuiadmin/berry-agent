@@ -592,9 +592,9 @@ export function createFsTools(opts: FsToolsOptions = {}): FsTools {
   const lsTool: ToolDefinition = {
     name: 'ls',
     effect: 'read',
-    description: '列出目录内容（名称 + 类型，目录带尾斜杠）。缺省列工作区根。',
+    description: '列出目录内容（名称 + 类型，目录带尾斜杠）。默认列工作区根。',
     parameters: Type.Object({
-      path: Type.Optional(Type.String({ description: '目录路径（缺省工作区根）' })),
+      path: Type.Optional(Type.String({ description: '目录路径（默认工作区根）' })),
     }),
     execute: async (args) => {
       const abs = resolveTarget((args.path as string | undefined) ?? '.');
