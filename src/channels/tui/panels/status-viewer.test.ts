@@ -44,20 +44,20 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
   it('段序与行集：运行时（版本/模型+全集计数）→ 会话（短 id/cwd/轮次）→ 环境（数据目录/theme/env 三键）', () => {
     const lines = buildStatusLines(DATA);
     expect(lines[0]).toBe('── 运行时 ──');
-    expect(lines[1]!.startsWith('版本 version')).toBe(true); // 非空断言——段首行契约位
+    expect(lines[1]!.startsWith('版本')).toBe(true); // 非空断言——段首行契约位
     expect(lines[1]).toContain('0.2.0');
     // 模型行 = 当前 + 全集计数（ctrl+p 循环宇宙同源）
-    const modelLine = lines.find((line) => line.startsWith('模型 model'))!;
-    expect(modelLine).toContain('faux/test-model（全集 3 档）');
+    const modelLine = lines.find((line) => line.startsWith('模型'))!;
+    expect(modelLine).toContain('faux/test-model（全集 3 个）');
     // 会话段：短 id（8 字符）+ cwd 短名 + 轮次
     expect(lines).toContain('── 会话 ──');
-    expect(lines.some((line) => line.startsWith('会话 session') && line.includes('sess-123'))).toBe(true);
-    expect(lines.some((line) => line.startsWith('工作区 cwd') && line.endsWith('berry-agent'))).toBe(true);
-    expect(lines.some((line) => line.startsWith('轮次 turns') && line.endsWith('7'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('会话') && line.includes('sess-123'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('工作区') && line.endsWith('berry-agent'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('轮次') && line.endsWith('7'))).toBe(true);
     // 环境段：数据目录 + theme 档
     expect(lines).toContain('── 环境 ──');
-    expect(lines.some((line) => line.startsWith('数据目录 dataDir') && line.includes('/tmp/berry-home'))).toBe(true);
-    expect(lines.some((line) => line.startsWith('主题 theme') && line.endsWith('dark'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('数据目录') && line.includes('/tmp/berry-home'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('主题') && line.endsWith('dark'))).toBe(true);
     // env 三键：设值原样、缺席「未设」
     expect(lines.some((line) => line.startsWith('BERRY_AGENT_MODEL') && line.includes('faux/test-model'))).toBe(true);
     expect(lines.some((line) => line.startsWith('BERRY_AGENT_DATA_DIR') && line.includes('未设'))).toBe(true);
@@ -66,23 +66,23 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
 
   it('缺席诚实形：dataDir null = :memory: 诊断形行；modelCount 0 = 模型目录空注记', () => {
     const lines = buildStatusLines({ ...DATA, dataDir: null, modelCount: 0 });
-    expect(lines.some((line) => line.startsWith('数据目录 dataDir') && line.includes(':memory:'))).toBe(true);
-    expect(lines.find((line) => line.startsWith('模型 model'))!).toContain('模型目录空');
+    expect(lines.some((line) => line.startsWith('数据目录') && line.includes(':memory:'))).toBe(true);
+    expect(lines.find((line) => line.startsWith('模型'))!).toContain('模型目录空');
   });
 
   it('模型凭证行（ob-2 态 + C-4 全明文翻裁值）：ready 携完整供血值（人面所见即供血——修前红：v1 值恒不入面）', () => {
     const readyLines = buildStatusLines(DATA);
-    const readyLine = readyLines.find((line) => line.startsWith('模型凭证 credential'))!;
+    const readyLine = readyLines.find((line) => line.startsWith('模型凭证'))!;
     expect(readyLine).toContain('ready');
     expect(readyLine).toContain('sk-status-full-9999'); // 完整值入面（全明文翻裁锁）
     // unconfigured 态行不携值 + 可行动指路半句
     const unLines = buildStatusLines({ ...DATA, modelCredential: 'unconfigured' });
-    const unLine = unLines.find((line) => line.startsWith('模型凭证 credential'))!;
-    expect(unLine).toContain('unconfigured');
+    const unLine = unLines.find((line) => line.startsWith('模型凭证'))!;
+    expect(unLine).toContain('未配置——');
     expect(unLine).not.toContain('sk-status-full-9999'); // 未配置态零值呈现
     // 态行随运行时段（模型行之后、会话段之前）
-    const readyIdx = readyLines.findIndex((line) => line.startsWith('模型 model'));
-    const credIdx = readyLines.findIndex((line) => line.startsWith('模型凭证 credential'));
+    const readyIdx = readyLines.findIndex((line) => line.startsWith('模型'));
+    const credIdx = readyLines.findIndex((line) => line.startsWith('模型凭证'));
     const sessionIdx = readyLines.indexOf('── 会话 ──');
     expect(readyIdx).toBeGreaterThan(-1);
     expect(credIdx).toBeGreaterThan(readyIdx);
@@ -91,24 +91,22 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
 
   it('ready 供血值缺席防御形（开屏间隙配置变更——诚实缺席半句不空行）', () => {
     const lines = buildStatusLines({ ...DATA, modelCredentialKey: null });
-    expect(lines.find((line) => line.startsWith('模型凭证 credential'))!).toContain(
-      '未设置——环境变量与模型绑定均未配置',
-    );
+    expect(lines.find((line) => line.startsWith('模型凭证'))!).toContain('未设置——环境变量与模型绑定均未配置');
   });
 
   it('标签对齐按显示宽（CJK 双宽标签 + 值列同列起）', () => {
     const lines = buildStatusLines(DATA);
-    const versionLine = lines.find((line) => line.startsWith('版本 version'))!;
-    const themeLine = lines.find((line) => line.startsWith('主题 theme'))!;
-    // 两标签同为「宽度 4 CJK + 空格 + ASCII」——值列起始列一致（码元 padEnd 会右凸 1 格）
+    const versionLine = lines.find((line) => line.startsWith('版本'))!;
+    const themeLine = lines.find((line) => line.startsWith('主题'))!;
+    // 两标签同为宽 4 CJK——值列起始列一致（纯中文标签族无码元/显示宽差）
     expect(versionLine.indexOf('0')).toBe(themeLine.indexOf('d'));
-    // 凭证行（宽 19 = 最长标签「模型凭证 credential」）值起点显示列与其余行一致：
+    // 凭证行（宽 8 = 最长标签「模型凭证」）值起点显示列与其余行一致：
     // 期望列用 stringWidth 口径算（值前前缀显示宽 = 标签显示宽 + 2 分隔空格，
     // dataDir 行同律）——CJK 行码元位与显示列不同尺，断言恒走显示宽
     const valueColOf = (line: string, value: string): number => stringWidth(line.slice(0, line.indexOf(value)));
-    const credLine = lines.find((line) => line.startsWith('模型凭证 credential'))!;
+    const credLine = lines.find((line) => line.startsWith('模型凭证'))!;
     expect(valueColOf(credLine, 'ready')).toBe(valueColOf(versionLine, '0'));
-    expect(valueColOf(credLine, 'ready')).toBe(stringWidth('模型凭证 credential') + 2);
+    expect(valueColOf(credLine, 'ready')).toBe(stringWidth('模型凭证') + 2);
   });
 
   it('行集不变式（E4——结构性锁，不挑行选样）：全部数据行值起点列一致 + 列宽 ≥ 最长标签/键 + 保留距', () => {
