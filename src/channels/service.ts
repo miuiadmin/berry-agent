@@ -161,9 +161,26 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
   if (opts.sessions !== undefined) {
     const fetchSessions = opts.sessions;
     const selectSession = (sessionId: string) => {
-      if (opts.resumeSession !== undefined)
-        void opts.resumeSession(sessionId).then(() => void registry.focus(sessionId));
-      else void registry.focus(sessionId);
+      if (opts.resumeSession !== undefined) {
+        // 副屏 onSelect 是用户面不是异常面：注入闭包非 async（生产形在读面预检
+        // 同步抛 PERSIST_DATA_CORRUPT）与异步 reject 都就地折 error notify——
+        // 直穿会沿 onSelect→alt-screen→engine 成 uncaughtException 杀整个 TUI；
+        // false 回执（会话不在场）焦点不动 + warn 诚实拒（true 才走 focus——
+        // 与 /resume 文本路回执路由同律）
+        try {
+          void opts
+            .resumeSession(sessionId)
+            .then((ok) => {
+              if (ok) void registry.focus(sessionId);
+              else uiCore.notify(`会话不存在：${sessionId}——用 /sessions 查在册 id`, { level: 'warn' });
+            })
+            .catch((err: unknown) => {
+              uiCore.notify(`续接失败：${String(err)}`, { level: 'error' });
+            });
+        } catch (err) {
+          uiCore.notify(`续接失败：${String(err)}`, { level: 'error' });
+        }
+      } else void registry.focus(sessionId);
     };
     commands.register(
       'sessions',

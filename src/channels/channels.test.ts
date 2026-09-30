@@ -707,6 +707,17 @@ describe('/rename 命令面（07 §4.1 2026-09-30 会话管理命令批——ren
     expect(b.notified).toEqual([{ message: '会话不存在：s1——改名未落库', level: 'warn' }]);
   });
 
+  it('无聚焦会话：warn 诚实拒 + 写面零调用（透传位空且 focusedId 空悬）', async () => {
+    const rig = renameRig('ok');
+    const s = createChannels({ renameSession: rig.renameSession });
+    const b = fakeBackend('tui', {}, true);
+    s.addBackend(b.backend);
+    // 无 registerSession/focus——focusedId 空悬且无 sessionId 透传位
+    expect(await s.dispatchCommand('/rename 新名')).toBe(true);
+    expect(rig.calls).toEqual([]); // 写面零调用（守卫先行）
+    expect(b.notified).toEqual([{ message: '无聚焦会话——先选定会话再改名', level: 'warn' }]);
+  });
+
   it('sessionId 缺席兜底 focusedId：透传位空且焦点在 s2——写面收 s2', async () => {
     const rig = renameRig('ok');
     const s = createChannels({ renameSession: rig.renameSession });
@@ -806,6 +817,62 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     b.sessionsOpens[0]!.onSelect('s2');
     expect(rig.calls).toEqual([]); // open 不触——查看器语义原样
     expect(s.focusedId).toBe('s2'); // focus 仍达
+  });
+
+  it('选定回调注入同步抛：折 notify 不穿炸（副屏 onSelect 不许成崩溃入口）', async () => {
+    // 生产形：注入闭包非 async、读面预检在会话库中段损坏时同步抛
+    // PERSIST_DATA_CORRUPT——穿 onSelect/alt-screen/engine 的 uncaughtException
+    // 会杀整个 TUI；选定回调须就地折 error notify（命令面是用户面不是异常面）
+    const calls: string[] = [];
+    const s = createChannels({
+      sessions: async () => list,
+      resumeSession: (sessionId: string): Promise<boolean> => {
+        calls.push(sessionId);
+        throw new Error('PERSIST_DATA_CORRUPT：会话库损坏');
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    s.registerSession('s1');
+    await s.focus('s1');
+    await s.dispatchCommand('/sessions');
+    expect(() => b.sessionsOpens[0]!.onSelect('s2')).not.toThrow(); // 修前红位：同步抛直穿
+    expect(calls).toEqual(['s2']);
+    expect(b.notified).toEqual([{ message: '续接失败：Error: PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
+  });
+
+  it('选定回调注入拒绝态（异步 reject）：折 notify 不成 unhandledRejection', async () => {
+    const s = createChannels({
+      sessions: async () => list,
+      resumeSession: async () => {
+        throw new Error('PERSIST_DATA_CORRUPT：会话库损坏');
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('s2');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(b.notified).toEqual([{ message: '续接失败：Error: PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
+  });
+
+  it('选定回调 false 回执：焦点不动 + warn 诚实拒（true 才走 focus——契约对齐文本路）', async () => {
+    const rig = resumeRig(false);
+    const s = createChannels({ resumeSession: rig.resumeSession, sessions: async () => list });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    s.registerSession('s1');
+    await s.focus('s1');
+    await s.dispatchCommand('/sessions');
+    b.sessionsOpens[0]!.onSelect('s2');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(s.focusedId).toBe('s1'); // 修前红位：现实现无条件 focus（false 也切）
+    expect(b.notified).toEqual([{ message: '会话不存在：s2——用 /sessions 查在册 id', level: 'warn' }]);
   });
 
   it('注入缺席：不注册不虚报（/resume 不在命令面，分发返 false）', async () => {
