@@ -142,7 +142,7 @@ describe('liveCommandArgumentItems 会话 id 位（/export|/resume 首参——2
   });
 
   it('fuzzy 过滤 + 活体现取（清单换代即新投影——不缓存）', () => {
-    let current = rows;
+    let current: readonly { id: string; title?: string; firstQuestionSummary?: string }[] = rows;
     const deps = { sessionRows: () => current };
     const filtered = liveCommandArgumentItems('export', 'short', [], deps) as unknown as {
       replacement: string;
