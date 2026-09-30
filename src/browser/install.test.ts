@@ -575,7 +575,9 @@ describe('defaultDownloadFace', () => {
       return new Response(null, { status: 302, headers: { location: `https://storage.googleapis.com/next-${hops}` } });
     }) as typeof fetch;
     try {
-      await expect(defaultDownloadFace().fetchBinary('https://storage.googleapis.com/start')).rejects.toThrow('跳数达上限');
+      await expect(defaultDownloadFace().fetchBinary('https://storage.googleapis.com/start')).rejects.toThrow(
+        '跳数达上限',
+      );
       expect(hops).toBe(BROWSER_REDIRECT_HOP_CAP); // 恰帽数跳（多一跳少一跳都是账目漂移）
     } finally {
       globalThis.fetch = realFetch;
