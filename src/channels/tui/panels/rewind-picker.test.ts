@@ -268,6 +268,84 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     expect(freshAll).toContain('恢复 2'); // B 的账目就位
   });
 
+  it('迟到预演竞态（同条目形）：同条目二次进预演时旧调用迟到 resolve 仍拒收（守卫须锚调用序非条目）', async () => {
+    // R2 修前红位：守卫三条件 exited/view/previewId 全是「条目」锚——同条目
+    // 二次进预览时 previewId 同值，旧调用迟到 resolve 三条件全过被放行（旧
+    // 账目错装进新确认视图——与异条目形同危害）；修法 = 调用序号守卫
+    const deferreds: Array<{ resolve: (value: UiRewindPreview) => void }> = [];
+    const onPreview = vi.fn(
+      () =>
+        new Promise<UiRewindPreview>((resolve) => {
+          deferreds.push({ resolve });
+        }),
+    );
+    const { picker } = makePicker({ actions: { onPreview, onRestore: vi.fn(async () => undefined) } });
+    picker.handleEvent(k('enter')); // 条目 A（m-second0001）进 preview——不决
+    expect(deferreds).toHaveLength(1);
+    picker.handleEvent(k('escape')); // 回列表（光标不动——仍指 A）
+    picker.handleEvent(k('enter')); // 同条目 A 二次进 preview（新调用）
+    expect(deferreds).toHaveLength(2);
+    // 旧调用迟到 resolve（区分值：恢复 9——旧快照专属账目）
+    deferreds[0]!.resolve({ restoreCount: 9, deleteCount: 8, untouchedCount: 7 });
+    await Promise.resolve();
+    await Promise.resolve();
+    const stale = paint(picker);
+    const staleAll = Array.from({ length: stale.rows }, (_, i) => readRow(stale, i, 72)).join('\n');
+    expect(staleAll).toContain('预览中'); // 旧调用拒收——仍加载态（修前红位：旧账就位）
+    expect(staleAll).not.toContain('恢复 9');
+    // 新调用 resolve 照常回填
+    deferreds[1]!.resolve({ ...PREVIEW_OK });
+    await Promise.resolve();
+    await Promise.resolve();
+    const fresh = paint(picker);
+    const freshAll = Array.from({ length: fresh.rows }, (_, i) => readRow(fresh, i, 72)).join('\n');
+    expect(freshAll).toContain('恢复 2'); // 新调用账目就位
+  });
+
+  it('迟到预演竞态（同条目 reject 形）：旧调用迟到 reject 不错装错误态', async () => {
+    // .catch 路同守卫（R2 reject 腿）——旧调用 reject 不得把新预览打成「预览失败」
+    const deferreds: Array<{ resolve: (value: UiRewindPreview) => void; reject: (reason?: unknown) => void }> = [];
+    const onPreview = vi.fn(
+      () =>
+        new Promise<UiRewindPreview>((resolve, reject) => {
+          deferreds.push({ resolve, reject });
+        }),
+    );
+    const { picker } = makePicker({ actions: { onPreview, onRestore: vi.fn(async () => undefined) } });
+    picker.handleEvent(k('enter'));
+    picker.handleEvent(k('escape'));
+    picker.handleEvent(k('enter')); // 同条目二次进
+    deferreds[0]!.reject(new Error('CHECKPOINT_GONE')); // 旧调用迟到 reject
+    await Promise.resolve();
+    await Promise.resolve();
+    const stale = paint(picker);
+    const staleAll = Array.from({ length: stale.rows }, (_, i) => readRow(stale, i, 72)).join('\n');
+    expect(staleAll).toContain('预览中'); // 旧 reject 拒收——仍加载态
+    expect(staleAll).not.toContain('预览失败');
+    deferreds[1]!.resolve({ ...PREVIEW_OK });
+    await Promise.resolve();
+    await Promise.resolve();
+    const fresh = paint(picker);
+    const freshAll = Array.from({ length: fresh.rows }, (_, i) => readRow(fresh, i, 72)).join('\n');
+    expect(freshAll).toContain('恢复 2');
+  });
+
+  it('预演 reject（注入异常）：折「预览失败」诚实拒 + Enter 零动作（.catch 覆盖锁——reject 不成 unhandledRejection）', async () => {
+    const onRestore = vi.fn(async () => undefined);
+    const onPreview = vi.fn(async () => {
+      throw new Error('IO_READ：工作区读失败');
+    });
+    const { picker } = makePicker({ actions: { onPreview, onRestore } });
+    picker.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    const grid = paint(picker);
+    const all = Array.from({ length: grid.rows }, (_, i) => readRow(grid, i, 72)).join('\n');
+    expect(all).toContain('预览失败'); // .catch 折错误态（非吞非炸）
+    picker.handleEvent(k('enter')); // 错误态 Enter 零动作
+    expect(onRestore).not.toHaveBeenCalled();
+  });
+
   it('过滤态 Enter：预演锚定 = 过滤后选中项（filtered() 集锚定——非全量首项）', async () => {
     const { picker, onPreview } = makePicker();
     for (const ch of '保底') picker.handleEvent(t(ch)); // 过滤到 m-backup0003 一条

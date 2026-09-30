@@ -74,8 +74,11 @@ export class RewindPicker implements OverlayContent {
   private readonly onQuit: (() => void) | undefined;
   /** 当前视图（list = 清单选择；preview = 两步确认段一——对账与确认） */
   private view: 'list' | 'preview' = 'list';
-  /** preview 段锚定的条目（Enter 时选中的 id——Esc 返回后光标仍指该行） */
+  /** preview 段锚定的条目（Enter 时选中的 id——Esc 返回后光标仍指该行；restore 锚语义） */
   private previewId: string | undefined;
+  /** 预演调用序号（Enter 递增——迟到守卫锚「调用」非「条目」：同条目二次进预览时
+   *  previewId 同值拦不住旧调用迟到回填，序号比对才行〔2026-10-01 R2 竞态守卫〕） */
+  private previewSeq = 0;
   /** preview 段锚定条目的成品行（对账视图首行呈现） */
   private previewLine = '';
   /** 预演结果（undefined = 加载中——「预演中…」态） */
@@ -253,6 +256,7 @@ export class RewindPicker implements OverlayContent {
         if (isPlainKey(k, 'enter')) {
           // 进 preview 段（锚定选中行 + onPreview 异步加载——加载态自持）
           const chosen = items[this.cursor]!;
+          const seq = ++this.previewSeq; // 本次调用序号——迟到守卫值锚
           this.view = 'preview';
           this.previewId = chosen.id;
           this.previewLine = chosen.line;
@@ -261,15 +265,16 @@ export class RewindPicker implements OverlayContent {
             .onPreview(chosen.id)
             .then((data) => {
               // 退出竞态防御：面板已收屏则丢弃（下一开屏重取）；迟到竞态防御：
-              // 须仍锚定本次发起的条目——「Enter A（在飞）→ esc 回列表 → Enter B
-              // → A 迟到 resolve」时守卫拒收 A 的账目，否则 A 的三账行错装进
-              // B 的确认视图（用户看着 A 的对账数确认 B 的破坏性 restore）
-              if (!this.exited && this.view === 'preview' && this.previewId === chosen.id) {
+              // 锚「调用序号」非「条目」——「Enter A（在飞）→ esc 回列表 →
+              // Enter（同条目 A）→ 旧调用迟到 resolve」时 previewId 同值拦不住
+              // （条目锚漏洞），序号比对拒收旧调用的账目，否则旧三账行错装进
+              // 新确认视图（用户看着旧对账数确认破坏性 restore）
+              if (!this.exited && this.view === 'preview' && this.previewSeq === seq) {
                 this.previewData = data;
               }
             })
             .catch(() => {
-              if (!this.exited && this.view === 'preview' && this.previewId === chosen.id) {
+              if (!this.exited && this.view === 'preview' && this.previewSeq === seq) {
                 this.previewData = {
                   restoreCount: 0,
                   deleteCount: 0,
