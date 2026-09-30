@@ -13,8 +13,8 @@
  * 执行，误贴会把破坏性操作打错靶而回执「已回退」）。
  *
  * TUI 命令注册已落（批 19c-4 ctx.channels.registerCommand）；adopt 切前台
- * 编舞 v1 未落——restore 回执的 forkedSessionId 先经输出面呈报，焦点切换随
- * TUI adopt 命令立题〔2026-09-11 勘正：原注指向已飞的批 12，失锚〕。
+ * 已落（2026-09-30 批3——deps.adoptSession 注入：registerSession+focus，
+ * resolve 后才 return 回执 = notify 排 focus 落画后）。
  */
 import { BaseError } from '../contracts/index.js';
 import { previewRewind, restoreRewind, type RewindRestoreDeps } from './restore.js';
