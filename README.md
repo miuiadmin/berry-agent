@@ -6,7 +6,7 @@
 
 Chat and coding are the core. Every capability — shell, skills, browser, scheduler,
 memory, web UI — loads as a **plugin**. Official and community plugins mount through
-the same surface; there is no first-class private lane.
+the same mechanism; there is no first-class private lane.
 
 <p>
   <a href="https://www.npmjs.com/package/berry-agent"><img alt="npm version" src="https://img.shields.io/npm/v/berry-agent?style=flat-square&color=cb3837"></a>
@@ -59,7 +59,7 @@ evolution's reach, for good.
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Unattended by design**        | Goal-driven runs that keep going — soak-tested for hours and verified to recover after a hard `kill -9`. Less human intervention, full autonomy as the goal.                            |
 | **Knows you better every session** | A bounded self-evolution loop — sessions settle into memory, preferences and skills; behavior improves with use. Auditable and erasable: evolution only ever touches data, never the safety surface. |
-| **Everything is a plugin**      | Shell, skills, web fetch, cron, goals, sub-agents, checkpoints, memory, MCP, LSP, browser, web UI… all 16 official capabilities mount through the same surface your own extensions use. |
+| **Everything is a plugin**      | Shell, skills, web fetch, cron, goals, sub-agents, checkpoints, memory, MCP, LSP, browser, web UI… all 16 official capabilities mount through the same mechanism your own extensions use. |
 | **Capability doors, not vibes** | Dangerous capabilities sit behind explicit doors — `berry doors list` shows each one's state. Installing a plugin never implies granting it permissions.                                |
 | **Model-agnostic**              | Anthropic, OpenAI, Google and more behind one interface. Switch with one env var, no code changes, no lock-in.                                                                          |
 | **Sessions you can trust**      | Every session lives in SQLite — fork, resume, search, reindex. A runtime assertion guarantees that what the model saw is exactly what got recorded.                                     |
@@ -181,9 +181,9 @@ graph TD
     CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["Terminal UI"]
     WEB["Web UI + /v1/* HTTP"]
-    HOST["Host — assembly root<br/>capability doors · audit timeline · budgets"]
+    HOST["Host — assembly hub<br/>capability doors · audit timeline · budgets"]
     LOOP["Agent loop — model-agnostic StreamFn"]
-    PLUGINS["Plugin surface<br/>20 extension faces · 16 built-in plugins"]
+    PLUGINS["Plugin layer<br/>20 extension points · 16 built-in plugins"]
     STORE[("SQLite<br/>sessions · memory · audit")]
     CLI --> HOST
     TUI --> HOST

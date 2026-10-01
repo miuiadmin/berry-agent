@@ -6,7 +6,7 @@
 
 La conversación y el código son el núcleo. Cada capacidad — shell, habilidades,
 navegador, planificador, memoria, interfaz web — se carga como un **plugin**.
-Los plugins oficiales y comunitarios se montan por la misma superficie; no
+Los plugins oficiales y comunitarios se montan por el mismo mecanismo; no
 existe ninguna vía privada de primer partido.
 
 <p>
@@ -62,7 +62,7 @@ del alcance de la evolución, para siempre.
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Autónomo por diseño**                  | Ejecuciones guiadas por objetivos que no se detienen — probadas en soak durante horas y con recuperación verificada tras un `kill -9`. Menos intervención humana, autonomía total como meta.                     |
 | **Te conoce mejor en cada sesión**       | Un bucle de autoevolución acotado — las sesiones se sedimentan en memoria, preferencias y habilidades; el comportamiento mejora con el uso. Auditable y borrable: la evolución solo toca datos, jamás la superficie de seguridad. |
-| **Todo es un plugin**                    | Shell, habilidades, fetch web, cron, objetivos, subagentes, checkpoints, memoria, MCP, LSP, navegador, interfaz web… las 16 capacidades oficiales se montan por la misma superficie que tus propias extensiones. |
+| **Todo es un plugin**                    | Shell, habilidades, fetch web, cron, objetivos, subagentes, checkpoints, memoria, MCP, LSP, navegador, interfaz web… las 16 capacidades oficiales se montan por el mismo mecanismo que tus propias extensiones. |
 | **Puertas de capacidad, no intuiciones** | Las capacidades peligrosas viven detrás de puertas explícitas — `berry doors list` muestra el estado de cada una. Instalar un plugin nunca implica concederle permisos.                                          |
 | **Agnóstico del modelo**                 | Anthropic, OpenAI, Google y más detrás de una sola interfaz. Cambia de modelo con una variable de entorno, sin tocar código, sin encerrarse.                                                                     |
 | **Sesiones de fiar**                     | Cada sesión vive en SQLite — fork, resume, search, reindex. Una aserción en tiempo de ejecución garantiza que lo que el modelo vio es exactamente lo que quedó registrado.                                       |
@@ -181,9 +181,9 @@ graph TD
     CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["Interfaz de terminal"]
     WEB["Interfaz web + HTTP /v1/*"]
-    HOST["Host — raíz de ensamblaje<br/>puertas de capacidad · cronología de auditoría · presupuestos"]
+    HOST["Host — centro de ensamblaje<br/>puertas de capacidad · cronología de auditoría · presupuestos"]
     LOOP["Bucle del agente — StreamFn agnóstico del modelo"]
-    PLUGINS["Superficie de plugins<br/>20 caras de extensión · 16 plugins integrados"]
+    PLUGINS["Capa de plugins<br/>20 puntos de extensión · 16 plugins integrados"]
     STORE[("SQLite<br/>sesiones · memoria · auditoría")]
     CLI --> HOST
     TUI --> HOST

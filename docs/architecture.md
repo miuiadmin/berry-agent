@@ -97,7 +97,7 @@ bin (berry) → host/main
 - **权限预设**：conservative / balanced（默认）/ open 三预设打包（TUI `/approval preset` 写盘 `settings.json` 两键 + open 预设建议集 append；CLI `--preset` 逐次生效不写盘）——四层解析：工具参数 > 会话策略 > CLI 旗标 > settings.json > 代码常量；
 - **SSRF 卫生**：URL 白名单 → 私网双查（字面 + DNS）→ 重定向逐跳复检 → 字节上限；校验通过地址集连接级钉死（DNS rebinding「校验时公网、连接时内网」TOCTOU 闭合）；
 - **进程治理**：detached 进程组、树杀、登记簿孤儿清扫、pid 复用防线；
-- **默认零数据外传（零遥测）**：无使用统计、无崩溃上报；TUI 交互启动含一次有界只读版本检查（零外传——07 §8.5 第 6 条）——出厂网络面仅凭证供给的模型调用、用户显式动作（`/setup` 自定义渠道的模型清单拉取腿——`{baseUrl}/models` 按协议分叉拼接、SSRF 守卫必经）与该有界检查腿。
+- **默认零数据外传（零遥测）**：无使用统计、无崩溃上报；TUI 交互启动含一次有界只读版本检查（零外传）——出厂网络面仅凭证供给的模型调用、用户显式动作（`/setup` 自定义渠道的模型清单拉取腿——`{baseUrl}/models` 按协议分叉拼接、SSRF 守卫必经）与该有界检查腿。
 
 ## 更多
 

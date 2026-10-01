@@ -6,7 +6,7 @@
 
 La conversation et le code sont le cœur. Chaque capacité — shell, compétences,
 navigateur, planificateur, mémoire, interface web — se charge comme un
-**plugin**. Les plugins officiels et communautaires empruntent la même surface
+**plugin**. Les plugins officiels et communautaires empruntent le même mécanisme
 de montage ; il n'existe aucune voie privée de premier parti.
 
 <p>
@@ -62,7 +62,7 @@ portée de l'évolution, définitivement.
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Autonome par conception**                  | Des exécutions pilotées par objectif qui ne s'arrêtent pas — testées en continu pendant des heures, récupération vérifiée après un `kill -9`. Moins d'intervention humaine, l'autonomie complète pour objectif.            |
 | **Vous connaît mieux à chaque session**      | Une boucle d'auto-évolution bornée — les sessions se déposent en mémoire, préférences et compétences ; le comportement s'améliore à l'usage. Auditable et effaçable : l'évolution ne touche que les données, jamais la surface de sûreté. |
-| **Tout est plugin**                          | Shell, compétences, récupération web, cron, objectifs, sous-agents, points de contrôle, mémoire, MCP, LSP, navigateur, interface web… les 16 capacités officielles passent par la même surface que vos propres extensions. |
+| **Tout est plugin**                          | Shell, compétences, récupération web, cron, objectifs, sous-agents, points de contrôle, mémoire, MCP, LSP, navigateur, interface web… les 16 capacités officielles passent par le même mécanisme que vos propres extensions. |
 | **Des portes de capacité, rien d'implicite** | Les capacités dangereuses vivent derrière des portes explicites — `berry doors list` affiche l'état de chacune. Installer un plugin n'implique jamais l'octroi de permissions.                                             |
 | **Agnostique du modèle**                     | Anthropic, OpenAI, Google et d'autres derrière une seule interface. Changez de modèle avec une variable d'environnement, sans toucher au code, sans enfermement.                                                           |
 | **Des sessions fiables**                     | Chaque session vit dans SQLite — fork, resume, search, reindex. Une assertion à l'exécution garantit que ce que le modèle a vu est exactement ce qui a été enregistré.                                                     |
@@ -182,9 +182,9 @@ graph TD
     CLI["berry CLI<br/>run · sessions · plugins · doors · credentials · serve"]
     TUI["Interface terminale"]
     WEB["Interface web + HTTP /v1/*"]
-    HOST["Hôte — racine d'assemblage<br/>portes de capacité · chronique d'audit · budgets"]
+    HOST["Hôte — cœur d'assemblage<br/>portes de capacité · chronique d'audit · budgets"]
     LOOP["Boucle d'agent — StreamFn indépendant du modèle"]
-    PLUGINS["Surface de plugins<br/>20 facettes d'extension · 16 plugins intégrés"]
+    PLUGINS["Couche de plugins<br/>20 points d'extension · 16 plugins intégrés"]
     STORE[("SQLite<br/>sessions · mémoire · audit")]
     CLI --> HOST
     TUI --> HOST
