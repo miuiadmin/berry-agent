@@ -19,6 +19,9 @@ export const GOAL_USAGE = [
   '　　　/goal approve <goalId> —— 批准写入权限申请（批准后写入工具可用）',
 ].join('\n');
 
+/** 子动词名集（补全面单源——static-completions SUBVERBS_BY_COMMAND 消费） */
+export const GOAL_SUBVERBS = ['create', 'list', 'show', 'wake', 'approve'] as const;
+
 /** 命令装配依赖 */
 export interface GoalCommandDeps {
   service: GoalService;

@@ -17,6 +17,7 @@ import type { AutocompleteItem } from '../channels/index.js';
 import { USER_GRANTABLE_CAPABILITIES } from '../contracts/api.js';
 import { APPROVAL_PRESETS } from '../safety/index.js';
 import { REWIND_SUBVERBS } from '../checkpoint/index.js';
+import { GOAL_SUBVERBS } from '../goal/index.js';
 import { APPROVAL_SUBVERBS } from './approval-cmd.js';
 import { DOORS_SUBVERBS } from './doors-cmd.js';
 import { PLUGINS_SUBVERBS } from './plugins-command.js';
@@ -61,12 +62,13 @@ function modelShortName(model: string): string {
 
 /* ---------------- 命令参数补全源（R6 批 10j 装配接线） ---------------- */
 
-/** 带参补全的四命令子动词名集（单源 = 各命令件 SUBVERBS 导出） */
+/** 带参补全的五命令子动词名集（单源 = 各命令件 SUBVERBS 导出） */
 const SUBVERBS_BY_COMMAND: Readonly<Record<string, readonly string[]>> = {
   approval: APPROVAL_SUBVERBS,
   plugins: PLUGINS_SUBVERBS,
   doors: DOORS_SUBVERBS,
   rewind: REWIND_SUBVERBS,
+  goal: GOAL_SUBVERBS,
 };
 
 /**
@@ -92,6 +94,11 @@ const VERB_META: Readonly<Record<string, readonly [string, boolean]>> = {
   'rewind preview': ['预览（不改动文件）<id>', true],
   'rewind restore': ['回退（新建分支会话）<id>', true],
   'rewind help': ['用法说明', false],
+  'goal create': ['创建续跑 goal（绑定本会话）<schedule> <objective>', true],
+  'goal list': ['全部 goal（状态/定时/预算速览）', false],
+  'goal show': ['单个 goal 详情（任务清单 + 唤醒记录）<goalId>', true],
+  'goal wake': ['手动唤醒（无进展与预算计数清零）<goalId>', true],
+  'goal approve': ['批准写入权限申请 <goalId>', true],
 };
 
 /**

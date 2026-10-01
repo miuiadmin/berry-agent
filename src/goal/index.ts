@@ -48,4 +48,4 @@ export {
   type GoalServiceDeps,
   type GoalService,
 } from './service.js';
-export { runGoalCommand, GOAL_USAGE, type GoalCommandDeps } from './command.js';
+export { runGoalCommand, GOAL_USAGE, GOAL_SUBVERBS, type GoalCommandDeps } from './command.js';

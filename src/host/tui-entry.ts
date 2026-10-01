@@ -57,6 +57,7 @@ import type { TuiFlags } from './cli.js';
 import { assembleHostStack } from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import { startSchedulerClock } from './core-plugins.js';
+import type { GoalFace } from './core-plugins.js';
 import type { CorePluginReference } from './loader.js';
 import { runWithSessionAnchor } from './session-anchor.js';
 import { liveCommandArgumentItems, type LiveCompletionDeps } from './live-completions.js';
@@ -468,6 +469,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           }
         | undefined;
     }>('plugin-load-report');
+    // goal 服务面（'goal' 窄面 GoalFace——core 件注册；件缺席 = 诚实缺席）
+    const goalFace = scope.tryGet<GoalFace>('goal');
     const liveCompletionDeps: LiveCompletionDeps = {
       ...(checkpointStore !== undefined
         ? {
@@ -481,6 +484,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // /plugins 尾参位活体源（activated ∪ skipped——failed 不入可操作面；
       // 结构子集形直赋——取值器每查询现取，与 rewind 位同族）
       ...(pluginLoadReport !== undefined ? { pluginReport: () => pluginLoadReport.report() } : {}),
+      // /goal show|wake|approve 尾参 goal id 位活体源（service.list() 全量行
+      // ——/goal list 同一读面；A-6 组γ；goal 件缺席 = 该活体位诚实缺席）
+      ...(goalFace !== undefined
+        ? { goalRows: () => goalFace.service.list().map((row) => ({ id: row.id, objective: row.objective })) }
+        : {}),
       // /export|/resume 首参会话 id 位活体源（manager 全量行——/sessions 清单
       // 同一读面；2026-10-01 位逻辑迁 live-completions 第三活体位，本位只注数）
       sessionRows: () => stack.manager.list({}),

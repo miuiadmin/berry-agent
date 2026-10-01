@@ -160,3 +160,35 @@ describe('liveCommandArgumentItems 会话 id 位（/export|/resume 首参——2
     expect(liveCommandArgumentItems('resume', '', [], sessionDeps([]))).toEqual([]); // 空清单诚实空
   });
 });
+
+describe('liveCommandArgumentItems goal id 位（/goal show|wake|approve <goalId>——A-6 组γ）', () => {
+  /** goal 清单取值器速记（结构子集形——id + objective 两键） */
+  function goalDeps(rows: readonly { id: string; objective: string }[]): LiveCompletionDeps {
+    return { goalRows: () => rows };
+  }
+
+  const rows = [
+    { id: 'goal-abc123', objective: '修复登录页在 Safari 的布局问题' },
+    { id: 'goal-xyz789', objective: '短目标' },
+  ];
+
+  it('三动词同位同源：全 id replacement 尾空格 + detail = objective 40 截形（对齐 /goal list 行判据）', () => {
+    for (const verb of ['show', 'wake', 'approve']) {
+      const items = liveCommandArgumentItems('goal', '', [verb], goalDeps(rows)) as unknown as {
+        label: string;
+        detail?: string;
+        replacement: string;
+      }[];
+      expect(items.map((x) => x.replacement)).toEqual(['goal-abc123 ', 'goal-xyz789 ']); // 全 id 尾空格
+      expect(items.map((x) => x.label)).toEqual(['goal-abc123', 'goal-xyz789 '].map((s) => s.trim())); // label 全 id（goal id 本短不截形——/goal list 同判据）
+      expect(items[0]!.detail).toBe('修复登录页在 Safari 的布局问题'); // objective 40 截形
+    }
+  });
+
+  it('位外与缺席：create/list 深位 null；清单源缺席诚实缺席；空清单诚实空', () => {
+    expect(liveCommandArgumentItems('goal', '', ['create'], goalDeps(rows))).toBeNull(); // create 尾参是 schedule/objective 非 goalId——位外
+    expect(liveCommandArgumentItems('goal', '', ['list'], goalDeps(rows))).toBeNull(); // list 无尾参
+    expect(liveCommandArgumentItems('goal', '', ['wake'], {})).toBeNull(); // 清单源缺席 = 诚实缺席（goal 件不在场归静态面）
+    expect(liveCommandArgumentItems('goal', '', ['show'], goalDeps([]))).toEqual([]); // 空清单诚实空
+  });
+});

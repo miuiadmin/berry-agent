@@ -3,7 +3,7 @@
  *
  * 静态参数源（commandArgumentItems）只覆盖编译期可知的枚举位（子动词首参
  * / 预设名 / 能力名）；插件 id、回退点 id 等**活体值**（装载面现态、库中
- * manifest 清单）不在静态面。本件提供三活体位的参数补全条目铸造：
+ * manifest 清单）不在静态面。本件提供四活体位的参数补全条目铸造：
  * - `/plugins mount|unmount|toggle|config <id>` 尾参位——已受理集 =
  *   activated ∪ skipped（failed 不入可操作面——四动词的操作对象是已受理
  *   插件）；每查询现取（换代表即新投影——不缓存）。
@@ -14,6 +14,9 @@
  * - `/export|/resume <id>` 首参位（2026-10-01 自 tui-entry 装配闭包迁入——
  *   两命令同源合流）：会话清单 = manager 全量行（/sessions 清单同一读面）；
  *   label 8 位截形 + replacement 全 id 尾空格 + detail 展示题合并单源。
+ * - `/goal show|wake|approve <goalId>` 尾参位（wf_3c8b00b8 A-6）：goal
+ *   清单 = service.list() 全量行（/goal list 同一读面）；label 全 id 原样
+ *   （goal id 自短不截形）+ detail objective 40 截形（list 行同判据）。
  *
  * 返回协议（与补全源 union 契约对齐）：命中活体位 → 同步数组（plugins 位）
  * 或 Promise（rewind 位）；**位外 / 依赖缺席 → null**（诚实缺席——装配位
@@ -52,6 +55,9 @@ export interface LiveCompletionDeps {
     readonly title?: string | undefined;
     readonly firstQuestionSummary?: string | undefined;
   }[];
+  /** goal 清单取值器（每查询现取——service.list() 全量行；缺席 = goal 件不在
+   *  场诚实缺席归静态面）。结构子集形：id 补全判据面 + objective detail 面。 */
+  readonly goalRows?: () => readonly { readonly id: string; readonly objective: string }[];
 }
 
 /** /plugins 尾参位动词集（四动词同一位——list/help 等无尾参动词不入） */
@@ -59,6 +65,10 @@ const PLUGINS_ID_VERBS: ReadonlySet<string> = new Set(['mount', 'unmount', 'togg
 
 /** /rewind 尾参位动词集（preview|restore 同位同源——help/list 不入） */
 const REWIND_ID_VERBS: ReadonlySet<string> = new Set(['preview', 'restore']);
+
+/** /goal 尾参位动词集（show|wake|approve 同位同源——create 尾参是
+ * schedule/objective 非 goalId、list 无尾参，均不入） */
+const GOAL_ID_VERBS: ReadonlySet<string> = new Set(['show', 'wake', 'approve']);
 
 /**
  * 活体值参数补全条目铸造（纯函数——测试直锁消费面；装配位 null 归静态面）。
@@ -118,6 +128,19 @@ export function liveCommandArgumentItems(
         replacement: `${row.id} `,
       };
     });
+  }
+  // 位判四：/goal show|wake|approve 尾参 goal id 位（同步腿——service.list()
+  // 同步返回；A-6 组γ第四活体位）。label 全 id 原样（goal id 自短——/goal list
+  // 行渲染同判据不截形）；detail = objective 前 40 截形（对齐 list 行呈现）；
+  // replacement 全 id 尾空格（get/wake/approve 消费面吃全 id）
+  if (command === 'goal' && priorArgs.length === 1 && GOAL_ID_VERBS.has(priorArgs[0]!)) {
+    const fetchRows = deps.goalRows;
+    if (fetchRows === undefined) return null; // 清单源缺席 = 诚实缺席（goal 件不在场归静态面）
+    return fuzzyFilter(fetchRows(), (row) => row.id, query).map((row) => ({
+      label: row.id,
+      detail: row.objective.slice(0, 40),
+      replacement: `${row.id} `,
+    }));
   }
   return null; // 位外 = null 回退静态面（子动词首参 / list 尾参 / 深位 / 非两命令）
 }

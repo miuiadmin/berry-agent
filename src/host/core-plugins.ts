@@ -1453,9 +1453,11 @@ export function startSchedulerClock(
  * **不进投影**——人面命令（/goal）与模型工具（goal_update/todo）在 goal 件
  * 内闭包消费全量 GoalService（danger 件 dangerFace 从不 provide 先例同律）。
  */
+// （'list' 消费位 = 宿主 TUI /goal show|wake|approve 尾参 goal id 活体补全
+// ——tui-entry goalRows 注入经 scope 'goal' 面取；wf_3c8b00b8 A-6 扩键）
 export type GoalHostServiceFace = Pick<
   GoalService,
-  'wake' | 'goalScopeFor' | 'depositFor' | 'recordTurn' | 'attachGoalJobsFace' | 'detachGoalJobsFace'
+  'wake' | 'goalScopeFor' | 'depositFor' | 'recordTurn' | 'attachGoalJobsFace' | 'detachGoalJobsFace' | 'list'
 >;
 
 /**
@@ -1739,6 +1741,8 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
         recordTurn: (goalId, opts) => service.recordTurn(goalId, opts),
         attachGoalJobsFace: (face) => service.attachGoalJobsFace(face),
         detachGoalJobsFace: () => service.detachGoalJobsFace(),
+        // 读动词（goal id 活体补全消费位——A-6；写动词仍不进投影执法面不变）
+        list: () => service.list(),
       };
       context.provide('goal', {
         service: hostServiceFace,
