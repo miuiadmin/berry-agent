@@ -6,7 +6,7 @@
  * ⑪ 三零件（交付验证门三态/escalation 收口双档/前次分支指路 prompt）、
  * ⑪ 遗漏修复批两件（非 completed 收口 escalation 附段双面——回执评论与
  * settle detail；验证四元组 settle detail 补齐——非零分支输出尾 + 异常
- * 分支时长）、FX-1 并行帽诚实受理（帽满预检 + 受理残窗兜底——不谎报
+ * 分支时长）、FX-1 并行上限诚实受理（满限预检 + 受理残窗兜底——不谎报
  * started 不崩进程）与 issue-3 补锁（验证门异常分支回执评论证据面 +
  * verifyBlocked 两分支 × escalation 附段组合）、五役 CL-2 回执全面出口
  * 消毒三锁（03 §10.7 五役扩射笔——postReceipt 出口单源收口，全 body 过
@@ -37,14 +37,14 @@ import type { ToolDefinition } from '../contracts/index.js';
 
 /**
  * Job 注册表假件（settle 记录——first-wins 模拟归真件语义）。issueKindLimit
- * 在场时按真 registry 语义执法 kind issue 并行帽（src/subagent/registry.ts
- * register 同形：kind 在飞计数到帽同步 throw JOB_LIMIT_REACHED、先查帽后
- * 入表）——FX-1 帽满回归锁的「真语义」源。
+ * 在场时按真 registry 语义执法 kind issue 并行上限（src/subagent/registry.ts
+ * register 同形：kind 在飞计数到限同步 throw JOB_LIMIT_REACHED、先查限后
+ * 入表）——FX-1 满限回归锁的「真语义」源。
  */
 function fakeJobs(opts?: { issueKindLimit?: number }) {
   const kinds: string[] = [];
   const runningNames = new Set<string>();
-  // name → kind（帽执法的 kind 计数源——真 running() 收窄面只返 name，假件内部记账）
+  // name → kind（上限执法的 kind 计数源——真 running() 收窄面只返 name，假件内部记账）
   const runningKinds = new Map<string, string>();
   const settled: { name: string; terminal: { status: string; detail?: string } }[] = [];
   const jobs: IssueJobsFace = {
@@ -57,7 +57,7 @@ function fakeJobs(opts?: { issueKindLimit?: number }) {
       ) {
         throw new BaseError(
           'JOB_LIMIT_REACHED',
-          `Job kind「issue」在飞数已达并行帽 ${opts.issueKindLimit}——拒新注册（04 §10 注册表面口）`,
+          `Job kind「issue」在飞数已达并行上限 ${opts.issueKindLimit}——拒新注册（04 §10 注册表面口）`,
         );
       }
       runningNames.add(input.name);
@@ -189,7 +189,7 @@ function deferredSession() {
 }
 
 /**
- * 并发在飞会话假件（FX-1 并行帽回归锁专用）：多 run 同时在飞、各自停靠在
+ * 并发在飞会话假件（FX-1 并行上限回归锁专用）：多 run 同时在飞、各自停靠在
  * outcome promise 上（不 resolve 即在飞）——「两在飞 + 第三个」帽满场景的
  * 构造源（deferredSession 单 run 形不够用）。
  */
@@ -330,7 +330,7 @@ function makeService(over?: {
   session?: IssueSessionFace;
   /** 出口消毒值基腿活值 provider（附段 b——缺席 = 纯模式腿降级） */
   sensitiveValues?: () => readonly string[];
-  /** jobs 假件帽执法开关（FX-1——真 registry kind issue 并行帽语义注入位） */
+  /** jobs 假件上限执法开关（FX-1——真 registry kind issue 并行上限语义注入位） */
   jobsIssueLimit?: number;
 }) {
   const fj = fakeJobs(over?.jobsIssueLimit !== undefined ? { issueKindLimit: over.jobsIssueLimit } : undefined);
@@ -1063,7 +1063,7 @@ describe('⑪ 非 completed 收口 escalation 附段（回执评论与 settle de
   });
 });
 
-describe('FX-1 并行帽诚实受理（两在飞 + 第三个——不谎报 started 不崩进程）', () => {
+describe('FX-1 并行上限诚实受理（两在飞 + 第三个——不谎报 started 不崩进程）', () => {
   it('帽满预检：第三个 enqueue 诚实 rejected + 零 unhandledRejection + 不发起 run', async () => {
     // jobs 假件按真 registry 语义执法帽（kind issue 在飞计数到帽同步 throw
     // JOB_LIMIT_REACHED——先查帽后入表）；会话假件多 run 停靠在飞——两在飞
