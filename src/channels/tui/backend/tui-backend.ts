@@ -891,7 +891,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * 开副屏会话切换器（UiBackend 可选能力面实装——R7 批 10k /sessions）：清单
    * 载荷经通道核流转（openHistory 同律）；选定回调核闭包透传（registry.focus
-   * 既有权威路——本件呈现不触焦点态）。已在副屏 / 主屏不在 running 返 false
+   * 既有权威路——本件呈现不触焦点态）。totalCount = 全量总数（B2 截断披露
+   * ——通道核 sessionsTotal 注入缺席时回退清单长度；超清单长时切换器头行
+   * 注记「N/M（仅显示最近）」）。已在副屏 / 主屏不在 running 返 false
    * （核侧 notify 降级）。打断柄锚当前交互会话位（切焦前语义）。
    */
   openSessions(

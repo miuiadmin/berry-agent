@@ -82,6 +82,12 @@ export interface AppState {
   readonly toolNames: Readonly<Record<string, string>>;
   /** 会话清单装载失败旗（true = 空态呈现失败行——不与真空态混同假装「暂无会话」） */
   readonly sessionsFailed: boolean;
+  /**
+   * 会话全量总数（B2 截断披露——服务端清单默认最近 100 窗，total 与窗分立；
+   * 缺席 = 不披露。侧栏超窗注记「N/M 会话（仅显示最近）」，判据 = total >
+   * 清单长〔与 TUI session-picker 头行同律〕）。
+   */
+  readonly sessionsTotal?: number;
 }
 
 /** 初始态（空态——auth 后由投影拉取逐段填充） */
@@ -367,9 +373,9 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
   return { ...state, messages: views, seq, pendingEchoes: [] };
 }
 
-/** 会话清单落座（成功即撤失败旗——失败行只随最新一次装载结果呈现） */
-export function loadedSessions(state: AppState, sessions: readonly ClientSessionSummary[]): AppState {
-  return { ...state, sessions, sessionsFailed: false };
+/** 会话清单落座（成功即撤失败旗——失败行只随最新一次装载结果呈现；total 随批落座，缺席 = 不披露） */
+export function loadedSessions(state: AppState, sessions: readonly ClientSessionSummary[], total?: number): AppState {
+  return { ...state, sessions, sessionsTotal: total, sessionsFailed: false };
 }
 
 /** 会话清单装载失败落旗（空态呈现失败行——与真空态分立，不假声明「暂无会话」） */

@@ -179,9 +179,9 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
   const loadSessions = useCallback(() => {
     void api
       .listSessions()
-      .then((sessions) => {
+      .then(({ sessions, total }) => {
         setState((prev) => {
-          const withSessions = loadedSessions(prev, sessions);
+          const withSessions = loadedSessions(prev, sessions, total);
           // 首载且无选中——自动选首会话（无会话则保持 null，SessionList 引导开新）
           if (prev.activeId === null && sessions.length > 0) return setActiveSession(withSessions, sessions[0]!.id);
           return withSessions;
@@ -463,6 +463,7 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
           activeId={state.activeId}
           onSelect={switchSession}
           loadFailed={state.sessionsFailed}
+          totalCount={state.sessionsTotal}
         />
         <TodoPanel todo={state.todo} />
       </aside>

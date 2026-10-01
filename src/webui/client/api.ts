@@ -112,9 +112,13 @@ export const api = {
     return call<void>(WEBUI_ENDPOINTS.auth, { method: 'POST', body: JSON.stringify({ token }) });
   },
 
-  async listSessions(): Promise<readonly ClientSessionSummary[]> {
-    const body = await call<{ sessions: ClientSessionSummary[] }>(WEBUI_ENDPOINTS.sessions);
-    return body.sessions;
+  /**
+   * 会话清单 + 全量总数（B2 截断披露——服务端清单默认最近 100 窗，total
+   * 与窗分立：超窗侧栏注记「N/M 会话（仅显示最近）」；与 TUI session-picker
+   * 头行同文案同判据〔totalCount > 清单长才注记〕）。
+   */
+  async listSessions(): Promise<{ sessions: readonly ClientSessionSummary[]; total: number }> {
+    return call<{ sessions: ClientSessionSummary[]; total: number }>(WEBUI_ENDPOINTS.sessions);
   },
 
   async createSession(): Promise<string> {

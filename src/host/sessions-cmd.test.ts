@@ -203,7 +203,7 @@ describe('sessions list（读腿零装配）', () => {
     );
     expect(code).toBe(0);
     const text = cap.out.join('\n');
-    expect(text).toContain('共 2 个会话');
+    expect(text).toContain('共 2 个会话（按更新时间倒序）：'); // 头行收紧形：全量已呈现无注记（超窗才注「仅显示最近 N 个」）
     expect(text).toContain('aaa-root');
     expect(text).toContain('根会话');
     expect(text).toContain('fork←aaa-root'); // 血缘统一式：origin←parentId

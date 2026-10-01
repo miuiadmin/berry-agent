@@ -53,7 +53,7 @@ const TIERS: TiersPayload = {
 const apiMock = vi.hoisted(() => ({
   probeAuthed: vi.fn<() => Promise<boolean>>(),
   auth: vi.fn<(token: string) => Promise<void>>(),
-  listSessions: vi.fn<() => Promise<readonly ClientSessionSummary[]>>(),
+  listSessions: vi.fn<() => Promise<{ sessions: readonly ClientSessionSummary[]; total: number }>>(),
   createSession: vi.fn<() => Promise<string>>(),
   fetchMessages: vi.fn<(sessionId: string) => Promise<readonly unknown[]>>(),
   submit: vi.fn<(sessionId: string, text: string, messageId: string) => Promise<void>>(),
@@ -122,7 +122,7 @@ afterEach(() => {
 /** 主面就绪桩（已桥 + 单会话 + 空投影） */
 function primeMain(options?: { readonly approvals?: readonly ClientApprovalEntry[] }): void {
   apiMock.probeAuthed.mockResolvedValue(true);
-  apiMock.listSessions.mockResolvedValue([{ id: 's-1', title: '测试会话', lastActivityAt: 1 }]);
+  apiMock.listSessions.mockResolvedValue({ sessions: [{ id: 's-1', title: '测试会话', lastActivityAt: 1 }], total: 1 });
   apiMock.fetchMessages.mockResolvedValue([]);
   apiMock.todo.mockResolvedValue(null);
   apiMock.listApprovals.mockResolvedValue(options?.approvals ?? []);
@@ -250,10 +250,13 @@ describe('WebUiRoot主面活体环', () => {
 
   it('会话切换换流（旧流关、新流开）', async () => {
     apiMock.probeAuthed.mockResolvedValue(true);
-    apiMock.listSessions.mockResolvedValue([
-      { id: 's-1', title: '一会话', lastActivityAt: 1 },
-      { id: 's-2', title: '二会话', lastActivityAt: 2 },
-    ]);
+    apiMock.listSessions.mockResolvedValue({
+      sessions: [
+        { id: 's-1', title: '一会话', lastActivityAt: 1 },
+        { id: 's-2', title: '二会话', lastActivityAt: 2 },
+      ],
+      total: 2,
+    });
     apiMock.fetchMessages.mockResolvedValue([]);
     apiMock.todo.mockResolvedValue(null);
     apiMock.listApprovals.mockResolvedValue([]);
@@ -727,7 +730,7 @@ describe('WebUiRoot零会话态提交（十六役补扫 N6——输入不静默�
   /** 零会话态就绪桩（已桥 + 空清单——全新宿主首开 webui 形） */
   function primeZeroSession(): void {
     apiMock.probeAuthed.mockResolvedValue(true);
-    apiMock.listSessions.mockResolvedValue([]);
+    apiMock.listSessions.mockResolvedValue({ sessions: [], total: 0 });
     apiMock.fetchMessages.mockResolvedValue([]);
     apiMock.todo.mockResolvedValue(null);
     apiMock.listApprovals.mockResolvedValue([]);
@@ -813,10 +816,13 @@ describe('WebUiRoot稳态周期复拉（十六役补扫 N22/N23——跨会话�
       render(<WebUiRoot />);
       await screen.findAllByText('测试会话');
       // 外部开新（本口零操作）
-      apiMock.listSessions.mockResolvedValue([
-        { id: 's-ext', title: '外部新会话', lastActivityAt: 9 },
-        { id: 's-1', title: '测试会话', lastActivityAt: 1 },
-      ]);
+      apiMock.listSessions.mockResolvedValue({
+        sessions: [
+          { id: 's-ext', title: '外部新会话', lastActivityAt: 9 },
+          { id: 's-1', title: '测试会话', lastActivityAt: 1 },
+        ],
+        total: 2,
+      });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000);
       });
@@ -833,12 +839,38 @@ describe('WebUiRoot稳态周期复拉（十六役补扫 N22/N23——跨会话�
     primeMain();
     render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
-    apiMock.listSessions.mockResolvedValue([
-      { id: 's-1', title: '测试会话', lastActivityAt: 1 },
-      { id: 's-2', title: '第二会话', lastActivityAt: 2 },
-    ]);
+    apiMock.listSessions.mockResolvedValue({
+      sessions: [
+        { id: 's-1', title: '测试会话', lastActivityAt: 1 },
+        { id: 's-2', title: '第二会话', lastActivityAt: 2 },
+      ],
+      total: 2,
+    });
     fireEvent.click(screen.getByRole('button', { name: '刷新会话清单' }));
     await screen.findByText('第二会话');
+  });
+});
+
+describe('WebUiRoot清单截断披露（B2 SPA total 消费腿——服务端已发 total、客户端首跳丢弃的补消费）', () => {
+  it('总数超清单长 → 侧栏注记「N/M 会话（仅显示最近）」；全量已呈现无注记（与 TUI session-picker 同判据）', async () => {
+    primeMain();
+    // 超窗形：清单 1 条、全量 150（服务端默认最近 100 窗——窗内全量已呈现
+    // 时 total = 清单长，此测试构造极端差以锁注记判据本身）
+    apiMock.listSessions.mockResolvedValue({
+      sessions: [{ id: 's-1', title: '测试会话', lastActivityAt: 1 }],
+      total: 150,
+    });
+    render(<WebUiRoot />);
+    await screen.findByText('1/150 会话（仅显示最近）');
+    // 全量已呈现（total = 清单长）→ 刷新后注记消失
+    apiMock.listSessions.mockResolvedValue({
+      sessions: [{ id: 's-1', title: '测试会话', lastActivityAt: 1 }],
+      total: 1,
+    });
+    fireEvent.click(screen.getByRole('button', { name: '刷新会话清单' }));
+    await waitFor(() => {
+      expect(screen.queryByText(/会话（仅显示最近）/)).toBeNull();
+    });
   });
 });
 
@@ -857,7 +889,10 @@ describe('WebUiRoot清单装载失败分立（十六役补扫 N24——失败不
   it('刷新重试成功 → 失败行撤、会话入清单（恢复路径页内可达——修前红：注释承诺的手动刷新入口不存在）', async () => {
     apiMock.probeAuthed.mockResolvedValue(true);
     apiMock.listSessions.mockRejectedValueOnce(new ApiError(503, 'UNAVAILABLE'));
-    apiMock.listSessions.mockResolvedValue([{ id: 's-1', title: '迟到会话', lastActivityAt: 1 }]);
+    apiMock.listSessions.mockResolvedValue({
+      sessions: [{ id: 's-1', title: '迟到会话', lastActivityAt: 1 }],
+      total: 1,
+    });
     apiMock.fetchMessages.mockResolvedValue([]);
     apiMock.todo.mockResolvedValue(null);
     apiMock.listApprovals.mockResolvedValue([]);

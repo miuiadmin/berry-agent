@@ -46,7 +46,8 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
   const historyOpens: { sessionId: string; messages: readonly unknown[] }[] = [];
   const memoryOpens: number[] = [];
   let memoryOpenReturn = false;
-  const sessionsOpens: { sessions: readonly unknown[]; onSelect: (sessionId: string) => void }[] = [];
+  const sessionsOpens: { sessions: readonly unknown[]; onSelect: (sessionId: string) => void; totalCount?: number }[] =
+    [];
   let sessionsOpenReturn = false;
   const usageOpens: { sessionId: string; summary: unknown }[] = [];
   let usageOpenReturn = false;
@@ -83,8 +84,8 @@ function fakeBackend(id: string, capsOverride: Partial<UiCapabilities> = {}, wit
             memoryOpens.push(memoryOpens.length);
             return memoryOpenReturn;
           },
-          openSessions: (sessions: readonly never[], onSelect: (sessionId: string) => void) => {
-            sessionsOpens.push({ sessions, onSelect });
+          openSessions: (sessions: readonly never[], onSelect: (sessionId: string) => void, totalCount?: number) => {
+            sessionsOpens.push({ sessions, onSelect, totalCount });
             return sessionsOpenReturn;
           },
           openUsage: (sessionId: string, summary: never) => {
@@ -606,6 +607,22 @@ describe('/sessions 命令面（07 §4.1 R7 批 10k——注入在场即注册�
     expect(b1.sessionsOpens).toHaveLength(1);
     expect(b1.sessionsOpens[0]!.sessions).toEqual(list); // 清单原样透传
     expect(b1.notified).toEqual([]); // 已开不降级
+  });
+
+  it('sessionsTotal 注入在场：总数第三参透传；缺席回退清单长度（B2 截断披露——不虚报全量）', async () => {
+    const s = createChannels({ sessions: async () => list, sessionsTotal: async () => 150 });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    expect(b.sessionsOpens[0]!.totalCount).toBe(150); // 全量总数原样透传（超窗切换器头行注记）
+    // 缺席腿：不注入 sessionsTotal → 回退清单长度（= 全量已呈现，头行原形）
+    const s2 = createChannels({ sessions: async () => list });
+    const b2 = fakeBackend('tui', {}, true);
+    b2.setSessionsOpen(true);
+    s2.addBackend(b2.backend);
+    await s2.dispatchCommand('/sessions');
+    expect(b2.sessionsOpens[0]!.totalCount).toBe(list.length);
   });
 
   it('选定回调 = registry.focus 权威路（未注册会话视同注册——焦点即活跃声明）', async () => {
