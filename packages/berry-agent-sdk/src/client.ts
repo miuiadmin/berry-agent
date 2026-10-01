@@ -62,6 +62,7 @@ export function createSdkClient(transport: SdkTransport): SdkClient {
       return frame as SdkEntriesFrame; // 应答闭集 {entries, error}
     },
 
+    /** 会话清单（默认最近 100 个、按更新时间倒序——超出即截断；全量总数属协议增位立题挂账） */
     sessions: async () => {
       const frame = await transport.request({ verb: 'sessions' });
       ensureNotError(frame);

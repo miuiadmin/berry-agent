@@ -182,7 +182,11 @@ export interface SdkEntriesFrame {
   nextCursor?: string;
 }
 
-/** sessions 应答帧——会话清单（与 webui §10.4 会话族端点同读面，词面本批定形） */
+/**
+ * sessions 应答帧——会话清单（与 webui §10.4 会话族端点同读面，词面本批定形）。
+ * 截断披露：清单默认最近 100 个（按更新时间倒序）——超出即截断；全量总数
+ * total 字段属协议增位，立题挂账（协议变更须版本握手 + 金样对拍，不便宜先行）。
+ */
 export interface SdkSessionsFrame {
   kind: 'sessions';
   sessions: SdkSessionSummary[];

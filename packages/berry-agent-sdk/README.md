@@ -49,7 +49,7 @@ const transport = httpSdkTransport({
 });
 
 const client = createSdkClient(transport);
-const sessions = await client.sessions(); // 会话清单
+const sessions = await client.sessions(); // 会话清单（默认最近 100 个、按更新时间倒序）
 const first = sessions[0]!;
 const page = await client.getEntries({ sessionId: first.id }); // 断线补齐（since 默认从头）
 const handle = await client.subscribe(
