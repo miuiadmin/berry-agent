@@ -1734,15 +1734,17 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       },
     );
 
-    // 服务面：'goal' 在场（service 六法投影〔s 批补注②〕+ todoFactory 换装工厂）
+    // 服务面：'goal' 在场（service 七法投影〔s 批补注② + 组γ list 入列〕+ todoFactory 换装工厂）
     const face = scope.tryGet<GoalFace>('goal');
     expect(face).toBeDefined();
     // goal_update 在 boot 全局层（执行时会话解析包装 def）+ /goal 命令注册
     expect(boot.tools.definitions().map((d) => d.name)).toContain('goal_update');
     expect(commands).toContain('goal');
 
-    // s 批投影律回归锁：tryGet 面 service = 六法白名单运行时投影——写动词
-    // 与非宿主消费读面全不在场（插件道写可连性闭合——ΔA⇏ΔC 执法形）
+    // s 批投影律回归锁：tryGet 面 service = 七法白名单运行时投影——写动词
+    // 与非宿主消费读面全不在场（插件道写可连性闭合——ΔA⇏ΔC 执法形）。
+    // list 是读动词且宿主消费位在册（组γ /goal id 活体补全——tui-entry
+    // goalRows 注入），随 Pick 扩列入 kept（读动词进投影不破写动词执法）。
     const projected = face!.service as unknown as Record<string, unknown>;
     for (const absent of [
       'activate',
@@ -1753,7 +1755,6 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       'commandGateStatus',
       'get',
       'activeFor',
-      'list',
       'wakes',
       'foldDelegation',
       'budgetExceeded',
@@ -1771,6 +1772,7 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
       'recordTurn',
       'attachGoalJobsFace',
       'detachGoalJobsFace',
+      'list',
     ]) {
       expect(typeof projected[kept]).toBe('function');
     }
