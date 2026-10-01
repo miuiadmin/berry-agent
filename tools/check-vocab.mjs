@@ -104,10 +104,12 @@ const LINEAGE_RE = /承自|对标|谱系|pi-ai|\bdsh\b|opencode|Emacs|\bpi\b/g;
 // （对照语境合法态过多——中文违形复合谱：宁漏不误咬）。
 //   - 全词面：挂钟/变异前拍/保底拍/预演/切焦/回切/对账/委派折叠/判据门/
 //     复探/坏形/越形/在册/撞名/选装/换装/缺省/开面/副屏/档位/应答
+//   - 复合形补词（2026-10-01 wf_db273e73 扫描处置——低歧义复合形随实证
+//     残词滚动补）：装配面/线面/退订
 //   - 「帽」邻接中文形（X帽/帽X——产串中「帽」几乎全为「上限」禁义）
 //   - 数字档形（\d档 + 三档/七档/两档——「read-only 档」等分类词经豁免台账
 const USERFACE_RE =
-  /挂钟|变异前拍|保底拍|预演|切焦|回切|对账|委派折叠|判据门|复探|坏形|越形|在册|撞名|选装|换装|缺省|开面|副屏|档位|应答|[一-龥]帽|帽[一-龥]|\d\s*档|三档|七档|两档/g;
+  /挂钟|变异前拍|保底拍|预演|切焦|回切|对账|委派折叠|判据门|复探|坏形|越形|在册|撞名|选装|换装|缺省|开面|副屏|档位|应答|装配面|线面|退订|[一-龥]帽|帽[一-龥]|\d\s*档|三档|七档|两档/g;
 
 /**
  * 提取字符串字面量内容、保行号（查四专用——与 stripCode 互补：只看串内容，
@@ -216,8 +218,11 @@ function report(file, line, word, source) {
 }
 
 // ── 查一 + 查二：代码面（src/**/*.ts + .tsx——2026-09-21 #24 扩面：.tsx 随
-// React 根组件 App→WebUiRoot 更名批同步入射程，扩面先落即翻红卡全仓）──────
-for (const file of collect('src', ['.ts', '.tsx'])) {
+// React 根组件 App→WebUiRoot 更名批同步入射程，扩面先落即翻红卡全仓）。
+// 产码腿含 packages/*/src（2026-10-01 wf_db273e73 扫描处置扩面——SDK 错误
+// 消息是 SDK 消费者可见面；文档腿既有 packages README 对称）──────────────
+const codeFiles = [...collect('src', ['.ts', '.tsx']), ...collect('packages', ['.ts', '.tsx'])];
+for (const file of codeFiles) {
   const text = readFileSync(join(ROOT, file), 'utf8');
   const stripped = stripCode(text);
   const lines = text.split('\n');
@@ -318,7 +323,7 @@ if (violations.length > 0) {
   for (const v of violations) console.error(`  ${v}`);
   process.exit(1);
 }
-const codeCount = collect('src', ['.ts', '.tsx']).length;
+const codeCount = codeFiles.length;
 const docCount = docFilesAll.length;
 console.log(
   `check-vocab 绿：代码面 ${codeCount} 件 + 公开文档面 ${docCount} 件（用户面文档 ${DOC_USERFACE_FILES.length} 件含查四）零词汇违规`,

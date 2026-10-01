@@ -262,7 +262,7 @@ run 旗标族：
 | `--preset <conservative\|balanced\|open>`       | 权限预设逐次生效不写盘（两旋钮：sandbox 模式 + 审批 policy；与 `--read-only` 互斥；持久切换走 TUI `/approval preset`）                                                                                                      |
 | `--tick <名>`                                   | 到点触发载体：按名读定时任务行自跑其提示词（与 message 位置参数互斥）                                                                                                                                                     |
 | `--background`                                  | 后台道预算记账入口                                                                                                                                                                                                        |
-| `--no-delta`                                    | 线面退订流式增量                                                                                                                                                                                                          |
+| `--no-delta`                                    | 关闭流式增量输出                                                                                                                                                                                                          |
 | `--output-schema <file>`                        | 结构化输出：JSON Schema 文件（根须为带 `type` 字段的对象且 `type` 值属七基本类型之一 object/array/string/number/integer/boolean/null——Union/Intersect 根形 v1 不收）注入约束，结束校验末条回复须整体单一 JSON 且合 schema |
 
 `--output-schema` 两种失败语义：文件本身格式不对（不可读/非法 JSON/根非带 `type` 字段对象/根 `type` 值域外——如拼写手误）= 用法错退 2（执行前拦——不跑模型）；结束校验失败（末条回复非单一 JSON 或不合 schema）= 退 1 并在 stderr 载 `STRUCTURED_OUTPUT_PARSE_FAILED` / `STRUCTURED_OUTPUT_SCHEMA_MISMATCH` 码（`--output-format json` 形终值对象另载 `errorCode`/`errorMessage` 位；truncated/失败/中止结束不叠加校验；结束末条回复无任何文本块〔如仅思考块结束〕= 校验靶不存在，同不叠加、如实退 0）。
@@ -314,7 +314,7 @@ berry serve                    # 前台 stdio JSONL 线协议（SDK spawn 形态
 berry serve --daemon           # 后台守护（unix sock 为默认接入点）
 berry serve --daemon --port 7860        # 守护 + 统一 HTTP 面 TCP 侧开启
 berry serve --daemon --sdk-port 7870    # sdk 线协议面 TCP 侧（daemon 专属；前台形传入即退 2）
-berry serve --no-delta         # 线面退订流式增量（run/serve 共收）
+berry serve --no-delta         # 关闭流式增量输出（run/serve 共收）
 berry serve status             # 守护态查询（只读豁免——不占单活跃机）
 berry serve stop               # 停守护
 ```

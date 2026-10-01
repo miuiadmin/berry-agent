@@ -16,7 +16,7 @@ registerErrorCodes([
     code: 'COMPACTION_CONFIG_TAKEN',
     module: 'compaction',
     description:
-      '数值配置槽席位已占拒（03 §2.7 ctx.compaction.setConfig——单席位先到占、后到拒；配置主权单源：两插件各设阈值 = 用户装配面错误，fail-loud 拒不静默 last-wins）',
+      '数值配置槽席位已占拒（03 §2.7 ctx.compaction.setConfig——单席位先到占、后到拒；配置主权单源：两插件各设阈值 = 用户侧配置冲突，fail-loud 拒不静默 last-wins）',
   },
   {
     code: 'COMPACTION_CONFIG_INVALID',

@@ -165,4 +165,25 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
     const { status } = runCheck(root);
     expect(status).toBe(0);
   });
+
+  // —— 查四产码腿扩面锁（2026-10-01 wf_db273e73 扫描处置——修前红形：旧炮
+  //    只收根 src/，SDK 错误消息串整面漏报；复合形补词同批）———
+
+  it('查四产码腿：packages/*/src 禁替词串 → 红（SDK 消费者可见面入射程）', () => {
+    const root = fixture('sdk-userface-red', {
+      'packages/berry-agent-sdk/src/http.ts': "export const msg = '帧应答异常';\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain('「应答」');
+  });
+
+  it('查四产码腿：复合形补词「装配面」 → 红（低歧义复合形滚动补词表）', () => {
+    const root = fixture('userface-compound', {
+      'src/host/wiring.ts': "export const msg = '装配面缺席——无法启动';\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain('「装配面」');
+  });
 });

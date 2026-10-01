@@ -201,7 +201,7 @@ export function createCompactionSlots(options: CompactionSlotsOptions = {}): Com
           if (configSeat !== undefined && configSeat.pluginId !== pluginId) {
             throw new BaseError(
               'COMPACTION_CONFIG_TAKEN',
-              `数值配置槽已被插件 ${configSeat.pluginId} 占据（插件 ${pluginId} 后到拒——单席位先到占；配置主权单源，两插件各设阈值 = 用户装配面错误，fail-loud 拒不静默 last-wins）`,
+              `数值配置槽已被插件 ${configSeat.pluginId} 占据（插件 ${pluginId} 后到拒——单席位先到占；配置主权单源，两插件各设阈值 = 用户侧配置冲突，fail-loud 拒不静默 last-wins）`,
             );
           }
           configSeat = { pluginId, partial };
