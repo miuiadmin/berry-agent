@@ -53,26 +53,26 @@ describe('buildDebugLines 行集构造（纯函数）', () => {
   it('段序与行集：运行时（logLevel/sqlite）→ 插件清单 → daemon.log（路径+掩码尾快照）→ settings（键+warn）', () => {
     const lines = buildDebugLines(DATA);
     expect(lines[0]).toBe('── 运行时 ──');
-    expect(lines.some((line) => line.startsWith('日志级别 logLevel') && line.includes('info（默认）'))).toBe(true);
-    expect(lines.some((line) => line.startsWith('sqlite 库 dbPath') && line.includes('agent.db'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('日志级别') && line.includes('info（默认）'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('数据库路径') && line.includes('agent.db'))).toBe(true);
     // 插件清单段（计数头 + 逐 id 行）
     expect(lines).toContain('── 已安装插件（2 个）──');
     expect(lines).toContain('· core:skills');
     expect(lines).toContain('· plugin:demo');
     // daemon.log 段：路径 + 尾快照（token 行已掩码——行集构造内执法）
     expect(lines).toContain('── daemon.log ──');
-    expect(lines.some((line) => line.startsWith('路径 logPath') && line.includes('serve/daemon.log'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('日志路径') && line.includes('serve/daemon.log'))).toBe(true);
     expect(lines.some((line) => line.includes('Bearer ****'))).toBe(true);
     expect(lines.some((line) => line.includes('tok_abc123xyz'))).toBe(false); // 明文恒不入面
     // settings 段：有效键 + warn 汇总
     expect(lines).toContain('── settings ──');
-    expect(lines.some((line) => line.startsWith('有效键 keys') && line.includes('theme、keybindings'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('有效键') && line.includes('theme、keybindings'))).toBe(true);
     expect(lines.some((line) => line.startsWith('⚠') && line.includes('neon'))).toBe(true);
   });
 
   it('缺席两形：:memory: 无数据目录路径行；非 daemon 跑法快照缺席行', () => {
     const memoryForm = buildDebugLines({ ...DATA, daemonLogPath: null, daemonLogTail: null });
-    expect(memoryForm.some((line) => line.startsWith('路径 logPath') && line.includes(':memory:'))).toBe(true);
+    expect(memoryForm.some((line) => line.startsWith('日志路径') && line.includes(':memory:'))).toBe(true);
     const absentForm = buildDebugLines({ ...DATA, daemonLogTail: null });
     expect(absentForm).toContain('（未以 daemon 方式运行或文件尚未生成——没有 daemon.log）');
   });
@@ -80,7 +80,7 @@ describe('buildDebugLines 行集构造（纯函数）', () => {
   it('空清单形：无插件 / 无配置键 / 无 warn 各自如实', () => {
     const lines = buildDebugLines({ ...DATA, pluginIds: [], settingsKeys: [], settingsWarnings: [] });
     expect(lines).toContain('（无已安装插件——--no-plugins 启动或启用清单为空）');
-    expect(lines.some((line) => line.startsWith('有效键 keys') && line.includes('全用默认'))).toBe(true);
+    expect(lines.some((line) => line.startsWith('有效键') && line.includes('全用默认'))).toBe(true);
     expect(lines).toContain('无效配置警告：无');
   });
 });

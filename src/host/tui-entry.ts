@@ -966,7 +966,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             lines: [
               '/sessions 切会话 · /new 新建会话 · /usage 会话用量',
               '/status 状态汇总 · /model 切模型 · /themes 主题 · /marketplace 插件市场',
-              '/update 检查更新 · /exit 退出（Ctrl+D 同路）',
+              '/update 检查更新 · /exit 退出（效果同 Ctrl+D）',
             ],
           },
           {

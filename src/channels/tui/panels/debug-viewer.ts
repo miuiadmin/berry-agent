@@ -155,13 +155,13 @@ export class DebugViewer extends ScrollView implements OverlayContent {
  * 显示宽（批 10k 遗漏修同律）。
  */
 export function buildDebugLines(data: DebugPanelData): string[] {
-  const labelCol = 18; // 标签列宽（最长「日志级别 logLevel」+ 1）
+  const labelCol = 10; // 标签列宽（最长标签「日志级别/日志路径/数据库路径」宽 8 + 2）
   const row = (label: string, value: string): string =>
     label + ' '.repeat(Math.max(0, labelCol - stringWidth(label))) + value;
   const lines: string[] = [
     '── 运行时 ──',
-    row('日志级别 logLevel', data.logLevel),
-    row('sqlite 库 dbPath', data.sqlitePath),
+    row('日志级别', data.logLevel),
+    row('数据库路径', data.sqlitePath),
     '',
     `── 已安装插件（${data.pluginIds.length} 个）──`,
   ];
@@ -173,9 +173,9 @@ export function buildDebugLines(data: DebugPanelData): string[] {
   lines.push('', '── daemon.log ──');
   if (data.daemonLogPath === null) {
     // :memory: 诊断形——无数据目录即无 daemon 面
-    lines.push(row('路径 logPath', '（:memory: 模式——未使用数据目录）'));
+    lines.push(row('日志路径', '（:memory: 模式——未使用数据目录）'));
   } else {
-    lines.push(row('路径 logPath', data.daemonLogPath));
+    lines.push(row('日志路径', data.daemonLogPath));
     if (data.daemonLogTail === null) {
       lines.push('（未以 daemon 方式运行或文件尚未生成——没有 daemon.log）');
     } else {
@@ -189,9 +189,9 @@ export function buildDebugLines(data: DebugPanelData): string[] {
   }
   lines.push('', '── settings ──');
   if (data.settingsKeys.length === 0) {
-    lines.push(row('有效键 keys', '（无用户配置键——全用默认）'));
+    lines.push(row('有效键', '（无用户配置键——全用默认）'));
   } else {
-    lines.push(row('有效键 keys', data.settingsKeys.join('、')));
+    lines.push(row('有效键', data.settingsKeys.join('、')));
   }
   if (data.settingsWarnings.length === 0) {
     lines.push('无效配置警告：无');

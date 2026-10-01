@@ -179,12 +179,19 @@ const DIM_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 const CURSOR_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 
 /** 常态底行键面提示（按光标行分区动态拼段——零条目可见时行动词消隐；
- * 拼装走 hintLine 单源〔07 §4.4 律三——键位提示行全局统一形〕，
- * 空段容忍承接按态消隐：行动词缺席传空串即无痕落位） */
+ * 拼装走 hintLine 单源〔07 §4.4 律三——键位提示行全局统一形，串接符
+ * 「 · 」由 hintLine 单源拼——段内不自写〕，空段容忍承接按态消隐：
+ * 行动词缺席传空数组即无痕落位） */
 function hintText(section: Section | null): string {
   const verbs =
-    section === null ? '' : section === 'active' ? 'f 冻结 · d 忘掉' : section === 'frozen' ? 'f 解冻' : 'r 恢复';
-  return hintLine(verbs, 'e 导出', 'tab 筛选', 'q/esc 返回');
+    section === null
+      ? []
+      : section === 'active'
+        ? ['f 冻结', 'd 忘掉']
+        : section === 'frozen'
+          ? ['f 解冻']
+          : ['r 恢复'];
+  return hintLine(...verbs, 'e 导出', 'tab 筛选', 'q/esc 返回');
 }
 
 /** owner 键短显（头行——project 键 16 hex 截前 8 位，引用短 id 同款 8 位惯例） */

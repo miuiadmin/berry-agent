@@ -122,7 +122,7 @@ export class UsageViewer extends ScrollView implements OverlayContent {
  * + 合计 → 货币行（无 cost 上报如实呈现）。
  */
 export function buildUsageLines(summary: UiUsageSummary): string[] {
-  const labelCol = 18; // 标签列宽（最长「合计 totalTokens」+ 2）
+  const labelCol = 8; // 标签列宽（最长标签「缓存读/缓存写」宽 6 + 2）
   // 标签补齐按显示宽（批 10k 遗漏修——padEnd 码元计量下 CJK 双宽标签错位
   // 1 格：缓存读/写行值列比轮次行右凸 1 列）；值列恒右起同列
   const row = (label: string, value: string): string =>
@@ -130,15 +130,15 @@ export function buildUsageLines(summary: UiUsageSummary): string[] {
   return [
     '本会话累计（含未显示的重试——重试同样消耗 token）',
     '',
-    row('轮次 turns', `${summary.turns}`),
-    row('输入 input', formatCount(summary.input)),
-    row('输出 output', formatCount(summary.output)),
-    row('缓存读 cacheRead', formatCount(summary.cacheRead)),
-    row('缓存写 cacheWrite', formatCount(summary.cacheWrite)),
-    row('合计 totalTokens', formatCount(summary.totalTokens)),
+    row('轮次', `${summary.turns}`),
+    row('输入', formatCount(summary.input)),
+    row('输出', formatCount(summary.output)),
+    row('缓存读', formatCount(summary.cacheRead)),
+    row('缓存写', formatCount(summary.cacheWrite)),
+    row('合计', formatCount(summary.totalTokens)),
     '',
     summary.currency === null && summary.cost === 0
-      ? row('费用 cost', '无上报')
-      : row('费用 cost', `${summary.cost.toFixed(4)} ${summary.currency ?? ''}`.trimEnd()),
+      ? row('费用', '无上报')
+      : row('费用', `${summary.cost.toFixed(4)} ${summary.currency ?? ''}`.trimEnd()),
   ];
 }

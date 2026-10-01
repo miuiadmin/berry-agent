@@ -36,25 +36,25 @@ const summary = (over: Partial<UiUsageSummary> = {}): UiUsageSummary => ({
 
 describe('buildUsageLines 行集构造（纯函数）', () => {
   /** 标签段期望串（按显示宽补齐——批 10k 遗漏修后的真态） */
-  const label = (text: string): string => text + ' '.repeat(Math.max(0, 18 - stringWidth(text)));
-  it('口径注记 + 分表行（标签列 18 显示宽对齐 + 千位分组）', () => {
+  const label = (text: string): string => text + ' '.repeat(Math.max(0, 8 - stringWidth(text)));
+  it('口径注记 + 分表行（标签列 8 显示宽对齐 + 千位分组）', () => {
     const lines = buildUsageLines(summary());
     expect(lines[0]).toBe('本会话累计（含未显示的重试——重试同样消耗 token）');
-    expect(lines[2]).toBe(`${label('轮次 turns')}3`);
-    expect(lines[3]).toBe(`${label('输入 input')}12,345`);
-    expect(lines[4]).toBe(`${label('输出 output')}6,789`);
-    expect(lines[5]).toBe(`${label('缓存读 cacheRead')}100,000`);
-    expect(lines[6]).toBe(`${label('缓存写 cacheWrite')}2,500`);
-    expect(lines[7]).toBe(`${label('合计 totalTokens')}121,634`);
+    expect(lines[2]).toBe(`${label('轮次')}3`);
+    expect(lines[3]).toBe(`${label('输入')}12,345`);
+    expect(lines[4]).toBe(`${label('输出')}6,789`);
+    expect(lines[5]).toBe(`${label('缓存读')}100,000`);
+    expect(lines[6]).toBe(`${label('缓存写')}2,500`);
+    expect(lines[7]).toBe(`${label('合计')}121,634`);
   });
 
   it('费用行两态：无上报（currency null 且 cost 0）/ 四位小数 + 币种', () => {
-    expect(buildUsageLines(summary({ cost: 0, currency: null }))[9]).toBe(`${label('费用 cost')}无上报`);
-    expect(buildUsageLines(summary({ cost: 0.12345, currency: 'CNY' }))[9]).toBe(`${label('费用 cost')}0.1235 CNY`);
+    expect(buildUsageLines(summary({ cost: 0, currency: null }))[9]).toBe(`${label('费用')}无上报`);
+    expect(buildUsageLines(summary({ cost: 0.12345, currency: 'CNY' }))[9]).toBe(`${label('费用')}0.1235 CNY`);
   });
 
   it('cost 在场而 currency 缺席 = 数值裸呈（trimEnd 不留尾随空格）', () => {
-    expect(buildUsageLines(summary({ cost: 2, currency: null }))[9]).toBe(`${label('费用 cost')}2.0000`);
+    expect(buildUsageLines(summary({ cost: 2, currency: null }))[9]).toBe(`${label('费用')}2.0000`);
   });
 
   it('标签列按显示宽对齐（批 10k 遗漏修——padEnd 码元计量 CJK 错位 1 格）', () => {
