@@ -89,8 +89,13 @@ export interface ChannelsService<TProjection> {
 
 /** 未知异常折用户面串（与 checkpoint 命令面折面同形）：BaseError 码直呈
  * （用户可引用错误码——wf_db273e73 seam-P2 修前红：Error 腿只折 message 丢码），
- * 其余 Error 走 message（免 String 的「Error: 」前缀噪音），裸值保底 String */
-function foldErrorText(err: unknown): string {
+ * 其余 Error 走 message（免 String 的「Error: 」前缀噪音），裸值保底 String。
+ *
+ * **单源导出**（wf_3c8b00b8 组α）：tui-backend 命令异常两 catch、tui-entry
+ * /new focus 拒绝位、core-plugins onRestore 双保险四写位与 channels.test 真形
+ * 锁全归本源（689e5ba 立规——用户面折面禁裸 String）；经 index.ts 公开面
+ * 再导出供 host 域消费（跨模块只走公开面三名）。 */
+export function foldErrorText(err: unknown): string {
   if (err instanceof BaseError) return `${err.code}：${err.message}`;
   return err instanceof Error ? err.message : String(err);
 }

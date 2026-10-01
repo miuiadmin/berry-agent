@@ -30,7 +30,7 @@ export { AskQueue } from './ask-queue.js';
 export type { AskHooks } from './ask-queue.js';
 export { UiCore } from './ui-core.js';
 export { SessionChannels } from './registry.js';
-export { createChannels } from './service.js';
+export { createChannels, foldErrorText } from './service.js';
 export type { ChannelsService } from './service.js';
 // TUI 后端实装（批 10e 落呈现纵切、批 10e-2/10f 扩交互与撤销面——host 装配
 // 批 12 addBackend 消费；件内组件族〔engine/tui〕仍走各自聚合面，本面只进

@@ -66,6 +66,7 @@ import type {
   UiRewindEntry,
   UiRewindActions,
 } from '../../types.js';
+import { foldErrorText } from '../../service.js';
 import {
   CellGrid,
   InputDecoder,
@@ -1807,8 +1808,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           if (!handled && this.running) this.onSubmit?.(this.sessionId, text, opts); // 未命中兜底（03 §2.2 驱动侧语义）
         })
         .catch((err: unknown) => {
-          // 命令处理器异常不静默不崩进程——呈现面兜底（命令面纪律归命令面）
-          this.notify(`命令异常：${String(err)}`, { level: 'error' });
+          // 命令处理器异常不静默不崩进程——呈现面兜底（命令面纪律归命令面）；
+          // foldErrorText 单源折面（wf_3c8b00b8 组α）：BaseError 码直呈（裸
+          // String 丢码）+ Error 腿免「Error: 」前缀噪音
+          this.notify(`命令异常：${foldErrorText(err)}`, { level: 'error' });
         });
       return;
     }
@@ -1864,8 +1867,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     } catch (err: unknown) {
       // 执行体异常不静默不崩进程——呈现面兜底（dispatchCommand 路同句单源：
       // 同为提交路由的命令执行体，错误面处理不分叉；真装配下无此包会升格
-      // uncaughtException 走崩溃编舞 exit(1)）
-      this.notify(`命令异常：${String(err)}`, { level: 'error' });
+      // uncaughtException 走崩溃编舞 exit(1)）；foldErrorText 同源（组α）
+      this.notify(`命令异常：${foldErrorText(err)}`, { level: 'error' });
     }
     return true;
   }

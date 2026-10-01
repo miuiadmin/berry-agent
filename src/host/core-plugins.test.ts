@@ -2393,6 +2393,9 @@ describe('createCorePlugins 注册表单源（批 19a/19b-1）', () => {
     // 修前红位：rethrow → rejects（面板 void 弃接位 = unhandledRejection 杀进程）
     await expect(actions.onRestore(opens[0]!.entries[0]!.id)).resolves.toBeUndefined();
     expect(notified.some((m) => m.includes('回退失败'))).toBe(true); // 兜底回执走 notify（用户面）
+    // foldErrorText 形（wf_3c8b00b8 组α）：Error 折 message——修前裸 String 得
+    // 「回退失败：Error: 焦点态读取炸了」（Error: 前缀噪音），单源折叠后精确形
+    expect(notified.some((m) => m === '回退失败：焦点态读取炸了')).toBe(true);
   });
 
   it('checkpoint /rewind 无参（批3）：无锚/空清单两降级路 notify（不开屏不虚报）', async () => {

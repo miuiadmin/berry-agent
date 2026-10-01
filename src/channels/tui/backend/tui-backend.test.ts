@@ -28,6 +28,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import type { MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import type { AgentEvent } from '../../../agent/index.js';
 import type { AgentMessage, UiSessionSummary, UiUsageSummary } from '../../../contracts/index.js';
+import { BaseError } from '../../../contracts/index.js';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -538,6 +539,23 @@ describe('TuiBackend 提交路由', () => {
     await Promise.resolve(); // rejection 链两回合（then 折传递 + catch）
     pump();
     expect(io.bytes).toContain('✖ 命令异常'); // error 档符号 + 兜底文案
+  });
+
+  it('命令处理器 BaseError 异常 → 码直呈（foldErrorText 形——修前 String 丢码红锚，wf_3c8b00b8 组α）', async () => {
+    // 689e5ba 立规：用户面折面 = `码：message`（String(err) 只得「BaseError: <message>」
+    // 丢可引用错误码）；本位两 catch 修前裸 String——与 channels.service foldErrorText
+    // 单源对齐（同形随批）
+    const { io, pump } = makeInteractive({
+      dispatchCommand: async () => {
+        throw new BaseError('PLUGIN_APPLY_FAILED', '装载失败具名');
+      },
+    });
+    io.emitInput('/boom\r');
+    pump();
+    await Promise.resolve();
+    await Promise.resolve();
+    pump();
+    expect(io.bytes).toContain('命令异常：PLUGIN_APPLY_FAILED：装载失败具名'); // 码直呈（修前红位）
   });
 
   it("'/exit' 恰零参 → onQuit（先于通道命令分发终局，不落 onSubmit）", () => {

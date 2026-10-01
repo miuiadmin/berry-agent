@@ -73,6 +73,8 @@ import type {
 } from '../goal/index.js';
 import type { ConversationStack } from './conversation-stack.js';
 import type { BudgetBroadcastEntry, BudgetBroadcastFace } from './budget-broadcast.js';
+// foldErrorText 单源折面（wf_3c8b00b8 组α）——onRestore 双保险 catch 消费
+import { foldErrorText } from '../channels/index.js';
 import type { SqliteDatabase } from '../persist/index.js';
 import { createDangerGate, createSandboxService, DANGER_V1_ACTIONS, normalizeDangerMandate } from '../safety/index.js';
 import {
@@ -1905,7 +1907,9 @@ function makeCheckpointPlugin(deps: CorePluginHostDeps): CorePluginReference {
                   const text = await runRewindCommand(['restore', id], rewindDeps);
                   deps.notify?.('checkpoint', text);
                 } catch (err) {
-                  deps.notify?.('checkpoint', `回退失败：${String(err)}`);
+                  // foldErrorText 单源折面（组α）：BaseError 码直呈（本链 BaseError
+                  // 已在命令面折，此处腿防未来穿透形）+ Error 腿免「Error: 」前缀噪音
+                  deps.notify?.('checkpoint', `回退失败：${foldErrorText(err)}`);
                 }
               },
             };

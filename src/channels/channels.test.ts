@@ -777,7 +777,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     // 失败须诚实补 error 回执（焦点位已同步翻但重画未达——用户面不静默）
     const s = createChannels({
       resumeSession: async () => true,
-      fetchProjection: () => Promise.reject(new Error('PERSIST_DATA_CORRUPT：会话库损坏')),
+      fetchProjection: () => Promise.reject(new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏')),
     });
     const b = fakeBackend('tui');
     s.addBackend(b.backend);
@@ -846,7 +846,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
       sessions: async () => list,
       resumeSession: (sessionId: string): Promise<boolean> => {
         calls.push(sessionId);
-        throw new Error('PERSIST_DATA_CORRUPT：会话库损坏');
+        throw new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏');
       },
     });
     const b = fakeBackend('tui', {}, true);
@@ -864,7 +864,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     const s = createChannels({
       sessions: async () => list,
       resumeSession: async () => {
-        throw new Error('PERSIST_DATA_CORRUPT：会话库损坏');
+        throw new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏');
       },
     });
     const b = fakeBackend('tui', {}, true);
@@ -915,7 +915,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     const s = createChannels({
       sessions: async () => list,
       resumeSession: async () => true,
-      fetchProjection: () => Promise.reject(new Error('PERSIST_DATA_CORRUPT：会话库损坏')),
+      fetchProjection: () => Promise.reject(new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏')),
     });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);
@@ -930,7 +930,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     // 修前红位：`else void registry.focus(...)` 同一弃接洞——查看器路同防
     const s = createChannels({
       sessions: async () => list,
-      fetchProjection: () => Promise.reject(new Error('PERSIST_DATA_CORRUPT：会话库损坏')),
+      fetchProjection: () => Promise.reject(new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏')),
     });
     const b = fakeBackend('tui', {}, true);
     b.setSessionsOpen(true);

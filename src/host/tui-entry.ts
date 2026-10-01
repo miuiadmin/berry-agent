@@ -28,6 +28,7 @@ import {
   BootAnimation,
   editorHeightCap,
   FileMentionSource,
+  foldErrorText,
   fuzzyFilter,
   listCustomThemeNames,
   loadCustomThemeColors,
@@ -884,7 +885,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             level: 'info',
           }),
         )
-        .catch((err: unknown) => backend.notify(`切换到新会话失败：${String(err)}`, { level: 'error' }));
+        .catch(
+          (err: unknown) => backend.notify(`切换到新会话失败：${foldErrorText(err)}`, { level: 'error' }), // 单源折面（组α——BaseError 码直呈/Error 免前缀噪音）
+        );
     };
 
     // —— /upgrade 薄壳（07 §8.5 第 2 条 + 第 6 条手动通道）：跑同一只读检查
