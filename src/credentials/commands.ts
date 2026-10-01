@@ -25,11 +25,13 @@ import { HOST_NAMESPACE, isPluginNamespace, type CredentialMeta } from './types.
 import type { CredentialChangedPayload } from './secrets.js';
 
 /** 用法文案（TUI 命令 description 位与用法错指路共用单源；oauth 动词 TUI 面承载——CLI 零装配无注册表不载） */
+// 用法续行源侧剥全角空格前缀（界面美化役 /help 悬挂缩进批——续行由
+// help-viewer 按动态 nameCol 缩进呈现，源侧不再自带缩进形）
 export const CREDENTIALS_USAGE = [
   '用法：/credentials add <名> <值> [--namespace <命名空间>] [--model-provider <渠道id>] —— 保存凭证；值含空格请加引号。--model-provider 指定这条凭证给哪个渠道用（保存后立即生效）',
-  '　　　/credentials list —— 列出全部凭证（含明文值）',
-  '　　　/credentials rm <name> [--namespace <ns>] —— 撤销凭证（删除唯一路径）',
-  '　　　/credentials oauth <pluginId> [<name>] —— 发起插件 oauth 授权（device-code；归属由发起授权的插件决定）',
+  '/credentials list —— 列出全部凭证（含明文值）',
+  '/credentials rm <name> [--namespace <ns>] —— 撤销凭证（删除唯一路径）',
+  '/credentials oauth <pluginId> [<name>] —— 发起插件 oauth 授权（device-code；归属由发起授权的插件决定）',
 ].join('\n');
 
 /**

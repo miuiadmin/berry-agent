@@ -24,11 +24,13 @@ import type { SessionContextFace } from './types.js';
 /** TUI 子动词册（R6 批 10j——补全源名集单源；与 runRewindCommand switch 同步） */
 export const REWIND_SUBVERBS = ['list', 'preview', 'restore', 'help'] as const;
 
+// 用法续行源侧剥全角空格前缀（界面美化役 /help 悬挂缩进批——续行由
+// help-viewer 按动态 nameCol 缩进呈现，源侧不再自带缩进形）
 export const REWIND_USAGE = [
   '用法：/rewind —— 打开选择页挑回退点（无参形；选择页不可用时显示本用法）',
-  '　　　/rewind list —— 列当前工作区的回退点',
-  '　　　/rewind preview <id> —— 预览（恢复 N/删除 M/不动 U，不改动文件）',
-  '　　　/rewind restore <id> —— 回退（回退前快照 → 文件恢复 → 新建分支会话）',
+  '/rewind list —— 列当前工作区的回退点',
+  '/rewind preview <id> —— 预览（恢复 N/删除 M/不动 U，不改动文件）',
+  '/rewind restore <id> —— 回退（回退前快照 → 文件恢复 → 新建分支会话）',
 ].join('\n');
 
 /** 命令装配依赖 */
@@ -67,7 +69,9 @@ export function manifestLine(
 ): string {
   const when = new Date(capturedAt).toISOString().replace('T', ' ').slice(0, 19);
   const kind = trigger === 'mutation' ? '修改前快照' : '回退前快照';
-  return `- ${id.slice(0, 8)}… ${when}〔${kind}〕${files} 文件 · 回退点 seq=${boundarySeq}`;
+  // 界面美化役美学批（列对齐）：文件数右对齐 padStart(3)——清单多行时
+  // 数字列纵向可扫（个/十/百位同列）；呈现单源在本函数，一处改全域齐
+  return `- ${id.slice(0, 8)}… ${when}〔${kind}〕${String(files).padStart(3)} 文件 · 回退点 seq=${boundarySeq}`;
 }
 
 /**

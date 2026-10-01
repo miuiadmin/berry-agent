@@ -11,12 +11,14 @@ import { BaseError, type SessionEvent } from '../contracts/index.js';
 import { foldGoalTodos, openGoalItems } from './fold.js';
 import type { GoalService } from './service.js';
 
+// 用法续行源侧剥全角空格前缀（界面美化役 /help 悬挂缩进批——续行由
+// help-viewer 按动态 nameCol 缩进呈现，源侧不再自带缩进形）
 export const GOAL_USAGE = [
   '用法：/goal create <schedule 串> <objective 全文> [--write] [--budget <n>] —— 创建续跑 goal（绑定本会话；schedule 写法见 /tick 用法）',
-  '　　　/goal list —— 全部 goal（状态/定时/预算速览）',
-  '　　　/goal show <goalId> —— 单个 goal 详情（任务清单 + 唤醒记录）',
-  '　　　/goal wake <goalId> —— 手动唤醒（无进展与预算计数清零，恢复定时运行）',
-  '　　　/goal approve <goalId> —— 批准写入权限申请（批准后写入工具可用）',
+  '/goal list —— 全部 goal（状态/定时/预算速览）',
+  '/goal show <goalId> —— 单个 goal 详情（任务清单 + 唤醒记录）',
+  '/goal wake <goalId> —— 手动唤醒（无进展与预算计数清零，恢复定时运行）',
+  '/goal approve <goalId> —— 批准写入权限申请（批准后写入工具可用）',
 ].join('\n');
 
 /** 子动词名集（补全面单源——static-completions SUBVERBS_BY_COMMAND 消费） */
