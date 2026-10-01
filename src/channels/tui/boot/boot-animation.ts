@@ -10,6 +10,10 @@
  * 结构锁（07 :204 进屏序律射程分立——本件写侧自锁）：
  * - **零 CSI/OSC**：动画窗纯文本字节域（`\n` 结尾、ONLCR 交驱动）——无
  *   色彩 SGR 无光标控制，probe 类写出的 raw 前序问题在射程外（本件非探测）；
+ * - **启动行保活**（界面美化役 2026-10-01）：ready 收尾行写出后追加等量
+ *   已发行数的纯换行——把启动进度行推入 scrollback（主屏起屏 ED(2) 只清
+ *   可见屏、主屏无 1049 行内形——行物理留存交滚回可查）；锚在 ready 相位
+ *   = 成功路专属，失败路启动行原地留存；
  * - **阶段行不虚报律**：只呈现真实阶段事件（拍板 #11——不造「连接模型」
  *   等伪行），未识阶段 id fail-open 直用（词汇表前瞻兼容）；
  * - **动画行零 ms**：行到达间隔即耗时显示（值非确定性面不进呈现道）；
@@ -75,6 +79,12 @@ export class BootAnimation {
   private started = false;
   /** 收尾已过（finish 幂等 + 收尾后事件零消费） */
   private finished = false;
+  /**
+   * 已发行数（启动行保活计数——界面美化役 2026-10-01）：主屏起屏 ED(2)
+   * 只清可见屏不清 scrollback，等量换行把启动进度行推入 scrollback 后即
+   * 交滚回可查（进度一闪即空的治面）。
+   */
+  private emittedLines = 0;
   /** 开放段：起点时戳 + 记账标签（任一事件达即结算前段） */
   private openSince: number | null = null;
   private openLabel = '';
@@ -107,7 +117,25 @@ export class BootAnimation {
   private ensureHeader(): void {
     if (this.started) return;
     this.started = true;
-    this.write(`berry-agent v${this.version}\n`);
+    this.writeLine(`berry-agent v${this.version}`);
+  }
+
+  /** 单行写出（统一 `\n` 结尾 + 行数记账——启动行保活计数的单源写位） */
+  private writeLine(text: string): void {
+    this.write(`${text}\n`);
+    this.emittedLines++;
+  }
+
+  /**
+   * 启动行推入 scrollback（ready 相位收尾时——界面美化役 2026-10-01）：
+   * 等量已发行数的纯换行把全部启动进度行推出可见屏进 scrollback，主屏
+   * 起屏 ED(2) 只清可见屏（主屏无 1049——行内形），启动行物理留存交滚回
+   * 可查。锚在 ready 相位 = **成功路专属**（assembly ok:true 返回点前恰
+   * 一次到达），失败路启动行原地留存于错误呈报上方不受影响。
+   */
+  private pushLinesIntoScrollback(): void {
+    if (this.emittedLines <= 0) return;
+    this.write('\n'.repeat(this.emittedLines));
   }
 
   /**
@@ -130,11 +158,14 @@ export class BootAnimation {
       if (stage === 'plugins' && detail !== undefined) {
         const parsed = PLUGIN_COUNT_SHAPE.exec(detail);
         if (parsed !== null) {
-          this.write(`✓ ${word}（启用 ${parsed[1]}/共 ${parsed[2]}）\n`);
+          this.writeLine(`✓ ${word}（启用 ${parsed[1]}/共 ${parsed[2]}）`);
           return;
         }
       }
-      this.write(`✓ ${word}\n`);
+      this.writeLine(`✓ ${word}`);
+      // 启动行保活：ready 是末条启动进度行——写完即推入 scrollback（成功路
+      // 专属相位，见 pushLinesIntoScrollback 注）
+      if (stage === 'ready') this.pushLinesIntoScrollback();
     } catch {
       // 呈现件自保——写出面异常不外炸装配路（fail-open 双保呈现侧兜底）
     }
@@ -150,7 +181,7 @@ export class BootAnimation {
       this.ensureHeader();
       const id = stripControl(pluginId);
       this.openSegment(`插件 ${id}`);
-      this.write(`▸ 加载 ${id}（${index}/${total}）\n`);
+      this.writeLine(`▸ 加载 ${id}（${index}/${total}）`);
     } catch {
       // 呈现件自保（同上）
     }

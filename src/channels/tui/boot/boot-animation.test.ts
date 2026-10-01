@@ -9,7 +9,9 @@
  *   诊断道与呈现道分立：ms 只入 stderr 面）；
  * - finish 幂等 + 装配失败路部分留存；
  * - 呈现件自保（io 写出抛错不外炸——assembly 层隔离之外的兜底层）；
- * - plugin id 控制字节剥除（写侧防御——id 溢控制字节不透传终端）。
+ * - plugin id 控制字节剥除（写侧防御——id 溢控制字节不透传终端）；
+ * - 启动行保活（界面美化役——ready 收尾后等量换行推入 scrollback；
+ *   失败路 ready 未达零推块）。
  */
 import { describe, expect, it } from 'vitest';
 import { BootAnimation } from './boot-animation.js';
@@ -236,5 +238,49 @@ describe('BootAnimation 启动动画件（三反馈批D——案A cooked 逐行�
     expect(err.writes).toEqual([]);
     anim.stage('runtime', 'end'); // 收尾后事件零消费（头行也不出）
     expect(io.writes.join('')).toBe('');
+  });
+});
+
+describe('BootAnimation 启动行保活（界面美化役——ready 推入 scrollback）', () => {
+  it('ready 收尾行后追加等量已发行数的纯换行——启动进度行推出可见屏进 scrollback（主屏 ED(2) 只清可见屏）', () => {
+    const io = sink();
+    const clock = manualClock();
+    const anim = new BootAnimation(io.write, { now: clock.now });
+    replayBoot(anim, clock);
+    // 末次写出 = 纯换行推块（ready 相位收尾）；换行数 = 此前已发行数（每行恰一 \n）
+    const push = io.writes[io.writes.length - 1]!;
+    expect(push).toMatch(/^\n+$/);
+    const beforePush = io.writes.slice(0, -1).join('');
+    expect(push).toBe('\n'.repeat(beforePush.split('\n').length - 1));
+    // '✓ 就绪' 之后动画窗再无内容字节（推块零内容——进度行整体上移不重写）
+    expect(io.writes.join('').endsWith('✓ 就绪\n' + push)).toBe(true);
+  });
+
+  it('失败路零推块：ready 未达（assembly ok:false 无 ready 相位）——启动行原地留存于错误呈报上方', () => {
+    const io = sink();
+    const clock = manualClock();
+    const anim = new BootAnimation(io.write, { now: clock.now });
+    anim.stage('runtime', 'start');
+    clock.advance(12);
+    anim.stage('runtime', 'end');
+    anim.stage('stack', 'start');
+    clock.advance(5);
+    anim.stage('stack', 'end');
+    anim.finish();
+    // 无任何纯换行写出（每笔写均含内容）——失败路启动行不被推离原位
+    for (const w of io.writes) expect(w.trim()).not.toBe('');
+  });
+
+  it('推块零 CSI/OSC（纯文本字节域维持——启动行保活不破结构锁）', () => {
+    const io = sink();
+    const clock = manualClock();
+    const anim = new BootAnimation(io.write, { now: clock.now });
+    replayBoot(anim, clock);
+    const text = io.writes.join('');
+    expect(text).not.toContain('\x1b');
+    for (const ch of text) {
+      const code = ch.codePointAt(0)!;
+      expect(code === 0x0a || (code >= 0x20 && code !== 0x7f)).toBe(true);
+    }
   });
 });
