@@ -153,7 +153,7 @@ export interface AssembleHostOptions {
   /**
    * goal 全环服务宿主捕获位透传（s 批——CorePluginHostDeps.goalServiceSink
    * 同形）：生产装配恒缺席；e2e rig 经 assembleHostStack 全真链捕获全环
-   * service（provide 投影律下 tryGet 只见六法——写动词 lifecycle 测试通道，
+   * service（provide 投影律下 tryGet 只见七法——写动词 lifecycle 测试通道，
    * U10「goal 生产创建入口缺席」立题前）。
    */
   readonly goalServiceSink?: (service: GoalService) => void;

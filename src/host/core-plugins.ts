@@ -465,7 +465,7 @@ interface GoalPluginHostDeps {
   /**
    * goal 全环服务宿主捕获位（s 批——provide 投影律〔03 §10.5 s 批补注②〕的
    * 装配域例外通道）：boot 件内 service 创建后单发回调（全量 GoalService——
-   * 写动词在内）。**生产装配恒缺席**（宿主消费面全经六法投影/件内闭包——
+   * 写动词在内）。**生产装配恒缺席**（宿主消费面全经七法投影/件内闭包——
    * provide 面插件只见投影；创建写面 = /goal create 人面命令〔U10 批——03
    * §10.5 U10 落码定形注①〕，CLI 形随定形注④重开条件挂账）；消费方 =
    * e2e rig（approve/complete 等生命周期全环位的测试通道）。回调时点 =
@@ -1449,7 +1449,8 @@ export function startSchedulerClock(
 
 /**
  * 'goal' 服务面 service 腿宿主投影形（03 §10.5 s 批补注②——provide 投影律）：
- * 宿主消费面白名单六法。写动词（approve/activate/complete/abandon/park 族）
+ * 宿主消费面白名单七法（六法 + list——2026-10-01 A-6 扩键，消费位见下注）。
+ * 写动词（approve/activate/complete/abandon/park 族）
  * **不进投影**——人面命令（/goal）与模型工具（goal_update/todo）在 goal 件
  * 内闭包消费全量 GoalService（danger 件 dangerFace 从不 provide 先例同律）。
  */
@@ -1730,7 +1731,7 @@ function makeGoalPlugin(deps: CorePluginHostDeps): CorePluginReference {
       });
 
       // provide 投影律（03 §10.5 s 批补注②——danger 先例同律）：service 腿按
-      // 宿主消费面白名单运行时投影（六法——非仅类型收窄）；写动词
+      // 宿主消费面白名单运行时投影（七法——非仅类型收窄）；写动词
       // （approve/activate/complete/abandon/park 族）不进投影——人面 /goal 与
       // 模型工具 goal_update/todo 在本件闭包消费全量 service，插件道 tryGet
       // 只见投影（写动词的插件可连性就此闭合——ΔA⇏ΔC 判据面执法）
