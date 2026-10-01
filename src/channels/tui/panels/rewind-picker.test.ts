@@ -357,6 +357,39 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
   });
 });
 
+describe('RewindPicker 窄窗宽度收口（fitRowSegments 单段形——超宽行 … 收口）', () => {
+  it('list 段：头行/清单行/底行超宽 … 收口（前段保留 + 整字截断不撕宽字符）', () => {
+    const { picker } = makePicker();
+    // 头行 15 列宽——10 列窗超帽；清单行/底行提示均远超 20 列
+    const narrow = paint(picker, 10);
+    const head = readRow(narrow, 0, 10);
+    expect(head).toContain('回退点'); // 前段保留
+    expect(head.endsWith('…')).toBe(true); // 修前红位：raw writeText 硬截断无收口
+    const grid = paint(picker, 20);
+    const first = readRow(grid, 1, 20);
+    expect(first.startsWith('▸')).toBe(true); // 光标标记在位
+    expect(first).toContain('m-second'); // 成品行前段保留（外部数据行）
+    expect(first.endsWith('…')).toBe(true); // 修前红位：manifestLine 长行硬截断
+    const bottom = readRow(grid, grid.rows - 1, 20);
+    expect(bottom).toContain('enter'); // 键路提示前段保留
+    expect(bottom.endsWith('…')).toBe(true); // 底行同律
+  });
+
+  it('preview 段：成品行/三账行/警告行超宽 … 收口（外部数据行同律）', async () => {
+    const { picker } = makePicker();
+    picker.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    const grid = paint(picker, 20);
+    const all = Array.from({ length: grid.rows }, (_, i) => readRow(grid, i, 20));
+    expect(all[0]!.endsWith('…')).toBe(true); // 头行「◆ 回退点预览（不改动文件）」26 列超帽
+    expect(all[1]!.startsWith('- m-second')).toBe(true); // 成品行（previewLine 外部数据）
+    expect(all[1]!.endsWith('…')).toBe(true); // 修前红位
+    expect(all.some((l) => l.includes('恢复'))).toBe(true); // 三账行前段保留
+    expect(all.some((l) => l.includes('回退只还原'))).toBe(true); // 警告行前段保留
+  });
+});
+
 describe('RewindPicker 退出族与闭锁', () => {
   it('list 段 q/Esc 退出面板（q 双轨 + Esc）；退出闭锁后键零消费', async () => {
     const { picker, onExit } = makePicker();

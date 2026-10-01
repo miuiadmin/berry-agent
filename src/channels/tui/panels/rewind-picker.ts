@@ -4,6 +4,9 @@
  *
  * - **条目 = manifestLine 成品行平列**（id 短形+ISO 时刻+触发形中文+规模——
  *   渲染单源在插件域 command.ts manifestLine，本件零 checkpoint 依赖、零重拼）；
+ * - **宽度收口**（fitRowSegments 单段形 fitLine）：头行/清单行/底行/preview
+ *   各行超宽一律 … 收口整字截断——清单行与 previewLine 是外部数据长行，
+ *   窄窗硬截断无提示属漏网形（件族宽度原语全接入）；
  * - **两步确认 = 预演→确认**（05 §5.3 批3 翻案笔）：list 段 Enter 进 preview
  *   视图（onPreview 异步——「预演中…」加载态自持；三账行「恢复 N · 删除 M ·
  *   不动 U」+ 警告行「manifest 外的手工/bash 改动不回退」规范明文）；preview
@@ -19,6 +22,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiRewindActions, UiRewindEntry, UiRewindPreview } from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
+import { fitRowSegments } from '../row-segments.js';
 
 /** 回退点选择器装配选项（载荷与回调组经 host deps 注入流转——openRewindPicker 面） */
 export interface RewindPickerOptions {
@@ -58,6 +62,17 @@ function plainChar(e: InputEvent & { kind: 'key' }): string | null {
   if (e.ctrl || e.alt || e.meta) return null;
   if (e.key.length !== 1) return null;
   return e.key;
+}
+
+/**
+ * 单行宽度收口（fitRowSegments 单段形——无右段帽 = 总宽）：本面板各行
+ * （头行/空匹配行/清单行/底行/preview 各行）超宽一律 … 收口、整字截断不撕
+ * 宽字符——清单行与 previewLine 是插件域外部数据行（manifestLine 长行），
+ * raw writeText 直写在窄窗是硬截断无提示（setCell 越界静默吸收）——件族
+ * 宽度原语接入（theme/model/market picker 全族同律，本件为漏网件）。
+ */
+function fitLine(text: string, width: number): string {
+  return fitRowSegments(text, undefined, width).left;
 }
 
 /**
@@ -124,19 +139,28 @@ export class RewindPicker implements OverlayContent {
       return;
     }
     const items = this.filtered();
-    buffer.writeText(region.row, region.col, `◆ 回退点 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`);
+    buffer.writeText(
+      region.row,
+      region.col,
+      fitLine(`◆ 回退点 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`, region.width),
+    );
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset(items.length);
     if (items.length === 0) {
-      buffer.writeText(region.row + 1, region.col, `（无匹配「${this.query}」的回退点）`, HINT_STYLE);
+      buffer.writeText(
+        region.row + 1,
+        region.col,
+        fitLine(`（无匹配「${this.query}」的回退点）`, region.width),
+        HINT_STYLE,
+      );
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;
         if (index >= items.length) break;
         const entry = items[index]!;
         const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
-        buffer.writeText(region.row + 1 + i, region.col, `${prefix}${entry.line}`);
+        buffer.writeText(region.row + 1 + i, region.col, fitLine(`${prefix}${entry.line}`, region.width));
       }
     }
     // 底行：键路提示 + 过滤词呈现（过滤面在屏可感知——件族同律）
@@ -144,14 +168,17 @@ export class RewindPicker implements OverlayContent {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        `过滤：${this.query}_ · ` + hintLine('↑↓ 移动', 'enter 预览', 'backspace 删词', 'esc 返回'),
+        fitLine(
+          `过滤：${this.query}_ · ` + hintLine('↑↓ 移动', 'enter 预览', 'backspace 删词', 'esc 返回'),
+          region.width,
+        ),
         HINT_STYLE,
       );
     } else {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        hintLine('↑↓ 移动', 'enter 预览（不改动任何文件）', '打字过滤', 'esc/q 返回'),
+        fitLine(hintLine('↑↓ 移动', 'enter 预览（不改动任何文件）', '打字过滤', 'esc/q 返回'), region.width),
         HINT_STYLE,
       );
     }
@@ -159,27 +186,27 @@ export class RewindPicker implements OverlayContent {
 
   /** preview 段落位：选中成品行 → 三账行/错误行 → 警告行 → 底行段提示 */
   private renderPreview(buffer: CellBuffer, region: Region): void {
-    buffer.writeText(region.row, region.col, '◆ 回退点预览（不改动文件）');
-    buffer.writeText(region.row + 1, region.col, this.previewLine);
+    buffer.writeText(region.row, region.col, fitLine('◆ 回退点预览（不改动文件）', region.width));
+    buffer.writeText(region.row + 1, region.col, fitLine(this.previewLine, region.width));
     const data = this.previewData;
     if (data === undefined) {
-      buffer.writeText(region.row + 2, region.col, '预览中…', HINT_STYLE);
+      buffer.writeText(region.row + 2, region.col, fitLine('预览中…', region.width), HINT_STYLE);
     } else if (data.errorText !== undefined) {
       // 诚实拒：只显错误行（Enter 零动作——不进 restore）
-      buffer.writeText(region.row + 2, region.col, data.errorText);
+      buffer.writeText(region.row + 2, region.col, fitLine(data.errorText, region.width));
     } else {
       buffer.writeText(
         region.row + 2,
         region.col,
-        `恢复 ${data.restoreCount} · 删除 ${data.deleteCount} · 不动 ${data.untouchedCount}`,
+        fitLine(`恢复 ${data.restoreCount} · 删除 ${data.deleteCount} · 不动 ${data.untouchedCount}`, region.width),
       );
-      buffer.writeText(region.row + 3, region.col, WARN_LINE, WARN_STYLE);
+      buffer.writeText(region.row + 3, region.col, fitLine(WARN_LINE, region.width), WARN_STYLE);
     }
     const hint =
       data !== undefined && data.errorText === undefined
         ? hintLine('enter 确认回退（将新建分支会话）', 'esc 返回列表')
         : 'esc 返回列表';
-    buffer.writeText(region.row + region.height - 1, region.col, hint, HINT_STYLE);
+    buffer.writeText(region.row + region.height - 1, region.col, fitLine(hint, region.width), HINT_STYLE);
   }
 
   /** 事件分发：滚轮 → Ctrl+C/Ctrl+D 补丁 → 视图分派（移动/预演/确认/取消 → 打字过滤） */
