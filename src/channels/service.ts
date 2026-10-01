@@ -87,8 +87,11 @@ export interface ChannelsService<TProjection> {
   listCommands(): readonly CommandSpec[];
 }
 
-/** 未知异常折用户面串：Error 走 message（免 String 的「Error: 」前缀噪音），裸值保底 String */
+/** 未知异常折用户面串（与 checkpoint 命令面折面同形）：BaseError 码直呈
+ * （用户可引用错误码——wf_db273e73 seam-P2 修前红：Error 腿只折 message 丢码），
+ * 其余 Error 走 message（免 String 的「Error: 」前缀噪音），裸值保底 String */
 function foldErrorText(err: unknown): string {
+  if (err instanceof BaseError) return `${err.code}：${err.message}`;
   return err instanceof Error ? err.message : String(err);
 }
 

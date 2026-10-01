@@ -248,6 +248,8 @@ describe('runRewindCommand', () => {
     expect(out).toContain('恢复 1'); // restore 本体已成的行进回执
     expect(out).toContain('已新建分支会话 new-session'); // fork 行仍在（id 不丢）
     expect(out).toContain('切换到新会话失败'); // 降级行
+    expect(out).toContain('focus 投影炸了'); // 非 BaseError Error 折 message
+    expect(out).not.toContain('Error:'); // 修前红位：String(err) 折「Error: 」前缀噪音（wf_db273e73 seam-P2 对侧）
     expect(out).toContain('/resume new-session'); // 手动续接路
     expect(await readFile(join(ws, 'a.txt'), 'utf8')).toBe('v1'); // 文件已恢复实证（不回滚）
   });

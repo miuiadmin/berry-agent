@@ -893,6 +893,22 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     expect(b.notified).toEqual([{ message: '续接失败：读面预检裸串', level: 'error' }]);
   });
 
+  it('选定回调抛 BaseError：码直呈折 notify（修前红位：Error 腿只折 message 丢码——wf_db273e73 seam-P2）', async () => {
+    const s = createChannels({
+      sessions: async () => list,
+      resumeSession: () => {
+        throw new BaseError('PERSIST_DATA_CORRUPT', '会话库损坏');
+      },
+    });
+    const b = fakeBackend('tui', {}, true);
+    b.setSessionsOpen(true);
+    s.addBackend(b.backend);
+    await s.dispatchCommand('/sessions');
+    expect(() => b.sessionsOpens[0]!.onSelect('s2')).not.toThrow();
+    // 与 checkpoint 命令面折面同形（BaseError 码：人读原因——用户可引用错误码）
+    expect(b.notified).toEqual([{ message: '续接失败：PERSIST_DATA_CORRUPT：会话库损坏', level: 'error' }]);
+  });
+
   it('选定回调 open 成功后 focus 拒绝：折「切焦失败」notify 不成 unhandledRejection', async () => {
     // 修前红位：`if (ok) void registry.focus(...)` 弃接——focus 拒绝（拉投影失败）
     // 沿 void 逃出成 unhandledRejection；用户面须诚实回执（续接已成功、切焦失败）
