@@ -24,6 +24,7 @@ import {
   appliedDecide,
   applyAsked,
   applyEnvelope,
+  dismissNotice,
   droppedMessage,
   echoKeyOf,
   echoedUserMessage,
@@ -110,11 +111,18 @@ export function WebUiRoot(): ReactElement {
   }, []);
 
   if (authed === null) {
-    return <div className="p-4 text-sm text-zinc-500">连接中……</div>;
+    // 连接中（界面美化役批⑦）：整面居中 + 呼吸点（活体感——静默文本升级
+    // 为「在等什么」的可感信号）
+    return (
+      <div className="flex h-dvh items-center justify-center bg-panel text-sm text-ink-mute">
+        <span aria-hidden className="mr-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+        连接中……
+      </div>
+    );
   }
   if (!authed) {
     return (
-      <div className="min-h-screen bg-zinc-900">
+      <div className="min-h-dvh bg-panel">
         {authLost ? (
           <p className="bg-red-950/60 px-4 py-2 text-center text-xs text-red-300">
             凭证已失效——宿主重启后 token 已轮换，请输入新的一次性 token 重新登录
@@ -141,6 +149,11 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
    * 消费）；词面分立两值驱动 TierPopover 的 kind 半边。
    */
   const [tierPopover, setTierPopover] = useState<'thinking' | 'sandbox' | null>(null);
+  /**
+   * 窄屏侧栏抽屉开向（false = 闭；md 起侧栏常驻不受此态影响——响应式
+   * 界面美化役批③：w-64 侧栏在窄屏折为抽屉，汉堡键开向 + 遮罩/选会话收向）。
+   */
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   /** 重拉投影腿（onopen 与会话切换共用——正确性层恒重拉） */
   const reloadProjection = useCallback(
     (sessionId: string) => {
@@ -262,9 +275,10 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     };
   }, [state.activeId, reloadProjection, onAuthLost]);
 
-  /** 会话切换（清单点击） */
+  /** 会话切换（清单点击——窄屏抽屉随选即收） */
   const switchSession = useCallback((sessionId: string) => {
     setState((prev) => setActiveSession(prev, sessionId));
+    setSidebarOpen(false); // 抽屉形（<md）选后会话即收——常驻形（md+）此置位无感
   }, []);
 
   /** 开新会话（POST → 清单刷新 → 选中新 id；失败不静默——401 失效路由 / 其余通知条） */
@@ -433,25 +447,41 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
     bottomRef.current?.scrollIntoView?.({ block: 'end' });
   }, [state.messages, state.status]);
 
+  /**
+   * run 在飞判据（打断键使能面——Composer canInterrupt 供血，界面美化役
+   * 批⑧）：活体窗开（agent_start→agent_end）或流式尾巴在飞或状态行在呈，
+   * 三信号任一即真；闲态禁打断键（诚实呈「无 run 可打断」，修前恒可点的
+   * 无效键）。中途附着（页面加载时 run 已在飞、无 agent_start）由流式尾巴/
+   * 状态行信号补位覆盖。
+   */
+  const runInFlight = state.runActive || state.status !== null || state.messages.some((m) => m.streaming);
+
   return (
-    <div className="flex h-screen text-sm">
-      {/* 侧栏：会话清单 + todo */}
-      <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
-          <span className="font-semibold text-zinc-200">berry-agent</span>
+    /* h-dvh + antialiased（界面美化役批③——dvh 视口在移动端工具栏收展下恒正确；
+     * 抗锯齿基线一次到位） */
+    <div className="flex h-dvh bg-canvas text-sm antialiased">
+      {/* 侧栏：会话清单 + todo（md 起常驻；窄屏折为抽屉——sidebarOpen 开向，
+          遮罩点击/选会话收向；translate 形离屏不卸载——清单态跨开合保留） */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-30 flex w-64 shrink-0 flex-col border-r border-edge bg-canvas transition-transform duration-150 md:static md:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between border-b border-edge px-3 py-2">
+          <span className="font-semibold text-ink">berry-agent</span>
           <div className="flex items-center gap-1">
             {/* 手动刷新（清单装载失败/外部开新的即时恢复入口——与周期复拍互补） */}
             <button
               type="button"
               aria-label="刷新会话清单"
-              className="rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-700"
+              className="rounded bg-edge px-2 py-0.5 text-xs text-ink-soft hover:bg-edge-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
               onClick={loadSessions}
             >
               刷新
             </button>
             <button
               type="button"
-              className="rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-700"
+              className="rounded bg-edge px-2 py-0.5 text-xs text-ink-soft hover:bg-edge-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
               onClick={createSession}
             >
               + 新会话
@@ -467,9 +497,41 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
         />
         <TodoPanel todo={state.todo} />
       </aside>
-      {/* 主列：通知条 + 会话详情头行 + 正文 + 状态行 + 输入 */}
-      <main className="flex min-w-0 flex-1 flex-col bg-zinc-900">
-        <NoticeBar notices={state.notices} />
+      {/* 抽屉遮罩（<md 且开向才在场——点击收向；md 起侧栏常驻无遮罩） */}
+      {sidebarOpen ? (
+        <div
+          aria-hidden
+          className="fixed inset-0 z-20 bg-black/40 md:hidden"
+          onClick={() => {
+            setSidebarOpen(false);
+          }}
+        />
+      ) : null}
+      {/* 主列：窄屏顶栏 + 通知浮条 + 会话详情头行 + 正文 + 状态行 + 输入 */}
+      <main className="flex min-w-0 flex-1 flex-col bg-panel">
+        {/* 窄屏顶栏（<md 侧栏折抽屉后的会话入口——汉堡开抽屉；md 起侧栏常驻
+            此栏缺席） */}
+        <header className="flex items-center gap-2 border-b border-edge bg-canvas px-3 py-2 md:hidden">
+          <button
+            type="button"
+            aria-label="打开会话清单"
+            className="rounded px-2 py-0.5 text-sm text-ink-soft hover:bg-edge focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+            onClick={() => {
+              setSidebarOpen(true);
+            }}
+          >
+            ☰
+          </button>
+          <span className="text-xs font-semibold text-ink-soft">berry-agent</span>
+        </header>
+        {/* 通知浮条（fixed 顶中——不占布局流；onDismiss 在场即呈 × 键，关闭
+            走 dismissNotice 按 id 出清） */}
+        <NoticeBar
+          notices={state.notices}
+          onDismiss={(id) => {
+            setState((prev) => dismissNotice(prev, id));
+          }}
+        />
         {/* 会话详情头行（有活跃会话才在场——导出入口随行；清单未含新会话
             的瞬窗标题回退 id 截断，同 SessionList 诚实回退律） */}
         {state.activeId !== null ? (
@@ -480,37 +542,44 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
           />
         ) : null}
         <Transcript messages={state.messages} status={state.status} bottomRef={bottomRef} />
-        {/* 输入区（@ 文件段补全源经闭包注入——api.workspaceFiles 消费腿；
-            prop 在场即启用弹层，失败由 Composer 静默收层不打扰通知条） */}
-        <Composer
-          onSubmit={submit}
-          onInterrupt={interrupt}
-          fetchFileCompletions={(query) => api.workspaceFiles(query)}
-        />
+        {/* relative 容器兼档位浮层锚（TierPopover 卡体 bottom-full 锚本容器
+            上沿——随输入区实际高度自适应，界面美化役批⑥） */}
+        <div className="relative">
+          {/* 输入区（@ 文件段补全源经闭包注入——api.workspaceFiles 消费腿；
+              prop 在场即启用弹层，失败由 Composer 静默收层不打扰通知条；
+              canInterrupt = run 在飞判据〔闲态禁用〕） */}
+          <Composer
+            onSubmit={submit}
+            onInterrupt={interrupt}
+            canInterrupt={runInFlight}
+            fetchFileCompletions={(query) => api.workspaceFiles(query)}
+          />
+          {/* 档位浮层（/thinking //sandbox 恰零参拦截开层——卡体锚本容器；
+              onReceipt 走 info 档通知条、onError 走 error 档——NoticeBar 四档
+              色表 info 在册）；onClose 全路清 null */}
+          {state.activeId !== null && tierPopover !== null ? (
+            <TierPopover
+              kind={tierPopover}
+              sessionId={state.activeId}
+              onClose={() => {
+                setTierPopover(null);
+              }}
+              onReceipt={(receipt) => {
+                // 回执入通知条（info 呈现位——本地推播走 pushedNotice 同帽 5）
+                setState((prev) => pushedNotice(prev, receipt, 'info'));
+              }}
+              onError={(message) => {
+                // 切档错误入通知条（error 呈现位——同帽同形律）
+                setState((prev) => pushedNotice(prev, message, 'error'));
+              }}
+              onAuthLost={onAuthLost}
+            />
+          ) : null}
+        </div>
       </main>
-      {/* 右栏：审批 */}
-      <ApprovalPanel approvals={state.approvals} onDecide={decide} />
-      {/* 档位浮层（/thinking //sandbox 恰零参拦截开层——fixed 定位浮于输入区
-          上方；onReceipt 走 info 档通知条、onError 走 error 档——NoticeBar
-          四档色表 info 在册）；onClose 全路清 null */}
-      {state.activeId !== null && tierPopover !== null ? (
-        <TierPopover
-          kind={tierPopover}
-          sessionId={state.activeId}
-          onClose={() => {
-            setTierPopover(null);
-          }}
-          onReceipt={(receipt) => {
-            // 回执入通知条（info 呈现位——本地推播走 pushedNotice 同帽 5）
-            setState((prev) => pushedNotice(prev, receipt, 'info'));
-          }}
-          onError={(message) => {
-            // 切档错误入通知条（error 呈现位——同帽同形律）
-            setState((prev) => pushedNotice(prev, message, 'error'));
-          }}
-          onAuthLost={onAuthLost}
-        />
-      ) : null}
+      {/* 右栏：审批（零待审批不渲染——主列回收宽度，界面美化役批④；窄屏
+          缺席化——xl 起常驻〔组件内 hidden xl:flex〕，批③） */}
+      {state.approvals.length > 0 ? <ApprovalPanel approvals={state.approvals} onDecide={decide} /> : null}
     </div>
   );
 }

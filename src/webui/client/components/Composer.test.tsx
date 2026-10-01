@@ -83,13 +83,19 @@ describe('Composer 提交通路', () => {
 });
 
 describe('Composer 打断键', () => {
-  it('点击打断直通 onInterrupt（与发送态无关恒可用）', () => {
+  it('点击打断直通 onInterrupt（缺省 canInterrupt=true——本件直测形不受 App 供血影响）', () => {
     const onInterrupt = vi.fn();
     render(<Composer onSubmit={vi.fn()} onInterrupt={onInterrupt} />);
     const interrupt = screen.getByRole('button', { name: '打断' }) as HTMLButtonElement;
     expect(interrupt.disabled).toBe(false); // 空输入也允许打断在飞 run
     fireEvent.click(interrupt);
     expect(onInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it('canInterrupt=false 禁用打断键（界面美化役批⑧——App 供血 run 在飞判据，闲态诚实呈不可点）', () => {
+    render(<Composer onSubmit={vi.fn()} onInterrupt={vi.fn()} canInterrupt={false} />);
+    const interrupt = screen.getByRole('button', { name: '打断' }) as HTMLButtonElement;
+    expect(interrupt.disabled).toBe(true);
   });
 });
 

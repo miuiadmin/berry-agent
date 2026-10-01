@@ -53,7 +53,17 @@ export type ClientDisplayEvent =
   | { readonly type: 'tool_execution_start'; readonly toolCallId: string; readonly name: string }
   | { readonly type: 'tool_execution_update'; readonly toolCallId: string }
   | { readonly type: 'agent_start' }
-  | { readonly type: 'agent_end'; readonly status?: string }
+  | {
+      /** run 终态（缺席 = completed——与服务端发射位同语义） */
+      readonly type: 'agent_end';
+      readonly status?: string;
+      /**
+       * run 总耗时毫秒（A-3 载荷位——在场即唯一真源，SPA/SDK 同源消费）：
+       * 服务端 loop 尚未发射（现仅 status/stopReason/errorMessage），本字段
+       * 为前向兼容声明——收尾行耗时段优先取它，缺席回退客户端观察窗近似。
+       */
+      readonly durationMs?: number;
+    }
   | { readonly type: 'turn_start'; readonly turn: number }
   | { readonly type: 'turn_end'; readonly turn: number };
 

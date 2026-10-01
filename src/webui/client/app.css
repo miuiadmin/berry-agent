@@ -1,2 +1,205 @@
 /* Tailwind v4 CSS-first 入口（07 §4.2 栈钉定——零 tailwind.config 件） */
 @import 'tailwindcss';
+
+/*
+ * 设计 token 层（2026-10-01 界面美化役批——07 §4.1「⑧ webui 呈现批」：
+ * zinc 魔法值收敛为语义 token，@theme CSS 变量即 Tailwind v4 的主题真源，
+ * 组件类名改引 token 后本层即未来主题切换〔深浅色模式已立题挂账〕的唯一
+ * 改动面）。锚定值 = zinc 灰阶原值（迁移期观感零漂移——token 化是改名非改色）。
+ */
+@theme {
+  /* 底面三档：canvas 全局最深底（侧栏/浮层/外底）· panel 主面与卡面 · edge 分隔线/次按钮底/选中底 */
+  --color-canvas: #09090b; /* = zinc-950 */
+  --color-panel: #18181b; /* = zinc-900 */
+  --color-edge: #27272a; /* = zinc-800 */
+  --color-edge-strong: #3f3f46; /* = zinc-700 */
+  /* 文字五档：bright 选中强调 · ink 主文 · soft 次文 · mute 弱文 · faint 幽文（最小可读位） */
+  --color-ink-bright: #f4f4f5; /* = zinc-100 */
+  --color-ink: #e4e4e7; /* = zinc-200 */
+  --color-ink-soft: #a1a1aa; /* = zinc-400 */
+  --color-ink-mute: #71717a; /* = zinc-500 */
+  --color-ink-faint: #52525b; /* = zinc-600 */
+  /* 强调两档：accent 选中指示/焦点环 · link 正文链接（天蓝系——深底可辨） */
+  --color-accent: #0ea5e9; /* = sky-500 */
+  --color-link: #38bdf8; /* = sky-400 */
+  /* 字号补档：2xs = 细节位 11px · body = 正文 13px（任意值字号收编入刻度） */
+  --text-2xs: 11px;
+  --text-body: 13px;
+  /* 字体栈：比例字体中文友好（系统栈 + 苹方/微软雅黑回退——Windows 默认回退渲染一致）；
+   * 等宽栈 = 代码域（行内 code 与 pre）。preflight 的 html 缺省字体经
+   * --default-font-family 指向 --font-sans（全 UI 无须逐处 font-sans）。 */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Noto Sans CJK SC', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  --default-font-family: var(--font-sans);
+}
+
+/*
+ * Markdown 正文排版（.md-body——手写 prose 刻度，替换历史无效死类 prose-invert：
+ * @tailwindcss/typography 未装且 prose 基类缺席，Tailwind preflight 把标题/列表/
+ * 链接样式归零致主呈现面全裸）。零新依赖纪律（07 §4.2 栈钉定）。观感定值对齐
+ * 07 §4.1 界面美化役批⑥ Markdown 观感条款的 webui 视觉半边：标题梯度（H1 粗体
+ * + 文本宽下划线 / H2 粗体 / H3-H4 粗体缩梯 / H5-H6 平文）、紧凑列表（相邻项
+ * 零空行）、嵌套列表符号深度梯度、链接色、引用块、代码块沟线 + 横向滚动、
+ * 行内代码定界、GFM 表格上下封口线、hr 虚线形。
+ */
+.md-body {
+  font-size: var(--text-body);
+  line-height: 1.6;
+  color: var(--color-ink);
+  overflow-wrap: break-word;
+}
+/* 首尾元素不吃上下距（消息块自带 space-y 间距——块内首尾贴边） */
+.md-body > :first-child {
+  margin-top: 0;
+}
+.md-body > :last-child {
+  margin-bottom: 0;
+}
+/* 标题梯度：H1 文本宽下划线（弃全宽横幅）/ H2 同粗不缩 / H3-H4 缩梯粗体 / H5-H6 平文 */
+.md-body h1 {
+  margin: 1.1em 0 0.5em;
+  font-size: 1.35em;
+  font-weight: 700;
+  color: var(--color-ink-bright);
+  border-bottom: 1px solid var(--color-edge);
+  padding-bottom: 0.2em;
+}
+.md-body h2 {
+  margin: 1em 0 0.45em;
+  font-size: 1.2em;
+  font-weight: 600;
+  color: var(--color-ink-bright);
+}
+.md-body h3 {
+  margin: 0.9em 0 0.4em;
+  font-size: 1.08em;
+  font-weight: 600;
+}
+.md-body h4 {
+  margin: 0.8em 0 0.4em;
+  font-size: 1em;
+  font-weight: 600;
+}
+.md-body h5,
+.md-body h6 {
+  margin: 0.7em 0 0.35em;
+  font-size: 1em;
+  font-weight: 400;
+  color: var(--color-ink-soft);
+}
+/* 段落与紧凑列表（相邻项零空行——源文含空行的松散列表浏览器自呈松散形） */
+.md-body p {
+  margin: 0.55em 0;
+}
+.md-body ul,
+.md-body ol {
+  margin: 0.55em 0;
+  padding-left: 1.5em;
+}
+.md-body ul {
+  list-style-type: disc;
+}
+.md-body ol {
+  list-style-type: decimal;
+}
+.md-body li {
+  margin: 0.12em 0;
+}
+.md-body li > ul,
+.md-body li > ol {
+  margin: 0.12em 0;
+}
+/* 嵌套列表符号深度梯度（disc → circle → square） */
+.md-body ul ul {
+  list-style-type: circle;
+}
+.md-body ul ul ul {
+  list-style-type: square;
+}
+/* 链接：链接色 + 悬停下划线（可辨识可点） */
+.md-body a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+.md-body a:hover {
+  text-decoration: underline;
+}
+/* 引用块：左沟线 + 次文降档 */
+.md-body blockquote {
+  margin: 0.6em 0;
+  padding: 0.1em 0 0.1em 0.75em;
+  border-left: 2px solid var(--color-edge-strong);
+  color: var(--color-ink-soft);
+}
+.md-body blockquote > :first-child {
+  margin-top: 0;
+}
+.md-body blockquote > :last-child {
+  margin-bottom: 0;
+}
+/* 代码块：沟线 + 深底 + 横向滚动（长代码行不撑破容器）+ 等宽域 */
+.md-body pre {
+  margin: 0.7em 0;
+  padding: 0.6em 0.75em;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-edge);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+/* 行内代码：定界窄位（底色 + 圆角小块——与代码块同族语汇） */
+.md-body :not(pre) > code {
+  background: var(--color-edge);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+/* 代码块内 code 不再叠底色（pre 已铺） */
+.md-body pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+/* GFM 表格：上下封口线 + 行间细线 + 表头底（窄屏横向滚动由外层 max-w 裁切兜底） */
+.md-body table {
+  margin: 0.7em 0;
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 1px solid var(--color-edge-strong);
+  border-bottom: 1px solid var(--color-edge-strong);
+  font-size: 0.95em;
+}
+.md-body th,
+.md-body td {
+  border-bottom: 1px solid var(--color-edge);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+.md-body th {
+  background: var(--color-panel);
+  font-weight: 600;
+  color: var(--color-ink-bright);
+}
+.md-body tr:last-child td {
+  border-bottom: 0;
+}
+/* hr：虚线形（与标题下划线异形——层级可辨） */
+.md-body hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px dashed var(--color-edge-strong);
+}
+/* 图片不撑破容器 */
+.md-body img {
+  max-width: 100%;
+}
+/* 强调：粗体升主亮档 */
+.md-body strong {
+  font-weight: 600;
+  color: var(--color-ink-bright);
+}

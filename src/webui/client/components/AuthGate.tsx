@@ -38,15 +38,17 @@ export function AuthGate({ onAuthed }: { onAuthed: () => void }): ReactElement {
   };
 
   return (
-    <div className="flex h-screen items-center justify-center bg-zinc-900">
-      <div className="w-80 rounded-lg border border-zinc-800 bg-zinc-950 p-5">
-        <h1 className="mb-1 text-base font-semibold text-zinc-200">berry-agent Web 界面</h1>
-        <p className="mb-4 text-xs text-zinc-500">
+    /* h-dvh（dvh 形——移动端浏览器工具栏收展视口恒正确；h-screen 桌面静态
+     * 视口在移动端会溢出工具栏高度） */
+    <div className="flex h-dvh items-center justify-center bg-panel">
+      <div className="w-80 rounded-lg border border-edge bg-canvas p-5">
+        <h1 className="mb-1 text-base font-semibold text-ink">berry-agent Web 界面</h1>
+        <p className="mb-4 text-xs text-ink-mute">
           输入启动时终端披露的一次性 token 换取会话凭证（cookie 仅存本机回环）。
         </p>
         <input
           type="password"
-          className="mb-3 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 outline-none focus:border-zinc-500"
+          className="mb-3 w-full rounded border border-edge-strong bg-panel px-2 py-1.5 text-sm text-ink outline-none focus:border-ink-mute"
           placeholder="一次性 token"
           value={token}
           onChange={(ev) => {
@@ -59,7 +61,7 @@ export function AuthGate({ onAuthed }: { onAuthed: () => void }): ReactElement {
         {error !== null ? <p className="mb-2 text-xs text-red-400">{error}</p> : null}
         <button
           type="button"
-          className="w-full rounded bg-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
+          className="w-full rounded bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:bg-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 disabled:opacity-50"
           disabled={token === '' || busy}
           onClick={submit}
         >

@@ -47,7 +47,7 @@ describe('TodoPanel 四态记号', () => {
     expect(screen.queryByText('☐ 修门')).toBeNull(); // content 让位不重复
   });
 
-  it('完成/搁置项灰化、活跃项常亮（视觉分层 class）', () => {
+  it('完成/搁置项划线灰化、活跃项常亮（视觉分层 class——界面美化役批⑤）', () => {
     render(
       <TodoPanel
         todo={[
@@ -56,7 +56,9 @@ describe('TodoPanel 四态记号', () => {
         ]}
       />,
     );
-    expect(screen.getByText('◐ 进行项').closest('li')!.className).toContain('text-zinc-300');
-    expect(screen.getByText('☑ 完成项').closest('li')!.className).toContain('text-zinc-600');
+    expect(screen.getByText('◐ 进行项').closest('li')!.className).toContain('text-ink');
+    expect(screen.getByText('◐ 进行项').closest('li')!.className).not.toContain('line-through');
+    expect(screen.getByText('☑ 完成项').closest('li')!.className).toContain('text-ink-mute');
+    expect(screen.getByText('☑ 完成项').closest('li')!.className).toContain('line-through'); // 划线降档锁
   });
 });

@@ -40,6 +40,14 @@ export interface ViewNotice {
   readonly level: string | undefined;
 }
 
+/**
+ * run 收尾行角色名（收尾行的瞬时追加位专用——非对话角色，投影真源永不含
+ * 此角色；Transcript 据此分派居中分隔线呈现形。07 §4.1 收尾行条款 webui 腿：
+ * 成功形「─ 用时 X · HH:MM ─」〔≤60s 耗时段缺席〕/ 取消形「⏹ 对话已取消——
+ * HH:MM」；瞬时追加行 = 不落投影、重拉即清、回放不可见）。
+ */
+export const RUN_CLOSE_ROLE = 'run_close';
+
 /** todo 条目视图（goal 计划态呈现投影——形状透传 ClientTodoItem） */
 export interface ViewTodo {
   readonly status: string;
@@ -88,6 +96,34 @@ export interface AppState {
    * 清单长〔与 TUI session-picker 头行同律〕）。
    */
   readonly sessionsTotal?: number;
+  /**
+   * run 活体窗旗（display agent_start 开 / agent_end 关——打断键使能面与
+   * 收尾行数据面的窗口半边）：中途附着（页面加载时 run 已在飞）看不到
+   * agent_start 则窗缺席，收尾行耗时段随之诚实缺席（不虚造）。
+   */
+  readonly runActive: boolean;
+  /**
+   * 本 run 客户端观察起点（agent_start 帧到达时刻毫秒；null = 中途附着无
+   * 起点）。近似注：事件到达 ≠ run 真实起点（服务端发射/网络传播延迟），
+   * 服务端 durationMs 载荷（A-3）在场时以载荷为唯一真源，本值仅为回退位。
+   */
+  readonly runStartedAt: number | null;
+  /**
+   * 本 run 种子时刻（收尾行 HH:MM 段锚——发送时刻语义：agent_start 时快照
+   * lastUserAt；null = 中途附着未见种子，回退 agent_end 观察时刻近似）。
+   */
+  readonly runSeedAt: number | null;
+  /**
+   * 本 run 工具活动旗（run 内 tool_execution_start 计数 > 0——纯对话轮收尾
+   * 行整行缺席判据，与 codex had_work_activity 判据同构：无工具活动的轮次
+   * 不值得收尾行噪音）。
+   */
+  readonly runSawTools: boolean;
+  /**
+   * 最近一条 user 消息时刻（echoedUserMessage 客户端钟 / 镜像 message_end
+   * 服务端钟 / 投影末条 user——agent_start 快照为 runSeedAt 种子源）。
+   */
+  readonly lastUserAt: number | null;
 }
 
 /** 初始态（空态——auth 后由投影拉取逐段填充） */
@@ -103,6 +139,11 @@ export const initialAppState: AppState = {
   pendingEchoes: [],
   toolNames: {},
   sessionsFailed: false,
+  runActive: false,
+  runStartedAt: null,
+  runSeedAt: null,
+  runSawTools: false,
+  lastUserAt: null,
 };
 
 /**
@@ -152,10 +193,60 @@ function streamingSlotOf(messages: readonly ViewMessage[], role: string): number
 }
 
 /**
+ * 本地 HH:MM 时刻（收尾行时刻段形——本地钟呈现，与服务端时区无关）。
+ */
+function clockOf(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** 耗时人话形（1m 30s / 2h 5m 1s——与收尾行条款示例同形） */
+function formatDuration(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+}
+
+/**
+ * run 收尾行文案（07 §4.1 收尾行条款 webui 腿——瞬时追加位，不进投影）：
+ * - 失败终态 → null（错误块本体即呈现，不叠收尾行）；
+ * - 取消形 → 「⏹ 对话已取消——HH:MM」；
+ * - 纯对话轮（run 内零 tool_execution_start）→ null（整行缺席）；
+ * - 成功形 → 「─ 用时 X · HH:MM ─」，≤60s 耗时段缺席只呈时刻。
+ * 时刻段 = 发送时刻（runSeedAt——种子 user 消息时刻；中途附着未见种子回退
+ * agent_end 观察时刻近似，不虚造）。耗时段优先服务端 durationMs 载荷（A-3
+ * 唯一真源），缺席回退客户端观察窗（agent_start→agent_end 到达时刻差——
+ * 近似值，含发射/传播延迟的诚实注记在 AppState.runStartedAt）。
+ */
+function runCloseLine(
+  state: AppState,
+  payload: { readonly status?: string; readonly durationMs?: unknown },
+  now: number,
+): string | null {
+  if (payload.status === 'failed') return null; // 失败终态：错误块本体呈现，无收尾行
+  const moment = clockOf(state.runSeedAt ?? now); // 发送时刻锚——种子缺席即观察终点近似
+  if (payload.status === 'aborted') return `⏹ 对话已取消——${moment}`;
+  if (!state.runSawTools) return null; // 纯对话轮整行缺席（had_work_activity 同构判据）
+  // 耗时真源序：服务端载荷 > 客户端观察窗 > 诚实缺席
+  const durationMs =
+    typeof payload.durationMs === 'number'
+      ? payload.durationMs
+      : state.runStartedAt !== null
+        ? now - state.runStartedAt
+        : null;
+  if (durationMs === null || durationMs <= 60_000) return `─ ${moment} ─`; // 无耗时数据/≤60s：耗时段缺席
+  return `─ 用时 ${formatDuration(durationMs)} · ${moment} ─`;
+}
+
+/**
  * 信封折叠（纯函数）：display 族画流式尾巴 / session 族落稿与 asked 镜像 /
  * status·notify 各归其位。未知帧形静默忽略（前向兼容——服务端加型不炸客户端）。
+ * now = 折叠时刻毫秒（run 观察窗/收尾行的可测注入口，缺省 Date.now——真流
+ * 与组件测试同一折叠器的确定性测试面）。
  */
-export function applyEnvelope(state: AppState, env: ClientEnvelope): AppState {
+export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number = Date.now()): AppState {
   switch (env.kind) {
     case 'notify':
       // 帧腿与本地推播共用同帽同形（pushedNotice——单源执法位）
@@ -224,7 +315,8 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope): AppState {
             };
           }
         }
-        const { key, seq } = messageKey(state, messageTimestamp(payload.message));
+        const timestamp = messageTimestamp(payload.message);
+        const { key, seq } = messageKey(state, timestamp);
         const error = errorMessageOf(payload.message);
         const finalized: ViewMessage = {
           key,
@@ -240,15 +332,24 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope): AppState {
         const target = streamingSlotOf(messages, role);
         if (target !== -1) messages[target] = finalized;
         else messages.push(finalized);
-        return { ...state, seq, messages };
+        // user 落稿时刻入账（runSeedAt 种子源——服务端钟；回显被吸收形已由
+        // echoedUserMessage 记客户端钟，两源同刻近似不区分）
+        return {
+          ...state,
+          seq,
+          messages,
+          ...(role === 'user' && typeof timestamp === 'number' ? { lastUserAt: timestamp } : {}),
+        };
       }
       if (payload.type === 'tool_execution_start') {
         if (env.kind !== 'display') return state;
-        // id→名记账（update/end 帧只携 id——按名呈现的映射真源）
+        // id→名记账（update/end 帧只携 id——按名呈现的映射真源）；工具活动旗
+        // 同步置位（收尾行纯对话轮判据的计数面）
         return {
           ...state,
           status: `⚙ ${payload.name} …`,
           toolNames: { ...state.toolNames, [payload.toolCallId]: payload.name },
+          runSawTools: true,
         };
       }
       if (payload.type === 'tool_execution_update') {
@@ -270,15 +371,43 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope): AppState {
           messages: [...state.messages, { key, role: 'tool', text: `⚙ 工具 ${name} 执行完成`, streaming: false }],
         };
       }
+      if (payload.type === 'agent_start') {
+        // run 活体窗开窗（收尾行/打断键的数据面）：观察起点 = 帧到达时刻、
+        // 种子时刻 = 最近 user 消息时刻（发送时刻语义）。重试续跑的再次
+        // agent_start 重开窗——耗时段回退位只覆末次尝试（整 run 口径以服务端
+        // durationMs 载荷为准，在场必用）。
+        return {
+          ...state,
+          runActive: true,
+          runStartedAt: now,
+          runSeedAt: state.lastUserAt ?? now,
+          runSawTools: false,
+        };
+      }
       if (payload.type === 'agent_end') {
         // 终态分档（03 §10.4 SPA 呈现面终态条款②——07 §4.1 件 6 跨通道同律）：
         // failed/aborted 显式呈现不伪装成功；completed/缺席归闲态
         // （修前不分 status 恒归闲态——失败 run 状态行无痕伪收场）
-        if (payload.status === 'failed') return { ...state, status: '✖ 失败' };
-        if (payload.status === 'aborted') return { ...state, status: '⏹ 已中止' };
-        return { ...state, status: null };
+        const status = payload.status === 'failed' ? '✖ 失败' : payload.status === 'aborted' ? '⏹ 已中止' : null;
+        // run 收尾行（07 §4.1 收尾行条款）：失败终态无收尾行（错误块本体呈现）；
+        // 其余终态按 runCloseLine 组形瞬时追加（不落投影——重拉/回放不可见）
+        const closeText = runCloseLine(state, payload, now);
+        const { key, seq } = messageKey(state, undefined);
+        return {
+          ...state,
+          seq,
+          status,
+          // 活体窗整段收束（下一 agent_start 重开）
+          runActive: false,
+          runStartedAt: null,
+          runSeedAt: null,
+          runSawTools: false,
+          ...(closeText !== null
+            ? { messages: [...state.messages, { key, role: RUN_CLOSE_ROLE, text: closeText, streaming: false }] }
+            : {}),
+        };
       }
-      // agent_start / turn_* 不进正文视图（v1 呈现最小面）
+      // turn_* 不进正文视图（v1 呈现最小面）
       return state;
     }
     default:
@@ -303,6 +432,11 @@ export function pushedNotice(state: AppState, message: string, level?: string): 
   // 帽 5：slice(-5) 滚动出清最旧（单源执法位——帧源与本地源同律）
   const notices = [...state.notices, { id: seq, message, level }].slice(-5);
   return { ...state, seq, notices };
+}
+
+/** 通知入账的逆操作（手动关闭——按 id 出清一条；id 不在场幂等无操作） */
+export function dismissNotice(state: AppState, id: number): AppState {
+  return { ...state, notices: state.notices.filter((n) => n.id !== id) };
 }
 
 /** decide 应答后本地出清（applied 与 superseded 同出清——异口已答） */
@@ -352,6 +486,9 @@ export function echoedUserMessage(state: AppState, sessionId: string, text: stri
     ...state,
     messages: [...state.messages, { key, role: 'user', text, streaming: false }],
     pendingEchoes: [...state.pendingEchoes, { sessionId, key, text }],
+    // 回显时刻入账（runSeedAt 种子源——客户端钟；服务端镜像到达时吸收回显
+    // 不更新此位，两源同刻近似）
+    lastUserAt: timestamp,
   };
 }
 
@@ -359,18 +496,24 @@ export function echoedUserMessage(state: AppState, sessionId: string, text: stri
 export function loadedMessages(state: AppState, messages: readonly unknown[]): AppState {
   const views: ViewMessage[] = [];
   let seq = state.seq;
+  let lastUserAt: number | null = null;
   for (const message of messages) {
     seq += 1;
     const error = errorMessageOf(message);
+    const timestamp = messageTimestamp(message);
+    const role = messageRole(message);
     views.push({
       key: `p#${seq}`,
-      role: messageRole(message),
+      role,
       text: textOf(messageContent(message)),
       ...(error !== undefined ? { error } : {}),
       streaming: false,
     });
+    // 投影内末条 user 时刻入账（中途附着/重连场景的收尾行种子锚——投影是
+    // 正确性层真源，服务端钟优先于观察钟）
+    if (role === 'user' && typeof timestamp === 'number') lastUserAt = timestamp;
   }
-  return { ...state, messages: views, seq, pendingEchoes: [] };
+  return { ...state, messages: views, seq, pendingEchoes: [], lastUserAt };
 }
 
 /** 会话清单落座（成功即撤失败旗——失败行只随最新一次装载结果呈现；total 随批落座，缺席 = 不披露） */
@@ -397,6 +540,13 @@ export function setActiveSession(state: AppState, sessionId: string | null): App
     status: null,
     pendingEchoes: [],
     toolNames: {},
+    // run 活体窗随会话切换整段清（新会话的收尾行/打断键面由新流重开——
+    // 旧会话的观察窗对新会话无意义）
+    runActive: false,
+    runStartedAt: null,
+    runSeedAt: null,
+    runSawTools: false,
+    lastUserAt: null,
   };
 }
 

@@ -213,6 +213,71 @@ describe('WebUiRoot主面活体环', () => {
     });
   });
 
+  it('零待审批不渲染右栏、asked 到场即渲染（审批空态缺席化——界面美化役批④）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    // App 级缺席锁：零待审批 → 右栏整不渲染（组件内空态文案「暂无待审批项」
+    // 不进 DOM——与组件直测的空态分立；修前恒渲染空栏占宽）
+    expect(screen.queryByText('暂无待审批项')).toBeNull();
+    FakeEventSource.instances[0]!.emit({
+      kind: 'session',
+      sessionId: 's-1',
+      payload: { type: 'approval/asked', approvalId: 'webui-absence', summary: '装插件 Y' },
+    });
+    await screen.findByText('装插件 Y');
+    expect(screen.getByText('审批（1）')).toBeTruthy();
+  });
+
+  it('run 收尾行：工具 run 成功形在场、纯对话轮缺席、取消形在场（界面美化役批⑪）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const es = FakeEventSource.instances[0]!;
+    // 纯对话轮（零工具活动）completed：收尾行整行缺席（had_work_activity 同构判据）
+    es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
+    es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'completed' } });
+    await waitFor(() => {
+      expect(screen.queryByText(/^─ .+ ─$/)).toBeNull();
+    });
+    // 工具 run completed：成功收尾行在场（服务端 durationMs 缺席回退客户端
+    // 观察窗——jsdom 测试窗毫秒级落 ≤60s 形：耗时段缺席只呈「─ HH:MM ─」）
+    es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
+    es.emit({
+      kind: 'display',
+      sessionId: 's-1',
+      payload: { type: 'tool_execution_start', toolCallId: 't-close', name: 'bash' },
+    });
+    es.emit({ kind: 'session', sessionId: 's-1', payload: { type: 'tool_execution_end', toolCallId: 't-close' } });
+    es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'completed' } });
+    await screen.findByText(/^─ \d{2}:\d{2} ─$/);
+    // 取消形：取消收尾行在场（取消不设纯对话轮缺席——用户主动行为恒有回响）
+    es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
+    es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'aborted' } });
+    await screen.findByText(/^⏹ 对话已取消——\d{2}:\d{2}$/);
+  });
+
+  it('通知浮条可关闭（× 键 → 按 id 出清——界面美化役批⑨）', async () => {
+    primeMain();
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    FakeEventSource.instances[0]!.emit({ kind: 'notify', payload: { message: '试一条通知', level: 'info' } });
+    await screen.findByText('试一条通知');
+    fireEvent.click(screen.getByRole('button', { name: '关闭通知' }));
+    await waitFor(() => {
+      expect(screen.queryByText('试一条通知')).toBeNull();
+    });
+  });
+
   it('composer 提交（乐观回显 + messageId 生成）与打断键', async () => {
     primeMain();
     apiMock.submit.mockResolvedValue(undefined);
@@ -220,12 +285,25 @@ describe('WebUiRoot主面活体环', () => {
     render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     const box = await screen.findByPlaceholderText('输入消息——Enter 发送，Shift+Enter 换行');
+    // 闲态打断键禁用（界面美化役批⑧——无在飞 run 诚实呈不可点；修前恒可点的无效键；
+    // 未装 jest-dom——disabled 属性位直读）
+    expect((screen.getByRole('button', { name: '打断' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(box, { target: { value: '你好呀' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
     await screen.findByText('你好呀'); // 乐观回显（session message_end 形）
     await waitFor(() => {
       expect(apiMock.submit).toHaveBeenCalledWith('s-1', '你好呀', expect.stringMatching(/.+/));
     });
+    // 服务端 kick 的 run 启帧（display agent_start）到达——打断键使能
+    // （run 在飞判据：活体窗开；提交本身不是使能信号——诚实反映服务端受理）
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const es = FakeEventSource.instances[0]!;
+    act(() => {
+      es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
+    });
+    expect((screen.getByRole('button', { name: '打断' }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: '打断' }));
     await waitFor(() => {
       expect(apiMock.interrupt).toHaveBeenCalledWith('s-1');
@@ -649,10 +727,11 @@ describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui �
       expect(screen.queryByText('深度思考级别')).toBeNull();
     });
     expect(apiMock.setThinkingLevel).not.toHaveBeenCalled();
-    // 路② 遮罩点击（fixed 全屏遮罩首子位——卡体 absolute bottom 锚不撞选择器）
+    // 路② 遮罩点击（fixed 全屏遮罩——界面美化役批⑥后遮罩独立 fixed 定位根，
+    // 卡体 absolute bottom-full 锚输入区容器不撞选择器）
     await openTierPopover('/thinking');
     await screen.findByText('高强度思考');
-    const mask = document.querySelector('div.absolute.inset-0');
+    const mask = document.querySelector('div.fixed.inset-0');
     expect(mask).not.toBeNull();
     fireEvent.click(mask!);
     await waitFor(() => {

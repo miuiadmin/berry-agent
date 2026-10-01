@@ -1,13 +1,15 @@
 /**
  * webui/client/components/NoticeBar 单件直锁（覆盖锁；jsdom 轨）。
  *
- * 通知条三真行为——
+ * 通知浮条四真行为——
  * ① 空清单零占位（渲染 null——非阻塞原语不占正文流）
  * ② 最近一条置顶呈现：早前条不重复呈现，多条时呈「+N 条早前通知」计数
  * ③ 档色映射：level 分档落 class（缺席 = info 档）
+ * ④ 关闭键（界面美化役批⑨）：onDismiss 在场呈 × 键点击回传最新条 id，
+ * 缺席只读形无键
  */
-import { cleanup, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ViewNotice } from '../frames.js';
 import { NoticeBar } from './NoticeBar.js';
@@ -49,5 +51,23 @@ describe('NoticeBar 档色映射', () => {
     expect((container.firstElementChild as HTMLElement).className).toContain('bg-red-900/60');
     rerender(<NoticeBar notices={[notice('普通告知')]} />);
     expect((container.firstElementChild as HTMLElement).className).toContain('bg-sky-900/60');
+  });
+});
+
+describe('NoticeBar 关闭（界面美化役批⑨）', () => {
+  it('onDismiss 在场呈 × 键，点击回传最新条 id', () => {
+    const onDismiss = vi.fn();
+    render(
+      <NoticeBar notices={[notice('早一条'), { id: 42, message: '最新条', level: undefined }]} onDismiss={onDismiss} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '关闭通知' }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith(42); // 最新条 id（置顶条的出清锚）
+  });
+
+  it('onDismiss 缺席只读形无关闭键（App 未接回调不虚呈键）', () => {
+    render(<NoticeBar notices={[notice('只读条')]} />);
+    expect(screen.queryByRole('button', { name: '关闭通知' })).toBeNull();
+    expect(screen.getByText('只读条')).toBeTruthy();
   });
 });

@@ -13,6 +13,7 @@ import { createRef } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ViewMessage } from '../frames.js';
+import { RUN_CLOSE_ROLE } from '../frames.js';
 import { Transcript } from './Transcript.js';
 
 afterEach(() => {
@@ -84,10 +85,25 @@ describe('Transcript 流式尾巴与状态行', () => {
     expect(screen.queryByText('▍')).toBeNull();
   });
 
-  it('状态行非 null 呈现列底、null 不占位', () => {
+  it('状态行非 null 呈现列底（呼吸点 + 文案）、null 不占位', () => {
     const { rerender } = render(<Transcript messages={[]} status="⚙ bash …" bottomRef={createRef<HTMLDivElement>()} />);
     expect(screen.getByText('⚙ bash …')).toBeTruthy();
     rerender(<Transcript messages={[]} status={null} bottomRef={createRef<HTMLDivElement>()} />);
     expect(screen.queryByText('⚙ bash …')).toBeNull();
+  });
+});
+
+describe('Transcript run 收尾行（界面美化役批⑪）', () => {
+  it('run_close 角色居中呈现收尾行文本：无角色标签（非消息形）', () => {
+    render(
+      <Transcript
+        messages={[msg({ key: 'm-close', role: RUN_CLOSE_ROLE, text: '─ 用时 1m 30s · 14:32 ─' })]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    expect(screen.getByText('─ 用时 1m 30s · 14:32 ─')).toBeTruthy();
+    // 收尾行是瞬时追加位非消息——不呈 run_close 角色标签
+    expect(screen.queryByText('run_close')).toBeNull();
   });
 });

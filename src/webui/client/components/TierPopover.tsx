@@ -132,23 +132,27 @@ export function TierPopover({
   };
 
   return (
-    // 全屏遮罩锚（fixed）——点击遮罩即关；卡体停在输入区上方（bottom 锚，
-    // 体例随 Composer 补全弹层自洽——同 zinc 色系浮层语汇）
-    <div className="fixed inset-0 z-20">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+    // 定位契约（界面美化役批⑥）：本件必须渲染在 App 输入区 relative 容器内
+    // （Composer 外层包裹位）。卡体 absolute bottom-full 锚该容器上沿——随
+    // 输入区实际高度自适应（修前 fixed 根 + bottom-32 常量与输入区变高
+    // 打架：多行输入时浮层与输入框重叠）；遮罩独立 fixed 全屏（点击即关，
+    // 不参与卡体定位）。
+    <>
+      {/* 全屏遮罩（fixed——独立定位根；点击即关） */}
+      <div className="fixed inset-0 z-20 bg-black/40" onClick={onClose} />
       <div
         role="dialog"
         aria-label={kind === 'thinking' ? '深度思考级别' : '沙箱模式'}
-        className="absolute bottom-32 left-1/2 z-30 w-[28rem] -translate-x-1/2 rounded border border-zinc-700 bg-zinc-900 shadow-lg"
+        className="absolute bottom-full left-1/2 z-30 mb-2 w-[28rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-edge-strong bg-panel shadow-lg"
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
-          <span className="text-xs font-semibold text-zinc-400">
+        <div className="flex items-center justify-between border-b border-edge px-3 py-2">
+          <span className="text-xs font-semibold text-ink-soft">
             {kind === 'thinking' ? '深度思考级别' : '沙箱模式'}
           </span>
           <button
             type="button"
             aria-label="关闭浮层"
-            className="rounded px-1.5 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+            className="rounded px-1.5 text-xs text-ink-mute hover:bg-edge hover:text-ink-soft"
             onClick={onClose}
           >
             ×
@@ -156,7 +160,7 @@ export function TierPopover({
         </div>
         {tiers === null && !failed ? (
           // 加载态一行（回环毫秒级——通常瞬过）
-          <p className="px-3 py-3 text-xs text-zinc-500">正在读取……</p>
+          <p className="px-3 py-3 text-xs text-ink-mute">正在读取……</p>
         ) : null}
         {failed ? (
           // 失败态一行错误 + 关闭键（501/404/500 全折同呈现位——错误本体
@@ -165,7 +169,7 @@ export function TierPopover({
             <p className="text-xs text-red-300">读取失败</p>
             <button
               type="button"
-              className="shrink-0 rounded border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800"
+              className="shrink-0 rounded border border-edge-strong px-2 py-0.5 text-2xs text-ink-soft hover:bg-edge"
               onClick={onClose}
             >
               关闭
@@ -181,15 +185,15 @@ export function TierPopover({
                   <button
                     type="button"
                     disabled={submitting}
-                    className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-800 disabled:opacity-40"
+                    className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs hover:bg-edge disabled:opacity-40"
                     onClick={() => {
                       pick(row.value);
                     }}
                   >
                     {/* 当前档标记位（●——TUI picker 同形；宽占位对齐） */}
-                    <span className="w-3 shrink-0 text-zinc-200">{marked ? '●' : ''}</span>
-                    <span className="shrink-0 text-zinc-200">{row.value}</span>
-                    <span className="ml-auto truncate text-zinc-500">{row.detail}</span>
+                    <span className="w-3 shrink-0 text-ink">{marked ? '●' : ''}</span>
+                    <span className="shrink-0 text-ink">{row.value}</span>
+                    <span className="ml-auto truncate text-ink-mute">{row.detail}</span>
                   </button>
                 </li>
               );
@@ -197,6 +201,6 @@ export function TierPopover({
           </ul>
         ) : null}
       </div>
-    </div>
+    </>
   );
 }

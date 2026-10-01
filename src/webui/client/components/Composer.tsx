@@ -61,14 +61,21 @@ export function tokenAtCaret(line: string, caret: number): CaretToken | null {
   return { start, end: caret, text };
 }
 
-/** 输入区（onSubmit 提交正文 / onInterrupt 打断在飞 run / fetchFileCompletions @ 文件段补全源） */
+/** 输入区（onSubmit 提交正文 / onInterrupt 打断在飞 run / canInterrupt 打断键使能 / fetchFileCompletions @ 文件段补全源） */
 export function Composer({
   onSubmit,
   onInterrupt,
+  canInterrupt = true,
   fetchFileCompletions,
 }: {
   onSubmit: (text: string) => void;
   onInterrupt: () => void;
+  /**
+   * 打断键使能（界面美化役批⑧——缺省 true 保持本件直测形不变；App 侧
+   * 由 run 活体窗/流式尾巴/状态行复合判据供血：无在飞 run 时禁用，诚实
+   * 呈「不可打断」而非可点无效键）
+   */
+  readonly canInterrupt?: boolean;
   /** @ 文件段补全源（q = 去 @ 前缀的 token 内文；缺席 = 零补全面——增强面） */
   readonly fetchFileCompletions?: (query: string) => Promise<readonly string[]>;
 }): ReactElement {
@@ -156,14 +163,14 @@ export function Composer({
   }, [text]);
 
   return (
-    <div className="flex items-end gap-2 border-t border-zinc-800 bg-zinc-950 px-4 py-3">
+    <div className="flex items-end gap-2 border-t border-edge bg-canvas px-4 py-3">
       {/* relative 容器承载弹层锚（绝对定位挂输入框上方——聊天输入区惯例） */}
       <div className="relative min-w-0 flex-1">
         {items.length > 0 ? (
           <div
             role="listbox"
             aria-label="文件补全候选"
-            className="absolute bottom-full left-0 z-10 mb-1 max-h-48 w-full overflow-y-auto rounded border border-zinc-700 bg-zinc-900 py-1 shadow-lg"
+            className="absolute bottom-full left-0 z-10 mb-1 max-h-48 w-full overflow-y-auto rounded-lg border border-edge-strong bg-panel py-1 shadow-lg"
           >
             {items.map((item, index) => (
               <div
@@ -171,7 +178,7 @@ export function Composer({
                 role="option"
                 aria-selected={index === activeIndex}
                 className={`cursor-pointer truncate px-3 py-1 text-left text-xs ${
-                  index === activeIndex ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400'
+                  index === activeIndex ? 'bg-edge-strong text-ink-bright' : 'text-ink-soft'
                 }`}
                 // onMouseDown 不夺输入框焦点（preventDefault）——位点不漂移
                 onMouseDown={(ev) => {
@@ -186,7 +193,7 @@ export function Composer({
         ) : null}
         <textarea
           ref={textareaRef}
-          className="max-h-40 min-h-[2.5rem] flex-1 resize-y rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-zinc-500"
+          className="max-h-40 min-h-[2.5rem] flex-1 resize-y rounded border border-edge-strong bg-panel px-3 py-2 text-sm text-ink outline-none focus:border-ink-mute"
           placeholder="输入消息——Enter 发送，Shift+Enter 换行"
           rows={2}
           value={text}
@@ -232,9 +239,10 @@ export function Composer({
           }}
         />
       </div>
+      {/* 双键同形（界面美化役批⑧——text-sm/py-1.5 收敛为一致点击面 + focus 环） */}
       <button
         type="button"
-        className="rounded bg-zinc-200 px-3 py-2 text-xs font-medium text-zinc-900 hover:bg-white disabled:opacity-40"
+        className="rounded bg-ink px-3 py-1.5 text-sm font-medium text-canvas hover:bg-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 disabled:opacity-40"
         disabled={text.trim() === ''}
         onClick={send}
       >
@@ -242,7 +250,8 @@ export function Composer({
       </button>
       <button
         type="button"
-        className="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-400 hover:bg-zinc-800"
+        className="rounded border border-edge-strong px-3 py-1.5 text-sm text-ink-soft hover:bg-edge focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={!canInterrupt}
         onClick={onInterrupt}
       >
         打断

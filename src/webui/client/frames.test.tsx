@@ -21,6 +21,7 @@ import {
   appliedDecide,
   applyAsked,
   applyEnvelope,
+  dismissNotice,
   droppedMessage,
   echoKeyOf,
   echoedUserMessage,
@@ -29,6 +30,7 @@ import {
   loadedMessages,
   loadedSessions,
   pushedNotice,
+  RUN_CLOSE_ROLE,
   setActiveSession,
   textOf,
 } from './frames.js';
@@ -229,28 +231,39 @@ describe('frames 工具族与状态行', () => {
     expect(state.status).toBe('⚙ t-1 …'); // 映射已清——回退 id
   });
 
-  it('agent_end 清状态行 / agent_start·turn_* 不进正文', () => {
+  it('agent_end 清状态行 / agent_start·turn_* 不进正文（工具 run 成功形落收尾行——中途无起点耗时段缺席）', () => {
     let state = applyEnvelope(
       initialAppState,
       display({ type: 'tool_execution_start', toolCallId: 't', name: 'x', arguments: {} }),
     );
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }));
     expect(state.status).toBeNull();
+    // 工具 run 成功终态 → run 收尾行瞬时追加（run_close 角色——非对话消息；
+    // 无 agent_start 中途附着形：耗时段诚实缺席只呈时刻段）
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({ role: RUN_CLOSE_ROLE, streaming: false });
+    expect(state.messages[0]?.text).toMatch(/^─ \d{2}:\d{2} ─$/);
     state = applyEnvelope(state, display({ type: 'agent_start' }));
     state = applyEnvelope(state, display({ type: 'turn_start', turn: 1 }));
     state = applyEnvelope(state, display({ type: 'turn_end', turn: 1, stopReason: 'end_turn' }));
-    expect(state.messages).toHaveLength(0);
+    // turn_* 不进正文（收尾行不被扰动——长度仍 1）
+    expect(state.messages).toHaveLength(1);
   });
 
   it('agent_end 终态分档：failed ✖ / aborted ⏹ / completed 归闲态（修前不分 status 恒闲态伪收场）', () => {
     // 07 §4.1 件 6 跨通道同律（TUI 侧 P0 批已修——失败/中止显式呈现不伪装成功）
     let state = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
     expect(state.status).toBe('✖ 失败');
+    expect(state.messages).toHaveLength(0); // 失败终态无收尾行（错误块本体呈现）
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'aborted' }));
     expect(state.status).toBe('⏹ 已中止');
-    // completed 归闲态（成功不占状态行——SPA v1 无用量尾注面）
+    expect(state.messages).toHaveLength(1); // 取消形收尾行在场
+    expect(state.messages[0]?.text).toMatch(/^⏹ 对话已取消——\d{2}:\d{2}$/);
+    // completed 归闲态（成功不占状态行——SPA v1 无用量尾注面）；纯对话轮
+    // （run 内零工具活动）成功收尾行整行缺席
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }));
     expect(state.status).toBeNull();
+    expect(state.messages).toHaveLength(1);
   });
 });
 
@@ -293,6 +306,137 @@ describe('frames 审批与通知', () => {
     expect(mixed.notices).toHaveLength(2);
     expect(mixed.notices[0]).toMatchObject({ message: '本地一条', level: 'info' });
     expect(mixed.notices[1]).toMatchObject({ message: '帧一条', level: 'warn', id: 2 });
+  });
+
+  it('dismissNotice 按 id 出清一条、幂等（界面美化役批⑨——通知关闭的折叠器腿）', () => {
+    let state = pushedNotice(initialAppState, '第一条', 'info');
+    state = pushedNotice(state, '第二条', 'error');
+    expect(state.notices).toHaveLength(2);
+    const firstId = state.notices[0]!.id;
+    state = dismissNotice(state, firstId);
+    expect(state.notices).toHaveLength(1);
+    expect(state.notices[0]).toMatchObject({ message: '第二条', level: 'error' }); // 出清的是所指条
+    // id 不在场幂等无操作（重复关闭/陈旧 id 不炸）
+    state = dismissNotice(state, firstId);
+    expect(state.notices).toHaveLength(1);
+  });
+});
+
+describe('frames run 收尾行（界面美化役批⑪——07 §4.1 收尾行条款 webui 腿）', () => {
+  /** 固定钟（now 注入口——观察窗/时刻段的确定性测试面） */
+  const T0 = 1_700_000_000_000;
+
+  it('成功形：工具 run >60s 呈「─ 用时 1m 30s · HH:MM ─」，时刻段 = 种子 user 消息时刻（发送时刻语义）', () => {
+    // 种子回显（客户端钟 T0-5s）→ run 开（T0）→ 工具活动 → 成功终态（T0+90s）
+    let state = echoedUserMessage(initialAppState, 's-1', '跑个工具', T0 - 5_000);
+    state = applyEnvelope(state, display({ type: 'agent_start' }), T0);
+    expect(state.runActive).toBe(true); // 活体窗开
+    expect(state.runSeedAt).toBe(T0 - 5_000); // 种子 = 最近 user 消息时刻（非观察起点）
+    expect(state.runStartedAt).toBe(T0);
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0 + 90_000);
+    expect(state.runActive).toBe(false); // 活体窗收束
+    expect(state.messages).toHaveLength(2); // 回显 + 收尾行
+    const close = state.messages[state.messages.length - 1]!;
+    expect(close.role).toBe(RUN_CLOSE_ROLE);
+    // 耗时 = 观察窗 90s（服务端 durationMs 缺席回退位）；时刻段 = 种子时刻本地 HH:MM
+    expect(close.text).toMatch(/^─ 用时 1m 30s · \d{2}:\d{2} ─$/);
+  });
+
+  it('≤60s：耗时段缺席只呈时刻（条款细则——短 run 不值得耗时噪音）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0 + 30_000);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.text).toMatch(/^─ \d{2}:\d{2} ─$/); // 无「用时」段
+  });
+
+  it('纯对话轮（零工具活动）成功收尾行整行缺席（had_work_activity 同构判据）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(state, display({ type: 'message_start', role: 'assistant' }), T0 + 100);
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'assistant', content: '纯答', timestamp: T0 + 200 } }),
+    );
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0 + 120_000);
+    expect(state.messages).toHaveLength(1); // 只有 assistant 落稿——收尾行缺席
+  });
+
+  it('取消形不受纯对话轮判据约束：零工具 abort 也呈「⏹ 对话已取消——HH:MM」', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'aborted' }), T0 + 1_000);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.text).toMatch(/^⏹ 对话已取消——\d{2}:\d{2}$/);
+  });
+
+  it('durationMs 载荷压观察窗（A-3 唯一真源——整 run 口径不因重试重开窗缩水）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    // 观察窗仅 1s，但载荷声明整 run 95s（重试续跑重开窗的回退位只覆末次尝试）
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 95_000 }), T0 + 1_000);
+    expect(state.messages[0]?.text).toMatch(/^─ 用时 1m 35s · \d{2}:\d{2} ─$/);
+  });
+
+  it('中途附着（无 agent_start）：耗时段诚实缺席、时刻段回退观察终点近似', () => {
+    // 页面加载时 run 已在飞——收不到 agent_start；收尾行不虚造耗时
+    let state = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]?.text).toMatch(/^─ \d{2}:\d{2} ─$/);
+  });
+
+  it('瞬时追加位：loadedMessages 投影重置即清（不落投影、回放不可见）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0 + 90_000);
+    expect(state.messages.some((m) => m.role === RUN_CLOSE_ROLE)).toBe(true);
+    state = loadedMessages(state, [{ role: 'user', content: '投影正文', timestamp: 1 }]);
+    expect(state.messages.some((m) => m.role === RUN_CLOSE_ROLE)).toBe(false); // 随重置消散
+    expect(state.messages).toHaveLength(1);
+  });
+
+  it('种子链三源：回显客户端钟 / 投影末条 user 服务端钟 / 镜像落稿服务端钟', () => {
+    // 源① 乐观回显（echoedUserMessage 客户端钟）
+    let echo = echoedUserMessage(initialAppState, 's-1', '问一', T0 - 1_000);
+    echo = applyEnvelope(echo, display({ type: 'agent_start' }), T0);
+    expect(echo.runSeedAt).toBe(T0 - 1_000);
+    // 源② 投影拉取（loadedMessages——中途附着/重连的种子锚）
+    let projected = loadedMessages(initialAppState, [{ role: 'user', content: '投影问', timestamp: T0 - 2_000 }]);
+    projected = applyEnvelope(projected, display({ type: 'agent_start' }), T0);
+    expect(projected.runSeedAt).toBe(T0 - 2_000);
+    // 源③ 镜像落稿（session message_end 服务端钟——回显被吸收形后仍续供种子）
+    let mirrored = applyEnvelope(initialAppState, {
+      kind: 'session',
+      sessionId: 's-1',
+      payload: { type: 'message_end', message: { role: 'user', content: '镜像问', timestamp: T0 - 3_000 } },
+    });
+    mirrored = applyEnvelope(mirrored, display({ type: 'agent_start' }), T0);
+    expect(mirrored.runSeedAt).toBe(T0 - 3_000);
+  });
+
+  it('会话切换整段清 run 窗（旧会话观察窗不污染新会话收尾行）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = setActiveSession(state, 's-2');
+    expect(state.runActive).toBe(false);
+    expect(state.runStartedAt).toBeNull();
+    expect(state.runSeedAt).toBeNull();
+    expect(state.runSawTools).toBe(false);
+    expect(state.lastUserAt).toBeNull();
   });
 });
 

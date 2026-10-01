@@ -77,7 +77,7 @@ describe('SessionList 清单呈现', () => {
     expect(screen.getByText('sess-abcdef1…')).toBeTruthy();
   });
 
-  it('选中态高亮 class 只落 activeId 匹配项', () => {
+  it('选中态高亮 class 只落 activeId 匹配项（左 accent 指示条 + 亮底——界面美化役批⑤）', () => {
     render(
       <SessionList
         sessions={[
@@ -90,7 +90,13 @@ describe('SessionList 清单呈现', () => {
     );
     const active = screen.getByText('二会话').closest('button')!;
     const idle = screen.getByText('一会话').closest('button')!;
-    expect(active.className).toContain('bg-zinc-800');
-    expect(idle.className).not.toContain('bg-zinc-800');
+    // 选中三信号：左侧 accent 指示条 + 亮底 + 主亮文字（邻接串断言避开
+    // idle 悬停态 hover:bg-edge/60 的子串假阳）
+    expect(active.className).toContain('border-l-accent');
+    expect(active.className).toContain('bg-edge text-ink-bright');
+    // 余项：指示条透明常占位（选/不选不抖版）+ 无选中底
+    expect(idle.className).toContain('border-l-transparent');
+    expect(idle.className).not.toContain('bg-edge text-ink-bright');
+    expect(idle.className).toContain('hover:bg-edge/60'); // 悬停可感升级锁
   });
 });

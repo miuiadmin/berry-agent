@@ -19,13 +19,13 @@ export function SessionHeader({
   onExport: () => void;
 }): ReactElement {
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-950 px-4 py-2">
-      <span className="min-w-0 truncate text-xs text-zinc-500" title={title ?? sessionId}>
+    <div className="flex items-center justify-between gap-2 border-b border-edge bg-canvas px-4 py-2">
+      <span className="min-w-0 truncate text-xs text-ink-mute" title={title ?? sessionId}>
         {title ?? `${sessionId.slice(0, 12)}…`}
       </span>
       <button
         type="button"
-        className="shrink-0 rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-700"
+        className="shrink-0 rounded bg-edge px-2 py-0.5 text-xs text-ink-soft hover:bg-edge-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
         onClick={onExport}
       >
         导出
