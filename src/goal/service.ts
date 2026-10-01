@@ -599,7 +599,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
           await jobsFace?.enable(goalId);
         } catch (error) {
           warn(
-            `goal 手动唤醒挂钟复活失败（防御吞——唤醒已落库）：${error instanceof Error ? error.message : String(error)}`,
+            `goal 手动唤醒定时恢复失败（防御吞——唤醒已落库）：${error instanceof Error ? error.message : String(error)}`,
           );
         }
         dao.insertWake(goalId, now(), 'manual', opts.attribution, fingerprint, progressed);
@@ -727,7 +727,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         await jobsFace?.disable(goalId);
       } catch (error) {
         warn(
-          `goal 预算停靠挂钟停摆失败（防御吞——停靠登记已落）：${error instanceof Error ? error.message : String(error)}`,
+          `goal 预算停靠定时暂停失败（防御吞——停靠登记已落）：${error instanceof Error ? error.message : String(error)}`,
         );
       }
       // 会话落停靠词（daemon 猝死后冷启动可恢复呈现——05 §1.1 词行；宿主侧
@@ -753,7 +753,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         await jobsFace?.enable(goalId);
       } catch (error) {
         warn(
-          `goal 挂钟复活失败（防御吞——手动复位道 /goal wake 仍在）：${error instanceof Error ? error.message : String(error)}`,
+          `goal 定时恢复失败（防御吞——手动复位道 /goal wake 仍在）：${error instanceof Error ? error.message : String(error)}`,
         );
       }
     },
