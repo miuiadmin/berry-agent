@@ -1,7 +1,8 @@
 /**
  * 滚动视口单测：量高 / 尾随语义（贴尾-破随-复随）/ 键盘滚动（单行 / 翻页 /
  * 首尾）/ 滚动条按需显隐（溢出 thumb 比例 / 不溢出空列）/ 长行字素硬折
- * 计入视觉行 / onScroll 通知。
+ * 计入视觉行 / onScroll 通知 / 悬挂缩进与分段头 dim 两可选档（界面美化役
+ * 2026-10-01 美学批——contract-first：选项契约先于消费位落码）。
  */
 import { describe, expect, it, vi } from 'vitest';
 import { CellGrid, type InputEvent, type MouseEvent } from '../../engine/index.js';
@@ -295,5 +296,68 @@ describe('ScrollView 滚轮（mu-2：缺省三视觉行 · 显式滚动路 · �
     expect(view.handleEvent(mouse('left'))).toBe(false);
     expect(view.handleEvent(mouse('left', 'motion'))).toBe(false);
     expect(view.handleEvent(mouse('right'))).toBe(false);
+  });
+});
+
+/* ---------------- 悬挂缩进档 + 分段头 dim 档（界面美化役 2026-10-01） ---------------- */
+
+describe('ScrollView 悬挂缩进档（hangingIndent——续行 2 空格悬挂 · 折宽预算 -2）', () => {
+  it('续行前置 2 空格、首段顶格（缩进计入折宽预算）', () => {
+    const view = new ScrollView({ maxHeight: 10, hangingIndent: true });
+    view.setLines(['a'.repeat(22)]); // 折宽 20-2=18 → 段 [0,18) + [18,22)
+    const grid = new CellGrid(20, 10);
+    view.render(grid, { row: 0, col: 0, width: 20, height: 10 });
+    expect(readRow(grid, 0, 20)).toBe('a'.repeat(18)); // 首段顶格
+    expect(readRow(grid, 1, 20)).toBe('  ' + 'a'.repeat(4)); // 续行悬挂 2 空格
+  });
+
+  it('缺省关：既有折行帧零漂（首段满宽、续行顶格）', () => {
+    const view = new ScrollView({ maxHeight: 10 });
+    view.setLines(['a'.repeat(22)]);
+    const grid = new CellGrid(20, 10);
+    view.render(grid, { row: 0, col: 0, width: 20, height: 10 });
+    expect(readRow(grid, 0, 20)).toBe('a'.repeat(20));
+    expect(readRow(grid, 1, 20)).toBe('a'.repeat(2));
+  });
+
+  it('滚动条让列与悬挂扣列并存（溢出档折宽再 -2——续行不出视口）', () => {
+    const view = new ScrollView({ maxHeight: 2, hangingIndent: true });
+    view.setLines(['a'.repeat(40)]); // 溢出 → 让列后折宽 20-1-2=17 → 3 段
+    const grid = new CellGrid(20, 2);
+    view.render(grid, { row: 0, col: 0, width: 20, height: 2 });
+    // follow 贴尾 → 视口显段 [17,34) + [34,40)，末列 thumb
+    expect(readRow(grid, 0, 19)).toBe('  ' + 'a'.repeat(17));
+    expect(readRow(grid, 1, 19)).toBe('  ' + 'a'.repeat(6));
+    expect(grid.getCell(1, 19)?.grapheme).toBe('┃');
+  });
+
+  it('量高以悬挂档折后行数计（预算 -2 全段统一）', () => {
+    const view = new ScrollView({ maxHeight: 10, hangingIndent: true });
+    view.setLines(['a'.repeat(22)]); // 折宽 18 → 2 视觉行
+    expect(view.measure(20)).toBe(2);
+  });
+});
+
+describe('ScrollView 分段头 dim 档（dimLine——predicate 命中整行 dim）', () => {
+  it('命中行整行 dim、未命中行无样式', () => {
+    const view = new ScrollView({
+      maxHeight: 10,
+      dimLine: (line) => line.startsWith('──'),
+    });
+    view.setLines(['── 分段 ──', '正文行']);
+    const grid = new CellGrid(20, 10);
+    view.render(grid, { row: 0, col: 0, width: 20, height: 10 });
+    expect(grid.getCell(0, 0)?.grapheme).toBe('─');
+    expect(grid.getCell(0, 1)?.style.dim).toBe(true); // 命中行整行 dim
+    expect(grid.getCell(0, 6)?.style.dim).toBe(true); // 行中段同律（整行一致）
+    expect(grid.getCell(1, 0)?.style?.dim).toBeUndefined(); // 未命中行裸样式
+  });
+
+  it('缺省关：裸文本写出零漂（无 dim 样式落格）', () => {
+    const view = new ScrollView({ maxHeight: 10 });
+    view.setLines(['── 分段 ──']);
+    const grid = new CellGrid(20, 10);
+    view.render(grid, { row: 0, col: 0, width: 20, height: 10 });
+    expect(grid.getCell(0, 0)?.style?.dim).toBeUndefined();
   });
 });

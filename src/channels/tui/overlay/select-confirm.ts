@@ -3,7 +3,7 @@
  *
  * - select：↑/↓ 移动高亮（循环）、pagedown/pageup/home/end 翻页直达（钳首末
  *   不循环）、Enter 选定、Esc 取消收 ''（与撤销面保守值同语义）；
- *   选项数超视口帽时开滚动窗（fx2-B——光标居中 + 顶/底「↑/↓ N more」指示行，
+ *   选项数超视口帽时开滚动窗（fx2-B——光标居中 + 顶/底「↑/↓ N 更多」指示行，
  *   ViewportCapAware——固定区总高恒 ≤ 截断预算，不触发主屏陈货守卫整段不写）；
  * - confirm：Enter/y 确认 true、Esc/n 取消 false（保守值 = 不动原状态）；
  * - 一次性问答不值得整屏切换——主屏浮层形态（挂 OverlayStack，不进 1049）；
@@ -18,6 +18,7 @@ import type { CellStyle } from '../../engine/index.js';
 import { ellipsize } from '../../engine/index.js';
 import { hintLine } from '../keys/hint.js';
 import { fitRowSegments } from '../row-segments.js';
+import { CURSOR_MARK, moreHint } from '../panels/panel-chrome.js';
 
 /** 保守取消值（select——空串与撤销面同语义） */
 export const SELECT_CANCELLED = '';
@@ -89,11 +90,17 @@ export class SelectPanel implements Renderable, ViewportCapAware {
   private readonly titleStyle: Readonly<CellStyle>;
   /** 视口帽（null = 未注入——恒满高不窗口化；装配层逐帧注入最新值） */
   private maxHeight: number | null = null;
+  /**
+   * 光标符样式（界面美化役美学注③）：▸ 符位 accent 着色——高亮行上与
+   * inverse 合成（反相行内符位前景仍带语义色）。
+   */
+  private readonly cursorStyle: Readonly<CellStyle>;
 
   constructor(options: SelectPanelOptions) {
     this.title = options.title;
     this.options = options.options;
     this.titleStyle = Object.freeze({ fg: (options.theme ?? DEFAULT_THEME).accent });
+    this.cursorStyle = Object.freeze({ inverse: true, fg: (options.theme ?? DEFAULT_THEME).accent });
   }
 
   /** 帽注入（ViewportCapAware——renderFixed 栈低到高逐层调用） */
@@ -148,27 +155,33 @@ export class SelectPanel implements Renderable, ViewportCapAware {
       row += 1;
     }
     if (v.windowed && v.above > 0 && row < bottom) {
-      buffer.writeText(row, region.col, `↑ ${v.above} more`, HINT_STYLE);
+      // 界面美化役美学注②：溢出指示中文单形「↑ N 更多」（moreHint 单源）
+      buffer.writeText(row, region.col, moreHint('↑', v.above), HINT_STYLE);
       row += 1;
     }
     const end = v.start + v.count;
     for (let i = v.start; i < end && row < bottom; i++, row++) {
       const active = i === this.activeIndex;
       const option = this.options[i]!;
-      // 前缀 + label 段（高亮行整段反色）
-      const prefix = active ? '❯ ' : '  ';
+      // 前缀 + label 段（高亮行整段反色）；界面美化役美学注③：光标符
+      // ❯→▸ 对齐全域单源 CURSOR_MARK——符位独立写（accent/inverse 合成）
+      const prefix = active ? `${CURSOR_MARK} ` : '  ';
       // 行预算排版（件外单源 row-segments）：label 段与 hint 段各自 … 收口
       // 不交叠——极长 hint 原宽右对齐会负起列覆写整行（生产链 fs 写审批
       // 路径 hint 的修前坏形）；预算 0（窗宽 ≤ 2）丢右段不放行原宽
       const { left, right, rightWidth } = fitRowSegments(`${prefix}${option.label}`, option.hint, region.width);
       buffer.writeText(row, region.col, left, active ? ACTIVE_STYLE : undefined);
+      // 符位 accent 覆写（美学注③——只换首符样式不改截断几何；极窄窗 left
+      // 可被 … 收到比前缀短，setCell 越界静默吸收零防御负担）
+      if (active) buffer.setCell(row, region.col, CURSOR_MARK, this.cursorStyle);
       // 说明段右对齐（dim 恒态——不随高亮变脸；按显示宽——CJK 段宽 ≠ 码位数）
       if (rightWidth > 0) {
         buffer.writeText(row, region.col + region.width - rightWidth, right, HINT_STYLE);
       }
     }
     if (v.windowed && v.below > 0 && row < bottom) {
-      buffer.writeText(row, region.col, `↓ ${v.below} more`, HINT_STYLE);
+      // 界面美化役美学注②：溢出指示中文单形「↓ N 更多」（moreHint 单源）
+      buffer.writeText(row, region.col, moreHint('↓', v.below), HINT_STYLE);
     }
   }
 

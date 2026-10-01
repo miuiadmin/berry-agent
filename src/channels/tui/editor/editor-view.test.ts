@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid, sanitizeDisplayText } from '../../engine/index.js';
-import { DEFAULT_THEME } from '../theme/index.js';
+import { builtinPalette, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
 import { EditorModel } from './editor-model.js';
 import { EditorView } from './editor-view.js';
 
@@ -75,7 +75,8 @@ describe('EditorView 边框', () => {
     const plain = new CellGrid(10, 5);
     view.setFocused(false);
     view.render(plain, { row: 0, col: 0, width: 6, height: 3 });
-    expect(plain.getCell(0, 0)?.style.fg).toBeUndefined();
+    // 界面美化役美学批：非聚焦边框降档 secondary（原 undefined 裸色——期望帧随档）
+    expect(plain.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.secondary);
   });
 
   it('region 平移：起点非零', () => {
@@ -120,13 +121,13 @@ describe('EditorView 滚动指示与视口', () => {
     expect(readRow(grid, 0, 10)).toBe('┌───── ↑3┐');
   });
 
-  it('宽框指示 ` ↑ N more ` 居中形（R3 批 10j——窄框放不下才回退紧凑形）', () => {
-    // setText 光标归尾——滚到底，上方溢出 3 行；宽 24 框放得下 ` ↑ 3 more `（9 格）
+  it('宽框指示 ` ↑ N 更多 ` 居中形（R3 批 10j——窄框放不下才回退紧凑形；界面美化役美学注②中文化）', () => {
+    // setText 光标归尾——滚到底，上方溢出 3 行；宽 24 框放得下 ` ↑ 3 更多 `（10 格显示宽——stringWidth 重算）
     const { view } = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 2 });
     const grid = new CellGrid(24, 4);
     view.render(grid, { row: 0, col: 0, width: 24, height: 4 });
-    expect(readRow(grid, 0, 24)).toBe('┌────── ↑ 3 more ──────┐');
-    // 窄 10 框放不下（内宽 8 < 9）——回退右端紧凑 ` ↑3`
+    expect(readRow(grid, 0, 24)).toBe('┌────── ↑ 3 更多 ──────┐');
+    // 窄 10 框放不下（内宽 8 < 10）——回退右端紧凑 ` ↑3`
     const narrow = new CellGrid(10, 4);
     view.render(narrow, { row: 0, col: 0, width: 10, height: 4 });
     expect(readRow(narrow, 0, 10)).toBe('┌───── ↑3┐');
@@ -272,5 +273,21 @@ describe('EditorView IME 预编辑宽度钳制', () => {
     const grid = new CellGrid(12, 5);
     view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
     expect(grid.cursor).toEqual({ row: 1, col: 8, visible: true }); // 钳到最后内容格
+  });
+});
+
+describe('EditorView 非聚焦边框降档随换装（界面美化役美学批）', () => {
+  it('setTheme 后两态边框各随主题键取值：聚焦 accent / 非聚焦 secondary', () => {
+    const light = resolveTheme(builtinPalette('light'), DEFAULT_THEME.depth);
+    const { view } = viewOf('ab');
+    view.setTheme(light);
+    view.setFocused(true);
+    const focused = new CellGrid(10, 5);
+    view.render(focused, { row: 0, col: 0, width: 10, height: 5 });
+    expect(focused.getCell(0, 0)?.style.fg).toBe(light.accent);
+    view.setFocused(false);
+    const plain = new CellGrid(10, 5);
+    view.render(plain, { row: 0, col: 0, width: 10, height: 5 });
+    expect(plain.getCell(0, 0)?.style.fg).toBe(light.secondary); // 降档色随换装重建
   });
 });

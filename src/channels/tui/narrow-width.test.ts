@@ -206,6 +206,7 @@ describe('工具卡窄宽收敛（1-8 列）', () => {
     diff: false,
     expanded: false,
     theme: DEFAULT_THEME,
+    toggleHint: 'ctrl+o',
     ...over,
   });
 

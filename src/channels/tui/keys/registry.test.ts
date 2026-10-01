@@ -28,7 +28,7 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
   it('无覆盖 = 缺省册直拷 + 零拒载', () => {
     const r = resolveKeybindings();
     expect(r.rejections).toEqual([]);
-    expect(r.keysByAction.get('global.interrupt')).toEqual(['ctrl+c']);
+    expect(r.keysByAction.get('global.interrupt')).toEqual(['escape', 'ctrl+c']);
     expect(r.keysByAction.get('editor.undo')).toEqual(['ctrl+-', 'ctrl+_']);
   });
 
@@ -48,7 +48,7 @@ describe('resolveKeybindings 缺省与覆盖校验', () => {
   it('四形拒载之二：不可覆盖动作（全局键生命线）', () => {
     const r = resolveKeybindings({ 'global.interrupt': 'ctrl+x' });
     expect(r.rejections[0]).toMatchObject({ kind: 'not-overridable', actionId: 'global.interrupt' });
-    expect(r.keysByAction.get('global.interrupt')).toEqual(['ctrl+c']); // 回退缺省
+    expect(r.keysByAction.get('global.interrupt')).toEqual(['escape', 'ctrl+c']); // 回退缺省
   });
 
   it('四形拒载之三：畸形键串（修饰序错/未知具名键）', () => {
@@ -101,6 +101,15 @@ describe('Keymap 消费面', () => {
     const remapped = new Keymap({ 'thinking.toggle': 'ctrl+g' });
     expect(remapped.keyText('thinking.toggle')).toBe('ctrl+g');
   });
+
+  it('中断键集双键（界面美化役批 2——escape + ctrl+c 均命中；escape 居首 = 显示单源）', () => {
+    const map = new Keymap();
+    // 两键都命中中断动作（路由层 escape 自带让路判据——动作面不做分诊）
+    expect(map.actionMatches(key('escape'), 'global.interrupt')).toBe(true);
+    expect(map.actionMatches(key('c', { ctrl: true }), 'global.interrupt')).toBe(true);
+    // escape 居首：keyText 首键显示单源返回 escape（提示文案「按 ESC 取消对话」）
+    expect(map.keyText('global.interrupt')).toBe('escape');
+  });
 });
 
 describe('Keymap.actions 投影（批 10k——/help 键位册消费源）', () => {
@@ -109,7 +118,12 @@ describe('Keymap.actions 投影（批 10k——/help 键位册消费源）', () 
     expect(views).toHaveLength(ACTION_CATALOG.length);
     expect(views.map((v) => v.id)).toEqual(ACTION_CATALOG.map((d) => d.id));
     const first = views[0]!;
-    expect(first).toMatchObject({ id: 'global.interrupt', scope: 'global', label: '中断当前 run', keys: ['ctrl+c'] });
+    expect(first).toMatchObject({
+      id: 'global.interrupt',
+      scope: 'global',
+      label: '中断当前 run',
+      keys: ['escape', 'ctrl+c'],
+    });
   });
 
   it('覆盖生效形随动（keys = 解析后键集非缺省）', () => {
@@ -121,7 +135,7 @@ describe('Keymap.actions 投影（批 10k——/help 键位册消费源）', () 
   it('拒载覆盖回退缺省键集（投影只见生效形）', () => {
     const views = new Keymap({ 'global.interrupt': 'ctrl+x' }).actions; // 不可覆盖拒载
     const interrupt = views.find((v) => v.id === 'global.interrupt')!;
-    expect(interrupt.keys).toEqual(['ctrl+c']);
+    expect(interrupt.keys).toEqual(['escape', 'ctrl+c']);
   });
 });
 

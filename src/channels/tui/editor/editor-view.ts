@@ -9,7 +9,7 @@
  * - 聚焦时本帧光标声明（宽字素首列——显示列算术保证不落半字）。
  */
 import type { CellBuffer, Region, Renderable } from '../../engine/index.js';
-import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
+import { graphemeWidth, splitGraphemes, stringWidth } from '../../engine/index.js';
 import { prefixDisplayWidth } from './visual-lines.js';
 import type { EditorModel } from './editor-model.js';
 import { presentedLineCount } from './height-cap.js';
@@ -40,6 +40,11 @@ export class EditorView implements Renderable {
   private lastShownLines = 0;
   /** 聚焦态边框样式（accent 派生——主题单源，setTheme 整体重建） */
   private focusedBorder: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
+  /**
+   * 非聚焦态边框样式（界面美化役美学批——非聚焦边框降档 secondary：主题键
+   * 内取值，非聚焦不再是「无样式裸色」而是明确的弱化层级；setTheme 整体重建）。
+   */
+  private unfocusedBorder: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.secondary });
 
   constructor(
     private readonly model: EditorModel,
@@ -55,9 +60,10 @@ export class EditorView implements Renderable {
     this.maxVisibleLines = next;
   }
 
-  /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */
+  /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent/secondary 派生样式重建） */
   setTheme(theme: ResolvedTheme): void {
     this.focusedBorder = Object.freeze({ fg: theme.accent });
+    this.unfocusedBorder = Object.freeze({ fg: theme.secondary });
   }
 
   /** 聚焦态切换（事件路由裁决后由组件调用） */
@@ -97,7 +103,9 @@ export class EditorView implements Renderable {
   /* ---------------- 边框（含滚动指示） ---------------- */
 
   private drawBorder(buffer: CellBuffer, region: Region, totalLines: number): void {
-    const style = this.focused ? this.focusedBorder : undefined;
+    // 界面美化役美学批：非聚焦边框降档 secondary（原 undefined 裸色——层级弱化
+    // 从「无样式」升为「主题弱色」）；聚焦 accent 两态分立
+    const style = this.focused ? this.focusedBorder : this.unfocusedBorder;
     const lastRow = region.row + region.height - 1;
     const lastCol = region.col + region.width - 1;
     // 四角
@@ -115,7 +123,7 @@ export class EditorView implements Renderable {
       buffer.setCell(r, region.col, BORDER_V, style);
       buffer.setCell(r, lastCol, BORDER_V, style);
     }
-    // 滚动指示（有溢出才显——R3 批 10j ` ↑ N more ` 居中形；窄框放不下回退紧凑形）
+    // 滚动指示（有溢出才显——R3 批 10j ` ↑ N 更多 ` 居中形；窄框放不下回退紧凑形）
     const above = this.scrollOffset;
     const below = totalLines - this.scrollOffset - (region.height - 2);
     if (above > 0) this.writeIndicator(buffer, region.row, region.col, region.width, above, '↑', style);
@@ -123,9 +131,11 @@ export class EditorView implements Renderable {
   }
 
   /**
-   * 滚动指示写入（R3 批 10j——` ↑ N more ` 形居中覆盖边框横格，两侧横边
-   * 自然延续成 `─── ↑ N more ──` 视觉；指示文本宽超内容区 = 窄框回退
-   * 右端紧凑 ` ↑N` 形——不劈角不溢出）。
+   * 滚动指示写入（R3 批 10j——` ↑ N 更多 ` 形居中覆盖边框横格，两侧横边
+   * 自然延续成 `─── ↑ N 更多 ──` 视觉；指示文本宽超内容区 = 窄框回退
+   * 右端紧凑 ` ↑N` 形——不劈角不溢出。界面美化役美学批注②：溢出指示
+   * 中文单形「N 更多」全域统一；居中与回退两形的宽度账一律 stringWidth
+   * 显示宽重算——「更多」宽 4 ≠ 码位 2，旧 .length 账对 CJK 偏窄）。
    */
   private writeIndicator(
     buffer: CellBuffer,
@@ -137,14 +147,15 @@ export class EditorView implements Renderable {
     style?: CellStyle,
   ): void {
     const innerW = width - 2;
-    const full = ` ${arrow} ${count} more `;
-    if (full.length <= innerW) {
-      const start = col + 1 + Math.floor((innerW - full.length) / 2);
+    const full = ` ${arrow} ${count} 更多 `;
+    const fullW = stringWidth(full);
+    if (fullW <= innerW) {
+      const start = col + 1 + Math.floor((innerW - fullW) / 2);
       buffer.writeText(row, start, full, style);
       return;
     }
     const compact = ` ${arrow}${count}`;
-    buffer.writeText(row, col + width - 1 - compact.length, compact, style); // 紧凑回退（右端——旧形）
+    buffer.writeText(row, col + width - 1 - stringWidth(compact), compact, style); // 紧凑回退（右端——旧形）
   }
 
   /* ---------------- 正文（视口内视觉行） ---------------- */

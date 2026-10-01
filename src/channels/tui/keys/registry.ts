@@ -38,7 +38,11 @@ export interface ActionDef {
  */
 export const ACTION_CATALOG: readonly ActionDef[] = [
   // 全局键（路由层①——不可覆盖：中断与退出是会话生命线）
-  { id: 'global.interrupt', scope: 'global', label: '中断当前 run', keys: ['ctrl+c'], overridable: false },
+  // ESC 接线让路（界面美化役批 2——escape 扩入中断键集）：keys 数组形零结构
+  // 改；escape 在路由层自带让路判据（overlay/popup 栈非空归浮层收屏——
+  // ctrl+d 双绑同构先例：键在全局层、动作面携分诊）。escape 居首 =
+  // keyText() 首键显示单源返回 escape（提示文案「按 ESC 取消对话」）。
+  { id: 'global.interrupt', scope: 'global', label: '中断当前 run', keys: ['escape', 'ctrl+c'], overridable: false },
   { id: 'global.quit', scope: 'global', label: '退出（空框时）', keys: ['ctrl+d'], overridable: false },
   // 模型循环（挂账解挂批 2026-09-15——ctrl+p 轮换会话模型；层③.5 应用动作路）
   {

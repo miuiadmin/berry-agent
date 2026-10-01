@@ -24,6 +24,7 @@ import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { EditorModel } from '../editor/editor-model.js';
 import type { AutocompleteResult } from './provider.js';
 import { tokenAtCursor } from './token.js';
+import { CURSOR_MARK } from '../panels/panel-chrome.js';
 
 /** 弹层可见条目帽（超出窗口滚动跟随高亮） */
 const MAX_VISIBLE_ITEMS = 10;
@@ -50,6 +51,11 @@ export class AutocompletePopup implements Renderable {
   /** 无候选提示样式（accent 派生——主题单源，setTheme 整体重建） */
   private emptyStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
   /**
+   * 光标符样式（界面美化役美学注③）：▸ 符位 accent 着色——高亮行上与
+   * inverse 合成（反相行内符位前景仍带语义色；setTheme 整体重建同 emptyStyle）。
+   */
+  private cursorStyle: Readonly<CellStyle> = Object.freeze({ inverse: true, fg: DEFAULT_THEME.accent });
+  /**
    * escape 关层通知（2026-09-20 TUI 视觉品质战役·组 2）：popup 消费 escape
    * 关本轮时回调——backend 接线 autocompleteCompleter.cancel()（撤 20ms 防
    * 抖窗 + 在途作废），堵「关层后窗内迟到 fire 重开弹层」的建议框闪回
@@ -66,6 +72,7 @@ export class AutocompletePopup implements Renderable {
   /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */
   setTheme(theme: ResolvedTheme): void {
     this.emptyStyle = Object.freeze({ fg: theme.accent });
+    this.cursorStyle = Object.freeze({ inverse: true, fg: theme.accent });
   }
 
   /** 弹层在场态（无补全不显） */
@@ -111,12 +118,16 @@ export class AutocompletePopup implements Renderable {
       const row = region.row + (i - this.windowStart);
       const item = items[i]!;
       const active = i === this.activeIndex;
-      const prefix = active ? '❯ ' : '  ';
+      // 界面美化役美学注③：光标符 ❯→▸ 对齐全域单源 CURSOR_MARK
+      const prefix = active ? `${CURSOR_MARK} ` : '  ';
       // 行预算排版（件外单源 row-segments）：label 段（前缀 + label）与
       // detail 段各自 … 收口不交叠——极长 detail 原宽右对齐会负起列覆写
       // 整行（组 2 修前坏形）；预算 0（窗宽 ≤ 2）丢右段不放行原宽
       const { left, right, rightWidth } = fitRowSegments(`${prefix}${item.label}`, item.detail, region.width);
       buffer.writeText(row, region.col, left, active ? ACTIVE_STYLE : undefined);
+      // 符位 accent 覆写（美学注③——只换首符样式不改截断几何；极窄窗 left
+      // 可被 … 收到比前缀短，setCell 越界静默吸收零防御负担）
+      if (active) buffer.setCell(row, region.col, CURSOR_MARK, this.cursorStyle);
       if (rightWidth > 0) {
         buffer.writeText(row, region.col + region.width - rightWidth, right, DETAIL_STYLE);
       }
