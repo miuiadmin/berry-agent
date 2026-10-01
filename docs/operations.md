@@ -18,6 +18,7 @@
 | `agents/`             | 用户子代理层   | frontmatter 子代理定义目录（四位子代理发现层第二位）                                                                                                                                                                                                                  |
 | `tool-policy.json`    | 工具策略表     | 审批选 always 的工具+参数条目持久回写 + 用户手写 `deny` 主权硬拒条目（用户资产，非配置）；更名前的旧审批清单文件存在时自动升格读入、旧文件留置不动（机器永不写旧名）                                                                                                  |
 | `data/obs/rollup.db`  | 观测自管库     | core:obs 派生观测数据（可删——重建即恢复）                                                                                                                                                                                                                             |
+| `diagnostics/`        | 诊断包         | TUI `/feedback` 导出的反馈诊断包（`feedback-<时间戳>.md`——本机留存不上传；收集排障材料时可直接取用）                                                                                                                            |
 | `crash.log`           | 崩溃取证       | 崩溃路径先写一行再退；排障第一站                                                                                                                                                                                                                                      |
 | `serve/`              | 常驻宿主足迹   | daemon 形三件：`daemon.pid`（pid 登记——status/stop 消费）/ `daemon.sock`（unix sock 默认接入点）/ `daemon.log`（stderr 重定向日志——**daemon 形自动生成 token 的明文披露位**，敏感读集成员）；目录常态可缺席、`berry serve --daemon` 启动才建、`berry serve stop` 清除 |
 
