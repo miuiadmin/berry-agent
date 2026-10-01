@@ -30,7 +30,7 @@ existe ninguna vía privada de primer partido.
 **16** funciones integradas incluidas en el paquete · **0** telemetría — sin
 estadísticas ni informes de fallos
 
-> Estado: `0.1.0-alpha.24` — alpha temprana, evolución rápida; la API de
+> Estado: `0.1.0-alpha.25` — alpha temprana, evolución rápida; la API de
 > plugins aún puede cambiar antes de la 1.0.
 
 </div>
