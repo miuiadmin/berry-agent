@@ -35,9 +35,9 @@ import { isStandardMessage, type AgentMessage } from '../../../contracts/index.j
 import {
   CellGrid,
   EMPTY_STYLE,
+  ellipsize,
   graphemeWidth,
   styleEquals,
-  truncateToWidth,
   wrapText,
   type CellStyle,
   type ColorValue,
@@ -85,7 +85,13 @@ const BRIEF_WIDTH = 40;
  * （定稿摘槽换装）；其余为 durable 块（repaint 投影重建的同构物）。
  */
 export type TranscriptBlock =
-  | { readonly kind: 'user'; readonly text: string }
+  | {
+      /** user 块（界面美化役批⑦三要素：› 前缀 bold+dim / 背景带 / 上下空行包夹） */
+      readonly kind: 'user';
+      readonly text: string;
+      /** 主题（背景带键源——userMessageBg 探测缺席/降采形 = 无背景） */
+      readonly theme: ResolvedTheme;
+    }
   | { readonly kind: 'markdown'; readonly doc: MarkdownDoc }
   | {
       /** 思考块（批 10i R1——定稿形：斜体 + thinkingText 色，折叠标签/展开体两档） */
@@ -107,6 +113,14 @@ export type TranscriptBlock =
       readonly diff: boolean;
       readonly expanded: boolean;
       readonly theme: ResolvedTheme;
+      /**
+       * 执行时长近似（UX 五问题批③——状态行消费）：toolResult.timestamp −
+       * assistant.timestamp 差值（ms；契约零扩的诚实近似——含调度延迟非纯执行
+       * 时长）。缺席（旧投影形/孤儿兜底）= 无状态行。
+       */
+      readonly durationMs?: number;
+      /** 展开键提示（tools.toggle-expand 键名——预览省略行文案随册） */
+      readonly toggleHint: string;
       /** 插件渲染腿载荷（renderResult 现调事实——2026-09-17 收官批③；缺席 = 宿主缺省卡体） */
       readonly renderInput?: ToolCardRenderInput;
     }
@@ -183,9 +197,26 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
     case 'markdown':
       return renderDocLines(block.doc, columns);
     case 'user': {
-      // '> ' 前缀 + 折行续挂对齐（首行前缀、续行两空格缩进）
+      // user 块三要素（界面美化役批⑦——UX 五问题批 2026-09-30）：`› ` 前缀
+      // bold+dim 游程（续行两空格缩进既有）+ 背景带（userMessageBg 语义键
+      // ——R2 扩键注：探测缺席/16 档降采/自定义缺键 = 无背景回退）+ 上下空行
+      // 包夹（空行是块内行——块账不动，帽语义零变）
+      const bg = block.theme.userMessageBg;
+      const prefixStyle: Readonly<CellStyle> =
+        bg === undefined ? Object.freeze({ bold: true, dim: true }) : Object.freeze({ bold: true, dim: true, bg });
       const lines = wrapText(block.text, columns - 2);
-      return lines.map((line, i) => ({ plain: (i === 0 ? '> ' : '  ') + line, runs: [] }));
+      const styled = lines.map((line, i): StyledLine => {
+        const plain = (i === 0 ? '› ' : '  ') + line;
+        if (bg === undefined) {
+          // 无背景带：首行仅前缀段 bold+dim，续行裸
+          return i === 0 ? { plain, runs: [{ start: 0, end: 2, style: prefixStyle }] } : { plain, runs: [] };
+        }
+        // 背景带：首行前缀段（bold+dim+bg）+ 其余整段 bg；续行整行 bg
+        const runs: StyleRun[] = [{ start: 0, end: 2, style: prefixStyle }];
+        if (plain.length > 2) runs.push({ start: 2, end: plain.length, style: Object.freeze({ bg }) });
+        return { plain, runs };
+      });
+      return [{ plain: '', runs: [] }, ...styled, { plain: '', runs: [] }];
     }
     case 'thinking':
       // 思考块两档渲染（blocks/thinking 纯函数——槽前缀行同函数两用）
@@ -204,6 +235,8 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
           diff: block.diff,
           expanded: block.expanded,
           theme: block.theme,
+          durationMs: block.durationMs,
+          toggleHint: block.toggleHint,
           renderInput: block.renderInput,
         },
         columns,
@@ -215,11 +248,12 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
     case 'error': {
       // 错误块（P0 静默链修复批——07 §4.1）：行首 ✖ 前缀 + error 语义键前景
       // 整行（与 tool-card.ts 语义色消费同源）；折行续行两空格缩进（user 块同律）。
-      // 行数帽（2026-09-20 TUI 修复组 1 批 F5）：网关 403 类错误体是整段裸
-      // JSON（单「行」折开后数十行噪声全量上屏）——首行摘要语义：保前
-      // ERROR_PREVIEW_LINES-1 行 + 截断标记行收口（剩余行数明示），error
-      // 前景同游程保持错误语义可辨
-      const lines = wrapText(block.text, columns - 2);
+      // JSON 可读化前置（界面美化役批⑦）：401/403 类应答体先提取可读形首行
+      // （message 字段优先），原文随后展开可见。行数帽（2026-09-20 TUI 修复
+      // 组 1 批 F5）：网关 403 类错误体是整段裸 JSON（单「行」折开后数十行噪声
+      // 全量上屏）——首行摘要语义：保前 ERROR_PREVIEW_LINES-1 行 + 截断标记行
+      // 收口（剩余行数明示），error 前景同游程保持错误语义可辨
+      const lines = wrapText(errorReadableText(block.text), columns - 2);
       const style: Readonly<{ fg: ColorValue }> = Object.freeze({ fg: block.theme.error });
       const renderErrorLine = (line: string, i: number): StyledLine => {
         const plain = (i === 0 ? '✖ ' : '  ') + line;
@@ -525,17 +559,31 @@ function isAbortedDetails(details: unknown): boolean {
 }
 
 /**
- * 工具简述：参数键名序列（`path, content` 形——呈现面克制不倒参数值）。
- * BRIEF_WIDTH 帽（2026-09-20 TUI 修复组 1 批 F6——修前常量在案从未接线，
- * 超长键名/键列简述整段直写）：与 resultBrief 同律按显示宽截断。
- * 构造位消毒律（2026-09-21 补修批）：键名是 JSON 任意字符串可含 tab/LF
- * ——先 sanitizeLineText（tab 展开 2 空格 + LF 归一）再测宽截断（修前 tab
- * 记宽 1 误过帽、简行发射位展开漂物理行账——物理行账漂移族）。
+ * 参数键值短显白名单（UX 五问题批②——codex 对标复刻）：白名单键取值截 40
+ * 列短显（command/path/pattern 等高频可读键），非白名单键维持键名形（呈现面
+ * 克制不倒任意参数值——白名单外值面不进简述）。
+ */
+const ARG_VALUE_KEYS: ReadonlySet<string> = new Set(['command', 'path', 'pattern', 'file']);
+
+/**
+ * 工具简述：参数键名/键值序列。白名单键值短显（UX 五问题批②）：string 值
+ * `${键}=${值截 40 列}`、number/boolean 值直显，其余形回退键名；整段仍受
+ * BRIEF_WIDTH 帽（界面美化役批①：截断走 ellipsize `…` 单源口径——裸截无省略
+ * 号的「悄然吃字」不可辨）。构造位消毒律（2026-09-21 补修批）：键名/值是
+ * JSON 任意字符串可含 tab/LF——先 sanitizeLineText（tab 展开 2 空格 + LF 归
+ * 一）再测宽截断（修前 tab 记宽 1 误过帽、简行发射位展开漂物理行账）。
  */
 function argsBrief(args: Record<string, unknown>): string {
   const keys = Object.keys(args);
   if (keys.length === 0) return '';
-  return truncateToWidth(sanitizeLineText(`(${keys.join(', ')})`), BRIEF_WIDTH);
+  const parts = keys.map((key) => {
+    if (!ARG_VALUE_KEYS.has(key)) return key; // 非白名单键：键名形（值不进简述）
+    const value = args[key];
+    if (typeof value === 'string') return `${key}=${ellipsize(sanitizeLineText(value), BRIEF_WIDTH)}`;
+    if (typeof value === 'number' || typeof value === 'boolean') return `${key}=${String(value)}`;
+    return key; // 对象/数组等复合值：键名形（不发明序列化）
+  });
+  return ellipsize(sanitizeLineText(`(${parts.join(', ')})`), BRIEF_WIDTH);
 }
 
 /** 行集选项（批 10f-4 帽参数化——主屏缺省帽之外的自定义档） */
@@ -567,6 +615,8 @@ interface PendingToolCall {
   readonly name: string;
   readonly brief: string;
   readonly arguments: Record<string, unknown>;
+  /** 请求时戳（ms——assistant 消息 timestamp；卡状态行时长近似式的减数） */
+  readonly requestedAt: number;
 }
 
 /** 在飞账帽（防御位——异常形消息序列下不无限滞留；超帽最旧让位） */
@@ -689,7 +739,7 @@ export class LiveTranscript {
     for (const message of messages) {
       switch (message.role) {
         case 'user':
-          rebuilt.push({ kind: 'user', text: textOf(message) });
+          rebuilt.push({ kind: 'user', text: textOf(message), theme: this.theme });
           break;
         case 'assistant':
           this.appendAssistantFinal(rebuilt, message);
@@ -781,7 +831,7 @@ export class LiveTranscript {
           }
           this.appendAssistantFinal(this.blocks, message);
         } else if (message.role === 'user') {
-          this.blocks.push({ kind: 'user', text: textOf(message) });
+          this.blocks.push({ kind: 'user', text: textOf(message), theme: this.theme });
         } else if (message.role === 'toolResult') {
           this.appendToolResult(this.blocks, message);
         }
@@ -828,6 +878,8 @@ export class LiveTranscript {
           name: block.name,
           brief: argsBrief(block.arguments),
           arguments: block.arguments,
+          // 请求时戳入账（UX 五问题批③——状态行时长近似式的减数）
+          requestedAt: message.timestamp,
         });
       }
     }
@@ -872,6 +924,10 @@ export class LiveTranscript {
     // edit 词级 diff 档：patch 参数体作卡体（R4「参数对」语义——呈现的是改了什么）
     const isEditPatch = call.name === 'edit' && typeof call.arguments.patch === 'string';
     const bodyText = isEditPatch ? (call.arguments.patch as string) : textOf(message);
+    // 状态行时长近似（UX 五问题批③——契约零扩的诚实近似）：toolResult 时戳
+    // 减 assistant 请求时戳，含调度延迟（工具排队/审批等待计入——非纯执行
+    // 时长）；钳非负（时钟回退防御）
+    const durationMs = Math.max(0, message.timestamp - call.requestedAt);
     return {
       kind: 'tool-card',
       name: call.name,
@@ -881,6 +937,9 @@ export class LiveTranscript {
       diff: isEditPatch,
       expanded: this.toolCardsExpanded,
       theme: this.theme,
+      durationMs,
+      // 展开键提示随册（tools.toggle-expand——预览省略行文案用）
+      toggleHint: this.keyText('tools.toggle-expand'),
       // 插件渲染腿载荷（收官批③）：toolCall 参数 + toolResult 消息面全量事实
       // （toolName 单源 = 卡名故不含）；孤儿兜底 ↳ 形不携——renderInput 缺席
       // 即消费位回落宿主缺省卡体
@@ -904,14 +963,49 @@ export class LiveTranscript {
 }
 
 /**
+ * 错误文本 JSON 可读化（界面美化役批⑦——纯函数）：模型 API 401/403 类错误的
+ * errorMessage 是整段裸 JSON 应答体——提取可读形前置成首行摘要（message 字段
+ * 优先：doc.message → doc.error.message → doc.error 字符串形 → doc.status），
+ * 原文随后保留（经折行展开可见——行数帽既有律维持）。非 JSON / 无可提取字段
+ * 原样返回（诚实退原形）。
+ */
+function errorReadableText(text: string): string {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end <= start) return text; // 无 JSON 候选段
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return text; // 候选段非合法 JSON——原样
+  }
+  if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return text;
+  const record = doc as Record<string, unknown>;
+  let message: string | undefined;
+  if (typeof record.message === 'string') message = record.message;
+  else if (typeof record.error === 'string') message = record.error;
+  else if (typeof record.error === 'object' && record.error !== null) {
+    const inner = (record.error as Record<string, unknown>).message;
+    if (typeof inner === 'string') message = inner;
+  }
+  if (message === undefined && typeof record.status === 'number') message = String(record.status);
+  if (message === undefined) return text; // 无可提取字段——原文保真
+  // 引导语（JSON 前的叙述段，如 "Provider 401: "）剥尾空白/冒号收编为摘要前缀
+  const head = text.slice(0, start).replace(/[\s:：]+$/, '');
+  const summary = head === '' ? message : `${head}：${message}`;
+  return `${summary}\n${text}`;
+}
+
+/**
  * ↳ 工具结果简述：文本块首行按显示宽截断（无文本块返占位）。
  * 构造位消毒律（2026-09-21 补修批）：工具输出首行含源码缩进 tab 是日常形
  * ——先 sanitizeLineText（tab 展开 2 空格 + LF 归一）再测宽截断（修前 tab
- * 记宽 1 误过帽、简行发射位展开漂物理行账——物理行账漂移族）。
+ * 记宽 1 误过帽、简行发射位展开漂物理行账——物理行账漂移族）。截断走
+ * ellipsize `…` 单源口径（界面美化役批①——省略号可辨）。
  */
 function resultBrief(message: AgentMessage): string {
   const text = textOf(message);
   if (text === '') return '(无文本输出)';
   const firstLine = text.split('\n').find((line) => line.trim() !== '') ?? '';
-  return truncateToWidth(sanitizeLineText(firstLine.trim()), BRIEF_WIDTH);
+  return ellipsize(sanitizeLineText(firstLine.trim()), BRIEF_WIDTH);
 }

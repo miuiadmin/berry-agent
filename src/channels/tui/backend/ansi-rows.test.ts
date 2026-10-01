@@ -45,10 +45,11 @@ describe('capStyledLine 屏宽帽（plain 整字截断 + runs 同步钳制）', 
       ],
     };
     const capped = capStyledLine(line, 30);
-    expect(capped.plain).toBe('n'.repeat(30));
+    // 界面美化役批⑧：超帽截断统一以省略号收尾——帽内省 1 位让给 '…'（宽 1）
+    expect(capped.plain).toBe('n'.repeat(29) + '…');
     expect(capped.runs).toEqual([
       { start: 0, end: 2, style: { fg: 1 } },
-      { start: 2, end: 30, style: { dim: true } },
+      { start: 2, end: 30, style: { dim: true } }, // 尾游程随截断收尾再吞省略号——样式尾巴保留
     ]);
   });
 
@@ -59,9 +60,10 @@ describe('capStyledLine 屏宽帽（plain 整字截断 + runs 同步钳制）', 
 
   it('宽字跨界整字丢弃不产半字（截断点游程同步收 UTF-16 位）', () => {
     const line: StyledLine = { plain: 'a中b', runs: [{ start: 0, end: 4, style: { dim: true } }] };
-    // cols=3：a(1)+中(2)=3 恰容，b 放不下整字丢弃——plain='a中'（UTF-16 长 2——中是 BMP 单码元）
+    // cols=3：省 1 位后预算 2 列——a(1) 占后余 1 列放不下 中(2) 整字丢弃，
+    // 截断发生 → 省略号收尾：plain='a…'（UTF-16 长 2——… 是 BMP 单码元）
     const capped = capStyledLine(line, 3);
-    expect(capped.plain).toBe('a中');
+    expect(capped.plain).toBe('a…');
     expect(capped.runs).toEqual([{ start: 0, end: 2, style: { dim: true } }]);
   });
 });

@@ -75,6 +75,7 @@ import {
   stringWidth,
   truncateToWidth,
   wrapText,
+  type RgbChannels,
   type TerminalIO,
 } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
@@ -82,9 +83,13 @@ import { LiveTranscript, shortIdOf, type SummaryLine, type TranscriptBlock } fro
 import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
-import { withGitBranchSuffix } from '../status/footer.js';
+import { formatElapsedCompact, TaskStatusLine } from '../status/task-status-line.js';
+import { gitHeadSuffix, readGitHead } from '../status/footer.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
+import { JobPanel } from '../panels/job-panel.js';
+import { JobsViewer } from '../panels/jobs-viewer.js';
+import type { JobEntry } from '../../../contracts/index.js';
 import {
   builtinPalette,
   detectColorDepth,
@@ -101,7 +106,7 @@ import {
   type ThemeSetting,
 } from '../theme/index.js';
 import { buildSgr, capAnsiLine, SGR_RESET } from './ansi-rows.js';
-import { Keymap, type KeybindingRejection } from '../keys/registry.js';
+import { keyEventToBinding, Keymap, type KeybindingRejection } from '../keys/registry.js';
 import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
 import { OverlayStack, type OverlayContent, type OverlayHandle } from '../overlay/overlay.js';
@@ -113,6 +118,12 @@ import { formatCount, UsageViewer } from '../panels/usage-viewer.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { GuideViewer, type GuidePanelData } from '../panels/guide-viewer.js';
+import {
+  FeedbackViewer,
+  renderFeedbackDiagnosticReport,
+  scanFeedbackErrors,
+  type FeedbackScreenSources,
+} from '../panels/feedback-viewer.js';
 import { SkillsViewer, type SkillListEntry } from '../panels/skills-viewer.js';
 import { ThemePicker, type ThemePickEntry } from '../panels/theme-picker.js';
 import { ThinkingPicker, type ThinkingPickEntry } from '../panels/thinking-picker.js';
@@ -176,6 +187,17 @@ export interface TuiBackendOptions {
   readonly autocomplete?: AutocompleteSources;
   /** todo 面板数据源（件 4——装配接 deps 同名面；注入缺席 = 面板缺席零变化） */
   readonly todoFor?: (sessionId: string) => readonly TodoItem[] | null | undefined;
+  /**
+   * 后台任务面板数据源（界面美化役批6——UX 批6 A 件）：running 闭包供固定
+   * 区段快照（帧首拉取 + job_settled 推送锚）、list 闭包供 /jobs 副屏全量
+   * 清单（运行中 + 近期终态）。注入缺席 = 面板缺席零变化（既有装配/测试零
+   * 扰动）；backend 零 subagent/scheduler/goal 触感——数据面全经装配注入
+   * （Job 注册表投影，28 席 DAG 零新边）。
+   */
+  readonly jobs?: {
+    readonly running: () => readonly JobEntry[];
+    readonly list: () => readonly JobEntry[];
+  };
   /** 调度注入（启用渲染合并 + fps 帽 + tick 自驱——缺省同步直出测试语义） */
   readonly schedule?: (fn: () => void, ms: number) => unknown;
   /** 取消调度注入（与 schedule 配对——stop 时收在飞帧/tick/ESC 窗） */
@@ -270,8 +292,11 @@ const DEFAULT_FPS_CAP = 60;
 const STREAM_FRAME_BYTE_CAP = 256 * 1024;
 /** lone-ESC 判定窗缺省（对齐 Engine DEFAULT_ESCAPE_WINDOW_MS） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
-/** 状态行转轮自驱间隔（ms——注入调度后自重排） */
-const TICK_INTERVAL_MS = 100;
+/**
+ * 任务行/状态行转轮自驱间隔（ms——注入调度后自重排）。界面美化役批 4：
+ * 100ms → 80ms（07 §4.1 件 12——帧距定值；一处常量、件内零自驱时钟纪律不破）
+ */
+const TICK_INTERVAL_MS = 80;
 
 /** notify 档位符号（正文着色纪律——纯符号不配色，与摘要行会话色分立） */
 const NOTIFY_SYMBOLS: Readonly<Record<NotifyLevel, string>> = Object.freeze({
@@ -335,6 +360,31 @@ function formatTokensPerSecond(n: number): string {
 }
 
 /**
+ * dim 前缀 SGR（turn 收尾行专用——appendTransientLine 纯文本路的样式面：
+ * 正文瞬时行不带 cell 网格样式，dim 经 SGR 直拼、行尾 SGR_RESET 复原）。
+ */
+const DIM_SGR = buildSgr({ dim: true });
+
+/** Unix 毫秒 → 24 小时制 HH:MM（收尾行时刻段——本地时区） */
+function formatClockHM(unixMs: number): string {
+  const d = new Date(unixMs);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * 键位串 → 显示名（任务行中断提示段消费）：escape → ESC、ctrl+c → Ctrl+C
+ * （首段大写 + 单字符大写——global.interrupt 系不可覆盖位恒缺省键集，此处
+ * 仅呈现面规范化不涉解析语义）。
+ */
+function displayKeyName(binding: string): string {
+  if (binding === 'escape') return 'ESC';
+  return binding
+    .split('+')
+    .map((part) => (part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join('+');
+}
+
+/**
  * TUI 后端：单终端 inline 主屏 + 自持输入管线。构造后须 start()（模式串 +
  * 清屏 + 滚动区确立）再接核事件；stop() 对称出屏（模式串反序 + raw 复原）。
  */
@@ -358,6 +408,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 直播行集（构造晚于主题解析——主题注入构造位，applyPalette 换装传导） */
   private readonly transcript: LiveTranscript;
   private readonly statusLine = new StatusLine();
+  /**
+   * 任务状态行（界面美化役批 4——件 12：编辑器正上方固定段，忙态在场闲态
+   * 离场；构造须晚于 keymap/now 赋值〔供数器闭包消费〕、早于 injectTheme）。
+   */
+  private readonly taskLine: TaskStatusLine;
   private readonly editor: Editor;
   private readonly popup: AutocompletePopup;
   /** 三源合一补全器（token 路由 + union 收口——R6 批 10j 调度器查询位） */
@@ -434,6 +489,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly todoFor: ((sessionId: string) => readonly TodoItem[] | null | undefined) | undefined;
   private readonly todoPanel = new TodoPanel();
   private readonly toolPanel = new ToolProgressPanel();
+  /**
+   * 后台任务面板（界面美化役批6——UX 批6 A 件：running 快照固定区段）。
+   * 构造须晚于 now 赋值〔时长计算基准闭包消费〕、早于 injectTheme
+   * 〔主题注入位消费 jobPanel.setTheme〕。
+   */
+  private readonly jobPanel: JobPanel;
+  /**
+   * 后台任务数据源（批6）：注入缺席 = 段缺席零变化（键路由/渲染两消费面
+   * 同判此位）；在场时帧首拉取 running 快照 + refreshJobs 推送锚。
+   */
+  private readonly jobsSource:
+    { readonly running: () => readonly JobEntry[]; readonly list: () => readonly JobEntry[] } | undefined;
   /** 当前 turn 的 assistant 消息用量暂存（turn_end 累加——件 6 等价性条款） */
   private pendingUsage: Usage | null = null;
   private usageTotal: UsageAccumulation = ZERO_USAGE;
@@ -441,6 +508,26 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private runStartedAt: number | null = null;
   /** 当前 run 终点时戳（agent_end 落——分母冻结，终态后 speedView 保持终值不随墙钟漂移；resetUsage 清） */
   private runEndedAt: number | null = null;
+  /**
+   * 重试续入标记（界面美化役批 4——retry_wait_end(resumed) 置位、下一
+   * agent_start 消费即复位：续入是同一 run 的断点续跑非新 run——run 级账
+   * （usageTotal/起止时戳/工具计数/种子时戳）不清零，整 run 口径律）。
+   */
+  private retryContinuation = false;
+  /** 本 run 工具执行计数（tool_execution_start 递增；重试续入不清——收尾行纯对话轮判据） */
+  private runToolCount = 0;
+  /**
+   * 本 run 种子用户消息时戳（收尾行时刻源——message_end 首条 channel 缺席的
+   * user 消息；null = 中途附着无种子，回退 runEndedAt 诚实呈现）。
+   */
+  private runSeedAt: number | null = null;
+  /**
+   * 种子时戳**暂存位**（界面美化役批 5）：种子 message_end 先于 agent_start
+   * 到达（loop.pushAll → runLoop 发射序），而 fresh agent_start 走 resetUsage
+   * 清 runSeedAt——直存会被自家清账抹掉。暂存位在 fresh agent_start 晋升
+   * （staging → runSeedAt），repaint/终态连清防跨 run/跨会话泄漏。
+   */
+  private pendingSeedAt: number | null = null;
 
   /* ---- 呈现面件 7 态（终端外显） ---- */
   /** title 基线（`berry-agent` 或 `berry-agent <版本>`——起屏与复原落点） */
@@ -466,6 +553,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private customOverlay: PartialSemanticPalette | null;
   /** 色域档（构造期一次探测——env 注入面，渲染路径零探测） */
   private readonly colorDepth: ColorDepth;
+  /**
+   * OSC 11 探测背景（界面美化役批⑦ R2 扩键注——userMessageBg 动态混合腿的
+   * 数据位）：null = 探测未应答/缺席（→ 无背景带）。应答入账后随明暗换板/
+   * 背景值变化重算（解析位混合，本件只传值）；离开探测档清位（显式内置档
+   * 无探测语义——带随档消失）。
+   */
+  private terminalBg: RgbChannels | null = null;
   /** 当前主题（构造期解析 auto 先 dark；probe 回执换装走整体换引用） */
   private theme: ResolvedTheme;
   /**
@@ -501,6 +595,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * allLanesSpentToday()（O(1) 日键缓存——resize/重画频拉无害）；零耗缩位。
    */
   private readonly footerTodaySpent: (() => number) | undefined;
+  /**
+   * cwd 段 git 后缀单步缓存（界面美化役批6 D 件）：低频锚（构造期/切焦/
+   * agent_end/档位切换——refreshFooter 全量重算路）现读 `.git/HEAD` 定值；
+   * resize 高频路走缓存拼段不重读（07 §4.1 界面美化役批定值回填注「避
+   * resize 高频读盘」——checkout 后随下一次低频锚收敛）。
+   */
+  private footerGitSuffix = '';
   /**
    * footer 门控位（挂载解挂批 2026-09-15 显式化）：footer 选项注入在场才开
    * 常驻段——setFooterModel 活写的 no-op 判据（注入缺席 = 状态行旧形零扰动）。
@@ -613,14 +714,29 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       schedule: this.scheduleFn ?? undefined,
       cancelSchedule: this.scheduleFn !== null ? this.cancelFn : undefined,
     });
-    this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
-    // 忙态速度段供字器（三反馈批B——批C speedView 的忙态消费接线）：每帧现拉
-    // running average；null（无起点/亚秒/零 token/清账后）回 '' 缩位；终态冻结
-    // 值由终点时戳律保形（runEndedAt 在场后 speedView 恒终值）
-    this.statusLine.attachSpeedText(() => {
-      const speed = this.speedView;
-      return speed === null ? '' : `${formatTokensPerSecond(speed)} tok/s`;
+    // 任务状态行（界面美化役批 4——件 12 装配位）：供数器全注入——run 级
+    // 账（elapsed 整 run 口径：runStartedAt 起、重试续入不清零、终态才冻结
+    // runEndedAt）/speedView 忙态速度（态①② 拼段）/keyText 单源中断提示
+    // （escape 居首 → ESC 显示名）/注入钟。状态变更即触固定区重画。
+    // （须早于 injectTheme——主题注入位消费 taskLine.setTheme）
+    this.taskLine = new TaskStatusLine({
+      elapsedMs: () => (this.runStartedAt === null ? null : (this.runEndedAt ?? this.now()) - this.runStartedAt),
+      speedText: () => {
+        const speed = this.speedView;
+        return speed === null ? '' : `${formatTokensPerSecond(speed)} tok/s`;
+      },
+      interruptHint: () => {
+        const key = this.keymap.keyText('global.interrupt');
+        return key === '' ? '' : `按 ${displayKeyName(key)} 取消对话`;
+      },
+      now: () => this.now(),
     });
+    this.taskLine.onChange = () => this.touchFixed();
+    // 后台任务面板（界面美化役批6）：jobs 注入缺席 = 段缺席零变化；本地钟
+    // 注入（时长基准——测试确定性）；须早于 injectTheme（主题注入位消费）
+    this.jobsSource = options.jobs;
+    this.jobPanel = new JobPanel({ now: () => this.now() });
+    this.injectTheme(); // 构造期注入（accent 派生样式定值；重画归 start 首帧）
     this.stack.onChange = () => this.touchFixed();
     this.screen = new MainScreen(io, { fixedHeight: 4 }); // 初始高：编辑器 3 + 状态行 1（动态更新经 setFixed）
     // 副屏宿主（构造放 constructor 尾——io 与注入面已赋值；引擎选项与主屏同源：
@@ -872,6 +988,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const handle = this.altHost.open(
       new MemoryViewer({
         ...deps,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: () => this.onInterrupt?.(this.sessionId), // 零参形——装配闭包已知目标会话
         onQuit: this.onQuit,
@@ -952,6 +1069,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         entries,
         actions,
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: () => this.onInterrupt?.(this.sessionId),
         onQuit: this.onQuit,
@@ -1077,6 +1195,49 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 开副屏反馈页（UX 五问题批 ④拍板 /feedback——TUI 本地拦截族，界面美化役
+   * 2026-10-01 落码）：数据源集装配位单源注入——开屏扫一次错误史（快照档，
+   * e 导出复用同快照），导出柄回传装配闭包本地落盘（零上报腿）。返 boolean
+   * 同 openHelp 律（副屏占用 false——装配位 notify 降级）。
+   */
+  openFeedback(sources: FeedbackScreenSources): boolean {
+    if (this.altHandle !== null) return false;
+    // 开屏单次扫描（快照档律——副屏静态行集，重开重扫）
+    const { errors, truncated } = scanFeedbackErrors(sources);
+    const data = {
+      windowDays: sources.windowDays,
+      sessionsTotal: sources.sessionsTotal,
+      scannedSessions: sources.sessions.length,
+      errors,
+      truncated,
+    };
+    const handle = this.altHost.open(
+      new FeedbackViewer({
+        data,
+        sessionId: this.sessionId,
+        theme: this.theme,
+        // e 导出：诊断包全文经装配闭包落盘，回执串回填行集（件内已单行消毒）
+        onExport: () =>
+          sources.writeFile(
+            renderFeedbackDiagnosticReport({
+              exportedAt: Date.now(),
+              data,
+              env: sources.env,
+              pageLimit: sources.pageLimit,
+              maxEntries: sources.maxEntries,
+            }),
+          ),
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
    * 开副屏主题切换（07 §4.1 命令面增补批 /themes——TUI 本地拦截族）：条目与
    * 当前档装配位现取注入（本件不触文件面——坏文件 ⚠ 标注在装配位合成）；
    * 选定先收副屏再回调（SessionPicker 同序律），换装/持久化归装配闭包
@@ -1090,6 +1251,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         current,
         onSelect,
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1211,6 +1373,32 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * 开副屏后台任务清单（界面美化役批6 /jobs——TUI 本地拦截族）：清单快照
+   * 装配位现取注入（JobsViewer 构造期一次聚合——快照档）；initialJobId
+   * 定位在选任务（JobPanel 光标态 enter 消费——进屏光标直落该行）。返
+   * boolean 同 openDiff 律（副屏已占如实 false）。
+   */
+  openJobs(initialJobId?: string): boolean {
+    if (this.jobsSource === undefined) return false; // 段缺席 = 命令面缺席（装配未接即无此屏）
+    if (this.altHandle !== null) return false;
+    const handle = this.altHost.open(
+      new JobsViewer({
+        entries: this.jobsSource.list(),
+        now: () => this.now(),
+        theme: this.theme,
+        initialJobId,
+        sessionId: this.sessionId,
+        onExit: () => this.closeAlt(),
+        onInterrupt: this.onInterrupt,
+        onQuit: this.onQuit,
+      }),
+    );
+    if (handle === null) return false;
+    this.altHandle = handle;
+    return true;
+  }
+
+  /**
    * 开副屏插件市场选装面（03 §9.6 mp-5 TUI 选装面——/marketplace 本地拦截
    * 族第七件）：可变模型（rows/tail/results/busyLabel）与动作面由 host 侧
    * face 注入（本件零市场触感——装配位单源）；锁键/指路 warn 走 notify warn
@@ -1227,6 +1415,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         notifyWarn: (text) => this.notify(text, { level: 'warn' }),
         requestRepaint: () => this.altHost.requestRepaint(),
         sessionId: this.sessionId,
+        theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,
@@ -1380,29 +1569,42 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * footer 常驻段重算（R6 批 10k）：cwd 短名 · 模型名 · 会话短 id 拼段
-   * （缺席段缩位不虚报——两标签装配注入期定值、短 id 段随切焦联动）。
-   * cwd 段 git 短支名后缀（挂账解挂批②）：cwdPath 在场直读 `.git/HEAD` 追加
-   * ` ⎇ <支>`（同段一体非第四段；detached/非库缺席不虚报；每调现读——
-   * checkout 后随切焦/resize 重算收敛，不 watch 不轮询）。
-   * 门控（挂账解挂批②补漏）：footer 选项注入缺席时早退——此前无门控，
-   * onRepaint 切焦路无条件拼段致常驻段被漏开（违 R6「注入缺席回旧形零
-   * 扰动」——修前红在案）。
+   * footer 常驻段重算（R6 批 10k——低频锚全量重算路：构造期/切焦联动
+   * onRepaint / agent_end / 档位切换 setStatus）：cwd 短名 · 模型名 · 会话
+   * 短 id 拼段（缺席段缩位不虚报——两标签装配注入期定值、短 id 段随切焦
+   * 联动）。cwd 段 git 后缀（挂账解挂批② + 界面美化役批6 短哈希扩）：
+   * cwdPath 在场直读 `.git/HEAD` 追加 ` ⎇ 支名 @短哈希`（同段一体非第四
+   * 段；detached/非库缺席不虚报；每低频锚现读——checkout 后随下一次本锚
+   * 收敛，不 watch 不轮询）。**resize 高频路走 rebuildFooter 缓存变体**
+   * （07 §4.1 界面美化役批定值回填注「避 resize 高频读盘」——后缀单步
+   * 缓存 footerGitSuffix 消费）。
    *
-   * 三反馈批B 扩容：短 id 段后追加**三段**——档位段（思考档/沙箱档短词，
-   * pull 闭包 fold 现值，子段 null 独立缩位，闭包抛错 fail-open 整段缩位
-   * ——呈现面不反噬渲染路）+ 今日段（当日全道 token 耗 `今日 N`，零耗
-   * 缩位——冷启动零噪声）。**公开面**：档位切换点（装配侧选定闭包）经本
-   * 面即时收敛——刷新锚从「构造/切焦/resize」扩「agent_end + 档位切换」。
+   * 门控（挂账解挂批②补漏）：footer 选项注入缺席时早退——无门控则
+   * onRepaint 切焦路无条件拼段致常驻段被漏开（修前红在案）。
+   *
+   * 三反馈批B 扩容：档位段（思考档/沙箱档短词）+ 今日段（`今日 N`，零耗
+   * 缩位）。**公开面**：档位切换点（装配侧选定闭包）经本面即时收敛。
+   *
+   * **段序（界面美化役批6 D 件定形）**：沙箱 · 思考 · 模型 · 短 id ·
+   * 目录⎇支名@短哈希 · 今日 N（B-3 冷读闸修笔：短 id 居模型后；话术批：
+   * 档位段文本 = 短词本身如 思考高/只读，非「沙箱档」标签形）。
    */
   refreshFooter(): void {
     if (!this.footerEnabled) return;
+    this.footerGitSuffix = this.footerCwdPath !== undefined ? gitHeadSuffix(readGitHead(this.footerCwdPath)) : '';
+    this.rebuildFooter();
+  }
+
+  /**
+   * footer 拼段（缓存变体——resize 高频路零读盘）：与 refreshFooter 同段
+   * 序，git 后缀消费 footerGitSuffix 单步缓存（低频锚现读定值）。
+   */
+  private rebuildFooter(): void {
+    if (!this.footerEnabled) return;
     const parts: string[] = [];
-    if (this.footerCwd !== undefined) parts.push(withGitBranchSuffix(this.footerCwd, this.footerCwdPath));
-    if (this.footerModel !== undefined) parts.push(this.footerModel);
-    parts.push(shortIdOf(this.sessionId));
-    // 档位段（批B）：fail-open——闭包抛错两子段归 null（渲染路不因数据面
-    // 异常断流；装配侧闭包已自裹 try/catch，此处兜底防御层）
+    // 档位段两子段（批B + 批6 段序：沙箱先思考后）：fail-open——闭包抛错
+    // 两子段归 null（渲染路不因数据面异常断流；装配侧闭包已自裹 try/catch，
+    // 此处兜底防御层）
     if (this.footerTiers !== undefined) {
       let tiers: { thinking: string | null; sandbox: string | null } = { thinking: null, sandbox: null };
       try {
@@ -1410,9 +1612,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       } catch {
         // fail-open：缩位不虚报
       }
-      if (tiers.thinking !== null) parts.push(tiers.thinking);
       if (tiers.sandbox !== null) parts.push(tiers.sandbox);
+      if (tiers.thinking !== null) parts.push(tiers.thinking);
     }
+    if (this.footerModel !== undefined) parts.push(this.footerModel);
+    parts.push(shortIdOf(this.sessionId));
+    if (this.footerCwd !== undefined) parts.push(`${this.footerCwd}${this.footerGitSuffix}`);
     // 今日段（批B）：零耗缩位（当日首 run 前不显段）；fail-open 同律
     if (this.footerTodaySpent !== undefined) {
       try {
@@ -1424,6 +1629,28 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
     this.statusLine.setFooter(parts.join(' · '));
     this.touchFixed();
+  }
+
+  /**
+   * 后台任务面板刷新（界面美化役批6——job_settled 推送锚）：settle 瞬间
+   * 即时收敛 running 快照（否则闲态零帧源面板滞留至下一次交互）。公开面
+   * 留装配侧订阅位（dispatch.on('job_settled')）；jobs 注入缺席 = no-op。
+   */
+  refreshJobs(): void {
+    if (this.jobsSource === undefined) return;
+    this.jobPanel.update(this.jobsSource.running());
+    this.touchFixed();
+  }
+
+  /**
+   * 清后台任务段光标（escape 让路族——界面美化役批6）：在场才触重画并返
+   * true（路由层分诊消费）；不在场/段缺席返 false 零扰动（分诊续走）。
+   */
+  private clearJobsCursor(): boolean {
+    if (this.jobsSource === undefined) return false;
+    const cleared = this.jobPanel.clearCursor();
+    if (cleared) this.touchFixed();
+    return cleared;
   }
 
   /**
@@ -1464,9 +1691,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 全域清扫 G2：repaint 清账面连清转轮与工具名——旧焦 run 的 agent_end 以
     // 非聚焦态到达不触 applyFocusedEvent 的停帧（修前转轮/旧工具名跨会话永久
     // 残留）；新焦在飞（trackProgress 按会话净计数——聚焦位不参账）重建忙态
-    this.statusLine.stop();
-    this.statusLine.setTool(null);
-    if ((this.inFlightBySession.get(sessionId) ?? 0) > 0) this.statusLine.start();
+    // （界面美化役批 4：忙态呈现归任务行——中途附着 elapsed 无起点诚实缺席）
+    this.taskLine.goIdle();
+    if ((this.inFlightBySession.get(sessionId) ?? 0) > 0) this.taskLine.enterWorking();
     this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
     this.refreshFooter(); // footer 会话短 id 段随切焦联动（R6 批 10k）
     this.osc.setTitle(`${this.titleBaseline} · ${shortIdOf(sessionId)}`); // 件 7：title 点缀会话短 id（终端级外显——挂起期照常，批 10f-4 裁）
@@ -1487,10 +1714,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.renderFixed();
   }
 
-  /** 状态行动画推帧（自驱定时器内调；公开面留装配侧手动驱动——忙态外零开销） */
+  /**
+   * 任务行/状态行动画推帧（自驱定时器内调；公开面留装配侧手动驱动——忙态外
+   * 零开销）。界面美化役批 4：忙态呈现（转轮/速度/耗时）迁移至任务行——
+   * 状态行专注 footer 常驻段 + 闲态尾注，忙态不再驱动故不推帧。
+   */
   tick(): void {
-    if (!this.statusLine.isBusy) return;
-    this.statusLine.tick();
+    if (!this.taskLine.isBusy) return;
+    this.taskLine.tick();
     this.touchFixed();
   }
 
@@ -1521,12 +1752,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.pendingOps = [];
     this.needFixed = false;
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
-    // footer 支名重算（挂账解挂批②——resize 全量重画同收敛锚）。**必须后于
-    // screen.handleResize**：缺省同步 flush 档（scheduleFn null）下 refreshFooter
-    // 的 touchFixed 即触发 flush——Screen 几何若未先收敛，中途全量写出按旧行位
-    // 落杯 = 缩窗后越屏定位（挂账解挂批 C② 修前红实证——极小终端固定区截断测试
-    // 抓获：12 行屏杯位写上 5 行屏）。
-    this.refreshFooter();
+    // footer 拼段（界面美化役批6——resize 高频路走缓存变体不重读 git：后缀
+    // 单步缓存 footerGitSuffix 消费，07 §4.1 界面美化役批定值回填注「避
+    // resize 高频读盘」；checkout 后随下一次低频锚收敛）。**必须后于
+    // screen.handleResize**：缺省同步 flush 档（scheduleFn null）下拼段的
+    // touchFixed 即触发 flush——Screen 几何若未先收敛，中途全量写出按旧行位
+    // 落杯 = 缩窗后越屏定位（挂账解挂批 C② 修前红实证——极小终端固定区截断
+    // 测试抓获：12 行屏杯位写上 5 行屏）。
+    this.rebuildFooter();
     this.replayTransients(rescued); // 重建后按到达序补吐（槽让位/现宽收口编舞单源）
     this.renderFixed();
   }
@@ -1708,11 +1941,27 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private routeEvent(ev: import('../../engine/types.js').InputEvent): void {
     // 层① 全局键经键位注册表解析（批 10i R5——册单源取代硬编码判键；ctrl+d
     // 的 overlay 在场/编辑器非空让路守卫留在路由层：册只管键匹配、分层消解
-    // 归层序——不可覆盖动作无用户改键面）
+    // 归层序——不可覆盖动作无用户改键面）。ESC 接线让路（界面美化役批 2）：
+    // escape 扩入中断键集后在此分诊——浮层（overlay/补全弹层）在场归浮层
+    // 收屏（不穿透打断）、栈空且忙态才打断、闲态终局丢弃（编辑器无绑定）；
+    // ctrl+c 恒打断（与 escape 分诊无关——生命线键无让路面）。退避窗内
+    // escape 同走打断（onInterrupt → 驱动侧 abortableSleep 收假 → aborted）。
     if (ev.kind === 'key' && ev.phase === 'press') {
       if (this.keymap.actionMatches(ev, 'global.interrupt')) {
-        this.onInterrupt?.(this.sessionId);
-        return;
+        const isEscape = keyEventToBinding(ev) === 'escape';
+        // 三分诊（+ 后台任务光标态收场位——界面美化役批6）：浮层在场 →
+        // 让路收屏（不穿透打断）；escape 且任务段光标态在场 → 收光标
+        //（导航模式退出优先于打断——收场非打断意图）；escape 且闲态 →
+        // 丢弃（透传编辑器终局丢弃）；其余（ctrl+c 恒 / escape 忙态）→ 打断
+        if (isEscape && (this.stack.size > 0 || this.popup.visible)) {
+          // 让路（落层② overlay / 层③ 弹层收屏——不吃中断）
+        } else if (isEscape && this.clearJobsCursor()) {
+          // 后台任务段光标态在场——escape 收光标即消费（清后态）；
+          // 不在场时 clearJobsCursor 返 false 落入后续分诊零扰动
+        } else if (!isEscape || this.taskLine.isBusy) {
+          this.onInterrupt?.(this.sessionId);
+          return;
+        }
       }
       if (this.keymap.actionMatches(ev, 'global.quit') && this.stack.size === 0 && this.editor.model.isEmpty()) {
         this.onQuit?.();
@@ -1746,6 +1995,24 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       if (this.onModelCycle !== undefined && this.keymap.actionMatches(ev, 'global.model-cycle')) {
         this.onModelCycle();
         return;
+      }
+      // 后台任务段光标翻页态（界面美化役批6——UX 批6 B 件）：alt+↑/↓ 段内
+      // 移动光标（键位册零在册动作、编辑器只绑 alt+y/alt+enter——无争键，
+      // 直达判形）；jobs 段在场且有行才劫（空段/注入缺席透传——既有键语义
+      // 零扰动）；enter 光标激活期开 /jobs 副屏定位在选任务（未激活不劫——
+      // 提交语义零扰动；开屏失败〔副屏已占〕清光标消费不透传）
+      if (this.jobsSource !== undefined && this.jobPanel.hasRows) {
+        if (ev.alt && !ev.ctrl && !ev.shift && !ev.meta && (ev.key === 'up' || ev.key === 'down')) {
+          this.jobPanel.moveCursor(ev.key === 'up' ? -1 : 1);
+          this.touchFixed();
+          return;
+        }
+        if (!ev.alt && !ev.ctrl && !ev.shift && !ev.meta && ev.key === 'enter' && this.jobPanel.cursorActive) {
+          const selectedId = this.jobPanel.selectedId;
+          const opened = selectedId !== null && this.openJobs(selectedId);
+          if (!opened) this.clearJobsCursor();
+          return;
+        }
       }
     }
     if (this.editor.handleEvent(ev)) this.touchFixed();
@@ -2052,12 +2319,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     return builtinPalette(this.themeSetting === 'light' ? 'light' : 'dark');
   }
 
-  /** 主题注入长存组件（editor 视图 / 状态行 / 补全弹层 / 工具面板——accent 派生样式重建） */
+  /** 主题注入长存组件（editor 视图 / 状态行 / 任务行 / 补全弹层 / 工具面板 / 后台任务面板——accent 派生样式重建） */
   private injectTheme(): void {
     this.editor.view.setTheme(this.theme);
     this.statusLine.setTheme(this.theme);
+    this.taskLine.setTheme(this.theme);
     this.popup.setTheme(this.theme);
     this.toolPanel.setTheme(this.theme); // 插件面板行 tone 语义键直取——渲染时现取
+    this.jobPanel.setTheme(this.theme); // 在选行 accent 派生（界面美化役批6）
   }
 
   /**
@@ -2067,10 +2336,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 不可回改——零重排义务）。
    */
   private applyPalette(board: ThemeBoard): void {
-    this.theme = resolveTheme(board, this.colorDepth);
+    this.theme = resolveTheme(board, this.colorDepth, this.terminalBgForTheme());
     this.transcript.setTheme(this.theme); // 行集换装——后续新建 doc 生效（durable 已交 scrollback 不回改）
     this.injectTheme();
     this.touchFixed();
+  }
+
+  /**
+   * 探测背景传值门（界面美化役批⑦ R2 扩键注——applyPalette 与同板零换装
+   * 判定共源）：内置探测档照传（解析位混合 dark 白 12% / light 黑 4%）；
+   * 自定义板缺 bg 键 = 无背景回退（旧主题文件缺新键非破坏性——不倒退内置
+   * 板混合值），显式带键则板值在解析位优先、传值同腿无害；探测缺席恒
+   * undefined（16 档降采由解析位收——低档位宁可无带不可错色）。
+   */
+  private terminalBgForTheme(): RgbChannels | undefined {
+    if (this.terminalBg === null) return undefined;
+    if (this.customOverlay !== null && this.customOverlay.userMessageBg === undefined) return undefined;
+    return this.terminalBg;
   }
 
   /**
@@ -2085,6 +2367,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const priorProbe = this.probeActive;
     this.themeSetting = setting;
     this.customOverlay = overlay;
+    // 切档即作废旧探测应答（「探测即重跑不沿用缓存」——含离开探测档清位：
+    // 显式内置档无探测语义，userMessageBg 背景带随档消失）
+    this.terminalBg = null;
     this.applyPalette(this.currentBoard());
     if (!this.running) return; // 未启动零 OSC 编舞（start 下装路自带）
     const probe = this.probeActive;
@@ -2102,20 +2387,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * OSC 串上抛消费（decoder onOsc 接线）：OSC 11 背景色应答 → 明暗裁定换板。
    * 内置 auto 档 = 探测基板切换；自定义名档 = 探测基板 + 覆盖表重合成（键级
    * 回退基板随探测翻转——「键级回退探测恒在」）。显式内置档短路（2031 未
-   * 开、查询未发——防御位）；非 11 码/畸形诚实忽略；同明暗零换装（2031 通知
-   * 的冗余应答与噪声不触发无谓重画）。
+   * 开、查询未发——防御位）；非 11 码/畸形诚实忽略。同明暗且 userMessageBg
+   * 呈现值无变 = 零换装（2031 通知的冗余应答与噪声不触发无谓重画——16 档/
+   * 自定义缺键/同值应答恒无带变）；**背景值变化 → 带随新值重出**（界面美化
+   * 役批⑦：userMessageBg 混合随新值重算，applyPalette 单入口换装）。
    */
   private handleOscReply(data: string): void {
     if (!this.probeActive) return;
     const bg = parseOsc11Reply(data);
     if (bg === null) return;
-    const board = paletteForBackground(bg); // 探测基板（明暗裁定）
-    if (this.customOverlay !== null) {
-      if (board.dark === this.theme.dark) return; // 同明暗零换装
-      this.applyPalette(overlayBoard(board, this.customOverlay)); // 重合成——基板翻转覆盖恒在
-      return;
+    this.terminalBg = bg; // 探测背景入账（userMessageBg 动态混合腿数据位）
+    const baseBoard = paletteForBackground(bg); // 探测基板（明暗裁定）
+    const board = this.customOverlay !== null ? overlayBoard(baseBoard, this.customOverlay) : baseBoard;
+    if (board.dark === this.theme.dark) {
+      // 同明暗：带呈现值有变才换装（解析单源现算比对——不在 backend 复刻混合算式）
+      const nextUserBg = resolveTheme(board, this.colorDepth, this.terminalBgForTheme()).userMessageBg;
+      if (this.theme.userMessageBg === nextUserBg) return; // 同板同带零重画
     }
-    if (board.id === (this.theme.dark ? 'dark' : 'light')) return;
     this.applyPalette(board);
   }
 
@@ -2130,39 +2418,98 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private applyFocusedEvent(event: AgentEvent): void {
     switch (event.type) {
       case 'agent_start':
-        this.statusLine.start();
-        this.resetUsage(); // 件 6：归零清行（上一 run 尾注不跨 run；速度时戳连清）
-        this.runStartedAt = this.now(); // 批C：run 起点时戳（注入钟——速度段分母起点）
-        this.toolPanel.clear(); // 件 5：瞬时面清板
+        if (this.retryContinuation) {
+          // 重试续入（界面美化役批 4——整 run 口径律）：同一 run 的断点续跑
+          // 非新 run——run 级账（用量/起止时戳/工具计数/种子时戳）零清零，
+          // 速度分母与耗时连续累计
+          this.retryContinuation = false;
+        } else {
+          // 种子暂存位先取（resetUsage 连清暂存位——同调用内先读后清防自噬）
+          const seedAt = this.pendingSeedAt;
+          this.resetUsage(); // 件 6：归零清行（上一 run 尾注不跨 run；速度时戳连清）
+          this.runStartedAt = this.now(); // 批C：run 起点时戳（注入钟——速度段分母起点）
+          // 种子时戳晋升（界面美化役批 5）：种子 message_end 先于 agent_start
+          // 到达、resetUsage 已清 runSeedAt——暂存位在此转正（无种子置 null：
+          // 搁浅件续跑/中途重放形回退 runEndedAt 诚实呈现）
+          this.runSeedAt = seedAt;
+        }
+        this.toolPanel.clear(); // 件 5：瞬时面清板（静默先行——enterWorking 即帧，序倒中间帧重绘陈旧行）
+        this.taskLine.enterWorking(); // 态① 正在对话中（工具段让位律——见 tool_execution_start）
         this.touchFixed();
         break;
       case 'agent_end':
-        this.statusLine.stop();
+        if (event.status === 'failed') {
+          // ⚠ 持有档（界面美化役批 4）：failed 终态揭示延后——驱动侧保证
+          // failed 后必随发 retry_wait_start（退避窗开）或 retry_wait_end
+          // {aborted|exhausted}（终态收口）。揭示前账不冻结（run 仍在跑——
+          // 退避窗计时计入 run 时长）、任务行保持忙态转轮不停（不闪「✖」）、
+          // footer 尾注不落（防翻档前一帧伪终态）
+          this.toolPanel.clear();
+          this.refreshTodo(); // 件 4：刷新（失败收场 todo 状态可能推进）
+          this.refreshFooter(); // 批B：今日段刷新锚
+          this.touchFixed();
+          break;
+        }
+        // completed / aborted：真终态——账冻结 + 任务行离场 + footer 尾注 + 收尾行。
+        // 变更序（同步直出模式 flush 即时性——中间帧防）：toolPanel/refreshTodo
+        // 先行静默突变，goIdle() 的 onChange 才触发首帧——届时工具面板已空、
+        // todo 已新，中间帧不重绘陈旧行（任务行离场使行位上移、陈旧面板行会
+        // 以新行位重画——序倒即假残影）
         this.runEndedAt = this.now(); // 批C：终点时戳冻结分母（终态后 speedView 保持终值不随墙钟漂移）
+        this.toolPanel.clear(); // 件 5：瞬时面清板（静默先行——见上变更序注）
+        this.refreshTodo(); // 件 4：刷新三时点之三
+        this.taskLine.goIdle(); // 忙态离场（零高度缺席；onChange → 首帧）
         // 件 6：落行（与 setStatus 同载体 last-writer-wins）——终态分档
         // （2026-09-19 P0 静默链修复批：failed ✖ / aborted ⏹ 不显用量成功形——
-        // 与件 9 摘要行「失败与中止显式分档、不得伪装成功」同律；修前形 =
-        // 不分 status 恒「✓ 用量 N」，失败 run 状态栏伪成功）
-        if (event.status === 'failed') this.statusLine.setStatus('✖ 失败');
-        else if (event.status === 'aborted') this.statusLine.setStatus('⏹ 已中止');
-        else {
+        // 与件 9 摘要行「失败与中止显式分档、不得伪装成功」同律；failed 腿的
+        // ✖ 尾注随 retry_wait_end 终态揭示落——见下方 retry_wait_end 分支）
+        if (event.status === 'aborted') {
+          this.statusLine.setStatus('⏹ 已中止');
+          this.appendClosingLine('aborted', event.durationMs);
+        } else {
           // 批C：completed 扩速段（run 级平均——诚实缺席形无段，见 runSpeedTokensPerSecond）
           const speed = this.runSpeedTokensPerSecond();
           const speedSegment = speed === null ? '' : ` · ${formatTokensPerSecond(speed)} tok/s`;
           this.statusLine.setStatus(`✓ 用量 ${formatCount(this.usageTotal.totalTokens)}${speedSegment}`);
+          this.appendClosingLine('completed', event.durationMs);
         }
-        this.toolPanel.clear();
-        this.refreshTodo(); // 件 4：刷新三时点之三
+        this.runSeedAt = null; // 种子消费即清（防无后继 fresh start 的残值复用）
         this.refreshFooter(); // 批B：今日段刷新锚（run 终点当日账已落——尾注与常驻段同帧收敛）
         this.touchFixed();
         break;
+      case 'retry_wait_start':
+        // 态③ 重试中（E-1）：转轮不停 + 倒计时本地钟现算（nextAt 绝对时刻律）
+        this.taskLine.enterRetry(event.attempt, event.maxAttempts, event.nextAt);
+        this.touchFixed();
+        break;
+      case 'retry_wait_end':
+        if (event.outcome === 'resumed') {
+          // 续入：下一 agent_start 消费标记（run 账不清）+ 任务行归态①
+          this.retryContinuation = true;
+          this.taskLine.enterWorking();
+        } else {
+          // aborted / exhausted：终态揭示——红 ✖ 驻留 + 账冻结 + footer ✖ 尾注
+          // （failed 无收尾行——错误块与尾注已足，不叠装饰行）
+          this.runEndedAt = this.now();
+          this.taskLine.enterError();
+          this.statusLine.setStatus('✖ 失败');
+          this.runSeedAt = null; // 种子账收口（failed 无收尾行——种子不复用）
+          this.refreshFooter(); // 批B：今日段刷新锚（失败腿同样落账）
+        }
+        this.touchFixed();
+        break;
+      case 'message_start':
+        // 态② 获取响应中（assistant 流式窗口——message_start 驱动、message_end 归态①）
+        if (event.role === 'assistant') this.taskLine.enterStreaming();
+        break; // 正文流式归直播路——固定区零扰动（任务行 onChange 自触重画）
       case 'tool_execution_start':
-        this.statusLine.setTool(event.name);
+        this.runToolCount += 1; // 收尾行纯对话轮判据（重试续入不清——整 run 口径）
+        this.taskLine.setTool(event.name); // 态① 工具段 `⚙ 名 …` 优先
         this.toolPanel.begin(event.toolCallId, event.name, event.arguments); // 件 5：建档不建行（参数快照 = renderCall 在飞期载荷）
         this.touchFixed();
         break;
       case 'tool_execution_end':
-        this.statusLine.setTool(null);
+        this.taskLine.setTool(null);
         this.toolPanel.end(event.toolCallId); // 件 5：end 即摘行
         this.refreshTodo(); // 件 4：刷新三时点之二（写后即显）
         this.touchFixed();
@@ -2176,6 +2523,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 一 assistant 消息，两时点等价；spec 条款按本仓轻载荷形取 message_end 面）
         if (isStandardMessage(event.message) && event.message.role === 'assistant') {
           this.pendingUsage = event.message.usage;
+          this.taskLine.enterWorking(); // 流式窗关——归态①（下一 message_start 再入态②）
+        } else if (isStandardMessage(event.message) && event.message.role === 'user' && event.channel === undefined) {
+          // run 种子用户消息时戳入**暂存位**（收尾行时刻源）：channel 缺席 =
+          // 用户直发种子（steer/followUp/inject 通道投递不覆盖）；暂存位由
+          // fresh agent_start 晋升（种子先于 agent_start 到达——发射序见字段注）
+          this.pendingSeedAt = event.message.timestamp;
         }
         break; // 正文换装已走直播路——固定区零扰动
       case 'turn_end':
@@ -2186,13 +2539,51 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
   }
 
-  /** usage 归零清行（agent_start / repaint——件 6 清账重计条款；速度时戳连清） */
+  /**
+   * usage 归零清行（agent_start 全新 run / repaint——件 6 清账重计条款；速度时戳
+   * 连清）。界面美化役批 4/5：run 账面连革新位随本单源清——工具计数（收尾行
+   * 纯对话轮判据）、种子时戳（收尾行时刻源）、重试续入标记（防跨 run 泄漏）。
+   * 重试续入的 agent_start **不走本路**（applyFocusedEvent 分诊——整 run 口径律）。
+   */
   private resetUsage(): void {
     this.pendingUsage = null;
     this.usageTotal = ZERO_USAGE;
     this.runStartedAt = null; // 批C：清账连清起点（repaint/切焦中途附着即无起点——速度段诚实缺席）
     this.runEndedAt = null;
+    this.runToolCount = 0;
+    this.runSeedAt = null;
+    this.pendingSeedAt = null; // 暂存位连清（切焦防上一焦种子泄漏到新焦收尾行）
+    this.retryContinuation = false;
     this.statusLine.setStatus('');
+  }
+
+  /**
+   * turn 收尾行（界面美化役批 5——件 9 族瞬时追加行：不占正文滚动帽、repaint
+   * 不重建、重放不可见）。成功形 `─ 用时 1m 30s · 14:32 ─`（elapsed < 60s 省段
+   * → `─ 14:32 ─`；纯对话轮〔零工具执行〕整行缺席——轻收不落装饰行）；取消形
+   * `⏹ 对话已取消——14:32`（用户动作回执恒落——纯对话轮判据不适用）；failed
+   * 无收尾行（错误块 + ✖ 尾注已足）。时刻源 = run 种子用户消息时戳（中途附着
+   * 无种子回退 runEndedAt）；elapsed = durationMs（驱动结算账——A-3 唯一真源）
+   * ?? 本地观察账（runStartedAt/runEndedAt 差）；中途附着 elapsed 诚实缺席。
+   * dim 经 SGR 直拼（瞬时行纯文本路——appendTransientCapped 的 ANSI 感知收口
+   * 保样式存活）。
+   */
+  private appendClosingLine(status: 'completed' | 'aborted', durationMs?: number): void {
+    const clockAt = this.runSeedAt ?? this.runEndedAt ?? this.now();
+    const clock = formatClockHM(clockAt);
+    if (status === 'aborted') {
+      this.appendTransientLine(`${DIM_SGR}⏹ 对话已取消——${clock}${SGR_RESET}`);
+      return;
+    }
+    if (this.runToolCount === 0) return; // 纯对话轮：整行缺席
+    const elapsedMs =
+      durationMs ??
+      (this.runStartedAt !== null && this.runEndedAt !== null ? this.runEndedAt - this.runStartedAt : null);
+    if (elapsedMs === null || elapsedMs < 60_000) {
+      this.appendTransientLine(`${DIM_SGR}─ ${clock} ─${SGR_RESET}`);
+      return;
+    }
+    this.appendTransientLine(`${DIM_SGR}─ 用时 ${formatElapsedCompact(elapsedMs)} · ${clock} ─${SGR_RESET}`);
   }
 
   /**
@@ -2281,34 +2672,72 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private renderFixed(): void {
     const columns = this.io.size().columns;
+    // 后台任务快照帧首拉取（界面美化役批6——UX 批6 A 件）：jobs 注入在场才
+    // 拉（注入缺席零扰动）；帧频 O(n) 滤除终态——注册表帽 256 量级无害。
+    // settle 推送锚另在 refreshJobs 公开面（闲态零帧源的即时收敛路）
+    if (this.jobsSource !== undefined) this.jobPanel.update(this.jobsSource.running());
     const contents = this.stack.contents;
     // 编辑器量高单次（fx2-B——帽计算与分配梯共用；measure 幂等无帧账副作用）
     const editorMeasure = this.editor.measure(columns);
+    const askRows = this.inputAsk !== null ? 1 : 0;
+    // 任务行占行裁决（界面美化役批 4——件 12）：fixed-budget.ts 分配梯不在本批
+    // 改面（梯键集无 task 槽），任务行作**预算梯外挂腿**——先按在场性预留 1
+    // 行，最小必保段（overlay 实高 + ask 行 + 编辑器下限 + 任务行 + 状态行）
+    // 超截断预算时任务行整段隐（极小终端让位——「先缩后隐」梯末位语义）。
+    const taskPresent = this.taskLine.measure(columns) === 1;
     // overlay 视口帽（fx2-B）：一次性问答面板选项数超可用预算时开滚动窗——
     // 固定区总高恒 ≤ 截断预算（绝不让固定区超高触发 MainScreen 陈货守卫
     // 整段不写——修前 24 行屏 21 选项 = 面板 22 + 编辑器 3 + 状态 1 = 26 >
-    // 预算 23，守卫整段不写 = 模态开屏即黑）。帽 = 预算 - 状态行 1 - ask
-    // 行 - 编辑器下限（编辑器恒保底对话本体；todo/tool/popup 属更低优先级
-    // 段、分配梯先牺牲——按编辑器下限保守计算保证梯降到底 total 恰 ≤ 预算）
+    // 预算 23，守卫整段不写 = 模态开屏即黑）。帽 = 预算 - 任务行 - 状态行 1
+    // - ask 行 - 编辑器下限（编辑器恒保底对话本体；todo/tool/popup/jobs 属
+    // 更低优先级段、分配梯先牺牲——按编辑器下限保守计算保证梯降到底 total
+    // 恰 ≤ 预算〔任务行缺席时预留归零——极小终端保守 1 行可容忍〕）
     const overlayCap = Math.max(
       0,
       fixedBudgetRows(this.io.size().rows) -
+        (taskPresent ? 1 : 0) -
         1 -
-        (this.inputAsk !== null ? 1 : 0) -
+        askRows -
         Math.min(editorMeasure, EDITOR_MIN_HEIGHT),
     );
     const overlayHeights = this.measureOverlayStack(contents, columns, overlayCap);
-    // 量高原值 → 优先级截断分配（预算 = 视口 - 1：正文滚动区至少 1 行）
+    const overlaySum = overlayHeights.reduce((sum, h) => sum + h, 0);
+    const taskRows =
+      taskPresent &&
+      overlaySum + askRows + Math.min(editorMeasure, EDITOR_MIN_HEIGHT) + 2 <= fixedBudgetRows(this.io.size().rows)
+        ? 1
+        : 0;
+    // 后台任务段占行裁决（界面美化役批6——UX 批6 A 件）：分配梯不改面
+    // （梯键集无 jobs 槽——任务行同形外挂腿）。想占行数 = 面板量高原值
+    // （帽 5 + 溢出行）；最小必保段（overlay 实高 + ask 行 + 编辑器下限 +
+    // 任务行 + 状态行）外算余量，正数即得、负数整段隐（极小终端让位——
+    // 「先缩后隐」梯末位语义，todo/tool 同档牺牲序；段内低段高收口在
+    // JobPanel.render 容量自洽）
+    const jobsWanted = this.jobsSource !== undefined ? this.jobPanel.measure(columns) : 0;
+    const jobRows =
+      this.jobsSource !== undefined && jobsWanted > 0
+        ? Math.max(
+            0,
+            Math.min(
+              jobsWanted,
+              fixedBudgetRows(this.io.size().rows) -
+                (overlaySum + askRows + Math.min(editorMeasure, EDITOR_MIN_HEIGHT) + (taskRows > 0 ? 1 : 0) + 1),
+            ),
+          )
+        : 0;
+    // 量高原值 → 优先级截断分配（预算 = 视口 - 1：正文滚动区至少 1 行；任务
+    // 行/后台任务行占行从梯预算外扣——梯总额 + 两外挂腿恒 ≤ 截断预算不变式
+    // 保持）
     const budget = allocateFixedBudget({
-      viewportRows: this.io.size().rows,
-      overlay: overlayHeights.reduce((sum, h) => sum + h, 0),
-      ask: this.inputAsk !== null ? 1 : 0,
+      viewportRows: this.io.size().rows - taskRows - jobRows,
+      overlay: overlaySum,
+      ask: askRows,
       popup: this.popup.visible ? this.popup.measure(columns) : 0,
       editor: editorMeasure,
       todo: this.todoPanel.measure(columns),
       tool: this.toolPanel.measure(columns),
     });
-    const total = budget.total;
+    const total = budget.total + taskRows + jobRows;
     const grid = new CellGrid(columns, total);
     let row = 0;
 
@@ -2323,6 +2752,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (budget.todo > 0) {
       this.todoPanel.render(grid, { row, col: 0, width: columns, height: budget.todo });
       row += budget.todo;
+    }
+
+    // 段二.5：后台任务面板（界面美化役批6——UX 批6 A 件：running 快照紧凑
+    // 面板，todo 同形；清板即零行；截断隐 = 零高度；段内低段高容量收口自洽）
+    if (jobRows > 0) {
+      this.jobPanel.render(grid, { row, col: 0, width: columns, height: jobRows });
+      row += jobRows;
     }
 
     // 段三：input-ask 提示行（应答期编辑器转应答车的引导位——恒保不截）。
@@ -2343,6 +2779,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (budget.popup > 0) {
       this.popup.render(grid, { row, col: 0, width: columns, height: budget.popup });
       row += budget.popup;
+    }
+
+    // 段四.5：任务状态行（件 12——编辑器正上方固定段；忙态在场闲态离场，
+    // 占行裁决见上；编辑器聚焦态不受影响——overlay 占焦判定与任务行无涉）
+    if (taskRows > 0) {
+      this.taskLine.render(grid, { row, col: 0, width: columns, height: 1 });
+      row += 1;
     }
 
     // 段五：编辑器（overlay 占焦期非聚焦——边框普通态 + 不抢光标声明；

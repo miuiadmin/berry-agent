@@ -247,11 +247,25 @@ export function clampRuns(runs: readonly StyleRun[], limit: number): StyleRun[] 
  * （truncateToWidth——宽字跨界整字丢弃不产半字）+ runs 同步钳制到截断后
  * UTF-16 长。未超帽原样返回（同引用零分配快路）。产出面（主屏直写 /
  * 回看器 cell 写出）超宽行交终端 autowrap 产未记账物理行的收口位。
+ *
+ * 省略号形（界面美化役批①——一切用户面截断走 `…` 单源口径）：超帽截断
+ * 改「截 columns-1 + 追 `…`（宽 1 恰满帽）」——被切行与真实行尾可辨（裸
+ * 截的悄然吃字不可辨）。`…` 随截断点既有着色：尾段覆盖截断点（含被钳段）
+ * 延伸一格吞入；截断点在裸文本段 = 裸省略号（diff-viewer ellipsize 同律——
+ * 记号随段既有着色）。
  */
 export function capStyledLine(line: StyledLine, columns: number): StyledLine {
+  if (columns <= 0) return { plain: '', runs: [] }; // 帽 0 防御——空行形（不产半记号）
   const plain = truncateToWidth(line.plain, columns);
   if (plain === line.plain) return line; // 未超帽——同引用快路
-  return { plain, runs: clampRuns(line.runs, plain.length) };
+  const cut = truncateToWidth(line.plain, columns - 1); // 留 1 格给省略号
+  const runs = clampRuns(line.runs, cut.length);
+  // 尾段恰收在截断点 → 延伸一格吞省略号（随段既有着色）；否则裸省略号
+  const last = runs[runs.length - 1];
+  if (last !== undefined && last.end === cut.length) {
+    runs[runs.length - 1] = { ...last, end: cut.length + 1 };
+  }
+  return { plain: cut + '…', runs };
 }
 
 /**

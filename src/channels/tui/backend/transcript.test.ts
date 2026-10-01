@@ -161,6 +161,34 @@ describe('LiveTranscript 聚焦归约', () => {
     expect(t.snapshot.some((b) => b.kind === 'error')).toBe(true);
   });
 
+  it('错误块 JSON 可读化（界面美化役批⑦——401/403 裸 JSON 体先摘要后原文）', () => {
+    // error.message 嵌套形：引导语收编为摘要前缀、message 字段成首行可读摘要
+    const text = 'Provider 401: {"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}';
+    const styled = renderBlockStyledLines({ kind: 'error', text, theme: DEFAULT_THEME }, 100);
+    expect(styled[0]!.plain).toBe('✖ Provider 401：Incorrect API key provided');
+    // 原文随后保留（折行展开可见——诚实保真不吞原文）
+    expect(
+      styled
+        .slice(1)
+        .map((line) => line.plain)
+        .join('\n'),
+    ).toContain('"error"');
+    // 顶层 message 直取形
+    const top = renderBlockStyledLines(
+      { kind: 'error', text: '{"message":"rate limit exceeded"}', theme: DEFAULT_THEME },
+      100,
+    );
+    expect(top[0]!.plain).toBe('✖ rate limit exceeded');
+    // 无 message 只 status：数值收编为摘要（403 类网关体）
+    const statusOnly = renderBlockStyledLines({ kind: 'error', text: '{"status":403}', theme: DEFAULT_THEME }, 100);
+    expect(statusOnly[0]!.plain).toBe('✖ 403');
+    // 非 JSON / 无可提取字段 = 原样（诚实退原形）
+    const plainText = renderBlockStyledLines({ kind: 'error', text: '连接超时（30s）', theme: DEFAULT_THEME }, 100);
+    expect(plainText[0]!.plain).toBe('✖ 连接超时（30s）');
+    const noField = renderBlockStyledLines({ kind: 'error', text: '{"foo":"bar"}', theme: DEFAULT_THEME }, 100);
+    expect(noField[0]!.plain).toBe('✖ {"foo":"bar"}');
+  });
+
   it('流式单槽守卫：重开 message_start 先摘旧槽（占位不孤儿滞留——epoch 递增）', () => {
     const t = new LiveTranscript();
     apply(t, { type: 'message_start', role: 'assistant' });
@@ -204,7 +232,7 @@ describe('LiveTranscript 聚焦归约', () => {
     apply(t, { type: 'message_end', message: userMsg('帮我看下') });
     apply(t, { type: 'message_end', message: toolResultMsg('第 1 行输出\n第 2 行') });
     expect(t.snapshot).toEqual([
-      { kind: 'user', text: '帮我看下' },
+      { kind: 'user', text: '帮我看下', theme: DEFAULT_THEME },
       { kind: 'tool-result', brief: '第 1 行输出' },
     ]);
   });
@@ -271,7 +299,7 @@ describe('LiveTranscript 投影重建与帽', () => {
     expect(t.snapshot[2]).toMatchObject({
       kind: 'tool-card',
       name: 'grep',
-      brief: '(pattern, path)',
+      brief: '(pattern=x, path=y)',
       status: 'success',
       diff: false,
     });
@@ -280,7 +308,7 @@ describe('LiveTranscript 投影重建与帽', () => {
   it('loadProjection 自定义角色宽容跳过', () => {
     const t = new LiveTranscript();
     t.loadProjection([{ role: 'memory/recall', content: { q: 1 }, timestamp: 1 }, userMsg('问题')]);
-    expect(t.snapshot).toEqual([{ kind: 'user', text: '问题' }]);
+    expect(t.snapshot).toEqual([{ kind: 'user', text: '问题', theme: DEFAULT_THEME }]);
   });
 
   it('loadProjection 清流式槽位（投影是 durable 快照）', () => {
@@ -288,7 +316,7 @@ describe('LiveTranscript 投影重建与帽', () => {
     apply(t, { type: 'message_start', role: 'assistant' });
     t.loadProjection([userMsg('重建')]);
     apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('孤儿') });
-    expect(t.snapshot).toEqual([{ kind: 'user', text: '重建' }]); // slotOpen 已清——update 零效果
+    expect(t.snapshot).toEqual([{ kind: 'user', text: '重建', theme: DEFAULT_THEME }]); // slotOpen 已清——update 零效果
   });
 
   it('帽卸载：超帽从头卸、保留帽内最近段', () => {
@@ -297,7 +325,7 @@ describe('LiveTranscript 投影重建与帽', () => {
     for (let i = 0; i < TRANSCRIPT_BLOCK_CAP + 5; i++) messages.push(userMsg(`消息 ${i}`));
     t.loadProjection(messages);
     expect(t.blockCount).toBe(TRANSCRIPT_BLOCK_CAP);
-    expect(t.snapshot[0]).toEqual({ kind: 'user', text: '消息 5' }); // 前 5 条卸载
+    expect(t.snapshot[0]).toEqual({ kind: 'user', text: '消息 5', theme: DEFAULT_THEME }); // 前 5 条卸载
   });
 
   it('帽参数化（批 10f-4）：自定义帽截段——保留帽内最近段', () => {
@@ -314,7 +342,7 @@ describe('LiveTranscript 投影重建与帽', () => {
     for (let i = 0; i < TRANSCRIPT_BLOCK_CAP + 5; i++) messages.push(userMsg(`消息 ${i}`));
     t.loadProjection(messages);
     expect(t.blockCount).toBe(TRANSCRIPT_BLOCK_CAP + 5); // 全量——块数不被截
-    expect(t.snapshot[0]).toEqual({ kind: 'user', text: '消息 0' }); // 首条仍在场
+    expect(t.snapshot[0]).toEqual({ kind: 'user', text: '消息 0', theme: DEFAULT_THEME }); // 首条仍在场
   });
 
   it('帽参数化：缺省不传 = 主屏帽 500（主屏调用面零变化）', () => {
@@ -344,14 +372,34 @@ describe('LiveTranscript 投影重建与帽', () => {
 /* ---------------- 渲染行提取（批 10f-4——管线单源 renderBlockLines） ---------------- */
 
 describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共用同一管线）', () => {
-  it('user 块："> " 前缀首行 + 折行续挂两空格缩进', () => {
-    const lines = renderBlockLines({ kind: 'user', text: '帮我看下' }, 20); // 宽裕单行
-    expect(lines).toEqual(['> 帮我看下']);
+  it('user 块三要素（界面美化役批⑦）：空行包夹 + "› " 前缀 bold+dim 首行 + 折行续挂两空格缩进', () => {
+    const lines = renderBlockLines({ kind: 'user', text: '帮我看下', theme: DEFAULT_THEME }, 20); // 宽裕单行
+    // 上下空行（块内行——块账语义不变）+ 前缀段 bold+dim（缺省板无背景带形）
+    expect(lines).toEqual(['', '\x1b[1;2m› \x1b[0m帮我看下', '']);
   });
 
-  it('user 块折行：超宽文本续行缩进对齐（宽算术单源 wrapText）', () => {
-    const lines = renderBlockLines({ kind: 'user', text: 'abcdefghij' }, 6); // 内容宽帽 6-2=4——'abcd' + 'efgh' + 'ij' 三行
-    expect(lines).toEqual(['> abcd', '  efgh', '  ij']);
+  it('user 块折行：超宽文本续行缩进对齐（宽算术单源 wrapText）+ 续行裸', () => {
+    const lines = renderBlockLines({ kind: 'user', text: 'abcdefghij', theme: DEFAULT_THEME }, 6); // 内容宽帽 6-2=4——'abcd' + 'efgh' + 'ij' 三行
+    expect(lines).toEqual(['', '\x1b[1;2m› \x1b[0mabcd', '  efgh', '  ij', '']);
+  });
+
+  it('user 块背景带（R2 扩键注）：userMessageBg 在场 → 正文段 bg 游程 + 前缀段并 bg；缺省板缺席 → 无 bg 游程', () => {
+    // 探测形主题：resolveTheme 携 terminalBg（真彩档）→ 混合出 userMessageBg
+    const probed = resolveTheme(LIGHT_PALETTE, 'truecolor', { r: 32, g: 32, b: 32 });
+    expect(probed.userMessageBg).toBeDefined();
+    const styled = renderBlockStyledLines({ kind: 'user', text: '帮我看下', theme: probed }, 20);
+    // 首行：前缀段 bold+dim+bg + 正文段 bg
+    expect(styled[1]!.runs).toEqual([
+      { start: 0, end: 2, style: { bold: true, dim: true, bg: probed.userMessageBg } },
+      { start: 2, end: '帮我看下'.length + 2, style: { bg: probed.userMessageBg } },
+    ]);
+    // 16 档降采 → 无背景（resolveTheme depth='16' 不铸键）
+    expect(resolveTheme(LIGHT_PALETTE, '16', { r: 32, g: 32, b: 32 }).userMessageBg).toBeUndefined();
+    // 缺省板（无 terminalBg）→ 无背景回退
+    expect(DEFAULT_THEME.userMessageBg).toBeUndefined();
+    expect(renderBlockStyledLines({ kind: 'user', text: '帮我看下', theme: DEFAULT_THEME }, 20)[1]!.runs).toEqual([
+      { start: 0, end: 2, style: { bold: true, dim: true } },
+    ]);
   });
 
   it('tool-call / tool-result 块：单行 dim 样式', () => {
@@ -390,9 +438,13 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
 /* ---------------- 带样式行提取（批 10f-4——件 8 回看器数据源同管线） ---------------- */
 
 describe('renderBlockStyledLines 带样式行（零第二渲染器——与主屏直写同管线）', () => {
-  it('user 块：行集同行集、零样式段（裸文本）', () => {
-    const styled = renderBlockStyledLines({ kind: 'user', text: '帮我看下' }, 20);
-    expect(styled).toEqual([{ plain: '> 帮我看下', runs: [] }]);
+  it('user 块带样式行：空行包夹 + 前缀段 bold+dim（其余裸文本）', () => {
+    const styled = renderBlockStyledLines({ kind: 'user', text: '帮我看下', theme: DEFAULT_THEME }, 20);
+    expect(styled).toEqual([
+      { plain: '', runs: [] },
+      { plain: '› 帮我看下', runs: [{ start: 0, end: 2, style: { bold: true, dim: true } }] },
+      { plain: '', runs: [] },
+    ]);
   });
 
   it('tool-call / tool-result 块：整行 dim 单段（plain 无转义零样式混入）', () => {
@@ -449,7 +501,7 @@ describe('renderBlockStyledLines 带样式行（零第二渲染器——与主�
     const streamingDoc = new StreamingMarkdown(); // 直推档也入锁——两档同管线律
     streamingDoc.update('流式**粗体**与 `code`');
     const blocks: Parameters<typeof renderBlockStyledLines>[0][] = [
-      { kind: 'user', text: '你好世界'.repeat(8) }, // 折行
+      { kind: 'user', text: '你好世界'.repeat(8), theme: DEFAULT_THEME }, // 折行
       { kind: 'markdown', doc: MarkdownDoc.of('# 标题\n\n- 甲\n- 乙\n\n`code` 与 **粗**') },
       { kind: 'tool-call', name: 'grep', brief: '(pattern, path)' },
       { kind: 'tool-result', brief: '首行结果' },
@@ -577,7 +629,7 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
     expect(t.snapshot[0]).toMatchObject({
       kind: 'tool-card',
       name: 'grep', // 消息面 toolName 是 'read'——卡面取 pendingCalls 调用侧
-      brief: '(pattern, path)',
+      brief: '(pattern=x, path=y)', // 白名单键值短显（UX 五问题批②——值截 40 列内直呈）
       status: 'success',
       diff: false,
     });
@@ -648,7 +700,7 @@ describe('LiveTranscript 投影孤儿兜底与配对撤销（批 10i R4——rep
   it('loadProjection 走查毕的在飞孤儿 → ⚙ 简行携 toolCallId（在飞显形）', () => {
     const t = new LiveTranscript();
     t.loadProjection([assistantMsg('', [{ id: 'tc1', name: 'read', arguments: { path: 'a.ts' } }])]);
-    expect(t.snapshot).toEqual([{ kind: 'tool-call', name: 'read', brief: '(path)', toolCallId: 'tc1' }]);
+    expect(t.snapshot).toEqual([{ kind: 'tool-call', name: 'read', brief: '(path=a.ts)', toolCallId: 'tc1' }]);
   });
 
   it('配对到达留账落卡（⚙ 行不撤销——append-only 留账律；净 +1 块）', () => {
@@ -713,20 +765,22 @@ describe('宽帽/错误帽/参数简述帽（2026-09-20 TUI 修复组 1 批 F4/F
   it('F4：tool-call ⚙ 简行受屏宽帽（渲染出口单源 choke——修前超长名直写交 autowrap）', () => {
     const styled = renderBlockStyledLines({ kind: 'tool-call', name: 'n'.repeat(100), brief: '' }, 80);
     expect(styled).toHaveLength(1);
-    // ' ⚙ ' 3 列 + 77 n = 80 列恰满；游程收尾同步
-    expect(styled[0]!.plain).toBe(' ⚙ ' + 'n'.repeat(77));
+    // ' ⚙ ' 3 列 + 76 n = 79 列 + '…' = 80 列恰满（界面美化役批①——截断收
+    // 省略号可辨，尾游程延 1 吞 '…' 同 dim）；游程收尾同步
+    expect(styled[0]!.plain).toBe(' ⚙ ' + 'n'.repeat(76) + '…');
     expect(styled[0]!.runs).toEqual([{ start: 0, end: 80, style: { dim: true } }]);
   });
 
   it('F4：tool-result ↳ 简行同律受帽', () => {
     const styled = renderBlockStyledLines({ kind: 'tool-result', brief: 'b'.repeat(100) }, 40);
-    expect(styled[0]!.plain).toBe(' ↳ ' + 'b'.repeat(37));
+    expect(styled[0]!.plain).toBe(' ↳ ' + 'b'.repeat(36) + '…'); // 3 + 36 = 39 列 + '…' = 40
   });
 
   it('F4：帽为显示宽非 UTF-16 长（宽字整字丢弃不产半字）', () => {
-    // 38 列已满后 '中'（2 列）在 cols=39 放不下整字——丢弃，'中' 不上屏
+    // 38 列满后 '中'（2 列）在 cols=39 放不下整字——丢弃；截断收 '…'（40 列
+    // 帽形同上：3 + 35 a = 38 + '…' = 39 列恰满）
     const styled = renderBlockStyledLines({ kind: 'tool-result', brief: 'a'.repeat(36) + '中' + 'b'.repeat(10) }, 39);
-    expect(styled[0]!.plain).toBe(' ↳ ' + 'a'.repeat(36));
+    expect(styled[0]!.plain).toBe(' ↳ ' + 'a'.repeat(35) + '…');
   });
 
   it('F5：error 块行数帽——首 4 行 + 截断标记行（修前全量裸上屏）', () => {
@@ -746,11 +800,11 @@ describe('宽帽/错误帽/参数简述帽（2026-09-20 TUI 修复组 1 批 F4/F
     expect(styled[0]!.plain).toBe('✖ 网关 403：凭证失效');
   });
 
-  it('F6：argsBrief 参数简述受 BRIEF_WIDTH=40 帽（修前从未接线——超长键名直写）', () => {
+  it('F6：argsBrief 参数简述受 BRIEF_WIDTH=40 帽（界面美化役批①：截断走 `…` 单源口径——修前裸截悄然吃字）', () => {
     const t = new LiveTranscript();
     t.loadProjection([assistantMsg('', [{ id: 'tc1', name: 'read', arguments: { ['k'.repeat(60)]: 1 } }])]);
     const block = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'tool-call' }>;
-    expect(block.brief).toBe('(' + 'k'.repeat(39));
+    expect(block.brief).toBe('(' + 'k'.repeat(38) + '…');
   });
 });
 

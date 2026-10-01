@@ -22,8 +22,8 @@ function makeScreen(): { io: MemoryTerminalIO; screen: MainScreen } {
   return { io, screen: new MainScreen(io, { fixedHeight: FIXED }) };
 }
 
-/** 用户块（单行文本——不触折行路径的基元形态） */
-const userBlock = (text: string): TranscriptBlock => ({ kind: 'user', text });
+/** 用户块（单行文本——不触折行路径的基元形态；theme = 缺省板 userMessageBg 缺席 → 无背景带形） */
+const userBlock = (text: string): TranscriptBlock => ({ kind: 'user', text, theme: DEFAULT_THEME });
 /** 流式槽块（epoch 恒 1 同槽；doc = null 纯文本降档形——字节期望不随高亮抖动；思考面缺席位 = 零思考槽形） */
 const slotBlock = (text: string): TranscriptBlock => ({
   kind: 'streaming',
@@ -57,8 +57,9 @@ describe('MainScreen 启动与基础编舞', () => {
     screen.start();
     io.bytes = '';
     screen.present([userBlock('你好')]);
-    // 追加位 = 行 0（光标从行 9 上移 9）→ 写行 → 光标归固定区末行
-    expect(io.bytes).toBe('\x1b[9A' + '\r> 你好\n' + '\x1b[10;1H');
+    // 追加位 = 行 0（光标从行 9 上移 9）→ 写行 → 光标归固定区末行。
+    // user 块三要素（界面美化役批⑦）：上下空行包夹 + `› ` 前缀 bold+dim 游程
+    expect(io.bytes).toBe('\x1b[9A' + '\r\n' + '\r\x1b[1;2m› \x1b[0m你好\n' + '\r\n' + '\x1b[10;1H');
   });
 
   it('增量追加：第二块从 durable 末起笔（CUU 距离随账推进）', () => {
@@ -67,7 +68,8 @@ describe('MainScreen 启动与基础编舞', () => {
     screen.present([userBlock('第一')]);
     io.bytes = '';
     screen.present([userBlock('第一'), userBlock('第二')]);
-    expect(io.bytes).toBe('\x1b[8A' + '\r> 第二\n' + '\x1b[10;1H');
+    // 前块 3 行（空行 + 正文 + 空行）→ 追加位行 3：CUU 距离 = 9 - 3 = 6
+    expect(io.bytes).toBe('\x1b[6A' + '\r\n' + '\r\x1b[1;2m› \x1b[0m第二\n' + '\r\n' + '\x1b[10;1H');
   });
 
   it('user 块折行续挂对齐（续行两空格前缀）', () => {
@@ -76,7 +78,7 @@ describe('MainScreen 启动与基础编舞', () => {
     io.bytes = '';
     // 宽 78 列（80 - 前缀 2）：恰 20 个汉字 40 列 ×2 行
     screen.present([userBlock('一'.repeat(45))]);
-    expect(io.bytes).toContain('\r> ' + '一'.repeat(39) + '\n');
+    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m' + '一'.repeat(39) + '\n');
     expect(io.bytes).toContain('\n\r  ' + '一'.repeat(6) + '\n');
   });
 
@@ -109,8 +111,8 @@ describe('MainScreen 流式槽与固定区', () => {
     screen.present([userBlock('问')]);
     io.bytes = '';
     screen.present([userBlock('问'), slotBlock('流式回答')]);
-    // 光标从行 9 回槽首（行 1）：CUU 8 → 写槽行 → 归位
-    expect(io.bytes).toBe('\x1b[8A' + '\r流式回答\n' + '\x1b[10;1H');
+    // user 块 3 行（行 0..2）→ 槽首 = 行 3：光标从行 9 CUU 6 → 写槽行 → 归位
+    expect(io.bytes).toBe('\x1b[6A' + '\r流式回答\n' + '\x1b[10;1H');
   });
 
   it('槽增长换装：整槽重写（旧槽行被覆盖）', () => {
@@ -171,7 +173,7 @@ describe('MainScreen 流式槽与固定区', () => {
   it('setFixed 光标声明：声明位落 cup + 行账同步（后续相对定位不漂移）', () => {
     const { io, screen } = makeScreen();
     screen.start();
-    screen.present([userBlock('问')]); // durable 末 = 行 1
+    screen.present([userBlock('问')]); // durable 末 = 行 3（user 块 3 行——空行包夹）
     // 三行固定区（钉行 7..9）、光标声明在固定区首行行内（0 基行 7、列 3）——编辑器形态
     const grid = new CellGrid(COLS, 3);
     grid.writeText(0, 0, '› 输入中');
@@ -180,11 +182,11 @@ describe('MainScreen 流式槽与固定区', () => {
     screen.setFixed(grid);
     // 尾帧落声明位 cup(7,3)（非屏底不变式位——编辑光标外显）
     expect(io.bytes.endsWith('\x1b[8;4H')).toBe(true);
-    // 行账同步：后续 present 归 durable 末（行 1）应 CUU 6（若账留屏底行 9 则误发 CUU 8）
+    // 行账同步：后续 present 归 durable 末（行 3）应 CUU 4（若账留屏底行 9 则误发 CUU 6）
     io.bytes = '';
     screen.present([userBlock('问'), userBlock('答')]);
-    expect(io.bytes.startsWith('\x1b[6A')).toBe(true);
-    expect(io.bytes).toContain('\r> 答\n');
+    expect(io.bytes.startsWith('\x1b[4A')).toBe(true);
+    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m答\n');
   });
 
   it('setFixed 无光标声明：回退屏底归位（呈现不变式原样）', () => {
@@ -210,8 +212,8 @@ describe('MainScreen 滚动与重建', () => {
     // 滚动区 8 行（0..7）：写 12 个单行块 → 区底持续触滚
     const blocks: TranscriptBlock[] = Array.from({ length: 12 }, (_, i) => userBlock(`行 ${i}`));
     screen.present(blocks);
-    expect(io.bytes).toContain('\r> 行 0\n');
-    expect(io.bytes).toContain('\r> 行 11\n');
+    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m行 0\n');
+    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m行 11\n');
     expect(io.bytes.endsWith('\x1b[10;1H')).toBe(true); // 尾帧光标归位不变式
   });
 
@@ -222,7 +224,7 @@ describe('MainScreen 滚动与重建', () => {
     io.bytes = '';
     screen.repaint([userBlock('新 1')]);
     expect(io.bytes).toContain('\x1b[2J\x1b[H'); // 清屏
-    expect(io.bytes).toContain('\r> 新 1\n');
+    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m新 1\n');
     expect(io.bytes).not.toContain('旧'); // 全量重写不写卸载块
   });
 
@@ -253,7 +255,7 @@ describe('MainScreen 滚动与重建', () => {
     screen.handleResize([userBlock('内容')]);
     expect(io.bytes).toContain('\x1b[2J\x1b[H');
     expect(io.bytes).toContain('\x1b[1;4r'); // 6 行 - 固定区 2 = DECSTBM 1..4
-    expect(io.bytes).toContain('\r> 内容\n');
+    expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m内容\n');
   });
 
   it('appendTransient：瞬时行直写不记 writtenBlocks（后续 present 不重写）', () => {
@@ -264,7 +266,7 @@ describe('MainScreen 滚动与重建', () => {
     io.bytes = '';
     screen.present([userBlock('块')]); // 无新块无槽——零正文写出
     expect(io.bytes).not.toContain('后台完成');
-    expect(io.bytes).not.toContain('> 块');
+    expect(io.bytes).not.toContain('› 块');
   });
 });
 
@@ -516,9 +518,9 @@ describe('MainScreen 块账绝对位与越界防御（批 10k 遗漏修）', () 
     io.bytes = '';
     // trim 语义：前缀裁一块（A 离队）+ 尾增新块 D——blocksOffset = 已裁数
     screen.present([userBlock('B'), userBlock('C'), userBlock('D')], 1);
-    expect(io.bytes).toContain('> D'); // 新块不漏写（相对块数对账在 trim 后误判零新增）
-    expect(io.bytes).not.toContain('> A'); // 裁块不重写（已交 scrollback 物理不可回改）
-    expect(io.bytes).not.toContain('> B'); // 在场旧块不重写（增量语义）
+    expect(io.bytes).toContain('\x1b[1;2m› \x1b[0mD'); // 新块不漏写（相对块数对账在 trim 后误判零新增）
+    expect(io.bytes).not.toContain('\x1b[0m' + 'A'); // 裁块不重写（已交 scrollback 物理不可回改）
+    expect(io.bytes).not.toContain('\x1b[0m' + 'B'); // 在场旧块不重写（增量语义）
   });
 
   it('repaint 携 blocksOffset：裁块后全量重写不含已裁前缀账漏写', () => {
@@ -527,9 +529,9 @@ describe('MainScreen 块账绝对位与越界防御（批 10k 遗漏修）', () 
     screen.present([userBlock('A'), userBlock('B')], 0);
     io.bytes = '';
     screen.repaint([userBlock('B'), userBlock('C')], 1); // 切焦重画（trim 已裁 A）
-    expect(io.bytes).toContain('> B');
-    expect(io.bytes).toContain('> C');
-    expect(io.bytes).not.toContain('> A');
+    expect(io.bytes).toContain('\x1b[1;2m› \x1b[0mB');
+    expect(io.bytes).toContain('\x1b[1;2m› \x1b[0mC');
+    expect(io.bytes).not.toContain('\x1b[0m' + 'A');
   });
 
   it('固定区超屏（总高 > 行数）零负行定位——baseRow 钳 0（畸形几何防御位）', () => {
