@@ -35,9 +35,11 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     # job 级 timeout（与 ci.yml「job 级 timeout 全覆盖」纪律同源——挂死不烧满
-    # runner 缺省 6h 配额）：实测 2m51s（等价跳发形）~7m05s（真 OIDC publish
-    # 网络腿——alpha.8 首绿实测），30 定值给 npm publish 网络腿余量档
-    timeout-minutes: 30
+    # runner 缺省 6h 配额）：常态实测 2m51s（等价跳发形）~7m05s（真 OIDC publish
+    # 网络腿——alpha.8 首绿实测）；2026-10-01 第二轮扫描处置 REL-A3 随契约 5
+    # 传播窗 30→45×30s（≈22.5min——alpha.24 收执≠落库 21min 实录）同步勘正：
+    # 传播窗复读最坏可耗 22.5min + 前序步 ~7min 逼近 30 帽——45 给传播窗腿余量档
+    timeout-minutes: 45
     # job 级最小面：id-token = OIDC 必需 + contents = Release 归档件挂载位
     #（2026-09-16 归档挂入位批起 read→write〔归档件挂 Release 需写面〕；
     # tag checkout 只需 read、write 涵盖之；写面扩张不破 tag 保护——GITHUB_TOKEN
@@ -115,8 +117,11 @@ jobs:
           bwrap --version
       - run: npm ci
       # 六道契约全量（CI 发布腿形——env 判入；publish 经 OIDC；契约 5 只读断言
-      # next、契约 6 只校验既有 tag——latest 挪位在本机触发腿收口段）
+      # next、契约 6 只校验既有 tag——latest 挪位在本机触发腿收口段）。step id
+      # = 归档步精确射程锚（release.mjs 在 publish 事实收执位写 step output
+      # publish_received——见下步 if 与 release.mjs markPublishReceived）
       - run: npm run release
+        id: release
         env:
           BERRY_AGENT_RELEASE_MODE: ci
       # —— API 面快照归档步（归档挂入位批 2026-09-16 拍板 = CI 发布腿）：
@@ -131,12 +136,15 @@ jobs:
       - name: API 面快照归档（GitHub Release assets）
         # main-only 守卫：RELEASE_REF 由首步注入（push/dispatch 两形齐覆盖），
         # sdk-v* run 整步跳过（publish 已在上一步走完——跳的是归档不是发布）。
-        # !cancelled() 兜底（2026-10-01 扫描处置批）：归档步不因前步红而 skipped——
-        # alpha.23 实录契约 5 传播窗假红使本步 skipped、rerun --failed 只重跑
-        # failed 步不救 skipped 步，绿后 Release 洞需手工确定性重建；publish
-        # 已收执而后续断言红的半成功态里快照归档照跑（归档件生成自本 run 树
-        # 真值，与断言红绿无耦合）；仅 cancelled 不跑（人为取消不产半档）
-        if: ${{ !cancelled() && !startsWith(env.RELEASE_REF, 'refs/tags/sdk-v') }}
+        # 精确射程（2026-10-01 第二轮扫描处置 REL-A1）：release.mjs 在 publish
+        # 事实收执位（真发收执/等价跳过两形）写 step output publish_received=1
+        # ——归档步只挂已发版本：publish 真红（版本未上 npm）不为未发版本挂
+        # 用户可见 Release；publish 已收执而后续断言假红（传播窗族）的半成功
+        # 态照跑（5834edd 兜底意图收窄为可机判形——失败步已写入的 output 照常
+        # 传递，rerun --failed 后 Release 洞不再依赖手工重建）；release 步未跑
+        # （前序步红 skipped）时 output 缺席即本步 skip；仅 cancelled 不跑
+        # （人为取消不产半档）
+        if: ${{ !cancelled() && steps.release.outputs.publish_received == '1' && !startsWith(env.RELEASE_REF, 'refs/tags/sdk-v') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

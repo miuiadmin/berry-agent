@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -1232,6 +1233,8 @@ describe('runRelease 触发腿（主包缺省形——交棒/轮询/收口/挪�
     const r = await run(s, '0.1.0-alpha.1', false);
     expect(r.code).toBe(1);
     expect(r.report.join('\n')).toContain('复探非在场');
+    // 红串内嵌可执行判态命令（A-2(D)）：指路句之外给操作者即手命令
+    expect(r.report.join('\n')).toContain('npm view berry-agent@0.1.0-alpha.1 version --prefer-online');
     // 传播窗复读先于终态红（第四读位——窗尽才红，非首读即红）
     expect(r.report.join('\n')).toContain('收口复探传播窗复读');
   });
@@ -1321,7 +1324,10 @@ describe('runRelease CI 形（env BERRY_AGENT_RELEASE_MODE=ci——release.yml �
     });
     const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: ciEnv });
     expect(r.code).toBe(1);
-    expect(r.report.join('\n')).toContain('CI 形 preview 断言');
+    const text = r.report.join('\n');
+    expect(text).toContain('CI 形 preview 断言');
+    // 红串内嵌可执行判态命令（A-2(D)）：指路句之外给操作者即手命令
+    expect(text).toContain('npm view berry-agent dist-tags --prefer-online');
   });
 
   it('tag 缺席（dispatch 直跑形）→ 契约 6 拒（tag 即触发器）', async () => {
@@ -1364,6 +1370,79 @@ describe('runRelease CI 形（env BERRY_AGENT_RELEASE_MODE=ci——release.yml �
     expect(r.code).toBe(0);
     expect(r.report.join('\n')).toContain('（执行形=令牌全本地）');
     expect(s.calls.publish.length).toBe(1);
+  });
+});
+
+/* ---------------- publish 收执回执 GITHUB_OUTPUT（归档步精确射程锚——REL-A1） ---------------- */
+
+/**
+ * publish 事实收执（真发收执 / 等价跳过两形）时 release.mjs 向 GITHUB_OUTPUT
+ * 写 publish_received=1——release.yml 归档步以 steps.<id>.outputs 精确射程：
+ * publish 真红（版本未上 npm）不为未发版本挂用户可见 Release，而 publish 已
+ * 收执后续断言假红（传播窗族）的半成功态归档照跑（5834edd 兜底意图收窄为
+ * 可机判形）。本 describe 锁回执三形：写真 / 跳过照写 / 红不写。
+ */
+describe('publish 收执回执 GITHUB_OUTPUT（release.yml 归档步精确射程锚）', () => {
+  /** GITHUB_OUTPUT 落盘夹具（CI runner 形：step 前空文件、进程内 append） */
+  function withGithubOutput() {
+    const dir = mkdtempSync(join(tmpdir(), 'rel-receipt-'));
+    const file = join(dir, 'out.txt');
+    writeFileSync(file, '');
+    return {
+      file,
+      env: { BERRY_AGENT_RELEASE_MODE: 'ci', GITHUB_OUTPUT: file },
+      cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    };
+  }
+
+  /** CI 形契约 6 通过位（tag 即触发器——CI 只校验不打） */
+  const tagInPlace = { gitTagState: () => ({ commit: 'aaaa0000' }) };
+
+  it('真发收执：publish_received=1 落 GITHUB_OUTPUT（归档步可机判锚——修前红：无写入）', async () => {
+    const fx = withGithubOutput();
+    try {
+      const s = fakeSeams(tagInPlace);
+      const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: fx.env });
+      expect(r.code).toBe(0);
+      expect(s.calls.publish).toHaveLength(1); // 走的是真发位非跳过位
+      expect(readFileSync(fx.file, 'utf8')).toContain('publish_received=1'); // 修前红位
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('等价跳过（registry 在场 shasum 等值）：回执照写（dispatch 幂等重跑补洞形）', async () => {
+    const fx = withGithubOutput();
+    try {
+      const s = fakeSeams({
+        ...tagInPlace,
+        probe: () => ({ status: 0, stdout: '"localsha"\n', stderr: '' }), // 与 fileShasum 缺省 'localsha' 等值
+      });
+      const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: fx.env });
+      expect(r.code).toBe(0);
+      expect(s.calls.publish).toEqual([]); // 跳过 publish——但「已发事实」成立（registry 在场）
+      expect(readFileSync(fx.file, 'utf8')).toContain('publish_received=1');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('publish 红：不写回执（版本未上 npm 不挂 Release——射程收窄位）', async () => {
+    const fx = withGithubOutput();
+    try {
+      const s = fakeSeams({ ...tagInPlace, publish: () => ({ status: 1, stdout: '', stderr: 'npm error 500' }) });
+      const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: fx.env });
+      expect(r.code).toBe(1);
+      expect(readFileSync(fx.file, 'utf8')).not.toContain('publish_received');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('GITHUB_OUTPUT 缺席（本机/令牌腿）：零副作用直通不炸', async () => {
+    const s = fakeSeams(tagInPlace);
+    const r = await run(s, '0.1.0-alpha.1', false, 'main', { env: { BERRY_AGENT_RELEASE_MODE: 'ci' } }); // env 无 GITHUB_OUTPUT
+    expect(r.code).toBe(0);
   });
 });
 

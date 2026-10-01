@@ -63,7 +63,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -670,6 +670,26 @@ export function parseReleaseArgs(argv) {
 // ---------------------------------------------------------------------------
 
 /**
+ * publish 收执回执（release.yml 归档步精确射程锚——2026-10-01 第二轮扫描
+ * 处置 REL-A1）：publish 事实完成（真发收执 / 等价跳过两形——registry 已
+ * 在场即「已发事实」成立，与本次 dry-run 无关）时向 GITHUB_OUTPUT 写
+ * publish_received=1；归档步以 steps.<id>.outputs 精确射程——publish 真红
+ * （版本未上 npm）不为未发版本挂用户可见 Release，而 publish 已收执后续
+ * 断言假红（传播窗族）的半成功态归档照跑（5834edd 兜底意图收窄为可机判形
+ * ——失败步已写入的 step output 照常传递，rerun --failed 后 Release 洞不再
+ * 依赖手工重建）。GITHUB_OUTPUT 缺席（本机触发腿/令牌腿）零副作用跳过。
+ *
+ * @param {object} env 环境面（opts.env ?? process.env——测试经 env:{} 隔离注入）
+ * @param {(line: string) => void} log
+ */
+function markPublishReceived(env, log) {
+  const out = env.GITHUB_OUTPUT;
+  if (!out) return; // 非 CI 环境零副作用（无落盘面）
+  appendFileSync(out, 'publish_received=1\n');
+  log('[契约4] 收执回执：publish_received=1 已写 GITHUB_OUTPUT（CI 归档步精确射程锚）');
+}
+
+/**
  * @param {object} seams 缝面（CLI=realSeams 实装；测试=假缝注入谱场景）
  * @param {{version: string, pkgKey?: string, dryRun: boolean, localPublish?: boolean, epochDrill?: boolean, env?: object, log: (line: string) => void}} opts
  *   pkgKey 缺省 'main'（07 §8.3 双包发布道——编舞零分叉，差异全在描述符/缝面）；
@@ -682,6 +702,7 @@ export async function runRelease(seams, opts) {
   const { version, dryRun } = opts;
   const pkgKey = opts.pkgKey ?? 'main';
   const pkg = PACKAGES[pkgKey];
+  const env = opts.env ?? process.env; // 环境面单提（执行形解析 + 收执回执共用——测试经 env:{} 隔离）
   const report = [];
   const log = (line) => {
     report.push(line);
@@ -693,7 +714,7 @@ export async function runRelease(seams, opts) {
   // 编舞恒投影令牌道旧序（CI 等待段不在演习射程）
   let form;
   try {
-    form = resolveReleaseForm({ pkgKey, localPublish: opts.localPublish ?? false, env: opts.env ?? process.env });
+    form = resolveReleaseForm({ pkgKey, localPublish: opts.localPublish ?? false, env });
   } catch (err) {
     log(`[release] 拒：${err.message}`);
     return { code: 1, report };
@@ -894,7 +915,7 @@ export async function runRelease(seams, opts) {
     const reprobe = await judgeProbeWithPropagationRetry(seams, version, log);
     if (reprobe.state !== 'present') {
       log(
-        `[触发腿] 拒：CI 绿但 registry 复探非在场（${reprobe.state === 'absent' ? 'E404 缺席' : reprobe.reason}）——异常态，人工核 CI 日志与 registry；处置见 07 §8.3 三态谱：主档直读 versions 席（缺席 = 收执≠落库队列在飞——等待或 rerun 两世界收敛；席在场 = 写面滞后——本机收口）`,
+        `[触发腿] 拒：CI 绿但 registry 复探非在场（${reprobe.state === 'absent' ? 'E404 缺席' : reprobe.reason}）——异常态，人工核 CI 日志与 registry；处置见 07 §8.3 三态谱：主档直读 versions 席（缺席 = 收执≠落库队列在飞——等待或 rerun 两世界收敛；席在场 = 写面滞后——本机收口）；判态命令：npm view ${pkg.name}@${version} version --prefer-online`,
       );
       return { code: 1, report };
     }
@@ -935,7 +956,7 @@ export async function runRelease(seams, opts) {
     const tagVerdict = await judgeDistTagWithPropagationRetry(seams, (t) => judgeDistTag(t, version, prerelease), log);
     if (!tagVerdict.ok) {
       log(
-        `[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见；处置见 07 §8.3 三态谱（主档直读判态：席缺席 = 队列在飞等待/rerun 收敛，席在场 tag 未翻 = 本机 dist-tag add 收口）`,
+        `[契约5] 红：${tagVerdict.reason}——半成功态必须被人看见；处置见 07 §8.3 三态谱（主档直读判态：席缺席 = 队列在飞等待/rerun 收敛，席在场 tag 未翻 = 本机 dist-tag add 收口）；判态命令：npm view ${pkg.name} dist-tags --prefer-online（席在场 tag 未翻 = npm dist-tag add ${pkg.name}@${version} latest）`,
       );
       return { code: 1, report };
     }
@@ -948,6 +969,7 @@ export async function runRelease(seams, opts) {
   let published = false;
   if (probe.state === 'present' && probe.shasum === localShasum) {
     log('[契约4] 等价已发：registry shasum 与本地 tarball 一致——跳过 publish 视为成功，后续契约照跑');
+    markPublishReceived(env, log); // registry 在场即「已发事实」——dispatch 幂等重跑补洞形归档照跑
   } else if (probe.state === 'present') {
     // shasum 不一致 → 内容级深对照（剥离溯源戳一件；拉取/解包不可行维持拒）
     const remoteTarball = seams.fetchTarball(version);
@@ -961,6 +983,7 @@ export async function runRelease(seams, opts) {
       return { code: 1, report };
     }
     log('[契约4] 等价已发：深对照全同（仅溯源戳差异）——跳过 publish，后续契约照跑');
+    markPublishReceived(env, log); // 深对照等价同律——registry 在场即「已发事实」
   } else {
     if (!dryRun) {
       const readmeVerdict = judgeReadme(seams.readmeText());
@@ -985,6 +1008,8 @@ export async function runRelease(seams, opts) {
       return { code: 1, report };
     }
     published = true;
+    // dry-run 未上传非收执（CI 形恒非 dry-run——此判为语义精确面，防演习形误写回执）
+    if (!dryRun) markPublishReceived(env, log);
     log(
       `[契约4] 绿：publish 单点完成${dryRun ? '（--dry-run 未上传）' : `（${prerelease ? '--tag next' : '默认 latest'}）`}`,
     );
@@ -998,7 +1023,9 @@ export async function runRelease(seams, opts) {
     // 令牌腿先发、CI 随 tag 复跑时读回可能仍在传播窗内，统一走有界复读。
     const ciVerdict = await judgeDistTagWithPropagationRetry(seams, (t) => judgeDistTagCi(t, version, prerelease), log);
     if (!ciVerdict.ok) {
-      log(`[契约5] 红：${ciVerdict.reason}——处置见 07 §8.3 三态谱（主档直读判态后 rerun 收敛或本机收口）`);
+      log(
+        `[契约5] 红：${ciVerdict.reason}——处置见 07 §8.3 三态谱（主档直读判态后 rerun 收敛或本机收口）；判态命令：npm view ${pkg.name} dist-tags --prefer-online`,
+      );
       return { code: 1, report };
     }
     log('[契约5] 绿：CI 形只读断言过（latest 挪位不在 CI 射程——本机触发腿收口段复断）');
