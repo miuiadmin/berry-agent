@@ -30,16 +30,18 @@ const card = (over: Partial<ToolCardView>): ToolCardView => ({
   diff: false,
   expanded: false,
   theme: DEFAULT_THEME,
+  toggleHint: 'ctrl+o',
   ...over,
 });
 
 describe('工具卡三态卡头', () => {
-  it('success 卡头：✓ 符号 success 色 + 名/简述 dim', () => {
+  it('success 卡头：✓ 符号 success 色 + 名平前景（不 dim——界面美化役批②）+ 简述 dim', () => {
     const lines = renderToolCardStyledLines(card({}), 40);
     expect(lines[0]!.plain).toBe(' ✓ read(path)');
     expect(lines[0]!.runs).toEqual([
       { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
-      { start: 2, end: 13, style: { dim: true } },
+      // 名段（2..6 = 'read'）无游程——平前景可辨；简述段 dim
+      { start: 6, end: 13, style: { dim: true } },
     ]);
   });
 
@@ -54,15 +56,25 @@ describe('工具卡三态卡头', () => {
 });
 
 describe('卡体两档与存账帽', () => {
-  it('折叠 = 尾 CARD_PREVIEW_LINES 视觉行且整面 dim；展开 = 全量正常亮度', () => {
+  it('折叠 = 中段截断预览（头 2 + 省略行 + 尾 2——UX 五问题批⑤）且整面 dim；展开 = 全量正常亮度', () => {
     const body = Array.from({ length: 12 }, (_, i) => `第 ${i} 行`);
     const collapsed = renderToolCardStyledLines(card({ body }), 40);
-    expect(collapsed).toHaveLength(1 + CARD_PREVIEW_LINES); // 卡头 + 尾 5
-    expect(collapsed[collapsed.length - 1]!.plain).toBe('第 11 行'); // 尾行取尾
+    expect(collapsed).toHaveLength(1 + CARD_PREVIEW_LINES); // 卡头 + 总帽 5
+    // 中段截断形：头 2（首行在场——修前尾滑窗只见尾）+ 省略行 + 尾 2
+    expect(collapsed[1]!.plain).toBe('第 0 行');
+    expect(collapsed[2]!.plain).toBe('第 1 行'); // 头 2 次行
+    expect(collapsed[3]!.plain).toContain('已省 8 行'); // 12 - 4 = 8 行省略
+    expect(collapsed[3]!.plain).toContain('ctrl+o'); // 展开键提示（真键位随册）
+    expect(collapsed[collapsed.length - 1]!.plain).toBe('第 11 行'); // 尾 2 末行
     expect(collapsed.slice(1).every((l) => l.runs.every((r) => r.style.dim === true))).toBe(true); // 预览 dim
     const expanded = renderToolCardStyledLines(card({ body, expanded: true }), 40);
     expect(expanded).toHaveLength(1 + 12);
     expect(expanded.slice(1).every((l) => l.runs.every((r) => r.style.dim !== true))).toBe(true);
+  });
+
+  it('折叠预览行数 ≤ 帽时原样全显（无省略行）', () => {
+    const collapsed = renderToolCardStyledLines(card({ body: ['仅一行'] }), 40);
+    expect(collapsed.map((l) => l.plain)).toEqual([' ✓ read(path)', '仅一行']);
   });
 
   it('cardBodyOf 尾留帽：超帽截头保尾 + 截断标记首行', () => {
@@ -117,10 +129,11 @@ describe('edit diff 档', () => {
     expect(ctx.runs).toEqual([]);
   });
 
-  it('超宽行截断 + 游程钳制（变字段越界部分丢弃）', () => {
+  it('超宽行截断 + 游程钳制（变字段越界部分丢弃；界面美化役批① … 记号）', () => {
     const longPatch = ['-' + 'a'.repeat(20) + '尾旧', '+' + 'a'.repeat(20) + '尾新'];
     const lines = renderToolCardStyledLines(card({ name: 'edit', diff: true, body: longPatch, expanded: true }), 12);
-    expect(lines[1]!.plain).toBe('-' + 'a'.repeat(11)); // 12 列宽帽（前缀 1 + 11）
+    // 12 列宽帽：截 11 + … 记号（被切行与真实行尾可辨——裸切翻档）
+    expect(lines[1]!.plain).toBe('-' + 'a'.repeat(10) + '…');
     for (const run of lines[1]!.runs) expect(run.end).toBeLessThanOrEqual(lines[1]!.plain.length);
   });
 });
@@ -308,16 +321,14 @@ describe('插件卡体（renderResult 消费——回落恒在律）', () => {
   });
 });
 
-describe('卡头屏宽帽（2026-09-20 TUI 修复组 1 批 F6）', () => {
-  it('超长名：卡头整行截到屏宽、游程同步收尾', () => {
+describe('卡头屏宽帽（2026-09-20 TUI 修复组 1 批 F6；界面美化役批①——截断走 `…`）', () => {
+  it('超长名：卡头截到屏宽-1 追 …、符号游程保位（名段平前景无跨界段）', () => {
     const lines = renderToolCardStyledLines(card({ name: 'n'.repeat(60), brief: '' }), 30);
     const header = lines[0]!;
-    expect(header.plain).toBe(' ✓ ' + 'n'.repeat(27)); // 3 前缀 + 27 = 30 恰帽
+    // 3 前缀 + 26 n + …（宽 1）= 30 恰满帽——被切行与真实行尾可辨
+    expect(header.plain).toBe(' ✓ ' + 'n'.repeat(26) + '…');
     expect(header.plain.length).toBe(30);
-    expect(header.runs).toEqual([
-      { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
-      { start: 2, end: 30, style: { dim: true } }, // 名段跨界收尾到截断长
-    ]);
+    expect(header.runs).toEqual([{ start: 0, end: 2, style: { fg: DEFAULT_THEME.success } }]);
   });
 
   it('未超帽卡头原样（同形不受帽影响）', () => {
@@ -325,14 +336,23 @@ describe('卡头屏宽帽（2026-09-20 TUI 修复组 1 批 F6）', () => {
     expect(lines[0]!.plain).toBe(' ✓ read(path)');
   });
 
-  it('帽内窄宽截断整字丢弃不产半字（宽字名末位）', () => {
-    // 名 = '中'×20（宽 2）+ 帽 12：前缀 ' ✓ ' 占 3，余 9 列容 4 个「中」+1 列丢
+  it('帽内窄宽截断整字丢弃不产半字（宽字名末位）+ 裸省略号', () => {
+    // 名 = '中'×20（宽 2）+ 帽 12：前缀 ' ✓ ' 占 3，余 8 列容 4 个「中」（8 列）
+    // + …（1 列）恰满 12——第 5 个「中」跨界整字丢弃
     const lines = renderToolCardStyledLines(card({ name: '中'.repeat(20), brief: '' }), 12);
     const header = lines[0]!;
-    expect(header.plain).toBe(' ✓ ' + '中'.repeat(4)); // 9 列 = 4 宽字（8 列）+ 1 列整字丢弃
+    expect(header.plain).toBe(' ✓ ' + '中'.repeat(4) + '…');
+    expect(header.runs).toEqual([{ start: 0, end: 2, style: { fg: DEFAULT_THEME.success } }]);
+  });
+
+  it('尾段覆盖截断点 → 省略号随段既有着色（简述段 dim 延伸吞 …）', () => {
+    // 名 3 字符 + 简述超长：截断点落在简述段内——尾段（dim）延伸一格吞省略号
+    const lines = renderToolCardStyledLines(card({ name: 'abc', brief: 'b'.repeat(40) }), 20);
+    const header = lines[0]!;
+    expect(header.plain).toBe(' ✓ abc' + 'b'.repeat(13) + '…'); // 6 前缀名 + 13 b + … = 20
     expect(header.runs).toEqual([
       { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
-      { start: 2, end: 7, style: { dim: true } },
+      { start: 5, end: 20, style: { dim: true } }, // 简述段跨截断点延伸吞 …
     ]);
   });
 });
@@ -364,6 +384,7 @@ describe('构造位消毒：tab 记宽 1 发射展开 2 空格（修前截断记
       diff: true,
       expanded: true,
       theme: DEFAULT_THEME,
+      toggleHint: 'ctrl+o',
     };
     for (const line of renderBlockLines(block, 20)) {
       expect(emittedWidth(line)).toBeLessThanOrEqual(20);
@@ -401,5 +422,114 @@ describe('构造位消毒：tab 记宽 1 发射展开 2 空格（修前截断记
   it('tab 语义展开为空格（构造位消毒先行——发射字节零 tab）', () => {
     const lines = renderToolCardStyledLines(card({ name: 'edit', diff: true, body: ['+\tfoo'], expanded: true }), 40);
     expect(lines[1]!.plain).toBe('+  foo'); // 1 tab → 2 空格
+  });
+});
+
+/* ---------------- UX 五问题批①/③：exec 卡头复刻与状态行 ---------------- */
+
+describe('exec 卡头复刻（UX 五问题批①——bash 族）', () => {
+  /** bash 卡速构（命令经 renderInput.arguments.command 携带——数据面事实只读） */
+  const bashCard = (command: string, over: Partial<ToolCardView> = {}): ToolCardView =>
+    card({ name: 'bash', body: ['Exit code: 0'], renderInput: renderInputOf({ arguments: { command } }), ...over });
+
+  it('Ran 动词 bold + 符号语义色 + `bash -lc` 外壳剥除（一层外引号同剥）', () => {
+    const lines = renderToolCardStyledLines(bashCard(`bash -lc 'echo hi'`), 40);
+    expect(lines[0]!.plain).toBe(' ✓ Ran echo hi'); // 外壳动词与引号剥除——命令文本直呈
+    // 符号段（含首空格）语义色 + 动词段 Ran bold（成功/失败同词）；命令段词法
+    // 高亮游程自 col 7 起（词色具体值不锁——高亮表面内聚）
+    expect(lines[0]!.runs[0]).toEqual({ start: 0, end: 2, style: { fg: DEFAULT_THEME.success } });
+    expect(lines[0]!.runs[1]).toEqual({ start: 3, end: 6, style: { bold: true } });
+    for (const run of lines[0]!.runs.slice(2)) expect(run.start).toBeGreaterThanOrEqual(7);
+  });
+
+  it('失败腿同词 Ran：✖ 符号 error 色（动词段不动）', () => {
+    const lines = renderToolCardStyledLines(bashCard('echo hi', { status: 'error' }), 40);
+    expect(lines[0]!.plain).toBe(' ✖ Ran echo hi');
+    expect(lines[0]!.runs[0]).toEqual({ start: 0, end: 2, style: { fg: DEFAULT_THEME.error } });
+    expect(lines[0]!.runs[1]).toEqual({ start: 3, end: 6, style: { bold: true } });
+  });
+
+  it('中止腿：⏹ 符号 secondary（次文同档弱存在感）', () => {
+    const lines = renderToolCardStyledLines(bashCard('echo hi', { status: 'aborted' }), 40);
+    expect(lines[0]!.plain.startsWith(' ⏹ Ran ')).toBe(true);
+    expect(lines[0]!.runs[0]).toEqual({ start: 0, end: 2, style: { fg: DEFAULT_THEME.secondary } });
+  });
+
+  it('命令折行帽 2 + 超出省略行（续行 7 列对齐 + dim + 真实行数明示）', () => {
+    // 宽 17：内容帽 17-7=10 列——'aaaaaaaaaa'（10）/'bbbbbbbbbb'（10）/'cccc'（4）三折行
+    const lines = renderToolCardStyledLines(bashCard('a'.repeat(10) + 'b'.repeat(10) + 'cccc'), 17);
+    // 头两折行 + 省略行（帽 2 视觉行）+ 卡体预览 1 行（body 单行 ≤ 帽、无 durationMs 无状态行）
+    expect(lines).toHaveLength(4);
+    expect(lines[0]!.plain).toBe(' ✓ Ran ' + 'a'.repeat(10));
+    expect(lines[1]!.plain).toBe(' '.repeat(7) + 'b'.repeat(10)); // 续行 7 列对齐
+    expect(lines[1]!.runs[0]).toEqual({ start: 0, end: 2, style: { fg: DEFAULT_THEME.success } });
+    expect(lines[1]!.runs.some((r) => r.style.bold === true)).toBe(false); // 续行无动词段
+    // 省略行自身受屏宽帽（17 列：7 缩进 + ⋯（命令已 = 16 显示宽后截断收 '…'）
+    expect(lines[2]!.plain).toBe(' '.repeat(7) + '⋯（命令已…');
+    expect(lines[2]!.runs).toEqual([{ start: 7, end: lines[2]!.plain.length, style: { dim: true } }]);
+    expect(lines[3]!.plain).toBe('Exit code: 0'); // 卡体照常随卡头集之后
+  });
+
+  it('命令缺席/非字符串 → 回落常量卡头（generic 形）', () => {
+    const noCmd = renderToolCardStyledLines(card({ name: 'bash', renderInput: renderInputOf({ arguments: {} }) }), 40);
+    expect(noCmd[0]!.plain).toBe(' ✓ bash(path)'); // 常量卡头（名平前景 + 简述）
+    const badType = renderToolCardStyledLines(
+      card({ name: 'bash', renderInput: renderInputOf({ arguments: { command: 42 } }) }),
+      40,
+    );
+    expect(badType[0]!.plain).toBe(' ✓ bash(path)'); // 非字符串命令同回落
+  });
+});
+
+describe('exec 卡体状态行（UX 五问题批③——bash 卡族卡体首行）', () => {
+  const bashCard = (over: Partial<ToolCardView>): ToolCardView =>
+    card({ name: 'bash', body: ['Exit code: 1', '输出行'], durationMs: 1500, ...over });
+
+  it('失败腿：`(退出码) • {时长}` 整行 dim（折行帽内）', () => {
+    const lines = renderToolCardStyledLines(bashCard({ status: 'error' }), 40);
+    expect(lines[1]!.plain).toBe('(1) • 1.50s');
+    expect(lines[1]!.runs).toEqual([{ start: 0, end: '(1) • 1.50s'.length, style: { dim: true } }]);
+  });
+
+  it('成功腿：不显退出码（Exit code: 0 渲染层不显）——仅时长', () => {
+    const lines = renderToolCardStyledLines(bashCard({ status: 'success', body: ['Exit code: 0'] }), 40);
+    expect(lines[1]!.plain).toBe('• 1.50s');
+  });
+
+  it('信号终止 null 形：`（信号终止）` 段替代退出码', () => {
+    const lines = renderToolCardStyledLines(bashCard({ status: 'error', body: ['Exit code: null（信号终止）'] }), 40);
+    expect(lines[1]!.plain).toBe('（信号终止） • 1.50s');
+  });
+
+  it('错误族无码形（EXEC_TIMEOUT 等）仅时长；时长格式四档（ms/秒/分/时）', () => {
+    const timeout = renderToolCardStyledLines(bashCard({ status: 'error', body: ['[EXEC_TIMEOUT] 超时'] }), 40);
+    expect(timeout[1]!.plain).toBe('• 1.50s'); // 无 Exit code 行——空码段
+    const ms = renderToolCardStyledLines(bashCard({ durationMs: 250 }), 40);
+    expect(ms[1]!.plain).toBe('• 250ms'); // < 1s → ms 形
+    const min = renderToolCardStyledLines(bashCard({ durationMs: 75_000 }), 40);
+    expect(min[1]!.plain).toBe('• 1m 15s'); // < 60m → 分秒形
+    const hour = renderToolCardStyledLines(bashCard({ durationMs: 3_660_000 }), 40);
+    expect(hour[1]!.plain).toBe('• 1h 01m'); // ≥ 60m → 时分形
+  });
+
+  it('折叠/展开两档恒在（钉卡头之后预览窗之前）；非 bash 卡无状态行', () => {
+    const collapsed = renderToolCardStyledLines(
+      bashCard({ status: 'error', body: ['Exit code: 1', ...Array.from({ length: 12 }, (_, i) => `第 ${i} 行`)] }),
+      40,
+    );
+    expect(collapsed[1]!.plain).toBe('(1) • 1.50s'); // 折叠档状态行在场
+    expect(collapsed[2]!.plain).toBe('Exit code: 1'); // 预览窗紧随（头 2 首行 = 卡体原首行）
+    expect(collapsed[3]!.plain).toBe('第 0 行'); // 头 2 次行
+    const expanded = renderToolCardStyledLines(
+      bashCard({ status: 'error', body: ['Exit code: 1'], expanded: true }),
+      40,
+    );
+    expect(expanded[1]!.plain).toBe('(1) • 1.50s'); // 展开档同形
+    // 非 bash 卡（grep）恒无状态行——退出码是 exec 专属呈现
+    const grep = renderToolCardStyledLines(card({ name: 'grep', durationMs: 500, status: 'error' }), 40);
+    expect(grep[1]!.plain).toBe('行一'); // 无状态行——卡体直接开始
+    // durationMs 缺席（孤儿/旧投影形）= 无状态行
+    const noDur = renderToolCardStyledLines(card({ name: 'bash', status: 'error', body: ['Exit code: 1'] }), 40);
+    expect(noDur[1]!.plain).toBe('Exit code: 1');
   });
 });

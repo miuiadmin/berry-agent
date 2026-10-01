@@ -27,9 +27,17 @@ export interface ThinkingView {
   readonly toggleHint: string;
 }
 
-/** 思考标签行（单行——折叠档全量 + 展开档首行；字数 = UTF-16 单元数近似） */
+/** CJK 判（界面美化役批注：思考标签计数词随内容选——「字」对纯拉丁思考失真） */
+const CJK_PATTERN = /[㐀-鿿぀-ヿ가-힯豈-﫿]/;
+
+/** 计数词单源：含 CJK 用「字」，纯拉丁/数字/符号文本用「字符」（诚实计数形） */
+function countUnitFor(text: string): '字' | '字符' {
+  return CJK_PATTERN.test(text) ? '字' : '字符';
+}
+
+/** 思考标签行（单行——折叠档全量 + 展开档首行；字数 = UTF-16 单元数近似，计数词随内容判） */
 export function thinkingLabelText(view: ThinkingView, action: '展开' | '收起'): string {
-  return `✻ 思考 ${view.text.length} 字（${view.toggleHint} ${action}）`;
+  return `✻ 思考 ${view.text.length} ${countUnitFor(view.text)}（${view.toggleHint} ${action}）`;
 }
 
 /**

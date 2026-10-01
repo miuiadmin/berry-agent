@@ -52,6 +52,13 @@ describe('思考块渲染两档', () => {
     expect(thinkingLabelText(view('abc', false), '展开')).toContain('展开');
     expect(thinkingLabelText(view('abc', true), '收起')).toContain('收起');
   });
+
+  it('计数词随内容判（界面美化役批：CJK→字、纯拉丁→字符——「字」失真止漏）', () => {
+    expect(thinkingLabelText(view('思考中……', false), '展开')).toContain('字（');
+    expect(thinkingLabelText(view('let me think about this', false), '展开')).toContain('字符（');
+    // 混合文本含任一 CJK 即「字」——多数位诚实
+    expect(thinkingLabelText(view('thinking about 思路', false), '展开')).toContain('字（');
+  });
 });
 
 describe('槽/定稿同函数两渲染', () => {
