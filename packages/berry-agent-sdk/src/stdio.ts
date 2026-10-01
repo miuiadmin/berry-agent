@@ -152,7 +152,7 @@ export function spawnServeTransport(options: SpawnServeOptions): SdkStdioTranspo
       // 清 inflight 使串行链自动续走——防前一事务不落定致整链静默挂死
       const pending = inflight;
       inflight = undefined;
-      pending?.reject(new SdkError('SDK_TRANSPORT', `子进程已退出（code=${code}）——在飞事务无法落定`));
+      pending?.reject(new SdkError('SDK_TRANSPORT', `子进程已退出（code=${code}）——未完成的请求无法落定`));
       resolve(code);
     };
     child.on('exit', (code) => settle(code ?? 0));

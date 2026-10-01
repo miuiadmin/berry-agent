@@ -99,17 +99,19 @@ const LIFECYCLE_RE = /\benablePlugin\b|\bdisablePlugin\b|\bpluginEnable\b|\bplug
 const ZH_VIOLATION_RE = /应用中心|应用型|应用商店|应用市场|应用列表/g;
 // 查三：谱系词（公开文档面）——豁免 -pi（perl 旗标）与 谱系闸（机制自产词）
 const LINEAGE_RE = /承自|对标|谱系|pi-ai|\bdsh\b|opencode|Emacs|\bpi\b/g;
-// 查四：用户面禁替词——字符串字面量扫描（07 §4.4 禁替表 21 行的特异形；
+// 查四：用户面禁替词——字符串字面量扫描（07 §4.4 禁替表 24 行的特异形；
 // 2026-09-30 话术批查四扩展）。只咬高置信复合形，「件」「档」单义不扫
 // （对照语境合法态过多——中文违形复合谱：宁漏不误咬）。
 //   - 全词面：挂钟/变异前拍/保底拍/预演/切焦/回切/对账/委派折叠/判据门/
 //     复探/坏形/越形/在册/撞名/选装/换装/缺省/开面/副屏/档位/应答
 //   - 复合形补词（2026-10-01 wf_db273e73 扫描处置——低歧义复合形随实证
 //     残词滚动补）：装配面/线面/退订
+//   - 裸词入表（2026-10-01 wf_70e9b7b8 扫描处置——纯黑话无对照态直咬，
+//     07 §4.4 裸词入表谱）：在飞/活体/词法违例
 //   - 「帽」邻接中文形（X帽/帽X——产串中「帽」几乎全为「上限」禁义）
 //   - 数字档形（\d档 + 三档/七档/两档——「read-only 档」等分类词经豁免台账
 const USERFACE_RE =
-  /挂钟|变异前拍|保底拍|预演|切焦|回切|对账|委派折叠|判据门|复探|坏形|越形|在册|撞名|选装|换装|缺省|开面|副屏|档位|应答|装配面|线面|退订|[一-龥]帽|帽[一-龥]|\d\s*档|三档|七档|两档/g;
+  /挂钟|变异前拍|保底拍|预演|切焦|回切|对账|委派折叠|判据门|复探|坏形|越形|在册|撞名|选装|换装|缺省|开面|副屏|档位|应答|装配面|线面|退订|在飞|活体|词法违例|[一-龥]帽|帽[一-龥]|\d\s*档|三档|七档|两档/g;
 
 /**
  * 提取字符串字面量内容、保行号（查四专用——与 stripCode 互补：只看串内容，
@@ -169,15 +171,31 @@ const USERFACE_FILE_EXEMPTS = [
   { file: 'src/goal/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/host/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/host/manifest.ts', reason: 'manifest 治理表 desc——API 治理工程单源' },
+  {
+    file: 'src/issue/codes.ts',
+    reason: '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举）',
+  },
+  {
+    file: 'src/llm/codes.ts',
+    reason: '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举）',
+  },
   { file: 'src/lsp/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/mcp/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/memory/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/obs/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/persist/schema.ts', reason: 'CANONICAL_DDL SQL 注释域——工程真源' },
   { file: 'src/safety/codes.ts', reason: '错误码注册表 description 工程目录面（F 先例已改 11 行不回退）' },
+  {
+    file: 'src/scheduler/codes.ts',
+    reason: '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举）',
+  },
   { file: 'src/session/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/subagent/codes.ts', reason: '错误码注册表 description 工程目录面' },
   { file: 'src/tools/codes.ts', reason: '错误码注册表 description 工程目录面' },
+  {
+    file: 'src/web/codes.ts',
+    reason: '错误码注册表 description 工程目录面（wf_70e9b7b8 批补——新模块注册表出生晚于 19 文件枚举）',
+  },
 ];
 
 /**

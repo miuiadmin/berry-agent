@@ -234,7 +234,7 @@ export async function proveLifecycleMatrix(options: MatrixOptions): Promise<Life
       // 回执两查：有在飞代可回卷（null = 无代可卸——装载从未成）+ 回卷零失败
       //（receipt.disposed 只列 apply 返回清理函数的插件——ctx.effect 形注册
       // 走 fork dispose 腿不进 disposed 清单，故「已卸载」的真证明在下方账面）
-      if (receipt === null) throw new Error('回卷回执 null（无在飞代可卸——挂载从未成功）');
+      if (receipt === null) throw new Error('回卷回执 null（没有可卸载的当前代——挂载从未成功）');
       if (receipt.failed.length > 0) {
         throw new Error(`回卷失败面非空：${receipt.failed.map((f) => f.id).join('、')}`);
       }

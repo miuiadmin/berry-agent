@@ -398,7 +398,7 @@ function bridgeDeps(
             if (pending !== input.content) {
               throw new BaseError(
                 'SDK_MESSAGE_CONFLICT',
-                `messageId=${input.messageId} 同键异内容（webui 幂等 admit 冲突档——在飞窗）`,
+                `messageId=${input.messageId} 同键异内容（webui 幂等受理——消息未落库窗口内收到异文重发）`,
               );
             }
             return { sessionId: input.sessionId }; // 在飞窗幂等重收执——不重入队不重跑

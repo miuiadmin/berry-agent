@@ -541,7 +541,7 @@ export function createMemoryDao(deps: MemoryDaoDeps): MemoryDao {
     if (name.length > MEMORY_SKILL_NAME_MAX || !MEMORY_SKILL_NAME_RE.test(name)) {
       throw new BaseError(
         'MEMORY_ENTRY_INVALID',
-        `promotedToSkill 技能名词法违例（^[a-z0-9]+(?:-[a-z0-9]+)*$ 且 ≤${MEMORY_SKILL_NAME_MAX}）：${name}`,
+        `promotedToSkill 技能名格式不对（^[a-z0-9]+(?:-[a-z0-9]+)*$ 且 ≤${MEMORY_SKILL_NAME_MAX}）：${name}`,
       );
     }
     return name;

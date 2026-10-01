@@ -22,7 +22,7 @@ export function createInFlightGate(capacity: number): InFlightGate {
     },
     acquire() {
       if (inFlight >= effective) {
-        throw new BaseError('WEB_RATE_LIMITED', `在飞门满（并发 ${inFlight}/${effective}）——稍后重试或降低并发`);
+        throw new BaseError('WEB_RATE_LIMITED', `并发已达上限（${inFlight}/${effective}）——稍后重试或降低并发`);
       }
       inFlight += 1;
     },

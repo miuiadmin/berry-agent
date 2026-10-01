@@ -123,10 +123,7 @@ export function createStreamFn(
     if (tracker !== undefined) {
       const slot = tracker.tryAcquire(model.provider);
       if (slot === null) {
-        return errorStream(
-          `在飞请求达上限（provider=${model.provider}）：并发压力自解，会话层退避后重试`,
-          'LLM_INFLIGHT_LIMIT',
-        );
+        return errorStream(`并发请求已达上限（provider=${model.provider}）：压力回落后自动重试`, 'LLM_INFLIGHT_LIMIT');
       }
       // idle 帽在 withRelease 外层（04 §3.8）：超帽收口经底层 return 走内层
       // withRelease 释放（§3.6 释放幂等律第四路径）

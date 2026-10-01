@@ -708,7 +708,7 @@ export function createIssueService(deps: IssueServiceDeps): IssueService {
       );
       return {
         status: 'rejected',
-        reason: `issue 并行上限已满（在飞 ${issueRunning.size} ≥ 上限 ${ISSUE_PARALLEL_LIMIT_DEFAULT}）——本轮拒收，issue 后续更新将自动重试入队`,
+        reason: `issue 并行上限已满（运行中 ${issueRunning.size} ≥ 上限 ${ISSUE_PARALLEL_LIMIT_DEFAULT}）——本轮拒收，issue 后续更新将自动重试入队`,
       };
     }
     const afford = deps.budget.canAffordIssue();

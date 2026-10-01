@@ -85,8 +85,8 @@ export function createControlTools(deps: ControlToolsDeps): readonly ToolDefinit
     {
       name: 'session_interrupt',
       description:
-        '打断目标会话的在飞 run（协作中止——目标 turn 以 interrupted 收口）。' +
-        '目标无在飞 run 拒 SESSION_INACTIVE（响亮拒不静默 no-op）。' +
+        '打断目标会话运行中的 run（协作中止——目标 turn 以 interrupted 收口）。' +
+        '目标无运行中的 run 拒 SESSION_INACTIVE（响亮拒不静默 no-op）。' +
         '回执含 stillQueued（打断后在队操控件 id 清单——可逐件 session_withdraw 撤回）' +
         '与 queuedCount（在队总数——在队件保留在队、下次续跑作种子，打断不清队）。' +
         '需高危面 sessions.control-cross 开门（全域同门）。',

@@ -66,7 +66,7 @@ export function evaluateGates(facts: GateFacts, ctx: GateContext): GateBlock | n
   }
   // 2. agent_busy——前台在飞即拦（本轮跳过，advance 到下一刻）
   if (facts.agentBusy === true) {
-    return { gate: 'agent_busy', reason: '宿主前台对话在飞' };
+    return { gate: 'agent_busy', reason: '宿主前台对话运行中' };
   }
   // 3. recent_user_msg——静默窗内有用户消息即拦
   if (facts.lastUserMessageAt) {

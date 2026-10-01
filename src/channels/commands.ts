@@ -39,7 +39,7 @@ export class CommandRegistry {
     if (!COMMAND_NAME_RE.test(name)) {
       throw new BaseError(
         'CHANNEL_COMMAND_INVALID',
-        `命令名词法违例：${JSON.stringify(name)}（主段连字符式 + 可选冒号子段，小写）`,
+        `命令名格式不对：${JSON.stringify(name)}（主段连字符式 + 可选冒号子段，小写）`,
       );
     }
     const token = { seed: this.tokenSeed++ };

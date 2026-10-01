@@ -57,7 +57,7 @@ function fakeJobs(opts?: { issueKindLimit?: number }) {
       ) {
         throw new BaseError(
           'JOB_LIMIT_REACHED',
-          `Job kind「issue」在飞数已达并行上限 ${opts.issueKindLimit}——拒新注册（04 §10 注册表面口）`,
+          `Job kind「issue」运行中的作业数已达并行上限 ${opts.issueKindLimit}——拒新注册（04 §10 注册表面口）`,
         );
       }
       runningNames.add(input.name);

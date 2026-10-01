@@ -569,7 +569,7 @@ export function createDangerGate(opts: DangerGateOptions): DangerGate {
           records,
           req,
           'DANGER_CONSENT_INVALID',
-          `[DANGER_CONSENT_INVALID] 危险闸 consent 漂移（mandate 哈希不符——批了 A 契约不等于批了 B 契约）——重跑 /danger approve 重签（活体哈希 ${mandateHash}）`,
+          `[DANGER_CONSENT_INVALID] 危险闸 consent 漂移（mandate 哈希不符——批了 A 契约不等于批了 B 契约）——重跑 /danger approve 重签（当前生效授权的指纹 ${mandateHash}）`,
           nowMs,
         );
       } else if (nowMs >= consent.expiresAt) {

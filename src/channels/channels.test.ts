@@ -771,7 +771,7 @@ describe('/resume 命令面（2026-09-30 会话管理命令批批2——resumeSe
     expect(b.notified.map((n) => n.message)).toContain('已续接：s2');
   });
 
-  it('带参直通后 focus 拒绝：折「切焦失败」notify 不成 unhandledRejection', async () => {
+  it('带参直通后 focus 拒绝：折「切换会话失败」notify 不成 unhandledRejection', async () => {
     // 修前红位：`void registry.focus(id)`（切焦不打断注释位）弃接——拉投影失败
     // 沿 void 逃出成 unhandledRejection 经崩溃编舞 exit(1)；续接回执已发、切焦
     // 失败须诚实补 error 回执（焦点位已同步翻但重画未达——用户面不静默）

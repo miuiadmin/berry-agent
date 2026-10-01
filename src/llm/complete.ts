@@ -362,7 +362,7 @@ export function createLlmService(options: LlmServiceOptions): LlmService {
               content: [],
               usage: NO_USAGE,
               stopReason: 'error',
-              errorMessage: `[LLM_INFLIGHT_LIMIT] 在飞请求达上限（provider=${model.provider}）：过载期单发失败，调用方稍后自然重试`,
+              errorMessage: `[LLM_INFLIGHT_LIMIT] 并发请求已达上限（provider=${model.provider}）：过载期单发失败，稍后由调用方重试`,
               errorCode: 'LLM_INFLIGHT_LIMIT',
               timestamp: Date.now(),
             } as AssistantMessage;

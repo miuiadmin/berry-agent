@@ -188,8 +188,8 @@ export function createSessionsFace(options: SessionsFaceOptions): SessionsFace {
     if (log === undefined) {
       throw new BaseError(
         'SESSION_NO_ACTIVE_SESSION',
-        `sessions 受理面只读件无活体会话可锚（currentSessionId = ${sessionId ?? 'undefined'}）` +
-          `——eventsOfType/lastClosedBoundary 锚活体 SessionLog 不造 durable 替身；跨会话/历史读走 queryEvents（03 §4.4）`,
+        `sessions 清单当前没有生效的会话可读（currentSessionId = ${sessionId ?? 'undefined'}）` +
+          `——本受理面只读当前会话的事件流、不造库内替身；跨会话与历史读取走 queryEvents`,
       );
     }
     return log;

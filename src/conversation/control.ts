@@ -313,7 +313,10 @@ export function createSessionsControl(deps: SessionsControlDeps): SessionsContro
       // open 必无在飞 run（休眠会话无 run），缺席 driver 同判
       const driver = deps.manager.driverOf(input.targetSessionId);
       if (driver === undefined || !driver.running) {
-        throw new BaseError('SESSION_INACTIVE', `目标会话 ${input.targetSessionId} 无在飞 run 可打断（休眠或已停摆）`);
+        throw new BaseError(
+          'SESSION_INACTIVE',
+          `目标会话 ${input.targetSessionId} 没有运行中的轮次可打断（已空闲或已结束）`,
+        );
       }
       driver.abort();
       // —— still_queued 后果清单（e-5 定形）：打断只打断当前 run，在队件

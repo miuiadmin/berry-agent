@@ -186,4 +186,25 @@ describe('check-vocab 守护炮自测（spawn 全闸形态）', () => {
     expect(status).toBe(1);
     expect(out).toContain('「装配面」');
   });
+
+  it('查四产码腿：裸词入表「在飞/活体/词法违例」 → 红（纯黑话无对照态直咬——wf_70e9b7b8 裸词入表谱）', () => {
+    const root = fixture('userface-bare', {
+      'src/host/wiring.ts':
+        "export const a = '在飞请求达上限';\nexport const b = '活体哈希不符';\nexport const c = '键词法违例';\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(1);
+    expect(out).toContain('「在飞」');
+    expect(out).toContain('「活体」');
+    expect(out).toContain('「词法违例」');
+  });
+
+  it('查四产码腿：新模块 codes.ts 注册表 → 绿（19→23 文件豁免台账随批补——出生晚于枚举不入红）', () => {
+    const root = fixture('userface-registry-exempt', {
+      'src/issue/codes.ts': "export const CODES = { X: { description: '同键在飞互斥撞锁' } };\n",
+    });
+    const { status, out } = runCheck(root);
+    expect(status).toBe(0);
+    expect(out).toContain('check-vocab 绿');
+  });
 });

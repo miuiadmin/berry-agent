@@ -325,7 +325,7 @@ export function createJobRegistry(options: JobRegistryOptions = {}): KindOwningJ
       if (limit !== undefined && countRunning(input.kind) >= limit) {
         throw new BaseError(
           'JOB_LIMIT_REACHED',
-          `Job kind「${input.kind}」在飞数已达并行上限 ${limit}——拒新注册（04 §10 注册表面口）`,
+          `Job kind「${input.kind}」运行中的作业数已达并行上限 ${limit}——拒新注册（04 §10 注册表面口）`,
         );
       }
       const id = `job-${++idSeq}`;

@@ -173,13 +173,13 @@ describe('run 收场渲染', () => {
       trigger: 'clock',
       reason: 'gated',
       gate: 'agent_busy',
-      error: '宿主前台对话在飞',
+      error: '宿主前台对话运行中',
       finishedAt: '2026-09-07T08:00:00.000Z',
     });
     const out = await runTickCommand(['run', 'j'], deps(fakeService(), engine));
     expect(out).toContain('clock 道 gated');
     expect(out).toContain('agent_busy');
-    expect(out).toContain('宿主前台对话在飞');
+    expect(out).toContain('宿主前台对话运行中');
   });
 });
 

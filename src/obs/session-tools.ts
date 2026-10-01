@@ -99,9 +99,9 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
     {
       name: 'session_list',
       description:
-        '列出本进程在管会话清单（id/标题/血缘 origin·parentId/在飞粗状态/近次模型/updatedAt）。' +
+        '列出本进程在管会话清单（id/标题/血缘 origin·parentId/运行粗状态/近次模型/updatedAt）。' +
         '默认只列本会话血缘树内会话；跨树/全会话维枚举需高危面 sessions.observe-cross 开门（未开门时跨树会话不呈现）。' +
-        '在飞粗状态由事件流尾条推导（idle = 回合闭合 / running = 回合进行中 / waiting-approval = 等待用户审批 / paused = 预算停靠——预算上限尽停靠、回充唤醒）。',
+        '运行粗状态由事件流尾条推导（idle = 回合闭合 / running = 回合进行中 / waiting-approval = 等待用户审批 / paused = 预算停靠——预算上限尽停靠、回充唤醒）。',
       parameters: Type.Object({}, { additionalProperties: false }),
       effect: 'read',
       execute: async (): Promise<AgentToolResult> =>
@@ -156,7 +156,7 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
     {
       name: 'session_trace',
       description:
-        '查询指定会话当前进行态（在飞粗状态 + 当前回合尾窗 20 条 + 在飞工具清单）。' +
+        '查询指定会话当前进行态（运行粗状态 + 当前回合尾窗 20 条 + 运行中工具清单）。' +
         '树内会话直接可查；跨树会话需高危面 sessions.observe-cross 开门。' +
         '行为律：判断隔壁会话当前在做什么，优先直接向当事会话发消息确认；本工具面向状态核查。',
       parameters: Type.Object(
@@ -181,9 +181,9 @@ export function createSessionTools(deps: SessionToolsDeps): readonly ToolDefinit
       name: 'session_status',
       description:
         '查询自身坐标与环境自感（「我是谁在哪、有什么、没有什么」）：本会话 id、血缘 origin 与父会话、' +
-        '工作区根、在飞粗状态、近次模型，以及可用工具清单（整形后有效可见集）、能力门态快照（高危面开/闭与' +
+        '工作区根、运行粗状态、近次模型，以及可用工具清单（整形后有效可见集）、能力门态快照（高危面开/闭与' +
         '闭门理由）、负面能力声明（未开门面/无工作区等「不要承诺」负向清单——防幻觉）、工具策略表快照' +
-        '（allow/deny 条目 + 整名族干跑裁决——装配期快照，/approval explain 为活体试解析）。' +
+        '（allow/deny 条目 + 整名族干跑裁决——装配期快照，/approval explain 为实时试解析）。' +
         '零参数——目标恒为本会话（树内 self 档，零开门）。',
       parameters: Type.Object({}, { additionalProperties: false }),
       effect: 'read',

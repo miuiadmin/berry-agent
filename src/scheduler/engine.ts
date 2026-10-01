@@ -352,7 +352,7 @@ export function createSchedulerEngine(deps: SchedulerEngineDeps): SchedulerEngin
           const outcome: RunOutcome = {
             trigger,
             reason: 'gated',
-            error: `跨进程实例在飞（activePid ${row.activePid}）——本轮让位不双跑`,
+            error: `另一进程实例正在运行（activePid ${row.activePid}）——本轮让位不双跑`,
             finishedAt: firedAt,
           };
           dao.settleGated(name, outcome, next, now());

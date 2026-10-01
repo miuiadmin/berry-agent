@@ -225,7 +225,7 @@ describe('spawnServeTransport stdio 传输', () => {
     await transport.close(); // 幂等
   });
 
-  it('子进程终局：在飞事务 fail-loud reject（SDK_TRANSPORT 含退出码）、串行链续走后即拒不挂', async () => {
+  it('子进程终局：未完成的请求 fail-loud reject（SDK_TRANSPORT 含退出码）、串行链续走后即拒不挂', async () => {
     const transport = spawnServeTransport({ args: ['-e', DIE_ON_PROMPT_SCRIPT] });
     try {
       const client = createSdkClient(transport);

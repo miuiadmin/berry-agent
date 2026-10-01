@@ -404,15 +404,15 @@ describe('claim-then-advance 记账（u-2 定形注③）', () => {
     expect(row?.nextFireAt).not.toBeNull(); // next 推进照常
   });
 
-  it('跨进程在飞判定：activePid 活体未超钟 → gated 让位不 spawn 不 kill', async () => {
+  it('跨进程运行判定：activePid 存活未超钟 → gated 让位不 spawn 不 kill', async () => {
     const { service, dao, engine, runner } = assemble({ isPidAlive: () => true });
     service.addJob({ name: 'j', schedule: 'every:10m', prompt: 'p', enabled: true });
-    // 预置他实例占用（乙案子进程 pid——非本进程、活体、起跑时刻新鲜）
+    // 预置他实例占用（乙案子进程 pid——非本进程、进程存活、起跑时刻新鲜）
     const startedAt = new Date(nowMs - 60_000).toISOString();
     dao.setActive('j', 4321, startedAt, startedAt);
     const outcome = await engine.fireNow('j', 'clock');
     expect(outcome.reason).toBe('gated');
-    expect(outcome.error).toContain('跨进程');
+    expect(outcome.error).toContain('另一进程实例正在运行');
     expect(runner.requests).toHaveLength(0); // 不 spawn
     expect(runner.kills).toHaveLength(0); // 跨进程不 kill（pid 复用误杀险）
     const row = dao.get('j');

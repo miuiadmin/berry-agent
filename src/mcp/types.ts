@@ -82,7 +82,7 @@ function normalizeServerEntry(name: string, value: unknown): McpServerConfig {
   if (!MCP_SERVER_NAME_RE.test(name)) {
     throw new BaseError(
       'MCP_CONFIG_INVALID',
-      `服务器键词法违例：${JSON.stringify(name)}（须匹配 [A-Za-z0-9-]+——__ 与空白禁入）`,
+      `服务器键格式不对：${JSON.stringify(name)}（须匹配 [A-Za-z0-9-]+——__ 与空白禁入）`,
     );
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
