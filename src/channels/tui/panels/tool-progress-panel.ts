@@ -8,7 +8,9 @@
  * - 宽容解码（update 载荷契约面 `unknown`——03 §2.3 自由载荷，呈现侧零
  *   契约收紧）：string 直显 / AgentToolResult 形〔content 块数组〕取文本块
  *   倒扫末条非空行 / 其余视为文本缺席退化为 ` ▸ 名 …`；
- * - 帽 4 行 + 溢出行「+ N 更多」；
+ * - 帽 4 行 + 溢出行「+ N 更多」；宿主行内容省略形收口（界面美化役
+ *   2026-10-01 ①——超宽 … 记号；插件行集段序维持段级预算——结构化段非
+ *   纯文本，与 tool-card 卡体同律不另拼记号）；
  * - 与件 3 分职互补：状态行示「执行哪个工具」、本件行示「输出到哪了」；
  * - 插件面板行（2026-09-17 TUI 余量收官批③——07 §4.1 插件工具渲染钩子
  *   签名钉位）：行建行/原位换行时以当下快照现调 renderCall（tool_execution_
@@ -20,6 +22,7 @@
  *   以当下主题直取——行集是呈现态非事实源，不缓存）。
  */
 import {
+  ellipsize,
   stringWidth,
   truncateToWidth,
   type CellBuffer,
@@ -187,7 +190,8 @@ export class ToolProgressPanel implements Renderable {
     shown.forEach((row, i) => {
       const line = region.row + i;
       if (row.kind === 'host') {
-        buffer.writeText(line, region.col, truncateToWidth(row.text, region.width));
+        // 宿主行省略形收口（界面美化役①——超宽 … 可辨「输出到哪了」被切）
+        buffer.writeText(line, region.col, ellipsize(row.text, region.width));
         return;
       }
       // 插件行：段序逐段写（tone → 当下主题语义键直取；text/缺省无前景）。

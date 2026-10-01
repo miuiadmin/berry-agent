@@ -6,9 +6,10 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent, MouseEvent } from '../../engine/index.js';
-import { CellGrid, stringWidth } from '../../engine/index.js';
-import { ThemePicker } from './theme-picker.js';
+import { CellGrid, colorRgbOf, stringWidth, type ColorValue } from '../../engine/index.js';
+import { ThemePicker, swatchOf } from './theme-picker.js';
 import type { ThemePickEntry, ThemePickerOptions } from './theme-picker.js';
+import { builtinPalette, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -128,6 +129,107 @@ describe('ThemePicker 呈现', () => {
     expect(line).toContain('auto'); // 档名存活（左段保留位 ≥ 半窗下限）
     expect(line).toContain('…'); // 右段按预算 … 收口（不再原宽右对齐）
     expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
+  });
+});
+
+describe('ThemePicker 语义色样段（界面美化役 2026-10-01 美学批）', () => {
+  it('内置 dark/light 档行尾画四段真色块（resolve 管线现算）；auto/坏文件/未注入自定义诚实不画', () => {
+    const { picker } = makePicker();
+    const width = 72;
+    const grid = new CellGrid(width, picker.measure(width));
+    picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 期望色 = 复用 resolve 管线现算（accent/success/error/secondary 四段）
+    const dark = resolveTheme(builtinPalette('dark'), DEFAULT_THEME.depth);
+    const expected = [dark.accent, dark.success, dark.error, dark.secondary];
+    expect(swatchOf(ENTRIES[1]!)).toEqual(expected); // 取值面：builtin 回退路径
+    // 渲染面：dark 行（行 2）尾四列 ■ 逐块着色
+    for (let i = 0; i < 4; i++) {
+      const cell = grid.getCell(2, width - 4 + i);
+      expect(cell?.grapheme).toBe('■');
+      expect(cell?.style?.fg).toEqual(expected[i]);
+    }
+    // auto（探测依赖）/my-theme（未注入）/broken-one（坏文件）不画
+    expect(swatchOf(ENTRIES[0]!)).toBeNull();
+    expect(swatchOf(ENTRIES[3]!)).toBeNull();
+    expect(swatchOf(ENTRIES[4]!)).toBeNull();
+    expect(readRow(grid, 1, width)).not.toContain('■');
+    expect(readRow(grid, 5, width)).not.toContain('■');
+  });
+
+  it('装配位注入色样优先（自定义板 resolve 后真色直用）；窄于色带+1 列整幅让给文本', () => {
+    // ColorRgb 是品牌 hex 串（#rrggbb）——经 colorRgbOf 通道构造入 ColorValue 面
+    const swatch: readonly ColorValue[] = [
+      colorRgbOf(1, 2, 3),
+      colorRgbOf(4, 5, 6),
+      colorRgbOf(7, 8, 9),
+      colorRgbOf(10, 11, 12),
+    ];
+    const { picker } = makePicker({ entries: [{ name: 'mine', detail: '自定义', broken: false, swatch }] });
+    const width = 72;
+    const grid = new CellGrid(width, picker.measure(width));
+    picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(grid.getCell(1, width - 1)?.grapheme).toBe('■');
+    expect(grid.getCell(1, width - 1)?.style?.fg).toEqual(swatch[3]);
+    expect(grid.getCell(1, width - 4)?.style?.fg).toEqual(swatch[0]);
+    // 窄窗（宽 5 ≤ 色带 4 + 1 → 不留）：色样缺席、文本占满
+    const narrow = new CellGrid(5, picker.measure(5));
+    picker.render(narrow, { row: 0, col: 0, width: 5, height: narrow.rows });
+    expect(readRow(narrow, 1, 5)).not.toContain('■');
+  });
+});
+
+describe('ThemePicker 长清单滚动位置指示（界面美化役 2026-10-01 美学批）', () => {
+  /** 八条目夹具（无色样——指示断言面纯净） */
+  const MANY: readonly ThemePickEntry[] = Array.from({ length: 8 }, (_, i) => ({
+    name: `t${i}`,
+    detail: '档',
+    broken: false,
+  }));
+  const paint = (picker: ThemePicker, height: number): CellGrid => {
+    const width = 40;
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    return grid;
+  };
+
+  it('锚顶：无上指示、下指示「↓ N 更多」dim（视口 ≥3 行且溢出才立）', () => {
+    const { picker } = makePicker({ entries: MANY });
+    const grid = paint(picker, 5); // viewHeight 3、8 条溢出
+    expect(readRow(grid, 1, 40)).toContain('t0'); // 首条目
+    expect(readRow(grid, 2, 40)).toContain('t1');
+    expect(readRow(grid, 3, 40)).toBe('↓ 6 更多'); // 8-2 实占
+    expect(grid.getCell(3, 0)?.style?.dim).toBe(true); // dim 边行
+    expect(readRow(grid, 1, 40)).not.toContain('更多'); // 锚顶无上指示
+  });
+
+  it('中部：上/下双指示 + 在选行夹在中间恒可见', () => {
+    const { picker } = makePicker({ entries: MANY });
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down'));
+    picker.handleEvent(k('down')); // 光标 t3
+    const grid = paint(picker, 5);
+    expect(readRow(grid, 1, 40)).toBe('↑ 3 更多');
+    expect(readRow(grid, 2, 40).startsWith('▸')).toBe(true); // 在选行 t3
+    expect(readRow(grid, 2, 40)).toContain('t3');
+    expect(readRow(grid, 3, 40)).toBe('↓ 4 更多');
+  });
+
+  it('到底：上指示「↑ N 更多」、下指示撤（窗贴尾）', () => {
+    const { picker } = makePicker({ entries: MANY });
+    picker.handleEvent(k('end'));
+    const grid = paint(picker, 5);
+    expect(readRow(grid, 1, 40)).toBe('↑ 7 更多');
+    expect(readRow(grid, 2, 40)).toContain('t7');
+    expect(readRow(grid, 3, 40)).not.toContain('更多'); // 贴尾无下指示
+  });
+
+  it('矮窗（视口 <3 行）不立指示——既有单条目窗形零漂', () => {
+    const { picker } = makePicker({ entries: MANY });
+    const grid = paint(picker, 4); // viewHeight 2
+    expect(readRow(grid, 1, 40)).toContain('t0');
+    expect(readRow(grid, 2, 40)).toContain('t1');
+    expect(readRow(grid, 1, 40)).not.toContain('更多');
+    expect(readRow(grid, 2, 40)).not.toContain('更多');
   });
 });
 

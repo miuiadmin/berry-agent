@@ -226,3 +226,44 @@ describe('ModelPicker 选定与退出', () => {
     expect(onSelect).toHaveBeenCalledWith('my-gw/gw-large');
   });
 });
+
+describe('ModelPicker 长清单滚动位置指示（界面美化役 2026-10-01 美学批）', () => {
+  /** 多条目夹具（两 provider 各 5 条——展开 12 行含两枚组头） */
+  const MANY: readonly { spec: string; provider: string; model: string }[] = [
+    ...Array.from({ length: 5 }, (_, i) => ({
+      spec: `p1/m${i}`,
+      provider: 'p1',
+      model: `m${i}`,
+    })),
+    ...Array.from({ length: 5 }, (_, i) => ({
+      spec: `p2/n${i}`,
+      provider: 'p2',
+      model: `n${i}`,
+    })),
+  ];
+
+  const paintShort = (picker: ModelPicker, height: number, width = 40): CellGrid => {
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    return grid;
+  };
+
+  it('锚顶：下指示 dim「↓ N 更多」（展开行集计——含组头）；组头行正常呈现', () => {
+    const { picker } = makePicker({ entries: MANY, current: undefined });
+    const grid = paintShort(picker, 5); // viewHeight 3、展开 12 行溢出（底指示预留 1 行 → 实占 2）
+    expect(readRow(grid, 1, 40)).toContain('── p1 ──');
+    expect(readRow(grid, 2, 40)).toContain('p1/m0');
+    expect(readRow(grid, 3, 40)).toBe('↓ 10 更多'); // 12 - 2 实占
+    expect(grid.getCell(3, 0)?.style?.dim).toBe(true);
+  });
+
+  it('到底：上指示（组头计入偏移账）；在选行可见、贴尾无下指示', () => {
+    const { picker } = makePicker({ entries: MANY, current: undefined });
+    picker.handleEvent(k('end')); // 光标尾条目（展开行 11）
+    const grid = paintShort(picker, 5);
+    expect(readRow(grid, 1, 40)).toBe('↑ 11 更多');
+    expect(readRow(grid, 2, 40).startsWith('▸')).toBe(true); // 在选行 p2/n4
+    expect(readRow(grid, 2, 40)).toContain('p2/n4');
+    expect(readRow(grid, 3, 40)).not.toContain('更多'); // 贴尾无下指示
+  });
+});

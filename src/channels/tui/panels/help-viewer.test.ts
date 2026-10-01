@@ -69,16 +69,19 @@ describe('buildHelpLines 行集构造（纯函数）', () => {
   // 用法 description 是五行 join('\n') 串——修前拼成单条行，内嵌 \n 字素
   // 直穿 cell 落终端被执行（行错位 + 底行滚屏、标题行出屏）。锁：行集元素
   // 零内嵌换行（每元素一视觉逻辑行——面板行模型契约）；首行挂 /name 名列、
-  // 续行独立成行（源自带缩进视觉形保留）。
-  it('多行描述拆行：行集零内嵌换行 + 首行挂名列 + 续行独立', () => {
+  // 续行独立成行。
+  // 界面美化役 2026-10-01：续行缩进责任归本呈现件（源侧全角空格前缀已剥
+  // ——goal/checkpoint/credentials usage 常量只留纯续行文本）；锁随新观感
+  // 翻档——续行按动态 nameCol 空格缩进对齐描述列（真实对齐缺陷修复）。
+  it('多行描述拆行：行集零内嵌换行 + 首行挂名列 + 续行按 nameCol 缩进', () => {
     const lines = buildHelpLines(
       [
         {
           name: 'goal',
           description: [
             '用法：/goal create <schedule 串> —— 建续跑 goal',
-            '　　　/goal list —— 全部 goal',
-            '　　　/goal wake <goalId> —— 手动起闹',
+            '/goal list —— 全部 goal',
+            '/goal wake <goalId> —— 手动起闹',
           ].join('\n'),
         },
       ],
@@ -88,8 +91,9 @@ describe('buildHelpLines 行集构造（纯函数）', () => {
     for (const line of lines) expect(line.includes('\n')).toBe(false);
     const cmdIndex = lines.indexOf('── 命令 ──');
     expect(lines[cmdIndex + 1]).toBe('/goal 用法：/goal create <schedule 串> —— 建续跑 goal');
-    expect(lines[cmdIndex + 2]).toBe('　　　/goal list —— 全部 goal');
-    expect(lines[cmdIndex + 3]).toBe('　　　/goal wake <goalId> —— 手动起闹');
+    // nameCol = max(4)+2 = 6 → 续行 6 空格缩进对齐首行描述列
+    expect(lines[cmdIndex + 2]).toBe('      /goal list —— 全部 goal');
+    expect(lines[cmdIndex + 3]).toBe('      /goal wake <goalId> —— 手动起闹');
   });
 });
 
@@ -110,7 +114,7 @@ describe('HelpViewer 副屏件', () => {
     });
     const grid = new CellGrid(60, Math.max(3, viewer.measure(60)));
     viewer.render(grid, { row: 0, col: 0, width: 60, height: grid.rows });
-    expect(readRow(grid, 0, 60)).toBe('❓ 命令与键位帮助 · 会话 12345678');
+    expect(readRow(grid, 0, 60)).toBe('◉ 命令与键位帮助 · 会话 12345678'); // ◉ 查看族头符（美学注④——❓ emoji 弃用）
     expect(readRow(grid, 1, 60)).toBe('── 命令 ──');
     expect(readRow(grid, grid.rows - 1, 60)).toBe('q/esc 返回 · ↑↓/pgup/pgdn/home/end 滚动');
   });

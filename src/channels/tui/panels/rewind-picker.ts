@@ -23,6 +23,8 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiRewindActions, UiRewindEntry, UiRewindPreview } from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
+import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 回退点选择器装配选项（载荷与回调组经 host deps 注入流转——openRewindPicker 面） */
 export interface RewindPickerOptions {
@@ -34,14 +36,17 @@ export interface RewindPickerOptions {
   readonly sessionId: string;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
+   * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** 提示行样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 警告行样式（规范明文警告——dim 恒可读不加色） */
 const WARN_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 光标行标记（在选行） */
-const CURSOR_MARK = '▸';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——件族面） */
 const WHEEL_LINES = 3;
 /** manifest 外改动不回退警告行（05 §5.3 批3 翻案笔②规范明文文案） */
@@ -97,6 +102,8 @@ export class RewindPicker implements OverlayContent {
   private viewportHeight = 1;
   /** 退出闭锁（确认回退与取消两路共闭——竞发防御位） */
   private exited = false;
+  /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
+  private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: RewindPickerOptions) {
     this.entries = options.entries;
@@ -105,6 +112,7 @@ export class RewindPicker implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 过滤后条目集（query 空 = 全量；清单序保持） */
@@ -128,10 +136,12 @@ export class RewindPicker implements OverlayContent {
       return;
     }
     const items = this.filtered();
+    // 头行 accent 着色（界面美化役美学注④——词汇 ◆ 单源 panel-chrome）
     buffer.writeText(
       region.row,
       region.col,
-      fitLine(`◆ 回退点 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`, region.width),
+      fitLine(`${PICKER_HEAD_MARK} 回退点 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`, region.width),
+      this.headStyle,
     );
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
@@ -144,12 +154,42 @@ export class RewindPicker implements OverlayContent {
         HINT_STYLE,
       );
     } else {
-      for (let i = 0; i < viewHeight; i++) {
+      // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且清单
+      // 溢出才立——上/下方 dim 边行「↑/↓ N 更多」（todo-panel 溢出行先例形）；
+      // 预留行挤压后在选行跟随（指示行不遮在选行）
+      const indicatorsOn = viewHeight >= 3 && items.length > viewHeight;
+      let cap = viewHeight; // 清单实占行数（扣除指示预留）
+      for (let round = 0; round < 3; round++) {
+        const topReserve = indicatorsOn && this.offset > 0;
+        const afterTop = viewHeight - (topReserve ? 1 : 0);
+        const bottomReserve = indicatorsOn && items.length - this.offset - afterTop > 0;
+        cap = afterTop - (bottomReserve ? 1 : 0);
+        if (this.cursor < this.offset) {
+          this.offset = this.cursor;
+          continue;
+        }
+        if (this.cursor >= this.offset + cap) {
+          this.offset = this.cursor - cap + 1;
+          continue;
+        }
+        break;
+      }
+      let displayRow = region.row + 1;
+      if (indicatorsOn && this.offset > 0) {
+        buffer.writeText(displayRow, region.col, moreHint('↑', this.offset), HINT_STYLE);
+        displayRow++;
+      }
+      for (let i = 0; i < cap; i++) {
         const index = this.offset + i;
         if (index >= items.length) break;
         const entry = items[index]!;
         const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
-        buffer.writeText(region.row + 1 + i, region.col, fitLine(`${prefix}${entry.line}`, region.width));
+        buffer.writeText(displayRow, region.col, fitLine(`${prefix}${entry.line}`, region.width));
+        displayRow++;
+      }
+      if (indicatorsOn) {
+        const below = items.length - (this.offset + cap);
+        if (below > 0) buffer.writeText(displayRow, region.col, moreHint('↓', below), HINT_STYLE);
       }
     }
     // 底行：键路提示 + 过滤词呈现（过滤面在屏可感知——件族同律）
@@ -175,7 +215,8 @@ export class RewindPicker implements OverlayContent {
 
   /** preview 段落位：选中成品行 → 三账行/错误行 → 警告行 → 底行段提示 */
   private renderPreview(buffer: CellBuffer, region: Region): void {
-    buffer.writeText(region.row, region.col, fitLine('◆ 回退点预览（不改动文件）', region.width));
+    // preview 段头行同 accent（界面美化役美学注④——视图切换层级感不降档）
+    buffer.writeText(region.row, region.col, fitLine('◆ 回退点预览（不改动文件）', region.width), this.headStyle);
     buffer.writeText(region.row + 1, region.col, fitLine(this.previewLine, region.width));
     const data = this.previewData;
     if (data === undefined) {

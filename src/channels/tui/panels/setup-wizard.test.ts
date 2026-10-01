@@ -722,6 +722,54 @@ describe('视口窗口化物理行预算（#21——desc 次行在场条目占 2
   });
 });
 
+describe('窄宽省略形收口（界面美化役 2026-10-01 ①——截断省略号全域统一律）', () => {
+  /** 窄宽渲染帧（24 列——引导文本族普遍越帽的窄窗形） */
+  function paintNarrow(panel: SetupWizardPanel, width = 24): CellGrid {
+    return paint(panel, width);
+  }
+
+  it('select 相：头行/条目标签/desc 次行/尾注/键面底行全部 … 收口（修前红：硬切无记号）', () => {
+    const { panel } = makePanel();
+    void panel.select({
+      title: '选择模型渠道',
+      items: [{ id: 'a', label: '渠道'.repeat(10), desc: `https://${'a'.repeat(40)}.example.com/v1` }],
+      note: '官方渠道 + 自定义渠道分桶',
+    });
+    const grid = paintNarrow(panel);
+    const width = 24;
+    const head = readRow(grid, 0, width);
+    expect(head).toContain('⚙ 配置向导'); // 头部前缀保真（截断只咬尾部）
+    expect(head.endsWith('…')).toBe(true); // 修前红锚：'选择模型渠道' 硬切无 …
+    const label = readRow(grid, 1, width);
+    expect(label.startsWith('▸ 渠道')).toBe(true); // 光标 + 首词保真
+    expect(label.endsWith('…')).toBe(true);
+    expect(readRow(grid, 2, width).endsWith('…')).toBe(true); // desc 次行同律
+    expect(readRow(grid, 3, width).endsWith('…')).toBe(true); // 尾注同律
+    expect(readRow(grid, 4, width).endsWith('…')).toBe(true); // 键面底行同律
+  });
+
+  it('text 相：录入回显超宽 … 收口（修前红：硬切无记号）', () => {
+    const { panel } = makePanel();
+    void panel.text({ title: 'anthropic API key' });
+    panel.handleEvent(t('k-'.repeat(20)));
+    const grid = paintNarrow(panel);
+    expect(readRow(grid, 1, 24).endsWith('…')).toBe(true); // 回显行 … 收口
+  });
+
+  it('宽窗适装位零扰动（… 只在超帽时出现——适装帧与修前逐字相同）', () => {
+    const { panel } = makePanel();
+    void panel.select({
+      title: '选渠道',
+      items: [{ id: 'a', label: '渠道甲' }],
+      note: '短尾注',
+    });
+    const grid = paintNarrow(panel);
+    const width = 24;
+    expect(readRow(grid, 1, width)).toBe('▸ 渠道甲'); // 适装位无 …（无 desc——尾注紧随条目行）
+    expect(readRow(grid, 2, width)).toBe('短尾注');
+  });
+});
+
 describe('滚动溢出指示（窗上/下方被裁条目计数入键面行——用户真机反馈「光标看不到还有多少」）', () => {
   /** 定高渲染帧（同 #21 段 paintFixed 形） */
   function paintFixed(panel: SetupWizardPanel, height: number, width = 72): CellGrid {

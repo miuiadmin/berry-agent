@@ -64,6 +64,9 @@ import type { StyledLine } from '../backend/ansi-rows.js';
 import { SELECTION_CAP_BYTES, SELECTION_CAP_NOTICE } from '../history/history-viewer.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { tokenize } from '../../commands.js';
+import { fitLine } from '../row-segments.js';
+import { headStyleOf, VIEWER_HEAD_MARK } from '../panels/panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /* ---------------- 结构相容窄面（channels 不依赖 memory——边表执法） ---------------- */
 
@@ -156,6 +159,11 @@ export interface MemoryViewerOptions extends MemoryViewerDataDeps {
    * 写出无反馈）。缺席 = 拖选高亮照常、release 零写出（测试语义）。
    */
   readonly onCopy?: (text: string) => void;
+  /**
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
+   * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /* ---------------- 词面常量 ---------------- */
@@ -280,6 +288,8 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
   private selectionNotice: string | null = null;
   /** 选区复制写出柄（装配位注入——缺席 = release 零写出） */
   private readonly onCopy: ((text: string) => void) | undefined;
+  /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
+  private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: MemoryViewerOptions) {
     super(); // 无 maxHeight——副屏 root 直收 region 全高
@@ -291,6 +301,7 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.onCopy = options.onCopy;
+    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
     this.exportEditor = new Editor({ maxVisibleLines: 1, keymap: options.keymap }); // 单行档——导出参数行（同册注入）
     this.exportEditor.setFocused(false);
     this.rebuild(); // 开屏快照（光标落首条——顶部对齐）
@@ -309,9 +320,16 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
    */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端——头行 + 视口都不够）
-    // 头行（筛选态在场时附注记——Tab 动作的可视反馈位）
+    // 头行（筛选态在场时附注记——Tab 动作的可视反馈位）。界面美化役
+    // 2026-10-01 美学批：❄→◉（viewer 族头图标单源收敛）+ accent 着色
+    // （美学注④）+ fitLine … 收口（美学注⑤——owner 并集长名窄窗截断有提示）
     const filterTag = this.filter === 'all' ? '' : ` ·〔筛选：${SECTION_LABEL[this.filter]}〕`;
-    buffer.writeText(region.row, region.col, `❄ 记忆管理 · ${this.ownerKeys.map(ownerLabel).join(' · ')}${filterTag}`);
+    buffer.writeText(
+      region.row,
+      region.col,
+      fitLine(`${VIEWER_HEAD_MARK} 记忆管理 · ${this.ownerKeys.map(ownerLabel).join(' · ')}${filterTag}`, region.width),
+      this.headStyle,
+    );
     // 滚动视口
     const chromeBottom = this.exportOpen ? this.exportEditor.measure(region.width) : 1;
     const viewHeight = region.height - 1 - chromeBottom;
@@ -338,7 +356,9 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
           ? // 确认态问句 + 键位段（键位拼装走 hintLine 单源——与常态行同律）
             `忘掉 [m:${shortIdOf(this.confirmTarget.id)}]？${hintLine('enter/y 确认', 'esc/n 取消')}`
           : (this.notice ?? hintText(this.cursorEntry()?.section ?? null));
-    buffer.writeText(region.row + region.height - 1, region.col, bottom, DIM_STYLE);
+    // 底铬各行 fitLine … 收口（界面美化役美学注⑤——确认态问句/超帽提示
+    // 长文窄窗截断有提示）
+    buffer.writeText(region.row + region.height - 1, region.col, fitLine(bottom, region.width), DIM_STYLE);
   }
 
   /**

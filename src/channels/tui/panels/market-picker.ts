@@ -27,6 +27,8 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
+import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /**
  * 市场条目行（host 侧合成注入）：寻址形 id = `name@market`；文本字段
@@ -88,12 +90,15 @@ export interface MarketPickerOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
+   * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** 提示行样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 光标行标记（在选行） */
-const CURSOR_MARK = '▸';
 /** 已装徽标 */
 const INSTALLED_MARK = '已装';
 /** busy 前缀符 */
@@ -141,6 +146,8 @@ export class MarketPicker implements OverlayContent {
   private viewportHeight = 1;
   /** 退出闭锁（选定与取消两路共闭——竞发防御位） */
   private exited = false;
+  /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
+  private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: MarketPickerOptions) {
     this.model = options.model;
@@ -151,6 +158,7 @@ export class MarketPicker implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /**
@@ -172,24 +180,55 @@ export class MarketPicker implements OverlayContent {
     if (region.height < 2) return; // 防御位（极小终端）
     const rows = this.model.rows;
     const markets = new Set(rows.map((row) => row.market)).size;
-    const head = `◆ 插件市场 · ${rows.length} 条目（${markets} 源）`;
+    const head = `${PICKER_HEAD_MARK} 插件市场 · ${rows.length} 条目（${markets} 源）`;
     // 非条目行（头行/尾行区/busy 行/键面底行）fitLine … 收口（wf_3c8b00b8 组δ
     // X-5 补漏——尾行区原 truncateToWidth 裸截断无省略号同此升级；条目行走
-    // fitRowSegments 双段）
-    buffer.writeText(region.row, region.col, fitLine(head, region.width));
+    // fitRowSegments 双段）；头行 accent 着色（界面美化役美学注④）
+    buffer.writeText(region.row, region.col, fitLine(head, region.width), this.headStyle);
     // 中段窗口化：光标驱动视口（条目区）+ 尾行区尾随——窗口高按剩余行实配
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampCursor(); // 模型换血缩行防御①：渲染期光标入界（r 刷新换行集后面板自愈）
     this.clampOffset();
-    // 条目行优先占窗（光标可见性是选择器第一律——尾行区溢出被窗截断可接受）
+    // 条目行优先占窗（光标可见性是选择器第一律——尾行区溢出被窗截断可接受）。
+    // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：条目溢出且视口 ≥3
+    // 行才立——上/下方 dim 边行「↑/↓ N 更多」；预留行挤压后光标跟随（指示
+    // 行不遮在选行；条目不满窗时尾行区照旧尾随）
+    const indicatorsOn = viewHeight >= 3 && rows.length > viewHeight;
+    let cap = viewHeight; // 条目实占行数（扣除指示预留）
+    for (let round = 0; round < 3; round++) {
+      const topReserve = indicatorsOn && this.offset > 0;
+      const afterTop = viewHeight - (topReserve ? 1 : 0);
+      const bottomReserve = indicatorsOn && rows.length - this.offset - afterTop > 0;
+      cap = afterTop - (bottomReserve ? 1 : 0);
+      if (this.cursor < this.offset) {
+        this.offset = this.cursor;
+        continue;
+      }
+      if (this.cursor >= this.offset + cap) {
+        this.offset = this.cursor - cap + 1;
+        continue;
+      }
+      break;
+    }
     let line = region.row + 1;
     const end = region.row + region.height - 1; // 键面提示行占位
-    for (let i = 0; i < viewHeight && line < end; i++) {
+    if (indicatorsOn && this.offset > 0) {
+      buffer.writeText(line, region.col, moreHint('↑', this.offset), HINT_STYLE);
+      line++;
+    }
+    for (let i = 0; i < cap && line < end; i++) {
       const index = this.offset + i;
       if (index >= rows.length) break;
       this.renderRow(buffer, line, region.col, region.width, index);
       line++;
+    }
+    if (indicatorsOn) {
+      const below = rows.length - (this.offset + cap);
+      if (below > 0 && line < end) {
+        buffer.writeText(line, region.col, moreHint('↓', below), HINT_STYLE);
+        line++;
+      }
     }
     // 尾行区：tail（skipped/刷新结局/空态文案）→ results（结算回执全文）
     for (const text of [...this.model.tail, ...this.model.results]) {

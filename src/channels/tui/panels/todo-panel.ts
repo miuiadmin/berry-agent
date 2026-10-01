@@ -7,10 +7,12 @@
  * - 条目四态记号：☐ 待办 / ◐ 进行中（activeForm 优先于 content——CC 式
  *   文案）/ ☑ 已完成·暗淡 / ⊙ 缓办·暗淡；
  * - 帽 6 条 + 溢出行「+ N 更多」（暗淡）；
+ * - 条目内容省略形收口（界面美化役 2026-10-01 ①——截断省略号全域统一律）：
+ *   超宽 … 记号（宽窗适装位字节不变），长任务名被切可辨；
  * - 刷新时机归装配（TuiBackend 三时点 repaint / tool_execution_end /
  *   agent_end——批 10e-2 已接线），件内零时钟零事件面。
  */
-import { truncateToWidth, type CellBuffer, type Region, type Renderable } from '../../engine/index.js';
+import { ellipsize, type CellBuffer, type Region, type Renderable } from '../../engine/index.js';
 import type { TodoItem } from '../../types.js';
 
 /** 帽内条数（溢出行另计——spec 定形不预收数字者已实测定形 6） */
@@ -43,7 +45,7 @@ export class TodoPanel implements Renderable {
     return Math.min(this.items.length, MAX_ITEMS) + (this.items.length > MAX_ITEMS ? 1 : 0);
   }
 
-  /** 落位：每条一行（记号 + 空格 + 内容截断）；溢出行收尾 */
+  /** 落位：每条一行（记号 + 空格 + 内容省略形截断）；溢出行收尾 */
   render(buffer: CellBuffer, region: Region): void {
     // 段内夹取（挂账解挂批 C②——固定区段优先级截断）：分配到的段高可低于
     // measure 原值（低段「缩」形）——可见条数按段高容量收，Renderable 契约
@@ -52,9 +54,10 @@ export class TodoPanel implements Renderable {
     const visible = this.items.slice(0, capacity);
     visible.forEach((item, i) => {
       const dimmed = DIM_STATUSES.has(item.status);
-      // 进行中 activeForm 优先（缺席回落 content）
+      // 进行中 activeForm 优先（缺席回落 content）；内容预算 = 宽 - 记号 2 列，
+      // 省略形单源（界面美化役①——0 宽守卫在源，极窄段清零写出）
       const content = item.status === 'in-progress' && item.activeForm !== undefined ? item.activeForm : item.content;
-      const row = `${STATUS_MARKS[item.status]} ${truncateToWidth(content, region.width - 2)}`;
+      const row = `${STATUS_MARKS[item.status]} ${ellipsize(content, region.width - 2)}`;
       buffer.writeText(region.row + i, region.col, row, dimmed ? { dim: true } : undefined);
     });
     // 溢出行对截断几何诚实：+ N 更多数 = 帽/段高外未显条数（非截断几何下

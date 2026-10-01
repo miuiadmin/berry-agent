@@ -481,3 +481,48 @@ describe('RewindPicker 退出族与闭锁', () => {
     expect(onQuit).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('RewindPicker 长清单滚动位置指示（界面美化役 2026-10-01 美学批）', () => {
+  /** 八条目夹具（逼出清单溢出） */
+  const manyEntries = Array.from({ length: 8 }, (_, i) => ({
+    id: `m-${i}`,
+    line: `- m-${i}… 2026-10-01 12:00:00〔修改前快照〕${i} 文件 · 回退点 seq=${i}`,
+  }));
+
+  /** 中窗渲染（高 5 = 头 + 3 行视口 + 底行——viewHeight 恒 3，指示档立） */
+  const paintMid = (picker: RewindPicker, height = 5): CellGrid => {
+    const width = 72;
+    const grid = new CellGrid(width, height);
+    picker.render(grid, { row: 0, col: 0, width, height });
+    return grid;
+  };
+
+  it('锚顶：无上指示、下指示 dim「↓ N 更多」（视口 ≥3 行且溢出才立）', () => {
+    const { picker } = makePicker({ entries: manyEntries });
+    const grid = paintMid(picker);
+    expect(readRow(grid, 1, 72)).toContain('m-0');
+    expect(readRow(grid, 2, 72)).toContain('m-1');
+    expect(readRow(grid, 3, 72)).toBe('↓ 6 更多'); // 8 - 2 实占
+    expect(grid.getCell(3, 0)?.style?.dim).toBe(true); // dim 边行
+    expect(readRow(grid, 1, 72)).not.toContain('更多'); // 锚顶无上指示
+  });
+
+  it('到底：上指示「↑ N 更多」、在选行可见、贴尾无下指示', () => {
+    const { picker } = makePicker({ entries: manyEntries });
+    picker.handleEvent(k('end')); // 光标尾条目 m-7
+    const grid = paintMid(picker);
+    expect(readRow(grid, 1, 72)).toBe('↑ 7 更多');
+    expect(readRow(grid, 2, 72).startsWith('▸')).toBe(true); // 在选行 m-7
+    expect(readRow(grid, 2, 72)).toContain('m-7');
+    expect(readRow(grid, 3, 72)).not.toContain('更多'); // 贴尾无下指示
+  });
+
+  it('矮窗（视口 <3 行）不立指示——既有窄窗形零漂', () => {
+    const { picker } = makePicker({ entries: manyEntries });
+    const grid = paintMid(picker, 4); // viewHeight 2
+    expect(readRow(grid, 1, 72)).toContain('m-0');
+    expect(readRow(grid, 2, 72)).toContain('m-1');
+    expect(readRow(grid, 1, 72)).not.toContain('更多');
+    expect(readRow(grid, 2, 72)).not.toContain('更多');
+  });
+});

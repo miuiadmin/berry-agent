@@ -13,9 +13,11 @@
  *   （不退屏）、Ctrl+D 退出进程（先收副屏再转退出柄）——副屏键面件族律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { fitRowSegments } from '../row-segments.js';
+import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
+import { CURSOR_MARK, headStyleOf, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 档位条目（装配位从 THINKING_LEVELS 单源合成——本件不 import conversation） */
 export interface ThinkingPickEntry {
@@ -37,12 +39,15 @@ export interface ThinkingPickerOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
+   * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** 提示行样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 光标行标记（在选行） */
-const CURSOR_MARK = '▸';
 /** 当前档标记 */
 const CURRENT_MARK = '●';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
@@ -79,6 +84,8 @@ export class ThinkingPicker implements OverlayContent {
   private viewportHeight = 1;
   /** 退出闭锁（选定与取消两路共闭——竞发防御位） */
   private exited = false;
+  /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
+  private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: ThinkingPickerOptions) {
     this.entries = options.entries;
@@ -88,6 +95,7 @@ export class ThinkingPicker implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 量高：头行 + 条目全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化） */
@@ -96,16 +104,20 @@ export class ThinkingPicker implements OverlayContent {
     return 1 + Math.max(1, this.entries.length) + 1;
   }
 
-  /** 落位：头行 → 条目视口（光标 ▸ + 当前 ● + 档名 / 说明右段）→ 底行提示 */
+  /** 落位：头行（accent + fitLine 收口）→ 条目视口（光标 ▸ + 当前 ● + 档名 / 说明右段）→ 底行提示（fitLine 收口） */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = this.entries.length === 0 ? '◆ 深度思考 · 无条目' : `◆ 深度思考 · ${this.entries.length} 级`;
-    buffer.writeText(region.row, region.col, head);
+    // 界面美化役美学注④/⑤：头符 ◆（选择器族词汇单源化）accent 着色 + 非条目行 fitLine 收口
+    const head =
+      this.entries.length === 0
+        ? `${PICKER_HEAD_MARK} 深度思考 · 无条目`
+        : `${PICKER_HEAD_MARK} 深度思考 · ${this.entries.length} 级`;
+    buffer.writeText(region.row, region.col, fitLine(head, region.width), this.headStyle);
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (this.entries.length === 0) {
-      buffer.writeText(region.row + 1, region.col, '（无条目）', HINT_STYLE);
+      buffer.writeText(region.row + 1, region.col, fitLine('（无条目）', region.width), HINT_STYLE);
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;
@@ -113,12 +125,16 @@ export class ThinkingPicker implements OverlayContent {
         this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index);
       }
     }
+    // 界面美化役美学注⑤：底行提示 fitLine 收口补漏（窄屏不溢出）
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.entries.length === 0
-        ? 'q/esc 返回'
-        : hintLine('↑↓ 移动', 'enter 选定（下一轮对话起生效；部分模型不支持调思考级别）', 'q/esc 返回'),
+      fitLine(
+        this.entries.length === 0
+          ? 'q/esc 返回'
+          : hintLine('↑↓ 移动', 'enter 选定（下一轮对话起生效；部分模型不支持调思考级别）', 'q/esc 返回'),
+        region.width,
+      ),
       HINT_STYLE,
     );
   }

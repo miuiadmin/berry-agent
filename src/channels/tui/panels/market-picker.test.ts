@@ -548,3 +548,51 @@ describe('MarketPicker 滚轮消费（picker 族补齐——ScrollView WHEEL_LIN
     expect(requestRepaint).not.toHaveBeenCalled();
   });
 });
+
+describe('MarketPicker 长清单滚动位置指示（界面美化役 2026-10-01 美学批）', () => {
+  /** 八条目夹具（逼出溢出——单源市场名） */
+  const manyRows: readonly MarketEntryRow[] = Array.from({ length: 8 }, (_, i) => ({
+    id: `m${i}@alpha`,
+    name: `m${i}`,
+    version: '1.0.0',
+    market: 'alpha',
+    installed: false,
+  }));
+
+  /** 中窗渲染（高 5 = 头 + 3 行视口 + 键面提示——viewHeight 恒 3，指示档立） */
+  const paintMid = (picker: MarketPicker, width = 40): CellGrid => {
+    const grid = new CellGrid(width, 5);
+    picker.render(grid, { row: 0, col: 0, width, height: 5 });
+    return grid;
+  };
+
+  it('锚顶：条目优先占窗、下指示 dim「↓ N 更多」；尾行区溢出被窗截断可接受', () => {
+    // 尾行区（tail）与条目争窗——条目满窗时尾行区让位（光标可见性第一律）；
+    // 既有形（无指示时尾行区尾随）不受扰的证明在矮窗档（下一条）
+    const { picker } = makePicker({ model: makeModel({ rows: manyRows, tail: ['尾行区文案'] }) });
+    const grid = paintMid(picker);
+    expect(readRow(grid, 1, 40)).toContain('m0@alpha');
+    expect(readRow(grid, 2, 40)).toContain('m1@alpha');
+    expect(readRow(grid, 3, 40)).toBe('↓ 6 更多'); // 8 - 2 实占
+    expect(grid.getCell(3, 0)?.style?.dim).toBe(true); // dim 边行
+  });
+
+  it('条目不满窗：指示不立、尾行区照旧尾随（既有形零漂）', () => {
+    const { picker } = makePicker({ model: makeModel({ rows: manyRows.slice(0, 2), tail: ['尾行区文案'] }) });
+    const grid = paintMid(picker);
+    expect(readRow(grid, 1, 40)).toContain('m0@alpha');
+    expect(readRow(grid, 2, 40)).toContain('m1@alpha');
+    expect(readRow(grid, 3, 40)).toContain('尾行区文案'); // 尾行区尾随既有形
+    expect(readRow(grid, 1, 40)).not.toContain('更多');
+  });
+
+  it('到底：上指示「↑ N 更多」、在选行可见、贴尾无下指示', () => {
+    const { picker } = makePicker({ model: makeModel({ rows: manyRows }) });
+    picker.handleEvent(k('end'));
+    const grid = paintMid(picker);
+    expect(readRow(grid, 1, 40)).toBe('↑ 7 更多');
+    expect(readRow(grid, 2, 40).startsWith('▸')).toBe(true); // 在选行 m7
+    expect(readRow(grid, 2, 40)).toContain('m7@alpha');
+    expect(readRow(grid, 3, 40)).not.toContain('更多'); // 贴尾无下指示
+  });
+});

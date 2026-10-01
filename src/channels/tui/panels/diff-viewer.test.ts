@@ -191,6 +191,42 @@ describe('DiffViewer 副屏件', () => {
     expect(row1).not.toContain('-0');
   });
 
+  it('词级对行超宽省略形收口（界面美化役 2026-10-01 ①——… 记号随段着色 + 两侧记号同列；修前红：硬切被切行与真实行尾不可辨）', () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Update File: src/one.ts',
+      `-old ${'x'.repeat(40)}`,
+      `+new ${'y'.repeat(40)}`,
+      '*** End Patch',
+    ].join('\n');
+    const onExit = vi.fn();
+    const viewer = new DiffViewer({
+      messages: [assistant([editCall('t1', patch)]), result('t1')],
+      theme: DEFAULT_THEME,
+      sessionId: 'sess-x',
+      onExit,
+    });
+    const width = 24;
+    viewer.handleEvent(k('enter')); // 展开首组（收起行空间单组头——光标钉组头，组体行空光标位）
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 对行几何：空光标位 + '-'/‘+’ 前缀 + 'old '/'new ' 同宽前缀（3+1）→
+    // 两侧变段同列起笔、同帽截断；尾部变段 40 列 > 余 17 → 16 整字 + '…' 恰满
+    // 24 列（修前红锚：17 x 硬切到帽、尾部无 …）
+    expect(readRow(grid, 2, width)).toBe('  -old ' + 'x'.repeat(16) + '…');
+    expect(readRow(grid, 3, width)).toBe('  +new ' + 'y'.repeat(16) + '…');
+    // … 记号随段既有着色（界面美化役①——diffRemoved/diffAdded 前景不变）：
+    // del 行记号红系 / add 行记号绿系，且两侧记号同列（对行词级几何不破）
+    const markerCol = width - 1;
+    expect(grid.getCell(2, markerCol)?.grapheme).toBe('…');
+    expect(grid.getCell(2, markerCol)?.style?.fg).toBe(DEFAULT_THEME.diffRemoved);
+    expect(grid.getCell(3, markerCol)?.grapheme).toBe('…');
+    expect(grid.getCell(3, markerCol)?.style?.fg).toBe(DEFAULT_THEME.diffAdded);
+    // 记号后零残留（被切即行终——… 后不缀后续段内容）
+    expect(readRow(grid, 2, width).endsWith('…')).toBe(true);
+    expect(readRow(grid, 3, width).endsWith('…')).toBe(true);
+  });
+
   it('enter 展开光标组：组体行呈现（前缀 + 行文本）；再 enter 收起', () => {
     const { viewer } = makeViewer();
     const width = 64;

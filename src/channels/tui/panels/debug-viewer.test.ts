@@ -97,7 +97,7 @@ describe('DebugViewer 副屏件', () => {
     const viewer = new DebugViewer({ data: DATA, sessionId: 'sess-1', onExit: () => {} });
     const grid = new CellGrid(60, Math.max(3, viewer.measure(60)));
     viewer.render(grid, { row: 0, col: 0, width: 60, height: grid.rows });
-    expect(readRow(grid, 0, 60)).toBe('⚙ 调试信息');
+    expect(readRow(grid, 0, 60)).toBe('◉ 调试信息'); // ◉ 查看族头符（美学注④——⚙ 归工具卡语义族）
     expect(readRow(grid, 1, 60)).toBe('── 运行时 ──'); // 开屏锚顶
     expect(readRow(grid, grid.rows - 1, 60)).toBe('q/esc 返回 · ↑↓/pgup/pgdn/home/end 滚动');
     expect(viewer.scrollOffset).toBe(0); // 全量行集超出视口——锚顶律直锁

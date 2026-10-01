@@ -222,7 +222,8 @@ describe('行集三段式构建（头行 / 健康投影恒全库 / 三分区）'
   it('头行 = 档名 + owner 并集短显（project 键 16 hex 截前 8）+ 投影两行 + 分区头计数', () => {
     const { render } = rig();
     const grid = render();
-    expect(readRow(grid, 0)).toContain('❄ 记忆管理 · global · project:01234567'); // 短显截 8 位
+    // 头图标 ❄→◉（界面美化役美学注④——viewer 族头图标单源收敛——期望帧随档）
+    expect(readRow(grid, 0)).toContain('◉ 记忆管理 · global · project:01234567'); // 短显截 8 位
     expect(readRow(grid, 1)).toBe('记忆库 · 生效 7 · 冻结 1 · 共 10'); // 假 DAO 全库计数（可见活体仅 1——投影不随可见集重算）
     expect(readRow(grid, 2)).toBe('已结束 · 否决 2 · 过期 1');
     expect(readRow(grid, 3)).toBe('── 生效中（1）');

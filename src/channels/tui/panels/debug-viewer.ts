@@ -19,6 +19,9 @@ import { stringWidth } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
+import { fitLine } from '../row-segments.js';
+import { headStyleOf, isSectionHeadLine, isWarningLine, VIEWER_HEAD_MARK } from './panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 调试面板数据快照（装配位现取注入——面板收纯数据行，不触任何边外面） */
 export interface DebugPanelData {
@@ -45,6 +48,11 @@ export interface DebugViewerOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
+   * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** 提示行样式（dim） */
@@ -85,13 +93,18 @@ export class DebugViewer extends ScrollView implements OverlayContent {
   private readonly onQuit: (() => void) | undefined;
   /** 退出闭锁（同批多事件只退一次——q 与 Esc 竞发防御位） */
   private exited = false;
+  /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
+  private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: DebugViewerOptions) {
-    super(); // 无 maxHeight——副屏 root 直收 region 全高
+    // 界面美化役 2026-10-01 美学批两档：折行续行 2 空格悬挂 + 分段头/告警行
+    // 整行 dim（`── … ──` 分段线族 + `⚠ 坏值` 告警族两形经 panel-chrome 判词命中）
+    super({ hangingIndent: true, dimLine: (line) => isSectionHeadLine(line) || isWarningLine(line) });
     this.sessionId = options.sessionId;
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
     this.setLines(buildDebugLines(options.data)); // 行集构造后静态（快照档——data 不留柄）
     this.scrollToTop(); // 开屏锚顶（ScrollView 缺省贴尾为回看器语义——调试首段是运行时头）
   }
@@ -101,15 +114,17 @@ export class DebugViewer extends ScrollView implements OverlayContent {
     return 1 + super.measure(width) + 1;
   }
 
-  /** 落位：头行 → 滚动视口（super.render）→ 底行提示 */
+  /** 落位：头行（accent + fitLine 收口）→ 滚动视口（super.render）→ 底行提示（fitLine 收口） */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    buffer.writeText(region.row, region.col, '⚙ 调试信息');
+    // 界面美化役美学注④/⑤：头符 ◉（查看族——⚙ 归工具卡语义族）accent 着色
+    // + 非条目行 fitLine 收口
+    buffer.writeText(region.row, region.col, fitLine(`${VIEWER_HEAD_MARK} 调试信息`, region.width), this.headStyle);
     const viewHeight = region.height - 2;
     if (viewHeight > 0) {
       super.render(buffer, { row: region.row + 1, col: region.col, width: region.width, height: viewHeight });
     }
-    buffer.writeText(region.row + region.height - 1, region.col, HINT_TEXT, HINT_STYLE);
+    buffer.writeText(region.row + region.height - 1, region.col, fitLine(HINT_TEXT, region.width), HINT_STYLE);
   }
 
   /** 事件分发（副屏内容终局消费——键面同 HelpViewer） */

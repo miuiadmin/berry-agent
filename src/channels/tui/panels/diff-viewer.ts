@@ -14,7 +14,8 @@
  * - 键面同副屏件族律（q / esc 返回、Ctrl+C 打断、Ctrl+D 先收屏再退）。
  */
 import type { CellBuffer, CellStyle, ColorValue, InputEvent, Region } from '../../engine/index.js';
-import { ellipsize, stringWidth, truncateToWidth } from '../../engine/index.js';
+import { ellipsize, stringWidth } from '../../engine/index.js';
+import { fitLine } from '../row-segments.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
 import { diffWords, parsePatchLines, type DiffSeg, type PatchLine } from '../blocks/word-diff.js';
@@ -263,7 +264,8 @@ export class DiffViewer implements OverlayContent {
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
     const head = `± 改动总览 · ${this.groups.length} 文件`;
-    buffer.writeText(region.row, region.col, head);
+    // 头行/空态/底行 fitLine 收口（界面美化役美学注⑤——窄窗溢出止漏）
+    buffer.writeText(region.row, region.col, fitLine(head, region.width));
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     if (this.groups.length === 0) {
@@ -271,7 +273,7 @@ export class DiffViewer implements OverlayContent {
       buffer.writeText(
         region.row + 1,
         region.col,
-        '（本会话没有文件改动——只统计本会话改动，非 git 工作区状态）',
+        fitLine('（本会话没有文件改动——只统计本会话改动，非 git 工作区状态）', region.width),
         HINT_STYLE,
       );
     } else {
@@ -292,7 +294,10 @@ export class DiffViewer implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.groups.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 展开/收起', 'q/esc 返回'),
+      fitLine(
+        this.groups.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 展开/收起', 'q/esc 返回'),
+        region.width,
+      ),
       HINT_STYLE,
     );
   }
@@ -330,7 +335,7 @@ export class DiffViewer implements OverlayContent {
     }
   }
 
-  /** 组体行：词级对行同段裸/变段着色（R4 单源呈现）；孤立 del/add 整行着色；ctx 裸行 */
+  /** 组体行：词级对行同段裸/变段着色（R4 单源呈现）；孤立 del/add 整行着色；ctx 裸行；超宽 … 收口（界面美化役①——记号随段既有着色） */
   private renderBody(
     buffer: CellBuffer,
     row: number,
@@ -356,9 +361,18 @@ export class DiffViewer implements OverlayContent {
         const isChange = seg.kind === body.kind; // 本侧变段（着色位）
         const piece = seg.text;
         const room = col + width - c;
-        const fit = stringWidth(piece) <= room ? piece : truncateToWidth(piece, room);
-        buffer.writeText(row, c, fit, isChange ? { fg } : undefined);
-        c += stringWidth(fit);
+        if (stringWidth(piece) <= room) {
+          // 适装段整段写（着色语义不变——本侧变段红/绿、same 段裸）
+          buffer.writeText(row, c, piece, isChange ? { fg } : undefined);
+          c += stringWidth(piece);
+          continue;
+        }
+        // 超宽段省略形收口（界面美化役 2026-10-01 ①——diffAdded/diffRemoved
+        // 前景色不变，仅截断点拼 … 记号且随本段既有着色——被切行与真实行尾
+        // 可辨）；被切即行终——后续段不再写（防 … 记号后缀残段内容），整字
+        // 丢弃的残列留白
+        buffer.writeText(row, c, ellipsize(piece, room), isChange ? { fg } : undefined);
+        break;
       }
       return;
     }

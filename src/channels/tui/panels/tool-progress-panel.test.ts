@@ -124,6 +124,18 @@ describe('ToolProgressPanel 行生命周期', () => {
     expect(readRow(grid, 3)).toBe(' ▸ d · d 跑着');
     expect(readRow(grid, 4)).toBe('+ 1 更多');
   });
+
+  it('宿主行窄宽省略形收口（界面美化役①——超宽 … 记号；修前红：硬切无记号）', () => {
+    const panel = new ToolProgressPanel();
+    panel.begin('t1', 'grep');
+    panel.applyUpdate('t1', 'x'.repeat(80));
+    const width = 24;
+    const grid = new CellGrid(width, panel.measure(width));
+    panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // 前缀 ' ▸ grep · ' 10 列 + 13 x（23 列整字帽）+ '…' = 24 列恰满
+    //（修前红锚：14 x 硬切到帽、尾部无 …）
+    expect(readRow(grid, 0, width)).toBe(' ▸ grep · ' + 'x'.repeat(13) + '…');
+  });
 });
 
 /* ---------------- 2026-09-17 TUI 余量收官批③：renderCall 消费（07 §4.1 钉位注） ---------------- */

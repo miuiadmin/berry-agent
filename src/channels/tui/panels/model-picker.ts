@@ -17,6 +17,8 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
+import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 模型条目（装配位从 llmRuntime 目录合成——本件不 import llm） */
 export interface ModelPickEntry {
@@ -40,14 +42,17 @@ export interface ModelPickerOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
+   * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** 提示行样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 分组头样式（dim——provider 域名行） */
 const HEAD_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 光标行标记（在选行） */
-const CURSOR_MARK = '▸';
 /** 当前模型标记 */
 const CURRENT_MARK = '●';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——件族面） */
@@ -88,6 +93,8 @@ export class ModelPicker implements OverlayContent {
   private viewportHeight = 1;
   /** 退出闭锁（选定与取消两路共闭——竞发防御位） */
   private exited = false;
+  /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
+  private readonly panelHeadStyle: Readonly<CellStyle>;
 
   constructor(options: ModelPickerOptions) {
     this.entries = options.entries;
@@ -97,6 +104,7 @@ export class ModelPicker implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.panelHeadStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 过滤后条目集（query 空 = 全量；装配序保持） */
@@ -133,11 +141,16 @@ export class ModelPicker implements OverlayContent {
     const items = this.filtered();
     const rows = this.rows(items);
     // 非条目行（头行/空匹配/组头/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5
-    // ——raw writeText 窄窗硬截断无提示的漏网面；条目行走 fitRowSegments 双段）
+    // ——raw writeText 窄窗硬截断无提示的漏网面；条目行走 fitRowSegments 双段）；
+    // 头行 accent 着色（界面美化役美学注④——词汇 ◆ 单源 panel-chrome）
     buffer.writeText(
       region.row,
       region.col,
-      fitLine(`◆ 切换模型 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`, region.width),
+      fitLine(
+        `${PICKER_HEAD_MARK} 切换模型 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`,
+        region.width,
+      ),
+      this.panelHeadStyle,
     );
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
@@ -150,16 +163,46 @@ export class ModelPicker implements OverlayContent {
         HINT_STYLE,
       );
     } else {
-      for (let i = 0; i < viewHeight; i++) {
+      // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且展开
+      // 行集溢出才立——上/下方 dim 边行「↑/↓ N 更多」；预留行挤压后在选行
+      // 跟随（指示行不遮在选行——组头占行，以光标条目展开行号判窗）
+      const indicatorsOn = viewHeight >= 3 && rows.length > viewHeight;
+      let cap = viewHeight; // 展开行实占行数（扣除指示预留）
+      const cursorRow = this.cursorRowOf(rows);
+      for (let round = 0; round < 3; round++) {
+        const topReserve = indicatorsOn && this.offset > 0;
+        const afterTop = viewHeight - (topReserve ? 1 : 0);
+        const bottomReserve = indicatorsOn && rows.length - this.offset - afterTop > 0;
+        cap = afterTop - (bottomReserve ? 1 : 0);
+        if (cursorRow < this.offset) {
+          this.offset = cursorRow;
+          continue;
+        }
+        if (cursorRow >= this.offset + cap) {
+          this.offset = cursorRow - cap + 1;
+          continue;
+        }
+        break;
+      }
+      let line = region.row + 1;
+      if (indicatorsOn && this.offset > 0) {
+        buffer.writeText(line, region.col, moreHint('↑', this.offset), HINT_STYLE);
+        line++;
+      }
+      for (let i = 0; i < cap; i++) {
         const index = this.offset + i;
         if (index >= rows.length) break;
         const row = rows[index]!;
-        const line = region.row + 1 + i;
         if (row.type === 'head') {
           buffer.writeText(line, region.col, fitLine(row.label, region.width), HEAD_STYLE);
         } else {
           this.renderItemRow(buffer, line, region.col, region.width, items[row.index]!, row.index === this.cursor);
         }
+        line++;
+      }
+      if (indicatorsOn) {
+        const below = rows.length - (this.offset + cap);
+        if (below > 0) buffer.writeText(line, region.col, moreHint('↓', below), HINT_STYLE);
       }
     }
     // 底行：键路提示 + 过滤词呈现（过滤面在屏可感知）。过滤态换简化提示——
@@ -316,25 +359,25 @@ export class ModelPicker implements OverlayContent {
     const maxOffset = Math.max(0, rowCount - this.viewportHeight);
     if (this.offset > maxOffset) this.offset = maxOffset;
     // 光标条目行号（展开行集内）：光标前有组头行——行号 ≤ 展开下标。窗判定用
-    // 展开行集：光标行号 = rows 中第 cursor 个 item 行的位置。近似窗判定以
-    // 「光标条目展开行号」夹取——重扫展开行集取位（条目数小，O(n) 无妨）
-    const items = this.filtered();
-    const rows = this.rows(items);
-    let cursorRow = 0;
-    let seen = 0;
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i]!.type === 'item') {
-        if (seen === this.cursor) {
-          cursorRow = i;
-          break;
-        }
-        seen++;
-      }
-    }
+    // 展开行集：光标行号 = rows 中第 cursor 个 item 行的位置（cursorRowOf 单源
+    // ——render 指示档同消费）
+    const cursorRow = this.cursorRowOf(this.rows(this.filtered()));
     if (cursorRow < this.offset) this.offset = cursorRow;
     else if (cursorRow >= this.offset + this.viewportHeight) {
       this.offset = cursorRow - this.viewportHeight + 1;
     }
+  }
+
+  /** 光标条目在展开行集内的行号（组头占行——重扫取位；条目数小 O(n) 无妨） */
+  private cursorRowOf(rows: readonly RowLine[]): number {
+    let seen = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i]!.type === 'item') {
+        if (seen === this.cursor) return i;
+        seen++;
+      }
+    }
+    return 0; // 防御位（空集/光标越界——过滤重算已归首）
   }
 
   /** 退出（闭锁——选定与取消单次收口） */

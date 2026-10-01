@@ -77,12 +77,13 @@ describe('TodoPanel 条目呈现', () => {
     expect(grid.getCell(2, 0)?.style?.dim).toBe(true);
   });
 
-  it('长内容截断（码点安全——不越网格宽、宽字不产半字）', () => {
+  it('长内容省略形截断（界面美化役①——… 记号收口；码点安全不越网格宽、宽字不产半字）', () => {
     const panel = new TodoPanel();
     panel.update([item('pending', '一'.repeat(60))]);
     const grid = renderPanel(panel, WIDTH);
-    // 宽 40 - 记号 2 = 38 列 → 19 个汉字整字截断（第 20 个不产半字）
-    expect(readRow(grid, 0, WIDTH)).toBe('☐ ' + '一'.repeat(19));
+    // 宽 40 - 记号 2 = 38 列预算 → 37 列整字 + '…' = 18 个汉字 + 省略号
+    //（修前红锚：19 个汉字硬切、尾部无 …——条目被切不可辨）
+    expect(readRow(grid, 0, WIDTH)).toBe('☐ ' + '一'.repeat(18) + '…');
   });
 });
 

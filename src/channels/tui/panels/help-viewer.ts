@@ -18,6 +18,9 @@ import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { ActionScope, ActionView } from '../keys/registry.js';
 import { hintLine } from '../keys/hint.js';
+import { fitLine } from '../row-segments.js';
+import { headStyleOf, isSectionHeadLine, VIEWER_HEAD_MARK } from './panel-chrome.js';
+import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 命令册条目（装配位合流注入——通道核命令表 + TUI 本地命令族 + TUI 本地退出词） */
 export interface HelpCommandEntry {
@@ -35,6 +38,11 @@ export interface HelpViewerOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
+   * DEFAULT_THEME（装配位接线前呈现不缺色；真值随 /themes 换装——挂账装配）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** 域分组呈现名（键位册分组头——ActionScope 中文呈现单源） */
@@ -69,15 +77,20 @@ export class HelpViewer extends ScrollView implements OverlayContent {
   private readonly onExit: (() => void) | undefined;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
+  /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
+  private readonly headStyle: Readonly<CellStyle>;
   /** 退出闭锁（同批多事件只退一次——q 与 Esc 竞发防御位） */
   private exited = false;
 
   constructor(options: HelpViewerOptions) {
-    super(); // 无 maxHeight——副屏 root 直收 region 全高
+    // 界面美化役 2026-10-01 美学批两档：折行续行 2 空格悬挂 + 分段头整行 dim
+    // （`── 命令 ──` / `· 域` 两形经 panel-chrome 判词单源命中）
+    super({ hangingIndent: true, dimLine: isSectionHeadLine });
     this.sessionId = options.sessionId;
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
     this.setLines(buildHelpLines(options.commands, options.actions));
     this.scrollToTop(); // 开屏锚顶（ScrollView 缺省贴尾为回看器语义——帮助册首段是命令头）
   }
@@ -87,16 +100,19 @@ export class HelpViewer extends ScrollView implements OverlayContent {
     return 1 + super.measure(width) + 1;
   }
 
-  /** 落位：头行 → 滚动视口（super.render）→ 底行提示 */
+  /** 落位：头行（accent + fitLine 收口）→ 滚动视口（super.render）→ 底行提示（fitLine 收口） */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = `❓ 命令与键位帮助 · 会话 ${shortIdOf(this.sessionId)}`;
-    buffer.writeText(region.row, region.col, head);
+    // 界面美化役美学注④/⑤：头符 ◉（查看族——❓ emoji 宽度不稳弃用）+ accent 着色；
+    // 非条目行 fitLine 收口（照 theme-picker 107-109 注释形移植）
+    const head = `${VIEWER_HEAD_MARK} 命令与键位帮助 · 会话 ${shortIdOf(this.sessionId)}`;
+    buffer.writeText(region.row, region.col, fitLine(head, region.width), this.headStyle);
     const viewHeight = region.height - 2;
     if (viewHeight > 0) {
       super.render(buffer, { row: region.row + 1, col: region.col, width: region.width, height: viewHeight });
     }
-    buffer.writeText(region.row + region.height - 1, region.col, HINT_TEXT, HINT_STYLE);
+    // 界面美化役美学注⑤：底行提示 fitLine 收口补漏（窄屏不溢出）
+    buffer.writeText(region.row + region.height - 1, region.col, fitLine(HINT_TEXT, region.width), HINT_STYLE);
   }
 
   /**
@@ -156,7 +172,9 @@ export function buildHelpLines(commands: readonly HelpCommandEntry[], actions: r
     // 名列、续行独立成行（源自带缩进的视觉形保留）
     const descLines = (cmd.description ?? '').split(/\r?\n/);
     lines.push(`${label.padEnd(nameCol)}${descLines[0] ?? ''}`.trimEnd());
-    for (const cont of descLines.slice(1)) lines.push(cont.trimEnd());
+    // 界面美化役 2026-10-01：续行按动态 nameCol 空格缩进（真实对齐缺陷——
+    // 原续行顶格与首行描述列错位；源侧全角空格前缀已剥，缩进责任归本呈现件）
+    for (const cont of descLines.slice(1)) lines.push(' '.repeat(nameCol) + cont.trimEnd());
   }
   // 键位册段：按域分组（册序内首见建组——ACTION_CATALOG 已按域聚集）
   lines.push('', '── 键位 ──');

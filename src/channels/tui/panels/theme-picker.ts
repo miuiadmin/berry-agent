@@ -13,10 +13,14 @@
  * - **退出键面**：q/Esc 退出、Ctrl+C 打断、Ctrl+D 退出进程（先收副屏再转
  *   退出柄）——副屏键面件族律。
  */
-import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
+import type { CellBuffer, CellStyle, ColorValue, InputEvent, Region } from '../../engine/index.js';
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
+import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { builtinPalette, DEFAULT_THEME, resolveTheme, type ResolvedTheme } from '../theme/index.js';
+import { overlayBoard } from '../theme/custom.js';
+import type { PartialSemanticPalette } from '../theme/semantic.js';
 
 /** 主题条目（装配位合成：内置三档 + themes/ 目录文件名） */
 export interface ThemePickEntry {
@@ -26,6 +30,19 @@ export interface ThemePickEntry {
   readonly detail: string;
   /** 坏文件标注（自定义板解析失败——⚠ 呈现；选定走装配位 warn 回退） */
   readonly broken: boolean;
+  /**
+   * 语义色样段（界面美化役 2026-10-01 美学批）：accent/success/error/
+   * secondary 四段 resolve 后真色值——装配位对自定义板现算注入；缺席时
+   * 内置 dark/light 档本件 builtinPalette 现算回退（复用 resolve 管线），
+   * auto（探测依赖）/坏文件（无真值）诚实不画。
+   */
+  readonly swatch?: readonly ColorValue[];
+  /**
+   * 自定义板覆盖表（界面美化役主会话接线位）：装配位注入坏检查时已加载的
+   * overlay——swatch 缺席时本件现算色样（dark 基板合成后走 resolve 管线，
+   * 同 builtin 腿 depth 形）；坏文件/内置档缺席。
+   */
+  readonly overlay?: PartialSemanticPalette;
 }
 
 /** 主题选择器装配选项 */
@@ -40,16 +57,21 @@ export interface ThemePickerOptions {
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
+   * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
+   */
+  readonly theme?: ResolvedTheme;
 }
 
 /** 提示行样式（dim） */
 const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 光标行标记（在选行） */
-const CURSOR_MARK = '▸';
 /** 当前档标记 */
 const CURRENT_MARK = '●';
 /** 坏文件标记（⚠ + 短语——右段前缀） */
 const BROKEN_MARK = '⚠ 坏文件';
+/** 色样块字符（语义色样段——每块单列，四块拼行尾色带） */
+const SWATCH_CELL = '■';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
 const WHEEL_LINES = 3;
 
@@ -61,6 +83,27 @@ function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
 /** 无修饰命名键判 */
 function isPlainKey(e: InputEvent & { kind: 'key' }, key: string): boolean {
   return !e.ctrl && !e.alt && !e.shift && !e.meta && e.key === key;
+}
+
+/**
+ * 条目色样段取值（纯函数——测试直锁消费）：装配位注入值优先；内置 dark/
+ * light 档 builtinPalette 现算回退（resolveTheme 复用既有 resolve 管线）；
+ * auto（探测依赖）/坏文件（无真值）/未注入自定义板——null 诚实不画。
+ */
+export function swatchOf(entry: ThemePickEntry): readonly ColorValue[] | null {
+  if (entry.broken) return null;
+  if (entry.swatch !== undefined) return entry.swatch;
+  if (entry.name === 'dark' || entry.name === 'light') {
+    const resolved = resolveTheme(builtinPalette(entry.name), DEFAULT_THEME.depth);
+    return [resolved.accent, resolved.success, resolved.error, resolved.secondary];
+  }
+  // 自定义板（overlay 注入形——主会话接线位）：dark 基板覆盖合成后同管线现算
+  //（缺键回退基板同位键——currentBoard 同语义；depth 随 builtin 腿同源）
+  if (entry.overlay !== undefined) {
+    const resolved = resolveTheme(overlayBoard(builtinPalette('dark'), entry.overlay), DEFAULT_THEME.depth);
+    return [resolved.accent, resolved.success, resolved.error, resolved.secondary];
+  }
+  return null;
 }
 
 /**
@@ -83,6 +126,8 @@ export class ThemePicker implements OverlayContent {
   private viewportHeight = 1;
   /** 退出闭锁（选定与取消两路共闭——竞发防御位） */
   private exited = false;
+  /** 头行 accent 派生样式（theme 注入位——缺省 DEFAULT_THEME） */
+  private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: ThemePickerOptions) {
     this.entries = options.entries;
@@ -92,6 +137,7 @@ export class ThemePicker implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
   /** 量高：头行 + 条目全量 + 底行提示（副屏 root 不经布局路——render 按实际 region 窗口化） */
@@ -100,23 +146,57 @@ export class ThemePicker implements OverlayContent {
     return 1 + Math.max(1, this.entries.length) + 1;
   }
 
-  /** 落位：头行 → 条目视口（光标 ▸ + 当前 ● + 名 / ⚠·说明右段）→ 底行提示 */
+  /** 落位：头行（accent）→ 条目视口（光标 ▸ + 当前 ● + 名 / ⚠·说明右段 + 行尾色样段；长清单 dim 边行滚动指示）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = this.entries.length === 0 ? '◆ 主题切换 · 无条目' : `◆ 主题切换 · ${this.entries.length} 个主题`;
+    const head =
+      this.entries.length === 0
+        ? `${PICKER_HEAD_MARK} 主题切换 · 无条目`
+        : `${PICKER_HEAD_MARK} 主题切换 · ${this.entries.length} 个主题`;
     // 非条目行（头行/空条目行/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5 补漏
-    // ——raw writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）
-    buffer.writeText(region.row, region.col, fitLine(head, region.width));
+    // ——raw writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）；
+    // 头行 accent 着色（界面美化役美学注④——词汇 ◆ 单源 panel-chrome）
+    buffer.writeText(region.row, region.col, fitLine(head, region.width), this.headStyle);
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (this.entries.length === 0) {
       buffer.writeText(region.row + 1, region.col, fitLine('（无条目）', region.width), HINT_STYLE);
     } else {
-      for (let i = 0; i < viewHeight; i++) {
+      // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且溢出
+      // 才立——窗上/下方还有条目时各留一行 dim 边行「↑/↓ N 更多」（todo-panel
+      // 溢出行先例形）；预留行挤压后光标跟随（指示行不遮在选行）
+      const indicatorsOn = viewHeight >= 3 && this.entries.length > viewHeight;
+      let cap = viewHeight; // 条目实占行数（扣除指示预留）
+      for (let round = 0; round < 3; round++) {
+        const topReserve = indicatorsOn && this.offset > 0;
+        const afterTop = viewHeight - (topReserve ? 1 : 0);
+        const bottomReserve = indicatorsOn && this.entries.length - this.offset - afterTop > 0;
+        cap = afterTop - (bottomReserve ? 1 : 0);
+        // 光标恒在收窄窗内（越窗提窗——预留翻转后再收敛，三轮封顶）
+        if (this.cursor < this.offset) {
+          this.offset = this.cursor;
+          continue;
+        }
+        if (this.cursor >= this.offset + cap) {
+          this.offset = this.cursor - cap + 1;
+          continue;
+        }
+        break;
+      }
+      let displayRow = region.row + 1;
+      if (indicatorsOn && this.offset > 0) {
+        buffer.writeText(displayRow, region.col, moreHint('↑', this.offset), HINT_STYLE);
+        displayRow++;
+      }
+      for (let i = 0; i < cap; i++) {
         const index = this.offset + i;
         if (index >= this.entries.length) break;
-        this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index);
+        this.renderRow(buffer, displayRow++, region.col, region.width, index);
+      }
+      if (indicatorsOn) {
+        const below = this.entries.length - (this.offset + cap);
+        if (below > 0) buffer.writeText(displayRow, region.col, moreHint('↓', below), HINT_STYLE);
       }
     }
     buffer.writeText(
@@ -130,7 +210,7 @@ export class ThemePicker implements OverlayContent {
     );
   }
 
-  /** 单行落位：左段（光标 + 当前标记 + 名）+ 右段（坏文件 ⚠ + 说明）右对齐 */
+  /** 单行落位：左段（光标 + 当前标记 + 名）+ 右段（坏文件 ⚠ + 说明）右对齐 + 行尾语义色样段 */
   private renderRow(buffer: CellBuffer, row: number, col: number, width: number, index: number): void {
     const entry = this.entries[index]!;
     const right = `${entry.broken ? `${BROKEN_MARK} · ` : ''}${entry.detail}`;
@@ -138,10 +218,21 @@ export class ThemePicker implements OverlayContent {
     const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
     const mark = entry.name === this.current ? `${CURRENT_MARK} ` : '  ';
     const left = `${prefix}${mark}${entry.name}`;
+    // 界面美化役美学批（色样段）：行尾预留色带位（有样且窗宽足够才留——
+    // 窄于色带+1 列整幅让给文本，色样诚实缺席）
+    const swatch = swatchOf(entry);
+    const reserveSwatch = swatch !== null && width > swatch.length + 1;
+    const budget = reserveSwatch ? width - swatch!.length - 1 : width;
     // 右段预算律单源：右段先按预算 … 截断再右对齐（窄窗不再负起列劈毁档名）
-    const fit = fitRowSegments(left, right, width);
+    const fit = fitRowSegments(left, right, budget);
     buffer.writeText(row, col, fit.left);
-    if (fit.rightWidth > 0) buffer.writeText(row, col + width - fit.rightWidth, fit.right, HINT_STYLE);
+    if (fit.rightWidth > 0) buffer.writeText(row, col + budget - fit.rightWidth, fit.right, HINT_STYLE);
+    // 色样段：右缘贴齐逐块着色（accent/success/error/secondary 语义四段）
+    if (reserveSwatch) {
+      for (let i = 0; i < swatch!.length; i++) {
+        buffer.setCell(row, col + width - swatch!.length + i, SWATCH_CELL, { fg: swatch![i]! });
+      }
+    }
   }
 
   /** 事件分发（副屏内容终局消费）：滚轮 → Ctrl+C/Ctrl+D 补丁 → 选定/取消 → 移动键 */
