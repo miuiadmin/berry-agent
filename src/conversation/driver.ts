@@ -174,6 +174,12 @@ export class ConversationDriver {
    * 时点 null；只读外推面 = retryState getter（SDK 心跳载荷唯一线面出口）。
    */
   private retryProbeValue: RetryProbe | undefined;
+  /**
+   * runTurns 在飞起点墙钟（E-1 落码批——agent_end durationMs 供源）：runTurns
+   * 入口置值、finally 清空；onLiveEvent 据此为 runTurns 在飞期到达的
+   * agent_end 补 durationMs（run 累计口径——重试续入不清零）。
+   */
+  private runTurnsStartedAt: number | null = null;
 
   constructor(options: ConversationDriverOptions) {
     this.options = options;
@@ -517,10 +523,20 @@ export class ConversationDriver {
     return this.retryProbeValue ?? null;
   }
 
-  /** 活体事件双腿：durable 接线腿（同步序即落账序）+ 外部汇腿（channels 信封包装归批 12） */
+  /**
+   * 活体事件双腿：durable 接线腿（同步序即落账序）+ 外部汇腿（channels 信封包装归批 12）。
+   * agent_end 载荷扩（04 §2 E-0——A-3 唯一真源）：runTurns 在飞期到达的
+   * agent_end 补 durationMs（runTurns 入口墙钟起算的 run 累计值——重试续入
+   * 的中间态 end 也携带「至此刻」累计值，消费端只认终态 end 的值；上游已
+   * 携带〔测试注入形〕不覆写）。
+   */
   private readonly onLiveEvent = (event: AgentEvent): void => {
-    this.wiring.onEvent(event);
-    if (this.options.onEvent !== undefined) void this.options.onEvent(event);
+    const enriched: AgentEvent =
+      event.type === 'agent_end' && event.durationMs === undefined && this.runTurnsStartedAt !== null
+        ? { ...event, durationMs: Math.max(0, Date.now() - this.runTurnsStartedAt) }
+        : event;
+    this.wiring.onEvent(enriched);
+    if (this.options.onEvent !== undefined) void this.options.onEvent(enriched);
   };
 
   /**
@@ -960,6 +976,8 @@ export class ConversationDriver {
     let authRefreshAttempt = 0;
     /** 终态结算值（finally 面的消费位——onRunSettled 订阅回调载荷） */
     let settled: RunResult | undefined;
+    // runTurns 起点墙钟（agent_end durationMs 供源——重试续入不重置，run 累计口径）
+    this.runTurnsStartedAt = Date.now();
     try {
       // 入口重播种：对齐投影（上次失败收场可能已遮蔽尾部——镜像先重建再起跑）
       this.context.messages = this.reseededTimeline();
@@ -984,6 +1002,9 @@ export class ConversationDriver {
                 'hook-stop',
                 assistant.errorMessage,
               );
+              // 终态揭示信号（E-1——可无配对 start）：消费端把 agent_end(failed)
+              // 的 ⚠ 持有档翻终态红 ✖
+              this.onLiveEvent({ type: 'retry_wait_end', outcome: 'exhausted' });
               break;
             }
             const hookRetry = effective?.action === 'retry';
@@ -1005,11 +1026,20 @@ export class ConversationDriver {
               if (hookRetry && effective?.model !== undefined) this.runModelValue = effective.model;
               this.context.messages = this.reseededTimeline();
               // 重试探针窗开（04 §3.3 seam——退避等待期可见；心跳载荷唯一线面出口）
+              const nextAt = Date.now() + delayMs;
               this.retryProbeValue = {
                 attempt: transientAttempt,
                 maxAttempts: retry.maxRetries,
-                nextAt: Date.now() + delayMs,
+                nextAt,
               };
+              // 重试退避窗开活体事件（04 §2 E-1——attempt/maxAttempts/nextAt 与
+              // 探针同源同刻；nextAt 绝对时刻律：倒计时消费端本地钟渲染）
+              this.onLiveEvent({
+                type: 'retry_wait_start',
+                attempt: transientAttempt,
+                maxAttempts: retry.maxRetries,
+                nextAt,
+              });
               if (!(await abortableSleep(delayMs, controller.signal))) {
                 // 退避中被取消：phase=aborted 落账；run 终态保持已结算的 failed
                 this.session.append('llm/retry', {
@@ -1018,10 +1048,15 @@ export class ConversationDriver {
                   delayMs,
                   phase: 'aborted',
                 });
+                // 退避窗内被打断（E-1）——aborted 收口信号（消费端把 ⚠ 持有档翻终态）
+                this.onLiveEvent({ type: 'retry_wait_end', outcome: 'aborted' });
                 break;
               }
-              // 窗关：续入即新流（活体层零新事件型——用户看到重跑，探针蒸发）
+              // 窗关：续入即新流（探针蒸发；E-1 活体窗关事件随后发射）
               this.retryProbeValue = undefined;
+              // 退避窗关活体事件（E-1——resumed：续入即新 agent_start，消费端清
+              // 重试态恢复常规忙态呈现）
+              this.onLiveEvent({ type: 'retry_wait_end', outcome: 'resumed' });
               result = await this.enterRun([], controller.signal);
               continue;
             }
@@ -1038,6 +1073,8 @@ export class ConversationDriver {
               }
               // nothing（区间不足压无可压）/ failed（摘要通道失败）——续入必再溢出，诚实报败
               this.appendExhausted('overflow', overflowAttempt, retry.maxRetries, outcome);
+              // 终态揭示信号（E-1——overflow 腿无退避窗零 start 配对）
+              this.onLiveEvent({ type: 'retry_wait_end', outcome: 'exhausted' });
               break;
             }
             // —— 宿主凭证刷新联动腿（04 §3.3 条 8——B3 批裁决一/五/七）：插
@@ -1070,11 +1107,19 @@ export class ConversationDriver {
                 this.occludeFailedTail('auth-refresh', authRefreshAttempt, retry.maxRetries, delayMs, 'host');
                 this.context.messages = this.reseededTimeline();
                 // 重试探针窗开（04 §3.3 seam——退避等待期可见）
+                const authNextAt = Date.now() + delayMs;
                 this.retryProbeValue = {
                   attempt: authRefreshAttempt,
                   maxAttempts: retry.maxRetries,
-                  nextAt: Date.now() + delayMs,
+                  nextAt: authNextAt,
                 };
+                // 退避窗开活体事件（E-1——与 transient 腿同编舞，探针同源同刻）
+                this.onLiveEvent({
+                  type: 'retry_wait_start',
+                  attempt: authRefreshAttempt,
+                  maxAttempts: retry.maxRetries,
+                  nextAt: authNextAt,
+                });
                 if (!(await abortableSleep(delayMs, controller.signal))) {
                   // 退避中被取消：phase=aborted 落账（reason 'auth-refresh' ——
                   // 审计面区分中断归属腿）；run 终态保持已结算的 failed
@@ -1086,10 +1131,14 @@ export class ConversationDriver {
                     reason: 'auth-refresh',
                     decidedBy: 'host',
                   });
+                  // 退避窗内被打断（E-1）——aborted 收口信号
+                  this.onLiveEvent({ type: 'retry_wait_end', outcome: 'aborted' });
                   break;
                 }
                 // 窗关：续入即新流（供血面逐请求现取——刷新后新值结构性到位）
                 this.retryProbeValue = undefined;
+                // 退避窗关活体事件（E-1——resumed：续入即新 agent_start）
+                this.onLiveEvent({ type: 'retry_wait_end', outcome: 'resumed' });
                 result = await this.enterRun([], controller.signal);
                 continue;
               }
@@ -1137,6 +1186,11 @@ export class ConversationDriver {
               );
             }
           }
+          // 终态揭示信号（E-1——达帽燃尽/不可重试首败/刷新腿非 refreshed 收口
+          // 共用此 break；可无配对 start：非重试首败全程零退避窗）。消费端据
+          // 此把 agent_end(failed) 的 ⚠ 持有档翻终态红 ✖——驱动侧保证 failed
+          // 终态后必随发一个收口信号（本处或 aborted/exhausted 各专属位）。
+          this.onLiveEvent({ type: 'retry_wait_end', outcome: 'exhausted' });
           break;
         }
         // 非 failed 收场：completed 且队列有搁浅件（break 时未消费）→ 作种子续跑；
@@ -1153,6 +1207,8 @@ export class ConversationDriver {
       if (this.activeController === controller) this.activeController = undefined;
       // 探针随 run 收口蒸发（防御位——aborted/exhausted 各 break 路不悬空）
       this.retryProbeValue = undefined;
+      // 起点墙钟随 run 收口清空（后续散点 agent_end 不再补 durationMs）
+      this.runTurnsStartedAt = null;
       // run 终态 = 结算边界（04 §3）：审批对收口（04 §9 turn 界闭合——未决
       // ask 统一 unavailable；run 打断的在身 ask 已由 signal 链先收 cancel）
       this.options.settleApprovals?.();

@@ -557,6 +557,130 @@ describe('ConversationDriver turn 级 auto-retry', () => {
   });
 });
 
+/* ---------------- 重试窗口活体事件（04 §2 E-1——发射锁，修前红） ---------------- */
+
+describe('ConversationDriver 重试窗口活体事件（E-1 落码批）', () => {
+  /** transient 分桶器（errorMessage 带 #transient 标记即 transient 桶——同上文族） */
+  const transientBucket = (message: AssistantMessage): ErrorBucket =>
+    message.errorMessage?.includes('#transient') ? 'transient' : 'non-retryable';
+
+  /** 活体类型序（断言简写） */
+  const liveTypes = (live: AgentEvent[]): string[] => live.map((e) => e.type);
+
+  it('transient 全链活体序：agent_end(failed) → retry_wait_start → retry_wait_end(resumed) → agent_start（修前红——扩型前词汇缺席）', async () => {
+    const before = Date.now();
+    const { driver, live } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }),
+        assistant({ content: [{ type: 'text', text: '好了' }] }),
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed');
+    const types = liveTypes(live);
+    // 窗口对夹序：首 agent_end(failed) 之后开窗、resumed 之后才是续入 agent_start
+    const firstEnd = types.indexOf('agent_end');
+    const waitStart = types.indexOf('retry_wait_start');
+    const waitEnd = types.indexOf('retry_wait_end');
+    const secondStart = types.indexOf('agent_start', firstEnd + 1);
+    expect(waitStart).toBeGreaterThan(firstEnd);
+    expect(waitEnd).toBeGreaterThan(waitStart);
+    expect(secondStart).toBeGreaterThan(waitEnd);
+    // 字段形（04 §2 绝对时刻律）：attempt/maxAttempts 与策略同源、nextAt 绝对时刻
+    const start = live[waitStart] as { type: 'retry_wait_start'; attempt: number; maxAttempts: number; nextAt: number };
+    expect(start.attempt).toBe(1);
+    expect(start.maxAttempts).toBe(1);
+    expect(start.nextAt).toBeGreaterThanOrEqual(before);
+    expect(start.nextAt).toBeLessThan(before + 5_000); // 1ms 退避 + 时钟余量
+    expect(live[waitEnd]).toMatchObject({ type: 'retry_wait_end', outcome: 'resumed' });
+    // durable 零新词红线：接线腿默认忽略活体窗口词（不落日志）
+    expect(driver.session.events().map((e) => e.type)).not.toContain('retry_wait_start');
+    expect(driver.session.events().map((e) => e.type)).not.toContain('retry_wait_end');
+  });
+
+  it('agent_end 载荷扩：runTurns 在飞期每个 agent_end 都带 durationMs（run 累计口径——重试续入不清零）', async () => {
+    const { driver, live } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }),
+        assistant({ content: [{ type: 'text', text: '好了' }] }),
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('completed');
+    const ends = live.filter((e) => e.type === 'agent_end') as Array<{ durationMs?: number; status: string }>;
+    expect(ends).toHaveLength(2); // 中间态 failed + 终态 completed
+    for (const end of ends) {
+      expect(typeof end.durationMs).toBe('number');
+      expect(end.durationMs!).toBeGreaterThanOrEqual(0);
+    }
+    // 累计口径：终态 completed 的 durationMs ≥ 中间态 failed 的值（同一 runTurns 起点起算）
+    expect(ends[1]!.durationMs!).toBeGreaterThanOrEqual(ends[0]!.durationMs!);
+  });
+
+  it('达帽燃尽：终态 agent_end(failed) 之后随发 retry_wait_end(exhausted)——恰一次', async () => {
+    const { driver, live } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }),
+        assistant({ stopReason: 'error', errorMessage: 'still down #transient' }),
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 },
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    const ends = live.filter((e) => e.type === 'agent_end');
+    const exhausted = live.filter((e) => e.type === 'retry_wait_end' && e.outcome === 'exhausted');
+    expect(ends).toHaveLength(2);
+    expect(exhausted).toHaveLength(1);
+    // 揭示信号在终态 end 之后（消费端据此翻 ⚠ 持有档）
+    const lastEndIdx = liveTypes(live).lastIndexOf('agent_end');
+    const exhaustedIdx = live.indexOf(exhausted[0]!);
+    expect(exhaustedIdx).toBeGreaterThan(lastEndIdx);
+  });
+
+  it('退避窗内打断：retry_wait_start → retry_wait_end(aborted)（无 resumed——续入未发生）', async () => {
+    const { driver, live } = makeDriver({
+      scripts: [
+        assistant({ stopReason: 'error', errorMessage: 'net down #transient' }),
+        assistant({ content: [{ type: 'text', text: '不应到达' }] }),
+      ],
+      classifyError: transientBucket,
+      retry: { enabled: true, maxRetries: 1, baseDelayMs: 60_000 }, // 长窗内 abort
+    });
+    const pending = driver.submit('q');
+    await vi.waitFor(() => {
+      expect(liveTypes(live)).toContain('retry_wait_start');
+    });
+    driver.abort();
+    const result = await pending;
+    expect(result.status).toBe('failed');
+    const types = liveTypes(live);
+    // aborted 收口在场、resumed 不在（续入未发生）
+    expect(live.find((e) => e.type === 'retry_wait_end')).toMatchObject({ outcome: 'aborted' });
+    expect(live.filter((e) => e.type === 'retry_wait_end' && e.outcome === 'resumed')).toHaveLength(0);
+    expect(types.filter((t) => t === 'agent_start')).toHaveLength(1); // 续入未发生
+  });
+
+  it('不可重试首败：retry_wait_end(exhausted) 可无配对 start（零退避窗全程）', async () => {
+    const { driver, live } = makeDriver({
+      scripts: [assistant({ stopReason: 'error', errorMessage: 'quota exceeded' })],
+      retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 },
+    });
+    const result = await driver.submit('q');
+    expect(result.status).toBe('failed');
+    const types = liveTypes(live);
+    expect(types).not.toContain('retry_wait_start');
+    expect(types).toContain('retry_wait_end');
+    expect(live.find((e) => e.type === 'retry_wait_end')).toMatchObject({ outcome: 'exhausted' });
+    // 揭示信号在终态 end 之后
+    expect(types.lastIndexOf('retry_wait_end')).toBeGreaterThan(types.lastIndexOf('agent_end'));
+  });
+});
+
 /* ---------------- 队列通道（busy steer / followUp 搭车 / 搁浅件续跑） ---------------- */
 
 describe('ConversationDriver 待发队列通道', () => {
