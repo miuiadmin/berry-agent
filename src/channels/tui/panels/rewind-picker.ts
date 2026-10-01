@@ -246,7 +246,11 @@ export class RewindPicker implements OverlayContent {
           const id = this.previewId;
           if (data !== undefined && data.errorText === undefined && id !== undefined) {
             this.exit(); // 先收副屏再回调（件族律——session-picker 同序）
-            void this.actions.onRestore(id);
+            // 弃接守卫（防御深度——A-4）：restore 回执责任面在注入域（core:checkpoint
+            // 编舞自带兜底折 notify「回退失败」）；面板已收屏无呈现面，此处 catch
+            // 只拦 unhandledRejection 逃逸不折态——注入实现未自带兜底时 reject 不得
+            // 沿 void 逃出杀进程（与 onPreview .catch 折面板态形职责分立）
+            void this.actions.onRestore(id).catch(() => undefined);
           }
           return true; // 加载中/错误态 Enter 零动作（诚实拒）
         }

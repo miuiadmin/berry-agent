@@ -230,6 +230,39 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     expect(order).toEqual(['exit', 'restore']); // 先收屏再回调（件族律）
   });
 
+  it('onRestore 拒绝：面板层弃接守卫拦 unhandledRejection（防御深度——A-4，修前红位）', async () => {
+    // restore 回执责任面在注入域（core:checkpoint 编舞自带兜底折 notify——
+    // core-plugins.test「回退失败」锁）；面板层 catch = 第二防线——注入实现
+    // 若未自带兜底，reject 不得沿 void 逃出杀进程（面板已收屏无呈现面，
+    // 只拦逃逸不折态——与 onPreview .catch 折态形职责分立）。
+    // 夹具律：此处须裸 async 函数非 vi.fn——tinyspy 观察链给 promise 挂了
+    // handler，vi.fn 形弃接不触发 unhandledRejection（探针实证），红测不出
+    const calls: string[] = [];
+    const onRestore = async (id: string): Promise<void> => {
+      calls.push(id);
+      throw new Error('CHECKPOINT_IO_FAIL');
+    };
+    const { picker } = makePicker({
+      actions: { onPreview: vi.fn(async () => ({ ...PREVIEW_OK })), onRestore },
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (r: unknown) => unhandled.push(r);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      picker.handleEvent(k('enter'));
+      await Promise.resolve();
+      await Promise.resolve();
+      picker.handleEvent(k('enter')); // 段二确认 → exit + void onRestore(id)
+      expect(calls).toEqual(['m-second0001']);
+      // 冲微任务窗（reject 传播 + unhandledRejection 判定窗）
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      expect(unhandled).toHaveLength(0); // 修前红位：void 弃接 → unhandledRejection
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled); // 先解绑防污染其它例
+    }
+  });
+
   it('预演失败（errorText）：Enter 不进 restore（诚实拒——零误执行）', async () => {
     const onRestore = vi.fn(async () => undefined);
     const { picker } = makePicker({
