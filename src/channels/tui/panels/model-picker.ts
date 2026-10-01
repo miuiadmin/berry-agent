@@ -14,7 +14,7 @@
  *   （不退屏）、Ctrl+D 退出进程（先收副屏再转退出柄）——副屏键面件族律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { fitRowSegments } from '../row-segments.js';
+import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 
@@ -132,12 +132,23 @@ export class ModelPicker implements OverlayContent {
     if (region.height < 2) return; // 防御位（极小终端）
     const items = this.filtered();
     const rows = this.rows(items);
-    buffer.writeText(region.row, region.col, `◆ 切换模型 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`);
+    // 非条目行（头行/空匹配/组头/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5
+    // ——raw writeText 窄窗硬截断无提示的漏网面；条目行走 fitRowSegments 双段）
+    buffer.writeText(
+      region.row,
+      region.col,
+      fitLine(`◆ 切换模型 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`, region.width),
+    );
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset(rows.length);
     if (rows.length === 0) {
-      buffer.writeText(region.row + 1, region.col, `（无匹配「${this.query}」的模型）`, HINT_STYLE);
+      buffer.writeText(
+        region.row + 1,
+        region.col,
+        fitLine(`（无匹配「${this.query}」的模型）`, region.width),
+        HINT_STYLE,
+      );
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;
@@ -145,7 +156,7 @@ export class ModelPicker implements OverlayContent {
         const row = rows[index]!;
         const line = region.row + 1 + i;
         if (row.type === 'head') {
-          buffer.writeText(line, region.col, row.label, HEAD_STYLE);
+          buffer.writeText(line, region.col, fitLine(row.label, region.width), HEAD_STYLE);
         } else {
           this.renderItemRow(buffer, line, region.col, region.width, items[row.index]!, row.index === this.cursor);
         }
@@ -157,14 +168,17 @@ export class ModelPicker implements OverlayContent {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        `过滤：${this.query}_ · ` + hintLine('↑↓ 移动', 'enter 选定', 'backspace 删词', 'esc 返回'),
+        fitLine(
+          `过滤：${this.query}_ · ` + hintLine('↑↓ 移动', 'enter 选定', 'backspace 删词', 'esc 返回'),
+          region.width,
+        ),
         HINT_STYLE,
       );
     } else {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        hintLine('↑↓ 移动', 'enter 选定（下一轮对话起生效）', '打字过滤', 'esc/q 返回'),
+        fitLine(hintLine('↑↓ 移动', 'enter 选定（下一轮对话起生效）', '打字过滤', 'esc/q 返回'), region.width),
         HINT_STYLE,
       );
     }

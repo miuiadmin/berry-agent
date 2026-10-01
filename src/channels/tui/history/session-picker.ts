@@ -14,7 +14,7 @@
  *   再转退出柄）——副屏键面补丁三件套与件 8 同律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { fitRowSegments } from '../row-segments.js';
+import { fitLine, fitRowSegments } from '../row-segments.js';
 import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiSessionSummary } from '../../../contracts/index.js';
@@ -108,12 +108,19 @@ export class SessionPicker implements OverlayContent {
         : this.totalCount !== undefined && this.totalCount > n
           ? `⇄ 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
           : `⇄ 会话切换 · ${n} 会话`;
-    buffer.writeText(region.row, region.col, head);
+    // 非条目行（头行/空态行/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5——raw
+    // writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）
+    buffer.writeText(region.row, region.col, fitLine(head, region.width));
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (this.sessions.length === 0) {
-      buffer.writeText(region.row + 1, region.col, '（暂无会话——esc 返回，输入 /new 新建）', HINT_STYLE);
+      buffer.writeText(
+        region.row + 1,
+        region.col,
+        fitLine('（暂无会话——esc 返回，输入 /new 新建）', region.width),
+        HINT_STYLE,
+      );
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;
@@ -124,7 +131,10 @@ export class SessionPicker implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.sessions.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回'),
+      fitLine(
+        this.sessions.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 切换', 'q/esc 返回'),
+        region.width,
+      ),
       HINT_STYLE,
     );
   }

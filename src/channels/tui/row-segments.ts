@@ -50,3 +50,14 @@ export function fitRowSegments(left: string, right: string | undefined, width: n
   const fittedLeft = ellipsize(left, maxLeft); // 省略形单源（width 件——0 宽守卫在源）
   return { left: fittedLeft, right: fittedRight, rightWidth };
 }
+
+/**
+ * 单行宽度收口（fitRowSegments 单段形——无右段帽 = 总宽）：超宽整字截断
+ * 加 … 收口（wf_3c8b00b8 组δ X-5 自 rewind-picker 私形提升共享）。消费位 =
+ * 副屏选择器族**非条目行**（头行/空态行/组头/底行——插件域外部数据或提示
+ * 行，窄窗 raw writeText 直写越界静默吸收硬截断无提示的漏网面）；条目行
+ * 双段形走 fitRowSegments 本体。
+ */
+export function fitLine(text: string, width: number): string {
+  return fitRowSegments(text, undefined, width).left;
+}

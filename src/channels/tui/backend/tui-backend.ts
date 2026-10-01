@@ -70,6 +70,7 @@ import {
   CellGrid,
   InputDecoder,
   ProcessTerminalIO,
+  ellipsize,
   stringWidth,
   truncateToWidth,
   wrapText,
@@ -2327,7 +2328,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (this.inputAsk !== null) {
       const waiting = this.stack.size > 0 ? '（等上方面板关闭后作答）' : '';
       const queued = this.inputQueue.length > 0 ? `（后面还有 ${this.inputQueue.length} 个提问在排队）` : '';
-      grid.writeText(row, 0, `? ${this.inputAsk.message}${waiting}${queued}`, { dim: true });
+      // ellipsize … 收口（wf_3c8b00b8 组δ X-3）——长问句 + 排队缀标超列时 raw
+      // writeText 越界静默吸收硬截断无提示；收口只动呈现不动键路
+      grid.writeText(row, 0, ellipsize(`? ${this.inputAsk.message}${waiting}${queued}`, columns), { dim: true });
       row += 1;
     }
 

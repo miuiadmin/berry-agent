@@ -214,6 +214,27 @@ describe('SessionPicker 行呈现', () => {
     expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
   });
 
+  it('窄窗非条目行 … 收口（wf_3c8b00b8 组δ X-5）：头行/空态行/底行 raw writeText 硬截断封堵（修前红）', () => {
+    // 修前：头行/空态行/底行是 raw buffer.writeText 直写——窄窗超宽时
+    // CellGrid 越界静默吸收，行尾硬截断无省略提示（条目行走 fitRowSegments
+    // 有 …，非条目行是漏网面）；修后统一 fitLine … 收口
+    const { picker } = makePicker([row({ id: 'sess-abcdef1234567890', title: '题' })], { totalCount: 250 });
+    const width = 14; // 头行「⇄ 会话切换 · 1/250 会话（仅显示最近）」远超
+    const grid = new CellGrid(width, 4);
+    picker.render(grid, { row: 0, col: 0, width, height: 4 });
+    const head = readRow(grid, 0, width);
+    expect(head.startsWith('⇄')).toBe(true); // 行首锚存活
+    expect(head.endsWith('…')).toBe(true); // 修前红位：硬截断行尾无 …
+    expect(stringWidth(head)).toBeLessThanOrEqual(width); // 收口不越窗
+    const bottom = readRow(grid, 3, width);
+    expect(bottom.endsWith('…')).toBe(true); // 底行 hintLine 三段同超同律
+    // 空态行：空清单第二行「（暂无会话——esc 返回，输入 /new 新建）」超宽同收口
+    const { picker: empty } = makePicker([]);
+    const g2 = new CellGrid(width, 4);
+    empty.render(g2, { row: 0, col: 0, width, height: 4 });
+    expect(readRow(g2, 1, width).endsWith('…')).toBe(true);
+  });
+
   it('视口跟随：光标移出窗下沿 → 窗口下移（光标恒可见）', () => {
     const many = Array.from({ length: 10 }, (_, i) => row({ id: `id-${i}-00000000`, title: `行${i}` }));
     const { picker, onSelect } = makePicker(many);

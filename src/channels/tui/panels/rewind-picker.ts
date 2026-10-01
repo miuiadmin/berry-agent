@@ -22,7 +22,7 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiRewindActions, UiRewindEntry, UiRewindPreview } from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
-import { fitRowSegments } from '../row-segments.js';
+import { fitLine } from '../row-segments.js';
 
 /** 回退点选择器装配选项（载荷与回调组经 host deps 注入流转——openRewindPicker 面） */
 export interface RewindPickerOptions {
@@ -62,17 +62,6 @@ function plainChar(e: InputEvent & { kind: 'key' }): string | null {
   if (e.ctrl || e.alt || e.meta) return null;
   if (e.key.length !== 1) return null;
   return e.key;
-}
-
-/**
- * 单行宽度收口（fitRowSegments 单段形——无右段帽 = 总宽）：本面板各行
- * （头行/空匹配行/清单行/底行/preview 各行）超宽一律 … 收口、整字截断不撕
- * 宽字符——清单行与 previewLine 是插件域外部数据行（manifestLine 长行），
- * raw writeText 直写在窄窗是硬截断无提示（setCell 越界静默吸收）——件族
- * 宽度原语接入（theme/model/market picker 全族同律，本件为漏网件）。
- */
-function fitLine(text: string, width: number): string {
-  return fitRowSegments(text, undefined, width).left;
 }
 
 /**

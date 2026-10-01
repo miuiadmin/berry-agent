@@ -107,6 +107,26 @@ describe('ModelPicker 呈现', () => {
     expect(readRow(grid2, 5, 72)).toContain('●');
     expect(readRow(grid2, 5, 72).startsWith('▸')).toBe(false);
   });
+
+  it('窄窗非条目行 … 收口（wf_3c8b00b8 组δ X-5）：头行/组头行/底行 raw writeText 硬截断封堵（修前红）', () => {
+    // 修前：头行/组头行/空匹配行/底行是 raw buffer.writeText 直写——窄窗
+    // 超宽 CellGrid 越界静默吸收硬截断无提示（条目行走 fitRowSegments 有
+    // …，非条目行是漏网面）；修后统一 fitLine … 收口
+    const { picker } = makePicker();
+    const width = 12; // 头行「◆ 切换模型 · 4 个」/ 组头「── anthropic ──」(15) / 底行 hintLine 全超
+    const grid = paint(picker, width);
+    const head = readRow(grid, 0, width);
+    expect(head.startsWith('◆')).toBe(true); // 行首锚存活
+    expect(head.endsWith('…')).toBe(true); // 修前红位：硬截断行尾无 …
+    expect(readRow(grid, 1, width).endsWith('…')).toBe(true); // 组头行同律
+    expect(readRow(grid, grid.rows - 1, width).endsWith('…')).toBe(true); // 底行
+    // 空匹配行 + 过滤态底行：query 无匹配时第二行同收口
+    picker.handleEvent(t('z'));
+    picker.handleEvent(t('z'));
+    const g2 = paint(picker, width);
+    expect(readRow(g2, 1, width).endsWith('…')).toBe(true); // 「（无匹配「zz」的模型）」超宽
+    expect(readRow(g2, g2.rows - 1, width).endsWith('…')).toBe(true); // 过滤态底行同律
+  });
 });
 
 describe('ModelPicker 打字过滤', () => {

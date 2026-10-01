@@ -3554,6 +3554,26 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     await expect(p2).resolves.toBe('乙');
   });
 
+  it('input 提问行窄窗 … 收口（wf_3c8b00b8 组δ X-3）：长问句 + 排队缀标超列硬截断封堵（修前红）', async () => {
+    const { io, backend, pump } = makeInteractive({}, 24);
+    // 45 个双宽字 = 90 列 + 「? 」前缀 → 92 列 > 80 列屏；排队缀标更超出
+    const long = '题'.repeat(45);
+    const p1 = backend.input(long);
+    const p2 = backend.input('次问');
+    pump();
+    // 修前：raw grid.writeText 越界静默吸收——行尾硬截断无省略提示；修后
+    // ellipsize … 收口（'? ' + 38 个题〔2+76 列〕+ '…' = 79 列恰帽内）
+    expect(io.bytes).toContain(`? ${'题'.repeat(38)}…`);
+    // 修前红位二：raw 硬截断可写满 80 列（39 个题连排无 …）；收口后至多 38 连排
+    expect(io.bytes).not.toContain('题'.repeat(39));
+    io.emitInput('答\r'); // 队首照答（收口只动呈现不动键路）
+    pump();
+    await expect(p1).resolves.toBe('答');
+    io.emitInput('乙\r');
+    pump();
+    await expect(p2).resolves.toBe('乙');
+  });
+
   it('input 排队问 abort 静默出队 + 队首 abort 接续（十六役扫 #2）：从未上屏不落撤销行、保守值收口；激活态取消后队首晋升', async () => {
     const { io, backend, pump } = makeInteractive({}, 24);
     const ac1 = new AbortController();
