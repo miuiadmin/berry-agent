@@ -140,17 +140,28 @@ export function layoutParts(parts: readonly StylePart[], width: number): StyledG
   return rows;
 }
 
-/** 行内 span 序列折行（spanStyle 解析后归 layoutParts） */
+/**
+ * 行内 span 序列折行（spanStyle 解析后归 layoutParts）。code 段前后各并一
+ * 窄位反引号定界（界面美化役批 §⑥——dim 定界形：单色/色弱场景 codeInline
+ * 键色失效时仍有可辨边界；不引背景键——bg 键首例已归 userMessageBg，行内
+ * 代码不扩）。列宽测量（spansWidth）同步计入定界两列。
+ */
 export function layoutSpans(
   spans: readonly InlineSpan[],
   width: number,
   theme: Readonly<ResolvedTheme>,
   base?: Readonly<CellStyle>,
 ): StyledGrapheme[][] {
-  return layoutParts(
-    spans.map((span) => ({ text: span.text, style: spanStyle(span, base, theme) })),
-    width,
-  );
+  const parts: StylePart[] = [];
+  for (const span of spans) {
+    const style = spanStyle(span, base, theme);
+    if (span.code === true) {
+      parts.push({ text: '`', style: DIM_STYLE }, { text: span.text, style }, { text: '`', style: DIM_STYLE });
+    } else {
+      parts.push({ text: span.text, style });
+    }
+  }
+  return layoutParts(parts, width);
 }
 
 /** 纯文本行折行（恒定样式整体替换——开栏代码退单色路径同用） */
@@ -168,9 +179,13 @@ export function rowWidth(row: readonly StyledGrapheme[]): number {
   return row.reduce((sum, cell) => sum + graphemeWidth(cell.grapheme), 0);
 }
 
-/** span 序列自然宽（表格列宽测量——不折行前提下的整格宽） */
+/** span 序列自然宽（表格列宽测量——不折行前提下的整格宽；code 段含定界
+ * 反引号两列——渲染位并入的定界形与列宽测量同律） */
 export function spansWidth(spans: readonly InlineSpan[]): number {
   let sum = 0;
-  for (const span of spans) for (const g of splitGraphemes(span.text)) sum += graphemeWidth(g);
+  for (const span of spans) {
+    for (const g of splitGraphemes(span.text)) sum += graphemeWidth(g);
+    if (span.code === true) sum += 2;
+  }
   return sum;
 }

@@ -157,6 +157,20 @@ describe('StreamingMarkdown 计数算术（渲染热路径 D2——计数腿不�
     }
   });
 
+  it('紧凑列表冻结算术（界面美化役批 §⑥）：相邻项零空距、空行隔项维持空行', () => {
+    const s = new StreamingMarkdown();
+    s.update('# 标\n\n- 甲\n- 乙\n');
+    // 块：H1（文本宽下划线 2 行）+ 甲 + 乙——甲乙相邻零空距 → 2 + 1 + 1 + 1 = 5 行
+    expect(s.measure(40)).toBe(5);
+    expect(s.stableLineCount(40)).toBe(5); // 尾随换行 + 单行终态块 → 全稳
+    const rows = s.rowsFor(40).map((row) => row.map((cell) => cell.grapheme).join(''));
+    expect(rows).toEqual(['标', '──', '', '• 甲', '• 乙']); // 甲乙之间无空行
+    // 松散形：源文空行隔项 → 空行维持
+    const loose = new StreamingMarkdown();
+    loose.update('- 甲\n\n- 乙\n');
+    expect(loose.rowsFor(40).map((row) => row.map((cell) => cell.grapheme).join(''))).toEqual(['• 甲', '', '• 乙']);
+  });
+
   it('硬钉值：修前绝对值面（零行块空行算术 / 开栏零稳面 / 段落排除）', () => {
     const s1 = new StreamingMarkdown();
     s1.update('段前\n\n```\n```');

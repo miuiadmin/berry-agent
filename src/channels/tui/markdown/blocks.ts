@@ -5,7 +5,8 @@
  * 块模型 = 滚动帽单位（呈现面件 1：一个 Markdown 块一子行——blockCount
  * 即帽额度计数）。v1 支持面（CommonMark 子集，边界注释在案）：
  * 标题 #..######、段落（段内软换行折叠为空格——标准语义）、无序/有序
- * 列表（嵌套缩进 2 空格一层）、围栏代码块（```/~~~）、引用（>，连续行
+ * 列表（嵌套缩进 2 空格一层；tight/loose 逐邻近似——松散位驱动渲染空距，
+ * 见 list-item.loose 注）、围栏代码块（```/~~~）、引用（>，连续行
  * 归块）、水平线（三连 - 或 * 或 _）、GFM 表格（批 10h——表头 + 定界行
  * + 数据行，单元格行内解析，转义竖线 `\|` 不支撑）。缩进四空格代码块、
  * 脚注不支撑（未列形按段落回退——坏输入不丢字）。
@@ -19,10 +20,17 @@ export type MarkdownBlock =
   | {
       readonly type: 'list-item';
       readonly ordered: boolean;
-      /** 序号/圆点呈现（无序 '•'、有序原样如 '1.'） */
+      /** 序号/圆点呈现（无序 '•'、有序原样如 '1.'——渲染位按深度翻梯度形） */
       readonly marker: string;
       /** 嵌套层级（前导空格 / 2，向下取整） */
       readonly indent: number;
+      /**
+       * 松散项标记（CommonMark tight/loose 近似——界面美化役批）：前源行非
+       * 列表项行（空行或异型内容行）→ 松散（渲染时项前维持空行）；前源行
+       * 是列表项行（源文相邻）→ 紧凑（缺省不设位——渲染时项间零空距）。
+       * 首项恒松散（文档首行无前邻——空距位不被消费，标记值无效应）。
+       */
+      readonly loose?: true;
       readonly spans: InlineSpan[];
     }
   | {
@@ -168,11 +176,18 @@ export function parseMarkdown(text: string): MarkdownBlock[] {
     const list = LIST_RE.exec(line);
     if (list !== null) {
       flushParagraph();
+      // 紧凑/松散判据（界面美化役批 §⑥——CommonMark tight/loose 逐邻近似）：
+      // 前源行是列表项行 → 紧凑（源文相邻项渲染零空距）；前源行为空行或非
+      // 列表行 → 松散（项前维持空行）。逐邻读取而非整列表判定——与拍板措辞
+      // 「源文项间有空行的松散列表维持空行」逐对一致（严格 CommonMark 的
+      // 整列表传染形不采）
+      const tight = i > 0 && LIST_RE.test(lines[i - 1]!.trim());
       blocks.push({
         type: 'list-item',
         ordered: /\d/.test(list[2]!),
         marker: /\d/.test(list[2]!) ? list[2]! : '•',
         indent: Math.floor(list[1]!.length / 2),
+        loose: tight ? undefined : true,
         spans: parseInline(list[3]!),
       });
       i++;
@@ -201,6 +216,19 @@ export function parseMarkdown(text: string): MarkdownBlock[] {
   }
   flushParagraph();
   return blocks;
+}
+
+/**
+ * 块间空距单源（界面美化役批 §⑥ 紧凑列表律）：相邻两块均为列表项且后项
+ * 紧凑（源文相邻——前源行是列表项行）→ 0（零空距）；其余块对 → 1（空行）。
+ *
+ * 消费位四处必须同律（行数算术错位即冻结面漂移）：markdown.ts layout()/
+ * prefixRows() 的装配空行插入、streaming.ts measure()/stableLineCount() 的
+ * 计数空行累加——四路共消费本函数，「前缀已有行才补空行」语义由各调用位
+ * 自守（零行块不改判据）。
+ */
+export function blockGap(prev: MarkdownBlock, next: MarkdownBlock): 0 | 1 {
+  return prev.type === 'list-item' && next.type === 'list-item' && next.loose !== true ? 0 : 1;
 }
 
 /** 行内段结构相等（blockEquals 的 span 位支路） */
@@ -235,6 +263,7 @@ export function blockEquals(a: MarkdownBlock, b: MarkdownBlock): boolean {
         a.ordered === (b as typeof a).ordered &&
         a.marker === (b as typeof a).marker &&
         a.indent === (b as typeof a).indent &&
+        a.loose === (b as typeof a).loose && // 松散位参与相等（缓存承接防错位）
         spansEquals(a.spans, (b as typeof a).spans)
       );
     case 'code': {

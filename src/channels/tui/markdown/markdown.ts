@@ -12,7 +12,7 @@
  * - 折行按显示宽字素硬折（layout 件三规则——宽字不产半字、不悬挂）。
  */
 import { graphemeWidth, type CellBuffer, type Region, type Renderable } from '../../engine/index.js';
-import { blockEquals, parseMarkdown, type MarkdownBlock } from './blocks.js';
+import { blockEquals, blockGap, parseMarkdown, type MarkdownBlock } from './blocks.js';
 import { blockRows } from './block-rows.js';
 import type { StyledGrapheme } from './layout.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
@@ -71,13 +71,14 @@ export class MarkdownDoc implements Renderable {
     return this.layout(width).length;
   }
 
-  /** 前缀行集（流式稳定面计量——首 k 块的装配行集，块间空行同律） */
+  /** 前缀行集（流式稳定面计量——首 k 块的装配行集，块间空距同律） */
   prefixRows(width: number, blockCount: number): StyledGrapheme[][] {
     this.openWidth(width); // 帧路径缓存键先开（稳定块布局一次即存）
     const clamped = Math.min(blockCount, this.parsed.length);
     const rows: StyledGrapheme[][] = [];
     for (let i = 0; i < clamped; i++) {
-      if (rows.length > 0) rows.push([]); // 块间空行
+      // 块间空距（blockGap 单源——紧凑列表零空距；前缀已有行才补）
+      if (rows.length > 0 && blockGap(this.parsed[i - 1]!, this.parsed[i]!) === 1) rows.push([]);
       rows.push(...this.blockLayout(i, width));
     }
     return rows;
@@ -131,13 +132,14 @@ export class MarkdownDoc implements Renderable {
     return rows;
   }
 
-  /** 全量装配（width 键缓存——块间空行并入行集，render 与 measure 同源） */
+  /** 全量装配（width 键缓存——块间空距并入行集，render 与 measure 同源） */
   private layout(width: number): StyledGrapheme[][] {
     if (this.cacheWidth === width && this.cacheAssembled !== null) return this.cacheAssembled;
     this.openWidth(width);
     const rows: StyledGrapheme[][] = [];
     for (let i = 0; i < this.parsed.length; i++) {
-      if (rows.length > 0) rows.push([]); // 块间空行
+      // 块间空距（blockGap 单源——紧凑列表零空距；前缀已有行才补）
+      if (rows.length > 0 && blockGap(this.parsed[i - 1]!, this.parsed[i]!) === 1) rows.push([]);
       rows.push(...this.blockLayout(i, width));
     }
     this.cacheAssembled = rows;

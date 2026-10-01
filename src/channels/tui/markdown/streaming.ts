@@ -16,7 +16,7 @@
  */
 import type { CellBuffer, Region, Renderable } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
-import { blockEquals, parseMarkdown, type MarkdownBlock } from './blocks.js';
+import { blockEquals, blockGap, parseMarkdown, type MarkdownBlock } from './blocks.js';
 import { blockRows } from './block-rows.js';
 import { MarkdownDoc } from './markdown.js';
 import type { StyledGrapheme } from './layout.js';
@@ -57,13 +57,15 @@ export class StreamingMarkdown implements Renderable {
     return this.lastText;
   }
 
-  /** 量高（Renderable——算术求和：Σ逐块行数 + 块间空行，与 doc.layout 同律） */
+  /** 量高（Renderable——算术求和：Σ逐块行数 + 块间空距，与 doc.layout 同律） */
   measure(width: number): number {
     const counts = this.ensureBlockCounts(width);
+    const blocks = this.doc.blocks;
     let total = 0;
-    for (const count of counts) {
-      if (total > 0) total += 1; // 块间空行（前缀已有行才补）
-      total += count;
+    for (let i = 0; i < counts.length; i++) {
+      // 块间空距（blockGap 单源——紧凑列表零空距；前缀已有行才补）
+      if (total > 0 && blockGap(blocks[i - 1]!, blocks[i]!) === 1) total += 1;
+      total += counts[i]!;
     }
     return total;
   }
@@ -87,12 +89,12 @@ export class StreamingMarkdown implements Renderable {
     const blocks = this.doc.blocks;
     if (blocks.length === 0) return 0;
     const stableBlocks = blocks.length - 1 + (this.tailSafe(blocks[blocks.length - 1]!) ? 1 : 0);
-    // D2：逐块行数算术求和——计数腿不装配行集；空行律与 prefixRows 同构
-    //（前缀已有行才补——零行块〔空代码围栏〕不改判据，非 B-1 简形）
+    // D2：逐块行数算术求和——计数腿不装配行集；空距律与 prefixRows 同构
+    //（blockGap 单源 + 前缀已有行才补——零行块〔空代码围栏〕不改判据，非 B-1 简形）
     const counts = this.ensureBlockCounts(width);
     let total = 0;
     for (let i = 0; i < stableBlocks; i++) {
-      if (total > 0) total += 1;
+      if (total > 0 && blockGap(blocks[i - 1]!, blocks[i]!) === 1) total += 1;
       total += counts[i]!;
     }
     return total;

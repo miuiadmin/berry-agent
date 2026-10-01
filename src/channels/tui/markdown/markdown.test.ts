@@ -115,18 +115,31 @@ describe('parseMarkdown 块解析', () => {
     ]);
   });
 
-  it('无序列表（marker • + 缩进层级）', () => {
+  it('无序列表（marker • + 缩进层级 + tight/loose 逐邻标记）', () => {
     const blocks = parseMarkdown('- 甲\n  - 乙（嵌套）\n- 丙');
     expect(blocks).toEqual([
-      { type: 'list-item', ordered: false, marker: '•', indent: 0, spans: [{ text: '甲' }] },
+      { type: 'list-item', ordered: false, marker: '•', indent: 0, loose: true, spans: [{ text: '甲' }] },
       { type: 'list-item', ordered: false, marker: '•', indent: 1, spans: [{ text: '乙（嵌套）' }] },
       { type: 'list-item', ordered: false, marker: '•', indent: 0, spans: [{ text: '丙' }] },
     ]);
   });
 
+  it('紧凑/松散判据（CommonMark tight/loose 逐邻近似）：源文相邻项紧凑、空行隔项松散', () => {
+    // 首项恒松散（无前邻——空距位不被消费）；空行隔开的项松散（渲染维持空行）
+    const blocks = parseMarkdown('- 甲\n\n- 乙\n- 丙');
+    expect(blocks.map((b) => (b as { loose?: true }).loose)).toEqual([true, true, undefined]);
+  });
+
   it('有序列表 marker 原样', () => {
     const blocks = parseMarkdown('1. 甲\n2. 乙');
-    expect(blocks[0]).toEqual({ type: 'list-item', ordered: true, marker: '1.', indent: 0, spans: [{ text: '甲' }] });
+    expect(blocks[0]).toEqual({
+      type: 'list-item',
+      ordered: true,
+      marker: '1.',
+      indent: 0,
+      loose: true,
+      spans: [{ text: '甲' }],
+    });
     expect(blocks[1]).toEqual({ type: 'list-item', ordered: true, marker: '2.', indent: 0, spans: [{ text: '乙' }] });
   });
 
@@ -239,19 +252,26 @@ describe('MarkdownDoc 渲染', () => {
     expect(doc.blockCount).toBe(3);
   });
 
-  it('标题渲染：bold 位 + H1 尾线（H1/H2）/ H3 无尾线', () => {
+  it('标题渲染梯度：H1 bold + 文本宽下划线（弃全宽横幅）/ H3 行首深度前缀', () => {
     const doc = MarkdownDoc.of('# 大标题\n\n### 小标题');
     const grid = renderDoc(doc, 20);
     expect(grid.getCell(0, 0)?.style.bold).toBe(true);
-    expect(readRow(grid, 1, 20)).toBe('────────────────────'); // H1 尾线
-    expect(readRow(grid, 3, 20)).toBe('小标题');
-    expect(readRow(grid, 4, 20)).toBe(''); // H3 无尾线
+    // H1 下划线 = 文本宽（'大标题' 3 字 6 列）——非全宽横幅形
+    expect(readRow(grid, 1, 20)).toBe('──────');
+    // H3 = 行首 dim 深度前缀 ▍ + bold 正文
+    expect(readRow(grid, 3, 20)).toBe('▍ 小标题');
+    expect(grid.getCell(3, 0)?.style.dim).toBe(true);
+    expect(grid.getCell(3, 2)?.style.bold).toBe(true);
+    expect(doc.measure(20)).toBe(4); // H1 2 行 + 空行 + H3 1 行
   });
 
-  it('行内代码着 codeInline 键（缺省主题 16 档 #7ee787 → 绿 2——七役扫描批 ExactColor 覆写；与 accent〔cyan 6〕分立）', () => {
+  it('行内代码着 codeInline 键 + 前后 dim 反引号定界（界面美化役批 §⑥——单色场景可辨）', () => {
     const doc = MarkdownDoc.of('看 `npm test` 命令');
     const grid = renderDoc(doc, 40);
-    const codeCell = grid.getCell(0, 3); // '看' 宽 2 占 col 0-1、空格 col 2、code 首字 col 3
+    // '看' 宽 2 占 col 0-1、空格 col 2、前定界反引号 col 3、code 首字 col 4
+    expect(grid.getCell(0, 3)?.grapheme).toBe('`');
+    expect(grid.getCell(0, 3)?.style.dim).toBe(true); // 定界形 dim（缺省主题 #7ee787 → 绿 2 的单色回退边界）
+    const codeCell = grid.getCell(0, 4);
     expect(codeCell?.style.fg).toBe(ansiColor(2)); // 覆写位 2（修前最近邻塌缩 7 亮灰）
     expect(codeCell?.grapheme).toBe('n');
     expect(grid.getCell(0, 0)?.style.fg).toBeUndefined(); // 普通文本不着色
@@ -271,11 +291,14 @@ describe('MarkdownDoc 渲染', () => {
     expect(grid.getCell(0, 2)?.style.dim).toBe(true);
   });
 
-  it('代码块：│ 前缀 + 原样呈现（**bold** 不解析）', () => {
+  it('代码块：│ 前缀 + 原样呈现（**bold** 不解析）+ 闭栏收尾行（语言标签位）', () => {
     const doc = MarkdownDoc.of('```\n**raw**\n```');
     const grid = renderDoc(doc, 20);
     expect(readRow(grid, 0, 20)).toBe('│ **raw**');
     expect(grid.getCell(0, 2)?.style.bold).toBeUndefined();
+    // 沟线 dim（界面美化役批 §⑥）+ 无语言收尾行 └─
+    expect(grid.getCell(0, 0)?.style.dim).toBe(true);
+    expect(readRow(grid, 1, 20)).toBe('└─');
   });
 
   it('列表：• 前缀 + 嵌套缩进 + 续行对齐前缀宽', () => {
@@ -283,6 +306,32 @@ describe('MarkdownDoc 渲染', () => {
     const grid = renderDoc(doc, 14);
     expect(readRow(grid, 0, 14)).toBe('• 长列表项内容'); // 前缀 '• ' 2 格 + body 12 列 = 6 字
     expect(readRow(grid, 1, 14)).toBe('  折行续挂对齐'); // 续行缩进 = 前缀宽 2 + body 12 列同样 6 字
+  });
+
+  it('紧凑列表（界面美化役批 §⑥）：源文相邻项零空距、空行隔项维持空行', () => {
+    const doc = MarkdownDoc.of('- 甲\n- 乙\n\n- 丙');
+    const grid = renderDoc(doc, 20);
+    // 甲乙相邻 → 零空距（紧凑）；乙丙源文空行隔开 → 维持空行（松散）
+    expect(readRow(grid, 0, 20)).toBe('• 甲');
+    expect(readRow(grid, 1, 20)).toBe('• 乙');
+    expect(readRow(grid, 2, 20)).toBe('');
+    expect(readRow(grid, 3, 20)).toBe('• 丙');
+    expect(doc.measure(20)).toBe(4); // 3 项 3 行 + 1 空行（修前 5 行——双倍行距销）
+  });
+
+  it('嵌套列表符号深度梯度：•/◦/- 轮换（第 3 层回卷靠缩进补辨）', () => {
+    const doc = MarkdownDoc.of('- 一层\n  - 二层\n    - 三层');
+    const grid = renderDoc(doc, 20);
+    expect(readRow(grid, 0, 20)).toBe('• 一层');
+    expect(readRow(grid, 1, 20)).toBe('  ◦ 二层');
+    expect(readRow(grid, 2, 20)).toBe('    - 三层');
+  });
+
+  it('hr 虚线形（与 H1 实线下划线异形——主题分隔词汇）', () => {
+    const doc = MarkdownDoc.of('---');
+    const grid = renderDoc(doc, 10);
+    expect(readRow(grid, 0, 10)).toBe('╌╌╌╌╌╌╌╌╌╌');
+    expect(grid.getCell(0, 0)?.style.dim).toBe(true);
   });
 
   it('块间空行分隔（n 块 n-1 空行）+ measure 含间距', () => {
@@ -321,12 +370,12 @@ describe('MarkdownDoc 渲染', () => {
   });
 
   it('宽字素游程起点正确（样式段接宽字符不错位——回归锁）', () => {
-    // 行内代码段以宽字开头：前缀普通文本 1 列 + 空格 1 列 → code 段起点 col 2
+    // 行内代码段以宽字开头：前缀普通文本 1 列 + 空格 1 列 + 定界反引号 1 列 → code 段起点 col 3
     const doc = MarkdownDoc.of('a `中文码`');
     const grid = renderDoc(doc, 20);
-    expect(readRow(grid, 0, 20)).toBe('a 中文码');
-    expect(grid.getCell(0, 2)?.style.fg).toBe(ansiColor(2)); // 起点按格位不按码位（codeInline 覆写位 2）
-    expect(grid.getCell(0, 2)?.grapheme).toBe('中');
+    expect(readRow(grid, 0, 20)).toBe('a `中文码`');
+    expect(grid.getCell(0, 3)?.style.fg).toBe(ansiColor(2)); // 起点按格位不按码位（codeInline 覆写位 2）
+    expect(grid.getCell(0, 3)?.grapheme).toBe('中');
   });
 
   it('accent 色不入场（正文不混用——引擎节件 3 纪律）', () => {
@@ -356,6 +405,16 @@ describe('blockEquals 块结构相等（块级缓存命中判据）', () => {
     const [closed] = parseMarkdown('```\nx\n```');
     const [open] = parseMarkdown('```\nx');
     expect(blockEquals(closed!, open!)).toBe(false);
+  });
+
+  it('松散位参与相等（loose 差一票否决——缓存承接防空距错位）', () => {
+    const [tight] = parseMarkdown('- 甲\n- 乙');
+    const [loose] = parseMarkdown('- 甲\n\n- 乙');
+    // 两序列首项均 loose（首项恒松散）——比第二项
+    expect(blockEquals(parseMarkdown('- 甲\n- 乙')[1]!, parseMarkdown('- 甲\n- 乙')[1]!)).toBe(true);
+    expect(blockEquals(parseMarkdown('- 甲\n- 乙')[1]!, parseMarkdown('- 甲\n\n- 乙')[1]!)).toBe(false);
+    expect(tight!.type).toBe('list-item');
+    expect(loose!.type).toBe('list-item');
   });
 
   it('内容差 / 类型差 / 表格行差各否决', () => {

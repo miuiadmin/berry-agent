@@ -4,8 +4,12 @@
  * 新增面（R1 批 10h）：GFM 表格（自适应列宽 + 等分帽 + tableRule 框线 +
  * 逐列对齐 + 单元格级折行）；闭栏代码块自研高亮（五类 token → 主题键族；
  * 开栏/未知语言诚实退单色——未闭不高亮防样式回翻闪烁）。
+ *
+ * 观感定值（2026-10-01 界面美化役批 §⑥）：标题四级梯度（H1 文本宽下划线
+ * / H2 纯 bold / H3-H4 ▍ 缩梯 / H5-H6 平文）、表格首尾封口线、代码沟线
+ * dim + 闭栏语言标签收尾、无序嵌套符号梯度 •/◦/-、hr 虚线形。
  */
-import { graphemeWidth, splitGraphemes, type CellStyle } from '../../engine/index.js';
+import { graphemeWidth, sanitizeDisplayText, splitGraphemes, type CellStyle } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import type { MarkdownBlock } from './blocks.js';
 import { highlight, tokenStyle } from './highlight/index.js';
@@ -84,13 +88,21 @@ function tableRows(
     line.push(...bar);
     return line;
   };
-  // 分隔行 ├─┬─┤（横杠宽 = 列宽 + 两侧空格）
-  const sep: StyledGrapheme[] = prefixCells('├', rule);
-  for (let j = 0; j < cols; j++) {
-    if (j > 0) sep.push(...prefixCells('┬', rule));
-    sep.push(...prefixCells('─'.repeat(colWidths[j]! + 2), rule));
-  }
-  sep.push(...prefixCells('┤', rule));
+  // 框线行通用形（界面美化役批 §⑥ 封口律）：顶线 ┌─┬─┐ / 表头分隔 ├─┼─┤ /
+  // 底线 └─┴─┘——首尾对称封口，分隔行十字形（列线上通下达——有顶线后 ┬ 语义
+  // 错位故改 ┼）；横杠宽 = 列宽 + 两侧空格
+  const ruleLine = (left: string, mid: string, right: string): StyledGrapheme[] => {
+    const cells: StyledGrapheme[] = prefixCells(left, rule);
+    for (let j = 0; j < cols; j++) {
+      if (j > 0) cells.push(...prefixCells(mid, rule));
+      cells.push(...prefixCells('─'.repeat(colWidths[j]! + 2), rule));
+    }
+    cells.push(...prefixCells(right, rule));
+    return cells;
+  };
+  const top = ruleLine('┌', '┬', '┐');
+  const sep = ruleLine('├', '┼', '┤');
+  const bottom = ruleLine('└', '┴', '┘');
 
   // 表头（整格 bold 位；头格同法 cell 级折行取前两行——两行仍超截断；任一
   // 头格折行即表头区整体两行高·列头对齐律）+ 分隔 + 数据行
@@ -99,6 +111,7 @@ function tableRows(
   );
   const rows: StyledGrapheme[][] = [];
   const headerHeight = Math.max(1, ...laidHeader.map((cells) => cells.length));
+  rows.push(top); // 顶线封口（界面美化役批 §⑥）
   for (let r = 0; r < headerHeight; r++) {
     rows.push(renderLine(laidHeader.map((cells) => cells[r] ?? [])));
   }
@@ -113,6 +126,7 @@ function tableRows(
       rows.push(renderLine(lineCells));
     }
   }
+  rows.push(bottom); // 底线封口（零数据行时紧跟分隔线——空表边界形在案）
   return rows;
 }
 
@@ -150,11 +164,25 @@ let codeFoldCarry: CodeFoldCarry | null = null;
 /**
  * 开栏单源行折叠 → │ 前缀贯通视觉行组（D4 承接的增量折叠单元——
  * 每帧只对新增/分歧行调用，前缀行引用复用不经过本函数）。
+ * 沟线 dim（界面美化役批 §⑥——与引用沟 ┆ 同族弱存在感）。
  */
 function foldOpenCodeLine(line: string, bodyWidth: number): StyledGrapheme[][] {
   const lineRows: StyledGrapheme[][] = [];
-  for (const row of layoutPlain(line, bodyWidth)) lineRows.push([...prefixCells('│ '), ...row]);
+  for (const row of layoutPlain(line, bodyWidth)) lineRows.push([...prefixCells('│ ', DIM_STYLE), ...row]);
   return lineRows;
+}
+
+/**
+ * 闭栏代码块收尾行（界面美化役批 §⑥ 语言标签位）：└─ + 语言名——开栏
+ * fence 的语言呈现在闭栏沟线标签位（流式半闭合期无收尾——开沟线不渲染
+ * 的修剪律既有不破，闭栏帧本就全量重排零闪烁面）。空代码块（零源行）
+ * 不加收尾——孤线无沟可收。
+ */
+function codeFooter(block: Extract<MarkdownBlock, { type: 'code' }>): StyledGrapheme[] {
+  // 语言名 = 模型生成串（fence info 首词）——构造位先消毒（ESC 残段不裸露）
+  const name =
+    block.language !== undefined && block.language !== '' ? `└─ ${sanitizeDisplayText(block.language)}` : '└─';
+  return prefixCells(name, DIM_STYLE);
 }
 
 /** 代码块 → 渲染行集（闭栏 + 已知语言走五类高亮；开栏/未知退单色） */
@@ -213,33 +241,59 @@ function codeRows(
     }
     partsByLine.push(current);
   }
-  // 折行在 bodyWidth 内先行、│ 前缀列恒 2 格贯通（含续行）
+  // 折行在 bodyWidth 内先行、│ 前缀列恒 2 格贯通（含续行；沟线 dim——
+  // 与开栏路径同族弱存在感）
   const rows: StyledGrapheme[][] = [];
   const lineCount = tokens !== null ? partsByLine.length : block.lines.length;
   for (let i = 0; i < lineCount; i++) {
     const laid =
       tokens !== null ? layoutParts(partsByLine[i] ?? [], bodyWidth) : layoutPlain(block.lines[i] ?? '', bodyWidth);
-    for (const row of laid) rows.push([...prefixCells('│ '), ...row]);
+    for (const row of laid) rows.push([...prefixCells('│ ', DIM_STYLE), ...row]);
   }
+  if (block.lines.length > 0) rows.push(codeFooter(block)); // 闭栏收尾（语言标签位）
   return rows;
 }
+
+/** 无序嵌套深度符号梯度（界面美化役批 §⑥——深度轮换 •/◦/-，第 3 层回卷
+ * 靠缩进补辨；有序 marker 原样不参与轮换） */
+const BULLET_LADDER = ['•', '◦', '-'] as const;
 
 /** 单块布局 → 渲染行集（块型分派；行首前缀 + 折行 + 层级缩进） */
 export function blockRows(block: MarkdownBlock, width: number, theme: Readonly<ResolvedTheme>): StyledGrapheme[][] {
   switch (block.type) {
     case 'heading': {
-      // 标题：整行强制 bold（行内样式位叠加保留——code 色不丢）；H1/H2 尾随分隔线
-      const rows = layoutSpans(block.spans, width, theme, { bold: true });
+      // 标题梯度（界面美化役批 §⑥——弃全宽横幅形）：H1 = bold + 文本宽
+      // 下划线（宽随标题首视觉行——标题折行时只覆首行）；H2 = 纯 bold；
+      // H3/H4 = bold + 行首 dim 深度前缀（▍ 每级一枚——缩梯）；H5/H6 =
+      // 平文（无 bold——最低存在档，层级靠前四档已足辨）
+      if (block.level >= 5) return layoutSpans(block.spans, width, theme);
       if (block.level <= 2) {
-        rows.push(splitGraphemes('─'.repeat(width)).map((grapheme) => ({ grapheme, style: DIM_STYLE })));
+        // H1/H2：整行强制 bold（行内样式位叠加保留——code 色不丢）
+        const rows = layoutSpans(block.spans, width, theme, { bold: true });
+        if (block.level === 1) {
+          const underline = rowWidth(rows[0] ?? []);
+          if (underline > 0) {
+            rows.push(splitGraphemes('─'.repeat(underline)).map((grapheme) => ({ grapheme, style: DIM_STYLE })));
+          }
+        }
+        return rows;
       }
-      return rows;
+      // H3/H4：前缀 = 深度前缀 + 空格（dim）；续行对齐前缀宽（视觉续挂）
+      const prefix = block.level === 3 ? '▍ ' : '▍▍ ';
+      const prefixWidth = splitGraphemes(prefix).reduce((sum, g) => sum + graphemeWidth(g), 0);
+      const body = layoutSpans(block.spans, Math.max(1, width - prefixWidth), theme, { bold: true });
+      return body.map((row, index) => [
+        ...(index === 0 ? prefixCells(prefix, DIM_STYLE) : prefixCells(' '.repeat(prefixWidth))),
+        ...row,
+      ]);
     }
     case 'paragraph':
       return layoutSpans(block.spans, width, theme);
     case 'list-item': {
-      // 前缀 = 嵌套缩进 + 标记 + 空格；续行对齐前缀宽（视觉续挂）
-      const prefix = `${'  '.repeat(block.indent)}${block.marker} `;
+      // 前缀 = 嵌套缩进 + 标记 + 空格（无序按深度取梯度符号）；续行对齐
+      // 前缀宽（视觉续挂）
+      const marker = block.ordered ? block.marker : BULLET_LADDER[block.indent % BULLET_LADDER.length]!;
+      const prefix = `${'  '.repeat(block.indent)}${marker} `;
       const prefixWidth = splitGraphemes(prefix).reduce((sum, g) => sum + graphemeWidth(g), 0);
       const body = layoutSpans(block.spans, Math.max(1, width - prefixWidth), theme);
       return body.map((row, index) => [
@@ -258,6 +312,8 @@ export function blockRows(block: MarkdownBlock, width: number, theme: Readonly<R
     case 'table':
       return tableRows(block, width, theme);
     case 'hr':
-      return [splitGraphemes('─'.repeat(width)).map((grapheme) => ({ grapheme, style: DIM_STYLE }))];
+      // 分隔线虚线形（界面美化役批 §⑥ 异形律）：与标题实线下划线区分——
+      // 「实线 = 隶属标题、虚线 = 主题分隔」的稳定词汇（样式仍 dim）
+      return [splitGraphemes('╌'.repeat(width)).map((grapheme) => ({ grapheme, style: DIM_STYLE }))];
   }
 }
