@@ -112,7 +112,7 @@ provider 生态变量供给，如 `ANTHROPIC_API_KEY`；或 TUI 内 `/setup` 向
 
 ## 内置插件 16 个
 
-全部随包出厂；15 个默认启用、可逐个禁用——`core:issue` 需配置后才启用
+全部随包出厂；15 个默认启用、可逐个禁用——`core:issue` 需配置后才装载
 （见[使用指南](./docs/usage.md)）。
 
 | 插件               | 带来                              |

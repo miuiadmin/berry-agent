@@ -366,7 +366,7 @@ TUI 内 `/tick` 六动词——用法错时 TUI 现场呈现同一份用法文�
 
 ### issue 驱动工作模式（core:issue）
 
-监听 GitHub issue 的无人值守处理模式：该插件**默认不启用**——`enabled.yaml` 给 `core:issue` 行配 `config` 才启用（格式不对响亮拒 `ISSUE_CONFIG_INVALID`）。触发双源：轮询（默认每 120s）+ webhook（统一 HTTP 面〔`--port`〕开启后挂 `/webhooks/issue` 路由，`X-Hub-Signature-256` HMAC 验签；secret 缺席 = 路由存在但守卫拒）。命中 issue 起一次隔离处理：独立 worktree（`issue-N` 命名，重名让位 `-r2..-r9`）+ headless 会话（后台道预算记账、每 issue 消息上限默认 400）。重跑同 issue 时**前次分支全列举进提示词**（git 史即断点真源——可续作也可从头独立解决）；提示词同时带核对纪律（完成前逐条核对 issue 正文与评论中的显式要求）与边界禁令（严禁自行 push / 开 PR / 发评论——交付由编排层收口）。
+监听 GitHub issue 的无人值守处理模式：该插件**默认零装载**——`enabled.yaml` 给 `core:issue` 行配 `config` 才装载（格式不对响亮拒 `ISSUE_CONFIG_INVALID`）。触发双源：轮询（默认每 120s）+ webhook（统一 HTTP 面〔`--port`〕开启后挂 `/webhooks/issue` 路由，`X-Hub-Signature-256` HMAC 验签；secret 缺席 = 路由存在但守卫拒）。命中 issue 起一次隔离处理：独立 worktree（`issue-N` 命名，重名让位 `-r2..-r9`）+ headless 会话（后台道预算记账、每 issue 消息上限默认 400）。重跑同 issue 时**前次分支全列举进提示词**（git 史即断点真源——可续作也可从头独立解决）；提示词同时带核对纪律（完成前逐条核对 issue 正文与评论中的显式要求）与边界禁令（严禁自行 push / 开 PR / 发评论——交付由编排层收口）。
 
 模型侧两工具：`issue_get`（读 issue 正文与评论，64KiB 上下文上限）与 `issue_escalate`（上报待裁决问题——`question` 必填，可选 `options` 候选 / `recommendation` 建议 / `continueWithDefault` 默认案；只登记不发评论，escalation 进回执转人审，不中途打断任务）。
 
@@ -391,7 +391,7 @@ plugins:
       # maxDeliveriesPerDay: 10 # 交付日成功上限（默认 10）
 ```
 
-GitHub 凭证：host 域凭证 `github-token`（`/credentials add github-token <token>` 录入优先，`BERRY_AGENT_GITHUB_TOKEN` 回落）；webhook 签名密钥 `issue-webhook-secret`（同回落律，`BERRY_AGENT_ISSUE_WEBHOOK_SECRET`）。凭证缺席 = 插件不启用。
+GitHub 凭证：host 域凭证 `github-token`（`/credentials add github-token <token>` 录入优先，`BERRY_AGENT_GITHUB_TOKEN` 回落）；webhook 签名密钥 `issue-webhook-secret`（同回落律，`BERRY_AGENT_ISSUE_WEBHOOK_SECRET`）。凭证缺席 = 件零装载。
 
 ### plugins 插件管理
 
