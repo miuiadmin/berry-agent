@@ -106,7 +106,11 @@ describe('api 档位三函数（/thinking //sandbox webui 受路——2026-09-18
 
   it('setThinkingLevel：PUT thinking-level + 体 {level} + 应答 {receipt} 直出', async () => {
     const fetchMock = vi.fn(async () =>
-      resOf({ ok: true, status: 200, json: { receipt: 'thinking 已切 high——下一 run 起生效' } }),
+      resOf({
+        ok: true,
+        status: 200,
+        json: { receipt: '思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）' },
+      }),
     );
     vi.stubGlobal('fetch', fetchMock);
     const out = await api.setThinkingLevel('s-1', 'high');
@@ -115,12 +119,12 @@ describe('api 档位三函数（/thinking //sandbox webui 受路——2026-09-18
       '/api/sessions/s-1/thinking-level',
       expect.objectContaining({ method: 'PUT', body: JSON.stringify({ level: 'high' }) }),
     );
-    expect(out).toEqual({ receipt: 'thinking 已切 high——下一 run 起生效' });
+    expect(out).toEqual({ receipt: '思考级别：high（下一轮对话起生效；该级别是否生效随模型能力）' });
   });
 
   it('setSandboxMode：PUT sandbox-mode + 体 {mode} + 应答 {receipt} 直出', async () => {
     const fetchMock = vi.fn(async () =>
-      resOf({ ok: true, status: 200, json: { receipt: 'sandbox 已切 danger——即刻生效于后续工具调用' } }),
+      resOf({ ok: true, status: 200, json: { receipt: '沙箱模式：danger（即刻生效于后续工具调用）' } }),
     );
     vi.stubGlobal('fetch', fetchMock);
     const out = await api.setSandboxMode('s-1', 'danger');
@@ -128,7 +132,7 @@ describe('api 档位三函数（/thinking //sandbox webui 受路——2026-09-18
       '/api/sessions/s-1/sandbox-mode',
       expect.objectContaining({ method: 'PUT', body: JSON.stringify({ mode: 'danger' }) }),
     );
-    expect(out).toEqual({ receipt: 'sandbox 已切 danger——即刻生效于后续工具调用' });
+    expect(out).toEqual({ receipt: '沙箱模式：danger（即刻生效于后续工具调用）' });
   });
 
   it('非 2xx 折 ApiError：400 坏词 error 词面优先（THINKING_LEVEL_INVALID 形——HTTP 面不吞码）', async () => {

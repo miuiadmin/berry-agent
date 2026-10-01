@@ -147,7 +147,7 @@ function makeDeps(opts?: {
         );
       }
       setModes.push({ sessionId: id, mode });
-      return `sandbox 已切 ${mode}——即刻生效于后续工具调用`;
+      return `沙箱模式：${mode}（即刻生效于后续工具调用）`;
     },
   };
   const deps: WebuiDeps = {
@@ -673,7 +673,7 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   it('sandbox-mode：PUT 200 {receipt} 透传 + 受理记账；坏词 400 SANDBOX_MODE_INVALID', async () => {
     const ok = await put('/api/sessions/s-1/sandbox-mode', { mode: 'read-only' });
     expect(ok.status).toBe(200);
-    expect(ok.json).toEqual({ receipt: 'sandbox 已切 read-only——即刻生效于后续工具调用' });
+    expect(ok.json).toEqual({ receipt: '沙箱模式：read-only（即刻生效于后续工具调用）' });
     expect(stub.setModes).toEqual([{ sessionId: 's-1', mode: 'read-only' }]);
     const bad = await put('/api/sessions/s-1/sandbox-mode', { mode: 'yolo' });
     expect(bad.status).toBe(400);

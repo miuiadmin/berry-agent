@@ -624,10 +624,10 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
           await jobsFace?.disable(goalId);
         } catch (error) {
           warn(
-            `goal 停滞硬停挂钟停摆失败（防御吞——停滞计数已落库）：${error instanceof Error ? error.message : String(error)}`,
+            `goal 停滞硬停定时暂停失败（防御吞——停滞计数已落库）：${error instanceof Error ? error.message : String(error)}`,
           );
         }
-        warn(`[goal] 停滞硬停：goal「${goalId}」连续 ${stallStreak} 轮唤醒无进展——挂钟停摆（/goal wake 可复位重跑）`);
+        warn(`[goal] 停滞硬停：goal「${goalId}」连续 ${stallStreak} 轮唤醒无进展——定时已暂停（/goal wake 可复位重跑）`);
         return {
           landed: false,
           reason: 'stalled',
@@ -734,7 +734,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
       // 真身幂等开驱动后 append，会话缺席由窄面真身诚实处置）
       deps.session.appendPaused(row.sessionId);
       warn(
-        `[goal] 预算停靠：goal「${goalId}」（会话 ${row.sessionId}）挂钟停摆 + 会话落 session/paused——待 budget_extended 广播唤醒（人工复位道：/goal wake）`,
+        `[goal] 预算停靠：goal「${goalId}」（会话 ${row.sessionId}）定时已暂停 + 会话落 session/paused——待 budget_extended 广播唤醒（人工复位道：/goal wake）`,
       );
       return true;
     },
@@ -809,7 +809,7 @@ export function createGoalService(deps: GoalServiceDeps): GoalService {
         });
         if (!receipt.ok) {
           warn(
-            `[goal] 迟到挂钟注册失败：goal「${goalId}」${receipt.message}（挂钟缺席——schedule 坏串请修正后 /goal wake 复位）`,
+            `[goal] 迟到定时注册失败：goal「${goalId}」${receipt.message}（定时缺席——schedule 坏串请修正后 /goal wake 复位）`,
           );
         }
       }

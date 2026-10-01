@@ -600,7 +600,7 @@ describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui �
 
   it('/sandbox 同构：恰零参开浮层 → 点 danger 行 → setSandboxMode(activeId, danger) → receipt 通知', async () => {
     primeMain();
-    apiMock.setSandboxMode.mockResolvedValueOnce({ receipt: 'sandbox 已切 danger——即刻生效于后续工具调用' });
+    apiMock.setSandboxMode.mockResolvedValueOnce({ receipt: '沙箱模式：danger（即刻生效于后续工具调用）' });
     render(<WebUiRoot />);
     await screen.findAllByText('测试会话');
     await openTierPopover('/sandbox');
@@ -614,7 +614,7 @@ describe('WebUiRoot档位受理面（/thinking //sandbox SPA 拦截——webui �
     await waitFor(() => {
       expect(apiMock.setSandboxMode).toHaveBeenCalledWith('s-1', 'danger');
     });
-    await screen.findByText('sandbox 已切 danger——即刻生效于后续工具调用');
+    await screen.findByText('沙箱模式：danger（即刻生效于后续工具调用）');
     await waitFor(() => {
       expect(screen.queryByText('沙箱模式')).toBeNull();
     });

@@ -156,7 +156,7 @@ export async function refreshMarketplaceSource(
     // —— local 腿：零网络重读源目录快照 ——
     if (record.sourceType === 'local') {
       if (record.sourceUri.startsWith('~') && deps.home === undefined) {
-        return fail('local 源 `~` 展开需 home 注入位——装配面缺席');
+        return fail('local 源 `~` 展开需 home 注入位——依赖注入位缺席');
       }
       const dir = expandHomePath(record.sourceUri, deps.home ?? '');
       if (!fs.isDir(dir)) {

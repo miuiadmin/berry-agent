@@ -77,7 +77,7 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
   if (classified.sourceType === 'local') {
     const dir = expandHomePath(source, deps.home ?? '');
     if (source.startsWith('~') && deps.home === undefined) {
-      return { ok: false, message: 'local 源 `~` 展开需 home 注入位——装配面缺席' };
+      return { ok: false, message: 'local 源 `~` 展开需 home 注入位——依赖注入位缺席' };
     }
     if (!fs.isDir(dir)) {
       return { ok: false, message: `源目录缺席（${dir}）——请核对路径` };
@@ -126,7 +126,7 @@ export async function addMarketplaceSource(deps: AddMarketplaceDeps, source: str
   if (deps.fetch === undefined) {
     return {
       ok: false,
-      message: `网络源（${classified.sourceType === 'url' ? 'url' : 'git/github'}）抓取位缺席——装配面未注入 MarketFetchFace（嵌入式宿主须自注 fetch）；当前会话请用本地路径源（"./" / "~/" / 绝对路径）`,
+      message: `网络源（${classified.sourceType === 'url' ? 'url' : 'git/github'}）抓取位缺席——依赖注入位未提供 MarketFetchFace（嵌入式宿主须自注 fetch）；当前会话请用本地路径源（"./" / "~/" / 绝对路径）`,
     };
   }
 

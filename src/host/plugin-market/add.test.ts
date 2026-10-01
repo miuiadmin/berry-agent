@@ -178,7 +178,7 @@ describe('add 编舞——本地目录源全链（零网络）', () => {
 });
 
 describe('add 编舞——网络源 fetch 注入位（mp-2 零网络；mp-4 落真身）', () => {
-  it('git/url 源 + fetch 缺席 = 诚实拒（真因 = 装配面未注入——报文不再指路已落地批次）', async () => {
+  it('git/url 源 + fetch 缺席 = 诚实拒（真因 = 依赖注入位未提供——报文不再指路已落地批次）', async () => {
     for (const source of [
       'https://github.com/anthropics/claude-plugins-official',
       'git@github.com:owner/repo.git',
@@ -188,8 +188,8 @@ describe('add 编舞——网络源 fetch 注入位（mp-2 零网络；mp-4 落�
       const result = await addMarketplaceSource({ dataDir: '/data', fs: memFs(), now }, source);
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      // 诚实拒报文描述当下真因（装配面未注入 MarketFetchFace——嵌入式宿主须自注）
-      expect(result.message).toContain('装配面未注入 MarketFetchFace');
+      // 诚实拒报文描述当下真因（依赖注入位未提供 MarketFetchFace——嵌入式宿主须自注）
+      expect(result.message).toContain('依赖注入位未提供 MarketFetchFace');
       expect(result.message).not.toContain('mp-4'); // 不再以已落地批次为词（修前红位）
       // 指路当下可用替代（本地路径源）
       expect(result.message).toContain('本地路径源');

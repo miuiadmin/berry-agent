@@ -103,7 +103,7 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
         // 2xx 却非帧形 = 面侧违约——收进传输错词面（fail-loud 不裸抛解码错）
         throw new SdkError(
           'SDK_TRANSPORT',
-          `${what} → 2xx 应答非帧形：${err instanceof Error ? err.message : String(err)}`,
+          `${what} → 2xx 返回非帧形：${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -225,7 +225,7 @@ export function httpSdkTransport(options: HttpSdkOptions): SdkTransport {
               liveStreams.delete(res);
               if (!settled) reject(new SdkError('SDK_TRANSPORT', `SSE 流在 replay-end 前终止（${why}）`));
             };
-            res.on('end', () => terminate('应答流结束'));
+            res.on('end', () => terminate('返回流结束'));
             res.on('close', () => terminate('连接关闭'));
             res.on('error', (err) => {
               if (settled) {

@@ -76,12 +76,12 @@ export function ensureFtsIndex(deps: EnsureFtsDeps): FtsEnsureReport {
     const audit = deps.face.auditFts(deps.sampleCount);
     if (audit.mismatches.length === 0) return { audit };
     warn(
-      `session_fts 抽样对账发现缺口（${audit.mismatches.length}/${audit.checked} 会话）——全量重建：` +
+      `session_fts 抽样核查发现缺口（${audit.mismatches.length}/${audit.checked} 会话）——全量重建：` +
         audit.mismatches.map((m) => `${m.sessionId} 期望 ${m.expected} 实有 ${m.actual}`).join('；'),
     );
     return { audit, rebuilt: deps.face.rebuildFts() };
   } catch (error) {
-    warn(`session_fts 激活期对账失败（尽力而为跳过）：${error instanceof Error ? error.message : String(error)}`);
+    warn(`session_fts 激活期核查失败（尽力而为跳过）：${error instanceof Error ? error.message : String(error)}`);
     return { audit: { checked: 0, mismatches: [] } };
   }
 }

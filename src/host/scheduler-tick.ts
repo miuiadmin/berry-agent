@@ -192,7 +192,7 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
     const goal = deps.resolveGoal();
     if (goal === undefined) {
       // goal 行在册而 goal 件未装载——配置漂移（run-entry 同款诚实拒语义）
-      warn(`[SCHEDULER_GOAL_MISSING] goal 挂钟行「${row.name}」在册而 core:goal 件未装载——配置漂移，本轮诚实拒`);
+      warn(`[SCHEDULER_GOAL_MISSING] goal 定时行「${row.name}」存在而 core:goal 件未装载——配置漂移，本轮诚实拒`);
       return settledHandle(trigger, {
         reason: 'gated',
         error: 'goal 插件未安装——定时行配置漂移（wake 判定链不可用）',
@@ -239,7 +239,7 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
       const poller = deps.resolveIssuePoll();
       if (poller === undefined) {
         // issue-poll 行在册而 issue 件未装载——配置漂移（处理器缺席诚实拒）
-        warn('[SCHEDULER_POLL_MISSING] issue-poll 行在册而 core:issue 件未装载——配置漂移，本轮诚实拒');
+        warn('[SCHEDULER_POLL_MISSING] issue-poll 行存在而 core:issue 件未装载——配置漂移，本轮诚实拒');
         return {
           trigger,
           reason: 'gated',
@@ -276,7 +276,7 @@ export function createSchedulerTickRunner(deps: SchedulerTickDeps): RunnerFactor
       const review = deps.resolveMemoryReview?.();
       if (review === undefined) {
         // v1 恒此路：件内编排入口未装载（行若在册即漂移）——零模型诚实拒
-        warn('[SCHEDULER_REVIEW_MISSING] memory-review 行在册而编排入口未装载——前瞻分派位诚实拒');
+        warn('[SCHEDULER_REVIEW_MISSING] memory-review 行存在而编排入口未装载——前瞻分派位诚实拒');
         return {
           trigger,
           reason: 'gated',
