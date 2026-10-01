@@ -24,8 +24,7 @@
  *   同形坑——三键全补；u/r 两轨经 dispatchLetter 单源分派零手抄）。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { truncateToWidth } from '../../engine/index.js';
-import { fitRowSegments } from '../row-segments.js';
+import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 
@@ -174,7 +173,10 @@ export class MarketPicker implements OverlayContent {
     const rows = this.model.rows;
     const markets = new Set(rows.map((row) => row.market)).size;
     const head = `◆ 插件市场 · ${rows.length} 条目（${markets} 源）`;
-    buffer.writeText(region.row, region.col, head);
+    // 非条目行（头行/尾行区/busy 行/键面底行）fitLine … 收口（wf_3c8b00b8 组δ
+    // X-5 补漏——尾行区原 truncateToWidth 裸截断无省略号同此升级；条目行走
+    // fitRowSegments 双段）
+    buffer.writeText(region.row, region.col, fitLine(head, region.width));
     // 中段窗口化：光标驱动视口（条目区）+ 尾行区尾随——窗口高按剩余行实配
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
@@ -192,18 +194,18 @@ export class MarketPicker implements OverlayContent {
     // 尾行区：tail（skipped/刷新结局/空态文案）→ results（结算回执全文）
     for (const text of [...this.model.tail, ...this.model.results]) {
       if (line >= end) break;
-      buffer.writeText(line, region.col, truncateToWidth(text, region.width), HINT_STYLE);
+      buffer.writeText(line, region.col, fitLine(text, region.width), HINT_STYLE);
       line++;
     }
     // busy 底行（长动作在飞——恰占键面提示行上一行；窗溢出时让位于结构行）
     if (this.model.busyLabel !== null && line < end) {
-      buffer.writeText(line, region.col, `${BUSY_MARK} ${this.model.busyLabel}`);
+      buffer.writeText(line, region.col, fitLine(`${BUSY_MARK} ${this.model.busyLabel}`, region.width));
       line++;
     }
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      hintLine('↑↓ 移动', 'enter 安装/卸载', 'u 更新', 'r 刷新', 'q/esc 返回'),
+      fitLine(hintLine('↑↓ 移动', 'enter 安装/卸载', 'u 更新', 'r 刷新', 'q/esc 返回'), region.width),
       HINT_STYLE,
     );
   }

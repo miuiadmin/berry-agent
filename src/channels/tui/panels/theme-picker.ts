@@ -14,7 +14,7 @@
  *   退出柄）——副屏键面件族律。
  */
 import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/index.js';
-import { fitRowSegments } from '../row-segments.js';
+import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 
@@ -104,12 +104,14 @@ export class ThemePicker implements OverlayContent {
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
     const head = this.entries.length === 0 ? '◆ 主题切换 · 无条目' : `◆ 主题切换 · ${this.entries.length} 个主题`;
-    buffer.writeText(region.row, region.col, head);
+    // 非条目行（头行/空条目行/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5 补漏
+    // ——raw writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）
+    buffer.writeText(region.row, region.col, fitLine(head, region.width));
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset();
     if (this.entries.length === 0) {
-      buffer.writeText(region.row + 1, region.col, '（无条目）', HINT_STYLE);
+      buffer.writeText(region.row + 1, region.col, fitLine('（无条目）', region.width), HINT_STYLE);
     } else {
       for (let i = 0; i < viewHeight; i++) {
         const index = this.offset + i;
@@ -120,7 +122,10 @@ export class ThemePicker implements OverlayContent {
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.entries.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 选定（立即生效并保存）', 'q/esc 返回'),
+      fitLine(
+        this.entries.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'enter 选定（立即生效并保存）', 'q/esc 返回'),
+        region.width,
+      ),
       HINT_STYLE,
     );
   }

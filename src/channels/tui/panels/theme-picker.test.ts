@@ -82,6 +82,21 @@ describe('ThemePicker 呈现', () => {
     expect(readRow(grid, grid.rows - 1, width)).toContain('enter 选定');
   });
 
+  it('窄窗非条目行 … 收口（wf_3c8b00b8 组δ X-5 补漏）：头行/空条目行/底行 raw writeText 硬截断封堵（修前红）', () => {
+    // 修前：头行/空条目行/底行 raw writeText 直写——窄窗越界静默吸收硬截断
+    // 无提示（条目行走 fitRowSegments 有 …，非条目行是漏网面）
+    const { picker } = makePicker();
+    const width = 8; // 「（无条目）」10 列亦超——空条目行同红
+    const grid = new CellGrid(width, picker.measure(width));
+    picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    expect(readRow(grid, 0, width).endsWith('…')).toBe(true); // 头行（修前红位）
+    expect(readRow(grid, grid.rows - 1, width).endsWith('…')).toBe(true); // 底行提示
+    const { picker: empty } = makePicker({ entries: [] });
+    const g2 = new CellGrid(width, empty.measure(width));
+    empty.render(g2, { row: 0, col: 0, width, height: g2.rows });
+    expect(readRow(g2, 1, width).endsWith('…')).toBe(true); // 空条目行同律
+  });
+
   it('非当前档行首无 ●（光标 ▸ 与当前标记分立）', () => {
     const { picker } = makePicker({ current: 'auto' });
     const width = 72;

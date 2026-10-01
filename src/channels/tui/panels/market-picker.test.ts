@@ -105,6 +105,25 @@ describe('MarketPicker 呈现', () => {
     expect(readRow(grid, grid.rows - 1, width)).toContain('r 刷新');
   });
 
+  it('窄窗非条目行 … 收口（wf_3c8b00b8 组δ X-5 补漏）：头行/尾行区/busy 行/键面底行硬截断封堵（修前红）', () => {
+    // 修前：头行/busy 行/键面底行 raw writeText 直写、尾行区 truncateToWidth
+    // 裸截断无省略号——窄窗行尾硬截断无提示（条目行走 fitRowSegments 有 …）
+    const { picker } = makePicker({
+      model: makeModel({
+        rows: [],
+        tail: ['尾行区长文案——skipped 与刷新结局窄窗须 … 收口呈现'],
+        busyLabel: '装机在飞中（marketplace install hello@alpha）',
+      }),
+    });
+    const width = 14;
+    const grid = new CellGrid(width, 4); // 头 + 尾行区 + busy + 键面（零条目）
+    picker.render(grid, { row: 0, col: 0, width, height: 4 });
+    expect(readRow(grid, 0, width).endsWith('…')).toBe(true); // 头行（修前红位）
+    expect(readRow(grid, 1, width).endsWith('…')).toBe(true); // 尾行区 … 升级（修前裸 truncate 无 …）
+    expect(readRow(grid, 2, width).endsWith('…')).toBe(true); // busy 行
+    expect(readRow(grid, 3, width).endsWith('…')).toBe(true); // 键面底行
+  });
+
   it('空态两分：零源 vs 源在册零条目——两文案由 host 拼进 tail，面板原样呈现不判', () => {
     const zeroSource = makePicker({
       model: makeModel({ rows: [], tail: ['无市场源——CLI `berry marketplace add <source>` 添加（源管理留 CLI）'] }),
