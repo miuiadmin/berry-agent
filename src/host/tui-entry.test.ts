@@ -114,6 +114,11 @@ async function until(predicate: () => boolean, budgetMs = 2000): Promise<void> {
   }
 }
 
+/** ANSI 转义剥除（期望帧匹配用——界面美化役批⑦ user 块 '› ' 前缀段带样式，SGR 串隔断字面匹配） */
+function stripAnsi(out: string): string {
+  return out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+}
+
 /** 临时目录族（数据目录 × 工作区目录统一清） */
 const dirs: string[] = [];
 afterAll(() => {
@@ -543,7 +548,8 @@ describe('runTuiEntry 装配序', () => {
     // /help 命令 → 帮助副屏：命令册首帧可见段（键位册段在册尾视口外——双册
     // 全量已由 help-viewer.test 纯函数直锁，此处锁装配位真源）
     io.send('/help\r');
-    await until(() => io.output.includes('❓ 命令与键位帮助'));
+    // 头符 ❓→◉（界面美化役美学注④——emoji 弃用，期望帧随档）
+    await until(() => io.output.includes('◉ 命令与键位帮助'));
     expect(io.output).toContain('── 命令 ──');
     expect(io.output).toContain('/sessions'); // 10k 会话切换器在册（channels 注册面真源）
     expect(io.output).toContain('/usage'); // 10k 用量面板在册
@@ -636,7 +642,7 @@ describe('runTuiEntry 装配序', () => {
     // enter 切焦：registry.focus 只投影不开驱动 → repaint 回读 s1 历史
     // （user 块 '> ' 锚形与清单行标题形可区分）
     second.io.send('\r');
-    await until(() => second.io.output.includes('> 旧会话探针')); // 切焦重画（投影回读）
+    await until(() => stripAnsi(second.io.output).includes('› 旧会话探针')); // 切焦重画（投影回读——'› ' 前缀锚与清单行标题形可区分）
     await until(() => second.io.output.includes('\x1b[?1049l')); // 副屏收面（回主屏）
     expect(second.faux.state.callCount).toBe(0); // 切焦不达模型（投影非 run）
     // 无驱动会话直接提交：onSubmit 补开（manager.open）→ submitText 真达模型
@@ -662,7 +668,7 @@ describe('runTuiEntry 装配序', () => {
 
     // 二启：同 cwd 续接 s1（按 cwd 取最新）；带参形用法 fail-loud（/exit 律不穿透）
     const second = await rigEntry(dataDir, ws1);
-    await until(() => second.io.output.includes('> 旧会话探针')); // resume 历史回读（s1 在焦）
+    await until(() => stripAnsi(second.io.output).includes('› 旧会话探针')); // resume 历史回读（s1 在焦——'› ' 前缀锚形）
     second.io.send('/new extra\r');
     await until(() => second.io.output.includes('/new 不带参数')); // 用法 fail-loud（未切焦——零参命中才执行）
     // /new：同 cwd 建新会话即切焦（registry.focus 既有权威路——/sessions 选定
@@ -791,7 +797,7 @@ describe('runTuiEntry 装配序', () => {
     const { entry, io } = await rigEntry(rigDir('entry-tier-b-data-'), rigDir('entry-tier-b-ws-'));
     await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
     // 沙箱段 = 短词表单源直出（分隔形锚——装配闭包传垃圾词/两表错配即红）
-    expect(io.output).toContain(' · 工作区写');
+    expect(io.output).toContain('工作区写 · '); // 沙箱段居首（界面美化役批6 段序——前无分隔符）
     // thinking 无锚缩位：七档短词「思考X」形零出现（footer 段位只可能来自
     // THINKING_LEVEL_SHORT——本测不开 /thinking 面无 detail 词族混入）
     expect(io.output).not.toContain('思考关');
@@ -804,7 +810,7 @@ describe('runTuiEntry 装配序', () => {
     io.send('\x1b[4~');
     io.send('\r');
     await until(() => io.output.includes(sandboxModeReceipt('danger')));
-    await until(() => io.output.includes(' · 无沙箱'));
+    await until(() => io.output.includes('无沙箱 · ')); // 沙箱段居首形（换档后同位）
     io.send('\x04');
     expect(await entry).toBe(0);
   });

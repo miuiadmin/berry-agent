@@ -21,8 +21,8 @@
  * 信号路径独立：SIGINT①/SIGTERM → onGraceful → runtime.shutdown → exit(0)
  * （main.ts 编舞；本件 closer 注册保证出屏复原在该路径同样执行）。
  */
-import { basename } from 'node:path';
-import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { closeSync, fstatSync, mkdirSync, openSync, readSync, writeFileSync } from 'node:fs';
 
 import {
   BootAnimation,
@@ -341,7 +341,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     process.stderr.write(`${assembly.crashed ? `TUI 运行失败：${assembly.message}` : assembly.message}\n`);
     return assembly.exitCode;
   }
-  const { runtime, stack, scope, logger, boot, reloader }: AssemblySuccess = assembly;
+  const { runtime, stack, scope, logger, boot, reloader, dispatch, jobRows }: AssemblySuccess = assembly;
 
   // 装配栈回调（注入面——见 TuiEntryOptions.onStack 注）
   options.onStack?.(stack);
@@ -681,11 +681,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         { name: 'dark', detail: '内置暗色', broken: false },
         { name: 'light', detail: '内置亮色', broken: false },
         ...(dataDir !== null
-          ? listCustomThemeNames(dataDir).map((name) => ({
-              name,
-              detail: '自定义（themes/<名>.json）',
-              broken: loadCustomThemeColors(dataDir, name, { warn: () => {} }) === null,
-            }))
+          ? listCustomThemeNames(dataDir).map((name) => {
+              // 坏检查与色样共用一次加载（overlay 注入面板——swatchOf 现算腿）
+              const overlay = loadCustomThemeColors(dataDir, name, { warn: () => {} });
+              return {
+                name,
+                detail: '自定义（themes/<名>.json）',
+                broken: overlay === null,
+                ...(overlay !== null ? { overlay } : {}),
+              };
+            })
           : []),
       ];
       if (!backend.openThemes(entries, backend.themeChoice, selectTheme)) {
@@ -1001,6 +1006,87 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
+    // —— /feedback 反馈页（UX ④拍板——2026-09-30 UX 五问题批 + 2026-10-01
+    // 界面美化役批）：run 错误史查看 + 本地诊断包导出（**零上报腿**——README
+    // 六语零遥测承诺红线，材料只写本机文件，面板与导出包内均明示「不会上
+    // 传」）。数据面全走装配注入闭包（channels 不直 import persist——/sessions
+    // 清单注入同律）：错误史 = durable events 既有读面 queryEvents 逐会话扫
+    // 近 7 天（assistant/message 的 errorMessage 腿 + turn/end reason=error
+    // 腿——agent_end failed 的持久化形，同轮去重；扫描纯函数单源在
+    // feedback-viewer 件）；会话清单 = stack.manager.list({})（/sessions 同窗
+    // 语义）；诊断包落盘 = 数据目录 diagnostics/ 下 md 文件（session-export
+    // 的 exports/ 落盘同律）。
+    const FEEDBACK_WINDOW_DAYS = 7; // 扫描时间范围（天——呈现与导出包同值披露）
+    const FEEDBACK_SCAN_PAGE_LIMIT = 10000; // 单会话事件单页帽（queryEvents 硬帽同值——溢出即截断诚实披露）
+    const FEEDBACK_MAX_ENTRIES = 50; // 错误条目帽（呈现与导出包共用——重错误机诚实截断）
+    /**
+     * 反馈副屏数据源集槽形（结构形——与 channels 件 feedback-viewer 的
+     * FeedbackScreenSources 恒等；host 不深挖 channels 内件〔模块公开面纪律〕，
+     * 经 backend 方法签名结构校验同 openGuide 数据字面量先例）。backend
+     * .openFeedback 方法落位前槽位先行——接线挂账主会话（方法 + 回填行）。
+     */
+    type FeedbackScreenSourcesSlot = {
+      sessions: readonly { id: string }[];
+      queryEvents: (filter: { sessionId: string; types: readonly string[]; sinceMs: number; limit: number }) => {
+        events: readonly { type: string; time: number; data: unknown }[];
+        nextCursor: unknown;
+      };
+      sinceMs: number;
+      windowDays: number;
+      pageLimit: number;
+      maxEntries: number;
+      sessionsTotal: number;
+      env: readonly string[];
+      writeFile: (content: string) => string;
+    };
+    // 反馈副屏开面板槽（backend.openFeedback 方法归 tui-backend 件〔openGuide
+    // 同律〕——可变 ref 形同 rewindOpener 槽先例；装配尾段回填真身，装载期
+    // 空窗 notify 降级「暂不可用」）
+    const feedbackScreenOpenerRef: { current: ((sources: FeedbackScreenSourcesSlot) => boolean) | null } = {
+      current: null,
+    };
+    const openFeedbackPanel = (): void => {
+      const opener = feedbackScreenOpenerRef.current;
+      if (opener === null) {
+        backend.notify('反馈页暂不可用——稍后再试', { level: 'warn' });
+        return;
+      }
+      const ok = opener({
+        // 会话清单（/sessions 同窗——manager.list 近 100 行；总数独立单源）
+        sessions: stack.manager.list({}).map((row) => ({ id: row.id })),
+        // durable events 既有读面（箭头包装——结构形恒等透传，channels 侧零 persist 依赖）
+        queryEvents: (filter) => runtime.persistence.store.queryEvents(filter),
+        sinceMs: Date.now() - FEEDBACK_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+        windowDays: FEEDBACK_WINDOW_DAYS,
+        pageLimit: FEEDBACK_SCAN_PAGE_LIMIT,
+        maxEntries: FEEDBACK_MAX_ENTRIES,
+        sessionsTotal: stack.manager.countSessions(),
+        // 环境摘要行集（导出包头段专用——「标签 值」拼好形；凭证/token 恒不入面〔04 §7〕）
+        env: [
+          `版本    ${options.version ?? '0.0.0'}`,
+          `模型    ${stack.model}`,
+          `数据目录 ${runtime.dataDir ?? '（:memory: 内存模式——未使用数据目录）'}`,
+          `平台    ${process.platform}/${process.arch}（node ${process.version}）`,
+        ],
+        // 诊断包落盘闭包（回执串直回面板——含路径与「不会上传」明示）
+        writeFile: (content) => {
+          const dataDir = runtime.dataDir;
+          if (dataDir === null) {
+            return '导出失败：当前为内存模式，没有数据目录可保存诊断包';
+          }
+          const dir = join(dataDir, 'diagnostics');
+          mkdirSync(dir, { recursive: true });
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-'); // session-export fileStampOf 同形（文件名安全）
+          const path = join(dir, `feedback-${stamp}.md`);
+          writeFileSync(path, content, 'utf8');
+          return `已导出诊断包 → ${path}（只保存在本机，不会上传）`;
+        },
+      });
+      if (!ok) {
+        backend.notify('反馈页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+      }
+    };
+
     // —— /setup 配置向导编舞（onboarding ob-3 + 2026-09-28 模型渠道批 C-3 v2
     // 分桶重做）：副屏 SetupWizardPanel 即 WizardPrompter 实装（backend
     // .openSetupWizard——副屏占用返 null → notify 诚实降级与 /help 同律）；
@@ -1230,6 +1316,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         description: '快速上手参考页（版本/模型配置/核心命令/文档地图/升级与卸载）',
         run: () => openGuidePanel(),
       },
+      {
+        name: 'feedback',
+        description: '反馈页（近 7 天运行错误查看 + 导出本地诊断包——不上传）',
+        run: () => openFeedbackPanel(),
+      },
+      {
+        name: 'jobs',
+        description: '后台任务清单页（运行中 + 近期结束——主屏清单外的全量记录）',
+        run: () => void backend.openJobs(),
+      },
     ] as const;
     /** 本地命令族 → 补全条目（query 已去斜杠——与 exitCommandItems 同契约） */
     const localCommandItems = (query: string): readonly AutocompleteItem[] =>
@@ -1308,6 +1404,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       todoFor: (sessionId) => {
         const driver = stack.driverOf(sessionId);
         return driver === undefined ? null : foldTodoTable(driver.session.events());
+      },
+      // 后台任务段数据面（界面美化役批6——UX 批6 A 件）：Job 注册表只读拉取
+      // 闭包（assembly jobRows 单源）——固定区段帧首拉取 running 快照 + /jobs
+      // 副屏开屏全量快照同源；refreshJobs 推送锚订阅在下（job_settled）
+      jobs: {
+        running: () => jobRows.running(),
+        list: () => jobRows.list(),
       },
       autocomplete: {
         // 通道核命令表 + TUI 本地命令族 + TUI 本地退出词三源并流（07 §4.1
@@ -1396,6 +1499,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // （07 §4.1 G1 ④有界陈旧律——下次刷新锚自愈）。
     stack.onSpentTodayLedgered(() => backend.refreshFooter());
 
+    // —— job_settled 推送锚（界面美化役批6——UX 批6 A 件）：任务结算即时
+    // 收敛固定区 running 快照（闲态零帧源下不滞留至下一次交互）；总线词装配
+    // 根已预注册（isRegistered 恒真——session/event 桥律同形防御位：缺席零
+    // 订阅不炸）。在飞起跑无事件——新任务行随下一帧/下一交互拉取可见（挂账：
+    // 起跑推送锚待后续批）。
+    if (dispatch.isRegistered('job_settled')) {
+      dispatch.on('job_settled', () => backend.refreshJobs());
+    }
+
     // —— /memory 管理面材料注入（mm 批——06 §7 形态定形注）：boot 已完成
     //（assembleHostStack 内插件装载），core:memory 服务面在场（库座在位且件
     // 装载）→ 后置注入 TuiBackend 后置位：ownerKeys/runExport 经服务面传真
@@ -1459,6 +1571,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 已过，/rewind 命令注册面在后无竞速）；副屏占用时 backend.openRewindPicker
     // 返 false，件内 handler 落 usage 兜底（同 /help 降级律）
     assembly.rewindOpener.current = (entries, actions) => backend.openRewindPicker(entries, actions);
+
+    // —— /feedback 反馈页开面板槽回填（UX ④拍板——界面美化役 2026-10-01 主会话
+    // 接线位：backend.openFeedback 已落 tui-backend 件，ref 槽自此得真身——
+    // 空窗期 notify 降级「暂不可用」形自此退场）
+    feedbackScreenOpenerRef.current = (sources) => backend.openFeedback(sources);
 
     stack.channels.addBackend(backend);
     backend.start();

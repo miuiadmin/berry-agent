@@ -14,7 +14,13 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import { ACTIVE_MARKER_BASENAME } from './single-instance.js';
-import { assembleHostStack, createControlOpensFor, readDoorsSegmentLive, readTriggerOpensLive } from './assembly.js';
+import {
+  assembleHostStack,
+  createControlOpensFor,
+  execResultRendererLines,
+  readDoorsSegmentLive,
+  readTriggerOpensLive,
+} from './assembly.js';
 import type { AssemblySuccess } from './assembly.js';
 import type { CorePluginReference } from './loader.js';
 import type { PluginContext } from './plugin-context.js';
@@ -2455,5 +2461,32 @@ describe('自定义渠道 env 豁免快照过滤（R-1 评审修复役——修�
     } finally {
       await asm.runtime.shutdown();
     }
+  });
+});
+
+/* ---------------- UX 五问题批④：exec 内建渲染器（Exit code 行呈现层过滤） ---------------- */
+
+describe('execResultRendererLines（bash 卡体呈现腿——纯函数）', () => {
+  /** toolResult 消息面文本块速构 */
+  const contentOf = (text: string): Array<{ type: 'text'; text: string }> => [{ type: 'text', text }];
+
+  it('Exit code 行两形滤除（数字码 / null 信号终止）——数据面文本其余行原样', () => {
+    const lines = execResultRendererLines(contentOf('Exit code: 0\nstdout 第 1 行\nstdout 第 2 行'));
+    expect(lines).toEqual([[{ text: 'stdout 第 1 行' }], [{ text: 'stdout 第 2 行' }]]); // 信息零值不占屏（成功腿 0 同滤——退出码改由状态行承载防双报）
+    const failed = execResultRendererLines(contentOf('Exit code: 1\nerr'));
+    expect(failed).toEqual([[{ text: 'err' }]]); // 失败腿同滤（码进状态行 (1)）
+    const nulled = execResultRendererLines(contentOf('Exit code: null（信号终止）'));
+    expect(nulled).toEqual([]); // 信号终止形同滤
+  });
+
+  it('Exit code 变形不误滤（前缀/内嵌/后缀文本同在）——判形锚整行', () => {
+    const keep = execResultRendererLines(contentOf('前缀 Exit code: 0\nExit code: 0 后缀\nExit code:'));
+    expect(keep).toHaveLength(3); // 整行恒等才滤——子串形原样保留
+  });
+
+  it('非文本块 / 空载荷防御：零行不炸（回落恒在律——渲染器结构性不劣化）', () => {
+    expect(execResultRendererLines(undefined)).toEqual([]);
+    expect(execResultRendererLines([{ type: 'image', data: 'x' } as never])).toEqual([]);
+    expect(execResultRendererLines(contentOf(''))).toEqual([]); // 空文本零行——回落宿主缺省（不为空行占位） // 空文本一行空段
   });
 });

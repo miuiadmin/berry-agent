@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 
 import { BaseError, parseEventSource } from '../contracts/index.js';
-import type { SessionEvent } from '../contracts/index.js';
+import type { JobEntry, SessionEvent } from '../contracts/index.js';
 import type { UiRewindActions, UiRewindEntry } from '../contracts/index.js';
 import { EventDispatch, LogLevelState, Scope, canonicalWorkspaceRoot, createLogger } from '../context/index.js';
 import type { Logger, Scope as ScopeType } from '../context/index.js';
@@ -219,6 +219,17 @@ export interface AssemblySuccess {
   readonly credentialsWrite: {
     readonly store: CredentialsCommandStore;
     readonly onCredentialChanged: (payload: CredentialChangedPayload) => void;
+  };
+  /**
+   * 后台任务注册表只读拉取面（界面美化役批6——UX 批6 A/C 件）：tui-entry
+   * 注入 backend.jobs（固定区段帧首拉取 running 快照 + /jobs 副屏开屏全量
+   * 快照 + refreshJobs 推送锚重拉）。装配根单源接线——host→channels 经闭包
+   * 传值（28 席 DAG 零新边：channels 不 import subagent，注册表真源只经
+   * 装配闭包到达呈现面）。
+   */
+  readonly jobRows: {
+    readonly running: () => readonly JobEntry[];
+    readonly list: () => readonly JobEntry[];
   };
 }
 
@@ -812,6 +823,20 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
     runtime.registerCloser({
       label: 'budget-broadcast',
       fn: () => Promise.resolve(budgetBroadcast.dispose()),
+    });
+
+    // —— exec 内建渲染器（UX 五问题批④ + 07 §4.1 ⑥ 内建渲染器挂载位）：
+    // bash 工具卡体的呈现层 Exit code 行过滤。数据面（exec/bash.ts 结果文本
+    // 首行 `Exit code: N`）不动——呈现层成功腿不显 `Exit code: 0`（信息零值
+    // 不占屏）；失败腿退出码改由卡体首行状态行 `({码}) • {时长}` 承载
+    // （tool-card 件），故两腿同滤防双报。注册位 = 宿主装配处（注册表法
+    // 「受理不拒」含内建名——插件后写可胜出，回落恒在律不破）。
+    const execRendererDispose = registerToolRenderer('bash', {
+      renderResult: (result) => execResultRendererLines(result.content),
+    });
+    runtime.registerCloser({
+      label: 'exec-tool-renderer',
+      fn: () => Promise.resolve(execRendererDispose()),
     });
 
     // —— issue headless 会话真工厂（成熟度缺口 #5——04 §5 停靠/唤醒腿的
@@ -1579,6 +1604,12 @@ export async function assembleHostStack(options: AssembleHostOptions): Promise<A
       reloader,
       rewindOpener,
       credentialsWrite,
+      // 后台任务拉取面（界面美化役批6）：闭包晚绑注册表（jobs 在装配序前段
+      // 已建——调用时点恒在装配完成后）；与 todoFor 同形（呈现面零注册表触感）
+      jobRows: {
+        running: () => jobs.running(),
+        list: () => jobs.list(),
+      },
     };
   } catch (err) {
     // 意外异常 = 崩溃取证档：crash.log 先写（memory 形内建跳过）→ 资源收口 → 归一失败档
@@ -1635,6 +1666,31 @@ function readHostApiVersion(): string {
     apiVersion?: string;
   };
   return pkg.apiVersion ?? '1.0';
+}
+
+/**
+ * exec 内建渲染器行集（UX 五问题批④——bash 工具卡体呈现腿，纯函数）：
+ * toolResult 消息面文本块拼接 → 逐行滤除 `Exit code: N`（含 null 信号终止
+ * 形）→ 中性单段行（tone 缺省 = text——卡体着色归折叠档 dim/词法高亮，
+ * 本渲染器不发明色）。数据面不动（exec/bash.ts 照旧铸造）——纯呈现过滤。
+ * 行段形结构兼容 RendererLine（channels 公开面窄出——不深路径 import）。
+ */
+export function execResultRendererLines(content: unknown): ReadonlyArray<ReadonlyArray<{ readonly text: string }>> {
+  let text = '';
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'text') {
+        const piece = (block as { text?: unknown }).text;
+        if (typeof piece === 'string') text += piece;
+      }
+    }
+  }
+  // Exit code 行判形（bash 数据面首行形——数字码 / null（信号终止）两形）
+  const lines = text.split('\n').filter((line) => !/^Exit code: (?:\d+|null（信号终止）)$/.test(line));
+  // 空载荷（undefined / 无文本块 / 全滤除）= 零行——回落恒在律：空行集走宿主
+  // 缺省卡体，不为空行占位（''.split('\n') 产 [''] 单空行的陷阱在此收口）
+  if (lines.length === 0 || (lines.length === 1 && lines[0] === '')) return [];
+  return lines.map((line) => [{ text: line }]);
 }
 
 /**
