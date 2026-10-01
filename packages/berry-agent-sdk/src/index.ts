@@ -24,6 +24,7 @@ export type {
   SdkClient,
   SdkPromptInput,
   SdkEntriesInput,
+  SdkSessionsResult,
 } from './types.js';
 // 线协议/契约类型面单源策展 re-export（发布面稳定 API——逐项过目）
 export type {
@@ -33,6 +34,7 @@ export type {
   SdkWireFrame,
   SdkAckFrame,
   SdkEntriesFrame,
+  SdkSessionsFrame,
   SdkSessionSummary,
   SdkDurableEntry,
   SdkEventFrame,

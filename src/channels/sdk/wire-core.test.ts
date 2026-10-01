@@ -54,6 +54,8 @@ interface Harness {
   setSinkWritable: (writable: boolean) => void;
   /** decide 应答档序（逐次弹尽后恒 applied） */
   decideOutcomes: Array<'applied' | 'superseded'>;
+  /** 会话全量计数桩值（countSessions deps 源——total 恒发断言的可变位） */
+  sessionCount: number;
 }
 
 /** 装配桩 + 受检核（全注入面记账——断言只对行为不对内部态） */
@@ -77,6 +79,7 @@ function createHarness(
       sinkWritable = w;
     },
     decideOutcomes: [],
+    sessionCount: 0,
     core: undefined!,
   };
   h.core = new SdkWireCore(
@@ -111,6 +114,7 @@ function createHarness(
         return { entries: (s?.log ?? []).filter((e) => e.seq > since && e.seq < s!.highWater) };
       },
       listSessions: () => [],
+      countSessions: () => h.sessionCount,
       highWaterOf: (sessionId) => h.sessions.get(sessionId)?.highWater,
       sessionStateOf: (sessionId) => h.sessions.get(sessionId)?.state ?? 'missing',
       retryProbeOf: (sessionId) => h.retryProbes.get(sessionId) ?? null,
@@ -389,10 +393,15 @@ describe('interrupt / decide / getEntries / sessions 四动词', () => {
     expect(h.frames.at(-1)).toMatchObject({ code: 'SESSION_NOT_FOUND' });
   });
 
-  it('sessions：清单帧直出', () => {
+  it('sessions：清单帧直出 + total 恒发（B2 截断披露——countSessions 单源与清单窗分立）', () => {
     const h = createHarness();
     h.core.handleRequest({ verb: 'sessions' });
-    expect(h.frames).toEqual([{ kind: 'sessions', sessions: [] }]);
+    expect(h.frames).toEqual([{ kind: 'sessions', sessions: [], total: 0 }]);
+    // total 是独立单源非清单长派生：计数 3、清单空——若派生自清单长即 0（红）
+    h.sessionCount = 3;
+    h.frames.length = 0;
+    h.core.handleRequest({ verb: 'sessions' });
+    expect(h.frames).toEqual([{ kind: 'sessions', sessions: [], total: 3 }]);
   });
 });
 

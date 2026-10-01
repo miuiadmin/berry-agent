@@ -75,6 +75,9 @@ export interface SdkWireDeps {
   queryEntries(sessionId: string, since: number, cursor?: string): SdkDurablePage;
   /** 会话清单 */
   listSessions(): SdkSessionSummary[];
+  /** 会话全量计数（B2 截断披露单源——与 listSessions 窗分立；必填 fail-loud，
+   * 缺注入编译期红；webui 注入窄面 countSessions 同族词面独立律） */
+  countSessions(): number;
   /** 会话高水位（= 内存日志长度；missing 会话 = undefined） */
   highWaterOf(sessionId: string): number | undefined;
   /** 会话状态三档 */
@@ -281,7 +284,8 @@ export class SdkWireCore {
         this.handleGetEntries(req.sessionId, req.since, req.cursor);
         break;
       case 'sessions':
-        this.emit({ kind: 'sessions', sessions: this.deps.listSessions() });
+        // total 恒发（03 §10.6 定形笔①——缺席值歧义只许存在于旧服务端过渡窗）
+        this.emit({ kind: 'sessions', sessions: this.deps.listSessions(), total: this.deps.countSessions() });
         break;
     }
   }

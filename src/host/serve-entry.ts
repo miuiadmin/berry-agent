@@ -200,6 +200,8 @@ export function createServeBridge(
         })(),
         lastActivityAt: row.updatedAt,
       })),
+    // B2 截断披露：total 独立单源（manager.countSessions）——webui-bridge 同批同款
+    countSessions: (): number => stack.manager.countSessions(),
     highWaterOf: (sessionId: string): number | undefined => {
       const driver = stack.driverOf(sessionId);
       if (driver !== undefined) return driver.session.events().length;

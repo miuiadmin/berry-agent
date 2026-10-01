@@ -184,12 +184,17 @@ export interface SdkEntriesFrame {
 
 /**
  * sessions 应答帧——会话清单（与 webui §10.4 会话族端点同读面，词面本批定形）。
- * 截断披露：清单默认最近 100 个（按更新时间倒序）——超出即截断；全量总数
- * total 字段属协议增位，立题挂账（协议变更须版本握手 + 金样对拍，不便宜先行）。
+ * 截断披露（03 §10.6 2026-10-01 total 增位定形笔）：清单默认最近 100 个（按
+ * 更新时间倒序）——超出即截断；可选 total = 全量计数（countSessions 单源，
+ * 与窗分立）。服务端恒发（缺席值歧义只存在于旧服务端 × 新 SDK 过渡窗——
+ * 客户端回退 total ?? sessions.length，超窗形诚实降级为无披露）；C-4 版本
+ * 策略：可选字段加法不 bump SDK_PROTOCOL_VERSION。
  */
 export interface SdkSessionsFrame {
   kind: 'sessions';
   sessions: SdkSessionSummary[];
+  /** 全量会话总数（服务端恒发；与清单窗分立——超窗即截断披露判据） */
+  total?: number;
 }
 
 /** 会话清单条目（id/标题/末活动时间——03 §10.6 请求面动词族条 sessions 词面定形） */

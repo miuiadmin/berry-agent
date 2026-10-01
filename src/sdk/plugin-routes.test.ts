@@ -30,6 +30,7 @@ function makeBridge(): SdkHttpBridge {
     interruptSession: () => {},
     queryEntries: () => ({ entries: [] }),
     listSessions: () => [],
+    countSessions: () => 0,
     highWaterOf: () => undefined,
     sessionStateOf: () => 'missing',
     retryProbeOf: () => null,

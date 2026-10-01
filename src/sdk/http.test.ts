@@ -53,6 +53,7 @@ function makeBridge(): BridgeStub {
       entries: (sessions.get(sessionId)?.log ?? []).filter((e) => e.seq > since),
     }),
     listSessions: () => [],
+    countSessions: () => 0,
     highWaterOf: (sessionId) => sessions.get(sessionId)?.log.length,
     sessionStateOf: (sessionId) => (sessions.get(sessionId)?.state ?? 'missing') as 'open' | 'closed' | 'missing',
     retryProbeOf: () => null,

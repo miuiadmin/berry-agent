@@ -49,7 +49,7 @@ const transport = httpSdkTransport({
 });
 
 const client = createSdkClient(transport);
-const sessions = await client.sessions(); // 会话清单（默认最近 100 个、按更新时间倒序）
+const { sessions, total } = await client.sessions(); // 会话清单（默认最近 100 个、按更新时间倒序）；total = 全量总数（超窗即截断披露判据）
 const first = sessions[0]!;
 const page = await client.getEntries({ sessionId: first.id }); // 断线补齐（since 默认从头）
 const handle = await client.subscribe(
@@ -70,8 +70,9 @@ await client.close();
   —— 两实装同 `SdkTransport` 三种抽象：请求形（单帧返回）、无返回形
   （interrupt）、直播形（SSE / 线内 hello，replay-end 后建立）。
 - 类型面：`AgentEvent` / `ApprovalAskAnswer` / `SdkRequest` / `SdkWireFrame` /
-  `SdkAckFrame` / `SdkEntriesFrame` / `SdkSessionSummary` / `SdkDurableEntry` /
-  `SdkEventFrame` / `SdkHelloFrame` / `SdkErrorFrame` / `SDK_PROTOCOL_VERSION`。
+  `SdkAckFrame` / `SdkEntriesFrame` / `SdkSessionsFrame` / `SdkSessionsResult` /
+  `SdkSessionSummary` / `SdkDurableEntry` / `SdkEventFrame` / `SdkHelloFrame` /
+  `SdkErrorFrame` / `SDK_PROTOCOL_VERSION`。
 
 ## 状态
 

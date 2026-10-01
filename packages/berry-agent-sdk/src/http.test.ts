@@ -91,7 +91,12 @@ async function startFace(): Promise<{ transport: SdkTransport; log: FaceLog; clo
       return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/sessions') {
-      sendJson(res, 200, { kind: 'sessions', sessions: [{ id: 's-1', title: 't', lastActivityAt: 1 }] });
+      // total 与清单长分立（2 > 1）——HTTP 面透传 + 客户端非派生锁
+      sendJson(res, 200, {
+        kind: 'sessions',
+        sessions: [{ id: 's-1', title: 't', lastActivityAt: 1 }],
+        total: 2,
+      });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/v1/events') {
@@ -232,12 +237,13 @@ describe('httpSdkTransport 直连 HTTP 传输', () => {
     expect(log.decideCalls[0]).toEqual({ approvalId: 'a-1', answer: 'approve' });
   });
 
-  it('sessions：GET /v1/sessions 无体', async () => {
+  it('sessions：GET /v1/sessions 无体（total 经 HTTP 面透传）', async () => {
     const { transport } = await face();
     const client = createSdkClient(transport);
-    const rows = await client.sessions();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: 's-1', title: 't' });
+    const { sessions, total } = await client.sessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({ id: 's-1', title: 't' });
+    expect(total).toBe(2); // 非清单长派生（清单长 1）
   });
 
   it('SSE 直播档：查询参承载 hello 载荷、ping 行跳过、replay-end 后 resolve、直播帧续入', async () => {

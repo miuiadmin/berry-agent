@@ -48,6 +48,7 @@ function createHarness(): Harness {
       return { entries: (s?.log ?? []).filter((e) => e.seq > since && e.seq < (s?.highWater ?? 0)) };
     },
     listSessions: () => [],
+    countSessions: () => 0,
     highWaterOf: (sessionId) => sessions.get(sessionId)?.highWater,
     sessionStateOf: (sessionId) => sessions.get(sessionId)?.state ?? 'missing',
     retryProbeOf: () => null,

@@ -112,16 +112,25 @@ describe('createSdkClient 方法面', () => {
     expect(fake.requests[2]).toEqual({ verb: 'getEntries', sessionId: 's-1', since: -1, cursor: 'c-1' });
   });
 
-  it('sessions：应答帧取 sessions 数组直出', async () => {
+  it('sessions：应答帧取 {sessions, total}（total 透传——缺席回退清单长〔旧服务端过渡窗〕）', async () => {
     const fake = fakeTransport();
     fake.setResponder(() => ({
       kind: 'sessions',
       sessions: [{ id: 's-1', title: 't', lastActivityAt: 1 }],
+      total: 3,
     }));
     const client = createSdkClient(fake.transport);
-    const rows = await client.sessions();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: 's-1', title: 't' });
+    const result = await client.sessions();
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0]).toMatchObject({ id: 's-1', title: 't' });
+    expect(result.total).toBe(3); // 全量计数与窗分立（3 > 1 = 截断披露判据）
+    // 旧服务端缺席 total：回退清单长（全量已呈现形下与真值合同——诚实降级）
+    fake.setResponder(() => ({
+      kind: 'sessions',
+      sessions: [{ id: 's-1', title: 't', lastActivityAt: 1 }],
+    }));
+    const fallback = await client.sessions();
+    expect(fallback.total).toBe(1);
   });
 
   it('interrupt：走无应答档 send（不走 request 档）', async () => {

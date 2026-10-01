@@ -62,11 +62,16 @@ export function createSdkClient(transport: SdkTransport): SdkClient {
       return frame as SdkEntriesFrame; // 应答闭集 {entries, error}
     },
 
-    /** 会话清单（默认最近 100 个、按更新时间倒序——超出即截断；全量总数属协议增位立题挂账） */
+    /**
+     * 会话清单（默认最近 100 个、按更新时间倒序——超出即截断；total = 全量
+     * 总数与窗分立，超窗即截断披露判据〔B2〕）。total 缺席回退清单长——旧
+     * 服务端过渡窗（新服务端恒发 total；回退值超窗形下诚实降级为无披露）。
+     */
     sessions: async () => {
       const frame = await transport.request({ verb: 'sessions' });
       ensureNotError(frame);
-      return (frame as { sessions: SdkSessionSummary[] }).sessions; // 应答闭集 {sessions, error}
+      const { sessions, total } = frame as { sessions: SdkSessionSummary[]; total?: number };
+      return { sessions, total: total ?? sessions.length }; // 应答闭集 {sessions, error}
     },
 
     // 无应答档（interrupt 受理经事件流可观察——写后即决；missing 会话错误帧走订阅帧面）

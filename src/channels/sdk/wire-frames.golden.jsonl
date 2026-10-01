@@ -5,7 +5,7 @@
 {"kind":"replay-end","sessionId":"s-1","lastReplayedSeq":11}
 {"kind":"error","sessionId":"s-1","code":"SDK_OVERLOADED","message":"过载","willRetry":true,"retryAfterMs":500}
 {"kind":"entries","sessionId":"s-1","entries":[{"type":"user/message","seq":1,"time":1690000000000,"data":{"content":"问","dedupeKey":"m-1","source":"channel:sdk"}}],"nextCursor":"c-2"}
-{"kind":"sessions","sessions":[{"id":"s-1","title":null,"lastActivityAt":1690000000001}]}
+{"kind":"sessions","sessions":[{"id":"s-1","title":null,"lastActivityAt":1690000000001}],"total":3}
 {"kind":"decide-result","approvalId":"a-1","outcome":"superseded"}
 {"kind":"ask","sessionId":"s-1","approvalId":"a-1","summary":"写文件 /tmp/x","reason":"外部源","toolName":"write","suggestedEntry":"allow-write:/tmp/x"}
 {"verb":"hello","protocolVersion":1,"sessionId":"s-1","after":-1,"noDelta":true}

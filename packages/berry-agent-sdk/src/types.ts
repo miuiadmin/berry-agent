@@ -36,6 +36,8 @@ export type { SdkAckFrame } from '../../../src/channels/sdk/protocol.js';
 export type { SdkEntriesFrame } from '../../../src/channels/sdk/protocol.js';
 /** 会话清单行（sessions 应答元素） */
 export type { SdkSessionSummary } from '../../../src/channels/sdk/protocol.js';
+/** sessions 应答帧（清单 + total——2026-10-01 total 增位定形） */
+export type { SdkSessionsFrame } from '../../../src/channels/sdk/protocol.js';
 /** durable 平铺事件（type/seq/time/data 四字段——重放与轮询共形） */
 export type { SdkDurableEntry } from '../../../src/channels/sdk/protocol.js';
 /** live 事件帧（event + seq——直播段载荷） */
@@ -118,14 +120,24 @@ export interface SdkEntriesInput {
   readonly cursor?: string;
 }
 
+/**
+ * sessions() 应答形：清单（最近 100 窗、按更新时间倒序）与全量计数 total
+ * 分立——total > 清单长即截断披露判据（B2）。total 服务端恒发；旧服务端
+ * 过渡窗缺席回退清单长（全量已呈现形下与真值合同，超窗形诚实降级无披露）。
+ */
+export interface SdkSessionsResult {
+  readonly sessions: SdkSessionSummary[];
+  readonly total: number;
+}
+
 /** 类型化客户端（传输无关面——两传输同方法面消费） */
 export interface SdkClient {
   /** 会话发起/续接（→ ack 应答：会话句柄 + 受理回执）；错误帧 → 抛 {@link SdkError} */
   prompt(input: SdkPromptInput): Promise<SdkAckFrame>;
   /** 断线对账读面（→ entries 页帧）；跟尽义务在调用方（nextCursor 在场即续读——cursor 位透传，分页帽落地时可跟尽） */
   getEntries(input: SdkEntriesInput): Promise<SdkEntriesFrame>;
-  /** 会话清单 */
-  sessions(): Promise<SdkSessionSummary[]>;
+  /** 会话清单（清单 = 最近 100 窗 + total 全量计数分立——截断披露判据；旧服务端 total 缺席回退清单长） */
+  sessions(): Promise<SdkSessionsResult>;
   /** 打断在飞 run（无应答档——写后即决；missing 会话错误帧走订阅帧面） */
   interrupt(sessionId: string): Promise<void>;
   /** 审批应答（跨入口竞速回执——applied / superseded） */

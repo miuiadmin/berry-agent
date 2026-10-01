@@ -105,6 +105,7 @@ function rig() {
       return { entries };
     },
     listSessions: () => [],
+    countSessions: () => 0,
     highWaterOf: (sessionId) => sessions.get(sessionId)?.length,
     sessionStateOf: (sessionId) => (sessions.has(sessionId) ? 'open' : 'missing'),
     retryProbeOf: () => null,
