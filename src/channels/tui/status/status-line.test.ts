@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { CellGrid } from '../../engine/index.js';
-import { DEFAULT_THEME } from '../theme/index.js';
+import { builtinPalette, DEFAULT_THEME, resolveTheme } from '../theme/index.js';
 import { StatusLine } from './status-line.js';
 
 /** 读回一行（未写格按空格、trimEnd） */
@@ -178,14 +178,70 @@ describe('StatusLine footer 分栏（R6 批 10k）', () => {
   });
 });
 
+describe('StatusLine footer 常驻段 secondary 弱化（界面美化役）', () => {
+  it('闲态分栏：footer 段 secondary 次文键 + 闲态文案保持正文前景（层级 = 状态信息 > footer 段）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry · glm · a1b2c3');
+    line.setStatus('✓ 完成');
+    const grid = renderLine(line);
+    // footer 段（col 0 起 20 列）走 secondary；右段「✓ 完成」col 24-29 保持缺省前景
+    expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.secondary);
+    expect(grid.getCell(0, 24)?.style.fg).toBeUndefined();
+  });
+
+  it('忙态分栏：footer 段 secondary + 转轮 accent + 忙态文案保持正文前景（三档同屏分立）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry · glm · a1b2c3');
+    line.start('思考中');
+    const grid = renderLine(line);
+    expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.secondary); // footer 弱化
+    expect(grid.getCell(0, 22)?.style.fg).toBe(DEFAULT_THEME.accent); // 转轮 accent 维持
+    expect(grid.getCell(0, 24)?.style.fg).toBeUndefined(); // 忙态文案全亮
+  });
+
+  it('闲态无右段（footer 独占）：整段 secondary', () => {
+    const line = new StatusLine();
+    line.setFooter('berry · glm · a1b2c3');
+    const grid = renderLine(line);
+    expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.secondary);
+    expect(grid.getCell(0, 10)?.style.fg).toBe(DEFAULT_THEME.secondary);
+  });
+
+  it('setTheme 派生重建：footerStyle 随主题档换装（与 spinnerStyle 同律）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry');
+    line.start('思考中');
+    // truecolor 档取板原值（16 档两板 secondary 同降采 ANSI 8——重建断言取真异值档）
+    const light = resolveTheme(builtinPalette('light'), 'truecolor');
+    line.setTheme(light);
+    const grid = renderLine(line);
+    expect(grid.getCell(0, 0)?.style.fg).toBe(light.secondary); // footer 随档重建
+    expect(grid.getCell(0, 22)?.style.fg).toBe(light.accent); // 转轮随档重建（rest 7 列 → col 22）
+    expect(light.secondary).not.toBe(DEFAULT_THEME.secondary); // 两板真异值（重建断言有意义）
+  });
+});
+
 describe('StatusLine 忙态工具段剩余宽帽（2026-09-20 TUI 修复组 1 批 F4）', () => {
   it('超长工具名整字截断——转轮恒在屏内（修前 restWidth 无界 spinnerCol 负、转轮整段消失）', () => {
     const line = new StatusLine();
     line.setFooter('cwd·model·s');
     line.start();
     line.setTool('n'.repeat(20));
-    // 帽 = region.width - 1 = 11 列：rest ' ⚙ ' 3 列 + 8 个 n 恰满；转轮落 col 0
-    expect(readRow(renderLine(line, 12), 0, 12)).toBe('⠋ ⚙ nnnnnnnn');
+    // 帽 = region.width - 1 = 11 列：rest ' ⚙ ' 3 列 + 7 个 n + '…' 恰满
+    // （界面美化役 ellipsize 翻档——截断尾缀恒 …，修前硬切 8 个 n 无记号）；
+    // 转轮落 col 0
+    expect(readRow(renderLine(line, 12), 0, 12)).toBe('⠋ ⚙ nnnnnnn…');
+  });
+
+  it('忙态截断记号与进度记号撞形语义同向（界面美化役——切掉自带 … 进度记号后残句不伪装完整句）', () => {
+    const line = new StatusLine();
+    line.setFooter('berry');
+    line.start();
+    line.setTool('npm_run_tests');
+    // raw = ' ⚙ npm_run_tests …' 宽 18 > 帽 17：修前硬切产 ' ⚙ npm_run_tests '
+    // （尾缀 … 恰被切掉——工具名看似完整实为残句，「还在跑」不可辨）；
+    // ellipsize 后尾缀恒 …（与进度记号形撞时语义同向——都是「未完」）
+    expect(readRow(renderLine(line, 18), 0, 18)).toBe('⠋ ⚙ npm_run_tests…');
   });
 
   it('工具段未超帽——右对齐原样（帽是快路不扰既有几何）', () => {
@@ -203,8 +259,9 @@ describe('StatusLine 闲态右段剩余宽帽（B-render 批）', () => {
     line.setFooter('berry');
     line.setStatus('S'.repeat(15)); // 宽 15 > region 宽 10——修前右对齐起点 = 10 - 15 = -5
     // 帽 = width - 2（间隔 1 列 + footer 至少留 1 列截断形）：右段截到 8 列
-    // （cols 2-9）、间隔 col 1、footer 截断形 '…' 落 col 0
-    expect(readRow(renderLine(line, 10), 0, 10)).toBe('… SSSSSSSS');
+    // （cols 2-9，7 S + '…'——界面美化役 ellipsize 翻档）、间隔 col 1、
+    // footer 截断形 '…' 落 col 0
+    expect(readRow(renderLine(line, 10), 0, 10)).toBe('… SSSSSSS…');
   });
 
   it('idleText 未超帽——既有分栏几何原样（帽是快路不扰）', () => {

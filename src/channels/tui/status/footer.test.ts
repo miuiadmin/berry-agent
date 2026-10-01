@@ -1,17 +1,20 @@
 /**
- * footer git 短支名读取件单测（07 §4.1 挂账解挂批②）——真实临时目录直读。
+ * footer git 支名/短哈希读取件单测（07 §4.1 挂账解挂批② + 界面美化役批6
+ * 短哈希扩）——真实临时目录直读。
  *
- * 锁直读面全形：常规库支名 / cwd 子目录向上逐级 / detached 40hex 缺席 /
- * 非 git 目录 / HEAD 缺席 / 畸形 HEAD / worktree `.git` 文件指针（绝对 +
- * 相对两形）/ 后缀拼段三态（cwdPath 缺席 · 支名缺席 · 命中）。
+ * 锁直读面全形：常规库支名 / cwd 子目录向上逐级 / detached 40hex 短哈希
+ * 直取 / 非 git 目录 / HEAD 缺席 / 畸形 HEAD / worktree `.git` 文件指针
+ * （绝对 + 相对两形）/ refs 二跳读前 7 位短哈希 / 后缀拼段四态（cwdPath
+ * 缺席 · 双缺席 · 仅支名 · 支名+哈希 / detached 仅哈希）。
  * 后缀形与消费位（TuiBackend.refreshFooter 拼段）分立——本件只锁读取与
- * 拼段纯函数，装配收敛锚（切焦/resize）在 tui-backend.test.ts。
+ * 拼段纯函数，装配收敛锚（切焦/agent_end + resize 缓存律）在
+ * tui-backend.test.ts。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readGitBranch, withGitBranchSuffix } from './footer.js';
+import { gitHeadSuffix, readGitBranch, readGitHead, withGitBranchSuffix } from './footer.js';
 
 /** 测试期临时目录登记（afterEach 统一清——不留垃圾） */
 const temps: string[] = [];
@@ -30,15 +33,21 @@ function tempDir(): string {
   return dir;
 }
 
-/** 造常规库：.git 目录 + HEAD 内容定值 */
-function makeRepo(head: string): string {
+/** 造常规库：.git 目录 + HEAD 内容定值（refs/heads/<支> 文件可选在场） */
+function makeRepo(head: string, refs?: Readonly<Record<string, string>>): string {
   const root = tempDir();
   mkdirSync(join(root, '.git'), { recursive: true });
   writeFileSync(join(root, '.git', 'HEAD'), `${head}\n`);
+  for (const [branch, sha] of Object.entries(refs ?? {})) {
+    const refPath = join(root, '.git', 'refs', 'heads', ...branch.split('/'));
+    mkdirSync(join(refPath, '..'), { recursive: true });
+    writeFileSync(refPath, `${sha}\n`);
+  }
   return root;
 }
 
 const ref = (branch: string): string => `ref: refs/heads/${branch}`;
+const SHA = '0123456789abcdef0123456789abcdef01234567';
 
 describe('readGitBranch 直读 .git/HEAD', () => {
   it('常规库：ref 形取支名（含斜线分支名）', () => {
@@ -104,17 +113,82 @@ describe('readGitBranch 直读 .git/HEAD', () => {
   });
 });
 
+describe('readGitHead 短哈希二跳读（界面美化役批6）', () => {
+  it('ref 形：支名 + refs/heads/<支> 前 7 位短哈希（含斜线分支名同律）', () => {
+    const root = makeRepo(ref('feature/tui-face'), { 'feature/tui-face': SHA });
+    expect(readGitHead(root)).toEqual({ branch: 'feature/tui-face', shortHash: '0123456' });
+  });
+
+  it('refs 文件缺席（初生支未产首提交）：支名在场哈希诚实缩位', () => {
+    const root = makeRepo(ref('main'));
+    expect(readGitHead(root)).toEqual({ branch: 'main', shortHash: null });
+  });
+
+  it('refs 文件畸形（非 hex）：哈希缩位不虚报', () => {
+    const root = makeRepo(ref('main'), { main: 'not-a-sha' });
+    expect(readGitHead(root)).toEqual({ branch: 'main', shortHash: null });
+  });
+
+  it('detached HEAD（40hex 直指）：哈希已含直取前 7 位、支名缺席', () => {
+    const root = makeRepo(SHA);
+    expect(readGitHead(root)).toEqual({ branch: null, shortHash: '0123456' });
+  });
+
+  it('worktree 形：refs 二跳读走 gitdir 指针解真目录（同根）', () => {
+    // 主库（HEAD + refs 真身）+ 从库（.git 文件指针指主库 git 目录）
+    const main = makeRepo(ref('worktree-wip'), { 'worktree-wip': SHA });
+    const wt = tempDir();
+    writeFileSync(join(wt, '.git'), `gitdir: ${join(main, '.git')}\n`);
+    expect(readGitHead(wt)).toEqual({ branch: 'worktree-wip', shortHash: '0123456' });
+  });
+
+  it('非 git 目录 / HEAD 缺席：双 null（后缀整体缩位判据）', () => {
+    expect(readGitHead(tempDir())).toEqual({ branch: null, shortHash: null });
+    const root = tempDir();
+    mkdirSync(join(root, '.git'), { recursive: true });
+    expect(readGitHead(root)).toEqual({ branch: null, shortHash: null });
+  });
+});
+
+describe('gitHeadSuffix 后缀四态（呈现单源）', () => {
+  it('支名 + 哈希：` ⎇ 支名 @abc1234`（段序翻档定形）', () => {
+    expect(gitHeadSuffix({ branch: 'dev', shortHash: 'abc1234' })).toBe(' ⎇ dev @abc1234');
+  });
+
+  it('仅支名（refs 缺席）：` ⎇ 支名`（哈希缩位不虚报）', () => {
+    expect(gitHeadSuffix({ branch: 'dev', shortHash: null })).toBe(' ⎇ dev');
+  });
+
+  it('仅哈希（detached）：` ⎇ abc1234`（支名缺席形）', () => {
+    expect(gitHeadSuffix({ branch: null, shortHash: 'abc1234' })).toBe(' ⎇ abc1234');
+  });
+
+  it('双缺席：空串（后缀整体缩位）', () => {
+    expect(gitHeadSuffix({ branch: null, shortHash: null })).toBe('');
+  });
+});
+
 describe('withGitBranchSuffix cwd 段后缀拼段', () => {
   it('cwdPath 缺席：标签原样（零后缀零扰动）', () => {
     expect(withGitBranchSuffix('proj', undefined)).toBe('proj');
   });
 
-  it('支名命中：`<标签> ⎇ <支>`（同段一体）', () => {
+  it('支名 + 短哈希命中：`<标签> ⎇ <支> @<前 7 位>`（同段一体）', () => {
+    const root = makeRepo(ref('main'), { main: SHA });
+    expect(withGitBranchSuffix('proj', root)).toBe('proj ⎇ main @0123456');
+  });
+
+  it('支名命中 refs 缺席：`<标签> ⎇ <支>`（哈希缩位）', () => {
     const root = makeRepo(ref('main'));
     expect(withGitBranchSuffix('proj', root)).toBe('proj ⎇ main');
   });
 
-  it('支名缺席（detached/非库）：标签原样不虚报', () => {
+  it('detached：`<标签> ⎇ <短哈希>`（支名缺席形）', () => {
+    const root = makeRepo(SHA);
+    expect(withGitBranchSuffix('proj', root)).toBe('proj ⎇ 0123456');
+  });
+
+  it('非 git 目录：标签原样不虚报（零 ⎇）', () => {
     expect(withGitBranchSuffix('proj', tempDir())).toBe('proj');
   });
 });

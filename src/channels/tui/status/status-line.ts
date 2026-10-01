@@ -9,11 +9,13 @@
  * - 启停驱动：agent_start → start()、agent_end → stop()；
  * - 与 setStatus last-writer-wins 共存（件 6 usage 行与 ctx.ui.setStatus
  *   同一载体的闲态文案）：忙态显转轮段、闲态显文案行；
+ * - footer 常驻段 secondary 弱化（界面美化役——常驻信息退后，层级
+ *   = 状态信息 > footer 段；setTheme 派生重建与转轮 accent 同律）；
  * - onChange 通知：状态任何变更（启停/换工具/换文案/推帧）触发——装配层
  *   接重绘请求。
  */
 import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
-import { ellipsize, stringWidth, truncateToWidth } from '../../engine/index.js';
+import { ellipsize, stringWidth } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 转轮帧序（braille 十帧——accent 呈现形态随组件批定形，本批定形） */
@@ -33,6 +35,12 @@ export class StatusLine implements Renderable {
   private frameIndex = 0;
   /** 转轮样式（accent 派生——主题单源，setTheme 整体重建） */
   private spinnerStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
+  /**
+   * footer 常驻段样式（secondary 次文键——界面美化役 2026-10-01：cwd·模型·
+   * 会话 id 拼段是常驻底噪信息，全亮度呈现会抢忙态/闲态状态信息的层级；走
+   * secondary 弱存在感与转轮 accent 同律由 setTheme 派生重建）。
+   */
+  private footerStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.secondary });
   /** 常驻 footer 段（R6 批 10k——装配注入 cwd 短名/模型名/会话短 id 拼段；空串 = 无 footer 旧形零扰动） */
   private footerText = '';
   /**
@@ -41,9 +49,10 @@ export class StatusLine implements Renderable {
    */
   private speedText: (() => string) | null = null;
 
-  /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent 派生样式重建） */
+  /** 主题换装（OSC 11 probe 裁定后 backend 注入——accent/secondary 派生样式重建） */
   setTheme(theme: ResolvedTheme): void {
     this.spinnerStyle = Object.freeze({ fg: theme.accent });
+    this.footerStyle = Object.freeze({ fg: theme.secondary });
   }
 
   /** 量高：恒 1（状态行单行制） */
@@ -76,9 +85,11 @@ export class StatusLine implements Renderable {
   }
 
   /**
-   * 分栏落位（R6 批 10k——footer 在场）：左段 = footer 常驻信息 col 0；右段
-   * = 忙态（转轮 accent + 工具段/活动文案）或闲态文案，**右对齐**；闲态无
-   * 右段文案 = 左段独占整行。重叠防护：footer 按剩余宽整字截断加省略号
+   * 分栏落位（R6 批 10k——footer 在场）：左段 = footer 常驻信息 col 0
+   * （**secondary 次文键弱化**——界面美化役：常驻底噪让位瞬时状态，层级
+   * = 忙/闲态状态信息 > footer 段）；右段 = 忙态（转轮 accent + 工具段/
+   * 活动文案）或闲态文案，**右对齐**（均保持正文前景全亮）；闲态无右段
+   * 文案 = 左段独占整行。重叠防护：footer 按剩余宽整字截断加省略号
    * （CJK 双宽不产半字——truncateToWidth 整字三原语）。
    */
   private renderSplit(buffer: CellBuffer, region: Region): void {
@@ -86,12 +97,16 @@ export class StatusLine implements Renderable {
       // 忙态右段剩余宽帽（2026-09-20 TUI 修复组 1 批 F4）：rest 无界时
       // spinnerCol = col + width - 1 - restWidth 可为负——转轮写出被网格
       // 边界吞掉、右段尾截断错位；帽 = width - 1（至少给转轮留 1 列），
-      // 整字截断后 spinnerCol 恒 ≥ region.col
+      // 整字截断后 spinnerCol 恒 ≥ region.col。截断形走 ellipsize … 尾缀
+      // （界面美化役 2026-10-01 截断省略号全域统一律）：忙态文案自带 ` …`
+      // 进度记号，硬截断恰好切掉尾缀时残句伪装完整句（「还在跑」与「文案
+      // 完了」不可辨）；… 尾缀与进度记号形撞时语义同向（都是「未完」），
+      // 不再产生完整句假象。
       const raw = this.busyRest();
-      const rest = raw === '' ? '' : truncateToWidth(raw, Math.max(0, region.width - 1));
+      const rest = raw === '' ? '' : ellipsize(raw, Math.max(0, region.width - 1));
       const restWidth = stringWidth(rest);
       const spinnerCol = region.col + region.width - 1 - restWidth;
-      buffer.writeText(region.row, region.col, this.fitFooter(region.width - 1 - restWidth - 1));
+      buffer.writeText(region.row, region.col, this.fitFooter(region.width - 1 - restWidth - 1), this.footerStyle);
       buffer.writeText(
         region.row,
         spinnerCol,
@@ -103,17 +118,19 @@ export class StatusLine implements Renderable {
     }
     if (this.idleText === '') {
       // 闲态无右段——左段独占（R6「闲态左段独占」条款）
-      buffer.writeText(region.row, region.col, this.fitFooter(region.width));
+      buffer.writeText(region.row, region.col, this.fitFooter(region.width), this.footerStyle);
       return;
     }
     // 闲态右段剩余宽帽（B-render 批——同忙态 F4 帽律）：idleText 无界时
     // 右对齐起点 = col + width - idleWidth 可为负——writeText 逐字素被网格
     // 边界静默吞头部（cell 面 col<0 吸收），且 footer 剩余宽 ≤ 0 整段消失。
     // 帽 = width - 2：间隔 1 列 + footer 至少留 1 列截断形（忙态帽的 -1 是
-    // 给转轮列，闲态无转轮故让此列给 footer）——截断后起点恒 ≥ region.col
-    const idle = truncateToWidth(this.idleText, Math.max(0, region.width - 2));
+    // 给转轮列，闲态无转轮故让此列给 footer）——截断后起点恒 ≥ region.col；
+    // 截断形同走 ellipsize … 尾缀（截断省略号全域统一律——与忙态/fitFooter
+    // 单源口径一致）
+    const idle = ellipsize(this.idleText, Math.max(0, region.width - 2));
     const idleWidth = stringWidth(idle);
-    buffer.writeText(region.row, region.col, this.fitFooter(region.width - idleWidth - 1));
+    buffer.writeText(region.row, region.col, this.fitFooter(region.width - idleWidth - 1), this.footerStyle);
     buffer.writeText(region.row, region.col + region.width - idleWidth, idle);
   }
 
