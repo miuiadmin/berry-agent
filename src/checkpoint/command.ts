@@ -141,7 +141,9 @@ export async function runRewindCommand(argv: readonly string[], deps: RewindComm
           try {
             await deps.adoptSession(receipt.forkedSessionId);
           } catch (err) {
-            adoptFailed = String(err);
+            // 折面与外层守卫同形（BaseError 码直呈——String(err) 只得
+            // 「BaseError: <message>」丢码，降级行里用户失去可引用的错误码）
+            adoptFailed = err instanceof BaseError ? `${err.code}：${err.message}` : String(err);
           }
         }
         const forkLine =

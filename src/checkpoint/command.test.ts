@@ -10,6 +10,7 @@ import { runRewindCommand, REWIND_USAGE } from './command.js';
 import { createCapture } from './capture.js';
 import { openCheckpointStore, type CheckpointStore } from './store.js';
 import type { RewindForkFace, SessionContextFace } from './types.js';
+import { BaseError } from '../contracts/index.js';
 
 let dataDir: string;
 let ws: string;
@@ -249,6 +250,25 @@ describe('runRewindCommand', () => {
     expect(out).toContain('切换到新会话失败'); // 降级行
     expect(out).toContain('/resume new-session'); // 手动续接路
     expect(await readFile(join(ws, 'a.txt'), 'utf8')).toBe('v1'); // 文件已恢复实证（不回滚）
+  });
+
+  it('restore：adopt 切焦失败折 BaseError 码直呈（与外层守卫折面同形——String(err) 丢码形修前红位）', async () => {
+    await writeFile(join(ws, 'a.txt'), 'v1', 'utf8');
+    await createCapture(store, { now: () => 1_000, newId: () => 'snap01' })({
+      sessionId: 's1',
+      boundarySeq: 3,
+      workspaceRoot: ws,
+      trigger: 'mutation',
+    });
+    await writeFile(join(ws, 'a.txt'), 'v2', 'utf8');
+    const out = await runRewindCommand(['restore', 'snap01'], {
+      ...deps({ contextOf: () => ({ lastClosedBoundary: 3, workspaceRoot: ws }) }),
+      adoptSession: async (_id: string) => {
+        throw new BaseError('SESSION_NOT_FOUND', '投影读失败');
+      },
+    });
+    expect(out).toContain('恢复 1'); // restore 本体已成（降级行进）
+    expect(out).toContain('SESSION_NOT_FOUND：投影读失败'); // 码与人读原因直呈（修前红位：String(err) 折「BaseError: 投影读失败」——码丢失）
   });
 
   it('restore：焦点会话在飞 = busy 守卫拒（零执行实证——修前：放行且文件被恢复）', async () => {

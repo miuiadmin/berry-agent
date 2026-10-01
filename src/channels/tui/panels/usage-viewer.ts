@@ -21,8 +21,6 @@ import type { UiUsageSummary } from '../../../contracts/index.js';
 export interface UsageViewerOptions {
   readonly sessionId: string;
   readonly summary: UiUsageSummary;
-  /** 行集构建折宽锚（开屏时终端列宽） */
-  readonly columns: number;
   readonly onExit: () => void;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;

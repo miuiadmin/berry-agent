@@ -923,7 +923,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       new UsageViewer({
         sessionId,
         summary,
-        columns: this.io.size().columns,
         onExit: () => this.closeAlt(),
         onInterrupt: this.onInterrupt,
         onQuit: this.onQuit,

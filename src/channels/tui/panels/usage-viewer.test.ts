@@ -71,7 +71,7 @@ describe('buildUsageLines 行集构造（纯函数）', () => {
 describe('UsageViewer 副屏件', () => {
   it('q 退出闭锁单次（key 轨 + text 轨）', () => {
     const onExit = vi.fn();
-    const viewer = new UsageViewer({ sessionId: 's', summary: summary(), columns: 60, onExit });
+    const viewer = new UsageViewer({ sessionId: 's', summary: summary(), onExit });
     expect(viewer.handleEvent(k('q'))).toBe(true);
     expect(viewer.handleEvent({ kind: 'text', text: 'q' })).toBe(true);
     expect(onExit).toHaveBeenCalledTimes(1);
@@ -83,7 +83,6 @@ describe('UsageViewer 副屏件', () => {
     const viewer = new UsageViewer({
       sessionId: 'sess-9',
       summary: summary(),
-      columns: 60,
       onExit: () => calls.push('exit'),
       onInterrupt,
       onQuit: () => calls.push('quit'),
