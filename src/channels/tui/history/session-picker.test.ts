@@ -52,12 +52,12 @@ function readRow(grid: CellGrid, rowNumber: number, width: number): string {
   return out.trimEnd();
 }
 
-/** 装配便捷（全回调 vi 记录） */
-function makePicker(sessions: readonly UiSessionSummary[]) {
+/** 装配便捷（全回调 vi 记录；extra = Options 可选位覆写——截断披露腿用） */
+function makePicker(sessions: readonly UiSessionSummary[], extra: { totalCount?: number } = {}) {
   const onSelect = vi.fn();
   const onExit = vi.fn();
   const onInterrupt = vi.fn();
-  const picker = new SessionPicker({ sessions, onSelect, onExit, onInterrupt });
+  const picker = new SessionPicker({ sessions, onSelect, onExit, onInterrupt, ...extra });
   return { picker, onSelect, onExit, onInterrupt };
 }
 
@@ -158,6 +158,24 @@ describe('SessionPicker 行呈现', () => {
     expect(readRow(grid, 1, 60)).toBe('▸   调 TUI' + ' '.repeat(30) + '09-15 10:30 aaa11111');
     expect(readRow(grid, 2, 60)).toBe('  ● 旧会话' + ' '.repeat(30) + '09-15 09:05 bbb22222');
     expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 切换 · q/esc 返回');
+  });
+
+  it('截断披露：totalCount 超清单长 → 头行 N/M 注记（B2——100 窗静默截断不可见）', () => {
+    // 修前红：totalCount 位缺席——超窗用户看不到「清单不是全量」这一事实
+    const { picker } = makePicker(
+      [row({ id: 'aaa111111111', title: '窗内会话一' }), row({ id: 'bbb222222222', title: '窗内会话二' })],
+      { totalCount: 5 },
+    );
+    const grid = new CellGrid(60, 6);
+    picker.render(grid, { row: 0, col: 0, width: 60, height: 6 });
+    expect(readRow(grid, 0, 60)).toBe('⇄ 会话切换 · 2/5 会话（仅显示最近）');
+  });
+
+  it('截断披露不误报：totalCount 不超清单长 → 头行原形（无注记）', () => {
+    const { picker } = makePicker([row({ id: 'aaa111111111' })], { totalCount: 1 });
+    const grid = new CellGrid(60, 4);
+    picker.render(grid, { row: 0, col: 0, width: 60, height: 4 });
+    expect(readRow(grid, 0, 60)).toBe('⇄ 会话切换 · 1 会话');
   });
 
   it('标题缺席（undefined/空串）如实「（无题）」', () => {

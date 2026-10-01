@@ -131,7 +131,11 @@ export interface UiBackend<TProjection> {
    * openMemory 律：true = 已开；false = 不支持或已在副屏——核据此 notify
    * 降级提示。缺席 = 不支持切换器的后端。
    */
-  openSessions?(sessions: readonly UiSessionSummary[], onSelect: (sessionId: string) => void): boolean;
+  openSessions?(
+    sessions: readonly UiSessionSummary[],
+    onSelect: (sessionId: string) => void,
+    totalCount?: number,
+  ): boolean;
   /**
    * 开副屏用量面板（07 §4.1 R7 批 10k `/usage` 命令的呈现面——数据源 =
    * 件 6 同数据源〔message.usage〕但独立聚合：会话全 run 累计分表，非复用

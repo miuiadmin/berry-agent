@@ -892,11 +892,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 既有权威路——本件呈现不触焦点态）。已在副屏 / 主屏不在 running 返 false
    * （核侧 notify 降级）。打断柄锚当前交互会话位（切焦前语义）。
    */
-  openSessions(sessions: readonly UiSessionSummary[], onSelect: (sessionId: string) => void): boolean {
+  openSessions(
+    sessions: readonly UiSessionSummary[],
+    onSelect: (sessionId: string) => void,
+    totalCount?: number,
+  ): boolean {
     if (this.altHandle !== null) return false;
     const handle = this.altHost.open(
       new SessionPicker({
         sessions,
+        totalCount,
         onSelect,
         onExit: () => this.closeAlt(),
         onInterrupt: () => this.onInterrupt?.(this.sessionId),

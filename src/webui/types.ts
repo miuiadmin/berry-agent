@@ -141,6 +141,9 @@ export interface WebuiSessionsFace {
   /** 开新会话（POST /api/sessions 的执行体） */
   createSession(): string;
   listSessions(): readonly WebuiSessionSummary[];
+  /** 会话全量总数（B2 截断披露——/api/sessions 响应 total 字段：清单默认
+   *  100 窗，超窗时消费者可机读感知「所见非全量」） */
+  countSessions(): number;
   sessionStateOf(sessionId: string): WebuiSessionState;
   submitPrompt(input: WebuiSubmitInput): { readonly sessionId: string };
   interruptSession(sessionId: string): void;

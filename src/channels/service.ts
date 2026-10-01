@@ -198,9 +198,12 @@ export function createChannels<TProjection>(opts: ChannelsOptions<TProjection> =
       'sessions',
       async () => {
         const sessions = await fetchSessions();
+        // B2 截断披露：总数注入在场即取（超窗时切换器头行注记）；缺席回退
+        // 清单长度（= 全量已呈现，头行原形）
+        const total = (await opts.sessionsTotal?.()) ?? sessions.length;
         let opened = false;
         for (const b of allBackends()) {
-          if (b.openSessions?.(sessions, selectSession) === true) opened = true;
+          if (b.openSessions?.(sessions, selectSession, total) === true) opened = true;
         }
         if (!opened) {
           uiCore.notify('当前界面不支持会话切换', { level: 'warn' });

@@ -468,6 +468,18 @@ describe('sessions 行面', () => {
     expect(s.listSessions()[0]!.id).toBe('sa2');
   });
 
+  it('countSessions 全量计数（不受清单 limit 窗影响——B2 截断披露单源）', () => {
+    let clock = 1_000;
+    const s = open({ dbPath: join(dir, 'count.db'), clock: () => clock });
+    for (const id of ['ca', 'cb', 'cc']) {
+      clock += 1_000;
+      s.writeEvents(writesFor(id, makeEvents(`${id}-ev`)));
+    }
+    // 修前红：countSessions 缺席——清单窗截 2 行而全量计数应 3（截断披露的真源）
+    expect(s.listSessions({ limit: 2 })).toHaveLength(2);
+    expect(s.countSessions()).toBe(3);
+  });
+
   it('deleteSession 三删同事务（events/fts/行）', () => {
     const store = open({ dbPath: join(dir, 'del.db') });
     store.writeEvents(writesFor('s-del', makeEvents('findme')));

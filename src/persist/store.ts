@@ -909,6 +909,13 @@ export class Store implements WriteTarget {
     return rows.map(parseSessionRow);
   }
 
+  /** 会话全量计数（B2 截断披露单源——不受 listSessions limit 窗影响；
+   *  清单消费位〔切换器/CLI/webui〕据此向用户披露「所见非全量」） */
+  countSessions(): number {
+    this.ensureOpen();
+    return (this.stmt('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n;
+  }
+
   /** 会话登记先行落行（空种子形态——last_seq=-1 无事件语义，与游标起点一致；
    *  有事件走写路径。0 是「seq 0 已落」——空档若记 0，首事件 seq 0 会被连续性
    *  断言当跳号拒写，恰成毒丸） */

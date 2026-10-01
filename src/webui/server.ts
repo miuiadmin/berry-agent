@@ -416,7 +416,9 @@ export function mountWebui(deps: WebuiMountDeps, options: WebuiMountOptions = {}
     method: 'GET',
     path: WEBUI_ENDPOINTS.sessions,
     auth: tokenOrCookie,
-    handler: (_req, res) => sendJson(res, 200, { sessions: deps.sessions.listSessions() }),
+    handler: (_req, res) =>
+      // B2 截断披露：total = 全量计数（与清单窗分立——超窗可感知）
+      sendJson(res, 200, { sessions: deps.sessions.listSessions(), total: deps.sessions.countSessions() }),
   });
   add({
     method: 'POST',

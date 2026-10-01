@@ -211,6 +211,30 @@ describe('sessions list（读腿零装配）', () => {
     expect(text).toContain('2023-11-14T'); // ISO 确定性时间形态
   });
 
+  it('list 截断披露：总数超 100 窗 → 头行报全量总数 + 仅显示最近 100（B2 修前红）', async () => {
+    const dbPath = join(rigDir('sess-list-cap-'), 'sessions.db');
+    await seedSessionRows(
+      dbPath,
+      Array.from({ length: 105 }, (_, i) => ({
+        id: `cap-${String(i).padStart(3, '0')}`,
+        title: `压窗会话 ${i}`,
+        origin: 'conversation',
+        created: 1_700_000_000_000 + i,
+        updated: 1_700_000_100_000 + i,
+      })),
+    );
+    const cap = capture();
+    const code = await runSessionsEntry(
+      { sub: 'list' },
+      { version: 'test', dbPath, writeOut: cap.writeOut, writeErr: cap.writeErr },
+    );
+    expect(code).toBe(0);
+    const text = cap.out.join('\n');
+    // 修前红：头行总数谎报 rows.length（100）而非全量（105）
+    expect(text).toContain('共 105 个会话（按更新时间倒序，仅显示最近 100 个）');
+    expect(text).not.toContain('cap-000'); // updated 倒序——最旧一条在窗外
+  });
+
   it('空库诚实空退 0', async () => {
     const cap = capture();
     const code = await runSessionsEntry(

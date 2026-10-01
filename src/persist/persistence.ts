@@ -321,6 +321,11 @@ export class Persistence {
     return this.store.listSessions(options);
   }
 
+  /** 会话全量计数（B2 截断披露单源——store 同名透传） */
+  countSessions(): number {
+    return this.store.countSessions();
+  }
+
   /**
    * 会话内全文检索透传（05 §9 首发口径：查询面限定 session_id——跨会话检索
    * 非首发面）。**flush 先行归调用方编排**（write-behind 在飞事件不进 FTS

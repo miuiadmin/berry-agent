@@ -151,7 +151,14 @@ async function runList(options: SessionsEntryOptions): Promise<number> {
       out('无会话（数据目录还没有会话——首次运行 run/TUI 时自动创建）');
       return 0;
     }
-    const lines: string[] = [`共 ${rows.length} 个会话（按更新时间倒序，最多显示 100 个）：`];
+    // B2 截断披露：头行总数 = 全量计数（countSessions 单源），非窗内行数——
+    // 超窗时如实报「仅显示最近 100 个」，窗内时保持原句无注记
+    const total = persistence.store.countSessions();
+    const lines: string[] = [
+      total > rows.length
+        ? `共 ${total} 个会话（按更新时间倒序，仅显示最近 ${rows.length} 个）：`
+        : `共 ${total} 个会话（按更新时间倒序）：`,
+    ];
     for (const row of rows) {
       lines.push(
         `  ${row.id}  ${titleOf(row)}  创建 ${isoOf(row.createdAt)}  更新 ${isoOf(row.updatedAt)}  ${lineageOf(row.origin, row.parentId)}`,

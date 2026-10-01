@@ -24,6 +24,9 @@ import { hintLine } from '../keys/hint.js';
 export interface SessionPickerOptions {
   /** 会话清单（装配序——最新在前；空表如实呈现「无会话」行） */
   readonly sessions: readonly UiSessionSummary[];
+  /** 会话全量总数（B2 截断披露——超清单长时头行注记「N/M（仅显示最近）」；
+   *  缺席或 ≤ 清单长 = 全量已呈现，头行保持原形不注记） */
+  readonly totalCount?: number;
   /** 选定回调（通道核闭包——registry.focus() 既有权威路） */
   readonly onSelect: (sessionId: string) => void;
   readonly onExit: () => void;
@@ -64,6 +67,7 @@ function formatStamp(ms: number): string {
  */
 export class SessionPicker implements OverlayContent {
   private readonly sessions: readonly UiSessionSummary[];
+  private readonly totalCount: number | undefined;
   private readonly onSelect: (sessionId: string) => void;
   private readonly onExit: () => void;
   private readonly onInterrupt: (() => void) | undefined;
@@ -79,6 +83,7 @@ export class SessionPicker implements OverlayContent {
 
   constructor(options: SessionPickerOptions) {
     this.sessions = options.sessions;
+    this.totalCount = options.totalCount;
     this.onSelect = options.onSelect;
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
@@ -94,7 +99,15 @@ export class SessionPicker implements OverlayContent {
   /** 落位：头行 → 清单视口（光标行标记 + 活跃位 + 标题左段 / 时间·短 id 右段）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = this.sessions.length === 0 ? '⇄ 会话切换 · 无会话' : `⇄ 会话切换 · ${this.sessions.length} 会话`;
+    // 头行：全量已呈现原形；总数超清单长 → N/M + 仅显示最近（B2 截断披露——
+    // 清单默认 100 窗，超窗不注记即「所见即全量」的静默谎）
+    const n = this.sessions.length;
+    const head =
+      n === 0
+        ? '⇄ 会话切换 · 无会话'
+        : this.totalCount !== undefined && this.totalCount > n
+          ? `⇄ 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
+          : `⇄ 会话切换 · ${n} 会话`;
     buffer.writeText(region.row, region.col, head);
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;

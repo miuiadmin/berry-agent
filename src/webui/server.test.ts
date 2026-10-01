@@ -159,6 +159,7 @@ function makeDeps(opts?: {
         return id;
       },
       listSessions: () => [{ id: 's-1', title: null, lastActivityAt: 1_690_000_000_001 }],
+      countSessions: () => 1,
       sessionStateOf: (id) => states.get(id) ?? 'missing',
       submitPrompt: (input) => {
         // 幂等冲突形：同 messageId 异内容时桥 fail-loud 抛（admit 判据族与
@@ -482,7 +483,11 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
   it('sessions：GET 清单 / POST 开新（受理入桩记账）', async () => {
     const list = await get('/api/sessions');
     expect(list.status).toBe(200);
-    expect(list.json).toEqual({ sessions: [{ id: 's-1', title: null, lastActivityAt: 1_690_000_000_001 }] });
+    // B2 截断披露：total 字段 = 全量总数（清单默认 100 窗，消费者可机读感知）
+    expect(list.json).toEqual({
+      sessions: [{ id: 's-1', title: null, lastActivityAt: 1_690_000_000_001 }],
+      total: 1,
+    });
     const created = await post('/api/sessions', {});
     expect(created.status).toBe(200);
     expect((created.json as { sessionId: string }).sessionId).toBe('s-new-1');

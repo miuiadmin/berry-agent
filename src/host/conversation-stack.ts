@@ -879,6 +879,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
           })),
       );
     },
+    // /sessions 总数注入（B2 截断披露）：manager.list 默认 100 窗，超窗时
+    // 切换器头行注记「N/M（仅显示最近）」——总数独立单源不随窗走
+    sessionsTotal: () => Promise.resolve(manager.countSessions()),
     // /usage 数据源注入（R7——同 projectionOf 双事实源纪律：驱动活体优先，
     // 未开回库装载；fold 口径 = 全 run 累计含被遮蔽 retry）
     usage: (sessionId) => {

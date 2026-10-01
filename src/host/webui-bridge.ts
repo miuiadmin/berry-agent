@@ -354,6 +354,8 @@ function bridgeDeps(
           })(),
           lastActivityAt: row.updatedAt,
         })),
+      // B2 截断披露：清单默认 100 窗，total 独立单源（manager.countSessions）
+      countSessions: () => stack.manager.countSessions(),
       sessionStateOf: (sessionId) => {
         if (stack.manager.isOpen(sessionId)) return 'open';
         // 持久册可见 = 已闭（open 态由内存册先判——零 I/O 承诺下新建未落库行

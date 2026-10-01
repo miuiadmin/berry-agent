@@ -120,6 +120,12 @@ export interface ChannelsOptions<TProjection> {
    */
   readonly sessions?: () => Promise<readonly UiSessionSummary[]>;
   /**
+   * 会话全量总数注入（B2 截断披露——清单注入有默认 100 窗，总数独立单源：
+   * 超窗时切换器头行注记「N/M（仅显示最近）」；缺席 = 不披露〔与清单长度
+   * 同〕，与 sessions 注入同装配层成对出现）。
+   */
+  readonly sessionsTotal?: () => Promise<number>;
+  /**
    * 会话用量聚合注入（07 §4.1 R7 批 10k `/usage`——注册面律同上）：数据源
    * = 件 6 同数据源（message.usage）但独立聚合——会话全 run 累计，非复用
    * 件 6 清账态。真源 = 聚焦会话 → 拉汇总 → 扇出后端 openUsage。

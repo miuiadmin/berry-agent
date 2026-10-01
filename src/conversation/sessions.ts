@@ -186,6 +186,11 @@ export class SessionManager {
     return this.persistence.listSessions(options);
   }
 
+  /** 会话全量计数（B2 截断披露单源——list 默认 100 窗，超窗披露的总数真源） */
+  countSessions(): number {
+    return this.persistence.countSessions();
+  }
+
   /**
    * 单会话锚读面（03 §10.7 会话锚源律的消费位——委派子会话「子承父锚」
    * 取父锚用）：**活体面**——createSession 零 I/O（行首事件才落库），起会时
