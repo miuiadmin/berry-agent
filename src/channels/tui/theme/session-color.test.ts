@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { sessionColor } from './session-color.js';
 
-describe('sessionColor（会话短 id 散列映射 16 色板）', () => {
+describe('sessionColor（会话短 id 散列映射 12 彩度槽——16 色板去水位）', () => {
   it('确定性：同 id 多次调用恒同值', () => {
     for (const id of ['ab12cd', '0', 'ffff', 'a1b2c3d4']) {
       const first = sessionColor(id);
@@ -15,13 +15,18 @@ describe('sessionColor（会话短 id 散列映射 16 色板）', () => {
     }
   });
 
-  it('值域 0-15（16 色板全域映射——brand 型收口在界内）', () => {
+  it('值域 12 彩度槽：1-6 + 9-14——水位位 0 黑 / 7 白 / 8 灰 / 15 亮白恒不出（界面美化役——终端常见深浅底均可见）', () => {
+    const seen = new Set<number>();
     for (let i = 0; i < 512; i++) {
       const n = sessionColor(`id${i}`) as number;
       expect(Number.isInteger(n)).toBe(true);
-      expect(n).toBeGreaterThanOrEqual(0);
-      expect(n).toBeLessThanOrEqual(15);
+      expect([0, 7, 8, 15]).not.toContain(n); // 水位出让锁（修前 16 全域映射可落）
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(14);
+      seen.add(n);
     }
+    // 彩度槽覆盖下界：512 样本应触及全部 12 槽（均匀性宽松证）
+    expect(seen.size).toBe(12);
   });
 
   it('非退化：批量不同 id 映射出多种颜色（散列均匀性宽松下界）', () => {

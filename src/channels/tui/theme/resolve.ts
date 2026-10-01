@@ -48,6 +48,11 @@ export interface ResolvedTheme {
   readonly codeComment: ColorValue;
   readonly codeNumber: ColorValue;
   readonly codeFunction: ColorValue;
+  /**
+   * user 块背景带（界面美化役批⑦ R2 扩键注——首个背景键）：undefined = 无
+   * 背景（探测失败/缺席、16 档降采、自定义板缺本键四形同落本位）。
+   */
+  readonly userMessageBg: ColorValue | undefined;
 }
 
 /**
@@ -104,17 +109,42 @@ function toDepthValue(
 }
 
 /**
+ * user 块背景带混合（界面美化役批⑦ R2 扩键注——theme 侧纯函数，backend 只
+ * 传探测值）：终端背景与板档决定混合方向——dark 板混白 12% alpha（每通道
+ * c + 0.12 × (255 − c)）、light 板混黑 4%（c × 0.96）。逐通道四舍五入。
+ */
+function blendUserMessageBg(bg: RgbChannels, dark: boolean): RgbChannels {
+  return dark
+    ? {
+        r: Math.round(bg.r + 0.12 * (255 - bg.r)),
+        g: Math.round(bg.g + 0.12 * (255 - bg.g)),
+        b: Math.round(bg.b + 0.12 * (255 - bg.b)),
+      }
+    : { r: Math.round(bg.r * 0.96), g: Math.round(bg.g * 0.96), b: Math.round(bg.b * 0.96) };
+}
+
+/**
  * 色板 + 色域档 → ResolvedTheme（构造期一次降采、全键冻结）。
  * 入参形 = ThemeBoard（内置板与自定义板共形——自定义板由 custom 件合成：
  * 基板同位键 + 文件键级覆盖）。键遍历单源 = SEMANTIC_KEYS 表——增键动
  * semantic/palette/本件 interface 三处（遍历零改）。完整性契约：SEMANTIC_KEYS
  * 覆盖 ResolvedTheme 全部语义键（semantic 件头注两处清单同步义务）——编译器
  * 不核此约束，越键漏值属编程错、fail-loud 于消费。
+ *
+ * `terminalBg`（OSC 11 探测背景——界面美化役批⑦ R2 扩键注）只喂 userMessageBg
+ * 键的动态混合腿：板值/探测值均缺席 → undefined（无背景）；16 档降采回退
+ * undefined（背景带真彩近似混色不降采对位——低档位宁可无带不可错色）；
+ * 自定义板显式带本键值则板值优先（正常遍历腿已解析，混合腿不覆写）。
  */
-export function resolveTheme(board: ThemeBoard, depth: ColorDepth): ResolvedTheme {
+export function resolveTheme(board: ThemeBoard, depth: ColorDepth, terminalBg?: RgbChannels): ResolvedTheme {
   const colors = {} as Record<SemanticKey, ColorValue | undefined>;
   for (const key of SEMANTIC_KEYS) {
     colors[key] = toDepthValue(board.colors[key], depth);
+  }
+  // userMessageBg 动态混合腿（唯一背景键——表驱动遍历后的特例单写位）：
+  // 板缺本键 + 探测背景在场 + 非 16 档 → 按板档混合产出；否则维持 undefined
+  if (board.colors.userMessageBg === undefined && terminalBg !== undefined && depth !== '16') {
+    colors.userMessageBg = toDepthValue(blendUserMessageBg(terminalBg, board.dark), depth);
   }
   return Object.freeze({ depth, dark: board.dark, ...colors }) as ResolvedTheme;
 }

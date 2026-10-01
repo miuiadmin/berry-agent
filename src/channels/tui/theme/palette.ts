@@ -78,6 +78,9 @@ export const DARK_PALETTE: BuiltinPalette = {
     codeComment: exact('#8b949e', 8),
     codeNumber: exact('#79c0ff', 12),
     codeFunction: exact('#d2a8ff', 13),
+    // user 块背景带（界面美化役批⑦ R2 扩键注）：内置板无静态定值位——恒
+    // undefined，值由 resolve 件按 OSC 11 探测背景动态混合（dark 白 12%）
+    userMessageBg: undefined,
   },
 };
 
@@ -111,6 +114,8 @@ export const LIGHT_PALETTE: BuiltinPalette = {
     codeComment: exact('#57606a', 8),
     codeNumber: exact('#0550ae', 12),
     codeFunction: exact('#8250df', 5),
+    // user 块背景带（同 dark 板注——light 档混合黑 4%，resolve 件动态产出）
+    userMessageBg: undefined,
   },
 };
 

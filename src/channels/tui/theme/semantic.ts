@@ -22,6 +22,12 @@
  * - `codeKeyword` / `codeString` / `codeComment` / `codeNumber` / `codeFunction`
  *   高亮键族五键（10h 定值——自研词法器五类 token 各一键；覆盖语言外诚实
  *   退单色不发明半高亮）
+ * - `userMessageBg` user 块背景带（界面美化役批⑦ + R2 扩键注——**首个背景
+ *   键**）：源值语义与前景键分立——两内置板恒 `undefined`（无静态定值位），
+ *   值由 resolve 件在解析期按 OSC 11 探测背景动态混合产出（dark 板白 12%
+ *   alpha / light 板黑 4%）；探测失败/缺席、16 档降采、自定义板缺本键 =
+ *   无背景回退（不扩 ExactColor 对位表）。旧主题文件无新键非破坏性——缺键
+ *   即无背景，新键随更新自然生效。
  */
 import type { AnsiColor, Color256, RgbChannels } from '../../engine/index.js';
 
@@ -52,6 +58,7 @@ export const SEMANTIC_KEYS = [
   'codeComment',
   'codeNumber',
   'codeFunction',
+  'userMessageBg',
 ] as const;
 
 /** 语义键（SEMANTIC_KEYS 的元素类型） */

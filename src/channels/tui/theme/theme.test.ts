@@ -89,10 +89,11 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
   });
 
   it('值域两律全键遍历：256 档 RGB 源键落 16-255、16 档落 0-15', () => {
-    // RGB 源键 = 除 accent（AnsiColor 直通）与 text（undefined）外全集
-    const rgbKeys = SEMANTIC_KEYS.filter((k) => k !== 'accent' && k !== 'text') as Exclude<
+    // RGB 源键 = 除 accent（AnsiColor 直通）、text（undefined）与 userMessageBg
+    //（动态混合键——探测缺席恒 undefined，回退腿另册单测）外全集
+    const rgbKeys = SEMANTIC_KEYS.filter((k) => k !== 'accent' && k !== 'text' && k !== 'userMessageBg') as Exclude<
       SemanticKey,
-      'accent' | 'text'
+      'accent' | 'text' | 'userMessageBg'
     >[];
     for (const key of rgbKeys) {
       const v256 = resolveTheme(DARK_PALETTE, '256')[key];
@@ -118,14 +119,42 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
 });
 
 describe('语义键面（SEMANTIC_KEYS 单源表）', () => {
-  it('表恒 16 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
-    expect(SEMANTIC_KEYS.length).toBe(16); // 11 核心键批 10g + 高亮键族五键批 10h
+  it('表恒 17 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
+    expect(SEMANTIC_KEYS.length).toBe(17); // 11 核心键批 10g + 高亮键族五键批 10h + userMessageBg 界面美化役 R2 扩键
     const t = resolveTheme(DARK_PALETTE, 'truecolor');
     for (const key of SEMANTIC_KEYS) {
-      // text 合法 undefined；余键恒有值——缺值即编程错 fail-loud 于消费
+      // text / userMessageBg 合法 undefined；余键恒有值——缺值即编程错 fail-loud 于消费
       expect(key in t).toBe(true);
     }
     expect(t.accent).toBeDefined();
+  });
+});
+
+describe('userMessageBg 动态混合键（界面美化役批⑦ R2 扩键注）', () => {
+  it('探测在场 + 非 16 档 → 按板档混合铸入（dark 白 12% / light 黑 4%）', () => {
+    const bg = { r: 100, g: 100, b: 100 };
+    // dark：每通道 100 + 0.12×(255−100) = 118.6 → 119（0x77）
+    expect(resolveTheme(DARK_PALETTE, 'truecolor', bg).userMessageBg).toEqual(colorRgb('#777777'));
+    // light：每通道 100×0.96 = 96（0x60）
+    expect(resolveTheme(LIGHT_PALETTE, 'truecolor', bg).userMessageBg).toEqual(colorRgb('#606060'));
+    // 256 档照常降采（rgbTo256 单源——背景带低档仍可用）
+    expect(resolveTheme(DARK_PALETTE, '256', bg).userMessageBg).toEqual(rgbTo256({ r: 119, g: 119, b: 119 }));
+  });
+
+  it('回退三形：16 档降采 / 探测缺席 / 内置板本键恒缺 → 全 undefined（无背景）', () => {
+    expect(resolveTheme(DARK_PALETTE, '16', { r: 1, g: 2, b: 3 }).userMessageBg).toBeUndefined(); // 低档位宁可无带不可错色
+    expect(resolveTheme(DARK_PALETTE, 'truecolor').userMessageBg).toBeUndefined(); // 探测缺席（OSC 11 未应答/失败）
+    expect(DEFAULT_THEME.userMessageBg).toBeUndefined(); // 缺省主题 = dark@16 无探测——无背景
+  });
+
+  it('自定义板显式带本键 → 板值优先（混合腿不覆写——正常遍历腿已解析）', () => {
+    const board = {
+      id: 'custom-bg',
+      dark: true,
+      colors: { ...DARK_PALETTE.colors, userMessageBg: { r: 16, g: 16, b: 16 } },
+    };
+    // 探测值在场亦不覆写板值：16,16,16 直出（非混合 118.6 形）
+    expect(resolveTheme(board, 'truecolor', { r: 100, g: 100, b: 100 }).userMessageBg).toEqual(colorRgb('#101010'));
   });
 });
 
