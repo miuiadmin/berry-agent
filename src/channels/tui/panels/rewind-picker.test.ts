@@ -193,6 +193,25 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     expect(onExit).not.toHaveBeenCalled(); // 面板未退出
   });
 
+  it('preview 段 text 轨门控：打 q 返回列表不退面板、普通打字不改过滤词（与 key 轨同律）', async () => {
+    const { picker, onExit } = makePicker();
+    picker.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    // 修前红位：text 轨 q 原走 typeFilter→exit()——直退面板（key 轨同键是
+    // 返回列表）双轨语义分叉；门控后与 key 轨对齐（kitty 终端打 q 期望同律）
+    picker.handleEvent(t('q'));
+    expect(onExit).not.toHaveBeenCalled(); // 不退面板
+    expect(readRow(paint(picker), 0, 72)).toContain('3 个'); // 回 list 标题
+    // 再进 preview 后打普通字：终局吞——preview 段无过滤面，打字不得改过滤词
+    picker.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    picker.handleEvent(t('x'));
+    picker.handleEvent(k('escape'));
+    expect(readRow(paint(picker), 0, 72)).toContain('3 个'); // 过滤词仍空（全量 3 个）
+  });
+
   it('段二 Enter：先收屏（onExit）后回调（onRestore）——序断言 + 参数=选中 id', async () => {
     const order: string[] = [];
     const onExit = vi.fn(() => order.push('exit'));

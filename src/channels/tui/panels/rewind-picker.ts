@@ -335,6 +335,15 @@ export class RewindPicker implements OverlayContent {
     }
     if (event.kind === 'text') {
       const text = (event as InputEvent & { kind: 'text'; text: string }).text;
+      // preview 视图：text 轨与 key 轨同律——q 视同返回列表（kitty 终端打 q
+      // 期望同 key 轨语义），其余打字终局吞（preview 段无过滤面——打字不得
+      // 污染过滤词；无门控时 q 会误走 typeFilter→exit() 直退面板）
+      if (this.view === 'preview') {
+        if (text === 'q') {
+          this.view = 'list';
+        }
+        return true;
+      }
       // kitty text 轨：单字符走 q 捷键盘查（件族同律）；多字符 chunk 全串
       // 入词（CJK 直收——行内容中文〔触发形〕是本面板过滤主路径，引擎 text
       // 粒度「同 chunk 连续可打印游程合并」多字符是常态）
