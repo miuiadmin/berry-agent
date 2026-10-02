@@ -156,13 +156,6 @@ export type TranscriptBlock =
       readonly toggleHint: string;
     };
 
-/** 非聚焦摘要行（瞬时——呈现侧直写后即交 scrollback，不存账） */
-export interface SummaryLine {
-  readonly symbol: '⧗' | '✓' | '✖' | '⏹';
-  readonly shortId: string;
-  readonly label: string;
-}
-
 /** 会话短 id（呈现层自截——散列映射色板键同源） */
 export function shortIdOf(sessionId: string): string {
   return sessionId.slice(0, 8);
@@ -623,6 +616,20 @@ interface PendingToolCall {
 const MAX_PENDING_CALLS = 64;
 
 /**
+ * 机器注入 source 族（TUI 视觉重设计批 V-1 笔2——07 §4.1 V-0 注① source
+ * 过滤位）：subagent 结算/审批挂起注入的 user 块用户面零呈现（终态呈现归
+ * JobPanel 收口行）；真用户消息（source 缺省/user/channel:/schedule 等用户
+ * 通道族）渲染律不变。durable 注入维持（模型面知情不动——呈现层过滤）。
+ */
+const MACHINE_INJECTED_USER_SOURCES: ReadonlySet<string> = new Set(['subagent-settled', 'subagent-approval-pending']);
+
+/** user 消息呈现判据（直播/投影两路单源——机器注入族滤除） */
+function rendersAsUserBlock(message: AgentMessage): boolean {
+  if (!isStandardMessage(message)) return false;
+  return message.role === 'user' && !MACHINE_INJECTED_USER_SOURCES.has(message.source ?? 'user');
+}
+
+/**
  * 直播路行集（单聚焦会话一账——非聚焦会话不建账，摘要行直返）。
  * 纯状态件：无 IO、无时钟——applyEvent 同步归约，呈现编舞归 MainScreen。
  */
@@ -722,14 +729,14 @@ export class LiveTranscript {
   }
 
   /**
-   * 直播路归约：活体信封 → 行集更新 + 瞬时行（非聚焦摘要行直返、聚焦返 null）。
-   * 非聚焦会话的 durable 事件全忽略（行集是聚焦会话的账——投影重建走 loadProjection）。
+   * 直播路归约：活体信封 → 聚焦会话行集更新（非聚焦零呈现——07 §4.1 V-0
+   * 注①聚合律：过程事件零入对话流，非聚焦呈现归 JobPanel 固定区与收口行；
+   * 旧「非聚焦摘要行」瀑布通道退役）。非聚焦会话的 durable 事件全忽略
+   * （行集是聚焦会话的账——投影重建走 loadProjection）。
    */
-  applyEvent(env: SessionEnvelope, focused: boolean): SummaryLine | null {
-    const { event } = env;
-    if (!focused) return this.summaryFor(event, env.sessionId);
-    this.applyFocused(event);
-    return null;
+  applyEvent(env: SessionEnvelope, focused: boolean): void {
+    if (!focused) return;
+    this.applyFocused(env.event);
   }
 
   /** 投影重建（repaint 路——清账按投影重拉帽内段；直播/repaint 行集同构） */
@@ -739,7 +746,10 @@ export class LiveTranscript {
     for (const message of messages) {
       switch (message.role) {
         case 'user':
-          rebuilt.push({ kind: 'user', text: textOf(message), theme: this.theme });
+          // 机器注入 source 族零呈现（V-0 注① source 过滤位——两路单源判据）
+          if (rendersAsUserBlock(message)) {
+            rebuilt.push({ kind: 'user', text: textOf(message), theme: this.theme });
+          }
           break;
         case 'assistant':
           this.appendAssistantFinal(rebuilt, message);
@@ -758,21 +768,6 @@ export class LiveTranscript {
     this.blocks = rebuilt;
     this.slotOpen = false; // 投影是 durable 快照——无在飞槽
     this.trimToCap();
-  }
-
-  /** 非聚焦摘要行分档（agent_start/end 之外的事件零产出） */
-  private summaryFor(event: AgentEvent, sessionId: string): SummaryLine | null {
-    const shortId = shortIdOf(sessionId);
-    switch (event.type) {
-      case 'agent_start':
-        return { symbol: '⧗', shortId, label: '后台工作中' };
-      case 'agent_end':
-        if (event.status === 'completed') return { symbol: '✓', shortId, label: '后台完成' };
-        if (event.status === 'failed') return { symbol: '✖', shortId, label: '后台失败' };
-        return { symbol: '⏹', shortId, label: '后台已中止' }; // aborted——失败与中止显式分档
-      default:
-        return null; // 消息族/turn 族：非聚焦零正文行（摘要行只由 run 生命周期驱动）
-    }
   }
 
   /** 聚焦归约：消息事件族分派（唯一渲染源律——tool_execution_* 正文零渲染） */
@@ -831,7 +826,10 @@ export class LiveTranscript {
           }
           this.appendAssistantFinal(this.blocks, message);
         } else if (message.role === 'user') {
-          this.blocks.push({ kind: 'user', text: textOf(message), theme: this.theme });
+          // 机器注入 source 族零呈现（V-0 注①——两路单源判据）
+          if (rendersAsUserBlock(message)) {
+            this.blocks.push({ kind: 'user', text: textOf(message), theme: this.theme });
+          }
         } else if (message.role === 'toolResult') {
           this.appendToolResult(this.blocks, message);
         }
@@ -924,6 +922,10 @@ export class LiveTranscript {
     // edit 词级 diff 档：patch 参数体作卡体（R4「参数对」语义——呈现的是改了什么）
     const isEditPatch = call.name === 'edit' && typeof call.arguments.patch === 'string';
     const bodyText = isEditPatch ? (call.arguments.patch as string) : textOf(message);
+    // background 委派卡体抑制（07 §4.1 V-0 注①——起跑回执退役入面板行）：
+    // 模型面结果文本不动（回执是模型的委派知情位），用户面卡体零行（过程
+    // 呈现归 JobPanel 运行行）；one-shot agent / 普通工具卡体照常
+    const isBackgroundDelegation = call.name === 'agent' && call.arguments.background === true;
     // 状态行时长近似（UX 五问题批③——契约零扩的诚实近似）：toolResult 时戳
     // 减 assistant 请求时戳，含调度延迟（工具排队/审批等待计入——非纯执行
     // 时长）；钳非负（时钟回退防御）
@@ -933,7 +935,7 @@ export class LiveTranscript {
       name: call.name,
       brief: call.brief,
       status,
-      body: cardBodyOf(bodyText),
+      body: isBackgroundDelegation ? [] : cardBodyOf(bodyText),
       diff: isEditPatch,
       expanded: this.toolCardsExpanded,
       theme: this.theme,

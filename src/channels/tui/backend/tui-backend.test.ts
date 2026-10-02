@@ -21,7 +21,7 @@ import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { ansiColor, stringWidth } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
-import { builtinPalette, detectColorDepth, resolveTheme, sessionColor } from '../theme/index.js';
+import { builtinPalette, detectColorDepth, resolveTheme } from '../theme/index.js';
 import { AltScreenHost } from '../overlay/alt-screen.js';
 import { AUTOCOMPLETE_DEBOUNCE_MS } from '../autocomplete/async.js';
 import type { OverlayContent } from '../overlay/overlay.js';
@@ -201,15 +201,15 @@ describe('TuiBackend 直播呈现', () => {
     expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m帮我看下\n');
   });
 
-  it('非聚焦摘要行：会话色行首段 + 档位符号分档', () => {
+  it('非聚焦 agent 事件零正文行（07 §4.1 V-0 注①——瀑布退役，呈现归 JobPanel）', () => {
     const { io, backend } = makeBackend();
     io.bytes = '';
     emit(backend, { type: 'agent_start' }, false);
-    const sgr = buildSgr({ fg: sessionColor('sess-aaa') });
-    expect(io.bytes).toContain(sgr + '⧗ sess-aaa\x1b[0m 后台工作中\n');
-    io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'failed' }, false);
-    expect(io.bytes).toContain('✖ sess-aaa\x1b[0m 后台失败\n');
+    emit(backend, { type: 'agent_end', status: 'aborted' }, false);
+    expect(io.bytes).not.toContain('⧗');
+    expect(io.bytes).not.toContain('后台工作中');
+    expect(io.bytes).not.toContain('后台失败');
   });
 
   it('非聚焦消息族零正文行（不建账）', () => {
@@ -218,28 +218,8 @@ describe('TuiBackend 直播呈现', () => {
     emit(backend, { type: 'message_end', message: { role: 'user', content: '后台', timestamp: 1 } }, false);
     expect(io.bytes).not.toContain('> 后台');
   });
-
-  it('窄屏摘要行全行入帽：head 段（符号+短 id）与 label 段同吃截断——修前红锁', () => {
-    // 修前红：summaryToAnsi 只截 label 段（budget = columns - head宽 - 1），
-    // head 自身（⧗ + 8 字短 id = 10 列起）零守卫——屏宽 8 时整行 12 列仍越帽，
-    // 交终端 autowrap 产超记账物理行（2026-09-20 混流修复族「截断丢尾是更轻
-    // 失败」的遗漏半边：帽只罩了 label）。
-    for (const columns of [8, 10, 12]) {
-      const io = new MemoryTerminalIO(columns, ROWS);
-      const backend = new TuiBackend(io, {});
-      backend.start();
-      io.bytes = '';
-      emit(backend, { type: 'agent_start' }, false);
-      // 摘要行 = 写出字节中含「⧗」的那一 \r\n 行；剥 ANSI 逃逸后量可见宽
-      const line = io.bytes
-        .split('\n')
-        .find((l) => l.includes('⧗'))
-        ?.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
-        ?.replace(/[\r\n]/g, '');
-      expect(line, `columns=${columns}`).toBeDefined();
-      expect(stringWidth(line ?? ''), `columns=${columns} 可见宽`).toBeLessThanOrEqual(columns);
-    }
-  });
+  // 「窄屏摘要行全行入帽」锁随 summaryToAnsi 通道退役翻档（TUI 视觉重设计
+  // 批 V-1 笔2）——窄屏截断风险面由 appendJobSettledLine 截断锁承接。
 });
 
 describe('TuiBackend 状态面', () => {
@@ -328,6 +308,69 @@ describe('TuiBackend notify / repaint / resize', () => {
     expect(io.bytes).toContain('✖ 坏了');
     backend.notify('缺省档');
     expect(io.bytes).toContain('· 缺省档');
+  });
+
+  /* ---- Job 终态收口单行（TUI 视觉重设计批 V-1 笔2——07 §4.1 V-0 注①聚合律） ---- */
+
+  /** JobEntry 夹具（终态三形） */
+  function settledEntry(name: string, status: 'completed' | 'killed' | 'failed', detail?: string): JobEntry {
+    return {
+      id: 'job-1',
+      name,
+      kind: 'subagent',
+      owner: SESSION,
+      status,
+      startedAt: 1,
+      terminal: { status, at: 2, ...(detail !== undefined ? { detail } : {}) },
+    };
+  }
+
+  it('appendJobSettledLine 三态：✓ 完成 / ✖ 携因 / ⏹ 已停止（瞬时行——追加即定稿）', () => {
+    const { io, backend } = makeBackend();
+    const plain = (s: string): string => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+    backend.appendJobSettledLine(settledEntry('任务A', 'completed'));
+    expect(plain(io.bytes)).toContain('✓ 任务A · 完成');
+    backend.appendJobSettledLine(settledEntry('任务B', 'failed', '模型渠道未配置（CHANNEL_UNKNOWN）'));
+    expect(plain(io.bytes)).toContain('✖ 任务B · 模型渠道未配置（CHANNEL_UNKNOWN）');
+    backend.appendJobSettledLine(settledEntry('任务C', 'killed', '归属围栏收口'));
+    expect(plain(io.bytes)).toContain('⏹ 任务C · 已停止 · 归属围栏收口');
+  });
+
+  it('✖/✓ 符号段分色（success/error 语义键着色——两态 SGR 前缀相异）', () => {
+    const { io, backend } = makeBackend();
+    backend.appendJobSettledLine(settledEntry('任务A', 'completed'));
+    backend.appendJobSettledLine(settledEntry('任务B', 'failed', '原因'));
+    const okColor = io.bytes.match(/\x1b\[([0-9;]*)m✓/)?.[1];
+    const badColor = io.bytes.match(/\x1b\[([0-9;]*)m✖/)?.[1];
+    expect(okColor).toBeDefined(); // 符号段带 SGR 前缀（语义色非裸文本）
+    expect(badColor).toBeDefined();
+    expect(okColor).not.toBe(badColor); // 成功/失败分色（theme 具体色值自由）
+  });
+
+  it('失败原因超长截断单行（一句话帽——不溢出屏宽产漂账物理行）', () => {
+    const { io, backend } = makeBackend();
+    backend.appendJobSettledLine(settledEntry('任务B', 'failed', '原因'.repeat(120)));
+    const visible = io.bytes.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '');
+    expect(visible).toContain('任务B'); // 名段在呈现
+    // 原因段受一句话帽：预算 = 80 − 名宽 6 − 尾段 6 = 68 可见宽，「原因」每段宽 4 → 至多 17 段
+    const reasonCount = (visible.match(/原因/g) ?? []).length;
+    expect(reasonCount).toBeGreaterThan(0);
+    expect(reasonCount).toBeLessThanOrEqual(17);
+  });
+
+  it('未终态防御位：terminal 缺席零呈现（不炸不脏流——字节流零追加）', () => {
+    const { io, backend } = makeBackend();
+    const before = io.bytes; // makeBackend 启动序列已写入——以调用前快照为基线
+    backend.appendJobSettledLine({
+      id: 'job-2',
+      name: '任务D',
+      kind: 'subagent',
+      owner: SESSION,
+      status: 'running',
+      startedAt: 1,
+    });
+    expect(io.bytes).toBe(before);
+    expect(io.bytes).not.toContain('任务D');
   });
 
   it('多行 notify 回执不漂账（doors 帮助形——后续行落在物理末行之后，不覆写回执中段）', () => {
@@ -1652,8 +1695,7 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     emit(backend, { type: 'message_end', message: { role: 'user', content: '停屏前正文', timestamp: 1 } });
     backend.suspendMain();
     emit(backend, { type: 'message_end', message: { role: 'user', content: '停屏期正文', timestamp: 2 } }); // durable 停屏期归账
-    backend.notify('停屏期通知'); // 瞬时行入缓冲
-    emit(backend, { type: 'agent_end', status: 'completed' }, false); // 件 9 摘要行入缓冲
+    backend.notify('停屏期通知'); // 瞬时行入缓冲（件 9 摘要行通道已退役——V-1 笔2）
     io.reset();
     backend.resumeMain();
     expect(io.frames[0]).toBe(MAIN_ENTER); // 进屏模式串（复起起手）
@@ -1661,7 +1703,7 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     expect(io.bytes).toContain('\x1b[1;2m› \x1b[0m停屏前正文'); // 行集全量重写（前缀段分立——不带正文）
     expect(io.bytes).toContain('\x1b[1;2m› \x1b[0m停屏期正文'); // 停屏期 durable 事件在场（树已含停屏期全部事件）
     expect(io.bytes).toContain('· 停屏期通知'); // 瞬时行补吐（不走 repaint 的行为锁——投影不含瞬时行）
-    expect(io.bytes).toContain('✓ sess-aaa'); // 件 9 摘要行补吐在场
+    expect(io.bytes).not.toContain('✓ sess-aaa'); // 件 9 摘要行通道退役（V-1 笔2）——非聚焦 agent_end 零补吐
     expect(io.bytes.indexOf('\x1b[1;2m› \x1b[0m停屏期正文')).toBeLessThan(io.bytes.indexOf('· 停屏期通知')); // 补吐序：全帧在前、瞬时行在后
     // 复起回常态：后续事件恢复直写
     io.bytes = '';

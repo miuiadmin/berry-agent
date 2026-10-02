@@ -79,7 +79,7 @@ import {
   type TerminalIO,
 } from '../../engine/index.js';
 import { MainScreen } from './main-screen.js';
-import { LiveTranscript, shortIdOf, type SummaryLine, type TranscriptBlock } from './transcript.js';
+import { LiveTranscript, shortIdOf, type TranscriptBlock } from './transcript.js';
 import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
@@ -97,7 +97,6 @@ import {
   paletteForBackground,
   parseOsc11Reply,
   resolveTheme,
-  sessionColor,
   type ColorDepth,
   type ColorEnv,
   type PartialSemanticPalette,
@@ -106,6 +105,7 @@ import {
   type ThemeSetting,
 } from '../theme/index.js';
 import { buildSgr, capAnsiLine, SGR_RESET } from './ansi-rows.js';
+import { sanitizeLineText } from '../blocks/tool-card.js';
 import { keyEventToBinding, Keymap, type KeybindingRejection } from '../keys/registry.js';
 import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
@@ -1496,6 +1496,41 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
+   * Job 终态收口单行（07 §4.1 V-0 注①聚合律——TUI 视觉重设计批 V-1 笔2）：
+   * 子代理 Job 结算的正文流收口呈现。成功 `✓ 名 · 完成`（success 色 ✓ 段）/
+   * 失败 `✖ 名 · 一句话原因`〔terminal.detail 截断〕（error 色 ✖ 段）/停止
+   * `⏹ 名 · 已停止〔 · detail〕`。瞬时行同 notify 律（追加即定稿、不占帽
+   * 不回收——「让位」= JobPanel 运行行移除，非本行回收）；未终态防御位
+   * 零呈现。调用判据（kind/owner 焦点滤）归 tui-entry 订阅位。
+   */
+  appendJobSettledLine(entry: JobEntry): void {
+    const terminal = entry.terminal;
+    if (terminal === undefined) return;
+    const columns = this.io.size().columns;
+    // 名段与原因段各吃行宽半（一句话帽——整行可见宽不超屏宽，防漂账物理行）
+    const nameBudget = Math.max(4, Math.floor((columns - 6) / 2));
+    const name = truncateToWidth(sanitizeLineText(entry.name), nameBudget);
+    if (terminal.status === 'completed') {
+      this.appendTransientLine(`${buildSgr({ fg: this.theme.success })}✓${SGR_RESET} ${name} · 完成`);
+      return;
+    }
+    if (terminal.status === 'failed') {
+      const reason = truncateToWidth(
+        sanitizeLineText(terminal.detail ?? '未知原因'),
+        Math.max(0, columns - stringWidth(name) - 6),
+      );
+      this.appendTransientLine(`${buildSgr({ fg: this.theme.error })}✖${SGR_RESET} ${name} · ${reason}`);
+      return;
+    }
+    // killed：已停止（detail 在场附归因——收口/打断的归因语）
+    const detail =
+      terminal.detail !== undefined
+        ? ` · ${truncateToWidth(sanitizeLineText(terminal.detail), Math.max(0, columns - stringWidth(name) - 10))}`
+        : '';
+    this.appendTransientLine(`${buildSgr({ fg: this.theme.secondary })}⏹${SGR_RESET} ${name} · 已停止${detail}`);
+  }
+
+  /**
    * 瞬时说明行入正文流（notify 与 ask 撤销说明行共用路——07 §4.3「曾在屏
    * 者由通道上撤销说明行」）：槽判定按**到达时刻**真相分流（2026-09-22 修复）
    * ——槽在场直推 slotTransients 让位（关槽帧排空，到达序保持），无槽入
@@ -1664,16 +1699,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.refreshFooter();
   }
 
-  /** 活体信封呈现：渲染归约 + 摘要行分叉 + 聚焦态状态面消费 */
+  /** 活体信封呈现：渲染归约 + 聚焦态状态面消费（非聚焦摘要行瀑布已退役——07 §4.1 V-0 注①） */
   onEnvelope(env: SessionEnvelope, focused: boolean): void {
-    const summary = this.transcript.applyEvent(env, focused);
-    if (summary !== null) {
-      // 摘要行统一走 appendTransientLine（挂起期入缓冲不丢——批 10f-4 改道）；
-      // 屏宽截断随取（resize 后即席值——挂起期截宽略陈由复起全帧重画自愈）
-      this.appendTransientLine(summaryToAnsi(summary, this.io.size().columns));
-    } else {
-      this.enqueuePresent();
-    }
+    this.transcript.applyEvent(env, focused);
+    this.enqueuePresent();
     this.requestRender();
     this.trackProgress(env); // 件 7：按会话净计数（终端级注意力——任一会话在飞即忙）
     if (focused) this.applyFocusedEvent(env.event);
@@ -2903,17 +2932,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 }
 
 /**
- * 摘要行 ANSI 序列化：行首段（档位符号 + 会话短 id）着会话区分色——
- * 非 accent 家族的第二着色位（07 §4.1 呈现面件 9），label 段裸文本。
- * 行尾按屏宽截断（2026-09-20 TUI 混流修复防漂位）：超宽行交终端 autowrap
- * 产超记账物理行——截断丢尾是更轻的失败（覆写正文是重失败）；宽度算纯
- * label 段（着色 head 恒短），转义不进截断面。head 亦入帽（2026-09-21 窄屏
- * 补边）：head（符号 + 8 字短 id）10 列起，屏宽 < 12 时 head 独超帽——帽须
- * 罩整行：head 先截至 columns-1（留分隔空格），label 吃余量（可归零）。
+ * 摘要行 ANSI 序列化（已退役——07 §4.1 V-0 注①聚合律：非聚焦摘要行瀑布
+ * 通道整体拆除，非聚焦呈现归 JobPanel 固定区与终态收口行）。
  */
-function summaryToAnsi(line: SummaryLine, columns: number): string {
-  const head = truncateToWidth(`${line.symbol} ${line.shortId}`, Math.max(1, columns - 1));
-  const budget = Math.max(0, columns - stringWidth(head) - 1);
-  const label = truncateToWidth(line.label, budget);
-  return buildSgr({ fg: sessionColor(line.shortId) }) + head + SGR_RESET + ` ${label}`;
-}

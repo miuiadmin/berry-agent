@@ -21,7 +21,6 @@ import {
   shortIdOf,
   stableSlotLineCount,
   TRANSCRIPT_BLOCK_CAP,
-  type SummaryLine,
   type TranscriptBlock,
 } from './transcript.js';
 import { styledLineToAnsi } from './ansi-rows.js';
@@ -44,8 +43,8 @@ const slotOf = (epoch: number, text: string, doc: StreamingMarkdown | null): Tra
 
 const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
 
-function userMsg(text: string): AgentMessage {
-  return { role: 'user', content: text, timestamp: 1 };
+function userMsg(text: string, source?: string): AgentMessage {
+  return { role: 'user', content: text, timestamp: 1, ...(source !== undefined ? { source: source as never } : {}) };
 }
 
 function assistantMsg(
@@ -84,8 +83,8 @@ function toolResultMsg(
   };
 }
 
-function apply(t: LiveTranscript, event: AgentEvent, focused = true): SummaryLine | null {
-  return t.applyEvent({ sessionId: 'sess-aaaaaaaaaa', event }, focused);
+function apply(t: LiveTranscript, event: AgentEvent, focused = true): void {
+  t.applyEvent({ sessionId: 'sess-aaaaaaaaaa', event }, focused);
 }
 
 /* ---------------- 聚焦归约 ---------------- */
@@ -256,31 +255,87 @@ describe('LiveTranscript 聚焦归约', () => {
   });
 });
 
-/* ---------------- 非聚焦摘要行 ---------------- */
+/* ---------------- 非聚焦零呈现（V-0 注①瀑布退役） ---------------- */
 
-describe('LiveTranscript 非聚焦摘要行', () => {
-  it('agent_start ⧗ + 短 id + 后台工作中', () => {
+describe('LiveTranscript 非聚焦零呈现（TUI 视觉重设计批 V-1 笔2——07 §4.1 V-0 注①聚合律）', () => {
+  it('非聚焦 agent_start/agent_end 零摘要行产出（瀑布退役——重试循环不再逐行刷流）', () => {
     const t = new LiveTranscript();
-    const line = apply(t, { type: 'agent_start' }, false);
-    expect(line).toEqual({ symbol: '⧗', shortId: 'sess-aaa', label: '后台工作中' });
-  });
-
-  it('agent_end 三档分立：完成 ✓ / 失败 ✖ / 中止 ⏹', () => {
-    const t = new LiveTranscript();
-    expect(apply(t, { type: 'agent_end', status: 'completed' }, false)?.symbol).toBe('✓');
-    expect(apply(t, { type: 'agent_end', status: 'failed' }, false)?.symbol).toBe('✖');
-    expect(apply(t, { type: 'agent_end', status: 'aborted' }, false)?.symbol).toBe('⏹');
+    expect(apply(t, { type: 'agent_start' }, false)).toBeUndefined();
+    expect(apply(t, { type: 'agent_end', status: 'completed' }, false)).toBeUndefined();
+    expect(apply(t, { type: 'agent_end', status: 'failed' }, false)).toBeUndefined();
+    expect(apply(t, { type: 'agent_end', status: 'aborted' }, false)).toBeUndefined();
   });
 
   it('非聚焦消息族零产出且不建账', () => {
     const t = new LiveTranscript();
-    expect(apply(t, { type: 'message_end', message: userMsg('后台会话') }, false)).toBeNull();
+    apply(t, { type: 'message_end', message: userMsg('后台会话') }, false);
     expect(t.snapshot).toHaveLength(0);
   });
 
   it('shortIdOf 取前八位', () => {
     expect(shortIdOf('abcdefgh12345678')).toBe('abcdefgh');
     expect(shortIdOf('短')).toBe('短');
+  });
+});
+
+/* ---------------- user 块 source 过滤（V-0 注①机器注入族零呈现） ---------------- */
+
+describe('LiveTranscript user 块 source 过滤（批 V-1 笔2——subagent 族注入零呈现归 JobPanel）', () => {
+  it('直播路：subagent-settled/approval-pending 注入零 user 块；真用户照常渲染', () => {
+    const t = new LiveTranscript();
+    apply(t, { type: 'message_end', message: userMsg('结算通知', 'subagent-settled') });
+    apply(t, { type: 'message_end', message: userMsg('审批挂起', 'subagent-approval-pending') });
+    apply(t, { type: 'message_end', message: userMsg('真用户', 'user') });
+    apply(t, { type: 'message_end', message: userMsg('缺省源') });
+    const users = t.snapshot.filter((b) => b.kind === 'user');
+    expect(users.map((b) => (b as { text: string }).text)).toEqual(['真用户', '缺省源']);
+  });
+
+  it('投影路（loadProjection）：同滤——机器注入族不进块账', () => {
+    const t = new LiveTranscript();
+    t.loadProjection([
+      userMsg('结算通知', 'subagent-settled'),
+      userMsg('真用户'),
+      userMsg('审批挂起', 'subagent-approval-pending'),
+    ]);
+    const users = t.snapshot.filter((b) => b.kind === 'user');
+    expect(users.map((b) => (b as { text: string }).text)).toEqual(['真用户']);
+  });
+});
+
+/* ---------------- 起跑回执卡体抑制（V-0 注①——background 委派） ---------------- */
+
+describe('LiveTranscript 起跑回执卡体抑制（批 V-1 笔2——background agent 卡体空、卡头保留）', () => {
+  it('background agent 调用 → 卡体零行（起跑回执退役入面板行——模型面结果文本不动）', () => {
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'agent', arguments: { prompt: 'x', background: true } }]),
+    });
+    apply(t, { type: 'message_end', message: toolResultMsg('子代理「调研」已转后台运行', { toolCallId: 'tc1' }) });
+    const card = t.snapshot.find((b) => b.kind === 'tool-card') as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(card).toBeDefined();
+    expect(card.name).toBe('agent'); // 卡头保留（调用可辨）
+    expect(card.body).toEqual([]); // 卡体零行——正文流零过程事件
+  });
+
+  it('对照：one-shot agent / 普通工具卡体照常（抑制面 = background 委派族恰一形）', () => {
+    const t = new LiveTranscript();
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc1', name: 'agent', arguments: { prompt: 'x' } }]),
+    });
+    apply(t, { type: 'message_end', message: toolResultMsg('调研结论正文', { toolCallId: 'tc1' }) });
+    apply(t, {
+      type: 'message_end',
+      message: assistantMsg('', [{ id: 'tc2', name: 'read', arguments: { path: 'a.ts' } }]),
+    });
+    apply(t, { type: 'message_end', message: toolResultMsg('文件内容', { toolCallId: 'tc2' }) });
+    const cards = t.snapshot.filter((b) => b.kind === 'tool-card') as Array<
+      Extract<TranscriptBlock, { kind: 'tool-card' }>
+    >;
+    expect(cards[0]!.body.length).toBeGreaterThan(0); // one-shot 结果正文照常
+    expect(cards[1]!.body.length).toBeGreaterThan(0); // 普通工具照常
   });
 });
 
