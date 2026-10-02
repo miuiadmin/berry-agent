@@ -32,8 +32,10 @@
  * 字符串，resolveModel fail-loud 推迟到 LLM 调用边界）——本锁零凭证可跑。
  *
  * 验收十一面（终端态可见行判据）：
- * 1. 起跑进屏：footer 四段（界面美化役批6 段序：沙箱档短词 · 模型名 · 会话短 id · cwd 短名——
- *    三反馈批B 扩容；thinking 无锚/当日零耗两段缩位）与 composer 输入行在场；
+ * 1. 起跑进屏：footer 左右分栏（V-3 注⑦②：左段 = 档位段〔沙箱档短词——
+ *    thinking 无锚缩位〕+ 闲态教学提示 `? 快捷键`；右段今日〔当日零耗缩位〕；
+ *    模型/会话短 id/⎇ 三段退役——短 id 承接位 = OSC title pane 标题）与
+ *    composer 输入行在场；
  * 2. 中文输入：字面中文 send-keys 后编辑器行回显在场（零模型依赖——不提交）；
  * 3. /help 副屏：命令册标题行呈现 → q 收屏回主屏（收屏后 footer 复在场）；
  * 4. /themes 副屏：主题条目行呈现 + esc 收屏；
@@ -53,8 +55,9 @@
  *     + /sessions 切换器清单显式题呈现（零消息会话 stage 待落题路真链）
  *     → q 收屏回主屏。
  * 11. /resume 续接（2026-09-30 会话管理命令批批2）：跨进程预置历史行（TUI
- *     起跑前 seed——开库不并发）→ 带参直通回执行（已续接）+ footer 短 id
- *     翻位（focus 权威路）+ /sessions 清单历史行在场带 ● 活跃位（切焦即
+ *     起跑前 seed——开库不并发）→ 带参直通回执行（已续接）+ OSC title 短 id
+ *     翻位（focus 权威路；V-3 注⑦② footer 短 id 段退役后的承接面——tmux
+ *     pane_title 可锚）+ /sessions 清单历史行在场带 ● 活跃位（切焦即
  *     活跃投影；零消息自开会话无行不现——既有两面）→ q 收屏回主屏。
  * 12. /rewind 无参选择器（2026-09-30 会话管理命令批批3）：跨进程预置 manifest
  *     （workspaceRoot 归一同源）→ 无参进屏（标题 ◆ 回退点 · 1 个 + manifestLine
@@ -86,7 +89,10 @@ const SOCK = `berry-e2e-${process.pid}`;
 const GEOM_W = 100;
 const GEOM_H = 30;
 
-/** footer 模型段锚（BERRY_AGENT_MODEL 注入确定值——provider/model 形取 model 段短名） */
+/**
+ * footer 模型段锚（BERRY_AGENT_MODEL 注入确定值）：模型段已随 V-3 注⑦② 退役
+ * 出 footer——本常量转为**退役锁**消费（首面 not.toContain 断言段退役不回潮）。
+ */
 const MODEL_ID = 'dummy/tui-tmux-e2e';
 const MODEL_SHORT = 'tui-tmux-e2e';
 
@@ -223,7 +229,8 @@ let sessionCounter = 0;
  * env 隔离五键（E16 同族 + 模型确定值）：
  * - BERRY_AGENT_DATA_DIR → 新临时数据目录（防污染真数据 + 单活跃机锁免撞）；
  * - BERRY_AGENT_LOG_LEVEL=silent（日志不入 pane——日志行会污染收屏判据面）；
- * - BERRY_AGENT_MODEL → footer 模型段确定锚（凭证无关——纯字符串标识）；
+ * - BERRY_AGENT_MODEL → 模型标识确定值（凭证无关——纯字符串标识；footer 模型
+ *   段已随 V-3 注⑦② 退役，本键今用于首面退役锁 not.toContain 断言）；
  * - BERRY_AGENT_SKIP_UPDATE_CHECK=1（启动版本检查关断——e2e 零网络律，
  *   07 §8.5 第 6 条）；
  * - TERM=xterm-256color + 解除 COLORTERM（色域档裁定确定性——不赌宿主环境）。
@@ -349,6 +356,15 @@ function captureLines(session: string): string[] {
 }
 
 /**
+ * pane 标题读取（OSC 0 写入面——tmux 跟踪 pane_title；V-3 注⑦② footer 短 id
+ * 段退役后的切焦可见承接位：基线 `berry-agent <版本>`、点缀 `· <短 id>`）。
+ */
+function paneTitle(session: string): string {
+  const res = tmux(['display-message', '-p', '-t', session, '#{pane_title}']);
+  return res.status === 0 ? (res.stdout ?? '').trim() : '';
+}
+
+/**
  * 超时现场仪表化（tmux flake 根因役——签名①「ESC 收屏 25s 超时」归因未闭合，
  * 下次复发一锤定音用）：只动诊断面、超时路径 only、零常态污染。
  *
@@ -424,15 +440,20 @@ function sendKey(session: string, key: string): void {
 
 /* ---------------- 判据锚（呈现形单源：锚字符串与实装呈现同文） ---------------- */
 
-/** footer 常驻行锚：cwd 短名（临时工作区目录名前缀）+ ` · ` 分隔 + 模型短名——一行内齐三段 */
+/**
+ * footer 常驻行锚（V-3 注⑦② 分栏形）：左段 = 档位段（沙箱短词——基线
+ * workspace-write）+ ` · ` + 闲态教学提示 `? 快捷键`（dim 样式在 capture-pane
+ * 纯文本面不可见——按字面锚）；模型/会话短 id/⎇ 三段已退役出 footer（本件
+ * 判据面随迁：短 id 承接位 = OSC title → tmux pane_title 可锚）。
+ */
 function isFooterLine(line: string): boolean {
-  return line.includes('tui-tmux-ws-') && line.includes(' · ') && line.includes(MODEL_SHORT);
+  return line.includes('工作区写') && line.includes(' · ') && line.includes('? 快捷键');
 }
 
 /** composer 输入行（V-0 注③ 框退役——`›` 提示符空输入形：起跑屏零 user 消息，› 行唯一属于输入件） */
 const isComposerLine = (line: string): boolean => /^›\s*$/.test(line);
 
-/** 起跑就绪判据：footer 三段在场 + composer 输入行在场 */
+/** 起跑就绪判据：footer 分栏左段在场（档位段 + 教学提示）+ composer 输入行在场 */
 function isStartupScreen(lines: string[]): boolean {
   return lines.some(isFooterLine) && lines.some(isComposerLine);
 }
@@ -471,26 +492,27 @@ async function readExitCode(session: TmuxSession): Promise<string> {
 
 describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵条款闭环）', () => {
   it.skipIf(!hasUsableTmux())(
-    '起跑进屏：footer 四段（沙箱档 · 模型 · 会话短 id · cwd——界面美化役批6 段序）与 composer 输入行在场',
+    '起跑进屏：footer 左右分栏（档位段 + 闲态教学提示——V-3 注⑦② 模型/短 id/⎇ 三段退役）与 composer 输入行在场',
     async () => {
       const session = startTuiSession();
       await waitForStartup(session.name);
-      // footer 四段已在就绪判据内——此处再钉「会话短 id 段」：footer 行须含
-      // 第三段（短 id = 8 位十六进制前缀；行内四段以 ` · ` 分隔——三反馈批B
-      // 扩容：三段后追加档位段〔本环境 thinking 无锚缩位、沙箱基线
-      // workspace-write → 短词「工作区写」入段〕与今日段〔当日零耗缩位〕）
+      // footer 左段两件已在就绪判据内——此处钉分段形与退役锁：左段 = 档位段
+      //（沙箱短词——SANDBOX_MODE_SHORT 单源直出，基线 workspace-write；本环境
+      // thinking 无锚缩位 → 档位段单段形）+ ` · ` + 教学提示（`? 快捷键`——
+      // 空稿闲态门控开）
       const footer = captureLines(session.name).find(isFooterLine);
       expect(footer).toBeDefined();
-      // 四段形 = 段间恰三枚 ` · ` 分隔符（界面美化役批6 段序：沙箱档短词 ·
-      // model · shortId · cwd 短名——沙箱居首、目录殿后）
-      expect((footer ?? '').split(' · ').length).toBe(4);
-      // 第三段 = 会话短 id（hex 短 id——与 cwd/model 段不同值的 8 位段）
-      const third = (footer ?? '').split(' · ')[2] ?? '';
-      expect(third).toMatch(/^[0-9a-f]{8}$/);
-      // 第一段 = 沙箱档短词（SANDBOX_MODE_SHORT 单源直出——基线 workspace-write）
       expect((footer ?? '').split(' · ')[0]).toBe('工作区写');
-      // 第四段 = cwd 短名段（临时工作区目录名前缀——git 后缀缺席形）
-      expect((footer ?? '').split(' · ')[3] ?? '').toContain('tui-tmux-ws-');
+      expect((footer ?? '').split(' · ')[1] ?? '').toBe('? 快捷键');
+      // 三段退役锁（V-3 注⑦②——模型/会话短 id/⎇ 支名退役出 footer）：模型
+      // 短名与 cwd 短名不回潮；短 id（8 位 hex）承接面 = OSC title 非行内
+      expect(footer ?? '').not.toContain(MODEL_SHORT);
+      expect(footer ?? '').not.toContain('tui-tmux-ws-');
+      expect(footer ?? '').not.toMatch(/[0-9a-f]{8}/);
+      // 右段零耗缩位：当日零耗 = 今日段缺席（'' 缩位——非 `今日 0` 占位）
+      expect(footer ?? '').not.toContain('今日');
+      // OSC title 起屏在场（基线 + 首会话短 id 点缀——tmux pane_title 可锚面）
+      expect(paneTitle(session.name)).toContain('berry-agent');
     },
     90_000,
   );
@@ -737,11 +759,12 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
   );
 
   it.skipIf(!hasUsableTmux())(
-    '/resume 续接（2026-09-30 会话管理命令批批2）：带参 open+focus → 回执行 + footer 短 id 翻位 + /sessions 清单 2 会话 → q 收屏',
+    '/resume 续接（2026-09-30 会话管理命令批批2）：带参 open+focus → 回执行 + OSC title 短 id 翻位 + /sessions 清单 2 会话 → q 收屏',
     async () => {
       // 预置历史行先行（目录提前造 → seed → 再起 TUI 复用目录——预置开库与
-      // TUI 开库不并发）；e2ehist 7 字符不触发 8 位短 id 截断（footer 第三段
-      // 全显可锚）
+      // TUI 开库不并发）；e2ehist 7 字符不触发 8 位短 id 截断（OSC title 点缀
+      // 位全显可锚）；短 id 承接面 = OSC title（V-3 注⑦② footer 短 id 段
+      // 退役——tmux pane_title 可锚面）
       const dataDir = makeTmpDir('tui-tmux-data-');
       const wsDir = makeTmpDir('tui-tmux-ws-');
       seedHistoryRow(dataDir, wsDir, 'e2ehist', 'e2e历史会话');
@@ -751,12 +774,11 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
       sendLiteral(session.name, '/resume e2ehist');
       sendKey(session.name, 'Enter');
       await waitForScreen(
-        '/resume 回执行 + footer 短 id 翻位（焦点切达 e2ehist）',
+        '/resume 回执行 + OSC title 短 id 翻位（焦点切达 e2ehist）',
         STEP_TIMEOUT_MS,
         session.name,
         (lines) =>
-          lines.some((line) => line.includes('已续接：e2ehist')) &&
-          lines.some((line) => isFooterLine(line) && line.includes('e2ehist')),
+          lines.some((line) => line.includes('已续接：e2ehist')) && paneTitle(session.name).includes('e2ehist'),
       );
       // /sessions 清单单会话（TUI 自开新会话零消息无行——「零消息会话清单
       // 不可见」既有两面〔批1〕；历史行唯一在册）+ ● 活跃位（resume 切焦

@@ -38,6 +38,7 @@ import {
   TuiBackend,
 } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
+import { readGitHead } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
   foldSessionSandboxMode,
@@ -69,7 +70,6 @@ import {
   EXIT_DESCRIPTIONS,
   EXIT_WORDS,
   exitCommandItems,
-  modelShortName,
 } from './static-completions.js';
 import { readHostSettings, readRawCustomProviders, writeHostSettings } from './settings-store.js';
 import { builtinProviderIds, createCustomChannelProvider, type CustomProviderDef } from '../llm/index.js';
@@ -541,6 +541,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         const value = env[key];
         return value !== undefined && value !== '' ? value : null;
       };
+      // git 支名@短哈希（V-3 注⑦②——footer ⎇ 段退役迁此）：值形四态 =
+      // 支名@短哈希 / 支名@（哈希读失败）/ @短哈希（detached）/ null（非库
+      // ——不推行不虚报）；开屏一次现算（footer 期逐帧读盘退役）
+      const git = readGitHead(root);
+      const gitHead =
+        git.branch === null && git.shortHash === null ? null : `${git.branch ?? ''}@${git.shortHash ?? ''}`;
       if (
         !backend.openStatus({
           version: options.version ?? '0.0.0',
@@ -553,6 +559,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           modelCredentialKey: stack.modelCredentialKeyOf() ?? null,
           sessionId: sid,
           cwdLabel: basename(root),
+          gitHead,
           turns,
           dataDir: runtime.dataDir,
           theme: backend.themeChoice,
@@ -652,12 +659,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     };
 
     // —— 模型选定与面板装配闭包（UX 对标批 ux-4 /model——TUI 本地拦截族）：
-    // 动作与 ctrl+p 循环同源（setModel + 回执 + footer 活写）——两入口一动
-    // 作；清单单源 = llmRuntime 目录现取（ctrl+p 宇宙同一读面不造第二清单）
+    // 动作与 ctrl+p 循环同源（setModel + 回执）——两入口一动作；清单单源 =
+    // llmRuntime 目录现取（ctrl+p 宇宙同一读面不造第二清单）。footer 模型段
+    // 已随 V-3 注⑦② 退役——切换不再触 footer 活写
     const selectModel = (spec: string): void => {
       stack.setModel(spec);
       backend.notify(`模型已切换：${spec}（下一轮对话起生效）`, { level: 'info' });
-      backend.setFooterModel(modelShortName(spec));
     };
     const openModelPanel = (): void => {
       // 条目 = providers 装配序 × model 序全列（ctrl+p onModelCycle 同构展开）
@@ -1345,6 +1352,27 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         replacement: `/${command.name}`,
       }));
 
+    // —— /help 帮助副屏开屏体（R7 批 10k host 装配侧直挂；V-3 注⑦④ `?`
+    // 闲态教学键与 /help 命令同一开屏本体）：命令册三源合流 = 通道核命令表 +
+    // TUI 本地命令族 + TUI 本地退出词（三源与补全源同面，本地族文案单源
+    // localCommands、退出词文案单源 EXIT_DESCRIPTIONS）；键位册 = backend
+    // Keymap 投影（openHelp 内取）。副屏占用时 openHelp false → notify 诚实
+    // 降级（服务端 handler 同律）。闭包捕获构造后 backend 柄——仅输入期触发
+    // 无 TDZ（onSubmit 同先例）
+    const openHelpPanel = (): void => {
+      const entries = [
+        ...stack.channels.listCommands().map((spec) => ({
+          name: spec.name,
+          ...(spec.description !== undefined ? { description: spec.description } : {}),
+        })),
+        ...localCommands.map(({ name, description }) => ({ name, description })),
+        ...EXIT_WORDS.map((name) => ({ name, description: EXIT_DESCRIPTIONS[name] })),
+      ];
+      if (!backend.openHelp(entries)) {
+        backend.notify('帮助页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+      }
+    };
+
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
       onSubmit: (sessionId, text, opts) => {
@@ -1386,8 +1414,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 模型循环柄（挂账解挂批 2026-09-15——ctrl+p 层③.5 应用动作路）：循环
       // 宇宙 = providers 装配序 × provider 内 model 序的 `provider/model` 串全列
       // （07 §4.1 R5）；换档走栈级旋钮（内存态不落盘——重启回落装配基线），
-      // 消费 = 下一 run 起跑现取（在飞 run 不中途换）。回执 notify 一行 +
-      // footer 模型段活写；空目录零动作（无候选可换——诚实缺席）
+      // 消费 = 下一 run 起跑现取（在飞 run 不中途换）。回执 notify 一行；
+      // 空目录零动作（无候选可换——诚实缺席）。footer 模型段已随 V-3 注⑦②
+      // 退役——切换不再触 footer 活写
       onModelCycle: () => {
         const specs: string[] = [];
         for (const provider of stack.llmRuntime.models.getProviders()) {
@@ -1398,7 +1427,6 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         const next = specs[(index + 1) % specs.length]!; // 不在册（-1+1=0）→ 装配序首位
         stack.setModel(next);
         backend.notify(`模型已切换：${next}（下一轮对话起生效）`, { level: 'info' });
-        backend.setFooterModel(modelShortName(next));
       },
       onQuit: () => quitResolve(),
       // 命令执行窗自动锚（ix-2——07 §4.3 档位 2）：发起会话 = 聚焦会话
@@ -1458,18 +1486,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       ...(themeLoad !== null && themeLoad.settings.keybindings !== undefined
         ? { keybindings: themeLoad.settings.keybindings }
         : {}),
-      // footer 常驻段（R6 批 10k）：cwd 短名 + 模型短名（provider/model 形取
-      // model 段）——会话短 id 段由 backend 每帧随 sessionId 现拼；
-      // cwdPath（挂账解挂批②）：cwd 段 git 短支名后缀数据位（启动会话
-      // workspaceRoot——backend 构造期定值直读 .git/HEAD）；
-      // tiers/todaySpent（三反馈批B）：档位段/今日段 pull 闭包——每刷新锚
-      // 现拉（档位 = 聚焦会话 fold 现值 ?? 栈基线，与 openThinkingPanel/
-      // openSandboxPanel 同律：thinking 可无锚诚实缩位、sandbox 恒有锚；
-      // 今日 = 全道聚合读面 allLanesSpentToday——呈现口径与闸门口径分立）
+      // footer 常驻段（V-3 注⑦②——左右分栏重做）：模型/短 id/目录⎇支名@短哈希
+      // 三段退役出 footer（git 支名迁 /status 会话段行——openStatusPanel 装配）；
+      // tiers/todaySpent 两闭包承袭：档位段/今日段每刷新锚现拉（档位 = 聚焦会话
+      // fold 现值 ?? 栈基线，与 openThinkingPanel/openSandboxPanel 同律：thinking
+      // 可无锚诚实缩位、sandbox 恒有锚；sandboxDanger = danger 档标记——坍缩梯
+      // rung4 安全保真判据）；今日 = 全道聚合读面 allLanesSpentToday——呈现口径
+      // 与闸门口径分立
       footer: {
-        cwdLabel: basename(session.workspaceRoot),
-        modelLabel: modelShortName(stack.model),
-        cwdPath: session.workspaceRoot,
         tiers: () => {
           const sid = stack.channels.focusedId ?? session.sessionId;
           const driver = stack.driverOf(sid);
@@ -1485,6 +1509,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             return {
               thinking: thinking !== undefined ? (THINKING_LEVEL_SHORT[thinking] ?? null) : null,
               sandbox: SANDBOX_MODE_SHORT[sandbox] ?? null,
+              sandboxDanger: sandbox === 'danger',
             };
           } catch {
             return { thinking: null, sandbox: null }; // fail-open 缩位（backend 兜底同律——双保）
@@ -1492,6 +1517,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         },
         todaySpent: () => stack.llm.allLanesSpentToday(),
       },
+      // `?` 闲态教学键柄（V-3 注⑦④——text 路分诊）：与 /help 命令同一开屏
+      // 本体（上 openHelpPanel 闭包）；backend 空稿闲态门控后回调（层③.7）
+      onHelpShortcut: () => openHelpPanel(),
       ...(options.version !== undefined ? { version: options.version } : {}),
       // 生产定时器注入（保活/帧帽真定时——缺省同步直出仅测试语义）
       schedule: (fn, ms) => setTimeout(fn, ms),
@@ -1612,25 +1640,12 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       backend.notify(`键位覆盖未生效：${rejection.detail}`, { level: 'warn' });
     }
 
-    // —— /help 命令注册（R7 批 10k——host 装配侧直挂）：命令册三源合流 =
-    // 通道核命令表 + TUI 本地命令族 + TUI 本地退出词（三源与补全源同面，
-    // 本地族文案单源 localCommands、退出词文案单源 EXIT_DESCRIPTIONS）；键位
-    // 册 = backend Keymap 投影（openHelp 内取）。副屏占用时 openHelp false
-    // → notify 诚实降级（服务端 handler 同律）
+    // —— /help 命令注册（R7 批 10k——host 装配侧直挂）：开屏体 = 上
+    // openHelpPanel 闭包（V-3 注⑦④——与 `?` 闲态教学键同一本体）
     stack.channels.registerCommand(
       'help',
       async () => {
-        const entries = [
-          ...stack.channels.listCommands().map((spec) => ({
-            name: spec.name,
-            ...(spec.description !== undefined ? { description: spec.description } : {}),
-          })),
-          ...localCommands.map(({ name, description }) => ({ name, description })),
-          ...EXIT_WORDS.map((name) => ({ name, description: EXIT_DESCRIPTIONS[name] })),
-        ];
-        if (!backend.openHelp(entries)) {
-          backend.notify('帮助页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
-        }
+        openHelpPanel();
       },
       '命令与键位帮助',
     );

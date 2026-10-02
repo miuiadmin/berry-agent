@@ -70,6 +70,22 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     expect(lines.find((line) => line.startsWith('模型'))!).toContain('模型目录空');
   });
 
+  it('git 支名行（V-3 注⑦——footer ⎇ 段退役承接受位）：在场推行 / null 不推行', () => {
+    // 缺省夹具未带 gitHead——首画基线不推行（不虚报）
+    expect(buildStatusLines(DATA).every((line) => !line.startsWith('git'))).toBe(true);
+    // 在场形：支名@短哈希行入会话段（工作区与轮次之间）
+    const lines = buildStatusLines({ ...DATA, gitHead: 'dev@2b8a94a' });
+    const gitIdx = lines.findIndex((line) => line.startsWith('git'));
+    const wsIdx = lines.findIndex((line) => line.startsWith('工作区'));
+    const turnsIdx = lines.findIndex((line) => line.startsWith('轮次'));
+    expect(gitIdx).toBeGreaterThan(-1);
+    expect(lines[gitIdx]).toContain('dev@2b8a94a');
+    expect(wsIdx).toBeLessThan(gitIdx);
+    expect(gitIdx).toBeLessThan(turnsIdx);
+    // 空串同缺席（不推行空段）
+    expect(buildStatusLines({ ...DATA, gitHead: '' }).every((line) => !line.startsWith('git'))).toBe(true);
+  });
+
   it('模型凭证行（ob-2 态 + C-4 全明文翻裁值）：ready 携完整供血值（人面所见即供血——修前红：v1 值恒不入面）', () => {
     const readyLines = buildStatusLines(DATA);
     const readyLine = readyLines.find((line) => line.startsWith('模型凭证'))!;

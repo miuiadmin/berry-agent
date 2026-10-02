@@ -84,7 +84,6 @@ import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
 import { TaskStatusLine } from '../status/task-status-line.js';
-import { gitHeadSuffix, readGitHead } from '../status/footer.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
 import { JobPanel } from '../panels/job-panel.js';
@@ -172,6 +171,13 @@ export interface TuiBackendOptions {
    * 路）。缺席 = 键不劫持不炸（透传编辑器——无绑定归终局丢弃）。
    */
   readonly onModelCycle?: () => void;
+  /**
+   * 装配向接线柄：闲态教学键（V-3 注⑦④——`?` 开 /help 帮助副屏）。`?` 是
+   * 可打印字符走 text 事件（引擎地面态——key 路恒不命中；键位册条目仅投影
+   * 可发现性）；门控 = 空稿 + 闲态 + overlay/弹层不在场；柄缺席不劫键（'?'
+   * 作普通字符入稿——确定性测试基线零扰动）。
+   */
+  readonly onHelpShortcut?: () => void;
   /** 装配向接线柄：退出（ctrl+d 空框） */
   readonly onQuit?: () => void;
   /** 命令柄（'/' 起手文本——03 §2.2 dispatch；false = 未命中落 onSubmit 兜底） */
@@ -238,25 +244,26 @@ export interface TuiBackendOptions {
    */
   readonly keybindings?: Readonly<Record<string, string>>;
   /**
-   * footer 常驻段标签（R6 批 10k）：cwd 短名 / 模型名——缺席段缩位不虚报
-   * （拼段执法）；会话短 id 段本件自持随切焦联动。注入缺席 = 无 footer
-   * （状态行旧形零扰动——确定性测试基线）。
-   *
-   * cwdPath（挂账解挂批②）：cwd 短名段 git 短支名后缀的数据位——在场则
-   * cwd 段追加 ` ⎇ <支>`（直读 `.git/HEAD` 零子进程、detached/非库缺席不
-   * 虚报；构造期定值与 cwdLabel 同生命周期——跨焦 cwd 漂移同 R6 定值类）。
+   * footer 常驻段（V-3 注⑦②——左右分栏重做）：左段 = 档位模式词（tiers
+   * 闭包 pull）+ 闲态教学提示（`? 快捷键`——本件空稿闲态门控自持）；右段 =
+   * 今日用量（todaySpent 闭包 pull）。**模型/短 id/目录⎇支名@短哈希三段已
+   * 退役出 footer**（承载面迁 /status 副屏——07 §4.1 注⑦）。注入缺席 = 无
+   * footer（状态行旧形零扰动——确定性测试基线）。
    */
   readonly footer?: {
-    readonly cwdLabel?: string;
-    readonly modelLabel?: string;
-    readonly cwdPath?: string;
     /**
      * 档位段 pull 闭包（三反馈批B——思考档/沙箱档常驻段）：返回短词已解析形
      * （单源映射在装配侧 session-tier-copy 短词键）；子段 null = 独立缩位
      * （thinking 无锚诚实缺席）；闭包抛错 fail-open 整段缩位（呈现面不反噬
      * 渲染路）。刷新锚拉取（构造期/切焦/resize/agent_end/档位切换点）。
+     * sandboxDanger（V-3 注⑦③）：沙箱 danger 档标记——坍缩梯 rung4「仅档位
+     * danger 位」安全保真判据。
      */
-    readonly tiers?: () => { thinking: string | null; sandbox: string | null };
+    readonly tiers?: () => {
+      thinking: string | null;
+      sandbox: string | null;
+      sandboxDanger?: boolean;
+    };
     /**
      * 今日段 pull 闭包（批B——当日全道 token 耗 `今日 N`）：数据面 =
      * LlmService.allLanesSpentToday()（呈现口径与闸门口径分立——供数面定形
@@ -293,6 +300,8 @@ const DEFAULT_FPS_CAP = 60;
 const STREAM_FRAME_BYTE_CAP = 256 * 1024;
 /** lone-ESC 判定窗缺省（对齐 Engine DEFAULT_ESCAPE_WINDOW_MS） */
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
+/** footer 教学提示文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
+const FOOTER_HINT_TEXT = '? 快捷键';
 /**
  * 任务行/状态行转轮自驱间隔（ms——注入调度后自重排）。界面美化役批 4：
  * 100ms → 80ms（07 §4.1 件 12——帧距定值；一处常量、件内零自驱时钟纪律不破）
@@ -437,6 +446,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
   private readonly onModelCycle: (() => void) | undefined;
+  /** 闲态教学键柄（V-3 注⑦④——`?` text 路分诊消费；缺席不劫键） */
+  private readonly onHelpShortcut: (() => void) | undefined;
   private readonly dispatchCommand: ((input: string) => Promise<boolean>) | undefined;
 
   /* ---- 输入管线态 ---- */
@@ -607,37 +618,26 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private readonly localCommands: readonly TuiLocalCommand[];
   /**
-   * footer 常驻段标签（R6 批 10k——cwd 短名/模型名；会话短 id 段随切焦联动）。
-   * 模型段可变（挂账解挂批 2026-09-15——ctrl+p 模型循环经 setFooterModel 活写）。
+   * 档位段 pull 闭包（三反馈批B + V-3 注⑦②——左右分栏左段源）：null 子段
+   * 独立缩位（thinking 无锚诚实缺席）；每刷新锚现拉（闭包内 fold 现值——
+   * 档位切换点经公开 refreshFooter 即时收敛）；sandboxDanger 标记供坍缩梯
+   * rung4 安全保真判据。
    */
-  private readonly footerCwd: string | undefined;
-  private footerModel: string | undefined;
-  /**
-   * cwd 段 git 支名后缀数据位（挂账解挂批②）：cwdPath 在场才读支名——
-   * 构造期定值（与 cwdLabel 同生命周期——跨焦 cwd 漂移同 R6 定值类）。
-   */
-  private readonly footerCwdPath: string | undefined;
-  /**
-   * 档位段 pull 闭包（三反馈批B——思考档/沙箱档常驻段）：null 子段独立缩位
-   * （thinking 无锚诚实缺席）；每刷新锚现拉（闭包内 fold 现值——档位切换点
-   * 经公开 refreshFooter 即时收敛）。
-   */
-  private readonly footerTiers: (() => { thinking: string | null; sandbox: string | null }) | undefined;
+  private readonly footerTiers:
+    (() => { thinking: string | null; sandbox: string | null; sandboxDanger?: boolean }) | undefined;
   /**
    * 今日段 pull 闭包（三反馈批B——当日全道 token 耗）：每刷新锚现拉，消费
    * allLanesSpentToday()（O(1) 日键缓存——resize/重画频拉无害）；零耗缩位。
    */
   private readonly footerTodaySpent: (() => number) | undefined;
   /**
-   * cwd 段 git 后缀单步缓存（界面美化役批6 D 件）：低频锚（构造期/切焦/
-   * agent_end/档位切换——refreshFooter 全量重算路）现读 `.git/HEAD` 定值；
-   * resize 高频路走缓存拼段不重读（07 §4.1 界面美化役批定值回填注「避
-   * resize 高频读盘」——checkout 后随下一次低频锚收敛）。
+   * 教学提示门控位（V-3 注⑦②——`? 快捷键` 空稿闲态呈现）：syncFooterHint
+   * 翻转才重建（缓存短路——编辑器每键消费后/agent 起停锚对账，未翻转零重画）。
    */
-  private footerGitSuffix = '';
+  private footerHintOn = false;
   /**
    * footer 门控位（挂载解挂批 2026-09-15 显式化）：footer 选项注入在场才开
-   * 常驻段——setFooterModel 活写的 no-op 判据（注入缺席 = 状态行旧形零扰动）。
+   * 常驻段——注入缺席 = 状态行旧形零扰动。
    */
   private readonly footerEnabled: boolean;
   /** 流式帧字节帽（选项注入面——缺省 STREAM_FRAME_BYTE_CAP 生产定值 256KB） */
@@ -650,6 +650,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
     this.onModelCycle = options.onModelCycle;
+    this.onHelpShortcut = options.onHelpShortcut;
     this.dispatchCommand = options.dispatchCommand;
     this.localCommands = options.localCommands ?? [];
     this.todoFor = options.todoFor;
@@ -684,23 +685,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 键位注册表（批 10i R5 基座 + 10k 用户覆盖）：settings keybindings 键
     // 透传——四形拒载 fail-loud（拒载弃该键回退缺省，rejections 观测面呈报）
     this.keymap = new Keymap(options.keybindings);
-    // footer 常驻段标签（R6 批 10k）：空串同缺席缩位（不虚报空段）
-    this.footerCwd =
-      options.footer?.cwdLabel !== undefined && options.footer.cwdLabel !== '' ? options.footer.cwdLabel : undefined;
-    this.footerModel =
-      options.footer?.modelLabel !== undefined && options.footer.modelLabel !== ''
-        ? options.footer.modelLabel
-        : undefined;
-    // cwd 段 git 支名后缀数据位（挂账解挂批②）：构造期定值（空串同缺席——不虚报）
-    this.footerCwdPath =
-      options.footer?.cwdPath !== undefined && options.footer.cwdPath !== '' ? options.footer.cwdPath : undefined;
-    // 档位段/今日段 pull 闭包（三反馈批B）：注入缺席缩位（老形选项零扰动——
-    // 既有测试不传新键常驻段不变）
+    // 档位段/今日段 pull 闭包（三反馈批B + V-3 注⑦② 分栏重做）：注入缺席
+    // 缩位（老形选项零扰动——既有测试不传新键常驻段不变）
     this.footerTiers = options.footer?.tiers;
     this.footerTodaySpent = options.footer?.todaySpent;
-    // footer 门控（R6 批 10k）：footer 选项注入在场才开常驻段（短 id 段恒在——
-    // 缺席段缩位不虚报指两标签）；注入缺席 = 无 footer 状态行旧形（确定性测试
-    // 基线零扰动）
+    // footer 门控（R6 批 10k 承袭）：footer 选项注入在场才开常驻段；注入
+    // 缺席 = 无 footer 状态行旧形（确定性测试基线零扰动）
     this.footerEnabled = options.footer !== undefined;
     if (this.footerEnabled) this.refreshFooter();
     // 直播行集（批 10h/10i）：主题随构造定着——流式 markdown 直推档与定稿块同源
@@ -717,6 +707,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       // 经 viewer options 同册注入
       keymap: this.keymap,
     });
+    // 教学提示首画锚（V-3 注⑦②）：构造期空稿闲态即期翻转 footerHintOn
+    //（refreshFooter 先行走 hint-off 基线——editor 就位后此处收敛真态）
+    this.syncFooterHint();
     // 补全三件（R6 批 10j 异步形）：provider 路由单源 → 弹层纯落位面 → 防抖
     // 调度器居中编舞。query 闭包 fire 时自取编辑器现态（防抖窗内连打取最新
     // 态）；schedule 注入缺席 = 立即发（同步测试语义——既有确定性测试零扰动）
@@ -1667,66 +1660,72 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * footer 常驻段重算（R6 批 10k——低频锚全量重算路：构造期/切焦联动
-   * onRepaint / agent_end / 档位切换 setStatus）：cwd 短名 · 模型名 · 会话
-   * 短 id 拼段（缺席段缩位不虚报——两标签装配注入期定值、短 id 段随切焦
-   * 联动）。cwd 段 git 后缀（挂账解挂批② + 界面美化役批6 短哈希扩）：
-   * cwdPath 在场直读 `.git/HEAD` 追加 ` ⎇ 支名 @短哈希`（同段一体非第四
-   * 段；detached/非库缺席不虚报；每低频锚现读——checkout 后随下一次本锚
-   * 收敛，不 watch 不轮询）。**resize 高频路走 rebuildFooter 缓存变体**
-   * （07 §4.1 界面美化役批定值回填注「避 resize 高频读盘」——后缀单步
-   * 缓存 footerGitSuffix 消费）。
-   *
-   * 门控（挂账解挂批②补漏）：footer 选项注入缺席时早退——无门控则
-   * onRepaint 切焦路无条件拼段致常驻段被漏开（修前红在案）。
-   *
-   * 三反馈批B 扩容：档位段（思考档/沙箱档短词）+ 今日段（`今日 N`，零耗
-   * 缩位）。**公开面**：档位切换点（装配侧选定闭包）经本面即时收敛。
-   *
-   * **段序（界面美化役批6 D 件定形）**：沙箱 · 思考 · 模型 · 短 id ·
-   * 目录⎇支名@短哈希 · 今日 N（B-3 冷读闸修笔：短 id 居模型后；话术批：
-   * 档位段文本 = 短词本身如 思考高/只读，非「沙箱档」标签形）。
+   * footer 常驻段重算（V-3 注⑦②——低频锚全量重算路：构造期/切焦联动
+   * onRepaint / agent_end / 档位切换 setStatus）：左右分栏段集组段（左段
+   * 档位模式词 + 教学提示 / 右段今日用量——模型/短 id/目录⎇ 三段已退役出
+   * footer，承载面迁 /status 副屏）。**公开面**：档位切换点（装配侧选定
+   * 闭包）经本面即时收敛。
    */
   refreshFooter(): void {
     if (!this.footerEnabled) return;
-    this.footerGitSuffix = this.footerCwdPath !== undefined ? gitHeadSuffix(readGitHead(this.footerCwdPath)) : '';
     this.rebuildFooter();
   }
 
   /**
-   * footer 拼段（缓存变体——resize 高频路零读盘）：与 refreshFooter 同段
-   * 序，git 后缀消费 footerGitSuffix 单步缓存（低频锚现读定值）。
+   * footer 段集组装（缓存变体——resize 高频路同走零读盘）：左段全形 =
+   * `沙箱短词 · 思考短词`（缺省档缩位——闭包子段 null 独立缺席）；坍缩梯
+   * 安全缩形 = 仅沙箱短词（rung2 消费）；今日段零耗缩位；教学提示经
+   * footerHintOn 门控（syncFooterHint 翻转锚）。fail-open：闭包抛错两段
+   * 归缩位（渲染路不因数据面异常断流——装配侧闭包已自裹，此处兜底防御层）。
    */
   private rebuildFooter(): void {
     if (!this.footerEnabled) return;
-    const parts: string[] = [];
-    // 档位段两子段（批B + 批6 段序：沙箱先思考后）：fail-open——闭包抛错
-    // 两子段归 null（渲染路不因数据面异常断流；装配侧闭包已自裹 try/catch，
-    // 此处兜底防御层）
+    let tiers = '';
+    let tiersSafety = '';
+    let danger = false;
     if (this.footerTiers !== undefined) {
-      let tiers: { thinking: string | null; sandbox: string | null } = { thinking: null, sandbox: null };
       try {
-        tiers = this.footerTiers();
+        const pulled = this.footerTiers();
+        const parts: string[] = [];
+        if (pulled.sandbox !== null) parts.push(pulled.sandbox);
+        if (pulled.thinking !== null) parts.push(pulled.thinking);
+        tiers = parts.join(' · ');
+        tiersSafety = pulled.sandbox ?? '';
+        danger = pulled.sandboxDanger === true;
       } catch {
         // fail-open：缩位不虚报
       }
-      if (tiers.sandbox !== null) parts.push(tiers.sandbox);
-      if (tiers.thinking !== null) parts.push(tiers.thinking);
     }
-    if (this.footerModel !== undefined) parts.push(this.footerModel);
-    parts.push(shortIdOf(this.sessionId));
-    if (this.footerCwd !== undefined) parts.push(`${this.footerCwd}${this.footerGitSuffix}`);
-    // 今日段（批B）：零耗缩位（当日首 run 前不显段）；fail-open 同律
+    let right = '';
     if (this.footerTodaySpent !== undefined) {
       try {
         const spent = this.footerTodaySpent();
-        if (spent > 0) parts.push(`今日 ${formatCount(spent)}`);
+        if (spent > 0) right = `今日 ${formatCount(spent)}`;
       } catch {
         // fail-open：缩位不虚报
       }
     }
-    this.statusLine.setFooter(parts.join(' · '));
+    this.statusLine.setFooter({
+      tiers,
+      tiersSafety,
+      danger,
+      hint: this.footerHintOn ? FOOTER_HINT_TEXT : '',
+      right,
+    });
     this.touchFixed();
+  }
+
+  /**
+   * 教学提示门控对账（V-3 注⑦②——空稿闲态呈现 `? 快捷键`）：期望态翻转
+   * 才重建（缓存短路——编辑器每键消费后/agent 起停锚高频对账零重画）。
+   * 期望态 = 空稿且闲态（overlay 在场性不入判——浮层收屏后随下一键对账）。
+   */
+  private syncFooterHint(): void {
+    if (!this.footerEnabled) return;
+    const on = this.editor.model.isEmpty() && !this.progressBusy;
+    if (on === this.footerHintOn) return;
+    this.footerHintOn = on;
+    this.rebuildFooter();
   }
 
   /**
@@ -1749,17 +1748,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const cleared = this.jobPanel.clearCursor();
     if (cleared) this.touchFixed();
     return cleared;
-  }
-
-  /**
-   * footer 模型段活写（挂账解挂批 2026-09-15——ctrl+p 模型循环消费面）：
-   * 换名即时重画常驻段。footer 门控内才生效（注入缺席 = 无常驻段——活写
-   * no-op 零扰动）；空串同缺席缩位（与构造期同判据——不虚报空段）。
-   */
-  setFooterModel(model: string): void {
-    if (!this.footerEnabled) return;
-    this.footerModel = model !== '' ? model : undefined;
-    this.refreshFooter();
   }
 
   /** 活体信封呈现：渲染归约 + 聚焦态状态面消费（非聚焦摘要行瀑布已退役——07 §4.1 V-0 注①） */
@@ -1787,7 +1775,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.taskLine.goIdle();
     if ((this.inFlightBySession.get(sessionId) ?? 0) > 0) this.taskLine.enterWorking();
     this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
-    this.refreshFooter(); // footer 会话短 id 段随切焦联动（R6 批 10k）
+    this.refreshFooter(); // footer 档位/今日段随切焦重拉（闭包现值——V-3 注⑦②）
     this.osc.setTitle(`${this.titleBaseline} · ${shortIdOf(sessionId)}`); // 件 7：title 点缀会话短 id（终端级外显——挂起期照常，批 10f-4 裁）
     // 权威全量重建——排队旧帧作废（repaint 是新真相，合并无意义）；清点前先
     // 抢救合并窗内未落帧瞬时行（第五役 S1-a——suspendMain 挂起转账律的对称
@@ -1844,13 +1832,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.pendingOps = [];
     this.needFixed = false;
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
-    // footer 拼段（界面美化役批6——resize 高频路走缓存变体不重读 git：后缀
-    // 单步缓存 footerGitSuffix 消费，07 §4.1 界面美化役批定值回填注「避
-    // resize 高频读盘」；checkout 后随下一次低频锚收敛）。**必须后于
-    // screen.handleResize**：缺省同步 flush 档（scheduleFn null）下拼段的
-    // touchFixed 即触发 flush——Screen 几何若未先收敛，中途全量写出按旧行位
-    // 落杯 = 缩窗后越屏定位（挂账解挂批 C② 修前红实证——极小终端固定区截断
-    // 测试抓获：12 行屏杯位写上 5 行屏）。
+    // footer 段集（V-3 注⑦②——resize 高频路纯闭包现拉零读盘；git 支名随
+    // 批退役出 footer 无读盘面）。**必须后于 screen.handleResize**：缺省
+    // 同步 flush 档（scheduleFn null）下拼段的 touchFixed 即触发 flush——
+    // Screen 几何若未先收敛，中途全量写出按旧行位落杯 = 缩窗后越屏定位
+    // （挂账解挂批 C② 修前红实证——极小终端固定区截断测试抓获：12 行屏杯
+    // 位写上 5 行屏）。
     this.rebuildFooter();
     this.replayTransients(rescued); // 重建后按到达序补吐（槽让位/现宽收口编舞单源）
     this.renderFixed();
@@ -2108,7 +2095,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         }
       }
     }
-    if (this.editor.handleEvent(ev)) this.touchFixed();
+    // 层③.7 闲态教学键（V-3 注⑦④——`?` 开 /help 帮助副屏）：`?` 是可打印
+    // 字符走 text 事件（引擎地面态恒产 text——key 路永不命中；键位册条目仅
+    // 投影可发现性）。门控 = 柄在场 + 空稿 + 闲态 + overlay/弹层不在场——
+    // 任一不满足透传编辑器（'?' 作普通字符入稿——确定性测试基线零扰动）。
+    if (
+      ev.kind === 'text' &&
+      ev.text === '?' &&
+      this.onHelpShortcut !== undefined &&
+      this.editor.model.isEmpty() &&
+      !this.progressBusy &&
+      this.stack.size === 0 &&
+      !this.popup.visible
+    ) {
+      this.onHelpShortcut();
+      return;
+    }
+    if (this.editor.handleEvent(ev)) this.touchFixed(); // 稿件变更对账走 handleEditorChange 单源锚
   }
 
   /**
@@ -2239,6 +2242,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private handleEditorChange(): void {
     if (this.inputAsk === null) this.autocompleteCompleter.request();
     this.touchFixed();
+    this.syncFooterHint(); // 教学提示门控对账（空稿翻转单源锚——一切稿件变更经此）
   }
 
   /* ---------------- 内部：ask 浮层 ---------------- */
@@ -2761,6 +2765,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (busy !== this.progressBusy) {
       this.progressBusy = busy;
       this.osc.setProgress(busy);
+      this.syncFooterHint(); // 教学提示门控对账（忙闲翻转锚——缓存短路零重画）
     }
   }
 

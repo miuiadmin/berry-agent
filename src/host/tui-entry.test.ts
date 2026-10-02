@@ -501,7 +501,7 @@ describe('runTuiEntry 装配序', () => {
     await rt.shutdown();
   });
 
-  it('提交 run 结算锚：run 结算后今日段收敛（全域清扫 G1-#1——修前红：agent_end 锚滞后一 run）', async () => {
+  it('提交 run 结算锚：run 结算后 footer 收敛（全域清扫 G1-#1；V-3 注⑦④ 尾注让位——今日段掩蔽期收敛面 = 收尾尾注）', async () => {
     const { entry, io, faux } = await rigEntry(rigDir('entry-settle-data-'), rigDir('entry-settle-ws-'));
     faux.setResponses([() => meteredEntryMessage(30, 12)]);
     io.send('hello\r');
@@ -509,8 +509,10 @@ describe('runTuiEntry 装配序', () => {
     // 修前红：agent_end 信封同步扇出在桥接落账（结算微任务）之前——锚拉到的
     // 今日值不含本 run token；结算后 TUI 侧无刷新锚 → 零耗缩位持续驻留。
     // 修 = onSubmit 挂 settled promise（桥接落账后 resolve——promise 回调序
-    // 结构性保证）刷 footer。
-    await until(() => io.output.includes('今日'));
+    // 结构性保证）刷 footer。V-3 注⑦④ 尾注让位族：run 收尾尾注（✓ 用量 N）
+    // last-writer-wins 优先占右槽——今日段掩蔽期结算收敛面即尾注本体（今日
+    // 段可见收敛面由 #1-full 后台道测锁——后台道不落尾注形）
+    await until(() => io.output.includes('✓ 用量'));
     io.send('\x04');
     expect(await entry).toBe(0);
   });
@@ -521,7 +523,7 @@ describe('runTuiEntry 装配序', () => {
     const { entry, io, faux } = await rigEntry(rigDir('entry-ledger-sig-data-'), ws, {
       onStack: (stack) => stacks.push(stack), // 注入面拿真装配栈
     });
-    await until(() => io.output.includes(' · m1 · ')); // footer 首画在场（零耗——今日段缩位）
+    await until(() => io.output.includes('工作区写 · ')); // footer 首画在场（零耗——今日段缩位）
     // 零提交路直接发后台道 complete（与 scheduler/webui/issue 跨入口结算同栈
     // 同构）：修前红 = footer 无刷新锚（提交路 settled 锚不覆盖本路）→ 今日
     // 段永不现；修 = onSpentTodayLedgered 订阅通知刷 footer（04 §5 定形注）。
@@ -541,10 +543,20 @@ describe('runTuiEntry 装配序', () => {
     expect(await entry).toBe(0);
   });
 
-  it('/help 副屏 + footer 常驻段（批 10k——R7 帮助面/R6 footer 落码装配位）', async () => {
+  it('/help 副屏 + footer 常驻段（批 10k——R7 帮助面/R6 footer 落码装配位；V-3 注⑦②④ 分栏形 + `?` 教学键）', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-help-data-'), rigDir('entry-help-ws-'));
-    // footer 常驻段首画在场：模型名（faux-entry/m1 → m1 短名）+ 会话短 id 分隔形
-    await until(() => io.output.includes(' · m1 · '));
+    // footer 常驻段首画在场（V-3 注⑦② 左右分栏）：档位段（栈基线
+    // workspace-write → 短词「工作区写」）+ 教学提示（空稿闲态 dim 段）；
+    // 模型/短 id/目录⎇ 三段已退役——旧模型段锚不再出现
+    await until(() => io.output.includes('工作区写 · '));
+    expect(io.output).toContain('? 快捷键');
+    expect(io.output).not.toContain(' · m1 · ');
+    // `?` 闲态教学键（V-3 注⑦④——text 路分诊）：直开帮助副屏（与 /help
+    // 命令同一开屏本体 openHelpPanel）
+    io.send('?');
+    await until(() => io.output.includes('◉ 命令与键位帮助'));
+    io.send('q'); // q text 轨收副屏
+    await until(() => io.output.includes('\x1b[?1049l'));
     // /help 命令 → 帮助副屏：命令册首帧可见段（键位册段在册尾视口外——双册
     // 全量已由 help-viewer.test 纯函数直锁，此处锁装配位真源）
     io.send('/help\r');
@@ -561,7 +573,7 @@ describe('runTuiEntry 装配序', () => {
 
   it('/guide 副屏模型配置段（P0 静默链修复批 + C-4 v2 文案——/setup 主路 + /model 选择器主路；env 手编路下沉 docs）', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-guide-data-'), rigDir('entry-guide-ws-'));
-    await until(() => io.output.includes(' · m1 · '));
+    await until(() => io.output.includes('工作区写 · '));
     io.send('/guide\r');
     // 模型配置段在场：段标题 + /setup 向导主路 + /model 选择器主路（env 供血
     // 与换模型键手编路下沉 docs/usage.md「模型配置」——UX 话术批 §五 23 条）
@@ -598,7 +610,7 @@ describe('runTuiEntry 装配序', () => {
     expect(await runMarketplaceEntry({ sub: 'add', source: repo }, { dataDir, env: {} })).toBe(0);
 
     const { entry, io } = await rigEntry(dataDir, ws);
-    await until(() => io.output.includes(' · m1 · '));
+    await until(() => io.output.includes('工作区写 · '));
     // /marketplace 恰零参命中（本地拦截族第七件）→ 副屏开屏：快照行集首帧
     io.send('/marketplace\r');
     await until(() => io.output.includes('◆ 插件市场 · 1 条目（1 源）'));
@@ -636,7 +648,7 @@ describe('runTuiEntry 装配序', () => {
     // s2 零事件无库行（createSession 零 I/O、行首事件才落库——清单 = 库行真源），
     // 故清单恰 1 行 = s1，光标起位即在 s1
     const second = await rigEntry(dataDir, rigDir('entry-sess-ws2-'));
-    await until(() => second.io.output.includes(' · m1 · ')); // footer 就绪门
+    await until(() => second.io.output.includes('工作区写 · ')); // footer 就绪门
     second.io.send('/sessions\r');
     await until(() => second.io.output.includes('⇄ 会话切换 · 1 会话'));
     // enter 切焦：registry.focus 只投影不开驱动 → repaint 回读 s1 历史
@@ -654,7 +666,7 @@ describe('runTuiEntry 装配序', () => {
     expect(await second.entry).toBe(0);
   });
 
-  it('/new 切焦全链（命令面增补批 C2——07 §4.1 逐件语义 1）：同 cwd 建新会话即切焦 + footer 短 id 更新 + 零事件不在 /sessions 清单', async () => {
+  it('/new 切焦全链（命令面增补批 C2——07 §4.1 逐件语义 1）：同 cwd 建新会话即切焦 + OSC title 短 id 更新 + 零事件不在 /sessions 清单', async () => {
     const dataDir = rigDir('entry-new-data-');
     const ws1 = rigDir('entry-new-ws1-');
 
@@ -677,10 +689,12 @@ describe('runTuiEntry 装配序', () => {
     await until(() => second.io.output.includes('新会话：'));
     const short = /新会话：([0-9a-f]{8})/.exec(second.io.output)?.[1]; // 回执短 id（uuid v7 首 8 位）
     expect(short).toBeDefined();
-    await until(() => second.io.output.includes(` · m1 · ${short}`)); // footer 短 id 更新（切焦 repaint 驱动）
+    // 切焦可见位（V-3 注⑦②——footer 短 id 段退役）：OSC title 短 id 更新
+    // （切焦 repaint 驱动——终端级外显位承接）
+    await until(() => second.io.output.includes(` · ${short}`));
     // 零事件新会话不在 /sessions 清单——库行真源律已知边界（createSession 零
-    // I/O、行随首事件落库——05 §1.2/§6.3 write-behind；footer 短 id 即其可见
-    // 位，非缺陷）：清单恰 1 行 = s1（旧会话不动可回切）
+    // I/O、行随首事件落库——05 §1.2/§6.3 write-behind；OSC title 短 id 即其
+    // 可见位，非缺陷）：清单恰 1 行 = s1（旧会话不动可回切）
     second.io.send('/sessions\r');
     await until(() => second.io.output.includes('⇄ 会话切换 · 1 会话'));
     second.io.send('q'); // q text 轨收副屏（独立 ESC 字节有序列等待窗——避并包歧义）
@@ -695,7 +709,7 @@ describe('runTuiEntry 装配序', () => {
 
   it('/plugins 尾参位活体补全（命令面增补批 C2——plugin-load-report 接线兑现）：活体 id 列弹层', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-pl-id-data-'), rigDir('entry-pl-id-ws-'));
-    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门
     const before = io.output.length;
     // 进 id 尾参位首字符（/plugins toggle c——tokenAtCursor 紧邻空白无 token，
     // 弹层只在真 token 上起查）：接线前 pluginReport 缺席归静态面（id 位无静
@@ -754,7 +768,7 @@ describe('runTuiEntry 装配序', () => {
   // 单源律的 TUI 腿断言真空收口）。
   it('/thinking 装配单源锁：行集 detail 列单源表直出（关闭思考）+ 选定回执全文 = 单源 helper 逐字符', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-tier-t-data-'), rigDir('entry-tier-t-ws-'));
-    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门
     io.send('/thinking\r');
     await until(() => io.output.includes('深度思考 · 7 级')); // 副屏开屏（头行锚）
     // detail 列 = session-tier-copy 单源表直出（off 行独有词「关闭思考」——
@@ -774,7 +788,7 @@ describe('runTuiEntry 装配序', () => {
 
   it('/sandbox 装配单源锁：danger 行警示语 07 §4.1 钉死句 + 选定回执全文 = 单源 helper 逐字符', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-tier-s-data-'), rigDir('entry-tier-s-ws-'));
-    await until(() => io.output.includes(' · m1 · '));
+    await until(() => io.output.includes('工作区写 · '));
     io.send('/sandbox\r');
     await until(() => io.output.includes('沙箱 · 3 级'));
     // danger 行警示语 = 07 §4.1 钦定措辞（07 §4.1 danger 档行说明位文案钉死
@@ -795,7 +809,7 @@ describe('runTuiEntry 装配序', () => {
   // 锚即时换段（拍板 #9：回执保留，footer 段即时收敛——两载体各司其职）。
   it('footer 档位段装配锁（批B）：沙箱短词常驻 + thinking 无锚缩位 + 选定即时换段', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-tier-b-data-'), rigDir('entry-tier-b-ws-'));
-    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门
     // 沙箱段 = 短词表单源直出（分隔形锚——装配闭包传垃圾词/两表错配即红）
     expect(io.output).toContain('工作区写 · '); // 沙箱段居首（界面美化役批6 段序——前无分隔符）
     // thinking 无锚缩位：七档短词「思考X」形零出现（footer 段位只可能来自
@@ -821,14 +835,14 @@ describe('runTuiEntry 装配序', () => {
   // 两窗序由「io 先于装配构造 + 动画行直写 io」结构性保证（07 :204 射程分立）。
   it('启动动画接线锁（批D）：阶段行先于 footer 进屏（cooked→raw 两窗序）', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-boot-a-data-'), rigDir('entry-boot-a-ws-'));
-    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门（raw 窗首帧）
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（raw 窗首帧）
     const out = io.output;
     expect(out).toContain('berry-agent vtest'); // 头行（版本 = 入口 options.version 透传）
     expect(out).toContain('✓ 就绪'); // 六阶段收尾行
     expect(out).toContain('▸ 加载 '); // 插件装载行（noPlugins:false——core 件在册）
     // 两窗序：动画行全部先于 footer（raw 窗屏本体）
-    expect(out.indexOf('berry-agent vtest')).toBeLessThan(out.indexOf(' · m1 · '));
-    expect(out.indexOf('✓ 就绪')).toBeLessThan(out.indexOf(' · m1 · '));
+    expect(out.indexOf('berry-agent vtest')).toBeLessThan(out.indexOf('工作区写 · '));
+    expect(out.indexOf('✓ 就绪')).toBeLessThan(out.indexOf('工作区写 · '));
     io.send('\x04');
     expect(await entry).toBe(0);
   });
@@ -841,7 +855,7 @@ describe('runTuiEntry 装配序', () => {
       env: { BERRY_AGENT_TIMING: '1' },
       bootTimingSink: (text) => on.push(text),
     });
-    await until(() => first.io.output.includes(' · m1 · '));
+    await until(() => first.io.output.includes('工作区写 · '));
     first.io.send('\x04');
     expect(await first.entry).toBe(0);
     const diag = on.join('');
@@ -852,7 +866,7 @@ describe('runTuiEntry 装配序', () => {
     const second = await rigEntry(rigDir('entry-boot-t2-data-'), rigDir('entry-boot-t2-ws-'), {
       bootTimingSink: (text) => off.push(text),
     });
-    await until(() => second.io.output.includes(' · m1 · '));
+    await until(() => second.io.output.includes('工作区写 · '));
     second.io.send('\x04');
     expect(await second.entry).toBe(0);
     expect(off).toEqual([]);
@@ -884,7 +898,7 @@ describe('runTuiEntry 装配序', () => {
       },
     });
     await io.ready();
-    await until(() => io.output.includes(' · m1 · ')); // footer 就绪（webui 已开面）
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪（webui 已开面）
     expect(opened).toBeDefined();
     // 首事件落库（会话行进 /api/sessions 清单——SSE 订阅位取全量 id；
     // footer 短 id 是 uuid 前 8 位非全量，故走清单端点取真源）
@@ -1034,13 +1048,13 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     expect(modelsByCall[1]).toContain('m2'); // 生效语义 = 下一 run 起跑
   });
 
-  it('/model 面板全链：命令开屏 + 分组头/当前 ● + ↓ enter 选定回执 + footer 模型段随切', async () => {
+  it('/model 面板全链：命令开屏 + 分组头/当前 ● + ↓ enter 选定回执（footer 模型段已随 V-3 注⑦② 退役——回执单载体）', async () => {
     // 2026-09-30 UX 对标批 ux-4：/model 命令 → ModelPicker 副屏 → 选定回调
-    // 装配闭包（setModel + notify 回执 + footer 活写）整链锁——面板件单测
-    // （model-picker.test）锁件内键路，本测锁「命令拦截 → openModelPicker →
-    // 装配闭包」三段接线（缺一段即红：命令不拦截无开屏头锚、回调未接无回执）。
+    // 装配闭包（setModel + notify 回执）整链锁——面板件单测（model-picker.test）
+    // 锁件内键路，本测锁「命令拦截 → openModelPicker → 装配闭包」三段接线
+    // （缺一段即红：命令不拦截无开屏头锚、回调未接无回执）。
     const { entry, io } = await rigTwoModelEntry(rigDir('entry-mp-'), rigDir('entry-ws-mp-'));
-    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门（当前模型 m1）
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（当前模型 m1）
     io.send('/model\r');
     await until(() => io.output.includes('切换模型 · 2 个')); // 副屏开屏（头行锚——两模型全列）
     // provider 分组头 + 条目全列（面板呈现两件——ctrl+p 循环宇宙同清单单源）
@@ -1048,9 +1062,8 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     expect(io.output).toContain('faux-key3/m1');
     expect(io.output).toContain('faux-key3/m2');
     io.send('\x1b[B'); // ↓ 光标至 m2
-    io.send('\r'); // enter 选定——先收副屏再回调（回执 + footer 活写归装配闭包）
+    io.send('\r'); // enter 选定——先收副屏再回调（回执归装配闭包；footer 模型段已退役零活写）
     await until(() => io.output.includes('模型已切换：faux-key3/m2'));
-    await until(() => io.output.includes(' · m2 · ')); // footer 模型段随切（常驻段活写）
     io.send('\x04');
     expect(await entry).toBe(0);
   });
@@ -1412,7 +1425,7 @@ describe('零事件会话锚活体镜像（三消费位——@ 补全 / /rewind 
     );
     const stacks: ConversationStack[] = [];
     const { entry, io } = await rigEntry(dataDir, wsA, { onStack: (stack) => stacks.push(stack) });
-    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门
     // 建零事件会话（活体锚 B——manager.create 零 I/O、行随首事件落库故无
     // 库行）并注册切焦（/new 同路：registerSession → focus）
     const stack = stacks[0]!;
@@ -1472,7 +1485,7 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     const { entry, io } = await rigEntry(dataDir, ws, {
       env: { FAUX_ENTRY_API_KEY: 'ready-key' },
     });
-    await until(() => io.output.includes(' · m1 · ')); // footer 就绪门（起屏完成）
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（起屏完成）
     const before = io.output.length;
     io.send('/se');
     await until(() => io.output.slice(before).includes('/setup'));

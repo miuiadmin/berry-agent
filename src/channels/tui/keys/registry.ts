@@ -52,6 +52,17 @@ export const ACTION_CATALOG: readonly ActionDef[] = [
     keys: ['ctrl+p'],
     overridable: true,
   },
+  // 闲态教学键（V-3 注⑦④——`?` 开 /help 帮助副屏）：**投影位**——`?` 是可打印
+  // 字符走 text 事件（引擎地面态恒产 text——key 路恒不命中），分诊真源在 backend
+  // 路由层 text 路（空稿闲态门控）；本条目仅供 /help 册与 keyText 可发现性投影，
+  // 绑定永不命中（overridable: false + 空键集防误配）。
+  {
+    id: 'global.help',
+    scope: 'global',
+    label: '打开快捷键帮助',
+    keys: ['?'],
+    overridable: false,
+  },
   // 思考块开关（批 10i——会话级折叠/展开）
   { id: 'thinking.toggle', scope: 'thinking', label: '思考块折叠/展开', keys: ['ctrl+t'], overridable: true },
   // 工具卡开关（批 10i——会话级展开/收起）

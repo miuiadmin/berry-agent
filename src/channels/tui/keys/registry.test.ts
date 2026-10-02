@@ -160,12 +160,15 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {
-  it('册数 29：候跑与模型循环两动作在册（缺省键位 + 可覆盖位 + 域归属）', () => {
-    expect(ACTION_CATALOG).toHaveLength(29);
+  it('册数 30：候跑/模型循环/闲态教学键在册（V-3 注⑦④ global.help 投影位随批入册）', () => {
+    expect(ACTION_CATALOG).toHaveLength(30);
     const followUp = ACTION_CATALOG.find((d) => d.id === 'editor.queue-followup');
     expect(followUp).toMatchObject({ scope: 'editor', keys: ['alt+enter'], overridable: true });
     const modelCycle = ACTION_CATALOG.find((d) => d.id === 'global.model-cycle');
     expect(modelCycle).toMatchObject({ scope: 'global', keys: ['ctrl+p'], overridable: true });
+    // 教学键投影位：不可覆盖（text 路分诊真源在 backend——绑定永不命中）
+    const help = ACTION_CATALOG.find((d) => d.id === 'global.help');
+    expect(help).toMatchObject({ scope: 'global', keys: ['?'], overridable: false });
   });
 
   it('alt+enter 命中候跑动作（与 editor.submit 键序分立——enter 不误触）', () => {

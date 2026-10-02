@@ -52,6 +52,12 @@ export interface StatusPanelData {
   readonly sessionId: string;
   /** 工作区短名（cwd basename） */
   readonly cwdLabel: string;
+  /**
+   * git 支名@短哈希（V-3 注⑦——footer 三段退役的承接受位）：值形 =
+   * `支名@短哈希` / `支名@`（哈希读失败）/ `@短哈希`（detached）/ null
+   * （非库/缺席——null 不推行，不虚报）。装配位 readGitHead 现算注入。
+   */
+  readonly gitHead?: string | null;
   /** 轮次（会话 events fold——/usage 同数据源） */
   readonly turns: number;
   /** 数据目录（null = :memory: 诊断形——诚实缺席行呈现） */
@@ -201,6 +207,8 @@ export function buildStatusLines(data: StatusPanelData): string[] {
     '── 会话 ──',
     row('会话', shortIdOf(data.sessionId)),
     row('工作区', data.cwdLabel),
+    // git 支名行（V-3 注⑦——footer ⎇ 段退役迁此）：null 不推行（不虚报）
+    ...(data.gitHead != null && data.gitHead !== '' ? [row('git', data.gitHead)] : []),
     row('轮次', `${data.turns}`),
     '',
     '── 环境 ──',
