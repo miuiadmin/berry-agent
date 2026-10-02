@@ -293,6 +293,10 @@ export function createInProcessSubagentProvider(options: InProcessSubagentProvid
         ...(childSystemPrompt !== undefined ? { systemPrompt: childSystemPrompt } : {}),
         shapeTools: shapeDerivedTools(whitelist),
         ...(askApproval !== undefined ? { askApproval } : {}),
+        // 子会话事件外部汇透传（07 §4.1 V-0 注①供数链）：request.onChildEvent
+        // → 驱动 onEvent 组合尾调——service 滤型消费（retry_wait_start →
+        // bumpRetry）。缺席不带（channels.emit 单腿维持）
+        ...(request.onChildEvent !== undefined ? { onEvent: request.onChildEvent } : {}),
       });
       const driver = child.driver;
       tracker.record(child.sessionId, request.depth ?? 1);

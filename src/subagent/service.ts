@@ -391,6 +391,13 @@ export function createSubagentService(options: SubagentServiceOptions): Subagent
           // 瞬态 stopping；killed 终态兜底同构停止信号（run 在飞期 killed 只能源
           // 于 closeOwner，无他产源——不引入误打断）
           stopRequested: () => handle.entry.status === 'stopping' || handle.entry.terminal?.status === 'killed',
+          // 子会话事件汇（07 §4.1 V-0 注①供数链——JobPanel 重试计数行）：
+          // 滤型消费 retry_wait_start → registry.bumpRetry（递增计数制；
+          // 不发事件——durable 零新词红线，面板刷新靠帧首拉取）；其余事件
+          // 零动作直过（sink 是窄消费面非事件总线镜像）
+          onChildEvent: (event) => {
+            if (event.type === 'retry_wait_start') options.registry.bumpRetry(handle.entry.id);
+          },
         };
         // 后台收场编舞（fire-and-forget——回执只携 Job 身份）：register 先行
         // （m5 定形——Job 条目先落 running〔帽满排队期状态面可见〕、run() 回执

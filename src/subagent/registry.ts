@@ -119,6 +119,13 @@ export interface JobRegistry {
   running(): readonly JobEntry[];
   /** 单条目查（在飞与保留均查——结算对账面） */
   get(id: string): JobEntry | undefined;
+  /**
+   * 重试计数递增（07 §4.1 V-0 注①供数面——JobEntry.retry 供数链回写位）：
+   * 仅 running 可更（stopping/终态零动作返 false——终态快照不被覆写，
+   * first-wins 不破）；首 bump 落 retry=1、零重试缺席形不落键。不发事件
+   * （durable 零新词红线——JobPanel 刷新靠帧首拉取）。缺席 id 返 false。
+   */
+  bumpRetry(id: string): boolean;
 }
 
 /**
@@ -382,6 +389,14 @@ export function createJobRegistry(options: JobRegistryOptions = {}): KindOwningJ
     },
     get(id) {
       return live.get(id)?.entry ?? settledHistory.find((job) => job.id === id);
+    },
+    bumpRetry(id) {
+      // 仅 running 可更（stopping/终态/缺席零动作）——条目快照换新同 finalize
+      // 律（外部旧快照不活引用）；不发事件（durable 零新词红线）
+      const job = live.get(id);
+      if (job === undefined || job.entry.status !== 'running') return false;
+      job.entry = { ...job.entry, retry: (job.entry.retry ?? 0) + 1 };
+      return true;
     },
   };
   return registry;

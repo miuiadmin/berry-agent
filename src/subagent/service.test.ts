@@ -109,6 +109,7 @@ function captureHandles(registry: JobRegistry): { wrapped: JobRegistry; handles:
     list: () => registry.list(),
     running: () => registry.running(),
     get: (id) => registry.get(id),
+    bumpRetry: (id) => registry.bumpRetry(id),
   };
   return { wrapped, handles };
 }
@@ -691,5 +692,24 @@ describe('单父扇出闸（RP2——04 §10 扇出帽段：per-parentSessionId 
     expect(service.providerNames()).toContain('scout');
     dispose2();
     expect(service.providerNames()).not.toContain('scout');
+  });
+});
+
+describe('子会话 retry_wait_start 供数链（TUI 视觉重设计批 V-1——07 §4.1 V-0 注①）', () => {
+  it('backgroundRequest.onChildEvent 滤型经句柄回写 bumpRetry：retry_wait_start 递增、他型零效', async () => {
+    const { service, registry, provider } = assemble();
+    const outcome = await service.run({ ...BASE_INPUT, background: true, name: '供数链' });
+    expect(outcome.mode).toBe('background');
+    const request = provider.requests[0]!;
+    expect(typeof request.onChildEvent).toBe('function');
+    const jobId = outcome.mode === 'background' ? outcome.jobId : '';
+    expect(registry.get(jobId)?.retry).toBeUndefined();
+    // 滤型：非重试型零效（供数链只认 retry_wait_start）
+    request.onChildEvent?.({ type: 'agent_start' });
+    expect(registry.get(jobId)?.retry).toBeUndefined();
+    request.onChildEvent?.({ type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: 2 });
+    expect(registry.get(jobId)?.retry).toBe(1);
+    request.onChildEvent?.({ type: 'retry_wait_start', attempt: 2, maxAttempts: 3, nextAt: 3 });
+    expect(registry.get(jobId)?.retry).toBe(2);
   });
 });

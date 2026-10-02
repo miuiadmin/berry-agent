@@ -376,3 +376,34 @@ describe('JobRegistry list 读面', () => {
     expect(registry.get('nope')).toBeUndefined();
   });
 });
+
+describe('JobRegistry bumpRetry（TUI 视觉重设计批 V-1 供数面——07 §4.1 V-0 注①）', () => {
+  it('running 态递增可观测（快照换新语义——get/running/list 三读面同值）；零重试缺席形', () => {
+    const registry = createJobRegistry();
+    registry.registerKind('subagent');
+    const handle = registry.register({ kind: 'subagent', name: '探索', owner: 's1' });
+    // 缺席形：零重试不落 retry 键（「有重试」才在场——呈现面零噪音）
+    expect(handle.entry.retry).toBeUndefined();
+    expect(registry.bumpRetry(handle.entry.id)).toBe(true);
+    expect(handle.entry.retry).toBe(1);
+    expect(registry.get(handle.entry.id)?.retry).toBe(1);
+    expect(registry.running()[0]?.retry).toBe(1);
+    expect(registry.list()[0]?.retry).toBe(1);
+    registry.bumpRetry(handle.entry.id);
+    expect(handle.entry.retry).toBe(2);
+  });
+
+  it('仅 running 可更：stopping 冻结 + 终态后 no-op 返 false（first-wins 不破——终态快照不被覆写）+ 未知 id false', () => {
+    const registry = createJobRegistry();
+    registry.registerKind('subagent');
+    const a = registry.register({ kind: 'subagent', name: 'a', owner: 's1' });
+    const b = registry.register({ kind: 'subagent', name: 'b', owner: 's1' });
+    b.stop(); // 协作停止 → stopping（窗内计数冻结——即将收口无呈现价值）
+    expect(registry.bumpRetry(b.entry.id)).toBe(false);
+    expect(b.entry.retry).toBeUndefined();
+    a.settle({ status: 'failed', detail: 'x' });
+    expect(registry.bumpRetry(a.entry.id)).toBe(false);
+    expect(a.entry.terminal?.status).toBe('failed'); // 终态快照原样（retry 位不铸入终态视图）
+    expect(registry.bumpRetry('job-nope')).toBe(false);
+  });
+});

@@ -962,6 +962,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     shapeTools,
     askApproval,
     extraTools,
+    onEvent: externalEventSink,
   }) => {
     const sessionId = session.sessionId;
     // 会话锚源 = 登记行 workspaceRoot（03 §10.7 六役定形注）：驱动工厂每次
@@ -1201,6 +1202,18 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         // providerGuidanceForMessageEvent 头注；auth 族不入/档案实录原文同注）
         const guided = providerGuidanceForMessageEvent(event, sessionModel ?? currentModel);
         channels.emit({ sessionId, event: guided ?? event });
+        // 外部汇尾调（07 §4.1 V-0 注①供数链——子代理重试计数供数桥）：
+        // channels.emit 之后 + 异常隔离（warn 不反卷驱动事件流；sink 返回
+        // Promise 的异步腿同样兜住——防 unhandledRejection）
+        if (externalEventSink !== undefined) {
+          try {
+            Promise.resolve(externalEventSink(guided ?? event)).catch((err) =>
+              warn(`会话事件外部汇异步抛错（已隔离）：${err instanceof Error ? err.message : String(err)}`),
+            );
+          } catch (err) {
+            warn(`会话事件外部汇抛错（已隔离）：${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       },
       retry: DEFAULT_RETRY_POLICY,
     });

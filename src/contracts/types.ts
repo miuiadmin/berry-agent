@@ -5,6 +5,7 @@
  * 此处逐字段转录；LLM 消息/流/角色与工具/插件/子代理/Job 类型随对应模块
  * 落码批按 pi-ai 实形定义（contract-first：纵切批内先契约后实现）。
  */
+import type { AgentEventSink } from './agent-events.js';
 import type { Usage } from './llm.js';
 
 /**
@@ -239,6 +240,14 @@ export interface SubagentRequest {
    */
   readonly stopRequested?: () => boolean;
   /**
+   * 机器注入位——子会话事件汇（07 §4.1 V-0 注①供数链）：in-process 工厂
+   * 消费（manager.create onEvent 透传——子会话活体事件单点外送）；第三方
+   * provider 忽略（能力位不声明）。service 组装滤型消费（retry_wait_start →
+   * registry.bumpRetry）——JobPanel 重试计数行的供数桥。与 notifyApproval
+   * 同族：机器注入位、模型侧工具 schema 不暴露。
+   */
+  readonly onChildEvent?: AgentEventSink;
+  /**
    * 机器注入位——技能正文永久注入清单（06 §11.6 skills 键 spawn 永久注入模）：
    * 技能名数组（形状三验在工厂 spawn 时统一复验——声明式 def 填充缺省/程序化
    * def 镜像/直呼三方同点执法）；模型侧工具 schema 不暴露。
@@ -324,6 +333,12 @@ export interface JobEntry {
   readonly startedAt: number;
   /** 终态载荷（未终态 = undefined） */
   readonly terminal?: JobTerminal;
+  /**
+   * 重试计数（07 §4.1 V-0 注①供数面——07 篇 TUI 视觉重设计批）：子会话
+   * retry_wait_start 事件经供数链回写（registry.bumpRetry 递增）；零重试
+   * 缺席形不落键（JobPanel 行形据此「无段不显 ×0」）。
+   */
+  readonly retry?: number;
 }
 
 /** job_settled 活体事件载荷（04 §10——总线词，内存直推不落库） */

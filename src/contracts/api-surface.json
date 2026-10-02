@@ -323,7 +323,7 @@
       "since": "1.0",
       "desc": "Job 注册表条目（进程内状态——04 §10 终态不镜像落库明文豁免）",
       "kind": "interface",
-      "sig": "f1b29b0a115091e6"
+      "sig": "555e2ad5a51227a5"
     },
     {
       "symbol": "JobKind",
@@ -584,7 +584,7 @@
       "since": "1.0",
       "desc": "委派请求（04 §10：请求含 prompt、工具白名单、模型覆盖——其余为机器注入位，模型侧工具 schema 不暴露）",
       "kind": "interface",
-      "sig": "12f0cd32cdd5a338"
+      "sig": "bb96f7eb426bd057"
     },
     {
       "symbol": "SubagentResult",

@@ -32,6 +32,7 @@ import type {
 import type { Persistence, SessionRow } from '../persist/index.js';
 import { forkPrefix, isSeededPrefix, recoverClosers } from '../session/index.js';
 import type { SessionLog } from '../session/index.js';
+import type { AgentEventSink } from '../agent/index.js';
 import type { ConversationDriver } from './driver.js';
 
 /** 会话编排钩子词汇（03 主表在册——本面消费的 waterfall 事件名单源） */
@@ -88,6 +89,13 @@ export type DriverFactory = (input: {
    * 工具定义无执行器自装路径）。
    */
   readonly extraTools?: () => readonly ToolDefinition[];
+  /**
+   * 会话活体事件外部汇（07 §4.1 V-0 注①供数链——子代理重试计数供数桥）：
+   * 在场时驱动 onEvent 组合（channels.emit 先 + 本汇尾调——实现方见
+   * conversation-stack createDriver）；纯内存载体同 model 律：不进 durable、
+   * open/resume 不携带。
+   */
+  readonly onEvent?: AgentEventSink;
 }) => ConversationDriver;
 
 /** 已开会话回执（create/open 共形） */
@@ -202,7 +210,7 @@ export class SessionManager {
     return sessionId !== undefined ? this.records.get(sessionId)?.workspaceRoot : undefined;
   }
 
-  /** 新开会话（origin 缺省普通对话；model/systemPrompt/shapeTools/askApproval/extraTools 为本会话装配覆盖——纯内存载体，批 19c-1 子代理通道同 model 律） */
+  /** 新开会话（origin 缺省普通对话；model/systemPrompt/shapeTools/askApproval/extraTools/onEvent 为本会话装配覆盖——纯内存载体，批 19c-1 子代理通道同 model 律） */
   create(
     init: {
       origin?: SessionOrigin;
@@ -213,6 +221,7 @@ export class SessionManager {
       shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
       askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
       extraTools?: () => readonly ToolDefinition[];
+      onEvent?: AgentEventSink;
     } = {},
   ): OpenedSession {
     // 封印位首查（六役停机窗补钉——02 §5.3）：dispose 后 create 响亮拒不静默
@@ -447,6 +456,7 @@ export class SessionManager {
       shapeTools?: (tools: readonly AgentTool[]) => readonly AgentTool[];
       askApproval?: (request: ApprovalAskRequest, opts?: { signal?: AbortSignal }) => Promise<ApprovalAskAnswer>;
       extraTools?: () => readonly ToolDefinition[];
+      onEvent?: AgentEventSink;
     } = {},
   ): OpenedSession {
     const driver = this.createDriver({
@@ -458,6 +468,7 @@ export class SessionManager {
       ...(overrides.shapeTools !== undefined ? { shapeTools: overrides.shapeTools } : {}),
       ...(overrides.askApproval !== undefined ? { askApproval: overrides.askApproval } : {}),
       ...(overrides.extraTools !== undefined ? { extraTools: overrides.extraTools } : {}),
+      ...(overrides.onEvent !== undefined ? { onEvent: overrides.onEvent } : {}),
     });
     // 锚活体镜像入册（workspaceRootOf 读面单源——日志登记值，非库行）
     this.records.set(log.sessionId, {

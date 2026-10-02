@@ -207,3 +207,14 @@ describe('JobPanel 光标翻页态（批6 问题②一期直接做）', () => {
     expect(grid.getCell(0, 0)?.style?.fg).toBe(9);
   });
 });
+
+describe('JobPanel 重试计数段（TUI 视觉重设计批 V-1——07 §4.1 V-0 注①聚合律）', () => {
+  it('retry>0 行形 `◆ 名 · 时长 · 重试 ×N`；零重试无段（缺席形不显 ×0）', () => {
+    const panel = makePanel();
+    panel.update([job('job-1', { retry: 2 })]);
+    expect(readRow(renderPanel(panel), 0)).toBe('◆ 任务 job-1 · 1m 05s · 重试 ×2');
+    // 零重试回落既有行形（无段不显「重试 ×0」）
+    panel.update([job('job-1')]);
+    expect(readRow(renderPanel(panel), 0)).toBe('◆ 任务 job-1 · 1m 05s');
+  });
+});

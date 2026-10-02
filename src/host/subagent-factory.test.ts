@@ -803,3 +803,30 @@ describe('createInProcessSubagentProvider skills 键注入与执法', () => {
     await rt.shutdown();
   });
 });
+
+describe('createInProcessSubagentProvider onChildEvent 透传（TUI 视觉重设计批 V-1 供数链——07 §4.1 V-0 注①）', () => {
+  it('request.onChildEvent → 子会话活体事件外送：run 生命周期事件逐型到达（service 侧滤型消费的通道载体）', async () => {
+    const { rt } = rigRuntime();
+    const ws = rigWorkspace();
+    const { faux, stack } = rigStack(rt, ws);
+    const tracker = createDelegationSessionTracker();
+    const provider = createInProcessSubagentProvider({ stack, tracker, warn: () => {} });
+    const parent = stack.openStartupSession(ws);
+    const seen: string[] = [];
+    faux.setResponses([() => messageOf('stop')]);
+    const result = await provider.run({
+      prompt: '探索',
+      parentSessionId: parent.sessionId,
+      depth: 1,
+      onChildEvent: (event) => {
+        seen.push(event.type);
+      },
+    });
+    expect(result.stopReason).toBe('stop');
+    // 活体事件外送链：driver onLiveEvent → options.onEvent 组合腿 → 本回调
+    expect(seen).toContain('agent_start');
+    expect(seen).toContain('agent_end');
+    // 缺席形零行为（one-shot 不注入供数位——同 notifyApproval 律）
+    await rt.shutdown();
+  });
+});

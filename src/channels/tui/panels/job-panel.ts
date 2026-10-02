@@ -116,7 +116,7 @@ export class JobPanel implements Renderable {
     return true;
   }
 
-  /** 落位：每行 `{图标} {名} · {时长}`（光标期在选行 ▸ 记 + accent）；溢出行收尾 */
+  /** 落位：每行 `{图标} {名} · {时长}[ · 重试 ×N]`（光标期在选行 ▸ 记 + accent）；溢出行收尾 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height <= 0 || this.entries.length === 0) return;
     // 段内夹取（todo-panel 同律）：分配到的段高可低于 measure 原值（低段
@@ -137,8 +137,10 @@ export class JobPanel implements Renderable {
       // 宽 - 图标 2 列 - 光标列，省略形单源（0 宽守卫在源）
       const mark = KIND_MARKS[entry.kind];
       const duration = formatElapsedCompact(Math.max(0, this.now() - entry.startedAt));
+      // 重试段（07 §4.1 V-0 注①聚合律——retry>0 追加；零重试缺席形无段不显 ×0）
+      const retrySeg = entry.retry !== undefined && entry.retry > 0 ? ` · 重试 ×${entry.retry}` : '';
       const prefixWidth = this.cursor !== null ? 2 : 0;
-      const content = ellipsize(`${entry.name} · ${duration}`, region.width - 2 - prefixWidth);
+      const content = ellipsize(`${entry.name} · ${duration}${retrySeg}`, region.width - 2 - prefixWidth);
       const row = this.cursor !== null ? `${selected ? CURSOR_MARK : ' '} ${mark} ${content}` : `${mark} ${content}`;
       buffer.writeText(region.row + i, region.col, row, selected ? this.selectedStyle : undefined);
     });
