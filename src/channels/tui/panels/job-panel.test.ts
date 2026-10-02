@@ -1,7 +1,7 @@
 /**
  * 后台任务面板单测（界面美化役批6）：清板语义（终态防御性滤除）/ 行形
  * （kind 图标 + 时长单源）/ 帽 5 + 溢出行指路 / 光标翻页态（激活/移动/
- * 夹取/清除 + ▸ 记与 accent）/ 低段高缩形（先缩后隐梯末位）。
+ * 夹取/清除 + › 记与 accent）/ 低段高缩形（先缩后隐梯末位）。
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid, ansiColor } from '../../engine/index.js';
@@ -131,7 +131,7 @@ describe('JobPanel 帽 5 与溢出行', () => {
 });
 
 describe('JobPanel 光标翻页态（批6 问题②一期直接做）', () => {
-  it('未激活零光标列（无光标帧不缩内容预算）；首按 moveCursor 激活置 0（▸ 记 + accent）', () => {
+  it('未激活零光标列（无光标帧不缩内容预算）；首按 moveCursor 激活置 0（› 记 + accent）', () => {
     const panel = makePanel();
     panel.update([job('job-1'), job('job-2')]);
     expect(panel.cursorActive).toBe(false);
@@ -139,7 +139,7 @@ describe('JobPanel 光标翻页态（批6 问题②一期直接做）', () => {
     expect(readRow(grid, 0)).toBe('◆ 任务 job-1 · 1m 05s'); // 无光标列——图标直起
     expect(panel.moveCursor(1)).toBe(true);
     grid = renderPanel(panel);
-    expect(readRow(grid, 0)).toBe('▸ ◆ 任务 job-1 · 1m 05s'); // 光标期 ▸ 记 + 空光标位
+    expect(readRow(grid, 0)).toBe('› ◆ 任务 job-1 · 1m 05s'); // 光标期 › 记 + 空光标位
     expect(readRow(grid, 1)).toBe('  ◆ 任务 job-2 · 1m 05s');
     expect(panel.selectedId).toBe('job-1');
     expect(grid.getCell(0, 0)?.style?.fg).toBe(DEFAULT_THEME.accent);

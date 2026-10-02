@@ -190,8 +190,8 @@ describe('SelectPanel', () => {
     grid.writeText(1, 0, '████████████████████████'); // 下层主树文字
     panel.render(grid, { row: 0, col: 0, width: 24, height: 4 }); // 1 标题 + 3 选项
     expect(readRow(grid, 0, 24)).toBe('标题');
-    // 光标符 ❯→▸（界面美化役美学注③——SelectPanel 已迁 CURSOR_MARK，期望帧随档）
-    expect(readRow(grid, 1, 24)).toBe('▸ 选项甲          hint-a'); // 8 格 + 10 空格 + 右对齐说明
+    // 光标符 ❯→›（界面美化役美学注③——SelectPanel 已迁 CURSOR_MARK，期望帧随档）
+    expect(readRow(grid, 1, 24)).toBe('› 选项甲          hint-a'); // 8 格 + 10 空格 + 右对齐说明
     expect(grid.getCell(1, 0)?.style.inverse).toBe(true); // 高亮行反色
     expect(grid.getCell(1, 18)?.style.dim).toBe(true); // 说明段 dim
     expect(readRow(grid, 2, 24)).toBe('  选项乙');

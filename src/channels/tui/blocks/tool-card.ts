@@ -1,7 +1,7 @@
 /**
  * 工具卡定稿形渲染（07 §4.1 R4 批 10i——三态卡）。
  *
- * 三态卡头：✓ success（isError=false）/ ✖ error（isError=true）/ ⏹ aborted
+ * 三态卡头：✓ success（isError=false）/ ✗ error（isError=true）/ ⏹ aborted
  * （details.aborted 结构化标记——tools-batch 中止合成位铸入；dim 档与次文
  * 同档弱存在感〔semantic 件 10g 裁〕）。卡头两形（UX 五问题批①——exec 卡头
  * 复刻）：bash 族 = 终态符号（语义色）+ 动词 `Ran` bold + 命令文本自研 bash
@@ -10,7 +10,7 @@
  * 卡体两档：缺省**折叠**（卡头 + exec 状态行 + 「头 2 + 省略行 + 尾 2」中段
  * 截断预览〔UX 五问题批⑤——总帽 5，省略行提示 ctrl+o〕，预览整面 dim），
  * ctrl+o 会话级展开（全量行、正常亮度）。exec 卡族卡体首行状态行（批③）：
- * 退出码数值 + ` • {时长}` dim——两档恒在。
+ * 退出码数值 + ` · {时长}` dim——两档恒在。
  *
  * diff 档（edit 类工具——patch 体卡）：卡体行按 patch 判形渲染，1 删 1 增
  * 相邻对走词级高亮（删行变更词红 / 增行变更词绿——word-diff 件 LCS），
@@ -26,7 +26,14 @@
  * 抛错/返回空行集/载荷缺席 → 宿主缺省卡体（插件渲染器结构性不可劣化呈现
  * 面）。折叠预览 N=5 与卡体帽 200 行对插件行集同律。
  */
-import { sanitizeDisplayText, truncateToWidth, wrapText, type CellStyle, type ColorValue } from '../../engine/index.js';
+import {
+  DIM_STYLE,
+  sanitizeDisplayText,
+  truncateToWidth,
+  wrapText,
+  type CellStyle,
+  type ColorValue,
+} from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../backend/ansi-rows.js';
 import { highlight, tokenStyle } from '../markdown/highlight/index.js';
@@ -76,8 +83,8 @@ export interface ToolCardView {
   readonly renderInput?: ToolCardRenderInput;
 }
 
-/** 终态符号（卡头首段——状态分档可辨形） */
-const STATUS_SYMBOL: Readonly<Record<ToolCardStatus, string>> = { success: '✓', error: '✖', aborted: '⏹' };
+/** 终态符号（卡头首段——状态分档可辨形；注⑩：失败位 ✗ 形〔✖ 退役〕） */
+const STATUS_SYMBOL: Readonly<Record<ToolCardStatus, string>> = { success: '✓', error: '✗', aborted: '⏹' };
 
 /**
  * 输出护栏注记行识别（V-2 笔2 注④双轨分层）：pipeline 固定链尾步对超帽
@@ -119,7 +126,7 @@ export function cardBodyOf(text: string): readonly string[] {
  * 常量卡头（符号语义色 + 工具名**平前景**不 dim〔界面美化役批②——名不被
  * dim 淹没〕+ 参数简述 dim）。
  *
- * 卡体首行状态行（UX 五问题批③——exec 卡族）：退出码数值 + ` • {时长}` dim
+ * 卡体首行状态行（UX 五问题批③——exec 卡族）：退出码数值 + ` · {时长}` dim
  * （时长近似 = durationMs——transcript 铸入），折叠展开两档恒在（钉在预览
  * 窗上方）。卡体折叠 = 头 2 + 省略行 + 尾 2 中段截断（UX 五问题批⑤），展开
  * = 全量行。插件腿现调在卡体源选择之前（07 钉位注）——命中即插件卡体，
@@ -170,8 +177,8 @@ function renderGenericHeaderLine(card: ToolCardView, columns: number, statusColo
 /** exec 卡头命令折行帽（UX 五问题批①——超出走省略行） */
 const EXEC_HEADER_COMMAND_LINES = 2;
 
-/** exec 卡头前缀宽（` ✓ Ran ` ——1+1+1+3+1 = 7 列；续行对齐位） */
-const EXEC_HEADER_PREFIX_WIDTH = 7;
+/** exec 卡头前缀宽（` ✓ Ran $ ` ——1+1+1+3+1+1+1 = 9 列；`$ ` 命令位〔注⑩〕；续行对齐位） */
+const EXEC_HEADER_PREFIX_WIDTH = 9;
 
 /**
  * exec 卡头行集（bash 族——UX 五问题批① 复刻 codex 形）。命令源 = 卡面
@@ -194,12 +201,15 @@ function renderExecHeaderLines(card: ToolCardView, columns: number, statusColor:
   const wrapped = wrapText(command, Math.max(1, columns - EXEC_HEADER_PREFIX_WIDTH));
   const shown = wrapped.slice(0, EXEC_HEADER_COMMAND_LINES);
   const lines: StyledLine[] = shown.map((line, i): StyledLine => {
-    const plain = (i === 0 ? ` ${STATUS_SYMBOL[card.status]} Ran ` : ' '.repeat(EXEC_HEADER_PREFIX_WIDTH)) + line;
+    const plain = (i === 0 ? ` ${STATUS_SYMBOL[card.status]} Ran $ ` : ' '.repeat(EXEC_HEADER_PREFIX_WIDTH)) + line;
     const runs: StyleRun[] = [
       { start: 0, end: 2, style: { fg: statusColor } }, // 符号段（含首空格——失败红系/中止次文维持）
     ];
-    if (i === 0) runs.push({ start: 3, end: 6, style: { bold: true } }); // 动词段 Ran bold（成功/失败同词）
-    runs.push(...commandRuns(line, EXEC_HEADER_PREFIX_WIDTH, card.theme)); // 命令段词法高亮
+    if (i === 0) {
+      runs.push({ start: 3, end: 6, style: { bold: true } }); // 动词段 Ran bold（成功/失败同词）
+      runs.push({ start: 7, end: 8, style: DIM_STYLE }); // `$` 命令位符 dim（注⑩——位符弱存在感，命令文本主体亮度）
+    }
+    runs.push(...commandRuns(line, EXEC_HEADER_PREFIX_WIDTH, card.theme)); // 命令段词法高亮（自 col 9 起）
     return capStyledLine({ plain, runs }, columns);
   });
   if (wrapped.length > shown.length) {
@@ -252,8 +262,8 @@ function commandRuns(line: string, offset: number, theme: Readonly<ResolvedTheme
 }
 
 /**
- * exec 卡族状态行（UX 五问题批③——卡体首行）：`({退出码}) • {时长}` / 成功
- * 腿 ` • {时长}`（Exit code: 0 渲染层不显——数据面由装配位渲染器过滤，本行
+ * exec 卡族状态行（UX 五问题批③——卡体首行）：`({退出码}) · {时长}` / 成功
+ * 腿 `• {时长}`（Exit code: 0 渲染层不显——数据面由装配位渲染器过滤，本行
  * 成功腿本就不显码）、`(信号终止)` null 形、错误族无码形（EXEC_TIMEOUT 等）
  * 仅时长；整行 dim。退出码解析自卡体首行（bash 数据面 `Exit code: N`——
  * 只读不改）。durationMs 缺席（孤儿/旧投影形）= 无状态行。
@@ -266,7 +276,8 @@ function renderExecStatusLine(card: ToolCardView): StyledLine | null {
     const m = /^Exit code: (\d+)$/.exec(first);
     codeSegment = m !== null ? `(${m[1]})` : first === 'Exit code: null（信号终止）' ? '（信号终止）' : '';
   }
-  const plain = `${codeSegment}${codeSegment === '' ? '' : ' '}• ${formatDuration(card.durationMs)}`;
+  const plain =
+    codeSegment === '' ? `• ${formatDuration(card.durationMs)}` : `${codeSegment} · ${formatDuration(card.durationMs)}`;
   return { plain, runs: [{ start: 0, end: plain.length, style: DIM_STYLE }] };
 }
 
@@ -455,8 +466,7 @@ function wholeRun(text: string, style: CellStyle): StyleRun[] {
   return text === '' ? [] : [{ start: 0, end: text.length, style }];
 }
 
-/** dim 样式（卡头简述段与折叠预览共用——SGR 2；与简行块 DIM_STYLE 字节同源） */
-const DIM_STYLE: Readonly<{ dim: true }> = Object.freeze({ dim: true });
+// dim 样式（卡头简述段与折叠预览共用——SGR 2；注⑩：engine DIM_STYLE 正典单源）
 
 /**
  * 单行构造位消毒（B-render 批）：sanitizeDisplayText 单源消毒（tab 语义展开

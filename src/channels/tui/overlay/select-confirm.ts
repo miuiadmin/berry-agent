@@ -19,6 +19,7 @@ import { ellipsize } from '../../engine/index.js';
 import { hintLine } from '../keys/hint.js';
 import { fitRowSegments } from '../row-segments.js';
 import { CURSOR_MARK, moreHint } from '../panels/panel-chrome.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 保守取消值（select——空串与撤销面同语义） */
 export const SELECT_CANCELLED = '';
@@ -26,7 +27,7 @@ export const SELECT_CANCELLED = '';
 /** 高亮行样式（整行反色——面板内最强存在感） */
 const ACTIVE_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 /** 说明段样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 
 /**
  * 单行左右双段预算排版已迁件外单源 row-segments（2026-09-21 TUI 第四役挂账②
@@ -91,7 +92,7 @@ export class SelectPanel implements Renderable, ViewportCapAware {
   /** 视口帽（null = 未注入——恒满高不窗口化；装配层逐帧注入最新值） */
   private maxHeight: number | null = null;
   /**
-   * 光标符样式（界面美化役美学注③）：▸ 符位 accent 着色——高亮行上与
+   * 光标符样式（界面美化役美学注③）：› 符位 accent 着色——高亮行上与
    * inverse 合成（反相行内符位前景仍带语义色）。
    */
   private readonly cursorStyle: Readonly<CellStyle>;

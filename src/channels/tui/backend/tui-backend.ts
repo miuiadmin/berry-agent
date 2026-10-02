@@ -308,12 +308,12 @@ const FOOTER_HINT_TEXT = '? 快捷键';
  */
 const TICK_INTERVAL_MS = 80;
 
-/** notify 档位符号（正文着色纪律——纯符号不配色，与摘要行会话色分立） */
+/** notify 档位符号（正文着色纪律——纯符号不配色，与摘要行会话色分立；注⑩：info • 列点位/error ✗ 形） */
 const NOTIFY_SYMBOLS: Readonly<Record<NotifyLevel, string>> = Object.freeze({
-  info: '·',
+  info: '•',
   success: '✓',
   warn: '⚠',
-  error: '✖',
+  error: '✗',
 });
 
 /** 渲染合并 op 两形（repaint/resize 权威重建不走队列——同步直出） */
@@ -1537,7 +1537,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * Job 终态收口单行（07 §4.1 V-0 注①聚合律——TUI 视觉重设计批 V-1 笔2）：
    * 子代理 Job 结算的正文流收口呈现。成功 `✓ 名 · 完成`（success 色 ✓ 段）/
-   * 失败 `✖ 名 · 一句话原因`〔terminal.detail 截断〕（error 色 ✖ 段）/停止
+   * 失败 `✗ 名 · 一句话原因`〔terminal.detail 截断〕（error 色 ✗ 段）/停止
    * `⏹ 名 · 已停止〔 · detail〕`。瞬时行同 notify 律（追加即定稿、不占帽
    * 不回收——「让位」= JobPanel 运行行移除，非本行回收）；未终态防御位
    * 零呈现。调用判据（kind/owner 焦点滤）归 tui-entry 订阅位。
@@ -1558,7 +1558,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         sanitizeLineText(terminal.detail ?? '未知原因'),
         Math.max(0, columns - stringWidth(name) - 6),
       );
-      this.appendTransientLine(`${buildSgr({ fg: this.theme.error })}✖${SGR_RESET} ${name} · ${reason}`);
+      this.appendTransientLine(`${buildSgr({ fg: this.theme.error })}✗${SGR_RESET} ${name} · ${reason}`);
       return;
     }
     // killed：已停止（detail 在场附归因——收口/打断的归因语）
@@ -2548,7 +2548,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           // ⚠ 持有档（界面美化役批 4）：failed 终态揭示延后——驱动侧保证
           // failed 后必随发 retry_wait_start（退避窗开）或 retry_wait_end
           // {aborted|exhausted}（终态收口）。揭示前账不冻结（run 仍在跑——
-          // 退避窗计时计入 run 时长）、任务行保持忙态转轮不停（不闪「✖」）、
+          // 退避窗计时计入 run 时长）、任务行保持忙态转轮不停（不闪「✗」）、
           // footer 尾注不落（防翻档前一帧伪终态）
           this.pendingFailReason = event.errorMessage ?? null; // 失败直呈律（V-0 注②）：原因存账随揭示同句供位
           this.toolPanel.clear();
@@ -2567,9 +2567,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         this.refreshTodo(); // 件 4：刷新三时点之三
         this.taskLine.goIdle(); // 忙态离场（零高度缺席；onChange → 首帧）
         // 件 6：落行（与 setStatus 同载体 last-writer-wins）——终态分档
-        // （2026-09-19 P0 静默链修复批：failed ✖ / aborted ⏹ 不显用量成功形——
+        // （2026-09-19 P0 静默链修复批：failed ✗ / aborted ⏹ 不显用量成功形——
         // 与件 9 摘要行「失败与中止显式分档、不得伪装成功」同律；failed 腿的
-        // ✖ 揭示归 retry_wait_end 分支且仅件 12 态④ 承载〔V-3 注⑧：footer 尾注腿退役〕）
+        // ✗ 揭示归 retry_wait_end 分支且仅件 12 态④ 承载〔V-3 注⑧：footer 尾注腿退役〕）
         if (event.status === 'aborted') {
           this.statusLine.setStatus('⏹ 已中止');
           this.appendClosingLine('aborted', event.durationMs);
@@ -2596,7 +2596,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.retryContinuation = true;
           this.taskLine.enterWorking();
         } else {
-          // aborted / exhausted：终态揭示——红 ✖ 驻留 + 账冻结（V-3 注⑧：
+          // aborted / exhausted：终态揭示——红 ✗ 驻留 + 账冻结（V-3 注⑧：
           // footer 尾注腿退役——件 12 态④ 输入框上方位为失败唯一主呈位，
           // 「输入框上方 + footer 尾」双位收敛为单位）；失败直呈律（V-0 注②）
           // 携因由任务行态④单源承载——pendingFailReason 缺席兜底裸形

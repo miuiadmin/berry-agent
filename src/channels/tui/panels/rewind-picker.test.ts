@@ -94,24 +94,24 @@ describe('RewindPicker 呈现（list 段）', () => {
     expect(readRow(grid, grid.rows - 1, 72)).toContain('打字过滤');
   });
 
-  it('光标 ▸ 在首行 + ↑↓ 移动', () => {
+  it('光标 › 在首行 + ↑↓ 移动', () => {
     const { picker } = makePicker();
     let grid = paint(picker);
-    expect(readRow(grid, 1, 72).startsWith('▸')).toBe(true);
+    expect(readRow(grid, 1, 72).startsWith('›')).toBe(true);
     picker.handleEvent(k('down'));
     grid = paint(picker);
-    expect(readRow(grid, 2, 72).startsWith('▸')).toBe(true);
-    expect(readRow(grid, 1, 72).startsWith('▸')).toBe(false);
+    expect(readRow(grid, 2, 72).startsWith('›')).toBe(true);
+    expect(readRow(grid, 1, 72).startsWith('›')).toBe(false);
     picker.handleEvent(k('up'));
     grid = paint(picker);
-    expect(readRow(grid, 1, 72).startsWith('▸')).toBe(true);
+    expect(readRow(grid, 1, 72).startsWith('›')).toBe(true);
   });
 
   it('滚轮滚动（件族面——WHEEL_LINES 3 行跳，3 条清单即跳末条）', () => {
     const { picker } = makePicker();
     picker.handleEvent(wheel('wheel-down'));
     const grid = paint(picker);
-    expect(readRow(grid, 3, 72).startsWith('▸')).toBe(true); // 末条（offset 0 窗内第三条=行 3）
+    expect(readRow(grid, 3, 72).startsWith('›')).toBe(true); // 末条（offset 0 窗内第三条=行 3）
   });
 });
 
@@ -419,7 +419,7 @@ describe('RewindPicker 窄窗宽度收口（fitRowSegments 单段形——超宽
     expect(head.endsWith('…')).toBe(true); // 修前红位：raw writeText 硬截断无收口
     const grid = paint(picker, 20);
     const first = readRow(grid, 1, 20);
-    expect(first.startsWith('▸')).toBe(true); // 光标标记在位
+    expect(first.startsWith('›')).toBe(true); // 光标标记在位
     expect(first).toContain('m-second'); // 成品行前段保留（外部数据行）
     expect(first.endsWith('…')).toBe(true); // 修前红位：manifestLine 长行硬截断
     const bottom = readRow(grid, grid.rows - 1, 20);
@@ -512,7 +512,7 @@ describe('RewindPicker 长清单滚动位置指示（界面美化役 2026-10-01 
     picker.handleEvent(k('end')); // 光标尾条目 m-7
     const grid = paintMid(picker);
     expect(readRow(grid, 1, 72)).toBe('↑ 7 更多');
-    expect(readRow(grid, 2, 72).startsWith('▸')).toBe(true); // 在选行 m-7
+    expect(readRow(grid, 2, 72).startsWith('›')).toBe(true); // 在选行 m-7
     expect(readRow(grid, 2, 72)).toContain('m-7');
     expect(readRow(grid, 3, 72)).not.toContain('更多'); // 贴尾无下指示
   });

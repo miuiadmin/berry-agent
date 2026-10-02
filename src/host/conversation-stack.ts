@@ -445,7 +445,7 @@ export interface ConversationStack {
 
 /**
  * provider 失败指路的通道呈现面 enrich（07 §5 扩面笔——`berry run` stderr 面
- * 同律推及 TUI ✖ 错误块/webui 转录等通道信封消费位）。
+ * 同律推及 TUI ✗ 错误块/webui 转录等通道信封消费位）。
  *
  * 判据与文案单源 = llm/recovery diagnoseProviderFailure（run 入口 stderr 消费
  * 先例）；**只 enrich unconfigured 族**（模型缺席/pi-ai 原生「Provider is not

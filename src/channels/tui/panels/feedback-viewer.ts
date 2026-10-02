@@ -26,6 +26,7 @@ import { sanitizeLineText } from '../blocks/tool-card.js';
 import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
 import { maskDaemonLogLines } from './debug-viewer.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 运行错误史条目（快照行——装配侧扫描产出，面板收纯数据） */
 export interface FeedbackErrorEntry {
@@ -132,7 +133,7 @@ export interface FeedbackScreenSources {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 底行键面提示（e = 导出诊断包——本件独有动作键） */
 const HINT_TEXT = hintLine('q/esc 返回', 'e 导出诊断包', '↑↓/pgup/pgdn/home/end 滚动');
 

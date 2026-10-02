@@ -19,6 +19,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { CURSOR_MARK, headStyleOf, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 技能清单条目（channels 侧窄面——skills 域真身在 host，装配位映射注入） */
 export interface SkillListEntry {
@@ -50,7 +51,7 @@ export interface SkillsViewerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 隐藏件标记（disable-model-invocation——右段层名前缀） */
 const HIDDEN_MARK = '隐 · ';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */

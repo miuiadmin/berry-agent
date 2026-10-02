@@ -1542,7 +1542,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 根已预注册（isRegistered 恒真——session/event 桥律同形防御位：缺席零
     // 订阅不炸）。在飞起跑无事件——新任务行随下一帧/下一交互拉取可见（挂账：
     // 起跑推送锚待后续批）。终态收口单行（07 §4.1 V-0 注①聚合律——批 V-1
-    // 笔2）：焦点会话归属的 subagent Job 结算 → 正文流瞬时行收口（✓/✖/⏹
+    // 笔2）：焦点会话归属的 subagent Job 结算 → 正文流瞬时行收口（✓/✗/⏹
     // 携因单行）；非焦点/他 kind 零呈现（非聚焦瀑布已退役——呈现归固定区）。
     if (dispatch.isRegistered('job_settled')) {
       dispatch.on('job_settled', (data) => {

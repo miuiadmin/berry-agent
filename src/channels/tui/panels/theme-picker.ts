@@ -1,6 +1,6 @@
 /**
  * /themes 主题切换副屏件（07 §4.1 命令面增补批——TUI 本地拦截族）：session-
- * picker 形选择器——▸ 光标 + enter 选定 + 当前档 ● 标记 + 坏文件条目 ⚠ 标注。
+ * picker 形选择器——› 光标 + enter 选定 + 当前档 ● 标记 + 坏文件条目 ⚠ 标注。
  *
  * - **条目形**：内置 auto / dark / light 三档 + themes/ 目录自定义主题文件
  *   （条目清单装配位现取注入——本件只收纯数据行）；坏文件（解析失败）条目
@@ -21,6 +21,7 @@ import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-ch
 import { builtinPalette, DEFAULT_THEME, resolveTheme, type ResolvedTheme } from '../theme/index.js';
 import { overlayBoard } from '../theme/custom.js';
 import type { PartialSemanticPalette } from '../theme/semantic.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 主题条目（装配位合成：内置三档 + themes/ 目录文件名） */
 export interface ThemePickEntry {
@@ -65,7 +66,7 @@ export interface ThemePickerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 当前档标记 */
 const CURRENT_MARK = '●';
 /** 坏文件标记（⚠ + 短语——右段前缀） */
@@ -146,7 +147,7 @@ export class ThemePicker implements OverlayContent {
     return 1 + Math.max(1, this.entries.length) + 1;
   }
 
-  /** 落位：头行（accent）→ 条目视口（光标 ▸ + 当前 ● + 名 / ⚠·说明右段 + 行尾色样段；长清单 dim 边行滚动指示）→ 底行提示 */
+  /** 落位：头行（accent）→ 条目视口（光标 › + 当前 ● + 名 / ⚠·说明右段 + 行尾色样段；长清单 dim 边行滚动指示）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
     const head =

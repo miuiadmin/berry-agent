@@ -13,9 +13,10 @@
  */
 import type { CellBuffer, CellStyle, InputEvent, Region, Renderable } from '../../engine/index.js';
 import { buildVisualLineMap, findVisualLineAt, type VisualSegment } from '../editor/visual-lines.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 滚动条 thumb 样式（dim——存在感弱于正文） */
-const SCROLLBAR_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const SCROLLBAR_STYLE: Readonly<CellStyle> = DIM_STYLE;
 
 /** 滚动条 thumb 字符 */
 const THUMB = '┃';

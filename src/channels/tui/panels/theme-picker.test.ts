@@ -98,13 +98,13 @@ describe('ThemePicker 呈现', () => {
     expect(readRow(g2, 1, width).endsWith('…')).toBe(true); // 空条目行同律
   });
 
-  it('非当前档行首无 ●（光标 ▸ 与当前标记分立）', () => {
+  it('非当前档行首无 ●（光标 › 与当前标记分立）', () => {
     const { picker } = makePicker({ current: 'auto' });
     const width = 72;
     const grid = new CellGrid(width, picker.measure(width));
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
     expect(readRow(grid, 2, width).startsWith('  ●')).toBe(false); // dark 非当前（当前 auto 在行 1）
-    expect(readRow(grid, 1, width)).toContain('▸'); // 光标在首行（auto）
+    expect(readRow(grid, 1, width)).toContain('›'); // 光标在首行（auto）
     expect(readRow(grid, 1, width)).toContain('●'); // auto 兼当前档——两标记同行
   });
 
@@ -125,7 +125,7 @@ describe('ThemePicker 呈现', () => {
     const grid = new CellGrid(width, picker.measure(width));
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
     const line = readRow(grid, 1, width); // auto 行（光标行 + 最宽 detail）
-    expect(line.startsWith('▸')).toBe(true); // 行首光标标记不被右段尾覆写
+    expect(line.startsWith('›')).toBe(true); // 行首光标标记不被右段尾覆写
     expect(line).toContain('auto'); // 档名存活（左段保留位 ≥ 半窗下限）
     expect(line).toContain('…'); // 右段按预算 … 收口（不再原宽右对齐）
     expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
@@ -209,7 +209,7 @@ describe('ThemePicker 长清单滚动位置指示（界面美化役 2026-10-01 �
     picker.handleEvent(k('down')); // 光标 t3
     const grid = paint(picker, 5);
     expect(readRow(grid, 1, 40)).toBe('↑ 3 更多');
-    expect(readRow(grid, 2, 40).startsWith('▸')).toBe(true); // 在选行 t3
+    expect(readRow(grid, 2, 40).startsWith('›')).toBe(true); // 在选行 t3
     expect(readRow(grid, 2, 40)).toContain('t3');
     expect(readRow(grid, 3, 40)).toBe('↓ 4 更多');
   });
@@ -234,7 +234,7 @@ describe('ThemePicker 长清单滚动位置指示（界面美化役 2026-10-01 �
 });
 
 describe('ThemePicker 键面', () => {
-  it('光标移动：down/up + home/end 夹取（▸ 位随行——渲染面断言）', () => {
+  it('光标移动：down/up + home/end 夹取（› 位随行——渲染面断言）', () => {
     const { picker } = makePicker();
     const width = 72;
     const paint = (): CellGrid => {
@@ -242,17 +242,17 @@ describe('ThemePicker 键面', () => {
       picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
       return grid;
     };
-    expect(readRow(paint(), 1, width).startsWith('▸')).toBe(true); // 首位 auto
+    expect(readRow(paint(), 1, width).startsWith('›')).toBe(true); // 首位 auto
     picker.handleEvent(k('down'));
-    expect(readRow(paint(), 2, width).startsWith('▸')).toBe(true); // → dark
+    expect(readRow(paint(), 2, width).startsWith('›')).toBe(true); // → dark
     picker.handleEvent(k('end'));
-    expect(readRow(paint(), 5, width).startsWith('▸')).toBe(true); // → 尾条目
+    expect(readRow(paint(), 5, width).startsWith('›')).toBe(true); // → 尾条目
     picker.handleEvent(k('down')); // 尾夹取——位不动
-    expect(readRow(paint(), 5, width).startsWith('▸')).toBe(true);
+    expect(readRow(paint(), 5, width).startsWith('›')).toBe(true);
     picker.handleEvent(k('home'));
-    expect(readRow(paint(), 1, width).startsWith('▸')).toBe(true); // 回首
+    expect(readRow(paint(), 1, width).startsWith('›')).toBe(true); // 回首
     picker.handleEvent(k('up')); // 首夹取——位不动
-    expect(readRow(paint(), 1, width).startsWith('▸')).toBe(true);
+    expect(readRow(paint(), 1, width).startsWith('›')).toBe(true);
   });
 
   it('enter 选定：先收副屏（onExit）再回调（onSelect 名）——同序律；onExit 闭锁单次', () => {
@@ -364,7 +364,7 @@ describe('ThemePicker 键面', () => {
     const grid = paint();
     expect(readRow(grid, 1, width)).toContain('light'); // 视口跟随提窗 offset 2——修前零动作红锚
     expect(readRow(grid, 1, width)).not.toContain('auto');
-    expect(readRow(grid, 2, width)).toContain('▸'); // 光标行（my-theme）在窗内末行
+    expect(readRow(grid, 2, width)).toContain('›'); // 光标行（my-theme）在窗内末行
     expect(readRow(grid, 2, width)).toContain('my-theme');
     picker.handleEvent(wheel('wheel-up')); // 光标 3 → 0——回锚顶
     expect(readRow(paint(), 1, width)).toContain('auto');

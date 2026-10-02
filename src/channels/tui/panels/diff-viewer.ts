@@ -6,7 +6,7 @@
  *   +N/-M 行计数（同文件多次 edit **累计**）、组体 patch 行**事件时间序全量
  *   呈现**、词级 intra-line diff 高亮**复用 R4 单源**（word-diff 件
  *   diffWords/parsePatchLines——实件单源，本件只做呈现）；**组序 = 文件路径
- *   字典序**；孤儿 toolCall（无 result）分组标 ⧗〔在飞〕**同键混排不另立分区**；
+ *   字典序**；孤儿 toolCall（无 result）分组标 ⋮〔在飞〕**同键混排不另立分区**；
  * - **零 git 子进程**：「会话改了什么」（事件真源）与「工作树现在什么样」
  *   （git 真源）两问分立——v1 答前者，投影快照档（开屏一次现取）；
  * - **enter = 展开 / 收起光标组**（缺省全收起——总览语义）；空集（会话零
@@ -21,6 +21,8 @@ import { sanitizeLineText } from '../blocks/tool-card.js';
 import { diffWords, parsePatchLines, type DiffSeg, type PatchLine } from '../blocks/word-diff.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
+import { DIM_STYLE } from '../../engine/index.js';
+import { CURSOR_MARK as PANEL_CHROME_CURSOR_MARK, HEAD_MARKS } from './panel-chrome.js';
 
 /**
  * 投影工具调用最小面（foldSessionDiff 消费子集）：arguments = **原始未解析
@@ -54,7 +56,7 @@ export interface DiffFileGroup {
   readonly added: number;
   /** 删行计数（多次 edit 累计——'-' 体系行） */
   readonly removed: number;
-  /** 孤儿位（贡献本组的 edit toolCall 存在无 result 在飞形——⧗ 标记） */
+  /** 孤儿位（贡献本组的 edit toolCall 存在无 result 在飞形——⋮ 标记） */
   readonly orphan: boolean;
   /** 组体 patch 行（ctx/del/add 分类形——meta 段指令不入组体，组头已呈路径） */
   readonly lines: readonly PatchLine[];
@@ -67,7 +69,7 @@ const FILE_DIRECTIVES = ['*** Update File:', '*** Add File:', '*** Delete File:'
  * 投影消息 → 文件分组（纯函数——装配/测试双消费）：assistant 消息 toolCalls
  * 中 edit 调用（`toolName === 'edit'` 且 arguments JSON 串解析出 string
  * `patch`——transcript 工具卡判形同源、arguments 载体异形〔投影 = 审计原始
- * 串〕）逐个累积；toolResult 按 toolCallId 配对，无配对 = 孤儿（⧗ 在飞）。
+ * 串〕）逐个累积；toolResult 按 toolCallId 配对，无配对 = 孤儿（⋮ 在飞）。
  * 组序 = 路径字典序。
  */
 export function foldSessionDiff(messages: readonly DiffProjectionMessage[]): readonly DiffFileGroup[] {
@@ -180,15 +182,16 @@ export interface DiffViewerOptions {
   readonly onQuit?: () => void;
 }
 
-/** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 光标行标记（在选行） */
-const CURSOR_MARK = '▸';
+/** 提示行样式（dim——注⑩：engine DIM_STYLE 单源） */
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
+/** 光标行标记（在选行——panel-chrome 单源引形） */
+const CURSOR_MARK = PANEL_CHROME_CURSOR_MARK;
 /** 收起态标记（组头第二位——与展开 ▾ 配对的窄形） */
-// 撞形修正（2026-09-23）：原同用 ▸ 与光标标记撞——缺省全收起 + 光标 0 时
-// 首屏即「▸ ▸ path」双记不可辨。改窄形 ›（stringWidth 1）；避 ▶ U+25B6
-//（stringWidth 计 2 且 emoji 化风险——宽度账与呈现双不稳）
-const COLLAPSED_MARK = '›';
+// 撞形修正两轮（2026-09-23 + V-3 注⑩翻档）：初版同用 ▸ 与光标标记撞——缺省
+// 全收起 + 光标 0 时首屏「▸ ▸ path」双记不可辨，改窄形 ›；注⑩光标符全域
+// 单形 › 后收起位再撞（「› › path」同形复现）——改列点位 •（stringWidth 1
+// 语义分立：• = 折叠组/列点、› = 输入与选中——撞形回归防御随形翻档）
+const COLLAPSED_MARK = '•';
 const EXPANDED_MARK = '▾';
 
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
@@ -263,7 +266,7 @@ export class DiffViewer implements OverlayContent {
   /** 落位：头行 → 行视口（组头计数着色 / 组体词级变段着色）→ 底行提示 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
-    const head = `± 改动总览 · ${this.groups.length} 文件`;
+    const head = `${HEAD_MARKS.diff} 改动总览 · ${this.groups.length} 文件`;
     // 头行/空态/底行 fitLine 收口（界面美化役美学注⑤——窄窗溢出止漏）
     buffer.writeText(region.row, region.col, fitLine(head, region.width));
     const viewHeight = Math.max(1, region.height - 2);
@@ -302,7 +305,7 @@ export class DiffViewer implements OverlayContent {
     );
   }
 
-  /** 组头行：光标 ▸ + 展开位 ›/▾ + 路径左段；+N（绿）/-M（红）/⧗（次文）右段 */
+  /** 组头行：光标 › + 展开位 •/▾ + 路径左段；+N（绿）/-M（红）/⋮（次文·在飞跳略位）右段 */
   private renderHead(
     buffer: CellBuffer,
     row: number,
@@ -312,7 +315,7 @@ export class DiffViewer implements OverlayContent {
     group: DiffFileGroup,
   ): void {
     const expanded = this.expanded.has(group.path);
-    const left = `${index === this.cursor ? CURSOR_MARK : ' '} ${expanded ? EXPANDED_MARK : COLLAPSED_MARK} ${group.path}${group.orphan ? '  ⧗ 进行中' : ''}`;
+    const left = `${index === this.cursor ? CURSOR_MARK : ' '} ${expanded ? EXPANDED_MARK : COLLAPSED_MARK} ${group.path}${group.orphan ? '  ⋮ 进行中' : ''}`;
     // 右段三游程：+N（diffAdded）/ -M（diffRemoved）——计数着色即语义着色。
     // 右段预算（第五役 G8——fitRowSegments 单源的形态学例外注记）：三游程
     // 双色计数段非单串右段，不能整段走 row-segments 单源，本位等价收紧——

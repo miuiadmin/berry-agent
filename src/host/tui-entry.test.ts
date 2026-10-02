@@ -614,7 +614,7 @@ describe('runTuiEntry 装配序', () => {
     // /marketplace 恰零参命中（本地拦截族第七件）→ 副屏开屏：快照行集首帧
     io.send('/marketplace\r');
     await until(() => io.output.includes('◆ 插件市场 · 1 条目（1 源）'));
-    expect(io.output).toContain('▸ hello-plugin@alpha'); // 光标在首行（未装——无徽标）
+    expect(io.output).toContain('› hello-plugin@alpha'); // 光标在首行（未装——无徽标）
     // enter 选装：先收副屏再回调 → 真服务面拷贝腿装机（busy 在主屏外飞——
     // 回主屏可 busy 行不可见，完成归因 notify 兜底）
     io.send('\r');
@@ -839,7 +839,7 @@ describe('runTuiEntry 装配序', () => {
     const out = io.output;
     expect(out).toContain('berry-agent vtest'); // 头行（版本 = 入口 options.version 透传）
     expect(out).toContain('✓ 就绪'); // 六阶段收尾行
-    expect(out).toContain('▸ 加载 '); // 插件装载行（noPlugins:false——core 件在册）
+    expect(out).toContain('› 加载 '); // 插件装载行（noPlugins:false——core 件在册）
     // 两窗序：动画行全部先于 footer（raw 窗屏本体）
     expect(out.indexOf('berry-agent vtest')).toBeLessThan(out.indexOf('工作区写 · '));
     expect(out.indexOf('✓ 就绪')).toBeLessThan(out.indexOf('工作区写 · '));

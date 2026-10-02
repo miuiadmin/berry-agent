@@ -67,6 +67,8 @@ import { tokenize } from '../../commands.js';
 import { fitLine } from '../row-segments.js';
 import { headStyleOf, VIEWER_HEAD_MARK } from '../panels/panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+// 提示行/分区头/投影行 dim——engine DIM_STYLE 单源直用（注⑩收编）
+import { DIM_STYLE } from '../../engine/index.js';
 
 /* ---------------- 结构相容窄面（channels 不依赖 memory——边表执法） ---------------- */
 
@@ -181,8 +183,6 @@ const SECTION_LABEL: Readonly<Record<Section, string>> = Object.freeze({
   terminal: '已结束',
 });
 
-/** 提示行样式（dim——存在感弱于正文；分区头/投影行同载体） */
-const DIM_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
 /** 光标行反色样式（整行最强存在感——SelectPanel 高亮行同载体） */
 const CURSOR_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 

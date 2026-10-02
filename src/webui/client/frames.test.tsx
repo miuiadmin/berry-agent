@@ -266,10 +266,10 @@ describe('frames 工具族与状态行', () => {
     expect(state.messages).toHaveLength(1);
   });
 
-  it('agent_end 终态分档：failed ✖ / aborted ⏹ / completed 归闲态（修前不分 status 恒闲态伪收场）', () => {
+  it('agent_end 终态分档：failed ✗ / aborted ⏹ / completed 归闲态（修前不分 status 恒闲态伪收场）', () => {
     // 07 §4.1 件 6 跨通道同律（TUI 侧 P0 批已修——失败/中止显式呈现不伪装成功）
     let state = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
-    expect(state.status).toBe('✖ 失败');
+    expect(state.status).toBe('✗ 失败');
     expect(state.messages).toHaveLength(0); // 失败终态无收尾行（错误块本体呈现）
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'aborted' }));
     expect(state.status).toBe('⏹ 已中止');
@@ -282,16 +282,16 @@ describe('frames 工具族与状态行', () => {
     expect(state.messages).toHaveLength(1);
   });
 
-  it('失败直呈律 webui 第三位：errorMessage 同句携因（✖ 失败 · 原因——07 §4.1 V-0 注②）', () => {
+  it('失败直呈律 webui 第三位：errorMessage 同句携因（✗ 失败 · 原因——07 §4.1 V-0 注②）', () => {
     // 修前红锚：裸「✖ 失败」零上下文（与 TUI 双位同律人读化——跨通道同批）
     let state = applyEnvelope(
       initialAppState,
       display({ type: 'agent_end', status: 'failed', errorMessage: '模型渠道未配置（CHANNEL_UNKNOWN）' }),
     );
-    expect(state.status).toBe('✖ 失败 · 模型渠道未配置（CHANNEL_UNKNOWN）');
+    expect(state.status).toBe('✗ 失败 · 模型渠道未配置（CHANNEL_UNKNOWN）');
     // errorMessage 缺席 → 裸形兜底（诚实缺席非虚造）
     state = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
-    expect(state.status).toBe('✖ 失败');
+    expect(state.status).toBe('✗ 失败');
   });
 });
 

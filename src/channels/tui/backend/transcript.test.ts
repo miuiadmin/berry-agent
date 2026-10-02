@@ -145,7 +145,7 @@ describe('LiveTranscript 聚焦归约', () => {
       message: assistantMsg('半途文本', [], '', 'Provider is not configured: anthropic'),
     });
     const blocks = t.snapshot;
-    // 错误块在场（✖ 前缀 + error 语义色整行）；text 块照常渲染、错误块追加于其后
+    // 错误块在场（✗ 前缀 + error 语义色整行）；text 块照常渲染、错误块追加于其后
     const err = blocks.find((b) => b.kind === 'error');
     expect(err).toBeDefined();
     const lines = renderBlockStyledLines(err!, 40);
@@ -166,7 +166,7 @@ describe('LiveTranscript 聚焦归约', () => {
     // error.message 嵌套形：引导语收编为摘要前缀、message 字段成首行可读摘要
     const text = 'Provider 401: {"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}';
     const styled = renderBlockStyledLines({ kind: 'error', text, theme: DEFAULT_THEME }, 100);
-    expect(styled[0]!.plain).toBe('✖ Provider 401：Incorrect API key provided');
+    expect(styled[0]!.plain).toBe('✗ Provider 401：Incorrect API key provided');
     // 原文随后保留（折行展开可见——诚实保真不吞原文）
     expect(
       styled
@@ -179,15 +179,15 @@ describe('LiveTranscript 聚焦归约', () => {
       { kind: 'error', text: '{"message":"rate limit exceeded"}', theme: DEFAULT_THEME },
       100,
     );
-    expect(top[0]!.plain).toBe('✖ rate limit exceeded');
+    expect(top[0]!.plain).toBe('✗ rate limit exceeded');
     // 无 message 只 status：数值收编为摘要（403 类网关体）
     const statusOnly = renderBlockStyledLines({ kind: 'error', text: '{"status":403}', theme: DEFAULT_THEME }, 100);
-    expect(statusOnly[0]!.plain).toBe('✖ 403');
+    expect(statusOnly[0]!.plain).toBe('✗ 403');
     // 非 JSON / 无可提取字段 = 原样（诚实退原形）
     const plainText = renderBlockStyledLines({ kind: 'error', text: '连接超时（30s）', theme: DEFAULT_THEME }, 100);
-    expect(plainText[0]!.plain).toBe('✖ 连接超时（30s）');
+    expect(plainText[0]!.plain).toBe('✗ 连接超时（30s）');
     const noField = renderBlockStyledLines({ kind: 'error', text: '{"foo":"bar"}', theme: DEFAULT_THEME }, 100);
-    expect(noField[0]!.plain).toBe('✖ {"foo":"bar"}');
+    expect(noField[0]!.plain).toBe('✗ {"foo":"bar"}');
   });
 
   it('流式单槽守卫：重开 message_start 先摘旧槽（占位不孤儿滞留——epoch 递增）', () => {
@@ -208,8 +208,9 @@ describe('LiveTranscript 聚焦归约', () => {
     expect(slot.doc).toBeNull();
     expect(slot.epoch).toBe(1); // 槽同一性保位（非重开）
     expect(slot.text).toBe('看 `npm` 命令');
-    // 降档后渲染 = 纯文本折行（零 ANSI 网格管线）
-    expect(renderBlockLines(slot, 40)).toEqual(['看 `npm` 命令']);
+    // 降档后渲染 = 纯文本折行（零 ANSI 网格管线）；注⑩ bullet 槽——降档腿与
+    // doc 腿同轴（首行 • 续行两空格——热路径与定稿渲染恒一致）
+    expect(renderBlockLines(slot, 40)).toEqual(['• 看 `npm` 命令']);
   });
 
   it('setStreamingPlain 无槽零效果（防御）', () => {
@@ -492,16 +493,32 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
     expect(toolResult[0]).toBe('\x1b[2m ↳ 命中\x1b[0m');
   });
 
-  it('markdown 块：经 CellGrid 渲染（H1 bold 行）', () => {
+  it('markdown 块：经 CellGrid 渲染（H1 bold 行）+ bullet 槽前缀（注⑩——首行 • 续行缩进）', () => {
     const lines = renderBlockLines({ kind: 'markdown', doc: MarkdownDoc.of('# 标题') }, 20);
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines[0]).toContain('\x1b[1m标题\x1b[0m'); // H1 bold
+    expect(lines[0]).toBe('• \x1b[1m标题\x1b[0m'); // 首行 • 前缀 + H1 bold
+    expect(lines[1]!.startsWith('  ')).toBe(true); // H1 下划线续行两空格缩进（同槽）
+    expect(lines[1]).toContain('────'); // 下划线随文字宽
   });
 
-  it('streaming 块降档形：空文本零行、有文本按宽折行（doc = null 纯文本直推不走网格）', () => {
+  it('markdown 块 bullet 槽形（注⑩——• 列点前缀位）：非空行前缀两形 + 空行保空行 + 行宽帽', () => {
+    const doc = MarkdownDoc.of('段落一 段落二\n\n第二段');
+    const styled = renderBlockStyledLines({ kind: 'markdown', doc }, 9); // 内容宽 = columns−2 = 7
+    expect(styled[0]!.plain.startsWith('• ')).toBe(true); // 首行 • 前缀
+    expect(
+      styled
+        .filter((line) => line.plain !== '')
+        .every((line) => line.plain.startsWith('• ') || line.plain.startsWith('  ')),
+    ).toBe(true); // 续行两空格缩进（user 块 › 同构）
+    expect(styled.some((line) => line.plain === '' && line.runs.length === 0)).toBe(true); // 空行不携前缀
+    for (const line of styled) expect(stringWidth(sanitizeDisplayText(line.plain))).toBeLessThanOrEqual(9); // 槽行宽 ≤ columns
+  });
+
+  it('streaming 块降档形：空文本零行、有文本按宽折行 + bullet 前缀（doc = null 纯文本直推不走网格）', () => {
     expect(renderBlockLines(slotOf(1, '', null), 20)).toEqual([]);
+    // 注⑩ bullet 槽：降档腿同轴 columns−2 折行 + `• `/`  ` 前缀（宽 4 → 内容宽 2）
     const lines = renderBlockLines(slotOf(1, 'abcdefgh', null), 4);
-    expect(lines).toEqual(['abcd', 'efgh']);
+    expect(lines).toEqual(['• ab', '  cd', '  ef', '  gh']);
   });
 
   it('streaming 块直推档：doc 经网格管线、与定稿 markdown 块同行集（同管线律零第二渲染器）', () => {
@@ -513,6 +530,7 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
     expect(streaming).toEqual(final); // 同文同宽同主题 → 同行集（main-screen 冻结跳行的定位前提）
     expect(streaming.length).toBeGreaterThanOrEqual(3);
     expect(streaming[0]!.plain).toContain('标题');
+    expect(streaming[0]!.plain.startsWith('• ')).toBe(true); // bullet 槽首行 •（注⑩）——live 槽与定稿块同形
     expect(streaming[0]!.runs.some((r) => r.style.bold === true)).toBe(true); // H1 bold 位
   });
 });
@@ -934,7 +952,7 @@ describe('宽帽/错误帽/参数简述帽（2026-09-20 TUI 修复组 1 批 F4/F
     const text = Array.from({ length: 20 }, (_, i) => `L${String(i).padStart(2, '0')}`).join('\n');
     const styled = renderBlockStyledLines({ kind: 'error', text, theme: DEFAULT_THEME }, 40);
     expect(styled).toHaveLength(5);
-    expect(styled[0]!.plain).toBe('✖ L00');
+    expect(styled[0]!.plain).toBe('✗ L00');
     expect(styled[3]!.plain).toBe('  L03');
     // 标记行：两空格缩进 + 省略提示（20 - 4 = 16 行省略）、error 前景游程
     expect(styled[4]!.plain).toBe('  ⋯（错误详情已省 16 行）');
@@ -944,7 +962,7 @@ describe('宽帽/错误帽/参数简述帽（2026-09-20 TUI 修复组 1 批 F4/F
   it('F5：error 块行数在帽内——全量原样（无标记行）', () => {
     const styled = renderBlockStyledLines({ kind: 'error', text: '网关 403：凭证失效', theme: DEFAULT_THEME }, 40);
     expect(styled).toHaveLength(1);
-    expect(styled[0]!.plain).toBe('✖ 网关 403：凭证失效');
+    expect(styled[0]!.plain).toBe('✗ 网关 403：凭证失效');
   });
 
   it('F6：argsBrief 参数简述受 BRIEF_WIDTH=40 帽（界面美化役批①：截断走 `…` 单源口径——修前裸截悄然吃字）', () => {

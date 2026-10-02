@@ -1,11 +1,11 @@
 /**
  * /thinking 思考档位切换副屏件（2026-09-17 会话档位切换面批 F1——TUI 本地
- * 拦截族）：theme-picker 形选择器——▸ 光标 + enter 选定 + 当前档 ● 标记。
+ * 拦截族）：theme-picker 形选择器——› 光标 + enter 选定 + 当前档 ● 标记。
  *
  * - **行集七档**：词表单源 conversation THINKING_LEVELS（off..max——装配位
  *   注入条目，本件只收纯数据行原样呈现）；
  * - **当前档锚**：● 标记判据 = 装配位注入的 current（会话 fold 现值 ?? 栈
- *   基线——boot 未设且无切档事件时 undefined = 诚实无锚）；光标 ▸ 与当前 ●
+ *   基线——boot 未设且无切档事件时 undefined = 诚实无锚）；光标 › 与当前 ●
  *   两记分立（光标独立游走）；
  * - **选定先收副屏再回调**（SessionPicker/ThemePicker 同序律）：onSelect 收
  *   档位词——append durable 事件 + setStatus 回执全归装配闭包，本件零边外面；
@@ -18,6 +18,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { CURSOR_MARK, headStyleOf, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 档位条目（装配位从 THINKING_LEVELS 单源合成——本件不 import conversation） */
 export interface ThinkingPickEntry {
@@ -47,7 +48,7 @@ export interface ThinkingPickerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 当前档标记 */
 const CURRENT_MARK = '●';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
@@ -104,7 +105,7 @@ export class ThinkingPicker implements OverlayContent {
     return 1 + Math.max(1, this.entries.length) + 1;
   }
 
-  /** 落位：头行（accent + fitLine 收口）→ 条目视口（光标 ▸ + 当前 ● + 档名 / 说明右段）→ 底行提示（fitLine 收口） */
+  /** 落位：头行（accent + fitLine 收口）→ 条目视口（光标 › + 当前 ● + 档名 / 说明右段）→ 底行提示（fitLine 收口） */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
     // 界面美化役美学注④/⑤：头符 ◆（选择器族词汇单源化）accent 着色 + 非条目行 fitLine 收口

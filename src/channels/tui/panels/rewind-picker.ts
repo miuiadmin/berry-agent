@@ -25,6 +25,7 @@ import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
 import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 回退点选择器装配选项（载荷与回调组经 host deps 注入流转——openRewindPicker 面） */
 export interface RewindPickerOptions {
@@ -44,9 +45,9 @@ export interface RewindPickerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 警告行样式（规范明文警告——dim 恒可读不加色） */
-const WARN_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const WARN_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——件族面） */
 const WHEEL_LINES = 3;
 /** manifest 外改动不回退警告行（05 §5.3 批3 翻案笔②规范明文文案） */
@@ -216,7 +217,12 @@ export class RewindPicker implements OverlayContent {
   /** preview 段落位：选中成品行 → 三账行/错误行 → 警告行 → 底行段提示 */
   private renderPreview(buffer: CellBuffer, region: Region): void {
     // preview 段头行同 accent（界面美化役美学注④——视图切换层级感不降档）
-    buffer.writeText(region.row, region.col, fitLine('◆ 回退点预览（不改动文件）', region.width), this.headStyle);
+    buffer.writeText(
+      region.row,
+      region.col,
+      fitLine(`${PICKER_HEAD_MARK} 回退点预览（不改动文件）`, region.width),
+      this.headStyle,
+    );
     buffer.writeText(region.row + 1, region.col, fitLine(this.previewLine, region.width));
     const data = this.previewData;
     if (data === undefined) {

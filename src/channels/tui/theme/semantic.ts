@@ -14,7 +14,7 @@
  *   三态无 pending 期、中止卡与次文同档弱存在感〔R2「复用次文键或专键随
  *   10g 定」的 10g 裁〕）
  * - `thinkingText` 思考块文字（10i 消费）
- * - `success` / `error` 工具卡终态 ✓ / ✖（10i 消费）
+ * - `success` / `error` 工具卡终态 ✓ / ✗（10i 消费）
  * - `diffAdded` / `diffRemoved` 词级 diff 增 / 删（10i 消费）
  * - `link` 链接（markdown 行内链接——10h 消费）
  * - `tableRule` 表格线（GFM 表格框线——10h 消费）

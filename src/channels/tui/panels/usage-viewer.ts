@@ -19,6 +19,7 @@ import type { UiUsageSummary } from '../../../contracts/index.js';
 import { fitLine } from '../row-segments.js';
 import { headStyleOf, VIEWER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 用量面板装配选项 */
 export interface UsageViewerOptions {
@@ -35,7 +36,7 @@ export interface UsageViewerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 底行键面提示 */
 const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 

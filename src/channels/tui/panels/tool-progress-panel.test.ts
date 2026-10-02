@@ -74,7 +74,7 @@ describe('ToolProgressPanel 行生命周期', () => {
     expect(panel.measure(WIDTH)).toBe(0);
     panel.applyUpdate('t1', '扫描中');
     expect(panel.measure(WIDTH)).toBe(1);
-    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ 搜索文本 · 扫描中');
+    expect(readRow(renderPanel(panel), 0)).toBe(' • 搜索文本 · 扫描中');
   });
 
   it('后续 update 原位换行（尾行文本更新）', () => {
@@ -82,14 +82,14 @@ describe('ToolProgressPanel 行生命周期', () => {
     panel.begin('t1', 'grep');
     panel.applyUpdate('t1', '第一段');
     panel.applyUpdate('t1', '第二段');
-    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ 搜索文本 · 第二段');
+    expect(readRow(renderPanel(panel), 0)).toBe(' • 搜索文本 · 第二段');
   });
 
-  it('文本缺席退化形：` ▸ 名 …`', () => {
+  it('文本缺席退化形：` • 名 …`', () => {
     const panel = new ToolProgressPanel();
     panel.begin('t1', 'search');
     panel.applyUpdate('t1', { progress: 0.5 }); // 非解码形
-    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ search …');
+    expect(readRow(renderPanel(panel), 0)).toBe(' • search …');
   });
 
   it('end 即摘行；迟到 update 无档退 toolCallId 名（防御路径）', () => {
@@ -99,7 +99,7 @@ describe('ToolProgressPanel 行生命周期', () => {
     panel.end('t1');
     expect(panel.measure(WIDTH)).toBe(0);
     panel.applyUpdate('t1', '迟到进度'); // 档已随 end 摘——名退 id
-    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ t1 · 迟到进度');
+    expect(readRow(renderPanel(panel), 0)).toBe(' • t1 · 迟到进度');
   });
 
   it('clear 清板（行与建档同清——瞬时面律）', () => {
@@ -109,7 +109,7 @@ describe('ToolProgressPanel 行生命周期', () => {
     panel.clear();
     expect(panel.measure(WIDTH)).toBe(0);
     panel.applyUpdate('t1', '清板后'); // 无档退 id 名——建档确已清
-    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ t1 · 清板后');
+    expect(readRow(renderPanel(panel), 0)).toBe(' • t1 · 清板后');
   });
 
   it('多工具并行各占一行（建档序）；帽 4 行 + 溢出行', () => {
@@ -120,8 +120,8 @@ describe('ToolProgressPanel 行生命周期', () => {
     }
     expect(panel.measure(WIDTH)).toBe(5); // 4 行 + 溢出行
     const grid = renderPanel(panel);
-    expect(readRow(grid, 0)).toBe(' ▸ a · a 跑着');
-    expect(readRow(grid, 3)).toBe(' ▸ d · d 跑着');
+    expect(readRow(grid, 0)).toBe(' • a · a 跑着');
+    expect(readRow(grid, 3)).toBe(' • d · d 跑着');
     expect(readRow(grid, 4)).toBe('+ 1 更多');
   });
 
@@ -132,9 +132,9 @@ describe('ToolProgressPanel 行生命周期', () => {
     const width = 24;
     const grid = new CellGrid(width, panel.measure(width));
     panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    // 前缀 ' ▸ 搜索文本 · ' 14 列（V-0 注⑤动词位）+ 9 x（23 列整字帽）+ '…' = 24 列恰满
+    // 前缀 ' • 搜索文本 · ' 14 列（V-0 注⑤动词位）+ 9 x（23 列整字帽）+ '…' = 24 列恰满
     //（修前红锚：14 x 硬切到帽、尾部无 …）
-    expect(readRow(grid, 0, width)).toBe(' ▸ 搜索文本 · ' + 'x'.repeat(9) + '…');
+    expect(readRow(grid, 0, width)).toBe(' • 搜索文本 · ' + 'x'.repeat(9) + '…');
   });
 });
 
@@ -147,7 +147,7 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     for (const dispose of disposers.splice(0)) dispose();
   });
 
-  it('行集整体替换面板行（宿主 ` ▸ 名 · 末行` 形让位）＋ renderCall 收在飞期快照', () => {
+  it('行集整体替换面板行（宿主 ` • 名 · 末行` 形让位）＋ renderCall 收在飞期快照', () => {
     const received: unknown[] = [];
     disposers.push(
       registerToolRenderer('plug_scan', {
@@ -161,7 +161,7 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     panel.begin('t1', 'plug_scan', { depth: 3 });
     panel.applyUpdate('t1', '进度文本'); // 行集替换——update 文本不进呈现面
     expect(panel.measure(WIDTH)).toBe(1);
-    expect(readRow(renderPanel(panel), 0)).toBe('扫描 42%'); // 非 ` ▸ plug_scan · 进度文本`
+    expect(readRow(renderPanel(panel), 0)).toBe('扫描 42%'); // 非 ` • plug_scan · 进度文本`
     // 在飞期快照 = start 面事实（toolCallId/toolName/arguments——无 update 载荷）
     expect(received).toEqual([{ toolCallId: 't1', toolName: 'plug_scan', arguments: { depth: 3 } }]);
   });
@@ -185,7 +185,7 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     expect(grid.getCell(0, 2)?.style.fg).toBe(DEFAULT_THEME.secondary);
   });
 
-  it('回落恒在律三形：抛错 / 空行集 / 未注册——恒宿主 ` ▸ 名 · 末行` 形', () => {
+  it('回落恒在律三形：抛错 / 空行集 / 未注册——恒宿主 ` • 名 · 末行` 形', () => {
     disposers.push(
       registerToolRenderer('plug_throw', {
         renderCall: () => {
@@ -202,9 +202,9 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     panel.begin('t3', 'plug_miss');
     panel.applyUpdate('t3', '进度');
     const grid = renderPanel(panel);
-    expect(readRow(grid, 0)).toBe(' ▸ plug_throw · 进度');
-    expect(readRow(grid, 1)).toBe(' ▸ plug_empty · 进度');
-    expect(readRow(grid, 2)).toBe(' ▸ plug_miss · 进度');
+    expect(readRow(grid, 0)).toBe(' • plug_throw · 进度');
+    expect(readRow(grid, 1)).toBe(' • plug_empty · 进度');
+    expect(readRow(grid, 2)).toBe(' • plug_miss · 进度');
   });
 
   it('零 update 的静默工具：renderCall 不触发（有进无面板行——在飞可见性归件 3）', () => {
@@ -261,7 +261,7 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     const grid = renderPanel(panel);
     expect(readRow(grid, 0)).toBe('甲行');
     expect(readRow(grid, 2)).toBe('丙行');
-    expect(readRow(grid, 3)).toBe(' ▸ b · 跑着');
+    expect(readRow(grid, 3)).toBe(' • b · 跑着');
     expect(readRow(grid, 4)).toBe('+ 1 更多');
   });
 

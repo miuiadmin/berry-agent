@@ -7,17 +7,18 @@
  * - ② streaming 获取响应中：message_start/message_update 流式窗口驱动；
  * - ③ retrying 重试中：转轮不停 + 「重试中 第 n/N 次 · Ns 后」整段 dim——
  *   倒计时消费端本地钟渲染（04 §2 绝对时刻律：事件只携 nextAt 绝对时刻）；
- * - ④ error 错误终态：红 ✖（agent_end(failed) 的终态揭示——retry_wait_end
+ * - ④ error 错误终态：红 ✗（agent_end(failed) 的终态揭示——retry_wait_end
  *   aborted/exhausted 翻档位；在下次 agent_start 前驻留）。
  *
- * 统一格式 `文案 · X tok/s (1m 02s • 按 ESC 取消对话)`：括号段恒 dim；耗时
+ * 统一格式 `文案 · X tok/s (1m 02s · 按 ESC 取消对话)`：括号段恒 dim（注⑩
+ * ——括号段内串接符 ·）；耗时
  * 整 run 口径（runStartedAt 起、重试续入不清零——供数器注入）；速度段拼于
  * 括号段前（态①②，态③ 由倒计时文案顶替）；ESC 提示取键位册首键单源显示。
  * 供数器（elapsed/speed/interruptHint/now）全注入——本件零装配知识，测试
  * 确定性前提（件内零自驱时钟，与 StatusLine 同律）。
  */
 import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
-import { ellipsize, stringWidth } from '../../engine/index.js';
+import { DIM_STYLE, ellipsize, stringWidth } from '../../engine/index.js';
 import { formatElapsedCompact } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
@@ -57,8 +58,8 @@ export class TaskStatusLine implements Renderable {
   private spinnerStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
   /** 错误终态样式（error 语义键） */
   private errorStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.error });
-  /** dim 样式（态③ 文案与括号段） */
-  private readonly dimStyle: Readonly<CellStyle> = Object.freeze({ dim: true });
+  /** dim 样式（态③ 文案与括号段——注⑩：engine 正典单源） */
+  private readonly dimStyle: Readonly<CellStyle> = DIM_STYLE;
   private readonly providers: TaskStatusProviders;
 
   constructor(providers: TaskStatusProviders) {
@@ -113,7 +114,7 @@ export class TaskStatusLine implements Renderable {
     this.onChange?.();
   }
 
-  /** 态④ 错误终态（retry_wait_end aborted/exhausted 揭示——红 ✖ 驻留至下个 agent_start；
+  /** 态④ 错误终态（retry_wait_end aborted/exhausted 揭示——红 ✗ 驻留至下个 agent_start；
    * reason = 失败直呈律（07 §4.1 V-0 注②）同句原因——agent_end failed 的
    * errorMessage 经持有档揭示位供入，缺席兜底裸形） */
   enterError(reason?: string): void {
@@ -143,14 +144,14 @@ export class TaskStatusLine implements Renderable {
     this.onChange?.();
   }
 
-  /** 落位（左起：转轮/✖ + 文案段 + dim 括号段；文案段超宽让位截断加省略号） */
+  /** 落位（左起：转轮/✗ + 文案段 + dim 括号段；文案段超宽让位截断加省略号） */
   render(buffer: CellBuffer, region: Region): void {
     if (this.state === 'idle' || region.width <= 0) return;
     if (this.state === 'error') {
-      // 态④：红 ✖ 终态——无转轮无括号（用量与速度归 footer 尾注）；失败直呈律
-      // （V-0 注②）同句携因 `✖ 失败 · 原因`（缺席裸形兜底）；原因行宽帽 = 段帽
+      // 态④：红 ✗ 终态——无转轮无括号（用量与速度归 footer 尾注）；失败直呈律
+      // （V-0 注②）同句携因 `✗ 失败 · 原因`（缺席裸形兜底）；原因行宽帽 = 段帽
       // （ellipsize 一句话帽——不溢行产漂账物理行）
-      const text = this.errorReason === null ? '✖ 失败' : `✖ 失败 · ${this.errorReason}`;
+      const text = this.errorReason === null ? '✗ 失败' : `✗ 失败 · ${this.errorReason}`;
       buffer.writeText(region.row, region.col, ellipsize(text, region.width), this.errorStyle);
       return;
     }
@@ -165,7 +166,7 @@ export class TaskStatusLine implements Renderable {
     const fitted = ellipsize(text, textBudget);
     buffer.writeText(region.row, region.col, frame, this.spinnerStyle);
     if (fitted !== '') {
-      // 态③ 整段 dim（转轮不停——仅文案降存在感，不闪「✖ 失败」）
+      // 态③ 整段 dim（转轮不停——仅文案降存在感，不闪「✗ 失败」）
       buffer.writeText(region.row, region.col + 2, fitted, this.state === 'retrying' ? this.dimStyle : undefined);
     }
     if (useParen) buffer.writeText(region.row, region.col + 2 + stringWidth(fitted), paren, this.dimStyle);
@@ -184,12 +185,12 @@ export class TaskStatusLine implements Renderable {
     return speed === '' ? base : `${base} · ${speed}`;
   }
 
-  /** 括号段（dim——` (1m 02s • 按 ESC 取消对话)`；两段各自缩位，双缺席无括号） */
+  /** 括号段（dim——` (1m 02s · 按 ESC 取消对话)`；两段各自缩位，双缺席无括号） */
   private parenText(): string {
     const elapsedMs = this.providers.elapsedMs();
     const elapsed = elapsedMs === null ? '' : formatElapsedCompact(elapsedMs);
     const hint = this.providers.interruptHint();
-    const inner = [elapsed, hint].filter((segment) => segment !== '').join(' • ');
+    const inner = [elapsed, hint].filter((segment) => segment !== '').join(' · ');
     return inner === '' ? '' : ` (${inner})`;
   }
 }

@@ -130,23 +130,23 @@ describe('JobsViewer 副屏件', () => {
     // 分段头 → 第三条目（job-3，不驻留分段头）
     let grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 2, width).startsWith('▸ 任务 job-1')).toBe(true);
+    expect(readRow(grid, 2, width).startsWith('› 任务 job-1')).toBe(true);
     viewer.handleEvent(k('down'));
     grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 3, width).startsWith('▸ 任务 job-2')).toBe(true);
+    expect(readRow(grid, 3, width).startsWith('› 任务 job-2')).toBe(true);
     viewer.handleEvent(k('down')); // 跨分段头——光标落 job-3
     grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 5, width).startsWith('▸ 任务 job-3')).toBe(true);
+    expect(readRow(grid, 5, width).startsWith('› 任务 job-3')).toBe(true);
     // ↑ 回跨分段头同样跳过
     viewer.handleEvent(k('up'));
     grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 3, width).startsWith('▸ 任务 job-2')).toBe(true);
+    expect(readRow(grid, 3, width).startsWith('› 任务 job-2')).toBe(true);
   });
 
-  it('在选行 ▸ 记 + accent 着色；未选行光标位空格占列（对齐几何）', () => {
+  it('在选行 › 记 + accent 着色；未选行光标位空格占列（对齐几何）', () => {
     const { viewer } = makeViewer();
     const width = 64;
     const grid = new CellGrid(width, viewer.measure(width));
@@ -171,7 +171,7 @@ describe('JobsViewer 副屏件', () => {
     const width = 64;
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 6, width).startsWith('▸ 任务 job-4')).toBe(true);
+    expect(readRow(grid, 6, width).startsWith('› 任务 job-4')).toBe(true);
   });
 
   it('长清单滚动：滚轮只滚视口不挪光标（自由滚位），键盘 ↓ 复位钉随（光标恒可见）', () => {
@@ -188,7 +188,7 @@ describe('JobsViewer 副屏件', () => {
     expect(readRow(grid, 1, width)).toContain('任务 job-3');
     viewer.handleEvent(k('down')); // 键盘动作复位钉随
     viewer.render(grid, { row: 0, col: 0, width, height });
-    expect(readRow(grid, 1, width)).toContain('▸ 任务 job-2');
+    expect(readRow(grid, 1, width)).toContain('› 任务 job-2');
   });
 
   it('home/end/page 翻越（域内夹取）；上界即末条目行', () => {
@@ -197,16 +197,16 @@ describe('JobsViewer 副屏件', () => {
     viewer.handleEvent(k('end'));
     let grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 6, width).startsWith('▸ 任务 job-4')).toBe(true);
+    expect(readRow(grid, 6, width).startsWith('› 任务 job-4')).toBe(true);
     viewer.handleEvent(k('home'));
     grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 2, width).startsWith('▸ 任务 job-1')).toBe(true);
+    expect(readRow(grid, 2, width).startsWith('› 任务 job-1')).toBe(true);
     // 光标 0 之上零路（首按 down 才激活语义在此恒驻——up 不越 0）
     viewer.handleEvent(k('up'));
     grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 2, width).startsWith('▸ 任务 job-1')).toBe(true);
+    expect(readRow(grid, 2, width).startsWith('› 任务 job-1')).toBe(true);
   });
 
   it('空清单 = 诚实空态行 + 提示行缩为「q/esc 返回」；移动键不动作不炸', () => {
@@ -263,6 +263,6 @@ describe('JobsViewer 副屏件', () => {
     const width = 64;
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 2, width).startsWith('▸ 任务 job-1')).toBe(true);
+    expect(readRow(grid, 2, width).startsWith('› 任务 job-1')).toBe(true);
   });
 });

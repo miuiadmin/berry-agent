@@ -155,7 +155,7 @@ describe('SessionPicker 行呈现', () => {
     picker.render(grid, { row: 0, col: 0, width: 60, height: 6 });
     expect(readRow(grid, 0, 60)).toBe('⇄ 会话切换 · 2 会话');
     // 左段 10 列 · 右段 20 列右对齐（col 40）→ 中间 30 空格
-    expect(readRow(grid, 1, 60)).toBe('▸   调 TUI' + ' '.repeat(30) + '09-15 10:30 aaa11111');
+    expect(readRow(grid, 1, 60)).toBe('›   调 TUI' + ' '.repeat(30) + '09-15 10:30 aaa11111');
     expect(readRow(grid, 2, 60)).toBe('  ● 旧会话' + ' '.repeat(30) + '09-15 09:05 bbb22222');
     expect(readRow(grid, 5, 60)).toBe('↑↓ 移动 · enter 切换 · q/esc 返回');
   });
@@ -208,7 +208,7 @@ describe('SessionPicker 行呈现', () => {
     const grid = new CellGrid(width, 4);
     picker.render(grid, { row: 0, col: 0, width, height: 4 });
     const line = readRow(grid, 1, width);
-    expect(line.startsWith('▸')).toBe(true); // 行首光标标记不被右段尾覆写
+    expect(line.startsWith('›')).toBe(true); // 行首光标标记不被右段尾覆写
     expect(line).toContain('调'); // 标题前字存活（左段保留位 ≥ 半窗下限）
     expect(line).toContain('…'); // 右段按预算 … 收口
     expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
@@ -246,7 +246,7 @@ describe('SessionPicker 行呈现', () => {
     picker.handleEvent(k('down')); // 光标 3 → 窗 [1,3]
     picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
     expect(readRow(grid, 1, 40)).toContain('行1'); // offset 1——行0 出窗
-    expect(readRow(grid, 3, 40)).toContain('▸'); // 光标行在窗内末行
+    expect(readRow(grid, 3, 40)).toContain('›'); // 光标行在窗内末行
     picker.handleEvent(k('up'));
     picker.handleEvent(k('up'));
     picker.handleEvent(k('up')); // 光标 0 → 窗回 [0,2]
@@ -294,7 +294,7 @@ describe('SessionPicker 滚轮消费', () => {
     picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
     expect(readRow(grid, 1, 40)).toContain('行1'); // 视口跟随 offset 1——修前零动作红锚
     expect(readRow(grid, 1, 40)).not.toContain('行0');
-    expect(readRow(grid, 3, 40)).toContain('▸'); // 光标行（行3）在窗内末行
+    expect(readRow(grid, 3, 40)).toContain('›'); // 光标行（行3）在窗内末行
     picker.handleEvent(wheel('wheel-up')); // 光标 3 → 0
     picker.render(grid, { row: 0, col: 0, width: 40, height: 5 });
     expect(readRow(grid, 1, 40)).toContain('行0'); // 回锚顶

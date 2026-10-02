@@ -9,7 +9,7 @@
  *   标签（缺省，省 scrollback）/ 展开体两档，ctrl+t 会话级开关；定稿换装时
  *   思考行升位独立 thinking 块（同函数两渲染——冻结跳行不漂移）；
  * - **工具卡定稿形**（批 10i R4）：toolCall 入在飞账不落行（直播路在飞期零
- *   正文行），toolResult 按 toolCallId 配对落三态卡（✓/✖/⏹——中止走
+ *   正文行），toolResult 按 toolCallId 配对落三态卡（✓/✗/⏹——中止走
  *   details 结构化标记）；折叠 = 卡头 + 尾 5 行预览（ctrl+o 会话级展开）；
  *   投影走查毕的在飞孤儿兜底 ⚙ 简行、配对到达撤销——两路收敛同形；
  * - **流式三段**（呈现面件 1 批 10h R1 三段化）：流式期 **markdown 直推**
@@ -21,9 +21,10 @@
  *   message_start 重开时先摘旧槽（占位容器不孤儿滞留正文）；
  * - **帽 = 块数**（一个 Markdown 块一子行——呈现面件 1 滚动帽语义）：行集保留
  *   帽内最近段（内存上限语义；v1 保守值——实测定值回填挂主屏实装批校准）；
- * - **非聚焦摘要行**（呈现面件 9）：瞬时追加行——agent_start ⧗ / agent_end
- *   按终态 ✓/✖/⏹ 各追加一行、不进行集（不占帽、repaint 不重建），行首段 =
- *   档位符号 + 会话短 id、失败与中止显式分档不伪装成功。
+ * - **非聚焦摘要行**（呈现面件 9，机制已退役——V-3 注⑩零代码注记）：曾在
+ *   agent_start ⧗ 瞬时追加；现 agent_end 按终态 ✓/✗/⏹ 各追加一行、不进行集
+ *   （不占帽、repaint 不重建），行首段 = 档位符号 + 会话短 id、失败与中止
+ *   显式分档不伪装成功。
  * - **渲染行提取单源**（批 10f-4）：renderBlockStyledLines 块 → 带样式行集
  *   （管线本体）——主屏 MainScreen 直写（renderBlockLines 的 ANSI 序列化形）
  *   与件 8 回看器 cell 写出（StyledLine 直消费）共用同一管线（07 件 8「数据源
@@ -34,6 +35,7 @@ import type { AgentEvent } from '../../../agent/index.js';
 import { isStandardMessage, type AgentMessage } from '../../../contracts/index.js';
 import {
   CellGrid,
+  DIM_STYLE,
   EMPTY_STYLE,
   ellipsize,
   graphemeWidth,
@@ -172,8 +174,28 @@ export function shortIdOf(sessionId: string): string {
   return sessionId.slice(0, 8);
 }
 
-/** dim 样式（简行块的整行样式——SGR 2；呈现侧带样式形同值） */
-const DIM_STYLE: Readonly<{ dim: true }> = Object.freeze({ dim: true });
+/** dim 样式（简行块的整行样式——SGR 2；注⑩：engine 正典单源） */
+
+/** bullet 槽前缀宽（注⑩——`• ` 首行与 `  ` 续行同宽 2 列） */
+const BULLET_PREFIX_WIDTH = 2;
+
+/**
+ * agent 消息 bullet 槽行（注⑩ 符号册——• 列点前缀位）：doc/降档内容按
+ * columns−2 折行后首行 `• `、续行两空格缩进（user 块 › 同构）；游程整段
+ * 右移 2 列；空行保空行（前缀不携——主屏空行直写形字节不变）。定稿 markdown
+ * 块与流式槽两路同轴消费（冻结跳行前提：live 槽与定稿块逐行同形）。
+ */
+function bulletSlotLine(line: StyledLine, rowIndex: number): StyledLine {
+  if (line.plain === '') return { plain: '', runs: [] };
+  return {
+    plain: (rowIndex === 0 ? '• ' : '  ') + line.plain,
+    runs: line.runs.map((run) => ({
+      start: run.start + BULLET_PREFIX_WIDTH,
+      end: run.end + BULLET_PREFIX_WIDTH,
+      style: run.style,
+    })),
+  };
+}
 
 /**
  * 块 → 带样式行集（管线单源本体——批 10f-4 件 8 提取）。
@@ -199,7 +221,9 @@ export function renderBlockStyledLines(block: TranscriptBlock, columns: number):
 function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number): StyledLine[] {
   switch (block.kind) {
     case 'markdown':
-      return renderDocLines(block.doc, columns);
+      // bullet 槽（注⑩）：内容按 columns−2 折行 + `• `/`  ` 前缀（agent 消息
+      // 列点位——user 块 › 同构的左缘结构）
+      return renderDocLines(block.doc, columns - BULLET_PREFIX_WIDTH).map((line, i) => bulletSlotLine(line, i));
     case 'user': {
       // user 块三要素（界面美化役批⑦——UX 五问题批 2026-09-30）：`› ` 前缀
       // bold+dim 游程（续行两空格缩进既有）+ 背景带（userMessageBg 语义键
@@ -270,8 +294,9 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
     case 'tool-result':
       return [dimStyledLine(` ↳ ${block.brief}`)];
     case 'error': {
-      // 错误块（P0 静默链修复批——07 §4.1）：行首 ✖ 前缀 + error 语义键前景
-      // 整行（与 tool-card.ts 语义色消费同源）；折行续行两空格缩进（user 块同律）。
+      // 错误块（P0 静默链修复批——07 §4.1）：行首 ✗ 前缀（注⑩——✗ 形退役）+
+      // error 语义键前景整行（与 tool-card.ts 语义色消费同源）；折行续行两空格
+      // 缩进（user 块同律）。
       // JSON 可读化前置（界面美化役批⑦）：401/403 类应答体先提取可读形首行
       // （message 字段优先），原文随后展开可见。行数帽（2026-09-20 TUI 修复
       // 组 1 批 F5）：网关 403 类错误体是整段裸 JSON（单「行」折开后数十行噪声
@@ -281,7 +306,7 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
       const lines = wrapText(humanizeGuardedOutput(errorReadableText(block.text)), columns - 2);
       const style: Readonly<{ fg: ColorValue }> = Object.freeze({ fg: block.theme.error });
       const renderErrorLine = (line: string, i: number): StyledLine => {
-        const plain = (i === 0 ? '✖ ' : '  ') + line;
+        const plain = (i === 0 ? '✗ ' : '  ') + line;
         return { plain, runs: [{ start: 0, end: plain.length, style }] };
       };
       if (lines.length <= ERROR_PREVIEW_LINES) return lines.map(renderErrorLine);
@@ -292,13 +317,21 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
     }
     case 'streaming': {
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
-      // markdown 直推档走网格管线；降档（doc = null）纯文本直推；空文本零行
+      // markdown 直推档走网格管线（bullet 槽同轴——与定稿 markdown 块逐行同形）；
+      // 降档（doc = null）纯文本直推（bullet 前缀同律）；空文本零行
       const lines: StyledLine[] = [];
       if (block.thinking !== '')
         lines.push(...renderThinkingStyledLines(slotThinkingView(block), columns, block.thinkingDoc));
-      if (block.doc !== null) lines.push(...renderDocLines(block.doc, columns));
+      if (block.doc !== null)
+        lines.push(
+          ...renderDocLines(block.doc, columns - BULLET_PREFIX_WIDTH).map((line, i) => bulletSlotLine(line, i)),
+        );
       else if (block.text !== '')
-        lines.push(...wrapText(block.text, columns).map((text) => ({ plain: text, runs: [] })));
+        lines.push(
+          ...wrapText(block.text, columns - BULLET_PREFIX_WIDTH).map((text, i): StyledLine =>
+            bulletSlotLine({ plain: text, runs: [] }, i),
+          ),
+        );
       return lines;
     }
   }
@@ -493,20 +526,26 @@ export function renderSlotTailLines(
     );
     for (let i = startRow; i < thinkingLines.length; i++) lines.push(thinkingLines[i]!);
   }
-  // doc 尾窗段（行集直转——自 docStart 起逐行；出口帽 + 序列化与全量管线同律）
+  // doc 尾窗段（行集直转——自 docStart 起逐行；bullet 槽前缀同轴〔注⑩〕；
+  // 行宽 = columns−2 内容 + 前缀 2 = columns——出口帽 + 序列化与全量管线同律）
   const docStart = Math.max(0, startRow - thinkingRows);
   let docRowCount = 0;
   if (slot.doc !== null) {
-    const rows = slot.doc.rowsFor(columns);
+    const rows = slot.doc.rowsFor(columns - BULLET_PREFIX_WIDTH);
     docRowCount = rows.length;
     for (let r = docStart; r < rows.length; r++) {
-      lines.push(styledLineToAnsi(capStyledLine(docRowToStyledLine(rows[r]!, columns), columns)));
+      lines.push(
+        styledLineToAnsi(
+          capStyledLine(bulletSlotLine(docRowToStyledLine(rows[r]!, columns - BULLET_PREFIX_WIDTH), r), columns),
+        ),
+      );
     }
   } else if (slot.text !== '') {
-    // 降档纯文本腿（零样式直推——切片同律）
-    const wrapped = wrapText(slot.text, columns);
+    // 降档纯文本腿（零样式直推——bullet 前缀同律；切片同律）
+    const wrapped = wrapText(slot.text, columns - BULLET_PREFIX_WIDTH);
     docRowCount = wrapped.length;
-    for (let i = docStart; i < wrapped.length; i++) lines.push(wrapped[i]!);
+    for (let i = docStart; i < wrapped.length; i++)
+      lines.push(styledLineToAnsi(capStyledLine(bulletSlotLine({ plain: wrapped[i]!, runs: [] }, i), columns)));
   }
   return { total: thinkingRows + docRowCount, lines };
 }

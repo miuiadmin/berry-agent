@@ -22,7 +22,7 @@
  * 窗口关 = `retry_wait_end`（resumed = 续入即新 agent_start/message 流；
  * aborted = 退避窗内被打断；exhausted = 重试链燃尽/不可重试首败的终态
  * 揭示——可无配对 start，消费端据此把 agent_end(failed) 的 ⚠ 持有档翻
- * 终态红 ✖）。durable 零新词红线：llm/retry 三相 log-only 维持不升格，
+ * 终态红 ✗）。durable 零新词红线：llm/retry 三相 log-only 维持不升格，
  * 本两型纯活体（呈现想要 ≠ 顺手落 durable）。
  *
  * agent_end 载荷扩（E-0 非新型）：可选 `durationMs/usage/cost` run 累计值

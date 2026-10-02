@@ -13,6 +13,14 @@ import { graphemeWidth, splitGraphemes } from './width.js';
 /** 全缺省样式常量（格的缺省样式——比较归一用，冻结防漂） */
 export const EMPTY_STYLE: Readonly<CellStyle> = Object.freeze({});
 
+/**
+ * 弱化样式常量（dim——V-3 注⑩ 单源正典位）：提示行/分段头回退/滚动条/引用块
+ * 等弱存在感族的共享值位。此前 ~30 处 `Object.freeze({ dim: true })` 散拷
+ * 各件自持——同值异名漂移无判据，收敛到 engine 聚合面（channels 域全员可
+ * 达的最高共享位；语义命名常量在各件以 alias 承接保名）。
+ */
+export const DIM_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+
 /** 默认格（未写格的语义投影：缺省空格——cellEquals 归一基准） */
 const DEFAULT_CELL: Readonly<Cell> = Object.freeze({
   grapheme: ' ',

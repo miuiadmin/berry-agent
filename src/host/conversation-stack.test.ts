@@ -2690,7 +2690,7 @@ describe('首问快照物化全链（/sessions 恒「（无题）」修复——
   });
 });
 
-describe('provider 失败指路通道呈现面 enrich（07 §5 扩面笔——TUI ✖ 块/webui 转录同律）', () => {
+describe('provider 失败指路通道呈现面 enrich（07 §5 扩面笔——TUI ✗ 块/webui 转录同律）', () => {
   /** message_end 失败终值事件构造（errorMessage 唯一位——终值载体） */
   const failEnd = (errorMessage: string): AgentEvent =>
     ({

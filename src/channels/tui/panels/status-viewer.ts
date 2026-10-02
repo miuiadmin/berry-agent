@@ -25,6 +25,7 @@ import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
 import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** env 旋钮生效值条目（白名单三键——装配位定键序；null = 未设） */
 export interface StatusEnvEntry {
@@ -82,7 +83,7 @@ export interface StatusViewerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 底行键面提示 */
 const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 

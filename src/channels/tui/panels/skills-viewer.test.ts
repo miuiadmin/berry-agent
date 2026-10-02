@@ -60,11 +60,11 @@ describe('SkillsViewer 副屏件', () => {
     const viewer = new SkillsViewer({ entries: ENTRIES, onSelect: () => {}, sessionId: 's', onExit: () => {} });
     const grid = render(viewer, 6);
     expect(readRow(grid, 0, 60)).toBe('◆ 技能清单 · 3 个');
-    // 首行 = 光标（▸）+ 名 + 描述 + 右段层名
-    expect(readRow(grid, 1, 60)).toContain('▸ commit-style');
+    // 首行 = 光标（›）+ 名 + 描述 + 右段层名
+    expect(readRow(grid, 1, 60)).toContain('› commit-style');
     expect(readRow(grid, 1, 60)).toContain('提交信息风格');
     expect(readRow(grid, 1, 60)).toContain('project');
-    expect(readRow(grid, 1, 60)).not.toContain('▸▸'); // 光标唯一
+    expect(readRow(grid, 1, 60)).not.toContain('››'); // 光标唯一
     // 非光标行两空格缩进；隐藏件行右段 = 隐 · 层名
     expect(readRow(grid, 2, 60).startsWith('  dataviz')).toBe(true);
     expect(readRow(grid, 2, 60)).toContain('隐 · user');
@@ -91,7 +91,7 @@ describe('SkillsViewer 副屏件', () => {
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
     const line = readRow(grid, 1, width);
-    expect(line.startsWith('▸')).toBe(true); // 行首光标标记不被右段尾覆写
+    expect(line.startsWith('›')).toBe(true); // 行首光标标记不被右段尾覆写
     expect(line).toContain('commit'); // 技能名前段存活（左段保留位 ≥ 半窗下限）
     expect(line).toContain('…'); // 右段按预算 … 收口
     expect(stringWidth(line)).toBeLessThanOrEqual(width); // 行宽不越窗
@@ -101,16 +101,16 @@ describe('SkillsViewer 副屏件', () => {
     const viewer = new SkillsViewer({ entries: ENTRIES, onSelect: () => {}, sessionId: 's', onExit: () => {} });
     viewer.handleEvent(k('down'));
     let grid = render(viewer, 4); // 视口 2 行（头 + 提示占 2）——初测视口高 1 时已夹窗到光标
-    expect(readRow(grid, 1, 60)).toContain('▸ dataviz'); // 光标下移一行——提窗跟随
+    expect(readRow(grid, 1, 60)).toContain('› dataviz'); // 光标下移一行——提窗跟随
     expect(readRow(grid, 2, 60).startsWith('  review')).toBe(true); // 非光标行缩进
     viewer.handleEvent(k('end'));
     grid = render(viewer, 4);
-    expect(readRow(grid, 2, 60)).toContain('▸ review'); // 光标到尾——末条恒可见
+    expect(readRow(grid, 2, 60)).toContain('› review'); // 光标到尾——末条恒可见
     viewer.handleEvent(k('up'));
     viewer.handleEvent(k('up'));
     viewer.handleEvent(k('up')); // 越界夹首不循环
     grid = render(viewer, 6);
-    expect(readRow(grid, 1, 60)).toContain('▸ commit-style');
+    expect(readRow(grid, 1, 60)).toContain('› commit-style');
   });
 
   it('首渲染前击键的过深视口在 render 回写真实窗高后回拉（maxOffset 上界）', () => {
@@ -197,7 +197,7 @@ describe('SkillsViewer 副屏件', () => {
     viewer.handleEvent(wheel('wheel-down')); // 光标 0 → 3（夹取同 ↓×3）
     grid = render(viewer, 5);
     expect(readRow(grid, 1, 60)).toContain('sk1'); // 视口跟随 offset 1——修前零动作红锚
-    expect(readRow(grid, 3, 60)).toContain('▸ sk3'); // 光标行在窗内末行
+    expect(readRow(grid, 3, 60)).toContain('› sk3'); // 光标行在窗内末行
     viewer.handleEvent(wheel('wheel-up')); // 光标 3 → 0——回锚顶
     grid = render(viewer, 5);
     expect(readRow(grid, 1, 60)).toContain('sk0');

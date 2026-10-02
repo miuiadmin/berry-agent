@@ -27,6 +27,7 @@ import type { EditorModel } from '../editor/editor-model.js';
 import type { AutocompleteResult } from './provider.js';
 import { tokenAtCursor } from './token.js';
 import { CURSOR_MARK } from '../panels/panel-chrome.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 弹层可见条目帽（超出窗口滚动跟随高亮） */
 const MAX_VISIBLE_ITEMS = 10;
@@ -34,7 +35,7 @@ const MAX_VISIBLE_ITEMS = 10;
 /** 高亮行样式（整行反色——与 SelectPanel 同视觉语言） */
 const ACTIVE_STYLE: Readonly<CellStyle> = Object.freeze({ inverse: true });
 /** 补充说明段样式（dim） */
-const DETAIL_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const DETAIL_STYLE: Readonly<CellStyle> = DIM_STYLE;
 
 /**
  * 单行左右双段预算排版已迁件外单源 row-segments（2026-09-21 TUI 第四役挂账②
@@ -53,7 +54,7 @@ export class AutocompletePopup implements Renderable {
   /** 无候选提示样式（accent 派生——主题单源，setTheme 整体重建） */
   private emptyStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
   /**
-   * 光标符样式（界面美化役美学注③）：▸ 符位 accent 着色——高亮行上与
+   * 光标符样式（界面美化役美学注③）：› 符位 accent 着色——高亮行上与
    * inverse 合成（反相行内符位前景仍带语义色；setTheme 整体重建同 emptyStyle）。
    */
   private cursorStyle: Readonly<CellStyle> = Object.freeze({ inverse: true, fg: DEFAULT_THEME.accent });

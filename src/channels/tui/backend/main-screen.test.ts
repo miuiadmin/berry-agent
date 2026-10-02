@@ -114,7 +114,7 @@ describe('MainScreen 流式槽与固定区', () => {
     io.bytes = '';
     screen.present([userBlock('问'), slotBlock('流式回答')]);
     // user 块 3 行（行 0..2）→ 槽首 = 行 3：光标从行 9 CUU 6 → 写槽行 → 归位
-    expect(io.bytes).toBe('\x1b[6A' + '\r流式回答\n' + '\x1b[10;1H');
+    expect(io.bytes).toBe('\x1b[6A' + '\r• 流式回答\n' + '\x1b[10;1H');
   });
 
   it('槽增长换装：整槽重写（旧槽行被覆盖）', () => {
@@ -123,7 +123,7 @@ describe('MainScreen 流式槽与固定区', () => {
     screen.present([slotBlock('短')]);
     io.bytes = '';
     screen.present([slotBlock('短文变长了')]);
-    expect(io.bytes).toBe('\x1b[9A' + '\r短文变长了\n' + '\x1b[10;1H');
+    expect(io.bytes).toBe('\x1b[9A' + '\r• 短文变长了\n' + '\x1b[10;1H');
   });
 
   it('槽回缩：余行 EL 清除（EL 擦除禁空格填充）', () => {
@@ -133,7 +133,7 @@ describe('MainScreen 流式槽与固定区', () => {
     io.bytes = '';
     screen.present([slotBlock('b')]);
     // 新槽一行（行 0）→ 余行清除：行 1（cursorRow=1 位 CR+EL）→ 归位
-    expect(io.bytes).toBe('\x1b[9A' + '\rb\n' + '\r\x1b[K' + '\x1b[10;1H');
+    expect(io.bytes).toBe('\x1b[9A' + '\r• b\n' + '\r\x1b[K' + '\x1b[10;1H');
   });
 
   it('定稿换装：槽关闭 + markdown 块追加（旧槽行清除）', () => {
@@ -143,7 +143,7 @@ describe('MainScreen 流式槽与固定区', () => {
     io.bytes = '';
     screen.present([userBlock('问'), { kind: 'markdown', doc: MarkdownDoc.of('定稿') }]);
     // 追加位 = durable 末（行 1）：markdown 一行 → 行 3..4 清除（余行）→ 归位
-    expect(io.bytes).toContain('\r定稿\n');
+    expect(io.bytes).toContain('\r• 定稿\n');
     expect(io.bytes).toContain('\x1b[K'); // 旧槽 stale 行 EL 清除在场
   });
 
@@ -397,7 +397,7 @@ describe('MainScreen 超视口冻结提交', () => {
     screen.present([docSlot(text, doc)]);
     io.bytes = '';
     screen.present([docSlot(text, doc)]); // 同文——无冻结面可承接
-    expect(io.bytes).toContain('\rA'); // 首行仍重写（未冻证据——stableLineCount = 0）
+    expect(io.bytes).toContain('\r• A'); // 首行仍重写（未冻证据——stableLineCount = 0；注⑩ bullet 槽前缀随行）
   });
 
   it('降档纯文本（doc = null）零冻结：溢出走滚动不升格', () => {
@@ -407,7 +407,7 @@ describe('MainScreen 超视口冻结提交', () => {
     screen.present([slotBlock(text)]);
     io.bytes = '';
     screen.present([slotBlock(text)]);
-    expect(io.bytes).toContain('\rb'); // 全量重写——doc 空则 freezable 恒 0
+    expect(io.bytes).toContain('\r• b'); // 全量重写——doc 空则 freezable 恒 0（注⑩ bullet 槽——降档腿同轴）
   });
 });
 

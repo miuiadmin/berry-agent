@@ -21,6 +21,7 @@ import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
 import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 命令册条目（装配位合流注入——通道核命令表 + TUI 本地命令族 + TUI 本地退出词） */
 export interface HelpCommandEntry {
@@ -54,7 +55,7 @@ const SCOPE_LABELS: Readonly<Record<ActionScope, string>> = Object.freeze({
 });
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 底行键面提示 */
 const HINT_TEXT = hintLine('q/esc 返回', '↑↓/pgup/pgdn/home/end 滚动');
 

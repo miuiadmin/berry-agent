@@ -1,6 +1,6 @@
 /**
  * /diff 会话改动总览副屏件测试（07 §4.1 命令面增补批）：foldSessionDiff 聚合
- * 纯函数（分组/累计计数/字典序/孤儿 ⧗/坏串防御/非 edit 滤除）+ DiffViewer
+ * 纯函数（分组/累计计数/字典序/孤儿 ⋮/坏串防御/非 edit 滤除）+ DiffViewer
  * 呈现（组头计数/enter 展开/收起缺省/空态/退出族）。
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -186,7 +186,7 @@ describe('DiffViewer 副屏件', () => {
     // 修前红：c = 4 - 5 = -1，writeText 负列首字素越界吸收、后续字素顺移落
     // 0 列——行首被 '+1' 尾字覆写（'1 -0' 坏形）；修后右段整段丢弃（与
     // fitRowSegments「预算 0 丢右段」负起列封堵律同族），左段光标符 + … 收口
-    expect(row1).toBe('▸ …');
+    expect(row1).toBe('› …');
     expect(row1).not.toContain('+1');
     expect(row1).not.toContain('-0');
   });
@@ -273,7 +273,7 @@ describe('DiffViewer 副屏件', () => {
     expect(viewer.handleEvent(k('enter'))).toBe(true);
   });
 
-  it('孤儿组头 ⧗ 在飞标注', () => {
+  it('孤儿组头 ⋮ 在飞标注', () => {
     const onExit = vi.fn();
     const viewer = new DiffViewer({
       messages: [assistant([editCall('t1', PATCH_A)])], // 无 result = 孤儿
@@ -284,7 +284,7 @@ describe('DiffViewer 副屏件', () => {
     const width = 64;
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    expect(readRow(grid, 1, width)).toContain('⧗ 进行中');
+    expect(readRow(grid, 1, width)).toContain('⋮ 进行中');
   });
 
   it('q 退出（key 轨 + text 轨两形）——闭锁单次；Esc 同 q', () => {
@@ -318,21 +318,22 @@ describe('DiffViewer 副屏件', () => {
     expect(viewer.handleEvent(k('x'))).toBe(true);
   });
 
-  it('收起标记 › 与光标 ▸ 撞形修正（修前红：缺省全收起 + 光标 0 首屏「▸ ▸ path」）', () => {
+  it('收起标记 • 与光标 › 分形（注⑩——撞形修正续笔：光标 ▸→› 迁后收起标记让位 •）', () => {
     const { viewer } = makeViewer();
     const width = 64;
     const grid = new CellGrid(width, viewer.measure(width));
     viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
     const row1 = readRow(grid, 1, width);
-    // 光标符 + 窄形收起标记 ›（与展开 ▾ 可配对；避 ▶ U+25B6——stringWidth
-    // 计 2 且 emoji 化风险）；修前两记同用 ▸ 撞形
-    expect(row1.startsWith('▸ › ')).toBe(true);
-    expect(row1).not.toContain('▸ ▸');
+    // 光标符 ›（注⑩ 输入与选中位）+ 收起标记 •（注⑩ 折叠组前缀位——与展开
+    // ▾ 配对）；两符分形不复撞——▸ 时代「▸ ▸ path」撞形谱的反向防御；
+    // 避 ▶ U+25B6（stringWidth 计 2 且 emoji 化风险）
+    expect(row1.startsWith('› • ')).toBe(true);
+    expect(row1).not.toContain('▸');
     // 展开位换 ▾（enter 后同组头——配对形直锁）
     viewer.handleEvent(k('enter'));
     const grid2 = new CellGrid(width, viewer.measure(width));
     viewer.render(grid2, { row: 0, col: 0, width, height: grid2.rows });
-    expect(readRow(grid2, 1, width).startsWith('▸ ▾ ')).toBe(true);
+    expect(readRow(grid2, 1, width).startsWith('› ▾ ')).toBe(true);
   });
 
   it('光标驱动滚动：视口夹取（光标行恒在窗内——首行随窗换断言）', () => {

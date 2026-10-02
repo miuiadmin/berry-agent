@@ -9,18 +9,45 @@
  *   （enter 选定/回填语义）/ ◉ 查看族（滚动阅读语义）；emoji 类宽度不稳符
  *   （❓ 等）弃用；⚙ 保留工具执行语义（工具卡/状态行——本件不出）。
  * - **溢出指示统一律（美学注②）**：「↑/↓ N 更多」中文形全域单形。
- * - **光标符统一律（美学注③）**：▸ 全域单形——picker 族既有常量的单源化
- *   承接位（overlay 弹层 ❯ 随迁各件自理，本件只立词汇）。
+ * - **光标符统一律（美学注③→V-3 注⑩ 翻档）**：› 全域单形（▸ 退役）——
+ *   picker 族既有常量的单源化承接位（overlay 弹层 ❯ 随迁各件自理，本件只
+ *   立词汇）。
  */
 import type { CellStyle } from '../../engine/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
 
-/** 选择器族头符（enter 选定/回填语义——theme/model/market/rewind/thinking/sandbox/skills 族） */
-export const PICKER_HEAD_MARK = '◆';
-/** 查看族头符（滚动阅读语义——help/status/usage/guide/debug/memory 族） */
-export const VIEWER_HEAD_MARK = '◉';
-/** 光标行标记（在选行——picker 族既有词汇单源承接；overlay 弹层随迁对齐） */
-export const CURSOR_MARK = '▸';
+/**
+ * 副屏头符表（V-3 注⑩ 符号册——头符动物园收敛单源）：值位七符定值，散拷
+ * 消费位（± ↩ ⇄ ⏳ ⚙ 各面板字面量）统一走本表；选型翻档只改一处。
+ */
+export const HEAD_MARKS = Object.freeze({
+  /** 选择器族（enter 选定/回填语义——theme/model/market/rewind/thinking/sandbox/skills 族） */
+  picker: '◆',
+  /** 查看族（滚动阅读语义——help/status/usage/guide/debug/memory 族） */
+  viewer: '◉',
+  /** diff 改动总览 */
+  diff: '±',
+  /** 历史回看 */
+  history: '↩',
+  /** 会话切换 */
+  session: '⇄',
+  /** 忙等/装载中 */
+  busy: '⏳',
+  /** 工具/配置执行语义（⚙ 归工具卡语义族——美学注④） */
+  tool: '⚙',
+} as const);
+
+/** 选择器族头符（HEAD_MARKS 派生位——既有出口保名承接） */
+export const PICKER_HEAD_MARK = HEAD_MARKS.picker;
+/** 查看族头符（HEAD_MARKS 派生位——既有出口保名承接） */
+export const VIEWER_HEAD_MARK = HEAD_MARKS.viewer;
+/**
+ * 光标行标记（在选行——注⑩ 符号册 › 输入与选中位）：picker 族与 overlay
+ * 弹层、job-panel/setup-wizard/session-picker/diff-viewer 全域单形（▸ 时代
+ * 符形退役——美学注③ 光标符统一律的注⑩ 翻档）。
+ */
+export const CURSOR_MARK = '›';
 
 /**
  * 溢出指示行文案（美学注②——「↑/↓ N 更多」中文形全域统一）：窗上/下方
@@ -54,8 +81,8 @@ export function isWarningLine(line: string): boolean {
   return line.startsWith('⚠');
 }
 
-/** 弱线回退样式（键缺席消费位——dim 恒可读，任意底不依赖色差可见） */
-const WEAK_FALLBACK_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+/** 弱线回退样式（键缺席消费位——dim 恒可读；注⑩：值位 = engine DIM_STYLE 单源 alias） */
+const WEAK_FALLBACK_STYLE: Readonly<CellStyle> = DIM_STYLE;
 
 /**
  * 弱线样式（V-3 注⑨①——weakRule 在场整行弱线色 / 键缺席回退 dim 既有形）：

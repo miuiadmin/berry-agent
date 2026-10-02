@@ -1003,7 +1003,7 @@ export class ConversationDriver {
                 assistant.errorMessage,
               );
               // 终态揭示信号（E-1——可无配对 start）：消费端把 agent_end(failed)
-              // 的 ⚠ 持有档翻终态红 ✖
+              // 的 ⚠ 持有档翻终态红 ✗
               this.onLiveEvent({ type: 'retry_wait_end', outcome: 'exhausted' });
               break;
             }
@@ -1188,7 +1188,7 @@ export class ConversationDriver {
           }
           // 终态揭示信号（E-1——达帽燃尽/不可重试首败/刷新腿非 refreshed 收口
           // 共用此 break；可无配对 start：非重试首败全程零退避窗）。消费端据
-          // 此把 agent_end(failed) 的 ⚠ 持有档翻终态红 ✖——驱动侧保证 failed
+          // 此把 agent_end(failed) 的 ⚠ 持有档翻终态红 ✗——驱动侧保证 failed
           // 终态后必随发一个收口信号（本处或 aborted/exhausted 各专属位）。
           this.onLiveEvent({ type: 'retry_wait_end', outcome: 'exhausted' });
           break;

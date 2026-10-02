@@ -1,8 +1,8 @@
 /**
  * 任务状态行单测（界面美化役批 4——四态编舞 + 段缺席 + 绝对时刻倒计时）。
  *
- * 锁面：四态呈现形（转轮/工具段/流式/重试倒计时/红 ✖）、闲态零高度缺席律、
- * 统一括号段（耗时 • 按 ESC 取消对话——dim）、供数器段缺席缩位（无起点耗时/
+ * 锁面：四态呈现形（转轮/工具段/流式/重试倒计时/红 ✗）、闲态零高度缺席律、
+ * 统一括号段（耗时 · 按 ESC 取消对话——dim）、供数器段缺席缩位（无起点耗时/
  * 速度/提示各自缺席不虚报）、倒计时本地钟现算（绝对时刻律——nextAt 注入、
  * now 推进随动）、转轮忙态推帧闸（终态/离场零推帧）。
  */
@@ -94,7 +94,7 @@ describe('TaskStatusLine', () => {
     p.setSpeed('50 tok/s');
     p.setHint('按 ESC 取消对话');
     const grid = renderLine(line);
-    expect(readRow(grid, 0, 60)).toBe('⠋ 正在对话中 · 50 tok/s (1m 02s • 按 ESC 取消对话)');
+    expect(readRow(grid, 0, 60)).toBe('⠋ 正在对话中 · 50 tok/s (1m 02s · 按 ESC 取消对话)');
     // 转轮 accent 定值（主题单源）；文案段不着色；括号段 dim（文案宽 21 → '(' 落 col 23）
     expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.accent);
     expect(grid.getCell(0, 2)?.style.fg).toBeUndefined();
@@ -109,7 +109,7 @@ describe('TaskStatusLine', () => {
     p.setElapsed(0);
     p.setHint('按 ESC 取消对话');
     const grid = renderLine(line);
-    expect(readRow(grid, 0, 40)).toBe('⠋ ⚙ grep … (0s • 按 ESC 取消对话)');
+    expect(readRow(grid, 0, 40)).toBe('⠋ ⚙ grep … (0s · 按 ESC 取消对话)');
   });
 
   it('态② 获取响应中：流式窗口文案 + 速度段', () => {
@@ -121,10 +121,10 @@ describe('TaskStatusLine', () => {
     p.setSpeed('120 tok/s');
     p.setHint('按 ESC 取消对话');
     const grid = renderLine(line);
-    expect(readRow(grid, 0, 60)).toBe('⠋ 获取响应中 · 120 tok/s (2s • 按 ESC 取消对话)');
+    expect(readRow(grid, 0, 60)).toBe('⠋ 获取响应中 · 120 tok/s (2s · 按 ESC 取消对话)');
   });
 
-  it('态③ 重试中：dim 整段 + 倒计时本地钟现算（绝对时刻律）+ 转轮不停不闪 ✖', () => {
+  it('态③ 重试中：dim 整段 + 倒计时本地钟现算（绝对时刻律）+ 转轮不停不闪 ✗', () => {
     const p = makeProviders();
     const line = new TaskStatusLine(p);
     line.enterWorking();
@@ -133,10 +133,10 @@ describe('TaskStatusLine', () => {
     p.setElapsed(8_000);
     p.setHint('按 ESC 取消对话');
     const grid = renderLine(line);
-    expect(readRow(grid, 0, 60)).toBe('⠋ 重试中 第 2/3 次 · 3s 后 (8s • 按 ESC 取消对话)');
+    expect(readRow(grid, 0, 60)).toBe('⠋ 重试中 第 2/3 次 · 3s 后 (8s · 按 ESC 取消对话)');
     // 整段 dim（转轮不停——仅文案降存在感）；速度段缺席（态③ 由倒计时顶替）
     expect(grid.getCell(0, 2)?.style.dim).toBe(true);
-    expect(readRow(grid, 0, 60)).not.toContain('✖');
+    expect(readRow(grid, 0, 60)).not.toContain('✗');
     // 倒计时随本地钟推进（渲染期现算——同窗重渲随动）
     p.advance(2_500);
     const grid2 = renderLine(line);
@@ -149,7 +149,7 @@ describe('TaskStatusLine', () => {
     expect(line.frame).toBe('⠙');
   });
 
-  it('态④ 错误终态：红 ✖ 无转轮无括号（用量与速度归 footer 尾注）', () => {
+  it('态④ 错误终态：红 ✗ 无转轮无括号（用量与速度归 footer 尾注）', () => {
     const p = makeProviders();
     const line = new TaskStatusLine(p);
     line.enterWorking();
@@ -158,7 +158,7 @@ describe('TaskStatusLine', () => {
     p.setSpeed('9 tok/s');
     p.setHint('按 ESC 取消对话');
     const grid = renderLine(line);
-    expect(readRow(grid, 0, 40)).toBe('✖ 失败');
+    expect(readRow(grid, 0, 40)).toBe('✗ 失败');
     expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.error);
     // 终态不推帧（转轮闸关闭）
     line.tick();
@@ -188,7 +188,7 @@ describe('TaskStatusLine', () => {
     line.setTool('超长工具名 ABCDEF');
     p.setElapsed(5_000);
     p.setHint('按 ESC 取消对话');
-    // 宽 20：括号段「 (5s • 按 ESC 取消对话)」宽 23 > 剩余 18 → 整段退场，
+    // 宽 20：括号段「 (5s · 按 ESC 取消对话)」宽 23 > 剩余 18 → 整段退场，
     // 文案段独享 18 列预算——截断加省略号、不越帽
     const grid = renderLine(line, 20);
     const text = readRow(grid, 0, 20);

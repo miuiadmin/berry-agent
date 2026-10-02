@@ -108,10 +108,11 @@ describe('TuiBackend 直播呈现', () => {
   });
 
   it('流式帧字节帽超帽降档纯文本（批 10h R1 perf 护栏——streamFrameByteCap 注入面使触发路可测）', () => {
-    // 小帽注入（1 字节）：单字帧不超帽（1 > 1 假）；带 markdown 帧字节远超 1
+    // 小帽注入（3 单位）：单字帧不超帽（'• 甲' 3 > 3 假——注⑩ bullet 槽计入
+    // 帧长）；带 markdown 帧字节远超 3
     // ——超帽帧本帧仍 markdown 直推（帧已落账不回改），present 后降档（弃 doc），
     // 次帧起流式正文纯文本直推
-    const { io, backend } = makeBackend({ streamFrameByteCap: 1 });
+    const { io, backend } = makeBackend({ streamFrameByteCap: 3 });
     emit(backend, { type: 'message_start', role: 'assistant' });
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') }); // 1 字节不超帽
     io.bytes = '';
@@ -184,7 +185,7 @@ describe('TuiBackend 直播呈现', () => {
       .split('\n')
       .filter((line) => /[中文测]/.test(line)) // CJK 段折行族（末行可恰为「测试」二字——不含「中文」串）
       .map((line) => line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/[\r\n]/g, ''))
-      .map((line) => line.replace(/^甲 /, '')); // 首帧行残留的前段 '甲 ' 前缀剥除（同帧重写混排）
+      .map((line) => line.replace(/^• 甲 /, '').replace(/^  /, '')); // 首帧行 bullet 槽 + 前段 '• 甲 ' 剥除、续行 bullet 槽两空格剥除（注⑩——同帧重写混排）
     expect(cjkLines.length).toBeGreaterThanOrEqual(3); // 折 3 行（外加首帧甲行不计）
     for (const line of cjkLines) {
       expect(stringWidth(line), 'CJK 折行可见宽 ≤ 帽').toBeLessThanOrEqual(COLS);
@@ -231,22 +232,22 @@ describe('TuiBackend 状态面', () => {
     expect(io.bytes).not.toContain('⠋');
   });
 
-  it('agent_end 终态分档：failed ✖ / aborted ⏹ 不伪装成功（P0 静默点②——不显 ✓ 用量成功形）', () => {
+  it('agent_end 终态分档：failed ✗ / aborted ⏹ 不伪装成功（P0 静默点②——不显 ✓ 用量成功形）', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'failed' });
-    // 持有档（界面美化役批 4）：failed 到达先持有——不闪「✖」不落尾注
+    // 持有档（界面美化役批 4）：failed 到达先持有——不闪「✗」不落尾注
     //（终态揭示由 retry_wait_end aborted/exhausted 翻档；驱动侧保证 failed
     // 后必随发其一——消费端延后翻转达成同效 UX）
-    expect(io.bytes).not.toContain('✖ 失败');
+    expect(io.bytes).not.toContain('✗ 失败');
     expect(io.bytes).not.toContain('✓ 用量');
     emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: Date.now() + 5_000 });
     expect(io.bytes).toContain('重试中 第 1/3 次'); // 退避窗在场（态③）
-    expect(io.bytes).not.toContain('✖ 失败'); // 窗内仍不闪 ✖（转轮不停）
+    expect(io.bytes).not.toContain('✗ 失败'); // 窗内仍不闪 ✗（转轮不停）
     io.bytes = '';
     emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
-    expect(io.bytes).toContain('✖ 失败'); // 燃尽揭示——红 ✖ 终态
+    expect(io.bytes).toContain('✗ 失败'); // 燃尽揭示——红 ✗ 终态
     expect(io.bytes).not.toContain('✓ 用量');
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
@@ -255,10 +256,10 @@ describe('TuiBackend 状态面', () => {
     expect(io.bytes).not.toContain('✓ 用量');
   });
 
-  it('失败直呈律：errorMessage 经持有档揭示同句携因（✖ 失败 · 原因——孤立红叉禁）', () => {
-    // 07 §4.1 V-0 注②：任何 ✖ 失败行必同句携带原因；agent_end failed 的
+  it('失败直呈律：errorMessage 经持有档揭示同句携因（✗ 失败 · 原因——孤立红叉禁）', () => {
+    // 07 §4.1 V-0 注②：任何 ✗ 失败行必同句携带原因；agent_end failed 的
     // errorMessage 存账（持有档），retry_wait_end 终态揭示时双位（任务行态④ +
-    // footer 尾注）同句携因——修前两位皆裸「✖ 失败」零上下文
+    // footer 尾注）同句携因——修前两位皆裸「✗ 失败」零上下文
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
@@ -267,12 +268,12 @@ describe('TuiBackend 状态面', () => {
     io.bytes = '';
     emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
     // 任务行态④ + footer 尾注双位同句携因（主呈位 = 输入框上方位）
-    expect(io.bytes).toContain('✖ 失败 · 模型渠道未配置（CHANNEL_UNKNOWN）');
-    expect(io.bytes).not.toMatch(/✖ 失败[\x1b\r\n]|✖ 失败$/); // 无裸形残留（同句必携因）
+    expect(io.bytes).toContain('✗ 失败 · 模型渠道未配置（CHANNEL_UNKNOWN）');
+    expect(io.bytes).not.toMatch(/✗ 失败[\x1b\r\n]|✗ 失败$/); // 无裸形残留（同句必携因）
   });
 
-  it('失败终态单源化（V-3 注⑧）：✖ 揭示恰一次——footer 尾注腿退役（件 12 态④ 唯一主呈位）', () => {
-    // 07 §4.1 V-3 注⑧：footer 尾注 ✖ 失败形退役——「输入框上方 + footer 尾」
+  it('失败终态单源化（V-3 注⑧）：✗ 揭示恰一次——footer 尾注腿退役（件 12 态④ 唯一主呈位）', () => {
+    // 07 §4.1 V-3 注⑧：footer 尾注 ✗ 失败形退役——「输入框上方 + footer 尾」
     // 双位收敛为单位（/new 孤立红病灶⑤ 终局）；aborted ⏹ / completed ✓ 尾注
     // 维持（同 setStatus 载体）——本锁只退役失败腿
     const { io, backend } = makeBackend();
@@ -280,7 +281,7 @@ describe('TuiBackend 状态面', () => {
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'failed', errorMessage: '某因' });
     emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
-    expect(io.bytes.split('✖ 失败').length - 1).toBe(1); // 修前 2：任务行态④ + footer 尾双呈
+    expect(io.bytes.split('✗ 失败').length - 1).toBe(1); // 修前 2：任务行态④ + footer 尾双呈
     // 邻态不受扰：aborted ⏹ 尾注维持（setStatus 载体活）
     io.bytes = '';
     emit(backend, { type: 'agent_start' });
@@ -297,7 +298,7 @@ describe('TuiBackend 状态面', () => {
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'failed' }); // 无 errorMessage 形
     emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
-    expect(io.bytes).toContain('✖ 失败'); // 兜底裸形（无因可携——诚实缺席非陈因）
+    expect(io.bytes).toContain('✗ 失败'); // 兜底裸形（无因可携——诚实缺席非陈因）
     expect(io.bytes).not.toContain('旧原因'); // 陈原因零残留
   });
 
@@ -340,21 +341,21 @@ describe('TuiBackend 状态面', () => {
 });
 
 describe('TuiBackend notify / repaint / resize', () => {
-  it('notify 档位符号（info·/success✓/warn⚠/error✖）+ 弱化两腿（info/success DIM、warn/error 不动）', () => {
+  it('notify 档位符号（info•/success✓/warn⚠/error✗——注⑩ 符号册）+ 弱化两腿（info/success DIM、warn/error 不动）', () => {
     const { io, backend } = makeBackend();
     backend.notify('普通', { level: 'info' });
     // info 档整行 DIM 包裹（V-0 注③ 斜杠命令回执弱化——行尾 SGR_RESET 复原）
-    expect(io.bytes).toContain('\r\x1b[2m· 普通\x1b[0m\n');
+    expect(io.bytes).toContain('\r\x1b[2m• 普通\x1b[0m\n');
     backend.notify('成了', { level: 'success' });
     expect(io.bytes).toContain('\x1b[2m✓ 成了\x1b[0m'); // success 同弱化档
     backend.notify('小心', { level: 'warn' });
     expect(io.bytes).toContain('⚠ 小心');
     expect(io.bytes).not.toContain('\x1b[2m⚠'); // warn 不弱化——V-1 笔3 失败直呈律
     backend.notify('坏了', { level: 'error' });
-    expect(io.bytes).toContain('✖ 坏了');
-    expect(io.bytes).not.toContain('\x1b[2m✖'); // error 同不动
+    expect(io.bytes).toContain('✗ 坏了');
+    expect(io.bytes).not.toContain('\x1b[2m✗'); // error 同不动
     backend.notify('缺省档');
-    expect(io.bytes).toContain('\x1b[2m· 缺省档\x1b[0m'); // 缺省 = info 档
+    expect(io.bytes).toContain('\x1b[2m• 缺省档\x1b[0m'); // 缺省 = info 档
   });
 
   /* ---- Job 终态收口单行（TUI 视觉重设计批 V-1 笔2——07 §4.1 V-0 注①聚合律） ---- */
@@ -372,23 +373,23 @@ describe('TuiBackend notify / repaint / resize', () => {
     };
   }
 
-  it('appendJobSettledLine 三态：✓ 完成 / ✖ 携因 / ⏹ 已停止（瞬时行——追加即定稿）', () => {
+  it('appendJobSettledLine 三态：✓ 完成 / ✗ 携因 / ⏹ 已停止（瞬时行——追加即定稿）', () => {
     const { io, backend } = makeBackend();
     const plain = (s: string): string => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
     backend.appendJobSettledLine(settledEntry('任务A', 'completed'));
     expect(plain(io.bytes)).toContain('✓ 任务A · 完成');
     backend.appendJobSettledLine(settledEntry('任务B', 'failed', '模型渠道未配置（CHANNEL_UNKNOWN）'));
-    expect(plain(io.bytes)).toContain('✖ 任务B · 模型渠道未配置（CHANNEL_UNKNOWN）');
+    expect(plain(io.bytes)).toContain('✗ 任务B · 模型渠道未配置（CHANNEL_UNKNOWN）');
     backend.appendJobSettledLine(settledEntry('任务C', 'killed', '归属围栏收口'));
     expect(plain(io.bytes)).toContain('⏹ 任务C · 已停止 · 归属围栏收口');
   });
 
-  it('✖/✓ 符号段分色（success/error 语义键着色——两态 SGR 前缀相异）', () => {
+  it('✗/✓ 符号段分色（success/error 语义键着色——两态 SGR 前缀相异）', () => {
     const { io, backend } = makeBackend();
     backend.appendJobSettledLine(settledEntry('任务A', 'completed'));
     backend.appendJobSettledLine(settledEntry('任务B', 'failed', '原因'));
     const okColor = io.bytes.match(/\x1b\[([0-9;]*)m✓/)?.[1];
-    const badColor = io.bytes.match(/\x1b\[([0-9;]*)m✖/)?.[1];
+    const badColor = io.bytes.match(/\x1b\[([0-9;]*)m✗/)?.[1];
     expect(okColor).toBeDefined(); // 符号段带 SGR 前缀（语义色非裸文本）
     expect(badColor).toBeDefined();
     expect(okColor).not.toBe(badColor); // 成功/失败分色（theme 具体色值自由）
@@ -431,8 +432,8 @@ describe('TuiBackend notify / repaint / resize', () => {
     // 光标归位在编辑声明位（0 基行 8——composer 单行 = 屏底上 1）：gotoRow 的
     // CUU 距离 = 8 - 追加位行号。物理真相 = 回执末行行 3 → 追加位行 4 → CUU 4；
     // 漂账形 = 追加位行 1 → CUU 7（V-0 注③ 框退役——编辑声明位随固定区收窄下移 1）
-    expect(io.bytes).toContain('\x1b[4A\r\x1b[2m· 后继行\x1b[0m\n');
-    expect(io.bytes).not.toContain('\x1b[7A\r\x1b[2m· 后继行');
+    expect(io.bytes).toContain('\x1b[4A\r\x1b[2m• 后继行\x1b[0m\n');
+    expect(io.bytes).not.toContain('\x1b[7A\r\x1b[2m• 后继行');
   });
 
   it('onRepaint：投影重建 + 清屏全量重写', () => {
@@ -697,7 +698,7 @@ describe('TuiBackend 提交路由', () => {
     await Promise.resolve();
     await Promise.resolve(); // rejection 链两回合（then 折传递 + catch）
     pump();
-    expect(io.bytes).toContain('✖ 命令异常'); // error 档符号 + 兜底文案
+    expect(io.bytes).toContain('✗ 命令异常'); // error 档符号 + 兜底文案
   });
 
   it('命令处理器 BaseError 异常 → 码直呈（foldErrorText 形——修前 String 丢码红锚，wf_3c8b00b8 组α）', async () => {
@@ -1210,8 +1211,8 @@ describe('TuiBackend 渲染合并与 tick 自驱', () => {
     user('问二', 2);
     rig.pump();
     const bytes = rig.io.bytes;
-    expect(bytes.indexOf('问一')).toBeLessThan(bytes.indexOf('· 通知'));
-    expect(bytes.indexOf('· 通知')).toBeLessThan(bytes.indexOf('问二'));
+    expect(bytes.indexOf('问一')).toBeLessThan(bytes.indexOf('• 通知'));
+    expect(bytes.indexOf('• 通知')).toBeLessThan(bytes.indexOf('问二'));
   });
 
   it('transient 让位流式槽：槽在场缓冲、定稿关槽帧补吐（批 10k 遗漏修——瞬时行不嵌入槽首行位）', () => {
@@ -1270,7 +1271,7 @@ describe('TuiBackend 渲染合并与 tick 自驱', () => {
     rig.pump(); // 单帧落地：ops = [transient, present(开槽)]
     expect(rig.io.bytes).toContain('无槽通知'); // 修前红：误判有槽入槽缓冲——本帧零写出
     // 到达序直写：瞬时行先于流式块（修前：滞留槽缓冲延迟到关槽帧）
-    expect(rig.io.bytes.indexOf('· 无槽通知')).toBeLessThan(rig.io.bytes.indexOf('流式正文'));
+    expect(rig.io.bytes.indexOf('• 无槽通知')).toBeLessThan(rig.io.bytes.indexOf('流式正文'));
   });
 
   it('权威清点抢救合并窗瞬时行：resize/repaint 清点不丢未落帧 notify（第五役 S1-a——修前裸清永失）', () => {
@@ -1387,23 +1388,23 @@ describe('TuiBackend 工具进度面板（件 5）', () => {
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     io.bytes = '';
     emit(backend, { type: 'tool_execution_update', toolCallId: 't1', update: '扫描中' });
-    expect(io.bytes).toContain('▸ 搜索文本 · 扫描中'); // 首个 update 建行
+    expect(io.bytes).toContain('• 搜索文本 · 扫描中'); // 首个 update 建行
     io.bytes = '';
     emit(backend, {
       type: 'tool_execution_update',
       toolCallId: 't1',
       update: { content: [{ type: 'text', text: '头部\n\n命中 3 处\n' }] },
     });
-    expect(io.bytes).toContain('▸ 搜索文本 · 命中 3 处'); // 倒扫末条非空行
+    expect(io.bytes).toContain('• 搜索文本 · 命中 3 处'); // 倒扫末条非空行
     io.bytes = '';
     emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
-    expect(io.bytes).not.toContain('▸ 搜索文本'); // end 即摘行
+    expect(io.bytes).not.toContain('• 搜索文本'); // end 即摘行
 
     emit(backend, { type: 'tool_execution_start', toolCallId: 't2', name: 'read', arguments: {} });
     emit(backend, { type: 'tool_execution_update', toolCallId: 't2', update: '读着' });
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).not.toContain('▸ 读取文件'); // agent_end 清板（瞬时面）
+    expect(io.bytes).not.toContain('• 读取文件'); // agent_end 清板（瞬时面）
   });
 
   it('start 只建档不建行（面板零扰动）', () => {
@@ -1411,7 +1412,7 @@ describe('TuiBackend 工具进度面板（件 5）', () => {
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
-    expect(io.bytes).not.toContain('▸ 搜索文本'); // 建档无行——工具名只进状态行
+    expect(io.bytes).not.toContain('• 搜索文本'); // 建档无行——工具名只进状态行
     expect(io.bytes).toContain('⚙ 搜索文本 …');
   });
 });
@@ -1582,7 +1583,7 @@ describe('TuiBackend usage 状态行（件 6）', () => {
     emit(rig3.backend, { type: 'agent_end', status: 'completed' });
     expect(rig3.io.bytes).toContain('✓ 用量 0'); // 清账重计（repaint 后零轮）
     expect(rig3.io.bytes).not.toContain('tok/s');
-    // ④failed 终态：维持分档形不加段（成功形专属；✖ 揭示随 retry_wait_end 翻档——批 4 持有档。
+    // ④failed 终态：维持分档形不加段（成功形专属；✗ 揭示随 retry_wait_end 翻档——批 4 持有档。
     //    窗口从翻档起算：持有窗内任务行按设计续显忙态速度段（态①），非终态证据）
     let t4 = 0;
     const rig4 = makeBackend({ now: () => t4 });
@@ -1593,7 +1594,7 @@ describe('TuiBackend usage 状态行（件 6）', () => {
     emit(rig4.backend, { type: 'agent_end', status: 'failed', errorMessage: '炸了' });
     rig4.io.bytes = '';
     emit(rig4.backend, { type: 'retry_wait_end', outcome: 'exhausted' });
-    expect(rig4.io.bytes).toContain('✖ 失败');
+    expect(rig4.io.bytes).toContain('✗ 失败');
     expect(rig4.io.bytes).not.toContain('tok/s');
   });
 
@@ -1805,9 +1806,9 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     expect(io.bytes).toContain('\x1b[2J\x1b[H'); // 清屏——全帧重画（主屏既有权威全量重建路）
     expect(io.bytes).toContain('\x1b[1;2m› \x1b[0m停屏前正文'); // 行集全量重写（前缀段分立——不带正文）
     expect(io.bytes).toContain('\x1b[1;2m› \x1b[0m停屏期正文'); // 停屏期 durable 事件在场（树已含停屏期全部事件）
-    expect(io.bytes).toContain('· 停屏期通知'); // 瞬时行补吐（不走 repaint 的行为锁——投影不含瞬时行）
+    expect(io.bytes).toContain('• 停屏期通知'); // 瞬时行补吐（不走 repaint 的行为锁——投影不含瞬时行）
     expect(io.bytes).not.toContain('✓ sess-aaa'); // 件 9 摘要行通道退役（V-1 笔2）——非聚焦 agent_end 零补吐
-    expect(io.bytes.indexOf('\x1b[1;2m› \x1b[0m停屏期正文')).toBeLessThan(io.bytes.indexOf('· 停屏期通知')); // 补吐序：全帧在前、瞬时行在后
+    expect(io.bytes.indexOf('\x1b[1;2m› \x1b[0m停屏期正文')).toBeLessThan(io.bytes.indexOf('• 停屏期通知')); // 补吐序：全帧在前、瞬时行在后
     // 复起回常态：后续事件恢复直写
     io.bytes = '';
     emit(backend, { type: 'message_end', message: { role: 'user', content: '复起后正文', timestamp: 3 } });
@@ -1828,10 +1829,10 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     rig.backend.resumeMain();
     // 修前红锚：挂起前通知永久丢失——pendingOps 被 resumeMain 无条件清空，
     // 该行既不入 scrollback（screen.appendTransient 才入）也不入 suspendedTransients
-    expect(rig.io.bytes).toContain('· 挂起前通知');
-    expect(rig.io.bytes).toContain('· 停屏期通知');
+    expect(rig.io.bytes).toContain('• 挂起前通知');
+    expect(rig.io.bytes).toContain('• 停屏期通知');
     // 到达序保持：挂起前行先于停屏期行（转账序 = 入队序）
-    expect(rig.io.bytes.indexOf('· 挂起前通知')).toBeLessThan(rig.io.bytes.indexOf('· 停屏期通知'));
+    expect(rig.io.bytes.indexOf('• 挂起前通知')).toBeLessThan(rig.io.bytes.indexOf('• 停屏期通知'));
   });
 
   it('挂起位 onRepaint 不二次转账（suspendMain 转账后清队——复起补吐不双显）', () => {
@@ -1867,10 +1868,10 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     rig.backend.resumeMain();
     // 修前红锚：resume 只补吐 suspendedTransients——槽期旧通知滞留 slotTransients
     //（延迟到复起后下一次 flush 才落地且排在新行之后＝到达序倒置；会话静默期持续不可见）
-    expect(rig.io.bytes).toContain('· 槽期旧通知');
-    expect(rig.io.bytes).toContain('· 停屏期通知');
+    expect(rig.io.bytes).toContain('• 槽期旧通知');
+    expect(rig.io.bytes).toContain('• 停屏期通知');
     // 到达序：挂起前缓冲的旧行在前、停屏期新行在后
-    expect(rig.io.bytes.indexOf('· 槽期旧通知')).toBeLessThan(rig.io.bytes.indexOf('· 停屏期通知'));
+    expect(rig.io.bytes.indexOf('• 槽期旧通知')).toBeLessThan(rig.io.bytes.indexOf('• 停屏期通知'));
   });
 
   it('lifecycle 全程迁移 + 挂起 / 复起幂等', () => {
@@ -1921,7 +1922,7 @@ describe('TuiBackend 主屏挂起面（suspendMain / resumeMain——批 10f-4�
     // 出序：副屏出（dispose）→ 主屏进屏串 + 全帧重画 + 瞬时行补吐（resumeMain 同步直出）
     expect(io.frames[0]).toBe(ALT_LEAVE);
     expect(io.frames[1]).toBe(MAIN_ENTER);
-    expect(io.bytes).toContain('· 停屏期通知');
+    expect(io.bytes).toContain('• 停屏期通知');
     expect(backend.lifecycle).toBe('running');
     expect(host.isOpen).toBe(false);
   });
@@ -2756,7 +2757,7 @@ describe('TuiBackend 本地命令族拦截（07 §4.1 命令面增补批）', ()
       rig.io.emitInput('/boom\r');
       rig.pump();
     }).not.toThrow(); // 修前红：异常穿透输入管线到 emitInput 调用方
-    expect(rig.io.bytes).toContain('✖ 命令异常'); // error 档符号 + 兜底文案（与 dispatchCommand 同句）
+    expect(rig.io.bytes).toContain('✗ 命令异常'); // error 档符号 + 兜底文案（与 dispatchCommand 同句）
   });
 
   it('词干未命中 → 落通道命令柄（false 兜底进 onSubmit）；注入缺席 = 零拦截', async () => {
@@ -2867,7 +2868,7 @@ describe('TuiBackend /status · /debug · /skills 副屏装配（07 §4.1 命令
     expect(io.frames[0]).toBe(MAIN_LEAVE);
     expect(io.frames[1]).toBe(ALT_ENTER);
     expect(io.bytes).toContain('◆ 技能清单 · 2 个'); // 头行（✦→◆ 图标收敛批——picker 形记号）
-    expect(io.bytes).toContain('▸ commit-style'); // 首行光标
+    expect(io.bytes).toContain('› commit-style'); // 首行光标
     expect(io.bytes).toContain('隐 · user'); // 隐藏件标记（含入不滤）
   });
 
@@ -2991,7 +2992,7 @@ describe('TuiBackend /themes · /diff 副屏装配 + 主题切换面（/themes �
     io.reset(); // 清进屏序与首帧（首帧已含 dark 行）——聚焦输入补帧
     io.emitInput('\x1b[B'); // ↓ auto → dark（面板光标态变更）
     expect(io.frames.length).toBeGreaterThan(0); // 修前红：输入只转发不请帧——零新帧
-    expect(io.frames.join('')).toContain('▸'); // 光标标记移上新行（diff 帧写变更格）
+    expect(io.frames.join('')).toContain('›'); // 光标标记移上新行（diff 帧写变更格）
   });
 
   it('openThinking 编舞：主屏出屏 → 副屏进 → 档位首帧（计数头 + 当前档 ● + 底行「下一轮对话起生效」提示）', () => {
@@ -3209,7 +3210,7 @@ describe('TuiBackend /marketplace 选装副屏（mp-5——03 §9.6 TUI 选装�
     return { io, backend };
   }
 
-  it('openMarketplace 编舞：主屏出屏 → 副屏进 → 选装首帧（头行计数 + ▸ 光标 + 已装徽标 + tail 尾行区）', () => {
+  it('openMarketplace 编舞：主屏出屏 → 副屏进 → 选装首帧（头行计数 + › 光标 + 已装徽标 + tail 尾行区）', () => {
     const { io, backend } = rig();
     expect(
       backend.openMarketplace(marketModel(), {
@@ -3223,7 +3224,7 @@ describe('TuiBackend /marketplace 选装副屏（mp-5——03 §9.6 TUI 选装�
     expect(io.frames[0]).toBe(MAIN_LEAVE);
     expect(io.frames[1]).toBe(ALT_ENTER);
     expect(io.bytes).toContain('◆ 插件市场 · 2 条目（1 源）');
-    expect(io.bytes).toContain('▸ hello-plugin@alpha'); // 光标在首行
+    expect(io.bytes).toContain('› hello-plugin@alpha'); // 光标在首行
     expect(io.bytes).toContain('demo-pkg@alpha 已装'); // 已装徽标
     expect(io.bytes).toContain('alpha 跳过：'); // tail 尾行区
     expect(io.bytes).toContain('↑↓ 移动 · enter 安装/卸载'); // 键面提示行
@@ -3617,7 +3618,7 @@ describe('TuiBackend 复起补吐宽度收口（fx2-A——M2 残宽面）', () 
     const backend = new TuiBackend(io, { sessionId: SESSION });
     backend.start();
     backend.suspendMain();
-    // 挂起期 notify：wrapText(·, 98) 折行产物首段 = '· ' + 49 全宽字 = 100 显示宽
+    // 挂起期 notify：wrapText(•, 98) 折行产物首段 = '• ' + 49 全宽字 = 100 显示宽
     backend.notify('宽'.repeat(60));
     io.columns = 60; // 停屏期缩窗（挂起期 resize 安全 no-op——几何真值复起重取）
     io.reset();
@@ -3630,7 +3631,7 @@ describe('TuiBackend 复起补吐宽度收口（fx2-A——M2 残宽面）', () 
       expect(displayWidth(line)).toBeLessThanOrEqual(60);
     }
     // 补吐内容在场为前提（截宽非丢行——保账优先但内容可见）
-    expect(io.bytes).toContain('· ');
+    expect(io.bytes).toContain('• ');
   });
 
   it('复起排空槽期缓冲同律截宽（drainSlotTransients 补吐路——修前按挂起前宽度直写）', () => {
@@ -3648,7 +3649,7 @@ describe('TuiBackend 复起补吐宽度收口（fx2-A——M2 残宽面）', () 
     emit(backend, { type: 'message_start', role: 'assistant' });
     emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('流式正文') });
     clock.advance(1);
-    // 槽在场期 notify 入槽期缓冲（80 列折行首段 = '· ' + 38 全宽字 = 80 显示宽）
+    // 槽在场期 notify 入槽期缓冲（80 列折行首段 = '• ' + 38 全宽字 = 80 显示宽）
     backend.notify('宽'.repeat(45));
     clock.advance(1);
     expect(io.bytes).not.toContain('宽'); // 前置自证：确入槽期缓冲未直写
@@ -3696,8 +3697,8 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     // 终态窗块 = 末次 ↑ 指示之后的 diff 段（onRepaint 的 repaint 先陈货全量
     // 重画再同帧 diff 收敛——流中旧窗字节是中间态非终态证据，同 fx2-A 谱）
     const finalWindow = io.bytes.slice(io.bytes.lastIndexOf('↑'));
-    // ❯→▸ 图标收敛批：光标记号独立 accent 段（▸ 与反白正文分属两个 SGR 段）
-    expect(finalWindow).toContain('\x1b[7;36m▸\x1b[0m\x1b[7m opt-20'); // 高亮末项——光标移动且窗沉底跟随
+    // ❯→› 图标收敛批：光标记号独立 accent 段（› 与反白正文分属两个 SGR 段）
+    expect(finalWindow).toContain('\x1b[7;36m›\x1b[0m\x1b[7m opt-20'); // 高亮末项——光标移动且窗沉底跟随
     expect(finalWindow).not.toContain('↓ '); // 窗沉底——底部无隐藏（指示行消失）
     io.emitInput('\r');
     pump();
@@ -3713,7 +3714,7 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     io.emitInput('\x1b[B\x1b[B\x1b[B'); // ↓×3 → opt-3
     pump();
     expect(io.bytes.length).toBeGreaterThan(0); // 键即帧（修前 0——面板态已变从未画出）
-    expect(io.bytes).toContain('\x1b[7;36m▸\x1b[0m\x1b[7m opt-3'); // 高亮随键可见（▸ 反白段——图标收敛批形）
+    expect(io.bytes).toContain('\x1b[7;36m›\x1b[0m\x1b[7m opt-3'); // 高亮随键可见（› 反白段——图标收敛批形）
     io.emitInput('\r');
     pump();
     await expect(p).resolves.toBe('v3');
@@ -4008,7 +4009,7 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     expect(io.bytes).toContain('⠙'); // 转轮不停（退避窗内忙态闸在开）
   });
 
-  it('态④ 错误终态驻留不推帧 + 再入清场：exhausted → 红 ✖；下一 agent_start 回态①', () => {
+  it('态④ 错误终态驻留不推帧 + 再入清场：exhausted → 红 ✗；下一 agent_start 回态①', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' });
     emit(backend, { type: 'agent_end', status: 'failed' });
@@ -4018,9 +4019,9 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     expect(io.bytes).toBe(''); // 终态不推帧（转轮闸关——闲态 tick 零写出同律）
     io.bytes = '';
     emit(backend, { type: 'agent_start' });
-    expect(io.bytes).toContain('⠋'); // ✖ 驻留清场——新 run 回忙态（转轮回场）
+    expect(io.bytes).toContain('⠋'); // ✗ 驻留清场——新 run 回忙态（转轮回场）
     expect(io.bytes).toContain('正在对话中');
-    expect(io.bytes).not.toContain('✖ 失败');
+    expect(io.bytes).not.toContain('✗ 失败');
   });
 });
 
@@ -4266,16 +4267,16 @@ describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——U
     expect(io.bytes).toContain('任务 job-2');
   });
 
-  it('alt+↓ 首按激活光标（▸ 记入帧）；空段不劫键（编辑器既有键零扰动）', () => {
+  it('alt+↓ 首按激活光标（› 记入帧）；空段不劫键（编辑器既有键零扰动）', () => {
     const rig = makeInteractive({ now: () => 65_000, jobs: jobsOf(() => [job('job-1'), job('job-2')]) }, 24);
     rig.io.emitInput('\x1b[1;3B'); // alt+↓（CSI 修饰参 3 = 1+alt）
     rig.pump();
-    expect(rig.io.bytes).toContain('▸'); // 光标期在选行 ▸ 记
+    expect(rig.io.bytes).toContain('›'); // 光标期在选行 › 记
     // 空段形：jobs 注入但 running 空——alt+↓ 透传不劫（无光标帧）
     const idle = makeInteractive({ now: () => 65_000, jobs: jobsOf(() => []) }, 24);
     idle.io.emitInput('\x1b[1;3B');
     idle.pump();
-    expect(idle.io.bytes).not.toContain('▸');
+    expect(idle.io.bytes).not.toContain('›');
   });
 
   it('enter 光标激活期开 /jobs 副屏定位在选任务（移动语义端到端）；未激活 enter 零劫', () => {
@@ -4295,7 +4296,7 @@ describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——U
     pump();
     expect(backend.lifecycle).toBe('suspended'); // 副屏在场
     expect(io.bytes).toContain('◉ 后台任务 /jobs'); // 副屏头行
-    expect(io.bytes).toContain('▸ 任务 job-2'); // 进屏光标直落该任务（定位面）
+    expect(io.bytes).toContain('› 任务 job-2'); // 进屏光标直落该任务（定位面）
   });
 
   it('escape 收光标即消费（先于打断分诊——退出导航非打断意图）', () => {
@@ -4310,7 +4311,7 @@ describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——U
     escapePump(clock); // lone-ESC 判定窗到点——收光标触重画
     expect(calls.interrupted).toEqual([]); // 未落打断分诊（收光标即消费）
     expect(backend.lifecycle).toBe('running');
-    expect(io.bytes).not.toContain('▸'); // 光标离场帧
+    expect(io.bytes).not.toContain('›'); // 光标离场帧
   });
 
   it('副屏 q 返回主屏（生命周期复原——件族退出律）', () => {

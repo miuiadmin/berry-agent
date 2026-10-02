@@ -91,16 +91,16 @@ describe('SandboxPicker 呈现', () => {
     expect(readRow(grid, 3, width)).toContain('直跑宿主');
   });
 
-  it('当前档 ● 高亮锚：current 行带 ●，非当前行无 ●；光标 ▸ 首行', () => {
+  it('当前档 ● 高亮锚：current 行带 ●，非当前行无 ●；光标 › 首行', () => {
     const { picker } = makePicker({ current: 'danger' });
     const width = 72;
     const grid = new CellGrid(width, picker.measure(width));
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    // 光标与当前档分立：光标 ▸ 在首行（read-only），● 在 danger 行（行 3）
-    expect(readRow(grid, 1, width).startsWith('▸')).toBe(true);
+    // 光标与当前档分立：光标 › 在首行（read-only），● 在 danger 行（行 3）
+    expect(readRow(grid, 1, width).startsWith('›')).toBe(true);
     const dangerRow = readRow(grid, 3, width);
     expect(dangerRow).toContain('●');
-    expect(dangerRow.startsWith('▸')).toBe(false);
+    expect(dangerRow.startsWith('›')).toBe(false);
     expect(readRow(grid, 1, width)).not.toContain('●');
   });
 
@@ -141,7 +141,7 @@ describe('SandboxPicker 键面', () => {
     expect(onSelect).toHaveBeenCalledWith('workspace-write');
   });
 
-  it('光标移动：down/up + home/end（渲染面 ▸ 位随行）', () => {
+  it('光标移动：down/up + home/end（渲染面 › 位随行）', () => {
     const { picker } = makePicker();
     const width = 72;
     const paint = (): CellGrid => {
@@ -150,14 +150,14 @@ describe('SandboxPicker 键面', () => {
       return grid;
     };
     picker.handleEvent(k('end'));
-    expect(readRow(paint(), 3, width).startsWith('▸')).toBe(true); // danger 行
+    expect(readRow(paint(), 3, width).startsWith('›')).toBe(true); // danger 行
     picker.handleEvent(k('home'));
-    expect(readRow(paint(), 1, width).startsWith('▸')).toBe(true); // read-only 行
+    expect(readRow(paint(), 1, width).startsWith('›')).toBe(true); // read-only 行
     picker.handleEvent(k('down'));
     picker.handleEvent(k('down'));
-    expect(readRow(paint(), 3, width).startsWith('▸')).toBe(true); // danger 行
+    expect(readRow(paint(), 3, width).startsWith('›')).toBe(true); // danger 行
     picker.handleEvent(k('up'));
-    expect(readRow(paint(), 2, width).startsWith('▸')).toBe(true); // workspace-write 行
+    expect(readRow(paint(), 2, width).startsWith('›')).toBe(true); // workspace-write 行
   });
 
   it('光标驱动滚动：矮窗 end 提窗（首行换 + 尾两档入窗）→ home 回锚顶', () => {
@@ -174,7 +174,7 @@ describe('SandboxPicker 键面', () => {
     expect(readRow(grid2, 1, width)).not.toContain('read-only'); // 首行换（窗已提，非首条目）
     expect(readRow(grid2, 1, width)).toContain('workspace-write'); // 窗含尾两档之首（倒数第二档）
     expect(readRow(grid2, 2, width)).toContain('danger'); // 尾条目在窗内
-    expect(readRow(grid2, 2, width).startsWith('▸')).toBe(true); // 光标随尾条目贴窗底
+    expect(readRow(grid2, 2, width).startsWith('›')).toBe(true); // 光标随尾条目贴窗底
     picker.handleEvent(k('home')); // 光标回首——压窗
     expect(readRow(paint(), 1, width)).toContain('read-only'); // 回锚顶
   });
@@ -194,7 +194,7 @@ describe('SandboxPicker 键面', () => {
     expect(readRow(grid, 2, width)).toContain('danger'); // 尾条目恰贴窗底
   });
 
-  it('pagedown/pageup 翻选：光标跳一屏夹取不越界 + 回跳（渲染面 ▸ 位）', () => {
+  it('pagedown/pageup 翻选：光标跳一屏夹取不越界 + 回跳（渲染面 › 位）', () => {
     const { picker } = makePicker();
     const width = 72;
     const paint = (): CellGrid => {
@@ -206,12 +206,12 @@ describe('SandboxPicker 键面', () => {
     picker.handleEvent(k('pagedown')); // 跳一屏：read-only → danger（索引 2 封顶）
     picker.handleEvent(k('pagedown')); // 尾夹取不越界——位不动（仍 danger）
     let g = paint();
-    expect(readRow(g, 2, width).startsWith('▸')).toBe(true); // 光标贴窗底（danger）
+    expect(readRow(g, 2, width).startsWith('›')).toBe(true); // 光标贴窗底（danger）
     expect(readRow(g, 2, width)).toContain('danger');
     picker.handleEvent(k('pageup')); // 回跳一屏：danger → read-only（索引 0）
     picker.handleEvent(k('pageup')); // 首夹取不越界——位不动（仍 read-only）
     g = paint();
-    expect(readRow(g, 1, width).startsWith('▸')).toBe(true); // 回锚顶（read-only）
+    expect(readRow(g, 1, width).startsWith('›')).toBe(true); // 回锚顶（read-only）
     expect(readRow(g, 1, width)).toContain('read-only');
   });
 
@@ -265,7 +265,7 @@ describe('SandboxPicker 键面', () => {
     picker.handleEvent(wheel('wheel-down')); // 光标 0 → 夹尾 2（danger——步 3 被夹）
     const grid = paint();
     expect(readRow(grid, 1, width)).toContain('workspace-write'); // 提窗 offset 1——修前零动作红锚
-    expect(readRow(grid, 2, width).startsWith('▸')).toBe(true); // 光标行（danger）贴窗底
+    expect(readRow(grid, 2, width).startsWith('›')).toBe(true); // 光标行（danger）贴窗底
     expect(readRow(grid, 2, width)).toContain('danger');
     picker.handleEvent(wheel('wheel-up')); // 光标 2 → 夹首 0——回锚顶
     expect(readRow(paint(), 1, width)).toContain('read-only');

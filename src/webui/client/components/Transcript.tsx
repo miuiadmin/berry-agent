@@ -42,9 +42,9 @@ const MessageView = memo(function MessageView({ message }: { message: ViewMessag
         {message.role}
       </div>
       {body}
-      {/* 错误块（03 §10.4 SPA 呈现面终态条款①——✖ 前缀 + error 语义色，与 TUI 错误块同律） */}
+      {/* 错误块（03 §10.4 SPA 呈现面终态条款①——✗ 前缀 + error 语义色，与 TUI 错误块同律；注⑩：✖ 形全域退役跨通道） */}
       {message.error !== undefined ? (
-        <p className="whitespace-pre-wrap text-body leading-6 text-red-400">✖ {message.error}</p>
+        <p className="whitespace-pre-wrap text-body leading-6 text-red-400">✗ {message.error}</p>
       ) : null}
       {message.streaming ? <span className="animate-pulse text-ink-mute">▍</span> : null}
     </div>

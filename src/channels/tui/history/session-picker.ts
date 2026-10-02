@@ -5,7 +5,7 @@
  * - **光标行选择**（与回看器滚动模型分立的选择模型）：↑/↓ 移动光标
  *   （PgUp/PgDn 翻选、Home/End 到首尾），Enter 选定 → 先收副屏再 onSelect
  *   （切焦异步 repaint 与收屏两序皆收敛——挂起闸/复起全帧重画各担一形）；
- * - **行呈现**：光标标记 ▸ + 活跃位 ●（进程内 driver 在场）+ 标题（缺席
+ * - **行呈现**：光标标记 › + 活跃位 ●（进程内 driver 在场）+ 标题（缺席
  *   如实「（无题）」）+ 右侧时间（MM-DD HH:mm——呈现位确定性）与会话短
  *   id；超宽整字截断（左段适配剩余宽——CJK 双宽不产半字）；
  * - **滚动**：光标驱动的窗口滚动（光标恒可见——offset 跟随夹取），非
@@ -19,6 +19,8 @@ import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { UiSessionSummary } from '../../../contracts/index.js';
 import { hintLine } from '../keys/hint.js';
+import { DIM_STYLE } from '../../engine/index.js';
+import { CURSOR_MARK, HEAD_MARKS } from '../panels/panel-chrome.js';
 
 /** 切换器装配选项 */
 export interface SessionPickerOptions {
@@ -35,10 +37,8 @@ export interface SessionPickerOptions {
   readonly onQuit?: () => void;
 }
 
-/** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 光标行标记（在选行） */
-const CURSOR_MARK = '▸';
+/** 提示行样式（dim——注⑩：engine DIM_STYLE 单源） */
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 活跃位标记（进程内 driver 在场） */
 const ACTIVE_MARK = '●';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
@@ -104,10 +104,10 @@ export class SessionPicker implements OverlayContent {
     const n = this.sessions.length;
     const head =
       n === 0
-        ? '⇄ 会话切换 · 无会话'
+        ? `${HEAD_MARKS.session} 会话切换 · 无会话`
         : this.totalCount !== undefined && this.totalCount > n
-          ? `⇄ 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
-          : `⇄ 会话切换 · ${n} 会话`;
+          ? `${HEAD_MARKS.session} 会话切换 · ${n}/${this.totalCount} 会话（仅显示最近）`
+          : `${HEAD_MARKS.session} 会话切换 · ${n} 会话`;
     // 非条目行（头行/空态行/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5——raw
     // writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）
     buffer.writeText(region.row, region.col, fitLine(head, region.width));

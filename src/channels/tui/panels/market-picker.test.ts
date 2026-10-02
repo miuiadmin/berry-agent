@@ -96,7 +96,7 @@ describe('MarketPicker 呈现', () => {
     const grid = paint(picker, width);
     expect(readRow(grid, 0, width)).toBe('◆ 插件市场 · 3 条目（2 源）');
     const row1 = readRow(grid, 1, width);
-    expect(row1.startsWith('▸')).toBe(true); // 光标在首行
+    expect(row1.startsWith('›')).toBe(true); // 光标在首行
     expect(row1).toContain('hello@alpha');
     expect(row1).toContain('已装'); // 已装徽标
     expect(row1).toContain('问好插件'); // description 进 detail 段
@@ -214,20 +214,20 @@ describe('MarketPicker 呈现', () => {
 });
 
 describe('MarketPicker 键面', () => {
-  it('光标移动：down/up + home/end 夹取（▸ 位随行——渲染面断言）+ 光标变更请求重画', () => {
+  it('光标移动：down/up + home/end 夹取（› 位随行——渲染面断言）+ 光标变更请求重画', () => {
     const { picker, requestRepaint } = makePicker();
     const width = 72;
-    expect(readRow(paint(picker, width), 1, width).startsWith('▸')).toBe(true);
+    expect(readRow(paint(picker, width), 1, width).startsWith('›')).toBe(true);
     picker.handleEvent(k('down'));
-    expect(readRow(paint(picker, width), 2, width).startsWith('▸')).toBe(true);
+    expect(readRow(paint(picker, width), 2, width).startsWith('›')).toBe(true);
     picker.handleEvent(k('end'));
-    expect(readRow(paint(picker, width), 3, width).startsWith('▸')).toBe(true);
+    expect(readRow(paint(picker, width), 3, width).startsWith('›')).toBe(true);
     picker.handleEvent(k('down')); // 尾夹取——位不动
-    expect(readRow(paint(picker, width), 3, width).startsWith('▸')).toBe(true);
+    expect(readRow(paint(picker, width), 3, width).startsWith('›')).toBe(true);
     picker.handleEvent(k('home'));
-    expect(readRow(paint(picker, width), 1, width).startsWith('▸')).toBe(true);
+    expect(readRow(paint(picker, width), 1, width).startsWith('›')).toBe(true);
     picker.handleEvent(k('up')); // 首夹取——位不动
-    expect(readRow(paint(picker, width), 1, width).startsWith('▸')).toBe(true);
+    expect(readRow(paint(picker, width), 1, width).startsWith('›')).toBe(true);
     // 副屏 Engine 输入后不自动重画——面板光标变更自请重画（程序化重画路）
     expect(requestRepaint.mock.calls.length).toBeGreaterThanOrEqual(4);
   });
@@ -437,7 +437,7 @@ describe('MarketPicker 模型换血缩行防御（光标随行集夹取）', () 
     expect(textLane.actions.upgrade).toHaveBeenCalledWith('hello@alpha');
   });
 
-  it('render 期光标夹取：换血缩行后光标标记 ▸ 落在新集在位行（不再悬空）', () => {
+  it('render 期光标夹取：换血缩行后光标标记 › 落在新集在位行（不再悬空）', () => {
     const { picker, model } = makePicker();
     picker.handleEvent(k('down'));
     picker.handleEvent(k('down'));
@@ -445,7 +445,7 @@ describe('MarketPicker 模型换血缩行防御（光标随行集夹取）', () 
     const width = 72;
     const grid = new CellGrid(width, picker.measure(width));
     expect(() => picker.render(grid, { row: 0, col: 0, width, height: grid.rows })).not.toThrow();
-    expect(readRow(grid, 1, width).startsWith('▸')).toBe(true); // 光标标记在唯一在位行
+    expect(readRow(grid, 1, width).startsWith('›')).toBe(true); // 光标标记在唯一在位行
   });
 
   it('换血到空表：enter/u（key 轨 + text 轨）零回调不抛；r 两轨可达 refresh（翻档——刷新不依赖行集）', () => {
@@ -501,12 +501,12 @@ describe('MarketPicker 滚轮消费（picker 族补齐——ScrollView WHEEL_LIN
     expect(picker.handleEvent(m('wheel-down'))).toBe(true); // 消费（模态独占）
     const g1 = paintDwarf(picker, width);
     expect(readRow(g1, 1, width)).toContain('w3@alpha'); // offset 0→3（+3 夹取内）
-    expect(readRow(g1, 1, width).startsWith('▸')).toBe(true); // 光标随视口拉回窗顶
+    expect(readRow(g1, 1, width).startsWith('›')).toBe(true); // 光标随视口拉回窗顶
     expect(readRow(g1, 2, width)).toContain('w4@alpha');
     picker.handleEvent(m('wheel-up'));
     const g2 = paintDwarf(picker, width);
     expect(readRow(g2, 1, width)).toContain('w0@alpha'); // offset 3→0（-3 夹取内）
-    expect(readRow(g2, 2, width).startsWith('▸')).toBe(true); // 光标随视口拉回窗底
+    expect(readRow(g2, 2, width).startsWith('›')).toBe(true); // 光标随视口拉回窗底
     // 边界零动作：窗已在顶——wheel-up 零滚动零重画（首尾夹取静默同律）
     const before = requestRepaint.mock.calls.length;
     picker.handleEvent(m('wheel-up'));
@@ -591,7 +591,7 @@ describe('MarketPicker 长清单滚动位置指示（界面美化役 2026-10-01 
     picker.handleEvent(k('end'));
     const grid = paintMid(picker);
     expect(readRow(grid, 1, 40)).toBe('↑ 7 更多');
-    expect(readRow(grid, 2, 40).startsWith('▸')).toBe(true); // 在选行 m7
+    expect(readRow(grid, 2, 40).startsWith('›')).toBe(true); // 在选行 m7
     expect(readRow(grid, 2, 40)).toContain('m7@alpha');
     expect(readRow(grid, 3, 40)).not.toContain('更多'); // 贴尾无下指示
   });

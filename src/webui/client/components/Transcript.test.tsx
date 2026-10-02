@@ -63,6 +63,18 @@ describe('Transcript 角色分形渲染', () => {
     );
     expect(screen.getByText('user')).toBeTruthy();
   });
+
+  it('错误块 ✗ 前缀直呈错误文本（注⑩ 跨通道同律——✖ 形全域退役）', () => {
+    render(
+      <Transcript
+        messages={[msg({ key: 'm-1', role: 'assistant', text: '半句', error: '模型渠道未配置' })]}
+        status={null}
+        bottomRef={createRef<HTMLDivElement>()}
+      />,
+    );
+    expect(screen.getByText('✗ 模型渠道未配置')).toBeTruthy(); // 前缀 + 同句原因（失败直呈律）
+    expect(screen.queryByText('✖ 模型渠道未配置')).toBeNull(); // 旧形退役锁
+  });
 });
 
 describe('Transcript 流式尾巴与状态行', () => {

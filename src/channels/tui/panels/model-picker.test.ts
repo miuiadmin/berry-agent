@@ -93,19 +93,19 @@ describe('ModelPicker 呈现', () => {
     expect(readRow(grid, grid.rows - 1, 72)).toContain('下一轮对话起生效');
   });
 
-  it('当前模型 ● 标记与光标 ▸ 分立（首条目光标、当前行 ●）', () => {
+  it('当前模型 ● 标记与光标 › 分立（首条目光标、当前行 ●）', () => {
     const { picker } = makePicker();
     const grid = paint(picker);
     // 光标在首条目（组头后第一行 = 行 2），当前 ● 也在该行（current = 首条目）
-    expect(readRow(grid, 2, 72).startsWith('▸')).toBe(true);
+    expect(readRow(grid, 2, 72).startsWith('›')).toBe(true);
     expect(readRow(grid, 2, 72)).toContain('●');
-    // 换 current 非首条目——● 与 ▸ 分立
+    // 换 current 非首条目——● 与 › 分立
     const { picker: p2 } = makePicker({ current: 'openai/gpt-5' });
     const grid2 = paint(p2);
-    expect(readRow(grid2, 2, 72).startsWith('▸')).toBe(true);
+    expect(readRow(grid2, 2, 72).startsWith('›')).toBe(true);
     expect(readRow(grid2, 2, 72)).not.toContain('●');
     expect(readRow(grid2, 5, 72)).toContain('●');
-    expect(readRow(grid2, 5, 72).startsWith('▸')).toBe(false);
+    expect(readRow(grid2, 5, 72).startsWith('›')).toBe(false);
   });
 
   it('窄窗非条目行 … 收口（wf_3c8b00b8 组δ X-5）：头行/组头行/底行 raw writeText 硬截断封堵（修前红）', () => {
@@ -262,7 +262,7 @@ describe('ModelPicker 长清单滚动位置指示（界面美化役 2026-10-01 �
     picker.handleEvent(k('end')); // 光标尾条目（展开行 11）
     const grid = paintShort(picker, 5);
     expect(readRow(grid, 1, 40)).toBe('↑ 11 更多');
-    expect(readRow(grid, 2, 40).startsWith('▸')).toBe(true); // 在选行 p2/n4
+    expect(readRow(grid, 2, 40).startsWith('›')).toBe(true); // 在选行 p2/n4
     expect(readRow(grid, 2, 40)).toContain('p2/n4');
     expect(readRow(grid, 3, 40)).not.toContain('更多'); // 贴尾无下指示
   });

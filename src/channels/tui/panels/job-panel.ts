@@ -14,7 +14,7 @@
  * - 帽 5 行 + 溢出行「+ N 更多 · /jobs 查看」（暗淡）；
  * - **光标翻页态一期直接做**（问题②拍板「不分二期」）：alt+↑/↓ 激活/移动
  *   段内光标（键路由在 backend 层③.5——本件零键知识，只持光标态），在选
- *   行 ▸ 记 + accent 着色；enter 开 /jobs 副屏定位该任务（消费位 backend
+ *   行 › 记 + accent 着色；enter 开 /jobs 副屏定位该任务（消费位 backend
  *   openJobs）；escape 清光标（让路族）；
  * - 刷新时机归装配（backend renderFixed 帧首拉取 + job_settled 推送锚），
  *   件内零时钟零事件面。
@@ -23,6 +23,8 @@ import { ellipsize, type CellBuffer, type CellStyle, type Region, type Renderabl
 import type { JobEntry, JobKind } from '../../../contracts/index.js';
 import { formatElapsedCompact } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js'; // 溢出行暗淡样式单源（注⑩收编）
+import { CURSOR_MARK } from './panel-chrome.js';
 
 /** 帽内行数（溢出行另计——07 §4.1 界面美化役批定值 5） */
 const MAX_ROWS = 5;
@@ -34,15 +36,9 @@ const KIND_MARKS: Readonly<Record<JobKind, string>> = Object.freeze({
   trigger: '○',
 });
 
-/** 暗淡样式（溢出行） */
-const DIM_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-
-/** 在选行记号（panel-chrome 光标符统一律同形——件内自持单源引形） */
-const CURSOR_MARK = '▸';
-
 /**
  * 后台任务面板：running 快照 → 固定区行段（清板即零行——布局自洽）。
- * 光标态（批6 问题②）：激活后 ▸ 记 + accent 在选行；行集收缩时夹取。
+ * 光标态（批6 问题②）：激活后 › 记 + accent 在选行；行集收缩时夹取。
  */
 export class JobPanel implements Renderable {
   private entries: readonly JobEntry[] = [];
@@ -116,7 +112,7 @@ export class JobPanel implements Renderable {
     return true;
   }
 
-  /** 落位：每行 `{图标} {名} · {时长}[ · 重试 ×N]`（光标期在选行 ▸ 记 + accent）；溢出行收尾 */
+  /** 落位：每行 `{图标} {名} · {时长}[ · 重试 ×N]`（光标期在选行 › 记 + accent）；溢出行收尾 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height <= 0 || this.entries.length === 0) return;
     // 段内夹取（todo-panel 同律）：分配到的段高可低于 measure 原值（低段
@@ -133,7 +129,7 @@ export class JobPanel implements Renderable {
     const visible = this.entries.slice(0, visibleCount);
     visible.forEach((entry, i) => {
       const selected = this.cursor === i;
-      // 光标期首列 ▸ 记（未激活零占列——无光标帧不缩内容预算）；内容预算 =
+      // 光标期首列 › 记（未激活零占列——无光标帧不缩内容预算）；内容预算 =
       // 宽 - 图标 2 列 - 光标列，省略形单源（0 宽守卫在源）
       const mark = KIND_MARKS[entry.kind];
       const duration = formatElapsedCompact(Math.max(0, this.now() - entry.startedAt));

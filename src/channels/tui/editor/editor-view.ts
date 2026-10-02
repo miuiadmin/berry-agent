@@ -20,6 +20,7 @@ import type { EditorModel } from './editor-model.js';
 import { presentedLineCount } from './height-cap.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { CellStyle } from '../../engine/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 输入提示符（与 transcript user 块前缀同字符——codex composer 形） */
 const PROMPT_MARK = '›';
@@ -54,7 +55,7 @@ export class EditorView implements Renderable {
   private contentStyle: Readonly<CellStyle> | undefined =
     DEFAULT_THEME.userMessageBg === undefined ? undefined : Object.freeze({ bg: DEFAULT_THEME.userMessageBg });
   /** 滚动指示 overlay 样式（dim；底色在场时携 bg 维持带连续——覆盖写不凿洞） */
-  private indicatorStyle: Readonly<CellStyle> = Object.freeze({ dim: true });
+  private indicatorStyle: Readonly<CellStyle> = DIM_STYLE;
   /** 预编辑段样式（下划线——组字挂起提示；底色在场时携 bg 合成） */
   private preeditStyle: Readonly<CellStyle> = Object.freeze({ underline: true });
 

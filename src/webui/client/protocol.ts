@@ -59,7 +59,7 @@ export type ClientDisplayEvent =
       readonly status?: string;
       /**
        * 失败原因（失败直呈律 07 §4.1 V-0 注②跨通道同律——服务端发射位在册
-       * 载荷，客户端视界补声明）：在场即状态行同句携因 `✖ 失败 · 原因`。
+       * 载荷，客户端视界补声明）：在场即状态行同句携因 `✗ 失败 · 原因`。
        */
       readonly errorMessage?: string;
       /**

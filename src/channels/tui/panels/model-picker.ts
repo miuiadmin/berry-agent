@@ -5,7 +5,7 @@
  * - **条目 = providers 装配序 × provider 内 model 序的 `provider/model` 全列**
  *   （清单单源 = ctrl+p 循环同一读面——装配位注入纯数据行，本件不 import llm）；
  * - **provider 分组头**（dim 行——opencode/zcode 分组先例；组头不可停光标）；
- * - **当前模型 ● 标记**（光标 ▸ 与当前 ● 两记分立——ThinkingPicker 同律）；
+ * - **当前模型 ● 标记**（光标 › 与当前 ● 两记分立——ThinkingPicker 同律）；
  * - **打字过滤**（query 子串匹配 spec 即时过滤——pi/opencode/codex 面板先例；
  *   过滤词呈现于底行 + backspace 删词；过滤后分组头随条目重算）；
  * - **选定先收副屏再回调**（件族同序律）：onSelect 收 spec 全形——setModel +
@@ -19,6 +19,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 模型条目（装配位从 llmRuntime 目录合成——本件不 import llm） */
 export interface ModelPickEntry {
@@ -50,9 +51,9 @@ export interface ModelPickerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 分组头样式（dim——provider 域名行） */
-const HEAD_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HEAD_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 当前模型标记 */
 const CURRENT_MARK = '●';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——件族面） */
@@ -135,7 +136,7 @@ export class ModelPicker implements OverlayContent {
     return 1 + Math.max(1, this.rows(this.entries).length) + 1;
   }
 
-  /** 落位：头行 → 展开行视口（组头 dim / 条目 ▸ ● spec · model 右段）→ 底行 */
+  /** 落位：头行 → 展开行视口（组头 dim / 条目 › ● spec · model 右段）→ 底行 */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
     const items = this.filtered();

@@ -42,16 +42,16 @@ import type {
   WizardSelectRequest,
   WizardTextRequest,
 } from '../../wizard-prompter.js';
+import { DIM_STYLE } from '../../engine/index.js';
+import { CURSOR_MARK, HEAD_MARKS } from './panel-chrome.js';
 
-/** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
-/** 光标行标记（在选行） */
-const CURSOR_MARK = '▸';
+/** 提示行样式（dim——注⑩：engine DIM_STYLE 单源） */
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** multiselect 勾选/未选标记（v2——模型清单勾选相） */
 const CHECKED_MARK = '◉';
 const UNCHECKED_MARK = '○';
-/** 面板头前缀 */
-const HEAD_PREFIX = '⚙ 配置向导';
+/** 面板头前缀（头符表 tool 位——⚙ 单源 HEAD_MARKS） */
+const HEAD_PREFIX = `${HEAD_MARKS.tool} 配置向导`;
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
 const WHEEL_LINES = 3;
 
@@ -212,7 +212,7 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   /** 忙等指示（R-3——static 相呈现 ⏳ 行非阻塞；返回幂等清除函数） */
   busy(label: string): () => void {
     if (this.exited) return () => {};
-    this.phase = { kind: 'static', title: `⏳ ${label}`, lines: [] };
+    this.phase = { kind: 'static', title: `${HEAD_MARKS.busy} ${label}`, lines: [] };
     this.requestRepaint();
     let cleared = false;
     return () => {

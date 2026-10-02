@@ -19,6 +19,7 @@
 import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
 import { ellipsize, stringWidth } from '../../engine/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /**
  * footer 分栏段集（V-3 注⑦②——backend 装配位拼段注入）：
@@ -52,7 +53,7 @@ export class StatusLine implements Renderable {
    */
   private footerStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.secondary });
   /** 教学提示样式（dim——教学位弱存在感，不入 §4.4 律三载体集） */
-  private readonly hintStyle: Readonly<CellStyle> = Object.freeze({ dim: true });
+  private readonly hintStyle: Readonly<CellStyle> = DIM_STYLE;
   /** footer 段集（null = footer 缺席旧形——闲态文案居左满行） */
   private seg: FooterSegments | null = null;
 

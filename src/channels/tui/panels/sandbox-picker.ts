@@ -1,13 +1,13 @@
 /**
  * /sandbox 沙箱档位切换副屏件（2026-09-17 会话档位切换面批 F2——TUI 本地
- * 拦截族第九枚，thinking-picker 同族同基建）：theme-picker 形选择器——▸
+ * 拦截族第九枚，thinking-picker 同族同基建）：theme-picker 形选择器——›
  * 光标 + enter 选定 + 当前档 ● 标记。
  *
  * - **行集三档**：词表单源 safety SANDBOX_MODES（read-only / workspace-write
  *   / danger——装配位注入条目，本件只收纯数据行原样呈现，不 import
  *   conversation/safety〔channels 不入两域——边表律〕）；
  * - **当前档锚**：● 标记判据 = 装配位注入的 current（会话 fold 现值——boot
- *   解析值 fallback；本面恒有锚，undefined 形仅测试/防御位）；光标 ▸ 与
+ *   解析值 fallback；本面恒有锚，undefined 形仅测试/防御位）；光标 › 与
  *   当前 ● 两记分立（光标独立游走）；
  * - **danger 行警示语**：说明位「无沙箱——任何命令直跑宿主」——规范 07
  *   §4.1 钉死措辞（第三档语义不粉饰）；
@@ -22,6 +22,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { CURSOR_MARK, headStyleOf, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 档位条目（装配位从 SANDBOX_MODES 单源合成——本件不 import safety） */
 export interface SandboxPickEntry {
@@ -51,7 +52,7 @@ export interface SandboxPickerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 当前档标记 */
 const CURRENT_MARK = '●';
 /** 滚轮单步行数（ScrollView WHEEL_LINES 同值——vim mousescroll ver 缺省档三行；mu-2 件族面） */
@@ -108,7 +109,7 @@ export class SandboxPicker implements OverlayContent {
     return 1 + Math.max(1, this.entries.length) + 1;
   }
 
-  /** 落位：头行（accent + fitLine 收口）→ 条目视口（光标 ▸ + 当前 ● + 档名 / 说明右段）→ 底行提示（fitLine 收口） */
+  /** 落位：头行（accent + fitLine 收口）→ 条目视口（光标 › + 当前 ● + 档名 / 说明右段）→ 底行提示（fitLine 收口） */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端）
     // 界面美化役美学注④/⑤：头符 ◆（选择器族词汇单源化）accent 着色 + 非条目行 fitLine 收口

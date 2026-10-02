@@ -19,6 +19,7 @@
 // 禁则谓词与消毒经 engine 聚合面（index）消费——TUI 第四役残腿收纳
 // （批内注释例注撤除：聚合面已收录，子目录直达形不复存在）
 import {
+  DIM_STYLE as CANONICAL_DIM_STYLE,
   graphemeWidth,
   isLineEndProhibited,
   isLineStartProhibited,
@@ -41,8 +42,8 @@ export interface StylePart {
   readonly style: Readonly<CellStyle> | undefined;
 }
 
-/** 引用块基础样式（dim——存在感弱于正文） */
-export const DIM_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+/** 引用块基础样式（dim——存在感弱于正文；注⑩：值位 = engine DIM_STYLE 单源 alias） */
+export const DIM_STYLE: Readonly<CellStyle> = CANONICAL_DIM_STYLE;
 
 /** span 样式解析（与块基础样式合并——行内位覆盖 base 的同名位；主题键单源） */
 export function spanStyle(

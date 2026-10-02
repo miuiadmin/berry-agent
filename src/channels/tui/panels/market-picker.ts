@@ -1,6 +1,6 @@
 /**
  * /marketplace 插件市场选装副屏件（03 §9.6 mp-5 TUI 选装面·07 §4.1 命令面
- * 增补批——TUI 本地拦截族第七件）：theme-picker 形选择器——▸ 光标 + 已装
+ * 增补批——TUI 本地拦截族第七件）：theme-picker 形选择器——› 光标 + 已装
  * 徽标 + enter 选装/卸载 + u 换装 + r 刷新。
  *
  * - **纯呈现件（零 host import）**：条目行集（rows）与尾行区（tail/results/
@@ -27,8 +27,9 @@ import type { CellBuffer, CellStyle, InputEvent, Region } from '../../engine/ind
 import { fitLine, fitRowSegments } from '../row-segments.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
-import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
+import { CURSOR_MARK, headStyleOf, HEAD_MARKS, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /**
  * 市场条目行（host 侧合成注入）：寻址形 id = `name@market`；文本字段
@@ -98,11 +99,11 @@ export interface MarketPickerOptions {
 }
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 已装徽标 */
 const INSTALLED_MARK = '已装';
-/** busy 前缀符 */
-const BUSY_MARK = '⏳';
+/** busy 前缀符（头符表 busy 位单源） */
+const BUSY_MARK = HEAD_MARKS.busy;
 /** busy 期动作键锁文案（busyLabel 原样嵌入——面板不猜动作语义） */
 const BUSY_LOCK_HINT = (label: string): string => `${label}——操作进行中，完成后可重试`;
 /** u 键未装指路文案（面板静态文案——键面语义归呈现件） */

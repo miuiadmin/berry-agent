@@ -95,7 +95,7 @@ describe('select 相（provider 选择）', () => {
     const { panel } = makePanel();
     void panel.select(SELECT_REQ); // 悬置渲染帧（不答——相呈现直锁）
     const grid = paint(panel);
-    expect(readRow(grid, 1, 72)).toContain('▸ anthropic');
+    expect(readRow(grid, 1, 72)).toContain('› anthropic');
     expect(readRow(grid, 2, 72)).toBe('  openai');
     expect(readRow(grid, 4, 72)).toContain('内置 provider 目录');
   });
@@ -185,7 +185,7 @@ describe('multiselect 相（v2——模型清单勾选）', () => {
     panel.handleEvent(k(' ')); // key 轨字符形勾 gw-small（引擎双形防御）
     const grid = paint(panel);
     expect(readRow(grid, 1, 72)).toContain('◉ gw-large'); // 勾选留痕（光标已下移）
-    expect(readRow(grid, 2, 72)).toContain('▸ ◉ gw-small'); // 光标 + 勾选同帧
+    expect(readRow(grid, 2, 72)).toContain('› ◉ gw-small'); // 光标 + 勾选同帧
     expect(readRow(grid, 3, 72)).toContain('○ gw-mini'); // 未勾标记对生
     panel.handleEvent(k('enter'));
     await expect(pending).resolves.toEqual(['gw-large', 'gw-small']);
@@ -670,7 +670,7 @@ describe('视口窗口化物理行预算（#21——desc 次行在场条目占 2
     panel.handleEvent(k('down')); // 光标到尾条目 gw-d
     const grid = paintFixed(panel, 5); // 头行 + 3 内容行 + 键面行 = 行预算 3
     const frame = [1, 2, 3].map((row) => readRow(grid, row, 72)).join('\n');
-    expect(frame).toContain('▸ 渠道 D'); // 光标尾条目 label 入帧
+    expect(frame).toContain('› 渠道 D'); // 光标尾条目 label 入帧
     expect(frame).toContain('https://d.example.com/v1'); // desc 次行同帧完整可见
   });
 
@@ -701,7 +701,7 @@ describe('视口窗口化物理行预算（#21——desc 次行在场条目占 2
     panel.handleEvent(k('down')); // 光标到尾条目 gw-d
     const grid = paintFixed(panel, 5); // 行预算 3
     const frame = [1, 2, 3].map((row) => readRow(grid, row, 72)).join('\n');
-    expect(frame).toContain('▸ ○ 渠道 D'); // 光标尾条目（未勾标记）label 入帧
+    expect(frame).toContain('› ○ 渠道 D'); // 光标尾条目（未勾标记）label 入帧
     expect(frame).toContain('https://d.example.com/v1'); // desc 次行同帧完整可见
   });
 
@@ -741,7 +741,7 @@ describe('窄宽省略形收口（界面美化役 2026-10-01 ①——截断省�
     expect(head).toContain('⚙ 配置向导'); // 头部前缀保真（截断只咬尾部）
     expect(head.endsWith('…')).toBe(true); // 修前红锚：'选择模型渠道' 硬切无 …
     const label = readRow(grid, 1, width);
-    expect(label.startsWith('▸ 渠道')).toBe(true); // 光标 + 首词保真
+    expect(label.startsWith('› 渠道')).toBe(true); // 光标 + 首词保真
     expect(label.endsWith('…')).toBe(true);
     expect(readRow(grid, 2, width).endsWith('…')).toBe(true); // desc 次行同律
     expect(readRow(grid, 3, width).endsWith('…')).toBe(true); // 尾注同律
@@ -765,7 +765,7 @@ describe('窄宽省略形收口（界面美化役 2026-10-01 ①——截断省�
     });
     const grid = paintNarrow(panel);
     const width = 24;
-    expect(readRow(grid, 1, width)).toBe('▸ 渠道甲'); // 适装位无 …（无 desc——尾注紧随条目行）
+    expect(readRow(grid, 1, width)).toBe('› 渠道甲'); // 适装位无 …（无 desc——尾注紧随条目行）
     expect(readRow(grid, 2, width)).toBe('短尾注');
   });
 });
@@ -807,7 +807,7 @@ describe('滚动溢出指示（窗上/下方被裁条目计数入键面行——
       panel.handleEvent(k('down'));
       const grid = paintFixed(panel, 6); // 行预算 4
       const frame = [1, 2, 3, 4].map((row) => readRow(grid, row, 72)).join('\n');
-      expect(frame).toContain(`▸ 渠道 ${step + 1}`); // 每步光标条目 label 恒可见
+      expect(frame).toContain(`› 渠道 ${step + 1}`); // 每步光标条目 label 恒可见
     }
   });
 

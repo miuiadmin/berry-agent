@@ -4,7 +4,7 @@
  * 编舞：装配期（先行件2 供数面 onBootStage/onPluginLoadStart——assembly
  * emitBootStage）驱动本件在 cooked 窗逐行写出启动进度——头行一次
  * `berry-agent v<版本>`、阶段完成行 `✓ <阶段呈现词>`、插件装载行
- * `▸ 装载 <id>（i/N）`（装载前达——次行出现即本件完成）；阶段 start
+ * `› 装载 <id>（i/N）`（装载前达——次行出现即本件完成）；阶段 start
  * 相位零行（完成行才是可见刻度）。
  *
  * 结构锁（07 :204 进屏序律射程分立——本件写侧自锁）：
@@ -181,7 +181,7 @@ export class BootAnimation {
       this.ensureHeader();
       const id = stripControl(pluginId);
       this.openSegment(`插件 ${id}`);
-      this.writeLine(`▸ 加载 ${id}（${index}/${total}）`);
+      this.writeLine(`› 加载 ${id}（${index}/${total}）`);
     } catch {
       // 呈现件自保（同上）
     }

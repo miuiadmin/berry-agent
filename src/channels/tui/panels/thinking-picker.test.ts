@@ -87,16 +87,16 @@ describe('ThinkingPicker 呈现', () => {
     expect(readRow(grid, grid.rows - 1, width)).toContain('下一轮对话起生效');
   });
 
-  it('当前档 ● 高亮锚：current 行带 ●，非当前行无 ●；光标 ▸ 首行', () => {
+  it('当前档 ● 高亮锚：current 行带 ●，非当前行无 ●；光标 › 首行', () => {
     const { picker } = makePicker({ current: 'high' });
     const width = 72;
     const grid = new CellGrid(width, picker.measure(width));
     picker.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    // 光标与当前档分立：光标 ▸ 在首行（off），● 在 high 行（行 5）
-    expect(readRow(grid, 1, width).startsWith('▸')).toBe(true);
+    // 光标与当前档分立：光标 › 在首行（off），● 在 high 行（行 5）
+    expect(readRow(grid, 1, width).startsWith('›')).toBe(true);
     const highRow = readRow(grid, 5, width);
     expect(highRow).toContain('●');
-    expect(highRow.startsWith('▸')).toBe(false);
+    expect(highRow.startsWith('›')).toBe(false);
     expect(readRow(grid, 1, width)).not.toContain('●');
   });
 
@@ -140,7 +140,7 @@ describe('ThinkingPicker 键面', () => {
     expect(onSelect).toHaveBeenCalledWith('minimal');
   });
 
-  it('光标移动：down/up + home/end（渲染面 ▸ 位随行）', () => {
+  it('光标移动：down/up + home/end（渲染面 › 位随行）', () => {
     const { picker } = makePicker();
     const width = 72;
     const paint = (): CellGrid => {
@@ -149,14 +149,14 @@ describe('ThinkingPicker 键面', () => {
       return grid;
     };
     picker.handleEvent(k('end'));
-    expect(readRow(paint(), 7, width).startsWith('▸')).toBe(true); // max 行
+    expect(readRow(paint(), 7, width).startsWith('›')).toBe(true); // max 行
     picker.handleEvent(k('home'));
-    expect(readRow(paint(), 1, width).startsWith('▸')).toBe(true); // off 行
+    expect(readRow(paint(), 1, width).startsWith('›')).toBe(true); // off 行
     picker.handleEvent(k('down'));
     picker.handleEvent(k('down'));
-    expect(readRow(paint(), 3, width).startsWith('▸')).toBe(true); // low 行
+    expect(readRow(paint(), 3, width).startsWith('›')).toBe(true); // low 行
     picker.handleEvent(k('up'));
-    expect(readRow(paint(), 2, width).startsWith('▸')).toBe(true); // minimal 行
+    expect(readRow(paint(), 2, width).startsWith('›')).toBe(true); // minimal 行
   });
 
   it('光标驱动滚动：矮窗 end 提窗（首行换 + 尾两档入窗）→ home 回锚顶', () => {
@@ -173,7 +173,7 @@ describe('ThinkingPicker 键面', () => {
     expect(readRow(grid2, 1, width)).not.toContain('off'); // 首行换（窗已提，非首条目）
     expect(readRow(grid2, 1, width)).toContain('xhigh'); // 窗含尾两档之首（倒数第二档）
     expect(readRow(grid2, 2, width)).toContain('max'); // 尾条目在窗内
-    expect(readRow(grid2, 2, width).startsWith('▸')).toBe(true); // 光标随尾条目贴窗底
+    expect(readRow(grid2, 2, width).startsWith('›')).toBe(true); // 光标随尾条目贴窗底
     picker.handleEvent(k('home')); // 光标回首——压窗
     expect(readRow(paint(), 1, width)).toContain('off'); // 回锚顶
   });
@@ -193,7 +193,7 @@ describe('ThinkingPicker 键面', () => {
     expect(readRow(grid, 2, width)).toContain('max'); // 尾条目恰贴窗底
   });
 
-  it('pagedown/pageup 翻选：光标跳一屏夹取不越界 + 回跳（渲染面 ▸ 位）', () => {
+  it('pagedown/pageup 翻选：光标跳一屏夹取不越界 + 回跳（渲染面 › 位）', () => {
     const { picker } = makePicker();
     const width = 72;
     const paint = (): CellGrid => {
@@ -204,23 +204,23 @@ describe('ThinkingPicker 键面', () => {
     paint(); // 首渲染确立页幅（viewportHeight=2）
     picker.handleEvent(k('pagedown')); // 跳一屏：off → low（索引 2，光标贴窗底提窗）
     let g = paint();
-    expect(readRow(g, 2, width).startsWith('▸')).toBe(true);
+    expect(readRow(g, 2, width).startsWith('›')).toBe(true);
     expect(readRow(g, 2, width)).toContain('low');
     picker.handleEvent(k('pagedown')); // → high（索引 4）
     picker.handleEvent(k('pagedown')); // → max（索引 6）
     picker.handleEvent(k('pagedown')); // 尾夹取不越界——位不动（仍 max）
     g = paint();
-    expect(readRow(g, 2, width).startsWith('▸')).toBe(true);
+    expect(readRow(g, 2, width).startsWith('›')).toBe(true);
     expect(readRow(g, 2, width)).toContain('max');
     picker.handleEvent(k('pageup')); // 回跳一屏：max → high（索引 4，提窗回首行）
     g = paint();
-    expect(readRow(g, 1, width).startsWith('▸')).toBe(true);
+    expect(readRow(g, 1, width).startsWith('›')).toBe(true);
     expect(readRow(g, 1, width)).toContain('high');
     picker.handleEvent(k('pageup')); // → low（索引 2）
     picker.handleEvent(k('pageup')); // → off（索引 0）
     picker.handleEvent(k('pageup')); // 首夹取不越界——位不动（仍 off）
     g = paint();
-    expect(readRow(g, 1, width).startsWith('▸')).toBe(true);
+    expect(readRow(g, 1, width).startsWith('›')).toBe(true);
     expect(readRow(g, 1, width)).toContain('off');
   });
 
@@ -275,7 +275,7 @@ describe('ThinkingPicker 键面', () => {
     const grid = paint();
     expect(readRow(grid, 1, width)).toContain('low'); // 视口跟随提窗 offset 2——修前零动作红锚
     expect(readRow(grid, 1, width)).not.toContain('off');
-    expect(readRow(grid, 2, width).startsWith('▸')).toBe(true); // 光标行（medium）贴窗底
+    expect(readRow(grid, 2, width).startsWith('›')).toBe(true); // 光标行（medium）贴窗底
     expect(readRow(grid, 2, width)).toContain('medium');
     picker.handleEvent(wheel('wheel-up')); // 光标 3 → 0——回锚顶
     expect(readRow(paint(), 1, width)).toContain('off');

@@ -120,7 +120,7 @@ export function renderSessionMarkdown(input: SessionExportInput): string {
       }
       // 工具卡简行（同一响应内发起的调用——参数折叠呈现）
       for (const call of message.toolCalls) {
-        lines.push(`- ▸ 工具 \`${call.toolName}\`：${foldLine(call.arguments, 160)}`);
+        lines.push(`- 工具 \`${call.toolName}\`：${foldLine(call.arguments, 160)}`);
       }
       if (message.toolCalls.length > 0) lines.push('');
       continue;

@@ -164,7 +164,7 @@ describe('renderSessionMarkdown 拼装单源', () => {
     expect(markdown).toContain('**助手**');
     expect(markdown).toContain('好的，先读取。');
     expect(markdown).toContain('> [thinking] 先看文件再答复'); // thinking 折叠行
-    expect(markdown).toContain('- ▸ 工具 `read`：{"path":"x"}'); // 工具卡简行（调用）
+    expect(markdown).toContain('- 工具 `read`：{"path":"x"}'); // 工具卡简行（调用）
     expect(markdown).toContain('- ◂ `read` 结果：文件内容'); // 工具卡简行（结果）
     expect(markdown).toContain('读完了。');
     expect(markdown).toContain('- 事件数：7');

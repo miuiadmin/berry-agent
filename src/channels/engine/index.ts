@@ -48,7 +48,7 @@ export {
   truncateToWidth,
   wrapText,
 } from './width.js';
-export { CellGrid, cellEquals, EMPTY_STYLE, styleEquals } from './cell.js';
+export { CellGrid, cellEquals, DIM_STYLE, EMPTY_STYLE, styleEquals } from './cell.js';
 export { renderFrameDiff } from './diff.js';
 export type { InputDecoderOptions } from './input.js';
 export { InputDecoder } from './input.js';

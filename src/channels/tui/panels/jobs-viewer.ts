@@ -11,7 +11,7 @@
  *   terminal.at - startedAt（冻结）；格式单源 formatElapsedCompact；
  * - **快照档**（diff-viewer 同律——构造期一次现取，开屏后行集静态；
  *   活体跟随挂账）；终态行 dim（历史感）、失败行 error 着色、在选行
- *   ▸ 记 + accent；
+ *   › 记 + accent；
  * - **光标域 = 条目行**（分段头不可选——移动键跳过分段头，diff-viewer
  *   组头可选中形的差异化：组头无展开语义故不值驻留）；initialJobId
  *   定位（JobPanel enter 进屏定位该任务）；
@@ -27,6 +27,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { shortIdOf } from '../backend/transcript.js';
 import { formatElapsedCompact } from '../../../contracts/index.js';
+import { DIM_STYLE } from '../../engine/index.js';
 
 /** 状态词直白面（用户面话术律——禁内部黑话；killed = 已停止） */
 const STATUS_WORDS: Readonly<Record<JobStatus, string>> = Object.freeze({
@@ -38,9 +39,9 @@ const STATUS_WORDS: Readonly<Record<JobStatus, string>> = Object.freeze({
 });
 
 /** 提示行样式（dim） */
-const HINT_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HINT_STYLE: Readonly<CellStyle> = DIM_STYLE;
 /** 分段头样式（dim——panel-chrome 分段头 dim 律） */
-const HEAD_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+const HEAD_STYLE: Readonly<CellStyle> = DIM_STYLE;
 
 /** 滚轮单步行数（diff-viewer / ScrollView WHEEL_LINES 同值） */
 const WHEEL_LINES = 3;

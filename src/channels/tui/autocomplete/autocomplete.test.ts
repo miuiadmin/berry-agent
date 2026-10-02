@@ -425,7 +425,7 @@ describe('AutocompletePopup', () => {
     const grid = new CellGrid(22, 5);
     grid.writeText(0, 0, '______________________'); // 下层文字
     popup.render(grid, { row: 0, col: 0, width: 22, height: 3 });
-    expect(readRow(grid, 0, 22)).toBe('▸ /help       查看帮助');
+    expect(readRow(grid, 0, 22)).toBe('› /help       查看帮助');
     expect(grid.getCell(0, 0)?.style.inverse).toBe(true);
     expect(readRow(grid, 1, 22)).toBe('  /model      切换模型');
     expect(grid.getCell(1, 0)?.style.inverse).toBeUndefined();
@@ -451,6 +451,6 @@ describe('AutocompletePopup', () => {
     const grid = new CellGrid(20, 10);
     popup.render(grid, { row: 0, col: 0, width: 20, height: 10 });
     expect(readRow(grid, 0, 20)).toBe('  opt2'); // 窗口滚到 [2,12)
-    expect(readRow(grid, 9, 20)).toBe('▸ opt11'); // 高亮行入窗末
+    expect(readRow(grid, 9, 20)).toBe('› opt11'); // 高亮行入窗末
   });
 });

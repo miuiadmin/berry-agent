@@ -81,10 +81,10 @@ describe('AutocompletePopup 行预算排版（组 2 修前红）', () => {
     });
     const grid = new CellGrid(30, 1);
     popup.render(grid, { row: 0, col: 0, width: 30, height: 1 });
-    // item 0 恒高亮 → 前缀 '▸ '（▸ 宽 1——与 '  ' 同占 2 列，列算不变）；
+    // item 0 恒高亮 → 前缀 '› '（› 宽 1——与 '  ' 同占 2 列，列算不变）；
     // leftReserve = min(72, 15) = 15 → rightBudget = 30-1-15 = 14 → detail = 'd'×13 + '…'
-    // maxLeft = 30 - 14 - 1 = 15 → label 段 = '▸ ' + 'x'×12 + '…'（15 列）+ 间隔 1 + detail 14 列
-    expect(readRow(grid, 0, 30)).toBe(`▸ ${'x'.repeat(12)}… ${'d'.repeat(13)}…`);
+    // maxLeft = 30 - 14 - 1 = 15 → label 段 = '› ' + 'x'×12 + '…'（15 列）+ 间隔 1 + detail 14 列
+    expect(readRow(grid, 0, 30)).toBe(`› ${'x'.repeat(12)}… ${'d'.repeat(13)}…`);
   });
 
   it('无 detail：label 独占全宽 … 截断（修前裸裁到缓冲界红）', () => {
@@ -97,13 +97,13 @@ describe('AutocompletePopup 行预算排版（组 2 修前红）', () => {
     });
     const grid = new CellGrid(20, 1);
     popup.render(grid, { row: 0, col: 0, width: 20, height: 1 });
-    expect(readRow(grid, 0, 20)).toBe(`▸ ${'y'.repeat(17)}…`);
+    expect(readRow(grid, 0, 20)).toBe(`› ${'y'.repeat(17)}…`);
   });
 
   it('极窄窗（宽 2）预算 0 丢右段：detail 不放行原宽（单源收紧位——私拷贝放行原宽右对齐起列为负、尾段从行首覆写行内容红）', () => {
-    // 宽 2：left = '▸ cmd'（5 列）→ leftReserve = min(5, 1) = 1 →
+    // 宽 2：left = '› cmd'（5 列）→ leftReserve = min(5, 1) = 1 →
     // rightBudget = 2 - 1 - 1 = 0——单源 row-segments 收紧为丢弃右段
-    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口：'▸…'
+    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口：'›…'
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
     popup.applyResult({
@@ -113,25 +113,25 @@ describe('AutocompletePopup 行预算排版（组 2 修前红）', () => {
     });
     const grid = new CellGrid(2, 1);
     popup.render(grid, { row: 0, col: 0, width: 2, height: 1 });
-    expect(readRow(grid, 0, 2)).toBe('▸…');
+    expect(readRow(grid, 0, 2)).toBe('›…');
   });
 });
 
-describe('AutocompletePopup 光标符 ▸ accent（界面美化役美学注③）', () => {
-  it('高亮行首符 ▸ 带 inverse + accent 合成；setTheme 换装后符位前景随迁', () => {
+describe('AutocompletePopup 光标符 › accent（界面美化役美学注③）', () => {
+  it('高亮行首符 › 带 inverse + accent 合成；setTheme 换装后符位前景随迁', () => {
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
     popup.applyResult({ items: [{ label: '/help', replacement: '/help' }], replaceStart: 0, replaceEnd: 1 });
     const grid = new CellGrid(20, 1);
     popup.render(grid, { row: 0, col: 0, width: 20, height: 1 });
-    expect(grid.getCell(0, 0)?.grapheme).toBe('▸');
+    expect(grid.getCell(0, 0)?.grapheme).toBe('›');
     expect(grid.getCell(0, 0)?.style?.inverse).toBe(true);
     // 换装（setTheme 重建 cursorStyle）——注入亮色板 accent 后符位前景随迁
     const light = resolveTheme(builtinPalette('light'), DEFAULT_THEME.depth);
     popup.setTheme(light);
     const grid2 = new CellGrid(20, 1);
     popup.render(grid2, { row: 0, col: 0, width: 20, height: 1 });
-    expect(grid2.getCell(0, 0)?.grapheme).toBe('▸');
+    expect(grid2.getCell(0, 0)?.grapheme).toBe('›');
     expect(grid2.getCell(0, 0)?.style?.fg).toBe(light.accent);
   });
 });

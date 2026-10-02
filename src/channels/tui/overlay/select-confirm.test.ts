@@ -72,10 +72,10 @@ describe('SelectPanel 呈现宽度预算（组 2 修前红）', () => {
     const panel = new SelectPanel({ options: [{ value: 'x', label: 'a'.repeat(70), hint: 'h' }] });
     const grid = new CellGrid(30, 1);
     panel.render(grid, { row: 0, col: 0, width: 30, height: 1 });
-    // item 0 恒高亮 → 前缀 '▸ '（▸ 宽 1——与 '  ' 同占 2 列，列算不变）；
+    // item 0 恒高亮 → 前缀 '› '（› 宽 1——与 '  ' 同占 2 列，列算不变）；
     // leftReserve = min(72, 15) = 15 → rightBudget = 30-1-15 = 14（hint 'h' 适装）
-    // maxLeft = 30 - 1 - 1 = 28 → label 段 = '▸ ' + 'a'×25 + '…'（28 列）+ 间隔 1 + 'h'
-    expect(readRow(grid, 0, 30)).toBe(`▸ ${'a'.repeat(25)}… h`);
+    // maxLeft = 30 - 1 - 1 = 28 → label 段 = '› ' + 'a'×25 + '…'（28 列）+ 间隔 1 + 'h'
+    expect(readRow(grid, 0, 30)).toBe(`› ${'a'.repeat(25)}… h`);
   });
 
   it('title 超宽 … 截断（修前裸裁到缓冲界——写目标身份段静默丢失红）', () => {
@@ -97,18 +97,18 @@ describe('SelectPanel 呈现宽度预算（组 2 修前红）', () => {
     const grid = new CellGrid(24, 4);
     panel.render(grid, { row: 0, col: 0, width: 24, height: 4 });
     expect(readRow(grid, 0, 24)).toBe('标题');
-    expect(readRow(grid, 1, 24)).toBe('▸ 选项甲          hint-a');
+    expect(readRow(grid, 1, 24)).toBe('› 选项甲          hint-a');
     expect(readRow(grid, 2, 24)).toBe('  选项乙');
   });
 
   it('极窄窗（宽 2）预算 0 丢右段：hint 不放行原宽（单源收紧位——私拷贝放行原宽右对齐起列为负、尾段从行首覆写行内容红）', () => {
-    // 宽 2：left = '▸ approve'（9 列）→ leftReserve = min(9, 1) = 1 →
+    // 宽 2：left = '› approve'（9 列）→ leftReserve = min(9, 1) = 1 →
     // rightBudget = 2 - 1 - 1 = 0——单源 row-segments 收紧为丢弃右段
-    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口：'▸…'
+    // （预算 0 = 无位可放），行内只剩左段按帽 2 … 收口：'›…'
     const panel = new SelectPanel({ options: [{ value: 'a', label: 'approve', hint: 'hint-x' }] });
     const grid = new CellGrid(2, 1);
     panel.render(grid, { row: 0, col: 0, width: 2, height: 1 });
-    expect(readRow(grid, 0, 2)).toBe('▸…');
+    expect(readRow(grid, 0, 2)).toBe('›…');
   });
 
   it('键面与预算律互不扰动（截断呈现不影响应答值）', () => {
@@ -209,7 +209,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     expect(panel.measure(80)).toBe(5);
     const grid = new CellGrid(20, 5);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 5 });
-    expect(readRow(grid, 1, 20)).toBe('▸ opt-0');
+    expect(readRow(grid, 1, 20)).toBe('› opt-0');
     expect(readRow(grid, 4, 20)).toBe('  opt-3'); // 全集在场
   });
 
@@ -220,7 +220,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     const grid = new CellGrid(20, 6);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
     expect(readRow(grid, 0, 20)).toBe('T');
-    expect(readRow(grid, 1, 20)).toBe('▸ opt-0'); // 光标项窗首（居中钳 0）
+    expect(readRow(grid, 1, 20)).toBe('› opt-0'); // 光标项窗首（居中钳 0）
     expect(readRow(grid, 4, 20)).toBe('  opt-3'); // 窗尾
     expect(readRow(grid, 5, 20)).toBe('↓ 6 更多'); // 窗外 6 项隐藏
   });
@@ -233,7 +233,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     const grid = new CellGrid(20, 7);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 7 });
     expect(readRow(grid, 1, 20)).toBe('↑ 3 更多'); // start = 5-2 = 3
-    expect(readRow(grid, 4, 20)).toBe('▸ opt-5'); // 居中可视
+    expect(readRow(grid, 4, 20)).toBe('› opt-5'); // 居中可视
     expect(readRow(grid, 6, 20)).toBe('↓ 3 更多');
   });
 
@@ -245,7 +245,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     const grid = new CellGrid(20, 6);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
     expect(readRow(grid, 1, 20)).toBe('↑ 6 更多'); // start = 6（沉底钳）
-    expect(readRow(grid, 5, 20)).toBe('▸ opt-9'); // 末项窗尾可视
+    expect(readRow(grid, 5, 20)).toBe('› opt-9'); // 末项窗尾可视
   });
 
   it('退化小帽防御：measure 恒 ≤ 帽、render 区域界内不越写（不抛不丢格）', () => {
@@ -255,7 +255,7 @@ describe('SelectPanel 视口帽窗口化（fx2-B）', () => {
     const grid = new CellGrid(20, 2);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 2 });
     expect(readRow(grid, 0, 20)).toBe('T'); // 标题优先在场
-    expect(readRow(grid, 1, 20)).toBe('▸ opt-0'); // 光标行保底可视
+    expect(readRow(grid, 1, 20)).toBe('› opt-0'); // 光标行保底可视
   });
 
   it('窗口化不改选值语义（enter 应答高亮项全集值——呈现取景非数据截断）', () => {
@@ -342,7 +342,7 @@ describe('SelectPanel 翻页键族（B1——pagedown/pageup/home/end）', () =>
     const grid = new CellGrid(20, 6);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 6 });
     expect(readRow(grid, 1, 20)).toBe('↑ 6 更多'); // 顶指示（窗外 6 项）
-    expect(readRow(grid, 5, 20)).toBe('▸ opt-9'); // 末项窗尾可视（居中钳沉底）
+    expect(readRow(grid, 5, 20)).toBe('› opt-9'); // 末项窗尾可视（居中钳沉底）
   });
 
   it('空集防御：四键零选项不炸、enter 应答保守值（end = max(0, -1) = 0 钳位）', () => {
@@ -360,8 +360,8 @@ describe('SelectPanel 翻页键族（B1——pagedown/pageup/home/end）', () =>
   });
 });
 
-describe('SelectPanel 光标符 ▸ accent（界面美化役美学注③）', () => {
-  it('高亮行首符 ▸ 带合成样式（inverse + accent 前景）；非高亮行无符', () => {
+describe('SelectPanel 光标符 › accent（界面美化役美学注③）', () => {
+  it('高亮行首符 › 带合成样式（inverse + accent 前景）；非高亮行无符', () => {
     const panel = new SelectPanel({
       options: [
         { value: 'a', label: '选项甲' },
@@ -370,9 +370,9 @@ describe('SelectPanel 光标符 ▸ accent（界面美化役美学注③）', ()
     });
     const grid = new CellGrid(20, 2);
     panel.render(grid, { row: 0, col: 0, width: 20, height: 2 });
-    // 高亮行（行 0）首符 = ▸，样式 = inverse + accent（DEFAULT_THEME accent 前景）
+    // 高亮行（行 0）首符 = ›，样式 = inverse + accent（DEFAULT_THEME accent 前景）
     const cell = grid.getCell(0, 0);
-    expect(cell?.grapheme).toBe('▸');
+    expect(cell?.grapheme).toBe('›');
     expect(cell?.style?.inverse).toBe(true);
     expect(cell?.style?.fg).toBe(DEFAULT_THEME.accent); // ANSI 6 cyan（ branded 数形）
     // 行内容整体反相（次格样式无 accent 前景——仅符位带）
