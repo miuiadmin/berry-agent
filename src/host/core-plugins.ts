@@ -808,7 +808,7 @@ function makeMemoryPlugin(deps: CorePluginHostDeps): CorePluginReference {
       // 件内 warn 出口（TUI 第四役 finding A 修复）：leveled logger 单源 +
       // 通道 notify 双发。修前 console.error 裸文本直写 stderr——与 TUI
       // 渲染共端子同 tty，落当前光标位 + \r\n 物理下移而 cursorRow 账不感知
-      // → durable 块按陈账定位整体错行、覆写编辑器盒边框（tmux 活体三复现
+      // → durable 块按陈账定位整体错行、覆写编辑器呈现区（tmux 活体三复现
       // 定谳）。两腿分立：
       //  - logger 腿：BERRY_AGENT_LOG_LEVEL 辖内（silent 全静默；缺省 info
       //    下 warn 可见——失败面默认可见级），结构化 JSON 行（07 §6 自写

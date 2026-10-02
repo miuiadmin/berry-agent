@@ -423,14 +423,14 @@ describe('confirm 两段态机（y/n 双轨同判 / 其余键终局吞 / 单次�
 /* ---------------- e 导出输入行 ---------------- */
 
 describe('e 导出输入行（/memory-export 真身同一函数——argv 切分同源）', () => {
-  it('e 开输入行：底铬三行 Editor + 文本入框', () => {
+  it('e 开输入行：底铬 composer 输入行（V-0 注③ 框退役——单行 › 形）+ 文本入框', () => {
     const { viewer, render } = rig();
     viewer.handleEvent(text('e'));
     const grid = render();
-    expect(grid.getCell(ROWS - 3, 0)?.grapheme).toBe('┌'); // 编辑器边框顶
-    expect(grid.getCell(ROWS - 1, 0)?.grapheme).toBe('└'); // 边框底
+    expect(grid.getCell(ROWS - 1, 0)?.grapheme).toBe('›'); // 底铬输入行提示符（单行）
+    expect(readRow(grid, ROWS - 1)).toBe('›'); // 空输入——提示符独占（框线零占位）
     type(viewer, '--out');
-    expect(readRow(render(), ROWS - 2)).toContain('--out'); // 文本入框
+    expect(readRow(render(), ROWS - 1)).toContain('--out'); // 文本入框（› 行内）
   });
 
   it('Enter 执行：引号感知切分（与命令分发同源 tokenize）+ 回执折底行（多行 · 连呈）', async () => {
@@ -462,9 +462,9 @@ describe('e 导出输入行（/memory-export 真身同一函数——argv 切分
     viewer.handleEvent(text('e'));
     type(viewer, 'x');
     viewer.handleEvent(key('escape'));
-    expect(render().getCell(ROWS - 3, 0)?.grapheme).not.toBe('┌'); // 输入行收场
+    expect(render().getCell(ROWS - 1, 0)?.grapheme).not.toBe('›'); // 输入行收场（回键面提示行）
     viewer.handleEvent(text('e')); // 重开
-    expect(readRow(render(), ROWS - 2)).toContain('x'); // 文本保留
+    expect(readRow(render(), ROWS - 1)).toContain('x'); // 文本保留（› 行内）
   });
 
   it('输入行有文 Ctrl+D 不退（主屏空框闸同律）；清框后可退', () => {
@@ -485,9 +485,9 @@ describe('e 导出输入行（/memory-export 真身同一函数——argv 切分
     viewer.handleEvent(key('tab'));
     const grid = render();
     expect(readRow(grid, 0)).toContain('〔筛选：生效中〕'); // 筛选已切
-    expect(grid.getCell(ROWS - 3, 0)?.grapheme).not.toBe('┌'); // 输入行已收
+    expect(grid.getCell(ROWS - 1, 0)?.grapheme).not.toBe('›'); // 输入行已收
     viewer.handleEvent(text('e')); // 重开——文本保留
-    expect(readRow(render(), ROWS - 2)).toContain('x');
+    expect(readRow(render(), ROWS - 1)).toContain('x');
   });
 });
 
@@ -595,7 +595,7 @@ describe('光标模型（条目间夹取——非条目行不驻留）', () => {
     viewer.handleEvent(text('r'));
     expect(calls.filter((c) => /freeze|unfreeze|forget|restore/.test(c))).toEqual([]);
     viewer.handleEvent(text('e')); // 全局动词仍在
-    expect(render().getCell(ROWS - 3, 0)?.grapheme).toBe('┌');
+    expect(render().getCell(ROWS - 1, 0)?.grapheme).toBe('›');
     viewer.handleEvent(key('escape'));
     viewer.handleEvent(key('tab')); // 筛终态（也零条目）
     viewer.handleEvent(key('tab')); // 回全部

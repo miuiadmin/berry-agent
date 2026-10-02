@@ -1,6 +1,7 @@
 /**
- * 编辑器视图单测：CellGrid 真身读回——边框两态（accent / 普通）、
- * 长行字素硬折落格、滚动指示入边框、视口滚动光标恒可视、光标声明
+ * 编辑器视图单测：CellGrid 真身读回——composer 形（V-0 注③ 框退役：`› `
+ * 提示符 + 底色染色块 + 框线零占位；聚焦 accent / 非聚焦 secondary 两态）、
+ * 长行字素硬折落格、滚动指示 overlay、视口滚动光标恒可视、光标声明
  * （聚焦独占）、IME 预编辑下划线段。
  */
 import { describe, expect, it } from 'vitest';
@@ -31,123 +32,153 @@ function viewOf(
 }
 
 describe('EditorView 量高', () => {
-  it('空框量高 3（边框 2 + 单行）', () => {
+  it('空输入量高 1（composer 形——框线零占位）', () => {
     const { view } = viewOf('');
-    expect(view.measure(20)).toBe(3);
+    expect(view.measure(20)).toBe(1);
   });
 
   it('视觉行数夹 maxVisibleLines', () => {
     const { view } = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 2 });
-    expect(view.measure(20)).toBe(4); // 2 边框 + 2 行
+    expect(view.measure(20)).toBe(2);
   });
 
   it('迟滞带（R3 批 10j）：恰降 1 行保持上次、降 2 行才缩', () => {
     const { view, model } = viewOf('a\nb\nc\nd', { maxVisibleLines: 8 });
-    expect(view.measure(20)).toBe(6); // 4 行即时
+    expect(view.measure(20)).toBe(4); // 4 行即时
     model.setText('a\nb\nc'); // 降 1 行——保持 4（空白垫底）
-    expect(view.measure(20)).toBe(6);
-    model.setText('a\nb'); // 降 2 行——缩
     expect(view.measure(20)).toBe(4);
+    model.setText('a\nb'); // 降 2 行——缩
+    expect(view.measure(20)).toBe(2);
   });
 
   it('长行折行计入量高（字素硬折）', () => {
     const { view } = viewOf('aaaaaaaaaa', { layoutWidth: 8 });
-    expect(view.measure(10)).toBe(4); // 8 列折两行
+    expect(view.measure(10)).toBe(2); // 8 列折两行
   });
 });
 
-describe('EditorView 边框', () => {
-  it('边框形与正文落位', () => {
+describe('EditorView composer 形（V-0 注③——全宽框退役）', () => {
+  it('› 前缀 + 正文落位、region 内零框字符', () => {
     const { view } = viewOf('ab');
     const grid = new CellGrid(10, 5);
     view.render(grid, { row: 0, col: 0, width: 6, height: 3 });
-    expect(readRow(grid, 0, 10)).toBe('┌────┐');
-    expect(readRow(grid, 1, 10)).toBe('│ab  │');
-    expect(readRow(grid, 2, 10)).toBe('└────┘');
+    expect(readRow(grid, 0, 10)).toBe('› ab');
+    expect(readRow(grid, 1, 10)).toBe(''); // 框退役——上下边框行零占位
+    expect(readRow(grid, 2, 10)).toBe('');
+    // 框字符全 region 扫缺席（┌┐└┘─│ 六件）
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 6; c++) {
+        expect('┌┐└┘─│').not.toContain(grid.getCell(r, c)?.grapheme ?? ' ');
+      }
+    }
   });
 
-  it('聚焦态边框 accent 高亮、非聚焦普通', () => {
+  it('聚焦态 › accent、非聚焦 › secondary（焦点指示新载体——V-0 注③）', () => {
     const { view } = viewOf('ab');
     const focused = new CellGrid(10, 5);
     view.setFocused(true);
-    view.render(focused, { row: 0, col: 0, width: 6, height: 3 });
+    view.render(focused, { row: 0, col: 0, width: 6, height: 1 });
+    expect(focused.getCell(0, 0)?.grapheme).toBe('›');
     expect(focused.getCell(0, 0)?.style.fg).toEqual(DEFAULT_THEME.accent);
     const plain = new CellGrid(10, 5);
     view.setFocused(false);
-    view.render(plain, { row: 0, col: 0, width: 6, height: 3 });
-    // 界面美化役美学批：非聚焦边框降档 secondary（原 undefined 裸色——期望帧随档）
+    view.render(plain, { row: 0, col: 0, width: 6, height: 1 });
     expect(plain.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.secondary);
   });
 
   it('region 平移：起点非零', () => {
     const { view } = viewOf('ab');
     const grid = new CellGrid(12, 5);
-    view.render(grid, { row: 1, col: 3, width: 6, height: 3 });
-    expect(readRow(grid, 1, 12)).toBe('   ┌────┐');
-    expect(readRow(grid, 2, 12)).toBe('   │ab  │');
+    view.render(grid, { row: 1, col: 3, width: 6, height: 1 });
+    expect(readRow(grid, 1, 12)).toBe('   › ab');
+  });
+
+  it('底色染色块（userMessageBg 在场）：整块铺底全宽带 + 正文/› 携底色', () => {
+    // 探测背景在场（OSC 11 混合腿）——resolveTheme 产出 userMessageBg 定值
+    //（混合腿入参 = RgbChannels 探测值——transcript.test 同形；256 色深可表底色）
+    const theme = resolveTheme(builtinPalette('dark'), '256', { r: 32, g: 32, b: 32 });
+    expect(theme.userMessageBg).toBeDefined(); // rig 自证：混合腿确产底色键
+    const { view } = viewOf('ab');
+    view.setTheme(theme);
+    view.setFocused(true);
+    const grid = new CellGrid(10, 3);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    expect(readRow(grid, 0, 10)).toBe('› ab');
+    // 全宽带：正文格 / 尾部空白格 / › 前缀格皆携 bg
+    expect(grid.getCell(0, 2)?.style?.bg).toEqual(theme.userMessageBg);
+    expect(grid.getCell(0, 9)?.style?.bg).toEqual(theme.userMessageBg);
+    expect(grid.getCell(0, 0)?.style?.bg).toEqual(theme.userMessageBg);
+    expect(grid.getCell(0, 0)?.style?.fg).toEqual(theme.accent); // 聚焦 › 仍携 accent（fg+bg 合成）
+  });
+
+  it('底色缺席（探测缺席/降采形）：零背景带诚实回退—— › 前缀独挑边界', () => {
+    const { view } = viewOf('ab');
+    const grid = new CellGrid(10, 3);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    expect(grid.getCell(0, 2)?.style).toEqual({}); // 正文裸写（style 空对象——无 fg/bg）
+    expect(grid.getCell(0, 9)).toBeNull(); // 尾部格未写（透明——无带可铺）
   });
 });
 
 describe('EditorView 长行字素硬折', () => {
-  it('超宽逻辑行折入多行（整字下移）', () => {
+  it('超宽逻辑行折入多行（整字下移、续行两空格缩进对齐）', () => {
     const { view } = viewOf('中中中中', { layoutWidth: 4 });
     const grid = new CellGrid(6, 5);
-    view.render(grid, { row: 0, col: 0, width: 6, height: 5 });
-    // 每视觉行恰 2 个 CJK（4 列），共 2 行
-    expect(readRow(grid, 1, 6)).toBe('│中中│');
-    expect(readRow(grid, 2, 6)).toBe('│中中│');
+    view.render(grid, { row: 0, col: 0, width: 6, height: 2 });
+    // 每视觉行恰 2 个 CJK（4 列），共 2 行；续行缩进 2 与 › 前缀同宽对齐
+    expect(readRow(grid, 0, 6)).toBe('› 中中');
+    expect(readRow(grid, 1, 6)).toBe('  中中');
   });
 });
 
-describe('EditorView 滚动指示与视口', () => {
-  it('下方溢出显 ↓n 入底边框', () => {
+describe('EditorView 滚动指示 overlay（框退役——指示写内容行右端）', () => {
+  it('下方溢出：底行右端 ↓N（宽区全形——覆盖内容行非边框行）', () => {
     const { view, model } = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 2 });
     model.moveHome(); // 归列
     for (let i = 0; i < 4; i++) model.moveUp(); // 光标归首行行首
-    const grid = new CellGrid(10, 4);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 4 });
-    expect(readRow(grid, 1, 10)).toBe('│a       │');
-    expect(readRow(grid, 2, 10)).toBe('│b       │');
-    expect(readRow(grid, 3, 10)).toBe('└───── ↓3┘');
+    const grid = new CellGrid(10, 2);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 2 });
+    expect(readRow(grid, 0, 10)).toBe('› a');
+    expect(readRow(grid, 1, 10)).toBe(' ↓ 3 更多'); // 全形恰 10 宽右贴（dim overlay）
+    expect(grid.getCell(1, 1)?.style.dim).toBe(true); // 指示段 dim
   });
 
-  it('光标滚出下方沉底 + 上方溢出显 ↑n', () => {
+  it('光标滚出下方沉底 + 上方溢出：顶行右端 ↑N', () => {
     // setText 光标归尾（末行 'e'）——渲染须滚到光标可视
     const { view } = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 2 });
-    const grid = new CellGrid(10, 4);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 4 });
-    expect(readRow(grid, 1, 10)).toBe('│d       │');
-    expect(readRow(grid, 2, 10)).toBe('│e       │');
-    expect(readRow(grid, 0, 10)).toBe('┌───── ↑3┐');
+    const grid = new CellGrid(10, 2);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 2 });
+    // 上方溢出 3 行且全形恰 10 宽 = region 宽——顶行整行被指示覆盖（右贴即满行）
+    expect(readRow(grid, 0, 10)).toBe(' ↑ 3 更多');
+    expect(readRow(grid, 1, 10)).toBe('  e');
+    const up = new CellGrid(24, 2);
+    view.render(up, { row: 0, col: 0, width: 24, height: 2 });
+    expect(readRow(up, 0, 24).startsWith('› d')).toBe(true);
+    expect(readRow(up, 0, 24).endsWith(' ↑ 3 更多')).toBe(true);
   });
 
-  it('宽框指示 ` ↑ N 更多 ` 居中形（R3 批 10j——窄框放不下才回退紧凑形；界面美化役美学注②中文化）', () => {
-    // setText 光标归尾——滚到底，上方溢出 3 行；宽 24 框放得下 ` ↑ 3 更多 `（10 格显示宽——stringWidth 重算）
+  it('窄区回退紧凑 ↑N（全形放不下——按视口宽度阈值不再依框形）', () => {
     const { view } = viewOf('a\nb\nc\nd\ne', { maxVisibleLines: 2 });
-    const grid = new CellGrid(24, 4);
-    view.render(grid, { row: 0, col: 0, width: 24, height: 4 });
-    expect(readRow(grid, 0, 24)).toBe('┌────── ↑ 3 更多 ──────┐');
-    // 窄 10 框放不下（内宽 8 < 10）——回退右端紧凑 ` ↑3`
-    const narrow = new CellGrid(10, 4);
-    view.render(narrow, { row: 0, col: 0, width: 10, height: 4 });
-    expect(readRow(narrow, 0, 10)).toBe('┌───── ↑3┐');
+    const narrow = new CellGrid(8, 2);
+    view.render(narrow, { row: 0, col: 0, width: 8, height: 2 });
+    expect(readRow(narrow, 0, 8)).toBe('› d   ↑3');
   });
 });
 
 describe('EditorView 光标声明', () => {
-  it('聚焦声明本帧光标（正文区 + 显示列）', () => {
+  it('聚焦声明本帧光标（前缀 2 + 显示列）', () => {
     const { view } = viewOf('ab');
     view.setFocused(true);
     const grid = new CellGrid(10, 5);
-    view.render(grid, { row: 0, col: 0, width: 6, height: 3 });
-    expect(grid.cursor).toEqual({ row: 1, col: 3, visible: true }); // 1 边框 + 2 字符
+    view.render(grid, { row: 0, col: 0, width: 6, height: 1 });
+    expect(grid.cursor).toEqual({ row: 0, col: 4, visible: true }); // › 前缀 2 + 2 字符
   });
 
   it('非聚焦不声明', () => {
     const { view } = viewOf('ab');
     view.setFocused(false);
     const grid = new CellGrid(10, 5);
-    view.render(grid, { row: 0, col: 0, width: 6, height: 3 });
+    view.render(grid, { row: 0, col: 0, width: 6, height: 1 });
     expect(grid.cursor).toBeNull();
   });
 
@@ -159,8 +190,8 @@ describe('EditorView 光标声明', () => {
     model.moveRight(); // col 3 = '中' 之后（显示列 4）
     view.setFocused(true);
     const grid = new CellGrid(10, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
-    expect(grid.cursor).toEqual({ row: 1, col: 5, visible: true }); // 1 边框 + 显示列 4
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    expect(grid.cursor).toEqual({ row: 0, col: 6, visible: true }); // 前缀 2 + 显示列 4
   });
 });
 
@@ -170,12 +201,12 @@ describe('EditorView IME 预编辑', () => {
     model.moveHome(); // 光标归首
     model.setPreedit('中');
     const grid = new CellGrid(10, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
-    const preeditCell = grid.getCell(1, 1); // '中' 占 col 1-2（双宽一格铺续格）
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    const preeditCell = grid.getCell(0, 2); // '中' 占 col 2-3（双宽一格铺续格）
     expect(preeditCell?.grapheme).toBe('中');
     expect(preeditCell?.style.underline).toBe(true);
-    expect(grid.getCell(1, 3)?.grapheme).toBe('a'); // 正文后移未删
-    expect(grid.getCell(1, 4)?.grapheme).toBe('b');
+    expect(grid.getCell(0, 4)?.grapheme).toBe('a'); // 正文后移未删
+    expect(grid.getCell(0, 5)?.grapheme).toBe('b');
     expect(model.getText()).toBe('ab'); // 正文不含组字段
   });
 
@@ -184,8 +215,8 @@ describe('EditorView IME 预编辑', () => {
     model.setPreedit('中');
     view.setFocused(true);
     const grid = new CellGrid(10, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
-    expect(grid.cursor).toEqual({ row: 1, col: 3, visible: true }); // 1 边框 + 2 显示列
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    expect(grid.cursor).toEqual({ row: 0, col: 4, visible: true }); // 前缀 2 + 2 显示列
   });
 
   it('组字三段路含粘贴 tab：tab 展开两空格——与正文路/模型账同律（cell 新 tab 律随迁）', () => {
@@ -198,13 +229,12 @@ describe('EditorView IME 预编辑', () => {
     model.setPreedit('x');
     view.setFocused(true);
     const grid = new CellGrid(12, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
     // 派生锚（tab 四面互证——第五役 S2 建议①）：渲染行不孤立硬编码，tab 展开
-    // 段直锚消毒单源 sanitizeDisplayText（修前孤立字面量 '│a  bcx  │' 留此对照；
-    // 修前缺陷形 '│abcx    │'）——消毒层 tab 语义一动而 writeTextClamped 渲染
+    // 段直锚消毒单源 sanitizeDisplayText——消毒层 tab 语义一动而 writeTextClamped 渲染
     // 未随（四面漂移），此锁即红
-    expect(readRow(grid, 1, 12)).toBe('│' + sanitizeDisplayText('a\tbc') + 'x  │');
-    expect(grid.cursor).toEqual({ row: 1, col: 7, visible: true }); // 模型账 1 边框 + 5 显示列（a=1, tab=2, bc=2）+ 预编辑 1——恰缀组字段尾
+    expect(readRow(grid, 0, 12)).toBe('› ' + sanitizeDisplayText('a\tbc') + 'x');
+    expect(grid.cursor).toEqual({ row: 0, col: 8, visible: true }); // 模型账前缀 2 + 5 显示列（a=1, tab=2, bc=2）+ 预编辑 1——恰缀组字段尾
   });
 });
 
@@ -221,35 +251,34 @@ describe('EditorView IME 预编辑折点归属（与 findVisualLineAt 同律）'
     model.setPreedit('x');
     const grid = new CellGrid(10, 5);
     view.render(grid, { row: 0, col: 0, width: 7, height: 4 });
-    // 内容区（两视觉行 × 5 列）扫下划线字形——恰一处（后段行首），
-    // 修前 [{row:1,col:5},{row:2,col:1}] 双现
+    // 内容区（两视觉行 × 5 列，前缀 2 起）扫下划线字形——恰一处（后段行首），
+    // 修前 [{row:0,col:5},{row:1,col:2}] 双现
     const hits: Array<{ row: number; col: number }> = [];
-    for (let r = 1; r <= 2; r++) {
-      for (let c = 1; c <= 5; c++) {
+    for (let r = 0; r <= 1; r++) {
+      for (let c = 2; c <= 6; c++) {
         if (grid.getCell(r, c)?.style.underline) hits.push({ row: r, col: c });
       }
     }
-    expect(hits).toEqual([{ row: 2, col: 1 }]);
+    expect(hits).toEqual([{ row: 1, col: 2 }]);
     // 前段行 = 纯文本呈现（无组字混入）——修前 'abcdx'
-    expect(readRow(grid, 1, 10)).toBe('│abcd │');
-    expect(readRow(grid, 2, 10)).toBe('│x中  │');
+    expect(readRow(grid, 0, 10)).toBe('› abcd');
+    expect(readRow(grid, 1, 10)).toBe('  x中');
   });
 });
 
 describe('EditorView IME 预编辑宽度钳制', () => {
-  // 网格恒比 region 宽 2 列——右边框列（region 内）与边框外残迹（网格内）分别可读回
-  it('光标近满行尾组字：组字段不覆写右边框、不越内容区右界（右界整字截断）', () => {
+  // 网格恒比 region 宽 2 列——region 右界（无右边框列后右界即 region 边）与
+  // 界外残迹（网格内）分别可读回
+  it('光标近满行尾组字：组字段不越 region 右界（右界整字截断）', () => {
     // 内容区宽 8、正文恰满段 8 字符、光标归段尾——组字 '中'（宽 2）合成宽超界
     const { view, model } = viewOf('abcdefgh');
     model.setPreedit('中');
     const grid = new CellGrid(12, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
-    // 右边框列 col 9 恒为 '│'——组字字素不得覆写
-    expect(grid.getCell(1, 9)?.grapheme).toBe('│');
-    // 边框外（col 10-11）无组字残迹（续格/越界写均不得落）
-    expect(grid.getCell(1, 10)).toBeNull();
-    expect(grid.getCell(1, 11)).toBeNull();
-    expect(readRow(grid, 1, 12)).toBe('│abcdefgh│'); // 组字段放不下整字——整字截断
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    // region 右界外（col 10-11）无组字残迹（续格/越界写均不得落）
+    expect(grid.getCell(0, 10)).toBeNull();
+    expect(grid.getCell(0, 11)).toBeNull();
+    expect(readRow(grid, 0, 12)).toBe('› abcdefgh'); // 组字段放不下整字——整字截断
   });
 
   it('光标段中组字：prefix 完整 + 预编辑按剩余宽整字截断 + suffix 让位', () => {
@@ -258,36 +287,35 @@ describe('EditorView IME 预编辑宽度钳制', () => {
     for (let i = 0; i < 4; i++) model.moveRight(); // 光标 col 4（段中）
     model.setPreedit('中中中'); // 宽 6——prefix 后剩余 4 列恰容 '中中'，第三字整字截断
     const grid = new CellGrid(12, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
-    expect(readRow(grid, 1, 12)).toBe('│abcd中中│');
-    expect(grid.getCell(1, 9)?.grapheme).toBe('│'); // 右边框保住
-    expect(grid.getCell(1, 5)?.style.underline).toBe(true); // 呈现的组字段仍是下划线样式
-    expect(grid.getCell(1, 7)?.style.underline).toBe(true);
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    expect(readRow(grid, 0, 12)).toBe('› abcd中中');
+    expect(grid.getCell(0, 6)?.style.underline).toBe(true); // 呈现的组字段仍是下划线样式
+    expect(grid.getCell(0, 8)?.style.underline).toBe(true);
   });
 
-  it('组字期光标声明钳内容区右界（预编辑宽计入后不越界）', () => {
-    // 满段尾 + 组字宽 6：未钳制光标列 = 1 + 8 + 6 = 15——越网格右界（12 列）
+  it('组字期光标声明钳 region 右界（预编辑宽计入后不越界）', () => {
+    // 满段尾 + 组字宽 6：未钳制光标列 = 2 + 8 + 6 = 16——越网格右界（12 列）
     const { view, model } = viewOf('abcdefgh');
     model.setPreedit('中中中');
     view.setFocused(true);
     const grid = new CellGrid(12, 5);
-    view.render(grid, { row: 0, col: 0, width: 10, height: 3 });
-    expect(grid.cursor).toEqual({ row: 1, col: 8, visible: true }); // 钳到最后内容格
+    view.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    expect(grid.cursor).toEqual({ row: 0, col: 9, visible: true }); // 钳到 region 末格
   });
 });
 
-describe('EditorView 非聚焦边框降档随换装（界面美化役美学批）', () => {
-  it('setTheme 后两态边框各随主题键取值：聚焦 accent / 非聚焦 secondary', () => {
+describe('EditorView 焦点提示符随换装（V-0 注③——框退役后焦点载体）', () => {
+  it('setTheme 后两态 › 各随主题键取值：聚焦 accent / 非聚焦 secondary', () => {
     const light = resolveTheme(builtinPalette('light'), DEFAULT_THEME.depth);
     const { view } = viewOf('ab');
     view.setTheme(light);
     view.setFocused(true);
     const focused = new CellGrid(10, 5);
-    view.render(focused, { row: 0, col: 0, width: 10, height: 5 });
+    view.render(focused, { row: 0, col: 0, width: 10, height: 1 });
     expect(focused.getCell(0, 0)?.style.fg).toBe(light.accent);
     view.setFocused(false);
     const plain = new CellGrid(10, 5);
-    view.render(plain, { row: 0, col: 0, width: 10, height: 5 });
+    view.render(plain, { row: 0, col: 0, width: 10, height: 1 });
     expect(plain.getCell(0, 0)?.style.fg).toBe(light.secondary); // 降档色随换装重建
   });
 });

@@ -33,14 +33,14 @@
  *
  * 验收十一面（终端态可见行判据）：
  * 1. 起跑进屏：footer 四段（界面美化役批6 段序：沙箱档短词 · 模型名 · 会话短 id · cwd 短名——
- *    三反馈批B 扩容；thinking 无锚/当日零耗两段缩位）与编辑器边框在场；
+ *    三反馈批B 扩容；thinking 无锚/当日零耗两段缩位）与 composer 输入行在场；
  * 2. 中文输入：字面中文 send-keys 后编辑器行回显在场（零模型依赖——不提交）；
  * 3. /help 副屏：命令册标题行呈现 → q 收屏回主屏（收屏后 footer 复在场）；
  * 4. /themes 副屏：主题条目行呈现 + esc 收屏；
  * 5. /marketplace 选装副屏（03 §9.6 mp-5）：本地市场源经 CLI 真身入册后
  *    头行（条目/源计数）与条目行（寻址形 name@market）呈现 → q 收屏；
- * 6. resize：resize-window 100→120 后 repaint 完整（边框行宽随几何更新 +
- *    footer 仍在场 + 边框行唯一无残行）；
+ * 6. resize：resize-window 100→120 后 repaint 完整（composer 输入行重绘在场 +
+ *    footer 仍在场 + › 行唯一无残行——V-0 注③ 框退役后无满宽边框可量宽）；
  * 7. /exit：干净退出（会话消亡 + 壳层落盘退出码 0——send-keys /exit Enter 形）；
  * 8. /thinking 副屏（会话档位切换面批 F1）：头行（◆ 思考档位 · 七档计数）
  *    与尾档条目行呈现 → end+enter 选定 max → footer 行右段回执
@@ -429,18 +429,17 @@ function isFooterLine(line: string): boolean {
   return line.includes('tui-tmux-ws-') && line.includes(' · ') && line.includes(MODEL_SHORT);
 }
 
-/** 编辑器边框行（顶/底——`┌─…─┐` / `└─…─┘` 整行形；随几何满宽） */
-const isBorderTop = (line: string): boolean => /^┌─+┐$/.test(line);
-const isBorderBottom = (line: string): boolean => /^└─+┘$/.test(line);
+/** composer 输入行（V-0 注③ 框退役——`›` 提示符空输入形：起跑屏零 user 消息，› 行唯一属于输入件） */
+const isComposerLine = (line: string): boolean => /^›\s*$/.test(line);
 
-/** 起跑就绪判据：footer 三段在场 + 编辑器边框（顶底）在场 */
+/** 起跑就绪判据：footer 三段在场 + composer 输入行在场 */
 function isStartupScreen(lines: string[]): boolean {
-  return lines.some(isFooterLine) && lines.some(isBorderTop) && lines.some(isBorderBottom);
+  return lines.some(isFooterLine) && lines.some(isComposerLine);
 }
 
 /** 起跑就绪等待（六面共用的就绪门——就绪后键盘管线已挂接 raw 态） */
 async function waitForStartup(session: string): Promise<void> {
-  await waitForScreen('TUI 起跑进屏（footer + 编辑器边框）', STARTUP_TIMEOUT_MS, session, isStartupScreen);
+  await waitForScreen('TUI 起跑进屏（footer + composer 输入行）', STARTUP_TIMEOUT_MS, session, isStartupScreen);
   // 输入稳定窗：就绪判据以收屏为准，但 send-keys 与首帧渲染有毫秒级竞窗——
   // 留 300ms 让固定区差分落定（E16 输入稳定窗同律）
   await sleep(300);
@@ -472,7 +471,7 @@ async function readExitCode(session: TmuxSession): Promise<string> {
 
 describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵条款闭环）', () => {
   it.skipIf(!hasUsableTmux())(
-    '起跑进屏：footer 四段（沙箱档 · 模型 · 会话短 id · cwd——界面美化役批6 段序）与编辑器边框在场',
+    '起跑进屏：footer 四段（沙箱档 · 模型 · 会话短 id · cwd——界面美化役批6 段序）与 composer 输入行在场',
     async () => {
       const session = startTuiSession();
       await waitForStartup(session.name);
@@ -509,8 +508,8 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
       await waitForScreen('中文回显进屏', STEP_TIMEOUT_MS, session.name, (lines) =>
         lines.some((line) => line.includes(text)),
       );
-      // 边框仍在场（回显不改布局——编辑器内容区行在边框内）
-      expect(captureLines(session.name).some(isBorderTop)).toBe(true);
+      // composer 行仍在场（回显不改布局——回显文本落在 › 行内，› 前缀保留）
+      expect(captureLines(session.name).some((line) => line.startsWith('›'))).toBe(true);
     },
     90_000,
   );
@@ -827,17 +826,16 @@ describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵
       // ProcessTerminalIO resize 订阅 → 弃旧换新清屏全量重绘兜底）
       const resized = tmux(['resize-window', '-t', session.name, '-x', '120', '-y', String(GEOM_H)]);
       expect(resized.status, `resize-window 失败：${resized.stderr ?? ''}`).toBe(0);
-      // repaint 完整判据①：编辑器边框行满宽随几何更新（100 宽旧边框 → 120 宽
-      // 新边框——若 repaint 缺席则旧宽边框残留，本判据超时红）
-      await waitForScreen('resize 后重绘（120 宽边框 + footer）', STEP_TIMEOUT_MS, session.name, (lines) => {
-        const top = lines.find(isBorderTop);
-        return top !== undefined && top.length === 120 && lines.some(isFooterLine);
+      // repaint 完整判据①：composer 输入行随新几何重绘在场（清屏重绘兜底下
+      // repaint 缺席 = 屏幕空白无 › 行——本判据超时红；V-0 注③ 框退役后无满宽
+      // 边框行可量宽，重绘发生性即锚）
+      await waitForScreen('resize 后重绘（composer 输入行 + footer）', STEP_TIMEOUT_MS, session.name, (lines) => {
+        return lines.some(isComposerLine) && lines.some(isFooterLine);
       });
-      // repaint 完整判据②：无残行——固定区边框行各恰一枚（顶/底），旧几何
-      // 残留会现出第二枚边框行；footer 行恰一枚
+      // repaint 完整判据②：无残行——composer 输入行恰一枚（旧几何残留会现出
+      // 第二枚 › 行）；footer 行恰一枚
       const lines = captureLines(session.name);
-      expect(lines.filter(isBorderTop).length).toBe(1);
-      expect(lines.filter(isBorderBottom).length).toBe(1);
+      expect(lines.filter(isComposerLine).length).toBe(1);
       expect(lines.filter(isFooterLine).length).toBe(1);
     },
     90_000,

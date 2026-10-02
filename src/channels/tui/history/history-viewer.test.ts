@@ -192,12 +192,12 @@ describe('回看器搜索（开 / 跳匹配 / 关——件 8 条款锁能力不�
     return r;
   }
 
-  it('开：搜索框在场（Editor 单行档三行铬）+ 计数 0/0 如实', () => {
+  it('开：搜索框在场（composer 单行 › 形——V-0 注③ 框退役）+ 计数 0/0 如实', () => {
     const { viewer, render } = searchRig();
     expect(viewer.handleEvent(key('f', { ctrl: true, shift: true }))).toBe(true);
     const grid = render();
-    expect(grid.getCell(ROWS - 3, 0)?.grapheme).toBe('┌'); // 编辑器边框顶
-    expect(grid.getCell(ROWS - 1, 0)?.grapheme).toBe('└'); // 边框底
+    expect(grid.getCell(ROWS - 1, 0)?.grapheme).toBe('›'); // 底铬搜索输入行提示符（单行）
+    expect(readRow(grid, ROWS - 1, COLS)).toBe('›'); // 空查询——提示符独占（框线零占位）
     expect(readRow(grid, 0, COLS)).toContain('0/0'); // 空查询零匹配如实
   });
 
@@ -219,9 +219,10 @@ describe('回看器搜索（开 / 跳匹配 / 关——件 8 条款锁能力不�
     viewer.handleEvent(key('enter', { shift: true })); // 首前往尾 → m29
     grid = render();
     expect(readRow(grid, 0, COLS)).toContain('11/11');
-    // 末行匹配：偏移夹底——匹配行 88 在视口内可见（搜索框在场视口缩至 6：顶 m28）
-    expect(readBody(grid, 2)).toBe('› m28');
-    expect(readBody(grid, 5)).toBe('› m29');
+    // 末行匹配：偏移夹底——匹配行 88 在视口内可见（搜索框在场视口 8——V-0 注③
+    // 框退役后底铬单行：偏移夹底 82，m28/m29 皆入窗）
+    expect(readBody(grid, 4)).toBe('› m28');
+    expect(readBody(grid, 7)).toBe('› m29');
   });
 
   it('当前匹配反色高亮（writeSlice 样式叠加——段边界切割的 cell 级证据）', () => {

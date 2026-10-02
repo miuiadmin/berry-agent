@@ -274,9 +274,9 @@ describe('Editor 帽随几何重算（批 10k 遗漏修——resize 重接线）
     const editor = new Editor({ maxVisibleLines: 5 });
     for (const ch of 'abcdef') editor.handleEvent(text(ch)); // 单行 6 字符（宽 80 不折行）
     editor.handleEvent(key('enter', { shift: true })); // 第二行
-    expect(editor.measure(80)).toBe(2 + 2); // 内容 2 行 < 帽 5——全呈现
+    expect(editor.measure(80)).toBe(2); // 内容 2 行 < 帽 5——全呈现（V-0 注③ 框退役零占位）
     editor.setMaxVisibleLines(1); // 终端缩窗——帽随几何收紧
-    expect(editor.measure(80)).toBe(2 + 1); // 夹帽 1 行（迟滞带不适用——帽本身变小）
+    expect(editor.measure(80)).toBe(1); // 夹帽 1 行（迟滞带不适用——帽本身变小）
     // page-down 步幅 = 帽（1 行视口整页）——光标沉到末行
     editor.handleEvent(key('page-down'));
     expect(editor.model.currentVisualLine(editor.model.visualLines())).toBe(1);

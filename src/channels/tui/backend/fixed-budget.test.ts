@@ -33,38 +33,38 @@ describe('allocateFixedBudget 固定区段优先级截断', () => {
     expect(b).toMatchObject({ tool: 0, todo: 1, editor: 5, total: 7 });
   });
 
-  it('输入框收窄至下限 3 恒不再下压（边框 2 + 内容 1——内容最小高）', () => {
+  it('输入框收窄至下限 1 恒不再下压（内容最小高——V-0 注③ 框退役零占位）', () => {
     const out = allocateFixedBudget({ viewportRows: 8, overlay: 0, ask: 0, popup: 0, editor: 8, todo: 0, tool: 0 });
-    // 预算 7，初始 9：低段已空 → editor 8→3 后 4 ≤ 7 达标
-    expect(out).toMatchObject({ editor: EDITOR_MIN_HEIGHT, total: 4 });
+    // 预算 7，初始 9：低段已空 → editor 8→1 后 2 ≤ 7 达标
+    expect(out).toMatchObject({ editor: EDITOR_MIN_HEIGHT, total: 2 });
   });
 
   it('补全弹层档序：输入框收至下限仍超才隐弹层（收窄先于隐弹层）', () => {
     // editor 收窄即可达标——弹层保全（编辑器先牺牲）
     const keep = allocateFixedBudget({ viewportRows: 10, overlay: 0, ask: 0, popup: 4, editor: 8, todo: 0, tool: 0 });
-    // 预算 9，初始 13：editor 8→3 后 8 ≤ 9——popup 原值保全
-    expect(keep).toMatchObject({ popup: 4, editor: 3, total: 8 });
+    // 预算 9，初始 13：editor 8→1 后 6 ≤ 9——popup 原值保全
+    expect(keep).toMatchObject({ popup: 4, editor: 1, total: 6 });
     // 编辑器已在下限仍超——弹层才隐
-    const drop = allocateFixedBudget({ viewportRows: 6, overlay: 0, ask: 0, popup: 4, editor: 3, todo: 0, tool: 0 });
-    // 预算 5，初始 8：editor 已 3 无可收 → popup→0 后 4 ≤ 5
-    expect(drop).toMatchObject({ popup: 0, editor: 3, total: 4 });
+    const drop = allocateFixedBudget({ viewportRows: 6, overlay: 0, ask: 0, popup: 4, editor: 1, todo: 0, tool: 0 });
+    // 预算 5，初始 6：editor 已 1 无可收 → popup→0 后 2 ≤ 5
+    expect(drop).toMatchObject({ popup: 0, editor: 1, total: 2 });
   });
 
   it('overlay / ask / 状态行恒满高不截（模态栈与应答行是交互承诺面）', () => {
     const out = allocateFixedBudget({ viewportRows: 8, overlay: 3, ask: 1, popup: 0, editor: 5, todo: 7, tool: 5 });
-    // 预算 7：低段全隐 + editor 收 3 → 3+1+3+1 = 8 仍超 7——overlay/ask 如实保留
-    expect(out).toMatchObject({ overlay: 3, ask: 1, editor: 3, todo: 0, tool: 0, status: 1, total: 8 });
+    // 预算 7：低段全隐 + editor 收 1 → 3+1+1+1 = 6 ≤ 7 达标——overlay/ask 保全
+    expect(out).toMatchObject({ overlay: 3, ask: 1, editor: 1, todo: 0, tool: 0, status: 1, total: 6 });
   });
 
   it('极端形：下限集仍超预算——如实返回不虚报（兜底归 baseRow 钳 0）', () => {
     const out = allocateFixedBudget({ viewportRows: 4, overlay: 2, ask: 1, popup: 0, editor: 6, todo: 0, tool: 0 });
-    // 预算 3：editor 收 3 → 2+1+3+1 = 7 > 3——恒保段不动刀，total 如实 7
-    expect(out.total).toBe(7);
+    // 预算 3：editor 收 1 → 2+1+1+1 = 5 > 3——恒保段不动刀，total 如实 5
+    expect(out.total).toBe(5);
   });
 
   it('视口 1 行形：预算下限兜 1（正文滚动区至少 1 行的退化形仍可分配）', () => {
     const out = allocateFixedBudget({ viewportRows: 1, overlay: 0, ask: 0, popup: 0, editor: 3, todo: 0, tool: 0 });
-    // 预算 max(1, 0) = 1：低段隐 + editor 收 3 → 3+1 = 4 如实（恒保段不截）
-    expect(out).toMatchObject({ editor: EDITOR_MIN_HEIGHT, status: 1, total: 4 });
+    // 预算 max(1, 0) = 1：低段隐 + editor 收 1 → 1+1 = 2 如实（恒保段不截）
+    expect(out).toMatchObject({ editor: EDITOR_MIN_HEIGHT, status: 1, total: 2 });
   });
 });

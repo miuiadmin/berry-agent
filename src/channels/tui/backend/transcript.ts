@@ -204,13 +204,24 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
       // user 块三要素（界面美化役批⑦——UX 五问题批 2026-09-30）：`› ` 前缀
       // bold+dim 游程（续行两空格缩进既有）+ 背景带（userMessageBg 语义键
       // ——R2 扩键注：探测缺席/16 档降采/自定义缺键 = 无背景回退）+ 上下空行
-      // 包夹（空行是块内行——块账不动，帽语义零变）
-      const bg = block.theme.userMessageBg;
+      // 包夹（空行是块内行——块账不动，帽语义零变）。
+      // 斜杠兜底回显弱化（V-0 注③——斜杠命令提交回显 07 零条款真空白，
+      // 补落码定值）：命令文本以 '/' 开头（本地命令族外的斜杠输入兜底落
+      // user 块路）按回执层级呈现——整块 dim、无背景带（不占全宽染色块，
+      // 与 notify 回执 dim 化同层级）；正常对话文本维持三要素形
+      const slashEcho = block.text.trimStart().startsWith('/');
+      const bg = slashEcho ? undefined : block.theme.userMessageBg;
       const prefixStyle: Readonly<CellStyle> =
         bg === undefined ? Object.freeze({ bold: true, dim: true }) : Object.freeze({ bold: true, dim: true, bg });
       const lines = wrapText(block.text, columns - 2);
       const styled = lines.map((line, i): StyledLine => {
         const plain = (i === 0 ? '› ' : '  ') + line;
+        if (slashEcho) {
+          // 回执层级：整行 dim（前缀含在内）——弱存在感与转写摘要对齐
+          return plain.length > 0
+            ? { plain, runs: [{ start: 0, end: plain.length, style: DIM_STYLE }] }
+            : { plain, runs: [] };
+        }
         if (bg === undefined) {
           // 无背景带：首行仅前缀段 bold+dim，续行裸
           return i === 0 ? { plain, runs: [{ start: 0, end: 2, style: prefixStyle }] } : { plain, runs: [] };

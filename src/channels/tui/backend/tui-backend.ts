@@ -1520,14 +1520,24 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /** 一次性通知：正文瞬时行直写（级别符号前缀——不进行集） */
   notify(message: string, opts?: { level?: NotifyLevel }): void {
-    const symbol = NOTIFY_SYMBOLS[opts?.level ?? 'info'];
+    const level = opts?.level ?? 'info';
+    const symbol = NOTIFY_SYMBOLS[level];
+    // 回执 dim 化（V-0 注③ 斜杠命令回执弱化——07 零条款真空白补落码定值）：
+    // info/success 档整行 dim——回执是次级确认信息非对话本体，弱化层级与
+    // 转写摘要对齐；warn/error 不动——V-1 笔3 失败直呈律（错误是用户当下
+    // 最需看见的内容，不弱化）。notify 面恒纯文本，dim 经 SGR 直拼、行尾
+    // SGR_RESET 复原（turn 收尾行 DIM_SGR 同律）
+    const dim = level === 'info' || level === 'success';
     // 多行/超宽回执折行后逐行入流（2026-09-20 TUI 混流修复）：单串整塞会让
     // 内嵌 LF / 终端 autowrap 产超出 appendTransient 记账的物理行——后续
     // durable 块从回执中段起笔覆写正文（doors 帮助形 tmux 实红）。首行带
     // 档位符号、续行两空格缩进（user/error 块续行同律）；notify 面恒纯文本
     // （样式面归 summaryToAnsi），wrapText 直用安全
     const width = Math.max(1, this.io.size().columns - 2);
-    const lines = wrapText(message, width).map((line, i) => (i === 0 ? `${symbol} ${line}` : `  ${line}`));
+    const lines = wrapText(message, width).map((line, i) => {
+      const body = i === 0 ? `${symbol} ${line}` : `  ${line}`;
+      return dim ? `${DIM_SGR}${body}${SGR_RESET}` : body;
+    });
     this.appendTransientLines(lines, { persist: true });
   }
 
@@ -2886,8 +2896,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       row += 1;
     }
 
-    // 段五：编辑器（overlay 占焦期非聚焦——边框普通态 + 不抢光标声明；
-    // 截断收窄至下限 3 = 边框 2 + 内容 1——EditorView innerH ≤ 0 防御在位）
+    // 段五：编辑器（overlay 占焦期非聚焦——› 提示符降档 secondary 态 +
+    // 不抢光标声明；截断收窄至下限 1 = 内容最小高——V-0 注③ 框退役后
+    // EditorView innerH ≤ 0 防御在位）
     this.editor.setFocused(this.stack.size === 0);
     this.editor.render(grid, { row, col: 0, width: columns, height: budget.editor });
     row += budget.editor;

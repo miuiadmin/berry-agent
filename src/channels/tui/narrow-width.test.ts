@@ -291,27 +291,27 @@ describe('状态行窄宽（1-8 列）', () => {
   });
 });
 
-describe('编辑器极窄宽（边框塌缩 + 单列内容区）', () => {
+describe('编辑器极窄宽（composer 提示符 + 单列内容区——V-0 注③ 框退役）', () => {
   it.each([1, 2])('%i 列：innerW=0 防御早退——零写出不炸、无光标声明', (w) => {
     const model = new EditorModel();
     model.setText('ab中文');
     const view = new EditorView(model, { maxVisibleLines: 4 });
-    expect(view.measure(w)).toBeGreaterThanOrEqual(3); // 边框 2 + 至少 1 行
+    expect(view.measure(w)).toBeGreaterThanOrEqual(1); // 至少 1 行（框线零占位）
     const grid = new CellGrid(8, 10);
     expect(() => view.render(grid, { row: 0, col: 0, width: w, height: 10 })).not.toThrow();
-    for (let r = 0; r < grid.rows; r++) expect(readRow(grid, r, 8)).toBe(''); // 边框都不画
+    for (let r = 0; r < grid.rows; r++) expect(readRow(grid, r, 8)).toBe(''); // 提示符都不画
     expect(grid.cursor).toBeNull();
   });
 
-  it.each([3, 4, 5])('%i 列：边框在场 + 正文/边框全落网格界内 + 聚焦光标声明在网格界内', (w) => {
+  it.each([3, 4, 5])('%i 列：› 提示符在场 + 正文全落网格界内 + 聚焦光标声明在网格界内', (w) => {
     const model = new EditorModel();
     model.setText('ab中文');
     const view = new EditorView(model, { maxVisibleLines: 8 });
-    expect(view.measure(w)).toBeGreaterThanOrEqual(3);
+    expect(view.measure(w)).toBeGreaterThanOrEqual(1);
     const grid = new CellGrid(8, 12);
     view.setFocused(true);
     expect(() => view.render(grid, { row: 0, col: 0, width: w, height: 12 })).not.toThrow();
-    expect(readRow(grid, 0, w)).toContain('┌'); // 顶边框左角在场
+    expect(readRow(grid, 0, w)).toContain('›'); // › 提示符在场（首视口行）
     expectGridInvariants(grid);
     // 光标声明不越网格（preedit 探出 region 形由终端 clamp 承载——不炸为锁）
     const cursor = grid.cursor;
@@ -322,16 +322,16 @@ describe('编辑器极窄宽（边框塌缩 + 单列内容区）', () => {
     expect(cursor!.col).toBeGreaterThanOrEqual(0);
   });
 
-  it('3 列（单列内容区）：ASCII 逐字成行、量高 = 边框 2 + 视觉行数', () => {
+  it('3 列（单列内容区）：ASCII 逐字成行、量高 = 视觉行数（框线零占位）', () => {
     const model = new EditorModel();
     model.setText('ab中文');
     const view = new EditorView(model, { maxVisibleLines: 8 });
     // innerW=1 硬折：a|b|中|文 各成一段（CJK 段宽 2 超帽——首格落位续格吸收）
-    expect(view.measure(3)).toBe(2 + 4);
+    expect(view.measure(3)).toBe(4);
     const grid = new CellGrid(8, 12);
     view.render(grid, { row: 0, col: 0, width: 3, height: 12 });
-    expect(readRow(grid, 1, 8)).toBe('│a│'); // ASCII 段恰占单列内容区
-    expect(readRow(grid, 2, 8)).toBe('│b│');
+    expect(readRow(grid, 0, 8)).toBe('› a'); // ASCII 段恰占单列内容区（› 前缀 2 列后）
+    expect(readRow(grid, 1, 8)).toBe('  b');
     expectGridInvariants(grid);
   });
 });
