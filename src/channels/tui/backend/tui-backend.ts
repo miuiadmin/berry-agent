@@ -1218,6 +1218,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       scannedSessions: sources.sessions.length,
       errors,
       truncated,
+      // daemon.log 段随导出件出（V-0 注⑤）——装配位快照直传（掩码执法在 viewer 件内）
+      daemonLogPath: sources.daemonLogPath,
+      daemonLogTail: sources.daemonLogTail,
     };
     const handle = this.altHost.open(
       new FeedbackViewer({

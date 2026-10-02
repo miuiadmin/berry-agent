@@ -1038,6 +1038,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       maxEntries: number;
       sessionsTotal: number;
       env: readonly string[];
+      daemonLogPath: string | null;
+      daemonLogTail: readonly string[] | null;
       writeFile: (content: string) => string;
     };
     // 反馈副屏开面板槽（backend.openFeedback 方法归 tui-backend 件〔openGuide
@@ -1052,6 +1054,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         backend.notify('反馈页暂不可用——稍后再试', { level: 'warn' });
         return;
       }
+      // daemon.log 尾行快照（V-0 注⑤「daemon.log 随导出件出」——/debug 同源：
+      // readLogTailLines 单源帽 50 + 开屏一次只读快照档律；:memory: 无数据目录
+      // = 路径缺席，文件不在 = 快照缺席——诚实缺席两形在 viewer 件内呈现）
+      const fbLogPath = runtime.dataDir !== null ? daemonPaths(runtime.dataDir).logPath : null;
       const ok = opener({
         // 会话清单（/sessions 同窗——manager.list 近 100 行；总数独立单源）
         sessions: stack.manager.list({}).map((row) => ({ id: row.id })),
@@ -1069,6 +1075,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           `数据目录 ${runtime.dataDir ?? '（:memory: 内存模式——未使用数据目录）'}`,
           `平台    ${process.platform}/${process.arch}（node ${process.version}）`,
         ],
+        // daemon.log 尾快照（开屏一次只读——Bearer 掩码执法在 viewer 件内）
+        daemonLogPath: fbLogPath,
+        daemonLogTail: fbLogPath !== null ? readLogTailLines(fbLogPath) : null,
         // 诊断包落盘闭包（回执串直回面板——含路径与「不会上传」明示）
         writeFile: (content) => {
           const dataDir = runtime.dataDir;

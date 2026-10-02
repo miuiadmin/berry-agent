@@ -34,7 +34,7 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
 const t = (month9BasedDay: number, hour: number, minute = 0): number =>
   new Date(2026, 8, month9BasedDay, hour, minute).getTime();
 
-/** 面板数据夹具（两腿各一条——空态/截断另测） */
+/** 面板数据夹具（两腿各一条——空态/截断另测；daemon 缺席形为基线——在场另测） */
 const DATA: FeedbackPanelData = {
   windowDays: 7,
   sessionsTotal: 12,
@@ -44,6 +44,8 @@ const DATA: FeedbackPanelData = {
     { time: t(29, 9, 1), sessionId: 'sesswxyz9876', text: '第一行\n第二行详情', source: 'turn' },
   ],
   truncated: false,
+  daemonLogPath: null,
+  daemonLogTail: null,
 };
 
 /* ───────────────────── 扫描纯函数 ───────────────────── */
@@ -254,6 +256,17 @@ describe('buildFeedbackLines 行集构造（纯函数）', () => {
     expect(lines).toContain('（部分结果超出扫描上限未列出——以上为最近的错误）');
   });
 
+  it('daemon 日志清单行在场才列（V-0 注⑤ daemon.log 随导出件出——缺席不虚报在列）', () => {
+    const present = buildFeedbackLines({
+      ...DATA,
+      daemonLogPath: '/home/u/.berry-agent/daemon.log',
+      daemonLogTail: ['[info] boot ok'],
+    });
+    expect(present).toContain('· daemon 日志末尾 50 行（令牌已打码）');
+    const absent = buildFeedbackLines({ ...DATA, daemonLogPath: '/x/daemon.log', daemonLogTail: null });
+    expect(absent).not.toContain('· daemon 日志末尾 50 行（令牌已打码）');
+  });
+
   it('回执段：导出后尾随（段头 + 回执行）', () => {
     const lines = buildFeedbackLines(DATA, '已导出诊断包 → /tmp/feedback-x.md');
     expect(lines[lines.length - 2]).toBe('── 导出回执 ──');
@@ -317,6 +330,49 @@ describe('renderFeedbackDiagnosticReport 诊断包全文（纯函数）', () => 
       maxEntries: 50,
     });
     expect(report).toContain('- 截断：是——部分结果超出上限，仅含最近的错误');
+  });
+
+  it('daemon.log 段随导出件出：路径 + 尾行快照（Bearer 掩码执法 + 转义消毒）', () => {
+    const report = renderFeedbackDiagnosticReport({
+      exportedAt: t(30, 12),
+      data: {
+        ...DATA,
+        daemonLogPath: '/home/u/.berry-agent/daemon.log',
+        daemonLogTail: ['[info] boot ok', 'SDK token: Bearer abc123def456 已写入', '尾行带\x1b[31m色\x1b[0m转义'],
+      },
+      env: [],
+      pageLimit: 10000,
+      maxEntries: 50,
+    });
+    expect(report).toContain('## daemon.log');
+    expect(report).toContain('- 路径：/home/u/.berry-agent/daemon.log');
+    expect(report).toContain('（末尾 3 行——令牌已打码）');
+    expect(report).toContain('│ [info] boot ok');
+    expect(report).toContain('│ SDK token: Bearer **** 已写入'); // Bearer 形段掩码（debug-viewer 同律）
+    expect(report).toContain('│ 尾行带色转义'); // 控制转义剥除
+    expect(report).not.toContain('abc123def456'); // daemon token 明文恒不入导出包
+    expect(report).not.toContain('\x1b');
+  });
+
+  it('daemon.log 诚实缺席两形：文件缺席（非 daemon 跑法）/ 路径缺席（内存模式）', () => {
+    const fileAbsent = renderFeedbackDiagnosticReport({
+      exportedAt: t(30, 12),
+      data: { ...DATA, daemonLogPath: '/x/daemon.log', daemonLogTail: null },
+      env: [],
+      pageLimit: 10000,
+      maxEntries: 50,
+    });
+    expect(fileAbsent).toContain('## daemon.log');
+    expect(fileAbsent).toContain('- 路径：/x/daemon.log');
+    expect(fileAbsent).toContain('（未以 daemon 方式运行或文件尚未生成——没有 daemon.log）');
+    const memoryMode = renderFeedbackDiagnosticReport({
+      exportedAt: t(30, 12),
+      data: { ...DATA, daemonLogPath: null, daemonLogTail: null },
+      env: [],
+      pageLimit: 10000,
+      maxEntries: 50,
+    });
+    expect(memoryMode).toContain('（内存模式——无数据目录，没有 daemon.log）');
   });
 });
 

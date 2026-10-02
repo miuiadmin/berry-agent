@@ -24,6 +24,7 @@ import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
 import { headStyleOf, isSectionHeadLine, VIEWER_HEAD_MARK } from './panel-chrome.js';
+import { maskDaemonLogLines } from './debug-viewer.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 运行错误史条目（快照行——装配侧扫描产出，面板收纯数据） */
@@ -50,6 +51,16 @@ export interface FeedbackPanelData {
   readonly errors: readonly FeedbackErrorEntry[];
   /** 扫描是否触上限（单会话事件超页帽或条目超帽——诚实截断披露） */
   readonly truncated: boolean;
+  /**
+   * daemon.log 路径（null = :memory: 无数据目录——诚实缺席形；07 §4.1 V-0
+   * 注⑤ daemon.log 随导出件出——/debug 同源数据面）
+   */
+  readonly daemonLogPath: string | null;
+  /**
+   * daemon.log 尾行快照（帽 50 由装配位执行；null = 文件缺席〔非 daemon 跑法〕
+   * 诚实缺席；行集为日志明文——Bearer 掩码在本件呈现边界执法，与装配位传参无关）
+   */
+  readonly daemonLogTail: readonly string[] | null;
 }
 
 /** 反馈面板装配选项 */
@@ -112,6 +123,10 @@ export interface FeedbackScreenSources {
   readonly sessionsTotal: number;
   /** 环境摘要行集（「标签 值」拼好形——导出包头段专用，面板不呈） */
   readonly env: readonly string[];
+  /** daemon.log 路径（null = :memory: 无数据目录；V-0 注⑤ daemon.log 随导出件出） */
+  readonly daemonLogPath: string | null;
+  /** daemon.log 尾行快照（帽 50 由装配位执行；null = 文件缺席——非 daemon 跑法诚实缺席） */
+  readonly daemonLogTail: readonly string[] | null;
   /** 落盘闭包（host 侧 mkdir+write——收导出包全文返回执串） */
   readonly writeFile: (content: string) => string;
 }
@@ -239,6 +254,10 @@ export function buildFeedbackLines(data: FeedbackPanelData, receipt?: string | n
   lines.push('', '── 诊断导出 ──', '按 e 生成诊断包并保存到本机（不会上传）：');
   lines.push('· 运行错误史（含完整错误文本）');
   lines.push('· 运行环境（版本 / 模型 / 数据目录 / 平台）');
+  // daemon 日志清单行在场才列（快照在开屏时已取到——缺席不虚报在列；V-0 注⑤）
+  if (data.daemonLogTail !== null) {
+    lines.push('· daemon 日志末尾 50 行（令牌已打码）');
+  }
   lines.push(`· 范围：近 ${data.windowDays} 天 · 最近 ${data.scannedSessions} 个会话（共 ${data.sessionsTotal} 个）`);
   if (receipt !== undefined && receipt !== null && receipt !== '') {
     lines.push('', '── 导出回执 ──', receipt);
@@ -250,7 +269,8 @@ export function buildFeedbackLines(data: FeedbackPanelData, receipt?: string | n
  * 诊断包全文构造（纯函数——测试直锁消费；导出包 = 终端外载体，错误正文过
  * sanitizeDisplayText 消毒〔LF 保留供分段〕——OSC 52 类转义不随文件外泄）。
  * 结构：标题与零上报声明 → 环境段 → 范围段 → 错误史段（全文多行保留，收
- * 尾腿如实标注）。
+ * 尾腿如实标注）→ daemon.log 段（V-0 注⑤：尾行快照 Bearer 掩码 + 消毒，
+ * 缺席两形诚实披露）。
  */
 export function renderFeedbackDiagnosticReport(input: {
   readonly exportedAt: number;
@@ -291,6 +311,22 @@ export function renderFeedbackDiagnosticReport(input: {
         sanitizeDisplayText(entry.text),
       );
     });
+  }
+  // daemon.log 段（V-0 注⑤「daemon.log 随导出件出」——钩子/周期路诊断走日志通道，
+  // 导出件是它们的承载面）：三形如实——内存模式无数据目录 / 文件缺席（非
+  // daemon 跑法）/ 尾行快照（Bearer 掩码 + 消毒——/debug 同律，daemon token
+  // 明文恒不入导出包）
+  lines.push('', '## daemon.log');
+  if (data.daemonLogPath === null) {
+    lines.push('（内存模式——无数据目录，没有 daemon.log）');
+  } else {
+    lines.push(`- 路径：${data.daemonLogPath}`);
+    if (data.daemonLogTail === null) {
+      lines.push('（未以 daemon 方式运行或文件尚未生成——没有 daemon.log）');
+    } else {
+      lines.push(`（末尾 ${data.daemonLogTail.length} 行——令牌已打码）`);
+      for (const line of maskDaemonLogLines(data.daemonLogTail)) lines.push(`│ ${sanitizeDisplayText(line)}`);
+    }
   }
   lines.push('');
   return lines.join('\n');

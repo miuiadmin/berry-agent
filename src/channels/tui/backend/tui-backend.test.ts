@@ -2602,6 +2602,8 @@ describe('TuiBackend /sessions · /usage · /help 副屏装配（R7 批 10k）',
         maxEntries: 50,
         sessionsTotal: 3,
         env: ['版本 0.1.0-alpha'],
+        daemonLogPath: null, // daemon 段随导出件出（V-0 注⑤）——内存形缺席基线
+        daemonLogTail: null,
         writeFile: () => '/tmp/diagnostics/mock.txt',
       }),
     ).toBe(true);
