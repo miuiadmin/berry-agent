@@ -240,14 +240,14 @@ describe('WebUiRoot主面活体环', () => {
       expect(FakeEventSource.instances).toHaveLength(1);
     });
     const es = FakeEventSource.instances[0]!;
-    // 纯对话轮（零工具活动）completed：收尾行整行缺席（had_work_activity 同构判据）
+    // 纯对话轮（工具 ∧ 重试双零）completed：收尾行整行缺席（V-0 注⑥双零判据）
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'completed' } });
     await waitFor(() => {
-      expect(screen.queryByText(/^─ .+ ─$/)).toBeNull();
+      expect(screen.queryByText(/^── .+ ──$/)).toBeNull();
     });
     // 工具 run completed：成功收尾行在场（服务端 durationMs 缺席回退客户端
-    // 观察窗——jsdom 测试窗毫秒级落 ≤60s 形：耗时段缺席只呈「─ HH:MM ─」）
+    // 观察窗——jsdom 同步发射窗毫秒级 → 「0s」整秒档；V-0 注⑥：不设时长门）
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
     es.emit({
       kind: 'display',
@@ -256,7 +256,7 @@ describe('WebUiRoot主面活体环', () => {
     });
     es.emit({ kind: 'session', sessionId: 's-1', payload: { type: 'tool_execution_end', toolCallId: 't-close' } });
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'completed' } });
-    await screen.findByText(/^─ \d{2}:\d{2} ─$/);
+    await screen.findByText('── 用时 0s · 工具 1 次 ──');
     // 取消形：取消收尾行在场（取消不设纯对话轮缺席——用户主动行为恒有回响）
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
     es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'aborted' } });

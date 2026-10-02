@@ -70,7 +70,21 @@ export type ClientDisplayEvent =
       readonly durationMs?: number;
     }
   | { readonly type: 'turn_start'; readonly turn: number }
-  | { readonly type: 'turn_end'; readonly turn: number };
+  | { readonly type: 'turn_end'; readonly turn: number }
+  | {
+      /**
+       * 重试退避窗开（收尾行重试段计数面——V-0 注⑥跨通道对端）。attempt/
+       * maxAttempts/nextAt 服务端载荷在场（contracts/agent-events 真源），
+       * SPA 倒计时呈现未立项——视界只收型名（tool_execution_start 省略
+       * arguments 同律）。
+       */
+      readonly type: 'retry_wait_start';
+    }
+  | {
+      /** 重试退避窗关（outcome 三值——resumed = 续入即新 agent_start，run 级账不清的判定位） */
+      readonly type: 'retry_wait_end';
+      readonly outcome: 'resumed' | 'aborted' | 'exhausted';
+    };
 
 /** session 族终结事件视界（落 durable 两型的客户端消费子集） */
 export type ClientTerminalEvent =

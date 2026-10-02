@@ -8,6 +8,11 @@
  * **分层律**：转写只发生在呈现层（渲染位/简述构造位）——数据面块字段与事件
  * 载荷保原始名：exec 卡族判断（card.name === 'bash'）与插件渲染腿查表
  * （lookupToolRenderer）均依赖原始工具名，数据面改名即断两链。
+ *
+ * 居位（2026-10-02 TUI 视觉重设计批 V-2 笔 1 迁入，原居 channels/tui）：
+ * channels（TUI）与 webui 客户端（SPA——channels 公开面桶经 theme/custom 拉
+ * node:fs，DOM 类型面与浏览器包不可承）跨通道两方消费，零依赖纯件入
+ * contracts 公开根（durations 同律）。
  */
 
 /** 内建工具族动词映射（英文名 → 用户面动词） */

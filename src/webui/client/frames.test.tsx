@@ -214,11 +214,27 @@ describe('frames 工具族与状态行', () => {
     );
     expect(state.status).toBe('⚙ bash …'); // 状态行随最新 start
     state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-a', update: '读' }));
-    expect(state.status).toBe('⚙ read …'); // t-a 映射仍在场
+    expect(state.status).toBe('⚙ 读取文件 …'); // t-a 映射仍在场 + 映射族名走 toolFaceZh（修前红：`⚙ read …` 英文直呈）
     state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-a', result: {} }));
-    expect(state.messages[state.messages.length - 1]?.text).toContain('read');
+    expect(state.messages[state.messages.length - 1]?.text).toContain('读取文件');
     state = applyEnvelope(state, display({ type: 'tool_execution_update', toolCallId: 't-b', update: '跑' }));
     expect(state.status).toBe('⚙ bash …'); // t-b 不被 t-a 的 end 出账误伤
+  });
+
+  it('工具名中文化（V-0 注⑤跨通道对端）：映射族名走 toolFaceZh、集外名直呈兜底', () => {
+    let state = initialAppState;
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-zh', name: 'agent', arguments: {} }),
+    );
+    expect(state.status).toBe('⚙ 子代理 …'); // 修前红：`⚙ agent …` 英文直呈
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-zh', result: {} }));
+    expect(state.messages[state.messages.length - 1]?.text).toBe('⚙ 子代理 执行完成'); // 修前红：`⚙ 工具 agent 执行完成`
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-plug', name: 'my-plugin-tool', arguments: {} }),
+    );
+    expect(state.status).toBe('⚙ my-plugin-tool …'); // 集外名（插件）不虚译——注册名直呈
   });
 
   it('会话切换清工具名映射（旧会话 id 不污染新会话）', () => {
@@ -239,10 +255,10 @@ describe('frames 工具族与状态行', () => {
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }));
     expect(state.status).toBeNull();
     // 工具 run 成功终态 → run 收尾行瞬时追加（run_close 角色——非对话消息；
-    // 无 agent_start 中途附着形：耗时段诚实缺席只呈时刻段）
+    // 无 agent_start 中途附着形：耗时段诚实缺席、工具段独场——修前红旧形时刻段独场）
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]).toMatchObject({ role: RUN_CLOSE_ROLE, streaming: false });
-    expect(state.messages[0]?.text).toMatch(/^─ \d{2}:\d{2} ─$/);
+    expect(state.messages[0]?.text).toBe('── 工具 1 次 ──');
     state = applyEnvelope(state, display({ type: 'agent_start' }));
     state = applyEnvelope(state, display({ type: 'turn_start', turn: 1 }));
     state = applyEnvelope(state, display({ type: 'turn_end', turn: 1, stopReason: 'end_turn' }));
@@ -334,16 +350,16 @@ describe('frames 审批与通知', () => {
   });
 });
 
-describe('frames run 收尾行（界面美化役批⑪——07 §4.1 收尾行条款 webui 腿）', () => {
+describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形——07 §4.1 收尾行条款 webui 腿）', () => {
   /** 固定钟（now 注入口——观察窗/时刻段的确定性测试面） */
   const T0 = 1_700_000_000_000;
 
-  it('成功形：工具 run >60s 呈「─ 用时 1m 30s · HH:MM ─」，时刻段 = 种子 user 消息时刻（发送时刻语义）', () => {
+  it('成功形：「── 用时 1m 30s · 工具 1 次 ──」（时刻段退役）；耗时回退位 = 客户端观察窗', () => {
     // 种子回显（客户端钟 T0-5s）→ run 开（T0）→ 工具活动 → 成功终态（T0+90s）
     let state = echoedUserMessage(initialAppState, 's-1', '跑个工具', T0 - 5_000);
     state = applyEnvelope(state, display({ type: 'agent_start' }), T0);
     expect(state.runActive).toBe(true); // 活体窗开
-    expect(state.runSeedAt).toBe(T0 - 5_000); // 种子 = 最近 user 消息时刻（非观察起点）
+    expect(state.runSeedAt).toBe(T0 - 5_000); // 种子 = 最近 user 消息时刻（取消形锚——成功形不消费）
     expect(state.runStartedAt).toBe(T0);
     state = applyEnvelope(
       state,
@@ -354,11 +370,11 @@ describe('frames run 收尾行（界面美化役批⑪——07 §4.1 收尾行�
     expect(state.messages).toHaveLength(2); // 回显 + 收尾行
     const close = state.messages[state.messages.length - 1]!;
     expect(close.role).toBe(RUN_CLOSE_ROLE);
-    // 耗时 = 观察窗 90s（服务端 durationMs 缺席回退位）；时刻段 = 种子时刻本地 HH:MM
-    expect(close.text).toMatch(/^─ 用时 1m 30s · \d{2}:\d{2} ─$/);
+    // 耗时 = 观察窗 90s（服务端 durationMs 缺席回退位）；修前红：旧形「─ 用时 … · HH:MM ─」时刻段在场
+    expect(close.text).toBe('── 用时 1m 30s · 工具 1 次 ──');
   });
 
-  it('≤60s：耗时段缺席只呈时刻（条款细则——短 run 不值得耗时噪音）', () => {
+  it('时长门废：<60s 短 run 也呈耗时段（不设 ≤60s 门——V-0 注⑥）', () => {
     let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
     state = applyEnvelope(
       state,
@@ -366,10 +382,10 @@ describe('frames run 收尾行（界面美化役批⑪——07 §4.1 收尾行�
     );
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0 + 30_000);
     expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.text).toMatch(/^─ \d{2}:\d{2} ─$/); // 无「用时」段
+    expect(state.messages[0]?.text).toBe('── 用时 30s · 工具 1 次 ──'); // 修前红：旧形 <60s 省时段
   });
 
-  it('纯对话轮（零工具活动）成功收尾行整行缺席（had_work_activity 同构判据）', () => {
+  it('纯对话轮（工具 ∧ 重试双零）成功收尾行整行缺席', () => {
     let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
     state = applyEnvelope(state, display({ type: 'message_start', role: 'assistant' }), T0 + 100);
     state = applyEnvelope(
@@ -378,6 +394,20 @@ describe('frames run 收尾行（界面美化役批⑪——07 §4.1 收尾行�
     );
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0 + 120_000);
     expect(state.messages).toHaveLength(1); // 只有 assistant 落稿——收尾行缺席
+  });
+
+  it('重试计数与段缺席形：retry_wait_start 计数、续入不清（整 run 口径）、工具零省「工具」段', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'failed' }), T0 + 1_000);
+    state = applyEnvelope(state, display({ type: 'retry_wait_start' }), T0 + 1_000); // 客户端视界只收型名（计数面）
+    expect(state.runRetryCount).toBe(1); // 修前红：帧形未被消费（未知帧静默忽略——计数恒 0）
+    state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'resumed' }), T0 + 30_000);
+    state = applyEnvelope(state, display({ type: 'agent_start' }), T0 + 30_000); // 续入——run 级账不清
+    expect(state.runRetryCount).toBe(1); // 修前红：重开窗清账
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 45_000 }), T0 + 45_000);
+    const close = state.messages[state.messages.length - 1]!;
+    expect(close.role).toBe(RUN_CLOSE_ROLE);
+    expect(close.text).toBe('── 用时 45s · 重试 1 ──'); // 重试独场：工具段缺席（修前红：纯对话轮判据整行缺席）
   });
 
   it('取消形不受纯对话轮判据约束：零工具 abort 也呈「⏹ 对话已取消——HH:MM」', () => {
@@ -395,10 +425,10 @@ describe('frames run 收尾行（界面美化役批⑪——07 §4.1 收尾行�
     );
     // 观察窗仅 1s，但载荷声明整 run 95s（重试续跑重开窗的回退位只覆末次尝试）
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 95_000 }), T0 + 1_000);
-    expect(state.messages[0]?.text).toMatch(/^─ 用时 1m 35s · \d{2}:\d{2} ─$/);
+    expect(state.messages[0]?.text).toBe('── 用时 1m 35s · 工具 1 次 ──');
   });
 
-  it('中途附着（无 agent_start）：耗时段诚实缺席、时刻段回退观察终点近似', () => {
+  it('中途附着（无 agent_start）：耗时段诚实缺席、工具段独场行仍落', () => {
     // 页面加载时 run 已在飞——收不到 agent_start；收尾行不虚造耗时
     let state = applyEnvelope(
       initialAppState,
@@ -406,7 +436,7 @@ describe('frames run 收尾行（界面美化役批⑪——07 §4.1 收尾行�
     );
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0);
     expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.text).toMatch(/^─ \d{2}:\d{2} ─$/);
+    expect(state.messages[0]?.text).toBe('── 工具 1 次 ──'); // 修前红：旧形时刻段独场
   });
 
   it('瞬时追加位：loadedMessages 投影重置即清（不落投影、回放不可见）', () => {
@@ -447,7 +477,8 @@ describe('frames run 收尾行（界面美化役批⑪——07 §4.1 收尾行�
     expect(state.runActive).toBe(false);
     expect(state.runStartedAt).toBeNull();
     expect(state.runSeedAt).toBeNull();
-    expect(state.runSawTools).toBe(false);
+    expect(state.runToolCount).toBe(0); // 修前红：字段名随计数化翻档（原 runSawTools 旗）
+    expect(state.runRetryCount).toBe(0);
     expect(state.lastUserAt).toBeNull();
   });
 });

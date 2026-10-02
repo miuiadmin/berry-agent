@@ -50,7 +50,7 @@
  * 副屏 onCopy 同柄装配——挂账解挂批①对齐补齐 memory 面）。
  */
 import type { AgentEvent } from '../../../agent/index.js';
-import { isStandardMessage, type AgentMessage, type Usage } from '../../../contracts/index.js';
+import { formatElapsedCompact, isStandardMessage, type AgentMessage, type Usage } from '../../../contracts/index.js';
 import type {
   ApprovalAskAnswer,
   ApprovalAskRequest,
@@ -83,7 +83,7 @@ import { LiveTranscript, shortIdOf, type TranscriptBlock } from './transcript.js
 import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
-import { formatElapsedCompact, TaskStatusLine } from '../status/task-status-line.js';
+import { TaskStatusLine } from '../status/task-status-line.js';
 import { gitHeadSuffix, readGitHead } from '../status/footer.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
@@ -106,7 +106,7 @@ import {
 } from '../theme/index.js';
 import { buildSgr, capAnsiLine, SGR_RESET } from './ansi-rows.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
-import { toolFaceZh } from '../tool-face.js';
+import { toolFaceZh } from '../../../contracts/index.js';
 import { keyEventToBinding, Keymap, type KeybindingRejection } from '../keys/registry.js';
 import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
@@ -515,8 +515,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * （usageTotal/起止时戳/工具计数/种子时戳）不清零，整 run 口径律）。
    */
   private retryContinuation = false;
-  /** 本 run 工具执行计数（tool_execution_start 递增；重试续入不清——收尾行纯对话轮判据） */
+  /** 本 run 工具执行计数（tool_execution_start 递增；重试续入不清——收尾行工具段供数 + 双零缺席判据半边） */
   private runToolCount = 0;
+  /** 本 run 重试计数（retry_wait_start 递增；重试续入不清——收尾行重试段供数 + 双零缺席判据半边——V-0 注⑥） */
+  private runRetryCount = 0;
   /**
    * 失败原因**持有档**（失败直呈律 V-0 注②）：agent_end failed 的 errorMessage
    * 存账（终态揭示延后——批 4 持有档），retry_wait_end {aborted|exhausted} 揭示
@@ -2522,6 +2524,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         break;
       case 'retry_wait_start':
         // 态③ 重试中（E-1）：转轮不停 + 倒计时本地钟现算（nextAt 绝对时刻律）
+        this.runRetryCount += 1; // 收尾行重试段计数（整 run 口径——resetUsage 才清）
         this.taskLine.enterRetry(event.attempt, event.maxAttempts, event.nextAt);
         this.touchFixed();
         break;
@@ -2598,6 +2601,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.runStartedAt = null; // 批C：清账连清起点（repaint/切焦中途附着即无起点——速度段诚实缺席）
     this.runEndedAt = null;
     this.runToolCount = 0;
+    this.runRetryCount = 0;
     this.runSeedAt = null;
     this.pendingSeedAt = null; // 暂存位连清（切焦防上一焦种子泄漏到新焦收尾行）
     this.retryContinuation = false;
@@ -2605,32 +2609,34 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * turn 收尾行（界面美化役批 5——件 9 族瞬时追加行：不占正文滚动帽、repaint
-   * 不重建、重放不可见）。成功形 `─ 用时 1m 30s · 14:32 ─`（elapsed < 60s 省段
-   * → `─ 14:32 ─`；纯对话轮〔零工具执行〕整行缺席——轻收不落装饰行）；取消形
-   * `⏹ 对话已取消——14:32`（用户动作回执恒落——纯对话轮判据不适用）；failed
-   * 无收尾行（错误块 + ✖ 尾注已足）。时刻源 = run 种子用户消息时戳（中途附着
-   * 无种子回退 runEndedAt）；elapsed = durationMs（驱动结算账——A-3 唯一真源）
-   * ?? 本地观察账（runStartedAt/runEndedAt 差）；中途附着 elapsed 诚实缺席。
+   * turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻形——codex 记账线）：
+   * 不占正文滚动帽、repaint 不重建、重放不可见的瞬时追加行。成功形
+   * `── 用时 1m 12s · 工具 3 次 · 重试 1 ──`（**段缺席形**：工具计数零省
+   * 「工具」段、重试计数零省「重试」段、双零即纯对话轮**整行缺席**——不设
+   * 时长门；切焦中途附着无起点 → 耗时段诚实缺席、行仍落）；取消形
+   * `⏹ 对话已取消——14:32`（取消回执非记账行——时刻段保留形维持；时刻源 =
+   * 本 run 种子 user 消息时戳，中途附着无种子回退 runEndedAt）；failed 终态
+   * 无收尾行（错误块本体呈现——调用面分档）。elapsed = durationMs（驱动
+   * 结算账——A-3 唯一真源）?? 本地观察账（runStartedAt/runEndedAt 差），
+   * 整秒档 formatElapsedCompact 单源（contracts——任务行/SPA/超时三面同源）。
    * dim 经 SGR 直拼（瞬时行纯文本路——appendTransientCapped 的 ANSI 感知收口
    * 保样式存活）。
    */
   private appendClosingLine(status: 'completed' | 'aborted', durationMs?: number): void {
-    const clockAt = this.runSeedAt ?? this.runEndedAt ?? this.now();
-    const clock = formatClockHM(clockAt);
     if (status === 'aborted') {
-      this.appendTransientLine(`${DIM_SGR}⏹ 对话已取消——${clock}${SGR_RESET}`);
+      const clockAt = this.runSeedAt ?? this.runEndedAt ?? this.now();
+      this.appendTransientLine(`${DIM_SGR}⏹ 对话已取消——${formatClockHM(clockAt)}${SGR_RESET}`);
       return;
     }
-    if (this.runToolCount === 0) return; // 纯对话轮：整行缺席
+    if (this.runToolCount === 0 && this.runRetryCount === 0) return; // 纯对话轮：整行缺席（双零判据）
     const elapsedMs =
       durationMs ??
       (this.runStartedAt !== null && this.runEndedAt !== null ? this.runEndedAt - this.runStartedAt : null);
-    if (elapsedMs === null || elapsedMs < 60_000) {
-      this.appendTransientLine(`${DIM_SGR}─ ${clock} ─${SGR_RESET}`);
-      return;
-    }
-    this.appendTransientLine(`${DIM_SGR}─ 用时 ${formatElapsedCompact(elapsedMs)} · ${clock} ─${SGR_RESET}`);
+    const segments: string[] = [];
+    if (elapsedMs !== null) segments.push(`用时 ${formatElapsedCompact(elapsedMs)}`);
+    if (this.runToolCount > 0) segments.push(`工具 ${this.runToolCount} 次`);
+    if (this.runRetryCount > 0) segments.push(`重试 ${this.runRetryCount}`); // 段形随规范真源：重试段无「次」字
+    this.appendTransientLine(`${DIM_SGR}── ${segments.join(' · ')} ──${SGR_RESET}`);
   }
 
   /**

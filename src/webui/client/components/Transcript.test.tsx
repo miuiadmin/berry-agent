@@ -97,12 +97,12 @@ describe('Transcript run 收尾行（界面美化役批⑪）', () => {
   it('run_close 角色居中呈现收尾行文本：无角色标签（非消息形）', () => {
     render(
       <Transcript
-        messages={[msg({ key: 'm-close', role: RUN_CLOSE_ROLE, text: '─ 用时 1m 30s · 14:32 ─' })]}
+        messages={[msg({ key: 'm-close', role: RUN_CLOSE_ROLE, text: '── 用时 1m 30s · 工具 2 次 ──' })]}
         status={null}
         bottomRef={createRef<HTMLDivElement>()}
       />,
     );
-    expect(screen.getByText('─ 用时 1m 30s · 14:32 ─')).toBeTruthy();
+    expect(screen.getByText('── 用时 1m 30s · 工具 2 次 ──')).toBeTruthy();
     // 收尾行是瞬时追加位非消息——不呈 run_close 角色标签
     expect(screen.queryByText('run_close')).toBeNull();
   });

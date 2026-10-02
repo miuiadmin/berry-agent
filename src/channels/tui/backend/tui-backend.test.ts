@@ -4039,56 +4039,86 @@ describe('TuiBackend ESC 让路三分支（界面美化役批 2——escape 扩�
   });
 });
 
-describe('TuiBackend turn 收尾行（界面美化役批 5——件 9 瞬时追加行）', () => {
+describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻形——codex 记账线）', () => {
   /** 时刻形本地钟自证（与 formatClockHM 同源 getHours/getMinutes——测试期望随时区自洽） */
   const hm = (t: number): string => {
     const d = new Date(t);
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
-  it('completed 有工具 ≥60s → 「─ 用时 … · HH:MM ─」；durationMs 优先于本地观察账', () => {
+  it('completed 有工具 → 「── 用时 1m 02s · 工具 1 次 ──」（时刻段退役）；durationMs 优先于本地观察账', () => {
     let t = 0;
     const { io, backend } = makeBackend({ now: () => t });
     emit(backend, { type: 'message_end', message: { role: 'user', content: '跑', timestamp: 1 } }); // 种子（channel 缺席）
-    emit(backend, { type: 'agent_start' }); // 暂存位晋升 → 收尾行时刻源
+    emit(backend, { type: 'agent_start' }); // 暂存位晋升（种子账维持——取消形时刻源）
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     t += 90_000;
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed', durationMs: 62_000 }); // 驱动结算账 62s ≠ 本地 90s
-    expect(io.bytes).toContain(`─ 用时 1m 02s · ${hm(1)} ─`); // durationMs 优先 + 种子时戳时刻源
+    expect(io.bytes).toContain('── 用时 1m 02s · 工具 1 次 ──'); // 修前红：旧形「─ 用时 … · HH:MM ─」时刻段在场
+    expect(io.bytes).not.toContain(hm(1)); // 时刻段退役（成功形记账线无时刻）
     expect(io.bytes).not.toContain('1m 30s'); // 本地观察账让位（A-3 唯一真源）
   });
 
-  it('completed 无 durationMs → 本地观察账（起止差）；<60s → 省时「─ HH:MM ─」', () => {
+  it('时长门废：<60s 短 run 也呈耗时段（V-0 注⑥——不设 ≤60s 门）', () => {
     let t = 0;
     const { io, backend } = makeBackend({ now: () => t });
     emit(backend, { type: 'agent_start' });
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
-    t += 61_000;
+    t += 30_000;
     io.bytes = '';
-    emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).toContain(`─ 用时 1m 01s · ${hm(61_000)} ─`); // 本地差值 + runEndedAt 回退时刻源
-
-    let t2 = 0;
-    const rig2 = makeBackend({ now: () => t2 });
-    emit(rig2.backend, { type: 'agent_start' });
-    emit(rig2.backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
-    t2 += 30_000;
-    rig2.io.bytes = '';
-    emit(rig2.backend, { type: 'agent_end', status: 'completed' });
-    expect(rig2.io.bytes).toContain(`─ ${hm(30_000)} ─`); // <60s 省时段
-    expect(rig2.io.bytes).not.toContain('用时');
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
+    expect(io.bytes).toContain('── 用时 30s · 工具 1 次 ──'); // 修前红：旧形 <60s 省时段只呈时刻
   });
 
-  it('纯对话轮（零工具执行）completed → 整行缺席（轻收不落装饰行）', () => {
+  it('重试段随行：retry_wait_start 计数 + 续入不清（整 run 口径）→ 「工具 2 次 · 重试 1」', () => {
     let t = 0;
     const { io, backend } = makeBackend({ now: () => t });
     emit(backend, { type: 'agent_start' });
-    t += 120_000;
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    emit(backend, { type: 'agent_end', status: 'failed' });
+    emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: t + 60_000 });
+    emit(backend, { type: 'retry_wait_end', outcome: 'resumed' });
+    emit(backend, { type: 'agent_start' }); // 续入（retryContinuation 消费——run 级账不清）
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't2', name: 'read', arguments: {} });
+    t += 45_000;
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed', durationMs: 120_000 });
-    expect(io.bytes).not.toContain('用时');
-    expect(io.bytes).not.toContain(`─ ${hm(120_000)} ─`); // 整行缺席非省时形
+    expect(io.bytes).toContain('工具 2 次'); // 修前红：续入后工具计数被清为 1（若误走 resetUsage）
+    expect(io.bytes).toContain('重试 1'); // 修前红：旧形无重试段
+    expect(io.bytes).not.toContain('重试 0');
+  });
+
+  it('段缺席形：工具零省「工具」段（重试独场）→ 「── 用时 … · 重试 1 ──」', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'agent_end', status: 'failed' });
+    emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: t + 60_000 });
+    emit(backend, { type: 'retry_wait_end', outcome: 'resumed' });
+    emit(backend, { type: 'agent_start' }); // 续入——纯对话腿收尾
+    t += 30_000;
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
+    expect(io.bytes).toContain('── 用时 30s · 重试 1 ──'); // 修前红：旧形纯对话轮判据只看工具——重试独场整行缺席
+    expect(io.bytes).not.toContain('工具'); // 工具段缺席（零计数省段）
+  });
+
+  it('双零整行缺席（纯对话轮——工具 ∧ 重试双零判据）；新 run 起重试计数清零', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'agent_end', status: 'failed' });
+    emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: t + 60_000 });
+    emit(backend, { type: 'retry_wait_end', outcome: 'resumed' });
+    emit(backend, { type: 'agent_start' }); // 续入跑完
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' }); // 全新 run（resetUsage——重试账清零）
+    t += 120_000;
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 120_000 });
+    expect(io.bytes).not.toContain('用时'); // 双零整行缺席（不设时长门——120s 也不落）
+    expect(io.bytes).not.toContain('重试'); // 修前红若残账：上一 run 的重试计数泄入新 run
   });
 
   it('aborted → 「⏹ 对话已取消——HH:MM」恒落（用户动作回执；种子时刻源优先）', () => {

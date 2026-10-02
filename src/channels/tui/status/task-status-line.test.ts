@@ -9,7 +9,8 @@
 import { describe, expect, it } from 'vitest';
 import { CellGrid } from '../../engine/index.js';
 import { DEFAULT_THEME } from '../theme/index.js';
-import { formatElapsedCompact, TaskStatusLine, type TaskStatusProviders } from './task-status-line.js';
+import { formatElapsedCompact } from '../../../contracts/index.js';
+import { TaskStatusLine, type TaskStatusProviders } from './task-status-line.js';
 
 /** 可变供数器（测试注入面——渲染期现拉语义同生产闭包） */
 function makeProviders(overrides: Partial<TaskStatusProviders> = {}): TaskStatusProviders & {

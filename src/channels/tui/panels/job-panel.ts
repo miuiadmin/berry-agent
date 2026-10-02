@@ -21,7 +21,7 @@
  */
 import { ellipsize, type CellBuffer, type CellStyle, type Region, type Renderable } from '../../engine/index.js';
 import type { JobEntry, JobKind } from '../../../contracts/index.js';
-import { formatElapsedCompact } from '../status/task-status-line.js';
+import { formatElapsedCompact } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 帽内行数（溢出行另计——07 §4.1 界面美化役批定值 5） */

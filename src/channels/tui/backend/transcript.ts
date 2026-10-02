@@ -56,7 +56,7 @@ import {
   type ToolCardRenderInput,
   type ToolCardStatus,
 } from '../blocks/tool-card.js';
-import { argKeyZh, toolFaceZh } from '../tool-face.js';
+import { argKeyZh, toolFaceZh } from '../../../contracts/index.js';
 import { ACTION_CATALOG } from '../keys/registry.js';
 import type { SessionEnvelope } from '../../types.js';
 

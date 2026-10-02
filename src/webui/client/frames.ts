@@ -18,6 +18,11 @@
  * 时序下终稿序倒置根因——TUI transcript 按 message.role 分派同律）。
  */
 import type { ClientApprovalEntry, ClientEnvelope, ClientSessionSummary } from './protocol.js';
+// 跨通道单源两件（contracts 零依赖叶——channels 公开面桶经 theme/custom 拉
+// node:fs，DOM 类型面与浏览器包结构性不可承；durations/tool-face 同批迁入）：
+// 工具名用户面动词（V-0 注⑤呈现层转写——数据面 toolNames 记账保原始名）与
+// 紧凑耗时格式（V-0 注④整秒档——TUI/SPA 收尾行真同源零分叉）。
+import { formatElapsedCompact, toolFaceZh } from '../../contracts/index.js';
 
 /** 呈现层消息视图模型（投影消息与活体落稿同形） */
 export interface ViewMessage {
@@ -114,11 +119,23 @@ export interface AppState {
    */
   readonly runSeedAt: number | null;
   /**
-   * 本 run 工具活动旗（run 内 tool_execution_start 计数 > 0——纯对话轮收尾
-   * 行整行缺席判据，与 codex had_work_activity 判据同构：无工具活动的轮次
-   * 不值得收尾行噪音）。
+   * 本 run 工具执行计数（display tool_execution_start 递增；重试续入不清
+   * ——收尾行工具段供数 + 纯对话轮双零缺席判据半边。原布尔旗 runSawTools 随
+   * V-0 注⑥翻形计数化——段文案需现值）。
    */
-  readonly runSawTools: boolean;
+  readonly runToolCount: number;
+  /**
+   * 本 run 重试计数（display retry_wait_start 递增；重试续入不清——收尾行
+   * 重试段供数 + 双零缺席判据半边。V-0 注⑥跨通道对端）。
+   */
+  readonly runRetryCount: number;
+  /**
+   * 重试续入标记（retry_wait_end(resumed) 置位、下一 agent_start 消费复位：
+   * 续入是同一 run 的断点续跑非新 run——run 级账〔工具/重试计数、种子〕不清，
+   * 整 run 口径律。观察窗 runStartedAt 例外重开——耗时段回退位只覆末次尝试，
+   * durationMs 载荷在场必用）。
+   */
+  readonly retryContinuation: boolean;
   /**
    * 最近一条 user 消息时刻（echoedUserMessage 客户端钟 / 镜像 message_end
    * 服务端钟 / 投影末条 user——agent_start 快照为 runSeedAt 种子源）。
@@ -142,7 +159,9 @@ export const initialAppState: AppState = {
   runActive: false,
   runStartedAt: null,
   runSeedAt: null,
-  runSawTools: false,
+  runToolCount: 0,
+  runRetryCount: 0,
+  retryContinuation: false,
   lastUserAt: null,
 };
 
@@ -193,32 +212,28 @@ function streamingSlotOf(messages: readonly ViewMessage[], role: string): number
 }
 
 /**
- * 本地 HH:MM 时刻（收尾行时刻段形——本地钟呈现，与服务端时区无关）。
+ * 本地 HH:MM 时刻（取消形时刻段——取消回执非记账行，时刻段保留形维持；
+ * 本地钟呈现，与服务端时区无关）。
  */
 function clockOf(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-/** 耗时人话形（1m 30s / 2h 5m 1s——与收尾行条款示例同形） */
-function formatDuration(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
-}
-
 /**
- * run 收尾行文案（07 §4.1 收尾行条款 webui 腿——瞬时追加位，不进投影）：
+ * run 收尾行文案（07 §4.1 收尾行条款 webui 腿 + V-0 注⑥对端翻形——瞬时追加
+ * 位，不进投影）：
  * - 失败终态 → null（错误块本体即呈现，不叠收尾行）；
- * - 取消形 → 「⏹ 对话已取消——HH:MM」；
- * - 纯对话轮（run 内零 tool_execution_start）→ null（整行缺席）；
- * - 成功形 → 「─ 用时 X · HH:MM ─」，≤60s 耗时段缺席只呈时刻。
- * 时刻段 = 发送时刻（runSeedAt——种子 user 消息时刻；中途附着未见种子回退
- * agent_end 观察时刻近似，不虚造）。耗时段优先服务端 durationMs 载荷（A-3
- * 唯一真源），缺席回退客户端观察窗（agent_start→agent_end 到达时刻差——
- * 近似值，含发射/传播延迟的诚实注记在 AppState.runStartedAt）。
+ * - 取消形 → 「⏹ 对话已取消——HH:MM」（取消回执非记账行——时刻段保留形，
+ *   不受纯对话轮判据约束；时刻锚 = 发送时刻 runSeedAt，中途附着回退 agent_end
+ *   观察时刻近似，不虚造）；
+ * - 纯对话轮（工具 ∧ 重试计数双零）→ null（整行缺席——不设时长门）；
+ * - 成功形 → 「── 用时 X · 工具 N 次 · 重试 M ──」（段缺席形：零计数段省略；
+ *   重试段无「次」字——规范真源措辞）。
+ * 耗时优先服务端 durationMs 载荷（A-3 唯一真源），缺席回退客户端观察窗
+ * （agent_start→agent_end 到达时刻差——近似值，发射/传播延迟诚实注记在
+ * AppState.runStartedAt），皆无诚实缺席（行仍落）；整秒档 formatElapsedCompact
+ * 单源（contracts——TUI/SPA 真同源零分叉）。
  */
 function runCloseLine(
   state: AppState,
@@ -226,9 +241,8 @@ function runCloseLine(
   now: number,
 ): string | null {
   if (payload.status === 'failed') return null; // 失败终态：错误块本体呈现，无收尾行
-  const moment = clockOf(state.runSeedAt ?? now); // 发送时刻锚——种子缺席即观察终点近似
-  if (payload.status === 'aborted') return `⏹ 对话已取消——${moment}`;
-  if (!state.runSawTools) return null; // 纯对话轮整行缺席（had_work_activity 同构判据）
+  if (payload.status === 'aborted') return `⏹ 对话已取消——${clockOf(state.runSeedAt ?? now)}`;
+  if (state.runToolCount === 0 && state.runRetryCount === 0) return null; // 纯对话轮整行缺席（双零判据）
   // 耗时真源序：服务端载荷 > 客户端观察窗 > 诚实缺席
   const durationMs =
     typeof payload.durationMs === 'number'
@@ -236,8 +250,11 @@ function runCloseLine(
       : state.runStartedAt !== null
         ? now - state.runStartedAt
         : null;
-  if (durationMs === null || durationMs <= 60_000) return `─ ${moment} ─`; // 无耗时数据/≤60s：耗时段缺席
-  return `─ 用时 ${formatDuration(durationMs)} · ${moment} ─`;
+  const segments: string[] = [];
+  if (durationMs !== null) segments.push(`用时 ${formatElapsedCompact(durationMs)}`);
+  if (state.runToolCount > 0) segments.push(`工具 ${state.runToolCount} 次`);
+  if (state.runRetryCount > 0) segments.push(`重试 ${state.runRetryCount}`); // 段形随规范真源：无「次」字
+  return `── ${segments.join(' · ')} ──`;
 }
 
 /**
@@ -343,24 +360,28 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
       }
       if (payload.type === 'tool_execution_start') {
         if (env.kind !== 'display') return state;
-        // id→名记账（update/end 帧只携 id——按名呈现的映射真源）；工具活动旗
-        // 同步置位（收尾行纯对话轮判据的计数面）
+        // id→名记账（update/end 帧只携 id——按名呈现的映射真源；**原始名记账**，
+        // 呈现位过 toolFaceZh 转写——分层律：数据面保原始名）；工具计数递增
+        // （收尾行工具段供数 + 双零缺席判据半边——重试续入不清，整 run 口径）
         return {
           ...state,
-          status: `⚙ ${payload.name} …`,
+          status: `⚙ ${toolFaceZh(payload.name)} …`,
           toolNames: { ...state.toolNames, [payload.toolCallId]: payload.name },
-          runSawTools: true,
+          runToolCount: state.runToolCount + 1,
         };
       }
       if (payload.type === 'tool_execution_update') {
         if (env.kind !== 'display') return state;
-        // 名优先（start 已记账）；映射缺席（乱序/重连丢 start）回退 id 不炸
-        return { ...state, status: `⚙ ${state.toolNames[payload.toolCallId] ?? payload.toolCallId} …` };
+        // 名优先（start 已记账）；映射缺席（乱序/重连丢 start）回退 id 不炸——
+        // 两形均过 toolFaceZh（集外名直呈兜底——id 不在映射集原样返回）
+        const name = state.toolNames[payload.toolCallId] ?? payload.toolCallId;
+        return { ...state, status: `⚙ ${toolFaceZh(name)} …` };
       }
       if (payload.type === 'tool_execution_end') {
         if (env.kind !== 'session') return state;
         const { key, seq } = messageKey(state, undefined);
-        // 名优先同 update；终结出账（映射有界——同 id 迟到 update 回退 id）
+        // 名优先同 update；终结出账（映射有界——同 id 迟到 update 回退 id）；
+        // 终结行动词走 toolFaceZh（V-0 注⑤跨通道对端）
         const name = state.toolNames[payload.toolCallId] ?? payload.toolCallId;
         const { [payload.toolCallId]: _removed, ...toolNames } = state.toolNames;
         return {
@@ -368,20 +389,40 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           seq,
           status: null,
           toolNames,
-          messages: [...state.messages, { key, role: 'tool', text: `⚙ 工具 ${name} 执行完成`, streaming: false }],
+          messages: [
+            ...state.messages,
+            { key, role: 'tool', text: `⚙ ${toolFaceZh(name)} 执行完成`, streaming: false },
+          ],
         };
+      }
+      if (payload.type === 'retry_wait_start') {
+        if (env.kind !== 'display') return state;
+        // 收尾行重试段计数（V-0 注⑥跨通道对端）——整 run 口径，agent_start
+        // 续入形不清（retryContinuation 分诊）；SPA 倒计时呈现未立项零状态行动作
+        return { ...state, runRetryCount: state.runRetryCount + 1 };
+      }
+      if (payload.type === 'retry_wait_end') {
+        if (env.kind !== 'display') return state;
+        if (payload.outcome !== 'resumed') return state; // aborted/exhausted：终态揭示腿——run 级账随 agent_end/切换收束
+        // 续入标记：下一 agent_start 消费（run 级账不清——TUI retryContinuation 同律）
+        return { ...state, retryContinuation: true };
       }
       if (payload.type === 'agent_start') {
         // run 活体窗开窗（收尾行/打断键的数据面）：观察起点 = 帧到达时刻、
-        // 种子时刻 = 最近 user 消息时刻（发送时刻语义）。重试续跑的再次
-        // agent_start 重开窗——耗时段回退位只覆末次尝试（整 run 口径以服务端
-        // durationMs 载荷为准，在场必用）。
+        // 种子时刻 = 最近 user 消息时刻（发送时刻语义）。
+        if (state.retryContinuation) {
+          // 续入（retry_wait_end(resumed) 后的再次 agent_start）：同一 run 断点
+          // 续跑——run 级账（工具/重试计数、种子）不清（整 run 口径）；观察窗
+          // 重开（耗时段回退位只覆末次尝试——durationMs 载荷在场必用）
+          return { ...state, runActive: true, runStartedAt: now, retryContinuation: false };
+        }
         return {
           ...state,
           runActive: true,
           runStartedAt: now,
           runSeedAt: state.lastUserAt ?? now,
-          runSawTools: false,
+          runToolCount: 0,
+          runRetryCount: 0,
         };
       }
       if (payload.type === 'agent_end') {
@@ -402,11 +443,13 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           ...state,
           seq,
           status,
-          // 活体窗整段收束（下一 agent_start 重开）
+          // 活体窗整段收束（下一 agent_start 重开）——run 级计数连清（跨 run 残账防御）
           runActive: false,
           runStartedAt: null,
           runSeedAt: null,
-          runSawTools: false,
+          runToolCount: 0,
+          runRetryCount: 0,
+          retryContinuation: false,
           ...(closeText !== null
             ? { messages: [...state.messages, { key, role: RUN_CLOSE_ROLE, text: closeText, streaming: false }] }
             : {}),
@@ -550,7 +593,9 @@ export function setActiveSession(state: AppState, sessionId: string | null): App
     runActive: false,
     runStartedAt: null,
     runSeedAt: null,
-    runSawTools: false,
+    runToolCount: 0,
+    runRetryCount: 0,
+    retryContinuation: false,
     lastUserAt: null,
   };
 }

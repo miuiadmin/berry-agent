@@ -32,7 +32,7 @@ import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../bac
 import { highlight, tokenStyle } from '../markdown/highlight/index.js';
 import { diffWords, parsePatchLines, type PatchLine } from './word-diff.js';
 import { lookupToolRenderer, type RendererLine, type ToolRenderResultInput } from '../../renderers.js';
-import { toolFaceZh } from '../tool-face.js';
+import { toolFaceZh } from '../../../contracts/index.js';
 
 /** 卡终态（↔ ToolResultMessage isError / details.aborted 的呈现分档） */
 export type ToolCardStatus = 'success' | 'error' | 'aborted';

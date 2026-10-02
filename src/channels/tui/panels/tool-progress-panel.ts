@@ -33,7 +33,7 @@ import {
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { lookupToolRenderer, type RendererLine } from '../../renderers.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
-import { toolFaceZh } from '../tool-face.js';
+import { toolFaceZh } from '../../../contracts/index.js';
 
 /** 帽内行数（溢出行另计——spec 定形） */
 const MAX_ROWS = 4;

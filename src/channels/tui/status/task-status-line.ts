@@ -18,26 +18,11 @@
  */
 import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
 import { ellipsize, stringWidth } from '../../engine/index.js';
+import { formatElapsedCompact } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 转轮帧序（braille 十帧——与状态行同源形态，件内自持单源） */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
-
-/**
- * 紧凑耗时格式（任务行括号段与 turn 收尾行共单源）：0s（亚秒）/ Ns /
- * Nm NNs / Nh NNm NNs——秒位两位补零（1m 02s）、分级段不补（1h 00m 00s）。
- */
-export function formatElapsedCompact(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  if (totalSec < 1) return '0s';
-  if (totalSec < 60) return `${totalSec}s`;
-  const totalMin = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  if (totalMin < 60) return `${totalMin}m ${String(sec).padStart(2, '0')}s`;
-  const hours = Math.floor(totalMin / 60);
-  const min = totalMin % 60;
-  return `${hours}h ${String(min).padStart(2, '0')}m ${String(sec).padStart(2, '0')}s`;
-}
 
 /** 任务行四态 + 离场态（idle = 零高度缺席） */
 export type TaskLineState = 'idle' | 'working' | 'streaming' | 'retrying' | 'error';

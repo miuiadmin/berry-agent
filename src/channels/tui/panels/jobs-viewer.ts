@@ -26,7 +26,7 @@ import { CURSOR_MARK, VIEWER_HEAD_MARK, headStyleOf } from './panel-chrome.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { shortIdOf } from '../backend/transcript.js';
-import { formatElapsedCompact } from '../status/task-status-line.js';
+import { formatElapsedCompact } from '../../../contracts/index.js';
 
 /** 状态词直白面（用户面话术律——禁内部黑话；killed = 已停止） */
 const STATUS_WORDS: Readonly<Record<JobStatus, string>> = Object.freeze({

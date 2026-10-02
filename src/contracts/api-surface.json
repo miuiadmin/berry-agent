@@ -880,6 +880,15 @@
       "sig": "7a913ca8b7c56d48"
     },
     {
+      "symbol": "argKeyZh",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "参数键用户面键位（V-0 注⑤参数签名键位）：白名单族译、集外键名直呈",
+      "kind": "function",
+      "sig": "ab0100b1a34fc82d"
+    },
+    {
       "symbol": "compareApiVersions",
       "module": "berry-agent",
       "tier": "stable",
@@ -887,6 +896,15 @@
       "desc": "apiVersion 比较：MAJOR.MINOR 逐段数值比较——禁字符串比较（\"1.10\" > \"1.9\"）",
       "kind": "function",
       "sig": "57a9ec6695ced147"
+    },
+    {
+      "symbol": "formatElapsedCompact",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "紧凑耗时格式：0s（亚秒）/ Ns / Nm NNs / Nh NNm NNs——秒位两位补零（1m 02s）、分级段不补（1h 00m 00s）",
+      "kind": "function",
+      "sig": "e21373e49eed1297"
     },
     {
       "symbol": "getErrorCodeInfo",
@@ -1049,6 +1067,15 @@
       "desc": "注册自定义消息角色（ctx.agent.registerMessageRole 的本体——单入口）",
       "kind": "function",
       "sig": "3fbb7c68b0fe8765"
+    },
+    {
+      "symbol": "toolFaceZh",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具名用户面动词（V-0 注⑤）：映射集内译、集外英文直呈（插件工具不虚译—— 注册名即用户可引用名）",
+      "kind": "function",
+      "sig": "584ee1409eec78a2"
     },
     {
       "symbol": "anthropicMessagesApi",

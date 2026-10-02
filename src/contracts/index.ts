@@ -31,6 +31,15 @@ export * from './types.js';
 // 凭证 env 引用形词面单源（03 §10.9 注入腿——c-4）：exec 执法位与 credentials
 // resolver 两方消费，放公开根使两方零新 DAG 边（三名律——跨模块走公开面）
 export * from './env-ref.js';
+// 紧凑耗时格式单源（07 §4.1 V-0 注④整秒定值——2026-10-02 TUI 视觉重设计批
+// V-2 笔 1）：channels（任务行/收尾行）/ webui 客户端（SPA 收尾行——DOM 类型
+// 面不可拉 TUI engine 图）/ tools（超时人读形）三方消费，同律零新边纯件
+export * from './durations.js';
+// 工具面用户话术单源（07 §4.1 V-0 注⑤——同批 V-2 笔 1 迁入，原居
+// channels/tui）：channels（TUI 工具卡/任务行/transcript）与 webui 客户端
+// （SPA 工具行——channels 公开面桶经 theme/custom 拉 node:fs，DOM 类型面与
+// 浏览器包结构性不可承）两方消费，零依赖纯件同律零新边
+export * from './tool-face.js';
 // 出口治理③ 凭据消毒纯函数族（04 §7 执行段 2026-09-08 落码定形）：tools 管道
 // 链尾（模式+值基两腿）与 agent 错误包装位（纯模式腿）两方消费，同律零新边
 export * from './redact.js';
