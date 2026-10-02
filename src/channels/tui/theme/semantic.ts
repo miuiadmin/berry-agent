@@ -28,6 +28,15 @@
  *   alpha / light 板黑 4%）；探测失败/缺席、16 档降采、自定义板缺本键 =
  *   无背景回退（不扩 ExactColor 对位表）。旧主题文件无新键非破坏性——缺键
  *   即无背景，新键随更新自然生效。
+ * - `weakRule` 弱存在感线（V-3 注⑨——**首个混合键**）：回合记账分隔线 /
+ *   markdown 表格线 / 面板分段线三线族共用的通用弱线色，值由 resolve 件
+ *   在解析期按「主题 fg @ 20% alpha 混 OSC 11 探测 bg」动态现算（与
+ *   userMessageBg 同走 toDepthValue 降深链）；混合基缺席（内置板 text 恒
+ *   undefined / fg 色板位 RGB 不可知）、探测缺席、16 档、亮底对比不足 =
+ *   键缺席（消费位回退 tableRule 或 fg+dim 既有形）；与 tableRule 分工不
+ *   合并——后者兼回退位与 16 深人工覆写位。旧主题文件缺本键非破坏——
+ *   text+userMessageBg 两键齐的自定义板才实质生效（探测传值门统辖动态
+ *   键族 bg 供血）。
  */
 import type { AnsiColor, Color256, RgbChannels } from '../../engine/index.js';
 
@@ -59,6 +68,7 @@ export const SEMANTIC_KEYS = [
   'codeNumber',
   'codeFunction',
   'userMessageBg',
+  'weakRule',
 ] as const;
 
 /** 语义键（SEMANTIC_KEYS 的元素类型） */

@@ -20,7 +20,7 @@ import { ScrollView } from '../scroll/scroll-view.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
-import { headStyleOf, isSectionHeadLine, isWarningLine, VIEWER_HEAD_MARK } from './panel-chrome.js';
+import { headStyleOf, sectionHeadLineStyle, VIEWER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 调试面板数据快照（装配位现取注入——面板收纯数据行，不触任何边外面） */
@@ -97,14 +97,16 @@ export class DebugViewer extends ScrollView implements OverlayContent {
   private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: DebugViewerOptions) {
-    // 界面美化役 2026-10-01 美学批两档：折行续行 2 空格悬挂 + 分段头/告警行
-    // 整行 dim（`── … ──` 分段线族 + `⚠ 坏值` 告警族两形经 panel-chrome 判词命中）
-    super({ hangingIndent: true, dimLine: (line) => isSectionHeadLine(line) || isWarningLine(line) });
+    // 界面美化役 2026-10-01 美学批两档 + V-3 注⑨①⑤分诊取色：折行续行 2 空格
+    // 悬挂 + 分段头弱线取色 + ⚠ 告警行恒 dim 不混合（`── … ──` 分段线族沿线
+    // 色、`⚠ 坏值` 告警族语义色不参与混合——panel-chrome 分诊样式单源）
+    const theme = options.theme ?? DEFAULT_THEME;
+    super({ hangingIndent: true, lineStyle: sectionHeadLineStyle(theme) });
     this.sessionId = options.sessionId;
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
-    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
+    this.headStyle = headStyleOf(theme);
     this.setLines(buildDebugLines(options.data)); // 行集构造后静态（快照档——data 不留柄）
     this.scrollToTop(); // 开屏锚顶（ScrollView 缺省贴尾为回看器语义——调试首段是运行时头）
   }

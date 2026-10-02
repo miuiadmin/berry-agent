@@ -5,7 +5,7 @@
  * 2026-10-01 美学批——contract-first：选项契约先于消费位落码）。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { CellGrid, type InputEvent, type MouseEvent } from '../../engine/index.js';
+import { CellGrid, colorRgb, type InputEvent, type MouseEvent } from '../../engine/index.js';
 import { ScrollView } from './scroll-view.js';
 
 /** 键事件便捷构造 */
@@ -338,11 +338,11 @@ describe('ScrollView 悬挂缩进档（hangingIndent——续行 2 空格悬挂 
   });
 });
 
-describe('ScrollView 分段头 dim 档（dimLine——predicate 命中整行 dim）', () => {
-  it('命中行整行 dim、未命中行无样式', () => {
+describe('ScrollView 行样式档（lineStyle——predicate 命中行整行着样式；V-3 注⑨ 取色链承接位）', () => {
+  it('命中行整行着给定样式、未命中行无样式', () => {
     const view = new ScrollView({
       maxHeight: 10,
-      dimLine: (line) => line.startsWith('──'),
+      lineStyle: (line) => (line.startsWith('──') ? { dim: true } : undefined),
     });
     view.setLines(['── 分段 ──', '正文行']);
     const grid = new CellGrid(20, 10);
@@ -353,7 +353,22 @@ describe('ScrollView 分段头 dim 档（dimLine——predicate 命中整行 dim
     expect(grid.getCell(1, 0)?.style?.dim).toBeUndefined(); // 未命中行裸样式
   });
 
-  it('缺省关：裸文本写出零漂（无 dim 样式落格）', () => {
+  it('fg 着色形（weakRule 承接）：命中行整行 fg、dim 不入场', () => {
+    const weakFg = colorRgb('#383d43'); // (56,61,67)——fg @ 20% 混 GitHub dark bg 期望值
+    const view = new ScrollView({
+      maxHeight: 10,
+      lineStyle: (line) => (line.startsWith('──') ? { fg: weakFg } : undefined),
+    });
+    view.setLines(['── 分段 ──', '正文行']);
+    const grid = new CellGrid(20, 10);
+    view.render(grid, { row: 0, col: 0, width: 20, height: 10 });
+    expect(grid.getCell(0, 0)?.style.fg).toEqual(weakFg); // 命中行整行弱线色
+    expect(grid.getCell(0, 6)?.style.fg).toEqual(weakFg);
+    expect(grid.getCell(0, 0)?.style.dim).toBeUndefined(); // 弱线色在场 dim 不叠加
+    expect(grid.getCell(1, 0)?.style?.fg).toBeUndefined(); // 未命中行裸样式
+  });
+
+  it('缺省关：裸文本写出零漂（无样式落格）', () => {
     const view = new ScrollView({ maxHeight: 10 });
     view.setLines(['── 分段 ──']);
     const grid = new CellGrid(20, 10);

@@ -5,7 +5,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
-import { CellGrid, stringWidth } from '../../engine/index.js';
+import { CellGrid, colorRgb, stringWidth } from '../../engine/index.js';
+import { DARK_PALETTE, resolveTheme } from '../theme/index.js';
 import { buildStatusLines, StatusViewer } from './status-viewer.js';
 import type { StatusPanelData } from './status-viewer.js';
 
@@ -212,5 +213,44 @@ describe('StatusViewer 副屏件', () => {
   it('未消费键终局吞（模态独占）——enter 不逃逸', () => {
     const viewer = new StatusViewer({ data: DATA, onExit: () => {} });
     expect(viewer.handleEvent(k('enter'))).toBe(true);
+  });
+});
+
+describe('StatusViewer 分段头取色（V-3 注⑨①——面板分段线承接 weakRule 取色链）', () => {
+  /** 读回一行（trimEnd） */
+  function readRow(grid: CellGrid, row: number, width: number): string {
+    let out = '';
+    for (let col = 0; col < width; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  /** 自定义板夹具（text 定义形——weakRule 在场：#e6edf3 混 #0d1117 = #383d43） */
+  const WEAK_THEME = resolveTheme(
+    {
+      dark: true,
+      colors: { ...DARK_PALETTE.colors, text: { r: 230, g: 237, b: 243 }, userMessageBg: { r: 16, g: 16, b: 16 } },
+    },
+    'truecolor',
+    { r: 13, g: 17, b: 23 },
+  );
+
+  it('weakRule 在场 → 「── 段 ──」行整行弱线色（dim 不叠加）；正文行不着线色', () => {
+    expect(WEAK_THEME.weakRule).toEqual(colorRgb('#383d43')); // 混合基自证（修前红锚——键未铸即此行红）
+    const viewer = new StatusViewer({ data: DATA, onExit: () => {}, theme: WEAK_THEME });
+    const grid = new CellGrid(60, Math.max(3, viewer.measure(60)));
+    viewer.render(grid, { row: 0, col: 0, width: 60, height: grid.rows });
+    expect(readRow(grid, 1, 60)).toBe('── 运行时 ──'); // 锚位自证（行 1 = 首段头）
+    expect(grid.getCell(1, 0)?.style?.fg).toEqual(WEAK_THEME.weakRule); // 修前红：旧形恒 dim 无 fg
+    expect(grid.getCell(1, 6)?.style?.fg).toEqual(WEAK_THEME.weakRule); // 段名中段同律（整行一致）
+    expect(grid.getCell(1, 0)?.style?.dim).toBeUndefined(); // 弱线色在场 dim 不叠加
+    expect(grid.getCell(2, 0)?.style?.fg).toBeUndefined(); // 正文行不沿线色（值行裸样式）
+  });
+
+  it('键缺席（DEFAULT_THEME）→ dim 回退既有形（弱线色缺位不破相）', () => {
+    const viewer = new StatusViewer({ data: DATA, onExit: () => {} }); // 缺省 theme = DEFAULT_THEME（键缺席）
+    const grid = new CellGrid(60, Math.max(3, viewer.measure(60)));
+    viewer.render(grid, { row: 0, col: 0, width: 60, height: grid.rows });
+    expect(grid.getCell(1, 0)?.style?.dim).toBe(true); // 回退腿：dim 既有形
+    expect(grid.getCell(1, 0)?.style?.fg).toBeUndefined();
   });
 });

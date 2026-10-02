@@ -1,12 +1,14 @@
 /**
  * Markdown 块布局分派件（批 10h 自 markdown.ts 拆出——块型 → 渲染行集）。
  *
- * 新增面（R1 批 10h）：GFM 表格（自适应列宽 + 等分帽 + tableRule 框线 +
- * 逐列对齐 + 单元格级折行）；闭栏代码块自研高亮（五类 token → 主题键族；
- * 开栏/未知语言诚实退单色——未闭不高亮防样式回翻闪烁）。
+ * 新增面（R1 批 10h）：GFM 表格（codex 双线制 + 自适应列宽 + 等分帽 +
+ * weakRule 优先线色 + 逐列对齐 + 单元格级折行——V-3 注⑨④）；闭栏代码块自研
+ * 高亮（五类 token → 主题键族；开栏/未知语言诚实退单色——未闭不高亮防样式
+ * 回翻闪烁）。
  *
- * 观感定值（2026-10-01 界面美化役批 §⑥）：标题四级梯度（H1 文本宽下划线
- * / H2 纯 bold / H3-H4 ▍ 缩梯 / H5-H6 平文）、表格首尾封口线、代码沟线
+ * 观感定值（2026-10-01 界面美化役批 §⑥ + V-3 注⑨④翻档）：标题四级梯度
+ * （H1 文本宽下划线 / H2 纯 bold / H3-H4 ▍ 缩梯 / H5-H6 平文）、表格 codex
+ * 双线（表头 ━ 重线 + 表体行间 ─ 轻线、无纵向线——全框形退役）、代码沟线
  * dim + 闭栏语言标签收尾、无序嵌套符号梯度 •/◦/-、hr 虚线形。
  */
 import { graphemeWidth, sanitizeDisplayText, splitGraphemes, type CellStyle } from '../../engine/index.js';
@@ -49,12 +51,26 @@ function alignCellRow(
   return [...row, ...padCells(pad)]; // null/left 缺省左
 }
 
-/** 表格框线样式（tableRule 单源——所有 │ ├ ┬ ┤ ─ 框线字符同键） */
+/** 表格线样式（V-3 注⑨——weakRule 混合现算弱线优先，键缺席回退 tableRule） */
 function ruleStyle(theme: Readonly<ResolvedTheme>): Readonly<CellStyle> {
-  return { fg: theme.tableRule };
+  return { fg: theme.weakRule ?? theme.tableRule };
 }
 
-/** 表格块 → 渲染行集（框线全走 tableRule；内容正常样式） */
+/** 行尾无样式空白裁（V-3 注⑨④——padding 空格不入行集：字节面/断言面双赢） */
+function trimTrailingSpaces(line: StyledGrapheme[]): void {
+  while (line.length > 0) {
+    const last = line[line.length - 1]!;
+    if (last.grapheme !== ' ' || last.style !== undefined) break; // 有样式位（内容空格）不裁
+    line.pop();
+  }
+}
+
+/**
+ * 表格块 → 渲染行集（V-3 注⑨④ codex 双线制）：表头分隔 ━ 重线 + 表体逻辑行
+ * 间 ─ 轻线、无纵向线（全框形 ┌┐└┘┬┴┼├┤│ 退役）、线色 weakRule 优先
+ * tableRule 回退；列宽预算不扣纵线列（avail = width − 2×cols，列随纵线退役
+ * 回收变宽）；行尾空白裁。
+ */
 function tableRows(
   block: Extract<MarkdownBlock, { type: 'table' }>,
   width: number,
@@ -67,56 +83,47 @@ function tableRows(
     const cells = [block.header[j], ...block.rows.map((row) => row[j])];
     natural[j] = Math.max(TABLE_MIN_COL, ...cells.map((spans) => (spans === undefined ? 0 : spansWidth(spans))));
   }
-  // 可用内容预算 = 总宽 - 竖线数（cols+1） - 每列两侧空格（2×cols）；超
-  // 预算走等分帽（更精的贪心再分配 v1 不做——列宽等分律）
-  const avail = Math.max(cols * TABLE_MIN_COL, width - (cols + 1) - 2 * cols);
+  // 可用内容预算 = 总宽 - 每列两侧空格（2×cols——V-3 注⑨④ 纵线退役零扣）；
+  // 超预算走等分帽（更精的贪心再分配 v1 不做——列宽等分律）
+  const avail = Math.max(cols * TABLE_MIN_COL, width - 2 * cols);
   const total = natural.reduce((sum, w) => sum + w, 0);
   const cap = total > avail ? Math.max(TABLE_MIN_COL, Math.floor(avail / cols)) : Number.POSITIVE_INFINITY;
   const colWidths = natural.map((w) => Math.min(w, cap));
 
   const rule = ruleStyle(theme);
-  const bar = prefixCells('│', rule);
-  const gap = prefixCells(' ');
-  // 一行渲染：│ cell │ cell │（cell = 空格 + 内容补齐列宽 + 空格）
+  // 一行渲染：open-gap cell close-gap（cell 内容补齐列宽；列间 = close+open
+  // 双空格分隔——无纵向线）+ 行尾无样式空白裁
   const renderLine = (cells: StyledGrapheme[][]): StyledGrapheme[] => {
-    const line: StyledGrapheme[] = [...bar];
+    const line: StyledGrapheme[] = [];
     for (let j = 0; j < cols; j++) {
-      if (j > 0) line.push(...bar);
       const cell = cells[j] ?? [];
-      line.push(...gap, ...cell, ...gap, ...padCells(colWidths[j]! - rowWidth(cell)));
+      line.push(...prefixCells(' '), ...cell, ...padCells(colWidths[j]! - rowWidth(cell)), ...prefixCells(' '));
     }
-    line.push(...bar);
+    trimTrailingSpaces(line);
     return line;
   };
-  // 框线行通用形（界面美化役批 §⑥ 封口律）：顶线 ┌─┬─┐ / 表头分隔 ├─┼─┤ /
-  // 底线 └─┴─┘——首尾对称封口，分隔行十字形（列线上通下达——有顶线后 ┬ 语义
-  // 错位故改 ┼）；横杠宽 = 列宽 + 两侧空格
-  const ruleLine = (left: string, mid: string, right: string): StyledGrapheme[] => {
-    const cells: StyledGrapheme[] = prefixCells(left, rule);
-    for (let j = 0; j < cols; j++) {
-      if (j > 0) cells.push(...prefixCells(mid, rule));
-      cells.push(...prefixCells('─'.repeat(colWidths[j]! + 2), rule));
-    }
-    cells.push(...prefixCells(right, rule));
-    return cells;
-  };
-  const top = ruleLine('┌', '┬', '┐');
-  const sep = ruleLine('├', '┼', '┤');
-  const bottom = ruleLine('└', '┴', '┘');
+  // 线行（双线制）：全表宽 = Σ列宽 + 2×cols 连续单字符——heavy ━（表头分隔
+  // 重线）/ light ─（表体逻辑行间轻线），同键线色
+  const tableWidth = colWidths.reduce((sum, w) => sum + w, 0) + 2 * cols;
+  const ruleLine = (char: string): StyledGrapheme[] => prefixCells(char.repeat(tableWidth), rule);
+  const heavy = ruleLine('━');
+  const light = ruleLine('─');
 
   // 表头（整格 bold 位；头格同法 cell 级折行取前两行——两行仍超截断；任一
-  // 头格折行即表头区整体两行高·列头对齐律）+ 分隔 + 数据行
+  // 头格折行即表头区整体两行高·列头对齐律）+ 重线 + 数据行（逻辑行间轻线；
+  // 空表无轻线——头 + 重线即收）
   const laidHeader = block.header.map((spans, j) =>
     layoutSpans(spans ?? [], colWidths[j]!, theme, { bold: true }).slice(0, 2),
   );
   const rows: StyledGrapheme[][] = [];
   const headerHeight = Math.max(1, ...laidHeader.map((cells) => cells.length));
-  rows.push(top); // 顶线封口（界面美化役批 §⑥）
   for (let r = 0; r < headerHeight; r++) {
     rows.push(renderLine(laidHeader.map((cells) => cells[r] ?? [])));
   }
-  rows.push(sep);
-  for (const row of block.rows) {
+  rows.push(heavy); // 表头分隔重线（V-3 注⑨④——顶线随全框退役）
+  for (let i = 0; i < block.rows.length; i++) {
+    if (i > 0) rows.push(light); // 表体逻辑行间轻线（首行贴重线、末行后无底线）
+    const row = block.rows[i]!;
     const laid = row.map((spans, j) => layoutSpans(spans ?? [], colWidths[j] ?? TABLE_MIN_COL, theme));
     const height = Math.max(1, ...laid.map((cells) => cells.length));
     for (let r = 0; r < height; r++) {
@@ -126,7 +133,6 @@ function tableRows(
       rows.push(renderLine(lineCells));
     }
   }
-  rows.push(bottom); // 底线封口（零数据行时紧跟分隔线——空表边界形在案）
   return rows;
 }
 

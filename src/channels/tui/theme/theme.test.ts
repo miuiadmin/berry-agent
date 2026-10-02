@@ -89,12 +89,12 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
   });
 
   it('值域两律全键遍历：256 档 RGB 源键落 16-255、16 档落 0-15', () => {
-    // RGB 源键 = 除 accent（AnsiColor 直通）、text（undefined）与 userMessageBg
-    //（动态混合键——探测缺席恒 undefined，回退腿另册单测）外全集
-    const rgbKeys = SEMANTIC_KEYS.filter((k) => k !== 'accent' && k !== 'text' && k !== 'userMessageBg') as Exclude<
-      SemanticKey,
-      'accent' | 'text' | 'userMessageBg'
-    >[];
+    // RGB 源键 = 除 accent（AnsiColor 直通）、text（undefined）与两动态混合键
+    //（userMessageBg / weakRule——探测缺席恒 undefined，回退腿另册单测）外全集
+    const DYNAMIC_KEYS = ['userMessageBg', 'weakRule'] as const;
+    const rgbKeys = SEMANTIC_KEYS.filter(
+      (k) => k !== 'accent' && k !== 'text' && !(DYNAMIC_KEYS as readonly string[]).includes(k),
+    ) as Exclude<SemanticKey, 'accent' | 'text' | (typeof DYNAMIC_KEYS)[number]>[];
     for (const key of rgbKeys) {
       const v256 = resolveTheme(DARK_PALETTE, '256')[key];
       const v16 = resolveTheme(DARK_PALETTE, '16')[key];
@@ -119,11 +119,11 @@ describe('resolveTheme（构造期一次降采 + 冻结）', () => {
 });
 
 describe('语义键面（SEMANTIC_KEYS 单源表）', () => {
-  it('表恒 17 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
-    expect(SEMANTIC_KEYS.length).toBe(17); // 11 核心键批 10g + 高亮键族五键批 10h + userMessageBg 界面美化役 R2 扩键
+  it('表恒 18 键且 ResolvedTheme 全键位定值（完整性契约——编译器不核此处）', () => {
+    expect(SEMANTIC_KEYS.length).toBe(18); // 11 核心键批 10g + 高亮键族五键批 10h + userMessageBg 界面美化役 R2 扩键 + weakRule V-3 注⑨
     const t = resolveTheme(DARK_PALETTE, 'truecolor');
     for (const key of SEMANTIC_KEYS) {
-      // text / userMessageBg 合法 undefined；余键恒有值——缺值即编程错 fail-loud 于消费
+      // text / 两动态混合键（userMessageBg / weakRule）合法 undefined；余键恒有值——缺值即编程错 fail-loud 于消费
       expect(key in t).toBe(true);
     }
     expect(t.accent).toBeDefined();
@@ -155,6 +155,56 @@ describe('userMessageBg 动态混合键（界面美化役批⑦ R2 扩键注）'
     };
     // 探测值在场亦不覆写板值：16,16,16 直出（非混合 118.6 形）
     expect(resolveTheme(board, 'truecolor', { r: 100, g: 100, b: 100 }).userMessageBg).toEqual(colorRgb('#101010'));
+  });
+});
+
+describe('weakRule 动态混合键（V-3 注⑨——弱存在感线取色链）', () => {
+  /** 自定义板夹具：text 定义（GitHub dark fg #e6edf3）+ bg 键带值（探测传值门放行形） */
+  const CUSTOM_FG_BOARD = {
+    id: 'custom-fg',
+    dark: true,
+    colors: { ...DARK_PALETTE.colors, text: { r: 230, g: 237, b: 243 }, userMessageBg: { r: 16, g: 16, b: 16 } },
+  };
+  const BG = { r: 13, g: 17, b: 23 }; // GitHub dark bg #0d1117
+
+  it('fg @ 20% alpha 混探测 bg：逐通道 round(fg×0.2 + bg×0.8)', () => {
+    // r: 230×0.2+13×0.8=56.4→56；g: 237×0.2+17×0.8=61；b: 243×0.2+23×0.8=67
+    expect(resolveTheme(CUSTOM_FG_BOARD, 'truecolor', BG).weakRule).toEqual(colorRgb('#383d43'));
+  });
+
+  it('256 档照常降采（rgbTo256 饱和度感知量化单源——与 userMessageBg 同链）', () => {
+    expect(resolveTheme(CUSTOM_FG_BOARD, '256', BG).weakRule).toEqual(rgbTo256({ r: 56, g: 61, b: 67 }));
+  });
+
+  it('自定义板显式带本键 → 板值优先（混合腿不覆写）', () => {
+    const board = { ...CUSTOM_FG_BOARD, colors: { ...CUSTOM_FG_BOARD.colors, weakRule: { r: 40, g: 40, b: 40 } } };
+    expect(resolveTheme(board, 'truecolor', BG).weakRule).toEqual(colorRgb('#282828'));
+  });
+
+  it('回退四形全 undefined：16 档 / 探测缺席 / 主题 fg 缺席（内置板 text 恒缺）/ fg 色板位（AnsiColor RGB 不可知）', () => {
+    expect(resolveTheme(CUSTOM_FG_BOARD, '16', BG).weakRule).toBeUndefined(); // 低档位不产半吊混合色
+    expect(resolveTheme(CUSTOM_FG_BOARD, 'truecolor').weakRule).toBeUndefined(); // OSC 11 未应答/失败
+    expect(resolveTheme(DARK_PALETTE, 'truecolor', BG).weakRule).toBeUndefined(); // text=undefined 终端缺省前景——无混合基即无键
+    expect(resolveTheme(LIGHT_PALETTE, 'truecolor', { r: 255, g: 255, b: 255 }).weakRule).toBeUndefined();
+    const ansiFgBoard = {
+      id: 'custom-ansi-fg',
+      dark: true,
+      colors: { ...DARK_PALETTE.colors, text: ansiColor(7), userMessageBg: { r: 16, g: 16, b: 16 } },
+    };
+    expect(resolveTheme(ansiFgBoard, 'truecolor', BG).weakRule).toBeUndefined(); // 色板位 RGB 随终端用户配置——同缺席诚实回退
+    expect(DEFAULT_THEME.weakRule).toBeUndefined(); // 缺省主题 = dark@16 双缺席
+  });
+
+  it('亮底安全规则：混合产色与背景逐通道差均值 < 8 → 键缺席（判据定值回填——V-3 注⑨⑤）', () => {
+    // bg 恒 13：fg 55 → blend=round(11+10.4)=21 差 8（阈值上可见）；fg 50 → blend=round(10+10.4)=20 差 7（不足回退）
+    const boardOf = (fg: number) => ({
+      id: `custom-${fg}`,
+      dark: true,
+      colors: { ...DARK_PALETTE.colors, text: { r: fg, g: fg, b: fg }, userMessageBg: { r: 16, g: 16, b: 16 } },
+    });
+    const grayBg = { r: 13, g: 13, b: 13 };
+    expect(resolveTheme(boardOf(55), 'truecolor', grayBg).weakRule).toEqual(colorRgb('#151515'));
+    expect(resolveTheme(boardOf(50), 'truecolor', grayBg).weakRule).toBeUndefined(); // 对比不足 → 消费位回退 fg+dim 既有形
   });
 });
 

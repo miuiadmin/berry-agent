@@ -41,8 +41,9 @@ export function headStyleOf(theme: ResolvedTheme): Readonly<CellStyle> {
 }
 
 /**
- * 分段头判词（ScrollView dim 档 predicate——美学注④分段头 dim 律）：`── … ──`
- * 分段线与 `· …` 域标签（键位册域分组形）两形命中；命中行整行 dim 呈现。
+ * 分段头判词（ScrollView 行样式档 predicate——美学注④分段头弱律 + V-3 注⑨
+ * 取色链）：`── … ──` 分段线与 `· …` 域标签（键位册域分组形）两形命中；命中
+ * 行整行弱线色呈现（weakRule 在场）或 dim 回退（键缺席）。
  */
 export function isSectionHeadLine(line: string): boolean {
   return line.startsWith('──') || line.startsWith('· ');
@@ -51,4 +52,27 @@ export function isSectionHeadLine(line: string): boolean {
 /** 告警行判词（debug 坏值 ⚠ 族——dim 恒可读不加色，rewind WARN_STYLE 同律） */
 export function isWarningLine(line: string): boolean {
   return line.startsWith('⚠');
+}
+
+/** 弱线回退样式（键缺席消费位——dim 恒可读，任意底不依赖色差可见） */
+const WEAK_FALLBACK_STYLE: Readonly<CellStyle> = Object.freeze({ dim: true });
+
+/**
+ * 弱线样式（V-3 注⑨①——weakRule 在场整行弱线色 / 键缺席回退 dim 既有形）：
+ * 副屏分段头的 ScrollView lineStyle 主形。
+ */
+export function weakLineStyle(theme: ResolvedTheme): (line: string) => Readonly<CellStyle> | undefined {
+  return theme.weakRule !== undefined
+    ? (line) => (isSectionHeadLine(line) ? { fg: theme.weakRule } : undefined)
+    : (line) => (isSectionHeadLine(line) ? WEAK_FALLBACK_STYLE : undefined);
+}
+
+/**
+ * 分段头样式（V-3 注⑨①⑤——分诊形）：分段线走弱线取色链（weakLineStyle 同
+ * 律）；⚠ 警示行**恒 dim 不混合**（警示语义优先于装饰弱线——语义色不参与
+ * 混合，防弱线色淹没告警）。debug 副屏（分段线 + 告警两族并存）专用。
+ */
+export function sectionHeadLineStyle(theme: ResolvedTheme): (line: string) => Readonly<CellStyle> | undefined {
+  const weak = weakLineStyle(theme);
+  return (line) => (isWarningLine(line) ? WEAK_FALLBACK_STYLE : weak(line));
 }

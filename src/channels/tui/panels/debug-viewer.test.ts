@@ -5,7 +5,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
-import { CellGrid } from '../../engine/index.js';
+import { CellGrid, colorRgb } from '../../engine/index.js';
+import { DARK_PALETTE, resolveTheme } from '../theme/index.js';
 import { buildDebugLines, DebugViewer, maskDaemonLogLines } from './debug-viewer.js';
 import type { DebugPanelData } from './debug-viewer.js';
 
@@ -131,5 +132,39 @@ describe('DebugViewer 副屏件', () => {
     });
     viewer.handleEvent(k('d', { ctrl: true }));
     expect(calls).toEqual(['exit', 'quit']);
+  });
+});
+
+describe('DebugViewer 分段头/警示行分诊取色（V-3 注⑨①⑤——警示行不参与混合）', () => {
+  /** 读回一行（trimEnd） */
+  function readRow(grid: CellGrid, row: number, width: number): string {
+    let out = '';
+    for (let col = 0; col < width; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  /** 自定义板夹具（text 定义形——weakRule 在场：#e6edf3 混 #0d1117 = #383d43） */
+  const WEAK_THEME = resolveTheme(
+    {
+      dark: true,
+      colors: { ...DARK_PALETTE.colors, text: { r: 230, g: 237, b: 243 }, userMessageBg: { r: 16, g: 16, b: 16 } },
+    },
+    'truecolor',
+    { r: 13, g: 17, b: 23 },
+  );
+
+  it('分段线沿线色、⚠ 警示行恒 dim 不混合（语义警示不入弱线取色链——⑤码面锁）', () => {
+    expect(WEAK_THEME.weakRule).toEqual(colorRgb('#383d43')); // 混合基自证（修前红锚——键未铸即此行红）
+    const viewer = new DebugViewer({ data: DATA, sessionId: 'sess-1', onExit: () => {}, theme: WEAK_THEME });
+    const grid = new CellGrid(60, Math.max(3, viewer.measure(60)));
+    viewer.render(grid, { row: 0, col: 0, width: 60, height: grid.rows });
+    expect(readRow(grid, 1, 60)).toBe('── 运行时 ──'); // 锚位自证（行 1 = 首段头）
+    expect(grid.getCell(1, 0)?.style?.fg).toEqual(WEAK_THEME.weakRule); // 分段线 → 弱线色
+    expect(grid.getCell(1, 0)?.style?.dim).toBeUndefined();
+    // ⚠ 警示行分诊腿：恒 dim、不沿线色（警示语义优先于装饰弱线——不混合）
+    const warnRow = Array.from({ length: grid.rows }, (_, i) => i).find((i) => readRow(grid, i, 60).startsWith('⚠'));
+    expect(warnRow).toBeDefined(); // 夹具两 warn 行在场（settingsWarnings）
+    expect(grid.getCell(warnRow!, 0)?.style?.dim).toBe(true);
+    expect(grid.getCell(warnRow!, 0)?.style?.fg).toBeUndefined();
   });
 });

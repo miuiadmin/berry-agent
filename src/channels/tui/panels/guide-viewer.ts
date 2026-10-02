@@ -14,7 +14,7 @@ import { ScrollView } from '../scroll/scroll-view.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
-import { headStyleOf, isSectionHeadLine, VIEWER_HEAD_MARK } from './panel-chrome.js';
+import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** 指南段（标题 + 行集——装配位定段序与文案单源） */
@@ -76,14 +76,16 @@ export class GuideViewer extends ScrollView implements OverlayContent {
   private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: GuideViewerOptions) {
-    // 界面美化役 2026-10-01 美学批两档：折行续行 2 空格悬挂 + 分段头整行 dim
-    // （`── 段题 ──` 分段线族经 panel-chrome 判词单源命中）
-    super({ hangingIndent: true, dimLine: isSectionHeadLine });
+    // 界面美化役 2026-10-01 美学批两档 + V-3 注⑨①取色承接：折行续行 2 空格悬
+    // 挂 + 分段头弱线取色（`── 段题 ──` 分段线族经 panel-chrome 弱线样式——
+    // weakRule 在场整行弱线色、键缺席回退 dim）
+    const theme = options.theme ?? DEFAULT_THEME;
+    super({ hangingIndent: true, lineStyle: weakLineStyle(theme) });
     this.sessionId = options.sessionId;
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
-    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
+    this.headStyle = headStyleOf(theme);
     this.setLines(buildGuideLines(options.data));
     this.scrollToTop(); // 开屏锚顶（首段是上手指引——回看器贴尾语义反）
   }

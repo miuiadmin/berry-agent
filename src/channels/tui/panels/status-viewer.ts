@@ -23,7 +23,7 @@ import { shortIdOf } from '../backend/transcript.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
-import { headStyleOf, isSectionHeadLine, VIEWER_HEAD_MARK } from './panel-chrome.js';
+import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
 /** env 旋钮生效值条目（白名单三键——装配位定键序；null = 未设） */
@@ -111,14 +111,16 @@ export class StatusViewer extends ScrollView implements OverlayContent {
   private readonly headStyle: Readonly<CellStyle>;
 
   constructor(options: StatusViewerOptions) {
-    // 界面美化役 2026-10-01 美学批两档：折行续行 2 空格悬挂 + 分段头整行 dim
-    // （`── 运行时 ──` 等分段线族经 panel-chrome 判词单源命中）
-    super({ hangingIndent: true, dimLine: isSectionHeadLine });
+    // 界面美化役 2026-10-01 美学批两档 + V-3 注⑨①取色承接：折行续行 2 空格悬
+    // 挂 + 分段头弱线取色（`── 运行时 ──` 等分段线族经 panel-chrome 弱线样式
+    // ——weakRule 在场整行弱线色、键缺席回退 dim 既有形）
+    const theme = options.theme ?? DEFAULT_THEME;
+    super({ hangingIndent: true, lineStyle: weakLineStyle(theme) });
     this.data = options.data;
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
-    this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
+    this.headStyle = headStyleOf(theme);
     this.setLines(buildStatusLines(options.data));
     this.scrollToTop(); // 开屏锚顶（ScrollView 缺省贴尾为回看器语义——状态首段是运行时头）
   }

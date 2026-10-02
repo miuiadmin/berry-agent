@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
-import { ansiColor, stringWidth } from '../../engine/index.js';
+import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
 import { buildSgr, SGR_RESET } from './ansi-rows.js';
 import { builtinPalette, detectColorDepth, resolveTheme } from '../theme/index.js';
@@ -157,8 +157,8 @@ describe('TuiBackend 直播呈现', () => {
       `${buildSgr({ dim: true })}│ ${SGR_RESET}${kwSgr}const${SGR_RESET} x = ${numSgr}1${SGR_RESET};`,
     );
 
-    // 形二：GFM 表格流式帧含框线定界行（├─┬─┤ 分隔行整段 tableRule——数据
-    // 行 │ 前缀同键分立段）
+    // 形二：GFM 表格流式帧含双线定界（V-3 注⑨④——表头 ━ 重线整段线色键；
+    // 全框形退役：├ ┼ 交点符零在场）
     const table = makeBackend();
     emit(table.backend, { type: 'message_start', role: 'assistant' });
     emit(table.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('甲') });
@@ -168,8 +168,9 @@ describe('TuiBackend 直播呈现', () => {
       role: 'assistant',
       partial: assistantMsg('甲\n| 甲 | 乙 |\n| --- | --- |\n| 1 | 2 |'),
     });
-    expect(table.io.bytes).toContain(`${ruleSgr}├─────┼─────┤${SGR_RESET}`); // 定界行（列宽 = 头宽 2 + 两侧空格 2；markdown 批全框表格随迁——┼ 交点符）
-    expect(table.io.bytes).toContain(`${ruleSgr}│${SGR_RESET} 1`); // 数据行框线前缀（tableRule 同键）
+    expect(table.io.bytes).toContain(`${ruleSgr}━━━━━━━━━━${SGR_RESET}`); // 表头重线（表宽 = 列宽 3+3 + 两侧空格 2×2；V-3 注⑨④ 双线制——无纵向线）
+    expect(table.io.bytes).not.toContain('├'); // 全框退役锁
+    expect(table.io.bytes).not.toContain('┼');
 
     // 形三：CJK 双宽文本流式帧不截半字——折行走网格管线字素级：逐行可见宽
     // ≤ 屏宽帽（截半即越帽 autowrap 或残宽）+ 折行拼接还原全文（半字即断链）
@@ -4106,6 +4107,22 @@ describe('TuiBackend turn 收尾行（界面美化役批 5 件 9 + V-0 注⑥翻
     expect(io.bytes).toContain('── 用时 1m 02s · 工具 1 次 ──'); // 修前红：旧形「─ 用时 … · HH:MM ─」时刻段在场
     expect(io.bytes).not.toContain(hm(1)); // 时刻段退役（成功形记账线无时刻）
     expect(io.bytes).not.toContain('1m 30s'); // 本地观察账让位（A-3 唯一真源）
+  });
+
+  it('weakRule 在场 → 收尾行整行混合现算弱线色（V-3 注⑨②）；键缺席回退 DIM 既有形', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({ now: () => t, colorEnv: { COLORTERM: 'truecolor' } });
+    // 自定义板带 text（混合基）+ userMessageBg（探测传值门放行——动态键族同门）
+    backend.setThemeChoice('weak-test', { text: { r: 230, g: 237, b: 243 }, userMessageBg: { r: 16, g: 16, b: 16 } });
+    io.emitInput('\x1b]11;rgb:0d11/1117/1723\x07'); // 探测应答 GitHub dark bg #0d1117
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    t += 30_000;
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed', durationMs: 30_000 });
+    // weakRule = round(fg×0.2 + bg×0.8) 逐通道 = (56,61,67) = #383d43——修前红：旧形恒 DIM 直拼
+    expect(io.bytes).toContain(`${buildSgr({ fg: colorRgb('#383d43') })}── 用时 30s · 工具 1 次 ──${SGR_RESET}`);
+    expect(io.bytes).not.toContain(`${buildSgr({ dim: true })}── 用时`);
   });
 
   it('时长门废：<60s 短 run 也呈耗时段（V-0 注⑥——不设 ≤60s 门）', () => {

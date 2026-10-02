@@ -16,7 +16,7 @@ import {
   type RgbChannels,
 } from '../../engine/index.js';
 import { DARK_PALETTE, type ThemeBoard } from './palette.js';
-import { SEMANTIC_KEYS, type ExactColor, type SemanticKey } from './semantic.js';
+import { SEMANTIC_KEYS, type ExactColor, type SemanticKey, type SemanticPalette } from './semantic.js';
 
 /** 终端色域三档（探测归 detect 件——truecolor / 256 / 16） */
 export type ColorDepth = 'truecolor' | '256' | '16';
@@ -53,6 +53,13 @@ export interface ResolvedTheme {
    * 背景（探测失败/缺席、16 档降采、自定义板缺本键四形同落本位）。
    */
   readonly userMessageBg: ColorValue | undefined;
+  /**
+   * 弱存在感线（V-3 注⑨——回合记账分隔线/表格线/面板分段线三线族通用）：
+   * undefined = 键缺席（板显式带值之外——混合基缺席〔text undefined 或色板
+   * 位不可知〕/ 探测缺席 / 16 档 / 亮底对比不足四形），消费位回退 tableRule
+   * 或 fg+dim 既有形。
+   */
+  readonly weakRule: ColorValue | undefined;
 }
 
 /**
@@ -124,6 +131,45 @@ function blendUserMessageBg(bg: RgbChannels, dark: boolean): RgbChannels {
 }
 
 /**
+ * 弱存在感线混合（V-3 注⑨②——theme 侧纯函数）：主题 fg @ 20% alpha 混探测
+ * bg，逐通道 round(fg×0.2 + bg×0.8)——量级对齐 userMessageBg 白 12% 形（线
+ * 比带更弱：前景占比更低）。
+ */
+function blendWeakRule(fg: RgbChannels, bg: RgbChannels): RgbChannels {
+  return {
+    r: Math.round(fg.r * 0.2 + bg.r * 0.8),
+    g: Math.round(fg.g * 0.2 + bg.g * 0.8),
+    b: Math.round(fg.b * 0.2 + bg.b * 0.8),
+  };
+}
+
+/**
+ * 弱线可见性判据（V-3 注⑨⑤亮底安全——判据定值）：混合产色与背景逐通道差
+ * 绝对值的均值 < 8（0-255 域 ~3%）→ 视为对比不足，键缺席（消费位回退
+ * fg+dim 既有形——dim 属性位在任意底上可见，不依赖色差）。
+ */
+function weakRuleVisible(blend: RgbChannels, bg: RgbChannels): boolean {
+  const meanDelta = (Math.abs(blend.r - bg.r) + Math.abs(blend.g - bg.g) + Math.abs(blend.b - bg.b)) / 3;
+  return meanDelta >= 8;
+}
+
+/**
+ * 混合基通道展开（V-3 注⑨②）：text 源值 → 可参与混合的 RGB 通道。RgbChannels
+ * 直取 / ExactColor 取 rgb 主值 / Color256 经 color256ToRgb 展开；undefined 与
+ * AnsiColor（0-15 色板位——RGB 随终端用户配置不可知）→ 无混合基（键缺席，
+ * 不猜未知 fg）。
+ */
+function textRgbOf(value: SemanticPalette['text']): RgbChannels | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'number') {
+    // 数值色双 brand 运行时同形：0-15 色板位不可知；≥16 = 256 索引可展开
+    return value <= 15 ? undefined : color256ToRgb(value as Color256);
+  }
+  if ('ansi16' in value) return value.rgb; // 精确对位形——rgb 主值即混合基
+  return value;
+}
+
+/**
  * 色板 + 色域档 → ResolvedTheme（构造期一次降采、全键冻结）。
  * 入参形 = ThemeBoard（内置板与自定义板共形——自定义板由 custom 件合成：
  * 基板同位键 + 文件键级覆盖）。键遍历单源 = SEMANTIC_KEYS 表——增键动
@@ -131,10 +177,12 @@ function blendUserMessageBg(bg: RgbChannels, dark: boolean): RgbChannels {
  * 覆盖 ResolvedTheme 全部语义键（semantic 件头注两处清单同步义务）——编译器
  * 不核此约束，越键漏值属编程错、fail-loud 于消费。
  *
- * `terminalBg`（OSC 11 探测背景——界面美化役批⑦ R2 扩键注）只喂 userMessageBg
- * 键的动态混合腿：板值/探测值均缺席 → undefined（无背景）；16 档降采回退
- * undefined（背景带真彩近似混色不降采对位——低档位宁可无带不可错色）；
- * 自定义板显式带本键值则板值优先（正常遍历腿已解析，混合腿不覆写）。
+ * `terminalBg`（OSC 11 探测背景——界面美化役批⑦ R2 扩键注）喂两动态键的
+ * 混合腿：userMessageBg（板缺本键 + 探测在场 + 非 16 档 → 按板档混合；16 档
+ * 降采回退 undefined——背景带真彩近似混色不降采对位，低档位宁可无带不可错
+ * 色；自定义板显式带本键值则板值优先）与 weakRule（V-3 注⑨——板缺本键 +
+ * 主题 fg 可展 + 探测在场 + 非 16 档 → fg @ 20% alpha 现算，走 toDepthValue
+ * 与 userMessageBg 同链降深；对比不足键缺席）。
  */
 export function resolveTheme(board: ThemeBoard, depth: ColorDepth, terminalBg?: RgbChannels): ResolvedTheme {
   const colors = {} as Record<SemanticKey, ColorValue | undefined>;
@@ -145,6 +193,16 @@ export function resolveTheme(board: ThemeBoard, depth: ColorDepth, terminalBg?: 
   // 板缺本键 + 探测背景在场 + 非 16 档 → 按板档混合产出；否则维持 undefined
   if (board.colors.userMessageBg === undefined && terminalBg !== undefined && depth !== '16') {
     colors.userMessageBg = toDepthValue(blendUserMessageBg(terminalBg, board.dark), depth);
+  }
+  // weakRule 动态混合腿（V-3 注⑨——第二个特例单写位）：板缺本键 + 主题 fg
+  // 可展（text 直值/256 展开/ExactColor 主值——色板位与缺席同无基）+ 探测
+  // 背景 + 非 16 档 → 混合现算；对比不足（亮底安全判据）维持 undefined
+  if (board.colors.weakRule === undefined && depth !== '16' && terminalBg !== undefined) {
+    const fg = textRgbOf(board.colors.text);
+    if (fg !== undefined) {
+      const blend = blendWeakRule(fg, terminalBg);
+      if (weakRuleVisible(blend, terminalBg)) colors.weakRule = toDepthValue(blend, depth);
+    }
   }
   return Object.freeze({ depth, dark: board.dark, ...colors }) as ResolvedTheme;
 }

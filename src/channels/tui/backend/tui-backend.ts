@@ -2445,11 +2445,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 探测背景传值门（界面美化役批⑦ R2 扩键注——applyPalette 与同板零换装
-   * 判定共源）：内置探测档照传（解析位混合 dark 白 12% / light 黑 4%）；
-   * 自定义板缺 bg 键 = 无背景回退（旧主题文件缺新键非破坏性——不倒退内置
-   * 板混合值），显式带键则板值在解析位优先、传值同腿无害；探测缺席恒
-   * undefined（16 档降采由解析位收——低档位宁可无带不可错色）。
+   * 探测背景传值门（界面美化役批⑦ R2 扩键注 + V-3 注⑨② 动态键族统辖——
+   * applyPalette 与同板零换装判定共源）：内置探测档照传（解析位混合 dark 白
+   * 12% / light 黑 4% + weakRule fg@20% 现算）；自定义板缺 bg 键 = 无背景回
+   * 退（旧主题文件缺新键非破坏性——不倒退内置板混合值，weakRule 同门：缺
+   * userMessageBg 键即无探测 bg 供血、混合腿不产），显式带键则板值在解析位
+   * 优先、传值同腿无害；探测缺席恒 undefined（16 档降采由解析位收——低档位
+   * 宁可无带不可错色）。
    */
   private terminalBgForTheme(): RgbChannels | undefined {
     if (this.terminalBg === null) return undefined;
@@ -2502,9 +2504,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const baseBoard = paletteForBackground(bg); // 探测基板（明暗裁定）
     const board = this.customOverlay !== null ? overlayBoard(baseBoard, this.customOverlay) : baseBoard;
     if (board.dark === this.theme.dark) {
-      // 同明暗：带呈现值有变才换装（解析单源现算比对——不在 backend 复刻混合算式）
-      const nextUserBg = resolveTheme(board, this.colorDepth, this.terminalBgForTheme()).userMessageBg;
-      if (this.theme.userMessageBg === nextUserBg) return; // 同板同带零重画
+      // 同明暗：动态键呈现值有变才换装（解析单源现算比对——不在 backend 复
+      // 刻混合算式；V-3 注⑨ 扩 weakRule 双键比对：任一键值变即换装）
+      const next = resolveTheme(board, this.colorDepth, this.terminalBgForTheme());
+      if (this.theme.userMessageBg === next.userMessageBg && this.theme.weakRule === next.weakRule) return; // 同板双键零变零重画
     }
     this.applyPalette(board);
   }
@@ -2678,7 +2681,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 结算账——A-3 唯一真源）?? 本地观察账（runStartedAt/runEndedAt 差），
    * 整秒档 formatElapsedCompact 单源（contracts——任务行/SPA/超时三面同源）。
    * dim 经 SGR 直拼（瞬时行纯文本路——appendTransientCapped 的 ANSI 感知收口
-   * 保样式存活）。
+   * 保样式存活）：weakRule 在场整行混合现算弱线色（V-3 注⑨②）、键缺席回退
+   * DIM 既有形（取消形 ⏹ 回执非记账线——恒 DIM 不沿线色）。
    */
   private appendClosingLine(status: 'completed' | 'aborted', durationMs?: number): void {
     if (status === 'aborted') {
@@ -2694,7 +2698,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (elapsedMs !== null) segments.push(`用时 ${formatElapsedCompact(elapsedMs)}`);
     if (this.runToolCount > 0) segments.push(`工具 ${this.runToolCount} 次`);
     if (this.runRetryCount > 0) segments.push(`重试 ${this.runRetryCount}`); // 段形随规范真源：重试段无「次」字
-    this.appendTransientLine(`${DIM_SGR}── ${segments.join(' · ')} ──${SGR_RESET}`);
+    // 弱线色优先（V-3 注⑨②）：weakRule 在场整行混合现算弱线色、键缺席回退 DIM
+    const weakSgr = this.theme.weakRule !== undefined ? buildSgr({ fg: this.theme.weakRule }) : DIM_SGR;
+    this.appendTransientLine(`${weakSgr}── ${segments.join(' · ')} ──${SGR_RESET}`);
   }
 
   /**
