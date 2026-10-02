@@ -34,6 +34,8 @@ const slotBlock = (text: string): TranscriptBlock => ({
   thinkingDoc: null,
   thinkingSettled: false,
   thinkingExpanded: false,
+  thinkingStartAt: null,
+  thinkingSettledAt: null,
   theme: DEFAULT_THEME,
   toggleHint: 'ctrl+t',
 });
@@ -291,6 +293,8 @@ describe('MainScreen 超视口冻结提交', () => {
     thinkingDoc: null,
     thinkingSettled: false,
     thinkingExpanded: false,
+    thinkingStartAt: null,
+    thinkingSettledAt: null,
     theme: DEFAULT_THEME,
     toggleHint: 'ctrl+t',
   });
@@ -369,6 +373,8 @@ describe('MainScreen 超视口冻结提交', () => {
         thinkingDoc: null,
         thinkingSettled: false,
         thinkingExpanded: false,
+        thinkingStartAt: null,
+        thinkingSettledAt: null,
         theme: DEFAULT_THEME,
         toggleHint: 'ctrl+t',
       },
@@ -408,8 +414,18 @@ describe('MainScreen 超视口冻结提交', () => {
 /* ---------------- 思考前缀冻结面（批 10i R1——stableSlotLineCount 消费） ---------------- */
 
 describe('MainScreen 思考前缀冻结', () => {
-  /** 思考槽块（标签行 + doc 行——settled 判据参数化；折叠档 thinkingDoc 不消费） */
-  const thinkSlot = (text: string, doc: StreamingMarkdown, thinking: string, settled: boolean): TranscriptBlock => ({
+  /**
+   * 思考槽块（标签行 + doc 行——settled 判据参数化；折叠档 thinkingDoc 不消费）。
+   * clock = 注④本地钟双戳（settled 帧传 → 标签 `思考 · Xs` 定稿档；缺席 =
+   * 诚实无时长形——对拍语料不涉时长）。
+   */
+  const thinkSlot = (
+    text: string,
+    doc: StreamingMarkdown,
+    thinking: string,
+    settled: boolean,
+    clock?: { readonly startAt: number; readonly settledAt: number },
+  ): TranscriptBlock => ({
     kind: 'streaming',
     epoch: 1,
     text,
@@ -418,6 +434,8 @@ describe('MainScreen 思考前缀冻结', () => {
     thinkingDoc: null,
     thinkingSettled: settled,
     thinkingExpanded: false,
+    thinkingStartAt: clock?.startAt ?? null,
+    thinkingSettledAt: clock?.settledAt ?? null,
     theme: DEFAULT_THEME,
     toggleHint: 'ctrl+t',
   });
@@ -427,11 +445,11 @@ describe('MainScreen 思考前缀冻结', () => {
     screen.start();
     const doc = new StreamingMarkdown();
     doc.update(headingText(10)); // 标签 1 行 + doc 19 行 = 20 行 > 容量 8
-    screen.present([thinkSlot(headingText(10), doc, '想法', true)]);
+    screen.present([thinkSlot(headingText(10), doc, '想法', true, { startAt: 1000, settledAt: 4500 })]);
     io.bytes = '';
     doc.update(headingText(11)); // 追加第十一标题（doc 尾续推）
-    screen.present([thinkSlot(headingText(11), doc, '想法', true)]);
-    expect(io.bytes).not.toContain('✻ 思考'); // 标签行已冻——帧间不重写
+    screen.present([thinkSlot(headingText(11), doc, '想法', true, { startAt: 1000, settledAt: 4500 })]);
+    expect(io.bytes).not.toContain('思考 · 3s'); // 标签行已冻——帧间不重写（注④定稿档标签）
     expect(io.bytes).toContain(sg('十一')); // 新尾仍写出（尾段重写）
   });
 
@@ -442,8 +460,8 @@ describe('MainScreen 思考前缀冻结', () => {
     doc.update(headingText(10)); // 交错形：doc 稳定溢出但末思考块在末文本块后
     screen.present([thinkSlot(headingText(10), doc, '想法', false)]);
     io.bytes = '';
-    screen.present([thinkSlot(headingText(10), doc, '想法在继续', false)]); // 标签字数变
-    expect(io.bytes).toContain('✻ 思考'); // 标签行重写（未冻证据——冻结面前缀连续）
+    screen.present([thinkSlot(headingText(10), doc, '想法在继续', false)]); // 流式档标签恒形
+    expect(io.bytes).toContain('思考中'); // 标签行重写（未冻证据——冻结面前缀连续）
   });
 
   it('message_end 换装：thinking 块 + markdown 块跳过已冻前缀（含标签行——不重写不重复）', () => {
@@ -452,7 +470,7 @@ describe('MainScreen 思考前缀冻结', () => {
     const text = headingText(10);
     const doc = new StreamingMarkdown();
     doc.update(text);
-    screen.present([thinkSlot(text, doc, '想法', true)]); // 冻结 12 行（标签 + 一..六）
+    screen.present([thinkSlot(text, doc, '想法', true, { startAt: 1000, settledAt: 4500 })]); // 冻结 12 行（标签 + 一..六）
     io.bytes = '';
     screen.present([
       {
@@ -465,7 +483,7 @@ describe('MainScreen 思考前缀冻结', () => {
       },
       { kind: 'markdown', doc: MarkdownDoc.of(text) },
     ]);
-    expect(io.bytes).not.toContain('✻ 思考'); // 已冻标签行不重写
+    expect(io.bytes).not.toContain('思考'); // 已冻标签行不重写（换装块无时长形标签零写出）
     for (const n of ['七', '八', '九', '十']) {
       expect(io.bytes.split(sg(n)).length - 1).toBe(1); // 未冻尾恰写一次
     }
@@ -474,22 +492,23 @@ describe('MainScreen 思考前缀冻结', () => {
   it('冻结后交错形终值标签（挂账解挂批让位形）：翻回 false 冻结账让位重画 → 再定终值 → 定稿换装收敛', () => {
     const { io, screen } = makeScreen();
     screen.start();
-    // 帧一 settled 冻结（批 10i 稳态行为保持不变）：标签 2 字 + doc 前缀共 12 行入冻结账
+    // 帧一 settled 冻结（批 10i 稳态行为保持不变）：标签 + doc 前缀共 12 行入冻结账
     const doc = new StreamingMarkdown();
     doc.update(headingText(10));
-    screen.present([thinkSlot(headingText(10), doc, '想法', true)]);
+    screen.present([thinkSlot(headingText(10), doc, '想法', true, { startAt: 1000, settledAt: 3000 })]);
     // 帧二交错：后到思考使 settled 翻回 false——已冻标签行变不稳内容，冻结账
     // 为不稳头行让位重算（收缩到稳定面 0）、让位行回换装重写域整面重画
     io.bytes = '';
     screen.present([thinkSlot(headingText(10), doc, '想法继续', false)]);
-    expect(io.bytes).toContain('✻ 思考 4 字'); // 新标签重写——交错期新思考文可见反馈（修前红：尾写恒自旧冻账起、标签永不被写）
+    expect(io.bytes).toContain('思考中'); // 流式档标签重写——交错期可见反馈（修前红：尾写恒自旧冻账起、标签永不被写）
     expect(io.bytes).toContain(sg('一')); // 让位行含 doc 前缀——整面重画（修前红：doc 前缀同样被旧账跳过）
-    expect(io.bytes).not.toContain('✻ 思考 2 字'); // 旧字数标签不在让位重画帧
-    // 帧三再定终值（文本续推使 settled 翻回 true）：冻结面自让位账重建，标签携终值字数（6 字）入冻
+    expect(io.bytes).not.toContain('思考 · 2s'); // 旧定稿档标签不在让位重画帧
+    // 帧三再定终值（文本续推使 settled 翻回 true）：冻结面自让位账重建，标签携
+    // 终值时长（注④末次 settled 重戳——5s）入冻
     io.bytes = '';
     doc.update(headingText(11));
-    screen.present([thinkSlot(headingText(11), doc, '想法继续延伸', true)]);
-    expect(io.bytes).toContain('✻ 思考 6 字'); // 终值标签可见（修前红：旧冻账不清、终值标签永被跳过）
+    screen.present([thinkSlot(headingText(11), doc, '想法继续延伸', true, { startAt: 1000, settledAt: 6000 })]);
+    expect(io.bytes).toContain('思考 · 5s'); // 终值标签可见（修前红：旧冻账不清、终值标签永被跳过）
     // 帧四定稿换装：thinking + markdown 块跳过帧三已冻前缀（含终值标签行——同函数两渲染不漂移）
     io.bytes = '';
     screen.present([
@@ -503,7 +522,7 @@ describe('MainScreen 思考前缀冻结', () => {
       },
       { kind: 'markdown', doc: MarkdownDoc.of(headingText(11)) },
     ]);
-    expect(io.bytes).not.toContain('✻ 思考'); // 已冻终值标签不重写（换装收口——可见标签行字数 = 终态思考字数）
+    expect(io.bytes).not.toContain('思考'); // 已冻终值标签不重写（换装收口）
     expect(io.bytes).toContain(sg('十一')); // 未冻尾恰写出
   });
 });
@@ -674,6 +693,8 @@ describe('槽呈现尾窗化（渲染热路径 D1——冻结前缀不重渲染�
       thinkingDoc: null,
       thinkingSettled: true,
       thinkingExpanded: false,
+      thinkingStartAt: null,
+      thinkingSettledAt: null,
       theme: DEFAULT_THEME,
       toggleHint: 'ctrl+t',
     };

@@ -35,6 +35,8 @@ const slotOf = (epoch: number, text: string, doc: StreamingMarkdown | null): Tra
   thinkingDoc: null,
   thinkingSettled: false,
   thinkingExpanded: false,
+  thinkingStartAt: null,
+  thinkingSettledAt: null,
   theme: DEFAULT_THEME,
   toggleHint: 'ctrl+t',
 });
@@ -621,11 +623,76 @@ describe('LiveTranscript 思考流式前缀与定稿换装（批 10i R1）', () 
     const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
     expect(slot.thinking).toBe('先想一步\n\n再想一步'); // 块间 '\n\n' 串接
     expect(slot.thinkingSettled).toBe(true); // 末思考块先于末文本块
-    // 槽渲染 = 思考标签行前缀 + doc 正文行（拼接序与定稿块序一致）
+    // 槽渲染 = 思考标签行前缀 + doc 正文行（拼接序与定稿块序一致）；settled
+    // 即转定稿档（注④——同步发射本地钟差 0 → 整秒档 0s）
     const lines = renderBlockStyledLines(slot, 60);
-    expect(lines[0]!.plain).toContain('✻ 思考');
+    expect(lines[0]!.plain).toContain('思考 · 0s');
     expect(lines[0]!.plain).toContain('（ctrl+t 展开）'); // 缺省折叠档 + 键名提示
     expect(lines.some((l) => l.plain.includes('答案正文'))).toBe(true);
+  });
+
+  it('思考钟本地账（V-2 笔2 注④）：注入钟戳位 → 定稿块携时长；投影路无钟诚实缺席', () => {
+    // 注入可控钟：首增量 t=1000、settled 翻转 t=5000 → 定稿时长恒 4s
+    let clock = 1000;
+    const t = new LiveTranscript({ now: () => clock });
+    apply(t, { type: 'message_start', role: 'assistant' });
+    apply(t, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: {
+        role: 'assistant',
+        content: [{ type: 'thinking', thinking: '先想' }],
+        usage,
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    });
+    clock = 5000;
+    apply(t, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '先想' },
+          { type: 'text', text: '答' },
+        ],
+        usage,
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    });
+    apply(t, {
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '先想' },
+          { type: 'text', text: '答' },
+        ],
+        usage,
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    });
+    const think = t.snapshot.find((b) => b.kind === 'thinking') as Extract<TranscriptBlock, { kind: 'thinking' }>;
+    expect(think.durationMs).toBe(4000); // startAt 1000（首增量定格）→ settledAt 5000
+    // 投影重建（repaint 路）：无消费端钟账 → 定稿块 durationMs 缺席 → 标签无时长形
+    t.loadProjection([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '先想' },
+          { type: 'text', text: '答' },
+        ],
+        usage,
+        stopReason: 'stop',
+        timestamp: 1,
+      },
+    ]);
+    const replayed = t.snapshot.find((b) => b.kind === 'thinking') as Extract<TranscriptBlock, { kind: 'thinking' }>;
+    expect(replayed.durationMs).toBeUndefined();
+    expect(renderBlockStyledLines(replayed, 60)[0]!.plain).toBe('思考（ctrl+t 展开）');
   });
 
   it('thinkingSettled 判据：纯思考期（无文本块）恒未定；末思考在末文本后翻回 false（保守形）', () => {
@@ -903,6 +970,8 @@ describe('renderSlotTailLines 尾窗渲染（渲染热路径 D1——冻结前�
     thinkingDoc: null,
     thinkingSettled: true,
     thinkingExpanded: false,
+    thinkingStartAt: null, // 无钟直构（对拍锁不涉时长——settled + 双戳 null = 诚实缺席形）
+    thinkingSettledAt: null,
     theme: DEFAULT_THEME,
     toggleHint: 'ctrl+t',
     ...over,
@@ -972,10 +1041,18 @@ describe('stableSlotLineCount 展开档算术（渲染热路径 D2——thinking
       thinkingDoc,
       thinkingSettled: true,
       thinkingExpanded: true,
+      thinkingStartAt: null,
+      thinkingSettledAt: null,
       theme: DEFAULT_THEME,
       toggleHint: 'ctrl+t',
     };
-    const view = { text: slot.thinking, expanded: true, theme: slot.theme, toggleHint: slot.toggleHint };
+    const view = {
+      text: slot.thinking,
+      expanded: true,
+      phase: 'settled' as const,
+      theme: slot.theme,
+      toggleHint: slot.toggleHint,
+    };
     for (const w of [60, 20, 7, 3]) {
       expect(stableSlotLineCount(slot, w)).toBe(
         renderThinkingStyledLines(view, w, slot.thinkingDoc).length + doc.stableLineCount(w),

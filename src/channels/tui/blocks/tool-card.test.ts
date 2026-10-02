@@ -120,6 +120,19 @@ describe('卡体两档与存账帽', () => {
     expect(body[0]).toContain('前文已省 30 行');
     expect(body[body.length - 1]).toBe('L229'); // 尾行保住
   });
+
+  it('护栏注记呈现层转写（V-2 笔2 注④双轨分层）：剥字节注记行 + 前置 ⋯ +N 行', () => {
+    // 保尾产物 3 行 + 尾注记行（含外溢路径形）→ 首行 `⋯ +3 行`、注记零残留
+    const guarded =
+      'tail-a\ntail-b\ntail-c\n\n[输出 63087 字节超 65536 字节上限，已保尾截断；全文外溢至 /tmp/tool-output-x-abc-1.txt（可用 read/grep 从外溢文件取段）]';
+    const body = cardBodyOf(guarded);
+    expect(body[0]).toBe('⋯ +3 行');
+    expect(body.join('\n')).not.toContain('[输出');
+    expect(body.join('\n')).not.toContain('外溢');
+    expect(body).toContain('tail-c'); // 保尾产物完好
+    // 无注记文本原样（regex 不中零转写——非护栏产物不受影响）
+    expect(cardBodyOf('普通\n结果')).toEqual(['普通', '结果']);
+  });
 });
 
 describe('edit diff 档', () => {

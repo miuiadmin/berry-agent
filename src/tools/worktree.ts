@@ -32,6 +32,7 @@ import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { Type } from 'typebox';
 import { BaseError } from '../contracts/index.js';
+import { formatElapsedCompact } from '../contracts/index.js';
 import type { ToolDefinition } from '../contracts/index.js';
 import { canonicalize, serializeTreeWrites } from './fs.js';
 
@@ -161,7 +162,8 @@ export function createWorktreeService(opts: WorktreeServiceOptions): WorktreeSer
       const e = err as { stderr?: string; message?: string; killed?: boolean };
       const detail = (e.stderr ?? e.message ?? String(err)).trim();
       if (e.killed === true) {
-        throw new Error(`[git ${args[0]}] 超时（${timeoutMs}ms）：${detail.slice(0, 500)}`);
+        // 超时人读形（V-2 笔2 注④——毫秒计量退役，整秒档单源同律）
+        throw new Error(`[git ${args[0]}] 超时（>${formatElapsedCompact(timeoutMs)}）：${detail.slice(0, 500)}`);
       }
       throw new Error(`[git ${args.join(' ')}] ${detail.slice(0, 500)}`);
     }

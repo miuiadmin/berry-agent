@@ -79,9 +79,30 @@ export interface ToolCardView {
 /** 终态符号（卡头首段——状态分档可辨形） */
 const STATUS_SYMBOL: Readonly<Record<ToolCardStatus, string>> = { success: '✓', error: '✖', aborted: '⏹' };
 
-/** 卡体文本 → 存账行（尾留帽 + 截断标记首行——内存上限语义） */
+/**
+ * 输出护栏注记行识别（V-2 笔2 注④双轨分层）：pipeline 固定链尾步对超帽
+ * 文本产物追加 `[输出 N 字节超 M 字节上限，已保尾截断…]` 注记行（含外溢
+ * 路径形——04 §7 模型面语义不动：模型循路径自取全文的指令面）。用户面
+ * 呈现层对该行做转写（字节计量 → 行计量人读形），勿直改 pipeline 注记。
+ */
+const GUARD_NOTE_PATTERN = /^\[输出 \d+ 字节超 \d+ 字节上限，已保尾截断[^\n]*$/;
+
+/**
+ * 护栏注记呈现层转写（注④——纯函数）：剥字节注记行、前置 `⋯ +N 行`
+ * （N = 保尾截断产物行数现算——「此下共 N 行」的省略提示形）。无注记
+ * 原样返回（regex 不中零改写——非护栏产物不受影响）。
+ */
+export function humanizeGuardedOutput(text: string): string {
+  if (!text.includes('[输出 ')) return text; // 速径：无注记候选零成本
+  const lines = text.split('\n').filter((line) => !GUARD_NOTE_PATTERN.test(line));
+  if (lines.length === text.split('\n').length) return text; // 无命中原样
+  const kept = lines.filter((line) => line !== ''); // 注记前置空行对（\n\n 产物）一并收口
+  return kept.length === 0 ? '' : `⋯ +${kept.length} 行\n${kept.join('\n')}`;
+}
+
+/** 卡体文本 → 存账行（尾留帽 + 截断标记首行——内存上限语义；护栏注记先转写） */
 export function cardBodyOf(text: string): readonly string[] {
-  const lines = text.split('\n');
+  const lines = humanizeGuardedOutput(text).split('\n');
   if (lines.length <= CARD_BODY_MAX_LINES) return lines;
   const dropped = lines.length - CARD_BODY_MAX_LINES;
   return [`⋯（前文已省 ${dropped} 行）`, ...lines.slice(-CARD_BODY_MAX_LINES)!];

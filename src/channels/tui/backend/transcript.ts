@@ -48,9 +48,10 @@ import { StreamingMarkdown } from '../markdown/streaming.js';
 import { gridRowToStyled, capStyledLine, styledLineToAnsi, type StyleRun, type StyledLine } from './ansi-rows.js';
 import { MarkdownDoc } from '../markdown/markdown.js';
 import type { StyledGrapheme } from '../markdown/layout.js';
-import { renderThinkingStyledLines } from '../blocks/thinking.js';
+import { renderThinkingStyledLines, type ThinkingView } from '../blocks/thinking.js';
 import {
   cardBodyOf,
+  humanizeGuardedOutput,
   renderToolCardStyledLines,
   sanitizeLineText,
   type ToolCardRenderInput,
@@ -101,6 +102,11 @@ export type TranscriptBlock =
       readonly expanded: boolean;
       readonly theme: ResolvedTheme;
       readonly toggleHint: string;
+      /**
+       * 思考段时长 ms（V-2 笔2 注④——本地钟：thinking 首增量到达 → settled）。
+       * 缺席 = repaint 投影形（历史消息无消费端钟账）——标签诚实无时长形。
+       */
+      readonly durationMs?: number;
       /** 体 doc（换装时一构——repaint 免重解析） */
       readonly doc: MarkdownDoc;
     }
@@ -153,6 +159,10 @@ export type TranscriptBlock =
       readonly thinkingSettled: boolean;
       /** 思考行渲染档（会话级开关快照——toggle 改写 + repaint 重渲） */
       readonly thinkingExpanded: boolean;
+      /** 思考首增量到达时戳 ms（注④本地钟起点——'' → 非空首翻一次定格） */
+      readonly thinkingStartAt: number | null;
+      /** 思考最近 settled 时戳 ms（false→true 每次翻转重戳——交错形取末次收敛） */
+      readonly thinkingSettledAt: number | null;
       readonly theme: ResolvedTheme;
       readonly toggleHint: string;
     };
@@ -213,9 +223,17 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
       return [{ plain: '', runs: [] }, ...styled, { plain: '', runs: [] }];
     }
     case 'thinking':
-      // 思考块两档渲染（blocks/thinking 纯函数——槽前缀行同函数两用）
+      // 思考块两档渲染（blocks/thinking 纯函数——槽前缀行同函数两用）；定稿块
+      // 恒 settled 档（durationMs 缺席 = 投影形——标签诚实无时长）
       return renderThinkingStyledLines(
-        { text: block.text, expanded: block.expanded, theme: block.theme, toggleHint: block.toggleHint },
+        {
+          text: block.text,
+          expanded: block.expanded,
+          phase: 'settled',
+          durationMs: block.durationMs,
+          theme: block.theme,
+          toggleHint: block.toggleHint,
+        },
         columns,
         block.doc,
       );
@@ -248,7 +266,8 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
       // 组 1 批 F5）：网关 403 类错误体是整段裸 JSON（单「行」折开后数十行噪声
       // 全量上屏）——首行摘要语义：保前 ERROR_PREVIEW_LINES-1 行 + 截断标记行
       // 收口（剩余行数明示），error 前景同游程保持错误语义可辨
-      const lines = wrapText(errorReadableText(block.text), columns - 2);
+      // 护栏注记同转写（注④双轨分层——错误块若含超帽产物同律人读化）
+      const lines = wrapText(humanizeGuardedOutput(errorReadableText(block.text)), columns - 2);
       const style: Readonly<{ fg: ColorValue }> = Object.freeze({ fg: block.theme.error });
       const renderErrorLine = (line: string, i: number): StyledLine => {
         const plain = (i === 0 ? '✖ ' : '  ') + line;
@@ -264,26 +283,34 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
       // 槽渲染 = 思考前缀行 + doc 行（拼接序与定稿换装块序一致——冻结跳行前提）；
       // markdown 直推档走网格管线；降档（doc = null）纯文本直推；空文本零行
       const lines: StyledLine[] = [];
-      if (block.thinking !== '') {
-        lines.push(
-          ...renderThinkingStyledLines(
-            {
-              text: block.thinking,
-              expanded: block.thinkingExpanded,
-              theme: block.theme,
-              toggleHint: block.toggleHint,
-            },
-            columns,
-            block.thinkingDoc,
-          ),
-        );
-      }
+      if (block.thinking !== '')
+        lines.push(...renderThinkingStyledLines(slotThinkingView(block), columns, block.thinkingDoc));
       if (block.doc !== null) lines.push(...renderDocLines(block.doc, columns));
       else if (block.text !== '')
         lines.push(...wrapText(block.text, columns).map((text) => ({ plain: text, runs: [] })));
       return lines;
     }
   }
+}
+
+/**
+ * 槽思考视图折算（注④标签档——全量渲染与尾窗渲染两腿单源）：settled 即转
+ * 定稿档（时长 = settledAt − startAt 双戳齐备才算，缺任一戳诚实缺席）；
+ * 未 settled 流式档无计量。
+ */
+function slotThinkingView(slot: Extract<TranscriptBlock, { kind: 'streaming' }>): ThinkingView {
+  const durationMs =
+    slot.thinkingSettled && slot.thinkingStartAt !== null && slot.thinkingSettledAt !== null
+      ? slot.thinkingSettledAt - slot.thinkingStartAt
+      : undefined;
+  return {
+    text: slot.thinking,
+    expanded: slot.thinkingExpanded,
+    phase: slot.thinkingSettled ? 'settled' : 'streaming',
+    durationMs,
+    theme: slot.theme,
+    toggleHint: slot.toggleHint,
+  };
 }
 
 /**
@@ -450,11 +477,9 @@ export function renderSlotTailLines(
   const lines: string[] = [];
   // thinking 尾窗段（startRow 落思考区内——超出则思考行全在冻结前缀，零渲染）
   if (slot.thinking !== '' && startRow < thinkingRows) {
-    const thinkingLines = renderThinkingStyledLines(
-      { text: slot.thinking, expanded: slot.thinkingExpanded, theme: slot.theme, toggleHint: slot.toggleHint },
-      columns,
-      slot.thinkingDoc,
-    ).map((line) => styledLineToAnsi(capStyledLine(line, columns)));
+    const thinkingLines = renderThinkingStyledLines(slotThinkingView(slot), columns, slot.thinkingDoc).map((line) =>
+      styledLineToAnsi(capStyledLine(line, columns)),
+    );
     for (let i = startRow; i < thinkingLines.length; i++) lines.push(thinkingLines[i]!);
   }
   // doc 尾窗段（行集直转——自 docStart 起逐行；出口帽 + 序列化与全量管线同律）
@@ -602,6 +627,12 @@ export interface LiveTranscriptOptions {
    * TuiBackend 装配位传 Keymap 实例的 keyText——用户覆盖后标签提示随动）。
    */
   readonly keyText?: (actionId: string) => string;
+  /**
+   * 注入钟（V-2 笔2 注④——思考段时长 = 消费端本地钟：thinking 首增量到达 →
+   * settled；非事件载荷真源、与 run 级 durationMs 口径分立——冷读闸注）。
+   * 测试注入可控钟；缺省墙钟。
+   */
+  readonly now?: () => number;
 }
 
 /** 缺省键名回退表（册单源派生——直构档〔测试/回看器〕无 Keymap 时的取键面） */
@@ -644,6 +675,8 @@ export class LiveTranscript {
   private theme: ResolvedTheme;
   /** 动作键名取用面（标签提示单源——装配位注入 Keymap.keyText） */
   private readonly keyText: (actionId: string) => string;
+  /** 注入钟（注④思考时长本地钟——测试可控注入） */
+  private readonly now: () => number;
   /** 槽代次计数器（每条 assistant message_start 递增） */
   private epochCounter = 0;
   private blocks: TranscriptBlock[] = [];
@@ -662,6 +695,7 @@ export class LiveTranscript {
     this.blockCap = options.blockCap ?? TRANSCRIPT_BLOCK_CAP;
     this.theme = options.theme ?? DEFAULT_THEME;
     this.keyText = options.keyText ?? ((actionId) => DEFAULT_KEY_TEXT.get(actionId) ?? '');
+    this.now = options.now ?? (() => Date.now());
   }
 
   /** 主题换装（probe 应答/显式档切换——后续新建 doc 生效，已建 doc 不回改） */
@@ -792,6 +826,8 @@ export class LiveTranscript {
           thinkingDoc: new StreamingMarkdown(this.theme),
           thinkingSettled: false,
           thinkingExpanded: this.thinkingExpanded,
+          thinkingStartAt: null,
+          thinkingSettledAt: null,
           theme: this.theme,
           toggleHint: this.keyText('thinking.toggle'),
         });
@@ -812,11 +848,18 @@ export class LiveTranscript {
         const thinking = thinkingOf(event.partial);
         slot.doc?.update(text);
         if (slot.thinkingExpanded) slot.thinkingDoc?.update(thinking);
+        // 思考钟戳位（注④本地钟）：首增量 '' → 非空一次定格；settled 每次
+        // false→true 翻转重戳（交错形取末次收敛——跨度诚实含思考间隔期）
+        const startAt = slot.thinkingStartAt === null && thinking !== '' ? this.now() : slot.thinkingStartAt;
+        const settledNow = thinkingSettledOf(event.partial);
+        const settledAt = settledNow && !slot.thinkingSettled ? this.now() : slot.thinkingSettledAt;
         this.blocks[this.blocks.length - 1] = {
           ...slot,
           text,
           thinking,
-          thinkingSettled: thinkingSettledOf(event.partial),
+          thinkingSettled: settledNow,
+          thinkingStartAt: startAt,
+          thinkingSettledAt: settledAt,
         };
         break;
       }
@@ -824,11 +867,22 @@ export class LiveTranscript {
         // 判别位在载荷 message.role（事件自身不带 role 字段——轻载荷事件形）
         const { message } = event;
         if (message.role === 'assistant') {
+          // 摘槽折算思考钟（注④本地钟——直播路槽戳位随摘除传给定稿块；
+          // 投影路 appendAssistantFinal 不传 → durationMs 缺席诚实形）
+          let thinkingClock: { readonly startAt: number; readonly settledAt: number } | null = null;
           if (this.slotOpen) {
-            this.blocks.pop();
+            const slot = this.blocks.pop();
             this.slotOpen = false;
+            if (
+              slot !== undefined &&
+              slot.kind === 'streaming' &&
+              slot.thinkingStartAt !== null &&
+              slot.thinkingSettledAt !== null
+            ) {
+              thinkingClock = { startAt: slot.thinkingStartAt, settledAt: slot.thinkingSettledAt };
+            }
           }
-          this.appendAssistantFinal(this.blocks, message);
+          this.appendAssistantFinal(this.blocks, message, thinkingClock);
         } else if (message.role === 'user') {
           // 机器注入 source 族零呈现（V-0 注①——两路单源判据）
           if (rendersAsUserBlock(message)) {
@@ -851,7 +905,11 @@ export class LiveTranscript {
    * 在飞账入账（**不落 ⚙ 简行**——直播路在飞期零正文行，结果到达配对落卡；
    * repaint 投影走查毕孤儿兜底 ⚙）。
    */
-  private appendAssistantFinal(target: TranscriptBlock[], message: AgentMessage): void {
+  private appendAssistantFinal(
+    target: TranscriptBlock[],
+    message: AgentMessage,
+    thinkingClock?: { readonly startAt: number; readonly settledAt: number } | null,
+  ): void {
     // 守卫 + 判别收窄到 AssistantMessage（CustomMessage 判别位是 string——见 textOf 注）
     if (!isStandardMessage(message) || message.role !== 'assistant') return;
     const text = textOf(message);
@@ -863,6 +921,8 @@ export class LiveTranscript {
         expanded: this.thinkingExpanded,
         theme: this.theme,
         toggleHint: this.keyText('thinking.toggle'),
+        // 直播路槽钟随摘除传入（注④本地钟定稿位）；投影路缺席 = 无时长形
+        durationMs: thinkingClock ? thinkingClock.settledAt - thinkingClock.startAt : undefined,
         doc: MarkdownDoc.of(thinking, this.theme),
       });
     }

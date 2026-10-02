@@ -179,6 +179,16 @@ describe('第 2 段：执行（around-dispatch + 预算竞速）', () => {
     await expectCode(executor(slow, 'call-1', { n: 1 }), 'TOOL_TIMEOUT');
   });
 
+  it('超时消息紧凑人读形（V-2 笔2 注④——毫秒计量退役，formatElapsedCompact 单源）', async () => {
+    const { executor } = makeRig();
+    const slow = makeTool({
+      timeoutMs: 1500,
+      execute: () => new Promise((resolve) => setTimeout(() => resolve({ content: [] }), 4000)),
+    });
+    await expect(executor(slow, 'call-hr', { n: 1 })).rejects.toThrow('执行超时（>1s）');
+    await expect(executor(slow, 'call-hr', { n: 1 })).rejects.not.toThrow('ms');
+  });
+
   it('缺省预算走管道 defaultTimeoutMs（未设 timeoutMs 的工具同受管）', async () => {
     const { executor } = makeRig({ defaultTimeoutMs: 30 });
     const slow = makeTool({

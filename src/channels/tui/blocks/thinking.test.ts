@@ -1,9 +1,11 @@
 /**
- * 思考块渲染测试（批 10i R1——纯函数直锁）。
+ * 思考块渲染测试（批 10i R1——纯函数直锁；V-2 笔2 注④翻形）。
  *
- * 覆盖：折叠单行标签形（斜体 + thinkingText 色）、展开档 = 标签行 + 改妆体行
- * （全游程 fg=thinkingText + italic、bold 保留）、空文零行、槽/定稿同函数
- * 两渲染同行集（换装跳行不漂移的定位前提）。
+ * 覆盖：折叠单行标签形（斜体 + thinkingText 色）、三档标签文案（流式
+ * `思考中…` / 定稿 `思考 · 4s` / repaint 无钟账 `思考`——计量人读律：字符数
+ * 计量退役）、展开档 = 标签行 + 改妆体行（全游程 fg=thinkingText + italic、
+ * bold 保留）、空文零行、槽/定稿同函数两渲染同行集（换装跳行不漂移的定位
+ * 前提）。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME } from '../theme/index.js';
@@ -11,25 +13,27 @@ import { MarkdownDoc } from '../markdown/markdown.js';
 import { StreamingMarkdown } from '../markdown/streaming.js';
 import { renderThinkingStyledLines, thinkingLabelText, type ThinkingView } from './thinking.js';
 
-const view = (text: string, expanded: boolean): ThinkingView => ({
+const view = (text: string, expanded: boolean, phase: ThinkingView['phase'], durationMs?: number): ThinkingView => ({
   text,
   expanded,
+  phase,
+  durationMs,
   theme: DEFAULT_THEME,
   toggleHint: 'ctrl+t',
 });
 
 describe('思考块渲染两档', () => {
   it('折叠档 = 单行标签（整行斜体 + thinkingText 色、含键名提示）', () => {
-    const lines = renderThinkingStyledLines(view('思考中……', false), 60);
+    const lines = renderThinkingStyledLines(view('思考中……', false, 'settled', 4000), 60);
     expect(lines).toHaveLength(1);
-    expect(lines[0]!.plain).toBe(`✻ 思考 ${'思考中……'.length} 字（ctrl+t 展开）`);
+    expect(lines[0]!.plain).toBe(`思考 · 4s（ctrl+t 展开）`);
     expect(lines[0]!.runs).toEqual([
       { start: 0, end: lines[0]!.plain.length, style: { fg: DEFAULT_THEME.thinkingText, italic: true } },
     ]);
   });
 
   it('展开档 = 标签（收起提示）+ 体行改妆（全游程 italic+thinkingText、bold 保留）', () => {
-    const lines = renderThinkingStyledLines(view('# 标\n\n正文', true), 60);
+    const lines = renderThinkingStyledLines(view('# 标\n\n正文', true, 'settled', 4000), 60);
     expect(lines.length).toBeGreaterThan(2); // 标签 + 标题 + 空行 + 正文
     expect(lines[0]!.plain).toContain('收起');
     const body = lines.slice(1);
@@ -45,19 +49,18 @@ describe('思考块渲染两档', () => {
   });
 
   it('空文零行（守卫位）', () => {
-    expect(renderThinkingStyledLines(view('', false), 60)).toEqual([]);
+    expect(renderThinkingStyledLines(view('', false, 'settled', 4000), 60)).toEqual([]);
   });
 
-  it('标签文案单源（thinkingLabelText——展开/收起两动词）', () => {
-    expect(thinkingLabelText(view('abc', false), '展开')).toContain('展开');
-    expect(thinkingLabelText(view('abc', true), '收起')).toContain('收起');
-  });
-
-  it('计数词随内容判（界面美化役批：CJK→字、纯拉丁→字符——「字」失真止漏）', () => {
-    expect(thinkingLabelText(view('思考中……', false), '展开')).toContain('字（');
-    expect(thinkingLabelText(view('let me think about this', false), '展开')).toContain('字符（');
-    // 混合文本含任一 CJK 即「字」——多数位诚实
-    expect(thinkingLabelText(view('thinking about 思路', false), '展开')).toContain('字（');
+  it('标签三档单源（thinkingLabelText——V-2 笔2 注④计量人读律：字符计数退役）', () => {
+    // 流式档：进行中省略形（无计量——字数不再逐帧变）
+    expect(thinkingLabelText(view('正在想', false, 'streaming'), '展开')).toBe('思考中…（ctrl+t 展开）');
+    // 定稿档：本地钟时长（整秒档单源 formatElapsedCompact——与 run 级耗时同源）
+    expect(thinkingLabelText(view('想完了', false, 'settled', 4000), '展开')).toBe('思考 · 4s（ctrl+t 展开）');
+    expect(thinkingLabelText(view('想完了', true, 'settled', 72_000), '收起')).toBe('思考 · 1m 12s（ctrl+t 收起）');
+    // repaint/历史形：无钟账诚实缺席（`思考（键名 动作）`——不虚构时长）
+    expect(thinkingLabelText(view('想完了', false, 'settled'), '展开')).toBe('思考（ctrl+t 展开）');
+    expect(thinkingLabelText(view('想完了', true, 'settled'), '收起')).toContain('收起');
   });
 });
 
@@ -66,15 +69,19 @@ describe('槽/定稿同函数两渲染', () => {
     const text = '# 想法\n\n先这样，再那样。';
     const streamingDoc = new StreamingMarkdown();
     streamingDoc.update(text);
-    const slotLines = renderThinkingStyledLines(view(text, true), 40, streamingDoc);
-    const finalLines = renderThinkingStyledLines(view(text, true), 40, MarkdownDoc.of(text, DEFAULT_THEME));
+    const slotLines = renderThinkingStyledLines(view(text, true, 'settled', 4000), 40, streamingDoc);
+    const finalLines = renderThinkingStyledLines(
+      view(text, true, 'settled', 4000),
+      40,
+      MarkdownDoc.of(text, DEFAULT_THEME),
+    );
     expect(slotLines).toEqual(finalLines);
   });
 
   it('档位不同行集不同（折叠 1 行、展开多行——toggle 改写后 repaint 可见差）', () => {
     const text = '一段较长的思考内容，展开必多行。';
-    const collapsed = renderThinkingStyledLines(view(text, false), 40);
-    const expanded = renderThinkingStyledLines(view(text, true), 40);
+    const collapsed = renderThinkingStyledLines(view(text, false, 'settled', 4000), 40);
+    const expanded = renderThinkingStyledLines(view(text, true, 'settled', 4000), 40);
     expect(collapsed).toHaveLength(1);
     expect(expanded.length).toBeGreaterThan(1);
   });

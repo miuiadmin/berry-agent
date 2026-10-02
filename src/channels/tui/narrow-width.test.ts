@@ -236,6 +236,7 @@ describe('思考块窄宽收敛（1-8 列）', () => {
   const view = (expanded: boolean): ThinkingView => ({
     text: '# 标\n\n正文内容',
     expanded,
+    phase: 'settled',
     theme: DEFAULT_THEME,
     toggleHint: 'ctrl+t',
   });

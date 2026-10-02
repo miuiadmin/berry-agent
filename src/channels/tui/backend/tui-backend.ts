@@ -315,7 +315,18 @@ type PendingOp =
       /** 入队时的裁块累计（绝对位对账——enqueue 与 flush 间 trim 可再进，帧内自洽） */
       readonly offset: number;
     }
-  | { readonly kind: 'transient'; readonly lines: readonly string[] };
+  | {
+      readonly kind: 'transient';
+      readonly lines: readonly string[];
+      /**
+       * 跨权威重建立位（/resume 竞窗根因修——瞬时行两档语义）：true = 保全档
+       * （notify 回执 / ask 撤销行 / 取消回执——用户动作回执族，07「曾在屏」
+       * 律 + 挂起转账律对称面，repaint/resize 后补吐重放）；false = 当场档
+       * （turn 收尾行 / Job 收口行——run 级结算线，切焦重画零复现即消散，
+       * 「repaint 不重建」既有测试锁语义）。
+       */
+      readonly persist: boolean;
+    };
 
 /** input-ask 在飞体（提示行呈现 + 提交应答路） */
 interface InputAsk {
@@ -445,6 +456,18 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private suspendedMain = false;
   /** 停屏期到达的瞬时行缓冲（notify / 件 9 摘要行 / 撤销说明行——复起补显射界，2026-09-07 勘正笔） */
   private suspendedTransients: string[] = [];
+  /**
+   * 自上次权威重建起已落屏的瞬时行账（/resume e2e 竞窗根因修——瞬时行账
+   * 不丢不变式的「已落帧」半边）：瞬时行「不进行集不记 writtenBlocks，
+   * repaint 不重建」（main-screen 件自述），屏面即其唯一载体——repaint/
+   * resize/复起重画三路 CLEAR_SCREEN 按投影行集重建即抹屏，已落屏行无账
+   * 可补（不入 scrollback 不复显）。修前 collectPendingTransients 只收
+   * pendingOps（未落帧）半边，与 suspendMain 挂起转账律不对称——本账补
+   * 「flush 已达成 / appendTransientCapped 已直写」的落屏行，权威清点时
+   * 与 pending 合并（到达序：先落屏在前）重放。重放产物经同路再入账
+   * （下次重建再补吐），循环自洽不双记。
+   */
+  private landedTransients: string[] = [];
 
   /* ---- 副屏装配态（批 10f-4 特性腿——件 8 /history；mm 批 /memory 并席） ---- */
   /** 副屏宿主（构造晚于 io 赋值——类字段初始化序：宿主构造须见 io 实值） */
@@ -877,7 +900,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // transient op（按入队序并入，到达序保持）；present op 不转——复起全帧
     // 重画按行集重建覆盖，丢弃无害（收集件 collectPendingTransients——
     // onRepaint/handleResize 权威清点同律共用）
-    this.suspendedTransients.push(...this.collectPendingTransients());
+    this.suspendedTransients.push(...this.collectAllTransients());
     // 转账即清队（第六役 S1——双转账封口）：瞬时行唯一载体 pendingOps 若不
     // 同刻清空，挂起位 onRepaint 的权威清点会把同一 transient op 再收再转一
     // 遍（collectPendingTransients 只读不清）——复起补吐同一行写出两遍。队列
@@ -1505,7 +1528,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // （样式面归 summaryToAnsi），wrapText 直用安全
     const width = Math.max(1, this.io.size().columns - 2);
     const lines = wrapText(message, width).map((line, i) => (i === 0 ? `${symbol} ${line}` : `  ${line}`));
-    this.appendTransientLines(lines);
+    this.appendTransientLines(lines, { persist: true });
   }
 
   /**
@@ -1550,12 +1573,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 合并队列 + 渲染请求（同步直出模式立即落地；注入调度随帧合并——transient
    * 到达序保持）。挂起期入缓冲账不丢（复起补显射界含瞬时行——批 10f-4）。
    */
-  private appendTransientLine(line: string): void {
-    this.appendTransientLines([line]);
+  private appendTransientLine(line: string, opts?: { persist?: boolean }): void {
+    this.appendTransientLines([line], opts);
   }
 
-  /** 多行瞬时行入流（notify 折行产物——逐元素一行契约由 wrapText 保证） */
-  private appendTransientLines(lines: readonly string[]): void {
+  /**
+   * 多行瞬时行入流（notify 折行产物——逐元素一行契约由 wrapText 保证）。
+   * opts.persist = 保全档位（两档语义见 PendingOp transient 形注释——
+   * 缺省当场档）。
+   */
+  private appendTransientLines(lines: readonly string[], opts?: { persist?: boolean }): void {
     if (this.suspendedMain) {
       this.suspendedTransients.push(...lines); // 停屏期瞬时行缓冲（不入 op 队列——复起不走合并直补吐）
       return;
@@ -1571,7 +1598,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       if (lines.length > 0) this.slotTransients.push(...lines);
       return;
     }
-    this.pendingOps.push({ kind: 'transient', lines: [...lines] });
+    this.pendingOps.push({ kind: 'transient', lines: [...lines], persist: opts?.persist === true });
     this.requestRender();
   }
 
@@ -1586,9 +1613,22 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private collectPendingTransients(): string[] {
     const lines: string[] = [];
     for (const op of this.pendingOps) {
-      if (op.kind === 'transient') lines.push(...op.lines);
+      if (op.kind === 'transient' && op.persist) lines.push(...op.lines);
     }
     return lines;
+  }
+
+  /**
+   * 瞬时行权威清点全收（竞窗根因修——onRepaint/handleResize/suspendMain 三路
+   * 共用）：已落屏账（landedTransients）与未落帧队列（pendingOps 半边——
+   * collectPendingTransients）合并收取，两账同刻清空（单次收取单次重放，防
+   * 再收双转——第六役 S1「转账即清队」律同源）。到达序 = 先落屏在前、后入队
+   * 在后；重放产物经 appendTransientCapped/flush 再入账，循环自洽。
+   */
+  private collectAllTransients(): string[] {
+    const all = [...this.landedTransients, ...this.collectPendingTransients()];
+    this.landedTransients = [];
+    return all;
   }
 
   /**
@@ -1603,7 +1643,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       return;
     }
     this.drainSlotTransients();
-    if (lines.length > 0) this.appendTransientCapped(lines);
+    if (lines.length > 0) this.appendTransientCapped(lines, { persist: true });
   }
 
   /** 状态行文案（last-writer-wins——StatusLine 件语义） */
@@ -1742,7 +1782,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 权威全量重建——排队旧帧作废（repaint 是新真相，合并无意义）；清点前先
     // 抢救合并窗内未落帧瞬时行（第五役 S1-a——suspendMain 挂起转账律的对称
     // 面：裸清会永失竞窗内 notify 行，不入 scrollback 不复显）
-    const rescued = this.collectPendingTransients();
+    const rescued = this.collectAllTransients();
     this.pendingOps = [];
     this.needFixed = false;
     if (this.suspendedMain) {
@@ -1790,7 +1830,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 清点前抢救合并窗内未落帧瞬时行（第五役 S1-a——onRepaint 同律注）；重建
     // 后补吐走 replayTransients 现宽收口（抢救行可能是 resize 前旧宽折行产物
     //——新几何逐行重截，保账优先截宽非丢行）
-    const rescued = this.collectPendingTransients();
+    const rescued = this.collectAllTransients();
     this.pendingOps = [];
     this.needFixed = false;
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
@@ -1857,7 +1897,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           if (this.inputAsk === ask) {
             // 激活态 abort：撤销说明行 + 残稿清框（07 §4.3 撤销面）
             this.inputAsk = null;
-            this.appendTransientLine('⏹ 已取消提问');
+            this.appendTransientLine('⏹ 已取消提问', { persist: true });
             this.editor.setText('');
             this.autocompleteCompleter.cancel();
             this.popup.applyResult(null);
@@ -2220,7 +2260,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     signal?.addEventListener(
       'abort',
       () => {
-        if (!handle.closed) this.appendTransientLine(cancelLine); // 曾在屏才写——面板 done 后迟到 abort 不误写
+        if (!handle.closed) this.appendTransientLine(cancelLine, { persist: true }); // 曾在屏才写——面板 done 后迟到 abort 不误写
         handle.close();
         abort(); // 面板 done 锁下迟到 abort 是 no-op（已应答）
         this.touchFixed();
@@ -2288,6 +2328,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 真相）：op 在队即到达时无槽，此处无条件直写（到达序呈现位——同帧后续
         // 开槽 present 在其下起笔）；drainSlotTransients 防御序保留（snapshot 现
         // 判无槽时排空陈缓冲——replayTransients 同形）
+        if (op.persist) this.landedTransients.push(...op.lines); // 保全档落屏入账（权威重建补吐源——竞窗根因修）
         this.screen.appendTransient(op.lines);
         this.drainSlotTransients();
       }
@@ -2305,8 +2346,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const lines = this.slotTransients;
     this.slotTransients = [];
     // 补吐位按当前列宽收口（fx2-A）：槽期缓冲行按缓冲时刻宽度折行序列化，
-    // 缩窗复起后直写超宽行会 autowrap 漂账——逐行截宽（保账优先，截宽非丢行）
-    this.appendTransientCapped(lines);
+    // 缩窗复起后直写超宽行会 autowrap 漂账——逐行截宽（保账优先，截宽非丢行）；
+    // 槽缓冲本身跨 repaint/挂起存活（既有语义），重放恒保全档同律
+    this.appendTransientCapped(lines, { persist: true });
   }
 
   /**
@@ -2319,8 +2361,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 清点（repaint/resize）的抢救行是清点前旧宽产物，经 replayTransients
    * 走此收口重截（第五役 S1-a 起清点不再裸丢瞬时行）。
    */
-  private appendTransientCapped(lines: readonly string[]): void {
+  private appendTransientCapped(lines: readonly string[], opts?: { persist?: boolean }): void {
     const columns = this.io.size().columns;
+    // 保全档入账取原始行（非截宽产物）——重放走本路按重建时刻新宽收口（与
+    // 第五役「抢救行是清点前旧宽产物、重放逐行重截」同语义——账面恒存原文）
+    if (opts?.persist === true) this.landedTransients.push(...lines); // 落屏入账（权威重建补吐源——竞窗根因修）
     this.screen.appendTransient(lines.map((line) => capAnsiLine(line, columns)));
   }
 
@@ -2625,7 +2670,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private appendClosingLine(status: 'completed' | 'aborted', durationMs?: number): void {
     if (status === 'aborted') {
       const clockAt = this.runSeedAt ?? this.runEndedAt ?? this.now();
-      this.appendTransientLine(`${DIM_SGR}⏹ 对话已取消——${formatClockHM(clockAt)}${SGR_RESET}`);
+      this.appendTransientLine(`${DIM_SGR}⏹ 对话已取消——${formatClockHM(clockAt)}${SGR_RESET}`, { persist: true });
       return;
     }
     if (this.runToolCount === 0 && this.runRetryCount === 0) return; // 纯对话轮：整行缺席（双零判据）

@@ -30,6 +30,7 @@ import { randomBytes } from 'node:crypto';
 import { BaseError } from '../contracts/index.js';
 import { redactToolResultExit } from '../contracts/index.js';
 import { TOOL_EXECUTE_EVENT, TOOL_POST_EXECUTE_EVENT, TOOL_PRE_EXECUTE_EVENT } from '../contracts/index.js';
+import { formatElapsedCompact } from '../contracts/index.js';
 import type {
   AgentToolResult,
   ExecuteInput,
@@ -187,7 +188,11 @@ export function createToolPipeline(dispatch: EventDispatch, opts: ToolPipelineOp
             reject(
               new BaseError(
                 'TOOL_TIMEOUT',
-                codedMessage('TOOL_TIMEOUT', `工具 ${def.name} 执行超时（>${timeoutMs}ms）`),
+                codedMessage(
+                  'TOOL_TIMEOUT',
+                  // 超时人读形（V-2 笔2 注④——毫秒计量退役，整秒档单源同律）
+                  `工具 ${def.name} 执行超时（>${formatElapsedCompact(timeoutMs)}）`,
+                ),
               ),
             ),
           timeoutMs,

@@ -437,6 +437,61 @@ describe('TuiBackend notify / repaint / resize', () => {
     expect(io.bytes).toContain('\x1b[1;2r'); // 6 行 - 固定区 4 = DECSTBM 1..2
     expect(io.bytes).toContain('\r\x1b[1;2m› \x1b[0m内容\n'); // 行集重画
   });
+
+  /* ---- 已落屏瞬时行跨权威重建保全（e2e /resume 竞窗根因——三面对称锁） ---- */
+
+  /**
+   * 竞窗实录（/resume e2e 时红时绿 50%）：resumeSession 成功后 service 侧
+   * `void registry.focus(id)` 与 `uiCore.notify('已续接：…')` 竞速——notify 同步
+   * 落屏在先、focus 的 onRepaint 权威重建在后时，修前 collectPendingTransients
+   * 只收 pendingOps（未落帧）瞬时行，已落屏行唯一载体是屏面本身：repaint
+   * CLEAR_SCREEN 按投影行集重建（瞬时行「不进行集不记 writtenBlocks，
+   * repaint 不重建」——main-screen 件自述），已落屏 notify 行被抹且无账可补
+   * （不入 scrollback 不复显）。挂起面已有对称律（suspendMain 转账 + 复起
+   * 补显射界含瞬时行——07 件 8 在册），本组三锁补「已落帧 + 权威重建」
+   * 窗口：repaint / resize / 挂起复起。
+   */
+  it('已落屏瞬时行跨 repaint 保全（/resume 回执行竞窗主锁——notify 落帧后 focus 重画补吐）', () => {
+    const { io, backend } = makeBackend();
+    backend.notify('已续接：e2ehist'); // 同步直出档：立即落屏（screen.appendTransient 达成）
+    io.bytes = ''; // 清启动+notify 段——只断言 repaint 之后
+    backend.onRepaint(SESSION, [{ role: 'user', content: '投影问题', timestamp: 1 }], null);
+    // 清屏重写后已落屏 notify 行按到达序补吐（07「瞬时行缓冲不丢」不变式的
+    // 已落帧面）；修前红：repaint 后无重放，行永失
+    expect(io.bytes).toContain('已续接：e2ehist');
+    // 且落在投影行之后（到达序保持——notify 先于 repaint 到达用户视野）
+    expect(io.bytes.indexOf('已续接：e2ehist')).toBeGreaterThan(io.bytes.indexOf('投影问题'));
+  });
+
+  it('已落屏瞬时行跨 resize 保全（权威重建三面之一——缩窗重画后补吐 + 新宽收口）', () => {
+    const { io, backend } = makeBackend();
+    backend.notify('已续接：e2ehist');
+    io.bytes = '';
+    io.emitResize();
+    expect(io.bytes).toContain('已续接：e2ehist'); // 修前红：resize 重画抹屏无补吐
+  });
+
+  it('已落屏瞬时行跨挂起复起保全（suspendMain 转账面——复起补显射界含瞬时行的已落帧半边）', () => {
+    const { io, backend } = makeBackend();
+    backend.notify('已续接：e2ehist'); // 挂起前已落屏（复起全帧重画的重建射界外）
+    io.bytes = ''; // 清挂起前字节——只断言复起重画之后的补吐
+    backend.suspendMain();
+    backend.resumeMain();
+    // 修前红：suspendMain 只转 pendingOps，已落屏行复起重画后被抹
+    expect(io.bytes).toContain('已续接：e2ehist');
+  });
+
+  it('当场档瞬时行跨 repaint 不重放（Job 收口行——结算线零复现，两档分立负锁）', () => {
+    const { io, backend } = makeBackend();
+    const plain = (s: string): string => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+    backend.appendJobSettledLine(settledEntry('任务A', 'completed'));
+    expect(plain(io.bytes)).toContain('✓ 任务A · 完成'); // 先证落屏
+    io.bytes = '';
+    backend.onRepaint(SESSION, [], null);
+    // 结算线族 = 当场档（与 turn 收尾行「repaint 不重建」同律——run 级账目
+    // 不跨切焦重放伪造在场）；修若回潮（档位丢失全家入账）此锁红
+    expect(plain(io.bytes)).not.toContain('任务A');
+  });
 });
 
 /* ================= 批 10e-2 交互纵切（手动时钟 rig） ================= */
