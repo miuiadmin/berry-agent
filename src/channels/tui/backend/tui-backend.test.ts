@@ -27,7 +27,13 @@ import { AUTOCOMPLETE_DEBOUNCE_MS } from '../autocomplete/async.js';
 import type { OverlayContent } from '../overlay/overlay.js';
 import type { MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import type { AgentEvent } from '../../../agent/index.js';
-import type { AgentMessage, JobEntry, UiSessionSummary, UiUsageSummary } from '../../../contracts/index.js';
+import type {
+  AgentMessage,
+  AssistantMessage,
+  JobEntry,
+  UiSessionSummary,
+  UiUsageSummary,
+} from '../../../contracts/index.js';
 import { BaseError } from '../../../contracts/index.js';
 
 const COLS = 80;
@@ -50,6 +56,14 @@ function assistantMsg(text: string): AgentMessage {
     stopReason: 'stop',
     timestamp: 1,
   };
+}
+
+/** 混排累计快照（thinking 块在前、text 块在后——message_update 载荷形；尾块分诊测位：thinking 非空且 text 空 → 尾块 thinking） */
+function mixedSnapshot(thinking: readonly string[], texts: readonly string[]): AgentMessage {
+  const content: AssistantMessage['content'] = [];
+  for (const chunk of thinking) content.push({ type: 'thinking', thinking: chunk });
+  for (const chunk of texts) content.push({ type: 'text', text: chunk });
+  return { role: 'assistant', content, usage, stopReason: 'stop', timestamp: 1 };
 }
 
 function makeBackend(options: Partial<TuiBackendOptions> = {}): {
@@ -185,6 +199,9 @@ describe('TuiBackend 直播呈现', () => {
       .split('\n')
       .filter((line) => /[中文测]/.test(line)) // CJK 段折行族（末行可恰为「测试」二字——不含「中文」串）
       .map((line) => line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/[\r\n]/g, ''))
+      // 任务行同帧重绘（V-4 注⑪⑦——message_update 触固定区收口：⠋ 生成中 ·
+      // 本轮 N 尾段与末折行同物理块）——剥至转轮止，折行族采集不受扰
+      .map((line) => line.replace(/⠋ .*$/, ''))
       .map((line) => line.replace(/^• 甲 /, '').replace(/^  /, '')); // 首帧行 bullet 槽 + 前段 '• 甲 ' 剥除、续行 bullet 槽两空格剥除（注⑩——同帧重写混排）
     expect(cjkLines.length).toBeGreaterThanOrEqual(3); // 折 3 行（外加首帧甲行不计）
     for (const line of cjkLines) {
@@ -1512,10 +1529,9 @@ describe('TuiBackend usage 状态行（件 6）', () => {
     expect(io.bytes).not.toContain('✓ 用量 150');
   });
 
-  /* ---- 三反馈批C：token 速度段（run 级平均——件 6 扩段） ---- */
+  /* ---- 三反馈批C：token 速度段（run 级平均——件 6 扩段；V-4 注⑪⑦ 尾注速段退役） ---- */
 
-  it('completed 落行扩速段「· N tok/s」（run 级平均——批C）', () => {
-    // 注入钟驱动确定性时长：100 token / 4s = 25 tok/s；150 / 4s = 37.5（一位小数形）
+  it('completed 落行无速段（V-4 注⑪⑦——尾注速段退役；用量值与千分位维持）', () => {
     let t = 0;
     const { io, backend } = makeBackend({ now: () => t });
     emit(backend, { type: 'agent_start' });
@@ -1524,8 +1540,9 @@ describe('TuiBackend usage 状态行（件 6）', () => {
     t += 4000;
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).toContain('✓ 用量 100 · 25 tok/s');
-    // ≥100 千分位整数形：2,500 token / 1s = 2,500 tok/s
+    expect(io.bytes).toContain('✓ 用量 100');
+    expect(io.bytes).not.toContain('tok/s'); // 速度段退役（速度面归行1——V-4 笔3）
+    // 千分位格式化面维持（usage 值列 formatCount 单源不随速段退役）
     let t2 = 0;
     const rig2 = makeBackend({ now: () => t2 });
     emit(rig2.backend, { type: 'agent_start' });
@@ -1534,20 +1551,11 @@ describe('TuiBackend usage 状态行（件 6）', () => {
     t2 += 1000;
     rig2.io.bytes = '';
     emit(rig2.backend, { type: 'agent_end', status: 'completed' });
-    expect(rig2.io.bytes).toContain('✓ 用量 2,500 · 2,500 tok/s');
-    // 一位小数形：150 / 4s = 37.5
-    let t3 = 0;
-    const rig3 = makeBackend({ now: () => t3 });
-    emit(rig3.backend, { type: 'agent_start' });
-    emit(rig3.backend, { type: 'message_end', message: usageMsg(150) });
-    emit(rig3.backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
-    t3 += 4000;
-    rig3.io.bytes = '';
-    emit(rig3.backend, { type: 'agent_end', status: 'completed' });
-    expect(rig3.io.bytes).toContain('✓ 用量 150 · 37.5 tok/s');
+    expect(rig2.io.bytes).toContain('✓ 用量 2,500');
+    expect(rig2.io.bytes).not.toContain('tok/s');
   });
 
-  it('诚实缺席律：时长 <1s / 零 token / repaint 中途附着 / failed 终态——四形不显段（批C）', () => {
+  it('诚实缺席律：repaint 清账重计 / failed 终态分档维持（速度段已退役 V-4 注⑪⑦——not tok/s 锁防回潮）', () => {
     // ①时长 <1s：亚秒 run 平均速度无意义（用量行照常、零速段）
     let t = 0;
     const { io, backend } = makeBackend({ now: () => t });
@@ -3431,7 +3439,7 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
   });
 });
 
-describe('TuiBackend footer 扩容段（三反馈批B——档位段 + 今日段 + 忙态速度段）', () => {
+describe('TuiBackend footer 扩容段（三反馈批B——档位段 + 今日段；V-4 注⑪⑦ 忙态速度段退役 → 本轮段）', () => {
   it('缺席缩位：tiers 子段 null / 今日零耗不虚报', () => {
     const { io } = makeBackend({
       sessionId: SESSION,
@@ -3468,19 +3476,23 @@ describe('TuiBackend footer 扩容段（三反馈批B——档位段 + 今日段
     expect(io.bytes).toContain('今日 500'); // agent_end 拉取锚（批B）
   });
 
-  it('忙态右段拼速度段（speedView 消费位——tick/重画时刻现算 running average）', () => {
+  it('忙态任务行拼本轮段（估值器消费位——message_end 真值收口后工具相位持续显示；速度段退役）', () => {
     const { io, backend, clock } = makeInteractive({
       sessionId: 's1',
       footer: { tiers: () => ({ thinking: '思考高', sandbox: '只读' }) },
     });
     emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('你好世') });
+    // 真值收口：usageMsg(100) 的 output = 50（faux 覆写同律——本轮 N 恒真值读数）
     emit(backend, { type: 'message_end', message: usageMsg(100) });
     emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
-    clock.advance(2000); // run 中 2s——running average 100/2s = 50
+    clock.advance(1);
     io.bytes = '';
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     clock.advance(1); // 泵帧
-    expect(io.bytes).toContain('⚙ 搜索文本 … · 50 tok/s'); // 忙态工具段后拼速度段（' · ' 连接）
+    expect(io.bytes).toContain('⚙ 搜索文本 … · 本轮 50'); // 工具段后拼本轮段（' · ' 连接）
+    expect(io.bytes).not.toContain('tok/s'); // 速度段退役（注⑪⑦——速度面归行1 笔3）
   });
 });
 
@@ -3987,15 +3999,52 @@ describe('TuiBackend 任务状态行（界面美化役批 4——四态编舞 + 
     expect(io.bytes).toContain('\x1b[1;8r'); // 固定区回 2 行——高度变更滚动区重设
   });
 
-  it('态② 流式窗口：message_start(assistant) → 「获取响应中」；message_end 归态①', () => {
+  it('态② 细分（V-4 注⑪⑦）：message_start → 「思考中」；尾块分诊 thinking/text → 思考中/生成中；message_end 归态①', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
     emit(backend, { type: 'message_start', role: 'assistant' });
-    expect(io.bytes).toContain('获取响应中');
+    expect(io.bytes).toContain('思考中'); // 起跑缺省思考中（首 update 分诊纠正——零空窗）
+    io.bytes = '';
+    // thinking 尾块在场 → 思考中（词面维持——同词零重绘）
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: mixedSnapshot(['先想想'], []),
+    });
+    expect(io.bytes).toContain('思考中');
+    io.bytes = '';
+    // text 尾块到达 → 生成中（词面迁移一次）
+    emit(backend, {
+      type: 'message_update',
+      role: 'assistant',
+      partial: mixedSnapshot(['先想想'], ['你好']),
+    });
+    expect(io.bytes).toContain('生成中');
     io.bytes = '';
     emit(backend, { type: 'message_end', message: assistantMsg('答') });
     expect(io.bytes).toContain('正在对话中'); // 流式窗关归态①
+  });
+
+  it('本轮 N 边跑边涨 + 真值校正（估值器 ⑥c 供数——message_update 差分累计 / message_end onSettled）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('你') });
+    expect(io.bytes).toContain('本轮 1'); // CJK 1 token/字（首快照全量）
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('你好世界') });
+    expect(io.bytes).toContain('本轮 4'); // 差分 +3（非重算形）
+    io.bytes = '';
+    // message_end 真值校正：output = 50 顶替估值（单次收敛）
+    emit(backend, { type: 'message_end', message: usageMsg(100) });
+    expect(io.bytes).toContain('本轮 50');
+    io.bytes = '';
+    // 下一 turn 起跑：reset 重建基线（agent_start fresh 清账 + message_start 复位）
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('新') });
+    expect(io.bytes).toContain('本轮 1'); // 前轮账已清——差分从零重计
   });
 
   it('态③ 重试倒计时：retry_wait_start → 「重试中 第 n/N 次 · Ns 后」+ 转轮持续推帧', () => {
@@ -4044,7 +4093,7 @@ describe('TuiBackend 重试续入整 run 口径（界面美化役批 4——B：
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
     expect(io.bytes).toContain('✓ 用量 150'); // 整 run 口径：50 + 100（修前红 = 100）
-    expect(io.bytes).toContain('25 tok/s'); // 起点不重置：150 token / 整 run 6s（修前红 = 100/3s ≈ 33.3）
+    expect(io.bytes).not.toContain('tok/s'); // 速度段退役（V-4 注⑪⑦——起点重置语义归 speedView 观测面锁）
   });
 });
 

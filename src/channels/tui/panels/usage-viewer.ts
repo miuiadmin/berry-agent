@@ -56,6 +56,17 @@ export function formatCount(n: number): string {
 }
 
 /**
+ * 速度格式化（三反馈批C；V-4 注⑪⑦ 自 tui-backend 迁入——任务行速段与尾注
+ * 速段双退役后本件持单源）：<100 tok/s 一位小数（尾零剥除——25.0 → 25，精度
+ * 帽一位不失信息）、≥100 千分位整数（2,500——与 formatCount 同形）。消费位 =
+ * 行1 速度段（V-4 笔3 底栏三行栈——speedView 观测面供数）。
+ */
+export function formatTokensPerSecond(n: number): string {
+  if (n >= 100) return formatCount(Math.round(n));
+  return n.toFixed(1).replace(/\.0$/, '');
+}
+
+/**
  * 用量面板内容件：ScrollView 子类 + OverlayContent（副屏 root）。行集
  * 构造后静态（快照档）。
  */

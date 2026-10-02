@@ -1,10 +1,16 @@
 /**
- * 任务状态行单测（界面美化役批 4——四态编舞 + 段缺席 + 绝对时刻倒计时）。
+ * 任务状态行单测（V-4 底栏重做批笔 2——件 12 翻档：态② 细分 + 本轮 N + 速度退役）。
  *
- * 锁面：四态呈现形（转轮/工具段/流式/重试倒计时/红 ✗）、闲态零高度缺席律、
- * 统一括号段（耗时 · 按 ESC 取消对话——dim）、供数器段缺席缩位（无起点耗时/
- * 速度/提示各自缺席不虚报）、倒计时本地钟现算（绝对时刻律——nextAt 注入、
- * now 推进随动）、转轮忙态推帧闸（终态/离场零推帧）。
+ * 锁面：四态呈现形（转轮/工具段/思考中·生成中细分/重试倒计时/红 ✗）、闲态
+ * 零高度缺席律、统一括号段（耗时 · 按 ESC 取消对话——dim）、供数器段缺席缩位
+ * （无起点耗时/本轮/提示各自缺席不虚报）、倒计时本地钟现算（绝对时刻律——
+ * nextAt 注入、now 推进随动）、转轮忙态推帧闸（终态/离场零推帧）。
+ *
+ * 本批翻档（07 §4.1 注⑪⑦）：态② streaming 拆 thinking「思考中」/
+ * generating「生成中」（message_update 尾块分诊——零新事件型）；速度段退役
+ * （taskLine speedText 尾拼 + agent_end completed 尾注速段双撤——速度面归
+ * 行1 笔 3），任务行新增「本轮 N」段（位 = 状态词后括号段前——态①②，流中
+ * 估值器 ⑥c 供数）。
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid } from '../../engine/index.js';
@@ -15,17 +21,17 @@ import { TaskStatusLine, type TaskStatusProviders } from './task-status-line.js'
 /** 可变供数器（测试注入面——渲染期现拉语义同生产闭包） */
 function makeProviders(overrides: Partial<TaskStatusProviders> = {}): TaskStatusProviders & {
   setElapsed(value: number | null): void;
-  setSpeed(value: string): void;
+  setTurnTokens(value: string): void;
   setHint(value: string): void;
   advance(ms: number): void;
 } {
   let elapsed: number | null = null;
-  let speed = '';
+  let turnTokens = '';
   let hint = '';
   let now = 1_000_000;
   const base: TaskStatusProviders = {
     elapsedMs: () => elapsed,
-    speedText: () => speed,
+    turnTokensText: () => turnTokens,
     interruptHint: () => hint,
     now: () => now,
     ...overrides,
@@ -34,8 +40,8 @@ function makeProviders(overrides: Partial<TaskStatusProviders> = {}): TaskStatus
     setElapsed(value: number | null) {
       elapsed = value;
     },
-    setSpeed(value: string) {
-      speed = value;
+    setTurnTokens(value: string) {
+      turnTokens = value;
     },
     setHint(value: string) {
       hint = value;
@@ -85,16 +91,18 @@ describe('TaskStatusLine', () => {
     expect(readRow(grid, 0, 60)).toBe('');
   });
 
-  it('态① 正在对话中：转轮 accent + 基础文案 + 速度段 + dim 括号段', () => {
+  it('态① 正在对话中：转轮 accent + 基础文案 + 本轮段 + dim 括号段（速度段退役）', () => {
     const p = makeProviders();
     const line = new TaskStatusLine(p);
     line.enterWorking();
     expect(line.measure(80)).toBe(1);
     p.setElapsed(62_000);
-    p.setSpeed('50 tok/s');
+    p.setTurnTokens('本轮 350');
     p.setHint('按 ESC 取消对话');
     const grid = renderLine(line);
-    expect(readRow(grid, 0, 60)).toBe('⠋ 正在对话中 · 50 tok/s (1m 02s · 按 ESC 取消对话)');
+    expect(readRow(grid, 0, 60)).toBe('⠋ 正在对话中 · 本轮 350 (1m 02s · 按 ESC 取消对话)');
+    // 速度段退役锁（注⑪⑦——任务行与收尾尾注双撤，速度面归行1 笔 3）
+    expect(readRow(grid, 0, 60)).not.toContain('tok/s');
     // 转轮 accent 定值（主题单源）；文案段不着色；括号段 dim（文案宽 21 → '(' 落 col 23）
     expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.accent);
     expect(grid.getCell(0, 2)?.style.fg).toBeUndefined();
@@ -112,16 +120,24 @@ describe('TaskStatusLine', () => {
     expect(readRow(grid, 0, 40)).toBe('⠋ ⚙ grep … (0s · 按 ESC 取消对话)');
   });
 
-  it('态② 获取响应中：流式窗口文案 + 速度段', () => {
+  it('态② 细分：思考中（thinking 尾块）→ 生成中（text 尾块）+ 本轮段（注⑪⑦）', () => {
     const p = makeProviders();
     const line = new TaskStatusLine(p);
     line.enterWorking();
-    line.enterStreaming();
+    line.enterThinking();
     p.setElapsed(2_000);
-    p.setSpeed('120 tok/s');
+    p.setTurnTokens('本轮 120');
     p.setHint('按 ESC 取消对话');
+    expect(line.taskState).toBe('thinking');
+    expect(line.isBusy).toBe(true); // 双细分态皆忙（转轮闸在开）
     const grid = renderLine(line);
-    expect(readRow(grid, 0, 60)).toBe('⠋ 获取响应中 · 120 tok/s (2s · 按 ESC 取消对话)');
+    expect(readRow(grid, 0, 60)).toBe('⠋ 思考中 · 本轮 120 (2s · 按 ESC 取消对话)');
+    // text 尾块到达 → 生成中（词面迁移一次、状态词随流相位走）
+    line.enterGenerating();
+    p.setTurnTokens('本轮 180');
+    expect(line.taskState).toBe('generating');
+    expect(readRow(renderLine(line), 0, 60)).toBe('⠋ 生成中 · 本轮 180 (2s · 按 ESC 取消对话)');
+    expect(readRow(renderLine(line), 0, 60)).not.toContain('获取响应中'); // 旧词退役
   });
 
   it('态③ 重试中：dim 整段 + 倒计时本地钟现算（绝对时刻律）+ 转轮不停不闪 ✗', () => {
@@ -134,7 +150,7 @@ describe('TaskStatusLine', () => {
     p.setHint('按 ESC 取消对话');
     const grid = renderLine(line);
     expect(readRow(grid, 0, 60)).toBe('⠋ 重试中 第 2/3 次 · 3s 后 (8s · 按 ESC 取消对话)');
-    // 整段 dim（转轮不停——仅文案降存在感）；速度段缺席（态③ 由倒计时顶替）
+    // 整段 dim（转轮不停——仅文案降存在感）；本轮段缺席（态③ 由倒计时顶替）
     expect(grid.getCell(0, 2)?.style.dim).toBe(true);
     expect(readRow(grid, 0, 60)).not.toContain('✗');
     // 倒计时随本地钟推进（渲染期现算——同窗重渲随动）
@@ -149,13 +165,13 @@ describe('TaskStatusLine', () => {
     expect(line.frame).toBe('⠙');
   });
 
-  it('态④ 错误终态：红 ✗ 无转轮无括号（用量与速度归 footer 尾注）', () => {
+  it('态④ 错误终态：红 ✗ 无转轮无括号（用量归 footer 尾注——速度段已退役）', () => {
     const p = makeProviders();
     const line = new TaskStatusLine(p);
     line.enterWorking();
     line.enterError();
     p.setElapsed(5_000);
-    p.setSpeed('9 tok/s');
+    p.setTurnTokens('本轮 90');
     p.setHint('按 ESC 取消对话');
     const grid = renderLine(line);
     expect(readRow(grid, 0, 40)).toBe('✗ 失败');
@@ -166,7 +182,7 @@ describe('TaskStatusLine', () => {
     expect(line.isBusy).toBe(false);
   });
 
-  it('段缺席缩位：无起点耗时 → 仅提示；速度缺席 → 无段；双缺席 → 无括号', () => {
+  it('段缺席缩位：无起点耗时 → 仅提示；本轮缺席 → 无段；双缺席 → 无括号', () => {
     const p = makeProviders();
     const line = new TaskStatusLine(p);
     line.enterWorking();

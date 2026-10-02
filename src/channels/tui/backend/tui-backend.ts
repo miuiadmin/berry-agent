@@ -84,6 +84,7 @@ import { OscDisplay, buildOsc52Copy } from './osc.js';
 import { allocateFixedBudget, EDITOR_MIN_HEIGHT, fixedBudgetRows } from './fixed-budget.js';
 import { StatusLine } from '../status/status-line.js';
 import { TaskStatusLine } from '../status/task-status-line.js';
+import { createStreamingTokenEstimator } from '../status/streaming-token-estimator.js';
 import { TodoPanel } from '../panels/todo-panel.js';
 import { ToolProgressPanel } from '../panels/tool-progress-panel.js';
 import { JobPanel } from '../panels/job-panel.js';
@@ -371,16 +372,6 @@ const ZERO_USAGE: UsageAccumulation = Object.freeze({
 });
 
 /**
- * 速度格式化（三反馈批C）：<100 tok/s 一位小数（尾零剥除——25.0 → 25，精度
- * 帽一位不失信息）、≥100 千分位整数（2,500——与 token 数同形；千位分组单源
- * 已迁 usage-viewer formatCount，本件三消费位同 import）。
- */
-function formatTokensPerSecond(n: number): string {
-  if (n >= 100) return formatCount(Math.round(n));
-  return n.toFixed(1).replace(/\.0$/, '');
-}
-
-/**
  * dim 前缀 SGR（turn 收尾行专用——appendTransientLine 纯文本路的样式面：
  * 正文瞬时行不带 cell 网格样式，dim 经 SGR 直拼、行尾 SGR_RESET 复原）。
  */
@@ -390,6 +381,22 @@ const DIM_SGR = buildSgr({ dim: true });
 function formatClockHM(unixMs: number): string {
   const d = new Date(unixMs);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * 累计快照尾块分诊（V-4 注⑪⑦ 态② 细分驱动面）：message_update 载荷
+ * partial 是累计快照（stream.ts 就地替换律）——尾块型即当前流相位：
+ * thinking 尾块 = 思考相位 / text 尾块 = 生成相位（toolCall 等其他尾块与
+ * 空 content 返 null——维持现词面，不误迁）。零新事件型（生产流 delta 已
+ * 折叠为快照——路三冷读闸定谳）。
+ */
+function tailBlockKind(partial: AgentMessage): 'thinking' | 'text' | null {
+  const content = partial.content;
+  if (!Array.isArray(content) || content.length === 0) return null;
+  const last = content[content.length - 1];
+  if (last.type === 'thinking') return 'thinking';
+  if (last.type === 'text') return 'text';
+  return null;
 }
 
 /**
@@ -538,6 +545,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     { readonly running: () => readonly JobEntry[]; readonly list: () => readonly JobEntry[] } | undefined;
   /** 当前 turn 的 assistant 消息用量暂存（turn_end 累加——件 6 等价性条款） */
   private pendingUsage: Usage | null = null;
+  /**
+   * 流中 token 估值器（V-4 注⑪⑥c——本轮 N 供数）：message_update 快照差分
+   * 累计、message_end 真值收口（onSettled）；reset 时点 = message_start（每
+   * turn 起跑）+ resetUsage 单源（新 run/切焦清账连清——中途附着本轮诚实缺席）。
+   */
+  private readonly turnEstimator = createStreamingTokenEstimator();
   private usageTotal: UsageAccumulation = ZERO_USAGE;
   /** 当前 run 起点时戳（agent_start 落——三反馈批C 速度段分母；repaint/切焦清账连清，中途附着即无起点） */
   private runStartedAt: number | null = null;
@@ -740,16 +753,17 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       schedule: this.scheduleFn ?? undefined,
       cancelSchedule: this.scheduleFn !== null ? this.cancelFn : undefined,
     });
-    // 任务状态行（界面美化役批 4——件 12 装配位）：供数器全注入——run 级
-    // 账（elapsed 整 run 口径：runStartedAt 起、重试续入不清零、终态才冻结
-    // runEndedAt）/speedView 忙态速度（态①② 拼段）/keyText 单源中断提示
-    // （escape 居首 → ESC 显示名）/注入钟。状态变更即触固定区重画。
-    // （须早于 injectTheme——主题注入位消费 taskLine.setTheme）
+    // 任务状态行（界面美化役批 4——件 12 装配位；V-4 注⑪⑦ 翻档）：供数器
+    // 全注入——run 级账（elapsed 整 run 口径：runStartedAt 起、重试续入不清
+    // 零、终态才冻结 runEndedAt）/本轮 N（流中估值器 ⑥c 供数——零 token 形
+    // 缺席缩位）/keyText 单源中断提示（escape 居首 → ESC 显示名）/注入钟。
+    // 速度段退役（注⑪⑦——速度面归行1 笔3 speedView 消费）。状态变更即触
+    // 固定区重画。（须早于 injectTheme——主题注入位消费 taskLine.setTheme）
     this.taskLine = new TaskStatusLine({
       elapsedMs: () => (this.runStartedAt === null ? null : (this.runEndedAt ?? this.now()) - this.runStartedAt),
-      speedText: () => {
-        const speed = this.speedView;
-        return speed === null ? '' : `${formatTokensPerSecond(speed)} tok/s`;
+      turnTokensText: () => {
+        const tokens = this.turnEstimator.estimate();
+        return tokens > 0 ? `本轮 ${formatCount(tokens)}` : '';
       },
       interruptHint: () => {
         const key = this.keymap.keyText('global.interrupt');
@@ -1811,9 +1825,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * run 级平均速度观测面（tok/s——三反馈批C，批B footer 段消费位）：run 中 =
-   * 刷新锚时刻现算 running average；终态后保持终值（终点时戳冻结分母）至下
-   * 次清账；无起点/亚秒/零 token 返 null（诚实缺席——消费面自行省段）。
+   * run 级平均速度观测面（tok/s——三反馈批C；V-4 注⑪⑦ 任务行/尾注双消费位
+   * 退役后为宿主侧二次消费位：行1 速度段〔笔3〕）：run 中 = 刷新锚时刻现算
+   * running average；终态后保持终值（终点时戳冻结分母）至下次清账；无起点/
+   * 亚秒/零 token 返 null（诚实缺席——消费面自行省段）。
    */
   get speedView(): number | null {
     return this.runSpeedTokensPerSecond();
@@ -2574,10 +2589,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.statusLine.setStatus('⏹ 已中止');
           this.appendClosingLine('aborted', event.durationMs);
         } else {
-          // 批C：completed 扩速段（run 级平均——诚实缺席形无段，见 runSpeedTokensPerSecond）
-          const speed = this.runSpeedTokensPerSecond();
-          const speedSegment = speed === null ? '' : ` · ${formatTokensPerSecond(speed)} tok/s`;
-          this.statusLine.setStatus(`✓ 用量 ${formatCount(this.usageTotal.totalTokens)}${speedSegment}`);
+          // V-4 注⑪⑦：尾注速段退役（速度面归行1 笔3——speedView 观测面保留）
+          this.statusLine.setStatus(`✓ 用量 ${formatCount(this.usageTotal.totalTokens)}`);
           this.appendClosingLine('completed', event.durationMs);
         }
         this.runSeedAt = null; // 种子消费即清（防无后继 fresh start 的残值复用）
@@ -2610,9 +2623,29 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         this.touchFixed();
         break;
       case 'message_start':
-        // 态② 获取响应中（assistant 流式窗口——message_start 驱动、message_end 归态①）
-        if (event.role === 'assistant') this.taskLine.enterStreaming();
+        // 态② 思考中（V-4 注⑪⑦ 细分起跑缺省——首 update 尾块分诊纠正，零空窗；
+        // assistant 流式窗口开，message_end 归态①）
+        if (event.role === 'assistant') {
+          this.turnEstimator.reset(); // 本轮重置（每 turn 起跑——基线重建，重试续入同律新账）
+          this.taskLine.enterThinking();
+        }
         break; // 正文流式归直播路——固定区零扰动（任务行 onChange 自触重画）
+      case 'message_update':
+        // 态② 词面细分驱动（V-4 注⑪⑦）：尾块分诊 thinking/text → 思考中/
+        // 生成中（词面迁移才触任务行通知——同词零重复 onChange）；同帧喂估值器
+        // （本轮 N 差分累计——⑥c）。touchFixed 随帧收口本轮读数（渲染合并路
+        // fps 帽合帧——非逐 delta 全帧）。正文流式归直播路——固定区其余零扰动
+        if (event.role === 'assistant') {
+          this.turnEstimator.onUpdate(event.partial);
+          const tail = tailBlockKind(event.partial);
+          if (tail === 'thinking') {
+            if (this.taskLine.taskState !== 'thinking') this.taskLine.enterThinking();
+          } else if (tail === 'text') {
+            if (this.taskLine.taskState !== 'generating') this.taskLine.enterGenerating();
+          }
+          this.touchFixed();
+        }
+        break;
       case 'tool_execution_start':
         this.runToolCount += 1; // 收尾行纯对话轮判据（重试续入不清——整 run 口径）
         this.taskLine.setTool(toolFaceZh(event.name)); // 态① 工具段 `⚙ 动词 …` 优先（V-0 注⑤用户面动词）
@@ -2634,6 +2667,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 一 assistant 消息，两时点等价；spec 条款按本仓轻载荷形取 message_end 面）
         if (isStandardMessage(event.message) && event.message.role === 'assistant') {
           this.pendingUsage = event.message.usage;
+          this.turnEstimator.onSettled(event.message.usage); // 真值收口（⑥c——本轮 N 收口读真值，误差吸收不回跳）
           this.taskLine.enterWorking(); // 流式窗关——归态①（下一 message_start 再入态②）
         } else if (isStandardMessage(event.message) && event.message.role === 'user' && event.channel === undefined) {
           // run 种子用户消息时戳入**暂存位**（收尾行时刻源）：channel 缺席 =
@@ -2659,6 +2693,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private resetUsage(): void {
     this.pendingUsage = null;
     this.usageTotal = ZERO_USAGE;
+    this.turnEstimator.reset(); // V-4 注⑪⑦：本轮账连清（新 run/切焦清账——中途附着本轮诚实缺席）
     this.runStartedAt = null; // 批C：清账连清起点（repaint/切焦中途附着即无起点——速度段诚实缺席）
     this.runEndedAt = null;
     this.runToolCount = 0;

@@ -1,20 +1,25 @@
 /**
- * 任务状态行（界面美化役批 4——07 §4.1 呈现面新固定段，编辑器正上方）。
+ * 任务状态行（界面美化役批 4——07 §4.1 呈现面新固定段，编辑器正上方；
+ * V-4 底栏重做批笔 2 件 12 翻档——注⑪⑦）。
  *
  * 忙态在场、闲态离场（零高度缺席——measure 随态归零，闲态不占固定区预算）。
  * 四态编舞（驱动事件面 = backend applyFocusedEvent，本件零事件知识）：
  * - ① working 正在对话中：转轮 + 工具段 `⚙ 名 …` 优先（无工具显「正在对话中」）；
- * - ② streaming 获取响应中：message_start/message_update 流式窗口驱动；
+ * - ② 细分双态（注⑪⑦——streaming 拆分，message_update 尾块分诊零新事件型）：
+ *   thinking 思考中（message_start 起跑缺省 + thinking 尾块维持）/
+ *   generating 生成中（text 尾块词面迁移一次）；message_end 归态①；
  * - ③ retrying 重试中：转轮不停 + 「重试中 第 n/N 次 · Ns 后」整段 dim——
  *   倒计时消费端本地钟渲染（04 §2 绝对时刻律：事件只携 nextAt 绝对时刻）；
  * - ④ error 错误终态：红 ✗（agent_end(failed) 的终态揭示——retry_wait_end
  *   aborted/exhausted 翻档位；在下次 agent_start 前驻留）。
  *
- * 统一格式 `文案 · X tok/s (1m 02s · 按 ESC 取消对话)`：括号段恒 dim（注⑩
+ * 统一格式 `文案 · 本轮 N (1m 02s · 按 ESC 取消对话)`：括号段恒 dim（注⑩
  * ——括号段内串接符 ·）；耗时
- * 整 run 口径（runStartedAt 起、重试续入不清零——供数器注入）；速度段拼于
- * 括号段前（态①②，态③ 由倒计时文案顶替）；ESC 提示取键位册首键单源显示。
- * 供数器（elapsed/speed/interruptHint/now）全注入——本件零装配知识，测试
+ * 整 run 口径（runStartedAt 起、重试续入不清零——供数器注入）；**本轮段**
+ * 拼于括号段前（态①②——流中估值器 ⑥c 供数、message_end 真值收口；态③④
+ * 无段）；**速度段退役**（注⑪⑦——taskLine 尾拼与 agent_end 尾注速段双撤，
+ * 速度面归行1 笔3 speedView 消费）；ESC 提示取键位册首键单源显示。
+ * 供数器（elapsed/turnTokens/interruptHint/now）全注入——本件零装配知识，测试
  * 确定性前提（件内零自驱时钟，与 StatusLine 同律）。
  */
 import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
@@ -25,15 +30,15 @@ import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 /** 转轮帧序（braille 十帧——与状态行同源形态，件内自持单源） */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 
-/** 任务行四态 + 离场态（idle = 零高度缺席） */
-export type TaskLineState = 'idle' | 'working' | 'streaming' | 'retrying' | 'error';
+/** 任务行态 + 离场态（idle = 零高度缺席；注⑪⑦：streaming 拆 thinking/generating 双态） */
+export type TaskLineState = 'idle' | 'working' | 'thinking' | 'generating' | 'retrying' | 'error';
 
 /** 供数器注入面（backend 装配位——本件零装配知识） */
 export interface TaskStatusProviders {
   /** run 累计耗时毫秒（runStartedAt 起、重试续入不清零；null = 无起点诚实缺席） */
   readonly elapsedMs: () => number | null;
-  /** 速度段文本（'' = 缺席缩位——亚秒/零 token 形） */
-  readonly speedText: () => string;
+  /** 本轮 token 段文本（`本轮 N`——估值器 ⑥c 供数；'' = 缺席缩位，零 token 形） */
+  readonly turnTokensText: () => string;
   /** 中断键提示文案（如「按 ESC 取消对话」；'' = 缺席） */
   readonly interruptHint: () => string;
   /** 本地钟（倒计时与耗时段渲染基准——注入位测试确定性） */
@@ -84,7 +89,9 @@ export class TaskStatusLine implements Renderable {
 
   /** 忙态观测（转轮驱动闸——终态 error 与离场 idle 不推帧） */
   get isBusy(): boolean {
-    return this.state === 'working' || this.state === 'streaming' || this.state === 'retrying';
+    return (
+      this.state === 'working' || this.state === 'thinking' || this.state === 'generating' || this.state === 'retrying'
+    );
   }
 
   /** 当前转轮帧观测面（测试断言帧推进用） */
@@ -99,9 +106,16 @@ export class TaskStatusLine implements Renderable {
     this.onChange?.();
   }
 
-  /** 态② 获取响应中（assistant 流式窗口 message_start 驱动——message_end 归态①） */
-  enterStreaming(): void {
-    this.state = 'streaming';
+  /** 态② 思考中（注⑪⑦ 细分双态之一——message_start 起跑缺省 / thinking 尾块
+   * 维持；assistant 流式窗口开，message_end 归态①） */
+  enterThinking(): void {
+    this.state = 'thinking';
+    this.onChange?.();
+  }
+
+  /** 态② 生成中（注⑪⑦ 细分双态之二——text 尾块词面迁移一次；message_end 归态①） */
+  enterGenerating(): void {
+    this.state = 'generating';
     this.onChange?.();
   }
 
@@ -148,7 +162,7 @@ export class TaskStatusLine implements Renderable {
   render(buffer: CellBuffer, region: Region): void {
     if (this.state === 'idle' || region.width <= 0) return;
     if (this.state === 'error') {
-      // 态④：红 ✗ 终态——无转轮无括号（用量与速度归 footer 尾注）；失败直呈律
+      // 态④：红 ✗ 终态——无转轮无括号（用量归 footer 尾注；速度段已退役 V-4 注⑪⑦）；失败直呈律
       // （V-0 注②）同句携因 `✗ 失败 · 原因`（缺席裸形兜底）；原因行宽帽 = 段帽
       // （ellipsize 一句话帽——不溢行产漂账物理行）
       const text = this.errorReason === null ? '✗ 失败' : `✗ 失败 · ${this.errorReason}`;
@@ -172,7 +186,7 @@ export class TaskStatusLine implements Renderable {
     if (useParen) buffer.writeText(region.row, region.col + 2 + stringWidth(fitted), paren, this.dimStyle);
   }
 
-  /** 文案段（态① 工具段优先/② 流式/③ 重试倒计时；速度段尾拼 ` · `——态①②） */
+  /** 文案段（态① 工具段优先/② 思考中·生成中细分/③ 重试倒计时；本轮段尾拼 ` · `——态①②） */
   private statusText(): string {
     if (this.state === 'retrying') {
       // 倒计时本地钟现算（绝对时刻律）：窗尽 clamp 0s（resumed 事件随后续到达）
@@ -180,9 +194,15 @@ export class TaskStatusLine implements Renderable {
       return `重试中 第 ${this.retryAttempt}/${this.retryMaxAttempts} 次 · ${secondsLeft}s 后`;
     }
     const base =
-      this.state === 'streaming' ? '获取响应中' : this.toolName !== null ? `⚙ ${this.toolName} …` : '正在对话中';
-    const speed = this.providers.speedText();
-    return speed === '' ? base : `${base} · ${speed}`;
+      this.state === 'thinking'
+        ? '思考中'
+        : this.state === 'generating'
+          ? '生成中'
+          : this.toolName !== null
+            ? `⚙ ${this.toolName} …`
+            : '正在对话中';
+    const turnTokens = this.providers.turnTokensText();
+    return turnTokens === '' ? base : `${base} · ${turnTokens}`;
   }
 
   /** 括号段（dim——` (1m 02s · 按 ESC 取消对话)`；两段各自缩位，双缺席无括号） */
