@@ -47,6 +47,12 @@ plantea de verdad:
 
 **Cuando la inteligencia sea barata y general, ¿quién monta guardia por ti?**
 
+Un modelo de frontera pertenece a todos a la vez, así que no responde ante nadie —
+ninguna petición cambia sus pesos. El valor de un agente corre en dirección contraria:
+la inteligencia misma se abarata mes a mes, mientras que la parte que te conoce — tu
+memoria, tus preferencias, las habilidades crecidas contigo — no puede regenerarse.
+Esa asimetría es el producto.
+
 Por eso entregamos la autoevolución como principio de producto, no como manifiesto.
 Empieza con bucles acotados y verificables hoy mismo — las sesiones se sedimentan en
 memoria, la experiencia se sedimenta en habilidades, cada ejecución queda reproducible

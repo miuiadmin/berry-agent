@@ -47,6 +47,12 @@ cette époque pose réellement :
 
 **Quand l'intelligence devient bon marché et générale, qui monte la garde pour vous ?**
 
+Un modèle de pointe appartient à la fois à tout le monde, donc ne répond devant
+personne — aucune requête ne change ses poids. La valeur d'un agent va dans l'autre
+sens : l'intelligence brute devient chaque mois moins chère, tandis que la part qui
+vous connaît — votre mémoire, vos préférences, les compétences grandies avec vous —
+ne peut pas être régénérée. Cette asymétrie, c'est le produit.
+
 Nous livrons donc l'auto-évolution comme un principe produit, pas comme un manifeste.
 Elle commence par des boucles bornées, vérifiables dès aujourd'hui — les sessions se
 déposent en mémoire, l'expérience se dépose en compétences, chaque exécution reste

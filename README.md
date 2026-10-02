@@ -45,6 +45,11 @@ pretend to be. It is an engineering answer to the question this era actually ask
 
 **When intelligence becomes cheap and general, who stands watch for you?**
 
+A frontier model belongs to everyone at once, so it answers to no one — asking never
+changes its weights. An agent's value runs the other way: raw intelligence gets
+cheaper by the month, while the part that knows you — your memory, your preferences,
+the skills grown alongside you — cannot be regenerated. That asymmetry is the product.
+
 So we ship self-evolution as a product principle, not a manifesto. It starts with
 bounded loops you can verify today — sessions settle into memory, experience settles
 into skills, every run stays replayable and auditable — not with grand narratives
