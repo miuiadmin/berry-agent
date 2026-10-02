@@ -329,6 +329,31 @@ describe('AutocompletePopup', () => {
     expect(model.getText()).toBe('/model'); // 前缀两候选（/model、/memory）——应用高亮首项
   });
 
+  // —— 全量输入穿透律·尾空格铸造形（2026-10-02 e2e Enter 间歇丢失定罪修复）：
+  // 活体/静态参数位（/resume|/export 会话 id、/rewind 检查点、/plugins、/goal、
+  // 静态子动词枚举）铸造 replacement 惯携尾空格——应用后直进下一 token 位。
+  // typed token 与 replacement 精确比对被这一个尾空格击穿 → enter 被「无净代换
+  // 的应用」吞掉（代换仅追加不可见尾空格，视觉零变化），命令永不提交 ——
+  it('高亮项已全量输入且 replacement 带尾空格：enter 穿透不消费（修前吞键实证红——尾空格差一击穿全量判定）', () => {
+    const model = new EditorModel();
+    model.setText('/resume e2ehist');
+    const popup = new AutocompletePopup(model);
+    // live-completions 位判三铸造形：label 短形、replacement 全 id 尾空格
+    popup.applyResult({ items: [item('e2ehist', 'e2ehist ', '测试会话')], replaceStart: 8, replaceEnd: 15 });
+    expect(popup.visible).toBe(true);
+    expect(popup.handleEvent(key('enter'))).toBe(false); // 穿透——修前 'e2ehist' !== 'e2ehist ' 判非全量 → applySelection 吞键
+    expect(model.getText()).toBe('/resume e2ehist'); // 无代换发生（修前追加不可见尾空格）
+  });
+
+  it('高亮项已全量输入且 replacement 带尾空格：tab 仍消费应用（补尾空格进续打位——键面分离不破）', () => {
+    const model = new EditorModel();
+    model.setText('/resume e2ehist');
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({ items: [item('e2ehist', 'e2ehist ', '测试会话')], replaceStart: 8, replaceEnd: 15 });
+    expect(popup.handleEvent(key('tab'))).toBe(true);
+    expect(model.getText()).toBe('/resume e2ehist '); // 尾空格补齐（应用后直进下一 token 位）
+  });
+
   // —— 陈旧窗守卫（R6 批 10j）：20ms 防抖窗内弹层可持上轮 result——输入已
   // 变更、新查未发，enter/tab 按陈旧区间代换会劈坏文本（'/help l' 形）。守卫
   // 对拍 token 现区间，失配即收层穿透（enter 走提交语义、tab 回编辑器） ——

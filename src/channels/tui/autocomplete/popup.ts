@@ -11,7 +11,9 @@
  *   闪回——2026-09-20 TUI 视觉品质战役·组 2）；其余键不消费（穿透回
  *   Editor 继续输入——弹层随下次落位重算）；
  *   enter 的全量输入穿透律——token 已是高亮项全文时 enter 不消费（穿透提交，
- *   归编辑器——2026-09-13 真模型五轮实测定罪补）、tab 恒应用；
+ *   归编辑器——2026-09-13 真模型五轮实测定罪补；2026-10-02 尾空白容差——
+ *   参数位铸造形 replacement 惯携尾空格，精确比对被差一击穿即吞提交键）、
+ *   tab 恒应用；
  * - 陈旧窗守卫（R6 批 10j）：20ms 防抖窗内弹层可持上轮 result（输入已变更、
  *   新查未发），enter/tab 应用陈旧 replaceStart/End 会劈坏文本——应用前对拍
  *   光标 token 现区间，陈旧即收层穿透；
@@ -199,6 +201,15 @@ export class AutocompletePopup implements Renderable {
   /**
    * 全量输入判定：光标 token 现文本 === 高亮项 replacement 全文（enter 路径
    * 已过陈旧守卫——result 区间与 token 现区间一致，slice 取值即新鲜）。
+   *
+   * 尾空白容差（2026-10-02 e2e Enter 间歇丢失定罪修复）：活体/静态参数位
+   * （会话 id / 检查点 / plugins / goal / 静态子动词枚举）铸造 replacement
+   * 惯携尾空格——应用后直进下一 token 位。精确比对会被这一个尾空格击穿，
+   * enter 被「无净代换的应用」吞掉：代换仅追加不可见尾空格（视觉零变化），
+   * 命令永不提交（/resume e2ehist + Enter 间歇失效真凶——弹层 20ms 防抖后
+   * 在场即吞，竞速成败随风距）。比对前剥 replacement 尾空白——token 已是
+   * 替换文全文（含续打位铸造形）即穿透，提交语义归编辑器；tab 不走本判
+   * 恒应用（补尾空格进续打位——键面分离）。
    */
   private selectionAlreadyTyped(): boolean {
     const result = this.result;
@@ -206,7 +217,8 @@ export class AutocompletePopup implements Renderable {
     const item = result.items[this.activeIndex]!;
     const line = this.model.getLines()[this.model.getCursor().line];
     if (line === undefined) return false;
-    return line.slice(result.replaceStart, result.replaceEnd) === item.replacement;
+    const want = item.replacement.replace(/[ ]+$/, ''); // 尾空白容差（续打位铸造形）
+    return line.slice(result.replaceStart, result.replaceEnd) === want;
   }
 
   /**
