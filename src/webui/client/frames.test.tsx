@@ -265,6 +265,18 @@ describe('frames 工具族与状态行', () => {
     expect(state.status).toBeNull();
     expect(state.messages).toHaveLength(1);
   });
+
+  it('失败直呈律 webui 第三位：errorMessage 同句携因（✖ 失败 · 原因——07 §4.1 V-0 注②）', () => {
+    // 修前红锚：裸「✖ 失败」零上下文（与 TUI 双位同律人读化——跨通道同批）
+    let state = applyEnvelope(
+      initialAppState,
+      display({ type: 'agent_end', status: 'failed', errorMessage: '模型渠道未配置（CHANNEL_UNKNOWN）' }),
+    );
+    expect(state.status).toBe('✖ 失败 · 模型渠道未配置（CHANNEL_UNKNOWN）');
+    // errorMessage 缺席 → 裸形兜底（诚实缺席非虚造）
+    state = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
+    expect(state.status).toBe('✖ 失败');
+  });
 });
 
 describe('frames 审批与通知', () => {

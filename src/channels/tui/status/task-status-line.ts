@@ -66,6 +66,8 @@ export class TaskStatusLine implements Renderable {
   private retryMaxAttempts = 0;
   private retryNextAt = 0;
   private frameIndex = 0;
+  /** 态④ 失败原因（失败直呈律 V-0 注②——同句携因；null = 无因裸形） */
+  private errorReason: string | null = null;
   /** 转轮样式（accent 派生——主题单源，setTheme 重建） */
   private spinnerStyle: Readonly<CellStyle> = Object.freeze({ fg: DEFAULT_THEME.accent });
   /** 错误终态样式（error 语义键） */
@@ -126,10 +128,13 @@ export class TaskStatusLine implements Renderable {
     this.onChange?.();
   }
 
-  /** 态④ 错误终态（retry_wait_end aborted/exhausted 揭示——红 ✖ 驻留至下个 agent_start） */
-  enterError(): void {
+  /** 态④ 错误终态（retry_wait_end aborted/exhausted 揭示——红 ✖ 驻留至下个 agent_start；
+   * reason = 失败直呈律（07 §4.1 V-0 注②）同句原因——agent_end failed 的
+   * errorMessage 经持有档揭示位供入，缺席兜底裸形） */
+  enterError(reason?: string): void {
     this.state = 'error';
     this.toolName = null;
+    this.errorReason = reason !== undefined && reason !== '' ? reason : null;
     this.onChange?.();
   }
 
@@ -157,8 +162,11 @@ export class TaskStatusLine implements Renderable {
   render(buffer: CellBuffer, region: Region): void {
     if (this.state === 'idle' || region.width <= 0) return;
     if (this.state === 'error') {
-      // 态④：红 ✖ 终态——无转轮无括号（用量与速度归 footer 尾注）
-      buffer.writeText(region.row, region.col, ellipsize('✖ 失败', region.width), this.errorStyle);
+      // 态④：红 ✖ 终态——无转轮无括号（用量与速度归 footer 尾注）；失败直呈律
+      // （V-0 注②）同句携因 `✖ 失败 · 原因`（缺席裸形兜底）；原因行宽帽 = 段帽
+      // （ellipsize 一句话帽——不溢行产漂账物理行）
+      const text = this.errorReason === null ? '✖ 失败' : `✖ 失败 · ${this.errorReason}`;
+      buffer.writeText(region.row, region.col, ellipsize(text, region.width), this.errorStyle);
       return;
     }
     const frame = SPINNER_FRAMES[this.frameIndex % SPINNER_FRAMES.length]!;

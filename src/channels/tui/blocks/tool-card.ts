@@ -32,6 +32,7 @@ import { capStyledLine, clampRuns, type StyledLine, type StyleRun } from '../bac
 import { highlight, tokenStyle } from '../markdown/highlight/index.js';
 import { diffWords, parsePatchLines, type PatchLine } from './word-diff.js';
 import { lookupToolRenderer, type RendererLine, type ToolRenderResultInput } from '../../renderers.js';
+import { toolFaceZh } from '../tool-face.js';
 
 /** 卡终态（↔ ToolResultMessage isError / details.aborted 的呈现分档） */
 export type ToolCardStatus = 'success' | 'error' | 'aborted';
@@ -133,7 +134,10 @@ export function renderToolCardStyledLines(card: ToolCardView, columns: number): 
  * 后无游程（裸收尾）。
  */
 function renderGenericHeaderLine(card: ToolCardView, columns: number, statusColor: ColorValue): StyledLine {
-  const name = sanitizeLineText(card.name);
+  // 名段用户面动词（V-0 注⑤——呈现位转写）：数据面保原始名（exec 判断
+  // card.name==='bash' 与插件腿查表在本函数族更早位——均消费原名，转写只在
+  // 呈现串拼接位）
+  const name = sanitizeLineText(toolFaceZh(card.name));
   const brief = sanitizeLineText(card.brief);
   const header = ` ${STATUS_SYMBOL[card.status]} ${name}${brief}`;
   const runs: StyleRun[] = [{ start: 0, end: 2, style: { fg: statusColor } }]; // 符号段（含首空格）

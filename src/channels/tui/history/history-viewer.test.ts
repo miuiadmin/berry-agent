@@ -121,8 +121,8 @@ describe('回看器行集构建（同一渲染管线——零第二渲染器）'
     const { render } = rig([assistantMsg('', [{ id: 't1', name: 'read', arguments: { path: 'x' } }])]);
     const grid = render();
     const row = readRow(grid, 1, COLS);
-    // 白名单键值短显（UX 五问题批②）：path=x 形（非裸键名）
-    expect(row).toContain('⚙ read(path=x)');
+    // 白名单键值短显（UX 五问题批②）：路径=x 形（键位用户面中文化 V-0 注⑤）
+    expect(row).toContain('⚙ 读取文件(路径=x)');
     // 「 ⚙」起首即 dim 段（run 覆写经 writeSlice 落 cell 样式）
     const cell = grid.getCell(1, row.indexOf('⚙'));
     expect(cell?.style.dim).toBe(true);

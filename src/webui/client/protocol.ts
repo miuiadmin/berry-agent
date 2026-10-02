@@ -58,6 +58,11 @@ export type ClientDisplayEvent =
       readonly type: 'agent_end';
       readonly status?: string;
       /**
+       * 失败原因（失败直呈律 07 §4.1 V-0 注②跨通道同律——服务端发射位在册
+       * 载荷，客户端视界补声明）：在场即状态行同句携因 `✖ 失败 · 原因`。
+       */
+      readonly errorMessage?: string;
+      /**
        * run 总耗时毫秒（A-3 载荷位——在场即唯一真源，SPA/SDK 同源消费）：
        * 服务端 loop 尚未发射（现仅 status/stopReason/errorMessage），本字段
        * 为前向兼容声明——收尾行耗时段优先取它，缺席回退客户端观察窗近似。

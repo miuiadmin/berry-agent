@@ -96,7 +96,19 @@ export interface ChannelsService<TProjection> {
  * 锁全归本源（689e5ba 立规——用户面折面禁裸 String）；经 index.ts 公开面
  * 再导出供 host 域消费（跨模块只走公开面三名）。 */
 export function foldErrorText(err: unknown): string {
-  if (err instanceof BaseError) return `${err.code}：${err.message}`;
+  if (err instanceof BaseError) {
+    // 码单写律（07 §4.1 V-0 注⑤）：前缀码 XOR 消息内码——message 已内嵌码形
+    // （`[码]` 或 `码：`/`码:` 前缀位）则不再前缀，双写禁（`码：[码] …` 病灶）。
+    // 判据锚**前缀位**非全文含（中段引用他码不误判）。
+    if (
+      err.message.startsWith(`[${err.code}]`) ||
+      err.message.startsWith(`${err.code}：`) ||
+      err.message.startsWith(`${err.code}:`)
+    ) {
+      return err.message;
+    }
+    return `${err.code}：${err.message}`;
+  }
   return err instanceof Error ? err.message : String(err);
 }
 

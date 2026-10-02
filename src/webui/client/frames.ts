@@ -387,8 +387,13 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
       if (payload.type === 'agent_end') {
         // 终态分档（03 §10.4 SPA 呈现面终态条款②——07 §4.1 件 6 跨通道同律）：
         // failed/aborted 显式呈现不伪装成功；completed/缺席归闲态
-        // （修前不分 status 恒归闲态——失败 run 状态行无痕伪收场）
-        const status = payload.status === 'failed' ? '✖ 失败' : payload.status === 'aborted' ? '⏹ 已中止' : null;
+        // （修前不分 status 恒归闲态——失败 run 状态行无痕伪收场）。
+        // 失败直呈律（V-0 注②第三位）：errorMessage 在场同句携因——孤立 ✖ 禁
+        const failedText =
+          payload.errorMessage !== undefined && payload.errorMessage !== ''
+            ? `✖ 失败 · ${payload.errorMessage}`
+            : '✖ 失败';
+        const status = payload.status === 'failed' ? failedText : payload.status === 'aborted' ? '⏹ 已中止' : null;
         // run 收尾行（07 §4.1 收尾行条款）：失败终态无收尾行（错误块本体呈现）；
         // 其余终态按 runCloseLine 组形瞬时追加（不落投影——重拉/回放不可见）
         const closeText = runCloseLine(state, payload, now);

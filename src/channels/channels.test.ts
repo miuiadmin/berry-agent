@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
-import { createChannels } from './service.js';
+import { createChannels, foldErrorText } from './service.js';
 import type { ApprovalAskAnswer, SessionEnvelope, UiBackend, UiCapabilities } from './types.js';
 import type { AgentEvent } from '../agent/index.js';
 
@@ -1152,5 +1152,34 @@ describe('插件域后端注册面（03 §2.7 后端 id 分域律——U3 批 U3
     expect(s.listPluginBackendIds()).toEqual(['webui']);
     s.removeBackend('tui'); // 摘宿主后端不牵连插件域
     expect(s.listPluginBackendIds()).toEqual(['webui']);
+  });
+});
+
+describe('foldErrorText 码单写律（07 §4.1 V-0 注⑤——前缀码 XOR 消息内码）', () => {
+  it('message 内嵌 [码] 前缀 → 不再前缀（双写禁——`码：[码] …` 病灶）', () => {
+    // 修前红锚：产出「码：[码] …」同码双写（实录病灶 TOOL_TIMEOUT: [TOOL_TIMEOUT] …）
+    const err = new BaseError('SESSION_EVENT_OVER_BUDGET', '[SESSION_EVENT_OVER_BUDGET] 事件面超预算');
+    expect(foldErrorText(err)).toBe('[SESSION_EVENT_OVER_BUDGET] 事件面超预算');
+  });
+
+  it('message 内嵌 `码：` 前缀 → 不再前缀', () => {
+    const err = new BaseError('SESSION_NOT_FOUND', 'SESSION_NOT_FOUND：会话未找到');
+    expect(foldErrorText(err)).toBe('SESSION_NOT_FOUND：会话未找到');
+  });
+
+  it('message 内嵌 `码:`（半角冒号）前缀 → 同律不再前缀', () => {
+    const err = new BaseError('SDK_DECODE', 'SDK_DECODE: 帧解码失败');
+    expect(foldErrorText(err)).toBe('SDK_DECODE: 帧解码失败');
+  });
+
+  it('message 无码形 → 前缀码单写形维持（既有 wf_3c8b00b8 组α律不回退）', () => {
+    expect(foldErrorText(new BaseError('PLUGIN_APPLY_FAILED', '装载失败具名'))).toBe(
+      'PLUGIN_APPLY_FAILED：装载失败具名',
+    );
+  });
+
+  it('message 含码但非前缀位（中段引用）→ 前缀维持（判据锚前缀非全文含）', () => {
+    const err = new BaseError('SESSION_CLOSED', '会话已关，他处码可查注册表');
+    expect(foldErrorText(err)).toBe('SESSION_CLOSED：会话已关，他处码可查注册表');
   });
 });

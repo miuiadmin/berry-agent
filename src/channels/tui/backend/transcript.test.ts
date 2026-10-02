@@ -354,7 +354,7 @@ describe('LiveTranscript 投影重建与帽', () => {
     expect(t.snapshot[2]).toMatchObject({
       kind: 'tool-card',
       name: 'grep',
-      brief: '(pattern=x, path=y)',
+      brief: '(模式=x, 路径=y)',
       status: 'success',
       diff: false,
     });
@@ -364,6 +364,31 @@ describe('LiveTranscript 投影重建与帽', () => {
     const t = new LiveTranscript();
     t.loadProjection([{ role: 'memory/recall', content: { q: 1 }, timestamp: 1 }, userMsg('问题')]);
     expect(t.snapshot).toEqual([{ kind: 'user', text: '问题', theme: DEFAULT_THEME }]);
+  });
+
+  it('argsBrief 键位中文化 + 白名单扩容（07 §4.1 V-0 注⑤参数签名键位——prompt/background 入列）', () => {
+    // 修前红锚：agent 调用 brief = '(prompt)'（prompt 非白名单只键名）+ background
+    // 缺席——裸英文签名形；键位映射后「任务=… 后台=true」人读形
+    const t = new LiveTranscript();
+    t.loadProjection([
+      userMsg('去查'),
+      assistantMsg('', [{ id: 'tcA', name: 'agent', arguments: { prompt: '扫描全库找 TODO', background: true } }]),
+      toolResultMsg('已派发', { toolCallId: 'tcA' }),
+    ]);
+    const card = t.snapshot.find((b) => b.kind === 'tool-card') as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(card.brief).toContain('任务=扫描全库找 TODO');
+    expect(card.brief).toContain('后台=true');
+    expect(card.brief).not.toContain('prompt');
+    expect(card.brief).not.toContain('background');
+    // 无映射键（插件自定义参数）英文键名直呈兜底
+    const t2 = new LiveTranscript();
+    t2.loadProjection([
+      userMsg('去查'),
+      assistantMsg('', [{ id: 'tcB', name: 'custom_probe', arguments: { region: 'ap' } }]),
+      toolResultMsg('ok', { toolCallId: 'tcB' }),
+    ]);
+    const card2 = t2.snapshot.find((b) => b.kind === 'tool-card') as Extract<TranscriptBlock, { kind: 'tool-card' }>;
+    expect(card2.brief).toContain('region'); // 映射集外键名零转写
   });
 
   it('loadProjection 清流式槽位（投影是 durable 快照）', () => {
@@ -460,7 +485,7 @@ describe('renderBlockLines 渲染行提取（主屏直写与件 8 回看器共�
   it('tool-call / tool-result 块：单行 dim 样式', () => {
     const toolCall = renderBlockLines({ kind: 'tool-call', name: 'read', brief: '(path)' }, 40);
     expect(toolCall).toHaveLength(1);
-    expect(toolCall[0]).toBe('\x1b[2m ⚙ read(path)\x1b[0m');
+    expect(toolCall[0]).toBe('\x1b[2m ⚙ 读取文件(path)\x1b[0m');
     const toolResult = renderBlockLines({ kind: 'tool-result', brief: '命中' }, 40);
     expect(toolResult[0]).toBe('\x1b[2m ↳ 命中\x1b[0m');
   });
@@ -505,7 +530,7 @@ describe('renderBlockStyledLines 带样式行（零第二渲染器——与主�
   it('tool-call / tool-result 块：整行 dim 单段（plain 无转义零样式混入）', () => {
     const toolCall = renderBlockStyledLines({ kind: 'tool-call', name: 'read', brief: '(path)' }, 40);
     expect(toolCall).toEqual([
-      { plain: ' ⚙ read(path)', runs: [{ start: 0, end: ' ⚙ read(path)'.length, style: { dim: true } }] },
+      { plain: ' ⚙ 读取文件(path)', runs: [{ start: 0, end: ' ⚙ 读取文件(path)'.length, style: { dim: true } }] },
     ]);
     const toolResult = renderBlockStyledLines({ kind: 'tool-result', brief: '命中' }, 40);
     expect(toolResult[0]!.plain).toBe(' ↳ 命中');
@@ -558,7 +583,7 @@ describe('renderBlockStyledLines 带样式行（零第二渲染器——与主�
     const blocks: Parameters<typeof renderBlockStyledLines>[0][] = [
       { kind: 'user', text: '你好世界'.repeat(8), theme: DEFAULT_THEME }, // 折行
       { kind: 'markdown', doc: MarkdownDoc.of('# 标题\n\n- 甲\n- 乙\n\n`code` 与 **粗**') },
-      { kind: 'tool-call', name: 'grep', brief: '(pattern, path)' },
+      { kind: 'tool-call', name: 'grep', brief: '(模式, 路径)' },
       { kind: 'tool-result', brief: '首行结果' },
       slotOf(1, '流式快照', null),
       slotOf(2, '流式**粗体**与 `code`', streamingDoc),
@@ -684,7 +709,7 @@ describe('LiveTranscript 工具卡配对账（批 10i R4——直播路）', () 
     expect(t.snapshot[0]).toMatchObject({
       kind: 'tool-card',
       name: 'grep', // 消息面 toolName 是 'read'——卡面取 pendingCalls 调用侧
-      brief: '(pattern=x, path=y)', // 白名单键值短显（UX 五问题批②——值截 40 列内直呈）
+      brief: '(模式=x, 路径=y)', // 白名单键值短显（UX 五问题批②——值截 40 列内直呈）
       status: 'success',
       diff: false,
     });
@@ -755,7 +780,7 @@ describe('LiveTranscript 投影孤儿兜底与配对撤销（批 10i R4——rep
   it('loadProjection 走查毕的在飞孤儿 → ⚙ 简行携 toolCallId（在飞显形）', () => {
     const t = new LiveTranscript();
     t.loadProjection([assistantMsg('', [{ id: 'tc1', name: 'read', arguments: { path: 'a.ts' } }])]);
-    expect(t.snapshot).toEqual([{ kind: 'tool-call', name: 'read', brief: '(path=a.ts)', toolCallId: 'tc1' }]);
+    expect(t.snapshot).toEqual([{ kind: 'tool-call', name: 'read', brief: '(路径=a.ts)', toolCallId: 'tc1' }]);
   });
 
   it('配对到达留账落卡（⚙ 行不撤销——append-only 留账律；净 +1 块）', () => {

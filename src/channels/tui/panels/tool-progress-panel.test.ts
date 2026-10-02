@@ -74,7 +74,7 @@ describe('ToolProgressPanel 行生命周期', () => {
     expect(panel.measure(WIDTH)).toBe(0);
     panel.applyUpdate('t1', '扫描中');
     expect(panel.measure(WIDTH)).toBe(1);
-    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ grep · 扫描中');
+    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ 搜索文本 · 扫描中');
   });
 
   it('后续 update 原位换行（尾行文本更新）', () => {
@@ -82,7 +82,7 @@ describe('ToolProgressPanel 行生命周期', () => {
     panel.begin('t1', 'grep');
     panel.applyUpdate('t1', '第一段');
     panel.applyUpdate('t1', '第二段');
-    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ grep · 第二段');
+    expect(readRow(renderPanel(panel), 0)).toBe(' ▸ 搜索文本 · 第二段');
   });
 
   it('文本缺席退化形：` ▸ 名 …`', () => {
@@ -132,9 +132,9 @@ describe('ToolProgressPanel 行生命周期', () => {
     const width = 24;
     const grid = new CellGrid(width, panel.measure(width));
     panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
-    // 前缀 ' ▸ grep · ' 10 列 + 13 x（23 列整字帽）+ '…' = 24 列恰满
+    // 前缀 ' ▸ 搜索文本 · ' 14 列（V-0 注⑤动词位）+ 9 x（23 列整字帽）+ '…' = 24 列恰满
     //（修前红锚：14 x 硬切到帽、尾部无 …）
-    expect(readRow(grid, 0, width)).toBe(' ▸ grep · ' + 'x'.repeat(13) + '…');
+    expect(readRow(grid, 0, width)).toBe(' ▸ 搜索文本 · ' + 'x'.repeat(9) + '…');
   });
 });
 

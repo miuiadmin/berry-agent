@@ -33,6 +33,7 @@ import {
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { lookupToolRenderer, type RendererLine } from '../../renderers.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
+import { toolFaceZh } from '../tool-face.js';
 
 /** 帽内行数（溢出行另计——spec 定形） */
 const MAX_ROWS = 4;
@@ -155,7 +156,7 @@ export class ToolProgressPanel implements Renderable {
         continue;
       }
       const tail = row.text !== null ? ` · ${row.text}` : ' …';
-      visual.push({ kind: 'host', text: ` ▸ ${row.name}${tail}` });
+      visual.push({ kind: 'host', text: ` ▸ ${toolFaceZh(row.name)}${tail}` }); // 名段用户面动词（V-0 注⑤——行呈现位转写，账存原始名）
     }
     return visual;
   }

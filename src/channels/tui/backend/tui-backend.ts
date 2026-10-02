@@ -106,6 +106,7 @@ import {
 } from '../theme/index.js';
 import { buildSgr, capAnsiLine, SGR_RESET } from './ansi-rows.js';
 import { sanitizeLineText } from '../blocks/tool-card.js';
+import { toolFaceZh } from '../tool-face.js';
 import { keyEventToBinding, Keymap, type KeybindingRejection } from '../keys/registry.js';
 import { Editor, type EditorSubmitOptions } from '../editor/editor.js';
 import { editorHeightCap } from '../editor/height-cap.js';
@@ -516,6 +517,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private retryContinuation = false;
   /** 本 run 工具执行计数（tool_execution_start 递增；重试续入不清——收尾行纯对话轮判据） */
   private runToolCount = 0;
+  /**
+   * 失败原因**持有档**（失败直呈律 V-0 注②）：agent_end failed 的 errorMessage
+   * 存账（终态揭示延后——批 4 持有档），retry_wait_end {aborted|exhausted} 揭示
+   * 时消费（任务行态④ + footer 尾注双位同句携因）；消费即清、agent_start 新
+   * run 起清账（陈原因不残留）。
+   */
+  private pendingFailReason: string | null = null;
   /**
    * 本 run 种子用户消息时戳（收尾行时刻源——message_end 首条 channel 缺席的
    * user 消息；null = 中途附着无种子，回退 runEndedAt 诚实呈现）。
@@ -1896,7 +1904,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // _sessionId：会话归属位随批 13b-3 后端面签名携带——TUI 呈现不消费（单屏
     // 焦点态无会话路由需求），SDK 通道后端以此路由 ask 帧
     return new Promise<ApprovalAskAnswer>((resolve) => {
-      const title = request.toolName !== undefined ? `⚙ ${request.toolName}：${request.summary}` : request.summary;
+      const title =
+        request.toolName !== undefined ? `⚙ ${toolFaceZh(request.toolName)}：${request.summary}` : request.summary;
       const panel = new SelectPanel({
         title,
         options: [
@@ -2462,6 +2471,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           // 搁浅件续跑/中途重放形回退 runEndedAt 诚实呈现）
           this.runSeedAt = seedAt;
         }
+        this.pendingFailReason = null; // 失败原因持有档清账（V-0 注②——新 run 起陈原因不残留）
         this.toolPanel.clear(); // 件 5：瞬时面清板（静默先行——enterWorking 即帧，序倒中间帧重绘陈旧行）
         this.taskLine.enterWorking(); // 态① 正在对话中（工具段让位律——见 tool_execution_start）
         this.touchFixed();
@@ -2473,6 +2483,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           // {aborted|exhausted}（终态收口）。揭示前账不冻结（run 仍在跑——
           // 退避窗计时计入 run 时长）、任务行保持忙态转轮不停（不闪「✖」）、
           // footer 尾注不落（防翻档前一帧伪终态）
+          this.pendingFailReason = event.errorMessage ?? null; // 失败直呈律（V-0 注②）：原因存账随揭示同句供位
           this.toolPanel.clear();
           this.refreshTodo(); // 件 4：刷新（失败收场 todo 状态可能推进）
           this.refreshFooter(); // 批B：今日段刷新锚
@@ -2518,10 +2529,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.taskLine.enterWorking();
         } else {
           // aborted / exhausted：终态揭示——红 ✖ 驻留 + 账冻结 + footer ✖ 尾注
-          // （failed 无收尾行——错误块与尾注已足，不叠装饰行）
+          // （failed 无收尾行——错误块与尾注已足，不叠装饰行）；失败直呈律
+          // （V-0 注②）：双位同句携因（任务行态④主呈位 + footer 尾注）——
+          // pendingFailReason 缺席兜底裸形（诚实缺席非陈因）
           this.runEndedAt = this.now();
-          this.taskLine.enterError();
-          this.statusLine.setStatus('✖ 失败');
+          const failText = this.pendingFailReason === null ? '✖ 失败' : `✖ 失败 · ${this.pendingFailReason}`;
+          this.taskLine.enterError(this.pendingFailReason ?? undefined);
+          this.statusLine.setStatus(failText);
+          this.pendingFailReason = null; // 消费即清（终态后账不复用）
           this.runSeedAt = null; // 种子账收口（failed 无收尾行——种子不复用）
           this.refreshFooter(); // 批B：今日段刷新锚（失败腿同样落账）
         }
@@ -2533,8 +2548,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         break; // 正文流式归直播路——固定区零扰动（任务行 onChange 自触重画）
       case 'tool_execution_start':
         this.runToolCount += 1; // 收尾行纯对话轮判据（重试续入不清——整 run 口径）
-        this.taskLine.setTool(event.name); // 态① 工具段 `⚙ 名 …` 优先
-        this.toolPanel.begin(event.toolCallId, event.name, event.arguments); // 件 5：建档不建行（参数快照 = renderCall 在飞期载荷）
+        this.taskLine.setTool(toolFaceZh(event.name)); // 态① 工具段 `⚙ 动词 …` 优先（V-0 注⑤用户面动词）
+        this.toolPanel.begin(event.toolCallId, event.name, event.arguments); // 件 5：建档不建行（原始名建档——插件腿查表依赖；行呈现位转写）
         this.touchFixed();
         break;
       case 'tool_execution_end':

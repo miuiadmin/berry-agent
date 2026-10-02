@@ -56,6 +56,7 @@ import {
   type ToolCardRenderInput,
   type ToolCardStatus,
 } from '../blocks/tool-card.js';
+import { argKeyZh, toolFaceZh } from '../tool-face.js';
 import { ACTION_CATALOG } from '../keys/registry.js';
 import type { SessionEnvelope } from '../../types.js';
 
@@ -235,7 +236,8 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
         columns,
       );
     case 'tool-call':
-      return [dimStyledLine(` ⚙ ${block.name}${block.brief}`)];
+      // ⚙ 简行（孤儿兜底）：名段用户面动词（V-0 注⑤——呈现位转写，账存原始名）
+      return [dimStyledLine(` ⚙ ${toolFaceZh(block.name)}${block.brief}`)];
     case 'tool-result':
       return [dimStyledLine(` ↳ ${block.brief}`)];
     case 'error': {
@@ -554,9 +556,10 @@ function isAbortedDetails(details: unknown): boolean {
 /**
  * 参数键值短显白名单（UX 五问题批②——codex 对标复刻）：白名单键取值截 40
  * 列短显（command/path/pattern 等高频可读键），非白名单键维持键名形（呈现面
- * 克制不倒任意参数值——白名单外值面不进简述）。
+ * 克制不倒任意参数值——白名单外值面不进简述）。V-0 注⑤扩容：prompt（agent
+ * 任务——裸键名形 → `任务=…` 人读）与 background（boolean 直显 `后台=true`）。
  */
-const ARG_VALUE_KEYS: ReadonlySet<string> = new Set(['command', 'path', 'pattern', 'file']);
+const ARG_VALUE_KEYS: ReadonlySet<string> = new Set(['command', 'path', 'pattern', 'file', 'prompt', 'background']);
 
 /**
  * 工具简述：参数键名/键值序列。白名单键值短显（UX 五问题批②）：string 值
@@ -570,11 +573,12 @@ function argsBrief(args: Record<string, unknown>): string {
   const keys = Object.keys(args);
   if (keys.length === 0) return '';
   const parts = keys.map((key) => {
-    if (!ARG_VALUE_KEYS.has(key)) return key; // 非白名单键：键名形（值不进简述）
+    if (!ARG_VALUE_KEYS.has(key)) return argKeyZh(key); // 非白名单键：键名形（值不进简述；键位用户面中文化 V-0 注⑤）
     const value = args[key];
-    if (typeof value === 'string') return `${key}=${ellipsize(sanitizeLineText(value), BRIEF_WIDTH)}`;
-    if (typeof value === 'number' || typeof value === 'boolean') return `${key}=${String(value)}`;
-    return key; // 对象/数组等复合值：键名形（不发明序列化）
+    const label = argKeyZh(key); // 白名单键位同样经映射（prompt→任务 等——参数签名键位）
+    if (typeof value === 'string') return `${label}=${ellipsize(sanitizeLineText(value), BRIEF_WIDTH)}`;
+    if (typeof value === 'number' || typeof value === 'boolean') return `${label}=${String(value)}`;
+    return label; // 对象/数组等复合值：键名形（不发明序列化）
   });
   return ellipsize(sanitizeLineText(`(${parts.join(', ')})`), BRIEF_WIDTH);
 }

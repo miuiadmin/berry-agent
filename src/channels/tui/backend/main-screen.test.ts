@@ -90,7 +90,7 @@ describe('MainScreen 启动与基础编舞', () => {
       { kind: 'tool-call', name: 'read', brief: '(path)' },
       { kind: 'tool-result', brief: '命中 3 处' },
     ]);
-    expect(io.bytes).toContain('\r\x1b[2m ⚙ read(path)\x1b[0m\n');
+    expect(io.bytes).toContain('\r\x1b[2m ⚙ 读取文件(path)\x1b[0m\n');
     expect(io.bytes).toContain('\r\x1b[2m ↳ 命中 3 处\x1b[0m\n');
   });
 

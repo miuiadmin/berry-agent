@@ -37,10 +37,12 @@ const card = (over: Partial<ToolCardView>): ToolCardView => ({
 describe('工具卡三态卡头', () => {
   it('success 卡头：✓ 符号 success 色 + 名平前景（不 dim——界面美化役批②）+ 简述 dim', () => {
     const lines = renderToolCardStyledLines(card({}), 40);
-    expect(lines[0]!.plain).toBe(' ✓ read(path)');
+    expect(lines[0]!.plain).toBe(' ✓ 读取文件(path)');
     expect(lines[0]!.runs).toEqual([
       { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
-      // 名段（2..6 = 'read'）无游程——平前景可辨；简述段 dim
+      // 简述段 dim——端点 = UTF-16 下标（ansi-rows.ts 定语义）：'读取文件' 4
+      // code units（CJK 显示宽 8 列但长度 4），start = 2+4 = 6（名段 CJK 化后
+      // 断言值与 ASCII 时代同值纯属公式巧合——名段变化由 plain 断言承载）
       { start: 6, end: 13, style: { dim: true } },
     ]);
   });
@@ -52,6 +54,40 @@ describe('工具卡三态卡头', () => {
     const aborted = renderToolCardStyledLines(card({ status: 'aborted' }), 40)[0]!;
     expect(aborted.plain).toContain('⏹');
     expect(aborted.runs[0]).toMatchObject({ style: { fg: DEFAULT_THEME.secondary } });
+  });
+
+  it('内建工具族名用户面中文化（07 §4.1 V-0 注⑤——裸签名 agent/write 禁）：映射词渲染位转写', () => {
+    // 修前红锚：产出「 ✓ agent(…)」裸签名——呈现层转写（数据面保原始名：
+    // exec 判断 card.name==='bash' 与插件腿查表 lookupToolRenderer 均依赖原名）
+    const agent = renderToolCardStyledLines(card({ name: 'agent', brief: '(任务=扫描, 后台=true)' }), 60)[0]!;
+    expect(agent.plain).toBe(' ✓ 子代理(任务=扫描, 后台=true)');
+    const read = renderToolCardStyledLines(card({ name: 'read', brief: '(path=x)' }), 60)[0]!;
+    expect(read.plain).toContain(' ✓ 读取文件');
+  });
+
+  it('无映射工具英文直呈兜底（插件/未来内建不虚译——映射集外零转写）', () => {
+    const lines = renderToolCardStyledLines(card({ name: 'custom_probe' }), 40)[0]!;
+    expect(lines.plain).toContain('custom_probe');
+  });
+
+  it('bash 卡头动词 Ran 例外不动（2026-09-30 复刻位——中文化射界外）', () => {
+    // exec 卡族 = Ran 先例（V-0 注⑤射界注）——名不转写（bash 词判断保持原名路）
+    const lines = renderToolCardStyledLines(
+      card({
+        name: 'bash',
+        brief: '',
+        renderInput: {
+          toolCallId: 'tc',
+          arguments: { command: 'ls -la' },
+          content: [],
+          isError: false,
+          aborted: false,
+        },
+      }),
+      60,
+    );
+    expect(lines[0]!.plain).toContain('Ran');
+    expect(lines[0]!.plain).not.toContain('命令执行');
   });
 });
 
@@ -74,7 +110,7 @@ describe('卡体两档与存账帽', () => {
 
   it('折叠预览行数 ≤ 帽时原样全显（无省略行）', () => {
     const collapsed = renderToolCardStyledLines(card({ body: ['仅一行'] }), 40);
-    expect(collapsed.map((l) => l.plain)).toEqual([' ✓ read(path)', '仅一行']);
+    expect(collapsed.map((l) => l.plain)).toEqual([' ✓ 读取文件(path)', '仅一行']);
   });
 
   it('cardBodyOf 尾留帽：超帽截头保尾 + 截断标记首行', () => {
@@ -333,7 +369,7 @@ describe('卡头屏宽帽（2026-09-20 TUI 修复组 1 批 F6；界面美化役�
 
   it('未超帽卡头原样（同形不受帽影响）', () => {
     const lines = renderToolCardStyledLines(card({}), 40);
-    expect(lines[0]!.plain).toBe(' ✓ read(path)');
+    expect(lines[0]!.plain).toBe(' ✓ 读取文件(path)');
   });
 
   it('帽内窄宽截断整字丢弃不产半字（宽字名末位）+ 裸省略号', () => {

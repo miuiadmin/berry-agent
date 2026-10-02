@@ -257,15 +257,44 @@ describe('TuiBackend 状态面', () => {
     expect(io.bytes).not.toContain('✓ 用量');
   });
 
+  it('失败直呈律：errorMessage 经持有档揭示同句携因（✖ 失败 · 原因——孤立红叉禁）', () => {
+    // 07 §4.1 V-0 注②：任何 ✖ 失败行必同句携带原因；agent_end failed 的
+    // errorMessage 存账（持有档），retry_wait_end 终态揭示时双位（任务行态④ +
+    // footer 尾注）同句携因——修前两位皆裸「✖ 失败」零上下文
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'failed', errorMessage: '模型渠道未配置（CHANNEL_UNKNOWN）' });
+    emit(backend, { type: 'retry_wait_start', attempt: 1, maxAttempts: 3, nextAt: Date.now() + 5_000 });
+    io.bytes = '';
+    emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
+    // 任务行态④ + footer 尾注双位同句携因（主呈位 = 输入框上方位）
+    expect(io.bytes).toContain('✖ 失败 · 模型渠道未配置（CHANNEL_UNKNOWN）');
+    expect(io.bytes).not.toMatch(/✖ 失败[\x1b\r\n]|✖ 失败$/); // 无裸形残留（同句必携因）
+  });
+
+  it('失败原因持有档：resumed 续入清账 + 下轮 agent_start 新账（陈原因不残留）', () => {
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'agent_end', status: 'failed', errorMessage: '旧原因' });
+    emit(backend, { type: 'retry_wait_end', outcome: 'resumed' }); // 续入——账待清
+    emit(backend, { type: 'agent_start' }); // 新 run 起——旧账必清
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'failed' }); // 无 errorMessage 形
+    emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
+    expect(io.bytes).toContain('✖ 失败'); // 兜底裸形（无因可携——诚实缺席非陈因）
+    expect(io.bytes).not.toContain('旧原因'); // 陈原因零残留
+  });
+
   it('tool_execution_start → ⚙ 工具名段优先；end → 清工具', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
     emit(backend, { type: 'tool_execution_start', toolCallId: 'tc1', name: 'grep', arguments: {} });
-    expect(io.bytes).toContain('⚙ grep …');
+    expect(io.bytes).toContain('⚙ 搜索文本 …');
     io.bytes = '';
     emit(backend, { type: 'tool_execution_end', toolCallId: 'tc1', result: {} as never });
-    expect(io.bytes).not.toContain('⚙ grep');
+    expect(io.bytes).not.toContain('⚙ 搜索文本');
   });
 
   it('非聚焦事件不驱动状态面（状态行是聚焦会话的）', () => {
@@ -787,7 +816,7 @@ describe('TuiBackend 补全弹层（三源路由）', () => {
     io.emitInput('/he'); // 防抖窗已排（20ms 尾沿）——弹层未开
     const p = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
     completePump(clock); // 推过窗位——修前：窗内 fire 落层，弹层死显 overlay 段下
-    expect(io.bytes).toContain('⚙ write：写文件'); // 浮层标题在场
+    expect(io.bytes).toContain('⚙ 写入文件：写文件'); // 浮层标题在场（V-0 注⑤动词位）
     expect(io.bytes).not.toContain('帮助'); // 修前红：开层不撤窗——在途查询迟到落层
     io.emitInput('\r');
     pump();
@@ -887,7 +916,7 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     const { io, backend, clock, pump } = makeInteractive();
     const p1 = backend.askApproval('s1', { summary: '写文件', toolName: 'write', suggestedEntry: '/tmp/x' });
     pump();
-    expect(io.bytes).toContain('⚙ write：写文件'); // 工具名标题
+    expect(io.bytes).toContain('⚙ 写入文件：写文件'); // 工具名标题（V-0 注⑤动词位）
     expect(io.bytes).toContain('/tmp/x'); // always 草案 hint 段
     io.emitInput('\r'); // 高亮首项 = 批准
     pump();
@@ -1284,23 +1313,23 @@ describe('TuiBackend 工具进度面板（件 5）', () => {
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     io.bytes = '';
     emit(backend, { type: 'tool_execution_update', toolCallId: 't1', update: '扫描中' });
-    expect(io.bytes).toContain('▸ grep · 扫描中'); // 首个 update 建行
+    expect(io.bytes).toContain('▸ 搜索文本 · 扫描中'); // 首个 update 建行
     io.bytes = '';
     emit(backend, {
       type: 'tool_execution_update',
       toolCallId: 't1',
       update: { content: [{ type: 'text', text: '头部\n\n命中 3 处\n' }] },
     });
-    expect(io.bytes).toContain('▸ grep · 命中 3 处'); // 倒扫末条非空行
+    expect(io.bytes).toContain('▸ 搜索文本 · 命中 3 处'); // 倒扫末条非空行
     io.bytes = '';
     emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
-    expect(io.bytes).not.toContain('▸ grep'); // end 即摘行
+    expect(io.bytes).not.toContain('▸ 搜索文本'); // end 即摘行
 
     emit(backend, { type: 'tool_execution_start', toolCallId: 't2', name: 'read', arguments: {} });
     emit(backend, { type: 'tool_execution_update', toolCallId: 't2', update: '读着' });
     io.bytes = '';
     emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).not.toContain('▸ read'); // agent_end 清板（瞬时面）
+    expect(io.bytes).not.toContain('▸ 读取文件'); // agent_end 清板（瞬时面）
   });
 
   it('start 只建档不建行（面板零扰动）', () => {
@@ -1308,8 +1337,8 @@ describe('TuiBackend 工具进度面板（件 5）', () => {
     emit(backend, { type: 'agent_start' });
     io.bytes = '';
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
-    expect(io.bytes).not.toContain('▸ grep'); // 建档无行——工具名只进状态行
-    expect(io.bytes).toContain('⚙ grep …');
+    expect(io.bytes).not.toContain('▸ 搜索文本'); // 建档无行——工具名只进状态行
+    expect(io.bytes).toContain('⚙ 搜索文本 …');
   });
 });
 
@@ -2404,7 +2433,7 @@ describe('TuiBackend 会话级开关键（批 10i ctrl+t / ctrl+o）', () => {
       },
     });
     expect(io.bytes).toContain('✓'); // 三态卡头（success——符号段与名段间有转义重置不连续）
-    expect(io.bytes).toContain('read');
+    expect(io.bytes).toContain('读取文件'); // 名段用户面动词（V-0 注⑤——原 'read'）
     // 折叠预览中段截断（界面美化役批③——头 2 + 省略行 + 尾 2）：帽外中段不在场
     expect(io.bytes).toContain('行1'); // 头 2 在场（首行不滑失）
     expect(io.bytes).toContain('行2');
@@ -3303,7 +3332,7 @@ describe('TuiBackend footer 扩容段（三反馈批B——档位段 + 今日段
     io.bytes = '';
     emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
     clock.advance(1); // 泵帧
-    expect(io.bytes).toContain('⚙ grep … · 50 tok/s'); // 忙态工具段后拼速度段（' · ' 连接）
+    expect(io.bytes).toContain('⚙ 搜索文本 … · 50 tok/s'); // 忙态工具段后拼速度段（' · ' 连接）
   });
 });
 
@@ -3837,7 +3866,7 @@ describe('TUI 全域清扫 G1/G2/G5/G6（扇出锚 + repaint 清账 + 速度段/
     backend.onRepaint('sess-bbbbbbbbbbbb', [], null);
     io.bytes = '';
     backend.tick(); // 若工具名/忙态残留即在此写出
-    expect(io.bytes).not.toContain('⚙ grep');
+    expect(io.bytes).not.toContain('⚙ 搜索文本');
   });
 
   it('G2-#29 新焦在飞重建忙态：repaint 后 trackProgress 净计数 >0 转轮照转', () => {
