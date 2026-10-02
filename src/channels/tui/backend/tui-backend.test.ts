@@ -273,6 +273,23 @@ describe('TuiBackend 状态面', () => {
     expect(io.bytes).not.toMatch(/✖ 失败[\x1b\r\n]|✖ 失败$/); // 无裸形残留（同句必携因）
   });
 
+  it('失败终态单源化（V-3 注⑧）：✖ 揭示恰一次——footer 尾注腿退役（件 12 态④ 唯一主呈位）', () => {
+    // 07 §4.1 V-3 注⑧：footer 尾注 ✖ 失败形退役——「输入框上方 + footer 尾」
+    // 双位收敛为单位（/new 孤立红病灶⑤ 终局）；aborted ⏹ / completed ✓ 尾注
+    // 维持（同 setStatus 载体）——本锁只退役失败腿
+    const { io, backend } = makeBackend();
+    emit(backend, { type: 'agent_start' });
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'failed', errorMessage: '某因' });
+    emit(backend, { type: 'retry_wait_end', outcome: 'exhausted' });
+    expect(io.bytes.split('✖ 失败').length - 1).toBe(1); // 修前 2：任务行态④ + footer 尾双呈
+    // 邻态不受扰：aborted ⏹ 尾注维持（setStatus 载体活）
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'agent_end', status: 'aborted' });
+    expect(io.bytes).toContain('⏹ 已中止');
+  });
+
   it('失败原因持有档：resumed 续入清账 + 下轮 agent_start 新账（陈原因不残留）', () => {
     const { io, backend } = makeBackend();
     emit(backend, { type: 'agent_start' });

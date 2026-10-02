@@ -2562,7 +2562,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // 件 6：落行（与 setStatus 同载体 last-writer-wins）——终态分档
         // （2026-09-19 P0 静默链修复批：failed ✖ / aborted ⏹ 不显用量成功形——
         // 与件 9 摘要行「失败与中止显式分档、不得伪装成功」同律；failed 腿的
-        // ✖ 尾注随 retry_wait_end 终态揭示落——见下方 retry_wait_end 分支）
+        // ✖ 揭示归 retry_wait_end 分支且仅件 12 态④ 承载〔V-3 注⑧：footer 尾注腿退役〕）
         if (event.status === 'aborted') {
           this.statusLine.setStatus('⏹ 已中止');
           this.appendClosingLine('aborted', event.durationMs);
@@ -2589,14 +2589,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.retryContinuation = true;
           this.taskLine.enterWorking();
         } else {
-          // aborted / exhausted：终态揭示——红 ✖ 驻留 + 账冻结 + footer ✖ 尾注
-          // （failed 无收尾行——错误块与尾注已足，不叠装饰行）；失败直呈律
-          // （V-0 注②）：双位同句携因（任务行态④主呈位 + footer 尾注）——
-          // pendingFailReason 缺席兜底裸形（诚实缺席非陈因）
+          // aborted / exhausted：终态揭示——红 ✖ 驻留 + 账冻结（V-3 注⑧：
+          // footer 尾注腿退役——件 12 态④ 输入框上方位为失败唯一主呈位，
+          // 「输入框上方 + footer 尾」双位收敛为单位）；失败直呈律（V-0 注②）
+          // 携因由任务行态④单源承载——pendingFailReason 缺席兜底裸形
+          // （诚实缺席非陈因）；failed 无收尾行（错误块与任务行已足，不叠装饰行）
           this.runEndedAt = this.now();
-          const failText = this.pendingFailReason === null ? '✖ 失败' : `✖ 失败 · ${this.pendingFailReason}`;
           this.taskLine.enterError(this.pendingFailReason ?? undefined);
-          this.statusLine.setStatus(failText);
           this.pendingFailReason = null; // 消费即清（终态后账不复用）
           this.runSeedAt = null; // 种子账收口（failed 无收尾行——种子不复用）
           this.refreshFooter(); // 批B：今日段刷新锚（失败腿同样落账）

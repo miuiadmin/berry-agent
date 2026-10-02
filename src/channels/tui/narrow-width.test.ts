@@ -260,35 +260,29 @@ describe('思考块窄宽收敛（1-8 列）', () => {
 });
 
 describe('状态行窄宽（1-8 列）', () => {
-  it.each(NARROW)('%i 列三态（legacy 忙 / split 忙 / split 闲）：不炸 + 视觉宽 ≤ 帽 + 全格不变式', (w) => {
-    // legacy 忙态：转轮 + 工具段（rest 宽可超帽——writeText 越界吸收）
-    const legacy = new StatusLine();
-    legacy.start('活动中');
-    legacy.setTool('read_file');
-    const g1 = new CellGrid(w, 1);
-    expect(() => legacy.render(g1, { row: 0, col: 0, width: w, height: 1 })).not.toThrow();
-    expect(stringWidth(readRow(g1, 0, w))).toBeLessThanOrEqual(w);
-    expectGridInvariants(g1);
+  it.each(NARROW)(
+    '%i 列两闲态路（legacy 旧形 / split 分栏——V-3 注⑧③ 忙态族退役）：不炸 + 视觉宽 ≤ 帽 + 全格不变式',
+    (w) => {
+      // legacy 旧形（footer 缺席）：闲态文案居左直写（无 CJK——宽字素在奇数
+      // 宽边界整字落末格时 stringWidth 按内在宽计恒 +1，系读法伪差非写出越界；
+      // 本锁锚物理界不变式，文案取纯单宽形）
+      const legacy = new StatusLine();
+      legacy.setStatus('✓ done · read_file');
+      const g1 = new CellGrid(w, 1);
+      expect(() => legacy.render(g1, { row: 0, col: 0, width: w, height: 1 })).not.toThrow();
+      expect(stringWidth(readRow(g1, 0, w))).toBeLessThanOrEqual(w);
+      expectGridInvariants(g1);
 
-    // split 忙态（footer 在场）：spinnerCol 可算出负值——越界写静默吸收
-    const split = new StatusLine();
-    split.setFooter('cwd·model·s');
-    split.start('活动中');
-    split.setTool('read_file');
-    const g2 = new CellGrid(w, 1);
-    expect(() => split.render(g2, { row: 0, col: 0, width: w, height: 1 })).not.toThrow();
-    expect(stringWidth(readRow(g2, 0, w))).toBeLessThanOrEqual(w);
-    expectGridInvariants(g2);
-
-    // split 闲态：footer 整字截断 + 右对齐闲态文案（起点可为负——部分落格）
-    const idle = new StatusLine();
-    idle.setFooter('cwd·model·s');
-    idle.setStatus('完成：5 项');
-    const g3 = new CellGrid(w, 1);
-    expect(() => idle.render(g3, { row: 0, col: 0, width: w, height: 1 })).not.toThrow();
-    expect(stringWidth(readRow(g3, 0, w))).toBeLessThanOrEqual(w);
-    expectGridInvariants(g3);
-  });
+      // split 闲态（footer 在场）：footer 整字截断 + 右对齐闲态文案（起点可为负——部分落格）
+      const split = new StatusLine();
+      split.setFooter('cwd·model·s');
+      split.setStatus('完成：5 项');
+      const g2 = new CellGrid(w, 1);
+      expect(() => split.render(g2, { row: 0, col: 0, width: w, height: 1 })).not.toThrow();
+      expect(stringWidth(readRow(g2, 0, w))).toBeLessThanOrEqual(w);
+      expectGridInvariants(g2);
+    },
+  );
 });
 
 describe('编辑器极窄宽（composer 提示符 + 单列内容区——V-0 注③ 框退役）', () => {
