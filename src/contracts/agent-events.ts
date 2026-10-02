@@ -28,6 +28,13 @@
  * agent_end 载荷扩（E-0 非新型）：可选 `durationMs/usage/cost` run 累计值
  * ——driver 结算账供源（A-3），可选带出形零迁移；消费端在场必用（收尾行
  * 耗时段唯一真源），缺席回退本地观察账。
+ *
+ * context_usage 单发型（E-4 批——V-4 底栏供数链落码批，07 §4.1 注⑪⑥b）：
+ * turn 收口随发 `{usedTokens?, maxTokens?}`——usedTokens = loop 终值 usage
+ * 账在窗口径（input+output，cache 桶不计）；maxTokens = 模型目录
+ * contextWindow 经 AgentLoopConfig 注入闭包供源（agent 不 import llm
+ * 铁律——宿主装配侧注入）。两字段各自可选，缺席 = 未知不显示（codex
+ * 语义）；非族单发事件，族序律不涉；纯活体型不落 durable（E-1 同红线）。
  */
 
 import type { StopReason, Usage } from './llm.js';
@@ -46,7 +53,7 @@ export type RunStatus = 'completed' | 'aborted' | 'failed';
 export type DeliverChannel = 'steer' | 'followUp' | 'inject';
 
 /**
- * AgentEvent 联合（04 §2——开放词汇表，E-1 起 12 型基线）。message_start/
+ * AgentEvent 联合（04 §2——开放词汇表，E-1 起 12 型基线、E-4 批 13 型）。message_start/
  * message_end 携带 channel（可观测性：消息经哪条通道入列——04 §4；channel
  * 缺省 = 用户直发种子消息）。
  */
@@ -86,6 +93,14 @@ export type AgentEvent =
       /** 重试退避窗关（resumed=续入 / aborted=窗内被打断 / exhausted=燃尽或不可重试终态揭示——可无配对 start） */
       type: 'retry_wait_end';
       outcome: 'resumed' | 'aborted' | 'exhausted';
+    }
+  | {
+      /** 上下文占用快照（04 §2 E-4 批——V-4 底栏供数链；turn 收口随发的非族单发型，纯活体不落 durable） */
+      type: 'context_usage';
+      /** 本 turn 收口在窗 token（loop 终值 usage 账 input+output 在窗口径；缺席 = 未知） */
+      usedTokens?: number;
+      /** 模型上下文窗口（模型目录 contextWindow 经注入闭包供源；缺席 = 未知——呈现侧兜底另裁） */
+      maxTokens?: number;
     };
 
 /** 事件汇（消费面：TUI/SPA 活体呈现、金样录制器等；void/Promise 双形兼容） */

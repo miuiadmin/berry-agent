@@ -7,9 +7,9 @@
       "module": "berry-agent",
       "tier": "stable",
       "since": "1.0",
-      "desc": "AgentEvent 联合（04 §2——开放词汇表，E-1 起 12 型基线）",
+      "desc": "AgentEvent 联合（04 §2——开放词汇表，E-1 起 12 型基线、E-4 批 13 型）",
       "kind": "type",
-      "sig": "e090dd68b726af92"
+      "sig": "f83bcfe6def5f32a"
     },
     {
       "symbol": "AgentEventSink",

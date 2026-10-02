@@ -230,6 +230,9 @@ export class ConversationDriver {
     const baseThinking = typeof options.thinkingLevel === 'function' ? undefined : options.thinkingLevel;
     this.baseConfig = {
       streamFn: options.streamFn,
+      // E-4 context_usage 供源透传（04 §2 E-4 批——07 §4.1 注⑪⑥b；缺席 =
+      // 事件不带 maxTokens，装配注入面 JSDoc 同源）
+      ...(options.contextWindowOf !== undefined ? { contextWindowOf: options.contextWindowOf } : {}),
       // 定值形态直接快照；取值器形态构造期求值一次作基座缺省（run 级真值
       // 由 launch 钉定 runModelValue——enterRun 覆盖位，见下）
       model: typeof options.model === 'function' ? options.model() : options.model,

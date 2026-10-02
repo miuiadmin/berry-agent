@@ -162,6 +162,7 @@ describe('startRun/continueRun 入口两式', () => {
       'message_start',
       'message_update',
       'message_end',
+      'context_usage', // E-4 turn 收口随发（turn_end 前——V-4 供数链）
       'turn_end',
       'agent_end',
     ]);
@@ -316,6 +317,7 @@ describe('无 start 前导错误流', () => {
       'turn_start',
       'message_start', // 无 start 前导终值的补配对（修前缺）
       'message_end',
+      'context_usage', // E-4 turn 收口随发（error 终值零账形——字段缺席本体恒发）
       'turn_end',
       'agent_end',
     ]);
@@ -867,5 +869,69 @@ describe('金样喂 loop（真录制物重演 + 合成三场景——loop 流消
     const live = context.messages.find((m) => m.role === 'assistant') as AssistantMessage;
     expect(live.stopReason).toBe('aborted');
     expect(live.content.map((b) => b.type)).toEqual(['text']);
+  });
+});
+
+/* ---------------- context_usage 发射（E-4——07 §4.1 注⑪⑥b turn 收口随发） ---------------- */
+
+describe('context_usage 发射（E-4——V-4 底栏供数链）', () => {
+  it('每 turn 收口恰一发：usedTokens = 本轮 usage input+output（在窗口径）、maxTokens = 注入闭包现取；序在 turn_end 前', async () => {
+    const seenModels: string[] = [];
+    const { context, config, events } = rig({
+      streamFn: scriptedStreamFn([
+        assistant({
+          content: [{ type: 'text', text: 'hi' }],
+          usage: { input: 12_000, output: 3_000, cacheRead: 500, cacheWrite: 0, totalTokens: 15_500 },
+        }),
+      ]),
+      contextWindowOf: (model) => {
+        seenModels.push(model);
+        return 1_000_000;
+      },
+    });
+    await startRun(context, config, [user('问')]);
+    const emits = events.filter((e) => e.type === 'context_usage');
+    expect(emits).toHaveLength(1); // 每 turn 恰一发
+    const ev = emits[0]!;
+    expect(ev.type === 'context_usage' && ev.usedTokens).toBe(15_000); // 在窗口径 = input+output（cache 桶不计）
+    expect(ev.type === 'context_usage' && ev.maxTokens).toBe(1_000_000); // 目录窗口经注入闭包现取
+    expect(seenModels).toEqual(['test/model']); // 以 run 钉定模型查目录
+    // 序：message_end 之后、turn_end 之前（turn_end 恒为 turn 收尾标记）
+    const seq = typesOf(events);
+    expect(seq.indexOf('context_usage')).toBeGreaterThan(seq.lastIndexOf('message_end'));
+    expect(seq.indexOf('context_usage')).toBeLessThan(seq.indexOf('turn_end'));
+  });
+
+  it('零账 + 闭包缺席：事件本体仍发、两字段双缺席（缺席 = 未知——codex 语义）', async () => {
+    const { context, config, events } = rig({
+      streamFn: scriptedStreamFn([assistant({ content: [{ type: 'text', text: 'x' }] })]),
+      // 不注入 contextWindowOf（缺席 = maxTokens 字段缺席）
+    });
+    await startRun(context, config, [user('问')]);
+    const emits = events.filter((e) => e.type === 'context_usage');
+    expect(emits).toHaveLength(1);
+    const ev = emits[0]! as { usedTokens?: number; maxTokens?: number };
+    expect(ev.usedTokens).toBeUndefined(); // 零账（前置失败/中止早退同形）不带假 0
+    expect(ev.maxTokens).toBeUndefined();
+  });
+
+  it('多轮 run：每轮各一发（toolUse 二轮形——逐 turn 快照非 run 累计）', async () => {
+    const { context, config, events } = rig({
+      streamFn: scriptedStreamFn([
+        assistant({ content: [call('t-1', 'probe')], stopReason: 'toolUse' }),
+        assistant({
+          content: [{ type: 'text', text: 'done' }],
+          usage: { input: 100, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 140 },
+        }),
+      ]),
+      contextWindowOf: () => 200_000,
+    });
+    context.tools = [makeTool('probe')];
+    await startRun(context, config, [user('跑')]);
+    const emits = events.filter((e) => e.type === 'context_usage');
+    expect(emits).toHaveLength(2); // 两 turn 两发
+    // 首轮零账形：字段缺席；次轮真账：140（input+output）
+    expect((emits[0]! as { usedTokens?: number }).usedTokens).toBeUndefined();
+    expect((emits[1]! as { usedTokens?: number }).usedTokens).toBe(140);
   });
 });

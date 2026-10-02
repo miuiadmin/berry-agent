@@ -27,11 +27,12 @@ import { createBashTool, createSpawnPipeline } from '../exec/index.js';
 import { fauxProvider } from '../llm/index.js';
 import { createSandboxService } from '../safety/index.js';
 import { SessionLog } from '../session/index.js';
-import type { EventWrite, SessionRegistration } from '../persist/store.js';
+import type { EventWrite, QueryEventsFilter, QueryEventsResult, SessionRegistration } from '../persist/store.js';
 import { sessionDisplayTitleOf } from '../persist/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import {
+  aggregateSessionSpent,
   assertWatchdogHatOrder,
   createConversationStack,
   providerGuidanceForMessageEvent,
@@ -2797,6 +2798,145 @@ describe('/resume 续接注入（2026-09-30 会话管理命令批批2——manag
     expect(ok).toBe(true); // 命令受理（缺席拒是回执态非分发失败）
     expect(stack.channels.focusedId).toBe(session.sessionId); // 焦点不动
     expect(stack.manager.driverOf('no-such')).toBeUndefined(); // 未落位驱动
+    await rt.shutdown();
+  });
+});
+
+describe('会话累计聚合读面（07 §4.1 注⑪⑥a——V-4 底栏供数链）', () => {
+  /** 带计量的 faux assistant 消息（本组自持——meteredMessage 在 1502 组作用域内） */
+  const metered = (input: number, output: number): PiAssistantMessage =>
+    ({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output },
+      stopReason: 'stop',
+      timestamp: 1,
+    }) as unknown as PiAssistantMessage;
+
+  /** 直接落库 llm/usage 底账（本组种子——seedLedger 同形自持，本组无 at/priority 维） */
+  function seedUsageRows(rt: HostRuntime, sessionId: string, rows: { input: number; output: number }[]): void {
+    const log = new SessionLog({ sessionId, clock: () => 1 });
+    for (const [i, row] of rows.entries()) {
+      log.append('llm/usage', {
+        callId: `seed:${sessionId}:${i}`,
+        model: 'seed/m1',
+        usage: { input: row.input, output: row.output, cacheRead: 0, cacheWrite: 0 },
+        priority: 'foreground',
+      });
+    }
+    const registration: SessionRegistration = {
+      origin: 'conversation',
+      parentId: undefined,
+      seedLength: 0,
+      workspaceRoot: '/tmp/ws',
+      title: undefined,
+    };
+    const writes: EventWrite[] = log.events().map((event) => ({ sessionId, event, registration }));
+    rt.persistence.store.writeEvents(writes);
+  }
+
+  it('aggregateSessionSpent 纯函数：sessionId 域透传 + 游标翻页聚尽 + SUM(input+output) 车道不过滤（修前红：模块无此导出）', () => {
+    // fake store 两页——翻页聚尽（帽律约束单页非全程：页帽截断沿 nextCursor 走满）
+    const calls: QueryEventsFilter[] = [];
+    let page = 0;
+    const store = {
+      queryEvents(filter: QueryEventsFilter): QueryEventsResult {
+        calls.push(filter);
+        page += 1;
+        const row = (input: number, output: number) => ({
+          type: 'llm/usage',
+          seq: page * 2,
+          time: 1,
+          data: { usage: { input, output }, priority: 'foreground' },
+        });
+        return page === 1
+          ? { events: [row(100, 20), row(3, 7)], nextCursor: 'p2' }
+          : { events: [row(50, 30)], nextCursor: null };
+      },
+    };
+    // SUM(input+output) 主计费桶 + 前台笔照进（呈现口径——与闸门 background 过滤分立）
+    expect(aggregateSessionSpent(store, 'sess-a')).toBe(210);
+    expect(calls).toHaveLength(2); // 翻页聚尽——两页都走
+    expect(calls[0]).toMatchObject({ sessionId: 'sess-a', types: ['llm/usage'] });
+    expect(calls[1]).toMatchObject({ sessionId: 'sess-a', cursor: 'p2' }); // 游标回传翻页
+  });
+
+  it('栈级读面：sessionId 键控（双会话各自聚合）+ 同进程二读走缓存（零二次库扫）', async () => {
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt);
+    seedUsageRows(rt, 'sess-a', [
+      { input: 100, output: 20 },
+      { input: 3, output: 7 },
+    ]);
+    seedUsageRows(rt, 'sess-b', [{ input: 50, output: 50 }]);
+    expect(stack.sessionSpentOf('sess-a')).toBe(130); // 修前红锚：无此面
+    expect(stack.sessionSpentOf('sess-b')).toBe(100); // 键控并存（路3 定谳形）
+    const spy = vi.spyOn(rt.persistence.store, 'queryEvents');
+    expect(stack.sessionSpentOf('sess-a')).toBe(130); // 缓存命中
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    await rt.shutdown();
+  });
+
+  /** 会话活账 llm/usage 行 SUM(input+output)（faux 转抄值动态——锁在场与同源，不锁数值） */
+  const sessionLedgerSumOf = (stack: ReturnType<typeof createConversationStack>, sessionId: string): number => {
+    let sum = 0;
+    for (const event of stack.driverOf(sessionId)!.session.events()) {
+      if (event.type !== 'llm/usage') continue;
+      const usage = (event.data as { usage?: { input?: number; output?: number } }).usage;
+      sum += (usage?.input ?? 0) + (usage?.output ?? 0);
+    }
+    return sum;
+  };
+
+  it('run 结算桥接落账尾增量直推 + onSessionUsageLedgered 通知（订阅者现拉必含本笔）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(0); // 缓存初始化（首读库扫空）
+    const seen: number[] = [];
+    const dispose = stack.onSessionUsageLedgered(() => {
+      // 通知回调内现拉——时序锁锚：推进先于通知则现拉已含本笔（today 形同律）
+      seen.push(stack.sessionSpentOf(session.sessionId));
+    });
+    faux.setResponses([() => metered(10, 5)]);
+    await stack.submitText(session.sessionId, '你好');
+    // 增量直推：桥接落账尾缓存即推（与活账同源同值——不待落盘不待重扫）
+    const sum1 = sessionLedgerSumOf(stack, session.sessionId);
+    expect(sum1).toBeGreaterThan(0); // 本笔确在（防 vacuous）
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(sum1);
+    expect(seen).toHaveLength(1); // 单响应 run 恰一笔桥接 → 恰一次通知
+    expect(seen[0]).toBe(sum1); // 通知时点现拉已达终值
+    // 第二笔续推（跨 run 累计——双计不生律；两笔和与活账同源）
+    faux.setResponses([() => metered(30, 12)]);
+    await stack.submitText(session.sessionId, '再跑一轮');
+    const sum2 = sessionLedgerSumOf(stack, session.sessionId);
+    expect(sum2).toBeGreaterThan(sum1); // 第二笔确在
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(sum2);
+    expect(seen).toHaveLength(2); // 每 run 窗一次信号（多笔窗一次——today 形同律）
+    dispose();
+    await rt.shutdown();
+  });
+
+  it('complete 单发计量同锚族：onUsage 落账即推会话累计 + 通知', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(0); // 空会话缓存初始化
+    let signals = 0;
+    stack.onSessionUsageLedgered(() => {
+      signals += 1;
+    });
+    faux.setResponses([() => metered(8, 4)]);
+    await stack.llm.complete({
+      messages: [{ role: 'user', content: '单发', timestamp: Date.now() }],
+      priority: 'foreground',
+      metering: { sessionId: session.sessionId },
+    });
+    const sum = sessionLedgerSumOf(stack, session.sessionId);
+    expect(sum).toBeGreaterThan(0);
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(sum);
+    expect(signals).toBe(1); // 修前红锚：单发路此前零通知（同锚族补面）
     await rt.shutdown();
   });
 });

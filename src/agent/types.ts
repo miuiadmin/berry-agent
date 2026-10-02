@@ -1,5 +1,5 @@
 /**
- * agent 件 — loop 骨架的类型面（04 篇 §2 回调面 12 项 + 入口两式签名）。
+ * agent 件 — loop 骨架的类型面（04 篇 §2 回调面 13 项 + 入口两式签名）。
  *
  * loop 是纯机制：全部策略经注入回调表达、全部状态经事件与投影回流——
  * conversation 是缺省供给方（组装回调并注入），loop 不知道 conversation 存在。
@@ -79,6 +79,13 @@ export interface AgentLoopConfig {
   preModelRequest?: (context: AgentContext) => 'stop' | void | Promise<'stop' | void>;
   /** 凭证取用（缺省 undefined 走 llm 层持久化凭证链） */
   getApiKey?: (model: string) => string | undefined;
+  /**
+   * 模型目录上下文窗口取值（04 §2 E-4 批——context_usage maxTokens 供源）：
+   * turn 收口时以 run 钉定模型现取一次；缺席 = 事件不带 maxTokens（未知
+   * 不显示——codex 语义）。注入闭包形（宿主装配侧供源 llm 目录点查）——
+   * agent 不 import llm 铁律保持（getApiKey 同族）。
+   */
+  contextWindowOf?: (model: string) => number | undefined;
   /** turn 终止裁决（停止词、预算尽、打断——返回 true 优雅停 completed） */
   shouldStopAfterTurn?: (context: AgentContext, lastMessage: AssistantMessage) => boolean | Promise<boolean>;
   /** turn 间准备（todo 同段回显/goal 轮间沉淀注入窗 + 换装唯一时机） */

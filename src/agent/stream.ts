@@ -12,6 +12,7 @@
 import type { AgentMessage } from '../contracts/index.js';
 import type { AssistantMessage, LlmContext, LlmTool, Message } from '../contracts/index.js';
 import type { AgentContext, AgentLoopConfig, EmitFn } from './types.js';
+import type { AgentEvent } from './events.js';
 
 /**
  * length 截断宿主兜底文案（单源——loop 截断防御腿同串消费）：
@@ -97,4 +98,23 @@ export async function streamAssistantResponse(
   }
   emit({ type: 'message_end', message: final });
   return final;
+}
+
+/**
+ * E-4 context_usage 事件构造（04 §2 E-4 批——07 §4.1 注⑪⑥b；loop turn 收口
+ * 随发的非族单发事件，族序律不涉）：usedTokens = 本 turn 终值 usage 账在窗
+ * 口径（input+output——cache 桶不计）；maxTokens = 模型目录窗口经注入闭包
+ * 现取（agent 不 import llm 铁律——宿主装配侧供源）。两字段各自可选：零账
+ * （前置失败/中止早退形 usage 恒 0）与目录缺席 = 字段缺席（codex 语义——
+ * 缺席即未知，消费端不显示）；事件本体恒发（消费端零订阅零成本）。构造
+ * 单源在本件（loop 只留骨架——≤150 行形态铁律）。
+ */
+export function contextUsageEventOf(assistant: AssistantMessage, config: AgentLoopConfig): AgentEvent {
+  const usedTokens = assistant.usage.input + assistant.usage.output;
+  const maxTokens = config.contextWindowOf?.(config.model);
+  return {
+    type: 'context_usage',
+    ...(usedTokens > 0 ? { usedTokens } : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+  };
 }

@@ -2,7 +2,7 @@
  * agent 件 — loop 骨架（04 §2 形态铁律：双 while、≤150 行、零 try/catch、零存储感知）。
  * 外层 turn 循环：steering 注入 → 流消费 → 终态判定 → 工具批 → followUp 续跑裁决。
  * 内层流消费与工具批执行分别住在 stream.ts / tools-batch.ts（骨架只留控制流）。
- * 全部策略经注入回调（AgentLoopConfig 12 项）、全部状态经活体事件回流——
+ * 全部策略经注入回调（AgentLoopConfig 13 项）、全部状态经活体事件回流——
  * loop 不知道 conversation 存在；错误不就地 try/catch（StreamFn 永不抛契约），失败由 run 终态承载（04 §2/§3）。
  */
 
@@ -12,7 +12,7 @@ import type { AssistantMessage, StopReason, ToolResultMessage } from '../contrac
 import type { AgentToolCall } from '../contracts/index.js';
 import type { RunStatus } from './events.js';
 import type { AgentContext, AgentLoopConfig, EmitFn, RunResult } from './types.js';
-import { LENGTH_TRUNCATED_MESSAGE, streamAssistantResponse } from './stream.js';
+import { contextUsageEventOf, LENGTH_TRUNCATED_MESSAGE, streamAssistantResponse } from './stream.js';
 import { executeToolBatch } from './tools-batch.js';
 
 /** 种子/续跑消息入列（steering 顶注与 followUp 续跑共用——channel 随事件披露） */
@@ -98,6 +98,8 @@ async function runLoop(context: AgentContext, config: AgentLoopConfig, emit: Emi
     ) {
       stopReason = 'aborted';
     }
+    // E-4 context_usage turn 收口随发（04 §2 E-4 批——07 §4.1 注⑪⑥b；构造单源在 stream.ts）
+    emit(contextUsageEventOf(assistant, config));
     emit({ type: 'turn_end', turn, stopReason });
     // 终态短路：error/aborted → run 收场（status 映射见函数尾）
     if (assistant.stopReason === 'error' || assistant.stopReason === 'aborted') break;

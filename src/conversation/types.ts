@@ -135,6 +135,14 @@ export interface ConversationDriverOptions {
   /** LLM 流面（agent loop 只认 StreamFn 签名——llm 件经装配根供入） */
   readonly streamFn: StreamFn;
   /**
+   * 模型目录上下文窗口取值（04 §2 E-4 批——context_usage maxTokens 供源，
+   * 07 §4.1 注⑪⑥b）：装配根从 llm 目录点查闭包注入（getModel?.
+   * contextWindow）——conversation 零 llm import（02 §4.1 边表不破，
+   * classifyError/getApiKey 注入同族）。缺席 = 事件不带 maxTokens（未知
+   * 不显示——渐进增强零破口）。
+   */
+  readonly contextWindowOf?: (model: string) => number | undefined;
+  /**
    * 标准三角色 + 自定义角色的 LLM 降写器（loop 必填回调）：装配根从
    * contracts 角色注册表（registerMessageRole）组装供入——标准消息直通、
    * 自定义角色分派定义的 toLlm。

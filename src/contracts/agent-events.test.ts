@@ -48,6 +48,7 @@ describe('AgentEvent 活体词汇（E-1 落码批——重试窗口两型）', (
       'tool_execution_end',
       'retry_wait_start',
       'retry_wait_end',
+      'context_usage',
     ];
     expect(knownTypes).not.toContain('agent_retry');
     expect(knownTypes).toContain('retry_wait_start');
@@ -55,7 +56,7 @@ describe('AgentEvent 活体词汇（E-1 落码批——重试窗口两型）', (
   });
 
   it('durable 零新词红线：活体重试词不入 durable 词汇注册表', () => {
-    for (const word of ['retry_wait_start', 'retry_wait_end']) {
+    for (const word of ['retry_wait_start', 'retry_wait_end', 'context_usage']) {
       expect([...CORE_EVENT_TYPE_NAMES], `活体词 ${word} 不得泄入 durable 注册表`).not.toContain(word);
     }
   });
@@ -73,5 +74,19 @@ describe('AgentEvent 活体词汇（E-1 落码批——重试窗口两型）', (
       cost: { total: 0.01, currency: 'USD' },
     };
     expect(enriched).toMatchObject({ durationMs: 90_000, cost: { currency: 'USD' } });
+  });
+});
+
+describe('AgentEvent 活体词汇（E-4 落码批——上下文占用单发型）', () => {
+  /** 样例构造（编译面即词汇锁——联合外成员名 tsc 红） */
+  const full: AgentEvent = { type: 'context_usage', usedTokens: 12_000, maxTokens: 1_000_000 };
+  const bare: AgentEvent = { type: 'context_usage' };
+
+  it('context_usage 在册：usedTokens/maxTokens 双可选（缺席 = 未知不显示——codex 语义）', () => {
+    expect(full).toMatchObject({ type: 'context_usage', usedTokens: 12_000, maxTokens: 1_000_000 });
+    // 双缺席形合法（零账/目录缺席——事件本体恒发、载荷各自可选）
+    expect(bare).toMatchObject({ type: 'context_usage' });
+    expect(Object.hasOwn(bare, 'usedTokens')).toBe(false);
+    expect(Object.hasOwn(bare, 'maxTokens')).toBe(false);
   });
 });
