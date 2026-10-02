@@ -93,6 +93,7 @@ import { runMarketplaceEntry } from './marketplace-cmd.js';
 import { MarketplaceTuiFace } from './marketplace-tui-face.js';
 import type { UninstallChoice } from './marketplace-tui-face.js';
 import {
+  MODE_SHORT,
   SANDBOX_MODE_DETAILS,
   SANDBOX_MODE_SHORT,
   THINKING_LEVEL_DETAILS,
@@ -561,6 +562,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           cwdLabel: basename(root),
           gitHead,
           turns,
+          // 今日全道耗（V-4 注⑪⑤——footer 今日段退役迁此）：快照档开屏现读
+          // （allLanesSpentToday 呈现口径读面——与闸门口径分立）；零耗不推行
+          todaySpent: stack.llm.allLanesSpentToday(),
           dataDir: runtime.dataDir,
           theme: backend.themeChoice,
           env: [
@@ -660,10 +664,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
 
     // —— 模型选定与面板装配闭包（UX 对标批 ux-4 /model——TUI 本地拦截族）：
     // 动作与 ctrl+p 循环同源（setModel + 回执）——两入口一动作；清单单源 =
-    // llmRuntime 目录现取（ctrl+p 宇宙同一读面不造第二清单）。footer 模型段
-    // 已随 V-3 注⑦② 退役——切换不再触 footer 活写
+    // llmRuntime 目录现取（ctrl+p 宇宙同一读面不造第二清单）。footer 行1 模型
+    // 槽（V-4 注⑪②——setFooterModel 回迁）：切换即活写短名（id 尾段）
     const selectModel = (spec: string): void => {
       stack.setModel(spec);
+      backend.setFooterModel(spec);
       backend.notify(`模型已切换：${spec}（下一轮对话起生效）`, { level: 'info' });
     };
     const openModelPanel = (): void => {
@@ -1400,8 +1405,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             ? stack.submitText(sessionId, text, { queueFollowUp: true })
             : stack.submitText(sessionId, text); // fire-and-forget——回执经信封回流
         // 全域清扫 G1-#1 提交 run 结算锚：settled promise 在桥接落账
-        // （noteRunSettled → bridgeUsageLedger 推进全道缓存）之后 resolve——
-        // promise 回调序结构性保证本刷新读到含本 run 的今日值（agent_end 信封
+        // （noteRunSettled → bridgeUsageLedger 推进会话累计缓存）之后 resolve——
+        // promise 回调序结构性保证本刷新读到含本 run 的累计值（agent_end 信封
         // 同步扇出早于落账微任务——该锚滞后一 run，07 件 3 G1 勘正注）；failed
         // 路同刷（结算链两分支均走桥接）。候跑形回执搭候跑种子批的新 run 结算
         // （seedQueuedFollowUps 返回新 run 的 settled promise）——同锚覆盖。
@@ -1415,8 +1420,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // 宇宙 = providers 装配序 × provider 内 model 序的 `provider/model` 串全列
       // （07 §4.1 R5）；换档走栈级旋钮（内存态不落盘——重启回落装配基线），
       // 消费 = 下一 run 起跑现取（在飞 run 不中途换）。回执 notify 一行；
-      // 空目录零动作（无候选可换——诚实缺席）。footer 模型段已随 V-3 注⑦②
-      // 退役——切换不再触 footer 活写
+      // 空目录零动作（无候选可换——诚实缺席）。footer 行1 模型槽（V-4 注⑪②
+      // ——setFooterModel 回迁）：切换即活写短名（id 尾段）
       onModelCycle: () => {
         const specs: string[] = [];
         for (const provider of stack.llmRuntime.models.getProviders()) {
@@ -1426,6 +1431,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         const index = specs.indexOf(stack.model);
         const next = specs[(index + 1) % specs.length]!; // 不在册（-1+1=0）→ 装配序首位
         stack.setModel(next);
+        backend.setFooterModel(next);
         backend.notify(`模型已切换：${next}（下一轮对话起生效）`, { level: 'info' });
       },
       onQuit: () => quitResolve(),
@@ -1486,13 +1492,16 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       ...(themeLoad !== null && themeLoad.settings.keybindings !== undefined
         ? { keybindings: themeLoad.settings.keybindings }
         : {}),
-      // footer 常驻段（V-3 注⑦②——左右分栏重做）：模型/短 id/目录⎇支名@短哈希
-      // 三段退役出 footer（git 支名迁 /status 会话段行——openStatusPanel 装配）；
-      // tiers/todaySpent 两闭包承袭：档位段/今日段每刷新锚现拉（档位 = 聚焦会话
-      // fold 现值 ?? 栈基线，与 openThinkingPanel/openSandboxPanel 同律：thinking
-      // 可无锚诚实缩位、sandbox 恒有锚；sandboxDanger = danger 档标记——坍缩梯
-      // rung4 安全保真判据）；今日 = 全道聚合读面 allLanesSpentToday——呈现口径
-      // 与闸门口径分立
+      // footer 底栏三行栈供数（V-4 注⑪②③——笔3 装配面）：tiers = 档位段低频
+      // 锚拉取（档位 = 聚焦会话 fold 现值 ?? 栈基线，与 openThinkingPanel/
+      // openSandboxPanel 同律：thinking 可无锚诚实缩位、sandbox 恒有锚）；mode
+      // = MODE_SHORT 换词（计划/Auto/YOLO——行1 首槽坍缩梯恒保位）、sandbox =
+      // 原词（行2）两表示分职 session-tier-copy；sandboxDanger = danger 档标记
+      // ——行1 模式槽 error 警示色判据。sessionSpent = 会话全 run token 耗聚合
+      // 读面（渲染期活拉——行1 `累计 N`）；modelLabel = 初始全形（行1 呈短名
+      // id 尾段；运行期换模经 setFooterModel 活写——ctrl+p//model 双入口）；
+      // cwdLabel/gitRoot = 聚焦会话工作区（低频锚缓存——git IO 不进高频锚）。
+      // 今日段退役（注⑪⑤——迁 /status 副屏快照档）
       footer: {
         tiers: () => {
           const sid = stack.channels.focusedId ?? session.sessionId;
@@ -1507,15 +1516,19 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
                 ? foldSessionSandboxMode(driver.session.events(), stack.sandboxMode)
                 : stack.sandboxMode;
             return {
+              mode: MODE_SHORT[sandbox] ?? null,
               thinking: thinking !== undefined ? (THINKING_LEVEL_SHORT[thinking] ?? null) : null,
               sandbox: SANDBOX_MODE_SHORT[sandbox] ?? null,
               sandboxDanger: sandbox === 'danger',
             };
           } catch {
-            return { thinking: null, sandbox: null }; // fail-open 缩位（backend 兜底同律——双保）
+            return { mode: null, thinking: null, sandbox: null }; // fail-open 缩位（backend 兜底同律——双保）
           }
         },
-        todaySpent: () => stack.llm.allLanesSpentToday(),
+        sessionSpent: () => stack.sessionSpentOf(stack.channels.focusedId ?? session.sessionId),
+        modelLabel: stack.model,
+        cwdLabel: () => basename(focusedWorkspaceRoot()),
+        gitRoot: () => focusedWorkspaceRoot(),
       },
       // `?` 闲态教学键柄（V-3 注⑦④——text 路分诊）：与 /help 命令同一开屏
       // 本体（上 openHelpPanel 闭包）；backend 空稿闲态门控后回调（层③.7）
@@ -1529,13 +1542,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // 出屏复原进退出序 closer——quit 路径与信号路径（onGraceful→shutdown）同享
     runtime.registerCloser({ label: 'tui-backend', fn: () => backend.stop() });
 
-    // —— 全道结算总线呈现订阅（04 §5 定形注——TUI 全域清扫 #1-full/#2 残窗）：
-    // 后台道跨入口（scheduler/webui/issue）run 结算桥接与 complete 单发落账
-    // 即通知——footer「今日」段即时刷新（通知时点后于缓存推进，现拉必含本
-    // 笔）。提交路 settled promise 锚（onSubmit run?.then 刷新）仍盖本入口
-    // run——两锚叠加幂等刷新（refreshFooter 无害）；跨午夜日键翻转不在射程
+    // —— 会话用量结算总线呈现订阅（V-4 注⑪②——footer 行1 累计段即时刷新锚）：
+    // run 结算落账即通知（通知时点后于缓存推进，现拉必含本笔——sessionSpentOf
+    // 聚合读面）。提交路 settled promise 锚（onSubmit run?.then 刷新）仍盖本入口
+    // run——两锚叠加幂等刷新（refreshFooter 无害）；今日段已退役迁 /status
+    // （注⑪⑤——快照档开屏现读，无逐帧刷新需求）。跨午夜日键翻转不在射程
     // （07 §4.1 G1 ④有界陈旧律——下次刷新锚自愈）。
-    stack.onSpentTodayLedgered(() => backend.refreshFooter());
+    stack.onSessionUsageLedgered(() => backend.refreshFooter());
 
     // —— job_settled 推送锚（界面美化役批6——UX 批6 A 件）：任务结算即时
     // 收敛固定区 running 快照（闲态零帧源下不滞留至下一次交互）；总线词装配

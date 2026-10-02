@@ -73,6 +73,19 @@ export const SANDBOX_MODE_SHORT: Readonly<Record<SandboxMode, string>> = {
 };
 
 /**
+ * 档位模式短词（V-4 注⑪②——footer 行1 模式槽单源）：只读 → 计划 /
+ * 工作区写 → Auto / danger → YOLO（用户口述定词）。与 SANDBOX_MODE_SHORT
+ * 两表分职：本表**换词**（行1 模式词——跨档语义名），后者**原词**（行2
+ * 沙箱原词 + picker/webui 档位名——同源两表示，07 §4.1 注⑪③ 用户拍
+ * 「两行都保留原词」句的行2 半边）；键集编译期锁三档全档（缺一键即红）。
+ */
+export const MODE_SHORT: Readonly<Record<SandboxMode, string>> = {
+  'read-only': '计划',
+  'workspace-write': 'Auto',
+  danger: 'YOLO',
+};
+
+/**
  * 思考档位切换回执拼装（单源——TUI setStatus 回执与 webui PUT 应答体
  * receipt 同文）：按档分拆语义 thinking 半边 = 「下一轮对话起生效」+ 随模型
  * 能力诚实句（provider 不支持 thinking 时静默无效不炸——07 §4.1 该批批注；

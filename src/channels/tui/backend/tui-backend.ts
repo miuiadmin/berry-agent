@@ -15,11 +15,13 @@
  *   ——07 §4.1 /exit 批，先于通道命令分发；/quit 别名已随 2026-09-21 三反馈
  *   批A 退役）→ '/' 起手命令柄（false 落
  *   onSubmit 兜底——03 §2.2 驱动侧语义归 conversation）→ onSubmit；
- * - **固定区 v2 动态布局**（自上而下）：overlay 段（视口帽收口 fx2-B；
- *   栈序叠放——锚定自由定位路已整域清退〔fx2-D + 第五役 F3 一刀清〕）→
- *   todo 面板（件 4）→ input-ask 提示行 → 补全弹层 → 编辑器（动态量高 +
- *   光标声明——setFixed 声明位落 cup）→ 工具进度面板（件 5——与状态行
- *   分职互补相邻）→ 状态行；
+ * - **固定区 v2 动态布局**（自上而下——V-4 注⑪① 笔3 定序）：overlay 段
+ *   （视口帽收口 fx2-B；栈序叠放——锚定自由定位路已整域清退〔fx2-D + 第五役
+ *   F3 一刀清〕）→ todo 面板（件 4）→ input-ask 提示行 → 补全弹层 → 任务
+ *   状态行（件 12）→ 编辑器（动态量高 + 光标声明——setFixed 声明位落
+ *   cup）→ 工具进度面板（件 5——与状态行分职互补相邻）→ 状态行底栏三行
+ *   栈（行1 仪表 + 行2 环境，1-2 行）→ 后台任务面板（注⑪① 行3——迁最底
+ *   行）；
  * - **渲染合并**：调度注入后 op 队列合并（连续 present 留末次、transient
  *   到达序保持、固定区脏位重建一帧一次）+ fps 帽 60 + tick 100ms 自重排
  *   驱动状态行转轮；**无注入调度 = 同步直出**（测试语义——合并与自驱 tick
@@ -115,7 +117,8 @@ import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
 import { HistoryViewer } from '../history/history-viewer.js';
 import { SessionPicker } from '../history/session-picker.js';
 import { HelpViewer, type HelpCommandEntry } from '../panels/help-viewer.js';
-import { formatCount, UsageViewer } from '../panels/usage-viewer.js';
+import { formatCount, formatTokensCompact, formatTokensPerSecond, UsageViewer } from '../panels/usage-viewer.js';
+import { gitHeadSuffix, readGitHead } from '../status/footer.js';
 import { StatusViewer, type StatusPanelData } from '../panels/status-viewer.js';
 import { DebugViewer, type DebugPanelData } from '../panels/debug-viewer.js';
 import { GuideViewer, type GuidePanelData } from '../panels/guide-viewer.js';
@@ -245,32 +248,50 @@ export interface TuiBackendOptions {
    */
   readonly keybindings?: Readonly<Record<string, string>>;
   /**
-   * footer 常驻段（V-3 注⑦②——左右分栏重做）：左段 = 档位模式词（tiers
-   * 闭包 pull）+ 闲态教学提示（`? 快捷键`——本件空稿闲态门控自持）；右段 =
-   * 今日用量（todaySpent 闭包 pull）。**模型/短 id/目录⎇支名@短哈希三段已
-   * 退役出 footer**（承载面迁 /status 副屏——07 §4.1 注⑦）。注入缺席 = 无
-   * footer（状态行旧形零扰动——确定性测试基线）。
+   * footer 底栏三行栈供数（V-4 注⑪ 笔3——行1 仪表栈 + 行2 环境栈；今日段
+   * 退役迁 /status 副屏〔注⑪⑤〕）：低频值（档位 fold/git 读盘/cwd 查库）
+   * 经闭包由本件低频锚缓存（rebuildFooter/refreshFooterGit），活值（累计/
+   * 速度/上下文）经供数器渲染期 pull（流中随 tick/触帧直取现值——承
+   * TaskStatusProviders 先例）。注入缺席 = 无 footer（状态行旧形零扰动——
+   * 确定性测试基线）。
    */
   readonly footer?: {
     /**
-     * 档位段 pull 闭包（三反馈批B——思考档/沙箱档常驻段）：返回短词已解析形
-     * （单源映射在装配侧 session-tier-copy 短词键）；子段 null = 独立缩位
-     * （thinking 无锚诚实缺席）；闭包抛错 fail-open 整段缩位（呈现面不反噬
-     * 渲染路）。刷新锚拉取（构造期/切焦/resize/agent_end/档位切换点）。
-     * sandboxDanger（V-3 注⑦③）：沙箱 danger 档标记——坍缩梯 rung4「仅档位
-     * danger 位」安全保真判据。
+     * 档位段 pull 闭包（批B→V-4 注⑪② 翻档三行栈）：mode = 模式词（MODE_
+     * SHORT 装配侧换词——计划/Auto/YOLO，行1 首槽坍缩梯恒保位）；thinking/
+     * sandbox = 短词/原词两表示（行1 思考槽 / 行2 沙箱原词槽）；子段 null =
+     * 独立缩位（诚实缺席）；闭包抛错 fail-open 整段缩位（呈现面不反噬渲染
+     * 路）。刷新锚拉取（构造期/切焦/resize/agent_end/档位切换点）。
+     * sandboxDanger：沙箱 danger 档标记——行1 模式槽 error 警示色判据。
      */
     readonly tiers?: () => {
+      mode: string | null;
       thinking: string | null;
       sandbox: string | null;
       sandboxDanger?: boolean;
     };
     /**
-     * 今日段 pull 闭包（批B——当日全道 token 耗 `今日 N`）：数据面 =
-     * LlmService.allLanesSpentToday()（呈现口径与闸门口径分立——供数面定形
-     * 注 2026-09-21）；零耗不显段（冷启动零噪声）。
+     * 会话累计段 pull 闭包（注⑪②——行1 `累计 N`）：数据面 = 会话全 run
+     * token 耗（sessionSpentOf 聚合读面——⑥a）；渲染期活拉；零耗不显段
+     * （冷启动零噪声）。
      */
-    readonly todaySpent?: () => number;
+    readonly sessionSpent?: () => number;
+    /**
+     * 模型初始全形（注⑪②——行1 模型槽）：行1 呈短名 = id 尾段（全形归
+     * /status 副屏）；运行期换模经 setFooterModel 活写（ctrl+p 联动回迁）。
+     */
+    readonly modelLabel?: string;
+    /**
+     * 目录槽 pull 闭包（注⑪③——行2 首槽）：返回短名（canonicalWorkspaceRoot
+     * 尾段）；切焦 cwd 漂移随 onRepaint 低频锚重拉缓存。
+     */
+    readonly cwdLabel?: () => string;
+    /**
+     * git 根 pull 闭包（注⑪③——行2 ⎇ 槽）：readGitHead 零子进程直读
+     * refs（支名@短哈希）；git IO 只进构造期/onRepaint 低频锚（不进 setStatus
+     * 高频锚），结果缓存渲染期纯读。
+     */
+    readonly gitRoot?: () => string;
   };
   /**
    * 流式帧字节帽（批 10h R1 perf 护栏）：缺省 STREAM_FRAME_BYTE_CAP 定值
@@ -303,6 +324,13 @@ const STREAM_FRAME_BYTE_CAP = 256 * 1024;
 const DEFAULT_ESCAPE_WINDOW_MS = 30;
 /** footer 教学提示文案（V-3 注⑦④——`?` 键投影与 footer 提示同文单源） */
 const FOOTER_HINT_TEXT = '? 快捷键';
+/**
+ * 模型全形 → 短名（V-4 注⑪②——行1 模型槽）：id 尾段（`zai/glm-4.7` →
+ * `glm-4.7`；裸 id 自返）。全形呈现归 /status 副屏——footer 只持短名。
+ */
+function modelShortOf(spec: string): string {
+  return spec.split('/').pop() ?? '';
+}
 /**
  * 任务行/状态行转轮自驱间隔（ms——注入调度后自重排）。界面美化役批 4：
  * 100ms → 80ms（07 §4.1 件 12——帧距定值；一处常量、件内零自驱时钟纪律不破）
@@ -569,8 +597,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * 失败原因**持有档**（失败直呈律 V-0 注②）：agent_end failed 的 errorMessage
    * 存账（终态揭示延后——批 4 持有档），retry_wait_end {aborted|exhausted} 揭示
-   * 时消费（任务行态④ + footer 尾注双位同句携因）；消费即清、agent_start 新
-   * run 起清账（陈原因不残留）。
+   * 时消费（任务行态④单源承载〔V-3 注⑧：footer 尾注腿已退役〕）；消费即清、
+   * agent_start 新 run 起清账（陈原因不残留）。
    */
   private pendingFailReason: string | null = null;
   /**
@@ -631,18 +659,55 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   private readonly localCommands: readonly TuiLocalCommand[];
   /**
-   * 档位段 pull 闭包（三反馈批B + V-3 注⑦②——左右分栏左段源）：null 子段
-   * 独立缩位（thinking 无锚诚实缺席）；每刷新锚现拉（闭包内 fold 现值——
-   * 档位切换点经公开 refreshFooter 即时收敛）；sandboxDanger 标记供坍缩梯
-   * rung4 安全保真判据。
+   * 档位段 pull 闭包（批B→V-4 注⑪② 三行栈）：null 子段独立缩位（诚实
+   * 缺席）；低频锚（rebuildFooter）现拉缓存——fold 不进渲染期；sandboxDanger
+   * 标记供行1 模式槽 error 警示色判据。
    */
   private readonly footerTiers:
-    (() => { thinking: string | null; sandbox: string | null; sandboxDanger?: boolean }) | undefined;
+    | (() => { mode: string | null; thinking: string | null; sandbox: string | null; sandboxDanger?: boolean })
+    | undefined;
   /**
-   * 今日段 pull 闭包（三反馈批B——当日全道 token 耗）：每刷新锚现拉，消费
-   * allLanesSpentToday()（O(1) 日键缓存——resize/重画频拉无害）；零耗缩位。
+   * 会话累计段 pull 闭包（注⑪②——行1 `累计 N` 供数）：渲染期活拉
+   * （sessionSpentOf 聚合读面——O(1) 频拉无害）；零耗缩位。
    */
-  private readonly footerTodaySpent: (() => number) | undefined;
+  private readonly footerSessionSpent: (() => number) | undefined;
+  /** 目录槽 pull 闭包（注⑪③——行2 首槽）：低频锚缓存（切焦 cwd 漂移随 onRepaint 重拉） */
+  private readonly footerCwdLabel: (() => string) | undefined;
+  /** git 根 pull 闭包（注⑪③——行2 ⎇ 槽）：git IO 只进 refreshFooterGit 低频锚 */
+  private readonly footerGitRoot: (() => string) | undefined;
+  /** 行1 模型短名缓存（注⑪②——id 尾段；setFooterModel 活写，ctrl+p 联动回迁） */
+  private footerModelShort = '';
+  /** 行1 模式词缓存（rebuildFooter 低频锚拉 tiers.mode——MODE_SHORT 装配侧换词） */
+  private footerMode: string | null = null;
+  /** 行1 思考短词缓存（rebuildFooter 低频锚拉） */
+  private footerThinking: string | null = null;
+  /** 行2 沙箱原词缓存（rebuildFooter 低频锚拉——原词表示，SANDBOX_MODE_SHORT） */
+  private footerSandbox: string | null = null;
+  /** 行1 模式槽警示档缓存（tiers.sandboxDanger——YOLO error 色） */
+  private footerModeDanger = false;
+  /** 行2 目录短名缓存（rebuildFooter 低频锚拉 cwdLabel 闭包） */
+  private footerCwd = '';
+  /** 行2 ⎇ 支名@短哈希缓存（refreshFooterGit 低频锚——'⎇ dev @a1b2c3d' 单源 gitHeadSuffix().trim()：⎇ 支名两侧空格 + @ 记形随单源） */
+  private footerGitSuffix = '';
+  /**
+   * 上下文三件套供数（注⑪②——E-4 context_usage turn 收口随发）：used/
+   * max 双可选（缺席 = 未知不显示）；切焦清位（首轮前整段缺席律 per
+   * focus）；流中平滑 = settled + 估值器（contextStreamLive 门控——见其注）。
+   */
+  private contextUsedTokens: number | null = null;
+  private contextMaxTokens: number | null = null;
+  /**
+   * 上下文流中平滑门控（注⑪②）：assistant 流式窗内开（message_start/update
+   * 置）、message_end 真值收口关——关位显示 settled 纯值，防 context_usage
+   * 落账后估值器残值叠加双计（turn 间工具相位的长窗 overshoot）。
+   */
+  private contextStreamLive = false;
+  /**
+   * 速度段呈现抑制标记（注⑪②——批C 诚实缺席律**呈现面**专属）：aborted/
+   * failed 终态置真（行1 速度段缩位），completed/新 run/切焦清账复位；观
+   * 测面 speedView 保持 raw（G5-#10 契约——呈现缺席 ≠ 数据缺席）。
+   */
+  private speedSuppressed = false;
   /**
    * 教学提示门控位（V-3 注⑦②——`? 快捷键` 空稿闲态呈现）：syncFooterHint
    * 翻转才重建（缓存短路——编辑器每键消费后/agent 起停锚对账，未翻转零重画）。
@@ -698,14 +763,21 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 键位注册表（批 10i R5 基座 + 10k 用户覆盖）：settings keybindings 键
     // 透传——四形拒载 fail-loud（拒载弃该键回退缺省，rejections 观测面呈报）
     this.keymap = new Keymap(options.keybindings);
-    // 档位段/今日段 pull 闭包（三反馈批B + V-3 注⑦② 分栏重做）：注入缺席
-    // 缩位（老形选项零扰动——既有测试不传新键常驻段不变）
+    // footer 三行栈供数闭包（批B→V-4 注⑪ 笔3）：注入缺席缩位（老形选项零
+    // 扰动——既有测试不传新键常驻段不变）；模型短名自全形取尾段（modelShortOf）
     this.footerTiers = options.footer?.tiers;
-    this.footerTodaySpent = options.footer?.todaySpent;
+    this.footerSessionSpent = options.footer?.sessionSpent;
+    this.footerCwdLabel = options.footer?.cwdLabel;
+    this.footerGitRoot = options.footer?.gitRoot;
+    this.footerModelShort = modelShortOf(options.footer?.modelLabel ?? '');
     // footer 门控（R6 批 10k 承袭）：footer 选项注入在场才开常驻段；注入
-    // 缺席 = 无 footer 状态行旧形（确定性测试基线零扰动）
+    // 缺席 = 无 footer 状态行旧形（确定性测试基线零扰动）。git IO 低频锚
+    // 首跑先于段集组装（⎇ 槽缓存入场）
     this.footerEnabled = options.footer !== undefined;
-    if (this.footerEnabled) this.refreshFooter();
+    if (this.footerEnabled) {
+      this.refreshFooterGit();
+      this.refreshFooter();
+    }
     // 直播行集（批 10h/10i）：主题随构造定着——流式 markdown 直推档与定稿块同源
     this.transcript = new LiveTranscript({ theme: this.theme, keyText: (id) => this.keymap.keyText(id) });
     // 编辑器高度帽单点解析（批 10k 遗漏修）：显式注入帽（测试语义）恒尊注入
@@ -1663,22 +1735,23 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (lines.length > 0) this.appendTransientCapped(lines, { persist: true });
   }
 
-  /** 状态行文案（last-writer-wins——StatusLine 件语义） */
+  /** 状态行文案（last-writer-wins——StatusLine 件语义；footer 在场 = 行1 尾注⑨） */
   setStatus(_sessionId: string, status: string): void {
     this.statusLine.setStatus(status);
-    // 全域清扫 G1-#3 扇出锚：状态扇出面统一重拉常驻段（档位段/今日段随闭包
-    // 现值收敛——webui 双开切档的远端 setStatus 扇出修前只写右段文案不刷段；
-    // 本地 /thinking、/sandbox 切档点的显式 refreshFooter 并入本锚单源）
+    // 全域清扫 G1-#3 扇出锚：状态扇出面统一重拉 footer 低频缓存（档位段随
+    // 闭包现值收敛——webui 双开切档的远端 setStatus 扇出修前只写尾注不刷段；
+    // 本地 /thinking、/sandbox 切档点的显式 refreshFooter 并入本锚单源。活值
+    // 段〔累计/速度/上下文〕供数器渲染期自拉；git IO 不进此高频锚）
     this.refreshFooter();
     this.touchFixed();
   }
 
   /**
-   * footer 常驻段重算（V-3 注⑦②——低频锚全量重算路：构造期/切焦联动
-   * onRepaint / agent_end / 档位切换 setStatus）：左右分栏段集组段（左段
-   * 档位模式词 + 教学提示 / 右段今日用量——模型/短 id/目录⎇ 三段已退役出
-   * footer，承载面迁 /status 副屏）。**公开面**：档位切换点（装配侧选定
-   * 闭包）经本面即时收敛。
+   * footer 底栏三行栈重算（V-4 注⑪ 笔3——低频锚全量重算路：构造期/切焦联动
+   * onRepaint / agent_end / 档位切换 setStatus / resize）：低频值缓存刷新
+   * （tiers fold / cwdLabel 闭包——git 归 refreshFooterGit 独立锚不在此路）
+   * + 段集组装（活值供数器注入）。**公开面**：档位切换点（装配侧选定闭包）
+   * 经本面即时收敛。
    */
   refreshFooter(): void {
     if (!this.footerEnabled) return;
@@ -1686,46 +1759,127 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * footer 段集组装（缓存变体——resize 高频路同走零读盘）：左段全形 =
-   * `沙箱短词 · 思考短词`（缺省档缩位——闭包子段 null 独立缺席）；坍缩梯
-   * 安全缩形 = 仅沙箱短词（rung2 消费）；今日段零耗缩位；教学提示经
-   * footerHintOn 门控（syncFooterHint 翻转锚）。fail-open：闭包抛错两段
-   * 归缩位（渲染路不因数据面异常断流——装配侧闭包已自裹，此处兜底防御层）。
+   * footer 段集组装（缓存变体——resize 高频路同走零读盘〔git〕）：低频值
+   * （mode/thinking/sandbox/cwd）低频锚拉闭包入缓存字段，活值（累计/速度/
+   * 上下文）经供数器闭包渲染期 pull（流中随 tick/触帧直取现值——承
+   * TaskStatusProviders 先例）。fail-open：闭包抛错缩位不虚报（渲染路不因
+   * 数据面异常断流——装配侧闭包已自裹，此处兜底防御层）。
    */
   private rebuildFooter(): void {
     if (!this.footerEnabled) return;
-    let tiers = '';
-    let tiersSafety = '';
-    let danger = false;
     if (this.footerTiers !== undefined) {
       try {
         const pulled = this.footerTiers();
-        const parts: string[] = [];
-        if (pulled.sandbox !== null) parts.push(pulled.sandbox);
-        if (pulled.thinking !== null) parts.push(pulled.thinking);
-        tiers = parts.join(' · ');
-        tiersSafety = pulled.sandbox ?? '';
-        danger = pulled.sandboxDanger === true;
+        this.footerMode = pulled.mode;
+        this.footerThinking = pulled.thinking;
+        this.footerSandbox = pulled.sandbox;
+        this.footerModeDanger = pulled.sandboxDanger === true;
       } catch {
-        // fail-open：缩位不虚报
+        // fail-open：三段缩位不虚报
+        this.footerMode = null;
+        this.footerThinking = null;
+        this.footerSandbox = null;
+        this.footerModeDanger = false;
       }
     }
-    let right = '';
-    if (this.footerTodaySpent !== undefined) {
-      try {
-        const spent = this.footerTodaySpent();
-        if (spent > 0) right = `今日 ${formatCount(spent)}`;
-      } catch {
-        // fail-open：缩位不虚报
-      }
+    try {
+      this.footerCwd = this.footerCwdLabel !== undefined ? this.footerCwdLabel() : '';
+    } catch {
+      // fail-open：目录槽缩位
+      this.footerCwd = '';
     }
     this.statusLine.setFooter({
-      tiers,
-      tiersSafety,
-      danger,
+      instruments: () => this.instrumentSlots(),
+      env: () => this.envSlots(),
       hint: this.footerHintOn ? FOOTER_HINT_TEXT : '',
-      right,
+      modeDanger: this.footerModeDanger,
     });
+    this.touchFixed();
+  }
+
+  /**
+   * 行1 仪表槽列（注⑪② 定序——模式/思考/模型/累计/速度/上下文；'' 槽
+   * 缺席过滤）：模式/思考/模型读低频缓存；累计/速度/上下文活值现拉。抛错
+   * 由 StatusLine pullSafe 兜底整段缩位（防御层——此处逐段自裹优先）。
+   */
+  private instrumentSlots(): string[] {
+    const slots: string[] = [];
+    if (this.footerMode !== null) slots.push(this.footerMode);
+    if (this.footerThinking !== null) slots.push(this.footerThinking);
+    if (this.footerModelShort !== '') slots.push(this.footerModelShort);
+    if (this.footerSessionSpent !== undefined) {
+      try {
+        const spent = this.footerSessionSpent();
+        if (spent > 0) slots.push(`累计 ${formatCount(spent)}`);
+      } catch {
+        // fail-open：累计段缩位不虚报
+      }
+    }
+    if (!this.speedSuppressed) {
+      const speed = this.speedView;
+      if (speed !== null) slots.push(`${formatTokensPerSecond(speed)} tok/s`);
+    }
+    const context = this.contextSlotText();
+    if (context !== '') slots.push(context);
+    return slots;
+  }
+
+  /**
+   * 行1 上下文槽文案（注⑪② 三件套）：max 在场 = `上下文 12 K / 1 M · 38%`
+   * （K/M 单源 formatTokensCompact；百分比向下取整）；缺席 = 二件套（无帽
+   * 无百分比）；双缺席整段缩位。流中平滑 = settled + 估值器（contextStreamLive
+   * 门控——流式窗内开、真值收口关，防 turn 间双计）。
+   */
+  private contextSlotText(): string {
+    const settled = this.contextUsedTokens;
+    if (settled === null) return '';
+    const used = settled + (this.contextStreamLive ? this.turnEstimator.estimate() : 0);
+    const max = this.contextMaxTokens;
+    if (max === null || max <= 0) return `上下文 ${formatTokensCompact(used)}`;
+    return `上下文 ${formatTokensCompact(used)} / ${formatTokensCompact(max)} · ${Math.floor((used / max) * 100)}%`;
+  }
+
+  /**
+   * 行2 环境槽列（注⑪③ 定序——目录/短 id/⎇ 支名@短哈希/沙箱原词；'' 槽
+   * 缺席过滤）：全读低频缓存字段（fold/git IO/查库不进渲染期）；短 id 恒
+   * 在场（会话锚——注入 footer 即开）。
+   */
+  private envSlots(): string[] {
+    const slots: string[] = [];
+    if (this.footerCwd !== '') slots.push(this.footerCwd);
+    slots.push(shortIdOf(this.sessionId));
+    if (this.footerGitSuffix !== '') slots.push(this.footerGitSuffix);
+    if (this.footerSandbox !== null) slots.push(this.footerSandbox);
+    return slots;
+  }
+
+  /**
+   * ⎇ 槽 git 读盘低频锚（注⑪③——refreshFooterGit）：构造期 + onRepaint
+   * （切焦 cwd 漂移）；readGitHead 零子进程直读 refs，gitHeadSuffix 单源
+   * 拼形去 lead 空格（'⎇ dev@a1b2c3d'）。**不进 setStatus/resize 高频锚**
+   * （07 定值「避 resize 高频读盘」承 V-3 前律）；闭包缺席/非库/抛错 =
+   * 槽缩位不虚报。
+   */
+  private refreshFooterGit(): void {
+    if (!this.footerEnabled || this.footerGitRoot === undefined) {
+      this.footerGitSuffix = '';
+      return;
+    }
+    try {
+      this.footerGitSuffix = gitHeadSuffix(readGitHead(this.footerGitRoot())).trim();
+    } catch {
+      // fail-open：⎇ 槽缩位
+      this.footerGitSuffix = '';
+    }
+  }
+
+  /**
+   * 行1 模型短名活写（注⑪② 回迁——ctrl+p 联动）：spec 全形取 id 尾段即写
+   * 即触重画；注入缺席（footer 无）no-op 零扰动。全形呈现归 /status 副屏。
+   */
+  setFooterModel(spec: string): void {
+    if (!this.footerEnabled) return;
+    this.footerModelShort = modelShortOf(spec);
     this.touchFixed();
   }
 
@@ -1789,7 +1943,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.taskLine.goIdle();
     if ((this.inFlightBySession.get(sessionId) ?? 0) > 0) this.taskLine.enterWorking();
     this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
-    this.refreshFooter(); // footer 档位/今日段随切焦重拉（闭包现值——V-3 注⑦②）
+    // 切焦低频锚族（注⑪②③）：⎇ 槽 git 重读（cwd 漂移——git IO 唯二锚之一）
+    // + 上下文清位（首轮前整段缺席律 per focus——新焦首轮 context_usage 落
+    // 账前不虚承旧焦窗口占用；resetUsage 不清此对——上下文是会话级量，跨
+    // run 边界幸存供下一 run 平滑基线）
+    this.refreshFooterGit();
+    this.contextUsedTokens = null;
+    this.contextMaxTokens = null;
+    this.refreshFooter(); // footer 低频缓存随切焦重拉（tiers fold/cwd 现值）
     this.osc.setTitle(`${this.titleBaseline} · ${shortIdOf(sessionId)}`); // 件 7：title 点缀会话短 id（终端级外显——挂起期照常，批 10f-4 裁）
     // 权威全量重建——排队旧帧作废（repaint 是新真相，合并无意义）；清点前先
     // 抢救合并窗内未落帧瞬时行（第五役 S1-a——suspendMain 挂起转账律的对称
@@ -1847,12 +2008,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.pendingOps = [];
     this.needFixed = false;
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
-    // footer 段集（V-3 注⑦②——resize 高频路纯闭包现拉零读盘；git 支名随
-    // 批退役出 footer 无读盘面）。**必须后于 screen.handleResize**：缺省
-    // 同步 flush 档（scheduleFn null）下拼段的 touchFixed 即触发 flush——
-    // Screen 几何若未先收敛，中途全量写出按旧行位落杯 = 缩窗后越屏定位
-    // （挂账解挂批 C② 修前红实证——极小终端固定区截断测试抓获：12 行屏杯
-    // 位写上 5 行屏）。
+    // footer 段集（V-4 注⑪ 笔3——resize 高频路只刷低频缓存零 git 读盘〔⎇ 槽
+    // 归 refreshFooterGit 独立低频锚〕；坍缩几何随渲染期现宽自适应）。**必须
+    // 后于 screen.handleResize**：缺省同步 flush 档（scheduleFn null）下拼段的
+    // touchFixed 即触发 flush——Screen 几何若未先收敛，中途全量写出按旧行位
+    // 落杯 = 缩窗后越屏定位（挂账解挂批 C② 修前红实证——极小终端固定区截断
+    // 测试抓获：12 行屏杯位写上 5 行屏）。
     this.rebuildFooter();
     this.replayTransients(rescued); // 重建后按到达序补吐（槽让位/现宽收口编舞单源）
     this.renderFixed();
@@ -2568,7 +2729,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.pendingFailReason = event.errorMessage ?? null; // 失败直呈律（V-0 注②）：原因存账随揭示同句供位
           this.toolPanel.clear();
           this.refreshTodo(); // 件 4：刷新（失败收场 todo 状态可能推进）
-          this.refreshFooter(); // 批B：今日段刷新锚
+          this.refreshFooter(); // 低频锚：累计段随 run 落账拉现值（⑥a 刷新锚）
           this.touchFixed();
           break;
         }
@@ -2580,6 +2741,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         this.runEndedAt = this.now(); // 批C：终点时戳冻结分母（终态后 speedView 保持终值不随墙钟漂移）
         this.toolPanel.clear(); // 件 5：瞬时面清板（静默先行——见上变更序注）
         this.refreshTodo(); // 件 4：刷新三时点之三
+        // 行1 速度段呈现抑制先置（注⑪②——aborted 终态同 failed 律〔批C 诚实缺席律
+        // 呈现面专属；speedView 观测面保持 raw〕）：须在 goIdle 首帧前落位，防
+        // 中途帧携带终态已废速度；completed 复位（成功形终值冻结进仪表）
+        this.speedSuppressed = event.status === 'aborted';
         this.taskLine.goIdle(); // 忙态离场（零高度缺席；onChange → 首帧）
         // 件 6：落行（与 setStatus 同载体 last-writer-wins）——终态分档
         // （2026-09-19 P0 静默链修复批：failed ✗ / aborted ⏹ 不显用量成功形——
@@ -2594,7 +2759,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           this.appendClosingLine('completed', event.durationMs);
         }
         this.runSeedAt = null; // 种子消费即清（防无后继 fresh start 的残值复用）
-        this.refreshFooter(); // 批B：今日段刷新锚（run 终点当日账已落——尾注与常驻段同帧收敛）
+        this.refreshFooter(); // 低频锚：累计段随 run 落账拉现值（注⑪⑥a——尾注与仪表同帧收敛）
         this.touchFixed();
         break;
       case 'retry_wait_start':
@@ -2615,10 +2780,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           // 携因由任务行态④单源承载——pendingFailReason 缺席兜底裸形
           // （诚实缺席非陈因）；failed 无收尾行（错误块与任务行已足，不叠装饰行）
           this.runEndedAt = this.now();
+          this.speedSuppressed = true; // 行1 速度段呈现抑制（注⑪②——失败终态同 aborted 律）
           this.taskLine.enterError(this.pendingFailReason ?? undefined);
           this.pendingFailReason = null; // 消费即清（终态后账不复用）
           this.runSeedAt = null; // 种子账收口（failed 无收尾行——种子不复用）
-          this.refreshFooter(); // 批B：今日段刷新锚（失败腿同样落账）
+          this.refreshFooter(); // 低频锚：累计段随 run 落账拉现值（失败腿同样落账）
         }
         this.touchFixed();
         break;
@@ -2627,6 +2793,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // assistant 流式窗口开，message_end 归态①）
         if (event.role === 'assistant') {
           this.turnEstimator.reset(); // 本轮重置（每 turn 起跑——基线重建，重试续入同律新账）
+          this.contextStreamLive = true; // 上下文流中平滑开窗（注⑪②——settled + 估值器）
           this.taskLine.enterThinking();
         }
         break; // 正文流式归直播路——固定区零扰动（任务行 onChange 自触重画）
@@ -2668,6 +2835,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         if (isStandardMessage(event.message) && event.message.role === 'assistant') {
           this.pendingUsage = event.message.usage;
           this.turnEstimator.onSettled(event.message.usage); // 真值收口（⑥c——本轮 N 收口读真值，误差吸收不回跳）
+          this.contextStreamLive = false; // 平滑窗关（注⑪②——context_usage 即将落账 settled，防估值器残值双计）
           this.taskLine.enterWorking(); // 流式窗关——归态①（下一 message_start 再入态②）
         } else if (isStandardMessage(event.message) && event.message.role === 'user' && event.channel === undefined) {
           // run 种子用户消息时戳入**暂存位**（收尾行时刻源）：channel 缺席 =
@@ -2678,6 +2846,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         break; // 正文换装已走直播路——固定区零扰动
       case 'turn_end':
         this.accumulateUsage(); // 件 6：累加时点（非呈现时点）
+        break;
+      case 'context_usage':
+        // 行1 上下文三件套供数（E-4——turn 收口随发，turn_end 前）：字段缺席
+        // = 未知不显示（codex 语义——双可选）；供数器渲染期活拉，本位落账
+        // + 触帧收敛（单发事件即帧——供数链测试面直锁）
+        this.contextUsedTokens = event.usedTokens ?? null;
+        this.contextMaxTokens = event.maxTokens ?? null;
+        this.touchFixed();
         break;
       default:
         break; // 消息族其余/turn 族其余不触固定区
@@ -2701,7 +2877,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.runSeedAt = null;
     this.pendingSeedAt = null; // 暂存位连清（切焦防上一焦种子泄漏到新焦收尾行）
     this.retryContinuation = false;
+    this.speedSuppressed = false; // 行1 速度段呈现抑制复位（新 run 成功形重开——切焦同清）
     this.statusLine.setStatus('');
+    // 注⑪② 上下文对**不入本清账族**：used/max 是会话级量（窗口占用跨 run
+    // 边界连续），新 run 流中平滑以其为基线；清位归切焦锚 onRepaint（per
+    // focus 首轮前整段缺席律）
   }
 
   /**
@@ -2823,6 +3003,22 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * 段高重算既有路（touchFixed/requestRender 收敛 + repaint/resize 全量
    * 重画同收敛）。
    */
+  /**
+   * 固定区 v2 重建（自上而下段序——V-4 注⑪① 笔3 定序）：overlay 段（各层
+   * 量高叠放 + 视口帽收口 fx2-B）→ todo 面板（件 4——todoFor 缺席/空表即
+   * 零行）→ input-ask 提示行 → 补全弹层 → 任务状态行（件 12——编辑器正上
+   * 方）→ 编辑器（动态量高；聚焦态 = 无 overlay 占焦）→ 工具进度面板（件
+   * 5——与状态行分职互补相邻）→ 状态行底栏三行栈（行1 仪表 + 行2 环境
+   * ——1-2 行，注⑪①）→ 后台任务面板（注⑪① 行3——迁最底行，V-1 漂移
+   * 补列）。编辑光标经 EditorView setCursor 声明 → MainScreen.setFixed
+   * 声明位落 cup。
+   *
+   * 段量高经固定区段优先级截断（07 §4.1 挂账解挂批 C②）：极小终端固定区
+   * 总高 > 视口时依优先级序截断（状态行行1 恒保底 > 行2 环境栈让位〔注⑪⑧
+   * 垂直牺牲梯〕> 输入框收窄至下限 > 低段 todo/工具进度先缩后隐）——分配律
+   * 单源 fixed-budget.ts；生效锚即本件段高重算既有路（touchFixed/
+   * requestRender 收敛 + repaint/resize 全量重画同收敛）。
+   */
   private renderFixed(): void {
     const columns = this.io.size().columns;
     // 后台任务快照帧首拉取（界面美化役批6——UX 批6 A 件）：jobs 注入在场才
@@ -2833,6 +3029,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 编辑器量高单次（fx2-B——帽计算与分配梯共用；measure 幂等无帧账副作用）
     const editorMeasure = this.editor.measure(columns);
     const askRows = this.inputAsk !== null ? 1 : 0;
+    // 状态行想占行数（V-4 注⑪⑧ 笔3——三行栈量高原值 1-2：仪表行恒 1 +
+    // 环境行数据在场 1；宽度不驱退场防行跳动）；三处最小必保段预留共用
+    const statusWanted = this.statusLine.measure(columns);
     // 任务行占行裁决（界面美化役批 4——件 12）：fixed-budget.ts 分配梯不在本批
     // 改面（梯键集无 task 槽），任务行作**预算梯外挂腿**——先按在场性预留 1
     // 行，最小必保段（overlay 实高 + ask 行 + 编辑器下限 + 任务行 + 状态行）
@@ -2841,15 +3040,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // overlay 视口帽（fx2-B）：一次性问答面板选项数超可用预算时开滚动窗——
     // 固定区总高恒 ≤ 截断预算（绝不让固定区超高触发 MainScreen 陈货守卫
     // 整段不写——修前 24 行屏 21 选项 = 面板 22 + 编辑器 3 + 状态 1 = 26 >
-    // 预算 23，守卫整段不写 = 模态开屏即黑）。帽 = 预算 - 任务行 - 状态行 1
-    // - ask 行 - 编辑器下限（编辑器恒保底对话本体；todo/tool/popup/jobs 属
-    // 更低优先级段、分配梯先牺牲——按编辑器下限保守计算保证梯降到底 total
-    // 恰 ≤ 预算〔任务行缺席时预留归零——极小终端保守 1 行可容忍〕）
+    // 预算 23，守卫整段不写 = 模态开屏即黑）。帽 = 预算 - 任务行 - 状态行
+    // statusWanted - ask 行 - 编辑器下限（编辑器恒保底对话本体；todo/tool/
+    // popup/jobs 属更低优先级段、分配梯先牺牲——按编辑器下限保守计算保证
+    // 梯降到底 total 恰 ≤ 预算〔任务行缺席时预留归零——极小终端保守 1 行
+    // 可容忍〕）
     const overlayCap = Math.max(
       0,
       fixedBudgetRows(this.io.size().rows) -
         (taskPresent ? 1 : 0) -
-        1 -
+        statusWanted -
         askRows -
         Math.min(editorMeasure, EDITOR_MIN_HEIGHT),
     );
@@ -2857,15 +3057,16 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const overlaySum = overlayHeights.reduce((sum, h) => sum + h, 0);
     const taskRows =
       taskPresent &&
-      overlaySum + askRows + Math.min(editorMeasure, EDITOR_MIN_HEIGHT) + 2 <= fixedBudgetRows(this.io.size().rows)
+      overlaySum + askRows + Math.min(editorMeasure, EDITOR_MIN_HEIGHT) + 1 + statusWanted <=
+        fixedBudgetRows(this.io.size().rows)
         ? 1
         : 0;
-    // 后台任务段占行裁决（界面美化役批6——UX 批6 A 件）：分配梯不改面
-    // （梯键集无 jobs 槽——任务行同形外挂腿）。想占行数 = 面板量高原值
-    // （帽 5 + 溢出行）；最小必保段（overlay 实高 + ask 行 + 编辑器下限 +
-    // 任务行 + 状态行）外算余量，正数即得、负数整段隐（极小终端让位——
-    // 「先缩后隐」梯末位语义，todo/tool 同档牺牲序；段内低段高收口在
-    // JobPanel.render 容量自洽）
+    // 后台任务段占行裁决（界面美化役批6——UX 批6 A 件 + V-4 注⑪① 迁最底
+    // 行）：分配梯不改面（梯键集无 jobs 槽——任务行同形外挂腿）。想占行数
+    // = 面板量高原值（帽 5 + 溢出行）；最小必保段（overlay 实高 + ask 行 +
+    // 编辑器下限 + 任务行 + 状态行）外算余量，正数即得、负数整段隐（极小
+    // 终端让位——「先缩后隐」梯末位语义，todo/tool 同档牺牲序；段内低段高
+    // 收口在 JobPanel.render 容量自洽）
     const jobsWanted = this.jobsSource !== undefined ? this.jobPanel.measure(columns) : 0;
     const jobRows =
       this.jobsSource !== undefined && jobsWanted > 0
@@ -2874,7 +3075,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
             Math.min(
               jobsWanted,
               fixedBudgetRows(this.io.size().rows) -
-                (overlaySum + askRows + Math.min(editorMeasure, EDITOR_MIN_HEIGHT) + (taskRows > 0 ? 1 : 0) + 1),
+                (overlaySum +
+                  askRows +
+                  Math.min(editorMeasure, EDITOR_MIN_HEIGHT) +
+                  (taskRows > 0 ? 1 : 0) +
+                  statusWanted),
             ),
           )
         : 0;
@@ -2889,6 +3094,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       editor: editorMeasure,
       todo: this.todoPanel.measure(columns),
       tool: this.toolPanel.measure(columns),
+      statusWanted,
     });
     const total = budget.total + taskRows + jobRows;
     const grid = new CellGrid(columns, total);
@@ -2905,13 +3111,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     if (budget.todo > 0) {
       this.todoPanel.render(grid, { row, col: 0, width: columns, height: budget.todo });
       row += budget.todo;
-    }
-
-    // 段二.5：后台任务面板（界面美化役批6——UX 批6 A 件：running 快照紧凑
-    // 面板，todo 同形；清板即零行；截断隐 = 零高度；段内低段高容量收口自洽）
-    if (jobRows > 0) {
-      this.jobPanel.render(grid, { row, col: 0, width: columns, height: jobRows });
-      row += jobRows;
     }
 
     // 段三：input-ask 提示行（应答期编辑器转应答车的引导位——恒保不截）。
@@ -2934,28 +3133,38 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       row += budget.popup;
     }
 
-    // 段四.5：任务状态行（件 12——编辑器正上方固定段；忙态在场闲态离场，
+    // 段五：任务状态行（件 12——编辑器正上方固定段；忙态在场闲态离场，
     // 占行裁决见上；编辑器聚焦态不受影响——overlay 占焦判定与任务行无涉）
     if (taskRows > 0) {
       this.taskLine.render(grid, { row, col: 0, width: columns, height: 1 });
       row += 1;
     }
 
-    // 段五：编辑器（overlay 占焦期非聚焦——› 提示符降档 secondary 态 +
+    // 段六：编辑器（overlay 占焦期非聚焦——› 提示符降档 secondary 态 +
     // 不抢光标声明；截断收窄至下限 1 = 内容最小高——V-0 注③ 框退役后
     // EditorView innerH ≤ 0 防御在位）
     this.editor.setFocused(this.stack.size === 0);
     this.editor.render(grid, { row, col: 0, width: columns, height: budget.editor });
     row += budget.editor;
 
-    // 段六：工具进度面板（件 5——正在流 partial 的工具各占一行；清板即零行）
+    // 段七：工具进度面板（件 5——正在流 partial 的工具各占一行；清板即零行）
     if (budget.tool > 0) {
       this.toolPanel.render(grid, { row, col: 0, width: columns, height: budget.tool });
       row += budget.tool;
     }
 
-    // 段七：状态行（固定区末行——恒保底不截）
-    this.statusLine.render(grid, { row, col: 0, width: columns, height: 1 });
+    // 段八之一：状态行底栏三行栈（V-4 注⑪① 笔3——行1 仪表 + 尾注让位⑨ /
+    // 行2 环境；量高 1-2 经 budget.status——极小终端行2 让位可 1）
+    this.statusLine.render(grid, { row, col: 0, width: columns, height: budget.status });
+    row += budget.status;
+
+    // 段八之二：后台任务面板（注⑪① 行3——迁最底行：running 快照紧凑面板
+    // 在状态行之下钉屏底；清板即零行；截断隐 = 零高度；段内低段高容量收口
+    // 自洽）
+    if (jobRows > 0) {
+      this.jobPanel.render(grid, { row, col: 0, width: columns, height: jobRows });
+      row += jobRows;
+    }
     this.screen.setFixed(grid);
   }
 

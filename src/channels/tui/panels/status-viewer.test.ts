@@ -87,6 +87,23 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     expect(buildStatusLines({ ...DATA, gitHead: '' }).every((line) => !line.startsWith('git'))).toBe(true);
   });
 
+  it('今日行（V-4 注⑪⑤——footer 今日段退役迁此）：在场推行轮次后 / 零耗与缺席不推行', () => {
+    // 缺省夹具未带 todaySpent——不推行（不虚报）
+    expect(buildStatusLines(DATA).every((line) => !line.startsWith('今日'))).toBe(true);
+    // 零耗缩位（冷启动零噪声——footer 今日段同律）
+    expect(buildStatusLines({ ...DATA, todaySpent: 0 }).every((line) => !line.startsWith('今日'))).toBe(true);
+    // 在场形：会话段轮次行之后、环境段之前（快照档开屏现读）
+    const lines = buildStatusLines({ ...DATA, todaySpent: 12_345 });
+    const todayLine = lines.find((line) => line.startsWith('今日'));
+    expect(todayLine).toContain('12,345'); // formatCount 千位分组单源
+    const turnsIdx = lines.findIndex((line) => line.startsWith('轮次'));
+    const envIdx = lines.indexOf('── 环境 ──');
+    const todayIdx = lines.indexOf(todayLine ?? '');
+    expect(turnsIdx).toBeGreaterThan(-1);
+    expect(todayIdx).toBe(turnsIdx + 1); // 轮次后紧邻
+    expect(todayIdx).toBeLessThan(envIdx);
+  });
+
   it('模型凭证行（ob-2 态 + C-4 全明文翻裁值）：ready 携完整供血值（人面所见即供血——修前红：v1 值恒不入面）', () => {
     const readyLines = buildStatusLines(DATA);
     const readyLine = readyLines.find((line) => line.startsWith('模型凭证'))!;

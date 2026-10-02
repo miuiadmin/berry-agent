@@ -3,9 +3,10 @@
  *
  * 极小终端形（固定区各段量高总和 > 视口行数）依规范优先级序截断：
  * - 截断目标：固定区总高 ≤ 视口 - 1（正文滚动区至少 1 行）；
- * - 优先级序：状态行恒保底 > 输入框（随 R3 高度帽自适应收窄至内容最小高，
- *   下限 = 内容 1——V-0 注③ 框退役后框线零占位，composer 形下限即 1）>
- *   todo 面板与工具进度面板（低段先缩后隐——
+ * - 优先级序：状态行（V-4 注⑪⑧ 笔3——三行栈行1 仪表恒保底；行2 环境栈
+ *   属垂直牺牲梯可让〔todo 隐后、编辑器收窄前〕）> 输入框（随 R3 高度帽
+ *   自适应收窄至内容最小高，下限 = 内容 1——V-0 注③ 框退役后框线零占位，
+ *   composer 形下限即 1）> todo 面板与工具进度面板（低段先缩后隐——
  *   缩 = 帽内行数再降、隐 = 整段缺席零高度）；
  * - 段隐即零高度不虚报；overlay / input-ask 恒满高不截（模态栈与应答行
  *   是交互承诺面——残余溢出归 MainScreen baseRow 钳 0 兜底）。
@@ -45,9 +46,15 @@ export interface FixedBudgetInput {
   readonly todo: number;
   /** 工具进度面板量高 */
   readonly tool: number;
+  /**
+   * 状态行想占行数（V-4 注⑪⑧ 笔3——三行栈量高原值：仪表行恒 1 + 环境行
+   * 数据在场 1，即 1-2；无 footer 旧形恒 1）。行1 恒保底（截断钳 ≥1），
+   * 行2 属垂直牺牲梯可让（todo 隐后、编辑器收窄前隐去）。
+   */
+  readonly statusWanted: number;
 }
 
-/** 截断后的段量高分配（status 恒 1——状态行恒保底） */
+/** 截断后的段量高分配（status 钳 1-2——行1 恒保底，行2 极小终端让位） */
 export interface FixedBudget {
   readonly overlay: number;
   readonly ask: number;
@@ -55,7 +62,7 @@ export interface FixedBudget {
   readonly editor: number;
   readonly todo: number;
   readonly tool: number;
-  /** 状态行高（恒 1） */
+  /** 状态行高（1-2：行1 仪表恒 1 + 行2 环境——极小终端让位可 1） */
   readonly status: number;
   /** 分配后固定区总高（= 各段和；极端形下可仍超预算——兜底归 baseRow 钳 0） */
   readonly total: number;
@@ -64,13 +71,15 @@ export interface FixedBudget {
 /**
  * 依优先级序分配固定区段量高：预算充足恒等直通（零截断零扰动）；超预算
  * 逐级牺牲（每步仅在仍超预算时执行）——工具进度缩 1 → 工具进度隐 →
- * todo 缩 1 → todo 隐 → 输入框收窄至下限 → 补全弹层隐。
+ * todo 缩 1 → todo 隐 → 状态行行2 隐（V-4 注⑪⑧ 垂直牺牲梯——仪表行恒
+ * 保底）→ 输入框收窄至下限 → 补全弹层隐。
  */
 export function allocateFixedBudget(input: FixedBudgetInput): FixedBudget {
   // 截断目标：总高 ≤ 视口 - 1（正文滚动区至少 1 行；视口 1 行形下限兜 1）
   const budget = fixedBudgetRows(input.viewportRows);
   let { overlay, ask, popup, editor, todo, tool } = input;
-  const status = 1;
+  // 状态行 1-2（想占行数钳制：仪表行恒保底 1、环境行至多 1）
+  let status = Math.max(1, Math.min(input.statusWanted, 2));
   const sum = (): number => overlay + ask + popup + editor + todo + tool + status;
   if (sum() > budget) {
     // 低段「先缩后隐」之一：工具进度面板（低段中之最低——瞬时活动面）
@@ -79,11 +88,14 @@ export function allocateFixedBudget(input: FixedBudgetInput): FixedBudget {
     // 低段「先缩后隐」之二：todo 面板
     if (sum() > budget) todo = Math.min(todo, 1);
     if (sum() > budget) todo = 0;
+    // 状态行行2 隐（V-4 注⑪⑧ 垂直牺牲梯档位——todo 隐后、编辑器收窄前：
+    // 环境栈属辅助信息，先于对话本体让位；行1 仪表栈 + 尾注恒保底不截）
+    if (sum() > budget) status = Math.min(status, 1);
     // 输入框收窄至下限（对话本体——低段全隐后仍超才动；到下限恒不再下压）
     if (sum() > budget) editor = Math.min(editor, EDITOR_MIN_HEIGHT);
     // 补全弹层（档序落码定值——编辑器已收至下限仍超预算才隐）
     if (sum() > budget) popup = 0;
-    // overlay / ask / status 恒满高：残余溢出如实返回（兜底归 baseRow 钳 0）
+    // overlay / ask / status 行1 恒满高：残余溢出如实返回（兜底归 baseRow 钳 0）
   }
   return { overlay, ask, popup, editor, todo, tool, status, total: sum() };
 }

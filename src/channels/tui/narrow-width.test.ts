@@ -273,10 +273,16 @@ describe('状态行窄宽（1-8 列）', () => {
       expect(stringWidth(readRow(g1, 0, w))).toBeLessThanOrEqual(w);
       expectGridInvariants(g1);
 
-      // split 闲态（footer 在场——V-3 注⑦② 分栏形）：坍缩梯段级丢弃 + 右槽
-      // 尾注帽截断（起点可为负——部分落格）
+      // split 闲态（footer 在场——V-4 注⑪ 笔3 三行栈形；本测给 height 1 只画
+      // 行1）：坍缩梯右起丢非模式槽 + 尾注让位（右对齐右缘垫 1——起点可为
+      // 负，部分落格）+ 模式词独存 ellipsize 兜底
       const split = new StatusLine();
-      split.setFooter({ tiers: '无沙箱', tiersSafety: '无沙箱', danger: true, hint: '', right: '今日 1' });
+      split.setFooter({
+        instruments: () => ['YOLO', '思考', 'gemini-2.5-pro', '累计 1,234', '45.2 tok/s', '上下文 12 K / 1 M · 38%'],
+        env: () => ['berry-agent', 'sess-aaa', '⎇ dev@a1b2c3d', '工作区写'],
+        hint: '? 快捷键',
+        modeDanger: true,
+      });
       split.setStatus('完成：5 项');
       const g2 = new CellGrid(w, 1);
       expect(() => split.render(g2, { row: 0, col: 0, width: w, height: 1 })).not.toThrow();

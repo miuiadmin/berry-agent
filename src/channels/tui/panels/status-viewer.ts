@@ -24,6 +24,7 @@ import type { OverlayContent } from '../overlay/overlay.js';
 import { hintLine } from '../keys/hint.js';
 import { fitLine } from '../row-segments.js';
 import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js';
+import { formatCount } from './usage-viewer.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 
@@ -61,6 +62,12 @@ export interface StatusPanelData {
   readonly gitHead?: string | null;
   /** 轮次（会话 events fold——/usage 同数据源） */
   readonly turns: number;
+  /**
+   * 今日全道耗（V-4 注⑪⑤——footer 今日段退役迁此）：快照档开屏现读
+   * （allLanesSpentToday 呈现口径）；null/零耗 = 不推行（诚实缺席——不虚报
+   * 零行）。
+   */
+  readonly todaySpent?: number | null;
   /** 数据目录（null = :memory: 诊断形——诚实缺席行呈现） */
   readonly dataDir: string | null;
   /** theme 生效档（dark/light/auto——settings 档位非探测结果） */
@@ -213,6 +220,9 @@ export function buildStatusLines(data: StatusPanelData): string[] {
     // git 支名行（V-3 注⑦——footer ⎇ 段退役迁此）：null 不推行（不虚报）
     ...(data.gitHead != null && data.gitHead !== '' ? [row('git', data.gitHead)] : []),
     row('轮次', `${data.turns}`),
+    // 今日行（V-4 注⑪⑤——footer 今日段退役迁此）：开屏快照现读一次；零耗
+    // 不推行（冷启动零噪声——与 footer 累计段零耗不显同律）
+    ...(data.todaySpent != null && data.todaySpent > 0 ? [row('今日', formatCount(data.todaySpent))] : []),
     '',
     '── 环境 ──',
     row('数据目录', data.dataDir ?? '（:memory: 模式——未使用数据目录）'),

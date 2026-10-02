@@ -17,6 +17,9 @@
  * （七役扫描批——副屏在场窗通知丢弃的补偿面）、colorEnv 三档接线。
  */
 import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { MemoryTerminalIO, ProcessTerminalIO } from '../../engine/index.js';
 import { ansiColor, colorRgb, stringWidth } from '../../engine/index.js';
 import { TuiBackend, type TuiBackendOptions } from './tui-backend.js';
@@ -3318,38 +3321,155 @@ describe('TuiBackend /marketplace 选装副屏（mp-5——03 §9.6 TUI 选装�
   });
 });
 
-describe('TuiBackend footer 左右分栏（V-3 注⑦——三段退役 + 分栏组装 + 切焦重拉 + 教学门控）', () => {
-  it('【V-3 注⑦ 修前红→回归锁】footer 在场三段退役：模型/短 id/目录⎇ 不落 footer（承载面迁 /status）', () => {
+describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 环境/今日段退役迁 /status）', () => {
+  it('【V-4 注⑪ 修前红→回归锁】三行栈首画：行1 仪表（模式/思考/模型/累计——速度/上下文缺席缩位）+ 行2 环境（目录/短 id/沙箱原词/教学）；今日段退役锁', () => {
     const { io } = makeBackend({
       sessionId: SESSION,
-      footer: { tiers: () => ({ thinking: '思考高', sandbox: '只读' }), todaySpent: () => 1 },
+      footer: {
+        tiers: () => ({ mode: 'Auto', thinking: '思考高', sandbox: '工作区写', sandboxDanger: false }),
+        sessionSpent: () => 500,
+        modelLabel: 'zai/glm-4.7',
+        cwdLabel: () => 'berry-agent',
+      },
     });
-    expect(io.bytes).not.toContain('sess-aaa'); // 修前红在案：旧段序恒拼短 id 段
-    expect(io.bytes).toContain('只读 · 思考高'); // 左段档位分栏在场
-    expect(io.bytes).toContain('今日 1'); // 右段今日右对齐在场
+    expect(io.bytes).toContain('Auto · 思考高 · glm-4.7 · 累计 500'); // 行1 仪表（六槽右三缺席）
+    // 行2（⎇ 缺席——非 git 目录）：教学槽 dim 样式打断纯文本连缀——环境段与
+    // 教学段分两断言（SGR 边界在 ' · ' 连接符后）
+    expect(io.bytes).toContain('berry-agent · sess-aaa · 工作区写 · ');
+    expect(io.bytes).toContain('? 快捷键');
+    expect(io.bytes).not.toContain('今日'); // 今日段退役（承载面迁 /status——注⑪⑤）
   });
 
-  it('footer 注入：左段档位 + 右段今日分栏首画在场（段间不再连缀——分栏几何）', () => {
-    const { io } = makeBackend({
-      sessionId: SESSION,
-      footer: { tiers: () => ({ thinking: '思考高', sandbox: '只读' }), todaySpent: () => 12_345 },
-    });
-    expect(io.bytes).toContain('只读 · 思考高'); // 左段（沙箱先思考后——批6 子段序承袭）
-    expect(io.bytes).toContain('今日 12,345'); // 右段（今日段独立右对齐）
-    expect(io.bytes).not.toContain('思考高 · 今日'); // 左右段不连缀（分栏非拼段）
-  });
-
-  it('切焦联动：onRepaint 后档位/今日段重拉（闭包现值——与焦点同源）', () => {
-    let tiers: { thinking: string | null; sandbox: string | null } = { thinking: '思考中', sandbox: '只读' };
+  it('模式词投影：tiers.mode 透传（MODE_SHORT 装配侧换词——计划/Auto/YOLO 三档）+ 公开刷新面拉现值', () => {
+    let mode = '计划';
+    let danger = false;
     const io = new MemoryTerminalIO(COLS, ROWS);
-    const backend = new TuiBackend(io, { sessionId: SESSION, footer: { tiers: () => tiers } });
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      footer: {
+        tiers: () => ({ mode, thinking: null, sandbox: '只读', sandboxDanger: danger }),
+        cwdLabel: () => 'w',
+      },
+    });
     backend.start();
-    expect(io.bytes).toContain('思考中');
+    expect(io.bytes).toContain('计划'); // 行1 模式槽（唯一在场槽——思考 null/无模型/零累计故无连接符）
     io.reset();
-    tiers = { thinking: '思考高', sandbox: '无沙箱' };
+    mode = 'YOLO';
+    danger = true;
+    backend.refreshFooter(); // 公开刷新面（档位切换点即时刷）
+    expect(io.bytes).toContain('YOLO');
+    expect(io.bytes).not.toContain('计划');
+  });
+
+  it('setFooterModel 活写回迁（注⑪②——ctrl+p 联动）：模型短名即时换新；注入缺席 no-op', () => {
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      footer: {
+        tiers: () => ({ mode: 'Auto', thinking: null, sandbox: null }),
+        modelLabel: 'faux/m1',
+        cwdLabel: () => 'w',
+      },
+    });
+    expect(io.bytes).toContain('Auto · m1'); // 行1 模型槽（id 尾段——全形归 /status；模式槽在场故有连接符）
+    io.bytes = '';
+    backend.setFooterModel('zai/glm-4.7');
+    expect(io.bytes).toContain('Auto · glm-4.7');
+    expect(io.bytes).not.toContain('m1'); // 旧短名换出
+    // 注入缺席：footer 无 → no-op 零扰动（V-2 退役前同律）
+    const bare = makeBackend();
+    expect(() => bare.backend.setFooterModel('x/y')).not.toThrow();
+  });
+
+  it('context_usage 消费（注⑪② 上下文三件套）：真值在场 → 流中估值平滑 → 切焦清位', () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION, footer: { modelLabel: 'm', cwdLabel: () => 'w' } });
+    emit(backend, { type: 'context_usage', usedTokens: 996, maxTokens: 1_000_000 });
+    expect(io.bytes).toContain('上下文 996 / 1 M · 0%'); // 真值三件套（K/M 单源——<1K 原值）
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_start', role: 'assistant' });
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('你好世界') }); // 估值 +4
+    expect(io.bytes).toContain('上下文 1 K / 1 M · 0%'); // 流中平滑：996 + 4 → 1000 → '1 K'
+    // 平滑帧晚于 agent_start 间隙帧（turn 边界 settled 996 = 合法中间态——上下文
+    // 会话级量跨 run 幸存；判据 = 终态帧序非全程缺席）
+    expect(io.bytes.lastIndexOf('上下文 1 K / 1 M · 0%')).toBeGreaterThan(io.bytes.lastIndexOf('上下文 996'));
+    // 切焦清位（onRepaint → resetUsage 连清——首轮前整段缺席律 per focus）
     backend.onRepaint('sess-bbbbbbbbbbbb', [], null);
-    expect(io.bytes).toContain('无沙箱 · 思考高'); // 切焦重拉取新值
-    expect(io.bytes).not.toContain('思考中');
+    io.bytes = '';
+    backend.refreshFooter();
+    expect(io.bytes).not.toContain('上下文');
+  });
+
+  it('context_usage 双可选缺席 = 未知不显示（E-4 事件型语义——诚实缩位）', () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION, footer: { modelLabel: 'm', cwdLabel: () => 'w' } });
+    emit(backend, { type: 'context_usage' });
+    expect(io.bytes).not.toContain('上下文');
+    emit(backend, { type: 'context_usage', usedTokens: 12_345 }); // maxTokens 缺席 = 二件套（无帽无百分比）
+    expect(io.bytes).toContain('上下文 12 K');
+    expect(io.bytes).not.toContain(' · 0%');
+  });
+
+  it('速度段行1（注⑪②——speedView 消费）：completed 终值冻结进仪表；aborted 终态抑制不显段', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      now: () => t,
+      footer: { modelLabel: 'm', cwdLabel: () => 'w' },
+    });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(100) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    t += 4000;
+    io.bytes = '';
+    emit(backend, { type: 'agent_end', status: 'completed' });
+    expect(io.bytes).toContain('25 tok/s'); // 100/4s 终值冻结入行1
+    // aborted：终值照算（speedView 观测面）但呈现抑制（批C 诚实缺席律——呈现面
+    // 专属）。busy-off 信封帧（]9;4;0 路先行于 agent_end 终态突变）携带终前
+    // 速度属揭示前中间帧；判据 = 终态帧族（⏹ 揭示后）不再含速度段
+    io.bytes = '';
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_end', message: usageMsg(50) });
+    emit(backend, { type: 'turn_end', turn: 2, stopReason: 'stop' });
+    t += 4000;
+    emit(backend, { type: 'agent_end', status: 'aborted' });
+    expect(io.bytes.lastIndexOf('⏹ 已中止')).toBeGreaterThan(io.bytes.lastIndexOf('tok/s'));
+    expect(io.bytes).toContain('⏹ 已中止');
+  });
+
+  it('行2 ⎇ 段：git 库目录现支名@短哈希（readGitHead 低频锚缓存——/status 行维持不撤）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-git-slot-'));
+    mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/dev\n');
+    writeFileSync(join(dir, '.git', 'refs', 'heads', 'dev'), 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n');
+    try {
+      const { io } = makeBackend({
+        sessionId: SESSION,
+        footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
+      });
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d'); // 支名 @短哈希（前 7 位——零子进程直读 refs；'⎇ 支名 @' 记形随 gitHeadSuffix 单源）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('JobPanel 迁位（注⑪④——行3 最底行）：任务行在状态行之下（行序断言）', () => {
+    const jobs: JobEntry[] = [
+      { id: 'job-1', name: '后台探查', kind: 'subagent', owner: SESSION, status: 'running', startedAt: 0 },
+    ];
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      footer: {
+        tiers: () => ({ mode: 'Auto', thinking: null, sandbox: '工作区写' }),
+        cwdLabel: () => 'berry-agent',
+      },
+      jobs: { running: () => jobs, list: () => jobs },
+    });
+    backend.start();
+    // 行序断言走字节位序（流内无换行符——split('\n') 全落首段失效谱）
+    const footerAt = io.bytes.indexOf('? 快捷键'); // 行2（状态行末行）
+    const jobsAt = io.bytes.indexOf('后台探查');
+    expect(footerAt).toBeGreaterThanOrEqual(0);
+    expect(jobsAt).toBeGreaterThan(footerAt); // 任务面板迁最底行（状态行之下）
   });
 
   it('注入缺席：状态行无常驻段（门控零扰动——旧形锚）', () => {
@@ -3371,7 +3491,7 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
     const io = new MemoryTerminalIO(COLS, ROWS);
     const backend = new TuiBackend(io, {
       sessionId: SESSION,
-      footer: { tiers: () => ({ thinking: null, sandbox: null }) },
+      footer: { tiers: () => ({ mode: null, thinking: null, sandbox: null }) },
     });
     backend.start();
     expect(io.bytes).toContain('? 快捷键'); // 构造期空稿闲态——hint 首画在场
@@ -3386,7 +3506,7 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
   it('忙态教学提示退场（agent 起停翻转锚）', () => {
     const { io, backend } = makeBackend({
       sessionId: SESSION,
-      footer: { tiers: () => ({ thinking: null, sandbox: null }) },
+      footer: { tiers: () => ({ mode: null, thinking: null, sandbox: null }) },
     });
     expect(io.bytes).toContain('? 快捷键');
     io.bytes = '';
@@ -3439,47 +3559,59 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
   });
 });
 
-describe('TuiBackend footer 扩容段（三反馈批B——档位段 + 今日段；V-4 注⑪⑦ 忙态速度段退役 → 本轮段）', () => {
-  it('缺席缩位：tiers 子段 null / 今日零耗不虚报', () => {
+describe('TuiBackend footer 扩容段（三反馈批B→V-4 注⑪ 翻档——档位段 + 累计段；忙态速度段退役 → 本轮段）', () => {
+  it('缺席缩位：tiers 子段 null / 累计零耗不虚报', () => {
     const { io } = makeBackend({
       sessionId: SESSION,
       footer: {
-        tiers: () => ({ thinking: null, sandbox: '只读' }),
-        todaySpent: () => 0,
+        tiers: () => ({ mode: null, thinking: null, sandbox: '只读' }),
+        sessionSpent: () => 0,
+        cwdLabel: () => 'w',
       },
     });
-    expect(io.bytes).toContain('只读'); // 思考子段缩位
-    expect(io.bytes).not.toContain('今日'); // 当日零耗不显段（冷启动零噪声）
+    expect(io.bytes).toContain('只读'); // 行2 沙箱原词（模式/思考子段缩位）
+    expect(io.bytes).not.toContain('累计'); // 会话累计零耗不显段（冷启动零噪声）
   });
 
   it('档位切换即时刷：公开刷新面拉取 pull 闭包现值（选定闭包消费位）', () => {
-    let tiers: { thinking: string | null; sandbox: string | null } = { thinking: '思考中', sandbox: '只读' };
+    let tiers: { mode: string | null; thinking: string | null; sandbox: string | null } = {
+      mode: 'Auto',
+      thinking: '思考中',
+      sandbox: '只读',
+    };
     const io = new MemoryTerminalIO(COLS, ROWS);
-    const backend = new TuiBackend(io, { sessionId: SESSION, footer: { tiers: () => tiers } });
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      footer: { tiers: () => tiers, cwdLabel: () => 'w' },
+    });
     backend.start();
     expect(io.bytes).toContain('思考中');
     io.reset();
-    tiers = { thinking: '思考高', sandbox: '无沙箱' };
+    tiers = { mode: 'YOLO', thinking: '思考高', sandbox: '无沙箱' };
     backend.refreshFooter(); // 公开刷新面（批B——档位切换点即时刷）
-    expect(io.bytes).toContain('无沙箱 · 思考高');
+    expect(io.bytes).toContain('YOLO · 思考高');
+    expect(io.bytes).toContain('无沙箱'); // 行2 沙箱原词同刷
     expect(io.bytes).not.toContain('思考中');
   });
 
-  it('agent_end 刷今日段（run 落账后拉取现值）', () => {
-    let today = 0;
-    const { io, backend } = makeBackend({ sessionId: SESSION, footer: { todaySpent: () => today } });
-    expect(io.bytes).not.toContain('今日'); // 零耗不显段
+  it('agent_end 刷累计段（run 落账后拉取现值——⑥a 刷新锚）', () => {
+    let spent = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      footer: { tiers: () => ({ mode: 'Auto', thinking: null, sandbox: '只读' }), sessionSpent: () => spent },
+    });
+    expect(io.bytes).not.toContain('累计'); // 零耗不显段
     io.reset();
-    today = 500;
+    spent = 500;
     emit(backend, { type: 'agent_start' });
     emit(backend, { type: 'agent_end', status: 'completed' });
-    expect(io.bytes).toContain('今日 500'); // agent_end 拉取锚（批B）
+    expect(io.bytes).toContain('累计 500'); // agent_end 拉取锚（批B→注⑪⑥a）
   });
 
   it('忙态任务行拼本轮段（估值器消费位——message_end 真值收口后工具相位持续显示；速度段退役）', () => {
     const { io, backend, clock } = makeInteractive({
       sessionId: 's1',
-      footer: { tiers: () => ({ thinking: '思考高', sandbox: '只读' }) },
+      footer: { tiers: () => ({ mode: 'Auto', thinking: '思考高', sandbox: '只读' }) },
     });
     emit(backend, { type: 'agent_start' });
     emit(backend, { type: 'message_start', role: 'assistant' });
@@ -3496,7 +3628,7 @@ describe('TuiBackend footer 扩容段（三反馈批B——档位段 + 今日段
   });
 });
 
-describe('TuiBackend 候跑提交 + 模型循环键（挂账解挂批 2026-09-15；footer 模型段活写随 V-3 注⑦ 退役）', () => {
+describe('TuiBackend 候跑提交 + 模型循环键（挂账解挂批 2026-09-15；footer 模型段活写 V-4 注⑪② 回迁——ctrl+p 联动）', () => {
   /** 键位三件 rig：提交柄记录 opts 第三参 + 模型循环柄计次 */
   function makeKeyRig(options: Partial<TuiBackendOptions> = {}) {
     const io = new MemoryTerminalIO(COLS, ROWS);
@@ -3558,7 +3690,7 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
     const io = new MemoryTerminalIO(COLS, 12); // 先宽后窄：宽形（12 行）无截断全量进画，让 todo 7 行先进场
     const backend = new TuiBackend(io, {
       sessionId: SESSION,
-      footer: { tiers: () => ({ thinking: null, sandbox: '只读' }) },
+      footer: { tiers: () => ({ mode: null, thinking: null, sandbox: '只读' }) },
       todoFor: () => manyTodos,
     });
     backend.start();
@@ -3567,11 +3699,12 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
     io.bytes = ''; // 宽形中间帧不计——聚焦缩窗后的全量重画帧
     io.rows = 5;
     io.emitResize(); // 极小形：截断目标 = 固定区总高 ≤ 视口 - 1 = 4（正文滚动区至少 1 行）
-    // 截断后固定区 = todo 1 + 编辑器下限 1 + 状态行 1 = 3（框退役后编辑器省 2 行——
-    // 低段从「整段隐」升为「缩 1 行」；段内梯缩至首条摘要行）
-    // 状态行恒保底且钉屏底（V-3 注⑦②——左段档位分栏 + secondary 弱化 SGR）
-    expect(io.bytes).toContain('\x1b[5;1H\x1b[0m\x1b[90m只读'); // 钉屏底（1 基第 5 行）
-    expect(io.bytes).toContain('\x1b[4;1H\x1b[0m\x1b[36m›'); // composer 输入行（1 基第 4 行）
+    // 截断后固定区 = todo 1 + 编辑器下限 1 + 状态行 2 = 4（V-4 注⑪ 笔3 三行栈——
+    // env 在场量高 2：仪表行空保留 + 环境行短 id/沙箱原词；框退役后编辑器省
+    // 2 行——低段从「整段隐」升为「缩 1 行」；段内梯缩至首条摘要行）
+    // 状态行恒保底且钉屏底（注⑪①——环境行 = 最底行；secondary 弱化 SGR）
+    expect(io.bytes).toContain('\x1b[5;1H\x1b[0m\x1b[90msess-aaa · 只读'); // 钉屏底（1 基第 5 行——环境行短 id 起）
+    expect(io.bytes).toContain('\x1b[3;1H\x1b[0m\x1b[36m›'); // composer 输入行（1 基第 3 行——状态 2 行上移）
     expect(io.bytes).toContain('任务零0'); // 低段缩至首条在场——段不虚报缺席
     expect(io.bytes).not.toContain('任务零1'); // 缩掉的不虚报（修前 7 行全量进画）
     expect(io.bytes).not.toContain('\x1b[6;1H'); // 无越屏定位（修前固定区 11 行越 5 行屏）
@@ -3581,18 +3714,18 @@ describe('TuiBackend 固定区段优先级截断（07 §4.1 挂账解挂批 C②
     const io = new MemoryTerminalIO(COLS, 12); // 同上先宽（12 行全量 11 ≤ 预算 11 无截断）后窄
     const backend = new TuiBackend(io, {
       sessionId: SESSION,
-      footer: { tiers: () => ({ thinking: null, sandbox: '只读' }) },
+      footer: { tiers: () => ({ mode: null, thinking: null, sandbox: '只读' }) },
       todoFor: () => manyTodos,
     });
     backend.start();
     emit(backend, { type: 'tool_execution_end', toolCallId: 't1', result: {} as never });
     io.bytes = '';
     io.rows = 8;
-    io.emitResize(); // 预算 7：todo 缩 1 + 编辑器 1 + 状态行 1 = 3 ≤ 7——「先缩后隐」之缩形
+    io.emitResize(); // 预算 7：todo 缩 1 + 编辑器 1 + 状态行 2 = 4 ≤ 7——「先缩后隐」之缩形
     expect(io.bytes).toContain('任务零0'); // todo 缩到 1 行——首条在场（段在场）
     expect(io.bytes).not.toContain('任务零1'); // 缩掉的不虚报（修前 6 条全量进画）
-    // 固定区总高 3（V-0 注③ 框退役——编辑器 3→1）→ 滚动区底 = 8 - 3 = 5（修前总高 11 → 退化 [1;1r + 越屏定位）
-    expect(io.bytes).toContain('\x1b[1;5r');
+    // 固定区总高 4（V-0 注③ 框退役编辑器 1 + V-4 注⑪ 状态行 2）→ 滚动区底 = 8 - 4 = 4（修前总高 11 → 退化 [1;1r + 越屏定位）
+    expect(io.bytes).toContain('\x1b[1;4r');
     expect(io.bytes).not.toContain('\x1b[9;1H'); // 无越屏定位（修前写到第 11 行）
   });
 });
@@ -3894,25 +4027,24 @@ describe('TuiBackend resumeMain 复起附件（fx2-E——编辑器帽随动 + f
 });
 
 describe('TUI 全域清扫 G1/G2/G5/G6（扇出锚 + repaint 清账 + 速度段/兜底层断言补——2026-09-21）', () => {
-  it('G1-#3 setStatus 扇出锚：状态扇出统一重拉常驻段（今日段随闭包现值收敛）', () => {
+  it('G1-#3 setStatus 扇出锚：状态扇出统一重拉常驻段（累计段随闭包现值收敛——尾注⑨ 同帧并陈不掩蔽）', () => {
     let spent = 0;
     const { io, backend } = makeBackend({
       sessionId: SESSION,
-      footer: { todaySpent: () => spent },
+      footer: {
+        tiers: () => ({ mode: 'Auto', thinking: null, sandbox: '只读' }),
+        sessionSpent: () => spent,
+      },
     });
-    expect(io.bytes).not.toContain('今日'); // 零耗缩位（前置自证）
+    expect(io.bytes).not.toContain('累计'); // 零耗缩位（前置自证）
     spent = 500;
     io.bytes = '';
     backend.setStatus(SESSION, '思考高（下一 run 起生效）');
     // 修前红：setStatus 只写右段文案不重拉常驻段——webui 双开切档（远端
-    // setStatus 扇出面）今日段/档位段停旧值。V-3 注⑦② 尾注让位族：尾注
-    // 优先占右槽（正文前景）——同帧让位今日段
+    // setStatus 扇出面）累计段/档位段停旧值。V-4 注⑪⑨ 尾注让位族：尾注
+    // 右对齐与仪表同帧并陈（挤占几何——不再整段掩蔽）
     expect(io.bytes).toContain('思考高（下一 run 起生效）');
-    expect(io.bytes).not.toContain('今日 500');
-    // 尾注清空后今日段收敛（闭包现值重拉——扇出锚真值面）
-    io.bytes = '';
-    backend.setStatus(SESSION, '');
-    expect(io.bytes).toContain('今日 500');
+    expect(io.bytes).toContain('累计 500');
   });
 
   it('G2-#29 切焦 repaint 连清转轮：旧焦 agent_end 非聚焦态到达不触停帧（修前红——永久转轮）', () => {
@@ -3962,15 +4094,15 @@ describe('TUI 全域清扫 G1/G2/G5/G6（扇出锚 + repaint 清账 + 速度段/
     // 冻结分母；呈现缺席 ≠ 数据缺席——观测面是宿主侧二次消费位）
   });
 
-  it('G6-#8 批B fail-open 兜底：档位/今日闭包抛错整段缩位不炸渲染路', () => {
+  it('G6-#8 批B fail-open 兜底：档位/累计闭包抛错整段缩位不炸渲染路', () => {
     const { io, backend } = makeBackend({
       sessionId: SESSION,
       footer: {
         tiers: () => {
           throw new Error('tiers fold boom');
         },
-        todaySpent: () => {
-          throw new Error('today agg boom');
+        sessionSpent: () => {
+          throw new Error('spent agg boom');
         },
       },
     });
@@ -3978,7 +4110,7 @@ describe('TUI 全域清扫 G1/G2/G5/G6（扇出锚 + repaint 清账 + 速度段/
     // refreshFooter 再拉覆盖刷新锚路径，两路都不炸
     expect(() => backend.refreshFooter()).not.toThrow(); // 双保兜底层直测
     expect(io.bytes).not.toContain('boom'); // 异常文本不落屏
-    expect(io.bytes).not.toContain('今日'); // 抛错段缩位不虚报
+    expect(io.bytes).not.toContain('累计'); // 抛错段缩位不虚报
   });
 });
 

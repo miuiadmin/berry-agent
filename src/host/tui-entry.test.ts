@@ -501,56 +501,60 @@ describe('runTuiEntry 装配序', () => {
     await rt.shutdown();
   });
 
-  it('提交 run 结算锚：run 结算后 footer 收敛（全域清扫 G1-#1；V-3 注⑦④ 尾注让位——今日段掩蔽期收敛面 = 收尾尾注）', async () => {
+  it('提交 run 结算锚：run 结算后 footer 收敛（全域清扫 G1-#1；V-4 注⑪⑨ 尾注让位——行1 尾注与仪表同帧并陈）', async () => {
     const { entry, io, faux } = await rigEntry(rigDir('entry-settle-data-'), rigDir('entry-settle-ws-'));
     faux.setResponses([() => meteredEntryMessage(30, 12)]);
     io.send('hello\r');
     await until(() => faux.state.callCount >= 1); // 全链达模型
     // 修前红：agent_end 信封同步扇出在桥接落账（结算微任务）之前——锚拉到的
-    // 今日值不含本 run token；结算后 TUI 侧无刷新锚 → 零耗缩位持续驻留。
+    // 累计值不含本 run token；结算后 TUI 侧无刷新锚 → 零耗缩位持续驻留。
     // 修 = onSubmit 挂 settled promise（桥接落账后 resolve——promise 回调序
-    // 结构性保证）刷 footer。V-3 注⑦④ 尾注让位族：run 收尾尾注（✓ 用量 N）
-    // last-writer-wins 优先占右槽——今日段掩蔽期结算收敛面即尾注本体（今日
-    // 段可见收敛面由 #1-full 后台道测锁——后台道不落尾注形）
+    // 结构性保证）刷 footer。V-4 注⑪⑨：run 收尾尾注（✓ 用量 N）右对齐与
+    // 行1 仪表同帧并陈（挤占几何——不再整段掩蔽；累计段可见收敛面由
+    // #1-full 后台道测锁——后台道不落尾注形）
     await until(() => io.output.includes('✓ 用量'));
     io.send('\x04');
     expect(await entry).toBe(0);
   });
 
-  it('后台道单发结算通知：非提交路落账后今日段即时呈现（#1-full 残窗——修前红：订阅面缺席零刷新锚）', async () => {
+  it('后台道单发结算通知：非提交路落账后累计段即时呈现（#1-full 残窗——修前红：订阅面缺席零刷新锚）', async () => {
     const stacks: ConversationStack[] = [];
     const ws = rigDir('entry-ledger-sig-ws-');
     const { entry, io, faux } = await rigEntry(rigDir('entry-ledger-sig-data-'), ws, {
       onStack: (stack) => stacks.push(stack), // 注入面拿真装配栈
     });
-    await until(() => io.output.includes('工作区写 · ')); // footer 首画在场（零耗——今日段缩位）
+    await until(() => io.output.includes('工作区写 · ')); // footer 首画在场（零耗——累计段缩位）
     // 零提交路直接发后台道 complete（与 scheduler/webui/issue 跨入口结算同栈
-    // 同构）：修前红 = footer 无刷新锚（提交路 settled 锚不覆盖本路）→ 今日
-    // 段永不现；修 = onSpentTodayLedgered 订阅通知刷 footer（04 §5 定形注）。
-    // 会话面：openStartupSession 活体面取回（新会话行首事件未落库——库读
-    // list 不可见，走同 ws 归一根；今日段是全道跨会话聚合，落哪个会话与
-    // 断言无关）
+    // 同构）：修前红 = footer 无刷新锚（提交路 settled 锚不覆盖本路）→ 累计
+    // 段永不现；修 = onSessionUsageLedgered 订阅通知刷 footer（V-4 注⑪⑥a
+    // 会话累计刷新锚——sessionSpentOf 聚合读面）。会话面：openStartupSession
+    // 活体面取回（新会话行首事件未落库——库读 list 不可见，走同 ws 归一根；
+    // 累计段是聚焦会话聚合，落账会话即启动焦点）
     faux.setResponses([() => meteredEntryMessage(30, 12)]);
     const stack = stacks[0]!;
-    const session = stack.openStartupSession(ws);
+    // 归因会话 = 启动会话直取焦点 id（openStartupSession 走库读 list——启动
+    // 会话行首事件未落库时 list 不可见会铸**新**会话，归因漂移到非焦点——
+    // 累计段是聚焦会话聚合，归因必须钉焦点）
+    const sid = stack.channels.focusedId!;
     await stack.llm.complete({
       messages: [{ role: 'user', content: '后台单发结算', timestamp: Date.now() }],
       priority: 'background',
-      metering: { sessionId: session.sessionId },
+      metering: { sessionId: sid },
     });
-    await until(() => io.output.includes('今日 ')); // 零耗缩位 → 落账通知刷新后有值现段
+    await until(() => io.output.includes('累计 ')); // 零耗缩位 → 落账通知刷新后有值现段
     io.send('\x04');
     expect(await entry).toBe(0);
   });
 
-  it('/help 副屏 + footer 常驻段（批 10k——R7 帮助面/R6 footer 落码装配位；V-3 注⑦②④ 分栏形 + `?` 教学键）', async () => {
+  it('/help 副屏 + footer 常驻段（批 10k——R7 帮助面/R6 footer 落码装配位；V-4 注⑪②③ 三行栈形 + `?` 教学键）', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-help-data-'), rigDir('entry-help-ws-'));
-    // footer 常驻段首画在场（V-3 注⑦② 左右分栏）：档位段（栈基线
-    // workspace-write → 短词「工作区写」）+ 教学提示（空稿闲态 dim 段）；
-    // 模型/短 id/目录⎇ 三段已退役——旧模型段锚不再出现
+    // footer 三行栈首画在场（V-4 注⑪）：行1 仪表（模式词栈基线 workspace-write
+    // → MODE_SHORT「Auto」+ 模型短名回迁——ctrl+p 同源）+ 行2 环境（沙箱原词
+    // 「工作区写」+ 教学提示 dim 段）
     await until(() => io.output.includes('工作区写 · '));
     expect(io.output).toContain('? 快捷键');
-    expect(io.output).not.toContain(' · m1 · ');
+    expect(io.output).toContain(' · m1'); // 模型短名回迁锁（V-4 注⑪②——行1 仪表栈）
+    expect(io.output).toContain('Auto'); // 模式词（MODE_SHORT 单源——装配投影）
     // `?` 闲态教学键（V-3 注⑦④——text 路分诊）：直开帮助副屏（与 /help
     // 命令同一开屏本体 openHelpPanel）
     io.send('?');

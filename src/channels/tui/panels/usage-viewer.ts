@@ -67,6 +67,18 @@ export function formatTokensPerSecond(n: number): string {
 }
 
 /**
+ * token 数紧凑格式（V-4 注⑪②——footer 行1 上下文三件套单源）：≥1M 一位
+ * 小数（尾零剥除——1.0 → 1）、≥1K 千位整数、<1K 原值；空格单位形（用户样例
+ * `上下文 12 K / 1 M · 38%`）。与 formatCount 千位分组分职（累计段用全值
+ * 分组形——槽位充裕；上下文段用紧凑形——三件套并列省宽）。
+ */
+export function formatTokensCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')} M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)} K`;
+  return `${n}`;
+}
+
+/**
  * 用量面板内容件：ScrollView 子类 + OverlayContent（副屏 root）。行集
  * 构造后静态（快照档）。
  */

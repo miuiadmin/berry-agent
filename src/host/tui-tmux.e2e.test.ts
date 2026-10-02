@@ -90,8 +90,9 @@ const GEOM_W = 100;
 const GEOM_H = 30;
 
 /**
- * footer 模型段锚（BERRY_AGENT_MODEL 注入确定值）：模型段已随 V-3 注⑦② 退役
- * 出 footer——本常量转为**退役锁**消费（首面 not.toContain 断言段退役不回潮）。
+ * footer 模型段锚（BERRY_AGENT_MODEL 注入确定值）：V-4 注⑪② 模型短名回迁
+ * 行1 仪表栈（id 尾段——全形归 /status）——本常量为**回迁锁**消费（行1
+ * toContain 断言段回迁不回退）。
  */
 const MODEL_ID = 'dummy/tui-tmux-e2e';
 const MODEL_SHORT = 'tui-tmux-e2e';
@@ -441,10 +442,10 @@ function sendKey(session: string, key: string): void {
 /* ---------------- 判据锚（呈现形单源：锚字符串与实装呈现同文） ---------------- */
 
 /**
- * footer 常驻行锚（V-3 注⑦② 分栏形）：左段 = 档位段（沙箱短词——基线
- * workspace-write）+ ` · ` + 闲态教学提示 `? 快捷键`（dim 样式在 capture-pane
- * 纯文本面不可见——按字面锚）；模型/会话短 id/⎇ 三段已退役出 footer（本件
- * 判据面随迁：短 id 承接位 = OSC title → tmux pane_title 可锚）。
+ * footer 常驻行锚（V-4 注⑪ 三行栈形）：行2 = 环境栈（目录短名 · 短 id ·
+ * [⎇] · 沙箱原词——基线 workspace-write）+ ` · ` + 闲态教学提示 `? 快捷键`
+ * （dim 样式在 capture-pane 纯文本面不可见——按字面锚）；⎇ 缺席（e2e 工作区
+ * = 临时目录非 git 库）。行1 仪表栈与行3 任务面板各另锚。
  */
 function isFooterLine(line: string): boolean {
   return line.includes('工作区写') && line.includes(' · ') && line.includes('? 快捷键');
@@ -492,25 +493,27 @@ async function readExitCode(session: TmuxSession): Promise<string> {
 
 describe('TUI 真环境验收（tmux 内层 e2e——07 §4.1 v1 验证面矩阵条款闭环）', () => {
   it.skipIf(!hasUsableTmux())(
-    '起跑进屏：footer 左右分栏（档位段 + 闲态教学提示——V-3 注⑦② 模型/短 id/⎇ 三段退役）与 composer 输入行在场',
+    '起跑进屏：footer 三行栈（行1 仪表 + 行2 环境——V-4 注⑪ 模型段/短 id/目录回迁）与 composer 输入行在场',
     async () => {
       const session = startTuiSession();
       await waitForStartup(session.name);
-      // footer 左段两件已在就绪判据内——此处钉分段形与退役锁：左段 = 档位段
-      //（沙箱短词——SANDBOX_MODE_SHORT 单源直出，基线 workspace-write；本环境
-      // thinking 无锚缩位 → 档位段单段形）+ ` · ` + 教学提示（`? 快捷键`——
-      // 空稿闲态门控开）
-      const footer = captureLines(session.name).find(isFooterLine);
+      // 行2 环境栈（注⑪③）：目录短名 · 短 id · [⎇ 缺席——临时目录非 git 库] ·
+      // 沙箱原词（SANDBOX_MODE_SHORT 原词单源，基线 workspace-write）+ ` · ` +
+      // 教学提示（`? 快捷键`——空稿闲态门控开）；jobs 全闲零行（注⑪④——
+      // 行2 即最底行）
+      const solid = captureLines(session.name).filter((line) => line.trim() !== '');
+      const footer = solid.find(isFooterLine);
       expect(footer).toBeDefined();
-      expect((footer ?? '').split(' · ')[0]).toBe('工作区写');
-      expect((footer ?? '').split(' · ')[1] ?? '').toBe('? 快捷键');
-      // 三段退役锁（V-3 注⑦②——模型/会话短 id/⎇ 支名退役出 footer）：模型
-      // 短名与 cwd 短名不回潮；短 id（8 位 hex）承接面 = OSC title 非行内
-      expect(footer ?? '').not.toContain(MODEL_SHORT);
-      expect(footer ?? '').not.toContain('tui-tmux-ws-');
-      expect(footer ?? '').not.toMatch(/[0-9a-f]{8}/);
-      // 右段零耗缩位：当日零耗 = 今日段缺席（'' 缩位——非 `今日 0` 占位）
-      expect(footer ?? '').not.toContain('今日');
+      expect(solid[solid.length - 1]).toBe(footer); // 行2 = 最底行（任务面板全闲收起 0 行）
+      expect(footer ?? '').toContain('工作区写 · ? 快捷键');
+      expect(footer ?? '').toContain('tui-tmux-ws-'); // 目录短名回迁（ws 临时目录 basename）
+      // 行1 仪表栈（注⑪②——状态行上一行）：模式词（MODE_SHORT 基线
+      // workspace-write → Auto）+ 模型短名回迁锁（BERRY_AGENT_MODEL 注入确定值）
+      const row1 = solid[solid.length - 2] ?? '';
+      expect(row1).toContain(MODEL_SHORT);
+      expect(row1).toContain('Auto');
+      // 今日段退役锁（V-4 注⑪⑤——承载面迁 /status 副屏快照档）
+      expect(solid.join('\n')).not.toContain('今日');
       // OSC title 起屏在场（基线 + 首会话短 id 点缀——tmux pane_title 可锚面）
       expect(paneTitle(session.name)).toContain('berry-agent');
     },
