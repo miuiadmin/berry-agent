@@ -145,6 +145,27 @@ describe('卡体两档与存账帽', () => {
     expect(body[0]).toBe('⋯ +5 行');
     expect(body.slice(1)).toEqual(['a', '', 'b', '', 'c']);
   });
+
+  it('多行空行段随注记整体剥（段内 continue 下探）——N 按实际保留行数计（V-4 收尾批锚）', () => {
+    // 生产形：pipeline 注记恒以 \n\n 拼接 tail 后，tail 自带尾换行时注记前成
+    // 多行连续空行段（JSDoc「tail 末自带 \n 时注记前成段多行同剥」）——段内
+    // 空行距注记隔 2+ 空行，判词须穿过整段下探（continue）才见注记；坏形
+    // （只查紧邻一行）下段首空行漏剥、N 失真为 4
+    const guarded =
+      'a\nb\n\n\n\n[输出 63087 字节超 65536 字节上限，已保尾截断；全文外溢至 /tmp/tool-output-x-abc-1.txt（可用 read/grep 从外溢文件取段）]';
+    const body = cardBodyOf(guarded);
+    expect(body.slice(1)).toEqual(['a', 'b']); // 3 连空行段随注记整体剥——正文 ['a','b'] 保留
+    expect(body[0]).toBe('⋯ +2 行'); // N = 实际保留行数（2）
+  });
+
+  it('下方全空行防御位：注记后文末空行非邻接段——保留不误剥（V-4 收尾批锚）', () => {
+    // 注记行之后的空行下方直到文末全是空行（无注记可通）——noteAdjacent
+    // 段尽返 false 防御位：该空行非邻接段，正文空行保留（勿因「下方全空」
+    // 误入剥除面——kept 行数与空行本体都不失真）
+    const guarded =
+      'a\n\n[输出 63087 字节超 65536 字节上限，已保尾截断；全文外溢至 /tmp/tool-output-x-abc-1.txt（可用 read/grep 从外溢文件取段）]\n';
+    expect(cardBodyOf(guarded)).toEqual(['⋯ +2 行', 'a', '']);
+  });
 });
 
 describe('edit diff 档', () => {
