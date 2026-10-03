@@ -7,6 +7,10 @@
  * - 首行 /xxx 命令名已终结后的 token → 命令参数源（带命令名上下文）；
  * - 其余 null（普通对话文本不补——弹层不显）。
  *
+ * 空态两语义（2026-10-04 空态反馈批）：源缺席 / 词位无补全语义 → null
+ * （弹层不显）；源在场而条目空 → { items: [], … } 透传（弹「无匹配」
+ * 空态行——打错前缀的诚实反馈）。
+ *
  * 源注入面（缺省无源——装配按需接）：命令名源注入查询函数（装配接
  * CommandRegistry.list()）、命令参数源注入条目（不发明注册面——03 §2.2
  * registerCommand 签名三参数无 schema）、@ 文件段源实机行走归装配批。
@@ -46,9 +50,13 @@ export class CombinedAutocompleteProvider {
   }
 
   /**
-   * 取补全（无 token / 无对应源 / 源空 → null——弹层不显）。R6 批 10j：
-   * union 形——同步源同步交付（快路）、异步源经 then 微task 交付，
-   * signal 线传源侧取消在途。
+   * 取补全。空态两语义（2026-10-04 空态反馈批翻档——前形「源空 → null」）：
+   * - 无 token / 无对应源 / 非补全语义词位 → null（弹层不显）；
+   * - 源在场而条目空 → { items: [], … } 透传（弹「无匹配」空态行——打错
+   *   前缀不再静默无反馈，popup measure 空条目返 1 + render 空分支即本形
+   *   消费面；空态键面 enter 穿透归编辑器提交）。
+   * R6 批 10j：union 形——同步源同步交付（快路）、异步源经 then 微task
+   * 交付，signal 线传源侧取消在途。
    */
   getCompletions(context: AutocompleteContext, signal?: AbortSignal): AutocompleteOutcome {
     const effectiveSignal = signal ?? new AbortController().signal;
@@ -85,13 +93,19 @@ export class CombinedAutocompleteProvider {
     );
   }
 
-  /** 源结果收口（union 形透传——异步源 then 收口；空源 / 空条目统一 null） */
+  /**
+   * 源结果收口（union 形透传——异步源 then 收口同形）。空态两语义
+   * （2026-10-04 空态反馈批翻档——前形「空源 / 空条目统一 null」）：
+   * - 源缺席（undefined）→ null：词位无补全语义（装配未接源）——弹层不显；
+   * - 源在场而条目空 → { items: [], … } 透传：有词位而无匹配——弹层弹
+   *   「无匹配」空态行（f9995d9 measure/render 空态分支的生产供血位——
+   *   修前此处归一 null 使该分支结构性不可达）。
+   */
   private collect(items: AutocompleteItems | undefined, replaceStart: number, replaceEnd: number): AutocompleteOutcome {
     if (items === undefined) return null;
     if (isThenable(items)) {
-      return items.then((list) => (list.length === 0 ? null : { items: list, replaceStart, replaceEnd }));
+      return items.then((list) => ({ items: list, replaceStart, replaceEnd }));
     }
-    if (items.length === 0) return null;
     return { items, replaceStart, replaceEnd };
   }
 }

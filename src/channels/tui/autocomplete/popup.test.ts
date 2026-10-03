@@ -137,6 +137,10 @@ describe('AutocompletePopup 光标符 › accent（界面美化役美学注③�
 });
 
 describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', () => {
+  // 注（2026-10-04 空态反馈批）：本 describe 两件是直喂 applyResult 的单元面
+  // 锁（measure/render 空分支形为）——生产链锁（provider 空条目透传 → 弹层
+  // 在场「无匹配」+ 空态键面）经 autocomplete.test.ts 近端到端件覆盖，两件
+  // 保留作单元基线
   it('空条目量高 1（修前红：Math.min(0, MAX)=0 → fixed-budget 归零 → backend `budget.popup > 0` 门控跳渲染——render 空分支死路）', () => {
     const model = new EditorModel();
     const popup = new AutocompletePopup(model);
@@ -152,5 +156,33 @@ describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', (
     const grid = new CellGrid(10, 1);
     popup.render(grid, { row: 0, col: 0, width: 10, height: 1 });
     expect(readRow(grid, 0, 10)).toContain('无匹配'); // 空分支呈现（修前结构不可达）
+  });
+
+  it('空态在场 enter/tab 穿透不吞（修前红：applySelection 空转仍返 true——「无匹配」在场逼成双回车形）', () => {
+    const model = new EditorModel();
+    model.setText('/zz'); // 光标落尾——token 区间 [0,3) 与 result 对拍新鲜（排除陈旧守卫相位）
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 3 });
+    expect(popup.handleEvent(key('enter'))).toBe(false); // 修前红位：吞键 true——回车必须透传编辑器走提交
+    expect(popup.handleEvent(key('tab'))).toBe(false); // 空态无可选可应用——tab 回编辑器键面（编辑器未绑 tab 归终局）
+    expect(model.getText()).toBe('/zz'); // 无代换发生
+    expect(popup.visible).toBe(true); // 穿透不关层（弹层随下次落位重算）
+  });
+
+  it('空态在场 ↑/↓ 穿透（无候选可导航——箭头归编辑器）；escape 消费关层并通知', () => {
+    const model = new EditorModel();
+    model.setText('/zz');
+    const popup = new AutocompletePopup(model);
+    let dismissed = 0;
+    popup.onDismiss = () => {
+      dismissed += 1;
+    };
+    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 3 });
+    expect(popup.handleEvent(key('up'))).toBe(false); // 修前红位：moveActive 空转吞箭头 true——堵编辑器历史回溯
+    expect(popup.handleEvent(key('down'))).toBe(false);
+    expect(popup.visible).toBe(true); // 穿透不关层
+    expect(popup.handleEvent(key('escape'))).toBe(true); // escape 显式收层（空态行也是信息层）
+    expect(popup.visible).toBe(false);
+    expect(dismissed).toBe(1); // 关层联动通知（backend 撤防抖窗——与有候选轮同契约）
   });
 });

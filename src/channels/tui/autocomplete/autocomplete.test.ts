@@ -147,9 +147,12 @@ describe('CombinedAutocompleteProvider 三源路由', () => {
     const result = await outcome;
     expect(result?.items[0]?.replacement).toBe('/x-q');
     expect(result?.replaceStart).toBe(0);
-    // 异步空源 → null（弹层不显）
+    // 异步空条目 → 空态透传同形（修前红：异步腿与同步腿同归一 null——
+    // 「无匹配」生产链两腿皆不可达）
     const empty = new CombinedAutocompleteProvider({ commands: () => Promise.resolve([]) });
-    expect(await empty.getCompletions({ lines: ['/z'], cursorLine: 0, cursorCol: 2 })).toBeNull();
+    const emptyResult = await empty.getCompletions({ lines: ['/z'], cursorLine: 0, cursorCol: 2 });
+    expect(emptyResult).not.toBeNull(); // 有词位无匹配——弹空态行非隐层
+    expect(emptyResult?.items).toEqual([]);
   });
 
   it('@ 前缀 token → mention 源（query 去 @）', () => {
@@ -183,12 +186,19 @@ describe('CombinedAutocompleteProvider 三源路由', () => {
     expect(syncOf(provider.getCompletions({ lines: ['line0', '/mo'], cursorLine: 1, cursorCol: 3 }))).toBeNull();
   });
 
-  it('无 token / 源缺席 / 源空 → null', () => {
+  it('无 token / 源缺席 → null（词位无补全语义——弹层不显）', () => {
     const provider = new CombinedAutocompleteProvider({});
     expect(syncOf(provider.getCompletions({ lines: [''], cursorLine: 0, cursorCol: 0 }))).toBeNull();
     expect(syncOf(provider.getCompletions({ lines: ['/mo'], cursorLine: 0, cursorCol: 3 }))).toBeNull(); // 无命令源
+  });
+
+  it('源在场空条目 → 空态透传形 { items: [] }（修前红：collect 归一 null——「无匹配」生产链不可达）', () => {
     const empty = new CombinedAutocompleteProvider({ commands: () => [] });
-    expect(syncOf(empty.getCompletions({ lines: ['/zzz'], cursorLine: 0, cursorCol: 4 }))).toBeNull(); // 空条目
+    const result = syncOf(empty.getCompletions({ lines: ['/zzz'], cursorLine: 0, cursorCol: 4 }));
+    expect(result).not.toBeNull(); // 源在场而零匹配 = 有词位无匹配——弹空态行
+    expect(result?.items).toEqual([]);
+    expect(result?.replaceStart).toBe(0);
+    expect(result?.replaceEnd).toBe(4);
   });
 
   it('空 query（刚输入触发前缀）→ 源收全量（前缀空串）', () => {
@@ -244,13 +254,49 @@ describe('AutocompletePopup', () => {
     return { model, popup, refresh };
   }
 
-  it('结果落位可见、无补全不显', () => {
+  it('结果落位可见、无补全语义词位不显（普通文本路由 null——弹层不显）', () => {
     const { model, popup, refresh } = rig(['/mo']);
     refresh();
     expect(popup.visible).toBe(true);
-    model.setText('/zz');
+    // 2026-10-04 空态反馈批翻档：修前本相位用 '/zz'（源空→null 断不显）——
+    // 空条目改透传后 '/zz' 是「有词位无匹配」弹空态行（见下件），不显相位
+    // 改用非命令词位锁 null 语义
+    model.setText('普通文本');
     refresh();
     expect(popup.visible).toBe(false);
+  });
+
+  // —— 空态反馈生产链打通（2026-10-04 空态反馈批——修前红族）：collect 空条目
+  // 归一 null 使 f9995d9 的 popup measure/render 空态分支在生产链结构性不可达
+  // （直喂 applyResult 测试是夹具假锁——本族经 provider→applyResult→render 真
+  // 链锁用户面行为：打错前缀弹「无匹配」行，空态在场 enter 穿透提交） ——
+
+  it('空匹配生产链：provider 空条目 → 弹层在场「无匹配」行（修前红：collect 空→null——静默无反馈）', () => {
+    const { popup, refresh } = rig(['/zz']); // 命令源 filter 后零候选（打错前缀）
+    refresh();
+    expect(popup.visible).toBe(true); // 修前红位：collect 空条目归 null → applyResult(null) 弹层不在场
+    expect(popup.measure(80)).toBe(1); // 空态行占 1 高（预算链放行——measure 空条目锁的生产消费面）
+    const grid = new CellGrid(10, 1);
+    popup.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    expect(readRow(grid, 0, 10)).toContain('无匹配'); // 空态行上屏（修前静默无反馈）
+  });
+
+  it('空态在场键面：enter/tab/↑/↓ 穿透（修前红：applySelection/moveActive 空转吞键）、escape 消费关层', () => {
+    const { popup, refresh } = rig(['/zz']);
+    refresh();
+    expect(popup.visible).toBe(true); // 空态在场
+    let dismissed = 0;
+    popup.onDismiss = () => {
+      dismissed += 1;
+    };
+    expect(popup.handleEvent(key('enter'))).toBe(false); // 修前红位：enter 被 applySelection 空转吞（true）——提交须二次回车
+    expect(popup.handleEvent(key('tab'))).toBe(false); // 空态无可选可应用——tab 回编辑器键面
+    expect(popup.handleEvent(key('up'))).toBe(false); // 空态无候选可导航——箭头归编辑器（历史回溯/光标移动）
+    expect(popup.handleEvent(key('down'))).toBe(false);
+    expect(popup.visible).toBe(true); // 穿透键不关层（弹层随下次落位重算）
+    expect(popup.handleEvent(key('escape'))).toBe(true); // escape 显式收层（空态行也是信息层）
+    expect(popup.visible).toBe(false);
+    expect(dismissed).toBe(1); // 关层联动通知（backend 撤防抖窗）
   });
 
   it('↑/↓ 循环换高亮 + enter 应用整 token 代换（光标落代换尾）', () => {

@@ -4,8 +4,9 @@
  * 形已判死路清除〔fx2-D〕；本件是纯内容——只画列表）。
  *
  * - 结果落位驱动：R6 批 10j 异步形——backend 持防抖调度器（AutocompleteCompleter），
- *   onResult 回调调 applyResult 注入（无补全弹层不显）；候选窗口 10 行帽 +
- *   高亮跟随滚动；
+ *   onResult 回调调 applyResult 注入（null 收层不显；空条目弹「无匹配」
+ *   空态行——2026-10-04 空态反馈批，键面见 handleEvent 空态注）；候选窗口
+ *   10 行帽 + 高亮跟随滚动；
  * - 键面：↑/↓ 循环换高亮、enter/tab 应用、escape 关本轮（后续输入再发新查
  *   重开；关层回调 onDismiss——backend 撤防抖窗作废在途，堵迟到 fire 重开
  *   闪回——2026-09-20 TUI 视觉品质战役·组 2）；其余键不消费（穿透回
@@ -148,6 +149,13 @@ export class AutocompletePopup implements Renderable {
     if (event.kind !== 'key') return false; // 文本 / IME / 粘贴穿透回输入件
     if (event.phase === 'release') return false;
     if (event.ctrl || event.alt || event.shift || event.meta) return false; // 修饰组合穿透（编辑键面）
+    // 空态行键面（2026-10-04 空态反馈批——provider 空条目透传形，items 恒空）：
+    // ↑/↓ / enter / tab 全穿透。enter 穿透是硬语义——「无匹配」在场时回车必须
+    // 归编辑器走提交（吞键把打错前缀逼成「先收层再回车」双 enter 形，与下方
+    // 全量输入穿透律同族）；tab 无可选可应用（编辑器未绑 tab 归终局）、↑/↓ 无
+    // 候选可导航（moveActive 空转吞箭头会堵编辑器历史回溯/光标键）——同回编辑
+    // 器键面。escape 例外落下方关层分支：空态行也是信息层，用户可显式收层。
+    if (this.result.items.length === 0 && event.key !== 'escape') return false;
     if (event.key === 'up') {
       this.moveActive(-1);
       return true;
