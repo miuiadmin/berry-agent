@@ -383,3 +383,60 @@ describe('SelectPanel 光标符 › accent（界面美化役美学注③）', ()
     expect(grid.getCell(1, 0)?.style?.inverse).toBeUndefined();
   });
 });
+
+/* ================= ctrl+d 退出柄（副屏件族「先收层再转 onQuit」同路） ================= */
+
+describe('ctrl+d 问答浮层期退出（两面板——修前修饰键分支纯吞即死键）', () => {
+  /** ctrl+d 键事件（press 无杂修饰） */
+  function ctrlD(): Parameters<SelectPanel['handleEvent']>[0] {
+    return { kind: 'key', key: 'd', ctrl: true, alt: false, shift: false, meta: false, phase: 'press' };
+  }
+
+  it("SelectPanel：ctrl+d 与 esc 同路保守收层（onFinish 收 ''）+ 先收层后转 onQuit（修前双回调皆零红）", () => {
+    const calls: string[] = [];
+    const panel = new SelectPanel({ options: [{ value: 'a', label: '甲' }], onQuit: () => calls.push('quit') });
+    panel.onFinish = (value) => calls.push(`finish:${value}`);
+    expect(panel.handleEvent(ctrlD())).toBe(true); // 层内终局（模态独占）
+    // 修前：修饰键分支纯吞——两个回调皆不触发（ctrl+d 完全死键）
+    expect(calls).toEqual(['finish:', 'quit']); // 收层回调先于退出柄（先收屏再转 onQuit）
+  });
+
+  it('ConfirmPanel：ctrl+d 与 esc 同路保守收层（onFinish 收 false）+ 先收层后转 onQuit', () => {
+    const calls: string[] = [];
+    const panel = new ConfirmPanel({ message: '确认？', onQuit: () => calls.push('quit') });
+    panel.onFinish = (confirmed) => calls.push(`finish:${confirmed}`);
+    panel.handleEvent(ctrlD());
+    expect(calls).toEqual(['finish:false', 'quit']);
+  });
+
+  it('完成态后 ctrl+d 不二次触发（单次语义——onQuit 不重复转）', () => {
+    const calls: string[] = [];
+    const panel = new SelectPanel({ options: [{ value: 'a', label: '甲' }], onQuit: () => calls.push('quit') });
+    panel.onFinish = (value) => calls.push(`finish:${value}`);
+    panel.handleEvent({
+      kind: 'key',
+      key: 'enter',
+      ctrl: false,
+      alt: false,
+      shift: false,
+      meta: false,
+      phase: 'press',
+    });
+    panel.handleEvent(ctrlD()); // 完成态静默
+    expect(calls).toEqual(['finish:a']); // 无 quit、无二次 finish
+  });
+
+  it('其余修饰键维持纯吞（ctrl+x / alt+d / shift+d——不收层不转 quit）', () => {
+    const calls: string[] = [];
+    const panel = new SelectPanel({ options: [{ value: 'a', label: '甲' }], onQuit: () => calls.push('quit') });
+    panel.onFinish = (value) => calls.push(`finish:${value}`);
+    for (const mods of [
+      { ctrl: true, alt: false, shift: false, meta: false, key: 'x' },
+      { ctrl: false, alt: true, shift: false, meta: false, key: 'd' },
+      { ctrl: false, alt: false, shift: true, meta: false, key: 'd' },
+    ]) {
+      panel.handleEvent({ kind: 'key', phase: 'press', ...mods });
+    }
+    expect(calls).toEqual([]); // 例外只 ctrl+d——其余修饰组合零回调
+  });
+});

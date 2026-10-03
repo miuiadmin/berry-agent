@@ -6,6 +6,9 @@
  *   选项数超视口帽时开滚动窗（fx2-B——光标居中 + 顶/底「↑/↓ N 更多」指示行，
  *   ViewportCapAware——固定区总高恒 ≤ 截断预算，不触发主屏陈货守卫整段不写）；
  * - confirm：Enter/y 确认 true、Esc/n 取消 false（保守值 = 不动原状态）；
+ * - ctrl+d（两面板同路）：与 esc 同语义保守收层 + 转装配 onQuit——副屏件族
+ *   「先收屏再转 onQuit」在主屏浮层期的同律（修前修饰键分支纯吞即死键）；
+ *   其余修饰键维持纯吞（模态独占不穿透主屏键路）；
  * - 一次性问答不值得整屏切换——主屏浮层形态（挂 OverlayStack，不进 1049）；
  * - 面板底先铺空格再写内容（写格覆盖下层浮出内容——不写格的位置会透出
  *   主树文字）；
@@ -71,6 +74,11 @@ export interface SelectPanelOptions {
   readonly options: readonly SelectOption[];
   /** 主题（一次性面板构造期定值——accent 派生标题样式；缺省 = DEFAULT_THEME） */
   readonly theme?: ResolvedTheme;
+  /**
+   * 退出进程柄（ctrl+d——与 esc 同路保守收层后转装配；副屏件族「先收屏
+   * 再转 onQuit」同路，组合根接线：缺席 = ctrl+d 无退出义仅收层）。
+   */
+  readonly onQuit?: () => void;
 }
 
 /**
@@ -97,12 +105,15 @@ export class SelectPanel implements Renderable, ViewportCapAware {
    * inverse 合成（反相行内符位前景仍带语义色）。
    */
   private readonly cursorStyle: Readonly<CellStyle>;
+  /** 退出进程柄（ctrl+d——与 esc 同路保守收层后转装配；缺席 = 无退出义仅收层） */
+  private readonly onQuit: (() => void) | undefined;
 
   constructor(options: SelectPanelOptions) {
     this.title = options.title;
     this.options = options.options;
     this.titleStyle = Object.freeze({ fg: (options.theme ?? DEFAULT_THEME).accent });
     this.cursorStyle = Object.freeze({ inverse: true, fg: (options.theme ?? DEFAULT_THEME).accent });
+    this.onQuit = options.onQuit;
   }
 
   /** 帽注入（ViewportCapAware——renderFixed 栈低到高逐层调用） */
@@ -193,7 +204,16 @@ export class SelectPanel implements Renderable, ViewportCapAware {
     const e = asKey(event);
     if (e === null) return true; // 面板占焦——非键事件（文本 / IME / 粘贴）层内终局
     if (e.phase === 'release' || this.done) return true;
-    if (e.ctrl || e.alt || e.shift || e.meta) return true;
+    if (e.ctrl || e.alt || e.shift || e.meta) {
+      // ctrl+d 例外（副屏件族「先收屏再转 onQuit」同路）：与 esc 同路保守收层
+      // （select = ''——撤销面同语义）后转装配退出柄；其余修饰键维持纯吞
+      // （模态独占不穿透主屏键路——ctrl+d 之外无退出义）
+      if (e.ctrl && !e.alt && !e.shift && !e.meta && e.key === 'd') {
+        this.finish(SELECT_CANCELLED);
+        this.onQuit?.();
+      }
+      return true;
+    }
     if (e.key === 'up') {
       this.activeIndex = this.activeIndex === 0 ? this.options.length - 1 : this.activeIndex - 1;
       return true;
@@ -247,6 +267,11 @@ export interface ConfirmPanelOptions {
   readonly confirmHint?: string;
   /** 取消键提示文案（缺省 'esc/n 取消'——双轨真可达后缺省明示 n） */
   readonly cancelHint?: string;
+  /**
+   * 退出进程柄（ctrl+d——与 esc 同路保守收层〔false〕后转装配；副屏件族
+   * 「先收屏再转 onQuit」同路，组合根接线：缺席 = ctrl+d 无退出义仅收层）。
+   */
+  readonly onQuit?: () => void;
 }
 
 /**
@@ -263,11 +288,14 @@ export class ConfirmPanel implements Renderable {
   private readonly message: string;
   private readonly confirmHint: string;
   private readonly cancelHint: string;
+  /** 退出进程柄（ctrl+d——收层后转装配；缺席 = 无退出义仅收层） */
+  private readonly onQuit: (() => void) | undefined;
 
   constructor(options: ConfirmPanelOptions) {
     this.message = options.message;
     this.confirmHint = options.confirmHint ?? 'enter/y 确认';
     this.cancelHint = options.cancelHint ?? 'esc/n 取消';
+    this.onQuit = options.onQuit;
   }
 
   /** 量高：消息 1 + 键提示 1 */
@@ -327,7 +355,16 @@ export class ConfirmPanel implements Renderable {
     const e = asKey(event);
     if (e === null) return true;
     if (e.phase === 'release' || this.done) return true;
-    if (e.ctrl || e.alt || e.shift || e.meta) return true;
+    if (e.ctrl || e.alt || e.shift || e.meta) {
+      // ctrl+d 例外（副屏件族「先收屏再转 onQuit」同路——SelectPanel 同形）：
+      // 与 esc 同路保守收层（false = 不动原状态）后转装配退出柄；其余修饰键
+      // 维持纯吞（模态独占不穿透主屏键路）
+      if (e.ctrl && !e.alt && !e.shift && !e.meta && e.key === 'd') {
+        this.finish(false);
+        this.onQuit?.();
+      }
+      return true;
+    }
     if (isPlainKey(e, 'enter') || isPlainKey(e, 'y')) {
       this.finish(true);
       return true;

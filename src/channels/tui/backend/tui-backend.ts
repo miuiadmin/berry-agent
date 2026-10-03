@@ -2074,7 +2074,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 是/否确认：ConfirmPanel 浮层（Enter → true / Esc → false；signal abort 保守值 + 关层 + 撤销说明行） */
   confirm(message: string, opts?: UiAskOptions): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
-      const panel = new ConfirmPanel({ message });
+      // onQuit 透传（ctrl+d 浮层期退出——副屏件族「先收屏再转 onQuit」同路）
+      const panel = new ConfirmPanel({ message, onQuit: this.onQuit });
       const handle = this.openAskLayer(panel, () => resolve(false), opts?.signal, '⏹ 已取消确认');
       panel.onFinish = (confirmed) => {
         handle.close();
@@ -2090,6 +2091,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         title: message,
         options: choices.map((c) => ({ value: c.value, label: c.label })),
         theme: this.theme, // 一次性面板构造期定值（当前主题快照）
+        onQuit: this.onQuit, // ctrl+d 浮层期退出（confirm/askApproval 三路同接）
       });
       const handle = this.openAskLayer(panel, () => resolve(''), opts?.signal, '⏹ 已取消选择');
       panel.onFinish = (value) => {
@@ -2186,6 +2188,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
           { value: 'cancel', label: '取消' },
         ],
         theme: this.theme, // 一次性面板构造期定值（当前主题快照）
+        onQuit: this.onQuit, // ctrl+d 浮层期退出（confirm/select 三路同接）
       });
       const handle = this.openAskLayer(panel, () => resolve('cancel'), opts?.signal, '⏹ 已取消审批');
       panel.onFinish = (value) => {

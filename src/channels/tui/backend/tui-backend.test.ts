@@ -654,21 +654,21 @@ describe('TuiBackend 输入管线（自持——不经 Engine）', () => {
     expect(calls.quit).toBe(1);
   });
 
-  it('ctrl+d 有文不退出（编辑器吞）；overlay 在场也不退出（面板吞）', async () => {
+  it('ctrl+d 有文不退出（编辑器吞）；ask 浮层在场同路收层转 onQuit（E4 翻档——修前占焦纯吞死键）', async () => {
     const first = makeInteractive();
     first.io.emitInput('ab');
     first.pump();
     first.io.emitInput('\x04'); // 光标在文尾——delete forward 无事
     expect(first.calls.quit).toBe(0);
 
+    // 修前：浮层占焦期 ctrl+d 修饰键分支纯吞（完全死键）；现与副屏件族同路
+    // ——先与 esc 同语义保守收层（confirm → false）再转装配 onQuit
     const second = makeInteractive();
     const p = second.backend.confirm('做吗？');
     second.pump();
-    second.io.emitInput('\x04'); // overlay 占焦吞键
-    expect(second.calls.quit).toBe(0);
-    second.io.emitInput('\r'); // 面板应答——层关
-    second.pump();
-    await expect(p).resolves.toBe(true);
+    second.io.emitInput('\x04');
+    await expect(p).resolves.toBe(false); // 保守值（不动原状态）
+    expect(second.calls.quit).toBe(1); // 收层后退出柄被转（先收屏再转 onQuit）
   });
 
   it('overlay 模态独占：占焦期字母键不入编辑器，应答后恢复', async () => {
