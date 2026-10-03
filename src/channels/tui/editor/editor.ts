@@ -110,10 +110,14 @@ export class Editor implements Renderable {
       case 'key':
         return this.handleKey(event);
       case 'text': {
-        // jump 待靶态：首字符为跳转靶（kitty / legacy 可打印均走 text 事件）
+        // jump 待靶态：首字符为跳转靶（kitty / legacy 可打印均走 text 事件）。
+        // legacy 轨 textRun 同 chunk 连续可打印合并单 text 事件——首码点作靶后
+        // 余码点经 insertText 补入正文，不随靶消费丢字（码点切分保代理对完整）
         if (this.jumpPending !== null && event.text.length > 0) {
-          this.model.jumpToChar([...event.text][0]!, this.jumpPending);
+          const cps = [...event.text];
+          this.model.jumpToChar(cps[0]!, this.jumpPending);
           this.jumpPending = null;
+          if (cps.length > 1) this.model.insertText(cps.slice(1).join(''));
           return true;
         }
         this.model.insertText(event.text);

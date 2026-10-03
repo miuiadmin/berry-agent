@@ -212,6 +212,21 @@ describe('Editor jump 词向两态', () => {
     editor.handleEvent(text('f'));
     expect(editor.model.getCursor().col).toBe(0);
   });
+
+  it('多字符 text 事件（legacy 轨游程合并形）：首字符为靶、余字符完整入文不丢', () => {
+    // legacy 轨 input.ts textRun 同 chunk 连续可打印合并单 text 事件——快打/
+    // 忙帧攒批真实可达（kitty 轨逐事件无此形）。首码点作跳靶后余码点须经
+    // insertText 补入正文（修前余码点无去向——丢字跑红实证）。
+    const editor = new Editor();
+    editor.handleEvent(text('foo bar baz'));
+    editor.model.moveHome();
+    expect(editor.handleEvent(key(']', { ctrl: true }))).toBe(true);
+    expect(editor.handleEvent(text('bcd'))).toBe(true); // 单事件三字符
+    // 靶 'b'（bar 的 b，col 4）作跳转消费 + 余 'cd' 落靶位后 → 光标 4+2=6
+    expect(editor.model.getCursor().col).toBe(6);
+    // 首字符未入文（文本仅长 +2）、余字符完整入文（修前余字符丢——11 字不变）
+    expect(editor.getText()).toBe('foo cdbar baz');
+  });
 });
 
 describe('Editor IME 与粘贴', () => {
