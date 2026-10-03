@@ -21,10 +21,11 @@
  *   message_start 重开时先摘旧槽（占位容器不孤儿滞留正文）；
  * - **帽 = 块数**（一个 Markdown 块一子行——呈现面件 1 滚动帽语义）：行集保留
  *   帽内最近段（内存上限语义；v1 保守值——实测定值回填挂主屏实装批校准）；
- * - **非聚焦摘要行**（呈现面件 9，机制已退役——V-3 注⑩零代码注记）：曾在
- *   agent_start ⧗ 瞬时追加；现 agent_end 按终态 ✓/✗/⏹ 各追加一行、不进行集
- *   （不占帽、repaint 不重建），行首段 = 档位符号 + 会话短 id、失败与中止
- *   显式分档不伪装成功。
+ * - **非聚焦摘要行**（呈现面件 9——机制已退役：V-1 笔2 瀑布退役 / V-0 注①
+ *   聚合律）：曾在 agent_start ⧗ 瞬时追加、agent_end 按终态 ✓/✗/⏹ 各追加
+ *   一行（不进行集、行首段 = 档位符号 + 会话短 id）；现非聚焦事件在
+ *   applyEvent 全忽略——非聚焦呈现归 JobPanel 固定区与收口行（见 applyEvent
+ *   注），不进行集不占帽。
  * - **渲染行提取单源**（批 10f-4）：renderBlockStyledLines 块 → 带样式行集
  *   （管线本体）——主屏 MainScreen 直写（renderBlockLines 的 ANSI 序列化形）
  *   与件 8 回看器 cell 写出（StyledLine 直消费）共用同一管线（07 件 8「数据源
@@ -60,6 +61,7 @@ import {
   type ToolCardStatus,
 } from '../blocks/tool-card.js';
 import { argKeyZh, toolFaceZh } from '../../../contracts/index.js';
+import { CURSOR_MARK } from '../panels/panel-chrome.js';
 import { ACTION_CATALOG } from '../keys/registry.js';
 import type { SessionEnvelope } from '../../types.js';
 
@@ -239,7 +241,9 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
         bg === undefined ? Object.freeze({ bold: true, dim: true }) : Object.freeze({ bold: true, dim: true, bg });
       const lines = wrapText(block.text, columns - 2);
       const styled = lines.map((line, i): StyledLine => {
-        const plain = (i === 0 ? '› ' : '  ') + line;
+        // 前缀符 = panel-chrome CURSOR_MARK 单源（V-3 注⑩ ›——与 editor 输入
+        // 提示符同字符，codex composer 形）
+        const plain = (i === 0 ? `${CURSOR_MARK} ` : '  ') + line;
         if (slashEcho) {
           // 回执层级：整行 dim（前缀含在内）——弱存在感与转写摘要对齐
           return plain.length > 0

@@ -40,10 +40,11 @@ describe('工具卡三态卡头', () => {
     expect(lines[0]!.plain).toBe(' ✓ 读取文件(path)');
     expect(lines[0]!.runs).toEqual([
       { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
-      // 简述段 dim——端点 = UTF-16 下标（ansi-rows.ts 定语义）：'读取文件' 4
-      // code units（CJK 显示宽 8 列但长度 4），start = 2+4 = 6（名段 CJK 化后
-      // 断言值与 ASCII 时代同值纯属公式巧合——名段变化由 plain 断言承载）
-      { start: 6, end: 13, style: { dim: true } },
+      // 简述段 dim 起于名段之后（意图锚——美化役批②「名不被 dim 淹没」）：
+      // ' ✓ ' 前缀 3 code units + '读取文件' 4 code units（CJK 显示宽 8 列但
+      // UTF-16 长 4）→ start = 3+4 = 7；端点 = UTF-16 下标（ansi-rows.ts 定
+      // 语义），名段变化由 plain 断言承载
+      { start: 7, end: 13, style: { dim: true } },
     ]);
   });
 
@@ -132,6 +133,17 @@ describe('卡体两档与存账帽', () => {
     expect(body).toContain('tail-c'); // 保尾产物完好
     // 无注记文本原样（regex 不中零转写——非护栏产物不受影响）
     expect(cardBodyOf('普通\n结果')).toEqual(['普通', '结果']);
+  });
+
+  it('注记转写只剥注记邻接空行：正文空行保留 + N 按实际保留行数计（全量去空行越界修）', () => {
+    // 产物正文自带空行（'a\n\nb\n\nc'）+ 注记自带排版空行（\n\n 形位）——只
+    // 剥注记邻接的那一段；修前 `line !== ''` 全量去空行把正文空行一并抹除
+    // 且 N 只计非空行（3）失真——期望正文空行在场、N = 5
+    const guarded =
+      'a\n\nb\n\nc\n\n[输出 63087 字节超 65536 字节上限，已保尾截断；全文外溢至 /tmp/tool-output-x-abc-1.txt（可用 read/grep 从外溢文件取段）]';
+    const body = cardBodyOf(guarded);
+    expect(body[0]).toBe('⋯ +5 行');
+    expect(body.slice(1)).toEqual(['a', '', 'b', '', 'c']);
   });
 });
 
@@ -401,7 +413,7 @@ describe('卡头屏宽帽（2026-09-20 TUI 修复组 1 批 F6；界面美化役�
     expect(header.plain).toBe(' ✓ abc' + 'b'.repeat(13) + '…'); // 6 前缀名 + 13 b + … = 20
     expect(header.runs).toEqual([
       { start: 0, end: 2, style: { fg: DEFAULT_THEME.success } },
-      { start: 5, end: 20, style: { dim: true } }, // 简述段跨截断点延伸吞 …
+      { start: 6, end: 20, style: { dim: true } }, // 简述段跨截断点延伸吞 …（' ✓ ' 3 + 名 'abc' 3 = 6 起——名末字符不入 dim）
     ]);
   });
 });

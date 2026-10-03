@@ -164,8 +164,9 @@ export class SelectPanel implements Renderable, ViewportCapAware {
     for (let i = v.start; i < end && row < bottom; i++, row++) {
       const active = i === this.activeIndex;
       const option = this.options[i]!;
-      // 前缀 + label 段（高亮行整段反色）；界面美化役美学注③：光标符
-      // ❯→▸ 对齐全域单源 CURSOR_MARK——符位独立写（accent/inverse 合成）
+      // 前缀 + label 段（高亮行整段反色）；光标符走 panel-chrome CURSOR_MARK
+      // 单源（美学注③→V-3 注⑩ 翻档现值 ›——▸/❯ 时代符形已退役）——符位
+      // 独立写（accent/inverse 合成）
       const prefix = active ? `${CURSOR_MARK} ` : '  ';
       // 行预算排版（件外单源 row-segments）：label 段与 hint 段各自 … 收口
       // 不交叠——极长 hint 原宽右对齐会负起列覆写整行（生产链 fs 写审批

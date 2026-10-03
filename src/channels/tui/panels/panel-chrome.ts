@@ -9,9 +9,10 @@
  *   （enter 选定/回填语义）/ ◉ 查看族（滚动阅读语义）；emoji 类宽度不稳符
  *   （❓ 等）弃用；⚙ 保留工具执行语义（工具卡/状态行——本件不出）。
  * - **溢出指示统一律（美学注②）**：「↑/↓ N 更多」中文形全域单形。
- * - **光标符统一律（美学注③→V-3 注⑩ 翻档）**：› 全域单形（▸ 退役）——
- *   picker 族既有常量的单源化承接位（overlay 弹层 ❯ 随迁各件自理，本件只
- *   立词汇）。
+ * - **光标符统一律（美学注③→V-3 注⑩ 翻档）**：› 全域单形（▸/❯ 时代符形
+ *   退役）——picker 族、overlay 弹层（popup / select-confirm）、editor 输入
+ *   提示符与 transcript user 块前缀皆引本件 CURSOR_MARK 单源（boot 动画
+ *   装载行同字形语境分立——零依赖纯文本件，不引本件）。
  */
 import type { CellStyle } from '../../engine/index.js';
 import { DIM_STYLE } from '../../engine/index.js';

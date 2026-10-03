@@ -96,15 +96,32 @@ const GUARD_NOTE_PATTERN = /^\[输出 \d+ 字节超 \d+ 字节上限，已保尾
 
 /**
  * 护栏注记呈现层转写（注④——纯函数）：剥字节注记行、前置 `⋯ +N 行`
- * （N = 保尾截断产物行数现算——「此下共 N 行」的省略提示形）。无注记
- * 原样返回（regex 不中零改写——非护栏产物不受影响）。
+ * （N = 实际保留行数现算——「此下共 N 行」的省略提示形）。注记自带的排版
+ * 空行（pipeline 形 `产物\n\n[输出…]`）随注记一并收口；产物正文的空行
+ * **保留**（全量去空行越界修）。无注记原样返回（regex 不中零改写——非
+ * 护栏产物不受影响）。
  */
 export function humanizeGuardedOutput(text: string): string {
   if (!text.includes('[输出 ')) return text; // 速径：无注记候选零成本
-  const lines = text.split('\n').filter((line) => !GUARD_NOTE_PATTERN.test(line));
-  if (lines.length === text.split('\n').length) return text; // 无命中原样
-  const kept = lines.filter((line) => line !== ''); // 注记前置空行对（\n\n 产物）一并收口
+  const raw = text.split('\n');
+  if (!raw.some((line) => GUARD_NOTE_PATTERN.test(line))) return text; // 无命中原样（速径含 '[输出 ' 但 regex 不中——非护栏产物）
+  // 只剥注记行 + 其邻接排版空行段（正文空行保留——N 按实际保留行数计）
+  const kept = raw.filter((line, i) => !GUARD_NOTE_PATTERN.test(line) && !(line === '' && noteAdjacent(raw, i)));
   return kept.length === 0 ? '' : `⋯ +${kept.length} 行\n${kept.join('\n')}`;
+}
+
+/**
+ * 空行的注记邻接判词（pipeline.ts 注记形 `产物\n\n[输出…]`——`\n\n` 铸出的
+ * 排版空行段）：空行下方穿过连续空行后直通注记行即属邻接段（tail 末自带
+ * `\n` 时注记前成段多行同剥）。修前 `line !== ''` 全量去空行越界——正文
+ * 空行被抹且 N 只计非空行失真；本判词把剥除面收口到注记自带排版空行。
+ */
+function noteAdjacent(raw: readonly string[], i: number): boolean {
+  for (let j = i + 1; j < raw.length; j++) {
+    if (raw[j] === '') continue; // 连续空行段内继续下探
+    return GUARD_NOTE_PATTERN.test(raw[j]!); // 段下首个非空行定分：注记 = 邻接、正文 = 保留
+  }
+  return false; // 下方全空行（文末）——非注记邻接，正文空行保留
 }
 
 /** 卡体文本 → 存账行（尾留帽 + 截断标记首行——内存上限语义；护栏注记先转写） */
@@ -169,7 +186,7 @@ function renderGenericHeaderLine(card: ToolCardView, columns: number, statusColo
   const brief = sanitizeLineText(card.brief);
   const header = ` ${STATUS_SYMBOL[card.status]} ${name}${brief}`;
   const runs: StyleRun[] = [{ start: 0, end: 2, style: { fg: statusColor } }]; // 符号段（含首空格）
-  if (brief !== '') runs.push({ start: 2 + name.length, end: header.length, style: DIM_STYLE }); // 简述段（名段平前景无游程）
+  if (brief !== '') runs.push({ start: 3 + name.length, end: header.length, style: DIM_STYLE }); // 简述段（名段平前景无游程——' ✓ ' 前缀 3 + 名长，名末字符不被 dim 淹没）
   // 卡头屏宽帽（F6）：plain 整字截断 + 游程同步钳制（符号段/简述段跨界收尾）
   return capStyledLine({ plain: header, runs }, columns);
 }

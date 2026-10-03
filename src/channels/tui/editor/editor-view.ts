@@ -21,9 +21,8 @@ import { presentedLineCount } from './height-cap.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import type { CellStyle } from '../../engine/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
+import { CURSOR_MARK, moreHint } from '../panels/panel-chrome.js';
 
-/** 输入提示符（与 transcript user 块前缀同字符——codex composer 形） */
-const PROMPT_MARK = '›';
 /** 提示符前缀占列宽（`› `——首行前缀与续行缩进同宽 2，折行算术对称） */
 const PREFIX_WIDTH = 2;
 
@@ -147,9 +146,11 @@ export class EditorView implements Renderable {
     for (let vi = this.scrollOffset; vi < end; vi++) {
       const seg = map[vi]!;
       const row = region.row + (vi - this.scrollOffset);
-      // 视口首行缀 › 提示符（两态色）；续行两空格缩进由铺底/透明空格承载
+      // 视口首行缀 › 提示符（两态色）；续行两空格缩进由铺底/透明空格承载。
+      // 前缀符 = panel-chrome CURSOR_MARK 单源（V-3 注⑩ ›——与 transcript
+      // user 块前缀、picker 光标符同字符，codex composer 形）
       if (vi === this.scrollOffset) {
-        buffer.setCell(row, region.col, PROMPT_MARK, this.focused ? this.promptFocused : this.promptUnfocused);
+        buffer.setCell(row, region.col, CURSOR_MARK, this.focused ? this.promptFocused : this.promptUnfocused);
       }
       const line = lines[seg.line] ?? '';
       const plain = line.slice(seg.startCol, seg.startCol + seg.length);
@@ -188,12 +189,13 @@ export class EditorView implements Renderable {
   /**
    * 滚动指示写入（R3 批 10j 起，V-0 注③ 去框化）：` ↑ N 更多 ` 全形右对齐
    * overlay 首末内容行；指示文本宽超 region = 窄区回退紧凑 ` ↑N` 右端——
-   * 按视口宽度阈值取形不再依框形。界面美化役美学批注②：溢出指示中文单形
-   * 「N 更多」全域统一；两形宽度账一律 stringWidth 显示宽重算——「更多」
-   * 宽 4 ≠ 码位 2。
+   * 按视口宽度阈值取形不再依框形。词面走 panel-chrome moreHint 单源（界面
+   * 美化役美学注②：溢出指示中文单形「N 更多」全域统一——与副屏/overlay
+   * 同词汇；首尾空格是 editor 右对齐 overlay 的贴缘让位排版位，非词汇面）；
+   * 两形宽度账一律 stringWidth 显示宽重算——「更多」宽 4 ≠ 码位 2。
    */
   private writeIndicator(buffer: CellBuffer, row: number, region: Region, count: number, arrow: '↑' | '↓'): void {
-    const full = ` ${arrow} ${count} 更多 `;
+    const full = ` ${moreHint(arrow, count)} `;
     const fullW = stringWidth(full);
     if (fullW <= region.width) {
       buffer.writeText(row, region.col + region.width - fullW, full, this.indicatorStyle);

@@ -121,7 +121,8 @@ export class AutocompletePopup implements Renderable {
       const row = region.row + (i - this.windowStart);
       const item = items[i]!;
       const active = i === this.activeIndex;
-      // 界面美化役美学注③：光标符 ❯→▸ 对齐全域单源 CURSOR_MARK
+      // 光标符走 panel-chrome CURSOR_MARK 单源（美学注③→V-3 注⑩ 翻档现值
+      // ›——▸/❯ 时代符形已退役，选形改动单源处生效）
       const prefix = active ? `${CURSOR_MARK} ` : '  ';
       // 行预算排版（件外单源 row-segments）：label 段（前缀 + label）与
       // detail 段各自 … 收口不交叠——极长 detail 原宽右对齐会负起列覆写

@@ -181,6 +181,10 @@ export class BootAnimation {
       this.ensureHeader();
       const id = stripControl(pluginId);
       this.openSegment(`插件 ${id}`);
+      // 装载行前缀 › 与 panel-chrome CURSOR_MARK 同字形但语境分立：本符号是
+      // 「插件装载引导行」记号非「输入/选中位」光标符（注⑩ 符号册语义位）；
+      // 本件结构锁零依赖纯文本字节域（不引渲染树件），故保字面量——字形若
+      // 随符号册翻档，此处同源手翻
       this.writeLine(`› 加载 ${id}（${index}/${total}）`);
     } catch {
       // 呈现件自保（同上）
