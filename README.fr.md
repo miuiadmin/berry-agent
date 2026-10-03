@@ -30,7 +30,7 @@ de montage ; il n'existe aucune voie privée de premier parti.
 **16** fonctionnalités intégrées livrées avec le paquet · **0** télémétrie —
 aucune statistique ni rapport de plantage
 
-> Statut : `0.1.0-alpha.30` — alpha précoce, évolution rapide ; l'API des
+> Statut : `0.1.0-alpha.31` — alpha précoce, évolution rapide ; l'API des
 > plugins peut encore évoluer avant la 1.0.
 
 </div>
