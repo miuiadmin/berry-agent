@@ -1041,9 +1041,15 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     faux.setResponses([observeModel, observeModel]);
     io.send('一问\r'); // m1 run
     await until(() => modelsByCall.length >= 1);
+    io.output = ''; // 切换帧起收窗（此前帧恒含旧短名 footer——判别锚窗口必须在切换之后）
     io.send('\x10'); // ctrl+p——模型循环（m1 → m2）
     await until(() => io.output.includes('模型已切换')); // notify 回执行
-    expect(io.output).toContain('m2'); // footer 模型段已换新（常驻段活写）
+    // V-4 注⑪② 判别性锁（setFooterModel 双入口之一——onModelCycle）：' · m2'
+    // 连接符形只在 footer 行1 帧本体——回执文本恒含全形 faux-key3/m2，旧
+    // toContain('m2') 是 vacuous（回执单载体即可过）；键分派同步于 io.send
+    // （收窗后任何帧不可再持旧短名 ' · m1'——换出即证活写非残留）
+    await until(() => stripAnsi(io.output).includes(' · m2'));
+    expect(stripAnsi(io.output)).not.toContain(' · m1'); // 旧短名换出
     io.send('二问\r'); // 下一 run 起跑消费新模型
     await until(() => modelsByCall.length >= 2);
     io.send('\x04');
@@ -1052,11 +1058,13 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     expect(modelsByCall[1]).toContain('m2'); // 生效语义 = 下一 run 起跑
   });
 
-  it('/model 面板全链：命令开屏 + 分组头/当前 ● + ↓ enter 选定回执（footer 模型段已随 V-3 注⑦② 退役——回执单载体）', async () => {
+  it('/model 面板全链：命令开屏 + 分组头/当前 ● + ↓ enter 选定回执 + footer 模型段活写（V-4 注⑪② 回迁）', async () => {
     // 2026-09-30 UX 对标批 ux-4：/model 命令 → ModelPicker 副屏 → 选定回调
     // 装配闭包（setModel + notify 回执）整链锁——面板件单测（model-picker.test）
     // 锁件内键路，本测锁「命令拦截 → openModelPicker → 装配闭包」三段接线
-    // （缺一段即红：命令不拦截无开屏头锚、回调未接无回执）。
+    // （缺一段即红：命令不拦截无开屏头锚、回调未接无回执）。V-4 笔3 起
+    // footer 行1 模型段回迁（注⑪②——setFooterModel 双入口之二），选定后
+    // footer 帧本体与回执双载体并行（下方判别性锁）。
     const { entry, io } = await rigTwoModelEntry(rigDir('entry-mp-'), rigDir('entry-ws-mp-'));
     await until(() => io.output.includes('工作区写 · ')); // footer 就绪门（当前模型 m1）
     io.send('/model\r');
@@ -1065,9 +1073,18 @@ describe('键位三件装配（挂账解挂批 2026-09-15——alt+enter 候跑 
     expect(io.output).toContain('── faux-key3 ──');
     expect(io.output).toContain('faux-key3/m1');
     expect(io.output).toContain('faux-key3/m2');
-    io.send('\x1b[B'); // ↓ 光标至 m2
-    io.send('\r'); // enter 选定——先收副屏再回调（回执归装配闭包；footer 模型段已退役零活写）
+    io.send('\x1b[B'); // ↓ 光标至 m2（移帧落定门——条目行左段单 writeText，'›   全形' 连续可锚）
+    await until(() => stripAnsi(io.output).includes('›   faux-key3/m2'));
+    io.send('\r'); // enter 选定——先收副屏再回调（closeAlt 复屏重画帧持旧短名，属回执位之前）
     await until(() => io.output.includes('模型已切换：faux-key3/m2'));
+    // V-4 注⑪② 判别性锁（setFooterModel 双入口之二——selectModel）：回执字节
+    // 位起开窗——' · m2' 连接符形只在 footer 行1 帧本体（回执/面板条目恒全形
+    // faux-key3/m2〔右段裸名无连接符〕不可作证）；复屏重画帧与回执行同帧序前
+    // 于 footer 段（flush 先执行 op 队列后重建固定区），旧短名 ' · m1' 只可能
+    // 出现在回执位之前——窗后仍在即活写失效
+    const afterReceipt = stripAnsi(io.output.slice(io.output.indexOf('模型已切换：faux-key3/m2')));
+    expect(afterReceipt).toContain(' · m2'); // 新短名入帧
+    expect(afterReceipt).not.toContain(' · m1'); // 旧短名换出
     io.send('\x04');
     expect(await entry).toBe(0);
   });

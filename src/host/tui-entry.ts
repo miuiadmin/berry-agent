@@ -75,6 +75,7 @@ import { readHostSettings, readRawCustomProviders, writeHostSettings } from './s
 import { builtinProviderIds, createCustomChannelProvider, type CustomProviderDef } from '../llm/index.js';
 import { fetchChannelModels } from './channel-models-fetch.js';
 import { daemonPaths } from './serve-daemon.js';
+import { fileStampOf } from './session-export.js';
 import {
   compareSemverFull,
   createNodeUpdateCheckFs,
@@ -294,6 +295,18 @@ export function readLogTailLines(
 function rawCustomMergeBase(dataDir: string): Record<string, unknown> {
   const raw = readRawCustomProviders(dataDir);
   return typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {};
+}
+
+/**
+ * 副屏占用降级回执句尾单源（本件本地命令族十二词共用——/status /debug
+ * /skills /model /themes /thinking /sandbox /diff /guide /feedback /setup
+ * /help）：open* 返 false = 恰一屏一副屏、占用中先收后开，回执指路 esc 收屏
+ * 再试。面名（含「页/清单/向导」量词）由各命令位注入。同句尾在
+ * marketplace-tui-face（插件市场）仍持第二拷贝——跨文件收口另立题挂账；
+ * 「反馈页暂不可用——稍后再试」（装载期空窗档）是另一句尾，不入本源。
+ */
+function panelBusyNotice(name: string): string {
+  return `${name}暂不可用——先关闭当前打开的页面（esc），再试`;
 }
 
 /**
@@ -544,7 +557,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       };
       // git 支名@短哈希（V-3 注⑦②——footer ⎇ 段退役迁此）：值形四态 =
       // 支名@短哈希 / 支名@（哈希读失败）/ @短哈希（detached）/ null（非库
-      // ——不推行不虚报）；开屏一次现算（footer 期逐帧读盘退役）
+      // ——不推行不虚报）；开屏一次现算（footer 期逐帧读盘退役）。
+      // 注意：与 channels/tui/status/footer.ts gitHeadSuffix 是**同知识双实现**
+      // （四态折取同谱、拼形分职——本处 '支名@短哈希' 无 ⎇ 记形〔/status 表格
+      // 列值〕，footer 行2 是 ' ⎇ 支名 @哈希' 后缀形）；不共用是跨模块 API 面
+      // 扩键故另立题单源化，翻档/改态时须同步对侧
       const git = readGitHead(root);
       const gitHead =
         git.branch === null && git.shortHash === null ? null : `${git.branch ?? ''}@${git.shortHash ?? ''}`;
@@ -574,7 +591,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           ],
         })
       ) {
-        backend.notify('状态页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('状态页'), { level: 'warn' });
       }
     };
 
@@ -608,7 +625,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           pluginIds: boot.report.activated.map((activated) => activated.id),
         })
       ) {
-        backend.notify('调试页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('调试页'), { level: 'warn' });
       }
     };
 
@@ -633,7 +650,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           (index) => formatSkillInvocation(skills[index]!),
         )
       ) {
-        backend.notify('技能清单暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('技能清单'), { level: 'warn' });
       }
     };
 
@@ -680,7 +697,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         }
       }
       if (!backend.openModelPicker(entries, stack.model, selectModel)) {
-        backend.notify('模型页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('模型页'), { level: 'warn' });
       }
     };
 
@@ -707,7 +724,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           : []),
       ];
       if (!backend.openThemes(entries, backend.themeChoice, selectTheme)) {
-        backend.notify('主题页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('主题页'), { level: 'warn' });
       }
     };
 
@@ -755,7 +772,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
       const entries = THINKING_LEVELS.map((level) => ({ level, detail: THINKING_LEVEL_DETAILS[level] }));
       if (!backend.openThinking(entries, current, selectThinking)) {
-        backend.notify('思考级别页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('思考级别页'), { level: 'warn' });
       }
     };
 
@@ -801,7 +818,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
       const entries = SANDBOX_MODES.map((mode) => ({ mode, detail: SANDBOX_MODE_DETAILS[mode] }));
       if (!backend.openSandbox(entries, current, selectSandbox)) {
-        backend.notify('沙箱模式页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('沙箱模式页'), { level: 'warn' });
       }
     };
 
@@ -815,7 +832,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         return;
       }
       if (!backend.openDiff(driver.session.projection())) {
-        backend.notify('改动总览暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('改动总览'), { level: 'warn' });
       }
     };
 
@@ -1015,7 +1032,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         ],
       });
       if (!ok) {
-        backend.notify('引导页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('引导页'), { level: 'warn' });
       }
     };
 
@@ -1035,8 +1052,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     /**
      * 反馈副屏数据源集槽形（结构形——与 channels 件 feedback-viewer 的
      * FeedbackScreenSources 恒等；host 不深挖 channels 内件〔模块公开面纪律〕，
-     * 经 backend 方法签名结构校验同 openGuide 数据字面量先例）。backend
-     * .openFeedback 方法落位前槽位先行——接线挂账主会话（方法 + 回填行）。
+     * 经 backend 方法签名结构校验同 openGuide 数据字面量先例）。接线已清账
+     * （b2fd4bc——backend.openFeedback 落 tui-backend 件 + 下方装配尾段
+     * feedbackScreenOpenerRef 回填行；早期「方法落位前槽位先行」的挂账已销）。
      */
     type FeedbackScreenSourcesSlot = {
       sessions: readonly { id: string }[];
@@ -1098,14 +1116,14 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           }
           const dir = join(dataDir, 'diagnostics');
           mkdirSync(dir, { recursive: true });
-          const stamp = new Date().toISOString().replace(/[:.]/g, '-'); // session-export fileStampOf 同形（文件名安全）
+          const stamp = fileStampOf(Date.now()); // 单源引形（session-export fileStampOf——exports/ 落盘同一压形律；本处原内联同形拷贝已收口）
           const path = join(dir, `feedback-${stamp}.md`);
           writeFileSync(path, content, 'utf8');
           return `已导出诊断包 → ${path}（只保存在本机，不会上传）`;
         },
       });
       if (!ok) {
-        backend.notify('反馈页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('反馈页'), { level: 'warn' });
       }
     };
 
@@ -1125,7 +1143,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const openSetupWizard = (): void => {
       const prompter = backend.openSetupWizard();
       if (prompter === null) {
-        backend.notify('配置向导暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('配置向导'), { level: 'warn' });
         return;
       }
       // 重入默认值：当前模型首斜杠段（官方桶在册时预选）
@@ -1374,7 +1392,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         ...EXIT_WORDS.map((name) => ({ name, description: EXIT_DESCRIPTIONS[name] })),
       ];
       if (!backend.openHelp(entries)) {
-        backend.notify('帮助页暂不可用——先关闭当前打开的页面（esc），再试', { level: 'warn' });
+        backend.notify(panelBusyNotice('帮助页'), { level: 'warn' });
       }
     };
 

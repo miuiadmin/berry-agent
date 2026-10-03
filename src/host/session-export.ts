@@ -263,7 +263,7 @@ function isoOf(ms: number): string {
 }
 
 /** 落盘文件名时间戳（ISO 压形——冒号/点替换连字符，文件名安全） */
-function fileStampOf(ms: number): string {
+export function fileStampOf(ms: number): string {
   return isoOf(ms).replace(/[:.]/g, '-');
 }
 
