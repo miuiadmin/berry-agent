@@ -269,6 +269,23 @@ describe('frames 工具族与状态行', () => {
     expect(state.messages[state.messages.length - 1]?.text).toBe('⚙ bash 执行完成');
   });
 
+  it('并行工具 end 不清兄弟在飞状态行：批内先完成者回写兄弟名执行中、仅最后一个 end 清空（修前红：兄弟在飞时空窗）', () => {
+    // executeToolBatch 并发 read 段各完成即 emit end（完成序交错）——先完成者
+    // 无条件清空状态行而兄弟在飞（read 无进度回调的空窗持续到其 end）
+    let state = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-a', name: 'read', arguments: {} }),
+    );
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-b', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-a', result: {} }));
+    expect(state.status).toBe('⚙ bash …'); // 修前红：null——回写兄弟名（最晚启动者）执行中
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-b', result: {} }));
+    expect(state.status).toBeNull(); // 账空（最后一个 end）才清空
+  });
+
   it('会话切换清工具名映射（旧会话 id 不污染新会话）', () => {
     let state = applyEnvelope(
       initialAppState,
@@ -298,10 +315,14 @@ describe('frames 工具族与状态行', () => {
     expect(state.messages).toHaveLength(1);
   });
 
-  it('agent_end 终态分档：failed ✗ / aborted ⏹ / completed 归闲态（修前不分 status 恒闲态伪收场）', () => {
-    // 07 §4.1 件 6 跨通道同律（TUI 侧 P0 批已修——失败/中止显式呈现不伪装成功）
+  it('agent_end 终态分档：failed 持有不立即揭示 / aborted ⏹ 即时 / completed 归闲态（E1 持有档——TUI 同律翻档）', () => {
+    // 07 §4.1 件 6 跨通道同律（TUI 侧 P0 批已修——失败/中止显式呈现不伪装成功）；
+    // E1：failed 是持有档非终态——揭示位移到 retry_wait_end {aborted|exhausted}
+    //（驱动侧保证 failed 后必随发 retry_wait_start 或 retry_wait_end 收口）
     let state = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
-    expect(state.status).toBe('✗ 失败');
+    expect(state.status).toBeNull(); // 修前红：'✗ 失败'——持有窗内不闪终态
+    state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'exhausted' }));
+    expect(state.status).toBe('✗ 失败'); // 揭示位（燃尽/不可重试首败——可无配对 start）
     expect(state.messages).toHaveLength(0); // 失败终态无收尾行（错误块本体呈现）
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'aborted' }));
     expect(state.status).toBe('⏹ 已中止');
@@ -314,16 +335,20 @@ describe('frames 工具族与状态行', () => {
     expect(state.messages).toHaveLength(1);
   });
 
-  it('失败直呈律 webui 第三位：errorMessage 同句携因（✗ 失败 · 原因——07 §4.1 V-0 注②）', () => {
-    // 修前红锚：裸「✖ 失败」零上下文（与 TUI 双位同律人读化——跨通道同批）
+  it('失败直呈律 webui 第三位：errorMessage 同句携因（✗ 失败 · 原因——07 §4.1 V-0 注②；揭示位随持有档移至 retry_wait_end）', () => {
+    // 修前红锚：裸「✖ 失败」零上下文（与 TUI 双位同律人读化——跨通道同批）；
+    // 持有档存因、揭示同句携因（TUI pendingFailReason 同形）
     let state = applyEnvelope(
       initialAppState,
       display({ type: 'agent_end', status: 'failed', errorMessage: '模型渠道未配置（CHANNEL_UNKNOWN）' }),
     );
-    expect(state.status).toBe('✗ 失败 · 模型渠道未配置（CHANNEL_UNKNOWN）');
-    // errorMessage 缺席 → 裸形兜底（诚实缺席非虚造）
-    state = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
-    expect(state.status).toBe('✗ 失败');
+    expect(state.status).toBeNull(); // 持有窗不揭示
+    state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'exhausted' }));
+    expect(state.status).toBe('✗ 失败 · 模型渠道未配置（CHANNEL_UNKNOWN）'); // 存账因随揭示同句供位
+    // errorMessage 缺席 → 裸形兜底（诚实缺席非虚造）；中途附着错失持有档同裸形
+    let bare = applyEnvelope(initialAppState, display({ type: 'agent_end', status: 'failed' }));
+    bare = applyEnvelope(bare, display({ type: 'retry_wait_end', outcome: 'aborted' }));
+    expect(bare.status).toBe('✗ 失败');
   });
 });
 
@@ -515,6 +540,93 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
   });
 });
 
+describe('frames 失败持有档与终态清行（E1/E2——TUI tui-backend 持有档同律）', () => {
+  /** 固定钟（now 注入口——持有窗/续入观察窗的确定性测试面） */
+  const T0 = 1_700_000_000_000;
+
+  it('agent_end(failed) 持有档：不立即终态化——状态行不闪 ✗、run 账不清、活体窗维持（修前红：✗ 伪终态 + 账全清 + 窗收束）', () => {
+    // 退避窗与续入全程 run 仍在跑（TUI「揭示前账不冻结」）：打断键维持使能、
+    // 退避窗计时计入 run 时长、失败前工具计数跨窗存活（收尾行整 run 口径）
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+      T0 + 100,
+    );
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-1', result: {} }), T0 + 200);
+    state = applyEnvelope(
+      state,
+      display({ type: 'agent_end', status: 'failed', errorMessage: '模型渠道未配置' }),
+      T0 + 300,
+    );
+    expect(state.status).toBeNull(); // 修前红：'✗ 失败 · 模型渠道未配置'——持有窗不揭示
+    expect(state.runActive).toBe(true); // 修前红：false——活体窗维持（打断键面）
+    expect(state.runToolCount).toBe(1); // 修前红：0——整 run 口径账被清
+    expect(state.runStartedAt).toBe(T0); // 修前红：null——观察窗不冻结
+  });
+
+  it('重试窗口三路分诊：start 进重试呈现（第 n/N 次） / exhausted 终态揭示携因清账 / aborted 同律（修前红：呈现缺位 + 分诊架空）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(
+      state,
+      display({ type: 'agent_end', status: 'failed', errorMessage: 'CHANNEL_UNKNOWN' }),
+      T0 + 300,
+    );
+    // ① retry_wait_start：进重试呈现（态③——TUI 呈现形对齐；倒计时未立项，
+    // 静态「第 n/N 次」段 + 省略号活体感）
+    state = applyEnvelope(state, display({ type: 'retry_wait_start', attempt: 2, maxAttempts: 3 }), T0 + 400);
+    expect(state.status).toBe('重试中 第 2/3 次 …'); // 修前红：伪终态驻留不翻档
+    expect(state.runRetryCount).toBe(1);
+    // ② retry_wait_end(resumed)：撤重试呈现归活体（续入标记供下一 agent_start 消费）
+    state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'resumed' }), T0 + 30_000);
+    expect(state.status).toBeNull(); // 修前红：伪终态驻留
+    expect(state.runActive).toBe(true);
+    // ③ retry_wait_end(aborted|exhausted)：终态揭示——✗ 携因（持有档供位）+ run 账收口
+    let dying = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    dying = applyEnvelope(
+      dying,
+      display({ type: 'agent_end', status: 'failed', errorMessage: 'CHANNEL_UNKNOWN' }),
+      T0 + 300,
+    );
+    dying = applyEnvelope(dying, display({ type: 'retry_wait_start', attempt: 3, maxAttempts: 3 }), T0 + 400);
+    dying = applyEnvelope(dying, display({ type: 'retry_wait_end', outcome: 'exhausted' }), T0 + 60_000);
+    expect(dying.status).toBe('✗ 失败 · CHANNEL_UNKNOWN'); // 揭示位 = retry_wait_end（持有档存因供位）
+    expect(dying.runActive).toBe(false); // 揭示即收口
+    expect(dying.runRetryCount).toBe(0); // 揭示即清账（跨 run 残账防御）
+    expect(dying.runToolCount).toBe(0);
+    // 载荷缺席（attempt/maxAttempts 缺席——旧服务端/坏形容错）裸形兜底
+    const bare = applyEnvelope(initialAppState, display({ type: 'retry_wait_start' }), T0);
+    expect(bare.status).toBe('重试中 …');
+  });
+
+  it('resumed 续入整 run 口径：失败前工具计数跨退避存活（收尾行工具段不缺席；修前红：计数清零工具段缺席）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(
+      state,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+      T0 + 100,
+    );
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-1', result: {} }), T0 + 200);
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'failed' }), T0 + 300);
+    state = applyEnvelope(state, display({ type: 'retry_wait_start', attempt: 1, maxAttempts: 2 }), T0 + 400);
+    state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'resumed' }), T0 + 30_000);
+    state = applyEnvelope(state, display({ type: 'agent_start' }), T0 + 30_000); // 续入——run 级账不清
+    expect(state.runToolCount).toBe(1); // 修前红：0（failed agent_end 已清）
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 60_000 }), T0 + 90_000);
+    const close = state.messages[state.messages.length - 1]!;
+    expect(close.role).toBe(RUN_CLOSE_ROLE);
+    expect(close.text).toBe('── 用时 1m 00s · 工具 1 次 · 重试 1 ──'); // 修前红：'── 用时 1m 00s · 重试 1 ──'（工具段缺席）
+  });
+
+  it('fresh agent_start 清状态行：终态文案不跨 run 残留（对齐 TUI resetUsage 末句清行腿；修前红：⏹ 驻留新 run）', () => {
+    let state = applyEnvelope(initialAppState, display({ type: 'agent_start' }), T0);
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'aborted' }), T0 + 100);
+    expect(state.status).toBe('⏹ 已中止');
+    state = applyEnvelope(state, display({ type: 'agent_start' }), T0 + 1_000); // 新 run（fresh——无续入标记）
+    expect(state.status).toBeNull(); // 修前红：'⏹ 已中止' 跨 run 残留
+  });
+});
+
 describe('frames 审批投影复位与乐观回显撤回（修复批锁）', () => {
   it('loadedApprovals 整段重置——异口已决条目随复拉出清（applyAsked 只增不减径仅留活体帧）', () => {
     let state = initialAppState;
@@ -577,6 +689,93 @@ describe('frames 投影层（正确性层真源）', () => {
     expect(state.messages).toHaveLength(0);
     expect(state.todo).toBeNull();
     expect(state.sessions).toHaveLength(1);
+  });
+});
+
+describe('frames onopen 交错窗对账（E4——投影整段重置与活体终结帧的竞窗）', () => {
+  it('fetch 窗内落稿的终结帧不随投影整段重置抹除（快照未含——m-<ts> 键续接投影尾；修前红：整段抹除长连接不自愈）', () => {
+    // 场景：onopen 发起投影拉取（快照不含在飞答案）→ session message_end 先
+    // 落稿 → 旧快照响应后落座——session 族无重发，抹除即本连接内永失
+    let state = applyEnvelope(initialAppState, display({ type: 'message_start', role: 'assistant' }));
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'assistant', content: '答', timestamp: 200 } }),
+    );
+    state = loadedMessages(state, [{ role: 'user', content: '问', timestamp: 100 }]);
+    expect(state.messages).toHaveLength(2); // 修前红：1——终稿被旧快照抹除
+    expect(state.messages[0]).toMatchObject({ role: 'user', text: '问' }); // 投影真源在前
+    expect(state.messages[1]).toMatchObject({ role: 'assistant', text: '答', streaming: false }); // 更晚帧不抹
+  });
+
+  it('快照已含不重复推：同时间戳终结帧让位投影副本（恰一份——键律 m-<ts> 身份同一）', () => {
+    let state = applyEnvelope(
+      initialAppState,
+      session({ type: 'message_end', message: { role: 'assistant', content: '答', timestamp: 200 } }),
+    );
+    state = loadedMessages(state, [
+      { role: 'user', content: '问', timestamp: 100 },
+      { role: 'assistant', content: '答', timestamp: 200 },
+    ]);
+    expect(state.messages).toHaveLength(2); // 恰一份（live 副本让位——投影副本即真源）
+    expect(state.messages[1]).toMatchObject({ role: 'assistant', text: '答', streaming: false });
+  });
+
+  it('回显交错窗：快照未含回显保位 + 配对账保留（镜像后至仍吸收恰一份；修前红：回显被抹 + 账出清致双份）', () => {
+    let state = echoedUserMessage(initialAppState, 's-1', '在途', 500);
+    state = loadedMessages(state, [{ role: 'assistant', content: '旧答', timestamp: 200 }]);
+    expect(state.messages).toHaveLength(2); // 修前红：1——回显被旧快照抹除
+    expect(state.messages[1]).toMatchObject({ role: 'user', text: '在途' });
+    expect(state.messages[1]?.key).toBe(echoKeyOf(500)); // 保留的是回显位（客户端键）
+    expect(state.pendingEchoes).toHaveLength(1); // 修前红：0——账被出清，镜像后至将落双份
+    state = applyEnvelope(
+      state,
+      session({ type: 'message_end', message: { role: 'user', content: '在途', timestamp: 900 } }),
+    );
+    expect(state.messages).toHaveLength(2); // 镜像到达仍吸收（恰一份）
+    expect(state.pendingEchoes).toHaveLength(0);
+  });
+
+  it('快照按文本含回显本体：回显让位投影副本 + 配对账出清（跨钟配对——重连正确性）', () => {
+    // 重连形：断线窗内镜像已录制（emit 先于重订阅，帧不至）——快照含同文
+    // user 本体（服务端钟 ≠ 回显客户端钟，键律配不上——文本对账补位）
+    let state = echoedUserMessage(initialAppState, 's-1', '断线窗', 500);
+    state = loadedMessages(state, [{ role: 'user', content: '断线窗', timestamp: 300 }]);
+    expect(state.messages).toHaveLength(1); // 让位投影副本（恰一份不双呈）
+    expect(state.messages[0]?.key).toBe('p#1');
+    expect(state.pendingEchoes).toHaveLength(0); // 账随让位出清（镜像不至）
+  });
+
+  it('工具终结行交错窗对账：tool-<id> 键——快照未含不抹、已含让位不双份（修前红：终结行随整段重置抹除）', () => {
+    let state = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-9', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-9', result: {} }));
+    // 快照不含该 toolResult（记录晚于快照）——live 终结行存活
+    state = loadedMessages(state, [{ role: 'user', content: '问', timestamp: 100 }]);
+    expect(state.messages.some((m) => m.role === 'tool' && m.text.includes('bash'))).toBe(true); // 修前红：false
+    // 同 id 终结帧重复到达（异常重发防御）不二次落行（稳定键幂等位）
+    const again = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-9', result: {} }));
+    expect(again.messages.filter((m) => m.role === 'tool')).toHaveLength(1);
+    // 快照含同 toolCallId 的 toolResult——live 行让位投影副本（不双份）
+    let dup = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-9', name: 'bash', arguments: {} }),
+    );
+    dup = applyEnvelope(dup, session({ type: 'tool_execution_end', toolCallId: 't-9', result: {} }));
+    dup = loadedMessages(dup, [
+      { role: 'user', content: '问', timestamp: 100 },
+      {
+        role: 'toolResult',
+        toolCallId: 't-9',
+        toolName: 'bash',
+        content: [{ type: 'text', text: '出' }],
+        isError: false,
+        timestamp: 150,
+      },
+    ]);
+    expect(dup.messages).toHaveLength(2); // live 行让位（投影 user + toolResult 两份）
+    expect(dup.messages.some((m) => m.role === 'tool')).toBe(false);
   });
 });
 

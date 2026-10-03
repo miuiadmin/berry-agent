@@ -30,6 +30,7 @@ import {
   echoedUserMessage,
   failedSessions,
   initialAppState,
+  isTerminalStatus,
   loadedApprovals,
   loadedMessages,
   loadedSessions,
@@ -452,9 +453,13 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
    * 批⑧）：活体窗开（agent_start→agent_end）或流式尾巴在飞或状态行在呈，
    * 三信号任一即真；闲态禁打断键（诚实呈「无 run 可打断」，修前恒可点的
    * 无效键）。中途附着（页面加载时 run 已在飞、无 agent_start）由流式尾巴/
-   * 状态行信号补位覆盖。
+   * 状态行信号补位覆盖。终态状态行（⏹ 已中止 / ✗ 失败——E2 连带面）是
+   * run 已收口的呈现，不计入在飞信号（修前终态文案误当在飞——打断键伪使能）。
    */
-  const runInFlight = state.runActive || state.status !== null || state.messages.some((m) => m.streaming);
+  const runInFlight =
+    state.runActive ||
+    (state.status !== null && !isTerminalStatus(state.status)) ||
+    state.messages.some((m) => m.streaming);
 
   return (
     /* h-dvh + antialiased（界面美化役批③——dvh 视口在移动端工具栏收展下恒正确；

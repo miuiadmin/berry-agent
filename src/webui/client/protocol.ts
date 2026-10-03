@@ -74,12 +74,16 @@ export type ClientDisplayEvent =
   | { readonly type: 'turn_end'; readonly turn: number }
   | {
       /**
-       * 重试退避窗开（收尾行重试段计数面——V-0 注⑥跨通道对端）。attempt/
-       * maxAttempts/nextAt 服务端载荷在场（contracts/agent-events 真源），
-       * SPA 倒计时呈现未立项——视界只收型名（tool_execution_start 省略
-       * arguments 同律）。
+       * 重试退避窗开（收尾行重试段计数面——V-0 注⑥跨通道对端 + E1 重试呈现
+       * 供数位）。attempt/maxAttempts 服务端载荷在场（contracts/agent-events
+       * 真源），SPA 状态行「第 n/N 次」段消费；倒计时呈现未立项（nextAt 须
+       * 本地钟 ticker——视界不收）。
        */
       readonly type: 'retry_wait_start';
+      /** 将续入的尝试序号（1 起——缺席裸形兜底） */
+      readonly attempt?: number;
+      /** 重试名额帽（缺席裸形兜底） */
+      readonly maxAttempts?: number;
     }
   | {
       /** 重试退避窗关（outcome 三值——resumed = 续入即新 agent_start，run 级账不清的判定位） */

@@ -310,6 +310,39 @@ describe('WebUiRoot主面活体环', () => {
     });
   });
 
+  it('终态后打断键复禁：终态状态行不计入 run 在飞信号（修前红：⏹/✗ 终态文案被误当在飞——打断键伪使能）', async () => {
+    primeMain();
+    apiMock.interrupt.mockResolvedValue(undefined);
+    render(<WebUiRoot />);
+    await screen.findAllByText('测试会话');
+    await waitFor(() => {
+      expect(FakeEventSource.instances).toHaveLength(1);
+    });
+    const es = FakeEventSource.instances[0]!;
+    act(() => {
+      es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
+    });
+    expect((screen.getByRole('button', { name: '打断' }) as HTMLButtonElement).disabled).toBe(false); // 在飞使能
+    // 中止终态：状态行呈现 ⏹（终态文案）但 run 已收口——打断键须复禁
+    act(() => {
+      es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'aborted' } });
+    });
+    await screen.findByText('⏹ 已中止');
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: '打断' }) as HTMLButtonElement).disabled).toBe(true); // 修前红：终态文案计入在飞
+    });
+    // 失败揭示形同律：持有档 → 燃尽揭示 ✗ 后复禁
+    act(() => {
+      es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_start' } });
+      es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'agent_end', status: 'failed' } });
+      es.emit({ kind: 'display', sessionId: 's-1', payload: { type: 'retry_wait_end', outcome: 'exhausted' } });
+    });
+    await screen.findByText('✗ 失败');
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: '打断' }) as HTMLButtonElement).disabled).toBe(true); // 修前红：✗ 计入在飞
+    });
+  });
+
   it('submit 失败撤回乐观回显：未被受理的消息不驻留正文（修前红：catch 只推通知无撤回——幻影驻留至刷新）', async () => {
     primeMain();
     // 桩拟真实服务端失败形（Once 形——不污染后续用例的 submit 桩）

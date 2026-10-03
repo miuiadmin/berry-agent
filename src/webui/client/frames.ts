@@ -141,6 +141,15 @@ export interface AppState {
    */
   readonly retryContinuation: boolean;
   /**
+   * 失败原因**持有档**（E1——TUI tui-backend pendingFailReason 同律）：线协议
+   * agent_end(failed) 不一定是真终态（transient 腿随后 retry_wait_start 退避 →
+   * retry_wait_end 收口）。failed 到达即存账不揭示（状态行不闪 ✗、run 账不
+   * 冻结、活体窗维持）；由 retry_wait_end {aborted|exhausted} 揭示同句携因并
+   * 消费清账，resumed 续入 / agent_start 撤销持有。失败直呈律（V-0 注②）：
+   * 原因随揭示同句供位，缺席裸形兜底。
+   */
+  readonly pendingFailReason: string | null;
+  /**
    * 最近一条 user 消息时刻（echoedUserMessage 客户端钟 / 镜像 message_end
    * 服务端钟 / 投影末条 user——agent_start 快照为 runSeedAt 种子源）。
    */
@@ -166,6 +175,7 @@ export const initialAppState: AppState = {
   runToolCount: 0,
   runRetryCount: 0,
   retryContinuation: false,
+  pendingFailReason: null,
   lastUserAt: null,
 };
 
@@ -379,7 +389,11 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
       }
       if (payload.type === 'tool_execution_end') {
         if (env.kind !== 'session') return state;
-        const { key, seq } = messageKey(state, undefined);
+        // 稳定键 tool-<toolCallId>（E4——onopen 交错窗对账的键律半边：与投影
+        // toolResult 的 toolCallId 身份同一；顺带幂等位——同 id 终结帧异常重发
+        // 不二次落行）
+        const key = `tool-${payload.toolCallId}`;
+        if (state.messages.some((m) => m.key === key)) return state; // 幂等（重发防御）
         // 名优先同 update；终结出账（映射有界——同 id 迟到 update 回退 id）；
         // 终结行动词走 toolFaceZh（V-0 注⑤跨通道对端）
         const name = state.toolNames[payload.toolCallId] ?? payload.toolCallId;
@@ -388,10 +402,17 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         // 只换语气词——失败详情走 assistant errorMessage 轨（错误块本体呈现），
         // result/isError 缺席（旧服务端/坏形容错）按成功呈现（可选位向后兼容）
         const failed = payload.result !== undefined && payload.result.isError === true;
+        // 兄弟在飞守卫（E3）：executeToolBatch 并发段完成序交错——批内先完成者
+        // 不空清状态行（read 无进度回调的空窗持续到其 end），回写最晚启动的
+        // 兄弟名执行中；仅账空（最后一个 end）才清空
+        const remainingIds = Object.keys(toolNames);
+        const siblingStatus =
+          remainingIds.length > 0
+            ? `${TOOL_RUN_MARK} ${toolFaceZh(toolNames[remainingIds[remainingIds.length - 1]!]!)} …`
+            : null;
         return {
           ...state,
-          seq,
-          status: null,
+          status: siblingStatus,
           toolNames,
           messages: [
             ...state.messages,
@@ -406,15 +427,41 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
       }
       if (payload.type === 'retry_wait_start') {
         if (env.kind !== 'display') return state;
+        // 态③ 重试呈现（E1——TUI taskLine.enterRetry 呈现形对齐）：倒计时呈现
+        // 未立项（nextAt 绝对时刻须本地钟 ticker——视界不收），静态「第 n/N 次」
+        // 段 + 省略号活体感；载荷缺席（旧服务端/坏形容错）裸形兜底。
         // 收尾行重试段计数（V-0 注⑥跨通道对端）——整 run 口径，agent_start
-        // 续入形不清（retryContinuation 分诊）；SPA 倒计时呈现未立项零状态行动作
-        return { ...state, runRetryCount: state.runRetryCount + 1 };
+        // 续入形不清（retryContinuation 分诊）
+        const attemptText =
+          typeof payload.attempt === 'number' && typeof payload.maxAttempts === 'number'
+            ? ` 第 ${payload.attempt}/${payload.maxAttempts} 次`
+            : '';
+        return { ...state, status: `重试中${attemptText} …`, runRetryCount: state.runRetryCount + 1 };
       }
       if (payload.type === 'retry_wait_end') {
         if (env.kind !== 'display') return state;
-        if (payload.outcome !== 'resumed') return state; // aborted/exhausted：终态揭示腿——run 级账随 agent_end/切换收束
-        // 续入标记：下一 agent_start 消费（run 级账不清——TUI retryContinuation 同律）
-        return { ...state, retryContinuation: true };
+        if (payload.outcome === 'resumed') {
+          // 续入：撤重试呈现归活体（TUI retry_wait_end(resumed) → enterWorking
+          // 同律）+ 续入标记（下一 agent_start 消费——run 级账不清）+ 持有档
+          // 撤销（断点续跑——陈因不残留；TUI 在 agent_start 清，此间无帧序差）
+          return { ...state, retryContinuation: true, status: null, pendingFailReason: null };
+        }
+        // aborted / exhausted：终态揭示（E1 持有档消费位）——✗ 携因驻留至下个
+        // agent_start + run 账收口。失败直呈律（V-0 注②）：原因自持有档供位，
+        // 缺席（中途附着错失 agent_end 等）裸形兜底（诚实缺席非陈因）。failed
+        // 无收尾行（错误块本体呈现——runCloseLine 同判据）；可无配对 start
+        //（不可重试首败形）
+        return {
+          ...state,
+          status: state.pendingFailReason !== null ? `✗ 失败 · ${state.pendingFailReason}` : '✗ 失败',
+          pendingFailReason: null, // 消费即清（终态后账不复用——TUI 同律）
+          runActive: false,
+          runStartedAt: null,
+          runSeedAt: null,
+          runToolCount: 0,
+          runRetryCount: 0,
+          retryContinuation: false,
+        };
       }
       if (payload.type === 'agent_start') {
         // run 活体窗开窗（收尾行/打断键的数据面）：观察起点 = 帧到达时刻、
@@ -422,8 +469,15 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         if (state.retryContinuation) {
           // 续入（retry_wait_end(resumed) 后的再次 agent_start）：同一 run 断点
           // 续跑——run 级账（工具/重试计数、种子）不清（整 run 口径）；观察窗
-          // 重开（耗时段回退位只覆末次尝试——durationMs 载荷在场必用）
-          return { ...state, runActive: true, runStartedAt: now, retryContinuation: false };
+          // 重开（耗时段回退位只覆末次尝试——durationMs 载荷在场必用）；持有
+          // 档撤销（resumed 已撤——防御位）；状态行不动（TUI 续入不清 statusLine）
+          return {
+            ...state,
+            runActive: true,
+            runStartedAt: now,
+            retryContinuation: false,
+            pendingFailReason: null,
+          };
         }
         return {
           ...state,
@@ -432,18 +486,26 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           runSeedAt: state.lastUserAt ?? now,
           runToolCount: 0,
           runRetryCount: 0,
+          // E2：fresh run 清状态行（对齐 TUI resetUsage 末句清行腿——上一 run 的
+          // ⏹/✗ 终态文案不跨 run 残留驻入新 run）
+          status: null,
+          pendingFailReason: null, // 持有档清账（TUI agent_start 无分支同律——新 run 起陈因不残留）
         };
       }
       if (payload.type === 'agent_end') {
-        // 终态分档（03 §10.4 SPA 呈现面终态条款②——07 §4.1 件 6 跨通道同律）：
-        // failed/aborted 显式呈现不伪装成功；completed/缺席归闲态
-        // （修前不分 status 恒归闲态——失败 run 状态行无痕伪收场）。
-        // 失败直呈律（V-0 注②第三位）：errorMessage 在场同句携因——孤立 ✗ 禁
-        const failedText =
-          payload.errorMessage !== undefined && payload.errorMessage !== ''
-            ? `✗ 失败 · ${payload.errorMessage}`
-            : '✗ 失败';
-        const status = payload.status === 'failed' ? failedText : payload.status === 'aborted' ? '⏹ 已中止' : null;
+        // ⚠ 持有档（E1——TUI tui-backend agent_end failed 分支同律）：failed 不
+        // 立即终态化——驱动侧保证 failed 后必随发 retry_wait_start（退避窗开）
+        // 或 retry_wait_end {aborted|exhausted}（终态收口）。持有窗内状态行不闪
+        // ✗、run 账不冻结（退避窗计时计入 run 时长——收尾行整 run 口径）、活体
+        // 窗维持（打断键在退避窗内仍可打断——TUI ESC 同语义）。揭示/撤销归
+        // retry_wait_end 与 agent_start 分诊位。
+        if (payload.status === 'failed') {
+          return { ...state, pendingFailReason: payload.errorMessage ?? null };
+        }
+        // completed / aborted：真终态——终态分档（03 §10.4 SPA 呈现面终态条款②
+        // ——07 §4.1 件 6 跨通道同律）：aborted 显式呈现不伪装成功；completed/
+        // 缺席归闲态。
+        const status = payload.status === 'aborted' ? '⏹ 已中止' : null;
         // run 收尾行（07 §4.1 收尾行条款）：失败终态无收尾行（错误块本体呈现）；
         // 其余终态按 runCloseLine 组形瞬时追加（不落投影——重拉/回放不可见）
         const closeText = runCloseLine(state, payload, now);
@@ -459,6 +521,7 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           runToolCount: 0,
           runRetryCount: 0,
           retryContinuation: false,
+          pendingFailReason: null, // 持有档防御清（错帧序兜底——正常序已在分诊位消费）
           ...(closeText !== null
             ? { messages: [...state.messages, { key, role: RUN_CLOSE_ROLE, text: closeText, streaming: false }] }
             : {}),
@@ -549,16 +612,41 @@ export function echoedUserMessage(state: AppState, sessionId: string, text: stri
   };
 }
 
-/** 投影拉取落座（正确性层——整段重置正文，活体尾巴清场；配对账同步出清：投影已含回显本体） */
+/**
+ * 投影拉取落座（正确性层——整段重置正文，活体尾巴清场）。
+ *
+ * onopen 交错窗对账（E4）：App 侧 onopen 恒重拉投影，fetch 异步窗内到达的
+ * session 族终结帧（message_end/tool_execution_end）先落稿——快照若早于该
+ * 帧的 durable 记录（服务端 GET 先处理），整段重置会抹除已落稿帧，而长连接
+ * 内 session 族无重发（不自愈）。落座时按键/时间戳对账：**快照已含的不重复
+ * 推**（投影副本即真源——live 副本让位）；**快照未含的已落稿帧不抹**（记录
+ * 晚于快照——续接投影尾，时序上必后于全部快照消息）。对账键律：message_end
+ * 落稿/回显键 m-<数值时间戳>（身份同一）；工具终结行键 tool-<toolCallId>
+ * （与投影 toolResult 的 toolCallId 同一）。回显保持位特判：回显键是客户端
+ * 钟与投影服务端钟配不上——按文本对账（快照含同文 user 即回显本体，让位 +
+ * 配对账出清〔重连形镜像不至〕；未含则回显保位 + 配对账保留〔镜像后至仍
+ * 吸收恰一份〕）。
+ */
 export function loadedMessages(state: AppState, messages: readonly unknown[]): AppState {
   const views: ViewMessage[] = [];
   let seq = state.seq;
   let lastUserAt: number | null = null;
+  // 对账索引三面：快照数值时间戳集 / 快照 toolCallId 集 / 快照 user 文本集
+  const snapTimestamps = new Set<number>();
+  const snapToolIds = new Set<string>();
+  const snapUserTexts = new Set<string>();
   for (const message of messages) {
     seq += 1;
     const error = errorMessageOf(message);
     const timestamp = messageTimestamp(message);
     const role = messageRole(message);
+    if (typeof timestamp === 'number') snapTimestamps.add(timestamp);
+    const toolId = messageToolCallId(message);
+    if (toolId !== null) snapToolIds.add(toolId);
+    if (role === 'user') {
+      const text = textOf(messageContent(message));
+      if (text !== '') snapUserTexts.add(text); // 空串不入集（坏形不吞回显让位判据）
+    }
     views.push({
       key: `p#${seq}`,
       role,
@@ -570,7 +658,48 @@ export function loadedMessages(state: AppState, messages: readonly unknown[]): A
     // 正确性层真源，服务端钟优先于观察钟）
     if (role === 'user' && typeof timestamp === 'number') lastUserAt = timestamp;
   }
-  return { ...state, messages: views, seq, pendingEchoes: [], lastUserAt };
+  // 交错窗对账（E4）：活体已落稿且快照未含的终结帧不抹——流式尾巴（投影
+  // 接管——终稿后至自会再落）与 run 收尾行（瞬时追加位重拉即清，既有律）除外
+  const kept: ViewMessage[] = [];
+  const keptEchoKeys = new Set<string>();
+  for (const m of state.messages) {
+    if (m.streaming || m.role === RUN_CLOSE_ROLE) continue;
+    const ts = numericKeyOf(m.key);
+    if (ts !== null) {
+      if (snapTimestamps.has(ts)) continue; // 快照已含——live 副本让位（不重复推）
+      if (m.role === 'user' && state.pendingEchoes.some((p) => p.key === m.key) && snapUserTexts.has(m.text)) {
+        continue; // 回显本体已在快照（文本对账——服务端钟落账）→ 让位投影副本
+      }
+      if (m.role === 'user' && state.pendingEchoes.some((p) => p.key === m.key)) {
+        keptEchoKeys.add(m.key); // 在途回显保位——配对账保留（镜像后至仍吸收）
+      }
+      kept.push(m);
+      if (m.role === 'user') lastUserAt = ts; // 保留位晚于快照——种子锚随之推进
+      continue;
+    }
+    const toolId = toolKeyOf(m.key);
+    if (toolId !== null && !snapToolIds.has(toolId)) {
+      kept.push(m); // 工具终结行：快照未含该 toolResult——live 行存活
+    }
+  }
+  return {
+    ...state,
+    messages: [...views, ...kept],
+    seq,
+    // 配对账：在途回显保位者保留（镜像后至吸收恰一份），其余出清（投影已含
+    // 本体或回显已让位——原整段出清律）
+    pendingEchoes: state.pendingEchoes.filter((p) => keptEchoKeys.has(p.key)),
+    lastUserAt,
+  };
+}
+
+/**
+ * 终态状态行判据（E2 连带面——run 在飞信号的排除半边）：agent_end aborted
+ * 与重试终局揭示的 ✗ 形是「run 已收口」的呈现，不计入在飞信号（打断键闲态
+ * 诚实禁用）。词面与 agent_end/retry_wait_end 两发射位单源同文——改词必同步。
+ */
+export function isTerminalStatus(status: string): boolean {
+  return status === '⏹ 已中止' || status === '✗ 失败' || status.startsWith('✗ 失败 · ');
 }
 
 /** 会话清单落座（成功即撤失败旗——失败行只随最新一次装载结果呈现；total 随批落座，缺席 = 不披露） */
@@ -605,6 +734,7 @@ export function setActiveSession(state: AppState, sessionId: string | null): App
     runToolCount: 0,
     runRetryCount: 0,
     retryContinuation: false,
+    pendingFailReason: null, // 持有档随切换出清（旧会话退避窗对新会话无意义）
     lastUserAt: null,
   };
 }
@@ -635,6 +765,29 @@ function messageTimestamp(message: unknown): unknown {
     return (message as { timestamp: unknown }).timestamp;
   }
   return undefined;
+}
+
+/** m-<数值时间戳> 键解析（message_end 落稿/回显键族——E4 交错窗对账的身份判据；非本形回 null） */
+function numericKeyOf(key: string): number | null {
+  if (!key.startsWith('m-')) return null;
+  const digits = key.slice(2);
+  if (digits === '') return null;
+  const value = Number(digits);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** tool-<toolCallId> 键解析（工具终结行键族——E4 对账与投影 toolResult 身份同一；非本形回 null） */
+function toolKeyOf(key: string): string | null {
+  return key.startsWith('tool-') ? key.slice(5) : null;
+}
+
+/** 投影 toolResult 消息的 toolCallId 抽取（E4 对账索引半边——非本形/坏形回 null） */
+function messageToolCallId(message: unknown): string | null {
+  if (typeof message === 'object' && message !== null && 'toolCallId' in message) {
+    const value = (message as { toolCallId: unknown }).toolCallId;
+    if (typeof value === 'string') return value;
+  }
+  return null;
 }
 
 function partialContent(partial: unknown): unknown {
