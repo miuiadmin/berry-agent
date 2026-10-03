@@ -103,15 +103,24 @@ export async function streamAssistantResponse(
 /**
  * E-4 context_usage 事件构造（04 §2 E-4 批——07 §4.1 注⑪⑥b；loop turn 收口
  * 随发的非族单发事件，族序律不涉）：usedTokens = 本 turn 终值 usage 账在窗
- * 口径（input+output——cache 桶不计）；maxTokens = 模型目录窗口经注入闭包
- * 现取（agent 不 import llm 铁律——宿主装配侧供源）。两字段各自可选：零账
- * （前置失败/中止早退形 usage 恒 0）与闭包返 undefined = 字段缺席（机制级
- * codex 语义——缺席即未知，消费端不显示；宿主装配已兜底 200k 恒在场，目录
- * 缺席成因已退役——缺席形仅余非宿主装配路）；事件本体恒发（消费端零订阅
- * 零成本）。构造单源在本件（loop 只留骨架——≤150 行形态铁律）。
+ * 口径（四桶全和 input+cacheRead+cacheWrite+output——与 pi-ai totalTokens
+ * 同向；归一化后 input 不含 cache 桶，长会话 cache 命中时两桶并入才算满窗
+ * ——07 注⑪⑥(b) 勘正，旧 input+output 口径系统性低估）；maxTokens = 模型
+ * 目录窗口经注入闭包现取（agent 不 import llm 铁律——宿主装配侧供源）。两字段
+ * 各自可选：零账（前置失败/中止早退形 usage 恒 0）与闭包返 undefined = 字段
+ * 缺席（机制级 codex 语义——缺席即未知，消费端不显示；宿主装配已兜底 200k
+ * 恒在场，目录缺席成因已退役——缺席形仅余非宿主装配路）；事件本体恒发（消费
+ * 端零订阅零成本）。构造单源在本件（loop 只留骨架——≤150 行形态铁律）。
+ * 注意：四桶在 Usage 契约为必落字段，?? 0 仅防供应商适配器坏形（缺桶时降级
+ * 为其余桶之和，非 NaN 缺席）；会话累计槽（agent_end usage）口径分立不动。
  */
 export function contextUsageEventOf(assistant: AssistantMessage, config: AgentLoopConfig): AgentEvent {
-  const usedTokens = assistant.usage.input + assistant.usage.output;
+  // 在窗账四桶全和（逐桶 ?? 0 防坏形——见上注）
+  const usedTokens =
+    (assistant.usage.input ?? 0) +
+    (assistant.usage.output ?? 0) +
+    (assistant.usage.cacheRead ?? 0) +
+    (assistant.usage.cacheWrite ?? 0);
   const maxTokens = config.contextWindowOf?.(config.model);
   return {
     type: 'context_usage',

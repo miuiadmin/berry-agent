@@ -31,7 +31,9 @@
  *
  * context_usage 单发型（E-4 批——V-4 底栏供数链落码批，07 §4.1 注⑪⑥b）：
  * turn 收口随发 `{usedTokens?, maxTokens?}`——usedTokens = loop 终值 usage
- * 账在窗口径（input+output，cache 桶不计）；maxTokens = 模型目录
+ * 账在窗口径（四桶全和 input+cacheRead+cacheWrite+output——与 pi-ai
+ * totalTokens 同向，07 注⑪⑥(b) 勘正；归一化后 input 不含 cache 桶）；
+ * maxTokens = 模型目录
  * contextWindow 经 AgentLoopConfig 注入闭包供源（agent 不 import llm
  * 铁律——宿主装配侧注入）。两字段各自可选，缺席 = 未知不显示（codex
  * 语义）；非族单发事件，族序律不涉；纯活体型不落 durable（E-1 同红线）。
@@ -97,7 +99,7 @@ export type AgentEvent =
   | {
       /** 上下文占用快照（04 §2 E-4 批——V-4 底栏供数链；turn 收口随发的非族单发型，纯活体不落 durable） */
       type: 'context_usage';
-      /** 本 turn 收口在窗 token（loop 终值 usage 账 input+output 在窗口径；缺席 = 未知） */
+      /** 本 turn 收口在窗 token（loop 终值 usage 四桶全和 input+cacheRead+cacheWrite+output 在窗口径；缺席 = 未知） */
       usedTokens?: number;
       /** 模型上下文窗口（模型目录 contextWindow 经注入闭包供源；缺席 = 未知——兜底在供源侧装配闭包〔contextWindowOf——目录缺席兜底 200k〕，呈现侧零兜底直呈） */
       maxTokens?: number;

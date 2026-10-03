@@ -171,7 +171,7 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | 编辑器 | `up`                                 | `editor.history-prev`         | 上一条历史                     |
 | 编辑器 | `down`                               | `editor.history-next`         | 下一条历史                     |
 
-全局两条（中断/退出）是会话生命线**不可覆盖**；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+c` 中断运行中的 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 双绑（空框 = 退出 / 非空 = 向后删字）是默认既定的分层消解形。`ctrl+p` 模型循环——切换即时登记、**下一轮对话起生效**（运行中的 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/默认模型位。`alt+enter` 排队提交——运行中的 run 期间不等待不打断：显式排队，当前 run 终态后作种子新起 run（`enter` 在 busy 期的顶注默认不动——两键分职：`enter` 顶注 / `alt+enter` 排队〔当前回复结束后自动开始〕；idle 期同普通提交），排队成功回执一行。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
+全局三条**不可覆盖**——中断/退出是会话生命线；`?` 帮助是闲态教学键、走 text 事件路由（键位册绑定永不命中——非键位绑定面）；其余动作均可经 `settings.json` 的 `keybindings` 键覆盖（见下文「用户设置」）。`ctrl+c` 中断运行中的 run——挂起的审批/问询随之中止（撤销说明行落正文流）。`ctrl+d` 双绑（空框 = 退出 / 非空 = 向后删字）是默认既定的分层消解形。`ctrl+p` 模型循环——切换即时登记、**下一轮对话起生效**（运行中的 run 不中途换模型），footer 模型段随切刷新；会话级旋钮不写盘，重启回 env/默认模型位。`alt+enter` 排队提交——运行中的 run 期间不等待不打断：显式排队，当前 run 终态后作种子新起 run（`enter` 在 busy 期的顶注默认不动——两键分职：`enter` 顶注 / `alt+enter` 排队〔当前回复结束后自动开始〕；idle 期同普通提交），排队成功回执一行。词删/行删三键（`ctrl+w`、`ctrl+u`、`ctrl+k`）的被删段入 kill 环，`ctrl+y` 取回最近一段、`alt+y` 环游标步进替换。`meta`（macOS cmd）族键不占用——键串文法不含 meta，留给终端与系统快捷键。
 
 触发前缀与鼠标（非键位册动作）：
 
@@ -230,7 +230,7 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 ```
 
 - `theme`——TUI 主题设置：内置 `dark` / `light` / `auto` 三值（默认 `auto`）或自定义主题名（形见下）；`auto` = 启动时发 OSC 11 背景色查询按终端明暗裁定色板，并订阅明暗变化通知（支持的终端切换明暗即时跟随换板；无返回维持暗色）；显式 `dark`/`light` 不探测；`/themes` 选定同写本键；
-- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的默认键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退默认键位。拒载四形：未知动作 / 不可覆盖动作（全局两条）/ 畸形键串 / 键冲突（覆盖后同键动作集与默认册不一致）。
+- `keybindings`——键位用户覆盖（动作 id → 单个键串，**整体替换**该动作的默认键集——非追加；同动作多条以末条为准）：动作 id 见上文键位册表；键串文法 = 修饰键固定序 `ctrl+alt+shift+` + 单字符或具名键（`enter` `escape` `tab` `backspace` `delete` `insert` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `space`，全小写）。坏条目逐条拒载并点名警告（TUI 启动落屏「键位覆盖未生效：<原因>」）——不炸启动、好条目照常生效、拒载动作回退默认键位。拒载四形：未知动作 / 不可覆盖动作（全局三条）/ 畸形键串 / 键冲突（覆盖后同键动作集与默认册不一致）。
 
 该文件同时承载 `/approval preset` 写入的 `sandboxMode` / `approvalPolicy` 两键（审批持久默认值）；机器写盘只动自己的键，手编的其他键原样保留。
 

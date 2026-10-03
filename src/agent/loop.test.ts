@@ -875,7 +875,7 @@ describe('金样喂 loop（真录制物重演 + 合成三场景——loop 流消
 /* ---------------- context_usage 发射（E-4——07 §4.1 注⑪⑥b turn 收口随发） ---------------- */
 
 describe('context_usage 发射（E-4——V-4 底栏供数链）', () => {
-  it('每 turn 收口恰一发：usedTokens = 本轮 usage input+output（在窗口径）、maxTokens = 注入闭包现取；序在 turn_end 前', async () => {
+  it('每 turn 收口恰一发：usedTokens = 本轮 usage 四桶全和（在窗口径）、maxTokens = 注入闭包现取；序在 turn_end 前', async () => {
     const seenModels: string[] = [];
     const { context, config, events } = rig({
       streamFn: scriptedStreamFn([
@@ -893,7 +893,7 @@ describe('context_usage 发射（E-4——V-4 底栏供数链）', () => {
     const emits = events.filter((e) => e.type === 'context_usage');
     expect(emits).toHaveLength(1); // 每 turn 恰一发
     const ev = emits[0]!;
-    expect(ev.type === 'context_usage' && ev.usedTokens).toBe(15_000); // 在窗口径 = input+output（cache 桶不计）
+    expect(ev.type === 'context_usage' && ev.usedTokens).toBe(15_500); // 在窗口径 = 四桶全和 12_000+3_000+500+0（pi-ai 归一化后 input 不含 cache 桶——两桶并入才算满窗）
     expect(ev.type === 'context_usage' && ev.maxTokens).toBe(1_000_000); // 目录窗口经注入闭包现取
     expect(seenModels).toEqual(['test/model']); // 以 run 钉定模型查目录
     // 序：message_end 之后、turn_end 之前（turn_end 恒为 turn 收尾标记）
@@ -921,7 +921,7 @@ describe('context_usage 发射（E-4——V-4 底栏供数链）', () => {
         assistant({ content: [call('t-1', 'probe')], stopReason: 'toolUse' }),
         assistant({
           content: [{ type: 'text', text: 'done' }],
-          usage: { input: 100, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 140 },
+          usage: { input: 100, output: 40, cacheRead: 20, cacheWrite: 10, totalTokens: 170 },
         }),
       ]),
       contextWindowOf: () => 200_000,
@@ -930,8 +930,8 @@ describe('context_usage 发射（E-4——V-4 底栏供数链）', () => {
     await startRun(context, config, [user('跑')]);
     const emits = events.filter((e) => e.type === 'context_usage');
     expect(emits).toHaveLength(2); // 两 turn 两发
-    // 首轮零账形：字段缺席；次轮真账：140（input+output）
+    // 首轮零账形：字段缺席；次轮真账：170（四桶和 100+40+20+10——cache 桶非零锚四桶口径）
     expect((emits[0]! as { usedTokens?: number }).usedTokens).toBeUndefined();
-    expect((emits[1]! as { usedTokens?: number }).usedTokens).toBe(140);
+    expect((emits[1]! as { usedTokens?: number }).usedTokens).toBe(170);
   });
 });

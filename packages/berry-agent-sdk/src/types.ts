@@ -22,7 +22,7 @@ import type {
 
 /* ---------------- 类型面单源 re-export（策展点名） ---------------- */
 
-/** 线事件词面（04 §2 十型——live 帧载荷） */
+/** 线事件词面（04 §2 开放词汇表——live 帧载荷单源 re-export，随主包增型自随、不在此计数） */
 export type { AgentEvent } from '../../../src/agent/events.js';
 /** 审批应答四值闭集（decide 动词入参） */
 export type { ApprovalAskAnswer } from '../../../src/contracts/approval.js';
