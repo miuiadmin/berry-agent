@@ -996,6 +996,34 @@ describe('TuiBackend 阻塞四件（浮层面板呈现）', () => {
     expect(io.bytes).toContain('x');
   });
 
+  // —— 入参 signal 已中止早检（纵深防御——十六役 N1 同族在 ask 浮层位的兜底）：
+  // abort 事件是一次性广播——已发毕的 signal 再挂监听永不再触发。ui-core 侧已
+  // 有两道早检（入参已中止早退 + 排队件 abort 不晋升 start），但 UiBackend 是
+  // 公开面——其他装配方直传已中止 signal 时 openAskLayer 只挂监听即开层成
+  // 僵尸浮层（无人能答也无人能收）——
+  it('入参 signal 已中止的 ask：零呈现直收保守值（修前红：层已开 + 只挂监听——僵尸浮层、promise 永悬）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const ac = new AbortController();
+    ac.abort(); // 先中止——bridgeApprovalSignal 同步 relay 的生产形（N1 同源）
+    const p = backend.confirm('做吗？', { signal: ac.signal });
+    pump();
+    expect(io.bytes).not.toContain('做吗？'); // 修前红①：层照样开——中止事件已发毕，撤销路不可达
+    await expect(p).resolves.toBe(false); // 修前红②：abort 回调永不再触发——promise 永悬
+  });
+
+  // input() 路同族对称锁（上件 openAskLayer 兜底的姊妹位）：inputAsk 应答车
+  // 无已中止早检——已发毕的 signal 只挂监听永不再触发，激活即占编辑器成
+  // 僵尸问（无人能收、promise 永悬）
+  it('入参 signal 已中止的 input：零呈现直收保守值（修前红：应答车激活——僵尸问、promise 永悬）', async () => {
+    const { io, backend, pump } = makeInteractive();
+    const ac = new AbortController();
+    ac.abort(); // 先中止——中止事件已发毕，挂监听永不再触发（Node 实证）
+    const p = backend.input('叫什么？', { signal: ac.signal });
+    pump();
+    expect(io.bytes).not.toContain('叫什么？'); // 修前红①：提示行照样上屏——撤销路不可达
+    await expect(p).resolves.toBe(''); // 修前红②：abort 回调永不再触发——promise 永悬
+  });
+
   it('select：enter 高亮项 / ↓ 换选 / esc → 空串 / abort → 空串', async () => {
     const { io, backend, clock, pump } = makeInteractive();
     const choices = [

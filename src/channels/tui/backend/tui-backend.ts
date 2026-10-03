@@ -2113,6 +2113,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    */
   input(message: string, opts?: UiInputOptions): Promise<string> {
     return new Promise<string>((resolve) => {
+      // 入参 signal 已中止早检（openAskLayer 同族对称兜底）：abort 事件是
+      // 一次性广播——已发毕的 signal 再挂监听永不再触发（Node 实证），激活
+      // 即占应答车成僵尸问（无人能收、promise 永悬）。ui-core 侧 ask 入口
+      // 已有早退护栏，UiBackend 是公开面——其他装配方直传时由此兜底：零
+      // 呈现直收保守值（从未上屏——不落撤销说明行、不清框）
+      if (opts?.signal?.aborted) {
+        resolve('');
+        return;
+      }
       const ask: InputAsk = { message, resolve };
       // abort 分派按收场时态判（排队→激活两态同一监听——入队后才 abort 的
       // 排队问仍走激活态撤销面，不因注册时态漏接）
@@ -2507,6 +2516,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     signal: AbortSignal | undefined,
     cancelLine: string,
   ): OverlayHandle {
+    // 入参 signal 已中止早检（纵深防御——十六役 N1 同族在 ask 浮层位的兜底）：
+    // abort 事件是一次性广播，已发毕的 signal 再挂监听永不再触发——开层即成
+    // 僵尸浮层（无人能答也无人能收）。ui-core 侧已有两道早检（入参已中止早退
+    // + 排队件 abort 不晋升），但 UiBackend 是公开面——其他装配方直传已中止
+    // signal 时由此兜底：零呈现直收保守值（从未在屏——不落撤销说明行）。
+    if (signal?.aborted) {
+      abort();
+      return { close: () => {}, closed: true }; // 预关死句柄：调用方 onFinish 迟到 close 幂等 no-op
+    }
     // 模态浮层开层即收补全弹层（与 input() 路「应答期弹层抑制」同形——组 2
     // 修死显残留）：overlay 占焦后弹层键面不可达（模态独占），不收层则建议
     // 列表死显在浮层段下、且 20ms 窗内已武装的在途查询迟到还会刷新死显列表

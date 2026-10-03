@@ -131,6 +131,46 @@ describe('ask 编舞单元边界', () => {
     expect(await p2).toBe(true);
   });
 
+  it('排队 ask 的外部 abort：只收自身保守值——ACTIVE 件不被误弹、本件不晋升呈现（修前红：settled 弹 ACTIVE 甲 + 乙以已中止 signal 晋升 start）', async () => {
+    const b = fakeBackend('tui');
+    const ui = makeCore([b.backend]);
+    const p1 = ui.confirm('s1', '甲问'); // 甲：直晋 ACTIVE（confirm 直路在飞）
+    const ac = new AbortController();
+    const p2 = ui.input('s1', '乙问', { signal: ac.signal }); // 乙：pending 挂外部 signal
+    expect(ui.pending('s1')).toEqual(['confirm', 'input']);
+    let settled1 = false;
+    void p1.then(() => {
+      settled1 = true;
+    });
+    ac.abort(); // 乙的外部 abort——外部 signal 经核折入 finish（不直传后端）
+    await expect(p2).resolves.toBe(''); // 乙保守值收场
+    expect(settled1).toBe(false); // 甲 promise 仍悬（abort 不得替甲收场）
+    expect(b.inputAsks.length).toBe(0); // 修前红①：乙被晋升 start 且以已中止 controller.signal 调 present——僵尸浮层源（N1 同族）
+    expect(ui.pending('s1')).toEqual(['confirm', 'input']); // 修前红②：settled 弹掉 ACTIVE 甲——账面只剩被晋升的乙
+    // 甲仍受队列治理：应答落定后队首出队、乙残位零呈现让位、后继照常起跑
+    b.confirmAsks[0]?.resolve(true);
+    expect(await p1).toBe(true);
+    expect(b.inputAsks.length).toBe(0); // 乙残位晋升即让位——不出 present 直出队
+    expect(ui.pending('s1')).toEqual([]);
+    const p3 = ui.confirm('s1', '丙问');
+    expect(b.confirmAsks.length).toBe(2); // 队列空闲——丙直晋队首
+    b.confirmAsks[1]?.resolve(false);
+    expect(await p3).toBe(false);
+  });
+
+  it('排队 ask 外部 abort 后 clearSession 仍能收口 ACTIVE 件（修前红：甲被 settled 弹出成账外孤儿——取消不可达、promise 永悬）', async () => {
+    const b = fakeBackend('tui');
+    const ui = makeCore([b.backend]);
+    const p1 = ui.confirm('s1', '甲问');
+    const ac = new AbortController();
+    const p2 = ui.input('s1', '乙问', { signal: ac.signal });
+    ac.abort();
+    await expect(p2).resolves.toBe('');
+    ui.closeSession('s1'); // 会话收口——在飞甲与残位乙都该被取消语义覆盖
+    await expect(p1).resolves.toBe(false); // 修前红：甲不在账面——clearSession 取消不到它
+    expect(ui.pending('s1')).toEqual([]);
+  });
+
   it('审批呈现异常折保守值 cancel（fail-closed——组合根只测过 confirm 族异常）', async () => {
     const b = fakeBackend('tui');
     const ui = makeCore([b.backend]);

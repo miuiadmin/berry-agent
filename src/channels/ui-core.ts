@@ -239,7 +239,9 @@ export class UiCore {
    * 在场副屏先收起再入提问队列；能力缺席〔无副屏后端〕零义务跳过）。
    * 三条收口路（全部 once）：首答（含降级解析值）/ 呈现异常（保守值——
    * fail-closed）/ 外部 signal abort 或队列取消（保守值）。入参 signal 已
-   * 中止 = 零呈现早退（保守值直收不入队——见 ask 体内注）。
+   * 中止 = 零呈现早退（保守值直收不入队——见 ask 体内注）；排队期（未晋升
+   * 队首）的外部 abort = cancel 语义——只结算自身保守值，不误弹 ACTIVE 件、
+   * 不晋升后继（settled 以 started 位门控——残位零呈现让位见 start 钩子）。
    */
   private ask<T>(
     sessionId: string,
@@ -267,6 +269,14 @@ export class UiCore {
     }
 
     let done = false;
+    // 本件是否已晋升队首（start 钩子已进）：finish 只允许已晋升件调 settled
+    // 出队。排队中（未 start）被外部 abort 收场的件若走 settled，弹出的会是
+    // 在飞的另一件——ACTIVE 被错误出队成账外孤儿（promise 仍悬、面板在屏，
+    // 此后 clearSession 不再能取消它）；且队列会把本件自己晋升、以 finish 里
+    // 已 abort 的 controller.signal 调 present——后端只挂 abort 监听即僵尸
+    // 浮层（十六役 N1 同族：入参 signal 已中止早检只护 externalSignal，
+    // 内部 controller.signal 无此护栏）。
+    let started = false;
     // 内部 signal：败腿撤销 + 队列收口的统一传播位（后端只认这一个信号源——
     // 外部 signal 经本核折入 finish，不直传后端）
     const controller = new AbortController();
@@ -276,7 +286,10 @@ export class UiCore {
       done = true;
       controller.abort(); // 败腿撤销传播（已落定后端再收 abort 是无害 no-op）
       resolve(value);
-      this.askQueue.settled(sessionId);
+      // 未 start（仍在排队）的收场只结算自身：不误弹 ACTIVE、不晋升后继
+      //（cancel 语义）。AskQueue 无单件出队面——本件在队内的残位由 start
+      // 钩子的 done 早检在晋升时刻零呈现让位（见下）。
+      if (started) this.askQueue.settled(sessionId);
     };
 
     const externalAbort = () => finish(conservative());
@@ -284,6 +297,13 @@ export class UiCore {
 
     this.askQueue.enqueue(sessionId, kind, {
       start: () => {
+        started = true; // 晋升即置位——finish 的 settled 门
+        if (done) {
+          // 排队期已被外部 abort 收场的迟到晋升：controller.signal 已中止，
+          // present 即僵尸浮层——不出呈现，直接按落定出队让真正的后继顶上
+          this.askQueue.settled(sessionId);
+          return;
+        }
         present(controller.signal).then(finish, () => finish(conservative()));
       },
       cancel: () => finish(conservative()),
