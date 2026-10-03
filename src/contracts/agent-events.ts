@@ -99,7 +99,7 @@ export type AgentEvent =
       type: 'context_usage';
       /** 本 turn 收口在窗 token（loop 终值 usage 账 input+output 在窗口径；缺席 = 未知） */
       usedTokens?: number;
-      /** 模型上下文窗口（模型目录 contextWindow 经注入闭包供源；缺席 = 未知——呈现侧兜底另裁） */
+      /** 模型上下文窗口（模型目录 contextWindow 经注入闭包供源；缺席 = 未知——兜底在供源侧装配闭包〔contextWindowOf——目录缺席兜底 200k〕，呈现侧零兜底直呈） */
       maxTokens?: number;
     };
 
