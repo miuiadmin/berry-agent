@@ -26,7 +26,6 @@ import { closeSync, fstatSync, mkdirSync, openSync, readSync, writeFileSync } fr
 
 import {
   BootAnimation,
-  editorHeightCap,
   FileMentionSource,
   foldErrorText,
   fuzzyFilter,
@@ -478,7 +477,6 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const mentionSourceFor = (): FileMentionSource => {
       return new FileMentionSource({ basePath: focusedWorkspaceRoot() });
     };
-    const rows = io.size().rows;
     // —— 活体值补全依赖（挂账解挂批 2026-09-15——07 §4.1 R6）：/rewind 尾参位
     // 经 core:checkpoint 服务面现取 manifest 清单（scope.tryGet——core-plugins
     // provide 'checkpoint' { store }），按聚焦会话工作区根过滤（与 /rewind list
@@ -554,8 +552,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const openStatusPanel = (): void => {
       // 聚焦会话（空悬回退启动会话）——短 id / cwd 短名 / 轮次行数据源
       const sid = stack.channels.focusedId ?? session.sessionId;
-      const row = runtime.persistence.store.getSessionRow(sid);
-      const root = canonicalWorkspaceRoot(row?.workspaceRoot ?? session.workspaceRoot);
+      // 工作区根单源收编（活体镜像统一批第四消费位）：@ 补全 / /rewind 尾参 /
+      // /new 三位既走 focusedWorkspaceRoot，本位同律——活体镜像优先（零事件
+      // 会话无库行，库读回退启动根会与 footer 活体根同会话两面分叉）
+      const root = focusedWorkspaceRoot();
       const driver = stack.driverOf(sid);
       // 轮次 null = driver 缺席（焦点会话未开驱动——registry.focus 纯投影路
       // 可达）不可知不虚报：/status 面板轮次行缺席不推行（与 git/今日同律；
@@ -1543,8 +1543,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         },
         mentions: (query) => mentionSourceFor().get(query),
       },
-      // 高度帽公式单源（07 §4.1 R3 批 10j）：max(5, rows×0.3)——迟滞带归视图
-      maxVisibleLines: editorHeightCap(rows),
+      // 高度帽生产路零注入（07 §4.1 R3 批 10j 帽公式单源在 backend）：显式帽
+      // 键省略 = backend 构造期按当值几何解析初帽、resize/复起两路随新几何
+      // 自适应（fixedEditorCap null——现值重算腿活）；该选项保留给测试注入
+      // 固定帽。此前装配期注入启动快照把帽钉死终身（小终端启动后放大窗口帽
+      // 偏小），backend 三处重算腿被结构性短路——撤注入即自适应。
       // 主题档（批 10g + /themes 批）：settings 缺席 = auto 探测路；自定义名 =
       // 覆盖表随装（坏文件已回退 auto——见 startupThemeSetting；色域档由 env
       // 两键裁定）

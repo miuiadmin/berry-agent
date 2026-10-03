@@ -8,7 +8,7 @@
  * 高度抖动（高度变化经主屏固定区高度账钳制重画，抖动即整屏重排闪）。
  */
 
-/** 帽公式（rows = 终端视口行数——装配位注入 maxVisibleLines） */
+/** 帽公式（rows = 终端视口行数——backend 构造期与 resize 现值计算注入；生产装配位注入已撤〔第六轮批，maxVisibleLines 选项留测试固定帽〕） */
 export function editorHeightCap(rows: number): number {
   return Math.max(5, Math.floor(rows * 0.3));
 }

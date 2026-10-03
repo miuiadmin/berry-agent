@@ -26,7 +26,7 @@ import { CURSOR_MARK, moreHint } from '../panels/panel-chrome.js';
 /** 提示符前缀占列宽（`› `——首行前缀与续行缩进同宽 2，折行算术对称） */
 const PREFIX_WIDTH = 2;
 
-/** 最大可视行数缺省（装配层按终端高 30% 注入覆盖——pi 同形 max(5, rows*0.3)） */
+/** 最大可视行数缺省（backend 构造期注入帽公式同值 max(5, rows*0.3)——pi 同形；装配层启动快照注入已撤〔第六轮批〕） */
 const DEFAULT_MAX_VISIBLE_LINES = 8;
 
 /**

@@ -34,7 +34,7 @@ export interface EditorOptions {
   onSubmit?: (text: string, opts?: EditorSubmitOptions) => void;
   /** 内容变更通知（装配层接重绘请求） */
   onChange?: (text: string) => void;
-  /** 最大可视行数（装配层按终端高 30% 注入；缺省 8） */
+  /** 最大可视行数（backend 构造期按当值行数套帽注入、resize 现值重算——生产装配层启动快照注入已撤〔第六轮批〕；缺省 8） */
   maxVisibleLines?: number;
   /** 键位册（批 10j 迁册——缺省缺省册；用户覆盖形装配注入归 10k） */
   keymap?: Keymap;

@@ -10,7 +10,7 @@
  */
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
@@ -91,13 +91,17 @@ class FakeTerminalIO implements TerminalIO {
   output = '';
   private listener: ((data: string) => void) | null = null;
   private readonly readyWaiters: Array<() => void> = [];
+  private readonly resizeListeners = new Set<() => void>();
   private raw = false;
+  /** 几何（测试可设——resize 场景直接改字段后 emitResize；MemoryTerminalIO 同形） */
+  public columns = 100;
+  public rows = 24;
 
   write(data: string): void {
     this.output += data;
   }
   size(): { columns: number; rows: number } {
-    return { columns: 100, rows: 24 };
+    return { columns: this.columns, rows: this.rows };
   }
   setRawMode(enable: boolean): void {
     this.raw = enable;
@@ -114,8 +118,13 @@ class FakeTerminalIO implements TerminalIO {
       if (this.listener === listener) this.listener = null;
     };
   }
-  onResize(): () => void {
-    return () => {};
+  onResize(listener: () => void): () => void {
+    this.resizeListeners.add(listener);
+    return () => this.resizeListeners.delete(listener);
+  }
+  /** 测试注入：驱动全部 resize 监听器（几何已由测试侧先行改定——MemoryTerminalIO 同形） */
+  emitResize(): void {
+    for (const listener of [...this.resizeListeners]) listener();
   }
   /** 等输入管线挂接（backend.start 订阅后） */
   async ready(): Promise<void> {
@@ -1589,6 +1598,91 @@ describe('零事件会话锚活体镜像（三消费位——@ 补全 / /rewind 
     io.send('\x15'); // ctrl+u 清框（弹层对带修饰键穿透——避 escape 并包歧义）
     io.send('\x04');
     expect(await entry).toBe(0);
+  });
+
+  it('/status 面板工作区根 = 活体镜像非库读回退（第四消费位收编；修前红：零事件会话无库行 → cwdLabel 回退启动根 A，footer 却走活体根 B——同会话两面分叉）', async () => {
+    const dataDir = rigDir('entry-status-anchor-data-');
+    const wsA = rigDir('entry-status-anchor-wsA-'); // 启动根 A
+    const wsB = rigDir('entry-status-anchor-wsB-'); // 活体锚 B（与 A 分叉）
+    const stacks: ConversationStack[] = [];
+    const { entry, io } = await rigEntry(dataDir, wsA, { onStack: (stack) => stacks.push(stack) });
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门
+    // 建零事件会话（活体锚 B——manager.create 零 I/O、行随首事件落库故无
+    // 库行）并注册切焦（/new 同路：registerSession → focus）
+    const stack = stacks[0]!;
+    const created = stack.manager.create({ workspaceRoot: wsB });
+    stack.channels.registerSession(created.sessionId);
+    await stack.channels.focus(created.sessionId);
+    // /status 副屏工作区行：单源 focusedWorkspaceRoot()（活体镜像优先）——修前
+    // 红：库读位行缺席回退启动根 A，与 footer（活体根 B）同会话两面分叉
+    const before = io.output.length;
+    io.send('/status\r');
+    await until(() => io.output.slice(before).includes('◉ 状态汇总')); // 副屏开屏
+    const panel = stripAnsi(io.output.slice(before)); // 切片 = 副屏帧（footer 主屏帧不混入）
+    expect(panel).toMatch(/工作区\s+\S+/); // 行在场（值列非空）
+    expect(panel).toContain(basename(wsB)); // 活体根 B——修前红：此位呈 A 短名
+    expect(panel).not.toContain(basename(wsA)); // 修前双证：回退根 A 亦在场
+    io.send('q'); // q text 轨收副屏
+    await until(() => io.output.includes('\x1b[?1049l'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  // 保形收编词法锁（D1）：openStatusPanel 作用域 getSessionRow 零残留——防
+  // 后续改版把库读腿悄悄搬回（活体镜像单源 = 三级判据唯一真源）
+  it('/status 工作区根单源词法锁：openStatusPanel 作用域库读零残留 + focusedWorkspaceRoot 单点收编', () => {
+    const source = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
+    const start = source.indexOf('const openStatusPanel');
+    const end = source.indexOf('const openDebugPanel');
+    expect(start).toBeGreaterThan(-1); // 切片锚在位（函数改名/搬位即红——锁面自检）
+    const body = source.slice(start, end);
+    expect(body.split('getSessionRow').length - 1).toBe(0); // 库读腿零残留
+    expect(body.split('focusedWorkspaceRoot()').length - 1).toBe(1); // 单源收编恰一点
+  });
+});
+
+describe('编辑器高度帽几何自适应（生产路撤启动快照注入；TuiBackendOptions.maxVisibleLines 保留给测试注入固定帽）', () => {
+  it('放大窗 resize 后帽随新几何放大：被夹出视口的首段回画 + 溢出指示退场（修前红：启动快照注入钉死帽 7——resize 重算腿被短路，首段永不回视口）', async () => {
+    const dataDir = rigDir('entry-cap-data-');
+    const { entry, io } = await rigEntry(dataDir, rigDir('entry-cap-ws-'));
+    await until(() => io.output.includes('工作区写 · ')); // footer 就绪门
+    // 视口 24 行 → 帽 = max(5, floor(24×0.3)) = 7；敲 12 段（11 个换行——
+    // kitty 形 shift+enter `CSI 13;2u`：legacy 字节流 0x0a 被解码器拦作
+    // enter（提交键），换行键在 legacy 轨无可表达字节，kitty 序列直达）。
+    // 光标沉底末段，视口夹取显示末 7 段（6..12）：首段被夹出视口、首行右端
+    // ↑ 溢出指示在场
+    io.send('capline01');
+    for (let i = 2; i <= 12; i++) {
+      io.send('\x1b[13;2u');
+      io.send(`capline${String(i).padStart(2, '0')}`);
+    }
+    await until(() => io.output.includes('capline12')); // 末段落画（光标恒可视）
+    await until(() => stripAnsi(io.output).includes('更多')); // 溢出指示在场——截断已发生
+    // 放大窗 24 → 80 行：帽应随新几何放大到 max(5, floor(80×0.3)) = 24 ≥ 12
+    // ——全量呈现。修前红：装配期注入启动快照帽 7 钉死终身（fixedEditorCap
+    // 恒非 null 短路三处重算腿），首段永不回视口（until 轮询超时收红）
+    const before = io.output.length; // 切片基线——只看 resize 全帧重画后的新帧面
+    io.rows = 80;
+    io.emitResize();
+    await until(() => stripAnsi(io.output.slice(before)).includes('capline01')); // 修前红锚
+    // 终态序锁：resize 编舞先落一帧旧帽残影（repaint 陈旧段高）再由 renderFixed
+    // 全量重建覆盖——陈旧指示帧先、全量帧后（lastIndexOf 序）；修前红在上一行
+    // until 已收（帽钉死 7——首段永不回视口）
+    const slice = stripAnsi(io.output.slice(before));
+    expect(slice.lastIndexOf('capline01')).toBeGreaterThan(slice.lastIndexOf('更多'));
+    io.send('\r'); // 提交清稿（多行稿 ctrl+u 只删至行首清不空——提交后空框；faux 余量应答）
+    await until(() => io.output.includes('ok')); // run 收口锚
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
+
+  // 生产路撤注入词法锁（D2）：tui-entry 装配面 maxVisibleLines/editorHeightCap
+  // 零残留——防后续改版把启动快照帽搬回（帽自适应归 backend 构造/resize/
+  // 复起三路单源；公式单源 height-cap.ts 经 backend 消费）
+  it('装配面高度帽注入零残留词法锁', () => {
+    const source = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
+    expect(source.split('maxVisibleLines').length - 1).toBe(0); // 生产装配零注入
+    expect(source.split('editorHeightCap').length - 1).toBe(0); // 帽公式调用零残留
   });
 });
 
