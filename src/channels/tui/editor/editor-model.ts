@@ -68,6 +68,18 @@ export class EditorModel {
   private preedit: string | null = null;
   /** 布局宽（视图渲染时回写——垂直导航的折行依据，与渲染同宽） */
   private layoutWidth = 80;
+  /**
+   * visualLines memo 缓存（null = 失效）。失效锚 = notify() 单点：state 并非
+   * 整体不可变替换（单段插入 / 行内删除等大量走行内原地改），逐 mutate 位
+   * 加脏标易漏；而一切行集变更路（插入 / 删除 / 换行 / 设值 / 提交 / undo /
+   * 历史翻阅……）必经 notify() 收尾——onChange 通知契约即缓存失效契约（新增
+   * 变更路不 notify 本就违背前者，缓存随之同漏同修）。布局宽另设比对键
+   * （setLayoutWidth 回写——宽变即失效）。缓存存 VisualSegment[] 引用：
+   * 消费面（视图渲染 / 模型导航）皆只读，禁原地改写。
+   */
+  private visualLinesCache: VisualSegment[] | null = null;
+  /** memo 缓存生效时的布局宽（-1 = 无缓存史——与 setLayoutWidth 下钳 1 的值域不交） */
+  private visualLinesCacheWidth = -1;
 
   /** 变更通知（订阅面——由持有方装配） */
   onChange: ((text: string) => void) | null = null;
@@ -96,9 +108,21 @@ export class EditorModel {
     return this.ring;
   }
 
-  /** 视觉行映射（视图渲染与视口滚动共用——与模型内部导航同宽同源） */
+  /**
+   * 视觉行映射（视图渲染与视口滚动共用——与模型内部导航同宽同源）。
+   * memo 化（渲染热路径）：视图 measure / render 每帧双取 + 模型内部
+   * 移动族（moveUp / moveDown / 翻页）/ 翻阅判连击只建一次——失效键 =
+   * notify()（行集变更单点，见缓存字段注）+ 布局宽比对（见 setLayoutWidth）。
+   */
   visualLines(): VisualSegment[] {
-    return buildVisualLineMap(this.state.lines, this.layoutWidth);
+    // 命中：缓存在场且布局宽未变（行集若变，notify() 已先行置空缓存）
+    if (this.visualLinesCache !== null && this.visualLinesCacheWidth === this.layoutWidth) {
+      return this.visualLinesCache;
+    }
+    const map = buildVisualLineMap(this.state.lines, this.layoutWidth);
+    this.visualLinesCache = map;
+    this.visualLinesCacheWidth = this.layoutWidth;
+    return map;
   }
 
   /** 光标所在视觉行下标 */
@@ -892,6 +916,9 @@ export class EditorModel {
   }
 
   private notify(): void {
+    // 行集已变——visualLines memo 先失效再通知（onChange 订阅方回调内即可
+    // 读到重构建映射，不留陈旧缓存窗）
+    this.visualLinesCache = null;
     if (this.onChange !== null) this.onChange(this.getText());
   }
 }

@@ -202,7 +202,13 @@ export class EditorView implements Renderable {
       return;
     }
     const compact = ` ${arrow}${count}`;
-    buffer.writeText(row, region.col + region.width - stringWidth(compact), compact, this.indicatorStyle);
+    const compactW = stringWidth(compact);
+    // 窄窗守卫：紧凑形也放不下（宽 > region 宽）时右对齐起列将为负——
+    // CellGrid 越界写静默吸收前导字符，指示被左移截断贴 region 左缘整行
+    // 盖内容行。放不下不写（与全形路 fullW ≤ region.width 同判式对称）：
+    // 极窄窗内容面本已残缺，溢出提示诚实缺席优于左移残件
+    if (compactW > region.width) return;
+    buffer.writeText(row, region.col + region.width - compactW, compact, this.indicatorStyle);
   }
 
   /* ---------------- 光标声明（聚焦态独占） ---------------- */

@@ -163,6 +163,28 @@ describe('EditorView 滚动指示 overlay（框退役——指示写内容行右
     view.render(narrow, { row: 0, col: 0, width: 8, height: 2 });
     expect(readRow(narrow, 0, 8)).toBe('› d   ↑3');
   });
+
+  it('紧凑形也放不下（stringWidth > region 宽）：不写——前导字符不被静默吸收左移', () => {
+    // 12 单字符行、maxVisibleLines 2、光标归尾 → 顶行上方溢出 10 行：全形
+    // 放不下、紧凑 ' ↑10'（宽 4）> region 宽 3 → 修前起列 = 0 + 3 - 4 = -1，
+    // CellGrid 越界写静默吸收前导空格——'↑10' 左移贴 region 左缘整行盖掉
+    // 内容行（负起列族谱：CellGrid.setCell 对 col < 0 静默吸收）；修后窄窗
+    // 守卫放不下不写，内容行原样呈现
+    const overflowText = 'a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl';
+    const { view } = viewOf(overflowText, { maxVisibleLines: 2, layoutWidth: 40 });
+    const grid = new CellGrid(6, 2);
+    view.render(grid, { row: 0, col: 0, width: 3, height: 2 });
+    expect(readRow(grid, 0, 6)).toBe('› k'); // 顶行 = 首呈现行（指示缺席——修前 '↑10'）
+    expect(readRow(grid, 1, 6)).toBe('  l');
+  });
+
+  it('紧凑形恰容边界（宽 == region 宽）：仍右端写入不误伤', () => {
+    const overflowText = 'a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl';
+    const { view } = viewOf(overflowText, { maxVisibleLines: 2, layoutWidth: 40 });
+    const grid = new CellGrid(6, 2);
+    view.render(grid, { row: 0, col: 0, width: 4, height: 2 });
+    expect(readRow(grid, 0, 4)).toBe(' ↑10'); // 起列 0——恰满右贴（守卫用 > 不含等值）
+  });
 });
 
 describe('EditorView 光标声明', () => {

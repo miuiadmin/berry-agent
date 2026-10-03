@@ -1,10 +1,31 @@
 /**
  * 编辑模型单测：状态机全景——插入 / 字素删除 / 词级 / 行删除 / 移动族
  * （含视觉行 sticky 列——显示列制 CJK 对齐）/ undo 合并 / 输入历史 /
- * IME 预编辑 / jump 词向 / 翻页。纯逻辑直测（零渲染依赖）。
+ * IME 预编辑 / jump 词向 / 翻页 / visualLines memo（渲染热路径缓存）。
+ * 纯逻辑直测（零渲染依赖）。
  */
 import { describe, expect, it, vi } from 'vitest';
 import { EditorModel } from './editor-model.js';
+import { buildVisualLineMap, type VisualSegment } from './visual-lines.js';
+
+/* ---------------- 计数缝：visualLines memo 观测（零行为替身） ---------------- */
+
+/** buildVisualLineMap 实际执行计数（vi.hoisted——vi.mock 工厂提升到文件顶，计数体必须同步可用） */
+const visualBuildCalls = vi.hoisted(() => ({ count: 0 }));
+
+// passthrough 单点包裹：spread 全真导出 + buildVisualLineMap 计数后原样转发——
+// 锁「同 state 双调 visualLines() 底层只建一次」（memo 修前每调全量重建：
+// view measure/render 每帧双建 + 模型内部移动族 / 翻页判各消费位再建）
+vi.mock('./visual-lines.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./visual-lines.js')>();
+  return {
+    ...actual,
+    buildVisualLineMap: (lines: string[], width: number) => {
+      visualBuildCalls.count++;
+      return actual.buildVisualLineMap(lines, width);
+    },
+  };
+});
 
 /** 便捷：建模型并灌入多行文本（光标归尾） */
 function modelWith(text: string, layoutWidth = 80): EditorModel {
@@ -771,5 +792,86 @@ describe('EditorModel 粘贴标记化', () => {
     expect(m.getLines()).toEqual(['[paste #1 +21 lines]', '', '[paste #2 +21 lines]']);
     const out = m.submit();
     expect(out).toBe(`${bigPaste}\n\n${bigPaste}`);
+  });
+});
+
+/* ---------------- visualLines memo（渲染热路径——每调全量重建 → 同 state 单建） ---------------- */
+
+describe('EditorModel visualLines memo', () => {
+  it('同 state 双调命中缓存：底层构建恰一次、返回同引用（修前每调全量重建）', () => {
+    const m = modelWith('一二三\nabcd\n末行', 10);
+    visualBuildCalls.count = 0;
+    const first = m.visualLines();
+    const second = m.visualLines();
+    expect(second).toBe(first); // 缓存存 VisualSegment[] 引用——双调同数组
+    expect(visualBuildCalls.count).toBe(1); // 修前 2
+  });
+
+  it('行集变更（单段插入 = 行内 in-place 改）失效：重建且内容与无 memo 直建等价', () => {
+    const m = modelWith('abcd', 10);
+    m.visualLines(); // 预热缓存
+    visualBuildCalls.count = 0;
+    m.insertText('中'); // 单段插入走行内原地改（最易漏失效的更新形）
+    const map = m.visualLines();
+    expect(visualBuildCalls.count).toBe(1); // 缓存已失效——重构建
+    expect(map).toEqual(buildVisualLineMap(['abcd中'], 10)); // 内容新鲜非陈旧段
+  });
+
+  it('布局宽变更失效：按新宽重折、宽回旧值亦重折（宽键比对不吃陈旧段）', () => {
+    const m = modelWith('abcdefgh', 8);
+    expect(m.visualLines().length).toBe(1);
+    m.setLayoutWidth(3);
+    expect(m.visualLines().length).toBe(3); // 3 列字素硬折三段
+    m.setLayoutWidth(8);
+    expect(m.visualLines().length).toBe(1); // 回旧宽重折——不用首段缓存
+  });
+
+  it('纯光标面移动零失效：移动族连击缓存恒命中（修前连击各再建）', () => {
+    const m = modelWith('a\nb\nc\nd\ne', 80);
+    m.visualLines();
+    visualBuildCalls.count = 0;
+    m.moveDown();
+    m.moveUp();
+    m.pageDown(2);
+    m.pageUp(2);
+    m.moveHome();
+    m.moveEnd();
+    m.jumpToChar('c', 'forward');
+    expect(visualBuildCalls.count).toBe(0); // 光标不改行集——零重构建
+  });
+
+  it('undo 恢复（state 整体换引用路）失效：映射随快照新鲜', () => {
+    const m = modelWith('ab');
+    m.insertText('c');
+    m.visualLines(); // 预热 'abc' 缓存
+    visualBuildCalls.count = 0;
+    m.undo();
+    const map = m.visualLines();
+    expect(visualBuildCalls.count).toBe(1);
+    expect(map).toEqual(buildVisualLineMap(['ab'], 80));
+  });
+
+  it('历史翻阅恢复（lines 换引用路）失效：映射随历史条目新鲜', () => {
+    const m = new EditorModel();
+    m.setText('first');
+    m.submit();
+    m.addToHistory('first');
+    m.insertText('draft');
+    m.visualLines(); // 预热 'draft' 缓存
+    visualBuildCalls.count = 0;
+    m.navigateHistory(-1); // 入浏览态：lines 整体换 ['first']
+    const map = m.visualLines();
+    expect(visualBuildCalls.count).toBe(1);
+    expect(map).toEqual(buildVisualLineMap(['first'], 80));
+  });
+
+  it('onChange 回调内读 visualLines 即新鲜（失效先于通知——不留陈旧缓存窗）', () => {
+    const m = new EditorModel();
+    let observed: VisualSegment[] | null = null;
+    m.onChange = () => {
+      observed = m.visualLines();
+    };
+    m.insertText('中');
+    expect(observed).toEqual(buildVisualLineMap(['中'], 80));
   });
 });
