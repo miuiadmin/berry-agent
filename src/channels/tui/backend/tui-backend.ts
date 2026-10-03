@@ -54,8 +54,8 @@
 import type { AgentEvent } from '../../../agent/index.js';
 import {
   formatClockHM,
-  formatElapsedCompact,
   isStandardMessage,
+  runRecapLine,
   type AgentMessage,
   type Usage,
 } from '../../../contracts/index.js';
@@ -2942,8 +2942,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * `⏹ 对话已取消——14:32`（取消回执非记账行——时刻段保留形维持；时刻源 =
    * 本 run 种子 user 消息时戳，中途附着无种子回退 runEndedAt）；failed 终态
    * 无收尾行（错误块本体呈现——调用面分档）。elapsed = durationMs（驱动
-   * 结算账——A-3 唯一真源）?? 本地观察账（runStartedAt/runEndedAt 差），
-   * 整秒档 formatElapsedCompact 单源（contracts——任务行/SPA/超时三面同源）。
+   * 结算账——A-3 唯一真源）?? 本地观察账（runStartedAt/runEndedAt 差）。
+   * 段集/整行构造走 contracts runRecapLine 单源（2026-10-04 双站收编——webui
+   * runCloseLine 同源，段形知识归单源头注；formatElapsedCompact 同件族
+   * 任务行/SPA/超时三面同源）。
    * dim 经 SGR 直拼（瞬时行纯文本路——appendTransientCapped 的 ANSI 感知收口
    * 保样式存活）：weakRule 在场整行混合现算弱线色（V-3 注⑨②）、键缺席回退
    * DIM 既有形（取消形 ⏹ 回执非记账线——恒 DIM 不沿线色）。
@@ -2958,13 +2960,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     const elapsedMs =
       durationMs ??
       (this.runStartedAt !== null && this.runEndedAt !== null ? this.runEndedAt - this.runStartedAt : null);
-    const segments: string[] = [];
-    if (elapsedMs !== null) segments.push(`用时 ${formatElapsedCompact(elapsedMs)}`);
-    if (this.runToolCount > 0) segments.push(`工具 ${this.runToolCount} 次`);
-    if (this.runRetryCount > 0) segments.push(`重试 ${this.runRetryCount}`); // 段形随规范真源：重试段无「次」字
+    // 段集/整行构造走 contracts runRecapLine 单源（三段序/段缺席形/重试段
+    // 无「次」字等段形知识归单源头注；双零整行缺席判据留调用侧上一行）
+    const line = runRecapLine({ durationMs: elapsedMs, toolCount: this.runToolCount, retryCount: this.runRetryCount });
     // 弱线色优先（V-3 注⑨②）：weakRule 在场整行混合现算弱线色、键缺席回退 DIM
     const weakSgr = this.theme.weakRule !== undefined ? buildSgr({ fg: this.theme.weakRule }) : DIM_SGR;
-    this.appendTransientLine(`${weakSgr}── ${segments.join(' · ')} ──${SGR_RESET}`);
+    this.appendTransientLine(`${weakSgr}${line}${SGR_RESET}`);
   }
 
   /**

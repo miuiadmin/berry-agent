@@ -51,6 +51,7 @@
  * MemoryDaoFace 与 memory 域 MemoryDao 单实现律互证），消毒函数与导出
  * 命令经依赖倒置注入（装配面传真身——「同一函数」由装配保证）。
  */
+import { joinSegments } from '../../../contracts/index.js';
 import type { CellBuffer, CellStyle, InputEvent, MouseEvent, Region } from '../../engine/index.js';
 import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
@@ -318,10 +319,17 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     // 2026-10-01 美学批：❄→◉（viewer 族头图标单源收敛）+ accent 着色
     // （美学注④）+ fitLine … 收口（美学注⑤——owner 并集长名窄窗截断有提示）
     const filterTag = this.filter === 'all' ? '' : ` ·〔筛选：${SECTION_LABEL[this.filter]}〕`;
+    // owner 段串接走 contracts joinSegments 单源。等价前置已核：ownerLabel 在
+    // 可达输入域恒非空（装配根钉 ownerKeys = ['global', project:<16hex>]，
+    // project 分支必含前缀、global 为字面量）——joinSegments 的空段过滤在
+    // 此为无操作，与旧 map().join(' · ') 输出逐字节同形
     buffer.writeText(
       region.row,
       region.col,
-      fitLine(`${VIEWER_HEAD_MARK} 记忆管理 · ${this.ownerKeys.map(ownerLabel).join(' · ')}${filterTag}`, region.width),
+      fitLine(
+        `${VIEWER_HEAD_MARK} 记忆管理 · ${joinSegments(...this.ownerKeys.map(ownerLabel))}${filterTag}`,
+        region.width,
+      ),
       this.headStyle,
     );
     // 滚动视口

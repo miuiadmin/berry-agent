@@ -60,7 +60,7 @@ import {
   type ToolCardRenderInput,
   type ToolCardStatus,
 } from '../blocks/tool-card.js';
-import { argKeyZh, toolFaceZh } from '../../../contracts/index.js';
+import { argKeyZh, TOOL_RUN_MARK, toolFaceZh } from '../../../contracts/index.js';
 import { CURSOR_MARK } from '../panels/panel-chrome.js';
 import { ACTION_CATALOG } from '../keys/registry.js';
 import type { SessionEnvelope } from '../../types.js';
@@ -294,7 +294,7 @@ function renderBlockStyledLinesUncapped(block: TranscriptBlock, columns: number)
       );
     case 'tool-call':
       // ⚙ 简行（孤儿兜底）：名段用户面动词（V-0 注⑤——呈现位转写，账存原始名）
-      return [dimStyledLine(` ⚙ ${toolFaceZh(block.name)}${block.brief}`)];
+      return [dimStyledLine(` ${TOOL_RUN_MARK} ${toolFaceZh(block.name)}${block.brief}`)];
     case 'tool-result':
       return [dimStyledLine(` ↳ ${block.brief}`)];
     case 'error': {

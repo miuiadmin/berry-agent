@@ -8,15 +8,17 @@
  * - **图标词汇收敛律（美学注④）**：副屏头行图标收敛为两符——◆ 选择器族
  *   （enter 选定/回填语义）/ ◉ 查看族（滚动阅读语义）；emoji 类宽度不稳符
  *   （❓ 等）弃用；⚙ 工具执行语义（工具卡/状态行）经 HEAD_MARKS.tool 位
- *   入册——setup-wizard 面板头与 task-status-line 态① 工具段已收编消费
- *   （值等价换引，呈现零变化）；其余 ⚙ 字面量位（transcript 孤儿简行 /
- *   tui-backend 审批行 / webui 帧族）随各域批次收编。
+ *   入册（值委派 contracts TOOL_RUN_MARK 单源——webui SPA 同源）——
+ *   setup-wizard 面板头与 task-status-line 态① 工具段已收编消费
+ *   （值等价换引，呈现零变化）；transcript 孤儿简行已改走 TOOL_RUN_MARK
+ *   （2026-10-04 收编批），webui 帧族随其域批次收编。
  * - **溢出指示统一律（美学注②）**：「↑/↓ N 更多」中文形全域单形。
  * - **光标符统一律（美学注③→V-3 注⑩ 翻档）**：› 全域单形（▸/❯ 时代符形
  *   退役）——picker 族、overlay 弹层（popup / select-confirm）、editor 输入
  *   提示符与 transcript user 块前缀皆引本件 CURSOR_MARK 单源（boot 动画
  *   装载行同字形语境分立——零依赖纯文本件，不引本件）。
  */
+import { TOOL_RUN_MARK } from '../../../contracts/index.js';
 import type { CellStyle } from '../../engine/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
 import type { ResolvedTheme } from '../theme/index.js';
@@ -38,8 +40,8 @@ export const HEAD_MARKS = Object.freeze({
   session: '⇄',
   /** 忙等/装载中 */
   busy: '⏳',
-  /** 工具/配置执行语义（⚙ 归工具卡语义族——美学注④） */
-  tool: '⚙',
+  /** 工具/配置执行语义（⚙ 归工具卡语义族——美学注④；值委派 contracts 单源 TOOL_RUN_MARK） */
+  tool: TOOL_RUN_MARK,
 } as const);
 
 /** 选择器族头符（HEAD_MARKS 派生位——既有出口保名承接） */

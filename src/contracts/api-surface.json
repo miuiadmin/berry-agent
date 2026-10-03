@@ -461,6 +461,15 @@
       "sig": "7830b4efa0d9724a"
     },
     {
+      "symbol": "RunRecapInput",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "run 收尾行段集输入（耗时终值或诚实缺席 null——真源序折取在调用侧）",
+      "kind": "interface",
+      "sig": "597b00f98b113fd7"
+    },
+    {
       "symbol": "RunStatus",
       "module": "berry-agent",
       "tier": "stable",
@@ -653,6 +662,15 @@
       "since": "1.0",
       "kind": "const",
       "sig": "10a7f9d4dba3297e"
+    },
+    {
+      "symbol": "TOOL_RUN_MARK",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "工具执行语义记形（⚙——07 §4.1 R4「孤儿调用兜底 ⚙ 简行」族）：工具卡头/ 状态行/简行跨通道统一 glyph 单源",
+      "kind": "const",
+      "sig": "a43eb9789a16b3a5"
     },
     {
       "symbol": "TOOL_TIER_RANK",
@@ -979,6 +997,15 @@
       "sig": "1e5d019d447f8711"
     },
     {
+      "symbol": "joinSegments",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "用户面段串接：各段以「 · 」（前后各一空格的全角间隔号）串接，空串段跳过（调用侧按态拼段时守卫省写）",
+      "kind": "function",
+      "sig": "e2b724cf5450ea13"
+    },
+    {
       "symbol": "listErrorCodes",
       "module": "berry-agent",
       "tier": "stable",
@@ -1076,6 +1103,24 @@
       "desc": "注册自定义消息角色（ctx.agent.registerMessageRole 的本体——单入口）",
       "kind": "function",
       "sig": "3fbb7c68b0fe8765"
+    },
+    {
+      "symbol": "runRecapLine",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "run 收尾行整行（`── 段 · 段 ──` 段头段尾横线）：色壳不归本件——tui 侧 SGR 弱线色包壳在调用侧（appendTransientLine 纯文本路的 ANSI 感知收口）， webui 侧无色直用",
+      "kind": "function",
+      "sig": "837667328e704703"
+    },
+    {
+      "symbol": "runRecapSegments",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "run 收尾行段集构造（07 §4.1 V-0 注④族——收尾行三面真同源）：用时/ 工具次数/重试三段序，段形随规范真源——**重试段无「次」字**；工具/重试双零段缺席（「纯对话轮整行缺席」的双零判据在调用侧——本函数只管段集，双零入参返回空集）",
+      "kind": "function",
+      "sig": "676436a938ab3997"
     },
     {
       "symbol": "toolFaceZh",

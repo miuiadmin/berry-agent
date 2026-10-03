@@ -34,6 +34,15 @@ export function toolFaceZh(name: string): string {
   return TOOL_FACE_ZH.get(name) ?? name;
 }
 
+/**
+ * 工具执行语义记形（⚙——07 §4.1 R4「孤儿调用兜底 ⚙ 简行」族）：工具卡头/
+ * 状态行/简行跨通道统一 glyph 单源。2026-10-04 收编：原单源位 panel-chrome
+ * HEAD_MARKS.tool（tui 域）扩域到 webui SPA（DOM 类型面不可拉 tui 图——
+ * toolFaceZh 同律入 contracts），HEAD_MARKS.tool 改委派本源、consumers
+ * （transcript 孤儿兜底简行 / webui frames 状态与终结行三位）全走本源。
+ */
+export const TOOL_RUN_MARK = '⚙';
+
 /** 参数签名键位映射（argsBrief 白名单族键名 → 人读键位） */
 const ARG_KEY_ZH: ReadonlyMap<string, string> = new Map([
   ['prompt', '任务'],

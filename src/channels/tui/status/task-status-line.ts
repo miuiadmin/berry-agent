@@ -24,7 +24,7 @@
  */
 import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/index.js';
 import { DIM_STYLE, ellipsize, stringWidth } from '../../engine/index.js';
-import { formatElapsedCompact } from '../../../contracts/index.js';
+import { formatElapsedCompact, joinSegments } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { HEAD_MARKS } from '../panels/panel-chrome.js';
 
@@ -212,7 +212,9 @@ export class TaskStatusLine implements Renderable {
     const elapsedMs = this.providers.elapsedMs();
     const elapsed = elapsedMs === null ? '' : formatElapsedCompact(elapsedMs);
     const hint = this.providers.interruptHint();
-    const inner = [elapsed, hint].filter((segment) => segment !== '').join(' · ');
+    // 空段过滤 + 「 · 」串接 = joinSegments 单源语义（filter 旧形即其语义）；
+    // 双缺席 inner 为空串 → 无括号（守卫在 return 行）
+    const inner = joinSegments(elapsed, hint);
     return inner === '' ? '' : ` (${inner})`;
   }
 }

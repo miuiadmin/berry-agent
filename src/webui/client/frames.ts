@@ -18,13 +18,15 @@
  * 时序下终稿序倒置根因——TUI transcript 按 message.role 分派同律）。
  */
 import type { ClientApprovalEntry, ClientEnvelope, ClientSessionSummary } from './protocol.js';
-// 跨通道单源三件（contracts 零依赖叶——channels 公开面桶经 theme/custom 拉
+// 跨通道单源件（contracts 零依赖叶——channels 公开面桶经 theme/custom 拉
 // node:fs，DOM 类型面与浏览器包结构性不可承；durations/tool-face 同批迁入）：
 // 工具名用户面动词（V-0 注⑤呈现层转写——数据面 toolNames 记账保原始名）、
-// 紧凑耗时格式（V-0 注④整秒档——TUI/SPA 收尾行真同源零分叉）与取消形
+// 工具运行标记（TOOL_RUN_MARK——start 状态行/终结行引导符单源）、run 收尾
+// 行整行构造（runRecapLine——2026-10-04 收尾行段拼装双站单源化批收编，本件
+// runCloseLine 与 tui-backend appendClosingLine 双拷贝自此同源）与取消形
 // 时刻段 HH:MM（formatClockHM——原 clockOf 逐字克隆收编，双消费面
 // （tui-backend 收尾行 / webui 取消回执）均已改引本源）。
-import { formatClockHM, formatElapsedCompact, toolFaceZh } from '../../contracts/index.js';
+import { formatClockHM, runRecapLine, TOOL_RUN_MARK, toolFaceZh } from '../../contracts/index.js';
 
 /** 呈现层消息视图模型（投影消息与活体落稿同形） */
 export interface ViewMessage {
@@ -231,8 +233,8 @@ function streamingSlotOf(messages: readonly ViewMessage[], role: string): number
  *   重试段无「次」字——规范真源措辞）。
  * 耗时优先服务端 durationMs 载荷（A-3 唯一真源），缺席回退客户端观察窗
  * （agent_start→agent_end 到达时刻差——近似值，发射/传播延迟诚实注记在
- * AppState.runStartedAt），皆无诚实缺席（行仍落）；整秒档 formatElapsedCompact
- * 单源（contracts——TUI/SPA 真同源零分叉）。
+ * AppState.runStartedAt），皆无诚实缺席（行仍落）；成功形整行构造单源
+ * （contracts runRecapLine——与 TUI 收尾行真同源，段形知识见单源处）。
  */
 function runCloseLine(
   state: AppState,
@@ -249,11 +251,10 @@ function runCloseLine(
       : state.runStartedAt !== null
         ? now - state.runStartedAt
         : null;
-  const segments: string[] = [];
-  if (durationMs !== null) segments.push(`用时 ${formatElapsedCompact(durationMs)}`);
-  if (state.runToolCount > 0) segments.push(`工具 ${state.runToolCount} 次`);
-  if (state.runRetryCount > 0) segments.push(`重试 ${state.runRetryCount}`); // 段形随规范真源：无「次」字
-  return `── ${segments.join(' · ')} ──`;
+  // 段集/整行构造单源（contracts runRecapLine——2026-10-04 双站单源化批收编：
+  // 本函数原三段 push + 段头段尾拼装与 tui-backend appendClosingLine 逐字同构
+  // 双拷贝，自此段形知识单源；调用侧只守失败/取消/双零/耗时折取四判据）
+  return runRecapLine({ durationMs, toolCount: state.runToolCount, retryCount: state.runRetryCount });
 }
 
 /**
@@ -364,7 +365,7 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         // （收尾行工具段供数 + 双零缺席判据半边——重试续入不清，整 run 口径）
         return {
           ...state,
-          status: `⚙ ${toolFaceZh(payload.name)} …`,
+          status: `${TOOL_RUN_MARK} ${toolFaceZh(payload.name)} …`,
           toolNames: { ...state.toolNames, [payload.toolCallId]: payload.name },
           runToolCount: state.runToolCount + 1,
         };
@@ -374,7 +375,7 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         // 名优先（start 已记账）；映射缺席（乱序/重连丢 start）回退 id 不炸——
         // 两形均过 toolFaceZh（集外名直呈兜底——id 不在映射集原样返回）
         const name = state.toolNames[payload.toolCallId] ?? payload.toolCallId;
-        return { ...state, status: `⚙ ${toolFaceZh(name)} …` };
+        return { ...state, status: `${TOOL_RUN_MARK} ${toolFaceZh(name)} …` };
       }
       if (payload.type === 'tool_execution_end') {
         if (env.kind !== 'session') return state;
@@ -390,7 +391,7 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           toolNames,
           messages: [
             ...state.messages,
-            { key, role: 'tool', text: `⚙ ${toolFaceZh(name)} 执行完成`, streaming: false },
+            { key, role: 'tool', text: `${TOOL_RUN_MARK} ${toolFaceZh(name)} 执行完成`, streaming: false },
           ],
         };
       }
