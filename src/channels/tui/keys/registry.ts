@@ -176,6 +176,8 @@ export interface ActionView {
   readonly scope: ActionScope;
   readonly label: string;
   readonly keys: readonly string[];
+  /** 可覆盖性透传（/help 注记判据真源——ctrl+p 等可覆盖全局键不标「不可覆盖」） */
+  readonly overridable: boolean;
 }
 
 /**
@@ -330,7 +332,8 @@ export class Keymap {
 
   /**
    * 动作册投影（R5 批 10k——/help 键位册数据源）：id/域/中文标签/解析后
-   * 键集（拒载回退后的生效形）。册序恒定（ACTION_CATALOG 声明序）。
+   * 键集（拒载回退后的生效形）/可覆盖性（2026-10-03 三轮深扫批透传——/help
+   * 注记随册不随域）。册序恒定（ACTION_CATALOG 声明序）。
    */
   get actions(): readonly ActionView[] {
     return ACTION_CATALOG.map((def) => ({
@@ -338,6 +341,7 @@ export class Keymap {
       scope: def.scope,
       label: def.label,
       keys: this.keysByAction.get(def.id) ?? def.keys,
+      overridable: def.overridable,
     }));
   }
 }

@@ -1,6 +1,6 @@
 /**
  * /help 帮助副屏件测试（批 10k R7）：buildHelpLines 双源行集（命令册对齐 /
- * 键位册按域分组 + 不可覆盖注记）直锁 + 副屏键面三件套（Ctrl+C 打断 /
+ * 键位册按域分组 + 不可覆盖注记随册位）直锁 + 副屏键面三件套（Ctrl+C 打断 /
  * Ctrl+D 先收屏再退出柄 / q 双轨退出闭锁）。
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -21,11 +21,18 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
   ...mods,
 });
 
-/** 键位册投影夹具（两域三条——分组头与注记断言用） */
+/** 键位册投影夹具（两域四条——分组头与注记断言用；ctrl+p = 可覆盖全局键） */
 const ACTIONS: readonly ActionView[] = [
-  { id: 'global.interrupt', scope: 'global', label: '中断当前 run', keys: ['ctrl+c'] },
-  { id: 'global.quit', scope: 'global', label: '退出（空框时）', keys: ['ctrl+d'] },
-  { id: 'thinking.toggle', scope: 'thinking', label: '思考块折叠/展开', keys: ['ctrl+t'] },
+  { id: 'global.interrupt', scope: 'global', label: '中断当前 run', keys: ['ctrl+c'], overridable: false },
+  { id: 'global.quit', scope: 'global', label: '退出（空框时）', keys: ['ctrl+d'], overridable: false },
+  {
+    id: 'global.model-cycle',
+    scope: 'global',
+    label: '切换模型（下一轮对话起生效）',
+    keys: ['ctrl+p'],
+    overridable: true,
+  },
+  { id: 'thinking.toggle', scope: 'thinking', label: '思考块折叠/展开', keys: ['ctrl+t'], overridable: true },
 ];
 
 describe('buildHelpLines 行集构造（纯函数）', () => {
@@ -46,15 +53,17 @@ describe('buildHelpLines 行集构造（纯函数）', () => {
     expect(empty[1]).toBe('（暂无可用命令）');
   });
 
-  it('键位册段：按域分组头 + 全局域不可覆盖注记', () => {
+  it('键位册段：按域分组头 + 不可覆盖注记随可覆盖性（ctrl+p 可覆盖不标）', () => {
     const lines = buildHelpLines([], ACTIONS);
     const keyIndex = lines.indexOf('── 键位 ──');
     expect(keyIndex).toBeGreaterThan(0);
-    // 两全局条目共享一个组头，thinking 域换组头
+    // 三全局条目共享一个组头（interrupt/quit 不可覆盖带注记、model-cycle
+    // 可覆盖〔resolveKeybindings 受理其覆盖〕不标），thinking 域换组头
     expect(lines.slice(keyIndex + 1)).toEqual([
       '· 全局',
       'ctrl+c  中断当前 run（不可覆盖）',
       'ctrl+d  退出（空框时）（不可覆盖）',
+      'ctrl+p  切换模型（下一轮对话起生效）',
       '· 思考块',
       'ctrl+t  思考块折叠/展开',
     ]);

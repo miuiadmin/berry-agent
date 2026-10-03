@@ -157,6 +157,16 @@ describe('jump 族标签对拍锁（2026-09-20 TUI 战役定谳——两态字�
     const forward = views.find((v) => v.id === 'editor.jump-forward')!;
     expect(forward.label).toBe('跳至下一指定字符');
   });
+
+  // 2026-10-03 三轮深扫批：投影透传可覆盖性（/help 注记判据真源）——ctrl+p
+  // 可覆盖（误标「不可覆盖」即回退红）、中断/退出/教学键不可覆盖
+  it('/help 投影透传 overridable 位——ctrl+p true / interrupt·quit·help false', () => {
+    const views = new Keymap().actions;
+    expect(views.find((v) => v.id === 'global.model-cycle')!.overridable).toBe(true);
+    expect(views.find((v) => v.id === 'global.interrupt')!.overridable).toBe(false);
+    expect(views.find((v) => v.id === 'global.quit')!.overridable).toBe(false);
+    expect(views.find((v) => v.id === 'global.help')!.overridable).toBe(false);
+  });
 });
 
 describe('挂账解挂批增册（2026-09-15——alt+enter 候跑 / ctrl+p 模型循环）', () => {

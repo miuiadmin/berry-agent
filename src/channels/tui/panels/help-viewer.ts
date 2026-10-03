@@ -159,7 +159,7 @@ export class HelpViewer extends ScrollView implements OverlayContent {
 
 /**
  * 帮助行集构造（纯函数——测试直锁消费）：命令册段（/name 对齐 + 描述）+
- * 键位册段（按域分组，键集对齐 + 标签；全局域条目带不可覆盖注记）。
+ * 键位册段（按域分组，键集对齐 + 标签；不可覆盖条目带注记——随册位非随域）。
  */
 export function buildHelpLines(commands: readonly HelpCommandEntry[], actions: readonly ActionView[]): string[] {
   const lines: string[] = [];
@@ -189,7 +189,10 @@ export function buildHelpLines(commands: readonly HelpCommandEntry[], actions: r
       lines.push(`· ${SCOPE_LABELS[action.scope]}`);
     }
     const keys = action.keys.join(' / ');
-    const note = action.scope === 'global' ? '（不可覆盖）' : '';
+    // 注记随可覆盖性不随域（2026-10-03 三轮深扫批勘正——ctrl+p 等可覆盖
+    // 全局键此前被按域一刀切误标「不可覆盖」，与 resolveKeybindings 受理其
+    // 覆盖的事实相抵；判据真源 = ActionView.overridable 册位透传）
+    const note = action.overridable ? '' : '（不可覆盖）';
     lines.push(`${keys.padEnd(keyCol)}${action.label}${note}`.trimEnd());
   }
   return lines;
