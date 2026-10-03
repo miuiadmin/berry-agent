@@ -2008,6 +2008,31 @@ describe('模型循环基座（挂账解挂批 2026-09-15——ctrl+p 会话级�
     expect(maxTokensSeen[1]).toBe(DEFAULT_COMPACTION_CONFIG.fallbackWindowTokens); // 修前红锚：缺席形字段缺席——拍板兜底 200k（07 §4.1 注⑪⑥(b)）
     await rt.shutdown();
   });
+
+  it('context_usage 兜底分母活槽随行：调槽后目录缺席形按调值（估算档与呈现档同分母——修前红：兜底腿静态常量恒不走槽）', async () => {
+    const { rt } = rigRuntime();
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1' }] });
+    const stack = createConversationStack({ runtime: rt, providers: [faux.provider], model: 'faux-stack/m1', env: {} });
+    const session = stack.openStartupSession(rigWorkspace());
+    // 插件调槽（运行时 ctx.compaction.setConfig 等价形——席位容器真身直绑）：
+    // fallbackWindowTokens 调 12345，估算档（compaction 裁断）即刻按调值走
+    stack.compactionSlots
+      .bindForPlugin({ pluginId: 'window-tuner', inLoadWindow: () => true })
+      .setConfig({ fallbackWindowTokens: 12345 });
+    const backend = new RecordingBackend();
+    stack.channels.addBackend(backend);
+    // 目录缺席（getModel → undefined）→ 兜底腿；context_usage 随 turn 收口
+    // 发射（错误终态 run 同发——StreamFn 永不抛契约承载该窗）
+    stack.setModel('ghost/m9');
+    faux.setResponses([() => messageOf('stop')]);
+    await stack.submitText(session.sessionId, '一问');
+    const maxTokensSeen = backend.envelopes
+      .filter((env) => env.event.type === 'context_usage')
+      .map((env) => (env.event as { maxTokens?: number }).maxTokens);
+    expect(maxTokensSeen).toHaveLength(1);
+    expect(maxTokensSeen[0]).toBe(12345); // 修前红锚：兜底腿静态 DEFAULT 常量恒 200000——调值不达呈现档
+    await rt.shutdown();
+  });
 });
 
 /* ---------------- 自定义渠道活注册执法与除名（R-1 评审修复役） ---------------- */
@@ -2880,6 +2905,57 @@ describe('会话累计聚合读面（07 §4.1 注⑪⑥a——V-4 底栏供数�
     expect(sum).toBeGreaterThan(0); // probe 笔确落（防 vacuous）
     expect(stack.sessionSpentOf(session.sessionId)).toBe(sum); // 修前红锚：探针笔进会话累计缓存（修前读数恒 0）
     expect(signals).toBe(1); // 落账即通知（双同步形补位——修前零信号）
+    await rt.shutdown();
+  });
+
+  // 订阅面服务形两锚（onSpentTodayLedgered 五测随死面退役带走同构覆盖——本组
+  // 补位：异常隔离 + Disposer 退订，沿被删测试形平移）
+  it('订阅者异常隔离不炸落账链——他订阅者仍收且落账不受影响（自防炸）', async () => {
+    const warns: string[] = [];
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt, { warn: (m) => warns.push(m) });
+    const session = stack.openStartupSession(rigWorkspace());
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(0); // 缓存初始化（首读库扫空）
+    const seen: number[] = [];
+    stack.onSessionUsageLedgered(() => {
+      throw new Error('订阅者 boom');
+    });
+    stack.onSessionUsageLedgered(() => {
+      seen.push(stack.sessionSpentOf(session.sessionId));
+    });
+    faux.setResponses([() => metered(15, 6)]);
+    await stack.submitText(session.sessionId, '问');
+    // boom 订阅者被隔离：落账照常 + 后注册订阅者仍收 + 测试进程不炸
+    const sum = sessionLedgerSumOf(stack, session.sessionId);
+    expect(sum).toBeGreaterThan(0); // 本笔确落（防 vacuous）
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(sum); // 落账不受 boom 影响
+    expect(seen).toHaveLength(1); // 他订阅者仍收（隔离腿在场——删 try/catch 即红）
+    expect(seen[0]).toBe(sum); // 现拉含本笔（推进先于通知同律）
+    expect(warns.some((w) => w.includes('订阅者异常'))).toBe(true); // 隔离不静默（丢信号可观测——onRunSettled 订阅面同律）
+    await rt.shutdown();
+  });
+
+  it('Disposer 退订：退订者零信号、他订阅者照收、落账不受影响（订阅面是伴生通知位非记账路）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(0); // 缓存初始化（首读库扫空）
+    let retiredCalls = 0;
+    const dispose = stack.onSessionUsageLedgered(() => {
+      retiredCalls += 1;
+    });
+    let liveCalls = 0;
+    stack.onSessionUsageLedgered(() => {
+      liveCalls += 1;
+    });
+    dispose();
+    faux.setResponses([() => metered(15, 6)]);
+    await stack.submitText(session.sessionId, '问');
+    expect(retiredCalls).toBe(0); // 退订者零信号（delete 腿在位）
+    expect(liveCalls).toBe(1); // 他订阅者照收（退订不连坐）
+    const sum = sessionLedgerSumOf(stack, session.sessionId);
+    expect(sum).toBeGreaterThan(0); // 本笔确落（防 vacuous）
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(sum); // 落账不受退订影响
     await rt.shutdown();
   });
 });

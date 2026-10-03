@@ -1189,12 +1189,25 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       streamFn,
       // E-4 context_usage 供源（04 §2 E-4 批——07 §4.1 注⑪⑥b）：llm 目录
       // 点查闭包（getModel 面 contextWindow 字段——registerProvider 增补即刻
-      // 可见）；目录缺席兜底 = compaction types fallbackWindowTokens 同源常量
-      // （07 §4.1 注⑪⑥(b) 拍板「缺席兜底 200k」——分母单源不二设，估算档与
-      // 呈现档同分母）。agent/conversation 零 llm import 经此闭包（getApiKey
+      // 可见）；目录缺席兜底走 compactionSlots 活槽（getConfig().fallback
+      // WindowTokens——运行时 ctx.compaction.setConfig 调值即刻可见，晚绑定
+      // 安全每次调用现取；07 §4.1 注⑪⑥(b) 拍板「缺席兜底 200k」+估算档与
+      // 呈现档同分母——估算档（compaction 裁断）经同一活槽解析，调槽后两档
+      // 随调值同走）。槽读异常/字段坏形降级静态常量（fail-open——呈现档不因
+      // 配置坏形炸）。agent/conversation 零 llm import 经此闭包（getApiKey
       // 注入律同族）。
-      contextWindowOf: (model: string) =>
-        llm.getModel(model)?.contextWindow ?? DEFAULT_COMPACTION_CONFIG.fallbackWindowTokens,
+      contextWindowOf: (model: string) => {
+        const fromDirectory = llm.getModel(model)?.contextWindow;
+        if (fromDirectory !== undefined) return fromDirectory;
+        // 兜底腿活槽取（分母单源不二设）；缺省/坏形降 DEFAULT 静态常量
+        try {
+          const tuned = compactionSlots.getConfig().fallbackWindowTokens;
+          if (typeof tuned === 'number' && Number.isFinite(tuned) && tuned > 0) return tuned;
+        } catch {
+          // 槽读抛（席位容器坏形）——降级常量（呈现面 fail-open）
+        }
+        return DEFAULT_COMPACTION_CONFIG.fallbackWindowTokens;
+      },
       convertToLlm: (message: AgentMessage) =>
         isStandardMessage(message) ? message : (getMessageRoleDefinition(message.role)?.toLlm?.(message) ?? null),
       // 栈基线走取值器形（07 §4.1 R5）：每 run 起跑现取旋钮值——ctrl+p 换档
