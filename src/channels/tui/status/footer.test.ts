@@ -6,6 +6,8 @@
  * 直取 / 非 git 目录 / HEAD 缺席 / 畸形 HEAD / worktree `.git` 文件指针
  * （绝对 + 相对两形）/ refs 二跳读前 7 位短哈希 / 后缀拼段四态（cwdPath
  * 缺席 · 双缺席 · 仅支名 · 支名+哈希 / detached 仅哈希）。
+ * 真实 worktree 管理目录形（commondir 归公共 gitdir 根）与 detached 64hex
+ * （SHA-256 仓形）两腿随 alpha.30 二轮扫描处置批 lane-A 补锁。
  * 后缀形与消费位（TuiBackend.refreshFooter 拼段）分立——本件只锁读取与
  * 拼段纯函数，装配收敛锚（切焦/agent_end + resize 缓存律）在
  * tui-backend.test.ts。
@@ -140,6 +142,31 @@ describe('readGitHead 短哈希二跳读（界面美化役批6）', () => {
     const wt = tempDir();
     writeFileSync(join(wt, '.git'), `gitdir: ${join(main, '.git')}\n`);
     expect(readGitHead(wt)).toEqual({ branch: 'worktree-wip', shortHash: '0123456' });
+  });
+
+  it('真实 worktree 管理目录形：commondir 指公共 gitdir——refs 二跳读不缺席（@短哈希在场）', () => {
+    // 真实 worktree 布局（git 真身三件）：
+    //   <main>/.git（公共 gitdir——refs 真身在此）+ <main>/.git/worktrees/<n>/
+    //   管理目录（HEAD 为 ref 形 + commondir 文件指 ../..）+ <wt>/.git 文件
+    //   指管理目录。分支 ref 不在管理目录——refs 二跳读须随 commondir 归公共根
+    const main = tempDir();
+    const gitDir = join(main, '.git');
+    mkdirSync(join(gitDir, 'refs', 'heads'), { recursive: true });
+    writeFileSync(join(gitDir, 'HEAD'), `${ref('main')}\n`);
+    writeFileSync(join(gitDir, 'refs', 'heads', 'feat'), `${SHA}\n`);
+    const admin = join(gitDir, 'worktrees', 'wt-1');
+    mkdirSync(admin, { recursive: true });
+    writeFileSync(join(admin, 'HEAD'), `${ref('feat')}\n`);
+    writeFileSync(join(admin, 'commondir'), '../..\n');
+    const wt = tempDir();
+    writeFileSync(join(wt, '.git'), `gitdir: ${admin}\n`);
+    expect(readGitHead(wt)).toEqual({ branch: 'feat', shortHash: '0123456' });
+  });
+
+  it('detached 64hex（SHA-256 仓形）：直取前 7 位（词形上界 64hex 覆）', () => {
+    const SHA256 = '0123456789abcdef'.repeat(4); // 64 位 hex——SHA-256 仓 object id
+    const root = makeRepo(SHA256);
+    expect(readGitHead(root)).toEqual({ branch: null, shortHash: '0123456' });
   });
 
   it('非 git 目录 / HEAD 缺席：双 null（后缀整体缩位判据）', () => {

@@ -4,12 +4,14 @@
  *
  * - 直读 `.git/HEAD` 零子进程：`ref: refs/heads/<支>` 取支名 + **二跳读
  *   `refs/heads/<支>` 前 7 位短哈希**（界面美化役批6：`readGitShortHead`
- *   形——段序翻档「目录⎇支名@短哈希」的数据腿）；worktree 形 `.git` 文件
- *   随 `gitdir:` 指针解真目录同律直读（相对指针对 worktree 根解析）；
+ *   形——段序翻档「目录⎇支名@短哈希」的数据腿；refs 根随 `commondir`
+ *   归公共 gitdir——真实 worktree 管理目录形分支 ref 在公共目录，alpha.30
+ *   二轮扫描处置批 lane-A 修）；worktree 形 `.git` 文件随 `gitdir:` 指针
+ *   解真目录同律直读（相对指针对 worktree 根解析）；
  *   `.git` 定位 = cwd 起向上逐级、缺席即非库；
- * - detached HEAD（40hex 直接 commit 指向）**已含哈希**——HEAD 内容前 7
- *   位即短哈希（支名缺席形 `⎇ abc1234`）；一切缺席/畸形 → null（后缀
- *   缩位不虚报）；
+ * - detached HEAD（40/64hex 直接 commit 指向——SHA-1/SHA-256 仓两形）
+ *   **已含哈希**——HEAD 内容前 7 位即短哈希（支名缺席形 `⎇ abc1234`）；
+ *   一切缺席/畸形 → null（后缀缩位不虚报）；
  * - 刷新锚 = ⎇ 槽 git 读盘独立低频锚（V-4 注⑪③ 拆分后归
  *   TuiBackend.refreshFooterGit，07 注⑪③ 追注定形三枚）：构造期 + onRepaint
  *   切焦联动 + 会话复起 resumeMain 三锚（复起重画路不触发 onRepaint——挂起
@@ -40,8 +42,8 @@ const HEAD_REF_PATTERN = /^ref:\s*refs\/heads\/(\S+)$/m;
 /** `.git` 文件形指针行 `gitdir: <路径>`（worktree / submodule 形——m 旗使 $ 匹配行尾前换行） */
 const GITDIR_POINTER_PATTERN = /^gitdir:\s*(.+)$/m;
 
-/** 短哈希词形（3-40 位 hex——detached 直取与 refs 二跳读共判；畸形不虚报） */
-const HASH_WORD_PATTERN = /^[0-9a-f]{3,40}$/i;
+/** 短哈希词形（3-64 位 hex——SHA-1 仓 40 位 / SHA-256 仓 64 位两形；detached 直取与 refs 二跳读共判；畸形不虚报） */
+const HASH_WORD_PATTERN = /^[0-9a-f]{3,64}$/i;
 
 /**
  * git 头部读取产物（一次遍历双取——界面美化役批6）：支名缺席（detached/
@@ -58,8 +60,9 @@ export interface GitHeadInfo {
 /**
  * 读 cwd 所在 git 库的头部信息（支名 + 短哈希一次遍历双取——界面美化役
  * 批6 `readGitShortHead` 形的件内单源）：命中 `ref: refs/heads/<支>` 返支名
- * 并二跳读 refs 文件取前 7 位；detached（40hex 直指）哈希直接取 HEAD 前
- * 7 位（支名 null）；非库 / HEAD 缺席 / 畸形 → 双 null（缺席不虚报）。
+ * 并二跳读公共 refs 根下 refs 文件取前 7 位（commondir 归公共 gitdir）；
+ * detached（40/64hex 直指）哈希直接取 HEAD 前 7 位（支名 null）；非库 /
+ * HEAD 缺席 / 畸形 → 双 null（缺席不虚报）。
  */
 export function readGitHead(cwdPath: string): GitHeadInfo {
   let dir = path.resolve(cwdPath);
@@ -121,9 +124,9 @@ export function withGitBranchSuffix(cwdLabel: string, cwdPath: string | undefine
 }
 
 /**
- * git 目录头部解析（HEAD + refs 同根——worktree 形二跳读同目录）：ref 形
- * 取支名 + 读 `refs/heads/<支>` 前 7 位（文件缺席/畸形 → 哈希 null 诚实
- * 缩位）；非 ref 形（detached 40hex）哈希直取 HEAD 内容前 7 位。
+ * git 目录头部解析（HEAD 就地读；refs 根随 commondir 归公共 gitdir）：ref 形
+ * 取支名 + 读公共 refs 根下 `refs/heads/<支>` 前 7 位（文件缺席/畸形 → 哈希
+ * null 诚实缩位）；非 ref 形（detached 40/64hex）哈希直取 HEAD 内容前 7 位。
  */
 function parseHeadDir(headPath: string, gitDir: string): GitHeadInfo {
   let head: string;
@@ -135,12 +138,34 @@ function parseHeadDir(headPath: string, gitDir: string): GitHeadInfo {
   const match = HEAD_REF_PATTERN.exec(head);
   if (match !== null) {
     const branch = match[1]!;
-    return { branch, shortHash: readShortHash(path.join(gitDir, 'refs', 'heads', ...branch.split('/'))) };
+    // refs 根 = 公共 gitdir：真实 worktree 管理目录（`<主>/.git/worktrees/<n>`）
+    // 内分支 ref 不在管理目录而在公共 gitdir（commondir 文件所指）——缺席规
+    // 归本 gitDir（常规库 / submodule 合成形 refs 与 HEAD 同根不破坏）
+    const refsRoot = commonGitDir(gitDir);
+    return { branch, shortHash: readShortHash(path.join(refsRoot, 'refs', 'heads', ...branch.split('/'))) };
   }
-  // 非 ref 形：detached 40hex 直指（哈希已在 HEAD 内容）——词形校验后取前 7 位；
-  // 畸形（非 hex 非 ref）双 null 不虚报
+  // 非 ref 形：detached 40/64hex 直指（哈希已在 HEAD 内容）——词形校验后取前
+  // 7 位；畸形（非 hex 非 ref）双 null 不虚报
   const direct = head.trim();
   return { branch: null, shortHash: shortHashOf(direct) };
+}
+
+/**
+ * 公共 gitdir 解析（worktree 管理目录形）：读 `gitDir/commondir` 文件，内容
+ * 路径对 gitDir 解析（git 惯例相对形 `../..`；绝对形 resolve 直通）；文件
+ * 缺席 / 空白 / 不可读 → gitDir 本身（非常规则退本目录——refs 读 miss 走
+ * 诚实缩位不虚报）。
+ */
+function commonGitDir(gitDir: string): string {
+  let content: string;
+  try {
+    content = readFileSync(path.join(gitDir, 'commondir'), 'utf8');
+  } catch {
+    return gitDir; // 无 commondir——常规库 / submodule 合成形
+  }
+  const target = content.trim();
+  if (target === '') return gitDir; // 空白形——非常规则退本目录
+  return path.resolve(gitDir, target);
 }
 
 /** refs 文件读短哈希（前 7 位——词形校验；缺席/畸形 → null） */

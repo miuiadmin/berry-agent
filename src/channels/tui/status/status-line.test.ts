@@ -148,6 +148,23 @@ describe('StatusLine 行1 仪表栈（V-4 注⑪②——模式/思考/模型/�
     expect(readRow(grid, 0, 30)).toBe('');
     expect(readRow(grid, 1, 30)).toBe('berry-agent');
   });
+
+  it('pullSafe 拷贝不变式：生产者返冻结共享数组——坍缩梯 pop 不蚀共享缓存（两帧一致）', () => {
+    // 装配侧共享缓存形：供数器直返模块级冻结数组。坍缩梯 slots.pop() 原地
+    // 改写 pullSafe 返回值——安全前提 = filter 恒返新数组（签名 readonly
+    // string[] 邀请生产者返共享缓存）；未来「去 filter 拷贝」透传重构必蚀
+    // 共享缓存（冻结形直抛）——本锁使该重构修前必红
+    const shared: readonly string[] = Object.freeze(['YOLO', '思考高', 'glm-4.7']);
+    const line = new StatusLine();
+    line.setFooter(seg({ instruments: () => shared, env: () => [], hint: '' }));
+    // 窄宽触发坍缩梯两连 pop（23 列全形 → w=8 收敛到模式词独存）连续渲染两帧
+    const frame1 = readRow(renderStack(line, 8), 0, 8);
+    const frame2 = readRow(renderStack(line, 8), 0, 8);
+    expect(frame1).toBe('YOLO');
+    expect(frame2).toBe('YOLO'); // 两帧产出一致（无跨帧累积坍缩）
+    expect(shared.length).toBe(3); // 共享数组长度未被原地 pop 蚀
+    expect([...shared]).toEqual(['YOLO', '思考高', 'glm-4.7']); // 内容原样
+  });
 });
 
 describe('StatusLine 尾注让位（V-4 注⑪⑨——承载行 = 行1，右对齐挤占同向衔接）', () => {
@@ -174,6 +191,17 @@ describe('StatusLine 尾注让位（V-4 注⑪⑨——承载行 = 行1，右对
     line.setStatus('S'.repeat(15));
     // w=10：帽 8 → 7S+…，右对齐 col 1-8
     expect(readRow(renderStack(line, 10), 0, 10)).toBe(' SSSSSSS…');
+  });
+
+  it('尾注帽恰为 w-2：模式词不零宽消失（注⑧恒保——至少 ellipsize 省略号 1 列在场）', () => {
+    const line = new StatusLine();
+    line.setFooter(seg({ env: () => [] }));
+    line.setStatus('S'.repeat(15)); // 尾注帽 w-2=8 全占——行1 预算压零位
+    const grid = renderStack(line, 10);
+    // 修缺陷形：预算压零时模式词（YOLO 警示安全位）曾经 ellipsize(x,0)=''
+    // 整体消失——恒保律下至少 1 列 '…' 在场 + error 警示样式保真
+    expect(readRow(grid, 0, 10).startsWith('…')).toBe(true);
+    expect(grid.getCell(0, 0)?.style.fg).toBe(DEFAULT_THEME.error);
   });
 });
 

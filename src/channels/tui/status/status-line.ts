@@ -110,8 +110,11 @@ export class StatusLine implements Renderable {
     // 挤占仪表预算；双垫 = 间隔 1 + 右缘 1，仪表全空时尾注独享右槽）——
     const tail = this.idleText !== '' ? ellipsize(this.idleText, Math.max(0, w - 2)) : '';
     const tailW = stringWidth(tail);
-    const budget = tailW > 0 ? Math.max(0, w - tailW - 2) : w;
     const slots = pullSafe(seg.instruments);
+    // 预算下钳（注⑧模式词恒保——alpha.30 二轮扫描处置批 lane-A 修）：尾注
+    // 帽恰为 w-2 时预算压零，模式词（含 YOLO 警示安全位）经 ellipsize(x,0)=''
+    // 会整体消失——仪表在场时至少保 1 列（'…' 形在场，与尾注右槽零重叠）
+    const budget = tailW > 0 ? Math.max(slots.length > 0 ? 1 : 0, w - tailW - 2) : w;
     // 坍缩梯⑧：右起丢非模式槽（上下文→速度→累计→模型→思考——装配槽序即
     // 丢弃序）；模式词（首槽）恒保——独存仍超宽走 ellipsize（整字截断容忍）
     while (slots.length > 1 && joinedWidth(slots) > budget) slots.pop();
