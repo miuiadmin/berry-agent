@@ -222,7 +222,7 @@ export class ModelPicker implements OverlayContent {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        fitLine(hintLine('↑↓ 移动', 'enter 选定（下一轮对话起生效）', '打字过滤', 'esc/q 返回'), region.width),
+        fitLine(hintLine('↑↓ 移动', 'enter 选定（下一轮对话起生效）', '打字过滤', 'q/esc 返回'), region.width),
         HINT_STYLE,
       );
     }
@@ -327,14 +327,27 @@ export class ModelPicker implements OverlayContent {
     }
     if (event.kind === 'text') {
       const text = (event as InputEvent & { kind: 'text'; text: string }).text;
-      // kitty text 轨：单字符入过滤；q 语义同 key 轨（无过滤词 = 退出捷键）
+      // kitty text 轨：单字符走 q 捷键盘查（件族同律）；多字符 chunk 全串
+      // 入词（rewind-picker appendQuery 同族先例——CJK 直收与引擎「同 chunk
+      // 连续可打印游程合并」粒度下多字符是常态，修前静默吞使过滤面形同虚设）
       if (text.length === 1) {
         this.typeFilter(text);
+        return true;
+      }
+      if (text.length > 1) {
+        this.appendQuery(text);
         return true;
       }
       return true;
     }
     return true;
+  }
+
+  /** 过滤词追加（无 q 特例——多字符 chunk 中段 q 不当退出） */
+  private appendQuery(str: string): void {
+    this.query += str;
+    this.cursor = 0; // 过滤集重算——光标归首
+    this.clampOffset(this.rows(this.filtered()).length);
   }
 
   /** 打字入过滤词（q 特例：无过滤词时 = 退出——件族 q 捷键与过滤面共存律） */
@@ -343,9 +356,7 @@ export class ModelPicker implements OverlayContent {
       this.exit();
       return;
     }
-    this.query += ch;
-    this.cursor = 0; // 过滤集重算——光标归首
-    this.clampOffset(this.rows(this.filtered()).length);
+    this.appendQuery(ch);
   }
 
   /** 光标移动（越界夹取不循环；移动后光标行恒在窗内） */

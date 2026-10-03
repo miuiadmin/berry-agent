@@ -135,3 +135,22 @@ describe('AutocompletePopup 光标符 › accent（界面美化役美学注③�
     expect(grid2.getCell(0, 0)?.style?.fg).toBe(light.accent);
   });
 });
+
+describe('AutocompletePopup 空条目诚实反馈（空结果诚实行律）', () => {
+  it('空条目量高 1（修前红：Math.min(0, MAX)=0 → fixed-budget 归零 → backend `budget.popup > 0` 门控跳渲染——render 空分支死路）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    expect(popup.measure(80)).toBe(0); // 不在场零高（浮层不占布局——旧锚不漂）
+    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 2 }); // 空结果（打错前缀）
+    expect(popup.measure(80)).toBe(1); // 修前红位：0——「无匹配」行被预算链结构性抹除
+  });
+
+  it('空条目 render 行为锁：铺底 + 「无匹配」串在位（空态行也是信息——model-picker「（无匹配…）」行同律）', () => {
+    const model = new EditorModel();
+    const popup = new AutocompletePopup(model);
+    popup.applyResult({ items: [], replaceStart: 0, replaceEnd: 2 });
+    const grid = new CellGrid(10, 1);
+    popup.render(grid, { row: 0, col: 0, width: 10, height: 1 });
+    expect(readRow(grid, 0, 10)).toContain('无匹配'); // 空分支呈现（修前结构不可达）
+  });
+});

@@ -26,6 +26,7 @@ import { fitLine } from '../row-segments.js';
 import { CURSOR_MARK, headStyleOf, moreHint, PICKER_HEAD_MARK } from './panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
+import { foldErrorText } from '../../service.js';
 
 /** 回退点选择器装配选项（载荷与回调组经 host deps 注入流转——openRewindPicker 面） */
 export interface RewindPickerOptions {
@@ -37,6 +38,13 @@ export interface RewindPickerOptions {
   readonly sessionId: string;
   readonly onInterrupt?: (sessionId: string) => void;
   readonly onQuit?: () => void;
+  /**
+   * 面板自持态异步变更后的重画请求（可选——openRewindPicker 装配位注入
+   * altHost.requestRepaint，setup-wizard/market-picker 件族同形）：onPreview
+   * 异步落位（.then/.catch）面板不自驱重画，须经此柄请帧才可见；缺席 no-op
+   * （纯测试装配零重画——直测断言走手绘 paint 面）。
+   */
+  readonly requestRepaint?: () => void;
   /**
    * 主题（界面美化役 2026-10-01 美学批——头行 accent 着色注入位）：缺省
    * DEFAULT_THEME（装配位接线前呈现不缺色——挂账装配）。
@@ -82,6 +90,8 @@ export class RewindPicker implements OverlayContent {
   private readonly onExit: () => void;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
+  /** 异步落位后的重画请求（可选注入——缺席 no-op） */
+  private readonly requestRepaint: (() => void) | undefined;
   /** 当前视图（list = 清单选择；preview = 两步确认段一——对账与确认） */
   private view: 'list' | 'preview' = 'list';
   /** preview 段锚定的条目（Enter 时选中的 id——Esc 返回后光标仍指该行；restore 锚语义） */
@@ -113,6 +123,7 @@ export class RewindPicker implements OverlayContent {
     this.onExit = options.onExit;
     this.onInterrupt = options.onInterrupt;
     this.onQuit = options.onQuit;
+    this.requestRepaint = options.requestRepaint;
     this.headStyle = headStyleOf(options.theme ?? DEFAULT_THEME);
   }
 
@@ -208,7 +219,7 @@ export class RewindPicker implements OverlayContent {
       buffer.writeText(
         region.row + region.height - 1,
         region.col,
-        fitLine(hintLine('↑↓ 移动', 'enter 预览（不改动任何文件）', '打字过滤', 'esc/q 返回'), region.width),
+        fitLine(hintLine('↑↓ 移动', 'enter 预览（不改动任何文件）', '打字过滤', 'q/esc 返回'), region.width),
         HINT_STYLE,
       );
     }
@@ -338,16 +349,23 @@ export class RewindPicker implements OverlayContent {
               // 新确认视图（用户看着旧对账数确认破坏性 restore）
               if (!this.exited && this.view === 'preview' && this.previewSeq === seq) {
                 this.previewData = data;
+                // 落位后自请重画：面板不自驱重画（键路帧由 AltScreenHost 输入
+                // 监听补——异步账目就位无人知晓），不请帧则「预览中…」永挂
+                this.requestRepaint?.();
               }
             })
-            .catch(() => {
+            .catch((err: unknown) => {
               if (!this.exited && this.view === 'preview' && this.previewSeq === seq) {
+                // 折面单源律：reject 逐例折 foldErrorText（BaseError 码不丢）
+                // ——吞 err 换静态兜底句会把「为什么失败」降级成猜测（「可能
+                // 已被清理」只是成因之一）；返回路指引句保留
                 this.previewData = {
                   restoreCount: 0,
                   deleteCount: 0,
                   untouchedCount: 0,
-                  errorText: '预览失败（回退点可能已被清理）——esc 返回列表',
+                  errorText: `预览失败：${foldErrorText(err)}——esc 返回列表`,
                 };
+                this.requestRepaint?.(); // 错误态落位同须请帧（同 .then 律）
               }
             });
           return true;

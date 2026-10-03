@@ -10,6 +10,7 @@ import { CellGrid } from '../../engine/index.js';
 import { RewindPicker } from './rewind-picker.js';
 import type { RewindPickerOptions } from './rewind-picker.js';
 import type { UiRewindPreview } from '../../../contracts/index.js';
+import { BaseError } from '../../../contracts/index.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -92,6 +93,7 @@ describe('RewindPicker 呈现（list 段）', () => {
     expect(readRow(grid, 3, 72)).toContain('回退前快照');
     expect(readRow(grid, grid.rows - 1, 72)).toContain('enter 预览');
     expect(readRow(grid, grid.rows - 1, 72)).toContain('打字过滤');
+    expect(readRow(grid, grid.rows - 1, 72)).toContain('q/esc 返回'); // 底行键序全域统一形（46:2 离群归队）
   });
 
   it('光标 › 在首行 + ↑↓ 移动', () => {
@@ -395,6 +397,81 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     expect(all).toContain('预览失败'); // .catch 折错误态（非吞非炸）
     picker.handleEvent(k('enter')); // 错误态 Enter 零动作
     expect(onRestore).not.toHaveBeenCalled();
+  });
+
+  it('预演 reject 折 BaseError 码（修前红：catch 吞 err 换静态兜底句——码在用户面丢失）', async () => {
+    // 折面单源律：reject 逐例折 foldErrorText（BaseError 码不丢）——静态兜底
+    // 句把「为什么失败」降级成猜测（「可能已被清理」只是成因之一）
+    const onPreview = vi.fn(async (): Promise<UiRewindPreview> => {
+      throw new BaseError('CHECKPOINT_STORE_CORRUPT', '清单读失败');
+    });
+    const { picker } = makePicker({
+      actions: { onPreview, onRestore: vi.fn(async () => undefined) },
+    });
+    picker.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    const grid = paint(picker);
+    const all = Array.from({ length: grid.rows }, (_, i) => readRow(grid, i, 72)).join('\n');
+    expect(all).toContain('CHECKPOINT_STORE_CORRUPT：清单读失败'); // 修前红位：只有兜底句无码
+    expect(all).toContain('esc 返回列表'); // 兜底引导句保留（返回路指引不因折面丢）
+  });
+
+  it('onPreview 异步落位后自请重画（修前红：.then/.catch 落位零请帧——「预览中…」永挂）', async () => {
+    // 面板不自驱重画（AltScreenHost 输入监听只补键路帧——异步账目就位无人
+    // 知晓）：落位后须经注入的 requestRepaint 请帧（setup-wizard/market-picker
+    // 件族形）才可见
+    let repaints = 0;
+    const count = (): void => {
+      repaints += 1;
+    };
+    const { picker } = makePicker({ requestRepaint: count });
+    picker.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(repaints).toBeGreaterThanOrEqual(1); // 修前红位：resolve 落位 0 次
+    // reject 腿同律：错误态落位也须请帧（否则失败呈现同样永挂加载态）
+    const { picker: p2 } = makePicker({
+      requestRepaint: count,
+      actions: {
+        onPreview: vi.fn(async (): Promise<UiRewindPreview> => {
+          throw new Error('IO 读失败');
+        }),
+        onRestore: vi.fn(async () => undefined),
+      },
+    });
+    p2.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(repaints).toBeGreaterThanOrEqual(2); // 修前红位：reject 落位不请帧
+  });
+
+  it('迟到调用拒收不请帧（退出竞态守卫先于重画——旧账不触发无谓重画）', async () => {
+    const deferreds: Array<{ resolve: (value: UiRewindPreview) => void }> = [];
+    const onPreview = vi.fn(
+      () =>
+        new Promise<UiRewindPreview>((resolve) => {
+          deferreds.push({ resolve });
+        }),
+    );
+    let repaints = 0;
+    const { picker } = makePicker({
+      requestRepaint: () => {
+        repaints += 1;
+      },
+      actions: { onPreview, onRestore: vi.fn(async () => undefined) },
+    });
+    picker.handleEvent(k('enter')); // A 进 preview——不决
+    picker.handleEvent(k('escape')); // 回列表
+    picker.handleEvent(k('enter')); // 同条目二次进（新调用序）
+    deferreds[0]!.resolve({ restoreCount: 9, deleteCount: 8, untouchedCount: 7 }); // 旧调用迟到
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(repaints).toBe(0); // 守卫拒收——零请帧（新调用仍在飞，帧内容无变）
+    deferreds[1]!.resolve({ ...PREVIEW_OK }); // 新调用落位
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(repaints).toBe(1); // 放行落位才请帧
   });
 
   it('过滤态 Enter：预演锚定 = 过滤后选中项（filtered() 集锚定——非全量首项）', async () => {

@@ -14,7 +14,7 @@
  * （与 key 轨双轨同收——select/multiselect 同律）。
  */
 import { describe, expect, it, vi } from 'vitest';
-import type { KeyEvent, MouseEvent, TextInputEvent } from '../../engine/index.js';
+import type { ImeEvent, KeyEvent, MouseEvent, TextInputEvent } from '../../engine/index.js';
 import { CellGrid } from '../../engine/index.js';
 import { MemoryTerminalIO } from '../../engine/memory-io.js';
 import { AltScreenHost, type AltScreenPrimary } from '../overlay/alt-screen.js';
@@ -34,6 +34,9 @@ const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
 
 /** text 事件夹具 */
 const t = (text: string): TextInputEvent => ({ kind: 'text', text });
+
+/** ime 事件夹具（committed 提交相 / 预编辑增量两形） */
+const ime = (text: string, committed: boolean): ImeEvent => ({ kind: 'ime', text, committed });
 
 /** promise 结算态判（悬挂 promise 测试律——断言 settle 形而非 await 挂死） */
 async function settleState(p: Promise<unknown>): Promise<'pending' | 'fulfilled' | 'rejected'> {
@@ -320,6 +323,23 @@ describe('text 相（key 录入——全明文翻裁 2026-09-28）', () => {
     b.panel.handleEvent({ kind: 'paste', text: 'sk-a\r\nsk-b\r\n' });
     b.panel.handleEvent(k('enter'));
     await expect(pb).resolves.toBe('sk-ask-b');
+  });
+
+  it('ime 轨提交相收字（修前红：kind ime 落不到 text/paste 分支被终局吞——组字期输入全丢）+ 预编辑增量零动作不双写', async () => {
+    // 编辑器轨道消费先例 editor.ts:122 case 'ime'：committed=true 才落正文。
+    // 本面板同律：提交相声同 text 处理；预编辑增量（committed=false）零动作
+    // （面板无预编辑呈现面——增量入 buffer 会在提交相双写）
+    const a = makePanel();
+    const pa = a.panel.text(TEXT_REQ);
+    a.panel.handleEvent(ime('北', false)); // 组字预编辑增量——不落录入值
+    let grid = paint(a.panel);
+    expect(readRow(grid, 1, 72)).toBe('_'); // buffer 仍空（光标位独占行）
+    a.panel.handleEvent(ime('北京', false)); // 增量更替（前缀增长）
+    a.panel.handleEvent(ime('北京', true)); // 组字提交——整词落录入值
+    grid = paint(a.panel);
+    expect(readRow(grid, 1, 72)).toContain('北京_');
+    a.panel.handleEvent(k('enter'));
+    await expect(pa).resolves.toBe('北京'); // 修前红位：ime 被吞 → ''（非 '北京'）
   });
 
   it('preview 行呈现（当前值完整显示——全明文同律）', () => {

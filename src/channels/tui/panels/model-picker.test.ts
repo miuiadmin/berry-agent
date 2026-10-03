@@ -91,6 +91,7 @@ describe('ModelPicker 呈现', () => {
     expect(readRow(grid, 7, 72)).toContain('my-gw/gw-large');
     expect(readRow(grid, grid.rows - 1, 72)).toContain('打字过滤');
     expect(readRow(grid, grid.rows - 1, 72)).toContain('下一轮对话起生效');
+    expect(readRow(grid, grid.rows - 1, 72)).toContain('q/esc 返回'); // 底行键序全域统一形（46:2 离群归队）
   });
 
   it('当前模型 ● 标记与光标 › 分立（首条目光标、当前行 ●）', () => {
@@ -171,6 +172,31 @@ describe('ModelPicker 打字过滤', () => {
     expect(readRow(grid, 0, 72)).toBe('◆ 切换模型 · 0 个（过滤中）'); // 「gq」无匹配——打字面入词的证明
     expect(onExit).not.toHaveBeenCalled(); // 未当退出捷键消费
     void grid;
+  });
+
+  it('多字符 chunk 全串入词（CJK 直收——修前红：length>1 静默吞 query 恒空）', () => {
+    // kitty 引擎 text 粒度「同 chunk 连续可打印游程合并」——多字符 chunk 是
+    // 常态非边角；修前 `if (text.length === 1)` 之外的 chunk 落 `return true`
+    // 终局吞（打字过滤面在 kitty 轨形同虚设）。rewind-picker appendQuery 先例
+    // 同族修法。
+    const { picker } = makePicker();
+    picker.handleEvent(t('你好'));
+    const grid = paint(picker);
+    expect(readRow(grid, 0, 72)).toBe('◆ 切换模型 · 0 个（过滤中）'); // 修前红位：query 恒空 → 全量 4 个
+    expect(readRow(grid, 1, 72)).toContain('无匹配「你好」'); // 空结果诚实行
+    expect(readRow(grid, grid.rows - 1, 72)).toContain('过滤：你好_'); // 全串入词回显
+  });
+
+  it('多字符 chunk 入词后单字符轨续接（双粒度并存——续打/删词不扰动）', () => {
+    const { picker } = makePicker();
+    picker.handleEvent(t('anth')); // 多字符 chunk（粘贴形整段入词）
+    picker.handleEvent(t('r')); // 单字符续接（kitty 单键）
+    let grid = paint(picker);
+    expect(readRow(grid, 0, 72)).toBe('◆ 切换模型 · 2 个（过滤中）'); // 「anthr」命中 anthropic 两模型
+    expect(readRow(grid, 2, 72)).toContain('anthropic/claude-sonnet');
+    picker.handleEvent(k('backspace')); // 删词回「anth」
+    grid = paint(picker);
+    expect(readRow(grid, grid.rows - 1, 72)).toContain('过滤：anth_');
   });
 });
 

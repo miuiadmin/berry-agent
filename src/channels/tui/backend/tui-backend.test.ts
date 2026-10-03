@@ -3701,6 +3701,22 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
     io.emitInput('\r');
     expect(submitted).toEqual(['?']);
   });
+
+  it('`?` 教学键 input-ask 应答期不劫（修前红：问题行在场/编辑器空/闲态三闸全开——? 被劫去开 /help 顶掉应答）', async () => {
+    const helps: number[] = [];
+    const io = new MemoryTerminalIO(COLS, ROWS);
+    const backend = new TuiBackend(io, {
+      sessionId: SESSION,
+      onHelpShortcut: () => helps.push(1),
+    });
+    backend.start();
+    const asked = backend.input('补充一个名字'); // 应答期：问题行在场 + 编辑器清框
+    io.bytes = '';
+    io.emitInput('?'); // 应答期空稿打 ?——期望作普通字符入应答稿
+    expect(helps).toHaveLength(0); // 修前红位：inputAsk 缺席于门控——应答期被误判闲态教学窗
+    io.emitInput('\r');
+    await expect(asked).resolves.toBe('?'); // ? 是应答内容非教学键
+  });
 });
 
 describe('TuiBackend footer 扩容段（三反馈批B→V-4 注⑪ 翻档——档位段 + 累计段；忙态速度段退役 → 本轮段）', () => {
@@ -3966,7 +3982,8 @@ describe('TuiBackend SelectPanel 视口帽（fx2-B——选项超可用预算开
     // 守卫（行维）整段不写，面板与编辑器全部不可见（模态开屏即黑）
     expect(io.bytes).toContain('ZZQ'); // 面板标题在场（窗口化非隐层）
     expect(io.bytes).toContain('›'); // 编辑器提示符在场（固定区未超高）
-    // 窗口化面：首帧光标在首项 → 窗顶贴 0、底部溢出指示行在场（↓ N more）
+    // 窗口化面：首帧光标在首项 → 窗顶贴 0、底部溢出指示行在场（↓ N 更多——
+    // moreHint 中文单源形，英文 more 形已全域废止）
     expect(io.bytes).toContain('↓ ');
     expect(io.bytes).not.toContain('↑ '); // 顶部无隐藏（光标居中钳 0）
   });

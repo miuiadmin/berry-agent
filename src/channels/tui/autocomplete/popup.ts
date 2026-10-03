@@ -95,11 +95,15 @@ export class AutocompletePopup implements Renderable {
     this.windowStart = 0;
   }
 
-  /** 量高：可见条目数（不可见 = 0——浮层不占布局） */
+  /** 量高：可见条目数（不可见 = 0——浮层不占布局；空结果占 1——空态行） */
   measure(width: number): number {
     void width;
-    const count = this.result?.items.length ?? 0;
-    return Math.min(count, MAX_VISIBLE_ITEMS);
+    if (this.result === null) return 0; // 不在场零高（浮层不占布局）
+    // 空条目也占一行（空态行也是信息——「无匹配」诚实反馈，model-picker
+    // 「（无匹配…）」行同律）：量 0 会被 fixed-budget 归零、backend 段四
+    // `budget.popup > 0` 门控跳渲染——render 的空分支成死路（打错前缀静默
+    // 无反馈），修前即此结构性不可达形
+    return Math.max(1, Math.min(this.result.items.length, MAX_VISIBLE_ITEMS));
   }
 
   /** 落位：铺底空格 → 可见窗条目行（高亮反色 + 说明右对齐） */

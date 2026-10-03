@@ -1,7 +1,8 @@
 /**
  * /setup 配置向导副屏件（onboarding ob-3——07 §4.1 命令面 TUI 本地拦截族；
- * 2026-09-28 模型渠道批 C-3 v2）：相态机面板实现 WizardPrompter 六法（接口
- * 居 channels 公开面——host 流程件纯函数化消费同一契约）。
+ * 2026-09-28 模型渠道批 C-3 v2）：相态机面板实现 WizardPrompter 七法（六法
+ * 之外 multiselect/busy 已实装——接口居 channels 公开面，host 流程件纯函数
+ * 化消费同一契约）。
  *
  * - **一屏六相**（intro/select/multiselect/text/confirm/outro——market-picker
  *   同基建：自持光标/视口 + kitty disambiguate 轨裸字母分派 + exit 闭锁防竞发）；
@@ -376,7 +377,8 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
   /**
    * 事件分发（副屏内容终局消费——模态独占）：滚轮相态分派 → Ctrl+C/Ctrl+D
    * 补丁 → 相分发。kitty disambiguate 轨：裸字母/打字走 text 事件（选择器
-   * q 取消 + 录入追加两消费位）。
+   * q 取消 + 录入追加两消费位）；ime 组字轨同收（提交相落录入值、预编辑
+   * 增量零动作——编辑器轨道同律）。
    */
   handleEvent(event: InputEvent): boolean {
     if (event.kind === 'mouse') {
@@ -420,7 +422,12 @@ export class SetupWizardPanel implements OverlayContent, WizardPrompter {
       this.handleKeyEvent(k);
       return true;
     }
-    if (event.kind === 'text' || event.kind === 'paste') {
+    if (event.kind === 'text' || event.kind === 'paste' || event.kind === 'ime') {
+      // ime 轨（编辑器轨道消费先例 editor.ts:122 case 'ime'——组字一等公民
+      // 模型面）：提交相（committed=true）载荷同 text 处理；预编辑增量
+      // （committed=false）零动作——面板无预编辑呈现面，增量入 buffer 会在
+      // 提交相双写（组字期所见≠所录，修前整轨缺席即组字期输入被吞）
+      if (event.kind === 'ime' && !event.committed) return true;
       // paste 剥所有换行（#22——单行字段无换行语义：内嵌换行入 buffer 会致
       // 回显（引擎跳控制字节拼连通顺）所见≠所录、存值经 trim 幸存坏 key）
       const text = event.kind === 'paste' ? event.text.replace(/[\r\n]+/g, '') : event.text;

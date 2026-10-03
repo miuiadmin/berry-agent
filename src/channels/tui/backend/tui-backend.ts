@@ -143,6 +143,8 @@ import { SandboxPicker, type SandboxPickEntry } from '../panels/sandbox-picker.j
 import { DiffViewer, type DiffProjectionMessage } from '../panels/diff-viewer.js';
 import { MarketPicker, type MarketPanelActions, type MarketPanelModel } from '../panels/market-picker.js';
 import { SetupWizardPanel } from '../panels/setup-wizard.js';
+// ⚙ 头符单源（panel-chrome 符号册——askApproval 审批标题消费位；history-viewer 同形跨目录先例）
+import { HEAD_MARKS } from '../panels/panel-chrome.js';
 import type { WizardPrompter } from '../../wizard-prompter.js';
 import { MemoryViewer, type MemoryViewerDataDeps } from '../memory/memory-viewer.js';
 import { ConfirmPanel, SelectPanel, type ViewportCapAware } from '../overlay/select-confirm.js';
@@ -1193,6 +1195,9 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         actions,
         sessionId: this.sessionId,
         theme: this.theme, // 头行 accent 着色（界面美化役——主会话接线）
+        // onPreview 异步落位后的重画柄（openMarketplace/openSetupWizard 同形
+        // ——面板不自驱重画，异步账目就位经此请帧）
+        requestRepaint: () => this.altHost.requestRepaint(),
         onExit: () => this.closeAlt(),
         onInterrupt: () => this.onInterrupt?.(this.sessionId),
         onQuit: this.onQuit,
@@ -1554,9 +1559,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
 
   /**
    * 开副屏配置向导（onboarding ob-3 /setup——TUI 本地拦截族第十件）：面板
-   * 本体实现 WizardPrompter（host 侧 runSetupWizard 流程件持本回值驱动五法
-   * 相态机——交互契约居 channels 公开面）。返回 prompter 面；副屏占用返
-   * null（调用位 notify 诚实降级——open* 族同律）。
+   * 本体实现 WizardPrompter（host 侧 runSetupWizard 流程件持本回值驱动七法
+   * 相态机——multiselect/busy 两法后续增补已实装；交互契约居 channels 公开
+   * 面）。返回 prompter 面；副屏占用返 null（调用位 notify 诚实降级——
+   * open* 族同律）。
    */
   openSetupWizard(): WizardPrompter | null {
     if (this.altHandle !== null) return null;
@@ -2158,7 +2164,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // 焦点态无会话路由需求），SDK 通道后端以此路由 ask 帧
     return new Promise<ApprovalAskAnswer>((resolve) => {
       const title =
-        request.toolName !== undefined ? `⚙ ${toolFaceZh(request.toolName)}：${request.summary}` : request.summary;
+        // ⚙ 走 HEAD_MARKS.tool 单源（panel-chrome 符号册——选型翻档只改一处）
+        request.toolName !== undefined
+          ? `${HEAD_MARKS.tool} ${toolFaceZh(request.toolName)}：${request.summary}`
+          : request.summary;
       const panel = new SelectPanel({
         title,
         options: [
@@ -2308,12 +2317,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
     // 层③.7 闲态教学键（V-3 注⑦④——`?` 开 /help 帮助副屏）：`?` 是可打印
     // 字符走 text 事件（引擎地面态恒产 text——key 路永不命中；键位册条目仅
-    // 投影可发现性）。门控 = 柄在场 + 空稿 + 闲态 + overlay/弹层不在场——
-    // 任一不满足透传编辑器（'?' 作普通字符入稿——确定性测试基线零扰动）。
+    // 投影可发现性）。门控 = 柄在场 + 空稿 + 闲态 + overlay/弹层不在场 +
+    // 无 input-ask 应答窗（应答期问题行在场、编辑器空、闲态——三闸全开但
+    // 稿位属应答车道，`?` 应作普通字符入应答稿而非劫去开 /help）——任一
+    // 不满足透传编辑器（'?' 作普通字符入稿——确定性测试基线零扰动）。
     if (
       ev.kind === 'text' &&
       ev.text === '?' &&
       this.onHelpShortcut !== undefined &&
+      this.inputAsk === null &&
       this.editor.model.isEmpty() &&
       !this.progressBusy &&
       this.stack.size === 0 &&
