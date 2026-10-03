@@ -69,6 +69,8 @@ import { headStyleOf, VIEWER_HEAD_MARK } from '../panels/panel-chrome.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 // 提示行/分区头/投影行 dim——engine DIM_STYLE 单源直用（注⑩收编）
 import { DIM_STYLE } from '../../engine/index.js';
+// 错误折面单源（tui-backend.ts 同形相对导入——BaseError 码直呈/去重腿/Error 免前缀噪音）
+import { foldErrorText } from '../../service.js';
 
 /* ---------------- 结构相容窄面（channels 不依赖 memory——边表执法） ---------------- */
 
@@ -221,14 +223,6 @@ function asKey(event: InputEvent): (InputEvent & { kind: 'key' }) | null {
 /** 无修饰命名键判 */
 function isPlainKey(e: InputEvent & { kind: 'key' }, key: string): boolean {
   return !e.ctrl && !e.alt && !e.shift && !e.meta && e.key === key;
-}
-
-/** 错误折底行文案（守卫错人读面——码与人读原因直呈，同命令面 idiom） */
-function errorText(err: unknown): string {
-  if (err instanceof Error && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
-    return `${(err as { code: string }).code}：${err.message}`;
-  }
-  return err instanceof Error ? err.message : String(err);
 }
 
 /** 可见条目描述（分区归属 + 行集锚——光标模型与点击反查的统一形） */
@@ -614,7 +608,7 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       else this.dao.freeze(entry.row.id);
       this.rebuild(entry.row.id); // 同 id 锚定（frozen 位变即换分区呈现）
     } catch (err) {
-      this.notice = errorText(err); // 守卫错折底行
+      this.notice = foldErrorText(err); // 守卫错折底行（单源——码与人读原因直呈）
     }
   }
 
@@ -638,7 +632,7 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       this.dao.forget(target.id, { supersededBy: 'user' });
       this.rebuild(target.id); // 同 id 锚定（filter=all 时条目现于终态区）
     } catch (err) {
-      this.notice = errorText(err); // 守卫错折底行（MEMORY_FROZEN 等）
+      this.notice = foldErrorText(err); // 守卫错折底行（单源——MEMORY_FROZEN 等）
     }
   }
 
@@ -650,7 +644,7 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       this.dao.restore(entry.row.id);
       this.rebuild(entry.row.id); // 同 id 锚定（复活后现于活体区）
     } catch (err) {
-      this.notice = errorText(err);
+      this.notice = foldErrorText(err);
     }
   }
 
@@ -682,7 +676,9 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
       const text = await this.exportCommand(tokenize(raw));
       this.notice = text.replace(/\n+/g, ' · ');
     } catch (err) {
-      this.notice = errorText(err); // 非 BaseError 异常面（BaseError 命令内已折文本）
+      // 折面单源（foldErrorText）：常态异常面已是非 BaseError（命令体内已折好
+      // 文本），防御位兜住 BaseError 形也走同源折（码直呈 + 码前缀去重腿）
+      this.notice = foldErrorText(err);
     }
   }
 
@@ -772,7 +768,8 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
             },
           ];
     for (const section of sections) {
-      lines.push(dim(`── ${SECTION_LABEL[section.key]}（${section.rows.length}）`));
+      // 分段头闭口形 `── 名（N）──`（jobs-viewer `── 运行中（N）──` 先例同形）
+      lines.push(dim(`── ${SECTION_LABEL[section.key]}（${section.rows.length}）──`));
       for (const row of section.rows) {
         lines.push(this.entryLine(row, section.key));
         entries.push({ row, section: section.key, lineIndex: lines.length - 1 });

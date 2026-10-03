@@ -27,6 +27,8 @@ import { headStyleOf, VIEWER_HEAD_MARK, weakLineStyle } from './panel-chrome.js'
 import { maskDaemonLogLines } from './debug-viewer.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 import { DIM_STYLE } from '../../engine/index.js';
+// 错误折面单源（tui-backend.ts 同形相对导入——BaseError 码直呈/Error 免前缀噪音）
+import { foldErrorText } from '../../service.js';
 
 /** 运行错误史条目（快照行——装配侧扫描产出，面板收纯数据） */
 export interface FeedbackErrorEntry {
@@ -257,7 +259,8 @@ export function buildFeedbackLines(data: FeedbackPanelData, receipt?: string | n
   lines.push('· 运行环境（版本 / 模型 / 数据目录 / 平台）');
   // daemon 日志清单行在场才列（快照在开屏时已取到——缺席不虚报在列；V-0 注⑤）
   if (data.daemonLogTail !== null) {
-    lines.push('· daemon 日志末尾 50 行（令牌已打码）');
+    // 按实数呈现（不足帽时硬编 50 属虚报——debug-viewer:200 同族同修）
+    lines.push(`· daemon 日志末尾 ${data.daemonLogTail.length} 行（令牌已打码）`);
   }
   lines.push(`· 范围：近 ${data.windowDays} 天 · 最近 ${data.scannedSessions} 个会话（共 ${data.sessionsTotal} 个）`);
   if (receipt !== undefined && receipt !== null && receipt !== '') {
@@ -430,14 +433,14 @@ export class FeedbackViewer extends ScrollView implements OverlayContent {
     return true;
   }
 
-  /** 导出动作（e）：柄缺席无动作；柄异常不外抛（回执行诚实呈报失败——副屏事件环不接异常） */
+  /** 导出动作（e）：柄缺席无动作；柄异常不外抛（回执行诚实呈报失败——副屏事件环不接异常；折面走 foldErrorText 单源） */
   private runExport(): void {
     if (this.onExport === undefined) return;
     let receipt: string;
     try {
       receipt = this.onExport();
     } catch (err: unknown) {
-      receipt = `导出失败：${err instanceof Error ? err.message : String(err)}`;
+      receipt = `导出失败：${foldErrorText(err)}`;
     }
     // 回执入行集前过单行消毒（回执含落盘路径/异常文本——行集契约是每元素一逻辑行）
     this.receipt = sanitizeLineText(receipt);

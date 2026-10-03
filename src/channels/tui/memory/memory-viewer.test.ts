@@ -18,6 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CellGrid, type CellBuffer, type InputEvent, type MouseEvent } from '../../engine/index.js';
+import { BaseError } from '../../../contracts/index.js';
 import { MemoryViewer, type MemoryDaoFace, type MemoryRowFace, type MemorySanitize } from './memory-viewer.js';
 
 /* ---------------- 工厂与便捷 ---------------- */
@@ -59,15 +60,8 @@ function basicRows(): MutRow[] {
   ];
 }
 
-/** 守卫错形（code 字段 + message——errorText 折底行判据同源） */
-class GuardError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+/** 守卫错形（BaseError 真身对齐——真 DAO 抛 BaseError 带 MEMORY_* 码；折底行判据同源） */
+class GuardError extends BaseError {}
 
 /** 假 DAO（结构相容窄面——动词真变行集，守卫错可注入） */
 function makeDao(rows: MutRow[], calls: string[]) {
@@ -226,9 +220,9 @@ describe('行集三段式构建（头行 / 健康投影恒全库 / 三分区）'
     expect(readRow(grid, 0)).toContain('◉ 记忆管理 · global · project:01234567'); // 短显截 8 位
     expect(readRow(grid, 1)).toBe('记忆库 · 生效 7 · 冻结 1 · 共 10'); // 假 DAO 全库计数（可见活体仅 1——投影不随可见集重算）
     expect(readRow(grid, 2)).toBe('已结束 · 否决 2 · 过期 1');
-    expect(readRow(grid, 3)).toBe('── 生效中（1）');
-    expect(readRow(grid, 5)).toBe('── 冻结（1）');
-    expect(readRow(grid, 7)).toBe('── 已结束（1）');
+    expect(readRow(grid, 3)).toBe('── 生效中（1）──');
+    expect(readRow(grid, 5)).toBe('── 冻结（1）──');
+    expect(readRow(grid, 7)).toBe('── 已结束（1）──');
     expect(readRow(grid, ROWS - 1)).toContain('f 冻结 · d 忘掉 · e 导出 · tab 筛选 · q/esc 返回'); // 光标在活体首条——行动词按分区给提示
   });
 
@@ -298,8 +292,8 @@ describe('行动词 f/d/r（单源走 DAO 既有族——呈现层判向）', ()
     viewer.handleEvent(text('f'));
     expect(calls).toContain('freeze:maaaaaaa');
     const grid = render();
-    expect(readRow(grid, 3)).toBe('── 生效中（0）'); // 换分区呈现（8 行 ≤ 视口 10——全量可见）
-    expect(readRow(grid, 4)).toBe('── 冻结（2）');
+    expect(readRow(grid, 3)).toBe('── 生效中（0）──'); // 换分区呈现（8 行 ≤ 视口 10——全量可见）
+    expect(readRow(grid, 4)).toBe('── 冻结（2）──');
     expect(readRow(grid, 5)).toContain('✱ [m:maaaaaaa]'); // 冻结行首记号
     expect(cursorRowText(grid)).toContain('maaaaaaa'); // 光标同 id 跟随
     expect(readRow(grid, ROWS - 1)).toContain('f 解冻 · '); // 分区提示切换
@@ -311,8 +305,8 @@ describe('行动词 f/d/r（单源走 DAO 既有族——呈现层判向）', ()
     viewer.handleEvent(text('f'));
     expect(calls).toContain('unfreeze:fbbbbbbb');
     const grid = render();
-    expect(readRow(grid, 3)).toBe('── 生效中（2）');
-    expect(readRow(grid, 6)).toBe('── 冻结（0）');
+    expect(readRow(grid, 3)).toBe('── 生效中（2）──');
+    expect(readRow(grid, 6)).toBe('── 冻结（0）──');
     expect(cursorRowText(grid)).toContain('fbbbbbbb'); // 跟随回活体区
   });
 
@@ -341,8 +335,8 @@ describe('行动词 f/d/r（单源走 DAO 既有族——呈现层判向）', ()
     viewer.handleEvent(key('enter'));
     expect(calls).toContain('forget:maaaaaaa:user'); // 缺省撤回来源 = user
     const grid = render();
-    expect(readRow(grid, 3)).toBe('── 生效中（0）');
-    expect(readRow(grid, 6)).toBe('── 已结束（2）'); // 撤回后呈终态区（r 可复）
+    expect(readRow(grid, 3)).toBe('── 生效中（0）──');
+    expect(readRow(grid, 6)).toBe('── 已结束（2）──'); // 撤回后呈终态区（r 可复）
     expect(readRow(grid, 7)).toContain('maaaaaaa');
     expect(readRow(grid, 7)).toContain('supersededBy=user');
   });
@@ -354,7 +348,7 @@ describe('行动词 f/d/r（单源走 DAO 既有族——呈现层判向）', ()
     viewer.handleEvent(text('r'));
     expect(calls).toContain('restore:tccccccc');
     const grid = render();
-    expect(readRow(grid, 3)).toBe('── 生效中（2）'); // 复活回活体区
+    expect(readRow(grid, 3)).toBe('── 生效中（2）──'); // 复活回活体区
     expect(cursorRowText(grid)).toContain('tccccccc');
     expect(readRow(grid, ROWS - 1)).not.toContain('确认'); // 免 confirm（无两段式）
     // r 在 active 行零义吞
@@ -457,6 +451,22 @@ describe('e 导出输入行（/memory-export 真身同一函数——argv 切分
     expect(readRow(r.render(), ROWS - 1)).toContain('导出失败：目标目录不可写');
   });
 
+  it('BaseError 消息自带码前缀不双折（foldErrorText 单源去重腿——修前红：鸭子折形 X：X：双前缀双呈）', async () => {
+    // 命令体把折好的 `code：message` 形文本直接抛 BaseError（码前缀消息形）
+    // ——单源 foldErrorText 的去重腿：消息已以码前缀起头即原样直呈；件内
+    // 自铸 errorText 鸭子折形无此腿（恒拼前缀——双呈）
+    const r = rig(basicRows(), {
+      // 夹具码用注册表在册码（errors.test 七形普查锁——未注册字面量全域红）
+      exportImpl: () => Promise.reject(new BaseError('PERSIST_DATA_CORRUPT', 'PERSIST_DATA_CORRUPT：磁盘已满')),
+    });
+    r.viewer.handleEvent(text('e'));
+    r.viewer.handleEvent(key('enter'));
+    await tick();
+    const line = readRow(r.render(), ROWS - 1);
+    expect(line).toContain('PERSIST_DATA_CORRUPT：磁盘已满'); // 恰一折（码与原因都在场）
+    expect(line).not.toContain('PERSIST_DATA_CORRUPT：PERSIST_DATA_CORRUPT'); // 修前红锚：双前缀双呈
+  });
+
   it('Esc 关输入行 + 查询文本保留（重开续打——/history 搜索框同律）', () => {
     const { viewer, render } = rig();
     viewer.handleEvent(text('e'));
@@ -501,23 +511,23 @@ describe('Tab 筛选循环（全部→活体→冻结→终态→全部）', () 
     expect(readRow(grid, 0)).toContain('·〔筛选：生效中〕');
     expect(readRow(grid, 1)).toBe('记忆库 · 生效 7 · 冻结 1 · 共 10'); // 投影恒全库——不随筛选变
     expect(readRow(grid, 2)).toBe('已结束 · 否决 2 · 过期 1'); // 投影两行不随筛选消
-    expect(readRow(grid, 3)).toBe('── 生效中（1）');
+    expect(readRow(grid, 3)).toBe('── 生效中（1）──');
     expect(readRow(grid, 4)).toContain('maaaaaaa');
     expect(readRow(grid, 5)).toBe(''); // 冻结/终态分区不在场
     viewer.handleEvent(key('tab')); // 冻结
     grid = render();
     expect(readRow(grid, 0)).toContain('·〔筛选：冻结〕');
-    expect(readRow(grid, 3)).toBe('── 冻结（1）');
+    expect(readRow(grid, 3)).toBe('── 冻结（1）──');
     expect(readRow(grid, 4)).toContain('✱ [m:fbbbbbbb]');
     viewer.handleEvent(key('tab')); // 终态
     grid = render();
     expect(readRow(grid, 0)).toContain('·〔筛选：已结束〕');
-    expect(readRow(grid, 3)).toBe('── 已结束（1）');
+    expect(readRow(grid, 3)).toBe('── 已结束（1）──');
     expect(readRow(grid, 4)).toContain('tccccccc');
     viewer.handleEvent(key('tab')); // 回全部
     grid = render();
     expect(readRow(grid, 0)).not.toContain('〔筛选'); // 无注记
-    expect(readRow(grid, 5)).toBe('── 冻结（1）'); // 三分区复原
+    expect(readRow(grid, 5)).toBe('── 冻结（1）──'); // 三分区复原
   });
 
   it('终态区客户端双过滤：非 owner 行不进、active 行不进（listForExport 单源）', () => {
@@ -531,7 +541,7 @@ describe('Tab 筛选循环（全部→活体→冻结→终态→全部）', () 
     viewer.handleEvent(key('tab'));
     viewer.handleEvent(key('tab')); // 终态
     const grid = render();
-    expect(readRow(grid, 3)).toBe('── 已结束（0）'); // 双过滤后空区
+    expect(readRow(grid, 3)).toBe('── 已结束（0）──'); // 双过滤后空区
     expect(readRow(grid, 4)).toBe('');
   });
 });
@@ -721,9 +731,9 @@ describe('拖选复制（挂账解挂批①——线性选区 / LF 拼 / 反相�
     const parts = copies[0]!.split('\n');
     expect(parts).toHaveLength(5);
     expect(parts[0]).toBe(L3.slice(2)); // 首行 = 条目甲按锚列切（前缀 ASCII 段——显示列即 UTF-16 下标）
-    expect(parts[1]).toBe('── 冻结（1）'); // 中间行全文（分区头也是可选正文）
+    expect(parts[1]).toBe('── 冻结（1）──'); // 中间行全文（分区头也是可选正文）
     expect(parts[2]).toBe(L5); // 中间行全文（条目行）
-    expect(parts[3]).toBe('── 已结束（1）');
+    expect(parts[3]).toBe('── 已结束（1）──');
     expect(parts[4]).toBe('[m:t'); // 尾行按焦点列切
   });
 
@@ -732,7 +742,7 @@ describe('拖选复制（挂账解挂批①——线性选区 / LF 拼 / 反相�
     render();
     drag(viewer, { row: 8, col: 4 }, { row: 4, col: 2 }); // 尾 → 首反向
     expect(copies).toHaveLength(1);
-    expect(copies[0]).toBe(`${L3.slice(2)}\n── 冻结（1）\n${L5}\n── 已结束（1）\n[m:t`); // 与正向同文
+    expect(copies[0]).toBe(`${L3.slice(2)}\n── 冻结（1）──\n${L5}\n── 已结束（1）──\n[m:t`); // 与正向同文
   });
 
   it('CJK 半格命中归字素首（双宽字素中列 → 该字素 UTF-16 首下标）', () => {
@@ -765,7 +775,7 @@ describe('拖选复制（挂账解挂批①——线性选区 / LF 拼 / 反相�
     expect(grid.getCell(3, 6)?.style.inverse).toBe(true);
     expect(grid.getCell(2, 0)?.style.inverse).toBeUndefined(); // 选区外的投影行不反相
     viewer.handleEvent(mouse('left', { row: 4, col: 2 }, 'release'));
-    expect(copies).toEqual(['── 生效中（1）\n[m']); // 分区头全文 + 条目甲首两列
+    expect(copies).toEqual(['── 生效中（1）──\n[m']); // 分区头全文 + 条目甲首两列
     grid = render();
     expect(grid.getCell(3, 0)?.style.inverse).toBe(true); // release 后高亮保留
     viewer.handleEvent(mouse('left', { row: 5, col: 0 }, 'press')); // 下次 press = 清除位

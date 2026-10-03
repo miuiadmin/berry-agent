@@ -8,6 +8,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { InputEvent, KeyEvent } from '../../engine/index.js';
 import { CellGrid } from '../../engine/index.js';
+import { BaseError } from '../../../contracts/index.js';
 import {
   buildFeedbackLines,
   FeedbackViewer,
@@ -262,9 +263,11 @@ describe('buildFeedbackLines 行集构造（纯函数）', () => {
       daemonLogPath: '/home/u/.berry-agent/daemon.log',
       daemonLogTail: ['[info] boot ok'],
     });
-    expect(present).toContain('· daemon 日志末尾 50 行（令牌已打码）');
+    // daemon 日志清单行按实数呈现（wf_8b9ae8a7 深扫处置批 lane5 域外亲收件：
+    // 面板清单段硬编 50 与 debug-viewer:200 同族虚报——动态形同修）
+    expect(present).toContain('· daemon 日志末尾 1 行（令牌已打码）');
     const absent = buildFeedbackLines({ ...DATA, daemonLogPath: '/x/daemon.log', daemonLogTail: null });
-    expect(absent).not.toContain('· daemon 日志末尾 50 行（令牌已打码）');
+    expect(absent).not.toContain('· daemon 日志末尾');
   });
 
   it('回执段：导出后尾随（段头 + 回执行）', () => {
@@ -472,6 +475,24 @@ describe('FeedbackViewer 副屏件', () => {
     const grid = new CellGrid(80, 8);
     viewer.render(grid, { row: 0, col: 0, width: 80, height: 8 });
     expect(readRow(grid, 6, 79)).toBe('导出失败：磁盘已满');
+  });
+
+  it('e 柄 BaseError 异常：错误码随回执直呈（foldErrorText 单源——修前红：message 分支丢 EXPORT 码）', () => {
+    const viewer = new FeedbackViewer({
+      data: DATA,
+      sessionId: 's',
+      onExport: () => {
+        // 夹具码用注册表在册码（errors.test 七形普查锁——未注册字面量全域红）
+        throw new BaseError('PERSIST_DATA_CORRUPT', '磁盘已满');
+      },
+      onExit: () => {},
+    });
+    expect(viewer.handleEvent(k('e'))).toBe(true);
+    const grid = new CellGrid(80, 8);
+    viewer.render(grid, { row: 0, col: 0, width: 80, height: 8 });
+    // BaseError extends Error 无 toString 覆写——修前 err instanceof Error 走
+    // message 分支只余 '磁盘已满'（码丢失）；单源折面收 `code：message`
+    expect(readRow(grid, 6, 79)).toBe('导出失败：PERSIST_DATA_CORRUPT：磁盘已满');
   });
 
   it('e 柄缺席：无动作不炸（防御位——产线装配恒在场）', () => {

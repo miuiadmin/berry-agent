@@ -16,6 +16,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { AssistantMessage as PiAssistantMessage } from '@earendil-works/pi-ai';
 
 import type { TerminalIO } from '../channels/index.js';
+import { BaseError } from '../contracts/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import { fauxProvider } from '../llm/index.js';
 import type { Provider } from '../llm/index.js';
@@ -1348,6 +1349,20 @@ describe('启动版本检查腿接线（07 §8.5 第 6 条——2026-09-19 启�
     io.send('\x04');
     expect(await entry).toBe(0);
   });
+
+  it('/update 检查腿 reject：错误码随回执直呈（foldErrorText 单源——修前红：String(err) 形落 Error: 前缀丢码）', async () => {
+    const { entry, io } = await rigUpdateEntry(
+      rigDir('entry-upd-code-'),
+      async () => ({ kind: 'skipped' as const, reason: 'env-off' as const }),
+      // 检查腿炸（probe reject 形）：BaseError 折 `code：message`——修前
+      // String(err) 只得 'Error: 检查腿炸了'（BaseError 无 toString 覆写，码丢失）
+      () => Promise.reject(new BaseError('SDK_TRANSPORT', '检查腿炸了')),
+    );
+    io.send('/update\r');
+    await until(() => io.output.includes('版本检查异常：SDK_TRANSPORT：检查腿炸了'));
+    io.send('\x04');
+    expect(await entry).toBe(0);
+  });
 });
 
 describe('启动引导面板（ob-2——07 §4.1 呈现面件 11 双层制第一层）', () => {
@@ -1735,5 +1750,112 @@ describe('/setup 配置向导装配（ob-3——07 §4.1 定形注 + 连通验�
     expect(stack.llm.listModels('my-gw')).toEqual([]);
     // ④ 当前模型已复位（目录首条——faux-only rig 下 faux-entry/m1）
     expect(stack.model).toBe('faux-entry/m1');
+  });
+});
+
+/* ---------------- foldErrorText 收口（alpha.33 处置批 Lane2——A 族残漏 + 行为件） ---------------- */
+
+describe('foldErrorText 收口与行为件（alpha.33 处置批 Lane2）', () => {
+  /**
+   * 两启速记（坏档位事件注入）：首启一轮对话落库退出 → 库面直缀词表外坏
+   * 事件（durable events 异源写入形——词法校验只在 append 写面，持久层直写
+   * 与手改库同归 fold fail-loud，session-mode.ts 防御注同律）→ 二启同 cwd
+   * resume（s1 在焦）。seq 续 last_seq + 1（连续律）。
+   */
+  async function rigBadTierEvent(dataDir: string, ws: string, bad: { type: string; data: unknown }): Promise<void> {
+    const first = await rigEntry(dataDir, ws);
+    first.io.send('档位探针\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    const probe = Persistence.open({
+      dbPath: resolveDatabasePathIn(dataDir),
+      dataDir,
+      migrations: HOST_MIGRATION_TAIL,
+    });
+    const [row] = probe.store.listSessions({ workspaceRoot: canonicalWorkspaceRoot(ws) });
+    expect(row).toBeDefined();
+    probe.store.writeEventSingle({
+      sessionId: row!.id,
+      event: { type: bad.type, seq: row!.lastSeq + 1, time: 1, data: bad.data },
+      registration: {
+        origin: row!.origin,
+        parentId: row!.parentId,
+        seedLength: row!.seedLength,
+        workspaceRoot: row!.workspaceRoot,
+        title: row!.title,
+      },
+    });
+    await probe.close();
+  }
+
+  it('/thinking 坏词折档：错误回执错误码直呈（修前红：err.message 形丢 THINKING_LEVEL_INVALID 码）', async () => {
+    const dataDir = rigDir('entry-thinkbad-data-');
+    const ws = rigDir('entry-thinkbad-ws-');
+    await rigBadTierEvent(dataDir, ws, { type: 'session/thinking-level', data: { level: 'bogus' } });
+    const second = await rigEntry(dataDir, ws);
+    await until(() => stripAnsi(second.io.output).includes('› 档位探针')); // resume 历史回读（s1 在焦）
+    second.io.send('/thinking\r');
+    // fold 坏词 fail-loud 在开屏面收为错误回执（不崩选择器）：BaseError 折
+    // `code：message`——修前 err instanceof Error 走 message 分支，码丢失
+    await until(() => second.io.output.includes('思考级别读取失败：THINKING_LEVEL_INVALID：'));
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
+
+  it('/sandbox 坏词折档：错误回执错误码直呈（修前红：err.message 形丢 SANDBOX_MODE_INVALID 码）', async () => {
+    const dataDir = rigDir('entry-sandbad-data-');
+    const ws = rigDir('entry-sandbad-ws-');
+    await rigBadTierEvent(dataDir, ws, { type: 'sandbox/mode', data: { mode: 'bogus' } });
+    const second = await rigEntry(dataDir, ws);
+    await until(() => stripAnsi(second.io.output).includes('› 档位探针'));
+    second.io.send('/sandbox\r');
+    await until(() => second.io.output.includes('沙箱模式读取失败：SANDBOX_MODE_INVALID：'));
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
+
+  it('TUI 启动期崩溃：stderr 折行错误码直呈（修前红：err.message 形丢码——BaseError extends Error 走 message 分支）', async () => {
+    // 注入炸腿：io.size() 首读位在 TuiBackend 装配前（行预算 rows 读）——
+    // 崩在主循环外，入口顶层 catch 走 writeCrashLog + stderr 一行 + exit 1
+    class BoomSizeIO extends FakeTerminalIO {
+      override size(): { columns: number; rows: number } {
+        throw new BaseError('HOST_DATA_DIR_BUSY', '尺寸读取炸了');
+      }
+    }
+    const faux = fauxProvider({ provider: 'faux-crash', models: [{ id: 'm1' }] });
+    const io = new BoomSizeIO();
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const entry = runTuiEntry({
+      flags: { noPlugins: false, debug: false },
+      io,
+      cwd: rigDir('entry-crash-ws-'),
+      version: 'test',
+      dataDir: rigDir('entry-crash-data-'),
+      providers: [faux.provider],
+      model: 'faux-crash/m1',
+      env: { BERRY_AGENT_SKIP_UPDATE_CHECK: '1' },
+    });
+    const code = await entry;
+    const stderrJoined = stderrSpy.mock.calls.map((call) => String(call[0])).join('');
+    stderrSpy.mockRestore();
+    expect(code).toBe(1);
+    expect(stderrJoined).toContain('TUI 运行失败：HOST_DATA_DIR_BUSY：尺寸读取炸了');
+  });
+
+  it('词法锁（R-1 同法）：六折点 foldErrorText + /jobs 占用降级接线 + 模型切换动作单源 + todoFor memo 双因子键（修前红：四串全缺/双拷贝在场）', () => {
+    const source = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
+    // A 族六折点收口（thinking/sandbox/marketplace/update/wizard/stderr）：
+    // 调用位 7 处 = 既有切换回执 1 + 新收 6（修前仅 1 处——单源律残漏面）
+    expect(source.split('foldErrorText(').length - 1).toBe(7);
+    // #9 /jobs 弃接布尔收口：副屏占用降级回执接线（修前 run 体 void 直弃）
+    expect(source.split("panelBusyNotice('后台任务页')").length - 1).toBe(1);
+    // #11 模型切换动作单源：回执模板字面量恰一处（修前 onModelCycle 与
+    // selectModel 双拷贝——「两入口一动作」注空悬）
+    expect(source.split('模型已切换：').length - 1).toBe(1);
+    // #10 todoFor memo 双因子键：事件数组引用同且长度同才命中（events() 恒
+    // 同引用 + append-only——引用单因子永不失效即错缓存，双因子宁可 miss）
+    expect(source.split('hit.eventsRef === events && hit.length === events.length').length - 1).toBe(1);
   });
 });

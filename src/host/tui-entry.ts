@@ -300,9 +300,9 @@ function rawCustomMergeBase(dataDir: string): Record<string, unknown> {
 }
 
 /**
- * 副屏占用降级回执句尾单源（本件本地命令族十二词共用——/status /debug
+ * 副屏占用降级回执句尾单源（本件本地命令族十三词共用——/status /debug
  * /skills /model /themes /thinking /sandbox /diff /guide /feedback /setup
- * /help）：open* 返 false = 恰一屏一副屏、占用中先收后开，回执指路 esc 收屏
+ * /help /jobs）：open* 返 false = 恰一屏一副屏、占用中先收后开，回执指路 esc 收屏
  * 再试。面名（含「页/清单/向导」量词）由各命令位注入。同句尾在
  * marketplace-tui-face（插件市场）仍持第二拷贝——跨文件收口另立题挂账；
  * 「反馈页暂不可用——稍后再试」（装载期空窗档）是另一句尾，不入本源。
@@ -682,7 +682,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     };
 
     // —— 模型选定与面板装配闭包（UX 对标批 ux-4 /model——TUI 本地拦截族）：
-    // 动作与 ctrl+p 循环同源（setModel + 回执）——两入口一动作；清单单源 =
+    // 动作与 ctrl+p 循环同源（setModel + 回执）——两入口一动作（onModelCycle
+    // 算档后即委派本闭包——动作体单源，不持第二拷贝）；清单单源 =
     // llmRuntime 目录现取（ctrl+p 宇宙同一读面不造第二清单）。footer 行1 模型
     // 槽（V-4 注⑪②——setFooterModel 回迁）：切换即活写短名（id 尾段）
     const selectModel = (spec: string): void => {
@@ -766,7 +767,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         try {
           current = foldSessionThinkingLevel(driver.session.events()) ?? stack.thinkingLevel;
         } catch (err) {
-          backend.notify(`思考级别读取失败：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
+          // 错误折面单源（组α 收口残漏——BaseError 码直呈，非 Error 免前缀噪音）
+          backend.notify(`思考级别读取失败：${foldErrorText(err)}`, { level: 'error' });
           return;
         }
       } else {
@@ -812,7 +814,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         try {
           current = foldSessionSandboxMode(driver.session.events(), stack.sandboxMode);
         } catch (err) {
-          backend.notify(`沙箱模式读取失败：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
+          // 错误折面单源（同 openThinkingPanel——BaseError 码直呈）
+          backend.notify(`沙箱模式读取失败：${foldErrorText(err)}`, { level: 'error' });
           return;
         }
       } else {
@@ -894,9 +897,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         });
       }
       // open 不抛（面内自吞）：异常形 = 源清单损坏等 discover 层拒——回执归
-      // tail/results；此处 catch 仅防御位（保持 fire-and-forget 零 unhandled）
+      // tail/results；此处 catch 仅防御位（保持 fire-and-forget 零 unhandled，
+      // 错误折面单源——BaseError 码直呈）
       void marketFace.open().catch((err: unknown) => {
-        backend.notify(`插件市场异常：${String(err)}`, { level: 'error' });
+        backend.notify(`插件市场异常：${foldErrorText(err)}`, { level: 'error' });
       });
     };
 
@@ -980,7 +984,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
             backend.notify(`版本检查失败：${result.message}——稍后再试或退出后执行 berry update`, { level: 'warn' });
           }
         })
-        .catch((err: unknown) => backend.notify(`版本检查异常：${String(err)}`, { level: 'error' }));
+        .catch((err: unknown) => backend.notify(`版本检查异常：${foldErrorText(err)}`, { level: 'error' }));
     };
 
     // —— /guide 常驻快速上手参考（07 §8.5 第 2 条）：版本 + 核心命令清单 +
@@ -1306,8 +1310,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }).catch((err: unknown) => {
         // fire-and-forget 零 unhandled（openMarketplacePanel 同律防御位）：兜
         // 流程件 saveBinding 折档之外的腿（如 probe reject）——异常 notify 呈
-        // 报不杀整个 TUI（installCrashChoreography 的 unhandledRejection exit(1)）
-        backend.notify(`配置向导异常：${err instanceof Error ? err.message : String(err)}`, { level: 'error' });
+        // 报不杀整个 TUI（installCrashChoreography 的 unhandledRejection exit(1)）；
+        // 错误折面单源（BaseError 码直呈）
+        backend.notify(`配置向导异常：${foldErrorText(err)}`, { level: 'error' });
       });
     };
 
@@ -1366,7 +1371,13 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       {
         name: 'jobs',
         description: '后台任务清单页（运行中 + 近期结束——主屏清单外的全量记录）',
-        run: () => void backend.openJobs(),
+        run: () => {
+          // openJobs false = 副屏被占（jobs 源恒注入——rig/产线同形，false 必为
+          // 占用态）：降级回执一行（openStatus 族同律——此前 void 弃接布尔为
+          // 本地命令族唯一缺角；副屏模态独占下命令提交路实际不可达，此行为
+          // 防御位族内对齐）
+          if (!backend.openJobs()) backend.notify(panelBusyNotice('后台任务页'), { level: 'warn' });
+        },
       },
     ] as const;
     /** 本地命令族 → 补全条目（query 已去斜杠——与 exitCommandItems 同契约） */
@@ -1398,6 +1409,17 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       }
     };
 
+    // #10 todoFor 折叠 memo（O(N) 折叠每帧重算收口——宁可 miss 不可错缓存）：
+    // SessionLog.events() 恒返回同数组引用且只在尾追加（05 §1.2 单写者律）——
+    // 命中键 = {事件数组引用, 长度} 双因子：引用换代（fork/reopen 换 SessionLog
+    // 实例）或长度增长（尾追加新事件）即判陈旧重折；引用同且长度同 = 内容必
+    // 同（append-only 结构保证——引用单因子永不失效即错缓存，双因子规避）。
+    // 条目按会话 id 保有（todoFor 消费位恒为聚焦会话——refreshTodo 四锚；
+    // 被切走会话的残条不增长，进程内会话数有界）
+    const todoFoldCache = new Map<
+      string,
+      { eventsRef: Parameters<typeof foldTodoTable>[0]; length: number; folded: ReturnType<typeof foldTodoTable> }
+    >();
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
       onSubmit: (sessionId, text, opts) => {
@@ -1450,9 +1472,9 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
         if (specs.length === 0) return;
         const index = specs.indexOf(stack.model);
         const next = specs[(index + 1) % specs.length]!; // 不在册（-1+1=0）→ 装配序首位
-        stack.setModel(next);
-        backend.setFooterModel(next);
-        backend.notify(`模型已切换：${next}（下一轮对话起生效）`, { level: 'info' });
+        // 动作体单源（selectModel——「两入口一动作」注兑现：本闭包只算下一档，
+        // 切栈/活写 footer/回执三行不再持第二拷贝）
+        selectModel(next);
       },
       onQuit: () => quitResolve(),
       // 命令执行窗自动锚（ix-2——07 §4.3 档位 2）：发起会话 = 聚焦会话
@@ -1467,7 +1489,15 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       localCommands,
       todoFor: (sessionId) => {
         const driver = stack.driverOf(sessionId);
-        return driver === undefined ? null : foldTodoTable(driver.session.events());
+        if (driver === undefined) return null;
+        const events = driver.session.events();
+        // 双因子命中（引用同且长度同）→ 返回缓存折叠（todoFor 消费位只读
+        // 呈现——todo 面板行集，缓存对象零共享可变面）
+        const hit = todoFoldCache.get(sessionId);
+        if (hit !== undefined && hit.eventsRef === events && hit.length === events.length) return hit.folded;
+        const folded = foldTodoTable(events);
+        todoFoldCache.set(sessionId, { eventsRef: events, length: events.length, folded });
+        return folded;
       },
       // 后台任务段数据面（界面美化役批6——UX 批6 A 件）：Job 注册表只读拉取
       // 闭包（assembly jobRows 单源）——固定区段帧首拉取 running 快照 + /jobs
@@ -1742,7 +1772,8 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     await quitDone; // 主循环——输入事件驱动，直至 ctrl+d 空框退出
   } catch (err) {
     runtime.writeCrashLog(err); // 崩溃取证先行（memory 形跳过——件内语义）
-    process.stderr.write(`TUI 运行失败：${err instanceof Error ? err.message : String(err)}\n`);
+    // 错误折面单源（BaseError 码直呈——stderr 诊断面同 notify 面同源）
+    process.stderr.write(`TUI 运行失败：${foldErrorText(err)}\n`);
     exitCode = 1;
   } finally {
     await runtime.shutdown(); // 幂等六步：abort → closer（backend.stop 出屏）→ flush → …
