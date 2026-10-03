@@ -7,7 +7,9 @@
  * 本轮账。字符 → token 双道启发式：CJK 字符按 1 token/字、其他字符按
  * 4 字符/token（英文中位）；**呈现层估值非计费账**——真值归 message_end
  * 载荷 usage（onSettled 校正，单次收敛不回跳），计费真源维持 usage 四桶
- * 不动。消费面（一机制喂两槽）：件 12「本轮 N」实时叠加 + 行1 速度平滑。
+ * 不动。消费面（一机制喂两槽）：件 12「本轮 N」实时叠加 + 行1 速度平滑
+ * （速度槽 = estimate() ÷ 本轮流式已历时——分母归 TuiBackend 持钟，本件
+ * 零时钟零装配知识）。
  */
 import type { AgentMessage } from '../../../contracts/index.js';
 

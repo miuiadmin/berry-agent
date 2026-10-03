@@ -3399,6 +3399,25 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     expect(io.bytes).not.toContain('上下文');
   });
 
+  it('【注⑪② 回归锁】message_end 关窗防双计：context_usage 落账后工具相位重画 = settled 纯值（关窗失效将 settled+估值双计）', () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION, footer: { modelLabel: 'm', cwdLabel: () => 'w' } });
+    emit(backend, { type: 'context_usage', usedTokens: 996, maxTokens: 1_000_000 }); // settled 基线落账
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_start', role: 'assistant' }); // 流中平滑窗开
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('字'.repeat(40)) }); // 估值累积 40
+    emit(backend, { type: 'message_end', message: usageMsg(440) }); // 真值收口（output=50；关窗位即本分支）
+    emit(backend, { type: 'context_usage', usedTokens: 996, maxTokens: 1_000_000 }); // turn 收口 settled 真值再落账（E-4 序：turn_end 前）
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+    io.bytes = '';
+    // 工具相位（turn 间长窗）：touchFixed 触帧 + setStatus 扇出锚（G1-#3——
+    // refreshFooter 同帧重拉仪表段）迫使状态行整行重写（行级差分下同内容帧
+    // 零写出——尾注变更使上下文槽重落屏可观测）
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} });
+    backend.setStatus(SESSION, '相位观测');
+    expect(io.bytes).toContain('上下文 996 / 1 M · 0%'); // settled 纯值（<1K 原值直读）
+    expect(io.bytes).not.toContain('上下文 1 K'); // 双计形缺席（996 + 40/50 估值残值 → 1036/1046 → '1 K'——关窗失效形）
+  });
+
   it('context_usage 双可选缺席 = 未知不显示（E-4 事件型语义——诚实缩位）', () => {
     const { io, backend } = makeBackend({ sessionId: SESSION, footer: { modelLabel: 'm', cwdLabel: () => 'w' } });
     emit(backend, { type: 'context_usage' });
@@ -3406,6 +3425,28 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     emit(backend, { type: 'context_usage', usedTokens: 12_345 }); // maxTokens 缺席 = 二件套（无帽无百分比）
     expect(io.bytes).toContain('上下文 12 K');
     expect(io.bytes).not.toContain(' · 0%');
+  });
+
+  it('【注⑪⑥(c) 修前红→回归锁】速度槽流中供数腿（一机制喂两槽）：流中相位读估值平滑非空——settled 账整段缺席修前', () => {
+    let t = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      now: () => t,
+      footer: { modelLabel: 'm', cwdLabel: () => 'w' },
+    });
+    emit(backend, { type: 'agent_start' }); // resetUsage 清账——首个 turn_end 落账前 usageTotal=0
+    emit(backend, { type: 'message_start', role: 'assistant' }); // 流中相位开窗
+    t += 2000; // 本轮流式已历时 2s（注入钟——分母确定性）
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(400)) }); // 估值 400/4=100 tokens
+    expect(io.bytes).toContain('50 tok/s'); // 100 / 2s——修前：速度槽纯认 settled 账（零 token）→ 流中整段缺席
+    // 流中窗外回落 settled 真值：message_end 关窗 + turn_end 落账 → run 级平均
+    emit(backend, { type: 'message_end', message: usageMsg(600) });
+    emit(backend, { type: 'turn_end', turn: 1, stopReason: 'stop' }); // usageTotal = 600
+    t += 2000; // run 已历时 4s
+    io.bytes = '';
+    emit(backend, { type: 'tool_execution_start', toolCallId: 't1', name: 'grep', arguments: {} }); // 工具相位触重画
+    expect(io.bytes).toContain('150 tok/s'); // 600 / 4s——settled 真值（非估值账；亚秒/零 token 诚实缺席律同 speedView）
   });
 
   it('速度段行1（注⑪②——speedView 消费）：completed 终值冻结进仪表；aborted 终态抑制不显段', () => {
@@ -4023,6 +4064,28 @@ describe('TuiBackend resumeMain 复起附件（fx2-E——编辑器帽随动 + f
     // 修后：帽 = editorHeightCap(24) = 7 → 呈现 7 → 固定区 8 →
     // DECSTBM 底 = 24 - 8 = 16；修前帽停 12 → 固定区 13 → 底 = 11（只写 1;11r）
     expect(io.bytes).toContain('\x1b[1;16r');
+  });
+
+  it('【注⑪③ 修前红→回归锁】⎇ 槽复起重读（refreshFooterGit 独立锚）：挂起期 checkout 换支复起即收敛——修前陈支名跨复起驻留（复起路不触发 onRepaint）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'berry-resume-git-'));
+    mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/dev\n');
+    writeFileSync(join(dir, '.git', 'refs', 'heads', 'dev'), 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n');
+    writeFileSync(join(dir, '.git', 'refs', 'heads', 'feat'), 'f9e8d7c6b5a4f9e8d7c6b5a4f9e8d7c6b5a4f9e8\n');
+    try {
+      const { io, backend } = makeBackend({
+        sessionId: SESSION,
+        footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
+      });
+      expect(io.bytes).toContain('⎇ dev @a1b2c3d'); // 构造期低频锚首读
+      backend.suspendMain();
+      writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/feat\n'); // 挂起期 checkout 换支
+      io.reset();
+      backend.resumeMain();
+      expect(io.bytes).toContain('⎇ feat @f9e8d7c'); // 复起重读收敛（修前：⎇ dev 陈值驻留——git IO 已拆 refreshFooterGit 不在复起锚）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

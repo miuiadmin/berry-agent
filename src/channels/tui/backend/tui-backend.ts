@@ -23,8 +23,8 @@
  *   栈（行1 仪表 + 行2 环境，1-2 行）→ 后台任务面板（注⑪① 行3——迁最底
  *   行）；
  * - **渲染合并**：调度注入后 op 队列合并（连续 present 留末次、transient
- *   到达序保持、固定区脏位重建一帧一次）+ fps 帽 60 + tick 100ms 自重排
- *   驱动状态行转轮；**无注入调度 = 同步直出**（测试语义——合并与自驱 tick
+ *   到达序保持、固定区脏位重建一帧一次）+ fps 帽 60 + tick 80ms 自重排
+ *   驱动任务行转轮；**无注入调度 = 同步直出**（测试语义——合并与自驱 tick
  *   关闭，10e-1 同步断言原样成立；生产装配须注入宿主调度）；
  * - **件 7 终端外显**（本纵切）：OscDisplay 自持件——起屏基线 title、
  *   onEnvelope 按会话净计数忙态（OSC 9;4 + 1s 保活）、onRepaint title 点缀
@@ -52,7 +52,13 @@
  * 副屏 onCopy 同柄装配——挂账解挂批①对齐补齐 memory 面）。
  */
 import type { AgentEvent } from '../../../agent/index.js';
-import { formatElapsedCompact, isStandardMessage, type AgentMessage, type Usage } from '../../../contracts/index.js';
+import {
+  formatClockHM,
+  formatElapsedCompact,
+  isStandardMessage,
+  type AgentMessage,
+  type Usage,
+} from '../../../contracts/index.js';
 import type {
   ApprovalAskAnswer,
   ApprovalAskRequest,
@@ -332,8 +338,9 @@ function modelShortOf(spec: string): string {
   return spec.split('/').pop() ?? '';
 }
 /**
- * 任务行/状态行转轮自驱间隔（ms——注入调度后自重排）。界面美化役批 4：
- * 100ms → 80ms（07 §4.1 件 12——帧距定值；一处常量、件内零自驱时钟纪律不破）
+ * 任务行转轮自驱间隔（ms——注入调度后自重排；状态行转轮已随 V-3 笔1 退役）。
+ * 界面美化役批 4：100ms → 80ms（07 §4.1 件 12——帧距定值；一处常量、
+ * 件内零自驱时钟纪律不破）
  */
 const TICK_INTERVAL_MS = 80;
 
@@ -404,12 +411,6 @@ const ZERO_USAGE: UsageAccumulation = Object.freeze({
  * 正文瞬时行不带 cell 网格样式，dim 经 SGR 直拼、行尾 SGR_RESET 复原）。
  */
 const DIM_SGR = buildSgr({ dim: true });
-
-/** Unix 毫秒 → 24 小时制 HH:MM（收尾行时刻段——本地时区） */
-function formatClockHM(unixMs: number): string {
-  const d = new Date(unixMs);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
 
 /**
  * 累计快照尾块分诊（V-4 注⑪⑦ 态② 细分驱动面）：message_update 载荷
@@ -584,6 +585,12 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   private runStartedAt: number | null = null;
   /** 当前 run 终点时戳（agent_end 落——分母冻结，终态后 speedView 保持终值不随墙钟漂移；resetUsage 清） */
   private runEndedAt: number | null = null;
+  /**
+   * 本轮流式起点时戳（message_start 落——行1 速度槽流中相位分母〔注⑪⑥c
+   * 「一机制喂两槽」速度腿：本轮估值 token ÷ 本轮流式已历时〕）；下一
+   * message_start 重开新账、resetUsage 连清（repaint/切焦中途附着本轮无起点）。
+   */
+  private turnStreamStartedAt: number | null = null;
   /**
    * 重试续入标记（界面美化役批 4——retry_wait_end(resumed) 置位、下一
    * agent_start 消费即复位：续入是同一 run 的断点续跑非新 run——run 级账
@@ -988,7 +995,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     // onRepaint 队列理论空」成真）
     this.pendingOps = [];
     this.cancelTimer('frame'); // 在飞帧收口（挂起期零写出的调度半边）
-    this.cancelTimer('tick'); // 状态行转轮停摆（防后台空转——复起重摆）
+    this.cancelTimer('tick'); // 任务行转轮停摆（防后台空转——复起重摆）
     this.cancelTimer('escape'); // lone-ESC 窗收口（decoder 已弃在途态）
     // 硬退复原钩换挂起档（不 disarm）：副屏 Engine 的 exit 钩只复原其屏形
     //（LEAVE_MODES[alt] + raw），本件挂起期保活的终端级写点无人接管——挂起档
@@ -1034,10 +1041,13 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.editor.setMaxVisibleLines(this.fixedEditorCap ?? editorHeightCap(this.io.size().rows));
     // 全帧重画：几何真值重取（吸收停屏期 resize）+ 清屏 + 行集全量重写（含停屏期 durable 事件）
     this.screen.handleResize(this.transcript.snapshot, this.transcript.trimmedBlockCount);
-    // footer 常驻段重算（fx2-E——resize 收敛锚同款附件，序同其位）：挂起期
-    // checkout 换支后复起重读 .git/HEAD（每调现读）；**后于 screen.handleResize**
-    // 同 handleResize 注——缺省同步 flush 档 touchFixed 即触发写出，Screen 几何
-    // 未先收敛则中途全量写出按旧行位落杯（缩窗后越屏定位）
+    // footer 常驻段重算（fx2-E——resize 收敛锚同款附件，序同其位）：⎇ 槽 git
+    // 读盘经 refreshFooterGit 独立低频锚复起重读（注⑪③——复起路不触发
+    // onRepaint，挂起期 checkout 换支须此锚收敛；git IO 不在 refreshFooter
+    // 路内）；**后于 screen.handleResize** 同 handleResize 注——缺省同步
+    // flush 档 touchFixed 即触发写出，Screen 几何未先收敛则中途全量写出按
+    // 旧行位落杯（缩窗后越屏定位）
+    this.refreshFooterGit();
     this.refreshFooter();
     // 瞬时行缓冲补吐（复起补显射界含停屏期瞬时行——2026-09-07 勘正笔；挂起前
     // 已入队未落帧的瞬时行经 suspendMain 转账同在此账）；槽在场（停屏期起流
@@ -1047,7 +1057,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.suspendedTransients = [];
     this.replayTransients(transients);
     this.renderFixed();
-    if (this.scheduleFn !== null) this.armTick(); // 状态行转轮复摆
+    if (this.scheduleFn !== null) this.armTick(); // 任务行转轮复摆
   }
 
   /* ---------------- 副屏装配面（批 10f-4 特性腿——件 8 /history；mm 批 /memory 并席） ---------------- */
@@ -1816,7 +1826,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       }
     }
     if (!this.speedSuppressed) {
-      const speed = this.speedView;
+      // 速度槽双相位供数（注⑪⑥c「一机制喂两槽」）：流中相位（assistant
+      // 流式窗内）读估值平滑（本轮估值 ÷ 本轮流式已历时——settled 账在首个
+      // turn_end 落账前恒零，纯认 settled 则流中整段缺席）；流中窗外（turn
+      // 间工具相位/终态）读 settled 真值（speedView——run 级平均）
+      const speed = this.contextStreamLive ? this.streamSpeedView : this.speedView;
       if (speed !== null) slots.push(`${formatTokensPerSecond(speed)} tok/s`);
     }
     const context = this.contextSlotText();
@@ -1970,7 +1984,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * 任务行/状态行动画推帧（自驱定时器内调；公开面留装配侧手动驱动——忙态外
+   * 任务行动画推帧（自驱定时器内调；公开面留装配侧手动驱动——忙态外
    * 零开销）。界面美化役批 4：忙态呈现（转轮/速度/耗时）迁移至任务行——
    * 状态行专注 footer 常驻段 + 闲态尾注，忙态不再驱动故不推帧。
    */
@@ -1989,10 +2003,27 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
    * run 级平均速度观测面（tok/s——三反馈批C；V-4 注⑪⑦ 任务行/尾注双消费位
    * 退役后为宿主侧二次消费位：行1 速度段〔笔3〕）：run 中 = 刷新锚时刻现算
    * running average；终态后保持终值（终点时戳冻结分母）至下次清账；无起点/
-   * 亚秒/零 token 返 null（诚实缺席——消费面自行省段）。
+   * 亚秒/零 token 返 null（诚实缺席——消费面自行省段）。流中相位的速度呈现
+   * 走 streamSpeedView（估值平滑腿——本面仍 settled 口径不动）。
    */
   get speedView(): number | null {
     return this.runSpeedTokensPerSecond();
+  }
+
+  /**
+   * 流中速度（行1 速度槽流中相位——注⑪⑥c「一机制喂两槽」速度腿）：本轮
+   * 估值 token ÷ 本轮流式已历时（turnStreamStartedAt 起注入钟）。诚实缺席
+   * 三形返 null：无流式起点（repaint/切焦中途附着）、零估值 token、亚秒窗
+   * （与 settled 速度同律——亚秒平均速度无意义）。终态与流中窗外不走本路
+   * （speedView settled 真值）；终态呈现抑制归 speedSuppressed 既有律。
+   */
+  private get streamSpeedView(): number | null {
+    if (this.turnStreamStartedAt === null) return null;
+    const tokens = this.turnEstimator.estimate();
+    if (tokens <= 0) return null;
+    const elapsedMs = this.now() - this.turnStreamStartedAt;
+    if (elapsedMs < 1000) return null;
+    return (tokens * 1000) / elapsedMs;
   }
 
   /** resize 编舞：几何重取 + 主屏全量重画 + 固定区按新几何重建（权威重建不走队列） */
@@ -2559,7 +2590,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.screen.appendTransient(lines.map((line) => capAnsiLine(line, columns)));
   }
 
-  /** 状态行转轮自驱定时器（注入调度后自重排；忙态外 tick 零开销） */
+  /** 任务行转轮自驱定时器（注入调度后自重排；忙态外 tick 零开销） */
   private armTick(): void {
     this.tickHandle = this.scheduleFn!(() => {
       this.tickHandle = null;
@@ -2793,6 +2824,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
         // assistant 流式窗口开，message_end 归态①）
         if (event.role === 'assistant') {
           this.turnEstimator.reset(); // 本轮重置（每 turn 起跑——基线重建，重试续入同律新账）
+          this.turnStreamStartedAt = this.now(); // 流中相位分母起跑（注⑪⑥c 速度腿——行1 速度槽流中读数）
           this.contextStreamLive = true; // 上下文流中平滑开窗（注⑪②——settled + 估值器）
           this.taskLine.enterThinking();
         }
@@ -2872,6 +2904,7 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.turnEstimator.reset(); // V-4 注⑪⑦：本轮账连清（新 run/切焦清账——中途附着本轮诚实缺席）
     this.runStartedAt = null; // 批C：清账连清起点（repaint/切焦中途附着即无起点——速度段诚实缺席）
     this.runEndedAt = null;
+    this.turnStreamStartedAt = null; // 流中相位分母连清（注⑪⑥c——中途附着本轮无起点，与估值器 reset 同刻）
     this.runToolCount = 0;
     this.runRetryCount = 0;
     this.runSeedAt = null;
@@ -2990,19 +3023,6 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     }
   }
 
-  /**
-   * 固定区 v2 重建（自上而下段序）：overlay 段（各层量高叠放 + 视口帽收口
-   * fx2-B）→ todo 面板（件 4——todoFor 缺席/空表即零行）→ input-ask 提示行
-   * → 补全弹层 → 编辑器（动态量高；聚焦态 = 无 overlay 占焦）→ 工具进度
-   * 面板（件 5——与状态行分职互补相邻）→ 状态行。编辑光标经 EditorView
-   * setCursor 声明 → MainScreen.setFixed 声明位落 cup。
-   *
-   * 段量高经固定区段优先级截断（07 §4.1 挂账解挂批 C②）：极小终端固定区
-   * 总高 > 视口时依优先级序截断（状态行恒保底 > 输入框收窄至下限 > 低段
-   * todo/工具进度先缩后隐）——分配律单源 fixed-budget.ts；生效锚即本件
-   * 段高重算既有路（touchFixed/requestRender 收敛 + repaint/resize 全量
-   * 重画同收敛）。
-   */
   /**
    * 固定区 v2 重建（自上而下段序——V-4 注⑪① 笔3 定序）：overlay 段（各层
    * 量高叠放 + 视口帽收口 fx2-B）→ todo 面板（件 4——todoFor 缺席/空表即

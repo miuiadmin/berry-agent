@@ -10,13 +10,15 @@
  * - detached HEAD（40hex 直接 commit 指向）**已含哈希**——HEAD 内容前 7
  *   位即短哈希（支名缺席形 `⎇ abc1234`）；一切缺席/畸形 → null（后缀
  *   缩位不虚报）；
- * - 刷新锚 = footer 重算低频锚（切焦联动 onRepaint / agent_end / 档位切换
- *   setStatus——07 §4.1 界面美化役批定值回填注「避 resize 高频读盘」：
- *   resize 走缓存变体不重读，消费位 TuiBackend.refreshFooter/重建分立），
- *   每低频锚现读——不 watch 不轮询（checkout 后随下一次重算收敛）。
+ * - 刷新锚 = ⎇ 槽 git 读盘独立低频锚（V-4 注⑪③ 拆分后归
+ *   TuiBackend.refreshFooterGit）：构造期 + onRepaint 切焦联动两锚——
+ *   不进 setStatus/agent_end/resize 高频锚（07 §4.1「避 resize 高频读盘」
+ *   承界面美化役定值；resize 走缓存变体不重读），每锚现读——不 watch 不
+ *   轮询（checkout 后随下一锚收敛）。
  *
- * 本件纯读零缓存零 IO 面外溢；消费位 = TuiBackend.refreshFooter（构造期
- * cwdPath 定值与 cwdLabel 同生命周期——跨焦 cwd 漂移同 R6 定值类）。
+ * 本件纯读零缓存零 IO 面外溢；消费位 = TuiBackend.refreshFooterGit
+ * （footer.gitRoot 闭包注入形——cwdPath 定值字段已随闭包化取代；跨焦 cwd
+ * 漂移随 onRepaint 锚重拉）。
  */
 import { readFileSync, statSync } from 'node:fs';
 import * as path from 'node:path';

@@ -27,7 +27,7 @@ import { DIM_STYLE, ellipsize, stringWidth } from '../../engine/index.js';
 import { formatElapsedCompact } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
 
-/** 转轮帧序（braille 十帧——与状态行同源形态，件内自持单源） */
+/** 转轮帧序（braille 十帧——件内自持单源） */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 
 /** 任务行态 + 离场态（idle = 零高度缺席；注⑪⑦：streaming 拆 thinking/generating 双态） */
@@ -162,7 +162,8 @@ export class TaskStatusLine implements Renderable {
   render(buffer: CellBuffer, region: Region): void {
     if (this.state === 'idle' || region.width <= 0) return;
     if (this.state === 'error') {
-      // 态④：红 ✗ 终态——无转轮无括号（用量归 footer 尾注；速度段已退役 V-4 注⑪⑦）；失败直呈律
+      // 态④：红 ✗ 终态——无转轮无括号（失败腿不写 footer 用量尾注——V-3 注⑧
+      // 已退役，用量经行1 累计槽；速度段亦退役 V-4 注⑪⑦）；失败直呈律
       // （V-0 注②）同句携因 `✗ 失败 · 原因`（缺席裸形兜底）；原因行宽帽 = 段帽
       // （ellipsize 一句话帽——不溢行产漂账物理行）
       const text = this.errorReason === null ? '✗ 失败' : `✗ 失败 · ${this.errorReason}`;
