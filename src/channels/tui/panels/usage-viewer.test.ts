@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { KeyEvent } from '../../engine/index.js';
 import { stringWidth } from '../../engine/index.js';
 import type { UiUsageSummary } from '../../../contracts/index.js';
-import { buildUsageLines, UsageViewer } from './usage-viewer.js';
+import { buildUsageLines, formatTokensCompact, UsageViewer } from './usage-viewer.js';
 
 /** key 事件夹具 */
 const k = (key: string, mods: Partial<KeyEvent> = {}): KeyEvent => ({
@@ -65,6 +65,26 @@ describe('buildUsageLines 行集构造（纯函数）', () => {
       return stringWidth(line.slice(0, line.length - value.length));
     });
     expect(new Set(cols).size).toBe(1);
+  });
+});
+
+describe('formatTokensCompact 紧凑格式（footer 行1 上下文三件套单源）', () => {
+  it('三档分界 + K 档先舍入后分档：rounded 达 1000 升 M 档（修前红——999,500 显「1000 K」与 1 M 双单位并置）', () => {
+    expect(formatTokensCompact(999)).toBe('999'); // <1K 原值
+    expect(formatTokensCompact(1_000)).toBe('1 K'); // K 档下界
+    expect(formatTokensCompact(12_345)).toBe('12 K'); // K 档千位整数
+    expect(formatTokensCompact(999_499)).toBe('999 K'); // K 档上界（对照组——修前后同绿）
+    expect(formatTokensCompact(999_500)).toBe('1 M'); // 修前红：Math.round(999.5)=1000 →「1000 K」
+    expect(formatTokensCompact(999_999)).toBe('1 M'); // K 档顶缘（round 进 1000——升档同族）
+    expect(formatTokensCompact(1_000_000)).toBe('1 M'); // M 档下界（与升档形衔接单值连续）
+    expect(formatTokensCompact(1_500_000)).toBe('1.5 M'); // M 档一位小数（尾零剥除）
+  });
+
+  it('M 档无更高档：千位续形保留（1e9 显「1000 M」单档续形——非 K/M 双单位并置失真）', () => {
+    // 函数现状无 G 档：M 档舍入入千位无处可升，与 1.5e9「1500 M」同族单档续形
+    expect(formatTokensCompact(999_500_000)).toBe('999.5 M');
+    expect(formatTokensCompact(1_000_000_000)).toBe('1000 M');
+    expect(formatTokensCompact(1_500_000_000)).toBe('1500 M');
   });
 });
 

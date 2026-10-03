@@ -83,6 +83,11 @@ function emit(backend: TuiBackend, event: AgentEvent, focused = true): void {
   backend.onEnvelope({ sessionId: SESSION, event }, focused);
 }
 
+/** ANSI 转义剥除（行内槽序断言用——SGR/光标定位剥除后各槽锚词可作 indexOf 相对位置比对；与 tui-entry 同形） */
+function stripAnsi(out: string): string {
+  return out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+}
+
 describe('TuiBackend 契约面', () => {
   it('id / capabilities / hasAudience（阻塞四件浮层呈现——批 10e-2 交互纵切翻真）', () => {
     const { backend } = makeBackend();
@@ -3511,6 +3516,41 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     expect(io.bytes).toContain('⏹ 已中止');
   });
 
+  it('【注⑪② 补锁】行1 六槽全在场连接序：模式·思考·模型·累计·速度·上下文（instrumentSlots 压栈序=坍缩梯宽序）', () => {
+    // 坍缩梯⑧右起丢（status-line slots.pop()）——instrumentSlots 压栈序即宽序
+    // （上下文最先丢、模式词恒保）：调换 push 序则内容序随错且丢弃序随错，而
+    // 既有锁只锁四槽前缀（'Auto · 思考高 · glm-4.7 · 累计 500'）与速度/上下文
+    // 各自单独在场——六槽并陈全序此前零内容锁。行级差分下变行整行重写，帧内
+    // 全序可读（stripAnsi 剥 SGR/定位后 indexOf 序比对各槽锚词相对位置）
+    let t = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      now: () => t,
+      footer: {
+        tiers: () => ({ mode: 'Auto', thinking: '思考高', sandbox: '工作区写', sandboxDanger: false }),
+        sessionSpent: () => 500, // 累计槽（>0 在场）
+        modelLabel: 'zai/glm-4.7', // 模型槽（id 尾段短名）
+        cwdLabel: () => 'proj',
+      },
+    });
+    emit(backend, { type: 'context_usage', usedTokens: 996, maxTokens: 1_000_000 }); // 上下文槽真值落账
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_start', role: 'assistant' }); // 流中相位开窗（速度槽供数腿）
+    t += 2000; // 注入钟——流中已历时 2s（分母确定性）
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(400)) }); // 估值 100 → 速度 50 tok/s；上下文 996+100 → 1 K
+    const line = stripAnsi(io.bytes);
+    // 整行1 连接序恰为六槽序（' · ' 连接——整行显示宽 71 < 80 无坍缩无损）
+    expect(line).toContain('Auto · 思考高 · glm-4.7 · 累计 500 · 50 tok/s · 上下文 1 K / 1 M · 0%');
+    // 各槽锚词相对位置严格右移（缺席 indexOf -1 即红——判别锚：调换速度/上下文 push 序本断言红）
+    let at = -1;
+    for (const anchor of ['Auto', '思考高', 'glm-4.7', '累计 500', '50 tok/s', '上下文 1 K / 1 M · 0%']) {
+      const next = line.indexOf(anchor, at + 1);
+      expect(next).toBeGreaterThan(at);
+      at = next;
+    }
+  });
+
   it('行2 ⎇ 段：git 库目录现支名@短哈希（readGitHead 低频锚缓存——/status 行维持不撤）', () => {
     const dir = mkdtempSync(join(tmpdir(), 'berry-git-slot-'));
     mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
@@ -3522,6 +3562,34 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
         footer: { cwdLabel: () => 'proj', gitRoot: () => dir },
       });
       expect(io.bytes).toContain('⎇ dev @a1b2c3d'); // 支名 @短哈希（前 7 位——零子进程直读 refs；'⎇ 支名 @' 记形随 gitHeadSuffix 单源）
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('【注⑪③ 补锁】行2 ⎇ 与沙箱并陈序：⎇ 支名@短哈希在沙箱原词之前（envSlots 压栈序=右起丢弃序）', () => {
+    // 坍缩梯⑧右起丢（row2 pop()：教学先丢→沙箱→⎇→短 id）——envSlots 压栈
+    // 序 ⎇ 先于沙箱即宽序（沙箱先于 ⎇ 丢）。既有锁只锁 ⎇ 单独在场（本组上
+    // 一测）与沙箱单独在场（首画测），两槽并陈相对序此前零内容锁
+    const dir = mkdtempSync(join(tmpdir(), 'berry-git-order-'));
+    mkdirSync(join(dir, '.git', 'refs', 'heads'), { recursive: true });
+    writeFileSync(join(dir, '.git', 'HEAD'), 'ref: refs/heads/dev\n');
+    writeFileSync(join(dir, '.git', 'refs', 'heads', 'dev'), 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n');
+    try {
+      const { io } = makeBackend({
+        sessionId: SESSION,
+        footer: {
+          tiers: () => ({ mode: 'Auto', thinking: null, sandbox: '工作区写' }), // 行2 沙箱槽（原词）
+          cwdLabel: () => 'proj',
+          gitRoot: () => dir, // 行2 ⎇ 槽（支名@短哈希——零子进程直读 refs）
+        },
+      });
+      const line = stripAnsi(io.bytes);
+      const gitAt = line.indexOf('⎇ dev @a1b2c3d');
+      const sandboxAt = line.indexOf('工作区写');
+      expect(gitAt).toBeGreaterThanOrEqual(0);
+      expect(sandboxAt).toBeGreaterThanOrEqual(0);
+      expect(gitAt).toBeLessThan(sandboxAt); // ⎇ 在沙箱原词之前（压栈序即宽序——整行显示宽 54 < 80 无坍缩全序在场）
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

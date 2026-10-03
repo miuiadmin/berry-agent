@@ -71,10 +71,21 @@ export function formatTokensPerSecond(n: number): string {
  * 小数（尾零剥除——1.0 → 1）、≥1K 千位整数、<1K 原值；空格单位形（用户样例
  * `上下文 12 K / 1 M · 38%`）。与 formatCount 千位分组分职（累计段用全值
  * 分组形——槽位充裕；上下文段用紧凑形——三件套并列省宽）。
+ *
+ * K 档先舍入后分档（alpha.31 二轮扫描处置——修「1000 K」双单位并置）：
+ * rounded 达 1000 升 M 档（999,500 起 Math.round 进到 1000——若直显
+ * 「1000 K」将与 1,000,000 的「1 M」双单位制并置失真；升档复用 M 档一位
+ * 小数舍入形）。M 档自身无更高档：舍入入千位（999,950,000 起「1000 M」）
+ * 为单档续形非双单位并置——保留。
  */
 export function formatTokensCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')} M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)} K`;
+  if (n >= 1_000) {
+    // 先舍入后分档：rounded 达 1000 升 M 档（999,500 → 1 M；999,499 → 999 K）
+    const rounded = Math.round(n / 1_000);
+    if (rounded >= 1_000) return `${(rounded / 1_000).toFixed(1).replace(/\.0$/, '')} M`;
+    return `${rounded} K`;
+  }
   return `${n}`;
 }
 
