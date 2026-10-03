@@ -11,7 +11,9 @@
  *   位即短哈希（支名缺席形 `⎇ abc1234`）；一切缺席/畸形 → null（后缀
  *   缩位不虚报）；
  * - 刷新锚 = ⎇ 槽 git 读盘独立低频锚（V-4 注⑪③ 拆分后归
- *   TuiBackend.refreshFooterGit）：构造期 + onRepaint 切焦联动两锚——
+ *   TuiBackend.refreshFooterGit，07 注⑪③ 追注定形三枚）：构造期 + onRepaint
+ *   切焦联动 + 会话复起 resumeMain 三锚（复起重画路不触发 onRepaint——挂起
+ *   期 checkout 换支须复起锚收敛）——
  *   不进 setStatus/agent_end/resize 高频锚（07 §4.1「避 resize 高频读盘」
  *   承界面美化役定值；resize 走缓存变体不重读），每锚现读——不 watch 不
  *   轮询（checkout 后随下一锚收敛）。

@@ -294,8 +294,9 @@ export interface TuiBackendOptions {
     readonly cwdLabel?: () => string;
     /**
      * git 根 pull 闭包（注⑪③——行2 ⎇ 槽）：readGitHead 零子进程直读
-     * refs（支名@短哈希）；git IO 只进构造期/onRepaint 低频锚（不进 setStatus
-     * 高频锚），结果缓存渲染期纯读。
+     * refs（支名@短哈希）；git IO 只进构造期/onRepaint/会话复起 resumeMain
+     * 低频锚三枚（07 注⑪③ 追注定形——复起重画路不触发 onRepaint；不进
+     * setStatus 高频锚），结果缓存渲染期纯读。
      */
     readonly gitRoot?: () => string;
   };
@@ -1868,8 +1869,10 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   }
 
   /**
-   * ⎇ 槽 git 读盘低频锚（注⑪③——refreshFooterGit）：构造期 + onRepaint
-   * （切焦 cwd 漂移）；readGitHead 零子进程直读 refs，gitHeadSuffix 单源
+   * ⎇ 槽 git 读盘低频锚（注⑪③——refreshFooterGit；07 注⑪③ 追注定形
+   * 三枚）：构造期 + onRepaint（切焦 cwd 漂移）+ 会话复起 resumeMain
+   * （复起重画路不触发 onRepaint——挂起期 checkout 换支须此锚收敛）；
+   * readGitHead 零子进程直读 refs，gitHeadSuffix 单源
    * 拼形去 lead 空格（'⎇ dev@a1b2c3d'）。**不进 setStatus/resize 高频锚**
    * （07 定值「避 resize 高频读盘」承 V-3 前律）；闭包缺席/非库/抛错 =
    * 槽缩位不虚报。
@@ -1957,7 +1960,8 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
     this.taskLine.goIdle();
     if ((this.inFlightBySession.get(sessionId) ?? 0) > 0) this.taskLine.enterWorking();
     this.toolPanel.clear(); // 件 5：瞬时面不跨 repaint 保存
-    // 切焦低频锚族（注⑪②③）：⎇ 槽 git 重读（cwd 漂移——git IO 唯二锚之一）
+    // 切焦低频锚族（注⑪②③）：⎇ 槽 git 重读（cwd 漂移——git IO 三锚之一：
+    // 构造期/本位 onRepaint/会话复起 resumeMain）
     // + 上下文清位（首轮前整段缺席律 per focus——新焦首轮 context_usage 落
     // 账前不虚承旧焦窗口占用；resetUsage 不清此对——上下文是会话级量，跨
     // run 边界幸存供下一 run 平滑基线）

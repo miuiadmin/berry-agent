@@ -3449,6 +3449,41 @@ describe('TuiBackend footer 三行栈（V-4 注⑪ 笔3——行1 仪表/行2 �
     expect(io.bytes).toContain('150 tok/s'); // 600 / 4s——settled 真值（非估值账；亚秒/零 token 诚实缺席律同 speedView）
   });
 
+  it('【注⑪⑥(c) 诚实缺席锁】速度槽流中相位亚秒窗/零估值两缺席形（JSDoc 三形补锚——speedView 同律既有锁的流中腿）', () => {
+    // ①亚秒窗缺席：分母起跑后 500ms——亚秒平均速度无意义（判别性实证锚：
+    // 改坏 elapsedMs<1000 判据后本断言红——届时将现 100/0.5s=200 tok/s）
+    let t = 0;
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      now: () => t,
+      footer: { modelLabel: 'm', cwdLabel: () => 'w' },
+    });
+    emit(backend, { type: 'agent_start' });
+    emit(backend, { type: 'message_start', role: 'assistant' }); // 流中相位开窗（分母起跑于 t=0）
+    t += 500; // 亚秒窗
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(400)) }); // 估值 400/4=100 tokens
+    expect(io.bytes).not.toContain('tok/s'); // 亚秒窗缺席（无起点缺席形归 speedView 既有锁——本批在场面外两形）
+    // ②跨秒呈现（同轮续推对照组——缺席非恒缺席）：累计 1500ms
+    t += 1000;
+    io.bytes = '';
+    emit(backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('a'.repeat(800)) }); // 累计快照差分再 +100 → 200 tokens
+    expect(io.bytes).toContain('133 tok/s'); // 200 / 1.5s ≈ 133.3（≥100 整数档——formatTokensPerSecond 单源）
+    // ③零估值缺席：空 partial（content 空 → 估值 0）跨秒仍缺席——无 token 无速度可言
+    let t2 = 0;
+    const rig2 = makeBackend({
+      sessionId: SESSION,
+      now: () => t2,
+      footer: { modelLabel: 'm', cwdLabel: () => 'w' },
+    });
+    emit(rig2.backend, { type: 'agent_start' });
+    emit(rig2.backend, { type: 'message_start', role: 'assistant' });
+    t2 += 2000; // 跨秒窗（对照组②分母充分——缺席只可归零估值）
+    rig2.io.bytes = '';
+    emit(rig2.backend, { type: 'message_update', role: 'assistant', partial: assistantMsg('') }); // content: [] → 零估值
+    expect(rig2.io.bytes).not.toContain('tok/s');
+  });
+
   it('速度段行1（注⑪②——speedView 消费）：completed 终值冻结进仪表；aborted 终态抑制不显段', () => {
     let t = 0;
     const { io, backend } = makeBackend({
