@@ -22,8 +22,8 @@ import type { ClientApprovalEntry, ClientEnvelope, ClientSessionSummary } from '
 // node:fs，DOM 类型面与浏览器包结构性不可承；durations/tool-face 同批迁入）：
 // 工具名用户面动词（V-0 注⑤呈现层转写——数据面 toolNames 记账保原始名）、
 // 紧凑耗时格式（V-0 注④整秒档——TUI/SPA 收尾行真同源零分叉）与取消形
-// 时刻段 HH:MM（formatClockHM——原 clockOf 逐字克隆收编，tui-backend 侧
-// 待外下笔收口）。
+// 时刻段 HH:MM（formatClockHM——原 clockOf 逐字克隆收编，双消费面
+// （tui-backend 收尾行 / webui 取消回执）均已改引本源）。
 import { formatClockHM, formatElapsedCompact, toolFaceZh } from '../../contracts/index.js';
 
 /** 呈现层消息视图模型（投影消息与活体落稿同形） */

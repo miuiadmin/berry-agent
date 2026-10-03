@@ -121,9 +121,11 @@ import { runCredentialsCommand } from '../credentials/index.js';
 /**
  * 静态补全源已迁 host/static-completions.ts（2026-09-23 host 编舞批——本件
  * 尾部原纯补全源块三函数〔commandItems / exitCommandItems /
- * commandArgumentItems〕+ 退出词表两枚 + modelShortName 整体外迁，与
- * live-completions.ts 活体值源对称分立；本件装配位经 import 消费——消费处
- * 零改动，EXIT_WORDS / EXIT_DESCRIPTIONS 供 /help 命令册同源并流）。
+ * commandArgumentItems〕+ 退出词表两枚整体外迁，与 live-completions.ts
+ * 活体值源对称分立；本件装配位经 import 消费——消费处零改动，EXIT_WORDS /
+ * EXIT_DESCRIPTIONS 供 /help 命令册同源并流）。当年随迁的 modelShortName
+ * 已随 V-4 扫描处置批笔3（2026-10-03）全仓退役——短名推导现源 = channels
+ * 侧 modelShortOf（tui-backend 模块私有），static-completions 不再持短名面。
  */
 
 /** TUI 入口选项（main 分派接线 + 测试注入面） */
