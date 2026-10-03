@@ -312,6 +312,17 @@ function panelBusyNotice(name: string): string {
 }
 
 /**
+ * 键位拒载报文单源（R5 批 10k——双消费位同引，词面漂移即词法锁红）：
+ * ① /debug 副屏 settingsWarnings 列（坏值/拒载集中面呈现）；② 启动首画后
+ * notify warn 逐条呈报（首画后落屏可见）。参数取结构子集（只消费 detail
+ * ——KeybindingRejection 类型不在 channels 公开面，本件不深引；同
+ * webui/client 结构视界律）。
+ */
+function keybindingRejectionNote(rejection: { readonly detail: string }): string {
+  return `键位覆盖未生效：${rejection.detail}`;
+}
+
+/**
  * TUI 主入口。阻塞至用户退出（ctrl+d 空框）或异常；返回进程退出码。
  */
 export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
@@ -546,7 +557,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       const row = runtime.persistence.store.getSessionRow(sid);
       const root = canonicalWorkspaceRoot(row?.workspaceRoot ?? session.workspaceRoot);
       const driver = stack.driverOf(sid);
-      const turns = driver === undefined ? 0 : foldSessionUsage(driver.session.events()).turns;
+      // 轮次 null = driver 缺席（焦点会话未开驱动——registry.focus 纯投影路
+      // 可达）不可知不虚报：/status 面板轮次行缺席不推行（与 git/今日同律；
+      // /usage 从持久日志折恒有数——两读面口径分立）
+      const turns = driver === undefined ? null : foldSessionUsage(driver.session.events()).turns;
       // 模型全集计数——ctrl+p 模型循环同数据源（providers × models 装配序）
       let modelCount = 0;
       for (const provider of stack.llmRuntime.models.getProviders()) {
@@ -619,7 +633,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
           settingsKeys: settingsLoad !== null ? Object.keys(settingsLoad.settings) : [],
           settingsWarnings: [
             ...settingsWarns,
-            ...backend.keybindingRejections.map((rejection) => `键位覆盖未生效：${rejection.detail}`),
+            ...backend.keybindingRejections.map((rejection) => keybindingRejectionNote(rejection)),
           ],
           sqlitePath: runtime.persistence.store.dbPath,
           pluginIds: boot.report.activated.map((activated) => activated.id),
@@ -1421,8 +1435,10 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     const backend = new TuiBackend(io, {
       sessionId: session.sessionId,
       onSubmit: (sessionId, text, opts) => {
-        // /sessions 切焦补开（R7 批 10k）：切焦 repaint 只投影不开驱动，选定
-        // 旧会话直接提交前补开（manager.open 幂等——existing 返既有 driver；
+        // 焦点纯投影面补开（R7 批 10k 陈化翻档 2026-10-04）：focus 只投影
+        // 不开驱动（/sessions 选定现走 resumeSession 恒开——切焦即续接；
+        // 插件/嵌装 registerSession+focus 投影路不开），投影面选定旧会话
+        // 直接提交前补开（manager.open 幂等——existing 返既有 driver；
         // open 失败 = 行面已失理论不达防御位，弃单与 submitText 未开形同律）
         if (stack.driverOf(sessionId) === undefined) {
           try {
@@ -1698,7 +1714,7 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
     // —— 键位覆盖拒载呈报（R5 批 10k——Keymap fail-loud 装配位）：settings
     // 坏覆盖逐条 warn（不炸启动——坏项忽略、好项照常生效；首画后落屏可见）
     for (const rejection of backend.keybindingRejections) {
-      backend.notify(`键位覆盖未生效：${rejection.detail}`, { level: 'warn' });
+      backend.notify(keybindingRejectionNote(rejection), { level: 'warn' });
     }
 
     // —— /help 命令注册（R7 批 10k——host 装配侧直挂）：开屏体 = 上

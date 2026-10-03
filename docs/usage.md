@@ -200,7 +200,7 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 - `/sessions` —— 会话切换：会话清单光标选择（`↑`/`↓` 移动、`PgUp`/`PgDn`/`Home`/`End` 翻选、`Enter` 选定切换）；
 - `/usage` —— 会话用量：本会话全 run 累计分表（轮次 + token 输入/输出/缓存读/缓存写四分 + 合计 + 费用——无费用上报时如实呈现）；
 - `/status` —— 状态汇总：版本 / 模型位（当前 provider/model + 全集计数——`ctrl+p` 模型循环同数据源）/ 模型凭证行（态 + **完整值**——全明文翻裁：页面上所见即当前生效值）/ 会话（短 id / cwd 短名 / `支名@短哈希`〔detached HEAD 时支名缺席、行呈 `@短哈希` 形；仅不在 git 仓库时该行不显示〕 / 轮次 / 今日〔当日前台与后台合计已耗 tokens，为零时该行不显示〕）/ 数据目录 / 当前主题 / env 旋钮生效值（MODEL / DATA_DIR / LOG_LEVEL 三键白名单维持——其余 env 恒不入面）；
-- `/debug` —— 调试信息：daemon.log 路径与尾行快照（上限 50 行、token 明文行掩码；非 daemon 形缺席行如实呈现）/ log level 生效值 / settings 解析态（键位覆盖拒载与主题坏值警告的汇总面）/ sqlite 路径 / 已安装插件 id 清单——凭证值恒不入面；
+- `/debug` —— 调试信息：daemon.log 路径与尾行快照（上限 50 行、token 明文行掩码；非 daemon 形缺席行如实呈现）/ log level 生效值 / settings 解析态（键位覆盖拒载与主题坏值警告的汇总面）/ sqlite 路径 / 已装载插件 id 清单（口径 = activated 装载集）——凭证值恒不入面；
 - `/themes` —— 主题切换：内置 `auto` / `dark` / `light` 三种 + `themes/` 自定义主题（坏文件条目 ⚠ 标注）的选择器（▸ 光标 + `Enter` 选定 + 当前项 ● 标记）；选定即时切换并写 `settings.json` 的 `theme` 键（见下文「用户设置」）；
 - `/thinking` —— 深度思考级别：off~max 七级选定（▸ 光标 + `Enter` 选定 + 当前项 ● 标记）；选定后下一轮对话起生效，是否生效随模型能力——模型不支持思考时静默无效；
 - `/sandbox` —— 沙箱模式：read-only / workspace-write / danger 三种选定（▸ 光标 + `Enter` 选定 + 当前项 ● 标记）；选定即刻生效于后续工具调用（运行中的 run 内下一工具调用起按新模式执法），切会话各模式独立；

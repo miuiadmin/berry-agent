@@ -31,6 +31,34 @@ import { runTuiEntry, readSingleKeyFromIo, readLogTailLines } from './tui-entry.
 import type { ConversationStack } from './conversation-stack.js';
 import { runMarketplaceEntry } from './marketplace-cmd.js';
 
+/* ---------------- 捕获缝：channels barrel passthrough（仅记录 todoFor 注入面） ---------------- */
+
+/** 装配期捕获位（vi.hoisted——vi.mock 工厂提升到文件顶，捕获体必须同步可用） */
+const todoForCapture = vi.hoisted(() => ({
+  fn: undefined as
+    | ((sessionId: string) => readonly { readonly status: string; readonly content: string }[] | null | undefined)
+    | undefined,
+}));
+
+// passthrough 单点包裹（issue barrel 捕获先例同形——run-issue-verify.test.ts）：
+// spread 全真导出 + TuiBackend 构造时记录注入的 todoFor 后原样转发——零行为
+// 替身，捕获到的是 tui-entry 装配的生产闭包本体（todoFor 折叠 memo 行为锁
+// 的直接观测缝——本文件运行时零依赖该 barrel，mock 只作用于 tui-entry 导入）
+vi.mock('../channels/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../channels/index.js')>();
+  const RealTuiBackend = actual.TuiBackend;
+  class CapturingTuiBackend extends RealTuiBackend {
+    constructor(
+      io: ConstructorParameters<typeof RealTuiBackend>[0],
+      options: ConstructorParameters<typeof RealTuiBackend>[1],
+    ) {
+      todoForCapture.fn = options?.todoFor;
+      super(io, options);
+    }
+  }
+  return { ...actual, TuiBackend: CapturingTuiBackend };
+});
+
 /* ---------------- 测试基建 ---------------- */
 
 /** 零用量 */
@@ -577,6 +605,50 @@ describe('runTuiEntry 装配序', () => {
     second.io.send('/status\r');
     await until(() => second.io.output.includes('◉ 状态汇总'));
     expect(stripAnsi(second.io.output)).not.toMatch(/今日\s+\d/); // 零耗 = 今日行缺席
+    second.io.send('q');
+    await until(() => second.io.output.includes('\x1b[?1049l'));
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
+
+  it('/status 轮次行 driver 缺席不虚报 0（缺席不推行，与 git/今日同律；修前红：fold 缺席假零）', async () => {
+    const dataDir = rigDir('entry-status-turn-data-');
+    const stacks1: ConversationStack[] = [];
+
+    // 对照腿：driver 在场（启动焦点）——跑一轮后 /status 轮次行推行真值
+    //（≥1：foldSessionUsage 现折——缺席是缺省语义不是行退役）
+    const first = await rigEntry(dataDir, rigDir('entry-status-turn-ws1-'), {
+      onStack: (stack) => stacks1.push(stack),
+    });
+    first.io.send('轮次探针\r');
+    await until(() => first.faux.state.callCount >= 1);
+    await until(() => first.io.output.includes('ok'));
+    const s1 = stacks1[0]!.channels.focusedId!; // 一腿退出前取（栈拆后勿再读）
+    first.io.send('/status\r');
+    await until(() => first.io.output.includes('◉ 状态汇总')); // 副屏开屏
+    expect(stripAnsi(first.io.output)).toMatch(/轮次\s+[1-9]/); // 真值 ≥1（一轮对话）
+    first.io.send('q');
+    await until(() => first.io.output.includes('\x1b[?1049l'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+
+    // 二启：同 dataDir 异 cwd 开新会话（s2 焦位带驱动）→ 经 channels 公开面
+    // focus(s1)（registry.focus 只投影不开驱动——/sessions 选定路走
+    // resumeSession 已恒开驱动 conversation-stack.ts「切焦即续接」，故构造
+    // 取本公开路）：s1 持久日志有真实轮次账而 driverOf(s1) === undefined →
+    // /status：修前轮次行虚报 0（driver 缺席折假零——/usage 从持久日志折
+    // 恒有数，相悖）；修后缺席不推行（轮次行整行省略——不可知非零值）
+    const stacks2: ConversationStack[] = [];
+    const second = await rigEntry(dataDir, rigDir('entry-status-turn-ws2-'), {
+      onStack: (stack) => stacks2.push(stack),
+    });
+    await until(() => second.io.output.includes('工作区写 · ')); // footer 就绪门
+    await stacks2[0]!.channels.focus(s1); // 只投影不开驱动（未注册视同注册）
+    await until(() => stripAnsi(second.io.output).includes('› 轮次探针')); // s1 史回读落画
+    second.io.send('/status\r');
+    await until(() => second.io.output.includes('◉ 状态汇总'));
+    // 修前红：`轮次     0`（假零）；修后：轮次行整行缺席（不虚报不可知值）
+    expect(stripAnsi(second.io.output)).not.toMatch(/轮次\s+\d/);
     second.io.send('q');
     await until(() => second.io.output.includes('\x1b[?1049l'));
     second.io.send('\x04');
@@ -1857,5 +1929,80 @@ describe('foldErrorText 收口与行为件（alpha.33 处置批 Lane2）', () =>
     // #10 todoFor memo 双因子键：事件数组引用同且长度同才命中（events() 恒
     // 同引用 + append-only——引用单因子永不失效即错缓存，双因子宁可 miss）
     expect(source.split('hit.eventsRef === events && hit.length === events.length').length - 1).toBe(1);
+  });
+
+  it('词法锁（D3——sourcesRejectedNote 句族收编同形）：键位拒载报文单源 keybindingRejectionNote 双消费位同引', () => {
+    const source = readFileSync(new URL('./tui-entry.ts', import.meta.url), 'utf8');
+    // 句面字面量唯单源位（helper 体内）——修前双站手拼两拷贝，漂移无门
+    expect(source.split('键位覆盖未生效：').length - 1).toBe(1);
+    // 双消费位（/debug settingsWarnings 列 + 启动首画 notify warn）皆走单源
+    expect(source.split('keybindingRejectionNote(rejection)').length - 1).toBe(2);
+  });
+
+  it('todoFor 折叠 memo 双因子行为锁（词法锁外的行为半边）：命中路同引用不重折 + 尾追加长度增长即失效重折', async () => {
+    const dataDir = rigDir('entry-todomemo-data-');
+    const ws = rigDir('entry-todomemo-ws-');
+    // 一腿：跑一条消息落史（行首事件 + user/message + assistant 回复）
+    const first = await rigEntry(dataDir, ws);
+    first.io.send('todo 折叠探针\r');
+    await until(() => first.io.output.includes('ok'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+    // probe 尾追加 todo/write durable 事件（resume 后日志尾即本事件——fold 成
+    // 表两行；items 是 fixture 文本非模型产物，内容可锚）
+    let seededId = '';
+    {
+      const probe = Persistence.open({
+        dbPath: resolveDatabasePathIn(dataDir),
+        dataDir,
+        migrations: HOST_MIGRATION_TAIL,
+      });
+      const [row] = probe.store.listSessions({ workspaceRoot: canonicalWorkspaceRoot(ws) });
+      expect(row).toBeDefined();
+      seededId = row!.id;
+      probe.store.writeEventSingle({
+        sessionId: seededId,
+        event: {
+          type: 'todo/write',
+          seq: row!.lastSeq + 1,
+          time: 1,
+          data: {
+            items: [
+              { status: 'in-progress', content: 'memo 探针甲' },
+              { status: 'pending', content: 'memo 探针乙' },
+            ],
+          },
+        },
+        registration: {
+          origin: row!.origin,
+          parentId: row!.parentId,
+          seedLength: row!.seedLength,
+          workspaceRoot: row!.workspaceRoot,
+          title: row!.title,
+        },
+      });
+      await probe.close();
+    }
+    // 二启：resume 续接（历史含 todo/write）→ 捕获缝拿生产 todoFor 闭包本体
+    const second = await rigEntry(dataDir, ws);
+    await until(() => stripAnsi(second.io.output).includes('› todo 折叠探针')); // resume 回读落画
+    const todoFor = todoForCapture.fn!;
+    // 命中路：同事件数组引用且长度不变 → 二调返回同引用（未重折——
+    // foldTodoTable 每调新建数组，引用同即缓存命中铁证；若退化为恒重折
+    // 或键丢长度因子致错缓存，本锚分档红）
+    const once = todoFor(seededId);
+    expect(once).not.toBeNull();
+    expect(once!.length).toBe(2); // seed 两行成表（fold 读侧锚）
+    expect(todoFor(seededId)).toBe(once);
+    // 失效路：尾追加新事件（提交即落 user/message）→ 长度增长判陈旧重折；
+    // fold 倒扫先遇可见 user/message → 空表（用户出手即重置——重折出新结果
+    // 非旧缓存回吐，run-scoped 重置语义经 memo 失效路显形）
+    second.io.send('重折探针\r');
+    await until(() => second.io.output.includes('ok'));
+    const refolded = todoFor(seededId);
+    expect(refolded).not.toBe(once); // 长度因子失效实证（append-only 尾增长）
+    expect(refolded).toEqual([]); // 新结果 = 空表（非旧表回吐）
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
   });
 });

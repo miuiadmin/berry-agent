@@ -90,7 +90,18 @@ export type ClientDisplayEvent =
 /** session 族终结事件视界（落 durable 两型的客户端消费子集） */
 export type ClientTerminalEvent =
   | { readonly type: 'message_end'; readonly message: unknown }
-  | { readonly type: 'tool_execution_end'; readonly toolCallId: string };
+  | {
+      readonly type: 'tool_execution_end';
+      readonly toolCallId: string;
+      /**
+       * 工具执行结果（结构视界——只声明消费到的 isError 子集）：失败判据
+       * = result.isError（TUI 三态卡 ✓/✗/⏹ 同源位，工具发射位随 result 整体
+       * 镜像到 session 族帧）。整体可选 = 向后兼容位：旧服务端/坏形缺席按
+       * 成功呈现（「执行完成」），isError 缺席同按成功——错误标记是数据
+       * 契约位非默认位。
+       */
+      readonly result?: { readonly isError?: boolean };
+    };
 
 /** 审批 asked 镜像载荷（= 服务端 WebuiApprovalAskedPayload 客户端视界） */
 export interface ClientAskedPayload {

@@ -237,6 +237,38 @@ describe('frames 工具族与状态行', () => {
     expect(state.status).toBe('⚙ my-plugin-tool …'); // 集外名（插件）不虚译——注册名直呈
   });
 
+  it('终结行失败分档：result.isError=true → 「执行失败」，isError/result 缺席 → 「执行完成」（修前红：恒「执行完成」失败工具伪收场）', () => {
+    // 失败判据 = 工具结果 isError（TUI 三态卡 ✓/✗/⏹ 同源位——跨通道同律）；
+    // 载荷 result 在场携 isError:true → 终态行换失败语气词（详情走 assistant
+    // errorMessage 轨，终态行不塞详情）
+    let state = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-err', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(
+      state,
+      session({ type: 'tool_execution_end', toolCallId: 't-err', result: { isError: true } }),
+    );
+    expect(state.messages[state.messages.length - 1]?.text).toBe('⚙ bash 执行失败'); // 修前红：`⚙ bash 执行完成`
+    // isError 缺席（false 形）按成功呈现——错误标记是数据契约位非默认位
+    state = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-ok', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(
+      state,
+      session({ type: 'tool_execution_end', toolCallId: 't-ok', result: { isError: false } }),
+    );
+    expect(state.messages[state.messages.length - 1]?.text).toBe('⚙ bash 执行完成');
+    // result 整体缺席（旧服务端/坏形容错）同按成功呈现——可选位向后兼容
+    state = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-bare', name: 'bash', arguments: {} }),
+    );
+    state = applyEnvelope(state, session({ type: 'tool_execution_end', toolCallId: 't-bare' }));
+    expect(state.messages[state.messages.length - 1]?.text).toBe('⚙ bash 执行完成');
+  });
+
   it('会话切换清工具名映射（旧会话 id 不污染新会话）', () => {
     let state = applyEnvelope(
       initialAppState,

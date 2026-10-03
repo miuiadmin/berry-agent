@@ -104,6 +104,18 @@ describe('buildStatusLines 行集构造（纯函数）', () => {
     expect(todayIdx).toBeLessThan(envIdx);
   });
 
+  it('轮次行缺席诚实形：turns null（焦点会话 driver 已拆——不可知）不推行（不虚报 0 行）', () => {
+    // 修前红：turns 恒 number——driver 缺席位被装配面折成假 0（/usage 从持久
+    // 日志折恒有数，/status 零假报诚实性问题）；null = 不可知非零值，与 git/
+    // 今日「缺席不推行」同律整行省略
+    const lines = buildStatusLines({ ...DATA, turns: null });
+    expect(lines.every((line) => !line.startsWith('轮次'))).toBe(true);
+    // 对照腿：数值在场（含真 0——driver 在场的空会话）照常推行
+    expect(buildStatusLines({ ...DATA, turns: 0 }).some((line) => line.startsWith('轮次') && line.endsWith('0'))).toBe(
+      true,
+    );
+  });
+
   it('模型凭证行（ob-2 态 + C-4 全明文翻裁值）：ready 携完整供血值（人面所见即供血——修前红：v1 值恒不入面）', () => {
     const readyLines = buildStatusLines(DATA);
     const readyLine = readyLines.find((line) => line.startsWith('模型凭证'))!;

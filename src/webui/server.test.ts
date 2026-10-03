@@ -891,6 +891,28 @@ describe('webui/server 传输面（微路由 + SSE + 跨入口审批）', () => 
     }
   });
 
+  it('SSE 终结帧载荷镜像：tool_execution_end 携 result 整体（isError 位随行——SPA 失败分档供数半边）', async () => {
+    // 分档判据定形注②的载荷半边：session 族帧 payload = AgentEvent 逐字镜像
+    // （服务端无第二构造位），工具结果（含 isError）随帧整体到达——SPA 终态
+    // 行失败分档（frames 终结行判 result.isError）的供数链在此锁死
+    const reader = await openSse(port, 's-1', token);
+    try {
+      pushEnvelope({
+        sessionId: 's-1',
+        event: { type: 'tool_execution_end', toolCallId: 't-1', result: { content: [], isError: true } },
+      });
+      const frame = await reader.next();
+      expect(frame).toEqual({
+        kind: 'session',
+        sessionId: 's-1',
+        payload: { type: 'tool_execution_end', toolCallId: 't-1', result: { content: [], isError: true } },
+      });
+      await expectSilence(reader);
+    } finally {
+      reader.abort();
+    }
+  });
+
   it('断线重连一致性（D2①）：close 销账 hasAudience 翻 false → 断线窗事件零滞留 → 新流只收后续帧（live-only）', async () => {
     const r1 = await openSse(port, 's-1', token);
     // 在场观众登记（订阅即入册）

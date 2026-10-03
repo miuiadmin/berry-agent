@@ -60,8 +60,12 @@ export interface StatusPanelData {
    * （非库/缺席——null 不推行，不虚报）。装配位 readGitHead 现算注入。
    */
   readonly gitHead?: string | null;
-  /** 轮次（会话 events fold——/usage 同数据源） */
-  readonly turns: number;
+  /**
+   * 轮次（会话 events fold——/usage 同数据源）：null = 焦点会话 driver 缺席
+   * （不可知——装配位 driverOf 缺席形）不推行（与 gitHead/今日「缺席不推行」
+   * 同律，不虚报 0 行；/usage 走持久日志恒有数，缺席仅 /status 折算路）。
+   */
+  readonly turns: number | null;
   /**
    * 今日全道耗（V-4 注⑪⑤——footer 今日段退役迁此）：快照档开屏现读
    * （allLanesSpentToday 呈现口径）；null/零耗 = 不推行（诚实缺席——不虚报
@@ -219,7 +223,9 @@ export function buildStatusLines(data: StatusPanelData): string[] {
     row('工作区', data.cwdLabel),
     // git 支名行（V-3 注⑦——footer ⎇ 段退役迁此）：null 不推行（不虚报）
     ...(data.gitHead != null && data.gitHead !== '' ? [row('git', data.gitHead)] : []),
-    row('轮次', `${data.turns}`),
+    // 轮次行：null（driver 缺席——不可知）不推行（不虚报 0；含真 0 在场的
+    // 数值照常推行——driver 在场的空会话是合法态）
+    ...(data.turns != null ? [row('轮次', `${data.turns}`)] : []),
     // 今日行（V-4 注⑪⑤——footer 今日段退役迁此）：开屏快照现读一次；零耗
     // 不推行（冷启动零噪声——与 footer 累计段零耗不显同律）
     ...(data.todaySpent != null && data.todaySpent > 0 ? [row('今日', formatCount(data.todaySpent))] : []),

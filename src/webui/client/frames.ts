@@ -384,6 +384,10 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
         // 终结行动词走 toolFaceZh（V-0 注⑤跨通道对端）
         const name = state.toolNames[payload.toolCallId] ?? payload.toolCallId;
         const { [payload.toolCallId]: _removed, ...toolNames } = state.toolNames;
+        // 终态行失败分档：判据 = 工具结果 isError（TUI 三态卡同源位）；终态行
+        // 只换语气词——失败详情走 assistant errorMessage 轨（错误块本体呈现），
+        // result/isError 缺席（旧服务端/坏形容错）按成功呈现（可选位向后兼容）
+        const failed = payload.result !== undefined && payload.result.isError === true;
         return {
           ...state,
           seq,
@@ -391,7 +395,12 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           toolNames,
           messages: [
             ...state.messages,
-            { key, role: 'tool', text: `${TOOL_RUN_MARK} ${toolFaceZh(name)} 执行完成`, streaming: false },
+            {
+              key,
+              role: 'tool',
+              text: `${TOOL_RUN_MARK} ${toolFaceZh(name)} ${failed ? '执行失败' : '执行完成'}`,
+              streaming: false,
+            },
           ],
         };
       }
