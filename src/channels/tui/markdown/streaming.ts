@@ -8,7 +8,9 @@
  *
  * **稳定面判据（冻结提交粒度 = 块）**：除尾块外全稳定（后随块的开工即
  * 前块的终态——块序无法回插）；尾块终态判三形：
- * - 闭栏代码：高亮样式已定（闭栏才高亮），后续追加必为新块 → 稳定；
+ * - 闭栏代码 + 文本尾随换行：高亮样式已定（闭栏才高亮），且闭栏行后有
+ *   换行——后续追加必为新块 → 稳定；无尾换形的闭栏行仍可被粘字（后续
+ *   分块把非围栏字符粘上围栏行 → 整行围栏判定失败回翻开栏）→ 不稳；
  * - 标题/列表项/引用/水平线 + 文本尾随换行：尾行已终，追加必为新块，
  *   既有行集不可变（引用追加行不改前行布局）→ 稳定；
  * - 段落（软折行回流）/ 表格（列宽回流）/ 开栏代码（闭栏样式回翻）→
@@ -102,7 +104,11 @@ export class StreamingMarkdown implements Renderable {
 
   /** 尾块终态判（三形头注——回流/样式回翻形恒不稳） */
   private tailSafe(tail: MarkdownBlock): boolean {
-    if (tail.type === 'code') return tail.open !== true; // 闭栏 = 高亮已定
+    // 闭栏 + 文本尾随换行：高亮已定且闭栏行后有换行（后续追加必为新行/新
+    // 块——与标题等单行终态块同判据）。无尾换形的闭栏行可被粘字：后续分块
+    // 把非围栏字符粘上围栏行时整行围栏判定（closesFence）失败 → 回翻开栏
+    // （高亮撤销/收尾行删/污染行吸收），已判稳行字节改写违 durable 永不重写律
+    if (tail.type === 'code') return tail.open !== true && this.lastText !== null && this.lastText.endsWith('\n');
     // 尾行未终（无换行收尾）——行内容仍可延伸，标题/列表/引用/横线全不稳
     if (this.lastText === null || !this.lastText.endsWith('\n')) return false;
     return tail.type === 'heading' || tail.type === 'list-item' || tail.type === 'quote' || tail.type === 'hr';

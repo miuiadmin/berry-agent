@@ -1,8 +1,8 @@
 /**
  * 流式 markdown 直推件测试（批 10h——纯逻辑直锁）。
  *
- * 覆盖：update 幂等短路、稳定面计量三形（块粒度判据——闭栏代码/尾行已终
- * 单行块/回流形恒不稳）、渲染与定稿件同管线（同文同宽同行集）。
+ * 覆盖：update 幂等短路、稳定面计量三形（块粒度判据——闭栏代码+尾随换行/
+ * 尾行已终单行块/回流形恒不稳）、渲染与定稿件同管线（同文同宽同行集）。
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -72,10 +72,25 @@ describe('StreamingMarkdown 流式直推', () => {
     });
   });
 
-  it('稳定面三形之闭栏代码：尾块闭栏即全稳（高亮已定，追加必为新块）', () => {
+  it('稳定面三形之闭栏代码 + 尾随换行：闭栏行已终，追加必为新块 → 全稳', () => {
     const s = new StreamingMarkdown();
-    s.update('段\n\n```ts\nconst x = 1;\n```');
+    s.update('段\n\n```ts\nconst x = 1;\n```\n'); // 尾随换行前提——免检形见下
     expect(s.stableLineCount(40)).toBe(s.measure(40)); // 尾块稳定 → 全文稳定
+  });
+
+  it('闭栏代码换行前提：无尾随换形的闭栏行可被粘字回翻开栏——判不稳', () => {
+    const s = new StreamingMarkdown();
+    // 第一代：文末恰止于闭栏 fence、无尾随换行——闭栏行本身仍可被后续分块
+    // 粘上非围栏字符（```x 形整行围栏判定失败 → 回翻开栏），不得判稳（冻结
+    // 行升格 durable 后永不重写——已判稳行字节改写物理不可回收）
+    s.update('段\n\n```ts\nconst x = 1;\n```');
+    const stable1 = s.stableLineCount(40);
+    expect(stable1).toBe(1); // 稳定面止于段落前缀（修前：闭栏豁免判稳 = measure 4）
+    const frozen = s.rowsFor(40);
+    // 第二代：粘非围栏字符续喂——闭栏判定失败回翻开栏（高亮撤销/收尾行删/
+    // lines 吸收污染行）；已判稳前缀行集（含样式面）不得改写
+    s.update('段\n\n```ts\nconst x = 1;\n``` x');
+    expect(s.rowsFor(40).slice(0, stable1)).toEqual(frozen.slice(0, stable1));
   });
 
   it('稳定面三形之单行终态块：标题/列表/引用/横线 + 尾随换行 → 稳', () => {
@@ -120,7 +135,7 @@ describe('StreamingMarkdown 计数算术（渲染热路径 D2——计数腿不�
     const tail = blocks[blocks.length - 1]!;
     const tailSafe =
       tail.type === 'code'
-        ? tail.open !== true
+        ? tail.open !== true && text.endsWith('\n')
         : text.endsWith('\n') &&
           (tail.type === 'heading' || tail.type === 'list-item' || tail.type === 'quote' || tail.type === 'hr');
     const stableBlocks = blocks.length - 1 + (tailSafe ? 1 : 0);
@@ -133,9 +148,10 @@ describe('StreamingMarkdown 计数算术（渲染热路径 D2——计数腿不�
     '第一段\n\n> 引用一\n> 引用二\n\n---\n\n| a | b |\n| --- | --- |\n| 1 | 2 |',
     '段前\n\n```\n```', // 零行闭栏代码（块间空行算术非 B-1 形的判据样本）
     '段前\n\n```\nline\n```',
+    '段前\n\n```\nline\n```\n', // 闭栏 + 尾随换行（闭栏代码稳定形的换行前提样本）
     '```\nline1\nline2', // 开栏尾块（恒不稳）
     '中文长段落折行样本文本'.repeat(12),
-    '> q\n\n```\n```', // 零行块为尾（tailSafe 闭栏 → 全稳）
+    '> q\n\n```\n```', // 零行块为尾（闭栏无尾换 → 不稳，稳定面止于引用块）
     '# 仅标题\n',
     '1. 有序\n2. 项\n',
     '',
@@ -194,7 +210,7 @@ describe('StreamingMarkdown 计数算术（渲染热路径 D2——计数腿不�
 
   it('硬钉值：修前绝对值面（零行块空行算术 / 开栏零稳面 / 段落排除）', () => {
     const s1 = new StreamingMarkdown();
-    s1.update('段前\n\n```\n```');
+    s1.update('段前\n\n```\n```\n'); // 尾随换行前提（免检形——闭栏行可被粘字）
     expect(s1.stableLineCount(40)).toBe(2); // 段 1 行 + 块间空行 1 + 零行块 0——闭栏全稳
     expect(s1.measure(40)).toBe(2);
     const s2 = new StreamingMarkdown();
