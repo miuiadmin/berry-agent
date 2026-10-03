@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { CellGrid, type CellBuffer, type InputEvent, type MouseEvent } from '../../engine/index.js';
 import { HistoryViewer } from './history-viewer.js';
 import type { AgentMessage } from '../../../contracts/index.js';
+import { sessionColor } from '../theme/index.js';
 
 /* ---------------- 工厂与便捷 ---------------- */
 
@@ -475,5 +476,57 @@ describe('回看器鼠标选区（press 锚定 → motion 扩展 → release 复
     const grid = new CellGrid(COLS, ROWS);
     viewer.render(grid, { row: 0, col: 0, width: COLS, height: ROWS });
     expect(() => drag(viewer, { row: 1, col: 2 }, { row: 3, col: 4 })).not.toThrow();
+  });
+});
+
+/* ---------------- 窄窗宽度收口（头行 / 搜索计数 / 底行三面） ---------------- */
+
+describe('回看器窄窗宽度收口', () => {
+  /** 窄窗 rig：列宽可注入（行集构建列宽同步窄——三面共用） */
+  function narrowRig(cols: number, rows = 8) {
+    const viewer = new HistoryViewer({
+      sessionId: SESSION,
+      messages: manyUsers(30),
+      columns: cols,
+      onExit: () => {},
+    });
+    const render = (): CellGrid => {
+      const grid = new CellGrid(cols, rows);
+      viewer.render(grid, { row: 0, col: 0, width: cols, height: rows });
+      return grid;
+    };
+    return { viewer, render };
+  }
+
+  it('头行窄窗 … 收口（整行拼好过 fitLine——修前裸直写硬截断无省略号、短 id 整段吞）', () => {
+    const { render } = narrowRig(10);
+    const grid = render();
+    // '↩ 历史回看 · sess-aaa' 21 列 → 10 列帽：9 列整字 + '…'（修前红锚：
+    // 头行 = '↩ 历史回看' 硬切满 10 列、无 … 且 sess-aaa 起列 13 越界被吞）
+    expect(readRow(grid, 0, 10)).toBe('↩ 历史回…');
+  });
+
+  it('头行宽窗常态回归：整行不收口 + 短 id 段仍携会话区分色（收口重构不丢着色）', () => {
+    const { render } = rig(manyUsers(3));
+    const grid = render();
+    expect(readRow(grid, 0, COLS)).toBe('↩ 历史回看 · ' + SESSION.slice(0, 8));
+    // 前缀 '↩ 历史回看 · ' 13 列——短 id 首格着会话色（裸前缀段无前景）
+    expect(grid.getCell(0, 13)?.style?.fg).toBe(sessionColor(SESSION.slice(0, 8)));
+    expect(grid.getCell(0, 0)?.style?.fg).toBeUndefined();
+  });
+
+  it('底行提示窄窗 … 收口（修前 ≈69 列提示行硬截断无省略号）', () => {
+    const { render } = narrowRig(10);
+    const grid = render();
+    expect(readRow(grid, 7, 10)).toContain('…');
+  });
+
+  it('搜索计数窄窗守卫：计数区放不下干脆不写（修前负起列 CellGrid 静默吸收——首字符吞、余段左漂）', () => {
+    const { viewer, render } = narrowRig(4);
+    viewer.handleEvent(key('f', { ctrl: true, shift: true }));
+    viewer.handleEvent(text('m')); // 30 匹配 → 计数 '1/30' 宽 4 > 4−1（末列留白）
+    const grid = render();
+    // 修前红锚：起列 = 4−1−4 = −1 → '1' 落 −1 被吞、'/30' 左漂行首
+    expect(readRow(grid, 0, 4)).not.toContain('/');
   });
 });

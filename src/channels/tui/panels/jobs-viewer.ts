@@ -167,7 +167,8 @@ export class JobsViewer implements OverlayContent {
     const viewHeight = Math.max(1, region.height - 2);
     this.viewportHeight = viewHeight;
     if (this.rows.length === 0) {
-      buffer.writeText(region.row + 1, region.col, '（当前没有后台任务）', HINT_STYLE);
+      // 空态行 ellipsize 收口（panel 固定区族单源——窄窗裸直写硬截断无省略号）
+      buffer.writeText(region.row + 1, region.col, ellipsize('（当前没有后台任务）', region.width), HINT_STYLE);
     } else {
       this.clampCursor();
       this.clampOffset();
@@ -176,7 +177,8 @@ export class JobsViewer implements OverlayContent {
         if (index >= this.rows.length) break;
         const row = this.rows[index]!;
         if (row.kind === 'head') {
-          buffer.writeText(region.row + 1 + i, region.col, row.text, HEAD_STYLE);
+          // 分段头 ellipsize 收口（同文件头行/条目行族内对齐——panel 固定区族单源）
+          buffer.writeText(region.row + 1 + i, region.col, ellipsize(row.text, region.width), HEAD_STYLE);
           continue;
         }
         const selected = this.entryPositions[this.cursor] === index;
@@ -189,10 +191,11 @@ export class JobsViewer implements OverlayContent {
         );
       }
     }
+    // 底行提示 ellipsize 收口（窄窗裸直写硬截断无省略号——族内对齐）
     buffer.writeText(
       region.row + region.height - 1,
       region.col,
-      this.rows.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'q/esc 返回'),
+      ellipsize(this.rows.length === 0 ? 'q/esc 返回' : hintLine('↑↓ 移动', 'q/esc 返回'), region.width),
       HINT_STYLE,
     );
   }

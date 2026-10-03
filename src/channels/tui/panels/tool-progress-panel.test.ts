@@ -298,3 +298,20 @@ describe('renderCall 消费（插件面板行——回落恒在律）', () => {
     expect(readRow(renderPanel(panel), 0)).toBe('AB'); // 修前 'A[31mB'
   });
 });
+
+/* ---------------- 窄窗宽度收口（panel 固定区族单源——ellipsize） ---------------- */
+
+describe('ToolProgressPanel 溢出行窄窗收口', () => {
+  it('溢出行窄窗 … 收口（修前硬截断无省略号）', () => {
+    const panel = new ToolProgressPanel();
+    for (const name of ['a', 'b', 'c', 'd', 'e']) {
+      panel.begin(`t-${name}`, name);
+      panel.applyUpdate(`t-${name}`, `${name} 跑着`);
+    }
+    const width = 6;
+    const grid = new CellGrid(width, panel.measure(width));
+    panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // '+ 1 更多' 8 列 → 6 列帽（修前红锚：'+ 1 更' 硬切满 6 列无 …）
+    expect(readRow(grid, 4, width)).toBe('+ 1 …');
+  });
+});

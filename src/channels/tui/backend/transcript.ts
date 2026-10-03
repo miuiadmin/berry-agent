@@ -386,7 +386,10 @@ export function stableSlotLineCount(slot: Extract<TranscriptBlock, { kind: 'stre
           slot.thinkingDoc,
         )
       : 0;
-  return thinkingRows + (slot.doc !== null ? slot.doc.stableLineCount(columns) : 0);
+  // doc 腿计量宽 = 渲染腿同宽（bullet 槽前缀宽 2——renderDocLines/rowsFor 均
+  // 按 columns−2 折行；修前全宽计量使折行数与渲染行集漂移，窄形边界文本
+  // 冻结账错位）
+  return thinkingRows + (slot.doc !== null ? slot.doc.stableLineCount(columns - BULLET_PREFIX_WIDTH) : 0);
 }
 
 /**

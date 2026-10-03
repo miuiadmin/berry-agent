@@ -61,10 +61,13 @@ export class TodoPanel implements Renderable {
       buffer.writeText(region.row + i, region.col, row, dimmed ? { dim: true } : undefined);
     });
     // 溢出行对截断几何诚实：+ N 更多数 = 帽/段高外未显条数（非截断几何下
-    // capacity = MAX_ITEMS——与既有行为逐字相同）
+    // capacity = MAX_ITEMS——与既有行为逐字相同）；ellipsize 收口（条目内容
+    // 同律——窄窗裸直写硬截断无省略号）
     const overflow = this.items.length - capacity;
     if (overflow > 0 && visible.length < region.height) {
-      buffer.writeText(region.row + visible.length, region.col, `+ ${overflow} 更多`, { dim: true });
+      buffer.writeText(region.row + visible.length, region.col, ellipsize(`+ ${overflow} 更多`, region.width), {
+        dim: true,
+      });
     }
   }
 }

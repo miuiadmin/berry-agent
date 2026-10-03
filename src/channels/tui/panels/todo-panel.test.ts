@@ -97,3 +97,17 @@ describe('TodoPanel 帽与溢出', () => {
     expect(readRow(grid, 6)).toBe('+ 1 更多');
   });
 });
+
+/* ---------------- 窄窗宽度收口（panel 固定区族单源——ellipsize） ---------------- */
+
+describe('TodoPanel 溢出行窄窗收口', () => {
+  it('溢出行窄窗 … 收口（修前硬截断无省略号）', () => {
+    const panel = new TodoPanel();
+    panel.update(Array.from({ length: 7 }, (_, i) => item('pending', `条 ${i}`)));
+    const width = 6;
+    const grid = new CellGrid(width, panel.measure(width));
+    panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // '+ 1 更多' 8 列 → 6 列帽（修前红锚：'+ 1 更' 硬切满 6 列无 …）
+    expect(readRow(grid, 6, width)).toBe('+ 1 …');
+  });
+});

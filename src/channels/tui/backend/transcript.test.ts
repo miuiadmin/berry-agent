@@ -768,7 +768,8 @@ describe('LiveTranscript 思考流式前缀与定稿换装（批 10i R1）', () 
     apply(t, { type: 'message_start', role: 'assistant' });
     apply(t, { type: 'message_update', role: 'assistant', partial: assistantMsg('正文一行', [], '想法') });
     const slot = t.snapshot[0] as Extract<TranscriptBlock, { kind: 'streaming' }>;
-    const docRows = slot.doc!.stableLineCount(60);
+    // doc 稳定面按渲染腿同宽计量（bullet 槽前缀宽 2——60−2=58）
+    const docRows = slot.doc!.stableLineCount(58);
     expect(stableSlotLineCount(slot, 60)).toBe(1 + docRows); // 折叠档标签单行 + doc 稳定行
     // 翻 settled=false（同数据异判据）——不稳头行止冻：冻结面前缀连续，doc 稳定面不越位
     const unsettled: Extract<TranscriptBlock, { kind: 'streaming' }> = { ...slot, thinkingSettled: false };
@@ -1072,12 +1073,13 @@ describe('stableSlotLineCount 展开档算术（渲染热路径 D2——thinking
       toggleHint: slot.toggleHint,
     };
     for (const w of [60, 20, 7, 3]) {
+      // doc 腿按渲染腿同宽计量（bullet 槽前缀宽 2——renderDocLines/rowsFor 同形）
       expect(stableSlotLineCount(slot, w)).toBe(
-        renderThinkingStyledLines(view, w, slot.thinkingDoc).length + doc.stableLineCount(w),
+        renderThinkingStyledLines(view, w, slot.thinkingDoc).length + doc.stableLineCount(w - 2),
       );
       // 体 doc 缺席形：即时构档回退（与渲染支路同形）
       expect(stableSlotLineCount({ ...slot, thinkingDoc: null }, w)).toBe(
-        renderThinkingStyledLines(view, w, null).length + doc.stableLineCount(w),
+        renderThinkingStyledLines(view, w, null).length + doc.stableLineCount(w - 2),
       );
     }
   });
@@ -1085,6 +1087,25 @@ describe('stableSlotLineCount 展开档算术（渲染热路径 D2——thinking
   it('词法锁：thinking 计数算术位在场（源码标记恰一处）', () => {
     const src = readFileSync(new URL('./transcript.ts', import.meta.url), 'utf8');
     expect((src.match(/渲染热路径 D2——思考行计数算术/g) ?? []).length).toBe(1);
+  });
+});
+
+describe('stableSlotLineCount doc 腿计量宽（bullet 槽前缀 2——与渲染腿同宽）', () => {
+  it('边界文本：全宽 1 行、减前缀宽 2 行 → 稳定面计 2（修前全宽计量计 1——冻结账与渲染行集漂移）', () => {
+    const doc = new StreamingMarkdown();
+    // 段落 29 列：宽 30 折 1 行、宽 28 折 2 行；尾随标题无换行收尾 = 不稳尾
+    //（不进稳定面——计量面只看段落块）
+    doc.update('a'.repeat(29) + '\n\n# 尾');
+    const slot = slotOf(1, 'a'.repeat(29) + '\n\n# 尾', doc) as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    expect(stableSlotLineCount(slot, 30)).toBe(2); // 修前红锚：全宽计量 = 1
+  });
+
+  it('全稳形同源对拍：稳定面 = 尾窗渲染 total（renderSlotTailLines 的 rowsFor 同宽腿）', () => {
+    const doc = new StreamingMarkdown();
+    doc.update('a'.repeat(29) + '\n\n# 尾\n'); // 尾随换行——标题稳 → 全稳
+    const slot = slotOf(1, 'a'.repeat(29) + '\n\n# 尾\n', doc) as Extract<TranscriptBlock, { kind: 'streaming' }>;
+    // 全稳时稳定面即渲染全量行数：两侧宽度不同步即失配（修前红锚：3 ≠ 4）
+    expect(stableSlotLineCount(slot, 30)).toBe(renderSlotTailLines(slot, 30, 0).total);
   });
 });
 

@@ -218,3 +218,17 @@ describe('JobPanel 重试计数段（TUI 视觉重设计批 V-1——07 §4.1 V-
     expect(readRow(renderPanel(panel), 0)).toBe('◆ 任务 job-1 · 1m 05s');
   });
 });
+
+/* ---------------- 窄窗宽度收口（panel 固定区族单源——ellipsize） ---------------- */
+
+describe('JobPanel 溢出行窄窗收口', () => {
+  it('溢出行窄窗 … 收口（修前硬截断无省略号）', () => {
+    const panel = makePanel();
+    panel.update(Array.from({ length: 7 }, (_, i) => job(`job-${i + 1}`)));
+    const width = 12;
+    const grid = new CellGrid(width, panel.measure(width));
+    panel.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // '+ 2 更多 · /jobs 查看' 22 列 → 12 列帽：11 列整字 + '…'（修前红锚：'+ 2 更多 · /j' 硬切无 …）
+    expect(readRow(grid, 5, width)).toBe('+ 2 更多 · …');
+  });
+});

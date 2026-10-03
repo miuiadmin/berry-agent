@@ -31,12 +31,13 @@
  *   先于 onQuit；搜索框有文不退，与主屏空框闸同律）。
  */
 import type { CellBuffer, CellStyle, InputEvent, MouseEvent, Region } from '../../engine/index.js';
-import { graphemeWidth, splitGraphemes } from '../../engine/index.js';
+import { graphemeWidth, splitGraphemes, stringWidth } from '../../engine/index.js';
 import { ScrollView } from '../scroll/scroll-view.js';
 import { Editor } from '../editor/editor.js';
 import type { Keymap } from '../keys/registry.js';
 import { hintLine } from '../keys/hint.js';
 import { prefixDisplayWidth, type VisualSegment } from '../editor/visual-lines.js';
+import { fitLine } from '../row-segments.js';
 import { LiveTranscript, renderBlockStyledLines, shortIdOf } from '../backend/transcript.js';
 import type { StyledLine } from '../backend/ansi-rows.js';
 import type { OverlayContent } from '../overlay/overlay.js';
@@ -169,17 +170,32 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
    */
   render(buffer: CellBuffer, region: Region): void {
     if (region.height < 2) return; // 防御位（极小终端——头行 + 视口都不够）
-    // 头行
+    // 头行：整行（前缀 + 会话短 id）拼好后经 fitLine 收口（viewer 族单源——
+    // 窄窗裸直写 = 硬截断无省略号的漏网面）；短 id 段仍携会话区分色——前缀
+    // 段裸写 + 其余段着色，两段合计即收口后整行
     const headPrefix = `${HEAD_MARKS.history} 历史回看 · `;
-    buffer.writeText(region.row, region.col, headPrefix);
-    // 会话短 id 起列 = 前缀显示宽（CJK 双宽——UTF-16 长度直减不可靠）
-    buffer.writeText(region.row, region.col + prefixDisplayWidth(headPrefix, headPrefix.length), this.shortId, {
-      fg: sessionColor(this.shortId),
-    });
+    const headLine = fitLine(`${headPrefix}${this.shortId}`, region.width);
+    // 前缀与收口行的公共前缀长：常态 = 整前缀在场；极窄截进前缀域时前缀
+    // 段即整行（着色段缺席——零写）
+    const prefixLen = headLine.startsWith(headPrefix) ? headPrefix.length : headLine.length;
+    buffer.writeText(region.row, region.col, headLine.slice(0, prefixLen));
+    if (prefixLen < headLine.length) {
+      // 短 id 起列 = 前缀显示宽（CJK 双宽——UTF-16 长度直减不可靠）
+      buffer.writeText(region.row, region.col + prefixDisplayWidth(headLine, prefixLen), headLine.slice(prefixLen), {
+        fg: sessionColor(this.shortId),
+      });
+    }
     if (this.searchOpen) {
-      // 搜索计数（当前/总数；无匹配如实 0）
+      // 搜索计数（当前/总数；无匹配如实 0）——右对齐起列按显示宽算（CJK
+      // 位数不误算）；窄窗守卫：计数区放不下（宽 < 计数宽 + 末列留白 1）
+      // 干脆不写——负起列会被 CellGrid 静默吸收（首字符吞、余段左漂）致
+      // 计数左移截断，不如不放
       const count = `${this.matchIndex + 1}/${this.matches.length}`;
-      buffer.writeText(region.row, region.col + region.width - 1 - count.length, count, HINT_STYLE);
+      const countWidth = stringWidth(count);
+      if (countWidth + 1 <= region.width) {
+        const start = Math.max(region.col, region.col + region.width - 1 - countWidth);
+        buffer.writeText(region.row, start, count, HINT_STYLE);
+      }
     }
     // 滚动视口（头行与底铬之间）
     const chromeBottom = this.searchOpen ? this.searchEditor.measure(region.width) : 1;
@@ -197,8 +213,15 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
         height: chromeBottom,
       });
     } else {
-      // 底行：超帽提示优先（常显至选区清除），否则常态键面提示
-      buffer.writeText(region.row + region.height - 1, region.col, this.selectionNotice ?? HINT_TEXT, HINT_STYLE);
+      // 底行：超帽提示优先（常显至选区清除），否则常态键面提示——fitLine
+      // 收口（viewer 族单源：提示行 ≈69 列窄窗裸直写即硬截断无省略号的
+      // 漏网面）
+      buffer.writeText(
+        region.row + region.height - 1,
+        region.col,
+        fitLine(this.selectionNotice ?? HINT_TEXT, region.width),
+        HINT_STYLE,
+      );
     }
   }
 

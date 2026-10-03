@@ -266,3 +266,41 @@ describe('JobsViewer 副屏件', () => {
     expect(readRow(grid, 2, width).startsWith('› 任务 job-1')).toBe(true);
   });
 });
+
+/* ---------------- 窄窗宽度收口（panel 固定区族单源——ellipsize） ---------------- */
+
+describe('JobsViewer 窄窗宽度收口', () => {
+  /** 读回一行（trimEnd） */
+  function readRow(grid: CellGrid, row: number, width: number): string {
+    let out = '';
+    for (let col = 0; col < width; col++) out += grid.getCell(row, col)?.grapheme ?? ' ';
+    return out.trimEnd();
+  }
+
+  it('空态行窄窗 … 收口（修前硬截断无省略号）', () => {
+    const { viewer } = makeViewer({ entries: [] });
+    const width = 8;
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // '（当前没有后台任务）' 20 列 → 8 列帽：7 列整字 + '…'（修前红锚：'（当前没' 硬切满 8 列）
+    expect(readRow(grid, 1, width)).toBe('（当前…');
+  });
+
+  it('分段头窄窗 … 收口（修前硬截断无省略号）', () => {
+    const { viewer } = makeViewer();
+    const width = 10;
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // '── 运行中（2）──' 16 列 → 10 列帽（修前红锚：'── 运行中（' 硬切无 …）
+    expect(readRow(grid, 1, width)).toBe('── 运行中…');
+  });
+
+  it('底行提示窄窗 … 收口（修前硬截断无省略号）', () => {
+    const { viewer } = makeViewer();
+    const width = 12;
+    const grid = new CellGrid(width, viewer.measure(width));
+    viewer.render(grid, { row: 0, col: 0, width, height: grid.rows });
+    // '↑↓ 移动 · q/esc 返回' 20 列 → 12 列帽（修前红锚：硬切无 …）
+    expect(readRow(grid, 7, width)).toContain('…');
+  });
+});

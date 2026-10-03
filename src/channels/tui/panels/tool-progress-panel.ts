@@ -216,7 +216,10 @@ export class ToolProgressPanel implements Renderable {
     });
     const overflow = visual.length - shown.length;
     if (overflow > 0 && shown.length < region.height) {
-      buffer.writeText(region.row + shown.length, region.col, `+ ${overflow} 更多`, { dim: true });
+      // 溢出行 ellipsize 收口（宿主行同律——窄窗裸直写硬截断无省略号）
+      buffer.writeText(region.row + shown.length, region.col, ellipsize(`+ ${overflow} 更多`, region.width), {
+        dim: true,
+      });
     }
   }
 }

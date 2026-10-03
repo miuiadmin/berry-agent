@@ -140,9 +140,15 @@ export class JobPanel implements Renderable {
       const row = this.cursor !== null ? `${selected ? CURSOR_MARK : ' '} ${mark} ${content}` : `${mark} ${content}`;
       buffer.writeText(region.row + i, region.col, row, selected ? this.selectedStyle : undefined);
     });
-    // 溢出行对截断几何诚实：+ N 更多 = 帽/段高外未显行数（指路 /jobs 全量）
+    // 溢出行对截断几何诚实：+ N 更多 = 帽/段高外未显行数（指路 /jobs 全量）；
+    // ellipsize 收口（条目行同律——窄窗裸直写硬截断无省略号）
     if (overflow > 0) {
-      buffer.writeText(region.row + visibleCount, region.col, `+ ${overflow} 更多 · /jobs 查看`, DIM_STYLE);
+      buffer.writeText(
+        region.row + visibleCount,
+        region.col,
+        ellipsize(`+ ${overflow} 更多 · /jobs 查看`, region.width),
+        DIM_STYLE,
+      );
     }
   }
 
