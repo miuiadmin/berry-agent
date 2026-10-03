@@ -124,6 +124,21 @@ export function withGitBranchSuffix(cwdLabel: string, cwdPath: string | undefine
 }
 
 /**
+ * 头部信息 → 紧凑单值形 `支名@短哈希`（/status 会话段表格列值单源）：与
+ * gitHeadSuffix（` ⎇ 支名 @哈希` 后缀形）是**同源折取双拼形**——四态折取
+ * 同谱（双在场 / 仅支名〔refs 读失败 @ 保留〕/ 仅哈希〔detached〕/ 双缺席
+ * null 不虚报），拼形分职：本形无 ⎇ 记形无两侧空格，供表格列值定宽呈现；
+ * footer 行2 是后缀拼段形。tui-entry 散拷贝收敛走本源，两拼形翻档同步
+ * 义务自此消除（2026-10-04 支名@短哈希双实现单源化批）。
+ */
+export function gitHeadCompactLabel(info: GitHeadInfo): string | null {
+  const branch = info.branch;
+  const hash = info.shortHash;
+  if (branch === null && hash === null) return null; // 非库/不可读——不虚报
+  return `${branch ?? ''}@${hash ?? ''}`;
+}
+
+/**
  * git 目录头部解析（HEAD 就地读；refs 根随 commondir 归公共 gitdir）：ref 形
  * 取支名 + 读公共 refs 根下 `refs/heads/<支>` 前 7 位（文件缺席/畸形 → 哈希
  * null 诚实缩位）；非 ref 形（detached 40/64hex）哈希直取 HEAD 内容前 7 位。

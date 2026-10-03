@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gitHeadSuffix, readGitBranch, readGitHead, withGitBranchSuffix } from './footer.js';
+import { gitHeadCompactLabel, gitHeadSuffix, readGitBranch, readGitHead, withGitBranchSuffix } from './footer.js';
 
 /** 测试期临时目录登记（afterEach 统一清——不留垃圾） */
 const temps: string[] = [];
@@ -192,6 +192,24 @@ describe('gitHeadSuffix 后缀四态（呈现单源）', () => {
 
   it('双缺席：空串（后缀整体缩位）', () => {
     expect(gitHeadSuffix({ branch: null, shortHash: null })).toBe('');
+  });
+});
+
+describe('gitHeadCompactLabel 紧凑单值四态（2026-10-04 单源化批）', () => {
+  it('支名 + 哈希：`支名@短哈希`（/status 表格列值形——无 ⎇ 记形无两侧空格）', () => {
+    expect(gitHeadCompactLabel({ branch: 'dev', shortHash: 'abc1234' })).toBe('dev@abc1234');
+  });
+
+  it('仅支名（哈希读失败）：`支名@`（@ 定界符保留——列值形锚）', () => {
+    expect(gitHeadCompactLabel({ branch: 'dev', shortHash: null })).toBe('dev@');
+  });
+
+  it('仅哈希（detached）：`@短哈希`（支名缺席形）', () => {
+    expect(gitHeadCompactLabel({ branch: null, shortHash: 'abc1234' })).toBe('@abc1234');
+  });
+
+  it('双缺席：null（非库不虚报——/status 不推行）', () => {
+    expect(gitHeadCompactLabel({ branch: null, shortHash: null })).toBeNull();
   });
 });
 

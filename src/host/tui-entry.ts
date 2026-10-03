@@ -38,7 +38,7 @@ import {
   TuiBackend,
 } from '../channels/index.js';
 import type { AutocompleteItem, TerminalIO } from '../channels/index.js';
-import { readGitHead } from '../channels/index.js';
+import { gitHeadCompactLabel, readGitHead } from '../channels/index.js';
 import { canonicalWorkspaceRoot } from '../context/index.js';
 import {
   foldSessionSandboxMode,
@@ -560,13 +560,11 @@ export async function runTuiEntry(options: TuiEntryOptions): Promise<number> {
       // git 支名@短哈希（V-3 注⑦②——footer ⎇ 段退役迁此）：值形四态 =
       // 支名@短哈希 / 支名@（哈希读失败）/ @短哈希（detached）/ null（非库
       // ——不推行不虚报）；开屏一次现算（footer 期逐帧读盘退役）。
-      // 注意：与 channels/tui/status/footer.ts gitHeadSuffix 是**同知识双实现**
-      // （四态折取同谱、拼形分职——本处 '支名@短哈希' 无 ⎇ 记形〔/status 表格
-      // 列值〕，footer 行2 是 ' ⎇ 支名 @哈希' 后缀形）；不共用是跨模块 API 面
-      // 扩键故另立题单源化，翻档/改态时须同步对侧
+      // 折取单源 channels/tui/status/footer.ts 双拼形并排——本位走
+      // gitHeadCompactLabel（紧凑列值形；footer 行2 是 gitHeadSuffix 后缀
+      // 形——双实现散拷贝已随 2026-10-04 单源化批收敛，翻档义务解除）
       const git = readGitHead(root);
-      const gitHead =
-        git.branch === null && git.shortHash === null ? null : `${git.branch ?? ''}@${git.shortHash ?? ''}`;
+      const gitHead = gitHeadCompactLabel(git);
       if (
         !backend.openStatus({
           version: options.version ?? '0.0.0',
