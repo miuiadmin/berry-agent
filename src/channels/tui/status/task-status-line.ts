@@ -26,6 +26,7 @@ import type { CellBuffer, CellStyle, Region, Renderable } from '../../engine/ind
 import { DIM_STYLE, ellipsize, stringWidth } from '../../engine/index.js';
 import { formatElapsedCompact } from '../../../contracts/index.js';
 import { DEFAULT_THEME, type ResolvedTheme } from '../theme/index.js';
+import { HEAD_MARKS } from '../panels/panel-chrome.js';
 
 /** 转轮帧序（braille 十帧——件内自持单源） */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
@@ -200,7 +201,7 @@ export class TaskStatusLine implements Renderable {
         : this.state === 'generating'
           ? '生成中'
           : this.toolName !== null
-            ? `⚙ ${this.toolName} …`
+            ? `${HEAD_MARKS.tool} ${this.toolName} …` // ⚙ 单源走头符表 tool 位（选型翻档只改一处）
             : '正在对话中';
     const turnTokens = this.providers.turnTokensText();
     return turnTokens === '' ? base : `${base} · ${turnTokens}`;

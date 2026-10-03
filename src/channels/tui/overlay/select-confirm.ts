@@ -77,7 +77,8 @@ export interface SelectPanelOptions {
  * 选择面板：单选浮层。onFinish 后赋（装配在 open 句柄后接线——闭包里关层）。
  *
  * 视口帽（fx2-B——ViewportCapAware 实装）：选项数超帽时开滚动窗——光标
- * 居中可视 + 顶/底「↑ N more」/「↓ N more」指示行（隐藏侧才显）；键面与
+ * 居中可视 + 顶/底「↑ N 更多」/「↓ N 更多」指示行（隐藏侧才显；moreHint
+ * 中文形单源——件头第 6 行同形）；键面与
  * 选值语义不变（窗口只是呈现取景，activeIndex 恒在全集上移动）。
  */
 export class SelectPanel implements Renderable, ViewportCapAware {

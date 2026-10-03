@@ -197,7 +197,9 @@ export function buildDebugLines(data: DebugPanelData): string[] {
     if (data.daemonLogTail === null) {
       lines.push('（未以 daemon 方式运行或文件尚未生成——没有 daemon.log）');
     } else {
-      lines.push('日志末尾 50 行（令牌已打码）：');
+      // 尾快照头行按实数呈现（帽 50 由装配位 readLogTailLines 执行——短日志
+      // 不足帽时如实报实数不虚报；feedback-viewer 导出段「末尾 N 行」同律）
+      lines.push(`日志末尾 ${data.daemonLogTail.length} 行（令牌已打码）：`);
       if (data.daemonLogTail.length === 0) {
         lines.push('│ （空文件——尚无日志行）');
       } else {

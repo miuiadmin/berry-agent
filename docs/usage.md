@@ -465,7 +465,7 @@ berry marketplace remove <市场名>     # 移除源（连同缓存目录清理�
 | `BERRY_AGENT_DATA_DIR`                 | 数据目录                                                                                                                     | `~/.berry-agent`            |
 | `BERRY_AGENT_DB_PATH`                  | 库文件路径（独立梯子——重定向库文件而不动数据目录）                                                                           | `<数据目录>/sessions.db`    |
 | `BERRY_AGENT_LOG_LEVEL`                | 日志级别：error / warn / info / debug / silent                                                                               | `info`                      |
-| `BERRY_AGENT_SKIP_UPDATE_CHECK`        | TUI 启动版本检查关断（置值即关——关掉即零网络包；手动检查 `/update` 与 `berry update` 不受辖（`/upgrade`/`berry upgrade` 为同义别名））                              | 未设（检查开）              |
+| `BERRY_AGENT_SKIP_UPDATE_CHECK`        | TUI 启动版本检查关断（置值即关——关掉即零网络包；手动检查 `/update` 与 `berry update` 不受辖（别名仅 CLI 侧：`berry upgrade` 为 `berry update` 同义别名；TUI 内命令即 `/update` 本名，无 `/upgrade` 别名——未注册词走发给模型当消息路））                              | 未设（检查开）              |
 | `BERRY_AGENT_BASH_PATH`                | bash 工具可执行路径（缺失 fail-loud）                                                                                        | PATH 发现序                 |
 | `BERRY_AGENT_FD_PATH`                  | `@` 文件补全的 fd 可执行路径（保留位——全库 fuzzy 发现挂真实需求再裁，当前仅内置遍历，设置无效）                              | —                           |
 | `BERRY_AGENT_BROWSER_PATH`             | 浏览器引擎可执行路径                                                                                                         | 引擎发现序                  |

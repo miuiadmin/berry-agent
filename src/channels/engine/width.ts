@@ -166,9 +166,9 @@ export function truncateToWidth(text: string, cols: number): string {
 /**
  * 省略形截断单源（TUI 优化役 2026-09-23 收口）：不超宽原样透传；超宽整字
  * 截到 width-1 后缀省略号；**width ≤ 0 返空串**（0 宽守卫——消费位旧散形
- * 此态产 1 列 '…' 超帽写出，收口为零输出；status-line fitFooter 早退语义
- * 由本守卫吸收）。row-segments / diff-viewer / status-line / select-confirm
- * 四件同式消费单源。
+ * 此态产 1 列 '…' 超帽写出，收口为零输出）。消费面 = 呈现收口全域（panel /
+ * overlay / status / backend 行族经 engine 公开面同式消费——增减消费件
+ * 不在此计数，本文案不随漂）。
  */
 export function ellipsize(text: string, width: number): string {
   if (width <= 0) return '';

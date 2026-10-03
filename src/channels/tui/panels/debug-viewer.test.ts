@@ -84,6 +84,14 @@ describe('buildDebugLines 行集构造（纯函数）', () => {
     expect(lines.some((line) => line.startsWith('有效键') && line.includes('全用默认'))).toBe(true);
     expect(lines).toContain('无效配置警告：无');
   });
+
+  it('尾快照头行按实数呈现（夹具 3 行 < 装配位帽 50——不虚报 50）', () => {
+    // DATA 夹具尾快照恰 3 行（readLogTailLines 帽 50 不足形）：头行须按实数
+    // 报 3 行——硬编「日志末尾 50 行」在短日志下是虚报（copy/drift 批回归锁）
+    const lines = buildDebugLines(DATA);
+    expect(lines).toContain('日志末尾 3 行（令牌已打码）：');
+    expect(lines.some((line) => line.startsWith('日志末尾 50 行'))).toBe(false); // 虚报形不再现
+  });
 });
 
 describe('DebugViewer 副屏件', () => {
