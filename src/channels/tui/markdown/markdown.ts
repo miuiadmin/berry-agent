@@ -8,6 +8,7 @@
  *   键族五键消费位；不触 accent：引擎节件 3 着色纪律，正文不混用）；
  * - 块级缓存：同宽 + 结构同块（blockEquals）直承旧行集——本件上一代
  *   （prevDoc）或结构比对双路命中，布局算术只跑增量块（流式件帧路径）；
+ *   缓存基链深恒 1（fromBlocks 剪链——防流式换代全史可达的内存二次方）；
  * - 滚动帽语义 = 块数（呈现面件 1）——`blockCount` 即帽额度计数面；
  * - 折行按显示宽字素硬折（layout 件三规则——宽字不产半字、不悬挂）。
  */
@@ -28,7 +29,8 @@ export class MarkdownDoc implements Renderable {
      构造后不再变（类内纪律）。 */
   private parsed: MarkdownBlock[];
   private readonly theme: ResolvedTheme;
-  /** 增量缓存基（fromBlocks 传入的上一代——同宽同构块直承） */
+  /** 增量缓存基（fromBlocks 传入的上一代——同宽同构块直承；只保一代：
+   *  fromBlocks 构造期对 prev 的一次性退役写见其剪链注） */
   private prevDoc: MarkdownDoc | null = null;
   /** 块级布局缓存（width 键——逐块存，块间空行装配期并入；换宽清） */
   private cacheWidth = -1;
@@ -53,6 +55,14 @@ export class MarkdownDoc implements Renderable {
     const doc = new MarkdownDoc('', theme === undefined ? undefined : { theme });
     doc.parsed = [...blocks];
     doc.prevDoc = prev ?? null;
+    // 剪链保深度 1（内存二次方剪除）：承接只读一代——blockLayout 仅读 prev
+    // 自有缓存（一层，不溯祖），且继承行集经本件 openWidth 先行必转存自有
+    // 缓存（归纳：每代被布局后自有缓存即全量），祖代链再无读者。流式每帧
+    // 全量新块 + 换入即换代，无界链 = 全史代可达（每代全量块 + 布局缓存）
+    // → 长消息内存二次方。此为 fromBlocks 构造期对 prev 的一次性退役写
+    // （旧代此后只作新代缓存基、不再被布局），不违「构造后静态不可变」的
+    // 持有方语义；换宽重算不溯祖（openWidth 清账后本件直算）。
+    if (doc.prevDoc !== null) doc.prevDoc.prevDoc = null;
     return doc;
   }
 

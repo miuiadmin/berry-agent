@@ -3,6 +3,7 @@
  * （中性配色样式位断言 / 折行算术 / 块间空行 / blockCount 帽单位）。
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { ansiColor, CellGrid } from '../../engine/index.js';
 import { DEFAULT_THEME } from '../theme/index.js';
 import { blockEquals, parseMarkdown } from './blocks.js';
@@ -461,5 +462,39 @@ describe('MarkdownDoc.fromBlocks 增量装配（流式件帧路径）', () => {
     const grid = renderDoc(doc, 30);
     expect(readRow(grid, 0, 30)).toBe('标题');
     expect(grid.getCell(0, 0)?.style.bold).toBe(true);
+  });
+});
+
+/* ---------------- prevDoc 链剪除（内存二次方剪除——保形重构） ---------------- */
+
+describe('prevDoc 链剪除（增量缓存基只保上一代）', () => {
+  it('三代链承接不断：孙代直承子代自有缓存（祖代退役无扰）+ 终态渲染同管线', () => {
+    const text1 = '# 标题\n\n段落一';
+    const gen1 = MarkdownDoc.of(text1);
+    gen1.prefixRows(40, gen1.blockCount); // 开宽填基缓存（流式帧渲染同位）
+    const text2 = text1 + '\n\n段落二';
+    const gen2 = MarkdownDoc.fromBlocks(parseMarkdown(text2), gen1);
+    const gen2Rows = gen2.prefixRows(40, gen2.blockCount); // 承接转存——子代自有缓存填位
+    const text3 = text2 + '\n\n段落三';
+    const gen3 = MarkdownDoc.fromBlocks(parseMarkdown(text3), gen2); // 此代构造即剪祖代链
+    const gen3Rows = gen3.prefixRows(40, gen3.blockCount);
+    // 前缀内容行引用相等（toBe = 同对象非重算）：gen3 直承 gen2 自有缓存——
+    // 祖代退役不碍承接（承接只读一代 + 继承行集必转存本件缓存的归纳实证）
+    let contentChecked = 0;
+    for (let i = 0; i < gen2Rows.length; i++) {
+      if (gen2Rows[i]!.length === 0) continue; // 块间空行每次新 []——只锁内容行
+      expect(gen3Rows[i]).toBe(gen2Rows[i]);
+      contentChecked++;
+    }
+    expect(contentChecked).toBeGreaterThanOrEqual(4); // 标题 2 行 + 两段各 1（非空断言防伪绿）
+    // 三代步进终态与一步直构同管线（剪链前后行为等价的主证面）
+    const g1 = renderDoc(gen3, 40);
+    const g2 = renderDoc(MarkdownDoc.of(text3), 40);
+    for (let r = 0; r < g1.rows; r++) expect(readRow(g1, r, 40)).toBe(readRow(g2, r, 40));
+  });
+
+  it('词法锁：剪链位在场（源码标记恰一处——防回退成无界保活链）', () => {
+    const src = readFileSync(new URL('./markdown.ts', import.meta.url), 'utf8');
+    expect((src.match(/剪链保深度 1/g) ?? []).length).toBe(1);
   });
 });

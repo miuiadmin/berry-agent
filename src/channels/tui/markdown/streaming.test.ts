@@ -51,6 +51,27 @@ describe('StreamingMarkdown 流式直推', () => {
     expect(rowsOf(s, 40)).toEqual(rowsOf(MarkdownDoc.of(text), 40));
   });
 
+  it('引用块逐帧追加形：剪链后多帧承接零漂移（硬钉值 + 行集逐步对拍直构）', () => {
+    const frames = [
+      '# 标\n\n> 引用一',
+      '# 标\n\n> 引用一\n> 引用二',
+      '# 标\n\n> 引用一\n> 引用二\n> 引用三\n',
+      '# 标\n\n> 引用一\n> 引用二\n> 引用三\n\n段落收\n',
+    ];
+    // f1/f2：尾块引用无尾随换行不稳（稳定面止于标题 2 行）；f3：尾随换行 +
+    //   单行终态块全稳；f4：尾块段落恒不稳（稳定面止于引用块）
+    const stableWants = [2, 2, 6, 6];
+    const measureWants = [4, 5, 6, 8]; // 标题 2 行 + 块间空行 + 引用逐行 + （f4 空行 + 段落 1 行）
+    const stepwise = new StreamingMarkdown();
+    frames.forEach((frame, i) => {
+      stepwise.update(frame);
+      expect(stepwise.measure(40)).toBe(measureWants[i]);
+      expect(stepwise.stableLineCount(40)).toBe(stableWants[i]);
+      // 行集内容与同文直构逐步全等（多代链承接零漂移——同管线律）
+      expect(rowsOf(stepwise, 40)).toEqual(rowsOf(MarkdownDoc.of(frame), 40));
+    });
+  });
+
   it('稳定面三形之闭栏代码：尾块闭栏即全稳（高亮已定，追加必为新块）', () => {
     const s = new StreamingMarkdown();
     s.update('段\n\n```ts\nconst x = 1;\n```');
