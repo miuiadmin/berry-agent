@@ -64,8 +64,9 @@ export type ClientDisplayEvent =
       readonly errorMessage?: string;
       /**
        * run 总耗时毫秒（A-3 载荷位——在场即唯一真源，SPA/SDK 同源消费）：
-       * 服务端 loop 尚未发射（现仅 status/stopReason/errorMessage），本字段
-       * 为前向兼容声明——收尾行耗时段优先取它，缺席回退客户端观察窗近似。
+       * 服务端 loop 已全量发射（0eff8e7——agent_start 起算、终态随发，不再
+       * 仅 status/stopReason/errorMessage）；收尾行耗时段优先取它，缺席回退
+       * 客户端观察窗近似。
        */
       readonly durationMs?: number;
     }

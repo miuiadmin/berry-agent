@@ -18,11 +18,13 @@
  * 时序下终稿序倒置根因——TUI transcript 按 message.role 分派同律）。
  */
 import type { ClientApprovalEntry, ClientEnvelope, ClientSessionSummary } from './protocol.js';
-// 跨通道单源两件（contracts 零依赖叶——channels 公开面桶经 theme/custom 拉
+// 跨通道单源三件（contracts 零依赖叶——channels 公开面桶经 theme/custom 拉
 // node:fs，DOM 类型面与浏览器包结构性不可承；durations/tool-face 同批迁入）：
-// 工具名用户面动词（V-0 注⑤呈现层转写——数据面 toolNames 记账保原始名）与
-// 紧凑耗时格式（V-0 注④整秒档——TUI/SPA 收尾行真同源零分叉）。
-import { formatElapsedCompact, toolFaceZh } from '../../contracts/index.js';
+// 工具名用户面动词（V-0 注⑤呈现层转写——数据面 toolNames 记账保原始名）、
+// 紧凑耗时格式（V-0 注④整秒档——TUI/SPA 收尾行真同源零分叉）与取消形
+// 时刻段 HH:MM（formatClockHM——原 clockOf 逐字克隆收编，tui-backend 侧
+// 待外下笔收口）。
+import { formatClockHM, formatElapsedCompact, toolFaceZh } from '../../contracts/index.js';
 
 /** 呈现层消息视图模型（投影消息与活体落稿同形） */
 export interface ViewMessage {
@@ -213,12 +215,9 @@ function streamingSlotOf(messages: readonly ViewMessage[], role: string): number
 
 /**
  * 本地 HH:MM 时刻（取消形时刻段——取消回执非记账行，时刻段保留形维持；
- * 本地钟呈现，与服务端时区无关）。
+ * 本地钟呈现，与服务端时区无关）——formatClockHM 单源（contracts——与
+ * tui-backend 收尾行同源，原 clockOf 逐字克隆已收编）。
  */
-function clockOf(ms: number): string {
-  const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
 
 /**
  * run 收尾行文案（07 §4.1 收尾行条款 webui 腿 + V-0 注⑥对端翻形——瞬时追加
@@ -241,7 +240,7 @@ function runCloseLine(
   now: number,
 ): string | null {
   if (payload.status === 'failed') return null; // 失败终态：错误块本体呈现，无收尾行
-  if (payload.status === 'aborted') return `⏹ 对话已取消——${clockOf(state.runSeedAt ?? now)}`;
+  if (payload.status === 'aborted') return `⏹ 对话已取消——${formatClockHM(state.runSeedAt ?? now)}`;
   if (state.runToolCount === 0 && state.runRetryCount === 0) return null; // 纯对话轮整行缺席（双零判据）
   // 耗时真源序：服务端载荷 > 客户端观察窗 > 诚实缺席
   const durationMs =

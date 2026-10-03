@@ -898,6 +898,15 @@
       "sig": "57a9ec6695ced147"
     },
     {
+      "symbol": "formatClockHM",
+      "module": "berry-agent",
+      "tier": "stable",
+      "since": "1.0",
+      "desc": "Unix 毫秒 → 24 小时制 HH:MM（本地时区——取消形收尾行时刻段双通道同源）",
+      "kind": "function",
+      "sig": "451cdbdc88e5a97a"
+    },
+    {
       "symbol": "formatElapsedCompact",
       "module": "berry-agent",
       "tier": "stable",

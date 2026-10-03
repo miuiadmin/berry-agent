@@ -136,13 +136,14 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 
 无参启动按当前目录取最新会话——有则续接、无则新建。入口旗标：`--port <n>`（开统一 HTTP 面——Web 界面与程序调用族同面）、`--no-plugins`（安全模式）、`--debug`、`--plugin-file <path>`（快速试用——插件免安装试跑，见[插件开发指南](./plugin-development.md#快速试跑--plugin-file零装机)）。
 
-键位册（29 个动作按域分组——`/help` 键位册同源呈现；动作 id 用于下文「用户设置」的键位覆盖）：
+键位册（30 个动作按域分组——`/help` 键位册同源呈现；动作 id 用于下文「用户设置」的键位覆盖）：
 
 | 域     | 键位                                 | 动作 id                       | 说明                           |
 | ------ | ------------------------------------ | ----------------------------- | ------------------------------ |
-| 全局   | `ctrl+c`                             | `global.interrupt`            | 中断当前 run（不可覆盖）       |
+| 全局   | `escape` / `ctrl+c`                  | `global.interrupt`            | 中断当前 run（不可覆盖；`escape` 在浮层/弹窗在场时先归浮层收屏） |
 | 全局   | `ctrl+d`                             | `global.quit`                 | 退出（空框时）（不可覆盖）     |
 | 全局   | `ctrl+p`                             | `global.model-cycle`          | 切换模型（下一轮对话起生效）  |
+| 全局   | `?`                                  | `global.help`                 | 打开快捷键帮助（输入框空且空闲时——底栏教学提示同键；不可覆盖） |
 | 思考块 | `ctrl+t`                             | `thinking.toggle`             | 思考块折叠/展开                |
 | 工具卡 | `ctrl+o`                             | `tools.toggle-expand`         | 工具卡展开/收起                |
 | 编辑器 | `enter`                              | `editor.submit`               | 提交输入                       |
@@ -178,21 +179,27 @@ alias berry='node /path/to/berry-agent/dist/host/main.js'
 | ---- | ----------------------------------------------------------------------------------------------------------------- |
 | `@`  | 文件路径补全（工作区根锚定；`@"带空格 路径"` 引号形；子序列模糊过滤同律）                                         |
 | `/`  | 命令补全（注册命令表——子序列模糊过滤〔大小写不敏感、前缀命中置顶〕；四命令子动词与深位枚举随位补全）              |
-| 鼠标 | 内建面板（十六个）滚轮滚动；`/history` 另有左键拖选复制（OSC 52——终端支持时直达剪贴板）；主对话面 v1 不消费鼠标 |
+| 鼠标 | 内建面板（十八个）滚轮滚动；`/history` 另有左键拖选复制（OSC 52——终端支持时直达剪贴板）；主对话面 v1 不消费鼠标 |
 
-状态行（底部 footer）分栏呈现：左段常驻信息 `cwd 短名 · 模型名 · 会话短 id`（段缺席缩位不虚报、超宽整字截断），右段运行态（转轮 / 实时工具名 / 用量累计——插件 `setStatus` 写入同段）；run 结束按终态分类——失败 `✖ 失败`、已中止 `⏹ 已中止`（失败/中止不伪装成功结束），正常结束右段归闲态。cwd 段在 git 仓库内时附**短支名后缀**（直读 `.git/HEAD` 取支名——detached HEAD 与非 git 目录缺席不显占位；不轮询，checkout 后随切换或重画收敛）。正文中的失败消息随附**错误块**（`✖` 前缀 + 错误语义色整行——供应商报错/上下文截断兜底等 errorMessage 出现即落块，Web 界面正文列同律）。
+底栏三行常驻栈（自上而下；窄屏按让位梯缩位、段缺席不虚报）：
+
+- **行1 仪表**：`模式 · 思考 · 模型 · 累计 · 速度 · 上下文` 六段连缀——模式词按沙箱模式换词（只读→**计划** / 工作区写→**Auto** / 无沙箱→**YOLO**〔警示色〕）；思考 = 思考级别短词（思考关/思考低/…，未设置时不显示）；模型呈短名（全形归 `/status`；`ctrl+p` / `/model` 切换即时活写）；累计 = 会话全 run token 累计（零耗不显）；速度 = 生成速度 `N tok/s`（run 中现算，中止/失败终态缩位）；上下文 = 窗口占用（`上下文 12 K / 1 M · 38%` 形，首轮前缺席）。**尾注**右对齐于行1 右缘（`setStatus` 写入的瞬时信息——run 终态回执 `✓ 用量 N` / `⏹ 已中止`、插件 `setStatus` 同载体；在场即自右起挤占仪表段）。失败态不落尾注——任务行 `✗ 失败 · 原因` 是唯一主呈位。
+- **行2 环境**：`目录 · 会话短 id · ⎇ 支名@短哈希 · 沙箱原词 · 教学提示`——目录取 cwd 短名；`⎇` 段在 git 仓库内呈现（直读 `.git/HEAD`——detached HEAD 与非 git 目录缺席不显占位；不轮询，checkout 后随切换或重画收敛）；沙箱呈原词（只读/工作区写/无沙箱——与行1 模式词对照呈现）；教学提示 `? 快捷键`（弱化显示——输入框空且空闲时在场）。
+- **行3 后台任务清单**（JobPanel）：运行中后台任务每行 `{图标} {名} · {用时}`（上限 5 行，溢出行指路 `/jobs`；`alt+↑`/`alt+↓` 段内光标、`enter` 进 `/jobs` 定位该任务），全闲整区收起零占行。
+
+窄屏自右起逐段让位（宽度不驱整行退场——防行跳动）：行2 教学提示→沙箱→⎇→短 id 依次让位（目录永不丢，独存超宽走省略号截断；数据全空整行退场）；行1 上下文→速度→累计→模型→思考依次让位，模式词恒保（安全信息最后保真）。正文中的失败消息随附**错误块**（`✖` 前缀 + 错误语义色整行——供应商报错/上下文截断兜底等 errorMessage 出现即落块，Web 界面正文列同律）。
 
 TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TUI 面——`list` 安装态清单三分区 / `mount <id>`·`unmount <id>`·`toggle <id>` 行编辑 / `config <id>` 配置表单〔configSchema 逐字段问答——secret 入凭证盒不落 yaml〕；写动词成功尾自动链重载；市场安装走 `/marketplace` 页或 CLI `berry marketplace <sub>`，ref 形 install/uninstall/update 维持 CLI `berry plugins <sub>`）、`/reload`（热重载——会话运行中自动排队、run 结束后执行；回执含新代工具面 diff）、`/danger`（危险工具闸人面——`approve [ttlDays]` 签发 consent / `status` 运维呈单）、`/doors`（开门制人面——`list` 高危面门态清单〔闭门附同源 reason〕/ `open <capability>`、`close <capability>` 进程级门段编辑；授予双源 = 插件行 `opens` 位 + `doors` 段，任一含即门开——CLI 侧另有 `berry doors list` 只读形）、`/approval`（审批分级人面——`status` 当前沙箱模式与审批 policy〔值 + 四层来源〕/ `entries` 工具策略表全列（立即读取当前生效内容） / `explain <tool> [pattern]` 真裁决干跑〔与守门行同源命中标注〕/ `preset <conservative|balanced|open>` 预设写盘〔settings.json 两键 + open 模式七条建议集 append，下次启动生效〕），`/history`（会话回看页）、`/rewind`（边界快照回卷——无参开选择器两步确认〔Enter 预览核对 → Enter 确认 fork 新会话；busy 守卫/打字过滤同族律〕，带参 `list`/`preview <id>`/`restore <id>` 文本形）、`/goal`（目标续跑管理——`create <schedule 串> <objective 全文> [--write] [--budget <n>]` 建续跑 goal〔锚定本会话；schedule 串形见下文〔/tick 定时任务〕节；`--write` = needsWrite 申请非授权——`/goal approve` 批准后生效；`--budget` = 记账刹停上限（本会话计数 + 后台代跑合计）；首跑 = schedule 首次到点〕、`wake <goalId>` 手动起闹〔停滞/预算双复位 + 定时恢复〕、`list` 全部 goal 状态·定时·预算速览、`show <goalId>` 单 goal 详情〔计划态 + 唤醒审计 + needsWrite 双位态〕、`approve <goalId>` 人面批准 needsWrite 申请〔写入工具批准位——批准后 gate kind command 可申请并真跑评测（恒 workspace-write 模式 + 30 秒上限 + 无升权出路）；exec 插件被禁用时申请照拒（如实提示未启用），files/diagnostics 判据不受影响〕；预算达上限自动停靠〔定时行停 + 会话落 paused〕、后台日池回充时自动唤醒续跑）、`/tick`（定时任务面——`add|list|rm|run|enable|disable` 六动词，用法与 schedule 串形见下文〔/tick 定时任务〕节；到点执行双形态：宿主在跑 = 进程内推进、宿主停机 = cron 可选后端子进程触发〔`BERRY_AGENT_CRON=1` 开启——见「无人值守与预算停靠」〕）、`/browser install`（浏览器引擎安装）、`/setup`（模型配置向导——选渠道/自定义网关 → 录 key → 立即生效，可选连通验证；分桶选单/明文回显/全值回执见上文「模型配置」节）、`/model`（模型选择页——provider 分组全列（清单与 ctrl+p 循环同源）+ `●` 当前标记 + 打字过滤（↑↓/enter/esc/backspace，输入即滤）；选定下一轮对话起生效并回执一行，与 ctrl+p 快速循环同源同效——打字过滤即免记模型全名的直达面）、`/credentials`（凭证管理——add/list/rm 与 oauth 授权流）、`/memory`（记忆管理页——f 冻结切换 / d 忘掉〔confirm 两段式〕/ r 恢复 / e 导出 / Tab 筛选循环全部→生效中→冻结→已结束；memory 插件安装时注册、界面不支持时降级提示）、`/sessions`（会话切换器——清单光标选定即续接切换〔选定 = open+focus 可写态〕）、`/rename`（会话改名——带参直通、无参开主屏输入框〔空输入=取消不保存〕；过滤不可见字符 + 200 字上限（与 CLI `berry sessions rename` 同源））、`/resume`（会话续接——`/resume <id>` 直达切换 + 回执、无参开 `/sessions` 清单选定续接）、`/usage`（会话用量面板——本会话全 run 累计分表）、`/help`（命令与键位帮助——命令册 + 键位册双源页）、`/new`（同 cwd 建新会话即切换——回执一行新会话短 id，旧会话不动、`/sessions` 可切回；新会话首事件保存前暂不在 `/sessions` 清单——footer 短 id 即其可见位）、`/status`（状态汇总页）、`/debug`（调试信息页——日志路径/生效配置）、`/themes`（主题切换页 + 自定义主题——选定写 `theme` 键，见下文「用户设置」）、`/diff`（工作区改动总览页——本会话 edit 类工具改动按文件分组）、`/skills`（技能清单页——`enter` 回填调用形入输入框，不直接执行）、`/marketplace`（插件市场页——`enter` 安装/卸载〔卸载双相：核查清单回执 → 三选裁决（取消/保留数据/清数据）〕· `u` 更新 · `r` 刷新〔恒回源强制重取——鲜缓存亦重取，非 `discover` 的 TTL 惰性腿〕；busy 单槽跨开屏持久——收屏后动作继续、重开可见回执；源管理〔`add`/`remove`〕留 CLI `berry marketplace`，见下文「marketplace 市场聚合」节）、`/thinking`（深度思考级别选择页——off~max 七级选定、当前项 ● 标记；下一轮对话起生效，是否生效随模型能力——模型不支持思考时静默无效）、`/sandbox`（沙箱模式选择页——read-only / workspace-write / danger 三种选定、当前项 ● 标记；即刻生效于后续工具调用——运行中的 run 内下一工具调用起按新模式执法）、`/update`（检查更新薄壳——本地 / 远端 dist-tags 对照回执一行：有新版即指引「退出后执行 berry update」（TUI 内不代执行）、已是最新如实说、失败诚实报；启动另有 24h 节流的静默检查——有新版 notify 一行、按版本去重，`BERRY_AGENT_SKIP_UPDATE_CHECK` 置值即归零）、`/guide`（快速上手参考页——快速上手 / 模型配置 / 核心命令 / 文档地图 / 升级与卸载五段静态快照，版本居面板首行）（`/new` `/status` `/model` `/setup` `/debug` `/themes` `/diff` `/skills` `/marketplace` `/thinking` `/sandbox` `/update` `/guide` `/feedback` `/jobs` 十五词为 TUI 本地命令——恰零参命中、带参即用法错，不进会话命令表，与 `/exit` 同律）、`/export`（会话导出 markdown 落盘——`~/.berry-agent/exports/<会话id>-<时间戳>.md` 并回执一行路径；无参 = 焦点会话、`/export <会话id>` 指定会话；空会话照落盘、指定 id 不存在诚实拒）、`/feedback`（反馈页——近 7 天运行错误查看 + 导出本地诊断包到 `~/.berry-agent/diagnostics/feedback-<时间戳>.md`；材料只写本机文件、面板与导出包内均明示不上传）、`/jobs`（后台任务清单页——运行中 + 近期结束的主屏清单外全量记录）、`/memory-export` `/memory-import`（记忆导入导出）、`/exit`（退出 TUI——效果同 Ctrl+D；TUI 本地退出词，不进会话命令表——`/quit` 别名已退役，输入与未注册命令同路）等。尾参动态补全四处：`/plugins` 的 `mount` / `unmount` / `toggle` / `config` 子动词收插件 id、`/rewind <id>` 收回退点 id、`/export <会话id>` 与 `/resume <会话id>` 收会话 id（两位同源合流）——四尾参位按实时清单补全（每查询现取：插件集随安装面、回退点随会话、会话清单随库行——与 `/sessions` 清单同源，零事件新会话无行不补）。Web 界面输入框同词对等：`/thinking` / `/sandbox` 恰零参命中即开设置浮层（行集与当前项取自服务端、点击选定即切换并呈现回执），带参形同用法错——折 Web 界面既有错误通知条、不提交；该设置经会话族三端点承载：`GET /api/sessions/:id/tiers`（取级别/模式词表与当前项）、`PUT /api/sessions/:id/thinking-level` / `PUT /api/sessions/:id/sandbox-mode`（切换，回执文案与 TUI 同源）。
 
 ### TUI 面板
 
-面板 = 主对话面上的全屏只读覆盖层，同一时刻只开一个（占用中新开请求降级提示——先退当前面板再开）。通用退出键 `q` / `Esc`；`Ctrl+C` 打断、`Ctrl+D` 退出进程（先收面板再转退出）。十六个内建面板：
+面板 = 主对话面上的全屏只读覆盖层，同一时刻只开一个（占用中新开请求降级提示——先退当前面板再开）。通用退出键 `q` / `Esc`；`Ctrl+C` 打断、`Ctrl+D` 退出进程（先收面板再转退出）。十八个内建面板：
 
 - `/history` —— 会话回看：全量历史正文只读快照（与主屏同一渲染管线），`↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End` 键盘滚动 + 鼠标滚轮、左键拖选复制；
 - `/memory` —— 记忆管理：生效中/冻结/已结束三分区，`f` 冻结切换 / `d` 忘掉〔confirm 两段式〕/ `r` 恢复 / `e` 导出 / `Tab` 筛选循环（全部→生效中→冻结→已结束）；
 - `/sessions` —— 会话切换：会话清单光标选择（`↑`/`↓` 移动、`PgUp`/`PgDn`/`Home`/`End` 翻选、`Enter` 选定切换）；
 - `/usage` —— 会话用量：本会话全 run 累计分表（轮次 + token 输入/输出/缓存读/缓存写四分 + 合计 + 费用——无费用上报时如实呈现）；
-- `/status` —— 状态汇总：版本 / 模型位（当前 provider/model + 全集计数——`ctrl+p` 模型循环同数据源）/ 模型凭证行（态 + **完整值**——全明文翻裁：页面上所见即当前生效值）/ 会话（短 id / cwd 短名 / 轮次）/ 数据目录 / 当前主题 / env 旋钮生效值（MODEL / DATA_DIR / LOG_LEVEL 三键白名单维持——其余 env 恒不入面）；
+- `/status` —— 状态汇总：版本 / 模型位（当前 provider/model + 全集计数——`ctrl+p` 模型循环同数据源）/ 模型凭证行（态 + **完整值**——全明文翻裁：页面上所见即当前生效值）/ 会话（短 id / cwd 短名 / `支名@短哈希`〔不在 git 仓库或 detached HEAD 时该行不显示〕 / 轮次 / 今日〔当日前台与后台合计已耗 tokens，为零时该行不显示〕）/ 数据目录 / 当前主题 / env 旋钮生效值（MODEL / DATA_DIR / LOG_LEVEL 三键白名单维持——其余 env 恒不入面）；
 - `/debug` —— 调试信息：daemon.log 路径与尾行快照（上限 50 行、token 明文行掩码；非 daemon 形缺席行如实呈现）/ log level 生效值 / settings 解析态（键位覆盖拒载与主题坏值警告的汇总面）/ sqlite 路径 / 已安装插件 id 清单——凭证值恒不入面；
 - `/themes` —— 主题切换：内置 `auto` / `dark` / `light` 三种 + `themes/` 自定义主题（坏文件条目 ⚠ 标注）的选择器（▸ 光标 + `Enter` 选定 + 当前项 ● 标记）；选定即时切换并写 `settings.json` 的 `theme` 键（见下文「用户设置」）；
 - `/thinking` —— 深度思考级别：off~max 七级选定（▸ 光标 + `Enter` 选定 + 当前项 ● 标记）；选定后下一轮对话起生效，是否生效随模型能力——模型不支持思考时静默无效；
@@ -204,6 +211,8 @@ TUI 内建命令（随插件安装动态扩展）：`/plugins`（插件管理 TU
 - `/rewind` —— 回退点选择器（2026-09-30 会话管理命令批批3）：manifest 成品行清单（打字过滤 + `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End` 光标 + 滚轮）+ 两步确认（`Enter` 预览三行对照〔恢复 N/删除 M/不动 U——零改动核对 + 手动改动不回退警告行〕→ `Enter` 确认 fork 新会话并切前台；`Esc` 回列表不退屏；预览失败诚实拒 Enter 零动作）。
 - `/model` —— 模型选择：provider 分组条目全列（清单与 ctrl+p 循环同源）+ `●` 当前标记 + 打字过滤（输入即滤、`Backspace` 删尾、过滤词呈现底行；`q` 无过滤词时为退出捷键）；`↑`/`↓`/`Home`/`End` 移动、`Enter` 选定（下一轮对话起生效并回执一行，与 `ctrl+p` 快速循环同源同效）、`Esc` 退出；
 - `/marketplace` —— 插件市场：市场条目清单（`已装` 徽标分未装/已装）+ `↑`/`↓` 移动、`Enter` 安装/卸载（未装 = 安装；已装 = 双相卸载：核查清单回执 → 三选裁决〔取消/保留数据/清数据〕）、`u` 更新（未装条目指路 enter 安装）、`r` 强制刷新（恒回源重取）；busy 单槽跨开屏持久——长动作进行期间动作键锁定，收屏后动作继续、重开可见结算回执。
+- `/feedback` —— 反馈页：近 7 天运行错误查看（错误消息正文与失败收尾两类来源、同一轮不重复计——打开时扫描一次静态呈现）+ `e` 导出本地诊断包（落 `~/.berry-agent/diagnostics/`，含 daemon.log 尾段——token 明文行掩码；材料只写本机文件、面板与导出包内均明示不上传）。
+- `/jobs` —— 后台任务清单：运行中（按启动先后）+ 近期结束（最近收场在前）的全量记录，每行 `{名} · {状态} · {时长} · {归属}`（状态词直白呈现、已结束行暗淡、失败行着色）；主屏底栏 JobPanel 只呈运行中快照（上限 5 行）——已结束任务的全量走本页，`Enter` 从 JobPanel 光标进屏并定位该任务。
 
 面板命令随对应插件安装而注册（未安装不注册、不虚报——`/memory` 插件未安装或界面不支持时降级提示）；面板内容为打开时刻的静态快照（打开后新事件不进面板，返回主屏全帧补显）。
 
