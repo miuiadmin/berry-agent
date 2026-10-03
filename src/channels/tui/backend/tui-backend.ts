@@ -1665,9 +1665,15 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       return;
     }
     // killed：已停止（detail 在场附归因——收口/打断的归因语）
+    // detail 预算收口算式（防再漂——2026-10-04 亲算定谳）：固定前缀 = 停止符(1)
+    // + 空格(1) + nameW + " · "(3) + 已停止(6) = nameW+11，detail 段再自带
+    // " · "(3) 合计 nameW+14——预算须减 14；只减 10 时 detail 填满预算整行
+    // 超宽（appendTransientLine 瞬时路无帽直写，终端 autowrap 产未入账物理行
+    // ——cursorRow 漂账族）。对照 failed 腿核算形：固定 nameW+5、减 6 → 整行
+    // 恒 columns-1。
     const detail =
       terminal.detail !== undefined
-        ? ` · ${truncateToWidth(sanitizeLineText(terminal.detail), Math.max(0, columns - stringWidth(name) - 10))}`
+        ? ` · ${truncateToWidth(sanitizeLineText(terminal.detail), Math.max(0, columns - stringWidth(name) - 14))}`
         : '';
     this.appendTransientLine(`${buildSgr({ fg: this.theme.secondary })}⏹${SGR_RESET} ${name} · 已停止${detail}`);
   }
@@ -1909,11 +1915,14 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /**
    * 教学提示门控对账（V-3 注⑦②——空稿闲态呈现 `? 快捷键`）：期望态翻转
    * 才重建（缓存短路——编辑器每键消费后/agent 起停锚高频对账零重画）。
-   * 期望态 = 空稿且闲态（overlay 在场性不入判——浮层收屏后随下一键对账）。
+   * 期望态 = 空稿且闲态（overlay 在场性不入判——浮层收屏后随下一键对账；
+   * 第二例外注记：inputAsk 在场同不入判——应答窗内编辑器空稿且闲态，但
+   * `?` 按 routeEvent 层门控是应答稿字符非帮助捷键，判式漏 inputAsk 半则
+   * footer 示假键位——提示面与键位实况对齐，2026-10-04 并入）。
    */
   private syncFooterHint(): void {
     if (!this.footerEnabled) return;
-    const on = this.editor.model.isEmpty() && !this.progressBusy;
+    const on = this.editor.model.isEmpty() && !this.progressBusy && this.inputAsk === null;
     if (on === this.footerHintOn) return;
     this.footerHintOn = on;
     this.rebuildFooter();
@@ -2375,6 +2384,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
       this.autocompleteCompleter.cancel(); // 应答收场：撤窗 + 在途作废（下轮 ask 重开）
       this.popup.applyResult(null); // 应答期抑制的补全层即刻收层
       this.continueInputQueue(); // 队首晋升接续（FIFO——十六役扫 #2）
+      // 收窗后门控对账（B2 对称面）：模型清稿的 change 先于本分支到达（editor
+      // 侧先 model.submit 后 onSubmit），彼时 inputAsk 仍在场——教学提示未随清稿
+      // 复现；此处补对账（队列接续时 activateInputAsk 的 setText 会再翻回，
+      // 缓存短路零重画）
+      this.syncFooterHint();
       this.touchFixed();
       return;
     }
@@ -2464,8 +2478,11 @@ export class TuiBackend implements UiBackend<AgentMessage>, AltScreenPrimary {
   /** 编辑器内容变更：补全层重发查询（尾沿防抖——R6 批 10j）+ 固定区脏位 */
   private handleEditorChange(): void {
     if (this.inputAsk === null) this.autocompleteCompleter.request();
-    this.touchFixed();
+    // 门控对账先于触脏（2026-10-04 B2 序修正）：翻转自带 rebuildFooter+touchFixed
+    // ——若 touchFixed 在前，同步直出档会先落一帧旧 hint 态再落新态（应答窗
+    // 开窗帧混入假键位残影）；注入调度档两请求虽合并无害，序仍以对账先行定形
     this.syncFooterHint(); // 教学提示门控对账（空稿翻转单源锚——一切稿件变更经此）
+    this.touchFixed();
   }
 
   /* ---------------- 内部：ask 浮层 ---------------- */

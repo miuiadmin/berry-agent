@@ -16,7 +16,7 @@
  * 硬退复原钩 2031 同写（七役扫描批——复原对称律）、resumeMain 复起重查
  * （七役扫描批——副屏在场窗通知丢弃的补偿面）、colorEnv 三档接线。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,6 +34,7 @@ import type {
   AgentMessage,
   AssistantMessage,
   JobEntry,
+  UiRewindPreview,
   UiSessionSummary,
   UiUsageSummary,
 } from '../../../contracts/index.js';
@@ -429,6 +430,22 @@ describe('TuiBackend notify / repaint / resize', () => {
     const reasonCount = (visible.match(/原因/g) ?? []).length;
     expect(reasonCount).toBeGreaterThan(0);
     expect(reasonCount).toBeLessThanOrEqual(17);
+  });
+
+  it('killed 归因超长截断单行（detail 填满预算整行可见宽 ≤ 屏宽——预算算式 nameW+14 收口）', () => {
+    const { io, backend } = makeBackend();
+    backend.appendJobSettledLine(settledEntry('任务C', 'killed', '因'.repeat(60)));
+    // 剥 SGR/CR 后取 ⏹ 行整段按字素测宽（CJK 双宽如实计——整行真可见宽）
+    const line =
+      io.bytes
+        .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+        .replace(/\r/g, '')
+        .match(/⏹[^\n]*/)?.[0] ?? '';
+    expect(line).toContain('已停止'); // 行在场（防 find 空串假绿）
+    // 修前红：预算只减 nameW+10 → detail 填满预算时整行超宽（实测 83 > 80）
+    // （appendTransientLine 瞬时路无帽直写——终端 autowrap 产未入账物理行，
+    // cursorRow 漂账族）
+    expect(stringWidth(line)).toBeLessThanOrEqual(COLS);
   });
 
   it('未终态防御位：terminal 缺席零呈现（不炸不脏流——字节流零追加）', () => {
@@ -3661,6 +3678,23 @@ describe('TuiBackend footer 教学提示门控 + `?` 闲态教学键（V-3 注�
     expect(io.bytes).toContain('? 快捷键'); // 闲态复现
   });
 
+  it('应答窗教学提示退场 / 收场复现（inputAsk 并入门控——提示面与键位实况对齐）', async () => {
+    const { io, backend } = makeBackend({
+      sessionId: SESSION,
+      footer: { tiers: () => ({ mode: null, thinking: null, sandbox: null }) },
+    });
+    expect(io.bytes).toContain('? 快捷键'); // 空稿闲态基线在场
+    io.bytes = '';
+    const answered = backend.input('补全语料');
+    // 应答窗：activateInputAsk 清稿（空稿）且闲态不变——但 '?' 键按 routeEvent
+    // 层门控（inputAsk===null）此时是应答稿字符非帮助捷键，提示面不退即示假键位
+    expect(io.bytes).toContain('? 补全语料'); // 应答提示行同帧在场（断言非空洞——固定区确已重画）
+    expect(io.bytes).not.toContain('? 快捷键'); // 修前红：门控漏 inputAsk 半
+    io.emitInput('好\r'); // 应答提交——收场
+    await answered;
+    expect(io.bytes).toContain('? 快捷键'); // 收场复现（空稿闲态无应答窗——三闸全开）
+  });
+
   it('`?` 闲态教学键：text 路分诊开 /help（空稿闲态门控）；柄缺席不劫键', () => {
     const helps: number[] = [];
     const submitted: string[] = [];
@@ -4686,5 +4720,35 @@ describe('TuiBackend 后台任务段 + /jobs 副屏（界面美化役批6——U
     io.emitInput('q');
     pump();
     expect(backend.lifecycle).toBe('running');
+  });
+});
+
+describe('TuiBackend /rewind 副屏装配（openRewindPicker——装配 seam 锁）', () => {
+  it('装配 seam requestRepaint：预览异步落位经 altHost.requestRepaint 请帧（组合根缝——面板件内锁之外）', async () => {
+    const { io, backend } = makeBackend({ sessionId: SESSION });
+    // 间谍注入形：altHost 是本件自持构造（非 options 注入面），spy 钉在实例方法
+    // 上——锁的正是装配线 requestRepaint: () => this.altHost.requestRepaint() 这道
+    // 缝。面板件内有锁（rewind-picker.test 注入 count）但装配笔误〔漏传/传错
+    // 柄〕时该锁仍绿——组合根零帧源只有本缝锁可拦
+    const host = (backend as unknown as { altHost: AltScreenHost }).altHost;
+    const requestRepaint = vi.spyOn(host, 'requestRepaint');
+    // 受控 promise：onPreview 落位时机由测试侧掌握（enter 触发后才 resolve）
+    let resolvePreview!: (value: UiRewindPreview) => void;
+    const opened = backend.openRewindPicker(
+      [{ id: 'm-second0001', line: '- m-second… 2026-09-30 12:00:00〔修改前快照〕3 文件 · 回退点 seq=5' }],
+      {
+        onPreview: () =>
+          new Promise<UiRewindPreview>((resolve) => {
+            resolvePreview = resolve;
+          }),
+        onRestore: async () => undefined,
+      },
+    );
+    expect(opened).toBe(true); // 副屏已开（主屏挂起 + 面板首帧）
+    io.emitInput('\r'); // list 段 Enter → 进 preview + onPreview 异步加载
+    resolvePreview({ restoreCount: 2, deleteCount: 1, untouchedCount: 0 });
+    await Promise.resolve();
+    await Promise.resolve(); // .then 落位微任务排空
+    expect(requestRepaint).toHaveBeenCalled(); // 落位经装配 seam 请帧（笔误态零调用）
   });
 });
