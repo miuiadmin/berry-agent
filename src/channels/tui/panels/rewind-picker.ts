@@ -231,6 +231,15 @@ export class RewindPicker implements OverlayContent {
 
   /** preview 段落位：选中成品行 → 三账行/错误行 → 警告行 → 底行段提示 */
   private renderPreview(buffer: CellBuffer, region: Region): void {
+    // 守卫族语义（E6 十件守卫的修后缝隙——preview 视图补位；list 视图 E6 注
+    // 同族）：内容行只在底行占位前落格（目标绝对行 < region.row + region.height - 1）
+    // ——矮窗内容段自上而下收窄省略：height=2 零内容行只头行+底行、height=3
+    // 省账/错误行、height=4 省警告行。先写后覆会留尾段残形（成品行/WARN 行
+    // 皆长于底行提示——writeText 不清行，覆写只盖前段），宁缺勿残
+    const writeContent = (row: number, text: string, style?: Readonly<CellStyle>): void => {
+      if (row >= region.row + region.height - 1) return; // 底行占位——内容行不与之同位
+      buffer.writeText(row, region.col, fitLine(text, region.width), style);
+    };
     // preview 段头行同 accent（界面美化役美学注④——视图切换层级感不降档）
     buffer.writeText(
       region.row,
@@ -238,20 +247,19 @@ export class RewindPicker implements OverlayContent {
       fitLine(`${PICKER_HEAD_MARK} 回退点预览（不改动文件）`, region.width),
       this.headStyle,
     );
-    buffer.writeText(region.row + 1, region.col, fitLine(this.previewLine, region.width));
+    writeContent(region.row + 1, this.previewLine);
     const data = this.previewData;
     if (data === undefined) {
-      buffer.writeText(region.row + 2, region.col, fitLine('预览中…', region.width), HINT_STYLE);
+      writeContent(region.row + 2, '预览中…', HINT_STYLE);
     } else if (data.errorText !== undefined) {
       // 诚实拒：只显错误行（Enter 零动作——不进 restore）
-      buffer.writeText(region.row + 2, region.col, fitLine(data.errorText, region.width));
+      writeContent(region.row + 2, data.errorText);
     } else {
-      buffer.writeText(
+      writeContent(
         region.row + 2,
-        region.col,
-        fitLine(`恢复 ${data.restoreCount} · 删除 ${data.deleteCount} · 不动 ${data.untouchedCount}`, region.width),
+        `恢复 ${data.restoreCount} · 删除 ${data.deleteCount} · 不动 ${data.untouchedCount}`,
       );
-      buffer.writeText(region.row + 3, region.col, fitLine(WARN_LINE, region.width), WARN_STYLE);
+      writeContent(region.row + 3, WARN_LINE, WARN_STYLE);
     }
     // 底行段提示：返回路如实写 q/esc（key 轨 :287 与 kitty text 轨 :400-402
     // 的 q 都实返回列表——f9995d9 列表视图键序已翻 q/esc 从众，preview 视图随迁）

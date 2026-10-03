@@ -10,8 +10,9 @@
  *   （❓ 等）弃用；⚙ 工具执行语义（工具卡/状态行）经 HEAD_MARKS.tool 位
  *   入册（值委派 contracts TOOL_RUN_MARK 单源——webui SPA 同源）——
  *   setup-wizard 面板头与 task-status-line 态① 工具段已收编消费
- *   （值等价换引，呈现零变化）；transcript 孤儿简行已改走 TOOL_RUN_MARK
- *   （2026-10-04 收编批），webui 帧族随其域批次收编。
+ *   （值等价换引，呈现零变化）；transcript 孤儿简行与 webui frames 状态/
+ *   终结行三位已同批收编走 TOOL_RUN_MARK（2026-10-04 收编批 7ecdb0e——
+ *   待办句随收编落地勘正删）。
  * - **溢出指示统一律（美学注②）**：「↑/↓ N 更多」中文形全域单形。
  * - **光标符统一律（美学注③→V-3 注⑩ 翻档）**：› 全域单形（▸/❯ 时代符形
  *   退役）——picker 族、overlay 弹层（popup / select-confirm）、editor 输入

@@ -71,13 +71,13 @@ export class FileMentionSource {
     const dirPart = isHomeRoot ? '~/' : slash >= 0 ? rawPrefix.slice(0, slash + 1) : '';
     const filePart = isHomeRoot ? '' : slash >= 0 ? rawPrefix.slice(slash + 1) : rawPrefix;
     const searchDir = this.resolveSearchDir(dirPart);
-    if (searchDir === null) return []; // 不可解析形态
+    if (searchDir === null) return []; // 不可解析形态——空集（无匹配弹层：空态直通语义）
 
     let entries;
     try {
       entries = readdirSync(searchDir, { withFileTypes: true });
     } catch {
-      return []; // 缺目录 / 不可及——空集（补全静默退场）
+      return []; // 缺目录 / 不可及——空集（无匹配弹层：空态直通语义——源在场条目空透传，非静默退场）
     }
 
     // fuzzy 双组（R6 批 10j——子序列命中 + 前缀命中置顶；各组内目录优先再字典序）

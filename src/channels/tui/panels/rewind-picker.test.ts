@@ -521,6 +521,37 @@ describe('RewindPicker 窄窗宽度收口（fitRowSegments 单段形——超宽
   });
 });
 
+describe('RewindPicker preview 段极小窗守卫（E6 十件守卫修后缝隙）', () => {
+  it('height=2/4：内容行不与底行同位——底行独占整行、WARN 缺席而非尾段残形（守卫族语义）', async () => {
+    // 手卷家族守卫统一锚的 preview 视图补位（list 视图 E6 已守卫、preview 视图
+    // 漏网）：内容行只在底行占位前落格——矮窗内容段自上而下收窄省略。
+    // 修前红位①（height=2）：previewLine 先写 row+1 后被底行覆写，成品行
+    // 尾段（…回退点 seq=5）残留在底行右段；修前红位②（height=4）：WARN 行
+    // 先写 row+3 后被底行覆写，尾段（…保持不动）~11 列残留在底行右段
+    const { picker } = makePicker();
+    picker.handleEvent(k('enter'));
+    await Promise.resolve();
+    await Promise.resolve();
+    const width = 72;
+    const bottomHint = 'enter 确认回退（将新建分支会话） · q/esc 返回列表';
+
+    // height=2：零内容行只头行+底行（守卫族语义——对齐 theme-picker E6 锁形）
+    const g2 = new CellGrid(width, 2);
+    picker.render(g2, { row: 0, col: 0, width, height: 2 });
+    expect(readRow(g2, 0, width)).toContain('回退点预览'); // 头行在场
+    expect(readRow(g2, 1, width)).toBe(bottomHint); // 底行独占整行（修前残留成品行尾段红）
+    expect(readRow(g2, 1, width)).not.toContain('seq=5'); // 反向锁：残段谱不再现
+
+    // height=4：成品行/三账行在场、警告行省略（写亦被底行覆留残段——宁缺勿残）
+    const g4 = new CellGrid(width, 4);
+    picker.render(g4, { row: 0, col: 0, width, height: 4 });
+    expect(readRow(g4, 1, width)).toContain('m-second'); // 成品行在场（底行上方）
+    expect(readRow(g4, 2, width)).toContain('恢复 2'); // 三账行在场
+    expect(readRow(g4, 3, width)).toBe(bottomHint); // 底行独占（修前残留 WARN 尾段红）
+    expect(readRow(g4, 3, width)).not.toContain('保持不动'); // 反向锁：WARN 残段谱不再现
+  });
+});
+
 describe('RewindPicker 退出族与闭锁', () => {
   it('list 段 q/Esc 退出面板（q 双轨 + Esc）；退出闭锁后键零消费', async () => {
     const { picker, onExit } = makePicker();
