@@ -710,16 +710,24 @@ export function createConversationStack(options: ConversationStackOptions): Conv
   const sessionSpentOf = (sessionId: string): number => {
     const cached = sessionSpentCache.get(sessionId);
     if (cached !== undefined) return cached.spent;
-    let spent = 0;
     try {
-      spent = aggregateSessionSpent(options.runtime.persistence.store, sessionId);
+      // 成功才落缓存：条目 = 聚合现值快照（终身有效——见上头注）
+      const spent = aggregateSessionSpent(options.runtime.persistence.store, sessionId);
+      sessionSpentCache.set(sessionId, { spent });
+      return spent;
     } catch (err) {
-      // 读面失败 fail-open + warn：呈现面不反噬请求路（今日读面同语义——
-      // 欠账随下次首读/进程重启收口，丢弃的只是当次聚合精度）
-      warn(`会话累计聚合失败（fail-open 归 0 首读）：${err instanceof Error ? err.message : String(err)}`);
+      // 读面失败 fail-open + warn：呈现面不反噬请求路（今日读面同语义），当次
+      // 返 0 但**失败不落缓存**（日键缓存同形——条目保持缺席，下次拉取重聚合
+      // 拿全量自愈）。反例是本缺陷修前形：把 0 无条件 set 进缓存 → 此后永命中
+      // 缓存直返、历史账进程内恒漏——每会话仅一次首读，「随下次首读收口」是
+      // 不可达承诺（ENOSPC/sqlite 瞬态只应损失当次精度，不应进程内永久失明）。
+      // bumpSessionSpent 增量腿照旧只推进已初始化条目——失败后下次拉取的重
+      // 聚合已含期间落账笔，全量自愈无双计。
+      warn(
+        `会话累计聚合失败（fail-open 当次归 0，失败不落缓存、下次拉取重聚合）：${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 0;
     }
-    sessionSpentCache.set(sessionId, { spent });
-    return spent;
   };
   // 计量写位粘滞持有（04 §5 mq 定形注补律——mq-3 收口锁批 + 四役 mq-2 勘正）：
   // 持有入位随会话驱动创建/开（createDriver 工厂 seam——manager create/open/fork

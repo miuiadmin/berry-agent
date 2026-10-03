@@ -546,6 +546,42 @@ describe('runTuiEntry 装配序', () => {
     expect(await entry).toBe(0);
   });
 
+  // —— /status 今日行装配接线锁（lane-C 件2）：allLanesSpentToday 纯函数三形
+  // 已锁（conversation-stack 域），但 openStatusPanel → todaySpent 注入腿零
+  // e2e 锚——装配腿断垃圾值/绕读面全不红。本测经真装配锁两形：>0 今日行在场
+  //（值 = allLanesSpentToday 现读）+ 零耗不推行（status-viewer 行集「>0 才显」
+  // 契约的装配半边）。
+  it('/status 今日行装配接线：metered 结算落账后开屏今日行在场 + 冷启动零耗不推行', async () => {
+    // 腿1：metered faux 跑一笔结算落账（今日账 >0 形）→ /status 开屏
+    const first = await rigEntry(rigDir('entry-status-t1-data-'), rigDir('entry-status-t1-ws-'));
+    await until(() => first.io.output.includes('工作区写 · ')); // footer 就绪门
+    first.faux.setResponses([() => meteredEntryMessage(30, 12)]);
+    first.io.send('hello\r');
+    await until(() => first.io.output.includes('✓ 用量')); // run 结算落账锚（今日账已含本笔）
+    first.io.send('/status\r');
+    await until(() => first.io.output.includes('◉ 状态汇总')); // 副屏开屏
+    // 今日行整行锚（标签 + 值列数字——「今日」孤词防他文撞词）。值不可硬编：
+    // faux 走 withUsageEstimate 覆写（按真实 prompt 估算——脚本消息 usage 字段
+    // 被替换），断言「行在场 + 值列数字」即锁接线腿（allLanesSpentToday 现读
+    // 注入——改注入腿返 0/垃圾即红，见判别性实证）
+    expect(stripAnsi(first.io.output)).toMatch(/今日\s+[\d,]+/);
+    first.io.send('q');
+    await until(() => first.io.output.includes('\x1b[?1049l'));
+    first.io.send('\x04');
+    expect(await first.entry).toBe(0);
+
+    // 腿2：冷启动零耗 → /status 今日行缺席（>0 才显——零耗不推行不虚报零行）
+    const second = await rigEntry(rigDir('entry-status-t2-data-'), rigDir('entry-status-t2-ws-'));
+    await until(() => second.io.output.includes('工作区写 · '));
+    second.io.send('/status\r');
+    await until(() => second.io.output.includes('◉ 状态汇总'));
+    expect(stripAnsi(second.io.output)).not.toMatch(/今日\s+\d/); // 零耗 = 今日行缺席
+    second.io.send('q');
+    await until(() => second.io.output.includes('\x1b[?1049l'));
+    second.io.send('\x04');
+    expect(await second.entry).toBe(0);
+  });
+
   it('/help 副屏 + footer 常驻段（批 10k——R7 帮助面/R6 footer 落码装配位；V-4 注⑪②③ 三行栈形 + `?` 教学键）', async () => {
     const { entry, io } = await rigEntry(rigDir('entry-help-data-'), rigDir('entry-help-ws-'));
     // footer 三行栈首画在场（V-4 注⑪）：行1 仪表（模式词栈基线 workspace-write
@@ -829,6 +865,11 @@ describe('runTuiEntry 装配序', () => {
     io.send('\r');
     await until(() => io.output.includes(sandboxModeReceipt('danger')));
     await until(() => io.output.includes('无沙箱 · ')); // 沙箱段居首形（换档后同位）
+    // 行1 换词（MODE_SHORT danger → YOLO）经真装配锁（lane-C 件3——此前
+    // danger 换词零真映射锚、测试自注入绕换词表，改 MODE_SHORT danger 值不红）；
+    // 与上行行2 原词（无沙箱）同帧 = 两表示一致性（07 §4.1 注⑪③ 用户拍板
+    //「两行都保留原词」——换词/原词两表分职的装配面双锚）
+    expect(io.output).toContain('YOLO');
     io.send('\x04');
     expect(await entry).toBe(0);
   });

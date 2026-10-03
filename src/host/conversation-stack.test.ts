@@ -2826,6 +2826,25 @@ describe('会话累计聚合读面（07 §4.1 注⑪⑥a——V-4 底栏供数�
     await rt.shutdown();
   });
 
+  it('聚合瞬态失败不钉缓存：首拉 fail-open 归 0 + warn → 恢复后二次拉取重聚合自愈返真值（修前红：0 被永久钉进会话缓存）', async () => {
+    const warns: string[] = [];
+    const { rt } = rigRuntime();
+    const { stack } = rigStack(rt, { warn: (m) => warns.push(m) });
+    seedUsageRows(rt, 'sess-a', [{ input: 80, output: 40 }]); // 历史账真值 120
+    // 聚合面瞬态抛错一次后恢复（ENOSPC/sqlite 抖动实录族——
+    // mockImplementationOnce 只吃首调，此后回落 spyOn 包着的真实现）
+    vi.spyOn(rt.persistence.store, 'queryEvents').mockImplementationOnce(() => {
+      throw new Error('boom: 瞬态聚合失败');
+    });
+    expect(stack.sessionSpentOf('sess-a')).toBe(0); // 首拉 fail-open 归 0（呈现面不反噬请求路）
+    expect(warns.some((w) => w.includes('会话累计聚合失败'))).toBe(true); // 失败不静默
+    // 修前红锚：失败把 0 无条件钉进缓存 → 此后永命中缓存直返 0（历史账进程内
+    // 恒漏——每会话仅一次首读，「随下次首读收口」不可达）；修 = 失败不落缓存
+    //（日键缓存同形）→ 条目缺席、二次拉取重聚合拿全量自愈
+    expect(stack.sessionSpentOf('sess-a')).toBe(120);
+    await rt.shutdown();
+  });
+
   /** 会话活账 llm/usage 行 SUM(input+output)（faux 转抄值动态——锁在场与同源，不锁数值） */
   const sessionLedgerSumOf = (stack: ReturnType<typeof createConversationStack>, sessionId: string): number => {
     let sum = 0;
