@@ -46,6 +46,7 @@ import {
   createCompactionSlots,
   createCcrRetrieveTool,
   BEFORE_COMPACT_ATTRIB,
+  DEFAULT_COMPACTION_CONFIG,
 } from '../compaction/index.js';
 import type {
   BeforeCompactAttribution,
@@ -433,26 +434,19 @@ export interface ConversationStack {
   /** 启动会话策略（07 §5：cwd 归一根取最新会话——有则续接无则新建） */
   openStartupSession(cwd?: string): StartupSession;
   /**
-   * 今日耗落账呈现订阅面（04 §5 定形注——TUI 全域清扫 #1-full/#2 残窗）：
-   * llm/usage 每笔入账（complete 单发路 + run 结算桥接路）后发零载荷信号，
-   * 订阅者经 `llm.allLanesSpentToday()` 现拉现值——推进先于通知（结构性
-   * 保证现拉必含本笔）。有笔才通知（无计量不造零信号）；handler 异常逐个
-   * 隔离不炸落账链（onRunSettled 订阅面同律——非总线词汇，订阅面服务形）。
-   * 射程 = 本进程落账通知；跨午夜日键翻转不在射程（07 §4.1 G1 ④有界陈旧律）。
-   */
-  onSpentTodayLedgered(handler: () => void): Disposer;
-  /**
    * 会话累计读面（07 §4.1 注⑪⑥a——V-4 底栏供数链）：指定会话 llm/usage
    * durable 事件聚合 SUM(input+output) 主计费桶（呈现口径——车道不过滤；
    * 与件 6 run 级供应商直报 totalTokens 口径分立——彼直报此现算，呈现位
-   * 分职不互校）。sessionId 键控缓存 + 落账增量直推（与今日读面同形引用）。
+   * 分职不互校）。sessionId 键控缓存 + 落账增量直推（与当日全道读面同形引用）。
    */
   sessionSpentOf(sessionId: string): number;
   /**
-   * 会话累计落账通知（onSpentTodayLedgered 同锚族——07 §4.1 注⑪⑥a）：
-   * run 结算桥接落账尾与 complete 单发落账尾各发零载荷信号（多笔窗一次），
-   * 通知后于缓存推进——订阅者经 sessionSpentOf 现拉必含本笔。有笔才通知
-   * （无计量不造零信号——同锚族律）。
+   * 会话累计落账通知（07 §4.1 注⑪⑥a）：run 结算桥接落账尾、complete 单发
+   * 落账尾与连通探针落账尾各发零载荷信号（多笔窗一次），通知后于缓存推进
+   * ——订阅者经 sessionSpentOf 现拉必含本笔。有笔才通知（无计量不造零信号
+   * ）。注：V-4 注⑪⑤ 今日段退役迁 /status 快照档后，今日读面的推送订阅面
+   * （onSpentTodayLedgered）生产消费归零整体退役——/status 开屏现读
+   * allLanesSpentToday 直取零推送依赖，本面是落账通知唯一存活面。
    */
   onSessionUsageLedgered(handler: () => void): Disposer;
 }
@@ -664,7 +658,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     }
     return spentCached;
   };
-  // 当日全道已耗读面（呈现口径——TUI 状态栏「今日」段消费）：与上方闸门口径
+  // 当日全道已耗读面（呈现口径——/status 副屏快照档消费〔V-4 注⑪⑤ 今日段
+  // 退役迁位〕）：与上方闸门口径
   // 分立成对（日键缓存 + 桥接增量同形），差异只在聚合不过滤车道（前台笔照进）。
   // **只喂呈现**：allLanesSpentToday 服务读面的供数闭包，canAfford / 预警三档
   // / reserve 线仍只认 backgroundSpentToday——全道扩张不反噬任何执法面。
@@ -686,32 +681,17 @@ export function createConversationStack(options: ConversationStackOptions): Conv
     }
     return allSpentCached;
   };
-  // 今日耗落账通知私账（04 §5 定形注——呈现订阅面，TUI 全域清扫 #1-full/#2）：
-  // 零载荷信号形（消费位 pull 现拉模式不变）；两通知位（onUsage 回调全尾 +
-  // run 结算桥接循环外）都在缓存推进之后才通知——订阅者现拉必含本笔（时序
-  // 结构性保证）。handler 逐个 try/catch 隔离（onRunSettled 订阅面同律——
-  // 非总线词汇，订阅面服务形）。
-  const spentTodayLedgerHandlers = new Set<() => void>();
-  const notifySpentTodayLedgered = (): void => {
-    // 拷贝迭代防遍历中摘除（agent-service 订阅面先例形）
-    for (const handler of [...spentTodayLedgerHandlers]) {
-      try {
-        handler();
-      } catch (err) {
-        warn(`今日耗落账通知订阅者异常（隔离不炸落账链）：${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-  };
   // 会话累计读面（07 §4.1 注⑪⑥a——V-4 底栏供数链）：sessionId 键控缓存
-  // 多会话并存（路3 定谳形）。与今日读面**全形引用但键维不同**：日键承担
+  // 多会话并存（路3 定谳形）。与当日全道读面**全形引用但键维不同**：日键承担
   // 跨午夜归零语义，会话累计无归零概念——条目终身有效，只承担跨进程写账
   // 陈旧界（本进程未读过的会话首读库扫现值）。落账增量直推（append 即推
-  // 缓存、通知后于推进——订阅者现拉必含本笔）；刷新锚 = 两落账位 + 切焦
+  // 缓存、通知后于推进——订阅者现拉必含本笔）；刷新锚 = 三落账位 + 切焦
   // 现读（消费端首读/缓存路自会覆盖，repaint 高频路零聚合读）。
   const sessionSpentCache = new Map<string, { spent: number }>();
   const sessionUsageLedgerHandlers = new Set<() => void>();
   const notifySessionUsageLedgered = (): void => {
-    // 拷贝迭代防遍历中摘除 + handler 逐个 try/catch 隔离（今日面同律）
+    // 拷贝迭代防遍历中摘除（agent-service 订阅面先例形）+ handler 逐个
+    // try/catch 隔离（onRunSettled 订阅面同律——非总线词汇，订阅面服务形）
     for (const handler of [...sessionUsageLedgerHandlers]) {
       try {
         handler();
@@ -805,15 +785,15 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         void backgroundSpentToday();
         if (spentDayStart === startOfTodayMs()) spentCached += result.usage.input + result.usage.output;
       }
-      // 全道呈现缓存同推（车道不过滤——前台单发笔也进「今日」段；先经读面
+      // 全道呈现缓存同推（车道不过滤——前台单发笔也进今日账面；先经读面
       // 确保日键已初始化，同双计不生律）
       void allLanesSpentToday();
       if (allSpentDayStart === startOfTodayMs()) allSpentCached += result.usage.input + result.usage.output;
       // 会话累计增量直推（07 §4.1 注⑪⑥a——metering 归因会话；同双计不生律）
       bumpSessionSpent(metering.sessionId, result.usage.input + result.usage.output);
-      // 落账即通知（04 §5 呈现订阅面——锚本回调全尾：上方三段缓存推进之后，
-      // 订阅者现拉必含本笔；metering 缺席早退形不达此处 = 零信号自然成立）
-      notifySpentTodayLedgered();
+      // 落账即通知（07 §4.1 注⑪⑥a 会话累计订阅面——锚本回调全尾：上方缓存
+      // 推进之后，订阅者现拉必含本笔；metering 缺席早退形不达此处 = 零信号
+      // 自然成立）
       notifySessionUsageLedgered();
     },
     // onUsage 回调异常的观测交接（04 §3.7——丢账不静默；llm 件窄面回调落 ctx warn）
@@ -856,7 +836,7 @@ export function createConversationStack(options: ConversationStackOptions): Conv
         void backgroundSpentToday();
         if (spentDayStart === startOfTodayMs()) spentCached += usage.input + usage.output;
       }
-      // 全道呈现缓存增量（车道不过滤——前台 run 笔也进「今日」段；同双计
+      // 全道呈现缓存增量（车道不过滤——前台 run 笔也进今日账面；同双计
       // 不生律）
       void allLanesSpentToday();
       if (allSpentDayStart === startOfTodayMs()) allSpentCached += usage.input + usage.output;
@@ -864,11 +844,9 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       // 同笔同源；仅已初始化条目推进——双计不生律同上）
       bumpSessionSpent(receipt.sessionId, usage.input + usage.output);
     }
-    // 有笔才通知（04 §5 呈现订阅面——本函数同步、循环收尾即通知，通知时点
-    // 后于全部缓存推进；多笔窗一次通知，订阅者现拉即窗终值）
+    // 有笔才通知（07 §4.1 注⑪⑥a 会话累计订阅面——本函数同步、循环收尾即
+    // 通知，通知时点后于全部缓存推进；多笔窗一次通知，订阅者现拉即窗终值）
     if (ledgered) {
-      notifySpentTodayLedgered();
-      // 会话累计同锚族通知（07 §4.1 注⑪⑥a——桥接落账尾；通知后于缓存推进）
       notifySessionUsageLedgered();
     }
   };
@@ -1211,10 +1189,12 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       streamFn,
       // E-4 context_usage 供源（04 §2 E-4 批——07 §4.1 注⑪⑥b）：llm 目录
       // 点查闭包（getModel 面 contextWindow 字段——registerProvider 增补即刻
-      // 可见）；缺席模型 undefined 诚实退化（事件不带 maxTokens——未知不
-      // 显示）。agent/conversation 零 llm import 经此闭包（getApiKey 注入律
-      // 同族）。
-      contextWindowOf: (model: string) => llm.getModel(model)?.contextWindow,
+      // 可见）；目录缺席兜底 = compaction types fallbackWindowTokens 同源常量
+      // （07 §4.1 注⑪⑥(b) 拍板「缺席兜底 200k」——分母单源不二设，估算档与
+      // 呈现档同分母）。agent/conversation 零 llm import 经此闭包（getApiKey
+      // 注入律同族）。
+      contextWindowOf: (model: string) =>
+        llm.getModel(model)?.contextWindow ?? DEFAULT_COMPACTION_CONFIG.fallbackWindowTokens,
       convertToLlm: (message: AgentMessage) =>
         isStandardMessage(message) ? message : (getMessageRoleDefinition(message.role)?.toLlm?.(message) ?? null),
       // 栈基线走取值器形（07 §4.1 R5）：每 run 起跑现取旋钮值——ctrl+p 换档
@@ -1377,11 +1357,14 @@ export function createConversationStack(options: ConversationStackOptions): Conv
             priority: 'foreground',
             elapsedMs: Date.now() - startedAt,
           } satisfies LlmUsageEventData);
-          // 全道呈现缓存同推 + 落账即通知（前台笔进「今日」段——onUsage 同律；
-          // 先经读面确保日键已初始化，双计不生）
+          // 全道呈现缓存同推（车道不过滤——前台探针笔也进今日账面；先经读面
+          // 确保日键已初始化，双计不生）
           void allLanesSpentToday();
           if (allSpentDayStart === startOfTodayMs()) allSpentCached += spent;
-          notifySpentTodayLedgered();
+          // 会话累计增量直推 + 落账即通知（双同步形对齐另两落账位——onUsage/
+          // 桥接路同律；通知后于缓存推进，订阅者现拉必含本笔）
+          bumpSessionSpent(metering.sessionId, spent);
+          notifySessionUsageLedgered();
         }
       }
       if (result.stopReason === 'error' || result.stopReason === 'aborted') {
@@ -1546,15 +1529,8 @@ export function createConversationStack(options: ConversationStackOptions): Conv
       const created = manager.create({ workspaceRoot });
       return { ...created, resumed: false, workspaceRoot };
     },
-    // 今日耗落账呈现订阅面（04 §5 定形注）：零载荷信号 + Disposer 退订
-    onSpentTodayLedgered(handler: () => void): Disposer {
-      spentTodayLedgerHandlers.add(handler);
-      return () => {
-        spentTodayLedgerHandlers.delete(handler);
-      };
-    },
     // 会话累计读面 + 落账通知（07 §4.1 注⑪⑥a——V-4 底栏供数链；实现体
-    // 在今日读面同域定义，同 fail-open/增量直推形）
+    // 在当日读面同域定义，同 fail-open/增量直推形）
     sessionSpentOf,
     onSessionUsageLedgered(handler: () => void): Disposer {
       sessionUsageLedgerHandlers.add(handler);
@@ -1788,17 +1764,20 @@ export function providerApiKeyEnvNames(provider: string): readonly string[] {
 }
 
 /**
- * 当日已耗聚合单源（04 §5 聚合读面——05 §1.1 口径）：queryEvents 当日窗
- * llm/usage · SUM(input+output) 主计费桶（cache 桶进观察面板不进闸门/呈现）。
- * 车道口径参数化：'background' = 闸门口径（priority 过滤——canAfford/预警三档
- * /reserve 线消费）；'all' = 全道呈现口径（车道不过滤——TUI「今日」段消费，
+ * llm/usage 聚合共享核（三读面单源——04 §5 聚合读面/07 §4.1 注⑪⑥a 会话
+ * 累计读面）：queryEvents 窗过滤形参化（时间窗 sinceMs / 会话域 sessionId
+ * 两维随调用方）+ 车道口径参数化（05 §1.1 口径）。SUM(input+output) 主计费
+ * 桶（cache 桶进观察面板不进闸门/呈现）。lane：'background' = 闸门口径
+ * （priority 过滤——canAfford/预警三档/reserve 线消费）；'all' = 全道呈现
+ * 口径（车道不过滤——/status 副屏快照档消费〔V-4 注⑪⑤ 今日段退役迁位〕，
  * 前台笔照进）。分页游标走满（页帽顶格 10000——当日调用密度远不及帽，走满
- * 是完整性防御非热路径）。读失败上抛由调用方定姿态（装配位 fail-open + warn
- * ——预算软闸门/呈现面均不反噬请求路）。
+ * 是完整性防御非热路径；超长会话笔数可越单页帽，聚合沿 nextCursor 翻页至
+ * 尽、不做帽内近似——05 §3.4 对端注）。读失败上抛由调用方定姿态（装配位
+ * fail-open + warn——预算软闸门/呈现面均不反噬请求路）。
  */
-function aggregateSpentSince(
+function aggregateUsageEvents(
   store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
-  sinceMs: number,
+  window: { sinceMs?: number; sessionId?: string },
   lane: 'background' | 'all',
 ): number {
   let sum = 0;
@@ -1806,7 +1785,8 @@ function aggregateSpentSince(
   do {
     const page = store.queryEvents({
       types: ['llm/usage'],
-      sinceMs,
+      ...(window.sinceMs !== undefined ? { sinceMs: window.sinceMs } : {}),
+      ...(window.sessionId !== undefined ? { sessionId: window.sessionId } : {}),
       limit: 10_000,
       ...(cursor !== undefined ? { cursor } : {}),
     });
@@ -1826,7 +1806,7 @@ export function aggregateBackgroundSpentToday(
   store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
   sinceMs: number,
 ): number {
-  return aggregateSpentSince(store, sinceMs, 'background');
+  return aggregateUsageEvents(store, { sinceMs }, 'background');
 }
 
 /** 当日全道已耗聚合（呈现口径——allLanesSpentToday 读面的聚合腿：前台笔照进） */
@@ -1834,37 +1814,20 @@ export function aggregateSpentToday(
   store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
   sinceMs: number,
 ): number {
-  return aggregateSpentSince(store, sinceMs, 'all');
+  return aggregateUsageEvents(store, { sinceMs }, 'all');
 }
 
 /**
  * 会话累计聚合（07 §4.1 注⑪⑥a——V-4 底栏供数链）：指定会话 llm/usage
- * durable 事件聚合 SUM(input+output) 主计费桶。与今日双读面同族但**维度
+ * durable 事件聚合 SUM(input+output) 主计费桶。与当日双读面同族但**维度
  * 分立**——按 sessionId 域（非时间窗）、车道不过滤（呈现口径，同
- * aggregateSpentToday 的 all 腿）；帽策略 = 游标翻页聚尽（帽律约束单页非
- * 全程——超长会话笔数可越单页帽，聚合沿 nextCursor 翻页至尽、不做帽内
- * 近似；05 §3.4 对端注）。
+ * aggregateSpentToday 的 all 腿）；翻页聚尽语义同共享核头注。
  */
 export function aggregateSessionSpent(
   store: { queryEvents(filter: QueryEventsFilter): QueryEventsResult },
   sessionId: string,
 ): number {
-  let sum = 0;
-  let cursor: string | null | undefined = undefined;
-  do {
-    const page = store.queryEvents({
-      sessionId,
-      types: ['llm/usage'],
-      limit: 10_000,
-      ...(cursor !== undefined ? { cursor } : {}),
-    });
-    for (const event of page.events) {
-      const data = event.data as { usage?: { input?: number; output?: number } };
-      sum += (data.usage?.input ?? 0) + (data.usage?.output ?? 0);
-    }
-    cursor = page.nextCursor ?? undefined;
-  } while (cursor !== undefined);
-  return sum;
+  return aggregateUsageEvents(store, { sessionId }, 'all');
 }
 
 /** 宿主级 run 并发闸（04 §4 lane 帽）：计数信号量 + FIFO 等位队列 */

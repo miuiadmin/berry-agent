@@ -4,11 +4,12 @@
  * 之外的一切编译期可知补全面归本件）。
  *
  * **单源律**：命令补全条目（commandItems）、退出词表（EXIT_WORDS /
- * EXIT_DESCRIPTIONS）、静态参数源（commandArgumentItems）与模型短名
- * （modelShortName——footer 常驻段呈现）的唯一宿主是本件；tui-entry 装配位
- * 与 webui 侧任何新消费面同源取用（session-tier-copy.ts 2026-09-18 外迁
- * 先例同律：无消费位即不导出承诺——VERB_META 只服务 commandArgumentItems
- * 自身，不导出、不预设 /help 复用）。词表单源在各命令件（SUBVERBS 族）/
+ * EXIT_DESCRIPTIONS）与静态参数源（commandArgumentItems）的唯一宿主是
+ * 本件；tui-entry 装配位与 webui 侧任何新消费面同源取用
+ * （session-tier-copy.ts 2026-09-18 外迁先例同律：无消费位即不导出承诺
+ * ——VERB_META 只服务 commandArgumentItems 自身，不导出、不预设 /help
+ * 复用；模型短名推导已随 V-4 笔3 迁 channels 侧 modelShortOf——本件不再
+ * 持短名面，同一承诺的执法自恰）。词表单源在各命令件（SUBVERBS 族）/
  * safety（APPROVAL_PRESETS）/ contracts（USER_GRANTABLE_CAPABILITIES）——
  * 本件只持拼装与说明位，不复制词表。
  */
@@ -52,12 +53,6 @@ export function exitCommandItems(query: string): readonly AutocompleteItem[] {
     detail: EXIT_DESCRIPTIONS[name],
     replacement: `/${name}`,
   }));
-}
-
-/** 模型短名（footer 常驻段呈现——provider/model 形取 model 段，裸名原样） */
-function modelShortName(model: string): string {
-  const slash = model.lastIndexOf('/');
-  return slash === -1 ? model : model.slice(slash + 1);
 }
 
 /* ---------------- 命令参数补全源（R6 批 10j 装配接线） ---------------- */
@@ -146,7 +141,7 @@ export function commandArgumentItems(
 
 /* ---------------- 装配位再导出面（tui-entry 消费位单点收口） ---------------- */
 
-// commandItems / modelShortName / EXIT_WORDS / EXIT_DESCRIPTIONS 是 tui-entry
-// 装配位的消费符号——本件四符号统一经装配位出口转递（tui-entry import 单点；
-// 测试面消费 exitCommandItems / commandArgumentItems 两纯函数直取本件）。
-export { commandItems, modelShortName, EXIT_WORDS, EXIT_DESCRIPTIONS };
+// commandItems / EXIT_WORDS / EXIT_DESCRIPTIONS 是 tui-entry 装配位的消费
+// 符号——本件三符号统一经装配位出口转递（tui-entry import 单点；测试面消费
+// exitCommandItems / commandArgumentItems 两纯函数直取本件）。
+export { commandItems, EXIT_WORDS, EXIT_DESCRIPTIONS };

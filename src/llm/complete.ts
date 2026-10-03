@@ -114,7 +114,8 @@ export interface LlmService {
    */
   backgroundUsage(): BackgroundBudgetUsage;
   /**
-   * 当日全道已耗 tokens（呈现专用读面——TUI 状态栏「今日」段消费）：口径 =
+   * 当日全道已耗 tokens（呈现专用读面——/status 副屏快照档消费〔V-4 注⑪⑤
+   * 今日段退役迁位〕）：口径 =
    * foreground + background 两道合计 SUM(input+output) 主计费桶（05 §1.1
    * 表注同律——cache 桶不进）。**与闸门口径分立**：canAfford / backgroundUsage
    * / 预警三档 / reserve 线仍只认 backgroundSpentToday 注入位，本读面扩张

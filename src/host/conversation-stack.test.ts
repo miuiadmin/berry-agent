@@ -25,10 +25,17 @@ import type { AuthRefreshSeam, ConversationDriverOptions, ExecSessionDeps } from
 import { setSessionMode } from '../conversation/index.js';
 import { createBashTool, createSpawnPipeline } from '../exec/index.js';
 import { fauxProvider } from '../llm/index.js';
+import { DEFAULT_COMPACTION_CONFIG } from '../compaction/index.js';
 import { createSandboxService } from '../safety/index.js';
 import { SessionLog } from '../session/index.js';
-import type { EventWrite, QueryEventsFilter, QueryEventsResult, SessionRegistration } from '../persist/store.js';
-import { sessionDisplayTitleOf } from '../persist/index.js';
+// persist 域类型经公开面 index 取（模块边界执法——测试文件同律，不深挖 store.js）
+import {
+  sessionDisplayTitleOf,
+  type EventWrite,
+  type QueryEventsFilter,
+  type QueryEventsResult,
+  type SessionRegistration,
+} from '../persist/index.js';
 
 import { appendToolPolicyEntry, readToolPolicy, TOOL_POLICY_BASENAME } from './tool-policy-store.js';
 import {
@@ -1896,7 +1903,7 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
       { at: today + 120_000, input: 80, output: 20, priority: 'background' }, // 当日后台——两口径都进
     ]);
     const { stack } = rigStack(rt);
-    expect(stack.llm.allLanesSpentToday()).toBe(150); // 50+80+20——全道呈现口径（TUI「今日」段消费）
+    expect(stack.llm.allLanesSpentToday()).toBe(150); // 50+80+20——全道呈现口径（/status 副屏快照档消费——V-4 注⑪⑤ 今日段退役迁位）
     expect(stack.llm.backgroundUsage().spent).toBe(100); // 闸门口径不随动——双口径分立锁
     await rt.shutdown();
   });
@@ -1932,114 +1939,6 @@ describe('预算读面接线 + usage 桥接单点（04 §5 #41/#44）', () => {
     expect(zeroed.stack.llm.canAfford('foreground')).toBe(true); // 前台恒放行
     expect(() => rigStack(rt, { env: { BERRY_AGENT_BACKGROUND_BUDGET_TOKENS: '12x' } })).toThrow(RangeError); // 坏形死配置当场红
     await rt.shutdown();
-  });
-
-  // 嵌套子面：呈现订阅面（meteredMessage 等 helper 同作用域复用）
-  describe('今日耗落账呈现订阅面（04 §5 定形注——TUI 全域清扫 #1-full/#2 残窗）', () => {
-    it('run 结算桥接落账即通知——订阅者现拉必含本笔（推进先于通知的结构性保证）', async () => {
-      const { rt } = rigRuntime();
-      const { faux, stack } = rigStack(rt);
-      const session = stack.openStartupSession(rigWorkspace());
-      faux.setResponses([() => meteredMessage(15, 6)]);
-      const seen: number[] = [];
-      stack.onSpentTodayLedgered(() => {
-        // 通知回调内现拉——时序锁锚：推进先于通知则现拉已含本笔（若通知抢先
-        // 于推进，此处拉到的是不含本笔的旧值——断言即红）
-        seen.push(stack.llm.allLanesSpentToday());
-      });
-      await stack.submitText(session.sessionId, '问');
-      const usageEvents = stack
-        .driverOf(session.sessionId)!
-        .session.events()
-        .filter((e) => e.type === 'llm/usage');
-      expect(usageEvents).toHaveLength(1); // faux 单响应恰一笔桥接 → 恰一次通知
-      const ledger = usageEvents[0]!.data as { usage: { input: number; output: number } };
-      const final = stack.llm.allLanesSpentToday();
-      expect(seen).toHaveLength(1); // 修前红锚：订阅面缺席零通知
-      expect(seen[0]).toBe(final); // 通知时点现拉已达终值（rigStack 纯栈无种子——final 即本笔全量）
-      expect(final).toBeGreaterThanOrEqual(ledger.usage.input + ledger.usage.output); // 本笔确在全道（faux 转抄值动态——弱断言锁在场不锁数值）
-      await rt.shutdown();
-    });
-
-    it('complete 单发落账即通知（onUsage 路——后台道跨入口结算的 TUI 侧信号残窗）', async () => {
-      const { rt } = rigRuntime();
-      const { faux, stack } = rigStack(rt);
-      const session = stack.openStartupSession(rigWorkspace());
-      faux.setResponses([() => meteredMessage(20, 10)]);
-      let calls = 0;
-      stack.onSpentTodayLedgered(() => {
-        calls += 1;
-      });
-      await stack.llm.complete({
-        messages: [{ role: 'user', content: '后台单发', timestamp: Date.now() }],
-        priority: 'background',
-        metering: { sessionId: session.sessionId },
-      });
-      expect(calls).toBe(1); // 修前红锚：单发路此前零通知
-      await rt.shutdown();
-    });
-
-    it('零账零信号：complete 缺 metering 早退形不通知（无计量不造零信号）', async () => {
-      const { rt } = rigRuntime();
-      const warns: string[] = [];
-      const { faux, stack } = rigStack(rt, { warn: (m) => warns.push(m) });
-      faux.setResponses([() => meteredMessage(5, 5)]);
-      let calls = 0;
-      stack.onSpentTodayLedgered(() => {
-        calls += 1;
-      });
-      await stack.llm.complete({
-        messages: [{ role: 'user', content: '无归因单发', timestamp: Date.now() }],
-        priority: 'background',
-        // metering 缺席——onUsage 早退（丢账 warn 在场、零落账零通知）
-      });
-      expect(calls).toBe(0);
-      expect(warns.some((w) => w.includes('丢账'))).toBe(true); // 早退路径确经（非静默旁路）
-      await rt.shutdown();
-    });
-
-    it('订阅者异常隔离不炸落账链——他订阅者仍收（自防炸）', async () => {
-      const { rt } = rigRuntime();
-      const { faux, stack } = rigStack(rt);
-      const session = stack.openStartupSession(rigWorkspace());
-      faux.setResponses([() => meteredMessage(15, 6)]);
-      const seen: number[] = [];
-      stack.onSpentTodayLedgered(() => {
-        throw new Error('订阅者 boom');
-      });
-      stack.onSpentTodayLedgered(() => {
-        seen.push(stack.llm.allLanesSpentToday());
-      });
-      await stack.submitText(session.sessionId, '问');
-      // boom 订阅者被隔离：落账照常 + 后注册订阅者仍收 + 测试进程不炸
-      const usageEvents = stack
-        .driverOf(session.sessionId)!
-        .session.events()
-        .filter((e) => e.type === 'llm/usage');
-      expect(usageEvents).toHaveLength(1);
-      expect(seen).toHaveLength(1);
-      await rt.shutdown();
-    });
-
-    it('Disposer 退订：退订后零信号、落账不受影响（订阅面是伴生通知位非记账路）', async () => {
-      const { rt } = rigRuntime();
-      const { faux, stack } = rigStack(rt);
-      const session = stack.openStartupSession(rigWorkspace());
-      faux.setResponses([() => meteredMessage(15, 6)]);
-      let calls = 0;
-      const dispose = stack.onSpentTodayLedgered(() => {
-        calls += 1;
-      });
-      dispose();
-      await stack.submitText(session.sessionId, '问');
-      expect(calls).toBe(0);
-      const usageEvents = stack
-        .driverOf(session.sessionId)!
-        .session.events()
-        .filter((e) => e.type === 'llm/usage');
-      expect(usageEvents).toHaveLength(1);
-      await rt.shutdown();
-    });
   });
 });
 
@@ -2083,6 +1982,30 @@ describe('模型循环基座（挂账解挂批 2026-09-15——ctrl+p 会话级�
       .filter((event) => event.type === 'request/header')
       .map((event) => (event.data as { config: { model: string } }).config.model);
     expect(headers).toEqual(['faux-stack/m1', 'faux-stack/m2']);
+    await rt.shutdown();
+  });
+
+  it('context_usage maxTokens 供源（E-4——07 §4.1 注⑪⑥b）：目录在场携真值 / 目录缺席兜底 200k（compaction fallbackWindowTokens 同源）', async () => {
+    const { rt } = rigRuntime();
+    // 目录在场锚：m1 携 contextWindow 真值（pi-ai Model.contextWindow 必填——
+    // faux 未指定时恒填 128k 缺省，真值锚须显式给值）
+    const faux = fauxProvider({ provider: 'faux-stack', models: [{ id: 'm1', contextWindow: 12_345 }] });
+    const stack = createConversationStack({ runtime: rt, providers: [faux.provider], model: 'faux-stack/m1', env: {} });
+    const session = stack.openStartupSession(rigWorkspace());
+    const backend = new RecordingBackend();
+    stack.channels.addBackend(backend);
+    faux.setResponses([() => messageOf('stop')]);
+    await stack.submitText(session.sessionId, '一问'); // m1——目录在场
+    // 目录缺席锚：getModel → undefined 形（旋钮换到未注册模型——run 折错误终态，
+    // context_usage 仍随 turn 收口发射，StreamFn 永不抛契约承载该窗）
+    stack.setModel('ghost/m9');
+    await stack.submitText(session.sessionId, '二问');
+    const maxTokensSeen = backend.envelopes
+      .filter((env) => env.event.type === 'context_usage')
+      .map((env) => (env.event as { maxTokens?: number }).maxTokens);
+    expect(maxTokensSeen).toHaveLength(2); // 单 turn run 恰一发（turn 收口随发——含错误终态 run）
+    expect(maxTokensSeen[0]).toBe(12_345); // 装配位回归锁：目录真值直达事件（装配行被删/字段错写即红）
+    expect(maxTokensSeen[1]).toBe(DEFAULT_COMPACTION_CONFIG.fallbackWindowTokens); // 修前红锚：缺席形字段缺席——拍板兜底 200k（07 §4.1 注⑪⑥(b)）
     await rt.shutdown();
   });
 });
@@ -2937,6 +2860,26 @@ describe('会话累计聚合读面（07 §4.1 注⑪⑥a——V-4 底栏供数�
     expect(sum).toBeGreaterThan(0);
     expect(stack.sessionSpentOf(session.sessionId)).toBe(sum);
     expect(signals).toBe(1); // 修前红锚：单发路此前零通知（同锚族补面）
+    await rt.shutdown();
+  });
+
+  it('探针落账同步会话累计：probe 笔归因会话 bump + 通知——对齐另两落账位双同步形（修前红：探针路只推今日缓存零会话累计）', async () => {
+    const { rt } = rigRuntime();
+    const { faux, stack } = rigStack(rt);
+    const session = stack.openStartupSession(rigWorkspace());
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(0); // 缓存初始化（首读库扫空）
+    let signals = 0;
+    stack.onSessionUsageLedgered(() => {
+      signals += 1;
+    });
+    faux.setResponses([() => metered(6, 3)]);
+    await stack.probeModelConnectivity('faux-stack/m1', 'probe-key', {
+      sessionId: session.sessionId, // metering 归因——探针笔归本会话
+    });
+    const sum = sessionLedgerSumOf(stack, session.sessionId);
+    expect(sum).toBeGreaterThan(0); // probe 笔确落（防 vacuous）
+    expect(stack.sessionSpentOf(session.sessionId)).toBe(sum); // 修前红锚：探针笔进会话累计缓存（修前读数恒 0）
+    expect(signals).toBe(1); // 落账即通知（双同步形补位——修前零信号）
     await rt.shutdown();
   });
 });
