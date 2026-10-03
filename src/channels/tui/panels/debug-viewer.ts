@@ -181,10 +181,12 @@ export function buildDebugLines(data: DebugPanelData): string[] {
     row('日志级别', data.logLevel),
     row('数据库路径', data.sqlitePath),
     '',
-    `── 已安装插件（${data.pluginIds.length} 个）──`,
+    // 口径注记：pluginIds 供数端 = boot.report.activated（装载集——装载收口后
+    // 在场插件），非磁盘安装集；标签随供数口径名「已装载」（标签与供数一致律）
+    `── 已装载插件（${data.pluginIds.length} 个）──`,
   ];
   if (data.pluginIds.length === 0) {
-    lines.push('（无已安装插件——--no-plugins 启动或启用清单为空）');
+    lines.push('（无已装载插件——--no-plugins 启动或启用清单为空）');
   } else {
     for (const id of data.pluginIds) lines.push(`· ${id}`);
   }

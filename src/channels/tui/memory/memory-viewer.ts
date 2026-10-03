@@ -317,8 +317,9 @@ export class MemoryViewer extends ScrollView implements OverlayContent {
     if (region.height < 2) return; // 防御位（极小终端——头行 + 视口都不够）
     // 头行（筛选态在场时附注记——Tab 动作的可视反馈位）。界面美化役
     // 2026-10-01 美学批：❄→◉（viewer 族头图标单源收敛）+ accent 着色
-    // （美学注④）+ fitLine … 收口（美学注⑤——owner 并集长名窄窗截断有提示）
-    const filterTag = this.filter === 'all' ? '' : ` ·〔筛选：${SECTION_LABEL[this.filter]}〕`;
+    // （美学注④）+ fitLine … 收口（美学注⑤——owner 并集长名窄窗截断有提示）。
+    // 注记括号随 picker 族全角圆括号（model-picker「（过滤中）」形——词汇统一）
+    const filterTag = this.filter === 'all' ? '' : ` ·（筛选：${SECTION_LABEL[this.filter]}）`;
     // owner 段串接走 contracts joinSegments 单源。等价前置已核：ownerLabel 在
     // 可达输入域恒非空（装配根钉 ownerKeys = ['global', project:<16hex>]，
     // project 分支必含前缀、global 为字面量）——joinSegments 的空段过滤在

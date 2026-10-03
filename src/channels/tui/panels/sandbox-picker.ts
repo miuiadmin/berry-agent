@@ -118,16 +118,20 @@ export class SandboxPicker implements OverlayContent {
         ? `${PICKER_HEAD_MARK} 沙箱 · 无条目`
         : `${PICKER_HEAD_MARK} 沙箱 · ${this.entries.length} 级`;
     buffer.writeText(region.row, region.col, fitLine(head, region.width), this.headStyle);
-    const viewHeight = Math.max(1, region.height - 2);
+    // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
+    // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
+    const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset();
-    if (this.entries.length === 0) {
-      buffer.writeText(region.row + 1, region.col, fitLine('（无条目）', region.width), HINT_STYLE);
-    } else {
-      for (let i = 0; i < viewHeight; i++) {
-        const index = this.offset + i;
-        if (index >= this.entries.length) break;
-        this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index);
+    if (viewHeight > 0) {
+      if (this.entries.length === 0) {
+        buffer.writeText(region.row + 1, region.col, fitLine('（无条目）', region.width), HINT_STYLE);
+      } else {
+        for (let i = 0; i < viewHeight; i++) {
+          const index = this.offset + i;
+          if (index >= this.entries.length) break;
+          this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index);
+        }
       }
     }
     // 界面美化役美学注⑤：底行提示 fitLine 收口补漏（窄屏不溢出）

@@ -158,46 +158,50 @@ export class ThemePicker implements OverlayContent {
     // ——raw writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）；
     // 头行 accent 着色（界面美化役美学注④——词汇 ◆ 单源 panel-chrome）
     buffer.writeText(region.row, region.col, fitLine(head, region.width), this.headStyle);
-    const viewHeight = Math.max(1, region.height - 2);
+    // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
+    // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
+    const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset();
-    if (this.entries.length === 0) {
-      buffer.writeText(region.row + 1, region.col, fitLine('（无条目）', region.width), HINT_STYLE);
-    } else {
-      // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且溢出
-      // 才立——窗上/下方还有条目时各留一行 dim 边行「↑/↓ N 更多」（todo-panel
-      // 溢出行先例形）；预留行挤压后光标跟随（指示行不遮在选行）
-      const indicatorsOn = viewHeight >= 3 && this.entries.length > viewHeight;
-      let cap = viewHeight; // 条目实占行数（扣除指示预留）
-      for (let round = 0; round < 3; round++) {
-        const topReserve = indicatorsOn && this.offset > 0;
-        const afterTop = viewHeight - (topReserve ? 1 : 0);
-        const bottomReserve = indicatorsOn && this.entries.length - this.offset - afterTop > 0;
-        cap = afterTop - (bottomReserve ? 1 : 0);
-        // 光标恒在收窄窗内（越窗提窗——预留翻转后再收敛，三轮封顶）
-        if (this.cursor < this.offset) {
-          this.offset = this.cursor;
-          continue;
+    if (viewHeight > 0) {
+      if (this.entries.length === 0) {
+        buffer.writeText(region.row + 1, region.col, fitLine('（无条目）', region.width), HINT_STYLE);
+      } else {
+        // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且溢出
+        // 才立——窗上/下方还有条目时各留一行 dim 边行「↑/↓ N 更多」（todo-panel
+        // 溢出行先例形）；预留行挤压后光标跟随（指示行不遮在选行）
+        const indicatorsOn = viewHeight >= 3 && this.entries.length > viewHeight;
+        let cap = viewHeight; // 条目实占行数（扣除指示预留）
+        for (let round = 0; round < 3; round++) {
+          const topReserve = indicatorsOn && this.offset > 0;
+          const afterTop = viewHeight - (topReserve ? 1 : 0);
+          const bottomReserve = indicatorsOn && this.entries.length - this.offset - afterTop > 0;
+          cap = afterTop - (bottomReserve ? 1 : 0);
+          // 光标恒在收窄窗内（越窗提窗——预留翻转后再收敛，三轮封顶）
+          if (this.cursor < this.offset) {
+            this.offset = this.cursor;
+            continue;
+          }
+          if (this.cursor >= this.offset + cap) {
+            this.offset = this.cursor - cap + 1;
+            continue;
+          }
+          break;
         }
-        if (this.cursor >= this.offset + cap) {
-          this.offset = this.cursor - cap + 1;
-          continue;
+        let displayRow = region.row + 1;
+        if (indicatorsOn && this.offset > 0) {
+          buffer.writeText(displayRow, region.col, moreHint('↑', this.offset), HINT_STYLE);
+          displayRow++;
         }
-        break;
-      }
-      let displayRow = region.row + 1;
-      if (indicatorsOn && this.offset > 0) {
-        buffer.writeText(displayRow, region.col, moreHint('↑', this.offset), HINT_STYLE);
-        displayRow++;
-      }
-      for (let i = 0; i < cap; i++) {
-        const index = this.offset + i;
-        if (index >= this.entries.length) break;
-        this.renderRow(buffer, displayRow++, region.col, region.width, index);
-      }
-      if (indicatorsOn) {
-        const below = this.entries.length - (this.offset + cap);
-        if (below > 0) buffer.writeText(displayRow, region.col, moreHint('↓', below), HINT_STYLE);
+        for (let i = 0; i < cap; i++) {
+          const index = this.offset + i;
+          if (index >= this.entries.length) break;
+          this.renderRow(buffer, displayRow++, region.col, region.width, index);
+        }
+        if (indicatorsOn) {
+          const below = this.entries.length - (this.offset + cap);
+          if (below > 0) buffer.writeText(displayRow, region.col, moreHint('↓', below), HINT_STYLE);
+        }
       }
     }
     buffer.writeText(

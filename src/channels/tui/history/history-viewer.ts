@@ -114,6 +114,8 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
   private readonly shortId: string;
   /** 带样式行集（构造后静态——快照档 v1：回看期新事件不进副屏） */
   private readonly styledLines: readonly StyledLine[];
+  /** 行集明文小写副本（搜索比对预算——构造期一次铸形；快照档行集静态无需随动，击键重算零逐行重铸） */
+  private readonly plainLowerLines: readonly string[];
   private readonly onExit: (() => void) | undefined;
   private readonly onInterrupt: ((sessionId: string) => void) | undefined;
   private readonly onQuit: (() => void) | undefined;
@@ -149,6 +151,9 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
       styled.push(...renderBlockStyledLines(block, options.columns));
     }
     this.styledLines = styled;
+    // 小写副本构造期预算（搜索比对单源——击键只走 indexOf 比对，不对静态行集
+    // 逐行重铸小写串；保形：与「每次 toLowerCase」输出逐字节等价）
+    this.plainLowerLines = styled.map((line) => line.plain.toLowerCase());
     super.setLines(styled.map((line) => line.plain)); // 开屏贴尾（follow 初始 true）
     this.searchEditor = new Editor({
       maxVisibleLines: 1, // 单行档——搜索框
@@ -412,14 +417,14 @@ export class HistoryViewer extends ScrollView implements OverlayContent {
     this.searchEditor.setFocused(false);
   }
 
-  /** 匹配重算（查询变更路）：全行不区分大小写子串扫描 + 跳首匹配 */
+  /** 匹配重算（查询变更路）：全行不区分大小写子串扫描 + 跳首匹配（比对面 = 构造期预算小写副本——击键零重铸） */
   private recomputeMatches(): void {
     const query = this.searchEditor.getText();
     const found: MatchSpan[] = [];
     if (query !== '') {
       const q = query.toLowerCase();
-      for (let i = 0; i < this.styledLines.length; i++) {
-        const plain = this.styledLines[i]!.plain.toLowerCase();
+      for (let i = 0; i < this.plainLowerLines.length; i++) {
+        const plain = this.plainLowerLines[i]!;
         let at = plain.indexOf(q);
         while (at !== -1) {
           found.push({ line: i, start: at, end: at + q.length });

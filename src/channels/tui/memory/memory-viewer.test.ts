@@ -409,7 +409,7 @@ describe('confirm 两段态机（y/n 双轨同判 / 其余键终局吞 / 单次�
     viewer.handleEvent(key('tab'));
     expect(calls.filter((c) => c.startsWith('forget:'))).toEqual([]); // 收模态不落子
     const grid = render();
-    expect(readRow(grid, 0)).toContain('〔筛选：生效中〕'); // 筛选已切 + 头行注记
+    expect(readRow(grid, 0)).toContain('（筛选：生效中）'); // 筛选已切 + 头行注记
     expect(readRow(grid, ROWS - 1)).not.toContain('确认');
   });
 });
@@ -494,7 +494,7 @@ describe('e 导出输入行（/memory-export 真身同一函数——argv 切分
     type(viewer, 'x');
     viewer.handleEvent(key('tab'));
     const grid = render();
-    expect(readRow(grid, 0)).toContain('〔筛选：生效中〕'); // 筛选已切
+    expect(readRow(grid, 0)).toContain('（筛选：生效中）'); // 筛选已切
     expect(grid.getCell(ROWS - 1, 0)?.grapheme).not.toBe('›'); // 输入行已收
     viewer.handleEvent(text('e')); // 重开——文本保留
     expect(readRow(render(), ROWS - 1)).toContain('x');
@@ -508,7 +508,7 @@ describe('Tab 筛选循环（全部→活体→冻结→终态→全部）', () 
     const { viewer, render } = rig();
     viewer.handleEvent(key('tab')); // 活体
     let grid = render();
-    expect(readRow(grid, 0)).toContain('·〔筛选：生效中〕');
+    expect(readRow(grid, 0)).toContain('·（筛选：生效中）');
     expect(readRow(grid, 1)).toBe('记忆库 · 生效 7 · 冻结 1 · 共 10'); // 投影恒全库——不随筛选变
     expect(readRow(grid, 2)).toBe('已结束 · 否决 2 · 过期 1'); // 投影两行不随筛选消
     expect(readRow(grid, 3)).toBe('── 生效中（1）──');
@@ -516,18 +516,21 @@ describe('Tab 筛选循环（全部→活体→冻结→终态→全部）', () 
     expect(readRow(grid, 5)).toBe(''); // 冻结/终态分区不在场
     viewer.handleEvent(key('tab')); // 冻结
     grid = render();
-    expect(readRow(grid, 0)).toContain('·〔筛选：冻结〕');
+    expect(readRow(grid, 0)).toContain('·（筛选：冻结）');
     expect(readRow(grid, 3)).toBe('── 冻结（1）──');
     expect(readRow(grid, 4)).toContain('✱ [m:fbbbbbbb]');
     viewer.handleEvent(key('tab')); // 终态
     grid = render();
-    expect(readRow(grid, 0)).toContain('·〔筛选：已结束〕');
+    expect(readRow(grid, 0)).toContain('·（筛选：已结束）');
     expect(readRow(grid, 3)).toBe('── 已结束（1）──');
     expect(readRow(grid, 4)).toContain('tccccccc');
     viewer.handleEvent(key('tab')); // 回全部
     grid = render();
-    expect(readRow(grid, 0)).not.toContain('〔筛选'); // 无注记
+    expect(readRow(grid, 0)).not.toContain('（筛选'); // 无注记
     expect(readRow(grid, 5)).toBe('── 冻结（1）──'); // 三分区复原
+    // 旧形反向锁：头行注记随 picker 族全角圆括号（「（过滤中）」形）后，
+    // 方头括号〔〕残形在任何筛选态不再现
+    expect(readRow(grid, 0)).not.toContain('〔');
   });
 
   it('终态区客户端双过滤：非 owner 行不进、active 行不进（listForExport 单源）', () => {
@@ -560,7 +563,7 @@ describe('刷新重取与光标锚定（动词成功后整表重取）', () => {
     viewer.handleEvent(key('tab')); // 筛活体（2 条）
     viewer.handleEvent(text('f')); // 冻结首条——锚离场
     const grid = render();
-    expect(readRow(grid, 0)).toContain('〔筛选：生效中〕');
+    expect(readRow(grid, 0)).toContain('（筛选：生效中）');
     expect(cursorRowText(grid)).toContain('mbbbbaaa'); // 原位就近钳到次条
   });
 

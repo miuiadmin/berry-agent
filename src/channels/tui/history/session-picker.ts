@@ -111,21 +111,25 @@ export class SessionPicker implements OverlayContent {
     // 非条目行（头行/空态行/底行）fitLine … 收口（wf_3c8b00b8 组δ X-5——raw
     // writeText 窄窗硬截断无提示；条目行走 fitRowSegments 双段）
     buffer.writeText(region.row, region.col, fitLine(head, region.width));
-    const viewHeight = Math.max(1, region.height - 2);
+    // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
+    // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
+    const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset();
-    if (this.sessions.length === 0) {
-      buffer.writeText(
-        region.row + 1,
-        region.col,
-        fitLine('（暂无会话——esc 返回，输入 /new 新建）', region.width),
-        HINT_STYLE,
-      );
-    } else {
-      for (let i = 0; i < viewHeight; i++) {
-        const index = this.offset + i;
-        if (index >= this.sessions.length) break;
-        this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index);
+    if (viewHeight > 0) {
+      if (this.sessions.length === 0) {
+        buffer.writeText(
+          region.row + 1,
+          region.col,
+          fitLine('（暂无会话——esc 返回，输入 /new 新建）', region.width),
+          HINT_STYLE,
+        );
+      } else {
+        for (let i = 0; i < viewHeight; i++) {
+          const index = this.offset + i;
+          if (index >= this.sessions.length) break;
+          this.renderRow(buffer, region.row + 1 + i, region.col, region.width, index);
+        }
       }
     }
     buffer.writeText(

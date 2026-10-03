@@ -248,6 +248,18 @@ describe('回看器搜索（开 / 跳匹配 / 关——件 8 条款锁能力不�
     expect(readRow(render(), 0, COLS)).toContain('1/11');
   });
 
+  it('逐击键重算收窄→放宽双向一致（比对面缓存副本不随击键陈化）', () => {
+    const { viewer, render } = searchRig();
+    viewer.handleEvent(key('f', { ctrl: true, shift: true }));
+    viewer.handleEvent(text('m'));
+    viewer.handleEvent(text('2')); // 'm2' → 11 处（m2 + m20..m29）
+    expect(readRow(render(), 0, COLS)).toContain('1/11');
+    viewer.handleEvent(key('backspace')); // 删词 → 'm' → 30 行全命中（放宽向）
+    expect(readRow(render(), 0, COLS)).toContain('1/30');
+    viewer.handleEvent(text('2')); // 重打 '2' → 回 11（收窄向往返等价）
+    expect(readRow(render(), 0, COLS)).toContain('1/11');
+  });
+
   it('关：Esc 关搜索（不退副屏）+ 高亮清 + 查询保留续搜（重开即匹配）', () => {
     const { viewer, render, log } = searchRig();
     viewer.handleEvent(key('f', { ctrl: true, shift: true }));

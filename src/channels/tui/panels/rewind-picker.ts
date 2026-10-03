@@ -155,53 +155,57 @@ export class RewindPicker implements OverlayContent {
       fitLine(`${PICKER_HEAD_MARK} 回退点 · ${items.length} 个${this.query !== '' ? '（过滤中）' : ''}`, region.width),
       this.headStyle,
     );
-    const viewHeight = Math.max(1, region.height - 2);
+    // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
+    // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
+    const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset(items.length);
-    if (items.length === 0) {
-      buffer.writeText(
-        region.row + 1,
-        region.col,
-        fitLine(`（无匹配「${this.query}」的回退点）`, region.width),
-        HINT_STYLE,
-      );
-    } else {
-      // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且清单
-      // 溢出才立——上/下方 dim 边行「↑/↓ N 更多」（todo-panel 溢出行先例形）；
-      // 预留行挤压后在选行跟随（指示行不遮在选行）
-      const indicatorsOn = viewHeight >= 3 && items.length > viewHeight;
-      let cap = viewHeight; // 清单实占行数（扣除指示预留）
-      for (let round = 0; round < 3; round++) {
-        const topReserve = indicatorsOn && this.offset > 0;
-        const afterTop = viewHeight - (topReserve ? 1 : 0);
-        const bottomReserve = indicatorsOn && items.length - this.offset - afterTop > 0;
-        cap = afterTop - (bottomReserve ? 1 : 0);
-        if (this.cursor < this.offset) {
-          this.offset = this.cursor;
-          continue;
+    if (viewHeight > 0) {
+      if (items.length === 0) {
+        buffer.writeText(
+          region.row + 1,
+          region.col,
+          fitLine(`（无匹配「${this.query}」的回退点）`, region.width),
+          HINT_STYLE,
+        );
+      } else {
+        // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且清单
+        // 溢出才立——上/下方 dim 边行「↑/↓ N 更多」（todo-panel 溢出行先例形）；
+        // 预留行挤压后在选行跟随（指示行不遮在选行）
+        const indicatorsOn = viewHeight >= 3 && items.length > viewHeight;
+        let cap = viewHeight; // 清单实占行数（扣除指示预留）
+        for (let round = 0; round < 3; round++) {
+          const topReserve = indicatorsOn && this.offset > 0;
+          const afterTop = viewHeight - (topReserve ? 1 : 0);
+          const bottomReserve = indicatorsOn && items.length - this.offset - afterTop > 0;
+          cap = afterTop - (bottomReserve ? 1 : 0);
+          if (this.cursor < this.offset) {
+            this.offset = this.cursor;
+            continue;
+          }
+          if (this.cursor >= this.offset + cap) {
+            this.offset = this.cursor - cap + 1;
+            continue;
+          }
+          break;
         }
-        if (this.cursor >= this.offset + cap) {
-          this.offset = this.cursor - cap + 1;
-          continue;
+        let displayRow = region.row + 1;
+        if (indicatorsOn && this.offset > 0) {
+          buffer.writeText(displayRow, region.col, moreHint('↑', this.offset), HINT_STYLE);
+          displayRow++;
         }
-        break;
-      }
-      let displayRow = region.row + 1;
-      if (indicatorsOn && this.offset > 0) {
-        buffer.writeText(displayRow, region.col, moreHint('↑', this.offset), HINT_STYLE);
-        displayRow++;
-      }
-      for (let i = 0; i < cap; i++) {
-        const index = this.offset + i;
-        if (index >= items.length) break;
-        const entry = items[index]!;
-        const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
-        buffer.writeText(displayRow, region.col, fitLine(`${prefix}${entry.line}`, region.width));
-        displayRow++;
-      }
-      if (indicatorsOn) {
-        const below = items.length - (this.offset + cap);
-        if (below > 0) buffer.writeText(displayRow, region.col, moreHint('↓', below), HINT_STYLE);
+        for (let i = 0; i < cap; i++) {
+          const index = this.offset + i;
+          if (index >= items.length) break;
+          const entry = items[index]!;
+          const prefix = index === this.cursor ? `${CURSOR_MARK} ` : '  ';
+          buffer.writeText(displayRow, region.col, fitLine(`${prefix}${entry.line}`, region.width));
+          displayRow++;
+        }
+        if (indicatorsOn) {
+          const below = items.length - (this.offset + cap);
+          if (below > 0) buffer.writeText(displayRow, region.col, moreHint('↓', below), HINT_STYLE);
+        }
       }
     }
     // 底行：键路提示 + 过滤词呈现（过滤面在屏可感知——件族同律）
@@ -249,10 +253,12 @@ export class RewindPicker implements OverlayContent {
       );
       buffer.writeText(region.row + 3, region.col, fitLine(WARN_LINE, region.width), WARN_STYLE);
     }
+    // 底行段提示：返回路如实写 q/esc（key 轨 :287 与 kitty text 轨 :400-402
+    // 的 q 都实返回列表——f9995d9 列表视图键序已翻 q/esc 从众，preview 视图随迁）
     const hint =
       data !== undefined && data.errorText === undefined
-        ? hintLine('enter 确认回退（将新建分支会话）', 'esc 返回列表')
-        : 'esc 返回列表';
+        ? hintLine('enter 确认回退（将新建分支会话）', 'q/esc 返回列表')
+        : 'q/esc 返回列表';
     buffer.writeText(region.row + region.height - 1, region.col, fitLine(hint, region.width), HINT_STYLE);
   }
 
@@ -363,7 +369,7 @@ export class RewindPicker implements OverlayContent {
                   restoreCount: 0,
                   deleteCount: 0,
                   untouchedCount: 0,
-                  errorText: `预览失败：${foldErrorText(err)}——esc 返回列表`,
+                  errorText: `预览失败：${foldErrorText(err)}——q/esc 返回列表`,
                 };
                 this.requestRepaint?.(); // 错误态落位同须请帧（同 .then 律）
               }

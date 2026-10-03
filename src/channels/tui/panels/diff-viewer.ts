@@ -269,28 +269,32 @@ export class DiffViewer implements OverlayContent {
     const head = `${HEAD_MARKS.diff} 改动总览 · ${this.groups.length} 文件`;
     // 头行/空态/底行 fitLine 收口（界面美化役美学注⑤——窄窗溢出止漏）
     buffer.writeText(region.row, region.col, fitLine(head, region.width));
-    const viewHeight = Math.max(1, region.height - 2);
+    // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
+    // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
+    const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
-    if (this.groups.length === 0) {
-      // 空集诚实空态行（零 git 子进程——数据源注记随行）
-      buffer.writeText(
-        region.row + 1,
-        region.col,
-        fitLine('（本会话没有文件改动——只统计本会话改动，非 git 工作区状态）', region.width),
-        HINT_STYLE,
-      );
-    } else {
-      const rows = this.flatRows();
-      this.clampCursor(rows.length);
-      this.clampOffset(rows.length);
-      for (let i = 0; i < viewHeight; i++) {
-        const index = this.offset + i;
-        if (index >= rows.length) break;
-        const row = rows[index]!;
-        if (row.kind === 'head') {
-          this.renderHead(buffer, region.row + 1 + i, region.col, region.width, index, row.group);
-        } else {
-          this.renderBody(buffer, region.row + 1 + i, region.col, region.width, index, row.row);
+    if (viewHeight > 0) {
+      if (this.groups.length === 0) {
+        // 空集诚实空态行（零 git 子进程——数据源注记随行）
+        buffer.writeText(
+          region.row + 1,
+          region.col,
+          fitLine('（本会话没有文件改动——只统计本会话改动，非 git 工作区状态）', region.width),
+          HINT_STYLE,
+        );
+      } else {
+        const rows = this.flatRows();
+        this.clampCursor(rows.length);
+        this.clampOffset(rows.length);
+        for (let i = 0; i < viewHeight; i++) {
+          const index = this.offset + i;
+          if (index >= rows.length) break;
+          const row = rows[index]!;
+          if (row.kind === 'head') {
+            this.renderHead(buffer, region.row + 1 + i, region.col, region.width, index, row.group);
+          } else {
+            this.renderBody(buffer, region.row + 1 + i, region.col, region.width, index, row.row);
+          }
         }
       }
     }

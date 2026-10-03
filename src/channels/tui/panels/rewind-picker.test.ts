@@ -164,7 +164,8 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     expect(all).toContain('你手动改的文件保持不动'); // 警告行（警示语义完整——只还原 berry 记录的改动）
     expect(all).toContain('回退只还原'); // 警示前半——还原范围点名（berry 记录的改动）
     expect(all).toContain('enter 确认回退'); // 段二提示
-    expect(all).toContain('esc 返回'); // 返回路提示
+    expect(all).toContain('q/esc 返回'); // 返回路提示（key 轨 q 与 text 轨 q 实返回列表——文案如实）
+    expect(all).not.toContain('· esc 返回列表'); // 旧形反向锁：底行段提示漏 q 残形不再现
   });
 
   it('preview 加载中有等待态行（onPreview 未决不显账行）', () => {
@@ -414,7 +415,8 @@ describe('RewindPicker 两步确认（preview → 确认 restore）', () => {
     const grid = paint(picker);
     const all = Array.from({ length: grid.rows }, (_, i) => readRow(grid, i, 72)).join('\n');
     expect(all).toContain('CHECKPOINT_STORE_CORRUPT：清单读失败'); // 修前红位：只有兜底句无码
-    expect(all).toContain('esc 返回列表'); // 兜底引导句保留（返回路指引不因折面丢）
+    expect(all).toContain('q/esc 返回列表'); // 兜底引导句保留（返回路指引不因折面丢——q 实可达如实）
+    expect(all).not.toContain('——esc 返回列表'); // 旧形反向锁：漏 q 的残句不再现
   });
 
   it('onPreview 异步落位后自请重画（修前红：.then/.catch 落位零请帧——「预览中…」永挂）', async () => {

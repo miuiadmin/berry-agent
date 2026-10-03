@@ -164,31 +164,35 @@ export class JobsViewer implements OverlayContent {
       ellipsize(`${VIEWER_HEAD_MARK} 后台任务 /jobs`, region.width),
       headStyleOf(this.theme),
     );
-    const viewHeight = Math.max(1, region.height - 2);
+    // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
+    // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
+    const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
-    if (this.rows.length === 0) {
-      // 空态行 ellipsize 收口（panel 固定区族单源——窄窗裸直写硬截断无省略号）
-      buffer.writeText(region.row + 1, region.col, ellipsize('（当前没有后台任务）', region.width), HINT_STYLE);
-    } else {
-      this.clampCursor();
-      this.clampOffset();
-      for (let i = 0; i < viewHeight; i++) {
-        const index = this.offset + i;
-        if (index >= this.rows.length) break;
-        const row = this.rows[index]!;
-        if (row.kind === 'head') {
-          // 分段头 ellipsize 收口（同文件头行/条目行族内对齐——panel 固定区族单源）
-          buffer.writeText(region.row + 1 + i, region.col, ellipsize(row.text, region.width), HEAD_STYLE);
-          continue;
+    if (viewHeight > 0) {
+      if (this.rows.length === 0) {
+        // 空态行 ellipsize 收口（panel 固定区族单源——窄窗裸直写硬截断无省略号）
+        buffer.writeText(region.row + 1, region.col, ellipsize('（当前没有后台任务）', region.width), HINT_STYLE);
+      } else {
+        this.clampCursor();
+        this.clampOffset();
+        for (let i = 0; i < viewHeight; i++) {
+          const index = this.offset + i;
+          if (index >= this.rows.length) break;
+          const row = this.rows[index]!;
+          if (row.kind === 'head') {
+            // 分段头 ellipsize 收口（同文件头行/条目行族内对齐——panel 固定区族单源）
+            buffer.writeText(region.row + 1 + i, region.col, ellipsize(row.text, region.width), HEAD_STYLE);
+            continue;
+          }
+          const selected = this.entryPositions[this.cursor] === index;
+          const line = `${selected ? CURSOR_MARK : ' '} ${row.text}`;
+          buffer.writeText(
+            region.row + 1 + i,
+            region.col,
+            ellipsize(line, region.width),
+            selected ? headStyleOf(this.theme) : this.entryStyle(row.entry),
+          );
         }
-        const selected = this.entryPositions[this.cursor] === index;
-        const line = `${selected ? CURSOR_MARK : ' '} ${row.text}`;
-        buffer.writeText(
-          region.row + 1 + i,
-          region.col,
-          ellipsize(line, region.width),
-          selected ? headStyleOf(this.theme) : this.entryStyle(row.entry),
-        );
       }
     }
     // 底行提示 ellipsize 收口（窄窗裸直写硬截断无省略号——族内对齐）

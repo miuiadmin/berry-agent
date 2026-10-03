@@ -186,8 +186,10 @@ export class MarketPicker implements OverlayContent {
     // X-5 补漏——尾行区原 truncateToWidth 裸截断无省略号同此升级；条目行走
     // fitRowSegments 双段）；头行 accent 着色（界面美化役美学注④）
     buffer.writeText(region.row, region.col, fitLine(head, region.width), this.headStyle);
-    // 中段窗口化：光标驱动视口（条目区）+ 尾行区尾随——窗口高按剩余行实配
-    const viewHeight = Math.max(1, region.height - 2);
+    // 中段窗口化：光标驱动视口（条目区）+ 尾行区尾随——窗口高按剩余行实配。
+    // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——本件条目/指示/
+    // 尾行/busy 各写位均以 cap（=0 即空转）与 line < end 自守，无需外加守卫
+    const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampCursor(); // 模型换血缩行防御①：渲染期光标入界（r 刷新换行集后面板自愈）
     this.clampOffset();

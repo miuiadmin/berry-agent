@@ -117,6 +117,27 @@ describe('ThemePicker 呈现', () => {
     expect(readRow(grid, 1, width)).toContain('（无条目）');
   });
 
+  it('height=2 极小窗：零内容行只头行+底行（守卫族语义——修前 viewHeight 下限 1，首内容行被底行覆写留残段红）', () => {
+    // 手卷家族守卫统一锚（jobs/diff/rewind/theme/sandbox/thinking/model/
+    // market/skills/session 十件同形收编——对齐 ScrollView 守卫族六件
+    // debug/status/usage/help/guide/feedback：height=2 时零内容行，头行 +
+    // 底行两行即全帧）。修前：Math.max(1, height-2) 强立 1 行内容——首内容行
+    // 先写后又被底行提示覆写（右对齐 detail 段越提示行宽残留在帧上）
+    const { picker } = makePicker();
+    const width = 72;
+    const grid = new CellGrid(width, 2);
+    picker.render(grid, { row: 0, col: 0, width, height: 2 });
+    expect(readRow(grid, 0, width)).toBe('◆ 主题切换 · 5 个主题'); // 头行在场
+    // 底行 = 键面提示独占整行（修前残留首条目右段「跟随终端明暗（自动检测）」红）
+    expect(readRow(grid, 1, width)).toBe('↑↓ 移动 · enter 选定（立即生效并保存） · q/esc 返回');
+
+    // 空条目同律：空态行不写（写了也被底行覆写留残段）
+    const { picker: empty } = makePicker({ entries: [] });
+    const g2 = new CellGrid(width, 2);
+    empty.render(g2, { row: 0, col: 0, width, height: 2 });
+    expect(readRow(g2, 1, width)).toBe('q/esc 返回'); // 修前残留「（无条目）」尾段红
+  });
+
   it('窄窗右段预算律：右段先按预算 … 截断再右对齐——负起列劈毁档名坏形封堵（修前红）', () => {
     const { picker } = makePicker();
     // 窗 20 < auto 行右段宽 27——修前 rightCol = 20-27 = -7：CellGrid 吸收负列

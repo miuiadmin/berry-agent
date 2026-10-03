@@ -56,8 +56,9 @@ describe('buildDebugLines 行集构造（纯函数）', () => {
     expect(lines[0]).toBe('── 运行时 ──');
     expect(lines.some((line) => line.startsWith('日志级别') && line.includes('info（默认）'))).toBe(true);
     expect(lines.some((line) => line.startsWith('数据库路径') && line.includes('agent.db'))).toBe(true);
-    // 插件清单段（计数头 + 逐 id 行）
-    expect(lines).toContain('── 已安装插件（2 个）──');
+    // 插件清单段（计数头 + 逐 id 行）——口径 = 已装载（boot.report.activated
+    // 装载集，非磁盘安装集——标签与供数端一致律）
+    expect(lines).toContain('── 已装载插件（2 个）──');
     expect(lines).toContain('· core:skills');
     expect(lines).toContain('· plugin:demo');
     // daemon.log 段：路径 + 尾快照（token 行已掩码——行集构造内执法）
@@ -80,7 +81,10 @@ describe('buildDebugLines 行集构造（纯函数）', () => {
 
   it('空清单形：无插件 / 无配置键 / 无 warn 各自如实', () => {
     const lines = buildDebugLines({ ...DATA, pluginIds: [], settingsKeys: [], settingsWarnings: [] });
-    expect(lines).toContain('（无已安装插件——--no-plugins 启动或启用清单为空）');
+    expect(lines).toContain('（无已装载插件——--no-plugins 启动或启用清单为空）');
+    // 旧口径形反向锁：标签族全面翻「已装载」后「已安装」残形不再现
+    expect(lines.some((line) => line.includes('已安装插件'))).toBe(false);
+    expect(lines.some((line) => line.includes('已装载插件'))).toBe(true);
     expect(lines.some((line) => line.startsWith('有效键') && line.includes('全用默认'))).toBe(true);
     expect(lines).toContain('无效配置警告：无');
   });

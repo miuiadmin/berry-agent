@@ -153,57 +153,61 @@ export class ModelPicker implements OverlayContent {
       ),
       this.panelHeadStyle,
     );
-    const viewHeight = Math.max(1, region.height - 2);
+    // 守卫族语义（height=2 → 零内容行只头行+底行）：下限 0——旧 Math.max(1,·)
+    // 在 height=2 强立 1 行内容，首内容行先写后又被底行覆写留残段
+    const viewHeight = Math.max(0, region.height - 2);
     this.viewportHeight = viewHeight;
     this.clampOffset(rows.length);
-    if (rows.length === 0) {
-      buffer.writeText(
-        region.row + 1,
-        region.col,
-        fitLine(`（无匹配「${this.query}」的模型）`, region.width),
-        HINT_STYLE,
-      );
-    } else {
-      // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且展开
-      // 行集溢出才立——上/下方 dim 边行「↑/↓ N 更多」；预留行挤压后在选行
-      // 跟随（指示行不遮在选行——组头占行，以光标条目展开行号判窗）
-      const indicatorsOn = viewHeight >= 3 && rows.length > viewHeight;
-      let cap = viewHeight; // 展开行实占行数（扣除指示预留）
-      const cursorRow = this.cursorRowOf(rows);
-      for (let round = 0; round < 3; round++) {
-        const topReserve = indicatorsOn && this.offset > 0;
-        const afterTop = viewHeight - (topReserve ? 1 : 0);
-        const bottomReserve = indicatorsOn && rows.length - this.offset - afterTop > 0;
-        cap = afterTop - (bottomReserve ? 1 : 0);
-        if (cursorRow < this.offset) {
-          this.offset = cursorRow;
-          continue;
+    if (viewHeight > 0) {
+      if (rows.length === 0) {
+        buffer.writeText(
+          region.row + 1,
+          region.col,
+          fitLine(`（无匹配「${this.query}」的模型）`, region.width),
+          HINT_STYLE,
+        );
+      } else {
+        // 界面美化役 2026-10-01 美学批（长清单滚动位置指示）：视口 ≥3 行且展开
+        // 行集溢出才立——上/下方 dim 边行「↑/↓ N 更多」；预留行挤压后在选行
+        // 跟随（指示行不遮在选行——组头占行，以光标条目展开行号判窗）
+        const indicatorsOn = viewHeight >= 3 && rows.length > viewHeight;
+        let cap = viewHeight; // 展开行实占行数（扣除指示预留）
+        const cursorRow = this.cursorRowOf(rows);
+        for (let round = 0; round < 3; round++) {
+          const topReserve = indicatorsOn && this.offset > 0;
+          const afterTop = viewHeight - (topReserve ? 1 : 0);
+          const bottomReserve = indicatorsOn && rows.length - this.offset - afterTop > 0;
+          cap = afterTop - (bottomReserve ? 1 : 0);
+          if (cursorRow < this.offset) {
+            this.offset = cursorRow;
+            continue;
+          }
+          if (cursorRow >= this.offset + cap) {
+            this.offset = cursorRow - cap + 1;
+            continue;
+          }
+          break;
         }
-        if (cursorRow >= this.offset + cap) {
-          this.offset = cursorRow - cap + 1;
-          continue;
+        let line = region.row + 1;
+        if (indicatorsOn && this.offset > 0) {
+          buffer.writeText(line, region.col, moreHint('↑', this.offset), HINT_STYLE);
+          line++;
         }
-        break;
-      }
-      let line = region.row + 1;
-      if (indicatorsOn && this.offset > 0) {
-        buffer.writeText(line, region.col, moreHint('↑', this.offset), HINT_STYLE);
-        line++;
-      }
-      for (let i = 0; i < cap; i++) {
-        const index = this.offset + i;
-        if (index >= rows.length) break;
-        const row = rows[index]!;
-        if (row.type === 'head') {
-          buffer.writeText(line, region.col, fitLine(row.label, region.width), HEAD_STYLE);
-        } else {
-          this.renderItemRow(buffer, line, region.col, region.width, items[row.index]!, row.index === this.cursor);
+        for (let i = 0; i < cap; i++) {
+          const index = this.offset + i;
+          if (index >= rows.length) break;
+          const row = rows[index]!;
+          if (row.type === 'head') {
+            buffer.writeText(line, region.col, fitLine(row.label, region.width), HEAD_STYLE);
+          } else {
+            this.renderItemRow(buffer, line, region.col, region.width, items[row.index]!, row.index === this.cursor);
+          }
+          line++;
         }
-        line++;
-      }
-      if (indicatorsOn) {
-        const below = rows.length - (this.offset + cap);
-        if (below > 0) buffer.writeText(line, region.col, moreHint('↓', below), HINT_STYLE);
+        if (indicatorsOn) {
+          const below = rows.length - (this.offset + cap);
+          if (below > 0) buffer.writeText(line, region.col, moreHint('↓', below), HINT_STYLE);
+        }
       }
     }
     // 底行：键路提示 + 过滤词呈现（过滤面在屏可感知）。过滤态换简化提示——
