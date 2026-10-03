@@ -43,6 +43,7 @@ import {
   removeSourceRecord,
   sanitizeBlock,
   sanitizeLine,
+  sourcesRejectedNote,
   updateMarketplaceSources,
   upgradeMarketplacePlugins,
   writeMarketplaceSources,
@@ -132,7 +133,9 @@ function runRemove(name: string, options: MarketplaceEntryOptions): number {
   const fs = createMarketFs();
   const read = readMarketplaceSources(dataDir, fs);
   if (!read.ok) {
-    writeErr(`源清单文件格式异常，已拒绝修改：${read.message}`);
+    // 坏形拒改报文走 plugin-market 域单源（2026-10-04 句尾族收编——与 add
+    // 两读位同词面冒号定界形，散拷贝收敛）
+    writeErr(sourcesRejectedNote(read.message));
     return 1;
   }
   let next: ReturnType<typeof removeSourceRecord>;

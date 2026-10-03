@@ -254,6 +254,19 @@ describe('e2e update/upgrade 全链（mp-4 真身——local 源零网络）', (
     expect(err).toContain('已停止刷新');
   });
 
+  it('remove 坏源清单：清单级硬拒 → stderr 冒号定界形报文 + 退 1（句尾族单源锚）', async () => {
+    const stage = stageOf('remove-corrupt');
+    mkdirSync(stage.options.dataDir, { recursive: true });
+    writeFileSync(join(stage.options.dataDir, 'marketplaces.json'), '{'); // 坏 JSON
+    expect(await runMarketplaceEntry({ sub: 'remove', name: 'alpha' }, stage.options)).toBe(1);
+    const err = stage.err.join('\n');
+    // 「已拒绝修改」句尾族单源（2026-10-04 收编批）——remove 腿锁冒号定界形
+    expect(err).toContain('源清单文件格式异常，已拒绝修改：');
+    expect(err).not.toContain('已拒绝修改（');
+    // 拒改不落账——坏形原文不被覆写
+    expect(readFileSync(join(stage.options.dataDir, 'marketplaces.json'), 'utf8')).toBe('{');
+  });
+
   it('upgrade 刷新失败降级：warn 注记 stderr + 既有缓存对拍跳过退 0（不拒整批）', async () => {
     const stage = stageOf('upgrade-refresh-fail');
     const repo = seedMarketRepo('zeta');

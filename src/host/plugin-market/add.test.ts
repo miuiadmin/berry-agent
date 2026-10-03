@@ -177,6 +177,43 @@ describe('add 编舞——本地目录源全链（零网络）', () => {
   });
 });
 
+describe('add 编舞——坏形源清单拒改（「已拒绝修改」冒号定界形——2026-10-04 句尾族收编单源）', () => {
+  it('前置撞名检查读位坏形 = result 面诚实拒（冒号定界形；不落账零残影）', async () => {
+    const fs = memFs({ ...LOCAL_MARKET, '/data/marketplaces.json': '{' });
+    const result = await addMarketplaceSource({ dataDir: '/data', fs, now }, '/src/alpha');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('源清单文件格式异常，已拒绝修改：');
+    expect(result.message).not.toContain('已拒绝修改（'); // 括号定界形已收敛（修前红位）
+    // 拒改不落账——坏形原文不被覆写（同查不拒即丢账）
+    expect(fs.read('/data/marketplaces.json')).toBe('{');
+    expect(fs.isDir('/data/marketplaces/alpha')).toBe(false); // 前置位拒——缓存零残影
+  });
+
+  it('落账读位坏形（竞态窗）= result 面诚实拒（冒号定界形）', async () => {
+    // 复现形同竞态窗兜底测试：第一次读（checkNameClash）健康、第二次读
+    // （commitRecord）坏形——落账位同律拒改不落
+    const base = memFs({ ...LOCAL_MARKET });
+    let reads = 0;
+    const racingFs: MarketFs = {
+      ...base,
+      read: (path) => {
+        if (path === '/data/marketplaces.json') {
+          reads += 1;
+          if (reads === 2) return '{'; // 落账读窗——清单坏形
+        }
+        return base.read(path);
+      },
+    };
+    const result = await addMarketplaceSource({ dataDir: '/data', fs: racingFs, now }, '/src/alpha');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('源清单文件格式异常，已拒绝修改：');
+    expect(result.message).not.toContain('已拒绝修改（'); // 括号定界形已收敛（修前红位）
+    expect(reads).toBeGreaterThanOrEqual(2); // 注入确落在落账读位
+  });
+});
+
 describe('add 编舞——网络源 fetch 注入位（mp-2 零网络；mp-4 落真身）', () => {
   it('git/url 源 + fetch 缺席 = 诚实拒（真因 = 依赖注入位未提供——报文不再指路已落地批次）', async () => {
     for (const source of [

@@ -245,11 +245,22 @@ function nameClashMessage(name: string): string {
   return `市场 "${name}" 已在源清单——信任裁决是显式动作，请先 remove 再 add`;
 }
 
+/**
+ * 「源清单文件格式异常，已拒绝修改」报文单源（2026-10-04 句尾族收编批）：
+ * 定界形统一**冒号形**——原先本件两读位括号形与 marketplace-cmd remove 腿
+ * 冒号形同语义两定界形并存（漂移收敛，文案微变正向）；消费位三 = 本件
+ * checkNameClash / commitRecord 两读位 + marketplace-cmd remove 腿，词面
+ * 漂移即测试红（add.test / marketplace-cmd.test 冒号定界形锚）。
+ */
+export function sourcesRejectedNote(message: string): string {
+  return `源清单文件格式异常，已拒绝修改：${message}`;
+}
+
 /** 撞名检查（null = 无撞；报文含源名与 remove 指路）——信任裁决是显式动作 */
 function checkNameClash(dataDir: string, fs: MarketFs, name: string): string | null {
   const read = readMarketplaceSources(dataDir, fs);
   if (!read.ok) {
-    return `源清单文件格式异常，已拒绝修改（${read.message}）`;
+    return sourcesRejectedNote(read.message); // 坏形拒改——句尾族单源冒号形
   }
   if (read.sources.some((existing) => existing.name === name)) {
     return nameClashMessage(name);
@@ -269,7 +280,7 @@ function checkNameClash(dataDir: string, fs: MarketFs, name: string): string | n
 function commitRecord(dataDir: string, fs: MarketFs, record: MarketplaceSourceRecord): string | null {
   const read = readMarketplaceSources(dataDir, fs);
   if (!read.ok) {
-    return `源清单文件格式异常，已拒绝修改（${read.message}）`;
+    return sourcesRejectedNote(read.message); // 坏形拒改——句尾族单源冒号形（与前置检查同词面）
   }
   if (read.sources.some((existing) => existing.name === record.name)) {
     return nameClashMessage(record.name); // 同名竞态窗兜底——前置检查与落账非原子

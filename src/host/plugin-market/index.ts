@@ -31,7 +31,7 @@ export type { TranslateResult } from './translate.js';
 export { MARKETPLACE_TTL_MS, isCatalogStale } from './ttl.js';
 export { discoverMarketplaces } from './discover.js';
 export type { DiscoverDeps } from './discover.js';
-export { addMarketplaceSource } from './add.js';
+export { addMarketplaceSource, sourcesRejectedNote } from './add.js';
 export type { AddMarketplaceDeps, AddMarketplaceResult } from './add.js';
 export { createMarketFs } from './fs.js';
 export {
