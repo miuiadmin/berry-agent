@@ -203,17 +203,25 @@ export class UiCore {
           // 先得 + 败腿经内部 signal 撤销（ask 编舞 finish 位统一传播）；
           // 'unavailable' 是腿级「无人可答」证词不是裁决——计票不计胜负，
           // 票满（全腿无人）才 fail-closed。腿抛错仍立即拒出（呈现异常折
-          // 保守值 cancel——与旧 race 同语义）
+          // 保守值 cancel——与旧 race 同语义）。
+          // 胜负门（第九轮 laneD 件2）：真裁决首到置位 decided；此后迟到的
+          // 腿（真裁决或 unavailable 票）一律 return——不 resolve 不计票更
+          // 不触 settleApprovalAlways 副作用（对齐旧 Promise.race 败腿静默
+          // 丢弃语义——修前 superseded 腿的 always 回写照发，策略表被败腿
+          // 污染）。微任务 FIFO 下同拍双真裁决的先后语义 = 注册序先到胜。
           return new Promise<ApprovalAskAnswer>((resolve, reject) => {
             let noAudienceVotes = 0;
+            let decided = false;
             for (const b of direct) {
               b.askApproval!(sessionId, request, { signal }).then(
                 (answer) => {
+                  if (decided) return; // 败腿迟到：胜负已分——静默丢弃
                   if (answer === 'unavailable') {
                     noAudienceVotes += 1;
                     if (noAudienceVotes === direct.length) resolve('unavailable');
                     return;
                   }
+                  decided = true; // 真裁决首到置位——后到腿全静默
                   resolve(this.settleApprovalAlways(answer, request));
                 },
                 (cause) => reject(cause),

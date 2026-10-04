@@ -246,6 +246,32 @@ describe('ask 编舞单元边界', () => {
     const p = ui.askApproval('s1', { summary: '写文件' });
     expect(await p).toBe('unavailable');
   });
+
+  it('败腿迟到真裁决静默丢弃：不触 always 回写副作用（修前红：投票重排后 superseded 腿照发 onApprovalAlways——旧 race 败腿静默语义丢失）', async () => {
+    const b1 = fakeBackend('tui');
+    const b2 = fakeBackend('web');
+    const alwaysEntries: string[] = [];
+    const ui = makeCore([b1.backend, b2.backend], (entry) => alwaysEntries.push(entry));
+    const p = ui.askApproval('s1', { summary: '写文件', suggestedEntry: 'allow-write' });
+    b1.approvalAsks[0]?.resolve('approve'); // 真裁决先到——外层 ask 落定
+    b2.approvalAsks[0]?.resolve('always'); // 败腿迟到真裁决——微任务 FIFO 后到
+    expect(await p).toBe('approve');
+    expect(alwaysEntries).toEqual([]); // 修前红：superseded 腿的 always 回写照发（策略表被败腿污染）
+  });
+
+  it('投票制反向交错回归锁：真裁决先到、迟到 unavailable 票 no-op——结果不被覆写、全票分支不触发', async () => {
+    // 与「瞬时 fail-closed 腿不毒化竞速」锁互为反向（那把锁 unavailable 先
+    // 到、真答后到；本把锁真答先到、票后到）——胜负门置位后迟到票连计票
+    // 都不走，1 票恒不满 2，fail-closed 分支无从触发
+    const b1 = fakeBackend('tui');
+    const b2 = fakeBackend('web');
+    const ui = makeCore([b1.backend, b2.backend]);
+    const p = ui.askApproval('s1', { summary: '写文件' });
+    b1.approvalAsks[0]?.resolve('approve'); // 真裁决先到——落定
+    b2.approvalAsks[0]?.resolve('unavailable'); // 迟到票——no-op
+    expect(await p).toBe('approve');
+    expect(ui.pending('s1')).toEqual([]); // 落定出队收口——全票 fail-closed 分支未触发
+  });
 });
 
 describe('widget 槽与状态面观察位', () => {
