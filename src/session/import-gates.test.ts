@@ -6,7 +6,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BaseError } from '../contracts/index.js';
-import { pairingGate, parseImportFile, runImportGates, SessionSpawnLimiter, vocabularyGate } from './import-gates.js';
+import {
+  messageShapeGate,
+  pairingGate,
+  parseImportFile,
+  runImportGates,
+  SessionSpawnLimiter,
+  vocabularyGate,
+} from './import-gates.js';
 import type { SessionEvent } from '../contracts/index.js';
 
 /** 断言抛指定码 */
@@ -135,6 +142,76 @@ describe('pairingGate 配对闸', () => {
       { type: 'tool/result', seq: 1, time: 2, data: { toolCallId: 'ghost', content: 'x' } },
     ];
     expectCode(() => pairingGate(events), 'SESSION_IMPORT_BAD_FORMAT');
+  });
+});
+
+describe('messageShapeGate 消息形状闸（词汇闸形状半句——05 §5.1）', () => {
+  it('assistant/message 缺 content 拒（修前红：四闸全过 → derive 产 content=undefined → reseed 展开位裸 TypeError——错误现场远离导入位）', () => {
+    const bad = [
+      JSON.stringify({ format: 'berry-agent/session', version: 1 }),
+      line(0, 'turn/start'),
+      line(1, 'user/message', { content: 'hi' }),
+      line(2, 'assistant/message', { stopReason: 'stop' }),
+      line(3, 'turn/end', { reason: 'completed' }),
+    ].join('\n');
+    expectCode(() => runImportGates(bad), 'SESSION_IMPORT_BAD_FORMAT');
+  });
+
+  it('assistant/message content 非数组（字符串/数字）拒——错误消息携 seq 与词面', () => {
+    const events: SessionEvent[] = [{ type: 'assistant/message', seq: 2, time: 1, data: { content: 'plain' } }];
+    try {
+      messageShapeGate(events);
+      expect.unreachable('未拒绝');
+    } catch (err) {
+      expect(err).toBeInstanceOf(BaseError);
+      expect((err as BaseError).code).toBe('SESSION_IMPORT_BAD_FORMAT');
+      expect((err as BaseError).message).toContain('seq#2');
+      expect((err as BaseError).message).toContain('assistant/message');
+    }
+    expectCode(
+      () => messageShapeGate([{ type: 'assistant/message', seq: 0, time: 1, data: { content: 42 } }]),
+      'SESSION_IMPORT_BAD_FORMAT',
+    );
+  });
+
+  it('assistant/message content 空数组放行（生产 tool-only 响应合法形——filter 掉 toolCall 块后空数组落账，金样回环不误拒）', () => {
+    const events: SessionEvent[] = [
+      { type: 'turn/start', seq: 0, time: 1, data: {} },
+      { type: 'tool/call', seq: 1, time: 2, data: { toolCallId: 'c1', name: 't', arguments: '{}' } },
+      { type: 'assistant/message', seq: 2, time: 3, data: { content: [] } },
+      { type: 'tool/result', seq: 3, time: 4, data: { toolCallId: 'c1', content: 'ok' } },
+      { type: 'turn/end', seq: 4, time: 5, data: { reason: 'completed' } },
+    ];
+    expect(() => messageShapeGate(events)).not.toThrow();
+  });
+
+  it('user/message 缺 content 拒；string 与块数组两契约形放行', () => {
+    expectCode(() => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: {} }]), 'SESSION_IMPORT_BAD_FORMAT');
+    expectCode(
+      () => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: { content: 42 } }]),
+      'SESSION_IMPORT_BAD_FORMAT',
+    );
+    expect(() =>
+      messageShapeGate([
+        { type: 'user/message', seq: 0, time: 1, data: { content: 'hi' } },
+        { type: 'user/message', seq: 1, time: 2, data: { content: [{ type: 'text', text: 'yo' }] } },
+      ]),
+    ).not.toThrow();
+  });
+
+  it('data 缺席/null 容错拒（content 判缺席非炸读取）', () => {
+    // data 整体缺席经原始 JSON 形构造（SessionEvent 信封面 data 必填——导入
+    // 解析位不查 data，形状闸须对缺席形容错而非炸读取）
+    const noData = JSON.parse('{"type":"assistant/message","seq":0,"time":1}') as SessionEvent;
+    expectCode(() => messageShapeGate([noData]), 'SESSION_IMPORT_BAD_FORMAT');
+    expectCode(
+      () => messageShapeGate([{ type: 'user/message', seq: 0, time: 1, data: null }]),
+      'SESSION_IMPORT_BAD_FORMAT',
+    );
+  });
+
+  it('非消息族事件不校验（形状闸射界 = 核心消息族两词）', () => {
+    expect(() => messageShapeGate([{ type: 'llm/usage', seq: 0, time: 1, data: { input: 1 } }])).not.toThrow();
   });
 });
 

@@ -1,9 +1,10 @@
 /**
  * 导入四闸（05 篇 §5.1——金样导入/外部会话导入的统一门）。
  *
- * 身份闸（自描述格式）→ 词汇闸（逐事件过注册表）→ 配对闸（离线 closer 预检）
- * → 洪水闸（会话增生限流）。四闸全过才允许建会话；洪水闸是进程态限速器，
- * 其余三闸是文件内容的纯校验。
+ * 身份闸（自描述格式）→ 词汇闸（逐事件过注册表）+ 消息形状闸（核心消息族
+ * data 形状——词汇闸形状半句）→ 配对闸（离线 closer 预检）→ 洪水闸（会话
+ * 增生限流）。四闸全过才允许建会话；洪水闸是进程态限速器，其余三闸是文件
+ * 内容的纯校验。
  */
 import { BaseError, isKnownEventType, type SessionEvent } from '../contracts/index.js';
 
@@ -82,6 +83,48 @@ export function vocabularyGate(events: readonly SessionEvent[]): void {
       `导入事件 seq#${event.seq} 类型 ${event.type} 未注册且未标 ignorable（拒整批）`,
     );
   }
+}
+
+/**
+ * 消息形状闸（05 §5.1 词汇闸形状校验半句——规范笔 056ff25 已落）：词汇闸只
+ * 认 type 注册面不看 data——外部文件 assistant/message 缺 content 时四闸全
+ * 过，deriveMessages 产出 content=undefined，重建消费位（reseed 展开写
+ * `[...content]`）抛裸 TypeError：可导入可列表但永远打不开，错误现场远离
+ * 导入位。本闸把拦截钉在导入位：核心消息族 data.content 形状校验。
+ *  - assistant/message：content 须为块数组（Array.isArray）。**空数组放行**
+ *    ——生产落账面（conversation wiring appendMessage）对 tool-only 响应
+ *    filter 掉 toolCall 块后合法产空数组，金样回环不得误拒；崩溃判据是
+ *    「非数组不可展开」非「空数组」（derive 自身在 tool/call 无缓冲兜底位
+ *    同用空数组）。
+ *  - user/message：content 须在场且为 string 或块数组（契约双形——string
+ *    直通、块数组直通，两形重建面均不炸）。
+ * 坏形抛 SESSION_IMPORT_BAD_FORMAT（消息携 seq 与词面——现场钉导入位）。
+ */
+export function messageShapeGate(events: readonly SessionEvent[]): void {
+  for (const event of events) {
+    if (event.type === 'assistant/message') {
+      const content = (event.data as { content?: unknown } | null | undefined)?.content;
+      if (!Array.isArray(content)) {
+        throw new BaseError(
+          'SESSION_IMPORT_BAD_FORMAT',
+          `导入事件 seq#${event.seq} assistant/message 的 data.content 须为块数组（实得 ${describeValue(content)}——重建消费面不可展开，导入位先拒）`,
+        );
+      }
+    } else if (event.type === 'user/message') {
+      const content = (event.data as { content?: unknown } | null | undefined)?.content;
+      if (typeof content !== 'string' && !Array.isArray(content)) {
+        throw new BaseError(
+          'SESSION_IMPORT_BAD_FORMAT',
+          `导入事件 seq#${event.seq} user/message 的 data.content 须为字符串或块数组（实得 ${describeValue(content)}）`,
+        );
+      }
+    }
+  }
+}
+
+/** 坏形值人读（诊断面——缺席/数组/类型名三形） */
+function describeValue(value: unknown): string {
+  return value === undefined ? '缺席' : Array.isArray(value) ? '数组' : typeof value;
 }
 
 /**
@@ -174,10 +217,11 @@ export class SessionSpawnLimiter {
   }
 }
 
-/** 便捷面：导入文件全闸校验（身份 → 词汇 → 配对；洪水闸由调用方在建会话位点执法） */
+/** 便捷面：导入文件全闸校验（身份 → 词汇 → 形状 → 配对；洪水闸由调用方在建会话位点执法） */
 export function runImportGates(text: string): ParsedImport {
   const parsed = parseImportFile(text);
   vocabularyGate(parsed.events);
+  messageShapeGate(parsed.events);
   pairingGate(parsed.events);
   return parsed;
 }
