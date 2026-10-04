@@ -675,12 +675,28 @@ export function dismissNotice(state: AppState, id: number): AppState {
  * decide 应答后本地出清（applied 与 superseded 同出清——异口已答）；未见账随行
  * 出清（条目已撤——账不滞留）；同 id 入已决遮罩账（陈复拉清单复活竞窗——见
  * AppState.approvalDecidedTicks 头注，遮罩拦「清单新增」径、不拦活动帧径）。
+ *
+ * 失败回执形（failed = true——第十一轮深扫 laneG L8-1）：decide 请求失败
+ * （非 401——401 走失效路由不折回执）时服务端真源该审批仍 pending，而遮罩
+ * 恰拦 App 失败腿 reloadProjection 复拉的「清单新增」复活径（连拦两拍
+ * ≈ 20s——失败后审批卡不可见且零失败反馈）。失败形撤遮罩（从
+ * approvalDecidedTicks 删该 id）放行复活径；decide 实际落地而响应丢失的窗口
+ * 由既有 missTicks 两拍律兜底（复拉清单不含已决 id——复活卡连续两拍未见自
+ * 撤），不回退第十轮幻影复活修复（成功形遮罩语义原样维持——L3-2 陈响应竞窗
+ * 仍由它拦，两机制分立）。approvals 过滤位在失败形同幅执行（幂等防御——
+ * 乐观出清先行后此位为无操作）。
  */
-export function appliedDecide(state: AppState, approvalId: string): AppState {
+export function appliedDecide(state: AppState, approvalId: string, failed = false): AppState {
   const { [approvalId]: _tick, ...missTicks } = state.approvalMissTicks;
+  const approvals = state.approvals.filter((a) => a.approvalId !== approvalId);
+  if (failed) {
+    // 失败回执：撤已决遮罩——复拉复活径放行（真源卡即刻回归）
+    const { [approvalId]: _decided, ...decidedTicks } = state.approvalDecidedTicks;
+    return { ...state, approvals, approvalMissTicks: missTicks, approvalDecidedTicks: decidedTicks };
+  }
   return {
     ...state,
-    approvals: state.approvals.filter((a) => a.approvalId !== approvalId),
+    approvals,
     approvalMissTicks: missTicks,
     approvalDecidedTicks: { ...state.approvalDecidedTicks, [approvalId]: 0 },
   };

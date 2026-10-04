@@ -313,7 +313,10 @@ describe('frames 工具族与状态行', () => {
     expect(state.messages[0]?.text).toBe('── 工具 1 次（自本次接入起算） ──');
     state = applyEnvelope(state, display({ type: 'agent_start' }));
     state = applyEnvelope(state, display({ type: 'turn_start', turn: 1 }));
-    state = applyEnvelope(state, display({ type: 'turn_end', turn: 1, stopReason: 'end_turn' }));
+    // stopReason 七值闭集真源 = contracts/llm.ts StopReason（pending/stop/length/
+    // toolUse/error/aborted/deferred）——'end_turn' 系 Anthropic 词面伪值，夹具
+    // 勘正为真值 'stop'（第十一轮 laneG L7-3b：夹具禁伪值——测试数据面同律）
+    state = applyEnvelope(state, display({ type: 'turn_end', turn: 1, stopReason: 'stop' }));
     // turn_* 不进正文（收尾行不被扰动——长度仍 1）
     expect(state.messages).toHaveLength(1);
   });
@@ -769,6 +772,32 @@ describe('frames 审批投影复位与乐观回显撤回（修复批锁）', () 
     expect(reasked.approvals.map((a) => a.approvalId)).toEqual(['ap-y']); // asked 直入（既有律）
     reasked = loadedApprovals(reasked, [{ approvalId: 'ap-y', sessionId: 's-1', summary: '重发 y' }]);
     expect(reasked.approvals).toHaveLength(1); // 在场刷新径——遮罩已撤不干扰
+  });
+
+  it('decide 失败回执撤已决遮罩：复拉清单即刻复活真源卡（第十一轮 laneG L8-1；修前红：遮罩拦「清单新增」径 2 拍 ≈ 20s——失败后卡不可见且零失败反馈）', () => {
+    // 竞窗机理：decide 请求失败（非 401）时服务端真源该审批仍 pending——App
+    // catch 腿 reloadProjection 复拉的清单含该 id，恰被乐观出清时入账的已决
+    // 遮罩拦在「清单新增」径外（(ticks ?? 2) < 2 连拦两拍，10s 周期拍 ≈ 20s）。
+    // 修形 = appliedDecide 失败回执形（第三参 failed）：从 approvalDecidedTicks
+    // 删该 id——复拉复活径放行，真源卡即刻回归（失败不吞卡）。
+    const entry = { approvalId: 'ap-f', sessionId: 's-1', summary: '等人点' };
+    let state = applyAsked(initialAppState, entry);
+    state = appliedDecide(state, 'ap-f'); // 乐观出清（App 先行）——遮罩入账 0
+    expect(state.approvalDecidedTicks['ap-f']).toBe(0); // 夹具自检：遮罩确在场
+    // 失败回执形——撤遮罩（修前红：形参缺位被忽略、遮罩残留 0 → 断言红）
+    state = appliedDecide(state, 'ap-f', true);
+    expect(state.approvalDecidedTicks['ap-f']).toBeUndefined(); // 修前红：0——遮罩未撤
+    // 复拉清单含该 id（服务端真源仍 pending）——「清单新增」径放行复活
+    //（修前红：遮罩拦截 → approvals 空——卡被吞 20s）
+    state = loadedApprovals(state, [entry]);
+    expect(state.approvals.map((a) => a.approvalId)).toEqual(['ap-f']);
+    // decide 实际落地而响应丢失的窗：复拉不含已决 id——复活卡由既有 missTicks
+    // 两拍律自撤兜底（不回退第十轮幻影复活修复：L3-2 陈响应竞窗仍由成功形
+    // 遮罩拦，两机制分立不互扰）
+    state = loadedApprovals(state, []);
+    expect(state.approvals.map((a) => a.approvalId)).toEqual(['ap-f']); // 首拍保位
+    state = loadedApprovals(state, []);
+    expect(state.approvals).toHaveLength(0); // 连续两拍未见——自撤
   });
 
   it('echoKeyOf 与 message_end 落稿键同源；droppedMessage 按键撤回不误伤后续帧', () => {

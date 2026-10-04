@@ -425,16 +425,27 @@ function Main({ onAuthLost }: { onAuthLost: () => void }): ReactElement {
       });
   }, [state.activeId, onAuthLost]);
 
-  /** 审批应答（applied/superseded 同出清——异口已答同语义；失败回拉清单自愈） */
+  /**
+   * 审批应答（applied/superseded 同出清——异口已答同语义；失败腿撤遮罩 +
+   * 失败通知 + 回拉清单自愈——L8-1）。decide 实际落地而响应丢失的窗口由
+   * missTicks 两拍律兜底（见 appliedDecide 失败回执形头注）。
+   */
   const decide = useCallback(
     (approvalId: string, answer: 'approve' | 'reject' | 'cancel') => {
       setState((prev) => appliedDecide(prev, approvalId));
       void api.decide(approvalId, answer).catch((err: unknown) => {
-        // 401 → 失效路由（webui-face#3）；其余失败回拉清单自愈（真源复拉）
+        // 401 → 失效路由（webui-face#3）；其余失败：撤已决遮罩（失败回执形）
+        // + 失败通知 + 回拉清单自愈（真源复拉）。L8-1（第十一轮深扫 laneG）：
+        // 修前已决遮罩恰拦这条复拉复活径——服务端真源仍 pending 的审批卡被遮
+        // 两拍（10s 周期 × 2 ≈ 20s）不可见且零失败反馈（对比导出失败腿有通
+        // 知条）；撤遮罩后复拉经「清单新增」径即刻复活，失败提示对齐导出失败
+        // 腿（错误不静默）。不回退第十轮幻影复活修复——成功回执形的遮罩语义
+        // 原样维持（两机制分立）
         if (isUnauthorized(err)) {
           onAuthLost();
           return;
         }
+        setState((prev) => pushedNotice(appliedDecide(prev, approvalId, true), '审批提交失败——请重试', 'error'));
         if (state.activeId !== null) reloadProjection(state.activeId);
       });
     },
