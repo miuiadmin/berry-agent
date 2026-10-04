@@ -305,11 +305,12 @@ describe('frames 工具族与状态行', () => {
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }));
     expect(state.status).toBeNull();
     // 工具 run 成功终态 → run 收尾行瞬时追加（run_close 角色——非对话消息；
-    // 无 agent_start 中途附着形：耗时段诚实缺席、工具段独场——计数是附着点
-    // 起算的部分观察值，加注不冒充整 run 口径〔第九轮 laneE2 件3〕）
+    // 无 agent_start 中途接入形：耗时段诚实缺席、工具段独场——计数是接入点
+    // 起算的部分观察值，加注不冒充整 run 口径〔第九轮 laneE2 件3 + 第十轮
+    // 定形注词面翻档「接入」〕）
     expect(state.messages).toHaveLength(1);
     expect(state.messages[0]).toMatchObject({ role: RUN_CLOSE_ROLE, streaming: false });
-    expect(state.messages[0]?.text).toBe('── 工具 1 次（自本次附着起算） ──');
+    expect(state.messages[0]?.text).toBe('── 工具 1 次（自本次接入起算） ──');
     state = applyEnvelope(state, display({ type: 'agent_start' }));
     state = applyEnvelope(state, display({ type: 'turn_start', turn: 1 }));
     state = applyEnvelope(state, display({ type: 'turn_end', turn: 1, stopReason: 'end_turn' }));
@@ -538,7 +539,7 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
     );
     state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed' }), T0);
     expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]?.text).toBe('── 工具 1 次（自本次附着起算） ──'); // 修前红：旧形「工具 1 次」整 run 口径词面
+    expect(state.messages[0]?.text).toBe('── 工具 1 次（自本次接入起算） ──'); // 修前红：旧形「工具 1 次」整 run 口径词面
     // 双计数段皆加注 + durationMs 载荷在场不加注（服务端真值即整 run 口径
     // ——耗时段与计数段的口径分立）
     let both = applyEnvelope(
@@ -549,7 +550,28 @@ describe('frames run 收尾行（界面美化役批⑪ + V-0 注⑥对端翻形�
     both = applyEnvelope(both, display({ type: 'agent_end', status: 'completed', durationMs: 95_000 }), T0 + 1_000);
     const close = both.messages[both.messages.length - 1]!;
     expect(close.role).toBe(RUN_CLOSE_ROLE);
-    expect(close.text).toBe('── 用时 1m 35s · 工具 1 次（自本次附着起算） · 重试 1（自本次附着起算） ──');
+    expect(close.text).toBe('── 用时 1m 35s · 工具 1 次（自本次接入起算） · 重试 1（自本次接入起算） ──');
+  });
+
+  it('中途附着+retry 续入：agent_start 重开观察窗而部分观察旗不清——计数段仍加注（修前红：runStartedAt 判据破口——部分观察冒充整 run 口径）', () => {
+    // 第十轮定形注（07 收尾行中途附着加注形）：仅看收尾时刻 runStartedAt
+    // 判据不足——retry 续入 agent_start 会重开观察窗（非 null）而 run 级账
+    // 不清（附着点起算的部分值）→ 修前判据不含此形 → 不加注冒充整 run 口径。
+    // 旗形判据两形皆盖（runStartedAt === null || runCountsPartial）
+    let state = applyEnvelope(
+      initialAppState,
+      display({ type: 'tool_execution_start', toolCallId: 't-1', name: 'bash', arguments: {} }),
+    ); // 中途附着窗计数（runStartedAt=null）——旗置位
+    state = applyEnvelope(state, display({ type: 'retry_wait_end', outcome: 'resumed' }), T0);
+    state = applyEnvelope(state, display({ type: 'agent_start' }), T0); // 续入——重开观察窗、旗不清
+    expect(state.runStartedAt).toBe(T0); // 观察窗确已重开（修前判据由此破）
+    state = applyEnvelope(state, display({ type: 'agent_end', status: 'completed', durationMs: 45_000 }), T0 + 45_000);
+    const close = state.messages[state.messages.length - 1]!;
+    expect(close.role).toBe(RUN_CLOSE_ROLE);
+    // 修前红：'── 用时 45s · 工具 1 次 ──'（不加注——部分观察冒充整 run 口径）
+    expect(close.text).toBe('── 用时 45s · 工具 1 次（自本次接入起算） ──');
+    // 耗时段不加注维持（durationMs 载荷在场即服务端整 run 真值——口径分立）
+    expect(close.text).toContain('用时 45s ·');
   });
 
   it('瞬时追加位：loadedMessages 投影重置即清（不落投影、回放不可见）', () => {
@@ -717,6 +739,33 @@ describe('frames 审批投影复位与乐观回显撤回（修复批锁）', () 
     // 连续第二拍未见 → 撤
     state = loadedApprovals(state, []);
     expect(state.approvals).toHaveLength(0);
+  });
+
+  it('appliedDecide 后陈清单响应不复活已决审批（已决遮罩——两拍有界；修前红：清单新增径复活成幻影卡且两拍律护住）', () => {
+    // 竞窗（第十轮 laneD 件1）：本口 decide → appliedDecide 乐观出清 → decide
+    // 前服务端已发出的旧清单响应后至（仍含该审批）——经「清单新增」径复活成
+    // 幻影卡，且两拍律护住（首拍保位 + 第二拍才撤）比修前多等一拍消卡。
+    // 修形 = 已决遮罩：decide 入账、清单新增径过滤遮罩内 id、每拍 +1 连续
+    // 2 拍自撤（陈响应只陈一拍——与 missTicks 同拍数的有界锁）
+    let state = applyAsked(initialAppState, { approvalId: 'ap-x', sessionId: 's-1', summary: '本口已决' });
+    state = appliedDecide(state, 'ap-x');
+    // 第 1 拍：陈清单含已决 id——遮罩拦截不复活（修前红：approvals 含 ap-x）
+    state = loadedApprovals(state, [{ approvalId: 'ap-x', sessionId: 's-1', summary: '本口已决' }]);
+    expect(state.approvals).toHaveLength(0); // 修前红：1——幻影卡
+    // 第 2 拍仍遮（有界两拍——乱序多响应窗防御）
+    state = loadedApprovals(state, [{ approvalId: 'ap-x', sessionId: 's-1', summary: '本口已决' }]);
+    expect(state.approvals).toHaveLength(0);
+    // 第 3 拍：遮罩耗尽自撤——清单新增同 id 正常进入（有界锁归还正常语义；
+    // 服务端重发同 id 审批的合法形不被永久吞）
+    state = loadedApprovals(state, [{ approvalId: 'ap-x', sessionId: 's-1', summary: '同 id 重发' }]);
+    expect(state.approvals.map((a) => a.approvalId)).toEqual(['ap-x']);
+    // asked 帧同 id 到达即撤遮罩（保守清位——重发合法形走活体帧径直达）
+    let reasked = applyAsked(initialAppState, { approvalId: 'ap-y', sessionId: 's-1', summary: 'y' });
+    reasked = appliedDecide(reasked, 'ap-y');
+    reasked = applyAsked(reasked, { approvalId: 'ap-y', sessionId: 's-1', summary: '重发 y' });
+    expect(reasked.approvals.map((a) => a.approvalId)).toEqual(['ap-y']); // asked 直入（既有律）
+    reasked = loadedApprovals(reasked, [{ approvalId: 'ap-y', sessionId: 's-1', summary: '重发 y' }]);
+    expect(reasked.approvals).toHaveLength(1); // 在场刷新径——遮罩已撤不干扰
   });
 
   it('echoKeyOf 与 message_end 落稿键同源；droppedMessage 按键撤回不误伤后续帧', () => {

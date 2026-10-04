@@ -100,6 +100,20 @@ export interface AppState {
    * ——fetch 早于服务端登记发出的响应只陈一拍）。清单确认在场即清账重起算。
    */
   readonly approvalMissTicks: Readonly<Record<string, number>>;
+  /**
+   * 审批已决遮罩账（第十轮 laneD 件1——L3-2 复活竞窗；与 approvalMissTicks
+   * 同生命周期域、frames 纯函数域内自持）：approvalId → 已决拍计数。竞窗机理：
+   * 本口 decide（appliedDecide 乐观出清）后，decide 前服务端已发出的旧复拉
+   * 清单响应后至（仍含该审批）——经 loadedApprovals「清单新增」径复活成幻影
+   * 卡，且两拍律护住（首拍保位 + 第二拍才撤）比修前多等一拍消卡。修形：decide
+   * 时入账 0；清单新增径过滤遮罩内 id（不复活）；每拍 loadedApprovals 调用
+   * 计数 +1，连续 2 拍后自撤——有界论证：陈响应只陈一拍（周期拍轮询每拍至多
+   * 一个在飞响应，decide 后首个到达的是 decide 前发出的旧清单、再下一个已是
+   * decide 后的新清单不含已决 id），与 missTicks 同拍数的两拍上限是乱序多响
+   * 应窗防御，两拍后归还「清单新增」正常语义（服务端重发同 id 审批不被永吞）；
+   * asked 帧同 id 到达（applyAsked）即撤该 id 遮罩（重发合法形——保守清位）。
+   */
+  readonly approvalDecidedTicks: Readonly<Record<string, number>>;
   readonly notices: readonly ViewNotice[];
   readonly todo: readonly ViewTodo[] | null;
   /** 视图键序发生器（无时间戳载荷的稳定键兜底） */
@@ -150,6 +164,15 @@ export interface AppState {
    */
   readonly runRetryCount: number;
   /**
+   * run 级计数部分观察旗（2026-10-04 第十轮深扫定形注——07 收尾行中途附着
+   * 加注形）：计数在未见 agent_start 的窗内（runStartedAt === null——中途
+   * 接入）累加即置位——计数是接入点起算的部分观察值标记；fresh agent_start
+   * 清位、retry 续入 agent_start 不清（续入重开观察窗而 run 级账不清——仅看
+   * 收尾时刻 runStartedAt 判据的破口由此旗盖住）。收尾行计数段加注判据 =
+   * runStartedAt === null || 本旗（旗形判据两形皆盖）。
+   */
+  readonly runCountsPartial: boolean;
+  /**
    * 重试续入标记（retry_wait_end(resumed) 置位、下一 agent_start 消费复位：
    * 续入是同一 run 的断点续跑非新 run——run 级账〔工具/重试计数、种子〕不清，
    * 整 run 口径律。观察窗 runStartedAt 例外重开——耗时段回退位只覆末次尝试，
@@ -180,6 +203,7 @@ export const initialAppState: AppState = {
   status: null,
   approvals: [],
   approvalMissTicks: {},
+  approvalDecidedTicks: {},
   notices: [],
   todo: null,
   seq: 0,
@@ -191,6 +215,7 @@ export const initialAppState: AppState = {
   runSeedAt: null,
   runToolCount: 0,
   runRetryCount: 0,
+  runCountsPartial: false,
   retryContinuation: false,
   pendingFailReason: null,
   lastUserAt: null,
@@ -257,9 +282,10 @@ function streamingSlotOf(messages: readonly ViewMessage[], role: string): number
  *   观察时刻近似，不虚造）；
  * - 纯对话轮（工具 ∧ 重试计数双零）→ null（整行缺席——不设时长门）；
  * - 成功形 → 「── 用时 X · 工具 N 次 · 重试 M ──」（段缺席形：零计数段省略；
- *   重试段无「次」字——规范真源措辞）；中途附着形（未见 agent_start）计数
- *   段加注「（自本次附着起算）」——部分观察值不冒充整 run 口径（第九轮
- *   laneE2 件3）。
+ *   重试段无「次」字——规范真源措辞）；部分观察形（计数非整 run 口径）计数
+ *   段加注「（自本次接入起算）」——部分观察值不冒充整 run 口径（第九轮
+ *   laneE2 件3 首落；词面与判据随 2026-10-04 第十轮深扫定形注翻档——07 收尾
+ *   行中途附着加注形：用户面直白词「接入」+ 部分观察旗判据）。
  * 耗时优先服务端 durationMs 载荷（A-3 唯一真源），缺席回退客户端观察窗
  * （agent_start→agent_end 到达时刻差——近似值，发射/传播延迟诚实注记在
  * AppState.runStartedAt），皆无诚实缺席（行仍落）；成功形整行构造单源
@@ -280,19 +306,22 @@ function runCloseLine(
       : state.runStartedAt !== null
         ? now - state.runStartedAt
         : null;
-  // 中途附着形（runStartedAt === null——本 run 未见任何 agent_start）：工具/
-  // 重试计数是附着点起算的部分观察值，非整 run 口径——计数段逐段加注
-  // 「（自本次附着起算）」（诚实缺席律在计数段：不冒充全量口径）；耗时段
-  // 不加注（durationMs 载荷在场即服务端整 run 真值、缺席即诚实缺段——口径
-  // 分立）。段集构造仍单源 runRecapSegments，只对计数段追加披露后重组
-  //（段头段尾同 runRecapLine 拼形——见 contracts durations 头注）。
-  if (state.runStartedAt === null) {
+  // 部分观察形（第十轮定形注——旗形判据两形皆盖）：
+  // ① runStartedAt === null——本 run 未见任何 agent_start（中途接入）；
+  // ② runCountsPartial——中途接入窗内累加过计数后 retry 续入 agent_start 重开
+  //   观察窗（runStartedAt 已非 null）而 run 级账不清——计数仍是接入点起算的
+  //   部分观察值（仅看收尾时刻 runStartedAt 判据的破口，旗补盖）。两形计数
+  //   段逐段加注「（自本次接入起算）」（诚实披露律在计数段：不冒充全量口径）；
+  //   耗时段不加注（durationMs 载荷在场即服务端整 run 真值、缺席即诚实缺段
+  //   ——口径分立）。段集构造仍单源 runRecapSegments，只对计数段追加披露后
+  //   重组（段头段尾同 runRecapLine 拼形——见 contracts durations 头注）。
+  if (state.runStartedAt === null || state.runCountsPartial) {
     const annotated = runRecapSegments({
       durationMs,
       toolCount: state.runToolCount,
       retryCount: state.runRetryCount,
     }).map((segment) =>
-      segment.startsWith('工具 ') || segment.startsWith('重试 ') ? `${segment}（自本次附着起算）` : segment,
+      segment.startsWith('工具 ') || segment.startsWith('重试 ') ? `${segment}（自本次接入起算）` : segment,
     );
     return `── ${joinSegments(...annotated)} ──`;
   }
@@ -329,6 +358,7 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           runSeedAt: null,
           runToolCount: 0,
           runRetryCount: 0,
+          runCountsPartial: false, // run 账连清复位（与计数同生命周期——旗不留跨 run）
           retryContinuation: false,
           pendingFailReason: null, // 已揭示形直呈（终态信封不带持有档——防御清）
         };
@@ -433,6 +463,9 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           status: `${TOOL_RUN_MARK} ${toolFaceZh(payload.name)} …`,
           toolNames: { ...state.toolNames, [payload.toolCallId]: payload.name },
           runToolCount: state.runToolCount + 1,
+          // 部分观察旗：未见 agent_start 的窗内累加（中途接入）即置位——计数是
+          // 接入点起算的部分观察值（第十轮定形注；fresh agent_start 清位）
+          runCountsPartial: state.runCountsPartial || state.runStartedAt === null,
         };
       }
       if (payload.type === 'tool_execution_update') {
@@ -491,7 +524,13 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           typeof payload.attempt === 'number' && typeof payload.maxAttempts === 'number'
             ? ` 第 ${payload.attempt}/${payload.maxAttempts} 次`
             : '';
-        return { ...state, status: `重试中${attemptText} …`, runRetryCount: state.runRetryCount + 1 };
+        return {
+          ...state,
+          status: `重试中${attemptText} …`,
+          runRetryCount: state.runRetryCount + 1,
+          // 部分观察旗同 tool 计数位（未见 agent_start 窗内累加即置位——第十轮定形注）
+          runCountsPartial: state.runCountsPartial || state.runStartedAt === null,
+        };
       }
       if (payload.type === 'retry_wait_end') {
         if (env.kind !== 'display') return state;
@@ -515,6 +554,7 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           runSeedAt: null,
           runToolCount: 0,
           runRetryCount: 0,
+          runCountsPartial: false, // run 账收口连清（跨 run 残账防御——旗同律）
           retryContinuation: false,
         };
       }
@@ -526,6 +566,9 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           // 续跑——run 级账（工具/重试计数、种子）不清（整 run 口径）；观察窗
           // 重开（耗时段回退位只覆末次尝试——durationMs 载荷在场必用）；持有
           // 档撤销（resumed 已撤——防御位）；状态行不动（TUI 续入不清 statusLine）
+          //
+          // 续入不清 runCountsPartial（中途接入窗内累加的部分观察旗跨续入
+          // 存活：计数仍是接入点起算的部分值，收尾行加注判据靠它）
           return {
             ...state,
             runActive: true,
@@ -541,6 +584,7 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           runSeedAt: state.lastUserAt ?? now,
           runToolCount: 0,
           runRetryCount: 0,
+          runCountsPartial: false, // fresh run 清部分观察旗（完整观察整 run 口径）
           // E2：fresh run 清状态行（对齐 TUI resetUsage 末句清行腿——上一 run 的
           // ⏹/✗ 终态文案不跨 run 残留驻入新 run）
           status: null,
@@ -577,6 +621,7 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
           runSeedAt: null,
           runToolCount: 0,
           runRetryCount: 0,
+          runCountsPartial: false, // 部分观察旗随 run 账收口复位
           retryContinuation: false,
           pendingFailReason: null, // 持有档防御清（错帧序兜底——正常序已在分诊位消费）
           ...(closeText !== null
@@ -592,10 +637,11 @@ export function applyEnvelope(state: AppState, env: ClientEnvelope, now: number 
   }
 }
 
-/** asked 镜像入账（session 族 approval/asked 帧的折叠腿——dedupe by approvalId） */
+/** asked 镜像入账（session 族 approval/asked 帧的折叠腿——dedupe by approvalId）；同 id 已决遮罩随撤（服务端重发同 id 审批的合法形——保守清位） */
 export function applyAsked(state: AppState, entry: ClientApprovalEntry): AppState {
   if (state.approvals.some((a) => a.approvalId === entry.approvalId)) return state;
-  return { ...state, approvals: [...state.approvals, entry] };
+  const { [entry.approvalId]: _decided, ...decidedTicks } = state.approvalDecidedTicks;
+  return { ...state, approvals: [...state.approvals, entry], approvalDecidedTicks: decidedTicks };
 }
 
 /**
@@ -616,13 +662,18 @@ export function dismissNotice(state: AppState, id: number): AppState {
   return { ...state, notices: state.notices.filter((n) => n.id !== id) };
 }
 
-/** decide 应答后本地出清（applied 与 superseded 同出清——异口已答）；未见账随行出清（条目已撤——账不滞留） */
+/**
+ * decide 应答后本地出清（applied 与 superseded 同出清——异口已答）；未见账随行
+ * 出清（条目已撤——账不滞留）；同 id 入已决遮罩账（陈复拉清单复活竞窗——见
+ * AppState.approvalDecidedTicks 头注，遮罩拦「清单新增」径、不拦活动帧径）。
+ */
 export function appliedDecide(state: AppState, approvalId: string): AppState {
   const { [approvalId]: _tick, ...missTicks } = state.approvalMissTicks;
   return {
     ...state,
     approvals: state.approvals.filter((a) => a.approvalId !== approvalId),
     approvalMissTicks: missTicks,
+    approvalDecidedTicks: { ...state.approvalDecidedTicks, [approvalId]: 0 },
   };
 }
 
@@ -654,12 +705,22 @@ export function loadedApprovals(state: AppState, entries: readonly ClientApprova
     kept.push(local); // 首拍未见——保（陈响应窗护住 asked 刚建的活动审批）
     missTicks[local.approvalId] = ticks;
   }
-  // 清单新增（本地未见——他会话/外部口新建）直接进入
+  // 清单新增（本地未见——他会话/外部口新建）直接进入；已决遮罩内不进入
+  //（decide 前发出的陈清单响应复活竞窗——遮罩判据用当拍开始时的旧计数，
+  // 推进在拍尾：第 1/2 拍遮蔽、计数达 2 自撤）
   for (const e of entries) {
-    if (!state.approvals.some((a) => a.approvalId === e.approvalId)) kept.push(e);
+    if (state.approvals.some((a) => a.approvalId === e.approvalId)) continue;
+    if ((state.approvalDecidedTicks[e.approvalId] ?? 2) < 2) continue; // 遮罩内——不复活
+    kept.push(e);
+  }
+  // 已决遮罩拍推进：每拍 +1，连续 2 拍耗尽自撤（陈响应只陈一拍——两拍上限是
+  // 乱序多响应窗防御；有界论证见 AppState.approvalDecidedTicks 头注）
+  const decidedTicks: Record<string, number> = {};
+  for (const [id, ticks] of Object.entries(state.approvalDecidedTicks)) {
+    if (ticks + 1 < 2) decidedTicks[id] = ticks + 1;
   }
   // 浅拷贝脱离调用方引用（api 层每响应新建——防御位）
-  return { ...state, approvals: [...kept], approvalMissTicks: missTicks };
+  return { ...state, approvals: [...kept], approvalMissTicks: missTicks, approvalDecidedTicks: decidedTicks };
 }
 
 /**
@@ -863,6 +924,7 @@ export function setActiveSession(state: AppState, sessionId: string | null): App
     runSeedAt: null,
     runToolCount: 0,
     runRetryCount: 0,
+    runCountsPartial: false, // 部分观察旗随 run 账整段清（旧会话窗对新会话无意义）
     retryContinuation: false,
     pendingFailReason: null, // 持有档随切换出清（旧会话退避窗对新会话无意义）
     lastUserAt: null,
